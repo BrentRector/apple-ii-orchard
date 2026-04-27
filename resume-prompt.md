@@ -1,6 +1,6 @@
 # Resume Prompt — Microsoft SoftCard CP/M Investigation
 
-**Last updated:** 2026-04-27 (after Z-80 disassembler integrated into nibbler; 2.23 CONOUT confirmed as Videx-aware code with `LD HL,$C800`; partial BIOS extraction characterized; disassembler tools split into separate website entries)
+**Last updated:** 2026-04-27 (after Part 3 published; CONOUT trace into BIOS interior hit the extraction wall — about half the 2.23 BIOS is reachable in the partial extract; per-device handlers and BOOT are not)
 
 This file is the canonical session-recovery prompt for the Microsoft SoftCard CP/M reverse-engineering project. If this conversation crashes or context is lost, hand this file to a fresh assistant and it should be able to pick up exactly where we left off without losing any directives, conventions, or progress.
 
@@ -45,7 +45,7 @@ Joshua Norrid (of A2FPGA fame) reported that Microsoft SoftCard CP/M wasn't boot
 - **Z-80 BIOS extraction**: blocked previously by not understanding loader sector-to-Z-80-memory mapping. Now that we know the loader plants only the Z-80 reset vector and Z-80 code at `$0200-$03FF`, the rest of CP/M (CCP+BDOS+BIOS) must be loaded by Z-80 code from disk after the switch. So extracting the BIOS without booting requires either (a) simulating the Z-80 loader, or (b) statically reading the disk system tracks knowing the file format.
 - **Z-80 disassembler**: COMPLETE (2026-04-27). Added to nibbler as `nibbler/z80.py`, exposed via CLI as `nibbler z80disasm`. Covers all 256 unprefixed opcodes; CB/DD/ED/FD prefix bytes are stubs. Adequate for ~90% of typical BIOS code. Documented as a standalone tool entry on wiseowl.com at `/tools/z80-disassembler`.
 - **2.23 CONOUT targets the expansion-ROM window** (2026-04-27): `$FB4D` contains `LD HL,$C800` — that's the Apple ][ **shared expansion-ROM window**, NOT Videx-specific. Any slot card with an expansion ROM gets paged in there when its `$Cn00-$CnFF` slot ROM is touched. The Videx happens to use it for VRAM, but so do Pascal-1.1 cards generally and many ProDOS-era cards. So this proves the BIOS is *expansion-ROM-aware*, not Videx-aware. To prove Videx-specific would need preceding code that pages in the SoftCard-detected slot, or characteristic Videx writes (CRTC programming via `$C0B0/$C0B1`, `$CFFF` ROM-release toggle). Other parts of the path (the dispatch logic that decides "use this routine for code 6") still TBD. **Lesson learned: don't conflate "uses the expansion-ROM window" with "knows about the Videx specifically."**
-- **BIOS extraction is partial** (2026-04-27): Some routines (CONOUT, LIST, probably HOME/SELDSK/SETTRK) are at their nominal addresses in the file-offset extract and disassemble cleanly. Others (CONST/CONIN/BOOT/WBOOT) are NOT — the bytes at those addresses are a structured per-device dispatch table (4 entries × 16 bytes). The BIOS isn't laid out fully contiguous in the on-disk image; the missing routines are loaded from elsewhere by the loader's LOAD_CPM step. Two paths to complete extraction: (1) reverse-engineer LOAD_CPM to figure out the sector→Z-80-memory mapping, (2) use a Z-80 emulator to boot and dump memory.
+- **BIOS extraction is partial** (2026-04-27): Some routines (CONOUT, LIST, probably HOME/SELDSK/SETTRK) are at their nominal addresses in the file-offset extract and disassemble cleanly. Others (CONST/CONIN/BOOT/WBOOT) are NOT — the bytes at those addresses are a structured per-device dispatch table (4 entries × 16 bytes). The BIOS isn't laid out fully contiguous in the on-disk image; the missing routines are loaded from elsewhere by the loader's LOAD_CPM step. **Trace from CONOUT also hits this wall** (2026-04-27): CALL $FB45 chain reaches $FE81/$FEE4 which are zeros (not code) in the extract. About half the 2.23 BIOS is reachable; the per-device input/output handlers at $FF64-$FFDF, BOOT at $FED1, and the area below $FAB8 are not. Two paths to complete extraction: (1) reverse-engineer LOAD_CPM to figure out the sector→Z-80-memory mapping (slow; unblocks 2.20 too), (2) use a Z-80 emulator to boot and dump memory (fast for 2.23 only; needs new Z-80 emulator infrastructure).
 
 ### Big-picture remaining work toward the deliverable
 1. Finish 6502 boot loader annotation (small, mostly mechanical)
@@ -72,7 +72,8 @@ The site at `e:/Sites/wiseowl.com/` (Astro v6, Cloudflare Pages) hosts:
 - **Part 1 (published)**: `cpm-videx-01-why-cpm-didnt-recognize-an-80-column-card.mdx` — Pascal 1.0 vs 1.1 detection delta + crossed-streams framing
 - **Part 2 (published 2026-04-27)**: `cpm-videx-02-from-the-disk-ii-rom-to-the-z-80s-first-instruction.mdx` — Beginning-to-end narrative of the 6502 boot stage (per user's explicit request 2026-04-27). Honest about the SoftCard-switch open question.
 - **Part 3 (planned)**: Z-80 BIOS architecture and the SoftCard memory model
-- **Part 4 (planned)**: The Pascal 1.1 driver path (what 2.23's CONOUT actually does for a Videx)
+- **Part 3 (published 2026-04-27)**: `cpm-videx-03-apple-memory-through-z-80-eyes.mdx` — SoftCard memory model (bit-12 XOR), CCP/BDOS/BIOS layering, 2.23 BIOS jump table, per-device dispatch table at $FB0A, partial-extraction problem
+- **Part 4 (planned)**: The Pascal 1.1 driver path. **BLOCKED by partial BIOS extraction** — per-device handlers at $FF64-$FFDF aren't in the extract.
 - **Part 5 (planned)**: From `JP $FA00` to `A>` — the full CP/M boot trace
 - **Part 6+ (planned)**: Differences inventory (every diff between 2.20 and 2.23, not just the Videx-related)
 
@@ -86,6 +87,10 @@ Existing entries (chronological):
 4. `cpm-videx-loader-2026-04-26.mdx` — 11-byte Pascal 1.1 detection branch
 5. `cpm-videx-device-codes-2026-04-26.mdx` — partial: clues to what device codes mean
 6. `cpm-videx-boot-loader-2026-04-27.mdx` — Z-80 reset vector planting
+7. `cpm-videx-z80-disassembler-2026-04-27.mdx` — Z-80 disassembler online; CONOUT $C800 finding
+8. `cpm-videx-bios-partial-2026-04-27.mdx` — BIOS extraction partial; CONST/CONIN are dispatch table
+9. `cpm-videx-shared-address-spaces-2026-04-27.mdx` — $C800 lesson learned (corrected the Videx overreach)
+10. `cpm-videx-bios-trace-wall-2026-04-27.mdx` — CONOUT trace into BIOS hits the partial-extract wall
 
 Pending devlog entries (write when reaching milestones):
 - The "no SoftCard CPU-switch in the loader" finding — could be its own entry or rolled into a Z-80-handoff entry
@@ -175,9 +180,12 @@ Pending devlog entries (write when reaching milestones):
 
 In priority order:
 
-1. **Add a Z-80 disassembler to nibbler.** Plain Z-80 first (the 256 single-byte opcodes); CB/DD/ED/FD prefix tables can be added incrementally. The Z-80 ISA is well-documented (Zilog manual, Wikipedia opcode tables, plenty of Python/C reference implementations). This unblocks everything downstream — BIOS, install fragments, CCP/BDOS analysis.
-2. **Extract and annotate the install fragments at Apple `$0200-$03FF` (Z-80 `$1200-$13FF` after XOR).** These are the bytes the loader copies from `$1200-$13FF` of the loader image into low Apple memory; they become Z-80 code post-switch. They include the warm-boot routine at `$03C0` (the part the 6502 jumps into via JSR), the device-table init code at `$0344-$0397` (in 2.20 only — 2.23 zeroes this), and the dispatch table at `$0380-$0395`.
-3. **Hunt for the SoftCard CPU-switch trigger.** Likely candidates: (a) inside `$0E36` callee (deep 6502 disasm needed), (b) a side-effect access to the SoftCard's slot ROM area (slot 4 in the canonical setup — accessing `$C400-$C4FF` could trigger a hardware flip), (c) one of the Z-80 fragments at `$0200-$03FF` after the Z-80 takes over (write to `$C0Bx` from Z-80 side).
-4. **Decide BIOS-extraction strategy** once Z-80 disasm exists. Two options: (a) simulate the Z-80 loader (needs Z-80 emulator), (b) statically pull from the disk's system tracks knowing the SoftCard CP/M file format. Option (b) is faster if the format is documented or can be reverse-engineered from the loader.
-5. **Draft Part 3 article** when Z-80 disasm exists and we have at least the BIOS jump table interpreted.
-6. **Continue updating this resume-prompt.md after each significant step.**
+1. **Decision point: pick a path to complete BIOS extraction.** Both 2.20 and 2.23 BIOS analysis is currently blocked at the partial-extraction boundary. Options:
+   - **Path A — Reverse-engineer LOAD_CPM** at Apple `$0C00`. Tedious 6502 disassembly + careful sector→Z-80 mapping. No new tooling. Unlocks 2.20 BIOS too (since LOAD_CPM is the same routine in both versions). Probably 1-2 days of work.
+   - **Path B — Build a Z-80 emulator** (or integrate one — there are existing Python ones like `z80` on PyPI). Then boot CP/M and dump memory. Faster for getting 2.23 specifically; doesn't directly help with 2.20 if the loader behaves differently. Probably 2-3 days.
+   - **Path C — Hybrid**: do enough of LOAD_CPM to find the boundaries of the BIOS in the staged area (`$A300-$BFFF` in LC RAM), then extract from there directly. May be the fastest path if LOAD_CPM uses simple linear copies.
+   - User should pick A vs B vs C based on broader project goals.
+2. **Trace the SoftCard CPU-switch trigger.** The 6502 loader has no direct `$C0Bx` write. The switch is either inside the disk-load callee at `$0E36` or in the Z-80 fragments that run after the switch. If Path A is chosen, this falls out as part of LOAD_CPM analysis; if Path B, becomes obvious from the boot trace.
+3. **Once full BIOS available:** disassemble per-device handlers at `$FF64-$FFDF`, BOOT at `$FED1`, the area below `$FAB8`. Diff 2.20 vs 2.23 routine-by-routine. This is the data needed for Part 4 (Pascal 1.1 driver path) and Part 6 (full diff inventory).
+4. **Draft Part 4 article** when the per-device handlers are understood.
+5. **Continue updating this resume-prompt.md after each significant step.**
