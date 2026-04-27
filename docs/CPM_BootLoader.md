@@ -241,11 +241,17 @@ the Z-80, the Z-80 fetches its first instruction at its `$0000`, sees
 
 This is the SoftCard handoff bridge: the 6502 finishes its work,
 plants the Z-80 reset vector with the address of the CP/M BIOS, and
-only then flips the SoftCard switch. CP/M 2.20 plants a different
-address here (its BIOS is at `$DACC`, so the cold-boot entry is
-somewhere in the `$DA00` region). Verifying the 2.20 byte values in
-the equivalent code is open work and would confirm the
-BIOS-relocation theory directly from the 6502 side.
+only then flips the SoftCard switch.
+
+**CP/M 2.20 verified**: at the equivalent address (`$10F2-$10FE` in
+2.20's loader image), 2.20 plants `$C3 $00 $DA` = Z-80 `JP $DA00` —
+exactly consistent with its BIOS load address at `$DACC`. The
+structural pattern (load-immediate-then-store, three pairs) is
+byte-identical between versions; only the high byte of the JP target
+differs (`$FA` in 2.23, `$DA` in 2.20). This independently confirms
+the BIOS load address findings from jump-table scanning earlier in
+the investigation — the same `$2000` shift, surfaced from the 6502
+side this time.
 
 ### Phase 7 — SoftCard handoff (continues into installed code at $03C0+)
 
