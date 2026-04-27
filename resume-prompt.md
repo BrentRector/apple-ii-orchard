@@ -1,6 +1,6 @@
 # Resume Prompt — Microsoft SoftCard CP/M Investigation
 
-**Last updated:** 2026-04-27
+**Last updated:** 2026-04-27 (after Part 2 article published; disk I/O block surveyed; SoftCard switch confirmed not in 6502 loader)
 
 This file is the canonical session-recovery prompt for the Microsoft SoftCard CP/M reverse-engineering project. If this conversation crashes or context is lost, hand this file to a fresh assistant and it should be able to pick up exactly where we left off without losing any directives, conventions, or progress.
 
@@ -38,9 +38,9 @@ Joshua Norrid (of A2FPGA fame) reported that Microsoft SoftCard CP/M wasn't boot
 - **Apple Disk II controller** detected by the loader's signature table: `($Cn05=$03, $Cn07=$3C)` matches the actual P6 PROM bytes at `$C605/$C607`. Verified.
 
 ### What's open / next
-- **The actual SoftCard CPU-switch instruction**: the precise `STA $C0Bx` (or similar) write that flips control from 6502 to Z-80. Suspected to live in the warm-boot routine at Apple `$03C0` (loaded from `$13C0` in the loader image), specifically in the `JSR $0E36` callee. Not yet identified.
-- **6502 disk I/O block** at `$0A00-$0FFF`: standard RWTS-style read/write/seek routines. Not yet annotated.
-- **6502 subroutines + strings** at `$1100-$11AF`: small section, easily addressable.
+- **The actual SoftCard CPU-switch instruction**: confirmed (2026-04-27) the loader has NO writes to `$C0Bx`. So the switch is NOT a direct STA in the 6502 loader. Must be either: (a) inside the disk-load callee at `$0E36` (which the warm-boot routine calls as part of staging more CP/M from disk), (b) triggered by a side-effect of accessing the SoftCard slot's expansion ROM ($C400 or wherever the SoftCard sits), or (c) in the Z-80 fragments that run after the switch. Identifying which requires either deeper 6502 disasm of `$0E36`-area or Z-80 disasm of the install fragments. Likely a side-effect mechanism rather than an explicit STA.
+- **6502 disk I/O block** at `$0A00-$0FFF`: surveyed (2026-04-27). Major routines identified: WRITE_SECTOR ($0A00), WRITE_BYTE ($0A8F), READ_SECTOR ($0A99), SEEK_TRACK ($0B5F), LOAD_CPM ($0C00). Standard Apple Disk II RWTS pattern, not annotated per-instruction.
+- **6502 subroutines + strings** at `$1100-$11AF`: complete (2026-04-27). PREP_HANDOFF orchestrator, CKSUM_SLOT, PAGE_COPY, "MUST BOOT FROM SLOT SIX" string, Apple monitor reset-vector replacement bytes.
 - **The `$1200-$13FF` install images**: copied to Apple `$0200-$03FF`, which is Z-80 `$1200-$13FF` after SoftCard XOR. Mostly Z-80 code that runs after the switch. Will need a Z-80 disassembler.
 - **Z-80 BIOS extraction**: blocked previously by not understanding loader sector-to-Z-80-memory mapping. Now that we know the loader plants only the Z-80 reset vector and Z-80 code at `$0200-$03FF`, the rest of CP/M (CCP+BDOS+BIOS) must be loaded by Z-80 code from disk after the switch. So extracting the BIOS without booting requires either (a) simulating the Z-80 loader, or (b) statically reading the disk system tracks knowing the file format.
 - **Z-80 disassembler**: nibbler is 6502-only. Need to add Z-80 support OR use external `z80dasm`. Recommended: add a minimal Z-80 disassembler to nibbler so the toolchain stays consistent.
@@ -69,7 +69,7 @@ The site at `e:/Sites/wiseowl.com/` (Astro v6, Cloudflare Pages) hosts:
 
 ### Articles (`src/content/articles/cpm-videx-NN-*.mdx`)
 - **Part 1 (published)**: `cpm-videx-01-why-cpm-didnt-recognize-an-80-column-card.mdx` — Pascal 1.0 vs 1.1 detection delta + crossed-streams framing
-- **Part 2 (planned)**: **A beginning-to-end NARRATIVE of the 6502 boot stage** — explicitly the user's request (2026-04-27). Walks the reader from the moment the Apple Disk II PROM loads sector 0, through the boot stub's CP/M-skewed sector reads, the stage-2 language card switch, the Apple monitor calls, the install loops, the slot scanner (with the Pascal 1.0 vs 1.1 detection), the Z-80 reset vector planting, and finally the SoftCard CPU switch. Reads as a story, not a reference. Material in `docs/CPM_BootLoader.md` and `docs/CPM223_BootLoader.asm` is the technical backbone. Draft when the SoftCard switch instruction is identified and the disk I/O block is at least surveyed.
+- **Part 2 (published 2026-04-27)**: `cpm-videx-02-from-the-disk-ii-rom-to-the-z-80s-first-instruction.mdx` — Beginning-to-end narrative of the 6502 boot stage (per user's explicit request 2026-04-27). Honest about the SoftCard-switch open question.
 - **Part 3 (planned)**: Z-80 BIOS architecture and the SoftCard memory model
 - **Part 4 (planned)**: The Pascal 1.1 driver path (what 2.23's CONOUT actually does for a Videx)
 - **Part 5 (planned)**: From `JP $FA00` to `A>` — the full CP/M boot trace
@@ -85,6 +85,11 @@ Existing entries (chronological):
 4. `cpm-videx-loader-2026-04-26.mdx` — 11-byte Pascal 1.1 detection branch
 5. `cpm-videx-device-codes-2026-04-26.mdx` — partial: clues to what device codes mean
 6. `cpm-videx-boot-loader-2026-04-27.mdx` — Z-80 reset vector planting
+
+Pending devlog entries (write when reaching milestones):
+- The "no SoftCard CPU-switch in the loader" finding (2026-04-27) — could be its own entry or rolled into a Z-80-handoff entry
+- Z-80 disassembler addition to nibbler (when done)
+- Z-80 install-fragment analysis (when done)
 
 **Frontmatter constraints (will fail build if violated):**
 - `tldr` ≤ 200 characters
@@ -169,12 +174,9 @@ Existing entries (chronological):
 
 In priority order:
 
-1. **Find the SoftCard CPU-switch instruction.** Trace `JSR $0E36` from the warm-boot routine at `$03C0` (Apple `$13CC`, in the loader image at `cpm-investigation/loader_223.bin`). The actual `STA $C0Bx` write that flips the CPU is the missing piece for a complete narrative of the 6502→Z-80 transition.
-2. **Annotate `$1100-$11AF`** — small section, mostly subroutines like the slot-ROM checksum and the strings array. Update `docs/CPM223_BootLoader.asm`.
-3. **Annotate `$0A00-$0FFF` disk I/O block.** Standard RWTS-style routines but worth documenting since they're called to load the rest of CP/M from disk.
-4. **Update the project entry** at `src/content/projects/cpm-videx.mdx` with the multi-part article roadmap.
-5. **Add a Z-80 disassembler to nibbler.** Plain Z-80 (no Z80 prefixes initially is OK; prefixes are well-known and can be added incrementally). This unblocks the Z-80 BIOS analysis.
-6. **Once Z-80 disasm exists**: extract and annotate the install fragments at Apple `$0200-$03FF` (Z-80 `$1200-$13FF` after XOR).
-7. **Decide BIOS-extraction strategy**: simulate the Z-80 loader, or statically pull from the disk's system tracks knowing the file format.
-8. **Draft Part 2 article** when the 6502 disassembly is complete enough.
-9. **Continue updating this resume-prompt.md after each significant step.**
+1. **Add a Z-80 disassembler to nibbler.** Plain Z-80 first (the 256 single-byte opcodes); CB/DD/ED/FD prefix tables can be added incrementally. The Z-80 ISA is well-documented (Zilog manual, Wikipedia opcode tables, plenty of Python/C reference implementations). This unblocks everything downstream — BIOS, install fragments, CCP/BDOS analysis.
+2. **Extract and annotate the install fragments at Apple `$0200-$03FF` (Z-80 `$1200-$13FF` after XOR).** These are the bytes the loader copies from `$1200-$13FF` of the loader image into low Apple memory; they become Z-80 code post-switch. They include the warm-boot routine at `$03C0` (the part the 6502 jumps into via JSR), the device-table init code at `$0344-$0397` (in 2.20 only — 2.23 zeroes this), and the dispatch table at `$0380-$0395`.
+3. **Hunt for the SoftCard CPU-switch trigger.** Likely candidates: (a) inside `$0E36` callee (deep 6502 disasm needed), (b) a side-effect access to the SoftCard's slot ROM area (slot 4 in the canonical setup — accessing `$C400-$C4FF` could trigger a hardware flip), (c) one of the Z-80 fragments at `$0200-$03FF` after the Z-80 takes over (write to `$C0Bx` from Z-80 side).
+4. **Decide BIOS-extraction strategy** once Z-80 disasm exists. Two options: (a) simulate the Z-80 loader (needs Z-80 emulator), (b) statically pull from the disk's system tracks knowing the SoftCard CP/M file format. Option (b) is faster if the format is documented or can be reverse-engineered from the loader.
+5. **Draft Part 3 article** when Z-80 disasm exists and we have at least the BIOS jump table interpreted.
+6. **Continue updating this resume-prompt.md after each significant step.**
