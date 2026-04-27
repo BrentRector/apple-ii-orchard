@@ -401,6 +401,28 @@ def cmd_disasm(args):
             print(line)
 
 
+def cmd_z80disasm(args):
+    """Disassemble a binary file as Z-80 code (linear).
+
+    Useful for analyzing Microsoft SoftCard CP/M BIOS code, CCP/BDOS
+    images, or any other Z-80 binary. Currently only the unprefixed
+    256 opcodes are decoded; CB/DD/ED/FD prefix bytes appear as
+    'DB $xx' raw-byte markers.
+    """
+    from .z80 import disassemble_region
+
+    with open(args.binary, 'rb') as f:
+        data = f.read()
+
+    base = parse_addr(args.base) if args.base else 0x0000
+    start = parse_addr(args.start) if args.start else base
+    end = parse_addr(args.end) if args.end else base + len(data)
+
+    lines = disassemble_region(data, base, start, end)
+    for line in lines:
+        print(line)
+
+
 def main():
     """Parse command-line arguments and dispatch to the appropriate handler.
 
@@ -466,8 +488,8 @@ def main():
     p_flux.add_argument('--dpi', type=int, help='Resolution in DPI (default 600)')
     p_flux.add_argument('--tracks', type=int, help='Number of track positions to show (default 35)')
 
-    # disasm
-    p_disasm = subparsers.add_parser('disasm', help='Disassemble binary')
+    # disasm (6502)
+    p_disasm = subparsers.add_parser('disasm', help='Disassemble 6502 binary')
     p_disasm.add_argument('binary', help='Binary file to disassemble')
     p_disasm.add_argument('--base', help='Base address (hex, default 0x0000)')
     p_disasm.add_argument('--start', help='Start address (hex)')
@@ -475,6 +497,13 @@ def main():
     p_disasm.add_argument('--entry', help='Entry point for recursive descent (hex)')
     p_disasm.add_argument('-r', '--recursive', action='store_true',
                           help='Use recursive descent (vs linear)')
+
+    # z80disasm
+    p_z80 = subparsers.add_parser('z80disasm', help='Disassemble Z-80 binary (linear)')
+    p_z80.add_argument('binary', help='Binary file to disassemble')
+    p_z80.add_argument('--base', help='Base address (hex, default 0x0000)')
+    p_z80.add_argument('--start', help='Start address (hex)')
+    p_z80.add_argument('--end', help='End address (hex)')
 
     args = parser.parse_args()
 
@@ -493,6 +522,7 @@ def main():
         'dsk': cmd_dsk,
         'flux': cmd_flux,
         'disasm': cmd_disasm,
+        'z80disasm': cmd_z80disasm,
     }
 
     commands[args.command](args)
