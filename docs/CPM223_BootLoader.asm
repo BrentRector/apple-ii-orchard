@@ -435,9 +435,182 @@ $1104:      LDA #$FA            ;
 $1106:      STA $1002           ; Apple $1002 = high byte of JP target
                                 ; → Z-80 reads "JP $FA00" at its reset
 
-$1109:      LDA #$0A            ; (continues with more setup before the
-                                ; eventual JSR warm_boot at $03C0)
-; ...
+; ----------------------------------------------------------------------------
+; Copy disk I/O routines into the language card RAM area, then load
+; replacement code over the original disk I/O area, then jump into the
+; warm-boot routine (which is now installed at $03C0).
+; ----------------------------------------------------------------------------
+PREP_HANDOFF:
+$1109:      LDA #$0A            ; source high byte: $0A00 (the disk I/O block)
+$110B:      STA $53             ;   ($52/$53 = source pointer)
+$110D:      LDA #$BA            ; dest high byte: $BA00 (in language card RAM)
+$110F:      STA $51             ;   ($50/$51 = dest pointer)
+$1111:      LDA #$00            ;
+$1113:      STA $52             ; source low = 0
+$1115:      STA $50             ; dest low = 0
+$1117:      LDX #$06            ; copy 6 pages = $600 bytes
+$1119:      JSR PAGE_COPY       ; copy $0A00..$0FFF → $BA00..$BFFF
+                                ; (preserves the disk I/O routines in LC RAM
+                                ; so they remain reachable after the original
+                                ; $0A00 block gets overwritten below)
+
+$111C:      LDA #$80
+$111E:      JSR $BBEB           ; call into LC RAM (was loaded at $9700 earlier
+                                ; or staged elsewhere — purpose: TBD, possibly
+                                ; an init or sector seek)
+$1121:      LDA #$0A
+$1123:      STA $BC08           ; configure something at $BC08 (LC RAM byte)
+
+; Second copy: replace the disk I/O block with content from $9700-$9CFF
+$1126:      LDA #$97
+$1128:      STA $53             ; source high = $97 ($9700)
+$112A:      LDA #$0A
+$112C:      STA $51             ; dest high = $0A ($0A00)
+$112E:      LDX #$06
+$1130:      JSR PAGE_COPY       ; copy $9700..$9CFF → $0A00..$0FFF
+                                ; (replaces the original boot-stub-loaded disk
+                                ; routines with a different version, possibly
+                                ; CP/M-aware variants or ones with new entry
+                                ; points the Z-80 will call into)
+
+; Third copy: another smaller block
+$1133:      LDA #$80
+$1135:      STA $53             ; source high = $80
+$1137:      LDA #$A3
+$1139:      STA $51             ; dest high = $A3
+$113B:      LDX #$17            ; X = $17 = 23 pages = $1700 bytes
+$113D:      JSR PAGE_COPY       ; copy $8000..$96FF → $A300..$B9FF
+                                ; This stages a substantial chunk into the LC
+                                ; RAM area below where the disk routines were
+                                ; preserved. Likely the CP/M system image
+                                ; (CCP+BDOS+BIOS) being moved into position
+                                ; for the Z-80 to find at fixed addresses.
+
+; Patch Apple monitor reset vector at $FFF9 with custom values
+$1140:      LDY #$06
+$1142:      LDA $116C,Y         ; load 6 bytes from data block at $116C
+$1145:      STA $FFF9,Y         ; store to $FFF9..$FFFF (Apple monitor reset
+                                ; vectors area: $FFFA/$FFFB = NMI vector,
+                                ; $FFFC/$FFFD = RESET vector,
+                                ; $FFFE/$FFFF = IRQ/BRK vector)
+$1148:      DEY
+$1149:      BNE $1142
+$114B:      JMP $03D2           ; jump into the installed warm-boot routine
+                                ; at offset $D2 — past the JSR $0E36 (which
+                                ; this code path handled directly) — landing
+                                ; at: STA $C081 / SEI / JSR $FF4A / JMP $03C0
+                                ; (which loops back to warm-boot start)
+
+
+; ============================================================================
+; SECTION 9 — Subroutines ($114E-$116C)
+; ============================================================================
+
+; ----------------------------------------------------------------------------
+; CKSUM_SLOT — accumulate all 256 bytes of the slot ROM page
+;
+; Sums all bytes at ($3C),Y for Y = 0..$FF, returning checksum in (A,X).
+; X is incremented each time the addition wraps (carries past 8 bits).
+; Used by the slot scanner to verify that the slot ROM is stable across
+; consecutive reads (real ROMs return the same bytes; absent slots return
+; floating-bus garbage that varies between reads).
+; ----------------------------------------------------------------------------
+CKSUM_SLOT:
+$114E:      LDA #$00
+$1150:      TAX                 ; X = 0 (carry counter)
+$1151:      TAY                 ; Y = 0 (offset counter)
+$1152:      CLC
+.loop:
+$1153:      ADC ($3C),Y         ; A += slot ROM byte
+$1155:      BCC .nocarry
+$1157:      INX                 ; bump carry counter on overflow
+.nocarry:
+$1158:      INY
+$1159:      BNE .loop           ; loop 256 times (Y = $00..$FF then wrap)
+$115B:      RTS
+
+; ----------------------------------------------------------------------------
+; PAGE_COPY — copy X pages from ($52/$53) to ($50/$51)
+;
+; Used by the install/staging code to move blocks of 256 * X bytes from
+; one Apple memory region to another. Increments source/dest high bytes
+; after each page; X is the page count.
+;
+; Inputs:
+;   X    = number of pages to copy
+;   $50/51 = destination pointer
+;   $52/53 = source pointer
+; ----------------------------------------------------------------------------
+PAGE_COPY:
+$115C:      LDY #$00
+.byte_loop:
+$115E:      LDA ($52),Y
+$1160:      STA ($50),Y
+$1162:      DEY
+$1163:      BNE .byte_loop      ; loop $FF, $FE, ..., $01, then exit (Y = 0
+                                ; was the first iteration; DEY wraps to $FF)
+                                ; Note: this misses Y=0! Probably intentional —
+                                ; the CALLER initializes the pointers' low
+                                ; bytes to handle Y=0 separately, or accepts
+                                ; that one byte is uncopied per page.
+                                ; (Actually: re-examining, this loop runs
+                                ; for Y=$00, then DEY makes Y=$FF, then BNE
+                                ; takes ($FF != 0). So Y=$00 IS the first
+                                ; iteration. Loop body runs Y=$00, $FF, $FE,
+                                ; ..., $01. Total 256 bytes copied per page.)
+$1165:      INC $53             ; advance source page
+$1167:      INC $51             ; advance dest page
+$1169:      DEX                 ; decrement page count
+$116A:      BNE PAGE_COPY       ; another page?
+$116C:      RTS
+
+
+; ============================================================================
+; SECTION 10 — Data tables and strings ($116D-$11AF)
+; ============================================================================
+
+; ----------------------------------------------------------------------------
+; Apple monitor reset-vector replacement bytes
+; Loaded into $FFFA-$FFFF by the patch loop at $1140-$1149.
+; Y goes 6,5,4,3,2,1 — so byte at $116C+1=$116D goes to $FFFA;
+; byte at $116C+6=$1172 goes to $FFFF. The 6 bytes installed are:
+;   $FFFA/B = NMI vector
+;   $FFFC/D = RESET vector
+;   $FFFE/F = IRQ/BRK vector
+; (Byte at $116C is the RTS of the PAGE_COPY routine just above; not used
+; here because Y starts at 6 and counts down, and BNE exits at Y=0 —
+; but the code uses STA $FFF9,Y which means $FFF9+6 = $FFFF. So the
+; SOURCE bytes are $116C+0..$116C+6, and they map to $FFF9..$FFFF.
+; The Y=0 case is excluded by BNE so $116C+0 = $60 = RTS is not loaded.)
+; ----------------------------------------------------------------------------
+$116C:      .BYTE $60                                ; (RTS of PAGE_COPY)
+RESET_VECS:
+$116D:      .BYTE $C0,$03,$C0,$03,$8D,$8D,$8D        ; → $FFFA-$FFFF
+                                                     ; (interpreted as 3 vectors:
+                                                     ;  NMI=$03C0, RST=$03C0,
+                                                     ;  IRQ=$8D8D — note IRQ vector
+                                                     ;  high byte is suspicious;
+                                                     ;  $8D8D is in normal RAM)
+
+; ----------------------------------------------------------------------------
+; High-ASCII strings (boot info / error messages)
+; Used by the error-print loop at $10DF-$10EB and the boot-fail loop at
+; $1029-$1035. Both are terminated by null ($00) bytes.
+; ----------------------------------------------------------------------------
+STRING_BLOCK:
+$1173:      .BYTE $8D,$8D,$8D,$8D,$00                ; CR CR CR CR null
+$1178:      .BYTE $8D,$8D,$8D,$8D,$8D,$CD,$D5,$D3    ; "...MUS"
+$1180:      .BYTE $D4,$A0,$C2,$CF,$CF,$D4,$A0,$C6    ; "T BOOT F"
+$1188:      .BYTE $D2,$CF,$CD,$A0,$D3,$CC,$CF,$D4    ; "ROM SLOT"
+$1190:      .BYTE $A0,$D3,$C9,$D8,$8D,$8D,$8D,$8D    ; " SIX" + CRs
+                                                     ; → "MUST BOOT FROM SLOT SIX"
+
+$1198:      .BYTE $00,$AF,$32,$3E,$F0,$6F,$3A,$3D    ; (probably part of next
+$11A0:      .BYTE $F0,$C6,$20,$67,$77,$18            ; data block — TBD)
+
+; ----------------------------------------------------------------------------
+; Slot scanner signature data table (Section 7 above) — $11BE-$11C5
+; ----------------------------------------------------------------------------
 
 
 ; ============================================================================
