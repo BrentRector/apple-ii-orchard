@@ -1,6 +1,6 @@
 # Resume Prompt — Microsoft SoftCard CP/M Investigation
 
-**Last updated:** 2026-04-27 (after Part 2 article published; disk I/O block surveyed; SoftCard switch confirmed not in 6502 loader)
+**Last updated:** 2026-04-27 (after Z-80 disassembler integrated into nibbler; 2.23 CONOUT confirmed as Videx-aware code with `LD HL,$C800`; partial BIOS extraction characterized; disassembler tools split into separate website entries)
 
 This file is the canonical session-recovery prompt for the Microsoft SoftCard CP/M reverse-engineering project. If this conversation crashes or context is lost, hand this file to a fresh assistant and it should be able to pick up exactly where we left off without losing any directives, conventions, or progress.
 
@@ -43,8 +43,9 @@ Joshua Norrid (of A2FPGA fame) reported that Microsoft SoftCard CP/M wasn't boot
 - **6502 subroutines + strings** at `$1100-$11AF`: complete (2026-04-27). PREP_HANDOFF orchestrator, CKSUM_SLOT, PAGE_COPY, "MUST BOOT FROM SLOT SIX" string, Apple monitor reset-vector replacement bytes.
 - **The `$1200-$13FF` install images**: copied to Apple `$0200-$03FF`, which is Z-80 `$1200-$13FF` after SoftCard XOR. Mostly Z-80 code that runs after the switch. Will need a Z-80 disassembler.
 - **Z-80 BIOS extraction**: blocked previously by not understanding loader sector-to-Z-80-memory mapping. Now that we know the loader plants only the Z-80 reset vector and Z-80 code at `$0200-$03FF`, the rest of CP/M (CCP+BDOS+BIOS) must be loaded by Z-80 code from disk after the switch. So extracting the BIOS without booting requires either (a) simulating the Z-80 loader, or (b) statically reading the disk system tracks knowing the file format.
-- **Z-80 disassembler**: nibbler is 6502-only. Need to add Z-80 support OR use external `z80dasm`. Recommended: add a minimal Z-80 disassembler to nibbler so the toolchain stays consistent.
-- **Downstream consumer of device code 6**: how the Pascal 1.1 path actually drives the Videx (6845 CRTC programming at `$C0B0/$C0B1`, VRAM window writes `$CC00-$CDFF`, `$CFFF` ROM-release switch). Lives in the Z-80 BIOS's `CONOUT`/`BOOT` routines. Pending Z-80 disassembly.
+- **Z-80 disassembler**: COMPLETE (2026-04-27). Added to nibbler as `nibbler/z80.py`, exposed via CLI as `nibbler z80disasm`. Covers all 256 unprefixed opcodes; CB/DD/ED/FD prefix bytes are stubs. Adequate for ~90% of typical BIOS code. Documented as a standalone tool entry on wiseowl.com at `/tools/z80-disassembler`.
+- **2.23 CONOUT confirmed Videx-aware** (2026-04-27): `$FB4D` contains `LD HL,$C800` — the Videx expansion ROM / VRAM window address. Direct evidence the 2.23 BIOS knows about the Videx address space. Other parts of the path (the dispatch logic that decides "use this routine for code 6") still TBD.
+- **BIOS extraction is partial** (2026-04-27): Some routines (CONOUT, LIST, probably HOME/SELDSK/SETTRK) are at their nominal addresses in the file-offset extract and disassemble cleanly. Others (CONST/CONIN/BOOT/WBOOT) are NOT — the bytes at those addresses are a structured per-device dispatch table (4 entries × 16 bytes). The BIOS isn't laid out fully contiguous in the on-disk image; the missing routines are loaded from elsewhere by the loader's LOAD_CPM step. Two paths to complete extraction: (1) reverse-engineer LOAD_CPM to figure out the sector→Z-80-memory mapping, (2) use a Z-80 emulator to boot and dump memory.
 
 ### Big-picture remaining work toward the deliverable
 1. Finish 6502 boot loader annotation (small, mostly mechanical)
@@ -87,9 +88,9 @@ Existing entries (chronological):
 6. `cpm-videx-boot-loader-2026-04-27.mdx` — Z-80 reset vector planting
 
 Pending devlog entries (write when reaching milestones):
-- The "no SoftCard CPU-switch in the loader" finding (2026-04-27) — could be its own entry or rolled into a Z-80-handoff entry
-- Z-80 disassembler addition to nibbler (when done)
-- Z-80 install-fragment analysis (when done)
+- The "no SoftCard CPU-switch in the loader" finding — could be its own entry or rolled into a Z-80-handoff entry
+- LOAD_CPM reverse-engineering (when done; will unlock 2.20 BIOS extraction)
+- The dispatch table at `$FB0A`+ structure (4 entries × 16 bytes) — could be folded into the BIOS-completion devlog
 
 **Frontmatter constraints (will fail build if violated):**
 - `tldr` ≤ 200 characters
