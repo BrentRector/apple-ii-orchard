@@ -1,6 +1,6 @@
 # Resume Prompt — Microsoft SoftCard CP/M Investigation
 
-**Last updated:** 2026-04-28 (16 devlogs published; cold-boot generator at $FB70 documented; runtime-code marker pattern (FF FF 00 00 / F7 F7 00 00) identified across multiple BIOS regions including INSIDE the populated 1 KB; populated BIOS has GENERATED-CODE SLOTS interleaved with static code)
+**Last updated:** 2026-04-28 (17 devlogs published; 2.20 vs 2.23 cold-boot diff complete with byte-level evidence — same prologue then 2.20 has INLINE init while 2.23 has RUNTIME CODE GENERATION in the same place; BIOS factory model now demonstrated, not just hypothesized; 2.20 BDOS at $CC06 vs 2.23 at $9C06 — 12 KB shift)
 
 This file is the canonical session-recovery prompt for the Microsoft SoftCard CP/M reverse-engineering project. **If this conversation crashes or context is lost, hand this file to a fresh assistant and it should be able to pick up exactly where we left off without losing any directives, conventions, or progress.**
 
@@ -138,6 +138,7 @@ The site at `e:/Sites/wiseowl.com/` is Astro v6, deployed to Cloudflare Pages.
 14. `cpm-videx-bios-state-storage-2026-04-27.mdx` — Z-80 callbacks write to BIOS second half
 15. `cpm-videx-cold-boot-found-2026-04-27.mdx` — cold-boot generator located at $FB70 (mislabeled as LIST); reset vector rewrite, BDOS vector planting, CCP/BDOS final-address relocation revealed
 16. `cpm-videx-marker-pattern-2026-04-27.mdx` — runtime-code marker pattern (FF FF 00 00 / F7 F7 00 00) identified; populated BIOS has interleaved generated-code slots within it, not just at bookends
+17. `cpm-videx-220-vs-223-coldboot-2026-04-28.mdx` — 2.20 vs 2.23 cold-boot diff: same prologue, then 2.20 has inline init (CALL $DD8E etc.) where 2.23 has runtime-marker bytes; BIOS factory model demonstrated
 
 Articles with Update notes: Article 4 has a forward-pointer Update at the end pointing to the cold-boot finding devlog.
 
