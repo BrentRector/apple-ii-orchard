@@ -1,8 +1,8 @@
 # Resume Prompt — Microsoft SoftCard CP/M Investigation
 
-**Last updated:** 2026-04-27 (BIOS first 1 KB exact byte match against staged sectors; second 1 KB confirmed all-zero on disk → runtime-generated; 2.20 reconstruction done with PRODOS_INTERLEAVE; structural difference between 2.20 and 2.23 BIOS layout in staging)
+**Last updated:** 2026-04-27 (after Part 4 article published; 14 devlogs total; LOAD_CPM and BIOS-factory model fully captured; both versions reconstructed; cold-boot generator analysis is the next concrete piece)
 
-This file is the canonical session-recovery prompt for the Microsoft SoftCard CP/M reverse-engineering project. If this conversation crashes or context is lost, hand this file to a fresh assistant and it should be able to pick up exactly where we left off without losing any directives, conventions, or progress.
+This file is the canonical session-recovery prompt for the Microsoft SoftCard CP/M reverse-engineering project. **If this conversation crashes or context is lost, hand this file to a fresh assistant and it should be able to pick up exactly where we left off without losing any directives, conventions, or progress.**
 
 ---
 
@@ -16,187 +16,269 @@ Reverse-engineer Microsoft's Apple ][ Z-80 SoftCard CP/M completely — both **2
 
 The project is hosted on:
 - **Code/disasm repo:** [Orchard](https://github.com/BrentRector/orchard) at `e:/Orchard/` — investigation scripts, intermediate artifacts, annotated disassembly files, source disk images
-- **Website:** [wiseowl.com](https://wiseowl.com) at `e:/Sites/wiseowl.com/` — public-facing project entry, articles, devlogs, references
+- **Personal site (publishing):** [wiseowl.com](https://wiseowl.com) at `e:/Sites/wiseowl.com/` — public-facing project entry, articles, devlogs, references. NOT the same as wiseowlsoftware.com (the separate Demeanor product site).
 
 ---
 
-## Origin story (so the narrative voice can pick up)
+## Origin Story
 
-Joshua Norrid (of A2FPGA fame) reported that Microsoft SoftCard CP/M wasn't booting with the A2FPGA Videx Videoterm emulation. He confirmed the same failure on real Videx hardware. Brent (the user/author) doesn't yet have a physical Microsoft Z-80 SoftCard ("supposedly in the mail") so all analysis is static disassembly; Joshua's hardware confirms predictions. Version testing isolated the boundary: 2.20 and 2.20B fail; 2.23 works.
+Joshua Norrid (of A2FPGA fame) reported that Microsoft SoftCard CP/M wasn't booting with the A2FPGA Videx Videoterm emulation. He confirmed the same failure on real Videx hardware — so the emulation is faithful, the OS is what's broken. Brent (the user/author) doesn't yet have a physical Microsoft Z-80 SoftCard ("supposedly in the mail") so all analysis is static disassembly; Joshua's hardware confirms predictions when needed.
 
----
-
-## Current status (as of 2026-04-27)
-
-### What's confirmed and documented
-- **Detection delta** (Pascal 1.0 vs 1.1): 2.23 added 11 bytes of 6502 code in the boot loader's slot scanner that read `$Cn0B` (Pascal 1.1 signature byte) and tag any Pascal-1.1 card with internal device code `$06` instead of the generic Pascal-1.0 device code `$04`. Not Videx-specific, just Pascal-1.1-aware. Documented exhaustively in `docs/CPM_Videx_Difference.md`.
-- **Pascal 1.0 vs 1.1 calling-convention precision**: Pascal 1.0 entry points ARE the ID bytes (`$38`=`SEC`, `$18`=`CLC`, dual-purpose). Pascal 1.1 uses a 4-byte vector table at `$Cn0D-$Cn10` (INIT/READ/WRITE/STATUS). Pascal 1.1 cards declare both ID sets but only implement the 1.1 calling convention. CP/M 2.20 sees a Videx, classifies as Pascal 1.0, calls a 1.0 entry point that requires Pascal-1.1-style state, hangs. Documented in the article and in `memory/reference_apple_pascal_firmware_protocol.md`.
-- **Z-80 BIOS load addresses**: 2.23 BIOS at Z-80 `$FAB8`, 2.20 BIOS at Z-80 `$DACC` — an `$2000` (8 KB) shift up. Found via 17-jump-table pattern scan of disk images. (BIOSes have only 15 entries — SoftCard CP/M is CP/M 2.0-style without LISTST/SECTRAN.)
-- **Z-80 reset vector planting**: The 6502 boot loader writes Z-80 machine code (`$C3 $00 $FA` = `JP $FA00`) into Apple `$1000-$1002` before the SoftCard switch. Apple `$1000` is Z-80 `$0000` (the Z-80 reset vector) under the SoftCard's `XOR $1000` mapping. So the 6502 plants the Z-80's reset vector with the address of the BIOS cold-boot entry, then flips the switch. CP/M 2.20 plants `JP $DA00` (consistent with its BIOS at `$DACC`).
-- **Boot stub**: byte-identical between 2.20 and 2.23 at `$0801-$083C`. CP/M sector skew table at `$082D-$083C`. Loads sectors `0,2,4,6,8,A,C,E,1,3,5` of track 0 to memory `$0800-$1300`, jumps to `$1000`.
-- **Slot scanner annotated**: full understanding of `$1060-$10D5` in both versions, including the 11-byte delta.
-- **Apple Disk II controller** detected by the loader's signature table: `($Cn05=$03, $Cn07=$3C)` matches the actual P6 PROM bytes at `$C605/$C607`. Verified.
-
-### What's open / next
-- **The actual SoftCard CPU-switch instruction**: confirmed (2026-04-27) the loader has NO writes to `$C0Bx`. So the switch is NOT a direct STA in the 6502 loader. Must be either: (a) inside the disk-load callee at `$0E36` (which the warm-boot routine calls as part of staging more CP/M from disk), (b) triggered by a side-effect of accessing the SoftCard slot's expansion ROM ($C400 or wherever the SoftCard sits), or (c) in the Z-80 fragments that run after the switch. Identifying which requires either deeper 6502 disasm of `$0E36`-area or Z-80 disasm of the install fragments. Likely a side-effect mechanism rather than an explicit STA.
-- **6502 disk I/O block** at `$0A00-$0FFF`: surveyed (2026-04-27). Major routines identified: WRITE_SECTOR ($0A00), WRITE_BYTE ($0A8F), READ_SECTOR ($0A99), SEEK_TRACK ($0B5F), LOAD_CPM ($0C00). Standard Apple Disk II RWTS pattern, not annotated per-instruction.
-- **6502 subroutines + strings** at `$1100-$11AF`: complete (2026-04-27). PREP_HANDOFF orchestrator, CKSUM_SLOT, PAGE_COPY, "MUST BOOT FROM SLOT SIX" string, Apple monitor reset-vector replacement bytes.
-- **The `$1200-$13FF` install images**: copied to Apple `$0200-$03FF`, which is Z-80 `$1200-$13FF` after SoftCard XOR. Mostly Z-80 code that runs after the switch. Will need a Z-80 disassembler.
-- **Z-80 BIOS extraction**: blocked previously by not understanding loader sector-to-Z-80-memory mapping. Now that we know the loader plants only the Z-80 reset vector and Z-80 code at `$0200-$03FF`, the rest of CP/M (CCP+BDOS+BIOS) must be loaded by Z-80 code from disk after the switch. So extracting the BIOS without booting requires either (a) simulating the Z-80 loader, or (b) statically reading the disk system tracks knowing the file format.
-- **Z-80 disassembler**: COMPLETE (2026-04-27). Added to nibbler as `nibbler/z80.py`, exposed via CLI as `nibbler z80disasm`. Covers all 256 unprefixed opcodes; CB/DD/ED/FD prefix bytes are stubs. Adequate for ~90% of typical BIOS code. Documented as a standalone tool entry on wiseowl.com at `/tools/z80-disassembler`.
-- **2.23 CONOUT targets the expansion-ROM window** (2026-04-27): `$FB4D` contains `LD HL,$C800` — that's the Apple ][ **shared expansion-ROM window**, NOT Videx-specific. Any slot card with an expansion ROM gets paged in there when its `$Cn00-$CnFF` slot ROM is touched. The Videx happens to use it for VRAM, but so do Pascal-1.1 cards generally and many ProDOS-era cards. So this proves the BIOS is *expansion-ROM-aware*, not Videx-aware. To prove Videx-specific would need preceding code that pages in the SoftCard-detected slot, or characteristic Videx writes (CRTC programming via `$C0B0/$C0B1`, `$CFFF` ROM-release toggle). Other parts of the path (the dispatch logic that decides "use this routine for code 6") still TBD. **Lesson learned: don't conflate "uses the expansion-ROM window" with "knows about the Videx specifically."**
-- **BIOS extraction is partial** (2026-04-27): Some routines (CONOUT, LIST, probably HOME/SELDSK/SETTRK) are at their nominal addresses in the file-offset extract and disassemble cleanly. Others (CONST/CONIN/BOOT/WBOOT) are NOT — the bytes at those addresses are a structured per-device dispatch table (4 entries × 16 bytes). About half the 2.23 BIOS is reachable; the per-device input/output handlers at $FF64-$FFDF, BOOT at $FED1, and the area below $FAB8 are not.
-- **LOAD_CPM fully reverse-engineered** (2026-04-27, Path A complete): At Apple $0BEB (= $BBEB after PREP_HANDOFF copy). Reads 29 sectors starting trk0:$0B sequentially, stages at $8000-$9CFF. PREP_HANDOFF then splits: $9700-$9CFF → Apple $0A00-$0FFF (Z-80 disk callbacks), $8000-$96FF → Apple $A300-$B9FF (CCP+BDOS+banner). Reconstruction script at `cpm-investigation/reconstruct_staging.py`. Extracted artifacts: `staging_223.bin`, `sysimg_223.bin`, `newdisk_223.bin`. The system image's tail confirms it's real CP/M with the boot banner string "Softcard CP/M / 60K Ver. 2.23 / (c) 1980,1982 Microsoft".
-- **Z-80 disk callbacks at Apple $0A00 = Z-80 $1A00 identified.** They reference $A3xx-$B9xx (CCP+BDOS) and contain a polling loop on `$E000` at $1E36 (the warm-boot's $0E36 target). The `LD A,($E000) / RLA / JR NC,$1E39 / LD ($E010),A` pattern is inter-CPU synchronization — Z-80 polls a flag the 6502 sets after disk I/O completes.
-- **BIOS first 1 KB FOUND** (2026-04-27): Exact byte match. The bytes at staging offset $1900 (= Apple $9900) are BIOS $FAB8-$FEB7. After PREP_HANDOFF copies $9700-$9CFF to Apple $0A00-$0FFF, the BIOS first 1 KB lands at Apple $0C00-$0FFF. Some still-untraced step must copy these to LC RAM at $FAB8-$FEB7 before/during BIOS execution.
-- **BIOS second 1 KB is RUNTIME-GENERATED** (2026-04-27): Verified the "missing" trk2:$08-$0B sectors are all zeros on disk. The cold-boot area $FA00-$FAB7 is also all zeros/data. So the BIOS routines for BOOT/HOME/SELDSK/SETTRK/READ/WRITE and the per-device handlers at $FF64-$FFDF are GENERATED at runtime by the cold-boot code. SoftCard CP/M does code-generation at boot.
-- **2.20/2.23 BIOS layout differs structurally**: 2.20 BIOS jump table at staging offset $1700; 2.23 at $1900 (a 2-sector shift). 2.20 BIOS lands at the START of newdisk_220.bin (Apple $0A00); 2.23 at the END (Apple $0C00). Same 29-sector load mechanism, different content arrangement.
-- **2.20 reconstruction done**: staging_220.bin, sysimg_220.bin, newdisk_220.bin extracted. 2.20 has NO 'Softcard' banner (added in 2.23).
-- **Z-80 callbacks DO write into BIOS second half**: Found instructions like `LD HL,$FECB / LD (HL),A`, `LD HL,$FED4`, `LD ($FED2),A` in newdisk_223.bin. So the BIOS second half is BOTH runtime-generated code AND per-call state storage that the callbacks read/write.
-- **SoftCard CPU-switch trigger STILL not located** (2026-04-27): No direct $C0Bx writes in the 6502 loader, no Z-80 IN/OUT to plausible SoftCard ports in the disk callbacks, no obvious memory-mapped soft-switch access. Likely either: (a) hidden in CB/DD/ED/FD prefix instructions the disassembler doesn't decode, (b) a memory access pattern the SoftCard hardware monitors silently, (c) in BIOS code we don't have.
-
-### Big-picture remaining work toward the deliverable
-1. Finish 6502 boot loader annotation (small, mostly mechanical)
-2. Add Z-80 disassembler to toolchain (1-2 days of work)
-3. Extract and annotate the Z-80 install fragments (`$0200-$03FF` after install)
-4. Boot-trace or static-extract the Z-80 BIOS (CCP/BDOS are byte-identical to DRI's reference; only BIOS varies)
-5. Annotate Z-80 BIOS for both versions, diff
-6. Walk the boot sequence from BIOS cold-boot through CCP entry to `A>` prompt
-7. Write the multi-part article series
+Version testing isolated the boundary: **2.20 and 2.20B fail; 2.23 works**.
 
 ---
 
-## Website structure (project + articles + devlogs + reference)
+## What's Now Understood (the architecture)
 
-The site at `e:/Sites/wiseowl.com/` (Astro v6, Cloudflare Pages) hosts:
+After the investigation through 2026-04-27, the SoftCard CP/M boot sequence is understood end-to-end up to the SoftCard handoff. After the handoff, half of it is also understood; the other half (runtime BIOS code generation) is the current frontier.
 
-### Project entry (`src/content/projects/cpm-videx.mdx`)
-- Title: "Microsoft SoftCard CP/M on a Videx"
-- Featured: true, weight: 5
-- Summary, body sections, link to articles + devlogs + repo
-- **Update this when the article roadmap evolves.**
+### The 6502 boot stage (Parts 1-2 of the article series cover this)
+
+1. **Disk II P6 PROM** loads sector 0 of track 0 to Apple `$0800-$08FF` and `JSR $0801`.
+2. **Boot stub** at `$0801-$083C` (byte-identical between 2.20 and 2.23) uses the P6 PROM's mid-routine entry at `$Cn5C` to load 10 more sectors of track 0 in CP/M skew order (`0,2,4,6,8,A,C,E,1,3,5`) into Apple `$0A00-$1300`. Then `JMP $1000`.
+3. **Stage-2 loader** at `$1000` enables the language card RAM, calls Apple monitor TEXT/SETVID/SETKBD, runs three install loops staging Z-80 code into low Apple memory (`$0FFF`, `$0200-$02FF`, `$0300-$03FF`), then runs the **slot scanner** at `$1060-$10D5`.
+4. **Slot scanner** walks slots 7 → 1, probes Pascal-firmware ID bytes at `$Cn05/$Cn07`, records device codes at Apple `$03B9-$03BF`. **2.23 added an 11-byte branch** that also reads `$Cn0B` (Pascal 1.1 signature byte) and tags Pascal-1.1 cards with new device code `$06` instead of `$04`. This is the Videx-detection delta (Part 1's discovery).
+5. **LOAD_CPM** at Apple `$0BEB` (= `$BBEB` after PREP_HANDOFF copy) reads 29 sectors starting trk0:`$0B`, sequentially through trk1:`$00-$0F` and trk2:`$00-$07`, into Apple `$8000-$9CFF`.
+6. **PREP_HANDOFF** does three page copies:
+   - `$0A00-$0FFF` (original 6502 disk routines) → `$BA00-$BFFF` (preservation)
+   - `$9700-$9CFF` (last 6 pages of LOAD_CPM staging) → `$0A00-$0FFF` (Z-80 disk callbacks + first 1 KB of BIOS)
+   - `$8000-$96FF` (first 23 pages of LOAD_CPM staging) → `$A300-$B9FF` (CCP + BDOS + boot banner)
+7. **Z-80 reset vector planted**: 6502 writes `$C3 $00 $FA` (= Z-80 `JP $FA00`) at Apple `$1000-$1002`. Apple `$1000` is Z-80 `$0000` under the SoftCard's bit-12 XOR mapping. So the Z-80's first instruction will jump to its BIOS cold-boot at `$FA00`. (2.20 plants `JP $DA00` consistent with its BIOS at `$DACC`.)
+8. **Apple monitor reset vectors patched** at `$FFFA-$FFFF`, then `JMP $03D2` into the warm-boot routine that was installed at `$03C0`.
+9. **Warm-boot routine at Apple `$03C0`** loops: enable LC RAM, touch `$Cn00` (self-modified), disable LC RAM, `JSR $0E36`. The `JSR $0E36` jumps into the now-installed Z-80 disk callbacks (which are nonsense as 6502). **The SoftCard CPU switch fires somewhere in this transition** — the 6502 loader has NO direct `$C0Bx` writes; the trigger is either a memory-access pattern the SoftCard hardware monitors silently, or in CB/DD/ED/FD prefix instructions our Z-80 disassembler doesn't yet decode.
+
+### The Z-80 side (Parts 3-4 covered the architecture; the runtime second half is open)
+
+10. **Z-80 starts at `$0000`** (= Apple `$1000`), reads `JP $FA00`, jumps to BIOS cold-boot.
+11. **BIOS cold-boot at `$FA00`** is in the runtime-generated half of the BIOS. The bytes there don't exist on disk — they get populated by code in the populated half. (How is exactly what Part 5 will trace.)
+12. **CCP, BDOS, and BIOS first 1 KB** are loaded by LOAD_CPM. Final addresses:
+    - CCP+BDOS at Apple `$A300-$B9FF` (5.9 KB; tail bytes are the boot banner string `Softcard CP/M / 60K Ver. 2.23 / (c) 1980,1982 Microsoft`)
+    - BIOS first 1 KB (`$FAB8-$FEB7`) at Apple `$0C00-$0FFF` initially; some still-untraced step copies it to LC RAM `$FAB8` for Z-80 to use
+13. **BIOS second 1 KB (`$FA00-$FAB7` + `$FEB8-$FFFF`) is runtime-generated.** Verified empty on disk. Contains BOOT, HOME, SELDSK, SETTRK, READ, WRITE, the per-device input handlers at `$FF64-$FF9F`, the per-device output handlers at `$FFAC-$FFDF`, plus per-device state variables (current track at `$FECB`, sector at `$FED2`, DMA at `$FED4`, etc.).
+14. **Cooperative-CPU disk I/O model**: When CP/M needs disk, the Z-80 BIOS routines write parameters into the BIOS state area (`$FECB`/`$FED2`/`$FED4`), call into the Z-80 disk callbacks at `$1A00`, which signal the 6502 via the `$E000`/`$E010` flag pair (the polling loop at Z-80 `$1E36-$1E44`). SoftCard hardware switches CPUs. 6502 reads the same state from the same Apple addresses, runs the original RWTS routines preserved at Apple `$BA00-$BFFF`, deposits sector data at the DMA address, signals completion. SoftCard switches back. Z-80 returns from callback.
+
+### The Pascal 1.0 vs 1.1 calling convention precision (Part 1's full payoff)
+
+- **Pascal 1.0**: ID bytes ARE the entry points. `$Cn05 = $38` is the `SEC` opcode; `$Cn07 = $18` is `CLC`. `JSR $Cn05` does input (carry set), `JSR $Cn07` does output (carry clear). Both fall through to common dispatch using the carry flag.
+- **Pascal 1.1**: 4-byte vector table at `$Cn0D-$Cn10` (INIT, READ, WRITE, STATUS — each a single-byte offset). Caller reads offsets, JSRs to `$Cn00 + offset`, MUST call INIT before READ/WRITE/STATUS.
+- A Pascal 1.1 card can be backward-compatible at the byte level (the Videx is — `$CB05`/`$CB07` are real `SEC`/`CLC`), but its 1.0-style dispatch typically requires the V flag to be set by an upstream `BIT IORTS` at `$Cn00` during the V-setting preamble. PR#n / COUT-via-CSW sets that up correctly; a naive `JSR $Cn07` does not.
+- **CP/M 2.20 sees a Videx, sees Pascal 1.0 ID bytes, does naive `JSR $Cn07`, lands in dispatch code with uninitialized state → hangs.** CP/M 2.23 reads `$Cn0B`, sees Pascal 1.1, routes through the Pascal 1.1 vector table. That's the entire bug fix.
+
+### The BIOS factory mental model (Part 4's contribution)
+
+The static disk image doesn't contain the runtime BIOS. It contains the BIOS *factory* — the cold-boot code generator that produces the runtime BIOS based on which slots have what cards (per the device-code table built by the slot scanner). This is why 2.20 and 2.23 differ structurally despite the byte-level Pascal 1.1 detection delta being only 11 bytes — the *factory* is different between versions, so the *generated BIOS* it produces ends up different in places that aren't directly the Videx detection.
+
+---
+
+## Decision Points and User Directives
+
+These are the user's explicit choices that future sessions need to respect:
+
+- **Investigation path: Path A chosen** (reverse-engineer LOAD_CPM rather than build a Z-80 emulator). Reasoning: story coherence, unlocks both versions, no tooling tangent.
+- **Article structure**: multi-part series, each part covers a distinct phase. **Part 4 is now published**; planned Parts 5-7 cover the remaining work.
+- **Each part should be a beginning-to-end narrative** that reads as a story (per user's explicit Part 2 framing direction).
+- **Devlog granularity**: one per topic / approach / area of investigation, NOT one per day. When trying a different angle = new entry, even on the same day.
+- **Resume-prompt.md kept current** at all times (this file). Update after each significant step.
+- **Site placement**: wiseowl.com personal site (NOT wiseowlsoftware.com which is the Demeanor product site).
+- **Article 1 framing**: opens with "The Microsoft Z-80 SoftCard wouldn't work with my Videx 80-column emulation. Seemingly." (the user explicitly directed this hook).
+- **6502 and Z-80 disassemblers**: documented as separate tools on wiseowl.com (not bundled under nibbler), even though they share repo home in `nibbler/`.
+- **The disassemblers are general-purpose**: `nibbler disasm` is a 6502 disassembler; `nibbler z80disasm` is a Z-80 disassembler. Independent reusable tools.
+
+---
+
+## Editorial Guidance (saved to memory; restated here)
+
+- **Lead with consequence, not detection.** The act of finding a code delta is the door, not the room. Pivot quickly to behavioral consequence — what the system does differently because of the change.
+- **State things clearly, not cleverly.** Cryptic article titles bad; descriptive ones good. ("The Eleven Bytes That Recognize a Videx" was renamed to "Why Microsoft CP/M Didn't Recognize an 80-Column Card" after user feedback.)
+- **Honesty over completeness.** When something is inferred but not verified from disassembly, say so explicitly. Distinguish "known from reading the code" from "plausible hypothesis pending verification." Other LLMs have over-claimed and the user noticed.
+- **Don't conflate shared address spaces with specific cards.** `$C800-$CFFF` is the Apple ][ shared expansion-ROM window — any slot card uses it. Seeing `LD HL,$C800` in the BIOS proves expansion-ROM-aware, NOT Videx-aware. (User caught a Videx overreach on this.)
+- **Voice for devlogs**: terse, declarative, past tense, NO first-person pronouns ("Loaded the WOZ image" not "I loaded"). Em dashes for asides. ~200-400 words. End with a `**Status:**` line.
+- **Voice for articles**: long-form (~3000 words, 12-15 min reads), first-person ALLOWED and natural, rich technical context, references images/links.
+
+---
+
+## Website Structure
+
+The site at `e:/Sites/wiseowl.com/` is Astro v6, deployed to Cloudflare Pages.
+
+### Project entry
+`src/content/projects/cpm-videx.mdx` — Title "Microsoft SoftCard CP/M on a Videx", `featured: true, weight: 5`. Contains the article roadmap. **Update this when the roadmap evolves.**
 
 ### Articles (`src/content/articles/cpm-videx-NN-*.mdx`)
-- **Part 1 (published)**: `cpm-videx-01-why-cpm-didnt-recognize-an-80-column-card.mdx` — Pascal 1.0 vs 1.1 detection delta + crossed-streams framing
-- **Part 2 (published 2026-04-27)**: `cpm-videx-02-from-the-disk-ii-rom-to-the-z-80s-first-instruction.mdx` — Beginning-to-end narrative of the 6502 boot stage (per user's explicit request 2026-04-27). Honest about the SoftCard-switch open question.
-- **Part 3 (planned)**: Z-80 BIOS architecture and the SoftCard memory model
-- **Part 3 (published 2026-04-27)**: `cpm-videx-03-apple-memory-through-z-80-eyes.mdx` — SoftCard memory model (bit-12 XOR), CCP/BDOS/BIOS layering, 2.23 BIOS jump table, per-device dispatch table at $FB0A, partial-extraction problem
-- **Part 4 (published 2026-04-27)**: `cpm-videx-04-the-bios-that-half-exists.mdx` — LOAD_CPM mechanism, the staging splits, the discovery that half the BIOS is runtime-generated, the cooperative-CPU disk model, and the BIOS factory mental model
-- **Part 5 (planned)**: The BIOS factory — the cold-boot code generator that populates the runtime BIOS second half. Diffs 2.20's generator vs 2.23's. Real Pascal-1.1 driver path payoff.
-- **Part 6 (planned)**: From `JP $FA00` to `A>` — the full Z-80 boot trace
-- **Part 7 (planned)**: Every difference between 2.20 and 2.23 — full inventory
+- ✅ **Part 1**: `cpm-videx-01-why-cpm-didnt-recognize-an-80-column-card.mdx` — Pascal 1.0 vs 1.1 detection delta, crossed-streams framing
+- ✅ **Part 2**: `cpm-videx-02-from-the-disk-ii-rom-to-the-z-80s-first-instruction.mdx` — Beginning-to-end 6502 boot stage narrative
+- ✅ **Part 3**: `cpm-videx-03-apple-memory-through-z-80-eyes.mdx` — SoftCard memory model, CP/M layering, BIOS jump table, partial-extraction problem
+- ✅ **Part 4**: `cpm-videx-04-the-bios-that-half-exists.mdx` — LOAD_CPM, staging splits, runtime BIOS generation, cooperative-CPU model, BIOS factory
+- ⏳ **Part 5 (planned)**: The BIOS factory — cold-boot code generator, diff 2.20 vs 2.23 generators, real Pascal-1.1 driver path
+- ⏳ **Part 6 (planned)**: From `JP $FA00` to `A>` — full Z-80 boot trace
+- ⏳ **Part 7 (planned)**: Every difference between 2.20 and 2.23 — full inventory
 
-### Dev logs (`src/content/devlogs/cpm-videx-*-YYYY-MM-DD.mdx`)
-**One per topic / approach / area of investigation, NOT one per day.** When trying a different angle = new entry, even on the same day.
+### Dev logs (`src/content/devlogs/cpm-videx-*.mdx`)
 
-Existing entries (chronological):
-1. `cpm-videx-origin-2026-04-25.mdx` — Joshua's report; version classification
-2. `cpm-videx-disks-2026-04-26.mdx` — disk triage; boot stub elimination
-3. `cpm-videx-bios-2026-04-26.mdx` — Z-80 BIOS extraction dead-end; load addresses
+14 entries published, chronological:
+1. `cpm-videx-origin-2026-04-25.mdx` — Joshua's report, version classification
+2. `cpm-videx-disks-2026-04-26.mdx` — disk triage, boot stub elimination
+3. `cpm-videx-bios-2026-04-26.mdx` — Z-80 BIOS extraction dead-end, load addresses
 4. `cpm-videx-loader-2026-04-26.mdx` — 11-byte Pascal 1.1 detection branch
 5. `cpm-videx-device-codes-2026-04-26.mdx` — partial: clues to what device codes mean
 6. `cpm-videx-boot-loader-2026-04-27.mdx` — Z-80 reset vector planting
-7. `cpm-videx-z80-disassembler-2026-04-27.mdx` — Z-80 disassembler online; CONOUT $C800 finding
+7. `cpm-videx-z80-disassembler-2026-04-27.mdx` — Z-80 disassembler online + CONOUT $C800 (later corrected)
 8. `cpm-videx-bios-partial-2026-04-27.mdx` — BIOS extraction partial; CONST/CONIN are dispatch table
-9. `cpm-videx-shared-address-spaces-2026-04-27.mdx` — $C800 lesson learned (corrected the Videx overreach)
+9. `cpm-videx-shared-address-spaces-2026-04-27.mdx` — $C800 lesson (corrected the Videx overreach)
 10. `cpm-videx-bios-trace-wall-2026-04-27.mdx` — CONOUT trace into BIOS hits the partial-extract wall
-11. `cpm-videx-load-cpm-2026-04-27.mdx` — LOAD_CPM cracked: 29-sector load, staging split, sysimg with banner, Z-80 disk callbacks at $0A00
-12. `cpm-videx-bios-runtime-generated-2026-04-27.mdx` — BIOS second 1 KB is all-zero on disk because it's runtime-generated; SoftCard CP/M does code generation at boot
-13. `cpm-videx-220-reconstruction-2026-04-27.mdx` — 2.20 reconstruction; same LOAD_CPM, different content layout (BIOS at staging $1700 vs $1900); no banner in 2.20
-14. `cpm-videx-bios-state-storage-2026-04-27.mdx` — Z-80 callbacks write into BIOS second half (LD HL,$FECB / LD (HL),A); BIOS second half is code AND state
-
-Pending devlog entries (write when reaching milestones):
-- The "no SoftCard CPU-switch in the loader" finding — could be its own entry or rolled into a Z-80-handoff entry
-- LOAD_CPM reverse-engineering (when done; will unlock 2.20 BIOS extraction)
-- The dispatch table at `$FB0A`+ structure (4 entries × 16 bytes) — could be folded into the BIOS-completion devlog
-
-**Frontmatter constraints (will fail build if violated):**
-- `tldr` ≤ 200 characters
-- `tags` from `TagEnum` only (in `src/content.config.ts`); add new tags to enum BEFORE using
-- `6502` and similar numeric-prefix tags MUST be quoted as `"6502"` in YAML block-style arrays (else parsed as integer, fails enum validation)
-- Article `description` ≤ 300 chars
-- Project `summary` ≤ 300 chars
+11. `cpm-videx-load-cpm-2026-04-27.mdx` — LOAD_CPM cracked
+12. `cpm-videx-bios-runtime-generated-2026-04-27.mdx` — half the BIOS is runtime-generated
+13. `cpm-videx-220-reconstruction-2026-04-27.mdx` — 2.20 reconstruction
+14. `cpm-videx-bios-state-storage-2026-04-27.mdx` — Z-80 callbacks write to BIOS second half
 
 ### Reference (`src/content/reference/`)
-- `apple-ii-tn-misc-8-pascal-1-1-firmware-protocol.mdx` — full text of Apple Tech Note Misc #8
+- `apple-ii-tn-misc-8-pascal-1-1-firmware-protocol.mdx` — full text of Apple Tech Note Misc #8 (the only canonical Pascal protocol document)
 - Source PDF at `public/reference/apple-ii-technical-notes-1989-09.pdf`
 
-### Build / deploy commands
-- Local build/test: `npm run build` (in `e:/Sites/wiseowl.com/`)
-- Build + deploy to Cloudflare Pages: `npm run deploy` (runs `astro build && wrangler pages deploy dist --project-name wiseowl`)
-- Wrangler is globally installed; uses Brent's existing auth
+### Tools (`src/content/tools/`)
+- `nibbler.mdx` — WOZ analysis toolkit
+- `6502-disassembler.mdx` — standalone 6502 disasm tool entry
+- `z80-disassembler.mdx` — standalone Z-80 disasm tool entry
+
+### Frontmatter constraints (build will fail if violated)
+- Devlog `tldr` ≤ 200 chars
+- Article `description` ≤ 300 chars
+- Project `summary` ≤ 300 chars
+- `tags` from `TagEnum` only (in `src/content.config.ts`); add new tags to enum BEFORE using
+- Numeric-prefix tags (`6502`) MUST be quoted as `"6502"` in YAML block-style arrays (else parsed as integer, fails enum validation)
+
+### Build / deploy
+- Local build: `npm run build`
+- Build + deploy to Cloudflare Pages: `npm run deploy` (= `astro build && wrangler pages deploy dist --project-name wiseowl`)
+- Wrangler is globally installed; uses Brent's existing auth.
 
 ### Site wordmark
-- Header reads "Wise Owl — Brent Rector" (NOT "Wise Owl Software" — that's the separate product site `wiseowlsoftware.com`)
+- Header reads "Wise Owl — Brent Rector" (NOT "Wise Owl Software" — that's the separate product site).
 
 ---
 
-## Voice and style
-
-### Devlogs
-- Terse, declarative, past tense, **no first-person pronouns** (write "Loaded the WOZ image" not "I loaded")
-- Em dashes for asides
-- Specific technical detail (addresses, byte values, register names)
-- ~200-400 words per entry
-- Always end with a `**Status:**` line summarizing what's confirmed and what's next
-
-### Articles
-- Long-form (10-15 min reads, ~3000 words)
-- First-person allowed and natural
-- Rich technical context, history, motivation
-- Reference photos/images where useful
-- Series tag included (`cpm-videx-series`)
-
-### Both
-- No emojis (anywhere)
-- No exclamation marks in body copy
-- No buzzwords ("revolutionary," "next-gen," etc.)
-- No hedging ("might," "could potentially")
-- Specific facts, no marketing tone
-
-### Editorial guidance the user has given
-- **Lead with consequence, not detection.** When writing about a found code delta, the act of finding it is the door, not the room. Pivot quickly to behavioral consequence — what the system does differently because of the change. The user explicitly flagged this on Part 1 and the framing was rewritten.
-- **State things clearly, not cleverly.** Cryptic article titles (like the original "The Eleven Bytes That Recognize a Videx") are bad; descriptive ones (like "Why Microsoft CP/M Didn't Recognize an 80-Column Card") are good. Punchy is fine; cryptic is not.
-- **Honesty over completeness.** When something is inferred but not verified from disassembly, say so explicitly. Distinguish "known from reading the code" from "plausible hypothesis pending verification." Other LLMs have presented inference as fact and the user noticed and called it out.
-
----
-
-## Repository conventions
+## Repository Conventions
 
 ### Orchard repo (`e:/Orchard/`)
-- `cpm-investigation/` — extraction scripts, intermediate binaries, linear disassemblies for both versions
-- `docs/CPM_Videx_Difference.md` — the side-by-side annotated diff of the slot scanner
-- `docs/CPM_BootLoader.md` — narrative architecture of the 6502 loader
-- `docs/CPM223_BootLoader.asm` — annotated 6502 disassembly (work in progress)
-- `nibbler/` — Apple ][ disk analysis toolkit (6502 only; needs Z-80 support added)
-- `CPMV233.DSK` — CP/M 2.23 disk image (DOS 3.3 sector order)
-- `CPM220Disk1.po`, `CPM220Disk2.po` — CP/M 2.20 distribution disks (ProDOS sector order)
 
-### Build/deploy commands
-- For Orchard: standard git workflow; no build/deploy needed (just docs and scripts)
-- For wiseowl.com: see "Build / deploy commands" above
+```
+cpm-investigation/        — extraction scripts, intermediate binaries, disassemblies
+  reconstruct_staging.py    — replays LOAD_CPM against .DSK to extract sysimg/newdisk
+  loader_223.bin            — 3 KB Apple [0x0800-0x13FF] memory image of 2.23 boot loader
+  loader_220.bin            — same for 2.20
+  bios_223.bin              — 2 KB at .DSK file offset 0x2400 (BIOS jump table area)
+  bios_220.bin              — same for 2.20
+  staging_223.bin           — 7424 bytes simulating LOAD_CPM staging at $8000-$9CFF
+  staging_220.bin           — same for 2.20
+  sysimg_223.bin            — 5888 bytes (CCP+BDOS+banner, lands at Apple $A300)
+  sysimg_220.bin            — same for 2.20
+  newdisk_223.bin           — 1536 bytes (Z-80 callbacks + BIOS first 1 KB, lands at Apple $0A00)
+  newdisk_220.bin           — same for 2.20
+  bios_223_second.bin       — confirmed-zero trk2:$08-$0B sectors
+  bios_full_first.bin       — staged $FA00-$FEB7 BIOS area (cold-boot region + populated 1 KB)
+  disasm_223_linear.txt     — full 6502 linear disassembly of the loader image
+  disasm_220_linear.txt     — same for 2.20
+
+docs/
+  CPM_Videx_Difference.md   — slot scanner side-by-side diff with symbolic names
+  CPM_BootLoader.md         — narrative architecture of the 6502 loader
+  CPM223_BootLoader.asm     — annotated 6502 disassembly (sections complete through $11AF)
+  DiskII_BootROM.md         — Apple Disk II P6 PROM doc (pre-existing)
+  DiskII_BootROM.asm        — Apple Disk II P6 PROM disasm (pre-existing)
+
+nibbler/                  — Apple ][ disk analysis toolkit
+  z80.py                    — Z-80 disassembler (256 unprefixed; CB/DD/ED/FD are stubs)
+  cli.py                    — has both `disasm` (6502) and `z80disasm` subcommands
+
+CPMV233.DSK               — CP/M 2.23 disk image (DOS 3.3 sector order — despite name, V233 is a misnomer for 2.23)
+CPM220Disk1.po            — CP/M 2.20 distribution disk 1 (ProDOS sector order)
+CPM220Disk2.po            — CP/M 2.20 distribution disk 2
+
+resume-prompt.md          — THIS FILE
+```
+
+### Build/deploy
+- Orchard: standard git workflow; no build needed.
+- wiseowl.com: see "Build / deploy" above.
 
 ---
 
-## Memory directory
+## Memory Directory
 
-`C:/Users/brent/.claude/projects/e--Orchard/memory/` contains semantic project memory:
-- `MEMORY.md` — index
+`C:/Users/brent/.claude/projects/e--Orchard/memory/` contains semantic project memory loaded automatically into future sessions:
+- `MEMORY.md` — the index (auto-loaded on every session)
 - `project_cpm_videx_investigation.md` — investigation status, findings, open questions
-- `reference_apple_pascal_firmware_protocol.md` — Pascal 1.1 protocol with calling-convention details
+- `reference_apple_pascal_firmware_protocol.md` — Pascal 1.1 protocol with calling-convention details and Tech Note Misc #8 reference
 - `reference_wiseowl_devlogs.md` — devlog conventions, schema, voice
-- `feedback_finding_vs_consequence.md` — editorial guidance about not over-celebrating detection
+- `feedback_finding_vs_consequence.md` — editorial: don't celebrate detection; pivot to consequence
+- `feedback_apple_ii_address_specificity.md` — editorial: don't conflate shared address spaces with specific cards
 
 ---
 
-## Concrete next steps when resuming
+## Concrete Next Steps When Resuming
 
 In priority order:
 
-1. **Disassemble the populated BIOS first 1 KB carefully.** We have it (in `bios_223.bin[0:1024]`, also identical to `newdisk_223.bin[0x200:0x600]`). Map every routine: jump table, inline stubs, dispatch table, CONOUT, LIST, the helper at $FB45, and especially anything that LOOKS LIKE a code generator (writes to $FE/$FF area). The cold-boot generator must be in this area since it's the only BIOS code statically present.
-2. **Find the cold-boot generator.** Routine that runs first after Z-80 starts and populates the second 1 KB ($FA00-$FAB7 + $FEB8-$FFFF) with per-device handler code based on the device-code table at $03B9-$03BF. It must call into the per-device dispatch table at $FB0A to know what code to generate.
-3. **Trace the SoftCard CPU-switch.** With the BIOS first half disassembled, we should see how the Z-80 receives control. Likely the warm-boot routine at Apple $03C0 (6502) → JSR $0E36 (Z-80 code) is the trigger; SoftCard hardware monitors the 6502 entering this address range and flips. Verify with deeper Z-80 disasm.
-4. **Diff 2.20 vs 2.23 BIOS code generators.** Both versions have a populated 1 KB at the equivalent BIOS-base offset. The cold-boot generator differs between versions — that's where 2.23's Pascal-1.1 awareness lives. Diff would directly show what code 2.23 generates differently for device code 6.
-5. **Add CB/DD/ED/FD prefix decoding to z80disasm.** The current ED-prefix stub means we miss block instructions (LDIR, LDDR), IM instructions, IN/OUT to (C), and IX/IY operations. Likely needed to fully understand the BIOS and the cold-boot generator.
-6. **Draft Part 4 article** when the cold-boot generator is understood — that's the Pascal 1.1 driver path payoff.
+1. **Disassemble the populated BIOS first 1 KB carefully.** The bytes are in `cpm-investigation/bios_223.bin[0:1024]` (also identical to `newdisk_223.bin[0x200:0x600]`). Map every routine: jump table ($FAB8-$FAE4), inline LISTST/SECTRAN stubs ($FAE5-$FB09), per-device dispatch table ($FB0A-$FB39), CONOUT ($FB4D), LIST ($FB70), the helper at $FB45. Identify anything that looks like a code generator (writes to `$FE/$FF` area) — that's the cold-boot generator.
+
+2. **Find the cold-boot generator.** The routine that runs first after Z-80 starts and populates the second 1 KB (`$FA00-$FAB7` + `$FEB8-$FFFF`) with per-device handler code based on the device-code table at Apple `$03B9-$03BF`. It must call into the per-device dispatch table at `$FB0A` to know what code to generate.
+
+3. **Diff 2.20 vs 2.23 BIOS code generators.** Both versions have a populated 1 KB at the equivalent BIOS-base offset. Once the generators are understood, the diff directly shows what code 2.23 generates differently for device code `$06` vs what 2.20 generates for `$04`. **This is the actual answer to "how does 2.23 drive a Videx and 2.20 doesn't"** — the deep payoff that's the Part 5 article material.
+
+4. **Trace the SoftCard CPU-switch trigger.** With the BIOS first half disassembled, we may see how the Z-80 receives control. Likely the warm-boot routine at Apple `$03C0` (6502) → `JSR $0E36` (which is now Z-80 code) is the trigger; SoftCard hardware monitors the 6502 entering this address range and flips. Verify with deeper Z-80 disasm.
+
+5. **Add CB/DD/ED/FD prefix decoding to z80disasm.** The current ED-prefix stub means we miss block instructions (LDIR, LDDR), IM instructions, IN/OUT to (C), and IX/IY operations. May be needed to fully understand the cold-boot generator and the BIOS's per-device handlers (which might use IX/IY for table indexing).
+
+6. **Draft Part 5 article** when the cold-boot generator is understood. That's "The BIOS Factory."
+
 7. **Continue updating this resume-prompt.md after each significant step.**
+
+### Side tasks (lower priority but worth noting)
+
+- The `JSR $0E36` callee chain is partly traced (the inter-CPU sync at Z-80 `$1E36`). Could go deeper to find the actual SoftCard switch — but might need CB/DD/ED/FD decoding first.
+- The "missing" BIOS area `$FA00-$FAB7` (just below the jump table) is also runtime-generated; the cold-boot generator must produce it too. Where the Z-80's reset-vector target lands when bytes are zero is itself a question.
+- 2.20 and 2.23 sysimg files (CCP+BDOS) should be diffed — the bulk should be byte-identical (same Digital Research code), confirming our extraction is correct. Any differences would be Microsoft-side modifications worth investigating.
+
+---
+
+## Quick-Reference Address Map (for fast context recovery)
+
+### Apple ][ memory after the loader finishes
+- `$0800-$08FF`: boot stub (sector 0)
+- `$0A00-$0FFF`: Z-80 disk callbacks + BIOS first 1 KB (depending on version layout)
+  - 2.20: BIOS first 1 KB at `$0A00-$0DFF`, callbacks at `$0E00-$0FFF`
+  - 2.23: callbacks at `$0A00-$0BFF`, BIOS first 1 KB at `$0C00-$0FFF`
+- `$1000-$1002`: Z-80 reset vector (`$C3 $00 $FA` for 2.23, `$C3 $00 $DA` for 2.20)
+- `$0200-$03FF`: Z-80 install fragments (the warm-boot routine at $03C0 lives here)
+- `$03B9-$03BF`: per-slot device codes (built by slot scanner)
+- `$A300-$B9FF`: CCP + BDOS + banner string (from sysimg)
+- `$BA00-$BFFF`: original 6502 RWTS routines (preserved)
+
+### Z-80 memory after CP/M is running (post-handoff, ideal state)
+- `$0000-$0002`: Z-80 reset vector (`JP $FA00` planted by 6502)
+- `$0003-$00FF`: Z-80 zero page / restart vectors (mostly unused by CP/M)
+- `$0100-$E3FF`: TPA (Transient Program Area for user programs)
+- `$E400-$EBFF`: CCP (after relocation; staged at `$A300` initially)
+- `$EC00-$F9FF`: BDOS (after relocation)
+- `$FA00-$FAB7`: BIOS cold-boot area (RUNTIME-GENERATED, zero on disk)
+- `$FAB8-$FAE4`: BIOS jump table (15 entries, statically loaded)
+- `$FAE5-$FB09`: inline LISTST/SECTRAN stubs (statically loaded)
+- `$FB0A-$FB39`: per-device dispatch table (4 entries × 16 bytes, statically loaded)
+- `$FB3A-$FEB7`: BIOS internal routines (CONOUT, LIST, helpers — statically loaded)
+- `$FEB8-$FFFF`: BIOS per-device handlers + per-device state (RUNTIME-GENERATED)
+  - State: `$FECB` = current track, `$FED2` = current sector, `$FED4` = current DMA, etc.
+  - Code: per-device READ, WRITE, HOME, SELDSK, SETTRK, the input handlers at `$FF64-$FF9F`, the output handlers at `$FFAC-$FFDF`
+
+### SoftCard memory mapping (bit-12 XOR for low addresses only)
+- Z-80 `$0000-$0FFF` ↔ Apple `$1000-$1FFF`
+- Z-80 `$1000-$1FFF` ↔ Apple `$0000-$0FFF`
+- Z-80 `$2000-$FFFF` ↔ Apple `$2000-$FFFF` (no swap)
+
+### Key 2.20 vs 2.23 differences
+- BIOS load address: 2.20 at `$DACC`, 2.23 at `$FAB8` (8 KB shift)
+- BIOS jump table in staging: 2.20 at offset `$1700`, 2.23 at `$1900`
+- BIOS first 1 KB final position in newdisk: 2.20 at start (`$0A00`), 2.23 at end (`$0C00`)
+- Boot banner string: present in 2.23, absent in 2.20
+- Device code for Pascal 1.1 cards: 2.20 doesn't recognize them (assigns code `$04` like Pascal 1.0); 2.23 assigns code `$06`
+- Slot scanner: 2.23 has 11 extra bytes for the Pascal 1.1 check
+- Cold-boot generator: presumably differs in what it produces for device code `$06` (2.20 doesn't know about that code; 2.23 generates Pascal-1.1-driver code)
