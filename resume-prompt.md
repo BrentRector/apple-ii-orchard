@@ -1,6 +1,6 @@
 # Resume Prompt — Microsoft SoftCard CP/M Investigation
 
-**Last updated:** 2026-04-27 (after Path A: LOAD_CPM fully reverse-engineered; CCP+BDOS extracted with 'CP/M 60K Ver. 2.23' banner; Z-80 disk callbacks at Apple $0A00 identified; warm-boot $0E36 callee identified as inter-CPU sync code)
+**Last updated:** 2026-04-27 (BIOS first 1 KB exact byte match against staged sectors; second 1 KB confirmed all-zero on disk → runtime-generated; 2.20 reconstruction done with PRODOS_INTERLEAVE; structural difference between 2.20 and 2.23 BIOS layout in staging)
 
 This file is the canonical session-recovery prompt for the Microsoft SoftCard CP/M reverse-engineering project. If this conversation crashes or context is lost, hand this file to a fresh assistant and it should be able to pick up exactly where we left off without losing any directives, conventions, or progress.
 
@@ -48,7 +48,11 @@ Joshua Norrid (of A2FPGA fame) reported that Microsoft SoftCard CP/M wasn't boot
 - **BIOS extraction is partial** (2026-04-27): Some routines (CONOUT, LIST, probably HOME/SELDSK/SETTRK) are at their nominal addresses in the file-offset extract and disassemble cleanly. Others (CONST/CONIN/BOOT/WBOOT) are NOT — the bytes at those addresses are a structured per-device dispatch table (4 entries × 16 bytes). About half the 2.23 BIOS is reachable; the per-device input/output handlers at $FF64-$FFDF, BOOT at $FED1, and the area below $FAB8 are not.
 - **LOAD_CPM fully reverse-engineered** (2026-04-27, Path A complete): At Apple $0BEB (= $BBEB after PREP_HANDOFF copy). Reads 29 sectors starting trk0:$0B sequentially, stages at $8000-$9CFF. PREP_HANDOFF then splits: $9700-$9CFF → Apple $0A00-$0FFF (Z-80 disk callbacks), $8000-$96FF → Apple $A300-$B9FF (CCP+BDOS+banner). Reconstruction script at `cpm-investigation/reconstruct_staging.py`. Extracted artifacts: `staging_223.bin`, `sysimg_223.bin`, `newdisk_223.bin`. The system image's tail confirms it's real CP/M with the boot banner string "Softcard CP/M / 60K Ver. 2.23 / (c) 1980,1982 Microsoft".
 - **Z-80 disk callbacks at Apple $0A00 = Z-80 $1A00 identified.** They reference $A3xx-$B9xx (CCP+BDOS) and contain a polling loop on `$E000` at $1E36 (the warm-boot's $0E36 target). The `LD A,($E000) / RLA / JR NC,$1E39 / LD ($E010),A` pattern is inter-CPU synchronization — Z-80 polls a flag the 6502 sets after disk I/O completes.
-- **BIOS still missing** (2026-04-27): The 1.3 KB BIOS at Z-80 $FAB8 isn't in the LOAD_CPM 29-sector load. It must be loaded later — most likely by the warm-boot/Z-80 callback dance after the SoftCard switch. Need to trace further into the callback code or do a third-party BIOS-load search.
+- **BIOS first 1 KB FOUND** (2026-04-27): Exact byte match. The bytes at staging offset $1900 (= Apple $9900) are BIOS $FAB8-$FEB7. After PREP_HANDOFF copies $9700-$9CFF to Apple $0A00-$0FFF, the BIOS first 1 KB lands at Apple $0C00-$0FFF. Some still-untraced step must copy these to LC RAM at $FAB8-$FEB7 before/during BIOS execution.
+- **BIOS second 1 KB is RUNTIME-GENERATED** (2026-04-27): Verified the "missing" trk2:$08-$0B sectors are all zeros on disk. The cold-boot area $FA00-$FAB7 is also all zeros/data. So the BIOS routines for BOOT/HOME/SELDSK/SETTRK/READ/WRITE and the per-device handlers at $FF64-$FFDF are GENERATED at runtime by the cold-boot code. SoftCard CP/M does code-generation at boot.
+- **2.20/2.23 BIOS layout differs structurally**: 2.20 BIOS jump table at staging offset $1700; 2.23 at $1900 (a 2-sector shift). 2.20 BIOS lands at the START of newdisk_220.bin (Apple $0A00); 2.23 at the END (Apple $0C00). Same 29-sector load mechanism, different content arrangement.
+- **2.20 reconstruction done**: staging_220.bin, sysimg_220.bin, newdisk_220.bin extracted. 2.20 has NO 'Softcard' banner (added in 2.23).
+- **Z-80 callbacks DO write into BIOS second half**: Found instructions like `LD HL,$FECB / LD (HL),A`, `LD HL,$FED4`, `LD ($FED2),A` in newdisk_223.bin. So the BIOS second half is BOTH runtime-generated code AND per-call state storage that the callbacks read/write.
 - **SoftCard CPU-switch trigger STILL not located** (2026-04-27): No direct $C0Bx writes in the 6502 loader, no Z-80 IN/OUT to plausible SoftCard ports in the disk callbacks, no obvious memory-mapped soft-switch access. Likely either: (a) hidden in CB/DD/ED/FD prefix instructions the disassembler doesn't decode, (b) a memory access pattern the SoftCard hardware monitors silently, (c) in BIOS code we don't have.
 
 ### Big-picture remaining work toward the deliverable
@@ -96,6 +100,7 @@ Existing entries (chronological):
 9. `cpm-videx-shared-address-spaces-2026-04-27.mdx` — $C800 lesson learned (corrected the Videx overreach)
 10. `cpm-videx-bios-trace-wall-2026-04-27.mdx` — CONOUT trace into BIOS hits the partial-extract wall
 11. `cpm-videx-load-cpm-2026-04-27.mdx` — LOAD_CPM cracked: 29-sector load, staging split, sysimg with banner, Z-80 disk callbacks at $0A00
+12. `cpm-videx-bios-runtime-generated-2026-04-27.mdx` — BIOS second 1 KB is all-zero on disk because it's runtime-generated; SoftCard CP/M does code generation at boot
 
 Pending devlog entries (write when reaching milestones):
 - The "no SoftCard CPU-switch in the loader" finding — could be its own entry or rolled into a Z-80-handoff entry
@@ -185,9 +190,10 @@ Pending devlog entries (write when reaching milestones):
 
 In priority order:
 
-1. **Find the BIOS materialization path.** LOAD_CPM does NOT load the BIOS — only CCP+BDOS+disk-callbacks. So the BIOS at $FAB8 must be loaded by post-switch Z-80 code. Most likely the Z-80 disk callbacks at $1A00 (= Apple $0A00) include a routine that orchestrates a second sector load to populate $FAB8+. Trace through the callback code at `cpm-investigation/newdisk_223.bin` (disassemble as Z-80 starting at $1A00) to find where it does this.
-2. **Repeat reconstruction for 2.20.** Run the reconstruction script with `PRODOS_INTERLEAVE` on `CPM220Disk1.po` to get sysimg_220.bin and newdisk_220.bin. Verify they're structurally identical to 2.23 (LOAD_CPM is the same routine; sectors should be at the same trk/sec; only content should differ).
-3. **Once full BIOS available** (after step 1): disassemble per-device handlers at `$FF64-$FFDF`, BOOT at `$FED1`, the area below `$FAB8`. Diff 2.20 vs 2.23 routine-by-routine. Data for Part 4 + Part 6.
-4. **SoftCard CPU-switch trigger:** still elusive. Three hypotheses to test: (a) decode CB/DD/ED/FD prefix opcodes in the disassembler — could surface IN/OUT instructions we're missing; (b) the switch happens in BIOS code we don't have yet (depends on step 1); (c) the SoftCard hardware uses a memory-access pattern (specific sequence of reads to slot ROM) — would need SoftCard hardware docs.
-5. **Draft Part 4 article** when the per-device handlers are understood.
-6. **Continue updating this resume-prompt.md after each significant step.**
+1. **Disassemble the populated BIOS first 1 KB carefully.** We have it (in `bios_223.bin[0:1024]`, also identical to `newdisk_223.bin[0x200:0x600]`). Map every routine: jump table, inline stubs, dispatch table, CONOUT, LIST, the helper at $FB45, and especially anything that LOOKS LIKE a code generator (writes to $FE/$FF area). The cold-boot generator must be in this area since it's the only BIOS code statically present.
+2. **Find the cold-boot generator.** Routine that runs first after Z-80 starts and populates the second 1 KB ($FA00-$FAB7 + $FEB8-$FFFF) with per-device handler code based on the device-code table at $03B9-$03BF. It must call into the per-device dispatch table at $FB0A to know what code to generate.
+3. **Trace the SoftCard CPU-switch.** With the BIOS first half disassembled, we should see how the Z-80 receives control. Likely the warm-boot routine at Apple $03C0 (6502) → JSR $0E36 (Z-80 code) is the trigger; SoftCard hardware monitors the 6502 entering this address range and flips. Verify with deeper Z-80 disasm.
+4. **Diff 2.20 vs 2.23 BIOS code generators.** Both versions have a populated 1 KB at the equivalent BIOS-base offset. The cold-boot generator differs between versions — that's where 2.23's Pascal-1.1 awareness lives. Diff would directly show what code 2.23 generates differently for device code 6.
+5. **Add CB/DD/ED/FD prefix decoding to z80disasm.** The current ED-prefix stub means we miss block instructions (LDIR, LDDR), IM instructions, IN/OUT to (C), and IX/IY operations. Likely needed to fully understand the BIOS and the cold-boot generator.
+6. **Draft Part 4 article** when the cold-boot generator is understood — that's the Pascal 1.1 driver path payoff.
+7. **Continue updating this resume-prompt.md after each significant step.**
