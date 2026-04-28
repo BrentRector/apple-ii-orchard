@@ -81,9 +81,10 @@ The site at `e:/Sites/wiseowl.com/` (Astro v6, Cloudflare Pages) hosts:
 - **Part 2 (published 2026-04-27)**: `cpm-videx-02-from-the-disk-ii-rom-to-the-z-80s-first-instruction.mdx` — Beginning-to-end narrative of the 6502 boot stage (per user's explicit request 2026-04-27). Honest about the SoftCard-switch open question.
 - **Part 3 (planned)**: Z-80 BIOS architecture and the SoftCard memory model
 - **Part 3 (published 2026-04-27)**: `cpm-videx-03-apple-memory-through-z-80-eyes.mdx` — SoftCard memory model (bit-12 XOR), CCP/BDOS/BIOS layering, 2.23 BIOS jump table, per-device dispatch table at $FB0A, partial-extraction problem
-- **Part 4 (planned)**: The Pascal 1.1 driver path. **BLOCKED by partial BIOS extraction** — per-device handlers at $FF64-$FFDF aren't in the extract.
-- **Part 5 (planned)**: From `JP $FA00` to `A>` — the full CP/M boot trace
-- **Part 6+ (planned)**: Differences inventory (every diff between 2.20 and 2.23, not just the Videx-related)
+- **Part 4 (published 2026-04-27)**: `cpm-videx-04-the-bios-that-half-exists.mdx` — LOAD_CPM mechanism, the staging splits, the discovery that half the BIOS is runtime-generated, the cooperative-CPU disk model, and the BIOS factory mental model
+- **Part 5 (planned)**: The BIOS factory — the cold-boot code generator that populates the runtime BIOS second half. Diffs 2.20's generator vs 2.23's. Real Pascal-1.1 driver path payoff.
+- **Part 6 (planned)**: From `JP $FA00` to `A>` — the full Z-80 boot trace
+- **Part 7 (planned)**: Every difference between 2.20 and 2.23 — full inventory
 
 ### Dev logs (`src/content/devlogs/cpm-videx-*-YYYY-MM-DD.mdx`)
 **One per topic / approach / area of investigation, NOT one per day.** When trying a different angle = new entry, even on the same day.
@@ -101,6 +102,8 @@ Existing entries (chronological):
 10. `cpm-videx-bios-trace-wall-2026-04-27.mdx` — CONOUT trace into BIOS hits the partial-extract wall
 11. `cpm-videx-load-cpm-2026-04-27.mdx` — LOAD_CPM cracked: 29-sector load, staging split, sysimg with banner, Z-80 disk callbacks at $0A00
 12. `cpm-videx-bios-runtime-generated-2026-04-27.mdx` — BIOS second 1 KB is all-zero on disk because it's runtime-generated; SoftCard CP/M does code generation at boot
+13. `cpm-videx-220-reconstruction-2026-04-27.mdx` — 2.20 reconstruction; same LOAD_CPM, different content layout (BIOS at staging $1700 vs $1900); no banner in 2.20
+14. `cpm-videx-bios-state-storage-2026-04-27.mdx` — Z-80 callbacks write into BIOS second half (LD HL,$FECB / LD (HL),A); BIOS second half is code AND state
 
 Pending devlog entries (write when reaching milestones):
 - The "no SoftCard CPU-switch in the loader" finding — could be its own entry or rolled into a Z-80-handoff entry
