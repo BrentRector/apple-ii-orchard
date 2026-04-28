@@ -1,6 +1,6 @@
 # Resume Prompt — Microsoft SoftCard CP/M Investigation
 
-**Last updated:** 2026-04-27 (after Part 4 article published; 14 devlogs total; LOAD_CPM and BIOS-factory model fully captured; both versions reconstructed; cold-boot generator analysis is the next concrete piece)
+**Last updated:** 2026-04-27 (15 devlogs published; cold-boot generator located at $FB70 — mislabeled as LIST in jump table; reset vector rewriting + BDOS vector planting + CCP/BDOS final-address relocation revealed; correction notes added to 3 earlier devlogs + Article 4)
 
 This file is the canonical session-recovery prompt for the Microsoft SoftCard CP/M reverse-engineering project. **If this conversation crashes or context is lost, hand this file to a fresh assistant and it should be able to pick up exactly where we left off without losing any directives, conventions, or progress.**
 
@@ -50,12 +50,17 @@ After the investigation through 2026-04-27, the SoftCard CP/M boot sequence is u
 ### The Z-80 side (Parts 3-4 covered the architecture; the runtime second half is open)
 
 10. **Z-80 starts at `$0000`** (= Apple `$1000`), reads `JP $FA00`, jumps to BIOS cold-boot.
-11. **BIOS cold-boot at `$FA00`** is in the runtime-generated half of the BIOS. The bytes there don't exist on disk — they get populated by code in the populated half. (How is exactly what Part 5 will trace.)
+11. **BIOS cold-boot enters somewhere in the populated 1 KB** — most code at `$FB70`+ (mislabeled as LIST in the jump table). The cold-boot routine sets up Z-80 stack, plants the standard CP/M BDOS call vector at Z-80 `$0005` (= `JP $9C06`), and **rewrites the Z-80 reset vector** from `JP $FA00` to `JP $FA03` (so subsequent warm-boots enter at `$FA03`, skipping the first cold-boot-only instruction).
 12. **CCP, BDOS, and BIOS first 1 KB** are loaded by LOAD_CPM. Final addresses:
-    - CCP+BDOS at Apple `$A300-$B9FF` (5.9 KB; tail bytes are the boot banner string `Softcard CP/M / 60K Ver. 2.23 / (c) 1980,1982 Microsoft`)
-    - BIOS first 1 KB (`$FAB8-$FEB7`) at Apple `$0C00-$0FFF` initially; some still-untraced step copies it to LC RAM `$FAB8` for Z-80 to use
-13. **BIOS second 1 KB (`$FA00-$FAB7` + `$FEB8-$FFFF`) is runtime-generated.** Verified empty on disk. Contains BOOT, HOME, SELDSK, SETTRK, READ, WRITE, the per-device input handlers at `$FF64-$FF9F`, the per-device output handlers at `$FFAC-$FFDF`, plus per-device state variables (current track at `$FECB`, sector at `$FED2`, DMA at `$FED4`, etc.).
+    - CCP+BDOS staged at Apple `$A300-$B9FF` (5.9 KB; tail bytes are the boot banner string `Softcard CP/M / 60K Ver. 2.23 / (c) 1980,1982 Microsoft`). **Some still-untraced step relocates this to the standard CP/M position around `$9406-$9C06`** before cold-boot — confirmed by the cold-boot routine planting `JP $9C06` (a BDOS-area address) at the BDOS call vector.
+    - BIOS first 1 KB (`$FAB8-$FEB7`) at Apple `$0C00-$0FFF` initially; some still-untraced step copies it to LC RAM `$FAB8` for Z-80 to use.
+13. **BIOS second 1 KB (`$FA00-$FAB7` + `$FEB8-$FFFF`) is runtime-generated** by the cold-boot routine at `$FB70`. The cold-boot CALLs into `$FA82` (in the runtime-generated `$FA00-$FAB7` area) — that area must be populated *before* the CALL, by code earlier in cold-boot. The `$FEB8-$FFFF` area gets populated as a mix of generated handler code AND per-device state variables (current track at `$FECB`, sector at `$FED2`, DMA at `$FED4`, etc.).
 14. **Cooperative-CPU disk I/O model**: When CP/M needs disk, the Z-80 BIOS routines write parameters into the BIOS state area (`$FECB`/`$FED2`/`$FED4`), call into the Z-80 disk callbacks at `$1A00`, which signal the 6502 via the `$E000`/`$E010` flag pair (the polling loop at Z-80 `$1E36-$1E44`). SoftCard hardware switches CPUs. 6502 reads the same state from the same Apple addresses, runs the original RWTS routines preserved at Apple `$BA00-$BFFF`, deposits sector data at the DMA address, signals completion. SoftCard switches back. Z-80 returns from callback.
+
+**Important corrections from the cold-boot finding:**
+- The dispatch table starts at `$FAEB` (not `$FB0A` as earlier devlogs had); 4 entries × 16 bytes ending at `$FB2A`.
+- The "LIST" / "PUNCH" / "READER" jump-table entries (`$FB70`, `$FB7F`, `$FB91`) are NOT real LIST/PUNCH/READER routines — they're alternate-entry-point midpoints into the cold-boot routine.
+- CONST target `$FB10` and CONIN target `$FB1A` are inside dispatch table entry 3's *padding area* — exactly where the cold-boot generator writes runtime CONST/CONIN code.
 
 ### The Pascal 1.0 vs 1.1 calling convention precision (Part 1's full payoff)
 
@@ -92,6 +97,7 @@ These are the user's explicit choices that future sessions need to respect:
 - **State things clearly, not cleverly.** Cryptic article titles bad; descriptive ones good. ("The Eleven Bytes That Recognize a Videx" was renamed to "Why Microsoft CP/M Didn't Recognize an 80-Column Card" after user feedback.)
 - **Honesty over completeness.** When something is inferred but not verified from disassembly, say so explicitly. Distinguish "known from reading the code" from "plausible hypothesis pending verification." Other LLMs have over-claimed and the user noticed.
 - **Don't conflate shared address spaces with specific cards.** `$C800-$CFFF` is the Apple ][ shared expansion-ROM window — any slot card uses it. Seeing `LD HL,$C800` in the BIOS proves expansion-ROM-aware, NOT Videx-aware. (User caught a Videx overreach on this.)
+- **Corrections, not rewrites.** When later findings contradict or refine earlier devlogs/articles, ADD a brief `**Update (YYYY-MM-DD):**` note at the end pointing forward to the corrected finding. Do NOT silently rewrite the body. The misinterpretation is part of the investigation narrative — readers following the chronology should see what was thought at the time and how it was corrected. (User explicit directive 2026-04-27.)
 - **Voice for devlogs**: terse, declarative, past tense, NO first-person pronouns ("Loaded the WOZ image" not "I loaded"). Em dashes for asides. ~200-400 words. End with a `**Status:**` line.
 - **Voice for articles**: long-form (~3000 words, 12-15 min reads), first-person ALLOWED and natural, rich technical context, references images/links.
 
@@ -115,7 +121,7 @@ The site at `e:/Sites/wiseowl.com/` is Astro v6, deployed to Cloudflare Pages.
 
 ### Dev logs (`src/content/devlogs/cpm-videx-*.mdx`)
 
-14 entries published, chronological:
+15 entries published, chronological:
 1. `cpm-videx-origin-2026-04-25.mdx` — Joshua's report, version classification
 2. `cpm-videx-disks-2026-04-26.mdx` — disk triage, boot stub elimination
 3. `cpm-videx-bios-2026-04-26.mdx` — Z-80 BIOS extraction dead-end, load addresses
@@ -123,13 +129,16 @@ The site at `e:/Sites/wiseowl.com/` is Astro v6, deployed to Cloudflare Pages.
 5. `cpm-videx-device-codes-2026-04-26.mdx` — partial: clues to what device codes mean
 6. `cpm-videx-boot-loader-2026-04-27.mdx` — Z-80 reset vector planting
 7. `cpm-videx-z80-disassembler-2026-04-27.mdx` — Z-80 disassembler online + CONOUT $C800 (later corrected)
-8. `cpm-videx-bios-partial-2026-04-27.mdx` — BIOS extraction partial; CONST/CONIN are dispatch table
+8. `cpm-videx-bios-partial-2026-04-27.mdx` — BIOS extraction partial; CONST/CONIN are dispatch table — **has Update notes**
 9. `cpm-videx-shared-address-spaces-2026-04-27.mdx` — $C800 lesson (corrected the Videx overreach)
-10. `cpm-videx-bios-trace-wall-2026-04-27.mdx` — CONOUT trace into BIOS hits the partial-extract wall
+10. `cpm-videx-bios-trace-wall-2026-04-27.mdx` — CONOUT trace into BIOS hits the partial-extract wall — **has Update note**
 11. `cpm-videx-load-cpm-2026-04-27.mdx` — LOAD_CPM cracked
-12. `cpm-videx-bios-runtime-generated-2026-04-27.mdx` — half the BIOS is runtime-generated
+12. `cpm-videx-bios-runtime-generated-2026-04-27.mdx` — half the BIOS is runtime-generated — **has Update note**
 13. `cpm-videx-220-reconstruction-2026-04-27.mdx` — 2.20 reconstruction
 14. `cpm-videx-bios-state-storage-2026-04-27.mdx` — Z-80 callbacks write to BIOS second half
+15. `cpm-videx-cold-boot-found-2026-04-27.mdx` — cold-boot generator located at $FB70 (mislabeled as LIST); reset vector rewrite, BDOS vector planting, CCP/BDOS final-address relocation revealed
+
+Articles with Update notes: Article 4 has a forward-pointer Update at the end pointing to the cold-boot finding devlog.
 
 ### Reference (`src/content/reference/`)
 - `apple-ii-tn-misc-8-pascal-1-1-firmware-protocol.mdx` — full text of Apple Tech Note Misc #8 (the only canonical Pascal protocol document)
@@ -212,6 +221,7 @@ resume-prompt.md          — THIS FILE
 - `reference_wiseowl_devlogs.md` — devlog conventions, schema, voice
 - `feedback_finding_vs_consequence.md` — editorial: don't celebrate detection; pivot to consequence
 - `feedback_apple_ii_address_specificity.md` — editorial: don't conflate shared address spaces with specific cards
+- `feedback_devlog_corrections.md` — editorial: when later findings refine earlier ones, add forward-pointer Update notes; don't silently rewrite
 
 ---
 
@@ -219,25 +229,25 @@ resume-prompt.md          — THIS FILE
 
 In priority order:
 
-1. **Disassemble the populated BIOS first 1 KB carefully.** The bytes are in `cpm-investigation/bios_223.bin[0:1024]` (also identical to `newdisk_223.bin[0x200:0x600]`). Map every routine: jump table ($FAB8-$FAE4), inline LISTST/SECTRAN stubs ($FAE5-$FB09), per-device dispatch table ($FB0A-$FB39), CONOUT ($FB4D), LIST ($FB70), the helper at $FB45. Identify anything that looks like a code generator (writes to `$FE/$FF` area) — that's the cold-boot generator.
+1. **Trace the cold-boot routine forward from `$FB70`.** The entry at `$FB70` is identified, but its full execution path isn't traced yet. Specifically: the `CALL $FA82` at `$FB7C` enters the supposedly-zero `$FA00-$FAB7` area — meaning code BEFORE `$FB70` (or the sentinel-check branch at `$FB97`) must populate `$FA82` with executable code first. Trace that. Also trace the JR Z branch at `$FB84` (sentinel `$9C08 == $9C` check) and the `JP $000B` at `$FB94` (jumping to Z-80 page 0 / Apple page 1).
 
-2. **Find the cold-boot generator.** The routine that runs first after Z-80 starts and populates the second 1 KB (`$FA00-$FAB7` + `$FEB8-$FFFF`) with per-device handler code based on the device-code table at Apple `$03B9-$03BF`. It must call into the per-device dispatch table at `$FB0A` to know what code to generate.
+2. **Find the actual code-generation logic.** The bytes at `$FB70-$FBB6` set up architectural fixed points (stack, BDOS vector, reset vector) but don't generate per-device handler code. The Pascal-1.1 driver code generation must happen elsewhere. Candidates: the `$FA82` callee, downstream code, or BIOS routines triggered by the first console-output call.
 
-3. **Diff 2.20 vs 2.23 BIOS code generators.** Both versions have a populated 1 KB at the equivalent BIOS-base offset. Once the generators are understood, the diff directly shows what code 2.23 generates differently for device code `$06` vs what 2.20 generates for `$04`. **This is the actual answer to "how does 2.23 drive a Videx and 2.20 doesn't"** — the deep payoff that's the Part 5 article material.
+3. **Find the CCP+BDOS relocation step.** The cold-boot routine plants `JP $9C06` at `$0005`. So BDOS final position is `$9C06`. But sysimg is staged at `$A300`. Some code must move it to its final position. Could be in cold-boot's earlier instructions OR in the BDOS itself once first invoked (BDOS often does its own relocation in CP/M 2.x).
 
-4. **Trace the SoftCard CPU-switch trigger.** With the BIOS first half disassembled, we may see how the Z-80 receives control. Likely the warm-boot routine at Apple `$03C0` (6502) → `JSR $0E36` (which is now Z-80 code) is the trigger; SoftCard hardware monitors the 6502 entering this address range and flips. Verify with deeper Z-80 disasm.
+4. **Diff 2.20 vs 2.23 cold-boot routines.** 2.20's BIOS jump table has LIST at `$DB66` (= `$DACC + $9A`); should contain analogous bytes. Direct diff of the cold-boot routines should pinpoint what 2.23 added for Pascal 1.1.
 
-5. **Add CB/DD/ED/FD prefix decoding to z80disasm.** The current ED-prefix stub means we miss block instructions (LDIR, LDDR), IM instructions, IN/OUT to (C), and IX/IY operations. May be needed to fully understand the cold-boot generator and the BIOS's per-device handlers (which might use IX/IY for table indexing).
+5. **Add CB/DD/ED/FD prefix decoding to z80disasm.** The `JP $000B` at `$FB94` is suspicious — Z-80 `$000B` = Apple `$100B` which is in the loader area. Maybe an instruction we can't decode yet would clarify. Also block instructions (LDIR, LDDR) are likely used in any code-generation step we haven't found.
 
-6. **Draft Part 5 article** when the cold-boot generator is understood. That's "The BIOS Factory."
+6. **Draft Part 5 article** when the cold-boot routine's full action is understood — "The BIOS Factory."
 
 7. **Continue updating this resume-prompt.md after each significant step.**
 
 ### Side tasks (lower priority but worth noting)
 
-- The `JSR $0E36` callee chain is partly traced (the inter-CPU sync at Z-80 `$1E36`). Could go deeper to find the actual SoftCard switch — but might need CB/DD/ED/FD decoding first.
-- The "missing" BIOS area `$FA00-$FAB7` (just below the jump table) is also runtime-generated; the cold-boot generator must produce it too. Where the Z-80's reset-vector target lands when bytes are zero is itself a question.
+- The `JSR $0E36` callee chain is partly traced (the inter-CPU sync at Z-80 `$1E36`). Could go deeper to find the actual SoftCard switch.
 - 2.20 and 2.23 sysimg files (CCP+BDOS) should be diffed — the bulk should be byte-identical (same Digital Research code), confirming our extraction is correct. Any differences would be Microsoft-side modifications worth investigating.
+- The `$F3xx` area (Apple TPA region) is referenced heavily by both Z-80 callbacks and BIOS code (`$F3B8`, `$F3D0`, `$F3DE`, `$F3A1`, `$F397`). It's a per-system-state area. Documenting what each `$F3xx` byte means would clarify many references.
 
 ---
 
