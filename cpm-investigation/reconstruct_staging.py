@@ -60,10 +60,10 @@ def reconstruct(disk_path, interleave):
 
 
 def main():
+    from nibbler.gcr import PRODOS_INTERLEAVE
     cases = [
         ('223', 'e:/Orchard/CPMV233.DSK',    DOS33_INTERLEAVE),
-        # 2.20 is a .po file; reuse this same script with PRODOS_INTERLEAVE
-        # if needed in a future run
+        ('220', 'e:/Orchard/CPM220Disk1.po', PRODOS_INTERLEAVE),
     ]
     for label, path, interleave in cases:
         staging, sysimg, new_disk, sector_log = reconstruct(path, interleave)
