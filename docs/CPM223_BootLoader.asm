@@ -1,26 +1,42 @@
 ; ============================================================================
-; Microsoft SoftCard CP/M 2.23 — 6502 Boot Loader
+; Microsoft SoftCard CP/M 2.23 -- 6502 Boot Loader (integrated source)
 ; Annotated disassembly of the loader as it exists in Apple ][ RAM
 ; after the boot stub completes.
 ;
 ; The loader occupies $0800-$13FF in Apple ][ RAM. It is loaded by the
-; Disk II P6 PROM (sector 0 → $0800) and then by the boot stub itself
-; (10 more sectors of track 0 → $0A00-$1300, in CP/M sector skew order).
+; Disk II P6 PROM (sector 0 -> $0800) and then by the boot stub itself
+; (10 more sectors of track 0 -> $0A00-$1300, in CP/M sector skew order).
 ;
-; This file annotates the well-understood sections:
-;   $0800-$083C  Boot stub (sector 0, runs first)
-;   $1000-$10FF  Stage-2 entry, install loops, slot scanner, dispatch
-;   $11BE-$11C5  Slot-scanner signature data table
-;   $13C0-$13DC  SoftCard handoff routine (gets installed at $03C0)
+; THIS FILE COVERS
+;   $0800-$08FF  Boot stub (sector 0; first 60 bytes are code, rest data)
+;   $1000-$11FF  Stage-2 entry, install loops, slot scanner, dispatch,
+;                boot-finalization, page-copy + checksum subroutines,
+;                strings, signature tables
+;   $13C0-$13DC  Warm-boot routine source (gets COPIED to runtime $03C0;
+;                full annotated source in CPM223_InstallFragments.asm)
 ;
-; Sections NOT yet annotated:
-;   $0A00-$0FFF  Disk read/write (RWTS-style GCR routines)
-;   $1100-$11AF  Subroutines + strings + small data tables
-;   $11B0-$11FF  More data
-;   $1200-$12FF  Page-2 install image (becomes Z-80 code at Apple $0200)
-;   $1300-$13BF  Page-3 install image (becomes Z-80 code at Apple $0300)
+; COMPANION FILES (separate ORG'd source for the same project)
+;   CPM223_InstallFragments.asm
+;     ORG $0200. The runtime view of $0200-$03FF, containing the
+;     warm-boot routine, per-device handler-target table, and small
+;     data blocks. Sourced FROM loader $1200-$13FF (this file's "page-2
+;     install image" and "page-3 install image" regions); installed
+;     by the copy loops at $1044, $104F, $10F1 in this file.
 ;
-; The companion narrative is docs/CPM_BootLoader.md.
+;   CPM223_RWTS.asm
+;     ORG $0A00. The clean 6502 disk-routine block at $0A00-$0C38
+;     (WRITE_SECTOR, READ_SECTOR, SEEK_TRACK, LOAD_CPM_LOOP). The bytes
+;     at $0C39-$0FFF in the loader image are BIOS first 1 KB content
+;     (Z-80 code, not 6502) and will be covered in CPM223_BIOS.asm.
+;
+; SECTIONS PARTIALLY ANNOTATED HERE
+;   The disk I/O block at $0A00-$0FFF is summarized below by entry
+;   point only; per-instruction disassembly is in CPM223_RWTS.asm.
+;   The page-2 and page-3 install images at $1200-$13FF are documented
+;   structurally; their runtime form is in CPM223_InstallFragments.asm.
+;
+; The companion narrative is docs/CPM_BootLoader.md and the
+; per-physical-sector reference is docs/CPM_DiskSectorMap.md.
 ;
 ; Source: nibbler 6502 disassembly of CPMV233.DSK track 0, reconstructed
 ; into the Apple ][ memory layout the boot stub creates.
@@ -732,37 +748,29 @@ $11C2:      .BYTE $48, $3C, $38, $18     ; expected $Cn07 for entries 4,3,2,1
 
 
 ; ============================================================================
-; SECTION 8 — SoftCard handoff routine ($13C0-$13DC)
+; SECTION 8 -- Warm-boot routine source ($13C0-$13DC)
 ;
-; This routine is COPIED to $03C0 by the install loop (Section 4). It
-; runs there, performing the actual CPU switch from 6502 to Z-80.
-;
-; Self-modifying: the STA $FFFF at $13C6 has its operand overwritten
-; by the slot scanner ($1064 STY $1069 modifies $1069, but a separate
-; mechanism patches the $03C7/$03C8 handoff code via $108B/$108D STAs).
+; This routine is COPIED to $03C0 by the install loop at $10F1 (Section 4).
+; It RUNS at $03C0 after the install. Full annotated source — including
+; the discovery that JSR $0E36 is the SoftCard CPU-switch trigger — is
+; in CPM223_InstallFragments.asm. The bytes here in the loader image
+; are the SOURCE (loaded from track 0 physical sector 5).
 ; ============================================================================
 
-; Bytes here as they exist in the loader image; once installed at $03C0
-; they execute from there.
-
 WARM_BOOT_IMAGE:
-$13C0:      LDA LC_WR_RAM       ;
-$13C3:      LDA LC_WR_RAM       ; second access: enable write+read RAM
-$13C6:      STA $FFFF           ; SELF-MODIFIED operand. After scanner runs,
-                                ; the operand becomes $Cn00 — touching the
-                                ; slot's expansion-ROM-select switch to page
-                                ; the slot's ROM into $C800-$CFFF.
-$13C9:      LDA LC_RD_RAM       ; back to read-from-ROM mode
-$13CC:      JSR $0E36           ; call into the loader's Phase-3 install fragment
-                                ; (this is in the loader area at Apple $0E36 —
-                                ; loaded from sector A of track 0 at offset $E36
-                                ; within that sector)
-$13CF:      JSR IORTS           ; immediate-RTS landing pad (no-op call)
-$13D2:      STA LC_RD_RAM       ;
-$13D5:      SEI                 ; disable interrupts (about to switch CPUs)
-$13D6:      JSR SAVE            ; save 6502 register state
-$13D9:      JMP $03C0           ; loop back to start of warm-boot
-
-; The actual SoftCard CPU-switch toggle (write to $C0Bx for the Z-80's
-; slot) is not visible here — it lives elsewhere, possibly in the JSR
-; $0E36 callee. Identifying that exact instruction is open work.
+$13C0:      LDA LC_WR_RAM       ; (1) bank in LC RAM (read+write, bank 1)
+$13C3:      LDA LC_WR_RAM       ; (2) twice -- Apple LC bank-switch protocol
+$13C6:      STA $FFFF           ; (3) write to $FFFF -- touch LC RAM top page
+$13C9:      LDA LC_RD_RAM       ; (4) bank to LC bank 2
+$13CC:      JSR $0E36           ; (5) <- CPU-SWITCH TRIGGER
+                                ;     Apple $0E36 holds Z-80 instruction
+                                ;     bytes (C3 39 FB = JP $FB39); the
+                                ;     SoftCard hardware monitors the 6502's
+                                ;     fetch and uses it to flip the bus to
+                                ;     Z-80. See CPM223_InstallFragments.asm
+                                ;     and Part 10 of the article series.
+$13CF:      JSR IORTS           ; (6) one-byte RTS at $FF58 (no-op call)
+$13D2:      STA LC_RD_RAM       ; (7) touch LC RAM read switch
+$13D5:      SEI                 ; (8) disable interrupts
+$13D6:      JSR SAVE            ; (9) call $FF4A monitor routine
+$13D9:      JMP $03C0           ; (10) loop back to start (perpetual)
