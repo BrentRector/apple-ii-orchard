@@ -3,7 +3,7 @@ import subprocess
 
 result = subprocess.run(
     ['python', '-m', 'nibbler', 'z80disasm', 'cpm-investigation/diskcallbacks_223.bin',
-     '--base', '0x1A00', '--start', '0x1A00', '--end', '0x1BFF'],
+     '--base', '0x1A00', '--start', '0x1A00', '--end', '0x1BFF', '--format', 'asm'],
     capture_output=True,
 )
 disasm = result.stdout.decode('utf-8', errors='replace')

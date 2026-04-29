@@ -238,27 +238,29 @@ ROM_COMMENTS = {
 }
 
 
-def disassemble_region(data, base_addr, start=None, end=None):
+def disassemble_region(data, base_addr, start=None, end=None, format='listing'):
     """Simple linear disassembly of a byte buffer.
 
     Disassembles every byte sequentially as code, with no attempt to
     distinguish code from data. Useful for quick inspection of small regions
     known to be code, or for hex-dump-style output.
 
-    Each output line includes the address, raw hex bytes, mnemonic, operand,
-    and (for absolute-addressed instructions) any known hardware register
-    or ROM entry point comment.
-
     Args:
         data: bytes/bytearray to disassemble.
         base_addr: Memory address corresponding to the first byte of data.
         start: Address to begin disassembly (default: base_addr).
         end: Address to stop disassembly (default: base_addr + len(data)).
+        format: 'listing' (default) for human-readable disassembly with
+                address/byte prefix, or 'asm' for compilable 6502
+                assembly source (instruction in the leading column,
+                with the address and raw bytes in a trailing comment).
+                The caller is responsible for emitting the ``.org`` (or
+                equivalent) directive that positions the assembled
+                output. The 'asm' format reassembles with ca65 (cc65),
+                dasm, or any standard 6502 assembler.
 
     Returns:
-        List of formatted strings, one per instruction. Example:
-            ['  $4000: A9 05    LDA #$05',
-             '  $4002: 8D 30 C0 STA $C030  ; toggle speaker']
+        List of formatted strings.
     """
     if start is None:
         start = base_addr
@@ -334,7 +336,16 @@ def disassemble_region(data, base_addr, start=None, end=None):
             if mnem == "JSR" and target in ROM_COMMENTS:
                 comment = f"  ; {ROM_COMMENTS[target]}"
 
-        lines.append(f"  ${addr:04X}: {raw} {mnem}{operand}{comment}")
+        if format == 'asm':
+            instr_text = f'{mnem}{operand}'
+            cmt = f'; ${addr:04X} {raw.strip()}'
+            if comment:
+                # Existing comment looks like "  ; <text>"; merge in
+                cmt_text = comment.lstrip().lstrip(';').strip()
+                cmt = f'{cmt} - {cmt_text}'
+            lines.append(f'            {instr_text:<32}{cmt}')
+        else:
+            lines.append(f"  ${addr:04X}: {raw} {mnem}{operand}{comment}")
         addr += size
 
     return lines

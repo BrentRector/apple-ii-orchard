@@ -4,7 +4,7 @@ import sys
 
 result = subprocess.run(
     ['python', '-m', 'nibbler', 'disasm', 'cpm-investigation/rwts_223.bin',
-     '--base', '0x0A00', '--start', '0x0A00', '--end', '0x0C39'],
+     '--base', '0x0A00', '--start', '0x0A00', '--end', '0x0C39', '--format', 'asm'],
     capture_output=True,
 )
 disasm_text = result.stdout.decode('utf-8', errors='replace')

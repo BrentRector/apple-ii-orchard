@@ -3,7 +3,7 @@ import subprocess
 
 result = subprocess.run(
     ['python', '-m', 'nibbler', 'z80disasm', 'cpm-investigation/bios_220.bin',
-     '--base', '0xDACC', '--start', '0xDACC', '--end', '0xE2CB'],
+     '--base', '0xDACC', '--start', '0xDACC', '--end', '0xE2CB', '--format', 'asm'],
     capture_output=True,
 )
 disasm = result.stdout.decode('utf-8', errors='replace')

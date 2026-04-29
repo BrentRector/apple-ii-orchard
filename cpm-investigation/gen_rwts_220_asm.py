@@ -4,7 +4,7 @@ import subprocess
 # Disassemble entire 2.20 RWTS region (1.5 KB)
 result = subprocess.run(
     ['python', '-m', 'nibbler', 'disasm', 'cpm-investigation/rwts_220.bin',
-     '--base', '0x0A00', '--start', '0x0A00', '--end', '0x0E10'],
+     '--base', '0x0A00', '--start', '0x0A00', '--end', '0x0E10', '--format', 'asm'],
     capture_output=True,
 )
 disasm_text = result.stdout.decode('utf-8', errors='replace')

@@ -377,6 +377,7 @@ def cmd_disasm(args):
     base = parse_addr(args.base) if args.base else 0x0000
     start = parse_addr(args.start) if args.start else base
     end = parse_addr(args.end) if args.end else base + len(data)
+    fmt = getattr(args, 'format', 'listing')
 
     if args.recursive:
         # Recursive descent disassembly
@@ -390,13 +391,22 @@ def cmd_disasm(args):
         add_hardware_comments(dis, mem)
 
         lines = dis.disassemble_range(start, end)
-        for addr, label, instr, comment in lines:
-            prefix = f"{label:16s}" if label else " " * 16
-            suffix = f"  ; {comment}" if comment else ""
-            print(f"${addr:04X}  {prefix} {instr}{suffix}")
+        if fmt == 'asm':
+            for addr, label, instr, comment in lines:
+                if label:
+                    print(f'{label}:')
+                cmt = f'; ${addr:04X}'
+                if comment:
+                    cmt = f'{cmt} - {comment.lstrip().lstrip(";").strip()}'
+                print(f'            {instr:<32}{cmt}')
+        else:
+            for addr, label, instr, comment in lines:
+                prefix = f"{label:16s}" if label else " " * 16
+                suffix = f"  ; {comment}" if comment else ""
+                print(f"${addr:04X}  {prefix} {instr}{suffix}")
     else:
         # Linear disassembly
-        lines = disassemble_region(data, base, start, end)
+        lines = disassemble_region(data, base, start, end, format=fmt)
         for line in lines:
             print(line)
 
@@ -417,8 +427,9 @@ def cmd_z80disasm(args):
     base = parse_addr(args.base) if args.base else 0x0000
     start = parse_addr(args.start) if args.start else base
     end = parse_addr(args.end) if args.end else base + len(data)
+    fmt = getattr(args, 'format', 'listing')
 
-    lines = disassemble_region(data, base, start, end)
+    lines = disassemble_region(data, base, start, end, format=fmt)
     for line in lines:
         print(line)
 
@@ -497,6 +508,10 @@ def main():
     p_disasm.add_argument('--entry', help='Entry point for recursive descent (hex)')
     p_disasm.add_argument('-r', '--recursive', action='store_true',
                           help='Use recursive descent (vs linear)')
+    p_disasm.add_argument('--format', choices=['listing', 'asm'], default='listing',
+                          help='Output format: "listing" (default, human-readable '
+                               'with address+bytes prefix) or "asm" (compilable '
+                               '6502 source, ready for ca65/dasm).')
 
     # z80disasm
     p_z80 = subparsers.add_parser('z80disasm', help='Disassemble Z-80 binary (linear)')
@@ -504,6 +519,10 @@ def main():
     p_z80.add_argument('--base', help='Base address (hex, default 0x0000)')
     p_z80.add_argument('--start', help='Start address (hex)')
     p_z80.add_argument('--end', help='End address (hex)')
+    p_z80.add_argument('--format', choices=['listing', 'asm'], default='listing',
+                        help='Output format: "listing" (default, human-readable '
+                             'with address+bytes prefix) or "asm" (compilable '
+                             'Z-80 source, ready for sjasmplus/pasmo/z80asm).')
 
     args = parser.parse_args()
 

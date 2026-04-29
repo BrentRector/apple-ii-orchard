@@ -255,37 +255,48 @@ def disassemble_one(buf: bytes, offset: int, addr: int) -> tuple:
         else:
             raw.append(0)
 
-    # Substitute operands into the template
+    # Substitute operands into the template. Hex literals get a "$" prefix
+    # so the output is consumable by Z-80 assemblers (sjasmplus, pasmo,
+    # z80asm, etc.) without post-processing.
     text = template
     if '${NN}' in text:
         # Little-endian 16-bit immediate at offset+1, offset+2
         word = raw[1] | (raw[2] << 8)
-        text = text.replace('${NN}', f'{word:04X}')
+        text = text.replace('${NN}', f'${word:04X}')
     if '${N}' in text:
-        text = text.replace('${N}', f'{raw[1]:02X}')
+        text = text.replace('${N}', f'${raw[1]:02X}')
     if '${E}' in text:
         # Signed 8-bit displacement, target = (addr + 2) + signed e
         e = raw[1]
         if e & 0x80:
             e -= 0x100
         target = (addr + 2 + e) & 0xFFFF
-        text = text.replace('${E}', f'{target:04X}')
+        text = text.replace('${E}', f'${target:04X}')
 
     raw_text = ' '.join(f'{b:02X}' for b in raw)
     return (text, n_bytes, raw_text)
 
 
 def disassemble_region(buf: bytes, base_addr: int,
-                       start_addr: int = None, end_addr: int = None) -> list:
+                       start_addr: int = None, end_addr: int = None,
+                       format: str = 'listing') -> list:
     """Linearly disassemble buf, treating every byte as code.
-
-    Returns a list of formatted strings, one per instruction.
 
     Args:
         buf: bytes buffer
         base_addr: Z-80 address corresponding to buf[0]
         start_addr: address to start from (default: base_addr)
         end_addr: address to stop at (default: base_addr + len(buf))
+        format: 'listing' (default) for human-readable disassembly with
+                address/byte prefix, or 'asm' for compilable assembly
+                source (instruction in the leading column, with the
+                address and raw bytes in a trailing comment). The
+                caller is responsible for emitting the ``.org`` (or
+                equivalent) directive that positions the assembled
+                output. The 'asm' format reassembles with sjasmplus,
+                pasmo, z80asm, or any standard Z-80 assembler.
+
+    Returns a list of formatted strings.
     """
     if start_addr is None:
         start_addr = base_addr
@@ -301,7 +312,10 @@ def disassemble_region(buf: bytes, base_addr: int,
         text, n, raw = disassemble_one(buf, offset, addr)
         if n == 0:
             break
-        lines.append(f'  ${addr:04X}: {raw:<8s}  {text}')
+        if format == 'asm':
+            lines.append(f'            {text:<32}; ${addr:04X} {raw}')
+        else:
+            lines.append(f'  ${addr:04X}: {raw:<8s}  {text}')
         addr += n
     return lines
 

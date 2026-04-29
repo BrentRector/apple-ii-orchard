@@ -13,7 +13,7 @@ import os
 # Disassemble at $8000 base for parallel comparison with 2.23.
 result = subprocess.run(
     ['python', '-m', 'nibbler', 'z80disasm', 'cpm-investigation/sysimg_220.bin',
-     '--base', '0x8000', '--start', '0x8000', '--end', '0x96FF'],
+     '--base', '0x8000', '--start', '0x8000', '--end', '0x96FF', '--format', 'asm'],
     capture_output=True,
 )
 disasm = result.stdout.decode('utf-8', errors='replace')

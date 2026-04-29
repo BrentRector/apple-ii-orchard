@@ -6,7 +6,7 @@ import subprocess
 # we only want $FAB8-$FFFF here.
 result = subprocess.run(
     ['python', '-m', 'nibbler', 'z80disasm', 'cpm-investigation/bios_223.bin',
-     '--base', '0xFAB8', '--start', '0xFAB8', '--end', '0xFFFF'],
+     '--base', '0xFAB8', '--start', '0xFAB8', '--end', '0xFFFF', '--format', 'asm'],
     capture_output=True,
 )
 disasm = result.stdout.decode('utf-8', errors='replace')

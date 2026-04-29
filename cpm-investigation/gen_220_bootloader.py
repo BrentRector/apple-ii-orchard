@@ -4,7 +4,7 @@ import subprocess
 # Disassemble boot stub area
 result_stub = subprocess.run(
     ['python', '-m', 'nibbler', 'disasm', 'cpm-investigation/loader_220.bin',
-     '--base', '0x0800', '--start', '0x0800', '--end', '0x0840'],
+     '--base', '0x0800', '--start', '0x0800', '--end', '0x0840', '--format', 'asm'],
     capture_output=True,
 )
 stub_disasm = result_stub.stdout.decode('utf-8', errors='replace')
@@ -13,7 +13,7 @@ stub_lines = [l[2:] if l.startswith('  ') else l for l in stub_disasm.split('\n'
 # Disassemble stage-2 loader area
 result_s2 = subprocess.run(
     ['python', '-m', 'nibbler', 'disasm', 'cpm-investigation/loader_220.bin',
-     '--base', '0x0800', '--start', '0x1000', '--end', '0x1200'],
+     '--base', '0x0800', '--start', '0x1000', '--end', '0x1200', '--format', 'asm'],
     capture_output=True,
 )
 s2_disasm = result_s2.stdout.decode('utf-8', errors='replace')
