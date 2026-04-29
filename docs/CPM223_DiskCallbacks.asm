@@ -1,0 +1,493 @@
+; ============================================================================
+; Microsoft SoftCard CP/M 2.23 -- Z-80 Disk Callbacks ($1A00-$1BFF)
+; Annotated Z-80 assembly source for the disk-callback area Z-80 sees
+; in TPA-area memory (under SoftCard's bit-12 XOR mapping).
+;
+; LOCATION
+;   Apple-side: $0A00-$0BFF (after PREP_HANDOFF). Sourced from the last
+;   6 pages of LOAD_CPM staging at Apple $9700-$98FF.
+;   Z-80-side: $1A00-$1BFF (via bit-12 XOR for low addresses).
+;
+;   NOTE: The bytes here are SEPARATE from the BIOS at $FAB8 -- two
+;   different physical memory regions. The BIOS is in LC RAM (or
+;   SoftCard high-RAM); these callbacks are in Apple main RAM.
+;
+; PURPOSE
+;   These are the BDOS-side and disk-I/O thunks the Z-80 calls when
+;   CP/M needs to dispatch through the cooperative-CPU model. The
+;   callbacks set up parameters in BIOS state slots and then trigger
+;   the CPU switch via the inter-CPU sync polling at $1E39.
+;
+;   The polling loop at $1E39-$1E44 itself is NOT in this file -- it
+;   lives in the BIOS first 1 KB content at $1C00-$1FFF (which is the
+;   same bytes as BIOS $FAB8-$FEB7 dual-mapped). See CPM223_BIOS.asm
+;   for the polling loop annotation.
+;
+; STRUCTURE
+;   $1A00-$1A2F  Small BDOS-style thunks (mostly 3-byte JP entries
+;                into $9F/$A1/$A9 BDOS area)
+;   $1A30-$1A52  More thunks
+;   $1A53-$1AAF  State-manipulation routines + disk-callback bodies
+;   $1AB0-$1BFF  Mostly zero-filled / runtime-mutable state
+; ============================================================================
+
+; ----------------------------------------------------------------------------
+; BDOS-area addresses (after CCP+BDOS relocation to $9C06+)
+; ----------------------------------------------------------------------------
+BDOS_9F01       = $9F01       ; BDOS internal entry
+BDOS_9F41       = $9F41       ; BDOS state byte
+BDOS_9F42       = $9F42       ; BDOS state byte
+BDOS_9F43       = $9F43       ; BDOS state byte
+BDOS_9F45       = $9F45       ; BDOS state pointer
+
+BDOS_A301       = $A301       ; BDOS function dispatch
+BDOS_A43B       = $A43B
+BDOS_A793       = $A793
+BDOS_A79C       = $A79C
+BDOS_A7D2       = $A7D2
+BDOS_A851       = $A851
+BDOS_A929       = $A929       ; common BDOS entry
+BDOS_A9AD       = $A9AD       ; (state byte address)
+BDOS_A9AF       = $A9AF
+BDOS_A9B1       = $A9B1
+BDOS_A9BB       = $A9BB
+BDOS_A9BF       = $A9BF
+BDOS_A9D6       = $A9D6
+BDOS_A93B       = $A93B
+
+BDOS_A1DA       = $A1DA
+
+; ----------------------------------------------------------------------------
+; BIOS state (in trap-marker pages within $FAB8-$FFFF, dual-mapped at
+; $1Cxx-$1FFF here)
+; ----------------------------------------------------------------------------
+state_FECB      = $FECB
+state_FED2      = $FED2
+state_FED4      = $FED4
+
+            .ORG $1A00
+
+
+; ============================================================================
+; SECTION 1 -- BDOS dispatch thunks ($1A00-$1A40)
+;
+; Small entry points that do parameter setup and JP into the BDOS
+; proper. Some are 4-byte (single-byte op + 3-byte JP); others have
+; a small prologue. Indexed/used by CCP and other BDOS-callers.
+; ============================================================================
+
+CALLBACKS_START:
+$1A00: A9        XOR C
+$1A01: C3 29 A9  JP A929
+$1A04: 3A 42 9F  LD A,(9F42)
+$1A07: C3 01 9F  JP 9F01
+$1A0A: EB        EX DE,HL
+$1A0B: 22 B1 A9  LD (A9B1),HL
+$1A0E: C3 DA A1  JP A1DA
+$1A11: 2A BF A9  LD HL,(A9BF)
+$1A14: C3 29 A9  JP A929
+$1A17: 2A AD A9  LD HL,(A9AD)
+$1A1A: C3 29 A9  JP A929
+$1A1D: CD 51 A8  CALL A851
+$1A20: CD 3B A4  CALL A43B
+$1A23: C3 01 A3  JP A301
+$1A26: 2A BB A9  LD HL,(A9BB)
+$1A29: 22 45 9F  LD (9F45),HL
+$1A2C: C9        RET
+$1A2D: 3A D6 A9  LD A,(A9D6)
+$1A30: FE FF     CP FF
+$1A32: C2 3B A9  JP NZ,A93B
+$1A35: 3A 41 9F  LD A,(9F41)
+$1A38: C3 01 9F  JP 9F01
+$1A3B: E6 1F     AND 1F
+$1A3D: 32 41 9F  LD (9F41),A
+$1A40: C9        RET
+$1A41: CD 51 A8  CALL A851
+$1A44: C3 93 A7  JP A793
+$1A47: CD 51 A8  CALL A851
+$1A4A: C3 9C A7  JP A79C
+$1A4D: CD 51 A8  CALL A851
+$1A50: C3 D2 A7  JP A7D2
+$1A53: 2A 43 9F  LD HL,(9F43)
+$1A56: 7D        LD A,L
+$1A57: 2F        CPL
+$1A58: 5F        LD E,A
+$1A59: 7C        LD A,H
+$1A5A: 2F        CPL
+$1A5B: 2A AF A9  LD HL,(A9AF)
+$1A5E: A4        AND H
+$1A5F: 57        LD D,A
+$1A60: 7D        LD A,L
+$1A61: A3        AND E
+$1A62: 5F        LD E,A
+$1A63: 2A AD A9  LD HL,(A9AD)
+$1A66: EB        EX DE,HL
+$1A67: 22 AF A9  LD (A9AF),HL
+$1A6A: 7D        LD A,L
+$1A6B: A3        AND E
+$1A6C: 6F        LD L,A
+$1A6D: 7C        LD A,H
+$1A6E: A2        AND D
+$1A6F: 67        LD H,A
+$1A70: 22 AD A9  LD (A9AD),HL
+$1A73: C9        RET
+$1A74: 3A DE A9  LD A,(A9DE)
+$1A77: B7        OR A
+$1A78: CA 91 A9  JP Z,A991
+$1A7B: 2A 43 9F  LD HL,(9F43)
+$1A7E: 36 00     LD (HL),00
+$1A80: 3A E0 A9  LD A,(A9E0)
+$1A83: B7        OR A
+$1A84: CA 91 A9  JP Z,A991
+$1A87: 77        LD (HL),A
+$1A88: 3A DF A9  LD A,(A9DF)
+$1A8B: 32 D6 A9  LD (A9D6),A
+$1A8E: CD 45 A8  CALL A845
+$1A91: 2A 0F 9F  LD HL,(9F0F)
+$1A94: F9        LD SP,HL
+$1A95: 2A 45 9F  LD HL,(9F45)
+$1A98: 7D        LD A,L
+$1A99: 44        LD B,H
+$1A9A: C9        RET
+$1A9B: CD 51 A8  CALL A851
+$1A9E: 3E 02     LD A,02
+$1AA0: 32 D5 A9  LD (A9D5),A
+$1AA3: 0E 00     LD C,00
+$1AA5: CD 07 A7  CALL A707
+$1AA8: CC 03 A6  CALL Z,A603
+$1AAB: C9        RET
+$1AAC: E5        PUSH HL
+$1AAD: 00        NOP
+$1AAE: 00        NOP
+$1AAF: 00        NOP
+$1AB0: 00        NOP
+$1AB1: 80        ADD A,B
+$1AB2: 00        NOP
+$1AB3: 00        NOP
+$1AB4: 00        NOP
+$1AB5: 00        NOP
+$1AB6: 00        NOP
+$1AB7: 00        NOP
+$1AB8: 00        NOP
+$1AB9: 00        NOP
+$1ABA: 00        NOP
+$1ABB: 00        NOP
+$1ABC: 00        NOP
+$1ABD: 00        NOP
+$1ABE: 00        NOP
+$1ABF: 00        NOP
+$1AC0: 00        NOP
+$1AC1: 00        NOP
+$1AC2: 00        NOP
+$1AC3: 00        NOP
+$1AC4: 00        NOP
+$1AC5: 00        NOP
+$1AC6: 00        NOP
+$1AC7: 00        NOP
+$1AC8: 00        NOP
+$1AC9: 00        NOP
+$1ACA: 00        NOP
+$1ACB: 00        NOP
+$1ACC: 00        NOP
+$1ACD: 00        NOP
+$1ACE: 00        NOP
+$1ACF: 00        NOP
+$1AD0: 00        NOP
+$1AD1: 00        NOP
+$1AD2: 00        NOP
+$1AD3: 00        NOP
+$1AD4: 00        NOP
+$1AD5: 00        NOP
+$1AD6: 00        NOP
+$1AD7: 00        NOP
+$1AD8: 00        NOP
+$1AD9: 00        NOP
+$1ADA: 00        NOP
+$1ADB: 00        NOP
+$1ADC: 00        NOP
+$1ADD: 00        NOP
+$1ADE: 00        NOP
+$1ADF: 00        NOP
+$1AE0: 00        NOP
+$1AE1: 00        NOP
+$1AE2: 00        NOP
+$1AE3: 00        NOP
+$1AE4: 00        NOP
+$1AE5: 00        NOP
+$1AE6: 00        NOP
+$1AE7: 00        NOP
+$1AE8: 00        NOP
+$1AE9: 00        NOP
+$1AEA: 00        NOP
+$1AEB: 00        NOP
+$1AEC: 00        NOP
+$1AED: 00        NOP
+$1AEE: 00        NOP
+$1AEF: 00        NOP
+$1AF0: 00        NOP
+$1AF1: 00        NOP
+$1AF2: 00        NOP
+$1AF3: 00        NOP
+$1AF4: 00        NOP
+$1AF5: 00        NOP
+$1AF6: 00        NOP
+$1AF7: 00        NOP
+$1AF8: 00        NOP
+$1AF9: 00        NOP
+$1AFA: 00        NOP
+$1AFB: 00        NOP
+$1AFC: 00        NOP
+$1AFD: 00        NOP
+$1AFE: 00        NOP
+$1AFF: 00        NOP
+$1B00: FF        RST $38
+$1B01: FF        RST $38
+$1B02: 00        NOP
+$1B03: 00        NOP
+$1B04: FF        RST $38
+$1B05: FF        RST $38
+$1B06: 00        NOP
+$1B07: 00        NOP
+$1B08: FF        RST $38
+$1B09: FF        RST $38
+$1B0A: 00        NOP
+$1B0B: 00        NOP
+$1B0C: FF        RST $38
+$1B0D: FF        RST $38
+$1B0E: 00        NOP
+$1B0F: 00        NOP
+$1B10: FF        RST $38
+$1B11: FF        RST $38
+$1B12: 00        NOP
+$1B13: 00        NOP
+$1B14: FF        RST $38
+$1B15: FF        RST $38
+$1B16: 10 10     DJNZ 1B28
+$1B18: FF        RST $38
+$1B19: FF        RST $38
+$1B1A: 00        NOP
+$1B1B: 10 FF     DJNZ 1B1C
+$1B1D: FF        RST $38
+$1B1E: 10 00     DJNZ 1B20
+$1B20: FF        RST $38
+$1B21: FF        RST $38
+$1B22: 00        NOP
+$1B23: 00        NOP
+$1B24: FF        RST $38
+$1B25: FF        RST $38
+$1B26: 10 10     DJNZ 1B38
+$1B28: FF        RST $38
+$1B29: FF        RST $38
+$1B2A: 00        NOP
+$1B2B: 10 FF     DJNZ 1B2C
+$1B2D: FF        RST $38
+$1B2E: 10 00     DJNZ 1B30
+$1B30: F7        RST $30
+$1B31: F7        RST $30
+$1B32: 00        NOP
+$1B33: 00        NOP
+$1B34: F7        RST $30
+$1B35: F7        RST $30
+$1B36: 00        NOP
+$1B37: 10 F7     DJNZ 1B30
+$1B39: F7        RST $30
+$1B3A: 00        NOP
+$1B3B: 00        NOP
+$1B3C: F7        RST $30
+$1B3D: F7        RST $30
+$1B3E: 10 00     DJNZ 1B40
+$1B40: FF        RST $38
+$1B41: FF        RST $38
+$1B42: 00        NOP
+$1B43: 00        NOP
+$1B44: FF        RST $38
+$1B45: FF        RST $38
+$1B46: 10 10     DJNZ 1B58
+$1B48: FF        RST $38
+$1B49: FF        RST $38
+$1B4A: 00        NOP
+$1B4B: 10 FF     DJNZ 1B4C
+$1B4D: FF        RST $38
+$1B4E: 10 00     DJNZ 1B50
+$1B50: FF        RST $38
+$1B51: FF        RST $38
+$1B52: 00        NOP
+$1B53: 00        NOP
+$1B54: FF        RST $38
+$1B55: FF        RST $38
+$1B56: 00        NOP
+$1B57: 00        NOP
+$1B58: FF        RST $38
+$1B59: FF        RST $38
+$1B5A: 00        NOP
+$1B5B: 00        NOP
+$1B5C: FF        RST $38
+$1B5D: FF        RST $38
+$1B5E: 00        NOP
+$1B5F: 00        NOP
+$1B60: FF        RST $38
+$1B61: FF        RST $38
+$1B62: 00        NOP
+$1B63: 00        NOP
+$1B64: FF        RST $38
+$1B65: FF        RST $38
+$1B66: 00        NOP
+$1B67: 00        NOP
+$1B68: FF        RST $38
+$1B69: FF        RST $38
+$1B6A: 00        NOP
+$1B6B: 00        NOP
+$1B6C: FF        RST $38
+$1B6D: FF        RST $38
+$1B6E: 00        NOP
+$1B6F: 00        NOP
+$1B70: F7        RST $30
+$1B71: F7        RST $30
+$1B72: 00        NOP
+$1B73: 00        NOP
+$1B74: F7        RST $30
+$1B75: F7        RST $30
+$1B76: 00        NOP
+$1B77: 00        NOP
+$1B78: F7        RST $30
+$1B79: F7        RST $30
+$1B7A: 00        NOP
+$1B7B: 00        NOP
+$1B7C: F7        RST $30
+$1B7D: F7        RST $30
+$1B7E: 00        NOP
+$1B7F: 00        NOP
+$1B80: FF        RST $38
+$1B81: FF        RST $38
+$1B82: 00        NOP
+$1B83: 00        NOP
+$1B84: FF        RST $38
+$1B85: FF        RST $38
+$1B86: 00        NOP
+$1B87: 00        NOP
+$1B88: FF        RST $38
+$1B89: FF        RST $38
+$1B8A: 00        NOP
+$1B8B: 00        NOP
+$1B8C: FF        RST $38
+$1B8D: FF        RST $38
+$1B8E: 00        NOP
+$1B8F: 00        NOP
+$1B90: FF        RST $38
+$1B91: FF        RST $38
+$1B92: 00        NOP
+$1B93: 00        NOP
+$1B94: FF        RST $38
+$1B95: FF        RST $38
+$1B96: 00        NOP
+$1B97: 00        NOP
+$1B98: FF        RST $38
+$1B99: FF        RST $38
+$1B9A: 00        NOP
+$1B9B: 00        NOP
+$1B9C: FF        RST $38
+$1B9D: FF        RST $38
+$1B9E: 00        NOP
+$1B9F: 00        NOP
+$1BA0: FF        RST $38
+$1BA1: FF        RST $38
+$1BA2: 00        NOP
+$1BA3: 00        NOP
+$1BA4: FF        RST $38
+$1BA5: FF        RST $38
+$1BA6: 00        NOP
+$1BA7: 00        NOP
+$1BA8: FF        RST $38
+$1BA9: FF        RST $38
+$1BAA: 00        NOP
+$1BAB: 00        NOP
+$1BAC: FF        RST $38
+$1BAD: FF        RST $38
+$1BAE: 00        NOP
+$1BAF: 00        NOP
+$1BB0: F7        RST $30
+$1BB1: F7        RST $30
+$1BB2: 00        NOP
+$1BB3: 00        NOP
+$1BB4: F7        RST $30
+$1BB5: F7        RST $30
+$1BB6: 00        NOP
+$1BB7: 00        NOP
+$1BB8: F7        RST $30
+$1BB9: F7        RST $30
+$1BBA: 00        NOP
+$1BBB: 00        NOP
+$1BBC: F7        RST $30
+$1BBD: F7        RST $30
+$1BBE: 00        NOP
+$1BBF: 00        NOP
+$1BC0: FF        RST $38
+$1BC1: FF        RST $38
+$1BC2: 00        NOP
+$1BC3: 00        NOP
+$1BC4: FF        RST $38
+$1BC5: FF        RST $38
+$1BC6: 00        NOP
+$1BC7: 00        NOP
+$1BC8: FF        RST $38
+$1BC9: FF        RST $38
+$1BCA: 00        NOP
+$1BCB: 00        NOP
+$1BCC: FF        RST $38
+$1BCD: FF        RST $38
+$1BCE: 00        NOP
+$1BCF: 00        NOP
+$1BD0: FF        RST $38
+$1BD1: FF        RST $38
+$1BD2: 00        NOP
+$1BD3: 00        NOP
+$1BD4: FF        RST $38
+$1BD5: FF        RST $38
+$1BD6: 00        NOP
+$1BD7: 00        NOP
+$1BD8: FF        RST $38
+$1BD9: FF        RST $38
+$1BDA: 00        NOP
+$1BDB: 00        NOP
+$1BDC: FF        RST $38
+$1BDD: FF        RST $38
+$1BDE: 00        NOP
+$1BDF: 00        NOP
+$1BE0: FF        RST $38
+$1BE1: FF        RST $38
+$1BE2: 00        NOP
+$1BE3: 00        NOP
+$1BE4: FF        RST $38
+$1BE5: FF        RST $38
+$1BE6: 00        NOP
+$1BE7: 00        NOP
+$1BE8: FF        RST $38
+$1BE9: FF        RST $38
+$1BEA: 00        NOP
+$1BEB: 00        NOP
+$1BEC: FF        RST $38
+$1BED: FF        RST $38
+$1BEE: 00        NOP
+$1BEF: 00        NOP
+$1BF0: F7        RST $30
+$1BF1: F7        RST $30
+$1BF2: 00        NOP
+$1BF3: 00        NOP
+$1BF4: F7        RST $30
+$1BF5: F7        RST $30
+$1BF6: 00        NOP
+$1BF7: 00        NOP
+$1BF8: F7        RST $30
+$1BF9: F7        RST $30
+$1BFA: 00        NOP
+$1BFB: 00        NOP
+$1BFC: F7        RST $30
+$1BFD: F7        RST $30
+$1BFE: 00        NOP
+
+
+; ============================================================================
+; The bytes from approximately $1AAB-$1BFF in newdisk_223 are mostly
+; zero-filled and trap-marker patterns, similar to the BIOS layout.
+; They serve as state-storage and runtime-installed-handler slots.
+; ============================================================================
