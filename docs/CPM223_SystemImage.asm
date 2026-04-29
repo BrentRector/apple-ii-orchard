@@ -23,169 +23,292 @@
 ;   and relocated to runtime position by the loader's third page copy
 ;   at Apple $113D (copies $A300-$B9FF -> $8000-$96FF).
 ;
-; PRACTICAL NOTE
-;   Per-instruction annotation of CCP+BDOS is left to the reader's
-;   standard CP/M 2.2 reference disassembly (Heath / Digital Research
-;   archives). Microsoft's modifications to CCP+BDOS for the SoftCard
-;   are minimal -- the boot banner string and any absolute-address
-;   relocation, primarily. The Videx-fix-relevant code is in BIOS
-;   (covered in CPM223_BIOS.asm), not here.
+; ANNOTATION POLICY
+;   Annotations here are derived solely from the bytes in CPMV233.DSK.
+;   Routine purposes are inferred from the operations the bytes perform
+;   (which state addresses they touch, what conditions they branch on,
+;   what other routines they call) and from cross-reference within
+;   the image. Where a routine's purpose isn't fully clear from static
+;   analysis, the annotation says so.
+;
+; STATE ADDRESS CONVENTIONS (this build)
+;   $9388       Input-buffer scan pointer (advances as CCP parses)
+;   $938A       Saved start-of-token pointer
+;   $93xx       CCP scratch / state region
+;   $9B86       Parsed-FCB scratch (an 11+-byte FCB)
+;   $9BA8       Drive-code default for parsed FCB
+;   $9BA9       Drive-code stored when explicit drive prefix present
+;   $9C06       BDOS function entry (planted at $0005-$0007 by BIOS
+;               cold-boot; user programs reach BDOS via CALL $0005)
+;   $9C08       First-boot vs warm-boot sentinel byte
 ; ============================================================================
 
             .ORG $8000
 
 
 ; ============================================================================
-; CCP ENTRY ($8000)
+; CCP ENTRY POINT ($8000)
 ;
-; Cold-start jumps to the CCP main loop at $9631 (near top of CCP).
-; That's where the prompt-display + command-read loop lives.
+; First instruction of the CCP. Sysimg's runtime location is $8000-$96FF
+; after the loader's third page copy. This three-byte JP is the cold-
+; start dispatch -- everything else here is helpers that get called
+; from the actual CCP main routine at $9631.
 ; ============================================================================
 
 CCP_ENTRY:
-          JP $9631                        ; $8000 C3 31 96
-          LD A,(DE)                       ; $8003 1A
-          OR A                            ; $8004 B7
-          RET Z                           ; $8005 C8
-          CP $20                          ; $8006 FE 20
-          JR C,$7FDF                      ; $8008 38 D5
-          RET Z                           ; $800A C8
-          CP $3D                          ; $800B FE 3D
+          JP $9631                        ; $8000 C3 31 96 - cold start: jump to CCP_MAIN at $9631
+
+; ============================================================================
+; IS_CCP_DELIM ($8003-$8020) -- test if A is a CCP token delimiter
+;
+; Returns Z set if (DE) is one of: $00 (end of buffer), space ($20),
+; or any of $3D, $5F, $2E, $3A, $3B, $3C, $3E (= '=', '_', '.', ':',
+; ';', '<', '>'). Falls through to RET (Z clear) otherwise. Also
+; rejects controls below space by branching out to $7FDF.
+;
+; Used by the CCP's command parser to find the end of a command name
+; or filename token in the input buffer.
+;
+; Inputs:  DE -> position in input buffer
+; Outputs: Z set if delimiter; A = the byte read
+;          DE preserved
+; ============================================================================
+
+IS_CCP_DELIM:
+          LD A,(DE)                       ; $8003 1A         - load byte at scan pointer
+          OR A                            ; $8004 B7         - test for end-of-buffer ($00)
+          RET Z                           ; $8005 C8         - end-of-buffer is a delimiter
+          CP $20                          ; $8006 FE 20      - is it space?
+          JR C,$7FDF                      ; $8008 38 D5      - control char (<$20): branch (caller's
+                                          ;                    responsibility; $7FDF is in TPA, so
+                                          ;                    this path needs caller-set context)
+          RET Z                           ; $800A C8         - space: delimiter, return Z
+          CP $3D                          ; $800B FE 3D      - '='
           RET Z                           ; $800D C8
-          CP $5F                          ; $800E FE 5F
+          CP $5F                          ; $800E FE 5F      - '_'
           RET Z                           ; $8010 C8
-          CP $2E                          ; $8011 FE 2E
+          CP $2E                          ; $8011 FE 2E      - '.'
           RET Z                           ; $8013 C8
-          CP $3A                          ; $8014 FE 3A
+          CP $3A                          ; $8014 FE 3A      - ':'
           RET Z                           ; $8016 C8
-          CP $3B                          ; $8017 FE 3B
+          CP $3B                          ; $8017 FE 3B      - ';'
           RET Z                           ; $8019 C8
-          CP $3C                          ; $801A FE 3C
+          CP $3C                          ; $801A FE 3C      - '<'
           RET Z                           ; $801C C8
-          CP $3E                          ; $801D FE 3E
+          CP $3E                          ; $801D FE 3E      - '>'
           RET Z                           ; $801F C8
-          RET                             ; $8020 C9
-          LD A,(DE)                       ; $8021 1A
-          OR A                            ; $8022 B7
-          RET Z                           ; $8023 C8
-          CP $20                          ; $8024 FE 20
-          RET NZ                          ; $8026 C0
-          INC DE                          ; $8027 13
-          JR $8021                        ; $8028 18 F7
-          ADD A,L                         ; $802A 85
-          LD L,A                          ; $802B 6F
-          RET NC                          ; $802C D0
-          INC H                           ; $802D 24
+          RET                             ; $8020 C9         - non-delimiter: return Z clear
+
+; ============================================================================
+; SKIP_SPACES ($8021-$8029) -- advance DE past run of space characters
+;
+; Loops calling IS_CCP_DELIM-style logic (inline) to walk DE forward
+; while (DE)==$20. Stops on first non-space byte (which may be $00 if
+; end-of-buffer).
+;
+; Inputs:  DE -> position in input buffer
+; Outputs: DE -> first non-space byte, A = that byte
+;          Z set iff that byte is $00 (end of buffer)
+; ============================================================================
+
+SKIP_SPACES:
+          LD A,(DE)                       ; $8021 1A         - read current byte
+          OR A                            ; $8022 B7         - test
+          RET Z                           ; $8023 C8         - end-of-buffer: stop, Z set
+          CP $20                          ; $8024 FE 20      - is it space?
+          RET NZ                          ; $8026 C0         - non-space: stop, Z clear, A holds byte
+          INC DE                          ; $8027 13         - skip the space
+          JR $8021                        ; $8028 18 F7      - loop
+
+; ============================================================================
+; ADD8_TO_HL ($802A-$802E) -- 16-bit add of A into HL
+;
+; HL := HL + A (zero-extended), preserving carry semantics.
+;
+; This is the Z-80's missing-instruction stand-in: ADD HL,A doesn't
+; exist as a single Z-80 op, so the implementation does ADD A,L (set
+; carry from low-byte sum) / LD L,A / RET NC (no high-byte fixup
+; needed) / INC H / RET (high-byte carry-in).
+;
+; Inputs:  HL = base, A = offset
+; Outputs: HL = base + A, A clobbered
+; ============================================================================
+
+ADD8_TO_HL:
+          ADD A,L                         ; $802A 85         - A = L + A, carry set if 16-bit add overflows low byte
+          LD L,A                          ; $802B 6F         - new low byte
+          RET NC                          ; $802C D0         - no carry: HL is correct
+          INC H                           ; $802D 24         - propagate carry to high byte
           RET                             ; $802E C9
-          LD A,$00                        ; $802F 3E 00
-          LD HL,$9B86                     ; $8031 21 86 9B
-          CALL $952A                      ; $8034 CD 2A 95
-          PUSH HL                         ; $8037 E5
+; ============================================================================
+; PARSE_FCB ($802F-$80B6) -- parse a filename from the input buffer into an FCB
+;
+; Reads a CP/M filename (with optional "X:" drive prefix) from the
+; input position at ($9388) into the 16-byte FCB at $9B86. Updates
+; ($9388) past the parsed token.
+;
+; FCB layout (per CP/M 2.x convention):
+;   byte 0      drive (0 = current, 1='A', 2='B', ...)
+;   bytes 1-8   filename (space-padded if shorter than 8)
+;   bytes 9-11  extension (space-padded if shorter than 3)
+;   bytes 12-14 reserved (extent, S2, record count -- zeroed here)
+;
+; Wildcards: '*' in the input becomes '?' in remaining slots (CP/M's
+; standard expansion rule).
+; ============================================================================
+
+PARSE_FCB:
+          LD A,$00                        ; $802F 3E 00      - A = 0 (placeholder; not used after $8039 XOR A)
+          LD HL,$9B86                     ; $8031 21 86 9B   - HL -> CCP's parsed-FCB scratch buffer
+          CALL $952A                      ; $8034 CD 2A 95   - CALL CCP_INIT_FCB (clears/initializes FCB)
+          PUSH HL                         ; $8037 E5         - save FCB base for later (twice)
           PUSH HL                         ; $8038 E5
           XOR A                           ; $8039 AF
-          LD ($9BA9),A                    ; $803A 32 A9 9B
-          LD HL,($9388)                   ; $803D 2A 88 93
-          EX DE,HL                        ; $8040 EB
-          CALL $9521                      ; $8041 CD 21 95
-          EX DE,HL                        ; $8044 EB
-          LD ($938A),HL                   ; $8045 22 8A 93
-          EX DE,HL                        ; $8048 EB
-          POP HL                          ; $8049 E1
-          LD A,(DE)                       ; $804A 1A
-          OR A                            ; $804B B7
-          JR Z,$8058                      ; $804C 28 0A
-          SBC A,$40                       ; $804E DE 40
-          LD B,A                          ; $8050 47
-          INC DE                          ; $8051 13
-          LD A,(DE)                       ; $8052 1A
-          CP $3A                          ; $8053 FE 3A
-          JR Z,$805E                      ; $8055 28 07
-          DEC DE                          ; $8057 1B
-          LD A,($9BA8)                    ; $8058 3A A8 9B
-          LD (HL),A                       ; $805B 77
-          JR $8064                        ; $805C 18 06
-          LD A,B                          ; $805E 78
-          LD ($9BA9),A                    ; $805F 32 A9 9B
-          LD (HL),B                       ; $8062 70
-          INC DE                          ; $8063 13
-          LD B,$08                        ; $8064 06 08
-          CALL $9503                      ; $8066 CD 03 95
-          JR Z,$8080                      ; $8069 28 15
-          INC HL                          ; $806B 23
-          CP $2A                          ; $806C FE 2A
-          JR NZ,$8074                     ; $806E 20 04
-          LD (HL),$3F                     ; $8070 36 3F
-          JR $8076                        ; $8072 18 02
-          LD (HL),A                       ; $8074 77
-          INC DE                          ; $8075 13
-          DJNZ $8066                      ; $8076 10 EE
-          CALL $9503                      ; $8078 CD 03 95
-          JR Z,$8085                      ; $807B 28 08
-          INC DE                          ; $807D 13
+          LD ($9BA9),A                    ; $803A 32 A9 9B   - clear "explicit drive" flag
+          LD HL,($9388)                   ; $803D 2A 88 93   - HL = input scan pointer
+          EX DE,HL                        ; $8040 EB         - DE = input pos, HL = FCB pointer (from PUSH)
+          CALL $9521                      ; $8041 CD 21 95   - skip leading whitespace at DE
+          EX DE,HL                        ; $8044 EB         - swap: HL = input position
+          LD ($938A),HL                   ; $8045 22 8A 93   - save start-of-token pointer
+          EX DE,HL                        ; $8048 EB         - DE = input position
+          POP HL                          ; $8049 E1         - restore FCB pointer
+          LD A,(DE)                       ; $804A 1A         - read first token char
+          OR A                            ; $804B B7         - test for end-of-buffer
+          JR Z,$8058                      ; $804C 28 0A      - empty: use default drive
+          SBC A,$40                       ; $804E DE 40      - A -= '@' (so 'A' becomes 1, 'B' becomes 2, ...)
+          LD B,A                          ; $8050 47         - B = potential drive number
+          INC DE                          ; $8051 13         - try advancing past the letter
+          LD A,(DE)                       ; $8052 1A         - peek next char
+          CP $3A                          ; $8053 FE 3A      - is it ':'?
+          JR Z,$805E                      ; $8055 28 07      - yes: it's "X:" drive prefix
+          DEC DE                          ; $8057 1B         - no: rewind, that letter belongs to the filename
+
+.use_default_drive:
+          LD A,($9BA8)                    ; $8058 3A A8 9B   - load default drive byte (CCP's current drive)
+          LD (HL),A                       ; $805B 77         - store as FCB drive field
+          JR $8064                        ; $805C 18 06      - on to filename parse
+
+.explicit_drive:
+          LD A,B                          ; $805E 78         - A = drive number from prefix
+          LD ($9BA9),A                    ; $805F 32 A9 9B   - record "explicit drive set"
+          LD (HL),B                       ; $8062 70         - store drive number in FCB[0]
+          INC DE                          ; $8063 13         - skip the ':'
+
+.parse_name:
+          LD B,$08                        ; $8064 06 08      - up to 8 filename chars
+.name_loop:
+          CALL $9503                      ; $8066 CD 03 95   - get-next-char-with-delim (sets Z on delimiter)
+          JR Z,$8080                      ; $8069 28 15      - delimiter: pad name with spaces
+          INC HL                          ; $806B 23         - advance FCB write pointer
+          CP $2A                          ; $806C FE 2A      - is input char '*'?
+          JR NZ,$8074                     ; $806E 20 04      - no: store literal
+          LD (HL),$3F                     ; $8070 36 3F      - yes: '*' becomes '?' (CP/M wildcard)
+          JR $8076                        ; $8072 18 02      - drop into "skip rest of name" loop
+.store_char:
+          LD (HL),A                       ; $8074 77         - store char in FCB
+          INC DE                          ; $8075 13         - advance input
+          DJNZ $8066                      ; $8076 10 EE      - more name chars?
+
+.skip_excess_name:
+          CALL $9503                      ; $8078 CD 03 95   - skip-until-delimiter
+          JR Z,$8085                      ; $807B 28 08      - hit delimiter -> extension parse
+          INC DE                          ; $807D 13         - skip excess char
           JR $8078                        ; $807E 18 F8
+
+.pad_name:
           INC HL                          ; $8080 23
-          LD (HL),$20                     ; $8081 36 20
+          LD (HL),$20                     ; $8081 36 20      - space pad
           DJNZ $8080                      ; $8083 10 FB
-          LD B,$03                        ; $8085 06 03
-          CP $2E                          ; $8087 FE 2E
-          JR NZ,$80A6                     ; $8089 20 1B
-          INC DE                          ; $808B 13
-          CALL $9503                      ; $808C CD 03 95
-          JR Z,$80A6                      ; $808F 28 15
+
+.parse_ext:
+          LD B,$03                        ; $8085 06 03      - up to 3 extension chars
+          CP $2E                          ; $8087 FE 2E      - is delimiter '.'?
+          JR NZ,$80A6                     ; $8089 20 1B      - not '.': pad extension with spaces
+          INC DE                          ; $808B 13         - skip '.'
+.ext_loop:
+          CALL $9503                      ; $808C CD 03 95   - get-next-char
+          JR Z,$80A6                      ; $808F 28 15      - delimiter: pad rest of ext with spaces
           INC HL                          ; $8091 23
-          CP $2A                          ; $8092 FE 2A
+          CP $2A                          ; $8092 FE 2A      - '*'?
           JR NZ,$809A                     ; $8094 20 04
-          LD (HL),$3F                     ; $8096 36 3F
+          LD (HL),$3F                     ; $8096 36 3F      - '*' -> '?'
           JR $809C                        ; $8098 18 02
+.store_ext:
           LD (HL),A                       ; $809A 77
           INC DE                          ; $809B 13
           DJNZ $808C                      ; $809C 10 EE
+
+.skip_excess_ext:
           CALL $9503                      ; $809E CD 03 95
-          JR Z,$80AB                      ; $80A1 28 08
+          JR Z,$80AB                      ; $80A1 28 08      - delimiter -> zero remaining FCB fields
           INC DE                          ; $80A3 13
           JR $809E                        ; $80A4 18 F8
+
+.pad_ext:
           INC HL                          ; $80A6 23
-          LD (HL),$20                     ; $80A7 36 20
+          LD (HL),$20                     ; $80A7 36 20      - space pad ext
           DJNZ $80A6                      ; $80A9 10 FB
-          LD B,$03                        ; $80AB 06 03
+
+.zero_extras:
+          LD B,$03                        ; $80AB 06 03      - 3 trailing fields (extent, S2, RC)
+.zero_loop:
           INC HL                          ; $80AD 23
-          LD (HL),$00                     ; $80AE 36 00
+          LD (HL),$00                     ; $80AE 36 00      - zero
           DJNZ $80AD                      ; $80B0 10 FB
-          EX DE,HL                        ; $80B2 EB
-          LD ($9388),HL                   ; $80B3 22 88 93
-          POP HL                          ; $80B6 E1
-          LD BC,$000B                     ; $80B7 01 0B 00
-          INC HL                          ; $80BA 23
-          LD A,(HL)                       ; $80BB 7E
-          CP $3F                          ; $80BC FE 3F
-          JR NZ,$80C1                     ; $80BE 20 01
-          INC B                           ; $80C0 04
-          DEC C                           ; $80C1 0D
-          JR NZ,$80BA                     ; $80C2 20 F6
-          LD A,B                          ; $80C4 78
-          OR A                            ; $80C5 B7
-          RET                             ; $80C6 C9
-          LD B,H                          ; $80C7 44
-          LD C,C                          ; $80C8 49
-          LD D,D                          ; $80C9 52
-          JR NZ,$8111                     ; $80CA 20 45
-          LD D,D                          ; $80CC 52
-          LD B,C                          ; $80CD 41
-          JR NZ,$8124                     ; $80CE 20 54
-          LD E,C                          ; $80D0 59
-          LD D,B                          ; $80D1 50
-          LD B,L                          ; $80D2 45
-          LD D,E                          ; $80D3 53
-          LD B,C                          ; $80D4 41
-          LD D,(HL)                       ; $80D5 56
-          LD B,L                          ; $80D6 45
-          LD D,D                          ; $80D7 52
-          LD B,L                          ; $80D8 45
-          LD C,(HL)                       ; $80D9 4E
-          JR NZ,$8131                     ; $80DA 20 55
-          LD D,E                          ; $80DC 53
-          LD B,L                          ; $80DD 45
-          LD D,D                          ; $80DE 52
+
+          EX DE,HL                        ; $80B2 EB         - HL = updated input position
+          LD ($9388),HL                   ; $80B3 22 88 93   - save scan pointer for next call
+
+; Falls through into COUNT_WILDCARDS below.
+          POP HL                          ; $80B6 E1         - restore FCB pointer (from $8037 PUSH HL)
+
+; ============================================================================
+; COUNT_WILDCARDS ($80B7-$80C6) -- count '?' in the 11-byte FCB name+ext
+;
+; Scans bytes 1-11 of the FCB at HL+1..HL+11 (the 8-char name plus
+; 3-char extension), counting how many bytes are '?' (the CP/M
+; wildcard marker that PARSE_FCB inserted for any '*' in the input).
+;
+; Inputs:  HL -> base of FCB (drive byte at HL+0; name at HL+1..HL+8)
+; Outputs: A = number of '?' wildcard bytes found
+;          Z set iff A == 0 (i.e., no wildcards -- exact filename)
+;          B = same as A; C clobbered; HL = HL + 11
+; ============================================================================
+
+COUNT_WILDCARDS:
+          LD BC,$000B                     ; $80B7 01 0B 00   - 11 byte total (8 name + 3 ext); B=0 (counter), C=11 (loop)
+.count_loop:
+          INC HL                          ; $80BA 23         - advance to next FCB byte
+          LD A,(HL)                       ; $80BB 7E         - read FCB byte
+          CP $3F                          ; $80BC FE 3F      - is it '?' (CP/M wildcard char)
+          JR NZ,.skip_inc                 ; $80BE 20 01      - not '?': skip counter increment
+          INC B                           ; $80C0 04         - found '?': bump count
+.skip_inc:
+          DEC C                           ; $80C1 0D         - decrement bytes-remaining
+          JR NZ,.count_loop               ; $80C2 20 F6      - loop until C=0 (all 11 bytes scanned)
+          LD A,B                          ; $80C4 78         - A = wildcard count
+          OR A                            ; $80C5 B7         - test (sets Z if count=0, NZ if any '?')
+          RET                             ; $80C6 C9         - return: A=count, Z reflects "no wildcards"
+
+; ============================================================================
+; CCP_BUILTIN_TABLE ($80C7-$80DE) -- built-in command names (data, not code)
+;
+; Six 4-byte slots, names left-justified and space-padded. Indexed by the
+; built-in number (DIR=0, ERA=1, TYPE=2, SAVE=3, REN=4, USER=5). The CCP
+; command-line scanner compares the parsed verb against each slot and
+; dispatches to the matching handler when a hit is found.
+;
+; The disassembler renders these bytes as Z-80 instructions because they
+; sit inline in the code stream; they are pure ASCII data.
+; ============================================================================
+
+CCP_BUILTIN_TABLE:
+          .BYTE "DIR "                    ; $80C7 44 49 52 20 - builtin 0: DIR
+          .BYTE "ERA "                    ; $80CB 45 52 41 20 - builtin 1: ERA (erase file)
+          .BYTE "TYPE"                    ; $80CF 54 59 50 45 - builtin 2: TYPE (display file)
+          .BYTE "SAVE"                    ; $80D3 53 41 56 45 - builtin 3: SAVE (write memory to file)
+          .BYTE "REN "                    ; $80D7 52 45 4E 20 - builtin 4: REN (rename file)
+          .BYTE "USER"                    ; $80DB 55 53 45 52 - builtin 5: USER (set user area)
           CP L                            ; $80DF BD
           LD D,$00                        ; $80E0 16 00
           LD BC,$404D                     ; $80E2 01 4D 40
