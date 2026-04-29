@@ -156,11 +156,87 @@ $0883:      .DS  $7D, $00
 ; sector read, sector write. The loader uses these for any disk reads
 ; beyond track 0 (loading the rest of CP/M from disk).
 ;
-; Not yet annotated — they're a fairly standard Apple Disk II RWTS
-; implementation. See the existing nibbler GCR module for parallel
-; reference implementations.
+; Standard Apple Disk II RWTS pattern, not annotated per-instruction —
+; see the apple-panic disassembly in the same repo or the nibbler GCR
+; module for parallel reference implementations. Survey of major entry
+; points below.
 ; ============================================================================
-$0A00:      .DS  $600, $00      ; disk I/O block (placeholder)
+
+; ----------------------------------------------------------------------------
+; WRITE_SECTOR ($0A00) — write 256 bytes at $0C00 to current track/sector
+;
+; Inputs: X = slot*16, $3D = sector, current track is from earlier seek.
+; Writes D5 AA AD (data prolog), 342 GCR-encoded data nibbles + checksum,
+; then DE AA EB FF (data epilog). Uses the 6-and-2 GCR encoding tables
+; in the language card area.
+;
+; Helper at $0A8F-$0A98 = WRITE_BYTE: send one nibble out the data shift
+; register (Q6H/Q6L sequence). Used by WRITE_SECTOR for prolog/epilog.
+; ----------------------------------------------------------------------------
+WRITE_SECTOR:
+$0A00:      .DS  $8E, $00       ; (write routine — see binary)
+WRITE_BYTE:
+$0A8E:      .DS  $0B, $00       ; (write-byte helper)
+
+
+; ----------------------------------------------------------------------------
+; READ_SECTOR ($0A99) — read current track/sector to $002C-$012B
+;
+; Loops looking for the address field prolog D5 AA 96, decodes the
+; 4-and-4 encoded vol/track/sector/checksum, validates against the
+; requested sector, then reads the data field at D5 AA AD prolog,
+; decodes 342 nibbles into 256 data bytes, validates the DE AA EB
+; epilog, returns with carry clear on success / set on failure.
+;
+; Standard Apple Disk II 6-and-2 GCR read pattern — see the apple-panic
+; reference implementation in this repo for fully-annotated equivalent.
+; ----------------------------------------------------------------------------
+READ_SECTOR:
+$0A99:      .DS  $C7, $00       ; (read routine, address field search +
+                                ;  data field decode + epilog check)
+
+
+; ----------------------------------------------------------------------------
+; SEEK_TRACK ($0B5F) — move drive head to requested track
+;
+; Standard four-phase stepper sequence. Reads current head position from
+; $0478 (Apple monitor screen-hole convention), compares with desired
+; track, energizes phase coils to step in or out one half-track at a time
+; until current = desired. Settling delay between steps.
+; ----------------------------------------------------------------------------
+SEEK_TRACK:
+$0B5F:      .DS  $A1, $00       ; (seek-track routine, phase-coil sequencing)
+
+
+; ----------------------------------------------------------------------------
+; LOAD_CPM ($0C00) — high-level "load N sectors from track T to memory"
+;
+; Increments a sector counter at $0003, sets up entry-point at $03E1,
+; saves processor flags, disables interrupts, and CALLS into LC RAM at
+; $BE11 — which is presumably another loader stage that orchestrates
+; reading the CP/M system image (CCP+BDOS+BIOS) from the disk's system
+; tracks (typically tracks 1-2 on Microsoft SoftCard CP/M disks) into
+; the high-memory area $A300-$BFFF that PREP_HANDOFF will later move
+; into final position before the SoftCard switch.
+;
+; If LC RAM call returns carry-clear (success), advances $03E9 and
+; rotates the sector counter. If carry-set (failure), prints an error
+; via JSR $FF2D / JMP $BBE9 and aborts.
+; ----------------------------------------------------------------------------
+LOAD_CPM:
+$0C00:      .DS  $200, $00      ; (sector-load orchestrator)
+
+
+; ----------------------------------------------------------------------------
+; GCR encoding tables (in this region or the next)
+; Standard 6-and-2 encode/decode tables, indexed by 6-bit value or
+; nibble. Likely at $0BD5A or similar — these are the lookup tables
+; that the WRITE_SECTOR uses (`LDA $BD5A,X`).
+; ----------------------------------------------------------------------------
+$0E00:      .DS  $200, $00      ; (more disk I/O code + tables, includes
+                                ; the JSR \$0E36 callee that the warm-boot
+                                ; routine invokes — turns out to be a disk
+                                ; read entry, NOT the SoftCard switch)
 
 
 ; ============================================================================
