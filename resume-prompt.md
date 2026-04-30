@@ -1,6 +1,6 @@
 # Resume Prompt — Microsoft SoftCard CP/M Investigation
 
-**Last updated:** 2026-04-29 (10 articles + 31 devlogs + new disk-sector map reference. Part 10 "The CPU Switch, and What's Left" published 2026-04-30 closing the series. Today's additions: factual byte-level trace of the v2.20 hang in `cpm-videx-220-hang-byte-trace-2026-04-29` — dispatch-path through handler `$DFBE` to `CALL $DAC5` (in runtime-generator zone), with two failure modes both consistent with the observed hang; `docs/CPM_DiskSectorMap.md` 560-row sector reference; companion reference page on wiseowl.com.)
+**Last updated:** 2026-04-30 (11 articles + 35 devlogs. **Active emulator project** producing Stage-1 and Stage-2 results. New artifacts: `nibbler/z80_cpu.py` (~700 line Z-80 emulator), `nibbler/dsk_disk.py` (synthetic GCR streams from .dsk/.po), `cpm-investigation/emu_softcard.py` (6502 boot harness), `cpm-investigation/emu_softcard_full.py` (6502+Z-80+SoftCard mapping), `cpm-investigation/extract_p6_rom.py` (P6 PROM byte extractor), `cpm-investigation/roms/disk2_p6.bin`. New devlogs: `cpm-videx-rwts-disassembly-2026-04-29`, `cpm-videx-220-hang-byte-trace-2026-04-29`, `cpm-videx-emulator-stage1-2026-04-29`, `cpm-videx-emulator-stage2-2026-04-29`, `cpm-videx-emulator-220-architecture-2026-04-30`. New article: `cpm-videx-11-emulator-verified` (Part 11). Major findings: (1) 6502 doesn't write `$FA00-$FFFF` in 2.23 -- BIOS handler bodies are runtime-generated; (2) BIOS jump table actually lives at Z-80 `$1A00` (Apple `$0A00`), not `$FAB8` -- static analysis confused table location with target location; (3) 2.20 has fundamentally different architecture -- 6502 LOAD_CPM writes ~7 KB directly into LC RAM `$E4-$FF`, no staging-then-redistribute; (4) SoftCard has NO ROM (user correction); (5) slot scanner has apparent dead-code path `SCAN_INIT_SLOT` -- patched `$3E=0` in emulator, real-hardware mechanism still open.)
 
 This file is the canonical session-recovery prompt for the Microsoft SoftCard CP/M reverse-engineering project. **If this conversation crashes or context is lost, hand this file to a fresh assistant and it should be able to pick up exactly where we left off without losing any directives, conventions, or progress.**
 
@@ -130,8 +130,9 @@ Series complete (10 parts published; Part 10 closes the series). Two articles re
 
 ### Dev logs (`src/content/devlogs/cpm-videx-*.mdx`)
 
-31 entries published. Authoritative list is the result of `ls e:/Sites/wiseowl.com/src/content/devlogs/cpm-videx-*` — too many to enumerate here verbatim, but most recent topical highlights:
+32 entries published. Authoritative list is the result of `ls e:/Sites/wiseowl.com/src/content/devlogs/cpm-videx-*` — too many to enumerate here verbatim, but most recent topical highlights:
 
+- `cpm-videx-rwts-disassembly-2026-04-29` — **full 6502 RWTS disassembly** (today; classifies every byte at `$0A00-$0FFF` into two 6502 code blocks, a Z-80 BIOS gap, and a GCR codec page; companion to extended `docs/CPM223_RWTS.asm`)
 - `cpm-videx-220-hang-byte-trace-2026-04-29` — **factual byte-level trace of the v2.20 hang** (today; documents the dispatch path through `$DFBE → CALL $DAC5` and two failure modes)
 - `cpm-videx-cpu-switch-trigger-2026-04-30` — `JSR $0E36` mechanism details
 - `cpm-videx-220-also-has-second-load-2026-04-29` — second LOAD_CPM call in 2.20
@@ -200,7 +201,15 @@ cpm-investigation/        — extraction scripts, intermediate binaries, disasse
 docs/
   CPM_Videx_Difference.md   — slot scanner side-by-side diff with symbolic names
   CPM_BootLoader.md         — narrative architecture of the 6502 loader
+  CPM_DiskSectorMap.md      — 560-row map of every physical sector (track,sector → role → final addr)
+  CPM_Filesystem.md         — CP/M filesystem area (tracks 3-34) overview
   CPM223_BootLoader.asm     — annotated 6502 disassembly (sections complete through $11AF)
+  CPM223_RWTS.asm           — annotated 6502 RWTS at $0A00-$0FFF (43 KB; covers all six sectors)
+  CPM223_BIOS.asm           — annotated Z-80 BIOS proper at $FA00-$FFFF
+  CPM223_DiskCallbacks.asm  — annotated Z-80 disk callbacks at $1A00-$1BFF
+  CPM223_SystemImage.asm    — annotated Z-80 CCP+BDOS at $A300-$B9FF
+  CPM223_InstallFragments.asm — Z-80 fragments installed by stage-2 loader
+  CPM220_*.asm              — same set for 2.20 (BootLoader, BIOS, RWTS, SystemImage, InstallFragments)
   DiskII_BootROM.md         — Apple Disk II P6 PROM doc (pre-existing)
   DiskII_BootROM.asm        — Apple Disk II P6 PROM disasm (pre-existing)
 
@@ -236,11 +245,24 @@ resume-prompt.md          — THIS FILE
 
 ## Concrete Next Steps When Resuming
 
-The series is closed (Part 10 published). The investigation has reached a clean stopping point. Three open items remain, all bounded:
+**Active emulator project** (started 2026-04-29). User direction: "create as much of an emulator as is needed to answer and document and write an article and dev logs to finish the investigation and full source code disassembly." The SoftCard has NO ROM (per user) -- so any Z-80 code at `$FA00` must come from 6502 writes, disk loads, or runtime Z-80 generation.
+
+**Stage 1 complete:** 6502 boot harness boots both 2.23 and 2.20 to handoff. Memory write log empirically settled that 6502 doesn't populate `$FA00-$FFFF` in 2.23 (only 6 reset-vector patches at `$FFF9-$FFFF`). 2.20 in contrast writes ~7 KB directly into LC RAM `$E4-$FF` via LOAD_CPM. Slot-scanner `SCAN_INIT_SLOT` dead-code path patched externally with `$3E=0` at scanner entry -- real-hardware mechanism still open.
+
+**Stage 2 complete:** Z-80 emulator + SoftCard bit-12-XOR mapping + CPU-switch-on-PC-`$0E36` model. Boot reaches Z-80 takeover. Major correction: BIOS jump table actually lives at Z-80 `$1A00` (Apple `$0A00`), not `$FAB8` -- the `$FAB8-$FFFF` content in `bios_223.bin` is the *targets* of the table's JP entries, runtime-populated handler bodies. Z-80 emulator covers all standard unprefixed opcodes + CB-prefix bit ops + ED-prefix LDIR/LDDR/IM. **DD/FD prefix (IX/IY) opcodes not yet implemented** -- halts cleanly when hit. This blocks running the cold-boot generator which uses IY-prefixed instructions per static disasm.
+
+**Stage 3 (next):** Three concrete tasks:
+1. Implement IX/IY (DD/FD) opcodes in `nibbler/z80_cpu.py` (~200 opcodes via shared HL-substitution dispatcher).
+2. Make SoftCard CPU switch bidirectional (Z-80 can flip back to 6502 via softswitch). Required for cooperative-CPU disk model the cold-boot generator likely uses.
+3. Add Videx Videoterm slot-3 model (Pascal 1.0 ID bytes + ROM 2.4 BASOUT path; reference: `e:/a2fpga_core/hdl/videx/Videx Videoterm ROM 2.4.asm`).
+
+Then boot 2.20 with Videx in slot 3, observe where it hangs (settles the [byte-level trace devlog's](/devlogs/cpm-videx-220-hang-byte-trace-2026-04-29) Case A vs Case B).
+
+The series itself is closed at Part 11 (emulator-verified). Three runtime-only open items still gated on Stage 3 completion:
 
 1. **Verify the v2.20 hang's actual failure mode (Case A vs Case B).** The factual byte-trace devlog (`cpm-videx-220-hang-byte-trace-2026-04-29`) documents two static-evidence-consistent failure modes: (A) 6502 hung inside Videx ROM after naive `JSR $C307` skips the V-flag preamble, with Z-80 polling forever; (B) Z-80 stack overflow on `$E5` (`PUSH HL`) spam from runtime-generator slot. Distinguishing requires Z-80 emulator boot of 2.20 with Videx in slot 3 and dumping memory at `$DAC5+`. Either way the system hangs, so the answer to "why does 2.20 hang" is settled at the granularity that matters; this is just the final byte of confirmation.
 
-2. **Initial population of `$FA00-$FAB7`** (the cold-boot prelude before the BIOS jump table). At static disk read time, this region is zero/data. Something populates it with executable cold-boot code before Z-80 first runs. Candidates: 6502 loader writes via SoftCard XOR map; SoftCard built-in ROM overlay on first boot. Resolution requires booting in a Z-80 emulator and reading memory.
+2. **Initial population of `$FA00-$FAB7`** (the cold-boot prelude before the BIOS jump table). At static disk read time, this region is zero/data. Something populates it with executable cold-boot code before Z-80 first runs. The SoftCard has NO ROM (per user, 2026-04-29), so the bytes must come from one of: (a) 6502 code writing directly to Apple `$FA00+` before the SoftCard switch, (b) some 6502 disk-load routine reading bytes from disk straight to Apple `$FA00+`, or (c) Z-80 code at the planted reset vector at `$FA00` that itself writes the surrounding region (i.e., `$FA00` is a tiny stub planted by 6502 that then generates the rest at runtime). Resolution requires running an emulator and observing the memory writes.
 
 3. **Runtime population of trap-marker pages with handler code.** The 256-byte interleaved BIOS layout has 4 code pages and 4 generator pages (filled with `$E5` in 2.20 / `FF FF 00 00 / F7 F7 00 00` in 2.23 statically). Strong candidate sectors for the source bytes were identified in the disk-sector map but the runtime-population step itself isn't fully traced.
 
@@ -264,7 +286,27 @@ The series is closed (Part 10 published). The investigation has reached a clean 
 - `$0200-$03FF`: Z-80 install fragments (the warm-boot routine at $03C0 lives here)
 - `$03B9-$03BF`: per-slot device codes (built by slot scanner)
 - `$A300-$B9FF`: CCP + BDOS + banner string (from sysimg)
-- `$BA00-$BFFF`: original 6502 RWTS routines (preserved)
+- `$BA00-$BFFF`: original 6502 RWTS routines (preserved by PREP_HANDOFF #1; full byte-by-byte map in `docs/CPM223_RWTS.asm`):
+  - `$BA00-$BA98`: WRITE_SECTOR + WRITE_BYTE helper
+  - `$BA99-$BB02`: READ_DATA_FIELD
+  - `$BB03-$BB5E`: READ_ADDR_FIELD
+  - `$BB5F-$BBBB`: SEEK_TRACK
+  - `$BBBC-$BBD0`: STEP_DELAY
+  - `$BBD1-$BBE8`: phase-on/off delay tables
+  - `$BBEE-$BC38`: LOAD_CPM_LOOP (high-level orchestrator)
+  - `$BC39-$BCFF`: Z-80 BIOS init code (199 bytes; gap in 6502 RWTS)
+  - `$BD04`: 256-byte GCR decode table
+  - `$BD5A`: 64-byte GCR encode table
+  - `$BE04-$BE10`: LOAD_CPM_PRIM_OUTER
+  - `$BE11-$BEBF`: LOAD_CPM_PRIM (the main sector-read primitive)
+  - `$BEC0-$BF49`: SECTOR_RW_RETRY (48-attempt retry + recalibration)
+  - `$BF4A-$BF52`: WRITE_SECTOR_CALL wrapper
+  - `$BF53-$BF5A`: SEEK_RECAL
+  - `$BF5B-$BF84`: TRACK_STATE_SET (drive 1/2 swap)
+  - `$BF85-$BF9D`: TRACK_STATE_GET
+  - `$BF9E-$BFAD`: 16-byte CP/M skew table
+  - `$BFAE-$BFD2`: SPLIT_BUFFER (256→86+256 GCR pre-encode)
+  - `$BFD3-$BFEA`: MERGE_BUFFER (86+256→256 GCR post-decode)
 
 ### Z-80 memory after CP/M is running (post-handoff, ideal state)
 - `$0000-$0002`: Z-80 reset vector (`JP $FA00` planted by 6502; rewritten to `JP $FA03` after first cold-boot)

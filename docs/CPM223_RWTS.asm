@@ -1,26 +1,39 @@
 ; ============================================================================
-; Microsoft SoftCard CP/M 2.23 -- RWTS (Apple $0A00-$0C38)
+; Microsoft SoftCard CP/M 2.23 -- 6502 RWTS (Apple $0A00-$0FFF)
 ; Annotated 6502 assembly source for the disk-routine block loaded by
 ; the boot stub from track 0 sectors 2, 4, 6, 8, A, C (in CP/M skew
 ; order) into Apple $0A00-$0FFF.
 ;
 ; SCOPE
-;   This file covers the clean 6502 RWTS code at $0A00-$0C38:
-;     $0A00-$0A98  WRITE_SECTOR    write 256 bytes at $0C00 to disk
-;     $0A99-$0B5E  READ_SECTOR     read 256 bytes from disk into $0900,$0C00
-;     $0B5F-$0BED  SEEK_TRACK      step drive head to requested track
-;     $0BEE-$0C38  LOAD_CPM_LOOP   29-sector load loop (calls $BE11 in LC RAM)
-;
-;   The bytes at $0C39-$0FFF in the loader image are NOT 6502 code. They
-;   are part of the BIOS first 1 KB content the boot stub loaded; the
-;   Z-80 sees them at $1C39-$1FFF after the SoftCard's bit-12 XOR mapping.
-;   They will be covered in CPM223_BIOS.asm.
+;   This file documents the 6502 portions of the loaded region:
+;     $0A00-$0A98  WRITE_SECTOR     write 256 bytes at $0C00 to disk
+;     $0A99-$0B02  READ_DATA_FIELD  decode D5 AA AD ... DE AA EB sequence
+;     $0B03-$0B5E  READ_ADDR_FIELD  decode D5 AA 96 4-and-4 vol/trk/sec/ck
+;     $0B5F-$0BBB  SEEK_TRACK       step head to requested track
+;     $0BBC-$0BD0  STEP_DELAY       16-bit timer for phase delays
+;     $0BD1-$0BE8  SEEK_DELAY_TBL   12-entry phase-on/off delay tables
+;     $0BEE-$0C38  LOAD_CPM_LOOP    29-sector load orchestrator
+;     [GAP $0C39-$0CFF: Z-80 BIOS first-1KB code -- see CPM223_BIOS.asm]
+;     [GAP $0D00-$0DFF: GCR codec data tables ($BD04 decode, $BD5A encode)]
+;     $0E04-$0E10  LOAD_CPM_PRIM_OUTER  phase-1-on wrapper
+;     $0E11-$0EBF  LOAD_CPM_PRIM    sector-read primitive (called as $BE11)
+;     $0EC0-$0F49  SECTOR_RW_RETRY  retry/error-recovery body
+;     $0F4A-$0F52  WRITE_SECTOR_CALL  write-mode wrapper
+;     $0F53-$0F5A  SEEK_RECAL       recalibration helper
+;     $0F5B-$0F84  TRACK_STATE_SET  swap track between drive 1 and 2 slots
+;     $0F85-$0F9D  TRACK_STATE_GET  read saved track for active drive
+;     $0F9E-$0FAD  CPM_SKEW_TABLE   16-byte CP/M sector-skew table
+;     $0FAE-$0FD2  SPLIT_BUFFER     pre-write 256 -> 86+256 6+2 GCR split
+;     $0FD3-$0FEA  MERGE_BUFFER     post-read 86+256 -> 256 6+2 GCR merge
+;     $0FEB-$0FFF  zero-padded
 ;
 ;   PREP_HANDOFF (in CPM223_BootLoader.asm at Apple $1109-$113F) copies
 ;   $0A00-$0FFF to $BA00-$BFFF before the SoftCard switch, preserving
 ;   the RWTS in LC RAM where the cooperative-CPU loop reaches it. So the
-;   absolute addresses in this code (e.g., JSR $BA90, JSR $BA8F) refer
-;   to where each routine WILL BE after PREP_HANDOFF copies them.
+;   absolute addresses in this code (e.g., JSR $BA90, JSR $BA8F, JSR
+;   $BB03, JSR $BE11) refer to where each routine WILL BE after the
+;   PREP_HANDOFF copy: $0A00 -> $BA00, $0B5F -> $BB5F, $0E11 -> $BE11,
+;   $0FAE -> $BFAE, etc.
 ;
 ; CALLING CONVENTION (Apple Disk II standard)
 ;   X register = slot number * 16 (e.g., $60 for slot 6)
@@ -161,6 +174,18 @@ WRITE_SECTOR:
           STA $C08D,X                     ; $0A92 9D 8D C0
           ORA $C08C,X                     ; $0A95 1D 8C C0
           RTS                             ; $0A98 60
+
+; ============================================================================
+; READ_SECTOR ($0A99) -- read current track/sector to $0900-$0AFF + $0C00-$0CFF
+;
+; Loops looking for the address-field prolog D5 AA 96, decodes the
+; 4-and-4 encoded volume/track/sector/checksum, then reads the data
+; field at D5 AA AD prolog. Decodes 342 GCR nibbles into 256 data bytes
+; plus an 86-byte secondary buffer at $0900,Y. Validates DE AA epilog.
+; Returns carry clear on success / set on failure.
+; ============================================================================
+
+
           LDY #$20                        ; $0A99 A0 20
           DEY                             ; $0A9B 88
           BEQ $0B01                       ; $0A9C F0 63
@@ -258,6 +283,17 @@ WRITE_SECTOR:
           BNE $0B01                       ; $0B5B D0 A4
           CLC                             ; $0B5D 18
           RTS                             ; $0B5E 60
+
+; ============================================================================
+; SEEK_TRACK ($0B5F) -- move drive head to requested track
+;
+; Standard four-phase stepper sequence. Reads current head position from
+; $0478,Y (Apple monitor screen-hole convention), compares with desired
+; track in A, computes step direction and count, energizes phase coils
+; via SEEK_PHASE_ON / SEEK_PHASE_OFF in LC RAM, with per-step delays.
+; ============================================================================
+
+
           STX $2B                         ; $0B5F 86 2B
           STA $2A                         ; $0B61 85 2A
           CMP $0478                       ; $0B63 CD 78 04
@@ -326,6 +362,32 @@ WRITE_SECTOR:
           NOP $A91C,X                     ; $0BE7 1C 1C A9
           LAX ($8D,X)                     ; $0BEA A3 8D
           SBC #$03                        ; $0BEC E9 03
+
+; ============================================================================
+; LOAD_CPM_LOOP ($0BEE) -- read N sectors from disk into staging
+;
+; Called by stage-2 loader (at Apple $1407 with A=$1D for 29 sectors).
+; Initializes destination state at $03E0-$03EB, then loops:
+;   - call LOAD_CPM_PRIM ($BE11 in LC RAM) to read one sector
+;   - on error: call PRINT_ERR + jump to retry
+;   - on success: advance sector counter, wrap at 16, advance track
+;   - decrement remaining count, loop until done
+;
+; State conventions:
+;   $03E0  current track number
+;   $03E1  current sector (0..15)
+;   $03E6  destination high byte ($60 = page $60xx)
+;   $03E8  scratch
+;   $03E9  sectors-loaded counter
+;   $03EB  scratch
+;
+; The actual sector-read happens in LC RAM at $BE11; this routine is
+; the orchestration layer. The second LOAD_CPM call from boot-finalization
+; ($111E) re-enters here with different starting state to load additional
+; sectors past the main 29.
+; ============================================================================
+
+
           LDY #$00                        ; $0BEE A0 00
           STY $03E8                       ; $0BF0 8C E8 03
           STY $03E0                       ; $0BF3 8C E0 03
@@ -364,10 +426,401 @@ WRITE_SECTOR:
           RTS                             ; $0C38 60
 
 ; ============================================================================
-; END OF CLEAN 6502 SECTION
+; GAP: $0C39-$0CFF -- Z-80 BIOS init code
 ;
-; Bytes at $0C39-$0FFF are part of the BIOS first 1 KB; they're Z-80
-; code, not 6502. See CPM223_BIOS.asm for the Z-80-side annotations
-; (this region maps to Z-80 $1C39-$1FFF under the SoftCard's bit-12
-; XOR for low addresses).
+; The bytes at $0C39-$0CFF are Z-80 code, part of the BIOS first 1 KB
+; that the boot stub loaded into $0A00-$0FFF as a single block. The
+; Z-80 sees them at $1C39-$1CFF after the SoftCard's bit-12 XOR.
+;
+; They are not 6502 instructions and are intentionally skipped here.
+; See CPM223_BIOS.asm for the Z-80-side annotations.
+; ============================================================================
+
+; ============================================================================
+; GAP: $0D00-$0DFF -- GCR codec data tables
+;
+; Standard Apple Disk II 6-and-2 GCR translation tables, used by the
+; 6502 RWTS in the runtime layout (after PREP_HANDOFF #1 copies them to
+; $BD00-$BDFF in LC RAM). The 6502 code reaches them via the symbols:
+;
+;   $BD04 = 256-entry decode table (8-bit nibble -> 6-bit value;
+;           invalid entries marked with $FE). Referenced by
+;           READ_DATA_FIELD at $0AC8 (`EOR $BD04,Y`) and $0AD9.
+;
+;   $BD5A = 64-entry encode table (6-bit value -> 8-bit GCR nibble:
+;           96 97 9A 9B ... FE FF). Referenced by WRITE_SECTOR at
+;           $0A43 (`LDA $BD5A,X`).
+;
+; The exact byte layout is in the binary file; treat this as opaque
+; data for the purposes of the source listing.
+; ============================================================================
+
+
+; ============================================================================
+; LOAD_CPM_PRIM_OUTER ($0E04) -- thin wrapper that asserts phase 1 around
+; the sector-read primitive
+;
+; The original 6502 disk routines region resumes here. The boot stub
+; loaded sectors $08, $0A, $0C of track 0 into pages $0D00, $0E00,
+; $0F00, holding the GCR codec tables (page $0D00) and a second block
+; of 6502 RWTS code (pages $0E00 and $0F00). Together with the first
+; block at $0A00-$0C38, the LC-RAM-resident RWTS at $BA00-$BFFF that
+; the cooperative-CPU disk callbacks reach into is fully populated.
+; ============================================================================
+
+          LDA $C083                       ; $0E04 AD 83 C0
+          PHP                             ; $0E07 08
+          SEI                             ; $0E08 78
+          JSR $BE11                       ; $0E09 20 11 BE
+          LDA $C081                       ; $0E0C AD 81 C0
+          PLP                             ; $0E0F 28
+          RTS                             ; $0E10 60
+
+; ============================================================================
+; LOAD_CPM_PRIM ($0E11) -- the actual sector-read primitive
+;
+; Called as $BE11 from LOAD_CPM_LOOP (and from LOAD_CPM_PRIM_OUTER above).
+; Drives the Disk II hardware: motor on, track selection, drive 1 vs 2
+; switching, retry counting, calls to READ_ADDR_FIELD ($BB03) and
+; READ_DATA_FIELD ($BA99) for the actual bytes-on-the-wire work.
+;
+; Drive-state convention:
+;   $03E4 / $03E5    desired vs current drive number
+;   $05F8 / $06F8    current X (slot*16) per drive selection
+;   $03E2 / $03E3    desired vs current track shadow
+;
+; The lower-level helpers SEEK_TRACK ($BB5F) and STEP_DELAY ($BBBC)
+; live in the first 6502 block above; LOAD_CPM_PRIM uses them via the
+; absolute references $BB03, $BA99, $BBBC, $BB5F, etc.
+; ============================================================================
+
+
+          LDY #$02                        ; $0E11 A0 02
+          STY $06F8                       ; $0E13 8C F8 06
+          LDY #$04                        ; $0E16 A0 04
+          STY $04F8                       ; $0E18 8C F8 04
+          LDA $03E6                       ; $0E1B AD E6 03
+          TAX                             ; $0E1E AA
+          CMP $03E7                       ; $0E1F CD E7 03
+          BEQ $0E41                       ; $0E22 F0 1D
+          TXA                             ; $0E24 8A
+          TAY                             ; $0E25 A8
+          LDA $03E7                       ; $0E26 AD E7 03
+          TAX                             ; $0E29 AA
+          TYA                             ; $0E2A 98
+          PHA                             ; $0E2B 48
+          STA $03E7                       ; $0E2C 8D E7 03
+          LDA $C08E,X                     ; $0E2F BD 8E C0
+          LDY #$08                        ; $0E32 A0 08
+          LDA $C08C,X                     ; $0E34 BD 8C C0
+          CMP $C08C,X                     ; $0E37 DD 8C C0
+          BNE $0E32                       ; $0E3A D0 F6
+          DEY                             ; $0E3C 88
+          BNE $0E37                       ; $0E3D D0 F8
+          PLA                             ; $0E3F 68
+          TAX                             ; $0E40 AA
+          LDA $C08E,X                     ; $0E41 BD 8E C0
+          LDA $C08C,X                     ; $0E44 BD 8C C0
+          LDY #$08                        ; $0E47 A0 08
+          LDA $C08C,X                     ; $0E49 BD 8C C0
+          PHA                             ; $0E4C 48
+          PLA                             ; $0E4D 68
+          PHA                             ; $0E4E 48
+          PLA                             ; $0E4F 68
+          STX $05F8                       ; $0E50 8E F8 05
+          CMP $C08C,X                     ; $0E53 DD 8C C0
+          BNE $0E5B                       ; $0E56 D0 03
+          DEY                             ; $0E58 88
+          BNE $0E49                       ; $0E59 D0 EE
+          PHP                             ; $0E5B 08
+          LDA $C089,X                     ; $0E5C BD 89 C0
+          LDA $03E8                       ; $0E5F AD E8 03
+          STA $3E                         ; $0E62 85 3E
+          LDA $03E9                       ; $0E64 AD E9 03
+          STA $3F                         ; $0E67 85 3F
+          LDA #$EF                        ; $0E69 A9 EF
+          STA $46                         ; $0E6B 85 46
+          LDA #$D8                        ; $0E6D A9 D8
+          STA $47                         ; $0E6F 85 47
+          LDA $03E4                       ; $0E71 AD E4 03
+          CMP $03E5                       ; $0E74 CD E5 03
+          BEQ $0E80                       ; $0E77 F0 07
+          STA $03E5                       ; $0E79 8D E5 03
+          PLP                             ; $0E7C 28
+          LDY #$00                        ; $0E7D A0 00
+          PHP                             ; $0E7F 08
+          ROR                             ; $0E80 6A
+          BCC $0E88                       ; $0E81 90 05
+          LDA $C08A,X                     ; $0E83 BD 8A C0
+          BCS $0E8B                       ; $0E86 B0 03
+          LDA $C08B,X                     ; $0E88 BD 8B C0
+          ROR $35                         ; $0E8B 66 35
+          PLP                             ; $0E8D 28
+          PHP                             ; $0E8E 08
+          BNE $0E9C                       ; $0E8F D0 0B
+          LDY #$07                        ; $0E91 A0 07
+          JSR $BBBC                       ; $0E93 20 BC BB
+          DEY                             ; $0E96 88
+          BNE $0E93                       ; $0E97 D0 FA
+          LDX $05F8                       ; $0E99 AE F8 05
+          LDA $03E0                       ; $0E9C AD E0 03
+          JSR $BF53                       ; $0E9F 20 53 BF
+          LDA $03EB                       ; $0EA2 AD EB 03
+          PLP                             ; $0EA5 28
+          BNE $0EB9                       ; $0EA6 D0 11
+          CMP #$01                        ; $0EA8 C9 01
+          BEQ $0EB9                       ; $0EAA F0 0D
+          LDY #$12                        ; $0EAC A0 12
+          DEY                             ; $0EAE 88
+          BNE $0EAE                       ; $0EAF D0 FD
+          INC $46                         ; $0EB1 E6 46
+          BNE $0EAC                       ; $0EB3 D0 F7
+          INC $47                         ; $0EB5 E6 47
+          BNE $0EAC                       ; $0EB7 D0 F3
+          ROR                             ; $0EB9 6A
+          PHP                             ; $0EBA 08
+          BCS $0EC0                       ; $0EBB B0 03
+          JSR $BFAE                       ; $0EBD 20 AE BF
+
+; ----------------------------------------------------------------------------
+; SECTOR_RW_RETRY ($0EC0) -- retry loop body
+;
+; On entry: Y = retry counter ($30 = 48 attempts). Loops calling
+; READ_ADDR_FIELD; if still failing after 48 attempts, runs error
+; recovery (track-state save, recalibration via JSR $BF85, attempt
+; second-drive fallback, finally JMP $BEC0 to retry).
+; ----------------------------------------------------------------------------
+
+
+          LDY #$30                        ; $0EC0 A0 30
+          STY $0578                       ; $0EC2 8C 78 05
+          LDX $05F8                       ; $0EC5 AE F8 05
+          JSR $BB03                       ; $0EC8 20 03 BB
+          BCC $0EF1                       ; $0ECB 90 24
+          DEC $0578                       ; $0ECD CE 78 05
+          BPL $0EC5                       ; $0ED0 10 F3
+          LDA $0478                       ; $0ED2 AD 78 04
+          PHA                             ; $0ED5 48
+          LDA #$60                        ; $0ED6 A9 60
+          JSR $BF85                       ; $0ED8 20 85 BF
+          DEC $06F8                       ; $0EDB CE F8 06
+          BEQ $0F08                       ; $0EDE F0 28
+          LDA #$04                        ; $0EE0 A9 04
+          STA $04F8                       ; $0EE2 8D F8 04
+          LDA #$00                        ; $0EE5 A9 00
+          JSR $BF53                       ; $0EE7 20 53 BF
+          PLA                             ; $0EEA 68
+          JSR $BF53                       ; $0EEB 20 53 BF
+          JMP $BEC0                       ; $0EEE 4C C0 BE
+          LDY $2E                         ; $0EF1 A4 2E
+          CPY $0478                       ; $0EF3 CC 78 04
+          BEQ $0F11                       ; $0EF6 F0 19
+          LDA $0478                       ; $0EF8 AD 78 04
+          PHA                             ; $0EFB 48
+          TYA                             ; $0EFC 98
+          JSR $BF85                       ; $0EFD 20 85 BF
+          PLA                             ; $0F00 68
+          DEC $04F8                       ; $0F01 CE F8 04
+          BNE $0EEB                       ; $0F04 D0 E5
+          BEQ $0ED2                       ; $0F06 F0 CA
+          PLA                             ; $0F08 68
+          LDA #$40                        ; $0F09 A9 40
+          PLP                             ; $0F0B 28
+          JMP $BF3F                       ; $0F0C 4C 3F BF
+          BEQ $0F3B                       ; $0F0F F0 2A
+          LDA $2F                         ; $0F11 A5 2F
+          STA $03E3                       ; $0F13 8D E3 03
+          LDA $03E2                       ; $0F16 AD E2 03
+          BEQ $0F23                       ; $0F19 F0 08
+          CMP $2F                         ; $0F1B C5 2F
+          BEQ $0F23                       ; $0F1D F0 04
+          LDA #$20                        ; $0F1F A9 20
+          BNE $0F0B                       ; $0F21 D0 E8
+          LDA $03E1                       ; $0F23 AD E1 03
+          TAY                             ; $0F26 A8
+          LDA $BF9E,Y                     ; $0F27 B9 9E BF
+          CMP $2D                         ; $0F2A C5 2D
+          BNE $0ECD                       ; $0F2C D0 9F
+          PLP                             ; $0F2E 28
+          BCC $0F4A                       ; $0F2F 90 19
+          JSR $BA99                       ; $0F31 20 99 BA
+          PHP                             ; $0F34 08
+          BCS $0ECD                       ; $0F35 B0 96
+          PLP                             ; $0F37 28
+          JSR $BFD3                       ; $0F38 20 D3 BF
+          CLC                             ; $0F3B 18
+          LDA #$00                        ; $0F3C A9 00
+          BIT $38                         ; $0F3E 24 38
+          STA $03EA                       ; $0F40 8D EA 03
+          LDX $05F8                       ; $0F43 AE F8 05
+          LDA $C088,X                     ; $0F46 BD 88 C0
+          RTS                             ; $0F49 60
+
+; ----------------------------------------------------------------------------
+; WRITE_SECTOR_CALL ($0F4A) -- write-mode wrapper
+;
+; Calls WRITE_SECTOR at $BA00 (in LC RAM after PREP_HANDOFF), branches
+; to success/failure paths via the carry flag.
+; ----------------------------------------------------------------------------
+
+
+          JSR $BA00                       ; $0F4A 20 00 BA
+          BCC $0F3B                       ; $0F4D 90 EC
+          LDA #$10                        ; $0F4F A9 10
+          BNE $0F3F                       ; $0F51 D0 EC
+
+; ----------------------------------------------------------------------------
+; SEEK_RECAL ($0F53) -- recalibration helper (BF53 in LC RAM)
+;
+; Doubles the track number (ASL = track*2 for half-track addressing),
+; calls SEEK_TRACK ($BF5B), and updates the per-slot screen-hole
+; track at $0478. Used during error recovery to reset head position.
+; ----------------------------------------------------------------------------
+
+
+          ASL                             ; $0F53 0A
+          JSR $BF5B                       ; $0F54 20 5B BF
+          LSR $0478                       ; $0F57 4E 78 04
+          RTS                             ; $0F5A 60
+
+; ----------------------------------------------------------------------------
+; TRACK_STATE_SET ($0F5B = $BF5B in LC RAM) -- save / restore track
+;
+; Reads bit 7 of $35 to decide whether the current track lives in
+; $0478,Y (drive 1) or $04F8,Y (drive 2). Swaps them and JMPs to
+; SEEK_TRACK ($BB5F). Y is computed from X via TRACK_STATE_GET below
+; (X = slot*16, Y = X / 16 = slot number).
+; ----------------------------------------------------------------------------
+
+
+          STA $2E                         ; $0F5B 85 2E
+          JSR $BF7E                       ; $0F5D 20 7E BF
+          LDA $0478,Y                     ; $0F60 B9 78 04
+          BIT $35                         ; $0F63 24 35
+          BMI $0F6A                       ; $0F65 30 03
+          LDA $04F8,Y                     ; $0F67 B9 F8 04
+          STA $0478                       ; $0F6A 8D 78 04
+          LDA $2E                         ; $0F6D A5 2E
+          BIT $35                         ; $0F6F 24 35
+          BMI $0F78                       ; $0F71 30 05
+          STA $04F8,Y                     ; $0F73 99 F8 04
+          BPL $0F7B                       ; $0F76 10 03
+          STA $0478,Y                     ; $0F78 99 78 04
+          JMP $BB5F                       ; $0F7B 4C 5F BB
+
+; ----------------------------------------------------------------------------
+; SLOT_TO_INDEX ($0F7E = $BF7E in LC RAM)
+;
+; Helper: convert X (slot*16) to Y (slot) by 4-bit right shift.
+; ----------------------------------------------------------------------------
+
+
+          TXA                             ; $0F7E 8A
+          LSR                             ; $0F7F 4A
+          LSR                             ; $0F80 4A
+          LSR                             ; $0F81 4A
+          LSR                             ; $0F82 4A
+          TAY                             ; $0F83 A8
+          RTS                             ; $0F84 60
+
+; ----------------------------------------------------------------------------
+; TRACK_STATE_GET ($0F85 = $BF85 in LC RAM)
+;
+; Mirror of TRACK_STATE_SET: reads $03E4 (drive number) into bit 7 of
+; $35, then stores A in $0478,Y or $04F8,Y depending on which drive
+; is active.
+; ----------------------------------------------------------------------------
+
+
+          PHA                             ; $0F85 48
+          LDA $03E4                       ; $0F86 AD E4 03
+          ROR                             ; $0F89 6A
+          ROR $35                         ; $0F8A 66 35
+          JSR $BF7E                       ; $0F8C 20 7E BF
+          PLA                             ; $0F8F 68
+          ASL                             ; $0F90 0A
+          BIT $35                         ; $0F91 24 35
+          BMI $0F9A                       ; $0F93 30 05
+          STA $04F8,Y                     ; $0F95 99 F8 04
+          BPL $0F9D                       ; $0F98 10 03
+          STA $0478,Y                     ; $0F9A 99 78 04
+          RTS                             ; $0F9D 60
+
+; ----------------------------------------------------------------------------
+; CPM_SKEW_TABLE ($0F9E = $BF9E in LC RAM) -- 16-byte CP/M sector skew
+;
+; The CP/M physical-sector skew used by the boot stub and by the
+; cooperative-CPU disk callback layer. Logical-sector index N maps to
+; physical sector CPM_SKEW_TABLE[N]:
+;
+;   $00 $02 $04 $06 $08 $0A $0C $0E $01 $03 $05 $07 $09 $0B $0D $0F
+;
+; This is not the same as DOS 3.3 interleave -- CP/M reads even
+; sectors first, then odd sectors (a 2:1 step, lock-step skew).
+; Referenced by SECTOR_RW_RETRY at $0F27 (`LDA $BF9E,Y`).
+; ----------------------------------------------------------------------------
+
+
+          BRK                             ; $0F9E 00
+          KIL                             ; $0F9F 02
+          NOP $06                         ; $0FA0 04 06
+          PHP                             ; $0FA2 08
+          ASL                             ; $0FA3 0A
+          NOP $010E                       ; $0FA4 0C 0E 01
+          SLO ($05,X)                     ; $0FA7 03 05
+          SLO $09                         ; $0FA9 07 09
+          ANC #$0D                        ; $0FAB 0B 0D
+          SLO $55A2                       ; $0FAD 0F A2 55
+          LDA #$00                        ; $0FB0 A9 00
+          STA $0C00,X                     ; $0FB2 9D 00 0C
+          DEX                             ; $0FB5 CA
+          BPL $0FB2                       ; $0FB6 10 FA
+          TAY                             ; $0FB8 A8
+          LDX #$AC                        ; $0FB9 A2 AC
+          BIT $AAA2                       ; $0FBB 2C A2 AA
+          DEY                             ; $0FBE 88
+          LDA ($3E),Y                     ; $0FBF B1 3E
+          LSR                             ; $0FC1 4A
+          ROL $0B56,X                     ; $0FC2 3E 56 0B
+          LSR                             ; $0FC5 4A
+          ROL $0B56,X                     ; $0FC6 3E 56 0B
+          STA $0900,Y                     ; $0FC9 99 00 09
+          INX                             ; $0FCC E8
+          BNE $0FBE                       ; $0FCD D0 EF
+          TYA                             ; $0FCF 98
+          BNE $0FBC                       ; $0FD0 D0 EA
+          RTS                             ; $0FD2 60
+
+; ----------------------------------------------------------------------------
+; MERGE_BUFFER ($0FD3 = $BFD3 in LC RAM) -- post-read 6+2 -> 8-bit merge
+;
+; Inverse of SPLIT_BUFFER. Takes the 6-bit primary at $0C00,X and the
+; 2-bit secondary at $0900,Y (both populated by READ_DATA_FIELD via
+; the decode table at $BD04) and reconstructs 256 8-bit bytes at
+; ($3E/$3F).
+;
+; Called once per sector after a successful READ_DATA_FIELD.
+; ----------------------------------------------------------------------------
+
+
+          LDY #$00                        ; $0FD3 A0 00
+          LDX #$56                        ; $0FD5 A2 56
+          DEX                             ; $0FD7 CA
+          BMI $0FD5                       ; $0FD8 30 FB
+          LDA $0900,Y                     ; $0FDA B9 00 09
+          LSR $0C00,X                     ; $0FDD 5E 00 0C
+          ROL                             ; $0FE0 2A
+          LSR $0C00,X                     ; $0FE1 5E 00 0C
+          ROL                             ; $0FE4 2A
+          STA ($3E),Y                     ; $0FE5 91 3E
+          INY                             ; $0FE7 C8
+          BNE $0FD7                       ; $0FE8 D0 ED
+          RTS                             ; $0FEA 60
+
+; ============================================================================
+; END OF 6502 RWTS REGION ($0FEB-$0FFF zero-padded)
+;
+; The trailing bytes at $0FEB-$0FFF are zeros on disk -- pad to the
+; sector boundary. After PREP_HANDOFF #1 they're at $BFEB-$BFFF, which
+; is the unused tail of the LC-RAM RWTS area.
 ; ============================================================================
