@@ -1171,3 +1171,335 @@ def _ld_de_nn_indirect(cpu, op):
 def _ld_sp_nn_indirect(cpu, op):
     addr = cpu.fetch16()
     cpu.sp = cpu.read16(addr)
+
+
+# ED 44 NEG -- A = 0 - A
+@_op(OPCODES_ED, 0x44)
+def _neg(cpu, op):
+    cpu.a = cpu.alu_sub8(0, cpu.a)
+
+
+# ED 45 RETN, ED 4D RETI -- treat both as plain RET for our purposes
+@_op(OPCODES_ED, 0x45, 0x4D, 0x55, 0x5D, 0x65, 0x6D, 0x75, 0x7D)
+def _retn(cpu, op):
+    cpu.iff1 = cpu.iff2
+    cpu.pc = cpu.pop16()
+
+
+# ED 47 LD I,A / ED 4F LD R,A / ED 57 LD A,I / ED 5F LD A,R
+@_op(OPCODES_ED, 0x47)
+def _ld_i_a(cpu, op):
+    cpu.i = cpu.a
+
+
+@_op(OPCODES_ED, 0x4F)
+def _ld_r_a(cpu, op):
+    cpu.r = cpu.a
+
+
+@_op(OPCODES_ED, 0x57)
+def _ld_a_i(cpu, op):
+    cpu.a = cpu.i
+    f = cpu.f & FLAG_C
+    if cpu.a == 0: f |= FLAG_Z
+    if cpu.a & 0x80: f |= FLAG_S
+    if cpu.iff2: f |= FLAG_PV
+    cpu.f = f
+
+
+@_op(OPCODES_ED, 0x5F)
+def _ld_a_r(cpu, op):
+    cpu.a = cpu.r
+    f = cpu.f & FLAG_C
+    if cpu.a == 0: f |= FLAG_Z
+    if cpu.a & 0x80: f |= FLAG_S
+    if cpu.iff2: f |= FLAG_PV
+    cpu.f = f
+
+
+# ED 67 RRD / ED 6F RLD -- BCD-shift between A and (HL)
+@_op(OPCODES_ED, 0x6F)
+def _rld(cpu, op):
+    m = cpu.read8(cpu.hl)
+    new_a = (cpu.a & 0xF0) | (m >> 4)
+    new_m = ((m << 4) | (cpu.a & 0x0F)) & 0xFF
+    cpu.a = new_a
+    cpu.write8(cpu.hl, new_m)
+    cpu.set_szp(cpu.a)
+    cpu.f &= ~(FLAG_H | FLAG_N)
+
+
+@_op(OPCODES_ED, 0x67)
+def _rrd(cpu, op):
+    m = cpu.read8(cpu.hl)
+    new_a = (cpu.a & 0xF0) | (m & 0x0F)
+    new_m = ((m >> 4) | ((cpu.a & 0x0F) << 4)) & 0xFF
+    cpu.a = new_a
+    cpu.write8(cpu.hl, new_m)
+    cpu.set_szp(cpu.a)
+    cpu.f &= ~(FLAG_H | FLAG_N)
+
+
+# ED 4A/5A/6A/7A ADC HL,rr  ;  ED 42/52/62/72 SBC HL,rr
+def _adc_hl_rr(cpu, op):
+    pair = (op >> 4) & 3
+    v = (cpu.bc, cpu.de, cpu.hl, cpu.sp)[pair]
+    a, b, c = cpu.hl, v, (1 if cpu.f & FLAG_C else 0)
+    result = a + b + c
+    f = 0
+    if (result & 0xFFFF) == 0: f |= FLAG_Z
+    if result & 0x8000: f |= FLAG_S
+    if ((a ^ b ^ result) & 0x1000): f |= FLAG_H
+    if ((a ^ ~b) & (a ^ result) & 0x8000): f |= FLAG_PV
+    if result > 0xFFFF: f |= FLAG_C
+    cpu.hl = result & 0xFFFF
+    cpu.f = f
+
+
+def _sbc_hl_rr(cpu, op):
+    pair = (op >> 4) & 3
+    v = (cpu.bc, cpu.de, cpu.hl, cpu.sp)[pair]
+    a, b, c = cpu.hl, v, (1 if cpu.f & FLAG_C else 0)
+    result = a - b - c
+    f = FLAG_N
+    if (result & 0xFFFF) == 0: f |= FLAG_Z
+    if result & 0x8000: f |= FLAG_S
+    if ((a ^ b ^ result) & 0x1000): f |= FLAG_H
+    if ((a ^ b) & (a ^ result) & 0x8000): f |= FLAG_PV
+    if result < 0: f |= FLAG_C
+    cpu.hl = result & 0xFFFF
+    cpu.f = f
+
+
+for _op_code in (0x4A, 0x5A, 0x6A, 0x7A):
+    OPCODES_ED[_op_code] = _adc_hl_rr
+for _op_code in (0x42, 0x52, 0x62, 0x72):
+    OPCODES_ED[_op_code] = _sbc_hl_rr
+
+
+# ============================================================================
+# DD- and FD-prefixed opcodes (IX / IY)
+# ============================================================================
+# Most DD opcodes are HL-replaced-by-IX of main-table opcodes, with (HL)
+# replaced by (IX+d) (signed displacement byte after the opcode). FD is the
+# IY counterpart. We implement the subset the SoftCard CP/M code uses --
+# enough to run the cold-boot generator and BIOS init.
+
+def _make_idx_opcodes(reg_attr):
+    """Build the dispatch table for DD- or FD-prefixed opcodes.
+
+    reg_attr is the Z80CPU attribute name for the index register: 'ix' or 'iy'.
+    Returns a dict of opcode -> handler(cpu, op).
+    """
+    table = {}
+
+    def _idx_get(c):
+        return getattr(c, reg_attr)
+
+    def _idx_set(c, v):
+        setattr(c, reg_attr, v & 0xFFFF)
+
+    def _idx_addr(c):
+        d = c.fetch_signed8()
+        return (_idx_get(c) + d) & 0xFFFF
+
+    # DD 21 nn -- LD IX,nn
+    def _ld_idx_nn(c, op):
+        _idx_set(c, c.fetch16())
+    table[0x21] = _ld_idx_nn
+
+    # DD 22 nn -- LD (nn),IX
+    def _ld_nn_idx(c, op):
+        addr = c.fetch16()
+        c.write16(addr, _idx_get(c))
+    table[0x22] = _ld_nn_idx
+
+    # DD 2A nn -- LD IX,(nn)
+    def _ld_idx_nn_indirect(c, op):
+        addr = c.fetch16()
+        _idx_set(c, c.read16(addr))
+    table[0x2A] = _ld_idx_nn_indirect
+
+    # DD 23 INC IX / DD 2B DEC IX
+    def _inc_idx(c, op):
+        _idx_set(c, _idx_get(c) + 1)
+    table[0x23] = _inc_idx
+
+    def _dec_idx(c, op):
+        _idx_set(c, _idx_get(c) - 1)
+    table[0x2B] = _dec_idx
+
+    # DD 09/19/29/39 -- ADD IX,rr (rr = BC, DE, IX, SP)
+    def _add_idx_rr(c, op):
+        pair = (op >> 4) & 3
+        if pair == 0: v = c.bc
+        elif pair == 1: v = c.de
+        elif pair == 2: v = _idx_get(c)
+        else: v = c.sp
+        a, b = _idx_get(c), v
+        result = a + b
+        f = c.f & ~(FLAG_H | FLAG_N | FLAG_C)
+        if ((a ^ b ^ result) & 0x1000): f |= FLAG_H
+        if result > 0xFFFF: f |= FLAG_C
+        _idx_set(c, result)
+        c.f = f
+    for _opc in (0x09, 0x19, 0x29, 0x39):
+        table[_opc] = _add_idx_rr
+
+    # DD 36 d n -- LD (IX+d),n
+    def _ld_idxd_n(c, op):
+        addr = _idx_addr(c)
+        n = c.fetch8()
+        c.write8(addr, n)
+    table[0x36] = _ld_idxd_n
+
+    # DD 7E d -- LD A,(IX+d)
+    # Generic: LD r,(IX+d) for r in (B, C, D, E, H, L, A); skip $76 (HALT analog).
+    # Encoding: 01 ddd 110 -> opcodes $46, $4E, $56, $5E, $66, $6E, $7E
+    def _make_ld_r_idxd(reg_idx):
+        def _h(c, op):
+            v = c.read8(_idx_addr(c))
+            _write_reg(c, reg_idx, v)
+        return _h
+    for _r, _opc in [(0, 0x46), (1, 0x4E), (2, 0x56), (3, 0x5E),
+                      (4, 0x66), (5, 0x6E), (7, 0x7E)]:
+        table[_opc] = _make_ld_r_idxd(_r)
+
+    # DD 70 d -- LD (IX+d),B  / similar for C, D, E, H, L, A
+    # Encoding: 01 110 sss -> opcodes $70, $71, $72, $73, $74, $75, $77
+    def _make_ld_idxd_r(reg_idx):
+        def _h(c, op):
+            addr = _idx_addr(c)
+            c.write8(addr, _read_reg(c, reg_idx))
+        return _h
+    for _r, _opc in [(0, 0x70), (1, 0x71), (2, 0x72), (3, 0x73),
+                      (4, 0x74), (5, 0x75), (7, 0x77)]:
+        table[_opc] = _make_ld_idxd_r(_r)
+
+    # DD 86 d -- ADD A,(IX+d)
+    # Generic ALU on (IX+d): opcodes $86, $8E, $96, $9E, $A6, $AE, $B6, $BE
+    def _alu_idxd(c, op):
+        kind = (op >> 3) & 7
+        v = c.read8(_idx_addr(c))
+        if kind == 0:   c.a = c.alu_add8(c.a, v)
+        elif kind == 1: c.a = c.alu_add8(c.a, v, 1 if c.f & FLAG_C else 0)
+        elif kind == 2: c.a = c.alu_sub8(c.a, v)
+        elif kind == 3: c.a = c.alu_sub8(c.a, v, 1 if c.f & FLAG_C else 0)
+        elif kind == 4: c.a = c.alu_and8(c.a, v)
+        elif kind == 5: c.a = c.alu_xor8(c.a, v)
+        elif kind == 6: c.a = c.alu_or8(c.a, v)
+        else:           c.alu_cp8(c.a, v)
+    for _opc in (0x86, 0x8E, 0x96, 0x9E, 0xA6, 0xAE, 0xB6, 0xBE):
+        table[_opc] = _alu_idxd
+
+    # DD 34 d -- INC (IX+d) / DD 35 d -- DEC (IX+d)
+    def _inc_idxd(c, op):
+        addr = _idx_addr(c)
+        c.write8(addr, c.alu_inc8(c.read8(addr)))
+    table[0x34] = _inc_idxd
+
+    def _dec_idxd(c, op):
+        addr = _idx_addr(c)
+        c.write8(addr, c.alu_dec8(c.read8(addr)))
+    table[0x35] = _dec_idxd
+
+    # DD E1 POP IX / DD E5 PUSH IX
+    def _pop_idx(c, op):
+        _idx_set(c, c.pop16())
+    table[0xE1] = _pop_idx
+
+    def _push_idx(c, op):
+        c.push16(_idx_get(c))
+    table[0xE5] = _push_idx
+
+    # DD E9 JP (IX) -- PC = IX
+    def _jp_idx(c, op):
+        c.pc = _idx_get(c)
+    table[0xE9] = _jp_idx
+
+    # DD F9 LD SP,IX
+    def _ld_sp_idx(c, op):
+        c.sp = _idx_get(c)
+    table[0xF9] = _ld_sp_idx
+
+    # DD E3 EX (SP),IX
+    def _ex_sp_idx(c, op):
+        t = c.read16(c.sp)
+        c.write16(c.sp, _idx_get(c))
+        _idx_set(c, t)
+    table[0xE3] = _ex_sp_idx
+
+    # DD CB d <op> -- bit ops on (IX+d). The displacement comes BEFORE the
+    # final op byte. Most just RES/SET/BIT on (IX+d); some also store the
+    # result in a register (undocumented variant). We implement the basic
+    # forms.
+    def _ddcb(c, op):
+        d = c.fetch_signed8()
+        sub = c.fetch8()
+        addr = (_idx_get(c) + d) & 0xFFFF
+        kind = (sub >> 6) & 3
+        bit = (sub >> 3) & 7
+        v = c.read8(addr)
+        if kind == 0:  # rotate/shift
+            shift_kind = (sub >> 3) & 7
+            if shift_kind == 0:    # RLC
+                b7 = (v >> 7) & 1
+                v2 = ((v << 1) | b7) & 0xFF
+                c.f = (c.f & ~(FLAG_H | FLAG_N | FLAG_C)) | (FLAG_C if b7 else 0)
+            elif shift_kind == 1:  # RRC
+                b0 = v & 1
+                v2 = (v >> 1) | (b0 << 7)
+                c.f = (c.f & ~(FLAG_H | FLAG_N | FLAG_C)) | (FLAG_C if b0 else 0)
+            elif shift_kind == 2:  # RL
+                old_c = 1 if c.f & FLAG_C else 0
+                b7 = (v >> 7) & 1
+                v2 = ((v << 1) | old_c) & 0xFF
+                c.f = (c.f & ~(FLAG_H | FLAG_N | FLAG_C)) | (FLAG_C if b7 else 0)
+            elif shift_kind == 3:  # RR
+                old_c = 1 if c.f & FLAG_C else 0
+                b0 = v & 1
+                v2 = (v >> 1) | (old_c << 7)
+                c.f = (c.f & ~(FLAG_H | FLAG_N | FLAG_C)) | (FLAG_C if b0 else 0)
+            elif shift_kind == 4:  # SLA
+                b7 = (v >> 7) & 1
+                v2 = (v << 1) & 0xFF
+                c.f = (c.f & ~(FLAG_H | FLAG_N | FLAG_C)) | (FLAG_C if b7 else 0)
+            elif shift_kind == 5:  # SRA
+                b0 = v & 1
+                b7 = v & 0x80
+                v2 = (v >> 1) | b7
+                c.f = (c.f & ~(FLAG_H | FLAG_N | FLAG_C)) | (FLAG_C if b0 else 0)
+            elif shift_kind == 6:  # SLL
+                b7 = (v >> 7) & 1
+                v2 = ((v << 1) | 1) & 0xFF
+                c.f = (c.f & ~(FLAG_H | FLAG_N | FLAG_C)) | (FLAG_C if b7 else 0)
+            else:                   # SRL
+                b0 = v & 1
+                v2 = (v >> 1)
+                c.f = (c.f & ~(FLAG_H | FLAG_N | FLAG_C)) | (FLAG_C if b0 else 0)
+            c.set_szp(v2)
+            # set_szp clobbers our carry; restore it
+            if shift_kind in (0, 2, 4, 6):
+                c.f = (c.f & ~FLAG_C) | (FLAG_C if (v >> 7) & 1 else 0)
+            else:
+                c.f = (c.f & ~FLAG_C) | (FLAG_C if v & 1 else 0)
+            c.write8(addr, v2)
+        elif kind == 1:  # BIT b,(IX+d)
+            test = v & (1 << bit)
+            f = (c.f & FLAG_C) | FLAG_H
+            if test == 0: f |= FLAG_Z | FLAG_PV
+            if bit == 7 and test: f |= FLAG_S
+            c.f = f
+        elif kind == 2:  # RES b,(IX+d)
+            v &= ~(1 << bit) & 0xFF
+            c.write8(addr, v)
+        else:            # SET b,(IX+d)
+            v |= 1 << bit
+            c.write8(addr, v)
+    table[0xCB] = _ddcb
+
+    return table
+
+
+OPCODES_DD.update(_make_idx_opcodes('ix'))
+OPCODES_FD.update(_make_idx_opcodes('iy'))

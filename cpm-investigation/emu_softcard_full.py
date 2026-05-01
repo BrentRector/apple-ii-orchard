@@ -102,6 +102,19 @@ class SoftCardSystem:
             slot_base = 0xC000 | (slot << 8)
             self.apple_mem[slot_base:slot_base + len(rom_bytes)] = rom_bytes
 
+        # Videx Videoterm in slot 3 (if ROM is available). The Videx ROM
+        # is 1024 bytes mapped at $C800-$CBFF (expansion ROM); the last
+        # 256 bytes ($CB00-$CBFF) are also visible at $C300-$C3FF when
+        # slot 3 is selected. We place both copies in flat memory; the
+        # CFFF expansion-ROM-deselect softswitch is a no-op for our model.
+        videx_path = Path('e:/a2fpga_core/hdl/videx/Videx Videoterm ROM 2.4.bin')
+        if videx_path.exists():
+            videx = videx_path.read_bytes()
+            # Slot ROM at $C300-$C3FF: bytes 768-1023 of the image.
+            self.apple_mem[0xC300:0xC400] = videx[768:1024]
+            # Expansion ROM at $C800-$CBFF.
+            self.apple_mem[0xC800:0xCC00] = videx[0:1024]
+
         # 6502 register state.
         self.cpu6502.pc = 0x0801
         self.cpu6502.x = slot * 16
@@ -133,13 +146,18 @@ class SoftCardSystem:
         self.cpu6502.add_breakpoint(0xC000 | (slot << 8) | 0x5C, p6_hook)
 
         # Slot-scanner $3E patch (see emu_softcard.py for reasoning).
-        # The patch fires at the LDA $3E that precedes the BEQ-to-SCAN_INIT_SLOT.
+        # One-shot: fires at the FIRST LDA $3E in the scan loop. Sets $3E=0
+        # so the first iteration takes SCAN_INIT_SLOT (incrementing $3E to 1);
+        # subsequent iterations take SCAN_DO_PROBE normally.
         # Address differs between 2.20 ($1063) and 2.23 ($106A); install at both.
+        fired = [False]
         def patch_3e(c):
-            c.mem[0x3E] = 0
+            if not fired[0]:
+                c.mem[0x3E] = 0
+                fired[0] = True
             return False
-        self.cpu6502.add_breakpoint(0x106A, patch_3e)  # 2.23 location
-        self.cpu6502.add_breakpoint(0x1063, patch_3e)  # 2.20 location
+        self.cpu6502.add_breakpoint(0x106A, patch_3e)
+        self.cpu6502.add_breakpoint(0x1063, patch_3e)
 
         # CPU-switch trigger: when 6502 PC reaches $0E36. The warm-boot
         # routine at $03C0 ends with `JSR $0E36`, and the bytes at $0E36
