@@ -1,302 +1,288 @@
-"""Generate CPM223_BIOS.asm — annotated Z-80 source for the BIOS at $FAB8-$FFFF."""
-import subprocess
+"""Regenerate docs/CPM223_BIOS.asm from cpm-investigation/bios_223.bin.
 
-# Disassemble the BIOS region. Note bios_223.bin is 2048 bytes covering
-# $FAB8-$FFFF (1352 bytes) plus extra bytes that wrap or overshoot;
-# we only want $FAB8-$FFFF here.
-result = subprocess.run(
-    ['python', '-m', 'nibbler', 'z80disasm', 'cpm-investigation/bios_223.bin',
-     '--base', '0xFAB8', '--start', '0xFAB8', '--end', '0xFFFF', '--format', 'asm'],
-    capture_output=True,
-)
-disasm = result.stdout.decode('utf-8', errors='replace')
-lines = [l[2:] if l.startswith('  ') else l for l in disasm.split('\n')]
+Runs disasm_z80 with the standard CP/M 2.23 BIOS configuration (all 17
+jump-table entries seeded, trap-marker pages marked as data, CP/M and
+2.23-specific symbol tables loaded), then prepends a prose header and
+inserts per-section / per-routine annotations.
 
-SECTIONS = {
-    0xFAEB: """
-; ============================================================================
-; SECTION 3 -- Per-device dispatch table ($FAEB-$FB29)
-;
-; 4 entries x 16 bytes each = 64 bytes. Each entry holds 8 zero/state
-; bytes followed by 4 pointers:
-;   bytes 0-7: per-entry runtime-mutable state (set at boot, modified
-;              during cooperative-CPU operations)
-;   bytes 8-9: $FEE4 (state-byte address common to all entries)
-;   bytes 10-11: $FE73 or similar (entry-point trampoline)
-;   bytes 12-13: per-entry handler 1 address (for one of CONOUT/CONIN/etc)
-;   bytes 14-15: per-entry handler 2 address
-;
-; All 4 dispatch targets land in TRAP-MARKER PAGES on disk -- they're
-; populated at runtime by the cold-boot generator. See Part 6 of the
-; article series ("The BIOS Factory").
-; ============================================================================
+The output reassembles to byte-identical bytes via:
 
-""",
-    0xFB2B: """
-; ============================================================================
-; SECTION 4 -- Control-character data table ($FB2B-$FB39)
-; ============================================================================
+    sjasmplus docs/CPM223_BIOS.asm
 
-""",
-    0xFB3A: """
-; ============================================================================
-; SECTION 5 -- COLD-BOOT GENERATOR ($FB3A-$FB68) - "THE BIOS FACTORY"
-;
-; Walks slots 7..1 looking up device codes from the slot-info table
-; built by the 6502 slot scanner. Dispatches per-device init based on
-; what was detected.
-;
-; Device codes handled:
-;   3 -> CALL $FE81
-;   4 -> CALL $FD83 (Pascal 1.0; +HL=$C800 setup)
-;   6 -> CALL $FDB0 (Pascal 1.1 / Videx) <- NEW IN 2.23, ABSENT FROM 2.20
-;
-; This is the Z-80 side of the Videx fix. See Part 6 of the article
-; series for full context.
-; ============================================================================
+This replaces the prior gen_223_bios.py that called the now-deleted
+`nibbler z80disasm` subcommand.
+"""
 
-""",
-    0xFB69: """
-; ============================================================================
-; SECTION 6 -- Small helper ($FB69-$FB6F)
-; ============================================================================
+from __future__ import annotations
 
-""",
-    0xFB70: """
-; ============================================================================
-; SECTION 7 -- Cold-boot continuation / WBOOT ($FB70-$FBB6)
-;
-; The bytes at $FB70 are reached as the LIST jump-table entry but the
-; code is cold-boot-style: stack init, BDOS-vector planting, Z-80 reset
-; vector rewrite. The actual BOOT vector ($FED1) presumably reaches
-; this code via runtime-installed bytes in its NOP-slide region.
-;
-; Key actions:
-;   - Init Z-80 stack to $0080
-;   - First-boot vs warm-boot detect via $9C08 sentinel
-;   - Plant $C3 at Z-80 $0000-$0002: rewrites reset vector from
-;     "JP $FA00" (planted by 6502) to "JP $FA03" (skip first-instruction
-;     init on subsequent warm-boots)
-;   - Plant $C3 + $9C06 at $0005-$0007: standard CP/M BDOS call vector
-;     pointing at the relocated BDOS at $9C06
-; ============================================================================
+import sys
+from pathlib import Path
 
-""",
-    0xFBB8: """
-; ============================================================================
-; SECTION 8 -- TRAP-MARKER PAGE 1 ($FBB8-$FCB7)
-;
-; 256 bytes of "FF FF 00 00 / F7 F7 00 00" pattern -- decodes as
-; RST $38 / RST $30 traps. Premature execution lands in a defined
-; CP/M low-memory vector rather than wandering.
-;
-; AT RUNTIME, this region is populated with per-device handler code
-; by the cold-boot generator at $FB3A. The static code at $FF42 and
-; elsewhere does JP P,$FC9A which lands in this page after population.
-; The exact mechanism by which population happens is open work (likely
-; involves the second JSR $BBEB load and/or copies from Apple $1Cxx).
-; ============================================================================
+REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT))
 
-""",
-    0xFCB8: """
-; ============================================================================
-; SECTION 9 -- Code page 2 ($FCB8-$FDB7)
-;
-; Per-device init helpers and dispatch helpers. Includes:
-;   $FD83  device-4 (Pascal 1.0) init -- called by generator
-;   $FDB0  device-6 (Pascal 1.1) init -- called by generator
-;          NOTE: as it appears on disk, $FDB0 is ONE BYTE: a "RET"
-;          stub. The actual driver-install path lives elsewhere.
-;          See $FDB0-stub devlog for the dead-end finding.
-; ============================================================================
+from disasm_z80.cli import main as disasm_main
 
-""",
-    0xFDB8: """
-; ============================================================================
-; SECTION 10 -- TRAP-MARKER PAGE 3 ($FDB8-$FEB7)
-;
-; Another 256-byte runtime-population zone. The cold-boot generator's
-; CALL $FE81 (device-3 init) lands HERE when this page is populated;
-; on disk, $FE81 is a trap marker.
-; ============================================================================
 
-""",
-    0xFEB8: """
-; ============================================================================
-; SECTION 11 -- Code page 4 ($FEB8-$FFB7)
-;
-; Contains the BOOT vector landing zone (NOP slide $FED1-$FF0D) and
-; the static device-scan loop at $FF0E.
-;
-; The BIOS jump table sends BOOT to $FED1, which is in the NOP slide.
-; Execution flows through ~60 NOPs and reaches the device-scan code at
-; $FF0E. The scan walks 9 entries from $F3A0 (slot info) looking for a
-; match against the current device code.
-;
-; HOME ($FE6C), SETTRK ($FE77), SELDSK ($FE8E), READ ($FEBD), WRITE
-; ($FEC0) all jump-table targets land in this page or the NOP slide.
-; READ and WRITE specifically land at $FEBD/$FEC0 in the NOP region;
-; their actual handler bytes get installed there at boot.
-; ============================================================================
-
-""",
-    0xFFB8: """
-; ============================================================================
-; SECTION 12 -- TRAP-MARKER PAGE 5 partial ($FFB8-$FFFF)
-;
-; 72 bytes of trap markers. End of BIOS.
-;
-; Per-device handler dispatch entries from the dispatch table at
-; $FAEB target $FFAC, $FFB8, $FFC4, $FFD0 -- in this region. Populated
-; at runtime by the cold-boot generator.
-; ============================================================================
-
-""",
+# ── Per-label prose blocks ────────────────────────────────────────────
+LABEL_PROSE = {
+    "BOOT": [
+        "",
+        "; ============================================================================",
+        "; SECTION 1 -- BIOS Jump Table  ($FAB8-$FAEA)",
+        ";",
+        "; Standard CP/M 2.x 17-entry jump table (15 disk/console + LISTST + SECTRAN).",
+        "; Entries 0-14 are 3-byte JP instructions whose targets land in code page 0,",
+        "; code page 4, or runtime-populated dispatch slots in pages 1/3/5.",
+        "; Entries 15 (LISTST) and 16 (SECTRAN) are inline 1- to 3-byte routines.",
+        ";",
+        "; Targets:",
+        ";   BOOT  -> BOOT_LANDING ($FED1) -- NOP slide leading to device-scan",
+        ";   WBOOT -> BOOT itself          -- on this build, warm boot = cold boot",
+        ";   CONST/CONIN/CONOUT/LIST/PUNCH/READER -> page-0 dispatch stubs",
+        ";   HOME/SELDSK/SETTRK            -> page-4 (BOOT vector landing area)",
+        ";   SETSEC/SETDMA                 -> page-1 (trap-marker dispatch slots)",
+        ";   READ/WRITE                    -> page-4 (overwritten by cold-boot generator)",
+        "; ============================================================================",
+        "",
+    ],
+    "L_FB10": [
+        "",
+        "; ============================================================================",
+        "; SECTION 2 -- Code-page 0 dispatch stubs  ($FAEB-$FB39)",
+        ";",
+        "; Each console/list/punch/reader BIOS entry above lands in this page.",
+        "; The static bytes here are mostly $00 / $E4 $FE $73 $FA / $FF $FF patterns",
+        "; that look like CALL PO,$73FE / JP M,nnnn instructions but are inert at boot",
+        "; time -- the cold-boot generator at SECTION 3 overwrites them with the",
+        "; appropriate device dispatch code before any jump-table entry can fire.",
+        ";",
+        "; The lookup table at $FB2B-$FB39 is the device-code -> per-character-device",
+        "; init parameter table (read by SECTION 3).",
+        "; ============================================================================",
+        "",
+    ],
+    "L_FB3D": [
+        "",
+        "; ============================================================================",
+        "; SECTION 3 -- Cold-boot generator (the Z-80 side of the Videx fix)",
+        ";",
+        "; Walks the slot-info table at $F3B8+E for E=7,6,...,1, dispatching by",
+        "; device code:",
+        ";   3 -> CALL INIT_KEYBOARD     ($FE81)",
+        ";   4 -> CALL INIT_PASCAL_1_0   ($FD83)  -- old Pascal firmware",
+        ";   6 -> CALL INIT_PASCAL_1_1   ($FDB0)  -- NEW IN 2.23 (the Videx delta)",
+        ";",
+        "; The 11-byte 6502 slot-scanner branch in the boot loader writes '6' into",
+        "; this slot-info table for Pascal-1.1 cards (Videx Videoterm). Without that",
+        "; branch on the 6502 side, only codes 3 and 4 are ever generated, and a",
+        "; 2.20 system trying to call INIT_PASCAL_1_1 would land on whatever bytes",
+        "; happen to live at $FDB0 (a JR NZ to a trap marker -> system hang).",
+        ";",
+        "; Loop body (per slot E):",
+        ";   * read device code from $F3B8+E",
+        ";   * if code==3, fill HL with $0315 and call $FE81",
+        ";   * if code==4, call $FD83 and then PRINT_STR (HL := $C800)",
+        ";   * if code==6, set HL := $0DD0 and call $FDB0 (Pascal 1.1 init)",
+        "; ============================================================================",
+        "",
+    ],
+    "L_FB70": [
+        "",
+        "; ============================================================================",
+        "; SECTION 4 -- Stage 2 cold boot  ($FB70-$FB96)",
+        ";",
+        "; Sets the Z-80 stack to $0080 (CP/M default), reads Apple text-mode flag,",
+        "; loads HL with $0E00, calls SECTION 3 ($FB45 = code-overlap entry into the",
+        "; generator), then CALL $FA82 (a routine in the BDOS area that performs",
+        "; remaining device init).",
+        ";",
+        "; The check at $FB7F-$FB85 reads BDOS_SENTINEL ($9C08): if it equals $9C",
+        "; we're cold-booting (no warm-boot state yet), so jump to SECTION 5; otherwise",
+        "; continue with a warm-boot path that points $0006 at $9C06 (BDOS entry) and",
+        "; jumps through $000B (the warm-boot vector planted at boot).",
+        "; ============================================================================",
+        "",
+    ],
+    "L_FB97": [
+        "",
+        "; ============================================================================",
+        "; SECTION 5 -- Stage 3 cold boot  ($FB97-$FBB7)",
+        ";",
+        "; Initial cold-boot setup. Zeros several state bytes, then plants the",
+        "; CP/M conventional vectors at the bottom of memory:",
+        ";   $0000-$0002 := JP $FA03    (warm-boot vector via BIOS)",
+        ";   $0005-$0007 := JP $9C06    (BDOS entry)",
+        ";",
+        "; After this, falls into the trap-marker page where the cold-boot generator",
+        "; has installed runtime code that completes initialization.",
+        "; ============================================================================",
+        "",
+    ],
+    "INIT_PASCAL_1_0": [
+        "",
+        "; ============================================================================",
+        "; INIT_PASCAL_1_0 -- per-slot Pascal 1.0 firmware init  ($FD83)",
+        ";",
+        "; Called by SECTION 3 when slot E's device code == 4. Walks the per-slot",
+        "; state from $F388 / $F3A1 etc., and calls the per-device helpers in page 1",
+        "; that the trap-marker bytes have been overwritten with.",
+        "; ============================================================================",
+        "",
+    ],
+    "INIT_PASCAL_1_1": [
+        "",
+        "; ============================================================================",
+        "; INIT_PASCAL_1_1 -- per-slot Pascal 1.1 firmware init  ($FDB0)  *** 2.23 NEW ***",
+        ";",
+        "; In 2.23 this is just RET. Its existence (versus 2.20's $FDB0 falling on a",
+        "; trap marker that happens to decode as a JR NZ branching into more trap",
+        "; markers) is what allows the cold-boot generator to dispatch device code 6",
+        "; to a known landing spot. The actual Pascal-1.1 init is performed by code",
+        "; that 2.23's BIOS sets up via runtime patching of higher addresses.",
+        ";",
+        "; This RET is the literal one-byte fix that makes Videx Videoterm work on",
+        "; CP/M 2.23: 2.20 had no entry here, so a slot reporting device code 6",
+        "; would crash the cold-boot generator.",
+        "; ============================================================================",
+        "",
+    ],
+    "L_FF0E": [
+        "",
+        "; ============================================================================",
+        "; SECTION 6 -- Device-scan / slot-walk routine  ($FF0E-$FF6C)",
+        ";",
+        "; Reaches here from the BOOT_LANDING NOP slide. Scans the device-code table",
+        "; at $F3A0 (9 entries down from $F3A0, comparing E XOR slot-code against C).",
+        "; On match, picks up further config from $F3A0+11 and dispatches into the",
+        "; per-device init code in page 1 (which by now has been overwritten by the",
+        "; cold-boot generator above).",
+        ";",
+        "; This is the routine the standard BIOS jump-table entries HOME/SELDSK/",
+        "; SETTRK eventually reach via the BOOT_LANDING NOP slide.",
+        "; ============================================================================",
+        "",
+    ],
 }
 
-body_parts = []
-for line in lines:
-    if line and line.startswith('$'):
-        addr_str = line[1:5]
-        try:
-            addr = int(addr_str, 16)
-            if addr in SECTIONS:
-                body_parts.append(SECTIONS[addr])
-        except ValueError:
-            pass
-    body_parts.append(line)
-body = '\n'.join(body_parts)
 
-HEADER = """; ============================================================================
-; Microsoft SoftCard CP/M 2.23 -- Z-80 BIOS ($FAB8-$FFFF, 1352 bytes)
-; Annotated Z-80 assembly source for the BIOS region as Z-80 sees it
-; in LC RAM after the SoftCard CPU switch.
+HEADER = """\
+; ============================================================================
+; Microsoft SoftCard CP/M 2.23 -- Z-80 BIOS  ($FAB8-$FFFF, 1352 bytes)
 ;
-; STRUCTURE
-;   The BIOS uses a 256-byte interleaved layout: code pages alternating
-;   with runtime-generated pages.
+; Annotated Z-80 source for the BIOS region as the Z-80 sees it in LC RAM
+; after the SoftCard CPU switch. Reassembles byte-identically via:
 ;
-;     Page 0  $FAB8-$FBB7  Jump table, dispatch table, generator (CODE)
-;     Page 1  $FBB8-$FCB7  Trap markers (RUNTIME-POPULATED)
-;     Page 2  $FCB8-$FDB7  Per-device init helpers (CODE)
-;     Page 3  $FDB8-$FEB7  Trap markers (RUNTIME-POPULATED)
-;     Page 4  $FEB8-$FFB7  Device-scan + BOOT vector landing (CODE)
-;     Page 5  $FFB8-$FFFF  Trap markers partial (RUNTIME-POPULATED, 72 bytes)
+;     sjasmplus docs/CPM223_BIOS.asm
 ;
-;   Trap markers are "FF FF 00 00 / F7 F7 00 00" patterns that decode
-;   as RST $38 / RST $30. Static BIOS code calls/jumps into these
-;   pages; the bytes get populated at runtime by the cold-boot
-;   generator before any such call/jump fires.
+; STRUCTURE -- 256-byte interleaved layout
+; ----------------------------------------
+;   Page 0  $FAB8-$FBB7  Jump table, dispatch stubs, cold-boot generator (CODE)
+;   Page 1  $FBB8-$FCB7  Trap markers (RUNTIME-POPULATED)
+;   Page 2  $FCB8-$FDB7  Per-device init helpers (CODE)
+;   Page 3  $FDB8-$FEB7  Trap markers (RUNTIME-POPULATED)
+;   Page 4  $FEB8-$FFB7  Device-scan + BOOT vector landing (CODE)
+;   Page 5  $FFB8-$FFFF  Trap markers, partial 72 bytes (RUNTIME-POPULATED)
+;
+; Trap markers are "FF FF 00 00" / "F7 F7 00 00" patterns that decode as
+; RST $38 / RST $30 -- inert at boot. Static BIOS code calls/jumps into
+; these pages; the cold-boot generator overwrites them with real code
+; before any such call/jump fires.
 ;
 ; THE COLD-BOOT GENERATOR (Z-80 side of the Videx fix)
-;   At $FB3A. Walks the slot-info table at $F3B8+E for E=7..1, dispatches
-;   per device code:
-;     3 -> $FE81
-;     4 -> $FD83 (Pascal 1.0)
-;     6 -> $FDB0 (Pascal 1.1) <- NEW IN 2.23
-;   The 11-byte 6502 slot-scanner branch (in CPM223_BootLoader.asm) is
-;   what writes "6" into the slot-info table for Pascal 1.1 cards. The
-;   generator's branch here turns that into a runtime dispatch.
+; ----------------------------------------------------
+; At SECTION 3 below ($FB3A). Walks slot-info table at $F3B8+E for E=7..1,
+; dispatches by device code:
+;   3 -> INIT_KEYBOARD    ($FE81)
+;   4 -> INIT_PASCAL_1_0  ($FD83)
+;   6 -> INIT_PASCAL_1_1  ($FDB0)   <-- NEW IN 2.23 (the Videx fix)
+;
+; The 11-byte 6502 slot-scanner branch in CPM223_BootLoader.asm is what
+; writes "6" into the slot-info table for Pascal-1.1 cards. The generator's
+; new branch here turns that into a runtime dispatch into INIT_PASCAL_1_1
+; instead of falling on a trap marker.
 ;
 ; DUAL ADDRESSING
-;   The BIOS first 1 KB ($FAB8-$FEB7) ALSO appears at Z-80 $1C38-$1FB7
-;   under SoftCard's bit-12 XOR for low addresses. Same physical bytes,
-;   accessed via two different Z-80 views of memory. This is how the
-;   inter-CPU sync polling loop at $1E39 (the Z-80 disk-callback area)
-;   reaches the same code that the BIOS jump table dispatches.
+; ---------------
+; The first 1 KB of this BIOS ($FAB8-$FEB7) ALSO appears at Z-80 $1C38-$1FB7
+; under SoftCard's bit-12 XOR for low addresses. Same physical bytes, two
+; Z-80 views. This is how the inter-CPU sync polling at $1E39 (the Z-80
+; disk-callback area) reaches the same code that the BIOS jump table dispatches.
 ;
 ; SOURCE
-;   Loaded by the 6502 from disk via two LOAD_CPM passes (the second
-;   one bank-switches LC RAM via STA $C083 to write into the SoftCard's
-;   high-RAM area). The bytes here at $FAB8 ultimately come from
-;   physical disk sectors trk2:phys4-9 of CPMV233.DSK.
+; ------
+; Loaded by the 6502 from disk via two LOAD_CPM passes (the second one
+; bank-switches LC RAM via STA $C083 to write into SoftCard high RAM).
+; Bytes at $FAB8 ultimately come from physical disk sectors trk2:phys4-9
+; of CPMV233.DSK.
 ; ============================================================================
 
-; ----------------------------------------------------------------------------
-; Z-80 BIOS state slots (in trap-marker pages, populated at runtime)
-; ----------------------------------------------------------------------------
-state_FECB      = $FECB       ; current track
-state_FED2      = $FED2       ; current sector
-state_FED4      = $FED4       ; current DMA address (16-bit)
-state_FECD      = $FECD       ; cold-boot state byte (preflight check)
-state_FED8      = $FED8       ; (zeroed by cold-boot setup at $FB9F)
-state_FEDD      = $FEDD       ; (zeroed by cold-boot setup at $FB9C)
-
-; ----------------------------------------------------------------------------
-; TPA-area state (above BDOS, below BIOS)
-; ----------------------------------------------------------------------------
-slot_info_F3A0  = $F3A0       ; device-code table base (scanned by device-scan)
-slot_info_F3B8  = $F3B8       ; slot-info table for cold-boot generator
-                              ;   F3B8+E = slot E's device code (E=1..7)
-state_F397      = $F397       ; (read by preflight code at $FF17)
-
-; ----------------------------------------------------------------------------
-; CCP+BDOS final positions (after relocation by loader's third page copy)
-; ----------------------------------------------------------------------------
-BDOS_ENTRY      = $9C06       ; planted at $0005-$0007 as "JP $9C06"
-BDOS_SENTINEL   = $9C08       ; first-boot vs warm-boot detect
-
-; ----------------------------------------------------------------------------
-; Apple I/O (used by BIOS for Apple ][ video state)
-; ----------------------------------------------------------------------------
-APPLE_TEXT_FLAG = $E051       ; Apple ][ video text/graphics state
-
-            .ORG $FAB8
-
-
-; ============================================================================
-; SECTION 1 -- BIOS Jump Table ($FAB8-$FAE4)
-;
-; Standard CP/M 2.x 15-entry jump table. Each entry is "JP target".
-; Many targets land in trap-marker pages, where bytes get populated
-; at runtime by the cold-boot generator before any of these jumps fire.
-;
-;   Offset  Address  Routine     Target
-;   0       $FAB8    BOOT        $FED1  (NOP slide -> device-scan)
-;   3       $FABB    WBOOT       $FAB8  (jumps to BOOT)
-;   6       $FABE    CONST       $FB10  (in code page 0)
-;   9       $FAC1    CONIN       $FB1A
-;   12      $FAC4    CONOUT      $FB4D
-;   15      $FAC7    LIST        $FB70  (cold-boot continuation routine
-;                                        also reachable here)
-;   18      $FACA    PUNCH       $FB7F
-;   21      $FACD    READER      $FB91
-;   24      $FAD0    HOME        $FE6C
-;   27      $FAD3    SELDSK      $FE8E
-;   30      $FAD6    SETTRK      $FE77
-;   33      $FAD9    SETSEC      $FBF4
-;   36      $FADC    SETDMA      $FBF9
-;   39      $FADF    READ        $FEBD
-;   42      $FAE2    WRITE       $FEC0
-;
-; Many READ/WRITE/HOME/etc. targets land in the NOP slide of code page 4.
-; Their actual handler bytes get planted there at boot time.
-; ============================================================================
-
-JUMP_TABLE:
 """
 
-FOOTER = """
 
-; ============================================================================
-; END OF BIOS ($FFFF)
-;
-; Z-80 reset vector at $0000 was planted by the 6502 as "JP $FA00".
-; $FA00 is below this BIOS (in another runtime-generated region 184
-; bytes long). Cold-boot setup at $FB70 rewrites $0001-$0002 to
-; "JP $FA03" so subsequent warm-boots skip the cold-only first
-; instruction.
-;
-; The cold-boot setup also plants the standard CP/M BDOS call vector:
-;   $0005: $C3 (JP opcode)
-;   $0006-$0007: $9C06 (BDOS entry after relocation)
-; This is what user programs call via "CALL $0005" to reach BDOS.
-; ============================================================================
-"""
+def disassemble_to_string():
+    """Run disasm_z80 and capture its .asm output as a string."""
+    import tempfile
+    bin_path = REPO_ROOT / "cpm-investigation" / "bios_223.bin"
+    cpm = REPO_ROOT / "symbols" / "cpm_2_2.json"
+    cpm223 = REPO_ROOT / "symbols" / "cpm_2_23_bios.json"
+    entries = [f"${0xFAB8 + i*3:04X}" for i in range(17)]
+    with tempfile.TemporaryDirectory() as tmp:
+        out_base = Path(tmp) / "bios"
+        argv = [
+            str(bin_path),
+            "--org", "$FAB8", "--length", "$0548",
+            "--symbols", str(cpm),
+            "--symbols", str(cpm223),
+            "--output", str(out_base),
+            "--data-region", "$FBB8-$FCB7",
+            "--data-region", "$FDB8-$FEB7",
+            "--data-region", "$FFB8-$FFFF",
+        ]
+        for e in entries:
+            argv += ["--entry", e]
+        rc = disasm_main(argv)
+        if rc != 0:
+            raise RuntimeError("disasm_z80 failed")
+        return out_base.with_suffix(".asm").read_text(encoding="utf-8")
 
-with open('docs/CPM223_BIOS.asm', 'w', encoding='utf-8', newline='\n') as f:
-    f.write(HEADER + body + FOOTER)
 
-import os
-size = os.path.getsize('docs/CPM223_BIOS.asm')
-print(f'Written: docs/CPM223_BIOS.asm ({size} bytes)')
+def inject_prose(disasm_text):
+    """Walk the disasm output line by line; before any line introducing a
+    label whose name is in LABEL_PROSE, insert that prose block."""
+    out = []
+    for line in disasm_text.splitlines():
+        stripped = line.rstrip()
+        if stripped.endswith(":"):
+            label = stripped[:-1].strip()
+            if label in LABEL_PROSE:
+                out.extend(LABEL_PROSE[label])
+        out.append(line)
+    return "\n".join(out) + "\n"
+
+
+def main():
+    disasm = disassemble_to_string()
+    # Strip the disasm's auto-generated comment header; keep from `DEVICE NOSLOT64K`
+    # onward. Also rewrite the SAVEBIN target to a stable build path.
+    lines = disasm.splitlines()
+    body_start = 0
+    for i, line in enumerate(lines):
+        if line.lstrip().startswith("DEVICE NOSLOT64K"):
+            body_start = i
+            break
+    body_lines = lines[body_start:]
+    # Rewrite SAVEBIN line (replaces the temp path the CLI baked in).
+    for i, line in enumerate(body_lines):
+        if "SAVEBIN" in line:
+            body_lines[i] = ('    SAVEBIN "build/CPM223_BIOS.bin", $FAB8, $0548')
+    body = "\n".join(body_lines)
+    body = inject_prose(body)
+
+    out_path = REPO_ROOT / "docs" / "CPM223_BIOS.asm"
+    out_path.write_text(HEADER + body, encoding="utf-8")
+    print(f"wrote {out_path}  ({out_path.stat().st_size} bytes)")
+
+
+if __name__ == "__main__":
+    main()

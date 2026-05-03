@@ -411,29 +411,6 @@ def cmd_disasm(args):
             print(line)
 
 
-def cmd_z80disasm(args):
-    """Disassemble a binary file as Z-80 code (linear).
-
-    Useful for analyzing Microsoft SoftCard CP/M BIOS code, CCP/BDOS
-    images, or any other Z-80 binary. Currently only the unprefixed
-    256 opcodes are decoded; CB/DD/ED/FD prefix bytes appear as
-    'DB $xx' raw-byte markers.
-    """
-    from .z80 import disassemble_region
-
-    with open(args.binary, 'rb') as f:
-        data = f.read()
-
-    base = parse_addr(args.base) if args.base else 0x0000
-    start = parse_addr(args.start) if args.start else base
-    end = parse_addr(args.end) if args.end else base + len(data)
-    fmt = getattr(args, 'format', 'listing')
-
-    lines = disassemble_region(data, base, start, end, format=fmt)
-    for line in lines:
-        print(line)
-
-
 def main():
     """Parse command-line arguments and dispatch to the appropriate handler.
 
@@ -513,17 +490,6 @@ def main():
                                'with address+bytes prefix) or "asm" (compilable '
                                '6502 source, ready for ca65/dasm).')
 
-    # z80disasm
-    p_z80 = subparsers.add_parser('z80disasm', help='Disassemble Z-80 binary (linear)')
-    p_z80.add_argument('binary', help='Binary file to disassemble')
-    p_z80.add_argument('--base', help='Base address (hex, default 0x0000)')
-    p_z80.add_argument('--start', help='Start address (hex)')
-    p_z80.add_argument('--end', help='End address (hex)')
-    p_z80.add_argument('--format', choices=['listing', 'asm'], default='listing',
-                        help='Output format: "listing" (default, human-readable '
-                             'with address+bytes prefix) or "asm" (compilable '
-                             'Z-80 source, ready for sjasmplus/pasmo/z80asm).')
-
     args = parser.parse_args()
 
     if not args.command:
@@ -541,7 +507,6 @@ def main():
         'dsk': cmd_dsk,
         'flux': cmd_flux,
         'disasm': cmd_disasm,
-        'z80disasm': cmd_z80disasm,
     }
 
     commands[args.command](args)

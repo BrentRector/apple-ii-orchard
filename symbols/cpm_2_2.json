@@ -1,0 +1,157 @@
+{
+  "schema_version": "1.0",
+  "name": "CP/M 2.2 Standard Symbols",
+  "description": "Canonical names and conventions for Digital Research CP/M 2.2 (1981). Covers the BIOS jump table, BDOS function numbers, zero-page layout, FCB structure, and well-known constants. All entries are documented in the cited primary sources unless explicitly marked '(inferred)'.",
+  "sources": [
+    {
+      "name": "Digital Research CP/M 2.2 Operating System Manual (1979/1981)",
+      "url": "http://www.cpm.z80.de/manuals/cpm22-m.pdf"
+    },
+    {
+      "name": "CP/M 2.2 Alteration Guide (Section 6 — BIOS jump vector)",
+      "url": "http://www.gaby.de/cpm/manuals/archive/cpm22htm/ch6.htm"
+    },
+    {
+      "name": "John Elliott — CP/M information archive: BIOS",
+      "url": "https://www.seasip.info/Cpm/bios.html"
+    },
+    {
+      "name": "John Elliott — CP/M information archive: BDOS function summary",
+      "url": "https://www.seasip.info/Cpm/bdosfunc.html"
+    },
+    {
+      "name": "John Elliott — CP/M information archive: BDOS system calls",
+      "url": "https://www.seasip.info/Cpm/bdos.html"
+    },
+    {
+      "name": "obsolescence — CP/M Operating System Internals",
+      "url": "https://obsolescence.wixsite.com/obsolescence/cpm-internals"
+    }
+  ],
+
+  "categories": {
+    "page_zero": {
+      "_description": "Standard CP/M 2.2 zero-page layout, $0000-$00FF. Shared between user programs (TPA) and CP/M itself; programs MUST preserve $0005-$0007 (BDOS vector) and read but not corrupt $0003-$0004 (IOBYTE, current drive).",
+      "0x0000": {"name": "WBOOT_VEC",     "size": 3, "comment": "Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot."},
+      "0x0003": {"name": "IOBYTE",        "size": 1, "comment": "I/O assignment byte — logical-to-physical device routing (CONSOLE/READER/PUNCH/LIST). 4 fields × 2 bits each."},
+      "0x0004": {"name": "CDISK",         "size": 1, "comment": "Current drive (low nibble: 0=A, 1=B, ..., 15=P) and current user (high nibble, 0-15)."},
+      "0x0005": {"name": "BDOS_VEC",      "size": 3, "comment": "BDOS call vector — JP BDOS_ENTRY. Programs use CALL $0005 to invoke BDOS. Word at $0006 is also the top-of-TPA marker."},
+      "0x0008": {"name": "RST1_VEC",      "size": 8, "comment": "Z-80 RST 1 ($08) restart vector — 8 bytes. Available for application/debugger use."},
+      "0x0010": {"name": "RST2_VEC",      "size": 8, "comment": "Z-80 RST 2 ($10) restart vector — 8 bytes. Available for application/debugger use."},
+      "0x0018": {"name": "RST3_VEC",      "size": 8, "comment": "Z-80 RST 3 ($18) restart vector — 8 bytes. Available for application/debugger use."},
+      "0x0020": {"name": "RST4_VEC",      "size": 8, "comment": "Z-80 RST 4 ($20) restart vector — 8 bytes. Available for application/debugger use."},
+      "0x0028": {"name": "RST5_VEC",      "size": 8, "comment": "Z-80 RST 5 ($28) restart vector — 8 bytes. Available for application/debugger use."},
+      "0x0030": {"name": "RST6_VEC",      "size": 8, "comment": "Z-80 RST 6 ($30) restart vector — 8 bytes. Available for application/debugger use."},
+      "0x0038": {"name": "RST7_VEC",      "size": 8, "comment": "Z-80 RST 7 ($38) restart vector — 8 bytes. Conventionally reserved for debuggers (DDT, ZSID)."},
+      "0x0040": {"name": "USER_AREA",     "size": 16, "comment": "$0040-$004F — 16 bytes available for system implementation use."},
+      "0x0050": {"name": "RESERVED_50",   "size": 12, "comment": "$0050-$005B — reserved by CP/M; do not use."},
+      "0x005C": {"name": "DEFAULT_FCB",   "size": 36, "comment": "Default File Control Block — populated by CCP from command-line argument 1. Standard 36-byte FCB structure (drive + filename + extents + record number)."},
+      "0x006C": {"name": "DEFAULT_FCB2",  "size": 16, "comment": "$006C-$007B — second filename area. Overlaps with the second half of DEFAULT_FCB. Populated by CCP from command-line argument 2."},
+      "0x007C": {"name": "DEFAULT_CR",    "size": 1, "comment": "Default FCB current record byte (overlaps end of DEFAULT_FCB2)."},
+      "0x007D": {"name": "DEFAULT_RND",   "size": 3, "comment": "Default FCB random record number (3 bytes — low/middle/high)."},
+      "0x0080": {"name": "DEFAULT_DMA",   "size": 128, "comment": "Default DMA buffer — also command-line tail. First byte = length, then characters. Returned to default by BDOS function 13 (DRV_ALLRESET)."},
+      "0x0080_alt": {"name": "CMDLINE_LEN", "comment": "First byte of DEFAULT_DMA — length of command-line tail (0-127). Same address as DEFAULT_DMA."},
+      "0x0081": {"name": "CMDLINE",       "size": 127, "comment": "Command-line tail characters (uppercase, with leading space). Same buffer as DEFAULT_DMA."},
+      "0x0100": {"name": "TPA_START",     "comment": "Start of Transient Program Area. .COM files load here and execute starting at $0100."}
+    },
+
+    "bios_jump_table": {
+      "_description": "Standard 17-entry CP/M 2.2 BIOS jump table at the BIOS base. Each entry is 3 bytes (JMP target). Keys are byte offsets from the BIOS base address. Some early SoftCard CP/M builds use only the first 15 entries (CP/M 2.0 layout, no LISTST or SECTRAN).",
+      "0":  {"name": "BOOT",    "size": 3, "comment": "Cold-boot entry — initial system entry at power-on. Loads CCP+BDOS, builds page zero."},
+      "3":  {"name": "WBOOT",   "size": 3, "comment": "Warm-boot entry — reload CCP+BDOS, jump to CCP. Reached via $0000 vector."},
+      "6":  {"name": "CONST",   "size": 3, "comment": "Console status — return A=$00 (no char ready) or A=$FF (char ready)."},
+      "9":  {"name": "CONIN",   "size": 3, "comment": "Console input — read one char from console (blocking). Return char in A."},
+      "12": {"name": "CONOUT",  "size": 3, "comment": "Console output — char in C. Write to console."},
+      "15": {"name": "LIST",    "size": 3, "comment": "List output — char in C. Write to printer (list device)."},
+      "18": {"name": "PUNCH",   "size": 3, "comment": "Punch output — char in C. Write to paper-tape punch (auxiliary output)."},
+      "21": {"name": "READER",  "size": 3, "comment": "Reader input — read one char from paper-tape reader (auxiliary input). Return in A. EOF = $1A (Ctrl-Z)."},
+      "24": {"name": "HOME",    "size": 3, "comment": "Home — move disk head of current drive to track 0."},
+      "27": {"name": "SELDSK",  "size": 3, "comment": "Select disk — drive in C ($00=A, $01=B, ...). Return DPH pointer in HL ($0000 if invalid)."},
+      "30": {"name": "SETTRK",  "size": 3, "comment": "Set track — track in BC for next READ/WRITE."},
+      "33": {"name": "SETSEC",  "size": 3, "comment": "Set sector — sector in BC for next READ/WRITE."},
+      "36": {"name": "SETDMA",  "size": 3, "comment": "Set DMA address — buffer address in BC for next READ/WRITE."},
+      "39": {"name": "READ",    "size": 3, "comment": "Read sector — return A=0 success, A!=0 error. Sector data into DMA buffer."},
+      "42": {"name": "WRITE",   "size": 3, "comment": "Write sector — return A=0 success, A!=0 error."},
+      "45": {"name": "LISTST",  "size": 3, "comment": "List status (CP/M 2.2 addition) — return A=$FF if ready, A=$00 if busy."},
+      "48": {"name": "SECTRAN", "size": 3, "comment": "Sector translate (CP/M 2.2 addition) — logical sector in BC, translation table in DE. Return physical sector in HL."}
+    },
+
+    "bdos_functions": {
+      "_description": "BDOS function codes passed in register C, invoked via CALL $0005 (BDOS_VEC). Parameters typically in DE; return in A (byte) or HL (word). Functions 30+ are CP/M 2.0/2.2 additions; some are version-specific.",
+      "0":  {"name": "P_TERMCPM",     "comment": "System reset — terminate program, return to CCP. (Equivalent to JP $0000 / CALL WBOOT.)"},
+      "1":  {"name": "C_READ",        "comment": "Console input — wait for char, echo it, return in A. Handles Ctrl-S/Q line pause and Ctrl-P printer toggle."},
+      "2":  {"name": "C_WRITE",       "comment": "Console output — char in E. Honors Ctrl-S/Q pause."},
+      "3":  {"name": "A_READ",        "comment": "Auxiliary input (READER) — return char in A."},
+      "4":  {"name": "A_WRITE",       "comment": "Auxiliary output (PUNCH) — char in E."},
+      "5":  {"name": "L_WRITE",       "comment": "List output — char in E. Goes to LIST device."},
+      "6":  {"name": "C_RAWIO",       "comment": "Direct console I/O — E=$FF reads (no echo, no wait), E=$FE returns status, else writes E. CP/M 2.x."},
+      "7":  {"name": "GET_IOBYTE",    "comment": "Get IOBYTE — return $0003 in A. CP/M 2.x; on CP/M 1, function 7 was AUXIN status."},
+      "8":  {"name": "SET_IOBYTE",    "comment": "Set IOBYTE — write E into $0003. CP/M 2.x."},
+      "9":  {"name": "C_WRITESTR",    "comment": "Print '$'-terminated string — DE = string address. Stops at first '$' character."},
+      "10": {"name": "C_READSTR",     "comment": "Read console buffer — DE = buffer address. Buffer[0]=max len, buffer[1]=actual len, buffer[2..]=chars. Line editing supported."},
+      "11": {"name": "C_STAT",        "comment": "Console status — A=$00 no char, A=$FF char ready (same as BIOS CONST)."},
+      "12": {"name": "S_BDOSVER",     "comment": "Get BDOS version — return $XXVV in HL. $0022 = CP/M 2.2; H=$00 (CP/M, not MP/M), L=$22 (BCD-ish version)."},
+      "13": {"name": "DRV_ALLRESET",  "comment": "Reset disk system — select A:, set DMA = $0080, mark all drives as logged out."},
+      "14": {"name": "DRV_SET",       "comment": "Select disk — drive in E ($00=A, $01=B, ..., $0F=P). Logs in if needed."},
+      "15": {"name": "F_OPEN",        "comment": "Open file — DE = FCB address. A=$FF if not found, A=0..3 = directory entry index if found."},
+      "16": {"name": "F_CLOSE",       "comment": "Close file — DE = FCB. Updates directory if FCB was modified."},
+      "17": {"name": "F_SFIRST",      "comment": "Search for first matching directory entry — DE = FCB (with wildcards '?'). A=$FF none, else dir-relative entry index."},
+      "18": {"name": "F_SNEXT",       "comment": "Search for next matching entry. Continues from F_SFIRST."},
+      "19": {"name": "F_DELETE",      "comment": "Delete file — DE = FCB. Marks directory entries as deleted ($E5 in drive byte)."},
+      "20": {"name": "F_READ",        "comment": "Read sequential — DE = FCB. Reads next 128-byte record into DMA buffer. A=0 success, $01 EOF, etc."},
+      "21": {"name": "F_WRITE",       "comment": "Write sequential — DE = FCB. Writes 128 bytes from DMA buffer."},
+      "22": {"name": "F_MAKE",        "comment": "Make (create) empty file — DE = FCB. A=$FF if directory full, else dir-entry index."},
+      "23": {"name": "F_RENAME",      "comment": "Rename file — DE = FCB with old name in first half ($00-$0F), new name in second half ($10-$1F)."},
+      "24": {"name": "DRV_LOGINVEC",  "comment": "Login vector — return HL = bit-per-drive map ($0001=A only, $0002=B only, ...). Bit set means logged in."},
+      "25": {"name": "DRV_GET",       "comment": "Get current drive in A ($00=A, ..., $0F=P)."},
+      "26": {"name": "F_DMAOFF",      "comment": "Set DMA address — DE = address for next READ/WRITE."},
+      "27": {"name": "DRV_ALLOCVEC",  "comment": "Get allocation vector — HL = pointer to current drive's allocation bitmap."},
+      "28": {"name": "DRV_SETRO",     "comment": "Write-protect current drive (until next reset)."},
+      "29": {"name": "DRV_ROVEC",     "comment": "Read-only vector — HL = bit-per-drive map of write-protected drives."},
+      "30": {"name": "F_ATTRIB",      "comment": "Set file attributes — DE = FCB with high bits of name/type bytes set for attributes (R/O, sys, etc.)."},
+      "31": {"name": "DRV_DPB",       "comment": "Get disk parameter block — HL = pointer to current drive's DPB. CP/M 2.x."},
+      "32": {"name": "F_USERNUM",     "comment": "Get/set user number — E=$FF gets (returns in A), else sets to E (0-15). CP/M 2.x."},
+      "33": {"name": "F_READRAND",    "comment": "Read random — DE = FCB. Reads record specified by FCB's random-record field. CP/M 2.x."},
+      "34": {"name": "F_WRITERAND",   "comment": "Write random — DE = FCB. CP/M 2.x."},
+      "35": {"name": "F_SIZE",        "comment": "Compute file size — DE = FCB. Sets random-record field to file size in records. CP/M 2.x."},
+      "36": {"name": "F_RANDREC",     "comment": "Set random record — DE = FCB. Computes random-record from current sequential position. CP/M 2.x."},
+      "37": {"name": "DRV_RESET",     "comment": "Reset specified drives — DE = bit vector of drives to log out. CP/M 2.2."},
+      "40": {"name": "F_WRITEZF",     "comment": "Write random with zero fill — DE = FCB. CP/M 2.2."}
+    },
+
+    "fcb_layout": {
+      "_description": "Standard 36-byte File Control Block (FCB) layout. Used by all file BDOS functions. The default FCB at $005C has this structure.",
+      "0":  {"name": "FCB_DR",   "size": 1,  "comment": "Drive code: 0=default, 1=A, 2=B, ..., 16=P. $E5 in directory entry = deleted."},
+      "1":  {"name": "FCB_F1",   "size": 8,  "comment": "Filename (8 bytes, padded with spaces, ASCII uppercase). High bits used for attributes."},
+      "9":  {"name": "FCB_T1",   "size": 3,  "comment": "Filetype (3 bytes, padded with spaces). High bits: T1[7]=R/O, T1[6]=System, T1[5]=Archive."},
+      "12": {"name": "FCB_EX",   "size": 1,  "comment": "Current extent number (low byte, 0-31 for CP/M 2)."},
+      "13": {"name": "FCB_S1",   "size": 1,  "comment": "Reserved — CP/M scratch."},
+      "14": {"name": "FCB_S2",   "size": 1,  "comment": "Extent number high byte (CP/M 2.2 supports extents 0-31, with EX=low5, S2=high5 implicitly handling 8 MB max)."},
+      "15": {"name": "FCB_RC",   "size": 1,  "comment": "Record count of current extent (0-128)."},
+      "16": {"name": "FCB_AL",   "size": 16, "comment": "Allocation block numbers — 16 bytes, 8 or 16 entries depending on disk size."},
+      "32": {"name": "FCB_CR",   "size": 1,  "comment": "Current record (0-127) for sequential I/O. Reset to 0 by F_OPEN/F_MAKE."},
+      "33": {"name": "FCB_R0",   "size": 1,  "comment": "Random record number low byte."},
+      "34": {"name": "FCB_R1",   "size": 1,  "comment": "Random record number middle byte."},
+      "35": {"name": "FCB_R2",   "size": 1,  "comment": "Random record number high byte (overflow indicator — only 0 or 1 valid for 8 MB max)."}
+    },
+
+    "well_known_constants": {
+      "_description": "Magic byte values used throughout CP/M.",
+      "0xE5":   {"name": "DELETED_MARKER",  "comment": "$E5 — deleted-file marker (drive byte in directory) and unused-disk-space fill. Also Z-80 PUSH HL opcode (relevant to the v2.20 Videx hang)."},
+      "0x1A":   {"name": "CTRL_Z_EOF",      "comment": "$1A (Ctrl-Z) — end-of-file marker for ASCII text files. Used by readers to detect logical EOF before physical EOF."},
+      "0x80":   {"name": "RECORD_SIZE",     "comment": "128 ($80) — CP/M record (sector) size in bytes."},
+      "0x0022": {"name": "VERSION_2_2",     "comment": "$0022 — return value of BDOS function 12 (S_BDOSVER) for CP/M 2.2."}
+    },
+
+    "memory_model": {
+      "_description": "Standard CP/M 2.2 memory layout. Absolute addresses depend on system size (16K, 32K, 48K, 56K, 60K, 64K). Microsoft SoftCard CP/M 2.23 uses the 60K configuration on a 64K Apple ][+ with language card.",
+      "tpa_start":   {"address": "0x0100", "comment": "First byte of TPA — .COM files load here, execute starting at $0100."},
+      "ccp_size":    {"value": "0x0800",   "comment": "CCP is 2 KB. CCP base = TOP - $1600 (= total memory minus CCP+BDOS+BIOS-area)."},
+      "bdos_size":   {"value": "0x0E00",   "comment": "BDOS is 3.5 KB."},
+      "bios_size":   {"value": "varies",   "comment": "BIOS is implementation-specific. Microsoft SoftCard 2.23: BIOS at $FAB8 (~1.4 KB to $FFFF)."},
+      "ccp_base_60k": {"address": "0xE400", "comment": "60 KB system: CCP cold-start at $E400, warm-start at $E406."},
+      "bdos_base_60k": {"address": "0xEC00", "comment": "60 KB system: BDOS entry at $EC00 (BDOS_VEC at $0005 jumps here)."},
+      "bios_base_60k": {"address": "0xFA00", "comment": "60 KB system: BIOS jump table at $FA00 (typical) or $FAB8 (SoftCard 2.23 specific)."}
+    }
+  }
+}

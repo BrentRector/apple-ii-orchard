@@ -5,6 +5,7 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+.pytest_cache/
 
 # Script output directory
 apple-panic/output/
@@ -34,3 +35,10 @@ emu_*.bin
 # OS
 Thumbs.db
 .DS_Store
+
+# Local toolchain (per-developer; reinstall via tools/README.md)
+tools/cc65/
+tools/sjasmplus/
+tools/*.zip
+tools/smoke_*.o
+tools/smoke_*.bin
