@@ -41,6 +41,13 @@ deltas, dispatch case deltas (which device codes only appear in one).
 Mechanically reproduces what `docs/CPM_Videx_Difference.md`
 documents manually.
 
+**Phase 7 — Stage 6: annotated source-tree generation.** End-to-end
+orchestration. Take a `.dsk`/`.po` and produce a complete output
+directory containing analysis reports from Phases 2-5, the annotated
+assembly source files, the symbol tables, a build script, and a
+README. The build script reassembles to a byte-identical disk via
+Phase 1.
+
 ```sh
 source ../tools/env.sh   # ca65 + ld65 + sjasmplus on PATH
 
@@ -66,6 +73,13 @@ python -m cpm_pipeline build 220 \
     --output ../build/cpm220_rebuilt.po \
     --verify
 # → BYTE-IDENTICAL to ../CPM220Disk1.po
+
+# End-to-end: take a disk, produce a complete annotated source tree
+python -m cpm_pipeline generate ../CPMV233.DSK ../build/cpm223_tree
+# → output_dir/{README.md, analysis/, source/, symbols/, build.sh}
+# Then:
+bash ../build/cpm223_tree/build.sh
+# → wrote rebuilt.dsk; BYTE-IDENTICAL to CPMV233.DSK
 
 # Trace the Z-80 BIOS -- jump table, trap markers, cold-boot generator
 python -m cpm_pipeline trace-z80 ../cpm-investigation/bios_223.bin
@@ -129,10 +143,11 @@ coverage.
 | [`cold_boot_trace.py`](cold_boot_trace.py) | Stage 5 — Z-80 cold-boot tracing: BIOS jump table + trap-marker pages + cold-boot generator + dispatch cases; outputs a `ColdBootSchedule` |
 | [`handoff.py`](handoff.py) | Stage 4 — handoff identification: Z-80 reset vector plant, BDOS entry vector plant, CPU-switch trigger; outputs a `HandoffInfo` |
 | [`version_delta.py`](version_delta.py) | Stage 3 — version delta detection: routine-level diff between two CP/M disks; outputs a `DiskDelta` |
+| [`generate.py`](generate.py) | Stage 6 — annotated source-tree generation: end-to-end orchestration that produces a complete output directory with analysis + sources + build script |
 | [`assemble.py`](assemble.py) | Wraps ca65/ld65 (6502) and sjasmplus (Z-80) for `docs/CPM*.asm` files; returns byte content |
 | [`chunk_map.py`](chunk_map.py) | The `(source_binary, byte_range, track, sector)` mappings for 2.20 + 2.23 |
 | [`reconstruct.py`](reconstruct.py) | Orchestrator: assemble all → place per chunk map → write disk → optionally verify |
-| [`cli.py`](cli.py) | `python -m cpm_pipeline {detect\|trace\|trace-z80\|handoff\|diff\|build} ...` |
+| [`cli.py`](cli.py) | `python -m cpm_pipeline {detect\|trace\|trace-z80\|handoff\|diff\|generate\|build} ...` |
 | [`tests/`](tests/) | pytest: format primitives + detection + tracing + end-to-end round-trip |
 
 ## Roadmap status
@@ -146,7 +161,7 @@ Per the [seven-stage roadmap](../docs/CPM_PIPELINE_ROADMAP.md):
 | **3** | **Version delta detection** | **Phase 6 — DONE: structured diff covering variant + boot-stub bytes + reset/BDOS/CPU-switch + dispatch cases** |
 | **4** | **Handoff identification** | **Phase 5 — DONE: Z-80 reset vector + BDOS entry + CPU-switch trigger auto-detected for both 2.20 and 2.23** |
 | **5** | **Z-80 cold-boot tracing** | **Phase 4 — DONE: jump table + trap markers + cold-boot generator + dispatch cases** |
-| 6 | Annotated source generation | disasm6502 + disasm_z80 + symbols handle this per-chunk |
+| **6** | **Annotated source generation** | **Phase 7 — DONE: end-to-end orchestration into a complete output tree** |
 | **7** | **`.dsk` reconstruction** | **Phase 1 — DONE for 2.20 + 2.23** |
 
 ## Architectural notes

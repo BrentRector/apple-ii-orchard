@@ -25,6 +25,7 @@ from .loader_trace import trace_loader
 from .cold_boot_trace import trace_cold_boot
 from .handoff import find_handoff
 from .version_delta import compare_disks
+from .generate import generate as generate_source_tree
 
 
 def cmd_detect(args):
@@ -54,6 +55,14 @@ def cmd_handoff(args):
 def cmd_diff(args):
     delta = compare_disks(args.disk_a, args.disk_b)
     print(delta.summary())
+    return 0
+
+
+def cmd_generate(args):
+    result = generate_source_tree(
+        args.disk, args.output_dir, overwrite=args.force,
+    )
+    print(result.summary())
     return 0
 
 
@@ -134,6 +143,13 @@ def main(argv=None):
     df.add_argument("disk_a", help="First disk image")
     df.add_argument("disk_b", help="Second disk image")
 
+    gn = sub.add_parser("generate",
+                        help="Generate complete annotated source tree from a disk image")
+    gn.add_argument("disk", help="Path to a .dsk or .po image")
+    gn.add_argument("output_dir", help="Output directory (created or overwritten)")
+    gn.add_argument("--force", "-f", action="store_true",
+                    help="Overwrite output_dir if it already exists")
+
     build = sub.add_parser("build", help="Build a CP/M disk image")
     build.add_argument("variant", choices=("220", "223", "auto"),
                        nargs="?", default="auto",
@@ -160,6 +176,8 @@ def main(argv=None):
         return cmd_handoff(args)
     if args.command == "diff":
         return cmd_diff(args)
+    if args.command == "generate":
+        return cmd_generate(args)
     if args.command == "build":
         return cmd_build(args)
     p.print_help()

@@ -40,6 +40,7 @@ from .handoff import (
     find_handoff, HandoffInfo, VectorPlant, CpuSwitchTrigger,
 )
 from .version_delta import compare_disks, DiskDelta
+from .generate import generate as generate_source_tree, GenerateResult
 
 __all__ = [
     "DOS33_INTERLEAVE", "PRODOS_INTERLEAVE",
@@ -53,4 +54,5 @@ __all__ = [
     "BiosJumpEntry", "TrapMarkerPage", "DispatchCase",
     "find_handoff", "HandoffInfo", "VectorPlant", "CpuSwitchTrigger",
     "compare_disks", "DiskDelta",
+    "generate_source_tree", "GenerateResult",
 ]
