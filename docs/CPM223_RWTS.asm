@@ -354,12 +354,14 @@ WRITE_SECTOR:
           PLP                             ; $0BD3 28
           BIT $20                         ; $0BD4 24 20
           ASL $1C1D,X                     ; $0BD6 1E 1D 1C
-          NOP $1C1C,X                     ; $0BD9 1C 1C 1C
-          NOP $2C70,X                     ; $0BDC 1C 70 2C
+          ; NOP $XXXX,X variants below are undocumented opcodes ca65
+          ; doesn't support; emitted as raw bytes. Region is data table.
+          .byte $1C, $1C, $1C             ; $0BD9
+          .byte $1C, $70, $2C             ; $0BDC
           ROL $22                         ; $0BDF 26 22
           SLO $1D1E,X                     ; $0BE1 1F 1E 1D
-          NOP $1C1C,X                     ; $0BE4 1C 1C 1C
-          NOP $A91C,X                     ; $0BE7 1C 1C A9
+          .byte $1C, $1C, $1C             ; $0BE4
+          .byte $1C, $1C, $A9             ; $0BE7
           LAX ($8D,X)                     ; $0BEA A3 8D
           SBC #$03                        ; $0BEC E9 03
 
@@ -761,16 +763,14 @@ WRITE_SECTOR:
 ; ----------------------------------------------------------------------------
 
 
-          BRK                             ; $0F9E 00
-          KIL                             ; $0F9F 02
-          NOP $06                         ; $0FA0 04 06
-          PHP                             ; $0FA2 08
-          ASL                             ; $0FA3 0A
-          NOP $010E                       ; $0FA4 0C 0E 01
-          SLO ($05,X)                     ; $0FA7 03 05
-          SLO $09                         ; $0FA9 07 09
-          ANC #$0D                        ; $0FAB 0B 0D
-          SLO $55A2                       ; $0FAD 0F A2 55
+          ; CP/M sector-skew table (16 bytes, $0F9E-$0FAD): even-then-odd
+          ; ordering 0,2,4,6,8,A,C,E,1,3,5,7,9,B,D,F. Referenced via
+          ; LDA $BF9E,Y from SECTOR_RW_RETRY (runtime address $BF9E
+          ; corresponds to install-time $0F9E + relocation).
+          .byte $00, $02, $04, $06, $08, $0A, $0C, $0E    ; $0F9E
+          .byte $01, $03, $05, $07, $09, $0B, $0D, $0F    ; $0FA6
+          ; Two trailing bytes -- start of next routine (LDX #$55):
+          .byte $A2, $55                                  ; $0FAE
           LDA #$00                        ; $0FB0 A9 00
           STA $0C00,X                     ; $0FB2 9D 00 0C
           DEX                             ; $0FB5 CA

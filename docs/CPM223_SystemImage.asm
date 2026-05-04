@@ -43,6 +43,7 @@
 ;   $9C08       First-boot vs warm-boot sentinel byte
 ; ============================================================================
 
+    DEVICE NOSLOT64K
             .ORG $8000
 
 
@@ -3582,12 +3583,18 @@ CCP_BUILTIN_TABLE:
 ; BOOT BANNER ($96BB-$96FF)
 ; ============================================================================
 
+; BOOT_BANNER ($96BB-$96FF, 69 bytes)
+; The CR + 3 LFs at $96B7-$96BA above are technically the leading
+; whitespace of this banner -- the disassembler treats them as code
+; (DEC C / LD A,(BC) ...) because they're a valid Z-80 sequence, but
+; they're never executed; the banner is data printed character by char.
 BOOT_BANNER:
-            .BYTE $0D, $0A, $0A, $0A
-            .ASCII "     Softcard CP/M"
+            .BYTE "     Softcard CP/M"   ; was .ASCII (sjasmplus syntax)
             .BYTE $0D, $0A
-            .ASCII "     60K Ver. 2.23"
+            .BYTE "     60K Ver. 2.23"
             .BYTE $0D, $0A
-            .ASCII "(c) 1980,1982 Microsoft"
+            .BYTE "(c) 1980,1982 Microsoft"
             .BYTE $0D, $0A, $0D, $0A, $00
             .BYTE $FA       ; trailing byte (purpose: TBD)
+
+    SAVEBIN "build/CPM223_SystemImage.bin", $8000, $1700

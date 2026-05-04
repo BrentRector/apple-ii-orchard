@@ -65,6 +65,7 @@ state_FECB      = $FECB
 state_FED2      = $FED2
 state_FED4      = $FED4
 
+    DEVICE NOSLOT64K
             .ORG $1A00
 
 
@@ -491,3 +492,5 @@ CALLBACKS_START:
 ; zero-filled and trap-marker patterns, similar to the BIOS layout.
 ; They serve as state-storage and runtime-installed-handler slots.
 ; ============================================================================
+
+    SAVEBIN "build/CPM223_DiskCallbacks.bin", $1A00, $0200
