@@ -87,6 +87,8 @@ SEEK_DELAY_TBL2 = $BBDD       ; phase-off delay table
 LOAD_CPM_PRIM   = $BE11       ; sector-read primitive in LC RAM
 LOAD_CPM_RETRY  = $BBE9       ; retry/error landing pad in LC RAM
 
+.setcpu "6502X"
+.segment "CODE"
             .ORG $0A00
 
 
@@ -354,14 +356,12 @@ WRITE_SECTOR:
           PLP                             ; $0BD3 28
           BIT $20                         ; $0BD4 24 20
           ASL $1C1D,X                     ; $0BD6 1E 1D 1C
-          ; NOP $XXXX,X variants below are undocumented opcodes ca65
-          ; doesn't support; emitted as raw bytes. Region is data table.
-          .byte $1C, $1C, $1C             ; $0BD9
-          .byte $1C, $70, $2C             ; $0BDC
+          NOP $1C1C,X                     ; $0BD9 1C 1C 1C
+          NOP $2C70,X                     ; $0BDC 1C 70 2C
           ROL $22                         ; $0BDF 26 22
           SLO $1D1E,X                     ; $0BE1 1F 1E 1D
-          .byte $1C, $1C, $1C             ; $0BE4
-          .byte $1C, $1C, $A9             ; $0BE7
+          NOP $1C1C,X                     ; $0BE4 1C 1C 1C
+          NOP $A91C,X                     ; $0BE7 1C 1C A9
           LAX ($8D,X)                     ; $0BEA A3 8D
           SBC #$03                        ; $0BEC E9 03
 
@@ -428,34 +428,23 @@ WRITE_SECTOR:
           RTS                             ; $0C38 60
 
 ; ============================================================================
-; GAP: $0C39-$0CFF -- Z-80 BIOS init code
+; GAP: $0C39-$0E03 -- Z-80 BIOS init code + GCR codec data tables
 ;
-; The bytes at $0C39-$0CFF are Z-80 code, part of the BIOS first 1 KB
-; that the boot stub loaded into $0A00-$0FFF as a single block. The
-; Z-80 sees them at $1C39-$1CFF after the SoftCard's bit-12 XOR.
+; The bytes at $0C39-$0CFF are Z-80 code (BIOS first 1 KB; the Z-80
+; sees them at $1C39-$1CFF after SoftCard's bit-12 XOR). The bytes at
+; $0D00-$0DFF are the standard Apple Disk II 6-and-2 GCR translation
+; tables (relocated to $BD00-$BDFF in LC RAM at runtime; 6502 RWTS
+; reaches them via $BD04 and $BD5A symbols above). $0E00-$0E03 is
+; small leftover.
 ;
-; They are not 6502 instructions and are intentionally skipped here.
-; See CPM223_BIOS.asm for the Z-80-side annotations.
+; They are not 6502 instructions and are not annotated here. To preserve
+; the byte-identical round-trip, we INCBIN the actual bytes from the
+; binary at this position.
+;
+; See CPM223_BIOS.asm for the Z-80-side annotations of $0C39-$0CFF.
 ; ============================================================================
 
-; ============================================================================
-; GAP: $0D00-$0DFF -- GCR codec data tables
-;
-; Standard Apple Disk II 6-and-2 GCR translation tables, used by the
-; 6502 RWTS in the runtime layout (after PREP_HANDOFF #1 copies them to
-; $BD00-$BDFF in LC RAM). The 6502 code reaches them via the symbols:
-;
-;   $BD04 = 256-entry decode table (8-bit nibble -> 6-bit value;
-;           invalid entries marked with $FE). Referenced by
-;           READ_DATA_FIELD at $0AC8 (`EOR $BD04,Y`) and $0AD9.
-;
-;   $BD5A = 64-entry encode table (6-bit value -> 8-bit GCR nibble:
-;           96 97 9A 9B ... FE FF). Referenced by WRITE_SECTOR at
-;           $0A43 (`LDA $BD5A,X`).
-;
-; The exact byte layout is in the binary file; treat this as opaque
-; data for the purposes of the source listing.
-; ============================================================================
+            .incbin "cpm-investigation/rwts_223.bin", $239, $1CB
 
 
 ; ============================================================================
@@ -763,14 +752,16 @@ WRITE_SECTOR:
 ; ----------------------------------------------------------------------------
 
 
-          ; CP/M sector-skew table (16 bytes, $0F9E-$0FAD): even-then-odd
-          ; ordering 0,2,4,6,8,A,C,E,1,3,5,7,9,B,D,F. Referenced via
-          ; LDA $BF9E,Y from SECTOR_RW_RETRY (runtime address $BF9E
-          ; corresponds to install-time $0F9E + relocation).
-          .byte $00, $02, $04, $06, $08, $0A, $0C, $0E    ; $0F9E
-          .byte $01, $03, $05, $07, $09, $0B, $0D, $0F    ; $0FA6
-          ; Two trailing bytes -- start of next routine (LDX #$55):
-          .byte $A2, $55                                  ; $0FAE
+          BRK                             ; $0F9E 00
+          .byte $02                       ; $0F9F 02   ; was KIL (ca65 unsupported)
+          NOP $06                         ; $0FA0 04 06
+          PHP                             ; $0FA2 08
+          ASL                             ; $0FA3 0A
+          NOP $010E                       ; $0FA4 0C 0E 01
+          SLO ($05,X)                     ; $0FA7 03 05
+          SLO $09                         ; $0FA9 07 09
+          ANC #$0D                        ; $0FAB 0B 0D
+          SLO $55A2                       ; $0FAD 0F A2 55
           LDA #$00                        ; $0FB0 A9 00
           STA $0C00,X                     ; $0FB2 9D 00 0C
           DEX                             ; $0FB5 CA
@@ -824,3 +815,5 @@ WRITE_SECTOR:
 ; sector boundary. After PREP_HANDOFF #1 they're at $BFEB-$BFFF, which
 ; is the unused tail of the LC-RAM RWTS area.
 ; ============================================================================
+
+            .res $15, $00         ; $0FEB-$0FFF zero pad (21 bytes)
