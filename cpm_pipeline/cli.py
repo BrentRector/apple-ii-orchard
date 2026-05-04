@@ -21,11 +21,18 @@ from pathlib import Path
 
 from .reconstruct import reconstruct_disk
 from .format_detect import detect
+from .loader_trace import trace_loader
 
 
 def cmd_detect(args):
     info = detect(args.disk)
     print(info.summary())
+    return 0
+
+
+def cmd_trace(args):
+    sched = trace_loader(args.disk)
+    print(sched.summary())
     return 0
 
 
@@ -81,6 +88,9 @@ def main(argv=None):
     det = sub.add_parser("detect", help="Inspect a disk image and print structural info")
     det.add_argument("disk", help="Path to a .dsk or .po image to inspect")
 
+    tr = sub.add_parser("trace", help="Trace the boot loader: install copies, LOAD_CPM, etc.")
+    tr.add_argument("disk", help="Path to a .dsk or .po image to trace")
+
     build = sub.add_parser("build", help="Build a CP/M disk image")
     build.add_argument("variant", choices=("220", "223", "auto"),
                        nargs="?", default="auto",
@@ -99,6 +109,8 @@ def main(argv=None):
     args = p.parse_args(argv)
     if args.command == "detect":
         return cmd_detect(args)
+    if args.command == "trace":
+        return cmd_trace(args)
     if args.command == "build":
         return cmd_build(args)
     p.print_help()

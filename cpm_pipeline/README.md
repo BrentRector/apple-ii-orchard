@@ -16,6 +16,11 @@ produce a `.dsk` (or `.po`) image that's byte-identical to the original.
 identify the boot stub (if any), extract the sector skew table the boot
 stub uses, classify the CP/M variant by signature.
 
+**Phase 3 — Stage 2: boot-loader tracing.** Pattern-match stage-2 for
+install-copy loops (`LDA src,Y / STA dst,Y / DEY / BNE`) and disk-helper
+calls (`JSR $BB__` for 2.23, `JSR $0E__/$0F__` for 2.20), output a
+structured `LoadSchedule`.
+
 ```sh
 source ../tools/env.sh   # ca65 + ld65 + sjasmplus on PATH
 
@@ -41,6 +46,20 @@ python -m cpm_pipeline build 220 \
     --output ../build/cpm220_rebuilt.po \
     --verify
 # → BYTE-IDENTICAL to ../CPM220Disk1.po
+
+# Trace the boot loader -- install-copy loops and disk-helper calls
+python -m cpm_pipeline trace ../CPMV233.DSK
+# → LoadSchedule for CPMV233.DSK
+#     variant: softcard_cpm_2_23
+#     stage-2 entry: $1000
+#     boot-stub-loaded sectors: 10  (each $0XX0 <- trk0:physN)
+#     install-copy loops: 4
+#       $11B0-$11BD -> $0FFF-$100C  (14 bytes; loop at $1039)
+#       $12FF-$13EF -> $02FF-$03EF  (241 bytes; loop at $104D)  ← page-2/3 install
+#       $13EF-$13FE -> $03EF-$03FE  (16 bytes; loop at $10EF)
+#       $116C-$1171 -> $FFF9-$FFFE  (6 bytes; loop at $1140)    ← reset-vector patch
+#     disk-helper calls (LOAD_CPM-class): 1
+#       $111E: JSR $BBEB  (A=$80)
 ```
 
 What this means: editing a comment in `docs/CPM223_BIOS.asm` and rerunning
@@ -68,11 +87,12 @@ coverage.
 |---|---|
 | [`disk_format.py`](disk_format.py) | DOS 3.3 vs ProDOS interleave; sector → file offset math; .dsk/.po format detection |
 | [`format_detect.py`](format_detect.py) | Stage 1 — structural detection: boot-stub fingerprint, skew table extraction, CP/M variant identification |
+| [`loader_trace.py`](loader_trace.py) | Stage 2 — boot-loader tracing: install-copy loops + disk-helper call detection; outputs a `LoadSchedule` |
 | [`assemble.py`](assemble.py) | Wraps ca65/ld65 (6502) and sjasmplus (Z-80) for `docs/CPM*.asm` files; returns byte content |
 | [`chunk_map.py`](chunk_map.py) | The `(source_binary, byte_range, track, sector)` mappings for 2.20 + 2.23 |
 | [`reconstruct.py`](reconstruct.py) | Orchestrator: assemble all → place per chunk map → write disk → optionally verify |
-| [`cli.py`](cli.py) | `python -m cpm_pipeline {detect\|build} ...` |
-| [`tests/`](tests/) | pytest: format primitives + detection + end-to-end round-trip for both disks |
+| [`cli.py`](cli.py) | `python -m cpm_pipeline {detect\|trace\|build} ...` |
+| [`tests/`](tests/) | pytest: format primitives + detection + tracing + end-to-end round-trip |
 
 ## Roadmap status
 
@@ -81,7 +101,7 @@ Per the [seven-stage roadmap](../docs/CPM_PIPELINE_ROADMAP.md):
 | Stage | Description | Status |
 |---|---|---|
 | **1** | **Disk-format detection** | **Phase 2 — DONE: structural detection of boot stub, skew table, variant** |
-| 2 | Boot-loader tracing | manual today (chunk map hand-listed) |
+| **2** | **Boot-loader tracing** | **Phase 3 — DONE: install-copy loops + disk-helper calls auto-detected** |
 | 3 | Version delta detection | partial — variant ID covers 2.20 vs 2.23 |
 | 4 | Handoff identification | manual today |
 | 5 | Z-80 cold-boot tracing | manual today |
