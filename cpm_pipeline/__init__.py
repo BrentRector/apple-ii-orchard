@@ -36,6 +36,9 @@ from .cold_boot_trace import (
     trace_cold_boot, ColdBootSchedule,
     BiosJumpEntry, TrapMarkerPage, DispatchCase,
 )
+from .handoff import (
+    find_handoff, HandoffInfo, VectorPlant, CpuSwitchTrigger,
+)
 
 __all__ = [
     "DOS33_INTERLEAVE", "PRODOS_INTERLEAVE",
@@ -47,4 +50,5 @@ __all__ = [
     "trace_loader", "LoadSchedule", "InstallCopy", "LoadCpmCall",
     "trace_cold_boot", "ColdBootSchedule",
     "BiosJumpEntry", "TrapMarkerPage", "DispatchCase",
+    "find_handoff", "HandoffInfo", "VectorPlant", "CpuSwitchTrigger",
 ]

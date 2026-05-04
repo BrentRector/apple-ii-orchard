@@ -23,6 +23,7 @@ from .reconstruct import reconstruct_disk
 from .format_detect import detect
 from .loader_trace import trace_loader
 from .cold_boot_trace import trace_cold_boot
+from .handoff import find_handoff
 
 
 def cmd_detect(args):
@@ -40,6 +41,12 @@ def cmd_trace(args):
 def cmd_trace_z80(args):
     sched = trace_cold_boot(args.bios, bios_org=args.org)
     print(sched.summary())
+    return 0
+
+
+def cmd_handoff(args):
+    info = find_handoff(args.disk, bios_path=args.bios, bios_org=args.bios_org)
+    print(info.summary())
     return 0
 
 
@@ -106,6 +113,16 @@ def main(argv=None):
     tz.add_argument("--org", type=lambda s: int(s.lstrip('$'), 16), default=None,
                     help="BIOS load address (auto-detected from first JP target if omitted)")
 
+    ho = sub.add_parser("handoff",
+                        help="Identify the 6502->Z-80 handoff: planted vectors + CPU-switch trigger")
+    ho.add_argument("disk", help="Path to a .dsk or .po image")
+    ho.add_argument("--bios", default=None,
+                    help="Path to Z-80 BIOS binary; if omitted, auto-detect "
+                         "from variant (cpm-investigation/bios_NNN.bin)")
+    ho.add_argument("--bios-org", type=lambda s: int(s.lstrip('$'), 16),
+                    default=None, dest="bios_org",
+                    help="BIOS load address (auto-detected from variant if omitted)")
+
     build = sub.add_parser("build", help="Build a CP/M disk image")
     build.add_argument("variant", choices=("220", "223", "auto"),
                        nargs="?", default="auto",
@@ -128,6 +145,8 @@ def main(argv=None):
         return cmd_trace(args)
     if args.command == "trace-z80":
         return cmd_trace_z80(args)
+    if args.command == "handoff":
+        return cmd_handoff(args)
     if args.command == "build":
         return cmd_build(args)
     p.print_help()

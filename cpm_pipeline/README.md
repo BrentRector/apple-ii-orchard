@@ -28,6 +28,12 @@ per-device dispatch cases. The Videx-fix discriminator surfaces
 mechanically: 2.23 has dispatch cases for devices 3, 4, **6**; 2.20
 lacks the device-6 case.
 
+**Phase 5 — Stage 4: handoff identification.** Find the three handoff
+signals between 6502 and Z-80: the Z-80 reset vector plant (`STA
+$1000` after `LDA #$C3`, with auto-detection of the planted target),
+the BDOS entry vector plant (done by the Z-80 BIOS), and the
+CPU-switch trigger (`JSR $0E36` in 2.23, `JSR $C400` in 2.20).
+
 ```sh
 source ../tools/env.sh   # ca65 + ld65 + sjasmplus on PATH
 
@@ -114,10 +120,11 @@ coverage.
 | [`format_detect.py`](format_detect.py) | Stage 1 — structural detection: boot-stub fingerprint, skew table extraction, CP/M variant identification |
 | [`loader_trace.py`](loader_trace.py) | Stage 2 — boot-loader tracing: install-copy loops + disk-helper call detection; outputs a `LoadSchedule` |
 | [`cold_boot_trace.py`](cold_boot_trace.py) | Stage 5 — Z-80 cold-boot tracing: BIOS jump table + trap-marker pages + cold-boot generator + dispatch cases; outputs a `ColdBootSchedule` |
+| [`handoff.py`](handoff.py) | Stage 4 — handoff identification: Z-80 reset vector plant, BDOS entry vector plant, CPU-switch trigger; outputs a `HandoffInfo` |
 | [`assemble.py`](assemble.py) | Wraps ca65/ld65 (6502) and sjasmplus (Z-80) for `docs/CPM*.asm` files; returns byte content |
 | [`chunk_map.py`](chunk_map.py) | The `(source_binary, byte_range, track, sector)` mappings for 2.20 + 2.23 |
 | [`reconstruct.py`](reconstruct.py) | Orchestrator: assemble all → place per chunk map → write disk → optionally verify |
-| [`cli.py`](cli.py) | `python -m cpm_pipeline {detect\|trace\|trace-z80\|build} ...` |
+| [`cli.py`](cli.py) | `python -m cpm_pipeline {detect\|trace\|trace-z80\|handoff\|build} ...` |
 | [`tests/`](tests/) | pytest: format primitives + detection + tracing + end-to-end round-trip |
 
 ## Roadmap status
@@ -129,7 +136,7 @@ Per the [seven-stage roadmap](../docs/CPM_PIPELINE_ROADMAP.md):
 | **1** | **Disk-format detection** | **Phase 2 — DONE: structural detection of boot stub, skew table, variant** |
 | **2** | **Boot-loader tracing** | **Phase 3 — DONE: install-copy loops + disk-helper calls auto-detected** |
 | 3 | Version delta detection | partial — variant ID + dispatch-case diff (Phase 4 surfaces 2.20-vs-2.23 device-6 case absence) |
-| 4 | Handoff identification | manual today |
+| **4** | **Handoff identification** | **Phase 5 — DONE: Z-80 reset vector + BDOS entry + CPU-switch trigger auto-detected for both 2.20 and 2.23** |
 | **5** | **Z-80 cold-boot tracing** | **Phase 4 — DONE: jump table + trap markers + cold-boot generator + dispatch cases** |
 | 6 | Annotated source generation | disasm6502 + disasm_z80 + symbols handle this per-chunk |
 | **7** | **`.dsk` reconstruction** | **Phase 1 — DONE for 2.20 + 2.23** |
