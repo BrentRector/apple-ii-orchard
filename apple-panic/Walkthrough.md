@@ -302,14 +302,16 @@ The runtime image is 43,008 bytes (`$0000`-`$A7FF`). Key regions:
 **Commands:**
 
 ```bash
-# Recursive descent disassembly
-python -m nibbler disasm ApplePanic_runtime.bin --base 0x0000 --entry 0x4000 -r
+# First-look recursive descent disassembly (general-purpose tool)
+source ../tools/env.sh    # puts ca65/ld65 on PATH
+python -m disasm6502 ApplePanic_runtime.bin --org $0000 --entry $4000 \
+    --symbols ../symbols/apple2.json --output applepanic
 
-# Full disassembly with labels, annotations, and data formatting
+# Full Apple-Panic-specific disassembly with labels, annotations, and data formatting
 python scripts/disassemble.py
 ```
 
-`nibbler disasm -r` performs recursive descent disassembly — it traces execution paths from the entry point, following branches and jumps to classify each byte as code or data. `disassemble.py` adds a layer on top: 200+ descriptive label names, hardware register comments (`$C050`-`$C057` for graphics, `$C000`/`$C010` for keyboard, `$C030` for speaker), Apple II ROM call annotations, and formatted sprite/level data tables.
+`disasm6502` performs recursive descent disassembly — it traces execution paths from the entry point, following branches and jumps to classify each byte as code or data, then a second pass classifies the data regions as strings, pointer tables, jump tables, fills, or generic byte runs. The output reassembles byte-identical via `ca65 + ld65`. `disassemble.py` is the Apple-Panic-specific deep-annotation tool that adds 200+ descriptive label names, hardware register comments (`$C050`-`$C057` for graphics, `$C000`/`$C010` for keyboard, `$C030` for speaker), Apple II ROM call annotations, and formatted sprite/level data tables.
 
 **What you discover:**
 
@@ -371,7 +373,7 @@ python scripts/scan_sector1.py
 | 6 | `decode_track0.py` + verification | Bit-stream wrap, bad sector 11 checksum | Wrap boundary, decoy checksum |
 | 7 | `nibbler boot` + `boot_emulate_full.py` | Runtime prolog patching, per-track markers | `$DE` patch, per-track second byte |
 | 8 | `build_runtime.py` | Relocation copy loops, final memory layout | — |
-| 9 | `nibbler disasm -r` + `disassemble.py` | 104 subroutines, 8,800-line source | — |
+| 9 | `disasm6502` + `disassemble.py` | 104 subroutines, 8,800-line source | — |
 | 10 | Verification scripts | Byte-perfect extraction confirmed | — |
 
 Each step reveals what the next step must address. The protections are layered so that defeating one exposes the next — dual-format leads to the boot sector, which reveals GCR corruption, which requires the custom post-decode, which produces the game loader, which contains the runtime prolog patches. No single tool defeats all layers; the chain of discovery is the methodology.

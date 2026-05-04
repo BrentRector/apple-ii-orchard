@@ -1,6 +1,8 @@
 # nibbler Usage Guide
 
-A Python toolkit for analyzing Apple II WOZ disk images. Scans for copy protection, emulates the boot process, extracts runtime binaries, decodes individual sectors, converts to DSK format, and disassembles 6502 code.
+A Python toolkit for analyzing Apple II WOZ disk images. Scans for copy protection, emulates the boot process, extracts runtime binaries, decodes individual sectors, and converts to DSK format.
+
+For 6502 / Z-80 disassembly of extracted binaries, see the standalone packages [`../disasm6502/`](../disasm6502/README.md) and [`../disasm_z80/`](../disasm_z80/README.md).
 
 ```
 python -m nibbler <command> [arguments]
@@ -20,7 +22,6 @@ python -m nibbler <command> [arguments]
 | `decode`  | Decode a specific track/sector to hex dump or file |
 | `dsk`     | Convert WOZ to standard 140K DSK image             |
 | `flux`    | Render magnetic flux patterns as a grayscale PNG   |
-| `disasm`  | Disassemble a binary file or memory dump           |
 
 ---
 
@@ -329,46 +330,13 @@ The image models a standard 5.25" floppy disk: 48 TPI track pitch, track 0 at 2.
 
 ---
 
-## disasm — 6502 Disassembler
+## Disassembly — separate packages
 
-Disassembles a binary file or memory dump as 6502 machine code. Supports both linear (sequential) and recursive descent (follows branches/jumps) modes.
+For 6502 / Z-80 disassembly, see the standalone packages at the repo root:
+- [`../disasm6502/`](../disasm6502/README.md) — 6502, ca65/ld65 output, byte-identical round-trip
+- [`../disasm_z80/`](../disasm_z80/README.md) — Z-80 with full prefix coverage, sjasmplus output, byte-identical round-trip
 
-```
-python -m nibbler disasm <binary> [options]
-```
-
-**Options:**
-- `--base ADDR` — base address where the binary loads in memory (default $0000)
-- `--start ADDR` — start disassembly at this address (default: base)
-- `--end ADDR` — stop disassembly at this address (default: end of file)
-- `--entry ADDR` — entry point for recursive descent (default: start)
-- `-r` — use recursive descent instead of linear disassembly
-
-**Example — linear disassembly of a boot sector:**
-
-```
-$ python -m nibbler disasm boot_sector.bin --base 0x0800
-
-$0800  00        BRK
-$0801  A0 00     LDY #$00
-$0803  B9 00 08  LDA $0800,Y
-...
-```
-
-**Example — recursive descent from an entry point:**
-
-```
-$ python -m nibbler disasm game.bin --base 0x4000 --entry 0x4000 -r
-
-$4000  L_4000          JMP $4065
-...
-$4065  ENTRY           LDA #$00
-$4067                  STA $C050    ; GR/Text: set graphics mode
-```
-
-**Linear vs recursive descent:**
-- **Linear** (`default`) — disassembles every byte sequentially. Fast and simple, but can't distinguish code from data. Best for small regions you know are all code.
-- **Recursive** (`-r`) — follows execution flow from the entry point, tracing branches and JSR targets. Correctly identifies code vs data regions. Generates labels for branch targets and subroutines. Adds Apple II hardware register comments automatically.
+Both consume JSON symbol tables (`../symbols/`), perform recursive descent + a second-pass data analyzer (strings, fills, jump tables, pointer tables), and round-trip byte-identical against the source binary.
 
 ---
 
@@ -385,7 +353,6 @@ from nibbler.boot import BootAnalyzer
 from nibbler.analyze import CopyProtectionAnalyzer
 from nibbler.dsk import woz_to_dsk, create_bootable_dsk
 from nibbler.flux import render_flux_image
-from nibbler.disasm import Disassembler, disassemble_region
 ```
 
 | Module       | Key Classes / Functions                                      |
@@ -398,7 +365,6 @@ from nibbler.disasm import Disassembler, disassemble_region
 | `analyze.py` | `CopyProtectionAnalyzer` — detect 8 protection techniques, generate markdown report, auto-detect non-standard prologs |
 | `dsk.py`     | `woz_to_dsk()`, `write_dsk()`, `create_bootable_dsk()`, DOS 3.3 VTOC/catalog reading |
 | `flux.py`    | `render_flux_image()` — grayscale magnetic flux visualization (requires numpy + Pillow) |
-| `disasm.py`  | `Disassembler` (recursive descent), `disassemble_region()` (linear), `OPCODES` table (all 256 including undocumented) |
 
 ---
 
@@ -423,8 +389,9 @@ python -m nibbler protect disk.woz -o protection_report.md
 python -m nibbler decode disk.woz 0
 python -m nibbler decode disk.woz 0 --sector 0 -o boot_sector.bin
 
-# 6. Disassemble the boot sector
-python -m nibbler disasm boot_sector.bin --base 0x0800
+# 6. Disassemble the boot sector (use the standalone disasm6502 package)
+source ../tools/env.sh
+python -m disasm6502 boot_sector.bin --org $0800 --output boot_sector
 ```
 
 ### Extracting a game binary
@@ -433,8 +400,9 @@ python -m nibbler disasm boot_sector.bin --base 0x0800
 # 1. Boot-trace to find where the game loads
 python -m nibbler boot disk.woz --stop 0x4000 --dump 0x4000-0xBFFF --save game.bin
 
-# 2. Disassemble the extracted binary
-python -m nibbler disasm game.bin --base 0x4000 --entry 0x4000 -r
+# 2. Disassemble the extracted binary (separate package)
+python -m disasm6502 game.bin --org $4000 --entry $4000 \
+    --symbols ../symbols/apple2.json --output game
 
 # 3. Create a bootable DSK for use in emulators
 python -m nibbler dsk --binary game.bin --load-addr 0x4000 --entry-addr 0x4000 -o game.dsk

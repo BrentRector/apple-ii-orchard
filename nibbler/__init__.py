@@ -16,7 +16,9 @@ Commands:
     decode    Decode specific track/sector data
     dsk       Convert to standard DOS 3.3 DSK image
     flux      Render magnetic flux patterns as a grayscale PNG
-    disasm    Disassemble a binary or memory dump
+
+For 6502 / Z-80 disassembly, see the standalone packages
+``disasm6502/`` and ``disasm_z80/`` at the repo root.
 """
 
 # Semantic version string, referenced by packaging tools and ``--version`` flags.

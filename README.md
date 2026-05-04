@@ -44,9 +44,10 @@ python -m nibbler <command> <woz_file> [options]
 | `decode`  | Decode specific track/sector to hex dump or binary |
 | `dsk`     | Convert WOZ to standard 140K DSK image             |
 | `flux`    | Render magnetic flux patterns as a grayscale PNG   |
-| `disasm`  | Disassemble 6502 binary (linear or recursive descent) |
 
-**12 modules:** WOZ2 parser, GCR 6-and-2 / 5-and-3 codec with auto-detection of non-standard address prologs, full NMOS 6502 emulator (all 256 opcodes including 29 undocumented), Disk II controller simulation with stepper motor and I/O tracing, boot emulation framework, copy protection analyzer, DSK converter, magnetic flux visualizer, and 6502 disassembler with recursive descent.
+For 6502 / Z-80 disassembly, see the standalone packages [`disasm6502/`](disasm6502/) and [`disasm_z80/`](disasm_z80/) at the repo root. Both produce ca65/sjasmplus-compatible source that round-trips byte-identical.
+
+**11 modules:** WOZ2 parser, GCR 6-and-2 / 5-and-3 codec with auto-detection of non-standard address prologs, full NMOS 6502 emulator (all 256 opcodes including 29 undocumented), Disk II controller simulation with stepper motor and I/O tracing, boot emulation framework, copy protection analyzer, DSK converter, and magnetic flux visualizer.
 
 No external dependencies for core functionality. Python 3.10+. The `flux` command additionally requires numpy and Pillow.
 
@@ -71,8 +72,11 @@ python -m nibbler flux "apple-panic/Apple Panic - Disk 1, Side A.woz"
 python -m nibbler boot "apple-panic/Apple Panic - Disk 1, Side A.woz" \
     --stop 0x4000 --dump 0x4000-0xA7FF --save game.bin
 
-# Disassemble the extracted binary
-python -m nibbler disasm game.bin --base 0x4000 --entry 0x4000 -r
+# Disassemble the extracted binary (use the standalone disasm6502 package)
+source tools/env.sh   # puts ca65 + ld65 on PATH
+python -m disasm6502 game.bin --org $4000 --entry $4000 \
+    --symbols symbols/apple2.json --output game
+ca65 game.s -o game.o && ld65 -C game.cfg -o game.bin game.o
 ```
 
 ## Other Resources

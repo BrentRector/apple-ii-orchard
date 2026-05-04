@@ -223,7 +223,7 @@ is a follow-up — the present finding is sufficient to explain why
 
 The disassembly was produced by:
 
-1. Running `python -m nibbler disasm` on a 3 KB Apple II memory image
+1. Running `python -m disasm6502` on a 3 KB Apple II memory image
    reconstructed from the disk's track-0 sectors in the order the boot
    stub loads them (sectors 0, 2, 4, 6, 8, A, C, E, 1, 3, 5 → memory
    addresses $0800, $0A00, $0B00, $0C00, $0D00, $0E00, $0F00, $1000,

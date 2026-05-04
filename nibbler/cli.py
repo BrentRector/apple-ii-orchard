@@ -367,50 +367,6 @@ def cmd_flux(args):
     print(f"\nSaved {output} ({image_px}x{image_px} px, {dpi} DPI)")
 
 
-def cmd_disasm(args):
-    """Disassemble a binary file or memory dump."""
-    from .disasm import disassemble_region, Disassembler, add_hardware_comments, OPCODES
-
-    with open(args.binary, 'rb') as f:
-        data = bytearray(f.read())
-
-    base = parse_addr(args.base) if args.base else 0x0000
-    start = parse_addr(args.start) if args.start else base
-    end = parse_addr(args.end) if args.end else base + len(data)
-    fmt = getattr(args, 'format', 'listing')
-
-    if args.recursive:
-        # Recursive descent disassembly
-        mem = bytearray(65536)
-        mem[base:base + len(data)] = data
-        dis = Disassembler(mem, base, base + len(data))
-
-        entry = parse_addr(args.entry) if args.entry else start
-        dis.trace(entry)
-        dis.name_labels()
-        add_hardware_comments(dis, mem)
-
-        lines = dis.disassemble_range(start, end)
-        if fmt == 'asm':
-            for addr, label, instr, comment in lines:
-                if label:
-                    print(f'{label}:')
-                cmt = f'; ${addr:04X}'
-                if comment:
-                    cmt = f'{cmt} - {comment.lstrip().lstrip(";").strip()}'
-                print(f'            {instr:<32}{cmt}')
-        else:
-            for addr, label, instr, comment in lines:
-                prefix = f"{label:16s}" if label else " " * 16
-                suffix = f"  ; {comment}" if comment else ""
-                print(f"${addr:04X}  {prefix} {instr}{suffix}")
-    else:
-        # Linear disassembly
-        lines = disassemble_region(data, base, start, end, format=fmt)
-        for line in lines:
-            print(line)
-
-
 def main():
     """Parse command-line arguments and dispatch to the appropriate handler.
 
@@ -476,20 +432,6 @@ def main():
     p_flux.add_argument('--dpi', type=int, help='Resolution in DPI (default 600)')
     p_flux.add_argument('--tracks', type=int, help='Number of track positions to show (default 35)')
 
-    # disasm (6502)
-    p_disasm = subparsers.add_parser('disasm', help='Disassemble 6502 binary')
-    p_disasm.add_argument('binary', help='Binary file to disassemble')
-    p_disasm.add_argument('--base', help='Base address (hex, default 0x0000)')
-    p_disasm.add_argument('--start', help='Start address (hex)')
-    p_disasm.add_argument('--end', help='End address (hex)')
-    p_disasm.add_argument('--entry', help='Entry point for recursive descent (hex)')
-    p_disasm.add_argument('-r', '--recursive', action='store_true',
-                          help='Use recursive descent (vs linear)')
-    p_disasm.add_argument('--format', choices=['listing', 'asm'], default='listing',
-                          help='Output format: "listing" (default, human-readable '
-                               'with address+bytes prefix) or "asm" (compilable '
-                               '6502 source, ready for ca65/dasm).')
-
     args = parser.parse_args()
 
     if not args.command:
@@ -506,7 +448,6 @@ def main():
         'decode': cmd_decode,
         'dsk': cmd_dsk,
         'flux': cmd_flux,
-        'disasm': cmd_disasm,
     }
 
     commands[args.command](args)
