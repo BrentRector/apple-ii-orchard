@@ -54,6 +54,8 @@ SEEK_PHASE_ON   = $BBAD
 SEEK_PHASE_OFF  = $BBB0
 SEEK_PHASE_DLY  = $BBBC
 
+.setcpu "6502X"
+.segment "CODE"
             .ORG $0A00
 
 
@@ -430,87 +432,13 @@ WRITE_SECTOR:
           ISC $FFFF,X                     ; $0D4D FF FF FF
           ISC $FFFF,X                     ; $0D50 FF FF FF
           ISC $FFFF,X                     ; $0D53 FF FF FF
-          STX $97,Y                       ; $0D56 96 97
-          TXS                             ; $0D58 9A
-          TAS $9E9D,Y                     ; $0D59 9B 9D 9E
-          SHA $A7A6,Y                     ; $0D5C 9F A6 A7
-          LAX #$AC                        ; $0D5F AB AC
-          LDA $AFAE                       ; $0D61 AD AE AF
-          KIL                             ; $0D64 B2
-          LAX ($B4),Y                     ; $0D65 B3 B4
-          LDA $B6,X                       ; $0D67 B5 B6
-          LAX $B9,Y                       ; $0D69 B7 B9
-          TSX                             ; $0D6B BA
-          LAS $BDBC,Y                     ; $0D6C BB BC BD
-          LDX $CBBF,Y                     ; $0D6F BE BF CB
-          CMP $CFCE                       ; $0D72 CD CE CF
-          DCP ($D6),Y                     ; $0D75 D3 D6
-          DCP $D9,X                       ; $0D77 D7 D9
-          NOP                             ; $0D79 DA
-          DCP $DDDC,Y                     ; $0D7A DB DC DD
-          DEC $E5DF,X                     ; $0D7D DE DF E5
-          INC $E7                         ; $0D80 E6 E7
-          SBC #$EA                        ; $0D82 E9 EA
-          SBC #$EC                        ; $0D84 EB EC
-          SBC $EFEE                       ; $0D86 ED EE EF
-          KIL                             ; $0D89 F2
-          ISC ($F4),Y                     ; $0D8A F3 F4
-          SBC $F6,X                       ; $0D8C F5 F6
-          ISC $F9,X                       ; $0D8E F7 F9
-          NOP                             ; $0D90 FA
-          ISC $FDFC,Y                     ; $0D91 FB FC FD
-          INC $00FF,X                     ; $0D94 FE FF 00
-          ORA ($98,X)                     ; $0D97 01 98
-          STA $0302,Y                     ; $0D99 99 02 03
-          SHY $0504,X                     ; $0D9C 9C 04 05
-          ASL $A0                         ; $0D9F 06 A0
-          LDA ($A2,X)                     ; $0DA1 A1 A2
-          LAX ($A4,X)                     ; $0DA3 A3 A4
-          LDA $07                         ; $0DA5 A5 07
-          PHP                             ; $0DA7 08
-          TAY                             ; $0DA8 A8
-          LDA #$AA                        ; $0DA9 A9 AA
-          ORA #$0A                        ; $0DAB 09 0A
-          ANC #$0C                        ; $0DAD 0B 0C
-          ORA $B1B0                       ; $0DAF 0D B0 B1
-          ASL $100F                       ; $0DB2 0E 0F 10
-          ORA ($12),Y                     ; $0DB5 11 12
-          SLO ($B8),Y                     ; $0DB7 13 B8
-          NOP $15,X                       ; $0DB9 14 15
-          ASL $17,X                       ; $0DBB 16 17
-          CLC                             ; $0DBD 18
-          ORA $C01A,Y                     ; $0DBE 19 1A C0
-          CMP ($C2,X)                     ; $0DC1 C1 C2
-          DCP ($C4,X)                     ; $0DC3 C3 C4
-          CMP $C6                         ; $0DC5 C5 C6
-          DCP $C8                         ; $0DC7 C7 C8
-          CMP #$CA                        ; $0DC9 C9 CA
-          SLO $1CCC,Y                     ; $0DCB 1B CC 1C
-          ORA $D01E,X                     ; $0DCE 1D 1E D0
-          CMP ($D2),Y                     ; $0DD1 D1 D2
-          SLO $D5D4,X                     ; $0DD3 1F D4 D5
-          JSR $D821                       ; $0DD6 20 21 D8
-          KIL                             ; $0DD9 22
-          RLA ($24,X)                     ; $0DDA 23 24
-          AND $26                         ; $0DDC 25 26
-          RLA $28                         ; $0DDE 27 28
-          CPX #$E1                        ; $0DE0 E0 E1
-          NOP #$E3                        ; $0DE2 E2 E3
-          CPX $29                         ; $0DE4 E4 29
-          ROL                             ; $0DE6 2A
-          ANC #$E8                        ; $0DE7 2B E8
-          BIT $2E2D                       ; $0DE9 2C 2D 2E
-          RLA $3130                       ; $0DEC 2F 30 31
-          KIL                             ; $0DEF 32
-          BEQ $0DE3                       ; $0DF0 F0 F1
-          RLA ($34),Y                     ; $0DF2 33 34
-          AND $36,X                       ; $0DF4 35 36
-          RLA $38,X                       ; $0DF6 37 38
-          SED                             ; $0DF8 F8
-          AND $3B3A,Y                     ; $0DF9 39 3A 3B
-          NOP $3E3D,X                     ; $0DFC 3C 3D 3E
-          RLA $AD4C,X                     ; $0DFF 3F 4C AD
-          SLO $83AD                       ; $0E02 0F AD 83
+          ; $0D56-$0E04: Apple Disk II 6-and-2 GCR encode/decode table
+          ; (interleaved with some byte-by-byte counter values). The bytes
+          ; $96 $97 $9A $9B $9D ... are the standard 6-and-2 nibble values.
+          ; Earlier prose tried to disassemble this region instruction-by-
+          ; instruction, but most positions are pure data. INCBIN'd to
+          ; preserve the round-trip property.
+          .incbin "cpm-investigation/rwts_220.bin", $356, $AF
           CPY #$08                        ; $0E05 C0 08
           SEI                             ; $0E07 78
           JSR $0E10                       ; $0E08 20 10 0E
@@ -519,7 +447,7 @@ WRITE_SECTOR:
           RTS                             ; $0E0F 60
 
 ; ============================================================================
-; Beyond $0E10
+; Beyond $0E10 ($0E10-$0FFF, 496 bytes)
 ;
 ; Apple $0E10 onwards in the 2.20 loader image continues with more 6502
 ; code (LOAD_CPM body and helpers). Since 2.20's BIOS at Z-80 $DACC
@@ -528,5 +456,8 @@ WRITE_SECTOR:
 ;
 ; The remainder up to $0FFF is partially 6502 and partially data tables
 ; for the GCR encode/decode plus state slots that the cooperative-CPU
-; loop will use after the SoftCard switch.
+; loop will use after the SoftCard switch. Not annotated per-instruction
+; here; INCBIN'd to preserve the round-trip property.
 ; ============================================================================
+
+            .incbin "cpm-investigation/rwts_220.bin", $410, $1F0

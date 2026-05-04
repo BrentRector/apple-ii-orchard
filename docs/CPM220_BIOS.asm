@@ -61,6 +61,7 @@ BDOS_ENTRY      = $CC06       ; 2.20: BDOS at $CC06 (vs 2.23 at $9C06)
 ; ----------------------------------------------------------------------------
 APPLE_TEXT_FLAG = $E051
 
+    DEVICE NOSLOT64K
             .ORG $DACC
 
 
@@ -1680,6 +1681,7 @@ JUMP_TABLE:
           PUSH HL                         ; $E2C8 E5
           PUSH HL                         ; $E2C9 E5
           PUSH HL                         ; $E2CA E5
+          DEFB    $E5                     ; $E2CB (trailing byte; loose half of next PUSH)
 
 
 ; ============================================================================
@@ -1694,3 +1696,5 @@ JUMP_TABLE:
 ;   $0005: $C3 (JP opcode)
 ;   $0006-$0007: $CC06 (BDOS entry after relocation)
 ; ============================================================================
+
+    SAVEBIN "build/CPM220_BIOS.bin", $DACC, $0800

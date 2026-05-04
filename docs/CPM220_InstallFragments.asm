@@ -49,9 +49,11 @@ SLOT4_ROM       = $C400
 ; $03F0-$03FF  jump-target table (multiple "JMP $03C0" entries)
 ; ============================================================================
 
-            .ORG $0200
+.setcpu "6502X"
+.segment "CODE"
+            .org $0200
 
-$0200:      .DS  $14A, $00          ; zero-filled
+.res  $14A, $00          ; zero-filled
 
 
 ; ============================================================================
@@ -76,14 +78,14 @@ $0200:      .DS  $14A, $00          ; zero-filled
 ; ============================================================================
 
 Z80_CALLBACKS:
-$034A:      .BYTE $3A, $BB, $F3, $FE, $03, $C2, $0C, $DB    ; LD A,(F3BB); CP 3; JP NZ,DB0C
-$0352:      .BYTE $3A, $BE, $E0, $1F, $9F, $C9              ; LD A,(E0BE); RRA; SBC A,A; RET
-$0358:      .BYTE $CD, $29, $DB, $E6, $7F, $C9              ; CALL DB29; AND 7F; RET
-$035E:      .BYTE $3A, $BB, $F3, $FE, $03, $C2, $3E, $DC    ; LD A,(F3BB); CP 3; JP NZ,DC3E
-$0366:      .BYTE $3A, $BE, $E0, $E6, $02, $28, $F9         ; LD A,(E0BE); AND 02; JR Z,-7
-$036D:      .BYTE $79, $32, $45, $F0                         ; LD A,C; LD (F045),A
-$0371:      .BYTE $21, $7C, $03, $22, $D0, $F3              ; LD HL,037C; LD (F3D0),HL
-$0377:      .BYTE $2A, $DE, $F3, $77, $C9                    ; LD HL,(F3DE); LD (HL),A; RET
+.byte $3A, $BB, $F3, $FE, $03, $C2, $0C, $DB    ; LD A,(F3BB); CP 3; JP NZ,DB0C
+.byte $3A, $BE, $E0, $1F, $9F, $C9              ; LD A,(E0BE); RRA; SBC A,A; RET
+.byte $CD, $29, $DB, $E6, $7F, $C9              ; CALL DB29; AND 7F; RET
+.byte $3A, $BB, $F3, $FE, $03, $C2, $3E, $DC    ; LD A,(F3BB); CP 3; JP NZ,DC3E
+.byte $3A, $BE, $E0, $E6, $02, $28, $F9         ; LD A,(E0BE); AND 02; JR Z,-7
+.byte $79, $32, $45, $F0                         ; LD A,C; LD (F045),A
+.byte $21, $7C, $03, $22, $D0, $F3              ; LD HL,037C; LD (F3D0),HL
+.byte $2A, $DE, $F3, $77, $C9                    ; LD HL,(F3DE); LD (HL),A; RET
 
 
 ; ============================================================================
@@ -94,19 +96,19 @@ $0377:      .BYTE $2A, $DE, $F3, $77, $C9                    ; LD HL,(F3DE); LD 
 ; ============================================================================
 
 DISPATCH_DATA:
-$037C:      .BYTE $8D, $BF, $C0, $60                         ; STA $C0BF; RTS (6502)
-$0380:      .BYTE $4A, $F3, $58, $F3, $29, $DB, $5E, $F3    ; address table (Z-80 BIOS)
-$0388:      .BYTE $3E, $DC, $45, $DD, $45, $DD, $3F, $DD
-$0390:      .BYTE $3F, $DD, $2B, $DD, $2B, $DD               ; more BIOS targets
-$0396:      .BYTE $20, $1B, $AA, $D9, $D4, $A9, $A8, $1E
-$039E:      .BYTE $BD, $0B, $0C, $A0, $00, $0C, $0B, $1D
-$03A6:      .BYTE $0F, $0E, $19, $1E, $1F, $1C, $0B, $5B
-$03AE:      .BYTE $00, $7F, $02, $5C, $15, $09, $FF, $FF
+.byte $8D, $BF, $C0, $60                         ; STA $C0BF; RTS (6502)
+.byte $4A, $F3, $58, $F3, $29, $DB, $5E, $F3    ; address table (Z-80 BIOS)
+.byte $3E, $DC, $45, $DD, $45, $DD, $3F, $DD
+.byte $3F, $DD, $2B, $DD, $2B, $DD               ; more BIOS targets
+.byte $20, $1B, $AA, $D9, $D4, $A9, $A8, $1E
+.byte $BD, $0B, $0C, $A0, $00, $0C, $0B, $1D
+.byte $0F, $0E, $19, $1E, $1F, $1C, $0B, $5B
+.byte $00, $7F, $02, $5C, $15, $09, $FF, $FF
 
 ; Per-slot device metadata
 SLOT_DEV_META:
-$03B6:      .BYTE $FF, $FF, $02, $05, $03, $04, $00, $00     ; per-slot dev codes / classes
-$03BE:      .BYTE $02, $00
+.byte $FF, $FF, $02, $05, $03, $04, $00, $00     ; per-slot dev codes / classes
+.byte $02, $00
 
 
 ; ============================================================================
@@ -127,21 +129,21 @@ $03BE:      .BYTE $02, $00
 ; ============================================================================
 
 WARM_BOOT:
-$03C0:      LDA LC_WR_RAM       ; (1) bank in LC RAM (read+write, bank 1)
-$03C3:      LDA LC_WR_RAM       ; (2) twice -- LC bank-switch protocol
+LDA LC_WR_RAM       ; (1) bank in LC RAM (read+write, bank 1)
+LDA LC_WR_RAM       ; (2) twice -- LC bank-switch protocol
 
-$03C6:      STA SLOT4_ROM       ; (3) write to slot 4 ROM area $C400
+STA SLOT4_ROM       ; (3) write to slot 4 ROM area $C400
                                 ;     2.23 wrote to $FFFF (LC RAM top).
                                 ;     2.20's $C400 is slot-4-specific;
                                 ;     this may be the CPU-switch trigger
                                 ;     for SoftCard-in-slot-4 configuration.
 
-$03C9:      LDA LC_RD_RAM       ; (4) bank to LC bank 2
+LDA LC_RD_RAM       ; (4) bank to LC bank 2
 
-$03CC:      JSR RESTORE         ; (5) call $FF3F -- monitor REGSTORE
+JSR RESTORE         ; (5) call $FF3F -- monitor REGSTORE
                                 ;     restores A,X,Y,P from $45-$48
 
-$03CF:      JSR $1010           ; (6) call into stage-2 area at $1010.
+JSR $1010           ; (6) call into stage-2 area at $1010.
                                 ;     The bytes there are mid-instruction
                                 ;     from a 6502 viewpoint (78 04 99 F8...
                                 ;     after a 99 78 04 STA from earlier in
@@ -152,24 +154,24 @@ $03CF:      JSR $1010           ; (6) call into stage-2 area at $1010.
                                 ;     2.23's JSR $0E36 mechanism, just with
                                 ;     a different watched address.
 
-$03D2:      STA LC_RD_RAM       ; (7) touch LC RAM read switch
+STA LC_RD_RAM       ; (7) touch LC RAM read switch
 
-$03D5:      JSR SAVE            ; (8) save 6502 register state via $FF4A
+JSR SAVE            ; (8) save 6502 register state via $FF4A
                                 ;     (used here as another monitor-vector
                                 ;     touch, possibly with patched semantics)
 
-$03D8:      JMP WARM_BOOT       ; (9) loop back to top
+JMP WARM_BOOT       ; (9) loop back to top
 
-$03DB:      .BYTE $00, $00      ; trailing data
+.byte $00, $00      ; trailing data
 
 
 ; ============================================================================
 ; SECTION 4 -- State slots ($03DD-$03EF)
 ; ============================================================================
 
-$03DD:      .BYTE $20, $00, $E4, $00, $0A, $00, $CD          ; state values
-$03E4:      .BYTE $01, $01, $60                              ; state + RTS
-$03E7:      .BYTE $60, $00, $03, $00, $02, $00, $00, $00, $00
+.byte $20, $00, $E4, $00, $0A, $00, $CD          ; state values
+.byte $01, $01, $60                              ; state + RTS
+.byte $60, $00, $03, $00, $02, $00, $00, $00, $00
 
 
 ; ============================================================================
@@ -180,13 +182,21 @@ $03E7:      .BYTE $60, $00, $03, $00, $02, $00, $00, $00, $00
 ; ============================================================================
 
 JMP_TABLE:
-$03F0:      .WORD $03C0
-$03F2:      .WORD $03C0
-$03F4:      .BYTE $A6, $4C
-$03F6:      JMP WARM_BOOT
-$03F9:      JMP WARM_BOOT
-$03FC:      JMP WARM_BOOT
-$03FF:      .BYTE $03
+            ; Actual byte layout (corrected from earlier .byte/JMP misinterpretation):
+            ;   $03F0-$03F1: $C0 $03    -> .word $03C0
+            ;   $03F2-$03F3: $C0 $03    -> .word $03C0
+            ;   $03F4-$03F5: $A6 $4C    -> .byte $A6, $4C
+            ;   $03F6-$03F7: $C0 $03    -> .word $03C0
+            ;   $03F8-$03FA: $4C $C0 $03 -> JMP $03C0
+            ;   $03FB-$03FD: $4C $C0 $03 -> JMP $03C0
+            ;   $03FE-$03FF: $C0 $03    -> .word $03C0
+.word WARM_BOOT
+.word WARM_BOOT
+.byte $A6, $4C
+.word WARM_BOOT
+JMP WARM_BOOT
+JMP WARM_BOOT
+.word WARM_BOOT
 
 
 ; ============================================================================
