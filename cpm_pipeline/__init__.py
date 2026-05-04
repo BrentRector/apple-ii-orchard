@@ -28,6 +28,7 @@ from .disk_format import (
 from .assemble import assemble_chunk, AssemblyError
 from .chunk_map import CHUNKS_220, CHUNKS_223, ChunkSpec
 from .reconstruct import reconstruct_disk, ReconstructResult
+from .format_detect import detect as detect_disk, DiskFormat
 
 __all__ = [
     "DOS33_INTERLEAVE", "PRODOS_INTERLEAVE",
@@ -35,4 +36,5 @@ __all__ = [
     "assemble_chunk", "AssemblyError",
     "CHUNKS_220", "CHUNKS_223", "ChunkSpec",
     "reconstruct_disk", "ReconstructResult",
+    "detect_disk", "DiskFormat",
 ]

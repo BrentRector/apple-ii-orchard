@@ -1,15 +1,18 @@
 """CLI for cpm_pipeline.
 
+    python -m cpm_pipeline detect <disk.dsk>
+        Inspect a disk image; report format, boot stub structure, CP/M variant.
+
     python -m cpm_pipeline build {220|223} \\
         --reference REFERENCE.dsk \\
         --output OUTPUT.dsk \\
         [--verify] [--quiet]
 
-The variant determines the chunk map (CP/M 2.20 vs 2.23). The reference
-disk provides bytes for sectors not yet covered by an annotated source
-(see chunk_map.py for the current coverage). The output extension
-determines the disk format (.dsk vs .po; format conversion happens
-automatically if needed).
+The `build` variant determines the chunk map (CP/M 2.20 vs 2.23). The
+reference disk provides bytes for sectors not yet covered by an
+annotated source (see chunk_map.py for current coverage). The output
+extension determines the disk format (.dsk vs .po; format conversion
+happens automatically if needed).
 """
 
 import argparse
@@ -17,11 +20,33 @@ import sys
 from pathlib import Path
 
 from .reconstruct import reconstruct_disk
+from .format_detect import detect
+
+
+def cmd_detect(args):
+    info = detect(args.disk)
+    print(info.summary())
+    return 0
 
 
 def cmd_build(args):
+    variant = args.variant
+    if variant == "auto":
+        info = detect(args.reference)
+        if info.variant == "softcard_cpm_2_23":
+            variant = "223"
+        elif info.variant == "softcard_cpm_2_20":
+            variant = "220"
+        else:
+            print(f"error: could not auto-detect variant from {args.reference}; "
+                  f"got {info.variant!r}; pass --variant explicitly",
+                  file=sys.stderr)
+            return 2
+        if not args.quiet:
+            print(f"auto-detected variant: {variant} "
+                  f"(confidence: {info.variant_confidence})")
     result = reconstruct_disk(
-        variant=args.variant,
+        variant=variant,
         reference_path=args.reference,
         output_path=args.output,
         verify=args.verify,
@@ -53,9 +78,14 @@ def main(argv=None):
     )
     sub = p.add_subparsers(dest="command", required=True)
 
+    det = sub.add_parser("detect", help="Inspect a disk image and print structural info")
+    det.add_argument("disk", help="Path to a .dsk or .po image to inspect")
+
     build = sub.add_parser("build", help="Build a CP/M disk image")
-    build.add_argument("variant", choices=("220", "223"),
-                       help="CP/M variant (220 or 223)")
+    build.add_argument("variant", choices=("220", "223", "auto"),
+                       nargs="?", default="auto",
+                       help="CP/M variant (220 or 223, or 'auto' to detect "
+                            "from --reference; default: auto)")
     build.add_argument("--reference", required=True,
                        help="Reference disk image (provides bytes for "
                             "sectors not yet covered by annotated source)")
@@ -67,6 +97,8 @@ def main(argv=None):
                        help="Suppress progress output")
 
     args = p.parse_args(argv)
+    if args.command == "detect":
+        return cmd_detect(args)
     if args.command == "build":
         return cmd_build(args)
     p.print_help()

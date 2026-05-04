@@ -5,29 +5,42 @@ in [`docs/CPM_PIPELINE_ROADMAP.md`](../docs/CPM_PIPELINE_ROADMAP.md)
 incrementally. Phase 1 (this initial version) ships **Stage 7 — `.dsk`
 reconstruction**.
 
-## Phase 1 — what's working
+## What's working
 
-Take the eleven hand-annotated source files in `docs/`, assemble them
-fresh, place each assembled binary at its original physical-sector
-position on disk, and produce a `.dsk` (or `.po`) image that's
-byte-identical to the original.
+**Phase 1 — Stage 7: `.dsk` reconstruction.** Take the eleven hand-
+annotated source files in `docs/`, assemble them fresh, place each
+assembled binary at its original physical-sector position on disk, and
+produce a `.dsk` (or `.po`) image that's byte-identical to the original.
+
+**Phase 2 — Stage 1: disk-format detection.** Inspect a raw disk image,
+identify the boot stub (if any), extract the sector skew table the boot
+stub uses, classify the CP/M variant by signature.
 
 ```sh
 source ../tools/env.sh   # ca65 + ld65 + sjasmplus on PATH
 
-# Reconstruct CPMV233.DSK from docs/CPM223_*.asm
-python -m cpm_pipeline build 223 \
+# Inspect any disk and report what it looks like
+python -m cpm_pipeline detect ../CPMV233.DSK
+# → CPMV233.DSK: DSK format, 143360 bytes (35T x 16S x 256B)
+#     boot stub: count=1, loads 10 sectors of track 0
+#     skew table: 0 2 4 6 8 A C E 1 3 5 7 9 B D F
+#     variant: softcard_cpm_2_23 (confidence: high)
+
+# Build the disk; auto-detect variant from the reference
+python -m cpm_pipeline build \
     --reference ../CPMV233.DSK \
     --output ../build/cpm223_rebuilt.dsk \
     --verify
-# → "BYTE-IDENTICAL to ../CPMV233.DSK"
+# → auto-detected variant: 223 (confidence: high)
+# → wrote ../build/cpm223_rebuilt.dsk
+# → BYTE-IDENTICAL to ../CPMV233.DSK
 
-# Same for CP/M 2.20 (the .po-format disk)
+# Or pin the variant explicitly:
 python -m cpm_pipeline build 220 \
     --reference ../CPM220Disk1.po \
     --output ../build/cpm220_rebuilt.po \
     --verify
-# → "BYTE-IDENTICAL to ../CPM220Disk1.po"
+# → BYTE-IDENTICAL to ../CPM220Disk1.po
 ```
 
 What this means: editing a comment in `docs/CPM223_BIOS.asm` and rerunning
@@ -54,11 +67,12 @@ coverage.
 | File | Purpose |
 |---|---|
 | [`disk_format.py`](disk_format.py) | DOS 3.3 vs ProDOS interleave; sector → file offset math; .dsk/.po format detection |
+| [`format_detect.py`](format_detect.py) | Stage 1 — structural detection: boot-stub fingerprint, skew table extraction, CP/M variant identification |
 | [`assemble.py`](assemble.py) | Wraps ca65/ld65 (6502) and sjasmplus (Z-80) for `docs/CPM*.asm` files; returns byte content |
 | [`chunk_map.py`](chunk_map.py) | The `(source_binary, byte_range, track, sector)` mappings for 2.20 + 2.23 |
 | [`reconstruct.py`](reconstruct.py) | Orchestrator: assemble all → place per chunk map → write disk → optionally verify |
-| [`cli.py`](cli.py) | `python -m cpm_pipeline build {220\|223} --reference ... --output ... [--verify]` |
-| [`tests/`](tests/) | pytest: format primitives + end-to-end round-trip for both disks |
+| [`cli.py`](cli.py) | `python -m cpm_pipeline {detect\|build} ...` |
+| [`tests/`](tests/) | pytest: format primitives + detection + end-to-end round-trip for both disks |
 
 ## Roadmap status
 
@@ -66,13 +80,13 @@ Per the [seven-stage roadmap](../docs/CPM_PIPELINE_ROADMAP.md):
 
 | Stage | Description | Status |
 |---|---|---|
-| 1 | Disk-format detection | nibbler has the components; not yet a Stage 1 module here |
+| **1** | **Disk-format detection** | **Phase 2 — DONE: structural detection of boot stub, skew table, variant** |
 | 2 | Boot-loader tracing | manual today (chunk map hand-listed) |
-| 3 | Version delta detection | manual today |
+| 3 | Version delta detection | partial — variant ID covers 2.20 vs 2.23 |
 | 4 | Handoff identification | manual today |
 | 5 | Z-80 cold-boot tracing | manual today |
 | 6 | Annotated source generation | disasm6502 + disasm_z80 + symbols handle this per-chunk |
-| **7** | **`.dsk` reconstruction** | **Phase 1 (this) — DONE for 2.20 + 2.23** |
+| **7** | **`.dsk` reconstruction** | **Phase 1 — DONE for 2.20 + 2.23** |
 
 ## Architectural notes
 
