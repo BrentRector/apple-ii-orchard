@@ -1,12 +1,51 @@
 # Resume Prompt — Microsoft SoftCard CP/M Investigation
 
-**Last updated:** 2026-05-02 — **INVESTIGATION CLOSED.**
+**Last updated:** 2026-05-04 — **INVESTIGATION CLOSED + SUCCESSOR TOOLSET SHIPPED.**
 
-12 articles + 39 devlogs. Final article: `cpm-videx-12-the-investigation-closes.mdx` (pubDate 2026-05-02). Central question settled byte-for-byte and emulator-confirmed: **2.20 hangs because device-code 4 (Pascal 1.0 generic) routes the Videx-via-CONOUT through `$DFBE`, which has pure `$E5` PUSH-HL fill on disk; the cold-boot generator doesn't populate it with real handler code, so the first CONOUT call executes `PUSH HL` repeatedly, the Z-80 SP wraps past `$0000`, high memory corrupts. 2.23 fixes this by detecting the Videx as device 6 (Pascal 1.1) via the 11-byte `$Cn0B` check, routing through `$FDB0` instead — which contains a one-byte `RET` stub on disk.** Reproduced byte-for-byte in a from-scratch 6502+Z-80+SoftCard emulator (Stage 3, 2026-05-01).
+14 cpm-related articles + 43 devlogs. Investigation closure article: `cpm-videx-12-the-investigation-closes.mdx` (pubDate 2026-05-02). Central question settled byte-for-byte and emulator-confirmed: **2.20 hangs because device-code 4 (Pascal 1.0 generic) routes the Videx-via-CONOUT through `$DFBE`, which has pure `$E5` PUSH-HL fill on disk; the cold-boot generator doesn't populate it with real handler code, so the first CONOUT call executes `PUSH HL` repeatedly, the Z-80 SP wraps past `$0000`, high memory corrupts. 2.23 fixes this by detecting the Videx as device 6 (Pascal 1.1) via the 11-byte `$Cn0B` check, routing through `$FDB0` instead — which contains a one-byte `RET` stub on disk.** Reproduced byte-for-byte in a from-scratch 6502+Z-80+SoftCard emulator (Stage 3, 2026-05-01).
 
-A successor project `cpm-from-source` (also `featured: true` on wiseowl.com) emerged: annotated 6502 + Z-80 source listings that round-trip into a byte-identical CP/M 2.23 .DSK image.
+The `cpm-from-source` successor vision is **realized** as the `cpm_pipeline` package — seven-stage build that takes any CP/M 2.20/2.23 `.dsk` and produces verified-byte-identical reconstruction from annotated source. Every byte-level finding from the cpm-videx investigation now falls out of `python -m cpm_pipeline diff` in 200 ms.
 
 This file is the canonical session-recovery prompt. **If this conversation crashes or context is lost, hand this file to a fresh assistant and it should be able to pick up where things stand without losing any directives, conventions, or progress.**
+
+---
+
+## What's New since 2026-05-02 (closure → toolset shipping)
+
+The investigation closed on 2026-05-02 with the "future tool" vision in `docs/CPM_PIPELINE_ROADMAP.md`. Between 2026-05-03 and 2026-05-04 that vision became reality:
+
+**Disassembler infrastructure (2026-05-03):**
+
+- New top-level packages `disasm6502/`, `disasm_z80/`, `disasm_common/` at the repo root. Production-quality, ca65/sjasmplus output, recursive-descent walker + JSON symbol-table input + a second-pass data analyzer (strings, fills, jump tables, pointer tables). Both packages round-trip byte-identical against real CP/M binaries.
+- `nibbler/disasm.py` and `nibbler/z80.py` **deleted** as dead middle layer; nibbler is back to being a pure WOZ-disk-analysis toolkit. Apple-panic Walkthrough migrated to reference `disasm6502`.
+- All 11 hand-annotated `docs/CPM*.asm` files **now reassemble byte-identical** via ca65/ld65 (6502) or sjasmplus (Z-80). Six pytest regression tests in `cpm-investigation/tests/test_annotated_docs.py` enforce the round-trip property going forward. The bring-up surfaced **9 real bugs** in pre-existing prose annotations (duplicate banner header, 459-byte "GAP" not emitted, JMP_TABLE misinterpretation, off-by-one labels, etc.) — see the round-trip-discipline article and devlog for the catalog.
+
+**`cpm_pipeline` package (2026-05-04):**
+
+Seven-stage Python package implementing the roadmap end-to-end:
+
+| Stage | CLI verb | What it does |
+|---|---|---|
+| 1 | `detect` | Boot-stub + skew table + variant ID via 16-byte SoftCard signature + 12-byte Pascal-1.1 signature |
+| 2 | `trace` | Pattern-match install-copy loops + disk-helper calls in stage-2 |
+| 5 | `trace-z80` | Parse BIOS jump table + trap-marker pages + cold-boot generator + dispatch cases |
+| 4 | `handoff` | Find Z-80 reset vector plant + BDOS entry plant + CPU-switch trigger |
+| 3 | `diff` | Compare two disks at the routine level — Videx fix surfaces as `cases_only_in_b: [6]` |
+| 7 | `build` | Assemble all `docs/CPM*.asm` and place per chunk map → `.dsk`/`.po` byte-identical |
+| 6 | `generate` | End-to-end orchestration: produce a complete annotated source tree with build script |
+
+95 tests pass (was 50 at investigation closure). Both target disks (CPMV233.DSK + CPM220Disk1.po) reconstruct byte-identical from a single CLI invocation; Phase 7's auto-generated build.sh closes the loop.
+
+**New documentation:**
+
+- `docs/CPM_BootTrace.md` (556 lines) — synthesis sector-0-to-A-prompt across both 2.20 and 2.23
+- `docs/CPM_PIPELINE_ROADMAP.md` (431 lines) — the seven-stage build plan that drove the work
+- `cpm_pipeline/README.md` — package overview with all current CLI verbs
+
+**New writeups (wiseowl.com):**
+
+- Articles: `round-trip-discipline-disassembler-bug-detector` (2026-05-03), `cpm-pipeline-seven-stages` (2026-05-04)
+- Devlogs (4 new): `cpm-videx-fb45-code-overlap-2026-05-03`, `cpm-videx-roundtrip-bug-detector-2026-05-03`, `cpm-videx-pipeline-mechanically-reproduces-investigation-2026-05-04`, `cpm-videx-pipeline-chunk-map-off-by-one-2026-05-04`
 
 ---
 
@@ -106,7 +145,9 @@ The site at `e:/Sites/wiseowl.com/` is Astro v6, deployed to Cloudflare Pages.
 - `cpm-videx.mdx` — "Microsoft SoftCard CP/M on a Videx", `featured: true, weight: 5`. **The project entry's "What's settled / open" section is stale** — written before Parts 5-12 + the emulator + cpm-from-source. May need refresh to reflect the closed state and link the successor project.
 - `cpm-from-source.mdx` — **NEW project** (started 2026-04-29), `featured: true, weight: 6`. Annotated 6502 + Z-80 sources for both versions, plus a build tool that round-trips a byte-identical .DSK from chunks. Successor to cpm-videx.
 
-### Articles (`src/content/articles/cpm-videx-NN-*.mdx`) — all 12 published
+### Articles — 14 cpm-related published total
+
+The 12-part `cpm-videx-NN-*.mdx` series + 2 standalone methodology/tooling articles:
 
 | # | Slug | Title | pubDate |
 |---|------|-------|---------|
@@ -122,10 +163,18 @@ The site at `e:/Sites/wiseowl.com/` is Astro v6, deployed to Cloudflare Pages.
 | 10 | `cpm-videx-10-the-cpu-switch` | The CPU Switch (`JSR $0E36` trigger; original series close) | |
 | 11 | `cpm-videx-11-emulator-verified` | Verifying It in the Emulator (Stages 1+2) | 2026-05-01 |
 | 12 | `cpm-videx-12-the-investigation-closes` | The Investigation Closes (final reading guide) | 2026-05-02 |
+| — | `round-trip-discipline-disassembler-bug-detector` | Round-trip discipline: when a disassembler becomes a bug detector | 2026-05-03 |
+| — | `cpm-pipeline-seven-stages` | Seven stages, ninety-five tests: building a CP/M reverse-engineering pipeline | 2026-05-04 |
 
-### Dev logs (`src/content/devlogs/cpm-videx-*.mdx`) — 39 published
+### Dev logs (`src/content/devlogs/cpm-videx-*.mdx`) — 43 published
 
-Recent emulator-era entries (most relevant for follow-up work):
+Most recent toolset-era entries (post-investigation closure, 2026-05-03 → 2026-05-04):
+- `cpm-videx-pipeline-mechanically-reproduces-investigation-2026-05-04` — every cpm-videx finding now falls out of one CLI invocation
+- `cpm-videx-pipeline-chunk-map-off-by-one-2026-05-04` — debugging story: the Apple `$0900` P6 PROM workspace gap
+- `cpm-videx-fb45-code-overlap-2026-05-03` — Z-80 idiom: byte at `$FB45` is both JR displacement AND alternate entry
+- `cpm-videx-roundtrip-bug-detector-2026-05-03` — 9 real bugs in pre-existing prose annotations surfaced mechanically
+
+Earlier emulator-era entries (still the most-cited for follow-up work):
 - `cpm-videx-emulator-stage1-2026-04-29` — 6502 boot harness boots both versions
 - `cpm-videx-emulator-stage2-2026-04-29` — Z-80 emulator + SoftCard XOR + CPU-switch model
 - `cpm-videx-emulator-stage3-detection-2026-04-30` — Videx slot-3 model + IX/IY opcodes
@@ -141,7 +190,7 @@ Recent emulator-era entries (most relevant for follow-up work):
 - `cpm-videx-fdb0-stub-2026-04-28` — `$FDB0` is a single `RET`
 - `cpm-videx-device-scan-identical-2026-04-28` — device-scan structurally identical 2.20 vs 2.23
 
-(See `ls e:/Sites/wiseowl.com/src/content/devlogs/cpm-videx-*` for the full chronological list of all 39.)
+(See `ls e:/Sites/wiseowl.com/src/content/devlogs/cpm-videx-*` for the full chronological list of all 43.)
 
 ### Reference (`src/content/reference/`)
 
@@ -182,27 +231,69 @@ Recent emulator-era entries (most relevant for follow-up work):
 
 ```
 cpm-investigation/        — extraction scripts, intermediate binaries, disassemblies,
-                            emulator (added 2026-04-29), build harness for cpm-from-source
+                            emulator (2026-04-29), original build harness, regression
+                            tests for the annotated docs (test_annotated_docs.py)
+
+cpm_pipeline/             — NEW (2026-05-04): seven-stage CP/M reverse-engineering
+                            pipeline. CLI: detect, trace, trace-z80, handoff, diff,
+                            generate, build. 32 tests; both target disks reconstruct
+                            byte-identical.
+  disk_format.py            — DOS 3.3 / ProDOS interleave + sector-offset math
+  format_detect.py          — Stage 1: boot-stub fingerprint + skew + variant ID
+  loader_trace.py           — Stage 2: install-copy + disk-helper-call detection
+  cold_boot_trace.py        — Stage 5: BIOS jump table + cold-boot generator + dispatch
+  handoff.py                — Stage 4: vector plants + CPU-switch trigger
+  version_delta.py          — Stage 3: routine-level diff between two disks
+  reconstruct.py            — Stage 7: assemble all annotated source → byte-identical .dsk
+  generate.py               — Stage 6: end-to-end orchestration into a complete tree
+  chunk_map.py              — hand-maintained sector→bin slice mappings (per variant)
+  assemble.py               — wraps ca65/ld65 (6502) and sjasmplus (Z-80)
+
+disasm6502/               — NEW (2026-05-03): production 6502 disassembler. ca65/ld65
+                            output, byte-identical round-trip. opcodes (256+50 undoc),
+                            symbols (JSON loader), walker (recursive descent),
+                            formatter, CLI, tests.
+
+disasm_z80/               — NEW (2026-05-03): production Z-80 disassembler. Full prefix
+                            coverage (base / CB / ED / DD / FD / DDCB / FDCB = 1280
+                            positions). sjasmplus output, byte-identical round-trip.
+                            Same module layout as disasm6502.
+
+disasm_common/            — NEW (2026-05-03): shared infrastructure. analyzer.py is
+                            the data-classification pass that turns non-code byte runs
+                            into strings, fills, jump tables, pointer tables, or
+                            generic byte runs. Used by both disasm packages.
+
+symbols/                  — NEW (2026-05-03): JSON symbol-table inputs for the
+                            disassemblers. apple2.json (Monitor ROM, soft switches,
+                            Disk II), cpm_2_2.json (BDOS function numbers, zero page,
+                            jump table conventions), cpm_2_23_bios.json (2.23-specific
+                            BIOS labels). Schema v1.0 documented in symbols/README.md.
+
+tools/                    — Local toolchain: ca65 V2.19 + sjasmplus v1.23.0
+                            (gitignored binaries; install via tools/README.md).
+                            Source tools/env.sh to put assemblers on PATH.
 
 docs/
   CPM_Videx_Difference.md           — slot scanner side-by-side diff
   CPM_BootLoader.md                 — narrative architecture of the 6502 loader
+  CPM_BootTrace.md                  — NEW (2026-05-03): synthesis sector-0 to A> prompt
+  CPM_PIPELINE_ROADMAP.md           — NEW (2026-05-03): seven-stage build plan
   CPM_DiskSectorMap.md              — 560-row map of every physical sector
   CPM_Filesystem.md                 — CP/M filesystem area (tracks 3-34) overview
-  CPM223_BootLoader.asm             — annotated 6502 disasm, 2.23
-  CPM223_RWTS.asm                   — annotated 6502 RWTS at $0A00-$0FFF (43 KB)
-  CPM223_BIOS.asm                   — annotated Z-80 BIOS at $FA00-$FFFF
-  CPM223_DiskCallbacks.asm          — annotated Z-80 disk callbacks at $1A00-$1BFF
-  CPM223_SystemImage.asm            — annotated Z-80 CCP+BDOS at $A300-$B9FF
-  CPM223_InstallFragments.asm       — Z-80 fragments installed by stage-2 loader
-  CPM220_*.asm                      — same set for 2.20 (BootLoader, BIOS, RWTS, SystemImage, InstallFragments)
+  CPM223_BootLoader.asm             — annotated 6502 disasm, 2.23 (round-trips byte-identical)
+  CPM223_RWTS.asm                   — annotated 6502 RWTS at $0A00-$0FFF (round-trips)
+  CPM223_BIOS.asm                   — annotated Z-80 BIOS at $FA00-$FFFF (round-trips)
+  CPM223_DiskCallbacks.asm          — annotated Z-80 callbacks at $1A00-$1BFF (round-trips)
+  CPM223_SystemImage.asm            — annotated Z-80 CCP+BDOS at $A300-$B9FF (round-trips)
+  CPM223_InstallFragments.asm       — Z-80 fragments installed by stage-2 (round-trips)
+  CPM220_*.asm                      — same set for 2.20, all round-tripping byte-identical
   DiskII_BootROM.md / .asm          — Apple Disk II P6 PROM (pre-existing)
 
-nibbler/                  — Apple ][ disk analysis toolkit
-  z80.py                    — Z-80 disassembler (256 unprefixed; CB/DD/ED/FD now also covered)
-  z80_cpu.py                — Z-80 emulator (added; covers DD/FD per recent commit)
-  cli.py                    — `disasm` (6502) + `z80disasm` subcommands; both support `--format asm`
-                              for directly-compilable output
+nibbler/                  — Apple ][ WOZ-disk-analysis toolkit (DISASMS REMOVED 2026-05-03)
+  z80_cpu.py                — Z-80 emulator (used by cpm-investigation/emu_softcard_full.py)
+  cli.py                    — info / scan / protect / nibbles / boot / decode / dsk / flux
+                              (no longer has disasm or z80disasm subcommands)
 
 CPMV233.DSK               — CP/M 2.23 disk image (DOS 3.3 sector order — V233 is a misnomer for 2.23)
 CPM220Disk1.po            — CP/M 2.20 distribution disk 1 (ProDOS sector order)
@@ -210,6 +301,8 @@ CPM220Disk2.po            — CP/M 2.20 distribution disk 2
 
 resume-prompt.md          — THIS FILE
 ```
+
+**Test count:** 95 total across all packages (cpm_pipeline 32, cpm-investigation/tests 6 annotation regressions, disasm6502 11, disasm_z80 21, disasm_common 15, plus 10 elsewhere).
 
 ---
 
@@ -229,9 +322,13 @@ resume-prompt.md          — THIS FILE
 
 ## What's Done / What Could Still Be Done
 
-The cpm-videx investigation itself is **closed** — the central question is settled and emulator-verified, the article series has a closing reading guide (Part 12), all major boot-pipeline mechanisms are documented.
+The cpm-videx investigation itself is **closed** — central question settled, emulator-verified, article series has a closing reading guide (Part 12), all major boot-pipeline mechanisms documented.
 
-Two architectural mechanisms remain unmodeled but bounded (worth noting if anyone resumes):
+The `cpm_pipeline` toolset is **shipped** — seven stages, 95 tests, both target disks reconstruct byte-identical from a single CLI invocation. The `cpm-from-source` successor vision is realized.
+
+### Architectural mechanisms still unmodeled (bounded, not blocking)
+
+Two mechanisms documented in Part 12 remain unmodeled. Both affect *how* the BIOS gets fully populated, not *whether* the central detection-and-dispatch delta works.
 
 1. **`$03B8` → `$F3B8` slot-info copy.** The 6502-side device-code table at `$03B9-$03BF` somehow ends up readable by the Z-80 BIOS at `$F3A0`+ in its device-scan loop. The copy step itself isn't traced. Likely happens via the runtime-population step or an early Z-80 BIOS routine.
 
@@ -239,7 +336,21 @@ Two architectural mechanisms remain unmodeled but bounded (worth noting if anyon
 
 Both fit a future "bidirectional CPU switch + LC RAM bank" emulator pass that fully models the SoftCard's switching protocol and the language card's bank semantics. Not blocking anything currently.
 
-The successor project, `cpm-from-source`, takes a different angle: instead of further investigating the runtime mechanisms, it captures everything-as-source. It produces annotated 6502 + Z-80 listings that compile with a build tool to a byte-identical .DSK image. That's where ongoing work lives.
+### Pipeline follow-on enhancements (each independent, none blocking)
+
+Per `docs/CPM_PIPELINE_ROADMAP.md`'s open-questions inventory and the `cpm-pipeline-seven-stages` article's "what stayed manual" section:
+
+1. **Auto-generated annotated source.** Stage 7 currently copies pre-existing `docs/CPM*.asm` files. A future enhancement would have it invoke `disasm6502`/`disasm_z80` directly, using the structural analysis from prior stages to seed entry points and data regions. Output would be byte-identical for known regions and fall back to less-prose-heavy disassembler output for newly-explored regions.
+
+2. **Auto-derived chunk map.** `chunk_map.py` is hand-maintained. Stage 2's `LoadSchedule` has the structural information needed (the install copies tell you where bytes get moved during boot); the auto-derivation isn't wired up.
+
+3. **Symbolic execution.** Pattern-matching handles SoftCard CP/M's particular shapes. A boot loader using indirect control flow patterns (e.g. `JMP (zero_page_pointer)` with the pointer set elsewhere) would need symbolic execution. SoftCard variants don't need it; other systems might.
+
+4. **Non-SoftCard CP/M variants.** Apple's own CP/M card, IBM-PC CP/M-86, CP/M Plus. Different boot architectures. The pipeline's signature constants are SoftCard-specific; new variants need new signatures (per-variant inspection effort) and possibly new pattern-matchers.
+
+5. **WOZ input.** The pipeline accepts `.dsk` and `.po`. nibbler handles the GCR decode for WOZ; integrating it as a Stage 0 would let `detect` start from raw flux directly (useful for copy-protected disks).
+
+None block the headline result.
 
 ---
 
