@@ -34,6 +34,13 @@ $1000` after `LDA #$C3`, with auto-detection of the planted target),
 the BDOS entry vector plant (done by the Z-80 BIOS), and the
 CPU-switch trigger (`JSR $0E36` in 2.23, `JSR $C400` in 2.20).
 
+**Phase 6 — Stage 3: version delta detection.** Compare two CP/M disks
+at the routine level. Variant difference, boot-stub byte diff (split
+into code-region vs data-region), reset/BDOS/CPU-switch target
+deltas, dispatch case deltas (which device codes only appear in one).
+Mechanically reproduces what `docs/CPM_Videx_Difference.md`
+documents manually.
+
 ```sh
 source ../tools/env.sh   # ca65 + ld65 + sjasmplus on PATH
 
@@ -121,10 +128,11 @@ coverage.
 | [`loader_trace.py`](loader_trace.py) | Stage 2 — boot-loader tracing: install-copy loops + disk-helper call detection; outputs a `LoadSchedule` |
 | [`cold_boot_trace.py`](cold_boot_trace.py) | Stage 5 — Z-80 cold-boot tracing: BIOS jump table + trap-marker pages + cold-boot generator + dispatch cases; outputs a `ColdBootSchedule` |
 | [`handoff.py`](handoff.py) | Stage 4 — handoff identification: Z-80 reset vector plant, BDOS entry vector plant, CPU-switch trigger; outputs a `HandoffInfo` |
+| [`version_delta.py`](version_delta.py) | Stage 3 — version delta detection: routine-level diff between two CP/M disks; outputs a `DiskDelta` |
 | [`assemble.py`](assemble.py) | Wraps ca65/ld65 (6502) and sjasmplus (Z-80) for `docs/CPM*.asm` files; returns byte content |
 | [`chunk_map.py`](chunk_map.py) | The `(source_binary, byte_range, track, sector)` mappings for 2.20 + 2.23 |
 | [`reconstruct.py`](reconstruct.py) | Orchestrator: assemble all → place per chunk map → write disk → optionally verify |
-| [`cli.py`](cli.py) | `python -m cpm_pipeline {detect\|trace\|trace-z80\|handoff\|build} ...` |
+| [`cli.py`](cli.py) | `python -m cpm_pipeline {detect\|trace\|trace-z80\|handoff\|diff\|build} ...` |
 | [`tests/`](tests/) | pytest: format primitives + detection + tracing + end-to-end round-trip |
 
 ## Roadmap status
@@ -135,7 +143,7 @@ Per the [seven-stage roadmap](../docs/CPM_PIPELINE_ROADMAP.md):
 |---|---|---|
 | **1** | **Disk-format detection** | **Phase 2 — DONE: structural detection of boot stub, skew table, variant** |
 | **2** | **Boot-loader tracing** | **Phase 3 — DONE: install-copy loops + disk-helper calls auto-detected** |
-| 3 | Version delta detection | partial — variant ID + dispatch-case diff (Phase 4 surfaces 2.20-vs-2.23 device-6 case absence) |
+| **3** | **Version delta detection** | **Phase 6 — DONE: structured diff covering variant + boot-stub bytes + reset/BDOS/CPU-switch + dispatch cases** |
 | **4** | **Handoff identification** | **Phase 5 — DONE: Z-80 reset vector + BDOS entry + CPU-switch trigger auto-detected for both 2.20 and 2.23** |
 | **5** | **Z-80 cold-boot tracing** | **Phase 4 — DONE: jump table + trap markers + cold-boot generator + dispatch cases** |
 | 6 | Annotated source generation | disasm6502 + disasm_z80 + symbols handle this per-chunk |

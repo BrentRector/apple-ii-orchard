@@ -39,6 +39,7 @@ from .cold_boot_trace import (
 from .handoff import (
     find_handoff, HandoffInfo, VectorPlant, CpuSwitchTrigger,
 )
+from .version_delta import compare_disks, DiskDelta
 
 __all__ = [
     "DOS33_INTERLEAVE", "PRODOS_INTERLEAVE",
@@ -51,4 +52,5 @@ __all__ = [
     "trace_cold_boot", "ColdBootSchedule",
     "BiosJumpEntry", "TrapMarkerPage", "DispatchCase",
     "find_handoff", "HandoffInfo", "VectorPlant", "CpuSwitchTrigger",
+    "compare_disks", "DiskDelta",
 ]
