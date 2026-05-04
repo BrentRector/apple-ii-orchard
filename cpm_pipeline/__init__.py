@@ -32,6 +32,10 @@ from .format_detect import detect as detect_disk, DiskFormat
 from .loader_trace import (
     trace_loader, LoadSchedule, InstallCopy, LoadCpmCall,
 )
+from .cold_boot_trace import (
+    trace_cold_boot, ColdBootSchedule,
+    BiosJumpEntry, TrapMarkerPage, DispatchCase,
+)
 
 __all__ = [
     "DOS33_INTERLEAVE", "PRODOS_INTERLEAVE",
@@ -41,4 +45,6 @@ __all__ = [
     "reconstruct_disk", "ReconstructResult",
     "detect_disk", "DiskFormat",
     "trace_loader", "LoadSchedule", "InstallCopy", "LoadCpmCall",
+    "trace_cold_boot", "ColdBootSchedule",
+    "BiosJumpEntry", "TrapMarkerPage", "DispatchCase",
 ]

@@ -21,6 +21,13 @@ install-copy loops (`LDA src,Y / STA dst,Y / DEY / BNE`) and disk-helper
 calls (`JSR $BB__` for 2.23, `JSR $0E__/$0F__` for 2.20), output a
 structured `LoadSchedule`.
 
+**Phase 4 — Stage 5: Z-80 cold-boot tracing.** Take a Z-80 BIOS binary
+and structurally identify the 17-entry jump table, the trap-marker
+pages (runtime-populated), the cold-boot generator routine, and its
+per-device dispatch cases. The Videx-fix discriminator surfaces
+mechanically: 2.23 has dispatch cases for devices 3, 4, **6**; 2.20
+lacks the device-6 case.
+
 ```sh
 source ../tools/env.sh   # ca65 + ld65 + sjasmplus on PATH
 
@@ -46,6 +53,24 @@ python -m cpm_pipeline build 220 \
     --output ../build/cpm220_rebuilt.po \
     --verify
 # → BYTE-IDENTICAL to ../CPM220Disk1.po
+
+# Trace the Z-80 BIOS -- jump table, trap markers, cold-boot generator
+python -m cpm_pipeline trace-z80 ../cpm-investigation/bios_223.bin
+# → ColdBootSchedule for bios_223.bin
+#     BIOS org: $FAB8, size: 1352 bytes
+#     jump table: 17 entries  (BOOT -> $FED1, WBOOT -> $FAB8, ...)
+#     trap-marker pages: 6
+#     cold-boot generator at $FB3D
+#     dispatch cases: 3
+#       device 3 -> CALL $FE81   (INIT_KEYBOARD)
+#       device 4 -> CALL $FD83   (INIT_PASCAL_1_0)
+#       device 6 -> CALL $FDB0   (INIT_PASCAL_1_1, the 2.23 Videx fix)
+
+# Same for 2.20 -- only 2 dispatch cases (no device 6)
+python -m cpm_pipeline trace-z80 ../cpm-investigation/bios_220.bin
+# → dispatch cases: 2
+#     device 3 -> CALL $DD60
+#     device 4 -> CALL $DCEE
 
 # Trace the boot loader -- install-copy loops and disk-helper calls
 python -m cpm_pipeline trace ../CPMV233.DSK
@@ -88,10 +113,11 @@ coverage.
 | [`disk_format.py`](disk_format.py) | DOS 3.3 vs ProDOS interleave; sector → file offset math; .dsk/.po format detection |
 | [`format_detect.py`](format_detect.py) | Stage 1 — structural detection: boot-stub fingerprint, skew table extraction, CP/M variant identification |
 | [`loader_trace.py`](loader_trace.py) | Stage 2 — boot-loader tracing: install-copy loops + disk-helper call detection; outputs a `LoadSchedule` |
+| [`cold_boot_trace.py`](cold_boot_trace.py) | Stage 5 — Z-80 cold-boot tracing: BIOS jump table + trap-marker pages + cold-boot generator + dispatch cases; outputs a `ColdBootSchedule` |
 | [`assemble.py`](assemble.py) | Wraps ca65/ld65 (6502) and sjasmplus (Z-80) for `docs/CPM*.asm` files; returns byte content |
 | [`chunk_map.py`](chunk_map.py) | The `(source_binary, byte_range, track, sector)` mappings for 2.20 + 2.23 |
 | [`reconstruct.py`](reconstruct.py) | Orchestrator: assemble all → place per chunk map → write disk → optionally verify |
-| [`cli.py`](cli.py) | `python -m cpm_pipeline {detect\|trace\|build} ...` |
+| [`cli.py`](cli.py) | `python -m cpm_pipeline {detect\|trace\|trace-z80\|build} ...` |
 | [`tests/`](tests/) | pytest: format primitives + detection + tracing + end-to-end round-trip |
 
 ## Roadmap status
@@ -102,9 +128,9 @@ Per the [seven-stage roadmap](../docs/CPM_PIPELINE_ROADMAP.md):
 |---|---|---|
 | **1** | **Disk-format detection** | **Phase 2 — DONE: structural detection of boot stub, skew table, variant** |
 | **2** | **Boot-loader tracing** | **Phase 3 — DONE: install-copy loops + disk-helper calls auto-detected** |
-| 3 | Version delta detection | partial — variant ID covers 2.20 vs 2.23 |
+| 3 | Version delta detection | partial — variant ID + dispatch-case diff (Phase 4 surfaces 2.20-vs-2.23 device-6 case absence) |
 | 4 | Handoff identification | manual today |
-| 5 | Z-80 cold-boot tracing | manual today |
+| **5** | **Z-80 cold-boot tracing** | **Phase 4 — DONE: jump table + trap markers + cold-boot generator + dispatch cases** |
 | 6 | Annotated source generation | disasm6502 + disasm_z80 + symbols handle this per-chunk |
 | **7** | **`.dsk` reconstruction** | **Phase 1 — DONE for 2.20 + 2.23** |
 

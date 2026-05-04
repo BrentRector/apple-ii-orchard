@@ -22,6 +22,7 @@ from pathlib import Path
 from .reconstruct import reconstruct_disk
 from .format_detect import detect
 from .loader_trace import trace_loader
+from .cold_boot_trace import trace_cold_boot
 
 
 def cmd_detect(args):
@@ -32,6 +33,12 @@ def cmd_detect(args):
 
 def cmd_trace(args):
     sched = trace_loader(args.disk)
+    print(sched.summary())
+    return 0
+
+
+def cmd_trace_z80(args):
+    sched = trace_cold_boot(args.bios, bios_org=args.org)
     print(sched.summary())
     return 0
 
@@ -91,6 +98,14 @@ def main(argv=None):
     tr = sub.add_parser("trace", help="Trace the boot loader: install copies, LOAD_CPM, etc.")
     tr.add_argument("disk", help="Path to a .dsk or .po image to trace")
 
+    tz = sub.add_parser("trace-z80",
+                        help="Trace the Z-80 BIOS: jump table, trap-marker pages, "
+                             "cold-boot generator + dispatch cases")
+    tz.add_argument("bios", help="Path to a Z-80 BIOS binary "
+                                  "(e.g., cpm-investigation/bios_223.bin)")
+    tz.add_argument("--org", type=lambda s: int(s.lstrip('$'), 16), default=None,
+                    help="BIOS load address (auto-detected from first JP target if omitted)")
+
     build = sub.add_parser("build", help="Build a CP/M disk image")
     build.add_argument("variant", choices=("220", "223", "auto"),
                        nargs="?", default="auto",
@@ -111,6 +126,8 @@ def main(argv=None):
         return cmd_detect(args)
     if args.command == "trace":
         return cmd_trace(args)
+    if args.command == "trace-z80":
+        return cmd_trace_z80(args)
     if args.command == "build":
         return cmd_build(args)
     p.print_help()
