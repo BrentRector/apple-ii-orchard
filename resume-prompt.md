@@ -39,12 +39,22 @@
 > fsec 13..8 → $FA00..$FF00; 2.20: fsec 1..5 → $DA00..$DE00, $DF00
 > assembled); cold boot = sparse fixup (~185 bytes, last two pages);
 > "half-exists"/generator-pages framing was an extraction artifact.
-> STILL OPEN: (1) Joshua's email symptom check (Gmail MCP needs /mcp
-> auth; user recalls "it hung"); (2) re-base CPM22x_BIOS.asm ORGs to
-> $FA00/$DA00 (mechanical; round-trip tests protect); (3)
-> cold_boot_trace.py org fix + CPM_BootTrace.md sweep; (4) disk filler
-> regions' true role via chunk map; (5) 2.20 no-videx model gap
-> (monitor HOME stubs); (6) hardware-level other-slot release
+> DONE (continuation #3): BIOS .asm re-base COMPLETE (ORGs $FA00/$DA00;
+> 2.20: 51 relative literals shifted; 2.23: absolute label operands
+> re-pointed/literalized, labels renamed to true addresses, 4 semantic
+> labels neutralized pending re-attachment); cold_boot_trace.py +
+> chunk_map + handoff + tests + README corrected; all 95 tests pass,
+> both disks reconstruct byte-identical. Provenance devlog published
+> (site builds, 111 pages). STILL OPEN: (1) Joshua's email symptom
+> check (Gmail MCP needs /mcp auth; user recalls "it hung"); (2) DEPLOY
+> the site (wrangler needs interactive auth: `npm run deploy`); (3)
+> CPM223_DiskCallbacks.asm re-framing (it duplicates BIOS pages 0-1
+> from the track-0 copy; "$1A00 dual-mapped" framing dead); (4) inline
+> section-comment sweeps inside both BIOS .asm files (headers warn);
+> (5) CPM_BootTrace.md + CPM_DiskSectorMap.md sweep; (6) re-attach the
+> 4 neutralized semantic labels at true positions; (7) disk filler
+> regions' true role via chunk map; (8) 2.20 no-videx model gap
+> (monitor HOME stubs); (9) hardware-level other-slot release
 > confirmation (schematic). Original deliverables below remain done as
 > BYTE-LEVEL facts; the failure-mechanism narrative is superseded.
 
