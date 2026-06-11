@@ -1,27 +1,38 @@
 # Resume Prompt — Microsoft SoftCard CP/M Investigation
 
-**Last updated:** 2026-06-11 — **REOPENED: real SoftCard address map found; both "unmodeled mechanisms" dissolved; major doc-correction cascade pending.**
+**Last updated:** 2026-06-11 (late) — **PUBLISHED HANG MECHANISM OVERTURNED. The real 2.20 failure is $C800 expansion-ROM window ownership destroyed by the SoftCard's own CPU-switch access. Doc-correction cascade now includes de-confirming the series' central conclusion. PENDING USER REVIEW before article updates.**
 
 > **READ FIRST on resume:** `docs/CPM_SoftCard_RealMap_Findings.md` —
-> the 2026-06-11 session's working notes. Summary: the SoftCard's real
-> Z-80→Apple translation (Z-80 $F000-$FFFF = Apple $0000-$0FFF; Z-80
-> $B000-$DFFF = Apple $D000-$FFFF; Z-80 $E000-$EFFF = Apple I/O) replaces
-> the bit-12-XOR model. Consequences: (1) slot-info "$03B8→$F3B8 copy"
-> and (2) "BIOS load to $FAB8" never existed — both are address-window
-> views; (3) BIOS true base is $FA00 (2.23) / $DA00 (2.20) — all BIOS
-> address comments are off by $B8/$CC; (4) CPU switch = $C700 access
-> (slot 7 I/O), both directions, not a $0E36 fetch; (5) cooperative RPC
-> protocol fully decoded ($45-$48 register slots + Z-80-patched JSR
-> operand at $03D0 + Pascal 1.1 client services at $0DD0-$0E35);
-> (6) Z-80 reads the keyboard directly ($E000/$E010 = $C000/$C010).
-> New: `cpm-investigation/emu_softcard_v2.py` (bidirectional switching)
-> boots 2.23 from disk bytes to the authentic "Softcard CP/M / 44K Ver.
-> 2.23" banner + A> prompt on emulated Videx (real firmware). IN
-> PROGRESS: runtime disk reads wedge in RWTS seek (directory login);
-> 2.20 hang re-verification under corrected map; then the doc/devlog/
-> article correction cascade. Original deliverables below remain done;
-> several address-level claims in them are now known wrong — see the
-> findings doc's "Consequences" for the inventory.
+> both 2026-06-11 sessions' findings, in order. Short version:
+> (A) The real SoftCard Z-80→Apple translation (Z-80 $F000-$FFFF =
+> Apple $0000-$0FFF; $B000-$DFFF = $D000-$FFFF; $E000-$EFFF = Apple
+> I/O) replaced the bit-12-XOR model; both Part-12 "unmodeled
+> mechanisms" dissolved (they were address-window views, not copies);
+> BIOS true bases $FA00 (2.23) / $DA00 (2.20); CPU switch = $C700
+> access, both directions.
+> (B) `emu_softcard_v2.py` now boots BOTH versions from disk bytes to
+> fully interactive systems (typed DIR → full directory listing through
+> real Videx firmware): $BE11 sector-level disk service + monitor
+> SAVE/RESTORE PC hooks were the missing pieces.
+> (C) **2.20 + Videx does NOT hang in the corrected model** — the old
+> "device 4 → $DFBE → $E5 fill → PUSH HL → SP wrap" story was an
+> XOR-map artifact. The demonstrated mechanism: 2.20 drives the Videx
+> via Pascal 1.0 FIXED entries ($C800/$C84D/$C9AA — inside the shared
+> $C800-$CFFF window) and performs its $CFFF-deselect/$C300-select
+> ownership dance on the Z-80 SIDE, before flipping the bus via $C700 —
+> but $C700 is another slot's page, so the flip RELEASES the claim
+> (other_slot_c8, A2FPGA-verified Videoterm behavior). Every console
+> RPC enters the window unowned → floating bus on real hardware →
+> blank screen. 2.23 redoes the dance on the 6502 side AFTER the flip
+> ($CFFF at $0E30, $C330 at $0E33, $Cn0D vector dispatch through the
+> slot page) — zero faults. v2 differential: 38M window faults + 0
+> screen chars (2.20) vs 0 faults + working DIR (2.23).
+> NEXT: (1) user review of the publication-correction plan (the 12-part
+> series' conclusion is de-confirmed); (2) Videoterm schematic-level
+> confirmation of other-slot release; (3) loose ends — $03C7 slot-byte
+> patcher, generator-entry re-derivation, BIOS .asm re-basing, pipeline
+> org fix. Original deliverables below remain done as BYTE-LEVEL facts;
+> the failure-mechanism narrative in them is superseded.
 
 **Previous milestone (2026-05-04):** INVESTIGATION CLOSED + SUCCESSOR TOOLSET SHIPPED.
 

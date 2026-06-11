@@ -3,8 +3,10 @@
 **Status: WORKING NOTES — major model correction, partially verified by
 emulation, not yet propagated to docs/articles.** This file is the
 authoritative record of the 2026-06-11 session's findings. The session
-ended mid-investigation (host reboot); resume from "Where it stopped"
-below.
+ended mid-investigation (host reboot); resumed the same day — see
+**"Session continuation (2026-06-11, after host reboot)"** at the bottom
+for the resolution of every open item below, INCLUDING THE OVERTURN OF
+THE PUBLISHED 2.20 HANG MECHANISM.
 
 ## Headline
 
@@ -173,3 +175,170 @@ state machine wedges). NEXT STEPS:
 - $1000-$1002: `C3 00 FA` cold; `C3 03 FA` after first Z-80 cold boot
 - 2.20 post-phase: Apple $FA00: `C3 A8 DE C3 CC DA C3 08 DB ...`
   (2.20 jump table in LC RAM; BOOT→$DEA8, WBOOT→$DACC)
+
+---
+
+# Session continuation (2026-06-11, after host reboot)
+
+All four "Where it stopped" items resolved. The fourth resolved with a
+result that overturns the investigation's published central conclusion.
+
+## 1. Runtime disk reads fixed (sector-level RWTS service)
+
+The RWTS seek wedge was bypassed rather than diagnosed (user decision):
+all 2.23 disk I/O — boot-time LOAD_CPM and the runtime cooperative RPC
+path alike — funnels through the sector-read primitive LOAD_CPM_PRIM at
+$BE11 in LC RAM. `emu_softcard_v2.py` now hooks $BE11 and services the
+request straight from the .dsk image (same approach as the boot-time P6
+hook). Contract captured from docs/CPM223_RWTS.asm:
+
+- `$03E0` track, `$03E1` CP/M-logical sector (physical via the skew
+  table at $BF9E), `$03E8/$03E9` destination pointer, `$03E4` drive
+  (bit 0 = drive 1), `$03EB` bit 0 = read; returns carry + $03EA.
+- `--real-rwts` preserves the old nibble-level path.
+
+2.20's RWTS lives at different addresses ($BE11 hook never fires); its
+runtime reads run the real nibble path and work.
+
+## 2. Stale-echo fixed (monitor SAVE/RESTORE were stubs)
+
+The `'>'`-repeats symptom was the emulator's own stub: the warm loop's
+`JSR $FF4A` (monitor SAVE) was an RTS stub, so the 6502's A register
+never landed in the $45-$48 RPC result slots and Z-80 CONIN read back
+the previous CONOUT character. v2 now emulates monitor SAVE ($FF4A),
+RESTORE ($FF3F), and the other stubbed entries as PC hooks that run
+"from ROM" regardless of RAM content at those addresses — which also
+dissolves the 2.20 $FF51 halt (Apple $FF4A = Z-80 $DF4A is INSIDE
+2.20's LC-RAM BIOS; on real hardware the warm loop's $C081/$C083 dance
+banks ROM/RAM so both coexist; the flat model needed the hooks).
+
+**Result: 2.23 boots from disk bytes to a fully interactive system —
+`DIR` typed at the A> prompt prints the complete directory through the
+real Videx firmware ROM on the emulated Videoterm.**
+
+## 3. 2.20 re-verification — PUBLISHED HANG MECHANISM OVERTURNED
+
+With the corrected map + monitor hooks, **CPM 2.20B boots to its banner
+("Apple ][ CP/M / 56K Ver. 2.20B / (C) 1980 Microsoft") and runs DIR to
+completion with the Videx installed and detected as device 4** — under
+the flat (always-mapped) $C800 window model. The PUSH-HL/SP-wrap hang
+does NOT reproduce. The v1 "byte-for-byte confirmation" was an artifact
+of the XOR address map (the Z-80 was executing through a scrambled view
+of memory).
+
+What 2.20 actually does with device 4 (traced live):
+
+- The Z-80 BIOS patches the warm-loop JSR operand ($03D0/$03D1, Z-80
+  $F3D0) with the Apple Pascal 1.0 FIXED firmware entry points, which
+  live inside the shared $C800-$CFFF expansion-ROM window:
+  `$C800` (INIT, first RPC), `$C9AA` (WRITE/CONOUT), `$C84D`
+  (READ/CONIN). NOT `JSR $Cn05/$Cn07` as published in Article 1.
+- Character passing uses Apple $45-$48 register slots plus screen hole
+  $0678+slot; results return the same way.
+- 2.20's Z-80-side RPC setup at $DCEA/$DCEE (Z-80 addresses; Apple
+  $FCEA+) performs the TEXTBOOK ownership dance before each console
+  RPC: `LD A,($EFFF)` (Apple $CFFF — deselect all expansion ROMs), then
+  `LD A,(HL)` with HL=$E300 (Apple $C300 — select the Videx), then RET
+  to the dispatcher at $DB3B/$DB3E that patches the operand and flips
+  the bus via $E700.
+
+## 4. The real failure mechanism: $C800 window ownership vs the CPU switch
+
+The Videoterm claims the $C800-$CFFF expansion-ROM window when its own
+$C3xx page is accessed and releases it on $CFFF — **and on any access
+to a different slot's $Cnxx page** (`other_slot_c8`, per the A2FPGA
+implementation that was validated against real hardware; see
+wiseowl.com article `a2fpga-videx-02`, "C8-space ownership").
+
+The SoftCard's CPU switch IS an access to another slot's page: $C700
+(slot 7; 2.20 ships $C400 and the installed copy is patched). So:
+
+- **2.20**: Z-80 claims via $E300 → Z-80 flips the bus via $E700 →
+  **the flip releases the claim it just made** → 6502 enters
+  `JSR $C800/$C84D/$C9AA` with the window unowned → on real hardware,
+  floating-bus fetch → garbage execution → blank screen / dead system
+  = "2.20 doesn't boot with a Videx."
+- **2.23**: the Pascal 1.1 client island does the dance on the 6502
+  side, AFTER the flip: `$CFFF` deselect at $0E30, `$C330` claim at
+  $0E33, then the $Cn0D-$Cn10 vector dispatch enters the firmware
+  through the $C3xx slot page. The claim survives to the fetch. Zero
+  faults.
+
+Emulator demonstration (v2 with `other_slot_c8` arbitration, log-only
+faults, floating reads = $FF):
+
+- 2.20 + Videx: **38,069,715 window faults; 0 characters reach the
+  Videx screen** (every VRAM write discarded as unowned). First faults:
+  6502 fetches at $C800, $C803, ... — the INIT entry executed from an
+  unowned window. Ownership log shows the exact kill sequence repeating:
+  `claim z80 $C300 (PC=$DD03)` → `release z80 $C700 (PC=$DB41)`.
+- 2.23 + Videx: **0 faults**, banner + DIR all the way through, with
+  per-call `release $CFFF (PC=$0E30)` / `claim $C330 (PC=$0E33)` pairs.
+
+**So the 2.23 fix is two-part, and the detection half is the smaller
+half:** (a) the 11-byte $Cn0B check detects Pascal 1.1 cards as device
+6; (b) the device-6 path routes console I/O through a 6502-side island
+that performs the expansion-ROM ownership handshake on the correct side
+of the CPU switch. 2.20's structure (ownership dance on the Z-80 side,
+firmware entered at fixed $C8xx addresses) cannot work behind a
+SoftCard, because the SoftCard's own switch access destroys the claim.
+
+### Honesty inventory (what's demonstrated vs. inferred)
+
+- DEMONSTRATED (v2 emulator, real disk bytes, real Videx ROM 2.4 — the
+  same image the A2FPGA uses): everything above.
+- INFERRED for real hardware: that the physical Videoterm releases the
+  window on other-slot access. Evidence: the A2FPGA implements this and
+  the original failure was reported on A2FPGA *and confirmed on a real
+  Videoterm*; Apple Pascal 1.3 + the 2.23 protocol work on both.
+  Schematic-level confirmation from the Videoterm manual still pending.
+- The published story (device 4 → Z-80 dispatch to $DFBE → $E5 fill →
+  PUSH HL → SP wrap) is DE-CONFIRMED: under the real map those
+  addresses/contents were XOR-model artifacts, and the actual device-4
+  path never executes Z-80-side handler code at those locations.
+- The byte-level STRUCTURAL deltas published earlier (11-byte scanner
+  branch; dispatch case 6 only in 2.23; `cases_only_in_b: [6]` from
+  `cpm_pipeline diff`) remain TRUE. What changes is the failure
+  mechanism and the meaning of the dispatch targets.
+
+## Remaining loose ends (carried forward)
+
+1. Who patches the warm-loop slot byte $03C7/$03C8 ($C400→$C700) at
+   install time — still not located.
+2. True code/generator page interleave + cold-boot generator entry
+   (≈$FA82) re-derivation — still pending.
+3. 2.20 `--no-videx` run halts in v2 at $FC59 — MODEL GAP (missing
+   monitor HOME/CLREOP-family stubs for the 40-col console path), not a
+   CP/M finding; real hardware boots 2.20 without Videx.
+4. Videoterm manual Section 5 / firmware listing: confirm the hardware
+   release-on-other-slot behavior at schematic level.
+5. The $0478 screen-hole double-use (Videx CRFLAG `LSR $0478` at $C9AA
+   vs. RWTS current-track scratch) — real but benign for CP/M's flow
+   (RWTS reloads $0478 from the per-slot hole before each seek);
+   documented here for completeness.
+
+## New emulator assets (this continuation)
+
+- `emu_softcard_v2.py` grew: $BE11 sector-level disk service
+  (`--real-rwts` to disable), monitor-entry PC hooks (SAVE/RESTORE
+  real, rest RTS), $C800-$CFFF ownership arbitration with fault +
+  transition logging (`--flat-c800` to disable), fetch coverage via PC
+  hooks over $C100-$CFFF (chains the P6 hook at $C65C).
+- `cpm-investigation/videx_rom24.s` — disasm6502 output of Videx ROM
+  2.4 with the Pascal 1.0 entries ($C800 INIT path with CRTC register
+  table + AN0 video switch, $C84D READ with keyboard poll, $C9AA WRITE)
+  annotated by the apple2 symbol table.
+
+## Doc-correction cascade — EXPANDED scope (pending user review)
+
+Everything in the original "Consequences" list above, PLUS:
+
+- Part 12 "the investigation closes" settled-mechanism claim, the
+  `cpm-videx-emulator-220-hang-settled-2026-05-01` devlog ("Case B
+  confirmed"), Part 8's hang chain, Article 1's `JSR $Cn07` claim, and
+  every restatement of the PUSH-HL story — all need forward-pointer
+  Update notes per the corrections-not-rewrites directive.
+- The resume-prompt "Key 2.20 vs 2.23 differences" and "What's Now
+  Understood" sections.
+- `cpm_pipeline` cold_boot_trace org fix unchanged in scope; the diff
+  output's MEANING (what case 6 buys) needs re-description in docs.
