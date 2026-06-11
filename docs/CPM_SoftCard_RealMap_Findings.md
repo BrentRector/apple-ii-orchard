@@ -244,11 +244,18 @@ What 2.20 actually does with device 4 (traced live):
 
 ## 4. The real failure mechanism: $C800 window ownership vs the CPU switch
 
-The Videoterm claims the $C800-$CFFF expansion-ROM window when its own
-$C3xx page is accessed and releases it on $CFFF — **and on any access
-to a different slot's $Cnxx page** (`other_slot_c8`, per the A2FPGA
-implementation that was validated against real hardware; see
-wiseowl.com article `a2fpga-videx-02`, "C8-space ownership").
+The A2FPGA Videoterm (the platform the failure was FIRST REPORTED on)
+claims the $C800-$CFFF expansion-ROM window when its own $C3xx page is
+accessed and releases it on $CFFF — **and on any access to a different
+slot's $Cnxx page** (`other_slot_rom` in videx_card.sv; $C700
+qualifies). IMPORTANT PROVENANCE (added later this session, from
+reading the SV source + the manual schematic): the A2FPGA source
+documents the other-slot release as an FPGA-bus-mux-specific addition
+and states the physical card's PAL16L8 releases on $CFFF only; the
+manual schematic's activation corner (U7/U8 4013s + half-'LS139 U9)
+shows inputs IOSTRB/DEVSEL/IOSEL/A6-A10/R-W/RESET — insufficient to
+decode other slots' pages. So what follows is DEMONSTRATED FOR THE
+A2FPGA; the physical card's trigger is open (see Honesty inventory).
 
 The SoftCard's CPU switch IS an access to another slot's page: $C700
 (slot 7; 2.20 ships $C400 and the installed copy is patched). So:
@@ -283,15 +290,27 @@ of the CPU switch. 2.20's structure (ownership dance on the Z-80 side,
 firmware entered at fixed $C8xx addresses) cannot work behind a
 SoftCard, because the SoftCard's own switch access destroys the claim.
 
-### Honesty inventory (what's demonstrated vs. inferred)
+### Honesty inventory (what's demonstrated vs. inferred — REVISED)
 
-- DEMONSTRATED (v2 emulator, real disk bytes, real Videx ROM 2.4 — the
-  same image the A2FPGA uses): everything above.
-- INFERRED for real hardware: that the physical Videoterm releases the
-  window on other-slot access. Evidence: the A2FPGA implements this and
-  the original failure was reported on A2FPGA *and confirmed on a real
-  Videoterm*; Apple Pascal 1.3 + the 2.23 protocol work on both.
-  Schematic-level confirmation from the Videoterm manual still pending.
+- DEMONSTRATED (v2 emulator, real disk bytes, real Videx ROM 2.4, the
+  A2FPGA's arbitration rule): the kill sequence and the 38M-fault /
+  0-fault differential — i.e., the A2FPGA failure mechanism.
+- DOCUMENTED (Videoterm manual): the per-entry SETREGS mandate
+  ($CFFF + $C300 + holes immediately before every $C800-space entry),
+  which 2.20 cannot satisfy behind a SoftCard and 2.23 satisfies by
+  construction. This protocol-violation framing is rule-independent.
+- OPEN (physical card): the real Videoterm's release trigger.
+  Evidence AGAINST simple other-slot release: A2FPGA SV comments call
+  it FPGA-specific ("real hardware doesn't need this -- each physical
+  card has its own bus transceiver"; PAL16L8 = $CFFF-only) + the
+  schematic's input inventory. Evidence the real card still fails with
+  2.20: the original report ("confirmed on real Videx hardware").
+  Under $CFFF-only release v2 boots 2.20 fine — so the real-hardware
+  kill step is NOT yet pinned. Candidates: (a) board-revision variance
+  (early 4013 boards vs later PAL16L8); (b) SoftCard bus-phase timing
+  hiding the Z-80-side $C300 claim from a phi0-qualified flip-flop;
+  (c) the real-hardware confirmation describing a different failure.
+  Discriminator: Joshua's original report details; ideally a scope.
 - The published story (device 4 → Z-80 dispatch to $DFBE → $E5 fill →
   PUSH HL → SP wrap) is DE-CONFIRMED: under the real map those
   addresses/contents were XOR-model artifacts, and the actual device-4

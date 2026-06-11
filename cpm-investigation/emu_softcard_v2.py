@@ -147,19 +147,25 @@ class SoftCardV2:
         self.videx_vram_addr = videx_vram_addr
 
         # --- $C800-$CFFF expansion-ROM window arbitration ------------------
-        # Real Videoterm behavior (verified by the A2FPGA implementation
-        # against real hardware -- see a2fpga-videx-02, "C8-space
-        # ownership"): the card claims the window when its own $C3xx slot
-        # page is addressed, and releases it on $CFFF *or on any access to
-        # a different slot's $Cnxx page* (other_slot_c8). The SoftCard's
-        # warm loop touches $C700 every RPC round-trip, so the window is
-        # unowned at every 6502 service-call entry unless the call comes
-        # in through $C3xx. 2.20's console RPC targets ($C800/$C84D/$C9AA)
-        # live INSIDE the window and are entered directly; 2.23's Pascal
-        # 1.1 island re-claims via the $Cn0D vector dispatch. When no card
-        # owns the window, reads float (modelled as $FF) -- on real
-        # hardware, fetching there executes garbage. Faults are logged;
-        # flat (always-mapped) behavior via c8_arbitrate=False.
+        # A2FPGA Videoterm behavior (videx_card.sv, "C8-Space Ownership"):
+        # the card claims the window when its own $C3xx slot page is
+        # addressed, and releases it on $CFFF *or on any access to a
+        # different slot's $Cnxx page* (other_slot_rom). NOTE: the A2FPGA
+        # source documents the other-slot release as an FPGA-bus-mux
+        # addition; the physical card (PAL16L8 revisions) reportedly
+        # releases on $CFFF only, and the manual's schematic shows no
+        # other-slot decode inputs. This model therefore reproduces the
+        # A2FPGA -- the platform the 2.20+Videx failure was first
+        # reported on; the physical card's trigger is an open question
+        # (see docs/CPM_SoftCard_RealMap_Findings.md).
+        # The SoftCard's warm loop touches $C700 every RPC round-trip, so
+        # under this rule the window is unowned at every 6502
+        # service-call entry unless the call comes in through $C3xx.
+        # 2.20's console RPC targets ($C800/$C84D/$C9AA) live INSIDE the
+        # window and are entered directly; 2.23's Pascal 1.1 island
+        # re-claims via the $Cn0D vector dispatch. When no card owns the
+        # window, reads float (modelled as $FF). Faults are logged; flat
+        # (always-mapped) behavior via c8_arbitrate=False.
         self.videx_present = videx
         self.c8_owner = None
         self.c8_faults = []           # (kind, pc, addr) accesses while unowned
