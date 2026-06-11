@@ -1,51 +1,47 @@
 ; ============================================================================
-; Microsoft SoftCard CP/M 2.23 -- Z-80 BIOS  ($FAB8-$FFFF, 1352 bytes)
+; Microsoft SoftCard CP/M 2.23 -- Z-80 BIOS  (true base $FA00; this chunk
+; covers $FA00-$FF47, 1352 bytes)
 ;
-; Annotated Z-80 source for the BIOS region as the Z-80 sees it in LC RAM
-; after the SoftCard CPU switch. Reassembles byte-identically via:
+; Annotated Z-80 source for the BIOS region. Reassembles byte-identically:
 ;
 ;     sjasmplus docs/CPM223_BIOS.asm
 ;
-; STRUCTURE -- 256-byte interleaved layout
-; ----------------------------------------
-;   Page 0  $FAB8-$FBB7  Jump table, dispatch stubs, cold-boot generator (CODE)
-;   Page 1  $FBB8-$FCB7  Trap markers (RUNTIME-POPULATED)
-;   Page 2  $FCB8-$FDB7  Per-device init helpers (CODE)
-;   Page 3  $FDB8-$FEB7  Trap markers (RUNTIME-POPULATED)
-;   Page 4  $FEB8-$FFB7  Device-scan + BOOT vector landing (CODE)
-;   Page 5  $FFB8-$FFFF  Trap markers, partial 72 bytes (RUNTIME-POPULATED)
+; RE-BASED 2026-06-11 (see docs/CPM_SoftCard_RealMap_Findings.md). This
+; file previously carried ORG $FAB8: an artifact of the wrong SoftCard
+; address model. The jump table is the FIRST thing in this image, and it
+; lives at Z-80 $FA00 (= Apple $0A00 through the real map's -$F000
+; window -- same bytes, no copy, no banking). All section-comment
+; addresses below were written under the old base and read $B8 high
+; until individually swept; the byte stream is unaffected (all absolute
+; operands are hex literals).
 ;
-; Trap markers are "FF FF 00 00" / "F7 F7 00 00" patterns that decode as
-; RST $38 / RST $30 -- inert at boot. Static BIOS code calls/jumps into
-; these pages; the cold-boot generator overwrites them with real code
-; before any such call/jump fires.
+; STRUCTURE -- corrected 2026-06-11
+; ---------------------------------
+; The old "alternating CODE / trap-marker pages, runtime-generated"
+; story is dead. Page provenance (emu_softcard_v2 snapshot vs raw disk):
+; the ENTIRE runtime BIOS $FA00-$FFFF arrives VERBATIM from CPMV233.DSK
+; track 2, file-sectors 13..8 (one page each, descending). Cold boot
+; then patches only ~185 bytes -- per-device dispatch operands, state
+; slots, and scan workspace, concentrated in $FE00/$FF00. The
+; FF FF 00 00 / F7 F7 00 00 fill patterns seen in older extractions
+; belong to other disk regions, not to this runtime image.
 ;
-; THE COLD-BOOT GENERATOR (Z-80 side of the Videx fix)
-; ----------------------------------------------------
-; At SECTION 3 below ($FB3A). Walks slot-info table at $F3B8+E for E=7..1,
-; dispatches by device code:
-;   3 -> INIT_KEYBOARD    ($FE81)
-;   4 -> INIT_PASCAL_1_0  ($FD83)
-;   6 -> INIT_PASCAL_1_1  ($FDB0)   <-- NEW IN 2.23 (the Videx fix)
-;
-; The 11-byte 6502 slot-scanner branch in CPM223_BootLoader.asm is what
-; writes "6" into the slot-info table for Pascal-1.1 cards. The generator's
-; new branch here turns that into a runtime dispatch into INIT_PASCAL_1_1
-; instead of falling on a trap marker.
-;
-; DUAL ADDRESSING
-; ---------------
-; The first 1 KB of this BIOS ($FAB8-$FEB7) ALSO appears at Z-80 $1C38-$1FB7
-; under SoftCard's bit-12 XOR for low addresses. Same physical bytes, two
-; Z-80 views. This is how the inter-CPU sync polling at $1E39 (the Z-80
-; disk-callback area) reaches the same code that the BIOS jump table dispatches.
+; THE COLD-BOOT PASS (a fixup linker, not a factory)
+; --------------------------------------------------
+; Generator entry at true $FA82 (old docs: "$FB3A"). Walks the slot-info
+; table at Z-80 $F3B8+E (= Apple $03B8+E, no copy) for E=7..1 and
+; dispatches by device code; case 6 (Pascal 1.1) is new in 2.23.
+; NOTE (Part 13): the device-6 path's significance is the 6502-side
+; Pascal 1.1 client island ($0DD0-$0E35 Apple) doing the $CFFF/$C3xx
+; expansion-ROM ownership handshake AFTER the CPU switch; the device-4
+; path (2.20) did the same dance Z-80-side, where the $C700 switch
+; access destroys it.
 ;
 ; SOURCE
 ; ------
-; Loaded by the 6502 from disk via two LOAD_CPM passes (the second one
-; bank-switches LC RAM via STA $C083 to write into SoftCard high RAM).
-; Bytes at $FAB8 ultimately come from physical disk sectors trk2:phys4-9
-; of CPMV233.DSK.
+; Loaded whole by the 6502 boot path; this chunk's bytes sit at track 2,
+; file-sectors 13..8 of CPMV233.DSK (and the first two pages also ride
+; track 0 for the boot stub's early load).
 ; ============================================================================
 
     DEVICE NOSLOT64K
@@ -53,7 +49,7 @@
 ; -- Code-overlap labels (target falls inside another instruction) --
 BIOS_PRINT_C800      EQU $FB45
 
-    ORG $FAB8
+    ORG $FA00
 
 
 ; ============================================================================
@@ -65,7 +61,7 @@ BIOS_PRINT_C800      EQU $FB45
 ; Entries 15 (LISTST) and 16 (SECTRAN) are inline 1- to 3-byte routines.
 ;
 ; Targets:
-;   BOOT  -> BOOT_LANDING ($FED1) -- NOP slide leading to device-scan
+;   BOOT  -> L_FE19 ($FED1) -- NOP slide leading to device-scan
 ;   WBOOT -> BOOT itself          -- on this build, warm boot = cold boot
 ;   CONST/CONIN/CONOUT/LIST/PUNCH/READER -> page-0 dispatch stubs
 ;   HOME/SELDSK/SETTRK            -> page-4 (BOOT vector landing area)
@@ -74,35 +70,35 @@ BIOS_PRINT_C800      EQU $FB45
 ; ============================================================================
 
 BOOT:
-        JP BOOT_LANDING                  ; $FAB8  C3 D1 FE
+        JP $FED1                  ; $FAB8  C3 D1 FE
 WBOOT:
-        JP BOOT                          ; $FABB  C3 B8 FA
+        JP L_FAB8                          ; $FABB  C3 B8 FA
 CONST:
-        JP L_FB10                        ; $FABE  C3 10 FB
+        JP $FB10                        ; $FABE  C3 10 FB
 CONIN:
-        JP L_FB1A                        ; $FAC1  C3 1A FB
+        JP $FB1A                        ; $FAC1  C3 1A FB
 CONOUT:
-        JP L_FB4D                        ; $FAC4  C3 4D FB
+        JP $FB4D                        ; $FAC4  C3 4D FB
 LIST:
-        JP L_FB70                        ; $FAC7  C3 70 FB
+        JP $FB70                        ; $FAC7  C3 70 FB
 PUNCH:
-        JP L_FB7F                        ; $FACA  C3 7F FB
+        JP $FB7F                        ; $FACA  C3 7F FB
 READER:
-        JP L_FB91                        ; $FACD  C3 91 FB
+        JP $FB91                        ; $FACD  C3 91 FB
 HOME:
-        JP L_FE6C                        ; $FAD0  C3 6C FE
+        JP $FE6C                        ; $FAD0  C3 6C FE
 SELDSK:
-        JP L_FE8E                        ; $FAD3  C3 8E FE
+        JP $FE8E                        ; $FAD3  C3 8E FE
 SETTRK:
-        JP L_FE77                        ; $FAD6  C3 77 FE
+        JP $FE77                        ; $FAD6  C3 77 FE
 SETSEC:
-        JP L_FBF4                        ; $FAD9  C3 F4 FB
+        JP $FBF4                        ; $FAD9  C3 F4 FB
 SETDMA:
-        JP L_FBF9                        ; $FADC  C3 F9 FB
+        JP $FBF9                        ; $FADC  C3 F9 FB
 READ:
-        JP L_FEBD                        ; $FADF  C3 BD FE
+        JP $FEBD                        ; $FADF  C3 BD FE
 WRITE:
-        JP L_FEC0                        ; $FAE2  C3 C0 FE
+        JP $FEC0                        ; $FAE2  C3 C0 FE
 LISTST:
         XOR A                            ; $FAE5  AF
         RET                              ; $FAE6  C9
@@ -128,14 +124,14 @@ SECTRAN:
 ; init parameter table (read by SECTION 3).
 ; ============================================================================
 
-L_FB10:
+L_FA58:
         NOP                              ; $FB10  00
         NOP                              ; $FB11  00
         NOP                              ; $FB12  00
         CALL PO,$73FE                    ; $FB13  E4 FE 73
-        JP M,L_FFC4                      ; $FB16  FA C4 FF
+        JP M,$FFC4                      ; $FB16  FA C4 FF
         ADC A,B                          ; $FB19  88
-L_FB1A:
+L_FA62:
         RST $38                          ; $FB1A  FF
         NOP                              ; $FB1B  00
         NOP                              ; $FB1C  00
@@ -146,11 +142,11 @@ L_FB1A:
         NOP                              ; $FB21  00
         NOP                              ; $FB22  00
         CALL PO,$73FE                    ; $FB23  E4 FE 73
-        JP M,L_FFD0                      ; $FB26  FA D0 FF
+        JP M,$FFD0                      ; $FB26  FA D0 FF
         SBC A,D                          ; $FB29  9A
         RST $38                          ; $FB2A  FF
-        JR NZ,L_FB2D                     ; $FB2B  20 00
-L_FB2D:
+        JR NZ,L_FA75                     ; $FB2B  20 00
+L_FA75:
         INC BC                           ; $FB2D  03
         RLCA                             ; $FB2E  07
         NOP                              ; $FB2F  00
@@ -171,14 +167,14 @@ L_FB2D:
 ;
 ; Walks the slot-info table at $F3B8+E for E=7,6,...,1, dispatching by
 ; device code:
-;   3 -> CALL INIT_KEYBOARD     ($FE81)
-;   4 -> CALL INIT_PASCAL_1_0   ($FD83)  -- old Pascal firmware
-;   6 -> CALL INIT_PASCAL_1_1   ($FDB0)  -- NEW IN 2.23 (the Videx delta)
+;   3 -> CALL L_FDC9     ($FE81)
+;   4 -> CALL L_FCCB   ($FD83)  -- old Pascal firmware
+;   6 -> CALL L_FCF8   ($FDB0)  -- NEW IN 2.23 (the Videx delta)
 ;
 ; The 11-byte 6502 slot-scanner branch in the boot loader writes '6' into
 ; this slot-info table for Pascal-1.1 cards (Videx Videoterm). Without that
 ; branch on the 6502 side, only codes 3 and 4 are ever generated, and a
-; 2.20 system trying to call INIT_PASCAL_1_1 would land on whatever bytes
+; 2.20 system trying to call L_FCF8 would land on whatever bytes
 ; happen to live at $FDB0 (a JR NZ to a trap marker -> system hang).
 ;
 ; Loop body (per slot E):
@@ -188,30 +184,30 @@ L_FB2D:
 ;   * if code==6, set HL := $0DD0 and call $FDB0 (Pascal 1.1 init)
 ; ============================================================================
 
-L_FB3D:
+L_FA85:
         LD HL,$F3B8                      ; $FB3D  21 B8 F3
         ADD HL,DE                        ; $FB40  19
         LD A,(HL)                        ; $FB41  7E
         SUB $03                          ; $FB42  D6 03
-        JR NZ,L_FB4D                     ; $FB44  20 07
-        CALL INIT_KEYBOARD               ; $FB46  CD 81 FE
+        JR NZ,L_FA95                     ; $FB44  20 07
+        CALL $FE81               ; $FB46  CD 81 FE
         LD (HL),$03                      ; $FB49  36 03
         LD (HL),$15                      ; $FB4B  36 15
-L_FB4D:
+L_FA95:
         DEC A                            ; $FB4D  3D
-        JR NZ,L_FB5B                     ; $FB4E  20 0B
-        CALL INIT_PASCAL_1_0             ; $FB50  CD 83 FD
+        JR NZ,L_FAA3                     ; $FB4E  20 0B
+        CALL $FD83             ; $FB50  CD 83 FD
         LD HL,$C800                      ; $FB53  21 00 C8
         CALL BIOS_PRINT_C800             ; $FB56  CD 45 FB
-        JR L_FB65                        ; $FB59  18 0A
-L_FB5B:
+        JR L_FAAD                        ; $FB59  18 0A
+L_FAA3:
         CP $02                           ; $FB5B  FE 02
-        JR NZ,L_FB65                     ; $FB5D  20 06
+        JR NZ,L_FAAD                     ; $FB5D  20 06
         LD HL,$0DD0                      ; $FB5F  21 D0 0D
-        CALL INIT_PASCAL_1_1             ; $FB62  CD B0 FD
-L_FB65:
+        CALL $FDB0             ; $FB62  CD B0 FD
+L_FAAD:
         DEC E                            ; $FB65  1D
-        JR NZ,L_FB3D                     ; $FB66  20 D5
+        JR NZ,L_FA85                     ; $FB66  20 D5
         RET                              ; $FB68  C9
         DEFB    $21,$00,$E0,$7B,$B4,$67,$C9                      ; $FB69
 
@@ -229,21 +225,21 @@ L_FB65:
 ; jumps through $000B (the warm-boot vector planted at boot).
 ; ============================================================================
 
-L_FB70:
+L_FAB8:
         LD SP,$0080                      ; $FB70  31 80 00
         LD A,($E051)                     ; $FB73  3A 51 E0
         LD HL,$0E00                      ; $FB76  21 00 0E
         CALL BIOS_PRINT_C800             ; $FB79  CD 45 FB
         CALL $FA82                       ; $FB7C  CD 82 FA
-L_FB7F:
+L_FAC7:
         LD A,($9C08)                     ; $FB7F  3A 08 9C
         CP $9C                           ; $FB82  FE 9C
-        JR Z,L_FB97                      ; $FB84  28 11
+        JR Z,L_FADF                      ; $FB84  28 11
         LD HL,$FF59                      ; $FB86  21 59 FF
         LD ($F3D0),HL                    ; $FB89  22 D0 F3
         LD HL,($F3DE)                    ; $FB8C  2A DE F3
         LD A,$77                         ; $FB8F  3E 77
-L_FB91:
+L_FAD9:
         LD ($000B),A                     ; $FB91  32 0B 00
         JP $000B                         ; $FB94  C3 0B 00
 
@@ -259,7 +255,7 @@ L_FB91:
 ; has installed runtime code that completes initialization.
 ; ============================================================================
 
-L_FB97:
+L_FADF:
         XOR A                            ; $FB97  AF
         LD ($9307),A                     ; $FB98  32 07 93
         XOR A                            ; $FB9B  AF
@@ -273,18 +269,18 @@ L_FB97:
         LD HL,$9C06                      ; $FBB0  21 06 9C
         LD ($0006),HL                    ; $FBB3  22 06 00
         DEFB    $01,$80,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00 ; $FBB6
-SUB_FBC4:
+SUB_FB0C:
         DEFB    $FF,$FF,$00,$00,$F7,$F7,$00,$00,$F7,$F7,$00,$00  ; $FBC4
-L_FBD0:
+L_FB18:
         DEFB    $F7,$F7,$00,$00,$F7,$F7,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00 ; $FBD0
         DEFB    $FF,$FF                                          ; $FBE0
-L_FBE2:
+L_FB2A:
         DEFB    $00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00 ; $FBE2
-SUB_FBF0:
+SUB_FB38:
         DEFB    $FF,$FF,$00,$00                                  ; $FBF0
-L_FBF4:
+L_FB3C:
         DEFB    $FF,$FF,$00,$00,$FF                              ; $FBF4
-L_FBF9:
+L_FB41:
         DEFB    $FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF ; $FBF9
         DEFB    $FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF ; $FC09
         DEFB    $FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$F7 ; $FC19
@@ -296,9 +292,9 @@ L_FBF9:
         DEFB    $FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF ; $FC79
         DEFB    $FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF ; $FC89
         DEFB    $FF                                              ; $FC99
-L_FC9A:
+L_FBE2:
         DEFB    $00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00          ; $FC9A
-SUB_FCA4:
+SUB_FBEC:
         DEFB    $FF,$FF,$00,$00,$F7,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00 ; $FCA4
         DEFB    $FF,$FF,$00,$00,$00,$CD,$F9,$FB,$3E,$01,$32,$4E,$97,$3A,$04,$00 ; $FCB4
         DEFB    $4F,$C3,$00,$93,$2A,$80,$F3,$E9,$3A,$00,$E0,$17,$9F,$C9,$CD,$5A ; $FCC4
@@ -315,18 +311,18 @@ SUB_FCA4:
         DEFB    $FE,$28,$0C,$B7,$F2,$C6,$FB,$2B,$E6,$7F,$5F,$79,$93,$77,$C9 ; $FD74
 
 ; ============================================================================
-; INIT_PASCAL_1_0 -- per-slot Pascal 1.0 firmware init  ($FD83)
+; L_FCCB -- per-slot Pascal 1.0 firmware init  ($FD83)
 ;
 ; Called by SECTION 3 when slot E's device code == 4. Walks the per-slot
 ; state from $F388 / $F3A1 etc., and calls the per-device helpers in page 1
 ; that the trap-marker bytes have been overwritten with.
 ; ============================================================================
 
-INIT_PASCAL_1_0:
+L_FCCB:   ; (formerly annotated "INIT_PASCAL_1_0" -- name attached under the +$B8 org; re-attachment pending)
         OR A                             ; $FD83  B7
-        JP M,L_FBD0                      ; $FD84  FA D0 FB
+        JP M,$FBD0                      ; $FD84  FA D0 FB
         DEC HL                           ; $FD87  2B
-        CALL SUB_FBC4                    ; $FD88  CD C4 FB
+        CALL $FBC4                    ; $FD88  CD C4 FB
         LD HL,($FED3)                    ; $FD8B  2A D3 FE
         LD A,($F3A1)                     ; $FD8E  3A A1 F3
         OR A                             ; $FD91  B7
@@ -342,15 +338,15 @@ INIT_PASCAL_1_0:
         ADD A,L                          ; $FD9E  85
         PUSH AF                          ; $FD9F  F5
         LD B,$07                         ; $FDA0  06 07
-        CALL SUB_FCA4                    ; $FDA2  CD A4 FC
+        CALL $FCA4                    ; $FDA2  CD A4 FC
         POP AF                           ; $FDA5  F1
         LD B,$0A                         ; $FDA6  06 0A
         LD C,A                           ; $FDA8  4F
-        JP SUB_FCA4                      ; $FDA9  C3 A4 FC
+        JP $FCA4                      ; $FDA9  C3 A4 FC
         DEFB    $79,$32,$D2,$FE                                  ; $FDAC
 
 ; ============================================================================
-; INIT_PASCAL_1_1 -- per-slot Pascal 1.1 firmware init  ($FDB0)  *** 2.23 NEW ***
+; L_FCF8 -- per-slot Pascal 1.1 firmware init  ($FDB0)  *** 2.23 NEW ***
 ;
 ; In 2.23 this is just RET. Its existence (versus 2.20's $FDB0 falling on a
 ; trap marker that happens to decode as a JR NZ branching into more trap
@@ -363,7 +359,7 @@ INIT_PASCAL_1_0:
 ; would crash the cold-boot generator.
 ; ============================================================================
 
-INIT_PASCAL_1_1:
+L_FCF8:   ; (formerly annotated "INIT_PASCAL_1_1" -- name attached under the +$B8 org; re-attachment pending)
         RET                              ; $FDB0  C9
         DEFB    $ED,$43,$E1,$FE,$C9,$00                          ; $FDB1  "mCa~I"
         DEFB    $00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00 ; $FDB7
@@ -378,21 +374,21 @@ INIT_PASCAL_1_1:
         DEFB    $00,$F7,$F7,$00,$00,$F7,$F7,$00,$00,$F7,$F7,$00,$00,$FF,$F7,$00 ; $FE47
         DEFB    $00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00 ; $FE57
         DEFB    $00,$FF,$FF,$00,$00                              ; $FE67
-L_FE6C:
+L_FDB4:
         DEFB    $FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00      ; $FE6C
-L_FE77:
+L_FDBF:
         DEFB    $00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF          ; $FE77
-INIT_KEYBOARD:
+L_FDC9:   ; (formerly annotated "INIT_KEYBOARD" -- name attached under the +$B8 org; re-attachment pending)
         DEFB    $FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF ; $FE81
-L_FE8E:
+L_FDD6:
         DEFB    $00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF ; $FE8E
         DEFB    $00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$F7,$F7,$00,$00,$F7,$F7 ; $FE9E
         DEFB    $00,$00,$F7,$F7,$00,$00,$F7,$F7,$00,$00,$00,$00,$00,$00,$00 ; $FEAE
-L_FEBD:
+L_FE05:
         NOP                              ; $FEBD  00
         NOP                              ; $FEBE  00
         NOP                              ; $FEBF  00
-L_FEC0:
+L_FE08:
         NOP                              ; $FEC0  00
         NOP                              ; $FEC1  00
         NOP                              ; $FEC2  00
@@ -410,7 +406,7 @@ L_FEC0:
         NOP                              ; $FECE  00
         NOP                              ; $FECF  00
         NOP                              ; $FED0  00
-BOOT_LANDING:
+L_FE19:   ; (formerly annotated "BOOT_LANDING" -- name attached under the +$B8 org; re-attachment pending)
         NOP                              ; $FED1  00
         NOP                              ; $FED2  00
         NOP                              ; $FED3  00
@@ -477,60 +473,60 @@ BOOT_LANDING:
         LD A,(HL)                        ; $FF12  7E
         LD E,A                           ; $FF13  5F
         OR A                             ; $FF14  B7
-        JR NZ,L_FF29                     ; $FF15  20 12
+        JR NZ,L_FE71                     ; $FF15  20 12
         LD A,($F397)                     ; $FF17  3A 97 F3
         OR A                             ; $FF1A  B7
-        JR Z,L_FF23                      ; $FF1B  28 06
+        JR Z,L_FE6B                      ; $FF1B  28 06
         CP C                             ; $FF1D  B9
-        JR NZ,L_FF23                     ; $FF1E  20 03
+        JR NZ,L_FE6B                     ; $FF1E  20 03
         LD (HL),$80                      ; $FF20  36 80
         RET                              ; $FF22  C9
-L_FF23:
+L_FE6B:
         LD A,$1F                         ; $FF23  3E 1F
         CP C                             ; $FF25  B9
-        JP C,SUB_FCA4                    ; $FF26  DA A4 FC
-L_FF29:
+        JP C,$FCA4                    ; $FF26  DA A4 FC
+L_FE71:
         LD HL,$F3A0                      ; $FF29  21 A0 F3
         LD B,$09                         ; $FF2C  06 09
-L_FF2E:
+L_FE76:
         LD A,(HL)                        ; $FF2E  7E
         OR A                             ; $FF2F  B7
-        JR Z,L_FF36                      ; $FF30  28 04
+        JR Z,L_FE7E                      ; $FF30  28 04
         XOR E                            ; $FF32  AB
         CP C                             ; $FF33  B9
-        JR Z,L_FF3B                      ; $FF34  28 05
-L_FF36:
+        JR Z,L_FE83                      ; $FF34  28 05
+L_FE7E:
         DEC HL                           ; $FF36  2B
-        DJNZ L_FF2E                      ; $FF37  10 F5
-        JR L_FF5C                        ; $FF39  18 21
-L_FF3B:
+        DJNZ L_FE76                      ; $FF37  10 F5
+        JR L_FEA4                        ; $FF39  18 21
+L_FE83:
         LD DE,$000B                      ; $FF3B  11 0B 00
         ADD HL,DE                        ; $FF3E  19
         LD A,(HL)                        ; $FF3F  7E
         OR A                             ; $FF40  B7
         LD C,A                           ; $FF41  4F
-        JP P,L_FC9A                      ; $FF42  F2 9A FC
+        JP P,$FC9A                      ; $FF42  F2 9A FC
         AND $7F                          ; $FF45  E6 7F
         LD C,A                           ; $FF47  4F
         PUSH BC                          ; $FF48  C5
         LD A,($F3A2)                     ; $FF49  3A A2 F3
         LD B,$07                         ; $FF4C  06 07
-        CALL SUB_FBF0                    ; $FF4E  CD F0 FB
+        CALL $FBF0                    ; $FF4E  CD F0 FB
         POP BC                           ; $FF51  C1
         LD A,B                           ; $FF52  78
         CP $07                           ; $FF53  FE 07
-        JR NZ,L_FF5C                     ; $FF55  20 05
+        JR NZ,L_FEA4                     ; $FF55  20 05
         LD A,$02                         ; $FF57  3E 02
         LD ($FECC),A                     ; $FF59  32 CC FE
-L_FF5C:
+L_FEA4:
         XOR A                            ; $FF5C  AF
         LD ($FECD),A                     ; $FF5D  32 CD FE
         LD A,($FECB)                     ; $FF60  3A CB FE
         OR A                             ; $FF63  B7
         LD HL,($F388)                    ; $FF64  2A 88 F3
-        JR Z,L_FF6C                      ; $FF67  28 03
+        JR Z,L_FEB4                      ; $FF67  28 03
         LD HL,($F386)                    ; $FF69  2A 86 F3
-L_FF6C:
+L_FEB4:
         JP (HL)                          ; $FF6C  E9
         DEFB    $11,$03,$00,$C3,$BB,$FC,$2A,$CE,$FE,$3A,$D0,$FE,$77,$CD,$E2,$FC ; $FF6D
         DEFB    $2A,$28,$F0,$3A,$24,$F0,$5F,$16,$F0,$19,$22,$CE,$FE,$7E,$32,$D0 ; $FF7D
@@ -538,11 +534,11 @@ L_FF6C:
         DEFB    $0B,$21,$45,$FB,$E5,$21,$66,$FD,$85,$6F,$6E,$E9,$79,$FE,$0D,$20 ; $FF9D
         DEFB    $05,$AF,$32,$24,$F0,$C9,$F6,$80,$FE,$E0,$38,$FF,$FF,$00,$00,$FF ; $FFAD
         DEFB    $FF,$00,$00,$FF,$FF,$00,$00                      ; $FFBD
-L_FFC4:
+L_FF0C:
         DEFB    $FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00  ; $FFC4
-L_FFD0:
+L_FF18:
         DEFB    $FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00 ; $FFD0
         DEFB    $FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00 ; $FFE0
         DEFB    $FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00 ; $FFF0
 
-    SAVEBIN "build/CPM223_BIOS.bin", $FAB8, $0548
+    SAVEBIN "build/CPM223_BIOS.bin", $FA00, $0548

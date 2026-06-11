@@ -301,21 +301,46 @@ SoftCard, because the SoftCard's own switch access destroys the claim.
   `cpm_pipeline diff`) remain TRUE. What changes is the failure
   mechanism and the meaning of the dispatch targets.
 
-## Remaining loose ends (carried forward)
+## Remaining loose ends — RESOLVED 2026-06-11 (same-day continuation #2)
 
-1. Who patches the warm-loop slot byte $03C7/$03C8 ($C400→$C700) at
-   install time — still not located.
-2. True code/generator page interleave + cold-boot generator entry
-   (≈$FA82) re-derivation — still pending.
+1. **Slot-byte patcher: FOUND.** The warm loop ships with a placeholder
+   operand (`STA $FFFF` in 2.23's install image — the old
+   InstallFragments annotation faithfully read it; `STA $C400` in
+   2.20's). The stage-2 SLOT SCANNER patches it when it identifies the
+   SoftCard's slot: `STY $03C8` (Y=$Cn of probed slot) / `LDA #$00 /
+   STA $03C7` at $1086-$1090 (2.23; writes observed from PC $1088 and
+   $108D) and the analogous code in 2.20 (writes from $1081/$1086).
+2. **Interleave/generator re-derivation: the interleave is DEAD, not
+   re-based.** Page provenance (snapshot at first Z-80 instruction,
+   exact-match search against the raw disk): the ENTIRE 2.23 runtime
+   BIOS arrives verbatim from track 2 file-sectors 13..8 (descending,
+   one page each → Z-80 $FA00..$FF00); 2.20's from track 2 sectors 1..5
+   ascending (→ $DA00..$DE00; $DF00 assembled during the 6502 phase;
+   duplicate copies on track 5). Cold boot then changes only
+   4/4/2/0/45/130 bytes per page (2.23) and 3/3/2/3/82/86 (2.20) — a
+   sparse fixup pass concentrated in the last two pages. There are no
+   runtime "generator pages"; Part 5's "BIOS that half-exists" and the
+   $E5/trap-fill placeholder framing were artifacts of extracting wrong
+   disk regions under the wrong base. The disk filler regions' true
+   role (padding/workspace) → chunk-map question, still open.
 3. 2.20 `--no-videx` run halts in v2 at $FC59 — MODEL GAP (missing
    monitor HOME/CLREOP-family stubs for the 40-col console path), not a
-   CP/M finding; real hardware boots 2.20 without Videx.
-4. Videoterm manual Section 5 / firmware listing: confirm the hardware
-   release-on-other-slot behavior at schematic level.
+   CP/M finding; real hardware boots 2.20 without Videx. Still open.
+4. **Videoterm manual: CHECKED (better than schematic).** The manual's
+   own example code mandates SETREGS — `STA $CFFF` ("TURN OFF
+   CO-RESIDENT ROMS") + `STA $C300` ("SELECT CO-RESIDENT ROM IN SLOT
+   3") + screen holes $6F8=$30/$7F8=$C3 — immediately before EVERY
+   entry into $C800 space. Symbol table confirms the 2.20 RPC targets
+   by name: SETUP=$C800, KEYIN2=$C84D, PSOUT=$C9A7 (entry $C9AA = char
+   already in hole), BYTE=$0678 "I/O BYTE FOR PASCAL ENTRIES",
+   CRFLAG=$0478. Pascal 1.1 vectors: INIT=$C311, READ=$C314,
+   WRITE=$C31C, STATUS=$C322. The hardware other-slot release trigger
+   remains inferred (A2FPGA-implemented, symptom-matched on real
+   hardware); the protocol violation is now manual-documented
+   regardless.
 5. The $0478 screen-hole double-use (Videx CRFLAG `LSR $0478` at $C9AA
    vs. RWTS current-track scratch) — real but benign for CP/M's flow
-   (RWTS reloads $0478 from the per-slot hole before each seek);
-   documented here for completeness.
+   (RWTS reloads $0478 from the per-slot hole before each seek).
 
 ## New emulator assets (this continuation)
 

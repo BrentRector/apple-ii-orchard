@@ -31,14 +31,18 @@ def test_signature_constants():
                     reason="bios_223.bin missing")
 def test_trace_2_23_jump_table():
     sched = trace_cold_boot(REPO_ROOT / "cpm-investigation" / "bios_223.bin")
-    assert sched.bios_org == 0xFAB8
-    assert sched.bios_size == 0x0548  # 1352 bytes for the live BIOS
+    # True base $FA00 (corrected 2026-06-11; was 0xFAB8 under the wrong
+    # address model -- see docs/CPM_SoftCard_RealMap_Findings.md)
+    assert sched.bios_org == 0xFA00
+    assert sched.bios_size == 0x0548  # 1352-byte chunk: $FA00-$FF47
     # All 17 entries identified
     assert len(sched.jump_table) == 17
-    # Entry 0 is BOOT; should JP to $FED1 (the runtime-populated landing)
+    # Entry 0 is BOOT; JPs to $FED1
     assert sched.jump_table[0].name == "BOOT"
     assert sched.jump_table[0].target == 0xFED1
-    # Entry 1 (WBOOT) jumps to BOOT itself in this build
+    # Entry 1 (WBOOT) -> the WBOOT handler at $FAB8 (under the old org
+    # this looked like "WBOOT jumps to BOOT itself"; it doesn't -- $FAB8
+    # is the warm-boot handler, $B8 past the table base)
     assert sched.jump_table[1].name == "WBOOT"
     assert sched.jump_table[1].target == 0xFAB8
     # Inline entries 15 + 16 have no JP target
@@ -50,8 +54,9 @@ def test_trace_2_23_jump_table():
                     reason="bios_223.bin missing")
 def test_trace_2_23_cold_boot_generator():
     sched = trace_cold_boot(REPO_ROOT / "cpm-investigation" / "bios_223.bin")
-    # Cold-boot generator signature is at $FB3D in the live BIOS
-    assert sched.cold_boot_generator_addr == 0xFB3D
+    # Cold-boot generator signature at $FA85 (entry $FA82; was reported
+    # as $FB3D/$FB3A under the old +$B8 org)
+    assert sched.cold_boot_generator_addr == 0xFA85
 
 
 @pytest.mark.skipif(not _has("cpm-investigation/bios_223.bin"),
@@ -63,17 +68,22 @@ def test_trace_2_23_dispatch_cases():
     assert 3 in cases, "missing device-3 dispatch case"
     assert 4 in cases, "missing device-4 dispatch case"
     assert 6 in cases, "missing device-6 dispatch case (the Videx fix)"
-    # Known handler addresses
-    assert cases[3] == 0xFE81  # INIT_KEYBOARD
-    assert cases[4] == 0xFD83  # INIT_PASCAL_1_0
-    assert cases[6] == 0xFDB0  # INIT_PASCAL_1_1 -- the 2.23-only fix
+    # Known handler addresses (CALL operands -- content bytes, so they
+    # were correct even under the old org)
+    assert cases[3] == 0xFE81
+    assert cases[4] == 0xFD83
+    # Device 6 (2.23-only): $FDB0 holds delegation code (LD A,E /
+    # LD ($F047),A / JP $FB45), not the "RET stub" of the old story
+    assert cases[6] == 0xFDB0
 
 
 @pytest.mark.skipif(not _has("cpm-investigation/bios_220.bin"),
                     reason="bios_220.bin missing")
 def test_trace_2_20_jump_table():
     sched = trace_cold_boot(REPO_ROOT / "cpm-investigation" / "bios_220.bin")
-    assert sched.bios_org == 0xDACC
+    # True base $DA00 (corrected 2026-06-11; was 0xDACC = the WBOOT
+    # handler address mistaken for the base)
+    assert sched.bios_org == 0xDA00
     assert len(sched.jump_table) == 17
     # 2.20 BOOT JPs to $DEA8 (the 2.20 equivalent of 2.23's $FED1 landing)
     assert sched.jump_table[0].target == 0xDEA8

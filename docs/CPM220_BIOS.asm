@@ -1,34 +1,39 @@
 ; ============================================================================
-; Microsoft SoftCard CP/M 2.20 -- Z-80 BIOS ($DACC-$E2CB, 2 KB)
+; Microsoft SoftCard CP/M 2.20 -- Z-80 BIOS (true base $DA00; this chunk
+; covers $DA00-$E1FF, 2 KB)
 ; Annotated Z-80 assembly source for the 2.20 BIOS region.
 ;
-; STRUCTURE
-;   2.20's BIOS uses a 256-byte interleaved layout (same as 2.23) but
-;   has 4 code pages + 4 filler pages = 2 KB total.
+; RE-BASED 2026-06-11 (see docs/CPM_SoftCard_RealMap_Findings.md). This
+; file previously carried .ORG $DACC: an artifact of the wrong SoftCard
+; address model (the WBOOT handler address was mistaken for the base).
+; The jump table is the FIRST thing in this image, at Z-80 $DA00
+; (= Apple $FA00 in language-card RAM, through the real map's +$2000
+; window). Section-comment addresses below were written under the old
+; base and read $CC high until individually swept; the byte stream is
+; unaffected (all absolute operands are hex literals).
 ;
-;     Page 0  $DACC-$DBCB  Jump table, dispatch table, generator (CODE)
-;     Page 1  $DBCC-$DCCB  $E5 filler
-;     Page 2  $DCCC-$DDCB  Per-device init helpers (CODE)
-;     Page 3  $DDCC-$DECB  $E5 filler (BOOT vector lands here)
-;     Page 4  $DECC-$DFCB  Cold-boot device-scan + helpers (CODE)
-;     Page 5  $DFCC-$E0CB  $E5 filler
-;     Page 6  $E0CC-$E1CB  STATIC PER-DEVICE HANDLERS (CODE) <- 2.23 lacks this
-;     Page 7  $E1CC-$E2CB  $E5 filler
-;
-;   Filler is $E5 (CP/M deleted-file marker / Z-80 PUSH HL). 2.23 uses
-;   FF/F7/00 trap markers instead -- a safety upgrade so premature
-;   execution lands in a defined trap rather than thrashing the stack.
+; STRUCTURE -- corrected 2026-06-11
+;   The "interleaved code/filler pages" story is dead. Page provenance
+;   (emu_softcard_v2 snapshot vs raw disk): the runtime BIOS $DA00-$DE00
+;   pages arrive VERBATIM from CPM220Disk1.po track 2, file-sectors 1..5
+;   (duplicates on track 5); the $DF00 page is assembled during the 6502
+;   phase. Cold boot patches only 3/3/2/3/82/86 bytes per page -- a
+;   sparse fixup pass concentrated in the last two pages. The live Z-80
+;   window ends at $DFFF ($E000+ is the Apple I/O window); bytes in this
+;   chunk past $DFFF are load-image content, not runtime BIOS. The $E5
+;   runs are CP/M directory-fill riding along in the image -- they are
+;   NOT executed handler placeholders (the PUSH-HL hang story built on
+;   them is overturned; see Part 13 / the findings doc).
 ;
 ; KEY DIFFERENCES FROM 2.23
-;   - 2 KB total (vs 2.23's 1.35 KB) -- 2.20 is bigger because of the
-;     static-handler page.
-;   - Page 6 ($E0CC-$E1CB) holds STATIC device handlers. 2.23 generates
-;     equivalents at runtime instead.
-;   - Cold-boot generator at $DB6E lacks the device-6 (Pascal 1.1)
-;     branch that 2.23 added -- the Videx-fix is precisely this absence.
-;   - Dispatch table at $DAFF has 6 entries (vs 2.23's 4), with entries
-;     0-3 pointing to static handlers and entries 4-5 to runtime slots.
-;   - BDOS final position $CC06 (vs 2.23's $9C06 -- 12 KB shift).
+;   - Cold-boot generator (true ~$DAA2; old docs "$DB6E") lacks the
+;     device-6 (Pascal 1.1) branch that 2.23 added. Console RPCs for
+;     device 4 target the Videoterm's documented Pascal 1.0 entries
+;     ($C800/$C84D/$C9AA) with the $CFFF/$C300 ownership dance done
+;     Z-80-side at $DCEA/$DCEE -- which the $E700/$C700 CPU-switch
+;     access then destroys. That is the real 2.20+Videx failure.
+;   - BDOS final position $CC06 (vs 2.23's $9C06 -- 12 KB shift; 2.20
+;     is the 56K LC-RAM configuration, 2.23 the 44K one).
 ; ============================================================================
 
 ; ----------------------------------------------------------------------------
@@ -62,7 +67,7 @@ BDOS_ENTRY      = $CC06       ; 2.20: BDOS at $CC06 (vs 2.23 at $9C06)
 APPLE_TEXT_FLAG = $E051
 
     DEVICE NOSLOT64K
-            .ORG $DACC
+            .ORG $DA00
 
 
 ; ============================================================================
@@ -187,7 +192,7 @@ JUMP_TABLE:
           JP C,$DFD6                      ; $DB5A DA D6 DF
           ADC A,D                         ; $DB5D 8A
           RST $18                         ; $DB5E DF
-          JR NZ,$DB61                     ; $DB5F 20 00
+          JR NZ,$DA95                     ; $DB5F 20 00
           INC BC                          ; $DB61 03
           RLCA                            ; $DB62 07
           NOP                             ; $DB63 00
@@ -206,17 +211,17 @@ JUMP_TABLE:
           ADD HL,DE                       ; $DB74 19
           LD A,(HL)                       ; $DB75 7E
           SUB $03                         ; $DB76 D6 03
-          JR NZ,$DB81                     ; $DB78 20 07
+          JR NZ,$DAB5                     ; $DB78 20 07
           CALL $DD60                      ; $DB7A CD 60 DD
           LD (HL),$03                     ; $DB7D 36 03
           LD (HL),$15                     ; $DB7F 36 15
           DEC A                           ; $DB81 3D
-          JR NZ,$DB8D                     ; $DB82 20 09
+          JR NZ,$DAC1                     ; $DB82 20 09
           CALL $DCEE                      ; $DB84 CD EE DC
           LD HL,$C800                     ; $DB87 21 00 C8
           CALL $DB3B                      ; $DB8A CD 3B DB
           DEC E                           ; $DB8D 1D
-          JR NZ,$DB71                     ; $DB8E 20 E1
+          JR NZ,$DAA5                     ; $DB8E 20 E1
           RET                             ; $DB90 C9
           LD HL,$E000                     ; $DB91 21 00 E0
           LD A,E                          ; $DB94 7B
@@ -519,14 +524,14 @@ JUMP_TABLE:
           CP C                            ; $DCEE B9
           LD A,(HL)                       ; $DCEF 7E
           RET Z                           ; $DCF0 C8
-          DJNZ $DCE7                      ; $DCF1 10 F4
+          DJNZ $DC1B                      ; $DCF1 10 F4
           LD A,C                          ; $DCF3 79
           RET                             ; $DCF4 C9
           LD DE,$0003                     ; $DCF5 11 03 00
           JP $DB2F                        ; $DCF8 C3 2F DB
           LD A,($E000)                    ; $DCFB 3A 00 E0
           RLA                             ; $DCFE 17
-          JR NC,$DCFB                     ; $DCFF 30 FA
+          JR NC,$DC2F                     ; $DCFF 30 FA
           LD ($E010),A                    ; $DD01 32 10 E0
           CCF                             ; $DD04 3F
           RRA                             ; $DD05 1F
@@ -538,15 +543,15 @@ JUMP_TABLE:
           LD A,($0003)                    ; $DD0F 3A 03 00
           AND $03                         ; $DD12 E6 03
           CP $02                          ; $DD14 FE 02
-          JR NZ,$DD63                     ; $DD16 20 4B
+          JR NZ,$DC97                     ; $DD16 20 4B
           LD HL,($F392)                   ; $DD18 2A 92 F3
           JP (HL)                         ; $DD1B E9
           LD A,($0003)                    ; $DD1C 3A 03 00
           AND $03                         ; $DD1F E6 03
           CP $02                          ; $DD21 FE 02
           LD HL,($F384)                   ; $DD23 2A 84 F3
-          JR Z,$DD2E                      ; $DD26 28 06
-          JR NC,$DD31                     ; $DD28 30 07
+          JR Z,$DC62                      ; $DD26 28 06
+          JR NC,$DC65                     ; $DD28 30 07
           LD HL,($F382)                   ; $DD2A 2A 82 F3
           JP (HL)                         ; $DD2D E9
           LD HL,($F38A)                   ; $DD2E 2A 8A F3
@@ -554,23 +559,23 @@ JUMP_TABLE:
           LD A,($0003)                    ; $DD32 3A 03 00
           AND $C0                         ; $DD35 E6 C0
           CP $80                          ; $DD37 FE 80
-          JR C,$DD62                      ; $DD39 38 27
-          JR Z,$DD18                      ; $DD3B 28 DB
+          JR C,$DC96                      ; $DD39 38 27
+          JR Z,$DC4C                      ; $DD3B 28 DB
           LD HL,($F394)                   ; $DD3D 2A 94 F3
           JP (HL)                         ; $DD40 E9
           LD A,($0003)                    ; $DD41 3A 03 00
           AND $30                         ; $DD44 E6 30
           CP $10                          ; $DD46 FE 10
-          JR C,$DD62                      ; $DD48 38 18
+          JR C,$DC96                      ; $DD48 38 18
           LD HL,($F38E)                   ; $DD4A 2A 8E F3
-          JR NZ,$DD31                     ; $DD4D 20 E2
+          JR NZ,$DC65                     ; $DD4D 20 E2
           LD HL,($F390)                   ; $DD4F 2A 90 F3
           JP (HL)                         ; $DD52 E9
           LD A,($0003)                    ; $DD53 3A 03 00
           AND $0C                         ; $DD56 E6 0C
           CP $04                          ; $DD58 FE 04
-          JR C,$DD2A                      ; $DD5A 38 CE
-          JR Z,$DD2E                      ; $DD5C 28 D0
+          JR C,$DC5E                      ; $DD5A 38 CE
+          JR Z,$DC62                      ; $DD5C 28 D0
           LD HL,($F38C)                   ; $DD5E 2A 8C F3
           JP (HL)                         ; $DD61 E9
           SCF                             ; $DD62 37
@@ -582,11 +587,11 @@ JUMP_TABLE:
           INC HL                          ; $DD6A 23
           LD A,(HL)                       ; $DD6B 7E
           OR A                            ; $DD6C B7
-          JR Z,$DDAC                      ; $DD6D 28 3D
+          JR Z,$DCE0                      ; $DD6D 28 3D
           DEC (HL)                        ; $DD6F 35
           LD A,($F396)                    ; $DD70 3A 96 F3
           LD HL,$DEAB                     ; $DD73 21 AB DE
-          JR Z,$DD84                      ; $DD76 28 0C
+          JR Z,$DCB8                      ; $DD76 28 0C
           OR A                            ; $DD78 B7
           JP P,$DBB3                      ; $DD79 F2 B3 DB
           DEC HL                          ; $DD7C 2B
@@ -619,23 +624,23 @@ JUMP_TABLE:
           POP AF                          ; $DDA6 F1
           LD B,$0A                        ; $DDA7 06 0A
           LD C,A                          ; $DDA9 4F
-          JR $DDF9                        ; $DDAA 18 4D
+          JR $DD2D                        ; $DDAA 18 4D
           LD B,A                          ; $DDAC 47
           LD HL,$DEA4                     ; $DDAD 21 A4 DE
           LD A,(HL)                       ; $DDB0 7E
           LD E,A                          ; $DDB1 5F
           OR A                            ; $DDB2 B7
-          JR NZ,$DDC6                     ; $DDB3 20 11
+          JR NZ,$DCFA                     ; $DDB3 20 11
           LD A,($F397)                    ; $DDB5 3A 97 F3
           OR A                            ; $DDB8 B7
-          JR Z,$DDC1                      ; $DDB9 28 06
+          JR Z,$DCF5                      ; $DDB9 28 06
           CP C                            ; $DDBB B9
-          JR NZ,$DDC1                     ; $DDBC 20 03
+          JR NZ,$DCF5                     ; $DDBC 20 03
           LD (HL),$80                     ; $DDBE 36 80
           RET                             ; $DDC0 C9
           LD A,$1F                        ; $DDC1 3E 1F
           CP C                            ; $DDC3 B9
-          JR C,$DDF9                      ; $DDC4 38 33
+          JR C,$DD2D                      ; $DDC4 38 33
           LD HL,$F3A0                     ; $DDC6 21 A0 F3
           LD B,$09                        ; $DDC9 06 09
           LD A,(HL)                       ; $DDCB 7E
@@ -896,13 +901,13 @@ JUMP_TABLE:
           PUSH HL                         ; $DECA E5
           PUSH HL                         ; $DECB E5
           OR A                            ; $DECC B7
-          JR Z,$DED3                      ; $DECD 28 04
+          JR Z,$DE07                      ; $DECD 28 04
           XOR E                           ; $DECF AB
           CP C                            ; $DED0 B9
-          JR Z,$DED8                      ; $DED1 28 05
+          JR Z,$DE0C                      ; $DED1 28 05
           DEC HL                          ; $DED3 2B
-          DJNZ $DECB                      ; $DED4 10 F5
-          JR $DEF9                        ; $DED6 18 21
+          DJNZ $DDFF                      ; $DED4 10 F5
+          JR $DE2D                        ; $DED6 18 21
           LD DE,$000B                     ; $DED8 11 0B 00
           ADD HL,DE                       ; $DEDB 19
           LD A,(HL)                       ; $DEDC 7E
@@ -918,7 +923,7 @@ JUMP_TABLE:
           POP BC                          ; $DEEE C1
           LD A,B                          ; $DEEF 78
           CP $07                          ; $DEF0 FE 07
-          JR NZ,$DEF9                     ; $DEF2 20 05
+          JR NZ,$DE2D                     ; $DEF2 20 05
           LD A,$02                        ; $DEF4 3E 02
           LD ($DEA3),A                    ; $DEF6 32 A3 DE
           XOR A                           ; $DEF9 AF
@@ -926,7 +931,7 @@ JUMP_TABLE:
           LD A,($DEA2)                    ; $DEFD 3A A2 DE
           OR A                            ; $DF00 B7
           LD HL,($F388)                   ; $DF01 2A 88 F3
-          JR Z,$DF09                      ; $DF04 28 03
+          JR Z,$DE3D                      ; $DF04 28 03
           LD HL,($F386)                   ; $DF06 2A 86 F3
           JP (HL)                         ; $DF09 E9
           LD DE,$0003                     ; $DF0A 11 03 00
@@ -944,7 +949,7 @@ JUMP_TABLE:
           LD A,(HL)                       ; $DF27 7E
           LD ($DEA7),A                    ; $DF28 32 A7 DE
           CP $E0                          ; $DF2B FE E0
-          JR C,$DF31                      ; $DF2D 38 02
+          JR C,$DE65                      ; $DF2D 38 02
           XOR $20                         ; $DF2F EE 20
           AND $3F                         ; $DF31 E6 3F
           OR $40                          ; $DF33 F6 40
@@ -952,7 +957,7 @@ JUMP_TABLE:
           RET                             ; $DF36 C9
           LD A,B                          ; $DF37 78
           OR A                            ; $DF38 B7
-          JR Z,$DF46                      ; $DF39 28 0B
+          JR Z,$DE7A                      ; $DF39 28 0B
           LD HL,$DB3B                     ; $DF3B 21 3B DB
           PUSH HL                         ; $DF3E E5
           LD HL,$DCD4                     ; $DF3F 21 D4 DC
@@ -962,18 +967,18 @@ JUMP_TABLE:
           JP (HL)                         ; $DF45 E9
           LD A,C                          ; $DF46 79
           CP $0D                          ; $DF47 FE 0D
-          JR NZ,$DF50                     ; $DF49 20 05
+          JR NZ,$DE84                     ; $DF49 20 05
           XOR A                           ; $DF4B AF
           LD ($F024),A                    ; $DF4C 32 24 F0
           RET                             ; $DF4F C9
           OR $80                          ; $DF50 F6 80
           CP $E0                          ; $DF52 FE E0
-          JR C,$DF5A                      ; $DF54 38 04
+          JR C,$DE8E                      ; $DF54 38 04
           LD HL,$F3DD                     ; $DF56 21 DD F3
           XOR (HL)                        ; $DF59 AE
           LD ($F045),A                    ; $DF5A 32 45 F0
           LD HL,$FDF0                     ; $DF5D 21 F0 FD
-          JR $DFDB                        ; $DF60 18 79
+          JR $DF0F                        ; $DF60 18 79
           LD A,$FF                        ; $DF62 3E FF
           LD BC,$3F3E                     ; $DF64 01 3E 3F
           LD ($F032),A                    ; $DF67 32 32 F0
@@ -997,14 +1002,14 @@ JUMP_TABLE:
           LD HL,($DEAA)                   ; $DF8B 2A AA DE
           LD A,L                          ; $DF8E 7D
           CP $28                          ; $DF8F FE 28
-          JR C,$DF95                      ; $DF91 38 02
+          JR C,$DEC9                      ; $DF91 38 02
           LD L,$00                        ; $DF93 2E 00
           LD A,H                          ; $DF95 7C
           CP $18                          ; $DF96 FE 18
-          JR C,$DF9C                      ; $DF98 38 02
+          JR C,$DED0                      ; $DF98 38 02
           LD H,$00                        ; $DF9A 26 00
           LD ($F024),HL                   ; $DF9C 22 24 F0
-          JR $DF76                        ; $DF9F 18 D5
+          JR $DEAA                        ; $DF9F 18 D5
           CP D                            ; $DFA1 BA
           OR C                            ; $DFA2 B1
           OR H                            ; $DFA3 B4
@@ -1018,7 +1023,7 @@ JUMP_TABLE:
           CALL $DD60                      ; $DFAB CD 60 DD
           LD A,(HL)                       ; $DFAE 7E
           AND $02                         ; $DFAF E6 02
-          JR Z,$DFAE                      ; $DFB1 28 FB
+          JR Z,$DEE2                      ; $DFB1 28 FB
           INC L                           ; $DFB3 2C
           LD (HL),C                       ; $DFB4 71
           RET                             ; $DFB5 C9
@@ -1298,7 +1303,7 @@ JUMP_TABLE:
           CALL $DD60                      ; $E0DE CD 60 DD
           LD A,(HL)                       ; $E0E1 7E
           RRA                             ; $E0E2 1F
-          JR NC,$E0E1                     ; $E0E3 30 FC
+          JR NC,$E015                     ; $E0E3 30 FC
           INC L                           ; $E0E5 2C
           LD A,(HL)                       ; $E0E6 7E
           RET                             ; $E0E7 C9
@@ -1315,7 +1320,7 @@ JUMP_TABLE:
           LD L,$C1                        ; $E100 2E C1
           LD A,(HL)                       ; $E102 7E
           RLA                             ; $E103 17
-          JR C,$E102                      ; $E104 38 FC
+          JR C,$E036                      ; $E104 38 FC
           CALL $DD5B                      ; $E106 CD 5B DD
           LD (HL),C                       ; $E109 71
           RET                             ; $E10A C9
@@ -1325,14 +1330,14 @@ JUMP_TABLE:
           JP $0000                        ; $E114 C3 00 00
           LD A,($DEB0)                    ; $E117 3A B0 DE
           OR A                            ; $E11A B7
-          JR NZ,$E120                     ; $E11B 20 03
+          JR NZ,$E054                     ; $E11B 20 03
           LD ($DEAF),A                    ; $E11D 32 AF DE
           LD C,$00                        ; $E120 0E 00
           LD A,C                          ; $E122 79
           LD ($DEA8),A                    ; $E123 32 A8 DE
           RET                             ; $E126 C9
           LD HL,$E080                     ; $E127 21 80 E0
-          JR $E12F                        ; $E12A 18 03
+          JR $E063                        ; $E12A 18 03
           LD HL,$E08E                     ; $E12C 21 8E E0
           LD A,E                          ; $E12F 7B
           ADD A,A                         ; $E130 87
@@ -1349,14 +1354,14 @@ JUMP_TABLE:
           LD A,($F3B8)                    ; $E13F 3A B8 F3
           DEC A                           ; $E142 3D
           CP C                            ; $E143 B9
-          JR C,$E150                      ; $E144 38 0A
+          JR C,$E084                      ; $E144 38 0A
           LD A,(HL)                       ; $E146 7E
           LD (DE),A                       ; $E147 12
           INC DE                          ; $E148 13
           LD A,C                          ; $E149 79
           LD (DE),A                       ; $E14A 12
           LD HL,$DA33                     ; $E14B 21 33 DA
-          JR $E130                        ; $E14E 18 E0
+          JR $E064                        ; $E14E 18 E0
           LD A,(DE)                       ; $E150 1A
           LD (HL),A                       ; $E151 77
           LD L,$00                        ; $E152 2E 00
@@ -1377,13 +1382,13 @@ JUMP_TABLE:
           LD (HL),A                       ; $E16A 77
           INC HL                          ; $E16B 23
           LD (HL),A                       ; $E16C 77
-          JR $E1BE                        ; $E16D 18 4F
+          JR $E0F2                        ; $E16D 18 4F
           LD H,C                          ; $E16F 61
           LD L,$00                        ; $E170 2E 00
           LD ($DEB1),HL                   ; $E172 22 B1 DE
           LD A,C                          ; $E175 79
           CP $02                          ; $E176 FE 02
-          JR NZ,$E189                     ; $E178 20 0F
+          JR NZ,$E0BD                     ; $E178 20 0F
           LD L,$08                        ; $E17A 2E 08
           LD A,($DEAD)                    ; $E17C 3A AD DE
           LD H,A                          ; $E17F 67
@@ -1393,29 +1398,29 @@ JUMP_TABLE:
           LD HL,$DEB4                     ; $E189 21 B4 DE
           LD A,(HL)                       ; $E18C 7E
           OR A                            ; $E18D B7
-          JR Z,$E1B8                      ; $E18E 28 28
+          JR Z,$E0EC                      ; $E18E 28 28
           DEC (HL)                        ; $E190 35
           LD A,($DEAD)                    ; $E191 3A AD DE
           INC HL                          ; $E194 23
           CP (HL)                         ; $E195 BE
-          JR NZ,$E1B8                     ; $E196 20 20
+          JR NZ,$E0EC                     ; $E196 20 20
           LD A,($DEA8)                    ; $E198 3A A8 DE
           LD HL,($DEB6)                   ; $E19B 2A B6 DE
           CP L                            ; $E19E BD
-          JR NZ,$E1B8                     ; $E19F 20 17
+          JR NZ,$E0EC                     ; $E19F 20 17
           LD A,($DEA9)                    ; $E1A1 3A A9 DE
           CP H                            ; $E1A4 BC
-          JR NZ,$E1B8                     ; $E1A5 20 11
+          JR NZ,$E0EC                     ; $E1A5 20 11
           INC H                           ; $E1A7 24
           LD A,H                          ; $E1A8 7C
           SUB $20                         ; $E1A9 D6 20
-          JR C,$E1AF                      ; $E1AB 38 02
+          JR C,$E0E3                      ; $E1AB 38 02
           LD H,A                          ; $E1AD 67
           INC L                           ; $E1AE 2C
           LD ($DEB6),HL                   ; $E1AF 22 B6 DE
           XOR A                           ; $E1B2 AF
           LD ($DEB3),A                    ; $E1B3 32 B3 DE
-          JR $E1BE                        ; $E1B6 18 06
+          JR $E0F2                        ; $E1B6 18 06
           LD HL,$0001                     ; $E1B8 21 01 00
           LD ($DEB3),HL                   ; $E1BB 22 B3 DE
           CALL $DFF0                      ; $E1BE CD F0 DF
@@ -1697,4 +1702,4 @@ JUMP_TABLE:
 ;   $0006-$0007: $CC06 (BDOS entry after relocation)
 ; ============================================================================
 
-    SAVEBIN "build/CPM220_BIOS.bin", $DACC, $0800
+    SAVEBIN "build/CPM220_BIOS.bin", $DA00, $0800

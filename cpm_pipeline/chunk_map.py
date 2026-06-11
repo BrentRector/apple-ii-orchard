@@ -79,7 +79,10 @@ SOURCES_223: dict[str, ChunkSource | Path] = {
     ),
     "CPM223_BIOS": ChunkSource(
         asm_path=DOCS / "CPM223_BIOS.asm",
-        cpu="z80", org=0xFAB8, size=0x0548,
+        # True base $FA00 (jump table first; = Apple $0A00 through the
+        # real SoftCard map). Was 0xFAB8 -- the wrong-address-model org;
+        # see docs/CPM_SoftCard_RealMap_Findings.md.
+        cpu="z80", org=0xFA00, size=0x0548,
         expected_bin_name="build/CPM223_BIOS.bin",
     ),
     # Pre-extracted binaries we don't yet have an annotated source for:
@@ -171,7 +174,10 @@ SOURCES_220: dict[str, ChunkSource | Path] = {
     ),
     "CPM220_BIOS": ChunkSource(
         asm_path=DOCS / "CPM220_BIOS.asm",
-        cpu="z80", org=0xDACC, size=0x0800,
+        # True base $DA00 (jump table first; = Apple $FA00 in LC RAM
+        # through the real SoftCard map). Was 0xDACC -- the WBOOT handler
+        # address mistaken for the base under the wrong address model.
+        cpu="z80", org=0xDA00, size=0x0800,
         expected_bin_name="build/CPM220_BIOS.bin",
     ),
     # Pre-extracted binaries we don't yet have a clean per-asm split for:

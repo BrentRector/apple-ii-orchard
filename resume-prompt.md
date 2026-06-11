@@ -27,12 +27,26 @@
 > ($CFFF at $0E30, $C330 at $0E33, $Cn0D vector dispatch through the
 > slot page) — zero faults. v2 differential: 38M window faults + 0
 > screen chars (2.20) vs 0 faults + working DIR (2.23).
-> NEXT: (1) user review of the publication-correction plan (the 12-part
-> series' conclusion is de-confirmed); (2) Videoterm schematic-level
-> confirmation of other-slot release; (3) loose ends — $03C7 slot-byte
-> patcher, generator-entry re-derivation, BIOS .asm re-basing, pipeline
-> org fix. Original deliverables below remain done as BYTE-LEVEL facts;
-> the failure-mechanism narrative in them is superseded.
+> CORRECTIONS PUBLISHED (2026-06-11, continuation #2): Part 13 ("The
+> Conclusion Was Wrong") + dated Update notes on Parts 1-12, the
+> pipeline/round-trip articles, the project entry, and 8 devlogs;
+> committed to wiseowl.com (deploy BLOCKED on wrangler auth — run
+> `npm run deploy` interactively). Videoterm manual cross-confirms the
+> mechanism (SETREGS mandate; SETUP=$C800/KEYIN2=$C84D/PSOUT=$C9A7;
+> BYTE=$0678; Pascal 1.1 vectors $C311/$C314/$C31C/$C322). Loose ends
+> closed: slot-byte patcher = the slot scanner ($1086-$1090 in 2.23);
+> BIOS provenance = entire runtime BIOS verbatim from track 2 (2.23:
+> fsec 13..8 → $FA00..$FF00; 2.20: fsec 1..5 → $DA00..$DE00, $DF00
+> assembled); cold boot = sparse fixup (~185 bytes, last two pages);
+> "half-exists"/generator-pages framing was an extraction artifact.
+> STILL OPEN: (1) Joshua's email symptom check (Gmail MCP needs /mcp
+> auth; user recalls "it hung"); (2) re-base CPM22x_BIOS.asm ORGs to
+> $FA00/$DA00 (mechanical; round-trip tests protect); (3)
+> cold_boot_trace.py org fix + CPM_BootTrace.md sweep; (4) disk filler
+> regions' true role via chunk map; (5) 2.20 no-videx model gap
+> (monitor HOME stubs); (6) hardware-level other-slot release
+> confirmation (schematic). Original deliverables below remain done as
+> BYTE-LEVEL facts; the failure-mechanism narrative is superseded.
 
 **Previous milestone (2026-05-04):** INVESTIGATION CLOSED + SUCCESSOR TOOLSET SHIPPED.
 

@@ -81,16 +81,16 @@ python -m cpm_pipeline generate ../CPMV233.DSK ../build/cpm223_tree
 bash ../build/cpm223_tree/build.sh
 # → wrote rebuilt.dsk; BYTE-IDENTICAL to CPMV233.DSK
 
-# Trace the Z-80 BIOS -- jump table, trap markers, cold-boot generator
+# Trace the Z-80 BIOS -- jump table, fill regions, cold-boot generator
 python -m cpm_pipeline trace-z80 ../cpm-investigation/bios_223.bin
 # → ColdBootSchedule for bios_223.bin
-#     BIOS org: $FAB8, size: 1352 bytes
+#     BIOS org: $FA00, size: 1352 bytes   (true base; was $FAB8 pre-2026-06-11)
 #     jump table: 17 entries  (BOOT -> $FED1, WBOOT -> $FAB8, ...)
-#     trap-marker pages: 6
-#     cold-boot generator at $FB3D
+#     fill-pattern regions: 6   (load-image filler, not runtime placeholders)
+#     cold-boot generator at $FA85
 #     dispatch cases: 3
-#       device 3 -> CALL $FE81   (INIT_KEYBOARD)
-#       device 4 -> CALL $FD83   (INIT_PASCAL_1_0)
+#       device 3 -> CALL $FE81
+#       device 4 -> CALL $FD83
 #       device 6 -> CALL $FDB0   (INIT_PASCAL_1_1, the 2.23 Videx fix)
 
 # Same for 2.20 -- only 2 dispatch cases (no device 6)

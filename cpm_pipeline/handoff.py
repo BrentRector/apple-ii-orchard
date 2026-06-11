@@ -342,8 +342,10 @@ def find_handoff(disk_path: Path | str,
         if guess and guess.exists():
             bios_path = guess
             if bios_org is None:
-                bios_org = (0xFAB8 if info.variant == "softcard_cpm_2_23"
-                            else 0xDACC if info.variant == "softcard_cpm_2_20"
+                # Corrected 2026-06-11: true bases $FA00/$DA00 (was
+                # $FAB8/$DACC under the wrong address model).
+                bios_org = (0xFA00 if info.variant == "softcard_cpm_2_23"
+                            else 0xDA00 if info.variant == "softcard_cpm_2_20"
                             else None)
 
     if bios_path is not None and bios_org is not None:

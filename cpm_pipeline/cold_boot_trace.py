@@ -1,8 +1,8 @@
 """Stage 5 — Z-80 cold-boot tracing.
 
-Take a Z-80 BIOS binary (the bytes that live at the BIOS load address
-after the SoftCard handoff -- $FAB8 for CP/M 2.23, $DACC for 2.20)
-and structurally identify:
+Take a Z-80 BIOS binary (the bytes that live at the BIOS base after the
+SoftCard handoff -- $FA00 for CP/M 2.23, $DA00 for 2.20; the jump table
+is the first thing in the image) and structurally identify:
 
   * **BIOS jump table**: the 17 standard CP/M 2.x BIOS entries
     (BOOT, WBOOT, CONST, CONIN, CONOUT, LIST, PUNCH, READER, HOME,
@@ -10,11 +10,14 @@ and structurally identify:
     Entries 0-14 are 3-byte JP instructions; entry 15 (LISTST) is
     "XOR A; RET"; entry 16 (SECTRAN) is "LD H,B; LD L,C; RET".
 
-  * **Trap-marker pages**: regions filled with $FF $FF $00 $00 or
-    $F7 $F7 $00 $00 patterns that get runtime-populated by the
-    cold-boot generator with real handler bodies. The static bytes
-    decode as RST $38 / RST $30 + NOPs but are never executed in
-    that form.
+  * **Fill-pattern regions**: runs of $FF $FF $00 $00 or
+    $F7 $F7 $00 $00 in the image. NOTE (2026-06-11, realmap
+    correction): these are load-image filler, NOT runtime-populated
+    handler placeholders -- page provenance shows the runtime BIOS
+    arrives complete from disk and cold boot patches only ~185 bytes.
+    The detector is kept because the patterns are a useful variant
+    fingerprint; the old "trap-marker pages" interpretation is dead
+    (see docs/CPM_SoftCard_RealMap_Findings.md).
 
   * **Cold-boot generator**: the routine that walks the slot-info
     table at $F3B8+E (for E=7..1) and dispatches per device code.
@@ -26,8 +29,10 @@ and structurally identify:
     (3 = keyboard, 4 = Pascal 1.0, 6 = Pascal 1.1).
 
 For the cpm-videx investigation specifically, dispatch case 6 is
-the discriminator between 2.20 (case absent) and 2.23 (case present
-with target $FDB0). This module surfaces that distinction
+the discriminator between 2.20 (case absent) and 2.23 (case present;
+target $FDB0 under the corrected base holds real delegation code, and
+the case's real significance is the 6502-side Pascal 1.1 ownership
+handshake -- see wiseowl.com Part 13). This module surfaces that distinction
 mechanically.
 """
 
@@ -286,31 +291,34 @@ def trace_cold_boot(bios_path: Path | str,
                     *, bios_org: int | None = None) -> ColdBootSchedule:
     """Analyze a Z-80 BIOS binary and return a structured ColdBootSchedule.
 
-    `bios_org` defaults to $FAB8 (CP/M 2.23). For 2.20, pass $DACC.
+    `bios_org` defaults to $FA00 (CP/M 2.23). For 2.20, pass $DA00.
+    (Corrected 2026-06-11 from $FAB8/$DACC -- the wrong-address-model
+    bases; the jump table is the first thing in the image.)
     """
     bios_path = Path(bios_path)
     raw_full = bios_path.read_bytes()
 
-    # Effective BIOS size (for SoftCard 2.23: 1352 bytes from $FAB8 to $FFFF;
-    # the on-disk file may be longer with sector-aligned padding).
+    # Effective BIOS size (the on-disk file may be longer with
+    # sector-aligned padding).
     if bios_org is None:
         # Heuristic: if the file starts with a 17-entry jump table that
-        # makes sense for $FAB8 OR $DACC, pick whichever's targets land
+        # makes sense for $FA00 OR $DA00, pick whichever's targets land
         # inside the BIOS region.
-        bios_org = 0xFAB8
-        # If targets don't make sense, try $DACC.
+        bios_org = 0xFA00
+        # If targets don't make sense, try $DA00.
         # First entry must be JP nnnn.
         if len(raw_full) >= 3 and raw_full[0] == 0xC3:
             target = raw_full[1] | (raw_full[2] << 8)
-            if not (0xFAB8 <= target <= 0xFFFF):
-                if 0xDACC <= target <= 0xE2CB:
-                    bios_org = 0xDACC
+            if not (0xFA00 <= target <= 0xFFFF):
+                if 0xDA00 <= target <= 0xE1FF:
+                    bios_org = 0xDA00
 
-    # Truncate to live BIOS size.
-    if bios_org == 0xFAB8:
-        bios_size = 0x10000 - 0xFAB8  # = $0548 = 1352
-    elif bios_org == 0xDACC:
-        bios_size = 0x0800  # 2 KB for 2.20
+    # Truncate to the chunk's live size (slice lengths unchanged from
+    # the pre-correction extraction; only the base label moved).
+    if bios_org == 0xFA00:
+        bios_size = 0x0548  # 1352 bytes: $FA00-$FF47
+    elif bios_org == 0xDA00:
+        bios_size = 0x0800  # 2 KB chunk: $DA00-$E1FF (live BIOS ends $DFFF)
     else:
         bios_size = len(raw_full)
     raw = raw_full[:bios_size]
