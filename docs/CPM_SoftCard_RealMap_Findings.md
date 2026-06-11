@@ -361,6 +361,37 @@ SoftCard, because the SoftCard's own switch access destroys the claim.
    vs. RWTS current-track scratch) — real but benign for CP/M's flow
    (RWTS reloads $0478 from the per-slot hole before each seek).
 
+## Continuation #3 additions (same day)
+
+6. **Filler regions located (loose end closed).** Sector-level scan:
+   2.23's FF/F7 trap-fill lives at track 2 file-sectors 1-6 and 15 —
+   the sectors ADJACENT to the BIOS block (fsec 8-13); 2.20's $E5 fill
+   at track 2 fsec 7-15, right after its BIOS (fsec 1-5), plus normal
+   empty-filesystem $E5 (directory marker) on data tracks. The old
+   "alternating code/filler pages inside the BIOS" was an extraction
+   window mixing real BIOS sectors with adjacent padding sectors. The
+   "2.23 upgraded $E5 filler to RST traps" safety story is also dead —
+   it's just different padding bytes in unused track-2 sectors.
+7. **CPM223_DiskCallbacks.asm identity corrected.** Not "Z-80 disk
+   callbacks at $1A00" (no such view under the real map): byte search
+   places the chunk at disk trk2 fsec14 → staging Apple $9600+ →
+   PREP_HANDOFF #3 → Apple $B900+ = Z-80 $A900+, self-consistent with
+   its `JP $A929`-style operands. They are CCP/BDOS-support thunks in
+   the system image. Header rewritten; .ORG $1A00 retained as a
+   load-image artifact (runtime = file-local + $8F00); full
+   re-annotation pending.
+8. **2.20 no-Videx model gap closed.** With HOME/VTAB/CLREOP/COUT1-
+   family monitor stubs added, 2.20 without a Videx boots to the Z-80
+   keyboard-poll idle with ZERO window faults under strict arbitration.
+   Full field matrix now reproduces in-model: 2.20+Videx dead (38M
+   faults), 2.20 alone fine, 2.23+Videx fine.
+9. **Release-rule provenance** (see revised section 4 / honesty
+   inventory): other_slot_rom is documented FPGA-specific in
+   videx_card.sv; manual schematic activation corner lacks other-slot
+   decode inputs; physical-card trigger OPEN.
+10. Correction banners added to CPM_BootTrace.md and
+    CPM_DiskSectorMap.md (row/section-level sweeps pending).
+
 ## New emulator assets (this continuation)
 
 - `emu_softcard_v2.py` grew: $BE11 sector-level disk service

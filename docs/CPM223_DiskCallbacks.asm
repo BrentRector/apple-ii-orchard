@@ -1,34 +1,28 @@
 ; ============================================================================
-; Microsoft SoftCard CP/M 2.23 -- Z-80 Disk Callbacks ($1A00-$1BFF)
-; Annotated Z-80 assembly source for the disk-callback area Z-80 sees
-; in TPA-area memory (under SoftCard's bit-12 XOR mapping).
+; Microsoft SoftCard CP/M 2.23 -- BDOS-support thunks (true home: Z-80
+; $A900+ = Apple $B900+; previously misidentified as "Z-80 disk
+; callbacks at $1A00")
 ;
-; LOCATION
-;   Apple-side: $0A00-$0BFF (after PREP_HANDOFF). Sourced from the last
-;   6 pages of LOAD_CPM staging at Apple $9700-$98FF.
-;   Z-80-side: $1A00-$1BFF (via bit-12 XOR for low addresses).
+; FRAMING CORRECTED 2026-06-11 (see CPM_SoftCard_RealMap_Findings.md /
+; wiseowl.com Part 13). This file's original identity -- "Z-80 disk
+; callbacks at $1A00, dual-mapped, separate from the BIOS" -- was an
+; artifact of the bit-12-XOR address model; under the real map Z-80
+; $1A00 is Apple $2A00 (TPA), and there is no dual mapping anywhere.
 ;
-;   NOTE: The bytes here are SEPARATE from the BIOS at $FAB8 -- two
-;   different physical memory regions. The BIOS is in LC RAM (or
-;   SoftCard high-RAM); these callbacks are in Apple main RAM.
+; VERIFIED PROVENANCE (emu_softcard_v2 byte search, 2026-06-11): these
+; bytes live on disk at track 2 file-sector 14, are staged by LOAD_CPM
+; at Apple $9600+, and PREP_HANDOFF #3 lands them at Apple $B900+ =
+; Z-80 $A900+ -- which is self-consistent with the operands below
+; (JP $A929, LD ($A9B1),HL, ... reference the code's own page). They
+; are CCP/BDOS-support thunks in the system image, not BIOS disk
+; callbacks. The cooperative-CPU disk path actually runs through the
+; BIOS RPC machinery (see CPM223_BIOS.asm and the findings doc).
 ;
-; PURPOSE
-;   These are the BDOS-side and disk-I/O thunks the Z-80 calls when
-;   CP/M needs to dispatch through the cooperative-CPU model. The
-;   callbacks set up parameters in BIOS state slots and then trigger
-;   the CPU switch via the inter-CPU sync polling at $1E39.
-;
-;   The polling loop at $1E39-$1E44 itself is NOT in this file -- it
-;   lives in the BIOS first 1 KB content at $1C00-$1FFF (which is the
-;   same bytes as BIOS $FAB8-$FEB7 dual-mapped). See CPM223_BIOS.asm
-;   for the polling loop annotation.
-;
-; STRUCTURE
-;   $1A00-$1A2F  Small BDOS-style thunks (mostly 3-byte JP entries
-;                into $9F/$A1/$A9 BDOS area)
-;   $1A30-$1A52  More thunks
-;   $1A53-$1AAF  State-manipulation routines + disk-callback bodies
-;   $1AB0-$1BFF  Mostly zero-filled / runtime-mutable state
+; The .ORG $1A00 below is retained as a load-image artifact so the
+; byte stream reassembles identically; it has no runtime meaning. All
+; "$1Axx" addresses in comments below are therefore file-local labels,
+; not Z-80 runtime addresses (true runtime address = $1Axx + $8F00).
+; Full re-annotation pending.
 ; ============================================================================
 
 ; ----------------------------------------------------------------------------

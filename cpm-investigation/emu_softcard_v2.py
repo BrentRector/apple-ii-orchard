@@ -113,8 +113,14 @@ class SoftCardV2:
 
         self.m6502.add_breakpoint(0xFF4A, mon_save)
         self.m6502.add_breakpoint(0xFF3F, mon_restore)
+        # No-op monitor entries. The 40-column console path (no Videx)
+        # additionally needs the screen-handling family: HOME $FC58,
+        # VTAB $FC22, CLREOP $FC42, CLREOL $FC9C, SCROLL $FC70,
+        # SETTXT $FB39, COUT1 $FDF0.
         for entry in (0xFF58, 0xFCA8, 0xFF2D, 0xFB2F, 0xFE89, 0xFE93,
-                      0xFD8E, 0xFDED, 0xFD0C, 0xFF65):
+                      0xFD8E, 0xFDED, 0xFD0C, 0xFF65,
+                      0xFC58, 0xFC22, 0xFC42, 0xFC9C, 0xFC70, 0xFB39,
+                      0xFDF0):
             self.m6502.add_breakpoint(entry, mon_rts)
 
         # --- Videx Videoterm hardware model -------------------------------

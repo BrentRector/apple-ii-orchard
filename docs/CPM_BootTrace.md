@@ -1,5 +1,19 @@
 # Microsoft SoftCard CP/M — End-to-End Boot Trace
 
+> **CORRECTION BANNER (2026-06-11)** — this synthesis predates the
+> SoftCard real-address-map correction and the mechanism overturn.
+> Read `CPM_SoftCard_RealMap_Findings.md` first. Superseded claims to
+> watch for here: the bit-12-XOR memory model (real map: Z-80
+> $F000-$FFFF = Apple $0000-$0FFF, $B000-$DFFF = $D000-$FFFF,
+> $E000-$EFFF = Apple I/O); the "$0E36 fetch" CPU-switch trigger (real:
+> $C700 slot-page access, both directions); BIOS bases $FAB8/$DACC
+> (real: $FA00/$DA00); "BIOS load to $FAB8" and "$03B8->$F3B8 copy"
+> steps (window views -- no copy); trap-marker/generator-page runtime
+> population (BIOS arrives verbatim from track 2; cold boot patches
+> ~185 bytes); the $E000/$E010 "sync flag pair" (Z-80 keyboard reads);
+> and the device-4 PUSH-HL hang chain (overturned -- see wiseowl.com
+> Part 13). Section-level sweep PENDING.
+
 **From sector 0 to A>**, on Apple II hardware with a Microsoft SoftCard
 in slot 4 and (typically) a Disk II controller in slot 6.
 
