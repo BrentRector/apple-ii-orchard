@@ -392,6 +392,48 @@ SoftCard, because the SoftCard's own switch access destroys the claim.
 10. Correction banners added to CPM_BootTrace.md and
     CPM_DiskSectorMap.md (row/section-level sweeps pending).
 
+## Original email thread recovered (2026-06-11, from the user)
+
+Facts extracted from the April 2026 Joshua Norrid thread:
+
+- REAL-HARDWARE CONFIRMATION (first-hand, 2026-04-26): "I couldn't get
+  my copy of 2.20 to come up in 80 column mode properly even on a
+  Videx with firmware 2.4." A2FPGA-side symptom (2026-04-15): Microsoft
+  2.2(0) "refuse[s] to come up." Both consistent with pre-banner death;
+  neither pins blank-vs-garbage. Firmware 2.4 on the real card = same
+  ROM as A2FPGA + v2 emulator → ROM revision ruled out; BOARD LOGIC
+  revision (4013 vs PAL16L8) remains the live variable for the
+  physical-card release-trigger question.
+- Applied Engineering CP/AM 4.0b and 5.1 worked on the SAME physical
+  Videx and on the A2FPGA — third-party CP/M honoring the firmware
+  protocol drives the identical hardware fine.
+- Period source (Apple CP/M Reference, stjarnhimlen.se): 2.23 "uses
+  Apple Computer's protocols for operating what Apple calls F[i]rmware
+  Cards... Version 2.20B could not identify Firmware Cards and would
+  often use the wrong I/O drives" (typos original). Detection half was
+  period-documented; the ownership half is this investigation's
+  contribution.
+- Joshua's April working theory — 2.20 "did not follow the Apple
+  Firmware Protocol in the boot track; 2.23 does" — correct in spirit
+  pre-disassembly. Credited in Part 13's update.
+- Disk inventory from the thread: "Softcard 16-sector disk (Microsoft
+  1980).dsk" = 2.20; the .cpm file = 2.20B 44K master; CPM220Disk1/2.po
+  = 2.20B 56K masters; CPMV233.DSK = 2.23 (1982); plus 2.25/2.26/2.28B
+  for later SoftCard models (different architectures — SoftCard II /
+  Premium have on-board ROM+RAM, per Joshua; the no-ROM rule applies
+  to the ORIGINAL SoftCard only).
+- DISCREPANCY NOTED: the thread reports CPMV233.DSK's banner as "60K
+  Ver. 2.23" on real/A2FPGA hardware; v2 boots it to "44K Ver. 2.23".
+  Likely the LC-RAM probe failing in v2's flat memory model selects
+  the smaller system configuration. Re-check when LC banking is
+  modeled. (Joshua's tested "my copy of 2.20" sub-version is also
+  unspecified — could be the 1980 16-sector 2.20 rather than 2.20B.)
+
+Part 13 updated with the thread evidence (site rebuild + redeploy
+needed). The physical-card release trigger remains open pending
+board-revision research / a scope; the SoftCard arrived-or-not status
+for a local hardware test is unknown as of this writing.
+
 ## New emulator assets (this continuation)
 
 - `emu_softcard_v2.py` grew: $BE11 sector-level disk service
