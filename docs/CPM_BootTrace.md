@@ -453,6 +453,18 @@ walks the cooperative-CPU model end-to-end, including how the 6502
 
 ## Honest inventory of what's not in this document
 
+> **Update (2026-06-11):** Both unknowns below are now RESOLVED — and
+> dissolved rather than solved. There is no copy code: the SoftCard's
+> documented Z-80→Apple address translation (Z-80 `$F000-$FFFF` = Apple
+> `$0000-$0FFF`; Z-80 `$B000-$DFFF` = Apple `$D000-$FFFF`) makes the
+> slot table and the staged BIOS directly visible at the addresses the
+> Z-80 uses. The bit-12-XOR model this document assumes is wrong above
+> `$2000`, which also shifts the BIOS base ($FA00, not $FAB8; $DA00,
+> not $DACC) and corrects the CPU-switch trigger ($C700 access, not a
+> $0E36 fetch). See `CPM_SoftCard_RealMap_Findings.md` for evidence and
+> the full corrections inventory. The text below is preserved as
+> written (it documents the state of understanding at closure).
+
 Two architectural mechanisms remain unmodeled even after the cpm-videx
 investigation closed (per [Part 12](https://wiseowl.com/articles/cpm-videx-12-the-investigation-closes)).
 Both affect §VI but don't change the high-level trace; they're
