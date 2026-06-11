@@ -43,20 +43,34 @@
 > 2.20: 51 relative literals shifted; 2.23: absolute label operands
 > re-pointed/literalized, labels renamed to true addresses, 4 semantic
 > labels neutralized pending re-attachment); cold_boot_trace.py +
-> chunk_map + handoff + tests + README corrected; all 95 tests pass,
-> both disks reconstruct byte-identical. Provenance devlog published
-> (site builds, 111 pages). STILL OPEN: (1) Joshua's email symptom
-> check (Gmail MCP needs /mcp auth; user recalls "it hung"); (2) DEPLOY
-> the site (wrangler needs interactive auth: `npm run deploy`); (3)
-> CPM223_DiskCallbacks.asm re-framing (it duplicates BIOS pages 0-1
-> from the track-0 copy; "$1A00 dual-mapped" framing dead); (4) inline
-> section-comment sweeps inside both BIOS .asm files (headers warn);
-> (5) CPM_BootTrace.md + CPM_DiskSectorMap.md sweep; (6) re-attach the
-> 4 neutralized semantic labels at true positions; (7) disk filler
-> regions' true role via chunk map; (8) 2.20 no-videx model gap
-> (monitor HOME stubs); (9) hardware-level other-slot release
-> confirmation (schematic). Original deliverables below remain done as
-> BYTE-LEVEL facts; the failure-mechanism narrative is superseded.
+> chunk_map + handoff + tests + README corrected; 95 tests pass, both
+> disks reconstruct byte-identical. ALSO DONE: filler regions located
+> (track-2 padding sectors ADJACENT to both BIOS blocks — the
+> "alternating code/filler pages" was an extraction-window artifact);
+> CPM223_DiskCallbacks.asm re-identified (CCP/BDOS-support thunks, Z-80
+> $A900+ = Apple $B900+, disk trk2 fsec14; no "$1A00 callbacks" exist);
+> 2.20 no-videx boots clean in v2 (full field matrix reproduces:
+> 2.20+Videx dead / 2.20 alone fine / 2.23+Videx fine); correction
+> banners on CPM_BootTrace.md + CPM_DiskSectorMap.md.
+> RELEASE-RULE PROVENANCE (important nuance): videx_card.sv documents
+> other_slot_rom as FPGA-specific (physical PAL16L8 = $CFFF-only;
+> schematic shows no other-slot decode inputs). The demonstrated kill
+> is therefore THE A2FPGA MECHANISM (the original failing platform);
+> the physical card's trigger is OPEN — candidates: board-revision
+> variance (4013 vs PAL boards), SoftCard bus-phase timing hiding the
+> Z-80-side $C300 claim, or a divergent real-hardware report. The
+> manual-mandated protocol violation (SETREGS must immediately precede
+> every $C800 entry by the fetching CPU) is rule-independent and is
+> the durable framing.
+> STILL OPEN: (1) Joshua's email symptom check (Gmail MCP needs /mcp
+> auth; user recalls "it hung"); (2) DEPLOY the site (wrangler needs
+> interactive auth: `npm run deploy`); (3) inline section-comment
+> sweeps inside both BIOS .asm files + DiskCallbacks re-annotation;
+> (4) BootTrace/SectorMap row-level sweeps (banners in place); (5)
+> re-attach the 4 neutralized semantic labels at true positions; (6)
+> physical-card release trigger (emails/scope/board-rev research).
+> Original deliverables below remain done as BYTE-LEVEL facts; the
+> failure-mechanism narrative is superseded.
 
 **Previous milestone (2026-05-04):** INVESTIGATION CLOSED + SUCCESSOR TOOLSET SHIPPED.
 
