@@ -46,8 +46,13 @@
 
     DEVICE NOSLOT64K
 
-; -- Code-overlap labels (target falls inside another instruction) --
-BIOS_PRINT_C800      EQU $FB45
+; -- EQU entry points (kept symbolic; operands emit the literal value) --
+; $FB45 is the console-RPC dispatch helper: LD ($F3D0),HL stores the
+; 6502 service address into the warm loop's patched JSR operand, then
+; LD ($E700),A flips the bus (runtime-verified 2026-06-11). The former
+; name BIOS_PRINT_C800 and the "code-overlap label" framing were
+; artifacts of the pre-correction +$B8 base.
+RPC_DISPATCH         EQU $FB45
 
     ORG $FA00
 
@@ -198,7 +203,7 @@ L_FA95:
         JR NZ,L_FAA3                     ; $FB4E  20 0B
         CALL $FD83             ; $FB50  CD 83 FD
         LD HL,$C800                      ; $FB53  21 00 C8
-        CALL BIOS_PRINT_C800             ; $FB56  CD 45 FB
+        CALL RPC_DISPATCH                ; $FB56  CD 45 FB
         JR L_FAAD                        ; $FB59  18 0A
 L_FAA3:
         CP $02                           ; $FB5B  FE 02
@@ -229,7 +234,7 @@ L_FAB8:
         LD SP,$0080                      ; $FB70  31 80 00
         LD A,($E051)                     ; $FB73  3A 51 E0
         LD HL,$0E00                      ; $FB76  21 00 0E
-        CALL BIOS_PRINT_C800             ; $FB79  CD 45 FB
+        CALL RPC_DISPATCH                ; $FB79  CD 45 FB
         CALL $FA82                       ; $FB7C  CD 82 FA
 L_FAC7:
         LD A,($9C08)                     ; $FB7F  3A 08 9C

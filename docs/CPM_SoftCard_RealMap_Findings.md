@@ -391,6 +391,19 @@ SoftCard, because the SoftCard's own switch access destroys the claim.
    decode inputs; physical-card trigger OPEN.
 10. Correction banners added to CPM_BootTrace.md and
     CPM_DiskSectorMap.md (row/section-level sweeps pending).
+11. **$FB45 "code-overlap" de-confirmed (2026-06-11, cleanup pass).**
+    Runtime dump at true $FB45: `22 D0 F3 32 00 E7 C9` =
+    LD ($F3D0),HL / LD ($E700),A / RET — the console-RPC dispatch
+    helper (store service address into the warm-loop operand, flip the
+    bus). Instruction-aligned, no overlap. The "one byte is both JR
+    displacement and RLCA entry" reading (fb45-code-overlap devlog,
+    old round-trip article example) was a +$B8-shifted-address
+    artifact: the displacement byte sits at true $FA8D, which nothing
+    calls. CPM223_BIOS.asm symbol renamed BIOS_PRINT_C800 →
+    RPC_DISPATCH with corrected comment; devlog carries an Update
+    note; the round-trip article's example replaced with a generic
+    treatment. Keyboard poll confirmed at $FB39-$FB44 immediately
+    preceding it.
 
 ## Original email thread recovered (2026-06-11, from the user)
 
