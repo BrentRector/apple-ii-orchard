@@ -242,6 +242,12 @@ Standalones kept: `round-trip-discipline-disassembler-bug-detector`
 `cpm-videx.mdx` rewritten to the corrected story. Tools section gained
 `softcard-emulator.mdx`.
 
+ALSO NEW (2026-06-11): 3-part `softcard-emu-series` about the emulator
+itself (01-why-static-analysis-wasnt-enough, 02-building-a-two-cpu-
+machine-in-python, 03-what-a-working-replica-discovered), pointing to
+the Orchard GitHub repo for download; cross-linked from softcard-videx
+Part 6, the tools page, and the project entry.
+
 ### softcard_emu package (NEW 2026-06-11, continuation #4)
 
 The v2 emulator is packaged as the reusable top-level `softcard_emu/`
