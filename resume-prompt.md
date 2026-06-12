@@ -217,26 +217,48 @@ The site at `e:/Sites/wiseowl.com/` is Astro v6, deployed to Cloudflare Pages.
 - `cpm-videx.mdx` — "Microsoft SoftCard CP/M on a Videx", `featured: true, weight: 5`. **The project entry's "What's settled / open" section is stale** — written before Parts 5-12 + the emulator + cpm-from-source. May need refresh to reflect the closed state and link the successor project.
 - `cpm-from-source.mdx` — **NEW project** (started 2026-04-29), `featured: true, weight: 6`. Annotated 6502 + Z-80 sources for both versions, plus a build tool that round-trips a byte-identical .DSK from chunks. Successor to cpm-videx.
 
-### Articles — 14 cpm-related published total
+### Articles — RESTRUCTURED 2026-06-11
 
-The 12-part `cpm-videx-NN-*.mdx` series + 2 standalone methodology/tooling articles:
+The original 13-part chronological `cpm-videx-NN` series (12 parts +
+Part 13 correction) was **DELETED** at user direction ("too difficult
+to follow" after the mechanism overturn) and replaced by the 7-part
+**softcard-videx** series — system-first, happy decode path, with
+small "**Wrong turn:**" blockquote asides for the discovery flavor.
+301 redirects for all retired slugs live in `public/_redirects`;
+devlogs remain the unedited chronological record.
 
-| # | Slug | Title | pubDate |
-|---|------|-------|---------|
-| 1 | `cpm-videx-01-why-cpm-didnt-recognize-an-80-column-card` | Why CP/M Didn't Recognize an 80-Column Card | 2026-04-26 |
-| 2 | `cpm-videx-02-from-the-disk-ii-rom-to-the-z-80s-first-instruction` | From the Disk II ROM to the Z-80's First Instruction | 2026-04-27 |
-| 3 | `cpm-videx-03-apple-memory-through-z-80-eyes` | Apple Memory, Through Z-80 Eyes | 2026-04-27 |
-| 4 | `cpm-videx-04-the-handoff` | The Handoff | (renumbered) |
-| 5 | `cpm-videx-05-the-bios-that-half-exists` | The BIOS That Half-Exists | (was Part 4 originally) |
-| 6 | `cpm-videx-06-the-bios-factory` | The BIOS Factory | |
-| 7 | `cpm-videx-07-from-reset-to-device-scan` | From Reset to Device Scan | |
-| 8 | `cpm-videx-08-cooperative-cpu` | Cooperative CPU | |
-| 9 | `cpm-videx-09-every-difference` | Every Difference (categorical 2.20 vs 2.23 inventory) | |
-| 10 | `cpm-videx-10-the-cpu-switch` | The CPU Switch (`JSR $0E36` trigger; original series close) | |
-| 11 | `cpm-videx-11-emulator-verified` | Verifying It in the Emulator (Stages 1+2) | 2026-05-01 |
-| 12 | `cpm-videx-12-the-investigation-closes` | The Investigation Closes (final reading guide) | 2026-05-02 |
-| — | `round-trip-discipline-disassembler-bug-detector` | Round-trip discipline: when a disassembler becomes a bug detector | 2026-05-03 |
-| — | `cpm-pipeline-seven-stages` | Seven stages, ninety-five tests: building a CP/M reverse-engineering pipeline | 2026-05-04 |
+| # | Slug | Covers |
+|---|------|--------|
+| 1 | `softcard-videx-01-the-bug-and-the-fix` | whole story arc + version delta table |
+| 2 | `softcard-videx-02-booting-a-z80-os-on-a-6502-machine` | P6 PROM → stub → scanner/patcher → handoff |
+| 3 | `softcard-videx-03-the-softcards-real-memory-map` | 4 windows; dissolved mysteries; BIOS provenance; 44/56/60K |
+| 4 | `softcard-videx-04-two-cpus-one-bus` | warm loop, $45-$48 RPC, patched JSR, $C700 switch, RWTS |
+| 5 | `softcard-videx-05-the-shared-window` | C8 ownership, Videoterm entries, kill sequence, fix, open probe |
+| 6 | `softcard-videx-06-the-emulator-that-boots-both` | v2 emulator, fault differential, field matrix, model gaps |
+| 7 | `softcard-videx-07-how-the-wrong-answer-got-confirmed` | post-mortem (replaces old Parts 12+13) |
+
+Standalones kept: `round-trip-discipline-disassembler-bug-detector`
+(2026-05-03), `cpm-pipeline-seven-stages` (2026-05-04). Project entry
+`cpm-videx.mdx` rewritten to the corrected story. Tools section gained
+`softcard-emulator.mdx`.
+
+### softcard_emu package (NEW 2026-06-11, continuation #4)
+
+The v2 emulator is packaged as the reusable top-level `softcard_emu/`
+package (machine.py + langcard.py + videx.py + CLI + README + 5 smoke
+tests; `python -m softcard_emu DISK --keys "DIR\r"`).
+`cpm-investigation/emu_softcard_v2.py` is now a deprecation shim.
+NEW HARDWARE: Apple language card (banked $D000-$FFFF, $C080-$C08F
+semantics; 2.20B's 56K LC-resident BIOS runs through honest banking).
+FINDING: the 44K-vs-60K banner question dissolved — CPMV233.DSK's
+boot tracks ARE the 44K build (banner inside the BIOS pages, trk2
+fsec8); "60K" strings belong to trk2 fsec7 + CPM60.COM (the 60K
+system loader on the filesystem). April's thread mislabeled the disk.
+OPEN: `CPM60` does not come up in-emulator — loads (92 sector reads,
+3 writes), zeroes the BOOT entry of the $0A00 jump table, never
+populates LC RAM, wedges in a CONST-poll RPC ping-pong (warm operand
+$0E14, Z-80 at $FB4B). 60K bring-up = next emulator investigation.
+All 100 repo tests pass.
 
 ### Dev logs (`src/content/devlogs/cpm-videx-*.mdx`) — 43 published
 
