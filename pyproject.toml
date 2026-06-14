@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "orchard"
+version = "0.1.0"
+description = "Apple II and CP/M-80 (Microsoft SoftCard) reverse-engineering tooling"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+
+[project.optional-dependencies]
+# nibbler's `flux` command renders the magnetic surface as a PNG.
+flux = ["numpy", "Pillow"]
+
+# The six importable packages live across the shared/ and cpm-80/ trees.
+# This mapping lets `pip install -e .` expose them by their bare names
+# (import nibbler, import cpm_pipeline, ...) from anywhere, matching what
+# conftest.py does for the test runner and env.sh does for the shell.
+[tool.setuptools]
+packages = [
+    "nibbler",
+    "disasm_common",
+    "disasm6502",
+    "disasm_z80",
+    "softcard_emu",
+    "cpm_pipeline",
+]
+
+[tool.setuptools.package-dir]
+nibbler = "shared/nibbler"
+disasm_common = "shared/disasm_common"
+disasm6502 = "shared/disasm6502"
+disasm_z80 = "shared/disasm_z80"
+softcard_emu = "cpm-80/softcard_emu"
+cpm_pipeline = "cpm-80/cpm_pipeline"
+
+[tool.pytest.ini_options]
+# Discover the test suites across all three trees from the repo root.
+testpaths = [
+    "shared",
+    "cpm-80",
+    "apple-ii",
+]

@@ -8,7 +8,13 @@ build/
 .pytest_cache/
 
 # Script output directory
-apple-panic/output/
+apple-ii/apple-panic/output/
+
+# Rebuilt disk images from the decompiled distributions (regenerable)
+cpm-80/decompiled/**/rebuilt/
+
+# Emulator-produced 60K disk (regenerable by running CPM60.COM in softcard_emu)
+cpm-80/disks/CPMV233-60K-EMU.DSK
 
 # Large generated images (reproducible via nibbler flux)
 **/*_flux.png
@@ -36,9 +42,9 @@ emu_*.bin
 Thumbs.db
 .DS_Store
 
-# Local toolchain (per-developer; reinstall via tools/README.md)
-tools/cc65/
-tools/sjasmplus/
-tools/*.zip
-tools/smoke_*.o
-tools/smoke_*.bin
+# Local toolchain (per-developer; reinstall via shared/toolchain/README.md)
+shared/toolchain/cc65/
+shared/toolchain/sjasmplus/
+shared/toolchain/*.zip
+shared/toolchain/smoke_*.o
+shared/toolchain/smoke_*.bin
