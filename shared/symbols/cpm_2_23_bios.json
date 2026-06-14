@@ -1,30 +1,30 @@
 {
   "schema_version": "1.0",
-  "name": "CP/M 2.23 SoftCard BIOS (Z-80, $FAB8-$FFFF)",
-  "description": "Microsoft SoftCard CP/M 2.23 BIOS-internal labels. Companion to cpm_2_2.json (which holds the standard CP/M zero-page and BDOS conventions). These addresses are specific to the 2.23 build and don't apply to other CP/M variants.",
+  "name": "CP/M 2.23 SoftCard BIOS (Z-80, $FA00-$FFFF)",
+  "description": "Microsoft SoftCard CP/M 2.23 BIOS-internal labels. Companion to cpm_2_2.json (which holds the standard CP/M zero-page and BDOS conventions). These addresses are specific to the 2.23 build and don't apply to other CP/M variants. The BIOS base is $FA00 (jump table first); earlier revisions of this file used the wrong-address-model base $FAB8 and have been rebased by -$B8.",
   "sources": [
-    {"name": "Disassembly of CPMV233.DSK BIOS region $FAB8-$FFFF", "url": "in-repo: cpm-80/cpm-investigation/bios_223.bin"},
-    {"name": "cpm-80/docs/CPM223_BIOS.asm prose annotation (prior investigation)", "url": "in-repo"}
+    {"name": "Disassembly of CPMV233.DSK BIOS region $FA00-$FF47", "url": "in-repo: cpm-80/cpm-investigation/bios_223.bin"},
+    {"name": "cpm-80/docs/CPM223_BIOS.asm prose annotation", "url": "in-repo"}
   ],
   "categories": {
     "bios_jump_table_223": {
-      "0xFAB8": {"name": "BOOT",   "comment": "BIOS entry 0  -- cold-boot (jumps to NOP-slide landing $FED1)"},
-      "0xFABB": {"name": "WBOOT",  "comment": "BIOS entry 1  -- warm boot (on SoftCard 2.23: same as BOOT)"},
-      "0xFABE": {"name": "CONST",  "comment": "BIOS entry 2  -- console status"},
-      "0xFAC1": {"name": "CONIN",  "comment": "BIOS entry 3  -- console input"},
-      "0xFAC4": {"name": "CONOUT", "comment": "BIOS entry 4  -- console output"},
-      "0xFAC7": {"name": "LIST",   "comment": "BIOS entry 5  -- printer (LIST device) output"},
-      "0xFACA": {"name": "PUNCH",  "comment": "BIOS entry 6  -- punch device output"},
-      "0xFACD": {"name": "READER", "comment": "BIOS entry 7  -- reader device input"},
-      "0xFAD0": {"name": "HOME",   "comment": "BIOS entry 8  -- disk home (seek track 0)"},
-      "0xFAD3": {"name": "SELDSK", "comment": "BIOS entry 9  -- select disk (returns DPH pointer)"},
-      "0xFAD6": {"name": "SETTRK", "comment": "BIOS entry 10 -- set track for next read/write"},
-      "0xFAD9": {"name": "SETSEC", "comment": "BIOS entry 11 -- set sector for next read/write"},
-      "0xFADC": {"name": "SETDMA", "comment": "BIOS entry 12 -- set DMA buffer address"},
-      "0xFADF": {"name": "READ",   "comment": "BIOS entry 13 -- read selected sector to DMA"},
-      "0xFAE2": {"name": "WRITE",  "comment": "BIOS entry 14 -- write DMA buffer to selected sector"},
-      "0xFAE5": {"name": "LISTST", "comment": "BIOS entry 15 -- LIST status (returns A=0 = not ready)"},
-      "0xFAE8": {"name": "SECTRAN", "comment": "BIOS entry 16 -- sector translation (identity: LD H,B; LD L,C; RET)"}
+      "0xFA00": {"name": "BOOT",   "comment": "BIOS entry 0  -- cold-boot (jumps to NOP-slide landing $FED1)"},
+      "0xFA03": {"name": "WBOOT",  "comment": "BIOS entry 1  -- warm boot (on SoftCard 2.23: jumps to $FAB8)"},
+      "0xFA06": {"name": "CONST",  "comment": "BIOS entry 2  -- console status"},
+      "0xFA09": {"name": "CONIN",  "comment": "BIOS entry 3  -- console input"},
+      "0xFA0C": {"name": "CONOUT", "comment": "BIOS entry 4  -- console output"},
+      "0xFA0F": {"name": "LIST",   "comment": "BIOS entry 5  -- printer (LIST device) output"},
+      "0xFA12": {"name": "PUNCH",  "comment": "BIOS entry 6  -- punch device output"},
+      "0xFA15": {"name": "READER", "comment": "BIOS entry 7  -- reader device input"},
+      "0xFA18": {"name": "HOME",   "comment": "BIOS entry 8  -- disk home (seek track 0)"},
+      "0xFA1B": {"name": "SELDSK", "comment": "BIOS entry 9  -- select disk (returns DPH pointer)"},
+      "0xFA1E": {"name": "SETTRK", "comment": "BIOS entry 10 -- set track for next read/write"},
+      "0xFA21": {"name": "SETSEC", "comment": "BIOS entry 11 -- set sector for next read/write"},
+      "0xFA24": {"name": "SETDMA", "comment": "BIOS entry 12 -- set DMA buffer address"},
+      "0xFA27": {"name": "READ",   "comment": "BIOS entry 13 -- read selected sector to DMA"},
+      "0xFA2A": {"name": "WRITE",  "comment": "BIOS entry 14 -- write DMA buffer to selected sector"},
+      "0xFA2D": {"name": "LISTST", "comment": "BIOS entry 15 -- LIST status (inline XOR A; RET = not ready)"},
+      "0xFA30": {"name": "SECTRAN", "comment": "BIOS entry 16 -- sector translation (identity: LD H,B; LD L,C; RET)"}
     },
     "bios_state_223": {
       "0xFECB": {"name": "BIOS_TRACK",     "size": 2, "comment": "Current track (set by SETTRK)"},
@@ -38,8 +38,13 @@
       "0xFD83": {"name": "INIT_PASCAL_1_0", "comment": "Slot init for Pascal 1.0 firmware (device code 4)"},
       "0xFDB0": {"name": "INIT_PASCAL_1_1", "comment": "Slot init for Pascal 1.1 firmware -- device code 6, NEW IN 2.23 (the Videx fix)"},
       "0xFE81": {"name": "INIT_KEYBOARD",   "comment": "Slot init for keyboard / generic input (device code 3)"},
-      "0xFB45": {"name": "BIOS_PRINT_C800", "comment": "Print zero-terminated string at HL via slot firmware -- shared tail of $FB44 JR; CALL into mid-instruction enters at RLCA"},
-      "0xFED1": {"name": "BOOT_LANDING",    "comment": "BOOT NOP-slide landing -- runtime-generated entry to device-scan"}
+      "0xFB45": {"name": "RPC_DISPATCH",    "comment": "Console RPC dispatch into slot/$C800 firmware (former name BIOS_PRINT_C800 was an artifact of the pre-correction base)"},
+      "0xFED1": {"name": "BOOT_LANDING",    "comment": "BOOT NOP-slide landing -- runtime-generated entry to device-scan"},
+      "0xFE6C": {"name": "HOME_IMPL",   "comment": "HOME implementation (jump-table entry 8 target)"},
+      "0xFE8E": {"name": "SELDSK_IMPL", "comment": "SELDSK implementation (jump-table entry 9 target)"},
+      "0xFE77": {"name": "SETTRK_IMPL", "comment": "SETTRK implementation (jump-table entry 10 target)"},
+      "0xFEBD": {"name": "READ_IMPL",   "comment": "READ implementation (jump-table entry 13 target)"},
+      "0xFEC0": {"name": "WRITE_IMPL",  "comment": "WRITE implementation (jump-table entry 14 target)"}
     },
     "bios_tpa_state_223": {
       "0xF397": {"name": "TPA_STATE_F397",  "comment": "Read by preflight code at $FF17"},

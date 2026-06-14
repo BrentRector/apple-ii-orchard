@@ -10,11 +10,11 @@
 
 .org $0200
 
-; [AI] Disassembler-assigned label for the start of the relocated install-fragment region at $0200;
-;       the lone opcode here is a BRK ($00) followed by a 329-byte zero fill and then DEFB payload.
-;       The payload bytes (e.g. $3A=LD A,(nn), $C9=RET, $CD=CALL, $DB=IN A,(n)) are Z-80 BIOS
-;       console fragments staged for relocation, not 6502 code, which is why the 6502 disassembler
-;       could not trace past this entry.
+; [AI] Origin ($0200) of the 512-byte fragment image the CP/M loader copies into low memory; the
+;       byte here is a placeholder and the region stays zero-filled until the real installed code
+;       begins at $034A. That code is Z-80, not 6502 (this is the SoftCard's installed CP/M
+;       fragment), starting LD A,($F3BB)/CP 3 to test the current console/display state before
+;       dispatching to the BIOS console and Apple $C0xx video routines.
 IN:
         BRK                          ; $0200  00
         .res    329, $00    ; $0201  fill

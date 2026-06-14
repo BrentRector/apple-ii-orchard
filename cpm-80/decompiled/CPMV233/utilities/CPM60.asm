@@ -8,39 +8,33 @@
     DEVICE NOSLOT64K
 
 ; -- External symbols --
+WBOOT_VEC            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
 BDOS_VEC             EQU $0005               ; BDOS call vector — JP BDOS_ENTRY. Programs use CALL $0005 to invoke BDOS. Word at $0006 is also the top-of-TPA marker.
+RST2_VEC             EQU $0010               ; Z-80 RST 2 ($10) restart vector — 8 bytes. Available for application/debugger use.
+DEFAULT_FCB          EQU $005C               ; Default File Control Block — populated by CCP from command-line argument 1. Standard 36-byte FCB structure (drive + filename + extents + record number).
 
     ORG $0100
 
-; [AI] Program entry at the TPA ($0100). Begins by calling BDOS via $0005 to establish the
-;       user/drive context, then determines which drive the 'cp/m sys' system file lives on before
-;       doing the 60K disk-update work.
+; [AI] Program entry at $0100, the start of the TPA where the CCP loads and jumps to CPM60.COM.
+;       Begins by querying console/BDOS state before driving the 60K disk-update procedure.
 TPA_START:
         LD C,$20                         ; $0100  0E 20
 L_0102:
         LD E,$1F                         ; $0102  1E 1F
 L_0104:
         CALL BDOS_VEC                    ; $0104  CD 05 00
-; [AI] Reads the drive byte of the default FCB at $005C (command-tail drive specifier). A nonzero
-;       value means the user named a drive explicitly; zero means use the current default drive.
 L_0107:
-        LD A,($005C)                     ; $0107  3A 5C 00
+        LD A,(DEFAULT_FCB)               ; $0107  3A 5C 00
 L_010A:
         OR A                             ; $010A  B7
 L_010B:
         JP NZ,L_0114                     ; $010B  C2 14 01
-; [AI] No drive given on the command line: invokes BDOS function 25 ($19, Return Current Disk) and
-;       INCs the result so the current drive is treated as a 1-based selector like an explicit FCB
-;       drive byte.
 L_010E:
         LD C,$19                         ; $010E  0E 19
 L_0110:
         CALL BDOS_VEC                    ; $0110  CD 05 00
 L_0113:
         INC A                            ; $0113  3C
-; [AI] Merge point that holds the chosen 1-based drive number in C; masks it to 0-3, stashes the
-;       0-based drive index at $F3E4 (passed to the loaded 6502 driver), and decrements C back to a
-;       0-based BDOS drive number.
 L_0114:
         LD C,A                           ; $0114  4F
 L_0115:
@@ -53,31 +47,22 @@ L_011B:
         PUSH BC                          ; $011B  C5
 L_011C:
         LD E,C                           ; $011C  59
-; [AI] Selects the target disk with BDOS function 14 ($0E, Select Disk) using the drive number
-;       computed in E.
 L_011D:
         LD C,$0E                         ; $011D  0E 0E
 L_011F:
         CALL BDOS_VEC                    ; $011F  CD 05 00
-; [AI] Deletes any existing 'cp/m sys' file via BDOS function 19 ($13, Delete File) using the FCB
-;       at $0355, clearing the way to (re)create the system file.
 L_0122:
         LD C,$13                         ; $0122  0E 13
 L_0124:
         LD DE,$0355                      ; $0124  11 55 03
 L_0127:
         CALL BDOS_VEC                    ; $0127  CD 05 00
-; [AI] BDOS function 27 ($1B, Get Allocation Vector / disk parameters), returning HL to the
-;       allocation/DPB info used in the following directory-space checks.
 L_012A:
         LD C,$1B                         ; $012A  0E 1B
 L_012C:
         CALL BDOS_VEC                    ; $012C  CD 05 00
-; [AI] Indexes $10 bytes into the returned structure and tests bytes there; nonzero results branch
-;       to the 'Disk space already in use' error, guarding against overwriting a disk that already
-;       holds data.
 L_012F:
-        LD DE,$0010                      ; $012F  11 10 00
+        LD DE,RST2_VEC                   ; $012F  11 10 00
 L_0132:
         ADD HL,DE                        ; $0132  19
 L_0133:
@@ -96,9 +81,6 @@ L_013C:
         OR A                             ; $013C  B7
 L_013D:
         JP NZ,L_01ED                     ; $013D  C2 ED 01
-; [AI] BDOS function 22 ($16, Make File) to create the 'cp/m sys' directory entry from the $0355
-;       FCB; A=$FF (after INC = 0) indicates the directory is full, branching to the 'Not enough
-;       directory space' message.
 L_0140:
         LD C,$16                         ; $0140  0E 16
 L_0142:
@@ -109,17 +91,12 @@ L_0148:
         INC A                            ; $0148  3C
 L_0149:
         JP Z,L_01F3                      ; $0149  CA F3 01
-; [AI] Initializes the FCB record fields: fills the 12-byte map at $0365 with ascending sector
-;       codes starting at $80, used to write the 12 records of the 60K system image to allocated
-;       sectors.
 L_014C:
         LD HL,$0365                      ; $014C  21 65 03
 L_014F:
         LD C,$80                         ; $014F  0E 80
 L_0151:
         LD B,$0C                         ; $0151  06 0C
-; [AI] Loop body that stores the running record/sector code into the FCB map and increments it,
-;       writing 12 consecutive entries ($80..$8B).
 L_0153:
         LD (HL),C                        ; $0153  71
 L_0154:
@@ -130,8 +107,6 @@ L_0156:
         DEC B                            ; $0156  05
 L_0157:
         JP NZ,L_0153                     ; $0157  C2 53 01
-; [AI] Sets FCB extent/byte-count fields ($60 at $0364, 0 at $0363) before writing, configuring the
-;       record map for the new system file.
 L_015A:
         LD A,$60                         ; $015A  3E 60
 L_015C:
@@ -140,17 +115,12 @@ L_015F:
         XOR A                            ; $015F  AF
 L_0160:
         LD ($0363),A                     ; $0160  32 63 03
-; [AI] BDOS function 16 ($10, Close File) on the $0355 FCB to commit the freshly built 'cp/m sys'
-;       directory entry and allocation to disk.
 L_0163:
         LD C,$10                         ; $0163  0E 10
 L_0165:
         LD DE,$0355                      ; $0165  11 55 03
 L_0168:
         CALL BDOS_VEC                    ; $0168  CD 05 00
-; [AI] Restores the saved drive selector and converts it into an Apple II slot/drive address byte:
-;       masks, shifts left 3, complements, and adds $61, storing the result at $F3E6 for the
-;       6502-side disk driver.
 L_016B:
         POP BC                           ; $016B  C1
 L_016C:
@@ -169,34 +139,24 @@ L_0173:
         ADD A,$61                        ; $0173  C6 61
 L_0175:
         LD ($F3E6),A                     ; $0175  32 E6 F3
-; [AI] Forms the ASCII drive letter (A-P) by adding $41 to the drive index and patches it into the
-;       'drive Z:' prompt string at $0284, so the message names the actual target drive.
 L_0178:
         LD A,C                           ; $0178  79
 L_0179:
         ADD A,$41                        ; $0179  C6 41
 L_017B:
         LD ($0284),A                     ; $017B  32 84 02
-; [AI] Prints the banner/instructions string at $0212 ('Softcard CP/M ... 60K Disk update program
-;       ... Insert 16 sector disk ... Press RETURN to begin') via the print-string helper.
 L_017E:
         LD DE,$0212                      ; $017E  11 12 02
 L_0181:
         CALL SUB_020D                    ; $0181  CD 0D 02
-; [AI] Waits for the user to press RETURN (SUB_0201), then initializes the 6502 sector-update
-;       parameter block in the shared $F3xx area: retry count $02 at $F3EB and pass/track counter
-;       $14 at $F3E9.
 L_0184:
         CALL SUB_0201                    ; $0184  CD 01 02
         LD A,$02                         ; $0187  3E 02
         LD ($F3EB),A                     ; $0189  32 EB F3
         LD A,$14                         ; $018C  3E 14
         LD ($F3E9),A                     ; $018E  32 E9 F3
-        LD HL,$0000                      ; $0191  21 00 00
+        LD HL,WBOOT_VEC                  ; $0191  21 00 00
         LD B,$30                         ; $0194  06 30
-; [AI] Top of the main per-sector copy/update loop (B=$30=48 iterations). Saves the current logical
-;       address at $F3E0, then drives the 6502 disk routine to read/verify/write each sector of the
-;       60K system tracks.
 L_0196:
         LD ($F3E0),HL                    ; $0196  22 E0 F3
         PUSH BC                          ; $0199  C5
@@ -213,9 +173,6 @@ L_0196:
 L_01B3:
         CALL SUB_020D                    ; $01B3  CD 0D 02
         JP L_01D2                        ; $01B6  C3 D2 01
-; [AI] Successful-sector path: bumps the progress/track counter at $F3E9, advances the working
-;       address (HL high byte += $10, carrying into the low byte at the $1000 boundary) to the next
-;       sector buffer.
 L_01B9:
         LD HL,$F3E9                      ; $01B9  21 E9 F3
         INC (HL)                         ; $01BC  34
@@ -226,18 +183,12 @@ L_01B9:
         JP NZ,L_01C7                     ; $01C2  C2 C7 01
         INC L                            ; $01C5  2C
         LD H,A                           ; $01C6  67
-; [AI] Decrements the 48-iteration sector counter and loops back to L_0196 until all sectors are
-;       processed; on completion prints the 'Press RETURN to begin'/finish prompt at $029F.
 L_01C7:
         POP BC                           ; $01C7  C1
         DEC B                            ; $01C8  05
         JP NZ,L_0196                     ; $01C9  C2 96 01
         LD DE,$029F                      ; $01CC  11 9F 02
         CALL SUB_020D                    ; $01CF  CD 0D 02
-; [AI] Completion path: prints 'Disk has been updated to 60K' / 'Press RETURN to re-boot system'
-;       ($02C0), waits for RETURN, then sets up the warm-boot vector to jump into the loaded 6502
-;       boot code (writes $C777 to $000B and $C600 to the shared $F3D0 handoff) and JPs $000B to
-;       reboot the now-60K system.
 L_01D2:
         LD DE,$02C0                      ; $01D2  11 C0 02
         CALL SUB_020D                    ; $01D5  CD 0D 02
@@ -248,26 +199,23 @@ L_01D2:
         LD ($F3D0),HL                    ; $01E4  22 D0 F3
         LD HL,($F3DE)                    ; $01E7  2A DE F3
         JP $000B                         ; $01EA  C3 0B 00
-; [AI] Error exit for the disk-not-ready/space checks: loads DE with the 'Disk space already in
-;       use' message at $0314 and falls through to the shared print-and-finish path.
 L_01ED:
         LD DE,$0314                      ; $01ED  11 14 03
         JP L_01B3                        ; $01F0  C3 B3 01
-; [AI] Error exit for the make-file failure: loads DE with the 'Not enough directory space' message
-;       at $0334 and joins the print-and-finish path.
 L_01F3:
         LD DE,$0334                      ; $01F3  11 34 03
         JP L_01B3                        ; $01F6  C3 B3 01
-; [AI] Helper that writes a single byte (in A) to the Apple II 6502 side: stores the destination
-;       handle at $F3D0, fetches the mapped pointer from $F3DE, and writes A through it, then
-;       returns.
+; [AI] Stores a value through the SoftCard's 6502/Z-80 shared-memory mailbox: sets the target
+;       pointer at $F3D0 and writes A to the address held at $F3DE, the mechanism by which the Z-80
+;       hands a byte to the 6502 side.
 SUB_01F9:
         LD ($F3D0),HL                    ; $01F9  22 D0 F3
         LD HL,($F3DE)                    ; $01FC  2A DE F3
         LD (HL),A                        ; $01FF  77
         RET                              ; $0200  C9
-; [AI] Wait-for-RETURN routine: polls BDOS function 6 ($06, Direct Console I/O) with E=$FF (read);
-;       loops until a key is read (nonzero), returning the character in A.
+; [AI] Waits for a keypress via BDOS direct console I/O (function 6, E=$FF), looping until a non-
+;       zero character is returned. Used for the interactive RETURN-to-begin and RETURN-to-reboot
+;       prompts.
 SUB_0201:
         LD C,$06                         ; $0201  0E 06
 L_0203:
@@ -279,8 +227,8 @@ L_0208:
 L_0209:
         JP Z,SUB_0201                    ; $0209  CA 01 02
         RET                              ; $020C  C9
-; [AI] Print-string helper: tail-calls BDOS function 9 ($09, Print String) to output the
-;       '$'-terminated message pointed to by DE.
+; [AI] Prints the '$'-terminated string pointed to by DE via BDOS function 9 (print string). Jumps
+;       rather than calls so the BDOS RET returns to the original caller.
 SUB_020D:
         LD C,$09                         ; $020D  0E 09
 L_020F:

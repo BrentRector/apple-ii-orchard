@@ -10,29 +10,23 @@
 ; -- External symbols --
 WBOOT_VEC            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
 BDOS_VEC             EQU $0005               ; BDOS call vector — JP BDOS_ENTRY. Programs use CALL $0005 to invoke BDOS. Word at $0006 is also the top-of-TPA marker.
+DEFAULT_FCB          EQU $005C               ; Default File Control Block — populated by CCP from command-line argument 1. Standard 36-byte FCB structure (drive + filename + extents + record number).
+DEFAULT_DMA          EQU $0080               ; Default DMA buffer — also command-line tail. First byte = length, then characters. Returned to default by BDOS function 13 (DRV_ALLRESET).
 
     ORG $0100
 
-; [AI] Program entry at the TPA ($0100). Loads the command-tail length byte from the default-FCB
-;       command buffer at $0080; if zero (no filename given) it jumps to print the 'Command Error'
-;       usage message and warm-boot.
+; [AI] Program entry point at $0100 (top of the TPA); checks the command-tail length byte to decide
+;       whether a filename was supplied, branching to the error/exit path if not.
 TPA_START:
-        LD A,($0080)                     ; $0100  3A 80 00
-; [AI] Tests the command-tail length (OR A sets flags) to decide whether a filename argument was
-;       supplied.
+        LD A,(DEFAULT_DMA)               ; $0100  3A 80 00
 L_0103:
         OR A                             ; $0103  B7
-; [AI] Loads DE with the address of the 'Command Error' message string ($01C0) as the default error
-;       pointer used by the zero-length-tail exit.
 L_0104:
         LD DE,$01C0                      ; $0104  11 C0 01
-; [AI] If no command-tail argument was present, branch to the print-message-and-warm-boot exit;
-;       otherwise fall through to delete any pre-existing destination file (BDOS 0x13 Delete File)
-;       and create it fresh (BDOS 0x16 Make File) using the parsed FCB at $005C.
 L_0107:
         JP Z,L_018D                      ; $0107  CA 8D 01
         LD C,$13                         ; $010A  0E 13
-        LD DE,$005C                      ; $010C  11 5C 00
+        LD DE,DEFAULT_FCB                ; $010C  11 5C 00
         PUSH DE                          ; $010F  D5
         CALL BDOS_VEC                    ; $0110  CD 05 00
         POP DE                           ; $0113  D1
@@ -41,24 +35,23 @@ L_0107:
         INC A                            ; $0119  3C
         LD DE,$01CE                      ; $011A  11 CE 01
         JP Z,L_018D                      ; $011D  CA 8D 01
-; [AI] Protocol handshake loop: reads a byte from the 6502/Apple side via the SoftCard port
-;       (SUB_01A0) and spins until it sees 'R' ($52), the first character of the host's 'ReadG?'
-;       ready handshake.
+; [AI] Handshake wait loop: receives bytes from the serial port until the protocol start character
+;       'R' ($52) arrives, then replies 'S' to signal readiness.
 L_0120:
         CALL SUB_01A0                    ; $0120  CD A0 01
         CP $52                           ; $0123  FE 52
         JP NZ,L_0120                     ; $0125  C2 20 01
         LD E,$53                         ; $0128  1E 53
         CALL SUB_0193                    ; $012A  CD 93 01
-; [AI] Second handshake stage: after 'R' was seen and 'S' acknowledged, spins reading host bytes
-;       until 'G' ($47) arrives, completing the go-ahead handshake before transfer begins.
+; [AI] Second handshake wait loop: receives bytes until the 'G' (go, $47) character arrives,
+;       marking the start of the actual data transfer.
 L_012D:
         CALL SUB_01A0                    ; $012D  CD A0 01
         CP $47                           ; $0130  FE 47
         JP NZ,L_012D                     ; $0132  C2 2D 01
         LD HL,$01F5                      ; $0135  21 F5 01
-; [AI] Prints the 'Downloading' prompt string at $01F5 one character at a time via SUB_01BB (BDOS 2
-;       console out), advancing HL until the $00 terminator.
+; [AI] Banner-send loop: walks the null-terminated "Downloading" string at $01F5 and transmits each
+;       character out the serial port to the host.
 L_0138:
         LD A,(HL)                        ; $0138  7E
         OR A                             ; $0139  B7
@@ -69,16 +62,14 @@ L_0138:
         POP HL                           ; $0142  E1
         INC HL                           ; $0143  23
         JP L_0138                        ; $0144  C3 38 01
-; [AI] Top of the per-record receive loop: points HL at the 128-byte DMA buffer ($0080), zeroes the
-;       running XOR checksum in C, and sets D=$81 as the down-counter for 129 bytes (128 data + 1
-;       checksum byte).
+; [AI] Record-receive loop: reads one 128-byte data record plus a checksum byte from the serial
+;       port into the DMA buffer, accumulating an XOR checksum.
 L_0147:
-        LD HL,$0080                      ; $0147  21 80 00
+        LD HL,DEFAULT_DMA                ; $0147  21 80 00
         LD C,$00                         ; $014A  0E 00
         LD D,$81                         ; $014C  16 81
-; [AI] Inner byte-receive loop: pulls each byte from the host (SUB_01A0), stores it into the record
-;       buffer, folds it into the running XOR checksum, and counts down D; a final zero result means
-;       the appended checksum byte matched (good record).
+; [AI] Inner byte-receive loop for one record: fetches each byte via the port-read routine, stores
+;       it to the buffer, and folds it into the running XOR checksum.
 L_014E:
         CALL SUB_01A0                    ; $014E  CD A0 01
         LD (HL),A                        ; $0151  77
@@ -94,36 +85,37 @@ L_014E:
         LD E,$42                         ; $0162  1E 42
         CALL SUB_0193                    ; $0164  CD 93 01
         JP L_0147                        ; $0167  C3 47 01
-; [AI] Record accepted: sends '.' progress dot to the console, then writes the 128-byte buffer to
-;       the output file via BDOS 0x15 (Write Sequential), tells the host 'G' (good/continue) via
-;       SUB_0193, and loops back to receive the next record.
+; [AI] Good-record path: transmits a '.' progress mark, then calls BDOS write-sequential (function
+;       21) to append the received 128-byte record to the output file before looping for the next
+;       record.
 L_016A:
         LD E,$2E                         ; $016A  1E 2E
         CALL SUB_01BB                    ; $016C  CD BB 01
-        LD DE,$005C                      ; $016F  11 5C 00
+        LD DE,DEFAULT_FCB                ; $016F  11 5C 00
         LD C,$15                         ; $0172  0E 15
         CALL BDOS_VEC                    ; $0174  CD 05 00
         LD E,$47                         ; $0177  1E 47
         CALL SUB_0193                    ; $0179  CD 93 01
         JP L_0147                        ; $017C  C3 47 01
-; [AI] End-of-transfer handler (reached when host sends EOT marker $83): writes to SoftCard port
-;       $E010, closes the output file via BDOS 0x10 (Close File), and loads DE with the 'DOWNLOAD
-;       Complete' success message for the common print-and-exit path.
+; [AI] End-of-transfer handler: reached when the host sends the terminator byte ($83); closes the
+;       output file via BDOS close (function 16) and points to the completion message before
+;       exiting.
 L_017F:
         LD ($E010),A                     ; $017F  32 10 E0
-        LD DE,$005C                      ; $0182  11 5C 00
+        LD DE,DEFAULT_FCB                ; $0182  11 5C 00
         LD C,$10                         ; $0185  0E 10
         CALL BDOS_VEC                    ; $0187  CD 05 00
         LD DE,$01E1                      ; $018A  11 E1 01
-; [AI] Common exit: prints the '$'-terminated message pointed to by DE (via SUB_01B6 / BDOS 9) then
-;       falls into the warm-boot.
+; [AI] Common message-and-exit tail: prints the DE-pointed '$'-terminated status string then falls
+;       through to warm-boot back to CP/M.
 L_018D:
         CALL SUB_01B6                    ; $018D  CD B6 01
-; [AI] Final exit: JP to the warm-boot vector at $0000, returning control to CP/M (CCP reload).
+; [AI] Final exit: jumps to the warm-boot vector to terminate the program and return to the CCP
+;       prompt.
 L_0190:
         JP WBOOT_VEC                     ; $0190  C3 00 00
-; [AI] Sends one byte (in E) to the 6502/host: polls the SoftCard status port $E0AE for the
-;       transmit-ready bit (mask $02), then writes the byte to the data port $E0AF.
+; [AI] Serial transmit routine: polls the port status register ($E0AE) for the transmit-ready bit,
+;       then writes the byte in E to the data register ($E0AF).
 SUB_0193:
         LD A,($E0AE)                     ; $0193  3A AE E0
         AND $02                          ; $0196  E6 02
@@ -131,9 +123,9 @@ SUB_0193:
         LD A,E                           ; $019B  7B
         LD ($E0AF),A                     ; $019C  32 AF E0
         RET                              ; $019F  C9
-; [AI] Receives one byte from the 6502/host: polls SoftCard status port $E0AE (RRA tests the
-;       receive-ready bit in bit 0); when data is ready returns it via L_01B2, and meanwhile watches
-;       command port $E000 for the $83 end-of-transfer code, diverting to L_017F when seen.
+; [AI] Serial receive routine: polls the status register for receive-ready; while waiting it also
+;       watches a control register ($E000) for the $83 end-of-transfer signal, diverting to the
+;       close-file path when it appears.
 SUB_01A0:
         LD A,($E0AE)                     ; $01A0  3A AE E0
         RRA                              ; $01A3  1F
@@ -142,21 +134,20 @@ SUB_01A0:
         CP $83                           ; $01AA  FE 83
         JP Z,L_017F                      ; $01AC  CA 7F 01
         JP SUB_01A0                      ; $01AF  C3 A0 01
-; [AI] Receive-ready tail: loads the received byte from the SoftCard data port $E0AF and returns it
-;       in A.
+; [AI] Receive-ready exit of the read routine: loads the just-arrived byte from the data register
+;       ($E0AF) into A and returns it to the caller.
 L_01B2:
         LD A,($E0AF)                     ; $01B2  3A AF E0
         RET                              ; $01B5  C9
-; [AI] Prints the '$'-terminated string addressed by DE by setting C=9 and falling into the BDOS
-;       call (BDOS function 9, Print String).
+; [AI] Print-string helper: sets C to BDOS function 9 (print '$'-terminated string) and tail-jumps
+;       into the BDOS call so the DE-pointed message is displayed.
 SUB_01B6:
         LD C,$09                         ; $01B6  0E 09
-; [AI] Tail-call into BDOS ($0005) shared by SUB_01B6; the BDOS call returns directly to SUB_01B6's
-;       caller.
+; [AI] Shared BDOS tail-call: a JP $0005 reused as the final dispatch for the print-string helper.
 L_01B8:
         JP BDOS_VEC                      ; $01B8  C3 05 00
-; [AI] Outputs the single character in E to the console by setting C=2 and tail-calling BDOS
-;       ($0005), BDOS function 2 (Console Output).
+; [AI] Console-output helper: sets C to BDOS function 2 (console out) and tail-jumps to BDOS to
+;       echo the single character in E to the screen (used for the progress dots and banner).
 SUB_01BB:
         LD C,$02                         ; $01BB  0E 02
         JP BDOS_VEC                      ; $01BD  C3 05 00

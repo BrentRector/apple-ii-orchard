@@ -13,15 +13,14 @@ L_0A0E               = $0A0E
 
 .org $0A00
 
-; [AI] Write-path entry: first zeroes the 86-byte secondary GCR buffer (STA $0D00,X for X=$55..0),
-;       then falls into the 6-and-2 'pre-nibblize' loop that splits the 256 bytes of TPA sector data
-;       into a 256-byte primary buffer ($0900) and an 86-byte secondary two-bit buffer (built around
-;       $0C56) ahead of GCR encoding for a disk write.
+; [AI] Entry to the GCR write prenibble routine: zero-fills the 86-byte ($56) auxiliary nibble
+;       buffer at $0D00 in preparation for translating a 256-byte sector into the 342-byte 6-and-2
+;       on-disk form before a sector write.
 L_0A00:
         LDX #$55                     ; $0A00  A2 55
         LDA #$00                     ; $0A02  A9 00
-; [AI] Body of the buffer-clear loop: stores A(=0) into $0D00,X and decrements X, zeroing the
-;       86-entry ($55..0) secondary/two-bit nibble buffer before nibblization begins.
+; [AI] Body of the buffer-clear loop that stores $00 into $0D00,X down through X=0, initializing
+;       the secondary (low-2-bits) nibble array used by the prenibble encoder.
 L_0A04:
         STA $0D00,X                  ; $0A04  9D 00 0D
         DEX                          ; $0A07  CA
@@ -29,10 +28,10 @@ L_0A04:
         TAY                          ; $0A0A  A8
         LDX #$AC                     ; $0A0B  A2 AC
         BIT $AAA2                    ; $0A0D  2C A2 AA
-; [AI] Inner 6-and-2 nibblize loop: fetches a source data byte via LDA ($3E),Y, peels its two low
-;       bits off with two LSR + ROL $0C56,X sequences (accumulating them into the secondary buffer),
-;       and writes the remaining upper 6 bits to the primary buffer at $0900,Y; iterates over the
-;       sector to produce the GCR-ready halves.
+; [AI] Main prenibble loop: reads each source byte from the caller's sector buffer via ($3E),Y,
+;       peels its low two bits into the $0C56,X auxiliary nibble array with paired LSR/ROL, and
+;       stores the remaining six bits into the $0900 primary code buffer, performing the
+;       256-to-342-byte 6-and-2 GCR pre-encoding.
 L_0A10:
         DEY                          ; $0A10  88
         LDA ($3E),Y                  ; $0A11  B1 3E

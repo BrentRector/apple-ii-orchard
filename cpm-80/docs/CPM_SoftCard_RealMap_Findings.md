@@ -59,10 +59,10 @@ with the warm-boot vector rewrite ($0000: JP $FA00 → JP $FA03) observed.
    BOOT entry; warm rewrite `JP $FA03` = the WBOOT entry (3 bytes in) —
    finally explains the +3. The 256-byte page interleave aligns to TRUE
    page boundaries ($FA00/$FB00/...), not $xxB8.
-   - `cpm-80/docs/CPM223_BIOS.asm` (ORG $FAB8) and `CPM220_BIOS.asm` (ORG $DACC)
-     still round-trip byte-identical (bytes are right) but every address
-     comment/label is shifted; cross-references between JP/CALL targets
-     and the prose "routine at that address" are off by $B8/$CC.
+   - `cpm-80/docs/CPM223_BIOS.asm` and `CPM220_BIOS.asm` have since been
+     regenerated at the corrected base ($FA00 / $DA00) via
+     `cpm-investigation/gen_bios.py`; their address comments and labels are
+     now correct, and operands render symbolically (RESOLVED 2026-06-14).
    - `cold_boot_trace.py`'s reported org and `CPM223_DiskCallbacks.asm`'s
      "$1A00 disk callbacks" / "dual-mapped" framing are artifacts of the
      XOR model (Apple $0A00 viewed at Z-80 $1A00). One region, one copy.

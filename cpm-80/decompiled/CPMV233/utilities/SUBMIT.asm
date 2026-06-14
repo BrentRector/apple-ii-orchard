@@ -10,13 +10,14 @@
 ; -- External symbols --
 WBOOT_VEC            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
 BDOS_VEC             EQU $0005               ; BDOS call vector — JP BDOS_ENTRY. Programs use CALL $0005 to invoke BDOS. Word at $0006 is also the top-of-TPA marker.
+DEFAULT_FCB          EQU $005C               ; Default File Control Block — populated by CCP from command-line argument 1. Standard 36-byte FCB structure (drive + filename + extents + record number).
+DEFAULT_DMA          EQU $0080               ; Default DMA buffer — also command-line tail. First byte = length, then characters. Returned to default by BDOS function 13 (DRV_ALLRESET).
+CMDLINE              EQU $0081               ; Command-line tail characters (uppercase, with leading space). Same buffer as DEFAULT_DMA.
 
     ORG $0100
 
-; [AI] Program entry at the TPA ($0100): a JP to the real init (L_01DF), immediately followed by
-;       the DRI copyright banner and the '$'-terminated message table (error strings such as 'Error
-;       On Line', 'No SUB File Present', 'Disk Write Error', 'Command Too Long', 'Directory Full',
-;       etc.) that SUB_02A7 prints.
+; [AI] $0100 program entry. Jumps over the embedded copyright/message block to the real startup
+;       code.
 TPA_START:
         JP L_01DF                        ; $0100  C3 DF 01
         DEFB    " copyright(c) 1977, digital research "    ; $0103  string
@@ -33,11 +34,10 @@ TPA_START:
         DEFB    $72,$65,$63,$74,$6F,$72,$79,$20,$46,$75,$6C,$6C,$24,$43,$61,$6E ; $01B9
         DEFB    $6E,$6F,$74,$20,$43,$6C,$6F,$73,$65,$2C,$20,$52,$65,$61,$64,$2F ; $01C9
         DEFB    $4F,$6E,$6C,$79,$3F,$24                          ; $01D9
-; [AI] Actual startup code: captures the entry stack pointer (HL=0+SP) and saves it at $05F0,
-;       switches SP to the program's private stack at $0E93, then runs the four phases (parse args,
-;       build $$$.SUB image, write it to disk, warm boot).
+; [AI] Real startup: captures the CCP's stack pointer, switches to SUBMIT's private stack, then
+;       calls the four phases (parse args, build script, write $$$.SUB, warm boot).
 L_01DF:
-        LD HL,$0000                      ; $01DF  21 00 00
+        LD HL,WBOOT_VEC                  ; $01DF  21 00 00
 L_01E2:
         ADD HL,SP                        ; $01E2  39
 L_01E3:
@@ -53,9 +53,8 @@ L_01ED:
         CALL SUB_04FE                    ; $01F0  CD FE 04
         CALL SUB_0587                    ; $01F3  CD 87 05
         RET                              ; $01F6  C9
-; [AI] BDOS function 9 (print '$'-terminated string) wrapper: stores the BC argument (string
-;       address) into the parameter cells at $05DC/$05DD, loads it into DE, sets C=9, and calls the
-;       BDOS trampoline SUB_058A.
+; [AI] BDOS print-string wrapper (function 9): stores the DE string pointer passed in BC into the
+;       $05DC parameter slot and calls BDOS to print until '$'.
 SUB_01F7:
         LD HL,$05DD                      ; $01F7  21 DD 05
 L_01FA:
@@ -74,9 +73,8 @@ L_0203:
         CALL SUB_058A                    ; $0203  CD 8A 05
 L_0206:
         RET                              ; $0206  C9
-; [AI] BDOS function 15 (open file) wrapper: stores the FCB pointer in BC into $05DF/$05E0, passes
-;       it in DE, sets C=$0F, calls BDOS via SUB_058D, and records the returned directory code in
-;       the status byte $05DE.
+; [AI] BDOS open-file wrapper (function 15): stashes the FCB pointer and opens it, recording the
+;       directory return code at $05DE (FF = not found).
 SUB_0207:
         LD HL,$05E0                      ; $0207  21 E0 05
 L_020A:
@@ -97,8 +95,8 @@ L_0216:
         LD ($05DE),A                     ; $0216  32 DE 05
 L_0219:
         RET                              ; $0219  C9
-; [AI] BDOS function 16 (close file) wrapper: stashes the FCB address into $05E1/$05E2, sets C=$10,
-;       calls BDOS, and saves the result (FF = error) to status byte $05DE.
+; [AI] BDOS close-file wrapper (function 16): closes the FCB and records the result at $05DE, used
+;       to finalize the $$$.SUB output file.
 SUB_021A:
         LD HL,$05E2                      ; $021A  21 E2 05
         LD (HL),B                        ; $021D  70
@@ -110,8 +108,8 @@ SUB_021A:
         CALL SUB_058D                    ; $0226  CD 8D 05
         LD ($05DE),A                     ; $0229  32 DE 05
         RET                              ; $022C  C9
-; [AI] BDOS function 19 (delete file) wrapper: stores the FCB pointer at $05E3/$05E4, sets C=$13,
-;       and calls BDOS via SUB_058A; used to erase any stale $$$.SUB before building a fresh one.
+; [AI] BDOS delete-file wrapper (function 19): erases any pre-existing $$$.SUB before a fresh batch
+;       file is created.
 SUB_022D:
         LD HL,$05E4                      ; $022D  21 E4 05
         LD (HL),B                        ; $0230  70
@@ -122,8 +120,8 @@ SUB_022D:
         LD C,$13                         ; $0237  0E 13
         CALL SUB_058A                    ; $0239  CD 8A 05
         RET                              ; $023C  C9
-; [AI] BDOS function 20 (read sequential) wrapper: stores the FCB pointer at $05E5/$05E6, sets
-;       C=$14, calls BDOS through SUB_058D, leaving the read status in A (0=success).
+; [AI] BDOS read-sequential wrapper (function 20): reads the next 128-byte record of the .SUB file
+;       into the DMA buffer, returning the status code in A.
 SUB_023D:
         LD HL,$05E6                      ; $023D  21 E6 05
 L_0240:
@@ -142,9 +140,8 @@ L_0249:
         CALL SUB_058D                    ; $0249  CD 8D 05
 L_024C:
         RET                              ; $024C  C9
-; [AI] BDOS function 21 (write sequential) wrapper: stores the FCB pointer at $05E7/$05E8, sets
-;       C=$15, and calls BDOS via SUB_058D, returning the write status in A (used to detect disk-
-;       full/write errors).
+; [AI] BDOS write-sequential wrapper (function 21): writes the next 128-byte record of the $$$.SUB
+;       output file from the DMA buffer.
 SUB_024D:
         LD HL,$05E8                      ; $024D  21 E8 05
         LD (HL),B                        ; $0250  70
@@ -155,8 +152,8 @@ SUB_024D:
         LD C,$15                         ; $0257  0E 15
         CALL SUB_058D                    ; $0259  CD 8D 05
         RET                              ; $025C  C9
-; [AI] BDOS function 22 (make file / create) wrapper: stores the FCB pointer at $05E9/$05EA, sets
-;       C=$16, calls BDOS, and records the directory code (FF=directory full) in status byte $05DE.
+; [AI] BDOS make-file wrapper (function 22): creates a new directory entry for $$$.SUB, recording
+;       the FF-on-full status at $05DE.
 SUB_025D:
         LD HL,$05EA                      ; $025D  21 EA 05
         LD (HL),B                        ; $0260  70
@@ -168,9 +165,8 @@ SUB_025D:
         CALL SUB_058D                    ; $0269  CD 8D 05
         LD ($05DE),A                     ; $026C  32 DE 05
         RET                              ; $026F  C9
-; [AI] General memory block-copy helper: given a length byte (E), a destination (in BC pushed by
-;       caller) and a source (BC arg), copies E bytes one at a time from source to destination; used
-;       to move the command-tail and FCB fields into local buffers.
+; [AI] Block-copy helper: copies E bytes from the source pointer (popped off the stack) to the
+;       destination pointer in BC, used to relocate FCBs and message fragments into work areas.
 SUB_0270:
         LD HL,$05EF                      ; $0270  21 EF 05
 L_0273:
@@ -197,9 +193,8 @@ L_027D:
         LD (HL),C                        ; $027D  71
 L_027E:
         PUSH DE                          ; $027E  D5
-; [AI] Top of SUB_0270's copy loop: decrements the remaining-count cell at $05EF, exits when it
-;       underflows past zero, otherwise copies one byte from the source pointer ($05EB) to the
-;       destination pointer ($05ED) and advances both.
+; [AI] Copy loop body: moves one byte, advances both pointers, and counts down the length until it
+;       underflows to -1.
 L_027F:
         LD A,($05EF)                     ; $027F  3A EF 05
 L_0282:
@@ -236,11 +231,12 @@ L_02A0:
         LD ($05ED),HL                    ; $02A0  22 ED 05
 L_02A3:
         JP L_027F                        ; $02A3  C3 7F 02
+; [AI] Copy-loop exit once the byte count is exhausted.
 L_02A6:
         RET                              ; $02A6  C9
-; [AI] Fatal error reporter: prints 'Error On Line ' plus the two-digit BCD line counter at $05B6,
-;       then the specific error message whose address is passed in BC, restores the entry stack from
-;       $05F0 and returns to abort the program.
+; [AI] Fatal-error reporter: prints the standard 'Error On Line nnn' prefix, the run-time line
+;       counter, and the specific message identified by BC, then restores the CCP stack and aborts
+;       SUBMIT.
 SUB_02A7:
         LD HL,$05F3                      ; $02A7  21 F3 05
 L_02AA:
@@ -275,12 +271,11 @@ L_02CA:
         LD SP,HL                         ; $02CA  F9
 L_02CB:
         RET                              ; $02CB  C9
-; [AI] Phase 1 / argument setup: copies the command tail from page-zero ($0080) into the local
-;       buffer at $05F4 and the SUB file name into the default FCB at $005C, opens that .SUB file,
-;       and on failure (status FF) reports 'No SUB File Present'; initializes the command-line read
-;       index at $0674.
+; [AI] Argument-setup phase: copies the command tail into the parameter array, copies the default
+;       FCB and forces its type to 'SUB', and bails out with 'No SUB File Present' if the open
+;       fails.
 SUB_02CC:
-        LD BC,$0081                      ; $02CC  01 81 00
+        LD BC,CMDLINE                    ; $02CC  01 81 00
 L_02CF:
         PUSH BC                          ; $02CF  C5
 L_02D0:
@@ -290,7 +285,7 @@ L_02D2:
 L_02D5:
         CALL SUB_0270                    ; $02D5  CD 70 02
 L_02D8:
-        LD HL,($0080)                    ; $02D8  2A 80 00
+        LD HL,(DEFAULT_DMA)              ; $02D8  2A 80 00
 L_02DB:
         LD H,$00                         ; $02DB  26 00
 L_02DD:
@@ -310,7 +305,7 @@ L_02E9:
 L_02EC:
         CALL SUB_0270                    ; $02EC  CD 70 02
 L_02EF:
-        LD BC,$005C                      ; $02EF  01 5C 00
+        LD BC,DEFAULT_FCB                ; $02EF  01 5C 00
 L_02F2:
         CALL SUB_0207                    ; $02F2  CD 07 02
 L_02F5:
@@ -321,16 +316,17 @@ L_02FA:
         JP NZ,L_0303                     ; $02FA  C2 03 03
         LD BC,$013D                      ; $02FD  01 3D 01
         CALL SUB_02A7                    ; $0300  CD A7 02
+; [AI] Initializes the .SUB input read pointer/record index ($0674=$80) so the first call to the
+;       char reader triggers a fresh sector read.
 L_0303:
         LD HL,$0674                      ; $0303  21 74 06
 L_0306:
         LD (HL),$80                      ; $0306  36 80
 L_0308:
         RET                              ; $0308  C9
-; [AI] Fetch the next character of the user's command tail: advances the read index at $0674 into
-;       the buffer based at $0080, returns the char in A (also cached at $0675); on end-of-line
-;       ($0D) it bumps the two-digit line counter at $05B7/$05B8, and lowercase letters are folded
-;       to uppercase.
+; [AI] Get-next-character from the .SUB file: refills the 128-byte record via BDOS read when the
+;       index wraps, returns ^Z ($1A) at end of file, advances the displayed line counter on CR, and
+;       folds lowercase a-z to uppercase.
 SUB_0309:
         LD A,$7F                         ; $0309  3E 7F
 L_030B:
@@ -340,7 +336,7 @@ L_030E:
 L_030F:
         JP NC,L_0325                     ; $030F  D2 25 03
 L_0312:
-        LD BC,$005C                      ; $0312  01 5C 00
+        LD BC,DEFAULT_FCB                ; $0312  01 5C 00
 L_0315:
         CALL SUB_023D                    ; $0315  CD 3D 02
 L_0318:
@@ -349,6 +345,8 @@ L_031A:
         JP Z,L_0320                      ; $031A  CA 20 03
         LD A,$1A                         ; $031D  3E 1A
         RET                              ; $031F  C9
+; [AI] Reset the in-record byte index to zero after a successful sector read so scanning starts at
+;       the top of the new record.
 L_0320:
         LD HL,$0674                      ; $0320  21 74 06
 L_0323:
@@ -366,7 +364,7 @@ L_032D:
 L_032E:
         LD B,$00                         ; $032E  06 00
 L_0330:
-        LD HL,$0080                      ; $0330  21 80 00
+        LD HL,DEFAULT_DMA                ; $0330  21 80 00
 L_0333:
         ADD HL,BC                        ; $0333  09
 L_0334:
@@ -398,8 +396,8 @@ L_033A:
         LD (HL),$30                      ; $035E  36 30
         DEC HL                           ; $0360  2B
         INC (HL)                         ; $0361  34
-; [AI] Tail of SUB_0309: takes the current character at $0675 and, if it is a lowercase a-z, ANDs
-;       with $5F to convert it to uppercase before returning it in A.
+; [AI] Lowercase-folding tail of the char reader: maps a-z to uppercase by clearing bit 5 before
+;       returning the character.
 L_0362:
         LD A,($0675)                     ; $0362  3A 75 06
 L_0365:
@@ -415,8 +413,8 @@ L_0374:
         LD A,($0675)                     ; $0374  3A 75 06
 L_0377:
         RET                              ; $0377  C9
-; [AI] Closes the output $$$.SUB file (BDOS 21/write of the final record path) and, if the
-;       close/write returned an error, reports the 'Disk Write Error' message via SUB_02A7.
+; [AI] Flush one completed output record to $$$.SUB via BDOS write-sequential, aborting with 'Disk
+;       Write Error' if the write fails.
 SUB_0378:
         LD BC,$05BB                      ; $0378  01 BB 05
         CALL SUB_024D                    ; $037B  CD 4D 02
@@ -426,23 +424,23 @@ SUB_0378:
         CALL SUB_02A7                    ; $0386  CD A7 02
 L_0389:
         RET                              ; $0389  C9
-; [AI] Phase 2 / main translation loop: reads the source .SUB file line by line, copies each
-;       command into the output image while handling '$n' parameter substitution, '$$' literal-
-;       dollar, and '^X' control-character escapes, building the reversed command buffer at $0676.
+; [AI] Main per-line processing loop: reads characters from the .SUB file, expands $n parameter
+;       references, $$ literals and ^X control characters, accumulates each line into the output
+;       buffer, and loops until end of file.
 SUB_038A:
         LD HL,$0676                      ; $038A  21 76 06
 L_038D:
         LD (HL),$00                      ; $038D  36 00
 L_038F:
-        LD HL,$0000                      ; $038F  21 00 00
+        LD HL,WBOOT_VEC                  ; $038F  21 00 00
 L_0392:
         LD ($0E76),HL                    ; $0392  22 76 0E
 L_0395:
         LD HL,$0E7C                      ; $0395  21 7C 0E
 L_0398:
         LD (HL),$01                      ; $0398  36 01
-; [AI] Per-line loop head of SUB_038A: while the continue flag at $0E7C is set, clears the per-line
-;       output position $0E78 and processes the next input character via SUB_0309.
+; [AI] Top of the line loop: tests the not-done flag and exits when the last line has been
+;       processed.
 L_039A:
         LD A,($0E7C)                     ; $039A  3A 7C 0E
 L_039D:
@@ -453,9 +451,8 @@ L_03A1:
         LD HL,$0E78                      ; $03A1  21 78 0E
 L_03A4:
         LD (HL),$00                      ; $03A4  36 00
-; [AI] Per-character dispatch inside the line loop: reads the next command character and branches
-;       on end-of-line/end-of-file, '$' (parameter), '^' (control escape), or a literal character to
-;       copy.
+; [AI] Reads the next source character and classifies it (^Z/CR/'$'/'^'/ordinary) to drive the
+;       substitution logic.
 L_03A6:
         CALL SUB_0309                    ; $03A6  CD 09 03
 L_03A9:
@@ -506,9 +503,6 @@ L_03CE:
         LD C,L                           ; $03DF  4D
         CALL SUB_04C4                    ; $03E0  CD C4 04
         JP L_0433                        ; $03E3  C3 33 04
-; [AI] '$n' parameter substitution: converts the digit after '$' to a 0-9 index, range-checks it
-;       (else 'Parameter Error'), then copies the corresponding actual argument string from the tail
-;       buffer into the output via SUB_0481/SUB_04AD.
 L_03E6:
         LD A,($0E7D)                     ; $03E6  3A 7D 0E
         SUB $30                          ; $03E9  D6 30
@@ -548,9 +542,8 @@ L_0422:
         JP L_0422                        ; $0430  C3 22 04
 L_0433:
         JP L_0468                        ; $0433  C3 68 04
-; [AI] '^X' control-character escape handler: reads the letter after '^', converts it to a control
-;       code (subtract $41), validates it ($00-$19 else 'Invalid Control Character'), and emits the
-;       resulting control byte.
+; [AI] Handles the '^' escape: reads the following letter and converts ^A.. into the corresponding
+;       control character, erroring on an out-of-range letter.
 L_0436:
         LD A,($0E7D)                     ; $0436  3A 7D 0E
 L_0439:
@@ -574,17 +567,18 @@ L_0456:
         CALL SUB_04C4                    ; $045B  CD C4 04
 L_045E:
         JP L_0468                        ; $045E  C3 68 04
+; [AI] Ordinary-character path: appends the unmodified character to the current output line.
 L_0461:
         LD HL,($0E7D)                    ; $0461  2A 7D 0E
 L_0464:
         LD C,L                           ; $0464  4D
 L_0465:
         CALL SUB_04C4                    ; $0465  CD C4 04
+; [AI] Continue the line loop after a single character or substitution has been emitted.
 L_0468:
         JP L_03A6                        ; $0468  C3 A6 03
-; [AI] End-of-line / end-of-file handling for the input line: sets the loop-continue flag from
-;       whether the char was a carriage return, appends the line terminator to the output, and loops
-;       back to start the next line.
+; [AI] End-of-line handling: sets the done flag when the source character was CR, emits the line,
+;       and re-tests the loop condition.
 L_046B:
         LD A,($0E7D)                     ; $046B  3A 7D 0E
         SUB $0D                          ; $046E  D6 0D
@@ -595,11 +589,11 @@ L_046B:
         LD C,L                           ; $0479  4D
         CALL SUB_04C4                    ; $047A  CD C4 04
         JP L_039A                        ; $047D  C3 9A 03
+; [AI] Exit point of the line-processing loop.
 L_0480:
         RET                              ; $0480  C9
-; [AI] Parameter-token scanner step: reads the next byte of the argument token from the tail buffer
-;       (base $05F4, index $0E7A), returns 1 if it is a real character (not a space or NUL) and
-;       advances the index, else returns 0 to mark end of token.
+; [AI] Scans one whitespace-delimited token of the parameter array, returning whether a non-space,
+;       non-NUL token byte was found and advancing the token index.
 SUB_0481:
         LD HL,($0E7A)                    ; $0481  2A 7A 0E
         LD H,$00                         ; $0484  26 00
@@ -624,12 +618,11 @@ SUB_0481:
         INC (HL)                         ; $04A6  34
         LD A,$01                         ; $04A7  3E 01
         RET                              ; $04A9  C9
+; [AI] Returns 'no token' (A=0) when a delimiter or end of the parameter list is reached.
 L_04AA:
         LD A,$00                         ; $04AA  3E 00
         RET                              ; $04AC  C9
-; [AI] Skips leading spaces in the tail buffer: while the byte at base $05F4 + index $0E7A is a
-;       blank ($20), advances the index, leaving it on the first non-space character of the next
-;       argument.
+; [AI] Skips leading spaces in the parameter array so the next parameter token can be read.
 SUB_04AD:
         LD HL,($0E7A)                    ; $04AD  2A 7A 0E
         LD H,$00                         ; $04B0  26 00
@@ -643,10 +636,9 @@ SUB_04AD:
         JP SUB_04AD                      ; $04C0  C3 AD 04
 L_04C3:
         RET                              ; $04C3  C9
-; [AI] Append one output character (passed in C) to the generated command image: increments the
-;       byte counter at $0E76, range-checks it against the buffer limit ($07FF, else 'Command Buffer
-;       Overflow'), stores the char into the buffer based at $0676, and bounds the per-line length
-;       (max $7D else 'Command Too Long').
+; [AI] Appends one character (in C) to the growing batch image: bumps the byte counter, range-
+;       checks it against the buffer limit ('Command Buffer Overflow'), stores the byte, and counts
+;       characters per line guarding against 'Command Too Long'.
 SUB_04C4:
         LD HL,$0E7B                      ; $04C4  21 7B 0E
 L_04C7:
@@ -695,9 +687,9 @@ L_04FA:
         CALL SUB_02A7                    ; $04FA  CD A7 02
 L_04FD:
         RET                              ; $04FD  C9
-; [AI] Phase 3 / output writer: deletes any old $$$.SUB then creates a fresh one (BDOS make), and
-;       writes the assembled command image back to disk in reverse 128-byte records (so CCP consumes
-;       lines last-in-first-out), reporting 'Directory Full' or close errors as needed.
+; [AI] Output phase: deletes the old $$$.SUB, creates a new one, then writes the accumulated batch
+;       image back out in reverse 128-byte-record order (so the CCP reads lines first-in-last-out),
+;       padding the final record with '$'/^Z and closing the file.
 SUB_04FE:
         LD BC,$05BB                      ; $04FE  01 BB 05
         CALL SUB_022D                    ; $0501  CD 2D 02
@@ -716,10 +708,10 @@ L_051D:
         CP $00                           ; $0523  FE 00
         JP Z,L_0565                      ; $0525  CA 65 05
         LD A,($0E7E)                     ; $0528  3A 7E 0E
-        LD ($0080),A                     ; $052B  32 80 00
+        LD (DEFAULT_DMA),A               ; $052B  32 80 00
         LD C,A                           ; $052E  4F
         LD B,$00                         ; $052F  06 00
-        LD HL,$0081                      ; $0531  21 81 00
+        LD HL,CMDLINE                    ; $0531  21 81 00
         ADD HL,BC                        ; $0534  09
         LD (HL),$00                      ; $0535  36 00
         LD HL,($0E7E)                    ; $0537  2A 7E 0E
@@ -727,8 +719,8 @@ L_051D:
         LD BC,$0082                      ; $053C  01 82 00
         ADD HL,BC                        ; $053F  09
         LD (HL),$24                      ; $0540  36 24
-; [AI] Record-fill loop in the writer: pulls bytes from the in-memory image (SUB_057A) to fill the
-;       current 128-byte sector at page-zero DMA ($0080) before each sequential write.
+; [AI] Reverse-fill inner loop: pulls bytes off the buffer back-to-front to assemble each outgoing
+;       record in the order the CCP expects.
 L_0542:
         LD A,$00                         ; $0542  3E 00
         LD HL,$0E7E                      ; $0544  21 7E 0E
@@ -737,7 +729,7 @@ L_0542:
         CALL SUB_057A                    ; $054B  CD 7A 05
         LD HL,($0E7E)                    ; $054E  2A 7E 0E
         LD H,$00                         ; $0551  26 00
-        LD BC,$0080                      ; $0553  01 80 00
+        LD BC,DEFAULT_DMA                ; $0553  01 80 00
         ADD HL,BC                        ; $0556  09
         LD (HL),A                        ; $0557  77
         LD HL,$0E7E                      ; $0558  21 7E 0E
@@ -756,9 +748,8 @@ L_0565:
         CALL SUB_02A7                    ; $0576  CD A7 02
 L_0579:
         RET                              ; $0579  C9
-; [AI] Reads one byte from the assembled command image in reverse: decrements the running index at
-;       $0E76 and returns the byte at base $0676 + index, feeding the writer that emits $$$.SUB
-;       records back-to-front.
+; [AI] Fetch-byte-from-image helper: decrements the buffer index and returns the byte at that
+;       position, used when emitting records in reverse.
 SUB_057A:
         LD HL,($0E76)                    ; $057A  2A 76 0E
         DEC HL                           ; $057D  2B
@@ -767,21 +758,19 @@ SUB_057A:
         ADD HL,BC                        ; $0584  09
         LD A,(HL)                        ; $0585  7E
         RET                              ; $0586  C9
-; [AI] Final phase: jumps to the warm-boot vector at $0000, reloading CCP/BDOS so the newly written
-;       $$$.SUB command file is picked up and executed.
+; [AI] Final warm-boot trampoline: jumps to the page-zero WBOOT vector to restart CP/M so the CCP
+;       begins executing the just-written $$$.SUB script.
 SUB_0587:
         JP WBOOT_VEC                     ; $0587  C3 00 00
-; [AI] BDOS call trampoline: JP $0005 (BDOS entry vector); used by the string/print and read/delete
-;       wrappers to invoke BDOS with C and DE already set.
+; [AI] Indirect BDOS call site (JP $0005) used by the print/read/write wrappers to enter the BDOS.
 SUB_058A:
         JP BDOS_VEC                      ; $058A  C3 05 00
-; [AI] Duplicate BDOS call trampoline (JP $0005); functionally identical to SUB_058A, used by the
-;       open/close/write/make wrappers whose callers consume the A return value.
+; [AI] Second BDOS call trampoline (JP $0005) used by the open/close/delete/make wrappers.
 SUB_058D:
         JP BDOS_VEC                      ; $058D  C3 05 00
         DEFB    $CD,$05,$00,$C9,$C9,$C9,$5F,$16,$00              ; $0590
-; [AI] 16-bit unsigned compare/subtract (DE - HL): computes the difference and leaves the borrow in
-;       carry, used to test whether the output byte counter has exceeded the buffer-size limit.
+; [AI] 16-bit pointer-vs-limit comparison (DE minus HL): used by the output writer to detect when
+;       the batch image has overrun the available buffer.
 SUB_0599:
         LD A,E                           ; $0599  7B
 L_059A:

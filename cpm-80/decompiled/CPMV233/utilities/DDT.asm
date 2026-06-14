@@ -12,41 +12,41 @@ BDOS_VEC             EQU $0005               ; BDOS call vector — JP BDOS_ENTR
 
     ORG $0100
 
-; [AI] DDT.COM entry at the TPA ($0100). LD BC,$1010 loads the relocator parameters: B=$10 = DDT's
-;       size in 256-byte pages, C=$10 (low count) used by the page-bias relocation that moves DDT up
-;       under the BDOS.
+; [AI] The standard CP/M transient-program load address $0100 where the CCP loads and starts
+;       DDT.COM. Execution begins here; the first instruction loads BC with a size/relocation value
+;       before jumping past the embedded copyright banner.
 TPA_START:
         LD BC,$1010                      ; $0100  01 10 10
-; [AI] Jump over the embedded ASCII copyright/sign-on string ('COPYRIGHT (C) 1980, DIGITAL RESEARCH
-;       DDT VERS 2.2$') that immediately follows, landing at the real loader body.
+; [AI] Jumps over the in-line copyright/version banner ('COPYRIGHT (C) 1980, DIGITAL RESEARCH ...
+;       DDT VERS 2.2$') that follows in memory, so the ASCII text is not executed as code. The
+;       banner is the $-terminated string later printed via BDOS function 9.
 L_0103:
         JP L_013D                        ; $0103  C3 3D 01
         DEFB    $43,$4F,$50,$59,$52,$49,$47,$48,$54,$20,$28,$43,$29,$20,$31,$39 ; $0106
         DEFB    $38,$30,$2C,$20,$44,$49,$47,$49,$54,$41,$4C,$20,$52,$45,$53,$45 ; $0116
         DEFB    $41,$52,$43,$48,$20,$20,$20,$20,$20,$20,$44,$44,$54,$20,$56,$45 ; $0126
         DEFB    $52,$53,$20,$32,$2E,$32,$24                      ; $0136
-; [AI] Loader proper begins: set SP=$0200 so the stack sits just above page 1, below the
-;       relocatable DDT image that starts at $0200.
+; [AI] The real program startup after the banner: sets the stack pointer to $0200 and then prints
+;       the sign-on message (DE=$0130, C=9, CALL BDOS). This is DDT's initialization before it
+;       relocates its main debugger body to the top of the TPA.
 L_013D:
         LD SP,$0200                      ; $013D  31 00 02
-; [AI] Save the relocation parameter word (BC=$1010) on the stack for the later copy/relocate
-;       passes; pushed twice (here and L_0141).
 L_0140:
         PUSH BC                          ; $0140  C5
 L_0141:
         PUSH BC                          ; $0141  C5
-; [AI] Print the sign-on banner via BDOS function 9: DE=$0130 points at the '$'-terminated 'DDT
-;       VERS 2.2$' message, C=9, then CALL $0005.
 L_0142:
         LD DE,$0130                      ; $0142  11 30 01
 L_0145:
         LD C,$09                         ; $0145  0E 09
-; [AI] BDOS call ($0005) that emits the banner string set up just above (function 9, print
-;       '$'-terminated string).
+; [AI] Issues the BDOS 'print string' call (function 9) that displays DDT's sign-on banner to the
+;       console. DE was loaded with $0130, the address of the '$'-terminated version line within the
+;       copyright text.
 L_0147:
         CALL BDOS_VEC                    ; $0147  CD 05 00
-; [AI] Read a SoftCard/system configuration byte at $F3BB to decide the relocation/CPU-mode flag;
-;       the value 0 or 5 is treated as normal, anything else yields $FF.
+; [AI] Reads a system byte at $F3BB (a SoftCard/CP/M memory-size or configuration cell) to decide
+;       the relocation/flag value stored at $08A4 below. Begins the logic that tailors DDT's self-
+;       relocation to the running system's memory size.
 L_014A:
         LD A,($F3BB)                     ; $014A  3A BB F3
 L_014D:
@@ -57,61 +57,46 @@ L_014E:
         JP Z,L_0159                      ; $0153  CA 59 01
         LD A,$FF                         ; $0156  3E FF
         NOP                              ; $0158  00
-; [AI] Store the computed configuration flag (A) into DDT's run-time variable at $08A4, used later
-;       by the relocated body.
+; [AI] Stores the computed configuration flag into DDT's working variable at $08A4, then copies the
+;       BDOS top-of-TPA address (from page-zero $0006/$0001) into its own pointers at $08A5/$08A6.
+;       This captures where the resident operating system begins so DDT can relocate just below it.
 L_0159:
         LD ($08A4),A                     ; $0159  32 A4 08
-; [AI] Copy the saved base-address word from $01EC into DDT's relocation variable at $08A6
-;       (preserving an original load/base pointer for the relocated image).
 L_015C:
         LD HL,($01EC)                    ; $015C  2A EC 01
 L_015F:
         LD ($08A6),HL                    ; $015F  22 A6 08
-; [AI] Copy the companion base byte from $01EB into the run-time variable at $08A5, completing the
-;       saved base-address triple ($08A4-$08A6).
 L_0162:
         LD A,($01EB)                     ; $0162  3A EB 01
 L_0165:
         LD ($08A5),A                     ; $0165  32 A5 08
-; [AI] Recover the relocation parameter (BC=$1010) saved earlier, then begin computing where DDT
-;       will be moved in high memory.
 L_0168:
         POP BC                           ; $0168  C1
-; [AI] Point HL at page-zero $0007, the high byte of the BDOS entry vector (= top page of the TPA /
-;       memory size), to derive the destination for the relocated DDT.
 L_0169:
         LD HL,$0007                      ; $0169  21 07 00
-; [AI] Fetch the BDOS/top-of-memory page number and (with the following DEC A / SUB B) compute the
-;       high byte of DDT's destination so the relocated body sits one page below the BDOS, B pages
-;       tall.
 L_016C:
         LD A,(HL)                        ; $016C  7E
 L_016D:
         DEC A                            ; $016D  3D
-; [AI] Subtract DDT's page count (B=$10) from (top page - 1) to form the destination base page in
-;       A; D gets it, E=0, so DE is the page-aligned destination address.
 L_016E:
         SUB B                            ; $016E  90
 L_016F:
         LD D,A                           ; $016F  57
 L_0170:
         LD E,$00                         ; $0170  1E 00
-; [AI] Save the destination base (DE) on the stack and set HL=$0200 (start of the relocatable DDT
-;       image) as the copy source.
 L_0172:
         PUSH DE                          ; $0172  D5
 L_0173:
         LD HL,$0200                      ; $0173  21 00 02
-; [AI] Top of the block-copy loop: test BC for zero (all bytes copied) and exit to L_0183 when
-;       done.
+; [AI] Top of the byte-copy loop that moves DDT's relocatable image from $0200 upward into high
+;       memory; BC counts bytes remaining, HL is the source, DE the destination. This is the first
+;       pass of the classic CP/M self-relocator that lifts the debugger out of the low TPA.
 L_0176:
         LD A,B                           ; $0176  78
 L_0177:
         OR C                             ; $0177  B1
 L_0178:
         JP Z,L_0183                      ; $0178  CA 83 01
-; [AI] Block-copy body: decrement count, move one byte from source (HL) to destination (DE),
-;       advance both pointers, loop back to L_0176 — relocates the DDT image up to high memory.
 L_017B:
         DEC BC                           ; $017B  0B
 L_017C:
@@ -124,28 +109,26 @@ L_017F:
         INC HL                           ; $017F  23
 L_0180:
         JP L_0176                        ; $0180  C3 76 01
-; [AI] Copy finished: pop the destination base into DE and the original parameter into BC to set up
-;       the address-fixup (relocation bit-map) pass.
+; [AI] Loop exit once the image has been copied; restores the relocation offset and counts and
+;       falls into the second pass. Marks the transition from raw copy to applying address fixups.
 L_0183:
         POP DE                           ; $0183  D1
 L_0184:
         POP BC                           ; $0184  C1
-; [AI] Begin the bit-map relocation pass: save the bit-map pointer (HL, just past the copied image)
-;       and set H=D (the page-bias high byte) to be added to address bytes.
 L_0185:
         PUSH HL                          ; $0185  E5
 L_0186:
         LD H,D                           ; $0186  62
-; [AI] Top of the fixup loop: when BC reaches zero all bytes have been processed, branch to L_01A5
-;       to launch DDT.
+; [AI] Top of the relocation-fixup pass: walks a packed bitmap (one bit per byte of the image) and,
+;       for each set bit, adds the page-relocation offset H to the corresponding high byte of an
+;       absolute address. This adjusts all the internal 16-bit pointers so the moved copy of DDT
+;       runs correctly at its new high address.
 L_0187:
         LD A,B                           ; $0187  78
 L_0188:
         OR C                             ; $0188  B1
 L_0189:
         JP Z,L_01A5                      ; $0189  CA A5 01
-; [AI] For each destination byte, every 8th byte (E AND 7 == 0) triggers loading the next
-;       relocation bit-map byte; otherwise reuse the current bits.
 L_018C:
         DEC BC                           ; $018C  0B
 L_018D:
@@ -154,8 +137,6 @@ L_018E:
         AND $07                          ; $018E  E6 07
 L_0190:
         JP NZ,L_0198                     ; $0190  C2 98 01
-; [AI] Fetch the next byte of the relocation bit-map (via EX (SP),HL to reach the saved bit-map
-;       pointer), advance it, and stash the bits in L.
 L_0193:
         EX (SP),HL                       ; $0193  E3
 L_0194:
@@ -166,8 +147,6 @@ L_0196:
         EX (SP),HL                       ; $0196  E3
 L_0197:
         LD L,A                           ; $0197  6F
-; [AI] Shift the next relocation bit out of L (RLA): a set carry means the current destination byte
-;       is an address high-byte that needs the page bias added.
 L_0198:
         LD A,L                           ; $0198  7D
 L_0199:
@@ -176,31 +155,23 @@ L_019A:
         LD L,A                           ; $019A  6F
 L_019B:
         JP NC,L_01A1                     ; $019B  D2 A1 01
-; [AI] Apply the relocation: add the page-bias high byte (H) to the destination byte at (DE),
-;       patching an absolute address to point into DDT's new high-memory location.
 L_019E:
         LD A,(DE)                        ; $019E  1A
 L_019F:
         ADD A,H                          ; $019F  84
 L_01A0:
         LD (DE),A                        ; $01A0  12
-; [AI] Advance to the next destination byte (DE) and loop back to L_0187 to continue the bit-map
-;       address fixup.
 L_01A1:
         INC DE                           ; $01A1  13
 L_01A2:
         JP L_0187                        ; $01A2  C3 87 01
-; [AI] Relocation complete: pop the destination base into DE to compute DDT's relocated entry
-;       address.
+; [AI] End of relocation; clears L to form the final entry address in HL and JP (HL) transfers
+;       control into the now-relocated main body of DDT (the DDTZ command interpreter). After this
+;       point execution leaves the low-TPA stub for good.
 L_01A5:
         POP DE                           ; $01A5  D1
-; [AI] Set L=0 so HL = (destination page):00, the page-aligned start of the relocated DDT, in
-;       preparation for transferring control.
 L_01A6:
         LD L,$00                         ; $01A6  2E 00
-; [AI] JP (HL): jump into the relocated DDT body now resident just below the BDOS, leaving the
-;       $0100 bootstrap behind. The remaining bytes ($01A9 onward) are the DDT image/data the
-;       disassembler emitted as DEFB.
 L_01A8:
         JP (HL)                          ; $01A8  E9
         DEFB    $7F,$C9,$21,$A1,$1D,$70,$2B,$71,$2A,$A0,$1D,$44,$4D,$CD,$9E,$07 ; $01A9

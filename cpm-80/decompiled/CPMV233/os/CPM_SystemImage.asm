@@ -9,11 +9,9 @@
 
     ORG $8000
 
-; [AI] System image entry point at the load address ($8000 ORG); a single JP to the real
-;       initialization routine (L_9631). The bytes immediately following are CCP/BDOS code emitted
-;       as data, including the CCP built-in command-name table ("DIR ERA TYPE SAVE REN USER") and
-;       BDOS error-message strings ("Bad error", "No file", "No space", "File exists", "Bad Sector",
-;       etc.) that the auto-disassembler could not trace into.
+; [AI] ORG $8000 entry point of the loaded system image; its only instruction is a JP to the real
+;       initialization routine at L_9631, with the bytes that follow being CCP/BDOS code and data
+;       the disassembler emitted as DEFB.
 L_8000:
         JP L_9631                        ; $8000  C3 31 96
         DEFB    $1A,$B7,$C8,$FE,$20,$38,$D5,$C8,$FE,$3D,$C8,$FE,$5F,$C8,$FE,$2E ; $8003
@@ -366,11 +364,10 @@ L_8000:
         DEFB    $F3,$FE,$06,$20,$0A,$21,$99,$FD,$22,$80,$F3,$D6,$03,$18,$13,$FE ; $9607
         DEFB    $05,$28,$22,$D6,$03,$38,$1E,$20,$09,$21,$15,$FB,$36,$BE,$23,$23 ; $9617
         DEFB    $36,$1F,$F5,$CD,$9D,$FF,$F1,$22,$B9,$FC          ; $9627
-; [AI] Cold/warm-start initialization (relocation) routine for the Microsoft SoftCard 60K CP/M 2.23
-;       image. It calls BIOS-area helpers ($FF98/$FF9D) and reads configuration bytes from the BIOS
-;       parameter block in page $F3 ($F3B9/$F3BA/$F398) to build the BDOS/BIOS jump vectors and
-;       device dispatch entries in the relocated high-RAM region ($FB.. /$FE..), printing the
-;       "Softcard CP/M 60K Ver. 2.23" Microsoft sign-on banner (text at $96B8).
+; [AI] System initialization / install routine reached from the L_8000 entry jump: it calls BIOS-
+;       area helpers ($FF98/$FF9D) and reads a config block at $F398/$F3B9/$F3BA to patch BIOS jump
+;       vectors (LIST/PUNCH/READER at $FE59/$FE6D/$FE73) before running the install loop and handing
+;       off to $FAE3.
 L_9631:
         CALL $FF98                       ; $9631  CD 98 FF
         LD ($FB37),HL                    ; $9634  22 37 FB
@@ -381,9 +378,8 @@ L_9631:
         JR C,L_9649                      ; $9641  38 06
         CALL $FF9D                       ; $9643  CD 9D FF
         LD ($FE59),HL                    ; $9646  22 59 FE
-; [AI] Branch within the init routine handling the second configurable device: reads its config
-;       byte at $F3BA, and if present (value >= 3) installs its vector via $FF9D, storing the
-;       resulting address into the high-RAM vector slot $FE6D.
+; [AI] Branch within the init routine that configures the second optional device vector ($FE6D)
+;       from the $F3BA config byte, skipping it when the device is absent (SUB $03 borrow).
 L_9649:
         LD A,($F3BA)                     ; $9649  3A BA F3
         SUB $03                          ; $964C  D6 03
@@ -397,25 +393,25 @@ L_9649:
         CALL $FF98                       ; $965C  CD 98 FF
         LD ($FE73),HL                    ; $965F  22 73 FE
         JR L_966F                        ; $9662  18 0B
-; [AI] Fallback path taken when a configured device is absent: patches a stub into the vector area
-;       so the corresponding entry returns harmlessly (writes LD A,(DE)/RET, $1A3E + $C9, into
-;       $FE72/$FE74) rather than dispatching to a missing driver.
+; [AI] Fallback path that stubs an unconfigured device vector: it writes a 'LD A,xx / RET' ($1A3E +
+;       $C9) into the $FE72 BIOS slot so an unsupported LIST/PUNCH/READER call returns harmlessly
+;       instead of crashing.
 L_9664:
         LD HL,$1A3E                      ; $9664  21 3E 1A
         LD ($FE72),HL                    ; $9667  22 72 FE
         LD A,$C9                         ; $966A  3E C9
         LD ($FE74),A                     ; $966C  32 74 FE
-; [AI] Tail of initialization: calls the BIOS table-setup helper ($FA82), passes the device/config
-;       byte from $F398 to $FFA8, then sets HL to the start of the driver-init table at $FFB7 ahead
-;       of the dispatch loop.
+; [AI] Convergence point after the device vectors are patched; it calls the main setup at $FA82,
+;       fetches the default-drive/config byte from $F398, programs it via $FFA8, and falls through
+;       into the install-table loop.
 L_966F:
         CALL $FA82                       ; $966F  CD 82 FA
         LD A,($F398)                     ; $9672  3A 98 F3
         CALL $FFA8                       ; $9675  CD A8 FF
         LD HL,$FFB7                      ; $9678  21 B7 FF
-; [AI] Driver/device initialization dispatch loop: walks the table at $FFB7, and for each nonzero
-;       entry calls the per-entry init handler at $FB4C, finally jumping to $FAE3 to complete
-;       startup and transfer control (warm-boot/CCP entry).
+; [AI] Install-table loop walking the zero-terminated list at $FFB7: for each nonzero entry it
+;       calls the per-entry installer at $FB4C, and on the terminator jumps to $FAE3 to enter the
+;       running system (CCP).
 L_967B:
         LD A,(HL)                        ; $967B  7E
         OR A                             ; $967C  B7

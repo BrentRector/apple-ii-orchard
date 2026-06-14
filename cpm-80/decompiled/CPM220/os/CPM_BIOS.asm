@@ -7,12 +7,16 @@
 
     DEVICE NOSLOT64K
 
+; -- External symbols --
+WBOOT_VEC            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
+CDISK                EQU $0004               ; Current drive (low nibble: 0=A, 1=B, ..., 15=P) and current user (high nibble, 0-15).
+BDOS_VEC             EQU $0005               ; BDOS call vector — JP BDOS_ENTRY. Programs use CALL $0005 to invoke BDOS. Word at $0006 is also the top-of-TPA marker.
+DEFAULT_DMA          EQU $0080               ; Default DMA buffer — also command-line tail. First byte = length, then characters. Returned to default by BDOS function 13 (DRV_ALLRESET).
+
     ORG $DA00
 
-; [AI] CP/M BIOS cold-boot entry and the 17-entry BIOS jump vector. The first JP (to L_DEA8) is
-;       BOOT; the following JPs at $DA03..$DA2A are the standard WBOOT, CONST, CONIN, CONOUT, LIST,
-;       PUNCH, READER, HOME, SELDSK, SETTRK, SETSEC, SETDMA, READ, WRITE table that BDOS/CCP call
-;       through.
+; [AI] Start of the BIOS cold-boot jump-table; the first JP is the BOOT entry, invoked once at
+;       system cold start to initialize hardware and hand control to the CCP.
 L_DA00:
         JP L_DEA8                        ; $DA00  C3 A8 DE
         ; jump table
@@ -38,14 +42,13 @@ L_DA00:
         DEFB    $93,$DA,$CA,$DF,$7A,$DF,$00,$00,$00,$00,$00,$00,$00,$00,$BA,$DE ; $DA7D
         DEFB    $93,$DA,$D6,$DF,$8A,$DF,$20,$00,$03,$07,$00,$7F,$00,$2F,$00,$C0 ; $DA8D
         DEFB    $00,$0C,$00,$03,$00                              ; $DA9D
-; [AI] Device-table initialization driver. Seeds the loop counter DE=7 (seven physical-device
-;       slots) before falling into L_DAA5; called from WBOOT (L_DACC) to (re)initialize the per-
-;       device state block at $F3B8+.
+; [AI] Per-device initialization loop that walks the seven IOBYTE/device control slots in the $F3B8
+;       table, resetting each logical device and re-claiming the $C800 expansion window when needed.
 SUB_DAA2:
         LD DE,$0007                      ; $DAA2  11 07 00
-; [AI] Per-device init loop body: indexes the device-state table at $F3B8 by DE, and for entries
-;       marked type $03 performs setup (SUB_DD60) and for one device claims the $C800 shared
-;       expansion-ROM window (LD HL,$C800; CALL SUB_DB3B). Iterates via L_DAC1 over all seven slots.
+; [AI] Body of the device-init loop: indexes into the $F3B8 device-status table by DE, and for
+;       status code $03 reinitializes the entry, for the decremented case reclaims the $C800
+;       firmware window.
 L_DAA5:
         LD HL,$F3B8                      ; $DAA5  21 B8 F3
         ADD HL,DE                        ; $DAA8  19
@@ -55,27 +58,25 @@ L_DAA5:
         CALL SUB_DD60                    ; $DAAE  CD 60 DD
         LD (HL),$03                      ; $DAB1  36 03
         LD (HL),$15                      ; $DAB3  36 15
-; [AI] Continuation of the device-init loop that handles the second device-type case: on a match it
-;       calls SUB_DCEE and sets HL=$C800 before invoking the $C800-window claim routine SUB_DB3B.
+; [AI] Branch within the device-init loop handling the second device-status case, which calls the
+;       $C800 expansion-ROM reset before continuing the per-device scan.
 L_DAB5:
         DEC A                            ; $DAB5  3D
         JR NZ,L_DAC1                     ; $DAB6  20 09
         CALL SUB_DCEE                    ; $DAB8  CD EE DC
         LD HL,$C800                      ; $DABB  21 00 C8
         CALL SUB_DB3B                    ; $DABE  CD 3B DB
-; [AI] Loop tail of the device-init scan: decrements the slot counter E and branches back to L_DAA5
-;       until all device slots are processed, then RETs.
+; [AI] Loop tail of the device-init scan: decrements the device counter E and repeats for all seven
+;       logical devices, returning when done.
 L_DAC1:
         DEC E                            ; $DAC1  1D
         JR NZ,L_DAA5                     ; $DAC2  20 E1
         RET                              ; $DAC4  C9
         DEFB    $21,$00,$E0,$7B,$B4,$67,$C9                      ; $DAC5
-; [AI] WBOOT (warm boot) handler. Resets SP to $0080, reinitializes the device tables (SUB_DAA2),
-;       and rebuilds the page-zero vectors: writes JP at $0000 pointing to the BIOS WBOOT entry
-;       ($DA03), JP at $0005 pointing to the BDOS entry ($CC06), sets the default DMA to $0080, then
-;       hands control back to the CCP.
+; [AI] WBOOT (warm boot) entry: resets the Z-80 stack to $0080, reloads the CCP/BDOS image, and
+;       rebuilds the page-zero vectors before returning to the command processor.
 L_DACC:
-        LD SP,$0080                      ; $DACC  31 80 00
+        LD SP,DEFAULT_DMA                ; $DACC  31 80 00
         LD A,($E051)                     ; $DACF  3A 51 E0
         LD HL,$0E00                      ; $DAD2  21 00 0E
         CALL SUB_DFE8                    ; $DAD5  CD E8 DF
@@ -84,13 +85,13 @@ L_DACC:
         LD ($DEB4),A                     ; $DADC  32 B4 DE
         LD ($DEAF),A                     ; $DADF  32 AF DE
         LD A,$C3                         ; $DAE2  3E C3
-        LD ($0000),A                     ; $DAE4  32 00 00
+        LD (WBOOT_VEC),A                 ; $DAE4  32 00 00
         LD HL,$DA03                      ; $DAE7  21 03 DA
         LD ($0001),HL                    ; $DAEA  22 01 00
-        LD ($0005),A                     ; $DAED  32 05 00
+        LD (BDOS_VEC),A                  ; $DAED  32 05 00
         LD HL,$CC06                      ; $DAF0  21 06 CC
         LD ($0006),HL                    ; $DAF3  22 06 00
-        LD BC,$0080                      ; $DAF6  01 80 00
+        LD BC,DEFAULT_DMA                ; $DAF6  01 80 00
         CALL SUB_DD8E                    ; $DAF9  CD 8E DD
         LD A,$01                         ; $DAFC  3E 01
         LD ($E5B2),A                     ; $DAFE  32 B2 E5
@@ -101,9 +102,8 @@ L_DACC:
         PUSH HL                          ; $DB05  E5
         PUSH HL                          ; $DB06  E5
         PUSH HL                          ; $DB07  E5
-; [AI] CONST entry of the BIOS jump table (console input status). The disassembler could not trace
-;       the real body (shown as $E5 fill); this address is invoked via the $DA06 vector to report
-;       whether a console character is ready.
+; [AI] CONST (console status) BIOS entry: returns A=$FF if a console character is ready, $00 if
+;       not. Body is obscured by mis-disassembled $E5 fill.
 L_DB08:
         PUSH HL                          ; $DB08  E5
         PUSH HL                          ; $DB09  E5
@@ -115,8 +115,8 @@ L_DB08:
         PUSH HL                          ; $DB0F  E5
         PUSH HL                          ; $DB10  E5
         PUSH HL                          ; $DB11  E5
-; [AI] CONIN entry of the BIOS jump table (console input). Reached via the $DA09 vector to read one
-;       console character into A; the actual routine body was not validly disassembled.
+; [AI] CONIN (console input) BIOS entry: waits for and returns the next console character in A.
+;       Body is obscured by mis-disassembled $E5 fill.
 L_DB12:
         PUSH HL                          ; $DB12  E5
         PUSH HL                          ; $DB13  E5
@@ -160,6 +160,9 @@ L_DB27:
         PUSH HL                          ; $DB38  E5
         PUSH HL                          ; $DB39  E5
         PUSH HL                          ; $DB3A  E5
+; [AI] Reached from the device-init code with HL=$C800 to operate on the shared expansion-ROM
+;       window; the disassembler mis-decoded its body as PUSH HL fill, so only its role as a called
+;       subroutine is certain.
 SUB_DB3B:
         PUSH HL                          ; $DB3B  E5
         PUSH HL                          ; $DB3C  E5
@@ -169,8 +172,8 @@ SUB_DB3B:
         PUSH HL                          ; $DB40  E5
         PUSH HL                          ; $DB41  E5
         PUSH HL                          ; $DB42  E5
-; [AI] CONOUT entry of the BIOS jump table (console output). Reached via the $DA0C vector to send
-;       the character in C to the console; the body shown is mis-traced $E5 fill.
+; [AI] CONOUT (console output) BIOS entry: sends the character in C to the console device. Body is
+;       obscured by mis-disassembled $E5 fill.
 L_DB43:
         PUSH HL                          ; $DB43  E5
         PUSH HL                          ; $DB44  E5
@@ -207,8 +210,8 @@ L_DB43:
         PUSH HL                          ; $DB63  E5
         PUSH HL                          ; $DB64  E5
         PUSH HL                          ; $DB65  E5
-; [AI] LIST entry of the BIOS jump table (list/printer output). Reached via the $DA0F vector to
-;       send the character in C to the list device; body not validly disassembled.
+; [AI] LIST BIOS entry: sends the character in C to the list (printer) device. Body is obscured by
+;       mis-disassembled $E5 fill.
 L_DB66:
         PUSH HL                          ; $DB66  E5
         PUSH HL                          ; $DB67  E5
@@ -225,8 +228,8 @@ L_DB66:
         PUSH HL                          ; $DB72  E5
         PUSH HL                          ; $DB73  E5
         PUSH HL                          ; $DB74  E5
-; [AI] PUNCH entry of the BIOS jump table (paper-tape punch / aux output). Reached via the $DA12
-;       vector to output the character in C; body not validly disassembled.
+; [AI] PUNCH BIOS entry: sends the character in C to the paper-tape punch / logical AUX-out device.
+;       Body is obscured by mis-disassembled $E5 fill.
 L_DB75:
         PUSH HL                          ; $DB75  E5
         PUSH HL                          ; $DB76  E5
@@ -246,8 +249,8 @@ L_DB75:
         PUSH HL                          ; $DB84  E5
         PUSH HL                          ; $DB85  E5
         PUSH HL                          ; $DB86  E5
-; [AI] READER entry of the BIOS jump table (paper-tape reader / aux input). Reached via the $DA15
-;       vector to read a character into A; body not validly disassembled.
+; [AI] READER BIOS entry: returns a character from the paper-tape reader / logical AUX-in device in
+;       A. Body is obscured by mis-disassembled $E5 fill.
 L_DB87:
         PUSH HL                          ; $DB87  E5
         PUSH HL                          ; $DB88  E5
@@ -335,6 +338,8 @@ L_DB87:
         PUSH HL                          ; $DBDA  E5
         PUSH HL                          ; $DBDB  E5
         PUSH HL                          ; $DBDC  E5
+; [AI] Subroutine called by the disk/device select code with a 7-entry count in B; invoked while
+;       resolving the logical-to-physical device mapping. Body is obscured by $E5 fill.
 SUB_DBDD:
         PUSH HL                          ; $DBDD  E5
         PUSH HL                          ; $DBDE  E5
@@ -372,14 +377,13 @@ SUB_DBDD:
         PUSH HL                          ; $DBFE  E5
         PUSH HL                          ; $DBFF  E5
         RET Z                            ; $DC00  C8
-        LD A,($0004)                     ; $DC01  3A 04 00
+        LD A,(CDISK)                     ; $DC01  3A 04 00
         LD C,A                           ; $DC04  4F
         JP $C400                         ; $DC05  C3 00 C4
         DEFB    $2A,$80,$F3,$E9,$3A,$00,$E0,$17,$9F,$C9,$CD,$50,$DB,$21,$AB,$F3 ; $DC08
         DEFB    $06,$06,$4F                                      ; $DC18
-; [AI] Table-scan loop that walks a list of (key,value) entries (incrementing HL by two),
-;       terminating on a negative sentinel byte (JP M) or when the key matches C; used to map a
-;       logical code to its associated routine/value.
+; [AI] Lookup-loop body scanning a paired (key,value) table: advances HL by two, tests the key byte
+;       against C, and falls through to return the matching value byte.
 L_DC1B:
         INC HL                           ; $DC1B  23
         LD A,(HL)                        ; $DC1C  7E
@@ -387,6 +391,8 @@ L_DC1B:
         OR A                             ; $DC1E  B7
         JP M,L_DB27                      ; $DC1F  FA 27 DB
         CP C                             ; $DC22  B9
+; [AI] Match-found exit of the table-lookup loop: loads the value byte at HL into A and returns it
+;       (with Z set on the matched key).
 L_DC23:
         LD A,(HL)                        ; $DC23  7E
         RET Z                            ; $DC24  C8
@@ -406,14 +412,16 @@ L_DC23:
         DEFB    $DB,$E6,$7F,$5D,$6C,$63,$5F,$84,$4F,$7B,$85,$F5,$06,$07,$CD,$2D ; $DCC9
         DEFB    $DC,$F1,$06,$0A,$4F,$18,$4D,$47,$21,$A4,$DE,$7E,$5F,$B7,$20,$11 ; $DCD9
         DEFB    $3A,$97,$F3,$B7,$28                              ; $DCE9
-; [AI] Console/character helper invoked during device init: selects a branch on the device
-;       character/code in C ($1F threshold test) and writes a status/mode byte ($80) into the
-;       device-state entry pointed to by HL.
+; [AI] Console/device sub-handler that, depending on the value in C, either stores a default $80
+;       status byte or scans the $F3A0 device-parameter table; called during SELDSK/CONOUT-style
+;       setup.
 SUB_DCEE:
         LD B,$B9                         ; $DCEE  06 B9
         JR NZ,L_DCF5                     ; $DCF0  20 03
         LD (HL),$80                      ; $DCF2  36 80
         RET                              ; $DCF4  C9
+; [AI] Alternate path of SUB_DCEE taken when C exceeds the $1F threshold, indexing the $F3A0
+;       device-parameter block to look up the requested entry.
 L_DCF5:
         LD A,$1F                         ; $DCF5  3E 1F
         CP C                             ; $DCF7  B9
@@ -497,8 +505,8 @@ L_DD2D:
         PUSH HL                          ; $DD48  E5
         PUSH HL                          ; $DD49  E5
         PUSH HL                          ; $DD4A  E5
-; [AI] HOME entry of the BIOS jump table. Reached via the $DA18 vector to move the selected drive
-;       to track 0; body shown as $E5 fill, not validly traced.
+; [AI] HOME BIOS entry: positions the selected drive's logical track to 0 (track-seek-to-home)
+;       prior to a SETTRK/READ sequence.
 L_DD4B:
         PUSH HL                          ; $DD4B  E5
         PUSH HL                          ; $DD4C  E5
@@ -511,8 +519,8 @@ L_DD4B:
         PUSH HL                          ; $DD53  E5
         PUSH HL                          ; $DD54  E5
         PUSH HL                          ; $DD55  E5
-; [AI] SETTRK entry of the BIOS jump table. Reached via the $DA1E vector to set the track number
-;       (from BC) for the next disk operation; body not validly disassembled.
+; [AI] SETTRK BIOS entry: records the track number passed in BC for the next disk READ/WRITE on the
+;       selected drive.
 L_DD56:
         PUSH HL                          ; $DD56  E5
         PUSH HL                          ; $DD57  E5
@@ -524,6 +532,8 @@ L_DD56:
         PUSH HL                          ; $DD5D  E5
         PUSH HL                          ; $DD5E  E5
         PUSH HL                          ; $DD5F  E5
+; [AI] Helper called from the device-init code (SUB_DAA2) to operate on a device-table slot; its
+;       real body is hidden by the $E5 fill mis-disassembly.
 SUB_DD60:
         PUSH HL                          ; $DD60  E5
         PUSH HL                          ; $DD61  E5
@@ -538,8 +548,8 @@ SUB_DD60:
         PUSH HL                          ; $DD6A  E5
         PUSH HL                          ; $DD6B  E5
         PUSH HL                          ; $DD6C  E5
-; [AI] SELDSK entry of the BIOS jump table. Reached via the $DA1B vector to select the disk in C
-;       and return the address of its disk-parameter header; body not validly disassembled.
+; [AI] SELDSK BIOS entry: selects the drive in C and returns HL pointing at that drive's Disk
+;       Parameter Header (or 0 if invalid).
 L_DD6D:
         PUSH HL                          ; $DD6D  E5
         PUSH HL                          ; $DD6E  E5
@@ -569,25 +579,24 @@ L_DD6D:
         PUSH HL                          ; $DD86  E5
         PUSH HL                          ; $DD87  E5
         PUSH HL                          ; $DD88  E5
-; [AI] SETSEC entry of the BIOS jump table. Reached via the $DA21 vector to set the sector number
-;       (from BC) for the next disk operation; body not validly disassembled.
+; [AI] SETSEC BIOS entry: records the sector number passed in BC (already deblocked) for the next
+;       disk READ/WRITE.
 L_DD89:
         PUSH HL                          ; $DD89  E5
         PUSH HL                          ; $DD8A  E5
         PUSH HL                          ; $DD8B  E5
         PUSH HL                          ; $DD8C  E5
         PUSH HL                          ; $DD8D  E5
-; [AI] SETDMA entry of the BIOS jump table. Reached via the $DA24 vector to set the DMA (read/write
-;       buffer) address from BC; also called from WBOOT to install the default $0080 DMA. Body shown
-;       as $E5 fill.
+; [AI] SETDMA BIOS entry: stores the DMA transfer address passed in BC, setting where the next
+;       READ/WRITE moves its 128-byte record; also called during WBOOT to reset to $0080.
 SUB_DD8E:
         PUSH HL                          ; $DD8E  E5
         PUSH HL                          ; $DD8F  E5
         PUSH HL                          ; $DD90  E5
         PUSH HL                          ; $DD91  E5
         PUSH HL                          ; $DD92  E5
-; [AI] READ entry of the BIOS jump table. Reached via the $DA27 vector to read the currently
-;       selected track/sector into the DMA buffer; body not validly disassembled.
+; [AI] READ BIOS entry: reads the currently selected track/sector into the DMA buffer, returning
+;       A=0 on success or 1 on error.
 L_DD93:
         PUSH HL                          ; $DD93  E5
         PUSH HL                          ; $DD94  E5
@@ -605,8 +614,8 @@ L_DD93:
         PUSH HL                          ; $DDA0  E5
         PUSH HL                          ; $DDA1  E5
         PUSH HL                          ; $DDA2  E5
-; [AI] WRITE entry of the BIOS jump table. Reached via the $DA2A vector to write the DMA buffer to
-;       the selected track/sector; body not validly disassembled.
+; [AI] WRITE BIOS entry: writes the 128-byte record at the DMA address to the selected
+;       track/sector, returning A=0 on success or 1 on error.
 L_DDA3:
         PUSH HL                          ; $DDA3  E5
         PUSH HL                          ; $DDA4  E5
@@ -700,9 +709,8 @@ L_DDA3:
         PUSH HL                          ; $DDFC  E5
         PUSH HL                          ; $DDFD  E5
         PUSH HL                          ; $DDFE  E5
-; [AI] Disk/drive select search loop: scans backward (DEC HL, DJNZ) through a parameter table
-;       comparing E against each entry to locate the requested drive's record; falls through to
-;       L_DE2D on no match, or to L_DE0C when a match is found.
+; [AI] Search loop over a directory/parameter table: walks entries backward by HL, comparing a
+;       masked key against C to locate a matching device or drive descriptor.
 L_DDFF:
         PUSH HL                          ; $DDFF  E5
         OR A                             ; $DE00  B7
@@ -710,13 +718,14 @@ L_DDFF:
         XOR E                            ; $DE03  AB
         CP C                             ; $DE04  B9
         JR Z,L_DE0C                      ; $DE05  28 05
+; [AI] Continuation of the table search that steps HL back to the previous entry and loops via DJNZ
+;       until the counter B is exhausted.
 L_DE07:
         DEC HL                           ; $DE07  2B
         DJNZ L_DDFF                      ; $DE08  10 F5
         JR L_DE2D                        ; $DE0A  18 21
-; [AI] Match handler for the drive/parameter search: advances HL by 11 to the matched record's
-;       field, reads it into C, and if the high bit is set performs a secondary lookup (SUB_DBDD
-;       over the $F3A2 table) and conditionally flags state at $DEA3.
+; [AI] Match-handling branch of the table search: offsets HL by $0B to the entry's flag byte,
+;       splits its high bit (a redirect/indirection marker), and dispatches accordingly.
 L_DE0C:
         LD DE,$000B                      ; $DE0C  11 0B 00
         ADD HL,DE                        ; $DE0F  19
@@ -736,9 +745,8 @@ L_DE0C:
         JR NZ,L_DE2D                     ; $DE26  20 05
         LD A,$02                         ; $DE28  3E 02
         LD ($DEA3),A                     ; $DE2A  32 A3 DE
-; [AI] Dispatch tail of SELDSK/disk routine: clears a status byte at $DEA4, then selects one of two
-;       disk-handler vectors based on the flag at $DEA2 — loading HL from ($F388) or ($F386) — and
-;       falls into the JP (HL) at L_DE3D.
+; [AI] Dispatch tail that clears a status byte and then jumps through one of two stored vectors at
+;       $F388/$F386 depending on the $DEA2 mode flag, routing console I/O to the chosen handler.
 L_DE2D:
         XOR A                            ; $DE2D  AF
         LD ($DEA4),A                     ; $DE2E  32 A4 DE
@@ -747,8 +755,8 @@ L_DE2D:
         LD HL,($F388)                    ; $DE35  2A 88 F3
         JR Z,L_DE3D                      ; $DE38  28 03
         LD HL,($F386)                    ; $DE3A  2A 86 F3
-; [AI] Indirect dispatch: JP (HL) transferring control to the disk/console handler vector selected
-;       by the preceding L_DE2D logic.
+; [AI] JP (HL) that transfers control to the selected console-I/O handler vector resolved by the
+;       preceding dispatch code.
 L_DE3D:
         JP (HL)                          ; $DE3D  E9
         DEFB    $11,$03,$00,$C3,$44,$DC,$2A,$A5,$DE,$3A,$A7,$DE,$77,$CD,$6B,$DC ; $DE3E
@@ -758,9 +766,8 @@ L_DE3D:
         DEFB    $05,$AF,$32,$24,$F0,$C9,$F6,$80,$FE,$E0,$38,$04,$21,$DD,$F3,$AE ; $DE7E
         DEFB    $32,$45,$F0,$21,$F0,$FD,$18,$79,$3E,$FF,$01,$3E,$3F,$32,$32,$F0 ; $DE8E
         DEFB    $E1,$C9,$21,$F4,$FB,$C9,$AF,$6F,$67,$22          ; $DE9E
-; [AI] BOOT (cold-boot) entry reached from the first jump-table slot at $DA00; the bytes here were
-;       not validly traced by the disassembler, but this address is the BIOS cold-start handler that
-;       runs once at system load before falling through to warm-boot setup.
+; [AI] BOOT BIOS entry (cold start): sets up Apple II hardware pointers ($F045, $FBC1) and proceeds
+;       with first-time initialization before control reaches the CCP.
 L_DEA8:
         INC H                            ; $DEA8  24
         RET P                            ; $DEA9  F0
@@ -773,6 +780,8 @@ L_DEA8:
         DEFB    $DD,$7E,$E6,$02,$28,$FB,$2C,$71,$C9,$79,$32,$45,$F0,$CD,$5B,$DD ; $DEE1
         DEFB    $32,$F8,$F6,$32,$47,$F0,$3A,$FF,$EF,$CD,$C5,$DA,$D6,$20,$32,$E5 ; $DEF1
         DEFS    231, $E5    ; $DF01  fill
+; [AI] Initialization helper called from WBOOT with HL=$0E00; its true body is masked by the $E5
+;       fill but it participates in setting up the relocated CCP/BDOS image.
 SUB_DFE8:
         PUSH HL                          ; $DFE8  E5
         PUSH HL                          ; $DFE9  E5

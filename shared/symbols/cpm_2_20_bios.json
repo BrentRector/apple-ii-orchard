@@ -1,0 +1,32 @@
+{
+  "schema_version": "1.0",
+  "name": "CP/M 2.20 SoftCard BIOS (Z-80, $DA00-$DFFF)",
+  "description": "Microsoft SoftCard CP/M 2.20 BIOS jump-table labels. Companion to cpm_2_2.json (standard CP/M zero-page + BDOS conventions). 2.20 places the BIOS in language-card RAM with the jump table at $DA00. These addresses are specific to the 2.20 build.",
+  "sources": [
+    {"name": "Disassembly of CPM220Disk1.po BIOS region $DA00+", "url": "in-repo: cpm-80/cpm-investigation/bios_220.bin"}
+  ],
+  "categories": {
+    "bios_jump_table_220": {
+      "0xDA00": {"name": "BOOT",   "comment": "BIOS entry 0  -- cold-boot (jumps to $DEA8)"},
+      "0xDA03": {"name": "WBOOT",  "comment": "BIOS entry 1  -- warm boot (jumps to $DACC)"},
+      "0xDA06": {"name": "CONST",  "comment": "BIOS entry 2  -- console status"},
+      "0xDA09": {"name": "CONIN",  "comment": "BIOS entry 3  -- console input"},
+      "0xDA0C": {"name": "CONOUT", "comment": "BIOS entry 4  -- console output"},
+      "0xDA0F": {"name": "LIST",   "comment": "BIOS entry 5  -- printer (LIST device) output"},
+      "0xDA12": {"name": "PUNCH",  "comment": "BIOS entry 6  -- punch device output"},
+      "0xDA15": {"name": "READER", "comment": "BIOS entry 7  -- reader device input"},
+      "0xDA18": {"name": "HOME",   "comment": "BIOS entry 8  -- disk home (seek track 0)"},
+      "0xDA1B": {"name": "SELDSK", "comment": "BIOS entry 9  -- select disk (returns DPH pointer)"},
+      "0xDA1E": {"name": "SETTRK", "comment": "BIOS entry 10 -- set track for next read/write"},
+      "0xDA21": {"name": "SETSEC", "comment": "BIOS entry 11 -- set sector for next read/write"},
+      "0xDA24": {"name": "SETDMA", "comment": "BIOS entry 12 -- set DMA buffer address"},
+      "0xDA27": {"name": "READ",   "comment": "BIOS entry 13 -- read selected sector to DMA"},
+      "0xDA2A": {"name": "WRITE",  "comment": "BIOS entry 14 -- write DMA buffer to selected sector"},
+      "0xDA2D": {"name": "LISTST", "comment": "BIOS entry 15 -- LIST status (inline XOR A; RET = not ready)"},
+      "0xDA30": {"name": "SECTRAN", "comment": "BIOS entry 16 -- sector translation"}
+    },
+    "ccp_bdos_220": {
+      "0xCC06": {"name": "BDOS_ENTRY_220", "comment": "BDOS entry point -- planted at $0005-$0007 as JP $CC06"}
+    }
+  }
+}

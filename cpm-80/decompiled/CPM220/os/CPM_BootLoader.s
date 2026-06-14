@@ -10,15 +10,10 @@
 
 .org $0800
 
-; [AI] Entry point and origin ($0800) of the loaded CP/M 2.20 SoftCard stage-2 boot image (3072
-;       bytes, $0800-$13FF). The opening 6502 code sets up the warm-relocation pointer at $3E/$3F to
-;       $5C00, advances per-sector counters ($27, $00), and either jumps to the main loader at $1000
-;       (JMP $1000) or vectors through ($003E) using the sector-skew table at $0832 (00 02 04 06 08
-;       0A 0C 0E 01 03 05 07 09 0B 0D 0F); the high-bit ASCII Microsoft copyright/sign-on banner
-;       begins at ~$083D. Remainder of the image is RWTS-style disk read/write/nibble code, GCR
-;       encode/decode tables, the Z-80 SoftCard sign-on text ("...IND Z80 SOFTCARD MUST BOOT FROM
-;       SLOT SIX") near $112E-$1165, and the LOAD_CPM staging logic, which the auto-disassembler
-;       emitted as .byte data.
+; [AI] Stage-2 boot loader entry at $0800, where the disk controller's stage-1 ROM hands off
+;       control. It derives the boot slot's $Cn firmware page from the slot number, sets up the
+;       zero-page relocation pointer at $3E/$3F, and finishes with an indirect JMP ($003E) to
+;       continue installing CP/M and hand the CPU over to the Z-80.
 L_0800:
         ORA ($A5,X)                  ; $0800  01 A5
         .byte   $27, $C9, $09, $D0, $13, $8A, $4A, $4A, $4A, $4A, $09, $C0, $85, $3F, $A9, $5C ; $0802

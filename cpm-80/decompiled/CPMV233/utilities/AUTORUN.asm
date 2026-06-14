@@ -9,29 +9,28 @@
 
 ; -- External symbols --
 BDOS_VEC             EQU $0005               ; BDOS call vector — JP BDOS_ENTRY. Programs use CALL $0005 to invoke BDOS. Word at $0006 is also the top-of-TPA marker.
+DEFAULT_DMA          EQU $0080               ; Default DMA buffer — also command-line tail. First byte = length, then characters. Returned to default by BDOS function 13 (DRV_ALLRESET).
 
     ORG $0100
 
-; [AI] Program entry at the TPA ($0100); the leading JP skips two parameter bytes ($00,$1A at
-;       $0103-$0104) that follow and jumps to the real start at L_0105. AUTORUN.COM's first three
-;       bytes are the conventional JP-over-data header.
+; [AI] The standard $0100 CP/M transient-program entry point; it immediately jumps past two inline
+;       data bytes to the real start of AUTORUN.
 TPA_START:
         JP L_0105                        ; $0100  C3 05 01
         DEFB    $00,$1A                                          ; $0103
-; [AI] Real program start: loads the parameter byte at $0103 into A, then into C, as the first
-;       argument for the BIOS-dispatch call that follows. These $0103/$0104 bytes are configuration
-;       values consumed by the dispatch routine SUB_0156.
+; [AI] Main routine start: drives a sequence of raw BIOS disk calls (SETTRK/SETSEC/SETDMA/READ) to
+;       load a sector, then validates a signature; the track/sector values come from the two data
+;       bytes at $0103-$0104.
 L_0105:
         LD A,($0103)                     ; $0105  3A 03 01
 L_0108:
         LD C,A                           ; $0108  4F
 L_0109:
         LD B,$00                         ; $0109  06 00
-; [AI] Sets A=$1E, the low-byte offset selecting a specific BIOS jump-table entry, then calls
-;       SUB_0156 which dispatches into the BIOS via the patched warm-boot pointer. Begins a sequence
-;       of four such BIOS calls ($1E, $21, $24, $27).
 L_010B:
         LD A,$1E                         ; $010B  3E 1E
+; [AI] Loads the track number into C and dispatches BIOS SETTRK (jump-table offset $1E) to position
+;       the target track for the upcoming read.
 L_010D:
         CALL SUB_0156                    ; $010D  CD 56 01
         LD A,($0104)                     ; $0110  3A 04 01
@@ -53,12 +52,12 @@ L_010D:
         LD C,$09                         ; $0135  0E 09
         LD DE,$015B                      ; $0137  11 5B 01
         JP BDOS_VEC                      ; $013A  C3 05 00
-; [AI] Checksum-passed branch: copies the CCP command tail from the default DMA buffer at $0080
-;       (length byte plus characters) into the local buffer at $0172, decrementing the count by one
-;       as it relocates the string with LDIR.
+; [AI] Taken when the loaded sector's signature checksum is valid (genuine disk): copies the
+;       command-tail string from the $0080 DMA buffer into the local buffer at $0172 for further
+;       processing.
 L_013D:
         LD DE,$0172                      ; $013D  11 72 01
-        LD HL,$0080                      ; $0140  21 80 00
+        LD HL,DEFAULT_DMA                ; $0140  21 80 00
         LD A,(HL)                        ; $0143  7E
         LD (DE),A                        ; $0144  12
         OR A                             ; $0145  B7
@@ -71,23 +70,19 @@ L_013D:
         INC HL                           ; $014D  23
         LD B,$00                         ; $014E  06 00
         LDIR                             ; $0150  ED B0
-; [AI] Final dispatch setup: loads C=$01 and A=$2A (the BIOS jump-table low-byte offset) before
-;       falling through into SUB_0156 to make the last BIOS call.
+; [AI] Final tail-handling step that selects BIOS CONIN (offset $09 set up via A=$2A then C=$01)
+;       and falls into the dispatch thunk to transfer control to a BIOS console routine.
 L_0152:
         LD C,$01                         ; $0152  0E 01
         LD A,$2A                         ; $0154  3E 2A
-; [AI] BIOS jump-table dispatcher: reads the warm-boot address word at $0001 (the operand of the
-;       page-zero JP WBOOT) into HL, then replaces L with the offset in A so HL points at a chosen
-;       BIOS vector (CONOUT/CONST/etc.), and falls through to JP (HL) to call it. Lets the program
-;       reach raw BIOS entries by patching only the low byte.
+; [AI] BIOS jump-table thunk: reads the page-aligned warm-boot vector from $0001, replaces its low
+;       byte with the offset passed in A (e.g. $1E=SETTRK, $21=SETSEC, $24=SETDMA, $27=READ,
+;       $2A=WRITE, $09=CONIN), and jumps to that BIOS entry — letting the program call BIOS routines
+;       directly instead of through BDOS.
 SUB_0156:
         LD HL,($0001)                    ; $0156  2A 01 00
-; [AI] Patch point within the dispatcher: overwrites HL's low byte with the offset in A so HL
-;       addresses the target BIOS jump-table entry.
 L_0159:
         LD L,A                           ; $0159  6F
-; [AI] Indirect jump (JP (HL)) that transfers control to the selected BIOS routine; the called
-;       routine's RET returns to the original SUB_0156 caller.
 L_015A:
         JP (HL)                          ; $015A  E9
         DEFB    "Not a CP/M disk$"    ; $015B  string

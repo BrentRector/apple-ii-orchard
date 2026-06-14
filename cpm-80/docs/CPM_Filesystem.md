@@ -57,7 +57,7 @@ The mix is **standard 1981/1982 Microsoft SoftCard distribution**: Digital Resea
 
 ## Why the build pipeline doesn't touch the filesystem
 
-The disk-pack build tool ([`cpm-80/cpm-investigation/pack_dsk.py`](https://github.com/BrentRector/orchard/blob/main/cpm-80/cpm-investigation/pack_dsk.py)) starts from the reference `.DSK` and overwrites only the boot-pipeline sectors (tracks 0-2 plus parts of track 0's file system). Tracks 3+ are carried through unchanged.
+The OS-region build ([`cpm_pipeline.reconstruct.reconstruct_disk`](https://github.com/BrentRector/orchard/blob/main/cpm-80/cpm_pipeline/reconstruct.py), the `build` verb) starts from the reference `.DSK` and overwrites only the boot-pipeline sectors (tracks 0-2 plus parts of track 0's file system) from re-assembled source. Tracks 3+ are carried through unchanged. (A full source rebuild that also regenerates each file in the filesystem is `reconstruct_full_disk`.)
 
 This is intentional. The filesystem content is *user data* — Microsoft's distribution programs. The cpm-videx investigation isn't about reverse-engineering those individual `.COM` files; it's about how the boot pipeline gets CP/M up and running. Once CP/M is running and the `A>` prompt is visible, the user can do `DIR` to see the file list, run `BASIC`, write programs, or whatever. That's normal CP/M operation, identical to any other CP/M system.
 

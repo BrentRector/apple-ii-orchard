@@ -9,80 +9,54 @@
 
 ; -- External symbols --
 BDOS_VEC             EQU $0005               ; BDOS call vector — JP BDOS_ENTRY. Programs use CALL $0005 to invoke BDOS. Word at $0006 is also the top-of-TPA marker.
+DEFAULT_DMA          EQU $0080               ; Default DMA buffer — also command-line tail. First byte = length, then characters. Returned to default by BDOS function 13 (DRV_ALLRESET).
 
     ORG $0100
 
-; [AI] Program entry at the TPA ($0100). Loads A=$77 and stores it into page-zero location $000B,
-;       planting a dispatch byte that the final JP $000B branches into; then falls through to parse
-;       the command tail and prompt the user before re-booting from disk.
+; [AI] The standard $0100 CP/M transient entry point. Seeds a Z-80 launch byte at $000B and begins
+;       the re-boot sequence that hands the Apple II back to a raw disk bootstrap.
 TPA_START:
         LD A,$77                         ; $0100  3E 77
-; [AI] Writes the $77 setup byte into page-zero $000B, the low-memory location that the routine
-;       ultimately jumps to (JP $000B) to hand off to the relocated 6502 boot code.
 L_0102:
         LD ($000B),A                     ; $0102  32 0B 00
-; [AI] Calls SUB_0260 to parse the command-line tail (slot/sector-count argument) and pre-patch the
-;       boot parameters before any console I/O.
 L_0105:
         CALL SUB_0260                    ; $0105  CD 60 02
-; [AI] Sets C=9 for the BDOS 'print string' (function 9) call that follows, displaying the
-;       '$'-terminated sector-format prompt at $012F.
 L_0108:
         LD C,$09                         ; $0108  0E 09
-; [AI] BDOS call (function 9, print string) that writes the '<3>=13 sector, <CR>=16 sector:' prompt
-;       to the console via the vector at $0005.
 L_010A:
         CALL BDOS_VEC                    ; $010A  CD 05 00
-; [AI] Sets C=1 for the BDOS 'console input' (function 1) call that follows, reading one keystroke
-;       (the user's sector-format choice) into A.
 L_010D:
         LD C,$01                         ; $010D  0E 01
-; [AI] BDOS call (function 1, console read) that reads a single character of the user's response,
-;       leaving the typed character in A for the '3' comparison below.
 L_010F:
         CALL BDOS_VEC                    ; $010F  CD 05 00
-; [AI] Loads HL with the source address ($0160) of the embedded 6502 disk-boot routine in
-;       preparation for the LDIR block copy into SoftCard shared RAM.
 L_0112:
         LD HL,$0160                      ; $0112  21 60 01
-; [AI] Sets DE=$5000 as the destination (in the SoftCard's shared 6502/Z-80 memory) where the
-;       embedded 6502 boot code will be relocated so the 6502 can execute it.
 L_0115:
         LD DE,$5000                      ; $0115  11 00 50
-; [AI] Sets BC=$0100 (256 bytes) as the LDIR byte count for copying the 6502 boot routine.
+; [AI] Sets BC=$0100 as the LDIR byte count so the preceding block move copies the 256-byte 6502
+;       bootstrap payload (the DEFB region) down into Apple II RAM before control is transferred.
 L_0118:
-        LD BC,$0100                      ; $0118  01 00 01
-; [AI] Block-copies the 256-byte 6502 disk-boot routine from $0160 to $5000 (shared memory visible
-;       to the 6502 side of the SoftCard).
+        LD BC,TPA_START                  ; $0118  01 00 01
 L_011B:
         LDIR                             ; $011B  ED B0
-; [AI] Loads HL=$6000 as the default boot/entry vector (the 13-sector path); H is overwritten with
-;       $C6 below if the user did not select 13-sector.
 L_011D:
         LD HL,$6000                      ; $011D  21 00 60
-; [AI] Compares the console input character against $33 ('3') to decide between the 13-sector boot
-;       path and the default 16-sector ($C600 slot-6 ROM) path.
+; [AI] Tests whether the parsed argument selected 13-sector mode ($33 = ASCII '3'); the branch
+;       chooses between two destination/entry addresses for the bootstrap so the program can launch
+;       either a 13- or 16-sector boot.
 L_0120:
         CP $33                           ; $0120  FE 33
-; [AI] If the user typed '3' (13-sector), skips the H=$C6 patch and keeps HL=$6000; otherwise falls
-;       through to select the 16-sector boot ROM page.
 L_0122:
         JR Z,L_0126                      ; $0122  28 02
-; [AI] Sets H=$C6 so HL=$C600, selecting the slot-6 Disk II boot ROM for a standard 16-sector boot;
-;       this immediate operand byte ($C6) is patchable at $0125 by SUB_0260 to choose a different
-;       slot.
 L_0124:
         LD H,$C6                         ; $0124  26 C6
-; [AI] Stores the chosen boot vector (HL) into the SoftCard BIOS variable at $F3D0, the address
-;       from which control will be transferred to re-boot the system.
+; [AI] Stores the chosen 6502 boot entry address into the SoftCard hand-off slot at $F3D0, then
+;       reads the saved return pointer from $F3DE before jumping to the $000B switch routine that
+;       drops back to the 6502.
 L_0126:
         LD ($F3D0),HL                    ; $0126  22 D0 F3
-; [AI] Loads the warm-boot/dispatch handoff address from the BIOS word at $F3DE in preparation for
-;       transferring control out of the transient program.
 L_0129:
         LD HL,($F3DE)                    ; $0129  2A DE F3
-; [AI] Jumps to the patched dispatch byte at page-zero $000B, handing off to the relocated 6502
-;       boot code to re-boot the machine from the selected slot/format.
 L_012C:
         JP $000B                         ; $012C  C3 0B 00
         DEFB    $0D,$0A,$0A,$0A,$3C,$33,$3E,$3D,$31,$33,$20,$73,$65,$63,$74,$6F ; $012F
@@ -105,20 +79,15 @@ L_012C:
         DEFB    $08,$4A,$3E,$CC,$03,$4A,$3E,$99,$03,$85,$3C,$B1,$26,$0A,$0A,$0A ; $0236
         DEFB    $05,$3C,$91,$26,$C8,$E8,$E0,$33,$D0,$E4,$C6,$2A,$D0,$DE,$CC,$00 ; $0246
         DEFB    $03,$D0,$03,$4C,$53,$11,$4C,$2D,$FF,$00          ; $0256
-; [AI] Parses the CP/M command tail to override boot parameters: it points DE at the prompt string
-;       ($012F) and inspects the command-line argument in the default DMA buffer ($0080).
+; [AI] Parses the command-line tail for the optional density digit and, if present, patches the
+;       bootstrap's hardware addresses accordingly; with no argument it falls through to print the
+;       interactive prompt and read the user's choice.
 SUB_0260:
         LD DE,$012F                      ; $0260  11 2F 01
-; [AI] Reads the command-tail length byte at $0080; a zero length (no argument supplied) causes an
-;       immediate return so the interactive prompt is used instead.
 L_0263:
-        LD A,($0080)                     ; $0263  3A 80 00
-; [AI] Tests the command-tail length for zero to decide whether a command-line argument was
-;       provided.
+        LD A,(DEFAULT_DMA)               ; $0263  3A 80 00
 L_0266:
         OR A                             ; $0266  B7
-; [AI] Returns early when the command tail is empty, leaving boot parameters at their defaults for
-;       the interactive prompt.
 L_0267:
         RET Z                            ; $0267  C8
         LD A,($0082)                     ; $0268  3A 82 00
@@ -128,9 +97,8 @@ L_0267:
         JR NZ,L_0278                     ; $0270  20 06
         LD HL,$FF59                      ; $0272  21 59 FF
         JP L_0126                        ; $0275  C3 26 01
-; [AI] Argument-validation tail: treats the parsed value as a slot number (0-9); values >=10 are
-;       rejected (RET), otherwise the value is used to patch the boot ROM page ($C0|n at $0125) and
-;       the slot offset in the copied 6502 routine ($0186).
+; [AI] Validates that the supplied digit is in range (below $0A) before using it; values out of
+;       range simply return, leaving the default boot configuration unchanged.
 L_0278:
         CP $0A                           ; $0278  FE 0A
         RET NC                           ; $027A  D0

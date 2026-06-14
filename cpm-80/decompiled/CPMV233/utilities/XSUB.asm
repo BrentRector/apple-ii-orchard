@@ -12,14 +12,10 @@ BDOS_VEC             EQU $0005               ; BDOS call vector — JP BDOS_ENTR
 
     ORG $0100
 
-; [AI] XSUB.COM entry at the TPA ($0100). The leading 'LD BC,$01BC' both encodes a jump-over of the
-;       data block and preloads BC=$01BC, the in-image location of the resident-code base-address
-;       word ($BC,$01) used later when patching the warm-boot/page-pointer chain.
+; [AI] The $0100 transient program entry point where CP/M loads and jumps into XSUB.COM. The
+;       leading LD BC,$01BC stashes the end-of-image address used later to size the relocation copy.
 TPA_START:
         LD BC,$01BC                      ; $0100  01 BC 01
-; [AI] Jump past the embedded message-string block to the real startup code at L_0157. The bytes
-;       that follow are '$'-terminated BDOS console strings ('Extended Submit Vers 2.0', 'Xsub
-;       Already Present$', 'Requires CP/M Version 2.0 or later$').
 L_0103:
         JP L_0157                        ; $0103  C3 57 01
         DEFB    $20,$45,$78,$74,$65,$6E,$64,$65,$64,$20,$53,$75,$62,$6D,$69,$74 ; $0106
@@ -28,20 +24,20 @@ L_0103:
         DEFB    $71,$75,$69,$72,$65,$73,$20,$43,$50,$2F,$4D,$20,$56,$65,$72,$73 ; $0136
         DEFB    $69,$6F,$6E,$20,$32,$2E,$30,$20,$6F,$72,$20,$6C,$61,$74,$65,$72 ; $0146
         DEFB    $24                                              ; $0156
-; [AI] Start of executable startup logic; pushes the preloaded BC base-address word for later use,
-;       then begins the CP/M version / already-resident checks.
+; [AI] Start of real initialization after the embedded message block; pushes BC (the saved image
+;       length) and falls through to the CP/M version check.
 L_0157:
         PUSH BC                          ; $0157  C5
-; [AI] Reads the BDOS entry low byte at page-zero $0006 (the JP BDOS operand) to derive the CP/M
-;       serial/version footprint used by the subsequent compare.
+; [AI] Reads the high byte of the BDOS base pointer at $0006 to begin testing whether a compatible
+;       CP/M 2.x is present before attempting to hook the BDOS.
 L_0158:
         LD A,($0006)                     ; $0158  3A 06 00
-; [AI] Compares the fetched BDOS-pointer byte against $06; the NZ branch treats a mismatch as 'not
-;       the expected CP/M 2.x layout' and falls through to the message-print path.
+; [AI] Compares the BDOS page value against $06; an unexpected value means the wrong CP/M version,
+;       branching to the not-resident path that prints the version-error message.
 L_015B:
         CP $06                           ; $015B  FE 06
-; [AI] If the version/layout check fails, branch to L_0179 to print a diagnostic via BDOS and exit
-;       without installing the resident.
+; [AI] If the version check fails, jumps to L_0179 to emit the 'Requires CP/M Version 2.0 or later'
+;       message and exit without installing.
 L_015D:
         JP NZ,L_0179                     ; $015D  C2 79 01
         LD HL,($0006)                    ; $0160  2A 06 00
@@ -50,9 +46,8 @@ L_015D:
         INC HL                           ; $0165  23
         LD DE,$01DB                      ; $0166  11 DB 01
         LD C,$04                         ; $0169  0E 04
-; [AI] Signature-scan loop: compares 4 bytes at the BDOS area (HL) against the 'xsub' marker string
-;       at $01DB (DE) to detect whether an XSUB resident is already installed in high memory;
-;       mismatch jumps to the install path at L_0183, full match means already present.
+; [AI] Byte-compare loop matching the 4-byte 'xsub' signature at $01DB against the resident area
+;       just past the BDOS entry, detecting whether XSUB is already installed.
 L_016B:
         LD A,(DE)                        ; $016B  1A
         CP (HL)                          ; $016C  BE
@@ -62,26 +57,27 @@ L_016B:
         DEC C                            ; $0172  0D
         JP Z,L_0179                      ; $0173  CA 79 01
         JP L_016B                        ; $0176  C3 6B 01
-; [AI] Sets C=9 (BDOS Print String) ahead of printing the 'Xsub Already Present$' message, the path
-;       taken when the resident is detected or the version check rejects installation.
+; [AI] Error/exit path: loads C=9 (BDOS print-string) and DE pointing at the message, calls BDOS,
+;       restores BC, and returns to CCP. Used for both the version-error and already-present
+;       notices.
 L_0179:
         LD C,$09                         ; $0179  0E 09
-; [AI] Loads DE=$011F, the address of the 'Xsub Already Present$' string, as the argument for BDOS
-;       function 9.
+; [AI] Sets DE=$011F, the address of the 'Xsub Already Present$' message, before the shared BDOS
+;       print call at L_017E.
 L_017B:
         LD DE,$011F                      ; $017B  11 1F 01
-; [AI] Invokes BDOS (CALL $0005) with C=9 to print the '$'-terminated status string to the console.
+; [AI] Shared BDOS print-string-and-return tail: CALL $0005 then POP BC / RET back to the CCP.
 L_017E:
         CALL BDOS_VEC                    ; $017E  CD 05 00
-; [AI] Restores the BC base-address word saved at entry before returning.
+; [AI] Restores the saved image-length in BC after the BDOS call so the stack is balanced on return
+;       to the transient command loop.
 L_0181:
         POP BC                           ; $0181  C1
-; [AI] Returns to CCP via the stacked return address, ending XSUB without installing (already-
-;       present / unsupported-version case).
+; [AI] Final RET back to the CCP for the non-installing exit paths.
 L_0182:
         RET                              ; $0182  C9
-; [AI] Install path: sets C=$0C and calls BDOS function 12 (Return Version Number); the returned
-;       value is checked against $20 to require CP/M 2.0 or later before proceeding.
+; [AI] Reached when the signature did not match: queries BDOS console/IOBYTE state (C=$0C, get-
+;       version) and checks the result to decide whether the running system supports installation.
 L_0183:
         LD C,$0C                         ; $0183  0E 0C
         CALL BDOS_VEC                    ; $0185  CD 05 00
@@ -92,9 +88,9 @@ L_0183:
         CALL BDOS_VEC                    ; $0192  CD 05 00
         POP BC                           ; $0195  C1
         RET                              ; $0196  C9
-; [AI] Begin relocation/install: reads the top-of-memory page byte at $0007, adjusts it down by the
-;       resident's size in pages, and computes the destination high-memory page (D) where the XSUB
-;       resident image will be copied so it survives below the BDOS/BIOS.
+; [AI] Computes where in high memory the resident XSUB intercept will live: reads the BDOS page at
+;       $0007, backs it off by the image size in B, and builds the destination page in D for
+;       relocation.
 L_0197:
         LD HL,$0007                      ; $0197  21 07 00
         LD A,(HL)                        ; $019A  7E
@@ -107,8 +103,8 @@ L_0197:
         LD E,$00                         ; $01A2  1E 00
         PUSH DE                          ; $01A4  D5
         LD HL,$0200                      ; $01A5  21 00 02
-; [AI] Block-copy loop moving the resident image (source at $0200, length in BC) byte-by-byte into
-;       the computed high-memory destination (DE) one byte at a time until BC reaches zero.
+; [AI] First relocation loop: copies BC bytes of the resident stub from source $0200 to the
+;       computed high-memory destination in DE byte by byte.
 L_01A8:
         LD A,B                           ; $01A8  78
         OR C                             ; $01A9  B1
@@ -119,17 +115,16 @@ L_01A8:
         INC DE                           ; $01B0  13
         INC HL                           ; $01B1  23
         JP L_01A8                        ; $01B2  C3 A8 01
-; [AI] After the copy, recovers the relocation parameters and sets up HL/DE for the address-fixup
-;       pass over the just-copied resident image.
+; [AI] After the raw copy, sets up to walk the relocation bitmap: pops the saved page-bias into D
+;       and prepares HL/stack pointers for the fix-up pass.
 L_01B5:
         POP DE                           ; $01B5  D1
         POP BC                           ; $01B6  C1
         PUSH HL                          ; $01B7  E5
         LD H,D                           ; $01B8  62
-; [AI] Relocation-fixup loop: walks the copied image and, driven by the packed relocation bit-table
-;       (one bit per byte, fetched 8 bits at a time), adds the destination page bias (H) to each
-;       flagged address byte so the resident's internal pointers point at its new high-memory
-;       location.
+; [AI] Relocation fix-up loop: for each copied byte, consumes one bit from the bitmap (pulled a
+;       byte at a time at the $07-aligned boundary) and, when set, adds the page bias to that byte
+;       so absolute addresses point at the new high-memory location.
 L_01B9:
         LD A,B                           ; $01B9  78
         OR C                             ; $01BA  B1
@@ -143,9 +138,8 @@ L_01B9:
         INC HL                           ; $01C7  23
         EX (SP),HL                       ; $01C8  E3
         LD L,A                           ; $01C9  6F
-; [AI] Per-byte relocation test: shifts the current relocation-bitmap byte left through carry;
-;       carry set means the corresponding image byte is a high-address byte that must have the page
-;       bias added (done in the following few instructions).
+; [AI] Shifts the current bitmap byte left (RLA) to test the next relocation bit; carry set means
+;       the corresponding image byte holds a high address byte needing the page-bias adjustment.
 L_01CA:
         LD A,L                           ; $01CA  7D
         RLA                              ; $01CB  17
@@ -154,14 +148,13 @@ L_01CA:
         LD A,(DE)                        ; $01D0  1A
         ADD A,H                          ; $01D1  84
         LD (DE),A                        ; $01D2  12
-; [AI] Advances the image pointer to the next byte and loops back to continue the relocation-fixup
-;       pass.
+; [AI] Advances the destination pointer and loops back to process the next byte/bit pair in the
+;       relocation pass.
 L_01D3:
         INC DE                           ; $01D3  13
         JP L_01B9                        ; $01D4  C3 B9 01
-; [AI] Relocation complete: pops the destination address and jumps into the relocated resident's
-;       initializer (JP (HL) with L=0, i.e. page-aligned entry of the now high-memory XSUB code that
-;       hooks the warm-boot/BDOS chain).
+; [AI] After relocation, builds the entry address (low byte $00, high byte = destination page) and
+;       JP (HL) transfers control into the freshly relocated resident installer in high memory.
 L_01D7:
         POP DE                           ; $01D7  D1
         LD L,$00                         ; $01D8  2E 00

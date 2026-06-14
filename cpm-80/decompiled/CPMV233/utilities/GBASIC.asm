@@ -9,9 +9,9 @@
 
     ORG $0100
 
-; [AI] Program load address ($0100, the CP/M TPA). Holds only a 3-byte JP to the real entry point
-;       L_1000; the bytes immediately following are not code but the start of Microsoft BASIC's
-;       interpreter dispatch/address tables.
+; [AI] CP/M transient entry point at $0100, where the CCP loads and runs GBASIC.COM. It immediately
+;       jumps to the real startup at L_1000; the bytes that follow are the interpreter's reserved-
+;       word/keyword dispatch tables and error-message strings, not executable code from here.
 TPA_START:
         JP L_1000                        ; $0100  C3 00 10
         DEFB    $76,$4F,$D7,$4F,$00                              ; $0103  "vOWO"
@@ -190,36 +190,35 @@ TPA_START:
         DEFB    $91,$0B,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00 ; $0BF9
         DEFS    108, $00    ; $0C09  fill
         DEFB    $E1,$D1,$F1,$F5,$D5,$E9,$2A,$5E,$0B,$F9,$D5,$0E,$0E,$C3,$8B,$4B ; $0C75
-; [AI] Memory-sizing helper: reads the BDOS entry high byte from page-zero $0007 to obtain the top
-;       page of the TPA, then scans memory downward for a sentinel ($BD) to locate usable RAM top.
-;       Used to set BASIC's MEMSIZ/highest-address limit.
+; [AI] Determines the top of usable RAM for BASIC's workspace by reading the high byte of the CP/M
+;       BDOS entry address from page-zero location $0007 (the JP BDOS at $0005 has its target in
+;       $0006/$0007), which marks the first page above the TPA.
 L_0C85:
         LD A,($0007)                     ; $0C85  3A 07 00
-; [AI] Forms the scan pointer high byte (H = top TPA page from $0007) within the memory-sizing
-;       helper.
+; [AI] Builds a page-aligned scan pointer in HL from the top-of-TPA page just read: H = page
+;       number, L set to zero at L_0C89, so HL = page*256.
 L_0C88:
         LD H,A                           ; $0C88  67
-; [AI] Clears the scan pointer low byte (L=0), so HL points at the base of the top page before the
-;       sizing loop.
+; [AI] Sets the low byte of the scan pointer to zero so the search probes only page boundaries
+;       (offset $00 of each 256-byte page).
 L_0C89:
         LD L,$00                         ; $0C89  2E 00
-; [AI] Loads the sentinel/compare value ($BD) used by the memory-sizing scan loop.
+; [AI] Loads the sentinel byte $BD into A; the following loop walks upward page by page comparing
+;       against this value to locate a marker/limit byte in high memory.
 L_0C8B:
         LD A,$BD                         ; $0C8B  3E BD
-; [AI] Pre-decrement of the page pointer's high byte; paired with the following INC it forms part
-;       of the page-step within the sizing loop.
 L_0C8D:
         DEC H                            ; $0C8D  25
-; [AI] Top of the memory-sizing scan loop: advances the page pointer (INC H) before testing the
-;       byte there.
+; [AI] Top of the page-scan loop: advance HL by one full page (INC H) before each comparison,
+;       searching upward toward the marker byte.
 L_0C8E:
         INC H                            ; $0C8E  24
-; [AI] Compares the byte at the current scan address (HL) against the sentinel in A to detect the
-;       RAM boundary.
+; [AI] Compares the sentinel in A against the byte at the current page boundary (HL); a match ends
+;       the scan and returns the located address in HL.
 L_0C8F:
         CP (HL)                          ; $0C8F  BE
-; [AI] Loop tail of the memory-sizing scan: repeats (JR NZ back to L_0C8E) until the sentinel match
-;       is found, then RETs with the located address in HL.
+; [AI] Loop-back conditional: if the current page's byte does not match the sentinel, repeat the
+;       scan one page higher; otherwise fall through to RET.
 L_0C90:
         JR NZ,L_0C8E                     ; $0C90  20 FC
         RET                              ; $0C92  C9
@@ -276,25 +275,23 @@ L_0C90:
         DEFB    $D1,$38,$0B,$3E,$01,$D5,$CD,$58,$6C,$E1,$CD,$E2,$6B,$FE,$EB,$36 ; $0FD9
         DEFB    $01,$23,$5E,$23,$56,$CD,$F4,$67,$CC,$24,$67,$12,$E1,$C1,$C9,$00 ; $0FE9
         DEFB    $00,$00,$00,$00,$00,$00,$00                      ; $0FF9
-; [AI] Real entry point (target of the JP at $0100). Begins the self-relocating cold start: sets HL
-;       to the source-image high address ($6490) for the LDDR block move that follows.
+; [AI] Real startup target of the $0100 entry jump: loads HL with the source end ($6490) for the
+;       block move that relocates/shuffles the interpreter image into its run-time position before
+;       initialization.
 L_1000:
         LD HL,$6490                      ; $1000  21 90 64
-; [AI] Sets DE to the destination high address ($8482) for the relocation copy. The interpreter's
-;       upper image is moved up into high RAM so BASIC can run with its workspace/string area below
-;       it.
+; [AI] Loads DE with the destination end address ($8482) for the startup LDDR block copy.
 L_1003:
         LD DE,$8482                      ; $1003  11 82 84
-; [AI] Sets BC to the byte count ($5483) for the LDDR block move that relocates the loaded
-;       interpreter image.
+; [AI] Loads BC with the byte count ($5483) for the startup LDDR block copy.
 L_1006:
         LD BC,$5483                      ; $1006  01 83 54
-; [AI] LDDR: descending block copy of BC bytes from HL($6490) to DE($8482), relocating the upper
-;       part of the MS-BASIC interpreter into high memory before cold-start initialization.
+; [AI] Performs the descending block move (LDDR) that relocates the loaded image from low memory up
+;       to its run-time address before control passes to the initializer.
 L_1009:
         LDDR                             ; $1009  ED B8
-; [AI] After relocation, jumps to the relocated cold-start initialization routine at $81D3 (sets up
-;       the BASIC environment, memory pointers, and the 'Ok' prompt loop).
+; [AI] After relocation completes, jumps to the relocated initialization routine at $81D3 to bring
+;       up the BASIC interpreter (sign-on, memory sizing, prompt).
 L_100B:
         JP $81D3                         ; $100B  C3 D3 81
         DEFB    $AF,$32,$16,$0B,$32,$15,$0B,$01,$3B,$01,$11,$CF,$08,$7E,$FE,$22 ; $100E

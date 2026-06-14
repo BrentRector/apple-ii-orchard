@@ -9,7 +9,7 @@ For each known region of each disk image, this script:
   3. Byte-compares the rebuilt binary against the input.
   4. Prints a pass/fail table with code/data classification stats.
 
-This replaces the placeholder ca65 path in build_dsk.py and validates that
+This validates that
 the new disasm6502 + disasm_z80 packages round-trip every CP/M region
 byte-identically -- the necessary precondition for the hand-annotation
 work in task B.
@@ -50,7 +50,7 @@ class Chunk:
 
 
 # ── 2.23 chunk map ─────────────────────────────────────────────────────
-# Sources: cpm-investigation/build_dsk.py for load addresses;
+# Sources: cpm_pipeline/chunk_map.py for load addresses;
 # cpm-investigation/gen_*.py for known entry points and effective lengths.
 
 APPLE2 = SYMBOLS / "apple2.json"

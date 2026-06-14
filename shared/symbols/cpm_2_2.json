@@ -148,10 +148,10 @@
       "tpa_start":   {"address": "0x0100", "comment": "First byte of TPA — .COM files load here, execute starting at $0100."},
       "ccp_size":    {"value": "0x0800",   "comment": "CCP is 2 KB. CCP base = TOP - $1600 (= total memory minus CCP+BDOS+BIOS-area)."},
       "bdos_size":   {"value": "0x0E00",   "comment": "BDOS is 3.5 KB."},
-      "bios_size":   {"value": "varies",   "comment": "BIOS is implementation-specific. Microsoft SoftCard 2.23: BIOS at $FAB8 (~1.4 KB to $FFFF)."},
+      "bios_size":   {"value": "varies",   "comment": "BIOS is implementation-specific. Microsoft SoftCard 2.23: BIOS at $FA00 (~1.4 KB to $FF47)."},
       "ccp_base_60k": {"address": "0xE400", "comment": "60 KB system: CCP cold-start at $E400, warm-start at $E406."},
       "bdos_base_60k": {"address": "0xEC00", "comment": "60 KB system: BDOS entry at $EC00 (BDOS_VEC at $0005 jumps here)."},
-      "bios_base_60k": {"address": "0xFA00", "comment": "60 KB system: BIOS jump table at $FA00 (typical) or $FAB8 (SoftCard 2.23 specific)."}
+      "bios_base_60k": {"address": "0xFA00", "comment": "60 KB system: BIOS jump table at $FA00 (SoftCard 2.23)."}
     }
   }
 }

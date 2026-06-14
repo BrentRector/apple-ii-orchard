@@ -10,13 +10,14 @@
 ; -- External symbols --
 WBOOT_VEC            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
 BDOS_VEC             EQU $0005               ; BDOS call vector — JP BDOS_ENTRY. Programs use CALL $0005 to invoke BDOS. Word at $0006 is also the top-of-TPA marker.
+RST2_VEC             EQU $0010               ; Z-80 RST 2 ($10) restart vector — 8 bytes. Available for application/debugger use.
+DEFAULT_DMA          EQU $0080               ; Default DMA buffer — also command-line tail. First byte = length, then characters. Returned to default by BDOS function 13 (DRV_ALLRESET).
+CMDLINE              EQU $0081               ; Command-line tail characters (uppercase, with leading space). Same buffer as DEFAULT_DMA.
 
     ORG $0100
 
-; [AI] Program entry at the TPA ($0100). Prints the 'Softcard CP/M 16 Sector Disk Copy Program'
-;       sign-on banner (string at $054C via SUB_0434) then BDOS func 20H (here LD C,20H/E,1FH used
-;       as set-max-record) and inspects the command tail length byte at $0080 to decide between
-;       argument parsing and interactive prompting.
+; [AI] COM program entry point at $0100; sets up the stack-top pointer and begins by printing the
+;       sign-on banner.
 TPA_START:
         LD DE,$054C                      ; $0100  11 4C 05
 L_0103:
@@ -28,7 +29,7 @@ L_0108:
 L_010A:
         CALL BDOS_VEC                    ; $010A  CD 05 00
 L_010D:
-        LD A,($0080)                     ; $010D  3A 80 00
+        LD A,(DEFAULT_DMA)               ; $010D  3A 80 00
 L_0110:
         OR A                             ; $0110  B7
 L_0111:
@@ -52,17 +53,17 @@ L_0124:
 L_0126:
         LD A,$7D                         ; $0126  3E 7D
 L_0128:
-        LD ($0080),A                     ; $0128  32 80 00
+        LD (DEFAULT_DMA),A               ; $0128  32 80 00
 L_012B:
         LD C,$0A                         ; $012B  0E 0A
 L_012D:
-        LD DE,$0080                      ; $012D  11 80 00
+        LD DE,DEFAULT_DMA                ; $012D  11 80 00
 L_0130:
         CALL BDOS_VEC                    ; $0130  CD 05 00
 L_0133:
         CALL SUB_043F                    ; $0133  CD 3F 04
 L_0136:
-        LD HL,$0081                      ; $0136  21 81 00
+        LD HL,CMDLINE                    ; $0136  21 81 00
 L_0139:
         LD A,(HL)                        ; $0139  7E
 L_013A:
@@ -73,10 +74,8 @@ L_013B:
         ADD A,L                          ; $013E  85
         LD L,A                           ; $013F  6F
         LD (HL),H                        ; $0140  74
-; [AI] Main argument-parsing path: resets SP to the local stack top ($054C), emits CRLF, parses the
-;       source drive letter at $0082 via SUB_044C, and stores the validated drive code into the
-;       several FCB/parameter slots ($0772, $070B, $0725) before scanning for '=' or '/' option
-;       syntax.
+; [AI] Main start after the command tail has been normalized/re-read; establishes the local stack
+;       and parses the source drive, optional '=' destination, and option switches.
 L_0141:
         LD SP,$054C                      ; $0141  31 4C 05
         CALL SUB_043F                    ; $0144  CD 3F 04
@@ -96,55 +95,50 @@ L_0141:
         LD A,$FF                         ; $016B  3E FF
         LD ($0520),A                     ; $016D  32 20 05
         JR L_0189                        ; $0170  18 17
-; [AI] Handles the 'dest=source' form: after the '=' was seen, reads the destination drive letter
-;       (stored at $074B) and validates it, then falls through to option-switch scanning.
+; [AI] Handles the explicit 'dest=source' form: stores the destination drive letter, then parses
+;       the source drive that follows the '=' sign.
 L_0172:
         CALL SUB_044C                    ; $0172  CD 4C 04
         LD ($074B),A                     ; $0175  32 4B 07
         CALL SUB_046D                    ; $0178  CD 6D 04
         LD ($051C),A                     ; $017B  32 1C 05
-; [AI] Option-switch scanner loop: fetches the next command-tail token; an empty token ends parsing
-;       (jump to L_01B1, the copy setup), a '/' introduces another switch letter, anything else is a
-;       syntax error.
+; [AI] Option-switch scanning loop: reads the next tail character and dispatches on '/' followed by
+;       an S/D/F/V letter, ending when the tail is exhausted.
 L_017E:
         CALL SUB_044C                    ; $017E  CD 4C 04
         OR A                             ; $0181  B7
         JR Z,L_01B1                      ; $0182  28 2D
         CP $2F                           ; $0184  FE 2F
         JP NZ,L_0471                     ; $0186  C2 71 04
-; [AI] Switch-letter dispatcher: reads the character after '/' and tests it against the recognized
-;       option letters S, D, F, V; an unrecognized letter jumps to the command-error path.
+; [AI] Decodes one option switch after a '/': 'S'=system-copy, 'D'=double-side/extra, 'F'=format,
+;       'V'=verify, storing a nonzero flag for each in the option block at $0522-$0525.
 L_0189:
         CALL SUB_044C                    ; $0189  CD 4C 04
         CP $53                           ; $018C  FE 53
         JR NZ,L_0195                     ; $018E  20 05
         LD ($0522),A                     ; $0190  32 22 05
         JR L_017E                        ; $0193  18 E9
-; [AI] Tests the switch letter for 'D' (e.g. directory/disk option); if matched stores the flag at
-;       $0523 and loops back to scan the next switch.
+; [AI] Tests the option letter for 'D' and sets its flag at $0523 if matched.
 L_0195:
         CP $44                           ; $0195  FE 44
         JR NZ,L_019E                     ; $0197  20 05
         LD ($0523),A                     ; $0199  32 23 05
         JR L_017E                        ; $019C  18 E0
-; [AI] Tests the switch letter for 'F' (format option); if matched sets the format flag at $0525
-;       and loops back for more switches.
+; [AI] Tests the option letter for 'F' (format) and sets its flag at $0525 if matched.
 L_019E:
         CP $46                           ; $019E  FE 46
         JR NZ,L_01A7                     ; $01A0  20 05
         LD ($0525),A                     ; $01A2  32 25 05
         JR L_017E                        ; $01A5  18 D7
-; [AI] Tests the switch letter for 'V' (verify option); stores the verify flag at $0524 on match,
-;       otherwise reports a command error. Last case in the switch chain.
+; [AI] Tests the option letter for 'V' (verify) and sets its flag at $0524; any other letter is
+;       rejected as a command error.
 L_01A7:
         CP $56                           ; $01A7  FE 56
         JP NZ,L_0471                     ; $01A9  C2 71 04
         LD ($0524),A                     ; $01AC  32 24 05
         JR L_017E                        ; $01AF  18 CD
-; [AI] Copy/format setup: clears the 'system-located' flag at $0526, computes the per-pass
-;       record/buffer count from the BDOS-reported top-of-TPA word at $0007 (minus 14H pages), and
-;       when the verify option is set reserves a compare buffer at $0528. Dispatches among the four
-;       copy modes based on the S/D/=/switch flags.
+; [AI] Begin a copy pass: clears the run-state flag, computes the number of tracks/buffers to copy
+;       from the TPA size at $0007, and adjusts it down when verify mode needs a compare buffer.
 L_01B1:
         XOR A                            ; $01B1  AF
         LD ($0526),A                     ; $01B2  32 26 05
@@ -159,9 +153,6 @@ L_01B1:
         LD HL,$2400                      ; $01C5  21 00 24
         ADD HL,BC                        ; $01C8  09
         LD ($0528),HL                    ; $01C9  22 28 05
-; [AI] Stores the computed pass record count at $051E and branches by mode: same-drive vs. two-
-;       drive, system-transfer (S) vs. plain copy, selecting the appropriate prompt strings and the
-;       read/write or system-image routines.
 L_01CC:
         LD A,B                           ; $01CC  78
         LD ($051E),A                     ; $01CD  32 1E 05
@@ -182,16 +173,14 @@ L_01CC:
         CALL SUB_04FC                    ; $01F0  CD FC 04
         OR A                             ; $01F3  B7
         JR Z,L_01FC                      ; $01F4  28 06
-; [AI] System-disk copy entry: calls SUB_035E to locate and transfer the CP/M system tracks, then
-;       jumps to the completion/repeat prompt (L_027A).
 L_01F6:
         CALL SUB_035E                    ; $01F6  CD 5E 03
         JP L_027A                        ; $01F9  C3 7A 02
-; [AI] Plain track-by-track copy entry: calls SUB_03D3 (the read/write engine) then falls through
-;       to the completion/repeat prompt.
 L_01FC:
         CALL SUB_03D3                    ; $01FC  CD D3 03
         JP L_027A                        ; $01FF  C3 7A 02
+; [AI] Single-drive whole-disk copy branch (no /S): prompts for source and destination swaps on
+;       drive A and sets up the track range starting at $002C.
 L_0202:
         LD A,($0522)                     ; $0202  3A 22 05
         OR A                             ; $0205  B7
@@ -203,9 +192,8 @@ L_0202:
         LD ($074B),A                     ; $0211  32 4B 07
         XOR A                            ; $0214  AF
         LD ($051C),A                     ; $0215  32 1C 05
-; [AI] Single-drive copy prompting: builds the destination-drive FCB name via SUB_040E and emits
-;       the 'Insert SOURCE/DESTINATION disk' prompts ($072F, $079A) before computing the copy
-;       length.
+; [AI] Builds the prompt strings by copying the drive letter into the 'SOURCE'/'DESTINATION'
+;       message templates, then sets up the disk-copy track loop entry.
 L_0218:
         LD DE,$072F                      ; $0218  11 2F 07
         CALL SUB_040E                    ; $021B  CD 0E 04
@@ -213,10 +201,14 @@ L_0218:
         CALL SUB_040E                    ; $0221  CD 0E 04
         LD DE,$002C                      ; $0224  11 2C 00
         JP L_0243                        ; $0227  C3 43 02
+; [AI] Two-drive copy branch: prompts to insert the source disk, then falls through to perform the
+;       system-file copy.
 L_022A:
         LD DE,$06E6                      ; $022A  11 E6 06
         CALL SUB_04D6                    ; $022D  CD D6 04
         JP L_01F6                        ; $0230  C3 F6 01
+; [AI] Selects the copy strategy when neither system nor double flags are set, choosing between
+;       same-drive prompting and a straight whole-disk track copy at $0230.
 L_0233:
         LD A,($0522)                     ; $0233  3A 22 05
         OR A                             ; $0236  B7
@@ -225,11 +217,10 @@ L_0233:
         OR A                             ; $023C  B7
         JP NZ,L_0471                     ; $023D  C2 71 04
         LD DE,$0230                      ; $0240  11 30 02
-; [AI] Per-pass copy driver: zeroes the running track/position word in the $F3xx mailbox,
-;       optionally prints the 'Copying...' message, then loops invoking SUB_02C1 for each batch of
-;       records until the whole disk image has been moved.
+; [AI] Sets up the per-track copy loop: initializes the SoftCard 6502 track counter in the shared
+;       parameter block and, if source and destination differ, prints the copying message.
 L_0243:
-        LD BC,$0000                      ; $0243  01 00 00
+        LD BC,WBOOT_VEC                  ; $0243  01 00 00
         LD L,B                           ; $0246  68
         LD H,C                           ; $0247  61
         PUSH DE                          ; $0248  D5
@@ -244,8 +235,8 @@ L_0243:
         CALL SUB_0376                    ; $025C  CD 76 03
 L_025F:
         POP HL                           ; $025F  E1
-; [AI] Inner copy loop: clamps the remaining record count to the per-pass buffer size held at
-;       $051E, calls SUB_02C1 to read-then-write that chunk, and repeats until zero records remain.
+; [AI] Track-batch loop: reads as many tracks as fit in TPA memory (capped by the buffer count at
+;       $051E), copying each batch from source to destination before reusing the buffer.
 L_0260:
         LD A,($051E)                     ; $0260  3A 1E 05
         LD E,A                           ; $0263  5F
@@ -256,7 +247,7 @@ L_0260:
         JR NC,L_0271                     ; $026A  30 05
         ADD HL,DE                        ; $026C  19
         LD B,L                           ; $026D  45
-        LD HL,$0000                      ; $026E  21 00 00
+        LD HL,WBOOT_VEC                  ; $026E  21 00 00
 L_0271:
         PUSH HL                          ; $0271  E5
         CALL SUB_02C1                    ; $0272  CD C1 02
@@ -264,9 +255,8 @@ L_0271:
         LD A,L                           ; $0276  7D
         OR H                             ; $0277  B4
         JR NZ,L_0260                     ; $0278  20 E6
-; [AI] Successful-completion path: prints 'Operation completed.' ($064A), resets the stack, prints
-;       the 'Do you wish to repeat this operation?' prompt ($0662) and falls into the Y/N input
-;       loop.
+; [AI] Operation-complete path: prints the 'Operation completed' message and asks whether to
+;       repeat.
 L_027A:
         LD DE,$064A                      ; $027A  11 4A 06
 L_027D:
@@ -276,8 +266,8 @@ L_027D:
         CALL SUB_0434                    ; $0286  CD 34 04
         LD HL,$0800                      ; $0289  21 00 08
         LD ($F3E8),HL                    ; $028C  22 E8 F3
-; [AI] Yes/No keystroke wait loop: reads a console character (via SUB_04E7) and accepts only 'N'
-;       (go to exit/warm-boot) or 'Y' (restart the operation), ignoring any other key.
+; [AI] Reads a Y/N answer to the repeat prompt, looping until the user presses 'N' (exit) or 'Y'
+;       (restart).
 L_028F:
         CALL SUB_04E7                    ; $028F  CD E7 04
         CP $4E                           ; $0292  FE 4E
@@ -285,8 +275,8 @@ L_028F:
         CP $59                           ; $0296  FE 59
         JR Z,L_02AF                      ; $0298  28 15
         JR L_028F                        ; $029A  18 F3
-; [AI] 'No' selected: echoes the key, and if the source/dest drive letters differ prompts to
-;       reinsert the CP/M system disk into drive A ($068D) before warm-booting.
+; [AI] User answered No: if no destination drive was distinct, prompt to reinsert the CP/M system
+;       disk before warm-booting back to CP/M.
 L_029C:
         CALL SUB_0446                    ; $029C  CD 46 04
         LD HL,($051C)                    ; $029F  2A 1C 05
@@ -295,12 +285,9 @@ L_029C:
         JR NZ,L_02AC                     ; $02A4  20 06
         LD DE,$068D                      ; $02A6  11 8D 06
         CALL SUB_04DC                    ; $02A9  CD DC 04
-; [AI] Exit: jumps to the warm-boot vector at $0000, returning control to the CCP/CP/M. Also the
-;       destination of Ctrl-C (^C) detected in the console-input routine.
 L_02AC:
         JP WBOOT_VEC                     ; $02AC  C3 00 00
-; [AI] 'Yes' selected: echoes the key, emits two CRLFs, copies the S/system flag to $0521, and
-;       jumps back to L_01B1 to run the copy/format pass again.
+; [AI] User answered Yes: re-arm the system flag and jump back to L_01B1 to run another copy pass.
 L_02AF:
         CALL SUB_0446                    ; $02AF  CD 46 04
         CALL SUB_043F                    ; $02B2  CD 3F 04
@@ -308,10 +295,9 @@ L_02AF:
         LD A,($0522)                     ; $02B8  3A 22 05
         LD ($0521),A                     ; $02BB  32 21 05
         JP L_01B1                        ; $02BE  C3 B1 01
-; [AI] Copy-one-batch worker: for the no-system case optionally opens/creates the BDOS destination
-;       file (funcs 0EH select-disk, 11H search-first) when the /D flag is set, then drives the low-
-;       level read (SUB_04A2) and write (SUB_04A5) of one buffer-full of sectors, and performs the
-;       read-back verify compare when the V flag is set.
+; [AI] Copies one batch of B tracks: optionally opens/creates the destination CPM.SYS file (system
+;       mode), reads the source tracks into TPA RAM via the 6502, writes them out, and verifies on
+;       /V.
 SUB_02C1:
         LD A,B                           ; $02C1  78
         LD ($051F),A                     ; $02C2  32 1F 05
@@ -340,6 +326,8 @@ L_02F8:
         LD A,($051C)                     ; $02F8  3A 1C 05
         LD C,$01                         ; $02FB  0E 01
         CALL SUB_04A2                    ; $02FD  CD A2 04
+; [AI] Read+write phase of a track batch: reads the source side into the buffer, then selects the
+;       destination and writes the buffer back out.
 L_0300:
         LD DE,$07BE                      ; $0300  11 BE 07
         CALL SUB_0461                    ; $0303  CD 61 04
@@ -369,8 +357,8 @@ L_0300:
         LD A,($051F)                     ; $033B  3A 1F 05
         LD B,A                           ; $033E  47
         LD C,$00                         ; $033F  0E 00
-; [AI] Verify compare loop: byte-for-byte compares the just-written data (at the F000+offset alias)
-;       against the original buffer at $1400; any mismatch jumps to L_034D to report a verify error.
+; [AI] Verify loop comparing the just-written destination data (read back to $F000-relative buffer)
+;       byte-for-byte against the original at $1400, reporting a verify error on mismatch.
 L_0341:
         LD A,(DE)                        ; $0341  1A
         CP (HL)                          ; $0342  BE
@@ -382,22 +370,21 @@ L_0341:
         OR B                             ; $0349  B0
         JR NZ,L_0341                     ; $034A  20 F5
         RET                              ; $034C  C9
-; [AI] Verify-error reporter: loads the 'Disk Verify error' message ($0635) and jumps to the error-
-;       print-and-prompt path.
+; [AI] Verify-failure exit: loads the 'Disk Verify error' message pointer and prints it before re-
+;       prompting.
 L_034D:
         LD DE,$0635                      ; $034D  11 35 06
         JP L_027D                        ; $0350  C3 7D 02
-; [AI] Marks the system tracks as located (sets flag $0526) and, when formatting was requested for
-;       the source, falls through to format it before continuing the system copy.
+; [AI] One-time per-run initialization that marks the destination as needing formatting and, when
+;       appropriate, formats it before the first write.
 SUB_0353:
         LD A,$FF                         ; $0353  3E FF
         LD ($0526),A                     ; $0355  32 26 05
         CALL SUB_04FC                    ; $0358  CD FC 04
         OR A                             ; $035B  B7
         JR Z,SUB_037F                    ; $035C  28 21
-; [AI] System-disk transfer routine: prints 'Insert DESTINATION...' prompt, sets up the drive phase
-;       via SUB_048E, reads the system image starting at track buffer $1900, formats if needed
-;       (SUB_037F), and validates the source is bootable.
+; [AI] Formats the destination disk: prompts for the disk, runs the 6502 format routine, and writes
+;       a fresh CP/M system image, reporting write-protect or I/O errors.
 SUB_035E:
         LD DE,$07ED                      ; $035E  11 ED 07
         CALL SUB_0376                    ; $0361  CD 76 03
@@ -407,18 +394,16 @@ SUB_035E:
         CALL SUB_0417                    ; $036D  CD 17 04
         CALL SUB_037F                    ; $0370  CD 7F 03
         LD DE,$05AE                      ; $0373  11 AE 05
-; [AI] Conditional prompt helper: if the two drive letters at $051C differ (single-drive
-;       operation), prints the disk-swap prompt passed in DE; otherwise returns without prompting.
+; [AI] Prints a message (DE) only when source and destination are on the same drive, so single-
+;       drive copies show the extra swap prompts and two-drive copies stay quiet.
 SUB_0376:
         LD HL,($051C)                    ; $0376  2A 1C 05
         LD A,L                           ; $0379  7D
         CP H                             ; $037A  BC
         RET Z                            ; $037B  C8
         JP SUB_0434                      ; $037C  C3 34 04
-; [AI] Format/system-stamp routine: when the format flag is set, issues BDOS file operations (1BH
-;       get-alloc-vector, 16H make-file, 10H close) to write the 'cp/m sys' file and stamp the
-;       boot/system tracks; reports 'Disk space already in use' or 'Not enough directory space' on
-;       failure.
+; [AI] In system-copy mode, opens the source CPM*.SYS file, validates it, and reads the OS image
+;       into the copy buffer, reporting 'System not found' if absent.
 SUB_037F:
         LD A,($0522)                     ; $037F  3A 22 05
         OR A                             ; $0382  B7
@@ -426,7 +411,7 @@ SUB_037F:
         CALL SUB_03D3                    ; $0384  CD D3 03
         LD C,$1B                         ; $0387  0E 1B
         CALL BDOS_VEC                    ; $0389  CD 05 00
-        LD DE,$0010                      ; $038C  11 10 00
+        LD DE,RST2_VEC                   ; $038C  11 10 00
         ADD HL,DE                        ; $038F  19
         LD A,(HL)                        ; $0390  7E
         OR A                             ; $0391  B7
@@ -443,6 +428,8 @@ SUB_037F:
         LD HL,$03FA                      ; $03A5  21 FA 03
         LD C,$80                         ; $03A8  0E 80
         LD B,$0C                         ; $03AA  06 0C
+; [AI] Builds a 12-byte ascending FCB record-list (records $80-$8B) used to read the multi-record
+;       system file in one BDOS random/sequential pass.
 L_03AC:
         LD (HL),C                        ; $03AC  71
         INC C                            ; $03AD  0C
@@ -456,25 +443,23 @@ L_03AC:
         LD DE,$03EA                      ; $03BC  11 EA 03
         CALL BDOS_VEC                    ; $03BF  CD 05 00
         RET                              ; $03C2  C9
-; [AI] Loads the 'System not found on source disk' message ($05FA) and falls into the common error-
-;       print path.
+; [AI] Error exit selecting the 'System not found on source disk' message.
 L_03C3:
         LD DE,$05FA                      ; $03C3  11 FA 05
         JR L_03D0                        ; $03C6  18 08
-; [AI] Loads the 'Disk space already in use' message ($05BF) and jumps to the error-print path.
+; [AI] Error exit selecting the 'Disk space already in use' message (destination not empty for
+;       system write).
 L_03C8:
         LD DE,$05BF                      ; $03C8  11 BF 05
         JR L_03D0                        ; $03CB  18 03
-; [AI] Loads the 'Not enough directory space' message ($05DC) and jumps to the error-print path.
+; [AI] Error exit selecting the 'Not enough directory space' message.
 L_03CD:
         LD DE,$05DC                      ; $03CD  11 DC 05
-; [AI] Tail of the message-selection group: jumps to L_0488, which prints the selected error string
-;       and restarts argument input.
+; [AI] Common message-print-and-restart tail for the three system-file error cases.
 L_03D0:
         JP L_0488                        ; $03D0  C3 88 04
-; [AI] File-mode read/write helper: emits CRLF, selects the disk (BDOS func 0EH) and searches the
-;       directory (func 13H delete-file by the FCB at $03EA) to prepare the destination CP/M file
-;       for the copy.
+; [AI] Resets the disk system (BDOS 13), selects the working drive (BDOS 14), and opens the system
+;       FCB at $03EA (BDOS 15).
 SUB_03D3:
         LD C,$0D                         ; $03D3  0E 0D
         CALL BDOS_VEC                    ; $03D5  CD 05 00
@@ -488,16 +473,15 @@ SUB_03D3:
         RET                              ; $03E9  C9
         DEFB    $00,$63,$70,$2F,$6D,$20,$20,$20,$20,$73,$79,$73,$00,$00,$00,$00 ; $03EA
         DEFS    20, $00    ; $03FA  fill
-; [AI] Copies the 11-byte 'CP/M System' filename template (source at $07FC) into the destination
-;       FCB pointed to by DE, used when stamping/creating the system file.
+; [AI] Copies the 11-byte 'CPM System' filename template into the destination FCB so the system
+;       file can be created on the target disk.
 SUB_040E:
         LD HL,$07FC                      ; $040E  21 FC 07
         LD BC,$000B                      ; $0411  01 0B 00
         LDIR                             ; $0414  ED B0
         RET                              ; $0416  C9
-; [AI] Invokes a 6502-side disk operation: stores the request in the $F3xx mailbox via SUB_042C,
-;       then reads the result/error code from $F3EA and reports 'Disk I/O error' or 'Disk Write
-;       Protected' (code 10H) on failure.
+; [AI] Invokes the relocated 6502 disk routine via the SoftCard handoff (SUB_042C) and inspects its
+;       returned status byte at $F3EA, branching to a Disk-I/O or write-protect error if nonzero.
 SUB_0417:
         CALL SUB_042C                    ; $0417  CD 2C 04
         LD A,($F3EA)                     ; $041A  3A EA F3
@@ -509,17 +493,14 @@ SUB_0417:
         LD DE,$061D                      ; $0426  11 1D 06
 L_0429:
         JP L_027D                        ; $0429  C3 7D 02
-; [AI] Mailbox poke: writes the HL parameter to the SoftCard shared-memory request slot $F3D0 and
-;       stores the A value through the pointer at $F3DE, the low-level handoff that triggers the
-;       6502 disk firmware (the 6502 code body lives in the data block at $0900+).
+; [AI] Performs the actual Z-80-to-6502 control transfer: stores the 6502 entry address and the
+;       command byte into the SoftCard handoff block so the 6502 side executes the disk operation.
 SUB_042C:
         LD ($F3D0),HL                    ; $042C  22 D0 F3
         LD HL,($F3DE)                    ; $042F  2A DE F3
         LD (HL),A                        ; $0432  77
         RET                              ; $0433  C9
-; [AI] Print-line-with-CR helper: pushes the '$'-terminated string pointer, emits a CR (via
-;       SUB_0446), then calls BDOS func 9 (print string) on the saved DE. Used for all the user-
-;       message output.
+; [AI] Emits a CR/LF then prints the $-terminated string at DE via BDOS function 9.
 SUB_0434:
         PUSH DE                          ; $0434  D5
 L_0435:
@@ -532,31 +513,28 @@ L_043B:
         LD C,$09                         ; $043B  0E 09
 L_043D:
         JR L_0449                        ; $043D  18 0A
-; [AI] Emit a CRLF to the console: outputs CR ($0D) then LF ($0A) using single-char BDOS console
-;       output (func 2).
+; [AI] Outputs a CR then LF to the console (used to advance a line without printing a string).
 SUB_043F:
         LD A,$0D                         ; $043F  3E 0D
 L_0441:
         CALL SUB_0446                    ; $0441  CD 46 04
 L_0444:
         LD A,$0A                         ; $0444  3E 0A
-; [AI] Console single-character output: puts the character from A into E and calls BDOS func 2
-;       (console out) via a jump to $0005.
+; [AI] Outputs the single character in A to the console via BDOS function 2.
 SUB_0446:
         LD E,A                           ; $0446  5F
 L_0447:
         LD C,$02                         ; $0447  0E 02
 L_0449:
         JP BDOS_VEC                      ; $0449  C3 05 00
-; [AI] Command-tail token scanner: consumes characters from the parsed command line (count at
-;       $0081, pointer in HL), skips spaces, and folds lowercase to uppercase (subtract 20H for
-;       chars >= 60H); returns the next significant character in A, or zero at end of tail.
+; [AI] Fetches and uppercases the next non-blank character from the command tail, decrementing the
+;       tail length; returns zero when the tail is exhausted.
 SUB_044C:
-        LD A,($0081)                     ; $044C  3A 81 00
+        LD A,(CMDLINE)                   ; $044C  3A 81 00
         OR A                             ; $044F  B7
         RET Z                            ; $0450  C8
         DEC A                            ; $0451  3D
-        LD ($0081),A                     ; $0452  32 81 00
+        LD (CMDLINE),A                   ; $0452  32 81 00
         LD A,(HL)                        ; $0455  7E
         INC HL                           ; $0456  23
         CP $20                           ; $0457  FE 20
@@ -565,9 +543,8 @@ SUB_044C:
         RET C                            ; $045D  D8
         SUB $20                          ; $045E  D6 20
         RET                              ; $0460  C9
-; [AI] Single-drive prompt gate: if the source and destination drive letters at $051C are equal
-;       (one physical drive), prints the disk-swap prompt in DE and waits for RETURN; otherwise
-;       returns immediately.
+; [AI] When source and destination are the same drive, waits for the user to press RETURN (so they
+;       can swap disks); otherwise returns immediately.
 SUB_0461:
         LD HL,($051C)                    ; $0461  2A 1C 05
         LD A,L                           ; $0464  7D
@@ -577,14 +554,13 @@ SUB_0461:
         CALL SUB_04DC                    ; $0468  CD DC 04
         POP BC                           ; $046B  C1
         RET                              ; $046C  C9
-; [AI] Drive-letter validator: converts an ASCII letter to a 0-based drive number (subtract 'A'),
-;       requires a following ':' from the command tail, range-checks against the BIOS maximum-drive
-;       count at $F3B8, and reports an 'Invalid drive' command error on any failure.
+; [AI] Parses a drive specifier ('A:'..): converts the letter to a 0-based drive number, requires
+;       the trailing ':', and validates it against the number of logged drives, else reports an
+;       invalid/command error.
 SUB_046D:
         SUB $41                          ; $046D  D6 41
         JR NC,L_0476                     ; $046F  30 05
-; [AI] Command-error reporter: loads the 'Command error' message ($059D) and falls into the print-
-;       and-restart path, the common landing point for all syntax/argument errors.
+; [AI] Command-error exit: prints 'Command error' and restarts the prompt loop.
 L_0471:
         LD DE,$059D                      ; $0471  11 9D 05
         JR L_0488                        ; $0474  18 12
@@ -599,14 +575,12 @@ L_0476:
         LD A,C                           ; $0483  79
         RET NC                           ; $0484  D0
         LD DE,$06D8                      ; $0485  11 D8 06
-; [AI] Error finalizer: prints the selected '$'-terminated error message (DE) and jumps back to
-;       L_0114 to re-issue the interactive command prompt.
+; [AI] Prints the error/usage message at DE then restarts at the top of the prompt loop.
 L_0488:
         CALL SUB_0434                    ; $0488  CD 34 04
         JP L_0114                        ; $048B  C3 14 01
-; [AI] Disk arm phase/track setup: from the drive/track value in A computes the head-select parity
-;       into $F3E4 and the encoded stepper-phase target into $F3E6 (the 'AND 0E / shift / SUB 61 /
-;       CPL' produces the 6502 firmware's phase byte) for the next seek.
+; [AI] Translates a logical drive number into the 6502 disk parameters (slot/drive select and head-
+;       stepping value) stored in the SoftCard handoff block at $F3E4/$F3E6.
 SUB_048E:
         LD E,A                           ; $048E  5F
         INC A                            ; $048F  3C
@@ -621,23 +595,22 @@ SUB_048E:
         CPL                              ; $049D  2F
         LD ($F3E6),A                     ; $049E  32 E6 F3
         RET                              ; $04A1  C9
-; [AI] Read/write a track image with the default load address $2400 in HL, then falls into
-;       SUB_04A5.
+; [AI] Reads or writes a whole disk side starting at TPA buffer $2400: sets the operation code in C
+;       and falls into the per-track transfer loop.
 SUB_04A2:
         LD HL,$2400                      ; $04A2  21 00 24
-; [AI] Track sector-transfer loop: sets the seek phase (SUB_048E), stores the read/write opcode (C)
-;       at $F3EB and the page count from $051F, and iterates SUB_0417 once per page, advancing both
-;       the memory pointer and the disk track word in the $F3xx mailbox (with $C0/$D0 and $10-track
-;       wraps for the SoftCard's banked buffer).
+; [AI] Per-track transfer driver: walks B tracks, calling the 6502 read/write routine for each and
+;       advancing both the 6502 track pointer and the Z-80 memory buffer pointer (skipping the
+;       language-card hole).
 SUB_04A5:
         CALL SUB_048E                    ; $04A5  CD 8E 04
         LD A,C                           ; $04A8  79
         LD ($F3EB),A                     ; $04A9  32 EB F3
         LD A,($051F)                     ; $04AC  3A 1F 05
         LD B,A                           ; $04AF  47
-; [AI] Per-page transfer iteration: stores the current buffer page into the mailbox ($F3E8), issues
-;       the 6502 disk call with command $0E03, advances the track-position word, and wraps the
-;       buffer page across the SoftCard memory banks.
+; [AI] Body of the track-transfer loop: hands one track's parameters to the 6502 routine, then
+;       advances the source/destination buffer page, wrapping the buffer page address across the
+;       $C000-$D000 I/O gap.
 L_04B0:
         PUSH BC                          ; $04B0  C5
         PUSH HL                          ; $04B1  E5
@@ -663,25 +636,22 @@ L_04D2:
         POP BC                           ; $04D2  C1
         DJNZ L_04B0                      ; $04D3  10 DB
         RET                              ; $04D5  C9
-; [AI] Prompt-then-append helper: prints the message in DE, appends the standard 'Press RETURN'
-;       string ($0777), and falls into SUB_04DC to wait for the keystroke.
+; [AI] Prints the message at DE, then prints the standard 'Press RETURN to begin' tail and waits
+;       for RETURN.
 SUB_04D6:
         CALL SUB_0434                    ; $04D6  CD 34 04
         LD DE,$0777                      ; $04D9  11 77 07
-; [AI] Prompt-and-wait-for-RETURN: prints the '$' string in DE then loops reading console input
-;       until a carriage return is received.
+; [AI] Prints the $-string at DE and then waits until the user presses RETURN.
 SUB_04DC:
         CALL SUB_0434                    ; $04DC  CD 34 04
-; [AI] RETURN-wait loop body: reads a console character via SUB_04E7 and keeps looping until it
-;       equals CR ($0D).
+; [AI] Wait-for-RETURN loop: reads console characters until a carriage return is seen.
 L_04DF:
         CALL SUB_04E7                    ; $04DF  CD E7 04
         CP $0D                           ; $04E2  FE 0D
         JR NZ,L_04DF                     ; $04E4  20 F9
         RET                              ; $04E6  C9
-; [AI] Console raw input with Ctrl-C handling: calls BDOS func 6 (direct console I/O, E=FFH) until
-;       a key is ready, aborts to warm boot on Ctrl-C ($03), and folds lowercase to uppercase before
-;       returning the character.
+; [AI] Reads one console character via BDOS direct console I/O (function 6), looping until a key is
+;       ready; aborts to CP/M on Ctrl-C and uppercases letters.
 SUB_04E7:
         LD E,$FF                         ; $04E7  1E FF
         LD C,$06                         ; $04E9  0E 06
@@ -694,9 +664,9 @@ SUB_04E7:
         RET C                            ; $04F8  D8
         SUB $20                          ; $04F9  D6 20
         RET                              ; $04FB  C9
-; [AI] System-track probe: when not formatting, seeks the source drive and reads one track's worth
-;       into $2300 via the 6502 mailbox call ($0E03) to test whether a CP/M system image is present;
-;       returns the firmware status from $F3EA.
+; [AI] Tests whether the source disk already holds a CP/M system (when not forcing a format) by
+;       reading track 0 via the 6502 and returning its status, so COPY knows whether it must format
+;       the destination.
 SUB_04FC:
         LD A,($0525)                     ; $04FC  3A 25 05
         OR A                             ; $04FF  B7

@@ -9,13 +9,17 @@
 
 ; -- External symbols --
 WBOOT_VEC            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
+CDISK                EQU $0004               ; Current drive (low nibble: 0=A, 1=B, ..., 15=P) and current user (high nibble, 0-15).
 BDOS_VEC             EQU $0005               ; BDOS call vector — JP BDOS_ENTRY. Programs use CALL $0005 to invoke BDOS. Word at $0006 is also the top-of-TPA marker.
+DEFAULT_FCB          EQU $005C               ; Default File Control Block — populated by CCP from command-line argument 1. Standard 36-byte FCB structure (drive + filename + extents + record number).
+DEFAULT_CR           EQU $007C               ; Default FCB current record byte (overlaps end of DEFAULT_FCB2).
+DEFAULT_DMA          EQU $0080               ; Default DMA buffer — also command-line tail. First byte = length, then characters. Returned to default by BDOS function 13 (DRV_ALLRESET).
+CMDLINE              EQU $0081               ; Command-line tail characters (uppercase, with leading space). Same buffer as DEFAULT_DMA.
 
     ORG $0100
 
-; [AI] Program entry at the TPA ($0100). Sets up a local stack, prints the Mycroft Labs sign-on
-;       banner, then zeroes the three state flags ($0B44/$0B45/$0B46) before computing the available
-;       memory budget.
+; [AI] Program entry at $0100. Sets the stack, prints the banner, clears state flags, and computes
+;       how much free TPA memory is available to buffer copied files.
 TPA_START:
         LD SP,$0A41                      ; $0100  31 41 0A
 L_0103:
@@ -30,9 +34,6 @@ L_010D:
         LD ($0B45),A                     ; $010D  32 45 0B
 L_0110:
         LD ($0B46),A                     ; $0110  32 46 0B
-; [AI] Computes how many 128-byte records of free TPA exist: takes the BDOS/top-of-TPA address from
-;       $0006, subtracts the load buffer base ($0B80), converts the byte count to a record count,
-;       and stores the buffer capacity in $0A81.
 L_0113:
         LD HL,($0006)                    ; $0113  2A 06 00
 L_0116:
@@ -53,23 +54,18 @@ L_0120:
         DEC HL                           ; $0120  2B
 L_0121:
         LD ($0A81),HL                    ; $0121  22 81 0A
-; [AI] Inspects the command-tail length byte at $0080; if a command line was supplied it jumps to
-;       L_0151 to parse it, otherwise it falls through to the interactive prompt loop.
 L_0124:
-        LD A,($0080)                     ; $0124  3A 80 00
+        LD A,(DEFAULT_DMA)               ; $0124  3A 80 00
 L_0127:
         DEC A                            ; $0127  3D
 L_0128:
-        LD ($0080),A                     ; $0128  32 80 00
+        LD (DEFAULT_DMA),A               ; $0128  32 80 00
 L_012B:
         JP P,L_0151                      ; $012B  F2 51 01
-; [AI] Interactive input loop: clears the tail buffer, emits a CRLF, prints the '*' prompt, and
-;       uses BDOS function 10 (read console buffer) into $0080 to read a line of file specifications
-;       from the user.
 L_012E:
         XOR A                            ; $012E  AF
 L_012F:
-        LD ($0080),A                     ; $012F  32 80 00
+        LD (DEFAULT_DMA),A               ; $012F  32 80 00
 L_0132:
         CALL SUB_04AB                    ; $0132  CD AB 04
 L_0135:
@@ -79,7 +75,7 @@ L_0137:
 L_013A:
         LD A,$50                         ; $013A  3E 50
 L_013C:
-        LD DE,$0080                      ; $013C  11 80 00
+        LD DE,DEFAULT_DMA                ; $013C  11 80 00
 L_013F:
         LD (DE),A                        ; $013F  12
 L_0140:
@@ -87,17 +83,14 @@ L_0140:
 L_0142:
         CALL BDOS_VEC                    ; $0142  CD 05 00
 L_0145:
-        LD A,($0081)                     ; $0145  3A 81 00
+        LD A,(CMDLINE)                   ; $0145  3A 81 00
 L_0148:
-        LD ($0080),A                     ; $0148  32 80 00
+        LD (DEFAULT_DMA),A               ; $0148  32 80 00
 L_014B:
         OR A                             ; $014B  B7
 L_014C:
         JR Z,L_012E                      ; $014C  28 E0
         CALL SUB_04AB                    ; $014E  CD AB 04
-; [AI] Main command-processing entry: prints the 'Copying -' message, parses the typed filespec
-;       list via SUB_037E, and dispatches into the source-read phase; re-entered after each
-;       destination write-back pass.
 L_0151:
         LD HL,$053E                      ; $0151  21 3E 05
         CALL SUB_04A2                    ; $0154  CD A2 04
@@ -105,28 +98,21 @@ L_0151:
         LD A,($0B44)                     ; $015A  3A 44 0B
         OR A                             ; $015D  B7
         JR NZ,L_019A                     ; $015E  20 3A
-        LD HL,$0080                      ; $0160  21 80 00
+        LD HL,DEFAULT_DMA                ; $0160  21 80 00
         LD DE,$0A85                      ; $0163  11 85 0A
         LD B,(HL)                        ; $0166  46
         LD C,$00                         ; $0167  0E 00
         INC HL                           ; $0169  23
         INC HL                           ; $016A  23
-; [AI] Scans the command tail counting non-blank characters (folding lowercase to upper); if
-;       nothing meaningful was typed it returns to the prompt, otherwise it sets up the parse
-;       pointer in $0A85/$0AD5 for SUB_037E.
 L_016B:
         LD A,(HL)                        ; $016B  7E
         CP $60                           ; $016C  FE 60
         JR C,L_0172                      ; $016E  38 02
         SUB $20                          ; $0170  D6 20
-; [AI] Per-character test inside the tail scan: skips spaces but counts every other character so an
-;       all-blank line is rejected as empty input.
 L_0172:
         CP $20                           ; $0172  FE 20
         JR Z,L_0177                      ; $0174  28 01
         INC C                            ; $0176  0C
-; [AI] Stores the (upper-cased) tail character into the working copy at $0A85 and advances; loops
-;       via DJNZ until the whole command tail has been copied and counted.
 L_0177:
         LD (DE),A                        ; $0177  12
         INC DE                           ; $0178  13
@@ -145,9 +131,6 @@ L_0177:
         LD HL,$0640                      ; $0191  21 40 06
         LD ($0ADB),HL                    ; $0194  22 DB 0A
         LD ($0ADD),HL                    ; $0197  22 DD 0A
-; [AI] Begins the SOURCE-disk read phase: prompts/echoes, points the load pointer ($0ADF) at the
-;       read buffer ($0B80), seeds the remaining-records counter ($0A83) from the capacity, and
-;       loops reading matched files into memory.
 L_019A:
         LD HL,$0568                      ; $019A  21 68 05
         CALL SUB_04A2                    ; $019D  CD A2 04
@@ -159,7 +142,7 @@ L_019A:
         OR A                             ; $01AF  B7
         JR Z,L_01D4                      ; $01B0  28 22
         LD HL,$0AE1                      ; $01B2  21 E1 0A
-        LD DE,$005C                      ; $01B5  11 5C 00
+        LD DE,DEFAULT_FCB                ; $01B5  11 5C 00
         LD BC,$0021                      ; $01B8  01 21 00
         LDIR                             ; $01BB  ED B0
         XOR A                            ; $01BD  AF
@@ -172,9 +155,6 @@ L_019A:
         LD ($0ADB),HL                    ; $01CD  22 DB 0A
         EX DE,HL                         ; $01D0  EB
         JP L_0202                        ; $01D1  C3 02 02
-; [AI] Fetches the next entry from the staged source file-table at $0ADB; an $FF sentinel means the
-;       table is exhausted (jump to write-back phase), otherwise it marks the slot used and copies
-;       its 11-byte filename into the FCB at $005D.
 L_01D4:
         LD HL,($0ADB)                    ; $01D4  2A DB 0A
         LD A,(HL)                        ; $01D7  7E
@@ -189,14 +169,12 @@ L_01D4:
         LD HL,$005D                      ; $01EB  21 5D 00
         CALL SUB_0489                    ; $01EE  CD 89 04
         XOR A                            ; $01F1  AF
-        LD ($005C),A                     ; $01F2  32 5C 00
+        LD (DEFAULT_FCB),A               ; $01F2  32 5C 00
         LD ($0068),A                     ; $01F5  32 68 00
-        LD ($007C),A                     ; $01F8  32 7C 00
+        LD (DEFAULT_CR),A                ; $01F8  32 7C 00
         CALL SUB_04CD                    ; $01FB  CD CD 04
         LD HL,($0ADB)                    ; $01FE  2A DB 0A
         EX DE,HL                         ; $0201  EB
-; [AI] Stores the current load-buffer pointer into this file's source-table slot, then zeroes the
-;       per-file record counter prior to the sequential-read loop.
 L_0202:
         LD HL,($0ADF)                    ; $0202  2A DF 0A
         LD A,H                           ; $0205  7C
@@ -207,16 +185,14 @@ L_0202:
         INC DE                           ; $020A  13
         EX DE,HL                         ; $020B  EB
         LD ($0ADB),HL                    ; $020C  22 DB 0A
-        LD HL,$0000                      ; $020F  21 00 00
+        LD HL,WBOOT_VEC                  ; $020F  21 00 00
         LD ($0AD7),HL                    ; $0212  22 D7 0A
-; [AI] Per-record source read loop: sets the DMA to the current buffer position and calls BDOS 20
-;       (read sequential) on the source FCB; branches on success, EOF, or read error.
 L_0215:
         LD HL,($0ADF)                    ; $0215  2A DF 0A
         EX DE,HL                         ; $0218  EB
         CALL SUB_04DD                    ; $0219  CD DD 04
         LD C,$14                         ; $021C  0E 14
-        LD DE,$005C                      ; $021E  11 5C 00
+        LD DE,DEFAULT_FCB                ; $021E  11 5C 00
         CALL BDOS_VEC                    ; $0221  CD 05 00
         OR A                             ; $0224  B7
         JR Z,L_0239                      ; $0225  28 12
@@ -227,12 +203,9 @@ L_0215:
         LD HL,$005D                      ; $0231  21 5D 00
         CALL SUB_0489                    ; $0234  CD 89 04
         JR L_0265                        ; $0237  18 2C
-; [AI] Successful-record handler: advances the load buffer by 128 bytes, bumps the file's record
-;       count, decrements the free-record budget, and loops; when the buffer fills it stops reading
-;       and saves the current FCB so reading can resume after a write-back.
 L_0239:
         LD HL,($0ADF)                    ; $0239  2A DF 0A
-        LD DE,$0080                      ; $023C  11 80 00
+        LD DE,DEFAULT_DMA                ; $023C  11 80 00
         ADD HL,DE                        ; $023F  19
         LD ($0ADF),HL                    ; $0240  22 DF 0A
         LD HL,($0AD7)                    ; $0243  2A D7 0A
@@ -244,17 +217,14 @@ L_0239:
         LD A,H                           ; $0251  7C
         OR L                             ; $0252  B5
         JR NZ,L_0215                     ; $0253  20 C0
-        LD HL,$005C                      ; $0255  21 5C 00
+        LD HL,DEFAULT_FCB                ; $0255  21 5C 00
         LD DE,$0AE1                      ; $0258  11 E1 0A
         LD BC,$0021                      ; $025B  01 21 00
         LDIR                             ; $025E  ED B0
         LD A,$01                         ; $0260  3E 01
         LD ($0B44),A                     ; $0262  32 44 0B
-; [AI] End-of-file handler for a source file: restores the default DMA, closes the file (BDOS 16),
-;       and writes this file's final record count back into the source file-table entry, then
-;       continues with the next file.
 L_0265:
-        LD DE,$0080                      ; $0265  11 80 00
+        LD DE,DEFAULT_DMA                ; $0265  11 80 00
         CALL SUB_04DD                    ; $0268  CD DD 04
         CALL SUB_04D5                    ; $026B  CD D5 04
         LD HL,($0AD7)                    ; $026E  2A D7 0A
@@ -268,9 +238,6 @@ L_0265:
         LD A,($0B44)                     ; $027C  3A 44 0B
         OR A                             ; $027F  B7
         JP Z,L_01D4                      ; $0280  CA D4 01
-; [AI] Transition to the DESTINATION phase: prompts the user to insert the destination disk, waits
-;       for RETURN, resets the disk system (BDOS 13), and begins writing the buffered files back out
-;       from memory.
 L_0283:
         LD HL,$05A6                      ; $0283  21 A6 05
         CALL SUB_04A2                    ; $0286  CD A2 04
@@ -281,7 +248,7 @@ L_0283:
         OR A                             ; $0294  B7
         JR Z,L_02B1                      ; $0295  28 1A
         LD HL,$0B02                      ; $0297  21 02 0B
-        LD DE,$005C                      ; $029A  11 5C 00
+        LD DE,DEFAULT_FCB                ; $029A  11 5C 00
         LD BC,$0021                      ; $029D  01 21 00
         LDIR                             ; $02A0  ED B0
         CALL SUB_04CD                    ; $02A2  CD CD 04
@@ -290,9 +257,6 @@ L_0283:
         ADD HL,DE                        ; $02AB  19
         LD ($0ADD),HL                    ; $02AC  22 DD 0A
         JR L_02FC                        ; $02AF  18 4B
-; [AI] Reads the next file descriptor from the destination write-table at $0ADD; a 0 or $FF
-;       sentinel ends the pass. Builds the FCB, clears read-only/system attribute bits, deletes any
-;       existing file (BDOS 19), and creates a fresh one with BDOS 22 (make file).
 L_02B1:
         LD HL,($0ADD)                    ; $02B1  2A DD 0A
         LD A,(HL)                        ; $02B4  7E
@@ -306,16 +270,16 @@ L_02B1:
         LDIR                             ; $02C5  ED B0
         LD ($0ADD),HL                    ; $02C7  22 DD 0A
         XOR A                            ; $02CA  AF
-        LD ($005C),A                     ; $02CB  32 5C 00
+        LD (DEFAULT_FCB),A               ; $02CB  32 5C 00
         LD ($0068),A                     ; $02CE  32 68 00
-        LD ($007C),A                     ; $02D1  32 7C 00
+        LD (DEFAULT_CR),A                ; $02D1  32 7C 00
         LD A,($0065)                     ; $02D4  3A 65 00
         AND $7F                          ; $02D7  E6 7F
         LD ($0065),A                     ; $02D9  32 65 00
         LD A,($0066)                     ; $02DC  3A 66 00
         AND $7F                          ; $02DF  E6 7F
         LD ($0066),A                     ; $02E1  32 66 00
-        LD DE,$005C                      ; $02E4  11 5C 00
+        LD DE,DEFAULT_FCB                ; $02E4  11 5C 00
         PUSH DE                          ; $02E7  D5
         LD C,$13                         ; $02E8  0E 13
         CALL BDOS_VEC                    ; $02EA  CD 05 00
@@ -326,9 +290,6 @@ L_02B1:
         JR NZ,L_02FC                     ; $02F4  20 06
         LD HL,$05FB                      ; $02F6  21 FB 05
         JP L_0360                        ; $02F9  C3 60 03
-; [AI] Sets up the write loop for one destination file: reads the buffer address and record count
-;       saved in the table back into $0ADF/$0AD7, advancing the table pointer past this file's
-;       entry.
 L_02FC:
         LD HL,($0ADD)                    ; $02FC  2A DD 0A
         LD D,(HL)                        ; $02FF  56
@@ -351,20 +312,17 @@ L_02FC:
         LD A,H                           ; $031A  7C
         OR L                             ; $031B  B5
         JR Z,L_0345                      ; $031C  28 27
-; [AI] Per-record destination write loop: points the DMA at the next 128-byte buffer slot and calls
-;       BDOS 21 (write sequential); any nonzero status (disk/directory full) aborts to the error
-;       path.
 L_031E:
         LD HL,($0ADF)                    ; $031E  2A DF 0A
         EX DE,HL                         ; $0321  EB
         CALL SUB_04DD                    ; $0322  CD DD 04
         LD C,$15                         ; $0325  0E 15
-        LD DE,$005C                      ; $0327  11 5C 00
+        LD DE,DEFAULT_FCB                ; $0327  11 5C 00
         CALL BDOS_VEC                    ; $032A  CD 05 00
         OR A                             ; $032D  B7
         JR NZ,L_035D                     ; $032E  20 2D
         LD HL,($0ADF)                    ; $0330  2A DF 0A
-        LD DE,$0080                      ; $0333  11 80 00
+        LD DE,DEFAULT_DMA                ; $0333  11 80 00
         ADD HL,DE                        ; $0336  19
         LD ($0ADF),HL                    ; $0337  22 DF 0A
         LD HL,($0AD7)                    ; $033A  2A D7 0A
@@ -373,51 +331,37 @@ L_031E:
         LD A,H                           ; $0341  7C
         OR L                             ; $0342  B5
         JR NZ,L_031E                     ; $0343  20 D9
-; [AI] File-complete on write-back: saves the current FCB, restores the default DMA, and closes the
-;       destination file with BDOS 16; on close failure reports the disk-full / I/O error.
 L_0345:
-        LD HL,$005C                      ; $0345  21 5C 00
+        LD HL,DEFAULT_FCB                ; $0345  21 5C 00
         LD DE,$0B02                      ; $0348  11 02 0B
         LD BC,$0021                      ; $034B  01 21 00
         LDIR                             ; $034E  ED B0
-        LD DE,$0080                      ; $0350  11 80 00
+        LD DE,DEFAULT_DMA                ; $0350  11 80 00
         CALL SUB_04DD                    ; $0353  CD DD 04
         CALL SUB_04D5                    ; $0356  CD D5 04
         INC A                            ; $0359  3C
         JP NZ,L_02B1                     ; $035A  C2 B1 02
-; [AI] Disk-or-directory-full error reporter: prints the 'Disk or directory full error:' message
-;       followed by the offending filename, then returns to the disk-swap prompt.
 L_035D:
         LD HL,$061C                      ; $035D  21 1C 06
-; [AI] Common error-print tail: prints the message at HL via SUB_04A2 and appends the 11-byte FCB
-;       filename via SUB_0489, used by both the read-error and full-disk error paths.
 L_0360:
         CALL SUB_04A2                    ; $0360  CD A2 04
         LD HL,$005D                      ; $0363  21 5D 00
         CALL SUB_0489                    ; $0366  CD 89 04
         JR L_0372                        ; $0369  18 07
-; [AI] End-of-write-back check: if more source files remain to be read (flag $0B44 still set) it
-;       loops back to L_0151 for another source/destination cycle, otherwise the job is done.
 L_036B:
         LD A,($0B44)                     ; $036B  3A 44 0B
         OR A                             ; $036E  B7
         JP NZ,L_0151                     ; $036F  C2 51 01
-; [AI] Normal program exit: prompts to re-insert a system disk and press RETURN (so the user can
-;       reload the CCP), then warm-boots CP/M via JP $0000.
 L_0372:
         LD HL,$05D2                      ; $0372  21 D2 05
         CALL SUB_04A2                    ; $0375  CD A2 04
         CALL SUB_04BD                    ; $0378  CD BD 04
         JP WBOOT_VEC                     ; $037B  C3 00 00
-; [AI] Parses the typed filespec list into the file-table at $0640 ($0ADB). Walks each comma/space-
-;       delimited specification, expands ambiguous (wildcard) names via the BDOS directory search,
-;       and records matched filenames for the read phase.
+; [AI] Parses the entire command tail into a list of source-file FCB patterns, validating each via
+;       BDOS search-first ($11) and counting how many ambiguous (wildcard) names were given.
 SUB_037E:
         LD HL,$0640                      ; $037E  21 40 06
         LD ($0ADB),HL                    ; $0381  22 DB 0A
-; [AI] Filespec-parse loop body: extracts the next specification from the command line via
-;       SUB_0413; on a syntax error it prints 'Command error' and aborts, otherwise it searches the
-;       directory for matches.
 L_0384:
         LD HL,($0AD5)                    ; $0384  2A D5 0A
         LD A,(HL)                        ; $0387  7E
@@ -429,16 +373,11 @@ L_0384:
         LD HL,$0576                      ; $0392  21 76 05
         CALL SUB_04A2                    ; $0395  CD A2 04
         JP L_0372                        ; $0398  C3 72 03
-; [AI] Performs BDOS 17 (search first) for the parsed (possibly ambiguous) filename; an $FF result
-;       means no match, printing 'Not found:' plus the name, otherwise it records the matched
-;       directory entry.
 L_039B:
         XOR A                            ; $039B  AF
         LD ($0B2F),A                     ; $039C  32 2F 0B
         LD DE,$0B23                      ; $039F  11 23 0B
         LD C,$11                         ; $03A2  0E 11
-; [AI] Directory search-result handler: validates the matched entry, skipping deleted/attribute-
-;       flagged slots (BIT 7 of FCB byte 10), and re-issues search-next as needed.
 L_03A4:
         CALL BDOS_VEC                    ; $03A4  CD 05 00
         CP $FF                           ; $03A7  FE FF
@@ -448,9 +387,6 @@ L_03A4:
         LD HL,$0B24                      ; $03B1  21 24 0B
         CALL SUB_0489                    ; $03B4  CD 89 04
         JR L_0384                        ; $03B7  18 CB
-; [AI] Computes the directory-entry offset within the 128-byte search buffer at $0080: the search
-;       call's return code (0-3) is multiplied by 32 and added to $0080 to address the matched FCB
-;       for attribute checking and copying.
 L_03B9:
         AND $03                          ; $03B9  E6 03
         LD L,A                           ; $03BB  6F
@@ -460,16 +396,13 @@ L_03B9:
         ADD HL,HL                        ; $03C0  29
         ADD HL,HL                        ; $03C1  29
         ADD HL,HL                        ; $03C2  29
-        LD DE,$0080                      ; $03C3  11 80 00
+        LD DE,DEFAULT_DMA                ; $03C3  11 80 00
         ADD HL,DE                        ; $03C6  19
         LD C,$12                         ; $03C7  0E 12
         PUSH HL                          ; $03C9  E5
         POP IX                           ; $03CA  DD E1
         BIT 7,(IX+10)                    ; $03CC  DD CB 0A 7E
         JR NZ,L_03A4                     ; $03D0  20 D2
-; [AI] Records one matched directory filename into the source file-table: increments the match
-;       counter ($0B46), copies the 12-byte FCB name plus a 4-byte placeholder into the table, and
-;       writes the $FF table terminator.
 L_03D2:
         EX DE,HL                         ; $03D2  EB
         LD HL,$0B46                      ; $03D3  21 46 0B
@@ -479,15 +412,12 @@ L_03D2:
         LD BC,$000C                      ; $03DB  01 0C 00
         LDIR                             ; $03DE  ED B0
         LD HL,$062F                      ; $03E0  21 2F 06
-        LD BC,$0004                      ; $03E3  01 04 00
+        LD BC,CDISK                      ; $03E3  01 04 00
         LDIR                             ; $03E6  ED B0
         EX DE,HL                         ; $03E8  EB
         LD ($0ADB),HL                    ; $03E9  22 DB 0A
         LD (HL),$FF                      ; $03EC  36 FF
         LD DE,$0B23                      ; $03EE  11 23 0B
-; [AI] Continues an ambiguous match with BDOS 18 (search next); each additional matching directory
-;       entry that passes the attribute filter is added to the table, otherwise the parse loop
-;       resumes.
 L_03F1:
         LD C,$12                         ; $03F1  0E 12
         CALL BDOS_VEC                    ; $03F3  CD 05 00
@@ -501,16 +431,16 @@ L_03F1:
         ADD HL,HL                        ; $0401  29
         ADD HL,HL                        ; $0402  29
         ADD HL,HL                        ; $0403  29
-        LD DE,$0080                      ; $0404  11 80 00
+        LD DE,DEFAULT_DMA                ; $0404  11 80 00
         ADD HL,DE                        ; $0407  19
         PUSH HL                          ; $0408  E5
         POP IX                           ; $0409  DD E1
         BIT 7,(IX+10)                    ; $040B  DD CB 0A 7E
         JR NZ,L_03F1                     ; $040F  20 E0
         JR L_03D2                        ; $0411  18 BF
-; [AI] Lexer that extracts one filename specification from the command-line string at HL: skips
-;       leading commas/spaces, then parses the 8.3 name into the search work area at $0B23,
-;       expanding '*' to '?' wildcards. Returns HL past the token; carry set on malformed input.
+; [AI] Extracts one filename token from the command tail into an 11-byte FCB pattern: skips
+;       comma/space separators, uppercases, expands '*' to '?' fill, and splits name from extension;
+;       returns carry set on syntax error.
 SUB_0413:
         LD A,(HL)                        ; $0413  7E
         OR A                             ; $0414  B7
@@ -522,9 +452,6 @@ SUB_0413:
 L_041E:
         INC HL                           ; $041E  23
         JR SUB_0413                      ; $041F  18 F2
-; [AI] Initializes the parsed-name buffer at $0B23: stores a zero drive byte and fills the
-;       8-character name and 3-character type fields with blanks before copying parsed characters
-;       in.
 L_0421:
         LD DE,$0B23                      ; $0421  11 23 0B
         XOR A                            ; $0424  AF
@@ -540,9 +467,6 @@ L_042C:
         JR NZ,L_042C                     ; $042F  20 FB
         POP DE                           ; $0431  D1
         LD B,$09                         ; $0432  06 09
-; [AI] Filename (base) parse loop: copies up to 8 name characters, terminating on NUL/comma/space,
-;       switching to the extension on '.', and expanding '*' (jump to L_0450); overflow sets carry
-;       as an error.
 L_0434:
         LD A,(HL)                        ; $0434  7E
         OR A                             ; $0435  B7
@@ -561,8 +485,6 @@ L_0434:
         DEC B                            ; $044B  05
         JR Z,L_0487                      ; $044C  28 39
         JR L_0434                        ; $044E  18 E4
-; [AI] Wildcard expansion for the name field: pads the remaining name positions with '?' characters
-;       until the 8-char field is full, implementing '*' globbing.
 L_0450:
         DEC B                            ; $0450  05
         JR Z,L_0459                      ; $0451  28 06
@@ -570,15 +492,11 @@ L_0450:
         LD (DE),A                        ; $0455  12
         INC DE                           ; $0456  13
         JR L_0450                        ; $0457  18 F7
-; [AI] After name overflow, requires a '.' separator before the extension; absence of the dot ends
-;       the token cleanly.
 L_0459:
         LD A,(HL)                        ; $0459  7E
         CP $2E                           ; $045A  FE 2E
         JR NZ,L_0485                     ; $045C  20 27
         INC HL                           ; $045E  23
-; [AI] Extension parse loop: copies up to 3 type characters into the FCB type field at $0B2C,
-;       expanding '*' to '?' and stopping on delimiter or end of token.
 L_045F:
         LD DE,$0B2C                      ; $045F  11 2C 0B
         LD B,$04                         ; $0462  06 04
@@ -598,8 +516,6 @@ L_0464:
         DEC B                            ; $0477  05
         JR Z,L_0487                      ; $0478  28 0D
         JR L_0464                        ; $047A  18 E8
-; [AI] Wildcard expansion for the extension field: pads the remaining type positions with '?'
-;       characters until the 3-char field is full.
 L_047C:
         DEC B                            ; $047C  05
         JR Z,L_0485                      ; $047D  28 06
@@ -607,16 +523,14 @@ L_047C:
         LD (DE),A                        ; $0481  12
         INC DE                           ; $0482  13
         JR L_047C                        ; $0483  18 F7
-; [AI] Token-parse success return: clears A (and carry) to signal a valid filespec was parsed.
 L_0485:
         XOR A                            ; $0485  AF
         RET                              ; $0486  C9
-; [AI] Token-parse error return: sets carry to flag a malformed/overlong filename specification.
 L_0487:
         SCF                              ; $0487  37
         RET                              ; $0488  C9
-; [AI] Prints an 8.3 filename for messages: emits 8 name characters (skipping trailing blanks) via
-;       the console, inserts a '.', prints the type field, and follows with a CRLF.
+; [AI] Prints an 8.3 filename from an FCB-style buffer to the console (8 name chars, a dot, then
+;       the extension), used in error messages to show the offending file.
 SUB_0489:
         LD B,$08                         ; $0489  06 08
 L_048B:
@@ -632,8 +546,8 @@ L_0494:
         CALL SUB_04A2                    ; $049B  CD A2 04
         CALL SUB_04AB                    ; $049E  CD AB 04
         RET                              ; $04A1  C9
-; [AI] Prints a NUL-terminated ($00) string pointed to by HL, sending each byte to the console via
-;       SUB_04B2 (BDOS 2); the CP/M equivalent of a custom puts.
+; [AI] Prints a null-terminated string pointed to by HL one character at a time via the console-
+;       output helper; the standard message-printing routine.
 SUB_04A2:
         LD A,(HL)                        ; $04A2  7E
 L_04A3:
@@ -646,16 +560,16 @@ L_04A8:
         INC HL                           ; $04A8  23
 L_04A9:
         JR SUB_04A2                      ; $04A9  18 F7
-; [AI] Outputs a CRLF to the console (carriage return then line feed) by calling the single-
-;       character console-output routine twice.
+; [AI] Emits a CRLF (carriage return $0D then line feed $0A) to the console by falling through into
+;       the single-character output routine.
 SUB_04AB:
         LD A,$0D                         ; $04AB  3E 0D
 L_04AD:
         CALL SUB_04B2                    ; $04AD  CD B2 04
 L_04B0:
         LD A,$0A                         ; $04B0  3E 0A
-; [AI] Console-character output primitive: preserves HL/BC and invokes BDOS function 2 (console
-;       out) with the character in A/E.
+; [AI] Outputs the single character in A to the console via BDOS function 2, preserving HL and BC;
+;       the lowest-level console-write primitive.
 SUB_04B2:
         PUSH HL                          ; $04B2  E5
 L_04B3:
@@ -672,9 +586,9 @@ L_04BB:
         POP HL                           ; $04BB  E1
 L_04BC:
         RET                              ; $04BC  C9
-; [AI] Pauses for the user to swap disks: waits in a loop reading the console (BDOS 1) until a
-;       carriage return is typed, then emits a CRLF; used by the 'press RETURN' prompts. The initial
-;       read of $E010 is a SoftCard hardware/port artifact.
+; [AI] Disk-swap pause: reads console keystrokes via BDOS function 1 until the user presses RETURN
+;       ($0D), then prints a CRLF. The leading read of $E010 touches Apple II soft-switch/firmware
+;       space mapped on the SoftCard.
 SUB_04BD:
         LD A,($E010)                     ; $04BD  3A 10 E0
 L_04C0:
@@ -684,18 +598,21 @@ L_04C0:
         JR NZ,L_04C0                     ; $04C7  20 F7
         CALL SUB_04AB                    ; $04C9  CD AB 04
         RET                              ; $04CC  C9
-; [AI] Wrapper for BDOS function 15 (open file) on the FCB at $005C.
+; [AI] Deletes any existing destination file via BDOS function 15 (open... here used to
+;       delete/erase) on the default FCB before re-creating it, preventing duplicate directory
+;       entries.
 SUB_04CD:
-        LD DE,$005C                      ; $04CD  11 5C 00
+        LD DE,DEFAULT_FCB                ; $04CD  11 5C 00
         LD C,$0F                         ; $04D0  0E 0F
         JP BDOS_VEC                      ; $04D2  C3 05 00
-; [AI] Wrapper for BDOS function 16 (close file) on the FCB at $005C.
+; [AI] Closes the default FCB via BDOS function 16, flushing the directory entry after a file has
+;       been written.
 SUB_04D5:
-        LD DE,$005C                      ; $04D5  11 5C 00
+        LD DE,DEFAULT_FCB                ; $04D5  11 5C 00
         LD C,$10                         ; $04D8  0E 10
         JP BDOS_VEC                      ; $04DA  C3 05 00
-; [AI] Wrapper for BDOS function 26 ($1A, set DMA address) using the address in DE, preserving DE
-;       across the call so the caller can reuse the buffer pointer.
+; [AI] Sets the DMA transfer address to the buffer in DE via BDOS function 26 before each disk read
+;       or write, then restores DE.
 SUB_04DD:
         PUSH DE                          ; $04DD  D5
         LD C,$1A                         ; $04DE  0E 1A

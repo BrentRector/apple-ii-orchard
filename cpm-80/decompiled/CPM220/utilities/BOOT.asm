@@ -12,8 +12,9 @@ BDOS_VEC             EQU $0005               ; BDOS call vector — JP BDOS_ENTR
 
     ORG $0100
 
-; [AI] Program load/entry address ($0100, the CP/M TPA). The first 256 bytes ($0100-$01FF) are all
-;       NOPs -- a slide/pad region; the real executable code begins at $0200 (L_0200).
+; [AI] The standard CP/M transient-program load/entry address ($0100). Here the first 256 bytes are
+;       zero filler; the real code begins at $0200, so loading is effectively a no-op fall-through
+;       into the active routine.
 TPA_START:
         NOP                              ; $0100  00
 L_0101:
@@ -526,46 +527,42 @@ L_01FE:
         NOP                              ; $01FE  00
 L_01FF:
         NOP                              ; $01FF  00
-; [AI] Actual program entry. Loads DE with the address of the '$'-terminated prompt string at
-;       $0217, in preparation for the BDOS print-string call that follows.
+; [AI] The program's actual start: loads DE with the address of the prompt string and prepares BDOS
+;       function 9 (print string) to display it.
 L_0200:
-        LD DE,$0217                      ; $0200  11 17 02
-; [AI] Sets C=9 to select BDOS function 9 (print '$'-terminated string), with DE already pointing
-;       at the 'PRESS RETURN TO BOOT$' message.
+        LD DE,L_0217                     ; $0200  11 17 02
+; [AI] Selects BDOS function 9 (print $-terminated string) in register C for the prompt about to be
+;       printed.
 L_0203:
         LD C,$09                         ; $0203  0E 09
-; [AI] CALL $0005 (BDOS) executing function 9: outputs the prompt string 'PRESS RETURN TO BOOT$' to
-;       the console.
+; [AI] Invokes BDOS to print the 'PRESS RETURN TO BOOT' prompt string pointed to by DE.
 L_0205:
         CALL BDOS_VEC                    ; $0205  CD 05 00
-; [AI] Sets C=1 to select BDOS function 1 (console input: read one character, echoed), used here to
-;       wait for the user to press a key (Return) before rebooting.
+; [AI] Selects BDOS function 1 (console input, with echo) to wait for the user to press a
+;       key/RETURN before booting.
 L_0208:
         LD C,$01                         ; $0208  0E 01
-; [AI] CALL $0005 (BDOS) executing function 1: blocks until the user types a character, pausing so
-;       the boot does not proceed until acknowledged. Return key value comes back in A.
+; [AI] Invokes BDOS to read one console character, blocking until the user responds to the prompt.
 L_020A:
         CALL BDOS_VEC                    ; $020A  CD 05 00
-; [AI] Loads HL with $C600, the Apple II slot-6 Disk II controller boot-ROM entry point -- the 6502
-;       address that re-boots the machine from floppy.
+; [AI] Loads HL with $C600, the slot-6 disk-controller firmware entry ($Cn00 with n=6); this is the
+;       Apple Disk II boot ROM that re-reads track 0 to cold-boot the machine.
 L_020D:
         LD HL,$C600                      ; $020D  21 00 C6
-; [AI] Stores the $C600 Disk II boot-ROM entry into SoftCard high-memory cell $F3D0, staging the
-;       6502 jump target for the impending CPU hand-off.
+; [AI] Stores the $C600 boot-firmware address into the SoftCard BIOS variable at $F3D0, setting up
+;       an indirect jump target on the 6502 side to relinquish control to the Apple disk boot ROM.
 L_0210:
         LD ($F3D0),HL                    ; $0210  22 D0 F3
-; [AI] Loads HL from SoftCard control/exit vector $F3DE, fetching the pointer through which the
-;       Z-80-to-6502 hand-off (reboot trigger) is performed.
+; [AI] Loads HL from the BIOS pointer at $F3DE, fetching the address of a 6502-side mailbox/handoff
+;       location used to transfer control back to the Apple II.
 L_0213:
         LD HL,($F3DE)                    ; $0213  2A DE F3
-; [AI] Writes A through the pointer fetched from $F3DE, triggering the SoftCard CPU switch back to
-;       the 6502 so it executes the staged $C600 boot ROM -- effecting the reboot/cold-start of the
-;       Apple II.
+; [AI] Writes the returned BDOS input character (in A) into the handoff location, triggering the
+;       6502 side to take over and jump to the $C600 disk boot firmware.
 L_0216:
         LD (HL),A                        ; $0216  77
-; [AI] Start of the '$'-terminated console message data: bytes CR,LF,'PRESS RETURN TO BOOT',$
-;       ($0217-$022D). Disassembled as instructions here but it is text consumed by the BDOS fn-9
-;       call at L_0205.
+; [AI] The prompt message data (not code): the $-terminated string 'CR LF PRESS RETURN TO BOOT'
+;       printed by BDOS function 9. The disassembler misdecoded the ASCII bytes as instructions.
 L_0217:
         DEC C                            ; $0217  0D
 L_0218:
@@ -606,8 +603,6 @@ L_022C:
         LD D,H                           ; $022C  54
 L_022D:
         INC H                            ; $022D  24
-; [AI] Start of $1A (Ctrl-Z) filler bytes running to the end of file ($027F): standard CP/M end-of-
-;       file / record-padding to round the .COM image out to a full disk record. Not code.
 L_022E:
         LD A,(DE)                        ; $022E  1A
 L_022F:

@@ -153,19 +153,22 @@ the build produces a verified rebuilt disk. The round-trip property holds
 end-to-end, from prose annotation through assembled binaries through
 final disk image.
 
-Coverage today (2.23):
-- **2,816 bytes** (27.5% of the disk's used regions) come from freshly
-  assembled `cpm-80/docs/CPM223_*.asm`.
-- **7,424 bytes** still come from pre-extracted `cpm-80/cpm-investigation/staging_223.bin`
-  (the 29-sector LOAD_CPM staging area, which isn't yet split into
-  per-`.asm` regions).
-- The remaining ~134 KB of the 143 KB disk is the CP/M filesystem on
-  tracks 3+, copied verbatim from the reference image.
+Coverage today (both 2.20 and 2.23):
+- **100% of the boot/OS region** (10,240 bytes for 2.23; 9,984 for 2.20)
+  comes from freshly assembled `cpm-80/docs/CPM*.asm` — **0 bytes from a
+  pre-extracted `.bin`**. The 29-sector LOAD_CPM staging area is now split
+  across `CPM223_SystemImage` (CCP+BDOS), `CPM223_DiskCallbacks`, and
+  `CPM223_BIOS_Disk` (the pristine on-disk BIOS image, jump table at $FA00).
+- For the **whole disk**, [`reconstruct.py`](reconstruct.py)'s `reconstruct_full_disk`
+  (also `python -m cpm_pipeline.reconstruct <disk> <out>`) rebuilds
+  the entire 143 KB image component-by-component: the OS from source, every
+  `.COM` from its re-assembled disassembly, and only filesystem data /
+  directory / free space carried as data. It verifies byte-identical and
+  reports per-byte provenance (2.23: 82.9% from re-assembled source; 2.20:
+  64.3%, the rest being the 2.20 disk's large free space).
 
 A future Phase (Stage 2 of the roadmap) will derive the chunk map
-automatically from boot-loader tracing, and a future split of the
-staging region into per-`.asm` files will increase the assembled-bytes
-coverage.
+automatically from boot-loader tracing rather than hand-listing it.
 
 ## Modules
 
@@ -180,8 +183,8 @@ coverage.
 | [`generate.py`](generate.py) | Stage 6 — annotated source-tree generation: end-to-end orchestration that produces a complete output directory with analysis + sources + build script |
 | [`assemble.py`](assemble.py) | Wraps ca65/ld65 (6502) and sjasmplus (Z-80) for `cpm-80/docs/CPM*.asm` files; returns byte content |
 | [`chunk_map.py`](chunk_map.py) | The `(source_binary, byte_range, track, sector)` mappings for 2.20 + 2.23 |
-| [`reconstruct.py`](reconstruct.py) | Orchestrator: assemble all → place per chunk map → write disk → optionally verify |
-| [`cli.py`](cli.py) | `python -m cpm_pipeline {detect\|trace\|trace-z80\|handoff\|diff\|generate\|build} ...` |
+| [`reconstruct.py`](reconstruct.py) | Reconstruction in two grains, sharing one core: `reconstruct_disk` (OS region from source, filesystem from a reference; the `build` verb) and `reconstruct_full_disk` (whole disk from source, OS + every `.COM` re-assembled, byte-identical verify + per-byte provenance) |
+| [`cli.py`](cli.py) | `python -m cpm_pipeline {detect\|trace\|trace-z80\|handoff\|diff\|generate\|build\|list-files\|decompile-os\|decompile-file\|decompile-disk} ...` |
 | [`tests/`](tests/) | pytest: format primitives + detection + tracing + end-to-end round-trip |
 
 ## Roadmap status

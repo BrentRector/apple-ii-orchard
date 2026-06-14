@@ -8,13 +8,19 @@
     DEVICE NOSLOT64K
 
 ; -- External symbols --
+WBOOT_VEC            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
+IOBYTE               EQU $0003               ; I/O assignment byte — logical-to-physical device routing (CONSOLE/READER/PUNCH/LIST). 4 fields × 2 bits each.
+CDISK                EQU $0004               ; Current drive (low nibble: 0=A, 1=B, ..., 15=P) and current user (high nibble, 0-15).
 BDOS_VEC             EQU $0005               ; BDOS call vector — JP BDOS_ENTRY. Programs use CALL $0005 to invoke BDOS. Word at $0006 is also the top-of-TPA marker.
+RST2_VEC             EQU $0010               ; Z-80 RST 2 ($10) restart vector — 8 bytes. Available for application/debugger use.
+DEFAULT_FCB          EQU $005C               ; Default File Control Block — populated by CCP from command-line argument 1. Standard 36-byte FCB structure (drive + filename + extents + record number).
+DEFAULT_RND          EQU $007D               ; Default FCB random record number (3 bytes — low/middle/high).
+DEFAULT_DMA          EQU $0080               ; Default DMA buffer — also command-line tail. First byte = length, then characters. Returned to default by BDOS function 13 (DRV_ALLRESET).
 
     ORG $0100
 
-; [AI] Program entry at the TPA ($0100): the JP jumps over the embedded copyright string and
-;       message/option-table data block ($0103-$0432) to the real startup at L_0433. STAT.COM is the
-;       Digital Research/SoftCard CP/M 2.20 status-and-set utility.
+; [AI] The $0100 program entry point: jumps past the embedded copyright/message data to the real
+;       startup at L_0433.
 TPA_START:
         JP L_0433                        ; $0100  C3 33 04
         DEFB    "   Copyright (c) 1979, Digital Research????????????"    ; $0103  string
@@ -89,11 +95,10 @@ TPA_START:
         DEFB    $00    ; $0410  terminator
         DEFB    "Wrong CP/M Version (Requires 2.0)"    ; $0411  string
         DEFB    $00    ; $0432  terminator
-; [AI] Real startup: captures the entry SP into save slot $1532 and switches to STAT's private
-;       stack at $1554, then reads the command tail and dispatches based on what (if anything) was
-;       typed.
+; [AI] Real program start: captures the caller's stack, switches to STAT's private stack, then
+;       reads the command tail and dispatches on whether an argument was given.
 L_0433:
-        LD HL,$0000                      ; $0433  21 00 00
+        LD HL,WBOOT_VEC                  ; $0433  21 00 00
 L_0436:
         ADD HL,SP                        ; $0436  39
 L_0437:
@@ -114,13 +119,12 @@ L_0449:
         CALL SUB_04D2                    ; $0449  CD D2 04
 L_044C:
         JP L_048B                        ; $044C  C3 8B 04
-; [AI] Command-tail dispatcher: examines the first two bytes of the command line ($005C drive byte,
-;       $005D first char) to decide between the no-argument disk/user display, the 'd:' drive-status
-;       path, and the SET/assignment-parsing path.
+; [AI] Argument-present path: examines the default FCB drive and first filename byte to choose
+;       among the option/assignment parser, the per-file display, or the bare drive listing.
 L_044F:
         LD HL,$155D                      ; $044F  21 5D 15
         LD (HL),$01                      ; $0452  36 01
-        LD A,($005C)                     ; $0454  3A 5C 00
+        LD A,(DEFAULT_FCB)               ; $0454  3A 5C 00
         SUB $00                          ; $0457  D6 00
         SUB $01                          ; $0459  D6 01
         SBC A,A                          ; $045B  9F
@@ -136,32 +140,26 @@ L_044F:
         JP NC,L_0472                     ; $0469  D2 72 04
         CALL SUB_0D33                    ; $046C  CD 33 0D
         JP L_048B                        ; $046F  C3 8B 04
-; [AI] Branch taken when an explicit drive letter precedes the argument (FCB drive byte at $005C
-;       non-zero): invokes the SET/file-indicator handler SUB_1402.
 L_0472:
-        LD A,($005C)                     ; $0472  3A 5C 00
+        LD A,(DEFAULT_FCB)               ; $0472  3A 5C 00
         CP $00                           ; $0475  FE 00
         JP Z,L_0480                      ; $0477  CA 80 04
         CALL SUB_1402                    ; $047A  CD 02 14
         JP L_048B                        ; $047D  C3 8B 04
-; [AI] No-drive-prefix branch: calls the keyword scanner SUB_0A87 (DEV:/USR:/DSK:/etc.); if it does
-;       not consume the line, falls through to the general file-status display SUB_0DBA.
 L_0480:
         CALL SUB_0A87                    ; $0480  CD 87 0A
         CPL                              ; $0483  2F
         RRA                              ; $0484  1F
         JP NC,L_048B                     ; $0485  D2 8B 04
         CALL SUB_0DBA                    ; $0488  CD BA 0D
-; [AI] Common program exit: restores the caller's stack pointer from save slot $1532 and returns to
-;       the CCP (warm boot).
 L_048B:
         LD HL,($1532)                    ; $048B  2A 32 15
 L_048E:
         LD SP,HL                         ; $048E  F9
 L_048F:
         RET                              ; $048F  C9
-; [AI] Console output primitive: prints the single character in C via BDOS function 2 (conout, CALL
-;       $0005 with C=2).
+; [AI] Console-output primitive: sends the character in C to the console via BDOS function 2 (it is
+;       the single point all text printing goes through).
 SUB_0490:
         LD HL,$1522                      ; $0490  21 22 15
 L_0493:
@@ -178,7 +176,7 @@ L_049C:
         CALL SUB_144C                    ; $049C  CD 4C 14
 L_049F:
         RET                              ; $049F  C9
-; [AI] Emits a CR/LF pair ($0D,$0A) to the console by calling the conout helper SUB_0490 twice.
+; [AI] Emits a CR/LF pair to the console to start a new output line.
 SUB_04A0:
         LD C,$0D                         ; $04A0  0E 0D
 L_04A2:
@@ -189,13 +187,13 @@ L_04A7:
         CALL SUB_0490                    ; $04A7  CD 90 04
 L_04AA:
         RET                              ; $04AA  C9
-; [AI] Prints a single space ($20) to the console.
+; [AI] Emits a single space to the console, used for column padding in the tabular reports.
 SUB_04AB:
         LD C,$20                         ; $04AB  0E 20
         CALL SUB_0490                    ; $04AD  CD 90 04
         RET                              ; $04B0  C9
-; [AI] Prints the NUL-terminated string whose address is passed in BC, character by character via
-;       SUB_0490, stopping at the $00 terminator (no leading CR/LF).
+; [AI] Prints a NUL-terminated message: takes a pointer in BC and walks the string, sending each
+;       byte to the console (no leading newline).
 SUB_04B1:
         LD HL,$1524                      ; $04B1  21 24 15
 L_04B4:
@@ -204,6 +202,8 @@ L_04B5:
         DEC HL                           ; $04B5  2B
 L_04B6:
         LD (HL),C                        ; $04B6  71
+; [AI] Inner loop of the string printer: fetches the next character, stops on the NUL terminator,
+;       otherwise outputs it and advances the pointer.
 L_04B7:
         LD HL,($1523)                    ; $04B7  2A 23 15
 L_04BA:
@@ -228,8 +228,8 @@ L_04CE:
         JP L_04B7                        ; $04CE  C3 B7 04
 L_04D1:
         RET                              ; $04D1  C9
-; [AI] Prints a message line: emits CR/LF then the NUL-terminated string at the address in BC (used
-;       for the labelled report lines from the string table at $0103+).
+; [AI] Prints a message on its own line: outputs CR/LF first, then the NUL-terminated string
+;       pointed to by BC.
 SUB_04D2:
         LD HL,$1526                      ; $04D2  21 26 15
 L_04D5:
@@ -250,25 +250,25 @@ L_04E0:
         CALL SUB_04B1                    ; $04E0  CD B1 04
 L_04E3:
         RET                              ; $04E3  C9
-; [AI] BDOS console-status / direct-console-I/O wrapper: calls function $0B (DE cleared) and
-;       returns the result, used to test for an abort keypress during long listings.
+; [AI] BDOS function $0B (console status): returns whether a console keypress is waiting, used to
+;       let the user abort long listings.
 SUB_04E4:
-        LD DE,$0000                      ; $04E4  11 00 00
+        LD DE,WBOOT_VEC                  ; $04E4  11 00 00
         LD C,$0B                         ; $04E7  0E 0B
         CALL SUB_144F                    ; $04E9  CD 4F 14
         RET                              ; $04EC  C9
-; [AI] Reads the command tail via BDOS function $0C (return version / read-console-buffer style
-;       call) at startup; the returned value gates whether any argument was supplied.
+; [AI] BDOS function $0C (return version number / get-system): called at startup to read the CP/M
+;       version and as raw console input; result drives the 'Requires 2.0' version check.
 SUB_04ED:
-        LD DE,$0000                      ; $04ED  11 00 00
+        LD DE,WBOOT_VEC                  ; $04ED  11 00 00
 L_04F0:
         LD C,$0C                         ; $04F0  0E 0C
 L_04F2:
         CALL SUB_144F                    ; $04F2  CD 4F 14
 L_04F5:
         RET                              ; $04F5  C9
-; [AI] Selects the disk drive whose code is in C via BDOS function $0E (select disk), used before
-;       querying a specific drive's parameters.
+; [AI] BDOS function $0E (select disk): selects the drive whose number is in C so subsequent
+;       directory and allocation queries target it.
 SUB_04F6:
         LD HL,$1528                      ; $04F6  21 28 15
         LD (HL),C                        ; $04F9  71
@@ -280,8 +280,8 @@ SUB_04F6:
         RET                              ; $0505  C9
         DEFB    $21,$2A,$15,$70,$2B,$71,$2A,$29,$15,$EB,$0E,$0F,$CD,$4F,$14,$32 ; $0506
         DEFB    $27,$15,$C9                                      ; $0516
-; [AI] Search-for-first directory match: points DE at the FCB passed in BC and calls BDOS function
-;       $11; the directory code result is stored at $1527.
+; [AI] BDOS function $11 (search for first): opens a directory search for the FCB pointed to by BC
+;       and stores the returned directory code.
 SUB_0519:
         LD HL,$152C                      ; $0519  21 2C 15
         LD (HL),B                        ; $051C  70
@@ -293,23 +293,23 @@ SUB_0519:
         CALL SUB_144F                    ; $0525  CD 4F 14
         LD ($1527),A                     ; $0528  32 27 15
         RET                              ; $052B  C9
-; [AI] Search-for-next directory match: BDOS function $12, continuing a directory scan begun by
-;       SUB_0519; result code stored at $1527.
+; [AI] BDOS function $12 (search for next): continues the directory scan started by search-first,
+;       storing the next matching directory code ($FF when exhausted).
 SUB_052C:
-        LD DE,$0000                      ; $052C  11 00 00
+        LD DE,WBOOT_VEC                  ; $052C  11 00 00
         LD C,$12                         ; $052F  0E 12
         CALL SUB_144F                    ; $0531  CD 4F 14
         LD ($1527),A                     ; $0534  32 27 15
         RET                              ; $0537  C9
-; [AI] Returns the currently logged-in (default) drive number via BDOS function $19; result in A
-;       (0=A:).
+; [AI] BDOS function $19 (return current disk): gets the currently selected drive number (0=A) for
+;       labelling output.
 SUB_0538:
-        LD DE,$0000                      ; $0538  11 00 00
+        LD DE,WBOOT_VEC                  ; $0538  11 00 00
         LD C,$19                         ; $053B  0E 19
         CALL SUB_144F                    ; $053D  CD 4F 14
         RET                              ; $0540  C9
-; [AI] Sets the DMA (disk transfer) buffer address from BC via BDOS function $1A, used to point
-;       directory reads at STAT's own work buffer at $29CF.
+; [AI] BDOS function $1A (set DMA address): points the disk DMA buffer at the address in BC before
+;       directory reads.
 SUB_0541:
         LD HL,$152E                      ; $0541  21 2E 15
         LD (HL),B                        ; $0544  70
@@ -320,53 +320,53 @@ SUB_0541:
         LD C,$1A                         ; $054B  0E 1A
         CALL SUB_144C                    ; $054D  CD 4C 14
         RET                              ; $0550  C9
-; [AI] Gets the address of the current drive's allocation (block-usage) vector via BDOS function
-;       $1B; used by the DSK: free-space computation.
+; [AI] BDOS function $1B (get allocation-vector address): returns a pointer to the drive's
+;       allocation bitmap, used to count free space.
 SUB_0551:
-        LD DE,$0000                      ; $0551  11 00 00
+        LD DE,WBOOT_VEC                  ; $0551  11 00 00
         LD C,$1B                         ; $0554  0E 1B
         CALL SUB_1452                    ; $0556  CD 52 14
         RET                              ; $0559  C9
-; [AI] Returns the login vector (bitmap of currently active/logged drives) via BDOS function $18;
-;       HL holds the 16-bit vector.
+; [AI] BDOS function $18 (return login vector): gets the bitmap of currently logged-in drives so
+;       DSK:/status loops only touch active drives.
 SUB_055A:
-        LD DE,$0000                      ; $055A  11 00 00
+        LD DE,WBOOT_VEC                  ; $055A  11 00 00
         LD C,$18                         ; $055D  0E 18
         CALL SUB_1452                    ; $055F  CD 52 14
         RET                              ; $0562  C9
-; [AI] Marks the current drive read-only via BDOS function $1C (write-protect disk), used by the
-;       'd:=R/O' SET command.
+; [AI] BDOS function $1C (write-protect disk): sets the currently selected drive temporarily read-
+;       only (the 'd:=R/O' command).
 SUB_0563:
-        LD DE,$0000                      ; $0563  11 00 00
+        LD DE,WBOOT_VEC                  ; $0563  11 00 00
         LD C,$1C                         ; $0566  0E 1C
         CALL SUB_144C                    ; $0568  CD 4C 14
         RET                              ; $056B  C9
-; [AI] Returns the R/O drive vector (bitmap of drives currently set read-only) via BDOS function
-;       $1D.
+; [AI] BDOS function $1D (get read-only vector): returns the bitmap of drives currently marked
+;       read-only for the R/W vs R/O status report.
 SUB_056C:
-        LD DE,$0000                      ; $056C  11 00 00
+        LD DE,WBOOT_VEC                  ; $056C  11 00 00
         LD C,$1D                         ; $056F  0E 1D
         CALL SUB_1452                    ; $0571  CD 52 14
         RET                              ; $0574  C9
         DEFB    $11,$5C,$00,$0E,$1E,$CD,$4C,$14,$C9              ; $0575
-; [AI] Gets the address of the current drive's Disk Parameter Block via BDOS function $1F and saves
-;       it at $151E; the DPB fields drive all the DSK: capacity/geometry calculations.
+; [AI] BDOS function $1F (get disk-parameter-block address): fetches the DPB pointer for the
+;       current drive and saves it for the drive-characteristics calculations.
 SUB_057E:
-        LD DE,$0000                      ; $057E  11 00 00
+        LD DE,WBOOT_VEC                  ; $057E  11 00 00
         LD C,$1F                         ; $0581  0E 1F
         CALL SUB_1452                    ; $0583  CD 52 14
         LD ($151E),HL                    ; $0586  22 1E 15
         RET                              ; $0589  C9
-; [AI] Queries the current user number via BDOS function $20 with E=$FF (get user code); the value
-;       in A is the active user area.
+; [AI] BDOS function $20 (get/set user number) with E=$FF: queries the current user number for the
+;       'Active User' line.
 SUB_058A:
         LD DE,$00FF                      ; $058A  11 FF 00
         LD C,$20                         ; $058D  0E 20
         CALL SUB_144F                    ; $058F  CD 4F 14
         RET                              ; $0592  C9
         DEFB    $21,$2F,$15,$71,$2A,$2F,$15,$26,$00,$EB,$0E,$20,$CD,$4C,$14,$C9 ; $0593
-; [AI] Computes a file's size via BDOS function $23 (compute file size) on the FCB at the address
-;       in BC, writing the random-record field; used to print the 'Size' column.
+; [AI] BDOS function $23 (compute file size): fills the FCB's random-record field with the file's
+;       size in records.
 SUB_05A3:
         LD HL,$1531                      ; $05A3  21 31 15
         LD (HL),B                        ; $05A6  70
@@ -377,8 +377,8 @@ SUB_05A3:
         LD C,$23                         ; $05AD  0E 23
         CALL SUB_144C                    ; $05AF  CD 4C 14
         RET                              ; $05B2  C9
-; [AI] After fetching the DPB (SUB_057E), reads the block-shift factor and computes records-per-
-;       block, then derives 128-byte records per allocation block into the work value at $1554.
+; [AI] Reads the DPB block-shift/mask from the saved DPB pointer and computes the drive's total
+;       record capacity (records per allocation block), storing it for capacity reports.
 SUB_05B3:
         CALL SUB_057E                    ; $05B3  CD 7E 05
         LD HL,($151E)                    ; $05B6  2A 1E 15
@@ -387,12 +387,12 @@ SUB_05B3:
         LD C,(HL)                        ; $05BB  4E
         LD HL,$0001                      ; $05BC  21 01 00
         CALL SUB_14BD                    ; $05BF  CD BD 14
-        LD DE,$0080                      ; $05C2  11 80 00
+        LD DE,DEFAULT_DMA                ; $05C2  11 80 00
         CALL SUB_149E                    ; $05C5  CD 9E 14
         LD ($1554),HL                    ; $05C8  22 54 15
         RET                              ; $05CB  C9
-; [AI] Selects the drive given in C (saving it), then refreshes the DPB-derived block/record
-;       scaling via SUB_05B3 so subsequent per-drive size math uses that drive's geometry.
+; [AI] Selects the drive given in C and refreshes the cached DPB/capacity values for that drive
+;       before reporting on it.
 SUB_05CC:
         LD HL,$1556                      ; $05CC  21 56 15
         LD (HL),C                        ; $05CF  71
@@ -401,8 +401,8 @@ SUB_05CC:
         CALL SUB_04F6                    ; $05D4  CD F6 04
         CALL SUB_05B3                    ; $05D7  CD B3 05
         RET                              ; $05DA  C9
-; [AI] Tests whether a 16-bit block number (in BC) lies within the drive's directory-block region
-;       (vs. data region), used to distinguish directory entries when sizing.
+; [AI] Given a directory-record index, returns whether that directory entry is currently
+;       allocated/in-use, used while counting active files.
 SUB_05DB:
         LD HL,$1558                      ; $05DB  21 58 15
         LD (HL),B                        ; $05DE  70
@@ -423,8 +423,8 @@ SUB_05DB:
         POP HL                           ; $05F9  E1
         CALL SUB_14B2                    ; $05FA  CD B2 14
         RET                              ; $05FD  C9
-; [AI] Matches the 3-character keyword at the address in BC against the parsed command token at
-;       $1559, returning 1 in A on match (used to recognize R/O, R/W, SYS, DIR indicators).
+; [AI] Compares a 4-character option keyword (pointed by BC) against the parsed command token to
+;       recognize keywords like R/O, R/W, SYS, DIR; returns match flag.
 SUB_05FE:
         LD HL,$155F                      ; $05FE  21 5F 15
         LD (HL),B                        ; $0601  70
@@ -460,13 +460,12 @@ L_062F:
 L_0636:
         LD A,$01                         ; $0636  3E 01
         RET                              ; $0638  C9
-; [AI] Command-line tokenizer: skips spaces in the default DMA buffer ($0080) then scans the next
-;       token, classifying delimiter characters (':','*','.','=','<','>',',') and copying it into
-;       the parse buffer.
+; [AI] Command-tail tokenizer: skips spaces then copies up to four characters of the next token
+;       into the parse buffer, stopping at a delimiter, advancing the tail pointer.
 SUB_0639:
         LD HL,($155D)                    ; $0639  2A 5D 15
         LD H,$00                         ; $063C  26 00
-        LD BC,$0080                      ; $063E  01 80 00
+        LD BC,DEFAULT_DMA                ; $063E  01 80 00
         ADD HL,BC                        ; $0641  09
         LD A,(HL)                        ; $0642  7E
         CP $20                           ; $0643  FE 20
@@ -477,13 +476,15 @@ SUB_0639:
 L_064F:
         LD HL,$1561                      ; $064F  21 61 15
         LD (HL),$00                      ; $0652  36 00
+; [AI] Per-character delimiter test inside the tokenizer: classifies the current character against
+;       the set of separators ( , : * . > < = ) to decide where the token ends.
 L_0654:
         LD A,($1561)                     ; $0654  3A 61 15
         CP $04                           ; $0657  FE 04
         JP NC,L_06E6                     ; $0659  D2 E6 06
         LD HL,($155D)                    ; $065C  2A 5D 15
         LD H,$00                         ; $065F  26 00
-        LD BC,$0080                      ; $0661  01 80 00
+        LD BC,DEFAULT_DMA                ; $0661  01 80 00
         ADD HL,BC                        ; $0664  09
         LD A,(HL)                        ; $0665  7E
         LD ($1562),A                     ; $0666  32 62 15
@@ -564,7 +565,7 @@ L_067F:
         JP NC,L_06DF                     ; $06CE  D2 DF 06
         LD HL,($155D)                    ; $06D1  2A 5D 15
         LD H,$00                         ; $06D4  26 00
-        LD BC,$0080                      ; $06D6  01 80 00
+        LD BC,DEFAULT_DMA                ; $06D6  01 80 00
         ADD HL,BC                        ; $06D9  09
         LD (HL),$01                      ; $06DA  36 01
         JP L_06E3                        ; $06DC  C3 E3 06
@@ -577,8 +578,7 @@ L_06E6:
         LD HL,$155D                      ; $06E6  21 5D 15
         INC (HL)                         ; $06E9  34
         RET                              ; $06EA  C9
-; [AI] Stores one scanned token character (in C) into the token-accumulation buffer at $1559,
-;       advancing the index at $1561.
+; [AI] Appends one character (in C) to the current token buffer and bumps the token-length index.
 SUB_06EB:
         LD HL,$1563                      ; $06EB  21 63 15
         LD (HL),C                        ; $06EE  71
@@ -591,8 +591,8 @@ SUB_06EB:
         LD HL,$1561                      ; $06FC  21 61 15
         INC (HL)                         ; $06FF  34
         RET                              ; $0700  C9
-; [AI] Prints an unsigned 16-bit value (in BC) in decimal with leading-zero suppression, using the
-;       divisor in DE (e.g. 10000) and repeated division to emit ASCII digits to the console.
+; [AI] Prints an unsigned 16-bit value (BC) in decimal with field width controlled by the divisor
+;       in DE, suppressing leading zeros (the general number-to-console formatter).
 SUB_0701:
         LD HL,$1567                      ; $0701  21 67 15
         LD (HL),D                        ; $0704  72
@@ -604,6 +604,8 @@ SUB_0701:
         LD (HL),C                        ; $070A  71
         LD HL,$1568                      ; $070B  21 68 15
         LD (HL),$01                      ; $070E  36 01
+; [AI] Main digit-extraction loop of the decimal printer: repeatedly divides the running value by
+;       ten, emitting each digit once the leading-zero suppression flag clears.
 L_0710:
         LD A,$00                         ; $0710  3E 00
         LD DE,$1566                      ; $0712  11 66 15
@@ -657,8 +659,8 @@ L_076F:
         JP L_0710                        ; $076F  C3 10 07
 L_0772:
         RET                              ; $0772  C9
-; [AI] 32-bit accumulate: adds the 16-bit value pointed to by the FCB/record field into a running
-;       32-bit total (used to sum a file's record count across directory extents).
+; [AI] Sums directory allocation usage in 1K units: walks the allocation map accumulating a running
+;       block/space total for a file or drive.
 SUB_0773:
         LD HL,$156D                      ; $0773  21 6D 15
         LD (HL),D                        ; $0776  72
@@ -704,13 +706,12 @@ L_078C:
         JP L_078C                        ; $07B3  C3 8C 07
 L_07B6:
         RET                              ; $07B6  C9
-; [AI] Scans the entire directory of the current drive (search-first/next loop) to count
-;       active/allocated 1K blocks, returning the used-block total in HL; basis for the 'Bytes
-;       Remaining' free-space figure.
+; [AI] Counts active directory entries (or used blocks) for the current drive by scanning every
+;       directory record and, with the flag in C, tallying file sizes.
 SUB_07B7:
         LD HL,$156E                      ; $07B7  21 6E 15
         LD (HL),C                        ; $07BA  71
-        LD HL,$0000                      ; $07BB  21 00 00
+        LD HL,WBOOT_VEC                  ; $07BB  21 00 00
         LD ($156F),HL                    ; $07BE  22 6F 15
         LD ($1571),HL                    ; $07C1  22 71 15
         LD A,L                           ; $07C4  7D
@@ -718,8 +719,10 @@ SUB_07B7:
         LD L,A                           ; $07C8  6F
         LD H,$00                         ; $07C9  26 00
         LD ($1573),HL                    ; $07CB  22 73 15
+; [AI] Directory-scan loop body: reads each directory record, optionally measures its file size,
+;       and accumulates running totals until the directory is exhausted.
 L_07CE:
-        LD BC,$0005                      ; $07CE  01 05 00
+        LD BC,BDOS_VEC                   ; $07CE  01 05 00
         LD HL,($151E)                    ; $07D1  2A 1E 15
         ADD HL,BC                        ; $07D4  09
         EX DE,HL                         ; $07D5  EB
@@ -750,14 +753,13 @@ L_0801:
 L_080E:
         LD HL,($156F)                    ; $080E  2A 6F 15
         RET                              ; $0811  C9
-; [AI] Prints the '** Too Many Files **' overflow message (string at $01B9) when the per-drive file
-;       table is exhausted.
+; [AI] Prints the '** Too Many Files **' diagnostic line.
 SUB_0812:
         LD BC,$01B9                      ; $0812  01 B9 01
         CALL SUB_04D2                    ; $0815  CD D2 04
         RET                              ; $0818  C9
-; [AI] Renders the 'Active User :' and 'Active Files:' summary: prints the current user number and
-;       walks the directory marking which of the 32 user areas contain files, then lists them.
+; [AI] Handles the USR: report: prints the active user number then scans the directory to list
+;       every user number that owns files on the disk.
 SUB_0819:
         LD BC,$01C7                      ; $0819  01 C7 01
         CALL SUB_04D2                    ; $081C  CD D2 04
@@ -845,9 +847,9 @@ L_08BB:
         JP NZ,L_0898                     ; $08BF  C2 98 08
 L_08C2:
         RET                              ; $08C2  C9
-; [AI] DSK: drive-characteristics report: prints the drive letter and the full block of geometry
-;       lines (128-byte record capacity, kilobyte capacity, directory entries, records/extent,
-;       records/block, sectors/track, reserved tracks) computed from the DPB at $151E.
+; [AI] Prints the 'Drive Characteristics' block for the current drive: record/kilobyte capacity,
+;       directory entry counts, records-per-extent/block, sectors-per-track and reserved tracks,
+;       decoded from the DPB.
 SUB_08C3:
         LD BC,$01E3                      ; $08C3  01 E3 01
         CALL SUB_04D2                    ; $08C6  CD D2 04
@@ -866,7 +868,7 @@ SUB_08C3:
         LD HL,$0001                      ; $08E3  21 01 00
         CALL SUB_14BD                    ; $08E6  CD BD 14
         LD ($1597),HL                    ; $08E9  22 97 15
-        LD BC,$0005                      ; $08EC  01 05 00
+        LD BC,BDOS_VEC                   ; $08EC  01 05 00
         LD HL,($151E)                    ; $08EF  2A 1E 15
         ADD HL,BC                        ; $08F2  09
         LD C,(HL)                        ; $08F3  4E
@@ -935,14 +937,14 @@ L_092D:
         CALL SUB_09C0                    ; $0966  CD C0 09
         LD BC,$0254                      ; $0969  01 54 02
         CALL SUB_04B1                    ; $096C  CD B1 04
-        LD BC,$0004                      ; $096F  01 04 00
+        LD BC,CDISK                      ; $096F  01 04 00
         LD HL,($151E)                    ; $0972  2A 1E 15
         ADD HL,BC                        ; $0975  09
         LD A,(HL)                        ; $0976  7E
         INC A                            ; $0977  3C
         LD L,A                           ; $0978  6F
         LD H,$00                         ; $0979  26 00
-        LD DE,$0080                      ; $097B  11 80 00
+        LD DE,DEFAULT_DMA                ; $097B  11 80 00
         CALL SUB_149E                    ; $097E  CD 9E 14
         LD B,H                           ; $0981  44
         LD C,L                           ; $0982  4D
@@ -973,9 +975,8 @@ L_092D:
         CALL SUB_04B1                    ; $09B9  CD B1 04
         CALL SUB_04A0                    ; $09BC  CD A0 04
         RET                              ; $09BF  C9
-; [AI] Formatting helper for the DSK: report: emits CR/LF, prints a decimal number (value in BC)
-;       followed by ':' and a space, producing the leading numeric field of each characteristics
-;       line.
+; [AI] Helper for the characteristics report: prints a labelled numeric value on its own line as
+;       'nnnnn:' by formatting BC with SUB_0701.
 SUB_09C0:
         LD HL,$159C                      ; $09C0  21 9C 15
         LD (HL),B                        ; $09C3  70
@@ -991,8 +992,8 @@ SUB_09C0:
         CALL SUB_0490                    ; $09D6  CD 90 04
         CALL SUB_04AB                    ; $09D9  CD AB 04
         RET                              ; $09DC  C9
-; [AI] Iterates the login vector (active-drive bitmap from SUB_055A) and prints the DSK: drive-
-;       characteristics block (SUB_08C3) for every currently logged-in drive.
+; [AI] DSK: handler: walks the login vector and, for each logged-in drive, selects it and prints
+;       its full drive-characteristics block.
 SUB_09DD:
         CALL SUB_055A                    ; $09DD  CD 5A 05
         LD ($159D),HL                    ; $09E0  22 9D 15
@@ -1026,9 +1027,8 @@ L_0A06:
         JP L_09E8                        ; $0A15  C3 E8 09
 L_0A18:
         RET                              ; $0A18  C9
-; [AI] Keyword-table lookup: compares the parsed token at $1559 against a 4-byte-per-entry keyword
-;       table (address in BC, E=entry count) and returns the matching index in A (or count if no
-;       match).
+; [AI] Table lookup: searches a list of fixed-length keyword entries (DEV/USR/DSK device-name
+;       table) for one matching the parsed token, returning its index or 0 if not found.
 SUB_0A19:
         LD HL,$15A2                      ; $0A19  21 A2 15
         LD (HL),E                        ; $0A1C  73
@@ -1090,9 +1090,9 @@ L_0A7D:
 L_0A84:
         LD A,$00                         ; $0A84  3E 00
         RET                              ; $0A86  C9
-; [AI] Top-level keyword command handler: tokenizes the command tail and dispatches the DEV:, VAL:,
-;       USR:, DSK:, IOBYTE-assignment and R/O/R/W/SYS/DIR forms; returns whether the line was
-;       handled as a keyword command.
+; [AI] Top-level option/assignment command processor: tokenizes each command word and dispatches to
+;       the DEV:/VAL:/USR:/DSK:/TTY... handlers or to file-indicator setting; loops until the tail
+;       is consumed.
 SUB_0A87:
         LD HL,$15AA                      ; $0A87  21 AA 15
         LD (HL),$00                      ; $0A8A  36 00
@@ -1115,12 +1115,14 @@ L_0AA8:
         LD A,($15A7)                     ; $0AAC  3A A7 15
         CP $05                           ; $0AAF  FE 05
         JP NZ,L_0B18                     ; $0AB1  C2 18 0B
-        LD A,($0003)                     ; $0AB4  3A 03 00
+        LD A,(IOBYTE)                    ; $0AB4  3A 03 00
         LD ($15A9),A                     ; $0AB7  32 A9 15
         LD HL,$15A8                      ; $0ABA  21 A8 15
         LD (HL),$00                      ; $0ABD  36 00
         DEC HL                           ; $0ABF  2B
         LD (HL),$00                      ; $0AC0  36 00
+; [AI] DEV: report loop: for each of the four logical devices prints its name and the physical
+;       device the IOBYTE currently maps it to.
 L_0AC2:
         LD A,$03                         ; $0AC2  3E 03
         LD HL,$15A7                      ; $0AC4  21 A7 15
@@ -1181,6 +1183,8 @@ L_0B18:
         CALL SUB_04D2                    ; $0B3B  CD D2 04
         LD HL,$15A7                      ; $0B3E  21 A7 15
         LD (HL),$00                      ; $0B41  36 00
+; [AI] VAL: (valid assignments) loop: for each logical device prints the name followed by every
+;       physical device that is a legal assignment for it.
 L_0B43:
         LD A,$03                         ; $0B43  3E 03
         LD HL,$15A7                      ; $0B45  21 A7 15
@@ -1245,6 +1249,8 @@ L_0BAE:
         LD A,$01                         ; $0BB9  3E 01
         RET                              ; $0BBB  C9
         DEFB    $C3,$46,$0C                                      ; $0BBC
+; [AI] Recognizes the keyword as one of the four device names and, having matched, parses the
+;       '=physical' assignment so the new mapping can be packed into the IOBYTE.
 L_0BBF:
         LD A,($15A7)                     ; $0BBF  3A A7 15
         CP $08                           ; $0BC2  FE 08
@@ -1304,13 +1310,18 @@ L_0C19:
         ADD A,A                          ; $0C31  87
         LD ($15A8),A                     ; $0C32  32 A8 15
         JP L_0C19                        ; $0C35  C3 19 0C
+; [AI] Commits a device reassignment by masking the old field out of the IOBYTE and OR-ing in the
+;       newly selected physical-device code, then writing it back to $0003.
 L_0C38:
         LD A,($15A9)                     ; $0C38  3A A9 15
-        LD HL,$0003                      ; $0C3B  21 03 00
+        LD HL,IOBYTE                     ; $0C3B  21 03 00
         AND (HL)                         ; $0C3E  A6
         LD HL,$15A8                      ; $0C3F  21 A8 15
         OR (HL)                          ; $0C42  B6
-        LD ($0003),A                     ; $0C43  32 03 00
+        LD (IOBYTE),A                    ; $0C43  32 03 00
+; [AI] Loop continuation/terminator for the assignment parser: checks the trailing delimiter (end
+;       of line vs comma) and either finishes or loops to the next assignment, reporting a bad
+;       delimiter.
 L_0C46:
         CALL SUB_0639                    ; $0C46  CD 39 06
         LD A,($1559)                     ; $0C49  3A 59 15
@@ -1329,8 +1340,8 @@ L_0C54:
 L_0C65:
         JP L_0A8C                        ; $0C65  C3 8C 0A
         DEFB    $C9                                              ; $0C68
-; [AI] Prints a logical-device name field (e.g. 'CON','RDR') from the device-name table: copies
-;       characters up to the ':' delimiter, then emits the ':'.
+; [AI] Prints a colon-terminated field of a table entry (e.g. a device name up to its ':'),
+;       emitting characters until the ':' and then the ':' itself.
 SUB_0C69:
         LD HL,$15AC                      ; $0C69  21 AC 15
         LD (HL),B                        ; $0C6C  70
@@ -1352,8 +1363,8 @@ L_0C89:
         LD C,$3A                         ; $0C89  0E 3A
         CALL SUB_0490                    ; $0C8B  CD 90 04
         RET                              ; $0C8E  C9
-; [AI] Prints a 16-bit value (in BC) in decimal into a fixed-width right-justified field followed
-;       by 'k', used to format the kilobyte free-space figure.
+; [AI] Prints a 16-bit value (BC) right-justified in a 5-column field followed by 'k', used for the
+;       kilobyte 'Bytes Remaining On' free-space figures.
 SUB_0C8F:
         LD HL,$15AE                      ; $0C8F  21 AE 15
         LD (HL),B                        ; $0C92  70
@@ -1416,8 +1427,8 @@ L_0CFC:
         CALL SUB_0490                    ; $0CFE  CD 90 04
         CALL SUB_04A0                    ; $0D01  CD A0 04
         RET                              ; $0D04  C9
-; [AI] Fetches the allocation vector (SUB_0551) and current drive, prints 'd:' and the ' R/W,
-;       Space: ' lead-in for the per-drive free-space report.
+; [AI] Prints the current free-space tail of a status line: the free-block byte count plus the
+;       drive letter and ':' label.
 SUB_0D05:
         CALL SUB_0551                    ; $0D05  CD 51 05
         LD ($1520),HL                    ; $0D08  22 20 15
@@ -1428,8 +1439,8 @@ SUB_0D05:
         LD BC,$036A                      ; $0D14  01 6A 03
         CALL SUB_04B1                    ; $0D17  CD B1 04
         RET                              ; $0D1A  C9
-; [AI] Counts the free 1K blocks on the current drive (via the directory scan SUB_07B7) and prints
-;       the remaining kilobyte figure through SUB_0C8F.
+; [AI] Computes the drive's remaining free space from the allocation vector and prints it as a
+;       kilobyte figure.
 SUB_0D1B:
         LD C,$01                         ; $0D1B  0E 01
         CALL SUB_07B7                    ; $0D1D  CD B7 07
@@ -1437,16 +1448,16 @@ SUB_0D1B:
         LD C,L                           ; $0D21  4D
         CALL SUB_0C8F                    ; $0D22  CD 8F 0C
         RET                              ; $0D25  C9
-; [AI] Prints the complete free-space line for the current drive: the 'Bytes Remaining On ' prefix
-;       plus the computed remaining-space figure.
+; [AI] Prints the 'Bytes Remaining On d:' free-space summary for the current drive (free count plus
+;       drive label).
 SUB_0D26:
         LD BC,$036D                      ; $0D26  01 6D 03
         CALL SUB_04D2                    ; $0D29  CD D2 04
         CALL SUB_0D05                    ; $0D2C  CD 05 0D
         CALL SUB_0D1B                    ; $0D2F  CD 1B 0D
         RET                              ; $0D32  C9
-; [AI] DSK: bulk report driver: reads the login and R/O drive vectors, then for each active drive
-;       selects it and prints its R/W-vs-R/O status and free-space line.
+; [AI] Bare-drive 'd:' status handler: walks the login vector and, for each logged-in drive, prints
+;       its R/O-vs-R/W state and free space.
 SUB_0D33:
         CALL SUB_055A                    ; $0D33  CD 5A 05
         LD ($15B3),HL                    ; $0D36  22 B3 15
@@ -1507,21 +1518,21 @@ L_0D86:
 L_0DA5:
         CALL SUB_04A0                    ; $0DA5  CD A0 04
         RET                              ; $0DA8  C9
-; [AI] If a drive letter was given in the command FCB ($005C), selects that drive (after adjusting
-;       to 0-based) so the subsequent operation acts on the requested drive.
+; [AI] If a drive letter was given in the FCB, selects that drive (so a 'd:filename' argument
+;       operates on the right disk) before further processing.
 SUB_0DA9:
-        LD A,($005C)                     ; $0DA9  3A 5C 00
+        LD A,(DEFAULT_FCB)               ; $0DA9  3A 5C 00
         CP $00                           ; $0DAC  FE 00
         JP Z,L_0DB9                      ; $0DAE  CA B9 0D
-        LD A,($005C)                     ; $0DB1  3A 5C 00
+        LD A,(DEFAULT_FCB)               ; $0DB1  3A 5C 00
         DEC A                            ; $0DB4  3D
         LD C,A                           ; $0DB5  4F
         CALL SUB_05CC                    ; $0DB6  CD CC 05
 L_0DB9:
         RET                              ; $0DB9  C9
-; [AI] Default 'STAT [d:][afn]' file-status path: builds the file list for the matching files,
-;       computes each file's record count and size, sorts the entries, and prints the
-;       Size/Recs/Bytes/Ext/Acc table.
+; [AI] Main per-file engine for 'STAT filename.typ': builds the wildcard FCB, scans the directory
+;       collecting matching entries (with attributes), and feeds them to the file listing; also
+;       dispatches the $R/O/$R/W/$SYS/$DIR attribute-set path.
 SUB_0DBA:
         CALL SUB_05B3                    ; $0DBA  CD B3 05
         CALL SUB_0DA9                    ; $0DBD  CD A9 0D
@@ -1548,16 +1559,18 @@ L_0DE4:
         CALL SUB_0D26                    ; $0DEC  CD 26 0D
         RET                              ; $0DEF  C9
 L_0DF0:
-        LD HL,$0000                      ; $0DF0  21 00 00
+        LD HL,WBOOT_VEC                  ; $0DF0  21 00 00
         LD ($15B8),HL                    ; $0DF3  22 B8 15
         LD A,L                           ; $0DF6  7D
-        LD ($005C),A                     ; $0DF7  32 5C 00
+        LD (DEFAULT_FCB),A               ; $0DF7  32 5C 00
         LD HL,$0068                      ; $0DFA  21 68 00
         LD (HL),$3F                      ; $0DFD  36 3F
         LD HL,$006A                      ; $0DFF  21 6A 00
         LD (HL),$3F                      ; $0E02  36 3F
-        LD BC,$005C                      ; $0E04  01 5C 00
+        LD BC,DEFAULT_FCB                ; $0E04  01 5C 00
         CALL SUB_0519                    ; $0E07  CD 19 05
+; [AI] Directory-gather loop: reads each matching directory entry, copies its 16 bytes into the in-
+;       memory file table, and inserts it into a sorted list keyed by filename.
 L_0E0A:
         LD A,($1527)                     ; $0E0A  3A 27 15
         CP $FF                           ; $0E0D  FE FF
@@ -1575,7 +1588,7 @@ L_0E0A:
         LD ($29BA),HL                    ; $0E21  22 BA 29
         LD HL,$29CB                      ; $0E24  21 CB 29
         LD (HL),$00                      ; $0E27  36 00
-        LD HL,$0000                      ; $0E29  21 00 00
+        LD HL,WBOOT_VEC                  ; $0E29  21 00 00
         LD ($29BE),HL                    ; $0E2C  22 BE 29
 L_0E2F:
         LD A,($29CB)                     ; $0E2F  3A CB 29
@@ -1593,6 +1606,8 @@ L_0E2F:
         CALL SUB_135D                    ; $0E45  CD 5D 13
         LD HL,$29C6                      ; $0E48  21 C6 29
         LD (HL),$01                      ; $0E4B  36 01
+; [AI] Per-character comparison of a new directory entry's name against an existing table entry,
+;       driving the insertion-sort ordering of the collected file list.
 L_0E4D:
         LD A,$0B                         ; $0E4D  3E 0B
         LD HL,$29C6                      ; $0E4F  21 C6 29
@@ -1650,7 +1665,7 @@ L_0EA9:
         LD HL,$15B8                      ; $0EB9  21 B8 15
         CALL SUB_14F8                    ; $0EBC  CD F8 14
         SBC A,A                          ; $0EBF  9F
-        LD DE,$0010                      ; $0EC0  11 10 00
+        LD DE,RST2_VEC                   ; $0EC0  11 10 00
         LD HL,($29BC)                    ; $0EC3  2A BC 29
         ADD HL,DE                        ; $0EC6  19
         EX DE,HL                         ; $0EC7  EB
@@ -1666,7 +1681,7 @@ L_0EA9:
         JP NC,L_0EED                     ; $0ED5  D2 ED 0E
         LD BC,$03A5                      ; $0ED8  01 A5 03
         CALL SUB_04D2                    ; $0EDB  CD D2 04
-        LD HL,$0000                      ; $0EDE  21 00 00
+        LD HL,WBOOT_VEC                  ; $0EDE  21 00 00
         LD ($29BE),HL                    ; $0EE1  22 BE 29
         LD HL,$0001                      ; $0EE4  21 01 00
         LD ($15B8),HL                    ; $0EE7  22 B8 15
@@ -1685,6 +1700,8 @@ L_0EED:
         LD (HL),D                        ; $0EFD  72
         LD HL,$29C6                      ; $0EFE  21 C6 29
         LD (HL),$00                      ; $0F01  36 00
+; [AI] Inserts the freshly read directory entry into the table at the sorted position, copying its
+;       name/attribute bytes into place.
 L_0F03:
         LD A,$0B                         ; $0F03  3E 0B
         LD HL,$29C6                      ; $0F05  21 C6 29
@@ -1771,7 +1788,7 @@ L_0F60:
         PUSH HL                          ; $0F91  E5
         LD HL,($29BA)                    ; $0F92  2A BA 29
         ADD HL,BC                        ; $0F95  09
-        LD BC,$0004                      ; $0F96  01 04 00
+        LD BC,CDISK                      ; $0F96  01 04 00
         PUSH HL                          ; $0F99  E5
         LD HL,($151E)                    ; $0F9A  2A 1E 15
         ADD HL,BC                        ; $0F9D  09
@@ -1780,7 +1797,7 @@ L_0F60:
         AND (HL)                         ; $0FA0  A6
         LD L,A                           ; $0FA1  6F
         LD H,$00                         ; $0FA2  26 00
-        LD DE,$0080                      ; $0FA4  11 80 00
+        LD DE,DEFAULT_DMA                ; $0FA4  11 80 00
         CALL SUB_149E                    ; $0FA7  CD 9E 14
         POP BC                           ; $0FAA  C1
         ADD HL,BC                        ; $0FAB  09
@@ -1795,7 +1812,7 @@ L_0F60:
         LD (HL),B                        ; $0FB8  70
         LD HL,$29C7                      ; $0FB9  21 C7 29
         LD (HL),$01                      ; $0FBC  36 01
-        LD BC,$0005                      ; $0FBE  01 05 00
+        LD BC,BDOS_VEC                   ; $0FBE  01 05 00
         LD HL,($151E)                    ; $0FC1  2A 1E 15
         ADD HL,BC                        ; $0FC4  09
         LD A,$FF                         ; $0FC5  3E FF
@@ -1861,6 +1878,8 @@ L_103A:
 L_103D:
         CALL SUB_052C                    ; $103D  CD 2C 05
         JP L_0E0A                        ; $1040  C3 0A 0E
+; [AI] Post-scan branch: if no matching files were collected, reports 'File Not Found'; otherwise
+;       proceeds to the size-listing or attribute-setting phase.
 L_1043:
         LD A,$00                         ; $1043  3E 00
         LD DE,$15B8                      ; $1045  11 B8 15
@@ -1870,6 +1889,9 @@ L_1043:
         LD BC,$03BA                      ; $104F  01 BA 03
         CALL SUB_04D2                    ; $1052  CD D2 04
         JP L_135C                        ; $1055  C3 5C 13
+; [AI] Display phase for a plain filename query: prints the ' Recs Bytes Ext Acc' header and then
+;       one formatted line per collected file with its record count, byte size, extent count, access
+;       and R/O/SYS flags.
 L_1058:
         LD A,($29CC)                     ; $1058  3A CC 29
         CP $FF                           ; $105B  FE FF
@@ -1885,9 +1907,9 @@ L_1071:
         LD HL,$29C0                      ; $1073  21 C0 29
         CALL SUB_14F5                    ; $1076  CD F5 14
         JP NC,L_1164                     ; $1079  D2 64 11
-        LD HL,$0000                      ; $107C  21 00 00
+        LD HL,WBOOT_VEC                  ; $107C  21 00 00
         LD ($29C0),HL                    ; $107F  22 C0 29
-        LD HL,$0000                      ; $1082  21 00 00
+        LD HL,WBOOT_VEC                  ; $1082  21 00 00
         LD ($29C4),HL                    ; $1085  22 C4 29
 L_1088:
         LD HL,($15B8)                    ; $1088  2A B8 15
@@ -2018,10 +2040,13 @@ L_1164:
         JP L_1177                        ; $1171  C3 77 11
 L_1174:
         CALL SUB_04A0                    ; $1174  CD A0 04
+; [AI] Per-file output loop: for each entry in the sorted table prints record count, kilobyte size,
+;       extent count, R/O-or-R/W flag, drive letter, decoded filename and the (parenthesized)
+;       system/attribute markers.
 L_1177:
         LD BC,$03D0                      ; $1177  01 D0 03
         CALL SUB_04B1                    ; $117A  CD B1 04
-        LD HL,$0000                      ; $117D  21 00 00
+        LD HL,WBOOT_VEC                  ; $117D  21 00 00
         LD ($29C0),HL                    ; $1180  22 C0 29
 L_1183:
         LD BC,$15B8                      ; $1183  01 B8 15
@@ -2044,8 +2069,10 @@ L_1183:
         LD HL,($29BC)                    ; $11A7  2A BC 29
         LD B,H                           ; $11AA  44
         LD C,L                           ; $11AB  4D
-        LD DE,$005C                      ; $11AC  11 5C 00
+        LD DE,DEFAULT_FCB                ; $11AC  11 5C 00
         POP HL                           ; $11AF  E1
+; [AI] Copies the selected directory entry's 16 raw bytes into the default FCB so the size-
+;       computation BDOS call can operate on it.
 L_11B0:
         LD A,(BC)                        ; $11B0  0A
         LD (DE),A                        ; $11B1  12
@@ -2053,12 +2080,12 @@ L_11B0:
         INC DE                           ; $11B3  13
         DEC L                            ; $11B4  2D
         JP NZ,L_11B0                     ; $11B5  C2 B0 11
-        LD HL,$005C                      ; $11B8  21 5C 00
+        LD HL,DEFAULT_FCB                ; $11B8  21 5C 00
         LD (HL),$00                      ; $11BB  36 00
         LD A,($151D)                     ; $11BD  3A 1D 15
         RRA                              ; $11C0  1F
         JP NC,L_11E9                     ; $11C1  D2 E9 11
-        LD BC,$005C                      ; $11C4  01 5C 00
+        LD BC,DEFAULT_FCB                ; $11C4  01 5C 00
         CALL SUB_05A3                    ; $11C7  CD A3 05
         LD A,($007F)                     ; $11CA  3A 7F 00
         CP $00                           ; $11CD  FE 00
@@ -2067,7 +2094,7 @@ L_11B0:
         CALL SUB_04B1                    ; $11D5  CD B1 04
         JP L_11E6                        ; $11D8  C3 E6 11
 L_11DB:
-        LD HL,($007D)                    ; $11DB  2A 7D 00
+        LD HL,(DEFAULT_RND)              ; $11DB  2A 7D 00
         LD B,H                           ; $11DE  44
         LD C,L                           ; $11DF  4D
         LD DE,$2710                      ; $11E0  11 10 27
@@ -2157,8 +2184,11 @@ L_1283:
 L_128D:
         CALL SUB_0D26                    ; $128D  CD 26 0D
         JP L_135C                        ; $1290  C3 5C 13
+; [AI] Attribute-set dispatch ($Rn option present): for each matching file applies the requested
+;       R/O/R/W/SYS/DIR change by routing through the per-attribute code fragments via the $1317
+;       jump table.
 L_1293:
-        LD HL,$0000                      ; $1293  21 00 00
+        LD HL,WBOOT_VEC                  ; $1293  21 00 00
         LD ($29C0),HL                    ; $1296  22 C0 29
         LD BC,$15B8                      ; $1299  01 B8 15
         LD DE,$29C0                      ; $129C  11 C0 29
@@ -2197,9 +2227,8 @@ L_12B0:
         DEFB    $CD,$B1,$04,$2A,$C0,$29,$23,$22,$C0,$29,$C3,$99,$12 ; $134F
 L_135C:
         RET                              ; $135C  C9
-; [AI] Computes the address of a 32-byte directory entry in the DMA buffer: takes the in-buffer
-;       entry index ($29BE), multiplies by 32, adds the buffer base $29CF, and stores the pointer at
-;       $29BC.
+; [AI] Computes the address of directory entry N within the 32-byte-per-record directory buffer at
+;       $29CF (shifts the index left and adds the buffer base).
 SUB_135D:
         LD HL,($29BE)                    ; $135D  2A BE 29
         ADD HL,HL                        ; $1360  29
@@ -2210,9 +2239,9 @@ SUB_135D:
         ADD HL,DE                        ; $1367  19
         LD ($29BC),HL                    ; $1368  22 BC 29
         RET                              ; $136B  C9
-; [AI] SET-command parser: copies the assignment token, checks for the 'SYS' form and a valid '='
-;       delimiter, looks the keyword up in the assignment table, and returns a status/index used to
-;       apply the requested change.
+; [AI] Parses the '$R/O $R/W $SYS $DIR' file-indicator option from the command tail: validates the
+;       leading '$', looks the keyword up in the attribute table, and returns which attribute (and
+;       direction) to set.
 SUB_136C:
         LD A,($006D)                     ; $136C  3A 6D 00
         CP $20                           ; $136F  FE 20
@@ -2223,6 +2252,8 @@ L_1377:
         LD L,$04                         ; $1377  2E 04
         LD DE,$1559                      ; $1379  11 59 15
         LD BC,$006E                      ; $137C  01 6E 00
+; [AI] Copies the four option characters from the command tail into the token buffer so the
+;       attribute keyword can be matched.
 L_137F:
         LD A,(BC)                        ; $137F  0A
         LD (DE),A                        ; $1380  12
@@ -2260,8 +2291,8 @@ L_13A7:
 L_13BD:
         LD A,$01                         ; $13BD  3E 01
         RET                              ; $13BF  C9
-; [AI] Prints an 11-character CP/M filename from the directory entry at $29BC, masking the high
-;       attribute bits, inserting the '.' before the type field and suppressing trailing blanks.
+; [AI] Prints a directory entry's 11-character filename in 'NAME.TYP' form, masking off the high
+;       attribute bits and inserting the '.' before the type field.
 SUB_13C0:
         LD HL,$29CD                      ; $13C0  21 CD 29
         LD (HL),$01                      ; $13C3  36 01
@@ -2296,9 +2327,9 @@ L_13F7:
         JP NZ,L_13C5                     ; $13FE  C2 C5 13
 L_1401:
         RET                              ; $1401  C9
-; [AI] Drive-prefixed argument handler ('d:=R/O' or 'd:afn'): selects the drive, and either applies
-;       the read-only assignment after '=', or runs DSK: characteristics / file-status display for
-;       that drive.
+; [AI] Handles a 'd:filename ...' argument that contains an '=' assignment versus a plain query:
+;       either applies a disk read-only assignment (R/O Invalid Disk Assignment guard) or falls
+;       through to the normal file display.
 SUB_1402:
         CALL SUB_0639                    ; $1402  CD 39 06
         CALL SUB_0639                    ; $1405  CD 39 06
@@ -2332,22 +2363,22 @@ L_1445:
 L_1448:
         RET                              ; $1448  C9
         DEFB    $C3,$00,$00                                      ; $1449
-; [AI] BDOS call thunk (JP $0005): used for output-style BDOS functions where the called function
-;       returns directly to STAT's caller.
+; [AI] BDOS call thunk: JP $0005 (tail-call into BDOS) used by service wrappers that pass their
+;       result straight back to the caller.
 SUB_144C:
         JP BDOS_VEC                      ; $144C  C3 05 00
-; [AI] BDOS call thunk (JP $0005): tail-call wrapper for BDOS functions whose result is returned to
-;       the immediate caller.
+; [AI] Second BDOS call thunk (JP $0005), a duplicate entry the wrappers tail-call into for
+;       functions that return a value in A.
 SUB_144F:
         JP BDOS_VEC                      ; $144F  C3 05 00
-; [AI] BDOS call wrapper (CALL $0005 then RET): used where STAT must regain control after the BDOS
-;       call to store the returned HL/A result.
+; [AI] BDOS call thunk that uses CALL $0005 then RET, for services whose 16-bit result (in HL) must
+;       be preserved after return.
 SUB_1452:
         CALL BDOS_VEC                    ; $1452  CD 05 00
         RET                              ; $1455  C9
         DEFB    $C9,$C9,$69,$60                                  ; $1456
-; [AI] 16-bit add helper: loads the word pointed to by HL, adds the word pointed to by DE, returns
-;       the sum in HL (compiler runtime routine).
+; [AI] Adds a 16-bit value at (HL) to a 16-bit value at (DE), returning the sum in HL (pointer-
+;       based 16-bit add helper used for buffer/total arithmetic).
 SUB_145A:
         LD C,(HL)                        ; $145A  4E
         INC HL                           ; $145B  23
@@ -2360,7 +2391,7 @@ SUB_145A:
         ADC A,B                          ; $1462  88
         LD H,A                           ; $1463  67
         RET                              ; $1464  C9
-; [AI] Adds an 8-bit value in A (zero-extended) to the 16-bit word pointed to by DE, returning the
+; [AI] Adds an 8-bit value (A, zero-extended) to the 16-bit word pointed to by DE, returning the
 ;       result in HL.
 SUB_1465:
         EX DE,HL                         ; $1465  EB
@@ -2375,8 +2406,8 @@ SUB_1465:
         ADC A,H                          ; $146F  8C
         LD H,A                           ; $1470  67
         RET                              ; $1471  C9
-; [AI] Bitwise-ANDs an 8-bit mask in A (zero-extended) with the 16-bit word pointed to by DE,
-;       returning the result in HL.
+; [AI] Bitwise-ANDs the 16-bit value in HL with the word pointed to by DE (masking helper for
+;       allocation/attribute bitmaps).
 SUB_1472:
         EX DE,HL                         ; $1472  EB
         LD E,A                           ; $1473  5F
@@ -2390,15 +2421,15 @@ SUB_1472:
         AND H                            ; $147C  A4
         LD H,A                           ; $147D  67
         RET                              ; $147E  C9
-; [AI] 16-bit unsigned divide: HL (dividend) by BC (divisor) using the shift/subtract loop at
-;       L_1486, returning quotient and remainder; the decimal-print routines rely on it.
+; [AI] 16-bit unsigned remainder: divides HL by the divisor (set up by the caller) and returns the
+;       remainder, the digit-extraction core of the decimal printer.
 SUB_147F:
         LD B,H                           ; $147F  44
         LD C,L                           ; $1480  4D
-; [AI] Core of the 16-bit unsigned divide (called with divisor already in BC): 16-iteration
-;       restoring division producing quotient in DE and remainder in HL.
+; [AI] 16-bit unsigned divide of HL by BC via shift-and-subtract, returning quotient in HL (the
+;       companion to the remainder routine for decimal conversion).
 SUB_1481:
-        LD HL,$0000                      ; $1481  21 00 00
+        LD HL,WBOOT_VEC                  ; $1481  21 00 00
         LD A,$10                         ; $1484  3E 10
 L_1486:
         PUSH AF                          ; $1486  F5
@@ -2422,15 +2453,13 @@ L_1498:
         DEC A                            ; $1499  3D
         JP NZ,L_1486                     ; $149A  C2 86 14
         RET                              ; $149D  C9
-; [AI] 16-bit unsigned multiply: multiplies HL by DE via the shift/add loop at L_14A5, returning
-;       the 16-bit product (used for capacity = records * record-size style math).
+; [AI] 16-bit multiply: multiplies HL by BC and returns the product in HL, used to scale record
+;       counts into byte/kilobyte figures.
 SUB_149E:
         LD B,H                           ; $149E  44
         LD C,L                           ; $149F  4D
-; [AI] Inner 16-bit multiply (multiplier already in BC): shift-and-add loop accumulating HL*DE into
-;       HL.
 SUB_14A0:
-        LD HL,$0000                      ; $14A0  21 00 00
+        LD HL,WBOOT_VEC                  ; $14A0  21 00 00
         LD A,$10                         ; $14A3  3E 10
 L_14A5:
         ADD HL,HL                        ; $14A5  29
@@ -2443,6 +2472,8 @@ L_14AD:
         DEC A                            ; $14AD  3D
         JP NZ,L_14A5                     ; $14AE  C2 A5 14
         RET                              ; $14B1  C9
+; [AI] Rotates the byte at (HL) left by the count in C, used to position attribute/flag bits for
+;       testing.
 SUB_14B2:
         LD A,(HL)                        ; $14B2  7E
 L_14B3:
@@ -2451,15 +2482,15 @@ L_14B3:
         JP NZ,L_14B3                     ; $14B5  C2 B3 14
         RET                              ; $14B8  C9
         DEFB    $5E,$23,$56,$EB                                  ; $14B9
-; [AI] Shifts HL left by the count in C (HL << C), i.e. multiply by a power of two; used to scale
-;       by the DPB block-shift factor.
+; [AI] Shifts HL left by the count in C (multiply HL by 2^C), used when scaling block/record
+;       indices.
 SUB_14BD:
         ADD HL,HL                        ; $14BD  29
         DEC C                            ; $14BE  0D
         JP NZ,SUB_14BD                   ; $14BF  C2 BD 14
         RET                              ; $14C2  C9
-; [AI] Loads a 16-bit value from the address in HL and arithmetic/logical-shifts it right by the
-;       count in C (HL >> C).
+; [AI] Loads a 16-bit value from (HL) and shifts it right by the count in C (divide by 2^C), used
+;       for block-to-kilobyte scaling.
 SUB_14C3:
         LD E,(HL)                        ; $14C3  5E
         INC HL                           ; $14C4  23
@@ -2476,8 +2507,8 @@ L_14C7:
         DEC C                            ; $14CE  0D
         JP NZ,L_14C7                     ; $14CF  C2 C7 14
         RET                              ; $14D2  C9
-; [AI] Computes (A zero-extended) minus the 16-bit value in HL, returning the 16-bit difference in
-;       HL (signed-compare/subtract helper).
+; [AI] Computes the 16-bit difference (A, zero-extended) minus HL, a small signed-compare helper
+;       for loop bounds.
 SUB_14D3:
         LD E,A                           ; $14D3  5F
         LD D,$00                         ; $14D4  16 00
@@ -2488,16 +2519,16 @@ SUB_14D3:
         SBC A,H                          ; $14DA  9C
         LD H,A                           ; $14DB  67
         RET                              ; $14DC  C9
-; [AI] 16-bit compare via pointer: loads the word at (BC), subtracts the word at (DE), setting
-;       carry/flags for a less-than test in loop conditions.
+; [AI] 16-bit less-than test between the word at (BC) and the word at (DE): sets carry per
+;       comparison, used to bound the directory and table scan loops.
 SUB_14DD:
         LD L,C                           ; $14DD  69
         LD H,B                           ; $14DE  60
         LD C,(HL)                        ; $14DF  4E
         INC HL                           ; $14E0  23
         LD B,(HL)                        ; $14E1  46
-; [AI] 16-bit subtract through pointers: (DE) minus the value in BC, returning the difference in HL
-;       and the borrow flag.
+; [AI] Subtracts the 16-bit value in BC from the word at (DE), returning the difference in HL (the
+;       comparison core shared with SUB_14DD).
 SUB_14E2:
         LD A,(DE)                        ; $14E2  1A
         SUB C                            ; $14E3  91
@@ -2507,8 +2538,8 @@ SUB_14E2:
         SBC A,B                          ; $14E7  98
         LD H,A                           ; $14E8  67
         RET                              ; $14E9  C9
-; [AI] Compares the 8-bit value in A (zero-extended) against the 16-bit word pointed to by DE,
-;       returning the difference/flags; used as a loop-bound test.
+; [AI] Subtracts an 8-bit value (A) from the word at (DE), returning the difference in HL; used to
+;       test loop counters against limits.
 SUB_14EA:
         LD L,A                           ; $14EA  6F
         LD H,$00                         ; $14EB  26 00
@@ -2520,13 +2551,13 @@ SUB_14EA:
         SBC A,H                          ; $14F2  9C
         LD H,A                           ; $14F3  67
         RET                              ; $14F4  C9
-; [AI] Compares the 8-bit value in A (zero-extended, into DE) against the 16-bit word at HL,
-;       returning sign/carry for a signed-magnitude comparison.
+; [AI] 8-bit-versus-16-bit comparison: subtracts the byte at (HL) from A (zero-extended) and
+;       returns the signed result for loop/range tests.
 SUB_14F5:
         LD E,A                           ; $14F5  5F
         LD D,$00                         ; $14F6  16 00
-; [AI] 16-bit compare: subtracts the word at (HL) from DE, leaving the difference in HL and setting
-;       carry, used to test loop termination conditions.
+; [AI] 16-bit comparison: subtracts the word at (HL) from DE, returning the difference in HL and
+;       setting carry, the general signed-compare used throughout the loops.
 SUB_14F8:
         LD A,E                           ; $14F8  7B
         SUB (HL)                         ; $14F9  96

@@ -237,7 +237,7 @@ reset vector address. The bytes `$C3 $00 $FA` decode as the Z-80
 instruction `JP $FA00`. So when the SoftCard switch flips control to
 the Z-80, the Z-80 fetches its first instruction at its `$0000`, sees
 `JP $FA00`, and jumps directly into the 2.23 CP/M BIOS cold-boot entry
-(which sits right next to the BIOS jump table at `$FAB8`).
+(the BOOT slot at the start of the BIOS jump table at `$FA00`).
 
 This is the SoftCard handoff bridge: the 6502 finishes its work,
 plants the Z-80 reset vector with the address of the CP/M BIOS, and

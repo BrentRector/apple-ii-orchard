@@ -9,11 +9,10 @@
 
     ORG $8000
 
-; [AI] Entry point / start of the 5888-byte CP/M 2.20 system image (CCP + BDOS) disassembled from
-;       sysimg_220.bin. Although the file is ORG'd at $8000, every call/jump target lands in
-;       $C400-$DA00 -- the canonical CP/M relocated load region -- so the image's true runtime base
-;       is ~$C400 (CCP) with BDOS following near $CC00-$DA00; the disassembler could not trace past
-;       this point and emitted the body as DEFB data.
+; [AI] Entry point of the loaded CP/M 2.20 system image at $8000; the leading bytes (RST $08/RST
+;       $00, then the run of CALL/JP into the $C4xx-$C7xx region) are the CCP's startup hooks into
+;       the BDOS/CCP code that follows, so this is where execution lands when the system image is
+;       run.
 L_8000:
         RST $08                          ; $8000  CF
         RST $00                          ; $8001  C7

@@ -10,15 +10,9 @@
 
 .org $0800
 
-; [AI] Origin/entry of the CP/M 2.23 SoftCard boot image at $0800 (where the slot-6 disk PROM
-;       deposits track 0 sector 0). The leading $01 is the boot sector-count byte; the stage-1
-;       fragment that follows sets up the zero-page sector buffer pointers ($3E/$3F, $00), advances
-;       the page/sector counters, and JMPs to the stage-2 loader entry at $1000. Beyond the code
-;       this label spans the sector interleave/skew table, the Microsoft CP/M SoftCard copyright
-;       banner, the RWTS-style nibble read/write engine ($C08C data latch with $D5-AA-AD/$D5-AA-96
-;       prologues and the $0D4F denibblize tables), the embedded Z-80 TPA payload, and the stage-2
-;       routine that probes the SoftCard, prints the "CAN'T FIND Z80 SOFTCARD / MUST BOOT FROM SLOT
-;       SIX" diagnostics, and stages CP/M into memory.
+; [AI] Origin/entry of the 6502 stage-2 SoftCard CP/M 2.23 boot loader at $0800; the bytes that
+;       follow form the slot-scan, RWTS-style disk read, install copies, LOAD_CPM, and Z-80 CPU
+;       handoff (the body is dumped as flat .byte data rather than disassembled labels).
 L_0800:
         ORA ($A5,X)                  ; $0800  01 A5
         .byte   $27, $C9, $09, $D0, $13, $8A, $4A, $4A, $4A, $4A, $09, $C0, $85, $3F, $A9, $5C ; $0802

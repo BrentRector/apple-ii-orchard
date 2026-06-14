@@ -8,12 +8,15 @@
     DEVICE NOSLOT64K
 
 ; -- External symbols --
+WBOOT_VEC            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
 BDOS_VEC             EQU $0005               ; BDOS call vector — JP BDOS_ENTRY. Programs use CALL $0005 to invoke BDOS. Word at $0006 is also the top-of-TPA marker.
+DEFAULT_FCB          EQU $005C               ; Default File Control Block — populated by CCP from command-line argument 1. Standard 36-byte FCB structure (drive + filename + extents + record number).
+DEFAULT_DMA          EQU $0080               ; Default DMA buffer — also command-line tail. First byte = length, then characters. Returned to default by BDOS function 13 (DRV_ALLRESET).
 
     ORG $0100
 
-; [AI] Program entry at the TPA load address ($0100); jumps over the embedded copyright banner and
-;       message/string table to the real startup code at L_0240.
+; [AI] The $0100 program entry point. The opening JP jumps over the embedded copyright/message
+;       string block to the real startup code at L_0240.
 TPA_START:
         JP L_0240                        ; $0100  C3 40 02
         DEFB    " COPYRIGHT (C) 1978, DIGITAL RESEARCH ERROR: $, LOAD ADD"    ; $0103  string
@@ -26,41 +29,34 @@ TPA_START:
         DEFB    $43,$45,$24,$43,$4F,$4D,$4E,$4F,$20,$4D,$4F,$52,$45,$20,$44,$49 ; $020B
         DEFB    $52,$45,$43,$54,$4F,$52,$59,$20,$53,$50,$41,$43,$45,$24,$43,$41 ; $021B
         DEFB    $4E,$4E,$4F,$54,$20,$43,$4C,$4F,$53,$45,$20,$46,$49,$4C,$45,$24 ; $022B
-; [AI] Stack restore helper: reloads SP from the saved CP/M stack pointer word at $07E7 so the
-;       program can RET cleanly back to the CCP after a routine that pushed onto its own stack.
+; [AI] Restores the saved CCP stack pointer from $07E7 and returns, so the program can exit cleanly
+;       back to the console command processor instead of warm-booting.
 SUB_023B:
         LD HL,($07E7)                    ; $023B  2A E7 07
         LD SP,HL                         ; $023E  F9
         RET                              ; $023F  C9
-; [AI] Real startup code: saves the CCP-provided stack pointer to $07E7, switches to the program's
-;       private stack at $0D65, and initializes work variables (load address $0100 at $0C16, byte
-;       counter at $0C0B).
+; [AI] Startup/initialization code: saves the entry stack pointer, sets up LOAD's own stack and
+;       working variables, then validates the command-line filename before the main load.
 L_0240:
-        LD HL,$0000                      ; $0240  21 00 00
+        LD HL,WBOOT_VEC                  ; $0240  21 00 00
 L_0243:
         ADD HL,SP                        ; $0243  39
 L_0244:
         LD ($07E7),HL                    ; $0244  22 E7 07
-; [AI] Sets up the program's private stack pointer ($0D65) before parsing the command line and
-;       opening the source file.
 L_0247:
         LD HL,$0D65                      ; $0247  21 65 0D
 L_024A:
         LD SP,HL                         ; $024A  F9
 L_024B:
-        LD HL,$0100                      ; $024B  21 00 01
-; [AI] Initializes the current load/output address pointer at $0C16 to the TPA base $0100, where
-;       the generated .COM image will be assembled.
+        LD HL,TPA_START                  ; $024B  21 00 01
 L_024E:
         LD ($0C16),HL                    ; $024E  22 16 0C
 L_0251:
         LD HL,$0400                      ; $0251  21 00 04
 L_0254:
         LD ($0C0B),HL                    ; $0254  22 0B 0C
-; [AI] Pushes the default FCB address ($005C) as an argument used to copy/format the source
-;       filename from the command-tail FCB.
 L_0257:
-        LD BC,$005C                      ; $0257  01 5C 00
+        LD BC,DEFAULT_FCB                ; $0257  01 5C 00
 L_025A:
         PUSH BC                          ; $025A  C5
 L_025B:
@@ -81,8 +77,6 @@ L_026C:
         CALL SUB_0422                    ; $026C  CD 22 04
 L_026F:
         LD BC,$07E9                      ; $026F  01 E9 07
-; [AI] Calls the BDOS-15 open wrapper (SUB_038A) on the source .HEX FCB, then checks the result
-;       byte at $0C1A for $FF (open failure).
 L_0272:
         CALL SUB_038A                    ; $0272  CD 8A 03
 L_0275:
@@ -93,8 +87,6 @@ L_027A:
         JP NZ,L_0283                     ; $027A  C2 83 02
         LD BC,$01FB                      ; $027D  01 FB 01
         CALL SUB_0364                    ; $0280  CD 64 03
-; [AI] On successful open, copies the 'CANNOT OPEN'/error-test passed; sets up the FCB filetype
-;       field with the 'COM' extension (message at $020E) to build the output .COM file's FCB.
 L_0283:
         LD BC,$020E                      ; $0283  01 0E 02
 L_0286:
@@ -106,21 +98,15 @@ L_0289:
 L_028C:
         CALL SUB_0422                    ; $028C  CD 22 04
 L_028F:
-        LD BC,$005C                      ; $028F  01 5C 00
-; [AI] Deletes any existing output .COM file (BDOS-19 wrapper SUB_03CF) before creating a fresh
-;       one, FCB at $005C.
+        LD BC,DEFAULT_FCB                ; $028F  01 5C 00
 L_0292:
         CALL SUB_03CF                    ; $0292  CD CF 03
 L_0295:
-        LD BC,$005C                      ; $0295  01 5C 00
-; [AI] Creates/makes the output .COM file via the BDOS-22 make-file wrapper (SUB_03FF) on the FCB
-;       at $005C; result checked at $0C1A.
+        LD BC,DEFAULT_FCB                ; $0295  01 5C 00
 L_0298:
         CALL SUB_03FF                    ; $0298  CD FF 03
 L_029B:
-        LD BC,$005C                      ; $029B  01 5C 00
-; [AI] Re-opens (BDOS-15) the now-created output file and tests the directory result byte; $FF
-;       indicates no directory space, leading to the error path.
+        LD BC,DEFAULT_FCB                ; $029B  01 5C 00
 L_029E:
         CALL SUB_038A                    ; $029E  CD 8A 03
 L_02A1:
@@ -132,25 +118,21 @@ L_02A6:
         LD BC,$0211                      ; $02A9  01 11 02
         CALL SUB_0364                    ; $02AC  CD 64 03
         JP L_02C9                        ; $02AF  C3 C9 02
-; [AI] Main success path: runs the HEX-to-binary translation loop (SUB_04E4), then closes the
-;       output file via the BDOS-16 close wrapper (SUB_039D); $FF result means 'CANNOT CLOSE FILE'.
 L_02B2:
         CALL SUB_04E4                    ; $02B2  CD E4 04
-        LD BC,$005C                      ; $02B5  01 5C 00
+        LD BC,DEFAULT_FCB                ; $02B5  01 5C 00
         CALL SUB_039D                    ; $02B8  CD 9D 03
         LD A,($0C1A)                     ; $02BB  3A 1A 0C
         CP $FF                           ; $02BE  FE FF
         JP NZ,L_02C9                     ; $02C0  C2 C9 02
         LD BC,$0229                      ; $02C3  01 29 02
         CALL SUB_0364                    ; $02C6  CD 64 03
-; [AI] Program exit path: emits a final CR/LF (SUB_02E0), restores the CCP stack (SUB_023B), and
-;       returns to CP/M for a warm boot.
 L_02C9:
         CALL SUB_02E0                    ; $02C9  CD E0 02
         CALL SUB_023B                    ; $02CC  CD 3B 02
         RET                              ; $02CF  C9
-; [AI] Single-character console output primitive: stores the char from C into $0C0D and calls BDOS
-;       function 2 (console output) to print it.
+; [AI] Console output of a single character: stashes the byte then invokes BDOS function 2 (console
+;       out) via SUB_0766. The primitive used by all the higher-level print routines.
 SUB_02D0:
         LD HL,$0C0D                      ; $02D0  21 0D 0C
         LD (HL),C                        ; $02D3  71
@@ -160,16 +142,15 @@ SUB_02D0:
         LD C,$02                         ; $02DA  0E 02
         CALL SUB_0766                    ; $02DC  CD 66 07
         RET                              ; $02DF  C9
-; [AI] Prints a CR/LF pair ($0D, $0A) to the console by calling the single-char output routine
-;       SUB_02D0 twice.
+; [AI] Emits a CR/LF pair (0x0D, 0x0A) to the console to start a new output line.
 SUB_02E0:
         LD C,$0D                         ; $02E0  0E 0D
         CALL SUB_02D0                    ; $02E2  CD D0 02
         LD C,$0A                         ; $02E5  0E 0A
         CALL SUB_02D0                    ; $02E7  CD D0 02
         RET                              ; $02EA  C9
-; [AI] Converts a 4-bit nibble (in C) to its ASCII hex digit and prints it: values 0-9 map to
-;       '0'-'9', values 10-15 map to 'A'-'F'.
+; [AI] Converts a single 4-bit nibble (0-15) in C to its ASCII hex digit ('0'-'9' or 'A'-'F') and
+;       prints it.
 SUB_02EB:
         LD HL,$0C0E                      ; $02EB  21 0E 0C
         LD (HL),C                        ; $02EE  71
@@ -183,8 +164,6 @@ SUB_02EB:
         LD C,A                           ; $02FF  4F
         CALL SUB_02D0                    ; $0300  CD D0 02
         JP L_030F                        ; $0303  C3 0F 03
-; [AI] Nibble-to-ASCII branch for digits 0-9: adds $30 ('0') to the nibble and prints the resulting
-;       character.
 L_0306:
         LD A,($0C0E)                     ; $0306  3A 0E 0C
         ADD A,$30                        ; $0309  C6 30
@@ -192,8 +171,8 @@ L_0306:
         CALL SUB_02D0                    ; $030C  CD D0 02
 L_030F:
         RET                              ; $030F  C9
-; [AI] Prints a byte (in C) as two ASCII hex digits by isolating the high and low nibbles and
-;       calling the nibble printer SUB_02EB for each.
+; [AI] Prints one byte as two hex digits by isolating and emitting the high nibble then the low
+;       nibble via SUB_02EB.
 SUB_0310:
         LD HL,$0C0F                      ; $0310  21 0F 0C
         LD (HL),C                        ; $0313  71
@@ -210,8 +189,8 @@ SUB_0310:
         LD C,A                           ; $0326  4F
         CALL SUB_02EB                    ; $0327  CD EB 02
         RET                              ; $032A  C9
-; [AI] Prints a 16-bit value (passed in BC, stored at $0C10) as four ASCII hex digits, high byte
-;       then low byte, via the byte-hex printer SUB_0310.
+; [AI] Prints a 16-bit value (passed in BC) as four hex digits, high byte then low byte, using
+;       SUB_0310. Used to show addresses.
 SUB_032B:
         LD HL,$0C11                      ; $032B  21 11 0C
         LD (HL),B                        ; $032E  70
@@ -226,8 +205,8 @@ SUB_032B:
         LD C,A                           ; $033D  4F
         CALL SUB_0310                    ; $033E  CD 10 03
         RET                              ; $0341  C9
-; [AI] Prints a '$'-terminated message string at the address in BC (saved to $0C12) by calling BDOS
-;       function 9 (print string).
+; [AI] Prints the '$'-terminated message whose address is in BC by calling BDOS function 9 (print
+;       string) through SUB_0766.
 SUB_0342:
         LD HL,$0C13                      ; $0342  21 13 0C
         LD (HL),B                        ; $0345  70
@@ -238,8 +217,8 @@ SUB_0342:
         LD C,$09                         ; $034C  0E 09
         CALL SUB_0766                    ; $034E  CD 66 07
         RET                              ; $0351  C9
-; [AI] Emits a CR/LF then prints the '$'-terminated message whose address is in BC, i.e. a 'newline
-;       + message' console output helper.
+; [AI] Starts a fresh line (CR/LF) and then prints the '$'-terminated message addressed by BC; the
+;       standard 'newline + label' output helper.
 SUB_0352:
         LD HL,$0C15                      ; $0352  21 15 0C
         LD (HL),B                        ; $0355  70
@@ -251,9 +230,9 @@ SUB_0352:
         LD C,L                           ; $035F  4D
         CALL SUB_0342                    ; $0360  CD 42 03
         RET                              ; $0363  C9
-; [AI] Fatal-error reporter: prints CR/LF + 'ERROR: ' (message at $0129) followed by the specific
-;       error message addressed by BC, then aborts back to CP/M via the stack-restore exit
-;       (SUB_023B).
+; [AI] Fatal error reporter: prints the 'ERROR:' banner, the supplied error message, the 'LOAD
+;       ADDRESS' label and the current load address, then unwinds to the CCP via SUB_023B (aborting
+;       the program).
 SUB_0364:
         LD HL,$0C19                      ; $0364  21 19 0C
         LD (HL),B                        ; $0367  70
@@ -273,8 +252,8 @@ SUB_0364:
         CALL SUB_032B                    ; $0383  CD 2B 03
         CALL SUB_023B                    ; $0386  CD 3B 02
         RET                              ; $0389  C9
-; [AI] BDOS function 15 (open file) wrapper: stores the FCB address from BC into $0C1B, then calls
-;       BDOS and saves the directory-code result byte to $0C1A.
+; [AI] BDOS function 15 (open file) on the FCB in BC; stores the returned directory code at $0C1A
+;       so the caller can test for an open failure (0xFF = file not found).
 SUB_038A:
         LD HL,$0C1C                      ; $038A  21 1C 0C
 L_038D:
@@ -295,8 +274,8 @@ L_0399:
         LD ($0C1A),A                     ; $0399  32 1A 0C
 L_039C:
         RET                              ; $039C  C9
-; [AI] BDOS function 16 (close file) wrapper: takes the FCB address in BC, calls BDOS, and records
-;       the return code at $0C1A.
+; [AI] BDOS function 16 (close file) on the FCB in BC, saving the result code at $0C1A to detect a
+;       close failure on the output file.
 SUB_039D:
         LD HL,$0C1E                      ; $039D  21 1E 0C
         LD (HL),B                        ; $03A0  70
@@ -310,8 +289,8 @@ SUB_039D:
         RET                              ; $03AF  C9
         DEFB    $21,$20,$0C,$70,$2B,$71,$2A,$1F,$0C,$EB,$0E,$11,$CD,$69,$07,$32 ; $03B0
         DEFB    $1A,$0C,$C9,$11,$00,$00,$0E,$12,$CD,$69,$07,$32,$1A,$0C,$C9 ; $03C0
-; [AI] BDOS function 19 (delete file) wrapper: deletes the file named by the FCB whose address is
-;       passed in BC.
+; [AI] BDOS function 19 (delete file) on the FCB in BC, used to remove any pre-existing output .COM
+;       file before creating a new one.
 SUB_03CF:
         LD HL,$0C22                      ; $03CF  21 22 0C
 L_03D2:
@@ -330,8 +309,8 @@ L_03DB:
         CALL SUB_0766                    ; $03DB  CD 66 07
 L_03DE:
         RET                              ; $03DE  C9
-; [AI] BDOS function 20 (read sequential) wrapper: reads the next 128-byte record of the FCB in BC
-;       into the DMA buffer and stores the result code at $0C1A.
+; [AI] BDOS function 20 (read sequential) on the FCB in BC, returning the read status used to
+;       detect end-of-file on the source HEX file.
 SUB_03DF:
         LD HL,$0C24                      ; $03DF  21 24 0C
 L_03E2:
@@ -350,8 +329,8 @@ L_03EB:
         CALL SUB_0769                    ; $03EB  CD 69 07
 L_03EE:
         RET                              ; $03EE  C9
-; [AI] BDOS function 21 (write sequential) wrapper: writes the current 128-byte DMA record to the
-;       FCB in BC; result code returned in A and used to detect 'NO MORE DIRECTORY SPACE'.
+; [AI] BDOS function 21 (write sequential) on the FCB in BC, writing one 128-byte record of the
+;       assembled .COM output to disk.
 SUB_03EF:
         LD HL,$0C26                      ; $03EF  21 26 0C
         LD (HL),B                        ; $03F2  70
@@ -362,8 +341,8 @@ SUB_03EF:
         LD C,$15                         ; $03F9  0E 15
         CALL SUB_0769                    ; $03FB  CD 69 07
         RET                              ; $03FE  C9
-; [AI] BDOS function 22 (make file) wrapper: creates a new directory entry for the FCB in BC and
-;       saves the result code at $0C1A.
+; [AI] BDOS function 22 (make file) for the FCB in BC, creating the output file; the returned code
+;       at $0C1A flags a 'no directory space' failure.
 SUB_03FF:
         LD HL,$0C28                      ; $03FF  21 28 0C
 L_0402:
@@ -385,9 +364,8 @@ L_040E:
 L_0411:
         RET                              ; $0411  C9
         DEFB    $21,$2A,$0C,$70,$2B,$71,$2A,$29,$0C,$EB,$0E,$17,$CD,$66,$07,$C9 ; $0412
-; [AI] Generic memory block copier used to format FCB fields/strings: pops source and dest pointers
-;       and a length (E) off the stack and copies E bytes from source to destination, e.g.
-;       installing the 'COM' filetype into the output FCB.
+; [AI] Block-copy (memmove) helper: copies E bytes from the source address in BC to the destination
+;       popped from the caller's stack, used to relocate message bytes and fill the record buffer.
 SUB_0422:
         LD HL,$0C2F                      ; $0422  21 2F 0C
 L_0425:
@@ -414,8 +392,6 @@ L_042F:
         LD (HL),C                        ; $042F  71
 L_0430:
         PUSH DE                          ; $0430  D5
-; [AI] Copy loop body of SUB_0422: decrements the remaining count at $0C2F, and while non-zero
-;       copies one byte from the source pointer ($0C2B) to the dest pointer ($0C2D), advancing both.
 L_0431:
         LD A,($0C2F)                     ; $0431  3A 2F 0C
 L_0434:
@@ -452,12 +428,11 @@ L_0452:
         LD ($0C2D),HL                    ; $0452  22 2D 0C
 L_0455:
         JP L_0431                        ; $0455  C3 31 04
-; [AI] Exit of the block-copy loop when the byte count reaches zero (decremented to $FF).
 L_0458:
         RET                              ; $0458  C9
-; [AI] Buffered source-file byte reader: returns the next byte of the .HEX input file in A,
-;       refilling the 128-byte DMA record from disk (BDOS read via SUB_03DF) when the in-record
-;       index at $0C0B wraps.
+; [AI] Reads the next byte of the source HEX file, refilling the 128-byte DMA buffer with a fresh
+;       BDOS sequential read (and inserting an EOF/^Z marker) whenever the current record is
+;       exhausted.
 SUB_0459:
         LD HL,($0C0B)                    ; $0459  2A 0B 0C
 L_045C:
@@ -465,7 +440,7 @@ L_045C:
 L_045D:
         LD ($0C0B),HL                    ; $045D  22 0B 0C
 L_0460:
-        LD DE,$03FF                      ; $0460  11 FF 03
+        LD DE,SUB_03FF                   ; $0460  11 FF 03
 L_0463:
         CALL SUB_0796                    ; $0463  CD 96 07
 L_0466:
@@ -480,15 +455,12 @@ L_0470:
         LD A,(HL)                        ; $0470  7E
 L_0471:
         RET                              ; $0471  C9
-; [AI] Buffer-refill path of the byte reader: resets the record index and loops loading successive
-;       128-byte sectors (advancing the DMA via SUB_07B8), handling EOF and the $1A end-of-file
-;       marker substitution.
 L_0472:
-        LD HL,$0000                      ; $0472  21 00 00
+        LD HL,WBOOT_VEC                  ; $0472  21 00 00
 L_0475:
         LD ($0C0B),HL                    ; $0475  22 0B 0C
 L_0478:
-        LD DE,$03FF                      ; $0478  11 FF 03
+        LD DE,SUB_03FF                   ; $0478  11 FF 03
 L_047B:
         LD HL,$0C0B                      ; $047B  21 0B 0C
 L_047E:
@@ -497,10 +469,8 @@ L_0481:
         JP C,L_04DA                      ; $0481  DA DA 04
 L_0484:
         JP L_0497                        ; $0484  C3 97 04
-; [AI] Advances the DMA buffer pointer by 128 bytes ($0080) for the next sequential read of the
-;       source file.
 L_0487:
-        LD DE,$0080                      ; $0487  11 80 00
+        LD DE,DEFAULT_DMA                ; $0487  11 80 00
 L_048A:
         LD HL,($0C0B)                    ; $048A  2A 0B 0C
 L_048D:
@@ -510,8 +480,6 @@ L_048E:
 L_0491:
         JP NC,L_0478                     ; $0491  D2 78 04
         JP L_04DA                        ; $0494  C3 DA 04
-; [AI] Reads the next source record (BDOS-20 via SUB_03DF); a zero result means a full record was
-;       read, while non-zero indicates EOF and triggers $1A end-of-file handling.
 L_0497:
         LD BC,$07E9                      ; $0497  01 E9 07
 L_049A:
@@ -523,7 +491,7 @@ L_04A0:
 L_04A2:
         JP NZ,L_04BA                     ; $04A2  C2 BA 04
 L_04A5:
-        LD BC,$0080                      ; $04A5  01 80 00
+        LD BC,DEFAULT_DMA                ; $04A5  01 80 00
 L_04A8:
         PUSH BC                          ; $04A8  C5
 L_04A9:
@@ -542,8 +510,6 @@ L_04B4:
         CALL SUB_0422                    ; $04B4  CD 22 04
 L_04B7:
         JP L_04D7                        ; $04B7  C3 D7 04
-; [AI] EOF/error handling for the source reader: a read code other than 1 reports a disk read error
-;       (message at $0141); on plain EOF an $1A marker is placed and reading terminates.
 L_04BA:
         LD A,($0C30)                     ; $04BA  3A 30 0C
         CP $01                           ; $04BD  FE 01
@@ -555,23 +521,23 @@ L_04C8:
         LD BC,$080A                      ; $04CB  01 0A 08
         ADD HL,BC                        ; $04CE  09
         LD (HL),$1A                      ; $04CF  36 1A
-        LD HL,$03FF                      ; $04D1  21 FF 03
+        LD HL,SUB_03FF                   ; $04D1  21 FF 03
         LD ($0C0B),HL                    ; $04D4  22 0B 0C
 L_04D7:
         JP L_0487                        ; $04D7  C3 87 04
 L_04DA:
-        LD HL,$0000                      ; $04DA  21 00 00
+        LD HL,WBOOT_VEC                  ; $04DA  21 00 00
 L_04DD:
         LD ($0C0B),HL                    ; $04DD  22 0B 0C
 L_04E0:
         LD A,($080A)                     ; $04E0  3A 0A 08
 L_04E3:
         RET                              ; $04E3  C9
-; [AI] Core driver that translates the Intel HEX source file into the binary .COM image:
-;       initializes the running low/high address bounds, record counter and load pointer, then loops
-;       scanning for ':' record-start markers and decoding each HEX record.
+; [AI] The main HEX-load driver: scans the source file for each Intel-HEX record (synchronizing on
+;       the ':' start mark), parses its byte count, load address and record type, stores the data
+;       bytes into the output image, and on the end record prints the load summary.
 SUB_04E4:
-        LD HL,$0000                      ; $04E4  21 00 00
+        LD HL,WBOOT_VEC                  ; $04E4  21 00 00
 L_04E7:
         LD ($0C36),HL                    ; $04E7  22 36 0C
 L_04EA:
@@ -583,7 +549,7 @@ L_04F0:
 L_04F1:
         LD ($0D3C),A                     ; $04F1  32 3C 0D
 L_04F4:
-        LD HL,$0100                      ; $04F4  21 00 01
+        LD HL,TPA_START                  ; $04F4  21 00 01
 L_04F7:
         LD ($0C34),HL                    ; $04F7  22 34 0C
 L_04FA:
@@ -592,8 +558,6 @@ L_04FD:
         LD HL,$080A                      ; $04FD  21 0A 08
 L_0500:
         LD (HL),$1A                      ; $0500  36 1A
-; [AI] Scan loop that reads source bytes until a ':' ($3A) is found, marking the start of the next
-;       Intel HEX record.
 L_0502:
         CALL SUB_0459                    ; $0502  CD 59 04
 L_0505:
@@ -602,9 +566,6 @@ L_0507:
         JP Z,L_050D                      ; $0507  CA 0D 05
 L_050A:
         JP L_0502                        ; $050A  C3 02 05
-; [AI] Decodes one Intel HEX record after the ':': clears the checksum accumulator ($0C32), reads
-;       and validates the byte count (zero count signals the end record), then reads the load-
-;       address and record-type fields.
 L_050D:
         LD HL,$0C32                      ; $050D  21 32 0C
         LD (HL),$00                      ; $0510  36 00
@@ -613,8 +574,6 @@ L_050D:
         CP $00                           ; $0518  FE 00
         JP NZ,L_0520                     ; $051A  C2 20 05
         JP L_05A1                        ; $051D  C3 A1 05
-; [AI] Reads the record's 16-bit load address, updates the current output pointer ($0C34/$0C16),
-;       and on the first data byte records the file's lowest (first) address into $0C36.
 L_0520:
         LD A,($0C31)                     ; $0520  3A 31 0C
         LD DE,$0C3A                      ; $0523  11 3A 0C
@@ -643,9 +602,6 @@ L_0520:
 L_0553:
         CALL SUB_073D                    ; $0553  CD 3D 07
         LD ($0C33),A                     ; $0556  32 33 0C
-; [AI] Data-byte loop for the current HEX record: reads each data byte, deposits it into the
-;       assembled image buffer (SUB_05FD), advances the output address, and decrements the per-
-;       record byte count.
 L_0559:
         LD A,($0C31)                     ; $0559  3A 31 0C
         DEC A                            ; $055C  3D
@@ -659,9 +615,6 @@ L_0559:
         INC HL                           ; $056F  23
         LD ($0C16),HL                    ; $0570  22 16 0C
         JP L_0559                        ; $0573  C3 59 05
-; [AI] After a record, updates the highest (last) address seen ($0C38) and verifies the record
-;       checksum (SUB_072E); a non-zero sum reports 'CHECK SUM ERROR' and dumps the offending record
-;       (SUB_0680).
 L_0576:
         LD DE,$0C38                      ; $0576  11 38 0C
         LD BC,$0C16                      ; $0579  01 16 0C
@@ -681,8 +634,6 @@ L_0589:
         CALL SUB_0680                    ; $059B  CD 80 06
 L_059E:
         JP L_0502                        ; $059E  C3 02 05
-; [AI] End-of-input finalization: flushes the remaining buffered output bytes from the last partial
-;       128-byte page to the .COM file before printing the load summary.
 L_05A1:
         LD HL,($0C16)                    ; $05A1  2A 16 0C
         LD ($0C34),HL                    ; $05A4  22 34 0C
@@ -697,8 +648,6 @@ L_05A7:
         INC HL                           ; $05BB  23
         LD ($0C16),HL                    ; $05BC  22 16 0C
         JP L_05A7                        ; $05BF  C3 A7 05
-; [AI] Prints the final load report: 'FIRST ADDRESS', 'LAST ADDRESS', 'BYTES READ', and 'RECORDS
-;       WRITTEN' values ($0C36/$0C38/$0C3A/$0D3C) as hex, terminated with CR/LF.
 L_05C2:
         LD BC,$01B9                      ; $05C2  01 B9 01
         CALL SUB_0352                    ; $05C5  CD 52 03
@@ -725,9 +674,9 @@ L_05C2:
         CALL SUB_0310                    ; $05F6  CD 10 03
         CALL SUB_02E0                    ; $05F9  CD E0 02
         RET                              ; $05FC  C9
-; [AI] Deposits one decoded data byte (in C) into the output image and flushes full 128-byte pages
-;       to disk: buffers the byte by relative address into the page buffer at $0C3C, writing
-;       completed records via BDOS-21 (SUB_03EF) and incrementing the record-written count at $0D3C.
+; [AI] Stores one decoded data byte (in C) at the current load address: flushes the in-memory
+;       output buffer to disk via BDOS writes whenever it crosses a 256-byte page boundary, keeping
+;       the on-disk file aligned to the program's load addresses.
 SUB_05FD:
         LD HL,$0D3F                      ; $05FD  21 3F 0D
         LD (HL),C                        ; $0600  71
@@ -737,9 +686,6 @@ SUB_05FD:
         JP NC,L_0613                     ; $060A  D2 13 06
         LD BC,$014B                      ; $060D  01 4B 01
         CALL SUB_0364                    ; $0610  CD 64 03
-; [AI] Page-flush loop: while the current address has reached the end of a 128-byte page, copies
-;       the assembled bytes into the DMA record and writes it to the output .COM file, reporting
-;       'DISK WRITE' errors.
 L_0613:
         LD DE,$00FF                      ; $0613  11 FF 00
         LD HL,($0D3D)                    ; $0616  2A 3D 0D
@@ -764,7 +710,7 @@ L_0629:
         PUSH HL                          ; $063D  E5
         LD HL,($0D40)                    ; $063E  2A 40 0D
         LD H,$00                         ; $0641  26 00
-        LD BC,$0080                      ; $0643  01 80 00
+        LD BC,DEFAULT_DMA                ; $0643  01 80 00
         ADD HL,BC                        ; $0646  09
         POP DE                           ; $0647  D1
         LD A,(DE)                        ; $0648  1A
@@ -778,7 +724,7 @@ L_0629:
 L_0658:
         LD HL,$0D3C                      ; $0658  21 3C 0D
         INC (HL)                         ; $065B  34
-        LD BC,$005C                      ; $065C  01 5C 00
+        LD BC,DEFAULT_FCB                ; $065C  01 5C 00
         CALL SUB_03EF                    ; $065F  CD EF 03
         CP $00                           ; $0662  FE 00
         JP Z,L_066D                      ; $0664  CA 6D 06
@@ -786,8 +732,6 @@ L_0658:
         CALL SUB_0364                    ; $066A  CD 64 03
 L_066D:
         JP L_0613                        ; $066D  C3 13 06
-; [AI] Stores a single decoded data byte into the page buffer at $0C3C indexed by the low byte of
-;       the current address, when no page flush is yet needed.
 L_0670:
         LD HL,($0C16)                    ; $0670  2A 16 0C
         LD A,L                           ; $0673  7D
@@ -798,9 +742,9 @@ L_0670:
         LD A,($0D3F)                     ; $067B  3A 3F 0D
         LD (HL),A                        ; $067E  77
         RET                              ; $067F  C9
-; [AI] Diagnostic record dumper invoked on a checksum error: prints the record's load address, the
-;       current address, byte count, and a hex dump of the record's data bytes for the user to
-;       inspect.
+; [AI] Diagnostic hex dump of the just-loaded record's bytes, printing the address followed by the
+;       data in 16-byte rows; invoked on a checksum or other record error to show the offending
+;       data.
 SUB_0680:
         LD BC,$016C                      ; $0680  01 6C 01
         CALL SUB_0352                    ; $0683  CD 52 03
@@ -817,8 +761,6 @@ SUB_0680:
         LD BC,$018A                      ; $069C  01 8A 01
         CALL SUB_0352                    ; $069F  CD 52 03
         CALL SUB_06E6                    ; $06A2  CD E6 06
-; [AI] Hex-dump loop within SUB_0680: prints each buffered data byte as two hex digits separated by
-;       spaces, inserting a new address line (SUB_06E6) every 16 bytes.
 L_06A5:
         LD BC,$0C16                      ; $06A5  01 16 0C
         LD DE,$0C34                      ; $06A8  11 34 0C
@@ -848,8 +790,8 @@ L_06DF:
         CALL SUB_02E0                    ; $06DF  CD E0 02
         CALL SUB_023B                    ; $06E2  CD 3B 02
         RET                              ; $06E5  C9
-; [AI] Emits a CR/LF and the current address followed by ': ' to begin a new line of the hex-dump
-;       display.
+; [AI] Prints the address column header for the SUB_0680 hex dump: a new line, the 4-digit address,
+;       then ': ' separator.
 SUB_06E6:
         CALL SUB_02E0                    ; $06E6  CD E0 02
         LD HL,($0C34)                    ; $06E9  2A 34 0C
@@ -861,9 +803,8 @@ SUB_06E6:
         LD C,$20                         ; $06F6  0E 20
         CALL SUB_02D0                    ; $06F8  CD D0 02
         RET                              ; $06FB  C9
-; [AI] Reads one ASCII hex digit from the source file and converts it to its 0-15 numeric value; an
-;       out-of-range character is reported as an 'INVALID HEX DIGIT' error (via the record-dump
-;       path).
+; [AI] Reads one ASCII character from the source file and converts it from a hex digit to its 0-15
+;       value, reporting an 'invalid hex digit' error if the character is not 0-9 or A-F.
 SUB_06FC:
         CALL SUB_0459                    ; $06FC  CD 59 04
         LD ($0D41),A                     ; $06FF  32 41 0D
@@ -875,8 +816,6 @@ SUB_06FC:
         LD A,($0D41)                     ; $070B  3A 41 0D
         SUB $30                          ; $070E  D6 30
         RET                              ; $0710  C9
-; [AI] Handles hex digits 'A'-'F': validates the letter is within range (else INVALID HEX DIGIT)
-;       and converts it to value 10-15.
 L_0711:
         LD A,($0D41)                     ; $0711  3A 41 0D
         SUB $41                          ; $0714  D6 41
@@ -892,8 +831,8 @@ L_0726:
         SUB $41                          ; $0729  D6 41
         ADD A,$0A                        ; $072B  C6 0A
         RET                              ; $072D  C9
-; [AI] Reads two ASCII hex digits from the source and combines them into one byte (high nibble
-;       shifted left 4 bits, OR'd with low nibble).
+; [AI] Reads two source characters and combines them (high nibble shifted left 4, OR low nibble)
+;       into one assembled byte value via SUB_06FC.
 SUB_072E:
         CALL SUB_06FC                    ; $072E  CD FC 06
         ADD A,A                          ; $0731  87
@@ -906,8 +845,8 @@ SUB_072E:
         LD C,B                           ; $073A  48
         OR C                             ; $073B  B1
         RET                              ; $073C  C9
-; [AI] Reads one hex byte from the source and adds it into the running record checksum accumulator
-;       at $0C32, returning the byte value in A; used for every byte of a HEX record.
+; [AI] Reads one HEX byte through SUB_072E and folds it into the running record checksum at $0C32;
+;       the core 'get checksummed byte' used while parsing a record.
 SUB_073D:
         CALL SUB_072E                    ; $073D  CD 2E 07
         LD ($0D42),A                     ; $0740  32 42 0D
@@ -916,9 +855,8 @@ SUB_073D:
         LD (HL),A                        ; $0747  77
         LD A,($0D42)                     ; $0748  3A 42 0D
         RET                              ; $074B  C9
-; [AI] Computes the 16-bit current load address from a record's address field: scales/combines the
-;       high and low halves (left-shift loop SUB_078D plus add SUB_077F) into the final address
-;       word.
+; [AI] Computes a record's full 16-bit load address by taking the base address and adding the byte
+;       offset (multiplied/shifted into place), combining the high and low parts.
 SUB_074C:
         LD HL,$0D44                      ; $074C  21 44 0D
         LD (HL),E                        ; $074F  73
@@ -932,17 +870,17 @@ SUB_074C:
         CALL SUB_077F                    ; $075F  CD 7F 07
         RET                              ; $0762  C9
         DEFB    $C3,$00,$00                                      ; $0763
-; [AI] BDOS entry trampoline (JP $0005); used for BDOS calls whose function number is preset in C,
-;       e.g. function 2 (console out) and function 9 (print string).
+; [AI] BDOS call trampoline (JP $0005); routines load the function number in C and the parameter in
+;       DE then jump here to reach the BDOS.
 SUB_0766:
         JP BDOS_VEC                      ; $0766  C3 05 00
-; [AI] BDOS entry trampoline (JP $0005); used by the file-operation wrappers that preset the BDOS
-;       function number in C (open/close/read/write/make).
+; [AI] A second BDOS-call trampoline (JP $0005), used by the file-open/close/read/write/create
+;       routines that need the directory/status code returned in A.
 SUB_0769:
         JP BDOS_VEC                      ; $0769  C3 05 00
         DEFB    $CD,$05,$00,$C9,$C9,$C9                          ; $076C
-; [AI] 16-bit indexed-add helper: adds the word at the table/base address (HL) offset by the index
-;       in A to the value in DE, producing a 16-bit sum used in address arithmetic.
+; [AI] Indexes a 16-bit table by the value in A: forms a word pointer and adds the addressed table
+;       entry to HL, a small lookup/add helper used in address computation.
 SUB_0772:
         EX DE,HL                         ; $0772  EB
         LD E,A                           ; $0773  5F
@@ -956,8 +894,8 @@ SUB_0772:
         ADC A,H                          ; $077C  8C
         LD H,A                           ; $077D  67
         RET                              ; $077E  C9
-; [AI] 16-bit OR helper: ORs an 8-bit value (in A, zero-extended) into the HL register pair, used
-;       in assembling address words.
+; [AI] ORs the 8-bit value in A into the low byte of HL (high byte OR 0), merging a byte into a
+;       16-bit accumulator.
 SUB_077F:
         LD E,A                           ; $077F  5F
         LD D,$00                         ; $0780  16 00
@@ -969,16 +907,16 @@ SUB_077F:
         LD H,A                           ; $0787  67
         RET                              ; $0788  C9
         DEFB    $5E,$23,$56,$EB                                  ; $0789
-; [AI] 16-bit left-shift routine: shifts HL left by the count in C (repeated ADD HL,HL), i.e.
-;       multiplies HL by 2^C, used to position the high half of a value.
+; [AI] Left-shifts HL by C bit positions (repeated ADD HL,HL), i.e. multiplies HL by a power of
+;       two; used in scaling the record's address fields.
 SUB_078D:
         ADD HL,HL                        ; $078D  29
         DEC C                            ; $078E  0D
         JP NZ,SUB_078D                   ; $078F  C2 8D 07
         RET                              ; $0792  C9
         DEFB    $5F,$16,$00                                      ; $0793
-; [AI] 16-bit subtract helper: computes DE minus HL and returns the result in HL (low byte SUB,
-;       high byte SBC).
+; [AI] 16-bit subtraction HL = DE - HL, leaving the borrow in the carry flag so the caller can
+;       compare two addresses.
 SUB_0796:
         LD A,E                           ; $0796  7B
 L_0797:
@@ -993,9 +931,9 @@ L_079B:
         LD H,A                           ; $079B  67
 L_079C:
         RET                              ; $079C  C9
-; [AI] 16-bit signed compare helper: computes (DE) minus (BC) where both operands are word
-;       pointers, returning the difference in HL and setting carry, used to test whether the current
-;       address has passed an address bound.
+; [AI] 16-bit compare-by-subtraction of two memory-resident pointers: loads the word at (BC),
+;       subtracts it from the word at (DE), returning carry to signal which pointer is larger (loop-
+;       termination test).
 SUB_079D:
         LD L,C                           ; $079D  69
         LD H,B                           ; $079E  60
@@ -1010,8 +948,8 @@ SUB_079D:
         SBC A,B                          ; $07A7  98
         LD H,A                           ; $07A8  67
         RET                              ; $07A9  C9
-; [AI] 16-bit compare of an 8-bit value (in A) against the word at (DE): subtracts to set
-;       carry/produce a difference in HL, used in the address-bound and first-address comparisons.
+; [AI] Computes HL = word at (DE) minus the byte in A, a mixed 8/16-bit subtraction used when
+;       checking the high-load-address bound.
 SUB_07AA:
         LD L,A                           ; $07AA  6F
         LD H,$00                         ; $07AB  26 00
@@ -1024,9 +962,8 @@ SUB_07AA:
         LD H,A                           ; $07B3  67
         RET                              ; $07B4  C9
         DEFB    $5F,$16,$00                                      ; $07B5
-; [AI] 16-bit subtract-and-swap helper: computes DE minus the word at (HL), leaving the result in
-;       HL (via DE) and setting carry; used to test the DMA/address page boundary during reads and
-;       writes.
+; [AI] 16-bit subtraction of the word at (HL) from DE, returning the result in HL with carry set,
+;       used to test whether the current address has crossed a record/page boundary.
 SUB_07B8:
         LD A,E                           ; $07B8  7B
 L_07B9:

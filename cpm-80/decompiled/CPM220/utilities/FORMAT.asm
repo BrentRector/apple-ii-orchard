@@ -10,32 +10,33 @@
 ; -- External symbols --
 WBOOT_VEC            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
 BDOS_VEC             EQU $0005               ; BDOS call vector — JP BDOS_ENTRY. Programs use CALL $0005 to invoke BDOS. Word at $0006 is also the top-of-TPA marker.
+DEFAULT_DMA          EQU $0080               ; Default DMA buffer — also command-line tail. First byte = length, then characters. Returned to default by BDOS function 13 (DRV_ALLRESET).
+CMDLINE              EQU $0081               ; Command-line tail characters (uppercase, with leading space). Same buffer as DEFAULT_DMA.
 
     ORG $0100
 
-; [AI] FORMAT.COM entry point at the TPA ($0100). Sets SP to a local stack within the program,
-;       prints the sign-on banner via SUB_01C8, then checks the command-tail length byte at $0080 to
-;       decide between interactive prompting and parsing a drive argument.
+; [AI] Standard CP/M transient entry point at $0100; sets up the local stack and begins the FORMAT
+;       program.
 TPA_START:
         LD SP,$0239                      ; $0100  31 39 02
+; [AI] Prints the program banner: loads DE with the banner string address ($0239) ahead of the
+;       print-string call.
 L_0103:
         LD DE,$0239                      ; $0103  11 39 02
 L_0106:
         CALL SUB_01C8                    ; $0106  CD C8 01
-; [AI] Reads the command-tail character count from $0080 (set by the CCP); stores it to flag $0216
-;       and, if zero (no arguments), branches to the fully interactive 'which drive?' path at
-;       L_01A7.
+; [AI] Reads the command-tail length byte and saves it as a flag indicating whether arguments were
+;       given on the command line.
 L_0109:
-        LD A,($0080)                     ; $0109  3A 80 00
+        LD A,(DEFAULT_DMA)               ; $0109  3A 80 00
 L_010C:
         LD ($0216),A                     ; $010C  32 16 02
 L_010F:
         OR A                             ; $010F  B7
 L_0110:
         JP Z,L_01A7                      ; $0110  CA A7 01
-; [AI] Parses the drive letter: reads the first command-tail char at $0082, upper-cases it via
-;       SUB_0210, stores it into the prompt strings at $030A/$036D, and validates it is a letter
-;       followed by ':' at $0083.
+; [AI] Main command processor: fetches the drive-letter argument, upcases it, and stores it into
+;       the running 6502 format routine's drive-select slots ($030A, $036D).
 L_0113:
         LD A,($0082)                     ; $0113  3A 82 00
         CALL SUB_0210                    ; $0116  CD 10 02
@@ -45,23 +46,23 @@ L_0113:
         JR C,L_0130                      ; $0121  38 0D
         JR NZ,L_0128                     ; $0123  20 03
         LD ($0217),A                     ; $0125  32 17 02
-; [AI] Holds the parsed drive index (letter minus 'A') in C and checks that the next command-tail
-;       byte ($0083) is a colon ':'; on success continues to drive-range validation, otherwise falls
-;       through to the command-error message.
+; [AI] Validates the argument syntax, requiring the second tail character to be a colon (':') as in
+;       a 'X:' drive specifier.
 L_0128:
         LD C,A                           ; $0128  4F
         LD A,($0083)                     ; $0129  3A 83 00
         CP $3A                           ; $012C  FE 3A
         JR Z,L_0138                      ; $012E  28 08
-; [AI] Command-error exit: loads DE with the '$'-terminated 'Command Error' string and prints it
-;       via SUB_01C8, then rejoins the main flow at L_019E.
+; [AI] Command-error path: points DE at the 'Command Error' message for printing before re-
+;       prompting.
 L_0130:
         LD DE,$0293                      ; $0130  11 93 02
+; [AI] Prints the pending message (DE) and falls through to the end-of-pass cleanup.
 L_0133:
         CALL SUB_01C8                    ; $0133  CD C8 01
         JR L_019E                        ; $0136  18 66
-; [AI] Validates the requested drive against the BIOS maximum-drive value held at $F3B8; if the
-;       drive number is out of range it prints the 'Invalid Drive' message ($02D5).
+; [AI] Range-checks the requested drive against the BIOS maximum-drive byte ($F3B8); an out-of-
+;       range drive selects the 'Invalid Drive' message.
 L_0138:
         LD HL,$F3B8                      ; $0138  21 B8 F3
         LD A,C                           ; $013B  79
@@ -69,15 +70,14 @@ L_0138:
         JR C,L_0144                      ; $013D  38 05
         LD DE,$02D5                      ; $013F  11 D5 02
         JR L_0133                        ; $0142  18 EF
-; [AI] Drive is valid: calls SUB_01E9 (BIOS select/home for that drive), prints the 'Insert disk to
-;       be formatted in drive Z:' prompt ($02E3), then waits for the user to press RETURN.
+; [AI] Selects the target drive (via the SoftCard BIOS sub-entry) and prints the 'Insert disk to be
+;       formatted in drive X:' prompt.
 L_0144:
         CALL SUB_01E9                    ; $0144  CD E9 01
         LD DE,$02E3                      ; $0147  11 E3 02
         CALL SUB_01C8                    ; $014A  CD C8 01
-; [AI] Console input wait-loop: repeatedly calls SUB_0201 (BDOS direct console I/O) until a
-;       carriage return ($0D) is read, confirming the user is ready; then invokes SUB_01D2 to
-;       perform the actual track-by-track format.
+; [AI] Waits for the user to press RETURN (loops on console input until carriage return) before
+;       formatting begins.
 L_014D:
         CALL SUB_0201                    ; $014D  CD 01 02
         CP $0D                           ; $0150  FE 0D
@@ -87,8 +87,8 @@ L_014D:
         JR NZ,L_0173                     ; $0158  20 19
         LD DE,$035A                      ; $015A  11 5A 03
         CALL SUB_01C8                    ; $015D  CD C8 01
-; [AI] Y/N confirmation input loop after warning the disk will be erased: accepts only 'Y' ($59,
-;       proceed) or 'N' ($4E, abort); any other key keeps polling SUB_0201.
+; [AI] Y/N confirmation loop after the 'will be ERASED' warning; accepts only 'Y' or 'N' and
+;       ignores other keys.
 L_0160:
         CALL SUB_0201                    ; $0160  CD 01 02
         CP $59                           ; $0163  FE 59
@@ -97,13 +97,12 @@ L_0160:
         JR NZ,L_0160                     ; $0169  20 F5
         CALL SUB_01CC                    ; $016B  CD CC 01
         JR L_019E                        ; $016E  18 2E
-; [AI] User confirmed (Y): echoes the keystroke via SUB_01CC and falls through to the format-result
-;       reporting code.
+; [AI] User confirmed with 'Y': echoes the key and proceeds to perform the format.
 L_0170:
         CALL SUB_01CC                    ; $0170  CD CC 01
-; [AI] Reports the format result: prints 'Formatting...' ($0281), seeds the directory/fill word
-;       ($1400) and a BIOS workspace pointer, then selects a status message ('FORMAT Complete',
-;       'Disk Write Protected', or 'Disk I/O Error') based on the error code at $F3EA.
+; [AI] Format execution: prints 'Formatting...', sets the track count ($1400 into BIOS field
+;       $F3D0), and invokes the formatter, then reports the result based on the BIOS error code at
+;       $F3EA (0 = complete, $10 = write-protected, else I/O error).
 L_0173:
         LD DE,$0281                      ; $0173  11 81 02
         CALL SUB_01C8                    ; $0176  CD C8 01
@@ -121,67 +120,65 @@ L_0173:
         CP $10                           ; $0194  FE 10
         JR NZ,L_019B                     ; $0196  20 03
         LD DE,$02A1                      ; $0198  11 A1 02
+; [AI] Prints the selected result/error message for the completed (or failed) format pass.
 L_019B:
         CALL SUB_01C8                    ; $019B  CD C8 01
-; [AI] Common rejoin point that clears the args-present flag at $0216 (so the next iteration re-
-;       reads command tail) and decides whether to loop for another drive or proceed to the warm-
-;       boot/exit path.
+; [AI] End-of-pass: clears the 'args supplied' flag at $0216 so that, after this pass, the program
+;       switches to interactive prompting.
 L_019E:
         LD HL,$0216                      ; $019E  21 16 02
         LD A,(HL)                        ; $01A1  7E
         LD (HL),$00                      ; $01A2  36 00
         OR A                             ; $01A4  B7
         JR NZ,L_01EF                     ; $01A5  20 48
-; [AI] Interactive entry: prints the 'Format disk in which drive?' prompt ($0391) used when FORMAT
-;       is run with no command-line drive argument.
+; [AI] Interactive-mode entry: prints the 'Format disk in which drive?' prompt when no drive was
+;       given on the command line.
 L_01A7:
         LD DE,$0391                      ; $01A7  11 91 03
 L_01AA:
         CALL SUB_01C8                    ; $01AA  CD C8 01
-; [AI] Sets up a 1-byte console buffer at $0080 (max length $80) and calls BDOS function 10 (read
-;       console line) to obtain the drive letter interactively, echoes a newline, then loops back to
-;       re-parse the input at L_0113.
+; [AI] Reads a console line into the DMA buffer: sets the buffer max-length byte to $80 then calls
+;       BDOS read-console-buffer (function 10).
 L_01AD:
         LD A,$80                         ; $01AD  3E 80
 L_01AF:
-        LD ($0080),A                     ; $01AF  32 80 00
+        LD (DEFAULT_DMA),A               ; $01AF  32 80 00
+; [AI] Issues BDOS function 10 (buffered console input) to collect the interactive drive entry.
 L_01B2:
         LD C,$0A                         ; $01B2  0E 0A
 L_01B4:
-        LD DE,$0080                      ; $01B4  11 80 00
+        LD DE,DEFAULT_DMA                ; $01B4  11 80 00
 L_01B7:
         CALL BDOS_VEC                    ; $01B7  CD 05 00
 L_01BA:
         LD A,$0A                         ; $01BA  3E 0A
 L_01BC:
         CALL SUB_01CC                    ; $01BC  CD CC 01
+; [AI] Checks whether the user typed anything; an empty line (no first character) ends the program,
+;       otherwise loops back to process the entered drive.
 L_01BF:
-        LD A,($0081)                     ; $01BF  3A 81 00
+        LD A,(CMDLINE)                   ; $01BF  3A 81 00
 L_01C2:
         OR A                             ; $01C2  B7
 L_01C3:
         JR Z,L_01EF                      ; $01C3  28 2A
         JP L_0113                        ; $01C5  C3 13 01
-; [AI] Print '$'-terminated string: loads C=9 and falls into the BDOS dispatcher to invoke BDOS
-;       function 9 (print string), with DE pointing at the message.
+; [AI] Print-string helper: loads C=9 (BDOS print-string) and prints the '$'-terminated message
+;       pointed to by DE.
 SUB_01C8:
         LD C,$09                         ; $01C8  0E 09
 L_01CA:
         JR L_01CF                        ; $01CA  18 03
-; [AI] Console-output one character: moves A into E, loads C=2, and calls BDOS function 2 (console
-;       output) to print the character.
+; [AI] Console-output-character helper: loads C=2 (BDOS console out) and writes the character in A.
 SUB_01CC:
         LD E,A                           ; $01CC  5F
 L_01CD:
         LD C,$02                         ; $01CD  0E 02
-; [AI] Shared BDOS tail used by SUB_01C8/SUB_01CC: jumps to the BDOS entry vector ($0005) with the
-;       function number already in C.
+; [AI] Shared BDOS tail-call used by both the print-string and console-out helpers.
 L_01CF:
         JP BDOS_VEC                      ; $01CF  C3 05 00
-; [AI] Performs the disk format: toggles a side/format-mode flag at $0218, calls SUB_01E3 (BIOS
-;       home/select), then computes a SoftCard BIOS jump-table entry from the WBOOT address word at
-;       $0001 (re-pointing L to offset $27) and jumps into the BIOS format routine that drives the
-;       downloaded 6502 code.
+; [AI] Toggles a side/select flag at $0218 and calls into the SoftCard BIOS sub-entry at offset
+;       $27, used to drive the Apple disk hardware during formatting.
 SUB_01D2:
         LD HL,$0218                      ; $01D2  21 18 02
         LD C,(HL)                        ; $01D5  4E
@@ -192,22 +189,20 @@ SUB_01D2:
         LD HL,($0001)                    ; $01DD  2A 01 00
         LD L,$27                         ; $01E0  2E 27
         JP (HL)                          ; $01E2  E9
-; [AI] Calls a SoftCard BIOS extension vector: reads the BIOS base from the page-zero WBOOT address
-;       at $0001, replaces the low byte with $1E to index the BIOS jump table, and jumps there (BIOS
-;       home/select step before formatting).
+; [AI] Calls the SoftCard BIOS sub-entry at offset $1E by patching the low byte of the BDOS-pointer
+;       word ($0001) and jumping through it; a 6502-bridge driver service.
 SUB_01E3:
         LD HL,($0001)                    ; $01E3  2A 01 00
         LD L,$1E                         ; $01E6  2E 1E
         JP (HL)                          ; $01E8  E9
-; [AI] Calls a SoftCard BIOS extension vector by indexing the BIOS jump table (base from $0001, low
-;       byte set to $1B) and jumping to it — the per-drive select/seek primitive invoked before
-;       formatting.
+; [AI] Calls the SoftCard BIOS sub-entry at offset $1B (the drive-select service) by patching the
+;       low byte of the BDOS pointer and jumping through it.
 SUB_01E9:
         LD HL,($0001)                    ; $01E9  2A 01 00
         LD L,$1B                         ; $01EC  2E 1B
         JP (HL)                          ; $01EE  E9
-; [AI] Exit handling: tests the 'invalid/system-disk' flag at $0217; if set, prompts 'Insert CP/M
-;       System disk in drive A:' and waits for a key before warm-booting so the system can reload.
+; [AI] Program-exit path: if no command-line drive was given it shows 'Insert CP/M System disk in
+;       drive A:' / 'Press RETURN' before warm-booting.
 L_01EF:
         LD A,($0217)                     ; $01EF  3A 17 02
 L_01F2:
@@ -217,12 +212,11 @@ L_01F3:
         LD DE,$0325                      ; $01F5  11 25 03
         CALL SUB_01C8                    ; $01F8  CD C8 01
         CALL SUB_0201                    ; $01FB  CD 01 02
-; [AI] Terminates FORMAT by jumping to the CP/M warm-boot vector at $0000, which reloads the
-;       CCP/BDOS and returns to the command prompt.
+; [AI] Final exit via the warm-boot vector, returning the user to the CP/M command processor.
 L_01FE:
         JP WBOOT_VEC                     ; $01FE  C3 00 00
-; [AI] Direct console I/O via BDOS function 6 (E=$FF = input): polls until a key is available,
-;       returning the character in A; aborts to warm boot if Ctrl-C ($03) is pressed.
+; [AI] Single-key input wait using BDOS function 6 (direct console I/O) with E=$FF; spins until a
+;       key is pressed and aborts to warm boot on Ctrl-C ($03).
 SUB_0201:
         LD E,$FF                         ; $0201  1E FF
         LD C,$06                         ; $0203  0E 06
@@ -231,8 +225,8 @@ SUB_0201:
         JR Z,SUB_0201                    ; $0209  28 F6
         CP $03                           ; $020B  FE 03
         JP Z,WBOOT_VEC                   ; $020D  CA 00 00
-; [AI] Converts a character in A to upper-case: if it is at or above $60 (lower-case range) it
-;       subtracts $20, otherwise leaves it unchanged. Used to normalize the drive letter.
+; [AI] Lowercase-to-uppercase converter: characters at or above $60 have $20 subtracted so drive
+;       letters are normalized to upper case.
 SUB_0210:
         CP $60                           ; $0210  FE 60
         RET C                            ; $0212  D8

@@ -6,15 +6,13 @@ physical (track, sector) position on the disk." The binary is one of:
   * a stem matching a `docs/CPM*.asm` source (assembled by
     `cpm_pipeline.assemble`); these are the bytes the round-trip annotated
     sources emit.
-  * a stem matching a pre-extracted file in `cpm-investigation/` (e.g.
-    `staging_223`, `newdisk_223`); these are bytes we don't yet have an
-    annotated source for, so we read them from the prior investigation's
-    extraction artifacts.
-
-Phase 1 ships with the maps that were proven correct by
-`cpm-investigation/pack_dsk.py` (the 2.23 case is fully covered there).
-A future phase (Stage 2 of the roadmap) will derive these maps
-automatically from boot-loader tracing instead of hand-listing them.
+Both variants are now fully sourced: every boot/OS sector maps to an
+assembled `docs/CPM*.asm` source (no pre-extracted `.bin` remains in the
+map). The CCP+BDOS+BIOS LOAD_CPM staging area is split across
+`CPM*_SystemImage`, `CPM*_DiskCallbacks` (2.23), and `CPM*_BIOS_Disk`
+(the pristine on-disk BIOS image). A future phase (Stage 2 of the
+roadmap) will derive these maps automatically from boot-loader tracing
+instead of hand-listing them.
 
 Sector positions are *physical*; the disk-format module translates
 to on-disk file offsets per .dsk/.po convention.
@@ -85,9 +83,15 @@ SOURCES_223: dict[str, ChunkSource | Path] = {
         cpu="z80", org=0xFA00, size=0x0548,
         expected_bin_name="build/CPM223_BIOS.bin",
     ),
-    # Pre-extracted binaries we don't yet have an annotated source for:
-    "staging_223": INVEST / "staging_223.bin",
-    "newdisk_223": INVEST / "newdisk_223.bin",
+    # The pristine on-disk BIOS image as it sits in the LOAD_CPM staging area
+    # (jump table first, org $FA00). This differs from CPM223_BIOS.asm, which is
+    # the cold-boot-PATCHED runtime BIOS used for analysis; the disk holds the
+    # un-patched copy, so it needs its own source.
+    "CPM223_BIOS_Disk": ChunkSource(
+        asm_path=DOCS / "CPM223_BIOS_Disk.asm",
+        cpu="z80", org=0xFA00, size=0x0400,
+        expected_bin_name="build/CPM223_BIOS_Disk.bin",
+    ),
 }
 
 
@@ -137,15 +141,21 @@ def _build_chunks_223():
     staging_sectors += [(1, p) for p in range(0x10)]
     staging_sectors += [(2, p) for p in range(0x8)]
 
+    # Each 256-byte staging sector now comes from an assembled annotated
+    # source rather than the pre-extracted staging_223.bin:
+    #   offset $0000-$16FF (sectors 0-22)  -> CPM223_SystemImage   (CCP + BDOS)
+    #   offset $1700-$18FF (sectors 23-24) -> CPM223_DiskCallbacks
+    #   offset $1900-$1CFF (sectors 25-28) -> CPM223_BIOS_Disk     (pristine BIOS @ $FA00)
     for i, (track, phys) in enumerate(staging_sectors):
-        # Until Stage 2 of the roadmap can split staging into per-asm
-        # pieces, we use the pre-extracted staging_223.bin as the source.
-        # 5888 of these 7424 bytes correspond to CPM223_SystemImage.asm's
-        # output; the remaining 1536 bytes are BIOS-area content not yet
-        # in an annotated source.
+        off = i * 0x100
+        if off < 0x1700:
+            src, base = "CPM223_SystemImage", 0x0000
+        elif off < 0x1900:
+            src, base = "CPM223_DiskCallbacks", 0x1700
+        else:
+            src, base = "CPM223_BIOS_Disk", 0x1900
         CHUNKS_223.append(ChunkSpec(
-            source_name="staging_223",
-            src_offset=i * 0x100, length=0x100,
+            source_name=src, src_offset=off - base, length=0x100,
             track=track, phys_sector=phys,
         ))
 
@@ -180,9 +190,13 @@ SOURCES_220: dict[str, ChunkSource | Path] = {
         cpu="z80", org=0xDA00, size=0x0800,
         expected_bin_name="build/CPM220_BIOS.bin",
     ),
-    # Pre-extracted binaries we don't yet have a clean per-asm split for:
-    "staging_220": INVEST / "staging_220.bin",
-    "newdisk_220": INVEST / "newdisk_220.bin",
+    # Pristine on-disk BIOS image in the LOAD_CPM staging area (jump table
+    # first, org $DA00); the un-patched counterpart of CPM220_BIOS.asm.
+    "CPM220_BIOS_Disk": ChunkSource(
+        asm_path=DOCS / "CPM220_BIOS_Disk.asm",
+        cpu="z80", org=0xDA00, size=0x0500,
+        expected_bin_name="build/CPM220_BIOS_Disk.bin",
+    ),
 }
 
 
@@ -221,10 +235,16 @@ def _build_chunks_220():
     staging_sectors += [(1, p) for p in range(0x10)]
     staging_sectors += [(2, p) for p in range(0x7)]
 
+    # offset $0000-$16FF (sectors 0-22)  -> CPM220_SystemImage (CCP + BDOS)
+    # offset $1700-$1BFF (sectors 23-27) -> CPM220_BIOS_Disk   (pristine BIOS @ $DA00)
     for i, (track, phys) in enumerate(staging_sectors):
+        off = i * 0x100
+        if off < 0x1700:
+            src, base = "CPM220_SystemImage", 0x0000
+        else:
+            src, base = "CPM220_BIOS_Disk", 0x1700
         CHUNKS_220.append(ChunkSpec(
-            source_name="staging_220",
-            src_offset=i * 0x100, length=0x100,
+            source_name=src, src_offset=off - base, length=0x100,
             track=track, phys_sector=phys,
         ))
 

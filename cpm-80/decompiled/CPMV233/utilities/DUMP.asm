@@ -8,15 +8,18 @@
     DEVICE NOSLOT64K
 
 ; -- External symbols --
+WBOOT_VEC            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
 BDOS_VEC             EQU $0005               ; BDOS call vector — JP BDOS_ENTRY. Programs use CALL $0005 to invoke BDOS. Word at $0006 is also the top-of-TPA marker.
+DEFAULT_FCB          EQU $005C               ; Default File Control Block — populated by CCP from command-line argument 1. Standard 36-byte FCB structure (drive + filename + extents + record number).
+DEFAULT_CR           EQU $007C               ; Default FCB current record byte (overlaps end of DEFAULT_FCB2).
+DEFAULT_DMA          EQU $0080               ; Default DMA buffer — also command-line tail. First byte = length, then characters. Returned to default by BDOS function 13 (DRV_ALLRESET).
 
     ORG $0100
 
-; [AI] Program entry at the TPA ($0100). Saves the CCP's stack pointer to $0215 (so it can RET to
-;       the CCP later), switches to its own local stack at $0257, then opens the input file via
-;       SUB_01C1 and branches on the BDOS open result.
+; [AI] Program entry at $0100; saves the CCP's stack pointer for a clean return, switches to a
+;       private stack, then opens the input file and begins dumping.
 TPA_START:
-        LD HL,$0000                      ; $0100  21 00 00
+        LD HL,WBOOT_VEC                  ; $0100  21 00 00
 L_0103:
         ADD HL,SP                        ; $0103  39
 L_0104:
@@ -32,16 +35,12 @@ L_010F:
         LD DE,$01F3                      ; $0112  11 F3 01
         CALL SUB_019C                    ; $0115  CD 9C 01
         JP L_0151                        ; $0118  C3 51 01
-; [AI] Open-succeeded path: initializes the DMA/record cursor at $0213 to $80 (start of the
-;       128-byte default DMA buffer at $0080) before entering the main dump loop.
 L_011B:
         LD A,$80                         ; $011B  3E 80
 L_011D:
         LD ($0213),A                     ; $011D  32 13 02
 L_0120:
-        LD HL,$0000                      ; $0120  21 00 00
-; [AI] Top of the main dump loop. Pushes the running byte-offset (HL) and calls SUB_01A2 to fetch
-;       the next data byte; carry set means EOF/done, sending control to the exit at L_0151.
+        LD HL,WBOOT_VEC                  ; $0120  21 00 00
 L_0123:
         PUSH HL                          ; $0123  E5
 L_0124:
@@ -52,9 +51,6 @@ L_0128:
         JP C,L_0151                      ; $0128  DA 51 01
 L_012B:
         LD B,A                           ; $012B  47
-; [AI] Tests the low nibble of the current offset for a 16-byte boundary; when (offset AND $0F) is
-;       zero a new dump line is started (CR/LF plus the 4-digit hex address), otherwise it jumps to
-;       L_0144 to just print the next byte.
 L_012C:
         LD A,L                           ; $012C  7D
 L_012D:
@@ -77,8 +73,6 @@ L_0140:
         LD A,L                           ; $0140  7D
 L_0141:
         CALL SUB_018F                    ; $0141  CD 8F 01
-; [AI] Per-byte output: advances the offset (INC HL), emits a separating space ($20) via SUB_0165,
-;       then prints the data byte in hex with SUB_018F before looping back to L_0123.
 L_0144:
         INC HL                           ; $0144  23
 L_0145:
@@ -91,15 +85,13 @@ L_014B:
         CALL SUB_018F                    ; $014B  CD 8F 01
 L_014E:
         JP L_0123                        ; $014E  C3 23 01
-; [AI] Program exit. Emits a final CR/LF, restores the saved CCP stack pointer from $0215, and RETs
-;       back to the CCP (warm-boot-free return).
 L_0151:
         CALL SUB_0172                    ; $0151  CD 72 01
         LD HL,($0215)                    ; $0154  2A 15 02
         LD SP,HL                         ; $0157  F9
         RET                              ; $0158  C9
-; [AI] Wrapper for BDOS function 11 (C=$0B, console/keyboard status check). Preserves HL/DE/BC
-;       around the CALL $0005.
+; [AI] Polls console status via BDOS function 11 so a keypress during the dump can abort the output
+;       mid-stream.
 SUB_0159:
         PUSH HL                          ; $0159  E5
 L_015A:
@@ -118,8 +110,8 @@ L_0163:
         POP HL                           ; $0163  E1
 L_0164:
         RET                              ; $0164  C9
-; [AI] Console-output primitive: BDOS function 2 (C=$02), printing the character passed in A (moved
-;       to E). Preserves HL/DE/BC.
+; [AI] Outputs the character in A to the console via BDOS function 2 (console output), preserving
+;       all registers.
 SUB_0165:
         PUSH HL                          ; $0165  E5
 L_0166:
@@ -140,8 +132,7 @@ L_0170:
         POP HL                           ; $0170  E1
 L_0171:
         RET                              ; $0171  C9
-; [AI] Emits a CRLF newline by sending CR ($0D) then LF ($0A) through the console-output routine
-;       SUB_0165.
+; [AI] Emits a CR/LF pair to the console to end the current line of the hex dump.
 SUB_0172:
         LD A,$0D                         ; $0172  3E 0D
 L_0174:
@@ -152,8 +143,8 @@ L_0179:
         CALL SUB_0165                    ; $0179  CD 65 01
 L_017C:
         RET                              ; $017C  C9
-; [AI] Converts the low nibble of A to its ASCII hex digit (0-9 -> '0'..'9', A-F via +$37) and
-;       prints it via SUB_0165.
+; [AI] Converts the low nibble of A to its ASCII hex digit (0-9 or A-F) and prints it; the core
+;       nibble-to-hex routine.
 SUB_017D:
         AND $0F                          ; $017D  E6 0F
 L_017F:
@@ -164,15 +155,14 @@ L_0184:
         ADD A,$30                        ; $0184  C6 30
 L_0186:
         JP L_018B                        ; $0186  C3 8B 01
-; [AI] Hex-digit branch for nibble values >= 10: adds $37 so the value maps to ASCII 'A'..'F'.
 L_0189:
         ADD A,$37                        ; $0189  C6 37
 L_018B:
         CALL SUB_0165                    ; $018B  CD 65 01
 L_018E:
         RET                              ; $018E  C9
-; [AI] Prints the byte in A as two ASCII hex digits: high nibble first (rotated down by four RRCAs)
-;       then the low nibble, each via SUB_017D.
+; [AI] Prints the full byte in A as two hexadecimal digits by emitting the high nibble then the low
+;       nibble.
 SUB_018F:
         PUSH AF                          ; $018F  F5
 L_0190:
@@ -191,15 +181,14 @@ L_0198:
         CALL SUB_017D                    ; $0198  CD 7D 01
 L_019B:
         RET                              ; $019B  C9
-; [AI] Wrapper for BDOS function 9 (C=$09): print the '$'-terminated string whose address is in DE;
-;       used here for the 'NO INPUT FILE PRESENT ON DISK' error message.
+; [AI] Prints the '$'-terminated string pointed to by DE via BDOS function 9 (print string); used
+;       for the version banner and the no-file error message.
 SUB_019C:
         LD C,$09                         ; $019C  0E 09
         CALL BDOS_VEC                    ; $019E  CD 05 00
         RET                              ; $01A1  C9
-; [AI] Next-byte fetcher for the dump loop. Tracks a buffer index in $0213; when the 128-byte
-;       record is exhausted ($80) it reads a new sequential record via SUB_01CE, returns the byte at
-;       $0080+index in A, and signals end-of-data with carry/zero.
+; [AI] Returns the next byte of the input file in A, refilling the DMA buffer with a fresh record
+;       (and signalling end-of-file via carry) whenever the current 128-byte buffer is exhausted.
 SUB_01A2:
         LD A,($0213)                     ; $01A2  3A 13 02
 L_01A5:
@@ -214,9 +203,6 @@ L_01AE:
         JP Z,L_01B3                      ; $01AE  CA B3 01
         SCF                              ; $01B1  37
         RET                              ; $01B2  C9
-; [AI] Returns the next data byte: indexes DMA buffer base $0080 by the current record offset (DE),
-;       loads the byte into A, and updates the saved offset at $0213; OR A sets flags for the
-;       caller's done/empty test.
 L_01B3:
         LD E,A                           ; $01B3  5F
 L_01B4:
@@ -226,7 +212,7 @@ L_01B6:
 L_01B7:
         LD ($0213),A                     ; $01B7  32 13 02
 L_01BA:
-        LD HL,$0080                      ; $01BA  21 80 00
+        LD HL,DEFAULT_DMA                ; $01BA  21 80 00
 L_01BD:
         ADD HL,DE                        ; $01BD  19
 L_01BE:
@@ -235,24 +221,22 @@ L_01BF:
         OR A                             ; $01BF  B7
 L_01C0:
         RET                              ; $01C0  C9
-; [AI] Opens the input file. Clears the FCB current-record byte at $007C, points DE at the default
-;       FCB ($005C parsed from the command tail), and calls BDOS function 15 (C=$0F, open file);
-;       A=$FF on failure.
+; [AI] Opens the command-line file by clearing the FCB current-record byte and invoking BDOS
+;       function 15 (open file); returns $FF in A if the file does not exist.
 SUB_01C1:
         XOR A                            ; $01C1  AF
 L_01C2:
-        LD ($007C),A                     ; $01C2  32 7C 00
+        LD (DEFAULT_CR),A                ; $01C2  32 7C 00
 L_01C5:
-        LD DE,$005C                      ; $01C5  11 5C 00
+        LD DE,DEFAULT_FCB                ; $01C5  11 5C 00
 L_01C8:
         LD C,$0F                         ; $01C8  0E 0F
 L_01CA:
         CALL BDOS_VEC                    ; $01CA  CD 05 00
 L_01CD:
         RET                              ; $01CD  C9
-; [AI] Reads the next sequential 128-byte record into the default DMA buffer via BDOS function 20
-;       (C=$14, read sequential) on the FCB at $005C; returns A=0 on success or nonzero at EOF.
-;       Preserves HL/DE/BC.
+; [AI] Reads the next sequential 128-byte record into the DMA buffer via BDOS function 20 (read
+;       sequential); returns nonzero on end-of-file.
 SUB_01CE:
         PUSH HL                          ; $01CE  E5
 L_01CF:
@@ -260,7 +244,7 @@ L_01CF:
 L_01D0:
         PUSH BC                          ; $01D0  C5
 L_01D1:
-        LD DE,$005C                      ; $01D1  11 5C 00
+        LD DE,DEFAULT_FCB                ; $01D1  11 5C 00
 L_01D4:
         LD C,$14                         ; $01D4  0E 14
 L_01D6:

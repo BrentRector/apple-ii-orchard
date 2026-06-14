@@ -8,51 +8,44 @@
     DEVICE NOSLOT64K
 
 ; -- External symbols --
+WBOOT_VEC            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
 BDOS_VEC             EQU $0005               ; BDOS call vector — JP BDOS_ENTRY. Programs use CALL $0005 to invoke BDOS. Word at $0006 is also the top-of-TPA marker.
+RST1_VEC             EQU $0008               ; Z-80 RST 1 ($08) restart vector — 8 bytes. Available for application/debugger use.
+RST4_VEC             EQU $0020               ; Z-80 RST 4 ($20) restart vector — 8 bytes. Available for application/debugger use.
+DEFAULT_FCB          EQU $005C               ; Default File Control Block — populated by CCP from command-line argument 1. Standard 36-byte FCB structure (drive + filename + extents + record number).
+DEFAULT_DMA          EQU $0080               ; Default DMA buffer — also command-line tail. First byte = length, then characters. Returned to default by BDOS function 13 (DRV_ALLRESET).
 
     ORG $0100
 
-; [AI] Program entry at the TPA ($0100). Saves the CP/M stack pointer into a save slot at $03D3,
-;       then switches to its own internal stack and begins execution.
+; [AI] Program entry at $0100 (start of the TPA). Saves the CCP's stack pointer to $03D3, switches
+;       to CAT's private stack, then runs init, the directory scan, the listing, and the summary
+;       before restoring SP and returning to the CCP.
 TPA_START:
         LD ($03D3),SP                    ; $0100  ED 73 D3 03
-; [AI] Loads SP with $03FB, establishing the program's private stack just below its work area at
-;       the top of the loaded image.
 L_0104:
         LD SP,$03FB                      ; $0104  31 FB 03
-; [AI] Calls the initialization routine (SUB_0145) that sets up the directory-entry table pointers
-;       and prepares the FCB at $005C.
 L_0107:
         CALL SUB_0145                    ; $0107  CD 45 01
-; [AI] Main flow: calls SUB_0251 (BDOS DPB/allocation setup), then issues BDOS Search First
-;       (function 17) on the FCB at $005C to find the first matching directory entry.
 L_010A:
         CALL SUB_0251                    ; $010A  CD 51 02
         LD C,$11                         ; $010D  0E 11
-        LD DE,$005C                      ; $010F  11 5C 00
+        LD DE,DEFAULT_FCB                ; $010F  11 5C 00
         CALL BDOS_VEC                    ; $0112  CD 05 00
         INC A                            ; $0115  3C
         JR Z,L_012E                      ; $0116  28 16
-; [AI] Directory-scan loop body: extracts the current directory record from the DMA buffer
-;       (SUB_01E4), inserts it into the sorted entry table (SUB_0185), then issues BDOS Search Next
-;       (function 18) and repeats while matches remain.
 L_0118:
         CALL SUB_01E4                    ; $0118  CD E4 01
         CALL SUB_0185                    ; $011B  CD 85 01
         LD C,$12                         ; $011E  0E 12
-        LD DE,$005C                      ; $0120  11 5C 00
+        LD DE,DEFAULT_FCB                ; $0120  11 5C 00
         CALL BDOS_VEC                    ; $0123  CD 05 00
         INC A                            ; $0126  3C
         JR NZ,L_0118                     ; $0127  20 EF
         CALL SUB_031E                    ; $0129  CD 1E 03
         JR L_0134                        ; $012C  18 06
-; [AI] No-match path: points HL at the 'No file(s) found' message ($0387) and prints it via
-;       SUB_02E7.
 L_012E:
         LD HL,$0387                      ; $012E  21 87 03
         CALL SUB_02E7                    ; $0131  CD E7 02
-; [AI] Common tail: prints the disk free-space line (SUB_022B computes free space), emits totals,
-;       restores the saved CP/M stack pointer from $03D3, and returns to CCP.
 L_0134:
         CALL SUB_022B                    ; $0134  CD 2B 02
         CALL SUB_027E                    ; $0137  CD 7E 02
@@ -60,9 +53,9 @@ L_0134:
         CALL SUB_02E7                    ; $013D  CD E7 02
         LD SP,($03D3)                    ; $0140  ED 7B D3 03
         RET                              ; $0144  C9
-; [AI] Initialization routine: resets the entry-table head pointer ($03FB) to the table base
-;       ($03DD), seeds sort/count state, fills any blank filename field in the FCB at $005C with '?'
-;       wildcards, and applies a patch if a runtime flag is set.
+; [AI] Initialization: sets up the entry-table pointers/counters in CAT's data area, selects the
+;       requested drive via BDOS function 14 when an explicit drive letter was given, and expands a
+;       blank filename in the FCB to the all-match pattern '???????????'.
 SUB_0145:
         LD HL,$03DD                      ; $0145  21 DD 03
 L_0148:
@@ -71,16 +64,12 @@ L_014B:
         LD A,$FF                         ; $014B  3E FF
 L_014D:
         LD ($03FD),A                     ; $014D  32 FD 03
-; [AI] Stores $3F ('?') into page-zero location $0068, part of the FCB/command-tail wildcard
-;       preparation.
 L_0150:
         LD A,$3F                         ; $0150  3E 3F
 L_0152:
         LD ($0068),A                     ; $0152  32 68 00
-; [AI] Reads the drive byte from the FCB ($005C); if nonzero (an explicit drive was given) it
-;       selects that drive via BDOS Select Disk (function 14).
 L_0155:
-        LD A,($005C)                     ; $0155  3A 5C 00
+        LD A,(DEFAULT_FCB)               ; $0155  3A 5C 00
 L_0158:
         OR A                             ; $0158  B7
 L_0159:
@@ -89,7 +78,6 @@ L_0159:
         LD E,A                           ; $015C  5F
         LD C,$0E                         ; $015D  0E 0E
         CALL BDOS_VEC                    ; $015F  CD 05 00
-; [AI] Points HL at the filename field of the FCB ($005D) to test whether it is blank.
 L_0162:
         LD HL,$005D                      ; $0162  21 5D 00
 L_0165:
@@ -99,14 +87,10 @@ L_0166:
 L_0168:
         JR NZ,L_0171                     ; $0168  20 07
         LD B,$0B                         ; $016A  06 0B
-; [AI] Wildcard-fill loop: writes '?' ($3F) across the 11-byte filename/type field of the FCB so an
-;       empty name matches all files.
 L_016C:
         LD (HL),$3F                      ; $016C  36 3F
         INC HL                           ; $016E  23
         DJNZ L_016C                      ; $016F  10 FB
-; [AI] Reads a runtime configuration flag and, if set, self-patches three code bytes (at $032C,
-;       $03CC, $0330) to alter the reporting/output behavior.
 L_0171:
         LD A,($F3BB)                     ; $0171  3A BB F3
 L_0174:
@@ -120,9 +104,9 @@ L_0175:
         XOR A                            ; $0180  AF
         LD ($0330),A                     ; $0181  32 30 03
         RET                              ; $0184  C9
-; [AI] Inserts a 32-byte directory entry into the sorted in-memory table: skips deleted/already-
-;       present entries, locates the insertion point by name comparison, shifts existing entries
-;       down, bumps the file count, and copies the new entry in.
+; [AI] Inserts one matched directory entry into the sorted, de-duplicated name table (insertion
+;       sort): skips deleted/dummy entries, finds the insertion slot via SUB_01CB, shifts later
+;       entries up, and bumps the unique-file count at $03D1.
 SUB_0185:
         PUSH HL                          ; $0185  E5
         POP IX                           ; $0186  DD E1
@@ -140,11 +124,11 @@ L_0194:
         INC A                            ; $01A4  3C
         LD ($03D1),A                     ; $01A5  32 D1 03
 L_01A8:
-        LD BC,$0020                      ; $01A8  01 20 00
+        LD BC,RST4_VEC                   ; $01A8  01 20 00
         LDIR                             ; $01AB  ED B0
         DEC B                            ; $01AD  05
-; [AI] Makes room in the sorted entry table for one new 32-byte slot by advancing the table tail
-;       pointer ($03FB) and block-moving all entries from the insertion point downward using LDDR.
+; [AI] Makes room in the sorted name table by moving the block from the insertion point upward by
+;       one 32-byte slot (LDDR), so the new entry from SUB_0185 can be written in place.
 SUB_01AE:
         PUSH HL                          ; $01AE  E5
         PUSH DE                          ; $01AF  D5
@@ -165,9 +149,9 @@ SUB_01AE:
         POP DE                           ; $01C8  D1
         POP HL                           ; $01C9  E1
         RET                              ; $01CA  C9
-; [AI] Compares two 32-byte directory entries by their 11+1-byte name/type field for sort ordering,
-;       returning carry/zero status; on an equal-or-greater duplicate it pops the caller's return
-;       address to skip insertion.
+; [AI] Compares a 12-byte directory name (drive+filename) against a table entry to drive the
+;       insertion sort, returning carry for 'before', zero for 'equal' (duplicate to skip), and
+;       discarding the caller's return on an exact higher-or-equal match.
 SUB_01CB:
         PUSH HL                          ; $01CB  E5
         PUSH DE                          ; $01CC  D5
@@ -193,35 +177,37 @@ L_01E1:
         POP DE                           ; $01E1  D1
         POP HL                           ; $01E2  E1
         RET                              ; $01E3  C9
-; [AI] Computes the address of directory entry number A within the 128-byte DMA buffer at $0080,
-;       returning HL = $0080 + 32*(A-1) (BDOS search returns the matching entry index 1..4).
+; [AI] Computes the address within the 128-byte DMA buffer of the directory entry that BDOS Search
+;       matched: the search return code in A (0-3) selects one of the four 32-byte entries packed
+;       into the sector.
 SUB_01E4:
-        LD HL,$0080                      ; $01E4  21 80 00
+        LD HL,DEFAULT_DMA                ; $01E4  21 80 00
         DEC A                            ; $01E7  3D
         RET Z                            ; $01E8  C8
-        LD DE,$0020                      ; $01E9  11 20 00
+        LD DE,RST4_VEC                   ; $01E9  11 20 00
 L_01EC:
         ADD HL,DE                        ; $01EC  19
         DEC A                            ; $01ED  3D
         JR NZ,L_01EC                     ; $01EE  20 FC
         RET                              ; $01F0  C9
-; [AI] Advances HL by 32 (0x20) bytes, i.e. steps a pointer to the next directory-entry slot,
-;       preserving DE.
+; [AI] Advances a 16-bit pointer in HL by 32 ($20), i.e. steps to the next 32-byte directory/name
+;       record in the table.
 SUB_01F1:
         PUSH DE                          ; $01F1  D5
-        LD DE,$0020                      ; $01F2  11 20 00
+        LD DE,RST4_VEC                   ; $01F2  11 20 00
         ADD HL,DE                        ; $01F5  19
         POP DE                           ; $01F6  D1
         RET                              ; $01F7  C9
-; [AI] Advances DE by 32 bytes to the next directory-entry slot (wraps SUB_01F1 with EX DE,HL).
+; [AI] Same +32 step as SUB_01F1 but applied to DE instead of HL (via EX DE,HL around the add),
+;       used when both source and destination table pointers must be advanced.
 SUB_01F8:
         EX DE,HL                         ; $01F8  EB
         CALL SUB_01F1                    ; $01F9  CD F1 01
         EX DE,HL                         ; $01FC  EB
         RET                              ; $01FD  C9
-; [AI] Computes a single directory entry's allocated size in records/k from its extent and record-
-;       count fields, accumulates it into the running total at $03CF, and formats the per-file size
-;       for display via SUB_02BB.
+; [AI] Accumulates a file's size into the running total: reads the FCB record-count/extent fields,
+;       converts them to kilobytes, adds to the 16-bit total at $03CF, then formats that file's size
+;       in k for its listing line via SUB_02BB.
 SUB_01FE:
         PUSH HL                          ; $01FE  E5
         LD BC,$000C                      ; $01FF  01 0C 00
@@ -248,24 +234,20 @@ SUB_01FE:
         CALL SUB_02BB                    ; $0226  CD BB 02
         POP HL                           ; $0229  E1
         RET                              ; $022A  C9
-; [AI] Computes free disk space: calls BDOS Get Allocation Vector (function 27), then scans the
-;       allocation bitmap counting unallocated blocks, accumulating the free-block count in the
-;       alternate register set.
+; [AI] Computes free disk space: gets the allocation-vector address (BDOS 27) and disk parameter
+;       block (BDOS 31), counts the zero (free) bits across the allocation bitmap, and accumulates
+;       the free block count.
 SUB_022B:
         LD C,$1B                         ; $022B  0E 1B
         CALL BDOS_VEC                    ; $022D  CD 05 00
         EXX                              ; $0230  D9
-        LD HL,$0000                      ; $0231  21 00 00
+        LD HL,WBOOT_VEC                  ; $0231  21 00 00
         LD DE,$0001                      ; $0234  11 01 00
         EXX                              ; $0237  D9
-        LD DE,$0080                      ; $0238  11 80 00
-; [AI] Allocation-bitmap scan loop: loads the next bitmap byte and sets up an 8-bit shift to test
-;       each block's allocated/free bit.
+        LD DE,DEFAULT_DMA                ; $0238  11 80 00
 L_023B:
         LD C,(HL)                        ; $023B  4E
         LD B,$08                         ; $023C  06 08
-; [AI] Inner bit-test loop: rotates each bit of the bitmap byte; for each clear (free) block it
-;       adds the block size to the free-space accumulator, counting down the total block count.
 L_023E:
         RLC C                            ; $023E  CB 01
         JR C,L_0245                      ; $0240  38 03
@@ -283,9 +265,9 @@ L_0245:
 L_024F:
         EXX                              ; $024F  D9
         RET                              ; $0250  C9
-; [AI] Queries the disk parameters via BDOS Get Disk Parameter Block (function 31): reads the DPB
-;       to derive the block size (used for k-per-block scaling) and the total block count, storing
-;       them as immediate operands patched into the size/free-space code.
+; [AI] Reads the selected drive's Disk Parameter Block via BDOS function 31 and extracts parameters
+;       (block shift/size and total block count) needed to size files and compute free space,
+;       patching them into the code's working values.
 SUB_0251:
         LD C,$1F                         ; $0251  0E 1F
 L_0253:
@@ -326,9 +308,6 @@ L_026B:
         XOR A                            ; $026B  AF
 L_026C:
         LD L,A                           ; $026C  6F
-; [AI] Locates the BIOS warm-boot/jump table base from page-zero $0007 and scans for a specific
-;       BIOS routine signature byte (RET, $C9), then self-patches an address ($01AD) accordingly — a
-;       version/BIOS-dependent fixup.
 L_026D:
         LD A,($0007)                     ; $026D  3A 07 00
 L_0270:
@@ -347,9 +326,9 @@ L_0278:
         JR NZ,L_0272                     ; $0278  20 F8
         LD ($01AD),A                     ; $027A  32 AD 01
         RET                              ; $027D  C9
-; [AI] Recursive decimal print routine: converts the 16-bit value in HL to ASCII digits by repeated
-;       division (subtract-loop) and prints each digit via BDOS Console Output (function 2),
-;       suppressing nothing (prints all significant digits).
+; [AI] Recursively prints an unsigned 16-bit number in HL as decimal to the console (divide-by-10
+;       on the stack, then emit each digit via BDOS function 2). Used to print the file count,
+;       used-k and available-k totals.
 SUB_027E:
         PUSH BC                          ; $027E  C5
         PUSH DE                          ; $027F  D5
@@ -376,8 +355,8 @@ L_0287:
         RET                              ; $029F  C9
         DEFB    $28,$63,$29,$20,$31,$39,$38,$32,$20,$4D,$69,$63,$72,$6F,$73,$6F ; $02A0
         DEFB    $66,$74,$20,$2D,$20,$50,$65,$74,$65,$72,$73      ; $02B0
-; [AI] Formats a two- (or three-) digit decimal field into a text buffer pointed by HL, converting
-;       via SUB_02CF and blanking leading zeros to spaces for right-justified size display.
+; [AI] Formats a two-digit decimal size into the 'xxxk' field of the listing-line template,
+;       blanking leading-zero digits to spaces for right-aligned numeric output.
 SUB_02BB:
         CALL SUB_02CF                    ; $02BB  CD CF 02
         ADD A,$30                        ; $02BE  C6 30
@@ -393,14 +372,13 @@ SUB_02BB:
         RET NZ                           ; $02CB  C0
         LD (HL),$20                      ; $02CC  36 20
         RET                              ; $02CE  C9
-; [AI] Decimal-digit extraction helper: divides the value in A by 100 (then leaves base-10 divisor
-;       10 for the caller), producing successive ASCII digits into the output buffer by repeated
-;       subtraction.
+; [AI] Binary-to-decimal helper: divides the value in A by 100 then by 10 (via SUB_02D4), storing
+;       ASCII digit characters into the buffer at HL for the size field.
 SUB_02CF:
         LD C,$64                         ; $02CF  0E 64
         CALL SUB_02D4                    ; $02D1  CD D4 02
-; [AI] Single-digit converter via repeated subtraction of divisor C: builds an ASCII digit at (HL)
-;       starting from '/'+1, returns the remainder, and advances the buffer pointer.
+; [AI] Repeated-subtraction divide step: divides A by the divisor in C, writing the quotient as an
+;       ASCII digit at (HL) and leaving the remainder in A for the next, lower-place division.
 SUB_02D4:
         LD (HL),$2F                      ; $02D4  36 2F
 L_02D6:
@@ -411,15 +389,17 @@ L_02D6:
         INC HL                           ; $02DB  23
         LD C,$0A                         ; $02DC  0E 0A
         RET                              ; $02DE  C9
-; [AI] Prints the single character in E via BDOS Console Output (function 2), preserving HL.
+; [AI] Single-character console output (BDOS function 2) preserving HL, the leaf used by the string
+;       printer.
 SUB_02DF:
         PUSH HL                          ; $02DF  E5
         LD C,$02                         ; $02E0  0E 02
         CALL BDOS_VEC                    ; $02E2  CD 05 00
         POP HL                           ; $02E5  E1
         RET                              ; $02E6  C9
-; [AI] Prints a string pointed to by HL one character at a time (via SUB_02DF) until it hits the
-;       $FF terminator byte; used for the program's status/output messages.
+; [AI] Prints a $FF-terminated string starting at HL, one character at a time through SUB_02DF.
+;       This is CAT's string-output primitive (it uses $FF, not the BDOS '$' convention, as the
+;       terminator).
 SUB_02E7:
         LD A,$FF                         ; $02E7  3E FF
         LD E,(HL)                        ; $02E9  5E
@@ -428,14 +408,14 @@ SUB_02E7:
         CALL SUB_02DF                    ; $02EC  CD DF 02
         INC HL                           ; $02EF  23
         JR SUB_02E7                      ; $02F0  18 F5
-; [AI] Prints the carriage-return/line-feed sequence stored at $03C8 (the CR,LF,$FF string) via
-;       SUB_02E7, used to start a new output line.
+; [AI] Prints the record-separator string at $03C8 ('\r') between catalog columns/entries before
+;       emitting the next filename line.
 SUB_02F2:
         PUSH HL                          ; $02F2  E5
         LD HL,$03C8                      ; $02F3  21 C8 03
         JR L_02FC                        ; $02F6  18 04
-; [AI] Prints the column separator/spacing string at $03CB (' : ',$FF) between fields of a catalog
-;       line.
+; [AI] Prints the inter-column separator string at $03CB (' : ') used to lay the file listing out
+;       in multiple columns across the screen.
 SUB_02F8:
         PUSH HL                          ; $02F8  E5
         LD HL,$03CB                      ; $02F9  21 CB 03
@@ -443,9 +423,9 @@ L_02FC:
         PUSH DE                          ; $02FC  D5
         PUSH BC                          ; $02FD  C5
         JR L_0317                        ; $02FE  18 17
-; [AI] Formats one catalog line for a directory entry: computes its size (SUB_01FE), copies the
-;       8-byte name and 3-byte type from the entry into the display buffer at $039C, then prints the
-;       assembled 'filename.typ xxxk' line.
+; [AI] Builds and prints one file's listing line: tallies its size (SUB_01FE), copies the 8.3
+;       filename and the 'k' size field into the line template at $039C, then outputs the assembled
+;       line.
 SUB_0300:
         PUSH HL                          ; $0300  E5
         PUSH DE                          ; $0301  D5
@@ -453,7 +433,7 @@ SUB_0300:
         CALL SUB_01FE                    ; $0303  CD FE 01
         INC HL                           ; $0306  23
         LD DE,$039C                      ; $0307  11 9C 03
-        LD BC,$0008                      ; $030A  01 08 00
+        LD BC,RST1_VEC                   ; $030A  01 08 00
         LDIR                             ; $030D  ED B0
         INC DE                           ; $030F  13
         LD C,$03                         ; $0310  0E 03
@@ -465,9 +445,8 @@ L_0317:
         POP DE                           ; $031B  D1
         POP HL                           ; $031C  E1
         RET                              ; $031D  C9
-; [AI] Produces the final report when files were found: prints a CRLF, then iterates the sorted
-;       entry table laying entries out in columns across the line, and finally prints the total-size
-;       and free-space ('Total xk in n files, ... k available') summary.
+; [AI] Main listing/summary pass: walks the sorted name table laying entries out in columns that
+;       fit the screen width, then prints the 'Total nk in mk available' free-space summary line.
 SUB_031E:
         CALL SUB_02F2                    ; $031E  CD F2 02
         LD HL,$0387                      ; $0321  21 87 03
@@ -485,14 +464,10 @@ SUB_031E:
         CALL SUB_01F1                    ; $0334  CD F1 01
         LD C,L                           ; $0337  4D
         LD B,H                           ; $0338  44
-        LD DE,$0000                      ; $0339  11 00 00
-; [AI] Column-layout outer loop: resets the entry pointer to the table base ($03FD) plus the
-;       current column offset for printing the catalog in multiple vertical columns.
+        LD DE,WBOOT_VEC                  ; $0339  11 00 00
 L_033C:
         LD HL,$03FD                      ; $033C  21 FD 03
         ADD HL,DE                        ; $033F  19
-; [AI] Column-layout inner loop: prints one entry (SUB_0300), advances by the per-column row
-;       stride, and continues down a column until reaching the end of the table.
 L_0340:
         CALL SUB_0300                    ; $0340  CD 00 03
         ADD HL,BC                        ; $0343  09
@@ -520,8 +495,6 @@ L_0353:
         LD HL,($03D1)                    ; $0371  2A D1 03
         CALL SUB_027E                    ; $0374  CD 7E 02
         LD HL,$037E                      ; $0377  21 7E 03
-; [AI] Prints the trailing summary message string at HL (e.g. ' files,') via SUB_02E7 and returns;
-;       shared tail for both the found and not-found report paths.
 L_037A:
         CALL SUB_02E7                    ; $037A  CD E7 02
         RET                              ; $037D  C9

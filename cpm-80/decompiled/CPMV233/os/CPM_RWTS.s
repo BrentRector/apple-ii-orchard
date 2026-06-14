@@ -13,11 +13,10 @@ SCRN_HOLE_0678_S0    = $0678             ; Screen-hole; slot N -> $0678+N
 
 .org $0A00
 
-; [AI] Sector-write entry point for the Disk II controller. With the slot*16 index in X (saved to
-;       $27 and screen-hole $0678+slot), it touches Q6L/Q7L ($C08D/$C08E,X) to sense write-protect
-;       (BMI to the exit if protected), switches the drive into write mode (Q7H $C08F,X, Q6L
-;       $C08C,X), then GCR 6-and-2 encodes and writes the data field: self-sync, the D5 AA AD data
-;       prologue, the nibblized buffer, and the DE AA EB FF epilogue.
+; [AI] Entry to the 6-and-2 GCR sector WRITE routine: arms the Disk II write latch via the Q6/Q7
+;       soft switches ($C08C-$C08F,X), checks write-protect, and lays down sync bytes, the D5 AA AD
+;       data prologue, the encoded 342-nibble payload, and the DE AA EB epilogue. Returns carry-
+;       clear on success.
 L_0A00:
         SEC                          ; $0A00  38
         STX $27                      ; $0A01  86 27
@@ -34,9 +33,9 @@ L_0A00:
         PLA                          ; $0A1C  68
         NOP                          ; $0A1D  EA
         LDY #$04                     ; $0A1E  A0 04
-; [AI] Pre-data self-sync loop: writes four 0xFF self-sync (auto-sync) bytes via the controller
-;       timing routine $BA90 to lock the read hardware's bit cell timing before the data prologue is
-;       laid down.
+; [AI] Sync-byte priming loop that writes four self-sync ($FF) field bytes ahead of the data
+;       prologue so the drive's read hardware can lock onto the byte boundary when the sector is
+;       later read back.
 L_0A20:
         PHA                          ; $0A20  48
         PLA                          ; $0A21  68
@@ -52,15 +51,13 @@ L_0A20:
         TYA                          ; $0A37  98
         LDY #$56                     ; $0A38  A0 56
         BNE L_0A3F                   ; $0A3A  D0 03
-; [AI] Body of the 86-byte ($56) secondary/auxiliary nibble buffer write loop (fetches $0C00,Y);
-;       used after the first iteration falls through from L_0A3F to read the next pre-computed
-;       6-and-2 low-two-bits byte.
+; [AI] Top of the first encode/write loop: fetches the next of the 86 ($56) two-bit 'auxiliary'
+;       nibbles from the $0C00 buffer to feed into the running checksum chain.
 L_0A3C:
         LDA $0C00,Y                  ; $0A3C  B9 00 0C
-; [AI] Write loop for the 86-byte secondary buffer: XOR-chains each value with its predecessor
-;       ($0BFF,Y), maps the 6-bit result through the disk write-translate (GCR encode) table at
-;       $BD5A, and shifts it out to the latch ($C08D,X), tightly timed by the surrounding cycle
-;       padding.
+; [AI] Inner body that EORs the current value against the previous one (running checksum),
+;       translates the 6-bit result through the $BD5A write nibble table into a legal disk byte, and
+;       shifts it out the data latch ($C08D,X) at strict timing.
 L_0A3F:
         EOR $0BFF,Y                  ; $0A3F  59 FF 0B
         TAX                          ; $0A42  AA
@@ -72,9 +69,9 @@ L_0A3F:
         BNE L_0A3C                   ; $0A4F  D0 EB
         LDA $26                      ; $0A51  A5 26
         NOP                          ; $0A53  EA
-; [AI] Write loop for the 256-byte primary sector buffer at $0900: XOR-chains successive bytes,
-;       encodes each through the $BD5A write-translate table, and streams them to the data latch
-;       ($C08D,X) until Y wraps, carrying the running checksum into the epilogue.
+; [AI] Second encode/write loop: streams the 256 user data bytes from the $0900 buffer, EOR-
+;       chaining and nibble-translating each through $BD5A out to disk, completing the 342-byte
+;       6-and-2 encoding of the sector.
 L_0A54:
         EOR $0900,Y                  ; $0A54  59 00 09
         TAX                          ; $0A57  AA
@@ -98,9 +95,8 @@ L_0A54:
         LDA #$FF                     ; $0A82  A9 FF
         JSR $BA8F                    ; $0A84  20 8F BA
         LDA $C08E,X                  ; $0A87  BD 8E C0
-; [AI] Write-routine exit: reads Q6L ($C08C,X) to release the latch / return to sense state and
-;       RTS. Reached directly (via BMI) when the disk is write-protected, aborting before any write
-;       occurs.
+; [AI] Common exit / write-protect-error path: reads Q6L ($C08C,X) to disarm the write latch and
+;       returns (reached early with carry set when the drive reported write-protected).
 L_0A8A:
         LDA $C08C,X                  ; $0A8A  BD 8C C0
         RTS                          ; $0A8D  60

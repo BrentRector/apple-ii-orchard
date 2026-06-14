@@ -111,7 +111,10 @@ class SjasmFormatter:
         body_end = self.origin + self.length
         used = []
         for addr in sorted(referenced):
-            if body_start <= addr < body_end:
+            # An inline walker label already defines this address; an EQU would
+            # duplicate it. (Out-of-range and label-less in-range symbols both
+            # need the EQU so substituted operands resolve.)
+            if self.walker.labels.get(addr):
                 continue
             sym = self.symbols.get(addr)
             if sym is None:
@@ -268,13 +271,41 @@ class SjasmFormatter:
             label = _resolve_label(instr.target, self.symbols, self.walker.labels)
             if label:
                 mnem = self._substitute_target(mnem, instr.target, label)
-                if (self.symbols is not None
-                        and self.symbols.name_for(instr.target) is not None
-                        and not (self.origin <= instr.target < self.origin + self.length
-                                 and self.walker.labels.get(instr.target))):
-                    refs.add(instr.target)
+                self._note_symbol_ref(instr.target, refs)
+        # Substitute symbolic names for any other 16-bit address operand
+        # (immediate loads, memory references) that resolves to a known in-range
+        # label or a curated symbol -- so addresses read as the item they point
+        # at. A value with no label/symbol is left as a literal, so a genuine
+        # constant is never mistaken for an address.
+        mnem, op_refs = self._substitute_operand_symbols(mnem)
+        refs |= op_refs
         raw = " ".join(f"{b:02X}" for b in instr.raw)
         return f"        {mnem:<32} ; ${addr:04X}  {raw}", refs
+
+    def _note_symbol_ref(self, val, refs):
+        """Mark a substituted address as needing an EQU: it carries a curated
+        symbol name but no inline walker label (so nothing else defines it)."""
+        if (not self.walker.labels.get(val)
+                and self.symbols is not None
+                and self.symbols.name_for(val) is not None):
+            refs.add(val)
+
+    def _substitute_operand_symbols(self, mnem):
+        """Replace remaining 4-hex `$XXXX` operands with their label/symbol."""
+        refs = set()
+        seen = []
+        for m in _HEX_LITERAL_RE.finditer(mnem):
+            if len(m.group(1)) == 4:
+                seen.append((m.group(0), int(m.group(1), 16)))
+        for literal, val in seen:
+            if literal not in mnem:                  # already substituted
+                continue
+            label = _resolve_label(val, self.symbols, self.walker.labels)
+            if not label:
+                continue
+            mnem = mnem.replace(literal, label, 1)
+            self._note_symbol_ref(val, refs)
+        return mnem, refs
 
     def _substitute_target(self, mnemonic, target, label):
         """Replace the $XXXX literal in `mnemonic` corresponding to `target`."""

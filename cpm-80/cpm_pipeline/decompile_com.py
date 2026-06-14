@@ -23,9 +23,7 @@ from nibbler.z80_cpu import Z80CPU, Z80Halt
 from .disk_format import read_disk, detect_format
 from .filesystem import extract_file, softcard_params
 
-from disasm_z80.walker import Walker
-from disasm_z80.symbols import SymbolTable
-from disasm_z80.formatter import SjasmFormatter
+from .region_disasm import disasm_z80_region, load_symbols
 
 # Repo layout: cpm-80/cpm_pipeline/decompile_com.py -> repo root is parents[2].
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -150,19 +148,11 @@ def _disassemble(com: bytes, entries: list[int], out_base: Path, source_name: st
     """Drive disasm_z80 over .COM bytes with the given entry seeds; return .asm path."""
     mem = bytearray(0x10000)
     mem[TPA:TPA + len(com)] = com
-    symbols = SymbolTable()
-    if CPM_SYMBOLS.exists():
-        symbols.load_file(str(CPM_SYMBOLS))
-    walker = Walker(mem, start=TPA, end=TPA + len(com))
-    for e in entries:
-        walker.trace(e)
-    walker.name_labels(symbols=symbols)
-    fmt = SjasmFormatter(mem, walker, symbols,
-                         origin=TPA, length=len(com), source_name=source_name)
+    src = disasm_z80_region(mem, TPA, len(com), symbols=load_symbols(CPM_SYMBOLS),
+                            seeds=entries, source_name=source_name)
     asm_path = out_base.with_suffix(".asm")
     bin_path = out_base.with_suffix(".bin")
-    src = fmt.emit_source().replace("{out_bin}", bin_path.as_posix())
-    asm_path.write_text(src, encoding="utf-8")
+    asm_path.write_text(src.replace("{out_bin}", bin_path.as_posix()), encoding="utf-8")
     return asm_path
 
 

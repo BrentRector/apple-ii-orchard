@@ -10,20 +10,18 @@
 ; -- External symbols --
 WBOOT_VEC            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
 BDOS_VEC             EQU $0005               ; BDOS call vector — JP BDOS_ENTRY. Programs use CALL $0005 to invoke BDOS. Word at $0006 is also the top-of-TPA marker.
+RST1_VEC             EQU $0008               ; Z-80 RST 1 ($08) restart vector — 8 bytes. Available for application/debugger use.
+DEFAULT_FCB          EQU $005C               ; Default File Control Block — populated by CCP from command-line argument 1. Standard 36-byte FCB structure (drive + filename + extents + record number).
+DEFAULT_DMA          EQU $0080               ; Default DMA buffer — also command-line tail. First byte = length, then characters. Returned to default by BDOS function 13 (DRV_ALLRESET).
 
     ORG $0100
 
-; [AI] Program entry at the TPA ($0100). Sets the stack pointer to $0200 (inside the program's own
-;       image), captures the BDOS top-of-memory pointer from $0006, and jumps to the real
-;       initialization/dispatch entry at L_0200.
+; [AI] COM entry point at $0100: sets the stack, saves the top-of-TPA address from $0006, and jumps
+;       to the real start, the standard CP/M transient prologue.
 TPA_START:
-        LD SP,$0200                      ; $0100  31 00 02
-; [AI] Reads the word at page-zero $0006 (BDOS entry address / top of usable TPA) so the assembler
-;       can later compute the symbol-table ceiling.
+        LD SP,L_0200                     ; $0100  31 00 02
 L_0103:
         LD HL,($0006)                    ; $0103  2A 06 00
-; [AI] Stores the captured top-of-TPA pointer into the program's variable at $01CD, the high-memory
-;       limit used for symbol-table overflow checks.
 L_0106:
         LD ($01CD),HL                    ; $0106  22 CD 01
 L_0109:
@@ -33,38 +31,36 @@ L_0109:
         DEFS    153, $00    ; $0132  fill
         DEFB    $F0,$20,$00,$00,$00,$00,$00,$00,$00,$F0,$20,$00,$00,$00,$00,$00 ; $01CB
         DEFS    37, $00    ; $01DB  fill
-; [AI] Main entry: jumps to the primary command/driver routine at L_0CE0 which prints the sign-on
-;       banner and parses the source file name.
+; [AI] Secondary entry jump to the program's main driver (the assembler's outer control loop).
 L_0200:
         JP L_0CE0                        ; $0200  C3 E0 0C
-; [AI] Dispatch stub (initialize source-input buffering): jumps to L_0DA1, which resets the disk
-;       read buffer pointers/counters before pass processing.
+; [AI] Public entry (init): jumps to the module that resets the line buffer/symbol-table state
+;       before each assembly run.
 SUB_0203:
         JP L_0DA1                        ; $0203  C3 A1 0D
-; [AI] Dispatch stub for the buffered source-byte reader: jumps to L_0DCA, which returns the next
-;       character from the 8-record (1KB) source disk buffer, refilling via BDOS read-sequential as
-;       needed.
+; [AI] Public entry (get source byte): jumps to the buffered source-file reader that returns the
+;       next character of the .ASM file.
 SUB_0206:
         JP L_0DCA                        ; $0206  C3 CA 0D
         ; jump table
         JP      SUB_0E34                 ; $0209
         JP      SUB_0EAA                 ; $020C
         JP      SUB_0EDE                 ; $020F
-; [AI] Dispatch stub that jumps to SUB_0CBC, the routine that prints a CR/LF-framed
-;       '$0D'-terminated message string to the console.
+; [AI] Public entry: jumps to the print-string-to-console helper (sends a $-less, CR-terminated
+;       message via BDOS conout).
 SUB_0212:
         JP SUB_0CBC                      ; $0212  C3 BC 0C
-; [AI] Dispatch stub (flush/emit current listing line): jumps to L_0F00 which writes the assembled
-;       listing-line buffer at $010C out to the console/list device with CR/LF.
+; [AI] Public entry: jumps to the PRN/listing line-flush routine that emits the formatted assembled
+;       line.
 SUB_0215:
         JP L_0F00                        ; $0215  C3 00 0F
-; [AI] Dispatch stub: jumps to L_0F2F, which stores an error-flag character into the first column
-;       of the listing-line buffer if that column is still blank.
+; [AI] Public entry: jumps to the single-character console output helper used for error flags and
+;       progress letters.
 SUB_0218:
         JP L_0F2F                        ; $0218  C3 2F 0F
         DEFB    $C3,$4C,$10                                      ; $021B
-; [AI] Dispatch stub: jumps to L_0F39, the end-of-assembly cleanup that pads/flushes output
-;       records, closes the .HEX and .PRN files, and prints completion.
+; [AI] Public entry: jumps to the end-of-assembly finalizer (close files, print summary, warm
+;       boot).
 L_021E:
         JP L_0F39                        ; $021E  C3 39 0F
         DEFS    32, $00    ; $0221  fill
@@ -76,8 +72,8 @@ L_021E:
         DEFS    9, $00    ; $0293  fill
         DEFB    $04,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00 ; $029C
         DEFS    2549, $00    ; $02AC  fill
-; [AI] Sets a CP/M selected-disk/drive variable: compares A to the stored drive at $0234, and if
-;       changed selects that drive via BDOS function 14 (select disk).
+; [AI] Opens/selects a file by writing the drive byte into an FCB field and invoking BDOS function
+;       14 (DRV_SET / select disk) only when it changes, avoiding a redundant select.
 SUB_0CA1:
         LD HL,$0234                      ; $0CA1  21 34 02
 L_0CA4:
@@ -94,8 +90,8 @@ L_0CAA:
         CALL BDOS_VEC                    ; $0CAA  CD 05 00
 L_0CAD:
         RET                              ; $0CAD  C9
-; [AI] Decodes one FCB drive/option byte: advances HL, and converts an ASCII letter to a 0-based
-;       drive number (SBC A,$41) unless it is a blank, in which case the current drive is used.
+; [AI] Reads the next character of the command tail/option string from (HL), folding a space to the
+;       stored drive byte and otherwise converting an ASCII letter to a drive number via SBC A,'A'.
 SUB_0CAE:
         INC HL                           ; $0CAE  23
 L_0CAF:
@@ -108,13 +104,11 @@ L_0CB5:
         SBC A,$41                        ; $0CB5  DE 41
 L_0CB7:
         RET                              ; $0CB7  C9
-; [AI] Default-drive fallback: loads the currently selected drive code from $0234 when a file-
-;       control-block drive byte was the 'use current drive' placeholder (space).
 L_0CB8:
         LD A,($0234)                     ; $0CB8  3A 34 02
         RET                              ; $0CBB  C9
-; [AI] Prints a console message: emits successive characters via SUB_0EDE (BDOS function 2) until a
-;       CR ($0D) is reached, then appends an LF. HL points at the message text.
+; [AI] Prints a CR-terminated message string at (HL) to the console one character at a time, then
+;       emits a line feed, used for the banner and all error texts.
 SUB_0CBC:
         LD A,(HL)                        ; $0CBC  7E
 L_0CBD:
@@ -133,11 +127,10 @@ L_0CC9:
         CALL SUB_0EDE                    ; $0CC9  CD DE 0E
 L_0CCC:
         RET                              ; $0CCC  C9
-; [AI] Copies the 9-byte parsed first-filename field (drive+8-char name) from the command-tail FCB
-;       at $005C into the FCB pointed to by HL; aborts with a name error if a '?' wildcard is
-;       present.
+; [AI] Copies the 8-character filename from the default FCB at $005C into the FCB being built at
+;       (HL); aborts to the 'file name error' path if a '?' wildcard is found.
 SUB_0CCD:
-        LD DE,$005C                      ; $0CCD  11 5C 00
+        LD DE,DEFAULT_FCB                ; $0CCD  11 5C 00
 L_0CD0:
         LD B,$09                         ; $0CD0  06 09
 L_0CD2:
@@ -158,16 +151,16 @@ L_0CDC:
         JP NZ,L_0CD2                     ; $0CDC  C2 D2 0C
 L_0CDF:
         RET                              ; $0CDF  C9
-; [AI] Top-level driver: prints the 'CP/M ASSEMBLER - VER 2.0' sign-on banner, then falls through
-;       to check for and parse the source file name.
+; [AI] Top of the main program: prints the 'CP/M ASSEMBLER - VER 2.0' banner, then falls into
+;       command-line parsing and file setup.
 L_0CE0:
         LD HL,$0FA0                      ; $0CE0  21 A0 0F
 L_0CE3:
         CALL SUB_0CBC                    ; $0CE3  CD BC 0C
 L_0CE6:
         JP L_0D3F                        ; $0CE6  C3 3F 0D
-; [AI] Opens the source file via BDOS function 15 (open file) using the FCB at $0238; if open fails
-;       ($FF) it prints 'NO SOURCE FILE PRESENT' and warm-boots.
+; [AI] Opens the source (.ASM) file via BDOS function 15 (F_OPEN); on failure prints 'NO SOURCE
+;       FILE PRESENT' and warm-boots.
 SUB_0CE9:
         LD C,$0F                         ; $0CE9  0E 0F
 L_0CEB:
@@ -179,8 +172,8 @@ L_0CF0:
         LD HL,$0FB9                      ; $0CF1  21 B9 0F
         CALL SUB_0CBC                    ; $0CF4  CD BC 0C
         JP WBOOT_VEC                     ; $0CF7  C3 00 00
-; [AI] Closes an output file via BDOS function 16 (close file) using the FCB in DE; on failure
-;       ($FF) prints 'CANNOT CLOSE FILES' and warm-boots.
+; [AI] Closes an output file via BDOS function 16 (F_CLOSE); on failure prints 'CANNOT CLOSE FILES'
+;       and warm-boots.
 SUB_0CFA:
         LD C,$10                         ; $0CFA  0E 10
         CALL BDOS_VEC                    ; $0CFC  CD 05 00
@@ -189,14 +182,14 @@ SUB_0CFA:
         LD HL,$1029                      ; $0D02  21 29 10
         CALL SUB_0CBC                    ; $0D05  CD BC 0C
         JP WBOOT_VEC                     ; $0D08  C3 00 00
-; [AI] Wrapper for BDOS function 19 (delete file): used to erase any pre-existing .HEX/.PRN output
-;       file before (re)creating it.
+; [AI] Thin wrapper for BDOS function 19 (F_DELETE), used to erase any pre-existing .PRN/.HEX file
+;       before recreating it.
 SUB_0D0B:
         LD C,$13                         ; $0D0B  0E 13
 L_0D0D:
         JP BDOS_VEC                      ; $0D0D  C3 05 00
-; [AI] Creates an output file via BDOS function 22 (make file) using the FCB in DE; if the
-;       directory is full ($FF) prints 'NO DIRECTORY SPACE' and warm-boots.
+; [AI] Creates an output file via BDOS function 22 (F_MAKE); on failure prints 'NO DIRECTORY SPACE'
+;       and warm-boots.
 SUB_0D10:
         LD C,$16                         ; $0D10  0E 16
 L_0D12:
@@ -208,16 +201,16 @@ L_0D17:
         LD HL,$0FD0                      ; $0D18  21 D0 0F
         CALL SUB_0CBC                    ; $0D1B  CD BC 0C
         JP WBOOT_VEC                     ; $0D1E  C3 00 00
-; [AI] Applies the source-file drive selection stored at $0235 by calling SUB_0CA1 to select that
-;       CP/M drive.
+; [AI] Selects the source-file's drive (from the saved drive byte at $0235) so subsequent source
+;       reads target the right disk.
 SUB_0D21:
         LD A,($0235)                     ; $0D21  3A 35 02
 L_0D24:
         CALL SUB_0CA1                    ; $0D24  CD A1 0C
 L_0D27:
         RET                              ; $0D27  C9
-; [AI] Tests the listing/output-suppress option byte at $0236 for the 'skip this output' codes
-;       ($19='Z' suppress, $17) and returns Z if output is disabled.
+; [AI] Tests the PRN-destination option byte at $0236: returns Z (skip) if listing is suppressed
+;       ($19='Z' no file) and sets flags for the console case ($17='W').
 SUB_0D28:
         LD A,($0236)                     ; $0D28  3A 36 02
 L_0D2B:
@@ -228,26 +221,25 @@ L_0D2E:
         CP $17                           ; $0D2E  FE 17
 L_0D30:
         RET                              ; $0D30  C9
-; [AI] Selects the drive for the .HEX output file from the option byte at $0236 via SUB_0CA1.
+; [AI] Selects the drive for the .PRN output file from the option byte at $0236.
 SUB_0D31:
         LD A,($0236)                     ; $0D31  3A 36 02
 L_0D34:
         CALL SUB_0CA1                    ; $0D34  CD A1 0C
 L_0D37:
         RET                              ; $0D37  C9
-; [AI] Selects the drive for the .PRN (listing) output file from the option byte at $0237 via
-;       SUB_0CA1.
+; [AI] Selects the drive for the .HEX output file from the option byte at $0237.
 SUB_0D38:
         LD A,($0237)                     ; $0D38  3A 37 02
 L_0D3B:
         CALL SUB_0CA1                    ; $0D3B  CD A1 0C
 L_0D3E:
         RET                              ; $0D3E  C9
-; [AI] Command-line decoder: rejects an empty command tail (FCB name byte at $005C is a space) with
-;       'SOURCE FILE NAME ERROR', otherwise records the source drive and parses the three optional
-;       drive/option letters that follow the filename.
+; [AI] Parses the command-line option letters following the filename, storing the source/PRN/HEX
+;       drive selectors at $0234-$0237, then creates the .PRN and .HEX output files unless
+;       suppressed.
 L_0D3F:
-        LD A,($005C)                     ; $0D3F  3A 5C 00
+        LD A,(DEFAULT_FCB)               ; $0D3F  3A 5C 00
 L_0D42:
         CP $20                           ; $0D42  FE 20
 L_0D44:
@@ -344,14 +336,14 @@ L_0DB7:
         CALL SUB_0CE9                    ; $0DB7  CD E9 0C
 L_0DBA:
         RET                              ; $0DBA  C9
-; [AI] Missing/blank source filename handler: prints 'SOURCE FILE NAME ERROR' and warm-boots to the
-;       CCP.
+; [AI] Fatal-error landing: prints 'SOURCE FILE NAME ERROR' and warm-boots (reached when the
+;       filename is missing or contains a wildcard).
 L_0DBB:
         LD HL,$0FE3                      ; $0DBB  21 E3 0F
         CALL SUB_0CBC                    ; $0DBE  CD BC 0C
         JP WBOOT_VEC                     ; $0DC1  C3 00 00
-; [AI] 16-bit comparison helper: compares register pair DE against HL byte-by-byte, returning Z
-;       when equal (used to test whether a buffer index has reached its end).
+; [AI] 16-bit compare of DE against HL (sets Z if equal), a helper used to detect when a
+;       sector/output buffer pointer has reached its boundary.
 SUB_0DC4:
         LD A,D                           ; $0DC4  7A
 L_0DC5:
@@ -364,9 +356,8 @@ L_0DC8:
         CP L                             ; $0DC8  BD
 L_0DC9:
         RET                              ; $0DC9  C9
-; [AI] Buffered source reader: returns the next source character from the 1KB (8x128-byte) input
-;       buffer at $029D, calling BDOS read-sequential (function 20) to refill the buffer when
-;       exhausted and padding short final records with EOF ($1A).
+; [AI] Buffered source-file reader: returns the next .ASM character, refilling its 8-sector
+;       ($0400-byte) buffer via BDOS function 20 (F_READ) and padding with EOF ($1A) at end of file.
 L_0DCA:
         PUSH BC                          ; $0DCA  C5
 L_0DCB:
@@ -384,7 +375,7 @@ L_0DD6:
 L_0DD9:
         CALL SUB_0D21                    ; $0DD9  CD 21 0D
 L_0DDC:
-        LD HL,$0000                      ; $0DDC  21 00 00
+        LD HL,WBOOT_VEC                  ; $0DDC  21 00 00
 L_0DDF:
         LD ($029B),HL                    ; $0DDF  22 9B 02
 L_0DE2:
@@ -412,7 +403,7 @@ L_0DF4:
 L_0DF6:
         JP NZ,L_0E0D                     ; $0DF6  C2 0D 0E
 L_0DF9:
-        LD DE,$0080                      ; $0DF9  11 80 00
+        LD DE,DEFAULT_DMA                ; $0DF9  11 80 00
 L_0DFC:
         LD C,$80                         ; $0DFC  0E 80
 L_0DFE:
@@ -465,13 +456,13 @@ L_0E29:
         POP BC                           ; $0E29  C1
 L_0E2A:
         RET                              ; $0E2A  C9
-; [AI] Source read-error handler: prints 'SOURCE FILE READ ERROR' and warm-boots.
+; [AI] Fatal-error landing: prints 'SOURCE FILE READ ERROR' on a disk read failure and warm-boots.
 L_0E2B:
         LD HL,$0FFA                      ; $0E2B  21 FA 0F
         CALL SUB_0CBC                    ; $0E2E  CD BC 0C
         JP WBOOT_VEC                     ; $0E31  C3 00 00
-; [AI] Emits one byte to the .HEX output stream if HEX output is enabled (option byte at $0236 not
-;       in suppress states); otherwise discards it.
+; [AI] Writes one byte to the .PRN listing: sends it to the console, to the listing-file buffer, or
+;       discards it depending on the PRN-destination option (W=console, Z=none, else file).
 SUB_0E34:
         PUSH BC                          ; $0E34  C5
 L_0E35:
@@ -504,9 +495,8 @@ L_0E51:
         POP BC                           ; $0E51  C1
 L_0E52:
         RET                              ; $0E52  C9
-; [AI] Buffers one .HEX-file output byte into the 128-byte record at $069F; when the record fills,
-;       it is written to disk and flushed in up to 6 sequential BDOS write-sequential (function 21)
-;       calls.
+; [AI] Appends a byte to the .PRN file's output buffer and, when the buffer fills ($0300 bytes = 6
+;       sectors), flushes it to disk via BDOS function 21 (F_WRITE).
 SUB_0E53:
         LD HL,($069D)                    ; $0E53  2A 9D 06
 L_0E56:
@@ -532,11 +522,13 @@ L_0E65:
 L_0E68:
         RET NZ                           ; $0E68  C0
         CALL SUB_0D31                    ; $0E69  CD 31 0D
-        LD HL,$0000                      ; $0E6C  21 00 00
+        LD HL,WBOOT_VEC                  ; $0E6C  21 00 00
         LD ($069D),HL                    ; $0E6F  22 9D 06
         LD HL,$069F                      ; $0E72  21 9F 06
         LD DE,$0259                      ; $0E75  11 59 02
         LD B,$06                         ; $0E78  06 06
+; [AI] Common buffer-flush loop: writes the accumulated 6 sectors of an output buffer to disk one
+;       128-byte record at a time, stopping at an EOF marker or a write error.
 L_0E7A:
         LD A,(HL)                        ; $0E7A  7E
         CP $1A                           ; $0E7B  FE 1A
@@ -544,7 +536,7 @@ L_0E7A:
         PUSH BC                          ; $0E7E  C5
         PUSH DE                          ; $0E7F  D5
         LD C,$80                         ; $0E80  0E 80
-        LD DE,$0080                      ; $0E82  11 80 00
+        LD DE,DEFAULT_DMA                ; $0E82  11 80 00
 L_0E85:
         LD A,(HL)                        ; $0E85  7E
         LD (DE),A                        ; $0E86  12
@@ -565,14 +557,14 @@ L_0E85:
         DEC B                            ; $0E9C  05
         RET Z                            ; $0E9D  C8
         JP L_0E7A                        ; $0E9E  C3 7A 0E
-; [AI] Output write-error handler: prints 'OUTPUT FILE WRITE ERROR' and branches to the file-
-;       close/cleanup path.
+; [AI] Output-write error handler: prints 'OUTPUT FILE WRITE ERROR' then jumps to the end-of-
+;       assembly cleanup path.
 L_0EA1:
         LD HL,$1011                      ; $0EA1  21 11 10
         CALL SUB_0CBC                    ; $0EA4  CD BC 0C
         JP L_0F77                        ; $0EA7  C3 77 0F
-; [AI] Emits one byte to the .PRN (listing) output stream, preserving registers around the
-;       underlying buffered writer.
+; [AI] Writes one byte to the .HEX file's output buffer, flushing 6 sectors to disk via BDOS
+;       function 21 when the buffer fills (the Intel-HEX counterpart of SUB_0E34/SUB_0E53).
 SUB_0EAA:
         PUSH BC                          ; $0EAA  C5
         PUSH DE                          ; $0EAB  D5
@@ -582,8 +574,6 @@ SUB_0EAA:
         POP DE                           ; $0EB1  D1
         POP BC                           ; $0EB2  C1
         RET                              ; $0EB3  C9
-; [AI] Buffers one listing (.PRN) output byte into the 128-byte record at $09A1; flushes full
-;       records to disk via BDOS write-sequential (function 21).
 SUB_0EB4:
         LD HL,($099F)                    ; $0EB4  2A 9F 09
         EX DE,HL                         ; $0EB7  EB
@@ -598,14 +588,14 @@ SUB_0EB4:
         CALL SUB_0DC4                    ; $0EC6  CD C4 0D
         RET NZ                           ; $0EC9  C0
         CALL SUB_0D38                    ; $0ECA  CD 38 0D
-        LD HL,$0000                      ; $0ECD  21 00 00
+        LD HL,WBOOT_VEC                  ; $0ECD  21 00 00
         LD ($099F),HL                    ; $0ED0  22 9F 09
         LD HL,$09A1                      ; $0ED3  21 A1 09
         LD DE,$027A                      ; $0ED6  11 7A 02
         LD B,$06                         ; $0ED9  06 06
         JP L_0E7A                        ; $0EDB  C3 7A 0E
-; [AI] Console output of a single character: calls BDOS function 2 with the character in E,
-;       preserving BC/DE/HL.
+; [AI] Outputs a single character to the console via BDOS function 2 (C_WRITE), preserving
+;       BC/DE/HL; the lowest-level console-print primitive.
 SUB_0EDE:
         PUSH BC                          ; $0EDE  C5
 L_0EDF:
@@ -626,8 +616,8 @@ L_0EE9:
         POP BC                           ; $0EE9  C1
 L_0EEA:
         RET                              ; $0EEA  C9
-; [AI] Outputs a listing character to the console and (unless listing is suppressed) also to the
-;       .PRN file, the routine that mirrors a built line to both the screen and the print file.
+; [AI] Emits one character of the formatted source line both to the console (column-tracked) and to
+;       the .PRN listing, honoring the listing-suppression option.
 SUB_0EEB:
         LD C,A                           ; $0EEB  4F
 L_0EEC:
@@ -644,9 +634,8 @@ L_0EF4:
         LD A,C                           ; $0EFB  79
         CALL SUB_0EDE                    ; $0EFC  CD DE 0E
         RET                              ; $0EFF  C9
-; [AI] Flushes the assembled listing-line buffer at $010C: writes its non-blank length to the
-;       console-and-PRN device, appends CR/LF, then re-blanks all 120 ($78) columns of the line
-;       buffer.
+; [AI] Flushes the current listing line: prints the buffered line text ($010C..) with CR/LF, then
+;       re-fills the 120-byte line buffer with spaces ready for the next line.
 L_0F00:
         LD A,($0184)                     ; $0F00  3A 84 01
 L_0F03:
@@ -686,8 +675,8 @@ L_0F2B:
         JP NZ,L_0F27                     ; $0F2B  C2 27 0F
 L_0F2E:
         RET                              ; $0F2E  C9
-; [AI] Sets the error-flag character in column 0 of the listing line buffer ($010C) only if that
-;       column currently holds a blank, so the first error code on a line is preserved.
+; [AI] Stores a status/error letter into the first column of the listing line only if that column
+;       is still blank, so the leftmost error flag is preserved.
 L_0F2F:
         LD B,A                           ; $0F2F  47
         LD HL,$010C                      ; $0F30  21 0C 01
@@ -696,9 +685,8 @@ L_0F2F:
         RET NZ                           ; $0F36  C0
         LD (HL),B                        ; $0F37  70
         RET                              ; $0F38  C9
-; [AI] End-of-assembly finalizer: pads the last partial .HEX record with EOF, writes the Intel-HEX
-;       end record, flushes and closes the .HEX and .PRN files, prints 'END OF ASSEMBLY', and warm-
-;       boots.
+; [AI] End-of-source-line handler in the listing path: pads remaining HEX object bytes, emits the
+;       assembled-code byte count for the line, and writes line terminators to PRN/HEX.
 L_0F39:
         CALL SUB_0D28                    ; $0F39  CD 28 0D
         JP Z,L_0F4F                      ; $0F3C  CA 4F 0F
@@ -728,8 +716,8 @@ L_0F67:
         LD A,$1A                         ; $0F6F  3E 1A
         CALL SUB_0EAA                    ; $0F71  CD AA 0E
         JP L_0F67                        ; $0F74  C3 67 0F
-; [AI] File-close/cleanup sequence: selects each output drive and closes the .HEX (FCB $0259) and
-;       .PRN (FCB $027A) files via BDOS, then prints 'END OF ASSEMBLY' and warm-boots.
+; [AI] End-of-assembly finalizer: flushes and closes the .PRN and .HEX output files, prints 'END OF
+;       ASSEMBLY', and warm-boots back to CP/M.
 L_0F77:
         CALL SUB_0D28                    ; $0F77  CD 28 0D
         JP Z,L_0F86                      ; $0F7A  CA 86 0F
@@ -768,8 +756,8 @@ L_0F97:
         DEFB    $2A,$D0,$01,$EB,$2A,$21,$02,$4F,$06,$00,$09,$7B,$BD,$C2,$81,$10 ; $106C
         DEFB    $7A,$BC,$CA,$8A,$10,$CD,$B8,$10,$2A,$D0,$01,$22,$21,$02,$21,$23 ; $107C
         DEFB    $02,$5E,$34,$16,$00,$21,$24,$02,$19,$F1,$77,$D1,$C1,$C9 ; $108C
-; [AI] Outputs one byte as two ASCII hex digits to the .HEX stream and accumulates it into the
-;       running Intel-HEX record checksum in D.
+; [AI] Emits one byte as two ASCII hex digits into the .HEX output stream and accumulates it into
+;       the running Intel-HEX record checksum (in D).
 SUB_109A:
         PUSH AF                          ; $109A  F5
         RRCA                             ; $109B  0F
@@ -786,17 +774,16 @@ SUB_109A:
         ADD A,D                          ; $10AC  82
         LD D,A                           ; $10AD  57
         RET                              ; $10AE  C9
-; [AI] Converts the low nibble in A (0-15) to its ASCII hex character using the classic
-;       ADD/DAA/ADC/DAA trick, then emits it to the .PRN/HEX output.
+; [AI] Converts a 4-bit nibble (0-15) in A to its ASCII hex character using the classic
+;       ADD/DAA/ADC/DAA trick and writes it to the .HEX file.
 SUB_10AF:
         ADD A,$90                        ; $10AF  C6 90
         DAA                              ; $10B1  27
         ADC A,$40                        ; $10B2  CE 40
         DAA                              ; $10B4  27
         JP SUB_0EAA                      ; $10B5  C3 AA 0E
-; [AI] Emits a complete Intel-HEX data record: writes the ':' start mark, byte count (from $0223),
-;       the 16-bit load address (from $0221), record type 00, the data bytes, and the
-;       two's-complement checksum, terminated by CR/LF.
+; [AI] Writes one complete Intel-HEX data record: the ':' lead, byte count, load address, the data
+;       bytes, and the two's-complement checksum, then CR/LF.
 SUB_10B8:
         LD A,$3A                         ; $10B8  3E 3A
         CALL SUB_0EAA                    ; $10BA  CD AA 0E
@@ -834,21 +821,20 @@ L_10E8:
         CALL SUB_0EAA                    ; $10F4  CD AA 0E
         RET                              ; $10F7  C9
         DEFS    8, $00    ; $10F8  fill
-; [AI] Pass-driver dispatch stub: jumps to L_1340, the top of the per-line statement assembly
-;       engine.
+; [AI] Entry jump into the lexical-analysis / line-input module's driver.
 L_1100:
         JP L_1340                        ; $1100  C3 40 13
-; [AI] Dispatch stub: jumps to L_1132, the per-line source-read initializer that primes the listing
-;       buffer for a new input line.
+; [AI] Public entry: jumps to the per-line lexer reset that initializes line counters and reads the
+;       first token.
 SUB_1103:
         JP L_1132                        ; $1103  C3 32 11
-; [AI] Dispatch stub: jumps to L_11C0, the lexical scanner that returns the next token
-;       (symbol/number/string/special) from the source line.
+; [AI] Public entry: jumps to the main token scanner that classifies and returns the next lexical
+;       token from the source line.
 SUB_1106:
         JP L_11C0                        ; $1106  C3 C0 11
         DEFB    $00,$00,$00                                      ; $1109
-; [AI] Reads the next raw source character (via SUB_0206), echoing it into the listing-line buffer
-;       at $010C (up to 120 columns) but not echoing CR/LF or once the line is full.
+; [AI] Reads one source character (via SUB_0206) and, unless it is CR/LF or the 120-column line is
+;       full, appends it to the echo/listing line buffer at $010C.
 SUB_110C:
         CALL SUB_0206                    ; $110C  CD 06 02
 L_110F:
@@ -889,8 +875,8 @@ L_1130:
         POP AF                           ; $1130  F1
 L_1131:
         RET                              ; $1131  C9
-; [AI] Begins a new source line: resets the line scanner state, stores the last-read char and look-
-;       ahead, and forces a fresh listing line with a leading newline flag.
+; [AI] Begins a new source line: clears the token holding byte, primes the listing column counter,
+;       flushes the previous listing line, and resets the column to a fixed start.
 L_1132:
         CALL SUB_1149                    ; $1132  CD 49 11
 L_1135:
@@ -909,8 +895,8 @@ L_1145:
         LD ($0184),A                     ; $1145  32 84 01
 L_1148:
         RET                              ; $1148  C9
-; [AI] Resets per-token accumulators: clears the token-length byte at $0188 and the token-
-;       type/radix byte at $110B.
+; [AI] Resets the per-token accumulator: zeroes the symbol-character count ($0188) and the token-
+;       type/flag byte ($110B).
 SUB_1149:
         XOR A                            ; $1149  AF
 L_114A:
@@ -919,8 +905,8 @@ L_114D:
         LD ($110B),A                     ; $114D  32 0B 11
 L_1150:
         RET                              ; $1150  C9
-; [AI] Appends the current character ($110A) to the token text buffer at $0189; if the buffer
-;       length reaches $40 it overflows and emits a line-too-long error via SUB_131E.
+; [AI] Appends the current character ($110A) to the symbol/identifier accumulator buffer at $0189,
+;       capping the length at 64 and reporting overflow via SUB_131E.
 SUB_1151:
         LD HL,$0188                      ; $1151  21 88 01
         LD A,(HL)                        ; $1154  7E
@@ -937,8 +923,8 @@ L_115F:
         LD A,($110A)                     ; $1165  3A 0A 11
         LD (HL),A                        ; $1168  77
         RET                              ; $1169  C9
-; [AI] Tests the current character ($110A) for '$' (end-of-line/EOF marker); if found, zeroes it to
-;       signal end and returns NZ otherwise.
+; [AI] Detects the CP/M end-of-line/dollar terminator '$' in (HL), zeroing it so it is treated as
+;       end-of-token.
 SUB_116A:
         LD A,(HL)                        ; $116A  7E
         CP $24                           ; $116B  FE 24
@@ -946,8 +932,7 @@ SUB_116A:
         XOR A                            ; $116E  AF
         LD (HL),A                        ; $116F  77
         RET                              ; $1170  C9
-; [AI] Character class test: returns Z/A=1 if the current character ($110A) is an ASCII decimal
-;       digit ('0'-'9').
+; [AI] Predicate: returns Z if the current character is an ASCII decimal digit '0'-'9'.
 SUB_1171:
         LD A,($110A)                     ; $1171  3A 0A 11
         SUB $30                          ; $1174  D6 30
@@ -955,8 +940,8 @@ SUB_1171:
         RLA                              ; $1178  17
         AND $01                          ; $1179  E6 01
         RET                              ; $117B  C9
-; [AI] Character class test: returns whether the current character is a hexadecimal letter
-;       ('A'-'F'); combines with the digit test for full hex-digit recognition.
+; [AI] Predicate: returns Z if the current character is a hex letter 'A'-'F' (after first ruling
+;       out a decimal digit).
 SUB_117C:
         CALL SUB_1171                    ; $117C  CD 71 11
         RET NZ                           ; $117F  C0
@@ -966,8 +951,7 @@ SUB_117C:
         RLA                              ; $1187  17
         AND $01                          ; $1188  E6 01
         RET                              ; $118A  C9
-; [AI] Character class test: returns whether the current character is an uppercase letter
-;       ('A'-'Z').
+; [AI] Predicate: returns Z if the current character is an uppercase letter 'A'-'Z'.
 SUB_118B:
         LD A,($110A)                     ; $118B  3A 0A 11
         SUB $41                          ; $118E  D6 41
@@ -975,15 +959,15 @@ SUB_118B:
         RLA                              ; $1192  17
         AND $01                          ; $1193  E6 01
         RET                              ; $1195  C9
-; [AI] Identifier-character test: returns true if the current character is a letter or a digit (a
-;       valid symbol-name continuation character).
+; [AI] Predicate: returns Z if the current character is alphanumeric (letter or digit), the test
+;       for valid identifier continuation characters.
 SUB_1196:
         CALL SUB_118B                    ; $1196  CD 8B 11
         RET NZ                           ; $1199  C0
         CALL SUB_1171                    ; $119A  CD 71 11
         RET                              ; $119D  C9
-; [AI] Folds the current character ($110A) to upper case in place (maps lowercase 'a'-'z' to
-;       uppercase), making the assembler case-insensitive.
+; [AI] Folds a lowercase letter 'a'-'z' in the current character to uppercase, so the assembler is
+;       case-insensitive for mnemonics and symbols.
 SUB_119E:
         LD A,($110A)                     ; $119E  3A 0A 11
 L_11A1:
@@ -995,8 +979,8 @@ L_11A3:
         AND $5F                          ; $11A7  E6 5F
         LD ($110A),A                     ; $11A9  32 0A 11
         RET                              ; $11AC  C9
-; [AI] Advances the scanner one character: reads the next source char into $110A and runs the
-;       listing/error post-processing at L_132D.
+; [AI] Advances one character: fetches the next source char into the current-char byte $110A and
+;       updates the listing line via L_132D.
 SUB_11AD:
         CALL SUB_110C                    ; $11AD  CD 0C 11
 L_11B0:
@@ -1004,8 +988,8 @@ L_11B0:
 L_11B3:
         JP L_132D                        ; $11B3  C3 2D 13
         DEFB    $C9                                              ; $11B6
-; [AI] Comment/line-terminator test: returns Z if the character is CR, EOF ($1A), or '!' (an
-;       alternate statement separator).
+; [AI] Predicate: returns Z if the character is a statement terminator (CR, EOF $1A, or '!' the
+;       CP/M multi-statement separator).
 SUB_11B7:
         CP $0D                           ; $11B7  FE 0D
         RET Z                            ; $11B9  C8
@@ -1013,9 +997,9 @@ SUB_11B7:
         RET Z                            ; $11BC  C8
         CP $21                           ; $11BD  FE 21
         RET                              ; $11BF  C9
-; [AI] Token scanner: skips leading blanks/tabs and comments (';' or a line beginning with '*'),
-;       then classifies and collects the next token, setting the token-type code in $0185 (1=symbol,
-;       2=number, 3=string, 4=end-of-line).
+; [AI] Core token scanner: skips leading whitespace/comments, then dispatches on the first
+;       significant character to classify the token as a letter-symbol, digit, quoted string, or
+;       end-of-line, storing the class in $0185.
 L_11C0:
         XOR A                            ; $11C0  AF
 L_11C1:
@@ -1084,8 +1068,9 @@ L_1221:
         LD ($0184),A                     ; $1234  32 84 01
 L_1237:
         LD A,$04                         ; $1237  3E 04
-; [AI] Token-type commit point: records the determined token type in $0185, then loops accumulating
-;       characters of the token into the text buffer until a delimiter is seen.
+; [AI] Token-class commit point: records the determined token type in $0185 and accumulates the
+;       token's characters, uppercasing and length-checking as it consumes identifier/number/string
+;       bodies.
 L_1239:
         LD ($0185),A                     ; $1239  32 85 01
 L_123C:
@@ -1108,9 +1093,6 @@ L_123C:
         CALL SUB_1196                    ; $1265  CD 96 11
         RET Z                            ; $1268  C8
         JP L_123C                        ; $1269  C3 3C 12
-; [AI] Numeric-token scanner: collects digits/hex letters and detects the trailing radix suffix
-;       letter (H=hex/$10, O or Q=octal/$08, B=binary/$02, D=decimal/$0A), setting the radix in
-;       $110B.
 L_126C:
         CP $02                           ; $126C  FE 02
         JP NZ,L_1302                     ; $126E  C2 02 13
@@ -1150,11 +1132,8 @@ L_12B4:
         DEC (HL)                         ; $12B7  35
 L_12B8:
         LD ($110B),A                     ; $12B8  32 0B 11
-; [AI] Numeric value evaluator: converts the collected digit string in the token buffer to a 16-bit
-;       value in $0186 using the radix in $110B, multiplying the accumulator by the base and adding
-;       each digit (with range checking via SUB_1318).
 L_12BB:
-        LD HL,$0000                      ; $12BB  21 00 00
+        LD HL,WBOOT_VEC                  ; $12BB  21 00 00
         LD ($0186),HL                    ; $12BE  22 86 01
         LD HL,$0188                      ; $12C1  21 88 01
         LD C,(HL)                        ; $12C4  4E
@@ -1179,7 +1158,7 @@ L_12D4:
         LD A,(HL)                        ; $12E0  7E
         LD HL,($0186)                    ; $12E1  2A 86 01
         EX DE,HL                         ; $12E4  EB
-        LD HL,$0000                      ; $12E5  21 00 00
+        LD HL,WBOOT_VEC                  ; $12E5  21 00 00
 L_12E8:
         OR A                             ; $12E8  B7
         JP Z,L_12F7                      ; $12E9  CA F7 12
@@ -1209,14 +1188,14 @@ L_1302:
         CP $27                           ; $1312  FE 27
         RET NZ                           ; $1314  C0
         JP L_123C                        ; $1315  C3 3C 12
-; [AI] Reports a digit-out-of-radix ('V' value) error by emitting the 'V' error code into the
-;       listing line.
+; [AI] Reports a symbol/value-too-long ('V') error by printing the flag letter; entry that selects
+;       'V' before the shared error-emit code.
 SUB_1318:
         PUSH AF                          ; $1318  F5
         LD A,$56                         ; $1319  3E 56
         JP L_1324                        ; $131B  C3 24 13
-; [AI] Reports a line/token format ('O') error by emitting the 'O' error code into the listing
-;       line.
+; [AI] Reports an identifier-overflow ('O') error; entry that selects 'O' before the shared single-
+;       character error-emit code at L_1324.
 SUB_131E:
         PUSH AF                          ; $131E  F5
         LD A,$4F                         ; $131F  3E 4F
@@ -1229,8 +1208,8 @@ L_1324:
         POP BC                           ; $132A  C1
         POP AF                           ; $132B  F1
         RET                              ; $132C  C9
-; [AI] Post-character hook: after each scanned character, upper-cases it (unless inside a quoted
-;       string, type 3) so symbol/opcode matching is case-insensitive.
+; [AI] Listing-line side effect run on each character advance: feeds the character to the line-
+;       echo/uppercase logic so the .PRN listing mirrors the scanned source.
 L_132D:
         PUSH AF                          ; $132D  F5
 L_132E:
@@ -1244,44 +1223,40 @@ L_1336:
 L_1337:
         RET                              ; $1337  C9
         DEFS    8, $00    ; $1338  fill
-; [AI] Statement assembly engine entry: jumps to L_15A0, the per-line code generator that matches
-;       opcodes and emits object bytes.
+; [AI] Entry jump into the symbol-table module's driver.
 L_1340:
         JP L_15A0                        ; $1340  C3 A0 15
-; [AI] Dispatch stub: jumps to L_145C, which clears/initializes the symbol-table hash bucket array.
+; [AI] Public entry: jumps to the symbol-table initializer that clears the 128-slot hash bucket
+;       array.
 SUB_1343:
         JP L_145C                        ; $1343  C3 5C 14
-; [AI] Dispatch stub: jumps to L_149E, the symbol lookup routine that searches the hash chain for
-;       the current identifier.
+; [AI] Public entry: jumps to the symbol-table insert/define routine.
 SUB_1346:
         JP L_149E                        ; $1346  C3 9E 14
-; [AI] Dispatch stub: jumps to SUB_1498, which tests whether the current symbol-table cursor
-;       ($01D6) is a valid (non-null) entry.
+; [AI] Public entry: jumps to the symbol-table lookup that searches the current hash chain for a
+;       name.
 SUB_1349:
         JP SUB_1498                      ; $1349  C3 98 14
-; [AI] Dispatch stub: jumps to L_14EB, which allocates and inserts a new symbol-table entry (with
-;       high-memory overflow check).
+; [AI] Public entry: jumps to the routine that allocates a new symbol-table entry from free TPA
+;       space.
 SUB_134C:
         JP L_14EB                        ; $134C  C3 EB 14
-; [AI] Dispatch stub: jumps to L_1560, which sets the type/attribute nibble of the current symbol
-;       entry.
+; [AI] Public entry: jumps to the routine that sets a symbol's type/attribute nibble.
 SUB_134F:
         JP L_1560                        ; $134F  C3 60 15
-; [AI] Dispatch stub: jumps to L_1572, which reads the type/attribute nibble of the current symbol
-;       entry.
+; [AI] Public entry: jumps to the routine that reads a symbol's type/attribute nibble.
 SUB_1352:
         JP L_1572                        ; $1352  C3 72 15
-; [AI] Dispatch stub: jumps to L_158D, which stores a 16-bit value into the current symbol entry's
-;       value field.
+; [AI] Public entry: jumps to the routine that stores a 16-bit value into the current symbol entry.
 SUB_1355:
         JP L_158D                        ; $1355  C3 8D 15
-; [AI] Dispatch stub: jumps to L_1596, which fetches the 16-bit value from the current symbol
+; [AI] Public entry: jumps to the routine that fetches the 16-bit value from the current symbol
 ;       entry.
 SUB_1358:
         JP L_1596                        ; $1358  C3 96 15
         DEFS    257, $00    ; $135B  fill
-; [AI] Initializes the symbol-table hash directory: zeros the 128-bucket (256-byte) pointer array
-;       at $135B and clears the current-entry cursor at $01D6.
+; [AI] Initializes the symbol table: zero-fills the 128-entry ($80 word) hash-bucket pointer array
+;       at $135B and clears the current-entry pointer.
 L_145C:
         LD HL,$135B                      ; $145C  21 5B 13
 L_145F:
@@ -1301,13 +1276,13 @@ L_1466:
 L_1467:
         JP NZ,L_1462                     ; $1467  C2 62 14
 L_146A:
-        LD HL,$0000                      ; $146A  21 00 00
+        LD HL,WBOOT_VEC                  ; $146A  21 00 00
 L_146D:
         LD ($01D6),HL                    ; $146D  22 D6 01
 L_1470:
         RET                              ; $1470  C9
-; [AI] Computes a 7-bit hash of the current identifier (sum of its characters AND $7F) and stores
-;       it in $145B as the bucket index for hash-table access.
+; [AI] Computes the hash of the symbol name in the accumulator (sum of its bytes, masked to 7 bits)
+;       and stores it as the bucket index at $145B.
 SUB_1471:
         LD HL,$0188                      ; $1471  21 88 01
         LD B,(HL)                        ; $1474  46
@@ -1321,8 +1296,8 @@ L_1476:
         LD ($145B),A                     ; $147E  32 5B 14
         RET                              ; $1481  C9
         DEFB    $47,$2A,$D6,$01,$23,$23,$7E,$E6,$F0,$B0,$77,$C9  ; $1482
-; [AI] Returns the name length of the symbol entry pointed to by cursor $01D6 (low nibble of the
-;       flag byte plus one).
+; [AI] Returns the stored name length of the symbol-table entry currently pointed to by $01D6 (its
+;       low nibble plus one).
 SUB_148E:
         LD HL,($01D6)                    ; $148E  2A D6 01
         INC HL                           ; $1491  23
@@ -1331,15 +1306,15 @@ SUB_148E:
         AND $0F                          ; $1494  E6 0F
         INC A                            ; $1496  3C
         RET                              ; $1497  C9
-; [AI] Tests whether the symbol-table cursor at $01D6 is null (returns Z when the pointer is zero,
-;       i.e. end of a hash chain / not found).
+; [AI] Tests whether the current symbol-entry pointer ($01D6) is null, used to detect the end of a
+;       hash chain or a 'not found' result; sets Z when null.
 SUB_1498:
         LD HL,($01D6)                    ; $1498  2A D6 01
         LD A,L                           ; $149B  7D
         OR H                             ; $149C  B4
         RET                              ; $149D  C9
-; [AI] Symbol lookup: hashes the current identifier, walks the matching hash-bucket chain comparing
-;       names, and returns with the cursor on the matching entry or Z if not found.
+; [AI] Symbol lookup: hashes the name, walks the corresponding bucket's linked list comparing
+;       length and characters, and returns the matching entry (or null) in $01D6.
 L_149E:
         CALL SUB_1471                    ; $149E  CD 71 14
         LD HL,$0188                      ; $14A1  21 88 01
@@ -1389,9 +1364,9 @@ L_14E1:
         LD D,(HL)                        ; $14E6  56
         EX DE,HL                         ; $14E7  EB
         JP L_14BB                        ; $14E8  C3 BB 14
-; [AI] Symbol insertion: allocates space for a new symbol entry growing downward from the table
-;       top, checks it against the TPA ceiling (overflow), links it into its hash bucket chain, and
-;       copies the identifier text and length into it.
+; [AI] Allocates a new symbol-table entry from the top of free memory growing downward, checks it
+;       against the symbol-table limit, links it into its hash bucket, and copies the name in;
+;       overflows to L_1541.
 L_14EB:
         LD HL,$0188                      ; $14EB  21 88 01
         LD E,(HL)                        ; $14EE  5E
@@ -1399,7 +1374,7 @@ L_14EB:
         LD HL,($01CB)                    ; $14F1  2A CB 01
         LD ($01D6),HL                    ; $14F4  22 D6 01
         ADD HL,DE                        ; $14F7  19
-        LD DE,$0005                      ; $14F8  11 05 00
+        LD DE,BDOS_VEC                   ; $14F8  11 05 00
         ADD HL,DE                        ; $14FB  19
         EX DE,HL                         ; $14FC  EB
         LD HL,($01CD)                    ; $14FD  2A CD 01
@@ -1451,16 +1426,16 @@ L_1533:
         INC HL                           ; $153E  23
         LD (HL),A                        ; $153F  77
         RET                              ; $1540  C9
-; [AI] Symbol-table-full handler: prints 'SYMBOL TABLE OVERFLOW' and aborts the assembly via the
-;       end-of-assembly path.
+; [AI] Symbol-table overflow handler: prints 'SYMBOL TABLE OVERFLOW' and jumps to the end-of-
+;       assembly finalizer.
 L_1541:
         LD HL,$154A                      ; $1541  21 4A 15
         CALL SUB_0212                    ; $1544  CD 12 02
         JP L_021E                        ; $1547  C3 1E 02
         DEFB    "SYMBOL TABLE OVERFLOW"    ; $154A  string
         DEFB    $0D    ; $155F  terminator
-; [AI] Stores the symbol type/attribute value into the high nibble of the current entry's flag byte
-;       (entry at $01D6+2).
+; [AI] Sets a symbol entry's 4-bit type/attribute field (shifted into the high nibble of the
+;       entry's flags byte) while preserving the stored name length in the low nibble.
 L_1560:
         RLA                              ; $1560  17
         RLA                              ; $1561  17
@@ -1476,7 +1451,7 @@ L_1560:
         OR B                             ; $156F  B0
         LD (HL),A                        ; $1570  77
         RET                              ; $1571  C9
-; [AI] Reads the symbol type/attribute value from the high nibble of the current entry's flag byte.
+; [AI] Reads a symbol entry's 4-bit type/attribute field from the high nibble of its flags byte.
 L_1572:
         LD HL,($01D6)                    ; $1572  2A D6 01
         INC HL                           ; $1575  23
@@ -1488,8 +1463,8 @@ L_1572:
         RRA                              ; $157B  1F
         AND $0F                          ; $157C  E6 0F
         RET                              ; $157E  C9
-; [AI] Computes a pointer to the current symbol entry's 16-bit value field (skips past the
-;       variable-length name) for read/write of the symbol's value.
+; [AI] Computes the address of a symbol entry's 16-bit value field, skipping past the variable-
+;       length name.
 SUB_157F:
         CALL SUB_148E                    ; $157F  CD 8E 14
         LD HL,($01D6)                    ; $1582  2A D6 01
@@ -1500,8 +1475,7 @@ SUB_157F:
         INC HL                           ; $158A  23
         INC HL                           ; $158B  23
         RET                              ; $158C  C9
-; [AI] Stores a 16-bit value (passed in HL) into the current symbol entry's value field via
-;       SUB_157F.
+; [AI] Stores the 16-bit value in HL into the current symbol entry's value field.
 L_158D:
         PUSH HL                          ; $158D  E5
         CALL SUB_157F                    ; $158E  CD 7F 15
@@ -1519,13 +1493,12 @@ L_1596:
         EX DE,HL                         ; $159C  EB
         RET                              ; $159D  C9
         DEFB    $00,$00                                          ; $159E
-; [AI] Opcode/directive processing entry: jumps to L_1860, the mnemonic-classification and code-
-;       generation driver for the parsed statement.
+; [AI] Entry jump into the opcode/mnemonic lookup module's driver.
 L_15A0:
         JP L_1860                        ; $15A0  C3 60 18
         DEFB    $C3,$83,$17                                      ; $15A3
-; [AI] Mnemonic-lookup dispatch: jumps to L_1810, which performs a binary search of the sorted 8080
-;       mnemonic table for the current opcode token.
+; [AI] Public entry: jumps to the mnemonic-recognizer that matches the current identifier token
+;       against the 8080 instruction-mnemonic table.
 SUB_15A6:
         JP L_1810                        ; $15A6  C3 10 18
         DEFB    $C4,$15,$D4,$15,$E6,$15,$82,$16,$AE,$16,$BD,$16,$10,$09,$34,$0B ; $15A9
@@ -1558,8 +1531,8 @@ SUB_15A6:
         DEFB    $11,$06,$1B,$0A,$1C,$2A,$13,$E9,$16,$C5,$1C,$22,$13,$F9,$1B,$02 ; $1759
         DEFB    $13,$EB,$13,$E3,$11,$05,$11,$09,$11,$0C,$4E,$5A,$5A,$20,$4E,$43 ; $1769
         DEFB    $43,$20,$50,$4F,$50,$45,$50,$20,$4D,$20          ; $1779
-; [AI] Binary search of the sorted 8080 mnemonic table: bisects the table comparing the candidate
-;       token against each entry's name, returning the matched mnemonic index or 'not found'.
+; [AI] Binary search of the sorted mnemonic name table: given a group's base and entry length,
+;       finds the index of a matching identifier and returns it, or NZ if absent.
 SUB_1783:
         LD E,$FF                         ; $1783  1E FF
         INC B                            ; $1785  04
@@ -1579,7 +1552,7 @@ L_1788:
         LD B,D                           ; $1795  42
         LD C,B                           ; $1796  48
         LD D,$00                         ; $1797  16 00
-        LD HL,$0000                      ; $1799  21 00 00
+        LD HL,WBOOT_VEC                  ; $1799  21 00 00
 L_179C:
         ADD HL,DE                        ; $179C  19
         DEC B                            ; $179D  05
@@ -1614,8 +1587,8 @@ L_17C4:
         XOR A                            ; $17C4  AF
         INC A                            ; $17C5  3C
         RET                              ; $17C6  C9
-; [AI] Special-prefix opcode helper: examines the first character of the token ('J', 'C', 'R') to
-;       pre-classify conditional jump/call/return mnemonic families before the table search.
+; [AI] Resolves a three-way ambiguity for mnemonics differing only in their last letter by
+;       inspecting the first stored character to pick the correct opcode/length pair.
 SUB_17C7:
         LD A,($0189)                     ; $17C7  3A 89 01
         LD BC,$C217                      ; $17CA  01 17 C2
@@ -1627,8 +1600,8 @@ SUB_17C7:
         LD BC,$C013                      ; $17D5  01 13 C0
         CP $52                           ; $17D8  FE 52
         RET                              ; $17DA  C9
-; [AI] Recognizes 8080 register/operand keyword tokens (1- or 2-character register names like
-;       A,B,...,SP,PSW) by matching against the 8-entry register-name table at $1773.
+; [AI] Special-cases pseudo-ops and length-keyed mnemonics by matching the accumulated identifier
+;       against the directive name fragments at $1773, returning the matched index.
 SUB_17DB:
         LD A,($0188)                     ; $17DB  3A 88 01
         CP $04                           ; $17DE  FE 04
@@ -1640,7 +1613,7 @@ SUB_17DB:
         LD HL,$018B                      ; $17ED  21 8B 01
         LD (HL),$20                      ; $17F0  36 20
 L_17F2:
-        LD BC,$0008                      ; $17F2  01 08 00
+        LD BC,RST1_VEC                   ; $17F2  01 08 00
         LD DE,$1773                      ; $17F5  11 73 17
 L_17F8:
         LD HL,$018A                      ; $17F8  21 8A 01
@@ -1663,9 +1636,9 @@ L_180D:
         XOR A                            ; $180D  AF
         INC A                            ; $180E  3C
         RET                              ; $180F  C9
-; [AI] Mnemonic classifier: selects the appropriate sub-table of the opcode table based on the
-;       token length and dispatches a binary search (SUB_1783) over that length-class of 8080
-;       mnemonics.
+; [AI] Top-level mnemonic classifier: dispatches by identifier length into the grouped mnemonic
+;       tables, runs the binary search, and returns the opcode byte plus operand-format code for a
+;       recognized instruction.
 L_1810:
         LD A,($0188)                     ; $1810  3A 88 01
         LD C,A                           ; $1813  4F
@@ -1727,9 +1700,11 @@ L_185A:
         INC A                            ; $185C  3C
         RET                              ; $185D  C9
         DEFB    $00,$00                                          ; $185E
+; [AI] Entry jump into the arithmetic / expression-helper module's driver.
 L_1860:
         JP L_1BA0                        ; $1860  C3 A0 1B
         DEFB    $C3,$19,$1A,$C3,$6E,$19                          ; $1863
+; [AI] Public entry: jumps to the 16-bit unsigned multiply routine used in expression evaluation.
 SUB_1869:
         JP L_1938                        ; $1869  C3 38 19
         DEFS    39, $00    ; $186C  fill
@@ -1744,12 +1719,14 @@ SUB_1869:
         DEFB    $E0,$19,$EC,$19,$F8,$19,$85,$1B,$CD,$EC,$18,$7A,$B7,$C2,$27,$19 ; $1913
         DEFB    $7B,$FE,$11,$D8,$CD,$85,$1B,$3E,$10,$C9,$AF,$95,$6F,$3E,$00,$9C ; $1923
         DEFB    $67,$C9,$CD,$EC,$18                              ; $1933
+; [AI] 16-bit unsigned multiply (HL = HL * DE via shift-and-add), the multiplication primitive for
+;       the expression evaluator.
 L_1938:
         EX DE,HL                         ; $1938  EB
         LD ($196B),HL                    ; $1939  22 6B 19
         LD HL,$196D                      ; $193C  21 6D 19
         LD (HL),$11                      ; $193F  36 11
-        LD BC,$0000                      ; $1941  01 00 00
+        LD BC,WBOOT_VEC                  ; $1941  01 00 00
         PUSH BC                          ; $1944  C5
         XOR A                            ; $1945  AF
 L_1946:
@@ -1817,6 +1794,8 @@ L_1964:
         DEFB    $18,$CD,$93,$18,$CD,$06,$11,$C3,$2A,$1A,$E5,$3E,$45,$CD,$18,$02 ; $1B7B
         DEFB    $E1,$C9,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00 ; $1B8B
         DEFB    $00,$00,$00,$00,$00                              ; $1B9B
+; [AI] Main assembler driver: runs the line-by-line assembly passes, dispatching each statement
+;       (label, instruction, pseudo-op, or directive) and emitting listing and HEX object output.
 L_1BA0:
         XOR A                            ; $1BA0  AF
 L_1BA1:
@@ -1828,7 +1807,7 @@ L_1BA7:
 L_1BAA:
         CALL SUB_0203                    ; $1BAA  CD 03 02
 L_1BAD:
-        LD HL,$0000                      ; $1BAD  21 00 00
+        LD HL,WBOOT_VEC                  ; $1BAD  21 00 00
 L_1BB0:
         LD ($20EB),HL                    ; $1BB0  22 EB 20
 L_1BB3:
@@ -1885,6 +1864,8 @@ L_1C0C:
         CP $3A                           ; $1C28  FE 3A
         JP NZ,L_1BBF                     ; $1C2A  C2 BF 1B
         JP L_1BBC                        ; $1C2D  C3 BC 1B
+; [AI] Pseudo-op dispatcher: when a statement's leading token is a directive, indexes the jump
+;       table at $1C43 to handle ORG/EQU/SET/IF/END/DB/DW/DS and related assembler directives.
 L_1C30:
         CP $11                           ; $1C30  FE 11
         JP NZ,L_1DD7                     ; $1C32  C2 D7 1D
@@ -1925,6 +1906,9 @@ L_1C30:
         DEFB    $DD,$20,$3E,$05,$CD,$4F,$13,$CD,$D1,$1E,$E5,$CD,$00,$20,$E1,$CD ; $1DB3
         DEFB    $55,$13,$21,$00,$00,$22,$EB,$20,$C3,$31,$1F,$CD,$E3,$20,$CD,$06 ; $1DC3
         DEFB    $11,$C3,$31,$1F                                  ; $1DD3
+; [AI] Instruction-form dispatcher: for a recognized machine mnemonic, indexes the jump table at
+;       $1DEB by operand-format code to assemble the specific operand encoding (register, immediate,
+;       address, etc.).
 L_1DD7:
         SUB $13                          ; $1DD7  D6 13
         CP $21                           ; $1DD9  FE 21
@@ -1960,6 +1944,8 @@ L_1DD7:
         DEFB    $CD,$DD,$1E,$C3,$47,$20,$CD,$D1,$1E,$C3,$74,$20,$F5,$C5,$3A,$85 ; $1F0B
         DEFB    $01,$FE,$04,$C2,$29,$1F,$3A,$89,$01,$FE,$2C,$CA,$2E,$1F,$3E,$43 ; $1F1B
         DEFB    $CD,$18,$02,$C1,$F1,$C9                          ; $1F2B
+; [AI] Comment / blank-line handler: consumes the rest of a line after a '*'-style comment or stray
+;       token up to end-of-line, then continues the pass.
 L_1F31:
         CALL SUB_200A                    ; $1F31  CD 0A 20
         LD A,($0185)                     ; $1F34  3A 85 01
@@ -1974,6 +1960,8 @@ L_1F4A:
         CP $3B                           ; $1F4A  FE 3B
         JP NZ,L_1F72                     ; $1F4C  C2 72 1F
         CALL SUB_200A                    ; $1F4F  CD 0A 20
+; [AI] Line-skip loop: discards remaining source characters to the line terminator (LF/EOF/'!'),
+;       used after errors or fully-consumed statements before fetching the next line.
 L_1F52:
         CALL SUB_1106                    ; $1F52  CD 06 11
         LD A,($0185)                     ; $1F55  3A 85 01
@@ -1992,10 +1980,14 @@ L_1F72:
         JP Z,L_1BBC                      ; $1F74  CA BC 1B
         CP $1A                           ; $1F77  FE 1A
         JP Z,L_1F8B                      ; $1F79  CA 8B 1F
+; [AI] Syntax-error reporter: stamps an 'S' error flag on the listing line, then skips to end of
+;       line to recover and keep assembling.
 L_1F7C:
         LD A,$53                         ; $1F7C  3E 53
         CALL SUB_0218                    ; $1F7E  CD 18 02
         JP L_1F52                        ; $1F81  C3 52 1F
+; [AI] 16-bit subtract HL = DE - HL, a helper used to compute object-code sizes and the
+;       program/use-factor figures printed in the summary.
 SUB_1F84:
         LD A,E                           ; $1F84  7B
         SUB L                            ; $1F85  95
@@ -2004,6 +1996,8 @@ SUB_1F84:
         SBC A,H                          ; $1F88  9C
         LD H,A                           ; $1F89  67
         RET                              ; $1F8A  C9
+; [AI] End-of-pass / END-directive handler: on the first pass restarts for pass two; on the final
+;       pass prints the symbol table, the program-length 'H USE FACTOR' summary line, and finishes.
 L_1F8B:
         LD HL,$01CF                      ; $1F8B  21 CF 01
         LD A,(HL)                        ; $1F8E  7E
@@ -2050,6 +2044,8 @@ L_1FE4:
         LD HL,($20ED)                    ; $1FEA  2A ED 20
         LD ($01D0),HL                    ; $1FED  22 D0 01
         JP L_021E                        ; $1FF0  C3 1E 02
+; [AI] 16-bit equality compare of DE against HL (sets Z if equal), used to detect when the current
+;       location counter has reached the next HEX-record boundary.
 SUB_1FF3:
         LD A,D                           ; $1FF3  7A
         CP H                             ; $1FF4  BC
@@ -2058,15 +2054,20 @@ SUB_1FF3:
         CP L                             ; $1FF7  BD
         RET                              ; $1FF8  C9
         DEFB    $2A,$D0,$01,$22,$D2,$01,$C9                      ; $1FF9
+; [AI] Restores the saved current symbol/entry pointer ($20EB into $01D6) and runs a symbol lookup,
+;       the setup used when re-resolving a forward-referenced label on the second pass.
 SUB_2000:
         LD HL,($20EB)                    ; $2000  2A EB 20
         LD ($01D6),HL                    ; $2003  22 D6 01
         CALL SUB_1349                    ; $2006  CD 49 13
         RET                              ; $2009  C9
+; [AI] Defines or redefines the current label's value: looks it up, allocates if new, sets its
+;       type, and stores the active location-counter value, flagging phase ('P') errors when a pass-
+;       two value disagrees.
 SUB_200A:
         CALL SUB_2000                    ; $200A  CD 00 20
         RET Z                            ; $200D  C8
-        LD HL,$0000                      ; $200E  21 00 00
+        LD HL,WBOOT_VEC                  ; $200E  21 00 00
         LD ($20EB),HL                    ; $2011  22 EB 20
         LD A,($01CF)                     ; $2014  3A CF 01
         OR A                             ; $2017  B7
@@ -2095,12 +2096,15 @@ L_2031:
         DEFB    $FE,$20,$2A,$D2,$01,$CC,$A9,$20,$3A,$EF,$20,$FE,$10,$C1,$D2,$6C ; $2057
         DEFB    $20,$78,$CD,$96,$20,$2A,$D0,$01,$23,$22,$D0,$01,$C9,$E5,$45,$CD ; $2067
         DEFB    $48,$20,$E1,$44,$C3,$48,$20                      ; $2077
+; [AI] Converts a 4-bit nibble (0-15) in A to its ASCII hex character ('0'-'9','A'-'F').
 SUB_207E:
         ADD A,$30                        ; $207E  C6 30
         CP $3A                           ; $2080  FE 3A
         RET C                            ; $2082  D8
         ADD A,$07                        ; $2083  C6 07
         RET                              ; $2085  C9
+; [AI] Appends one hex digit to the listing line's object-code field, advancing the field's column
+;       pointer at $20EF.
 SUB_2086:
         CALL SUB_207E                    ; $2086  CD 7E 20
         LD HL,$20EF                      ; $2089  21 EF 20
@@ -2111,6 +2115,8 @@ SUB_2086:
         ADD HL,DE                        ; $2093  19
         LD (HL),A                        ; $2094  77
         RET                              ; $2095  C9
+; [AI] Formats a full byte as two hex digits into the listing line's object-code field (high nibble
+;       then low).
 SUB_2096:
         PUSH AF                          ; $2096  F5
         RRA                              ; $2097  1F
@@ -2122,8 +2128,12 @@ SUB_2096:
         POP AF                           ; $20A0  F1
         AND $0F                          ; $20A1  E6 0F
         JP SUB_2086                      ; $20A3  C3 86 20
+; [AI] Formats the current 16-bit location-counter value as four hex digits at the start of the
+;       listing line's address column.
 SUB_20A6:
         LD HL,($01D2)                    ; $20A6  2A D2 01
+; [AI] Formats an arbitrary 16-bit value in DE as four hex digits into the listing line's address
+;       field.
 SUB_20A9:
         EX DE,HL                         ; $20A9  EB
         LD HL,$20EF                      ; $20AA  21 EF 20
@@ -2140,14 +2150,19 @@ SUB_20A9:
         RET                              ; $20BC  C9
         DEFB    $F5,$C5,$3E,$52,$CD,$18,$02,$C1,$F1,$C9,$F5,$E5,$3E,$56,$CD,$18 ; $20BD
         DEFB    $02,$E1,$F1,$C9,$F5,$3E,$44,$C3,$E6,$20          ; $20CD
+; [AI] Emits a 'P' (phase) error flag onto the listing line, signaling a label whose value changed
+;       between passes.
 SUB_20D7:
         PUSH AF                          ; $20D7  F5
         LD A,$50                         ; $20D8  3E 50
         JP L_20E6                        ; $20DA  C3 E6 20
+; [AI] Emits an 'L' error flag onto the listing line, marking a label-related (e.g. multiply-
+;       defined) error.
 SUB_20DD:
         PUSH AF                          ; $20DD  F5
         LD A,$4C                         ; $20DE  3E 4C
         JP L_20E6                        ; $20E0  C3 E6 20
+; [AI] Emits an 'N' error flag onto the listing line via the shared error-letter output path.
 SUB_20E3:
         PUSH AF                          ; $20E3  F5
         LD A,$4E                         ; $20E4  3E 4E

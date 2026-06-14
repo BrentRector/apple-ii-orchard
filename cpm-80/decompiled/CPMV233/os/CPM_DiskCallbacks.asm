@@ -9,15 +9,12 @@
 
     ORG $1A00
 
-; [AI] Base/entry of the CP/M 2.23 SoftCard disk-callback thunk table ($1A00-$1AB3): a dense block
-;       of Z-80 jump/call thunks that bridge BDOS/BIOS disk requests to the 6502 RWTS dispatch area
-;       (CALL/JP into $A8xx-$A9xx) and read/write the disk-parameter variable block at $9Fxx.
-;       Includes the sector-translate/deblocking math (LD HL,($9F43); ... ($A9AF)/($A9AD)), a
-;       SETDMA/SETTRK/SETSEC-style address shuffle into ($A9B1)/($A9AD), a read/write driver call
-;       (LD A,$02; LD ($A9D5),A; CALL $A707; CZ $A603), and a warm-boot stack reload (LD HL,($9F0F);
-;       LD SP,HL). The disassembler decoded only the first opcode and emitted the remainder as DEFB;
-;       bytes $1AB4-$1BFF are a separate undifferentiated data/status-bitmap table (repeating FF FF
-;       00 00 / F7 F7 pattern, no distinct labels).
+; [AI] Entry point of the Z-80 disk-request callback module at $1A00; it immediately transfers
+;       control (JP $A929) into the resident $A9xx thunk page that marshals the request to the 6502
+;       side, where the actual Apple II Disk II hardware access happens. The following raw DEFB
+;       bytes are the rest of these thunks (CALL $A851 dispatch, references to the $9F41-$9F45 and
+;       $A9AD-$A9E0 disk scratch variables) plus a 64-entry parameter table at $1B00, none of which
+;       the disassembler labelled.
 L_1A00:
         XOR C                            ; $1A00  A9
         JP $A929                         ; $1A01  C3 29 A9

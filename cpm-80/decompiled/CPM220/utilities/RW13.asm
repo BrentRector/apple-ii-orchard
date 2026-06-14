@@ -10,33 +10,41 @@
 ; -- External symbols --
 WBOOT_VEC            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
 BDOS_VEC             EQU $0005               ; BDOS call vector — JP BDOS_ENTRY. Programs use CALL $0005 to invoke BDOS. Word at $0006 is also the top-of-TPA marker.
+DEFAULT_FCB          EQU $005C               ; Default File Control Block — populated by CCP from command-line argument 1. Standard 36-byte FCB structure (drive + filename + extents + record number).
 
     ORG $0100
 
-; [AI] Program entry at the TPA ($0100). Prints the sign-on banner via BDOS function 9 (print
-;       '$'-terminated string), then reads the second character of the parsed command tail at $0082
-;       and tests for 'X'/'x' to choose between the restore-to-16-sector path and the convert-
-;       to-13-sector path.
+; [AI] The $0100 transient-program entry point where CP/M loads and starts RW13.COM; it begins by
+;       printing the sign-on banner.
 TPA_START:
         LD DE,$01A8                      ; $0100  11 A8 01
+; [AI] Loads BDOS function 9 (print $-terminated string) into C ahead of the sign-on call.
 L_0103:
         LD C,$09                         ; $0103  0E 09
+; [AI] Issues the BDOS print-string call to display the banner pointed to by DE.
 L_0105:
         CALL BDOS_VEC                    ; $0105  CD 05 00
+; [AI] Reads the first character of the command tail (at $0082 in the default DMA buffer) to decode
+;       the requested mode argument.
 L_0108:
         LD A,($0082)                     ; $0108  3A 82 00
+; [AI] Tests whether the argument character is uppercase 'X' ($58), the switch that selects the
+;       13-to-16 (restore) conversion path.
 L_010B:
         CP $58                           ; $010B  FE 58
+; [AI] If the argument was 'X', branch into the 'X'/restore handling code.
 L_010D:
         JR Z,L_0113                      ; $010D  28 04
+; [AI] Tests whether the argument character is lowercase 'x' ($78), accepting either case for the
+;       restore switch.
 L_010F:
         CP $78                           ; $010F  FE 78
+; [AI] If the character is neither 'X' nor 'x', branch to the no-argument path that performs the
+;       16-to-13 conversion.
 L_0111:
         JR NZ,L_0150                     ; $0111  20 3D
-; [AI] The 'RW13 X' (restore) branch: checks the SoftCard mode flag at $FE0A; if a drive was
-;       previously converted it uses SUB_0137 to relocate the saved BIOS deblock/sector vectors
-;       back, undoing the 13-sector patch, then falls through to print the 'returned to 16 sector
-;       operation' message.
+; [AI] On the 'X' (restore-to-16-sector) path, checks the BIOS state byte at $FE0A to see whether
+;       13-sector mode is currently active before undoing it.
 L_0113:
         LD A,($FE0A)                     ; $0113  3A 0A FE
         CP $0E                           ; $0116  FE 0E
@@ -55,15 +63,13 @@ L_0113:
         LD (HL),E                        ; $012F  73
         INC HL                           ; $0130  23
         LD (HL),D                        ; $0131  72
-; [AI] Loads DE with the address of the 'Drive returned to 16 sector operation' message ($0235) and
-;       falls into the common print-and-exit path.
+; [AI] Loads the address of the 'returned to 16 sector operation' success message for the restore
+;       path.
 L_0132:
         LD DE,$0235                      ; $0132  11 35 02
         JR L_0148                        ; $0135  18 11
-; [AI] Computes a pointer into the running BIOS by taking the BIOS page from page-zero ($0001, the
-;       high byte of the warm-boot JP target), forming an address with L=$1B, dispatching through it
-;       via SUB_0144 (JP (HL)), then adding a $000A offset to index a BIOS vector/table entry. Used
-;       to read and re-patch BIOS sector-handling vectors.
+; [AI] Computes a pointer into the live BIOS based on the WBOOT vector and a per-call offset in C,
+;       used to patch the BIOS sector-translation/skew vectors when switching disk formats.
 SUB_0137:
         LD HL,($0001)                    ; $0137  2A 01 00
         LD L,$1B                         ; $013A  2E 1B
@@ -71,46 +77,48 @@ SUB_0137:
         LD DE,$000A                      ; $013F  11 0A 00
         ADD HL,DE                        ; $0142  19
         RET                              ; $0143  C9
-; [AI] Indirect jump trampoline (JP (HL)) used by SUB_0137 to call into the BIOS jump-vector table
-;       at the address computed in HL.
+; [AI] Indirect call thunk that jumps to the BIOS address computed in HL (JP (HL)), letting
+;       SUB_0137 invoke a BIOS routine through a fixed call site.
 SUB_0144:
         JP (HL)                          ; $0144  E9
-; [AI] Loads DE with the 'Invalid Drive' message ($0223) for the error path and falls into the
-;       common print-and-warm-boot exit.
+; [AI] Loads the address of the 'Invalid Drive' error message for cases where the requested drive
+;       does not exist.
 L_0145:
         LD DE,$0223                      ; $0145  11 23 02
-; [AI] Common exit: prints the '$'-terminated message pointed to by DE using BDOS function 9 (CALL
-;       $0005 with C=9), then jumps to the warm-boot vector at $0000 to return to CP/M.
+; [AI] Common message-print-then-exit tail: prints the $-string in DE via BDOS and falls through to
+;       the warm-boot return.
 L_0148:
         LD C,$09                         ; $0148  0E 09
+; [AI] Performs the BDOS function-9 call to print the selected message.
 L_014A:
         CALL BDOS_VEC                    ; $014A  CD 05 00
-; [AI] Terminates the program by jumping to the page-zero warm-boot vector ($0000), reloading the
-;       CCP/BDOS.
+; [AI] Returns control to CP/M by jumping to the warm-boot vector, reloading the CCP.
 L_014D:
         JP WBOOT_VEC                     ; $014D  C3 00 00
-; [AI] The convert-to-13-sector branch (command tail was not 'X'). Verifies the conversion driver
-;       is loaded by checking the mode flag at $FE0A; if not, points DE at the 'Must RW13 X first'
-;       message ($0271) and exits.
+; [AI] Start of the no-argument (16-to-13 sector conversion) path; reads the BIOS mode byte at
+;       $FE0A to check current disk format.
 L_0150:
         LD A,($FE0A)                     ; $0150  3A 0A FE
+; [AI] Compares the current BIOS mode against $0E to detect whether the drive is already in
+;       13-sector mode.
 L_0153:
         CP $0E                           ; $0153  FE 0E
+; [AI] Preloads the address of the 'Drive Z: converted to 13 sec. operation' success message for
+;       the conversion path.
 L_0155:
         LD DE,$0271                      ; $0155  11 71 02
+; [AI] If not already in the expected mode, branch to print the error/message and exit.
 L_0158:
         JR NZ,L_0148                     ; $0158  20 EE
-        LD A,($005C)                     ; $015A  3A 5C 00
+        LD A,(DEFAULT_FCB)               ; $015A  3A 5C 00
         CP $01                           ; $015D  FE 01
         JR Z,L_0145                      ; $015F  28 E4
         JR NC,L_0168                     ; $0161  30 05
         LD DE,$025F                      ; $0163  11 5F 02
         JR L_0148                        ; $0166  18 E0
-; [AI] Performs the 13-sector conversion for the selected drive: validates the drive number (in C)
-;       against the system drive count at $F3B8, builds the drive letter shown in the success
-;       message, derives a selector via SUB_02D0, patches the BIOS deblock vectors and the sector-
-;       translate table pointer ($F3D0/$F3DE) to route the drive through the 13-sector handler, then
-;       prints the 'converted to 13 sec. operation' message ($01F5).
+; [AI] Validates and records the selected drive: forms its letter ('A'+n) for patching into the
+;       success message and checks it against the count of configured drives before performing the
+;       conversion.
 L_0168:
         LD C,A                           ; $0168  4F
         ADD A,$40                        ; $0169  C6 40
@@ -165,8 +173,8 @@ L_0168:
         DEFB    $0D    ; $0284  terminator
         DEFB    $0A,$0D,$0A,$24,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00 ; $0285
         DEFS    59, $00    ; $0295  fill
-; [AI] Maps the drive number in C to a 1-or-2 selector by computing ((C-1) AND 1)+1, distinguishing
-;       the two physical drives/sides for the sector translation setup.
+; [AI] Derives a disk-controller parameter (drive odd/even selector, yielding 1 or 2) from the
+;       drive number in C for use by the 6502 disk routine.
 SUB_02D0:
         LD A,C                           ; $02D0  79
         DEC A                            ; $02D1  3D

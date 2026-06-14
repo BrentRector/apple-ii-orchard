@@ -9,13 +9,16 @@
 
 ; -- External symbols --
 WBOOT_VEC            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
+IOBYTE               EQU $0003               ; I/O assignment byte — logical-to-physical device routing (CONSOLE/READER/PUNCH/LIST). 4 fields × 2 bits each.
 BDOS_VEC             EQU $0005               ; BDOS call vector — JP BDOS_ENTRY. Programs use CALL $0005 to invoke BDOS. Word at $0006 is also the top-of-TPA marker.
+RST4_VEC             EQU $0020               ; Z-80 RST 4 ($20) restart vector — 8 bytes. Available for application/debugger use.
+DEFAULT_FCB          EQU $005C               ; Default File Control Block — populated by CCP from command-line argument 1. Standard 36-byte FCB structure (drive + filename + extents + record number).
+DEFAULT_DMA          EQU $0080               ; Default DMA buffer — also command-line tail. First byte = length, then characters. Returned to default by BDOS function 13 (DRV_ALLRESET).
 
     ORG $0100
 
-; [AI] Program entry at the TPA ($0100): a single JP over the embedded copyright banner, device-
-;       name table, and '$'-terminated message strings to the real startup code at L_04CE. The bytes
-;       at $0103 ($C9,$00,$00,$C9...) are scratch/return stubs preceding the data block.
+; [AI] The $0100 program entry point; jumps over the embedded copyright banner, message strings and
+;       tables to the real startup code at L_04CE.
 TPA_START:
         JP L_04CE                        ; $0100  C3 CE 04
         DEFB    $C9,$00,$00,$C9,$00,$00,$1A,$00,$00,$00,$00,$00,$00,$28,$49,$4E ; $0103
@@ -76,13 +79,12 @@ TPA_START:
         DEFB    $50,$20,$46,$4F,$52,$4D,$41,$54,$24,$43,$41,$4E,$4E,$4F,$54,$20 ; $04A7
         DEFB    $52,$45,$41,$44,$24,$49,$4E,$56,$41,$4C,$49,$44,$20,$53,$45,$50 ; $04B7
         DEFB    $41,$52,$41,$54,$4F,$52,$24                      ; $04C7
-; [AI] Real initialization: sets SP just below the program's data area ($1DF2), then prepares to
-;       read and tokenize the command tail. Determines whether PIP was invoked with arguments or
-;       must enter interactive command-prompt mode.
+; [AI] Real startup: sets the stack, captures the command tail, prints the sign-on/copyright banner
+;       and enters the main command loop. Effective main() of PIP.
 L_04CE:
         LD SP,$1DF2                      ; $04CE  31 F2 1D
 L_04D1:
-        LD BC,$0080                      ; $04D1  01 80 00
+        LD BC,DEFAULT_DMA                ; $04D1  01 80 00
 L_04D4:
         PUSH BC                          ; $04D4  C5
 L_04D5:
@@ -120,16 +122,16 @@ L_04FA:
 L_04FD:
         CALL SUB_0916                    ; $04FD  CD 16 09
         LD ($1EC0),A                     ; $0500  32 C0 1E
-        LD DE,$0000                      ; $0503  11 00 00
+        LD DE,WBOOT_VEC                  ; $0503  11 00 00
         LD C,$19                         ; $0506  0E 19
         CALL BDOS_VEC                    ; $0508  CD 05 00
         LD ($1DFC),A                     ; $050B  32 FC 1D
-; [AI] Top of the main command loop: resets the stack, calls the line/command parser (SUB_1A40),
-;       and dispatches each PIP command line until a terminating condition warm-boots back to the
-;       CCP.
 L_050E:
         LD SP,$1DF2                      ; $050E  31 F2 1D
         CALL SUB_1A40                    ; $0511  CD 40 1A
+; [AI] Top of the main command-processing loop: reads one PIP command line (either from the CCP
+;       tail or interactively prompted with '*'), parses it and dispatches the copy operation, then
+;       loops.
 L_0514:
         LD A,($1EC0)                     ; $0514  3A C0 1E
         LD ($1EC1),A                     ; $0517  32 C1 1E
@@ -154,9 +156,6 @@ L_0514:
         CALL SUB_081C                    ; $053E  CD 1C 08
         CALL SUB_096F                    ; $0541  CD 6F 09
         CALL SUB_082E                    ; $0544  CD 2E 08
-; [AI] Interactive-mode path: when no command-tail arguments were given ($1ECC count == 0), PIP
-;       returns to CCP; otherwise it falls through to begin parsing the source/destination operands
-;       of the command line.
 L_0547:
         LD HL,$1F4E                      ; $0547  21 4E 1F
         LD (HL),$FF                      ; $054A  36 FF
@@ -200,7 +199,7 @@ L_05A4:
         LD A,($1DF5)                     ; $05A4  3A F5 1D
         RRA                              ; $05A7  1F
         JP NC,L_05B7                     ; $05A8  D2 B7 05
-        LD BC,$005C                      ; $05AB  01 5C 00
+        LD BC,DEFAULT_FCB                ; $05AB  01 5C 00
         CALL SUB_1CEE                    ; $05AE  CD EE 1C
         CALL SUB_1B78                    ; $05B1  CD 78 1B
         JP L_05C0                        ; $05B4  C3 C0 05
@@ -251,9 +250,8 @@ L_061B:
         CALL SUB_1C88                    ; $061B  CD 88 1C
         CALL SUB_1AB2                    ; $061E  CD B2 1A
         JP L_07DB                        ; $0621  C3 DB 07
-; [AI] Operand-classification branch in the parser: distinguishes the parsed token type (drive-
-;       only, filename, device keyword, or option group) and routes to the appropriate handler
-;       before the copy engine runs.
+; [AI] Command-syntax-error / re-parse path: re-scans the current command line token, validating
+;       the source and destination specifications before a copy is attempted.
 L_0624:
         LD HL,$1F4E                      ; $0624  21 4E 1F
         LD (HL),$FF                      ; $0627  36 FF
@@ -326,6 +324,8 @@ L_068A:
 L_06AE:
         LD HL,$1FA7                      ; $06AE  21 A7 1F
         LD (HL),$01                      ; $06B1  36 01
+; [AI] Per-source-operand loop: iterates over each source file/device in a 'dest=src1,src2,...' PIP
+;       command, processing options and performing each individual copy.
 L_06B3:
         LD A,($1FA7)                     ; $06B3  3A A7 1F
         RRA                              ; $06B6  1F
@@ -475,8 +475,8 @@ L_07CE:
         JP NZ,L_07DB                     ; $07D3  C2 DB 07
         LD C,$00                         ; $07D6  0E 00
         CALL SUB_1931                    ; $07D8  CD 31 19
-; [AI] Loop tail of the per-command processor: restores the saved argument count into $1ECC and
-;       jumps back to L_0514 to handle the next source operand of the current PIP command.
+; [AI] Common loop tail after a command completes: restores the saved parameter count and jumps
+;       back to L_0514 to read the next command.
 L_07DB:
         LD A,($1EA5)                     ; $07DB  3A A5 1E
         LD ($1ECC),A                     ; $07DE  32 CC 1E
@@ -484,15 +484,15 @@ L_07DB:
         DEFB    $FB,$76,$21,$F2,$1D,$71,$21,$F2,$07,$E5,$2A,$38,$02,$E9,$C9,$21 ; $07E4
         DEFB    $FB,$07,$E5,$2A,$36,$02,$E9,$3A,$09,$01,$C9,$3E,$FA,$CD,$A6,$1D ; $07F4
         DEFB    $3E,$FA,$CD,$A6,$1D,$C9,$11,$00,$00,$0E,$03,$CD,$05,$00,$C9 ; $0804
-; [AI] BDOS function 1 wrapper (console input, C=1): CALL $0005 and returns the typed character in
-;       A. Used to read interactive Y/N confirmations and the keyboard.
+; [AI] Wrapper for BDOS function 1 (console input); returns the typed character in A. Used to read
+;       single-key responses such as the delete (Y/N) confirmation.
 SUB_0813:
-        LD DE,$0000                      ; $0813  11 00 00
+        LD DE,WBOOT_VEC                  ; $0813  11 00 00
         LD C,$01                         ; $0816  0E 01
         CALL BDOS_VEC                    ; $0818  CD 05 00
         RET                              ; $081B  C9
-; [AI] BDOS function 2 wrapper (console output): masks the char to 7 bits and CALL $0005 with C=2
-;       to print one character (in C) to the console.
+; [AI] Wrapper for BDOS function 2 (console output) that first masks the character to 7 bits, the
+;       standard PIP console-write primitive.
 SUB_081C:
         LD HL,$1EAB                      ; $081C  21 AB 1E
 L_081F:
@@ -511,8 +511,8 @@ L_082A:
         CALL BDOS_VEC                    ; $082A  CD 05 00
 L_082D:
         RET                              ; $082D  C9
-; [AI] Emits a CR/LF pair to the console by calling the single-char output wrapper (SUB_081C) twice
-;       with $0D then $0A.
+; [AI] Emits a CRLF to the console (function 2 with CR then LF); the standard newline used between
+;       PIP messages and prompts.
 SUB_082E:
         LD C,$0D                         ; $082E  0E 0D
 L_0830:
@@ -523,9 +523,8 @@ L_0835:
         CALL SUB_081C                    ; $0835  CD 1C 08
 L_0838:
         RET                              ; $0838  C9
-; [AI] BDOS function 9 wrapper (print '$'-terminated string): stores the message pointer (from BC),
-;       prints a leading CR/LF, then CALL $0005 with C=9 and DE pointing at the string. The bulk of
-;       PIP's diagnostic text uses this.
+; [AI] Stores a two-byte prefix then prints a '$'-terminated string via BDOS function 9; the
+;       general message-output helper used throughout PIP.
 SUB_0839:
         LD HL,$1EAD                      ; $0839  21 AD 1E
 L_083C:
@@ -546,10 +545,10 @@ L_0848:
         CALL BDOS_VEC                    ; $0848  CD 05 00
 L_084B:
         RET                              ; $084B  C9
-; [AI] BDOS function 12 wrapper (return/lift version number): CALL $0005 with C=12 to query the
-;       CP/M version, used to verify CP/M 2.0-or-newer before allowing operation.
+; [AI] Wrapper for BDOS function 12 (return version number); PIP calls this at startup and checks
+;       the result to require CP/M 2.0 or newer.
 SUB_084C:
-        LD DE,$0000                      ; $084C  11 00 00
+        LD DE,WBOOT_VEC                  ; $084C  11 00 00
 L_084F:
         LD C,$0C                         ; $084F  0E 0C
 L_0851:
@@ -557,8 +556,8 @@ L_0851:
 L_0854:
         RET                              ; $0854  C9
         DEFB    $11,$00,$00,$0E,$0D,$CD,$05,$00,$C9              ; $0855
-; [AI] BDOS function 14 wrapper (select disk drive): loads the drive code (in C) and CALL $0005
-;       with C=14 to make a given drive the default for subsequent file operations.
+; [AI] Wrapper for BDOS function 14 (select disk drive); the drive code is passed in C and stored
+;       to the parameter byte before the call.
 SUB_085E:
         LD HL,$1EAF                      ; $085E  21 AF 1E
         LD (HL),C                        ; $0861  71
@@ -568,8 +567,8 @@ SUB_085E:
         LD C,$0E                         ; $0868  0E 0E
         CALL BDOS_VEC                    ; $086A  CD 05 00
         RET                              ; $086D  C9
-; [AI] BDOS function 15 wrapper (open file): points DE at the FCB (passed in BC) and CALL $0005
-;       with C=15; stores the directory-code result in $1EAE ($FF means open failed).
+; [AI] Wrapper for BDOS function 15 (open file); takes the FCB address in BC and saves the
+;       directory code result to $1EAE for error checking.
 SUB_086E:
         LD HL,$1EB1                      ; $086E  21 B1 1E
         LD (HL),B                        ; $0871  70
@@ -581,8 +580,8 @@ SUB_086E:
         CALL BDOS_VEC                    ; $087A  CD 05 00
         LD ($1EAE),A                     ; $087D  32 AE 1E
         RET                              ; $0880  C9
-; [AI] BDOS function 16 wrapper (close file): points DE at the FCB and CALL $0005 with C=16; stores
-;       the result code in $1EAE. Used to finalize the destination file after copying.
+; [AI] Wrapper for BDOS function 16 (close file); FCB in BC, result saved to $1EAE so the caller
+;       can detect a 'cannot close destination' error.
 SUB_0881:
         LD HL,$1EB3                      ; $0881  21 B3 1E
         LD (HL),B                        ; $0884  70
@@ -594,8 +593,8 @@ SUB_0881:
         CALL BDOS_VEC                    ; $088D  CD 05 00
         LD ($1EAE),A                     ; $0890  32 AE 1E
         RET                              ; $0893  C9
-; [AI] BDOS function 17 wrapper (search for first directory entry): points DE at the FCB and CALL
-;       $0005 with C=17; stores the directory match index in $1EAE.
+; [AI] Wrapper for BDOS function 17 (search for first directory entry); FCB in BC, directory code
+;       stored to $1EAE. Used to test whether a file exists before copy/delete.
 SUB_0894:
         LD HL,$1EB5                      ; $0894  21 B5 1E
         LD (HL),B                        ; $0897  70
@@ -607,16 +606,16 @@ SUB_0894:
         CALL BDOS_VEC                    ; $08A0  CD 05 00
         LD ($1EAE),A                     ; $08A3  32 AE 1E
         RET                              ; $08A6  C9
-; [AI] BDOS function 18 wrapper (search for next directory entry): CALL $0005 with C=18 to continue
-;       an ambiguous-filename directory scan begun by SUB_0894; result in $1EAE.
+; [AI] Wrapper for BDOS function 18 (search for next); continues a directory scan started by
+;       SUB_0894, e.g. when expanding a wildcard destination.
 SUB_08A7:
-        LD DE,$0000                      ; $08A7  11 00 00
+        LD DE,WBOOT_VEC                  ; $08A7  11 00 00
         LD C,$12                         ; $08AA  0E 12
         CALL BDOS_VEC                    ; $08AC  CD 05 00
         LD ($1EAE),A                     ; $08AF  32 AE 1E
         RET                              ; $08B2  C9
-; [AI] BDOS function 19 wrapper (delete file): points DE at the FCB and CALL $0005 with C=19 to
-;       erase a file/directory entry, e.g. when overwriting an R/O destination or cleaning up.
+; [AI] Wrapper for BDOS function 19 (delete file); FCB in BC. Used to clear an existing destination
+;       or to honor an explicit delete request.
 SUB_08B3:
         LD HL,$1EB7                      ; $08B3  21 B7 1E
         LD (HL),B                        ; $08B6  70
@@ -627,8 +626,8 @@ SUB_08B3:
         LD C,$13                         ; $08BD  0E 13
         CALL BDOS_VEC                    ; $08BF  CD 05 00
         RET                              ; $08C2  C9
-; [AI] BDOS function 20 wrapper (read sequential): points DE at the FCB and CALL $0005 with C=20 to
-;       read the next 128-byte record from the source file into the DMA buffer; result in A.
+; [AI] Wrapper for BDOS function 20 (read sequential record); FCB in BC, A returns 0 on success or
+;       end-of-file/error. The core source-file read primitive.
 SUB_08C3:
         LD HL,$1EB9                      ; $08C3  21 B9 1E
         LD (HL),B                        ; $08C6  70
@@ -639,9 +638,8 @@ SUB_08C3:
         LD C,$14                         ; $08CD  0E 14
         CALL BDOS_VEC                    ; $08CF  CD 05 00
         RET                              ; $08D2  C9
-; [AI] BDOS function 21 wrapper (write sequential): points DE at the FCB and CALL $0005 with C=21
-;       to write the next 128-byte record from the DMA buffer to the destination file; result in
-;       $1EAE.
+; [AI] Wrapper for BDOS function 21 (write sequential record); FCB in BC, A returns 0 on success or
+;       disk-full. The core destination-file write primitive.
 SUB_08D3:
         LD HL,$1EBB                      ; $08D3  21 BB 1E
         LD (HL),B                        ; $08D6  70
@@ -652,8 +650,8 @@ SUB_08D3:
         LD C,$15                         ; $08DD  0E 15
         CALL BDOS_VEC                    ; $08DF  CD 05 00
         RET                              ; $08E2  C9
-; [AI] BDOS function 22 wrapper (make/create file): points DE at the FCB and CALL $0005 with C=22
-;       to create a new directory entry for the destination file; result in $1EAE.
+; [AI] Wrapper for BDOS function 22 (make file / create new directory entry); FCB in BC, result to
+;       $1EAE. Used to create the destination file.
 SUB_08E3:
         LD HL,$1EBD                      ; $08E3  21 BD 1E
         LD (HL),B                        ; $08E6  70
@@ -665,8 +663,8 @@ SUB_08E3:
         CALL BDOS_VEC                    ; $08EF  CD 05 00
         LD ($1EAE),A                     ; $08F2  32 AE 1E
         RET                              ; $08F5  C9
-; [AI] BDOS function 23 wrapper (rename file): points DE at the FCB (containing old and new names)
-;       and CALL $0005 with C=23.
+; [AI] Wrapper for BDOS function 23 (rename file); FCB in BC. Used at end of copy when renaming a
+;       temporary destination to its final name.
 SUB_08F6:
         LD HL,$1EBF                      ; $08F6  21 BF 1E
         LD (HL),B                        ; $08F9  70
@@ -677,8 +675,8 @@ SUB_08F6:
         LD C,$17                         ; $0900  0E 17
         CALL BDOS_VEC                    ; $0902  CD 05 00
         RET                              ; $0905  C9
-; [AI] BDOS function 30 wrapper (set file attributes): points DE at the FCB and CALL $0005 with
-;       C=30 to set/clear the R/O and system attribute bits of a destination file.
+; [AI] Wrapper for BDOS function 30 (set file attributes); FCB in BC. Used to set/clear the R/O and
+;       System attribute bits on the destination.
 SUB_0906:
         LD HL,$1EC3                      ; $0906  21 C3 1E
         LD (HL),B                        ; $0909  70
@@ -689,15 +687,15 @@ SUB_0906:
         LD C,$1E                         ; $0910  0E 1E
         CALL BDOS_VEC                    ; $0912  CD 05 00
         RET                              ; $0915  C9
-; [AI] BDOS function 32 wrapper (get current user code): CALL $0005 with E=$FF, C=32 to query
-;       (rather than set) the active user number; returned in A and saved as PIP's default user.
+; [AI] Calls BDOS function 32 with E=$FF to GET the current user number; PIP saves it so it can
+;       restore the user area before returning to the CCP.
 SUB_0916:
         LD DE,$00FF                      ; $0916  11 FF 00
         LD C,$20                         ; $0919  0E 20
         CALL BDOS_VEC                    ; $091B  CD 05 00
         RET                              ; $091E  C9
-; [AI] BDOS function 32 wrapper (set user code): loads the user number (in C) into E and CALL $0005
-;       with C=32 to switch the active user area for following file operations.
+; [AI] Calls BDOS function 32 with a user number in C to SET the current user area; the low-level
+;       half used by the set-user helpers below.
 SUB_091F:
         LD HL,$1EC4                      ; $091F  21 C4 1E
         LD (HL),C                        ; $0922  71
@@ -707,22 +705,22 @@ SUB_091F:
         LD C,$20                         ; $0929  0E 20
         CALL BDOS_VEC                    ; $092B  CD 05 00
         RET                              ; $092E  C9
-; [AI] Switches to the command/destination user number: loads the saved value from $1EC0 and calls
-;       the set-user routine (SUB_091F).
+; [AI] Selects the source user number: loads the saved source user from $1EC0 and sets it via
+;       SUB_091F before source-file directory operations.
 SUB_092F:
         LD HL,($1EC0)                    ; $092F  2A C0 1E
         LD C,L                           ; $0932  4D
         CALL SUB_091F                    ; $0933  CD 1F 09
         RET                              ; $0936  C9
-; [AI] Switches to the source user number: loads the value from $1EC1 and calls the set-user
-;       routine (SUB_091F), used when source and destination live in different user areas.
+; [AI] Selects the destination user number: loads the saved destination user from $1EC1 and sets it
+;       via SUB_091F before destination operations.
 SUB_0937:
         LD HL,($1EC1)                    ; $0937  2A C1 1E
         LD C,L                           ; $093A  4D
         CALL SUB_091F                    ; $093B  CD 1F 09
         RET                              ; $093E  C9
-; [AI] BDOS function 33 wrapper (read random): points DE at the FCB and CALL $0005 with C=33 to
-;       read the record addressed by the FCB random-record field.
+; [AI] Wrapper for BDOS function 33 (read random record); FCB in BC. Supports PIP's random/seek-
+;       based reads.
 SUB_093F:
         LD HL,$1EC6                      ; $093F  21 C6 1E
         LD (HL),B                        ; $0942  70
@@ -734,8 +732,8 @@ SUB_093F:
         CALL BDOS_VEC                    ; $094B  CD 05 00
         RET                              ; $094E  C9
         DEFB    $21,$C8,$1E,$70,$2B,$71,$2A,$C7,$1E,$EB,$0E,$22,$CD,$05,$00,$C9 ; $094F
-; [AI] BDOS function 36 wrapper (set random-record field): points DE at the FCB and CALL $0005 with
-;       C=36 to compute the random-record number from the current sequential position.
+; [AI] Wrapper for BDOS function 36 (set random record from sequential position); FCB in BC, used
+;       to keep the random-record field consistent during copies.
 SUB_095F:
         LD HL,$1ECA                      ; $095F  21 CA 1E
         LD (HL),B                        ; $0962  70
@@ -746,9 +744,8 @@ SUB_095F:
         LD C,$24                         ; $0969  0E 24
         CALL BDOS_VEC                    ; $096B  CD 05 00
         RET                              ; $096E  C9
-; [AI] BDOS function 10 wrapper (read console buffer/edited line): sets the 128-byte input buffer
-;       at $1ECB to max length $80 and CALL $0005 with C=10 to read an interactive command line from
-;       the user.
+; [AI] Calls BDOS function 10 (read console buffer) into the input buffer at $1ECB with max length
+;       128; this reads an interactive PIP command line at the '*' prompt.
 SUB_096F:
         LD HL,$1ECB                      ; $096F  21 CB 1E
         LD (HL),$80                      ; $0972  36 80
@@ -756,15 +753,15 @@ SUB_096F:
         LD C,$0A                         ; $0977  0E 0A
         CALL BDOS_VEC                    ; $0979  CD 05 00
         RET                              ; $097C  C9
-; [AI] BDOS function 11 wrapper (get console status): CALL $0005 with C=11 to test whether a key
-;       has been pressed, used to detect a Ctrl-S/abort during long copies.
+; [AI] Wrapper for BDOS function 11 (console status); returns nonzero if a key is waiting, letting
+;       PIP poll for an abort keypress during long copies.
 SUB_097D:
-        LD DE,$0000                      ; $097D  11 00 00
+        LD DE,WBOOT_VEC                  ; $097D  11 00 00
         LD C,$0B                         ; $0980  0E 0B
         CALL BDOS_VEC                    ; $0982  CD 05 00
         RET                              ; $0985  C9
-; [AI] BDOS function 26 wrapper (set DMA address): loads the buffer address (in BC) and CALL $0005
-;       with C=26 to point the disk I/O DMA at a given record buffer.
+; [AI] Wrapper for BDOS function 26 (set DMA address); the buffer pointer in BC becomes the target
+;       for subsequent record reads/writes.
 SUB_0986:
         LD HL,$1F6B                      ; $0986  21 6B 1F
         LD (HL),B                        ; $0989  70
@@ -777,9 +774,9 @@ SUB_0986:
         RET                              ; $0995  C9
         DEFB    $3E,$0C,$D3,$01,$3E,$08,$D3,$01,$DB,$01,$07,$07,$07,$1F,$DA,$AA ; $0996
         DEFB    $09,$C3,$9E,$09,$DB,$03,$E6,$7F,$C9              ; $09A6
-; [AI] Fatal error reporter: prints the current command line, a ' : ' separator, the '$'-string
-;       error message addressed by BC, closes any open files, and aborts the current command by
-;       jumping back to the main loop at L_050E.
+; [AI] Fatal-error reporter: prints the program-name prefix and the error message addressed by BC,
+;       then aborts the current command and returns to the loop at L_050E. The central 'error and
+;       abort' path.
 SUB_09AF:
         LD HL,$1F71                      ; $09AF  21 71 1F
         LD (HL),B                        ; $09B2  70
@@ -829,9 +826,9 @@ L_0A11:
         CALL SUB_082E                    ; $0A11  CD 2E 08
         JP L_050E                        ; $0A14  C3 0E 05
         DEFB    $C9                                              ; $0A17
-; [AI] Block memory-copy primitive: pops the source/destination pointers and a length count off the
-;       caller's stack and copies E bytes from one buffer to another. Used throughout to move FCBs,
-;       filenames, and records.
+; [AI] General memory block-copy/move routine: copies (E) bytes from a source to a destination
+;       (pointers and count passed via the stack and BC/E). Used to move FCBs, filenames and records
+;       around PIP's work areas.
 SUB_0A18:
         LD HL,$1F77                      ; $0A18  21 77 1F
 L_0A1B:
@@ -896,11 +893,11 @@ L_0A4B:
         JP L_0A27                        ; $0A4B  C3 27 0A
 L_0A4E:
         RET                              ; $0A4E  C9
-; [AI] Disk-to-memory load loop: reads sequential 128-byte records from the source file (via
-;       SUB_08C3) into successive buffer slots until EOF or buffer-full, appending a Ctrl-Z ($1A)
-;       end marker; the core read side of the copy engine.
+; [AI] Reads a block of source records into the in-memory copy buffer (the TPA above PIP),
+;       advancing the FCB record by record until the buffer fills or end-of-file. The bulk-read
+;       stage of a copy.
 SUB_0A4F:
-        LD HL,$0000                      ; $0A4F  21 00 00
+        LD HL,WBOOT_VEC                  ; $0A4F  21 00 00
         LD ($1E9D),HL                    ; $0A52  22 9D 1E
         LD HL,($1E03)                    ; $0A55  2A 03 1E
         LD C,L                           ; $0A58  4D
@@ -941,7 +938,7 @@ L_0A97:
         LD ($1F78),A                     ; $0AA7  32 78 1F
         JP L_0AB7                        ; $0AAA  C3 B7 0A
 L_0AAD:
-        LD DE,$0080                      ; $0AAD  11 80 00
+        LD DE,DEFAULT_DMA                ; $0AAD  11 80 00
         LD HL,($1E9D)                    ; $0AB0  2A 9D 1E
         ADD HL,DE                        ; $0AB3  19
         LD ($1E9D),HL                    ; $0AB4  22 9D 1E
@@ -950,13 +947,12 @@ L_0AB7:
         INC (HL)                         ; $0ABA  34
         JP NZ,L_0A64                     ; $0ABB  C2 64 0A
 L_0ABE:
-        LD HL,$0000                      ; $0ABE  21 00 00
+        LD HL,WBOOT_VEC                  ; $0ABE  21 00 00
         LD ($1E9D),HL                    ; $0AC1  22 9D 1E
         CALL SUB_092F                    ; $0AC4  CD 2F 09
         RET                              ; $0AC7  C9
-; [AI] Buffer-to-disk write loop: writes the accumulated in-memory records back out to the
-;       destination file (via SUB_08D3), optionally honoring the object-file/sparse handling; the
-;       core write side of the copy engine.
+; [AI] Writes the in-memory buffer back out as destination records (and optionally to the verify
+;       pass), flushing the block read by SUB_0A4F to the destination file/device.
 SUB_0AC8:
         LD C,$07                         ; $0AC8  0E 07
         LD HL,$1EA1                      ; $0ACA  21 A1 1E
@@ -968,7 +964,7 @@ SUB_0AC8:
         JP NZ,L_0ADB                     ; $0AD7  C2 DB 0A
         RET                              ; $0ADA  C9
 L_0ADB:
-        LD HL,$0000                      ; $0ADB  21 00 00
+        LD HL,WBOOT_VEC                  ; $0ADB  21 00 00
         LD ($1EA1),HL                    ; $0ADE  22 A1 1E
         LD HL,($1E4B)                    ; $0AE1  2A 4B 1E
         LD C,L                           ; $0AE4  4D
@@ -997,7 +993,7 @@ L_0AF3:
         LD BC,$02A4                      ; $0B1A  01 A4 02
         CALL SUB_09AF                    ; $0B1D  CD AF 09
 L_0B20:
-        LD DE,$0080                      ; $0B20  11 80 00
+        LD DE,DEFAULT_DMA                ; $0B20  11 80 00
         LD HL,($1EA1)                    ; $0B23  2A A1 1E
         ADD HL,DE                        ; $0B26  19
         LD ($1EA1),HL                    ; $0B27  22 A1 1E
@@ -1008,9 +1004,9 @@ L_0B31:
         LD A,($1F65)                     ; $0B31  3A 65 1F
         RRA                              ; $0B34  1F
         JP NC,L_0BC9                     ; $0B35  D2 C9 0B
-        LD HL,$0000                      ; $0B38  21 00 00
+        LD HL,WBOOT_VEC                  ; $0B38  21 00 00
         LD ($1EA1),HL                    ; $0B3B  22 A1 1E
-        LD BC,$0080                      ; $0B3E  01 80 00
+        LD BC,DEFAULT_DMA                ; $0B3E  01 80 00
         CALL SUB_0986                    ; $0B41  CD 86 09
         LD HL,$1F7A                      ; $0B44  21 7A 1F
         LD (HL),$00                      ; $0B47  36 00
@@ -1040,7 +1036,7 @@ L_0B6D:
         JP NC,L_0BA2                     ; $0B78  D2 A2 0B
         LD HL,($1F7B)                    ; $0B7B  2A 7B 1F
         LD H,$00                         ; $0B7E  26 00
-        LD BC,$0080                      ; $0B80  01 80 00
+        LD BC,DEFAULT_DMA                ; $0B80  01 80 00
         ADD HL,BC                        ; $0B83  09
         LD A,($1F7B)                     ; $0B84  3A 7B 1F
         LD DE,$1EA1                      ; $0B87  11 A1 1E
@@ -1058,7 +1054,7 @@ L_0B6D:
         INC (HL)                         ; $0B9E  34
         JP L_0B6D                        ; $0B9F  C3 6D 0B
 L_0BA2:
-        LD DE,$0080                      ; $0BA2  11 80 00
+        LD DE,DEFAULT_DMA                ; $0BA2  11 80 00
         LD HL,($1EA1)                    ; $0BA5  2A A1 1E
         ADD HL,DE                        ; $0BA8  19
         LD ($1EA1),HL                    ; $0BA9  22 A1 1E
@@ -1076,12 +1072,11 @@ L_0BC0:
         CALL SUB_08D3                    ; $0BC3  CD D3 08
         LD ($1F7F),A                     ; $0BC6  32 7F 1F
 L_0BC9:
-        LD HL,$0000                      ; $0BC9  21 00 00
+        LD HL,WBOOT_VEC                  ; $0BC9  21 00 00
         LD ($1EA1),HL                    ; $0BCC  22 A1 1E
         RET                              ; $0BCF  C9
-; [AI] Low-level console character emitter with column tracking: outputs the char in C and
-;       maintains the running output-column counter ($1DF3), suppressing/handling page-pause when
-;       the line/page limit is reached.
+; [AI] Console character output with column tracking: prints the byte in C, counts the current line
+;       column, and suppresses output past the page width when paging is active.
 SUB_0BD0:
         LD HL,$1F80                      ; $0BD0  21 80 1F
         LD (HL),C                        ; $0BD3  71
@@ -1099,11 +1094,8 @@ SUB_0BD0:
         CP (HL)                          ; $0BEF  BE
         JP NC,L_0BF4                     ; $0BF0  D2 F4 0B
         RET                              ; $0BF3  C9
-; [AI] Console-output device dispatcher: reads the current device code from $1EA3, indexes the jump
-;       table at $0CDD, and transfers control to the handler for the selected destination device
-;       (CON:, LST:, PUN:, etc.).
 L_0BF4:
-        LD A,($0003)                     ; $0BF4  3A 03 00
+        LD A,(IOBYTE)                    ; $0BF4  3A 03 00
         LD ($1F81),A                     ; $0BF7  32 81 1F
         LD HL,($1EA3)                    ; $0BFA  2A A3 1E
         LD C,L                           ; $0BFD  4D
@@ -1133,9 +1125,9 @@ L_0BF4:
         DEFB    $0C,$46,$0C,$50,$0C,$5B,$0C,$66,$0C,$71,$0C,$7F,$0C,$8A,$0C,$95 ; $0CEA
         DEFB    $0C,$A0,$0C,$AE,$0C,$B9,$0C,$C4,$0C,$CF,$0C,$3A,$81,$1F,$32,$03 ; $0CFA
         DEFB    $00,$C9                                          ; $0D0A
-; [AI] Formatted console output of one character with TAB expansion: if the char is HT ($09) it
-;       expands to spaces up to the next tab stop ($1F63), otherwise it emits the char via SUB_0BD0;
-;       also resets the column counter on CR.
+; [AI] Tab-expanding character writer: if the character is a tab ($09) and a tab stop width is set,
+;       it emits spaces to the next column; otherwise passes the byte to SUB_0BD0. Implements PIP's
+;       T (tab-expand) option.
 SUB_0D0C:
         LD HL,$1F82                      ; $0D0C  21 82 1F
         LD (HL),C                        ; $0D0F  71
@@ -1190,8 +1182,8 @@ L_0D6E:
         LD (HL),$00                      ; $0D79  36 00
 L_0D7B:
         RET                              ; $0D7B  C9
-; [AI] Outputs a single hex nibble (0-F in C) as an ASCII character via SUB_0D0C, converting 0-9 to
-;       '0'-'9' and A-F appropriately. Helper for the hex-dump ([H]/[O]) modes.
+; [AI] Prints a single hex nibble (0-15 in C) as an ASCII hex digit; the low-level half of the hex-
+;       byte printer used for the H/hex-dump style output.
 SUB_0D7C:
         LD HL,$1F84                      ; $0D7C  21 84 1F
         LD (HL),C                        ; $0D7F  71
@@ -1214,8 +1206,8 @@ L_0D99:
         CALL SUB_0D0C                    ; $0D9F  CD 0C 0D
 L_0DA2:
         RET                              ; $0DA2  C9
-; [AI] Outputs one byte (in C) as two ASCII hex digits by splitting it into high and low nibbles
-;       and calling SUB_0D7C for each. Used by the Intel-HEX and dump formatting.
+; [AI] Prints a byte in C as two ASCII hex digits by splitting it into high and low nibbles; used
+;       when formatting line numbers and hex output.
 SUB_0DA3:
         LD HL,$1F85                      ; $0DA3  21 85 1F
         LD (HL),C                        ; $0DA6  71
@@ -1232,9 +1224,8 @@ SUB_0DA3:
         LD C,A                           ; $0DB9  4F
         CALL SUB_0D7C                    ; $0DBA  CD 7C 0D
         RET                              ; $0DBD  C9
-; [AI] Prints the running BCD record/line counter (the 3-byte value at $1F6D-$1F6F), incrementing
-;       it with DAA decimal-adjust math; emits the number-prefix formatting used by the [N] line-
-;       number and HEX address output.
+; [AI] Emits a line-number prefix: increments and prints a BCD line counter (via DAA) followed by a
+;       colon or tab, implementing PIP's N (number lines) option.
 SUB_0DBE:
         LD HL,$1F86                      ; $0DBE  21 86 1F
         LD (HL),$01                      ; $0DC1  36 01
@@ -1277,9 +1268,8 @@ L_0E12:
         CALL SUB_0D0C                    ; $0E14  CD 0C 0D
 L_0E17:
         RET                              ; $0E17  C9
-; [AI] Flushes a partially filled output record: masks the buffer offset, pads the remainder of the
-;       current 128-byte record, and writes it via the copy/write path so the destination ends on a
-;       record boundary.
+; [AI] Flushes the partially filled in-memory buffer to the destination as a final short record;
+;       finalizes a transfer that did not end on a full 128-byte boundary.
 SUB_0E18:
         LD HL,($1EA1)                    ; $0E18  2A A1 1E
         LD A,L                           ; $0E1B  7D
@@ -1300,9 +1290,9 @@ SUB_0E18:
         LD H,$00                         ; $0E3F  26 00
         LD ($1EA1),HL                    ; $0E41  22 A1 1E
         RET                              ; $0E44  C9
-; [AI] Main output-character filter: takes a char in C and applies PIP's active output options -
-;       tab expansion, form-feed/page-eject handling ($1F5F page length, $1DF4 line count), line-
-;       numbering, and the EOF ($1A) check - before sending it to SUB_0D0C.
+; [AI] The destination-character output dispatcher: takes one character of copied data in C and
+;       applies the active PIP filters (form-feed/page handling, line numbering, tab expansion)
+;       before writing it out. The heart of the per-character copy path.
 SUB_0E45:
         LD HL,$1F8A                      ; $0E45  21 8A 1F
         LD (HL),C                        ; $0E48  71
@@ -1386,9 +1376,9 @@ L_0ED9:
         LD (HL),$01                      ; $0EEB  36 01
 L_0EED:
         RET                              ; $0EED  C9
-; [AI] Uppercase-folding helper: if the char in C is a lowercase letter a-z it is converted to
-;       uppercase (AND $5F); returns the (possibly folded) char in A. Used while parsing case-
-;       insensitive command tokens and options.
+; [AI] Uppercase-folding helper: if the character in C is a lowercase letter a-z it returns the
+;       uppercase equivalent, otherwise returns it unchanged; used for case-insensitive parsing and
+;       the U (uppercase) option.
 SUB_0EEE:
         LD HL,$1F8C                      ; $0EEE  21 8C 1F
         LD (HL),C                        ; $0EF1  71
@@ -1416,9 +1406,9 @@ L_0F11:
         DEFB    $21,$8D,$1F,$71,$3A,$8D,$1F,$D6,$41,$9F,$2F,$F5,$3E,$5A,$21,$8D ; $0F15
         DEFB    $1F,$96,$9F,$2F,$C1,$48,$A1,$1F,$D2,$38,$0F,$3A,$8D,$1F,$F6,$20 ; $0F25
         DEFB    $32,$8D,$1F,$3A,$8D,$1F,$C9                      ; $0F35
-; [AI] Reads the next character from the currently selected source device: dispatches through the
-;       input-device jump table at $1045 (CON:, RDR:, etc.) or returns Ctrl-Z ($1A) at end of input;
-;       the device-input counterpart of L_0BF4.
+; [AI] Reads the next character from the current logical-device source via the IOBYTE-selected
+;       dispatch table; returns end-of-file ($1A) at device EOF. The device-source equivalent of a
+;       file read.
 SUB_0F3C:
         LD A,($1EA4)                     ; $0F3C  3A A4 1E
         DEC A                            ; $0F3F  3D
@@ -1449,7 +1439,7 @@ L_0F64:
 L_0F6D:
         LD HL,$1F90                      ; $0F6D  21 90 1F
         LD (HL),$01                      ; $0F70  36 01
-        LD A,($0003)                     ; $0F72  3A 03 00
+        LD A,(IOBYTE)                    ; $0F72  3A 03 00
         LD ($1F8E),A                     ; $0F75  32 8E 1F
         LD HL,($1EA4)                    ; $0F78  2A A4 1E
         LD C,L                           ; $0F7B  4D
@@ -1487,9 +1477,9 @@ L_0F6D:
         DEFB    $32,$8F,$1F,$3A,$64,$1F,$1F,$D2,$FA,$10,$2A,$8F,$1F,$4D,$CD,$EE ; $10E8
         DEFB    $0E,$C9,$3A,$5B,$1F,$1F,$D2,$09,$11,$2A,$8F,$1F,$4D,$CD,$15,$0F ; $10F8
         DEFB    $C9,$3A,$8F,$1F,$C9                              ; $1108
-; [AI] Next-source-byte fetcher with one-character pushback/lookahead: returns the next byte of the
-;       active source, handling the small unget buffer ($1DFA) and tab/CR injection used by the
-;       higher-level scanners.
+; [AI] The unified source-byte fetcher: returns the next character of input, drawing from the
+;       pushed-back buffer, the read-ahead lookahead, or SUB_0F3C, and translating special cases.
+;       The main 'get next source char' routine.
 SUB_110D:
         LD A,$00                         ; $110D  3E 00
         LD HL,$1DFA                      ; $110F  21 FA 1D
@@ -1574,9 +1564,8 @@ L_11A5:
 L_11A9:
         JP L_1128                        ; $11A9  C3 28 11
         DEFB    $C9                                              ; $11AC
-; [AI] Tab-stop / column accounting helper used while reading the source: tracks the source column
-;       ($1DF9) against the tab table at $1ECD to decide tab expansion or compression during a text-
-;       mode copy.
+; [AI] Lookahead/pushback bookkeeping for SUB_110D: maintains the small ring of buffered source
+;       characters so PIP can peek ahead and back up one or more bytes during parameter scanning.
 SUB_11AD:
         LD HL,$1F92                      ; $11AD  21 92 1F
         LD (HL),C                        ; $11B0  71
@@ -1614,9 +1603,8 @@ L_11EA:
 L_11EF:
         LD A,$00                         ; $11EF  3E 00
         RET                              ; $11F1  C9
-; [AI] Fetch next character from the parsed command line buffer: advances the index $1F4E, returns
-;       the char in A, or returns CR ($0D) when the end of the line is reached. The basic getchar
-;       for the command-line tokenizer.
+; [AI] Fetches the next character of the command line from the parsed input buffer at $1ECC,
+;       returning CR ($0D) at end of line; the command-line scanner's getchar.
 SUB_11F2:
         LD A,($1F4E)                     ; $11F2  3A 4E 1F
         INC A                            ; $11F5  3C
@@ -1634,8 +1622,8 @@ L_1203:
         LD C,(HL)                        ; $120C  4E
         CALL SUB_0EEE                    ; $120D  CD EE 0E
         RET                              ; $1210  C9
-; [AI] Fetch next non-blank command-line character: repeatedly calls SUB_11F2, skipping space ($20)
-;       characters, and stores the resulting token char in $1EA8.
+; [AI] Like SUB_11F2 but skips leading spaces, returning the next non-blank command-line character
+;       into $1EA8; the token-fetch primitive used by the parser.
 SUB_1211:
         CALL SUB_11F2                    ; $1211  CD F2 11
         LD ($1EA8),A                     ; $1214  32 A8 1E
@@ -1644,9 +1632,9 @@ SUB_1211:
         JP SUB_1211                      ; $121C  C3 11 12
 L_121F:
         RET                              ; $121F  C9
-; [AI] Top-level command-line token scanner: parses one operand (drive/filename/device-
-;       keyword/option) from the input into the FCB-like work area pointed to by BC, classifying the
-;       result in $1EA9 and reporting separators/errors.
+; [AI] The command-line parser: scans one source-or-destination specification, building an FCB or
+;       recognizing a logical-device name, and returns the operand type in $1EA9 (disk file, device,
+;       etc.).
 SUB_1220:
         LD HL,$1F96                      ; $1220  21 96 1F
         LD (HL),B                        ; $1223  70
@@ -1911,7 +1899,7 @@ L_140D:
 L_1425:
         LD HL,($1F95)                    ; $1425  2A 95 1F
         LD (HL),$00                      ; $1428  36 00
-        LD BC,$0020                      ; $142A  01 20 00
+        LD BC,RST4_VEC                   ; $142A  01 20 00
         LD HL,($1F95)                    ; $142D  2A 95 1F
         ADD HL,BC                        ; $1430  09
         LD (HL),$00                      ; $1431  36 00
@@ -1919,9 +1907,8 @@ L_1425:
 L_1434:
         JP L_12A5                        ; $1434  C3 A5 12
         DEFB    $C9                                              ; $1437
-; [AI] Separator/delimiter test: compares the char in C against the 10-entry delimiter table at
-;       $0249 (space, '=', '.', ':', ',', '<', '>', CR, '_', '['); returns A=1 if the char is a PIP
-;       token separator, else 0.
+; [AI] Tests whether the character in C is a filename delimiter (one of the separator characters in
+;       the table at $0249); returns 1 if it terminates a filename field.
 SUB_1438:
         LD HL,$1F9A                      ; $1438  21 9A 1F
         LD (HL),C                        ; $143B  71
@@ -1948,9 +1935,8 @@ L_145D:
 L_1464:
         LD A,$00                         ; $1464  3E 00
         RET                              ; $1466  C9
-; [AI] Appends the current command-line char ($1EA8) to the token-name field being built,
-;       incrementing the field length ($1EAA); also notes the wildcard '?' flag ($1DF5) when a '?'
-;       is appended.
+; [AI] Appends the current command character ($1EA8) to the token-accumulation buffer, advancing
+;       the index and flagging if a '?' wildcard was seen.
 SUB_1467:
         LD A,($1EAA)                     ; $1467  3A AA 1E
         INC A                            ; $146A  3C
@@ -1968,9 +1954,8 @@ SUB_1467:
         LD (HL),$01                      ; $1484  36 01
 L_1486:
         RET                              ; $1486  C9
-; [AI] Wildcard '*' expansion: fills the remainder of the filename or type field (up to the count
-;       in C) with '?' characters by repeatedly calling SUB_1467, implementing CP/M ambiguous-
-;       filename matching.
+; [AI] Fills the remaining positions of a filename field with '?' wildcards up to the field width
+;       in C; implements the '*' to '????' expansion in PIP filenames.
 SUB_1487:
         LD HL,$1F9C                      ; $1487  21 9C 1F
         LD (HL),C                        ; $148A  71
@@ -1985,8 +1970,8 @@ L_1490:
         JP L_1490                        ; $149D  C3 90 14
 L_14A0:
         RET                              ; $14A0  C9
-; [AI] Returns the n-th byte (offset in C) of the token-name buffer pointed to by $1F95; an indexed
-;       accessor used while validating drive letters and device keywords.
+; [AI] Fetches the byte at offset C within the current token buffer; a helper for re-examining
+;       already-collected command characters during option parsing.
 SUB_14A1:
         LD HL,$1F9D                      ; $14A1  21 9D 1F
         LD (HL),C                        ; $14A4  71
@@ -1997,9 +1982,8 @@ SUB_14A1:
         ADD HL,DE                        ; $14AE  19
         LD A,(HL)                        ; $14AF  7E
         RET                              ; $14B0  C9
-; [AI] Option-group '[...]' parser: reads and decodes the bracketed PIP option letters (B, D, E, F,
-;       G, H, I, L, N, O, P, Q, R, S, T, U, V, W, Z, etc.) following a filename, setting the
-;       corresponding global option flags.
+; [AI] Parses a bracketed PIP option list '[...]': reads option letters and their optional numeric
+;       arguments and sets the corresponding option flags. Implements the PIP parameter syntax.
 SUB_14B1:
         LD HL,$1DF6                      ; $14B1  21 F6 1D
         LD (HL),$01                      ; $14B4  36 01
@@ -2137,8 +2121,8 @@ L_15BA:
         CALL SUB_11F2                    ; $15BA  CD F2 11
         LD ($1EA8),A                     ; $15BD  32 A8 1E
         RET                              ; $15C0  C9
-; [AI] Normalizes the token terminator: if the parsed delimiter char ($1EA8) is '_' ($5F) it is
-;       replaced with '=' ($3D), so the underscore can be used as the source/destination separator.
+; [AI] Normalizes the underscore character: maps '_' ($5F) to '=' ($3D) so the alternate assignment
+;       separator is accepted in PIP commands.
 SUB_15C1:
         LD A,($1EA8)                     ; $15C1  3A A8 1E
         CP $5F                           ; $15C4  FE 5F
@@ -2147,8 +2131,8 @@ SUB_15C1:
         LD (HL),$3D                      ; $15CC  36 3D
 L_15CE:
         RET                              ; $15CE  C9
-; [AI] Emits 40 ($28) leading characters/blanks via the output filter (SUB_0E45) - the
-;       header/padding routine used when formatting hex-dump or device-name output lines.
+; [AI] Outputs 40 nulls (pad characters) via SUB_0E45; used to emit a leader/trailer of nulls
+;       around a form feed or at end-of-tape for paper-tape style devices.
 SUB_15CF:
         LD HL,$1FA3                      ; $15CF  21 A3 1F
         LD (HL),$00                      ; $15D2  36 00
@@ -2164,8 +2148,9 @@ L_15D4:
         JP NZ,L_15D4                     ; $15E6  C2 D4 15
 L_15E9:
         RET                              ; $15E9  C9
-; [AI] Copies a 3-byte short message (addressed by BC) into the work area at $1E30 using the block-
-;       copy primitive; a helper for assembling status text such as drive prompts.
+; [AI] Copies a 3-byte (drive+filename) descriptor from the message/source area into the FCB
+;       workspace at $1E30; a small fixed-size field mover used when building filenames for
+;       messages.
 SUB_15EA:
         LD HL,$1FA9                      ; $15EA  21 A9 1F
         LD (HL),B                        ; $15ED  70
@@ -2177,9 +2162,8 @@ SUB_15EA:
         LD BC,$1E30                      ; $15F6  01 30 1E
         CALL SUB_0A18                    ; $15F9  CD 18 0A
         RET                              ; $15FC  C9
-; [AI] String-compare routine: compares the '$'-terminated string at one pointer against the buffer
-;       at another, 7-bit-masking each char; returns A=1 on full match, A=0 on mismatch. Used to
-;       recognize device keywords.
+; [AI] Compares a '$'-terminated string against an FCB/filename field (masking the high bits),
+;       returning 1 on match; used to recognize reserved device names like INP:/OUT:.
 SUB_15FD:
         LD HL,$1FAD                      ; $15FD  21 AD 1F
         LD (HL),D                        ; $1600  72
@@ -2218,9 +2202,8 @@ L_1626:
 L_1637:
         LD A,$01                         ; $1637  3E 01
         RET                              ; $1639  C9
-; [AI] Reads the next source character for the copy loop and tests for termination: returns with
-;       carry/zero reflecting EOF (Ctrl-Z) or a pointer-limit reached, telling the copy driver when
-;       to stop.
+; [AI] Reads the next source byte for a generic (non-special) copy, returning carry/EOF status; the
+;       wrapper that drives the plain byte-by-byte device-to-device transfer.
 SUB_163A:
         CALL SUB_110D                    ; $163A  CD 0D 11
         LD ($1EA8),A                     ; $163D  32 A8 1E
@@ -2238,9 +2221,9 @@ L_1652:
         SUB $01                          ; $1657  D6 01
         SBC A,A                          ; $1659  9F
         RET                              ; $165A  C9
-; [AI] Intel-HEX input parser/loader: scans HEX record lines from the source (':' start, byte
-;       count, address, type, data, checksum), verifies the checksum, and stores decoded bytes;
-;       returns a status indicating data record, EOF record, or error.
+; [AI] Intel-HEX record reader: parses one ':'-led hex record from the source, accumulating the
+;       data bytes into a line buffer and verifying the checksum. Drives PIP's HEX-file transfer and
+;       validation.
 SUB_165B:
         LD HL,$1FAF                      ; $165B  21 AF 1F
         LD (HL),$01                      ; $165E  36 01
@@ -2329,9 +2312,8 @@ L_1702:
 L_170F:
         LD A,$02                         ; $170F  3E 02
         RET                              ; $1711  C9
-; [AI] HEX-mode error helper: optionally prints the '$'-message in BC (when the error-display flag
-;       $1FAF is set) and clears the flag; used to report checksum and format errors during HEX
-;       transfers.
+; [AI] HEX-transfer error reporter: prints the message addressed by BC (e.g. checksum or format
+;       error) and aborts the in-progress hex copy.
 SUB_1712:
         LD HL,$1FB1                      ; $1712  21 B1 1F
         LD (HL),B                        ; $1715  70
@@ -2348,8 +2330,8 @@ SUB_1712:
         CALL SUB_0839                    ; $1729  CD 39 08
 L_172C:
         RET                              ; $172C  C9
-; [AI] Conditional record-flush for HEX output: if the pending-data flag $1FAE is set, flushes the
-;       partial output record via SUB_0E18 and clears the flag.
+; [AI] Flushes any buffered partial output produced during HEX processing by calling the final-
+;       record writer when its pending flag is set.
 SUB_172D:
         LD A,($1FAE)                     ; $172D  3A AE 1F
         RRA                              ; $1730  1F
@@ -2359,9 +2341,8 @@ SUB_172D:
         CALL SUB_0E18                    ; $1739  CD 18 0E
 L_173C:
         RET                              ; $173C  C9
-; [AI] Reads the next raw HEX-stream byte into the line-accumulation buffer at $1E4C, handling
-;       Ctrl-S pause ($13) and enforcing the maximum HEX line length; returns the char (or $1A at
-;       EOF).
+; [AI] Returns the next raw source byte for the HEX parser, handling the start-of-record search and
+;       buffering one line of hex characters; returns EOF ($1A) at source end.
 SUB_173D:
         LD A,($1FAF)                     ; $173D  3A AF 1F
         RRA                              ; $1740  1F
@@ -2394,8 +2375,8 @@ L_1776:
 L_177A:
         LD A,$1A                         ; $177A  3E 1A
         RET                              ; $177C  C9
-; [AI] Reads one ASCII hex digit from the HEX stream and converts it to its 0-15 binary value,
-;       validating that it is '0'-'9' or 'A'-'F' and reporting an invalid-digit error otherwise.
+; [AI] Reads one ASCII hex digit (0-9, A-F) from the HEX source and returns its 0-15 value,
+;       reporting an 'invalid digit' error on a bad character.
 SUB_177D:
         CALL SUB_173D                    ; $177D  CD 3D 17
         LD ($1FB9),A                     ; $1780  32 B9 1F
@@ -2421,8 +2402,8 @@ L_17A4:
         SUB $41                          ; $17A7  D6 41
         ADD A,$0A                        ; $17A9  C6 0A
         RET                              ; $17AB  C9
-; [AI] Reads two hex digits (via SUB_177D) and combines them into one 8-bit byte value, shifting
-;       the first nibble left by four; the byte-level reader for Intel-HEX fields.
+; [AI] Reads two hex digits and combines them into one byte value (high nibble shifted, OR low
+;       nibble); the byte-level reader for Intel-HEX records.
 SUB_17AC:
         CALL SUB_177D                    ; $17AC  CD 7D 17
         ADD A,A                          ; $17AF  87
@@ -2435,17 +2416,16 @@ SUB_17AC:
         LD C,B                           ; $17B8  48
         OR C                             ; $17B9  B1
         RET                              ; $17BA  C9
-; [AI] Reads a HEX byte (via SUB_17AC) and accumulates it into the running record checksum at
-;       $1F5B; the building block for parsing each HEX record field while validating the trailing
-;       checksum.
+; [AI] Reads a HEX byte via SUB_17AC and adds it into the running record checksum at $1FB5; used
+;       for every length/address/data/checksum byte of a hex record.
 SUB_17BB:
         CALL SUB_17AC                    ; $17BB  CD AC 17
         LD HL,$1FB5                      ; $17BE  21 B5 1F
         ADD A,(HL)                       ; $17C1  86
         LD (HL),A                        ; $17C2  77
         RET                              ; $17C3  C9
-; [AI] Reads a 16-bit big-endian value (two HEX bytes via SUB_17BB) as the load address of a HEX
-;       record, returning it in HL; uses the shift helper SUB_1D64 to form the 16-bit word.
+; [AI] Reads the 16-bit load address of an Intel-HEX record (two checksummed bytes, high then low)
+;       and returns it in HL.
 SUB_17C4:
         CALL SUB_17BB                    ; $17C4  CD BB 17
         LD C,A                           ; $17C7  4F
@@ -2459,9 +2439,8 @@ SUB_17C4:
         POP HL                           ; $17D5  E1
         CALL SUB_1D56                    ; $17D6  CD 56 1D
         RET                              ; $17D9  C9
-; [AI] Directory-listing engine (PIP's DIR-style output / file enumeration): repeatedly enumerates
-;       matching directory entries, formats each filename, and prints them to the console; the
-;       handler behind listing the directory of a drive.
+; [AI] Directory-listing routine for PIP's DIR-style output: formats and prints the matched
+;       filenames in columns, paging the display. Implements the directory device as a copy source.
 SUB_17DA:
         CALL SUB_165B                    ; $17DA  CD 5B 16
         LD ($1FBA),A                     ; $17DD  32 BA 1F
@@ -2525,15 +2504,14 @@ L_1832:
 L_1858:
         JP SUB_17DA                      ; $1858  C3 DA 17
         DEFB    $C9                                              ; $185B
-; [AI] Reports the 'INVALID SEPARATOR' / format error (message at $038F) by tail-calling the fatal
-;       error reporter SUB_09AF; invoked when a command operand is syntactically malformed.
+; [AI] Reports an 'invalid format' / bad-parameter error by calling the error-abort routine with
+;       the corresponding message; a one-line shorthand used at many validation points.
 SUB_185C:
         LD BC,$038F                      ; $185C  01 8F 03
         CALL SUB_09AF                    ; $185F  CD AF 09
         RET                              ; $1862  C9
-; [AI] Opens and prepares the SOURCE file/device for a copy: selects the source drive/user, builds
-;       and opens its FCB, verifies the open succeeded (else error), and initializes the read
-;       pointers for the copy loop.
+; [AI] Closes out and renames the destination file at successful end of copy: closes the temporary
+;       file, optionally checks the R/O attribute, and finalizes its directory entry.
 SUB_1863:
         LD HL,($1E4B)                    ; $1863  2A 4B 1E
         LD C,L                           ; $1866  4D
@@ -2567,12 +2545,11 @@ SUB_1863:
 L_18B2:
         LD HL,$1E47                      ; $18B2  21 47 1E
         LD (HL),$00                      ; $18B5  36 00
-        LD HL,$0000                      ; $18B7  21 00 00
+        LD HL,WBOOT_VEC                  ; $18B7  21 00 00
         LD ($1EA1),HL                    ; $18BA  22 A1 1E
         RET                              ; $18BD  C9
-; [AI] Opens and prepares the DESTINATION file: selects the destination drive/user, deletes any
-;       existing entry, creates (makes) the new file, checks for R/O or directory-full failures, and
-;       sets up the write pointers.
+; [AI] Opens the source file/FCB for reading, selecting its user area and drive and reporting 'NO
+;       FILE' if the open fails; the source-side counterpart to the destination open.
 SUB_18BE:
         LD HL,$FFFF                      ; $18BE  21 FF FF
         LD ($1E9F),HL                    ; $18C1  22 9F 1E
@@ -2611,8 +2588,8 @@ L_18FA:
         LD HL,($1DFD)                    ; $190B  2A FD 1D
         LD ($1E9D),HL                    ; $190E  22 9D 1E
         RET                              ; $1911  C9
-; [AI] Validates that both the source ($1F62) and destination ($1F60) were actually specified
-;       before a copy: reports the missing-operand error (via SUB_09AF) if either is absent.
+; [AI] Checks for leftover unterminated constructs after parsing (open bracket or quote) and emits
+;       the matching 'invalid separator'/format error if found.
 SUB_1912:
         LD A,$00                         ; $1912  3E 00
         LD HL,$1F62                      ; $1914  21 62 1F
@@ -2629,9 +2606,8 @@ L_1921:
         CALL SUB_09AF                    ; $192D  CD AF 09
 L_1930:
         RET                              ; $1930  C9
-; [AI] Finalizes/closes the destination file after copying: pads and flushes the last record,
-;       writes a Ctrl-Z if needed, closes the file (BDOS 16), and reports a 'CANNOT CLOSE' error on
-;       failure.
+; [AI] Creates and opens the destination file: deletes any existing file of that name, makes the
+;       new directory entry, and prepares it for sequential writing.
 SUB_1931:
         LD HL,$1FBC                      ; $1931  21 BC 1F
         LD (HL),C                        ; $1934  71
@@ -2722,9 +2698,8 @@ L_19E9:
         LD BC,$1E27                      ; $19FB  01 27 1E
         CALL SUB_08F6                    ; $19FE  CD F6 08
         RET                              ; $1A01  C9
-; [AI] Computes the number of free 128-byte record slots between the current load pointer ($1DFF)
-;       and top of available memory, storing the buffer record count in $1DFB; used to size each
-;       copy pass.
+; [AI] Recomputes how many 128-byte records fit in the free buffer between the current load point
+;       and the top of the TPA, storing the per-pass record count used by the block-copy loops.
 SUB_1A02:
         LD C,$07                         ; $1A02  0E 07
         LD HL,$1DFF                      ; $1A04  21 FF 1D
@@ -2736,9 +2711,9 @@ SUB_1A02:
         LD HL,$1DFB                      ; $1A11  21 FB 1D
         LD (HL),E                        ; $1A14  73
         RET                              ; $1A15  C9
-; [AI] Reserves the next chunk of the in-memory copy buffer (clamped to a 16 KB / $4000 window)
-;       starting at $1FCA and updates the load pointers, then recomputes the available record count
-;       via SUB_1A02.
+; [AI] Initializes the in-memory transfer buffer for a large copy: sets the buffer base just above
+;       PIP and clamps the usable size to the available TPA, falling back to a fixed size if memory
+;       is tight.
 SUB_1A16:
         LD HL,$1FCA                      ; $1A16  21 CA 1F
         LD ($1E01),HL                    ; $1A19  22 01 1E
@@ -2758,9 +2733,8 @@ L_1A31:
 L_1A3C:
         CALL SUB_1A02                    ; $1A3C  CD 02 1A
         RET                              ; $1A3F  C9
-; [AI] Initializes the working memory map for a new command: sets the DMA/record buffer base at
-;       $1FCA, computes available TPA above the program, and establishes the top-of-memory limit
-;       from the BDOS pointer at $0006.
+; [AI] Resets the copy buffer to the start of the free TPA (just above PIP's code/data at $1FCA)
+;       and recomputes capacity, preparing for a fresh source read pass.
 SUB_1A40:
         LD BC,$1FCA                      ; $1A40  01 CA 1F
         LD DE,$0006                      ; $1A43  11 06 00
@@ -2780,9 +2754,8 @@ SUB_1A40:
         LD ($1DFF),HL                    ; $1A65  22 FF 1D
         CALL SUB_1A02                    ; $1A68  CD 02 1A
         RET                              ; $1A6B  C9
-; [AI] Single-buffer copy dispatcher: based on the parsed device/option flags, routes a non-disk or
-;       special-format transfer (HEX directory, etc.) versus an ordinary character copy through
-;       SUB_163A, allocating buffer space as required.
+; [AI] Performs a single logical copy operation, dispatching to the file-to-file, HEX, directory,
+;       or device transfer path based on the parsed source/destination types and active options.
 SUB_1A6C:
         LD A,($1EA4)                     ; $1A6C  3A A4 1E
         SUB $00                          ; $1A6F  D6 00
@@ -2818,9 +2791,9 @@ L_1AA4:
         CALL SUB_1A40                    ; $1AAE  CD 40 1A
 L_1AB1:
         RET                              ; $1AB1  C9
-; [AI] Full disk-file copy driver: opens the source (SUB_1863) and destination (SUB_18BE), loops
-;       reading buffer-fulls from the source and writing them to the destination, applying the
-;       active option filters, then closes the file.
+; [AI] Drives a complete file/device copy: resets the buffer, opens source and destination, then
+;       loops reading blocks and writing them (honoring the selected options) until end-of-file, and
+;       closes up.
 SUB_1AB2:
         CALL SUB_1A40                    ; $1AB2  CD 40 1A
         LD A,($1F4F)                     ; $1AB5  3A 4F 1F
@@ -2919,8 +2892,8 @@ L_1B62:
         LD C,L                           ; $1B65  4D
         CALL SUB_1931                    ; $1B66  CD 31 19
         RET                              ; $1B69  C9
-; [AI] 16-bit pointer comparison: subtracts the load pointer pair against the saved EOF pointer at
-;       $1E9F and returns a carry/flag indicating whether more buffered data remains to be written.
+; [AI] Tests whether the source-read pointer has reached the end-of-data marker ($1E9F), returning
+;       carry to signal the copy loop should stop reading.
 SUB_1B6A:
         LD BC,$FFFF                      ; $1B6A  01 FF FF
         LD DE,$1E9F                      ; $1B6D  11 9F 1E
@@ -2929,11 +2902,11 @@ SUB_1B6A:
         ADD A,$FF                        ; $1B74  C6 FF
         SBC A,A                          ; $1B76  9F
         RET                              ; $1B77  C9
-; [AI] Multi-file / ambiguous-filename copy engine: walks the source directory matching the
-;       wildcard FCB (search-first/next), and for each matched file performs an individual file
-;       copy, prompting/reporting per file.
+; [AI] Multi-file (wildcard) copy driver: searches the directory for every file matching the source
+;       FCB and copies each in turn, printing 'COPYING - name' for each and 'NOT FOUND' if none
+;       match.
 SUB_1B78:
-        LD HL,$0000                      ; $1B78  21 00 00
+        LD HL,WBOOT_VEC                  ; $1B78  21 00 00
         LD ($1FC0),HL                    ; $1B7B  22 C0 1F
         LD ($1FC4),HL                    ; $1B7E  22 C4 1F
 L_1B81:
@@ -2941,11 +2914,11 @@ L_1B81:
         LD HL,($1E03)                    ; $1B84  2A 03 1E
         LD C,L                           ; $1B87  4D
         CALL SUB_085E                    ; $1B88  CD 5E 08
-        LD BC,$0080                      ; $1B8B  01 80 00
+        LD BC,DEFAULT_DMA                ; $1B8B  01 80 00
         CALL SUB_0986                    ; $1B8E  CD 86 09
-        LD BC,$005C                      ; $1B91  01 5C 00
+        LD BC,DEFAULT_FCB                ; $1B91  01 5C 00
         CALL SUB_0894                    ; $1B94  CD 94 08
-        LD HL,$0000                      ; $1B97  21 00 00
+        LD HL,WBOOT_VEC                  ; $1B97  21 00 00
         LD ($1FC2),HL                    ; $1B9A  22 C2 1F
 L_1B9D:
         LD A,($1EAE)                     ; $1B9D  3A AE 1E
@@ -2995,7 +2968,7 @@ L_1BE5:
         ADD A,A                          ; $1BF5  87
         LD E,A                           ; $1BF6  5F
         LD D,$00                         ; $1BF7  16 00
-        LD HL,$0080                      ; $1BF9  21 80 00
+        LD HL,DEFAULT_DMA                ; $1BF9  21 80 00
         ADD HL,DE                        ; $1BFC  19
         PUSH HL                          ; $1BFD  E5
         LD E,$10                         ; $1BFE  1E 10
@@ -3032,9 +3005,8 @@ L_1C3F:
 L_1C45:
         JP L_1B81                        ; $1C45  C3 81 1B
         DEFB    $C9                                              ; $1C48
-; [AI] Prints a directory FCB's filename in N.TTT form: emits the 8-character name, a '.' before
-;       the 3-character type, and the type, masking to printable characters; used for per-file copy
-;       progress and DIR output.
+; [AI] Prints a filename from an FCB to the console in 'NAME.TYP' form (inserting the dot before
+;       the type field and skipping trailing blanks); used in the 'COPYING -' progress messages.
 SUB_1C49:
         CALL SUB_082E                    ; $1C49  CD 2E 08
         LD HL,$1FC6                      ; $1C4C  21 C6 1F
@@ -3067,9 +3039,8 @@ L_1C80:
         JP NZ,L_1C51                     ; $1C84  C2 51 1C
 L_1C87:
         RET                              ; $1C87  C9
-; [AI] Selects the effective destination drive: uses the explicit drive code parsed from the
-;       command ($1F94) if given, otherwise falls back to the logged-in default drive ($1DFC);
-;       result stored in $1E03.
+; [AI] Resolves the destination drive: if an explicit destination drive was parsed it selects that,
+;       otherwise it uses the currently logged drive, storing the result for the destination FCB.
 SUB_1C88:
         LD A,$00                         ; $1C88  3E 00
         LD HL,$1F94                      ; $1C8A  21 94 1F
@@ -3084,8 +3055,8 @@ L_1C9B:
         LD ($1E03),A                     ; $1C9E  32 03 1E
 L_1CA1:
         RET                              ; $1CA1  C9
-; [AI] Selects the effective source drive for a listing/operation: like SUB_1C88 but stores the
-;       chosen drive into $1E4B, and flags a separator error if an operand was malformed.
+; [AI] Resolves the source drive (with an optional format check) and stores it into the source-
+;       drive variable, mirroring SUB_1C88 for the source side of a copy.
 SUB_1CA2:
         LD A,($1DF6)                     ; $1CA2  3A F6 1D
         RRA                              ; $1CA5  1F
@@ -3105,9 +3076,8 @@ L_1CBF:
         LD ($1E4B),A                     ; $1CC2  32 4B 1E
 L_1CC5:
         RET                              ; $1CC5  C9
-; [AI] Same-file safety check: if the source and destination resolve to the same user and same
-;       drive, raises the format/separator error (via SUB_185C) to prevent copying a file onto
-;       itself.
+; [AI] Detects a same-drive same-file source-equals-destination situation and signals an error,
+;       preventing a copy that would overwrite the source with itself.
 SUB_1CC6:
         LD HL,$1EC0                      ; $1CC6  21 C0 1E
         LD A,($1EC1)                     ; $1CC9  3A C1 1E
@@ -3122,8 +3092,8 @@ L_1CD1:
         CALL SUB_185C                    ; $1CDB  CD 5C 18
 L_1CDE:
         RET                              ; $1CDE  C9
-; [AI] Confirms the command operand ends correctly: reads the next non-blank command char and,
-;       unless it is CR ($0D) terminating the line, reports a separator/format error.
+; [AI] Verifies that the command-line token after a specification is terminated by end-of-line
+;       ($0D); reports an 'invalid format' error if extra characters follow.
 SUB_1CDF:
         CALL SUB_1211                    ; $1CDF  CD 11 12
         LD A,($1EA8)                     ; $1CE2  3A A8 1E
@@ -3132,9 +3102,8 @@ SUB_1CDF:
         CALL SUB_185C                    ; $1CEA  CD 5C 18
 L_1CED:
         RET                              ; $1CED  C9
-; [AI] Parses and validates one source-or-destination operand and copies the resulting FCB into the
-;       working FCB at $1E06, then verifies source/destination are distinct; a setup step before
-;       invoking the copy driver.
+; [AI] Prepares a copy from a fully-specified FCB pointed to by BC: validates termination, resolves
+;       the drive, copies the FCB into the working area and checks for source==destination.
 SUB_1CEE:
         LD HL,$1FC9                      ; $1CEE  21 C9 1F
         LD (HL),B                        ; $1CF1  70
@@ -3151,9 +3120,8 @@ SUB_1CEE:
         CALL SUB_0A18                    ; $1D05  CD 18 0A
         CALL SUB_1CC6                    ; $1D08  CD C6 1C
         RET                              ; $1D0B  C9
-; [AI] Parses the destination operand of a copy command into the FCB at $1E06, requiring the '='
-;       separator, and saves the parse position; the destination-side counterpart used before the
-;       source operands are scanned.
+; [AI] Parses and validates the destination side of a 'dest=...' command (requiring it to be a
+;       single file or device followed by '='), saving the destination parameter index.
 SUB_1D0C:
         LD BC,$1E06                      ; $1D0C  01 06 1E
         CALL SUB_1220                    ; $1D0F  CD 20 12
@@ -3176,8 +3144,8 @@ L_1D2D:
         LD A,($1F4E)                     ; $1D2D  3A 4E 1F
         LD ($1F4F),A                     ; $1D30  32 4F 1F
         RET                              ; $1D33  C9
-; [AI] PL/M runtime helper: 16-bit indexed fetch - adds A (an index) to the base pointer in DE and
-;       loads the 16-bit word found there into HL (HL := HL + word at DE[A]).
+; [AI] 16-bit indexed-add helper: returns HL = base + word loaded from (base+A), i.e. fetches a
+;       16-bit table entry at byte offset A. Used for the jump/dispatch tables.
 SUB_1D34:
         EX DE,HL                         ; $1D34  EB
         LD E,A                           ; $1D35  5F
@@ -3191,13 +3159,12 @@ SUB_1D34:
         ADC A,H                          ; $1D3E  8C
         LD H,A                           ; $1D3F  67
         RET                              ; $1D40  C9
-; [AI] PL/M runtime helper: widens A to a 16-bit value in DE then ANDs it with HL (16-bit bitwise
-;       AND), entry point that combines with SUB_1D44.
+; [AI] Entry that widens the 8-bit value in A into DE before falling into the 16-bit AND below.
 SUB_1D41:
         LD E,A                           ; $1D41  5F
         LD D,$00                         ; $1D42  16 00
-; [AI] PL/M runtime helper: 16-bit bitwise AND of DE and HL, result in HL. Used for address masking
-;       and flag-bit tests.
+; [AI] 16-bit bitwise AND: HL = HL AND DE. A small arithmetic primitive emitted by the compiler for
+;       masking address/flag words.
 SUB_1D44:
         LD A,E                           ; $1D44  7B
         AND L                            ; $1D45  A5
@@ -3207,8 +3174,8 @@ SUB_1D44:
         LD H,A                           ; $1D49  67
         RET                              ; $1D4A  C9
         DEFB    $5E,$23,$56,$EB                                  ; $1D4B
-; [AI] PL/M runtime helper: multiplies HL by 10 (HL := HL*2 then *8, summed) - the radix-10 scaler
-;       used when accumulating decimal numbers parsed from the command line.
+; [AI] Multiplies HL by 10 (HL = HL*2 + HL*8) via shifts and add; used to accumulate a decimal
+;       value while parsing numeric option arguments.
 SUB_1D4F:
         ADD HL,HL                        ; $1D4F  29
         PUSH HL                          ; $1D50  E5
@@ -3217,7 +3184,8 @@ SUB_1D4F:
         POP BC                           ; $1D53  C1
         ADD HL,BC                        ; $1D54  09
         RET                              ; $1D55  C9
-; [AI] PL/M runtime helper: 16-bit bitwise OR of A (widened in DE) with HL, result in HL.
+; [AI] 16-bit bitwise OR with an 8-bit operand: HL = HL OR (A widened to 16 bits); the OR
+;       counterpart of SUB_1D44.
 SUB_1D56:
         LD E,A                           ; $1D56  5F
         LD D,$00                         ; $1D57  16 00
@@ -3229,22 +3197,22 @@ SUB_1D56:
         LD H,A                           ; $1D5E  67
         RET                              ; $1D5F  C9
         DEFB    $5E,$23,$56,$EB                                  ; $1D60
-; [AI] PL/M runtime helper: shifts HL left by C bits (HL := HL << C), a variable left-shift used to
-;       scale HEX address nibbles into a 16-bit word.
+; [AI] Shifts HL left by C bit positions (HL = HL << C); a variable left-shift primitive used in
+;       HEX address assembly.
 SUB_1D64:
         ADD HL,HL                        ; $1D64  29
         DEC C                            ; $1D65  0D
         JP NZ,SUB_1D64                   ; $1D66  C2 64 1D
         RET                              ; $1D69  C9
-; [AI] PL/M runtime helper: loads a 16-bit word from (HL) into HL then performs a logical right
-;       shift of HL by C bits (HL := word >> C); a load-and-shift used in record/address arithmetic.
+; [AI] Loads a 16-bit word from (HL) into HL, then falls through to right-shift it by C positions;
+;       combined fetch-and-shift-right helper for sizing/scaling values.
 SUB_1D6A:
         LD E,(HL)                        ; $1D6A  5E
         INC HL                           ; $1D6B  23
         LD D,(HL)                        ; $1D6C  56
         EX DE,HL                         ; $1D6D  EB
-; [AI] PL/M runtime helper: logical right-shift of HL by C bits (HL := HL >> C) without sign
-;       extension.
+; [AI] Logical right-shift of HL by C bit positions (HL = HL >> C); the variable right-shift
+;       primitive, e.g. converting byte counts to record counts.
 SUB_1D6E:
         LD A,H                           ; $1D6E  7C
         OR A                             ; $1D6F  B7
@@ -3256,8 +3224,8 @@ SUB_1D6E:
         DEC C                            ; $1D75  0D
         JP NZ,SUB_1D6E                   ; $1D76  C2 6E 1D
         RET                              ; $1D79  C9
-; [AI] PL/M runtime helper: 16-bit subtract of HL from A (A widened in DE), result in HL (HL := A -
-;       HL).
+; [AI] 16-bit subtract of an 8-bit operand: HL = (A widened) - HL; an arithmetic primitive used in
+;       pointer/offset calculations.
 SUB_1D7A:
         LD E,A                           ; $1D7A  5F
         LD D,$00                         ; $1D7B  16 00
@@ -3268,8 +3236,8 @@ SUB_1D7A:
         SBC A,H                          ; $1D81  9C
         LD H,A                           ; $1D82  67
         RET                              ; $1D83  C9
-; [AI] PL/M runtime helper: 16-bit subtract HL := DE - A (with A widened to 16 bits); used at
-;       startup to test the command-tail length / argument count.
+; [AI] 16-bit subtract of an 8-bit operand the other way: HL = DE - A, leaving the borrow in the
+;       flags; used to compare/range-check addresses against the TPA top.
 SUB_1D84:
         LD C,A                           ; $1D84  4F
 L_1D85:
@@ -3288,17 +3256,16 @@ L_1D8C:
         LD H,A                           ; $1D8C  67
 L_1D8D:
         RET                              ; $1D8D  C9
-; [AI] PL/M runtime helper: loads a 16-bit operand pointed to by BC then computes the 16-bit
-;       difference against the word at DE (HL := *DE - *BC), the pointer-pair compare used by
-;       SUB_1B6A and the directory loops.
+; [AI] Loads a 16-bit word indirectly through the pointer in BC, then falls into the compare-words
+;       routine; compares that word against the word at (DE).
 SUB_1D8E:
         LD L,C                           ; $1D8E  69
         LD H,B                           ; $1D8F  60
         LD C,(HL)                        ; $1D90  4E
         INC HL                           ; $1D91  23
         LD B,(HL)                        ; $1D92  46
-; [AI] PL/M runtime helper: 16-bit subtract of register pair against the word at DE (HL := *DE -
-;       BC); the workhorse compare/subtract for the memory-allocation and EOF-pointer checks.
+; [AI] 16-bit compare/subtract: HL = word at (DE) - BC, setting carry/zero so callers can test
+;       pointer ordering (e.g. buffer-full and end-of-data conditions).
 SUB_1D93:
         LD A,(DE)                        ; $1D93  1A
         SUB C                            ; $1D94  91
@@ -3308,8 +3275,8 @@ SUB_1D93:
         SBC A,B                          ; $1D98  98
         LD H,A                           ; $1D99  67
         RET                              ; $1D9A  C9
-; [AI] PL/M runtime helper: 16-bit subtract of A (widened) from the word at DE (HL := *DE - A),
-;       used in the multi-file copy to test the matched-file counter.
+; [AI] 16-bit subtract of an 8-bit operand from a memory word: HL = word at (DE) - A; a small
+;       comparison primitive used in the wildcard-copy bookkeeping.
 SUB_1D9B:
         LD L,A                           ; $1D9B  6F
         LD H,$00                         ; $1D9C  26 00

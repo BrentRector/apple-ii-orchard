@@ -8,13 +8,16 @@
     DEVICE NOSLOT64K
 
 ; -- External symbols --
+WBOOT_VEC            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
 BDOS_VEC             EQU $0005               ; BDOS call vector — JP BDOS_ENTRY. Programs use CALL $0005 to invoke BDOS. Word at $0006 is also the top-of-TPA marker.
+DEFAULT_FCB          EQU $005C               ; Default File Control Block — populated by CCP from command-line argument 1. Standard 36-byte FCB structure (drive + filename + extents + record number).
+DEFAULT_CR           EQU $007C               ; Default FCB current record byte (overlaps end of DEFAULT_FCB2).
+DEFAULT_DMA          EQU $0080               ; Default DMA buffer — also command-line tail. First byte = length, then characters. Returned to default by BDOS function 13 (DRV_ALLRESET).
 
     ORG $0100
 
-; [AI] Program entry point at the TPA ($0100). Saves the SoftCard's saved stack/context word from
-;       $F3DE, reads the BDOS-page byte at $0007 to derive an available-memory/max-record count
-;       (minus $0B), and falls through to print the sign-on banner.
+; [AI] $0100 transient entry point. Captures the SoftCard's saved Apple-side memory pointer ($F3DE)
+;       and computes a usable-memory limit from the BIOS base ($0007) before parsing the command.
 TPA_START:
         LD HL,($F3DE)                    ; $0100  2A DE F3
 L_0103:
@@ -29,21 +32,12 @@ L_010E:
         LD DE,$058E                      ; $010E  11 8E 05
 L_0111:
         JR L_0116                        ; $0111  18 03
-; [AI] Error re-entry that loads DE with the 'Command Error$' message pointer ($05DE) before
-;       printing it and looping back to the command prompt; reached on malformed command-line
-;       syntax.
 L_0113:
         LD DE,$05DE                      ; $0113  11 DE 05
-; [AI] Common message-print-and-restart path: prints the '$'-terminated string pointed to by DE
-;       (via SUB_04CB), then resets the stack and returns to the interactive command loop. Used as
-;       the universal error/status exit.
 L_0116:
         CALL SUB_04CB                    ; $0116  CD CB 04
 L_0119:
         CALL SUB_04C2                    ; $0119  CD C2 04
-; [AI] Top of the interactive command loop: resets SP to the local stack ($0542), emits a newline,
-;       prints the '*' prompt, then reads a console line via BDOS function 10 (buffered input) into
-;       the buffer at $0922.
 L_011C:
         LD SP,$0542                      ; $011C  31 42 05
 L_011F:
@@ -126,23 +120,20 @@ L_0198:
 L_01A7:
         CALL SUB_04C2                    ; $01A7  CD C2 04
         JR L_0177                        ; $01AA  18 CB
-; [AI] Console-flush / wait-for-key helper: repeatedly polls the keyboard via SUB_01B2 (BDOS direct
-;       console I/O) until a character is actually available, then returns.
+; [AI] Drains/flushes pending console input by repeatedly polling direct console I/O until no key
+;       is waiting, so a queued keystroke is not mistaken for the user's RETURN.
 SUB_01AC:
         CALL SUB_01B2                    ; $01AC  CD B2 01
         JR Z,SUB_01AC                    ; $01AF  28 FB
         RET                              ; $01B1  C9
-; [AI] Non-blocking console read using BDOS function 6 (direct console I/O) with E=$FF (input);
-;       returns with the Z flag reflecting whether a key was pending (A=0 means none).
+; [AI] Direct console status/read via BDOS function 6 with E=$FF; returns whether a key is
+;       currently available and consumes it.
 SUB_01B2:
         LD E,$FF                         ; $01B2  1E FF
         LD C,$06                         ; $01B4  0E 06
         CALL BDOS_VEC                    ; $01B6  CD 05 00
         OR A                             ; $01B9  B7
         RET                              ; $01BA  C9
-; [AI] Filename/command-argument parser entry: blanks the default FCB filename field at $005D (11
-;       bytes of spaces) and a 30-byte name buffer at $056C before scanning the command tail for a
-;       CAT/transfer argument.
 L_01BB:
         LD A,$20                         ; $01BB  3E 20
         LD HL,$005D                      ; $01BD  21 5D 00
@@ -162,9 +153,6 @@ L_01CB:
         CALL SUB_03A2                    ; $01D5  CD A2 03
         LD DE,$005D                      ; $01D8  11 5D 00
         LD B,$08                         ; $01DB  06 08
-; [AI] Loop parsing up to 8 characters of the source filename from the command tail into the FCB-
-;       style buffer at $0512, stopping on end-of-line, '.' (extension), or '=' (destination
-;       separator).
 L_01DD:
         CALL SUB_03B9                    ; $01DD  CD B9 03
         JR Z,L_0207                      ; $01E0  28 25
@@ -178,8 +166,6 @@ L_01DD:
 L_01EE:
         LD B,$03                         ; $01EE  06 03
         LD DE,$0065                      ; $01F0  11 65 00
-; [AI] Loop parsing the 3-character file extension after a '.', copying into the buffer at $0065
-;       and breaking on end or the '=' destination separator.
 L_01F3:
         CALL SUB_03B9                    ; $01F3  CD B9 03
         JR Z,L_0207                      ; $01F6  28 0F
@@ -191,12 +177,8 @@ L_01F3:
         CALL SUB_03B9                    ; $0200  CD B9 03
         CP $3D                           ; $0203  FE 3D
         JR Z,L_020A                      ; $0205  28 03
-; [AI] Syntax-error trampoline: jumps to L_0113 to print 'Command Error' when the command tail does
-;       not parse as a valid filename specification.
 L_0207:
         JP L_0113                        ; $0207  C3 13 01
-; [AI] Handles the '=' in a source=dest command: parses an optional drive prefix for the
-;       destination, then copies the destination name into the 30-byte buffer at $056C.
 L_020A:
         LD DE,$0511                      ; $020A  11 11 05
         CALL SUB_03A2                    ; $020D  CD A2 03
@@ -205,8 +187,6 @@ L_020A:
         JR Z,L_0207                      ; $0216  28 EF
         DEC HL                           ; $0218  2B
         LD B,$1F                         ; $0219  06 1F
-; [AI] Loop copying up to 31 characters of the destination filename (after '=') from the command
-;       tail into the buffer at $056C.
 L_021B:
         CALL SUB_03B9                    ; $021B  CD B9 03
         JR Z,L_0226                      ; $021E  28 06
@@ -214,9 +194,6 @@ L_021B:
         INC DE                           ; $0221  13
         DJNZ L_021B                      ; $0222  10 F7
         JR L_0207                        ; $0224  18 E1
-; [AI] Sets up the Apple DOS drive/slot from the parsed unit ($0511), builds the 'drive Z:'/'drive
-;       Q:' prompt letters by adding $4141, prompts the user to insert the Apple DOS disk, and
-;       primes the Apple directory reader for a single-file transfer.
 L_0226:
         CALL SUB_04BF                    ; $0226  CD BF 04
         LD HL,($0511)                    ; $0229  2A 11 05
@@ -230,9 +207,6 @@ L_0226:
         LD DE,$05EC                      ; $023B  11 EC 05
         CALL SUB_04ED                    ; $023E  CD ED 04
         CALL SUB_03E4                    ; $0241  CD E4 03
-; [AI] Single-file search loop: walks Apple DOS directory entries (via SUB_0423) comparing each
-;       30-byte name (masking bit 7) against the requested name in $056C; falls through to the
-;       transfer setup on a match, or reports 'File not found' if exhausted.
 L_0244:
         CALL SUB_0423                    ; $0244  CD 23 04
         JP Z,L_02DD                      ; $0247  CA DD 02
@@ -255,9 +229,6 @@ L_0250:
         JR Z,L_026C                      ; $0264  28 06
         LD DE,$06A1                      ; $0266  11 A1 06
         JP L_0116                        ; $0269  C3 16 01
-; [AI] Matched-file transfer setup: stores the file type, resets the CP/M FCB current-record and
-;       extent fields to zero, makes/deletes the destination CP/M file (BDOS 19 delete, BDOS 22
-;       make), and begins copying the Apple file's sectors.
 L_026C:
         LD (HL),A                        ; $026C  77
         CALL SUB_0470                    ; $026D  CD 70 04
@@ -267,7 +238,7 @@ L_026C:
         LD ($0515),A                     ; $0277  32 15 05
         LD ($0068),A                     ; $027A  32 68 00
         CALL SUB_02E3                    ; $027D  CD E3 02
-        LD DE,$005C                      ; $0280  11 5C 00
+        LD DE,DEFAULT_FCB                ; $0280  11 5C 00
         PUSH DE                          ; $0283  D5
         LD C,$13                         ; $0284  0E 13
         CALL BDOS_VEC                    ; $0286  CD 05 00
@@ -284,9 +255,6 @@ L_026C:
         CALL SUB_04ED                    ; $029E  CD ED 04
         LD A,$FF                         ; $02A1  3E FF
         LD ($0518),A                     ; $02A3  32 18 05
-; [AI] Track/sector-list iteration driver: reads successive entries from the Apple DOS
-;       track/sector-list sector (buffer at $0822), advancing to the next T/S list sector when the
-;       current one is exhausted, and dispatches each data sector to SUB_0332.
 L_02A6:
         LD A,($0518)                     ; $02A6  3A 18 05
         INC A                            ; $02A9  3C
@@ -299,9 +267,6 @@ L_02A6:
         LD HL,($0823)                    ; $02B6  2A 23 08
         LD ($050F),HL                    ; $02B9  22 0F 05
         LD A,$0C                         ; $02BC  3E 0C
-; [AI] Indexes into the current track/sector-list ($0822) by the running entry counter in $0518,
-;       fetches the next data sector's track/sector pointer, and stops when a zero pointer marks
-;       end-of-file.
 L_02BE:
         LD E,A                           ; $02BE  5F
         INC A                            ; $02BF  3C
@@ -317,22 +282,17 @@ L_02BE:
         JR Z,L_02D5                      ; $02CE  28 05
         CALL SUB_0332                    ; $02D0  CD 32 03
         JR L_02A6                        ; $02D3  18 D1
-; [AI] End-of-file path: flushes the final partial CP/M output buffer (SUB_0353) then prints the
-;       'Transfer complete' message and returns to the command loop.
 L_02D5:
         CALL SUB_0353                    ; $02D5  CD 53 03
 L_02D8:
         LD DE,$068F                      ; $02D8  11 8F 06
         JR L_02E0                        ; $02DB  18 03
-; [AI] Loads DE with the 'Working...'/done message pointer ($0708) when the Apple directory scan
-;       ends, joining the common message-print-and-restart path.
 L_02DD:
         LD DE,$0708                      ; $02DD  11 08 07
 L_02E0:
         JP L_0116                        ; $02E0  C3 16 01
-; [AI] Configures the SoftCard Apple-side I/O parameter block for reading: sets the DMA/transfer
-;       buffer to $0800 ($F3E8), command code to 1 ($F3E0), and copies the current track/sector
-;       ($0514/$0068) into page-zero RWTS parameters before printing the 'Insert Apple DOS disk'
+; [AI] Loads the SoftCard's Apple-side I/O parameter block ($F3E0/$F3E8) to point at the 2KB Apple
+;       DOS sector staging buffer at $0800 and selects the message for the source (Apple) disk
 ;       prompt.
 SUB_02E3:
         LD HL,$0800                      ; $02E3  21 00 08
@@ -346,38 +306,33 @@ SUB_02E3:
         LD DE,$0616                      ; $02F8  11 16 06
 L_02FB:
         JP SUB_04ED                      ; $02FB  C3 ED 04
-; [AI] Opens the destination CP/M file for output: programs the Apple-side parameter block, calls
-;       BDOS function 15 (open file) on the FCB at $005C, restores the saved current record from
-;       $0515 into the FCB ($007C), and resets the file's current-record pointer.
+; [AI] Closes the current CP/M output file (BDOS function 15 open variant) and resets the Apple-
+;       side parameters, called when an output buffer must be flushed mid-transfer.
 SUB_02FE:
         CALL SUB_02E3                    ; $02FE  CD E3 02
-        LD DE,$005C                      ; $0301  11 5C 00
+        LD DE,DEFAULT_FCB                ; $0301  11 5C 00
         LD C,$0F                         ; $0304  0E 0F
         CALL BDOS_VEC                    ; $0306  CD 05 00
         LD A,($0515)                     ; $0309  3A 15 05
-        LD ($007C),A                     ; $030C  32 7C 00
+        LD (DEFAULT_CR),A                ; $030C  32 7C 00
         JP SUB_0470                      ; $030F  C3 70 04
-; [AI] Saves the CP/M FCB's current-record ($007C) and the Apple track ($0068) back into the
-;       persistent state words ($0515/$0514) before closing/reopening across a disk swap.
 L_0312:
-        LD A,($007C)                     ; $0312  3A 7C 00
+        LD A,(DEFAULT_CR)                ; $0312  3A 7C 00
         LD ($0515),A                     ; $0315  32 15 05
         LD A,($0068)                     ; $0318  3A 68 00
         LD ($0514),A                     ; $031B  32 14 05
-; [AI] Closes the current CP/M file via BDOS function 16 (close), reinitializes the in-memory
-;       record buffer pointer/count word ($0516 = $1A22, the $1A EOF fill and buffer at $0A22), and
-;       reprints the destination-disk prompt.
+; [AI] Opens/creates the CP/M destination file (BDOS function 16 close) and resets the record-count
+;       workspace ($0516) before beginning to write a new file.
 SUB_031E:
-        LD DE,$005C                      ; $031E  11 5C 00
+        LD DE,DEFAULT_FCB                ; $031E  11 5C 00
         LD C,$10                         ; $0321  0E 10
         CALL BDOS_VEC                    ; $0323  CD 05 00
         LD HL,$1A22                      ; $0326  21 22 1A
         LD ($0516),HL                    ; $0329  22 16 05
         LD DE,$05EC                      ; $032C  11 EC 05
         JP SUB_0459                      ; $032F  C3 59 04
-; [AI] Processes one Apple data sector: reads it via the SoftCard ($0481), advances the Apple-side
-;       $C0xx address pointer (wrapping $C0->$D0 at $0517), increments the sector counter ($0513),
-;       and when the buffer is full flushes it to the CP/M file with SUB_0353.
+; [AI] Reads the next Apple DOS data sector via the 6502 side, advancing the track/sector counters
+;       ($0517/$0513) and forcing a fresh CP/M write once a full buffer has accumulated.
 SUB_0332:
         CALL SUB_0481                    ; $0332  CD 81 04
         LD HL,$0517                      ; $0335  21 17 05
@@ -397,10 +352,9 @@ L_0340:
         CALL SUB_0353                    ; $034B  CD 53 03
         LD DE,$05EC                      ; $034E  11 EC 05
         JR L_02FB                        ; $0351  18 A8
-; [AI] Flushes accumulated 256-byte Apple sectors to the CP/M file: reopens the output file
-;       (SUB_02FE), then writes each 128-byte record via BDOS function 26 (set DMA) plus BDOS
-;       function 21 (write sequential), masking text-file bytes to 7 bits, and reports 'Disk full'
-;       on write failure.
+; [AI] Flushes the accumulated Apple DOS data ($0A22 buffer) to the CP/M file as a series of
+;       128-byte records (BDOS set-DMA function 26 then write), stripping the high bit for text
+;       files.
 SUB_0353:
         LD A,($0513)                     ; $0353  3A 13 05
         OR A                             ; $0356  B7
@@ -413,9 +367,6 @@ SUB_0353:
         RL B                             ; $0362  CB 10
         LD C,A                           ; $0364  4F
         LD HL,$0A22                      ; $0365  21 22 0A
-; [AI] Per-record write loop within the flush: sets the DMA address (BDOS 26), optionally strips
-;       bit 7 for text files, and writes the record with BDOS function 21, looping over all records
-;       in the buffer.
 L_0368:
         PUSH BC                          ; $0368  C5
         PUSH HL                          ; $0369  E5
@@ -428,8 +379,6 @@ L_0368:
         LD B,$80                         ; $0376  06 80
         POP HL                           ; $0378  E1
         PUSH HL                          ; $0379  E5
-; [AI] Inner loop that masks the high bit off each byte of a 128-byte text record (Apple stores
-;       text with bit 7 set), converting it to plain 7-bit ASCII before the CP/M write.
 L_037A:
         LD A,(HL)                        ; $037A  7E
         AND $7F                          ; $037B  E6 7F
@@ -437,14 +386,14 @@ L_037A:
         INC HL                           ; $037E  23
         DJNZ L_037A                      ; $037F  10 F9
 L_0381:
-        LD DE,$005C                      ; $0381  11 5C 00
+        LD DE,DEFAULT_FCB                ; $0381  11 5C 00
         LD C,$15                         ; $0384  0E 15
         CALL BDOS_VEC                    ; $0386  CD 05 00
         OR A                             ; $0389  B7
         LD DE,$06CB                      ; $038A  11 CB 06
         JP NZ,L_0116                     ; $038D  C2 16 01
         POP HL                           ; $0390  E1
-        LD DE,$0080                      ; $0391  11 80 00
+        LD DE,DEFAULT_DMA                ; $0391  11 80 00
         ADD HL,DE                        ; $0394  19
         POP BC                           ; $0395  C1
         DEC BC                           ; $0396  0B
@@ -454,9 +403,9 @@ L_0381:
         XOR A                            ; $039B  AF
         LD ($0513),A                     ; $039C  32 13 05
         JP L_0312                        ; $039F  C3 12 03
-; [AI] Parses an optional 'X:' drive-letter prefix: if the second character is ':', converts the
-;       letter A-P to a 0-based drive number, validates it against the BDOS-reported max drive count
-;       ($F3B8), stores it at (DE), and branches to 'Invalid Drive' on overflow.
+; [AI] Parses an optional drive-letter prefix ('X:') from the command, converting the letter to a
+;       0-based drive number and validating it against the number of logical drives reported at
+;       $F3B8.
 SUB_03A2:
         INC HL                           ; $03A2  23
         LD A,(HL)                        ; $03A3  7E
@@ -474,8 +423,8 @@ SUB_03A2:
         LD A,C                           ; $03B6  79
         LD (DE),A                        ; $03B7  12
         RET                              ; $03B8  C9
-; [AI] Fetches and normalizes the next command-tail character: reads (HL), advances HL, folds
-;       lowercase to uppercase (subtract $20 if >= $60), and returns with Z set on a NUL terminator.
+; [AI] Fetches the next command-line character and folds lowercase to uppercase, returning Z when
+;       the terminating NUL is reached; the core tokenizer used throughout command parsing.
 SUB_03B9:
         LD A,(HL)                        ; $03B9  7E
         INC HL                           ; $03BA  23
@@ -485,9 +434,8 @@ SUB_03B9:
 L_03C1:
         OR A                             ; $03C1  B7
         RET                              ; $03C2  C9
-; [AI] Calls into the SoftCard's Apple-side dispatch routine: pushes a return-thunk address, loads
-;       the firmware entry vector from $0001 with low byte forced to $1B, and jumps to it; the
-;       trailing DEFB bytes at $03CD are the executed return thunk that copies the result word back.
+; [AI] Calls into the SoftCard BIOS through the warm-boot page vector ($0001) with L forced to $1B,
+;       reaching a SoftCard-specific BIOS extension entry that services Apple DOS disk requests.
 SUB_03C3:
         LD HL,$03CD                      ; $03C3  21 CD 03
         PUSH HL                          ; $03C6  E5
@@ -495,16 +443,14 @@ SUB_03C3:
         LD L,$1B                         ; $03CA  2E 1B
         JP (HL)                          ; $03CC  E9
         DEFB    $7D,$B4,$28,$0A,$11,$0A,$00,$19,$7E,$23,$66,$6F,$56,$C9 ; $03CD
-; [AI] Invalid-drive error handler: prints the 'Invalid Drive' message ($06E4) and returns to the
-;       top of the command loop.
+; [AI] Invalid-drive error path: prints the 'Invalid Drive' message and restarts the command loop.
 L_03DB:
         LD DE,$06E4                      ; $03DB  11 E4 06
         CALL SUB_04CB                    ; $03DE  CD CB 04
         JP L_011C                        ; $03E1  C3 1C 01
-; [AI] Mounts the Apple DOS disk and reads its VTOC/catalog: programs the drive geometry
-;       (SUB_0459), reads via the SoftCard, detects the on-disk DOS format (3.2 vs 3.3 by examining
-;       a marker byte) to select the right sector-skew table at $0494, validates the disk is Apple
-;       DOS ('Not an Apple DOS disk' otherwise), and caches the first catalog sector pointer.
+; [AI] Mounts and reads the Apple DOS VTOC/catalog: sets up the source drive, calls the 6502
+;       reader, and picks the record-stride table ($0542/$0552/$055F) based on the disk's file-type
+;       byte.
 SUB_03E4:
         CALL SUB_0459                    ; $03E4  CD 59 04
         CALL SUB_03C3                    ; $03E7  CD C3 03
@@ -528,18 +474,15 @@ L_0401:
         JR Z,L_0417                      ; $040F  28 06
         LD DE,$06F2                      ; $0411  11 F2 06
         JP L_0116                        ; $0414  C3 16 01
-; [AI] Records a valid catalog: stores the first catalog track/sector ($0723 -> $050C) and sets the
-;       directory-iteration state flag ($050B = $FF) so SUB_0423 will start enumerating entries.
 L_0417:
         LD HL,($0723)                    ; $0417  2A 23 07
         LD ($050C),HL                    ; $041A  22 0C 05
         LD A,$FF                         ; $041D  3E FF
         LD ($050B),A                     ; $041F  32 0B 05
         RET                              ; $0422  C9
-; [AI] Apple DOS directory iterator: returns the next catalog entry one call at a time, reading the
-;       next catalog sector ($0723 into $0822) when the current one is consumed, and returning Z
-;       (A=0) when all entries are exhausted; live entry data goes to file-type ($050E) and name
-;       fields.
+; [AI] Iterates the Apple DOS catalog one directory entry at a time, chaining to the next catalog
+;       sector via the link in $050C when the current sector's entries are exhausted; returns Z at
+;       end of directory.
 SUB_0423:
         LD A,($050B)                     ; $0423  3A 0B 05
         ADD A,$23                        ; $0426  C6 23
@@ -572,9 +515,8 @@ L_043B:
         INC HL                           ; $0453  23
         LD ($050F),BC                    ; $0454  ED 43 0F 05
         RET                              ; $0458  C9
-; [AI] Translates the parsed unit number ($0511) into SoftCard Apple drive and slot parameters:
-;       derives the drive select (1 or 2) into $F3E4 and computes the slot-based soft-switch base
-;       into $F3E6.
+; [AI] Translates the parsed logical drive number ($0511) into the SoftCard's Apple-side slot/drive
+;       selector bytes ($F3E4 slot-flag and $F3E6 drive code) for the next sector read.
 SUB_0459:
         LD A,($0511)                     ; $0459  3A 11 05
         LD C,A                           ; $045C  4F
@@ -590,34 +532,31 @@ SUB_0459:
         ADD A,$61                        ; $046A  C6 61
         LD ($F3E6),A                     ; $046C  32 E6 F3
         RET                              ; $046F  C9
-; [AI] Sets the CP/M FCB drive byte ($005C) from the saved destination drive number ($0512, +1 to
-;       form a 1-based BDOS drive code).
+; [AI] Stamps the destination FCB's drive field ($005C) from the parsed output-drive number ($0512)
+;       so the CP/M file is created on the requested drive.
 SUB_0470:
         LD A,($0512)                     ; $0470  3A 12 05
         INC A                            ; $0473  3C
-        LD ($005C),A                     ; $0474  32 5C 00
+        LD (DEFAULT_FCB),A               ; $0474  32 5C 00
         RET                              ; $0477  C9
-; [AI] Points the SoftCard transfer buffer ($F3E8) at the next-catalog-sector buffer ($1822) and
-;       falls into the common Apple-read setup at L_0492.
+; [AI] Points the Apple-side DMA parameter ($F3E8) at the $1822 staging area, used when reading the
+;       directory-continuation sector.
 SUB_0478:
         LD DE,$1822                      ; $0478  11 22 18
         LD ($F3E8),DE                    ; $047B  ED 53 E8 F3
         JR L_0492                        ; $047F  18 11
-; [AI] Points the SoftCard transfer buffer ($F3E8) at the rolling data-sector buffer address held
-;       in $0516, then falls into the common Apple-read setup at L_0492.
+; [AI] Points the Apple-side DMA parameter ($F3E8) at the current file's track/sector-list buffer
+;       (address held in $0516) before reading data sectors.
 SUB_0481:
         LD DE,($0516)                    ; $0481  ED 5B 16 05
         LD ($F3E8),DE                    ; $0485  ED 53 E8 F3
         JR L_0492                        ; $0489  18 07
-; [AI] Points the SoftCard transfer buffer ($F3E8) at the catalog-sector buffer ($1722) and falls
-;       into L_0492 to issue the read.
+; [AI] Issues an Apple DOS sector read through the 6502 side: sets the DMA target to $1722,
+;       programs the track/sector from HL via the skew table at $0552, arms the parameter block, and
+;       signals the request.
 SUB_048B:
         LD DE,$1722                      ; $048B  11 22 17
         LD ($F3E8),DE                    ; $048E  ED 53 E8 F3
-; [AI] Common SoftCard Apple-sector read: maps the logical sector through the skew table ($0552),
-;       loads the resulting track/sector into the Apple parameter block ($F3E0), arms the request
-;       ($F3EB=1, command $0E03 at $F3D0), triggers the 6502 ($0000), and on completion checks the
-;       Apple I/O error status ($F3EA), reporting 'Disk I/O Error' if nonzero.
 L_0492:
         LD A,L                           ; $0492  7D
         LD DE,$0552                      ; $0493  11 52 05
@@ -631,24 +570,22 @@ L_0492:
         LD ($F3EB),A                     ; $04A1  32 EB F3
         LD HL,$0E03                      ; $04A4  21 03 0E
         LD ($F3D0),HL                    ; $04A7  22 D0 F3
-        LD ($0000),A                     ; $04AA  32 00 00
+        LD (WBOOT_VEC),A                 ; $04AA  32 00 00
         LD A,($F3EA)                     ; $04AD  3A EA F3
         OR A                             ; $04B0  B7
         RET Z                            ; $04B1  C8
         LD DE,$06D5                      ; $04B2  11 D5 06
         CALL SUB_04D3                    ; $04B5  CD D3 04
         JP L_011C                        ; $04B8  C3 1C 01
-; [AI] Outputs a single space to the console (loads A=$20 and falls into the console-output
-;       routine).
+; [AI] Emits a single space to the console (loads A=$20 and falls into the console-output
+;       primitive); used to format the file-listing columns.
 SUB_04BB:
         LD A,$20                         ; $04BB  3E 20
         JR SUB_04FC                      ; $04BD  18 3D
-; [AI] Emits a blank line: prints one CR/LF pair (via SUB_04C2) and falls through to print a second
-;       CR/LF.
+; [AI] Prints a blank line by emitting two CR/LF pairs via SUB_04C2.
 SUB_04BF:
         CALL SUB_04C2                    ; $04BF  CD C2 04
-; [AI] Prints a CR/LF pair to the console: outputs $0D then $0A through the single-character output
-;       routine SUB_04FC.
+; [AI] Outputs a CR/LF pair to the console; the standard newline primitive for APDOS's text output.
 SUB_04C2:
         LD A,$0D                         ; $04C2  3E 0D
 L_04C4:
@@ -657,9 +594,8 @@ L_04C7:
         LD A,$0A                         ; $04C7  3E 0A
 L_04C9:
         JR SUB_04FC                      ; $04C9  18 31
-; [AI] Prints a CR/LF, another CR/LF, then the '$'-terminated string addressed by DE; used to
-;       display banner/error messages set off by blank lines. Preserves DE on the stack across the
-;       leading newlines.
+; [AI] Prints a leading blank line then a '$'-terminated message string (in DE) via BDOS print-
+;       string function 9, for banner/prompt output.
 SUB_04CB:
         PUSH DE                          ; $04CB  D5
 L_04CC:
@@ -668,15 +604,13 @@ L_04CF:
         CALL SUB_04C2                    ; $04CF  CD C2 04
 L_04D2:
         POP DE                           ; $04D2  D1
-; [AI] Prints a '$'-terminated string via BDOS function 9 (print string) with DE pointing at the
-;       message; tail-jumps into the BDOS vector.
+; [AI] Prints the '$'-terminated string at DE using BDOS function 9 (print string).
 SUB_04D3:
         LD C,$09                         ; $04D3  0E 09
 L_04D5:
         JP BDOS_VEC                      ; $04D5  C3 05 00
-; [AI] If a destination drive was specified ($0511 high != low byte), prints 'Insert CP/M disk...'
-;       prompt with a blank line and waits, ensuring the right disk is mounted before the CP/M write
-;       phase.
+; [AI] When the source and destination are the same physical drive, prompts the user to swap to the
+;       CP/M (destination) disk and waits, since a single drive must hold each disk in turn.
 SUB_04D8:
         LD HL,($0511)                    ; $04D8  2A 11 05
         LD A,L                           ; $04DB  7D
@@ -687,25 +621,23 @@ SUB_04D8:
         CALL SUB_04BF                    ; $04E4  CD BF 04
         LD DE,$0717                      ; $04E7  11 17 07
         JP SUB_04D3                      ; $04EA  C3 D3 04
-; [AI] Conditionally prints the message at DE: only emits it when the source and destination are
-;       NOT on the same physical drive (so single-drive transfers skip the disk-swap prompts), then
-;       waits for a keypress.
+; [AI] Conditionally prints the disk-swap prompt only when source and destination drives differ,
+;       then waits for RETURN; skips the prompt for a same-drive transfer.
 SUB_04ED:
         LD HL,($0511)                    ; $04ED  2A 11 05
         LD A,L                           ; $04F0  7D
         CP H                             ; $04F1  BC
         RET NZ                           ; $04F2  C0
-; [AI] Prints the '$'-terminated message at DE (BDOS 9) and then waits for the user to press a key
-;       (SUB_01AC), preserving BC; the core 'prompt and pause' helper.
+; [AI] Prints a prompt string (DE) and blocks until the user drains it and presses a key,
+;       preserving BC across the wait.
 SUB_04F3:
         PUSH BC                          ; $04F3  C5
         CALL SUB_04D3                    ; $04F4  CD D3 04
         CALL SUB_01AC                    ; $04F7  CD AC 01
         POP BC                           ; $04FA  C1
         RET                              ; $04FB  C9
-; [AI] Console single-character output: saves all registers, then calls BDOS function 2 (console
-;       output) with the character from A in E; the central output primitive used by every print
-;       routine.
+; [AI] Console output primitive: writes the character in A via BDOS function 2, preserving all
+;       registers so callers can stream text without saving state.
 SUB_04FC:
         PUSH AF                          ; $04FC  F5
 L_04FD:

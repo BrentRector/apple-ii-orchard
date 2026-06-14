@@ -9,7 +9,11 @@
 
 ; -- External symbols --
 WBOOT_VEC            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
+CDISK                EQU $0004               ; Current drive (low nibble: 0=A, 1=B, ..., 15=P) and current user (high nibble, 0-15).
 BDOS_VEC             EQU $0005               ; BDOS call vector — JP BDOS_ENTRY. Programs use CALL $0005 to invoke BDOS. Word at $0006 is also the top-of-TPA marker.
+RST2_VEC             EQU $0010               ; Z-80 RST 2 ($10) restart vector — 8 bytes. Available for application/debugger use.
+RST5_VEC             EQU $0028               ; Z-80 RST 5 ($28) restart vector — 8 bytes. Available for application/debugger use.
+DEFAULT_DMA          EQU $0080               ; Default DMA buffer — also command-line tail. First byte = length, then characters. Returned to default by BDOS function 13 (DRV_ALLRESET).
 
 ; -- Code-overlap labels (target falls inside another instruction) --
 L_0D4A               EQU $0D4A
@@ -108,9 +112,9 @@ L_6468               EQU $6468
 
     ORG $0100
 
-; [AI] Program entry at the TPA base ($0100). Immediately JP L_1000 to the cold-start relocator.
-;       The bytes that follow ($0103 onward) are not code but BASIC's reserved-word/keyword dispatch
-;       tables and statement-vector lists.
+; [AI] The CP/M transient program entry point at $0100; the leading JP transfers control to the
+;       cold-start/initialization code, and the bytes that follow are not code but the interpreter's
+;       reserved-word and dispatch tables.
 TPA_START:
         JP L_1000                        ; $0100  C3 00 10
         DEFB    $76,$4F,$D7,$4F,$00                              ; $0103  "vOWO"
@@ -171,6 +175,9 @@ TPA_START:
         DEFB    $55,$D4,$BB,$4F,$4B,$C5,$97,$52,$49,$4E,$D4,$91,$4F,$D3,$10,$45 ; $03EE
         DEFB    $45,$CB,$16,$4C,$4F,$D4,$D0,$44,$CC,$35,$4F,$D0,$AE,$00,$00,$45 ; $03FE
         DEFB    $41,$C4,$87,$55                                  ; $040E
+; [AI] Not a real routine: this label falls inside the reserved-word/keyword table (each entry is
+;       the keyword text with its final character's high bit set, followed by a one-byte token), so
+;       the 'instructions' here are misdisassembled ASCII keyword data.
 L_0412:
         ADC A,$8A                        ; $0412  CE 8A
         LD B,L                           ; $0414  45
@@ -471,9 +478,6 @@ L_0412:
         DEFS    476, $00    ; $0A1D  fill
         DEFB    $91,$0B,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00 ; $0BF9
         DEFS    108, $00    ; $0C09  fill
-; [AI] Stack-context helper used by the warm-restart path: pops the caller's saved HL/DE/AF off the
-;       stack and re-pushes DE/AF so it can JP (HL) to a dynamically-selected continuation,
-;       preserving registers across the dispatch.
 SUB_0C75:
         POP HL                           ; $0C75  E1
         POP DE                           ; $0C76  D1
@@ -481,9 +485,6 @@ SUB_0C75:
         PUSH AF                          ; $0C78  F5
         PUSH DE                          ; $0C79  D5
         JP (HL)                          ; $0C7A  E9
-; [AI] Warm-restart / 'Ok' re-entry: reloads SP from the saved BASIC stack base SAVSTK ($0B5E),
-;       then drops into the command interpreter with C=$0E to begin a new statement (re-enters the
-;       main loop at L_4B8B).
 L_0C7B:
         LD HL,($0B5E)                    ; $0C7B  2A 5E 0B
 L_0C7E:
@@ -517,10 +518,6 @@ L_0D47:
         LD BC,$3A1E                      ; $0D64  01 1E 3A
         JR L_0D89                        ; $0D67  18 20
         DEFB    $2A,$50,$0B,$22,$44,$08                          ; $0D69
-; [AI] BASIC ERROR entry point: each predecessor stub loads a one-byte error code into E (LD E,nn /
-;       LD BC,...) then falls through here into the error handler at L_0D89. This is the central
-;       runtime-error trap reached by all 'JP NZ,L_0D6F' (Syntax error etc.) checks throughout the
-;       interpreter.
 L_0D6F:
         LD E,$02                         ; $0D6F  1E 02
         LD BC,$0B1E                      ; $0D71  01 1E 0B
@@ -531,10 +528,6 @@ L_0D6F:
         LD BC,$061E                      ; $0D80  01 1E 06
         LD BC,$161E                      ; $0D83  01 1E 16
         LD BC,$0D1E                      ; $0D86  01 1E 0D
-; [AI] Error handler body: records the offending line number ($0B5C/$0B64), tests for an active ON
-;       ERROR trap ($0B66/$0B68) and dispatches to it if set; otherwise clamps the error code,
-;       indexes the error-message text table at $0521, prints the message via SUB_35B6 and appends '
-;       in <line>'.
 L_0D89:
         LD HL,($0844)                    ; $0D89  2A 44 08
 L_0D8C:
@@ -556,7 +549,7 @@ L_0D99:
 L_0D9B:
         LD ($0B62),HL                    ; $0D9B  22 62 0B
 L_0D9E:
-        LD BC,$0DA7                      ; $0D9E  01 A7 0D
+        LD BC,L_0DA7                     ; $0D9E  01 A7 0D
 L_0DA1:
         LD HL,($0B5E)                    ; $0DA1  2A 5E 0B
 L_0DA4:
@@ -674,9 +667,6 @@ L_0E0B:
         INC A                            ; $0E1D  3C
         CALL NZ,SUB_570B                 ; $0E1E  C4 0B 57
         LD A,$C1                         ; $0E21  3E C1
-; [AI] Direct-mode 'Ok' command loop: prints the prompt/CRLF (message block at $0CF2), clears the
-;       CONT pointer, and falls into the line-input/edit loop. This is the interactive READ-EVAL
-;       prompt of the BASIC interpreter.
 L_0E23:
         CALL $6679                       ; $0E23  CD 79 66
         XOR A                            ; $0E26  AF
@@ -688,10 +678,6 @@ L_0E23:
         LD A,($0835)                     ; $0E36  3A 35 08
         SUB $02                          ; $0E39  D6 02
         CALL Z,SUB_625D                  ; $0E3B  CC 5D 62
-; [AI] Main edit/insert loop: reads and tokenizes an input line, then either deletes/inserts it
-;       into the stored program text (linked-line list anchored at $0844/$0846) when it begins with
-;       a line number, or executes it directly. Calls SUB_5713 to find/place lines and SUB_0F88 for
-;       line lookup.
 L_0E3E:
         LD HL,$FFFF                      ; $0E3E  21 FF FF
         LD ($0844),HL                    ; $0E41  22 44 08
@@ -734,9 +720,6 @@ L_0E84:
         OR A                             ; $0E87  B7
         JR Z,L_0E3E                      ; $0E88  28 B4
         JP L_6443                        ; $0E8A  C3 43 64
-; [AI] Direct-statement execution path: tokenizes the typed line, parses its leading line number
-;       (SUB_33C9), and runs it immediately through the statement executor (SUB_3000) rather than
-;       storing it, used for commands and immediate-mode statements.
 L_0E8D:
         CALL $7023                       ; $0E8D  CD 23 70
         JR C,L_0E3E                      ; $0E90  38 AC
@@ -829,7 +812,7 @@ L_0F0C:
 L_0F15:
         POP DE                           ; $0F15  D1
         CALL SUB_0F3D                    ; $0F16  CD 3D 0F
-        LD HL,$0080                      ; $0F19  21 80 00
+        LD HL,DEFAULT_DMA                ; $0F19  21 80 00
         LD (HL),$00                      ; $0F1C  36 00
         LD ($0850),HL                    ; $0F1E  22 50 08
         LD HL,($0840)                    ; $0F21  2A 40 08
@@ -843,9 +826,6 @@ L_0F15:
 SUB_0F39:
         LD HL,($0846)                    ; $0F39  2A 46 08
         EX DE,HL                         ; $0F3C  EB
-; [AI] Program-text relink routine (CHEAD): walks the stored-program linked list at $0846,
-;       rewriting each line's forward-link word to point at the start of the following line. Run
-;       after edits/insertions to rebuild line chaining.
 SUB_0F3D:
         LD H,D                           ; $0F3D  62
         LD L,E                           ; $0F3E  6B
@@ -875,11 +855,8 @@ L_0F5A:
         INC HL                           ; $0F5D  23
         LD (HL),D                        ; $0F5E  72
         JR SUB_0F3D                      ; $0F5F  18 DC
-; [AI] DELETE-range helper: parses the optional start/end line-number arguments (via SUB_34D5
-;       around a ',' or token $F3), defaulting the bounds, to delimit a span of program lines for
-;       deletion.
 SUB_0F61:
-        LD DE,$0000                      ; $0F61  11 00 00
+        LD DE,WBOOT_VEC                  ; $0F61  11 00 00
         PUSH DE                          ; $0F64  D5
         JR Z,L_0F7B                      ; $0F65  28 14
         POP DE                           ; $0F67  D1
@@ -902,9 +879,6 @@ L_0F84:
         POP DE                           ; $0F85  D1
         EX (SP),HL                       ; $0F86  E3
         PUSH HL                          ; $0F87  E5
-; [AI] FNDLIN — search the stored program for a given line number: scans the linked-line list at
-;       $0846 comparing each line's number word, returning carry/zero status and a pointer to the
-;       matching (or insertion) line.
 SUB_0F88:
         LD HL,($0846)                    ; $0F88  2A 46 08
 L_0F8B:
@@ -939,10 +913,9 @@ L_0F8B:
         DEFB    $1F,$69,$D1,$38,$0B,$3E,$01,$D5,$CD,$58,$6C,$E1,$CD,$E2,$6B,$FE ; $0FD7
         DEFB    $EB,$36,$01,$23,$5E,$23,$56,$CD,$F4,$67,$CC,$24,$67,$12,$E1,$C1 ; $0FE7
         DEFB    $C9,$00,$00,$00,$00,$00,$00,$00,$00              ; $0FF7
-; [AI] Cold-start relocation stub: an LDDR block move that copies the interpreter image up into
-;       high memory before transferring control (JP $81D3) to the relocated runtime. The DEFB bytes
-;       after $100E are the high-memory interpreter body the disassembler could not follow at load
-;       address.
+; [AI] Cold-start initializer: it block-moves a region of the image downward with LDDR
+;       (relocating/clearing interpreter workspace) and then jumps into the main setup at $81D3 that
+;       prepares the BASIC environment before the command loop.
 L_1000:
         LD HL,$6490                      ; $1000  21 90 64
 L_1003:
@@ -1477,9 +1450,6 @@ L_100B:
         DEFB    $90,$30,$0E,$CD,$3C,$50,$EB,$D1,$22,$B1,$0C,$3E,$02,$32,$14,$0B ; $2FDD
         DEFB    $C9,$01,$80,$90,$11,$00,$00,$CD,$03,$4F,$C0,$61,$6A,$18,$E8,$CD ; $2FED
         DEFB    $C8,$3D,$E0                                      ; $2FFD
-; [AI] Floating-point ADD entry of the math package (operates on the FAC at $0CAC-$0CC0). Handles
-;       the sign/zero special cases then aligns exponents and falls into the mantissa add; part of
-;       the BASIC FP arithmetic library at $3000-$33F5.
 SUB_3000:
         JP M,SUB_500B                    ; $3000  FA 0B 50
         JP Z,L_0D87                      ; $3003  CA 87 0D
@@ -1660,9 +1630,6 @@ L_337E:
         DEFB    $78,$53,$21,$BA,$0C,$CD,$C9,$4E,$C3,$3E,$53,$3A,$B3,$0C,$B7,$F2 ; $339F
         DEFB    $AC,$53,$E6,$7F,$32,$B3,$0C,$21,$76,$4E,$E5,$CD,$E8,$53,$11,$AD ; $33AF
         DEFB    $0C,$21,$BA,$0C,$CD,$C9,$4E,$CD,$E8,$53          ; $33BF
-; [AI] CHRGET — advance the program/text pointer and fetch the next significant token/character,
-;       skipping spaces; the interpreter's fundamental token scanner. Called pervasively to step
-;       through tokenized BASIC statements.
 SUB_33C9:
         CALL SUB_5210                    ; $33C9  CD 10 52
         LD DE,$0CAD                      ; $33CC  11 AD 0C
@@ -1809,7 +1776,7 @@ L_3542:
         CALL SUB_3DC8                    ; $3551  CD C8 3D
         RET PE                           ; $3554  E8
         PUSH HL                          ; $3555  E5
-        LD HL,$4D63                      ; $3556  21 63 4D
+        LD HL,L_4D63                     ; $3556  21 63 4D
         PUSH HL                          ; $3559  E5
         CALL SUB_4FE0                    ; $355A  CD E0 4F
         RET                              ; $355D  C9
@@ -2120,7 +2087,7 @@ SUB_3CCD:
         LD HL,$5D39                      ; $3D1D  21 39 5D
         CALL SUB_5D65                    ; $3D20  CD 65 5D
         POP BC                           ; $3D23  C1
-        LD DE,$0000                      ; $3D24  11 00 00
+        LD DE,WBOOT_VEC                  ; $3D24  11 00 00
         LD C,D                           ; $3D27  4A
         JP SUB_4D12                      ; $3D28  C3 12 4D
         DEFB    $CD,$9A,$4E,$3A,$B3,$0C,$B7,$F2,$2C,$5D,$F1,$F1,$C3,$09,$4C,$C3 ; $3D2B
@@ -2619,7 +2586,7 @@ L_4334:
         RET                              ; $433F  C9
 L_4340:
         PUSH HL                          ; $4340  E5
-        LD HL,$637B                      ; $4341  21 7B 63
+        LD HL,SUB_637B                   ; $4341  21 7B 63
         EX (SP),HL                       ; $4344  E3
         SCF                              ; $4345  37
 L_4346:
@@ -2708,7 +2675,7 @@ L_43EB:
         CALL $6800                       ; $43EF  CD 00 68
         DEC HL                           ; $43F2  2B
         DEC B                            ; $43F3  05
-        LD DE,$63B0                      ; $43F4  11 B0 63
+        LD DE,L_63B0                     ; $43F4  11 B0 63
         PUSH DE                          ; $43F7  D5
         PUSH HL                          ; $43F8  E5
         DEC C                            ; $43F9  0D
@@ -2992,9 +2959,6 @@ L_4783:
         DEFB    $32,$74,$0C,$32,$73,$0C,$06,$1A,$21,$77,$0B,$36,$04,$23,$10,$FB ; $48A9
         DEFB    $11,$85,$5D,$21,$24,$5E,$CD,$C4,$4E,$21,$01,$5E,$AF,$77,$23,$77 ; $48B9
         DEFB    $23,$77,$AF,$32,$68,$0B,$6F,$67,$22,$66,$0B,$22  ; $48C9
-; [AI] NEW / program-reset routine: clears the variable, array and string areas, resets the text
-;       pointers TXTTAB ($0B6F/$0B71/$0B73), reinitializes the BASIC stack ($0B25) and
-;       DATA/FOR/GOSUB state, returning the interpreter to an empty-program 'Ok' state.
 SUB_48D5:
         LD L,L                           ; $48D5  6D
         DEC BC                           ; $48D6  0B
@@ -3048,8 +3012,6 @@ L_48E3:
         DEFB    $21,$F7,$0C,$C2,$00,$0E,$C3,$22,$0E,$3E,$0F,$F5,$D6,$03,$20,$06 ; $4995
         DEFB    $32,$38,$08,$32,$3F,$08,$3E,$5E,$CD,$13,$66,$F1,$C6,$40,$CD,$13 ; $49A5
         DEFB    $66,$C3,$88,$67,$2A,$6D,$0B,$7C,$B5,$11,$11,$00,$CA,$89 ; $49B5
-; [AI] Sets the program execution pointer ($0844) from the current text-list head ($0B6B), used to
-;       (re)position RUN/CONT at the start of the stored program.
 SUB_49C3:
         DEC C                            ; $49C3  0D
         EX DE,HL                         ; $49C4  EB
@@ -3196,7 +3158,7 @@ L_4C38:
         POP HL                           ; $4C44  E1
         LD A,(HL)                        ; $4C45  7E
         RET NZ                           ; $4C46  C0
-        LD DE,$0010                      ; $4C47  11 10 00
+        LD DE,RST2_VEC                   ; $4C47  11 10 00
         JP L_0D89                        ; $4C4A  C3 89 0D
         DEFB    $23,$CD,$EA,$6B,$CD,$BC,$6D,$CD,$BA,$4E,$14,$15,$C8,$0A,$CD,$13 ; $4C4D
         DEFB    $66,$FE,$0D,$CC,$92,$67,$03,$18,$F2,$B7,$0E,$F1,$F5,$2A,$73,$0B ; $4C5D
@@ -3508,9 +3470,9 @@ L_4F05:
         POP HL                           ; $4F1B  E1
         POP AF                           ; $4F1C  F1
         PUSH BC                          ; $4F1D  C5
-        LD BC,$4D63                      ; $4F1E  01 63 4D
+        LD BC,L_4D63                     ; $4F1E  01 63 4D
         PUSH BC                          ; $4F21  C5
-        LD BC,$3E32                      ; $4F22  01 32 3E
+        LD BC,L_3E32                     ; $4F22  01 32 3E
         PUSH BC                          ; $4F25  C5
         PUSH AF                          ; $4F26  F5
         PUSH DE                          ; $4F27  D5
@@ -3629,7 +3591,7 @@ L_4F9C:
         LD B,A                           ; $4FBA  47
         EX (SP),HL                       ; $4FBB  E3
         PUSH HL                          ; $4FBC  E5
-        LD HL,$4D63                      ; $4FBD  21 63 4D
+        LD HL,L_4D63                     ; $4FBD  21 63 4D
         EX (SP),HL                       ; $4FC0  E3
         LD A,C                           ; $4FC1  79
         OR A                             ; $4FC2  B7
@@ -3831,7 +3793,7 @@ L_5121:
         DEFB    $C5,$33,$C3,$6B,$33,$2A,$71,$0C,$22,$44,$08,$E1,$F1,$F1,$C3,$6B ; $51FF
         DEFB    $33                                              ; $520F
 SUB_5210:
-        LD HL,$0004                      ; $5210  21 04 00
+        LD HL,CDISK                      ; $5210  21 04 00
         ADD HL,SP                        ; $5213  39
 L_5214:
         LD A,(HL)                        ; $5214  7E
@@ -3839,7 +3801,7 @@ L_5214:
         LD BC,$0082                      ; $5216  01 82 00
         CP C                             ; $5219  B9
         JR NZ,L_5222                     ; $521A  20 06
-        LD BC,$0010                      ; $521C  01 10 00
+        LD BC,RST2_VEC                   ; $521C  01 10 00
         ADD HL,BC                        ; $521F  09
         JR L_5214                        ; $5220  18 F2
 L_5222:
@@ -3954,7 +3916,7 @@ SUB_52D4:
 SUB_52DD:
         CALL $7779                       ; $52DD  CD 79 77
         PUSH HL                          ; $52E0  E5
-        LD HL,$0000                      ; $52E1  21 00 00
+        LD HL,WBOOT_VEC                  ; $52E1  21 00 00
         LD ($0CA1),HL                    ; $52E4  22 A1 0C
         POP HL                           ; $52E7  E1
         DEC HL                           ; $52E8  2B
@@ -4534,7 +4496,7 @@ L_5748:
         JR Z,L_5759                      ; $574F  28 08
 L_5751:
         LD HL,($0840)                    ; $5751  2A 40 08
-        LD BC,$0028                      ; $5754  01 28 00
+        LD BC,RST5_VEC                   ; $5754  01 28 00
         ADD HL,BC                        ; $5757  09
         INC (HL)                         ; $5758  34
 L_5759:
@@ -4705,8 +4667,6 @@ L_5AE2:
         LD A,$1A                         ; $5AE9  3E 1A
         JR L_5B41                        ; $5AEB  18 54
         DEFB    $21,$27,$00,$09,$7E,$B7,$C4,$84,$7A              ; $5AED
-; [AI] File CLOSE: invokes BDOS function 16 (LD C,$10; CALL $0005) to close the FCB pointed to by
-;       BC, then zeroes the 41-byte ($29) file-control block to mark the channel free.
 L_5AF6:
         POP DE                           ; $5AF6  D1
         CALL $7BFA                       ; $5AF7  CD FA 7B
@@ -4900,10 +4860,6 @@ L_5D81:
         POP AF                           ; $5D97  F1
         PUSH AF                          ; $5D98  F5
         PUSH HL                          ; $5D99  E5
-; [AI] File OPEN/CREATE dispatcher driven by the access mode in A: for OUTPUT mode (2) it deletes
-;       any existing file (BDOS 19, LD C,$13) then creates a new one (BDOS 22/'make file', LD
-;       C,$16); other modes open the existing FCB (BDOS 15, LD C,$0F) and create it on failure.
-;       Implements OPEN for sequential/random files.
 SUB_5D9A:
         CP $02                           ; $5D9A  FE 02
         JR NZ,L_5DB0                     ; $5D9C  20 12
@@ -4911,9 +4867,6 @@ SUB_5D9A:
         LD C,$13                         ; $5D9F  0E 13
         CALL BDOS_VEC                    ; $5DA1  CD 05 00
         POP DE                           ; $5DA4  D1
-; [AI] Make-file retry loop: repeatedly calls BDOS function 22 (make file, LD C,$16; CALL $0005);
-;       on directory-full it advances the extent and retries, erroring out (L_0D62) if creation
-;       ultimately fails.
 L_5DA5:
         LD C,$16                         ; $5DA5  0E 16
         CALL BDOS_VEC                    ; $5DA7  CD 05 00
@@ -4996,7 +4949,7 @@ SUB_5F35:
 SUB_5FC9:
         LD A,$10                         ; $5FC9  3E 10
         EX DE,HL                         ; $5FCB  EB
-        LD HL,$0000                      ; $5FCC  21 00 00
+        LD HL,WBOOT_VEC                  ; $5FCC  21 00 00
         PUSH HL                          ; $5FCF  E5
 L_5FD0:
         ADD HL,HL                        ; $5FD0  29
@@ -5054,7 +5007,7 @@ L_600C:
         LD ($81BA),HL                    ; $6011  22 BA 81
         POP HL                           ; $6014  E1
         PUSH HL                          ; $6015  E5
-        LD HL,$0080                      ; $6016  21 80 00
+        LD HL,DEFAULT_DMA                ; $6016  21 80 00
         LD A,L                           ; $6019  7D
         SUB E                            ; $601A  93
         LD L,A                           ; $601B  6F
@@ -5071,7 +5024,7 @@ L_6028:
         LD A,($81BC)                     ; $6028  3A BC 81
         OR A                             ; $602B  B7
         JR Z,L_6069                      ; $602C  28 3B
-        LD DE,$0080                      ; $602E  11 80 00
+        LD DE,DEFAULT_DMA                ; $602E  11 80 00
         CALL $691F                       ; $6031  CD 1F 69
         JR NC,L_603B                     ; $6034  30 05
         PUSH HL                          ; $6036  E5
@@ -5099,7 +5052,7 @@ L_6051:
         SBC A,D                          ; $6056  9A
         LD H,A                           ; $6057  67
         OR L                             ; $6058  B5
-        LD DE,$0000                      ; $6059  11 00 00
+        LD DE,WBOOT_VEC                  ; $6059  11 00 00
         PUSH HL                          ; $605C  E5
         LD HL,($81B6)                    ; $605D  2A B6 81
         INC HL                           ; $6060  23
@@ -5209,7 +5162,7 @@ L_61EB:
         LD ($7DEE),HL                    ; $61F2  22 EE 7D
         LD A,H                           ; $61F5  7C
         LD ($0107),A                     ; $61F6  32 07 01
-        LD BC,$0004                      ; $61F9  01 04 00
+        LD BC,CDISK                      ; $61F9  01 04 00
         ADD HL,BC                        ; $61FC  09
         LD E,(HL)                        ; $61FD  5E
         INC HL                           ; $61FE  23
@@ -5268,7 +5221,7 @@ SUB_6242:
         LD (HL),E                        ; $6245  73
         INC HL                           ; $6246  23
         LD (HL),D                        ; $6247  72
-        LD HL,$4B7A                      ; $6248  21 7A 4B
+        LD HL,L_4B7A                     ; $6248  21 7A 4B
         LD ($0001),HL                    ; $624B  22 01 00
         LD HL,($F3DE)                    ; $624E  2A DE F3
         LD ($45EB),HL                    ; $6251  22 EB 45
@@ -5276,10 +5229,6 @@ SUB_6242:
         CALL BDOS_VEC                    ; $6256  CD 05 00
         LD ($08CB),A                     ; $6259  32 CB 08
         OR A                             ; $625C  B7
-; [AI] Continues cold-start setup: initializes interpreter scalar state (current-line=$FFFE meaning
-;       direct mode, error/trace/array flags at $083F/$0835/$0CA0/$0C9A cleared), seizes top-of-TPA
-;       from the BDOS word at $0006 as the high memory limit ($0B23), and seeds default file/buffer
-;       pointers.
 SUB_625D:
         LD HL,$1514                      ; $625D  21 14 15
         JP Z,$8258                       ; $6260  CA 58 82
@@ -5294,7 +5243,7 @@ L_626F:
         LD ($0CA0),A                     ; $6276  32 A0 0C
         LD ($0C9A),A                     ; $6279  32 9A 0C
         LD ($0835),A                     ; $627C  32 35 08
-        LD HL,$0000                      ; $627F  21 00 00
+        LD HL,WBOOT_VEC                  ; $627F  21 00 00
         LD ($0837),HL                    ; $6282  22 37 08
         LD ($F030),A                     ; $6285  32 30 F0
         LD A,($F3BB)                     ; $6288  3A BB F3
@@ -5306,7 +5255,7 @@ L_626F:
         LD BC,$503E                      ; $6294  01 3E 50
         LD ($4B97),A                     ; $6297  32 97 4B
         CALL SUB_4063                    ; $629A  CD 63 40
-        LD HL,$0080                      ; $629D  21 80 00
+        LD HL,DEFAULT_DMA                ; $629D  21 80 00
         LD ($0C97),HL                    ; $62A0  22 97 0C
         LD HL,$0B27                      ; $62A3  21 27 0B
         LD ($0B25),HL                    ; $62A6  22 25 0B
@@ -5323,11 +5272,7 @@ L_626F:
         JP NZ,$8353                      ; $62C4  C2 53 83
         INC A                            ; $62C7  3C
         LD ($8352),A                     ; $62C8  32 52 83
-        LD HL,$0080                      ; $62CB  21 80 00
-; [AI] CP/M command-tail parser: scans the default DMA/command-tail buffer at page-zero $0080 for
-;       an optional startup program filename and the GBASIC '/S', '/M', '/F' switches (stack size,
-;       highest memory address, max open files), copying the name and dispatching on the option
-;       letters.
+        LD HL,DEFAULT_DMA                ; $62CB  21 80 00
 L_62CE:
         LD A,(HL)                        ; $62CE  7E
         OR A                             ; $62CF  B7

@@ -9,7 +9,12 @@
 
 ; -- External symbols --
 WBOOT_VEC            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
+CDISK                EQU $0004               ; Current drive (low nibble: 0=A, 1=B, ..., 15=P) and current user (high nibble, 0-15).
 BDOS_VEC             EQU $0005               ; BDOS call vector — JP BDOS_ENTRY. Programs use CALL $0005 to invoke BDOS. Word at $0006 is also the top-of-TPA marker.
+RST1_VEC             EQU $0008               ; Z-80 RST 1 ($08) restart vector — 8 bytes. Available for application/debugger use.
+RST2_VEC             EQU $0010               ; Z-80 RST 2 ($10) restart vector — 8 bytes. Available for application/debugger use.
+RST5_VEC             EQU $0028               ; Z-80 RST 5 ($28) restart vector — 8 bytes. Available for application/debugger use.
+DEFAULT_DMA          EQU $0080               ; Default DMA buffer — also command-line tail. First byte = length, then characters. Returned to default by BDOS function 13 (DRV_ALLRESET).
 
 ; -- Code-overlap labels (target falls inside another instruction) --
 L_01BA               EQU $01BA
@@ -50,9 +55,9 @@ L_5F05               EQU $5F05
 
     ORG $0100
 
-; [AI] Program entry at the TPA load address $0100. The CP/M loader jumps here; it immediately JP's
-;       to the real cold-start initializer at L_5E51. (Bytes after the JP are overwritten at runtime
-;       to become the BIOS console I/O hook.)
+; [AI] Transient-program entry at $0100. Jumps to the real cold-start (L_5E51); the bytes
+;       immediately after are reused as the statement-dispatch address table (base $0108) and other
+;       startup data, not as code.
 TPA_START:
         JP L_5E51                        ; $0100  C3 51 5E
         DEFB    $F4,$2B,$55                                      ; $0103
@@ -411,6 +416,8 @@ L_0231:
         DEFS    476, $00    ; $0A40  fill
         DEFB    $B4,$0B,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00 ; $0C1C
         DEFS    108, $00    ; $0C2C  fill
+; [AI] Stack-trampoline helper: pops the saved return frame and dispatches via JP (HL), used to
+;       resume an interrupted operation with restored registers.
 SUB_0C98:
         POP HL                           ; $0C98  E1
         POP DE                           ; $0C99  D1
@@ -435,6 +442,8 @@ L_0CA5:
         DEFB    $23,$FE,$AF,$20,$06,$01,$06,$00,$09,$18,$F4,$FE,$82,$C0,$4E,$23 ; $0D25
         DEFB    $46,$23,$E5,$69,$60,$7A,$B3,$EB,$28,$04,$EB,$CD,$9D,$45,$01,$10 ; $0D35
         DEFB    $00,$E1,$C8,$09,$18,$D9,$01,$45,$0E,$C3,$C4,$0D  ; $0D45
+; [AI] Error-handler core: decides whether an ON-ERROR trap is active and either dispatches to the
+;       user handler or falls through to print the error and return to direct mode.
 L_0D51:
         LD HL,($0867)                    ; $0D51  2A 67 08
         LD A,H                           ; $0D54  7C
@@ -455,7 +464,7 @@ L_0D64:
         LD BC,$341E                      ; $0D6F  01 1E 34
         LD BC,$331E                      ; $0D72  01 1E 33
         LD BC,$3E1E                      ; $0D75  01 1E 3E
-        LD BC,$371E                      ; $0D78  01 1E 37
+        LD BC,L_371E                     ; $0D78  01 1E 37
         LD BC,$401E                      ; $0D7B  01 1E 40
         LD BC,$3F1E                      ; $0D7E  01 1E 3F
         LD BC,$321E                      ; $0D81  01 1E 32
@@ -463,8 +472,6 @@ L_0D64:
         LD BC,$3A1E                      ; $0D87  01 1E 3A
         JR L_0DAC                        ; $0D8A  18 20
         DEFB    $2A,$73,$0B,$22,$67,$08                          ; $0D8C
-; [AI] Syntax-error entry point: loads error code 2 (Syntax error) into E and falls through to the
-;       common error handler at L_0DAC.
 L_0D92:
         LD E,$02                         ; $0D92  1E 02
         LD BC,$0B1E                      ; $0D94  01 1E 0B
@@ -475,9 +482,9 @@ L_0D92:
         LD BC,$061E                      ; $0DA3  01 1E 06
         LD BC,$161E                      ; $0DA6  01 1E 16
         LD BC,$0D1E                      ; $0DA9  01 1E 0D
-; [AI] Central error handler. Given an error code in E, it unwinds to the top-level stack, prints
-;       the matching message from the error-string table (with optional ' in <line>' suffix), and
-;       returns to the direct-mode Ok loop (or to an active ON ERROR handler).
+; [AI] Central error-report routine: error code arrives in E; saves the current line, formats
+;       "?<msg> Error [in <line>]", prints it via the error-string table, and re-enters the command
+;       loop. Most fault paths JP here.
 L_0DAC:
         LD HL,($0867)                    ; $0DAC  2A 67 08
 L_0DAF:
@@ -499,14 +506,11 @@ L_0DBC:
 L_0DBE:
         LD ($0B85),HL                    ; $0DBE  22 85 0B
 L_0DC1:
-        LD BC,$0DCA                      ; $0DC1  01 CA 0D
+        LD BC,L_0DCA                     ; $0DC1  01 CA 0D
 L_0DC4:
         LD HL,($0B81)                    ; $0DC4  2A 81 0B
 L_0DC7:
         JP L_4572                        ; $0DC7  C3 72 45
-; [AI] Error-handler continuation: after stack unwind it records the error code in $0858, captures
-;       the offending line number, and prints the selected error message string before returning to
-;       the Ok loop.
 L_0DCA:
         POP BC                           ; $0DCA  C1
 L_0DCB:
@@ -620,9 +624,8 @@ L_0E2E:
         INC A                            ; $0E40  3C
         CALL NZ,SUB_3389                 ; $0E41  C4 89 33
         LD A,$C1                         ; $0E44  3E C1
-; [AI] Direct-mode command loop (the 'Ok' prompt). Resets the output column, closes/flushes state,
-;       prints the CRLF+Ok prompt, reads a console line, tokenizes it, and either stores it as a
-;       numbered program line or executes it immediately.
+; [AI] Return-to-direct-mode ("Ok") entry: resets interpreter state, prints the Ok prompt, and
+;       falls into the command-input loop.
 L_0E46:
         CALL SUB_42F7                    ; $0E46  CD F7 42
         XOR A                            ; $0E49  AF
@@ -634,9 +637,8 @@ L_0E46:
         LD A,($0858)                     ; $0E59  3A 58 08
         SUB $02                          ; $0E5C  D6 02
         CALL Z,SUB_3EDB                  ; $0E5E  CC DB 3E
-; [AI] Read-and-dispatch a console input line in direct mode: clears the current-line marker,
-;       reads/tokenizes the line, and routes a leading line number to program insertion (L_0EC9) or
-;       a bare statement to immediate execution.
+; [AI] Main command/immediate-mode loop: reads a console line, and either executes it as a direct
+;       statement or, if it begins with a line number, inserts/replaces it in the stored program.
 L_0E61:
         LD HL,$FFFF                      ; $0E61  21 FF FF
         LD ($0867),HL                    ; $0E64  22 67 08
@@ -692,9 +694,6 @@ L_0EB0:
         LD A,(HL)                        ; $0EC3  7E
         CP $20                           ; $0EC4  FE 20
         CALL Z,SUB_2B3D                  ; $0EC6  CC 3D 2B
-; [AI] Program-line insertion: deletes any existing line with the same number and links the freshly
-;       tokenized line into the program text, relocating following lines and re-running the line-
-;       link fixups.
 L_0EC9:
         PUSH DE                          ; $0EC9  D5
         CALL SUB_101B                    ; $0ECA  CD 1B 10
@@ -775,7 +774,7 @@ L_0F2F:
 L_0F38:
         POP DE                           ; $0F38  D1
         CALL SUB_0F60                    ; $0F39  CD 60 0F
-        LD HL,$0080                      ; $0F3C  21 80 00
+        LD HL,DEFAULT_DMA                ; $0F3C  21 80 00
         LD (HL),$00                      ; $0F3F  36 00
         LD ($0873),HL                    ; $0F41  22 73 08
         LD HL,($0863)                    ; $0F44  2A 63 08
@@ -786,15 +785,13 @@ L_0F38:
         LD HL,($0B8C)                    ; $0F53  2A 8C 0B
         LD ($0863),HL                    ; $0F56  22 63 08
         JP L_0E61                        ; $0F59  C3 61 0E
-; [AI] Rebuild the program line-link pointers ('CHAIN'/relink): walks the program text and rewrites
-;       each line's forward-link word, used after editing or loading so line traversal is
-;       consistent.
+; [AI] Program-line relinker: walks the tokenized program and rewrites each line's forward-pointer
+;       (next-line link) after an edit so the linked list of lines stays consistent.
 SUB_0F5C:
         LD HL,($0869)                    ; $0F5C  2A 69 08
         EX DE,HL                         ; $0F5F  EB
-; [AI] Worker for the relink pass: given a line start in DE, scans to the end of the line and
-;       writes the address of the next line into its link field; loops until the terminating zero-
-;       length link.
+; [AI] Inner loop of the line relinker (SUB_0F5C): given a line, scans to its end and stores the
+;       address of the following line into its link field.
 SUB_0F60:
         LD H,D                           ; $0F60  62
         LD L,E                           ; $0F61  6B
@@ -827,8 +824,9 @@ L_0F7D:
         DEFB    $11,$00,$00,$D5,$28,$14,$D1,$CD,$F0,$14,$D5,$28,$16,$7E,$FE,$2C ; $0F84
         DEFB    $28,$05,$FE,$F3,$C2,$92,$0D,$CD,$E4,$13,$11,$FA,$FF,$C4,$F0,$14 ; $0F94
         DEFB    $C2,$92,$0D,$EB,$D1,$E3,$E5                      ; $0FA4
-; [AI] Search the program text (a linked list of lines, each: link word, line# word, tokens, NUL)
-;       for a target line number, returning the line's address and carry set on exact match.
+; [AI] Find-line-by-number: searches the stored program for the line whose number is in DE,
+;       returning the line's address and a found/not-found flag; used by GOTO/GOSUB/LIST/DELETE
+;       resolution.
 SUB_0FAB:
         LD HL,($0869)                    ; $0FAB  2A 69 08
 L_0FAE:
@@ -863,9 +861,8 @@ L_0FAE:
         DEFB    $9D,$45,$D1,$38,$0B,$3E,$01,$D5,$CD,$D6,$48,$E1,$CD,$60,$48,$FE ; $0FFA
         DEFB    $EB,$36,$01,$23,$5E,$23,$56,$CD,$72,$44,$CC,$A2,$43,$12,$E1,$C1 ; $100A
         DEFB    $C9                                              ; $101A
-; [AI] Line tokenizer ('CRUNCH'): scans a raw input line in the line buffer and compresses reserved
-;       words into single-byte tokens, passing string literals and REM text through verbatim and
-;       special-casing GOTO/GOSUB so line-number references are recognized.
+; [AI] LIST detokenizer: converts a stored (tokenized) program line back to printable ASCII in the
+;       $08F2 work buffer, expanding keyword tokens, line-number references, and numeric constants.
 SUB_101B:
         XOR A                            ; $101B  AF
         LD ($0B39),A                     ; $101C  32 39 0B
@@ -940,6 +937,8 @@ L_1091:
         DEFB    $21,$3E,$00,$D2,$5A,$12,$F1,$1A,$B7,$FA,$02,$11,$C1,$D1,$F6,$80 ; $10D7
         DEFB    $F5,$3E,$FF,$CD,$4F,$12,$AF,$32,$39,$0B,$F1,$CD,$4F,$12,$C3,$28 ; $10E7
         DEFB    $10,$E1,$1A,$13,$B7,$F2,$F9,$10,$13,$18,$A9,$2B  ; $10F7
+; [AI] Token-class check used by the detokenizer: tests whether the just-emitted keyword token is
+;       one that needs a following space or special spacing when listed.
 L_1103:
         PUSH AF                          ; $1103  F5
         LD BC,$1135                      ; $1104  01 35 11
@@ -1151,6 +1150,8 @@ L_123A:
         INC DE                           ; $124A  13
         LD (DE),A                        ; $124B  12
         RET                              ; $124C  C9
+; [AI] Detokenizer output helper: emits a ':' separator (124D) or an arbitrary byte (124F) into the
+;       LIST buffer, decrementing the remaining-space counter and erroring on overflow.
 SUB_124D:
         LD A,$3A                         ; $124D  3E 3A
 SUB_124F:
@@ -1183,6 +1184,8 @@ L_128F:
         DEC A                            ; $1296  3D
 L_1297:
         JP L_1137                        ; $1297  C3 37 11
+; [AI] Trim-trailing-whitespace helper: backs HL up over spaces/tabs/LF, used while detokenizing
+;       and parsing so line text is normalized.
 SUB_129A:
         DEC HL                           ; $129A  2B
         LD A,(HL)                        ; $129B  7E
@@ -1208,6 +1211,8 @@ SUB_129A:
         DEFB    $4F,$CD,$E3,$1D,$47,$C5,$2B,$CD,$E4,$13,$C2,$92,$0D,$CD,$D1,$24 ; $135A
         DEFB    $CD,$E4,$13,$E5,$E5,$2A,$94,$0C,$22,$67,$08,$2A,$77,$0B,$E3,$06 ; $136A
         DEFB    $82,$C5,$33,$F5,$F5,$C3,$52,$47,$06,$82,$C5,$33  ; $137A
+; [AI] Statement-execution loop / line interpreter: checks for ^C break, sets the resume pointers,
+;       then dispatches the next statement; the colon path lets multiple statements share a line.
 L_1386:
         PUSH HL                          ; $1386  E5
         CALL WBOOT_VEC                   ; $1387  CD 00 00
@@ -1222,6 +1227,8 @@ L_1386:
         OR A                             ; $139B  B7
         JP NZ,L_0D92                     ; $139C  C2 92 0D
         INC HL                           ; $139F  23
+; [AI] Advance-to-next-program-line and execute it: follows the line link, records the current line
+;       number for error reporting, optionally echoes [line] in trace mode, then runs the line.
 L_13A0:
         LD A,(HL)                        ; $13A0  7E
         INC HL                           ; $13A1  23
@@ -1245,9 +1252,12 @@ L_13A0:
         POP DE                           ; $13C2  D1
 L_13C3:
         EX DE,HL                         ; $13C3  EB
+; [AI] Statement dispatcher: reads the leading token; if it is a statement keyword ($81-$DA range)
+;       it indexes the $0108 statement-address table and jumps to the handler, otherwise treats the
+;       line as an assignment.
 L_13C4:
         CALL SUB_13E4                    ; $13C4  CD E4 13
-        LD DE,$1386                      ; $13C7  11 86 13
+        LD DE,L_1386                     ; $13C7  11 86 13
         PUSH DE                          ; $13CA  D5
         RET Z                            ; $13CB  C8
         SUB $81                          ; $13CC  D6 81
@@ -1265,13 +1275,13 @@ L_13C4:
         LD B,(HL)                        ; $13E1  46
         PUSH BC                          ; $13E2  C5
         EX DE,HL                         ; $13E3  EB
-; [AI] CHRGET: advance the program/text pointer in HL and return the next significant character in
-;       A, skipping blanks. Sets carry/zero so the caller can test for digit, end-of-statement (':'
-;       / NUL) and end-of-line; the entry SUB_13E5 re-reads the current char without advancing.
+; [AI] CHRGET-equivalent: advance the interpreter text pointer (HL) past blanks and return the next
+;       significant program byte, setting flags (zero=end, carry=digit) the way the classic
+;       Microsoft BASIC CHRGET does.
 SUB_13E4:
         INC HL                           ; $13E4  23
-; [AI] CHRGOT: fetch the character at the current text pointer (HL) without advancing, returning it
-;       in A with the same digit/end-of-statement flag conventions as CHRGET.
+; [AI] CHRGOT-equivalent: re-fetch the current program byte without advancing, sharing the
+;       classification logic (digit/terminator/token) with SUB_13E4.
 SUB_13E5:
         LD A,(HL)                        ; $13E5  7E
 L_13E6:
@@ -1365,6 +1375,9 @@ L_145C:
 L_145D:
         RET                              ; $145D  C9
         DEFB    $1E,$10                                          ; $145E
+; [AI] Embedded-constant fetcher used by CHRGET: when the text stream holds a pre-tokenized numeric
+;       constant (integer/single/double marker), loads it into the FAC and reports its type so
+;       expression evaluation can consume it.
 SUB_1460:
         LD A,($0B3C)                     ; $1460  3A 3C 0B
         CP $0F                           ; $1463  FE 0F
@@ -1402,16 +1415,20 @@ L_1496:
         DEFB    $13,$CD,$BE,$46,$D8,$D6,$41,$47,$CD,$E4,$13,$78,$91,$D8,$3C,$E3 ; $14BF
         DEFB    $21,$9A,$0B,$06,$00,$09,$73,$23,$3D,$20,$FB,$E1,$7E,$FE,$2C,$C0 ; $14CF
         DEFB    $CD,$E4,$13,$18,$C6                              ; $14DF
+; [AI] Parse a line number from program text into DE; "Undefined line"/syntax errors route through
+;       here. Used by GOTO/GOSUB/THEN/list-range parsing.
 SUB_14E4:
         CALL SUB_13E4                    ; $14E4  CD E4 13
         CALL SUB_20A3                    ; $14E7  CD A3 20
         RET P                            ; $14EA  F0
-; [AI] Illegal-function-call error entry: loads error code 5 and jumps to the error handler. Used
-;       as the generic 'bad argument/operand' trap throughout the interpreter.
+; [AI] "Illegal function call" / out-of-range error shortcut: loads error code 5 and jumps to the
+;       central error reporter.
 L_14EB:
         LD E,$05                         ; $14EB  1E 05
         JP L_0DAC                        ; $14ED  C3 AC 0D
         DEFB    $7E,$FE,$2E,$EB,$2A,$85,$0B,$EB,$CA,$E4,$13      ; $14F0
+; [AI] Scan a numeric line-number reference in the text and return its 16-bit value in DE; backs up
+;       if the next token is not a digit.
 SUB_14FB:
         DEC HL                           ; $14FB  2B
         CALL SUB_13E4                    ; $14FC  CD E4 13
@@ -1424,7 +1441,7 @@ SUB_1506:
         EX DE,HL                         ; $150A  EB
         JP Z,SUB_13E4                    ; $150B  CA E4 13
         DEC HL                           ; $150E  2B
-        LD DE,$0000                      ; $150F  11 00 00
+        LD DE,WBOOT_VEC                  ; $150F  11 00 00
 L_1512:
         CALL SUB_13E4                    ; $1512  CD E4 13
         RET NC                           ; $1515  D0
@@ -1457,6 +1474,8 @@ L_1531:
         DEFB    $3C,$0B,$FE,$0D,$EB,$C8,$EB,$E5,$2A,$3A,$0B,$E3,$CD,$D1,$15,$23 ; $1564
         DEFB    $E5,$2A,$67,$08,$CD,$9D,$45,$E1,$DC,$AE,$0F,$D4,$AB,$0F,$30,$0D ; $1574
         DEFB    $0B,$3E,$0D,$32,$79,$0B,$E1,$CD,$1D,$24,$60,$69,$C9 ; $1584
+; [AI] Syntax-error shortcut: loads error code 8 (Syntax error... here error E=$08) and jumps to
+;       the reporter.
 L_1591:
         LD E,$08                         ; $1591  1E 08
         JP L_0DAC                        ; $1593  C3 AC 0D
@@ -1464,6 +1483,9 @@ L_1591:
         DEFB    $21,$04,$00,$39,$22,$81,$0B,$F9,$2A,$77,$0B,$C3,$86,$13,$C0,$16 ; $15A6
         DEFB    $FF,$CD,$20,$0D,$F9,$22,$81,$0B,$FE,$8D,$1E,$03,$C2,$AC,$0D,$E1 ; $15B6
         DEFB    $22,$67,$08,$21,$86,$13,$E3,$3E,$E1,$01,$3A      ; $15C6
+; [AI] Skip-to-matching-token scanner: advances over program text counting nested constructs (and
+;       skipping quoted strings) until it finds the target token in B, used to match FOR/NEXT,
+;       THEN/ELSE, etc.
 SUB_15D1:
         LD C,$00                         ; $15D1  0E 00
 L_15D3:
@@ -1505,6 +1527,8 @@ L_15EA:
         LD D,A                           ; $15EE  57
         JR L_15D8                        ; $15EF  18 E7
         DEFB    $F1,$C6,$03,$18,$15                              ; $15F1
+; [AI] Variable / lvalue-reference parser entry reached when the dispatcher sees a letter: resolves
+;       a variable name to its storage address for assignment or evaluation.
 L_15F6:
         CALL SUB_3BB3                    ; $15F6  CD B3 3B
         CALL SUB_45A3                    ; $15F9  CD A3 45
@@ -1648,22 +1672,21 @@ L_18A5:
         DEFB    $EB,$C2,$CA,$45,$D5,$E1,$C3,$9A,$18,$CD,$CF,$15,$B7,$20,$12,$23 ; $1A5A
         DEFB    $7E,$23,$B6,$1E,$04,$CA,$AC,$0D,$23,$5E,$23,$56,$EB,$22,$73,$0B ; $1A6A
         DEFB    $EB,$CD,$E4,$13,$FE,$84,$20,$E1,$C3,$F3,$19      ; $1A7A
-; [AI] Evaluate-expression-unless-numeric helper: returns immediately (positive flag) if the next
-;       char is a digit, otherwise enters the expression evaluator at SUB_1A90.
+; [AI] Evaluate a parenthesized/sub expression and require it be present (errors if missing); thin
+;       wrapper that funnels into the main expression evaluator SUB_1A90.
 SUB_1A85:
         CALL SUB_45A3                    ; $1A85  CD A3 45
         RET P                            ; $1A88  F0
         JP SUB_1A90                      ; $1A89  C3 90 1A
-; [AI] Expression evaluator ('FRMEVL'): parses a full BASIC expression from the text pointer,
-;       applying operators by precedence (driving the precedence/dispatch table at $04ED) and
-;       leaving the result in the floating accumulator / value-type slot.
+; [AI] Begin expression evaluation: primes the operator/precedence state then enters the recursive-
+;       descent evaluator at SUB_1A93.
 SUB_1A8C:
         CALL SUB_45A3                    ; $1A8C  CD A3 45
         JR Z,L_1ABC                      ; $1A8F  28 2B
         LD D,$00                         ; $1A91  16 00
-; [AI] Operator-precedence evaluation loop: repeatedly evaluates an operand (via SUB_1C11) and
-;       applies any pending binary operator whose precedence is high enough, recursing for higher-
-;       precedence operators.
+; [AI] Core expression evaluator (operator-precedence loop): repeatedly fetches an operand, then
+;       applies pending binary operators by precedence using the operator-dispatch tables, leaving
+;       the result in the FAC.
 SUB_1A93:
         PUSH DE                          ; $1A93  D5
         LD C,$01                         ; $1A94  0E 01
@@ -1672,6 +1695,9 @@ SUB_1A93:
         XOR A                            ; $1A9C  AF
         LD ($0CD9),A                     ; $1A9D  32 D9 0C
         LD ($0B8C),HL                    ; $1AA0  22 8C 0B
+; [AI] Operator-application step of the evaluator: looks at the next operator token, compares its
+;       precedence against the one on the stack, and either applies the stacked operator or recurses
+;       for the higher-precedence one.
 L_1AA3:
         LD HL,($0B8C)                    ; $1AA3  2A 8C 0B
         POP BC                           ; $1AA6  C1
@@ -1699,7 +1725,7 @@ L_1AC1:
         CP D                             ; $1ACC  BA
         RET NC                           ; $1ACD  D0
         PUSH BC                          ; $1ACE  C5
-        LD BC,$1AA3                      ; $1ACF  01 A3 1A
+        LD BC,L_1AA3                     ; $1ACF  01 A3 1A
         PUSH BC                          ; $1AD2  C5
         LD A,D                           ; $1AD3  7A
         CP $7F                           ; $1AD4  FE 7F
@@ -1802,6 +1828,9 @@ L_1B51:
         DEFB    $D6,$E1,$CD,$18,$2B,$CD,$8C,$2C,$CD,$33,$2B,$E1,$22,$D6,$0C,$E1 ; $1BED
         DEFB    $22,$D4,$0C,$18,$E7,$E5,$EB,$CD,$8C,$2C,$E1,$CD,$18,$2B,$CD,$8C ; $1BFD
         DEFB    $2C,$C3,$F1,$29                                  ; $1C0D
+; [AI] Operand/term parser: handles a single expression element -- numeric or string constant,
+;       variable, parenthesized subexpression, unary operators, function call, or PEEK/USR/etc. --
+;       and loads it into the FAC.
 SUB_1C11:
         CALL SUB_13E4                    ; $1C11  CD E4 13
         JP Z,L_0DA7                      ; $1C14  CA A7 0D
@@ -1893,6 +1922,8 @@ SUB_1CC1:
         CALL SUB_45A3                    ; $1CC4  CD A3 45
         ADD HL,HL                        ; $1CC7  29
         RET                              ; $1CC8  C9
+; [AI] Unary-minus (negation) operand path of the term parser: evaluates the following operand and
+;       negates the FAC.
 L_1CC9:
         LD D,$7D                         ; $1CC9  16 7D
         CALL SUB_1A93                    ; $1CCB  CD 93 1A
@@ -1910,8 +1941,8 @@ L_1CD7:
         CALL NZ,SUB_2B6A                 ; $1CE2  C4 6A 2B
         POP HL                           ; $1CE5  E1
         RET                              ; $1CE6  C9
-; [AI] Fetch-and-fold helper used by the tokenizer: reads a character and normalizes case so
-;       reserved words can be matched against the keyword table regardless of input case.
+; [AI] Read-and-uppercase: fetch the byte at HL and fold lowercase a-z to A-Z, used while matching
+;       keyword/option spellings during tokenizing.
 SUB_1CE7:
         LD A,(HL)                        ; $1CE7  7E
 SUB_1CE8:
@@ -1922,8 +1953,10 @@ SUB_1CE8:
         AND $5F                          ; $1CEE  E6 5F
         RET                              ; $1CF0  C9
         DEFB    $FE,$26,$C2,$FB,$14                              ; $1CF1
+; [AI] Parse a numeric literal written with an explicit base prefix (&H hex / &O octal) from the
+;       source text into a value.
 SUB_1CF6:
-        LD DE,$0000                      ; $1CF6  11 00 00
+        LD DE,WBOOT_VEC                  ; $1CF6  11 00 00
         CALL SUB_13E4                    ; $1CF9  CD E4 13
         CALL SUB_1CE8                    ; $1CFC  CD E8 1C
         CP $4F                           ; $1CFF  FE 4F
@@ -1966,7 +1999,7 @@ L_1D32:
         JR NC,L_1D51                     ; $1D36  30 19
         CP $38                           ; $1D38  FE 38
         JP NC,L_0D92                     ; $1D3A  D2 92 0D
-        LD BC,$0DA4                      ; $1D3D  01 A4 0D
+        LD BC,L_0DA4                     ; $1D3D  01 A4 0D
         PUSH BC                          ; $1D40  C5
         ADD HL,HL                        ; $1D41  29
         RET C                            ; $1D42  D8
@@ -2057,6 +2090,7 @@ SUB_1DB2:
         DEC HL                           ; $1DC0  2B
         RET                              ; $1DC1  C9
         DEFB    $3C,$8F,$C1,$A0,$C6,$FF,$9F,$CD,$FF,$2A,$18,$12  ; $1DC2
+; [AI] Bitwise-NOT operator handler: evaluates the operand as an integer and complements it.
 L_1DCE:
         LD D,$5A                         ; $1DCE  16 5A
         CALL SUB_1A93                    ; $1DD0  CD 93 1A
@@ -2070,6 +2104,9 @@ L_1DCE:
         LD ($0CD4),HL                    ; $1DDC  22 D4 0C
         POP BC                           ; $1DDF  C1
         JP L_1AA3                        ; $1DE0  C3 A3 1A
+; [AI] Value-type classifier: inspects the current FAC type byte ($0B37) and returns sign/zero
+;       flags distinguishing integer vs single vs double vs string, so callers can branch on operand
+;       type.
 SUB_1DE3:
         LD A,($0B37)                     ; $1DE3  3A 37 0B
         CP $08                           ; $1DE6  FE 08
@@ -2088,11 +2125,15 @@ L_1DEF:
         DEFB    $AA,$C9,$FE,$32,$20,$08,$7B,$AD,$2F,$6F,$7C,$AA,$2F,$C9,$7D,$2F ; $1E23
         DEFB    $A3,$2F,$6F,$7C,$2F,$A2,$2F,$C9,$7D,$93,$6F,$7C,$9A,$67,$C3,$6C ; $1E33
         DEFB    $2E,$3A,$5A,$08,$18,$03,$3A,$34,$0B,$3C          ; $1E43
+; [AI] Load an 8-bit value in A into the FAC as an integer (high byte zero) and normalize; used to
+;       return small numeric results from functions.
 SUB_1E4D:
         LD L,A                           ; $1E4D  6F
         XOR A                            ; $1E4E  AF
         LD H,A                           ; $1E4F  67
         JP SUB_2C55                      ; $1E50  C3 55 2C
+; [AI] Array-element reference handler ($E1 token): parses the subscript list, computes the element
+;       address in the array's storage, and yields it as an lvalue/rvalue.
 L_1E53:
         CALL SUB_1E72                    ; $1E53  CD 72 1E
         PUSH DE                          ; $1E56  D5
@@ -2101,7 +2142,7 @@ L_1E53:
         LD C,(HL)                        ; $1E5B  4E
         INC HL                           ; $1E5C  23
         LD B,(HL)                        ; $1E5D  46
-        LD HL,$29E1                      ; $1E5E  21 E1 29
+        LD HL,L_29E1                     ; $1E5E  21 E1 29
         PUSH HL                          ; $1E61  E5
         PUSH BC                          ; $1E62  C5
         LD A,($0B37)                     ; $1E63  3A 37 0B
@@ -2112,9 +2153,11 @@ L_1E53:
         EX DE,HL                         ; $1E6D  EB
         LD HL,$0CD4                      ; $1E6E  21 D4 0C
         RET                              ; $1E71  C9
+; [AI] Internal-function token dispatcher helper: maps a one-byte intrinsic-function token to its
+;       entry in the function-address table at $0842.
 SUB_1E72:
         CALL SUB_13E4                    ; $1E72  CD E4 13
-        LD BC,$0000                      ; $1E75  01 00 00
+        LD BC,WBOOT_VEC                  ; $1E75  01 00 00
         CP $1B                           ; $1E78  FE 1B
         JR NC,L_1E89                     ; $1E7A  30 0D
         CP $11                           ; $1E7C  FE 11
@@ -2136,6 +2179,8 @@ L_1EA0:
         DEFB    $FE,$E1,$28,$EB,$CD,$41,$20,$CD,$33,$20,$EB,$73,$23,$72,$EB,$7E ; $1EA1
         DEFB    $FE,$28,$C2,$CF,$15,$CD,$E4,$13,$CD,$B3,$3B,$7E,$FE,$29,$CA,$CF ; $1EB1
         DEFB    $15,$CD,$A3,$45,$2C,$18,$F1                      ; $1EC1
+; [AI] User-defined-function (FN / $E2 token) call handler: binds the actual argument, saves the
+;       caller's variable context, evaluates the function body expression, then restores context.
 L_1EC8:
         CALL SUB_2041                    ; $1EC8  CD 41 20
         LD A,($0B37)                     ; $1ECB  3A 37 0B
@@ -2201,10 +2246,10 @@ L_1F3C:
         OR A                             ; $1F3D  B7
         JR Z,L_1F7F                      ; $1F3E  28 3F
         LD ($0B37),A                     ; $1F40  32 37 0B
-        LD HL,$0000                      ; $1F43  21 00 00
+        LD HL,WBOOT_VEC                  ; $1F43  21 00 00
         ADD HL,SP                        ; $1F46  39
         CALL SUB_2B6A                    ; $1F47  CD 6A 2B
-        LD HL,$0008                      ; $1F4A  21 08 00
+        LD HL,RST1_VEC                   ; $1F4A  21 08 00
         ADD HL,SP                        ; $1F4D  39
         LD SP,HL                         ; $1F4E  F9
         POP DE                           ; $1F4F  D1
@@ -2319,6 +2364,8 @@ L_1FF6:
         LD ($0C87),A                     ; $2015  32 87 0C
         POP HL                           ; $2018  E1
         POP AF                           ; $2019  F1
+; [AI] Type-conversion dispatcher: forces the FAC to a requested numeric type
+;       (integer/single/double) by indexing the conversion-routine table at $04F9.
 SUB_201A:
         PUSH HL                          ; $201A  E5
         AND $07                          ; $201B  E6 07
@@ -2329,12 +2376,16 @@ SUB_201A:
         CALL SUB_1DAC                    ; $2024  CD AC 1D
         POP HL                           ; $2027  E1
         RET                              ; $2028  C9
+; [AI] Tight LDI-style block-copy loop (copy BC bytes DE->HL) shared by stack-frame save/restore in
+;       the FN-call machinery; SUB_202E is its zero-length guard entry.
 L_2029:
         LD A,(DE)                        ; $2029  1A
         LD (HL),A                        ; $202A  77
         INC HL                           ; $202B  23
         INC DE                           ; $202C  13
         DEC BC                           ; $202D  0B
+; [AI] Block-move entry/guard for the L_2029 copy loop: returns immediately if the byte count BC is
+;       zero, otherwise copies.
 SUB_202E:
         LD A,B                           ; $202E  78
         OR C                             ; $202F  B1
@@ -2359,9 +2410,8 @@ L_204F:
         JP L_4BE1                        ; $205C  C3 E1 4B
         DEFB    $C3,$92,$0D,$FE,$9B,$20,$11,$CD,$E4,$13,$CD,$B2,$20,$32,$5D,$08 ; $205F
         DEFB    $5F,$CD,$96,$20,$32,$5C,$08,$C9,$FE,$2C,$28,$11,$CD,$B2,$20 ; $206F
-; [AI] Parse and range-check a numeric parameter pair (e.g. a screen/width or line-range argument)
-;       from the text, storing the decoded values into the page-zero parameter cells used at startup
-;       and by WIDTH-like settings.
+; [AI] Apply PRINT comma/zone and width settings: records the print-zone column counts
+;       ($085E-$0860) from the WIDTH/comma configuration so PRINT tabbing lines up.
 SUB_207E:
         LD ($085E),A                     ; $207E  32 5E 08
 L_2081:
@@ -2380,6 +2430,8 @@ L_208B:
         CALL SUB_20B2                    ; $208F  CD B2 20
         LD ($085F),A                     ; $2092  32 5F 08
         RET                              ; $2095  C9
+; [AI] Compute the next comma-zone (tab) column from the current column, used by PRINT's comma
+;       separator.
 SUB_2096:
         SUB $0E                          ; $2096  D6 0E
 L_2098:
@@ -2395,6 +2447,8 @@ L_209E:
 L_209F:
         RET                              ; $209F  C9
         DEFB    $CD,$E4,$13                                      ; $20A0
+; [AI] Evaluate an expression and require an integer result in DE (0-65535), erroring on overflow;
+;       the standard "get an integer argument" path for statements like POKE/GOTO.
 SUB_20A3:
         CALL SUB_1A90                    ; $20A3  CD 90 1A
 SUB_20A6:
@@ -2405,13 +2459,14 @@ SUB_20A6:
         LD A,D                           ; $20AC  7A
         OR A                             ; $20AD  B7
         RET                              ; $20AE  C9
+; [AI] CHRGET-then-get-integer: skip blanks then evaluate an expression to a signed 16-bit integer
+;       in DE.
 SUB_20AF:
         CALL SUB_13E4                    ; $20AF  CD E4 13
+; [AI] Evaluate an expression to a 16-bit integer in DE (no leading CHRGET); shared subroutine for
+;       the integer-argument parsers above.
 SUB_20B2:
         CALL SUB_1A90                    ; $20B2  CD 90 1A
-; [AI] Evaluate an expression and force it to a small integer in A: calls the evaluator then
-;       SUB_20A6, raising Illegal function call (L_14EB) if the value does not fit; used to fetch
-;       byte-sized arguments.
 SUB_20B5:
         CALL SUB_20A6                    ; $20B5  CD A6 20
         JP NZ,L_14EB                     ; $20B8  C2 EB 14
@@ -2425,9 +2480,8 @@ SUB_20B5:
         DEFB    $CD,$9D,$45,$C1,$DA,$45,$0E,$E3,$E5,$C5,$EB,$22,$85,$0B,$CD,$91 ; $20F1
         DEFB    $33,$E1,$7E,$FE,$09,$28,$05,$3E,$20,$CD,$91,$42,$CD,$24,$21,$21 ; $2101
         DEFB    $31,$0A,$CD,$1B,$21,$CD,$06,$44,$18,$B3          ; $2111
-; [AI] List/output a tokenized program line: walks the token stream, expanding each reserved-word
-;       token back to its keyword text via SUB_447E and printing literal characters, for the LIST
-;       command.
+; [AI] Print a NUL-terminated string to the console one char at a time via SUB_447E, honoring CR/LF
+;       handling; used for short prompts.
 SUB_211B:
         LD A,(HL)                        ; $211B  7E
         OR A                             ; $211C  B7
@@ -2435,9 +2489,9 @@ SUB_211B:
         CALL SUB_447E                    ; $211E  CD 7E 44
         INC HL                           ; $2121  23
         JR SUB_211B                      ; $2122  18 F7
-; [AI] De-tokenize a program line into the line buffer ('UNCRUNCH'): expands single-byte keyword
-;       tokens back to their ASCII keyword text, reproducing the original source for LIST and
-;       editing.
+; [AI] LIST/EDIT line-detokenizer into a buffer at $0A31: expands a tokenized line to ASCII while
+;       tracking whether it is inside a quoted string or a REM, looking keyword tokens up in the
+;       reserved-word table.
 SUB_2124:
         LD BC,$0A31                      ; $2124  01 31 0A
         LD D,$FF                         ; $2127  16 FF
@@ -2591,6 +2645,8 @@ L_21E4:
 L_21F8:
         POP HL                           ; $21F8  E1
         JP L_2136                        ; $21F9  C3 36 21
+; [AI] Hex-digit test for the detokenizer/number parser: returns carry/clear indicating whether the
+;       byte in A is a valid 0-9 / A-F digit.
 SUB_21FC:
         CALL SUB_46BF                    ; $21FC  CD BF 46
         RET NC                           ; $21FF  D0
@@ -2628,9 +2684,8 @@ L_2207:
         DEFW    L_21C1                   ; $22AA
         DEFW    L_0F38                   ; $22AC
         DEFB    $E3                                              ; $22AE
-; [AI] Append a tokenized statement into the active program/output buffer, copying bytes until the
-;       BASIC end-of-statement, and update the build pointer $0B92. Used when committing an edited
-;       line.
+; [AI] Append-bytes-to-string-space: copies a run of characters into the temporary string area,
+;       advancing the string-space free pointer ($0B92); used when building string results.
 SUB_22AF:
         EX DE,HL                         ; $22AF  EB
         LD HL,($0B92)                    ; $22B0  2A 92 0B
@@ -2647,8 +2702,10 @@ L_22B3:
         RET                              ; $22C1  C9
         DEFB    $CD,$E1,$22,$CD,$21,$5E,$7E,$C3,$4D,$1E,$CD,$90,$1A,$E5,$CD,$E1 ; $22C2
         DEFB    $22,$E3,$CD,$21,$5E,$CD,$A3,$45,$2C,$CD,$B2,$20,$D1,$12,$C9 ; $22D2
+; [AI] Range/limit check on a double-precision FAC value used by string-index and similar built-ins
+;       to reject out-of-range arguments before conversion.
 SUB_22E1:
-        LD BC,$2BF4                      ; $22E1  01 F4 2B
+        LD BC,SUB_2BF4                   ; $22E1  01 F4 2B
         PUSH BC                          ; $22E4  C5
         CALL SUB_1DE3                    ; $22E5  CD E3 1D
         RET M                            ; $22E8  F8
@@ -2659,7 +2716,7 @@ SUB_22E1:
         OR A                             ; $22F2  B7
         RET M                            ; $22F3  F8
         LD BC,$9180                      ; $22F4  01 80 91
-        LD DE,$0000                      ; $22F7  11 00 00
+        LD DE,WBOOT_VEC                  ; $22F7  11 00 00
         JP SUB_2824                      ; $22FA  C3 24 28
         DEFB    $01,$0A,$00,$C5,$50,$58,$28,$2A,$FE,$2C,$28,$09,$D5,$CD,$F0,$14 ; $22FD
         DEFB    $42,$4B,$D1,$28,$1D,$CD,$A3,$45,$2C,$CD,$F0,$14,$28,$14,$F1,$CD ; $230D
@@ -2670,9 +2727,6 @@ SUB_22E1:
         DEFB    $23,$56,$B2,$EB,$D1,$28,$07,$7E,$23,$B6,$2B,$EB,$20,$DF,$C5,$CD ; $235D
         DEFB    $8C,$23,$C1,$D1,$E1,$D5,$5E,$7B,$23,$56,$B2,$28,$0D,$EB,$E3,$EB ; $236D
         DEFB    $23,$73,$23,$72,$EB,$09,$EB,$E1,$18,$EB,$01,$45,$0E,$C5,$FE,$F6 ; $237D
-; [AI] Line-reference fixup pass: scans all program lines for line-number operands following
-;       GOTO/GOSUB/THEN tokens and converts between text line numbers and resolved targets (emitting
-;       'Undefined line' when a reference is missing).
 L_238D:
         XOR A                            ; $238D  AF
         LD ($0B79),A                     ; $238E  32 79 0B
@@ -2768,8 +2822,6 @@ L_2416:
         LD (HL),A                        ; $2423  77
         POP HL                           ; $2424  E1
         RET                              ; $2425  C9
-; [AI] Trigger the line-reference fixup (L_238D) only when the 'lines need re-resolving' flag $0B79
-;       is set; a no-op otherwise.
 SUB_2426:
         LD A,($0B79)                     ; $2426  3A 79 0B
         OR A                             ; $2429  B7
@@ -2841,12 +2893,10 @@ L_25A6:
         JP SUB_4382                      ; $25A6  C3 82 43
         DEFB    $CD,$B2,$20,$B7,$CA,$EB,$14,$3D,$C9,$CD,$A9,$25,$E5,$21,$5E,$08 ; $25A9
         DEFB    $96,$F2,$B9,$25,$86,$32,$34,$0B,$18,$A7          ; $25B9
-; [AI] Reset the print position counters (column and line) to zero before a RUN or LIST, then fall
-;       through to the line-execution dispatcher.
 SUB_25C3:
         PUSH HL                          ; $25C3  E5
 L_25C4:
-        LD HL,$0000                      ; $25C4  21 00 00
+        LD HL,WBOOT_VEC                  ; $25C4  21 00 00
 L_25C7:
         LD ($0B34),HL                    ; $25C7  22 34 0B
 L_25CA:
@@ -2868,11 +2918,9 @@ L_25D8:
         DEFB    $E5,$21,$2F,$FB,$CD,$02,$26,$3A,$5F,$08,$3D,$67,$2E,$00,$22,$34 ; $25D9
         DEFB    $0B,$3A,$51,$E0,$3A,$54,$E0,$3A,$14,$28,$B7,$28,$06,$21,$58,$FC ; $25E9
         DEFB    $CD,$02,$26,$AF,$32,$14,$28,$18,$BF              ; $25F9
-; [AI] Save the current statement text pointer and line context into the interpreter's page-zero
-;       scratch cells, so CONT and error reporting can recover the place where execution stopped.
 SUB_2602:
         LD ($F3D0),HL                    ; $2602  22 D0 F3
-        LD ($0000),A                     ; $2605  32 00 00
+        LD (WBOOT_VEC),A                 ; $2605  32 00 00
         RET                              ; $2608  C9
         DEFB    $3E,$00,$32,$30,$F0,$C4,$B2,$20,$FE,$02,$30,$63,$E5,$F5,$3E,$14 ; $2609
         DEFB    $32,$22,$F0,$21,$00                              ; $2619  "2"p!"
@@ -2954,8 +3002,11 @@ L_2800:
         LD BC,$461E                      ; $2800  01 1E 46
 L_2803:
         JP L_0C9E                        ; $2803  C3 9E 0C
+; [AI] BDOS function 9 (print string) caller: loads the string pointer in DE and CALL $0005 to
+;       write a '$'-terminated message through CP/M (used for a startup/system message), then
+;       returns to the error path.
 L_2806:
-        LD A,($0004)                     ; $2806  3A 04 00
+        LD A,(CDISK)                     ; $2806  3A 04 00
 L_2809:
         LD E,A                           ; $2809  5F
 L_280A:
@@ -2973,9 +3024,8 @@ SUB_2819:
         CALL SUB_2B36                    ; $2819  CD 36 2B
         JR SUB_2824                      ; $281C  18 06
         DEFB    $CD,$36,$2B,$CD,$F4,$2A                          ; $281E
-; [AI] Floating-point add core: aligns the two operands' exponents (shifting the smaller mantissa)
-;       and adds or subtracts the mantissas, producing the normalized sum in the floating
-;       accumulator. SUB_2816/SUB_2819 set up a constant addend.
+; [AI] Multi-byte (extended-precision) add/subtract primitive used by the floating-point routines:
+;       combines two mantissa byte strings with borrow/carry handling.
 SUB_2824:
         LD A,B                           ; $2824  78
         OR A                             ; $2825  B7
@@ -3111,8 +3161,6 @@ SUB_28C8:
         INC (HL)                         ; $28D0  34
         RET NZ                           ; $28D1  C0
         JP L_32D3                        ; $28D2  C3 D3 32
-; [AI] Add the three-byte mantissa pointed to by HL into the BCDE mantissa registers (24-bit add
-;       with carry), a primitive of the floating-point add routine.
 SUB_28D5:
         LD A,(HL)                        ; $28D5  7E
         ADD A,E                          ; $28D6  83
@@ -3126,8 +3174,6 @@ SUB_28D5:
         ADC A,C                          ; $28DE  89
         LD C,A                           ; $28DF  4F
         RET                              ; $28E0  C9
-; [AI] Negate the working mantissa (two's-complement of BCDE) and flip the sign byte at $0CD8; used
-;       by the FP adder when the operands have opposite signs.
 SUB_28E1:
         LD HL,$0CD8                      ; $28E1  21 D8 0C
         LD A,(HL)                        ; $28E4  7E
@@ -3147,9 +3193,6 @@ SUB_28E1:
         SBC A,C                          ; $28F2  99
         LD C,A                           ; $28F3  4F
         RET                              ; $28F4  C9
-; [AI] Mantissa normalization for the FP adder: shifts the result mantissa left until the high bit
-;       is set and adjusts the exponent accordingly (with byte-wise fast shifts), part of the
-;       floating-add pipeline.
 SUB_28F5:
         LD B,$00                         ; $28F5  06 00
 L_28F7:
@@ -3210,10 +3253,10 @@ SUB_2990:
         LD ($29C7),A                     ; $299A  32 C7 29
         EX DE,HL                         ; $299D  EB
         LD ($29C2),HL                    ; $299E  22 C2 29
-        LD BC,$0000                      ; $29A1  01 00 00
+        LD BC,WBOOT_VEC                  ; $29A1  01 00 00
         LD D,B                           ; $29A4  50
         LD E,B                           ; $29A5  58
-        LD HL,$2874                      ; $29A6  21 74 28
+        LD HL,SUB_2874                   ; $29A6  21 74 28
         PUSH HL                          ; $29A9  E5
         LD HL,$29B2                      ; $29AA  21 B2 29
         PUSH HL                          ; $29AD  E5
@@ -3232,7 +3275,7 @@ L_29BB:
         LD A,C                           ; $29BD  79
         JR NC,L_29C8                     ; $29BE  30 08
         PUSH DE                          ; $29C0  D5
-        LD DE,$0000                      ; $29C1  11 00 00
+        LD DE,WBOOT_VEC                  ; $29C1  11 00 00
         ADD HL,DE                        ; $29C4  19
         POP DE                           ; $29C5  D1
         ADC A,$00                        ; $29C6  CE 00
@@ -3427,7 +3470,7 @@ L_2ACF:
         RET                              ; $2AD3  C9
 SUB_2AD4:
         LD B,$88                         ; $2AD4  06 88
-        LD DE,$0000                      ; $2AD6  11 00 00
+        LD DE,WBOOT_VEC                  ; $2AD6  11 00 00
 L_2AD9:
         LD HL,$0CD7                      ; $2AD9  21 D7 0C
         LD C,A                           ; $2ADC  4F
@@ -3547,7 +3590,7 @@ SUB_2B6A:
 SUB_2B6F:
         LD HL,$0CDD                      ; $2B6F  21 DD 0C
 SUB_2B72:
-        LD DE,$2B47                      ; $2B72  11 47 2B
+        LD DE,SUB_2B47                   ; $2B72  11 47 2B
 L_2B75:
         PUSH DE                          ; $2B75  D5
         LD DE,$0CD4                      ; $2B76  11 D4 0C
@@ -3626,9 +3669,8 @@ L_2BE1:
         POP BC                           ; $2BEB  C1
         RET                              ; $2BEC  C9
         DEFB    $CD,$C4,$2B,$C2,$CE,$2A,$C9                      ; $2BED
-; [AI] Floating accumulator to signed 16-bit integer ('FRCINT'): rounds/truncates the FAC to a
-;       two's-complement word, raising Overflow if out of range; used wherever a numeric value must
-;       become a line number, subscript, or integer argument.
+; [AI] Coerce the FAC to a 16-bit integer and return it in HL (used pervasively to get integer
+;       arguments for built-in functions and address arithmetic).
 SUB_2BF4:
         CALL SUB_1DE3                    ; $2BF4  CD E3 1D
         LD HL,($0CD4)                    ; $2BF7  2A D4 0C
@@ -3675,8 +3717,6 @@ L_2C42:
         DEFB    $21,$A4,$0D,$E5,$3A,$D7,$0C,$FE,$90,$30,$0E,$CD,$BA,$2C,$EB ; $2C45
 L_2C54:
         POP DE                           ; $2C54  D1
-; [AI] Store a 16-bit integer (in HL) into the floating accumulator and set the value-type flag to
-;       integer ($0B37 = 2).
 SUB_2C55:
         LD ($0CD4),HL                    ; $2C55  22 D4 0C
         LD A,$02                         ; $2C58  3E 02
@@ -3685,7 +3725,7 @@ L_2C5A:
         RET                              ; $2C5D  C9
 SUB_2C5E:
         LD BC,$9080                      ; $2C5E  01 80 90
-        LD DE,$0000                      ; $2C61  11 00 00
+        LD DE,WBOOT_VEC                  ; $2C61  11 00 00
         CALL SUB_2B81                    ; $2C64  CD 81 2B
         RET NZ                           ; $2C67  C0
         LD H,C                           ; $2C68  61
@@ -3720,7 +3760,7 @@ SUB_2C98:
         JP Z,L_0DAA                      ; $2C9C  CA AA 0D
         CALL M,SUB_2C89                  ; $2C9F  FC 89 2C
 SUB_2CA2:
-        LD HL,$0000                      ; $2CA2  21 00 00
+        LD HL,WBOOT_VEC                  ; $2CA2  21 00 00
         LD ($0CD0),HL                    ; $2CA5  22 D0 0C
         LD ($0CD2),HL                    ; $2CA8  22 D2 0C
         LD A,$08                         ; $2CAB  3E 08
@@ -3804,7 +3844,7 @@ L_2D72:
         RET                              ; $2D78  C9
 SUB_2D79:
         PUSH HL                          ; $2D79  E5
-        LD HL,$0000                      ; $2D7A  21 00 00
+        LD HL,WBOOT_VEC                  ; $2D7A  21 00 00
         LD A,B                           ; $2D7D  78
         OR C                             ; $2D7E  B1
         JR Z,L_2D93                      ; $2D7F  28 12
@@ -4331,7 +4371,7 @@ L_31B2:
         CALL SUB_1DE3                    ; $31C1  CD E3 1D
         RET PE                           ; $31C4  E8
         PUSH HL                          ; $31C5  E5
-        LD HL,$29E1                      ; $31C6  21 E1 29
+        LD HL,L_29E1                     ; $31C6  21 E1 29
         PUSH HL                          ; $31C9  E5
         CALL SUB_2C5E                    ; $31CA  CD 5E 2C
         RET                              ; $31CD  C9
@@ -4345,9 +4385,9 @@ L_31DA:
         CALL SUB_13E4                    ; $31DA  CD E4 13
         POP AF                           ; $31DD  F1
         PUSH HL                          ; $31DE  E5
-        LD HL,$29E1                      ; $31DF  21 E1 29
+        LD HL,L_29E1                     ; $31DF  21 E1 29
         PUSH HL                          ; $31E2  E5
-        LD HL,$2BF4                      ; $31E3  21 F4 2B
+        LD HL,SUB_2BF4                   ; $31E3  21 F4 2B
         PUSH HL                          ; $31E6  E5
         PUSH AF                          ; $31E7  F5
         JR L_31AE                        ; $31E8  18 C4
@@ -4571,16 +4611,15 @@ L_3376:
         POP HL                           ; $337F  E1
         RET                              ; $3380  C9
         DEFB    $FF,$FF,$7F,$FF,$FF,$FF,$FF,$FF                  ; $3381
-; [AI] Print a formatted number: converts the floating accumulator to text via SUB_3391 and outputs
-;       the resulting string, used by PRINT/LIST for numeric values.
+; [AI] Print FAC as a number preceded by the " in " text block ($0D10), i.e. the " in <linenumber>"
+;       suffix on error messages.
 SUB_3389:
         PUSH HL                          ; $3389  E5
         LD HL,$0D10                      ; $338A  21 10 0D
         CALL SUB_48BE                    ; $338D  CD BE 48
         POP HL                           ; $3390  E1
-; [AI] Floating-point number to ASCII ('FOUT'): formats the value in the floating accumulator into
-;       a printable digit string (sign, decimal point, and E/D exponent as needed) for PRINT and
-;       STR$.
+; [AI] Convert the FAC numeric value to an ASCII string and print it to the current output device;
+;       the standard numeric-output routine behind PRINT and STR$.
 SUB_3391:
         LD BC,$48BD                      ; $3391  01 BD 48
         PUSH BC                          ; $3394  C5
@@ -4589,6 +4628,8 @@ SUB_3391:
         CALL SUB_341F                    ; $3399  CD 1F 34
         OR (HL)                          ; $339C  B6
         JP L_33BC                        ; $339D  C3 BC 33
+; [AI] Format the FAC to ASCII without printing (STR$/PRINT-USING support): builds the number's
+;       text (sign, digits, decimal point, exponent) in the work buffer.
 SUB_33A0:
         XOR A                            ; $33A0  AF
         CALL SUB_341F                    ; $33A1  CD 1F 34
@@ -4618,8 +4659,10 @@ L_33BC:
         JP Z,L_3538                      ; $33CA  CA 38 35
         CP $04                           ; $33CD  FE 04
         JP NC,L_3428                     ; $33CF  D2 28 34
-        LD BC,$0000                      ; $33D2  01 00 00
+        LD BC,WBOOT_VEC                  ; $33D2  01 00 00
         CALL SUB_3809                    ; $33D5  CD 09 38
+; [AI] Number-formatting core: emits the digit string for a non-exponential single/double value,
+;       applying the PRINT USING flags (leading zero, '$', sign) held in $0B6D.
 SUB_33D8:
         LD HL,$0CE6                      ; $33D8  21 E6 0C
         LD B,(HL)                        ; $33DB  46
@@ -4666,6 +4709,8 @@ L_3418:
         DEC HL                           ; $341C  2B
         LD (HL),B                        ; $341D  70
         RET                              ; $341E  C9
+; [AI] Initialize the numeric-formatting state: stores the format-flags byte and resets the
+;       fill/sign character at $0CE6 before SUB_33D8 builds the digit string.
 SUB_341F:
         LD ($0B6D),A                     ; $341F  32 6D 0B
         LD HL,$0CE6                      ; $3422  21 E6 0C
@@ -5695,7 +5740,7 @@ L_3CA5:
         POP HL                           ; $3CA5  E1
         EX (SP),HL                       ; $3CA6  E3
         PUSH DE                          ; $3CA7  D5
-        LD DE,$1C7F                      ; $3CA8  11 7F 1C
+        LD DE,L_1C7F                     ; $3CA8  11 7F 1C
         CALL SUB_459D                    ; $3CAB  CD 9D 45
         JR Z,L_3CA0                      ; $3CAE  28 F0
         LD DE,$5023                      ; $3CB0  11 23 50
@@ -6221,7 +6266,7 @@ SUB_3FA4:
         RET                              ; $3FAF  C9
 L_3FB0:
         PUSH HL                          ; $3FB0  E5
-        LD HL,$3FF9                      ; $3FB1  21 F9 3F
+        LD HL,SUB_3FF9                   ; $3FB1  21 F9 3F
         EX (SP),HL                       ; $3FB4  E3
         SCF                              ; $3FB5  37
 L_3FB6:
@@ -6336,7 +6381,7 @@ L_405B:
         CALL SUB_447E                    ; $405F  CD 7E 44
         DEC HL                           ; $4062  2B
         DEC B                            ; $4063  05
-        LD DE,$402E                      ; $4064  11 2E 40
+        LD DE,L_402E                     ; $4064  11 2E 40
         PUSH DE                          ; $4067  D5
 SUB_4068:
         PUSH HL                          ; $4068  E5
@@ -6454,10 +6499,9 @@ L_40CB:
         DEFB    $41,$0E,$00,$C5,$CD,$DA,$4A,$CD,$C1,$48,$2A,$D4,$0C,$F1,$3C,$CA ; $4266
         DEFB    $F9,$41,$3D,$96,$47,$3E,$20,$04,$05,$CA,$F9,$41,$CD,$91,$42,$18 ; $4276
         DEFB    $F7,$F5,$7A,$B7,$3E,$2B,$C4,$91,$42,$F1,$C9      ; $4286
-; [AI] Console character output ('OUTCHR'): the main print routine. Tracks the current print
-;       column, expands TAB to the next 8-column stop, handles backspace, routes output to an open
-;       file when one is active, and otherwise sends the byte to the terminal via the BIOS console-
-;       out hook.
+; [AI] Main console-output routine: prints A to the current output (file if $0863 set, else
+;       console), expanding tabs, tracking the cursor column ($085A) for tab/width/paging, and
+;       honoring the output-suppress and line-state flags.
 SUB_4291:
         PUSH AF                          ; $4291  F5
 L_4292:
@@ -6522,9 +6566,9 @@ L_42E6:
         LD ($085A),A                     ; $42E6  32 5A 08
 L_42E9:
         POP AF                           ; $42E9  F1
-; [AI] Low-level byte-to-console: pushes registers and sends the character in A to the relocated
-;       BIOS console-output vector, then restores registers. Used by SUB_4291 for raw (untracked)
-;       output.
+; [AI] Raw BIOS CONOUT: send the character in A straight to the console through the BIOS CONOUT
+;       vector (patched into the CALL at $42EF), preserving all registers; bypasses BDOS and
+;       MBASIC's column tracking.
 SUB_42EA:
         PUSH AF                          ; $42EA  F5
         PUSH BC                          ; $42EB  C5
@@ -6537,8 +6581,8 @@ SUB_42EA:
         POP BC                           ; $42F4  C1
         POP AF                           ; $42F5  F1
         RET                              ; $42F6  C9
-; [AI] Reset/flush the print line: clears the 'no auto-CRLF' flag and, if the column counter is
-;       non-zero, falls into SUB_4300 to emit a CRLF and zero the column.
+; [AI] Flush pending output line / carriage-return handling: if a line is partially printed, force
+;       a CR/LF before the next message so prompts start at column 0.
 SUB_42F7:
         XOR A                            ; $42F7  AF
 L_42F8:
@@ -6549,8 +6593,7 @@ L_42FE:
         OR A                             ; $42FE  B7
 L_42FF:
         RET Z                            ; $42FF  C8
-; [AI] Emit a carriage-return + line-feed to the console and reset the current output column
-;       counter to zero.
+; [AI] Emit CR+LF to the console via SUB_42EA and clear the current-column counter ($085A).
 SUB_4300:
         LD A,$0D                         ; $4300  3E 0D
         CALL SUB_42EA                    ; $4302  CD EA 42
@@ -6640,8 +6683,8 @@ L_437F:
         POP AF                           ; $437F  F1
         POP BC                           ; $4380  C1
         RET                              ; $4381  C9
-; [AI] Send one raw byte to the BIOS console-output hook, preserving all registers; the column-
-;       tracking print logic at $4359 calls this for the actual character emission.
+; [AI] Raw BIOS CONOUT preserving all registers (alternate entry): outputs A through the BIOS
+;       CONOUT vector at $4387, used inside the column-tracking output path.
 SUB_4382:
         PUSH AF                          ; $4382  F5
 L_4383:
@@ -6659,8 +6702,12 @@ L_4387:
         POP BC                           ; $438C  C1
         POP AF                           ; $438D  F1
         RET                              ; $438E  C9
+; [AI] Pause output at end of screen page: invoked when the line count reaches the screen height so
+;       LIST/listings stop and wait, then resets the page line counter.
 SUB_438F:
         CALL SUB_4410                    ; $438F  CD 10 44
+; [AI] Bump the printed-line counter ($0B35) used for screen-paging decisions, capping it at the
+;       configured page length ($085F).
 SUB_4392:
         LD A,($085F)                     ; $4392  3A 5F 08
         LD B,A                           ; $4395  47
@@ -6672,6 +6719,9 @@ SUB_4392:
 L_43A0:
         XOR A                            ; $43A0  AF
         RET                              ; $43A1  C9
+; [AI] Console-output gateway used during program execution: if output is redirected to a disk file
+;       ($0863 nonzero) it writes there, otherwise it polls the BIOS for a pending key (so ^C/^S can
+;       interrupt) before printing.
 SUB_43A2:
         PUSH HL                          ; $43A2  E5
         LD HL,($0863)                    ; $43A3  2A 63 08
@@ -6692,7 +6742,7 @@ SUB_43A2:
         JP NZ,L_51BD                     ; $43BD  C2 BD 51
         LD A,($086D)                     ; $43C0  3A 6D 08
         OR A                             ; $43C3  B7
-        LD HL,$1386                      ; $43C4  21 86 13
+        LD HL,L_1386                     ; $43C4  21 86 13
         EX (SP),HL                       ; $43C7  E3
         JP NZ,SUB_450B                   ; $43C8  C2 0B 45
         EX (SP),HL                       ; $43CB  E3
@@ -6707,9 +6757,8 @@ SUB_43A2:
         RET                              ; $43D8  C9
 L_43D9:
         POP HL                           ; $43D9  E1
-; [AI] Read one raw key from the BIOS console-input hook (registers preserved); also flags when the
-;       returned byte is the CP/M end-of-output/print code $0F so the caller can toggle printer
-;       echo.
+; [AI] Raw BIOS CONIN with register save: reads one character from the console via the BIOS CONIN
+;       vector at $43DD, masks to 7 bits, and reports whether it was ^O (output-suppress toggle).
 SUB_43DA:
         PUSH BC                          ; $43DA  C5
         PUSH DE                          ; $43DB  D5
@@ -6730,6 +6779,8 @@ SUB_43DA:
         JP Z,SUB_460E                    ; $43F4  CA 0E 46
         XOR A                            ; $43F7  AF
         RET                              ; $43F8  C9
+; [AI] Conditional newline: emit a CR/LF only if the cursor is not already at column 0, so messages
+;       do not insert a blank line.
 SUB_43F9:
         LD A,($0B34)                     ; $43F9  3A 34 0B
 L_43FC:
@@ -6740,13 +6791,15 @@ L_43FD:
 L_4401:
         LD (HL),$00                      ; $4401  36 00
         LD HL,$0A30                      ; $4403  21 30 0A
-; [AI] Print a CRLF (CHR$(13),CHR$(10)) via the standard character-output routine SUB_4291;
-;       SUB_4410 then resets the column/line-position state.
+; [AI] Unconditional CR/LF to the console (via SUB_4291) followed by line-state reset; the standard
+;       "end the current output line" routine.
 SUB_4406:
         LD A,$0D                         ; $4406  3E 0D
         CALL SUB_4291                    ; $4408  CD 91 42
         LD A,$0A                         ; $440B  3E 0A
         CALL SUB_4291                    ; $440D  CD 91 42
+; [AI] Reset console line/column state after a newline: clears the column counter unless output is
+;       going to a file.
 SUB_4410:
         PUSH HL                          ; $4410  E5
         LD HL,($0863)                    ; $4411  2A 63 08
@@ -6770,9 +6823,8 @@ L_4426:
         RET                              ; $442B  C9
         DEFB    $C5,$D5,$E5,$CD,$00                              ; $442C  "EUeM"
         DEFB    $00,$E1,$D1,$C1,$B7,$C8                          ; $4431
-; [AI] Console keyboard input with control handling: reads a key via SUB_43DA, recognizes Ctrl-S
-;       (pause, $13) and Ctrl-C (break, $03 -> abort to command loop), and stores the key for the
-;       line editor.
+; [AI] Console-input scan for control characters: reads a key and acts on ^S (pause), ^C (break)
+;       and ^O (suppress) so a running program can be interrupted; called from the statement loop.
 SUB_4437:
         CALL SUB_43DA                    ; $4437  CD DA 43
         CP $13                           ; $443A  FE 13
@@ -6781,6 +6833,8 @@ SUB_4437:
         CP $03                           ; $4442  FE 03
         CALL Z,SUB_4610                  ; $4444  CC 10 46
         JP L_45CF                        ; $4447  C3 CF 45
+; [AI] INKEY$-style / immediate console-character read built-in: returns the next available
+;       keystroke (or empty) as a one-character BASIC string.
 L_444A:
         CALL SUB_13E4                    ; $444A  CD E4 13
         PUSH HL                          ; $444D  E5
@@ -6803,6 +6857,8 @@ L_4465:
         LD ($0B37),A                     ; $446D  32 37 0B
         POP HL                           ; $4470  E1
         RET                              ; $4471  C9
+; [AI] Return-and-clear the pending control-character flag ($0857) captured by SUB_4437/SUB_43DA,
+;       so a ^C/^S is consumed exactly once.
 SUB_4472:
         LD A,($0857)                     ; $4472  3A 57 08
         OR A                             ; $4475  B7
@@ -6812,6 +6868,8 @@ SUB_4472:
         LD ($0857),A                     ; $4479  32 57 08
         POP AF                           ; $447C  F1
         RET                              ; $447D  C9
+; [AI] Print one character with CR->CR/LF expansion: outputs A and, if it was a CR, follows with LF
+;       and resets the column; used by string-print helpers.
 SUB_447E:
         CALL SUB_4291                    ; $447E  CD 91 42
         CP $0A                           ; $4481  FE 0A
@@ -6821,6 +6879,8 @@ SUB_447E:
         CALL SUB_4410                    ; $4489  CD 10 44
         LD A,$0A                         ; $448C  3E 0A
         RET                              ; $448E  C9
+; [AI] Reverse block copy with stack-limit guard: copies bytes downward (HL,BC descending) after
+;       checking free memory, used when making room for program/variable edits.
 SUB_448F:
         CALL SUB_44C2                    ; $448F  CD C2 44
 SUB_4492:
@@ -6835,9 +6895,9 @@ L_4495:
         DEC BC                           ; $449B  0B
         DEC HL                           ; $449C  2B
         JR L_4495                        ; $449D  18 F6
-; [AI] Stack/heap collision check: computes the worst-case top of dynamic data from the FCB-base
-;       pointer and the requested count, and triggers Out-of-memory (L_44B4) if it would collide
-;       with the CPU stack.
+; [AI] Stack/heap collision check: verifies that C bytes can be reserved below the stack without
+;       colliding with the program/variable area, jumping to the "Out of memory" path (L_44B4) if
+;       not.
 SUB_449F:
         PUSH HL                          ; $449F  E5
         LD HL,($0B46)                    ; $44A0  2A 46 0B
@@ -6854,21 +6914,20 @@ SUB_449F:
         ADD HL,SP                        ; $44B1  39
         POP HL                           ; $44B2  E1
         RET C                            ; $44B3  D8
-; [AI] Out-of-memory recovery stub: resets the run stack pointer in $0B81 before falling into the
-;       Out-of-memory error path at L_44BC.
+; [AI] "Out of memory" error path: resets the stack to a safe value and reports error code 7
+;       through the central error reporter.
 L_44B4:
         LD HL,($0865)                    ; $44B4  2A 65 08
         DEC HL                           ; $44B7  2B
         DEC HL                           ; $44B8  2B
         LD ($0B81),HL                    ; $44B9  22 81 0B
-; [AI] Out-of-memory error: loads error code 7 and jumps to the error handler. Reached when the
-;       program/variable area would collide with the Z-80 stack.
+; [AI] Out-of-memory tail: loads error code 7 and enters the error reporter (shared by the stack-
+;       collision checks).
 L_44BC:
         LD DE,$0007                      ; $44BC  11 07 00
         JP L_0DAC                        ; $44BF  C3 AC 0D
-; [AI] Garbage-collect-and-check free memory: optionally compacts string space (SUB_4900) and
-;       verifies that the requested allocation does not overrun the stack, jumping to Out-of-memory
-;       if it would.
+; [AI] Get next program/input character refilling from the console when the line buffer is
+;       exhausted: bridges the interpreter's CHRGET to interactive line input.
 SUB_44C2:
         CALL SUB_44D5                    ; $44C2  CD D5 44
 L_44C5:
@@ -6883,9 +6942,6 @@ L_44C5:
         CALL SUB_44D5                    ; $44CF  CD D5 44
         RET NC                           ; $44D2  D0
         JR L_44BC                        ; $44D3  18 E7
-; [AI] Compare a candidate top-of-data address (HL) against the current run stack pointer in $0B6B,
-;       returning carry to indicate whether the allocation fits; the memory-check primitive used by
-;       SUB_44C2/SUB_449F.
 SUB_44D5:
         PUSH DE                          ; $44D5  D5
 L_44D6:
@@ -6900,8 +6956,6 @@ L_44DE:
         POP DE                           ; $44DE  D1
 L_44DF:
         RET                              ; $44DF  C9
-; [AI] NEW / full program reset: zeroes the file-control-block buffers, clears the program text and
-;       variable tables, resets DATA/stack pointers, and re-establishes an empty program.
 SUB_44E0:
         LD A,($0893)                     ; $44E0  3A 93 08
         LD B,A                           ; $44E3  47
@@ -6918,8 +6972,6 @@ L_44E9:
         CALL SUB_554F                    ; $44F0  CD 4F 55
         XOR A                            ; $44F3  AF
         RET NZ                           ; $44F4  C0
-; [AI] Clear program/variable state for RUN or NEW: resets the variable, array and string-space
-;       pointers and the running/trace flags so a fresh program run starts clean.
 SUB_44F5:
         LD HL,($0869)                    ; $44F5  2A 69 08
         CALL SUB_463E                    ; $44F8  CD 3E 46
@@ -6931,9 +6983,6 @@ SUB_44F5:
         LD (HL),A                        ; $4506  77
         INC HL                           ; $4507  23
         LD ($0B92),HL                    ; $4508  22 92 0B
-; [AI] CLEAR / run-time state reset: reinitializes the variable and array pointers, restores the
-;       DATA read pointer, resets string space and the FOR/GOSUB/error stacks to start (or restart)
-;       program execution.
 SUB_450B:
         LD HL,($0869)                    ; $450B  2A 69 08
         DEC HL                           ; $450E  2B
@@ -7026,6 +7075,8 @@ L_4599:
         LD HL,($0B77)                    ; $4599  2A 77 0B
 L_459C:
         RET                              ; $459C  C9
+; [AI] 16-bit compare of DE against HL (DE-HL): returns the standard carry/zero flags used
+;       everywhere for pointer ordering, line-number comparison, and end-of-region tests.
 SUB_459D:
         LD A,H                           ; $459D  7C
 L_459E:
@@ -7038,6 +7089,9 @@ L_45A1:
         SUB E                            ; $45A1  93
 L_45A2:
         RET                              ; $45A2  C9
+; [AI] Match-required-token helper: compares the program byte at HL with the byte the caller placed
+;       on the stack (e.g. an expected ')' or ','); on mismatch jumps to Syntax error, on match
+;       advances past it.
 SUB_45A3:
         LD A,(HL)                        ; $45A3  7E
         EX (SP),HL                       ; $45A4  E3
@@ -7052,6 +7106,8 @@ SUB_45A3:
         JP L_13E9                        ; $45AF  C3 E9 13
 L_45B2:
         JP L_0D92                        ; $45B2  C3 92 0D
+; [AI] Resolve a target line address for run-time transfer (GOTO/GOSUB/RESTORE): parses the line
+;       number and looks it up, erroring "Undefined line" if absent.
 SUB_45B5:
         EX DE,HL                         ; $45B5  EB
         LD HL,($0869)                    ; $45B6  2A 69 08
@@ -7080,8 +7136,8 @@ L_45DA:
         LD ($0B48),HL                    ; $45E0  22 48 0B
         LD HL,$FFF6                      ; $45E3  21 F6 FF
         POP BC                           ; $45E6  C1
-; [AI] Prompted line-input entry (used by INPUT and the editor): emits the '?' prompt, resets print
-;       state, and reads/edits a line of console input into the line buffer.
+; [AI] Re-enter the command interpreter after an error or STOP: restores the line context, clears
+;       output-suppress state, and prints the appropriate prompt before resuming input.
 L_45E7:
         LD HL,($0867)                    ; $45E7  2A 67 08
         PUSH HL                          ; $45EA  E5
@@ -7102,10 +7158,12 @@ L_45FA:
         LD HL,$0D1A                      ; $4605  21 1A 0D
         JP NZ,L_0E23                     ; $4608  C2 23 0E
         JP L_0E45                        ; $460B  C3 45 0E
-; [AI] Print a control character in caret notation: outputs '^' followed by the character + $40
-;       (e.g. Ctrl-C shows as '^C'), then a CRLF; SUB_4610 takes the control code in A.
+; [AI] Echo a control-character indicator: prints '^' plus the letter form of a control code (e.g.
+;       ^C) so interrupted operations show the key that stopped them.
 SUB_460E:
         LD A,$0F                         ; $460E  3E 0F
+; [AI] Print '^X' for the control code in A (X = code+$40); shared tail of SUB_460E and the ^C/^O
+;       echo paths.
 SUB_4610:
         PUSH AF                          ; $4610  F5
         SUB $03                          ; $4611  D6 03
@@ -7121,6 +7179,8 @@ L_461B:
         JP SUB_4406                      ; $4626  C3 06 44
         DEFB    $2A,$90,$0B,$7C,$B5,$11,$11,$00,$CA,$AC,$0D,$EB,$2A,$8E,$0B,$22 ; $4629
         DEFB    $67,$08,$EB,$C9,$3E                              ; $4639
+; [AI] Clear the trace-print flag ($0CCE) used by the line interpreter to bracket executed line
+;       numbers in [..] when TRON is active.
 SUB_463E:
         XOR A                            ; $463E  AF
         LD ($0CCE),A                     ; $463F  32 CE 0C
@@ -7137,11 +7197,12 @@ L_46BB:
         POP AF                           ; $46BB  F1
         POP HL                           ; $46BC  E1
         RET                              ; $46BD  C9
+; [AI] Letter test on the byte at HL: returns carry state indicating whether it is an uppercase
+;       letter A-Z, used while scanning variable names.
 SUB_46BE:
         LD A,(HL)                        ; $46BE  7E
-; [AI] Letter test: returns carry-clear if the byte in A is an ASCII uppercase letter A-Z (the
-;       start of a valid variable name or keyword), carry-set otherwise. SUB_46BE first loads the
-;       byte from (HL).
+; [AI] Letter test on the byte already in A (A-Z): the register-only form of SUB_46BE used by the
+;       tokenizer and detokenizer.
 SUB_46BF:
         CP $41                           ; $46BF  FE 41
         RET C                            ; $46C1  D8
@@ -7172,6 +7233,8 @@ SUB_46BF:
         DEFB    $7B,$B2,$C8,$7A,$D6,$01,$D8,$AF,$BB,$3C,$D0,$15,$1D,$0A,$03,$BE ; $4816
         DEFB    $23,$28,$ED,$3F,$C3,$D0,$2A,$CD,$BC,$38,$18,$08,$CD,$BF,$38,$18 ; $4826
         DEFB    $03,$CD,$A0,$33,$CD,$68,$48,$CD,$3A,$4A,$01,$8D,$4A,$C5 ; $4836
+; [AI] Copy/assign a string descriptor: given a source descriptor, allocates and points a string
+;       variable at its (length,address) so the variable owns the value.
 SUB_4844:
         LD A,(HL)                        ; $4844  7E
         INC HL                           ; $4845  23
@@ -7187,10 +7250,14 @@ SUB_4844:
         CALL SUB_4A2E                    ; $4853  CD 2E 4A
         POP DE                           ; $4856  D1
         RET                              ; $4857  C9
+; [AI] Build a one-byte temporary string descriptor (length=1) for a single character, used by CHR$
+;       and character-producing built-ins.
 SUB_4858:
         LD A,$01                         ; $4858  3E 01
 SUB_485A:
         CALL SUB_48D6                    ; $485A  CD D6 48
+; [AI] Store a string descriptor (length in A, address in DE) into the temporary-string descriptor
+;       slot at $0B68 and return its pointer; the standard way functions hand back a string result.
 SUB_485D:
         LD HL,$0B68                      ; $485D  21 68 0B
 L_4860:
@@ -7209,6 +7276,8 @@ L_4866:
         POP HL                           ; $4866  E1
 L_4867:
         RET                              ; $4867  C9
+; [AI] Scan a quoted string literal ($22 token) in the program text: finds its end (closing quote,
+;       ',' or end of line) and produces a descriptor pointing into the program for that literal.
 SUB_4868:
         DEC HL                           ; $4868  2B
 L_4869:
@@ -7295,12 +7364,11 @@ L_48B5:
         LD A,(HL)                        ; $48B5  7E
 L_48B6:
         RET NZ                           ; $48B6  C0
-        LD DE,$0010                      ; $48B7  11 10 00
+        LD DE,RST2_VEC                   ; $48B7  11 10 00
         JP L_0DAC                        ; $48BA  C3 AC 0D
         DEFB    $23                                              ; $48BD
-; [AI] Print a string ('STROUT'): evaluates a string descriptor (address+length) and outputs each
-;       character through SUB_4291, restarting the column counter at each embedded CR. Used to print
-;       messages, the banner, and PRINT of string values.
+; [AI] Print a NUL-terminated message whose address is in HL: the routine behind every fixed string
+;       (sign-on banner, error names, prompts), feeding each byte to SUB_4291.
 SUB_48BE:
         CALL SUB_4868                    ; $48BE  CD 68 48
 L_48C1:
@@ -7321,6 +7389,8 @@ L_48CB:
         CALL Z,SUB_4410                  ; $48D0  CC 10 44
         INC BC                           ; $48D3  03
         JR L_48C8                        ; $48D4  18 F2
+; [AI] Allocate temporary string space: reserves room at the top of free string memory for a string
+;       of the given length, triggering garbage collection / "Out of string space" as needed.
 SUB_48D6:
         OR A                             ; $48D6  B7
         LD C,$F1                         ; $48D7  0E F1
@@ -7349,11 +7419,13 @@ L_48F3:
         PUSH AF                          ; $48FB  F5
         LD BC,$48D8                      ; $48FC  01 D8 48
         PUSH BC                          ; $48FF  C5
+; [AI] String-space garbage collector: compacts live strings toward the top of memory and rebuilds
+;       the free pointer when temporary string space is exhausted.
 SUB_4900:
         LD HL,($0B46)                    ; $4900  2A 46 0B
 L_4903:
         LD ($0B6B),HL                    ; $4903  22 6B 0B
-        LD HL,$0000                      ; $4906  21 00 00
+        LD HL,WBOOT_VEC                  ; $4906  21 00 00
         PUSH HL                          ; $4909  E5
         LD HL,($0B96)                    ; $490A  2A 96 0B
         PUSH HL                          ; $490D  E5
@@ -7561,9 +7633,6 @@ L_4A2F:
         INC BC                           ; $4A33  03
         INC DE                           ; $4A34  13
         JR L_4A2F                        ; $4A35  18 F8
-; [AI] Variable locator ('PTRGET'): parses a variable name from the text and returns the address of
-;       its value, searching the variable table and creating a new entry (simple or array element)
-;       if it does not yet exist.
 SUB_4A37:
         CALL SUB_2CB3                    ; $4A37  CD B3 2C
 SUB_4A3A:
@@ -7725,9 +7794,9 @@ L_4B75:
         POP HL                           ; $4B8B  E1
         POP AF                           ; $4B8C  F1
         PUSH BC                          ; $4B8D  C5
-        LD BC,$29E1                      ; $4B8E  01 E1 29
+        LD BC,L_29E1                     ; $4B8E  01 E1 29
         PUSH BC                          ; $4B91  C5
-        LD BC,$1E4D                      ; $4B92  01 4D 1E
+        LD BC,SUB_1E4D                   ; $4B92  01 4D 1E
         PUSH BC                          ; $4B95  C5
         PUSH AF                          ; $4B96  F5
         PUSH DE                          ; $4B97  D5
@@ -7848,7 +7917,7 @@ L_4C0C:
         LD B,A                           ; $4C2A  47
         EX (SP),HL                       ; $4C2B  E3
         PUSH HL                          ; $4C2C  E5
-        LD HL,$29E1                      ; $4C2D  21 E1 29
+        LD HL,L_29E1                     ; $4C2D  21 E1 29
         EX (SP),HL                       ; $4C30  E3
         LD A,C                           ; $4C31  79
         OR A                             ; $4C32  B7
@@ -8302,9 +8371,6 @@ SUB_53F7:
         LD D,$01                         ; $53F7  16 01
         XOR A                            ; $53F9  AF
         JP L_59B3                        ; $53FA  C3 B3 59
-; [AI] RUN command handler: clears all variables and resets the program/run state (via SUB_44F5),
-;       optionally loads/chains a named program file, then begins execution at the first line (or an
-;       optional starting line number).
 L_53FD:
         OR $AF                           ; $53FD  F6 AF
         PUSH AF                          ; $53FF  F5
@@ -8324,7 +8390,7 @@ L_53FD:
         LD ($0893),A                     ; $541C  32 93 08
         OR $F1                           ; $541F  F6 F1
         LD ($086D),A                     ; $5421  32 6D 08
-        LD HL,$0080                      ; $5424  21 80 00
+        LD HL,DEFAULT_DMA                ; $5424  21 80 00
         LD (HL),$00                      ; $5427  36 00
         LD ($0873),HL                    ; $5429  22 73 08
         CALL SUB_44F5                    ; $542C  CD F5 44
@@ -8375,12 +8441,14 @@ L_545D:
         OR A                             ; $5491  B7
         JP Z,L_0E46                      ; $5492  CA 46 0E
         JP L_1386                        ; $5495  C3 86 13
-; [AI] Close all open files and return to the Ok prompt: walks the file-handle table closing each
-;       open file, then jumps to the direct-mode command path. Used at end of RUN and on errors.
+; [AI] CLEAR / program-reset: closes open files and reinitializes variable, string and stack state,
+;       then returns to the "Ok" prompt; the back end of NEW and CLEAR.
 SUB_5498:
         CALL SUB_189A                    ; $5498  CD 9A 18
         CALL SUB_573C                    ; $549B  CD 3C 57
         JP L_4599                        ; $549E  C3 99 45
+; [AI] Disk-buffer overflow / "Out of memory" during load path: tidies buffers then routes to the
+;       out-of-memory error.
 L_54A1:
         CALL SUB_44F5                    ; $54A1  CD F5 44
         JP L_44B4                        ; $54A4  C3 B4 44
@@ -8388,12 +8456,10 @@ L_54A1:
         DEFB    $AF,$32,$6D,$08,$CD,$89,$58,$DA,$61,$0E,$3C,$CA,$6A,$0D ; $54B7
 L_54C5:
         LD HL,($0863)                    ; $54C5  2A 63 08
-        LD BC,$0028                      ; $54C8  01 28 00
+        LD BC,RST5_VEC                   ; $54C8  01 28 00
         ADD HL,BC                        ; $54CB  09
         INC (HL)                         ; $54CC  34
         JP L_0E61                        ; $54CD  C3 61 0E
-; [AI] 'Direct statement in file' error (code $42): raised when a non-numbered (direct) statement
-;       is encountered while loading/merging a program file.
 L_54D0:
         PUSH HL                          ; $54D0  E5
         LD HL,($0863)                    ; $54D1  2A 63 08
@@ -8406,12 +8472,12 @@ L_54D0:
         DEFB    $16,$02,$CD,$F9,$53,$2B,$CD,$E4,$13,$28,$10,$CD,$A3,$45,$2C,$FE ; $54E0
         DEFB    $50,$CA,$9D,$5D,$CD,$A3,$45,$41,$C3,$C6,$20,$CD,$8D,$23,$CD,$2A ; $54F0
         DEFB    $5E,$3E,$FF,$CD,$A0,$57,$2A,$92,$0B,$EB,$2A,$69,$08 ; $5500
-; [AI] Loop over the file-handle table, closing every open file by calling the per-file close
-;       routine; the worker behind the close-all operation.
 L_550D:
         CALL SUB_459D                    ; $550D  CD 9D 45
         JP Z,SUB_5498                    ; $5510  CA 98 54
         LD A,(HL)                        ; $5513  7E
+; [AI] LOAD/MERGE tokenized-line ingest loop: reads program lines from the open disk file and
+;       inserts each into the in-memory program.
 L_5514:
         INC HL                           ; $5514  23
         PUSH DE                          ; $5515  D5
@@ -8419,7 +8485,7 @@ L_5514:
         POP DE                           ; $5519  D1
         JR L_550D                        ; $551A  18 F1
 SUB_551C:
-        LD BC,$573C                      ; $551C  01 3C 57
+        LD BC,SUB_573C                   ; $551C  01 3C 57
         LD A,($0893)                     ; $551F  3A 93 08
         JR NZ,L_553E                     ; $5522  20 1A
         PUSH HL                          ; $5524  E5
@@ -8546,9 +8612,9 @@ L_56BF:
         DEFB    $28,$19,$23,$7E,$B7,$20,$09,$C5,$60,$69,$CD,$42,$58,$C1,$18,$E5 ; $56DE
         DEFB    $3E,$80,$96,$4F,$06,$00,$09,$23,$7E,$D6,$1A,$D6,$01,$9F,$C3,$FF ; $56EE
         DEFB    $2A                                              ; $56FE
-; [AI] Read the next 128-byte record of an open file: sets the DMA address, issues BDOS sequential
-;       read (fn 20), and handles end-of-file / close on the file's FCB; refills the per-file buffer
-;       for character-level GET.
+; [AI] Open-or-extend a sequential output file's disk allocation: positions to end of file and, if
+;       the current record is full, writes it so appended output continues correctly (uses BDOS set-
+;       DMA/close).
 SUB_56FF:
         LD D,B                           ; $56FF  50
         LD E,C                           ; $5700  59
@@ -8588,8 +8654,8 @@ L_572B:
         DEC HL                           ; $5739  2B
         LD (HL),E                        ; $573A  73
         RET                              ; $573B  C9
-; [AI] Close an open file: flushes a partial output record (writing a final $1A/EOF mark for text
-;       files), issues BDOS close (fn 16), and clears the file's FCB.
+; [AI] CLOSE a file channel: flushes the channel's last partial buffer to disk (BDOS write/close,
+;       function 16) and then zeroes the channel's FCB so it can be reused.
 SUB_573C:
         CALL SUB_52B8                    ; $573C  CD B8 52
         JR Z,L_5770                      ; $573F  28 2F
@@ -8637,6 +8703,9 @@ L_5773:
 L_579E:
         POP HL                           ; $579E  E1
         POP AF                           ; $579F  F1
+; [AI] PRINT#/file-write character dispatcher: routes the output character to the selected device
+;       -- screen ($01), printer/LIST ($03 via L_5D36), or a sequential disk file -- buffering into
+;       the file's 128-byte record.
 SUB_57A0:
         PUSH HL                          ; $57A0  E5
         PUSH AF                          ; $57A1  F5
@@ -8685,16 +8754,16 @@ L_57D4:
         DEFB    $1B,$2B,$73,$23,$72,$23,$36,$80,$23,$36,$80,$E1,$E3,$44,$4D,$E5 ; $57DB
         DEFB    $21,$22,$00,$09,$73,$23,$72,$23,$36,$00,$E1,$3A,$6F,$08,$B7,$20 ; $57EB
         DEFB    $05,$CD,$42,$58,$E1,$C9,$CD,$FF,$56,$E1,$C3,$9A,$18 ; $57FB
-; [AI] Copy a 128-byte record (LDIR) between a user buffer and the file DMA/record area; the block-
-;       move primitive used by the file read/write routines.
+; [AI] Copy the 128-byte DMA record ($0080) into a channel buffer (or vice-versa) with LDIR; used
+;       when staging sequential file records.
 SUB_5808:
         PUSH BC                          ; $5808  C5
-        LD BC,$0080                      ; $5809  01 80 00
+        LD BC,DEFAULT_DMA                ; $5809  01 80 00
         LDIR                             ; $580C  ED B0
         POP BC                           ; $580E  C1
         RET                              ; $580F  C9
-; [AI] Get the next input character from an open file's buffer, refilling the buffer with a fresh
-;       sequential-read record when exhausted and returning carry/EOF ($1A) at end of file.
+; [AI] Read the next character from a sequential input file: refills the channel's record from disk
+;       via BDOS read (function 20) when the buffer is drained, returning EOF (^Z) at end of file.
 SUB_5810:
         PUSH BC                          ; $5810  C5
         PUSH HL                          ; $5811  E5
@@ -8703,7 +8772,7 @@ L_5812:
         LD A,(HL)                        ; $5815  7E
         CP $03                           ; $5816  FE 03
         JP Z,L_5D63                      ; $5818  CA 63 5D
-        LD BC,$0028                      ; $581B  01 28 00
+        LD BC,RST5_VEC                   ; $581B  01 28 00
         ADD HL,BC                        ; $581E  09
         LD A,(HL)                        ; $581F  7E
         OR A                             ; $5820  B7
@@ -8733,8 +8802,9 @@ L_5839:
         POP BC                           ; $583B  C1
         LD A,$1A                         ; $583C  3E 1A
         RET                              ; $583E  C9
-; [AI] Refill an input file buffer: bumps the FCB record number, sets the DMA address, and performs
-;       a BDOS sequential read (fn 20) to load the next 128-byte record for the open file.
+; [AI] Refill a file channel's record buffer from disk: sets the DMA to the channel buffer, issues
+;       BDOS sequential read (function 20, $1A), and updates the in-buffer position; returns whether
+;       a record was obtained.
 SUB_583F:
         LD HL,($0863)                    ; $583F  2A 63 08
         PUSH DE                          ; $5842  D5
@@ -8777,13 +8847,13 @@ L_5871:
         OR A                             ; $5875  B7
         POP DE                           ; $5876  D1
         RET                              ; $5877  C9
-; [AI] Point the BDOS DMA buffer at this file's 128-byte record area (FCB+$28) via BDOS fn 26 (set
-;       DMA address); a prep step shared by the sequential read/write routines.
+; [AI] Point the CP/M DMA address at a file channel's data buffer (offset $28 into the channel
+;       block) via BDOS set-DMA (function 26), preserving registers.
 SUB_5878:
         PUSH BC                          ; $5878  C5
         PUSH DE                          ; $5879  D5
         PUSH HL                          ; $587A  E5
-        LD HL,$0028                      ; $587B  21 28 00
+        LD HL,RST5_VEC                   ; $587B  21 28 00
         ADD HL,DE                        ; $587E  19
         EX DE,HL                         ; $587F  EB
         LD C,$1A                         ; $5880  0E 1A
@@ -8792,8 +8862,8 @@ SUB_5878:
         POP DE                           ; $5886  D1
         POP BC                           ; $5887  C1
         RET                              ; $5888  C9
-; [AI] Read one logical character from a file with EOF handling: calls SUB_5810 and, on the CP/M
-;       soft-EOF byte $1A, marks the FCB exhausted and signals end-of-file.
+; [AI] Sequential input wrapper around SUB_5810 that maps a trailing ^Z to a clean end-of-file:
+;       clears the record pointers and sets carry so callers see EOF.
 SUB_5889:
         CALL SUB_5810                    ; $5889  CD 10 58
         RET C                            ; $588C  D8
@@ -8813,8 +8883,8 @@ SUB_5889:
         POP HL                           ; $58A1  E1
         POP BC                           ; $58A2  C1
         RET                              ; $58A3  C9
-; [AI] Parse a filename argument from the program text into a CP/M FCB: separates drive, name and
-;       extension, upper-bounds the field lengths, and reports 'Bad file name' on malformed input.
+; [AI] Parse a CP/M filespec from the BASIC string argument into an FCB: validates and uppercases
+;       the drive/name/extension fields, erroring "Bad file name" on illegal input.
 SUB_58A4:
         CALL SUB_1A90                    ; $58A4  CD 90 1A
         PUSH HL                          ; $58A7  E5
@@ -8880,6 +8950,8 @@ L_58F7:
         POP AF                           ; $58FB  F1
         POP HL                           ; $58FC  E1
         RET                              ; $58FD  C9
+; [AI] Pad the FCB name field with spaces up to the field boundary during filespec parsing
+;       (extension separator handling).
 SUB_58FE:
         LD A,D                           ; $58FE  7A
         CP $0B                           ; $58FF  FE 0B
@@ -8913,9 +8985,8 @@ L_5915:
         DEFB    $16,$01,$FE,$49,$28,$07,$16,$03,$FE,$52,$C2,$6A,$0D,$E1,$CD,$A3 ; $598E
         DEFB    $45,$2C,$D5,$FE,$23,$CC,$E4,$13,$CD,$B2,$20,$CD,$A3,$45,$2C,$7B ; $599E
         DEFB    $B7,$CA,$70,$0D,$D1                              ; $59AE
-; [AI] OPEN statement worker: allocates a file slot, builds its FCB from the parsed name, sets the
-;       access mode (Input/Output/Random/Append), and issues the corresponding BDOS open (fn 15) or
-;       make-file (fn 22).
+; [AI] OPEN-statement back end: parses the access mode (I/O/R) and filename, builds the FCB, and
+;       issues the matching BDOS open/make (functions 15/22) for the requested channel.
 L_59B3:
         LD E,A                           ; $59B3  5F
         PUSH DE                          ; $59B4  D5
@@ -9031,8 +9102,8 @@ L_5A5C:
         JR NZ,L_5A5C                     ; $5A5F  20 FB
         JP L_4599                        ; $5A61  C3 99 45
         DEFB    $C0,$CD,$4F,$55,$CD,$D9,$25                      ; $5A64
-; [AI] System exit: warm-boots CP/M by jumping to the warm-boot vector at $0000, returning control
-;       to the CCP. Reached by the SYSTEM command and end-of-session.
+; [AI] SYSTEM command: warm-boots CP/M by jumping through the warm-boot vector at $0000, returning
+;       control to the console processor.
 L_5A6B:
         JP WBOOT_VEC                     ; $5A6B  C3 00 00
         DEFB    $C0,$E5,$CD,$4F,$55,$0E,$19,$CD,$05,$00,$F5,$0E,$0D,$CD,$05,$00 ; $5A6E
@@ -9049,9 +9120,9 @@ L_5A6B:
         DEFB    $38,$08,$3E,$20,$CD,$91,$42,$CD,$91,$42,$DC,$06,$44,$11,$CD,$08 ; $5B1E
         DEFB    $0E,$12,$CD,$05,$00,$FE,$FF,$20,$B6,$E1,$C9,$7E,$FE,$2A,$C0,$36 ; $5B2E
         DEFB    $3F,$23,$0D,$20,$FA,$C9                          ; $5B3E
-; [AI] Generic BDOS file-operation wrapper: places the function number in C, calls BDOS at $0005,
-;       advances this file's record/byte position counters, and maps the BDOS return code into
-;       MBASIC's open/read result convention.
+; [AI] BDOS file-operation wrapper: calls $0005 with the function code in A, then bumps the
+;       channel's record-count and translates the BDOS return into MBASIC's success/EOF/error
+;       convention.
 SUB_5B44:
         PUSH DE                          ; $5B44  D5
         LD C,A                           ; $5B45  4F
@@ -9086,9 +9157,8 @@ L_5B5A:
 L_5B6E:
         POP AF                           ; $5B6E  F1
         RET                              ; $5B6F  C9
-; [AI] Random-file record write: copies the user record buffer to the DMA area (SUB_5808), advances
-;       the record number, and issues BDOS write-sequential (fn 21) records via repeated DMA
-;       set/write calls.
+; [AI] Read an entire random/relative file or load a program image into memory: repeatedly sets DMA
+;       and issues BDOS reads, copying each 128-byte record into the destination.
 SUB_5B70:
         EX DE,HL                         ; $5B70  EB
         CALL SUB_5BA3                    ; $5B71  CD A3 5B
@@ -9114,11 +9184,13 @@ L_5B86:
         CALL BDOS_VEC                    ; $5B96  CD 05 00
         OR A                             ; $5B99  B7
         POP DE                           ; $5B9A  D1
-        LD HL,$0080                      ; $5B9B  21 80 00
+        LD HL,DEFAULT_DMA                ; $5B9B  21 80 00
         ADD HL,DE                        ; $5B9E  19
         RET NZ                           ; $5B9F  C0
         EX DE,HL                         ; $5BA0  EB
         JR L_5B86                        ; $5BA1  18 E3
+; [AI] Bounds-check the destination against the file buffer area before a disk read, erroring
+;       (L_54A1) if the read would overrun memory.
 SUB_5BA3:
         LD HL,($0B6B)                    ; $5BA3  2A 6B 0B
         LD BC,$FF2A                      ; $5BA6  01 2A FF
@@ -9126,13 +9198,15 @@ SUB_5BA3:
         CALL SUB_459D                    ; $5BAA  CD 9D 45
         RET NC                           ; $5BAD  D0
         JP L_54A1                        ; $5BAE  C3 A1 54
+; [AI] FIELD-statement support: associates a record buffer with random-file variables, recording
+;       the buffer address and clearing the field descriptor area.
 SUB_5BB1:
         CP $03                           ; $5BB1  FE 03
         RET NZ                           ; $5BB3  C0
         DEC HL                           ; $5BB4  2B
         CALL SUB_13E4                    ; $5BB5  CD E4 13
         PUSH DE                          ; $5BB8  D5
-        LD DE,$0080                      ; $5BB9  11 80 00
+        LD DE,DEFAULT_DMA                ; $5BB9  11 80 00
         JR Z,L_5BC3                      ; $5BBC  28 05
         PUSH BC                          ; $5BBE  C5
         CALL SUB_14E4                    ; $5BBF  CD E4 14
@@ -9197,7 +9271,7 @@ L_5D36:
         POP AF                           ; $5D4A  F1
         LD (HL),A                        ; $5D4B  77
         PUSH AF                          ; $5D4C  F5
-        LD HL,$0028                      ; $5D4D  21 28 00
+        LD HL,RST5_VEC                   ; $5D4D  21 28 00
         ADD HL,BC                        ; $5D50  09
         LD D,(HL)                        ; $5D51  56
         LD (HL),$00                      ; $5D52  36 00
@@ -9227,9 +9301,12 @@ L_5D63:
         POP HL                           ; $5D75  E1
         POP BC                           ; $5D76  C1
         RET                              ; $5D77  C9
+; [AI] Fetch a random-file channel's buffer pointer (descriptor at offset $A9) into DE; part of the
+;       FIELD/GET/PUT record machinery.
 SUB_5D78:
         LD HL,$00A9                      ; $5D78  21 A9 00
         JR L_5D80                        ; $5D7B  18 03
+; [AI] Fetch a random-file channel's current record/position pointer (offset $B0) into DE.
 SUB_5D7D:
         LD HL,$00B0                      ; $5D7D  21 B0 00
 L_5D80:
@@ -9238,6 +9315,7 @@ L_5D80:
         INC HL                           ; $5D82  23
         LD D,(HL)                        ; $5D83  56
         RET                              ; $5D84  C9
+; [AI] Advance and store a random-file channel's position pointer after a field operation.
 SUB_5D85:
         INC DE                           ; $5D85  13
         LD HL,$00B0                      ; $5D86  21 B0 00
@@ -9249,6 +9327,8 @@ SUB_5D85:
 SUB_5D8E:
         LD B,H                           ; $5D8E  44
         LD C,L                           ; $5D8F  4D
+; [AI] Compare a random-file channel's current buffer pointer against its limit to detect FIELD
+;       overflow.
 SUB_5D90:
         CALL SUB_5D7D                    ; $5D90  CD 7D 5D
         PUSH DE                          ; $5D93  D5
@@ -9262,6 +9342,8 @@ SUB_5D90:
         DEFB    $0B,$CD,$9D,$45,$C8,$21,$80,$3B,$7D,$81,$6F,$7C,$CE,$00,$67,$1A ; $5DBD
         DEFB    $90,$AE,$F5,$21,$30,$3B,$7D,$80,$6F,$7C,$CE,$00,$67,$F1,$AE,$81 ; $5DCD
         DEFB    $12,$13,$0D,$20,$02,$0E,$0B,$05,$20,$D4,$06,$0D,$18,$D0 ; $5DDD
+; [AI] Protected-program (de/)scrambler: XORs the tokenized program bytes against the fixed key
+;       tables at $3B30/$3B80 to implement Microsoft's "protected" SAVE,P / LOAD obfuscation.
 SUB_5DEB:
         LD BC,$0D0B                      ; $5DEB  01 0B 0D
         LD HL,($0869)                    ; $5DEE  2A 69 08
@@ -9301,8 +9383,8 @@ L_5E1B:
         LD B,$0D                         ; $5E1D  06 0D
         JR L_5DF2                        ; $5E1F  18 D1
         DEFB    $E5,$2A,$67,$08,$7C,$A5,$E1,$3C,$C0              ; $5E21
-; [AI] Break/Ctrl-C poll hook: if the break flag at $0CBC is set, abort the current operation to
-;       the error handler; otherwise return so execution continues.
+; [AI] Direct-mode guard: raises "Illegal direct" (error 5) if a statement that is only legal
+;       inside a program (INPUT, DEF FN, etc.) is attempted at the Ok prompt.
 SUB_5E2A:
         PUSH AF                          ; $5E2A  F5
         LD A,($0CBC)                     ; $5E2B  3A BC 0C
@@ -9311,6 +9393,8 @@ SUB_5E2A:
         POP AF                           ; $5E32  F1
         RET                              ; $5E33  C9
         DEFB    $00,$00,$00,$00,$00,$00,$00                      ; $5E34
+; [AI] Post-init dispatch: after cold start, if a program name was given on the command line it
+;       auto-loads and runs it (L_53FD), otherwise drops to the Ok prompt (L_0E46).
 L_5E3B:
         CALL SUB_44E0                    ; $5E3B  CD E0 44
         LD HL,($0869)                    ; $5E3E  2A 69 08
@@ -9322,10 +9406,9 @@ L_5E3B:
         JP NZ,L_53FD                     ; $5E49  C2 FD 53
         JP L_0E46                        ; $5E4C  C3 46 0E
         DEFB    $00,$00                                          ; $5E4F
-; [AI] Cold-start initializer (the actual entry reached from $0100). Sets the stack, reads the top-
-;       of-TPA pointer from $0006 to size available memory, installs the runtime console/disk I/O
-;       hooks into page zero, calls BDOS fn 12 (get version), parses the command tail (S=/M=/F=
-;       switches and an optional filename), then falls into the warm-start banner/Ok loop.
+; [AI] Cold-start entry (target of the $0100 JP): sets up the stack, snapshots the BIOS jump-table
+;       from $0001 and patches MBASIC's CONIN/CONOUT/CONST/LIST call sites with the live BIOS
+;       vectors, reads the CP/M user number, and parses the command tail.
 L_5E51:
         LD HL,$6146                      ; $5E51  21 46 61
 L_5E54:
@@ -9347,7 +9430,7 @@ L_5E65:
 L_5E66:
         LD ($0107),A                     ; $5E66  32 07 01
 L_5E69:
-        LD BC,$0004                      ; $5E69  01 04 00
+        LD BC,CDISK                      ; $5E69  01 04 00
 L_5E6C:
         ADD HL,BC                        ; $5E6C  09
 L_5E6D:
@@ -9457,13 +9540,15 @@ L_5EB6:
 L_5EB7:
         LD (HL),D                        ; $5EB7  72
 L_5EB8:
-        LD HL,$27F5                      ; $5EB8  21 F5 27
+        LD HL,L_27F5                     ; $5EB8  21 F5 27
 L_5EBB:
         LD ($0001),HL                    ; $5EBB  22 01 00
 L_5EBE:
         LD HL,($F3DE)                    ; $5EBE  2A DE F3
 L_5EC1:
         LD ($2606),HL                    ; $5EC1  22 06 26
+; [AI] During cold start, BDOS function 12 (return version) is called here to detect the CP/M
+;       version and select the right console-status handling.
 L_5EC4:
         LD C,$0C                         ; $5EC4  0E 0C
 L_5EC6:
@@ -9496,7 +9581,7 @@ L_5EE9:
 L_5EEC:
         LD ($0858),A                     ; $5EEC  32 58 08
 L_5EEF:
-        LD HL,$0000                      ; $5EEF  21 00 00
+        LD HL,WBOOT_VEC                  ; $5EEF  21 00 00
 L_5EF2:
         LD ($085A),HL                    ; $5EF2  22 5A 08
 L_5EF5:
@@ -9517,10 +9602,13 @@ L_5F04:
         LD BC,$503E                      ; $5F04  01 3E 50
 L_5F07:
         LD ($2815),A                     ; $5F07  32 15 28
+; [AI] Cold-start command-tail processing: parses the program filename and the /M (top of memory),
+;       /F (max files), and /S (max record size) switches from the $0080 buffer to size the
+;       interpreter's work areas.
 L_5F0A:
         CALL SUB_207E                    ; $5F0A  CD 7E 20
 L_5F0D:
-        LD HL,$0080                      ; $5F0D  21 80 00
+        LD HL,DEFAULT_DMA                ; $5F0D  21 80 00
 L_5F10:
         LD ($0CBA),HL                    ; $5F10  22 BA 0C
 L_5F13:
@@ -9554,7 +9642,7 @@ L_5F37:
 L_5F38:
         LD ($5FD0),A                     ; $5F38  32 D0 5F
 L_5F3B:
-        LD HL,$0080                      ; $5F3B  21 80 00
+        LD HL,DEFAULT_DMA                ; $5F3B  21 80 00
 L_5F3E:
         LD A,(HL)                        ; $5F3E  7E
 L_5F3F:
@@ -9640,6 +9728,9 @@ L_5FBC:
         EX DE,HL                         ; $5FCA  EB
         JR L_5FAF                        ; $5FCB  18 E2
         DEFB    $00,$00,$00,$00                                  ; $5FCD
+; [AI] Memory-sizing and workspace allocation after switch parsing: establishes the bottom of
+;       program text, the string space, and the per-file FCB/buffer blocks based on the /M and /F
+;       values.
 L_5FD1:
         DEC HL                           ; $5FD1  2B
 L_5FD2:
@@ -9810,7 +9901,7 @@ L_6056:
         CALL SUB_3391                    ; $605A  CD 91 33
         LD HL,$608D                      ; $605D  21 8D 60
         CALL SUB_48BE                    ; $6060  CD BE 48
-        LD HL,$48BE                      ; $6063  21 BE 48
+        LD HL,SUB_48BE                   ; $6063  21 BE 48
         LD ($0E57),HL                    ; $6066  22 57 0E
         CALL SUB_4406                    ; $6069  CD 06 44
         LD HL,$0D4B                      ; $606C  21 4B 0D

@@ -10,14 +10,15 @@
 ; -- External symbols --
 WBOOT_VEC            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
 BDOS_VEC             EQU $0005               ; BDOS call vector — JP BDOS_ENTRY. Programs use CALL $0005 to invoke BDOS. Word at $0006 is also the top-of-TPA marker.
+DEFAULT_FCB          EQU $005C               ; Default File Control Block — populated by CCP from command-line argument 1. Standard 36-byte FCB structure (drive + filename + extents + record number).
 
     ORG $0100
 
-; [AI] Program entry at the TPA ($0100). Reads the drive byte of the default FCB ($005C); if zero
-;       (no drive/argument typed on the command line) it prints the usage/sign-on string at $02A9
-;       and warm-boots, otherwise it falls through to the main update routine at L_0110.
+; [AI] The $0100 transient-program entry point. It loads the first byte of the default FCB to
+;       detect a command-line argument (e.g. '?'); if none, it prints the sign-on banner and warm-
+;       boots, otherwise it begins the disk-update procedure.
 TPA_START:
-        LD A,($005C)                     ; $0100  3A 5C 00
+        LD A,(DEFAULT_FCB)               ; $0100  3A 5C 00
 L_0103:
         OR A                             ; $0103  B7
 L_0104:
@@ -28,11 +29,9 @@ L_010A:
         CALL SUB_01A6                    ; $010A  CD A6 01
 L_010D:
         JP WBOOT_VEC                     ; $010D  C3 00 00
-; [AI] Main body of the 56K disk-update utility. Normalizes the requested drive via SUB_02F9,
-;       patches the drive letter into the on-screen messages, prints the 'Apple ][ CP/M 56K Disk
-;       update program (C) 1980 Microsoft / Insert 16-sector disk into drive Z: / Hit RETURN to
-;       begin' prompt, waits for a keypress, then runs the 39-pass ($27) track-rewrite loop at
-;       L_0141.
+; [AI] Main update routine entered when a command-line argument is present: it computes the drive-
+;       letter strings for the prompts (drive Z and the slot label), emits the 'Insert 16 sector
+;       disk' prompt, waits for RETURN, then loops over tracks rewriting them to the 56K layout.
 L_0110:
         CALL SUB_02F9                    ; $0110  CD F9 02
         LD ($F3E4),A                     ; $0113  32 E4 F3
@@ -55,12 +54,11 @@ L_0110:
         LD ($F3EB),A                     ; $0134  32 EB F3
         LD A,$13                         ; $0137  3E 13
         LD ($F3E9),A                     ; $0139  32 E9 F3
-        LD HL,$0000                      ; $013C  21 00 00
+        LD HL,WBOOT_VEC                  ; $013C  21 00 00
         LD B,$27                         ; $013F  06 27
-; [AI] Track-rewrite loop body, iterated B=$27 (39) times over the disk. Stages the current
-;       track/parameters into the $F3E0 BIOS-parameter area, invokes the per-track I/O via SUB_0192,
-;       then checks the status byte at $F3EA: nonzero means an error (branch to print message and
-;       abort), zero means success and advance to the next track at L_0164.
+; [AI] Top of the per-track update loop. It saves the running track/address counters, calls the
+;       track-write helper, and on error selects the appropriate message (generic I/O error vs.
+;       write-protected) before reporting and aborting.
 L_0141:
         LD ($F3E0),HL                    ; $0141  22 E0 F3
         PUSH BC                          ; $0144  C5
@@ -74,16 +72,12 @@ L_0141:
         CP $10                           ; $0156  FE 10
         JP NZ,L_015E                     ; $0158  C2 5E 01
         LD DE,$028E                      ; $015B  11 8E 02
-; [AI] Error-report path: prints the selected disk-error message (generic 'Disk I/O error' at
-;       $0279, or 'Disk write protected' at $028E when status == $10) via SUB_01A6, then falls
-;       through to the re-boot prompt at L_017D.
 L_015E:
         CALL SUB_01A6                    ; $015E  CD A6 01
         JP L_017D                        ; $0161  C3 7D 01
-; [AI] Success path of the track loop: bumps the progress/track counter at $F3E9, advances the HL
-;       track/sector pointer (incrementing the high byte, wrapping at $10), and loops back to L_0141
-;       until all 39 passes complete; on completion prints the 'Disk has been updated to 56K'
-;       message.
+; [AI] Loop-continuation path taken on a successful track write: it bumps the progress counter and
+;       the track-address high byte (wrapping to the next page) and decrements the track count,
+;       branching back to L_0141 until all 0x27 tracks are done.
 L_0164:
         LD HL,$F3E9                      ; $0164  21 E9 F3
         INC (HL)                         ; $0167  34
@@ -100,9 +94,9 @@ L_0172:
         JP NZ,L_0141                     ; $0174  C2 41 01
         LD DE,$0236                      ; $0177  11 36 02
         CALL SUB_01A6                    ; $017A  CD A6 01
-; [AI] Completion/exit path. Prints the 'Hit RETURN to re-boot system' message ($0257), waits for
-;       the user keypress (SUB_019A), installs the $C600 (slot-6 boot ROM) entry into the $F3D0
-;       pointer, and jumps to L_2A00 to store the trigger byte and warm-boot.
+; [AI] Completion/exit tail: prints the 'Disk has been updated to 56K' and 'Hit RETURN to re-boot'
+;       messages, waits for a keypress, then sets up the slot-6 boot address ($C600) and falls
+;       through to the final warm-boot jump.
 L_017D:
         LD DE,$0257                      ; $017D  11 57 02
         CALL SUB_01A6                    ; $0180  CD A6 01
@@ -111,17 +105,17 @@ L_017D:
         LD ($F3D0),HL                    ; $0189  22 D0 F3
         LD HL,($F3DE)                    ; $018C  2A DE F3
         JP L_2A00                        ; $018F  C3 00 2A
-; [AI] Single-byte transfer helper: sets the destination pointer at $F3D0, reloads the working
-;       pointer from $F3DE, and writes A through it — used by the track loop to hand a byte/command
-;       to the 6502-side disk driver via the SoftCard shared-memory mailbox.
+; [AI] Helper that stores a byte through the BIOS-maintained pointer at $F3DE: it sets the
+;       DMA/scratch pointer ($F3D0) from HL, reloads the working pointer, and writes A. Used to
+;       deposit progress/status bytes into the relocated system image.
 SUB_0192:
         LD ($F3D0),HL                    ; $0192  22 D0 F3
         LD HL,($F3DE)                    ; $0195  2A DE F3
         LD (HL),A                        ; $0198  77
         RET                              ; $0199  C9
-; [AI] Waits for a keypress using BDOS function 6 (direct console I/O) with E=$FF (read); loops
-;       while the returned character is zero, so it blocks until the user actually presses a key
-;       (e.g. RETURN).
+; [AI] Console-input poll via BDOS function 6 (direct console I/O) with E=$FF; it loops until a key
+;       is actually available, i.e. a blocking 'wait for any keypress' used after the RETURN
+;       prompts.
 SUB_019A:
         LD C,$06                         ; $019A  0E 06
         LD E,$FF                         ; $019C  1E FF
@@ -129,8 +123,8 @@ SUB_019A:
         OR A                             ; $01A1  B7
         JP Z,SUB_019A                    ; $01A2  CA 9A 01
         RET                              ; $01A5  C9
-; [AI] Print-string helper: loads C=9 (BDOS Print String) and tail-jumps to BDOS at $0005,
-;       displaying the '$'-terminated message whose address was passed in DE.
+; [AI] Print-string helper: loads C=9 and tails into the BDOS so the '$'-terminated message string
+;       pointed to by DE is written to the console. This is the program's single output primitive.
 SUB_01A6:
         LD C,$09                         ; $01A6  0E 09
 L_01A8:
@@ -166,9 +160,8 @@ L_01A8:
         DEFB    $0A,$0D,$0A,$48,$69,$74,$20,$52,$45,$54,$55,$52,$4E,$20,$74,$6F ; $02D8
         DEFB    $20,$72,$65,$2D,$62,$6F,$6F,$74,$20,$73,$79,$73,$74,$65,$6D,$20 ; $02E8
         DEFB    $24                                              ; $02F8
-; [AI] Drive-normalization helper: maps the drive code in A to an alternating 1/2 result via (A-1)
-;       AND 1, then +1 — selecting between the two physical/logical drive parameter sets while
-;       leaving the original value in C.
+; [AI] Small arithmetic helper that maps the drive number in A to a 1-or-2 value (decrement, mask
+;       bit 0, increment), used while building the drive-dependent prompt text.
 SUB_02F9:
         LD C,A                           ; $02F9  4F
         DEC A                            ; $02FA  3D
@@ -753,9 +746,8 @@ SUB_02F9:
         DEFB    $18,$03,$21,$4A,$DF,$87,$85,$6F,$7E,$2C,$66,$6F,$C9,$B7,$F2,$70 ; $29D7
         DEFB    $DF,$CD,$3B,$DB,$AF,$32,$07,$C4,$C9,$3A,$A9,$DE,$B7,$C9,$CD,$3B ; $29E7
         DEFB    $DB,$AF,$32,$07,$C4,$C9,$65,$20,$5D              ; $29F7
-; [AI] Final epilogue (top of the loaded image's tail): stores A through (HL) — the last byte
-;       handed to the 6502 disk driver / the warm-boot trigger — then jumps to the warm-boot vector
-;       at $0000 to restart CP/M.
+; [AI] Final landing pad at $2A00 (the program's top end): it writes the last relocated byte
+;       through HL and jumps to the warm-boot vector, rebooting into the freshly-written 56K system.
 L_2A00:
         LD (HL),A                        ; $2A00  77
         JP WBOOT_VEC                     ; $2A01  C3 00 00
