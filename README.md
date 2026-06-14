@@ -12,6 +12,15 @@ One thing led to another. I built a WOZ parser, then a GCR decoder, then a full 
 
 That first investigation grew into a second one — the Microsoft SoftCard, the Z-80 card that let an Apple II run CP/M — and the tooling I'd built for 6502 disks turned out to be the foundation for understanding a whole different CPU on the same hardware. This repo is the result of both.
 
+## Highlights
+
+A few pieces of this repo stand on their own:
+
+- **Complete, rebuildable source for two CP/M boot disks.** [`cpm-80/decompiled/`](cpm-80/decompiled/) holds the *entire* Microsoft SoftCard CP/M operating system for both **version 2.20** and **version 2.23** — boot loader, RWTS, BIOS, CCP, and BDOS — rendered as commented assembly, alongside every `.COM` utility in each disk's filesystem (20 programs on the 2.23 disk, 11 on 2.20: the Digital Research tools plus the Microsoft/SoftCard additions). It all reassembles to **byte-identical** disk images, proven by `rebuild.sh`. This is the artifact the whole CP/M investigation was built to produce.
+- **A whole-system SoftCard emulator.** [`cpm-80/softcard_emu/`](cpm-80/softcard_emu/) boots an unmodified CP/M `.dsk` to an interactive `A>` prompt — 6502 and Z-80 on one shared memory bus, the SoftCard's address translation and CPU switch, a Disk II, a Videx Videoterm, and a language card. It reproduces the historical 2.20-with-Videx hang fault-for-fault, boots the 44K / 56K / 60K builds, and even runs `CPM60.COM` itself to relocate a system into the language card.
+- **Apple Panic, fully reverse engineered.** [`apple-ii/apple-panic/`](apple-ii/apple-panic/) — nine layers of copy protection defeated, the boot traced across ~70 million emulated instructions, and the game extracted into ~8,800 lines of commented 6502 assembly.
+- **The tooling underneath it all.** A from-scratch WOZ/DSK toolkit with full 6502 and Z-80 emulators ([`nibbler`](shared/nibbler/)), ca65/sjasmplus-compatible round-tripping disassemblers for both CPUs, and a `.DSK` → annotated-source decompilation pipeline ([`cpm_pipeline`](cpm-80/cpm_pipeline/)).
+
 ## Repository layout
 
 The project is organized into three top-level trees:
@@ -19,7 +28,7 @@ The project is organized into three top-level trees:
 | Tree | Contents |
 |------|----------|
 | [`apple-ii/`](apple-ii/) | Apple II reverse-engineering work — the Apple Panic game RE, the investigation scripts, and Apple-specific reference docs |
-| [`cpm-80/`](cpm-80/) | CP/M-80 / Microsoft SoftCard work — the boot-pipeline investigation, the reconstruction pipeline, the whole-system emulator, CP/M docs, and the disk images |
+| [`cpm-80/`](cpm-80/) | CP/M-80 / Microsoft SoftCard work — the complete decompiled source for the 2.20 and 2.23 boot disks, the boot-pipeline investigation, the reconstruction pipeline, the whole-system emulator, CP/M docs, and the disk images |
 | [`shared/`](shared/) | Reusable tooling used by both — the `nibbler` disk toolkit, the 6502 / Z-80 disassemblers, symbol tables, and the local assembler toolchain |
 
 ```
@@ -28,11 +37,12 @@ apple-ii/
   scripts/        ~38 investigation scripts (working artifacts)
   docs/           Disk II P6 Boot ROM reference
 cpm-80/
+  decompiled/         complete rebuildable source for the 2.20 + 2.23 boot disks
   cpm-investigation/  extraction scripts + intermediate binaries
   cpm_pipeline/       productized detect → trace → reconstruct pipeline
   softcard_emu/       reusable whole-system SoftCard emulator
   docs/               CPM*.asm (annotated source) + CPM_*.md (analysis)
-  disks/              CPMV233.DSK, CPM220Disk1.po, CPM220Disk2.po
+  disks/              CPMV233.DSK, CPM220Disk{1,2}.po, CPMV233-60K.DSK
 shared/
   nibbler/        WOZ/DSK toolkit + 6502 and Z-80 emulators
   disasm6502/     6502 disassembler (ca65-compatible, round-trips)
@@ -57,8 +67,8 @@ pip install -e .
 The test suite needs neither (a repo-root `conftest.py` handles `sys.path` during collection):
 
 ```bash
-python -m pytest        # 81 passed, 19 skipped without the assembler toolchain
-                        # 100 passed once `source shared/toolchain/env.sh` is active
+python -m pytest        # 109 passed, 24 skipped without the assembler toolchain
+                        # 133 passed once `source shared/toolchain/env.sh` is active
 ```
 
 ## Games
@@ -136,6 +146,25 @@ The [`cpm-80/`](cpm-80/) tree investigates how Microsoft SoftCard CP/M boots on 
 source shared/toolchain/env.sh
 python -m cpm_pipeline detect cpm-80/disks/CPMV233.DSK
 python -m softcard_emu cpm-80/disks/CPMV233.DSK --keys "DIR\r"
+```
+
+### Decompiled distributions
+
+[`cpm-80/decompiled/`](cpm-80/decompiled/) is the headline deliverable: the complete source for **both** boot disks (CP/M 2.20 and 2.23), each rendered as commented assembly and organized identically —
+
+```
+decompiled/
+  CPMV233/   CP/M 2.23  — os/ (boot loader, RWTS, BIOS, CCP+BDOS) + utilities/ (20 .COM programs)
+  CPM220/    CP/M 2.20  — os/ (boot loader, RWTS, BIOS, CCP+BDOS) + utilities/ (11 .COM programs)
+  rebuild.sh verify_roundtrip.py generate_distribution.py
+```
+
+Every source file reassembles to the original bytes, and `rebuild.sh` reconstructs each disk image byte-for-byte. Diffing the two `os/CPM_BIOS.asm` files is exactly where the 2.20 → 2.23 Videx fix becomes visible. See [`cpm-80/decompiled/README.md`](cpm-80/decompiled/README.md).
+
+```bash
+source shared/toolchain/env.sh
+bash cpm-80/decompiled/rebuild.sh CPMV233      # -> byte-identical CPMV233.DSK
+python cpm-80/decompiled/verify_roundtrip.py   # reassemble every file, both releases
 ```
 
 ### Decompilation toolchain
