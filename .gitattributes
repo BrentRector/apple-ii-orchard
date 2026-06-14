@@ -1,0 +1,8 @@
+# GitHub syntax highlighting for the decompiled CP/M assembly sources.
+# Linguist already classifies .asm/.s as Assembly; these lines guarantee
+# and normalize it (the generic Assembly grammar suits both the sjasmplus
+# Z-80 .asm and ca65 6502 .s files, which use ; comments). Note GitHub has
+# no 6502/Z-80-specific highlighter, so comments, labels, numbers, and
+# directives color but mnemonics are not treated as keywords.
+*.asm linguist-language=Assembly
+*.s   linguist-language=Assembly
