@@ -346,7 +346,13 @@ def regenerate(target, *, ai_names=None, write=False, preserve=True):
     rebuilt = _reassemble(target, merged, cfg)
     ok = rebuilt == data
     if write and ok:
-        target.out_path.write_text(merged, encoding="utf-8")
+        # The Z-80 source carries a `{out_bin}` SAVEBIN placeholder; write it
+        # with the canonical build/ path (the byte-check above used the
+        # placeholder, which assemble_z80 substitutes to a temp path).
+        text = merged
+        if target.cpu == "z80":
+            text = text.replace("{out_bin}", f"build/{target.out_path.stem}.bin")
+        target.out_path.write_text(text, encoding="utf-8")
         if cfg is not None:
             target.out_path.with_suffix(".cfg").write_text(cfg, encoding="utf-8")
     return RegenResult(target.out_path, ok, migrated, dropped, len(names),

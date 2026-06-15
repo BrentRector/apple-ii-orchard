@@ -11,7 +11,7 @@
 WBOOT_VEC            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
 CDISK                EQU $0004               ; Current drive (low nibble: 0=A, 1=B, ..., 15=P) and current user (high nibble, 0-15).
 BDOS_VEC             EQU $0005               ; BDOS call vector — JP BDOS_ENTRY. Programs use CALL $0005 to invoke BDOS. Word at $0006 is also the top-of-TPA marker.
-DEFAULT_DMA          EQU $0080               ; Default DMA buffer — also command-line tail. First byte = length, then characters. Returned to default by BDOS function 13 (DRV_ALLRESET).
+DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS cold-init / DRV_ALLRESET (fn 13) set the DMA address here and WBOOT re-issues SETDMA($0080); sector/record I/O moves 128 bytes through it. At program load this same buffer doubles as the command tail: the first byte ($0080) holds the tail length (0-127) and the characters follow at $0081 (CMDLINE).
 BDOS_ENTRY_223       EQU $9C06               ; BDOS entry point -- planted at $0005-$0007 as JP $9C06
 BDOS_SENTINEL        EQU $9C08               ; First-boot vs warm-boot detect (initialized to $9C; $FB7F-$FB85 checks)
 SLOT_INFO_BASE       EQU $F3B8               ; Slot-info table for cold-boot generator (F3B8+E = slot E's device code, E=1..7)
@@ -34,27 +34,27 @@ BOOT:
 ; [AI] Warm-boot jump-table entry; reloads the CCP and re-establishes the page-zero vectors after a
 ;       program exits.
 WBOOT:
-        JP L_FAB8                        ; $FA03  C3 B8 FA
+        JP WBOOT_IMPL                    ; $FA03  C3 B8 FA
 ; [AI] Console status jump-table entry; returns A=$FF if a console character is ready, $00
 ;       otherwise.
 CONST:
-        JP L_FB10                        ; $FA06  C3 10 FB
+        JP CONST_IMPL                    ; $FA06  C3 10 FB
 ; [AI] Console input jump-table entry; waits for and returns the next console keystroke in A.
 CONIN:
-        JP L_FB1A                        ; $FA09  C3 1A FB
+        JP CONIN_IMPL                    ; $FA09  C3 1A FB
 ; [AI] Console output jump-table entry; writes the character in C to the console device.
 CONOUT:
-        JP L_FB4D                        ; $FA0C  C3 4D FB
+        JP CONOUT_IMPL                   ; $FA0C  C3 4D FB
 ; [AI] List-device (printer) output jump-table entry; sends the character in C to the LST: device.
 LIST:
-        JP L_FB70                        ; $FA0F  C3 70 FB
+        JP LIST_IMPL                     ; $FA0F  C3 70 FB
 ; [AI] Paper-tape punch output jump-table entry; sends the character in C to the PUN: device.
 PUNCH:
-        JP L_FB7F                        ; $FA12  C3 7F FB
+        JP PUNCH_IMPL                    ; $FA12  C3 7F FB
 ; [AI] Paper-tape reader input jump-table entry; returns the next character from the RDR: device in
 ;       A.
 READER:
-        JP L_FB91                        ; $FA15  C3 91 FB
+        JP READER_IMPL                   ; $FA15  C3 91 FB
 ; [AI] HOME jump-table entry; vectors to the routine that seeks the selected drive to track 0.
 HOME:
         JP HOME_IMPL                     ; $FA18  C3 6C FE
@@ -68,11 +68,11 @@ SETTRK:
         JP SETTRK_IMPL                   ; $FA1E  C3 77 FE
 ; [AI] SETSEC jump-table entry; latches the target sector number for the next READ/WRITE.
 SETSEC:
-        JP L_FBF4                        ; $FA21  C3 F4 FB
+        JP SETSEC_IMPL                   ; $FA21  C3 F4 FB
 ; [AI] SETDMA jump-table entry; sets the memory address the next disk transfer reads into or writes
 ;       from.
 SETDMA:
-        JP SUB_FBF9                      ; $FA24  C3 F9 FB
+        JP SETDMA_IMPL                   ; $FA24  C3 F9 FB
 ; [AI] READ jump-table entry; vectors to the sector-read routine that fills the DMA buffer.
 READ:
         JP READ_IMPL                     ; $FA27  C3 BD FE
@@ -100,47 +100,47 @@ SECTRAN:
         DEFB    $00,$C0,$00,$0C,$00,$03,$00                      ; $FA7B
 ; [AI] Cold-boot device-scan driver; sets the loop counter to scan slots 7 down to 1 looking for
 ;       recognized peripherals.
-SUB_FA82:
+DEVICE_SCAN:
         LD DE,$0007                      ; $FA82  11 07 00
 ; [AI] Body of the slot-scan loop; reads SLOT_INFO_BASE+E for the current slot and dispatches on
 ;       its device code to the matching initializer (keyboard, Pascal 1.0, Pascal 1.1).
-L_FA85:
+DEVICE_SCAN_1:
         LD HL,SLOT_INFO_BASE             ; $FA85  21 B8 F3
         ADD HL,DE                        ; $FA88  19
         LD A,(HL)                        ; $FA89  7E
         SUB $03                          ; $FA8A  D6 03
-        JR NZ,L_FA95                     ; $FA8C  20 07
+        JR NZ,DEVICE_SCAN_2              ; $FA8C  20 07
         CALL INIT_KEYBOARD               ; $FA8E  CD 81 FE
         LD (HL),$03                      ; $FA91  36 03
         LD (HL),$15                      ; $FA93  36 15
-L_FA95:
+DEVICE_SCAN_2:
         DEC A                            ; $FA95  3D
-        JR NZ,L_FAA3                     ; $FA96  20 0B
+        JR NZ,DEVICE_SCAN_3              ; $FA96  20 0B
         CALL INIT_PASCAL_1_0             ; $FA98  CD 83 FD
         LD HL,$C800                      ; $FA9B  21 00 C8
         CALL RPC_DISPATCH                ; $FA9E  CD 45 FB
-        JR L_FAAD                        ; $FAA1  18 0A
-L_FAA3:
+        JR DEVICE_SCAN_4                 ; $FAA1  18 0A
+DEVICE_SCAN_3:
         CP $02                           ; $FAA3  FE 02
-        JR NZ,L_FAAD                     ; $FAA5  20 06
+        JR NZ,DEVICE_SCAN_4              ; $FAA5  20 06
         LD HL,$0DD0                      ; $FAA7  21 D0 0D
         CALL INIT_PASCAL_1_1             ; $FAAA  CD B0 FD
-L_FAAD:
+DEVICE_SCAN_4:
         DEC E                            ; $FAAD  1D
-        JR NZ,L_FA85                     ; $FAAE  20 D5
+        JR NZ,DEVICE_SCAN_1              ; $FAAE  20 D5
         RET                              ; $FAB0  C9
         DEFB    $21,$00,$E0,$7B,$B4,$67,$C9                      ; $FAB1
 ; [AI] WBOOT body; resets the stack to $0080, reinitializes devices, and on a warm boot rebuilds
 ;       the page-zero jump vectors before returning to the CCP.
-L_FAB8:
+WBOOT_IMPL:
         LD SP,DEFAULT_DMA                ; $FAB8  31 80 00
         LD A,($E051)                     ; $FABB  3A 51 E0
         LD HL,$0E00                      ; $FABE  21 00 0E
         CALL RPC_DISPATCH                ; $FAC1  CD 45 FB
-        CALL SUB_FA82                    ; $FAC4  CD 82 FA
+        CALL DEVICE_SCAN                 ; $FAC4  CD 82 FA
         LD A,(BDOS_SENTINEL)             ; $FAC7  3A 08 9C
         CP $9C                           ; $FACA  FE 9C
-        JR Z,L_FADF                      ; $FACC  28 11
+        JR Z,INSTALL_PAGE0_VEC           ; $FACC  28 11
         LD HL,$FF59                      ; $FACE  21 59 FF
         LD ($F3D0),HL                    ; $FAD1  22 D0 F3
         LD HL,($F3DE)                    ; $FAD4  2A DE F3
@@ -149,7 +149,7 @@ L_FAB8:
         JP $000B                         ; $FADC  C3 0B 00
 ; [AI] Cold-boot branch taken when the sentinel matches; clears BIOS flags and plants the page-zero
 ;       JP WBOOT at $0000 and JP BDOS at $0005.
-L_FADF:
+INSTALL_PAGE0_VEC:
         XOR A                            ; $FADF  AF
         LD ($9307),A                     ; $FAE0  32 07 93
         XOR A                            ; $FAE3  AF
@@ -180,7 +180,7 @@ L_FADF:
         NOP                              ; $FB0F  00
 ; [AI] CONST implementation target; un-patched placeholder in the on-disk image, written by the
 ;       cold-boot generator that builds the live console routines.
-L_FB10:
+CONST_IMPL:
         RST $30                          ; $FB10  F7
         RST $30                          ; $FB11  F7
         NOP                              ; $FB12  00
@@ -193,7 +193,7 @@ L_FB10:
         RST $30                          ; $FB19  F7
 ; [AI] CONIN implementation target; un-patched placeholder filled in at cold boot with the real
 ;       console-input code.
-L_FB1A:
+CONIN_IMPL:
         NOP                              ; $FB1A  00
         NOP                              ; $FB1B  00
         RST $30                          ; $FB1C  F7
@@ -250,7 +250,7 @@ RPC_DISPATCH:
         RST $38                          ; $FB4C  FF
 ; [AI] CONOUT implementation target; un-patched placeholder filled in at cold boot with the real
 ;       console-output code.
-L_FB4D:
+CONOUT_IMPL:
         RST $38                          ; $FB4D  FF
         NOP                              ; $FB4E  00
         NOP                              ; $FB4F  00
@@ -288,7 +288,7 @@ L_FB4D:
         NOP                              ; $FB6F  00
 ; [AI] LIST implementation target; un-patched placeholder for the printer-output routine, generated
 ;       at cold boot.
-L_FB70:
+LIST_IMPL:
         RST $30                          ; $FB70  F7
         RST $30                          ; $FB71  F7
         NOP                              ; $FB72  00
@@ -306,7 +306,7 @@ L_FB70:
         NOP                              ; $FB7E  00
 ; [AI] PUNCH implementation target; un-patched placeholder, since the punch device is generated (or
 ;       stubbed) at cold boot.
-L_FB7F:
+PUNCH_IMPL:
         NOP                              ; $FB7F  00
         RST $38                          ; $FB80  FF
         RST $38                          ; $FB81  FF
@@ -327,7 +327,7 @@ L_FB7F:
         RST $38                          ; $FB90  FF
 ; [AI] READER implementation target; un-patched placeholder for the reader-input routine, generated
 ;       at cold boot.
-L_FB91:
+READER_IMPL:
         RST $38                          ; $FB91  FF
         NOP                              ; $FB92  00
         NOP                              ; $FB93  00
@@ -429,7 +429,7 @@ L_FB91:
         NOP                              ; $FBF3  00
 ; [AI] SETSEC implementation target; un-patched stub that the cold-boot generator replaces with the
 ;       real sector-latch code.
-L_FBF4:
+SETSEC_IMPL:
         RST $38                          ; $FBF4  FF
         RST $38                          ; $FBF5  FF
         NOP                              ; $FBF6  00
@@ -437,7 +437,7 @@ L_FBF4:
         RST $38                          ; $FBF8  FF
 ; [AI] SETDMA implementation target; in the pristine image the body is an un-patched stub that the
 ;       6502 cold-boot generator fills in.
-SUB_FBF9:
+SETDMA_IMPL:
         RST $38                          ; $FBF9  FF
         NOP                              ; $FBFA  00
         NOP                              ; $FBFB  00
@@ -446,7 +446,7 @@ SUB_FBF9:
         NOP                              ; $FBFE  00
         NOP                              ; $FBFF  00
         NOP                              ; $FC00  00
-        CALL SUB_FBF9                    ; $FC01  CD F9 FB
+        CALL SETDMA_IMPL                 ; $FC01  CD F9 FB
         LD A,$01                         ; $FC04  3E 01
         LD ($974E),A                     ; $FC06  32 4E 97
         LD A,(CDISK)                     ; $FC09  3A 04 00

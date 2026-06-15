@@ -35,6 +35,14 @@ from disasm_common.analyzer import (  # noqa: E402
 from .opcodes import OPCODES, operand_size
 
 
+import re as _re
+
+# Auto label names the walker mints (anonymous); anything else is a semantic
+# routine name worth preserving even when it lands mid-instruction.
+_AUTO_BRANCH_RE = _re.compile(r'^L_[0-9A-Fa-f]{4}$')
+_AUTO_SUB_RE = _re.compile(r'^SUB_[0-9A-Fa-f]{4}$')
+
+
 def _resolve_label(addr, symbols, labels):
     """Pick a name for `addr` from labels first, then symbols, else None."""
     if addr in labels and labels[addr]:
@@ -66,17 +74,24 @@ class Ca65Formatter:
         self.origin = origin if origin is not None else walker.start
         self.length = length if length is not None else (walker.end - self.origin)
         self.source_name = source_name
-        # addr -> (cover_start, offset) for mid-instruction references; resolved
-        # lazily to `cover_label+offset` at the operand site (no equate).
+        # Mid-instruction reference state (populated by _prepare_overlap_labels):
+        #   _overlap_covers[addr] = (cover, offset)  anonymous -> inline cover+offset
+        #   _overlap_named[addr]  = (name, cover, offset)  named -> equate, keep name
         self._overlap_covers = {}
+        self._overlap_named = {}
         self._overlap_notes = []
         self._overlap_addrs = set()
 
+    # ca65 defines a constant with `=` (sjasmplus uses EQU).
+    _EQU = "="
+
     def _sym(self, addr):
-        """Resolve `addr` to operand text. A mid-instruction target resolves to
-        `cover_label+offset` (looked up lazily so label renames propagate); a
-        data-interior overlap resolves to None (operand stays a literal).
-        Otherwise fall back to the normal label/symbol lookup."""
+        """Resolve `addr` to operand text. A NAMED mid-instruction routine keeps
+        its semantic name (defined by an equate). An anonymous mid-instruction
+        target resolves to `cover_label+offset` inline (or None -> literal when
+        it falls inside a data run). Otherwise fall back to the normal lookup."""
+        if addr in self._overlap_named:
+            return self._overlap_named[addr][0]
         if addr in self._overlap_covers:
             cover_start, offset = self._overlap_covers[addr]
             cover_name = self.walker.labels.get(cover_start)
@@ -179,27 +194,28 @@ class Ca65Formatter:
 
     def _prepare_overlap_labels(self):
         """Find in-range walker labels that land mid-instruction and record how
-        each should be referenced inline.
+        each should be referenced.
 
-        For a label interior to a code instruction we mint a label on the
-        covering instruction (so it is placed inline) and record the target as
-        `cover+offset` in `self._overlap_covers`; the operand site then emits
-        `cover_label+offset` directly -- no standalone label or equate. A label
-        with no covering instruction (inside a data run) is dropped so its
-        operand falls back to a bare literal. In both cases the original
-        mid-instruction label is removed (it can never sit on a byte boundary).
-        Notes are collected for an informational comment block."""
+        A NAMED routine (curated symbol, hand-curated, or AI semantic name) that
+        falls mid-instruction keeps its name, defined by an equate
+        ``NAME = cover+offset``. An ANONYMOUS ``L_xxxx``/``SUB_xxxx`` overlap is
+        referenced inline at its use site as ``cover+offset`` with no equate. A
+        target with no covering instruction (inside a data run) falls back to a
+        literal. In every case the mid-instruction walker label is removed and
+        the covering instruction gets a minted label to anchor the expression."""
         instr_starts, byte_to_start = self._build_instr_index()
         body_start = self.origin
         body_end = self.origin + self.length
         self._overlap_covers = {}
+        self._overlap_named = {}
         self._overlap_notes = []
         self._overlap_addrs = set()
         minted = False
         for addr in sorted(self.walker.labels.keys()):
             if not (body_start <= addr < body_end):
                 continue
-            if not self.walker.labels[addr]:
+            name = self.walker.labels[addr]
+            if not name:
                 continue
             if addr in instr_starts:
                 continue  # starts an instruction -> placed inline normally
@@ -212,37 +228,50 @@ class Ca65Formatter:
                 decode_size=self._decode_size,
                 cpu="6502",
             )
-            self._overlap_notes.append((addr, res.kind, res.cover_start, res.offset, res.reason))
+            semantic = not _AUTO_BRANCH_RE.match(name) and not _AUTO_SUB_RE.match(name)
             self._overlap_addrs.add(addr)
-            del self.walker.labels[addr]   # never sits on a boundary; ref'd inline
-            if res.cover_start is None:
-                continue                    # data-interior: operand -> literal
-            self._overlap_covers[addr] = (res.cover_start, res.offset)
-            if not self.walker.labels.get(res.cover_start):
+            self._overlap_notes.append(
+                (addr, res.kind, res.cover_start, res.offset, res.reason,
+                 name if semantic else None))
+            del self.walker.labels[addr]   # never sits on a boundary
+            if res.cover_start is not None and not self.walker.labels.get(res.cover_start):
                 self.walker.add_label(res.cover_start)
                 minted = True
+            if semantic:
+                self._overlap_named[addr] = (name, res.cover_start, res.offset)
+            elif res.cover_start is not None:
+                self._overlap_covers[addr] = (res.cover_start, res.offset)
         if minted:
             self.walker.name_labels(self.symbols)
         # Rename branch-only labels to <enclosing routine>_<n> for readability
         # (byte-identical; resolved lazily so cover+offset picks up new names).
         self.walker.localize_labels(self.symbols)
 
+    def _overlap_expr_for(self, cover, offset, addr):
+        """The cover+offset expression for an overlap, or a literal if no cover."""
+        if cover is None:
+            return f"${addr:04X}"
+        return overlap_expr(self.walker.labels.get(cover, f"${cover:04X}"), offset)
+
     def _emit_overlap_notes(self):
-        """Emit an informational (comment-only) summary of mid-instruction
-        references. No equates: each is referenced inline at its use site as
-        `cover_label+offset`. Suspected misframes are flagged for review."""
-        if not self._overlap_notes:
-            return []
-        out = ["; -- Mid-instruction references (shown inline as cover+offset) --"]
-        for addr, kind, cover, offset, reason in self._overlap_notes:
-            if cover is not None:
-                cover_name = self.walker.labels.get(cover, f"${cover:04X}")
-                expr = overlap_expr(cover_name, offset)
-            else:
-                expr = f"${addr:04X}"
-            flag = "" if kind == "IDIOM" else "  [SUSPECTED MISFRAME -- review]"
-            out.append(f";   ${addr:04X} -> {expr:<20} {reason}{flag}")
-        out.append("")
+        """Emit equates for NAMED mid-instruction routines (preserving their
+        semantic names) plus an informational comment block for the anonymous
+        ones (which are referenced inline as cover+offset)."""
+        out = []
+        if self._overlap_named:
+            out.append("; -- Named mid-instruction routines (kept as cover+offset equates) --")
+            for addr in sorted(self._overlap_named):
+                name, cover, offset = self._overlap_named[addr]
+                expr = self._overlap_expr_for(cover, offset, addr)
+                out.append(f"{name:<20} {self._EQU} {expr:<18} ; ${addr:04X}")
+            out.append("")
+        if self._overlap_notes:
+            out.append("; -- Mid-instruction references (shown inline as cover+offset) --")
+            for addr, kind, cover, offset, reason, name in self._overlap_notes:
+                expr = name if name else self._overlap_expr_for(cover, offset, addr)
+                flag = "" if kind == "IDIOM" else "  [SUSPECTED MISFRAME -- review]"
+                out.append(f";   ${addr:04X} -> {expr:<20} {reason}{flag}")
+            out.append("")
         return out
 
     def _emit_symbol_block(self, referenced_addrs):
@@ -359,7 +388,8 @@ class Ca65Formatter:
             label = self._resolve_label_for(target)
             target_str = label if label else f"${target:04X}"
             lines.append(f"        {mnem} {target_str:<24} ; ${run.addr + i*3:04X}")
-            if label and self.symbols and self.symbols.name_for(target):
+            if (label and target not in self._overlap_addrs
+                    and self.symbols and self.symbols.name_for(target)):
                 refs.add(target)
         return lines, refs
 
@@ -370,16 +400,15 @@ class Ca65Formatter:
             label = self._resolve_label_for(target)
             target_str = label if label else f"${target:04X}"
             lines.append(f"        .word   {target_str:<24} ; ${run.addr + i*2:04X}")
-            if label and self.symbols and self.symbols.name_for(target):
+            if (label and target not in self._overlap_addrs
+                    and self.symbols and self.symbols.name_for(target)):
                 refs.add(target)
         return lines, refs
 
     def _resolve_label_for(self, addr):
-        if addr in self.walker.labels and self.walker.labels[addr]:
-            return self.walker.labels[addr]
-        if self.symbols is not None:
-            return self.symbols.name_for(addr)
-        return None
+        # Overlap-aware: a mid-instruction target renders as its semantic name
+        # (named overlap) or cover+offset (anonymous), defined elsewhere.
+        return self._sym(addr)
 
     def _fmt_code_line(self, addr):
         """Return (formatted_line, set_of_referenced_addresses)."""

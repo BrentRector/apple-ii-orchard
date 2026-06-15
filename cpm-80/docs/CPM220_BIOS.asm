@@ -11,7 +11,7 @@
 WBOOT_VEC            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
 CDISK                EQU $0004               ; Current drive (low nibble: 0=A, 1=B, ..., 15=P) and current user (high nibble, 0-15).
 BDOS_VEC             EQU $0005               ; BDOS call vector — JP BDOS_ENTRY. Programs use CALL $0005 to invoke BDOS. Word at $0006 is also the top-of-TPA marker.
-DEFAULT_DMA          EQU $0080               ; Default DMA buffer — also command-line tail. First byte = length, then characters. Returned to default by BDOS function 13 (DRV_ALLRESET).
+DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS cold-init / DRV_ALLRESET (fn 13) set the DMA address here and WBOOT re-issues SETDMA($0080); sector/record I/O moves 128 bytes through it. At program load this same buffer doubles as the command tail: the first byte ($0080) holds the tail length (0-127) and the characters follow at $0081 (CMDLINE).
 BDOS_ENTRY_220       EQU $CC06               ; BDOS entry point -- planted at $0005-$0007 as JP $CC06
 
     ORG $DA00
@@ -19,61 +19,61 @@ BDOS_ENTRY_220       EQU $CC06               ; BDOS entry point -- planted at $0
 ; [AI] Cold-boot entry, first slot of the BIOS jump table; runs once at system load to initialize
 ;       hardware and hand control to CP/M.
 BOOT:
-        JP L_DEA8                        ; $DA00  C3 A8 DE
+        JP BOOT_IMPL                     ; $DA00  C3 A8 DE
 ; [AI] Warm-boot entry of the jump table; reloads the CCP/BDOS and re-establishes page-zero vectors
 ;       after a program exits or jumps to $0000.
 WBOOT:
-        JP L_DACC                        ; $DA03  C3 CC DA
+        JP WBOOT_IMPL                    ; $DA03  C3 CC DA
 ; [AI] Console-status jump-table entry; returns A=$FF if a console character is waiting, A=$00
 ;       otherwise, used by BDOS to poll the keyboard.
 CONST:
-        JP L_DB08                        ; $DA06  C3 08 DB
+        JP CONST_IMPL                    ; $DA06  C3 08 DB
 ; [AI] Console-input jump-table entry; waits for and returns the next console character in A (BDOS
 ;       console-in primitive).
 CONIN:
-        JP L_DB12                        ; $DA09  C3 12 DB
+        JP CONIN_IMPL                    ; $DA09  C3 12 DB
 ; [AI] Console-output jump-table entry; writes the character in C to the console device (BDOS
 ;       console-out primitive).
 CONOUT:
-        JP L_DB43                        ; $DA0C  C3 43 DB
+        JP CONOUT_IMPL                   ; $DA0C  C3 43 DB
 ; [AI] List-device (printer) output jump-table entry; sends the character in C to the LST: device.
 LIST:
-        JP L_DB66                        ; $DA0F  C3 66 DB
+        JP LIST_IMPL                     ; $DA0F  C3 66 DB
 ; [AI] Punch-device output jump-table entry; sends the character in C to the PUN: (paper-tape
 ;       punch) logical device.
 PUNCH:
-        JP L_DB75                        ; $DA12  C3 75 DB
+        JP PUNCH_IMPL                    ; $DA12  C3 75 DB
 ; [AI] Reader-device input jump-table entry; returns a character from the RDR: (paper-tape reader)
 ;       logical device in A.
 READER:
-        JP L_DB87                        ; $DA15  C3 87 DB
+        JP READER_IMPL                   ; $DA15  C3 87 DB
 ; [AI] Disk HOME jump-table entry; positions the selected drive to track 0 in preparation for a
 ;       seek.
 HOME:
-        JP L_DD4B                        ; $DA18  C3 4B DD
+        JP HOME_IMPL                     ; $DA18  C3 4B DD
 ; [AI] Select-disk jump-table entry; selects the drive in C and returns the address of that drive's
 ;       Disk Parameter Header in HL.
 SELDSK:
-        JP L_DD6D                        ; $DA1B  C3 6D DD
+        JP SELDSK_IMPL                   ; $DA1B  C3 6D DD
 ; [AI] Set-track jump-table entry; records the track number passed in BC for the next disk
 ;       read/write.
 SETTRK:
-        JP L_DD56                        ; $DA1E  C3 56 DD
+        JP SETTRK_IMPL                   ; $DA1E  C3 56 DD
 ; [AI] Set-sector jump-table entry; records the sector number for the next disk read/write.
 SETSEC:
-        JP L_DD89                        ; $DA21  C3 89 DD
+        JP SETSEC_IMPL                   ; $DA21  C3 89 DD
 ; [AI] Set-DMA jump-table entry; stores the disk transfer buffer address passed in BC for
 ;       subsequent READ/WRITE operations.
 SETDMA:
-        JP SUB_DD8E                      ; $DA24  C3 8E DD
+        JP SETDMA_IMPL                   ; $DA24  C3 8E DD
 ; [AI] Disk-read jump-table entry; reads the currently selected track/sector into the DMA buffer,
 ;       returning status in A.
 READ:
-        JP L_DD93                        ; $DA27  C3 93 DD
+        JP READ_IMPL                     ; $DA27  C3 93 DD
 ; [AI] Disk-write jump-table entry; writes the DMA buffer to the currently selected track/sector,
 ;       returning status in A.
 WRITE:
-        JP L_DDA3                        ; $DA2A  C3 A3 DD
+        JP WRITE_IMPL                    ; $DA2A  C3 A3 DD
 ; [AI] List-status jump-table entry; returns A=0 (printer always ready / status unsupported) since
 ;       this BIOS provides no real LST: ready check.
 LISTST:
@@ -96,36 +96,36 @@ SECTRAN:
         DEFB    $00,$C0,$00,$0C,$00,$03,$00                      ; $DA9B
 ; [AI] Per-device reinitialization loop run during warm boot; walks a 7-entry device table at $F3B8
 ;       to re-seat console/I/O state, including reclaiming the $C800 expansion-ROM window.
-SUB_DAA2:
+WBOOT_DEVICE_REINIT:
         LD DE,$0007                      ; $DAA2  11 07 00
-L_DAA5:
+WBOOT_DEVICE_REINIT_1:
         LD HL,$F3B8                      ; $DAA5  21 B8 F3
         ADD HL,DE                        ; $DAA8  19
         LD A,(HL)                        ; $DAA9  7E
         SUB $03                          ; $DAAA  D6 03
-        JR NZ,L_DAB5                     ; $DAAC  20 07
+        JR NZ,WBOOT_DEVICE_REINIT_2      ; $DAAC  20 07
         CALL SUB_DD60                    ; $DAAE  CD 60 DD
         LD (HL),$03                      ; $DAB1  36 03
         LD (HL),$15                      ; $DAB3  36 15
-L_DAB5:
+WBOOT_DEVICE_REINIT_2:
         DEC A                            ; $DAB5  3D
-        JR NZ,L_DAC1                     ; $DAB6  20 09
-        CALL SUB_DCEE                    ; $DAB8  CD EE DC
+        JR NZ,WBOOT_DEVICE_REINIT_3      ; $DAB6  20 09
+        CALL CONSOLE_DEV_SELECT          ; $DAB8  CD EE DC
         LD HL,$C800                      ; $DABB  21 00 C8
         CALL SUB_DB3B                    ; $DABE  CD 3B DB
-L_DAC1:
+WBOOT_DEVICE_REINIT_3:
         DEC E                            ; $DAC1  1D
-        JR NZ,L_DAA5                     ; $DAC2  20 E1
+        JR NZ,WBOOT_DEVICE_REINIT_1      ; $DAC2  20 E1
         RET                              ; $DAC4  C9
         DEFB    $21,$00,$E0,$7B,$B4,$67,$C9                      ; $DAC5
 ; [AI] Body of WBOOT: sets the stack below the default DMA, reloads the system, and rebuilds the
 ;       page-zero JP vectors at $0000 (warm boot) and $0005 (BDOS) before starting the CCP.
-L_DACC:
+WBOOT_IMPL:
         LD SP,DEFAULT_DMA                ; $DACC  31 80 00
         LD A,($E051)                     ; $DACF  3A 51 E0
         LD HL,$0E00                      ; $DAD2  21 00 0E
         CALL SUB_DFE8                    ; $DAD5  CD E8 DF
-        CALL SUB_DAA2                    ; $DAD8  CD A2 DA
+        CALL WBOOT_DEVICE_REINIT         ; $DAD8  CD A2 DA
         XOR A                            ; $DADB  AF
         LD ($DEB4),A                     ; $DADC  32 B4 DE
         LD ($DEAF),A                     ; $DADF  32 AF DE
@@ -137,7 +137,7 @@ L_DACC:
         LD HL,BDOS_ENTRY_220             ; $DAF0  21 06 CC
         LD ($0006),HL                    ; $DAF3  22 06 00
         LD BC,DEFAULT_DMA                ; $DAF6  01 80 00
-        CALL SUB_DD8E                    ; $DAF9  CD 8E DD
+        CALL SETDMA_IMPL                 ; $DAF9  CD 8E DD
         LD A,$01                         ; $DAFC  3E 01
         LD ($E5B2),A                     ; $DAFE  32 B2 E5
         PUSH HL                          ; $DB01  E5
@@ -147,7 +147,7 @@ L_DACC:
         PUSH HL                          ; $DB05  E5
         PUSH HL                          ; $DB06  E5
         PUSH HL                          ; $DB07  E5
-L_DB08:
+CONST_IMPL:
         PUSH HL                          ; $DB08  E5
         PUSH HL                          ; $DB09  E5
         PUSH HL                          ; $DB0A  E5
@@ -158,7 +158,7 @@ L_DB08:
         PUSH HL                          ; $DB0F  E5
         PUSH HL                          ; $DB10  E5
         PUSH HL                          ; $DB11  E5
-L_DB12:
+CONIN_IMPL:
         PUSH HL                          ; $DB12  E5
         PUSH HL                          ; $DB13  E5
         PUSH HL                          ; $DB14  E5
@@ -180,7 +180,7 @@ L_DB12:
         PUSH HL                          ; $DB24  E5
         PUSH HL                          ; $DB25  E5
         PUSH HL                          ; $DB26  E5
-L_DB27:
+CONIN_IMPL_1:
         PUSH HL                          ; $DB27  E5
         PUSH HL                          ; $DB28  E5
         PUSH HL                          ; $DB29  E5
@@ -210,7 +210,7 @@ SUB_DB3B:
         PUSH HL                          ; $DB40  E5
         PUSH HL                          ; $DB41  E5
         PUSH HL                          ; $DB42  E5
-L_DB43:
+CONOUT_IMPL:
         PUSH HL                          ; $DB43  E5
         PUSH HL                          ; $DB44  E5
         PUSH HL                          ; $DB45  E5
@@ -246,7 +246,7 @@ L_DB43:
         PUSH HL                          ; $DB63  E5
         PUSH HL                          ; $DB64  E5
         PUSH HL                          ; $DB65  E5
-L_DB66:
+LIST_IMPL:
         PUSH HL                          ; $DB66  E5
         PUSH HL                          ; $DB67  E5
         PUSH HL                          ; $DB68  E5
@@ -262,7 +262,7 @@ L_DB66:
         PUSH HL                          ; $DB72  E5
         PUSH HL                          ; $DB73  E5
         PUSH HL                          ; $DB74  E5
-L_DB75:
+PUNCH_IMPL:
         PUSH HL                          ; $DB75  E5
         PUSH HL                          ; $DB76  E5
         PUSH HL                          ; $DB77  E5
@@ -281,7 +281,7 @@ L_DB75:
         PUSH HL                          ; $DB84  E5
         PUSH HL                          ; $DB85  E5
         PUSH HL                          ; $DB86  E5
-L_DB87:
+READER_IMPL:
         PUSH HL                          ; $DB87  E5
         PUSH HL                          ; $DB88  E5
         PUSH HL                          ; $DB89  E5
@@ -410,17 +410,17 @@ SUB_DBDD:
         JP $C400                         ; $DC05  C3 00 C4
         DEFB    $2A,$80,$F3,$E9,$3A,$00,$E0,$17,$9F,$C9,$CD,$50,$DB,$21,$AB,$F3 ; $DC08
         DEFB    $06,$06,$4F                                      ; $DC18
-L_DC1B:
+SUB_DBDD_1:
         INC HL                           ; $DC1B  23
         LD A,(HL)                        ; $DC1C  7E
         INC HL                           ; $DC1D  23
         OR A                             ; $DC1E  B7
-        JP M,L_DB27                      ; $DC1F  FA 27 DB
+        JP M,CONIN_IMPL_1                ; $DC1F  FA 27 DB
         CP C                             ; $DC22  B9
-L_DC23:
+SUB_DBDD_2:
         LD A,(HL)                        ; $DC23  7E
         RET Z                            ; $DC24  C8
-        DJNZ L_DC1B                      ; $DC25  10 F4
+        DJNZ SUB_DBDD_1                  ; $DC25  10 F4
         LD A,C                           ; $DC27  79
         RET                              ; $DC28  C9
         DEFB    $11,$03,$00,$C3,$2F,$DB,$3A,$00,$E0,$17,$30,$FA,$32,$10,$E0,$3F ; $DC29
@@ -439,15 +439,15 @@ L_DC23:
 ; [AI] Console device-configuration helper invoked from the warm-boot reinit; selects between the
 ;       built-in screen and an external (slot) terminal based on the device code, setting up the
 ;       corresponding output routine.
-SUB_DCEE:
+CONSOLE_DEV_SELECT:
         LD B,$B9                         ; $DCEE  06 B9
-        JR NZ,L_DCF5                     ; $DCF0  20 03
+        JR NZ,CONSOLE_DEV_SELECT_1       ; $DCF0  20 03
         LD (HL),$80                      ; $DCF2  36 80
         RET                              ; $DCF4  C9
-L_DCF5:
+CONSOLE_DEV_SELECT_1:
         LD A,$1F                         ; $DCF5  3E 1F
         CP C                             ; $DCF7  B9
-        JR C,L_DD2D                      ; $DCF8  38 33
+        JR C,CONSOLE_DEV_SELECT_2        ; $DCF8  38 33
         LD HL,$F3A0                      ; $DCFA  21 A0 F3
         LD B,$09                         ; $DCFD  06 09
         LD A,(HL)                        ; $DCFF  7E
@@ -496,7 +496,7 @@ L_DCF5:
         PUSH HL                          ; $DD2A  E5
         PUSH HL                          ; $DD2B  E5
         PUSH HL                          ; $DD2C  E5
-L_DD2D:
+CONSOLE_DEV_SELECT_2:
         PUSH HL                          ; $DD2D  E5
         PUSH HL                          ; $DD2E  E5
         PUSH HL                          ; $DD2F  E5
@@ -527,7 +527,7 @@ L_DD2D:
         PUSH HL                          ; $DD48  E5
         PUSH HL                          ; $DD49  E5
         PUSH HL                          ; $DD4A  E5
-L_DD4B:
+HOME_IMPL:
         PUSH HL                          ; $DD4B  E5
         PUSH HL                          ; $DD4C  E5
         PUSH HL                          ; $DD4D  E5
@@ -539,7 +539,7 @@ L_DD4B:
         PUSH HL                          ; $DD53  E5
         PUSH HL                          ; $DD54  E5
         PUSH HL                          ; $DD55  E5
-L_DD56:
+SETTRK_IMPL:
         PUSH HL                          ; $DD56  E5
         PUSH HL                          ; $DD57  E5
         PUSH HL                          ; $DD58  E5
@@ -564,7 +564,7 @@ SUB_DD60:
         PUSH HL                          ; $DD6A  E5
         PUSH HL                          ; $DD6B  E5
         PUSH HL                          ; $DD6C  E5
-L_DD6D:
+SELDSK_IMPL:
         PUSH HL                          ; $DD6D  E5
         PUSH HL                          ; $DD6E  E5
         PUSH HL                          ; $DD6F  E5
@@ -593,19 +593,19 @@ L_DD6D:
         PUSH HL                          ; $DD86  E5
         PUSH HL                          ; $DD87  E5
         PUSH HL                          ; $DD88  E5
-L_DD89:
+SETSEC_IMPL:
         PUSH HL                          ; $DD89  E5
         PUSH HL                          ; $DD8A  E5
         PUSH HL                          ; $DD8B  E5
         PUSH HL                          ; $DD8C  E5
         PUSH HL                          ; $DD8D  E5
-SUB_DD8E:
+SETDMA_IMPL:
         PUSH HL                          ; $DD8E  E5
         PUSH HL                          ; $DD8F  E5
         PUSH HL                          ; $DD90  E5
         PUSH HL                          ; $DD91  E5
         PUSH HL                          ; $DD92  E5
-L_DD93:
+READ_IMPL:
         PUSH HL                          ; $DD93  E5
         PUSH HL                          ; $DD94  E5
         PUSH HL                          ; $DD95  E5
@@ -622,7 +622,7 @@ L_DD93:
         PUSH HL                          ; $DDA0  E5
         PUSH HL                          ; $DDA1  E5
         PUSH HL                          ; $DDA2  E5
-L_DDA3:
+WRITE_IMPL:
         PUSH HL                          ; $DDA3  E5
         PUSH HL                          ; $DDA4  E5
         PUSH HL                          ; $DDA5  E5
@@ -715,24 +715,24 @@ L_DDA3:
         PUSH HL                          ; $DDFC  E5
         PUSH HL                          ; $DDFD  E5
         PUSH HL                          ; $DDFE  E5
-L_DDFF:
+WRITE_IMPL_1:
         PUSH HL                          ; $DDFF  E5
         OR A                             ; $DE00  B7
-        JR Z,L_DE07                      ; $DE01  28 04
+        JR Z,WRITE_IMPL_2                ; $DE01  28 04
         XOR E                            ; $DE03  AB
         CP C                             ; $DE04  B9
-        JR Z,L_DE0C                      ; $DE05  28 05
-L_DE07:
+        JR Z,WRITE_IMPL_3                ; $DE05  28 05
+WRITE_IMPL_2:
         DEC HL                           ; $DE07  2B
-        DJNZ L_DDFF                      ; $DE08  10 F5
-        JR L_DE2D                        ; $DE0A  18 21
-L_DE0C:
+        DJNZ WRITE_IMPL_1                ; $DE08  10 F5
+        JR WRITE_IMPL_4                  ; $DE0A  18 21
+WRITE_IMPL_3:
         LD DE,$000B                      ; $DE0C  11 0B 00
         ADD HL,DE                        ; $DE0F  19
         LD A,(HL)                        ; $DE10  7E
         OR A                             ; $DE11  B7
         LD C,A                           ; $DE12  4F
-        JP P,L_DC23                      ; $DE13  F2 23 DC
+        JP P,SUB_DBDD_2                  ; $DE13  F2 23 DC
         AND $7F                          ; $DE16  E6 7F
         LD C,A                           ; $DE18  4F
         PUSH BC                          ; $DE19  C5
@@ -742,18 +742,18 @@ L_DE0C:
         POP BC                           ; $DE22  C1
         LD A,B                           ; $DE23  78
         CP $07                           ; $DE24  FE 07
-        JR NZ,L_DE2D                     ; $DE26  20 05
+        JR NZ,WRITE_IMPL_4               ; $DE26  20 05
         LD A,$02                         ; $DE28  3E 02
         LD ($DEA3),A                     ; $DE2A  32 A3 DE
-L_DE2D:
+WRITE_IMPL_4:
         XOR A                            ; $DE2D  AF
         LD ($DEA4),A                     ; $DE2E  32 A4 DE
         LD A,($DEA2)                     ; $DE31  3A A2 DE
         OR A                             ; $DE34  B7
         LD HL,($F388)                    ; $DE35  2A 88 F3
-        JR Z,L_DE3D                      ; $DE38  28 03
+        JR Z,WRITE_IMPL_5                ; $DE38  28 03
         LD HL,($F386)                    ; $DE3A  2A 86 F3
-L_DE3D:
+WRITE_IMPL_5:
         JP (HL)                          ; $DE3D  E9
         DEFB    $11,$03,$00,$C3,$44,$DC,$2A,$A5,$DE,$3A,$A7,$DE,$77,$CD,$6B,$DC ; $DE3E
         DEFB    $2A,$28,$F0,$3A,$24,$F0,$5F,$16,$F0,$19,$22,$A5,$DE,$7E,$32,$A7 ; $DE4E
@@ -764,7 +764,7 @@ L_DE3D:
         DEFB    $E1,$C9,$21,$F4,$FB,$C9,$AF,$6F,$67,$22          ; $DE9E
 ; [AI] Body of BOOT (cold start): the routine the BOOT jump-table slot transfers to for one-time
 ;       hardware setup at $F045/$FBC1 before first entering the system.
-L_DEA8:
+BOOT_IMPL:
         INC H                            ; $DEA8  24
         RET P                            ; $DEA9  F0
         LD ($F045),A                     ; $DEAA  32 45 F0

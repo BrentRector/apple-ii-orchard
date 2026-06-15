@@ -11,7 +11,7 @@
 WBOOT_VEC            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
 CDISK                EQU $0004               ; Current drive (low nibble: 0=A, 1=B, ..., 15=P) and current user (high nibble, 0-15).
 BDOS_VEC             EQU $0005               ; BDOS call vector — JP BDOS_ENTRY. Programs use CALL $0005 to invoke BDOS. Word at $0006 is also the top-of-TPA marker.
-DEFAULT_DMA          EQU $0080               ; Default DMA buffer — also command-line tail. First byte = length, then characters. Returned to default by BDOS function 13 (DRV_ALLRESET).
+DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS cold-init / DRV_ALLRESET (fn 13) set the DMA address here and WBOOT re-issues SETDMA($0080); sector/record I/O moves 128 bytes through it. At program load this same buffer doubles as the command tail: the first byte ($0080) holds the tail length (0-127) and the characters follow at $0081 (CMDLINE).
 BDOS_ENTRY_223       EQU $9C06               ; BDOS entry point -- planted at $0005-$0007 as JP $9C06
 BDOS_SENTINEL        EQU $9C08               ; First-boot vs warm-boot detect (initialized to $9C; $FB7F-$FB85 checks)
 TPA_STATE_F397       EQU $F397               ; Read by preflight code at $FF17
@@ -23,10 +23,15 @@ BIOS_DMA             EQU $FED4               ; Current DMA buffer address (set b
 BIOS_FLAG_FED8       EQU $FED8               ; Zeroed by cold-boot setup at $FB9F
 BIOS_FLAG_FEDD       EQU $FEDD               ; Zeroed by cold-boot setup at $FB9C
 
-; -- Code-overlap labels (target falls inside another instruction) --
-HOME_IMPL            EQU $FE6C
-SELDSK_IMPL          EQU $FE8E
-BOOT_LANDING         EQU $FED1
+; -- Named mid-instruction routines (kept as cover+offset equates) --
+HOME_IMPL            EQU INIT_PASCAL_1_1_1+1 ; $FE6C
+SELDSK_IMPL          EQU INIT_KEYBOARD_2+1  ; $FE8E
+BOOT_LANDING         EQU WRITE_IMPL_1+2     ; $FED1
+
+; -- Mid-instruction references (shown inline as cover+offset) --
+;   $FE6C -> HOME_IMPL            z80 skip idiom: enters the operand of $3E at $FE6B
+;   $FE8E -> SELDSK_IMPL          shared instruction tail: $FE8E is reachable code inside the instruction at $FE8D
+;   $FED1 -> BOOT_LANDING         shared instruction tail: $FED1 is reachable code inside the instruction at $FECF
 
     ORG $FA00
 
@@ -37,30 +42,30 @@ BOOT:
 ; [AI] BIOS jump-table entry 1 (warm boot); reloads the CCP and re-establishes page-zero vectors
 ;       after a program exits via $0000.
 WBOOT:
-        JP L_FAB8                        ; $FA03  C3 B8 FA
+        JP WBOOT_IMPL                    ; $FA03  C3 B8 FA
 ; [AI] BIOS jump-table entry 2 (console status); returns A=$FF if a console character is ready, $00
 ;       otherwise, so BDOS can poll the keyboard.
 CONST:
-        JP L_FB10                        ; $FA06  C3 10 FB
+        JP CONST_IMPL                    ; $FA06  C3 10 FB
 ; [AI] BIOS jump-table entry 3 (console input); waits for and returns the next console character in
 ;       A for BDOS function 1.
 CONIN:
-        JP L_FB1A                        ; $FA09  C3 1A FB
+        JP CONIN_IMPL                    ; $FA09  C3 1A FB
 ; [AI] BIOS jump-table entry 4 (console output); sends the character in C to the console device for
 ;       BDOS functions 2/9.
 CONOUT:
-        JP L_FB4D                        ; $FA0C  C3 4D FB
+        JP CONOUT_IMPL                   ; $FA0C  C3 4D FB
 ; [AI] BIOS jump-table entry 5 (list/printer output); sends the character in C to the list device.
 LIST:
-        JP L_FB70                        ; $FA0F  C3 70 FB
+        JP LIST_IMPL                     ; $FA0F  C3 70 FB
 ; [AI] BIOS jump-table entry 6 (punch output); sends the character in C to the logical punch
 ;       device.
 PUNCH:
-        JP L_FB7F                        ; $FA12  C3 7F FB
+        JP PUNCH_IMPL                    ; $FA12  C3 7F FB
 ; [AI] BIOS jump-table entry 7 (reader input); returns a character from the logical reader device
 ;       in A.
 READER:
-        JP L_FB91                        ; $FA15  C3 91 FB
+        JP READER_IMPL                   ; $FA15  C3 91 FB
 ; [AI] BIOS jump-table entry 8 (home); positions the selected drive to track 0 in preparation for
 ;       seeking.
 HOME:
@@ -76,11 +81,11 @@ SETTRK:
 ; [AI] BIOS jump-table entry 11 (set sector); records the sector number in BC for the next
 ;       read/write.
 SETSEC:
-        JP L_FBF4                        ; $FA21  C3 F4 FB
+        JP SETSEC_IMPL                   ; $FA21  C3 F4 FB
 ; [AI] BIOS jump-table entry 12 (set DMA address); stores the BC transfer-buffer address used by
 ;       the next READ/WRITE.
 SETDMA:
-        JP SUB_FBF9                      ; $FA24  C3 F9 FB
+        JP SETDMA_IMPL                   ; $FA24  C3 F9 FB
 ; [AI] BIOS jump-table entry 13 (read sector); reads the selected track/sector into the DMA buffer,
 ;       returning A=0 on success.
 READ:
@@ -109,45 +114,45 @@ SECTRAN:
         DEFB    $00,$C0,$00,$0C,$00,$03,$00                      ; $FA7B
 ; [AI] Per-slot device-initialization loop run during boot: walks slots 7..1 in SLOT_INFO_BASE and
 ;       dispatches to the matching card-init routine for each detected device type.
-SUB_FA82:
+SLOT_INIT_SCAN:
         LD DE,$0007                      ; $FA82  11 07 00
-L_FA85:
+SLOT_INIT_SCAN_1:
         LD HL,SLOT_INFO_BASE             ; $FA85  21 B8 F3
         ADD HL,DE                        ; $FA88  19
         LD A,(HL)                        ; $FA89  7E
         SUB $03                          ; $FA8A  D6 03
-        JR NZ,L_FA95                     ; $FA8C  20 07
+        JR NZ,SLOT_INIT_SCAN_2           ; $FA8C  20 07
         CALL INIT_KEYBOARD               ; $FA8E  CD 81 FE
         LD (HL),$03                      ; $FA91  36 03
         LD (HL),$15                      ; $FA93  36 15
-L_FA95:
+SLOT_INIT_SCAN_2:
         DEC A                            ; $FA95  3D
-        JR NZ,L_FAA3                     ; $FA96  20 0B
+        JR NZ,SLOT_INIT_SCAN_3           ; $FA96  20 0B
         CALL INIT_PASCAL_1_0             ; $FA98  CD 83 FD
         LD HL,$C800                      ; $FA9B  21 00 C8
         CALL RPC_DISPATCH                ; $FA9E  CD 45 FB
-        JR L_FAAD                        ; $FAA1  18 0A
-L_FAA3:
+        JR SLOT_INIT_SCAN_4              ; $FAA1  18 0A
+SLOT_INIT_SCAN_3:
         CP $02                           ; $FAA3  FE 02
-        JR NZ,L_FAAD                     ; $FAA5  20 06
+        JR NZ,SLOT_INIT_SCAN_4           ; $FAA5  20 06
         LD HL,$0DD0                      ; $FAA7  21 D0 0D
         CALL INIT_PASCAL_1_1             ; $FAAA  CD B0 FD
-L_FAAD:
+SLOT_INIT_SCAN_4:
         DEC E                            ; $FAAD  1D
-        JR NZ,L_FA85                     ; $FAAE  20 D5
+        JR NZ,SLOT_INIT_SCAN_1           ; $FAAE  20 D5
         RET                              ; $FAB0  C9
         DEFB    $21,$00,$E0,$7B,$B4,$67,$C9                      ; $FAB1
 ; [AI] Warm-boot implementation (target of the WBOOT jump): resets the stack to $0080, re-runs slot
 ;       init, and either jumps to the warm restart or, on first boot, builds page-zero vectors.
-L_FAB8:
+WBOOT_IMPL:
         LD SP,DEFAULT_DMA                ; $FAB8  31 80 00
         LD A,($E051)                     ; $FABB  3A 51 E0
         LD HL,$0E00                      ; $FABE  21 00 0E
         CALL RPC_DISPATCH                ; $FAC1  CD 45 FB
-        CALL SUB_FA82                    ; $FAC4  CD 82 FA
+        CALL SLOT_INIT_SCAN              ; $FAC4  CD 82 FA
         LD A,(BDOS_SENTINEL)             ; $FAC7  3A 08 9C
         CP $9C                           ; $FACA  FE 9C
-        JR Z,L_FADF                      ; $FACC  28 11
+        JR Z,INIT_PAGE_ZERO              ; $FACC  28 11
         LD HL,$FF59                      ; $FACE  21 59 FF
         LD ($F3D0),HL                    ; $FAD1  22 D0 F3
         LD HL,($F3DE)                    ; $FAD4  2A DE F3
@@ -156,7 +161,7 @@ L_FAB8:
         JP $000B                         ; $FADC  C3 0B 00
 ; [AI] Cold-boot page-zero setup: clears BIOS flags then plants JP WBOOT at $0000 and JP BDOS at
 ;       $0005 so CP/M's standard entry vectors are live before the CCP runs.
-L_FADF:
+INIT_PAGE_ZERO:
         XOR A                            ; $FADF  AF
         LD ($9307),A                     ; $FAE0  32 07 93
         XOR A                            ; $FAE3  AF
@@ -185,7 +190,7 @@ L_FADF:
         RST $38                          ; $FB0D  FF
         NOP                              ; $FB0E  00
         NOP                              ; $FB0F  00
-L_FB10:
+CONST_IMPL:
         RST $30                          ; $FB10  F7
         RST $30                          ; $FB11  F7
         NOP                              ; $FB12  00
@@ -196,7 +201,7 @@ L_FB10:
         NOP                              ; $FB17  00
         RST $30                          ; $FB18  F7
         RST $30                          ; $FB19  F7
-L_FB1A:
+CONIN_IMPL:
         NOP                              ; $FB1A  00
         NOP                              ; $FB1B  00
         RST $30                          ; $FB1C  F7
@@ -252,7 +257,7 @@ RPC_DISPATCH:
         NOP                              ; $FB4A  00
         NOP                              ; $FB4B  00
         RST $38                          ; $FB4C  FF
-L_FB4D:
+CONOUT_IMPL:
         RST $38                          ; $FB4D  FF
         NOP                              ; $FB4E  00
         NOP                              ; $FB4F  00
@@ -288,7 +293,7 @@ L_FB4D:
         RST $38                          ; $FB6D  FF
         NOP                              ; $FB6E  00
         NOP                              ; $FB6F  00
-L_FB70:
+LIST_IMPL:
         RST $30                          ; $FB70  F7
         RST $30                          ; $FB71  F7
         NOP                              ; $FB72  00
@@ -304,7 +309,7 @@ L_FB70:
         RST $30                          ; $FB7C  F7
         RST $30                          ; $FB7D  F7
         NOP                              ; $FB7E  00
-L_FB7F:
+PUNCH_IMPL:
         NOP                              ; $FB7F  00
         RST $38                          ; $FB80  FF
         RST $38                          ; $FB81  FF
@@ -323,7 +328,7 @@ L_FB7F:
         NOP                              ; $FB8E  00
         NOP                              ; $FB8F  00
         RST $38                          ; $FB90  FF
-L_FB91:
+READER_IMPL:
         RST $38                          ; $FB91  FF
         NOP                              ; $FB92  00
         NOP                              ; $FB93  00
@@ -378,7 +383,7 @@ L_FB91:
 SUB_FBC4:
         RST $38                          ; $FBC4  FF
         RST $38                          ; $FBC5  FF
-L_FBC6:
+SUB_FBC4_1:
         NOP                              ; $FBC6  00
         NOP                              ; $FBC7  00
         RST $38                          ; $FBC8  FF
@@ -389,7 +394,7 @@ L_FBC6:
         RST $38                          ; $FBCD  FF
         NOP                              ; $FBCE  00
         NOP                              ; $FBCF  00
-L_FBD0:
+SUB_FBC4_2:
         RST $38                          ; $FBD0  FF
         RST $38                          ; $FBD1  FF
         NOP                              ; $FBD2  00
@@ -408,7 +413,7 @@ L_FBD0:
         NOP                              ; $FBDF  00
         RST $38                          ; $FBE0  FF
         RST $38                          ; $FBE1  FF
-L_FBE2:
+SUB_FBC4_3:
         NOP                              ; $FBE2  00
         NOP                              ; $FBE3  00
         RST $38                          ; $FBE4  FF
@@ -428,13 +433,13 @@ SUB_FBF0:
         RST $38                          ; $FBF1  FF
         NOP                              ; $FBF2  00
         NOP                              ; $FBF3  00
-L_FBF4:
+SETSEC_IMPL:
         RST $38                          ; $FBF4  FF
         RST $38                          ; $FBF5  FF
         NOP                              ; $FBF6  00
         NOP                              ; $FBF7  00
         RST $38                          ; $FBF8  FF
-SUB_FBF9:
+SETDMA_IMPL:
         RST $38                          ; $FBF9  FF
         NOP                              ; $FBFA  00
         NOP                              ; $FBFB  00
@@ -443,7 +448,7 @@ SUB_FBF9:
         NOP                              ; $FBFE  00
         NOP                              ; $FBFF  00
         NOP                              ; $FC00  00
-        CALL SUB_FBF9                    ; $FC01  CD F9 FB
+        CALL SETDMA_IMPL                 ; $FC01  CD F9 FB
         LD A,$01                         ; $FC04  3E 01
         LD ($974E),A                     ; $FC06  32 4E 97
         LD A,(CDISK)                     ; $FC09  3A 04 00
@@ -456,14 +461,14 @@ SUB_FBF9:
         DEFB    $E6,$03,$FE,$02,$20,$4B                          ; $FC50
 ; [AI] Console-input dispatch: jumps through the CONIN handler pointer stored at $F392, allowing
 ;       the active console device to be swapped via the IOBYTE.
-L_FC56:
+CONIN_DISPATCH:
         LD HL,($F392)                    ; $FC56  2A 92 F3
         JP (HL)                          ; $FC59  E9
         DEFB    $3A,$03,$00,$E6,$03,$FE,$02,$2A,$84,$F3,$28,$06,$30,$07,$2A,$82 ; $FC5A
         DEFB    $F3,$E9                                          ; $FC6A
 ; [AI] Console-output dispatch: jumps through the CONOUT handler pointer at $F38A so the IOBYTE
 ;       selects which physical device receives the character.
-L_FC6C:
+CONOUT_DISPATCH:
         LD HL,($F38A)                    ; $FC6C  2A 8A F3
         JP (HL)                          ; $FC6F  E9
         DEFB    $3A,$03,$00,$E6,$C0,$FE,$80,$38,$27,$28,$DB,$2A,$94,$F3,$E9,$3A ; $FC70
@@ -471,31 +476,31 @@ L_FC6C:
         DEFB    $E9,$3A,$03,$00,$E6,$0C,$FE,$08,$38,$CE          ; $FC90
 ; [AI] Tail of the IOBYTE device-selection logic that, for the matching field value, falls back to
 ;       the console-output handler via the $F38C vector.
-L_FC9A:
-        JR Z,L_FC6C                      ; $FC9A  28 D0
+CONOUT_DISPATCH_1:
+        JR Z,CONOUT_DISPATCH             ; $FC9A  28 D0
         LD HL,($F38C)                    ; $FC9C  2A 8C F3
         JP (HL)                          ; $FC9F  E9
         DEFB    $37,$9F,$21,$A2                                  ; $FCA0
 ; [AI] Disk-controller wait/poll helper: spins reading a status location until ready, used by the
 ;       sector read/write paths before transferring data.
-SUB_FCA4:
+DISK_WAIT_READY:
         DI                               ; $FCA4  F3
         LD L,(HL)                        ; $FCA5  6E
         INC L                            ; $FCA6  2C
-        JP Z,SUB_FCA4                    ; $FCA7  CA A4 FC
+        JP Z,DISK_WAIT_READY             ; $FCA7  CA A4 FC
         LD HL,BIOS_TRACK                 ; $FCAA  21 CB FE
         LD (HL),A                        ; $FCAD  77
         RES 7,C                          ; $FCAE  CB B9
         INC HL                           ; $FCB0  23
         LD A,(HL)                        ; $FCB1  7E
         OR A                             ; $FCB2  B7
-        JP Z,L_FC56                      ; $FCB3  CA 56 FC
+        JP Z,CONIN_DISPATCH              ; $FCB3  CA 56 FC
         DEC (HL)                         ; $FCB6  35
         LD A,($F396)                     ; $FCB7  3A 96 F3
         LD HL,BIOS_DMA                   ; $FCBA  21 D4 FE
-        JR Z,L_FCCB                      ; $FCBD  28 0C
+        JR Z,DISK_WAIT_READY_1           ; $FCBD  28 0C
         OR A                             ; $FCBF  B7
-        JP P,L_FBC6                      ; $FCC0  F2 C6 FB
+        JP P,SUB_FBC4_1                  ; $FCC0  F2 C6 FB
         DEC HL                           ; $FCC3  2B
         AND $7F                          ; $FCC4  E6 7F
         LD E,A                           ; $FCC6  5F
@@ -505,22 +510,22 @@ SUB_FCA4:
         RET                              ; $FCCA  C9
 ; [AI] Write-direction branch of the sector-transfer setup, computing the on-disk address and
 ;       parameters when the operation is a write rather than a read.
-L_FCCB:
+DISK_WAIT_READY_1:
         OR A                             ; $FCCB  B7
-        JP M,L_FBD0                      ; $FCCC  FA D0 FB
+        JP M,SUB_FBC4_2                  ; $FCCC  FA D0 FB
         DEC HL                           ; $FCCF  2B
         CALL SUB_FBC4                    ; $FCD0  CD C4 FB
         LD HL,($FED3)                    ; $FCD3  2A D3 FE
         LD A,($F3A1)                     ; $FCD6  3A A1 F3
         OR A                             ; $FCD9  B7
-        JP P,L_FBE2                      ; $FCDA  F2 E2 FB
+        JP P,SUB_FBC4_3                  ; $FCDA  F2 E2 FB
         AND $7F                          ; $FCDD  E6 7F
         LD E,L                           ; $FCDF  5D
         LD L,H                           ; $FCE0  6C
         LD H,E                           ; $FCE1  63
 ; [AI] Sector-address arithmetic helper that combines track/sector offsets and twice calls the
 ;       controller wait routine to position and transfer a sector.
-SUB_FCE2:
+SECTOR_XFER:
         LD E,A                           ; $FCE2  5F
         ADD A,H                          ; $FCE3  84
         LD C,A                           ; $FCE4  4F
@@ -528,11 +533,11 @@ SUB_FCE2:
         ADD A,L                          ; $FCE6  85
         PUSH AF                          ; $FCE7  F5
         LD B,$07                         ; $FCE8  06 07
-        CALL SUB_FCA4                    ; $FCEA  CD A4 FC
+        CALL DISK_WAIT_READY             ; $FCEA  CD A4 FC
         POP AF                           ; $FCED  F1
         LD B,$0A                         ; $FCEE  06 0A
         LD C,A                           ; $FCF0  4F
-        JP SUB_FCA4                      ; $FCF1  C3 A4 FC
+        JP DISK_WAIT_READY               ; $FCF1  C3 A4 FC
         DEFB    $79,$32,$D2,$FE,$C9,$ED,$43,$E1,$FE,$C9,$00      ; $FCF4  "y2R~ImCa~I"
         DEFB    $00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00 ; $FCFF
         DEFB    $00,$F7,$F7,$00,$00,$F7,$F7,$00,$00,$F7,$F7,$00,$00,$F7,$F7,$10 ; $FD0F
@@ -765,45 +770,46 @@ INIT_PASCAL_1_1:
         LD A,(HL)                        ; $FE5A  7E
         LD E,A                           ; $FE5B  5F
         OR A                             ; $FE5C  B7
-        JR NZ,L_FE71                     ; $FE5D  20 12
+        JR NZ,INIT_PASCAL_1_1_2          ; $FE5D  20 12
         LD A,(TPA_STATE_F397)            ; $FE5F  3A 97 F3
         OR A                             ; $FE62  B7
-        JR Z,L_FE6B                      ; $FE63  28 06
+        JR Z,INIT_PASCAL_1_1_1           ; $FE63  28 06
         CP C                             ; $FE65  B9
-        JR NZ,L_FE6B                     ; $FE66  20 03
+        JR NZ,INIT_PASCAL_1_1_1          ; $FE66  20 03
         LD (HL),$80                      ; $FE68  36 80
         RET                              ; $FE6A  C9
-L_FE6B:
+INIT_PASCAL_1_1_1:
         LD A,$1F                         ; $FE6B  3E 1F
         CP C                             ; $FE6D  B9
-        JP C,SUB_FCA4                    ; $FE6E  DA A4 FC
-L_FE71:
+        JP C,DISK_WAIT_READY             ; $FE6E  DA A4 FC
+INIT_PASCAL_1_1_2:
         LD HL,DEVICE_TABLE_BASE          ; $FE71  21 A0 F3
         LD B,$09                         ; $FE74  06 09
-L_FE76:
+INIT_PASCAL_1_1_3:
         LD A,(HL)                        ; $FE76  7E
 ; [AI] Real body reached during the device-table scan loop (overlaps the SETTRK entry); compares
 ;       each table device code against the requested unit to find a match.
 SETTRK_IMPL:
         OR A                             ; $FE77  B7
-        JR Z,L_FE7E                      ; $FE78  28 04
+        JR Z,SETTRK_IMPL_1               ; $FE78  28 04
         XOR E                            ; $FE7A  AB
         CP C                             ; $FE7B  B9
-        JR Z,L_FE83                      ; $FE7C  28 05
-L_FE7E:
+        JR Z,INIT_KEYBOARD_1             ; $FE7C  28 05
+SETTRK_IMPL_1:
         DEC HL                           ; $FE7E  2B
-        DJNZ L_FE76                      ; $FE7F  10 F5
+        DJNZ INIT_PASCAL_1_1_3           ; $FE7F  10 F5
 ; [AI] Console/keyboard initialization branch reached when a slot's device code marks it as a
 ;       keyboard/terminal card during slot scanning.
 INIT_KEYBOARD:
-        JR L_FEA4                        ; $FE81  18 21
-L_FE83:
+        JR INIT_KEYBOARD_3               ; $FE81  18 21
+INIT_KEYBOARD_1:
         LD DE,$000B                      ; $FE83  11 0B 00
         ADD HL,DE                        ; $FE86  19
         LD A,(HL)                        ; $FE87  7E
         OR A                             ; $FE88  B7
         LD C,A                           ; $FE89  4F
-        JP P,L_FC9A                      ; $FE8A  F2 9A FC
+        JP P,CONOUT_DISPATCH_1           ; $FE8A  F2 9A FC
+INIT_KEYBOARD_2:
         AND $7F                          ; $FE8D  E6 7F
         LD C,A                           ; $FE8F  4F
         PUSH BC                          ; $FE90  C5
@@ -813,18 +819,18 @@ L_FE83:
         POP BC                           ; $FE99  C1
         LD A,B                           ; $FE9A  78
         CP $07                           ; $FE9B  FE 07
-        JR NZ,L_FEA4                     ; $FE9D  20 05
+        JR NZ,INIT_KEYBOARD_3            ; $FE9D  20 05
         LD A,$02                         ; $FE9F  3E 02
         LD ($FECC),A                     ; $FEA1  32 CC FE
-L_FEA4:
+INIT_KEYBOARD_3:
         XOR A                            ; $FEA4  AF
         LD (BIOS_BOOT_FLAG),A            ; $FEA5  32 CD FE
         LD A,(BIOS_TRACK)                ; $FEA8  3A CB FE
         OR A                             ; $FEAB  B7
         LD HL,($F388)                    ; $FEAC  2A 88 F3
-        JR Z,L_FEB4                      ; $FEAF  28 03
+        JR Z,INIT_KEYBOARD_4             ; $FEAF  28 03
         LD HL,($F386)                    ; $FEB1  2A 86 F3
-L_FEB4:
+INIT_KEYBOARD_4:
         JP (HL)                          ; $FEB4  E9
         DEFB    $11,$03,$00,$C3,$BB,$FC,$2A,$CE                  ; $FEB5
 ; [AI] READ implementation body (compares against opcode $3A); sets up and performs the sector read
@@ -836,19 +842,20 @@ READ_IMPL:
 ;       Apple II display or buffer byte before storing it.
 WRITE_IMPL:
         CP $77                           ; $FEC0  FE 77
-        CALL SUB_FCE2                    ; $FEC2  CD E2 FC
+        CALL SECTOR_XFER                 ; $FEC2  CD E2 FC
         LD HL,($F028)                    ; $FEC5  2A 28 F0
         LD A,($F024)                     ; $FEC8  3A 24 F0
         LD E,A                           ; $FECB  5F
         LD D,$F0                         ; $FECC  16 F0
         ADD HL,DE                        ; $FECE  19
+WRITE_IMPL_1:
         LD ($FECE),HL                    ; $FECF  22 CE FE
         LD A,(HL)                        ; $FED2  7E
         LD ($FED0),A                     ; $FED3  32 D0 FE
         CP $E0                           ; $FED6  FE E0
-        JR C,L_FEDC                      ; $FED8  38 02
+        JR C,WRITE_IMPL_2                ; $FED8  38 02
         XOR $20                          ; $FEDA  EE 20
-L_FEDC:
+WRITE_IMPL_2:
         AND $3F                          ; $FEDC  E6 3F
         OR $40                           ; $FEDE  F6 40
         LD (HL),A                        ; $FEE0  77
