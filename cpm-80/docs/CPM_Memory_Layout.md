@@ -18,6 +18,14 @@ services), and the **BIOS** (Basic I/O System, the hardware-specific drivers).
 The 44K and 60K layouts differ only in *where* the CCP and BDOS sit. Each part is
 described in full in [section 1](#1-the-z-80-cpm-address-space) below.
 
+Because the two processors address the same RAM differently, this document draws
+each layout **twice**: once in the Z-80 (CP/M) address space, the view a program
+sees ([section 1](#1-the-z-80-cpm-address-space)), and once in the physical Apple
+address space, where each piece really sits in the shared 64 KB
+([section 3](#3-the-6502-apple-physical-address-space)). The
+[window map in section 2](#2-the-softcard-window--how-the-z-80-sees-apple-ram) is
+the translation between the two.
+
 The module **base addresses** anchor everything (read from a booted image of each
 disk). Each module is referred to by its base throughout this document:
 
@@ -189,24 +197,147 @@ The Z-80 address that *does* reach the Apple ROM at `$FA00` is `$DA00`, through 
 
 ---
 
-## 3. The 6502 (Apple) side
+## 3. The 6502 (Apple) physical address space
 
-The 6502 boots the machine and then services the Z-80 BIOS's I/O requests —
-disk access through the **RWTS** (Read/Write Track Sector, the Disk II sector
-driver), console through the Apple monitor ROM. Its memory (Apple addresses):
+[Section 1](#1-the-z-80-cpm-address-space) showed memory as a CP/M program sees
+it. This section shows the **same RAM at its real Apple addresses** — where each
+piece physically sits in the 64 KB the two processors share. The 6502 boots the
+machine and then services the Z-80 BIOS's I/O requests: disk access through the
+**RWTS** (Read/Write Track Sector, the Disk II sector driver), console through the
+Apple monitor ROM. Run each Z-80 address from [section 1](#1-the-z-80-cpm-address-space)
+through the [window map](#2-the-softcard-window--how-the-z-80-sees-apple-ram) and
+you land in the diagrams below.
+
+### 44K layout (Apple addresses)
+
+The whole CP/M system fits in main RAM (`$0000`–`$BFFF`); the Language Card is
+never banked, so `$D000`–`$FFFF` stays Apple ROM.
+
+```
+ $FFFF ┌────────────────────────────────┐
+       │  Apple ROM  (Applesoft +       │  $D000-$FFFF: the Apple's own ROM.
+       │  Monitor)                      │  The 44K system never banks the
+ $D000 │  -- unused by 44K CP/M         │  Language Card, so this stays ROM.
+       ├────────────────────────────────┤
+       │  slot ROMs  ($C100-$CFFF)      │  Disk II PROM ($C600), Videx
+ $C100 │                                │  80-col firmware ($C300/$C800)
+       ├────────────────────────────────┤
+ $C000 │  I/O soft switches             │  keyboard, display, Disk II,
+       │  ($C000-$C0FF)                 │  Language-Card switches ($C08x)
+       ├────────────────────────────────┤
+ $BA00 │  6502 RWTS runtime copy        │  the Disk II driver, relocated to
+       │                                │  top-of-RAM for the running system
+       ├────────────────────────────────┤
+ $B900 │  disk-callback thunks          │  = Z-80 $A900
+       ├────────────────────────────────┤
+ $AC00 │  BDOS  (base $AC00)            │  = Z-80 $9C00; entry $AC06 = FBASE
+       ├────────────────────────────────┤
+ $A300 │  CCP   (base $A300)            │  = Z-80 $9300; reclaimable by the TPA
+       ├────────────────────────────────┤
+       │  TPA  (Transient               │  = Z-80 $0100-$A2FF. Free RAM; top is
+       │   Program Area)                │  FBASE $AC06. Programs load at $1100.
+ $1100 │                                │
+       ├────────────────────────────────┤
+ $1000 │  Z-80 base page                │  = Z-80 $0000 (vectors / FCB / DMA)
+       ├────────────────────────────────┤
+ $0A00 │  Z-80 BIOS (run time)          │  = Z-80 $FA00. Boot-time RWTS loads
+       │                                │  here; at run time it is the BIOS.
+       ├────────────────────────────────┤
+ $0800 │  boot loader (boot time)       │  sector-0 stub + stage-2 loader
+       ├────────────────────────────────┤
+ $0400 │  text page 1                   │  the 40-column screen
+       ├────────────────────────────────┤
+ $0200 │  input buffer / install        │  command-line buffer; boot install
+       ├────────────────────────────────┤
+ $0100 │  6502 stack                    │
+       ├────────────────────────────────┤
+ $0000 │  6502 zero page                │  Apple monitor + RWTS scratch
+       └────────────────────────────────┘
+```
+
+Note what the window does to the addresses: the CP/M system that lives "high" for
+the Z-80 (`$9300`–`$AAFF`) is actually `$A300`–`$BAFF`, just below the I/O page in
+**main RAM** — and the BIOS the Z-80 reaches at `$FA00` is really down at Apple
+`$0A00`, low memory, right next to the 6502 routines it cooperates with.
+
+### 60K layout (Apple addresses)
+
+`CPM60.COM` banks in the **Language Card** (`$D000`–`$FFFF`) and moves the resident
+system up into it. The CCP lands at `$F300` and the BDOS at `$FC00`; the 6502 disk
+driver moves up out of main RAM into the Language Card as well. The freed main RAM
+(`$A300`–`$BFFF`) plus the lower Language Card become extra TPA.
+
+```
+ $FFFF ┌────────────────────────────────┐
+ $FC00 │  BDOS  (base $FC00)            │  = Z-80 $DC00; entry $FC06 = FBASE.
+       │   in the Language Card         │  Tops out at $FFFF (= Z-80 $DFFF).
+       ├────────────────────────────────┤
+ $F300 │  CCP   (base $F300)            │  = Z-80 $D300; in the Language Card
+       ├────────────────────────────────┤
+       │  TPA  (upper, in the           │  = Z-80 $C000-$D2FF. The enlarged
+ $E000 │   Language Card)               │  TPA continues here, above the I/O.
+       ├────────────────────────────────┤
+ $D000 │  6502 disk driver +            │  = Z-80 $B000-$BFFF. Bank-switched
+       │   buffers (LC, banked)         │  LC 4 KB: RWTS moved here from $BA00
+       ├────────────────────────────────┤
+       │  slot ROMs  ($C100-$CFFF)      │  Disk II PROM ($C600), Videx
+ $C100 │                                │  ($C300/$C800)
+       ├────────────────────────────────┤
+ $C000 │  I/O soft switches             │  = Z-80 $E000-$EFFF -- in the window
+       │  ($C000-$C0FF)                 │  this sits just ABOVE the BDOS
+       ├────────────────────────────────┤
+       │  TPA  (lower, main RAM)        │  = Z-80 $0100-$AFFF. Programs load
+ $1100 │                                │  at $1100; the TPA is split by I/O.
+       ├────────────────────────────────┤
+ $1000 │  Z-80 base page                │  = Z-80 $0000 (vectors / FCB / DMA)
+       ├────────────────────────────────┤
+ $0A00 │  Z-80 BIOS (run time)          │  = Z-80 $FA00 (unchanged from 44K)
+       ├────────────────────────────────┤
+ $0800 │  boot loader (boot time)       │  does the Language-Card relocation
+       ├────────────────────────────────┤
+ $0400 │  text page 1                   │  the 40-column screen
+       ├────────────────────────────────┤
+ $0200 │  input buffer / install        │
+       ├────────────────────────────────┤
+ $0100 │  6502 stack                    │
+       ├────────────────────────────────┤
+ $0000 │  6502 zero page                │
+       └────────────────────────────────┘
+```
+
+This is the diagram that explains the BDOS placement question. In the Z-80's view
+the TPA is one contiguous run up to `$DC05`; **physically it is split by the I/O
+page.** The lower TPA is main RAM (`$1100`–`$BFFF`); above it sits the Apple I/O
+and slot ROMs (`$C000`–`$CFFF`, which the Z-80 never sees as memory — the window
+maps them out to Z-80 `$E000`+); then the TPA resumes in the Language Card. The
+resident system tops out at Apple `$FFFF`, which is exactly Z-80 `$DFFF` — the
+highest address the window maps into the Language Card. The BDOS cannot grow past
+it, because the next Z-80 address (`$E000`) lands back on the Apple I/O page, not
+on more RAM. That is also why the I/O annotation reads "just above the BDOS":
+in the Z-80's address space `$E000` (the I/O) sits immediately above the BDOS at
+`$DC00`, even though physically the I/O is far *below* the Language Card.
+
+The `$D000`–`$DFFF` band is the Language Card's bank-switched 4 KB. The booted
+image shows the 6502 RWTS driver here, byte-for-byte the copy that sat at `$BA00`
+in the 44K system; banking lets this same window double as TPA RAM for the Z-80.
+
+### Fixed Apple hardware regions
+
+The two diagrams above show *CP/M's* occupancy; the underlying Apple hardware map
+is the same in both:
 
 | Apple addr | Region | Role |
 |---|---|---|
 | `$0000`–`$00FF` | 6502 zero page | Apple monitor + RWTS scratch |
+| `$0100`–`$01FF` | 6502 stack | |
 | `$0200`–`$03FF` | input buffer / install fragments | command-line buffer; boot-time install code |
 | `$0400`–`$07FF` | text page 1 | 40-column screen |
 | `$0800`–`$09FF` | boot loader (boot time) | sector-0 boot stub + stage-2 loader |
-| `$0A00`–`$0FFF` | RWTS (boot) → Z-80 BIOS (run) | Disk II read/write-track-sector at boot; at run time this same Apple RAM is Z-80 `$FA00`, the BIOS |
-| `$1000`–`$BFFF` | CP/M base page + TPA | the Z-80's `$0000`–`$AFFF`, seen through the window |
-| `$BA00`–`$BFFF` | RWTS runtime copy | the disk routines, relocated here for the running system |
+| `$0A00`–`$0FFF` | RWTS (boot) → Z-80 BIOS (run) | Disk II driver at boot; at run time this same Apple RAM is Z-80 `$FA00`, the BIOS |
+| `$1000`–`$BFFF` | CP/M base page + TPA (+ system, 44K) | the Z-80's `$0000`–`$AFFF`, seen through the window |
 | `$C000`–`$C0FF` | I/O soft switches | keyboard, display, the Disk II controller, the Language Card switches (`$C080`–`$C08F`) |
 | `$C100`–`$CFFF` | slot ROMs | the Disk II PROM (`$C600`), the Videx 80-column firmware (`$C300`/`$C800`) |
-| `$D000`–`$FFFF` | Language Card (16 KB) | bankable RAM; in 60K it holds the relocated CP/M system |
+| `$D000`–`$FFFF` | Apple ROM (44K) / Language Card (60K) | ROM when the card is not banked; in 60K it is banked RAM holding the relocated CP/M system |
 
 ---
 
