@@ -8,6 +8,16 @@ standard **44K** layout and the **60K** layout that `CPM60.COM` installs, and
 explains how the 60K version reaches a larger program area by moving the resident
 operating system into the Apple **Language Card**.
 
+CP/M is small and has the same four parts in every layout. From the bottom of
+memory up: a **base page** of system vectors and buffers; the **TPA** (Transient
+Program Area), the free RAM where application programs load and run; and, stacked
+at the top, the resident operating system in three layers — the **CCP** (Console
+Command Processor, the command-line shell that prints the `A>` prompt), the
+**BDOS** (Basic Disk Operating System, the hardware-independent file and console
+services), and the **BIOS** (Basic I/O System, the hardware-specific drivers).
+The 44K and 60K layouts differ only in *where* the CCP and BDOS sit. Each part is
+described in full in [section 1](#1-the-z-80-cpm-address-space) below.
+
 Two numbers anchor everything (read from the page-zero vectors of a booted disk):
 
 | | 44K | 60K |
@@ -40,7 +50,7 @@ bottom up: the **base page**, the **TPA**, and the resident system (**CCP**,
        │  ( SoftCard window region —   │  Z-80 $B000-$F9FF maps to the Apple
        │    disk callbacks, the 6502   │  Language Card / I/O space, used for
        │    RWTS runtime copy, etc. )  │  BDOS disk thunks (~$A900) and the
- $AA00 ├──────────────────────────────┤  relocated 6502 RWTS (Apple $BA00)
+ $AA00 ├──────────────────────────────┤  relocated 6502 RWTS disk driver ($BA00)
        │  BDOS  (file / disk / console │  entry at $9C06
  $9C00 │         system calls)         │
        ├──────────────────────────────┤
@@ -157,8 +167,9 @@ next to the 6502 routines it cooperates with.
 
 ## 3. The 6502 (Apple) side
 
-The 6502 boots the machine and then services the Z-80 BIOS's I/O requests. Its
-memory (Apple addresses):
+The 6502 boots the machine and then services the Z-80 BIOS's I/O requests —
+disk access through the **RWTS** (Read/Write Track Sector, the Disk II sector
+driver), console through the Apple monitor ROM. Its memory (Apple addresses):
 
 | Apple addr | Region | Role |
 |---|---|---|
