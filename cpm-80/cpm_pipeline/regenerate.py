@@ -250,6 +250,7 @@ class Target:
     org: int                # load address
     symbols: tuple          # symbol-table paths (curated), in precedence order
     seed: str               # 'bios' | 'jp' | 'jmp'  (seeding strategy)
+    savebin: str = ""       # Z-80 SAVEBIN path substituted for {out_bin} on write
 
 
 def _docs_targets():
@@ -263,16 +264,18 @@ def _docs_targets():
     ]
     for stem, b, lo, hi, org, bsym in bios:
         t.append(Target(_DOCS / f"{stem}.asm", "z80", _INVEST / b, lo, hi, org,
-                        (_SYM / bsym, _SYM / "cpm_2_2.json"), "bios"))
+                        (_SYM / bsym, _SYM / "cpm_2_2.json"), "bios",
+                        savebin=f"build/{stem}.bin"))
     # Z-80 CCP+BDOS system image (both variants).
     for stem, b in (("CPM223_SystemImage", "sysimg_223.bin"),
                     ("CPM220_SystemImage", "sysimg_220.bin")):
         t.append(Target(_DOCS / f"{stem}.asm", "z80", _INVEST / b, 0, 0x1700, 0x8000,
-                        (_SYM / "cpm_2_2.json",), "jp"))
+                        (_SYM / "cpm_2_2.json",), "jp", savebin=f"build/{stem}.bin"))
     # Z-80 disk callbacks (2.23 only).
     t.append(Target(_DOCS / "CPM223_DiskCallbacks.asm", "z80",
                     _INVEST / "diskcallbacks_223.bin", 0, 0x200, 0x1A00,
-                    (_SYM / "cpm_2_2.json", _SYM / "cpm_2_23_bios.json"), "jp"))
+                    (_SYM / "cpm_2_2.json", _SYM / "cpm_2_23_bios.json"), "jp",
+                    savebin="build/CPM223_DiskCallbacks.bin"))
     # 6502 boot loader / RWTS / install fragments (both variants).
     for var, suf in (("CPM223", "223"), ("CPM220", "220")):
         t.append(Target(_DOCS / f"{var}_BootLoader.asm", "6502",
@@ -288,6 +291,30 @@ def _docs_targets():
 
 
 DOCS_TARGETS = _docs_targets()
+
+
+def _decompiled_os_targets():
+    """The machine-disassembly OS-region tree (decompile_os `auto/` output:
+    CPM_<Region>.{asm,s}). Same binaries/recipe as the docs OS regions but fully
+    auto-labeled (so all of them, not just the BIOS, benefit from AI naming)."""
+    from .decompile_os import _REGIONS
+    out = []
+    for variant, sub in (("softcard_cpm_2_23", "CPMV233"),
+                         ("softcard_cpm_2_20", "CPM220")):
+        base = _REPO / "cpm-80" / "decompiled" / sub / "os"
+        for r in _REGIONS[variant]:
+            ext = ".s" if r.cpu == "6502" else ".asm"
+            stem = f"CPM_{r.name}"
+            seed = "bios" if r.name == "BIOS" else ("jmp" if r.cpu == "6502" else "jp")
+            out.append(Target(
+                base / f"{stem}{ext}", r.cpu,
+                _INVEST / r.bin_name, 0, r.length, r.org,
+                tuple(_SYM / s for s in r.symbols), seed,
+                savebin=f"{stem}.bin"))
+    return out
+
+
+DECOMPILED_OS_TARGETS = _decompiled_os_targets()
 
 
 def _load_mem(target):
@@ -351,7 +378,8 @@ def regenerate(target, *, ai_names=None, write=False, preserve=True):
         # placeholder, which assemble_z80 substitutes to a temp path).
         text = merged
         if target.cpu == "z80":
-            text = text.replace("{out_bin}", f"build/{target.out_path.stem}.bin")
+            savebin = target.savebin or f"build/{target.out_path.stem}.bin"
+            text = text.replace("{out_bin}", savebin)
         target.out_path.write_text(text, encoding="utf-8")
         if cfg is not None:
             target.out_path.with_suffix(".cfg").write_text(cfg, encoding="utf-8")
