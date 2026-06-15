@@ -5,11 +5,16 @@ This tree is the decompilation of the **60K** SoftCard CP/M system (the disk
 answer one question: **what does the 60K conversion change, and how does it give a
 larger transient program area?**
 
-The short answer: the resident CP/M system (the **CCP and BDOS**) is **re-assembled
-+$4000 higher**, out of main RAM and up into the Apple **Language Card** at
-`$D000+`. That frees the 16 KB of main RAM the system used to occupy, and the
-transient program area (TPA) grows by exactly that 16 KB. The **BIOS does not
-move** (it stays at `$FA00`), and the **filesystem is untouched**.
+The short answer: the resident CP/M system (the **CCP and BDOS**) moves **`+$4000`
+higher**, out of main RAM and up into the Apple **Language Card** at `$D000+`. That
+frees the 16 KB of main RAM the system used to occupy, and the transient program
+area (TPA) grows by exactly that 16 KB. The **BIOS does not move** (it stays at
+`$FA00`), and the **filesystem is untouched**.
+
+But "moves higher" is the whole story only for the **CCP** (a clean re-ORG). The
+**BDOS** is also *patched* to bank the Language Card, and the **BIOS**, though it
+stays at `$FA00`, gains the relocation/banking code (it is ~184 bytes longer). The
+byte-level evidence is in the per-module sections below.
 
 ## Ground truth: the page-zero vectors
 
@@ -46,15 +51,22 @@ That is the signature of a clean **re-ORG**: the same source, re-assembled at a
 (high byte `$9x` → `$Dx`). `os/CPM_CCP.asm` is that relocated CCP (byte-identical to
 the booted image at `$D300`); it is the 44K CCP we already decompiled, moved up.
 
-The **BDOS** vector relocates the same way (`$9C06` → `$DC06`), and is the standard
-CP/M 2.2 BDOS re-ORG'd `+$4000`. (A raw byte diff of the BDOS region at idle is
-noisy because that region carries the BDOS's runtime variables and straddles the
-Language-Card bank / SoftCard window boundary; the vector and the CCP settle the
-mechanism.)
+The **BDOS** vector relocates the same way (`$9C06` → `$DC06`), but — unlike the
+CCP — the BDOS is **not** a clean re-ORG. Comparing the pristine 60K BDOS (carved
+from `CPM60.COM`'s embedded payload) against the pristine 44K BDOS (`sysimg_223`),
+relocation-aware, the two diverge well beyond operand bumps: the 60K dispatch opens
+`LD ($E08B),A` (bank the Language Card in) where the 44K opens `EX DE,HL` /
+`LD ($9F43),HL`, Language-Card bank switches (`$E08B`/`$E083`) are woven through the
+body, and the module is split across the card (body addresses span both the
+lower-LC `$Bxxx` window and `$DCxx`). It is the same CP/M 2.2 BDOS, **modified** to
+live in and bank the Language Card — not merely re-assembled higher.
 
-The **BIOS** stays at `$FA00`. `os/CPM_BIOS.asm` is the 60K BIOS at the same origin
-as the 44K BIOS; the two are mostly identical (the differences are the usual
-cold-boot patches plus the memory-size constants that report the larger TPA).
+The **BIOS** stays at `$FA00` (it is *not* relocated), but it is **substantially
+modified**, not "mostly identical." Byte-for-byte at the same origin, the 60K BIOS
+is **~184 bytes longer** and only ~19% identical to the 44K BIOS: it carries the
+cold-boot relocation loop and the LC banking. What the two share is the jump-table
+skeleton at the top, where the embedded CCP/BDOS base constants are patched
+(`9C`→`DC`, `93`→`D3`).
 
 ## What does the relocation: the 6502 boot loader
 

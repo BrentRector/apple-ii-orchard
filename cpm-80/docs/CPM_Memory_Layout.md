@@ -84,17 +84,22 @@ The whole 44K system lives in main RAM; it does **not** use the Language Card.
 
 ### 60K layout
 
-Identical, except the **CCP and BDOS are re-assembled `+$4000` higher** — out of
+Identical in structure, except the **CCP and BDOS move `+$4000` higher** — out of
 main RAM and up into the Apple Language Card (Z-80 `$B000-$DFFF` maps onto the
-Language Card) — and the TPA grows into the space they vacate. The BIOS does not move.
+Language Card) — and the TPA grows into the space they vacate. The move is *not*
+a uniform re-assembly: the **CCP** is a clean re-ORG, but the **BDOS** is also
+patched to bank the Language Card in/out, and the **BIOS** keeps its `$FA00`
+address while gaining the relocation/banking code (see
+[§4](#4-how-60k-is-reached) for the byte-level evidence).
 
 ```
  $FFFF ┌────────────────────────────────┐
        │  BIOS scratch / stack          │
- $FA00 │  BIOS   (base $FA00)           │  unchanged
+ $FA00 │  BIOS   (base $FA00)           │  same address, but code is patched
+       │                                │  (+184B: relocation + LC banking)
        ├────────────────────────────────┤
        │  BDOS   (base $DC00)           │  in the Language Card. <- was $9C00
- $DC00 │   (relocated +$4000)           │  entry base+6 = $DC06
+ $DC00 │   (reloc +$4000 + LC banking)  │  entry base+6 = $DC06
        ├────────────────────────────────┤
        │  CCP    (base $D300)           │  in the Language Card. <- was $9300
  $D300 │   (relocated +$4000)           │
@@ -162,7 +167,10 @@ Language Card) — and the TPA grows into the space they vacate. The BIOS does n
   PUNCH, READER, HOME, SELDSK, SETTRK, SETSEC, SETDMA, READ, WRITE, LISTST,
   SECTRAN). On the SoftCard the Z-80 BIOS is a **thin stub** that marshals each
   request across to the 6502 side, which performs the actual Apple disk/console
-  I/O. It lives high (`$FA00`) and **does not move** between 44K and 60K.
+  I/O. It lives high (`$FA00`) and **does not move** between 44K and 60K — but
+  *staying put is not the same as staying the same*: the 60K BIOS keeps the
+  `$FA00` address while its code is substantially patched (it gains the
+  Language-Card relocation and banking; see [§4](#4-how-60k-is-reached)).
 
 ---
 
@@ -291,7 +299,7 @@ driver moves up out of main RAM into the Language Card as well. The freed main R
        ├────────────────────────────────┤
  $1000 │  Z-80 base page                │  = Z-80 $0000 (vectors / FCB / DMA)
        ├────────────────────────────────┤
- $0A00 │  Z-80 BIOS (run time)          │  = Z-80 $FA00 (unchanged from 44K)
+ $0A00 │  Z-80 BIOS (run time)          │  = Z-80 $FA00 (same address; code patched)
        ├────────────────────────────────┤
  $0800 │  boot loader (boot time)       │  does the Language-Card relocation
        ├────────────────────────────────┤
@@ -360,7 +368,28 @@ resolves at `$DC06`, leaving the BIOS at `$FA00`). The full mechanism, with the
 relocated sources, is in
 [`decompiled/CPMV233-60K/`](../decompiled/CPMV233-60K/DELTA.md).
 
-The relocation is otherwise faithful: the CCP and BDOS are the **same code** (a
-clean re-assembly — the 60K CCP is ~99% byte-for-byte the 44K CCP with its
-absolute operands bumped `+$4000`), the BIOS is unchanged, and the filesystem
-(tracks 3+) is untouched.
+How faithful is the move? Comparing the **pristine** 60K modules (extracted from
+`CPM60.COM`'s embedded payload, never run) against the verified 44K originals,
+relocation-aware:
+
+* **CCP — a clean re-ORG.** Same length, ~99.8% byte-for-byte identical, **zero**
+  inserted or deleted bytes; the only differences are absolute operands bumped
+  `+$4000` (high byte `$9x`→`$Dx`) plus a handful of cross-references to modules
+  that moved by other offsets. This module genuinely *is* "the same code,
+  re-assembled at a higher base."
+* **BDOS — the same CP/M 2.2 BDOS, but modified.** It is **not** a clean re-ORG.
+  The 60K dispatch begins `LD ($E08B),A` (bank the Language Card in) where the 44K
+  dispatch begins `EX DE,HL` / `LD ($9F43),HL`; the module weaves in Language-Card
+  bank switches (`$E08B`/`$E083`) and is split across the card (its body addresses
+  span both the lower-LC `$Bxxx` window and `$DCxx`). Far more than relocation
+  changes.
+* **BIOS — same address, substantially different code.** It is *not* relocated at
+  all (it stays at `$FA00`), but the 60K BIOS is **~184 bytes longer** and only
+  ~19% byte-identical to the 44K BIOS; it carries the cold-boot relocation loop
+  and the LC banking. The shared part is the jump-table skeleton at the top, where
+  the embedded CCP/BDOS base constants are patched (`9C`→`DC`, `93`→`D3`).
+* **Filesystem** (tracks 3+) — untouched.
+
+So "the 60K system is the 44K system recompiled at a higher base" is exactly true
+only for the CCP. The BDOS and BIOS carry real, deliberate changes — the
+Language-Card relocation and banking machinery — woven into the same code.
