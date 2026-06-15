@@ -100,12 +100,16 @@ relocated CCP/BDOS up to `$D000+`, and run from there** — leaving the BIOS at
 | File | Origin | What it is |
 |---|---|---|
 | `os/CPM_BootLoader.s` | `$0800` | 6502 boot loader (does the LC relocation; the new code) |
-| `os/CPM_RWTS.s` | `$0A00` | 6502 Disk II RWTS (operands relocated to follow the system) |
 | `os/CPM_InstallFragments.s` | `$0200` | 6502 install fragments |
 | `os/CPM_CCP.asm` | `$D300` | Z-80 CCP, the 44K CCP re-ORG'd +$4000 into the Language Card |
-| `os/CPM_BIOS.asm` | `$FA00` | Z-80 BIOS (unchanged origin; ≈ the 44K BIOS) |
+| `os/CPM_BDOS.asm` | `$DC00` | Z-80 BDOS — the 60K BDOS, recovered from `CPM60.COM`'s payload (byte-identical). Same CP/M 2.2 BDOS, modified for LC banking + split layout |
+| `os/CPM_BIOS.asm` | `$FA00` | Z-80 BIOS (same origin as 44K, but substantially modified — see above) |
+| `os/CPM_RWTS.s` ⚠ | `$0A00` | **MISLABELED** — its `$0A00` bytes are actually the Z-80 **BIOS** image (Apple `$0A00` = Z-80 `$FA00` at run time: `C3 EA FE …` jump table + the "60K Ver. 2.23" banner), i.e. a duplicate of `CPM_BIOS.asm`. The real 6502 RWTS is the standalone driver in `CPM60.COM` at file offset `0x400`; extracting it properly is left for the source-tree refactor. |
+| `CPM60_installer.asm` | `$0100` | Z-80 installer driver — the `CPM60.COM` `.COM` program that writes the 60K system to disk (byte-identical) |
+| `CPM60_COM.md` | — | Full decompilation of `CPM60.COM` (byte map, installer, payload, install/boot mechanism) |
 
-All sources reassemble byte-identical to the booted 60K image at their origins.
+All `.asm`/`.s` sources reassemble byte-identical to the booted 60K image (or, for
+the `CPM60.COM` payloads, to the `.COM` file) at their origins.
 
 ## Method
 
