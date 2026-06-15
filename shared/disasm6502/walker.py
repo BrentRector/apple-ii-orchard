@@ -18,7 +18,12 @@ Heuristics for stopping a trace:
 Recursion depth is capped at 5000 to bound stack usage on adversarial input.
 """
 
+import re
+
 from .opcodes import OPCODES, UNDOC_MNEMONICS
+
+# Auto branch-label pattern (L_xxxx); everything else is a routine "head".
+_AUTO_BRANCH_RE = re.compile(r"^L_[0-9A-Fa-f]{4}$")
 
 
 class Walker:
@@ -126,3 +131,40 @@ class Walker:
                 self.labels[addr] = f"SUB_{addr:04X}"
             else:
                 self.labels[addr] = f"L_{addr:04X}"
+
+    def localize_labels(self, symbols=None):
+        """Rename branch-only labels to ``<head>_<n>`` so a routine's internal
+        labels read as locals of the routine they belong to (e.g. after a
+        ``CONIO`` entry, the next branch labels become ``CONIO_1``, ``CONIO_2``).
+
+        A *head* is any label with a non-auto name -- a JSR target (``SUB_xxxx``),
+        a curated symbol, or a hand/AI semantic name. A *local* is an auto
+        ``L_xxxx`` branch label. Each local is renamed to the nearest preceding
+        head's name plus a per-head counter; locals before any head keep their
+        auto name. Idempotent (names derive from role + address order) and
+        byte-identical (renaming never changes bytes)."""
+        def is_head(addr):
+            name = self.labels.get(addr)
+            return bool(name) and not _AUTO_BRANCH_RE.match(name)
+        # Names that stay fixed (heads + locals before any head); locals are
+        # renamed into the gaps, guaranteed unique against `used`.
+        used = {n for a, n in self.labels.items() if n and is_head(a)}
+        cur_head = None
+        counter = 0
+        for addr in sorted(self.labels.keys()):
+            name = self.labels.get(addr)
+            if not name:
+                continue
+            if is_head(addr):
+                cur_head = name
+                counter = 0
+                continue
+            if cur_head is None:
+                used.add(name)                 # before any head -- leave as-is
+                continue
+            counter += 1
+            candidate = f"{cur_head}_{counter}"
+            if candidate in used:              # never emit a duplicate label
+                candidate = f"{cur_head}_{counter}_{addr:04X}"
+            self.labels[addr] = candidate
+            used.add(candidate)

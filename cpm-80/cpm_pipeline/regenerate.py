@@ -1,0 +1,353 @@
+"""Regenerate annotated disassembly sources with the improved disassembler.
+
+The disassemblers now emit mid-instruction references inline as ``cover+offset``
+(no equates) and rename a routine's branch-only labels to ``<routine>_<n>``
+(``localize_labels``). A *semantic overlay* -- an ordinary symbol JSON of
+``address -> name`` produced by AI analysis of the routine bodies -- turns the
+auto ``SUB_xxxx`` heads into meaningful names (e.g. ``CONOUT``), which the
+localizer then carries into the locals (``CONOUT_1``, ``CONOUT_2``).
+
+This module regenerates a checked-in ``.asm``/``.s`` source from its original
+binary while:
+
+  * keeping the reassembly **byte-identical** (verified here), and
+  * preserving the existing ``; [AI]`` prose comments by **migrating them by
+    address** (old label -> address -> new label), so curated annotation is not
+    lost when labels are renamed.
+
+Only *names* come from AI; the bytes never round-trip through a model, and the
+comments are carried over verbatim, so the result still reassembles exactly.
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass, field
+from pathlib import Path
+
+from .annotate_ai import insert_comments
+
+# A column-0 label (ca65 / sjasmplus): NAME or NAME:.
+_LABEL_RE = re.compile(r"^([A-Za-z_.][A-Za-z0-9_.]*):")
+# The address comment every emitted code/data line carries: "; $XXXX".
+_ADDR_RE = re.compile(r";\s*\$([0-9A-Fa-f]{4})\b")
+# A full-line comment (only whitespace before the ';').
+_FULL_COMMENT_RE = re.compile(r"^\s*;")
+
+
+def parse_label_addrs(text: str) -> dict[str, int]:
+    """Map each label name to the address of the first emitted item after it.
+
+    Robust to renaming: every code/data line carries a ``; $XXXX`` address
+    comment, and labels sit on their own line just above. Consecutive labels at
+    the same address all map to that address."""
+    out: dict[str, int] = {}
+    pending: list[str] = []
+    for line in text.splitlines():
+        m = _LABEL_RE.match(line)
+        if m:
+            pending.append(m.group(1))
+            continue
+        am = _ADDR_RE.search(line)
+        if am and pending:
+            addr = int(am.group(1), 16)
+            for name in pending:
+                out[name] = addr
+            pending = []
+    return out
+
+
+def extract_ai_comments(text: str) -> dict[str, str]:
+    """Extract ``; [AI] ...`` prose blocks keyed by the label they annotate.
+
+    A block is a run of full-line ``;`` comments beginning with ``; [AI]`` that
+    sits immediately above a label line (exactly how ``insert_comments`` emits
+    them). Returns {label: prose}."""
+    out: dict[str, str] = {}
+    block: list[str] = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("; [AI]"):
+            block = [stripped[len("; [AI]"):].strip()]
+            continue
+        if block and _FULL_COMMENT_RE.match(line):
+            # continuation line of the current [AI] block
+            block.append(stripped.lstrip(";").strip())
+            continue
+        m = _LABEL_RE.match(line)
+        if m and block:
+            out[m.group(1)] = " ".join(p for p in block if p).strip()
+        block = []
+    return out
+
+
+def migrate_comments(old_text: str, new_text: str) -> tuple[str, int, int]:
+    """Carry the ``[AI]`` comments from `old_text` onto `new_text` by address.
+
+    Returns (new_text_with_comments, migrated, dropped). A comment is dropped
+    only when its address no longer carries a label (e.g. it sat on an old
+    mid-instruction overlap label that is now referenced inline)."""
+    old_addrs = parse_label_addrs(old_text)
+    old_comments = extract_ai_comments(old_text)
+    # old label -> address -> comment
+    addr_comments: dict[int, str] = {}
+    for label, prose in old_comments.items():
+        addr = old_addrs.get(label)
+        if addr is not None:
+            addr_comments.setdefault(addr, prose)
+    new_addrs = parse_label_addrs(new_text)
+    addr_to_new = {}
+    for label, addr in new_addrs.items():
+        addr_to_new.setdefault(addr, label)   # first label at the address wins
+    new_comments: dict[str, str] = {}
+    dropped = 0
+    for addr, prose in addr_comments.items():
+        label = addr_to_new.get(addr)
+        if label is not None:
+            new_comments[label] = prose
+        else:
+            dropped += 1
+    out_text, added = insert_comments(new_text, new_comments)
+    return out_text, added, dropped
+
+
+# Auto labels the disassembler mints itself (re-derived on every run); anything
+# else in a source is a curated/semantic name worth preserving.
+_AUTO_LABEL_RE = re.compile(r"^(L_|SUB_)[0-9A-Fa-f]{4}$")
+
+
+def extract_semantic_labels(text: str) -> dict[int, str]:
+    """Return {address: name} for every inline label in `text` that is NOT an
+    auto ``L_xxxx``/``SUB_xxxx`` name -- i.e. the hand-curated / symbol-derived
+    semantic labels. These must be fed back as an overlay so regeneration
+    reproduces them instead of reverting to auto names."""
+    out: dict[int, str] = {}
+    for label, addr in parse_label_addrs(text).items():
+        if not _AUTO_LABEL_RE.match(label):
+            out.setdefault(addr, label)
+    return out
+
+
+def overlay_json(names: dict[int, str], *, comments: dict[int, str] | None = None) -> dict:
+    """Build a schema-1.0 symbol-table dict from {address: semantic_name}, ready
+    to write as a JSON overlay loaded alongside the curated symbol tables."""
+    comments = comments or {}
+    entries = {}
+    for addr, name in sorted(names.items()):
+        e = {"name": name}
+        if addr in comments and comments[addr]:
+            e["comment"] = comments[addr]
+        entries[f"0x{addr:04X}"] = e
+    return {"schema_version": "1.0", "categories": {"semantic_names": entries}}
+
+
+@dataclass
+class RegenResult:
+    path: Path
+    byte_identical: bool
+    comments_migrated: int
+    comments_dropped: int
+    semantic_names: int
+    notes: list[str] = field(default_factory=list)
+
+
+# ── Disassembly recipes ────────────────────────────────────────────────
+#
+# Each checked-in source has an authoritative recipe that reproduces it
+# byte-identically from its original binary. We reuse the existing ones:
+#   * Z-80  -> region_disasm.disasm_z80_region (+ the right seeds/symbols)
+#   * 6502  -> disasm6502 Walker + Ca65Formatter (+ ld65 to assemble)
+# A *semantic overlay* (an extra symbol JSON) is merged in to give heads their
+# AI-synthesized names; it never changes bytes (names only).
+
+import subprocess
+import tempfile
+
+from .region_disasm import disasm_z80_region, assemble_z80, load_symbols as _load_z80_syms
+from .region_disasm import bios_jump_table_seeds
+
+import disasm6502.symbols as _d6502_syms
+from disasm6502.walker import Walker as _Walker6502
+from disasm6502.formatter import Ca65Formatter
+
+
+def leading_jp_seeds(mem, org, length, *, op):
+    """Seed `org` plus the targets of a leading run of ``JP nn`` (Z-80 op 0xC3)
+    or ``JMP nn`` (6502 op 0x4C) instructions -- the BIOS/loader jump-table
+    idiom -- so the table's handlers are traced as code."""
+    seeds = {org}
+    i = 0
+    while i + 3 <= min(length, 0x80) and mem[org + i] == op:
+        t = mem[org + i + 1] | (mem[org + i + 2] << 8)
+        if org <= t < org + length:
+            seeds.add(t)
+        i += 3
+    return seeds
+
+
+def _load_6502_syms(*paths):
+    t = _d6502_syms.SymbolTable()
+    for p in paths:
+        p = Path(p)
+        if p.exists():
+            t.load_file(str(p))
+    return t
+
+
+def disasm_6502_region(mem, org, length, *, symbols=None, seeds=(), source_name="",
+                       force_labels=None):
+    """Disassemble a 6502 region to ca65 source. Returns (asm_text, cfg_text).
+
+    `force_labels` ({addr: name}) plants a label at each in-range address (see
+    disasm_z80_region) to preserve hand-curated / AI semantic names."""
+    walker = _Walker6502(mem, start=org, end=org + length)
+    for s in sorted(set(seeds) | {org}):
+        walker.trace(s)
+    if force_labels:
+        for addr, name in force_labels.items():
+            if org <= addr < org + length:
+                walker.labels[addr] = name
+    walker.name_labels(symbols=symbols)
+    fmt = Ca65Formatter(mem, walker, symbols, origin=org, length=length,
+                        source_name=source_name)
+    return fmt.emit_source(), fmt.emit_config()
+
+
+def assemble_6502(asm_text, cfg_text):
+    """Assemble ca65 source (+ its cfg) back to bytes for a round-trip check."""
+    with tempfile.TemporaryDirectory() as tds:
+        td = Path(tds)
+        asm = td / "r.s"
+        cfg = td / "r.cfg"
+        obj = td / "r.o"
+        out = td / "r.bin"
+        asm.write_text(asm_text, encoding="utf-8")
+        cfg.write_text(cfg_text, encoding="utf-8")
+        r1 = subprocess.run(["ca65", str(asm), "-o", str(obj)],
+                            capture_output=True, text=True)
+        if r1.returncode != 0:
+            return b""
+        subprocess.run(["ld65", "-C", str(cfg), "-o", str(out), str(obj)],
+                       capture_output=True, text=True)
+        return out.read_bytes() if out.exists() else b""
+
+
+# ── Target registry ────────────────────────────────────────────────────
+_REPO = Path(__file__).resolve().parents[2]
+_INVEST = _REPO / "cpm-80" / "cpm-investigation"
+_DOCS = _REPO / "cpm-80" / "docs"
+_SYM = _REPO / "shared" / "symbols"
+
+
+@dataclass(frozen=True)
+class Target:
+    """A regenerable source file and the recipe that reproduces it byte-identical."""
+    out_path: Path          # checked-in .asm/.s to (re)write
+    cpu: str                # '6502' | 'z80'
+    bin_path: Path          # source binary
+    lo: int                 # byte slice [lo:hi) of the binary
+    hi: int
+    org: int                # load address
+    symbols: tuple          # symbol-table paths (curated), in precedence order
+    seed: str               # 'bios' | 'jp' | 'jmp'  (seeding strategy)
+
+
+def _docs_targets():
+    t = []
+    # Z-80 BIOS (runtime + on-disk), from gen_bios's recipe.
+    bios = [
+        ("CPM223_BIOS",      "bios_223.bin",    0, 0x548,   0xFA00, "cpm_2_23_bios.json"),
+        ("CPM220_BIOS",      "bios_220.bin",    0, 0x800,   0xDA00, "cpm_2_20_bios.json"),
+        ("CPM223_BIOS_Disk", "staging_223.bin", 6400, 7424, 0xFA00, "cpm_2_23_bios.json"),
+        ("CPM220_BIOS_Disk", "staging_220.bin", 5888, 7168, 0xDA00, "cpm_2_20_bios.json"),
+    ]
+    for stem, b, lo, hi, org, bsym in bios:
+        t.append(Target(_DOCS / f"{stem}.asm", "z80", _INVEST / b, lo, hi, org,
+                        (_SYM / bsym, _SYM / "cpm_2_2.json"), "bios"))
+    # Z-80 CCP+BDOS system image (both variants).
+    for stem, b in (("CPM223_SystemImage", "sysimg_223.bin"),
+                    ("CPM220_SystemImage", "sysimg_220.bin")):
+        t.append(Target(_DOCS / f"{stem}.asm", "z80", _INVEST / b, 0, 0x1700, 0x8000,
+                        (_SYM / "cpm_2_2.json",), "jp"))
+    # Z-80 disk callbacks (2.23 only).
+    t.append(Target(_DOCS / "CPM223_DiskCallbacks.asm", "z80",
+                    _INVEST / "diskcallbacks_223.bin", 0, 0x200, 0x1A00,
+                    (_SYM / "cpm_2_2.json", _SYM / "cpm_2_23_bios.json"), "jp"))
+    # 6502 boot loader / RWTS / install fragments (both variants).
+    for var, suf in (("CPM223", "223"), ("CPM220", "220")):
+        t.append(Target(_DOCS / f"{var}_BootLoader.asm", "6502",
+                        _INVEST / f"loader_{suf}.bin", 0, 0x0C00, 0x0800,
+                        (_SYM / "apple2.json",), "jmp"))
+        t.append(Target(_DOCS / f"{var}_RWTS.asm", "6502",
+                        _INVEST / f"rwts_{suf}.bin", 0, 0x0600, 0x0A00,
+                        (_SYM / "apple2.json",), "jmp"))
+        t.append(Target(_DOCS / f"{var}_InstallFragments.asm", "6502",
+                        _INVEST / f"installfragments_{suf}.bin", 0, 0x0200, 0x0200,
+                        (_SYM / "apple2.json",), "jmp"))
+    return t
+
+
+DOCS_TARGETS = _docs_targets()
+
+
+def _load_mem(target):
+    data = target.bin_path.read_bytes()[target.lo:target.hi]
+    mem = bytearray(0x10000)
+    mem[target.org:target.org + len(data)] = data
+    return mem, data
+
+
+def disassemble(target, *, force_labels=None):
+    """Disassemble `target` to source, planting `force_labels` ({addr: name})
+    for hand-curated / AI semantic names. Returns (source_text, cfg_text_or_None,
+    raw_bytes)."""
+    mem, data = _load_mem(target)
+    length = len(data)
+    if target.cpu == "z80":
+        syms = _load_z80_syms(*target.symbols)
+        if target.seed == "bios":
+            seeds = bios_jump_table_seeds(mem, target.org, length)
+        else:
+            seeds = leading_jp_seeds(mem, target.org, length, op=0xC3)
+        src = disasm_z80_region(mem, target.org, length, symbols=syms, seeds=seeds,
+                                source_name=target.out_path.stem, force_labels=force_labels)
+        return src, None, data
+    else:
+        syms = _load_6502_syms(*target.symbols)
+        seeds = leading_jp_seeds(mem, target.org, length, op=0x4C)
+        src, cfg = disasm_6502_region(mem, target.org, length, symbols=syms, seeds=seeds,
+                                      source_name=target.out_path.stem, force_labels=force_labels)
+        return src, cfg, data
+
+
+def _reassemble(target, src, cfg):
+    if target.cpu == "z80":
+        return assemble_z80(src)
+    return assemble_6502(src, cfg)
+
+
+def regenerate(target, *, ai_names=None, write=False, preserve=True):
+    """Regenerate one target with the improved disassembler.
+
+    Builds a semantic-name overlay from (a) the hand-curated labels already in
+    the existing source (so they are never lost) plus (b) any AI-synthesized
+    names in `ai_names` (which fill in the remaining auto heads). Migrates the
+    existing ``[AI]`` comments by address, verifies byte-identical, and
+    optionally writes the result back. Returns RegenResult."""
+    old_text = target.out_path.read_text(encoding="utf-8") if target.out_path.exists() else ""
+    names: dict[int, str] = {}
+    if preserve and old_text:
+        names.update(extract_semantic_labels(old_text))
+    if ai_names:
+        names.update(ai_names)            # AI names win on auto heads
+    src, cfg, data = disassemble(target, force_labels=names)
+    merged, migrated, dropped = (migrate_comments(old_text, src) if old_text
+                                 else (src, 0, 0))
+    rebuilt = _reassemble(target, merged, cfg)
+    ok = rebuilt == data
+    if write and ok:
+        target.out_path.write_text(merged, encoding="utf-8")
+        if cfg is not None:
+            target.out_path.with_suffix(".cfg").write_text(cfg, encoding="utf-8")
+    return RegenResult(target.out_path, ok, migrated, dropped, len(names),
+                       notes=[] if ok else ["NOT byte-identical -- not written"])

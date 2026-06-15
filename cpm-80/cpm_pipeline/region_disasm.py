@@ -51,16 +51,25 @@ def bios_jump_table_seeds(mem: bytes, org: int, length: int, entries: int = 17) 
 
 def disasm_z80_region(mem: bytearray, org: int, length: int, *,
                       symbols: SymbolTable | None = None,
-                      seeds=(), source_name: str = "") -> str:
+                      seeds=(), source_name: str = "", force_labels=None) -> str:
     """Disassemble `mem[org:org+length]` to sjasmplus source (with `{out_bin}`).
 
     `mem` is a full 64 KB image with the region already placed at `org`. Every
     seed is traced (recursive descent follows control flow from there); `org` is
     always seeded. Address operands resolve to labels/symbols where known.
+
+    `force_labels` ({addr: name}) plants a label at each in-range address even if
+    it is only a fall-through point -- used to preserve hand-curated / AI semantic
+    names that aren't control-flow targets. Labels are zero-width, so this stays
+    byte-identical as long as the address is an instruction (or data-run) start.
     """
     walker = Walker(mem, start=org, end=org + length)
     for s in sorted(set(seeds) | {org}):
         walker.trace(s)
+    if force_labels:
+        for addr, name in force_labels.items():
+            if org <= addr < org + length:
+                walker.labels[addr] = name
     walker.name_labels(symbols=symbols)
     fmt = SjasmFormatter(mem, walker, symbols, origin=org, length=length, source_name=source_name)
     return fmt.emit_source()

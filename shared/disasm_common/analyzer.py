@@ -24,6 +24,108 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 
+# ── Code-overlap (mid-instruction reference) classification ────────────
+#
+# A recursive-descent walker can discover a control-flow target whose address
+# falls in the INTERIOR of another instruction in the primary decode stream.
+# An assembler cannot place a label there (it would split the instruction and
+# change the bytes), so the formatter must name the address some other way.
+#
+# The right answer for a GENUINE mid-instruction reference is `cover+offset`:
+# a label on the covering instruction's start plus the byte offset into it
+# (e.g. `BIT_SKIP+1`). The assembler evaluates that to the identical absolute
+# value the old bare `EQU $XXXX` produced, so round-trip is preserved, and the
+# source now documents *why* the address is mid-instruction.
+#
+# Two shapes are genuine:
+#   * a named "skip" idiom -- a 6502 `BIT`/Z-80 `LD rr,nn`/`LD A,n` whose
+#     operand bytes are entered as a real instruction on another path; and
+#   * a shared instruction tail -- the interior address is itself reachable
+#     code (the walker traced it), so two decodes legitimately share bytes.
+# Anything else (the interior of a non-idiom instruction that is NOT reached
+# as code, or a label that fell inside a data run with no covering
+# instruction at all) is a MISFRAME: a symptom that the code/data
+# classification or the ORG is wrong, not a real overlap.
+
+# Named mid-instruction "skip" idioms: opcode -> the operand-byte offsets a
+# second control-flow path can legitimately enter as its own instruction.
+_IDIOM_COVERS = {
+    "6502": {
+        0x2C: (1, 2),   # BIT abs  -- classic "skip 2": operand bytes run as code
+        0x24: (1,),     # BIT zp   -- "skip 1"
+    },
+    "z80": {
+        0x21: (1, 2),   # LD HL,nn -- "skip 2" via 16-bit immediate
+        0x01: (1, 2),   # LD BC,nn
+        0x11: (1, 2),   # LD DE,nn
+        0x3E: (1,),     # LD A,n   -- "skip 1" via 8-bit immediate
+    },
+}
+
+
+@dataclass
+class OverlapResult:
+    """Outcome of classifying an in-range label the formatter cannot place
+    inline. `kind` is 'IDIOM' (emit `name = cover_label+offset`) or
+    'MISFRAME' (no genuine overlap -- emit a flagged fallback and a warning).
+    `cover_start` is the covering instruction's address (None when the label
+    fell inside a data run). `offset` is `addr - cover_start`."""
+    kind: str
+    cover_start: int
+    offset: int
+    reason: str
+
+
+def overlap_expr(cover_label, offset):
+    """Operand text for a mid-instruction reference: a bare label when the
+    target IS the instruction start, else ``LABEL+offset``."""
+    return cover_label if offset == 0 else f"{cover_label}+{offset}"
+
+
+def classify_overlap(mem, addr, *, byte_to_start, code_set, decode_size, cpu):
+    """Decide whether an unplaceable in-range label at `addr` is a genuine
+    mid-instruction reference (IDIOM) or a classification artifact (MISFRAME).
+
+    Args:
+        mem:          full memory image.
+        addr:         the label address that could not be placed inline.
+        byte_to_start: dict mapping every interior code byte to the start of
+                      the instruction (as the body emits it) that covers it.
+        code_set:     the walker's confirmed-code address set.
+        decode_size:  callable(a) -> size in bytes of the instruction at `a`.
+        cpu:          'z80' or '6502' (selects the idiom registry).
+
+    Returns an OverlapResult. IDIOM is byte-identical to emit as
+    ``cover_label+offset``; MISFRAME signals a data/ORG problem upstream.
+    """
+    cover = byte_to_start.get(addr)
+    if cover is None:
+        return OverlapResult(
+            "MISFRAME", None, 0,
+            "no covering instruction (label falls inside a data run)")
+    offset = addr - cover
+    size = decode_size(cover)
+    if not (cover < addr < cover + size):
+        return OverlapResult(
+            "MISFRAME", cover, offset,
+            f"label not strictly interior to the instruction at ${cover:04X}")
+    op = mem[cover]
+    idiom_offsets = _IDIOM_COVERS.get(cpu, {}).get(op)
+    if idiom_offsets is not None and offset in idiom_offsets:
+        return OverlapResult(
+            "IDIOM", cover, offset,
+            f"{cpu} skip idiom: enters the operand of ${op:02X} at ${cover:04X}")
+    if addr in code_set:
+        return OverlapResult(
+            "IDIOM", cover, offset,
+            f"shared instruction tail: ${addr:04X} is reachable code "
+            f"inside the instruction at ${cover:04X}")
+    return OverlapResult(
+        "MISFRAME", cover, offset,
+        f"interior of non-idiom instruction ${op:02X} at ${cover:04X} and "
+        f"${addr:04X} is not reached as code (likely data decoded as code)")
+
+
 class DataKind(Enum):
     FILL = "fill"
     STRING = "string"

@@ -42,9 +42,20 @@ cmp INPUT.bin OUT.bin    # silent = byte-identical
 
 ## Code-overlap idiom support
 
-Z-80 BIOSes sometimes use deliberate instruction overlap — calling into the middle of a multi-byte instruction so two code paths share trailing bytes. The CP/M 2.23 BIOS does this at $FB45: `CALL $FB45` enters `RLCA; CALL $FE81; ...` while the surrounding context decodes those same bytes as `JR NZ,L_FB4D; CALL $FE81; ...`.
+Z-80 BIOSes sometimes use deliberate instruction overlap — calling into the middle of a multi-byte instruction so two code paths share trailing bytes. The CP/M 2.23 BIOS does this at $FB45: `CALL $FB45` enters `RLCA; CALL $FE81; ...` while the surrounding context decodes those same bytes as `JR NZ,L_FB44; CALL $FE81; ...`.
 
-The walker correctly traces both paths. Labels that fall mid-instruction are emitted as `EQU` constants at the top of the source (sjasmplus accepts these as numeric values for `CALL`/`JP` targets), preserving byte-identical round-trip.
+The walker correctly traces both paths. A label that falls mid-instruction can't be placed inline (it would split the covering instruction and change the bytes), so the formatter mints a label on the covering instruction's start and references the target **inline at the use site** as `cover+offset` — no standalone label, no equate. The CP/M 2.23 BIOS overlap reads
+
+```
+L_FB44:
+        JR NZ,L_FB4D                     ; $FB44  20 07
+        ...
+        CALL L_FB44+1                    ; $FB56  CD 45 FB
+```
+
+The assembler evaluates `L_FB44+1` to `$FB45`, so round-trip stays byte-identical while the call site documents *why* the address is mid-instruction. Recognized shapes are the named skip idioms (6502 `BIT`-skip `$2C`/`$24`, Z-80 `LD rr,nn`/`LD A,n` `$21`/`$01`/`$11`/`$3E`) and shared instruction tails (the interior address is itself reachable code). A comment block near the top of the source summarizes every mid-instruction reference.
+
+A label that lands inside a *data run* (no covering instruction) or inside the interior of a non-idiom instruction it never reaches as code is flagged as a **suspected misframe** — a signal that the code/data classification or the ORG is wrong, not a real overlap. Its operand falls back to a bare literal and the comment block marks it for review.
 
 ## Testing
 

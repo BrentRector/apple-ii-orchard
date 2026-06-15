@@ -49,8 +49,7 @@
       "0x006C": {"name": "DEFAULT_FCB2",  "size": 16, "comment": "$006C-$007B — second filename area. Overlaps with the second half of DEFAULT_FCB. Populated by CCP from command-line argument 2."},
       "0x007C": {"name": "DEFAULT_CR",    "size": 1, "comment": "Default FCB current record byte (overlaps end of DEFAULT_FCB2)."},
       "0x007D": {"name": "DEFAULT_RND",   "size": 3, "comment": "Default FCB random record number (3 bytes — low/middle/high)."},
-      "0x0080": {"name": "DEFAULT_DMA",   "size": 128, "comment": "Default DMA buffer — also command-line tail. First byte = length, then characters. Returned to default by BDOS function 13 (DRV_ALLRESET)."},
-      "0x0080_alt": {"name": "CMDLINE_LEN", "comment": "First byte of DEFAULT_DMA — length of command-line tail (0-127). Same address as DEFAULT_DMA."},
+      "0x0080": {"name": "DEFAULT_DMA",   "size": 128, "comment": "Default 128-byte DMA buffer. BDOS cold-init / DRV_ALLRESET (fn 13) set the DMA address here and WBOOT re-issues SETDMA($0080); sector/record I/O moves 128 bytes through it. At program load this same buffer doubles as the command tail: the first byte ($0080) holds the tail length (0-127) and the characters follow at $0081 (CMDLINE)."},
       "0x0081": {"name": "CMDLINE",       "size": 127, "comment": "Command-line tail characters (uppercase, with leading space). Same buffer as DEFAULT_DMA."},
       "0x0100": {"name": "TPA_START",     "comment": "Start of Transient Program Area. .COM files load here and execute starting at $0100."}
     },

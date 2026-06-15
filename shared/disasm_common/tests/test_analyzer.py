@@ -3,6 +3,7 @@
 from disasm_common.analyzer import (
     DataKind, classify_data, classify_at,
     is_printable_byte, is_string_terminator,
+    classify_overlap, overlap_expr,
 )
 
 
@@ -173,3 +174,91 @@ def test_label_breaks_mixed_run():
     assert runs[0].addr == 0x0100
     assert runs[0].end == 0x0108
     assert runs[1].addr == 0x0108
+
+
+# ── Code-overlap (mid-instruction reference) classification ─────────────
+def test_overlap_expr():
+    assert overlap_expr("COVER", 0) == "COVER"
+    assert overlap_expr("COVER", 1) == "COVER+1"
+    assert overlap_expr("BIT_x", 2) == "BIT_x+2"
+
+
+def _overlap(mem, addr, cover, size, *, cpu, in_code):
+    """Helper: classify a single overlap given a manually-built cover."""
+    byte_to_start = {cover + i: cover for i in range(1, size)}
+    code_set = {addr} if in_code else set()
+    return classify_overlap(
+        mem, addr,
+        byte_to_start=byte_to_start,
+        code_set=code_set,
+        decode_size=lambda a: size,
+        cpu=cpu,
+    )
+
+
+def test_overlap_6502_bit_abs_skip():
+    # LDA #$01 / $2C (BIT abs) whose operand bytes A9 02 run as LDA #$02 on
+    # another path: a branch targets the operand byte at cover+1.
+    m = _mem_with(b"\xA9\x01\x2C\xA9\x02", at=0x0100)
+    res = _overlap(m, 0x0103, 0x0102, 3, cpu="6502", in_code=True)
+    assert res.kind == "IDIOM"
+    assert res.cover_start == 0x0102
+    assert res.offset == 1
+
+
+def test_overlap_6502_bit_zp_skip():
+    # $24 (BIT zp), 2 bytes; entry at cover+1 enters the operand byte.
+    m = _mem_with(b"\x24\xA9", at=0x0100)
+    res = _overlap(m, 0x0101, 0x0100, 2, cpu="6502", in_code=True)
+    assert res.kind == "IDIOM"
+    assert res.offset == 1
+
+
+def test_overlap_z80_ld_hl_skip():
+    # 21 (LD HL,nn) used as a 2-byte skip; entry at cover+1 / cover+2.
+    m = _mem_with(b"\x21\x3E\x05", at=0x0100)
+    res = _overlap(m, 0x0101, 0x0100, 3, cpu="z80", in_code=True)
+    assert res.kind == "IDIOM"
+    assert res.offset == 1
+
+
+def test_overlap_z80_ld_a_skip():
+    # 3E (LD A,n) used as a 1-byte skip; entry at cover+1.
+    m = _mem_with(b"\x3E\xAF", at=0x0100)
+    res = _overlap(m, 0x0101, 0x0100, 2, cpu="z80", in_code=True)
+    assert res.kind == "IDIOM"
+    assert res.offset == 1
+
+
+def test_overlap_z80_shared_tail():
+    # Non-idiom cover (JR NZ, $20) but the interior address is reachable code
+    # -- the real CP/M 2.23 $FB45 shape: two decodes share a tail.
+    m = _mem_with(b"\x20\x07", at=0x0100)   # JR NZ,$0107 ... operand $07 = RLCA
+    res = _overlap(m, 0x0101, 0x0100, 2, cpu="z80", in_code=True)
+    assert res.kind == "IDIOM"
+    assert "shared instruction tail" in res.reason
+
+
+def test_overlap_misframe_noncode_interior():
+    # Non-idiom 3-byte op (LD (nn),A = $32) and the interior address is NOT
+    # reached as code -> a misframe (likely data decoded as code), not a
+    # genuine overlap.
+    m = _mem_with(b"\x32\x00\x90", at=0x0100)
+    res = _overlap(m, 0x0101, 0x0100, 3, cpu="z80", in_code=False)
+    assert res.kind == "MISFRAME"
+    assert res.cover_start == 0x0100
+
+
+def test_overlap_misframe_no_cover():
+    # No covering instruction (address fell inside a data run): MISFRAME with
+    # no cover_start.
+    m = _mem_with(b"\x00\x00\x00", at=0x0100)
+    res = classify_overlap(
+        m, 0x0101,
+        byte_to_start={},          # nothing covers $0101
+        code_set=set(),
+        decode_size=lambda a: 1,
+        cpu="z80",
+    )
+    assert res.kind == "MISFRAME"
+    assert res.cover_start is None
