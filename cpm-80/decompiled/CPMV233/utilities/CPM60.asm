@@ -237,8 +237,8 @@ MAIN_69:
         LD H,A                           ; $01C6  67
 MAIN_70:
         POP BC                           ; $01C7  C1
-        ; [AI] Decrement the $30-page chunk count; loop back to $0196 until the whole embedded OS image has
-        ;       been streamed out.
+        ; [AI] Decrement the sector counter ($30 = 48 = 3 system tracks x 16 sectors); loop back to $0196
+        ;       until all 48 sectors of the new system image have been written.
         DEC B                            ; $01C8  05
         JP NZ,MAIN_67                    ; $01C9  C2 96 01
         ; [AI] All pages written: print the 'Disk has been updated to 60K' success message ($029F).
@@ -333,8 +333,11 @@ PRINT_STRING_1:
         ;       calls above.
         DEFB    $0A,$24,$00,$63,$70,$2F,$6D,$20,$20,$20,$20,$73,$79,$73,$00,$00 ; $0353
         DEFS    157, $00    ; $0363  fill
-        ; [AI] Start of the embedded 6502 OS-image data block (the 60K CP/M system code/data) that the loop
-        ;       streams to disk through the $F3Ex mailbox.
+        ; [AI] Start of the embedded bootable CP/M system image written to the disk's 3 system tracks
+        ;       (tracks 0-2 = 48 sectors). It begins with 6502 boot/loader code here (LDA #$5C / STA $3E
+        ;       ... JMP ($003E), the $Cn slot-pointer setup) and ends with the SoftCard CP/M banner near
+        ;       $2CC4 ("...card CP/M ... 82 Microsoft"). This is the system that boots into a 60K TPA; the
+        ;       "60K" names that memory layout, not the image size (the whole .COM is only 11,264 bytes).
         DEFB    $01,$A5,$27,$C9,$09,$D0,$13,$8A,$4A,$4A,$4A,$4A,$09,$C0,$85,$3F ; $0400
         DEFB    $A9,$5C,$85,$3E,$A9,$00,$85,$00,$E6,$27,$E6,$00,$A4,$00,$C0,$0B ; $0410
         DEFB    $D0,$03,$4C,$00,$10,$B9,$2D,$08,$85,$3D,$6C,$3E,$00,$00,$02,$04 ; $0420
