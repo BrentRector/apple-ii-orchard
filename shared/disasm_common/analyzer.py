@@ -346,7 +346,12 @@ def classify_data(mem, start, end, *, code_set, labels=None, symbols=None,
         while sub < non_code_end:
             # A resolved static pointer / dispatch entry emits as a 2-byte
             # `DEFW <label>` so it relocates with ORG.
-            if pointer_words and sub in pointer_words and sub + 2 <= non_code_end:
+            if (pointer_words and sub in pointer_words and sub + 2 <= non_code_end
+                    and not (labels and labels.get(sub + 1) is not None)):
+                # ...but only if the pointer's high byte isn't itself a referenced
+                # label -- else the 2-byte DEFW would swallow that label's
+                # definition. (When it is, fall through: the run caps at sub+1 and
+                # the label gets its own line; this lone pointer stays DEFB.)
                 w = mem[sub] | (mem[sub + 1] << 8)
                 runs.append(DataRun(sub, bytes(mem[sub:sub + 2]),
                                     DataKind.POINTER_TABLE, {"targets": [w]}))

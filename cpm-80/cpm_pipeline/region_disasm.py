@@ -117,7 +117,10 @@ def scan_pointer_words(walker, mem, org, length):
             a += 1
             continue
         v = mem[a] | (mem[a + 1] << 8)
-        if org <= v < org + length and (v in walker.labels or v in starts):
+        # skip if the pointer's high byte is itself a referenced label (pending or
+        # named): a DEFW there would swallow that label's definition.
+        if (org <= v < org + length and (v in walker.labels or v in starts)
+                and (a + 1) not in walker.labels):
             pw.add(a)
             walker.add_label(v)
             a += 2
@@ -182,7 +185,7 @@ def _merge_dispatch(static_tables, dyn_dispatch, mem, walker, body_start, body_e
 def disasm_z80_region(mem: bytearray, org: int, length: int, *,
                       symbols: SymbolTable | None = None,
                       seeds=(), source_name: str = "", force_labels=None,
-                      resolve_dispatch=False, dyn_dispatch=None) -> str:
+                      resolve_dispatch=True, dyn_dispatch=None) -> str:
     """Disassemble `mem[org:org+length]` to sjasmplus source (with `{out_bin}`).
 
     `mem` is a full 64 KB image with the region already placed at `org`. Every
