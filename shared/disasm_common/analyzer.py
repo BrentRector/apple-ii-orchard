@@ -337,10 +337,19 @@ def classify_data(mem, start, end, *, code_set, labels=None, symbols=None,
         non_code_end = addr
         while non_code_end < end and non_code_end not in code_set:
             non_code_end += 1
-        # Sub-classify within [addr, non_code_end)
+        # Sub-classify within [addr, non_code_end). Cap each run at the next
+        # interior label so a labelled address always begins a run (and thus
+        # gets an emitted `LABEL:` line); otherwise an operand pointing into a
+        # data run would reference an undefined symbol. No-op when no data-run
+        # interior labels exist (the default path only labels code targets).
         sub = addr
         while sub < non_code_end:
-            run = classify_at(mem, sub, non_code_end, labels=labels,
+            cap = non_code_end
+            if labels:
+                nxt = [a for a in labels if sub < a < non_code_end and labels[a] is not None]
+                if nxt:
+                    cap = min(cap, min(nxt))
+            run = classify_at(mem, sub, cap, labels=labels,
                               symbols=symbols, cpu=cpu,
                               body_start=body_start, body_end=body_end)
             runs.append(run)

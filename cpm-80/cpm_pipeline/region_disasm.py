@@ -49,9 +49,92 @@ def bios_jump_table_seeds(mem: bytes, org: int, length: int, entries: int = 17) 
     return seeds
 
 
+def resolve_computed_dispatch(walker, mem, org, length, *, dyn_dispatch=None):
+    """Resolve computed-dispatch jump/pointer tables via static register
+    data-flow (and optional dynamic-trace harvest), so their entries get labels
+    and the table body is marked data -- which lets the existing table detector
+    + `_render_pointer_table` emit relocatable `DEFW <label>` instead of raw,
+    non-relocatable `DEFB`. Returns the resolved tables (for logging/tests)."""
+    from disasm_z80.dataflow import scan_static_dispatch
+    body_start, body_end = org, org + length
+    tables = scan_static_dispatch(mem, walker, body_start=body_start, body_end=body_end)
+    if dyn_dispatch:
+        tables = _merge_dispatch(tables, dyn_dispatch, mem, walker, body_start, body_end)
+    for t in tables:
+        # mark the table body as data BEFORE re-tracing entries, so a target that
+        # happens to fall inside the table is never decoded as code.
+        walker.add_data_region(t.table_addr, t.table_addr + t.n_bytes)
+        if body_start <= t.table_addr < body_end:
+            walker.add_label(t.table_addr)       # so `LD HL,table` relocates too
+        for e in t.entry_targets:
+            if body_start <= e < body_end:
+                walker.add_label(e)
+        post = t.table_addr + t.n_bytes          # cap boundary for the detector
+        if body_start <= post < body_end:
+            walker.add_label(post)
+        for e in t.entry_targets:                # trace non-executed arms into code
+            if body_start <= e < body_end:
+                walker.trace(e)
+    return tables
+
+
+def label_inrange_operands(walker, mem, org, length):
+    """Plant a label on every in-range absolute address operand (data loads/
+    stores, immediate pointers) so `_substitute_operand_symbols` renders it as a
+    symbol that relocates with ORG -- not just control-flow targets. A genuine
+    in-range 16-bit *constant* would be mislabeled; the byte-identical round-trip
+    catches that (it would relocate wrongly), so this stays sound by construction."""
+    import re as _re
+    from disasm_z80.opcodes import decode_at
+    body_end = org + length
+    a = org
+    while a < body_end:
+        if a in walker.code:
+            try:
+                ins = decode_at(mem, a)
+            except (IndexError, KeyError):
+                a += 1
+                continue
+            for m in _re.finditer(r"\$([0-9A-Fa-f]{4})", ins.mnemonic):
+                v = int(m.group(1), 16)
+                if org <= v < body_end:
+                    walker.add_label(v)
+            a += ins.size or 1
+        else:
+            a += 1
+
+
+def _merge_dispatch(static_tables, dyn_dispatch, mem, walker, body_start, body_end):
+    """Union static-resolved tables with dynamically-observed JP (HL) targets.
+    Static tables are the complete set (incl. non-executed arms); dynamic targets
+    confirm executed arms. A dynamic target that contradicts a static table (same
+    jp_addr, target not among entries) demotes that table to bare labels."""
+    by_jp = {t.jp_addr: t for t in static_tables}
+    kept = []
+    for t in static_tables:
+        dyn = dyn_dispatch.get(t.jp_addr)
+        if dyn and not (set(dyn) <= set(t.entry_targets)):
+            # dynamic evidence contradicts the static table -> don't assert a
+            # DEFW run; just label the observed targets individually.
+            for e in dyn:
+                if body_start <= e < body_end:
+                    walker.add_label(e); walker.trace(e)
+            continue
+        kept.append(t)
+    # dynamic dispatches with no matching static table -> plain labelled seeds
+    for jp_addr, targets in dyn_dispatch.items():
+        if jp_addr in by_jp:
+            continue
+        for e in targets:
+            if body_start <= e < body_end:
+                walker.add_label(e); walker.trace(e)
+    return kept
+
+
 def disasm_z80_region(mem: bytearray, org: int, length: int, *,
                       symbols: SymbolTable | None = None,
-                      seeds=(), source_name: str = "", force_labels=None) -> str:
+                      seeds=(), source_name: str = "", force_labels=None,
+                      resolve_dispatch=False, dyn_dispatch=None) -> str:
     """Disassemble `mem[org:org+length]` to sjasmplus source (with `{out_bin}`).
 
     `mem` is a full 64 KB image with the region already placed at `org`. Every
@@ -66,6 +149,9 @@ def disasm_z80_region(mem: bytearray, org: int, length: int, *,
     walker = Walker(mem, start=org, end=org + length)
     for s in sorted(set(seeds) | {org}):
         walker.trace(s)
+    if resolve_dispatch:
+        resolve_computed_dispatch(walker, mem, org, length, dyn_dispatch=dyn_dispatch)
+        label_inrange_operands(walker, mem, org, length)
     if force_labels:
         for addr, name in force_labels.items():
             if org <= addr < org + length:
