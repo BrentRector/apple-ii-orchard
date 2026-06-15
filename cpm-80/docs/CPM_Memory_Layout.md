@@ -48,8 +48,8 @@ The whole 44K system lives in main RAM; it does **not** use the Language Card.
 ```
  $FFFF ┌────────────────────────────────┐
        │  BIOS scratch / stack          │
- $FA00 │  BIOS   (base $FA00)           │  17-entry jump table + Z-80 RPC stubs;
-       │                                │  a thin stub that calls the 6502 side
+ $FA00 │  BIOS   (base $FA00)           │  Z-80 $FA00 = Apple $0A00 (RAM, not
+       │                                │  ROM); 17-entry table of RPC stubs
        ├────────────────────────────────┤
        │  unused by the 44K system      │  Z-80 $B000-$F9FF: the 44K layout
        │  (Z-80 $B000-$F9FF)            │  needs no Language Card
@@ -179,8 +179,13 @@ Two consequences matter here:
   Apple Language Card.** This is the lever the 60K layout pulls: a system placed at
   Z-80 `$D300` automatically lands in Language-Card RAM.
 
-The Z-80 BIOS at `$FA00` maps to Apple `$0A00` — low Apple memory, where it sits
-next to the 6502 routines it cooperates with.
+This also resolves a common surprise: **the BIOS at Z-80 `$FA00` is not in ROM.**
+On the Apple, `$FA00` is monitor ROM — but that is the *6502's* `$FA00`. The Z-80's
+`$FA00` maps (via the −`$F000` row above) to Apple `$0A00`, low main **RAM**, where
+the BIOS physically lives — right next to the 6502 routines it cooperates with (the
+boot RWTS loads at Apple `$0A00`, and at run time that same RAM is the Z-80 BIOS).
+The Z-80 address that *does* reach the Apple ROM at `$FA00` is `$DA00`, through the
+`$B000`–`$DFFF` row — which is where the 2.20 BIOS sat.
 
 ---
 
