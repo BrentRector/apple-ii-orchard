@@ -319,7 +319,7 @@ def classify_at(mem, addr, end, *, labels=None, symbols=None, cpu="z80",
 
 # ── Range classifier ──────────────────────────────────────────────────
 def classify_data(mem, start, end, *, code_set, labels=None, symbols=None,
-                  cpu="z80", body_start=None, body_end=None):
+                  cpu="z80", body_start=None, body_end=None, pointer_words=None):
     """Walk [start, end), skip code addresses, and yield DataRun objects
     covering the non-code regions. The caller is responsible for emitting
     code lines for addresses in `code_set`."""
@@ -344,11 +344,23 @@ def classify_data(mem, start, end, *, code_set, labels=None, symbols=None,
         # interior labels exist (the default path only labels code targets).
         sub = addr
         while sub < non_code_end:
+            # A resolved static pointer / dispatch entry emits as a 2-byte
+            # `DEFW <label>` so it relocates with ORG.
+            if pointer_words and sub in pointer_words and sub + 2 <= non_code_end:
+                w = mem[sub] | (mem[sub + 1] << 8)
+                runs.append(DataRun(sub, bytes(mem[sub:sub + 2]),
+                                    DataKind.POINTER_TABLE, {"targets": [w]}))
+                sub += 2
+                continue
             cap = non_code_end
             if labels:
                 nxt = [a for a in labels if sub < a < non_code_end and labels[a] is not None]
                 if nxt:
                     cap = min(cap, min(nxt))
+            if pointer_words:
+                pw = [a for a in pointer_words if sub < a < cap]
+                if pw:
+                    cap = min(cap, min(pw))     # stop the run at the next pointer word
             run = classify_at(mem, sub, cap, labels=labels,
                               symbols=symbols, cpu=cpu,
                               body_start=body_start, body_end=body_end)

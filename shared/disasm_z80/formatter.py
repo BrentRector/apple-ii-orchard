@@ -59,13 +59,16 @@ class SjasmFormatter:
     """Emit sjasmplus source from a Walker result."""
 
     def __init__(self, mem, walker, symbols=None, *,
-                 origin=None, length=None, source_name=""):
+                 origin=None, length=None, source_name="", pointer_words=None):
         self.mem = mem
         self.walker = walker
         self.symbols = symbols
         self.origin = origin if origin is not None else walker.start
         self.length = length if length is not None else (walker.end - self.origin)
         self.source_name = source_name
+        # Addresses to emit as a 2-byte `DEFW <label>` pointer (resolved static
+        # pointers / dispatch entries), so they relocate with ORG.
+        self.pointer_words = pointer_words or set()
         # Mid-instruction reference state (populated by _prepare_overlap_labels):
         #   _overlap_covers[addr] = (cover, offset)  anonymous -> inline cover+offset
         #   _overlap_named[addr]  = (name, cover, offset)  named -> equate, keep name
@@ -271,6 +274,7 @@ class SjasmFormatter:
             symbols=self.symbols,
             cpu="z80",
             body_start=self.origin, body_end=body_end,
+            pointer_words=self.pointer_words,
         )
         runs_by_addr = {r.addr: r for r in runs}
         addr = self.origin

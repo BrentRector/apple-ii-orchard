@@ -78,6 +78,54 @@ def resolve_computed_dispatch(walker, mem, org, length, *, dyn_dispatch=None):
     return tables
 
 
+def seed_leading_jp_vector(walker, mem, org, length):
+    """Seed each slot of a leading `JP nn` vector at the region origin (the
+    classic CCP/BIOS entry table). The cold entry is an unconditional JP, so the
+    walker never falls through to the warm entry -- seeding makes every alternate
+    entry real code (and thus relocatable) instead of a stranded data `DEFB`."""
+    from disasm_z80.opcodes import decode_at
+    a = org
+    while a + 2 < org + length and (a - org) < 0x30 and mem[a] == 0xC3:
+        walker.trace(a)
+        a += 3
+
+
+def scan_pointer_words(walker, mem, org, length):
+    """Find static pointer words in data: a 2-byte value that resolves to a
+    label or a traced instruction-start is (almost certainly) a relocatable
+    pointer. Returns their addresses (for `DEFW <label>` emission) and labels
+    each target. Skips code and already-marked dispatch-table data regions.
+    Greedy + 2-byte aligned so adjacent pointers (tables) and singles both fall
+    out; a false positive would surface as a relocation mismatch, so the rule is
+    deliberately strong (label or instruction-start, in range)."""
+    from disasm_z80.opcodes import decode_at
+    starts = set()
+    a = org
+    while a < org + length:
+        if a in walker.code:
+            starts.add(a)
+            try:
+                a += decode_at(mem, a).size or 1
+            except (IndexError, KeyError):
+                a += 1
+        else:
+            a += 1
+    pw = set()
+    a = org
+    while a + 1 < org + length:
+        if a in walker.code or walker.in_data_region(a):
+            a += 1
+            continue
+        v = mem[a] | (mem[a + 1] << 8)
+        if org <= v < org + length and (v in walker.labels or v in starts):
+            pw.add(a)
+            walker.add_label(v)
+            a += 2
+        else:
+            a += 1
+    return pw
+
+
 def label_inrange_operands(walker, mem, org, length):
     """Plant a label on every in-range absolute address operand (data loads/
     stores, immediate pointers) so `_substitute_operand_symbols` renders it as a
@@ -149,15 +197,19 @@ def disasm_z80_region(mem: bytearray, org: int, length: int, *,
     walker = Walker(mem, start=org, end=org + length)
     for s in sorted(set(seeds) | {org}):
         walker.trace(s)
+    pointer_words = None
     if resolve_dispatch:
+        seed_leading_jp_vector(walker, mem, org, length)
         resolve_computed_dispatch(walker, mem, org, length, dyn_dispatch=dyn_dispatch)
         label_inrange_operands(walker, mem, org, length)
+        pointer_words = scan_pointer_words(walker, mem, org, length)
     if force_labels:
         for addr, name in force_labels.items():
             if org <= addr < org + length:
                 walker.labels[addr] = name
     walker.name_labels(symbols=symbols)
-    fmt = SjasmFormatter(mem, walker, symbols, origin=org, length=length, source_name=source_name)
+    fmt = SjasmFormatter(mem, walker, symbols, origin=org, length=length,
+                         source_name=source_name, pointer_words=pointer_words)
     return fmt.emit_source()
 
 
