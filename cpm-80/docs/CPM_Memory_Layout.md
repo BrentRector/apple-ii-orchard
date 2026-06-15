@@ -18,17 +18,20 @@ services), and the **BIOS** (Basic I/O System, the hardware-specific drivers).
 The 44K and 60K layouts differ only in *where* the CCP and BDOS sit. Each part is
 described in full in [section 1](#1-the-z-80-cpm-address-space) below.
 
-Two numbers anchor everything (read from the page-zero vectors of a booted disk):
+The module **base addresses** anchor everything (read from a booted image of each
+disk). Each module is referred to by its base throughout this document:
 
-| | 44K | 60K |
+| module | 44K base | 60K base |
 |---|---|---|
-| BDOS entry (`JP` at `$0005`) | `$9C06` | `$DC06` |
-| Top of the TPA (word at `$0006`) | `$9C06` | `$DC06` |
-| BIOS warm-boot (`JP` at `$0000`) | `$FA03` | `$FA03` |
-| Usable TPA | `$0100`–`$9C05` (~39 KB) | `$0100`–`$DC05` (~55 KB) |
+| CCP  | `$9300` | `$D300` |
+| BDOS | `$9C00` | `$DC00` |
+| BIOS | `$FA00` | `$FA00` |
 
-The whole 44K→60K story is the **`+$4000` (16 KB)** difference between those two
-TPA tops.
+The CCP and BDOS move up by exactly **`+$4000` (16 KB)**; the BIOS does not move.
+That 16 KB is the size of the Apple Language Card, and it is exactly how much the
+program area grows — the TPA goes from ~39 KB to ~55 KB. (The page-zero `JP` at
+`$0005` targets the BDOS *entry*, which is the base + 6, `$9C06` / `$DC06`; the
+BDOS note below explains the +6.)
 
 ---
 
@@ -40,60 +43,62 @@ bottom up: the **base page**, the **TPA**, and the resident system (**CCP**,
 
 ### 44K layout
 
+The whole 44K system lives in main RAM; it does **not** use the Language Card.
+
 ```
- Z-80 addr
- $FFFF ┌──────────────────────────────┐
-       │  BIOS stack / scratch         │
- $FA00 │  BIOS  (17-entry jump table + │  warm-boot vector at $FA03
-       │         Z-80 RPC stubs)       │
-       ├──────────────────────────────┤
-       │  ( SoftCard window region —   │  Z-80 $B000-$F9FF maps to the Apple
-       │    disk callbacks, the 6502   │  Language Card / I/O space, used for
-       │    RWTS runtime copy, etc. )  │  BDOS disk thunks (~$A900) and the
- $AA00 ├──────────────────────────────┤  relocated 6502 RWTS disk driver ($BA00)
-       │  BDOS  (file / disk / console │  entry at $9C06
- $9C00 │         system calls)         │
-       ├──────────────────────────────┤
-       │  CCP   (command interpreter,  │
- $9300 │         the A> prompt)        │  ← top of TPA marker = $9C06
-       ├──────────────────────────────┤
-       │                               │
-       │  TPA  (Transient Program Area)│  .COM programs load + run here
-       │                               │
- $0100 ├──────────────────────────────┤
-       │  Base page  (vectors, FCB,    │
- $0000 │   DMA buffer)                 │
-       └──────────────────────────────┘
+ $FFFF ┌────────────────────────────────┐
+       │  BIOS scratch / stack          │
+ $FA00 │  BIOS   (base $FA00)           │  17-entry jump table + Z-80 RPC stubs;
+       │                                │  a thin stub that calls the 6502 side
+       ├────────────────────────────────┤
+       │  unused by the 44K system      │  Z-80 $B000-$F9FF: the 44K layout
+       │  (Z-80 $B000-$F9FF)            │  needs no Language Card
+ $B000 │                                │
+       ├────────────────────────────────┤
+       │  6502 RWTS runtime copy        │  Apple $BA00-$BFFF (top of main RAM)
+ $AA00 │                                │
+       ├────────────────────────────────┤
+       │  BDOS   (base $9C00)           │  ~3.5 KB; entry is base+6 ($9C06).
+       │   incl. disk-callback          │  Its disk-callback thunks sit at the
+ $9C00 │   thunks (~$A900)              │  top (~$A900).
+       ├────────────────────────────────┤
+       │  CCP    (base $9300)           │  ~2.3 KB; the A> command shell
+ $9300 │                                │
+       ├────────────────────────────────┤
+       │  TPA  (Transient               │  programs load at $0100; the top is
+       │   Program Area)                │  FBASE = the BDOS entry $9C06.
+ $0100 │                                │  The CCP ($9300) is reclaimable.
+       ├────────────────────────────────┤
+       │  base page                     │  vectors, default FCB, DMA buffer
+ $0000 │  (vectors / FCB / DMA)         │
+       └────────────────────────────────┘
 ```
 
 ### 60K layout
 
 Identical, except the **CCP and BDOS are re-assembled `+$4000` higher** — out of
-main RAM and up into the Language Card — and the TPA grows into the space they
-vacated. The BIOS does not move.
+main RAM and up into the Apple Language Card (Z-80 `$B000-$DFFF` maps onto the
+Language Card) — and the TPA grows into the space they vacate. The BIOS does not move.
 
 ```
- Z-80 addr
- $FFFF ┌──────────────────────────────┐
-       │  BIOS stack / scratch         │
- $FA00 │  BIOS  (unchanged, at $FA00)  │  warm-boot vector still $FA03
-       ├──────────────────────────────┤
-       │  ( window region )            │
- $DC00 ├──────────────────────────────┤
-       │  BDOS  (relocated +$4000)     │  entry at $DC06   ◄── was $9C06
- $DC06 │                               │
- $D300 ├──────────────────────────────┤
-       │  CCP   (relocated +$4000)     │            ◄── was $9300
-       ├──────────────────────────────┤  ← top of TPA marker = $DC06
-       │                               │
-       │                               │
-       │  TPA  (now ~55 KB)            │  16 KB larger: it reclaims the old
-       │                               │  $9300-$BFFF system RAM plus the
-       │                               │  lower Language Card
-       │                               │
- $0100 ├──────────────────────────────┤
-       │  Base page                    │
- $0000 └──────────────────────────────┘
+ $FFFF ┌────────────────────────────────┐
+       │  BIOS scratch / stack          │
+ $FA00 │  BIOS   (base $FA00)           │  unchanged
+       ├────────────────────────────────┤
+       │  BDOS   (base $DC00)           │  in the Language Card. <- was $9C00
+ $DC00 │   (relocated +$4000)           │  entry base+6 = $DC06
+       ├────────────────────────────────┤
+       │  CCP    (base $D300)           │  in the Language Card. <- was $9300
+ $D300 │   (relocated +$4000)           │
+       ├────────────────────────────────┤
+       │  TPA  (now ~55 KB)             │  16 KB larger: it reclaims the old
+       │                                │  $9300-$BFFF system RAM plus the
+       │                                │  lower Language Card below the CCP
+ $0100 │                                │
+       ├────────────────────────────────┤
+       │  base page                     │
+ $0000 │  (vectors / FCB / DMA)         │
+       └────────────────────────────────┘
 ```
 
 ### Component descriptions
@@ -116,21 +121,35 @@ vacated. The BIOS does not move.
     the **command tail** (its length byte at `$0080`, the characters at `$0081`).
 
 * **TPA — Transient Program Area** (`$0100` upward) — where `.COM` files load
-  (always at `$0100`) and execute. Its ceiling is the BDOS entry. The CCP sits
-  just below the BDOS and is **reloadable**, so a large program may use the CCP's
-  space too and let the next warm boot reload it.
+  (always at `$0100`) and execute. Its top is **FBASE**, the value CP/M reports
+  at `$0006`, which is the BDOS *entry* (`$9C06` / `$DC06`) — the first protected
+  byte. With the shell present a program runs below the CCP; a program that wants
+  maximum memory reclaims the CCP's space (the CCP is **reloadable** — the next
+  warm boot brings it back) and may use right up to FBASE−1.
 
-* **CCP — Console Command Processor** (`$9300` / `$D300`) — the interactive shell:
-  prints the `A>` prompt, parses a command line, runs the built-ins
+* **CCP — Console Command Processor** (base `$9300` / `$D300`) — the interactive
+  shell: prints the `A>` prompt, parses a command line, runs the built-ins
   (`DIR`, `ERA`, `TYPE`, `SAVE`, `REN`, `USER`), and otherwise loads and runs the
   named `.COM` file from disk. ~2.3 KB.
 
-* **BDOS — Basic Disk Operating System** (entry `$9C06` / `$DC06`) — the
+* **BDOS — Basic Disk Operating System** (base `$9C00` / `$DC00`) — the
   hardware-independent OS: ~40 numbered functions for console I/O, the file system
   (open/close/read/write/make/delete/search/rename), disk selection, the DMA
   address, and the user number. Programs reach it only through `CALL $0005`. ~3.5 KB.
+  The module's first 6 bytes are the CP/M **serial number** (here
+  `BD 16 00 01 4D 40`, identical on every copy of this system), so the actual
+  function-dispatch **entry is the base + 6** (`$9C06` / `$DC06`) — which is what
+  the page-zero `JP $0005` vector points at, and what the `$0006` word reports as
+  the top of the TPA (FBASE). One consequence: because FBASE is the entry, the 6
+  serial bytes sit *below* it, i.e. numerically inside the TPA (`$0100`–`$9C05`).
+  They are the head of the BDOS image and are never executed (the code starts at
+  the entry), so a program that uses memory right up to FBASE−1 *can* overwrite
+  them with no effect on the running BDOS — and a warm boot reloads the module,
+  restoring them. So the protected boundary is FBASE `$9C06`, not the module base
+  `$9C00`; the 6 serial bytes between them are the head of the BDOS image yet sit
+  inside the TPA.
 
-* **BIOS — Basic I/O System** (`$FA00`, both layouts) — the hardware-specific
+* **BIOS — Basic I/O System** (base `$FA00`, both layouts) — the hardware-specific
   bottom layer: a 17-entry jump table (BOOT, WBOOT, CONST, CONIN, CONOUT, LIST,
   PUNCH, READER, HOME, SELDSK, SETTRK, SETSEC, SETDMA, READ, WRITE, LISTST,
   SECTRAN). On the SoftCard the Z-80 BIOS is a **thin stub** that marshals each
