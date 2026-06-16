@@ -290,6 +290,6 @@ SUB_020D:
         DEFB    " already in use",$0D
         DEFB    $0A,$24,$0D,$0A,$0D,$0A,$4E,$6F,$74,$20,$65,$6E,$6F,$75,$67,$68 ; $0332
         DEFB    " directory space",$0D
-        DEFB    $0A,$24,$00,$63,$70,$2F,$6D,$20,$20,$20,$20,$73,$79 ; $0353
+        DEFB    $0A,$24,$00,$63,$70,$2F,$6D,$20,$20,$20,$20,$73,$79,$73 ; $0353  ...00 "cp/m    sys"
 
-    SAVEBIN "CPM60_installer.bin", $0100, $0260
+    SAVEBIN "CPM60_installer.bin", $0100, $0261

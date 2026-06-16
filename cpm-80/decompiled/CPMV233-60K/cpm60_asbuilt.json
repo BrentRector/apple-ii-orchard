@@ -1,0 +1,69 @@
+{
+ "_doc": "CPM60.COM is the as-ASSEMBLED 60K installer. The os/ component sources were recovered from a BOOTED memory image, so they are the RUNTIME forms (self-modified / relocated / sysgen-filled). build_cpm60_com() places those sources, then applies these as-shipped values to undo the runtime mutations. Every byte below is one known install/boot operation -- nothing is unexplained.",
+ "groups": [
+  {
+   "name": "boot_lc_handoff_glue",
+   "range": "0x0A00-0x0A0D",
+   "bytes": 14,
+   "why": "The boot loader's $1000 page AS SHIPPED: LDA $C081 x2 (Language-Card read+write enable), TXA / LSR x4 / TAY / PHA / STA $C088,X (slot-index setup). At boot the relocator overwrites $1000-$100D with its own entry and the planted Z-80 reset stub 'JP $FA00' (C3 00 FA); os/CPM_BootLoader.s captured that post-run state."
+  },
+  {
+   "name": "boot_self_patches",
+   "range": "0x0A69, 0x0B76",
+   "bytes": 2,
+   "why": "Two boot-loader bytes the loader rewrites in place at runtime ($1069 C0->C1, $1176 98->4C)."
+  },
+  {
+   "name": "installfragments_unrelocated",
+   "range": "0x0DB8-0x0DEB",
+   "bytes": 14,
+   "why": "The COM ships the UNRELOCATED InstallFragments template: a STA $FFFF placeholder at $03C7 (boot relocator rewrites to STA $C700) plus zeroed address/parameter cells the relocator fills. os/CPM_InstallFragments.s holds the relocated form."
+  },
+  {
+   "name": "ccp_sysgen_pointers",
+   "range": "0x165C-0x1663",
+   "bytes": 8,
+   "why": "Four CCP-internal pointer words at $DB5C-$DB63 ($D393,$D3FC,$D447,$D6?? in the booted image) that ship as ZERO and are filled at sysgen/relocation. The shared CCP source builds the booted (filled) form, so the COM's zeros are restored here."
+  }
+ ],
+ "bytes": {
+  "0x0A00": "0xAD",
+  "0x0A01": "0x81",
+  "0x0A02": "0xC0",
+  "0x0A03": "0xAD",
+  "0x0A04": "0x81",
+  "0x0A05": "0xC0",
+  "0x0A06": "0x8A",
+  "0x0A07": "0x4A",
+  "0x0A08": "0x4A",
+  "0x0A09": "0x4A",
+  "0x0A0A": "0x4A",
+  "0x0A0B": "0xA8",
+  "0x0A0C": "0x48",
+  "0x0A0D": "0x9D",
+  "0x0A69": "0xC0",
+  "0x0B76": "0x98",
+  "0x0DB8": "0x00",
+  "0x0DBB": "0x00",
+  "0x0DBE": "0x00",
+  "0x0DC7": "0xFF",
+  "0x0DC8": "0xFF",
+  "0x0DDF": "0x00",
+  "0x0DE0": "0x00",
+  "0x0DE1": "0x00",
+  "0x0DE3": "0x00",
+  "0x0DE4": "0x00",
+  "0x0DE5": "0x00",
+  "0x0DE6": "0x00",
+  "0x0DE9": "0x00",
+  "0x0DEB": "0x00",
+  "0x165C": "0x00",
+  "0x165D": "0x00",
+  "0x165E": "0x00",
+  "0x165F": "0x00",
+  "0x1660": "0x00",
+  "0x1661": "0x00",
+  "0x1662": "0x00",
+  "0x1663": "0x00"
+ }
+}

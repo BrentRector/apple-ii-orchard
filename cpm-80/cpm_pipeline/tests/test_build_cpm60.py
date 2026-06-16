@@ -11,7 +11,7 @@ import shutil
 import pytest
 
 from cpm_pipeline.build_cpm60 import (
-    build_cpm60_com, reference_com, LAYOUT, _OVERLAY, COM_SIZE,
+    build_cpm60_com, reference_com, LAYOUT, _ASBUILT, COM_SIZE,
 )
 
 HAS = bool(shutil.which("sjasmplus") and shutil.which("ca65") and shutil.which("ld65"))
@@ -24,20 +24,22 @@ def test_build_is_byte_identical():
 
 
 @skip
-def test_overlay_is_small_and_documented():
-    overlay = json.loads(_OVERLAY.read_text(encoding="utf-8"))
-    assert len(overlay["bytes"]) == 125            # ~1% of the 11,264-byte COM
-    assert "_doc" in overlay and overlay["ranges"]
+def test_asbuilt_bytes_are_few_and_fully_accounted():
+    ab = json.loads(_ASBUILT.read_text(encoding="utf-8"))
+    # only the 38 runtime-mutation bytes, and every one is in a documented group
+    assert len(ab["bytes"]) == 38
+    assert sum(g["bytes"] for g in ab["groups"]) == 38
+    assert all(g["why"] for g in ab["groups"])
 
 
 @skip
 def test_bios_region_is_100pct_unpatched_template():
     # the BIOS occupies COM 0x2600-0x2BFF and must come entirely from the
-    # template source -- NO overlay byte may fall in it
-    overlay = json.loads(_OVERLAY.read_text(encoding="utf-8"))["bytes"]
+    # template source -- NO as-shipped byte may fall in it
+    ab = json.loads(_ASBUILT.read_text(encoding="utf-8"))["bytes"]
     bios = next(r for r in LAYOUT if r.src == "bios")
     assert not any(bios.com_off <= int(o, 16) < bios.com_off + bios.length
-                   for o in overlay)
+                   for o in ab)
 
 
 @skip

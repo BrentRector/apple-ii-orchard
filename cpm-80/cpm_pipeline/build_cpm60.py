@@ -5,24 +5,30 @@ followed by the embedded 60K system image it writes to a disk's system tracks.
 This assembles that image from the checked-in component sources and verifies the
 result equals the original COM byte-for-byte.
 
-99% of the file comes straight from the component sources placed at their COM
-offsets:
+The whole file but 38 bytes comes straight from the component sources placed at
+their COM offsets:
 
     COM 0x000  installer driver   CPM60_installer.asm   ($0100)
     COM 0x300  boot loader $0800   os/CPM_BootLoader.s    (page slice)
     COM 0x400  RWTS driver         os/CPM_RWTS.s
-    COM 0xA0E  boot loader $1000   os/CPM_BootLoader.s    (reloc slice, after glue)
+    COM 0xA00  boot loader $1000   os/CPM_BootLoader.s    (reloc page)
+    COM 0xD80  InstallFragments    os/CPM_InstallFragments.s ($0380 slice)
     COM 0xE00  CCP                 os/CPM_CCP.asm         ($D300)
     COM 0x1700 BDOS                os/CPM_BDOS.asm        ($DC00)
     COM 0x2600 BIOS *template*     os/CPM_BIOS.asm        ($FA00, unpatched)
 
-The BIOS is the unpatched template (os/CPM_BIOS.asm) -- exactly the form shipped
-in the COM -- so it places with zero patching. The remaining 125 bytes (1%) are
-genuinely COM-specific and have no relocated-source form: the 14-byte bootstrap
-glue prologue, the UNRELOCATED InstallFragments template (the COM ships
-`STA $FFFF` placeholders the boot loader rewrites), the CCP install-time data
-cells, and two boot-loader bytes. Those are supplied by a documented overlay
-(cpm60_com_overlay.json), analogous to the BIOS boot-patch table.
+The BIOS is the unpatched template -- exactly the form shipped in the COM -- so
+it places with zero patching, like the BDOS and RWTS.
+
+The remaining 38 bytes are NOT a mystery: our os/ components were recovered from
+a *booted memory image*, so they are the RUNTIME forms (self-modified, relocated,
+sysgen-filled), while the COM holds the as-ASSEMBLED form. Each of the 38 bytes
+is one known install/boot mutation, grouped and explained in cpm60_asbuilt.json:
+the boot loader's $1000 LC-handoff glue (the loader overwrites it with its entry
++ the planted Z-80 reset stub), two boot self-patches, the UNRELOCATED
+InstallFragments placeholders (the relocator rewrites `STA $FFFF`/zeroed address
+cells), and the CCP sysgen pointer cells (zero as-shipped, filled at install).
+build_cpm60_com() applies these to undo the runtime mutations.
 """
 from __future__ import annotations
 
@@ -37,7 +43,7 @@ from .regenerate import _assemble_savebin
 _REPO = Path(__file__).resolve().parents[2]
 _60K = _REPO / "cpm-80" / "decompiled" / "CPMV233-60K"
 _OS = _60K / "os"
-_OVERLAY = _60K / "cpm60_com_overlay.json"
+_ASBUILT = _60K / "cpm60_asbuilt.json"
 # the reference COM: the monolithic decompiled installer, byte-identical to the
 # original file. Used only to verify the component build.
 _REF_COM_ASM = _REPO / "cpm-80" / "decompiled" / "CPMV233" / "utilities" / "CPM60.asm"
@@ -53,12 +59,13 @@ class _Region:
     length: int        # bytes to copy
 
 
-# component layout (the 99% built from source)
+# component layout (all but the 38 documented as-shipped bytes)
 LAYOUT = [
-    _Region(0x0000, "installer", 0x000, 0x260),
+    _Region(0x0000, "installer", 0x000, 0x261),
     _Region(0x0300, "bootloader", 0x000, 0x100),   # $0800 page
     _Region(0x0400, "rwts",       0x000, 0x5BD),
-    _Region(0x0A0E, "bootloader", 0x80E, 0x1E4),   # $1000 reloc (after 14B glue)
+    _Region(0x0A00, "bootloader", 0x800, 0x1F2),   # $1000 reloc page
+    _Region(0x0D80, "frag",       0x180, 0x080),   # InstallFragments $0380 slice
     _Region(0x0E00, "ccp",        0x000, 0x906),
     _Region(0x1700, "bdos",       0x000, 0xE00),
     _Region(0x2600, "bios",       0x000, 0x600),
@@ -88,12 +95,15 @@ def _components() -> dict[str, bytes]:
         "bios":       z(_OS / "CPM_BIOS.asm"),       # the unpatched template
         "bootloader": _assemble_6502(_OS / "CPM_BootLoader.s"),
         "rwts":       _assemble_6502(_OS / "CPM_RWTS.s"),
+        "frag":       _assemble_6502(_OS / "CPM_InstallFragments.s"),
     }
 
 
 def build_cpm60_com() -> bytes:
-    """Assemble CPM60.COM from the component sources + the COM-specific overlay.
-    Returns the 11,264-byte image (raises if a component fails to assemble)."""
+    """Assemble CPM60.COM from the component sources, then undo the runtime
+    mutations our (booted-image-recovered) sources captured by applying the
+    documented as-shipped bytes (cpm60_asbuilt.json). Returns the 11,264-byte
+    image (raises if a component fails to assemble)."""
     comp = _components()
     for k, v in comp.items():
         if not v:
@@ -101,8 +111,8 @@ def build_cpm60_com() -> bytes:
     img = bytearray(COM_SIZE)
     for r in LAYOUT:
         img[r.com_off:r.com_off + r.length] = comp[r.src][r.src_off:r.src_off + r.length]
-    overlay = json.loads(_OVERLAY.read_text(encoding="utf-8"))["bytes"]
-    for off_hex, byte_hex in overlay.items():
+    asbuilt = json.loads(_ASBUILT.read_text(encoding="utf-8"))["bytes"]
+    for off_hex, byte_hex in asbuilt.items():
         img[int(off_hex, 16)] = int(byte_hex, 16)
     return bytes(img)
 
