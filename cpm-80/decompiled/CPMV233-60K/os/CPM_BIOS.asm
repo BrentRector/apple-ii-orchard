@@ -5,18 +5,21 @@
 ; 60K BIOS  -- the UNPATCHED TEMPLATE as shipped inside CPM60.COM
 ; ===========================================================================
 ; This is the BIOS exactly as it sits in the CPM60.COM installer payload (COM
-; offset 0x2600, ORG $FA00) and is written to the disk's system tracks. It is
-; the canonical *source* form: assembling it reproduces those 1536 bytes
-; byte-for-byte, and it is the BIOS input to the CPM60.COM build.
+; offset 0x2600, ORG $FA00) and on the disk's system tracks. It is the canonical
+; *source* form: assembling it reproduces those 1536 bytes byte-for-byte, and it
+; is the BIOS input to the CPM60.COM build.
 ;
-; It is NOT quite what runs. On cold boot the 6502 boot loader copies this
-; image into the Language Card and applies 185 byte patches (see
-; ../bios_boot_patches.json) -- most visibly NOP-ing the $FA00 cold-boot JP
-; here (JP BIOS_BOOT, $FEEA), because on the 60K system cold start is handled
-; 6502-side. derive_booted_bios() (cpm_pipeline.regenerate) applies that patch
-; table to recover the running image. The BDOS and CCP are NOT patched this
-; way (the BDOS is byte-identical in COM and booted; the CCP differs by 8
-; install-time bytes only).
+; It is NOT quite what a booted image shows. The 6502 boot loader only COPIES the
+; BIOS into the Language Card; it does not patch it. Instead the Z-80 cold-boot
+; routine BIOS_BOOT ($FEEA) runs ONCE at cold start and self-modifies ~a few dozen
+; bytes -- most visibly NOP-ing the $FA00 cold-boot JP here (JP BIOS_BOOT), since
+; on the 60K system cold start is driven from the planted Z-80 reset; it also
+; binds the console/RPC vectors ($FB37/$FCB9/$FB4A) to the installed card type.
+; After it runs, the one-shot cold-boot region ($FEEA-$FF8D) is dead and the
+; running system reuses it as scratch (so a captured snapshot shows ~147 bytes of
+; $E5/$FF fill there -- those are NOT patches). What each self-mod does and why is
+; catalogued in ../BOOT_AND_PATCHING.md section 3c. (BDOS is byte-identical in COM
+; and booted; the CCP's only delta was the private-stack scratch at $DB5C.)
 ; ===========================================================================
 
     DEVICE NOSLOT64K

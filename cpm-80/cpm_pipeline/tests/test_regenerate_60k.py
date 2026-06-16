@@ -2,10 +2,9 @@
 """The 60K BIOS/BDOS recipes regenerate byte-identical, and the BIOS template +
 boot-patch model round-trips.
 
-os/CPM_BIOS.asm is the UNPATCHED template (the CPM60.COM payload form at COM
-0x2600). regenerate_60k_bios() reproduces it byte-identical (JP jump table, every
-curated label/EQU, spliced header), and derive_booted_bios() applies the 6502
-boot loader's 185 patches to recover the running image.
+os/CPM_BIOS.asm is the as-shipped form (the CPM60.COM payload at COM 0x2600).
+regenerate_60k_bios() reproduces it byte-identical (JP jump table, every curated
+label/EQU, spliced header).
 """
 import shutil
 from pathlib import Path
@@ -14,7 +13,7 @@ import pytest
 
 from cpm_pipeline.regenerate import (
     regenerate_60k_bios, regenerate_60k_bdos, splice_curated_header,
-    derive_booted_bios, _assemble_savebin, _BIOS_60K, _BDOS_60K,
+    _assemble_savebin, _BIOS_60K, _BDOS_60K,
 )
 
 HAS = shutil.which("sjasmplus") is not None
@@ -46,21 +45,12 @@ def test_curated_equ_symbols_survive():
 
 
 @skip
-def test_bios_source_is_the_unpatched_template():
-    # the template ships the cold-boot JP at $FA00 (JP BIOS_BOOT) that the boot
-    # loader NOPs out; its presence is the marker that this is the template form
+def test_bios_source_is_the_as_shipped_form():
+    # the as-shipped BIOS ships the cold-boot JP at $FA00 (JP BIOS_BOOT $FEEA),
+    # which the Z-80 cold-boot routine NOPs out at run time -- its presence is the
+    # marker that the source is the as-shipped (not the booted-snapshot) form
     tmpl = _assemble_savebin(_BIOS_60K.read_text(encoding="utf-8"))
     assert tmpl[:3] == bytes([0xC3, 0xEA, 0xFE])     # JP $FEEA (cold boot)
-
-
-@skip
-def test_derive_booted_applies_185_patches():
-    tmpl = _assemble_savebin(_BIOS_60K.read_text(encoding="utf-8"))
-    booted = derive_booted_bios(tmpl)
-    assert len(booted) == len(tmpl)
-    ndiff = sum(1 for a, b in zip(tmpl, booted) if a != b)
-    assert ndiff == 185                              # the boot loader's patch count
-    assert booted[:3] == bytes([0x00, 0x00, 0x00])   # cold-boot JP NOP-ed out
 
 
 @pytest.mark.skipif(not (shutil.which("sjasmplus") and _BDOS_60K.exists()),

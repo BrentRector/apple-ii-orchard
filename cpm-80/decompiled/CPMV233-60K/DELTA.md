@@ -103,27 +103,35 @@ relocated CCP/BDOS up to `$D000+`, and run from there** — leaving the BIOS at
 | `os/CPM_InstallFragments.s` | `$0200` | 6502 install fragments |
 | `os/CPM_CCP.asm` | `$D300` | Z-80 CCP, the 44K CCP re-ORG'd +$4000 into the Language Card |
 | `os/CPM_BDOS.asm` | `$DC00` | Z-80 BDOS — the 60K BDOS, recovered from `CPM60.COM`'s payload (byte-identical). Same CP/M 2.2 BDOS, modified for LC banking + split layout |
-| `os/CPM_BIOS.asm` | `$FA00` | Z-80 BIOS — the **unpatched template** as shipped in `CPM60.COM` (COM `0x2600`). The 6502 boot loader patches 185 bytes into it at boot (most visibly NOP-ing the `$FA00` cold-boot `JP BIOS_BOOT`); `bios_boot_patches.json` records them and `derive_booted_bios()` reproduces the running image. |
-| `bios_boot_patches.json` | — | The 185 boot-loader patches (template → booted) for the BIOS. |
-| `os/CPM_RWTS.s` | `$D000` | 6502 Disk II RWTS — the real disk driver, recovered from `CPM60.COM` offset `0x400` (`$D000-$D5BC`, byte-identical). Runs at Apple `$D000` in the Language Card (boot loader copies it there from `$0A00` and patches `$D216/$D548/$D549`). **Fixed:** this file previously held the mislabeled Z-80 BIOS image (`$0A00` = Z-80 `$FA00`), a duplicate of `CPM_BIOS.asm`. |
+| `os/CPM_BIOS.asm` | `$FA00` | Z-80 BIOS — the **as-shipped** form (the `CPM60.COM` payload at COM `0x2600` / the disk system tracks). The 6502 loader only *copies* it; the Z-80 cold-boot routine `BIOS_BOOT` ($FEEA) self-modifies ~a few dozen bytes once at cold start (see `BOOT_AND_PATCHING.md` §3c). |
+| `os/CPM_RWTS.s` | `$D000` | 6502 Disk II RWTS — the real disk driver, recovered from `CPM60.COM` offset `0x400` (byte-identical). The boot loader copies it into the LC and patches `$D216/$D548/$D549`. **Fixed:** this file previously held the mislabeled Z-80 BIOS image, a duplicate of `CPM_BIOS.asm`. |
 | `CPM60_installer.asm` | `$0100` | Z-80 installer driver — the `CPM60.COM` `.COM` program that writes the 60K system to disk (byte-identical) |
-| `cpm60_com_overlay.json` | — | The 125 COM-specific bytes (bootstrap glue, unrelocated InstallFragments template, CCP install data) that the component build cannot source. |
+| `BOOT_AND_PATCHING.md` | — | How the system installs/boots and every byte it self-modifies at run time (what / why / cited code). |
 | `CPM60_COM.md` | — | Full decompilation of `CPM60.COM` (byte map, installer, payload, install/boot mechanism) |
 
-The Z-80 OS sources reassemble byte-identical to the booted 60K image at their
-origins — **except `os/CPM_BIOS.asm`, which is the unpatched COM template** (the
-booted image is derived via `derive_booted_bios()`). The `CPM60.COM` payload
-sources reassemble to the `.COM` file.
+Every Z-80 / 6502 OS source here is the **as-shipped** form — exactly the bytes on
+`CPMV233-60K.DSK` and in `CPM60.COM`. Spots that an earlier pass had captured in
+their runtime-modified form (BIOS cold-boot self-writes, the boot loader's `$1000`
+reset-plant target, the InstallFragments `STA $FFFF` placeholder, the CCP private-
+stack scratch) have been reverted to as-shipped and documented in
+`BOOT_AND_PATCHING.md`.
 
 `cpm_pipeline.build_cpm60.build_cpm60_com()` reassembles the whole 11,264-byte
-`CPM60.COM` from these component sources (99%) plus the documented overlay (1%),
-byte-identical to the original — so the BIOS that ships in the COM is the
-unpatched template above.
+`CPM60.COM` from these component sources **byte-for-byte with no transform** — every
+byte comes from a source file.
 
-## Method
+## Method and provenance
 
-Both disks were booted in `softcard_emu` (which models the Language Card). The 6502
-loader was captured at the 6502→Z-80 handoff (clean execution layout); the resident
-Z-80 system was read from the post-boot image through the SoftCard window
-(`realmap`) with Language-Card bank 1 mapped at `$D000–$DFFF`. The relocation offset
-was confirmed from the page-zero vectors and a byte-level alignment of the CCP.
+There are two sources of truth: **`CPMV233.DSK`** (the 44K system) and
+**`CPM60.COM`** (the program on it). **`CPMV233-60K.DSK` is derived** — it is what
+`CPM60.COM` produces by overwriting a 44K disk — and differs from the 44K disk only
+in the boot tracks and OS pieces (app/data files unchanged). The OS sources here are
+the **as-shipped** bytes from those files: `CPM60.COM`'s payload and the
+`CPMV233-60K.DSK` system tracks carry byte-identical OS images (verified
+per-sector), and the sources reassemble to them.
+
+`softcard_emu` (which models the Language Card) is used only to *trace* — to tell
+code from data, find dispatch tables, and follow the install/boot sequence — never
+to capture the resident bytes; the runtime patches it reveals are documented in
+`BOOT_AND_PATCHING.md`, not baked into the source. The +$4000 relocation offset was
+confirmed from the page-zero vectors and a byte-level alignment of the CCP.
