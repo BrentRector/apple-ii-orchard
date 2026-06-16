@@ -74,7 +74,9 @@ _REGIONS = {
         OsRegion("RWTS", "6502", 0x0A00, 0x0600, "rwts_220.bin", ("apple2.json",)),
         OsRegion("InstallFragments", "6502", 0x0200, 0x0200, "installfragments_220.bin", ("apple2.json",)),
         OsRegion("SystemImage", "z80", 0x8000, 0x1700, "sysimg_220.bin", ("cpm_2_2.json",)),
-        OsRegion("BIOS", "z80", 0xDA00, 0x0800, "bios_220.bin", ("cpm_2_2.json",)),
+        # AS-SHIPPED pristine on-disk BIOS ($DA00-$DEFF, 1280 B); the patched $0800
+        # runtime form lives only in bios_220.bin (version_delta cold-boot trace).
+        OsRegion("BIOS", "z80", 0xDA00, 0x0500, "bios_220_disk.bin", ("cpm_2_20_bios.json",)),
     ],
 }
 

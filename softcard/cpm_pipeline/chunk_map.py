@@ -30,6 +30,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 DOCS = REPO_ROOT / "docs"
 INVEST = REPO_ROOT / "cpm-investigation"
 OS223_44K = REPO_ROOT / "CPMV223-44K" / "os"   # canonical 2.23 OS source tree (disk build reads here)
+OS220 = REPO_ROOT / "CPMV220" / "os"           # canonical 2.20 OS source tree
 
 
 @dataclass(frozen=True)
@@ -160,35 +161,31 @@ _build_chunks_223()
 
 # ── 2.20 sources ───────────────────────────────────────────────────────
 SOURCES_220: dict[str, ChunkSource | Path] = {
+    # Canonical 2.20 OS sources from CPMV220/os/ (verified byte-identical to the
+    # former docs/CPM220_* round-trip sources, which are retired). 6502 = ca65 .s;
+    # Z-80 = sjasmplus .asm.
     "CPM220_BootLoader": ChunkSource(
-        asm_path=DOCS / "CPM220_BootLoader.asm",
+        asm_path=OS220 / "CPM_BootLoader.s",
         cpu="6502", org=0x0800, size=0x0C00,
     ),
     "CPM220_RWTS": ChunkSource(
-        asm_path=DOCS / "CPM220_RWTS.asm",
+        asm_path=OS220 / "CPM_RWTS.s",
         cpu="6502", org=0x0A00, size=0x0600,
     ),
     "CPM220_InstallFragments": ChunkSource(
-        asm_path=DOCS / "CPM220_InstallFragments.asm",
+        asm_path=OS220 / "CPM_InstallFragments.s",
         cpu="6502", org=0x0200, size=0x0200,
     ),
     "CPM220_SystemImage": ChunkSource(
-        asm_path=DOCS / "CPM220_SystemImage.asm",
+        asm_path=OS220 / "CPM_SystemImage.asm",
         cpu="z80", org=0x8000, size=0x1700,
         expected_bin_name="build/CPM220_SystemImage.bin",
     ),
-    "CPM220_BIOS": ChunkSource(
-        asm_path=DOCS / "CPM220_BIOS.asm",
-        # True base $DA00 (jump table first; = Apple $FA00 in LC RAM
-        # through the real SoftCard map). Was 0xDACC -- the WBOOT handler
-        # address mistaken for the base under the wrong address model.
-        cpu="z80", org=0xDA00, size=0x0800,
-        expected_bin_name="build/CPM220_BIOS.bin",
-    ),
-    # Pristine on-disk BIOS image in the LOAD_CPM staging area (jump table
-    # first, org $DA00); the un-patched counterpart of CPM220_BIOS.asm.
+    # The as-shipped pristine on-disk BIOS ($DA00-$DEFF) -- what LOAD_CPM reads.
+    # The runtime device/console tail it builds in RAM is documented in
+    # CPMV220/BOOT_AND_PATCHING.md, not baked into this source.
     "CPM220_BIOS_Disk": ChunkSource(
-        asm_path=DOCS / "CPM220_BIOS_Disk.asm",
+        asm_path=OS220 / "CPM_BIOS.asm",
         cpu="z80", org=0xDA00, size=0x0500,
         expected_bin_name="build/CPM220_BIOS_Disk.bin",
     ),

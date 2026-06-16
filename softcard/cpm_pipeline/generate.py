@@ -83,8 +83,8 @@ class GenerateResult:
 
 
 # Sources that ship with each variant (mapped by variant suffix). 2.23 is
-# sourced from its canonical CPMV223-44K/os/ tree; 2.20 still from docs/ (pending
-# its unification). The per-variant base directory is SOURCE_BASE_BY_VARIANT.
+# sourced from its canonical per-disk os/ tree (CPMV223-44K/os/, CPMV220/os/; the
+# docs/CPM*.asm round-trip sources are retired). Base = SOURCE_BASE_BY_VARIANT.
 SOURCES_BY_VARIANT = {
     "softcard_cpm_2_23": [
         "CPM_BootLoader.s",
@@ -95,17 +95,17 @@ SOURCES_BY_VARIANT = {
         "CPM_BIOS.asm",
     ],
     "softcard_cpm_2_20": [
-        "CPM220_BootLoader.asm",
-        "CPM220_RWTS.asm",
-        "CPM220_InstallFragments.asm",
-        "CPM220_SystemImage.asm",
-        "CPM220_BIOS.asm",
+        "CPM_BootLoader.s",
+        "CPM_RWTS.s",
+        "CPM_InstallFragments.s",
+        "CPM_SystemImage.asm",
+        "CPM_BIOS.asm",
     ],
 }
 
 SOURCE_BASE_BY_VARIANT = {
     "softcard_cpm_2_23": REPO_ROOT / "CPMV223-44K" / "os",
-    "softcard_cpm_2_20": DOCS,
+    "softcard_cpm_2_20": REPO_ROOT / "CPMV220" / "os",
 }
 
 # Symbol files by variant
