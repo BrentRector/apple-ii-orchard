@@ -19,13 +19,13 @@ DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS
 ; [AI] COM entry point at $0100: sets the stack, saves the top-of-TPA address from $0006, and jumps
 ;       to the real start, the standard CP/M transient prologue.
 TPA_ENTRY:
-        LD SP,MAIN_ENTRY               ; $0100  31 00 02
+        LD SP,MAIN_ENTRY                 ; $0100  31 00 02
 TPA_START_1:
         LD HL,($0006)                    ; $0103  2A 06 00
 TPA_START_2:
-        LD (SYM_TABLE_LIMIT),HL             ; $0106  22 CD 01
+        LD (SYM_TABLE_LIMIT),HL          ; $0106  22 CD 01
 TPA_START_3:
-        JP MAIN_ENTRY                  ; $0109  C3 00 02
+        JP MAIN_ENTRY                    ; $0109  C3 00 02
 LIST_LINE_BUF:
         DEFB    $20                                              ; $010C
 TPA_START_5:
@@ -74,30 +74,30 @@ VEC_PASS_INIT:
 ; [AI] Public entry (get source byte): jumps to the buffered source-file reader that returns the
 ;       next character of the .ASM file.
 VEC_GET_SRC_CHAR:
-        JP GET_SRC_CHAR                    ; $0206  C3 CA 0D
+        JP GET_SRC_CHAR                  ; $0206  C3 CA 0D
         DEFB    $C3                                              ; $0209
-        DEFW    PUT_PRN_CHAR                 ; $020A
+        DEFW    PUT_PRN_CHAR             ; $020A
         DEFB    $C3                                              ; $020C
-        DEFW    PUT_HEX_CHAR                 ; $020D
+        DEFW    PUT_HEX_CHAR             ; $020D
         DEFB    $C3                                              ; $020F
-        DEFW    CONOUT_CHAR                 ; $0210
+        DEFW    CONOUT_CHAR              ; $0210
 ; [AI] Public entry: jumps to the print-string-to-console helper (sends a $-less, CR-terminated
 ;       message via BDOS conout).
 VEC_PRINT_MSG:
-        JP PRINT_MSG_CRLF                      ; $0212  C3 BC 0C
+        JP PRINT_MSG_CRLF                ; $0212  C3 BC 0C
 ; [AI] Public entry: jumps to the PRN/listing line-flush routine that emits the formatted assembled
 ;       line.
 VEC_FLUSH_LIST_LINE:
-        JP FLUSH_LIST_LINE                    ; $0215  C3 00 0F
+        JP FLUSH_LIST_LINE               ; $0215  C3 00 0F
 ; [AI] Public entry: jumps to the single-character console output helper used for error flags and
 ;       progress letters.
 VEC_SET_ERR_FLAG:
-        JP STAMP_ERR_FLAG                   ; $0218  C3 2F 0F
+        JP STAMP_ERR_FLAG                ; $0218  C3 2F 0F
         DEFB    $C3,$4C,$10                                      ; $021B
 ; [AI] Public entry: jumps to the end-of-assembly finalizer (close files, print summary, warm
 ;       boot).
 VEC_END_ASSEMBLY:
-        JP END_LINE_OUTPUT                   ; $021E  C3 39 0F
+        JP END_LINE_OUTPUT               ; $021E  C3 39 0F
 SUB_0218_2:
         DEFB    $00,$00                                          ; $0221
 SUB_0218_3:
@@ -121,14 +121,16 @@ SUB_0218_11:
         DEFB    $00                                              ; $0258
 PRN_FCB:
         DEFS    9, $00    ; $0259  fill
+PRN_EXT:
         DEFB    $50,$52,$4E,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00 ; $0262
         DEFS    8, $00    ; $0272  fill
 HEX_FCB:
         DEFS    9, $00    ; $027A  fill
+HEX_EXT:
         DEFB    $48,$45,$58,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00 ; $0283
         DEFS    8, $00    ; $0293  fill
 SRC_BUF_PTR:
-        DEFW    SRC_BUF              ; $029B
+        DEFW    SRC_BUF                  ; $029B
 SRC_SECTOR_FCB:
         DEFS    99, $00    ; $029D  fill
 BUF_FULL_MARK:
@@ -146,7 +148,7 @@ HEX_BUF:
 ; [AI] Opens/selects a file by writing the drive byte into an FCB field and invoking BDOS function
 ;       14 (DRV_SET / select disk) only when it changes, avoiding a redundant select.
 SELECT_DRIVE:
-        LD HL,SRC_DRIVE                 ; $0CA1  21 34 02
+        LD HL,SRC_DRIVE                  ; $0CA1  21 34 02
 SUB_0CA1_1:
         CP (HL)                          ; $0CA4  BE
 SUB_0CA1_2:
@@ -176,14 +178,14 @@ SUB_0CAE_4:
 SUB_0CAE_5:
         RET                              ; $0CB7  C9
 SUB_0CAE_6:
-        LD A,(SRC_DRIVE)                ; $0CB8  3A 34 02
+        LD A,(SRC_DRIVE)                 ; $0CB8  3A 34 02
         RET                              ; $0CBB  C9
 ; [AI] Prints a CR-terminated message string at (HL) to the console one character at a time, then
 ;       emits a line feed, used for the banner and all error texts.
 PRINT_MSG_CRLF:
         LD A,(HL)                        ; $0CBC  7E
 SUB_0CBC_1:
-        CALL CONOUT_CHAR                    ; $0CBD  CD DE 0E
+        CALL CONOUT_CHAR                 ; $0CBD  CD DE 0E
 SUB_0CBC_2:
         LD A,(HL)                        ; $0CC0  7E
 SUB_0CBC_3:
@@ -191,11 +193,11 @@ SUB_0CBC_3:
 SUB_0CBC_4:
         CP $0D                           ; $0CC2  FE 0D
 SUB_0CBC_5:
-        JP NZ,PRINT_MSG_CRLF                   ; $0CC4  C2 BC 0C
+        JP NZ,PRINT_MSG_CRLF             ; $0CC4  C2 BC 0C
 SUB_0CBC_6:
         LD A,$0A                         ; $0CC7  3E 0A
 SUB_0CBC_7:
-        CALL CONOUT_CHAR                    ; $0CC9  CD DE 0E
+        CALL CONOUT_CHAR                 ; $0CC9  CD DE 0E
 SUB_0CBC_8:
         RET                              ; $0CCC  C9
 ; [AI] Copies the 8-character filename from the default FCB at $005C into the FCB being built at
@@ -209,7 +211,7 @@ SUB_0CCD_2:
 SUB_0CCD_3:
         CP $3F                           ; $0CD3  FE 3F
 SUB_0CCD_4:
-        JP Z,ERR_NAME                 ; $0CD5  CA BB 0D
+        JP Z,ERR_NAME                    ; $0CD5  CA BB 0D
 SUB_0CCD_5:
         LD (HL),A                        ; $0CD8  77
 SUB_0CCD_6:
@@ -225,11 +227,11 @@ SUB_0CCD_10:
 ; [AI] Top of the main program: prints the 'CP/M ASSEMBLER - VER 2.0' banner, then falls into
 ;       command-line parsing and file setup.
 MAIN_DRIVER:
-        LD HL,MSG_BANNER                ; $0CE0  21 A0 0F
+        LD HL,MSG_BANNER                 ; $0CE0  21 A0 0F
 SUB_0CCD_12:
-        CALL PRINT_MSG_CRLF                    ; $0CE3  CD BC 0C
+        CALL PRINT_MSG_CRLF              ; $0CE3  CD BC 0C
 SUB_0CCD_13:
-        JP PARSE_CMDLINE                    ; $0CE6  C3 3F 0D
+        JP PARSE_CMDLINE                 ; $0CE6  C3 3F 0D
 ; [AI] Opens the source (.ASM) file via BDOS function 15 (F_OPEN); on failure prints 'NO SOURCE
 ;       FILE PRESENT' and warm-boots.
 OPEN_SOURCE:
@@ -240,8 +242,8 @@ SUB_0CE9_2:
         CP $FF                           ; $0CEE  FE FF
 SUB_0CE9_3:
         RET NZ                           ; $0CF0  C0
-        LD HL,MSG_NO_SOURCE                ; $0CF1  21 B9 0F
-        CALL PRINT_MSG_CRLF                    ; $0CF4  CD BC 0C
+        LD HL,MSG_NO_SOURCE              ; $0CF1  21 B9 0F
+        CALL PRINT_MSG_CRLF              ; $0CF4  CD BC 0C
         JP WBOOT_VEC                     ; $0CF7  C3 00 00
 ; [AI] Closes an output file via BDOS function 16 (F_CLOSE); on failure prints 'CANNOT CLOSE FILES'
 ;       and warm-boots.
@@ -250,8 +252,8 @@ CLOSE_FILE:
         CALL BDOS_VEC                    ; $0CFC  CD 05 00
         CP $FF                           ; $0CFF  FE FF
         RET NZ                           ; $0D01  C0
-        LD HL,MSG_CLOSE_ERR                ; $0D02  21 29 10
-        CALL PRINT_MSG_CRLF                    ; $0D05  CD BC 0C
+        LD HL,MSG_CLOSE_ERR              ; $0D02  21 29 10
+        CALL PRINT_MSG_CRLF              ; $0D05  CD BC 0C
         JP WBOOT_VEC                     ; $0D08  C3 00 00
 ; [AI] Thin wrapper for BDOS function 19 (F_DELETE), used to erase any pre-existing .PRN/.HEX file
 ;       before recreating it.
@@ -269,21 +271,21 @@ SUB_0D10_2:
         CP $FF                           ; $0D15  FE FF
 SUB_0D10_3:
         RET NZ                           ; $0D17  C0
-        LD HL,MSG_NO_DIR_SPACE                ; $0D18  21 D0 0F
-        CALL PRINT_MSG_CRLF                    ; $0D1B  CD BC 0C
+        LD HL,MSG_NO_DIR_SPACE           ; $0D18  21 D0 0F
+        CALL PRINT_MSG_CRLF              ; $0D1B  CD BC 0C
         JP WBOOT_VEC                     ; $0D1E  C3 00 00
 ; [AI] Selects the source-file's drive (from the saved drive byte at $0235) so subsequent source
 ;       reads target the right disk.
 SELECT_SRC_DRIVE:
-        LD A,(SRC_DRIVE_SEL)                ; $0D21  3A 35 02
+        LD A,(SRC_DRIVE_SEL)             ; $0D21  3A 35 02
 SUB_0D21_1:
-        CALL SELECT_DRIVE                    ; $0D24  CD A1 0C
+        CALL SELECT_DRIVE                ; $0D24  CD A1 0C
 SUB_0D21_2:
         RET                              ; $0D27  C9
 ; [AI] Tests the PRN-destination option byte at $0236: returns Z (skip) if listing is suppressed
 ;       ($19='Z' no file) and sets flags for the console case ($17='W').
 CHECK_PRN_OPT:
-        LD A,(PRN_DEST_OPT)                ; $0D28  3A 36 02
+        LD A,(PRN_DEST_OPT)              ; $0D28  3A 36 02
 SUB_0D28_1:
         CP $19                           ; $0D2B  FE 19
 SUB_0D28_2:
@@ -294,16 +296,16 @@ SUB_0D28_4:
         RET                              ; $0D30  C9
 ; [AI] Selects the drive for the .PRN output file from the option byte at $0236.
 SELECT_PRN_DRIVE:
-        LD A,(PRN_DEST_OPT)                ; $0D31  3A 36 02
+        LD A,(PRN_DEST_OPT)              ; $0D31  3A 36 02
 SUB_0D31_1:
-        CALL SELECT_DRIVE                    ; $0D34  CD A1 0C
+        CALL SELECT_DRIVE                ; $0D34  CD A1 0C
 SUB_0D31_2:
         RET                              ; $0D37  C9
 ; [AI] Selects the drive for the .HEX output file from the option byte at $0237.
 SELECT_HEX_DRIVE:
-        LD A,(HEX_DEST_OPT)                ; $0D38  3A 37 02
+        LD A,(HEX_DEST_OPT)              ; $0D38  3A 37 02
 SUB_0D38_1:
-        CALL SELECT_DRIVE                    ; $0D3B  CD A1 0C
+        CALL SELECT_DRIVE                ; $0D3B  CD A1 0C
 SUB_0D38_2:
         RET                              ; $0D3E  C9
 ; [AI] Parses the command-line option letters following the filename, storing the source/PRN/HEX
@@ -314,81 +316,81 @@ PARSE_CMDLINE:
 SUB_0D38_4:
         CP $20                           ; $0D42  FE 20
 SUB_0D38_5:
-        JP Z,ERR_NAME                 ; $0D44  CA BB 0D
+        JP Z,ERR_NAME                    ; $0D44  CA BB 0D
 SUB_0D38_6:
         LD C,$19                         ; $0D47  0E 19
 SUB_0D38_7:
         CALL BDOS_VEC                    ; $0D49  CD 05 00
 SUB_0D38_8:
-        LD (SRC_DRIVE),A                ; $0D4C  32 34 02
+        LD (SRC_DRIVE),A                 ; $0D4C  32 34 02
 SUB_0D38_9:
         LD HL,$0064                      ; $0D4F  21 64 00
 SUB_0D38_10:
-        CALL PARSE_DRIVE_OPT                    ; $0D52  CD AE 0C
+        CALL PARSE_DRIVE_OPT             ; $0D52  CD AE 0C
 SUB_0D38_11:
-        LD (SRC_DRIVE_SEL),A                ; $0D55  32 35 02
+        LD (SRC_DRIVE_SEL),A             ; $0D55  32 35 02
 SUB_0D38_12:
-        CALL PARSE_DRIVE_OPT                    ; $0D58  CD AE 0C
+        CALL PARSE_DRIVE_OPT             ; $0D58  CD AE 0C
 SUB_0D38_13:
-        LD (HEX_DEST_OPT),A                ; $0D5B  32 37 02
+        LD (HEX_DEST_OPT),A              ; $0D5B  32 37 02
 SUB_0D38_14:
-        CALL PARSE_DRIVE_OPT                    ; $0D5E  CD AE 0C
+        CALL PARSE_DRIVE_OPT             ; $0D5E  CD AE 0C
 SUB_0D38_15:
-        LD (PRN_DEST_OPT),A                ; $0D61  32 36 02
+        LD (PRN_DEST_OPT),A              ; $0D61  32 36 02
 SUB_0D38_16:
-        LD HL,SRC_FCB                 ; $0D64  21 38 02
+        LD HL,SRC_FCB                    ; $0D64  21 38 02
 SUB_0D38_17:
-        CALL COPY_FCB_NAME                    ; $0D67  CD CD 0C
+        CALL COPY_FCB_NAME               ; $0D67  CD CD 0C
 SUB_0D38_18:
-        CALL CHECK_PRN_OPT                    ; $0D6A  CD 28 0D
+        CALL CHECK_PRN_OPT               ; $0D6A  CD 28 0D
 SUB_0D38_19:
         JP Z,SUB_0D38_29                 ; $0D6D  CA 83 0D
 SUB_0D38_20:
-        LD HL,PRN_FCB                ; $0D70  21 59 02
+        LD HL,PRN_FCB                    ; $0D70  21 59 02
 SUB_0D38_21:
         PUSH HL                          ; $0D73  E5
 SUB_0D38_22:
         PUSH HL                          ; $0D74  E5
 SUB_0D38_23:
-        CALL COPY_FCB_NAME                    ; $0D75  CD CD 0C
+        CALL COPY_FCB_NAME               ; $0D75  CD CD 0C
 SUB_0D38_24:
-        CALL SELECT_PRN_DRIVE                    ; $0D78  CD 31 0D
+        CALL SELECT_PRN_DRIVE            ; $0D78  CD 31 0D
 SUB_0D38_25:
         POP DE                           ; $0D7B  D1
 SUB_0D38_26:
-        CALL DELETE_FILE                    ; $0D7C  CD 0B 0D
+        CALL DELETE_FILE                 ; $0D7C  CD 0B 0D
 SUB_0D38_27:
         POP DE                           ; $0D7F  D1
 SUB_0D38_28:
-        CALL MAKE_FILE                    ; $0D80  CD 10 0D
+        CALL MAKE_FILE                   ; $0D80  CD 10 0D
 SUB_0D38_29:
-        LD A,(HEX_DEST_OPT)                ; $0D83  3A 37 02
+        LD A,(HEX_DEST_OPT)              ; $0D83  3A 37 02
 SUB_0D38_30:
         CP $19                           ; $0D86  FE 19
 SUB_0D38_31:
         JP Z,SUB_0D38_41                 ; $0D88  CA 9E 0D
 SUB_0D38_32:
-        LD HL,HEX_FCB                ; $0D8B  21 7A 02
+        LD HL,HEX_FCB                    ; $0D8B  21 7A 02
 SUB_0D38_33:
         PUSH HL                          ; $0D8E  E5
 SUB_0D38_34:
         PUSH HL                          ; $0D8F  E5
 SUB_0D38_35:
-        CALL COPY_FCB_NAME                    ; $0D90  CD CD 0C
+        CALL COPY_FCB_NAME               ; $0D90  CD CD 0C
 SUB_0D38_36:
-        CALL SELECT_HEX_DRIVE                    ; $0D93  CD 38 0D
+        CALL SELECT_HEX_DRIVE            ; $0D93  CD 38 0D
 SUB_0D38_37:
         POP DE                           ; $0D96  D1
 SUB_0D38_38:
-        CALL DELETE_FILE                    ; $0D97  CD 0B 0D
+        CALL DELETE_FILE                 ; $0D97  CD 0B 0D
 SUB_0D38_39:
         POP DE                           ; $0D9A  D1
 SUB_0D38_40:
-        CALL MAKE_FILE                    ; $0D9B  CD 10 0D
+        CALL MAKE_FILE                   ; $0D9B  CD 10 0D
 SUB_0D38_41:
-        JP VEC_LEXER_DRIVER                    ; $0D9E  C3 00 11
+        JP VEC_LEXER_DRIVER              ; $0D9E  C3 00 11
 SUB_0D38_42:
-        LD HL,SRC_BUF                ; $0DA1  21 00 04
+        LD HL,SRC_BUF                    ; $0DA1  21 00 04
 SUB_0D38_43:
         LD (SRC_BUF_PTR),HL              ; $0DA4  22 9B 02
 SUB_0D38_44:
@@ -400,18 +402,18 @@ SUB_0D38_46:
 SUB_0D38_47:
         LD (SUB_0218_3),A                ; $0DAE  32 23 02
 SUB_0D38_48:
-        CALL SELECT_SRC_DRIVE                    ; $0DB1  CD 21 0D
+        CALL SELECT_SRC_DRIVE            ; $0DB1  CD 21 0D
 SUB_0D38_49:
-        LD DE,SRC_FCB                 ; $0DB4  11 38 02
+        LD DE,SRC_FCB                    ; $0DB4  11 38 02
 SUB_0D38_50:
-        CALL OPEN_SOURCE                    ; $0DB7  CD E9 0C
+        CALL OPEN_SOURCE                 ; $0DB7  CD E9 0C
 SUB_0D38_51:
         RET                              ; $0DBA  C9
 ; [AI] Fatal-error landing: prints 'SOURCE FILE NAME ERROR' and warm-boots (reached when the
 ;       filename is missing or contains a wildcard).
 ERR_NAME:
-        LD HL,MSG_NAME_ERR                ; $0DBB  21 E3 0F
-        CALL PRINT_MSG_CRLF                    ; $0DBE  CD BC 0C
+        LD HL,MSG_NAME_ERR               ; $0DBB  21 E3 0F
+        CALL PRINT_MSG_CRLF              ; $0DBE  CD BC 0C
         JP WBOOT_VEC                     ; $0DC1  C3 00 00
 ; [AI] 16-bit compare of DE against HL (sets Z if equal), a helper used to detect when a
 ;       sector/output buffer pointer has reached its boundary.
@@ -438,13 +440,13 @@ SUB_0DC4_8:
 SUB_0DC4_9:
         LD HL,(SRC_BUF_PTR)              ; $0DCD  2A 9B 02
 SUB_0DC4_10:
-        LD DE,SRC_BUF                ; $0DD0  11 00 04
+        LD DE,SRC_BUF                    ; $0DD0  11 00 04
 SUB_0DC4_11:
-        CALL CMP16_DE_HL                    ; $0DD3  CD C4 0D
+        CALL CMP16_DE_HL                 ; $0DD3  CD C4 0D
 SUB_0DC4_12:
         JP NZ,SUB_0DC4_41                ; $0DD6  C2 19 0E
 SUB_0DC4_13:
-        CALL SELECT_SRC_DRIVE                    ; $0DD9  CD 21 0D
+        CALL SELECT_SRC_DRIVE            ; $0DD9  CD 21 0D
 SUB_0DC4_14:
         LD HL,WBOOT_VEC                  ; $0DDC  21 00 00
 SUB_0DC4_15:
@@ -452,7 +454,7 @@ SUB_0DC4_15:
 SUB_0DC4_16:
         LD B,$08                         ; $0DE2  06 08
 SUB_0DC4_17:
-        LD HL,SRC_SECTOR_FCB                ; $0DE4  21 9D 02
+        LD HL,SRC_SECTOR_FCB             ; $0DE4  21 9D 02
 SUB_0DC4_18:
         PUSH BC                          ; $0DE7  C5
 SUB_0DC4_19:
@@ -460,7 +462,7 @@ SUB_0DC4_19:
 SUB_0DC4_20:
         LD C,$14                         ; $0DE9  0E 14
 SUB_0DC4_21:
-        LD DE,SRC_FCB                 ; $0DEB  11 38 02
+        LD DE,SRC_FCB                    ; $0DEB  11 38 02
 SUB_0DC4_22:
         CALL BDOS_VEC                    ; $0DEE  CD 05 00
 SUB_0DC4_23:
@@ -497,14 +499,14 @@ SUB_0DC4_38:
         JP SUB_0DC4_41                   ; $0E0A  C3 19 0E
 SUB_0DC4_39:
         CP $03                           ; $0E0D  FE 03
-        JP NC,ERR_READ                ; $0E0F  D2 2B 0E
+        JP NC,ERR_READ                   ; $0E0F  D2 2B 0E
 SUB_0DC4_40:
         LD (HL),$1A                      ; $0E12  36 1A
         INC HL                           ; $0E14  23
         DEC C                            ; $0E15  0D
         JP NZ,SUB_0DC4_40                ; $0E16  C2 12 0E
 SUB_0DC4_41:
-        LD DE,SRC_SECTOR_FCB                ; $0E19  11 9D 02
+        LD DE,SRC_SECTOR_FCB             ; $0E19  11 9D 02
 SUB_0DC4_42:
         LD HL,(SRC_BUF_PTR)              ; $0E1C  2A 9B 02
 SUB_0DC4_43:
@@ -529,8 +531,8 @@ SUB_0DC4_52:
         RET                              ; $0E2A  C9
 ; [AI] Fatal-error landing: prints 'SOURCE FILE READ ERROR' on a disk read failure and warm-boots.
 ERR_READ:
-        LD HL,MSG_READ_ERR                ; $0E2B  21 FA 0F
-        CALL PRINT_MSG_CRLF                    ; $0E2E  CD BC 0C
+        LD HL,MSG_READ_ERR               ; $0E2B  21 FA 0F
+        CALL PRINT_MSG_CRLF              ; $0E2E  CD BC 0C
         JP WBOOT_VEC                     ; $0E31  C3 00 00
 ; [AI] Writes one byte to the .PRN listing: sends it to the console, to the listing-file buffer, or
 ;       discards it depending on the PRN-destination option (W=console, Z=none, else file).
@@ -539,7 +541,7 @@ PUT_PRN_CHAR:
 SUB_0E34_1:
         LD B,A                           ; $0E35  47
 SUB_0E34_2:
-        LD A,(PRN_DEST_OPT)                ; $0E36  3A 36 02
+        LD A,(PRN_DEST_OPT)              ; $0E36  3A 36 02
 SUB_0E34_3:
         CP $19                           ; $0E39  FE 19
 SUB_0E34_4:
@@ -550,14 +552,14 @@ SUB_0E34_6:
         LD A,B                           ; $0E40  78
 SUB_0E34_7:
         JP NZ,SUB_0E34_8                 ; $0E41  C2 4A 0E
-        CALL CONOUT_CHAR                    ; $0E44  CD DE 0E
+        CALL CONOUT_CHAR                 ; $0E44  CD DE 0E
         JP SUB_0E34_13                   ; $0E47  C3 51 0E
 SUB_0E34_8:
         PUSH DE                          ; $0E4A  D5
 SUB_0E34_9:
         PUSH HL                          ; $0E4B  E5
 SUB_0E34_10:
-        CALL PRN_BUF_PUT                    ; $0E4C  CD 53 0E
+        CALL PRN_BUF_PUT                 ; $0E4C  CD 53 0E
 SUB_0E34_11:
         POP HL                           ; $0E4F  E1
 SUB_0E34_12:
@@ -573,7 +575,7 @@ PRN_BUF_PUT:
 SUB_0E53_1:
         EX DE,HL                         ; $0E56  EB
 SUB_0E53_2:
-        LD HL,PRN_BUF                ; $0E57  21 9F 06
+        LD HL,PRN_BUF                    ; $0E57  21 9F 06
 SUB_0E53_3:
         ADD HL,DE                        ; $0E5A  19
 SUB_0E53_4:
@@ -587,16 +589,16 @@ SUB_0E53_7:
 SUB_0E53_8:
         EX DE,HL                         ; $0E61  EB
 SUB_0E53_9:
-        LD HL,BUF_FULL_MARK                ; $0E62  21 00 03
+        LD HL,BUF_FULL_MARK              ; $0E62  21 00 03
 SUB_0E53_10:
-        CALL CMP16_DE_HL                    ; $0E65  CD C4 0D
+        CALL CMP16_DE_HL                 ; $0E65  CD C4 0D
 SUB_0E53_11:
         RET NZ                           ; $0E68  C0
-        CALL SELECT_PRN_DRIVE                    ; $0E69  CD 31 0D
+        CALL SELECT_PRN_DRIVE            ; $0E69  CD 31 0D
         LD HL,WBOOT_VEC                  ; $0E6C  21 00 00
         LD (PRN_BUF_IDX),HL              ; $0E6F  22 9D 06
-        LD HL,PRN_BUF                ; $0E72  21 9F 06
-        LD DE,PRN_FCB                ; $0E75  11 59 02
+        LD HL,PRN_BUF                    ; $0E72  21 9F 06
+        LD DE,PRN_FCB                    ; $0E75  11 59 02
         LD B,$06                         ; $0E78  06 06
 ; [AI] Common buffer-flush loop: writes the accumulated 6 sectors of an output buffer to disk one
 ;       128-byte record at a time, stopping at an EOF marker or a write error.
@@ -624,23 +626,23 @@ SUB_0E53_13:
         POP DE                           ; $0E96  D1
         POP BC                           ; $0E97  C1
         OR A                             ; $0E98  B7
-        JP NZ,ERR_WRITE                ; $0E99  C2 A1 0E
+        JP NZ,ERR_WRITE                  ; $0E99  C2 A1 0E
         DEC B                            ; $0E9C  05
         RET Z                            ; $0E9D  C8
-        JP FLUSH_OUT_BUF                   ; $0E9E  C3 7A 0E
+        JP FLUSH_OUT_BUF                 ; $0E9E  C3 7A 0E
 ; [AI] Output-write error handler: prints 'OUTPUT FILE WRITE ERROR' then jumps to the end-of-
 ;       assembly cleanup path.
 ERR_WRITE:
-        LD HL,MSG_WRITE_ERR                ; $0EA1  21 11 10
-        CALL PRINT_MSG_CRLF                    ; $0EA4  CD BC 0C
-        JP FINALIZE_ASM                   ; $0EA7  C3 77 0F
+        LD HL,MSG_WRITE_ERR              ; $0EA1  21 11 10
+        CALL PRINT_MSG_CRLF              ; $0EA4  CD BC 0C
+        JP FINALIZE_ASM                  ; $0EA7  C3 77 0F
 ; [AI] Writes one byte to the .HEX file's output buffer, flushing 6 sectors to disk via BDOS
 ;       function 21 when the buffer fills (the Intel-HEX counterpart of PUT_PRN_CHAR/PRN_BUF_PUT).
 PUT_HEX_CHAR:
         PUSH BC                          ; $0EAA  C5
         PUSH DE                          ; $0EAB  D5
         PUSH HL                          ; $0EAC  E5
-        CALL HEX_BUF_PUT                    ; $0EAD  CD B4 0E
+        CALL HEX_BUF_PUT                 ; $0EAD  CD B4 0E
         POP HL                           ; $0EB0  E1
         POP DE                           ; $0EB1  D1
         POP BC                           ; $0EB2  C1
@@ -648,7 +650,7 @@ PUT_HEX_CHAR:
 HEX_BUF_PUT:
         LD HL,(HEX_BUF_IDX)              ; $0EB4  2A 9F 09
         EX DE,HL                         ; $0EB7  EB
-        LD HL,HEX_BUF                ; $0EB8  21 A1 09
+        LD HL,HEX_BUF                    ; $0EB8  21 A1 09
         ADD HL,DE                        ; $0EBB  19
         LD (HL),A                        ; $0EBC  77
         EX DE,HL                         ; $0EBD  EB
@@ -656,16 +658,16 @@ HEX_BUF_PUT:
         LD (HEX_BUF_IDX),HL              ; $0EBF  22 9F 09
 SUB_0EB4_1:
         EX DE,HL                         ; $0EC2  EB
-        LD HL,BUF_FULL_MARK                ; $0EC3  21 00 03
-        CALL CMP16_DE_HL                    ; $0EC6  CD C4 0D
+        LD HL,BUF_FULL_MARK              ; $0EC3  21 00 03
+        CALL CMP16_DE_HL                 ; $0EC6  CD C4 0D
         RET NZ                           ; $0EC9  C0
-        CALL SELECT_HEX_DRIVE                    ; $0ECA  CD 38 0D
+        CALL SELECT_HEX_DRIVE            ; $0ECA  CD 38 0D
         LD HL,WBOOT_VEC                  ; $0ECD  21 00 00
         LD (HEX_BUF_IDX),HL              ; $0ED0  22 9F 09
-        LD HL,HEX_BUF                ; $0ED3  21 A1 09
-        LD DE,HEX_FCB                ; $0ED6  11 7A 02
+        LD HL,HEX_BUF                    ; $0ED3  21 A1 09
+        LD DE,HEX_FCB                    ; $0ED6  11 7A 02
         LD B,$06                         ; $0ED9  06 06
-        JP FLUSH_OUT_BUF                   ; $0EDB  C3 7A 0E
+        JP FLUSH_OUT_BUF                 ; $0EDB  C3 7A 0E
 ; [AI] Outputs a single character to the console via BDOS function 2 (C_WRITE), preserving
 ;       BC/DE/HL; the lowest-level console-print primitive.
 CONOUT_CHAR:
@@ -693,48 +695,48 @@ SUB_0EDE_9:
 LIST_OUT_CHAR:
         LD C,A                           ; $0EEB  4F
 SUB_0EEB_1:
-        CALL PUT_PRN_CHAR                    ; $0EEC  CD 34 0E
+        CALL PUT_PRN_CHAR                ; $0EEC  CD 34 0E
 SUB_0EEB_2:
-        LD A,(LIST_LINE_BUF)               ; $0EEF  3A 0C 01
+        LD A,(LIST_LINE_BUF)             ; $0EEF  3A 0C 01
 SUB_0EEB_3:
         CP $20                           ; $0EF2  FE 20
 SUB_0EEB_4:
         RET Z                            ; $0EF4  C8
-        LD A,(PRN_DEST_OPT)                ; $0EF5  3A 36 02
+        LD A,(PRN_DEST_OPT)              ; $0EF5  3A 36 02
         CP $17                           ; $0EF8  FE 17
         RET Z                            ; $0EFA  C8
         LD A,C                           ; $0EFB  79
-        CALL CONOUT_CHAR                    ; $0EFC  CD DE 0E
+        CALL CONOUT_CHAR                 ; $0EFC  CD DE 0E
         RET                              ; $0EFF  C9
 ; [AI] Flushes the current listing line: prints the buffered line text ($010C..) with CR/LF, then
 ;       re-fills the 120-byte line buffer with spaces ready for the next line.
 FLUSH_LIST_LINE:
-        LD A,(LIST_LINE_LEN)               ; $0F00  3A 84 01
+        LD A,(LIST_LINE_LEN)             ; $0F00  3A 84 01
 SUB_0EEB_6:
-        LD HL,LIST_LINE_BUF                ; $0F03  21 0C 01
+        LD HL,LIST_LINE_BUF              ; $0F03  21 0C 01
 SUB_0EEB_7:
         OR A                             ; $0F06  B7
 SUB_0EEB_8:
         JP Z,SUB_0EEB_9                  ; $0F07  CA 15 0F
         LD B,A                           ; $0F0A  47
         LD A,(HL)                        ; $0F0B  7E
-        CALL LIST_OUT_CHAR                    ; $0F0C  CD EB 0E
+        CALL LIST_OUT_CHAR               ; $0F0C  CD EB 0E
         INC HL                           ; $0F0F  23
         LD A,B                           ; $0F10  78
         DEC A                            ; $0F11  3D
         JP SUB_0EEB_7                    ; $0F12  C3 06 0F
 SUB_0EEB_9:
-        LD (LIST_LINE_LEN),A               ; $0F15  32 84 01
+        LD (LIST_LINE_LEN),A             ; $0F15  32 84 01
 SUB_0EEB_10:
         LD A,$0D                         ; $0F18  3E 0D
 SUB_0EEB_11:
-        CALL LIST_OUT_CHAR                    ; $0F1A  CD EB 0E
+        CALL LIST_OUT_CHAR               ; $0F1A  CD EB 0E
 SUB_0EEB_12:
         LD A,$0A                         ; $0F1D  3E 0A
 SUB_0EEB_13:
-        CALL LIST_OUT_CHAR                    ; $0F1F  CD EB 0E
+        CALL LIST_OUT_CHAR               ; $0F1F  CD EB 0E
 SUB_0EEB_14:
-        LD HL,LIST_LINE_BUF                ; $0F22  21 0C 01
+        LD HL,LIST_LINE_BUF              ; $0F22  21 0C 01
 SUB_0EEB_15:
         LD A,$78                         ; $0F25  3E 78
 SUB_0EEB_16:
@@ -751,7 +753,7 @@ SUB_0EEB_20:
 ;       is still blank, so the leftmost error flag is preserved.
 STAMP_ERR_FLAG:
         LD B,A                           ; $0F2F  47
-        LD HL,LIST_LINE_BUF                ; $0F30  21 0C 01
+        LD HL,LIST_LINE_BUF              ; $0F30  21 0C 01
         LD A,(HL)                        ; $0F33  7E
         CP $20                           ; $0F34  FE 20
         RET NZ                           ; $0F36  C0
@@ -760,7 +762,7 @@ STAMP_ERR_FLAG:
 ; [AI] End-of-source-line handler in the listing path: pads remaining HEX object bytes, emits the
 ;       assembled-code byte count for the line, and writes line terminators to PRN/HEX.
 END_LINE_OUTPUT:
-        CALL CHECK_PRN_OPT                    ; $0F39  CD 28 0D
+        CALL CHECK_PRN_OPT               ; $0F39  CD 28 0D
         JP Z,SUB_0EEB_24                 ; $0F3C  CA 4F 0F
 SUB_0EEB_23:
         LD HL,(PRN_BUF_IDX)              ; $0F3F  2A 9D 06
@@ -768,44 +770,44 @@ SUB_0EEB_23:
         OR H                             ; $0F43  B4
         JP Z,SUB_0EEB_24                 ; $0F44  CA 4F 0F
         LD A,$1A                         ; $0F47  3E 1A
-        CALL PUT_PRN_CHAR                    ; $0F49  CD 34 0E
+        CALL PUT_PRN_CHAR                ; $0F49  CD 34 0E
         JP SUB_0EEB_23                   ; $0F4C  C3 3F 0F
 SUB_0EEB_24:
-        LD A,(HEX_DEST_OPT)                ; $0F4F  3A 37 02
+        LD A,(HEX_DEST_OPT)              ; $0F4F  3A 37 02
         CP $19                           ; $0F52  FE 19
-        JP Z,FINALIZE_ASM                 ; $0F54  CA 77 0F
+        JP Z,FINALIZE_ASM                ; $0F54  CA 77 0F
         LD A,(SUB_0218_3)                ; $0F57  3A 23 02
         OR A                             ; $0F5A  B7
-        CALL NZ,WRITE_HEX_RECORD                 ; $0F5B  C4 B8 10
-        LD HL,(LINE_START_LC)             ; $0F5E  2A D0 01
+        CALL NZ,WRITE_HEX_RECORD         ; $0F5B  C4 B8 10
+        LD HL,(LINE_START_LC)            ; $0F5E  2A D0 01
         LD (SUB_0218_2),HL               ; $0F61  22 21 02
-        CALL WRITE_HEX_RECORD                    ; $0F64  CD B8 10
+        CALL WRITE_HEX_RECORD            ; $0F64  CD B8 10
 SUB_0EEB_25:
         LD HL,(HEX_BUF_IDX)              ; $0F67  2A 9F 09
         LD A,L                           ; $0F6A  7D
         OR H                             ; $0F6B  B4
-        JP Z,FINALIZE_ASM                 ; $0F6C  CA 77 0F
+        JP Z,FINALIZE_ASM                ; $0F6C  CA 77 0F
         LD A,$1A                         ; $0F6F  3E 1A
-        CALL PUT_HEX_CHAR                    ; $0F71  CD AA 0E
+        CALL PUT_HEX_CHAR                ; $0F71  CD AA 0E
         JP SUB_0EEB_25                   ; $0F74  C3 67 0F
 ; [AI] End-of-assembly finalizer: flushes and closes the .PRN and .HEX output files, prints 'END OF
 ;       ASSEMBLY', and warm-boots back to CP/M.
 FINALIZE_ASM:
-        CALL CHECK_PRN_OPT                    ; $0F77  CD 28 0D
+        CALL CHECK_PRN_OPT               ; $0F77  CD 28 0D
         JP Z,SUB_0EEB_27                 ; $0F7A  CA 86 0F
-        CALL SELECT_PRN_DRIVE                    ; $0F7D  CD 31 0D
-        LD DE,PRN_FCB                ; $0F80  11 59 02
-        CALL CLOSE_FILE                    ; $0F83  CD FA 0C
+        CALL SELECT_PRN_DRIVE            ; $0F7D  CD 31 0D
+        LD DE,PRN_FCB                    ; $0F80  11 59 02
+        CALL CLOSE_FILE                  ; $0F83  CD FA 0C
 SUB_0EEB_27:
-        LD A,(HEX_DEST_OPT)                ; $0F86  3A 37 02
+        LD A,(HEX_DEST_OPT)              ; $0F86  3A 37 02
         CP $19                           ; $0F89  FE 19
         JP Z,SUB_0EEB_28                 ; $0F8B  CA 97 0F
-        CALL SELECT_HEX_DRIVE                    ; $0F8E  CD 38 0D
-        LD DE,HEX_FCB                ; $0F91  11 7A 02
-        CALL CLOSE_FILE                    ; $0F94  CD FA 0C
+        CALL SELECT_HEX_DRIVE            ; $0F8E  CD 38 0D
+        LD DE,HEX_FCB                    ; $0F91  11 7A 02
+        CALL CLOSE_FILE                  ; $0F94  CD FA 0C
 SUB_0EEB_28:
         LD HL,MSG_END_ASM                ; $0F97  21 3C 10
-        CALL PRINT_MSG_CRLF                    ; $0F9A  CD BC 0C
+        CALL PRINT_MSG_CRLF              ; $0F9A  CD BC 0C
         JP WBOOT_VEC                     ; $0F9D  C3 00 00
 MSG_BANNER:
         DEFB    $43,$50,$2F,$4D,$20,$41,$53,$53,$45,$4D,$42,$4C,$45,$52,$20 ; $0FA0
@@ -839,19 +841,19 @@ MSG_END_ASM:
         DEFB    "ASSEMBLY"    ; $1043  string
         DEFB    $0D    ; $104B  terminator
         DEFB    $C5,$47,$3A                                      ; $104C
-        DEFW    HEX_DEST_OPT               ; $104F
+        DEFW    HEX_DEST_OPT             ; $104F
         DEFB    $FE,$19,$78,$CA,$98,$10,$D5,$F5,$21              ; $1051
         DEFW    SUB_0218_3               ; $105A
         DEFB    $7E,$B7,$CA,$84,$10,$FE,$10,$DA,$6C,$10,$CD      ; $105C
-        DEFW    WRITE_HEX_RECORD                 ; $1067
+        DEFW    WRITE_HEX_RECORD         ; $1067
         DEFB    $C3,$84,$10,$2A                                  ; $1069
-        DEFW    LINE_START_LC             ; $106D
+        DEFW    LINE_START_LC            ; $106D
         DEFB    $EB,$2A                                          ; $106F
         DEFW    SUB_0218_2               ; $1071
         DEFB    $4F,$06,$00,$09,$7B,$BD,$C2,$81,$10,$7A,$BC,$CA,$8A,$10,$CD ; $1073
-        DEFW    WRITE_HEX_RECORD                 ; $1082
+        DEFW    WRITE_HEX_RECORD         ; $1082
         DEFB    $2A                                              ; $1084
-        DEFW    LINE_START_LC             ; $1085
+        DEFW    LINE_START_LC            ; $1085
         DEFB    $22                                              ; $1087
         DEFW    SUB_0218_2               ; $1088
         DEFB    $21                                              ; $108A
@@ -868,11 +870,11 @@ HEX_EMIT_BYTE:
         RRCA                             ; $109D  0F
         RRCA                             ; $109E  0F
         AND $0F                          ; $109F  E6 0F
-        CALL HEX_NIBBLE_OUT                    ; $10A1  CD AF 10
+        CALL HEX_NIBBLE_OUT              ; $10A1  CD AF 10
         POP AF                           ; $10A4  F1
         PUSH AF                          ; $10A5  F5
         AND $0F                          ; $10A6  E6 0F
-        CALL HEX_NIBBLE_OUT                    ; $10A8  CD AF 10
+        CALL HEX_NIBBLE_OUT              ; $10A8  CD AF 10
         POP AF                           ; $10AB  F1
         ADD A,D                          ; $10AC  82
         LD D,A                           ; $10AD  57
@@ -884,12 +886,12 @@ HEX_NIBBLE_OUT:
         DAA                              ; $10B1  27
         ADC A,$40                        ; $10B2  CE 40
         DAA                              ; $10B4  27
-        JP PUT_HEX_CHAR                      ; $10B5  C3 AA 0E
+        JP PUT_HEX_CHAR                  ; $10B5  C3 AA 0E
 ; [AI] Writes one complete Intel-HEX data record: the ':' lead, byte count, load address, the data
 ;       bytes, and the two's-complement checksum, then CR/LF.
 WRITE_HEX_RECORD:
         LD A,$3A                         ; $10B8  3E 3A
-        CALL PUT_HEX_CHAR                    ; $10BA  CD AA 0E
+        CALL PUT_HEX_CHAR                ; $10BA  CD AA 0E
         LD HL,SUB_0218_3                 ; $10BD  21 23 02
         LD E,(HL)                        ; $10C0  5E
 SUB_10B8_1:
@@ -898,13 +900,13 @@ SUB_10B8_1:
         LD (HL),A                        ; $10C3  77
         LD HL,(SUB_0218_2)               ; $10C4  2A 21 02
         LD A,E                           ; $10C7  7B
-        CALL HEX_EMIT_BYTE                    ; $10C8  CD 9A 10
+        CALL HEX_EMIT_BYTE               ; $10C8  CD 9A 10
         LD A,H                           ; $10CB  7C
-        CALL HEX_EMIT_BYTE                    ; $10CC  CD 9A 10
+        CALL HEX_EMIT_BYTE               ; $10CC  CD 9A 10
         LD A,L                           ; $10CF  7D
-        CALL HEX_EMIT_BYTE                    ; $10D0  CD 9A 10
+        CALL HEX_EMIT_BYTE               ; $10D0  CD 9A 10
         XOR A                            ; $10D3  AF
-        CALL HEX_EMIT_BYTE                    ; $10D4  CD 9A 10
+        CALL HEX_EMIT_BYTE               ; $10D4  CD 9A 10
         LD A,E                           ; $10D7  7B
         OR A                             ; $10D8  B7
         JP Z,SUB_10B8_3                  ; $10D9  CA E8 10
@@ -912,26 +914,26 @@ SUB_10B8_1:
 SUB_10B8_2:
         LD A,(HL)                        ; $10DF  7E
         INC HL                           ; $10E0  23
-        CALL HEX_EMIT_BYTE                    ; $10E1  CD 9A 10
+        CALL HEX_EMIT_BYTE               ; $10E1  CD 9A 10
         DEC E                            ; $10E4  1D
         JP NZ,SUB_10B8_2                 ; $10E5  C2 DF 10
 SUB_10B8_3:
         XOR A                            ; $10E8  AF
         SUB D                            ; $10E9  92
-        CALL HEX_EMIT_BYTE                    ; $10EA  CD 9A 10
+        CALL HEX_EMIT_BYTE               ; $10EA  CD 9A 10
         LD A,$0D                         ; $10ED  3E 0D
-        CALL PUT_HEX_CHAR                    ; $10EF  CD AA 0E
+        CALL PUT_HEX_CHAR                ; $10EF  CD AA 0E
         LD A,$0A                         ; $10F2  3E 0A
-        CALL PUT_HEX_CHAR                    ; $10F4  CD AA 0E
+        CALL PUT_HEX_CHAR                ; $10F4  CD AA 0E
         RET                              ; $10F7  C9
         DEFS    8, $00    ; $10F8  fill
 ; [AI] Entry jump into the lexical-analysis / line-input module's driver.
 VEC_LEXER_DRIVER:
-        JP VEC_SYMTAB_DRIVER                   ; $1100  C3 40 13
+        JP VEC_SYMTAB_DRIVER             ; $1100  C3 40 13
 ; [AI] Public entry: jumps to the per-line lexer reset that initializes line counters and reads the
 ;       first token.
 VEC_NEW_LINE:
-        JP NEW_LINE                   ; $1103  C3 32 11
+        JP NEW_LINE                      ; $1103  C3 32 11
 ; [AI] Public entry: jumps to the main token scanner that classifies and returns the next lexical
 ;       token from the source line.
 VEC_NEXT_TOKEN:
@@ -942,10 +944,10 @@ CUR_CHAR:
         DEFB    $00                                              ; $110A
 RADIX:
         DEFB    $00                                              ; $110B
-; [AI] Reads one source character (via VEC_GET_SRC_CHAR) and, unless it is CR/LF or the 120-column line is
-;       full, appends it to the echo/listing line buffer at $010C.
+; [AI] Reads one source character (via VEC_GET_SRC_CHAR) and, unless it is CR/LF or the 120-column
+;       line is full, appends it to the echo/listing line buffer at $010C.
 ECHO_CHAR:
-        CALL VEC_GET_SRC_CHAR                    ; $110C  CD 06 02
+        CALL VEC_GET_SRC_CHAR            ; $110C  CD 06 02
 SUB_110C_1:
         PUSH AF                          ; $110F  F5
 SUB_110C_2:
@@ -957,7 +959,7 @@ SUB_110C_4:
 SUB_110C_5:
         JP Z,SUB_110C_18                 ; $1117  CA 30 11
 SUB_110C_6:
-        LD A,(LIST_LINE_LEN)               ; $111A  3A 84 01
+        LD A,(LIST_LINE_LEN)             ; $111A  3A 84 01
 SUB_110C_7:
         CP $78                           ; $111D  FE 78
 SUB_110C_8:
@@ -969,9 +971,9 @@ SUB_110C_10:
 SUB_110C_11:
         INC A                            ; $1125  3C
 SUB_110C_12:
-        LD (LIST_LINE_LEN),A               ; $1126  32 84 01
+        LD (LIST_LINE_LEN),A             ; $1126  32 84 01
 SUB_110C_13:
-        LD HL,LIST_LINE_BUF                ; $1129  21 0C 01
+        LD HL,LIST_LINE_BUF              ; $1129  21 0C 01
 SUB_110C_14:
         ADD HL,DE                        ; $112C  19
 SUB_110C_15:
@@ -987,21 +989,21 @@ SUB_110C_19:
 ; [AI] Begins a new source line: clears the token holding byte, primes the listing column counter,
 ;       flushes the previous listing line, and resets the column to a fixed start.
 NEW_LINE:
-        CALL RESET_TOKEN                    ; $1132  CD 49 11
+        CALL RESET_TOKEN                 ; $1132  CD 49 11
 SUB_110C_21:
-        LD (CUR_CHAR),A                ; $1135  32 0A 11
+        LD (CUR_CHAR),A                  ; $1135  32 0A 11
 SUB_110C_22:
-        LD (LIST_LINE_LEN),A               ; $1138  32 84 01
+        LD (LIST_LINE_LEN),A             ; $1138  32 84 01
 SUB_110C_23:
         LD A,$0A                         ; $113B  3E 0A
 SUB_110C_24:
-        LD (PREV_CHAR),A                ; $113D  32 09 11
+        LD (PREV_CHAR),A                 ; $113D  32 09 11
 SUB_110C_25:
-        CALL VEC_FLUSH_LIST_LINE                    ; $1140  CD 15 02
+        CALL VEC_FLUSH_LIST_LINE         ; $1140  CD 15 02
 SUB_110C_26:
         LD A,$10                         ; $1143  3E 10
 SUB_110C_27:
-        LD (LIST_LINE_LEN),A               ; $1145  32 84 01
+        LD (LIST_LINE_LEN),A             ; $1145  32 84 01
 SUB_110C_28:
         RET                              ; $1148  C9
 ; [AI] Resets the per-token accumulator: zeroes the symbol-character count ($0188) and the token-
@@ -1009,27 +1011,27 @@ SUB_110C_28:
 RESET_TOKEN:
         XOR A                            ; $1149  AF
 SUB_1149_1:
-        LD (IDENT_LEN),A              ; $114A  32 88 01
+        LD (IDENT_LEN),A                 ; $114A  32 88 01
 SUB_1149_2:
-        LD (RADIX),A                ; $114D  32 0B 11
+        LD (RADIX),A                     ; $114D  32 0B 11
 SUB_1149_3:
         RET                              ; $1150  C9
 ; [AI] Appends the current character ($110A) to the symbol/identifier accumulator buffer at $0189,
 ;       capping the length at 64 and reporting overflow via SUB_131E.
 APPEND_IDENT:
-        LD HL,IDENT_LEN               ; $1151  21 88 01
+        LD HL,IDENT_LEN                  ; $1151  21 88 01
         LD A,(HL)                        ; $1154  7E
         CP $40                           ; $1155  FE 40
         JP C,SUB_1151_1                  ; $1157  DA 5F 11
         LD (HL),$00                      ; $115A  36 00
-        CALL ERR_OVERFLOW                    ; $115C  CD 1E 13
+        CALL ERR_OVERFLOW                ; $115C  CD 1E 13
 SUB_1151_1:
         LD E,(HL)                        ; $115F  5E
         LD D,$00                         ; $1160  16 00
         INC (HL)                         ; $1162  34
         INC HL                           ; $1163  23
         ADD HL,DE                        ; $1164  19
-        LD A,(CUR_CHAR)                ; $1165  3A 0A 11
+        LD A,(CUR_CHAR)                  ; $1165  3A 0A 11
         LD (HL),A                        ; $1168  77
         RET                              ; $1169  C9
 ; [AI] Detects the CP/M end-of-line/dollar terminator '$' in (HL), zeroing it so it is treated as
@@ -1043,7 +1045,7 @@ CHECK_DOLLAR:
         RET                              ; $1170  C9
 ; [AI] Predicate: returns Z if the current character is an ASCII decimal digit '0'-'9'.
 IS_DIGIT:
-        LD A,(CUR_CHAR)                ; $1171  3A 0A 11
+        LD A,(CUR_CHAR)                  ; $1171  3A 0A 11
         SUB $30                          ; $1174  D6 30
         CP $0A                           ; $1176  FE 0A
         RLA                              ; $1178  17
@@ -1054,7 +1056,7 @@ IS_DIGIT:
 IS_HEX_LETTER:
         CALL IS_DIGIT                    ; $117C  CD 71 11
         RET NZ                           ; $117F  C0
-        LD A,(CUR_CHAR)                ; $1180  3A 0A 11
+        LD A,(CUR_CHAR)                  ; $1180  3A 0A 11
         SUB $41                          ; $1183  D6 41
         CP $06                           ; $1185  FE 06
         RLA                              ; $1187  17
@@ -1062,7 +1064,7 @@ IS_HEX_LETTER:
         RET                              ; $118A  C9
 ; [AI] Predicate: returns Z if the current character is an uppercase letter 'A'-'Z'.
 IS_ALPHA:
-        LD A,(CUR_CHAR)                ; $118B  3A 0A 11
+        LD A,(CUR_CHAR)                  ; $118B  3A 0A 11
         SUB $41                          ; $118E  D6 41
         CP $1A                           ; $1190  FE 1A
         RLA                              ; $1192  17
@@ -1078,7 +1080,7 @@ IS_ALNUM:
 ; [AI] Folds a lowercase letter 'a'-'z' in the current character to uppercase, so the assembler is
 ;       case-insensitive for mnemonics and symbols.
 TO_UPPER:
-        LD A,(CUR_CHAR)                ; $119E  3A 0A 11
+        LD A,(CUR_CHAR)                  ; $119E  3A 0A 11
 SUB_119E_1:
         CP $61                           ; $11A1  FE 61
 SUB_119E_2:
@@ -1086,16 +1088,16 @@ SUB_119E_2:
         CP $7B                           ; $11A4  FE 7B
         RET NC                           ; $11A6  D0
         AND $5F                          ; $11A7  E6 5F
-        LD (CUR_CHAR),A                ; $11A9  32 0A 11
+        LD (CUR_CHAR),A                  ; $11A9  32 0A 11
         RET                              ; $11AC  C9
 ; [AI] Advances one character: fetches the next source char into the current-char byte $110A and
 ;       updates the listing line via L_132D.
 ADVANCE_CHAR:
-        CALL ECHO_CHAR                    ; $11AD  CD 0C 11
+        CALL ECHO_CHAR                   ; $11AD  CD 0C 11
 SUB_11AD_1:
-        LD (CUR_CHAR),A                ; $11B0  32 0A 11
+        LD (CUR_CHAR),A                  ; $11B0  32 0A 11
 SUB_11AD_2:
-        JP ECHO_UPPERCASE                    ; $11B3  C3 2D 13
+        JP ECHO_UPPERCASE                ; $11B3  C3 2D 13
         DEFB    $C9                                              ; $11B6
 ; [AI] Predicate: returns Z if the character is a statement terminator (CR, EOF $1A, or '!' the
 ;       CP/M multi-statement separator).
@@ -1112,11 +1114,11 @@ IS_STMT_END:
 SCAN_TOKEN:
         XOR A                            ; $11C0  AF
 SUB_11B7_2:
-        LD (TOKEN_TYPE),A               ; $11C1  32 85 01
+        LD (TOKEN_TYPE),A                ; $11C1  32 85 01
 SUB_11B7_3:
-        CALL RESET_TOKEN                    ; $11C4  CD 49 11
+        CALL RESET_TOKEN                 ; $11C4  CD 49 11
 SUB_11B7_4:
-        LD A,(CUR_CHAR)                ; $11C7  3A 0A 11
+        LD A,(CUR_CHAR)                  ; $11C7  3A 0A 11
 SUB_11B7_5:
         CP $09                           ; $11CA  FE 09
 SUB_11B7_6:
@@ -1129,13 +1131,13 @@ SUB_11B7_9:
         CP $2A                           ; $11D4  FE 2A
 SUB_11B7_10:
         JP NZ,SUB_11B7_13                ; $11D6  C2 ED 11
-        LD A,(PREV_CHAR)                ; $11D9  3A 09 11
+        LD A,(PREV_CHAR)                 ; $11D9  3A 09 11
         CP $0A                           ; $11DC  FE 0A
 SUB_11B7_11:
         JP NZ,SUB_11B7_13                ; $11DE  C2 ED 11
 SUB_11B7_12:
-        CALL ADVANCE_CHAR                    ; $11E1  CD AD 11
-        CALL IS_STMT_END                    ; $11E4  CD B7 11
+        CALL ADVANCE_CHAR                ; $11E1  CD AD 11
+        CALL IS_STMT_END                 ; $11E4  CD B7 11
         JP Z,SUB_11B7_18                 ; $11E7  CA FA 11
         JP SUB_11B7_12                   ; $11EA  C3 E1 11
 SUB_11B7_13:
@@ -1145,61 +1147,61 @@ SUB_11B7_14:
 SUB_11B7_15:
         JP NZ,SUB_11B7_18                ; $11F1  C2 FA 11
 SUB_11B7_16:
-        CALL ADVANCE_CHAR                    ; $11F4  CD AD 11
+        CALL ADVANCE_CHAR                ; $11F4  CD AD 11
 SUB_11B7_17:
         JP SUB_11B7_4                    ; $11F7  C3 C7 11
 SUB_11B7_18:
         CALL IS_ALPHA                    ; $11FA  CD 8B 11
         JP Z,SUB_11B7_19                 ; $11FD  CA 05 12
         LD A,$01                         ; $1200  3E 01
-        JP COMMIT_TOKEN                   ; $1202  C3 39 12
+        JP COMMIT_TOKEN                  ; $1202  C3 39 12
 SUB_11B7_19:
         CALL IS_DIGIT                    ; $1205  CD 71 11
         JP Z,SUB_11B7_20                 ; $1208  CA 10 12
         LD A,$02                         ; $120B  3E 02
-        JP COMMIT_TOKEN                   ; $120D  C3 39 12
+        JP COMMIT_TOKEN                  ; $120D  C3 39 12
 SUB_11B7_20:
-        LD A,(CUR_CHAR)                ; $1210  3A 0A 11
+        LD A,(CUR_CHAR)                  ; $1210  3A 0A 11
         CP $27                           ; $1213  FE 27
         JP NZ,SUB_11B7_22                ; $1215  C2 21 12
         XOR A                            ; $1218  AF
-        LD (CUR_CHAR),A                ; $1219  32 0A 11
+        LD (CUR_CHAR),A                  ; $1219  32 0A 11
         LD A,$03                         ; $121C  3E 03
 SUB_11B7_21:
-        JP COMMIT_TOKEN                   ; $121E  C3 39 12
+        JP COMMIT_TOKEN                  ; $121E  C3 39 12
 SUB_11B7_22:
         CP $0A                           ; $1221  FE 0A
         JP NZ,SUB_11B7_23                ; $1223  C2 37 12
-        LD A,(PASS_NUMBER)              ; $1226  3A CF 01
+        LD A,(PASS_NUMBER)               ; $1226  3A CF 01
         OR A                             ; $1229  B7
-        CALL NZ,VEC_FLUSH_LIST_LINE                 ; $122A  C4 15 02
-        LD HL,LIST_LINE_BUF                ; $122D  21 0C 01
+        CALL NZ,VEC_FLUSH_LIST_LINE      ; $122A  C4 15 02
+        LD HL,LIST_LINE_BUF              ; $122D  21 0C 01
         LD (HL),$20                      ; $1230  36 20
         LD A,$10                         ; $1232  3E 10
-        LD (LIST_LINE_LEN),A               ; $1234  32 84 01
+        LD (LIST_LINE_LEN),A             ; $1234  32 84 01
 SUB_11B7_23:
         LD A,$04                         ; $1237  3E 04
 ; [AI] Token-class commit point: records the determined token type in $0185 and accumulates the
 ;       token's characters, uppercasing and length-checking as it consumes identifier/number/string
 ;       bodies.
 COMMIT_TOKEN:
-        LD (TOKEN_TYPE),A               ; $1239  32 85 01
+        LD (TOKEN_TYPE),A                ; $1239  32 85 01
 SUB_11B7_25:
-        LD A,(CUR_CHAR)                ; $123C  3A 0A 11
-        LD (PREV_CHAR),A                ; $123F  32 09 11
+        LD A,(CUR_CHAR)                  ; $123C  3A 0A 11
+        LD (PREV_CHAR),A                 ; $123F  32 09 11
         OR A                             ; $1242  B7
-        CALL NZ,APPEND_IDENT                 ; $1243  C4 51 11
-        CALL ADVANCE_CHAR                    ; $1246  CD AD 11
-        LD A,(TOKEN_TYPE)               ; $1249  3A 85 01
+        CALL NZ,APPEND_IDENT             ; $1243  C4 51 11
+        CALL ADVANCE_CHAR                ; $1246  CD AD 11
+        LD A,(TOKEN_TYPE)                ; $1249  3A 85 01
         CP $04                           ; $124C  FE 04
         RET Z                            ; $124E  C8
         CP $03                           ; $124F  FE 03
         CALL NZ,TO_UPPER                 ; $1251  C4 9E 11
-        LD HL,CUR_CHAR                 ; $1254  21 0A 11
-        LD A,(TOKEN_TYPE)               ; $1257  3A 85 01
+        LD HL,CUR_CHAR                   ; $1254  21 0A 11
+        LD A,(TOKEN_TYPE)                ; $1257  3A 85 01
         CP $01                           ; $125A  FE 01
         JP NZ,SUB_11B7_26                ; $125C  C2 6C 12
-        CALL CHECK_DOLLAR                    ; $125F  CD 6A 11
+        CALL CHECK_DOLLAR                ; $125F  CD 6A 11
         JP Z,SUB_11B7_25                 ; $1262  CA 3C 12
         CALL IS_ALNUM                    ; $1265  CD 96 11
         RET Z                            ; $1268  C8
@@ -1207,11 +1209,11 @@ SUB_11B7_25:
 SUB_11B7_26:
         CP $02                           ; $126C  FE 02
         JP NZ,SUB_11B7_42                ; $126E  C2 02 13
-        CALL CHECK_DOLLAR                    ; $1271  CD 6A 11
+        CALL CHECK_DOLLAR                ; $1271  CD 6A 11
         JP Z,SUB_11B7_25                 ; $1274  CA 3C 12
-        CALL IS_HEX_LETTER                    ; $1277  CD 7C 11
+        CALL IS_HEX_LETTER               ; $1277  CD 7C 11
         JP NZ,SUB_11B7_25                ; $127A  C2 3C 12
-        LD A,(CUR_CHAR)                ; $127D  3A 0A 11
+        LD A,(CUR_CHAR)                  ; $127D  3A 0A 11
         CP $4F                           ; $1280  FE 4F
         JP Z,SUB_11B7_27                 ; $1282  CA 8A 12
         CP $51                           ; $1285  FE 51
@@ -1224,12 +1226,12 @@ SUB_11B7_28:
         JP NZ,SUB_11B7_30                ; $1291  C2 A0 12
         LD A,$10                         ; $1294  3E 10
 SUB_11B7_29:
-        LD (RADIX),A                ; $1296  32 0B 11
+        LD (RADIX),A                     ; $1296  32 0B 11
         XOR A                            ; $1299  AF
-        LD (CUR_CHAR),A                ; $129A  32 0A 11
+        LD (CUR_CHAR),A                  ; $129A  32 0A 11
         JP SUB_11B7_34                   ; $129D  C3 BB 12
 SUB_11B7_30:
-        LD A,(PREV_CHAR)                ; $12A0  3A 09 11
+        LD A,(PREV_CHAR)                 ; $12A0  3A 09 11
         CP $42                           ; $12A3  FE 42
         JP NZ,SUB_11B7_31                ; $12A5  C2 AD 12
         LD A,$02                         ; $12A8  3E 02
@@ -1239,14 +1241,14 @@ SUB_11B7_31:
         LD A,$0A                         ; $12AF  3E 0A
         JP NZ,SUB_11B7_33                ; $12B1  C2 B8 12
 SUB_11B7_32:
-        LD HL,IDENT_LEN               ; $12B4  21 88 01
+        LD HL,IDENT_LEN                  ; $12B4  21 88 01
         DEC (HL)                         ; $12B7  35
 SUB_11B7_33:
-        LD (RADIX),A                ; $12B8  32 0B 11
+        LD (RADIX),A                     ; $12B8  32 0B 11
 SUB_11B7_34:
         LD HL,WBOOT_VEC                  ; $12BB  21 00 00
-        LD (NUM_ACCUM),HL             ; $12BE  22 86 01
-        LD HL,IDENT_LEN               ; $12C1  21 88 01
+        LD (NUM_ACCUM),HL                ; $12BE  22 86 01
+        LD HL,IDENT_LEN                  ; $12C1  21 88 01
         LD C,(HL)                        ; $12C4  4E
         INC HL                           ; $12C5  23
 SUB_11B7_35:
@@ -1262,12 +1264,12 @@ SUB_11B7_37:
         PUSH HL                          ; $12D4  E5
         PUSH BC                          ; $12D5  C5
         LD C,A                           ; $12D6  4F
-        LD HL,RADIX                 ; $12D7  21 0B 11
+        LD HL,RADIX                      ; $12D7  21 0B 11
         CP (HL)                          ; $12DA  BE
-        CALL NC,ERR_VALUE                 ; $12DB  D4 18 13
+        CALL NC,ERR_VALUE                ; $12DB  D4 18 13
         LD B,$00                         ; $12DE  06 00
         LD A,(HL)                        ; $12E0  7E
-        LD HL,(NUM_ACCUM)             ; $12E1  2A 86 01
+        LD HL,(NUM_ACCUM)                ; $12E1  2A 86 01
         EX DE,HL                         ; $12E4  EB
         LD HL,WBOOT_VEC                  ; $12E5  21 00 00
 SUB_11B7_38:
@@ -1283,7 +1285,7 @@ SUB_11B7_39:
         JP SUB_11B7_38                   ; $12F4  C3 E8 12
 SUB_11B7_40:
         ADD HL,BC                        ; $12F7  09
-        LD (NUM_ACCUM),HL             ; $12F8  22 86 01
+        LD (NUM_ACCUM),HL                ; $12F8  22 86 01
         POP BC                           ; $12FB  C1
         POP HL                           ; $12FC  E1
         DEC C                            ; $12FD  0D
@@ -1291,13 +1293,13 @@ SUB_11B7_40:
 SUB_11B7_41:
         RET                              ; $1301  C9
 SUB_11B7_42:
-        LD A,(CUR_CHAR)                ; $1302  3A 0A 11
+        LD A,(CUR_CHAR)                  ; $1302  3A 0A 11
         CP $0D                           ; $1305  FE 0D
 SUB_11B7_43:
-        JP Z,ERR_OVERFLOW                    ; $1307  CA 1E 13
+        JP Z,ERR_OVERFLOW                ; $1307  CA 1E 13
         CP $27                           ; $130A  FE 27
         JP NZ,SUB_11B7_25                ; $130C  C2 3C 12
-        CALL ADVANCE_CHAR                    ; $130F  CD AD 11
+        CALL ADVANCE_CHAR                ; $130F  CD AD 11
         CP $27                           ; $1312  FE 27
         RET NZ                           ; $1314  C0
         JP SUB_11B7_25                   ; $1315  C3 3C 12
@@ -1306,18 +1308,18 @@ SUB_11B7_43:
 ERR_VALUE:
         PUSH AF                          ; $1318  F5
         LD A,$56                         ; $1319  3E 56
-        JP EMIT_ERR_LETTER                    ; $131B  C3 24 13
+        JP EMIT_ERR_LETTER               ; $131B  C3 24 13
 ; [AI] Reports an identifier-overflow ('O') error; entry that selects 'O' before the shared single-
 ;       character error-emit code at L_1324.
 ERR_OVERFLOW:
         PUSH AF                          ; $131E  F5
 SUB_131E_1:
         LD A,$4F                         ; $131F  3E 4F
-        JP EMIT_ERR_LETTER                    ; $1321  C3 24 13
+        JP EMIT_ERR_LETTER               ; $1321  C3 24 13
 EMIT_ERR_LETTER:
         PUSH BC                          ; $1324  C5
         PUSH HL                          ; $1325  E5
-        CALL VEC_SET_ERR_FLAG                    ; $1326  CD 18 02
+        CALL VEC_SET_ERR_FLAG            ; $1326  CD 18 02
         POP HL                           ; $1329  E1
 SUB_131E_3:
         POP BC                           ; $132A  C1
@@ -1328,7 +1330,7 @@ SUB_131E_3:
 ECHO_UPPERCASE:
         PUSH AF                          ; $132D  F5
 SUB_131E_5:
-        LD A,(TOKEN_TYPE)               ; $132E  3A 85 01
+        LD A,(TOKEN_TYPE)                ; $132E  3A 85 01
 SUB_131E_6:
         CP $03                           ; $1331  FE 03
 SUB_131E_7:
@@ -1340,35 +1342,35 @@ SUB_131E_9:
         DEFS    8, $00    ; $1338  fill
 ; [AI] Entry jump into the symbol-table module's driver.
 VEC_SYMTAB_DRIVER:
-        JP VEC_OPCODE_DRIVER                    ; $1340  C3 A0 15
+        JP VEC_OPCODE_DRIVER             ; $1340  C3 A0 15
 ; [AI] Public entry: jumps to the symbol-table initializer that clears the 128-slot hash bucket
 ;       array.
 VEC_SYM_INIT:
-        JP SYM_INIT                    ; $1343  C3 5C 14
+        JP SYM_INIT                      ; $1343  C3 5C 14
 ; [AI] Public entry: jumps to the symbol-table insert/define routine.
 VEC_SYM_INSERT:
         JP SYM_LOOKUP                    ; $1346  C3 9E 14
 ; [AI] Public entry: jumps to the symbol-table lookup that searches the current hash chain for a
 ;       name.
 VEC_SYM_LOOKUP:
-        JP SYM_PTR_NULL                      ; $1349  C3 98 14
+        JP SYM_PTR_NULL                  ; $1349  C3 98 14
 ; [AI] Public entry: jumps to the routine that allocates a new symbol-table entry from free TPA
 ;       space.
 VEC_SYM_ALLOC:
-        JP SYM_ALLOC                    ; $134C  C3 EB 14
+        JP SYM_ALLOC                     ; $134C  C3 EB 14
 ; [AI] Public entry: jumps to the routine that sets a symbol's type/attribute nibble.
 VEC_SYM_SET_TYPE:
-        JP SYM_SET_TYPE                   ; $134F  C3 60 15
+        JP SYM_SET_TYPE                  ; $134F  C3 60 15
 ; [AI] Public entry: jumps to the routine that reads a symbol's type/attribute nibble.
 VEC_SYM_GET_TYPE:
-        JP SYM_GET_TYPE                   ; $1352  C3 72 15
+        JP SYM_GET_TYPE                  ; $1352  C3 72 15
 ; [AI] Public entry: jumps to the routine that stores a 16-bit value into the current symbol entry.
 VEC_SYM_SET_VAL:
-        JP SYM_SET_VAL                    ; $1355  C3 8D 15
+        JP SYM_SET_VAL                   ; $1355  C3 8D 15
 ; [AI] Public entry: jumps to the routine that fetches the 16-bit value from the current symbol
 ;       entry.
 VEC_SYM_GET_VAL:
-        JP SYM_GET_VAL                    ; $1358  C3 96 15
+        JP SYM_GET_VAL                   ; $1358  C3 96 15
 HASH_TABLE:
         DEFS    256, $00    ; $135B  fill
 HASH_INDEX:
@@ -1396,13 +1398,13 @@ SUB_1358_11:
 SUB_1358_12:
         LD HL,WBOOT_VEC                  ; $146A  21 00 00
 SUB_1358_13:
-        LD (CUR_SYM_PTR),HL             ; $146D  22 D6 01
+        LD (CUR_SYM_PTR),HL              ; $146D  22 D6 01
 SUB_1358_14:
         RET                              ; $1470  C9
 ; [AI] Computes the hash of the symbol name in the accumulator (sum of its bytes, masked to 7 bits)
 ;       and stores it as the bucket index at $145B.
 HASH_NAME:
-        LD HL,IDENT_LEN               ; $1471  21 88 01
+        LD HL,IDENT_LEN                  ; $1471  21 88 01
         LD B,(HL)                        ; $1474  46
         XOR A                            ; $1475  AF
 SUB_1471_1:
@@ -1414,12 +1416,12 @@ SUB_1471_1:
         LD (HASH_INDEX),A                ; $147E  32 5B 14
         RET                              ; $1481  C9
         DEFB    $47,$2A                                          ; $1482
-        DEFW    CUR_SYM_PTR             ; $1484
+        DEFW    CUR_SYM_PTR              ; $1484
         DEFB    $23,$23,$7E,$E6,$F0,$B0,$77,$C9                  ; $1486
 ; [AI] Returns the stored name length of the symbol-table entry currently pointed to by $01D6 (its
 ;       low nibble plus one).
 SYM_NAME_LEN:
-        LD HL,(CUR_SYM_PTR)             ; $148E  2A D6 01
+        LD HL,(CUR_SYM_PTR)              ; $148E  2A D6 01
         INC HL                           ; $1491  23
         INC HL                           ; $1492  23
         LD A,(HL)                        ; $1493  7E
@@ -1429,15 +1431,15 @@ SYM_NAME_LEN:
 ; [AI] Tests whether the current symbol-entry pointer ($01D6) is null, used to detect the end of a
 ;       hash chain or a 'not found' result; sets Z when null.
 SYM_PTR_NULL:
-        LD HL,(CUR_SYM_PTR)             ; $1498  2A D6 01
+        LD HL,(CUR_SYM_PTR)              ; $1498  2A D6 01
         LD A,L                           ; $149B  7D
         OR H                             ; $149C  B4
         RET                              ; $149D  C9
 ; [AI] Symbol lookup: hashes the name, walks the corresponding bucket's linked list comparing
 ;       length and characters, and returns the matching entry (or null) in $01D6.
 SYM_LOOKUP:
-        CALL HASH_NAME                    ; $149E  CD 71 14
-        LD HL,IDENT_LEN               ; $14A1  21 88 01
+        CALL HASH_NAME                   ; $149E  CD 71 14
+        LD HL,IDENT_LEN                  ; $14A1  21 88 01
         LD A,(HL)                        ; $14A4  7E
         CP $11                           ; $14A5  FE 11
         JP C,SUB_1498_2                  ; $14A7  DA AC 14
@@ -1454,17 +1456,17 @@ SUB_1498_2:
         LD H,(HL)                        ; $14B9  66
         LD L,E                           ; $14BA  6B
 SUB_1498_3:
-        LD (CUR_SYM_PTR),HL             ; $14BB  22 D6 01
-        CALL SYM_PTR_NULL                    ; $14BE  CD 98 14
+        LD (CUR_SYM_PTR),HL              ; $14BB  22 D6 01
+        CALL SYM_PTR_NULL                ; $14BE  CD 98 14
         RET Z                            ; $14C1  C8
-        CALL SYM_NAME_LEN                    ; $14C2  CD 8E 14
-        LD HL,IDENT_LEN               ; $14C5  21 88 01
+        CALL SYM_NAME_LEN                ; $14C2  CD 8E 14
+        LD HL,IDENT_LEN                  ; $14C5  21 88 01
         CP (HL)                          ; $14C8  BE
         JP NZ,SUB_1498_5                 ; $14C9  C2 E1 14
         LD B,A                           ; $14CC  47
         INC HL                           ; $14CD  23
         EX DE,HL                         ; $14CE  EB
-        LD HL,(CUR_SYM_PTR)             ; $14CF  2A D6 01
+        LD HL,(CUR_SYM_PTR)              ; $14CF  2A D6 01
         INC HL                           ; $14D2  23
         INC HL                           ; $14D3  23
         INC HL                           ; $14D4  23
@@ -1478,7 +1480,7 @@ SUB_1498_4:
         JP NZ,SUB_1498_4                 ; $14DD  C2 D5 14
         RET                              ; $14E0  C9
 SUB_1498_5:
-        LD HL,(CUR_SYM_PTR)             ; $14E1  2A D6 01
+        LD HL,(CUR_SYM_PTR)              ; $14E1  2A D6 01
         LD E,(HL)                        ; $14E4  5E
         INC HL                           ; $14E5  23
         LD D,(HL)                        ; $14E6  56
@@ -1488,24 +1490,24 @@ SUB_1498_5:
 ;       against the symbol-table limit, links it into its hash bucket, and copies the name in;
 ;       overflows to L_1541.
 SYM_ALLOC:
-        LD HL,IDENT_LEN               ; $14EB  21 88 01
+        LD HL,IDENT_LEN                  ; $14EB  21 88 01
         LD E,(HL)                        ; $14EE  5E
         LD D,$00                         ; $14EF  16 00
         LD HL,(FREE_MEM_PTR)             ; $14F1  2A CB 01
-        LD (CUR_SYM_PTR),HL             ; $14F4  22 D6 01
+        LD (CUR_SYM_PTR),HL              ; $14F4  22 D6 01
         ADD HL,DE                        ; $14F7  19
         LD DE,BDOS_VEC                   ; $14F8  11 05 00
         ADD HL,DE                        ; $14FB  19
         EX DE,HL                         ; $14FC  EB
-        LD HL,(SYM_TABLE_LIMIT)             ; $14FD  2A CD 01
+        LD HL,(SYM_TABLE_LIMIT)          ; $14FD  2A CD 01
         LD A,E                           ; $1500  7B
         SUB L                            ; $1501  95
         LD A,D                           ; $1502  7A
         SBC A,H                          ; $1503  9C
         EX DE,HL                         ; $1504  EB
-        JP NC,ERR_SYM_OVERFLOW                ; $1505  D2 41 15
+        JP NC,ERR_SYM_OVERFLOW           ; $1505  D2 41 15
         LD (FREE_MEM_PTR),HL             ; $1508  22 CB 01
-        LD HL,(CUR_SYM_PTR)             ; $150B  2A D6 01
+        LD HL,(CUR_SYM_PTR)              ; $150B  2A D6 01
         EX DE,HL                         ; $150E  EB
         LD HL,HASH_INDEX                 ; $150F  21 5B 14
         LD C,(HL)                        ; $1512  4E
@@ -1524,7 +1526,7 @@ SUB_1498_7:
         LD (HL),C                        ; $1521  71
         INC HL                           ; $1522  23
         LD (HL),B                        ; $1523  70
-        LD DE,IDENT_LEN               ; $1524  11 88 01
+        LD DE,IDENT_LEN                  ; $1524  11 88 01
 SUB_1498_8:
         LD A,(DE)                        ; $1527  1A
         CP $11                           ; $1528  FE 11
@@ -1551,9 +1553,9 @@ SUB_1498_10:
 ; [AI] Symbol-table overflow handler: prints 'SYMBOL TABLE OVERFLOW' and jumps to the end-of-
 ;       assembly finalizer.
 ERR_SYM_OVERFLOW:
-        LD HL,MSG_SYM_OVERFLOW                ; $1541  21 4A 15
-        CALL VEC_PRINT_MSG                    ; $1544  CD 12 02
-        JP VEC_END_ASSEMBLY                    ; $1547  C3 1E 02
+        LD HL,MSG_SYM_OVERFLOW           ; $1541  21 4A 15
+        CALL VEC_PRINT_MSG               ; $1544  CD 12 02
+        JP VEC_END_ASSEMBLY              ; $1547  C3 1E 02
 MSG_SYM_OVERFLOW:
         DEFB    "SYMBOL TABLE OVERFLOW"    ; $154A  string
         DEFB    $0D    ; $155F  terminator
@@ -1566,7 +1568,7 @@ SYM_SET_TYPE:
         RLA                              ; $1563  17
         AND $F0                          ; $1564  E6 F0
         LD B,A                           ; $1566  47
-        LD HL,(CUR_SYM_PTR)             ; $1567  2A D6 01
+        LD HL,(CUR_SYM_PTR)              ; $1567  2A D6 01
         INC HL                           ; $156A  23
         INC HL                           ; $156B  23
         LD A,(HL)                        ; $156C  7E
@@ -1576,7 +1578,7 @@ SYM_SET_TYPE:
         RET                              ; $1571  C9
 ; [AI] Reads a symbol entry's 4-bit type/attribute field from the high nibble of its flags byte.
 SYM_GET_TYPE:
-        LD HL,(CUR_SYM_PTR)             ; $1572  2A D6 01
+        LD HL,(CUR_SYM_PTR)              ; $1572  2A D6 01
         INC HL                           ; $1575  23
         INC HL                           ; $1576  23
         LD A,(HL)                        ; $1577  7E
@@ -1589,8 +1591,8 @@ SYM_GET_TYPE:
 ; [AI] Computes the address of a symbol entry's 16-bit value field, skipping past the variable-
 ;       length name.
 SYM_VAL_ADDR:
-        CALL SYM_NAME_LEN                    ; $157F  CD 8E 14
-        LD HL,(CUR_SYM_PTR)             ; $1582  2A D6 01
+        CALL SYM_NAME_LEN                ; $157F  CD 8E 14
+        LD HL,(CUR_SYM_PTR)              ; $1582  2A D6 01
         LD E,A                           ; $1585  5F
         LD D,$00                         ; $1586  16 00
         ADD HL,DE                        ; $1588  19
@@ -1601,7 +1603,7 @@ SYM_VAL_ADDR:
 ; [AI] Stores the 16-bit value in HL into the current symbol entry's value field.
 SYM_SET_VAL:
         PUSH HL                          ; $158D  E5
-        CALL SYM_VAL_ADDR                    ; $158E  CD 7F 15
+        CALL SYM_VAL_ADDR                ; $158E  CD 7F 15
         POP DE                           ; $1591  D1
         LD (HL),E                        ; $1592  73
         INC HL                           ; $1593  23
@@ -1609,7 +1611,7 @@ SYM_SET_VAL:
         RET                              ; $1595  C9
 ; [AI] Loads the 16-bit value from the current symbol entry's value field into HL.
 SYM_GET_VAL:
-        CALL SYM_VAL_ADDR                    ; $1596  CD 7F 15
+        CALL SYM_VAL_ADDR                ; $1596  CD 7F 15
         LD E,(HL)                        ; $1599  5E
         INC HL                           ; $159A  23
         LD D,(HL)                        ; $159B  56
@@ -1618,13 +1620,13 @@ SYM_GET_VAL:
         DEFB    $00,$00                                          ; $159E
 ; [AI] Entry jump into the opcode/mnemonic lookup module's driver.
 VEC_OPCODE_DRIVER:
-        JP VEC_ARITH_DRIVER                    ; $15A0  C3 60 18
+        JP VEC_ARITH_DRIVER              ; $15A0  C3 60 18
         DEFB    $C3                                              ; $15A3
-        DEFW    BINSEARCH_MNEMONIC                 ; $15A4
+        DEFW    BINSEARCH_MNEMONIC       ; $15A4
 ; [AI] Public entry: jumps to the mnemonic-recognizer that matches the current identifier token
 ;       against the 8080 instruction-mnemonic table.
 VEC_MATCH_MNEMONIC:
-        JP MATCH_MNEMONIC                    ; $15A6  C3 10 18
+        JP MATCH_MNEMONIC                ; $15A6  C3 10 18
 MNEMONIC_GROUP_PTRS:
         DEFB    $C4,$15,$D4,$15,$E6,$15,$82,$16,$AE,$16,$BD,$16  ; $15A9
 MNEMONIC_GROUP_LEN:
@@ -1632,6 +1634,7 @@ MNEMONIC_GROUP_LEN:
 OPCODE_GROUP_PTRS:
         DEFB    $BD,$16,$DD,$16,$EF,$16,$57,$17,$6D              ; $15BA
         DEFW    SUB_0D10_3               ; $15C3
+MNEMONIC_NAMES:
         DEFB    $28,$29,$2A,$2B,$2C,$2D,$2F,$41,$42,$43,$44,$45,$48,$4C,$4D,$44 ; $15C5
         DEFB    $42,$44,$49,$44,$53,$44,$57,$45,$49,$49,$46,$49,$4E,$4F,$52,$53 ; $15D5
         DEFB    $50,$41,$43,$49,$41,$44,$43,$41,$44,$44,$41,$44,$49,$41,$4E,$41 ; $15E5
@@ -1650,14 +1653,15 @@ OPCODE_GROUP_PTRS:
         DEFB    $43,$52,$4F,$54,$49,$54,$4C,$45,$0F,$0A,$0C,$14,$0D,$1E,$00,$50 ; $16B5
         DEFB    $05,$46,$0E,$0A,$06,$46,$01,$50,$10,$07,$10,$00,$10,$01,$10,$02 ; $16C5
         DEFB    $10,$03,$10,$04,$10,$05,$10                      ; $16D5
-        DEFW    VEC_NEXT_TOKEN                 ; $16DC
+OPCODE_FORMAT_TBL:
+        DEFW    VEC_NEXT_TOKEN           ; $16DC
         DEFW    SUB_11B7_41              ; $16DE
         DEFB    $F3,$11,$02,$11,$03,$13,$FB,$11,$08,$21,$DB,$0A,$28,$10,$06,$1A ; $16E0
         DEFB    $CE,$1D,$88,$1D,$80,$1A,$C6,$1D,$A0,$09,$32,$1A,$E6,$13,$2F,$13 ; $16F0
         DEFB    $3F,$1D,$B8,$1A,$FE,$13                          ; $1700
         DEFW    SUB_1498_8               ; $1706
         DEFB    $09,$1E,$05,$1F                                  ; $1708
-        DEFW    RADIX               ; $170C
+        DEFW    RADIX                    ; $170C
         DEFB    $04,$11                                          ; $170E
         DEFW    SUB_11B7_43              ; $1710
         DEFB    $76,$1E,$04,$1F,$03,$17,$C3,$1C,$3A,$14,$01,$02  ; $1712
@@ -1678,7 +1682,7 @@ OPCODE_GROUP_PTRS:
         DEFB    $E9,$16,$C5,$1C,$22,$13,$F9,$1B                  ; $1760
         DEFW    SUB_11B7_42              ; $1768
         DEFB    $EB,$13,$E3,$11,$05,$11                          ; $176A
-        DEFW    PREV_CHAR               ; $1770
+        DEFW    PREV_CHAR                ; $1770
         DEFB    $0C                                              ; $1772
 DIRECTIVE_FRAGS:
         DEFB    $4E,$5A,$5A,$20,$4E,$43                          ; $1773
@@ -1712,7 +1716,7 @@ SUB_1783_2:
         JP NZ,SUB_1783_2                 ; $179E  C2 9C 17
         POP DE                           ; $17A1  D1
         ADD HL,DE                        ; $17A2  19
-        LD DE,IDENT_BUF               ; $17A3  11 89 01
+        LD DE,IDENT_BUF                  ; $17A3  11 89 01
 SUB_1783_3:
         LD A,(DE)                        ; $17A6  1A
         CP (HL)                          ; $17A7  BE
@@ -1743,7 +1747,7 @@ SUB_1783_6:
 ; [AI] Resolves a three-way ambiguity for mnemonics differing only in their last letter by
 ;       inspecting the first stored character to pick the correct opcode/length pair.
 RESOLVE_AMBIG_MNEM:
-        LD A,(IDENT_BUF)              ; $17C7  3A 89 01
+        LD A,(IDENT_BUF)                 ; $17C7  3A 89 01
         LD BC,$C217                      ; $17CA  01 17 C2
 SUB_17C7_1:
         CP $4A                           ; $17CD  FE 4A
@@ -1757,20 +1761,20 @@ SUB_17C7_1:
 ; [AI] Special-cases pseudo-ops and length-keyed mnemonics by matching the accumulated identifier
 ;       against the directive name fragments at $1773, returning the matched index.
 MATCH_DIRECTIVE:
-        LD A,(IDENT_LEN)              ; $17DB  3A 88 01
+        LD A,(IDENT_LEN)                 ; $17DB  3A 88 01
         CP $04                           ; $17DE  FE 04
         JP NC,SUB_17DB_4                 ; $17E0  D2 0D 18
         CP $03                           ; $17E3  FE 03
         JP Z,SUB_17DB_1                  ; $17E5  CA F2 17
         CP $02                           ; $17E8  FE 02
         JP NZ,SUB_17DB_4                 ; $17EA  C2 0D 18
-        LD HL,IDENT_PAD               ; $17ED  21 8B 01
+        LD HL,IDENT_PAD                  ; $17ED  21 8B 01
         LD (HL),$20                      ; $17F0  36 20
 SUB_17DB_1:
         LD BC,RST1_VEC                   ; $17F2  01 08 00
-        LD DE,DIRECTIVE_FRAGS                 ; $17F5  11 73 17
+        LD DE,DIRECTIVE_FRAGS            ; $17F5  11 73 17
 SUB_17DB_2:
-        LD HL,IDENT_CHAR1               ; $17F8  21 8A 01
+        LD HL,IDENT_CHAR1                ; $17F8  21 8A 01
         LD A,(DE)                        ; $17FB  1A
         CP (HL)                          ; $17FC  BE
         INC DE                           ; $17FD  13
@@ -1794,7 +1798,7 @@ SUB_17DB_4:
 ;       tables, runs the binary search, and returns the opcode byte plus operand-format code for a
 ;       recognized instruction.
 MATCH_MNEMONIC:
-        LD A,(IDENT_LEN)              ; $1810  3A 88 01
+        LD A,(IDENT_LEN)                 ; $1810  3A 88 01
         LD C,A                           ; $1813  4F
         DEC A                            ; $1814  3D
         LD E,A                           ; $1815  5F
@@ -1802,10 +1806,10 @@ MATCH_MNEMONIC:
         PUSH DE                          ; $1818  D5
         CP $05                           ; $1819  FE 05
         JP NC,SUB_17DB_8                 ; $181B  D2 5A 18
-        LD HL,MNEMONIC_GROUP_LEN                 ; $181E  21 B5 15
+        LD HL,MNEMONIC_GROUP_LEN         ; $181E  21 B5 15
         ADD HL,DE                        ; $1821  19
         LD B,(HL)                        ; $1822  46
-        LD HL,MNEMONIC_GROUP_PTRS                 ; $1823  21 A9 15
+        LD HL,MNEMONIC_GROUP_PTRS        ; $1823  21 A9 15
         ADD HL,DE                        ; $1826  19
         ADD HL,DE                        ; $1827  19
         LD D,(HL)                        ; $1828  56
@@ -1813,10 +1817,10 @@ MATCH_MNEMONIC:
         LD H,(HL)                        ; $182A  66
         LD L,D                           ; $182B  6A
         LD D,C                           ; $182C  51
-        CALL BINSEARCH_MNEMONIC                    ; $182D  CD 83 17
+        CALL BINSEARCH_MNEMONIC          ; $182D  CD 83 17
         JP NZ,SUB_17DB_6                 ; $1830  C2 45 18
         POP DE                           ; $1833  D1
-        LD HL,OPCODE_GROUP_PTRS                 ; $1834  21 BA 15
+        LD HL,OPCODE_GROUP_PTRS          ; $1834  21 BA 15
         ADD HL,DE                        ; $1837  19
         ADD HL,DE                        ; $1838  19
         LD E,(HL)                        ; $1839  5E
@@ -1832,10 +1836,10 @@ MATCH_MNEMONIC:
         RET                              ; $1844  C9
 SUB_17DB_6:
         POP DE                           ; $1845  D1
-        CALL RESOLVE_AMBIG_MNEM                    ; $1846  CD C7 17
+        CALL RESOLVE_AMBIG_MNEM          ; $1846  CD C7 17
         RET NZ                           ; $1849  C0
         PUSH BC                          ; $184A  C5
-        CALL MATCH_DIRECTIVE                    ; $184B  CD DB 17
+        CALL MATCH_DIRECTIVE             ; $184B  CD DB 17
         LD A,B                           ; $184E  78
         POP BC                           ; $184F  C1
 SUB_17DB_7:
@@ -1857,11 +1861,11 @@ SUB_17DB_8:
         DEFB    $00,$00                                          ; $185E
 ; [AI] Entry jump into the arithmetic / expression-helper module's driver.
 VEC_ARITH_DRIVER:
-        JP ASSEMBLE_DRIVER                    ; $1860  C3 A0 1B
+        JP ASSEMBLE_DRIVER               ; $1860  C3 A0 1B
         DEFB    $C3,$19,$1A,$C3,$6E,$19                          ; $1863
 ; [AI] Public entry: jumps to the 16-bit unsigned multiply routine used in expression evaluation.
 VEC_MUL16:
-        JP MUL16                    ; $1869  C3 38 19
+        JP MUL16                         ; $1869  C3 38 19
         DEFS    39, $00    ; $186C  fill
         DEFB    $EB,$21,$92,$18,$7E,$FE,$10,$DA,$A2,$18,$CD,$85,$1B,$36,$00,$7E ; $1893
         DEFB    $34,$34,$4F,$06,$00,$21,$81,$18,$09,$73,$23,$72,$C9,$F5,$21,$91 ; $18A3
@@ -1879,8 +1883,8 @@ VEC_MUL16:
 ;       the expression evaluator.
 MUL16:
         EX DE,HL                         ; $1938  EB
-        LD (MUL_MULTIPLICAND),HL               ; $1939  22 6B 19
-        LD HL,MUL_BIT_COUNT                 ; $193C  21 6D 19
+        LD (MUL_MULTIPLICAND),HL         ; $1939  22 6B 19
+        LD HL,MUL_BIT_COUNT              ; $193C  21 6D 19
         LD (HL),$11                      ; $193F  36 11
         LD BC,WBOOT_VEC                  ; $1941  01 00 00
         PUSH BC                          ; $1944  C5
@@ -1900,7 +1904,7 @@ SUB_1869_2:
         ADD HL,HL                        ; $1953  29
         LD B,H                           ; $1954  44
         ADD A,L                          ; $1955  85
-        LD HL,(MUL_MULTIPLICAND)               ; $1956  2A 6B 19
+        LD HL,(MUL_MULTIPLICAND)         ; $1956  2A 6B 19
         SUB L                            ; $1959  95
         LD C,A                           ; $195A  4F
         LD A,B                           ; $195B  78
@@ -1911,7 +1915,7 @@ SUB_1869_2:
         ADD HL,BC                        ; $1962  09
         EX (SP),HL                       ; $1963  E3
 SUB_1869_3:
-        LD HL,MUL_BIT_COUNT                 ; $1964  21 6D 19
+        LD HL,MUL_BIT_COUNT              ; $1964  21 6D 19
         CCF                              ; $1967  3F
         JP SUB_1869_2                    ; $1968  C3 46 19
 MUL_MULTIPLICAND:
@@ -1923,35 +1927,35 @@ MUL_BIT_COUNT:
         DEFB    $CD,$EC,$18,$CD,$6E,$19,$C3,$01,$1A,$CD,$35,$19,$EB,$C3,$01,$1A ; $1989
         DEFB    $CD,$35,$19,$C3,$01,$1A,$CD,$1B,$19,$B7,$CA,$01,$1A,$29,$3D,$C3 ; $1999
         DEFB    $A2,$19,$CD,$1B,$19,$B7,$CA,$01,$1A,$F5,$AF      ; $19A9
-        DEFW    ERR_SYNTAX              ; $19B4
+        DEFW    ERR_SYNTAX               ; $19B4
         DEFB    $67,$7D,$1F,$6F,$F1,$3D,$C3,$AE,$19,$CD,$EC,$18,$19,$C3,$01,$1A ; $19B6
         DEFB    $CD,$EC,$18,$EB,$CD,$2D,$19,$C3,$C2,$19,$CD,$CF,$18,$CD,$2D,$19 ; $19C6
         DEFB    $C3,$01,$1A,$CD,$CF,$18,$23,$C3,$D3,$19,$CD,$EC,$18,$7A,$A4,$67 ; $19D6
         DEFB    $7B,$A5,$6F,$C3,$01,$1A,$CD,$EC,$18,$7A,$B4,$67,$7B,$B5,$6F,$C3 ; $19E6
         DEFB    $01,$1A,$CD,$EC,$18,$7A,$AC,$67,$7B,$AD,$6F,$C3,$93,$18,$3A ; $19F6
-        DEFW    TOKEN_TYPE              ; $1A05
+        DEFW    TOKEN_TYPE               ; $1A05
         DEFB    $FE,$04,$C0,$3A                                  ; $1A07
-        DEFW    IDENT_BUF             ; $1A0B
+        DEFW    IDENT_BUF                ; $1A0B
         DEFW    SUB_0DC4_30              ; $1A0D
         DEFB    $C8,$FE,$3B,$C8,$FE,$2C,$C8,$FE,$21,$C9,$AF,$32,$91,$18,$32,$92 ; $1A0F
         DEFB    $18,$3D,$32,$6C,$18,$21,$00,$00,$22,$C9,$01,$CD,$04,$1A,$C2,$5D ; $1A1F
         DEFB    $1A,$21,$91,$18,$7E,$B7,$CA,$48,$1A,$35,$5F,$1D,$16,$00,$21,$6D ; $1A2F
         DEFB    $18,$19,$7E,$CD,$F4,$18,$C3,$30,$1A,$3A,$92,$18,$FE,$02,$C4,$85 ; $1A3F
         DEFB    $1B,$3A                                          ; $1A4F
-        DEFW    LIST_LINE_BUF              ; $1A51
+        DEFW    LIST_LINE_BUF            ; $1A51
         DEFB    $FE,$20,$C0,$2A,$81,$18,$22,$C9,$01,$C9,$3A      ; $1A53
-        DEFW    LIST_LINE_BUF              ; $1A5E
+        DEFW    LIST_LINE_BUF            ; $1A5E
         DEFB    $FE,$20,$C2,$7F,$1B,$3A                          ; $1A60
-        DEFW    TOKEN_TYPE              ; $1A66
+        DEFW    TOKEN_TYPE               ; $1A66
         DEFB    $FE,$03,$C2,$89,$1A,$3A                          ; $1A68
-        DEFW    IDENT_LEN             ; $1A6E
+        DEFW    IDENT_LEN                ; $1A6E
         DEFB    $B7,$CC,$85,$1B,$FE,$03,$D4,$85,$1B,$16,$00,$21  ; $1A70
-        DEFW    IDENT_BUF             ; $1A7C
+        DEFW    IDENT_BUF                ; $1A7C
         DEFB    $5E,$23,$3D,$CA,$85,$1A,$56,$EB,$C3,$71,$1B,$FE,$02,$C2,$94,$1A ; $1A7E
         DEFB    $2A                                              ; $1A8E
-        DEFW    NUM_ACCUM             ; $1A8F
+        DEFW    NUM_ACCUM                ; $1A8F
         DEFB    $C3,$71,$1B,$CD                                  ; $1A91
-        DEFW    VEC_MATCH_MNEMONIC                 ; $1A95
+        DEFW    VEC_MATCH_MNEMONIC       ; $1A95
         DEFB    $C2,$31,$1B,$FE,$10,$D2,$26,$1B,$FE,$0C,$4F,$3A,$6C,$18,$C2,$B5 ; $1A97
         DEFB    $1A,$B7,$CC,$85,$1B,$3E,$FF,$32,$6C,$18,$79,$C3,$03,$1B,$B7 ; $1AA7
         DEFW    SUB_0EB4_1               ; $1AB6
@@ -1964,29 +1968,29 @@ MUL_BIT_COUNT:
         DEFB    $1B,$CD,$B0,$18,$3E,$FF,$32,$6C,$18,$C3,$7F,$1B,$79,$FE,$05,$CA ; $1B02
         DEFB    $7F,$1B,$FE,$06,$C2,$1E,$1B,$3C,$4F,$C3,$B9,$1A,$FE,$08,$C4,$85 ; $1B12
         DEFB    $1B,$C3,$B9,$1A,$FE,$11,$CC,$85,$1B,$68,$26,$00,$C3,$71,$1B,$3A ; $1B22
-        DEFW    TOKEN_TYPE              ; $1B32
+        DEFW    TOKEN_TYPE               ; $1B32
         DEFB    $FE,$04,$C2,$50,$1B,$3A                          ; $1B34
-        DEFW    IDENT_BUF             ; $1B3A
+        DEFW    IDENT_BUF                ; $1B3A
         DEFB    $FE,$24,$CA,$4A,$1B,$CD,$85,$1B,$21,$00,$00,$C3,$71,$1B,$2A ; $1B3C
-        DEFW    LOC_COUNTER             ; $1B4B
+        DEFW    LOC_COUNTER              ; $1B4B
         DEFB    $C3,$71,$1B,$CD                                  ; $1B4D
-        DEFW    VEC_SYM_INSERT                 ; $1B51
+        DEFW    VEC_SYM_INSERT           ; $1B51
         DEFB    $CD                                              ; $1B53
-        DEFW    VEC_SYM_LOOKUP                 ; $1B54
+        DEFW    VEC_SYM_LOOKUP           ; $1B54
         DEFB    $C2,$64,$1B,$3E,$50,$CD                          ; $1B56
-        DEFW    VEC_SET_ERR_FLAG                 ; $1B5C
+        DEFW    VEC_SET_ERR_FLAG         ; $1B5C
         DEFB    $CD                                              ; $1B5E
-        DEFW    VEC_SYM_ALLOC                 ; $1B5F
+        DEFW    VEC_SYM_ALLOC            ; $1B5F
         DEFB    $C3,$6E,$1B,$CD                                  ; $1B61
-        DEFW    VEC_SYM_GET_TYPE                 ; $1B65
+        DEFW    VEC_SYM_GET_TYPE         ; $1B65
         DEFB    $E6,$07,$3E,$55,$CC                              ; $1B67
-        DEFW    VEC_SET_ERR_FLAG                 ; $1B6C
+        DEFW    VEC_SET_ERR_FLAG         ; $1B6C
         DEFB    $CD                                              ; $1B6E
-        DEFW    VEC_SYM_GET_VAL                 ; $1B6F
+        DEFW    VEC_SYM_GET_VAL          ; $1B6F
         DEFB    $3A,$6C,$18,$B7,$CC,$85,$1B,$AF,$32,$6C,$18,$CD,$93,$18,$CD ; $1B71
-        DEFW    VEC_NEXT_TOKEN                 ; $1B80
+        DEFW    VEC_NEXT_TOKEN           ; $1B80
         DEFB    $C3,$2A,$1A,$E5,$3E,$45,$CD                      ; $1B82
-        DEFW    VEC_SET_ERR_FLAG                 ; $1B89
+        DEFW    VEC_SET_ERR_FLAG         ; $1B89
         DEFB    $E1,$C9,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00 ; $1B8B
         DEFB    $00,$00,$00,$00,$00                              ; $1B9B
 ; [AI] Main assembler driver: runs the line-by-line assembly passes, dispatching each statement
@@ -1994,68 +1998,68 @@ MUL_BIT_COUNT:
 ASSEMBLE_DRIVER:
         XOR A                            ; $1BA0  AF
 SUB_1869_7:
-        LD (PASS_NUMBER),A              ; $1BA1  32 CF 01
+        LD (PASS_NUMBER),A               ; $1BA1  32 CF 01
 SUB_1869_8:
-        CALL VEC_SYM_INIT                    ; $1BA4  CD 43 13
+        CALL VEC_SYM_INIT                ; $1BA4  CD 43 13
 SUB_1869_9:
-        CALL VEC_NEW_LINE                    ; $1BA7  CD 03 11
+        CALL VEC_NEW_LINE                ; $1BA7  CD 03 11
 SUB_1869_10:
-        CALL VEC_PASS_INIT                    ; $1BAA  CD 03 02
+        CALL VEC_PASS_INIT               ; $1BAA  CD 03 02
 SUB_1869_11:
         LD HL,WBOOT_VEC                  ; $1BAD  21 00 00
 SUB_1869_12:
-        LD (SAVED_SYM_PTR),HL               ; $1BB0  22 EB 20
+        LD (SAVED_SYM_PTR),HL            ; $1BB0  22 EB 20
 SUB_1869_13:
-        LD (LINE_START_LC),HL             ; $1BB3  22 D0 01
+        LD (LINE_START_LC),HL            ; $1BB3  22 D0 01
 SUB_1869_14:
-        LD (LOC_COUNTER),HL             ; $1BB6  22 D2 01
+        LD (LOC_COUNTER),HL              ; $1BB6  22 D2 01
 SUB_1869_15:
-        LD (FIRST_LINE_LC),HL               ; $1BB9  22 ED 20
+        LD (FIRST_LINE_LC),HL            ; $1BB9  22 ED 20
 SUB_1869_16:
-        CALL VEC_NEXT_TOKEN                    ; $1BBC  CD 06 11
+        CALL VEC_NEXT_TOKEN              ; $1BBC  CD 06 11
 SUB_1869_17:
-        LD A,(TOKEN_TYPE)               ; $1BBF  3A 85 01
+        LD A,(TOKEN_TYPE)                ; $1BBF  3A 85 01
         CP $02                           ; $1BC2  FE 02
         JP Z,SUB_1869_16                 ; $1BC4  CA BC 1B
         CP $04                           ; $1BC7  FE 04
         JP NZ,SUB_1869_18                ; $1BC9  C2 DD 1B
-        LD A,(IDENT_BUF)              ; $1BCC  3A 89 01
+        LD A,(IDENT_BUF)                 ; $1BCC  3A 89 01
         CP $2A                           ; $1BCF  FE 2A
-        JP NZ,HANDLE_COMMENT_EOL                ; $1BD1  C2 31 1F
-        CALL RESTORE_AND_LOOKUP                    ; $1BD4  CD 00 20
-        JP NZ,ERR_SYNTAX                ; $1BD7  C2 7C 1F
+        JP NZ,HANDLE_COMMENT_EOL         ; $1BD1  C2 31 1F
+        CALL RESTORE_AND_LOOKUP          ; $1BD4  CD 00 20
+        JP NZ,ERR_SYNTAX                 ; $1BD7  C2 7C 1F
         JP SKIP_TO_EOL                   ; $1BDA  C3 52 1F
 SUB_1869_18:
         CP $01                           ; $1BDD  FE 01
-        JP NZ,ERR_SYNTAX                ; $1BDF  C2 7C 1F
-        CALL VEC_MATCH_MNEMONIC                    ; $1BE2  CD A6 15
-        JP Z,DISPATCH_PSEUDO_OP                 ; $1BE5  CA 30 1C
-        CALL VEC_SYM_INSERT                    ; $1BE8  CD 46 13
-        CALL VEC_SYM_LOOKUP                    ; $1BEB  CD 49 13
+        JP NZ,ERR_SYNTAX                 ; $1BDF  C2 7C 1F
+        CALL VEC_MATCH_MNEMONIC          ; $1BE2  CD A6 15
+        JP Z,DISPATCH_PSEUDO_OP          ; $1BE5  CA 30 1C
+        CALL VEC_SYM_INSERT              ; $1BE8  CD 46 13
+        CALL VEC_SYM_LOOKUP              ; $1BEB  CD 49 13
         JP NZ,SUB_1869_19                ; $1BEE  C2 FE 1B
-        CALL VEC_SYM_ALLOC                    ; $1BF1  CD 4C 13
-        LD A,(PASS_NUMBER)              ; $1BF4  3A CF 01
+        CALL VEC_SYM_ALLOC               ; $1BF1  CD 4C 13
+        LD A,(PASS_NUMBER)               ; $1BF4  3A CF 01
         OR A                             ; $1BF7  B7
-        CALL NZ,ERR_PHASE                 ; $1BF8  C4 D7 20
+        CALL NZ,ERR_PHASE                ; $1BF8  C4 D7 20
         JP SUB_1869_20                   ; $1BFB  C3 0C 1C
 SUB_1869_19:
-        CALL VEC_SYM_GET_TYPE                    ; $1BFE  CD 52 13
+        CALL VEC_SYM_GET_TYPE            ; $1BFE  CD 52 13
         CP $06                           ; $1C01  FE 06
         JP NZ,SUB_1869_20                ; $1C03  C2 0C 1C
-        CALL ERR_NOT_DEFINED                    ; $1C06  CD E3 20
+        CALL ERR_NOT_DEFINED             ; $1C06  CD E3 20
         JP SKIP_TO_EOL                   ; $1C09  C3 52 1F
 SUB_1869_20:
-        LD HL,(SAVED_SYM_PTR)               ; $1C0C  2A EB 20
+        LD HL,(SAVED_SYM_PTR)            ; $1C0C  2A EB 20
         LD A,L                           ; $1C0F  7D
         OR H                             ; $1C10  B4
-        CALL NZ,ERR_LABEL                 ; $1C11  C4 DD 20
-        LD HL,(CUR_SYM_PTR)             ; $1C14  2A D6 01
-        LD (SAVED_SYM_PTR),HL               ; $1C17  22 EB 20
-        CALL VEC_NEXT_TOKEN                    ; $1C1A  CD 06 11
-        LD A,(TOKEN_TYPE)               ; $1C1D  3A 85 01
+        CALL NZ,ERR_LABEL                ; $1C11  C4 DD 20
+        LD HL,(CUR_SYM_PTR)              ; $1C14  2A D6 01
+        LD (SAVED_SYM_PTR),HL            ; $1C17  22 EB 20
+        CALL VEC_NEXT_TOKEN              ; $1C1A  CD 06 11
+        LD A,(TOKEN_TYPE)                ; $1C1D  3A 85 01
         CP $04                           ; $1C20  FE 04
         JP NZ,SUB_1869_17                ; $1C22  C2 BF 1B
-        LD A,(IDENT_BUF)              ; $1C25  3A 89 01
+        LD A,(IDENT_BUF)                 ; $1C25  3A 89 01
         CP $3A                           ; $1C28  FE 3A
         JP NZ,SUB_1869_17                ; $1C2A  C2 BF 1B
         JP SUB_1869_16                   ; $1C2D  C3 BC 1B
@@ -2063,11 +2067,11 @@ SUB_1869_20:
 ;       table at $1C43 to handle ORG/EQU/SET/IF/END/DB/DW/DS and related assembler directives.
 DISPATCH_PSEUDO_OP:
         CP $11                           ; $1C30  FE 11
-        JP NZ,DISPATCH_INSTR_FORM                ; $1C32  C2 D7 1D
+        JP NZ,DISPATCH_INSTR_FORM        ; $1C32  C2 D7 1D
         LD E,B                           ; $1C35  58
         LD D,$00                         ; $1C36  16 00
         DEC DE                           ; $1C38  1B
-        LD HL,PSEUDO_OP_JMP_TBL                ; $1C39  21 43 1C
+        LD HL,PSEUDO_OP_JMP_TBL          ; $1C39  21 43 1C
         ADD HL,DE                        ; $1C3C  19
         ADD HL,DE                        ; $1C3D  19
         LD E,(HL)                        ; $1C3E  5E
@@ -2079,156 +2083,156 @@ PSEUDO_OP_JMP_TBL:
         DEFB    $5B,$1C,$A9,$1C,$C0,$1C,$DE                      ; $1C43
         DEFW    SUB_1498_7               ; $1C4A
         DEFB    $1D,$18,$1D,$1E,$1D,$40,$1D,$87,$1D,$8D,$1D,$A7,$1D,$CE,$1D,$CD ; $1C4C
-        DEFW    DEFINE_LABEL                 ; $1C5C
+        DEFW    DEFINE_LABEL             ; $1C5C
         DEFB    $CD                                              ; $1C5E
-        DEFW    VEC_NEXT_TOKEN                 ; $1C5F
+        DEFW    VEC_NEXT_TOKEN           ; $1C5F
         DEFB    $3A                                              ; $1C61
-        DEFW    TOKEN_TYPE              ; $1C62
+        DEFW    TOKEN_TYPE               ; $1C62
         DEFB    $FE,$03,$C2,$8C,$1C,$3A                          ; $1C64
-        DEFW    IDENT_LEN             ; $1C6A
+        DEFW    IDENT_LEN                ; $1C6A
         DEFB    $3D,$CA,$8C,$1C,$47,$04,$04,$21                  ; $1C6C
-        DEFW    IDENT_BUF             ; $1C74
+        DEFW    IDENT_BUF                ; $1C74
         DEFB    $05,$CA,$86,$1C,$C5,$46,$23,$E5,$CD,$48,$20,$E1,$C1,$C3,$76,$1C ; $1C76
         DEFB    $CD                                              ; $1C86
-        DEFW    VEC_NEXT_TOKEN                 ; $1C87
+        DEFW    VEC_NEXT_TOKEN           ; $1C87
         DEFB    $C3,$9B,$1C,$CD,$63,$18,$2A,$C9,$01,$7C,$B7,$C4,$D1,$20,$45,$CD ; $1C89
         DEFB    $48,$20,$CD,$F9,$1F,$CD,$BA,$1E,$FE,$2C,$CA,$5E,$1C,$C3 ; $1C99
-        DEFW    HANDLE_COMMENT_EOL              ; $1CA7
+        DEFW    HANDLE_COMMENT_EOL       ; $1CA7
         DEFB    $CD                                              ; $1CA9
-        DEFW    DEFINE_LABEL                 ; $1CAA
+        DEFW    DEFINE_LABEL             ; $1CAA
         DEFB    $CD                                              ; $1CAC
-        DEFW    LIST_LC_ADDR                 ; $1CAD
+        DEFW    LIST_LC_ADDR             ; $1CAD
         DEFB    $CD,$D1,$1E,$EB,$2A                              ; $1CAF
-        DEFW    LOC_COUNTER             ; $1CB4
+        DEFW    LOC_COUNTER              ; $1CB4
         DEFB    $19,$22                                          ; $1CB6
-        DEFW    LOC_COUNTER             ; $1CB8
+        DEFW    LOC_COUNTER              ; $1CB8
         DEFB    $22                                              ; $1CBA
-        DEFW    LINE_START_LC             ; $1CBB
+        DEFW    LINE_START_LC            ; $1CBB
         DEFB    $C3                                              ; $1CBD
-        DEFW    HANDLE_COMMENT_EOL              ; $1CBE
+        DEFW    HANDLE_COMMENT_EOL       ; $1CBE
         DEFB    $CD                                              ; $1CC0
-        DEFW    DEFINE_LABEL                 ; $1CC1
+        DEFW    DEFINE_LABEL             ; $1CC1
         DEFB    $CD,$D1,$1E,$E5,$45,$CD,$48,$20,$E1,$44,$CD,$48,$20,$CD,$F9,$1F ; $1CC3
         DEFB    $CD,$BA,$1E,$FE,$2C,$CA,$C3,$1C,$C3              ; $1CD3
-        DEFW    HANDLE_COMMENT_EOL              ; $1CDC
+        DEFW    HANDLE_COMMENT_EOL       ; $1CDC
         DEFB    $CD                                              ; $1CDE
-        DEFW    DEFINE_LABEL                 ; $1CDF
+        DEFW    DEFINE_LABEL             ; $1CDF
         DEFB    $CD                                              ; $1CE1
-        DEFW    LIST_LC_ADDR                 ; $1CE2
+        DEFW    LIST_LC_ADDR             ; $1CE2
         DEFB    $3A                                              ; $1CE4
-        DEFW    LIST_LINE_BUF              ; $1CE5
+        DEFW    LIST_LINE_BUF            ; $1CE5
         DEFB    $FE,$20,$C2                                      ; $1CE7
-        DEFW    HANDLE_COMMENT_EOL              ; $1CEA
+        DEFW    HANDLE_COMMENT_EOL       ; $1CEA
         DEFB    $CD,$D1,$1E,$3A                                  ; $1CEC
-        DEFW    LIST_LINE_BUF              ; $1CF0
+        DEFW    LIST_LINE_BUF            ; $1CF0
         DEFB    $FE,$20,$C2,$FA,$1C,$22                          ; $1CF2
-        DEFW    FIRST_LINE_LC               ; $1CF8
+        DEFW    FIRST_LINE_LC            ; $1CF8
         DEFB    $3E,$20,$32                                      ; $1CFA
-        DEFW    LIST_LINE_BUF              ; $1CFD
+        DEFW    LIST_LINE_BUF            ; $1CFD
         DEFB    $CD                                              ; $1CFF
-        DEFW    VEC_NEXT_TOKEN                 ; $1D00
+        DEFW    VEC_NEXT_TOKEN           ; $1D00
         DEFB    $3A                                              ; $1D02
-        DEFW    TOKEN_TYPE              ; $1D03
+        DEFW    TOKEN_TYPE               ; $1D03
         DEFB    $FE,$04,$C2                                      ; $1D05
-        DEFW    ERR_SYNTAX              ; $1D08
+        DEFW    ERR_SYNTAX               ; $1D08
         DEFB    $3A                                              ; $1D0A
-        DEFW    IDENT_BUF             ; $1D0B
+        DEFW    IDENT_BUF                ; $1D0B
         DEFB    $FE,$0A,$C2                                      ; $1D0D
-        DEFW    ERR_SYNTAX              ; $1D10
+        DEFW    ERR_SYNTAX               ; $1D10
         DEFB    $C3                                              ; $1D12
-        DEFW    END_OF_PASS               ; $1D13
+        DEFW    END_OF_PASS              ; $1D13
         DEFB    $C3,$D1,$1D,$CD                                  ; $1D15
-        DEFW    ERR_NOT_DEFINED                 ; $1D19
+        DEFW    ERR_NOT_DEFINED          ; $1D19
         DEFB    $C3,$D1,$1D,$CD                                  ; $1D1B
-        DEFW    RESTORE_AND_LOOKUP                 ; $1D1F
+        DEFW    RESTORE_AND_LOOKUP       ; $1D1F
         DEFB    $CA                                              ; $1D21
-        DEFW    ERR_SYNTAX              ; $1D22
+        DEFW    ERR_SYNTAX               ; $1D22
         DEFB    $2A                                              ; $1D24
-        DEFW    LOC_COUNTER             ; $1D25
+        DEFW    LOC_COUNTER              ; $1D25
         DEFB    $E5,$CD,$D1,$1E,$22                              ; $1D27
-        DEFW    LOC_COUNTER             ; $1D2C
+        DEFW    LOC_COUNTER              ; $1D2C
         DEFB    $CD                                              ; $1D2E
-        DEFW    DEFINE_LABEL                 ; $1D2F
+        DEFW    DEFINE_LABEL             ; $1D2F
         DEFB    $CD                                              ; $1D31
-        DEFW    LIST_HEX_WORD                 ; $1D32
+        DEFW    LIST_HEX_WORD            ; $1D32
         DEFW    SUB_11B7_22              ; $1D34
         DEFB    $01,$36,$3D,$E1,$22                              ; $1D36
-        DEFW    LOC_COUNTER             ; $1D3B
+        DEFW    LOC_COUNTER              ; $1D3B
         DEFB    $C3                                              ; $1D3D
-        DEFW    HANDLE_COMMENT_EOL              ; $1D3E
+        DEFW    HANDLE_COMMENT_EOL       ; $1D3E
         DEFB    $CD                                              ; $1D40
-        DEFW    DEFINE_LABEL                 ; $1D41
+        DEFW    DEFINE_LABEL             ; $1D41
         DEFB    $CD,$D1,$1E,$3A                                  ; $1D43
-        DEFW    LIST_LINE_BUF              ; $1D47
+        DEFW    LIST_LINE_BUF            ; $1D47
         DEFB    $FE,$20,$C2                                      ; $1D49
-        DEFW    HANDLE_COMMENT_EOL              ; $1D4C
+        DEFW    HANDLE_COMMENT_EOL       ; $1D4C
         DEFB    $7D,$1F,$DA                                      ; $1D4E
-        DEFW    HANDLE_COMMENT_EOL              ; $1D51
+        DEFW    HANDLE_COMMENT_EOL       ; $1D51
         DEFB    $CD                                              ; $1D53
-        DEFW    VEC_NEXT_TOKEN                 ; $1D54
+        DEFW    VEC_NEXT_TOKEN           ; $1D54
         DEFB    $3A                                              ; $1D56
-        DEFW    TOKEN_TYPE              ; $1D57
+        DEFW    TOKEN_TYPE               ; $1D57
         DEFB    $FE,$04,$C2,$6E,$1D,$3A                          ; $1D59
-        DEFW    IDENT_BUF             ; $1D5F
+        DEFW    IDENT_BUF                ; $1D5F
         DEFB    $FE,$1A,$3E,$42,$CC                              ; $1D61
-        DEFW    VEC_SET_ERR_FLAG                 ; $1D66
+        DEFW    VEC_SET_ERR_FLAG         ; $1D66
         DEFB    $CA                                              ; $1D68
-        DEFW    END_OF_PASS               ; $1D69
+        DEFW    END_OF_PASS              ; $1D69
         DEFB    $C3,$53,$1D,$FE,$01,$C2,$53,$1D,$CD              ; $1D6B
-        DEFW    VEC_MATCH_MNEMONIC                 ; $1D74
+        DEFW    VEC_MATCH_MNEMONIC       ; $1D74
         DEFB    $C2,$53,$1D,$FE,$11,$C2,$53,$1D,$78,$FE,$05,$C2,$53,$1D,$C3,$D1 ; $1D76
         DEFB    $1D,$CD                                          ; $1D86
-        DEFW    ERR_NOT_DEFINED                 ; $1D88
+        DEFW    ERR_NOT_DEFINED          ; $1D88
         DEFB    $C3                                              ; $1D8A
-        DEFW    HANDLE_COMMENT_EOL              ; $1D8B
+        DEFW    HANDLE_COMMENT_EOL       ; $1D8B
         DEFB    $CD,$D1,$1E,$3A                                  ; $1D8D
-        DEFW    LIST_LINE_BUF              ; $1D91
+        DEFW    LIST_LINE_BUF            ; $1D91
         DEFB    $FE,$20,$C2                                      ; $1D93
-        DEFW    HANDLE_COMMENT_EOL              ; $1D96
+        DEFW    HANDLE_COMMENT_EOL       ; $1D96
         DEFB    $22                                              ; $1D98
-        DEFW    LOC_COUNTER             ; $1D99
+        DEFW    LOC_COUNTER              ; $1D99
         DEFB    $22                                              ; $1D9B
-        DEFW    LINE_START_LC             ; $1D9C
+        DEFW    LINE_START_LC            ; $1D9C
         DEFB    $CD                                              ; $1D9E
-        DEFW    DEFINE_LABEL                 ; $1D9F
+        DEFW    DEFINE_LABEL             ; $1D9F
         DEFB    $CD                                              ; $1DA1
-        DEFW    LIST_LC_ADDR                 ; $1DA2
+        DEFW    LIST_LC_ADDR             ; $1DA2
         DEFB    $C3                                              ; $1DA4
-        DEFW    HANDLE_COMMENT_EOL              ; $1DA5
+        DEFW    HANDLE_COMMENT_EOL       ; $1DA5
         DEFB    $CD                                              ; $1DA7
-        DEFW    RESTORE_AND_LOOKUP                 ; $1DA8
+        DEFW    RESTORE_AND_LOOKUP       ; $1DA8
         DEFB    $CA                                              ; $1DAA
-        DEFW    ERR_SYNTAX              ; $1DAB
+        DEFW    ERR_SYNTAX               ; $1DAB
         DEFB    $CD                                              ; $1DAD
-        DEFW    VEC_SYM_GET_TYPE                 ; $1DAE
+        DEFW    VEC_SYM_GET_TYPE         ; $1DAE
         DEFB    $FE,$05,$C4                                      ; $1DB0
-        DEFW    ERR_LABEL                 ; $1DB3
+        DEFW    ERR_LABEL                ; $1DB3
         DEFB    $3E,$05,$CD                                      ; $1DB5
-        DEFW    VEC_SYM_SET_TYPE                 ; $1DB8
+        DEFW    VEC_SYM_SET_TYPE         ; $1DB8
         DEFB    $CD,$D1,$1E,$E5,$CD                              ; $1DBA
-        DEFW    RESTORE_AND_LOOKUP                 ; $1DBF
+        DEFW    RESTORE_AND_LOOKUP       ; $1DBF
         DEFB    $E1,$CD                                          ; $1DC1
-        DEFW    VEC_SYM_SET_VAL                 ; $1DC3
+        DEFW    VEC_SYM_SET_VAL          ; $1DC3
         DEFB    $21,$00,$00,$22                                  ; $1DC5
-        DEFW    SAVED_SYM_PTR               ; $1DC9
+        DEFW    SAVED_SYM_PTR            ; $1DC9
         DEFB    $C3                                              ; $1DCB
-        DEFW    HANDLE_COMMENT_EOL              ; $1DCC
+        DEFW    HANDLE_COMMENT_EOL       ; $1DCC
         DEFB    $CD                                              ; $1DCE
-        DEFW    ERR_NOT_DEFINED                 ; $1DCF
+        DEFW    ERR_NOT_DEFINED          ; $1DCF
         DEFB    $CD                                              ; $1DD1
-        DEFW    VEC_NEXT_TOKEN                 ; $1DD2
+        DEFW    VEC_NEXT_TOKEN           ; $1DD2
         DEFB    $C3                                              ; $1DD4
-        DEFW    HANDLE_COMMENT_EOL              ; $1DD5
+        DEFW    HANDLE_COMMENT_EOL       ; $1DD5
 ; [AI] Instruction-form dispatcher: for a recognized machine mnemonic, indexes the jump table at
 ;       $1DEB by operand-format code to assemble the specific operand encoding (register, immediate,
 ;       address, etc.).
 DISPATCH_INSTR_FORM:
         SUB $13                          ; $1DD7  D6 13
         CP $21                           ; $1DD9  FE 21
-        JP NC,ERR_SYNTAX                ; $1DDB  D2 7C 1F
+        JP NC,ERR_SYNTAX                 ; $1DDB  D2 7C 1F
         LD E,A                           ; $1DDE  5F
         LD D,$00                         ; $1DDF  16 00
-        LD HL,INSTR_FORM_JMP_TBL                ; $1DE1  21 EB 1D
+        LD HL,INSTR_FORM_JMP_TBL         ; $1DE1  21 EB 1D
         ADD HL,DE                        ; $1DE4  19
         ADD HL,DE                        ; $1DE5  19
         LD E,(HL)                        ; $1DE6  5E
@@ -2241,7 +2245,7 @@ INSTR_FORM_JMP_TBL:
         DEFW    SUB_11B7_21              ; $1DEC
         DEFB    $1E,$1E,$1E,$24,$1E,$38,$1E,$41,$1E,$50,$1E,$60,$1E,$69,$1E,$78 ; $1DEE
         DEFB    $1E,$81,$1E,$88,$1E,$8F,$1E,$9E,$1E,$A5,$1E,$CD,$48,$20,$CD ; $1DFE
-        DEFW    VEC_NEXT_TOKEN                 ; $1E0D
+        DEFW    VEC_NEXT_TOKEN           ; $1E0D
         DEFB    $C3,$B1,$1E,$CD,$FC,$1E                          ; $1E0F
         DEFW    SUB_17C7_1               ; $1E15
         DEFB    $1F,$CD,$11,$1F,$C3,$B1,$1E,$CD,$FC,$1E,$C3,$B1,$1E,$CD,$F2,$1E ; $1E17
@@ -2256,56 +2260,56 @@ INSTR_FORM_JMP_TBL:
         DEFB    $F2,$1E,$B0,$C3,$AE,$1E,$CD,$F2,$1E,$E6,$08,$C4,$BD,$20,$79,$E6 ; $1E89
         DEFB    $30,$B0,$C3,$AE,$1E,$CD,$F2,$1E,$B0,$C3,$AE,$1E,$CD,$48,$20,$CD ; $1E99
         DEFB    $0B,$1F,$C3,$B1,$1E,$CD,$47,$20,$CD              ; $1EA9
-        DEFW    DEFINE_LABEL                 ; $1EB2
+        DEFW    DEFINE_LABEL             ; $1EB2
         DEFB    $CD,$F9,$1F,$C3                                  ; $1EB4
-        DEFW    HANDLE_COMMENT_EOL              ; $1EB8
+        DEFW    HANDLE_COMMENT_EOL       ; $1EB8
         DEFB    $3A                                              ; $1EBA
-        DEFW    TOKEN_TYPE              ; $1EBB
+        DEFW    TOKEN_TYPE               ; $1EBB
         DEFB    $FE,$04,$C4,$D1,$20,$3A                          ; $1EBD
-        DEFW    IDENT_BUF             ; $1EC3
+        DEFW    IDENT_BUF                ; $1EC3
         DEFB    $FE,$2C,$C8,$FE,$3B,$C8                          ; $1EC5
         DEFW    SUB_0DC4_30              ; $1ECB
         DEFB    $C4,$D1,$20,$C9,$C5,$CD                          ; $1ECD
-        DEFW    VEC_NEXT_TOKEN                 ; $1ED3
+        DEFW    VEC_NEXT_TOKEN           ; $1ED3
         DEFB    $CD,$63,$18,$2A,$C9,$01,$C1,$C9,$CD,$D1,$1E,$7C,$B7,$C4,$C7,$20 ; $1ED5
         DEFB    $7D,$C9,$CD,$DD,$1E,$FE,$08,$D4,$C7,$20,$E6,$07,$C9,$CD,$E7,$1E ; $1EE5
         DEFB    $17,$17,$17,$E6,$38,$4F,$C9,$CD,$F2,$1E,$E6,$08,$C4,$BD,$20,$79 ; $1EF5
         DEFB    $E6,$30,$B0,$C3,$47,$20,$CD,$DD,$1E,$C3,$47,$20,$CD,$D1,$1E,$C3 ; $1F05
         DEFB    $74,$20,$F5,$C5,$3A                              ; $1F15
-        DEFW    TOKEN_TYPE              ; $1F1A
+        DEFW    TOKEN_TYPE               ; $1F1A
         DEFB    $FE,$04,$C2,$29,$1F,$3A                          ; $1F1C
-        DEFW    IDENT_BUF             ; $1F22
+        DEFW    IDENT_BUF                ; $1F22
         DEFB    $FE,$2C,$CA,$2E,$1F,$3E,$43,$CD                  ; $1F24
-        DEFW    VEC_SET_ERR_FLAG                 ; $1F2C
+        DEFW    VEC_SET_ERR_FLAG         ; $1F2C
         DEFB    $C1,$F1,$C9                                      ; $1F2E
 ; [AI] Comment / blank-line handler: consumes the rest of a line after a '*'-style comment or stray
 ;       token up to end-of-line, then continues the pass.
 HANDLE_COMMENT_EOL:
-        CALL DEFINE_LABEL                    ; $1F31  CD 0A 20
-        LD A,(TOKEN_TYPE)               ; $1F34  3A 85 01
+        CALL DEFINE_LABEL                ; $1F31  CD 0A 20
+        LD A,(TOKEN_TYPE)                ; $1F34  3A 85 01
         CP $04                           ; $1F37  FE 04
-        JP NZ,ERR_SYNTAX                ; $1F39  C2 7C 1F
-        LD A,(IDENT_BUF)              ; $1F3C  3A 89 01
+        JP NZ,ERR_SYNTAX                 ; $1F39  C2 7C 1F
+        LD A,(IDENT_BUF)                 ; $1F3C  3A 89 01
         CP $0D                           ; $1F3F  FE 0D
         JP NZ,SUB_1869_26                ; $1F41  C2 4A 1F
-        CALL VEC_NEXT_TOKEN                    ; $1F44  CD 06 11
+        CALL VEC_NEXT_TOKEN              ; $1F44  CD 06 11
         JP SUB_1869_16                   ; $1F47  C3 BC 1B
 SUB_1869_26:
         CP $3B                           ; $1F4A  FE 3B
         JP NZ,SUB_1869_28                ; $1F4C  C2 72 1F
-        CALL DEFINE_LABEL                    ; $1F4F  CD 0A 20
+        CALL DEFINE_LABEL                ; $1F4F  CD 0A 20
 ; [AI] Line-skip loop: discards remaining source characters to the line terminator (LF/EOF/'!'),
 ;       used after errors or fully-consumed statements before fetching the next line.
 SKIP_TO_EOL:
-        CALL VEC_NEXT_TOKEN                    ; $1F52  CD 06 11
-        LD A,(TOKEN_TYPE)               ; $1F55  3A 85 01
+        CALL VEC_NEXT_TOKEN              ; $1F52  CD 06 11
+        LD A,(TOKEN_TYPE)                ; $1F55  3A 85 01
         CP $04                           ; $1F58  FE 04
         JP NZ,SKIP_TO_EOL                ; $1F5A  C2 52 1F
-        LD A,(IDENT_BUF)              ; $1F5D  3A 89 01
+        LD A,(IDENT_BUF)                 ; $1F5D  3A 89 01
         CP $0A                           ; $1F60  FE 0A
         JP Z,SUB_1869_16                 ; $1F62  CA BC 1B
         CP $1A                           ; $1F65  FE 1A
-        JP Z,END_OF_PASS                  ; $1F67  CA 8B 1F
+        JP Z,END_OF_PASS                 ; $1F67  CA 8B 1F
         CP $21                           ; $1F6A  FE 21
         JP Z,SUB_1869_16                 ; $1F6C  CA BC 1B
         JP SKIP_TO_EOL                   ; $1F6F  C3 52 1F
@@ -2314,12 +2318,12 @@ SUB_1869_28:
         JP Z,SUB_1869_16                 ; $1F74  CA BC 1B
         CP $1A                           ; $1F77  FE 1A
 SUB_1869_29:
-        JP Z,END_OF_PASS                  ; $1F79  CA 8B 1F
+        JP Z,END_OF_PASS                 ; $1F79  CA 8B 1F
 ; [AI] Syntax-error reporter: stamps an 'S' error flag on the listing line, then skips to end of
 ;       line to recover and keep assembling.
 ERR_SYNTAX:
         LD A,$53                         ; $1F7C  3E 53
-        CALL VEC_SET_ERR_FLAG                    ; $1F7E  CD 18 02
+        CALL VEC_SET_ERR_FLAG            ; $1F7E  CD 18 02
         JP SKIP_TO_EOL                   ; $1F81  C3 52 1F
 ; [AI] 16-bit subtract HL = DE - HL, a helper used to compute object-code sizes and the
 ;       program/use-factor figures printed in the summary.
@@ -2334,34 +2338,34 @@ SUB16_DE_HL:
 ; [AI] End-of-pass / END-directive handler: on the first pass restarts for pass two; on the final
 ;       pass prints the symbol table, the program-length 'H USE FACTOR' summary line, and finishes.
 END_OF_PASS:
-        LD HL,PASS_NUMBER               ; $1F8B  21 CF 01
+        LD HL,PASS_NUMBER                ; $1F8B  21 CF 01
         LD A,(HL)                        ; $1F8E  7E
         INC (HL)                         ; $1F8F  34
         OR A                             ; $1F90  B7
         JP Z,SUB_1869_9                  ; $1F91  CA A7 1B
-        CALL VEC_NEXT_TOKEN                    ; $1F94  CD 06 11
-        CALL LIST_LC_ADDR                    ; $1F97  CD A6 20
+        CALL VEC_NEXT_TOKEN              ; $1F94  CD 06 11
+        CALL LIST_LC_ADDR                ; $1F97  CD A6 20
         LD HL,TPA_START_7                ; $1F9A  21 11 01
         LD (HL),$0D                      ; $1F9D  36 0D
         LD HL,TPA_START_5                ; $1F9F  21 0D 01
-        CALL VEC_PRINT_MSG                    ; $1FA2  CD 12 02
+        CALL VEC_PRINT_MSG               ; $1FA2  CD 12 02
         LD HL,(FREE_MEM_PTR)             ; $1FA5  2A CB 01
         EX DE,HL                         ; $1FA8  EB
         LD HL,(TPA_START_20)             ; $1FA9  2A D4 01
-        CALL SUB16_DE_HL                    ; $1FAC  CD 84 1F
+        CALL SUB16_DE_HL                 ; $1FAC  CD 84 1F
         PUSH HL                          ; $1FAF  E5
-        LD HL,(SYM_TABLE_LIMIT)             ; $1FB0  2A CD 01
+        LD HL,(SYM_TABLE_LIMIT)          ; $1FB0  2A CD 01
         EX DE,HL                         ; $1FB3  EB
         LD HL,(TPA_START_20)             ; $1FB4  2A D4 01
-        CALL SUB16_DE_HL                    ; $1FB7  CD 84 1F
+        CALL SUB16_DE_HL                 ; $1FB7  CD 84 1F
         LD E,H                           ; $1FBA  5C
         LD D,$00                         ; $1FBB  16 00
         POP HL                           ; $1FBD  E1
-        CALL VEC_MUL16                    ; $1FBE  CD 69 18
+        CALL VEC_MUL16                   ; $1FBE  CD 69 18
         EX DE,HL                         ; $1FC1  EB
-        CALL LIST_HEX_WORD                    ; $1FC2  CD A9 20
+        CALL LIST_HEX_WORD               ; $1FC2  CD A9 20
         LD HL,TPA_START_7                ; $1FC5  21 11 01
-        LD DE,MSG_USE_FACTOR                 ; $1FC8  11 D6 1F
+        LD DE,MSG_USE_FACTOR             ; $1FC8  11 D6 1F
 SUB_1F84_2:
         LD A,(DE)                        ; $1FCB  1A
         OR A                             ; $1FCC  B7
@@ -2376,10 +2380,10 @@ MSG_USE_FACTOR:
         DEFB    $00                                              ; $1FE3
 SUB_1F84_4:
         LD HL,TPA_START_6                ; $1FE4  21 0E 01
-        CALL VEC_PRINT_MSG                    ; $1FE7  CD 12 02
-        LD HL,(FIRST_LINE_LC)               ; $1FEA  2A ED 20
-        LD (LINE_START_LC),HL             ; $1FED  22 D0 01
-        JP VEC_END_ASSEMBLY                    ; $1FF0  C3 1E 02
+        CALL VEC_PRINT_MSG               ; $1FE7  CD 12 02
+        LD HL,(FIRST_LINE_LC)            ; $1FEA  2A ED 20
+        LD (LINE_START_LC),HL            ; $1FED  22 D0 01
+        JP VEC_END_ASSEMBLY              ; $1FF0  C3 1E 02
 ; [AI] 16-bit equality compare of DE against HL (sets Z if equal), used to detect when the current
 ;       location counter has reached the next HEX-record boundary.
 CMP16_EQ:
@@ -2390,67 +2394,67 @@ CMP16_EQ:
         CP L                             ; $1FF7  BD
         RET                              ; $1FF8  C9
         DEFB    $2A                                              ; $1FF9
-        DEFW    LINE_START_LC             ; $1FFA
+        DEFW    LINE_START_LC            ; $1FFA
         DEFB    $22                                              ; $1FFC
-        DEFW    LOC_COUNTER             ; $1FFD
+        DEFW    LOC_COUNTER              ; $1FFD
         DEFB    $C9                                              ; $1FFF
 ; [AI] Restores the saved current symbol/entry pointer ($20EB into $01D6) and runs a symbol lookup,
 ;       the setup used when re-resolving a forward-referenced label on the second pass.
 RESTORE_AND_LOOKUP:
-        LD HL,(SAVED_SYM_PTR)               ; $2000  2A EB 20
-        LD (CUR_SYM_PTR),HL             ; $2003  22 D6 01
-        CALL VEC_SYM_LOOKUP                    ; $2006  CD 49 13
+        LD HL,(SAVED_SYM_PTR)            ; $2000  2A EB 20
+        LD (CUR_SYM_PTR),HL              ; $2003  22 D6 01
+        CALL VEC_SYM_LOOKUP              ; $2006  CD 49 13
         RET                              ; $2009  C9
 ; [AI] Defines or redefines the current label's value: looks it up, allocates if new, sets its
 ;       type, and stores the active location-counter value, flagging phase ('P') errors when a pass-
 ;       two value disagrees.
 DEFINE_LABEL:
-        CALL RESTORE_AND_LOOKUP                    ; $200A  CD 00 20
+        CALL RESTORE_AND_LOOKUP          ; $200A  CD 00 20
         RET Z                            ; $200D  C8
         LD HL,WBOOT_VEC                  ; $200E  21 00 00
-        LD (SAVED_SYM_PTR),HL               ; $2011  22 EB 20
-        LD A,(PASS_NUMBER)              ; $2014  3A CF 01
+        LD (SAVED_SYM_PTR),HL            ; $2011  22 EB 20
+        LD A,(PASS_NUMBER)               ; $2014  3A CF 01
         OR A                             ; $2017  B7
         JP NZ,SUB_200A_2                 ; $2018  C2 31 20
-        CALL VEC_SYM_GET_TYPE                    ; $201B  CD 52 13
+        CALL VEC_SYM_GET_TYPE            ; $201B  CD 52 13
         PUSH AF                          ; $201E  F5
         AND $07                          ; $201F  E6 07
-        CALL NZ,ERR_LABEL                 ; $2021  C4 DD 20
+        CALL NZ,ERR_LABEL                ; $2021  C4 DD 20
         POP AF                           ; $2024  F1
         OR $01                           ; $2025  F6 01
-        CALL VEC_SYM_SET_TYPE                    ; $2027  CD 4F 13
-        LD HL,(LOC_COUNTER)             ; $202A  2A D2 01
+        CALL VEC_SYM_SET_TYPE            ; $2027  CD 4F 13
+        LD HL,(LOC_COUNTER)              ; $202A  2A D2 01
 SUB_200A_1:
-        CALL VEC_SYM_SET_VAL                    ; $202D  CD 55 13
+        CALL VEC_SYM_SET_VAL             ; $202D  CD 55 13
         RET                              ; $2030  C9
 SUB_200A_2:
-        CALL VEC_SYM_GET_TYPE                    ; $2031  CD 52 13
+        CALL VEC_SYM_GET_TYPE            ; $2031  CD 52 13
         AND $07                          ; $2034  E6 07
-        CALL Z,ERR_PHASE                  ; $2036  CC D7 20
-        CALL VEC_SYM_GET_VAL                    ; $2039  CD 58 13
+        CALL Z,ERR_PHASE                 ; $2036  CC D7 20
+        CALL VEC_SYM_GET_VAL             ; $2039  CD 58 13
         EX DE,HL                         ; $203C  EB
-        LD HL,(LOC_COUNTER)             ; $203D  2A D2 01
+        LD HL,(LOC_COUNTER)              ; $203D  2A D2 01
         CALL CMP16_EQ                    ; $2040  CD F3 1F
 SUB_200A_3:
-        CALL NZ,ERR_PHASE                 ; $2043  C4 D7 20
+        CALL NZ,ERR_PHASE                ; $2043  C4 D7 20
 SUB_200A_4:
         RET                              ; $2046  C9
         DEFB    $47,$3A                                          ; $2047
-        DEFW    PASS_NUMBER             ; $2049
+        DEFW    PASS_NUMBER              ; $2049
         DEFB    $B7,$78,$CA,$6C,$20,$C5,$CD,$1B,$02,$3A          ; $204B
         DEFW    TPA_START_5              ; $2055
         DEFB    $FE,$20,$2A                                      ; $2057
-        DEFW    LOC_COUNTER             ; $205A
+        DEFW    LOC_COUNTER              ; $205A
         DEFB    $CC                                              ; $205C
-        DEFW    LIST_HEX_WORD                 ; $205D
+        DEFW    LIST_HEX_WORD            ; $205D
         DEFB    $3A                                              ; $205F
-        DEFW    LIST_FIELD_COL               ; $2060
+        DEFW    LIST_FIELD_COL           ; $2060
         DEFB    $FE,$10,$C1,$D2,$6C,$20,$78,$CD                  ; $2062
-        DEFW    LIST_HEX_BYTE                 ; $206A
+        DEFW    LIST_HEX_BYTE            ; $206A
         DEFB    $2A                                              ; $206C
-        DEFW    LINE_START_LC             ; $206D
+        DEFW    LINE_START_LC            ; $206D
         DEFB    $23,$22                                          ; $206F
-        DEFW    LINE_START_LC             ; $2071
+        DEFW    LINE_START_LC            ; $2071
         DEFB    $C9,$E5,$45,$CD,$48,$20,$E1,$44,$C3,$48,$20      ; $2073
 ; [AI] Converts a 4-bit nibble (0-15) in A to its ASCII hex character ('0'-'9','A'-'F').
 NIBBLE_TO_HEX:
@@ -2462,12 +2466,12 @@ NIBBLE_TO_HEX:
 ; [AI] Appends one hex digit to the listing line's object-code field, advancing the field's column
 ;       pointer at $20EF.
 LIST_HEX_DIGIT:
-        CALL NIBBLE_TO_HEX                    ; $2086  CD 7E 20
-        LD HL,LIST_FIELD_COL                 ; $2089  21 EF 20
+        CALL NIBBLE_TO_HEX               ; $2086  CD 7E 20
+        LD HL,LIST_FIELD_COL             ; $2089  21 EF 20
         LD E,(HL)                        ; $208C  5E
         LD D,$00                         ; $208D  16 00
         INC (HL)                         ; $208F  34
-        LD HL,LIST_LINE_BUF                ; $2090  21 0C 01
+        LD HL,LIST_LINE_BUF              ; $2090  21 0C 01
         ADD HL,DE                        ; $2093  19
         LD (HL),A                        ; $2094  77
         RET                              ; $2095  C9
@@ -2480,54 +2484,54 @@ LIST_HEX_BYTE:
         RRA                              ; $2099  1F
         RRA                              ; $209A  1F
         AND $0F                          ; $209B  E6 0F
-        CALL LIST_HEX_DIGIT                    ; $209D  CD 86 20
+        CALL LIST_HEX_DIGIT              ; $209D  CD 86 20
         POP AF                           ; $20A0  F1
         AND $0F                          ; $20A1  E6 0F
-        JP LIST_HEX_DIGIT                      ; $20A3  C3 86 20
+        JP LIST_HEX_DIGIT                ; $20A3  C3 86 20
 ; [AI] Formats the current 16-bit location-counter value as four hex digits at the start of the
 ;       listing line's address column.
 LIST_LC_ADDR:
-        LD HL,(LOC_COUNTER)             ; $20A6  2A D2 01
+        LD HL,(LOC_COUNTER)              ; $20A6  2A D2 01
 ; [AI] Formats an arbitrary 16-bit value in DE as four hex digits into the listing line's address
 ;       field.
 LIST_HEX_WORD:
         EX DE,HL                         ; $20A9  EB
-        LD HL,LIST_FIELD_COL                 ; $20AA  21 EF 20
+        LD HL,LIST_FIELD_COL             ; $20AA  21 EF 20
         PUSH HL                          ; $20AD  E5
         LD (HL),$01                      ; $20AE  36 01
         LD A,D                           ; $20B0  7A
         PUSH DE                          ; $20B1  D5
-        CALL LIST_HEX_BYTE                    ; $20B2  CD 96 20
+        CALL LIST_HEX_BYTE               ; $20B2  CD 96 20
         POP DE                           ; $20B5  D1
         LD A,E                           ; $20B6  7B
-        CALL LIST_HEX_BYTE                    ; $20B7  CD 96 20
+        CALL LIST_HEX_BYTE               ; $20B7  CD 96 20
         POP HL                           ; $20BA  E1
         INC (HL)                         ; $20BB  34
         RET                              ; $20BC  C9
         DEFB    $F5,$C5,$3E,$52,$CD                              ; $20BD
-        DEFW    VEC_SET_ERR_FLAG                 ; $20C2
+        DEFW    VEC_SET_ERR_FLAG         ; $20C2
         DEFB    $C1,$F1,$C9,$F5,$E5,$3E,$56,$CD                  ; $20C4
-        DEFW    VEC_SET_ERR_FLAG                 ; $20CC
+        DEFW    VEC_SET_ERR_FLAG         ; $20CC
         DEFB    $E1,$F1,$C9,$F5,$3E,$44,$C3                      ; $20CE
-        DEFW    EMIT_FLAG_LETTER               ; $20D5
+        DEFW    EMIT_FLAG_LETTER         ; $20D5
 ; [AI] Emits a 'P' (phase) error flag onto the listing line, signaling a label whose value changed
 ;       between passes.
 ERR_PHASE:
         PUSH AF                          ; $20D7  F5
         LD A,$50                         ; $20D8  3E 50
-        JP EMIT_FLAG_LETTER                    ; $20DA  C3 E6 20
+        JP EMIT_FLAG_LETTER              ; $20DA  C3 E6 20
 ; [AI] Emits an 'L' error flag onto the listing line, marking a label-related (e.g. multiply-
 ;       defined) error.
 ERR_LABEL:
         PUSH AF                          ; $20DD  F5
         LD A,$4C                         ; $20DE  3E 4C
-        JP EMIT_FLAG_LETTER                    ; $20E0  C3 E6 20
+        JP EMIT_FLAG_LETTER              ; $20E0  C3 E6 20
 ; [AI] Emits an 'N' error flag onto the listing line via the shared error-letter output path.
 ERR_NOT_DEFINED:
         PUSH AF                          ; $20E3  F5
         LD A,$4E                         ; $20E4  3E 4E
 EMIT_FLAG_LETTER:
-        CALL VEC_SET_ERR_FLAG                    ; $20E6  CD 18 02
+        CALL VEC_SET_ERR_FLAG            ; $20E6  CD 18 02
         POP AF                           ; $20E9  F1
         RET                              ; $20EA  C9
 SAVED_SYM_PTR:

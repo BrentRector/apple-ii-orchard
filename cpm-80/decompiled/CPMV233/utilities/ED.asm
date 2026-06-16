@@ -24,7 +24,8 @@ DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS
 ; [AI] Standard CP/M .COM load address $0100; jumps over the embedded message pool to the real
 ;       startup code.
 ED_ENTRY:
-        JP ED_INIT                  ; $0100  C3 C0 01
+        JP ED_INIT                       ; $0100  C3 C0 01
+MSG_COPYRIGHT:
         DEFB    $20,$43,$4F,$50,$59,$52,$49,$47,$48,$54,$20,$28,$43,$29,$20,$31 ; $0103
         DEFB    $39,$37,$39,$2C,$20,$44,$49,$47,$49,$54,$41,$4C,$20,$52,$45,$53 ; $0113
         DEFB    $45,$41,$52,$43,$48,$20                          ; $0123
@@ -61,19 +62,19 @@ MSG_BREAK_AT:
 ; [AI] Real program entry: sets the stack and computes the size of available memory (TPA top vs.
 ;       BDOS base) to lay out ED's line-pointer and text buffers.
 ED_INIT:
-        LD SP,STACK_TOP                 ; $01C0  31 6D 1A
+        LD SP,STACK_TOP                  ; $01C0  31 6D 1A
 TPA_START_15:
         LD BC,$1D4D                      ; $01C3  01 4D 1D
 TPA_START_16:
         LD DE,$0006                      ; $01C6  11 06 00
 TPA_START_17:
-        CALL CMP16_BC_DE_TAIL                    ; $01C9  CD F2 19
+        CALL CMP16_BC_DE_TAIL            ; $01C9  CD F2 19
 TPA_START_18:
-        LD (STACK_TOP),HL               ; $01CC  22 6D 1A
+        LD (STACK_TOP),HL                ; $01CC  22 6D 1A
 TPA_START_19:
         LD C,$0A                         ; $01CF  0E 0A
 TPA_START_20:
-        CALL SHR_HL                    ; $01D1  CD D7 19
+        CALL SHR_HL                      ; $01D1  CD D7 19
 TPA_START_21:
         DEC HL                           ; $01D4  2B
 TPA_START_22:
@@ -97,7 +98,7 @@ TPA_START_30:
 TPA_START_31:
         LD C,$08                         ; $01E1  0E 08
 TPA_START_32:
-        CALL SHL_HL                    ; $01E3  CD CD 19
+        CALL SHL_HL                      ; $01E3  CD CD 19
 TPA_START_33:
         LD ($1B39),HL                    ; $01E6  22 39 1B
 TPA_START_34:
@@ -107,22 +108,22 @@ TPA_START_35:
 TPA_START_36:
         ADD HL,DE                        ; $01EF  19
 TPA_START_37:
-        LD DE,STACK_TOP                 ; $01F0  11 6D 1A
+        LD DE,STACK_TOP                  ; $01F0  11 6D 1A
 TPA_START_38:
-        CALL CMP16_DE_HL                    ; $01F3  CD FD 19
+        CALL CMP16_DE_HL                 ; $01F3  CD FD 19
 TPA_START_39:
         JP NC,TPA_START_40               ; $01F6  D2 02 02
-        LD BC,MSG_NO_MEMORY               ; $01F9  01 A8 01
-        CALL PRINT_MSG_NL                    ; $01FC  CD 0A 0C
+        LD BC,MSG_NO_MEMORY              ; $01F9  01 A8 01
+        CALL PRINT_MSG_NL                ; $01FC  CD 0A 0C
         CALL WBOOT_VEC                   ; $01FF  CD 00 00
 ; [AI] Continues memory-layout setup, deriving the buffer base/limit pointers used by the editor's
 ;       append and edit-buffer logic.
 TPA_START_40:
         LD BC,$1B39                      ; $0202  01 39 1B
 TPA_START_41:
-        LD DE,STACK_TOP                 ; $0205  11 6D 1A
+        LD DE,STACK_TOP                  ; $0205  11 6D 1A
 TPA_START_42:
-        CALL CMP16_BC_DE                    ; $0208  CD ED 19
+        CALL CMP16_BC_DE                 ; $0208  CD ED 19
 TPA_START_43:
         DEC HL                           ; $020B  2B
 TPA_START_44:
@@ -140,7 +141,7 @@ TPA_START_49:
 TPA_START_50:
         LD HL,$1B39                      ; $0213  21 39 1B
 TPA_START_51:
-        CALL LOAD_SHR_HL                    ; $0216  CD D3 19
+        CALL LOAD_SHR_HL                 ; $0216  CD D3 19
 TPA_START_52:
         EX DE,HL                         ; $0219  EB
 TPA_START_53:
@@ -156,7 +157,7 @@ TPA_START_57:
 TPA_START_58:
         LD DE,$0006                      ; $0221  11 06 00
 TPA_START_59:
-        CALL CMP16_BC_DE                    ; $0224  CD ED 19
+        CALL CMP16_BC_DE                 ; $0224  CD ED 19
 TPA_START_60:
         LD ($1B3B),HL                    ; $0227  22 3B 1B
 TPA_START_61:
@@ -164,11 +165,11 @@ TPA_START_61:
 TPA_START_62:
         LD DE,$1B3B                      ; $022D  11 3B 1B
 TPA_START_63:
-        CALL CMP16_BC_DE                    ; $0230  CD ED 19
+        CALL CMP16_BC_DE                 ; $0230  CD ED 19
 TPA_START_64:
         LD ($1B5E),HL                    ; $0233  22 5E 1B
 TPA_START_65:
-        LD HL,(STACK_TOP)               ; $0236  2A 6D 1A
+        LD HL,(STACK_TOP)                ; $0236  2A 6D 1A
 TPA_START_66:
         LD BC,$1D4D                      ; $0239  01 4D 1D
 TPA_START_67:
@@ -176,17 +177,17 @@ TPA_START_67:
 TPA_START_68:
         LD (HL),$00                      ; $023D  36 00
 TPA_START_69:
-        LD HL,(STACK_TOP)               ; $023F  2A 6D 1A
+        LD HL,(STACK_TOP)                ; $023F  2A 6D 1A
 TPA_START_70:
         DEC HL                           ; $0242  2B
 TPA_START_71:
-        LD (BUF_HIWATER),HL               ; $0243  22 6F 1A
+        LD (BUF_HIWATER),HL              ; $0243  22 6F 1A
 TPA_START_72:
         LD C,$01                         ; $0246  0E 01
 TPA_START_73:
-        LD HL,BUF_HIWATER                 ; $0248  21 6F 1A
+        LD HL,BUF_HIWATER                ; $0248  21 6F 1A
 TPA_START_74:
-        CALL LOAD_SHR_HL                    ; $024B  CD D3 19
+        CALL LOAD_SHR_HL                 ; $024B  CD D3 19
 TPA_START_75:
         EX DE,HL                         ; $024E  EB
 TPA_START_76:
@@ -236,9 +237,9 @@ TPA_START_97:
 TPA_START_98:
         RRA                              ; $0276  1F
 TPA_START_99:
-        JP NC,INIT_SRC_DRIVE              ; $0277  D2 7D 02
+        JP NC,INIT_SRC_DRIVE             ; $0277  D2 7D 02
 TPA_START_100:
-        CALL DISK_FULL_ABORT                    ; $027A  CD 2D 0D
+        CALL DISK_FULL_ABORT             ; $027A  CD 2D 0D
 ; [AI] Validates and records the source-file drive from the first FCB; if no filename was given it
 ;       falls back to fetching the current default drive via BDOS function 25.
 INIT_SRC_DRIVE:
@@ -246,9 +247,9 @@ INIT_SRC_DRIVE:
         LD ($1B64),A                     ; $0280  32 64 1B
         CP $00                           ; $0283  FE 00
         JP NZ,TPA_START_102              ; $0285  C2 91 02
-        CALL GET_CUR_DRIVE                    ; $0288  CD DE 0C
+        CALL GET_CUR_DRIVE               ; $0288  CD DE 0C
         LD ($1B64),A                     ; $028B  32 64 1B
-        JP INIT_DST_DRIVE                 ; $028E  C3 9D 02
+        JP INIT_DST_DRIVE                ; $028E  C3 9D 02
 ; [AI] Source-file present path: decrements the explicit drive code to a 0-based unit and clears
 ;       the FCB drive byte so the file opens on that drive.
 TPA_START_102:
@@ -272,16 +273,16 @@ TPA_START_104:
         DEC A                            ; $02B4  3D
         LD ($1B65),A                     ; $02B5  32 65 1B
 TPA_START_105:
-        CALL RESET_BUFFER                    ; $02B8  CD 45 0E
+        CALL RESET_BUFFER                ; $02B8  CD 45 0E
 ; [AI] Initializes the editor's logical line/character counters and append pointers, then falls
 ;       into the main command loop; the central restart point after a file (re)open.
 ED_RESTART:
-        CALL OPEN_FILES                    ; $02BB  CD 55 0D
+        CALL OPEN_FILES                  ; $02BB  CD 55 0D
         LD HL,$1D4D                      ; $02BE  21 4D 1D
         LD (HL),$0A                      ; $02C1  36 0A
         LD HL,$0001                      ; $02C3  21 01 00
         LD ($1D22),HL                    ; $02C6  22 22 1D
-        LD HL,(BUF_HIWATER)               ; $02C9  2A 6F 1A
+        LD HL,(BUF_HIWATER)              ; $02C9  2A 6F 1A
         LD ($1D24),HL                    ; $02CC  22 24 1D
         LD HL,$1B68                      ; $02CF  21 68 1B
         LD (HL),$00                      ; $02D2  36 00
@@ -289,36 +290,36 @@ ED_RESTART:
 ; [AI] Error/abort re-entry that resets the stack and sets the prompt/echo character to '#' before
 ;       re-displaying the command prompt (break-in recovery).
 PROMPT_BREAK:
-        LD SP,STACK_TOP                 ; $02D7  31 6D 1A
+        LD SP,STACK_TOP                  ; $02D7  31 6D 1A
         LD HL,$1D06                      ; $02DA  21 06 1D
         LD (HL),$23                      ; $02DD  36 23
-        JP SHOW_PROMPT                 ; $02DF  C3 F5 02
+        JP SHOW_PROMPT                   ; $02DF  C3 F5 02
 ; [AI] Command-error re-entry: resets the stack and selects '?' as the prompt indicator
 ;       (unrecognized command).
 PROMPT_QUERY:
-        LD SP,STACK_TOP                 ; $02E2  31 6D 1A
+        LD SP,STACK_TOP                  ; $02E2  31 6D 1A
         LD HL,$1D06                      ; $02E5  21 06 1D
         LD (HL),$3F                      ; $02E8  36 3F
-        JP SHOW_PROMPT                 ; $02EA  C3 F5 02
+        JP SHOW_PROMPT                   ; $02EA  C3 F5 02
 ; [AI] End-of-buffer/boundary re-entry: resets the stack and selects '>' as the prompt indicator
 ;       (line out of range).
 PROMPT_RANGE:
-        LD SP,STACK_TOP                 ; $02ED  31 6D 1A
+        LD SP,STACK_TOP                  ; $02ED  31 6D 1A
         LD HL,$1D06                      ; $02F0  21 06 1D
         LD (HL),$3E                      ; $02F3  36 3E
 ; [AI] Common prompt display: clears the column counter, prints the current line number and
 ;       command-status indicators, then reads the next command line.
 SHOW_PROMPT:
-        LD SP,STACK_TOP                 ; $02F5  31 6D 1A
+        LD SP,STACK_TOP                  ; $02F5  31 6D 1A
         LD HL,$1B66                      ; $02F8  21 66 1B
         LD (HL),$00                      ; $02FB  36 00
-        LD BC,MSG_BREAK_OPEN               ; $02FD  01 B2 01
-        CALL PRINT_MSG_NL                    ; $0300  CD 0A 0C
+        LD BC,MSG_BREAK_OPEN             ; $02FD  01 B2 01
+        CALL PRINT_MSG_NL                ; $0300  CD 0A 0C
         LD HL,($1D06)                    ; $0303  2A 06 1D
         LD C,L                           ; $0306  4D
         CALL PUT_CHAR                    ; $0307  CD CB 0B
         LD BC,MSG_BREAK_AT               ; $030A  01 BA 01
-        CALL PRINT_STR                    ; $030D  CD FA 0B
+        CALL PRINT_STR                   ; $030D  CD FA 0B
         LD HL,($1D21)                    ; $0310  2A 21 1D
         LD C,L                           ; $0313  4D
         CALL PUT_CHAR                    ; $0314  CD CB 0B
@@ -326,7 +327,7 @@ SHOW_PROMPT:
 ; [AI] Top of the per-command iteration: clears per-command flags and reads/parses the next
 ;       interactive command from the console.
 CMD_LOOP_INIT:
-        LD SP,STACK_TOP                 ; $031A  31 6D 1A
+        LD SP,STACK_TOP                  ; $031A  31 6D 1A
         LD HL,$1D0D                      ; $031D  21 0D 1D
         LD (HL),$01                      ; $0320  36 01
         LD HL,$1D07                      ; $0322  21 07 1D
@@ -336,14 +337,14 @@ CMD_LOOP_INIT:
 ED_COMMAND_LOOP:
         LD HL,$1D0C                      ; $0327  21 0C 1D
         LD (HL),$00                      ; $032A  36 00
-        CALL GET_COMMAND_RAW                    ; $032C  CD C6 18
+        CALL GET_COMMAND_RAW             ; $032C  CD C6 18
         LD A,($1C0C)                     ; $032F  3A 0C 1C
         LD ($1D08),A                     ; $0332  32 08 1D
         LD C,$45                         ; $0335  0E 45
-        CALL MATCH_CMD                    ; $0337  CD D5 18
+        CALL MATCH_CMD                   ; $0337  CD D5 18
         RRA                              ; $033A  1F
-        JP NC,CMD_H_REOPEN              ; $033B  D2 62 03
-        CALL CLOSE_PASS                    ; $033E  CD BD 15
+        JP NC,CMD_H_REOPEN               ; $033B  D2 62 03
+        CALL CLOSE_PASS                  ; $033E  CD BD 15
         LD HL,$1B65                      ; $0341  21 65 1B
         LD A,($1B64)                     ; $0344  3A 64 1B
         CP (HL)                          ; $0347  BE
@@ -358,31 +359,31 @@ ED_COMMAND_LOOP:
         OR C                             ; $0358  B1
         LD (CDISK),A                     ; $0359  32 04 00
 TPA_START_113:
-        CALL ED_EXIT                    ; $035C  CD 07 0D
-        JP CMD_NEXT                 ; $035F  C3 EE 0A
+        CALL ED_EXIT                     ; $035C  CD 07 0D
+        JP CMD_NEXT                      ; $035F  C3 EE 0A
 ; [AI] Handles the 'H' command (close current file and reopen for a fresh head-to-tail edit pass),
 ;       swapping the source and temporary file names.
 CMD_H_REOPEN:
         LD C,$48                         ; $0362  0E 48
-        CALL MATCH_CMD                    ; $0364  CD D5 18
+        CALL MATCH_CMD                   ; $0364  CD D5 18
         RRA                              ; $0367  1F
-        JP NC,CMD_INSERT              ; $0368  D2 86 03
-        CALL CLOSE_PASS                    ; $036B  CD BD 15
+        JP NC,CMD_INSERT                 ; $0368  D2 86 03
+        CALL CLOSE_PASS                  ; $036B  CD BD 15
         LD A,($1B65)                     ; $036E  3A 65 1B
         LD ($1D21),A                     ; $0371  32 21 1D
         LD A,($1B64)                     ; $0374  3A 64 1B
         LD ($1B65),A                     ; $0377  32 65 1B
         LD A,($1D21)                     ; $037A  3A 21 1D
         LD ($1B64),A                     ; $037D  32 64 1B
-        JP ED_RESTART                 ; $0380  C3 BB 02
+        JP ED_RESTART                    ; $0380  C3 BB 02
         DEFB    $C3                                              ; $0383
-        DEFW    CMD_NEXT            ; $0384
+        DEFW    CMD_NEXT                 ; $0384
 ; [AI] Handles the 'I' (insert) command: enters interactive insert mode, reading console lines into
 ;       the edit buffer until terminated.
 CMD_INSERT:
         LD A,($1D21)                     ; $0386  3A 21 1D
         CP $49                           ; $0389  FE 49
-        JP NZ,CMD_O_ORIGINAL              ; $038B  C2 AC 05
+        JP NZ,CMD_O_ORIGINAL             ; $038B  C2 AC 05
         LD HL,$1B8A                      ; $038E  21 8A 1B
         LD A,($1C0C)                     ; $0391  3A 0C 1C
         SUB (HL)                         ; $0394  96
@@ -399,14 +400,14 @@ CMD_INSERT:
         LD ($1D0C),A                     ; $03A4  32 0C 1D
         RRA                              ; $03A7  1F
         JP NC,TPA_START_116              ; $03A8  D2 AE 03
-        CALL SHOW_LINENO_IF_INT                    ; $03AB  CD 58 11
+        CALL SHOW_LINENO_IF_INT          ; $03AB  CD 58 11
 TPA_START_116:
         LD A,($1B68)                     ; $03AE  3A 68 1B
         LD ($1B69),A                     ; $03B1  32 69 1B
 INSERT_GET_LINE:
-        CALL GET_INSERT_CH                    ; $03B4  CD 03 16
+        CALL GET_INSERT_CH               ; $03B4  CD 03 16
         RRA                              ; $03B7  1F
-        JP NC,INSERT_TERMINATE              ; $03B8  D2 90 05
+        JP NC,INSERT_TERMINATE           ; $03B8  D2 90 05
 INSERT_PROC_CHAR:
         LD A,($1D21)                     ; $03BB  3A 21 1D
         CP $00                           ; $03BE  FE 00
@@ -432,7 +433,7 @@ INSERT_PROC_CHAR:
         LD C,B                           ; $03E1  48
         OR C                             ; $03E2  B1
         RRA                              ; $03E3  1F
-        JP NC,INSERT_BACKSPACE              ; $03E4  D2 2C 04
+        JP NC,INSERT_BACKSPACE           ; $03E4  D2 2C 04
         LD HL,WBOOT_VEC                  ; $03E7  21 00 00
         LD ($1D1C),HL                    ; $03EA  22 1C 1D
         LD HL,$1D20                      ; $03ED  21 20 1D
@@ -442,33 +443,33 @@ INSERT_PROC_CHAR:
         CP $12                           ; $03F4  FE 12
         JP NZ,TPA_START_120              ; $03F6  C2 02 04
         CALL PUT_CRLF                    ; $03F9  CD EF 0B
-        CALL TYPE_LINES                    ; $03FC  CD 46 17
+        CALL TYPE_LINES                  ; $03FC  CD 46 17
 TPA_START_119:
         JP TPA_START_122                 ; $03FF  C3 29 04
 TPA_START_120:
-        CALL COMPUTE_RANGE                    ; $0402  CD B7 12
-        CALL MOVE_CP_BACK                    ; $0405  CD 58 14
+        CALL COMPUTE_RANGE               ; $0402  CD B7 12
+        CALL MOVE_CP_BACK                ; $0405  CD 58 14
         LD A,($1D21)                     ; $0408  3A 21 1D
         CP $15                           ; $040B  FE 15
         JP NZ,TPA_START_121              ; $040D  C2 19 04
         CALL PUT_CRLF                    ; $0410  CD EF 0B
-        CALL SHOW_LINENO_IF_INT                    ; $0413  CD 58 11
+        CALL SHOW_LINENO_IF_INT          ; $0413  CD 58 11
         JP TPA_START_122                 ; $0416  C3 29 04
 TPA_START_121:
         LD A,($1B69)                     ; $0419  3A 69 1B
         LD HL,$1B68                      ; $041C  21 68 1B
         CP (HL)                          ; $041F  BE
         JP NC,TPA_START_122              ; $0420  D2 29 04
-        CALL CON_RUBOUT                    ; $0423  CD 39 0B
+        CALL CON_RUBOUT                  ; $0423  CD 39 0B
         JP TPA_START_121                 ; $0426  C3 19 04
 TPA_START_122:
-        JP INSERT_STORE_CHAR                 ; $0429  C3 65 05
+        JP INSERT_STORE_CHAR             ; $0429  C3 65 05
 ; [AI] Branch within insert/command handling for the backspace ($08) editing key, removing the
 ;       previous character from the line being built.
 INSERT_BACKSPACE:
         LD A,($1D21)                     ; $042C  3A 21 1D
         CP $08                           ; $042F  FE 08
-        JP NZ,INSERT_DEL              ; $0431  C2 CA 04
+        JP NZ,INSERT_DEL                 ; $0431  C2 CA 04
         LD A,($1B68)                     ; $0434  3A 68 1B
         LD ($1B6A),A                     ; $0437  32 6A 1B
         LD C,A                           ; $043A  4F
@@ -476,11 +477,11 @@ INSERT_BACKSPACE:
         CP C                             ; $043D  B9
         JP NC,TPA_START_124              ; $043E  D2 46 04
         LD C,$20                         ; $0441  0E 20
-        CALL ECHO_IF_INTERACTIVE                    ; $0443  CD 4C 10
+        CALL ECHO_IF_INTERACTIVE         ; $0443  CD 4C 10
 TPA_START_124:
         LD A,$01                         ; $0446  3E 01
         LD HL,$1D22                      ; $0448  21 22 1D
-        CALL SUB_A_MEM16                    ; $044B  CD 05 1A
+        CALL SUB_A_MEM16                 ; $044B  CD 05 1A
         SBC A,A                          ; $044E  9F
         PUSH AF                          ; $044F  F5
         LD A,($1B69)                     ; $0450  3A 69 1B
@@ -499,7 +500,7 @@ TPA_START_124:
         LD A,(HL)                        ; $0467  7E
         CP $0A                           ; $0468  FE 0A
         JP Z,TPA_START_128               ; $046A  CA BC 04
-        CALL SRC_CP_DEC                    ; $046D  CD B2 13
+        CALL SRC_CP_DEC                  ; $046D  CD B2 13
         LD HL,$1B66                      ; $0470  21 66 1B
         LD (HL),$01                      ; $0473  36 01
         LD HL,$1B68                      ; $0475  21 68 1B
@@ -508,7 +509,7 @@ TPA_START_124:
         LD ($1D1C),HL                    ; $047D  22 1C 1D
         LD HL,$1D20                      ; $0480  21 20 1D
         LD (HL),$00                      ; $0483  36 00
-        CALL TYPE_LINES                    ; $0485  CD 46 17
+        CALL TYPE_LINES                  ; $0485  CD 46 17
         LD HL,$1B66                      ; $0488  21 66 1B
         LD (HL),$00                      ; $048B  36 00
         LD A,($1B68)                     ; $048D  3A 68 1B
@@ -526,7 +527,7 @@ TPA_START_126:
         LD HL,$1B68                      ; $04A9  21 68 1B
         CP (HL)                          ; $04AC  BE
         JP NC,TPA_START_127              ; $04AD  D2 B6 04
-        CALL CON_RUBOUT                    ; $04B0  CD 39 0B
+        CALL CON_RUBOUT                  ; $04B0  CD 39 0B
         JP TPA_START_126                 ; $04B3  C3 A6 04
 TPA_START_127:
         LD A,($1B68)                     ; $04B6  3A 68 1B
@@ -536,21 +537,21 @@ TPA_START_128:
         LD (HL),$00                      ; $04BF  36 00
         LD A,($1B6A)                     ; $04C1  3A 6A 1B
         LD ($1B68),A                     ; $04C4  32 68 1B
-        JP INSERT_STORE_CHAR                 ; $04C7  C3 65 05
+        JP INSERT_STORE_CHAR             ; $04C7  C3 65 05
 ; [AI] Handles the DEL ($7F) key during line entry, deleting and echoing the rub-out of the last
 ;       typed character.
 INSERT_DEL:
         LD A,($1D21)                     ; $04CA  3A 21 1D
         CP $7F                           ; $04CD  FE 7F
-        JP NZ,INSERT_ECHO_CHAR              ; $04CF  C2 0A 05
+        JP NZ,INSERT_ECHO_CHAR           ; $04CF  C2 0A 05
         LD A,$01                         ; $04D2  3E 01
         LD DE,$1D22                      ; $04D4  11 22 1D
-        CALL CMP16_A_DE                    ; $04D7  CD FA 19
+        CALL CMP16_A_DE                  ; $04D7  CD FA 19
         OR L                             ; $04DA  B5
         JP NZ,TPA_START_130              ; $04DB  C2 E1 04
-        JP SHOW_PROMPT                 ; $04DE  C3 F5 02
+        JP SHOW_PROMPT                   ; $04DE  C3 F5 02
 TPA_START_130:
-        CALL SRC_CP_DEC                    ; $04E1  CD B2 13
+        CALL SRC_CP_DEC                  ; $04E1  CD B2 13
         LD HL,($1D22)                    ; $04E4  2A 22 1D
         LD BC,$1D4D                      ; $04E7  01 4D 1D
         ADD HL,BC                        ; $04EA  09
@@ -567,28 +568,28 @@ TPA_START_130:
 TPA_START_131:
         LD HL,$1D21                      ; $0502  21 21 1D
         LD (HL),$00                      ; $0505  36 00
-        JP INSERT_STORE_CHAR                 ; $0507  C3 65 05
+        JP INSERT_STORE_CHAR             ; $0507  C3 65 05
 ; [AI] Default character-handling path: echoes a typed character (showing control chars as ^X) and
 ;       tracks the console column for tab expansion.
 INSERT_ECHO_CHAR:
         LD HL,($1D21)                    ; $050A  2A 21 1D
         LD C,L                           ; $050D  4D
-        CALL IS_PRINTABLE                    ; $050E  CD 9B 0B
+        CALL IS_PRINTABLE                ; $050E  CD 9B 0B
         CPL                              ; $0511  2F
         RRA                              ; $0512  1F
         JP NC,TPA_START_133              ; $0513  D2 24 05
         LD C,$5E                         ; $0516  0E 5E
-        CALL ECHO_IF_INTERACTIVE                    ; $0518  CD 4C 10
+        CALL ECHO_IF_INTERACTIVE         ; $0518  CD 4C 10
         LD A,($1D21)                     ; $051B  3A 21 1D
         ADD A,$40                        ; $051E  C6 40
         LD C,A                           ; $0520  4F
-        CALL ECHO_IF_INTERACTIVE                    ; $0521  CD 4C 10
+        CALL ECHO_IF_INTERACTIVE         ; $0521  CD 4C 10
 TPA_START_133:
         LD A,($1D21)                     ; $0524  3A 21 1D
         CP $0C                           ; $0527  FE 0C
         JP NZ,TPA_START_134              ; $0529  C2 32 05
-        CALL BUFFER_INSERT_CRLF                    ; $052C  CD 91 18
-        JP INSERT_STORE_CHAR                 ; $052F  C3 65 05
+        CALL BUFFER_INSERT_CRLF          ; $052C  CD 91 18
+        JP INSERT_STORE_CHAR             ; $052F  C3 65 05
 TPA_START_134:
         LD A,($1D07)                     ; $0532  3A 07 1D
         CP $00                           ; $0535  FE 00
@@ -613,14 +614,14 @@ TPA_START_135:
         ADD A,(HL)                       ; $0560  86
         LD (HL),A                        ; $0561  77
 TPA_START_136:
-        CALL BUFFER_INSERT_CH                    ; $0562  CD D9 15
+        CALL BUFFER_INSERT_CH            ; $0562  CD D9 15
 ; [AI] Post-character processing that translates CR into CR/LF and finalizes how the just-entered
 ;       character is stored or echoed.
 INSERT_STORE_CHAR:
         LD A,($1D21)                     ; $0565  3A 21 1D
         CP $0A                           ; $0568  FE 0A
         JP NZ,TPA_START_138              ; $056A  C2 70 05
-        CALL SHOW_LINENO_IF_INT                    ; $056D  CD 58 11
+        CALL SHOW_LINENO_IF_INT          ; $056D  CD 58 11
 TPA_START_138:
         LD A,($1D21)                     ; $0570  3A 21 1D
         CP $0D                           ; $0573  FE 0D
@@ -628,22 +629,22 @@ TPA_START_138:
         LD HL,$1D21                      ; $0578  21 21 1D
         LD (HL),$0A                      ; $057B  36 0A
         LD C,$0A                         ; $057D  0E 0A
-        CALL ECHO_IF_INTERACTIVE                    ; $057F  CD 4C 10
+        CALL ECHO_IF_INTERACTIVE         ; $057F  CD 4C 10
         JP TPA_START_140                 ; $0582  C3 8A 05
 TPA_START_139:
         LD HL,$1D21                      ; $0585  21 21 1D
         LD (HL),$00                      ; $0588  36 00
 TPA_START_140:
-        JP INSERT_PROC_CHAR                 ; $058A  C3 BB 03
+        JP INSERT_PROC_CHAR              ; $058A  C3 BB 03
 TPA_START_141:
-        JP INSERT_GET_LINE                 ; $058D  C3 B4 03
+        JP INSERT_GET_LINE               ; $058D  C3 B4 03
 ; [AI] Insert-mode terminator handling (Ctrl-Z / $1A end-of-insert), closing out the inserted text
 ;       and returning to the command loop.
 INSERT_TERMINATE:
         LD A,($1D21)                     ; $0590  3A 21 1D
         CP $1A                           ; $0593  FE 1A
         JP Z,TPA_START_143               ; $0595  CA 9B 05
-        CALL BUFFER_INSERT_CRLF                    ; $0598  CD 91 18
+        CALL BUFFER_INSERT_CRLF          ; $0598  CD 91 18
 TPA_START_143:
         LD A,($1C14)                     ; $059B  3A 14 1C
         LD HL,$1D0C                      ; $059E  21 0C 1D
@@ -652,40 +653,40 @@ TPA_START_143:
         JP NC,TPA_START_144              ; $05A3  D2 A9 05
         CALL PUT_CRLF                    ; $05A6  CD EF 0B
 TPA_START_144:
-        JP CMD_NEXT                 ; $05A9  C3 EE 0A
+        JP CMD_NEXT                      ; $05A9  C3 EE 0A
 ; [AI] Dispatch for the 'O' command (abandon edits / original file): prompts the destructive-action
 ;       confirmation before discarding the work file.
 CMD_O_ORIGINAL:
         LD C,$4F                         ; $05AC  0E 4F
-        CALL CONFIRM_CMD                    ; $05AE  CD FC 18
+        CALL CONFIRM_CMD                 ; $05AE  CD FC 18
         RRA                              ; $05B1  1F
         JP NC,CMD_R_READLIB              ; $05B2  D2 B8 05
-        JP ED_RESTART                 ; $05B5  C3 BB 02
+        JP ED_RESTART                    ; $05B5  C3 BB 02
 ; [AI] Handles the 'R' (read library file) command: opens an auxiliary .LIB file and reads its
 ;       lines into the edit buffer at the current position.
 CMD_R_READLIB:
         LD A,($1D21)                     ; $05B8  3A 21 1D
         CP $52                           ; $05BB  FE 52
-        JP NZ,CMD_Q_QUIT              ; $05BD  C2 86 06
-        LD HL,LIB_REC_INDEX                ; $05C0  21 94 1A
+        JP NZ,CMD_Q_QUIT                 ; $05BD  C2 86 06
+        LD HL,LIB_REC_INDEX              ; $05C0  21 94 1A
         LD (HL),$01                      ; $05C3  36 01
-        CALL SELECT_SRC_DMA_DEF                    ; $05C5  CD 47 12
+        CALL SELECT_SRC_DMA_DEF          ; $05C5  CD 47 12
 TPA_START_147:
-        CALL GET_INSERT_CH                    ; $05C8  CD 03 16
+        CALL GET_INSERT_CH               ; $05C8  CD 03 16
         RRA                              ; $05CB  1F
         JP NC,TPA_START_149              ; $05CC  D2 E1 05
         LD A,$08                         ; $05CF  3E 08
-        LD HL,LIB_REC_INDEX                ; $05D1  21 94 1A
+        LD HL,LIB_REC_INDEX              ; $05D1  21 94 1A
         CP (HL)                          ; $05D4  BE
         JP NC,TPA_START_148              ; $05D5  D2 DB 05
-        JP PROMPT_BREAK                 ; $05D8  C3 D7 02
+        JP PROMPT_BREAK                  ; $05D8  C3 D7 02
 TPA_START_148:
-        CALL STORE_LIBNAME_CH                    ; $05DB  CD 1D 17
+        CALL STORE_LIBNAME_CH            ; $05DB  CD 1D 17
         JP TPA_START_147                 ; $05DE  C3 C8 05
 TPA_START_149:
         LD HL,$1D21                      ; $05E1  21 21 1D
         LD (HL),$20                      ; $05E4  36 20
-        LD A,(LIB_REC_INDEX)               ; $05E6  3A 94 1A
+        LD A,(LIB_REC_INDEX)             ; $05E6  3A 94 1A
         SUB $01                          ; $05E9  D6 01
         SUB $01                          ; $05EB  D6 01
         SBC A,A                          ; $05ED  9F
@@ -694,7 +695,7 @@ TPA_START_149:
         JP NC,TPA_START_151              ; $05F2  D2 0E 06
         LD L,$08                         ; $05F5  2E 08
         LD DE,SUB_1A11_7                 ; $05F7  11 74 1A
-        LD BC,XLIB_FCB_TEMPLATE                ; $05FA  01 96 1A
+        LD BC,XLIB_FCB_TEMPLATE          ; $05FA  01 96 1A
 TPA_START_150:
         LD A,(BC)                        ; $05FD  0A
         LD (DE),A                        ; $05FE  12
@@ -702,37 +703,37 @@ TPA_START_150:
         INC DE                           ; $0600  13
         DEC L                            ; $0601  2D
         JP NZ,TPA_START_150              ; $0602  C2 FD 05
-        LD BC,X_FCB_ACTIVE                ; $0605  01 95 1A
-        CALL BDOS_CLOSE                    ; $0608  CD 3F 0C
+        LD BC,X_FCB_ACTIVE               ; $0605  01 95 1A
+        CALL BDOS_CLOSE                  ; $0608  CD 3F 0C
         JP TPA_START_152                 ; $060B  C3 1D 06
 TPA_START_151:
         LD A,$08                         ; $060E  3E 08
-        LD HL,LIB_REC_INDEX                ; $0610  21 94 1A
+        LD HL,LIB_REC_INDEX              ; $0610  21 94 1A
         CP (HL)                          ; $0613  BE
         JP C,TPA_START_152               ; $0614  DA 1D 06
-        CALL STORE_LIBNAME_CH                    ; $0617  CD 1D 17
+        CALL STORE_LIBNAME_CH            ; $0617  CD 1D 17
         JP TPA_START_151                 ; $061A  C3 0E 06
 TPA_START_152:
         LD HL,SUB_1A11_8                 ; $061D  21 7F 1A
         LD (HL),$00                      ; $0620  36 00
         LD HL,SUB_1A11_9                 ; $0622  21 93 1A
         LD (HL),$00                      ; $0625  36 00
-        LD BC,LIB_FCB                 ; $0627  01 73 1A
-        CALL BDOS_OPEN                    ; $062A  CD 2C 0C
-        LD HL,LIB_REC_INDEX                ; $062D  21 94 1A
+        LD BC,LIB_FCB                    ; $0627  01 73 1A
+        CALL BDOS_OPEN                   ; $062A  CD 2C 0C
+        LD HL,LIB_REC_INDEX              ; $062D  21 94 1A
         LD (HL),$80                      ; $0630  36 80
         LD A,($1B78)                     ; $0632  3A 78 1B
         CP $FF                           ; $0635  FE FF
         JP NZ,TPA_START_153              ; $0637  C2 42 06
         LD HL,$1D06                      ; $063A  21 06 1D
         LD (HL),$4F                      ; $063D  36 4F
-        JP SHOW_PROMPT                 ; $063F  C3 F5 02
+        JP SHOW_PROMPT                   ; $063F  C3 F5 02
 TPA_START_153:
-        CALL LIB_GETCH                    ; $0642  CD 55 12
+        CALL LIB_GETCH                   ; $0642  CD 55 12
         LD ($1D21),A                     ; $0645  32 21 1D
         CP $1A                           ; $0648  FE 1A
         JP Z,TPA_START_154               ; $064A  CA 53 06
-        CALL BUFFER_INSERT_CH                    ; $064D  CD D9 15
+        CALL BUFFER_INSERT_CH            ; $064D  CD D9 15
         JP TPA_START_153                 ; $0650  C3 42 06
 TPA_START_154:
         LD HL,$1D47                      ; $0653  21 47 1D
@@ -754,58 +755,58 @@ TPA_START_155:
         LD A,($1D47)                     ; $0676  3A 47 1D
         INC A                            ; $0679  3C
         LD ($1D47),A                     ; $067A  32 47 1D
-        CALL BUFFER_INSERT_CH                    ; $067D  CD D9 15
+        CALL BUFFER_INSERT_CH            ; $067D  CD D9 15
         JP TPA_START_155                 ; $0680  C3 5F 06
 TPA_START_156:
-        JP CMD_NEXT                 ; $0683  C3 EE 0A
+        JP CMD_NEXT                      ; $0683  C3 EE 0A
 ; [AI] Dispatch for the 'Q' (quit without saving) command, prompting confirmation and warm-booting
 ;       back to CCP if confirmed.
 CMD_Q_QUIT:
         LD C,$51                         ; $0686  0E 51
-        CALL CONFIRM_CMD                    ; $0688  CD FC 18
+        CALL CONFIRM_CMD                 ; $0688  CD FC 18
         RRA                              ; $068B  1F
-        JP NC,PARSE_ARG              ; $068C  D2 9B 06
+        JP NC,PARSE_ARG                  ; $068C  D2 9B 06
         LD BC,$1B3D                      ; $068F  01 3D 1B
-        CALL BDOS_DELETE                    ; $0692  CD 65 0C
-        CALL ED_EXIT                    ; $0695  CD 07 0D
-        JP CMD_NEXT                 ; $0698  C3 EE 0A
+        CALL BDOS_DELETE                 ; $0692  CD 65 0C
+        CALL ED_EXIT                     ; $0695  CD 07 0D
+        JP CMD_NEXT                      ; $0698  C3 EE 0A
 ; [AI] Parses an optional numeric/relative argument and sign prefix that precedes many ED commands
 ;       (line counts and ranges).
 PARSE_ARG:
-        CALL SET_DEFAULT_ARG                    ; $069B  CD 62 18
+        CALL SET_DEFAULT_ARG             ; $069B  CD 62 18
         LD A,($1D21)                     ; $069E  3A 21 1D
         CP $2D                           ; $06A1  FE 2D
         JP NZ,TPA_START_159              ; $06A3  C2 AE 06
-        CALL GET_COMMAND_RAW                    ; $06A6  CD C6 18
+        CALL GET_COMMAND_RAW             ; $06A6  CD C6 18
         LD HL,$1D20                      ; $06A9  21 20 1D
         LD (HL),$00                      ; $06AC  36 00
 TPA_START_159:
         LD A,($1D21)                     ; $06AE  3A 21 1D
         CP $23                           ; $06B1  FE 23
         JP NZ,TPA_START_160              ; $06B3  C2 BF 06
-        CALL SET_COUNT_MAX                    ; $06B6  CD 87 12
-        CALL GET_COMMAND_RAW                    ; $06B9  CD C6 18
+        CALL SET_COUNT_MAX               ; $06B6  CD 87 12
+        CALL GET_COMMAND_RAW             ; $06B9  CD C6 18
         JP RESOLVE_RANGE                 ; $06BC  C3 FC 06
 TPA_START_160:
         CALL IS_DIGIT                    ; $06BF  CD 3B 19
         RRA                              ; $06C2  1F
         JP NC,TPA_START_162              ; $06C3  D2 DC 06
-        CALL PARSE_NUMBER                    ; $06C6  CD 4A 19
+        CALL PARSE_NUMBER                ; $06C6  CD 4A 19
         LD A,($1D21)                     ; $06C9  3A 21 1D
         CP $3A                           ; $06CC  FE 3A
         JP NZ,TPA_START_161              ; $06CE  C2 D9 06
         LD HL,$1D21                      ; $06D1  21 21 1D
         LD (HL),$4C                      ; $06D4  36 4C
-        CALL LINENO_TO_OFFSET                    ; $06D6  CD 76 19
+        CALL LINENO_TO_OFFSET            ; $06D6  CD 76 19
 TPA_START_161:
         JP RESOLVE_RANGE                 ; $06D9  C3 FC 06
 TPA_START_162:
         LD A,($1D21)                     ; $06DC  3A 21 1D
         CP $3A                           ; $06DF  FE 3A
         JP NZ,RESOLVE_RANGE              ; $06E1  C2 FC 06
-        CALL GET_COMMAND_RAW                    ; $06E4  CD C6 18
-        CALL PARSE_NUMBER                    ; $06E7  CD 4A 19
-        CALL LINENO_TO_OFFSET                    ; $06EA  CD 76 19
+        CALL GET_COMMAND_RAW             ; $06E4  CD C6 18
+        CALL PARSE_NUMBER                ; $06E7  CD 4A 19
+        CALL LINENO_TO_OFFSET            ; $06EA  CD 76 19
         LD A,($1D20)                     ; $06ED  3A 20 1D
         CP $01                           ; $06F0  FE 01
         JP NZ,RESOLVE_RANGE              ; $06F2  C2 FC 06
@@ -815,7 +816,7 @@ TPA_START_162:
 ; [AI] Common point after argument parsing that resolves the parsed count into the absolute line
 ;       range the following command will act on.
 RESOLVE_RANGE:
-        CALL COUNT_NONZERO                    ; $06FC  CD 8E 12
+        CALL COUNT_NONZERO               ; $06FC  CD 8E 12
         RRA                              ; $06FF  1F
         JP NC,TPA_START_164              ; $0700  D2 08 07
         LD HL,$1D20                      ; $0703  21 20 1D
@@ -823,115 +824,115 @@ RESOLVE_RANGE:
 TPA_START_164:
         LD A,($1D21)                     ; $0708  3A 21 1D
         CP $42                           ; $070B  FE 42
-        JP NZ,CMD_C_MOVECHAR              ; $070D  C2 29 07
+        JP NZ,CMD_C_MOVECHAR             ; $070D  C2 29 07
         LD HL,$1D20                      ; $0710  21 20 1D
         LD A,$01                         ; $0713  3E 01
         SUB (HL)                         ; $0715  96
         LD (HL),A                        ; $0716  77
         LD HL,$0001                      ; $0717  21 01 00
         LD ($1D26),HL                    ; $071A  22 26 1D
-        LD HL,(BUF_HIWATER)               ; $071D  2A 6F 1A
+        LD HL,(BUF_HIWATER)              ; $071D  2A 6F 1A
         LD ($1D28),HL                    ; $0720  22 28 1D
-        CALL MOVE_CP_FWD                    ; $0723  CD 52 14
-        JP CMD_NEXT                 ; $0726  C3 EE 0A
+        CALL MOVE_CP_FWD                 ; $0723  CD 52 14
+        JP CMD_NEXT                      ; $0726  C3 EE 0A
 ; [AI] Dispatch for the 'C' command: move the character/line pointer forward by the parsed count,
 ;       printing as it goes.
 CMD_C_MOVECHAR:
         LD A,($1D21)                     ; $0729  3A 21 1D
         CP $43                           ; $072C  FE 43
         JP NZ,CMD_D_DELCHAR              ; $072E  C2 3A 07
-        CALL RESOLVE_DST                    ; $0731  CD 65 14
-        CALL MOVE_CP_FWD                    ; $0734  CD 52 14
-        JP CMD_NEXT                 ; $0737  C3 EE 0A
+        CALL RESOLVE_DST                 ; $0731  CD 65 14
+        CALL MOVE_CP_FWD                 ; $0734  CD 52 14
+        JP CMD_NEXT                      ; $0737  C3 EE 0A
 ; [AI] Dispatch for the 'D' command: delete the parsed number of characters/lines from the buffer
 ;       at the current pointer.
 CMD_D_DELCHAR:
         LD A,($1D21)                     ; $073A  3A 21 1D
         CP $44                           ; $073D  FE 44
-        JP NZ,CMD_K_KILL              ; $073F  C2 4B 07
-        CALL RESOLVE_DST                    ; $0742  CD 65 14
-        CALL MOVE_CP_BACK                    ; $0745  CD 58 14
-        JP CMD_NEXT                 ; $0748  C3 EE 0A
+        JP NZ,CMD_K_KILL                 ; $073F  C2 4B 07
+        CALL RESOLVE_DST                 ; $0742  CD 65 14
+        CALL MOVE_CP_BACK                ; $0745  CD 58 14
+        JP CMD_NEXT                      ; $0748  C3 EE 0A
 ; [AI] Dispatch for the 'K' command: kill (delete) the parsed number of whole lines.
 CMD_K_KILL:
         LD A,($1D21)                     ; $074B  3A 21 1D
         CP $4B                           ; $074E  FE 4B
-        JP NZ,CMD_L_LINE              ; $0750  C2 5C 07
-        CALL COMPUTE_RANGE                    ; $0753  CD B7 12
-        CALL MOVE_CP_BACK                    ; $0756  CD 58 14
-        JP CMD_NEXT                 ; $0759  C3 EE 0A
+        JP NZ,CMD_L_LINE                 ; $0750  C2 5C 07
+        CALL COMPUTE_RANGE               ; $0753  CD B7 12
+        CALL MOVE_CP_BACK                ; $0756  CD 58 14
+        JP CMD_NEXT                      ; $0759  C3 EE 0A
 ; [AI] Dispatch for the 'L' command: move the current line pointer by the parsed count and display
 ;       the new current line.
 CMD_L_LINE:
         LD A,($1D21)                     ; $075C  3A 21 1D
         CP $4C                           ; $075F  FE 4C
-        JP NZ,CMD_P_PAGE              ; $0761  C2 6A 07
-        CALL RANGE_MOVE_FWD                    ; $0764  CD 5E 14
-        JP CMD_NEXT                 ; $0767  C3 EE 0A
+        JP NZ,CMD_P_PAGE                 ; $0761  C2 6A 07
+        CALL RANGE_MOVE_FWD              ; $0764  CD 5E 14
+        JP CMD_NEXT                      ; $0767  C3 EE 0A
 ; [AI] Dispatch for the 'P' command: page through the buffer, displaying a screenful of lines from
 ;       the current position.
 CMD_P_PAGE:
         LD A,($1D21)                     ; $076A  3A 21 1D
         CP $50                           ; $076D  FE 50
-        JP NZ,CMD_T_TYPE              ; $076F  C2 9A 07
-        CALL COUNT_NONZERO                    ; $0772  CD 8E 12
+        JP NZ,CMD_T_TYPE                 ; $076F  C2 9A 07
+        CALL COUNT_NONZERO               ; $0772  CD 8E 12
         RRA                              ; $0775  1F
         JP NC,TPA_START_170              ; $0776  D2 87 07
         LD HL,$1D20                      ; $0779  21 20 1D
         LD (HL),$01                      ; $077C  36 01
-        CALL SET_COUNT_PAGE                    ; $077E  CD DA 17
-        CALL TYPE_LINES                    ; $0781  CD 46 17
+        CALL SET_COUNT_PAGE              ; $077E  CD DA 17
+        CALL TYPE_LINES                  ; $0781  CD 46 17
         JP TPA_START_171                 ; $0784  C3 97 07
 TPA_START_170:
-        CALL COUNT_DEC_TEST                    ; $0787  CD A2 12
+        CALL COUNT_DEC_TEST              ; $0787  CD A2 12
         RRA                              ; $078A  1F
         JP NC,TPA_START_171              ; $078B  D2 97 07
-        CALL PAGE_STEP                    ; $078E  CD EF 17
-        CALL DELAY_POLL                    ; $0791  CD 3A 18
+        CALL PAGE_STEP                   ; $078E  CD EF 17
+        CALL DELAY_POLL                  ; $0791  CD 3A 18
         JP TPA_START_170                 ; $0794  C3 87 07
 TPA_START_171:
-        JP CMD_NEXT                 ; $0797  C3 EE 0A
+        JP CMD_NEXT                      ; $0797  C3 EE 0A
 ; [AI] Dispatch for the 'T' command: type (display) the parsed number of lines without moving the
 ;       line pointer.
 CMD_T_TYPE:
         LD A,($1D21)                     ; $079A  3A 21 1D
         CP $54                           ; $079D  FE 54
-        JP NZ,CMD_U_UPPER              ; $079F  C2 A8 07
-        CALL TYPE_LINES                    ; $07A2  CD 46 17
-        JP CMD_NEXT                 ; $07A5  C3 EE 0A
+        JP NZ,CMD_U_UPPER                ; $079F  C2 A8 07
+        CALL TYPE_LINES                  ; $07A2  CD 46 17
+        JP CMD_NEXT                      ; $07A5  C3 EE 0A
 ; [AI] Dispatch for the 'U' command: enable upper-case translation mode for subsequently entered
 ;       text.
 CMD_U_UPPER:
         LD A,($1D21)                     ; $07A8  3A 21 1D
         CP $55                           ; $07AB  FE 55
-        JP NZ,CMD_V_VERIFY              ; $07AD  C2 BE 07
+        JP NZ,CMD_V_VERIFY               ; $07AD  C2 BE 07
         LD A,($1D20)                     ; $07B0  3A 20 1D
         SUB $01                          ; $07B3  D6 01
         SUB $01                          ; $07B5  D6 01
         SBC A,A                          ; $07B7  9F
         LD ($1D10),A                     ; $07B8  32 10 1D
-        JP CMD_NEXT                 ; $07BB  C3 EE 0A
+        JP CMD_NEXT                      ; $07BB  C3 EE 0A
 ; [AI] Dispatch for the 'V' command: toggle verify mode, optionally reporting the free-
 ;       buffer/memory size.
 CMD_V_VERIFY:
         LD A,($1D21)                     ; $07BE  3A 21 1D
         CP $56                           ; $07C1  FE 56
-        JP NZ,CMD_CR_STEP              ; $07C3  C2 FC 07
-        CALL COUNT_NONZERO                    ; $07C6  CD 8E 12
+        JP NZ,CMD_CR_STEP                ; $07C3  C2 FC 07
+        CALL COUNT_NONZERO               ; $07C6  CD 8E 12
         RRA                              ; $07C9  1F
         JP NC,TPA_START_175              ; $07CA  D2 EE 07
         LD BC,$1D22                      ; $07CD  01 22 1D
         LD DE,$1D24                      ; $07D0  11 24 1D
-        CALL CMP16_BC_DE                    ; $07D3  CD ED 19
+        CALL CMP16_BC_DE                 ; $07D3  CD ED 19
         LD B,H                           ; $07D6  44
         LD C,L                           ; $07D7  4D
-        CALL PRINT_DECIMAL                    ; $07D8  CD A9 10
+        CALL PRINT_DECIMAL               ; $07D8  CD A9 10
         LD C,$2F                         ; $07DB  0E 2F
         CALL PUT_CHAR                    ; $07DD  CD CB 0B
-        LD HL,(BUF_HIWATER)               ; $07E0  2A 6F 1A
+        LD HL,(BUF_HIWATER)              ; $07E0  2A 6F 1A
         LD B,H                           ; $07E3  44
         LD C,L                           ; $07E4  4D
-        CALL PRINT_DECIMAL                    ; $07E5  CD A9 10
+        CALL PRINT_DECIMAL               ; $07E5  CD A9 10
         CALL PUT_CRLF                    ; $07E8  CD EF 0B
         JP TPA_START_176                 ; $07EB  C3 F9 07
 TPA_START_175:
@@ -941,13 +942,13 @@ TPA_START_175:
         SBC A,A                          ; $07F5  9F
         LD ($1C14),A                     ; $07F6  32 14 1C
 TPA_START_176:
-        JP CMD_NEXT                 ; $07F9  C3 EE 0A
+        JP CMD_NEXT                      ; $07F9  C3 EE 0A
 ; [AI] Handles a bare carriage-return command (no letter): advances and displays the next line as a
 ;       quick step-through.
 CMD_CR_STEP:
         LD A,($1D21)                     ; $07FC  3A 21 1D
         CP $0D                           ; $07FF  FE 0D
-        JP NZ,DISPATCH_RANGE              ; $0801  C2 28 08
+        JP NZ,DISPATCH_RANGE             ; $0801  C2 28 08
         LD A,($1D08)                     ; $0804  3A 08 1D
         SUB $01                          ; $0807  D6 01
         SUB $01                          ; $0809  D6 01
@@ -962,11 +963,11 @@ CMD_CR_STEP:
         AND C                            ; $0817  A1
         RRA                              ; $0818  1F
         JP NC,TPA_START_178              ; $0819  D2 25 08
-        CALL RANGE_MOVE_FWD                    ; $081C  CD 5E 14
-        CALL SET_DEFAULT_ARG                    ; $081F  CD 62 18
-        CALL TYPE_LINES                    ; $0822  CD 46 17
+        CALL RANGE_MOVE_FWD              ; $081C  CD 5E 14
+        CALL SET_DEFAULT_ARG             ; $081F  CD 62 18
+        CALL TYPE_LINES                  ; $0822  CD 46 17
 TPA_START_178:
-        JP CMD_NEXT                 ; $0825  C3 EE 0A
+        JP CMD_NEXT                      ; $0825  C3 EE 0A
 ; [AI] Second command-decode tier reached when a line number/range was supplied; dispatches the
 ;       range-taking commands (A, F, J, N, S, W, X, Z).
 DISPATCH_RANGE:
@@ -975,68 +976,69 @@ DISPATCH_RANGE:
         SUB $01                          ; $082D  D6 01
         SBC A,A                          ; $082F  9F
         PUSH AF                          ; $0830  F5
-        CALL COUNT_NONZERO                    ; $0831  CD 8E 12
+        CALL COUNT_NONZERO               ; $0831  CD 8E 12
         POP BC                           ; $0834  C1
         LD C,B                           ; $0835  48
         OR C                             ; $0836  B1
         RRA                              ; $0837  1F
-        JP NC,CMD_ERROR              ; $0838  D2 EB 0A
+        JP NC,CMD_ERROR                  ; $0838  D2 EB 0A
         LD A,($1D21)                     ; $083B  3A 21 1D
         CP $41                           ; $083E  FE 41
-        JP NZ,CMD_F_FIND              ; $0840  C2 79 08
+        JP NZ,CMD_F_FIND                 ; $0840  C2 79 08
+CMD_A_APPEND:
         LD HL,$1D20                      ; $0843  21 20 1D
         LD (HL),$01                      ; $0846  36 01
         LD HL,($1D22)                    ; $0848  2A 22 1D
         LD ($1D26),HL                    ; $084B  22 26 1D
-        LD HL,(BUF_HIWATER)               ; $084E  2A 6F 1A
+        LD HL,(BUF_HIWATER)              ; $084E  2A 6F 1A
         LD ($1D28),HL                    ; $0851  22 28 1D
-        CALL MOVE_CP_FWD                    ; $0854  CD 52 14
-        CALL COUNT_NONZERO                    ; $0857  CD 8E 12
+        CALL MOVE_CP_FWD                 ; $0854  CD 52 14
+        CALL COUNT_NONZERO               ; $0857  CD 8E 12
         RRA                              ; $085A  1F
         JP NC,TPA_START_180              ; $085B  D2 61 08
-        CALL PULL_SRC_LINES                    ; $085E  CD 6E 18
+        CALL PULL_SRC_LINES              ; $085E  CD 6E 18
 TPA_START_180:
-        CALL COUNT_DEC_TEST                    ; $0861  CD A2 12
+        CALL COUNT_DEC_TEST              ; $0861  CD A2 12
         RRA                              ; $0864  1F
         JP NC,TPA_START_181              ; $0865  D2 6E 08
-        CALL PULL_SRC_LINE                    ; $0868  CD C4 14
+        CALL PULL_SRC_LINE               ; $0868  CD C4 14
         JP TPA_START_180                 ; $086B  C3 61 08
 TPA_START_181:
         LD HL,$1D20                      ; $086E  21 20 1D
         LD (HL),$00                      ; $0871  36 00
-        CALL MOVE_CP_FWD                    ; $0873  CD 52 14
-        JP CMD_DONE                 ; $0876  C3 E8 0A
+        CALL MOVE_CP_FWD                 ; $0873  CD 52 14
+        JP CMD_DONE                      ; $0876  C3 E8 0A
 ; [AI] Dispatch for the 'F' command: find the search string forward from the current line,
 ;       repeating for the requested count.
 CMD_F_FIND:
         LD A,($1D21)                     ; $0879  3A 21 1D
         CP $46                           ; $087C  FE 46
-        JP NZ,CMD_J_JUXTAPOSE              ; $087E  C2 94 08
-        CALL BEGIN_SEARCH                    ; $0881  CD FC 16
+        JP NZ,CMD_J_JUXTAPOSE            ; $087E  C2 94 08
+        CALL BEGIN_SEARCH                ; $0881  CD FC 16
 TPA_START_183:
-        CALL COUNT_DEC_TEST                    ; $0884  CD A2 12
+        CALL COUNT_DEC_TEST              ; $0884  CD A2 12
         RRA                              ; $0887  1F
         JP NC,TPA_START_184              ; $0888  D2 91 08
-        CALL DO_SEARCH                    ; $088B  CD 0B 17
+        CALL DO_SEARCH                   ; $088B  CD 0B 17
         JP TPA_START_183                 ; $088E  C3 84 08
 TPA_START_184:
-        JP CMD_DONE                 ; $0891  C3 E8 0A
+        JP CMD_DONE                      ; $0891  C3 E8 0A
 ; [AI] Dispatch for the 'J' command: juxtapose/substitute (search-then-insert-then-delete-to),
 ;       combining a find with bracketing text.
 CMD_J_JUXTAPOSE:
         LD A,($1D21)                     ; $0894  3A 21 1D
         CP $4A                           ; $0897  FE 4A
-        JP NZ,CMD_M_MACRO              ; $0899  C2 1A 09
-        CALL BEGIN_SEARCH                    ; $089C  CD FC 16
-        CALL READ_STRING_ARG                    ; $089F  CD 24 16
+        JP NZ,CMD_M_MACRO                ; $0899  C2 1A 09
+        CALL BEGIN_SEARCH                ; $089C  CD FC 16
+        CALL READ_STRING_ARG             ; $089F  CD 24 16
         LD A,($1D04)                     ; $08A2  3A 04 1D
         LD ($1D05),A                     ; $08A5  32 05 1D
-        CALL READ_STRING_ARG                    ; $08A8  CD 24 16
+        CALL READ_STRING_ARG             ; $08A8  CD 24 16
 TPA_START_186:
-        CALL COUNT_DEC_TEST                    ; $08AB  CD A2 12
+        CALL COUNT_DEC_TEST              ; $08AB  CD A2 12
         RRA                              ; $08AE  1F
         JP NC,TPA_START_190              ; $08AF  D2 17 09
-        CALL DO_SEARCH                    ; $08B2  CD 0B 17
+        CALL DO_SEARCH                   ; $08B2  CD 0B 17
         LD A,($1D03)                     ; $08B5  3A 03 1D
         DEC A                            ; $08B8  3D
         LD ($1D08),A                     ; $08B9  32 08 1D
@@ -1053,7 +1055,7 @@ TPA_START_187:
         ADD HL,BC                        ; $08D2  09
         LD A,(HL)                        ; $08D3  7E
         LD ($1D21),A                     ; $08D4  32 21 1D
-        CALL BUFFER_INSERT_CH                    ; $08D7  CD D9 15
+        CALL BUFFER_INSERT_CH            ; $08D7  CD D9 15
         JP TPA_START_187                 ; $08DA  C3 BC 08
 TPA_START_188:
         LD HL,($1D22)                    ; $08DD  2A 22 1D
@@ -1062,26 +1064,26 @@ TPA_START_188:
         LD C,L                           ; $08E6  4D
         LD HL,($1D04)                    ; $08E7  2A 04 1D
         EX DE,HL                         ; $08EA  EB
-        CALL SEARCH_BUFFER                    ; $08EB  CD 6F 16
+        CALL SEARCH_BUFFER               ; $08EB  CD 6F 16
         CPL                              ; $08EE  2F
         RRA                              ; $08EF  1F
         JP NC,TPA_START_189              ; $08F0  D2 F6 08
-        JP PROMPT_BREAK                 ; $08F3  C3 D7 02
+        JP PROMPT_BREAK                  ; $08F3  C3 D7 02
 TPA_START_189:
         LD HL,$1D05                      ; $08F6  21 05 1D
         LD A,($1D04)                     ; $08F9  3A 04 1D
         SUB (HL)                         ; $08FC  96
         LD DE,$1D22                      ; $08FD  11 22 1D
-        CALL CMP16_A_DE                    ; $0900  CD FA 19
+        CALL CMP16_A_DE                  ; $0900  CD FA 19
         LD ($1D26),HL                    ; $0903  22 26 1D
         LD HL,$1D20                      ; $0906  21 20 1D
         LD (HL),$00                      ; $0909  36 00
-        CALL MOVE_CP_FWD                    ; $090B  CD 52 14
+        CALL MOVE_CP_FWD                 ; $090B  CD 52 14
         LD HL,($1D49)                    ; $090E  2A 49 1D
         LD ($1D22),HL                    ; $0911  22 22 1D
         JP TPA_START_186                 ; $0914  C3 AB 08
 TPA_START_190:
-        JP CMD_DONE                 ; $0917  C3 E8 0A
+        JP CMD_DONE                      ; $0917  C3 E8 0A
 ; [AI] Dispatch for the 'M' command: define and execute a macro repetition of a following command
 ;       string the parsed number of times.
 CMD_M_MACRO:
@@ -1098,17 +1100,17 @@ CMD_M_MACRO:
         LD C,B                           ; $092C  48
         AND C                            ; $092D  A1
         RRA                              ; $092E  1F
-        JP NC,CMD_N_NFIND              ; $092F  D2 7C 09
+        JP NC,CMD_N_NFIND                ; $092F  D2 7C 09
         LD HL,$1D09                      ; $0932  21 09 1D
         LD (HL),$FF                      ; $0935  36 FF
         LD A,$01                         ; $0937  3E 01
         LD DE,$1D1C                      ; $0939  11 1C 1D
-        CALL CMP16_A_DE                    ; $093C  CD FA 19
+        CALL CMP16_A_DE                  ; $093C  CD FA 19
         OR L                             ; $093F  B5
         JP NZ,TPA_START_192              ; $0940  C2 46 09
-        CALL CLEAR_COUNT                    ; $0943  CD 9B 12
+        CALL CLEAR_COUNT                 ; $0943  CD 9B 12
 TPA_START_192:
-        CALL GET_COMMAND_CH                    ; $0946  CD 65 11
+        CALL GET_COMMAND_CH              ; $0946  CD 65 11
         PUSH AF                          ; $0949  F5
         LD A,($1D09)                     ; $094A  3A 09 1D
         INC A                            ; $094D  3C
@@ -1137,70 +1139,70 @@ TPA_START_193:
         LD (HL),E                        ; $0976  73
         INC HL                           ; $0977  23
         LD (HL),D                        ; $0978  72
-        JP CMD_DONE                 ; $0979  C3 E8 0A
+        JP CMD_DONE                      ; $0979  C3 E8 0A
 ; [AI] Dispatch for the 'N' command: find the search string scanning across buffer page boundaries
 ;       (auto-appending more text from the file as needed).
 CMD_N_NFIND:
         LD A,($1D21)                     ; $097C  3A 21 1D
         CP $4E                           ; $097F  FE 4E
-        JP NZ,CMD_S_SUBSTITUTE              ; $0981  C2 DD 09
-        CALL BEGIN_SEARCH                    ; $0984  CD FC 16
+        JP NZ,CMD_S_SUBSTITUTE           ; $0981  C2 DD 09
+        CALL BEGIN_SEARCH                ; $0984  CD FC 16
 TPA_START_195:
-        CALL COUNT_DEC_TEST                    ; $0987  CD A2 12
+        CALL COUNT_DEC_TEST              ; $0987  CD A2 12
         RRA                              ; $098A  1F
         JP NC,TPA_START_200              ; $098B  D2 DA 09
 TPA_START_196:
         LD HL,($1D03)                    ; $098E  2A 03 1D
         EX DE,HL                         ; $0991  EB
         LD C,$00                         ; $0992  0E 00
-        CALL SEARCH_BUFFER                    ; $0994  CD 6F 16
+        CALL SEARCH_BUFFER               ; $0994  CD 6F 16
         CPL                              ; $0997  2F
         RRA                              ; $0998  1F
         JP NC,TPA_START_199              ; $0999  D2 D7 09
-        CALL CHECK_BREAK                    ; $099C  CD C4 0C
+        CALL CHECK_BREAK                 ; $099C  CD C4 0C
         RRA                              ; $099F  1F
         JP NC,TPA_START_197              ; $09A0  D2 A6 09
-        JP SHOW_PROMPT                 ; $09A3  C3 F5 02
+        JP SHOW_PROMPT                   ; $09A3  C3 F5 02
 TPA_START_197:
-        CALL SAVE_COUNT                    ; $09A6  CD E1 17
-        CALL WRITE_ALL                    ; $09A9  CD B6 15
-        CALL PULL_SRC_LINES                    ; $09AC  CD 6E 18
+        CALL SAVE_COUNT                  ; $09A6  CD E1 17
+        CALL WRITE_ALL                   ; $09A9  CD B6 15
+        CALL PULL_SRC_LINES              ; $09AC  CD 6E 18
         LD HL,$1D20                      ; $09AF  21 20 1D
         LD (HL),$00                      ; $09B2  36 00
         LD HL,$0001                      ; $09B4  21 01 00
         LD ($1D26),HL                    ; $09B7  22 26 1D
-        CALL MOVE_CP_FWD                    ; $09BA  CD 52 14
-        CALL RESTORE_COUNT                    ; $09BD  CD E8 17
+        CALL MOVE_CP_FWD                 ; $09BA  CD 52 14
+        CALL RESTORE_COUNT               ; $09BD  CD E8 17
         LD HL,$1D20                      ; $09C0  21 20 1D
         LD (HL),$01                      ; $09C3  36 01
-        LD BC,BUF_HIWATER                 ; $09C5  01 6F 1A
+        LD BC,BUF_HIWATER                ; $09C5  01 6F 1A
         LD DE,$1D24                      ; $09C8  11 24 1D
-        CALL CMP16_BC_DE                    ; $09CB  CD ED 19
+        CALL CMP16_BC_DE                 ; $09CB  CD ED 19
         JP C,TPA_START_198               ; $09CE  DA D4 09
-        JP PROMPT_BREAK                 ; $09D1  C3 D7 02
+        JP PROMPT_BREAK                  ; $09D1  C3 D7 02
 TPA_START_198:
         JP TPA_START_196                 ; $09D4  C3 8E 09
 TPA_START_199:
         JP TPA_START_195                 ; $09D7  C3 87 09
 TPA_START_200:
-        JP CMD_DONE                 ; $09DA  C3 E8 0A
+        JP CMD_DONE                      ; $09DA  C3 E8 0A
 ; [AI] Dispatch for the 'S' command: substitute, replacing the search string with the replacement
 ;       string for the requested count.
 CMD_S_SUBSTITUTE:
         LD A,($1D21)                     ; $09DD  3A 21 1D
         CP $53                           ; $09E0  FE 53
-        JP NZ,CMD_W_WRITE              ; $09E2  C2 30 0A
-        CALL BEGIN_SEARCH                    ; $09E5  CD FC 16
-        CALL READ_STRING_ARG                    ; $09E8  CD 24 16
+        JP NZ,CMD_W_WRITE                ; $09E2  C2 30 0A
+        CALL BEGIN_SEARCH                ; $09E5  CD FC 16
+        CALL READ_STRING_ARG             ; $09E8  CD 24 16
 TPA_START_202:
-        CALL COUNT_DEC_TEST                    ; $09EB  CD A2 12
+        CALL COUNT_DEC_TEST              ; $09EB  CD A2 12
         RRA                              ; $09EE  1F
         JP NC,TPA_START_205              ; $09EF  D2 2D 0A
-        CALL DO_SEARCH                    ; $09F2  CD 0B 17
+        CALL DO_SEARCH                   ; $09F2  CD 0B 17
         LD A,($1D03)                     ; $09F5  3A 03 1D
         LD ($1D08),A                     ; $09F8  32 08 1D
         LD DE,$1D22                      ; $09FB  11 22 1D
-        CALL CMP16_A_DE                    ; $09FE  CD FA 19
+        CALL CMP16_A_DE                  ; $09FE  CD FA 19
         EX DE,HL                         ; $0A01  EB
         DEC HL                           ; $0A02  2B
         LD (HL),E                        ; $0A03  73
@@ -1220,107 +1222,107 @@ TPA_START_203:
         LD A,($1D08)                     ; $0A1D  3A 08 1D
         INC A                            ; $0A20  3C
         LD ($1D08),A                     ; $0A21  32 08 1D
-        CALL BUFFER_INSERT_CH                    ; $0A24  CD D9 15
+        CALL BUFFER_INSERT_CH            ; $0A24  CD D9 15
         JP TPA_START_203                 ; $0A27  C3 06 0A
 TPA_START_204:
         JP TPA_START_202                 ; $0A2A  C3 EB 09
 TPA_START_205:
-        JP CMD_DONE                 ; $0A2D  C3 E8 0A
+        JP CMD_DONE                      ; $0A2D  C3 E8 0A
 ; [AI] Dispatch for the 'W' command: write out the parsed number of lines from the head of the
 ;       buffer to the destination file.
 CMD_W_WRITE:
         LD A,($1D21)                     ; $0A30  3A 21 1D
         CP $57                           ; $0A33  FE 57
-        JP NZ,CMD_X_TRANSFER              ; $0A35  C2 3E 0A
-        CALL WRITE_AND_REFILL                    ; $0A38  CD 76 15
-        JP CMD_DONE                 ; $0A3B  C3 E8 0A
+        JP NZ,CMD_X_TRANSFER             ; $0A35  C2 3E 0A
+        CALL WRITE_AND_REFILL            ; $0A38  CD 76 15
+        JP CMD_DONE                      ; $0A3B  C3 E8 0A
 ; [AI] Dispatch for the 'X' command: transfer (copy) lines to/from a temporary X$$$$$$$.LIB scratch
 ;       file used by block move operations.
 CMD_X_TRANSFER:
         LD A,($1D21)                     ; $0A3E  3A 21 1D
         CP $58                           ; $0A41  FE 58
-        JP NZ,CMD_Z_SLEEP              ; $0A43  C2 B3 0A
-        CALL SELECT_SRC_DMA_X                    ; $0A46  CD 5A 0E
-        CALL COUNT_NONZERO                    ; $0A49  CD 8E 12
+        JP NZ,CMD_Z_SLEEP                ; $0A43  C2 B3 0A
+        CALL SELECT_SRC_DMA_X            ; $0A46  CD 5A 0E
+        CALL COUNT_NONZERO               ; $0A49  CD 8E 12
         RRA                              ; $0A4C  1F
         JP NC,TPA_START_208              ; $0A4D  D2 5C 0A
-        CALL RESET_BUFFER                    ; $0A50  CD 45 0E
-        LD BC,X_FCB_ACTIVE                ; $0A53  01 95 1A
-        CALL BDOS_DELETE                    ; $0A56  CD 65 0C
+        CALL RESET_BUFFER                ; $0A50  CD 45 0E
+        LD BC,X_FCB_ACTIVE               ; $0A53  01 95 1A
+        CALL BDOS_DELETE                 ; $0A56  CD 65 0C
         JP TPA_START_211                 ; $0A59  C3 B0 0A
 TPA_START_208:
         LD A,($1B37)                     ; $0A5C  3A 37 1B
         CPL                              ; $0A5F  2F
         RRA                              ; $0A60  1F
         JP NC,TPA_START_209              ; $0A61  D2 83 0A
-        CALL RESET_BUFFER                    ; $0A64  CD 45 0E
+        CALL RESET_BUFFER                ; $0A64  CD 45 0E
         LD HL,$1B37                      ; $0A67  21 37 1B
         LD (HL),$01                      ; $0A6A  36 01
-        LD BC,X_FCB_ACTIVE                ; $0A6C  01 95 1A
-        CALL BDOS_DELETE                    ; $0A6F  CD 65 0C
-        LD BC,X_FCB_ACTIVE                ; $0A72  01 95 1A
-        CALL BDOS_MAKE                    ; $0A75  CD 95 0C
+        LD BC,X_FCB_ACTIVE               ; $0A6C  01 95 1A
+        CALL BDOS_DELETE                 ; $0A6F  CD 65 0C
+        LD BC,X_FCB_ACTIVE               ; $0A72  01 95 1A
+        CALL BDOS_MAKE                   ; $0A75  CD 95 0C
         LD A,($1B78)                     ; $0A78  3A 78 1B
         CP $FF                           ; $0A7B  FE FF
         JP NZ,TPA_START_209              ; $0A7D  C2 83 0A
-        CALL DISK_FULL_ABORT                    ; $0A80  CD 2D 0D
+        CALL DISK_FULL_ABORT             ; $0A80  CD 2D 0D
 TPA_START_209:
-        CALL COMPUTE_RANGE                    ; $0A83  CD B7 12
+        CALL COMPUTE_RANGE               ; $0A83  CD B7 12
         LD HL,($1D26)                    ; $0A86  2A 26 1D
         LD ($1D4B),HL                    ; $0A89  22 4B 1D
 TPA_START_210:
         LD DE,$1D28                      ; $0A8C  11 28 1D
         LD BC,$1D4B                      ; $0A8F  01 4B 1D
-        CALL CMP16_BC_DE                    ; $0A92  CD ED 19
+        CALL CMP16_BC_DE                 ; $0A92  CD ED 19
         JP C,TPA_START_211               ; $0A95  DA B0 0A
         LD HL,($1D4B)                    ; $0A98  2A 4B 1D
         LD BC,$1D4D                      ; $0A9B  01 4D 1D
         ADD HL,BC                        ; $0A9E  09
         LD C,(HL)                        ; $0A9F  4E
-        CALL X_PUTCH                    ; $0AA0  CD 94 0F
+        CALL X_PUTCH                     ; $0AA0  CD 94 0F
         LD DE,$0001                      ; $0AA3  11 01 00
         LD HL,($1D4B)                    ; $0AA6  2A 4B 1D
         ADD HL,DE                        ; $0AA9  19
         LD ($1D4B),HL                    ; $0AAA  22 4B 1D
         JP NC,TPA_START_210              ; $0AAD  D2 8C 0A
 TPA_START_211:
-        JP CMD_DONE                 ; $0AB0  C3 E8 0A
+        JP CMD_DONE                      ; $0AB0  C3 E8 0A
 ; [AI] Dispatch for the 'Z' command: sleep/delay, used to pause output a number of intervals.
 CMD_Z_SLEEP:
         LD A,($1D21)                     ; $0AB3  3A 21 1D
         CP $5A                           ; $0AB6  FE 5A
-        JP NZ,CMD_EMPTY_OR_BAD              ; $0AB8  C2 DD 0A
-        CALL COUNT_NONZERO                    ; $0ABB  CD 8E 12
+        JP NZ,CMD_EMPTY_OR_BAD           ; $0AB8  C2 DD 0A
+        CALL COUNT_NONZERO               ; $0ABB  CD 8E 12
         RRA                              ; $0ABE  1F
         JP NC,TPA_START_213              ; $0ABF  D2 CD 0A
-        CALL CON_GETCH                    ; $0AC2  CD F3 0A
+        CALL CON_GETCH                   ; $0AC2  CD F3 0A
         CP $1A                           ; $0AC5  FE 1A
         JP NZ,TPA_START_213              ; $0AC7  C2 CD 0A
-        JP SHOW_PROMPT                 ; $0ACA  C3 F5 02
+        JP SHOW_PROMPT                   ; $0ACA  C3 F5 02
 TPA_START_213:
-        CALL COUNT_DEC_TEST                    ; $0ACD  CD A2 12
+        CALL COUNT_DEC_TEST              ; $0ACD  CD A2 12
         RRA                              ; $0AD0  1F
         JP NC,TPA_START_214              ; $0AD1  D2 DA 0A
-        CALL DELAY_POLL                    ; $0AD4  CD 3A 18
+        CALL DELAY_POLL                  ; $0AD4  CD 3A 18
         JP TPA_START_213                 ; $0AD7  C3 CD 0A
 TPA_START_214:
-        JP CMD_DONE                 ; $0ADA  C3 E8 0A
+        JP CMD_DONE                      ; $0ADA  C3 E8 0A
 ; [AI] Fall-through for an empty or unrecognized command letter: routes empty to the command loop
 ;       and anything else to the '?' error.
 CMD_EMPTY_OR_BAD:
         LD A,($1D21)                     ; $0ADD  3A 21 1D
         CP $00                           ; $0AE0  FE 00
-        JP Z,CMD_DONE               ; $0AE2  CA E8 0A
-        JP PROMPT_QUERY                 ; $0AE5  C3 E2 02
+        JP Z,CMD_DONE                    ; $0AE2  CA E8 0A
+        JP PROMPT_QUERY                  ; $0AE5  C3 E2 02
 ; [AI] Common command-completion tail that falls into the buffer-flush / loop-continue path.
 CMD_DONE:
-        JP CMD_NEXT                 ; $0AE8  C3 EE 0A
+        JP CMD_NEXT                      ; $0AE8  C3 EE 0A
 ; [AI] Command-error exit that jumps to the '?' (unknown command) prompt re-entry.
 CMD_ERROR:
-        JP PROMPT_QUERY                 ; $0AEB  C3 E2 02
+        JP PROMPT_QUERY                  ; $0AEB  C3 E2 02
 ; [AI] Loop continuation point that re-enters the per-command read at L_0327.
 CMD_NEXT:
-        JP ED_COMMAND_LOOP                 ; $0AEE  C3 27 03
+        JP ED_COMMAND_LOOP               ; $0AEE  C3 27 03
         DEFB    $FB,$76                                          ; $0AF1
 ; [AI] Reads one character from the console with echo via BDOS function 1 (console input).
 CON_GETCH:
@@ -1382,7 +1384,7 @@ SUB_0B14_10:
 SUB_0B14_11:
         LD C,L                           ; $0B34  4D
 SUB_0B14_12:
-        CALL CON_PUTCH                    ; $0B35  CD FC 0A
+        CALL CON_PUTCH                   ; $0B35  CD FC 0A
 SUB_0B14_13:
         RET                              ; $0B38  C9
 ; [AI] Performs a destructive backspace on the terminal (emits BS, space, BS) to erase the last
@@ -1394,11 +1396,11 @@ CON_RUBOUT:
         RET                              ; $0B41  C9
 SUB_0B39_1:
         LD C,$08                         ; $0B42  0E 08
-        CALL CON_OUT_COL                    ; $0B44  CD 14 0B
+        CALL CON_OUT_COL                 ; $0B44  CD 14 0B
         LD C,$20                         ; $0B47  0E 20
-        CALL CON_OUT_COL                    ; $0B49  CD 14 0B
+        CALL CON_OUT_COL                 ; $0B49  CD 14 0B
         LD C,$08                         ; $0B4C  0E 08
-        CALL CON_OUT_COL                    ; $0B4E  CD 14 0B
+        CALL CON_OUT_COL                 ; $0B4E  CD 14 0B
         LD HL,$1B68                      ; $0B51  21 68 1B
         DEC (HL)                         ; $0B54  35
         DEC (HL)                         ; $0B55  35
@@ -1462,7 +1464,7 @@ SUB_0B57_25:
 SUB_0B57_26:
         LD C,L                           ; $0B8F  4D
 SUB_0B57_27:
-        CALL CON_OUT_COL                    ; $0B90  CD 14 0B
+        CALL CON_OUT_COL                 ; $0B90  CD 14 0B
 SUB_0B57_28:
         LD HL,$1B6F                      ; $0B93  21 6F 1B
 SUB_0B57_29:
@@ -1538,13 +1540,13 @@ SUB_0BCB_2:
 SUB_0BCB_3:
         LD C,L                           ; $0BD2  4D
 SUB_0BCB_4:
-        CALL IS_PRINTABLE                    ; $0BD3  CD 9B 0B
+        CALL IS_PRINTABLE                ; $0BD3  CD 9B 0B
 SUB_0BCB_5:
         RRA                              ; $0BD6  1F
 SUB_0BCB_6:
         JP C,SUB_0BCB_7                  ; $0BD7  DA E7 0B
         LD C,$5E                         ; $0BDA  0E 5E
-        CALL CON_OUT_TAB                    ; $0BDC  CD 57 0B
+        CALL CON_OUT_TAB                 ; $0BDC  CD 57 0B
         LD A,($1B71)                     ; $0BDF  3A 71 1B
         ADD A,$40                        ; $0BE2  C6 40
         LD ($1B71),A                     ; $0BE4  32 71 1B
@@ -1553,7 +1555,7 @@ SUB_0BCB_7:
 SUB_0BCB_8:
         LD C,L                           ; $0BEA  4D
 SUB_0BCB_9:
-        CALL CON_OUT_TAB                    ; $0BEB  CD 57 0B
+        CALL CON_OUT_TAB                 ; $0BEB  CD 57 0B
 SUB_0BCB_10:
         RET                              ; $0BEE  C9
 ; [AI] Emits a CR/LF pair to start a new console line.
@@ -1605,7 +1607,7 @@ SUB_0C0A_6:
 SUB_0C0A_7:
         LD C,L                           ; $0C17  4D
 SUB_0C0A_8:
-        CALL PRINT_STR                    ; $0C18  CD FA 0B
+        CALL PRINT_STR                   ; $0C18  CD FA 0B
 SUB_0C0A_9:
         RET                              ; $0C1B  C9
 ; [AI] BDOS function 10 (buffered console read) wrapper, filling the line-input buffer pointed to
@@ -1731,7 +1733,7 @@ SET_DMA_DEFAULT:
         LD HL,$1B89                      ; $0CB8  21 89 1B
         LD (HL),$80                      ; $0CBB  36 80
         LD BC,$1B89                      ; $0CBD  01 89 1B
-        CALL BDOS_READ_LINE                    ; $0CC0  CD 1C 0C
+        CALL BDOS_READ_LINE              ; $0CC0  CD 1C 0C
         RET                              ; $0CC3  C9
 ; [AI] Polls console status via BDOS function 11; if a key (typically Ctrl-C) is waiting it
 ;       consumes it and reports a break request, used to abort long operations.
@@ -1787,8 +1789,8 @@ SUB_0D07_1:
         RRA                              ; $0D0A  1F
 SUB_0D07_2:
         JP NC,SUB_0D07_3                 ; $0D0B  D2 14 0D
-        LD BC,X_FCB_ACTIVE                ; $0D0E  01 95 1A
-        CALL BDOS_DELETE                    ; $0D11  CD 65 0C
+        LD BC,X_FCB_ACTIVE               ; $0D0E  01 95 1A
+        CALL BDOS_DELETE                 ; $0D11  CD 65 0C
 SUB_0D07_3:
         CALL WBOOT_VEC                   ; $0D14  CD 00 00
         RET                              ; $0D17  C9
@@ -1809,22 +1811,22 @@ SUB_0D18_5:
 SUB_0D18_6:
         LD C,L                           ; $0D22  4D
 SUB_0D18_7:
-        CALL PRINT_MSG_NL                    ; $0D23  CD 0A 0C
+        CALL PRINT_MSG_NL                ; $0D23  CD 0A 0C
 SUB_0D18_8:
         CALL PUT_CRLF                    ; $0D26  CD EF 0B
 SUB_0D18_9:
-        CALL ED_EXIT                    ; $0D29  CD 07 0D
+        CALL ED_EXIT                     ; $0D29  CD 07 0D
         RET                              ; $0D2C  C9
 ; [AI] Disk-full / write-failure handler: deletes the work file and prints the 'DISK OR DIRECTORY
 ;       FULL' message before aborting.
 DISK_FULL_ABORT:
         LD BC,$1B3D                      ; $0D2D  01 3D 1B
 SUB_0D2D_1:
-        CALL BDOS_CLOSE                    ; $0D30  CD 3F 0C
+        CALL BDOS_CLOSE                  ; $0D30  CD 3F 0C
 SUB_0D2D_2:
-        LD BC,MSG_DISK_FULL                ; $0D33  01 29 01
+        LD BC,MSG_DISK_FULL              ; $0D33  01 29 01
 SUB_0D2D_3:
-        CALL FATAL_MSG                    ; $0D36  CD 18 0D
+        CALL FATAL_MSG                   ; $0D36  CD 18 0D
         RET                              ; $0D39  C9
 ; [AI] Builds a destination FCB by copying a 3-byte filename extension/template into the working
 ;       FCB area, used to form the .BAK and temporary file names.
@@ -1877,32 +1879,32 @@ SUB_0D55_1:
         JP Z,SUB_0D55_2                  ; $0D87  CA A5 0D
         LD HL,($1B65)                    ; $0D8A  2A 65 1B
         LD C,L                           ; $0D8D  4D
-        CALL SELECT_DRIVE                    ; $0D8E  CD E7 0C
+        CALL SELECT_DRIVE                ; $0D8E  CD E7 0C
         LD BC,DEFAULT_FCB                ; $0D91  01 5C 00
-        CALL BDOS_SEARCH_FIRST                    ; $0D94  CD 52 0C
+        CALL BDOS_SEARCH_FIRST           ; $0D94  CD 52 0C
         LD A,($1B78)                     ; $0D97  3A 78 1B
         CP $FF                           ; $0D9A  FE FF
         JP Z,SUB_0D55_2                  ; $0D9C  CA A5 0D
-        LD BC,MSG_FILE_EXISTS                ; $0D9F  01 40 01
-        CALL FATAL_MSG                    ; $0DA2  CD 18 0D
+        LD BC,MSG_FILE_EXISTS            ; $0D9F  01 40 01
+        CALL FATAL_MSG                   ; $0DA2  CD 18 0D
 SUB_0D55_2:
         LD HL,($1B64)                    ; $0DA5  2A 64 1B
         LD C,L                           ; $0DA8  4D
-        CALL SELECT_DRIVE                    ; $0DA9  CD E7 0C
+        CALL SELECT_DRIVE                ; $0DA9  CD E7 0C
         LD BC,DEFAULT_FCB                ; $0DAC  01 5C 00
-        CALL BDOS_OPEN                    ; $0DAF  CD 2C 0C
+        CALL BDOS_OPEN                   ; $0DAF  CD 2C 0C
         LD A,($1B78)                     ; $0DB2  3A 78 1B
         CP $FF                           ; $0DB5  FE FF
         JP NZ,SUB_0D55_4                 ; $0DB7  C2 D7 0D
         LD BC,DEFAULT_FCB                ; $0DBA  01 5C 00
-        CALL BDOS_MAKE                    ; $0DBD  CD 95 0C
+        CALL BDOS_MAKE                   ; $0DBD  CD 95 0C
         LD A,($1B78)                     ; $0DC0  3A 78 1B
         CP $FF                           ; $0DC3  FE FF
         JP NZ,SUB_0D55_3                 ; $0DC5  C2 CB 0D
-        CALL DISK_FULL_ABORT                    ; $0DC8  CD 2D 0D
+        CALL DISK_FULL_ABORT             ; $0DC8  CD 2D 0D
 SUB_0D55_3:
-        LD BC,MSG_NEW_FILE                ; $0DCB  01 56 01
-        CALL PRINT_MSG_NL                    ; $0DCE  CD 0A 0C
+        LD BC,MSG_NEW_FILE               ; $0DCB  01 56 01
+        CALL PRINT_MSG_NL                ; $0DCE  CD 0A 0C
         CALL PUT_CRLF                    ; $0DD1  CD EF 0B
         JP SUB_0D55_6                    ; $0DD4  C3 F9 0D
 SUB_0D55_4:
@@ -1910,8 +1912,8 @@ SUB_0D55_4:
         RLCA                             ; $0DDA  07
         RRA                              ; $0DDB  1F
         JP NC,SUB_0D55_5                 ; $0DDC  D2 EB 0D
-        LD BC,MSG_READ_ONLY                ; $0DDF  01 5F 01
-        CALL PRINT_MSG_NL                    ; $0DE2  CD 0A 0C
+        LD BC,MSG_READ_ONLY              ; $0DDF  01 5F 01
+        CALL PRINT_MSG_NL                ; $0DE2  CD 0A 0C
         CALL PUT_CRLF                    ; $0DE5  CD EF 0B
         JP SUB_0D55_6                    ; $0DE8  C3 F9 0D
 SUB_0D55_5:
@@ -1919,35 +1921,35 @@ SUB_0D55_5:
         RLCA                             ; $0DEE  07
         RRA                              ; $0DEF  1F
         JP NC,SUB_0D55_6                 ; $0DF0  D2 F9 0D
-        LD BC,MSG_SYS_NO_ACCESS                ; $0DF3  01 77 01
-        CALL FATAL_MSG                    ; $0DF6  CD 18 0D
+        LD BC,MSG_SYS_NO_ACCESS          ; $0DF3  01 77 01
+        CALL FATAL_MSG                   ; $0DF6  CD 18 0D
 SUB_0D55_6:
-        LD BC,EXT_BAK                ; $0DF9  01 94 01
-        CALL SET_FCB_EXT                    ; $0DFC  CD 3A 0D
+        LD BC,EXT_BAK                    ; $0DF9  01 94 01
+        CALL SET_FCB_EXT                 ; $0DFC  CD 3A 0D
         LD BC,$1B3D                      ; $0DFF  01 3D 1B
-        CALL BDOS_DELETE                    ; $0E02  CD 65 0C
+        CALL BDOS_DELETE                 ; $0E02  CD 65 0C
         LD HL,$1B65                      ; $0E05  21 65 1B
         LD A,($1B64)                     ; $0E08  3A 64 1B
         CP (HL)                          ; $0E0B  BE
         JP Z,SUB_0D55_7                  ; $0E0C  CA 1C 0E
         LD HL,($1B65)                    ; $0E0F  2A 65 1B
         LD C,L                           ; $0E12  4D
-        CALL SELECT_DRIVE                    ; $0E13  CD E7 0C
+        CALL SELECT_DRIVE                ; $0E13  CD E7 0C
         LD BC,$1B3D                      ; $0E16  01 3D 1B
-        CALL BDOS_DELETE                    ; $0E19  CD 65 0C
+        CALL BDOS_DELETE                 ; $0E19  CD 65 0C
 SUB_0D55_7:
-        LD BC,EXT_TMP                ; $0E1C  01 97 01
-        CALL SET_FCB_EXT                    ; $0E1F  CD 3A 0D
+        LD BC,EXT_TMP                    ; $0E1C  01 97 01
+        CALL SET_FCB_EXT                 ; $0E1F  CD 3A 0D
         LD BC,$1B3D                      ; $0E22  01 3D 1B
-        CALL BDOS_DELETE                    ; $0E25  CD 65 0C
+        CALL BDOS_DELETE                 ; $0E25  CD 65 0C
         LD BC,$1B3D                      ; $0E28  01 3D 1B
-        CALL BDOS_MAKE                    ; $0E2B  CD 95 0C
+        CALL BDOS_MAKE                   ; $0E2B  CD 95 0C
         LD HL,$1B5D                      ; $0E2E  21 5D 1B
         LD (HL),$00                      ; $0E31  36 00
         LD A,($1B78)                     ; $0E33  3A 78 1B
         CP $FF                           ; $0E36  FE FF
         JP NZ,SUB_0D55_8                 ; $0E38  C2 3E 0E
-        CALL DISK_FULL_ABORT                    ; $0E3B  CD 2D 0D
+        CALL DISK_FULL_ABORT             ; $0E3B  CD 2D 0D
 SUB_0D55_8:
         LD HL,$0001                      ; $0E3E  21 01 00
         LD ($1C10),HL                    ; $0E41  22 10 1C
@@ -1969,17 +1971,17 @@ RESET_BUFFER:
 SELECT_SRC_DMA_X:
         LD HL,($1B64)                    ; $0E5A  2A 64 1B
         LD C,L                           ; $0E5D  4D
-        CALL SELECT_DRIVE                    ; $0E5E  CD E7 0C
+        CALL SELECT_DRIVE                ; $0E5E  CD E7 0C
         LD BC,DISK_BUFFER                ; $0E61  01 B6 1A
-        CALL SET_DMA                    ; $0E64  CD F7 0C
+        CALL SET_DMA                     ; $0E64  CD F7 0C
         RET                              ; $0E67  C9
 ; [AI] Appends a block of records from the source file into the edit buffer, reading sequentially
 ;       until the buffer fills or end-of-file ($1A) is reached.
 FILL_BUFFER:
-        CALL RESET_SRC_PTR                    ; $0E68  CD D3 0E
+        CALL RESET_SRC_PTR               ; $0E68  CD D3 0E
         LD HL,($1B64)                    ; $0E6B  2A 64 1B
         LD C,L                           ; $0E6E  4D
-        CALL SELECT_DRIVE                    ; $0E6F  CD E7 0C
+        CALL SELECT_DRIVE                ; $0E6F  CD E7 0C
         LD HL,$1C19                      ; $0E72  21 19 1C
         LD (HL),$00                      ; $0E75  36 00
 SUB_0E68_1:
@@ -1993,9 +1995,9 @@ SUB_0E68_1:
         ADD HL,DE                        ; $0E88  19
         LD B,H                           ; $0E89  44
         LD C,L                           ; $0E8A  4D
-        CALL SET_DMA                    ; $0E8B  CD F7 0C
+        CALL SET_DMA                     ; $0E8B  CD F7 0C
         LD BC,DEFAULT_FCB                ; $0E8E  01 5C 00
-        CALL BDOS_READ_SEQ                    ; $0E91  CD 75 0C
+        CALL BDOS_READ_SEQ               ; $0E91  CD 75 0C
         LD ($1B78),A                     ; $0E94  32 78 1B
         CP $00                           ; $0E97  FE 00
         JP Z,SUB_0E68_3                  ; $0E99  CA BB 0E
@@ -2003,7 +2005,7 @@ SUB_0E68_1:
         LD HL,$1B78                      ; $0E9E  21 78 1B
         CP (HL)                          ; $0EA1  BE
         JP NC,SUB_0E68_2                 ; $0EA2  D2 A8 0E
-        CALL DISK_FULL_ABORT                    ; $0EA5  CD 2D 0D
+        CALL DISK_FULL_ABORT             ; $0EA5  CD 2D 0D
 SUB_0E68_2:
         LD HL,($1B60)                    ; $0EA8  2A 60 1B
         EX DE,HL                         ; $0EAB  EB
@@ -2024,7 +2026,7 @@ SUB_0E68_4:
         LD ($1C19),A                     ; $0EC9  32 19 1C
         JP NZ,SUB_0E68_1                 ; $0ECC  C2 77 0E
 SUB_0E68_5:
-        CALL RESET_SRC_PTR                    ; $0ECF  CD D3 0E
+        CALL RESET_SRC_PTR               ; $0ECF  CD D3 0E
         RET                              ; $0ED2  C9
 ; [AI] Resets the source-file append pointer to the start of its buffer region.
 RESET_SRC_PTR:
@@ -2036,9 +2038,9 @@ RESET_SRC_PTR:
 SRC_GETCH:
         LD BC,$1B39                      ; $0EDA  01 39 1B
         LD DE,$1B60                      ; $0EDD  11 60 1B
-        CALL CMP16_BC_DE                    ; $0EE0  CD ED 19
+        CALL CMP16_BC_DE                 ; $0EE0  CD ED 19
         JP C,SUB_0EDA_1                  ; $0EE3  DA E9 0E
-        CALL FILL_BUFFER                    ; $0EE6  CD 68 0E
+        CALL FILL_BUFFER                 ; $0EE6  CD 68 0E
 SUB_0EDA_1:
         LD HL,($1B60)                    ; $0EE9  2A 60 1B
         EX DE,HL                         ; $0EEC  EB
@@ -2059,10 +2061,10 @@ SUB_0EDA_2:
 FLUSH_BUFFER:
         LD HL,($1B65)                    ; $0F05  2A 65 1B
         LD C,L                           ; $0F08  4D
-        CALL SELECT_DRIVE                    ; $0F09  CD E7 0C
+        CALL SELECT_DRIVE                ; $0F09  CD E7 0C
         LD C,$07                         ; $0F0C  0E 07
         LD HL,$1B62                      ; $0F0E  21 62 1B
-        CALL LOAD_SHR_HL                    ; $0F11  CD D3 19
+        CALL LOAD_SHR_HL                 ; $0F11  CD D3 19
         DEC HL                           ; $0F14  2B
         EX DE,HL                         ; $0F15  EB
         LD HL,$1C1C                      ; $0F16  21 1C 1C
@@ -2072,7 +2074,7 @@ FLUSH_BUFFER:
         JP NZ,SUB_0F05_1                 ; $0F1D  C2 21 0F
         RET                              ; $0F20  C9
 SUB_0F05_1:
-        CALL RESET_OUT_PTR                    ; $0F21  CD 66 0F
+        CALL RESET_OUT_PTR               ; $0F21  CD 66 0F
         LD HL,$1C1B                      ; $0F24  21 1B 1C
         LD (HL),$00                      ; $0F27  36 00
 SUB_0F05_2:
@@ -2086,12 +2088,12 @@ SUB_0F05_2:
         ADD HL,DE                        ; $0F3A  19
         LD B,H                           ; $0F3B  44
         LD C,L                           ; $0F3C  4D
-        CALL SET_DMA                    ; $0F3D  CD F7 0C
+        CALL SET_DMA                     ; $0F3D  CD F7 0C
         LD BC,$1B3D                      ; $0F40  01 3D 1B
-        CALL BDOS_WRITE_SEQ                    ; $0F43  CD 85 0C
+        CALL BDOS_WRITE_SEQ              ; $0F43  CD 85 0C
         CP $00                           ; $0F46  FE 00
         JP Z,SUB_0F05_3                  ; $0F48  CA 4E 0F
-        CALL DISK_FULL_ABORT                    ; $0F4B  CD 2D 0D
+        CALL DISK_FULL_ABORT             ; $0F4B  CD 2D 0D
 SUB_0F05_3:
         LD DE,DEFAULT_DMA                ; $0F4E  11 80 00
         LD HL,($1B62)                    ; $0F51  2A 62 1B
@@ -2102,7 +2104,7 @@ SUB_0F05_3:
         LD ($1C1B),A                     ; $0F5C  32 1B 1C
         JP NZ,SUB_0F05_2                 ; $0F5F  C2 29 0F
 SUB_0F05_4:
-        CALL RESET_OUT_PTR                    ; $0F62  CD 66 0F
+        CALL RESET_OUT_PTR               ; $0F62  CD 66 0F
         RET                              ; $0F65  C9
 ; [AI] Resets the output-file write pointer to the start of its buffer region.
 RESET_OUT_PTR:
@@ -2116,9 +2118,9 @@ OUT_PUTCH:
         LD (HL),C                        ; $0F70  71
         LD BC,$1B39                      ; $0F71  01 39 1B
         LD DE,$1B62                      ; $0F74  11 62 1B
-        CALL CMP16_BC_DE                    ; $0F77  CD ED 19
+        CALL CMP16_BC_DE                 ; $0F77  CD ED 19
         JP C,SUB_0F6D_1                  ; $0F7A  DA 80 0F
-        CALL FLUSH_BUFFER                    ; $0F7D  CD 05 0F
+        CALL FLUSH_BUFFER                ; $0F7D  CD 05 0F
 SUB_0F6D_1:
         LD HL,($1B62)                    ; $0F80  2A 62 1B
         EX DE,HL                         ; $0F83  EB
@@ -2138,12 +2140,12 @@ X_PUTCH:
         LD A,($1B36)                     ; $0F98  3A 36 1B
         CP $80                           ; $0F9B  FE 80
         JP C,SUB_0F94_2                  ; $0F9D  DA B6 0F
-        CALL SELECT_SRC_DMA_X                    ; $0FA0  CD 5A 0E
-        LD BC,X_FCB_ACTIVE                ; $0FA3  01 95 1A
-        CALL BDOS_WRITE_SEQ                    ; $0FA6  CD 85 0C
+        CALL SELECT_SRC_DMA_X            ; $0FA0  CD 5A 0E
+        LD BC,X_FCB_ACTIVE               ; $0FA3  01 95 1A
+        CALL BDOS_WRITE_SEQ              ; $0FA6  CD 85 0C
         CP $00                           ; $0FA9  FE 00
         JP Z,SUB_0F94_1                  ; $0FAB  CA B1 0F
-        CALL DISK_FULL_ABORT                    ; $0FAE  CD 2D 0D
+        CALL DISK_FULL_ABORT             ; $0FAE  CD 2D 0D
 SUB_0F94_1:
         LD HL,$1B36                      ; $0FB1  21 36 1B
         LD (HL),$00                      ; $0FB4  36 00
@@ -2174,23 +2176,23 @@ SUB_0FCB_1:
         INC A                            ; $0FDE  3C
         LD ($1B4A),A                     ; $0FDF  32 4A 1B
         LD C,$1A                         ; $0FE2  0E 1A
-        CALL OUT_PUTCH                    ; $0FE4  CD 6D 0F
+        CALL OUT_PUTCH                   ; $0FE4  CD 6D 0F
         JP SUB_0FCB_1                    ; $0FE7  C3 D0 0F
 SUB_0FCB_2:
-        CALL FLUSH_BUFFER                    ; $0FEA  CD 05 0F
+        CALL FLUSH_BUFFER                ; $0FEA  CD 05 0F
         LD BC,$1B3D                      ; $0FED  01 3D 1B
-        CALL BDOS_CLOSE                    ; $0FF0  CD 3F 0C
+        CALL BDOS_CLOSE                  ; $0FF0  CD 3F 0C
         LD A,($1B78)                     ; $0FF3  3A 78 1B
         CP $FF                           ; $0FF6  FE FF
         JP NZ,SUB_0FCB_3                 ; $0FF8  C2 FE 0F
-        CALL DISK_FULL_ABORT                    ; $0FFB  CD 2D 0D
+        CALL DISK_FULL_ABORT             ; $0FFB  CD 2D 0D
 SUB_0FCB_3:
-        LD BC,EXT_BAK2                ; $0FFE  01 9A 01
-        CALL SET_FCB_EXT                    ; $1001  CD 3A 0D
-        CALL SAVE_FCB_NAME                    ; $1004  CD 3B 10
+        LD BC,EXT_BAK2                   ; $0FFE  01 9A 01
+        CALL SET_FCB_EXT                 ; $1001  CD 3A 0D
+        CALL SAVE_FCB_NAME               ; $1004  CD 3B 10
         LD HL,($1B64)                    ; $1007  2A 64 1B
         LD C,L                           ; $100A  4D
-        CALL SELECT_DRIVE                    ; $100B  CD E7 0C
+        CALL SELECT_DRIVE                ; $100B  CD E7 0C
         LD L,$10                         ; $100E  2E 10
         LD DE,$1B3D                      ; $1010  11 3D 1B
         LD BC,DEFAULT_FCB                ; $1013  01 5C 00
@@ -2202,15 +2204,15 @@ SUB_0FCB_4:
         DEC L                            ; $101A  2D
         JP NZ,SUB_0FCB_4                 ; $101B  C2 16 10
         LD BC,$1B3D                      ; $101E  01 3D 1B
-        CALL BDOS_RENAME                    ; $1021  CD A8 0C
-        CALL SAVE_FCB_NAME                    ; $1024  CD 3B 10
-        LD BC,EXT_TMP2                ; $1027  01 9D 01
-        CALL SET_FCB_EXT                    ; $102A  CD 3A 0D
+        CALL BDOS_RENAME                 ; $1021  CD A8 0C
+        CALL SAVE_FCB_NAME               ; $1024  CD 3B 10
+        LD BC,EXT_TMP2                   ; $1027  01 9D 01
+        CALL SET_FCB_EXT                 ; $102A  CD 3A 0D
         LD HL,($1B65)                    ; $102D  2A 65 1B
         LD C,L                           ; $1030  4D
-        CALL SELECT_DRIVE                    ; $1031  CD E7 0C
+        CALL SELECT_DRIVE                ; $1031  CD E7 0C
         LD BC,$1B3D                      ; $1034  01 3D 1B
-        CALL BDOS_RENAME                    ; $1037  CD A8 0C
+        CALL BDOS_RENAME                 ; $1037  CD A8 0C
         RET                              ; $103A  C9
 ; [AI] Copies the 16-byte FCB name field into a save area so the original and renamed FCBs can both
 ;       be referenced during the backup-rename sequence.
@@ -2303,24 +2305,24 @@ PRINT_DECIMAL:
 SUB_10A9_1:
         LD A,$00                         ; $10BA  3E 00
         LD DE,$1D18                      ; $10BC  11 18 1D
-        CALL CMP16_A_DE                    ; $10BF  CD FA 19
+        CALL CMP16_A_DE                  ; $10BF  CD FA 19
         OR L                             ; $10C2  B5
         JP Z,SUB_10A9_4                  ; $10C3  CA 18 11
         LD HL,($1D14)                    ; $10C6  2A 14 1D
         EX DE,HL                         ; $10C9  EB
         LD HL,($1D18)                    ; $10CA  2A 18 1D
-        CALL DIV16                    ; $10CD  CD AA 19
+        CALL DIV16                       ; $10CD  CD AA 19
         LD A,E                           ; $10D0  7B
         LD ($1D16),A                     ; $10D1  32 16 1D
         LD HL,($1D14)                    ; $10D4  2A 14 1D
         EX DE,HL                         ; $10D7  EB
         LD HL,($1D18)                    ; $10D8  2A 18 1D
-        CALL DIV16                    ; $10DB  CD AA 19
+        CALL DIV16                       ; $10DB  CD AA 19
         LD ($1D14),HL                    ; $10DE  22 14 1D
         LD HL,($1D18)                    ; $10E1  2A 18 1D
         EX DE,HL                         ; $10E4  EB
         LD HL,$000A                      ; $10E5  21 0A 00
-        CALL DIV16                    ; $10E8  CD AA 19
+        CALL DIV16                       ; $10E8  CD AA 19
         EX DE,HL                         ; $10EB  EB
         LD ($1D18),HL                    ; $10EC  22 18 1D
         LD A,($1D16)                     ; $10EF  3A 16 1D
@@ -2361,7 +2363,7 @@ SUB_1119_1:
         LD HL,($1D1A)                    ; $1128  2A 1A 1D
         LD B,H                           ; $112B  44
         LD C,L                           ; $112C  4D
-        CALL PRINT_DECIMAL                    ; $112D  CD A9 10
+        CALL PRINT_DECIMAL               ; $112D  CD A9 10
         LD C,$3A                         ; $1130  0E 3A
         CALL PUT_CHAR                    ; $1132  CD CB 0B
         LD C,$20                         ; $1135  0E 20
@@ -2383,7 +2385,7 @@ SHOW_LINENO:
         LD HL,($1C10)                    ; $114F  2A 10 1C
         LD B,H                           ; $1152  44
         LD C,L                           ; $1153  4D
-        CALL PRINT_LINENO                    ; $1154  CD 19 11
+        CALL PRINT_LINENO                ; $1154  CD 19 11
         RET                              ; $1157  C9
 ; [AI] Conditionally prints the line-number prompt only when interactive (suppressed during
 ;       macro/non-echo execution).
@@ -2393,7 +2395,7 @@ SHOW_LINENO_IF_INT:
         JP Z,SUB_1158_1                  ; $115D  CA 61 11
         RET                              ; $1160  C9
 SUB_1158_1:
-        CALL SHOW_LINENO                    ; $1161  CD 4F 11
+        CALL SHOW_LINENO                 ; $1161  CD 4F 11
         RET                              ; $1164  C9
 ; [AI] Core command-line input dispatcher: returns the next command character either from a pending
 ;       macro buffer or, when none, by reading a fresh line from the console.
@@ -2402,10 +2404,10 @@ GET_COMMAND_CH:
         LD HL,$1D07                      ; $1167  21 07 1D
         CP (HL)                          ; $116A  BE
         JP NC,SUB_1165_4                 ; $116B  D2 BA 11
-        CALL CHECK_BREAK                    ; $116E  CD C4 0C
+        CALL CHECK_BREAK                 ; $116E  CD C4 0C
         RRA                              ; $1171  1F
         JP NC,SUB_1165_1                 ; $1172  D2 78 11
-        JP PROMPT_BREAK                 ; $1175  C3 D7 02
+        JP PROMPT_BREAK                  ; $1175  C3 D7 02
 SUB_1165_1:
         LD HL,$1D07                      ; $1178  21 07 1D
         LD A,($1D09)                     ; $117B  3A 09 1D
@@ -2413,7 +2415,7 @@ SUB_1165_1:
         JP C,SUB_1165_3                  ; $117F  DA A6 11
         LD A,$00                         ; $1182  3E 00
         LD DE,$1D0A                      ; $1184  11 0A 1D
-        CALL CMP16_A_DE                    ; $1187  CD FA 19
+        CALL CMP16_A_DE                  ; $1187  CD FA 19
         OR L                             ; $118A  B5
         JP Z,SUB_1165_2                  ; $118B  CA A1 11
         LD HL,($1D0A)                    ; $118E  2A 0A 1D
@@ -2423,7 +2425,7 @@ SUB_1165_1:
         CALL SUB_A_HL                    ; $1197  CD E3 19
         OR L                             ; $119A  B5
         JP NZ,SUB_1165_2                 ; $119B  C2 A1 11
-        JP PROMPT_BREAK                 ; $119E  C3 D7 02
+        JP PROMPT_BREAK                  ; $119E  C3 D7 02
 SUB_1165_2:
         LD HL,$1D09                      ; $11A1  21 09 1D
         LD (HL),$00                      ; $11A4  36 00
@@ -2437,15 +2439,15 @@ SUB_1165_3:
         LD HL,$1C1F                      ; $11B1  21 1F 1C
         ADD HL,BC                        ; $11B4  09
         LD C,(HL)                        ; $11B5  4E
-        CALL FOLD_CASE                    ; $11B6  CD 92 10
+        CALL FOLD_CASE                   ; $11B6  CD 92 10
         RET                              ; $11B9  C9
 SUB_1165_4:
         LD A,($1D0C)                     ; $11BA  3A 0C 1D
         RRA                              ; $11BD  1F
         JP NC,SUB_1165_5                 ; $11BE  D2 C9 11
-        CALL CON_GETCH                    ; $11C1  CD F3 0A
+        CALL CON_GETCH                   ; $11C1  CD F3 0A
         LD C,A                           ; $11C4  4F
-        CALL FOLD_CASE                    ; $11C5  CD 92 10
+        CALL FOLD_CASE                   ; $11C5  CD 92 10
         RET                              ; $11C8  C9
 SUB_1165_5:
         LD A,($1D0D)                     ; $11C9  3A 0D 1D
@@ -2461,22 +2463,22 @@ SUB_1165_5:
         AND (HL)                         ; $11E0  A6
         RRA                              ; $11E1  1F
         JP NC,SUB_1165_8                 ; $11E2  D2 00 12
-        LD BC,BUF_HIWATER                 ; $11E5  01 6F 1A
+        LD BC,BUF_HIWATER                ; $11E5  01 6F 1A
         LD DE,$1D24                      ; $11E8  11 24 1D
-        CALL CMP16_BC_DE                    ; $11EB  CD ED 19
+        CALL CMP16_BC_DE                 ; $11EB  CD ED 19
         JP C,SUB_1165_6                  ; $11EE  DA FA 11
         LD BC,WBOOT_VEC                  ; $11F1  01 00 00
-        CALL PRINT_LINENO                    ; $11F4  CD 19 11
+        CALL PRINT_LINENO                ; $11F4  CD 19 11
         JP SUB_1165_7                    ; $11F7  C3 FD 11
 SUB_1165_6:
-        CALL SHOW_LINENO                    ; $11FA  CD 4F 11
+        CALL SHOW_LINENO                 ; $11FA  CD 4F 11
 SUB_1165_7:
         JP SUB_1165_9                    ; $11FD  C3 05 12
 SUB_1165_8:
         LD C,$2A                         ; $1200  0E 2A
         CALL PUT_CHAR                    ; $1202  CD CB 0B
 SUB_1165_9:
-        CALL SET_DMA_DEFAULT                    ; $1205  CD B8 0C
+        CALL SET_DMA_DEFAULT             ; $1205  CD B8 0C
         LD HL,$1C0C                      ; $1208  21 0C 1C
         LD (HL),$00                      ; $120B  36 00
         LD C,$0A                         ; $120D  0E 0A
@@ -2507,44 +2509,44 @@ SUB_1165_11:
         LD HL,$1B8B                      ; $123E  21 8B 1B
         ADD HL,BC                        ; $1241  09
         LD C,(HL)                        ; $1242  4E
-        CALL FOLD_CASE                    ; $1243  CD 92 10
+        CALL FOLD_CASE                   ; $1243  CD 92 10
         RET                              ; $1246  C9
 ; [AI] Selects the source drive and points the DMA at the default $0080 buffer, preparing to read
 ;       sequential records of the library/scratch file.
 SELECT_SRC_DMA_DEF:
         LD HL,($1B64)                    ; $1247  2A 64 1B
         LD C,L                           ; $124A  4D
-        CALL SELECT_DRIVE                    ; $124B  CD E7 0C
+        CALL SELECT_DRIVE                ; $124B  CD E7 0C
         LD BC,DEFAULT_DMA                ; $124E  01 80 00
-        CALL SET_DMA                    ; $1251  CD F7 0C
+        CALL SET_DMA                     ; $1251  CD F7 0C
         RET                              ; $1254  C9
 ; [AI] Reads the next character from the library (X) scratch file's record buffer, fetching a new
 ;       record via BDOS read when the buffer is exhausted.
 LIB_GETCH:
-        LD A,(LIB_REC_INDEX)               ; $1255  3A 94 1A
+        LD A,(LIB_REC_INDEX)             ; $1255  3A 94 1A
         CP $80                           ; $1258  FE 80
         JP C,SUB_1255_2                  ; $125A  DA 73 12
-        CALL SELECT_SRC_DMA_DEF                    ; $125D  CD 47 12
-        LD BC,LIB_FCB                 ; $1260  01 73 1A
-        CALL BDOS_READ_SEQ                    ; $1263  CD 75 0C
+        CALL SELECT_SRC_DMA_DEF          ; $125D  CD 47 12
+        LD BC,LIB_FCB                    ; $1260  01 73 1A
+        CALL BDOS_READ_SEQ               ; $1263  CD 75 0C
         CP $00                           ; $1266  FE 00
         JP Z,SUB_1255_1                  ; $1268  CA 6E 12
         LD A,$1A                         ; $126B  3E 1A
         RET                              ; $126D  C9
 SUB_1255_1:
-        LD HL,LIB_REC_INDEX                ; $126E  21 94 1A
+        LD HL,LIB_REC_INDEX              ; $126E  21 94 1A
         LD (HL),$00                      ; $1271  36 00
 SUB_1255_2:
-        LD A,(LIB_REC_INDEX)               ; $1273  3A 94 1A
+        LD A,(LIB_REC_INDEX)             ; $1273  3A 94 1A
         INC A                            ; $1276  3C
-        LD (LIB_REC_INDEX),A               ; $1277  32 94 1A
+        LD (LIB_REC_INDEX),A             ; $1277  32 94 1A
         DEC A                            ; $127A  3D
         LD C,A                           ; $127B  4F
         LD B,$00                         ; $127C  06 00
         LD HL,DEFAULT_DMA                ; $127E  21 80 00
         ADD HL,BC                        ; $1281  09
         LD C,(HL)                        ; $1282  4E
-        CALL FOLD_CASE                    ; $1283  CD 92 10
+        CALL FOLD_CASE                   ; $1283  CD 92 10
         RET                              ; $1286  C9
 ; [AI] Sets the parsed-argument count to its maximum ($FFFF), the convention ED uses for a command
 ;       with an explicit large/'whole buffer' repeat count.
@@ -2557,7 +2559,7 @@ SET_COUNT_MAX:
 COUNT_NONZERO:
         LD A,$00                         ; $128E  3E 00
         LD DE,$1D1C                      ; $1290  11 1C 1D
-        CALL CMP16_A_DE                    ; $1293  CD FA 19
+        CALL CMP16_A_DE                  ; $1293  CD FA 19
         OR L                             ; $1296  B5
         SUB $01                          ; $1297  D6 01
         SBC A,A                          ; $1299  9F
@@ -2570,7 +2572,7 @@ CLEAR_COUNT:
 ; [AI] Loop control for repeated commands: if the argument count is nonzero, decrements it and
 ;       returns true; otherwise returns false to stop the loop.
 COUNT_DEC_TEST:
-        CALL COUNT_NONZERO                    ; $12A2  CD 8E 12
+        CALL COUNT_NONZERO               ; $12A2  CD 8E 12
         CPL                              ; $12A5  2F
         RRA                              ; $12A6  1F
         JP NC,SUB_12A2_1                 ; $12A7  D2 B4 12
@@ -2603,7 +2605,7 @@ COMPUTE_RANGE:
 SUB_12B7_1:
         LD HL,($1D24)                    ; $12DF  2A 24 1D
         LD ($1D2A),HL                    ; $12E2  22 2A 1D
-        LD HL,(BUF_HIWATER)               ; $12E5  2A 6F 1A
+        LD HL,(BUF_HIWATER)              ; $12E5  2A 6F 1A
         LD ($1D2E),HL                    ; $12E8  22 2E 1D
         LD HL,$0001                      ; $12EB  21 01 00
         LD ($1D2C),HL                    ; $12EE  22 2C 1D
@@ -2617,7 +2619,7 @@ SUB_12B7_3:
 SUB_12B7_4:
         LD BC,$1D2E                      ; $12FD  01 2E 1D
         LD DE,$1D2A                      ; $1300  11 2A 1D
-        CALL CMP16_BC_DE                    ; $1303  CD ED 19
+        CALL CMP16_BC_DE                 ; $1303  CD ED 19
         OR L                             ; $1306  B5
         ADD A,$FF                        ; $1307  C6 FF
         SBC A,A                          ; $1309  9F
@@ -2663,7 +2665,7 @@ SUB_12B7_5:
         LD (HL),$00                      ; $1358  36 00
         LD BC,$1D2C                      ; $135A  01 2C 1D
         LD DE,$1D2A                      ; $135D  11 2A 1D
-        CALL CMP16_BC_DE                    ; $1360  CD ED 19
+        CALL CMP16_BC_DE                 ; $1360  CD ED 19
         EX DE,HL                         ; $1363  EB
         DEC HL                           ; $1364  2B
         LD (HL),E                        ; $1365  73
@@ -2818,18 +2820,18 @@ SUB_13CA_8:
 ; [AI] Calls the block-move routine in the forward/down direction (insert direction).
 MOVE_CP_FWD:
         LD C,$01                         ; $1452  0E 01
-        CALL MOVE_CP                    ; $1454  CD CA 13
+        CALL MOVE_CP                     ; $1454  CD CA 13
         RET                              ; $1457  C9
 ; [AI] Calls the block-move routine in the backward/up direction (delete/compact direction).
 MOVE_CP_BACK:
         LD C,$00                         ; $1458  0E 00
-        CALL MOVE_CP                    ; $145A  CD CA 13
+        CALL MOVE_CP                     ; $145A  CD CA 13
         RET                              ; $145D  C9
 ; [AI] Recomputes the command's line range and then performs the forward block-move, a common
 ;       setup-and-shift used by several editing commands.
 RANGE_MOVE_FWD:
-        CALL COMPUTE_RANGE                    ; $145E  CD B7 12
-        CALL MOVE_CP_FWD                    ; $1461  CD 52 14
+        CALL COMPUTE_RANGE               ; $145E  CD B7 12
+        CALL MOVE_CP_FWD                 ; $1461  CD 52 14
         RET                              ; $1464  C9
 ; [AI] Resolves the destination pointer/limit for a command depending on whether it operates within
 ;       the buffer or against the file boundary.
@@ -2841,7 +2843,7 @@ RESOLVE_DST:
         LD ($1D28),HL                    ; $1470  22 28 1D
         LD DE,$1D22                      ; $1473  11 22 1D
         LD BC,$1D1C                      ; $1476  01 1C 1D
-        CALL CMP16_BC_DE                    ; $1479  CD ED 19
+        CALL CMP16_BC_DE                 ; $1479  CD ED 19
         JP NC,SUB_1465_1                 ; $147C  D2 88 14
         LD HL,$0001                      ; $147F  21 01 00
         LD ($1D26),HL                    ; $1482  22 26 1D
@@ -2849,7 +2851,7 @@ RESOLVE_DST:
 SUB_1465_1:
         LD BC,$1D1C                      ; $1488  01 1C 1D
         LD DE,$1D22                      ; $148B  11 22 1D
-        CALL CMP16_BC_DE                    ; $148E  CD ED 19
+        CALL CMP16_BC_DE                 ; $148E  CD ED 19
         LD ($1D26),HL                    ; $1491  22 26 1D
 SUB_1465_2:
         JP SUB_1465_5                    ; $1494  C3 C3 14
@@ -2857,12 +2859,12 @@ SUB_1465_3:
         LD HL,($1D22)                    ; $1497  2A 22 1D
         LD ($1D26),HL                    ; $149A  22 26 1D
         LD BC,$1D24                      ; $149D  01 24 1D
-        LD DE,STACK_TOP                 ; $14A0  11 6D 1A
-        CALL CMP16_BC_DE                    ; $14A3  CD ED 19
+        LD DE,STACK_TOP                  ; $14A0  11 6D 1A
+        CALL CMP16_BC_DE                 ; $14A3  CD ED 19
         LD DE,$1D1C                      ; $14A6  11 1C 1D
-        CALL CMP16_DE_HL                    ; $14A9  CD FD 19
+        CALL CMP16_DE_HL                 ; $14A9  CD FD 19
         JP C,SUB_1465_4                  ; $14AC  DA B8 14
-        LD HL,(BUF_HIWATER)               ; $14AF  2A 6F 1A
+        LD HL,(BUF_HIWATER)              ; $14AF  2A 6F 1A
         LD ($1D28),HL                    ; $14B2  22 28 1D
         JP SUB_1465_5                    ; $14B5  C3 C3 14
 SUB_1465_4:
@@ -2878,17 +2880,17 @@ SUB_1465_5:
 PULL_SRC_LINE:
         LD BC,$1D24                      ; $14C4  01 24 1D
         LD DE,$1D22                      ; $14C7  11 22 1D
-        CALL CMP16_BC_DE                    ; $14CA  CD ED 19
+        CALL CMP16_BC_DE                 ; $14CA  CD ED 19
         JP C,SUB_14C4_1                  ; $14CD  DA D3 14
-        JP PROMPT_RANGE                 ; $14D0  C3 ED 02
+        JP PROMPT_RANGE                  ; $14D0  C3 ED 02
 SUB_14C4_1:
-        CALL SRC_GETCH                    ; $14D3  CD DA 0E
+        CALL SRC_GETCH                   ; $14D3  CD DA 0E
         LD C,A                           ; $14D6  4F
-        CALL STORE_CASE                    ; $14D7  CD 04 15
+        CALL STORE_CASE                  ; $14D7  CD 04 15
         LD ($1D36),A                     ; $14DA  32 36 1D
         CP $1A                           ; $14DD  FE 1A
         JP NZ,SUB_14C4_2                 ; $14DF  C2 E6 14
-        CALL CLEAR_COUNT                    ; $14E2  CD 9B 12
+        CALL CLEAR_COUNT                 ; $14E2  CD 9B 12
         RET                              ; $14E5  C9
 SUB_14C4_2:
         LD HL,($1D22)                    ; $14E6  2A 22 1D
@@ -2896,14 +2898,14 @@ SUB_14C4_2:
         ADD HL,BC                        ; $14EC  09
         LD A,($1D36)                     ; $14ED  3A 36 1D
         LD (HL),A                        ; $14F0  77
-        CALL SRC_CP_INC                    ; $14F1  CD A2 13
+        CALL SRC_CP_INC                  ; $14F1  CD A2 13
         LD A,($1D36)                     ; $14F4  3A 36 1D
         CP $0A                           ; $14F7  FE 0A
         JP NZ,SUB_14C4_3                 ; $14F9  C2 00 15
-        CALL LINENO_INC                    ; $14FC  CD C2 13
+        CALL LINENO_INC                  ; $14FC  CD C2 13
         RET                              ; $14FF  C9
 SUB_14C4_3:
-        JP PULL_SRC_LINE                      ; $1500  C3 C4 14
+        JP PULL_SRC_LINE                 ; $1500  C3 C4 14
         DEFB    $C9                                              ; $1503
 ; [AI] Stores a character into the edit buffer applying case translation only when the upper-case
 ;       mode flag is set.
@@ -2915,7 +2917,7 @@ STORE_CASE:
         JP NC,SUB_1504_1                 ; $150C  D2 17 15
         LD HL,($1D37)                    ; $150F  2A 37 1D
         LD C,L                           ; $1512  4D
-        CALL FOLD_CASE                    ; $1513  CD 92 10
+        CALL FOLD_CASE                   ; $1513  CD 92 10
         RET                              ; $1516  C9
 SUB_1504_1:
         LD A,($1D37)                     ; $1517  3A 37 1D
@@ -2923,47 +2925,47 @@ SUB_1504_1:
 ; [AI] Copies one line from the edit buffer out to the destination/output stream, advancing the
 ;       destination index and incrementing the line count on newline.
 WRITE_LINE:
-        LD BC,BUF_HIWATER                 ; $151B  01 6F 1A
+        LD BC,BUF_HIWATER                ; $151B  01 6F 1A
         LD DE,$1D24                      ; $151E  11 24 1D
-        CALL CMP16_BC_DE                    ; $1521  CD ED 19
+        CALL CMP16_BC_DE                 ; $1521  CD ED 19
         JP C,SUB_151B_1                  ; $1524  DA 2B 15
-        CALL CLEAR_COUNT                    ; $1527  CD 9B 12
+        CALL CLEAR_COUNT                 ; $1527  CD 9B 12
         RET                              ; $152A  C9
 SUB_151B_1:
-        CALL DST_CP_INC                    ; $152B  CD AA 13
+        CALL DST_CP_INC                  ; $152B  CD AA 13
         LD HL,($1D24)                    ; $152E  2A 24 1D
         LD BC,$1D4D                      ; $1531  01 4D 1D
         ADD HL,BC                        ; $1534  09
         LD A,(HL)                        ; $1535  7E
         LD ($1D38),A                     ; $1536  32 38 1D
         LD C,A                           ; $1539  4F
-        CALL OUT_PUTCH                    ; $153A  CD 6D 0F
+        CALL OUT_PUTCH                   ; $153A  CD 6D 0F
         LD A,($1D38)                     ; $153D  3A 38 1D
         CP $0A                           ; $1540  FE 0A
         JP NZ,SUB_151B_2                 ; $1542  C2 49 15
-        CALL LINENO_INC                    ; $1545  CD C2 13
+        CALL LINENO_INC                  ; $1545  CD C2 13
         RET                              ; $1548  C9
 SUB_151B_2:
-        JP WRITE_LINE                      ; $1549  C3 1B 15
+        JP WRITE_LINE                    ; $1549  C3 1B 15
         DEFB    $C9                                              ; $154C
 ; [AI] Copies a span of complete lines from the buffer to the output file until the destination
 ;       boundary is reached, used by the write/scroll-down operations.
 WRITE_LINES:
-        CALL SET_COUNT_MAX                    ; $154D  CD 87 12
+        CALL SET_COUNT_MAX               ; $154D  CD 87 12
 SUB_154D_1:
-        CALL COUNT_DEC_TEST                    ; $1550  CD A2 12
+        CALL COUNT_DEC_TEST              ; $1550  CD A2 12
         RRA                              ; $1553  1F
         JP NC,SUB_154D_4                 ; $1554  D2 75 15
         LD BC,$1D24                      ; $1557  01 24 1D
-        LD DE,BUF_HIWATER                 ; $155A  11 6F 1A
-        CALL CMP16_BC_DE                    ; $155D  CD ED 19
-        LD DE,BUF_LIMIT                 ; $1560  11 71 1A
-        CALL CMP16_DE_HL                    ; $1563  CD FD 19
+        LD DE,BUF_HIWATER                ; $155A  11 6F 1A
+        CALL CMP16_BC_DE                 ; $155D  CD ED 19
+        LD DE,BUF_LIMIT                  ; $1560  11 71 1A
+        CALL CMP16_DE_HL                 ; $1563  CD FD 19
         JP C,SUB_154D_2                  ; $1566  DA 6F 15
-        CALL CLEAR_COUNT                    ; $1569  CD 9B 12
+        CALL CLEAR_COUNT                 ; $1569  CD 9B 12
         JP SUB_154D_3                    ; $156C  C3 72 15
 SUB_154D_2:
-        CALL WRITE_LINE                    ; $156F  CD 1B 15
+        CALL WRITE_LINE                  ; $156F  CD 1B 15
 SUB_154D_3:
         JP SUB_154D_1                    ; $1572  C3 50 15
 SUB_154D_4:
@@ -2977,75 +2979,75 @@ WRITE_AND_REFILL:
         LD ($1D26),HL                    ; $157E  22 26 1D
         LD HL,($1D24)                    ; $1581  2A 24 1D
         LD ($1D28),HL                    ; $1584  22 28 1D
-        CALL MOVE_CP_FWD                    ; $1587  CD 52 14
-        CALL COUNT_NONZERO                    ; $158A  CD 8E 12
+        CALL MOVE_CP_FWD                 ; $1587  CD 52 14
+        CALL COUNT_NONZERO               ; $158A  CD 8E 12
         RRA                              ; $158D  1F
         JP NC,SUB_1576_1                 ; $158E  D2 94 15
-        CALL WRITE_LINES                    ; $1591  CD 4D 15
+        CALL WRITE_LINES                 ; $1591  CD 4D 15
 SUB_1576_1:
-        CALL COUNT_DEC_TEST                    ; $1594  CD A2 12
+        CALL COUNT_DEC_TEST              ; $1594  CD A2 12
         RRA                              ; $1597  1F
         JP NC,SUB_1576_2                 ; $1598  D2 A1 15
-        CALL WRITE_LINE                    ; $159B  CD 1B 15
+        CALL WRITE_LINE                  ; $159B  CD 1B 15
         JP SUB_1576_1                    ; $159E  C3 94 15
 SUB_1576_2:
         LD BC,$1D28                      ; $15A1  01 28 1D
         LD DE,$1D24                      ; $15A4  11 24 1D
-        CALL CMP16_BC_DE                    ; $15A7  CD ED 19
+        CALL CMP16_BC_DE                 ; $15A7  CD ED 19
         JP NC,SUB_1576_3                 ; $15AA  D2 B5 15
         LD HL,$1D20                      ; $15AD  21 20 1D
         LD (HL),$01                      ; $15B0  36 01
-        CALL MOVE_CP_FWD                    ; $15B2  CD 52 14
+        CALL MOVE_CP_FWD                 ; $15B2  CD 52 14
 SUB_1576_3:
         RET                              ; $15B5  C9
 ; [AI] Resets the repeat count to maximum and then runs the write-and-refill loop, flushing as much
 ;       as fits.
 WRITE_ALL:
-        CALL SET_COUNT_MAX                    ; $15B6  CD 87 12
-        CALL WRITE_AND_REFILL                    ; $15B9  CD 76 15
+        CALL SET_COUNT_MAX               ; $15B6  CD 87 12
+        CALL WRITE_AND_REFILL            ; $15B9  CD 76 15
         RET                              ; $15BC  C9
 ; [AI] Closes out the current file pass: writes remaining buffered lines, copies through the rest
 ;       of the source to the output, then finalizes the output file.
 CLOSE_PASS:
-        CALL WRITE_ALL                    ; $15BD  CD B6 15
+        CALL WRITE_ALL                   ; $15BD  CD B6 15
 SUB_15BD_1:
-        CALL SRC_GETCH                    ; $15C0  CD DA 0E
+        CALL SRC_GETCH                   ; $15C0  CD DA 0E
         LD ($1D21),A                     ; $15C3  32 21 1D
         CP $1A                           ; $15C6  FE 1A
         JP Z,SUB_15BD_2                  ; $15C8  CA D5 15
         LD HL,($1D21)                    ; $15CB  2A 21 1D
         LD C,L                           ; $15CE  4D
-        CALL OUT_PUTCH                    ; $15CF  CD 6D 0F
+        CALL OUT_PUTCH                   ; $15CF  CD 6D 0F
         JP SUB_15BD_1                    ; $15D2  C3 C0 15
 SUB_15BD_2:
-        CALL CLOSE_OUTPUT                    ; $15D5  CD CB 0F
+        CALL CLOSE_OUTPUT                ; $15D5  CD CB 0F
         RET                              ; $15D8  C9
 ; [AI] Inserts the character in the line-store into the edit buffer at the current position and
 ;       advances the pointers, growing the buffer for typed/inserted text.
 BUFFER_INSERT_CH:
         LD BC,$1D24                      ; $15D9  01 24 1D
         LD DE,$1D22                      ; $15DC  11 22 1D
-        CALL CMP16_BC_DE                    ; $15DF  CD ED 19
+        CALL CMP16_BC_DE                 ; $15DF  CD ED 19
         OR L                             ; $15E2  B5
         JP NZ,SUB_15D9_1                 ; $15E3  C2 E9 15
-        JP PROMPT_RANGE                 ; $15E6  C3 ED 02
+        JP PROMPT_RANGE                  ; $15E6  C3 ED 02
 SUB_15D9_1:
         LD HL,($1D22)                    ; $15E9  2A 22 1D
         LD BC,$1D4D                      ; $15EC  01 4D 1D
         ADD HL,BC                        ; $15EF  09
         LD A,($1D21)                     ; $15F0  3A 21 1D
         LD (HL),A                        ; $15F3  77
-        CALL SRC_CP_INC                    ; $15F4  CD A2 13
+        CALL SRC_CP_INC                  ; $15F4  CD A2 13
         LD A,($1D21)                     ; $15F7  3A 21 1D
         CP $0A                           ; $15FA  FE 0A
         JP NZ,SUB_15D9_2                 ; $15FC  C2 02 16
-        CALL LINENO_INC                    ; $15FF  CD C2 13
+        CALL LINENO_INC                  ; $15FF  CD C2 13
 SUB_15D9_2:
         RET                              ; $1602  C9
 ; [AI] Reads the next command/insert character and returns a flag distinguishing an end-of-insert
 ;       terminator (Ctrl-Z/CR) from ordinary text.
 GET_INSERT_CH:
-        CALL GET_COMMAND_CH                    ; $1603  CD 65 11
+        CALL GET_COMMAND_CH              ; $1603  CD 65 11
         LD ($1D21),A                     ; $1606  32 21 1D
         SUB $1A                          ; $1609  D6 1A
         SUB $01                          ; $160B  D6 01
@@ -3069,7 +3071,7 @@ GET_INSERT_CH:
 ; [AI] Collects a search/replace string argument from the command line into a work buffer,
 ;       translating Ctrl-L into CR/LF and stopping at the delimiter.
 READ_STRING_ARG:
-        CALL GET_INSERT_CH                    ; $1624  CD 03 16
+        CALL GET_INSERT_CH               ; $1624  CD 03 16
         RRA                              ; $1627  1F
         JP NC,SUB_1624_3                 ; $1628  D2 51 16
         LD A,($1D21)                     ; $162B  3A 21 1D
@@ -3077,17 +3079,17 @@ READ_STRING_ARG:
         JP NZ,SUB_1624_1                 ; $1630  C2 40 16
         LD HL,$1D21                      ; $1633  21 21 1D
         LD (HL),$0D                      ; $1636  36 0D
-        CALL STORE_STRING_CH                    ; $1638  CD 52 16
+        CALL STORE_STRING_CH             ; $1638  CD 52 16
         LD HL,$1D21                      ; $163B  21 21 1D
         LD (HL),$0A                      ; $163E  36 0A
 SUB_1624_1:
         LD A,($1D21)                     ; $1640  3A 21 1D
         CP $00                           ; $1643  FE 00
         JP NZ,SUB_1624_2                 ; $1645  C2 4B 16
-        JP PROMPT_QUERY                 ; $1648  C3 E2 02
+        JP PROMPT_QUERY                  ; $1648  C3 E2 02
 SUB_1624_2:
-        CALL STORE_STRING_CH                    ; $164B  CD 52 16
-        JP READ_STRING_ARG                      ; $164E  C3 24 16
+        CALL STORE_STRING_CH             ; $164B  CD 52 16
+        JP READ_STRING_ARG               ; $164E  C3 24 16
 SUB_1624_3:
         RET                              ; $1651  C9
 ; [AI] Appends one character to the search-string work buffer, aborting with an error if the string
@@ -3104,7 +3106,7 @@ STORE_STRING_CH:
         LD ($1D04),A                     ; $1663  32 04 1D
         CP $64                           ; $1666  FE 64
         JP C,SUB_1652_1                  ; $1668  DA 6E 16
-        JP PROMPT_RANGE                 ; $166B  C3 ED 02
+        JP PROMPT_RANGE                  ; $166B  C3 ED 02
 SUB_1652_1:
         RET                              ; $166E  C9
 ; [AI] String matcher: scans the edit buffer for the collected search string starting at the
@@ -3122,9 +3124,9 @@ SUB_166F_1:
         LD A,($1D3E)                     ; $1680  3A 3E 1D
         CPL                              ; $1683  2F
         LD DE,$1D3B                      ; $1684  11 3B 1D
-        LD BC,BUF_HIWATER                 ; $1687  01 6F 1A
+        LD BC,BUF_HIWATER                ; $1687  01 6F 1A
         PUSH AF                          ; $168A  F5
-        CALL CMP16_BC_DE                    ; $168B  CD ED 19
+        CALL CMP16_BC_DE                 ; $168B  CD ED 19
         SBC A,A                          ; $168E  9F
         POP BC                           ; $168F  C1
         LD C,B                           ; $1690  48
@@ -3180,7 +3182,7 @@ SUB_166F_4:
         LD HL,($1D28)                    ; $16EE  2A 28 1D
         DEC HL                           ; $16F1  2B
         LD ($1D28),HL                    ; $16F2  22 28 1D
-        CALL MOVE_CP_FWD                    ; $16F5  CD 52 14
+        CALL MOVE_CP_FWD                 ; $16F5  CD 52 14
 SUB_166F_5:
         LD A,($1D3E)                     ; $16F8  3A 3E 1D
         RET                              ; $16FB  C9
@@ -3189,7 +3191,7 @@ SUB_166F_5:
 BEGIN_SEARCH:
         LD HL,$1D04                      ; $16FC  21 04 1D
         LD (HL),$00                      ; $16FF  36 00
-        CALL READ_STRING_ARG                    ; $1701  CD 24 16
+        CALL READ_STRING_ARG             ; $1701  CD 24 16
         LD A,($1D04)                     ; $1704  3A 04 1D
         LD ($1D03),A                     ; $1707  32 03 1D
         RET                              ; $170A  C9
@@ -3199,11 +3201,11 @@ DO_SEARCH:
         LD HL,($1D03)                    ; $170B  2A 03 1D
         EX DE,HL                         ; $170E  EB
         LD C,$00                         ; $170F  0E 00
-        CALL SEARCH_BUFFER                    ; $1711  CD 6F 16
+        CALL SEARCH_BUFFER               ; $1711  CD 6F 16
         CPL                              ; $1714  2F
         RRA                              ; $1715  1F
         JP NC,SUB_170B_1                 ; $1716  D2 1C 17
-        JP PROMPT_BREAK                 ; $1719  C3 D7 02
+        JP PROMPT_BREAK                  ; $1719  C3 D7 02
 SUB_170B_1:
         RET                              ; $171C  C9
 ; [AI] Stores a character (upper-cased) into the R-command library-name buffer while assembling the
@@ -3213,13 +3215,13 @@ STORE_LIBNAME_CH:
         LD C,L                           ; $1720  4D
         CALL TO_UPPER                    ; $1721  CD 79 10
         PUSH AF                          ; $1724  F5
-        LD A,(LIB_REC_INDEX)               ; $1725  3A 94 1A
+        LD A,(LIB_REC_INDEX)             ; $1725  3A 94 1A
         INC A                            ; $1728  3C
-        LD (LIB_REC_INDEX),A               ; $1729  32 94 1A
+        LD (LIB_REC_INDEX),A             ; $1729  32 94 1A
         DEC A                            ; $172C  3D
         LD C,A                           ; $172D  4F
         LD B,$00                         ; $172E  06 00
-        LD HL,LIB_FCB                 ; $1730  21 73 1A
+        LD HL,LIB_FCB                    ; $1730  21 73 1A
         ADD HL,BC                        ; $1733  09
         POP BC                           ; $1734  C1
         LD C,B                           ; $1735  48
@@ -3234,12 +3236,12 @@ PRINT_LINEPOS:
         ADD HL,DE                        ; $173F  19
         LD B,H                           ; $1740  44
         LD C,L                           ; $1741  4D
-        CALL PRINT_LINENO                    ; $1742  CD 19 11
+        CALL PRINT_LINENO                ; $1742  CD 19 11
         RET                              ; $1745  C9
 ; [AI] Types/displays a run of lines from the buffer to the console, the common output engine for
 ;       the T, P, and post-edit display commands, honoring console column for wrapping.
 TYPE_LINES:
-        CALL COMPUTE_RANGE                    ; $1746  CD B7 12
+        CALL COMPUTE_RANGE               ; $1746  CD B7 12
         LD HL,$1D0C                      ; $1749  21 0C 1D
         LD (HL),$01                      ; $174C  36 01
         LD A,($1D20)                     ; $174E  3A 20 1D
@@ -3280,19 +3282,19 @@ SUB_1746_3:
 SUB_1746_4:
         LD DE,$1D28                      ; $1795  11 28 1D
         LD BC,$1D3F                      ; $1798  01 3F 1D
-        CALL CMP16_BC_DE                    ; $179B  CD ED 19
+        CALL CMP16_BC_DE                 ; $179B  CD ED 19
         JP C,SUB_1746_6                  ; $179E  DA D9 17
         LD A,($1D41)                     ; $17A1  3A 41 1D
         CP $0A                           ; $17A4  FE 0A
         JP NZ,SUB_1746_5                 ; $17A6  C2 BD 17
-        CALL PRINT_LINEPOS                    ; $17A9  CD 38 17
+        CALL PRINT_LINEPOS               ; $17A9  CD 38 17
         LD HL,($1C12)                    ; $17AC  2A 12 1C
         INC HL                           ; $17AF  23
         LD ($1C12),HL                    ; $17B0  22 12 1C
-        CALL CHECK_BREAK                    ; $17B3  CD C4 0C
+        CALL CHECK_BREAK                 ; $17B3  CD C4 0C
         RRA                              ; $17B6  1F
         JP NC,SUB_1746_5                 ; $17B7  D2 BD 17
-        JP PROMPT_BREAK                 ; $17BA  C3 D7 02
+        JP PROMPT_BREAK                  ; $17BA  C3 D7 02
 SUB_1746_5:
         LD HL,($1D3F)                    ; $17BD  2A 3F 1D
         LD BC,$1D4D                      ; $17C0  01 4D 1D
@@ -3328,27 +3330,27 @@ RESTORE_COUNT:
 ; [AI] Implements one iteration of the P-command page display: saves position, types a page of
 ;       lines, then restores and advances, leaving the logical pointer unchanged.
 PAGE_STEP:
-        CALL SAVE_COUNT                    ; $17EF  CD E1 17
-        CALL SET_COUNT_PAGE                    ; $17F2  CD DA 17
-        CALL RANGE_MOVE_FWD                    ; $17F5  CD 5E 14
+        CALL SAVE_COUNT                  ; $17EF  CD E1 17
+        CALL SET_COUNT_PAGE              ; $17F2  CD DA 17
+        CALL RANGE_MOVE_FWD              ; $17F5  CD 5E 14
         LD A,($1D20)                     ; $17F8  3A 20 1D
         LD ($1D42),A                     ; $17FB  32 42 1D
         LD HL,$1D20                      ; $17FE  21 20 1D
         LD (HL),$01                      ; $1801  36 01
-        CALL SET_COUNT_PAGE                    ; $1803  CD DA 17
-        CALL TYPE_LINES                    ; $1806  CD 46 17
+        CALL SET_COUNT_PAGE              ; $1803  CD DA 17
+        CALL TYPE_LINES                  ; $1806  CD 46 17
         LD A,($1D42)                     ; $1809  3A 42 1D
         LD ($1D20),A                     ; $180C  32 20 1D
-        LD BC,BUF_HIWATER                 ; $180F  01 6F 1A
+        LD BC,BUF_HIWATER                ; $180F  01 6F 1A
         LD DE,$1D28                      ; $1812  11 28 1D
-        CALL CMP16_BC_DE                    ; $1815  CD ED 19
+        CALL CMP16_BC_DE                 ; $1815  CD ED 19
         OR L                             ; $1818  B5
         SUB $01                          ; $1819  D6 01
         SBC A,A                          ; $181B  9F
         PUSH AF                          ; $181C  F5
         LD A,$01                         ; $181D  3E 01
         LD DE,$1D26                      ; $181F  11 26 1D
-        CALL CMP16_A_DE                    ; $1822  CD FA 19
+        CALL CMP16_A_DE                  ; $1822  CD FA 19
         OR L                             ; $1825  B5
         SUB $01                          ; $1826  D6 01
         SBC A,A                          ; $1828  9F
@@ -3357,10 +3359,10 @@ PAGE_STEP:
         OR C                             ; $182B  B1
         RRA                              ; $182C  1F
         JP NC,SUB_17EF_1                 ; $182D  D2 36 18
-        CALL CLEAR_COUNT                    ; $1830  CD 9B 12
+        CALL CLEAR_COUNT                 ; $1830  CD 9B 12
         JP SUB_17EF_2                    ; $1833  C3 39 18
 SUB_17EF_1:
-        CALL RESTORE_COUNT                    ; $1836  CD E8 17
+        CALL RESTORE_COUNT               ; $1836  CD E8 17
 SUB_17EF_2:
         RET                              ; $1839  C9
 ; [AI] Z-command delay: loops up to 19 ($13) times calling a busy-wait, while polling the console
@@ -3373,13 +3375,13 @@ SUB_183A_1:
         LD HL,$1D43                      ; $1841  21 43 1D
         CP (HL)                          ; $1844  BE
         JP C,SUB_183A_3                  ; $1845  DA 61 18
-        CALL CHECK_BREAK                    ; $1848  CD C4 0C
+        CALL CHECK_BREAK                 ; $1848  CD C4 0C
         RRA                              ; $184B  1F
         JP NC,SUB_183A_2                 ; $184C  D2 52 18
-        JP SHOW_PROMPT                 ; $184F  C3 F5 02
+        JP SHOW_PROMPT                   ; $184F  C3 F5 02
 SUB_183A_2:
         LD A,$FA                         ; $1852  3E FA
-        CALL BUSY_WAIT                    ; $1854  CD 11 1A
+        CALL BUSY_WAIT                   ; $1854  CD 11 1A
         LD A,($1D43)                     ; $1857  3A 43 1D
         INC A                            ; $185A  3C
         LD ($1D43),A                     ; $185B  32 43 1D
@@ -3397,19 +3399,19 @@ SET_DEFAULT_ARG:
 ; [AI] Repeats PULL_SRC_LINE to pull source lines into the buffer until the requested boundary is
 ;       satisfied, used to guarantee enough text is loaded before an operation.
 PULL_SRC_LINES:
-        CALL SET_COUNT_MAX                    ; $186E  CD 87 12
+        CALL SET_COUNT_MAX               ; $186E  CD 87 12
 SUB_186E_1:
-        CALL COUNT_DEC_TEST                    ; $1871  CD A2 12
+        CALL COUNT_DEC_TEST              ; $1871  CD A2 12
         RRA                              ; $1874  1F
         JP NC,SUB_186E_4                 ; $1875  D2 90 18
-        LD BC,BUF_LIMIT                 ; $1878  01 71 1A
+        LD BC,BUF_LIMIT                  ; $1878  01 71 1A
         LD DE,$1D22                      ; $187B  11 22 1D
-        CALL CMP16_BC_DE                    ; $187E  CD ED 19
+        CALL CMP16_BC_DE                 ; $187E  CD ED 19
         JP C,SUB_186E_2                  ; $1881  DA 8A 18
-        CALL CLEAR_COUNT                    ; $1884  CD 9B 12
+        CALL CLEAR_COUNT                 ; $1884  CD 9B 12
         JP SUB_186E_3                    ; $1887  C3 8D 18
 SUB_186E_2:
-        CALL PULL_SRC_LINE                    ; $188A  CD C4 14
+        CALL PULL_SRC_LINE               ; $188A  CD C4 14
 SUB_186E_3:
         JP SUB_186E_1                    ; $188D  C3 71 18
 SUB_186E_4:
@@ -3419,10 +3421,10 @@ SUB_186E_4:
 BUFFER_INSERT_CRLF:
         LD HL,$1D21                      ; $1891  21 21 1D
         LD (HL),$0D                      ; $1894  36 0D
-        CALL BUFFER_INSERT_CH                    ; $1896  CD D9 15
+        CALL BUFFER_INSERT_CH            ; $1896  CD D9 15
         LD HL,$1D21                      ; $1899  21 21 1D
         LD (HL),$0A                      ; $189C  36 0A
-        CALL BUFFER_INSERT_CH                    ; $189E  CD D9 15
+        CALL BUFFER_INSERT_CH            ; $189E  CD D9 15
         RET                              ; $18A1  C9
 ; [AI] Applies case translation to a command character and records whether translation occurred,
 ;       supporting the U/-U upper-case mode for following commands.
@@ -3435,7 +3437,7 @@ UPDATE_CASE_STATE:
         LD ($1D44),A                     ; $18AE  32 44 1D
         LD HL,($1D21)                    ; $18B1  2A 21 1D
         LD C,L                           ; $18B4  4D
-        CALL FOLD_CASE                    ; $18B5  CD 92 10
+        CALL FOLD_CASE                   ; $18B5  CD 92 10
         LD ($1D21),A                     ; $18B8  32 21 1D
         LD A,($1D44)                     ; $18BB  3A 44 1D
         CPL                              ; $18BE  2F
@@ -3449,9 +3451,9 @@ UPDATE_CASE_STATE:
 GET_COMMAND_RAW:
         LD HL,$1D0F                      ; $18C6  21 0F 1D
         LD (HL),$00                      ; $18C9  36 00
-        CALL GET_COMMAND_CH                    ; $18CB  CD 65 11
+        CALL GET_COMMAND_CH              ; $18CB  CD 65 11
         LD ($1D21),A                     ; $18CE  32 21 1D
-        CALL UPDATE_CASE_STATE                    ; $18D1  CD A2 18
+        CALL UPDATE_CASE_STATE           ; $18D1  CD A2 18
         RET                              ; $18D4  C9
 ; [AI] Compares the current command character (in $1D21) against the candidate in C while honoring
 ;       buffer/echo guards, the predicate behind several single-letter command tests.
@@ -3487,17 +3489,17 @@ CONFIRM_CMD:
         LD (HL),C                        ; $18FF  71
         LD HL,($1D46)                    ; $1900  2A 46 1D
         LD C,L                           ; $1903  4D
-        CALL MATCH_CMD                    ; $1904  CD D5 18
+        CALL MATCH_CMD                   ; $1904  CD D5 18
         RRA                              ; $1907  1F
         JP NC,SUB_18FC_2                 ; $1908  D2 38 19
         CALL PUT_CRLF                    ; $190B  CD EF 0B
         LD HL,($1D46)                    ; $190E  2A 46 1D
         LD C,L                           ; $1911  4D
-        CALL CON_PUTCH                    ; $1912  CD FC 0A
-        LD DE,MSG_YN_PROMPT               ; $1915  11 A0 01
+        CALL CON_PUTCH                   ; $1912  CD FC 0A
+        LD DE,MSG_YN_PROMPT              ; $1915  11 A0 01
         LD C,$09                         ; $1918  0E 09
         CALL BDOS_VEC                    ; $191A  CD 05 00
-        CALL CON_GETCH                    ; $191D  CD F3 0A
+        CALL CON_GETCH                   ; $191D  CD F3 0A
         LD C,A                           ; $1920  4F
         CALL TO_UPPER                    ; $1921  CD 79 10
         LD ($1D46),A                     ; $1924  32 46 1D
@@ -3548,7 +3550,7 @@ SUB_194A_1:
         POP BC                           ; $196A  C1
         ADD HL,BC                        ; $196B  09
         LD ($1D1C),HL                    ; $196C  22 1C 1D
-        CALL GET_COMMAND_RAW                    ; $196F  CD C6 18
+        CALL GET_COMMAND_RAW             ; $196F  CD C6 18
         JP SUB_194A_1                    ; $1972  C3 50 19
 SUB_194A_2:
         RET                              ; $1975  C9
@@ -3557,13 +3559,13 @@ SUB_194A_2:
 LINENO_TO_OFFSET:
         LD DE,$1C10                      ; $1976  11 10 1C
         LD BC,$1D1C                      ; $1979  01 1C 1D
-        CALL CMP16_BC_DE                    ; $197C  CD ED 19
+        CALL CMP16_BC_DE                 ; $197C  CD ED 19
         JP NC,SUB_1976_1                 ; $197F  D2 98 19
         LD HL,$1D20                      ; $1982  21 20 1D
         LD (HL),$01                      ; $1985  36 01
         LD BC,$1C10                      ; $1987  01 10 1C
         LD DE,$1D1C                      ; $198A  11 1C 1D
-        CALL CMP16_BC_DE                    ; $198D  CD ED 19
+        CALL CMP16_BC_DE                 ; $198D  CD ED 19
         EX DE,HL                         ; $1990  EB
         DEC HL                           ; $1991  2B
         LD (HL),E                        ; $1992  73
@@ -3575,7 +3577,7 @@ SUB_1976_1:
         LD (HL),$00                      ; $199B  36 00
         LD BC,$1D1C                      ; $199D  01 1C 1D
         LD DE,$1C10                      ; $19A0  11 10 1C
-        CALL CMP16_BC_DE                    ; $19A3  CD ED 19
+        CALL CMP16_BC_DE                 ; $19A3  CD ED 19
         LD ($1D1C),HL                    ; $19A6  22 1C 1D
 SUB_1976_2:
         RET                              ; $19A9  C9
@@ -3616,7 +3618,7 @@ SHL_HL:
 SUB_19CD_1:
         DEC C                            ; $19CE  0D
 SUB_19CD_2:
-        JP NZ,SHL_HL                   ; $19CF  C2 CD 19
+        JP NZ,SHL_HL                     ; $19CF  C2 CD 19
 SUB_19CD_3:
         RET                              ; $19D2  C9
 ; [AI] Loads HL from the word pointed to by HL, then falls into the C-step right-shift to scale a
@@ -3648,7 +3650,7 @@ SUB_19D7_6:
 SUB_19D7_7:
         DEC C                            ; $19DE  0D
 SUB_19D7_8:
-        JP NZ,SHR_HL                   ; $19DF  C2 D7 19
+        JP NZ,SHR_HL                     ; $19DF  C2 D7 19
 SUB_19D7_9:
         RET                              ; $19E2  C9
 ; [AI] Computes A - HL as a 16-bit subtraction (HL = A - HL), a small signed-difference helper.
