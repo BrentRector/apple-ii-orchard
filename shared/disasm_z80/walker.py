@@ -133,6 +133,9 @@ class Walker:
             if cur_head is None:
                 used.add(name)                 # before any head -- leave as-is
                 continue
+            if addr not in self.code:          # a referenced data cell (RAM/var),
+                used.add(name)                 # not a routine local -- keep its L_xxxx
+                continue
             counter += 1
             candidate = f"{cur_head}_{counter}"
             if candidate in used:              # never emit a duplicate label

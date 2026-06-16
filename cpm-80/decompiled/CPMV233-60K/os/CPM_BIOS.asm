@@ -56,7 +56,7 @@ SECTRAN:
         LD H,B                           ; $FA30  60
         LD L,C                           ; $FA31  69
         RET                              ; $FA32  C9
-SECTRAN_1:
+L_FA33:
         DEFB    $00,$00,$19,$00,$00,$00,$00,$00,$FD,$FE,$73,$FA,$C5,$FF,$7D,$FF ; $FA33
         DEFS    8, $00    ; $FA43  fill
         DEFB    $FD,$FE,$73,$FA,$D1,$FF,$8F,$FF,$00,$00,$00,$00,$00,$00,$00,$00 ; $FA4B
@@ -218,7 +218,7 @@ CONSOLE_WRITE_CHAR:
         LD L,(HL)                        ; $FBA5  6E
         INC L                            ; $FBA6  2C
         JP Z,CONSOLE_PUT_CHAR            ; $FBA7  CA A4 FC
-        LD HL,SELDSK_IMPL_4_1_FEE4       ; $FBAA  21 E4 FE
+        LD HL,L_FEE4                     ; $FBAA  21 E4 FE
         LD (HL),A                        ; $FBAD  77
         RES 7,C                          ; $FBAE  CB B9
         INC HL                           ; $FBB0  23
@@ -227,7 +227,7 @@ CONSOLE_WRITE_CHAR:
         JP Z,CHECK_UNIT_DEFAULT          ; $FBB3  CA 56 FC
         DEC (HL)                         ; $FBB6  35
         LD A,($F396)                     ; $FBB7  3A 96 F3
-        LD HL,SELDSK_IMPL_4_7            ; $FBBA  21 ED FE
+        LD HL,L_FEED                     ; $FBBA  21 ED FE
         JR Z,SUB_FBC4_2                  ; $FBBD  28 0C
         OR A                             ; $FBBF  B7
         JP P,SUB_FBC4_1                  ; $FBC0  F2 C6 FB
@@ -246,7 +246,7 @@ SUB_FBC4_2:
         DEC HL                           ; $FBCF  2B
 CURSOR_POSITION:
         CALL SUB_FBC4                    ; $FBD0  CD C4 FB
-        LD HL,(SELDSK_IMPL_4_6)          ; $FBD3  2A EC FE
+        LD HL,(L_FEEC)                   ; $FBD3  2A EC FE
         LD A,($F3A1)                     ; $FBD6  3A A1 F3
         OR A                             ; $FBD9  B7
         JP P,EMIT_CURSOR_MOVE            ; $FBDA  F2 E2 FB
@@ -270,7 +270,7 @@ SUB_FBF0:
         JP CONSOLE_PUT_CHAR              ; $FBF1  C3 A4 FC
 BIOS_SETSEC:
         LD A,C                           ; $FBF4  79
-        LD (SELDSK_IMPL_4_5),A           ; $FBF5  32 EB FE
+        LD (L_FEEB),A                    ; $FBF5  32 EB FE
         RET                              ; $FBF8  C9
 BIOS_SETDMA:
         LD (SELDSK_IMPL_4_3),BC          ; $FBF9  ED 43 FA FE
@@ -278,7 +278,7 @@ BIOS_SETDMA:
         DEFS    88, $00    ; $FBFE  fill
 CHECK_UNIT_DEFAULT:
         LD B,A                           ; $FC56  47
-        LD HL,SELDSK_IMPL_4_3_FEE6       ; $FC57  21 E6 FE
+        LD HL,L_FEE6                     ; $FC57  21 E6 FE
         LD A,(HL)                        ; $FC5A  7E
         LD E,A                           ; $FC5B  5F
         OR A                             ; $FC5C  B7
@@ -327,11 +327,11 @@ BIOS_SETDMA_7:
         CP $07                           ; $FC9B  FE 07
         JR NZ,CONSOLE_PUT_CHAR           ; $FC9D  20 05
         LD A,$02                         ; $FC9F  3E 02
-        LD (SELDSK_IMPL_4_2_FEE5),A      ; $FCA1  32 E5 FE
+        LD (L_FEE5),A                    ; $FCA1  32 E5 FE
 CONSOLE_PUT_CHAR:
         XOR A                            ; $FCA4  AF
-        LD (SELDSK_IMPL_4_3_FEE6),A      ; $FCA5  32 E6 FE
-        LD A,(SELDSK_IMPL_4_1_FEE4)      ; $FCA8  3A E4 FE
+        LD (L_FEE6),A                    ; $FCA5  32 E6 FE
+        LD A,(L_FEE4)                    ; $FCA8  3A E4 FE
         OR A                             ; $FCAB  B7
         LD HL,($F388)                    ; $FCAC  2A 88 F3
         JR Z,SUB_FCA4_1                  ; $FCAF  28 03
@@ -356,7 +356,7 @@ SUB_FCA4_1:
         DEFW    BIOS_SETSEC              ; $FD33
         DEFB    $C9,$AF,$6F,$67,$22,$24,$F0,$32,$45,$F0,$21,$C1,$FB,$C9,$2E,$42 ; $FD35
         DEFB    $01,$2E,$9C,$01,$2E,$1A,$01,$2E,$58,$26,$FC,$C9,$2A ; $FD45
-        DEFW    SELDSK_IMPL_4_6          ; $FD52
+        DEFW    L_FEEC                   ; $FD52
         DEFB    $7D,$FE,$28,$38,$02,$2E,$00,$7C,$FE,$18,$38,$02,$26,$00,$22,$24 ; $FD54
         DEFB    $F0,$18,$D5,$4C,$43,$46,$28,$2B,$36,$30,$49,$32,$51,$CD ; $FD64
         DEFW    INIT_PASCAL_1_0          ; $FD72
@@ -400,7 +400,7 @@ INIT_PASCAL_1_1:
         DEFW    SLOT_IOBASE_80           ; $FE65
         DEFB    $71,$C9,$11,$02,$00,$C3,$68,$FE,$11,$02,$00,$3E,$1A,$C9 ; $FE67
 INIT_PASCAL_1_1_1:
-        LD A,(SELDSK_IMPL_4_1_1)         ; $FE75  3A F2 FE
+        LD A,(L_FEF2)                    ; $FE75  3A F2 FE
         OR A                             ; $FE78  B7
 INIT_PASCAL_1_1_1_1:
         JR NZ,INIT_PASCAL_1_1_2          ; $FE79  20 03
@@ -409,7 +409,7 @@ INIT_PASCAL_1_1_2:
         LD C,$00                         ; $FE7E  0E 00
 INIT_PASCAL_1_1_3:
         LD A,C                           ; $FE80  79
-        LD (SELDSK_IMPL_4_4_FEEA),A      ; $FE81  32 EA FE
+        LD (L_FEEA),A                    ; $FE81  32 EA FE
         RET                              ; $FE84  C9
 SLOT_IOBASE_80:
         LD HL,$E080                      ; $FE85  21 80 E0
@@ -429,7 +429,7 @@ SELDSK_IMPL:
         POP AF                           ; $FE95  F1
         RET                              ; $FE96  C9
 SELDSK_IMPL_1:
-        LD DE,SELDSK_IMPL_4_8            ; $FE97  11 EE FE
+        LD DE,L_FEEE                     ; $FE97  11 EE FE
         LD HL,CDISK                      ; $FE9A  21 04 00
         LD A,(SLOT_INFO_BASE)            ; $FE9D  3A B8 F3
         DEC A                            ; $FEA0  3D
@@ -440,7 +440,7 @@ SELDSK_IMPL_1:
         INC DE                           ; $FEA6  13
         LD A,C                           ; $FEA7  79
         LD (DE),A                        ; $FEA8  12
-        LD HL,SECTRAN_1                  ; $FEA9  21 33 FA
+        LD HL,L_FA33                     ; $FEA9  21 33 FA
         CALL SELDSK_IMPL                 ; $FEAC  CD 8E FE
         PUSH HL                          ; $FEAF  E5
         LD DE,$000A                      ; $FEB0  11 0A 00
@@ -451,7 +451,7 @@ SELDSK_IMPL_1:
         LD HL,BDOS_VEC                   ; $FEB7  21 05 00
         ADD HL,DE                        ; $FEBA  19
         LD A,(HL)                        ; $FEBB  7E
-        LD (SELDSK_IMPL_4_3_1),A         ; $FEBC  32 FC FE
+        LD (L_FEFC),A                    ; $FEBC  32 FC FE
         POP HL                           ; $FEBF  E1
         RET                              ; $FEC0  C9
 SELDSK_IMPL_2:
@@ -468,31 +468,31 @@ SELDSK_IMPL_4:
         DEFB    $CD                                              ; $FED2
         DEFW    RPC_DISPATCH             ; $FED3
         DEFB    $32,$8B,$E0,$C9,$32,$83,$E0,$2A,$0D,$DC,$E9,$32,$83,$E0,$C9 ; $FED5
-SELDSK_IMPL_4_1_FEE4:
+L_FEE4:
         DEFB    $FF                                              ; $FEE4
-SELDSK_IMPL_4_2_FEE5:
+L_FEE5:
         DEFB    $00                                              ; $FEE5
-SELDSK_IMPL_4_3_FEE6:
+L_FEE6:
         DEFB    $00,$E9,$FE,$00                                  ; $FEE6
-SELDSK_IMPL_4_4_FEEA:
+L_FEEA:
         DEFB    $03                                              ; $FEEA
-SELDSK_IMPL_4_5:
+L_FEEB:
         DEFB    $0B                                              ; $FEEB
-SELDSK_IMPL_4_6:
+L_FEEC:
         DEFB    $01                                              ; $FEEC
-SELDSK_IMPL_4_7:
+L_FEED:
         DEFB    $AF                                              ; $FEED
-SELDSK_IMPL_4_8:
+L_FEEE:
         DEFB    $00,$00,$00                                      ; $FEEE
 SELDSK_IMPL_4_1:
         DEFB    $01                                              ; $FEF1
-SELDSK_IMPL_4_1_1:
+L_FEF2:
         DEFB    $00,$02,$02,$02                                  ; $FEF2
 SELDSK_IMPL_4_2:
         DEFB    $00,$95,$32,$03                                  ; $FEF6
 SELDSK_IMPL_4_3:
         DEFB    $80,$00                                          ; $FEFA
-SELDSK_IMPL_4_3_1:
+L_FEFC:
         DEFB    $8B,$E5,$E5,$E5,$E5,$E5,$E5,$E5,$E5,$E5,$E5,$E5,$E5,$E5,$E5,$E5 ; $FEFC
         DEFS    77, $E5    ; $FF0C  fill
 SELDSK_IMPL_4_4:
