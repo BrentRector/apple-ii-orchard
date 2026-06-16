@@ -14,6 +14,9 @@ BDOS_VEC             EQU $0005               ; BDOS call vector — JP BDOS_ENTR
 DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS cold-init / DRV_ALLRESET (fn 13) set the DMA address here and WBOOT re-issues SETDMA($0080); sector/record I/O moves 128 bytes through it. At program load this same buffer doubles as the command tail: the first byte ($0080) holds the tail length (0-127) and the characters follow at $0081 (CMDLINE).
 BDOS_ENTRY_220       EQU $CC06               ; BDOS entry point -- planted at $0005-$0007 as JP $CC06
 
+; -- Mid-instruction references (shown inline as cover+offset) --
+;   $DEAF -> COLD_BOOT_IMPL_2+2   z80 skip idiom: enters the operand of $21 at $DEAD
+
     ORG $DA00
 
 ; [AI] Cold-start BIOS entry (jump-table slot 0); runs once at system load to initialize the
@@ -124,8 +127,8 @@ WBOOT_IMPL:
         CALL $DFE8                       ; $DAD5  CD E8 DF
         CALL WBOOT_DEV_REINIT            ; $DAD8  CD A2 DA
         XOR A                            ; $DADB  AF
-        LD ($DEB4),A                     ; $DADC  32 B4 DE
-        LD ($DEAF),A                     ; $DADF  32 AF DE
+        LD (COLD_BOOT_IMPL_3),A          ; $DADC  32 B4 DE
+        LD (COLD_BOOT_IMPL_2+2),A        ; $DADF  32 AF DE
         LD A,$C3                         ; $DAE2  3E C3
         LD (WBOOT_VEC),A                 ; $DAE4  32 00 00
         LD HL,WBOOT                      ; $DAE7  21 03 DA
@@ -179,6 +182,7 @@ CONIN_IMPL:
         PUSH HL                          ; $DB26  E5
 CONIN_IMPL_1:
         PUSH HL                          ; $DB27  E5
+CONIN_IMPL_1_1:
         PUSH HL                          ; $DB28  E5
         PUSH HL                          ; $DB29  E5
         PUSH HL                          ; $DB2A  E5
@@ -186,6 +190,7 @@ CONIN_IMPL_1:
         PUSH HL                          ; $DB2C  E5
         PUSH HL                          ; $DB2D  E5
         PUSH HL                          ; $DB2E  E5
+CONIN_IMPL_1_2:
         PUSH HL                          ; $DB2F  E5
         PUSH HL                          ; $DB30  E5
         PUSH HL                          ; $DB31  E5
@@ -221,6 +226,7 @@ CONOUT_IMPL:
         PUSH HL                          ; $DB4D  E5
         PUSH HL                          ; $DB4E  E5
         PUSH HL                          ; $DB4F  E5
+CONOUT_IMPL_1:
         PUSH HL                          ; $DB50  E5
         PUSH HL                          ; $DB51  E5
         PUSH HL                          ; $DB52  E5
@@ -321,8 +327,10 @@ READER_IMPL:
         PUSH HL                          ; $DBAE  E5
         PUSH HL                          ; $DBAF  E5
         PUSH HL                          ; $DBB0  E5
+READER_IMPL_1:
         PUSH HL                          ; $DBB1  E5
         PUSH HL                          ; $DBB2  E5
+READER_IMPL_2:
         PUSH HL                          ; $DBB3  E5
         PUSH HL                          ; $DBB4  E5
         PUSH HL                          ; $DBB5  E5
@@ -333,6 +341,7 @@ READER_IMPL:
         PUSH HL                          ; $DBBA  E5
         PUSH HL                          ; $DBBB  E5
         PUSH HL                          ; $DBBC  E5
+READER_IMPL_3:
         PUSH HL                          ; $DBBD  E5
         PUSH HL                          ; $DBBE  E5
         PUSH HL                          ; $DBBF  E5
@@ -351,6 +360,7 @@ READER_IMPL:
         PUSH HL                          ; $DBCC  E5
         PUSH HL                          ; $DBCD  E5
         PUSH HL                          ; $DBCE  E5
+READER_IMPL_4:
         PUSH HL                          ; $DBCF  E5
         PUSH HL                          ; $DBD0  E5
         PUSH HL                          ; $DBD1  E5
@@ -405,8 +415,9 @@ SUB_DBDD:
         LD A,(CDISK)                     ; $DC01  3A 04 00
         LD C,A                           ; $DC04  4F
         JP $C400                         ; $DC05  C3 00 C4
-        DEFB    $2A,$80,$F3,$E9,$3A,$00,$E0,$17,$9F,$C9,$CD,$50,$DB,$21,$AB,$F3 ; $DC08
-        DEFB    $06,$06,$4F                                      ; $DC18
+        DEFB    $2A,$80,$F3,$E9,$3A,$00,$E0,$17,$9F,$C9,$CD      ; $DC08
+        DEFW    CONOUT_IMPL_1            ; $DC13
+        DEFB    $21,$AB,$F3,$06,$06,$4F                          ; $DC15
 SUB_DBDD_1:
         INC HL                           ; $DC1B  23
         LD A,(HL)                        ; $DC1C  7E
@@ -420,19 +431,32 @@ SUB_DBDD_2:
         DJNZ SUB_DBDD_1                  ; $DC25  10 F4
         LD A,C                           ; $DC27  79
         RET                              ; $DC28  C9
-        DEFB    $11,$03,$00,$C3,$2F,$DB,$3A,$00,$E0,$17,$30,$FA,$32,$10,$E0,$3F ; $DC29
-        DEFB    $1F,$C9,$22,$D0,$F3,$32,$00,$00,$C9,$4F,$3A,$03,$00,$E6,$03,$FE ; $DC39
-        DEFB    $02,$20,$4B,$2A,$92,$F3,$E9,$3A,$03,$00,$E6,$03,$FE,$02,$2A,$84 ; $DC49
-        DEFB    $F3,$28,$06,$30,$07,$2A,$82,$F3,$E9,$2A,$8A,$F3,$E9,$3A,$03,$00 ; $DC59
-        DEFB    $E6,$C0,$FE,$80,$38,$27,$28,$DB,$2A,$94,$F3,$E9,$3A,$03,$00,$E6 ; $DC69
-        DEFB    $30,$FE,$10,$38,$18,$2A,$8E,$F3,$20,$E2,$2A,$90,$F3,$E9,$3A,$03 ; $DC79
-        DEFB    $00,$E6,$0C,$FE,$04,$38,$CE,$28,$D0,$2A,$8C,$F3,$E9,$37,$9F,$21 ; $DC89
-        DEFB    $A2,$DE,$77,$CB,$B9,$23,$7E,$B7,$28,$3D,$35,$3A,$96,$F3,$21,$AB ; $DC99
-        DEFB    $DE,$28,$0C,$B7,$F2,$B3,$DB,$2B,$E6,$7F,$5F,$79,$93,$77,$C9,$B7 ; $DCA9
-        DEFB    $FA,$BD,$DB,$2B,$CD,$B1,$DB,$2A,$AA,$DE,$3A,$A1,$F3,$B7,$F2,$CF ; $DCB9
-        DEFB    $DB,$E6,$7F,$5D,$6C,$63,$5F,$84,$4F,$7B,$85,$F5,$06,$07,$CD,$2D ; $DCC9
-        DEFB    $DC,$F1,$06,$0A,$4F,$18,$4D,$47,$21,$A4,$DE,$7E,$5F,$B7,$20,$11 ; $DCD9
-        DEFB    $3A,$97,$F3,$B7,$28                              ; $DCE9
+        DEFB    $11,$03,$00,$C3                                  ; $DC29
+        DEFW    CONIN_IMPL_1_2           ; $DC2D
+        DEFB    $3A,$00,$E0,$17,$30,$FA,$32,$10,$E0,$3F,$1F,$C9,$22,$D0,$F3,$32 ; $DC2F
+        DEFB    $00,$00,$C9,$4F,$3A,$03,$00,$E6,$03,$FE,$02,$20,$4B,$2A,$92,$F3 ; $DC3F
+        DEFB    $E9,$3A,$03,$00,$E6,$03,$FE,$02,$2A,$84,$F3,$28,$06,$30,$07,$2A ; $DC4F
+        DEFB    $82,$F3,$E9,$2A,$8A,$F3,$E9,$3A,$03,$00,$E6,$C0,$FE,$80,$38,$27 ; $DC5F
+        DEFW    CONIN_IMPL_1_1           ; $DC6F
+        DEFB    $2A,$94,$F3,$E9,$3A,$03,$00,$E6,$30,$FE,$10,$38,$18,$2A,$8E,$F3 ; $DC71
+        DEFB    $20,$E2,$2A,$90,$F3,$E9,$3A,$03,$00,$E6,$0C,$FE,$04,$38,$CE,$28 ; $DC81
+        DEFB    $D0,$2A,$8C,$F3,$E9,$37,$9F,$21                  ; $DC91
+        DEFW    WRITE_IMPL_5_1           ; $DC99
+        DEFB    $77,$CB,$B9,$23,$7E,$B7,$28,$3D,$35,$3A,$96,$F3,$21,$AB,$DE,$28 ; $DC9B
+        DEFB    $0C,$B7,$F2                                      ; $DCAB
+        DEFW    READER_IMPL_2            ; $DCAE
+        DEFB    $2B,$E6,$7F,$5F,$79,$93,$77,$C9,$B7,$FA          ; $DCB0
+        DEFW    READER_IMPL_3            ; $DCBA
+        DEFB    $2B,$CD                                          ; $DCBC
+        DEFW    READER_IMPL_1            ; $DCBE
+        DEFB    $2A                                              ; $DCC0
+        DEFW    COLD_BOOT_IMPL_1         ; $DCC1
+        DEFB    $3A,$A1,$F3,$B7,$F2                              ; $DCC3
+        DEFW    READER_IMPL_4            ; $DCC8
+        DEFB    $E6,$7F,$5D,$6C,$63,$5F,$84,$4F,$7B,$85,$F5,$06,$07,$CD,$2D,$DC ; $DCCA
+        DEFB    $F1,$06,$0A,$4F,$18,$4D,$47,$21                  ; $DCDA
+        DEFW    WRITE_IMPL_5_3           ; $DCE2
+        DEFB    $7E,$5F,$B7,$20,$11,$3A,$97,$F3,$B7,$28          ; $DCE4
 ; [AI] Console/device setup helper used during warm-boot init; selects between an $80-marked
 ;       default and a 9-entry parameter list based on the device code in C.
 DEV_PARAM_SETUP:
@@ -480,6 +504,7 @@ DEV_PARAM_SETUP_1:
         PUSH HL                          ; $DD1E  E5
         PUSH HL                          ; $DD1F  E5
         PUSH HL                          ; $DD20  E5
+DEV_PARAM_SETUP_1_1:
         PUSH HL                          ; $DD21  E5
         PUSH HL                          ; $DD22  E5
         PUSH HL                          ; $DD23  E5
@@ -541,6 +566,7 @@ SETTRK_IMPL:
         PUSH HL                          ; $DD58  E5
         PUSH HL                          ; $DD59  E5
         PUSH HL                          ; $DD5A  E5
+SETTRK_IMPL_1:
         PUSH HL                          ; $DD5B  E5
         PUSH HL                          ; $DD5C  E5
         PUSH HL                          ; $DD5D  E5
@@ -740,11 +766,11 @@ WRITE_IMPL_3:
         CP $07                           ; $DE24  FE 07
         JR NZ,WRITE_IMPL_4               ; $DE26  20 05
         LD A,$02                         ; $DE28  3E 02
-        LD ($DEA3),A                     ; $DE2A  32 A3 DE
+        LD (WRITE_IMPL_5_2),A            ; $DE2A  32 A3 DE
 WRITE_IMPL_4:
         XOR A                            ; $DE2D  AF
-        LD ($DEA4),A                     ; $DE2E  32 A4 DE
-        LD A,($DEA2)                     ; $DE31  3A A2 DE
+        LD (WRITE_IMPL_5_3),A            ; $DE2E  32 A4 DE
+        LD A,(WRITE_IMPL_5_1)            ; $DE31  3A A2 DE
         OR A                             ; $DE34  B7
         LD HL,($F388)                    ; $DE35  2A 88 F3
         JR Z,WRITE_IMPL_5                ; $DE38  28 03
@@ -754,22 +780,38 @@ WRITE_IMPL_5:
         DEFB    $11,$03,$00,$C3,$44,$DC,$2A,$A5,$DE,$3A,$A7,$DE,$77,$CD,$6B,$DC ; $DE3E
         DEFB    $2A,$28,$F0,$3A,$24,$F0,$5F,$16,$F0,$19,$22,$A5,$DE,$7E,$32,$A7 ; $DE4E
         DEFB    $DE,$FE,$E0,$38,$02,$EE,$20,$E6,$3F,$F6,$40,$77,$C9,$78,$B7,$28 ; $DE5E
-        DEFB    $0B,$21,$3B,$DB,$E5,$21,$D4,$DC,$85,$6F,$6E,$E9,$79,$FE,$0D,$20 ; $DE6E
-        DEFB    $05,$AF,$32,$24,$F0,$C9,$F6,$80,$FE,$E0,$38,$04,$21,$DD,$F3,$AE ; $DE7E
-        DEFB    $32,$45,$F0,$21,$F0,$FD,$18,$79,$3E,$FF,$01,$3E,$3F,$32,$32,$F0 ; $DE8E
-        DEFB    $E1,$C9,$21,$F4,$FB,$C9,$AF,$6F,$67,$22          ; $DE9E
+        DEFB    $0B,$21                                          ; $DE6E
+        DEFW    SUB_DB3B                 ; $DE70
+        DEFB    $E5,$21,$D4,$DC,$85,$6F,$6E,$E9,$79,$FE,$0D,$20,$05,$AF,$32,$24 ; $DE72
+        DEFB    $F0,$C9,$F6,$80,$FE,$E0,$38,$04                  ; $DE82
+        DEFW    DEV_PARAM_SETUP_1_1      ; $DE8A
+        DEFB    $F3,$AE,$32,$45,$F0,$21,$F0,$FD,$18,$79,$3E,$FF,$01,$3E,$3F,$32 ; $DE8C
+        DEFB    $32,$F0,$E1,$C9,$21,$F4                          ; $DE9C
+WRITE_IMPL_5_1:
+        DEFB    $FB                                              ; $DEA2
+WRITE_IMPL_5_2:
+        DEFB    $C9                                              ; $DEA3
+WRITE_IMPL_5_3:
+        DEFB    $AF,$6F,$67,$22                                  ; $DEA4
 ; [AI] Body of the cold-boot (BOOT) routine: stashes A, sets up an Apple-II-side pointer ($FBC1,
 ;       the monitor/firmware area), and returns to continue cold-start bring-up.
 COLD_BOOT_IMPL:
         INC H                            ; $DEA8  24
         RET P                            ; $DEA9  F0
+COLD_BOOT_IMPL_1:
         LD ($F045),A                     ; $DEAA  32 45 F0
+COLD_BOOT_IMPL_2:
         LD HL,$FBC1                      ; $DEAD  21 C1 FB
         RET                              ; $DEB0  C9
-        DEFB    $2E,$42,$01,$2E,$9C,$01,$2E,$1A,$01,$2E,$58,$26,$FC,$C9,$2A,$AA ; $DEB1
-        DEFB    $DE,$7D,$FE,$28,$38,$02,$2E,$00,$7C,$FE,$18,$38,$02,$26,$00,$22 ; $DEC1
-        DEFB    $24,$F0,$18,$D5,$BA,$B1,$B4,$96,$99,$A4,$9E,$B7,$A0,$BF,$CD,$60 ; $DED1
-        DEFB    $DD,$7E,$E6,$02,$28,$FB,$2C,$71,$C9,$79,$32,$45,$F0,$CD,$5B,$DD ; $DEE1
+        DEFB    $2E,$42,$01                                      ; $DEB1
+COLD_BOOT_IMPL_3:
+        DEFB    $2E,$9C,$01,$2E,$1A,$01,$2E,$58,$26,$FC,$C9,$2A  ; $DEB4
+        DEFW    COLD_BOOT_IMPL_1         ; $DEC0
+        DEFB    $7D,$FE,$28,$38,$02,$2E,$00,$7C,$FE,$18,$38,$02,$26,$00,$22,$24 ; $DEC2
+        DEFB    $F0,$18,$D5,$BA,$B1,$B4,$96,$99,$A4,$9E,$B7,$A0,$BF,$CD ; $DED2
+        DEFW    SUB_DD60                 ; $DEE0
+        DEFB    $7E,$E6,$02,$28,$FB,$2C,$71,$C9,$79,$32,$45,$F0,$CD ; $DEE2
+        DEFW    SETTRK_IMPL_1            ; $DEEF
         DEFB    $32,$F8,$F6,$32,$47,$F0,$3A,$FF,$EF,$CD,$C5,$DA,$D6,$20,$32 ; $DEF1
 
     SAVEBIN "build/CPM220_BIOS_Disk.bin", $DA00, $0500

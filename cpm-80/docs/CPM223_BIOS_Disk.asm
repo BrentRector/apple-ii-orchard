@@ -217,6 +217,7 @@ CONIN_IMPL:
         NOP                              ; $FB2E  00
         NOP                              ; $FB2F  00
         RST $38                          ; $FB30  FF
+CONIN_IMPL_1:
         RST $38                          ; $FB31  FF
         NOP                              ; $FB32  00
         NOP                              ; $FB33  00
@@ -225,6 +226,7 @@ CONIN_IMPL:
         NOP                              ; $FB36  00
         NOP                              ; $FB37  00
         RST $38                          ; $FB38  FF
+CONIN_IMPL_2:
         RST $38                          ; $FB39  FF
         NOP                              ; $FB3A  00
         NOP                              ; $FB3B  00
@@ -264,6 +266,7 @@ CONOUT_IMPL:
         NOP                              ; $FB57  00
         RST $38                          ; $FB58  FF
         RST $38                          ; $FB59  FF
+CONOUT_IMPL_1:
         NOP                              ; $FB5A  00
         NOP                              ; $FB5B  00
         RST $38                          ; $FB5C  FF
@@ -379,8 +382,10 @@ READER_IMPL:
         RST $38                          ; $FBC1  FF
         NOP                              ; $FBC2  00
         NOP                              ; $FBC3  00
+READER_IMPL_1:
         RST $38                          ; $FBC4  FF
         RST $38                          ; $FBC5  FF
+READER_IMPL_2:
         NOP                              ; $FBC6  00
         NOP                              ; $FBC7  00
         RST $38                          ; $FBC8  FF
@@ -391,6 +396,7 @@ READER_IMPL:
         RST $38                          ; $FBCD  FF
         NOP                              ; $FBCE  00
         NOP                              ; $FBCF  00
+READER_IMPL_3:
         RST $38                          ; $FBD0  FF
         RST $38                          ; $FBD1  FF
         NOP                              ; $FBD2  00
@@ -409,6 +415,7 @@ READER_IMPL:
         NOP                              ; $FBDF  00
         RST $38                          ; $FBE0  FF
         RST $38                          ; $FBE1  FF
+READER_IMPL_4:
         NOP                              ; $FBE2  00
         NOP                              ; $FBE3  00
         RST $38                          ; $FBE4  FF
@@ -452,30 +459,41 @@ SETDMA_IMPL:
         LD A,(CDISK)                     ; $FC09  3A 04 00
         LD C,A                           ; $FC0C  4F
         JP $9300                         ; $FC0D  C3 00 93
-        DEFB    $2A,$80,$F3,$E9,$3A,$00,$E0,$17,$9F,$C9,$CD,$5A,$FB,$E6,$7F,$21 ; $FC10
-        DEFB    $AB,$F3,$06,$06,$4F,$23,$7E,$23,$B7,$FA,$31,$FB,$B9,$7E,$C8,$10 ; $FC20
-        DEFB    $F4,$79,$C9,$11,$03,$00,$C3,$39,$FB,$3A,$00,$E0,$17,$30,$FA,$32 ; $FC30
-        DEFB    $10,$E0,$3F,$1F,$C9,$22,$D0,$F3,$32,$00,$00,$C9,$4F,$3A,$03,$00 ; $FC40
-        DEFB    $E6,$03,$FE,$02,$20,$4B,$2A,$92,$F3,$E9,$3A,$03,$00,$E6,$03,$FE ; $FC50
-        DEFB    $02,$2A,$84,$F3,$28,$06,$30,$07,$2A,$82,$F3,$E9,$2A,$8A,$F3,$E9 ; $FC60
-        DEFB    $3A,$03,$00,$E6,$C0,$FE,$80,$38,$27,$28,$DB,$2A,$94,$F3,$E9,$3A ; $FC70
-        DEFB    $03,$00,$E6,$30,$FE,$10,$38,$18,$2A,$8E,$F3,$28,$E2,$2A,$90,$F3 ; $FC80
-        DEFB    $E9,$3A,$03,$00,$E6,$0C,$FE,$08,$38,$CE,$28,$D0,$2A,$8C,$F3,$E9 ; $FC90
-        DEFB    $37,$9F,$21,$A2,$F3,$6E,$2C,$CA,$A4,$FC,$21,$CB,$FE,$77,$CB,$B9 ; $FCA0
-        DEFB    $23,$7E,$B7,$CA,$56,$FC,$35,$3A,$96,$F3,$21,$D4,$FE,$28,$0C,$B7 ; $FCB0
-        DEFB    $F2,$C6,$FB,$2B,$E6,$7F,$5F,$79,$93,$77,$C9,$B7,$FA,$D0,$FB,$2B ; $FCC0
-        DEFB    $CD,$C4,$FB,$2A,$D3,$FE,$3A,$A1,$F3,$B7,$F2,$E2,$FB,$E6,$7F,$5D ; $FCD0
-        DEFB    $6C,$63,$5F,$84,$4F,$7B,$85,$F5,$06,$07,$CD,$A4,$FC,$F1,$06,$0A ; $FCE0
-        DEFB    $4F,$C3,$A4,$FC,$79,$32,$D2,$FE,$C9,$ED,$43,$E1,$FE,$C9,$00 ; $FCF0  "OC$|y2R~ImCa~I"
-        DEFB    $00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00 ; $FCFF
-        DEFB    $00,$F7,$F7,$00,$00,$F7,$F7,$00,$00,$F7,$F7,$00,$00,$F7,$F7,$10 ; $FD0F
-        DEFB    $00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00 ; $FD1F
-        DEFB    $00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00 ; $FD2F
-        DEFB    $00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00 ; $FD3F
-        DEFB    $00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00 ; $FD4F
-        DEFB    $00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$10 ; $FD5F
-        DEFB    $00,$F7,$F7,$00,$00,$F7,$F7,$00,$00,$F7,$F7,$00,$00,$F7,$F7,$00 ; $FD6F
-        DEFB    $00,$FF,$FF,$00                                  ; $FD7F
+        DEFB    $2A,$80,$F3,$E9,$3A,$00,$E0,$17,$9F,$C9,$CD      ; $FC10
+        DEFW    CONOUT_IMPL_1            ; $FC1B
+        DEFB    $E6,$7F,$21,$AB,$F3,$06,$06,$4F,$23,$7E,$23,$B7,$FA ; $FC1D
+        DEFW    CONIN_IMPL_1             ; $FC2A
+        DEFB    $B9,$7E,$C8,$10,$F4,$79,$C9,$11,$03,$00,$C3      ; $FC2C
+        DEFW    CONIN_IMPL_2             ; $FC37
+        DEFB    $3A,$00,$E0,$17                                  ; $FC39
+        DEFW    SECTRAN                  ; $FC3D
+        DEFB    $32,$10,$E0,$3F,$1F,$C9,$22,$D0,$F3,$32,$00,$00,$C9,$4F,$3A,$03 ; $FC3F
+        DEFB    $00,$E6,$03,$FE,$02,$20,$4B,$2A,$92,$F3,$E9,$3A,$03,$00,$E6,$03 ; $FC4F
+        DEFB    $FE,$02,$2A,$84,$F3,$28,$06,$30,$07,$2A,$82,$F3,$E9,$2A,$8A,$F3 ; $FC5F
+        DEFB    $E9,$3A,$03,$00,$E6,$C0,$FE,$80,$38,$27,$28,$DB,$2A,$94,$F3,$E9 ; $FC6F
+        DEFB    $3A,$03,$00,$E6,$30,$FE,$10,$38,$18,$2A,$8E,$F3,$28,$E2,$2A,$90 ; $FC7F
+        DEFB    $F3,$E9,$3A,$03,$00,$E6,$0C,$FE,$08,$38,$CE,$28,$D0,$2A,$8C,$F3 ; $FC8F
+        DEFB    $E9,$37,$9F,$21,$A2,$F3,$6E,$2C,$CA,$A4,$FC,$21,$CB,$FE,$77,$CB ; $FC9F
+        DEFB    $B9,$23,$7E,$B7,$CA,$56,$FC,$35,$3A,$96,$F3,$21,$D4,$FE,$28,$0C ; $FCAF
+        DEFB    $B7,$F2                                          ; $FCBF
+        DEFW    READER_IMPL_2            ; $FCC1
+        DEFB    $2B,$E6,$7F,$5F,$79,$93,$77,$C9,$B7,$FA          ; $FCC3
+        DEFW    READER_IMPL_3            ; $FCCD
+        DEFB    $2B,$CD                                          ; $FCCF
+        DEFW    READER_IMPL_1            ; $FCD1
+        DEFB    $2A,$D3,$FE,$3A,$A1,$F3,$B7,$F2                  ; $FCD3
+        DEFW    READER_IMPL_4            ; $FCDB
+        DEFB    $E6,$7F,$5D,$6C,$63,$5F,$84,$4F,$7B,$85,$F5,$06,$07,$CD,$A4,$FC ; $FCDD
+        DEFB    $F1,$06,$0A,$4F,$C3,$A4,$FC,$79,$32,$D2,$FE,$C9,$ED,$43,$E1,$FE ; $FCED
+        DEFB    $C9,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF ; $FCFD
+        DEFB    $FF,$00,$00,$F7,$F7,$00,$00,$F7,$F7,$00,$00,$F7,$F7,$00,$00,$F7 ; $FD0D
+        DEFB    $F7,$10,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF ; $FD1D
+        DEFB    $FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF ; $FD2D
+        DEFB    $FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF ; $FD3D
+        DEFB    $FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF ; $FD4D
+        DEFB    $FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF ; $FD5D
+        DEFB    $FF,$10,$00,$F7,$F7,$00,$00,$F7,$F7,$00,$00,$F7,$F7,$00,$00,$F7 ; $FD6D
+        DEFB    $F7,$00,$00,$FF,$FF,$00                          ; $FD7D
 ; [AI] Per-slot initializer for a card matching the Pascal 1.0 firmware-protocol device code; in
 ;       this pristine image its body is an un-patched placeholder filled at cold boot.
 INIT_PASCAL_1_0:

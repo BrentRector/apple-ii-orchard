@@ -17,21 +17,23 @@ BDOS_SENTINEL        EQU $9C08               ; First-boot vs warm-boot detect (i
 TPA_STATE_F397       EQU $F397               ; Read by preflight code at $FF17
 DEVICE_TABLE_BASE    EQU $F3A0               ; Device-code table base (scanned by device-scan)
 SLOT_INFO_BASE       EQU $F3B8               ; Slot-info table for cold-boot generator (F3B8+E = slot E's device code, E=1..7)
-BIOS_TRACK           EQU $FECB               ; Current track (set by SETTRK)
-BIOS_BOOT_FLAG       EQU $FECD               ; Cold-boot state byte (preflight check at $FF17)
-BIOS_DMA             EQU $FED4               ; Current DMA buffer address (set by SETDMA)
-BIOS_FLAG_FED8       EQU $FED8               ; Zeroed by cold-boot setup at $FB9F
-BIOS_FLAG_FEDD       EQU $FEDD               ; Zeroed by cold-boot setup at $FB9C
 
 ; -- Named mid-instruction routines (kept as cover+offset equates) --
 HOME_IMPL            EQU INIT_PASCAL_1_1_1+1 ; $FE6C
 SELDSK_IMPL          EQU INIT_KEYBOARD_2+1  ; $FE8E
+BIOS_BOOT_FLAG       EQU BIOS_TRACK_1+1     ; $FECD
 BOOT_LANDING         EQU WRITE_IMPL_1+2     ; $FED1
+BIOS_DMA             EQU BIOS_SECTOR_1+1    ; $FED4
+BIOS_FLAG_FEDD       EQU WRITE_IMPL_2+1     ; $FEDD
 
 ; -- Mid-instruction references (shown inline as cover+offset) --
 ;   $FE6C -> HOME_IMPL            z80 skip idiom: enters the operand of $3E at $FE6B
 ;   $FE8E -> SELDSK_IMPL          shared instruction tail: $FE8E is reachable code inside the instruction at $FE8D
+;   $FECD -> BIOS_BOOT_FLAG       shared instruction tail: $FECD is reachable code inside the instruction at $FECC
+;   $FED0 -> WRITE_IMPL_1+1       shared instruction tail: $FED0 is reachable code inside the instruction at $FECF
 ;   $FED1 -> BOOT_LANDING         shared instruction tail: $FED1 is reachable code inside the instruction at $FECF
+;   $FED4 -> BIOS_DMA             shared instruction tail: $FED4 is reachable code inside the instruction at $FED3
+;   $FEDD -> BIOS_FLAG_FEDD       shared instruction tail: $FEDD is reachable code inside the instruction at $FEDC
 
     ORG $FA00
 
@@ -206,6 +208,7 @@ CONIN_IMPL:
         NOP                              ; $FB2E  00
         NOP                              ; $FB2F  00
         RST $38                          ; $FB30  FF
+CONIN_IMPL_1:
         RST $38                          ; $FB31  FF
         NOP                              ; $FB32  00
         NOP                              ; $FB33  00
@@ -214,6 +217,7 @@ CONIN_IMPL:
         NOP                              ; $FB36  00
         NOP                              ; $FB37  00
         RST $38                          ; $FB38  FF
+CONIN_IMPL_2:
         RST $38                          ; $FB39  FF
         NOP                              ; $FB3A  00
         NOP                              ; $FB3B  00
@@ -253,6 +257,7 @@ CONOUT_IMPL:
         NOP                              ; $FB57  00
         RST $38                          ; $FB58  FF
         RST $38                          ; $FB59  FF
+CONOUT_IMPL_1:
         NOP                              ; $FB5A  00
         NOP                              ; $FB5B  00
         RST $38                          ; $FB5C  FF
@@ -456,26 +461,38 @@ SETDMA_IMPL:
         LD A,(CDISK)                     ; $FC09  3A 04 00
         LD C,A                           ; $FC0C  4F
         JP $9300                         ; $FC0D  C3 00 93
-        DEFB    $2A,$80,$F3,$E9,$3A,$00,$E0,$17,$9F,$C9,$CD,$5A,$FB,$E6,$7F,$21 ; $FC10
-        DEFB    $AB,$F3,$06,$06,$4F,$23,$7E,$23,$B7,$FA,$31,$FB,$B9,$7E,$C8,$10 ; $FC20
-        DEFB    $F4,$79,$C9,$11,$03,$00,$C3,$39,$FB,$3A,$00,$E0,$17,$30,$FA,$32 ; $FC30
-        DEFB    $10,$E0,$3F,$1F,$C9,$22,$D0,$F3,$32,$00,$00,$C9,$4F,$3A,$03,$00 ; $FC40
-        DEFB    $E6,$03,$FE,$02,$20,$4B                          ; $FC50
+        DEFB    $2A,$80,$F3,$E9,$3A,$00,$E0,$17,$9F,$C9,$CD      ; $FC10
+        DEFW    CONOUT_IMPL_1            ; $FC1B
+        DEFB    $E6,$7F,$21,$AB,$F3,$06,$06,$4F,$23,$7E,$23,$B7,$FA ; $FC1D
+        DEFW    CONIN_IMPL_1             ; $FC2A
+        DEFB    $B9,$7E,$C8,$10,$F4,$79,$C9,$11,$03,$00,$C3      ; $FC2C
+        DEFW    CONIN_IMPL_2             ; $FC37
+        DEFB    $3A,$00,$E0,$17                                  ; $FC39
+        DEFW    SECTRAN                  ; $FC3D
+        DEFB    $32,$10,$E0,$3F,$1F,$C9,$22,$D0,$F3,$32,$00,$00,$C9,$4F,$3A,$03 ; $FC3F
+        DEFB    $00,$E6                                          ; $FC4F
+        DEFW    INIT_PASCAL_1_1_1_FE03   ; $FC51
+        DEFB    $02,$20,$4B                                      ; $FC53
 ; [AI] CONOUT device-dispatch: jumps through the IOBYTE-selected console-output vector stored at
 ;       $F392.
 CONOUT_VECTOR:
         LD HL,($F392)                    ; $FC56  2A 92 F3
         JP (HL)                          ; $FC59  E9
-        DEFB    $3A,$03,$00,$E6,$03,$FE,$02,$2A,$84,$F3,$28,$06,$30,$07,$2A,$82 ; $FC5A
-        DEFB    $F3,$E9                                          ; $FC6A
+        DEFB    $3A,$03,$00,$E6                                  ; $FC5A
+        DEFW    INIT_PASCAL_1_1_1_FE03   ; $FC5E
+        DEFB    $02,$2A,$84,$F3,$28,$06,$30,$07,$2A,$82,$F3,$E9  ; $FC60
 ; [AI] CONIN device-dispatch: jumps through the IOBYTE-selected console-input vector stored at
 ;       $F38A.
 CONIN_VECTOR:
         LD HL,($F38A)                    ; $FC6C  2A 8A F3
         JP (HL)                          ; $FC6F  E9
-        DEFB    $3A,$03,$00,$E6,$C0,$FE,$80,$38,$27,$28,$DB,$2A,$94,$F3,$E9,$3A ; $FC70
-        DEFB    $03,$00,$E6,$30,$FE,$10,$38,$18,$2A,$8E,$F3,$28,$E2,$2A,$90,$F3 ; $FC80
-        DEFB    $E9,$3A,$03,$00,$E6,$0C,$FE,$08,$38,$CE          ; $FC90
+        DEFB    $3A,$03,$00,$E6                                  ; $FC70
+        DEFW    WRITE_IMPL               ; $FC74
+        DEFB    $80,$38,$27,$28,$DB,$2A,$94,$F3,$E9,$3A,$03,$00,$E6 ; $FC76
+        DEFW    INIT_PASCAL_1_1_3_FE30   ; $FC83
+        DEFB    $10,$38,$18,$2A,$8E,$F3,$28,$E2,$2A,$90,$F3,$E9,$3A,$03,$00,$E6 ; $FC85
+        DEFW    INIT_PASCAL_1_1_2_FE0C   ; $FC95
+        DEFB    $08,$38,$CE                                      ; $FC97
 ; [AI] IOBYTE console-status dispatch tail: when the masked IOBYTE field selects the secondary
 ;       device, falls through to the CONIN vector; otherwise jumps via the status vector at $F38C.
 CONST_VECTOR:
@@ -517,7 +534,7 @@ DISK_WAIT_XFER_1:
         JP M,SUB_FBC4_2                  ; $FCCC  FA D0 FB
         DEC HL                           ; $FCCF  2B
         CALL SUB_FBC4                    ; $FCD0  CD C4 FB
-        LD HL,($FED3)                    ; $FCD3  2A D3 FE
+        LD HL,(BIOS_SECTOR_1)            ; $FCD3  2A D3 FE
         LD A,($F3A1)                     ; $FCD6  3A A1 F3
         OR A                             ; $FCD9  B7
         JP P,SUB_FBC4_3                  ; $FCDA  F2 E2 FB
@@ -540,16 +557,19 @@ SECTOR_ADDR_XFER:
         LD B,$0A                         ; $FCEE  06 0A
         LD C,A                           ; $FCF0  4F
         JP DISK_WAIT_XFER                ; $FCF1  C3 A4 FC
-        DEFB    $79,$32,$D2,$FE,$C9,$ED,$43,$E1,$FE,$C9,$00      ; $FCF4  "y2R~ImCa~I"
-        DEFB    $00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00 ; $FCFF
-        DEFB    $00,$F7,$F7,$00,$00,$F7,$F7,$00,$00,$F7,$F7,$00,$00,$F7,$F7,$10 ; $FD0F
-        DEFB    $00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00 ; $FD1F
-        DEFB    $00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00 ; $FD2F
-        DEFB    $00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00 ; $FD3F
-        DEFB    $00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00 ; $FD4F
-        DEFB    $00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$10 ; $FD5F
-        DEFB    $00,$F7,$F7,$00,$00,$F7,$F7,$00,$00,$F7,$F7,$00,$00,$F7,$F7,$00 ; $FD6F
-        DEFB    $00,$FF,$FF,$00                                  ; $FD7F
+        DEFB    $79,$32                                          ; $FCF4
+        DEFW    BIOS_SECTOR              ; $FCF6
+        DEFB    $C9,$ED,$43                                      ; $FCF8
+        DEFW    WRITE_IMPL_2_1           ; $FCFB
+        DEFB    $C9,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF ; $FCFD
+        DEFB    $FF,$00,$00,$F7,$F7,$00,$00,$F7,$F7,$00,$00,$F7,$F7,$00,$00,$F7 ; $FD0D
+        DEFB    $F7,$10,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF ; $FD1D
+        DEFB    $FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF ; $FD2D
+        DEFB    $FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF ; $FD3D
+        DEFB    $FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF ; $FD4D
+        DEFB    $FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF ; $FD5D
+        DEFB    $FF,$10,$00,$F7,$F7,$00,$00,$F7,$F7,$00,$00,$F7,$F7,$00,$00,$F7 ; $FD6D
+        DEFB    $F7,$00,$00,$FF,$FF,$00                          ; $FD7D
 ; [AI] Firmware initializer for the Apple Pascal 1.0 class card, run by the slot scan to set up
 ;       that card's console/expansion ROM via RST traps.
 INIT_PASCAL_1_0:
@@ -684,6 +704,7 @@ INIT_PASCAL_1_1:
         NOP                              ; $FE00  00
         NOP                              ; $FE01  00
         NOP                              ; $FE02  00
+INIT_PASCAL_1_1_1_FE03:
         NOP                              ; $FE03  00
         NOP                              ; $FE04  00
         NOP                              ; $FE05  00
@@ -693,6 +714,7 @@ INIT_PASCAL_1_1:
         NOP                              ; $FE09  00
         NOP                              ; $FE0A  00
         NOP                              ; $FE0B  00
+INIT_PASCAL_1_1_2_FE0C:
         NOP                              ; $FE0C  00
         NOP                              ; $FE0D  00
         NOP                              ; $FE0E  00
@@ -729,6 +751,7 @@ INIT_PASCAL_1_1:
         NOP                              ; $FE2D  00
         NOP                              ; $FE2E  00
         NOP                              ; $FE2F  00
+INIT_PASCAL_1_1_3_FE30:
         NOP                              ; $FE30  00
         NOP                              ; $FE31  00
         NOP                              ; $FE32  00
@@ -833,7 +856,7 @@ INIT_KEYBOARD_2:
         CP $07                           ; $FE9B  FE 07
         JR NZ,INIT_KEYBOARD_3            ; $FE9D  20 05
         LD A,$02                         ; $FE9F  3E 02
-        LD ($FECC),A                     ; $FEA1  32 CC FE
+        LD (BIOS_TRACK_1),A              ; $FEA1  32 CC FE
 ; [AI] Shared device-init/SELDSK exit: clears BIOS_BOOT_FLAG and jumps through the track-zero-vs-
 ;       nonzero DPH vector from the $F386/$F388 table.
 INIT_KEYBOARD_3:
@@ -859,14 +882,20 @@ WRITE_IMPL:
         CALL SECTOR_ADDR_XFER            ; $FEC2  CD E2 FC
         LD HL,($F028)                    ; $FEC5  2A 28 F0
         LD A,($F024)                     ; $FEC8  3A 24 F0
+BIOS_TRACK:
         LD E,A                           ; $FECB  5F
+BIOS_TRACK_1:
         LD D,$F0                         ; $FECC  16 F0
+BIOS_TRACK_2:
         ADD HL,DE                        ; $FECE  19
 WRITE_IMPL_1:
-        LD ($FECE),HL                    ; $FECF  22 CE FE
+        LD (BIOS_TRACK_2),HL             ; $FECF  22 CE FE
+BIOS_SECTOR:
         LD A,(HL)                        ; $FED2  7E
-        LD ($FED0),A                     ; $FED3  32 D0 FE
+BIOS_SECTOR_1:
+        LD (WRITE_IMPL_1+1),A            ; $FED3  32 D0 FE
         CP $E0                           ; $FED6  FE E0
+BIOS_FLAG_FED8:
         JR C,WRITE_IMPL_2                ; $FED8  38 02
         XOR $20                          ; $FEDA  EE 20
 ; [AI] Character/screen-cell normalization: folds the fetched byte into the Apple II display
@@ -875,13 +904,15 @@ WRITE_IMPL_2:
         AND $3F                          ; $FEDC  E6 3F
         OR $40                           ; $FEDE  F6 40
         LD (HL),A                        ; $FEE0  77
+WRITE_IMPL_2_1:
         RET                              ; $FEE1  C9
-        DEFB    $78,$B7,$28,$0B,$21,$45,$FB,$E5,$21,$66,$FD,$85,$6F,$6E,$E9,$79 ; $FEE2
-        DEFB    $FE,$0D,$20,$05,$AF,$32,$24,$F0,$C9,$F6,$80,$FE,$E0,$38,$FF,$FF ; $FEF2
-        DEFB    $00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF ; $FF02
-        DEFB    $00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF ; $FF12
-        DEFB    $00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF ; $FF22
-        DEFB    $00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF ; $FF32
-        DEFB    $00,$00,$FF,$FF,$00,$00                          ; $FF42
+        DEFB    $78,$B7,$28,$0B,$21                              ; $FEE2
+        DEFW    RPC_DISPATCH             ; $FEE7
+        DEFB    $E5,$21,$66,$FD,$85,$6F,$6E,$E9,$79,$FE,$0D,$20,$05,$AF,$32,$24 ; $FEE9
+        DEFB    $F0,$C9,$F6,$80,$FE,$E0,$38,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF ; $FEF9
+        DEFB    $FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF ; $FF09
+        DEFB    $FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF ; $FF19
+        DEFB    $FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF ; $FF29
+        DEFB    $FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00 ; $FF39
 
     SAVEBIN "CPM_BIOS.bin", $FA00, $0548
