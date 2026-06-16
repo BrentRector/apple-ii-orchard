@@ -586,3 +586,91 @@ def regenerate_60k_bios(*, write: bool = False, ai_names=None, extra_seeds=None)
         _BIOS_60K.write_text(merged, encoding="utf-8")
     return RegenResult(_BIOS_60K, ok, mig, drop, len(force),
                        notes=[] if ok else ["NOT byte-identical -- not written"])
+
+
+# ── 60K BDOS recipe (CPMV233-60K) ──────────────────────────────────────
+#
+# The 60K BDOS is byte-identical to the CPM60.COM payload at COM offset 0x1700
+# (the boot loader does NOT patch it; only the BIOS and CCP are patched). It was
+# recovered after the dispatch upgrades, so -- unlike the BIOS -- it has no
+# stranded code to recover; this recipe simply makes it reproducible/force-
+# labelable while preserving its large hand-written bank-map header, which a
+# fresh disassembly would discard.
+_BDOS_60K = (_REPO / "cpm-80" / "decompiled" / "CPMV233-60K" / "os" / "CPM_BDOS.asm")
+_BDOS_60K_ORG = 0xDC00
+_BDOS_60K_LEN = 0x0E00
+
+# A label minted purely by the localizer's collision path (<head>_<n>_<hex>); it
+# carries no curation, so a recipe drops it rather than re-forcing it (keeps the
+# regeneration idempotent and lets the data-aware localizer re-derive cleanly).
+_LOCALIZER_JUNK_RE = re.compile(r".+_\d+_[0-9A-Fa-f]{4}$")
+
+
+def _genuine_labels(text: str) -> dict[int, str]:
+    """extract_semantic_labels minus localizer-collision junk."""
+    return {a: n for a, n in extract_semantic_labels(text).items()
+            if not _LOCALIZER_JUNK_RE.match(n)}
+
+
+def splice_curated_header(old_text: str, new_text: str) -> str:
+    """Re-inject the curated header block -- the hand-written prose the author
+    placed between the generated ``; Range:`` line and the ``DEVICE`` directive
+    (e.g. the 60K BDOS bank map) -- from `old_text` into a freshly disassembled
+    `new_text`, which would otherwise emit only the generic preamble. Anchored on
+    those two lines; if either is missing in either text, returns new_text as-is."""
+    o = old_text.splitlines(keepends=True)
+    n = new_text.splitlines(keepends=True)
+
+    def idx(lines, pred):
+        return next((i for i, l in enumerate(lines) if pred(l)), -1)
+    o_rng = idx(o, lambda l: l.startswith("; Range:"))
+    o_dev = idx(o, lambda l: l.lstrip().startswith("DEVICE"))
+    n_rng = idx(n, lambda l: l.startswith("; Range:"))
+    n_dev = idx(n, lambda l: l.lstrip().startswith("DEVICE"))
+    if min(o_rng, o_dev, n_rng, n_dev) < 0 or o_dev <= o_rng:
+        return new_text
+    curated = o[o_rng + 1:o_dev]                 # block strictly between the anchors
+    return "".join(n[:n_rng + 1] + curated + n[n_dev:])
+
+
+def regenerate_60k_bdos(*, write: bool = False, ai_names=None, extra_seeds=None) -> RegenResult:
+    """Regenerate cpm-80/decompiled/CPMV233-60K/os/CPM_BDOS.asm byte-identical.
+
+    Seeds the primary entry (the ``JP`` at $DC06), carries genuine inline labels
+    + curated EQU symbols, splices the curated bank-map header back in, and
+    accepts `ai_names`/`extra_seeds`. Writes only when byte-identical.
+    """
+    old = _BDOS_60K.read_text(encoding="utf-8")
+    bdos = _assemble_savebin(old)
+    if len(bdos) != _BDOS_60K_LEN:
+        return RegenResult(_BDOS_60K, False, 0, 0, 0, notes=["source did not reassemble"])
+    mem = bytearray(0x10000)
+    mem[_BDOS_60K_ORG:_BDOS_60K_ORG + _BDOS_60K_LEN] = bdos
+
+    entry = mem[_BDOS_60K_ORG + 7] | (mem[_BDOS_60K_ORG + 8] << 8)   # JP target at $DC06
+    seeds = {entry} | set(extra_seeds or {})
+    force = _genuine_labels(old)
+    force.update(ai_names or {})
+    force.update(extra_seeds or {})
+
+    equs = _curated_equs(old)
+    ov_names = {a: nm for a, (nm, _c) in equs.items()}
+    ov_comments = {a: c for a, (_nm, c) in equs.items() if c}
+    import json
+    ov = _SYM / "_60k_bdos_overlay.json"
+    ov.write_text(json.dumps(overlay_json(ov_names, comments=ov_comments)), encoding="utf-8")
+    try:
+        syms = _load_z80_syms(_SYM / "cpm_2_2.json", ov)
+        src = disasm_z80_region(mem, _BDOS_60K_ORG, _BDOS_60K_LEN, symbols=syms,
+                                seeds=sorted(seeds), source_name="CPM_BDOS", force_labels=force)
+    finally:
+        ov.unlink(missing_ok=True)
+    src = src.replace("{out_bin}", "CPM_BDOS.bin")
+    src = splice_curated_header(old, src)
+    merged, mig, drop = migrate_comments(old, src)
+    rebuilt = _assemble_savebin(merged)
+    ok = rebuilt == bdos
+    if write and ok:
+        _BDOS_60K.write_text(merged, encoding="utf-8")
+    return RegenResult(_BDOS_60K, ok, mig, drop, len(force),
+                       notes=[] if ok else ["NOT byte-identical -- not written"])
