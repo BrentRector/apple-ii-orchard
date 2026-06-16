@@ -1231,10 +1231,11 @@ SUB_DB06_5:
         DEFB    $00                                              ; $DB42
 SUB_DB06_6:
         DEFS    25, $00    ; $DB43  fill
-        DEFW    SUB_D393_1               ; $DB5C
-        DEFW    SUB_D3FC_1               ; $DB5E
-        DEFW    SUB_D41B_2               ; $DB60
-        DEFW    SUB_D5E5_8               ; $DB62
+CCP_STACK:
+        DEFS    8, $00     ; SYS_BASE+$0B5C  top 8 bytes of the CCP private stack (base = $DB64/
+                           ;        $9B64, 'LD SP,..'). Ships as ZERO scratch; PUSH/CALL grow the stack
+                           ;        down into here at run time. A booted snapshot captures leftover
+                           ;        return addresses here -- stack contents, NOT a pointer table.
 SUB_DB06_7:
         DEFB    $00                                              ; $DB64
 SUB_DB06_8:

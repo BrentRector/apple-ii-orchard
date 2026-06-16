@@ -16,10 +16,20 @@ IN:
         .byte   $14, $FB, $33, $FB, $33, $FB, $B5, $FC, $B5, $FC, $6F, $FE, $6F, $FE, $69, $FE ; $0380
         .byte   $69, $FE, $55, $FE, $55, $FE, $20, $1B, $AA, $D9, $D4, $A9, $A8, $1E, $BD, $0B ; $0390
         .byte   $0C, $A0, $00, $0C, $0B, $1D, $0E, $0F, $19, $1E, $1F, $1C, $0B, $5B, $00, $7F ; $03A0
-        .byte   $02, $5C, $15, $09, $FF, $FF, $FF, $FF, $02, $00, $00, $06, $00 ; $03B0
-        .word   IN                       ; $03BD
-        .byte   $00, $AD, $83, $C0, $AD, $83, $C0, $8D, $00, $C7, $AD, $81, $C0, $20, $3F, $0E ; $03BF
+        ; As-SHIPPED CPU-switch handoff template ($03B8-$03EB). The card slot is not known at
+        ; assembly, so these address/parameter cells ship as placeholders ($FF or 0) and the 6502
+        ; relocator fills the live values in place at boot:
+        ;   $03B8 -> 02  (param: STY/INC/ASL $03B8 at $1058/$10BA/$10D7)
+        ;   $03BD-BE -> 00 02  ($0200 = IN, self-reference; filled at relocation)
+        ;   $03C7-C8 'STA $FFFF' -> 'STA $C700' (the slot CPU-switch store; $108D STA $03C7 / $1088
+        ;            STY $03C8, Y=$C7 == Apple $C700 == Z-80 $E700)
+        ;   $03DF -> E7 ('JSR $0000' operand high -> $E700; $1097 STA $03DF = slot$C7+$20)
+        ;   the remaining $03BB/$03E0-E1/$03E3-E6/$03E9/$03EB are relocation/sysgen parameter
+        ;   cells (exact 6502 writers not yet located -- see open question).
+        .byte   $02, $5C, $15, $09, $FF, $FF, $FF, $FF, $00, $00, $00, $00, $00 ; $03B0
+        .byte   $00, $00                 ; $03BD  as-shipped placeholder; relocator fills $0200 (IN)
+        .byte   $00, $AD, $83, $C0, $AD, $83, $C0, $8D, $FF, $FF, $AD, $81, $C0, $20, $3F, $0E ; $03BF
         .byte   $20, $58, $FF, $8D, $81, $C0, $78, $20, $4A, $FF, $4C, $C0, $03, $00, $20, $00 ; $03CF
-        .byte   $E7, $02, $09, $00, $FE, $01, $01, $60, $60, $00, $08, $00, $01, $00, $00, $00 ; $03DF
+        .byte   $00, $00, $00, $00, $00, $00, $00, $00, $60, $00, $00, $00, $00, $00, $00, $00 ; $03DF  as-shipped (relocator/sysgen fills the param cells)
         .byte   $00, $C0, $03, $C0, $03, $A6, $4C, $C0, $03, $4C, $C0, $03, $4C, $C0, $03, $C0 ; $03EF
         .byte   $03                                              ; $03FF

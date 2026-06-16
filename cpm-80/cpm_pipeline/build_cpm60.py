@@ -17,22 +17,18 @@ their COM offsets:
     COM 0x1700 BDOS                os/CPM_BDOS.asm        ($DC00)
     COM 0x2600 BIOS *template*     os/CPM_BIOS.asm        ($FA00, unpatched)
 
-The BIOS is the unpatched template -- exactly the form shipped in the COM -- so
-it places with zero patching, like the BDOS and RWTS.
-
-The remaining 38 bytes are NOT a mystery: our os/ components were recovered from
-a *booted memory image*, so they are the RUNTIME forms (self-modified, relocated,
-sysgen-filled), while the COM holds the as-ASSEMBLED form. Each of the 38 bytes
-is one known install/boot mutation, grouped and explained in cpm60_asbuilt.json:
-the boot loader's $1000 LC-handoff glue (the loader overwrites it with its entry
-+ the planted Z-80 reset stub), two boot self-patches, the UNRELOCATED
-InstallFragments placeholders (the relocator rewrites `STA $FFFF`/zeroed address
-cells), and the CCP sysgen pointer cells (zero as-shipped, filled at install).
-build_cpm60_com() applies these to undo the runtime mutations.
+Every component source is now the as-SHIPPED form (the bytes on CPMV233-60K.DSK /
+in CPM60.COM), so the whole 11,264-byte file is reproduced byte-for-byte with NO
+post-placement transform. Spots that earlier sources had captured in their
+runtime-modified form (the BIOS cold-boot self-writes, the boot loader's $1000
+reset-plant target + CPU-switch arming bytes, the InstallFragments STA-$FFFF
+placeholder, and the CCP stack scratch the disassembler mis-read as a pointer
+table) have been reverted to as-shipped and given meaningful names + comments in
+their source files; what each runtime patch does and why lives in the boot/load
+patching documentation, not baked into the source.
 """
 from __future__ import annotations
 
-import json
 import subprocess
 import tempfile
 from dataclasses import dataclass
@@ -43,7 +39,6 @@ from .regenerate import _assemble_savebin
 _REPO = Path(__file__).resolve().parents[2]
 _60K = _REPO / "cpm-80" / "decompiled" / "CPMV233-60K"
 _OS = _60K / "os"
-_ASBUILT = _60K / "cpm60_asbuilt.json"
 # the reference COM: the monolithic decompiled installer, byte-identical to the
 # original file. Used only to verify the component build.
 _REF_COM_ASM = _REPO / "cpm-80" / "decompiled" / "CPMV233" / "utilities" / "CPM60.asm"
@@ -100,9 +95,9 @@ def _components() -> dict[str, bytes]:
 
 
 def build_cpm60_com() -> bytes:
-    """Assemble CPM60.COM from the component sources, then undo the runtime
-    mutations our (booted-image-recovered) sources captured by applying the
-    documented as-shipped bytes (cpm60_asbuilt.json). Returns the 11,264-byte
+    """Assemble CPM60.COM purely from the component sources placed at their COM
+    offsets. Every source is the as-shipped form, so this reproduces the original
+    COM byte-for-byte with no post-placement transform. Returns the 11,264-byte
     image (raises if a component fails to assemble)."""
     comp = _components()
     for k, v in comp.items():
@@ -111,9 +106,6 @@ def build_cpm60_com() -> bytes:
     img = bytearray(COM_SIZE)
     for r in LAYOUT:
         img[r.com_off:r.com_off + r.length] = comp[r.src][r.src_off:r.src_off + r.length]
-    asbuilt = json.loads(_ASBUILT.read_text(encoding="utf-8"))["bytes"]
-    for off_hex, byte_hex in asbuilt.items():
-        img[int(off_hex, 16)] = int(byte_hex, 16)
     return bytes(img)
 
 

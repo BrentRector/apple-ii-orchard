@@ -139,13 +139,21 @@ DENIBBLE_BUF:
         .byte   "82 Microsoft", $0D    ; $0FEE  string
         .byte   $0A, $0D, $0A, $00, $FA                          ; $0FFB
 DENIBBLE_BUF_1:
-        .byte   $C3, $00, $FA, $F0, $6F, $3A, $3D, $F0, $C6, $20, $67, $77, $18, $F2, $88, $C0 ; $1000
+        ; $1000-$100D as-shipped = live 6502 read-loop continuation (reached via JMP $1000 at
+        ; $0822): LDA $C081 x2 (arm LC) / TXA / LSR A x4 / TAY / PHA / STA $C088,X. At relocation
+        ; the reset-plant ($10FC STA $1000 #$C3 / $1101 STA $1001 #$00 / $1106 STA $1002 #$FA)
+        ; overwrites $1000-$1002 with C3 00 FA = Z-80 'JP $FA00', so the Z-80 cold-starts in the
+        ; BIOS after the CPU switch. (Our source had captured post-handoff window bytes here.)
+        .byte   $AD, $81, $C0, $AD, $81, $C0, $8A, $4A, $4A, $4A, $4A, $A8, $48, $9D, $88, $C0 ; $1000
         .byte   $A9, $00, $99, $78, $04, $99, $F8, $04, $20, $2F, $FB, $20, $93, $FE, $20, $89 ; $1010
         .byte   $FE, $68, $A2, $FF, $9A, $C9, $06, $F0, $10, $A0, $00, $B9, $BD, $11, $F0, $06 ; $1020
         .byte   $20, $ED, $FD, $C8, $D0, $F5, $4C, $65, $FF, $A0, $0E, $B9, $DB, $11, $99, $FF ; $1030
         .byte   $0F, $88, $D0, $F7, $B9, $00, $12, $99, $00, $02, $88, $D0, $F7, $A0, $F1, $B9 ; $1040
         .byte   $FF, $12, $99, $FF, $02, $88, $D0, $F7, $8C, $B8, $03, $84, $3C, $88, $84, $3E ; $1050
-        .byte   $A0, $C7, $84, $3D, $8C, $69, $10, $8D, $00, $C1, $A5, $3E, $F0, $18, $20, $79 ; $1060
+        ; $1069 (10th byte) as-shipped = $C0: operand-high of 'STA $C000' at $1067, a placeholder.
+        ; The code just above (LDY #$C7 / STY $3D / STY $1069 at $1064) self-patches it to $C7 ->
+        ; 'STA $C700' = the slot CPU-switch soft switch (6502->Z-80 handoff). (Source held stray $C1.)
+        .byte   $A0, $C7, $84, $3D, $8C, $69, $10, $8D, $00, $C0, $A5, $3E, $F0, $18, $20, $79 ; $1060
         .byte   $11, $85, $40, $86, $41, $20, $79, $11, $E0, $00, $F0, $1E, $C5, $40, $D0, $1A ; $1070
         .byte   $E4, $41, $F0, $1A, $D0, $14, $E6, $3E, $8C, $C8, $03, $A9, $00, $8D, $C7, $03 ; $1080
         .byte   $8D, $DE, $03, $98, $18, $69, $20, $8D, $DF, $03, $A2, $00, $F0, $2D, $A2, $04 ; $1090
@@ -167,7 +175,10 @@ RELOC_SYS_TO_LC:
         .byte   $AD, $00, $89, $18, $69, $8F, $8D, $76, $11, $A9, $8D, $85, $53, $A9, $D5, $85 ; $1140
         .byte   $51, $A9, $C0, $85, $50, $A2, $0B, $20, $87, $11, $A9, $80, $85, $53, $A9, $F3 ; $1150
         .byte   $85, $51, $A9, $00, $85, $50, $A2, $0D, $20, $87, $11, $A0, $06, $B9, $97, $11 ; $1160
-        .byte   $99, $F9, $FF, $88, $D0, $F7, $4C, $D2, $03      ; $1170
+        ; $1176 (7th byte) as-shipped = $98 (TYA placeholder) before operand D2 03. The relocator
+        ; ($1140 LDA $8900 / CLC / ADC #$8F / $1146 STA $1176; ($8900)=$BD -> $4C) patches it to
+        ; $4C = JMP, arming 'JMP $03D2' into the CPU-switch handoff glue. (Source held patched $4C.)
+        .byte   $99, $F9, $FF, $88, $D0, $F7, $98, $D2, $03      ; $1170
 ; [AI] 16-bit add helper (adds A to the ($3C) base, carry into X) used while building
 ;       copy/relocation pointers; shared with the 44K loader.
 ADD16_PTR:
