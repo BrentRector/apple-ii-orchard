@@ -16,55 +16,55 @@ DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS
 ; [AI] The standard $0100 CP/M transient-program entry point; it immediately jumps past two inline
 ;       data bytes to the real start of AUTORUN.
 TPA_START:
-        JP TPA_START_3                   ; $0100  C3 05 01
-TPA_START_1:
+        JP MAIN                   ; $0100  C3 05 01
+PROT_TRACK:
         DEFB    $00                                              ; $0103
-TPA_START_2:
+PROT_SECTOR:
         DEFB    $1A                                              ; $0104
 ; [AI] Main routine start: drives a sequence of raw BIOS disk calls (SETTRK/SETSEC/SETDMA/READ) to
 ;       load a sector, then validates a signature; the track/sector values come from the two data
 ;       bytes at $0103-$0104.
-TPA_START_3:
-        LD A,(TPA_START_1)               ; $0105  3A 03 01
-TPA_START_4:
+MAIN:
+        LD A,(PROT_TRACK)               ; $0105  3A 03 01
+SET_TRK_C:
         LD C,A                           ; $0108  4F
-TPA_START_5:
+SET_TRK_B:
         LD B,$00                         ; $0109  06 00
-TPA_START_6:
+SET_TRK_FN:
         LD A,$1E                         ; $010B  3E 1E
 ; [AI] Loads the track number into C and dispatches BIOS SETTRK (jump-table offset $1E) to position
 ;       the target track for the upcoming read.
-TPA_START_7:
-        CALL SUB_0156                    ; $010D  CD 56 01
-        LD A,(TPA_START_2)               ; $0110  3A 04 01
+DO_SETTRK:
+        CALL BIOS_THUNK                    ; $010D  CD 56 01
+        LD A,(PROT_SECTOR)               ; $0110  3A 04 01
         LD C,A                           ; $0113  4F
         LD A,$21                         ; $0114  3E 21
-        CALL SUB_0156                    ; $0116  CD 56 01
-        LD BC,SUB_0156_4                 ; $0119  01 6B 01
+        CALL BIOS_THUNK                    ; $0116  CD 56 01
+        LD BC,SIG_BUF                 ; $0119  01 6B 01
         LD A,$24                         ; $011C  3E 24
-        CALL SUB_0156                    ; $011E  CD 56 01
+        CALL BIOS_THUNK                    ; $011E  CD 56 01
         LD A,$27                         ; $0121  3E 27
-        CALL SUB_0156                    ; $0123  CD 56 01
-        LD A,(SUB_0156_4)                ; $0126  3A 6B 01
-        LD HL,SUB_0156_5                 ; $0129  21 6E 01
+        CALL BIOS_THUNK                    ; $0123  CD 56 01
+        LD A,(SIG_BUF)                ; $0126  3A 6B 01
+        LD HL,SIG_BYTE2                 ; $0129  21 6E 01
         XOR (HL)                         ; $012C  AE
-        LD HL,SUB_0156_6                 ; $012D  21 71 01
+        LD HL,SIG_BYTE3                 ; $012D  21 71 01
         XOR (HL)                         ; $0130  AE
         XOR $7F                          ; $0131  EE 7F
-        JR Z,TPA_START_8                 ; $0133  28 08
+        JR Z,SIG_OK_COPY_TAIL                 ; $0133  28 08
         LD C,$09                         ; $0135  0E 09
-        LD DE,SUB_0156_3                 ; $0137  11 5B 01
+        LD DE,MSG_NOT_CPM_DISK                 ; $0137  11 5B 01
         JP BDOS_VEC                      ; $013A  C3 05 00
 ; [AI] Taken when the loaded sector's signature checksum is valid (genuine disk): copies the
 ;       command-tail string from the $0080 DMA buffer into the local buffer at $0172 for further
 ;       processing.
-TPA_START_8:
-        LD DE,SUB_0156_7                 ; $013D  11 72 01
+SIG_OK_COPY_TAIL:
+        LD DE,TAIL_BUF                 ; $013D  11 72 01
         LD HL,DEFAULT_DMA                ; $0140  21 80 00
         LD A,(HL)                        ; $0143  7E
         LD (DE),A                        ; $0144  12
         OR A                             ; $0145  B7
-        JR Z,TPA_START_9                 ; $0146  28 0A
+        JR Z,DISPATCH_CONIN                 ; $0146  28 0A
         LD C,A                           ; $0148  4F
         DEC A                            ; $0149  3D
         LD (DE),A                        ; $014A  12
@@ -75,28 +75,28 @@ TPA_START_8:
         LDIR                             ; $0150  ED B0
 ; [AI] Final tail-handling step that selects BIOS CONIN (offset $09 set up via A=$2A then C=$01)
 ;       and falls into the dispatch thunk to transfer control to a BIOS console routine.
-TPA_START_9:
+DISPATCH_CONIN:
         LD C,$01                         ; $0152  0E 01
         LD A,$2A                         ; $0154  3E 2A
 ; [AI] BIOS jump-table thunk: reads the page-aligned warm-boot vector from $0001, replaces its low
 ;       byte with the offset passed in A (e.g. $1E=SETTRK, $21=SETSEC, $24=SETDMA, $27=READ,
 ;       $2A=WRITE, $09=CONIN), and jumps to that BIOS entry â letting the program call BIOS
 ;       routines directly instead of through BDOS.
-SUB_0156:
+BIOS_THUNK:
         LD HL,($0001)                    ; $0156  2A 01 00
-SUB_0156_1:
+BIOS_THUNK_SETL:
         LD L,A                           ; $0159  6F
-SUB_0156_2:
+BIOS_THUNK_JP:
         JP (HL)                          ; $015A  E9
-SUB_0156_3:
+MSG_NOT_CPM_DISK:
         DEFB    $4E,$6F,$74,$20,$61,$20,$43,$50,$2F,$4D,$20,$64,$69,$73,$6B,$24 ; $015B
-SUB_0156_4:
+SIG_BUF:
         DEFB    $00,$00,$00                                      ; $016B
-SUB_0156_5:
+SIG_BYTE2:
         DEFB    $00,$00,$00                                      ; $016E
-SUB_0156_6:
+SIG_BYTE3:
         DEFB    $00                                              ; $0171
-SUB_0156_7:
+TAIL_BUF:
         DEFS    14, $00    ; $0172  fill
 
     SAVEBIN "AUTORUN.bin", $0100, $0080

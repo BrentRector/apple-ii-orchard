@@ -76,7 +76,7 @@ DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS
 ;   $489C -> SUB_4868_10+1        z80 skip idiom: enters the operand of $3E at $489B
 ;   $48D8 -> SUB_48D6_1+1         shared instruction tail: $48D8 is reachable code inside the instruction at $48D7
 ;   $5420 -> SUB_53F7_6+1         shared instruction tail: $5420 is reachable code inside the instruction at $541F
-;   $5A6C -> SUB_58FE_16+1        shared instruction tail: $5A6C is reachable code inside the instruction at $5A6B
+;   $5A6C -> DO_SYSTEM+1        shared instruction tail: $5A6C is reachable code inside the instruction at $5A6B
 ;   $5D44 -> SUB_5BB1_5+2         shared instruction tail: $5D44 is reachable code inside the instruction at $5D42
 
     ORG $0100
@@ -84,14 +84,14 @@ DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS
 ; [AI] CP/M transient entry point at $0100. Jumps to the cold-start initializer (L_5E51); the
 ;       $0103+ bytes that follow are the BASIC interpreter's runtime data area, not code.
 TPA_START:
-        JP SUB_5E2A_3                    ; $0100  C3 51 5E
-        DEFW    SUB_2BF4                 ; $0103
+        JP COLD_START                    ; $0100  C3 51 5E
+        DEFW    FP_INT                 ; $0103
         DEFB    $55                                              ; $0105
 TPA_START_1:
         INC L                            ; $0106  2C
 TPA_START_2:
         NOP                              ; $0107  00
-TPA_START_3:
+STMT_DISPATCH_TBL:
         CALL NC,$AA45                    ; $0108  D4 45 AA
         LD (DE),A                        ; $010B  12
 TPA_START_4:
@@ -142,7 +142,7 @@ TPA_START_14:
         SUB D                            ; $0138  92
         DEC C                            ; $0139  0D
         SUB D                            ; $013A  92
-TPA_START_15:
+RESERVED_WORD_TBL:
         DEC C                            ; $013B  0D
         LD E,L                           ; $013C  5D
         RLA                              ; $013D  17
@@ -224,9 +224,9 @@ TPA_START_25:
         DEFB    $2D                                              ; $01E0
         DEFW    SUB_3212_8               ; $01E1
         DEFB    $48,$44,$1E                                      ; $01E3
-        DEFW    SUB_2BF4                 ; $01E6
-        DEFW    SUB_2C6C                 ; $01E8
-        DEFW    SUB_2C98                 ; $01EA
+        DEFW    FP_INT                 ; $01E6
+        DEFW    FP_SGN                 ; $01E8
+        DEFW    FP_ABS                 ; $01EA
         DEFB    $E5,$2C,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00 ; $01EC
 TPA_START_26:
         NOP                              ; $01FC  00
@@ -320,7 +320,7 @@ TPA_START_39:
 TPA_START_40:
         INC B                            ; $0251  04
         LD C,(HL)                        ; $0252  4E
-        CALL NZ,SUB_42F7                 ; $0253  C4 F7 42
+        CALL NZ,RESET_COLUMN                 ; $0253  C4 F7 42
         OUT ($06),A                      ; $0256  D3 06
         LD D,H                           ; $0258  54
         ADC A,$0E                        ; $0259  CE 0E
@@ -405,7 +405,7 @@ TPA_START_41:
         DEFB    $D4,$85,$C6,$8B,$4E,$53,$54,$D2,$E9,$4E,$D4      ; $034F
         DEFW    SUB_4CA1_13              ; $035A
         DEFB    $D0,$FB,$4E,$4B,$45,$59,$A4,$EE,$4E,$56,$45,$52,$53,$C5,$CA,$00 ; $035C  "P{NKEY$nNVERSEJ"
-        DEFW    SUB_4900                 ; $036C
+        DEFW    GARBAG                 ; $036C
         DEFB    $4C,$CC,$C1,$00,$45,$D4                          ; $036E
         DEFW    SUB_4900_15              ; $0374
         DEFB    $4E,$C5,$AD,$4F,$41,$C4,$BD                      ; $0376
@@ -499,14 +499,14 @@ TPA_START_43:
         DEFW    SUB_4900_11              ; $049B
         DEFB    $4E,$C7,$E8,$53,$D2,$E1,$00                      ; $049D  "NGhSRa"
         DEFB    $41                                              ; $04A4
-        DEFW    SUB_129A_7               ; $04A5
+        DEFW    DISPATCH_STMT               ; $04A5
         DEFB    $41,$52                                          ; $04A7
         DEFW    SUB_53F7_11              ; $04A9
         DEFB    $D2                                              ; $04AB
         DEFW    SUB_4CA1_8               ; $04AC
         DEFB    $49,$CE,$CF,$54,$41,$C2,$C8,$50,$4F              ; $04AE
         DEFW    SUB_34D3                 ; $04B7
-        DEFW    SUB_4900                 ; $04B9
+        DEFW    GARBAG                 ; $04B9
         DEFW    SUB_53F7_8               ; $04BB
         DEFB    $C8,$9D                                          ; $04BD
         DEFW    SUB_4900_4               ; $04BF
@@ -519,32 +519,32 @@ TPA_START_43:
         DEFB    $54,$C5,$B2,$00,$4F,$D2,$F9,$00,$00              ; $04CE
 TPA_START_44:
         DEFB    $00                                              ; $04D7
-TPA_START_45:
+OPERATOR_TOKEN_TBL:
         DEFB    $AB,$F2,$AD,$F3,$AA,$F4,$AF,$F5,$DE,$F6,$DC,$FD,$A7,$EA,$BE,$EF ; $04D8  "+r-s*t/u^v\}'j>o=p<q"
         DEFB    $BD,$F0,$BC,$F1,$00                              ; $04E8
-TPA_START_46:
+OPERATOR_PREC_TBL:
         DEFB    $79,$79,$7C,$7C,$7F,$50,$46,$3C                  ; $04ED
         DEFW    SUB_2824_2               ; $04F5
         DEFB    $7A,$7B                                          ; $04F7
 TPA_START_47:
-        DEFW    SUB_2C98                 ; $04F9
+        DEFW    FP_ABS                 ; $04F9
         DEFB    $00,$00                                          ; $04FB
-        DEFW    SUB_2BF4                 ; $04FD
+        DEFW    FP_INT                 ; $04FD
         DEFW    SUB_2CB3                 ; $04FF
-        DEFW    SUB_2C6C                 ; $0501
+        DEFW    FP_SGN                 ; $0501
         DEFW    SUB_2E8E                 ; $0503
         DEFB    $87,$2E                                          ; $0505
         DEFW    SUB_2FBC                 ; $0507
         DEFB    $9C,$30,$ED                                      ; $0509
         DEFW    SUB_2426_1               ; $050C
         DEFB    $28,$21,$28                                      ; $050E
-        DEFW    SUB_2990                 ; $0511
+        DEFW    FMUL                 ; $0511
         DEFW    SUB_29E8_3               ; $0513
         DEFW    SUB_2B81                 ; $0515
         DEFB    $A1,$2D,$96,$2D,$C1,$2D,$02                      ; $0517
 TPA_START_48:
         DEFB    $1C,$AE,$2B                                      ; $051E
-TPA_START_49:
+ERROR_MESSAGES:
         DEFW    SUB_4DC3_8               ; $0521
         DEFW    SUB_583F_1               ; $0523
         DEFW    SUB_2041_3               ; $0525
@@ -558,7 +558,7 @@ TPA_START_49:
         DEFB    $4F,$75,$74,$20,$6F,$66,$20,$44                  ; $0555
         DEFW    SUB_53F7_7               ; $055D
         DEFB    $41                                              ; $055F
-        DEFW    SUB_4900                 ; $0560
+        DEFW    GARBAG                 ; $0560
         DEFB    "llegal function call"    ; $0562  string
         DEFB    $00    ; $0576  terminator
 TPA_START_50:
@@ -574,7 +574,7 @@ TPA_START_50:
         DEFB    $00    ; $05CF  terminator
 TPA_START_51:
         DEFB    $44,$69,$76,$69,$73,$69,$6F,$6E,$20,$62,$79,$20,$7A,$65,$72,$6F ; $05D0
-        DEFW    SUB_4900                 ; $05E0
+        DEFW    GARBAG                 ; $05E0
         DEFB    $6C,$6C,$65,$67,$61,$6C,$20,$64,$69,$72,$65,$63,$74 ; $05E2
         DEFW    SUB_53F7_3               ; $05EF
         DEFB    "ype mismatch"    ; $05F1  string
@@ -587,7 +587,7 @@ TPA_START_52:
 TPA_START_53:
         DEFB    $6F,$6E,$67,$00,$53,$74,$72,$69,$6E,$67,$20,$66,$6F,$72,$6D,$75 ; $061E
         DEFB    $6C,$61,$20,$74,$6F,$6F,$20,$63,$6F,$6D,$70,$6C,$65,$78 ; $062E
-        DEFW    SUB_4300                 ; $063C
+        DEFW    OUT_CRLF                 ; $063C
         DEFB    "an't continue"    ; $063E  string
         DEFB    $00    ; $064B  terminator
         DEFB    $55,$6E,$64,$65,$66,$69,$6E,$65,$64,$20,$75,$73,$65,$72,$20,$66 ; $064C
@@ -640,7 +640,7 @@ TPA_START_54:
         DEFW    SUB_4ABF_15              ; $072A
         DEFW    SUB_2041_1               ; $072C
         DEFB    $6F,$76,$65,$72,$66,$6C,$6F,$77                  ; $072E
-        DEFW    SUB_4900                 ; $0736
+        DEFW    GARBAG                 ; $0736
         DEFB    "nternal error"    ; $0738  string
         DEFB    $00    ; $0745  terminator
         DEFB    "Bad file number"    ; $0746  string
@@ -661,7 +661,7 @@ TPA_START_54:
         DEFW    SUB_3EDB_8               ; $07A9
         DEFW    SUB_3EDB_8               ; $07AB
         DEFB    $00,$44,$69,$73,$6B,$20,$66,$75,$6C,$6C          ; $07AD
-        DEFW    SUB_4900                 ; $07B7
+        DEFW    GARBAG                 ; $07B7
         DEFB    "nput past end"    ; $07B9  string
         DEFB    $00    ; $07C6  terminator
         DEFB    "Bad record number"    ; $07C7  string
@@ -681,17 +681,17 @@ TPA_START_55:
         DEFB    $00    ; $0832  terminator
         DEFB    "File Read Only"    ; $0833  string
         DEFB    $00    ; $0841  terminator
-TPA_START_56:
-        DEFW    SUB_14E4_2               ; $0842
-        DEFW    SUB_14E4_2               ; $0844
-        DEFW    SUB_14E4_2               ; $0846
-        DEFW    SUB_14E4_2               ; $0848
-        DEFW    SUB_14E4_2               ; $084A
-        DEFW    SUB_14E4_2               ; $084C
-        DEFW    SUB_14E4_2               ; $084E
-        DEFW    SUB_14E4_2               ; $0850
-        DEFW    SUB_14E4_2               ; $0852
-        DEFW    SUB_14E4_2               ; $0854
+FILE_CHAN_VECTORS:
+        DEFW    ERR_TYPE_MISMATCH               ; $0842
+        DEFW    ERR_TYPE_MISMATCH               ; $0844
+        DEFW    ERR_TYPE_MISMATCH               ; $0846
+        DEFW    ERR_TYPE_MISMATCH               ; $0848
+        DEFW    ERR_TYPE_MISMATCH               ; $084A
+        DEFW    ERR_TYPE_MISMATCH               ; $084C
+        DEFW    ERR_TYPE_MISMATCH               ; $084E
+        DEFW    ERR_TYPE_MISMATCH               ; $0850
+        DEFW    ERR_TYPE_MISMATCH               ; $0852
+        DEFW    ERR_TYPE_MISMATCH               ; $0854
         DEFB    $01                                              ; $0856
 TPA_START_57:
         DEFB    $00                                              ; $0857
@@ -717,7 +717,7 @@ TPA_START_67:
         DEFB    $00,$00                                          ; $0863
 TPA_START_68:
         DEFB    $AA,$61                                          ; $0865
-TPA_START_69:
+CURLIN:
         DEFB    $FE,$FF                                          ; $0867
 TPA_START_70:
         DEFB    $47,$61                                          ; $0869
@@ -875,7 +875,7 @@ TPA_START_146:
         DEFB    $00                                              ; $0C97
 ; [AI] Small stack-trampoline helper that pops a saved return address and re-dispatches via JP
 ;       (HL), used to return control to a caller-supplied continuation.
-SUB_0C98:
+POP_REDISPATCH:
         POP HL                           ; $0C98  E1
         POP DE                           ; $0C99  D1
         POP AF                           ; $0C9A  F1
@@ -890,7 +890,7 @@ SUB_0C98:
 ; [AI] Computes the top of usable RAM by reading the BIOS base page byte at $0007 (the high byte of
 ;       the BIOS/jump-table address) so the interpreter knows where the TPA ends; used when laying
 ;       out the program-text and variable space.
-SUB_0CA8:
+GET_MEMTOP:
         LD A,($0007)                     ; $0CA8  3A 07 00
 SUB_0CA8_1:
         LD H,A                           ; $0CAB  67
@@ -982,7 +982,7 @@ SUB_0CA8_39:
         DEFB    $7A,$B3                                          ; $0D3A
         DEFW    SUB_28E1_2               ; $0D3C
         DEFB    $04,$EB,$CD                                      ; $0D3E
-        DEFW    SUB_459D                 ; $0D41
+        DEFW    DCMP_HL_DE                 ; $0D41
         DEFB    $01,$10,$00,$E1,$C8,$09,$18,$D9                  ; $0D43
 SUB_0CA8_40:
         DEFW    SUB_44F5_2               ; $0D4B
@@ -990,8 +990,8 @@ SUB_0CA8_40:
         DEFW    SUB_0CA8_63              ; $0D4F
 ; [AI] Entry to the runtime error handler when no error line is set: falls through to print
 ;       'Ok'/error text and re-enter direct mode.
-SUB_0CA8_41:
-        LD HL,(TPA_START_69)             ; $0D51  2A 67 08
+READY_OR_ERROR:
+        LD HL,(CURLIN)             ; $0D51  2A 67 08
         LD A,H                           ; $0D54  7C
         AND L                            ; $0D55  A5
         INC A                            ; $0D56  3C
@@ -1000,9 +1000,9 @@ SUB_0CA8_41:
         OR A                             ; $0D5C  B7
 SUB_0CA8_42:
         LD E,$13                         ; $0D5D  1E 13
-        JR NZ,SUB_0CA8_61                ; $0D5F  20 4B
+        JR NZ,ERROR                ; $0D5F  20 4B
 SUB_0CA8_43:
-        JP SUB_45B5_7                    ; $0D61  C3 E7 45
+        JP ERROR_REPORT                    ; $0D61  C3 E7 45
 SUB_0CA8_44:
         LD E,$3D                         ; $0D64  1E 3D
 SUB_0CA8_45:
@@ -1026,10 +1026,10 @@ SUB_0CA8_52:
 SUB_0CA8_53:
         LD BC,SUB_4300_3+1               ; $0D84  01 1E 43
         LD BC,SUB_3A18_1                 ; $0D87  01 1E 3A
-        JR SUB_0CA8_61                   ; $0D8A  18 20
+        JR ERROR                   ; $0D8A  18 20
         DEFB    $2A,$73                                          ; $0D8C
         DEFW    SUB_21FC_3               ; $0D8E
-        DEFW    TPA_START_69             ; $0D90
+        DEFW    CURLIN             ; $0D90
 SUB_0CA8_54:
         LD E,$02                         ; $0D92  1E 02
 SUB_0CA8_55:
@@ -1049,8 +1049,8 @@ SUB_0CA8_60:
 ; [AI] Common error-trap entry. With the BASIC error code in E, records the current line number,
 ;       resets output state, and dispatches to the error reporter; nearly every error path (Syntax
 ;       error, Out of memory, etc.) jumps here.
-SUB_0CA8_61:
-        LD HL,(TPA_START_69)             ; $0DAC  2A 67 08
+ERROR:
+        LD HL,(CURLIN)             ; $0DAC  2A 67 08
         LD (TPA_START_121),HL            ; $0DAF  22 83 0B
         XOR A                            ; $0DB2  AF
         LD (SUB_0CA8_12),A               ; $0DB3  32 BD 0C
@@ -1064,7 +1064,7 @@ SUB_0CA8_62:
         LD BC,SUB_0CA8_64                ; $0DC1  01 CA 0D
 SUB_0CA8_63:
         LD HL,(TPA_START_120)            ; $0DC4  2A 81 0B
-        JP SUB_450B_12                   ; $0DC7  C3 72 45
+        JP SET_STACK_RNDINIT                   ; $0DC7  C3 72 45
 SUB_0CA8_64:
         DEFB    $C1,$7B                                          ; $0DCA
         DEFW    SUB_3212_9               ; $0DCC
@@ -1093,7 +1093,7 @@ SUB_0CA8_64:
         DEFW    SUB_3212_12              ; $0DFB
         DEFW    TPA_START_66             ; $0DFD
         DEFB    $CD                                              ; $0DFF
-        DEFW    SUB_43F9                 ; $0E00
+        DEFW    CRLF_IF_COLUMN                 ; $0E00
         DEFW    SUB_211B_2               ; $0E02
         DEFB    $05,$7B,$FE                                      ; $0E04
         DEFW    SUB_3006_9               ; $0E07
@@ -1103,7 +1103,7 @@ SUB_0CA8_65:
         SUB $11                          ; $0E14  D6 11
         LD E,A                           ; $0E16  5F
 SUB_0CA8_66:
-        CALL SUB_15D1                    ; $0E17  CD D1 15
+        CALL SCAN_TO_STMT_END                    ; $0E17  CD D1 15
         INC HL                           ; $0E1A  23
 SUB_0CA8_67:
         DEC E                            ; $0E1B  1D
@@ -1118,15 +1118,15 @@ SUB_0CA8_69:
         JR NZ,SUB_0CA8_71                ; $0E26  20 06
 SUB_0CA8_70:
         POP HL                           ; $0E28  E1
-        LD HL,TPA_START_49               ; $0E29  21 21 05
+        LD HL,ERROR_MESSAGES               ; $0E29  21 21 05
         JR SUB_0CA8_65                   ; $0E2C  18 E4
 SUB_0CA8_71:
         CALL SUB_48BE                    ; $0E2E  CD BE 48
         POP HL                           ; $0E31  E1
         LD DE,$FFFE                      ; $0E32  11 FE FF
-        CALL SUB_459D                    ; $0E35  CD 9D 45
-        CALL Z,SUB_4406                  ; $0E38  CC 06 44
-        JP Z,SUB_58FE_16                 ; $0E3B  CA 6B 5A
+        CALL DCMP_HL_DE                    ; $0E35  CD 9D 45
+        CALL Z,PRINT_CRLF                  ; $0E38  CC 06 44
+        JP Z,DO_SYSTEM                 ; $0E3B  CA 6B 5A
         LD A,H                           ; $0E3E  7C
         AND L                            ; $0E3F  A5
         INC A                            ; $0E40  3C
@@ -1137,12 +1137,12 @@ SUB_0CA8_73:
 ; [AI] Direct-mode 'Ok' loop head: resets the print column, flushes pending output, prints the 'Ok'
 ;       prompt at $0D15, then reads and tokenizes a console line for immediate execution or program
 ;       entry.
-SUB_0CA8_74:
-        CALL SUB_42F7                    ; $0E46  CD F7 42
+PROMPT_READY:
+        CALL RESET_COLUMN                    ; $0E46  CD F7 42
         XOR A                            ; $0E49  AF
         LD (TPA_START_66),A              ; $0E4A  32 62 08
         CALL SUB_5498                    ; $0E4D  CD 98 54
-        CALL SUB_43F9                    ; $0E50  CD F9 43
+        CALL CRLF_IF_COLUMN                    ; $0E50  CD F9 43
         LD HL,SUB_0CA8_37                ; $0E53  21 15 0D
 SUB_0CA8_75:
         CALL WBOOT_VEC                   ; $0E56  CD 00 00
@@ -1152,9 +1152,9 @@ SUB_0CA8_75:
 ; [AI] Per-line input loop: clears the current-line marker, reads a console line via the line
 ;       editor, tokenizes it, and either stores it in the program (numbered line) or executes it
 ;       directly.
-SUB_0CA8_76:
+MAIN_LINE_LOOP:
         LD HL,$FFFF                      ; $0E61  21 FF FF
-        LD (TPA_START_69),HL             ; $0E64  22 67 08
+        LD (CURLIN),HL             ; $0E64  22 67 08
         LD A,(TPA_START_116)             ; $0E67  3A 7A 0B
         OR A                             ; $0E6A  B7
         JR Z,SUB_0CA8_81                 ; $0E6B  28 43
@@ -1163,18 +1163,18 @@ SUB_0CA8_76:
         CALL SUB_3391                    ; $0E71  CD 91 33
         POP DE                           ; $0E74  D1
         PUSH DE                          ; $0E75  D5
-        CALL SUB_0FAB                    ; $0E76  CD AB 0F
+        CALL FNDLIN                    ; $0E76  CD AB 0F
         LD A,$2A                         ; $0E79  3E 2A
         JR C,SUB_0CA8_77                 ; $0E7B  38 02
         LD A,$20                         ; $0E7D  3E 20
 SUB_0CA8_77:
-        CALL SUB_4291                    ; $0E7F  CD 91 42
-        CALL SUB_4CA1                    ; $0E82  CD A1 4C
+        CALL OUTCHR                    ; $0E7F  CD 91 42
+        CALL INLIN                    ; $0E82  CD A1 4C
         POP DE                           ; $0E85  D1
         JR NC,SUB_0CA8_79                ; $0E86  30 0C
         XOR A                            ; $0E88  AF
         LD (TPA_START_116),A             ; $0E89  32 7A 0B
-        JR SUB_0CA8_74                   ; $0E8C  18 B8
+        JR PROMPT_READY                   ; $0E8C  18 B8
 SUB_0CA8_78:
         XOR A                            ; $0E8E  AF
         LD (TPA_START_116),A             ; $0E8F  32 7A 0B
@@ -1185,31 +1185,31 @@ SUB_0CA8_79:
         JR C,SUB_0CA8_78                 ; $0E98  38 F4
         PUSH DE                          ; $0E9A  D5
         LD DE,$FFF9                      ; $0E9B  11 F9 FF
-        CALL SUB_459D                    ; $0E9E  CD 9D 45
+        CALL DCMP_HL_DE                    ; $0E9E  CD 9D 45
         POP DE                           ; $0EA1  D1
         JR NC,SUB_0CA8_78                ; $0EA2  30 EA
         LD (TPA_START_117),HL            ; $0EA4  22 7B 0B
 SUB_0CA8_80:
         LD A,(TPA_START_90)              ; $0EA7  3A 31 0A
         OR A                             ; $0EAA  B7
-        JR Z,SUB_0CA8_76                 ; $0EAB  28 B4
-        JP SUB_4068_10                   ; $0EAD  C3 C1 40
+        JR Z,MAIN_LINE_LOOP                 ; $0EAB  28 B4
+        JP STORE_PROGRAM_LINE                   ; $0EAD  C3 C1 40
 SUB_0CA8_81:
-        CALL SUB_4CA1                    ; $0EB0  CD A1 4C
-        JR C,SUB_0CA8_76                 ; $0EB3  38 AC
-        CALL SUB_13E4                    ; $0EB5  CD E4 13
+        CALL INLIN                    ; $0EB0  CD A1 4C
+        JR C,MAIN_LINE_LOOP                 ; $0EB3  38 AC
+        CALL CHRGET                    ; $0EB5  CD E4 13
         INC A                            ; $0EB8  3C
         DEC A                            ; $0EB9  3D
-        JR Z,SUB_0CA8_76                 ; $0EBA  28 A5
+        JR Z,MAIN_LINE_LOOP                 ; $0EBA  28 A5
         PUSH AF                          ; $0EBC  F5
-        CALL SUB_14FB                    ; $0EBD  CD FB 14
-        CALL SUB_129A                    ; $0EC0  CD 9A 12
+        CALL LINGET                    ; $0EBD  CD FB 14
+        CALL SKIP_TRAILING_WS                    ; $0EC0  CD 9A 12
         LD A,(HL)                        ; $0EC3  7E
         CP $20                           ; $0EC4  FE 20
         CALL Z,SUB_2B3D                  ; $0EC6  CC 3D 2B
 SUB_0CA8_82:
         PUSH DE                          ; $0EC9  D5
-        CALL SUB_101B                    ; $0ECA  CD 1B 10
+        CALL CRUNCH                    ; $0ECA  CD 1B 10
         POP DE                           ; $0ECD  D1
         POP AF                           ; $0ECE  F1
         LD (TPA_START_119),HL            ; $0ECF  22 7F 0B
@@ -1218,19 +1218,19 @@ SUB_0CA8_83:
         PUSH DE                          ; $0ED5  D5
 SUB_0CA8_84:
         PUSH BC                          ; $0ED6  C5
-        CALL SUB_5E2A                    ; $0ED7  CD 2A 5E
-        CALL SUB_13E4                    ; $0EDA  CD E4 13
+        CALL CHECK_STOP                    ; $0ED7  CD 2A 5E
+        CALL CHRGET                    ; $0EDA  CD E4 13
         OR A                             ; $0EDD  B7
         PUSH AF                          ; $0EDE  F5
         EX DE,HL                         ; $0EDF  EB
         LD (TPA_START_122),HL            ; $0EE0  22 85 0B
         EX DE,HL                         ; $0EE3  EB
-        CALL SUB_0FAB                    ; $0EE4  CD AB 0F
+        CALL FNDLIN                    ; $0EE4  CD AB 0F
         JR C,SUB_0CA8_86                 ; $0EE7  38 06
         POP AF                           ; $0EE9  F1
         PUSH AF                          ; $0EEA  F5
 SUB_0CA8_85:
-        JP Z,SUB_1506_6                  ; $0EEB  CA 91 15
+        JP Z,ERR_SYNTAX                  ; $0EEB  CA 91 15
         OR A                             ; $0EEE  B7
 SUB_0CA8_86:
         PUSH BC                          ; $0EEF  C5
@@ -1261,7 +1261,7 @@ SUB_0CA8_89:
         PUSH HL                          ; $0F13  E5
         ADD HL,BC                        ; $0F14  09
         PUSH HL                          ; $0F15  E5
-        CALL SUB_448F                    ; $0F16  CD 8F 44
+        CALL BLOCK_MOVE_DOWN                    ; $0F16  CD 8F 44
         POP HL                           ; $0F19  E1
         LD (TPA_START_128),HL            ; $0F1A  22 92 0B
         EX DE,HL                         ; $0F1D  EB
@@ -1293,26 +1293,26 @@ SUB_0CA8_92:
         JR NZ,SUB_0CA8_91                ; $0F36  20 F7
 SUB_0CA8_93:
         POP DE                           ; $0F38  D1
-        CALL SUB_0F60                    ; $0F39  CD 60 0F
+        CALL RELINK_LOOP                    ; $0F39  CD 60 0F
         LD HL,DEFAULT_DMA                ; $0F3C  21 80 00
         LD (HL),$00                      ; $0F3F  36 00
         LD (TPA_START_75),HL             ; $0F41  22 73 08
         LD HL,(TPA_START_67)             ; $0F44  2A 63 08
         LD (TPA_START_125),HL            ; $0F47  22 8C 0B
-        CALL SUB_450B                    ; $0F4A  CD 0B 45
+        CALL RUN_INIT                    ; $0F4A  CD 0B 45
         LD HL,(TPA_START_74)             ; $0F4D  2A 71 08
         LD (TPA_START_75),HL             ; $0F50  22 73 08
         LD HL,(TPA_START_125)            ; $0F53  2A 8C 0B
         LD (TPA_START_67),HL             ; $0F56  22 63 08
-        JP SUB_0CA8_76                   ; $0F59  C3 61 0E
+        JP MAIN_LINE_LOOP                   ; $0F59  C3 61 0E
 ; [AI] Re-links the program text after an edit, rebuilding each line's forward-pointer (the address
 ;       of the next line) so the linked list of BASIC lines is consistent.
-SUB_0F5C:
+RELINK_PROGRAM:
         LD HL,(TPA_START_70)             ; $0F5C  2A 69 08
         EX DE,HL                         ; $0F5F  EB
 ; [AI] Inner relink loop walking the program lines, scanning past each line's body to its
 ;       terminating null and writing the chain pointer to the following line.
-SUB_0F60:
+RELINK_LOOP:
         LD H,D                           ; $0F60  62
         LD L,E                           ; $0F61  6B
         LD A,(HL)                        ; $0F62  7E
@@ -1331,8 +1331,8 @@ SUB_0F60_2:
         JR NC,SUB_0F60_1                 ; $0F6F  30 F7
         CP $0B                           ; $0F71  FE 0B
         JR C,SUB_0F60_1                  ; $0F73  38 F3
-        CALL SUB_13E5                    ; $0F75  CD E5 13
-        CALL SUB_13E4                    ; $0F78  CD E4 13
+        CALL CHRGOT                    ; $0F75  CD E5 13
+        CALL CHRGET                    ; $0F78  CD E4 13
         JR SUB_0F60_2                    ; $0F7B  18 ED
 SUB_0F60_3:
         INC HL                           ; $0F7D  23
@@ -1340,7 +1340,7 @@ SUB_0F60_3:
         LD (HL),E                        ; $0F7F  73
         INC HL                           ; $0F80  23
         LD (HL),D                        ; $0F81  72
-        JR SUB_0F60                      ; $0F82  18 DC
+        JR RELINK_LOOP                      ; $0F82  18 DC
         DEFB    $11,$00,$00                                      ; $0F84
         DEFW    SUB_28D5                 ; $0F87
         DEFB    $14,$D1,$CD,$F0,$14                              ; $0F89
@@ -1348,14 +1348,14 @@ SUB_0F60_3:
         DEFB    $16,$7E,$FE,$2C,$28,$05,$FE,$F3,$C2              ; $0F90
         DEFW    SUB_0CA8_54              ; $0F99
         DEFB    $CD                                              ; $0F9B
-        DEFW    SUB_13E4                 ; $0F9C
+        DEFW    CHRGET                 ; $0F9C
         DEFB    $11,$FA,$FF,$C4,$F0,$14,$C2                      ; $0F9E
         DEFW    SUB_0CA8_54              ; $0FA5
         DEFB    $EB,$D1,$E3,$E5                                  ; $0FA7
 ; [AI] Searches the program for a line by line-number, walking the linked list of lines and
 ;       comparing the 16-bit line number; returns with carry/zero indicating found vs. insert-
 ;       position. Used by GOTO/GOSUB/list/edit and line insertion.
-SUB_0FAB:
+FNDLIN:
         LD HL,(TPA_START_70)             ; $0FAB  2A 69 08
 SUB_0FAB_1:
         LD B,H                           ; $0FAE  44
@@ -1371,7 +1371,7 @@ SUB_0FAB_1:
         INC HL                           ; $0FB8  23
         LD H,(HL)                        ; $0FB9  66
         LD L,A                           ; $0FBA  6F
-        CALL SUB_459D                    ; $0FBB  CD 9D 45
+        CALL DCMP_HL_DE                    ; $0FBB  CD 9D 45
         LD H,B                           ; $0FBE  60
         LD L,C                           ; $0FBF  69
         LD A,(HL)                        ; $0FC0  7E
@@ -1387,7 +1387,7 @@ SUB_0FAB_4:
         RET NC                           ; $0FC7  D0
         JR SUB_0FAB_1                    ; $0FC8  18 E4
         DEFB    $CD                                              ; $0FCA
-        DEFW    SUB_13E5                 ; $0FCB
+        DEFW    CHRGOT                 ; $0FCB
         DEFB    $FE,$23,$C8,$E5,$CD                              ; $0FCD
         DEFW    SUB_1A8C_1+1             ; $0FD2
         DEFB    $CD                                              ; $0FD4
@@ -1395,11 +1395,11 @@ SUB_0FAB_4:
         DEFB    $28,$08,$CD                                      ; $0FD7
         DEFW    SUB_52A9_1               ; $0FDA
         DEFB    $D1,$D1,$C3,$EA,$5B,$E1,$CD                      ; $0FDC
-        DEFW    SUB_3BB3                 ; $0FE3
+        DEFW    PTRGET                 ; $0FE3
         DEFB    $CD                                              ; $0FE5
         DEFW    SUB_1DE3                 ; $0FE6
         DEFB    $C2                                              ; $0FE8
-        DEFW    SUB_14E4_2               ; $0FE9
+        DEFW    ERR_TYPE_MISMATCH               ; $0FE9
         DEFW    SUB_1A93_8               ; $0FEB
         DEFW    SUB_2874_18              ; $0FED
         DEFB    $0F,$D5                                          ; $0FEF
@@ -1408,7 +1408,7 @@ SUB_0FAB_4:
         DEFW    SUB_29E8_17              ; $0FF5
         DEFW    TPA_START_128            ; $0FF7
         DEFB    $CD                                              ; $0FF9
-        DEFW    SUB_459D                 ; $0FFA
+        DEFW    DCMP_HL_DE                 ; $0FFA
         DEFB    $D1                                              ; $0FFC
         DEFW    TPA_START_97             ; $0FFD
         DEFW    TPA_START_16             ; $0FFF
@@ -1419,18 +1419,18 @@ SUB_0FAB_4:
         DEFB    $FE,$EB,$36,$01,$23,$5E,$23,$56,$CD              ; $1009
         DEFW    SUB_4472                 ; $1012
         DEFB    $CC                                              ; $1014
-        DEFW    SUB_43A2                 ; $1015
+        DEFW    CONIN_POLL                 ; $1015
         DEFB    $12,$E1,$C1,$C9                                  ; $1017
 ; [AI] Tokenizer (crunch): converts the raw ASCII input line into BASIC's internal tokenized form,
 ;       replacing reserved words with one-byte tokens, packing line numbers, and handling string
 ;       literals, comments (REM), and DATA text.
-SUB_101B:
+CRUNCH:
         XOR A                            ; $101B  AF
         LD (TPA_START_98),A              ; $101C  32 39 0B
         LD (TPA_START_97),A              ; $101F  32 38 0B
-        LD BC,TPA_START_15               ; $1022  01 3B 01
+        LD BC,RESERVED_WORD_TBL               ; $1022  01 3B 01
         LD DE,TPA_START_87               ; $1025  11 F2 08
-SUB_101B_1:
+CRUNCH_LOOP:
         LD A,(HL)                        ; $1028  7E
         CP $22                           ; $1029  FE 22
         JP Z,SUB_101B_46                 ; $102B  CA 32 12
@@ -1447,8 +1447,8 @@ SUB_101B_1:
         PUSH DE                          ; $1043  D5
         PUSH BC                          ; $1044  C5
         JP Z,SUB_101B_8                  ; $1045  CA 03 11
-        LD DE,TPA_START_45               ; $1048  11 D8 04
-        CALL SUB_1CE7                    ; $104B  CD E7 1C
+        LD DE,OPERATOR_TOKEN_TBL               ; $1048  11 D8 04
+        CALL CHRGET_UPPER                    ; $104B  CD E7 1C
         CALL SUB_46BF                    ; $104E  CD BF 46
         JP C,SUB_101B_19                 ; $1051  DA 57 11
         PUSH HL                          ; $1054  E5
@@ -1457,17 +1457,17 @@ SUB_101B_1:
         CP $47                           ; $1059  FE 47
         RET NZ                           ; $105B  C0
         INC HL                           ; $105C  23
-        CALL SUB_1CE7                    ; $105D  CD E7 1C
+        CALL CHRGET_UPPER                    ; $105D  CD E7 1C
         CP $4F                           ; $1060  FE 4F
         RET NZ                           ; $1062  C0
         INC HL                           ; $1063  23
-        CALL SUB_1CE7                    ; $1064  CD E7 1C
+        CALL CHRGET_UPPER                    ; $1064  CD E7 1C
         CP $20                           ; $1067  FE 20
 SUB_101B_2:
         RET NZ                           ; $1069  C0
         INC HL                           ; $106A  23
 SUB_101B_3:
-        CALL SUB_1CE7                    ; $106B  CD E7 1C
+        CALL CHRGET_UPPER                    ; $106B  CD E7 1C
         INC HL                           ; $106E  23
         CP $20                           ; $106F  FE 20
         JR Z,SUB_101B_3                  ; $1071  28 F8
@@ -1476,16 +1476,16 @@ SUB_101B_3:
         CP $54                           ; $1077  FE 54
         RET NZ                           ; $1079  C0
 SUB_101B_4:
-        CALL SUB_1CE7                    ; $107A  CD E7 1C
+        CALL CHRGET_UPPER                    ; $107A  CD E7 1C
         CP $4F                           ; $107D  FE 4F
         LD A,$89                         ; $107F  3E 89
         JR SUB_101B_6                    ; $1081  18 0E
 SUB_101B_5:
-        CALL SUB_1CE7                    ; $1083  CD E7 1C
+        CALL CHRGET_UPPER                    ; $1083  CD E7 1C
         CP $55                           ; $1086  FE 55
         RET NZ                           ; $1088  C0
         INC HL                           ; $1089  23
-        CALL SUB_1CE7                    ; $108A  CD E7 1C
+        CALL CHRGET_UPPER                    ; $108A  CD E7 1C
         CP $42                           ; $108D  FE 42
         LD A,$8D                         ; $108F  3E 8D
 SUB_101B_6:
@@ -1495,18 +1495,18 @@ SUB_101B_6:
         JP SUB_101B_8                    ; $1094  C3 03 11
 SUB_101B_7:
         DEFB    $E1,$CD                                          ; $1097
-        DEFW    SUB_1CE7                 ; $1099
+        DEFW    CHRGET_UPPER                 ; $1099
         DEFB    $E5,$21                                          ; $109B
         DEFW    TPA_START_32             ; $109D
         DEFB    $D6,$41,$87,$4F,$06,$00,$09,$5E,$23,$56,$E1,$23,$E5,$CD ; $109F
-        DEFW    SUB_1CE7                 ; $10AD
+        DEFW    CHRGET_UPPER                 ; $10AD
         DEFB    $4F,$1A,$E6,$7F,$CA,$5A,$12,$23,$B9,$20,$3E,$1A,$13,$B7,$F2,$AC ; $10AF
         DEFB    $10,$79                                          ; $10BF
         DEFW    SUB_28F5_2               ; $10C1
         DEFB    $28,$18,$1A,$FE,$E2,$28,$13,$FE                  ; $10C3
-        DEFW    SUB_28E1                 ; $10CB
+        DEFW    FAC_NEGATE_MANT                 ; $10CB
         DEFB    $0F,$CD                                          ; $10CD
-        DEFW    SUB_1CE7                 ; $10CF
+        DEFW    CHRGET_UPPER                 ; $10CF
         DEFB    $FE                                              ; $10D1
         DEFW    SUB_2824_1               ; $10D2
         DEFB    $03,$CD                                          ; $10D4
@@ -1611,9 +1611,9 @@ SUB_101B_21:
         LD A,$0E                         ; $1177  3E 0E
         CALL SUB_124F                    ; $1179  CD 4F 12
         PUSH DE                          ; $117C  D5
-        CALL SUB_14FB                    ; $117D  CD FB 14
+        CALL LINGET                    ; $117D  CD FB 14
 SUB_101B_22:
-        CALL SUB_129A                    ; $1180  CD 9A 12
+        CALL SKIP_TRAILING_WS                    ; $1180  CD 9A 12
 SUB_101B_23:
         EX (SP),HL                       ; $1183  E3
         EX DE,HL                         ; $1184  EB
@@ -1624,13 +1624,13 @@ SUB_101B_24:
 SUB_101B_25:
         POP HL                           ; $118A  E1
         CALL SUB_124F                    ; $118B  CD 4F 12
-        JP SUB_101B_1                    ; $118E  C3 28 10
+        JP CRUNCH_LOOP                    ; $118E  C3 28 10
 SUB_101B_26:
         PUSH DE                          ; $1191  D5
         PUSH BC                          ; $1192  C5
         LD A,(HL)                        ; $1193  7E
         CALL SUB_3125                    ; $1194  CD 25 31
-        CALL SUB_129A                    ; $1197  CD 9A 12
+        CALL SKIP_TRAILING_WS                    ; $1197  CD 9A 12
         POP BC                           ; $119A  C1
         POP DE                           ; $119B  D1
         PUSH HL                          ; $119C  E5
@@ -1671,7 +1671,7 @@ SUB_101B_31:
         DEC A                            ; $11D3  3D
         JR NZ,SUB_101B_30                ; $11D4  20 F6
         POP HL                           ; $11D6  E1
-        JP SUB_101B_1                    ; $11D7  C3 28 10
+        JP CRUNCH_LOOP                    ; $11D7  C3 28 10
 ; [AI] Tokenizer fallback that scans the operator/punctuation table at $04D7 to map a single source
 ;       character to its token byte.
 SUB_101B_32:
@@ -1693,9 +1693,9 @@ SUB_101B_36:
         JR NZ,SUB_101B_40                ; $11EE  20 1C
         PUSH HL                          ; $11F0  E5
 SUB_101B_37:
-        CALL SUB_13E4                    ; $11F1  CD E4 13
+        CALL CHRGET                    ; $11F1  CD E4 13
         POP HL                           ; $11F4  E1
-        CALL SUB_1CE8                    ; $11F5  CD E8 1C
+        CALL TO_UPPER                    ; $11F5  CD E8 1C
         CP $48                           ; $11F8  FE 48
         LD A,$0B                         ; $11FA  3E 0B
         JR NZ,SUB_101B_38                ; $11FC  20 02
@@ -1704,7 +1704,7 @@ SUB_101B_38:
         CALL SUB_124F                    ; $1200  CD 4F 12
         PUSH DE                          ; $1203  D5
         PUSH BC                          ; $1204  C5
-        CALL SUB_1CF6                    ; $1205  CD F6 1C
+        CALL PARSE_HEX_OCT                    ; $1205  CD F6 1C
 SUB_101B_39:
         POP BC                           ; $1208  C1
         JP SUB_101B_23                   ; $1209  C3 83 11
@@ -1725,7 +1725,7 @@ SUB_101B_43:
         LD (TPA_START_98),A              ; $121F  32 39 0B
 SUB_101B_44:
         SUB $55                          ; $1222  D6 55
-        JP NZ,SUB_101B_1                 ; $1224  C2 28 10
+        JP NZ,CRUNCH_LOOP                 ; $1224  C2 28 10
         PUSH AF                          ; $1227  F5
 SUB_101B_45:
         LD A,(HL)                        ; $1228  7E
@@ -1775,16 +1775,16 @@ SUB_124F:
         RET NZ                           ; $1254  C0
 SUB_124F_1:
         LD E,$17                         ; $1255  1E 17
-        JP SUB_0CA8_61                   ; $1257  C3 AC 0D
+        JP ERROR                   ; $1257  C3 AC 0D
         DEFW    SUB_2BBE_6               ; $125A
         DEFB    $3D,$32                                          ; $125C
         DEFW    TPA_START_98             ; $125E
         DEFB    $C1,$D1,$CD                                      ; $1260
-        DEFW    SUB_1CE7                 ; $1263
+        DEFW    CHRGET_UPPER                 ; $1263
         DEFB    $CD                                              ; $1265
         DEFW    SUB_124F                 ; $1266
         DEFB    $23,$CD                                          ; $1268
-        DEFW    SUB_1CE7                 ; $126A
+        DEFW    CHRGET_UPPER                 ; $126A
         DEFB    $CD                                              ; $126C
         DEFW    SUB_46BF                 ; $126D
         DEFB    $30,$F4,$FE,$3A,$30,$08                          ; $126F
@@ -1814,24 +1814,24 @@ SUB_124F_5:
         JP SUB_101B_17                   ; $1297  C3 37 11
 ; [AI] Skips backward over trailing whitespace (space, tab, line-feed) in the input, used by the
 ;       tokenizer to trim padding between tokens.
-SUB_129A:
+SKIP_TRAILING_WS:
         DEC HL                           ; $129A  2B
         LD A,(HL)                        ; $129B  7E
         CP $20                           ; $129C  FE 20
-        JR Z,SUB_129A                    ; $129E  28 FA
+        JR Z,SKIP_TRAILING_WS                    ; $129E  28 FA
         CP $09                           ; $12A0  FE 09
-        JR Z,SUB_129A                    ; $12A2  28 F6
+        JR Z,SKIP_TRAILING_WS                    ; $12A2  28 F6
 SUB_129A_1:
         CP $0A                           ; $12A4  FE 0A
-        JR Z,SUB_129A                    ; $12A6  28 F2
+        JR Z,SKIP_TRAILING_WS                    ; $12A6  28 F2
         INC HL                           ; $12A8  23
         RET                              ; $12A9  C9
         DEFB    $3E,$64,$32                                      ; $12AA
         DEFW    TPA_START_113            ; $12AD
         DEFB    $CD                                              ; $12AF
-        DEFW    SUB_3BB3                 ; $12B0
+        DEFW    PTRGET                 ; $12B0
         DEFB    $CD                                              ; $12B2
-        DEFW    SUB_45A3                 ; $12B3
+        DEFW    SYNCHR                 ; $12B3
         DEFB    $F0,$D5,$EB,$22                                  ; $12B5
         DEFW    TPA_START_114            ; $12B9
         DEFB    $EB                                              ; $12BB
@@ -1851,16 +1851,16 @@ SUB_129A_1:
         DEFW    SUB_2BBE_4               ; $12E3
         DEFW    SUB_2B52_1               ; $12E5
         DEFB    $5E,$23,$23,$E5,$2A,$71,$0B,$CD                  ; $12E7
-        DEFW    SUB_459D                 ; $12EF
+        DEFW    DCMP_HL_DE                 ; $12EF
         DEFB    $E1,$C2,$DC,$12,$D1,$F9,$22                      ; $12F1
         DEFW    TPA_START_120            ; $12F8
         DEFW    SUB_0CA8_85              ; $12FA
         DEFB    $08,$CD                                          ; $12FC
-        DEFW    SUB_449F                 ; $12FE
+        DEFW    CHECK_STACK                 ; $12FE
         DEFB    $E5,$2A,$71,$0B,$E3,$E5,$2A                      ; $1300
-        DEFW    TPA_START_69             ; $1307
+        DEFW    CURLIN             ; $1307
         DEFB    $E3,$CD                                          ; $1309
-        DEFW    SUB_45A3                 ; $130B
+        DEFW    SYNCHR                 ; $130B
         DEFB    $DD,$CD                                          ; $130D
         DEFW    SUB_1DE3                 ; $130F
         DEFB    $CA                                              ; $1311
@@ -1872,35 +1872,35 @@ SUB_129A_1:
         DEFB    $F1,$E5                                          ; $131B
         DEFW    SUB_3518_20              ; $131D
         DEFB    $13,$CD                                          ; $131F
-        DEFW    SUB_2BF4                 ; $1321
+        DEFW    FP_INT                 ; $1321
         DEFB    $E3                                              ; $1323
         DEFW    TPA_START_6              ; $1324
         DEFB    $00,$7E,$FE,$E0,$CC,$A0,$20,$D5,$E5,$EB,$CD      ; $1326
         DEFW    SUB_2B06_1               ; $1331
         DEFW    SUB_21FC_6               ; $1333
         DEFB    $CD                                              ; $1335
-        DEFW    SUB_2C6C                 ; $1336
+        DEFW    FP_SGN                 ; $1336
         DEFW    SUB_33A0_5               ; $1338
         DEFB    $2B,$E1,$C5,$D5,$01,$00,$81,$51,$5A,$7E,$FE,$E0  ; $133A
         DEFW    TPA_START_16             ; $1346
         DEFB    $20,$0E,$CD                                      ; $1348
         DEFW    SUB_1A8C_2               ; $134B
         DEFB    $E5,$CD                                          ; $134D
-        DEFW    SUB_2C6C                 ; $134F
+        DEFW    FP_SGN                 ; $134F
         DEFW    SUB_33A0_5               ; $1351
         DEFB    $2B,$CD                                          ; $1353
         DEFW    SUB_2AC5                 ; $1355
         DEFB    $E1,$C5,$D5,$4F,$CD                              ; $1357
         DEFW    SUB_1DE3                 ; $135C
         DEFB    $47,$C5,$2B,$CD                                  ; $135E
-        DEFW    SUB_13E4                 ; $1362
+        DEFW    CHRGET                 ; $1362
         DEFB    $C2                                              ; $1364
         DEFW    SUB_0CA8_54              ; $1365
         DEFB    $CD,$D1,$24,$CD                                  ; $1367
-        DEFW    SUB_13E4                 ; $136B
+        DEFW    CHRGET                 ; $136B
         DEFB    $E5,$E5,$2A,$94                                  ; $136D
         DEFW    SUB_21FC_4               ; $1371
-        DEFW    TPA_START_69             ; $1373
+        DEFW    CURLIN             ; $1373
         DEFB    $2A                                              ; $1375
         DEFW    TPA_START_114            ; $1376
         DEFB    $E3,$06,$82,$C5,$33,$F5,$F5                      ; $1378
@@ -1909,13 +1909,13 @@ SUB_129A_1:
 ; [AI] Statement dispatcher / execution loop head: checks for a pending Control-C break, fetches
 ;       the next statement token via CHRGET, and vectors to the handler for that statement; loops
 ;       line-by-line through the program.
-SUB_129A_2:
+NEWSTT:
         PUSH HL                          ; $1386  E5
 SUB_129A_3:
         CALL WBOOT_VEC                   ; $1387  CD 00 00
         POP HL                           ; $138A  E1
         OR A                             ; $138B  B7
-        CALL NZ,SUB_4437                 ; $138C  C4 37 44
+        CALL NZ,CHECK_BREAK                 ; $138C  C4 37 44
         LD (TPA_START_119),HL            ; $138F  22 7F 0B
         LD (TPA_START_120),SP            ; $1392  ED 73 81 0B
         LD A,(HL)                        ; $1396  7E
@@ -1928,31 +1928,31 @@ SUB_129A_4:
         LD A,(HL)                        ; $13A0  7E
         INC HL                           ; $13A1  23
         OR (HL)                          ; $13A2  B6
-        JP Z,SUB_0CA8_41                 ; $13A3  CA 51 0D
+        JP Z,READY_OR_ERROR                 ; $13A3  CA 51 0D
         INC HL                           ; $13A6  23
         LD E,(HL)                        ; $13A7  5E
         INC HL                           ; $13A8  23
         LD D,(HL)                        ; $13A9  56
         EX DE,HL                         ; $13AA  EB
-        LD (TPA_START_69),HL             ; $13AB  22 67 08
+        LD (CURLIN),HL             ; $13AB  22 67 08
         LD A,(SUB_0CA8_16)               ; $13AE  3A CE 0C
         OR A                             ; $13B1  B7
         JR Z,SUB_129A_5                  ; $13B2  28 0F
         PUSH DE                          ; $13B4  D5
         LD A,$5B                         ; $13B5  3E 5B
-        CALL SUB_4291                    ; $13B7  CD 91 42
+        CALL OUTCHR                    ; $13B7  CD 91 42
         CALL SUB_3391                    ; $13BA  CD 91 33
         LD A,$5D                         ; $13BD  3E 5D
-        CALL SUB_4291                    ; $13BF  CD 91 42
+        CALL OUTCHR                    ; $13BF  CD 91 42
         POP DE                           ; $13C2  D1
 SUB_129A_5:
         EX DE,HL                         ; $13C3  EB
 SUB_129A_6:
-        CALL SUB_13E4                    ; $13C4  CD E4 13
-        LD DE,SUB_129A_2                 ; $13C7  11 86 13
+        CALL CHRGET                    ; $13C4  CD E4 13
+        LD DE,NEWSTT                 ; $13C7  11 86 13
         PUSH DE                          ; $13CA  D5
         RET Z                            ; $13CB  C8
-SUB_129A_7:
+DISPATCH_STMT:
         SUB $81                          ; $13CC  D6 81
         JP C,SUB_15D1_4                  ; $13CE  DA F6 15
         CP $5B                           ; $13D1  FE 5B
@@ -1961,7 +1961,7 @@ SUB_129A_7:
         LD C,A                           ; $13D7  4F
         LD B,$00                         ; $13D8  06 00
         EX DE,HL                         ; $13DA  EB
-        LD HL,TPA_START_3                ; $13DB  21 08 01
+        LD HL,STMT_DISPATCH_TBL                ; $13DB  21 08 01
         ADD HL,BC                        ; $13DE  09
         LD C,(HL)                        ; $13DF  4E
         INC HL                           ; $13E0  23
@@ -1971,18 +1971,18 @@ SUB_129A_7:
 ; [AI] CHRGET: advances the program/text pointer HL and returns the next significant character in
 ;       A, skipping spaces and setting carry/zero flags for digit/end-of-statement classification.
 ;       The single most-called routine in the interpreter.
-SUB_13E4:
+CHRGET:
         INC HL                           ; $13E4  23
 ; [AI] CHRGOT: re-fetches the character at the current HL without advancing, classifying it (digit,
-;       end-of-line, embedded line-number token, etc.); CHRGET (SUB_13E4) is the increment-then-
+;       end-of-line, embedded line-number token, etc.); CHRGET (CHRGET) is the increment-then-
 ;       fetch variant.
-SUB_13E5:
+CHRGOT:
         LD A,(HL)                        ; $13E5  7E
         CP $3A                           ; $13E6  FE 3A
         RET NC                           ; $13E8  D0
 SUB_13E5_1:
         CP $20                           ; $13E9  FE 20
-        JR Z,SUB_13E4                    ; $13EB  28 F7
+        JR Z,CHRGET                    ; $13EB  28 F7
         JR NC,SUB_13E5_15                ; $13ED  30 69
         OR A                             ; $13EF  B7
         RET Z                            ; $13F0  C8
@@ -1998,7 +1998,7 @@ SUB_13E5_2:
         JR NZ,SUB_13E5_4                 ; $1400  20 05
 SUB_13E5_3:
         LD HL,(TPA_START_99)             ; $1402  2A 3A 0B
-        JR SUB_13E5                      ; $1405  18 DE
+        JR CHRGOT                      ; $1405  18 DE
 SUB_13E5_4:
         PUSH AF                          ; $1407  F5
         INC HL                           ; $1408  23
@@ -2056,7 +2056,7 @@ SUB_13E5_13:
         RET                              ; $1452  C9
 SUB_13E5_14:
         CP $09                           ; $1453  FE 09
-        JP NC,SUB_13E4                   ; $1455  D2 E4 13
+        JP NC,CHRGET                   ; $1455  D2 E4 13
 SUB_13E5_15:
         CP $30                           ; $1458  FE 30
         CCF                              ; $145A  3F
@@ -2068,7 +2068,7 @@ SUB_13E5_16:
 ; [AI] Decodes an embedded numeric constant token in the program stream (the tokenized
 ;       integer/float forms emitted by the crunch routine), loading the value into the
 ;       floating/integer accumulator and recording its type.
-SUB_1460:
+LINGET_CONST:
         LD A,(TPA_START_100)             ; $1460  3A 3C 0B
         CP $0F                           ; $1463  FE 0F
         JR NC,SUB_1460_2                 ; $1465  30 16
@@ -2110,13 +2110,13 @@ SUB_1460_4:
         DEFB    $01                                              ; $14AD
         DEFW    SUB_0CA8_54              ; $14AE
         DEFB    $C5,$D8,$D6,$41,$4F,$47,$CD                      ; $14B0
-        DEFW    SUB_13E4                 ; $14B7
+        DEFW    CHRGET                 ; $14B7
         DEFB    $FE,$F3,$20,$0D,$CD                              ; $14B9
-        DEFW    SUB_13E4                 ; $14BE
+        DEFW    CHRGET                 ; $14BE
         DEFB    $CD                                              ; $14C0
         DEFW    SUB_46BE                 ; $14C1
         DEFB    $D8,$D6,$41,$47,$CD                              ; $14C3
-        DEFW    SUB_13E4                 ; $14C8
+        DEFW    CHRGET                 ; $14C8
         DEFB    $78,$91                                          ; $14CA
         DEFW    SUB_3BB3_21              ; $14CC
         DEFW    SUB_2124_29              ; $14CE
@@ -2124,30 +2124,30 @@ SUB_1460_4:
         DEFB    $06,$00,$09,$73                                  ; $14D2
         DEFW    SUB_3BB3_31              ; $14D6
         DEFB    $20,$FB,$E1,$7E,$FE,$2C,$C0,$CD                  ; $14D8
-        DEFW    SUB_13E4                 ; $14E0
+        DEFW    CHRGET                 ; $14E0
         DEFB    $18,$C6                                          ; $14E2
 ; [AI] Evaluates an expression and requires the result to be numeric, raising a Type mismatch error
 ;       (via L_14EB) if a string result is produced.
-SUB_14E4:
-        CALL SUB_13E4                    ; $14E4  CD E4 13
+FRMEVL_NUMERIC:
+        CALL CHRGET                    ; $14E4  CD E4 13
 SUB_14E4_1:
         CALL SUB_20A3                    ; $14E7  CD A3 20
         RET P                            ; $14EA  F0
 ; [AI] Raises the 'Type mismatch' error (error code 5) by loading E and jumping to the error trap.
-SUB_14E4_2:
+ERR_TYPE_MISMATCH:
         LD E,$05                         ; $14EB  1E 05
-        JP SUB_0CA8_61                   ; $14ED  C3 AC 0D
+        JP ERROR                   ; $14ED  C3 AC 0D
         DEFB    $7E,$FE,$2E                                      ; $14F0
         DEFW    SUB_2AEB                 ; $14F3
         DEFW    TPA_START_122            ; $14F5
         DEFB    $EB,$CA                                          ; $14F7
-        DEFW    SUB_13E4                 ; $14F9
+        DEFW    CHRGET                 ; $14F9
 ; [AI] Reads a 16-bit line number from the program/text stream, recognizing the tokenized line-
 ;       number forms ($0D/$0E) and returning the value, used by GOTO/GOSUB/THEN target resolution.
-SUB_14FB:
+LINGET:
         DEC HL                           ; $14FB  2B
 SUB_14FB_1:
-        CALL SUB_13E4                    ; $14FC  CD E4 13
+        CALL CHRGET                    ; $14FC  CD E4 13
         CP $0E                           ; $14FF  FE 0E
         JP Z,SUB_1506                    ; $1501  CA 06 15
         CP $0D                           ; $1504  FE 0D
@@ -2155,17 +2155,17 @@ SUB_1506:
         EX DE,HL                         ; $1506  EB
         LD HL,(TPA_START_102)            ; $1507  2A 3E 0B
         EX DE,HL                         ; $150A  EB
-        JP Z,SUB_13E4                    ; $150B  CA E4 13
+        JP Z,CHRGET                    ; $150B  CA E4 13
         DEC HL                           ; $150E  2B
         LD DE,WBOOT_VEC                  ; $150F  11 00 00
 SUB_1506_1:
-        CALL SUB_13E4                    ; $1512  CD E4 13
+        CALL CHRGET                    ; $1512  CD E4 13
         RET NC                           ; $1515  D0
         PUSH HL                          ; $1516  E5
         PUSH AF                          ; $1517  F5
 SUB_1506_2:
         LD HL,SUB_189A_2                 ; $1518  21 98 19
-        CALL SUB_459D                    ; $151B  CD 9D 45
+        CALL DCMP_HL_DE                    ; $151B  CD 9D 45
         JR C,SUB_1506_5                  ; $151E  38 11
 SUB_1506_3:
         LD H,D                           ; $1520  62
@@ -2188,48 +2188,48 @@ SUB_1506_5:
         POP HL                           ; $1532  E1
         RET                              ; $1533  C9
         DEFB    $CA                                              ; $1534
-        DEFW    SUB_450B                 ; $1535
+        DEFW    RUN_INIT                 ; $1535
         DEFW    SUB_0CA8_88              ; $1537
         DEFB    $28,$05,$FE,$0D,$C2                              ; $1539
         DEFW    SUB_53F7_2               ; $153E
         DEFB    $CD                                              ; $1540
         DEFW    SUB_450B_1               ; $1541
         DEFB    $01                                              ; $1543
-        DEFW    SUB_129A_2               ; $1544
+        DEFW    NEWSTT               ; $1544
         DEFB    $18                                              ; $1546
         DEFW    SUB_0CA8_66              ; $1547
         DEFB    $03,$CD                                          ; $1549
-        DEFW    SUB_449F                 ; $154B
+        DEFW    CHECK_STACK                 ; $154B
         DEFB    $CD                                              ; $154D
-        DEFW    SUB_14FB                 ; $154E
+        DEFW    LINGET                 ; $154E
         DEFB    $C1,$E5,$E5,$2A                                  ; $1550
-        DEFW    TPA_START_69             ; $1554
+        DEFW    CURLIN             ; $1554
         DEFW    SUB_3EDB_2               ; $1556
         DEFB    $8D,$F5,$33,$C5,$C3,$63,$15,$C5,$CD              ; $1558
-        DEFW    SUB_14FB                 ; $1561
+        DEFW    LINGET                 ; $1561
         DEFB    $3A                                              ; $1563
         DEFW    TPA_START_100            ; $1564
         DEFB    $FE,$0D,$EB,$C8,$EB,$E5                          ; $1566
         DEFW    SUB_3A18_2               ; $156C
         DEFB    $0B,$E3,$CD                                      ; $156E
-        DEFW    SUB_15D1                 ; $1571
+        DEFW    SCAN_TO_STMT_END                 ; $1571
         DEFB    $23,$E5,$2A                                      ; $1573
-        DEFW    TPA_START_69             ; $1576
+        DEFW    CURLIN             ; $1576
         DEFB    $CD                                              ; $1578
-        DEFW    SUB_459D                 ; $1579
+        DEFW    DCMP_HL_DE                 ; $1579
         DEFB    $E1,$DC                                          ; $157B
         DEFW    SUB_0FAB_1               ; $157D
         DEFB    $D4                                              ; $157F
-        DEFW    SUB_0FAB                 ; $1580
+        DEFW    FNDLIN                 ; $1580
         DEFB    $30,$0D,$0B,$3E,$0D,$32                          ; $1582
         DEFW    TPA_START_115            ; $1588
         DEFB    $E1,$CD                                          ; $158A
         DEFW    SUB_22E1_18              ; $158C
         DEFB    $60,$69,$C9                                      ; $158E
 ; [AI] Raises the 'Syntax error' (error code 8) by loading E and jumping to the error trap.
-SUB_1506_6:
+ERR_SYNTAX:
         LD E,$08                         ; $1591  1E 08
-        JP SUB_0CA8_61                   ; $1593  C3 AC 0D
+        JP ERROR                   ; $1593  C3 AC 0D
         DEFB    $22                                              ; $1596
         DEFW    TPA_START_114            ; $1597
         DEFB    $16,$FF,$CD,$20,$0D,$F9,$22                      ; $1599
@@ -2241,22 +2241,22 @@ SUB_1506_6:
         DEFB    $F9,$2A                                          ; $15AD
         DEFW    TPA_START_114            ; $15AF
         DEFB    $C3                                              ; $15B1
-        DEFW    SUB_129A_2               ; $15B2
+        DEFW    NEWSTT               ; $15B2
         DEFB    $C0,$16,$FF,$CD,$20,$0D,$F9,$22                  ; $15B4
         DEFW    TPA_START_120            ; $15BC
         DEFB    $FE                                              ; $15BE
         DEFW    SUB_1E72_2               ; $15BF
         DEFB    $03,$C2                                          ; $15C1
-        DEFW    SUB_0CA8_61              ; $15C3
+        DEFW    ERROR              ; $15C3
         DEFW    SUB_22E1                 ; $15C5
-        DEFW    TPA_START_69             ; $15C7
+        DEFW    CURLIN             ; $15C7
         DEFB    $21                                              ; $15C9
-        DEFW    SUB_129A_2               ; $15CA
+        DEFW    NEWSTT               ; $15CA
         DEFW    SUB_3EDB_2               ; $15CC
         DEFB    $E1,$01,$3A                                      ; $15CE
 ; [AI] Scans forward in the program text to find a statement separator or matching token, honoring
 ;       string literals and nesting; used to locate ELSE/statement boundaries during execution.
-SUB_15D1:
+SCAN_TO_STMT_END:
         LD C,$00                         ; $15D1  0E 00
         LD B,$00                         ; $15D3  06 00
 SUB_15D1_1:
@@ -2266,7 +2266,7 @@ SUB_15D1_1:
 SUB_15D1_2:
         DEC HL                           ; $15D8  2B
 SUB_15D1_3:
-        CALL SUB_13E4                    ; $15D9  CD E4 13
+        CALL CHRGET                    ; $15D9  CD E4 13
         OR A                             ; $15DC  B7
         RET Z                            ; $15DD  C8
         CP B                             ; $15DE  B8
@@ -2285,8 +2285,8 @@ SUB_15D1_3:
         DEFB    $F1,$C6,$03                                      ; $15F1
         DEFW    SUB_1506_2               ; $15F4
 SUB_15D1_4:
-        CALL SUB_3BB3                    ; $15F6  CD B3 3B
-        CALL SUB_45A3                    ; $15F9  CD A3 45
+        CALL PTRGET                    ; $15F6  CD B3 3B
+        CALL SYNCHR                    ; $15F9  CD A3 45
         RET P                            ; $15FC  F0
         EX DE,HL                         ; $15FD  EB
         LD (TPA_START_114),HL            ; $15FE  22 77 0B
@@ -2327,15 +2327,15 @@ SUB_15D1_13:
         INC HL                           ; $162F  23
         LD D,(HL)                        ; $1630  56
         LD HL,(TPA_START_70)             ; $1631  2A 69 08
-        CALL SUB_459D                    ; $1634  CD 9D 45
+        CALL DCMP_HL_DE                    ; $1634  CD 9D 45
         JR NC,SUB_15D1_15+1              ; $1637  30 12
         LD HL,(TPA_START_130)            ; $1639  2A 96 0B
-        CALL SUB_459D                    ; $163C  CD 9D 45
+        CALL DCMP_HL_DE                    ; $163C  CD 9D 45
         POP DE                           ; $163F  D1
         JR NC,SUB_15D1_16                ; $1640  30 11
 SUB_15D1_14:
         LD HL,TPA_START_108              ; $1642  21 68 0B
-        CALL SUB_459D                    ; $1645  CD 9D 45
+        CALL DCMP_HL_DE                    ; $1645  CD 9D 45
         JR NC,SUB_15D1_16                ; $1648  30 09
 SUB_15D1_15:
         LD A,$D1                         ; $164A  3E D1
@@ -2353,15 +2353,15 @@ SUB_15D1_17:
         DEFB    $FE,$A4                                          ; $165D
         DEFW    SUB_29E8_9+1             ; $165F
         DEFB    $CD                                              ; $1661
-        DEFW    SUB_13E4                 ; $1662
+        DEFW    CHRGET                 ; $1662
         DEFB    $CD                                              ; $1664
-        DEFW    SUB_45A3                 ; $1665
+        DEFW    SYNCHR                 ; $1665
         DEFB    $89,$CD                                          ; $1667
-        DEFW    SUB_14FB                 ; $1669
+        DEFW    LINGET                 ; $1669
         DEFB    $7A                                              ; $166B
         DEFW    SUB_2874_16              ; $166C
         DEFB    $09,$CD,$A9,$0F,$50,$59,$E1,$D2                  ; $166E
-        DEFW    SUB_1506_6               ; $1676
+        DEFW    ERR_SYNTAX               ; $1676
         DEFB    $EB,$22                                          ; $1678
         DEFW    TPA_START_123            ; $167A
         DEFB    $EB,$D8,$3A                                      ; $167C
@@ -2375,11 +2375,11 @@ SUB_15D1_17:
         DEFB    $7E,$47,$FE                                      ; $168E
         DEFW    SUB_2874_9               ; $1691
         DEFB    $05,$CD                                          ; $1693
-        DEFW    SUB_45A3                 ; $1695
+        DEFW    SYNCHR                 ; $1695
         DEFW    SUB_2B81_1               ; $1697
         DEFW    SUB_0CA8_40              ; $1699
         DEFB    $78,$CA                                          ; $169B
-        DEFW    SUB_129A_7               ; $169D
+        DEFW    DISPATCH_STMT               ; $169D
         DEFB    $CD                                              ; $169F
         DEFW    SUB_14FB_1               ; $16A0
         DEFB    $FE,$2C,$C0,$18,$F3,$11                          ; $16A2
@@ -2390,36 +2390,36 @@ SUB_15D1_17:
         DEFB    $7E,$FE                                          ; $16B4
         DEFW    SUB_2874_5               ; $16B6
         DEFB    $0C,$CD                                          ; $16B8
-        DEFW    SUB_14FB                 ; $16BA
+        DEFW    LINGET                 ; $16BA
         DEFB    $C0,$7A,$B3,$C2,$63,$15,$3C,$18,$04,$CD          ; $16BC
-        DEFW    SUB_13E4                 ; $16C6
+        DEFW    CHRGET                 ; $16C6
         DEFW    SUB_2AAE_1               ; $16C8
         DEFB    $87,$0B                                          ; $16CA
         DEFW    SUB_2AEB                 ; $16CC
         DEFW    TPA_START_121            ; $16CE
         DEFB    $22                                              ; $16D0
-        DEFW    TPA_START_69             ; $16D1
+        DEFW    CURLIN             ; $16D1
         DEFB    $EB,$C0,$7E,$B7,$20,$04,$23,$23,$23,$23,$23,$C3,$CF,$15,$CD ; $16D3
         DEFW    SUB_20B2                 ; $16E2
         DEFB    $C0,$B7,$CA                                      ; $16E4
-        DEFW    SUB_14E4_2               ; $16E7
+        DEFW    ERR_TYPE_MISMATCH               ; $16E7
         DEFB    $C3                                              ; $16E9
-        DEFW    SUB_0CA8_61              ; $16EA
+        DEFW    ERROR              ; $16EA
 SUB_15D1_18:
         DEFB    $11,$0A,$00                                      ; $16EC
         DEFW    SUB_28D5                 ; $16EF
         DEFB    $19,$CD,$F0,$14,$EB,$E3,$28,$13,$EB,$CD          ; $16F1
-        DEFW    SUB_45A3                 ; $16FB
+        DEFW    SYNCHR                 ; $16FB
         DEFB    $2C                                              ; $16FD
         DEFW    SUB_2AEB                 ; $16FE
         DEFW    TPA_START_118            ; $1700
         DEFW    SUB_28E1_2               ; $1702
         DEFB    $06,$CD                                          ; $1704
-        DEFW    SUB_14FB                 ; $1706
+        DEFW    LINGET                 ; $1706
         DEFB    $C2                                              ; $1708
         DEFW    SUB_0CA8_54              ; $1709
         DEFB    $EB,$7C,$B5,$CA                                  ; $170B
-        DEFW    SUB_14E4_2               ; $170F
+        DEFW    ERR_TYPE_MISMATCH               ; $170F
         DEFB    $22                                              ; $1711
         DEFW    TPA_START_118            ; $1712
         DEFB    $32                                              ; $1714
@@ -2427,26 +2427,26 @@ SUB_15D1_18:
         DEFW    SUB_22E1                 ; $1717
         DEFW    TPA_START_117            ; $1719
         DEFB    $C1,$C3                                          ; $171B
-        DEFW    SUB_0CA8_76              ; $171D
+        DEFW    MAIN_LINE_LOOP              ; $171D
         DEFB    $CD                                              ; $171F
         DEFW    SUB_1A8C_1+1             ; $1720
         DEFB    $7E,$FE,$2C,$CC                                  ; $1722
-        DEFW    SUB_13E4                 ; $1726
+        DEFW    CHRGET                 ; $1726
         DEFB    $FE,$89,$28,$05,$CD                              ; $1728
-        DEFW    SUB_45A3                 ; $172D
+        DEFW    SYNCHR                 ; $172D
         DEFW    SUB_2BBE_5               ; $172F
         DEFB    $E5,$CD                                          ; $1731
         DEFW    SUB_2B06                 ; $1733
-        DEFW    SUB_28E1                 ; $1735
+        DEFW    FAC_NEGATE_MANT                 ; $1735
         DEFB    $12,$CD                                          ; $1737
-        DEFW    SUB_13E4                 ; $1739
+        DEFW    CHRGET                 ; $1739
         DEFB    $C8                                              ; $173B
         DEFW    SUB_0CA8_88              ; $173C
         DEFB    $CA,$60,$15,$FE,$0D,$C2                          ; $173E
-        DEFW    SUB_129A_7               ; $1744
+        DEFW    DISPATCH_STMT               ; $1744
         DEFW    SUB_3BB3_66              ; $1746
         DEFB    $0B,$C9,$16,$01,$CD,$CF,$15,$B7,$C8,$CD          ; $1748
-        DEFW    SUB_13E4                 ; $1752
+        DEFW    CHRGET                 ; $1752
         DEFB    $FE                                              ; $1754
         DEFW    SUB_2096_1               ; $1755
         DEFB    $F4                                              ; $1757
@@ -2460,11 +2460,11 @@ SUB_15D1_18:
         DEFB    $02,$CD,$8D                                      ; $1766
         DEFW    SUB_2B52                 ; $1769
         DEFB    $CD                                              ; $176B
-        DEFW    SUB_13E4                 ; $176C
+        DEFW    CHRGET                 ; $176C
         DEFB    $CC                                              ; $176E
-        DEFW    SUB_4406                 ; $176F
+        DEFW    PRINT_CRLF                 ; $176F
         DEFB    $CA                                              ; $1771
-        DEFW    SUB_189A                 ; $1772
+        DEFW    RESET_INPUT_STATE                 ; $1772
         DEFB    $FE,$E8,$CA,$D6,$40,$FE,$DF,$CA,$20,$18,$FE,$E3,$CA,$20,$18,$E5 ; $1774
         DEFB    $FE,$2C,$28,$5E                                  ; $1784
         DEFW    SUB_3BB3_7               ; $1788
@@ -2507,7 +2507,7 @@ SUB_15D1_18:
         DEFW    SUB_3006_8               ; $17D7
         DEFW    SUB_3BB3_26              ; $17D9
         DEFB    $B8,$D4                                          ; $17DB
-        DEFW    SUB_4406                 ; $17DD
+        DEFW    PRINT_CRLF                 ; $17DD
         DEFB    $CD                                              ; $17DF
         DEFW    SUB_48BE_1               ; $17E0
         DEFB    $E1,$C3,$6A,$17,$2A                              ; $17E2
@@ -2515,7 +2515,7 @@ SUB_15D1_18:
         DEFB    $7C                                              ; $17E9
         DEFW    TPA_START_22             ; $17EA
         DEFB    $28,$00,$09                                      ; $17EC
-        DEFW    SUB_207E                 ; $17EF
+        DEFW    SET_WIDTH                 ; $17EF
         DEFB    $26,$3A                                          ; $17F1
         DEFW    TPA_START_60             ; $17F3
         DEFW    SUB_2874_18              ; $17F5
@@ -2524,16 +2524,16 @@ SUB_15D1_18:
         DEFW    SUB_3BB3_11              ; $17FB
         DEFW    SUB_58FE_11              ; $17FD
         DEFB    $08,$28,$16,$B8,$C3,$12                          ; $17FF
-        DEFW    SUB_3A18                 ; $1805
+        DEFW    POLY_EVAL                 ; $1805
         DEFW    TPA_START_64             ; $1807
         DEFW    SUB_3A18_6               ; $1809
         DEFW    TPA_START_93             ; $180B
         DEFB    $FE,$FF,$28,$07,$B8,$D4                          ; $180D
-        DEFW    SUB_4406                 ; $1813
+        DEFW    PRINT_CRLF                 ; $1813
         DEFB    $D2,$93,$18                                      ; $1815
         DEFW    SUB_0CA8_84              ; $1818
         DEFB    $30,$FC,$2F,$C3,$8A,$18,$F5,$CD                  ; $181A
-        DEFW    SUB_13E4                 ; $1822
+        DEFW    CHRGET                 ; $1822
         DEFB    $CD                                              ; $1824
         DEFW    SUB_20A3                 ; $1825
         DEFB    $F1,$F5,$FE,$E3                                  ; $1827
@@ -2553,7 +2553,7 @@ SUB_15D1_18:
         DEFW    SUB_2824_5               ; $184B
         DEFW    SUB_2602_1+1             ; $184D
         DEFB    $00,$CD,$76,$2E,$EB,$E1,$CD                      ; $184F
-        DEFW    SUB_45A3                 ; $1856
+        DEFW    SYNCHR                 ; $1856
         DEFW    SUB_2B28_1               ; $1858
         DEFB    $F1,$D6,$E3                                      ; $185A
         DEFW    SUB_28E1_1               ; $185D
@@ -2562,11 +2562,11 @@ SUB_15D1_18:
         DEFB    $7C                                              ; $1863
         DEFW    TPA_START_22             ; $1864
         DEFB    $28,$00,$09                                      ; $1866
-        DEFW    SUB_207E                 ; $1869
+        DEFW    SET_WIDTH                 ; $1869
         DEFB    $0F,$3A                                          ; $186B
         DEFW    TPA_START_60             ; $186D
         DEFB    $B7,$CA,$78                                      ; $186F
-        DEFW    SUB_3A18                 ; $1872
+        DEFW    POLY_EVAL                 ; $1872
         DEFW    TPA_START_59             ; $1874
         DEFB    $18                                              ; $1876
         DEFW    SUB_3809_28              ; $1877
@@ -2575,15 +2575,15 @@ SUB_15D1_18:
         DEFW    TPA_START_97             ; $187D
         DEFW    SUB_2824_5               ; $187F
         DEFB    $11,$CD                                          ; $1881
-        DEFW    SUB_4406                 ; $1883
+        DEFW    PRINT_CRLF                 ; $1883
         DEFB    $7B,$3D,$FA,$93,$18,$3C,$47,$3E,$20,$CD          ; $1885
-        DEFW    SUB_4291                 ; $188F
+        DEFW    OUTCHR                 ; $188F
         DEFB    $10,$FB,$E1,$CD                                  ; $1891
-        DEFW    SUB_13E4                 ; $1895
+        DEFW    CHRGET                 ; $1895
         DEFB    $C3,$71,$17                                      ; $1897
 ; [AI] Resets the program/run state for a fresh line of input: clears the auto-line/continue flags
 ;       and the active output-device pointer so direct-mode I/O goes to the console.
-SUB_189A:
+RESET_INPUT_STATE:
         XOR A                            ; $189A  AF
         LD (TPA_START_60),A              ; $189B  32 5B 08
         PUSH HL                          ; $189E  E5
@@ -2594,11 +2594,11 @@ SUB_189A_1:
         POP HL                           ; $18A4  E1
         RET                              ; $18A5  C9
         DEFB    $CD                                              ; $18A6
-        DEFW    SUB_45A3                 ; $18A7
+        DEFW    SYNCHR                 ; $18A7
         DEFB    $85,$FE,$23                                      ; $18A9
         DEFW    SUB_22E1_7               ; $18AC
         DEFB    $53,$CD,$AC,$4D,$CD,$1F,$19,$CD                  ; $18AE
-        DEFW    SUB_3BB3                 ; $18B6
+        DEFW    PTRGET                 ; $18B6
         DEFB    $CD                                              ; $18B8
         DEFW    SUB_2CB3                 ; $18B9
         DEFB    $D5,$E5,$CD                                      ; $18BB
@@ -2613,7 +2613,7 @@ SUB_189A_1:
         DEFB    $0A,$00,$23,$7E,$B7,$CA                          ; $18E3
         DEFW    SUB_0CA8_54              ; $18E9
         DEFB    $FE,$22,$20,$F6,$C3,$7D,$19,$E1,$E1,$C3,$FE      ; $18EB
-        DEFW    SUB_3A18                 ; $18F6
+        DEFW    POLY_EVAL                 ; $18F6
         DEFB    $76,$0B,$B7,$C2,$8C,$0D                          ; $18F8
         DEFW    SUB_2124_21              ; $18FE
         DEFB    $D2,$18,$CD                                      ; $1900
@@ -2633,18 +2633,18 @@ SUB_189A_1:
         DEFB    $7E,$FE                                          ; $192F
         DEFW    SUB_201A_5               ; $1931
         DEFB    $09,$AF,$32,$B7,$0C,$CD                          ; $1933
-        DEFW    SUB_13E4                 ; $1939
+        DEFW    CHRGET                 ; $1939
         DEFB    $18,$04,$CD                                      ; $193B
-        DEFW    SUB_45A3                 ; $193E
+        DEFW    SYNCHR                 ; $193E
         DEFB    $3B,$E5,$CD                                      ; $1940
         DEFW    SUB_48BE_1               ; $1943
         DEFB    $E1,$C9,$E5,$3A,$B7,$0C                          ; $1945
         DEFW    SUB_2874_18              ; $194B
         DEFW    SUB_3BB3_60              ; $194D
         DEFB    $3F,$CD                                          ; $194F
-        DEFW    SUB_4291                 ; $1951
+        DEFW    OUTCHR                 ; $1951
         DEFB    $3E,$20,$CD                                      ; $1953
-        DEFW    SUB_4291                 ; $1956
+        DEFW    OUTCHR                 ; $1956
         DEFB    $CD                                              ; $1958
         DEFW    SUB_4CA1_1               ; $1959
         DEFB    $C1,$DA,$E4,$45,$C5,$36,$2C,$EB,$E1,$E5,$D5      ; $195B
@@ -2652,13 +2652,13 @@ SUB_189A_1:
         DEFB    $3E,$80,$32                                      ; $1968
         DEFW    TPA_START_113            ; $196B
         DEFB    $CD                                              ; $196D
-        DEFW    SUB_13E4                 ; $196E
+        DEFW    CHRGET                 ; $196E
         DEFB    $CD                                              ; $1970
-        DEFW    SUB_3BB3                 ; $1971
+        DEFW    PTRGET                 ; $1971
         DEFB    $7E,$2B                                          ; $1973
         DEFW    SUB_28F5_2               ; $1975
         DEFB    $20,$19,$23,$06,$00,$04,$CD                      ; $1977
-        DEFW    SUB_13E4                 ; $197E
+        DEFW    CHRGET                 ; $197E
         DEFB    $CA                                              ; $1980
         DEFW    SUB_0CA8_54              ; $1981
         DEFB    $FE,$22,$CA,$E5,$18                              ; $1983
@@ -2666,7 +2666,7 @@ SUB_189A_1:
         DEFB    $28,$F0                                          ; $198A
         DEFW    SUB_29E8_4               ; $198C
         DEFB    $20,$ED,$10,$EB,$CD                              ; $198E
-        DEFW    SUB_13E4                 ; $1993
+        DEFW    CHRGET                 ; $1993
         DEFB    $28,$05,$FE                                      ; $1995
 SUB_189A_2:
         DEFB    $2C,$C2                                          ; $1998
@@ -2682,28 +2682,28 @@ SUB_189A_2:
         DEFW    SUB_4A3A                 ; $19B7
         DEFW    SUB_2BBE_6               ; $19B9
         DEFB    $CD                                              ; $19BB
-        DEFW    SUB_13E4                 ; $19BC
+        DEFW    CHRGET                 ; $19BC
         DEFB    $E3,$7E,$FE,$2C,$28,$A4                          ; $19BE
         DEFW    SUB_2BBE_6               ; $19C4
         DEFB    $CD                                              ; $19C6
-        DEFW    SUB_13E4                 ; $19C7
+        DEFW    CHRGET                 ; $19C7
         DEFB    $B7,$E1,$C2,$FE                                  ; $19C9
         DEFW    SUB_3518_24              ; $19CD
         DEFB    $2C,$18,$05,$E5,$2A                              ; $19CF
         DEFW    TPA_START_131            ; $19D4
         DEFB    $F6,$AF,$32,$76,$0B,$E3,$18,$04,$CD              ; $19D6
-        DEFW    SUB_45A3                 ; $19DF
+        DEFW    SYNCHR                 ; $19DF
         DEFB    $2C,$CD                                          ; $19E1
-        DEFW    SUB_3BB3                 ; $19E3
+        DEFW    PTRGET                 ; $19E3
         DEFB    $E3,$D5,$7E,$FE,$2C,$28                          ; $19E5
-        DEFW    SUB_3809_29              ; $19EB
+        DEFW    POLY_EVAL_X              ; $19EB
         DEFB    $76,$0B,$B7,$C2,$63,$1A,$F6,$AF,$32,$8C,$0C      ; $19ED
         DEFW    SUB_2AEB                 ; $19F8
         DEFW    TPA_START_67             ; $19FA
         DEFB    $7C,$B5,$EB,$C2,$15,$53,$CD                      ; $19FC
         DEFW    SUB_1DE3                 ; $1A03
         DEFB    $F5,$20,$2B,$CD                                  ; $1A05
-        DEFW    SUB_13E4                 ; $1A09
+        DEFW    CHRGET                 ; $1A09
         DEFB    $57,$47,$FE,$22,$28,$0C,$3A,$76,$0B,$B7          ; $1A0B
         DEFW    SUB_2824_8               ; $1A15
         DEFW    SUB_15D1_5               ; $1A17
@@ -2716,7 +2716,7 @@ SUB_189A_2:
         DEFB    $8C,$0C,$B7,$C8,$79,$EB,$21,$42,$1A,$E3,$D5      ; $1A25
         DEFW    SUB_0CA8_13              ; $1A30
         DEFB    $16,$CD                                          ; $1A32
-        DEFW    SUB_13E4                 ; $1A34
+        DEFW    CHRGET                 ; $1A34
         DEFB    $F1,$F5                                          ; $1A36
         DEFW    SUB_1E72_23              ; $1A38
         DEFB    $1A,$C5,$DA                                      ; $1A3A
@@ -2724,33 +2724,33 @@ SUB_189A_2:
         DEFB    $C3,$1E                                          ; $1A3F
         DEFW    SUB_2B28_3               ; $1A41
         DEFB    $CD                                              ; $1A43
-        DEFW    SUB_13E4                 ; $1A44
+        DEFW    CHRGET                 ; $1A44
         DEFB    $28,$05,$FE,$2C,$C2,$F7,$18                      ; $1A46
         DEFW    SUB_2BBE_8               ; $1A4D
         DEFB    $CD                                              ; $1A4F
-        DEFW    SUB_13E4                 ; $1A50
+        DEFW    CHRGET                 ; $1A50
         DEFB    $C2,$DE,$19,$D1,$3A,$76,$0B,$B7,$EB,$C2          ; $1A52
         DEFW    SUB_45B5_4               ; $1A5C
         DEFB    $D5,$E1,$C3                                      ; $1A5E
-        DEFW    SUB_189A                 ; $1A61
+        DEFW    RESET_INPUT_STATE                 ; $1A61
         DEFB    $CD,$CF,$15,$B7,$20,$12,$23,$7E,$23,$B6          ; $1A63
         DEFW    TPA_START_42             ; $1A6D
         DEFB    $CA                                              ; $1A6F
-        DEFW    SUB_0CA8_61              ; $1A70
+        DEFW    ERROR              ; $1A70
         DEFB    $23,$5E,$23,$56,$EB,$22,$73,$0B,$EB,$CD          ; $1A72
-        DEFW    SUB_13E4                 ; $1A7C
+        DEFW    CHRGET                 ; $1A7C
         DEFB    $FE,$84,$20,$E1,$C3,$F3,$19                      ; $1A7E
 ; [AI] Evaluate-expression entry that requires a value (errors if none present), then falls into
 ;       the main expression evaluator.
-SUB_1A85:
-        CALL SUB_45A3                    ; $1A85  CD A3 45
+FRMEVL_REQVAL:
+        CALL SYNCHR                    ; $1A85  CD A3 45
         RET P                            ; $1A88  F0
         JP SUB_1A8C_1+1                  ; $1A89  C3 90 1A
 ; [AI] Top of the operator-precedence expression evaluator. Evaluates a full BASIC expression,
 ;       applying arithmetic, relational, and logical operators by precedence and leaving the result
 ;       in the floating/integer accumulator with its type in $0B37.
-SUB_1A8C:
-        CALL SUB_45A3                    ; $1A8C  CD A3 45
+FRMEVL:
+        CALL SYNCHR                    ; $1A8C  CD A3 45
 SUB_1A8C_1:
         JR Z,SUB_1A93_3+1                ; $1A8F  28 2B
 SUB_1A8C_2:
@@ -2758,11 +2758,11 @@ SUB_1A8C_2:
 ; [AI] Recursive precedence loop of the expression evaluator: pushes the current precedence level,
 ;       evaluates the next operand, then applies pending operators whose precedence allows, using
 ;       the operator-precedence table at $04ED.
-SUB_1A93:
+FRMEVL_PRECLOOP:
         PUSH DE                          ; $1A93  D5
         LD C,$01                         ; $1A94  0E 01
-        CALL SUB_449F                    ; $1A96  CD 9F 44
-        CALL SUB_1C11                    ; $1A99  CD 11 1C
+        CALL CHECK_STACK                    ; $1A96  CD 9F 44
+        CALL EVAL_OPERAND                    ; $1A99  CD 11 1C
         XOR A                            ; $1A9C  AF
         LD (SUB_0CA8_25),A               ; $1A9D  32 D9 0C
 SUB_1A93_1:
@@ -2787,7 +2787,7 @@ SUB_1A93_3:
 SUB_1A93_4:
         CP $0C                           ; $1AC1  FE 0C
         RET NC                           ; $1AC3  D0
-        LD HL,TPA_START_46               ; $1AC4  21 ED 04
+        LD HL,OPERATOR_PREC_TBL               ; $1AC4  21 ED 04
         LD D,$00                         ; $1AC7  16 00
         ADD HL,DE                        ; $1AC9  19
         LD A,B                           ; $1ACA  78
@@ -2846,7 +2846,7 @@ SUB_1A93_10:
 SUB_1A93_11:
         PUSH BC                          ; $1B15  C5
         LD HL,(TPA_START_111)            ; $1B16  2A 6D 0B
-        JP SUB_1A93                      ; $1B19  C3 93 1A
+        JP FRMEVL_PRECLOOP                      ; $1B19  C3 93 1A
 SUB_1A93_12:
         LD D,$00                         ; $1B1C  16 00
 SUB_1A93_13:
@@ -2861,17 +2861,17 @@ SUB_1A93_13:
         LD D,A                           ; $1B2D  57
         JP C,SUB_0CA8_54                 ; $1B2E  DA 92 0D
         LD (TPA_START_111),HL            ; $1B31  22 6D 0B
-        CALL SUB_13E4                    ; $1B34  CD E4 13
+        CALL CHRGET                    ; $1B34  CD E4 13
         JR SUB_1A93_13                   ; $1B37  18 E5
 SUB_1A93_14:
-        CALL SUB_2C6C                    ; $1B39  CD 6C 2C
+        CALL FP_SGN                    ; $1B39  CD 6C 2C
         CALL SUB_2B18                    ; $1B3C  CD 18 2B
         LD BC,SUB_3809_26                ; $1B3F  01 16 39
         LD D,$7F                         ; $1B42  16 7F
         JR SUB_1A93_11                   ; $1B44  18 CF
 SUB_1A93_15:
         PUSH DE                          ; $1B46  D5
-        CALL SUB_2BF4                    ; $1B47  CD F4 2B
+        CALL FP_INT                    ; $1B47  CD F4 2B
         POP DE                           ; $1B4A  D1
         PUSH HL                          ; $1B4B  E5
         LD BC,SUB_1DE3_2                 ; $1B4C  01 F3 1D
@@ -2912,7 +2912,7 @@ SUB_1A93_18:
         DEFW    SUB_2AC5_6               ; $1BA5
         DEFW    SUB_0CA8_21              ; $1BA7
         DEFB    $C5,$C9,$CD                                      ; $1BA9
-        DEFW    SUB_2C98                 ; $1BAC
+        DEFW    FP_ABS                 ; $1BAC
         DEFB    $CD                                              ; $1BAE
         DEFW    SUB_2B6F                 ; $1BAF
         DEFW    SUB_22E1                 ; $1BB1
@@ -2922,7 +2922,7 @@ SUB_1A93_18:
         DEFB    $C1,$D1                                          ; $1BB9
         DEFW    SUB_28C8_2               ; $1BBB
         DEFB    $2B,$CD                                          ; $1BBD
-        DEFW    SUB_2C98                 ; $1BBF
+        DEFW    FP_ABS                 ; $1BBF
         DEFB    $21,$03,$05,$3A                                  ; $1BC1
         DEFW    TPA_START_97             ; $1BC5
         DEFB    $07,$85,$6F                                      ; $1BC7
@@ -2935,7 +2935,7 @@ SUB_1A93_19:
         DEFW    SUB_22E1                 ; $1BDE
         DEFW    SUB_0CA8_21              ; $1BE0
         DEFB    $18,$DA,$CD                                      ; $1BE2
-        DEFW    SUB_2C6C                 ; $1BE5
+        DEFW    FP_SGN                 ; $1BE5
         DEFB    $C1                                              ; $1BE7
         DEFW    SUB_2124_25              ; $1BE8
         DEFB    $0D,$05,$18,$D6,$E1,$CD                          ; $1BEA
@@ -2958,19 +2958,19 @@ SUB_1A93_19:
         DEFW    SUB_29E8_2               ; $1C0F
 ; [AI] Evaluates a single primary/operand of an expression: a number, variable, string literal,
 ;       parenthesised subexpression, or a function/intrinsic call, dispatching by the leading token.
-SUB_1C11:
-        CALL SUB_13E4                    ; $1C11  CD E4 13
+EVAL_OPERAND:
+        CALL CHRGET                    ; $1C11  CD E4 13
         JP Z,SUB_0CA8_59+1               ; $1C14  CA A7 0D
         JP C,SUB_3125                    ; $1C17  DA 25 31
         CALL SUB_46BF                    ; $1C1A  CD BF 46
         JP NC,SUB_1CC1_4                 ; $1C1D  D2 D7 1C
         CP $20                           ; $1C20  FE 20
-        JP C,SUB_1460                    ; $1C22  DA 60 14
+        JP C,LINGET_CONST                    ; $1C22  DA 60 14
         INC A                            ; $1C25  3C
         JP Z,SUB_1CF6_8                  ; $1C26  CA 56 1D
         DEC A                            ; $1C29  3D
         CP $F2                           ; $1C2A  FE F2
-        JR Z,SUB_1C11                    ; $1C2C  28 E3
+        JR Z,EVAL_OPERAND                    ; $1C2C  28 E3
         CP $F3                           ; $1C2E  FE F3
         JP Z,SUB_1CC1_2                  ; $1C30  CA C9 1C
         CP $22                           ; $1C33  FE 22
@@ -2978,10 +2978,10 @@ SUB_1C11:
         CP $E4                           ; $1C38  FE E4
         JP Z,SUB_1DB2_2                  ; $1C3A  CA CE 1D
         CP $26                           ; $1C3D  FE 26
-        JP Z,SUB_1CF6                    ; $1C3F  CA F6 1C
+        JP Z,PARSE_HEX_OCT                    ; $1C3F  CA F6 1C
         CP $E6                           ; $1C42  FE E6
         JR NZ,SUB_1C11_1                 ; $1C44  20 0C
-        CALL SUB_13E4                    ; $1C46  CD E4 13
+        CALL CHRGET                    ; $1C46  CD E4 13
         LD A,(TPA_START_58)              ; $1C49  3A 58 08
         PUSH HL                          ; $1C4C  E5
         CALL SUB_1E4D                    ; $1C4D  CD 4D 1E
@@ -2990,7 +2990,7 @@ SUB_1C11:
 SUB_1C11_1:
         CP $E5                           ; $1C52  FE E5
         JR NZ,SUB_1C11_2                 ; $1C54  20 0C
-        CALL SUB_13E4                    ; $1C56  CD E4 13
+        CALL CHRGET                    ; $1C56  CD E4 13
         PUSH HL                          ; $1C59  E5
         LD HL,(TPA_START_121)            ; $1C5A  2A 83 0B
         CALL SUB_2E6C                    ; $1C5D  CD 6C 2E
@@ -2998,9 +2998,9 @@ SUB_1C11_1:
         RET                              ; $1C61  C9
 SUB_1C11_2:
         CP $EB                           ; $1C62  FE EB
-        JR NZ,SUB_1C11_6                 ; $1C64  20 29
-        CALL SUB_13E4                    ; $1C66  CD E4 13
-        CALL SUB_45A3                    ; $1C69  CD A3 45
+        JR NZ,EVAL_FUNC_TOKEN                 ; $1C64  20 29
+        CALL CHRGET                    ; $1C66  CD E4 13
+        CALL SYNCHR                    ; $1C69  CD A3 45
 SUB_1C11_3:
         JR Z,SUB_1C11_3                  ; $1C6C  28 FE
         INC HL                           ; $1C6E  23
@@ -3011,21 +3011,21 @@ SUB_1C11_3:
         POP HL                           ; $1C78  E1
         JP SUB_1C11_5                    ; $1C79  C3 7F 1C
 SUB_1C11_4:
-        CALL SUB_3BB3                    ; $1C7C  CD B3 3B
+        CALL PTRGET                    ; $1C7C  CD B3 3B
 SUB_1C11_5:
-        CALL SUB_45A3                    ; $1C7F  CD A3 45
+        CALL SYNCHR                    ; $1C7F  CD A3 45
         ADD HL,HL                        ; $1C82  29
         PUSH HL                          ; $1C83  E5
         EX DE,HL                         ; $1C84  EB
         LD A,H                           ; $1C85  7C
         OR L                             ; $1C86  B5
-        JP Z,SUB_14E4_2                  ; $1C87  CA EB 14
-        CALL SUB_2C55                    ; $1C8A  CD 55 2C
+        JP Z,ERR_TYPE_MISMATCH                  ; $1C87  CA EB 14
+        CALL FAC_STORE_HL                    ; $1C8A  CD 55 2C
         POP HL                           ; $1C8D  E1
         RET                              ; $1C8E  C9
 ; [AI] Operand-token dispatch tail: matches the function/keyword tokens that introduce value-
 ;       returning intrinsics (e.g. USR, string and math functions) and jumps to each handler.
-SUB_1C11_6:
+EVAL_FUNC_TOKEN:
         CP $E1                           ; $1C8F  FE E1
         JP Z,SUB_1E4D_2                  ; $1C91  CA 53 1E
         CP $E9                           ; $1C94  FE E9
@@ -3039,7 +3039,7 @@ SUB_1C11_6:
         CP $ED                           ; $1CA8  FE ED
         JP Z,SUB_2602_14                 ; $1CAA  CA 0F 28
         CP $EE                           ; $1CAD  FE EE
-        JP Z,SUB_4437_1                  ; $1CAF  CA 4A 44
+        JP Z,FN_INKEY                  ; $1CAF  CA 4A 44
         CP $E7                           ; $1CB2  FE E7
         JP Z,SUB_4A89_2                  ; $1CB4  CA 91 4A
         CP $85                           ; $1CB7  FE 85
@@ -3048,15 +3048,15 @@ SUB_1C11_6:
         JP Z,SUB_1E72_4                  ; $1CBE  CA C8 1E
 ; [AI] Evaluates an operand and forces a sign/relational comparison setup (doubles HL), used by the
 ;       evaluator when combining the result of a subexpression with a relational operator.
-SUB_1CC1:
-        CALL SUB_1A8C                    ; $1CC1  CD 8C 1A
-        CALL SUB_45A3                    ; $1CC4  CD A3 45
+EVAL_PAREN:
+        CALL FRMEVL                    ; $1CC1  CD 8C 1A
+        CALL SYNCHR                    ; $1CC4  CD A3 45
 SUB_1CC1_1:
         ADD HL,HL                        ; $1CC7  29
         RET                              ; $1CC8  C9
 SUB_1CC1_2:
         LD D,$7D                         ; $1CC9  16 7D
-        CALL SUB_1A93                    ; $1CCB  CD 93 1A
+        CALL FRMEVL_PRECLOOP                    ; $1CCB  CD 93 1A
         LD HL,(TPA_START_125)            ; $1CCE  2A 8C 0B
         PUSH HL                          ; $1CD1  E5
         CALL SUB_2AEB                    ; $1CD2  CD EB 2A
@@ -3064,7 +3064,7 @@ SUB_1CC1_3:
         POP HL                           ; $1CD5  E1
         RET                              ; $1CD6  C9
 SUB_1CC1_4:
-        CALL SUB_3BB3                    ; $1CD7  CD B3 3B
+        CALL PTRGET                    ; $1CD7  CD B3 3B
 SUB_1CC1_5:
         PUSH HL                          ; $1CDA  E5
         EX DE,HL                         ; $1CDB  EB
@@ -3074,12 +3074,12 @@ SUB_1CC1_5:
         POP HL                           ; $1CE5  E1
         RET                              ; $1CE6  C9
 ; [AI] Fetches the character at (HL) and folds it to upper case (used so source keywords/hex digits
-;       compare case-insensitively); SUB_1CE8 is the entry that uppercases the value already in A.
-SUB_1CE7:
+;       compare case-insensitively); TO_UPPER is the entry that uppercases the value already in A.
+CHRGET_UPPER:
         LD A,(HL)                        ; $1CE7  7E
 ; [AI] Folds the ASCII character in A to upper case (returns unchanged if not a-z), the case-
 ;       normalisation primitive used during tokenizing and hex/keyword parsing.
-SUB_1CE8:
+TO_UPPER:
         CP $61                           ; $1CE8  FE 61
         RET C                            ; $1CEA  D8
         CP $7B                           ; $1CEB  FE 7B
@@ -3087,13 +3087,13 @@ SUB_1CE8:
         AND $5F                          ; $1CEE  E6 5F
         RET                              ; $1CF0  C9
         DEFB    $FE,$26,$C2                                      ; $1CF1
-        DEFW    SUB_14FB                 ; $1CF4
+        DEFW    LINGET                 ; $1CF4
 ; [AI] Parses a hex ('&H') or octal ('&O') numeric literal from the source stream into a value,
 ;       after the '&' lead-in has been seen.
-SUB_1CF6:
+PARSE_HEX_OCT:
         LD DE,WBOOT_VEC                  ; $1CF6  11 00 00
-        CALL SUB_13E4                    ; $1CF9  CD E4 13
-        CALL SUB_1CE8                    ; $1CFC  CD E8 1C
+        CALL CHRGET                    ; $1CF9  CD E4 13
+        CALL TO_UPPER                    ; $1CFC  CD E8 1C
         CP $4F                           ; $1CFF  FE 4F
         JR Z,SUB_1CF6_6                  ; $1D01  28 2F
         CP $48                           ; $1D03  FE 48
@@ -3102,7 +3102,7 @@ SUB_1CF6:
 SUB_1CF6_1:
         INC HL                           ; $1D09  23
         LD A,(HL)                        ; $1D0A  7E
-        CALL SUB_1CE8                    ; $1D0B  CD E8 1C
+        CALL TO_UPPER                    ; $1D0B  CD E8 1C
 SUB_1CF6_2:
         CALL SUB_46BF                    ; $1D0E  CD BF 46
         EX DE,HL                         ; $1D11  EB
@@ -3130,7 +3130,7 @@ SUB_1CF6_4:
 SUB_1CF6_5:
         DEC HL                           ; $1D31  2B
 SUB_1CF6_6:
-        CALL SUB_13E4                    ; $1D32  CD E4 13
+        CALL CHRGET                    ; $1D32  CD E4 13
         EX DE,HL                         ; $1D35  EB
         JR NC,SUB_1CF6_7                 ; $1D36  30 19
         CP $38                           ; $1D38  FE 38
@@ -3151,7 +3151,7 @@ SUB_1CF6_6:
         EX DE,HL                         ; $1D4E  EB
         JR SUB_1CF6_6                    ; $1D4F  18 E1
 SUB_1CF6_7:
-        CALL SUB_2C55                    ; $1D51  CD 55 2C
+        CALL FAC_STORE_HL                    ; $1D51  CD 55 2C
         EX DE,HL                         ; $1D54  EB
         RET                              ; $1D55  C9
 SUB_1CF6_8:
@@ -3161,22 +3161,22 @@ SUB_1CF6_8:
         CP $07                           ; $1D5A  FE 07
         JR NZ,SUB_1CF6_9                 ; $1D5C  20 0C
         PUSH HL                          ; $1D5E  E5
-        CALL SUB_13E4                    ; $1D5F  CD E4 13
+        CALL CHRGET                    ; $1D5F  CD E4 13
         CP $28                           ; $1D62  FE 28
         POP HL                           ; $1D64  E1
-        JP NZ,SUB_3809_29                ; $1D65  C2 07 3A
+        JP NZ,POLY_EVAL_X                ; $1D65  C2 07 3A
         LD A,$07                         ; $1D68  3E 07
 SUB_1CF6_9:
         LD B,$00                         ; $1D6A  06 00
         RLCA                             ; $1D6C  07
         LD C,A                           ; $1D6D  4F
         PUSH BC                          ; $1D6E  C5
-        CALL SUB_13E4                    ; $1D6F  CD E4 13
+        CALL CHRGET                    ; $1D6F  CD E4 13
         LD A,C                           ; $1D72  79
         CP $05                           ; $1D73  FE 05
         JP NC,SUB_1CF6_10                ; $1D75  D2 90 1D
-        CALL SUB_1A8C                    ; $1D78  CD 8C 1A
-        CALL SUB_45A3                    ; $1D7B  CD A3 45
+        CALL FRMEVL                    ; $1D78  CD 8C 1A
+        CALL SYNCHR                    ; $1D7B  CD A3 45
         INC L                            ; $1D7E  2C
         CALL SUB_2CB3                    ; $1D7F  CD B3 2C
         EX DE,HL                         ; $1D82  EB
@@ -3189,14 +3189,14 @@ SUB_1CF6_9:
         EX (SP),HL                       ; $1D8D  E3
         JR SUB_1CF6_12                   ; $1D8E  18 19
 SUB_1CF6_10:
-        CALL SUB_1CC1                    ; $1D90  CD C1 1C
+        CALL EVAL_PAREN                    ; $1D90  CD C1 1C
         EX (SP),HL                       ; $1D93  E3
         LD A,L                           ; $1D94  7D
         CP $0C                           ; $1D95  FE 0C
         JR C,SUB_1CF6_11                 ; $1D97  38 07
         CP $1B                           ; $1D99  FE 1B
         PUSH HL                          ; $1D9B  E5
-        CALL C,SUB_2C6C                  ; $1D9C  DC 6C 2C
+        CALL C,FP_SGN                  ; $1D9C  DC 6C 2C
         POP HL                           ; $1D9F  E1
 SUB_1CF6_11:
         LD DE,SUB_1CC1_3                 ; $1DA0  11 D5 1C
@@ -3230,8 +3230,8 @@ SUB_1DB2_1:
         DEFW    SUB_101B_42              ; $1DCC
 SUB_1DB2_2:
         LD D,$5A                         ; $1DCE  16 5A
-        CALL SUB_1A93                    ; $1DD0  CD 93 1A
-        CALL SUB_2BF4                    ; $1DD3  CD F4 2B
+        CALL FRMEVL_PRECLOOP                    ; $1DD0  CD 93 1A
+        CALL FP_INT                    ; $1DD3  CD F4 2B
         LD A,L                           ; $1DD6  7D
         CPL                              ; $1DD7  2F
         LD L,A                           ; $1DD8  6F
@@ -3255,7 +3255,7 @@ SUB_1DE3_1:
         RET                              ; $1DF2  C9
 SUB_1DE3_2:
         DEFB    $C5,$CD                                          ; $1DF3
-        DEFW    SUB_2BF4                 ; $1DF5
+        DEFW    FP_INT                 ; $1DF5
         DEFB    $F1,$D1,$FE,$7A,$CA,$76,$2E,$FE,$7B,$CA,$14      ; $1DF7
         DEFW    TPA_START_14             ; $1E02
         DEFW    SUB_1E4D_1               ; $1E04
@@ -3282,11 +3282,11 @@ SUB_1E4D:
         XOR A                            ; $1E4E  AF
 SUB_1E4D_1:
         LD H,A                           ; $1E4F  67
-        JP SUB_2C55                      ; $1E50  C3 55 2C
+        JP FAC_STORE_HL                      ; $1E50  C3 55 2C
 SUB_1E4D_2:
         CALL SUB_1E72                    ; $1E53  CD 72 1E
         PUSH DE                          ; $1E56  D5
-        CALL SUB_1CC1                    ; $1E57  CD C1 1C
+        CALL EVAL_PAREN                    ; $1E57  CD C1 1C
 SUB_1E4D_3:
         EX (SP),HL                       ; $1E5A  E3
         LD C,(HL)                        ; $1E5B  4E
@@ -3304,20 +3304,20 @@ SUB_1E4D_3:
         LD HL,SUB_0CA8_21                ; $1E6E  21 D4 0C
         RET                              ; $1E71  C9
 SUB_1E72:
-        CALL SUB_13E4                    ; $1E72  CD E4 13
+        CALL CHRGET                    ; $1E72  CD E4 13
         LD BC,WBOOT_VEC                  ; $1E75  01 00 00
         CP $1B                           ; $1E78  FE 1B
         JR NC,SUB_1E72_1                 ; $1E7A  30 0D
         CP $11                           ; $1E7C  FE 11
         JR C,SUB_1E72_1                  ; $1E7E  38 09
-        CALL SUB_13E4                    ; $1E80  CD E4 13
+        CALL CHRGET                    ; $1E80  CD E4 13
         LD A,(TPA_START_102)             ; $1E83  3A 3E 0B
         OR A                             ; $1E86  B7
         RLA                              ; $1E87  17
         LD C,A                           ; $1E88  4F
 SUB_1E72_1:
         EX DE,HL                         ; $1E89  EB
-        LD HL,TPA_START_56               ; $1E8A  21 42 08
+        LD HL,FILE_CHAN_VECTORS               ; $1E8A  21 42 08
 SUB_1E72_2:
         ADD HL,BC                        ; $1E8D  09
         EX DE,HL                         ; $1E8E  EB
@@ -3325,27 +3325,27 @@ SUB_1E72_2:
         DEFB    $CD                                              ; $1E90
         DEFW    SUB_1E72                 ; $1E91
         DEFB    $D5,$CD                                          ; $1E93
-        DEFW    SUB_45A3                 ; $1E95
+        DEFW    SYNCHR                 ; $1E95
         DEFB    $F0,$CD                                          ; $1E97
         DEFW    SUB_20A3                 ; $1E99
         DEFB    $E3,$73,$23,$72,$E1                              ; $1E9B
 SUB_1E72_3:
         RET                              ; $1EA0  C9
         DEFB    $FE                                              ; $1EA1
-        DEFW    SUB_28E1                 ; $1EA2
+        DEFW    FAC_NEGATE_MANT                 ; $1EA2
         DEFB    $EB,$CD                                          ; $1EA4
         DEFW    SUB_2041                 ; $1EA6
         DEFW    SUB_33A0_5               ; $1EA8
         DEFB    $20,$EB,$73,$23,$72,$EB,$7E                      ; $1EAA
         DEFW    SUB_28F5_2               ; $1EB1
         DEFB    $C2,$CF,$15,$CD                                  ; $1EB3
-        DEFW    SUB_13E4                 ; $1EB7
+        DEFW    CHRGET                 ; $1EB7
         DEFB    $CD                                              ; $1EB9
-        DEFW    SUB_3BB3                 ; $1EBA
+        DEFW    PTRGET                 ; $1EBA
         DEFB    $7E                                              ; $1EBC
         DEFW    SUB_29E8_4               ; $1EBD
         DEFB    $CA,$CF,$15,$CD                                  ; $1EBF
-        DEFW    SUB_45A3                 ; $1EC3
+        DEFW    SYNCHR                 ; $1EC3
         DEFB    $2C,$18,$F1                                      ; $1EC5
 SUB_1E72_4:
         CALL SUB_2041                    ; $1EC8  CD 41 20
@@ -3367,11 +3367,11 @@ SUB_1E72_7:
         CP $28                           ; $1EDD  FE 28
 SUB_1E72_8:
         JP NZ,SUB_1E72_19+1              ; $1EDF  C2 8E 1F
-        CALL SUB_13E4                    ; $1EE2  CD E4 13
+        CALL CHRGET                    ; $1EE2  CD E4 13
         LD (TPA_START_111),HL            ; $1EE5  22 6D 0B
         EX DE,HL                         ; $1EE8  EB
         LD HL,(TPA_START_125)            ; $1EE9  2A 8C 0B
-        CALL SUB_45A3                    ; $1EEC  CD A3 45
+        CALL SYNCHR                    ; $1EEC  CD A3 45
         JR Z,SUB_1E72_3                  ; $1EEF  28 AF
         PUSH AF                          ; $1EF1  F5
         PUSH HL                          ; $1EF2  E5
@@ -3379,7 +3379,7 @@ SUB_1E72_8:
 SUB_1E72_9:
         LD A,$80                         ; $1EF4  3E 80
         LD (TPA_START_113),A             ; $1EF6  32 75 0B
-        CALL SUB_3BB3                    ; $1EF9  CD B3 3B
+        CALL PTRGET                    ; $1EF9  CD B3 3B
         EX DE,HL                         ; $1EFC  EB
         EX (SP),HL                       ; $1EFD  E3
         LD A,(TPA_START_96)              ; $1EFE  3A 37 0B
@@ -3392,7 +3392,7 @@ SUB_1E72_9:
         POP AF                           ; $1F0D  F1
         CALL SUB_201A                    ; $1F0E  CD 1A 20
         LD C,$04                         ; $1F11  0E 04
-        CALL SUB_449F                    ; $1F13  CD 9F 44
+        CALL CHECK_STACK                    ; $1F13  CD 9F 44
         LD HL,$FFF8                      ; $1F16  21 F8 FF
         ADD HL,SP                        ; $1F19  39
         LD SP,HL                         ; $1F1A  F9
@@ -3405,11 +3405,11 @@ SUB_1E72_10:
         CP $29                           ; $1F26  FE 29
 SUB_1E72_11:
         JR Z,SUB_1E72_13                 ; $1F28  28 12
-        CALL SUB_45A3                    ; $1F2A  CD A3 45
+        CALL SYNCHR                    ; $1F2A  CD A3 45
         INC L                            ; $1F2D  2C
         PUSH HL                          ; $1F2E  E5
         LD HL,(TPA_START_111)            ; $1F2F  2A 6D 0B
-        CALL SUB_45A3                    ; $1F32  CD A3 45
+        CALL SYNCHR                    ; $1F32  CD A3 45
         INC L                            ; $1F35  2C
         JR SUB_1E72_9                    ; $1F36  18 BC
 SUB_1E72_12:
@@ -3444,7 +3444,7 @@ SUB_1E72_14:
         LD C,A                           ; $1F64  4F
         ADD A,B                          ; $1F65  80
         CP $64                           ; $1F66  FE 64
-        JP NC,SUB_14E4_2                 ; $1F68  D2 EB 14
+        JP NC,ERR_TYPE_MISMATCH                 ; $1F68  D2 EB 14
         PUSH AF                          ; $1F6B  F5
         LD A,L                           ; $1F6C  7D
         LD B,$00                         ; $1F6D  06 00
@@ -3461,10 +3461,10 @@ SUB_1E72_16:
 SUB_1E72_17:
         LD HL,(TPA_START_125)            ; $1F7F  2A 8C 0B
 SUB_1E72_18:
-        CALL SUB_13E4                    ; $1F82  CD E4 13
+        CALL CHRGET                    ; $1F82  CD E4 13
         PUSH HL                          ; $1F85  E5
         LD HL,(TPA_START_111)            ; $1F86  2A 6D 0B
-        CALL SUB_45A3                    ; $1F89  CD A3 45
+        CALL SYNCHR                    ; $1F89  CD A3 45
         ADD HL,HL                        ; $1F8C  29
 SUB_1E72_19:
         LD A,$D5                         ; $1F8D  3E D5
@@ -3474,7 +3474,7 @@ SUB_1E72_19:
         PUSH AF                          ; $1F97  F5
         RRCA                             ; $1F98  0F
         LD C,A                           ; $1F99  4F
-        CALL SUB_449F                    ; $1F9A  CD 9F 44
+        CALL CHECK_STACK                    ; $1F9A  CD 9F 44
         POP AF                           ; $1F9D  F1
         LD C,A                           ; $1F9E  4F
         CPL                              ; $1F9F  2F
@@ -3505,16 +3505,16 @@ SUB_1E72_19:
         OR L                             ; $1FCF  B5
         LD (TPA_START_142),A             ; $1FD0  32 87 0C
         LD HL,(TPA_START_111)            ; $1FD3  2A 6D 0B
-        CALL SUB_1A85                    ; $1FD6  CD 85 1A
+        CALL FRMEVL_REQVAL                    ; $1FD6  CD 85 1A
         DEC HL                           ; $1FD9  2B
-        CALL SUB_13E4                    ; $1FDA  CD E4 13
+        CALL CHRGET                    ; $1FDA  CD E4 13
         JP NZ,SUB_0CA8_54                ; $1FDD  C2 92 0D
 SUB_1E72_20:
         CALL SUB_1DE3                    ; $1FE0  CD E3 1D
         JR NZ,SUB_1E72_21                ; $1FE3  20 11
         LD DE,TPA_START_108              ; $1FE5  11 68 0B
         LD HL,(SUB_0CA8_21)              ; $1FE8  2A D4 0C
-        CALL SUB_459D                    ; $1FEB  CD 9D 45
+        CALL DCMP_HL_DE                    ; $1FEB  CD 9D 45
         JR C,SUB_1E72_21                 ; $1FEE  38 06
         CALL SUB_4844                    ; $1FF0  CD 44 48
         CALL SUB_4868_10+1               ; $1FF3  CD 9C 48
@@ -3578,13 +3578,13 @@ SUB_202E_1:
 SUB_202E_2:
         RET                              ; $2032  C9
         DEFB    $E5,$2A                                          ; $2033
-        DEFW    TPA_START_69             ; $2035
+        DEFW    CURLIN             ; $2035
         DEFB    $23,$7C,$B5,$E1,$C0                              ; $2037
         DEFW    TPA_START_137            ; $203C
         DEFB    $C3                                              ; $203E
-        DEFW    SUB_0CA8_61              ; $203F
+        DEFW    ERROR              ; $203F
 SUB_2041:
-        CALL SUB_45A3                    ; $2041  CD A3 45
+        CALL SYNCHR                    ; $2041  CD A3 45
 SUB_2041_1:
         JP PO,$803E                      ; $2044  E2 3E 80
         LD (TPA_START_113),A             ; $2047  32 75 0B
@@ -3606,7 +3606,7 @@ SUB_2041_3:
         DEFB    $FE,$9B                                          ; $2062
         DEFW    SUB_101B_13              ; $2064
         DEFB    $CD                                              ; $2066
-        DEFW    SUB_13E4                 ; $2067
+        DEFW    CHRGET                 ; $2067
         DEFB    $CD                                              ; $2069
         DEFW    SUB_20B2                 ; $206A
         DEFB    $32                                              ; $206C
@@ -3619,7 +3619,7 @@ SUB_2041_3:
         DEFW    SUB_20B2                 ; $207C
 ; [AI] Console/terminal width setup helper invoked during cold start after the screen width (40 or
 ;       80 columns) is chosen from the SoftCard BIOS configuration byte.
-SUB_207E:
+SET_WIDTH:
         LD (TPA_START_62),A              ; $207E  32 5E 08
         LD E,A                           ; $2081  5F
         CALL SUB_2096                    ; $2082  CD 96 20
@@ -3627,7 +3627,7 @@ SUB_207E:
         LD A,(HL)                        ; $2088  7E
         CP $2C                           ; $2089  FE 2C
         RET NZ                           ; $208B  C0
-        CALL SUB_13E4                    ; $208C  CD E4 13
+        CALL CHRGET                    ; $208C  CD E4 13
         CALL SUB_20B2                    ; $208F  CD B2 20
         LD (TPA_START_63),A              ; $2092  32 5F 08
         RET                              ; $2095  C9
@@ -3641,28 +3641,28 @@ SUB_2096_1:
         ADD A,E                          ; $209E  83
         RET                              ; $209F  C9
         DEFB    $CD                                              ; $20A0
-        DEFW    SUB_13E4                 ; $20A1
+        DEFW    CHRGET                 ; $20A1
 SUB_20A3:
         CALL SUB_1A8C_1+1                ; $20A3  CD 90 1A
 SUB_20A6:
         PUSH HL                          ; $20A6  E5
-        CALL SUB_2BF4                    ; $20A7  CD F4 2B
+        CALL FP_INT                    ; $20A7  CD F4 2B
         EX DE,HL                         ; $20AA  EB
         POP HL                           ; $20AB  E1
         LD A,D                           ; $20AC  7A
         OR A                             ; $20AD  B7
         RET                              ; $20AE  C9
 SUB_20AF:
-        CALL SUB_13E4                    ; $20AF  CD E4 13
+        CALL CHRGET                    ; $20AF  CD E4 13
 SUB_20B2:
         CALL SUB_1A8C_1+1                ; $20B2  CD 90 1A
 SUB_20B5:
         CALL SUB_20A6                    ; $20B5  CD A6 20
 SUB_20B5_1:
-        JP NZ,SUB_14E4_2                 ; $20B8  C2 EB 14
+        JP NZ,ERR_TYPE_MISMATCH                 ; $20B8  C2 EB 14
 SUB_20B5_2:
         DEC HL                           ; $20BB  2B
-        CALL SUB_13E4                    ; $20BC  CD E4 13
+        CALL CHRGET                    ; $20BC  CD E4 13
         LD A,E                           ; $20BF  7B
         RET                              ; $20C0  C9
         DEFW    TPA_START_16             ; $20C1
@@ -3672,11 +3672,11 @@ SUB_20B5_2:
         DEFW    SUB_2AC5_3               ; $20CB
         DEFW    SUB_2124_9               ; $20CD
         DEFB    $FF,$FF,$22                                      ; $20CF
-        DEFW    TPA_START_69             ; $20D2
+        DEFW    CURLIN             ; $20D2
         DEFB    $E1,$D1,$4E                                      ; $20D4
         DEFW    SUB_4610_3               ; $20D7
         DEFB    $23,$78,$B1,$CA                                  ; $20D9
-        DEFW    SUB_0CA8_74              ; $20DD
+        DEFW    PROMPT_READY              ; $20DD
         DEFB    $E5,$2A                                          ; $20DF
         DEFW    TPA_START_67             ; $20E1
         DEFB    $7C,$B5,$E1                                      ; $20E3
@@ -3684,7 +3684,7 @@ SUB_20B5_2:
         DEFB    $44,$C5,$4E                                      ; $20E8
         DEFW    SUB_4610_3               ; $20EB
         DEFB    $23,$C5,$E3,$EB,$CD                              ; $20ED
-        DEFW    SUB_459D                 ; $20F2
+        DEFW    DCMP_HL_DE                 ; $20F2
         DEFB    $C1                                              ; $20F4
         DEFW    SUB_45B5_6               ; $20F5
         DEFB    $0E,$E3,$E5,$C5,$EB,$22                          ; $20F7
@@ -3694,7 +3694,7 @@ SUB_20B5_2:
         DEFB    $E1,$7E,$FE,$09,$28                              ; $2102
         DEFW    SUB_3BB3_58              ; $2107
         DEFB    $20,$CD                                          ; $2109
-        DEFW    SUB_4291                 ; $210B
+        DEFW    OUTCHR                 ; $210B
         DEFB    $CD                                              ; $210D
         DEFW    SUB_2124                 ; $210E
         DEFB    $21                                              ; $2110
@@ -3702,7 +3702,7 @@ SUB_20B5_2:
         DEFB    $CD                                              ; $2113
         DEFW    SUB_211B                 ; $2114
         DEFB    $CD                                              ; $2116
-        DEFW    SUB_4406                 ; $2117
+        DEFW    PRINT_CRLF                 ; $2117
         DEFB    $18,$B3                                          ; $2119
 SUB_211B:
         LD A,(HL)                        ; $211B  7E
@@ -3718,7 +3718,7 @@ SUB_2124:
         LD D,$FF                         ; $2127  16 FF
         XOR A                            ; $2129  AF
         LD (SUB_0CA8_8),A                ; $212A  32 B6 0C
-        CALL SUB_5E2A                    ; $212D  CD 2A 5E
+        CALL CHECK_STOP                    ; $212D  CD 2A 5E
         JR SUB_2124_2                    ; $2130  18 04
 SUB_2124_1:
         INC BC                           ; $2132  03
@@ -3889,13 +3889,13 @@ SUB_21FC_1:
         RET                              ; $2206  C9
 SUB_21FC_2:
         DEC HL                           ; $2207  2B
-        CALL SUB_13E4                    ; $2208  CD E4 13
+        CALL CHRGET                    ; $2208  CD E4 13
 SUB_21FC_3:
         PUSH DE                          ; $220B  D5
 SUB_21FC_4:
         PUSH BC                          ; $220C  C5
         PUSH AF                          ; $220D  F5
-        CALL SUB_1460                    ; $220E  CD 60 14
+        CALL LINGET_CONST                    ; $220E  CD 60 14
         POP AF                           ; $2211  F1
         LD BC,SUB_21FC_9                 ; $2212  01 26 22
 SUB_21FC_5:
@@ -3950,13 +3950,13 @@ SUB_21FC_9:
         DEFB    $21,$CD,$84,$0F,$C5,$CD                          ; $2289
         DEFW    SUB_2426                 ; $228F
         DEFB    $C1,$D1,$C5,$C5,$CD                              ; $2291
-        DEFW    SUB_0FAB                 ; $2296
+        DEFW    FNDLIN                 ; $2296
         DEFB    $30,$07                                          ; $2298
         DEFW    SUB_5BB1_6               ; $229A
         DEFB    $E3,$E5,$CD                                      ; $229C
-        DEFW    SUB_459D                 ; $229F
+        DEFW    DCMP_HL_DE                 ; $229F
         DEFB    $D2                                              ; $22A1
-        DEFW    SUB_14E4_2               ; $22A2
+        DEFW    ERR_TYPE_MISMATCH               ; $22A2
         DEFW    SUB_1506_4               ; $22A4
         DEFB    $0D,$CD                                          ; $22A6
         DEFW    SUB_48BE                 ; $22A8
@@ -3971,7 +3971,7 @@ SUB_22AF_1:
         LD (BC),A                        ; $22B4  02
         INC BC                           ; $22B5  03
         INC DE                           ; $22B6  13
-        CALL SUB_459D                    ; $22B7  CD 9D 45
+        CALL DCMP_HL_DE                    ; $22B7  CD 9D 45
         JR NZ,SUB_22AF_1                 ; $22BA  20 F7
         LD H,B                           ; $22BC  60
         LD L,C                           ; $22BD  69
@@ -3986,12 +3986,12 @@ SUB_22AF_1:
         DEFB    $E5,$CD                                          ; $22CF
         DEFW    SUB_22E1                 ; $22D1
         DEFB    $E3,$CD,$21,$5E,$CD                              ; $22D3
-        DEFW    SUB_45A3                 ; $22D8
+        DEFW    SYNCHR                 ; $22D8
         DEFB    $2C,$CD                                          ; $22DA
         DEFW    SUB_20B2                 ; $22DC
         DEFB    $D1,$12,$C9                                      ; $22DE
 SUB_22E1:
-        LD BC,SUB_2BF4                   ; $22E1  01 F4 2B
+        LD BC,FP_INT                   ; $22E1  01 F4 2B
         PUSH BC                          ; $22E4  C5
         CALL SUB_1DE3                    ; $22E5  CD E3 1D
         RET M                            ; $22E8  F8
@@ -4003,38 +4003,38 @@ SUB_22E1:
         RET M                            ; $22F3  F8
         LD BC,$9180                      ; $22F4  01 80 91
         LD DE,WBOOT_VEC                  ; $22F7  11 00 00
-        JP SUB_2824                      ; $22FA  C3 24 28
+        JP FADD_ALIGN                      ; $22FA  C3 24 28
         DEFB    $01,$0A,$00,$C5                                  ; $22FD
         DEFW    SUB_583F_2               ; $2301
         DEFW    SUB_29E8_12              ; $2303
         DEFB    $FE,$2C,$28,$09,$D5,$CD,$F0,$14,$42,$4B          ; $2305
         DEFW    SUB_28C8_3               ; $230F
         DEFB    $1D,$CD                                          ; $2311
-        DEFW    SUB_45A3                 ; $2313
+        DEFW    SYNCHR                 ; $2313
         DEFB    $2C,$CD,$F0,$14                                  ; $2315
         DEFW    SUB_13E5_9               ; $2319
         DEFB    $F1,$CD                                          ; $231B
-        DEFW    SUB_45A3                 ; $231D
+        DEFW    SYNCHR                 ; $231D
         DEFB    $2C,$D5,$CD                                      ; $231F
-        DEFW    SUB_14FB                 ; $2322
+        DEFW    LINGET                 ; $2322
         DEFB    $C2                                              ; $2324
         DEFW    SUB_0CA8_54              ; $2325
         DEFB    $7A,$B3,$CA                                      ; $2327
-        DEFW    SUB_14E4_2               ; $232A
+        DEFW    ERR_TYPE_MISMATCH               ; $232A
         DEFB    $EB,$E3,$EB,$C5,$CD                              ; $232C
-        DEFW    SUB_0FAB                 ; $2331
+        DEFW    FNDLIN                 ; $2331
         DEFB    $D1,$D5,$C5,$CD                                  ; $2333
-        DEFW    SUB_0FAB                 ; $2337
+        DEFW    FNDLIN                 ; $2337
         DEFB    $60,$69,$D1,$CD                                  ; $2339
-        DEFW    SUB_459D                 ; $233D
+        DEFW    DCMP_HL_DE                 ; $233D
         DEFB    $EB,$DA                                          ; $233F
-        DEFW    SUB_14E4_2               ; $2341
+        DEFW    ERR_TYPE_MISMATCH               ; $2341
         DEFB    $D1,$C1,$F1,$E5,$D5,$18,$10,$09,$DA              ; $2343
-        DEFW    SUB_14E4_2               ; $234C
+        DEFW    ERR_TYPE_MISMATCH               ; $234C
         DEFB    $EB,$E5,$21,$F9,$FF,$CD                          ; $234E
-        DEFW    SUB_459D                 ; $2354
+        DEFW    DCMP_HL_DE                 ; $2354
         DEFB    $E1,$DA                                          ; $2356
-        DEFW    SUB_14E4_2               ; $2358
+        DEFW    ERR_TYPE_MISMATCH               ; $2358
         DEFB    $D5,$5E,$7B,$23,$56,$B2,$EB                      ; $235A
         DEFW    SUB_28C8_3               ; $2361
         DEFB    $07,$7E,$23,$B6,$2B,$EB,$20,$DF,$C5,$CD,$8C,$23,$C1,$D1,$E1,$D5 ; $2363
@@ -4060,7 +4060,7 @@ SUB_22E1_2:
         INC HL                           ; $239C  23
         LD D,(HL)                        ; $239D  56
 SUB_22E1_3:
-        CALL SUB_13E4                    ; $239E  CD E4 13
+        CALL CHRGET                    ; $239E  CD E4 13
 SUB_22E1_4:
         OR A                             ; $23A1  B7
         JR Z,SUB_22E1_2                  ; $23A2  28 F1
@@ -4071,10 +4071,10 @@ SUB_22E1_4:
         JR Z,SUB_22E1_16                 ; $23AA  28 57
         CP $A4                           ; $23AC  FE A4
         JR NZ,SUB_22E1_6                 ; $23AE  20 18
-        CALL SUB_13E4                    ; $23B0  CD E4 13
+        CALL CHRGET                    ; $23B0  CD E4 13
         CP $89                           ; $23B3  FE 89
         JR NZ,SUB_22E1_4                 ; $23B5  20 EA
-        CALL SUB_13E4                    ; $23B7  CD E4 13
+        CALL CHRGET                    ; $23B7  CD E4 13
         CP $0E                           ; $23BA  FE 0E
         JR NZ,SUB_22E1_4                 ; $23BC  20 E3
 SUB_22E1_5:
@@ -4092,12 +4092,12 @@ SUB_22E1_7:
         CALL SUB_1506                    ; $23CD  CD 06 15
 SUB_22E1_8:
         PUSH HL                          ; $23D0  E5
-        CALL SUB_0FAB                    ; $23D1  CD AB 0F
+        CALL FNDLIN                    ; $23D1  CD AB 0F
         DEC BC                           ; $23D4  0B
 SUB_22E1_9:
         LD A,$0D                         ; $23D5  3E 0D
         JR C,SUB_22E1_17                 ; $23D7  38 3D
-        CALL SUB_43F9                    ; $23D9  CD F9 43
+        CALL CRLF_IF_COLUMN                    ; $23D9  CD F9 43
         LD HL,SUB_22E1_13                ; $23DC  21 F3 23
         PUSH DE                          ; $23DF  D5
         CALL SUB_48BE                    ; $23E0  CD BE 48
@@ -4157,13 +4157,13 @@ SUB_2426:
 SUB_2426_1:
         JP SUB_22E1_1                    ; $242B  C3 8D 23
         DEFB    $CD                                              ; $242E
-        DEFW    SUB_45A3                 ; $242F
+        DEFW    SYNCHR                 ; $242F
         DEFB    $42,$CD                                          ; $2431
-        DEFW    SUB_45A3                 ; $2433
+        DEFW    SYNCHR                 ; $2433
         DEFB    $41,$CD                                          ; $2435
-        DEFW    SUB_45A3                 ; $2437
+        DEFW    SYNCHR                 ; $2437
         DEFB    $53,$CD                                          ; $2439
-        DEFW    SUB_45A3                 ; $243B
+        DEFW    SYNCHR                 ; $243B
         DEFB    $45,$3A                                          ; $243D
         DEFW    TPA_START_146            ; $243F
         DEFB    $B7,$C2                                          ; $2441
@@ -4173,7 +4173,7 @@ SUB_2426_1:
         DEFW    SUB_2AEB                 ; $2449
         DEFW    TPA_START_130            ; $244B
         DEFB    $CD                                              ; $244D
-        DEFW    SUB_459D                 ; $244E
+        DEFW    DCMP_HL_DE                 ; $244E
         DEFB    $C2                                              ; $2450
         DEFW    SUB_0CA8_56+1            ; $2451
         DEFB    $E1,$7E,$D6,$30,$DA                              ; $2453
@@ -4185,7 +4185,7 @@ SUB_2426_1:
         DEFB    $3C,$32                                          ; $2462
         DEFW    TPA_START_146            ; $2464
         DEFB    $CD                                              ; $2466
-        DEFW    SUB_13E4                 ; $2467
+        DEFW    CHRGET                 ; $2467
         DEFB    $C9                                              ; $2469
 SUB_246A:
         LD A,(HL)                        ; $246A  7E
@@ -4200,7 +4200,7 @@ SUB_2474:
         DEFB    $28,$09,$CD                                      ; $2478
         DEFW    SUB_1A8C_1+1             ; $247B
         DEFB    $E5,$CD                                          ; $247D
-        DEFW    SUB_2BF4                 ; $247F
+        DEFW    FP_INT                 ; $247F
         DEFB    $18,$1B,$E5,$21,$A6,$24,$CD                      ; $2481
         DEFW    SUB_48BE                 ; $2488
         DEFB    $CD,$87,$4C,$D1,$DA,$E4,$45                      ; $248A
@@ -4208,7 +4208,7 @@ SUB_2474:
         DEFB    $7E                                              ; $2493
         DEFW    SUB_25C3_1               ; $2494
         DEFB    $31,$7E,$B7,$20,$E9,$CD                          ; $2496
-        DEFW    SUB_2BF4                 ; $249C
+        DEFW    FP_INT                 ; $249C
         DEFB    $22,$A3,$3A,$CD                                  ; $249E
         DEFW    SUB_3809_30              ; $24A2
         DEFB    $E1                                              ; $24A4
@@ -4225,43 +4225,43 @@ SUB_2474:
         DEFW    TPA_START_30             ; $24CF
         DEFB    $0E,$1A,$06,$00                                  ; $24D1
         DEFW    SUB_2AEB                 ; $24D5
-        DEFW    TPA_START_69             ; $24D7
+        DEFW    CURLIN             ; $24D7
         DEFB    $22,$94,$0C,$EB,$04,$2B,$CD                      ; $24D9
-        DEFW    SUB_13E4                 ; $24E0
+        DEFW    CHRGET                 ; $24E0
         DEFB    $28,$08,$FE                                      ; $24E2
         DEFW    SUB_2874_12              ; $24E5
         DEFB    $18,$FE,$DE,$20,$F3,$B7                          ; $24E7
         DEFW    SUB_101B_13              ; $24ED
         DEFB    $23,$7E,$23,$B6,$59,$CA                          ; $24EF
-        DEFW    SUB_0CA8_61              ; $24F5
+        DEFW    ERROR              ; $24F5
         DEFB    $23,$5E,$23,$56,$EB,$22,$94,$0C,$EB,$CD          ; $24F7
-        DEFW    SUB_13E4                 ; $2501
+        DEFW    CHRGET                 ; $2501
         DEFB    $79,$FE,$1A                                      ; $2503
         DEFW    SUB_2874_4               ; $2506
         DEFB    $0B,$FE                                          ; $2508
         DEFW    SUB_2874_15              ; $250A
         DEFB    $D0,$FE,$B0,$20,$CD,$10,$CB,$C9,$FE,$82,$28,$C5,$FE,$83,$20,$C2 ; $250C
         DEFB    $05,$C8,$CD                                      ; $251C
-        DEFW    SUB_13E4                 ; $251F
+        DEFW    CHRGET                 ; $251F
         DEFB    $28,$C9                                          ; $2521
         DEFW    SUB_2AEB                 ; $2523
-        DEFW    TPA_START_69             ; $2525
+        DEFW    CURLIN             ; $2525
         DEFB    $E5,$2A,$94                                      ; $2527
         DEFW    SUB_21FC_4               ; $252A
-        DEFW    TPA_START_69             ; $252C
+        DEFW    CURLIN             ; $252C
         DEFB    $EB,$C5,$CD                                      ; $252E
-        DEFW    SUB_3BB3                 ; $2531
+        DEFW    PTRGET                 ; $2531
         DEFW    SUB_2BBE_1               ; $2533
         DEFB    $CD                                              ; $2535
-        DEFW    SUB_13E4                 ; $2536
+        DEFW    CHRGET                 ; $2536
         DEFB    $11,$EC                                          ; $2538
-        DEFW    SUB_2824                 ; $253A
+        DEFW    FADD_ALIGN                 ; $253A
         DEFB    $08,$CD                                          ; $253C
-        DEFW    SUB_45A3                 ; $253E
+        DEFW    SYNCHR                 ; $253E
         DEFW    SUB_2B28_2               ; $2540
-        DEFW    SUB_1C11                 ; $2542
+        DEFW    EVAL_OPERAND                 ; $2542
         DEFB    $25,$E3,$22                                      ; $2544
-        DEFW    TPA_START_69             ; $2547
+        DEFW    CURLIN             ; $2547
         DEFB    $E1,$D5,$C9                                      ; $2549
 SUB_2474_1:
         DEFB    $F5,$3A                                          ; $254C
@@ -4304,7 +4304,7 @@ SUB_2590_1:
         DEFB    $CD                                              ; $25A9
         DEFW    SUB_20B2                 ; $25AA
         DEFB    $B7,$CA                                          ; $25AC
-        DEFW    SUB_14E4_2               ; $25AE
+        DEFW    ERR_TYPE_MISMATCH               ; $25AE
         DEFB    $3D,$C9,$CD,$A9,$25,$E5,$21                      ; $25B0
         DEFW    TPA_START_62             ; $25B7
         DEFB    $96,$F2,$B9,$25,$86,$32                          ; $25B9
@@ -4380,7 +4380,7 @@ SUB_2602_1:
         DEFB    $19,$F8,$C3                                      ; $2658
         DEFW    SUB_2602                 ; $265B
         DEFB    $CD                                              ; $265D
-        DEFW    SUB_45A3                 ; $265E
+        DEFW    SYNCHR                 ; $265E
         DEFB    $F0,$CD                                          ; $2660
         DEFW    SUB_20B2                 ; $2662
         DEFB    $7B,$FE,$10                                      ; $2664
@@ -4388,13 +4388,13 @@ SUB_2602_1:
         DEFB    $87,$87,$87,$87                                  ; $2669
         DEFW    SUB_3289_7               ; $266D
         DEFB    $30,$F0,$C9,$C5,$CD,$C1,$26,$C1,$B8,$D2          ; $266F
-        DEFW    SUB_14E4_2               ; $2679
+        DEFW    ERR_TYPE_MISMATCH               ; $2679
         DEFB    $BB,$DA                                          ; $267B
-        DEFW    SUB_14E4_2               ; $267D
+        DEFW    ERR_TYPE_MISMATCH               ; $267D
         DEFB    $57,$D5,$C5,$CD                                  ; $267F
-        DEFW    SUB_45A3                 ; $2683
+        DEFW    SYNCHR                 ; $2683
         DEFB    $41,$CD                                          ; $2685
-        DEFW    SUB_45A3                 ; $2687
+        DEFW    SYNCHR                 ; $2687
         DEFB    $54,$CD                                          ; $2689
         DEFW    SUB_20B2                 ; $268B
         DEFB    $C1,$B9,$30,$E7,$D1,$C9,$01,$30,$28,$CD,$72      ; $268D
@@ -4414,7 +4414,7 @@ SUB_2602_1:
         DEFB    $2D,$F0,$E5,$21,$28,$F8,$18,$27,$CD              ; $26B9
         DEFW    SUB_20B2                 ; $26C2
         DEFB    $D5,$CD                                          ; $26C4
-        DEFW    SUB_45A3                 ; $26C6
+        DEFW    SYNCHR                 ; $26C6
         DEFB    $2C,$CD                                          ; $26C8
         DEFW    SUB_20B2                 ; $26CA
         DEFB    $D1,$C9,$CD,$C1,$26                              ; $26CC
@@ -4432,7 +4432,7 @@ SUB_2602_1:
         DEFW    SUB_20B5                 ; $26EE
         DEFB    $7B,$FE,$03,$30,$6F,$7A,$B7,$20,$6B,$E5,$21,$61,$E0,$19,$7E,$E1 ; $26F0
         DEFB    $17,$9F,$6F,$67,$C3                              ; $2700
-        DEFW    SUB_2C55                 ; $2705
+        DEFW    FAC_STORE_HL                 ; $2705
         DEFB    $3A                                              ; $2707
         DEFW    TPA_START_94             ; $2708
         DEFB    $3C                                              ; $270A
@@ -4457,12 +4457,12 @@ SUB_2602_4:
         DEFB    $57,$FF,$CA,$D0,$F3,$A6,$46,$D0,$EC,$F0,$EA,$60,$CD ; $2731
         DEFW    SUB_20A3                 ; $273E
         DEFB    $D5,$CD                                          ; $2740
-        DEFW    SUB_45A3                 ; $2742
+        DEFW    SYNCHR                 ; $2742
         DEFB    $2C,$CD                                          ; $2744
         DEFW    SUB_20B2                 ; $2746
         DEFB    $F5,$1E,$00,$28,$07                              ; $2748
 SUB_2602_5:
-        CALL SUB_45A3                    ; $274D  CD A3 45
+        CALL SYNCHR                    ; $274D  CD A3 45
         INC L                            ; $2750  2C
         CALL SUB_20B2                    ; $2751  CD B2 20
         POP AF                           ; $2754  F1
@@ -4478,18 +4478,18 @@ SUB_2602_6:
         DEFB    $CD                                              ; $275E
         DEFW    SUB_20B5                 ; $275F
         DEFB    $7B,$FE,$04,$D2                                  ; $2761
-        DEFW    SUB_14E4_2               ; $2765
+        DEFW    ERR_TYPE_MISMATCH               ; $2765
         DEFB    $32,$46,$F0,$E5,$21,$1E,$FB,$CD                  ; $2767
         DEFW    SUB_2602                 ; $276F
         DEFB    $E1,$3A,$47,$F0                                  ; $2771
         DEFW    SUB_4DC3                 ; $2775
         DEFB    $1E                                              ; $2777
 SUB_2602_7:
-        CALL SUB_13E4                    ; $2778  CD E4 13
-        CALL SUB_45A3                    ; $277B  CD A3 45
+        CALL CHRGET                    ; $2778  CD E4 13
+        CALL SYNCHR                    ; $277B  CD A3 45
         JR Z,SUB_2602_5                  ; $277E  28 CD
         ADC A,$26                        ; $2780  CE 26
-        CALL SUB_45A3                    ; $2782  CD A3 45
+        CALL SYNCHR                    ; $2782  CD A3 45
         ADD HL,HL                        ; $2785  29
         PUSH HL                          ; $2786  E5
         LD HL,$F871                      ; $2787  21 71 F8
@@ -4497,36 +4497,36 @@ SUB_2602_7:
         LD A,($F045)                     ; $278D  3A 45 F0
         JP SUB_2602_3                    ; $2790  C3 0C 27
 SUB_2602_8:
-        CALL SUB_13E4                    ; $2793  CD E4 13
+        CALL CHRGET                    ; $2793  CD E4 13
         LD A,($F030)                     ; $2796  3A 30 F0
         AND $0F                          ; $2799  E6 0F
         JP SUB_2602_2                    ; $279B  C3 0B 27
         DEFW    SUB_450B_2               ; $279E
         DEFB    $F0,$AF,$77,$23,$77,$23,$77,$E1,$CD              ; $27A0
-        DEFW    SUB_13E5                 ; $27A9
+        DEFW    CHRGOT                 ; $27A9
         DEFW    SUB_2BF4_5               ; $27AB
         DEFB    $CD                                              ; $27AD
-        DEFW    SUB_45A3                 ; $27AE
+        DEFW    SYNCHR                 ; $27AE
         DEFW    SUB_101B_14              ; $27B0
         DEFB    $45,$F0,$06,$03,$7E                              ; $27B2
         DEFW    SUB_29E8_4               ; $27B7
         DEFB    $28,$1A,$FE                                      ; $27B9
         DEFW    SUB_201A_5               ; $27BC
         DEFB    $05,$CD                                          ; $27BE
-        DEFW    SUB_13E4                 ; $27C0
+        DEFW    CHRGET                 ; $27C0
         DEFB    $18,$0F,$C5,$D5,$CD                              ; $27C2
         DEFW    SUB_20B2                 ; $27C7
         DEFB    $D1,$C1,$12,$13,$7E,$FE,$2C,$CC                  ; $27C9
-        DEFW    SUB_13E4                 ; $27D1
+        DEFW    CHRGET                 ; $27D1
         DEFB    $10,$E1,$CD                                      ; $27D3
-        DEFW    SUB_45A3                 ; $27D6
+        DEFW    SYNCHR                 ; $27D6
         DEFB    $29,$E5,$2A                                      ; $27D8
         DEFW    SUB_0CA8_8               ; $27DB
         DEFB    $C3,$E8,$26,$E5                                  ; $27DD
         DEFW    SUB_4E06_5               ; $27E1
         DEFB    $E0,$21,$53                                      ; $27E3
         DEFW    SUB_1E72_20              ; $27E6
-        DEFW    SUB_2816                 ; $27E8
+        DEFW    FADD                 ; $27E8
         DEFB    $30,$03                                          ; $27EA
         DEFW    SUB_15D1_13              ; $27EC
         DEFB    $30,$75,$E1,$7E,$FE,$2C,$C9                      ; $27EE
@@ -4548,20 +4548,20 @@ SUB_2602_13:
         DEFB    $CD,$05,$00,$D1,$01                              ; $280A
 SUB_2602_14:
         LD E,$20                         ; $280F  1E 20
-        JP SUB_0CA8_61                   ; $2811  C3 AC 0D
+        JP ERROR                   ; $2811  C3 AC 0D
         DEFB    $00                                              ; $2814
 SUB_2602_15:
         DEFB    $50                                              ; $2815
-SUB_2816:
+FADD:
         LD HL,SUB_3809_10                ; $2816  21 5A 38
 SUB_2819:
         CALL SUB_2B36                    ; $2819  CD 36 2B
-        JR SUB_2824                      ; $281C  18 06
+        JR FADD_ALIGN                      ; $281C  18 06
         DEFB    $CD                                              ; $281E
         DEFW    SUB_2B36                 ; $281F
         DEFB    $CD                                              ; $2821
         DEFW    SUB_2AEB_1               ; $2822
-SUB_2824:
+FADD_ALIGN:
         LD A,B                           ; $2824  78
         OR A                             ; $2825  B7
         RET Z                            ; $2826  C8
@@ -4622,8 +4622,8 @@ SUB_2824_10:
         SBC A,C                          ; $286F  99
         LD C,A                           ; $2870  4F
 SUB_2824_11:
-        CALL C,SUB_28E1                  ; $2871  DC E1 28
-SUB_2874:
+        CALL C,FAC_NEGATE_MANT                  ; $2871  DC E1 28
+FAC_NORMALIZE:
         LD L,B                           ; $2874  68
         LD H,E                           ; $2875  63
         XOR A                            ; $2876  AF
@@ -4732,7 +4732,7 @@ SUB_28D5:
         ADC A,C                          ; $28DE  89
         LD C,A                           ; $28DF  4F
         RET                              ; $28E0  C9
-SUB_28E1:
+FAC_NEGATE_MANT:
         LD HL,SUB_0CA8_24                ; $28E1  21 D8 0C
         LD A,(HL)                        ; $28E4  7E
 SUB_28E1_1:
@@ -4809,13 +4809,13 @@ SUB_2917_2:
         DEFB    $7F,$CD                                          ; $2949
         DEFW    SUB_2AC5                 ; $294B
         DEFB    $B7,$EA                                          ; $294D
-        DEFW    SUB_14E4_2               ; $294F
+        DEFW    ERR_TYPE_MISMATCH               ; $294F
         DEFB    $CD,$5D                                          ; $2951
         DEFW    TPA_START_12             ; $2953
         DEFB    $31                                              ; $2955
         DEFW    SUB_101B_22              ; $2956
         DEFB    $18,$72,$C3                                      ; $2958
-        DEFW    SUB_2990                 ; $295B
+        DEFW    FMUL                 ; $295B
         DEFW    SUB_33A0_5               ; $295D
         DEFB    $2B,$3E,$80,$32                                  ; $295F
         DEFW    SUB_0CA8_23              ; $2963
@@ -4832,12 +4832,12 @@ SUB_2917_2:
         DEFB    $CD                                              ; $2988
         DEFW    SUB_2AD4                 ; $2989
         DEFB    $C1,$D1,$C3                                      ; $298B
-        DEFW    SUB_2824                 ; $298E
-SUB_2990:
+        DEFW    FADD_ALIGN                 ; $298E
+FMUL:
         CALL SUB_2AC5                    ; $2990  CD C5 2A
         RET Z                            ; $2993  C8
         LD L,$00                         ; $2994  2E 00
-        CALL SUB_2A84                    ; $2996  CD 84 2A
+        CALL FMULDIV_SIGN                    ; $2996  CD 84 2A
         LD A,C                           ; $2999  79
         LD (SUB_2990_4+1),A              ; $299A  32 C7 29
         EX DE,HL                         ; $299D  EB
@@ -4845,7 +4845,7 @@ SUB_2990:
         LD BC,WBOOT_VEC                  ; $29A1  01 00 00
         LD D,B                           ; $29A4  50
         LD E,B                           ; $29A5  58
-        LD HL,SUB_2874                   ; $29A6  21 74 28
+        LD HL,FAC_NORMALIZE                   ; $29A6  21 74 28
         PUSH HL                          ; $29A9  E5
         LD HL,SUB_2990_1                 ; $29AA  21 B2 29
         PUSH HL                          ; $29AD  E5
@@ -4903,7 +4903,7 @@ SUB_2990_9:
         LD D,C                           ; $29E5  51
         LD C,A                           ; $29E6  4F
         RET                              ; $29E7  C9
-SUB_29E8:
+FDIV:
         CALL SUB_2B18                    ; $29E8  CD 18 2B
 SUB_29E8_1:
         LD HL,SUB_2FBC_7                 ; $29EB  21 02 30
@@ -4915,7 +4915,7 @@ SUB_29E8_3:
         CALL SUB_2AC5                    ; $29F3  CD C5 2A
         JP Z,SUB_3289_15                 ; $29F6  CA DC 32
         LD L,$FF                         ; $29F9  2E FF
-        CALL SUB_2A84                    ; $29FB  CD 84 2A
+        CALL FMULDIV_SIGN                    ; $29FB  CD 84 2A
 SUB_29E8_4:
         INC (HL)                         ; $29FE  34
         INC (HL)                         ; $29FF  34
@@ -5023,7 +5023,7 @@ SUB_2A7A:
         XOR (HL)                         ; $2A80  AE
         LD B,A                           ; $2A81  47
         LD L,$00                         ; $2A82  2E 00
-SUB_2A84:
+FMULDIV_SIGN:
         LD A,B                           ; $2A84  78
         OR A                             ; $2A85  B7
         JR Z,SUB_2A9F_2                  ; $2A86  28 1F
@@ -5061,7 +5061,7 @@ SUB_2AAE:
         ADD A,$02                        ; $2AB4  C6 02
         JP C,SUB_3289_11                 ; $2AB6  DA CC 32
         LD B,A                           ; $2AB9  47
-        CALL SUB_2824                    ; $2ABA  CD 24 28
+        CALL FADD_ALIGN                    ; $2ABA  CD 24 28
         LD HL,SUB_0CA8_23                ; $2ABD  21 D7 0C
 SUB_2AAE_1:
         INC (HL)                         ; $2AC0  34
@@ -5113,7 +5113,7 @@ SUB_2AEB_1:
         DEFB    $CD                                              ; $2AFC
         DEFW    SUB_2B06                 ; $2AFD
         DEFB    $6F,$17,$9F,$67,$C3                              ; $2AFF
-        DEFW    SUB_2C55                 ; $2B04
+        DEFW    FAC_STORE_HL                 ; $2B04
 SUB_2B06:
         CALL SUB_1DE3                    ; $2B06  CD E3 1D
         JP Z,SUB_0CA8_60+1               ; $2B09  CA AA 0D
@@ -5309,7 +5309,7 @@ SUB_2BBE_8:
         DEFB    $C2                                              ; $2BF0
         DEFW    SUB_2AC5_3+1             ; $2BF1
         DEFB    $C9                                              ; $2BF3
-SUB_2BF4:
+FP_INT:
         CALL SUB_1DE3                    ; $2BF4  CD E3 1D
         LD HL,(SUB_0CA8_21)              ; $2BF7  2A D4 0C
         RET M                            ; $2BFA  F8
@@ -5323,7 +5323,7 @@ SUB_2BF4_1:
         CALL SUB_2C76                    ; $2C0D  CD 76 2C
         JP SUB_2BF4_3                    ; $2C10  C3 16 2C
 SUB_2BF4_2:
-        CALL SUB_2816                    ; $2C13  CD 16 28
+        CALL FADD                    ; $2C13  CD 16 28
 SUB_2BF4_3:
         LD A,(SUB_0CA8_22)               ; $2C16  3A D6 0C
         OR A                             ; $2C19  B7
@@ -5335,7 +5335,7 @@ SUB_2BF4_4:
         CP $90                           ; $2C23  FE 90
         JP NC,SUB_0CA8_58+1              ; $2C25  D2 A4 0D
 SUB_2BF4_5:
-        CALL SUB_2CBA                    ; $2C28  CD BA 2C
+        CALL FP_ZERO                    ; $2C28  CD BA 2C
         LD A,(SUB_0CA8_23)               ; $2C2B  3A D7 0C
         OR A                             ; $2C2E  B7
         JP NZ,SUB_2BF4_6                 ; $2C2F  C2 37 2C
@@ -5355,17 +5355,17 @@ SUB_2BF4_8:
         CPL                              ; $2C40  2F
         LD L,A                           ; $2C41  6F
 SUB_2BF4_9:
-        JP SUB_2C55                      ; $2C42  C3 55 2C
+        JP FAC_STORE_HL                      ; $2C42  C3 55 2C
         DEFB    $21                                              ; $2C45
         DEFW    SUB_0CA8_58+1            ; $2C46
         DEFB    $E5,$3A                                          ; $2C48
         DEFW    SUB_0CA8_23              ; $2C4A
         DEFB    $FE,$90,$30,$0E,$CD                              ; $2C4C
-        DEFW    SUB_2CBA                 ; $2C51
+        DEFW    FP_ZERO                 ; $2C51
         DEFB    $EB                                              ; $2C53
 SUB_2BF4_10:
         POP DE                           ; $2C54  D1
-SUB_2C55:
+FAC_STORE_HL:
         LD (SUB_0CA8_21),HL              ; $2C55  22 D4 0C
         LD A,$02                         ; $2C58  3E 02
 SUB_2C55_1:
@@ -5379,7 +5379,7 @@ SUB_2C5E:
         LD H,C                           ; $2C68  61
         LD L,D                           ; $2C69  6A
         JR SUB_2BF4_10                   ; $2C6A  18 E8
-SUB_2C6C:
+FP_SGN:
         CALL SUB_1DE3                    ; $2C6C  CD E3 1D
         RET PO                           ; $2C6F  E0
         JP M,SUB_2C89                    ; $2C70  FA 89 2C
@@ -5403,7 +5403,7 @@ SUB_2C89_1:
         LD E,$00                         ; $2C91  1E 00
         LD B,$90                         ; $2C93  06 90
         JP SUB_2AD4_1                    ; $2C95  C3 D9 2A
-SUB_2C98:
+FP_ABS:
         CALL SUB_1DE3                    ; $2C98  CD E3 1D
         RET NC                           ; $2C9B  D0
         JP Z,SUB_0CA8_60+1               ; $2C9C  CA AA 0D
@@ -5421,7 +5421,7 @@ SUB_2CB3:
         CALL SUB_1DE3                    ; $2CB3  CD E3 1D
         RET Z                            ; $2CB6  C8
         JP SUB_0CA8_60+1                 ; $2CB7  C3 AA 0D
-SUB_2CBA:
+FP_ZERO:
         LD B,A                           ; $2CBA  47
         LD C,A                           ; $2CBB  4F
         LD D,A                           ; $2CBC  57
@@ -5443,7 +5443,7 @@ SUB_2CBA_2:
         RLA                              ; $2CD3  17
         CALL C,SUB_28C8                  ; $2CD4  DC C8 28
         LD B,$00                         ; $2CD7  06 00
-        CALL C,SUB_28E1                  ; $2CD9  DC E1 28
+        CALL C,FAC_NEGATE_MANT                  ; $2CD9  DC E1 28
         POP HL                           ; $2CDC  E1
         RET                              ; $2CDD  C9
 SUB_2CDE:
@@ -5473,7 +5473,7 @@ SUB_2CE3:
         DEFB    $7E,$FE,$98,$3A                                  ; $2D07
         DEFW    SUB_0CA8_21              ; $2D0B
         DEFB    $D0,$7E,$CD                                      ; $2D0D
-        DEFW    SUB_2CBA                 ; $2D10
+        DEFW    FP_ZERO                 ; $2D10
         DEFB    $36,$98,$7B,$F5,$79,$17,$CD                      ; $2D12
         DEFW    SUB_2824_11              ; $2D19
         DEFB    $F1                                              ; $2D1B
@@ -5486,9 +5486,9 @@ SUB_2CE3:
         DEFB    $B6,$05,$20,$FB,$B7,$21,$00,$80                  ; $2D2D
         DEFW    SUB_3EC0_1               ; $2D35
         DEFB    $2D,$CD                                          ; $2D37
-        DEFW    SUB_2C55                 ; $2D39
+        DEFW    FAC_STORE_HL                 ; $2D39
         DEFB    $C3                                              ; $2D3B
-        DEFW    SUB_2C98                 ; $2D3C
+        DEFW    FP_ABS                 ; $2D3C
         DEFB    $79,$B7,$C8,$FE,$B8,$D0                          ; $2D3E
 SUB_2D44:
         PUSH AF                          ; $2D44  F5
@@ -5561,7 +5561,7 @@ SUB_2D79_3:
         DEFB    $C3                                              ; $2DBE
         DEFW    SUB_3289_1               ; $2DBF
         DEFB    $7C,$B5,$CA                                      ; $2DC1
-        DEFW    SUB_2C55                 ; $2DC4
+        DEFW    FAC_STORE_HL                 ; $2DC4
         DEFB    $E5,$D5                                          ; $2DC6
         DEFW    SUB_4ABF_7               ; $2DC8
         DEFB    $2E                                              ; $2DCA
@@ -5580,9 +5580,9 @@ SUB_2D79_3:
         DEFB    $CD                                              ; $2DFE
         DEFW    SUB_2C89_1               ; $2DFF
         DEFB    $C1,$D1,$C3                                      ; $2E01
-        DEFW    SUB_2990                 ; $2E04
+        DEFW    FMUL                 ; $2E04
         DEFB    $78,$B7,$C1,$FA                                  ; $2E06
-        DEFW    SUB_2C55                 ; $2E0A
+        DEFW    FAC_STORE_HL                 ; $2E0A
         DEFB    $D5,$CD                                          ; $2E0C
         DEFW    SUB_2C89_1               ; $2E0E
         DEFB    $D1,$C3                                          ; $2E10
@@ -5605,7 +5605,7 @@ SUB_2D79_3:
         DEFB    $20,$E7,$EB,$C1,$D5,$C3,$E4,$2D,$7C,$AA,$47      ; $2E43
         DEFW    SUB_52B9_3               ; $2E4E
         DEFB    $2E,$EB,$7C,$B7,$F2                              ; $2E50
-        DEFW    SUB_2C55                 ; $2E55
+        DEFW    FAC_STORE_HL                 ; $2E55
 SUB_2E57:
         XOR A                            ; $2E57  AF
         LD C,A                           ; $2E58  4F
@@ -5614,7 +5614,7 @@ SUB_2E57:
         LD A,C                           ; $2E5B  79
         SBC A,H                          ; $2E5C  9C
         LD H,A                           ; $2E5D  67
-        JP SUB_2C55                      ; $2E5E  C3 55 2C
+        JP FAC_STORE_HL                      ; $2E5E  C3 55 2C
 SUB_2E57_1:
         LD HL,(SUB_0CA8_21)              ; $2E61  2A D4 0C
         CALL SUB_2E57                    ; $2E64  CD 57 2E
@@ -6086,11 +6086,11 @@ SUB_3125:
         LD BC,$00FF                      ; $3132  01 FF 00
         LD H,B                           ; $3135  60
         LD L,B                           ; $3136  68
-        CALL Z,SUB_2C55                  ; $3137  CC 55 2C
+        CALL Z,FAC_STORE_HL                  ; $3137  CC 55 2C
         EX DE,HL                         ; $313A  EB
         LD A,(HL)                        ; $313B  7E
         CP $26                           ; $313C  FE 26
-        JP Z,SUB_1CF6                    ; $313E  CA F6 1C
+        JP Z,PARSE_HEX_OCT                    ; $313E  CA F6 1C
         CP $2D                           ; $3141  FE 2D
         PUSH AF                          ; $3143  F5
         JP Z,SUB_3125_1                  ; $3144  CA 4C 31
@@ -6098,7 +6098,7 @@ SUB_3125:
         JR Z,SUB_3125_1                  ; $3149  28 01
         DEC HL                           ; $314B  2B
 SUB_3125_1:
-        CALL SUB_13E4                    ; $314C  CD E4 13
+        CALL CHRGET                    ; $314C  CD E4 13
         JP C,SUB_3212_3                  ; $314F  DA 25 32
         CP $2E                           ; $3152  FE 2E
         JP Z,SUB_3125_11                 ; $3154  CA CE 31
@@ -6108,7 +6108,7 @@ SUB_3125_1:
 SUB_3125_2:
         JP NZ,SUB_3125_5                 ; $315D  C2 81 31
         PUSH HL                          ; $3160  E5
-        CALL SUB_13E4                    ; $3161  CD E4 13
+        CALL CHRGET                    ; $3161  CD E4 13
         CP $6C                           ; $3164  FE 6C
         JR Z,SUB_3125_3                  ; $3166  28 0A
         CP $4C                           ; $3168  FE 4C
@@ -6140,11 +6140,11 @@ SUB_3125_5:
 SUB_3125_6:
         OR A                             ; $3198  B7
         CALL SUB_31F3                    ; $3199  CD F3 31
-        CALL SUB_13E4                    ; $319C  CD E4 13
+        CALL CHRGET                    ; $319C  CD E4 13
 SUB_3125_7:
         CALL SUB_1DB2                    ; $319F  CD B2 1D
 SUB_3125_8:
-        CALL SUB_13E4                    ; $31A2  CD E4 13
+        CALL CHRGET                    ; $31A2  CD E4 13
         JP C,SUB_3289_2                  ; $31A5  DA 94 32
         INC D                            ; $31A8  14
         JR NZ,SUB_3125_9                 ; $31A9  20 03
@@ -6179,12 +6179,12 @@ SUB_3125_11:
         CALL C,SUB_31F3                  ; $31D4  DC F3 31
         JP SUB_3125_1                    ; $31D7  C3 4C 31
 SUB_3125_12:
-        CALL SUB_13E4                    ; $31DA  CD E4 13
+        CALL CHRGET                    ; $31DA  CD E4 13
         POP AF                           ; $31DD  F1
         PUSH HL                          ; $31DE  E5
         LD HL,SUB_2990_7                 ; $31DF  21 E1 29
         PUSH HL                          ; $31E2  E5
-        LD HL,SUB_2BF4                   ; $31E3  21 F4 2B
+        LD HL,FP_INT                   ; $31E3  21 F4 2B
         PUSH HL                          ; $31E6  E5
         PUSH AF                          ; $31E7  F5
         JR SUB_3125_9                    ; $31E8  18 C4
@@ -6192,16 +6192,16 @@ SUB_3125_13:
         OR A                             ; $31EA  B7
 SUB_3125_14:
         CALL SUB_31F3                    ; $31EB  CD F3 31
-        CALL SUB_13E4                    ; $31EE  CD E4 13
+        CALL CHRGET                    ; $31EE  CD E4 13
         JR SUB_3125_9                    ; $31F1  18 BB
 SUB_31F3:
         PUSH HL                          ; $31F3  E5
         PUSH DE                          ; $31F4  D5
         PUSH BC                          ; $31F5  C5
         PUSH AF                          ; $31F6  F5
-        CALL Z,SUB_2C6C                  ; $31F7  CC 6C 2C
+        CALL Z,FP_SGN                  ; $31F7  CC 6C 2C
         POP AF                           ; $31FA  F1
-        CALL NZ,SUB_2C98                 ; $31FB  C4 98 2C
+        CALL NZ,FP_ABS                 ; $31FB  C4 98 2C
         POP BC                           ; $31FE  C1
         POP DE                           ; $31FF  D1
 SUB_31F3_1:
@@ -6230,7 +6230,7 @@ SUB_3212_1:
         PUSH AF                          ; $3214  F5
         CALL SUB_1DE3                    ; $3215  CD E3 1D
         PUSH AF                          ; $3218  F5
-        CALL PO,SUB_29E8                 ; $3219  E4 E8 29
+        CALL PO,FDIV                 ; $3219  E4 E8 29
         POP AF                           ; $321C  F1
 SUB_3212_2:
         CALL PE,SUB_3006                 ; $321D  EC 06 30
@@ -6257,7 +6257,7 @@ SUB_3212_6:
         LD HL,(SUB_0CA8_21)              ; $3235  2A D4 0C
 SUB_3212_7:
         LD DE,SUB_0CA8_15                ; $3238  11 CD 0C
-        CALL SUB_459D                    ; $323B  CD 9D 45
+        CALL DCMP_HL_DE                    ; $323B  CD 9D 45
         JR NC,SUB_3212_12                ; $323E  30 19
         LD D,H                           ; $3240  54
         LD E,L                           ; $3241  5D
@@ -6312,7 +6312,7 @@ SUB_3289:
 SUB_3289_1:
         POP BC                           ; $328F  C1
         POP DE                           ; $3290  D1
-        JP SUB_2824                      ; $3291  C3 24 28
+        JP FADD_ALIGN                      ; $3291  C3 24 28
 SUB_3289_2:
         LD A,E                           ; $3294  7B
         CP $0A                           ; $3295  FE 0A
@@ -6437,7 +6437,7 @@ SUB_3289_23:
         JP Z,SUB_3289_24                 ; $335E  CA 76 33
         LD HL,(TPA_START_71)             ; $3361  2A 6B 08
         LD DE,TPA_START_50               ; $3364  11 77 05
-        CALL SUB_459D                    ; $3367  CD 9D 45
+        CALL DCMP_HL_DE                    ; $3367  CD 9D 45
         LD HL,TPA_START_50               ; $336A  21 77 05
         LD (TPA_START_71),HL             ; $336D  22 6B 08
         JP Z,SUB_0CA8_58+1               ; $3370  CA A4 0D
@@ -6462,7 +6462,7 @@ SUB_3389:
 SUB_3391:
         LD BC,SUB_4868_11                ; $3391  01 BD 48
         PUSH BC                          ; $3394  C5
-        CALL SUB_2C55                    ; $3395  CD 55 2C
+        CALL FAC_STORE_HL                    ; $3395  CD 55 2C
         XOR A                            ; $3398  AF
         CALL SUB_341F                    ; $3399  CD 1F 34
         OR (HL)                          ; $339C  B6
@@ -6500,7 +6500,7 @@ SUB_33A0_5:
         CP $04                           ; $33CD  FE 04
         JP NC,SUB_341F_2                 ; $33CF  D2 28 34
         LD BC,WBOOT_VEC                  ; $33D2  01 00 00
-        CALL SUB_3809                    ; $33D5  CD 09 38
+        CALL FP_TO_DECIMAL                    ; $33D5  CD 09 38
 SUB_33D8:
         LD HL,SUB_0CA8_32                ; $33D8  21 E6 0C
         LD B,(HL)                        ; $33DB  46
@@ -6519,7 +6519,7 @@ SUB_33D8:
         LD B,C                           ; $33F2  41
 SUB_33D8_1:
         LD (HL),C                        ; $33F3  71
-        CALL SUB_13E4                    ; $33F4  CD E4 13
+        CALL CHRGET                    ; $33F4  CD E4 13
         JR Z,SUB_33D8_3                  ; $33F7  28 14
         CP $45                           ; $33F9  FE 45
         JR Z,SUB_33D8_3                  ; $33FB  28 10
@@ -6765,7 +6765,7 @@ SUB_3518_7:
         LD A,D                           ; $3553  7A
         SUB $05                          ; $3554  D6 05
         CALL P,SUB_3729                  ; $3556  F4 29 37
-        CALL SUB_3809                    ; $3559  CD 09 38
+        CALL FP_TO_DECIMAL                    ; $3559  CD 09 38
 SUB_3518_8:
         LD A,E                           ; $355C  7B
         OR A                             ; $355D  B7
@@ -6800,7 +6800,7 @@ SUB_3518_13:
         PUSH AF                          ; $3585  F5
         LD BC,SUB_3518_13                ; $3586  01 85 35
         PUSH BC                          ; $3589  C5
-        CALL SUB_13E4                    ; $358A  CD E4 13
+        CALL CHRGET                    ; $358A  CD E4 13
         CP $2D                           ; $358D  FE 2D
         RET Z                            ; $358F  C8
         CP $2B                           ; $3590  FE 2B
@@ -6811,7 +6811,7 @@ SUB_3518_13:
         CP $30                           ; $3597  FE 30
         JR NZ,SUB_3518_15                ; $3599  20 11
         INC HL                           ; $359B  23
-        CALL SUB_13E4                    ; $359C  CD E4 13
+        CALL CHRGET                    ; $359C  CD E4 13
         JR NC,SUB_3518_15                ; $359F  30 0B
         DEC HL                           ; $35A1  2B
 SUB_3518_14:
@@ -7176,9 +7176,9 @@ SUB_3777_2:
 SUB_3777_3:
         PUSH BC                          ; $37C3  C5
         PUSH HL                          ; $37C4  E5
-        CALL SUB_2816                    ; $37C5  CD 16 28
+        CALL FADD                    ; $37C5  CD 16 28
         LD A,$01                         ; $37C8  3E 01
-        CALL SUB_2CBA                    ; $37CA  CD BA 2C
+        CALL FP_ZERO                    ; $37CA  CD BA 2C
 SUB_3777_4:
         CALL SUB_2B28                    ; $37CD  CD 28 2B
 SUB_3777_5:
@@ -7230,7 +7230,7 @@ SUB_3777_11:
         INC DE                           ; $3804  13
         LD A,$04                         ; $3805  3E 04
         JR SUB_3809_1                    ; $3807  18 06
-SUB_3809:
+FP_TO_DECIMAL:
         PUSH DE                          ; $3809  D5
         LD DE,SUB_3809_14                ; $380A  11 B2 38
         LD A,$05                         ; $380D  3E 05
@@ -7384,7 +7384,7 @@ SUB_3809_25:
         DEFB    $2B,$18,$03                                      ; $3913
 SUB_3809_26:
         DEFB    $CD                                              ; $3916
-        DEFW    SUB_2C6C                 ; $3917
+        DEFW    FP_SGN                 ; $3917
         DEFB    $C1                                              ; $3919
         DEFW    SUB_2124_25              ; $391A
         DEFW    SUB_2554                 ; $391C
@@ -7414,10 +7414,10 @@ SUB_3809_27:
         DEFB    $D5,$C5                                          ; $395C
         DEFW    SUB_4ABF_1               ; $395E
         DEFB    $29,$C1,$D1,$CD                                  ; $3960
-        DEFW    SUB_2990                 ; $3964
+        DEFW    FMUL                 ; $3964
         DEFW    SUB_3777_10              ; $3966
         DEFB    $81,$11,$3B,$AA,$CD                              ; $3968
-        DEFW    SUB_2990                 ; $396D
+        DEFW    FMUL                 ; $396D
         DEFB    $3A                                              ; $396F
         DEFW    SUB_0CA8_23              ; $3970
         DEFB    $FE,$88,$D2,$9B,$39,$FE,$68,$DA,$AD,$39,$CD      ; $3972
@@ -7426,7 +7426,7 @@ SUB_3809_27:
         DEFB    $39,$CD,$E3,$39,$C1,$11,$00                      ; $398F
         DEFW    SUB_49A6_6               ; $3996
         DEFB    $C3                                              ; $3998
-        DEFW    SUB_2990                 ; $3999
+        DEFW    FMUL                 ; $3999
         DEFB    $CD                                              ; $399B
         DEFW    SUB_2B18                 ; $399C
         DEFB    $3A                                              ; $399E
@@ -7445,32 +7445,32 @@ SUB_3809_27:
         DEFB    $2E,$D5,$E5                                      ; $39D9
         DEFW    SUB_33A0_5               ; $39DC
         DEFB    $2B,$CD                                          ; $39DE
-        DEFW    SUB_2990                 ; $39E0
+        DEFW    FMUL                 ; $39E0
         DEFB    $E1,$CD                                          ; $39E2
         DEFW    SUB_2B18                 ; $39E4
         DEFB    $7E,$23                                          ; $39E6
         DEFW    SUB_25C3_1               ; $39E8
         DEFB    $2B,$06,$F1,$C1,$D1,$3D,$C8,$D5,$C5,$F5,$E5,$CD  ; $39EA
-        DEFW    SUB_2990                 ; $39F6
+        DEFW    FMUL                 ; $39F6
         DEFB    $E1,$CD                                          ; $39F8
         DEFW    SUB_2B36                 ; $39FA
         DEFB    $E5,$CD                                          ; $39FC
-        DEFW    SUB_2824                 ; $39FE
+        DEFW    FADD_ALIGN                 ; $39FE
         DEFB    $E1,$18,$E9                                      ; $3A00
 SUB_3809_28:
         DEFB    $52,$C7,$4F,$80                                  ; $3A03
-SUB_3809_29:
-        CALL SUB_13E4                    ; $3A07  CD E4 13
+POLY_EVAL_X:
+        CALL CHRGET                    ; $3A07  CD E4 13
 SUB_3809_30:
         PUSH HL                          ; $3A0A  E5
 SUB_3809_31:
         LD HL,SUB_2917_2                 ; $3A0B  21 24 29
 SUB_3809_32:
         CALL SUB_2B25                    ; $3A0E  CD 25 2B
-        CALL SUB_3A18                    ; $3A11  CD 18 3A
+        CALL POLY_EVAL                    ; $3A11  CD 18 3A
         POP HL                           ; $3A14  E1
         JP SUB_2CA2_2+1                  ; $3A15  C3 AE 2C
-SUB_3A18:
+POLY_EVAL:
         CALL SUB_2AC5                    ; $3A18  CD C5 2A
         LD HL,SUB_3A18_15                ; $3A1B  21 81 3A
 SUB_3A18_1:
@@ -7493,7 +7493,7 @@ SUB_3A18_5:
         LD C,A                           ; $3A34  4F
         ADD HL,BC                        ; $3A35  09
         CALL SUB_2B36                    ; $3A36  CD 36 2B
-        CALL SUB_2990                    ; $3A39  CD 90 29
+        CALL FMUL                    ; $3A39  CD 90 29
         LD A,(SUB_3A18_14)               ; $3A3C  3A 80 3A
         INC A                            ; $3A3F  3C
         AND $03                          ; $3A40  E6 03
@@ -7531,7 +7531,7 @@ SUB_3A18_10:
         DEC D                            ; $3A6D  15
         INC E                            ; $3A6E  1C
 SUB_3A18_11:
-        CALL SUB_2874                    ; $3A6F  CD 74 28
+        CALL FAC_NORMALIZE                    ; $3A6F  CD 74 28
         LD HL,SUB_3A18_16                ; $3A72  21 A2 3A
         JP SUB_2B3D_1                    ; $3A75  C3 3F 2B
 SUB_3A18_12:
@@ -7558,7 +7558,7 @@ SUB_3A18_16:
         DEFB    $3A                                              ; $3AB8
         DEFW    SUB_0CA8_23              ; $3AB9
         DEFB    $FE,$77,$D8,$01,$22,$7E,$11,$83,$F9,$CD          ; $3ABB
-        DEFW    SUB_2990                 ; $3AC5
+        DEFW    FMUL                 ; $3AC5
         DEFB    $CD                                              ; $3AC7
         DEFW    SUB_2B18                 ; $3AC8
         DEFB    $CD,$04,$2D,$C1,$D1,$CD,$21                      ; $3ACA
@@ -7566,19 +7566,19 @@ SUB_3A18_16:
         DEFB    $00,$7F,$11,$00,$00,$CD                          ; $3AD3
         DEFW    SUB_2B81                 ; $3AD9
         DEFB    $FA,$02                                          ; $3ADB
-        DEFW    TPA_START_15             ; $3ADD
+        DEFW    RESERVED_WORD_TBL             ; $3ADD
         DEFB    $80,$7F,$11,$00,$00,$CD                          ; $3ADF
-        DEFW    SUB_2824                 ; $3AE5
+        DEFW    FADD_ALIGN                 ; $3AE5
         DEFB    $01,$80                                          ; $3AE7
         DEFW    SUB_101B_22              ; $3AE9
         DEFB    $00,$00,$CD                                      ; $3AEB
-        DEFW    SUB_2824                 ; $3AEE
+        DEFW    FADD_ALIGN                 ; $3AEE
         DEFB    $CD                                              ; $3AF0
         DEFW    SUB_2AC5                 ; $3AF1
         DEFB    $F4                                              ; $3AF3
         DEFW    SUB_2AEB_1               ; $3AF4
         DEFB    $01,$00,$7F,$11,$00,$00,$CD                      ; $3AF6
-        DEFW    SUB_2824                 ; $3AFD
+        DEFW    FADD_ALIGN                 ; $3AFD
         DEFB    $CD                                              ; $3AFF
         DEFW    SUB_2AEB_1               ; $3B00
         DEFB    $3A                                              ; $3B02
@@ -7627,12 +7627,12 @@ SUB_3A18_18:
         DEFB    $7D,$C8,$7F,$91,$7E,$E4,$BB,$4C,$7E,$6C,$AA,$AA,$7F,$00,$00,$00 ; $3B94
         DEFW    SUB_2B81                 ; $3BA4
         DEFB    $CD                                              ; $3BA6
-        DEFW    SUB_13E4                 ; $3BA7
+        DEFW    CHRGET                 ; $3BA7
         DEFB    $C8,$CD                                          ; $3BA9
-        DEFW    SUB_45A3                 ; $3BAB
+        DEFW    SYNCHR                 ; $3BAB
         DEFW    TPA_START_13             ; $3BAD
         DEFB    $A5,$3B,$C5,$F6                                  ; $3BAF
-SUB_3BB3:
+PTRGET:
         XOR A                            ; $3BB3  AF
         LD (TPA_START_95),A              ; $3BB4  32 36 0B
         LD C,(HL)                        ; $3BB7  4E
@@ -7715,7 +7715,7 @@ SUB_3BB3_9:
 SUB_3BB3_10:
         LD A,D                           ; $3C2B  7A
         LD (TPA_START_96),A              ; $3C2C  32 37 0B
-        CALL SUB_13E4                    ; $3C2F  CD E4 13
+        CALL CHRGET                    ; $3C2F  CD E4 13
         LD A,(TPA_START_113)             ; $3C32  3A 75 0B
         DEC A                            ; $3C35  3D
         JP Z,SUB_3BB3_46+1               ; $3C36  CA AB 3D
@@ -7739,7 +7739,7 @@ SUB_3BB3_11:
         LD (TPA_START_140),HL            ; $3C5C  22 85 0C
         EX DE,HL                         ; $3C5F  EB
         JR SUB_3BB3_17                   ; $3C60  18 1B
-SUB_3BB3_12:
+PTRGET_SCAN:
         LD A,(DE)                        ; $3C62  1A
         LD L,A                           ; $3C63  6F
         INC DE                           ; $3C64  13
@@ -7768,10 +7768,10 @@ SUB_3BB3_17:
         EX DE,HL                         ; $3C7D  EB
         LD A,(TPA_START_140)             ; $3C7E  3A 85 0C
         CP E                             ; $3C81  BB
-        JP NZ,SUB_3BB3_12                ; $3C82  C2 62 3C
+        JP NZ,PTRGET_SCAN                ; $3C82  C2 62 3C
         LD A,(TPA_START_141)             ; $3C85  3A 86 0C
         CP D                             ; $3C88  BA
-        JR NZ,SUB_3BB3_12                ; $3C89  20 D7
+        JR NZ,PTRGET_SCAN                ; $3C89  20 D7
         LD A,(TPA_START_139)             ; $3C8B  3A 84 0C
         OR A                             ; $3C8E  B7
         JR Z,SUB_3BB3_20                 ; $3C8F  28 14
@@ -7793,16 +7793,16 @@ SUB_3BB3_20:
         EX (SP),HL                       ; $3CA6  E3
         PUSH DE                          ; $3CA7  D5
         LD DE,SUB_1C11_5                 ; $3CA8  11 7F 1C
-        CALL SUB_459D                    ; $3CAB  CD 9D 45
+        CALL DCMP_HL_DE                    ; $3CAB  CD 9D 45
         JR Z,SUB_3BB3_19                 ; $3CAE  28 F0
         LD DE,SUB_4E06_4                 ; $3CB0  11 23 50
-        CALL SUB_459D                    ; $3CB3  CD 9D 45
+        CALL DCMP_HL_DE                    ; $3CB3  CD 9D 45
         JP Z,SUB_3BB3_19                 ; $3CB6  CA A0 3C
         LD DE,SUB_4E06_5                 ; $3CB9  11 32 50
-        CALL SUB_459D                    ; $3CBC  CD 9D 45
+        CALL DCMP_HL_DE                    ; $3CBC  CD 9D 45
         JR Z,SUB_3BB3_19                 ; $3CBF  28 DF
         LD DE,SUB_1CC1_5                 ; $3CC1  11 DA 1C
-        CALL SUB_459D                    ; $3CC4  CD 9D 45
+        CALL DCMP_HL_DE                    ; $3CC4  CD 9D 45
         POP DE                           ; $3CC7  D1
         JR Z,SUB_3BB3_30                 ; $3CC8  28 56
         EX (SP),HL                       ; $3CCA  E3
@@ -7826,7 +7826,7 @@ SUB_3BB3_22:
         ADD HL,BC                        ; $3CE1  09
         POP BC                           ; $3CE2  C1
         PUSH HL                          ; $3CE3  E5
-        CALL SUB_448F                    ; $3CE4  CD 8F 44
+        CALL BLOCK_MOVE_DOWN                    ; $3CE4  CD 8F 44
         POP HL                           ; $3CE7  E1
         LD (TPA_START_130),HL            ; $3CE8  22 96 0B
         LD H,B                           ; $3CEB  60
@@ -7836,7 +7836,7 @@ SUB_3BB3_23:
         DEC HL                           ; $3CF0  2B
 SUB_3BB3_24:
         LD (HL),$00                      ; $3CF1  36 00
-        CALL SUB_459D                    ; $3CF3  CD 9D 45
+        CALL DCMP_HL_DE                    ; $3CF3  CD 9D 45
         JR NZ,SUB_3BB3_23                ; $3CF6  20 F8
         POP DE                           ; $3CF8  D1
         LD (HL),D                        ; $3CF9  72
@@ -7905,7 +7905,7 @@ SUB_3BB3_38:
         ADD A,$02                        ; $3D45  C6 02
         RRA                              ; $3D47  1F
         LD C,A                           ; $3D48  4F
-        CALL SUB_449F                    ; $3D49  CD 9F 44
+        CALL CHECK_STACK                    ; $3D49  CD 9F 44
         LD A,C                           ; $3D4C  79
 SUB_3BB3_39:
         LD C,(HL)                        ; $3D4D  4E
@@ -7920,7 +7920,7 @@ SUB_3BB3_40:
         LD A,(TPA_START_77)              ; $3D56  3A 94 08
         PUSH AF                          ; $3D59  F5
         EX DE,HL                         ; $3D5A  EB
-        CALL SUB_14E4                    ; $3D5B  CD E4 14
+        CALL FRMEVL_NUMERIC                    ; $3D5B  CD E4 14
         POP AF                           ; $3D5E  F1
         LD (TPA_START_79),HL             ; $3D5F  22 BB 08
         POP HL                           ; $3D62  E1
@@ -7937,7 +7937,7 @@ SUB_3BB3_41:
         LD HL,(TPA_START_79)             ; $3D6E  2A BB 08
         JR SUB_3BB3_43                   ; $3D71  18 07
 SUB_3BB3_42:
-        CALL SUB_14E4                    ; $3D73  CD E4 14
+        CALL FRMEVL_NUMERIC                    ; $3D73  CD E4 14
         XOR A                            ; $3D76  AF
         LD (TPA_START_77),A              ; $3D77  32 94 08
 SUB_3BB3_43:
@@ -7965,7 +7965,7 @@ SUB_3BB3_44:
         CP $5D                           ; $3D98  FE 5D
         JP NZ,SUB_0CA8_54                ; $3D9A  C2 92 0D
 SUB_3BB3_45:
-        CALL SUB_13E4                    ; $3D9D  CD E4 13
+        CALL CHRGET                    ; $3D9D  CD E4 13
         LD (TPA_START_125),HL            ; $3DA0  22 8C 0B
         POP HL                           ; $3DA3  E1
         LD (TPA_START_95),HL             ; $3DA4  22 36 0B
@@ -7979,7 +7979,7 @@ SUB_3BB3_47:
         EX DE,HL                         ; $3DB2  EB
         LD HL,(TPA_START_130)            ; $3DB3  2A 96 0B
         EX DE,HL                         ; $3DB6  EB
-        CALL SUB_459D                    ; $3DB7  CD 9D 45
+        CALL DCMP_HL_DE                    ; $3DB7  CD 9D 45
         JR Z,SUB_3BB3_57                 ; $3DBA  28 45
         LD E,(HL)                        ; $3DBC  5E
         INC HL                           ; $3DBD  23
@@ -8020,7 +8020,7 @@ SUB_3BB3_53:
         JP Z,SUB_3BB3_76                 ; $3DE7  CA 69 3E
 SUB_3BB3_54:
         LD DE,$0009                      ; $3DEA  11 09 00
-        JP SUB_0CA8_61                   ; $3DED  C3 AC 0D
+        JP ERROR                   ; $3DED  C3 AC 0D
 SUB_3BB3_55:
         INC HL                           ; $3DF0  23
 SUB_3BB3_56:
@@ -8050,7 +8050,7 @@ SUB_3BB3_60:
         CALL SUB_3EAC                    ; $3E10  CD AC 3E
         INC HL                           ; $3E13  23
         LD C,A                           ; $3E14  4F
-        CALL SUB_449F                    ; $3E15  CD 9F 44
+        CALL CHECK_STACK                    ; $3E15  CD 9F 44
 SUB_3BB3_61:
         INC HL                           ; $3E18  23
         INC HL                           ; $3E19  23
@@ -8093,15 +8093,15 @@ SUB_3BB3_70:
         LD C,E                           ; $3E42  4B
         EX DE,HL                         ; $3E43  EB
         ADD HL,DE                        ; $3E44  19
-        JP C,SUB_449F_1                  ; $3E45  DA B4 44
-        CALL SUB_44C2                    ; $3E48  CD C2 44
+        JP C,ERR_OUT_OF_MEMORY                  ; $3E45  DA B4 44
+        CALL CHECK_FRE_GC                    ; $3E48  CD C2 44
 SUB_3BB3_71:
         LD (TPA_START_130),HL            ; $3E4B  22 96 0B
 SUB_3BB3_72:
         DEC HL                           ; $3E4E  2B
 SUB_3BB3_73:
         LD (HL),$00                      ; $3E4F  36 00
-        CALL SUB_459D                    ; $3E51  CD 9D 45
+        CALL DCMP_HL_DE                    ; $3E51  CD 9D 45
         JR NZ,SUB_3BB3_72                ; $3E54  20 F8
         INC BC                           ; $3E56  03
         LD D,A                           ; $3E57  57
@@ -8134,7 +8134,7 @@ SUB_3BB3_77:
         INC HL                           ; $3E72  23
         EX (SP),HL                       ; $3E73  E3
         PUSH AF                          ; $3E74  F5
-        CALL SUB_459D                    ; $3E75  CD 9D 45
+        CALL DCMP_HL_DE                    ; $3E75  CD 9D 45
         JP NC,SUB_3BB3_54                ; $3E78  D2 EA 3D
         CALL SUB_2D79                    ; $3E7B  CD 79 2D
         ADD HL,DE                        ; $3E7E  19
@@ -8245,9 +8245,9 @@ SUB_3EDB_5:
         LD (TPA_START_122),HL            ; $3EEE  22 85 0B
         EX DE,HL                         ; $3EF1  EB
 SUB_3EDB_6:
-        CALL SUB_0FAB                    ; $3EF2  CD AB 0F
+        CALL FNDLIN                    ; $3EF2  CD AB 0F
 SUB_3EDB_7:
-        JP NC,SUB_1506_6                 ; $3EF5  D2 91 15
+        JP NC,ERR_SYNTAX                 ; $3EF5  D2 91 15
         LD H,B                           ; $3EF8  60
         LD L,C                           ; $3EF9  69
         INC HL                           ; $3EFA  23
@@ -8267,10 +8267,10 @@ SUB_3EDB_10:
         AND L                            ; $3F07  A5
         INC A                            ; $3F08  3C
         LD A,$21                         ; $3F09  3E 21
-        CALL Z,SUB_4291                  ; $3F0B  CC 91 42
+        CALL Z,OUTCHR                  ; $3F0B  CC 91 42
         CALL NZ,SUB_3391                 ; $3F0E  C4 91 33
         LD A,$20                         ; $3F11  3E 20
-        CALL SUB_4291                    ; $3F13  CD 91 42
+        CALL OUTCHR                    ; $3F13  CD 91 42
         LD HL,TPA_START_90               ; $3F16  21 31 0A
         PUSH HL                          ; $3F19  E5
         LD C,$FF                         ; $3F1A  0E FF
@@ -8289,7 +8289,7 @@ SUB_3EDB_14:
         CALL SUB_43DA                    ; $3F26  CD DA 43
         OR A                             ; $3F29  B7
         JR Z,SUB_3EDB_14                 ; $3F2A  28 FA
-        CALL SUB_1CE8                    ; $3F2C  CD E8 1C
+        CALL TO_UPPER                    ; $3F2C  CD E8 1C
         SUB $30                          ; $3F2F  D6 30
         JR C,SUB_3EDB_15                 ; $3F31  38 0E
         CP $0A                           ; $3F33  FE 0A
@@ -8331,7 +8331,7 @@ SUB_3EDB_17:
         CP $23                           ; $3F6F  FE 23
         JR Z,SUB_3FA4_2                  ; $3F71  28 43
         CP $19                           ; $3F73  FE 19
-        JP Z,SUB_3FF9_9                  ; $3F75  CA 2E 40
+        JP Z,INLIN_KEYLOOP                  ; $3F75  CA 2E 40
         CP $14                           ; $3F78  FE 14
         JP Z,SUB_3FA4_8                  ; $3F7A  CA E4 3F
         CP $13                           ; $3F7D  FE 13
@@ -8347,10 +8347,10 @@ SUB_3EDB_17:
         CP $11                           ; $3F95  FE 11
         LD A,$07                         ; $3F97  3E 07
 SUB_3EDB_18:
-        JP NZ,SUB_4291                   ; $3F99  C2 91 42
+        JP NZ,OUTCHR                   ; $3F99  C2 91 42
         POP BC                           ; $3F9C  C1
         POP DE                           ; $3F9D  D1
-        CALL SUB_4406                    ; $3F9E  CD 06 44
+        CALL PRINT_CRLF                    ; $3F9E  CD 06 44
         JP SUB_3EDB_5                    ; $3FA1  C3 ED 3E
 SUB_3FA4:
         LD A,(HL)                        ; $3FA4  7E
@@ -8381,7 +8381,7 @@ SUB_3FA4_3:
         CALL SUB_447E                    ; $3FC5  CD 7E 44
         POP AF                           ; $3FC8  F1
         PUSH AF                          ; $3FC9  F5
-        CALL C,SUB_4068                  ; $3FCA  DC 68 40
+        CALL C,INLIN_DELCHAR                  ; $3FCA  DC 68 40
 SUB_3FA4_4:
         JR C,SUB_3FA4_5                  ; $3FCD  38 02
         INC HL                           ; $3FCF  23
@@ -8397,7 +8397,7 @@ SUB_3FA4_6:
         RET                              ; $3FD9  C9
 SUB_3FA4_7:
         CALL SUB_211B                    ; $3FDA  CD 1B 21
-        CALL SUB_4406                    ; $3FDD  CD 06 44
+        CALL PRINT_CRLF                    ; $3FDD  CD 06 44
         POP BC                           ; $3FE0  C1
         JP SUB_3EDB_9                    ; $3FE1  C3 04 3F
 SUB_3FA4_8:
@@ -8412,12 +8412,12 @@ SUB_3FA4_10:
         OR A                             ; $3FED  B7
         JR Z,SUB_3FF9                    ; $3FEE  28 09
         CALL SUB_447E                    ; $3FF0  CD 7E 44
-        CALL SUB_4068                    ; $3FF3  CD 68 40
+        CALL INLIN_DELCHAR                    ; $3FF3  CD 68 40
         DEC D                            ; $3FF6  15
         JR NZ,SUB_3FA4_9                 ; $3FF7  20 F3
 SUB_3FF9:
         LD A,$5C                         ; $3FF9  3E 5C
-        CALL SUB_4291                    ; $3FFB  CD 91 42
+        CALL OUTCHR                    ; $3FFB  CD 91 42
         RET                              ; $3FFE  C9
 SUB_3FF9_1:
         LD A,(HL)                        ; $3FFF  7E
@@ -8435,7 +8435,7 @@ SUB_3FF9_3:
         CP $09                           ; $4011  FE 09
         JR Z,SUB_3FF9_4                  ; $4013  28 07
         LD A,$07                         ; $4015  3E 07
-        CALL SUB_4291                    ; $4017  CD 91 42
+        CALL OUTCHR                    ; $4017  CD 91 42
         JR SUB_3FF9_3                    ; $401A  18 E6
 SUB_3FF9_4:
         LD (HL),A                        ; $401C  77
@@ -8453,7 +8453,7 @@ SUB_3FF9_7:
 SUB_3FF9_8:
         LD D,$FF                         ; $4029  16 FF
         CALL SUB_3FA4                    ; $402B  CD A4 3F
-SUB_3FF9_9:
+INLIN_KEYLOOP:
         CALL SUB_43DA                    ; $402E  CD DA 43
         CP $7F                           ; $4031  FE 7F
         JR Z,SUB_3FF9_10                 ; $4033  28 24
@@ -8472,7 +8472,7 @@ SUB_3FF9_9:
         CP $09                           ; $404D  FE 09
         JR Z,SUB_4068_2                  ; $404F  28 26
         CP $20                           ; $4051  FE 20
-        JR C,SUB_3FF9_9                  ; $4053  38 D9
+        JR C,INLIN_KEYLOOP                  ; $4053  38 D9
         CP $5F                           ; $4055  FE 5F
         JR NZ,SUB_4068_2                 ; $4057  20 1E
 SUB_3FF9_10:
@@ -8484,9 +8484,9 @@ SUB_3FF9_11:
         CALL SUB_447E                    ; $405F  CD 7E 44
         DEC HL                           ; $4062  2B
         DEC B                            ; $4063  05
-        LD DE,SUB_3FF9_9                 ; $4064  11 2E 40
+        LD DE,INLIN_KEYLOOP                 ; $4064  11 2E 40
         PUSH DE                          ; $4067  D5
-SUB_4068:
+INLIN_DELCHAR:
         PUSH HL                          ; $4068  E5
         DEC C                            ; $4069  0D
 SUB_4068_1:
@@ -8508,9 +8508,9 @@ SUB_4068_2:
         POP AF                           ; $407D  F1
 SUB_4068_3:
         LD A,$07                         ; $407E  3E 07
-        CALL SUB_4291                    ; $4080  CD 91 42
+        CALL OUTCHR                    ; $4080  CD 91 42
 SUB_4068_4:
-        JR SUB_3FF9_9                    ; $4083  18 A9
+        JR INLIN_KEYLOOP                    ; $4083  18 A9
 SUB_4068_5:
         SUB B                            ; $4085  90
         INC C                            ; $4086  0C
@@ -8553,13 +8553,13 @@ SUB_4068_7:
 SUB_4068_8:
         CALL SUB_211B                    ; $40B6  CD 1B 21
 SUB_4068_9:
-        CALL SUB_4406                    ; $40B9  CD 06 44
+        CALL PRINT_CRLF                    ; $40B9  CD 06 44
         POP BC                           ; $40BC  C1
         POP DE                           ; $40BD  D1
         LD A,D                           ; $40BE  7A
         AND E                            ; $40BF  A3
         INC A                            ; $40C0  3C
-SUB_4068_10:
+STORE_PROGRAM_LINE:
         LD HL,TPA_START_89               ; $40C1  21 30 0A
         RET Z                            ; $40C4  C8
         SCF                              ; $40C5  37
@@ -8573,20 +8573,20 @@ SUB_4068_11:
         AND E                            ; $40CE  A3
         INC A                            ; $40CF  3C
         JP Z,SUB_43F9_1                  ; $40D0  CA 01 44
-        JP SUB_0CA8_74                   ; $40D3  C3 46 0E
+        JP PROMPT_READY                   ; $40D3  C3 46 0E
         DEFB    $CD                                              ; $40D6
         DEFW    SUB_1A8C_2               ; $40D7
         DEFB    $CD                                              ; $40D9
         DEFW    SUB_2CB3                 ; $40DA
         DEFB    $CD                                              ; $40DC
-        DEFW    SUB_45A3                 ; $40DD
+        DEFW    SYNCHR                 ; $40DD
         DEFB    $3B                                              ; $40DF
         DEFW    SUB_2AEB                 ; $40E0
         DEFW    SUB_0CA8_21              ; $40E2
         DEFB    $18,$08,$3A,$76,$0B                              ; $40E4
         DEFW    SUB_2874_18              ; $40E9
         DEFB    $0C,$D1,$EB,$E5,$AF,$32,$76,$0B,$BA,$F5,$D5,$46,$B0,$CA ; $40EB
-        DEFW    SUB_14E4_2               ; $40F9
+        DEFW    ERR_TYPE_MISMATCH               ; $40F9
         DEFB    $23,$4E,$23,$66,$69,$18,$1C,$58,$E5              ; $40FB
         DEFW    TPA_START_29             ; $4104
         DEFB    $7E,$23,$FE,$5C,$CA,$50,$42,$FE                  ; $4106
@@ -8594,7 +8594,7 @@ SUB_4068_11:
         DEFB    $03,$0C,$10,$F2                                  ; $4110
         DEFW    SUB_43DA_2               ; $4114
         DEFB    $3E,$5C,$CD,$87,$42,$CD                          ; $4116
-        DEFW    SUB_4291                 ; $411C
+        DEFW    OUTCHR                 ; $411C
         DEFW    SUB_5E2A_60              ; $411E
         DEFB    $57,$CD,$87                                      ; $4120
         DEFW    SUB_573C_1               ; $4123
@@ -8615,7 +8615,7 @@ SUB_4068_11:
         DEFB    $CA,$3E,$42,$FE                                  ; $4148
         DEFW    SUB_2824_9               ; $414C
         DEFB    $B3,$BE,$20,$C6,$FE                              ; $414E
-        DEFW    SUB_2824                 ; $4153
+        DEFW    FADD_ALIGN                 ; $4153
         DEFB    $14,$FE                                          ; $4155
         DEFW    SUB_201A_4               ; $4157
         DEFB    $BE,$78,$23,$FE,$02,$38,$03,$7E,$FE              ; $4159
@@ -8650,14 +8650,14 @@ SUB_4068_11:
         DEFB    $D1,$C1,$C5                                      ; $41E4
         DEFW    SUB_43DA_3               ; $41E7
         DEFB    $78,$81,$FE,$19,$D2                              ; $41E9
-        DEFW    SUB_14E4_2               ; $41EE
+        DEFW    ERR_TYPE_MISMATCH               ; $41EE
         DEFB    $7A,$F6,$80,$CD                                  ; $41F0
         DEFW    SUB_33A0_1               ; $41F4
         DEFB    $CD                                              ; $41F6
         DEFW    SUB_48BE                 ; $41F7
         DEFW    SUB_2BBE_6               ; $41F9
         DEFB    $CD                                              ; $41FB
-        DEFW    SUB_13E4                 ; $41FC
+        DEFW    CHRGET                 ; $41FC
         DEFW    SUB_2824_3               ; $41FE
         DEFW    SUB_3203_2               ; $4200
         DEFB    $76,$0B                                          ; $4202
@@ -8665,19 +8665,19 @@ SUB_4068_11:
         DEFB    $28,$05,$FE,$2C,$C2                              ; $4206
         DEFW    SUB_0CA8_54              ; $420B
         DEFB    $CD                                              ; $420D
-        DEFW    SUB_13E4                 ; $420E
+        DEFW    CHRGET                 ; $420E
         DEFB    $C1,$EB,$E1,$E5,$F5,$D5,$7E,$90,$23,$4E,$23,$66,$69,$16 ; $4210
         DEFW    SUB_5E2A_49              ; $421E
         DEFB    $19,$78,$B7,$C2,$1E,$41,$18,$06,$CD,$87,$42,$CD  ; $4220
-        DEFW    SUB_4291                 ; $422C
+        DEFW    OUTCHR                 ; $422C
         DEFB    $E1,$F1,$C2,$E6,$40,$DC                          ; $422E
-        DEFW    SUB_4406                 ; $4234
+        DEFW    PRINT_CRLF                 ; $4234
         DEFB    $E3                                              ; $4236
         DEFW    SUB_3BB3_49              ; $4237
         DEFB    $4A,$E1,$C3                                      ; $4239
-        DEFW    SUB_189A                 ; $423C
+        DEFW    RESET_INPUT_STATE                 ; $423C
         DEFB    $CD,$87,$42,$05,$7E,$23,$CD                      ; $423E
-        DEFW    SUB_4291                 ; $4245
+        DEFW    OUTCHR                 ; $4245
         DEFB    $18,$D8,$0E,$FF,$18,$04                          ; $4247
         DEFW    TPA_START_5              ; $424D
         DEFB    $3E,$F1,$05,$CD,$87,$42,$E1                      ; $424F
@@ -8697,16 +8697,16 @@ SUB_4068_11:
         DEFB    $CA,$F9                                          ; $4275
         DEFW    SUB_3BB3_38              ; $4277
         DEFB    $96,$47,$3E,$20,$04,$05,$CA,$F9,$41,$CD          ; $4279
-        DEFW    SUB_4291                 ; $4283
+        DEFW    OUTCHR                 ; $4283
         DEFB    $18,$F7,$F5,$7A                                  ; $4285
         DEFW    SUB_3EAC_2               ; $4289
         DEFB    $2B,$C4                                          ; $428B
-        DEFW    SUB_4291                 ; $428D
+        DEFW    OUTCHR                 ; $428D
         DEFB    $F1,$C9                                          ; $428F
 ; [AI] Master console output routine (the interpreter's CONOUT). Tracks the print column for
 ;       TAB/POS/WIDTH, expands tabs to 8-column stops, handles backspace and CR/LF, honors an
 ;       optional redirected output device, and ultimately calls the BIOS console-out via SUB_42EA.
-SUB_4291:
+OUTCHR:
         PUSH AF                          ; $4291  F5
         PUSH HL                          ; $4292  E5
         LD HL,(TPA_START_67)             ; $4293  2A 63 08
@@ -8725,13 +8725,13 @@ SUB_4291:
         DEC A                            ; $42AC  3D
         LD (TPA_START_59),A              ; $42AD  32 5A 08
         POP AF                           ; $42B0  F1
-        JR SUB_42EA                      ; $42B1  18 37
+        JR CONOUT_RAW                      ; $42B1  18 37
 SUB_4291_1:
         CP $09                           ; $42B3  FE 09
         JR NZ,SUB_4291_3                 ; $42B5  20 0E
 SUB_4291_2:
         LD A,$20                         ; $42B7  3E 20
-        CALL SUB_4291                    ; $42B9  CD 91 42
+        CALL OUTCHR                    ; $42B9  CD 91 42
         LD A,(TPA_START_59)              ; $42BC  3A 5A 08
         AND $07                          ; $42BF  E6 07
         JR NZ,SUB_4291_2                 ; $42C1  20 F4
@@ -8752,7 +8752,7 @@ SUB_4291_4:
         LD HL,TPA_START_61               ; $42D7  21 5D 08
         CP (HL)                          ; $42DA  BE
         POP HL                           ; $42DB  E1
-        CALL Z,SUB_4300                  ; $42DC  CC 00 43
+        CALL Z,OUT_CRLF                  ; $42DC  CC 00 43
         JR Z,SUB_4291_8                  ; $42DF  28 08
 SUB_4291_5:
         CP $FF                           ; $42E1  FE FF
@@ -8764,9 +8764,9 @@ SUB_4291_7:
 SUB_4291_8:
         POP AF                           ; $42E9  F1
 ; [AI] Raw byte-to-console primitive: preserves all registers, loads C, and calls the (self-
-;       patched) BIOS CONOUT entry; the unconditional low-level output used by SUB_4291 after its
+;       patched) BIOS CONOUT entry; the unconditional low-level output used by OUTCHR after its
 ;       column/tab processing.
-SUB_42EA:
+CONOUT_RAW:
         PUSH AF                          ; $42EA  F5
         PUSH BC                          ; $42EB  C5
         PUSH DE                          ; $42EC  D5
@@ -8781,7 +8781,7 @@ SUB_42EA_1:
         RET                              ; $42F6  C9
 ; [AI] Resets the output column state and, if a line is partially printed, emits a CR/LF so the
 ;       next output starts at column 0; called before printing prompts and error messages.
-SUB_42F7:
+RESET_COLUMN:
         XOR A                            ; $42F7  AF
         LD (TPA_START_60),A              ; $42F8  32 5B 08
         LD A,(TPA_START_59)              ; $42FB  3A 5A 08
@@ -8789,11 +8789,11 @@ SUB_42F7:
         RET Z                            ; $42FF  C8
 ; [AI] Forces a CR/LF to the console and zeroes the print-column counter, the carriage-return
 ;       helper used to terminate output lines.
-SUB_4300:
+OUT_CRLF:
         LD A,$0D                         ; $4300  3E 0D
-        CALL SUB_42EA                    ; $4302  CD EA 42
+        CALL CONOUT_RAW                    ; $4302  CD EA 42
         LD A,$0A                         ; $4305  3E 0A
-        CALL SUB_42EA                    ; $4307  CD EA 42
+        CALL CONOUT_RAW                    ; $4307  CD EA 42
 SUB_4300_1:
         XOR A                            ; $430A  AF
         LD (TPA_START_59),A              ; $430B  32 5A 08
@@ -8836,7 +8836,7 @@ SUB_4300_7:
         JR NZ,SUB_4300_11                ; $4343  20 0F
 SUB_4300_8:
         LD A,$20                         ; $4345  3E 20
-        CALL SUB_4291                    ; $4347  CD 91 42
+        CALL OUTCHR                    ; $4347  CD 91 42
         LD A,(TPA_START_93)              ; $434A  3A 34 0B
         AND $07                          ; $434D  E6 07
         JR NZ,SUB_4300_8                 ; $434F  20 F4
@@ -8867,8 +8867,8 @@ SUB_4300_12:
         JR NZ,SUB_4300_13                ; $4373  20 0A
         LD A,(SUB_2602_15)               ; $4375  3A 15 28
         CP B                             ; $4378  B8
-        CALL Z,SUB_438F                  ; $4379  CC 8F 43
-        CALL NZ,SUB_4406                 ; $437C  C4 06 44
+        CALL Z,CHECK_PAGE                  ; $4379  CC 8F 43
+        CALL NZ,PRINT_CRLF                 ; $437C  C4 06 44
 SUB_4300_13:
         POP AF                           ; $437F  F1
         POP BC                           ; $4380  C1
@@ -8891,8 +8891,8 @@ SUB_4382_1:
         RET                              ; $438E  C9
 ; [AI] Handles end-of-screen-line: counts printed lines and, when the page is full, pauses or
 ;       scrolls so listings do not run off the top of the display.
-SUB_438F:
-        CALL SUB_4410                    ; $438F  CD 10 44
+CHECK_PAGE:
+        CALL RESET_OUTPUT                    ; $438F  CD 10 44
 SUB_4392:
         LD A,(TPA_START_63)              ; $4392  3A 5F 08
         LD B,A                           ; $4395  47
@@ -8907,7 +8907,7 @@ SUB_4392_1:
 ; [AI] Console/character output gateway that routes to a redirected device (e.g. a disk file via
 ;       the active channel) when one is open, otherwise to the screen; also services pending
 ;       Control-C/Control-S break checks.
-SUB_43A2:
+CONIN_POLL:
         PUSH HL                          ; $43A2  E5
         LD HL,(TPA_START_67)             ; $43A3  2A 63 08
         LD A,H                           ; $43A6  7C
@@ -8928,9 +8928,9 @@ SUB_43A2_1:
         JP NZ,SUB_4E06_6                 ; $43BD  C2 BD 51
         LD A,(TPA_START_72)              ; $43C0  3A 6D 08
         OR A                             ; $43C3  B7
-        LD HL,SUB_129A_2                 ; $43C4  21 86 13
+        LD HL,NEWSTT                 ; $43C4  21 86 13
         EX (SP),HL                       ; $43C7  E3
-        JP NZ,SUB_450B                   ; $43C8  C2 0B 45
+        JP NZ,RUN_INIT                   ; $43C8  C2 0B 45
         EX (SP),HL                       ; $43CB  E3
         PUSH BC                          ; $43CC  C5
 SUB_43A2_2:
@@ -8965,34 +8965,34 @@ SUB_43DA_3:
         RET NZ                           ; $43E7  C0
         LD A,(TPA_START_66)              ; $43E8  3A 62 08
         OR A                             ; $43EB  B7
-        CALL Z,SUB_460E                  ; $43EC  CC 0E 46
+        CALL Z,OUT_CARET_CHAR                  ; $43EC  CC 0E 46
         CPL                              ; $43EF  2F
         LD (TPA_START_66),A              ; $43F0  32 62 08
         OR A                             ; $43F3  B7
-        JP Z,SUB_460E                    ; $43F4  CA 0E 46
+        JP Z,OUT_CARET_CHAR                    ; $43F4  CA 0E 46
         XOR A                            ; $43F7  AF
 SUB_43DA_4:
         RET                              ; $43F8  C9
 ; [AI] Conditionally emits a CR/LF only if the current output column is non-zero, so a fresh line
 ;       is guaranteed before the next message without inserting a blank line.
-SUB_43F9:
+CRLF_IF_COLUMN:
         LD A,(TPA_START_93)              ; $43F9  3A 34 0B
         OR A                             ; $43FC  B7
         RET Z                            ; $43FD  C8
-        JP SUB_4406                      ; $43FE  C3 06 44
+        JP PRINT_CRLF                      ; $43FE  C3 06 44
 SUB_43F9_1:
         LD (HL),$00                      ; $4401  36 00
         LD HL,TPA_START_89               ; $4403  21 30 0A
 ; [AI] Outputs a CR/LF pair to the console and resets per-line print state; the standard newline
 ;       routine called throughout PRINT and listing code.
-SUB_4406:
+PRINT_CRLF:
         LD A,$0D                         ; $4406  3E 0D
-        CALL SUB_4291                    ; $4408  CD 91 42
+        CALL OUTCHR                    ; $4408  CD 91 42
         LD A,$0A                         ; $440B  3E 0A
-        CALL SUB_4291                    ; $440D  CD 91 42
+        CALL OUTCHR                    ; $440D  CD 91 42
 ; [AI] Clears the print-column and line counters and selects the console as the active output
 ;       device, resetting output bookkeeping between operations.
-SUB_4410:
+RESET_OUTPUT:
         PUSH HL                          ; $4410  E5
         LD HL,(TPA_START_67)             ; $4411  2A 63 08
         LD A,H                           ; $4414  7C
@@ -9019,7 +9019,7 @@ SUB_4410_4:
         DEFB    $00,$00,$E1,$D1,$C1,$B7,$C8                      ; $4430
 ; [AI] Console break/poll service: reads a key, recognizes Control-S (pause) by re-reading, and
 ;       latches Control-C; called at statement boundaries so a running program can be interrupted.
-SUB_4437:
+CHECK_BREAK:
         CALL SUB_43DA                    ; $4437  CD DA 43
         CP $13                           ; $443A  FE 13
         CALL Z,SUB_43DA                  ; $443C  CC DA 43
@@ -9029,8 +9029,8 @@ SUB_4437:
         JP SUB_45B5_5                    ; $4447  C3 CF 45
 ; [AI] INKEY$ handler: performs a non-blocking console read and returns a one-character string (or
 ;       empty string) for the BASIC INKEY$ function.
-SUB_4437_1:
-        CALL SUB_13E4                    ; $444A  CD E4 13
+FN_INKEY:
+        CALL CHRGET                    ; $444A  CD E4 13
         PUSH HL                          ; $444D  E5
 SUB_4437_2:
         CALL SUB_4472                    ; $444E  CD 72 44
@@ -9067,24 +9067,24 @@ SUB_4472:
 ; [AI] Outputs a character and, when it is a line-feed, follows with a carriage return and resets
 ;       the column, used when echoing during line input/editing.
 SUB_447E:
-        CALL SUB_4291                    ; $447E  CD 91 42
+        CALL OUTCHR                    ; $447E  CD 91 42
         CP $0A                           ; $4481  FE 0A
         RET NZ                           ; $4483  C0
         LD A,$0D                         ; $4484  3E 0D
-        CALL SUB_4291                    ; $4486  CD 91 42
-        CALL SUB_4410                    ; $4489  CD 10 44
+        CALL OUTCHR                    ; $4486  CD 91 42
+        CALL RESET_OUTPUT                    ; $4489  CD 10 44
         LD A,$0A                         ; $448C  3E 0A
         RET                              ; $448E  C9
 ; [AI] Block-copy helper that moves a run of bytes downward in memory (HL to BC range) using the
 ;       range-compare guard, used when inserting or deleting program/variable storage.
-SUB_448F:
-        CALL SUB_44C2                    ; $448F  CD C2 44
+BLOCK_MOVE_DOWN:
+        CALL CHECK_FRE_GC                    ; $448F  CD C2 44
 SUB_4492:
         PUSH BC                          ; $4492  C5
         EX (SP),HL                       ; $4493  E3
         POP BC                           ; $4494  C1
 SUB_4492_1:
-        CALL SUB_459D                    ; $4495  CD 9D 45
+        CALL DCMP_HL_DE                    ; $4495  CD 9D 45
         LD A,(HL)                        ; $4498  7E
         LD (BC),A                        ; $4499  02
         RET Z                            ; $449A  C8
@@ -9094,7 +9094,7 @@ SUB_4492_1:
 ; [AI] Checks that the BASIC stack has room for BC*2 bytes below the current SP without colliding
 ;       with variable storage; raises 'Out of memory' if not. Called before recursive evaluation
 ;       pushes.
-SUB_449F:
+CHECK_STACK:
         PUSH HL                          ; $449F  E5
         LD HL,(TPA_START_104)            ; $44A0  2A 46 0B
         LD B,$00                         ; $44A3  06 00
@@ -9105,50 +9105,50 @@ SUB_449F:
         LD L,A                           ; $44AA  6F
         LD A,$FF                         ; $44AB  3E FF
         SBC A,H                          ; $44AD  9C
-        JR C,SUB_449F_1                  ; $44AE  38 04
+        JR C,ERR_OUT_OF_MEMORY                  ; $44AE  38 04
         LD H,A                           ; $44B0  67
         ADD HL,SP                        ; $44B1  39
         POP HL                           ; $44B2  E1
         RET C                            ; $44B3  D8
 ; [AI] 'Out of memory' error path (error code 7): rewinds the stack pointer to a safe value and
 ;       jumps to the error trap.
-SUB_449F_1:
+ERR_OUT_OF_MEMORY:
         LD HL,(TPA_START_68)             ; $44B4  2A 65 08
         DEC HL                           ; $44B7  2B
         DEC HL                           ; $44B8  2B
         LD (TPA_START_120),HL            ; $44B9  22 81 0B
 SUB_449F_2:
         LD DE,$0007                      ; $44BC  11 07 00
-        JP SUB_0CA8_61                   ; $44BF  C3 AC 0D
+        JP ERROR                   ; $44BF  C3 AC 0D
 ; [AI] Garbage-collection / free-space guard: when a requested allocation would overrun available
-;       memory it triggers string-space compaction (SUB_4900) and rechecks, erroring out if still
+;       memory it triggers string-space compaction (GARBAG) and rechecks, erroring out if still
 ;       insufficient.
-SUB_44C2:
-        CALL SUB_44D5                    ; $44C2  CD D5 44
+CHECK_FRE_GC:
+        CALL TEST_FRE                    ; $44C2  CD D5 44
 SUB_44C2_1:
         RET NC                           ; $44C5  D0
         PUSH BC                          ; $44C6  C5
         PUSH DE                          ; $44C7  D5
         PUSH HL                          ; $44C8  E5
-        CALL SUB_4900                    ; $44C9  CD 00 49
+        CALL GARBAG                    ; $44C9  CD 00 49
         POP HL                           ; $44CC  E1
 SUB_44C2_2:
         POP DE                           ; $44CD  D1
         POP BC                           ; $44CE  C1
-        CALL SUB_44D5                    ; $44CF  CD D5 44
+        CALL TEST_FRE                    ; $44CF  CD D5 44
         RET NC                           ; $44D2  D0
         JR SUB_449F_2                    ; $44D3  18 E7
-SUB_44D5:
+TEST_FRE:
         PUSH DE                          ; $44D5  D5
         EX DE,HL                         ; $44D6  EB
         LD HL,(TPA_START_110)            ; $44D7  2A 6B 0B
-        CALL SUB_459D                    ; $44DA  CD 9D 45
+        CALL DCMP_HL_DE                    ; $44DA  CD 9D 45
         EX DE,HL                         ; $44DD  EB
         POP DE                           ; $44DE  D1
         RET                              ; $44DF  C9
 ; [AI] Closes/zeroes all open file-control-block channels and clears their record buffers; the
 ;       file-system reset run at NEW/RUN and cold start.
-SUB_44E0:
+CLOSE_ALL_FILES:
         LD A,(TPA_START_76)              ; $44E0  3A 93 08
 SUB_44E0_1:
         LD B,A                           ; $44E3  47
@@ -9167,7 +9167,7 @@ SUB_44E0_2:
         RET NZ                           ; $44F4  C0
 ; [AI] Initializes interpreter pointers to an empty program: sets the program-text start, clears
 ;       the line links and the variable/array/string pointers, establishing a clean workspace (NEW).
-SUB_44F5:
+DO_NEW:
         LD HL,(TPA_START_70)             ; $44F5  2A 69 08
         CALL SUB_463E                    ; $44F8  CD 3E 46
         LD (SUB_0CA8_11),A               ; $44FB  32 BC 0C
@@ -9183,7 +9183,7 @@ SUB_44F5_3:
         LD (TPA_START_128),HL            ; $4508  22 92 0B
 ; [AI] RUN/initialize state: resets DATA-read pointer, FOR/GOSUB stacks, defined-function table,
 ;       and variable space to begin program execution from a clean runtime state.
-SUB_450B:
+RUN_INIT:
         LD HL,(TPA_START_70)             ; $450B  2A 69 08
         DEC HL                           ; $450E  2B
 SUB_450B_1:
@@ -9231,7 +9231,7 @@ SUB_450B_9:
 SUB_450B_10:
         XOR A                            ; $4553  AF
 SUB_450B_11:
-        CALL SUB_45B5                    ; $4554  CD B5 45
+        CALL FIND_ERR_LINE                    ; $4554  CD B5 45
         LD HL,(TPA_START_128)            ; $4557  2A 92 0B
         LD (TPA_START_129),HL            ; $455A  22 94 0B
         LD (TPA_START_130),HL            ; $455D  22 96 0B
@@ -9247,13 +9247,13 @@ SUB_450B_11:
         INC HL                           ; $4571  23
 ; [AI] Sets the stack to the BASIC stack top and reinitializes the random-number seed and per-run
 ;       flags, the tail of the RUN initialization before execution starts at the dispatcher.
-SUB_450B_12:
+SET_STACK_RNDINIT:
         LD SP,HL                         ; $4572  F9
         LD HL,TPA_START_106              ; $4573  21 4A 0B
         LD (TPA_START_105),HL            ; $4576  22 48 0B
         CALL SUB_2554                    ; $4579  CD 54 25
-        CALL SUB_42F7                    ; $457C  CD F7 42
-        CALL SUB_189A                    ; $457F  CD 9A 18
+        CALL RESET_COLUMN                    ; $457C  CD F7 42
+        CALL RESET_INPUT_STATE                    ; $457F  CD 9A 18
         XOR A                            ; $4582  AF
         LD H,A                           ; $4583  67
         LD L,A                           ; $4584  6F
@@ -9271,7 +9271,7 @@ SUB_450B_14:
         RET                              ; $459C  C9
 ; [AI] 16-bit compare of HL against DE (HL-DE) setting Z/C flags only; the ubiquitous pointer/line-
 ;       number comparison primitive used in searches and bounds checks.
-SUB_459D:
+DCMP_HL_DE:
         LD A,H                           ; $459D  7C
         SUB D                            ; $459E  92
         RET NZ                           ; $459F  C0
@@ -9281,7 +9281,7 @@ SUB_459D:
 ; [AI] Compares the current source character against an expected token byte pointed to by the in-
 ;       line table after the call; on match advances the text pointer, otherwise raises a Syntax
 ;       error. The 'SYNCHR' / expect-character routine.
-SUB_45A3:
+SYNCHR:
         LD A,(HL)                        ; $45A3  7E
         EX (SP),HL                       ; $45A4  E3
         CP (HL)                          ; $45A5  BE
@@ -9302,20 +9302,20 @@ SUB_45A3_7:
         JP SUB_13E5_1                    ; $45AF  C3 E9 13
 SUB_45A3_8:
         JP SUB_0CA8_54                   ; $45B2  C3 92 0D
-SUB_45B5:
+FIND_ERR_LINE:
         EX DE,HL                         ; $45B5  EB
         LD HL,(TPA_START_70)             ; $45B6  2A 69 08
         JR Z,SUB_45B5_3                  ; $45B9  28 0E
         EX DE,HL                         ; $45BB  EB
-        CALL SUB_14FB                    ; $45BC  CD FB 14
+        CALL LINGET                    ; $45BC  CD FB 14
         PUSH HL                          ; $45BF  E5
 SUB_45B5_1:
-        CALL SUB_0FAB                    ; $45C0  CD AB 0F
+        CALL FNDLIN                    ; $45C0  CD AB 0F
         LD H,B                           ; $45C3  60
         LD L,C                           ; $45C4  69
         POP DE                           ; $45C5  D1
 SUB_45B5_2:
-        JP NC,SUB_1506_6                 ; $45C6  D2 91 15
+        JP NC,ERR_SYNTAX                 ; $45C6  D2 91 15
 SUB_45B5_3:
         DEC HL                           ; $45C9  2B
 SUB_45B5_4:
@@ -9338,8 +9338,8 @@ SUB_45B5_6:
 ; [AI] Error-report core: saves the line number where the error occurred (for ERL/'in nnn'), and if
 ;       ON ERROR is armed transfers to the handler, otherwise prints the error message and returns
 ;       to direct mode.
-SUB_45B5_7:
-        LD HL,(TPA_START_69)             ; $45E7  2A 67 08
+ERROR_REPORT:
+        LD HL,(CURLIN)             ; $45E7  2A 67 08
         PUSH HL                          ; $45EA  E5
         PUSH AF                          ; $45EB  F5
         LD A,L                           ; $45EC  7D
@@ -9354,15 +9354,15 @@ SUB_45B5_9:
         XOR A                            ; $45FA  AF
         LD (TPA_START_66),A              ; $45FB  32 62 08
 SUB_45B5_10:
-        CALL SUB_42F7                    ; $45FE  CD F7 42
-        CALL SUB_43F9                    ; $4601  CD F9 43
+        CALL RESET_COLUMN                    ; $45FE  CD F7 42
+        CALL CRLF_IF_COLUMN                    ; $4601  CD F9 43
         POP AF                           ; $4604  F1
         LD HL,SUB_0CA8_38                ; $4605  21 1A 0D
         JP NZ,SUB_0CA8_69                ; $4608  C2 23 0E
         JP SUB_0CA8_73+1                 ; $460B  C3 45 0E
 ; [AI] Echoes a control character as the visible '^X' two-character form (caret plus the letter),
 ;       used when displaying Control-C/Control-O and similar in console output.
-SUB_460E:
+OUT_CARET_CHAR:
         LD A,$0F                         ; $460E  3E 0F
 SUB_4610:
         PUSH AF                          ; $4610  F5
@@ -9372,24 +9372,24 @@ SUB_4610:
         LD (TPA_START_66),A              ; $4618  32 62 08
 SUB_4610_1:
         LD A,$5E                         ; $461B  3E 5E
-        CALL SUB_4291                    ; $461D  CD 91 42
+        CALL OUTCHR                    ; $461D  CD 91 42
 SUB_4610_2:
         POP AF                           ; $4620  F1
         ADD A,$40                        ; $4621  C6 40
 SUB_4610_3:
-        CALL SUB_4291                    ; $4623  CD 91 42
-        JP SUB_4406                      ; $4626  C3 06 44
+        CALL OUTCHR                    ; $4623  CD 91 42
+        JP PRINT_CRLF                      ; $4626  C3 06 44
 SUB_4610_4:
         DEFB    $2A                                              ; $4629
         DEFW    TPA_START_127            ; $462A
         DEFB    $7C                                              ; $462C
         DEFW    SUB_101B_27              ; $462D
         DEFB    $11,$00,$CA                                      ; $462F
-        DEFW    SUB_0CA8_61              ; $4632
+        DEFW    ERROR              ; $4632
         DEFW    SUB_2AEB                 ; $4634
         DEFW    TPA_START_126            ; $4636
         DEFB    $22                                              ; $4638
-        DEFW    TPA_START_69             ; $4639
+        DEFW    CURLIN             ; $4639
         DEFB    $EB                                              ; $463B
         DEFW    SUB_3EC0_3               ; $463C
 SUB_463E:
@@ -9397,7 +9397,7 @@ SUB_463E:
         LD (SUB_0CA8_16),A               ; $463F  32 CE 0C
         RET                              ; $4642  C9
         DEFB    $CD                                              ; $4643
-        DEFW    SUB_3BB3                 ; $4644
+        DEFW    PTRGET                 ; $4644
         DEFB    $D5,$E5,$21,$C6,$0C,$CD                          ; $4646
         DEFW    SUB_2B47                 ; $464C
         DEFB    $2A                                              ; $464E
@@ -9405,9 +9405,9 @@ SUB_463E:
         DEFB    $E3,$CD                                          ; $4651
         DEFW    SUB_1DE3                 ; $4653
         DEFB    $F5,$CD                                          ; $4655
-        DEFW    SUB_45A3                 ; $4657
+        DEFW    SYNCHR                 ; $4657
         DEFB    $2C,$CD                                          ; $4659
-        DEFW    SUB_3BB3                 ; $465B
+        DEFW    PTRGET                 ; $465B
         DEFB    $C1,$CD                                          ; $465D
         DEFW    SUB_1DE3                 ; $465F
         DEFB    $B8,$C2                                          ; $4661
@@ -9415,9 +9415,9 @@ SUB_463E:
         DEFB    $E3,$EB,$E5,$2A                                  ; $4665
         DEFW    TPA_START_129            ; $4669
         DEFB    $CD                                              ; $466B
-        DEFW    SUB_459D                 ; $466C
+        DEFW    DCMP_HL_DE                 ; $466C
         DEFB    $C2                                              ; $466E
-        DEFW    SUB_14E4_2               ; $466F
+        DEFW    ERR_TYPE_MISMATCH               ; $466F
         DEFB    $D1,$E1,$E3,$D5,$CD                              ; $4671
         DEFW    SUB_2B47                 ; $4676
         DEFW    SUB_101B_34              ; $4678
@@ -9428,9 +9428,9 @@ SUB_463E:
         DEFW    SUB_31F3_2               ; $4682
         DEFW    TPA_START_113            ; $4684
         DEFB    $CD                                              ; $4686
-        DEFW    SUB_3BB3                 ; $4687
+        DEFW    PTRGET                 ; $4687
         DEFB    $C2                                              ; $4689
-        DEFW    SUB_14E4_2               ; $468A
+        DEFW    ERR_TYPE_MISMATCH               ; $468A
         DEFB    $E5,$32                                          ; $468C
         DEFW    TPA_START_113            ; $468E
         DEFB    $60                                              ; $4690
@@ -9441,14 +9441,14 @@ SUB_463E:
         DEFW    SUB_2AEB                 ; $469E
         DEFW    TPA_START_130            ; $46A0
         DEFB    $CD                                              ; $46A2
-        DEFW    SUB_459D                 ; $46A3
+        DEFW    DCMP_HL_DE                 ; $46A3
         DEFW    TPA_START_31             ; $46A5
         DEFB    $13                                              ; $46A7
         DEFW    SUB_1E72_24              ; $46A8
         DEFB    $F7,$0B,$60,$69,$22                              ; $46AA
         DEFW    TPA_START_130            ; $46AF
         DEFB    $E1,$7E,$FE,$2C,$C0,$CD                          ; $46B1
-        DEFW    SUB_13E4                 ; $46B7
+        DEFW    CHRGET                 ; $46B7
         DEFB    $18,$C6                                          ; $46B9
 SUB_463E_1:
         POP AF                           ; $46BB  F1
@@ -9467,11 +9467,11 @@ SUB_46BF:
         DEFB    $FE,$2C,$28,$0A,$CD                              ; $46C9
         DEFW    SUB_14E4_1               ; $46CE
         DEFB    $2B,$CD                                          ; $46D0
-        DEFW    SUB_13E4                 ; $46D2
+        DEFW    CHRGET                 ; $46D2
         DEFB    $CA                                              ; $46D4
         DEFW    SUB_450B_1               ; $46D5
         DEFB    $CD                                              ; $46D7
-        DEFW    SUB_45A3                 ; $46D8
+        DEFW    SYNCHR                 ; $46D8
         DEFB    $2C,$CA                                          ; $46DA
         DEFW    SUB_450B_1               ; $46DC
         DEFW    SUB_2AEB                 ; $46DE
@@ -9483,35 +9483,35 @@ SUB_46BF:
         DEFB    $E5,$CD                                          ; $46EA
         DEFW    SUB_22E1                 ; $46EC
         DEFB    $7C,$B5,$CA                                      ; $46EE
-        DEFW    SUB_14E4_2               ; $46F1
+        DEFW    ERR_TYPE_MISMATCH               ; $46F1
         DEFB    $EB                                              ; $46F3
         DEFW    SUB_2BBE_6               ; $46F4
         DEFB    $CD                                              ; $46F6
-        DEFW    SUB_13E4                 ; $46F7
+        DEFW    CHRGET                 ; $46F7
         DEFW    SUB_28D5                 ; $46F9
         DEFB    $3C,$CD                                          ; $46FB
-        DEFW    SUB_45A3                 ; $46FD
+        DEFW    SYNCHR                 ; $46FD
         DEFB    $2C,$28,$36,$CD                                  ; $46FF
         DEFW    SUB_14E4_1               ; $4703
         DEFB    $2B,$CD                                          ; $4705
-        DEFW    SUB_13E4                 ; $4707
+        DEFW    CHRGET                 ; $4707
         DEFB    $C2                                              ; $4709
         DEFW    SUB_0CA8_54              ; $470A
         DEFB    $E3,$E5,$21,$4E,$00                              ; $470C  "ce!N"
         DEFB    $CD                                              ; $4711
-        DEFW    SUB_459D                 ; $4712
+        DEFW    DCMP_HL_DE                 ; $4712
         DEFB    $D2                                              ; $4714
-        DEFW    SUB_449F_1               ; $4715
+        DEFW    ERR_OUT_OF_MEMORY               ; $4715
         DEFB    $E1                                              ; $4717
         DEFW    SUB_49A6_4               ; $4718
         DEFB    $47,$DA                                          ; $471A
-        DEFW    SUB_449F_1               ; $471C
+        DEFW    ERR_OUT_OF_MEMORY               ; $471C
         DEFB    $E5,$2A                                          ; $471E
         DEFW    TPA_START_128            ; $4720
         DEFB    $01,$14,$00,$09,$CD                              ; $4722
-        DEFW    SUB_459D                 ; $4727
+        DEFW    DCMP_HL_DE                 ; $4727
         DEFB    $D2                                              ; $4729
-        DEFW    SUB_449F_1               ; $472A
+        DEFW    ERR_OUT_OF_MEMORY               ; $472A
         DEFB    $EB,$22                                          ; $472C
         DEFW    TPA_START_104            ; $472E
         DEFW    SUB_22E1                 ; $4730
@@ -9529,12 +9529,12 @@ SUB_46BF:
         DEFB    $00                                              ; $4758
         DEFW    SUB_21FC_1               ; $4759
         DEFB    $8D,$0C,$C4                                      ; $475B
-        DEFW    SUB_3BB3                 ; $475E
+        DEFW    PTRGET                 ; $475E
         DEFB    $22                                              ; $4760
         DEFW    TPA_START_114            ; $4761
         DEFB    $CD,$20,$0D,$C2,$98,$0D,$F9,$D5,$5E,$23,$56,$23,$E5,$2A,$8D,$0C ; $4763
         DEFB    $CD                                              ; $4773
-        DEFW    SUB_459D                 ; $4774
+        DEFW    DCMP_HL_DE                 ; $4774
         DEFB    $C2,$98,$0D,$E1,$D1,$D5,$7E,$F5,$23,$D5,$7E,$23,$B7,$FA,$A9,$47 ; $4776
         DEFW    SUB_25C3_1               ; $4786
         DEFB    $2B,$E3,$E5,$3A,$8F,$0C,$B7,$20,$07,$21,$90,$0C  ; $4788
@@ -9565,16 +9565,16 @@ SUB_46BF:
         DEFB    $73,$E1,$D5,$5E,$23,$56,$23,$E3,$CD,$AE,$2B,$E1,$C1,$90,$CD ; $47D2
         DEFW    SUB_2B36                 ; $47E1
         DEFB    $28,$09,$EB,$22                                  ; $47E3
-        DEFW    TPA_START_69             ; $47E7
+        DEFW    CURLIN             ; $47E7
         DEFW    SUB_5E2A_71              ; $47E9
         DEFB    $C3,$82,$13,$F9,$22                              ; $47EB
         DEFW    TPA_START_120            ; $47F0
         DEFB    $2A                                              ; $47F2
         DEFW    TPA_START_114            ; $47F3
         DEFB    $7E,$FE,$2C,$C2                                  ; $47F5
-        DEFW    SUB_129A_2               ; $47F9
+        DEFW    NEWSTT               ; $47F9
         DEFB    $CD                                              ; $47FB
-        DEFW    SUB_13E4                 ; $47FC
+        DEFW    CHRGET                 ; $47FC
         DEFB    $CD,$5A,$47                                      ; $47FE
 SUB_46BF_1:
         DEFW    SUB_3777_4               ; $4801
@@ -9656,7 +9656,7 @@ SUB_4868_5:
         JR NZ,SUB_4868_4                 ; $4879  20 F4
 SUB_4868_6:
         CP $22                           ; $487B  FE 22
-        CALL Z,SUB_13E4                  ; $487D  CC E4 13
+        CALL Z,CHRGET                  ; $487D  CC E4 13
         PUSH HL                          ; $4880  E5
         LD A,B                           ; $4881  78
         CP $2C                           ; $4882  FE 2C
@@ -9686,13 +9686,13 @@ SUB_4868_10:
         LD (TPA_START_96),A              ; $48A5  32 37 0B
         CALL SUB_2B47                    ; $48A8  CD 47 2B
         LD DE,TPA_START_110              ; $48AB  11 6B 0B
-        CALL SUB_459D                    ; $48AE  CD 9D 45
+        CALL DCMP_HL_DE                    ; $48AE  CD 9D 45
         LD (TPA_START_105),HL            ; $48B1  22 48 0B
         POP HL                           ; $48B4  E1
         LD A,(HL)                        ; $48B5  7E
         RET NZ                           ; $48B6  C0
         LD DE,RST2_VEC                   ; $48B7  11 10 00
-        JP SUB_0CA8_61                   ; $48BA  C3 AC 0D
+        JP ERROR                   ; $48BA  C3 AC 0D
 SUB_4868_11:
         DEFB    $23                                              ; $48BD
 SUB_48BE:
@@ -9705,9 +9705,9 @@ SUB_48BE_2:
         DEC D                            ; $48C8  15
         RET Z                            ; $48C9  C8
         LD A,(BC)                        ; $48CA  0A
-        CALL SUB_4291                    ; $48CB  CD 91 42
+        CALL OUTCHR                    ; $48CB  CD 91 42
         CP $0D                           ; $48CE  FE 0D
-        CALL Z,SUB_4410                  ; $48D0  CC 10 44
+        CALL Z,RESET_OUTPUT                  ; $48D0  CC 10 44
         INC BC                           ; $48D3  03
         JR SUB_48BE_2                    ; $48D4  18 F2
 SUB_48D6:
@@ -9724,7 +9724,7 @@ SUB_48D6_2:
         LD B,$FF                         ; $48E3  06 FF
         ADD HL,BC                        ; $48E5  09
         INC HL                           ; $48E6  23
-        CALL SUB_459D                    ; $48E7  CD 9D 45
+        CALL DCMP_HL_DE                    ; $48E7  CD 9D 45
         JR C,SUB_48D6_4                  ; $48EA  38 07
         LD (TPA_START_110),HL            ; $48EC  22 6B 0B
         INC HL                           ; $48EF  23
@@ -9735,12 +9735,12 @@ SUB_48D6_3:
 SUB_48D6_4:
         POP AF                           ; $48F3  F1
         LD DE,$000E                      ; $48F4  11 0E 00
-        JP Z,SUB_0CA8_61                 ; $48F7  CA AC 0D
+        JP Z,ERROR                 ; $48F7  CA AC 0D
         CP A                             ; $48FA  BF
         PUSH AF                          ; $48FB  F5
         LD BC,SUB_48D6_1+1               ; $48FC  01 D8 48
         PUSH BC                          ; $48FF  C5
-SUB_4900:
+GARBAG:
         LD HL,(TPA_START_104)            ; $4900  2A 46 0B
 SUB_4900_1:
         LD (TPA_START_110),HL            ; $4903  22 6B 0B
@@ -9753,7 +9753,7 @@ SUB_4900_2:
         EX DE,HL                         ; $4911  EB
         LD HL,(TPA_START_105)            ; $4912  2A 48 0B
         EX DE,HL                         ; $4915  EB
-        CALL SUB_459D                    ; $4916  CD 9D 45
+        CALL DCMP_HL_DE                    ; $4916  CD 9D 45
         LD BC,SUB_4900_2                 ; $4919  01 11 49
         JP NZ,SUB_4900_18                ; $491C  C2 A5 49
         LD HL,TPA_START_136              ; $491F  21 1C 0C
@@ -9765,7 +9765,7 @@ SUB_4900_3:
         EX DE,HL                         ; $492E  EB
         LD HL,(TPA_START_140)            ; $492F  2A 85 0C
         EX DE,HL                         ; $4932  EB
-        CALL SUB_459D                    ; $4933  CD 9D 45
+        CALL DCMP_HL_DE                    ; $4933  CD 9D 45
         JR Z,SUB_4900_9                  ; $4936  28 17
         LD A,(HL)                        ; $4938  7E
         INC HL                           ; $4939  23
@@ -9818,7 +9818,7 @@ SUB_4900_13:
         EX DE,HL                         ; $4970  EB
         LD HL,(TPA_START_130)            ; $4971  2A 96 0B
         EX DE,HL                         ; $4974  EB
-        CALL SUB_459D                    ; $4975  CD 9D 45
+        CALL DCMP_HL_DE                    ; $4975  CD 9D 45
         JP Z,SUB_49A6_3                  ; $4978  CA CA 49
         LD A,(HL)                        ; $497B  7E
         INC HL                           ; $497C  23
@@ -9849,7 +9849,7 @@ SUB_4900_17:
         EX DE,HL                         ; $4998  EB
         LD HL,(TPA_START_112)            ; $4999  2A 6F 0B
         EX DE,HL                         ; $499C  EB
-        CALL SUB_459D                    ; $499D  CD 9D 45
+        CALL DCMP_HL_DE                    ; $499D  CD 9D 45
         JR Z,SUB_4900_13                 ; $49A0  28 CE
         LD BC,SUB_4900_17                ; $49A2  01 98 49
 SUB_4900_18:
@@ -9866,14 +9866,14 @@ SUB_49A6:
         LD B,H                           ; $49AE  44
         LD C,L                           ; $49AF  4D
         LD HL,(TPA_START_110)            ; $49B0  2A 6B 0B
-        CALL SUB_459D                    ; $49B3  CD 9D 45
+        CALL DCMP_HL_DE                    ; $49B3  CD 9D 45
         LD H,B                           ; $49B6  60
         LD L,C                           ; $49B7  69
         RET C                            ; $49B8  D8
 SUB_49A6_1:
         POP HL                           ; $49B9  E1
         EX (SP),HL                       ; $49BA  E3
-        CALL SUB_459D                    ; $49BB  CD 9D 45
+        CALL DCMP_HL_DE                    ; $49BB  CD 9D 45
         EX (SP),HL                       ; $49BE  E3
         PUSH HL                          ; $49BF  E5
         LD H,B                           ; $49C0  60
@@ -9923,7 +9923,7 @@ SUB_49A6_5:
         PUSH HL                          ; $49EF  E5
         LD HL,(SUB_0CA8_21)              ; $49F0  2A D4 0C
         EX (SP),HL                       ; $49F3  E3
-        CALL SUB_1C11                    ; $49F4  CD 11 1C
+        CALL EVAL_OPERAND                    ; $49F4  CD 11 1C
         EX (SP),HL                       ; $49F7  E3
         CALL SUB_2CB3                    ; $49F8  CD B3 2C
         LD A,(HL)                        ; $49FB  7E
@@ -9933,7 +9933,7 @@ SUB_49A6_6:
         PUSH HL                          ; $4A00  E5
         ADD A,(HL)                       ; $4A01  86
         LD DE,$000F                      ; $4A02  11 0F 00
-        JP C,SUB_0CA8_61                 ; $4A05  DA AC 0D
+        JP C,ERROR                 ; $4A05  DA AC 0D
         CALL SUB_485A                    ; $4A08  CD 5A 48
         POP DE                           ; $4A0B  D1
         CALL SUB_4A3E                    ; $4A0C  CD 3E 4A
@@ -9984,7 +9984,7 @@ SUB_4A3E:
         DEC DE                           ; $4A46  1B
         LD C,(HL)                        ; $4A47  4E
         LD HL,(TPA_START_110)            ; $4A48  2A 6B 0B
-        CALL SUB_459D                    ; $4A4B  CD 9D 45
+        CALL DCMP_HL_DE                    ; $4A4B  CD 9D 45
         JR NZ,SUB_4A3E_1                 ; $4A4E  20 05
         LD B,A                           ; $4A50  47
         ADD HL,BC                        ; $4A51  09
@@ -9999,7 +9999,7 @@ SUB_4A57:
         DEC HL                           ; $4A5C  2B
         LD C,(HL)                        ; $4A5D  4E
         DEC HL                           ; $4A5E  2B
-        CALL SUB_459D                    ; $4A5F  CD 9D 45
+        CALL DCMP_HL_DE                    ; $4A5F  CD 9D 45
         RET NZ                           ; $4A62  C0
         LD (TPA_START_105),HL            ; $4A63  22 48 0B
 SUB_4A57_1:
@@ -10018,7 +10018,7 @@ SUB_4A6B_1:
         DEFB    $1E,$C5                                          ; $4A75
 SUB_4A77:
         CALL SUB_4A6B                    ; $4A77  CD 6B 4A
-        JP Z,SUB_14E4_2                  ; $4A7A  CA EB 14
+        JP Z,ERR_TYPE_MISMATCH                  ; $4A7A  CA EB 14
         INC HL                           ; $4A7D  23
         LD E,(HL)                        ; $4A7E  5E
         INC HL                           ; $4A7F  23
@@ -10035,15 +10035,15 @@ SUB_4A89_1:
         POP BC                           ; $4A8D  C1
         JP SUB_4868_9                    ; $4A8E  C3 98 48
 SUB_4A89_2:
-        CALL SUB_13E4                    ; $4A91  CD E4 13
-        CALL SUB_45A3                    ; $4A94  CD A3 45
+        CALL CHRGET                    ; $4A91  CD E4 13
+        CALL SYNCHR                    ; $4A94  CD A3 45
         JR Z,SUB_4A57_1                  ; $4A97  28 CD
         OR D                             ; $4A99  B2
         JR NZ,SUB_4A6B_1                 ; $4A9A  20 D5
-        CALL SUB_45A3                    ; $4A9C  CD A3 45
+        CALL SYNCHR                    ; $4A9C  CD A3 45
         INC L                            ; $4A9F  2C
         CALL SUB_1A8C_1+1                ; $4AA0  CD 90 1A
-        CALL SUB_45A3                    ; $4AA3  CD A3 45
+        CALL SYNCHR                    ; $4AA3  CD A3 45
         ADD HL,HL                        ; $4AA6  29
         EX (SP),HL                       ; $4AA7  E3
         PUSH HL                          ; $4AA8  E5
@@ -10095,7 +10095,7 @@ SUB_4ABF_1:
         DEFW    SUB_4868_9               ; $4B01
         DEFW    SUB_4ABF_1               ; $4B03
         DEFB    $4B,$D1,$D5,$1A,$90,$18,$CB,$EB,$7E,$CD,$4F,$4B,$04,$05,$CA ; $4B05
-        DEFW    SUB_14E4_2               ; $4B14
+        DEFW    ERR_TYPE_MISMATCH               ; $4B14
         DEFB    $C5                                              ; $4B16
         DEFW    SUB_5E2A_62              ; $4B17
         DEFB    $4C,$F1,$E3,$01,$DB,$4A,$C5,$3D,$BE,$06,$00,$D0,$4F,$7E,$91,$BB ; $4B19
@@ -10105,13 +10105,13 @@ SUB_4ABF_1:
         DEFW    SUB_4A6B                 ; $4B2E
         DEFW    SUB_4DC3_1               ; $4B30
         DEFB    $1E,$5F,$23,$7E,$23,$66,$6F,$E5,$19,$46,$72,$E3,$C5,$2B,$CD ; $4B32
-        DEFW    SUB_13E4                 ; $4B41
+        DEFW    CHRGET                 ; $4B41
         DEFB    $CD,$1E,$31,$C1,$E1,$70,$C9,$EB,$CD              ; $4B43
-        DEFW    SUB_45A3                 ; $4B4C
+        DEFW    SYNCHR                 ; $4B4C
         DEFB    $29,$C1,$D1,$C5,$43,$C9                          ; $4B4E
 SUB_4ABF_2:
-        CALL SUB_13E4                    ; $4B54  CD E4 13
-        CALL SUB_1A8C                    ; $4B57  CD 8C 1A
+        CALL CHRGET                    ; $4B54  CD E4 13
+        CALL FRMEVL                    ; $4B57  CD 8C 1A
         CALL SUB_1DE3                    ; $4B5A  CD E3 1D
         LD A,$01                         ; $4B5D  3E 01
         PUSH AF                          ; $4B5F  F5
@@ -10119,20 +10119,20 @@ SUB_4ABF_2:
         POP AF                           ; $4B62  F1
         CALL SUB_20B5                    ; $4B63  CD B5 20
         OR A                             ; $4B66  B7
-        JP Z,SUB_14E4_2                  ; $4B67  CA EB 14
+        JP Z,ERR_TYPE_MISMATCH                  ; $4B67  CA EB 14
         PUSH AF                          ; $4B6A  F5
-        CALL SUB_45A3                    ; $4B6B  CD A3 45
+        CALL SYNCHR                    ; $4B6B  CD A3 45
         INC L                            ; $4B6E  2C
         CALL SUB_1A8C_1+1                ; $4B6F  CD 90 1A
         CALL SUB_2CB3                    ; $4B72  CD B3 2C
 SUB_4ABF_3:
-        CALL SUB_45A3                    ; $4B75  CD A3 45
+        CALL SYNCHR                    ; $4B75  CD A3 45
         INC L                            ; $4B78  2C
         PUSH HL                          ; $4B79  E5
         LD HL,(SUB_0CA8_21)              ; $4B7A  2A D4 0C
         EX (SP),HL                       ; $4B7D  E3
         CALL SUB_1A8C_1+1                ; $4B7E  CD 90 1A
-        CALL SUB_45A3                    ; $4B81  CD A3 45
+        CALL SYNCHR                    ; $4B81  CD A3 45
         ADD HL,HL                        ; $4B84  29
         PUSH HL                          ; $4B85  E5
         CALL SUB_4A37                    ; $4B86  CD 37 4A
@@ -10218,7 +10218,7 @@ SUB_4ABF_9:
         DJNZ SUB_4ABF_5                  ; $4BDD  10 DD
         JR SUB_4ABF_7                    ; $4BDF  18 EC
 SUB_4ABF_10:
-        CALL SUB_45A3                    ; $4BE1  CD A3 45
+        CALL SYNCHR                    ; $4BE1  CD A3 45
         JR Z,SUB_4ABF_4                  ; $4BE4  28 CD
         OR E                             ; $4BE6  B3
         DEC SP                           ; $4BE7  3B
@@ -10231,10 +10231,10 @@ SUB_4ABF_10:
         INC HL                           ; $4BF0  23
         LD D,(HL)                        ; $4BF1  56
         LD HL,(TPA_START_130)            ; $4BF2  2A 96 0B
-        CALL SUB_459D                    ; $4BF5  CD 9D 45
+        CALL DCMP_HL_DE                    ; $4BF5  CD 9D 45
         JR C,SUB_4ABF_12                 ; $4BF8  38 12
         LD HL,(TPA_START_70)             ; $4BFA  2A 69 08
-        CALL SUB_459D                    ; $4BFD  CD 9D 45
+        CALL DCMP_HL_DE                    ; $4BFD  CD 9D 45
 SUB_4ABF_11:
         JR NC,SUB_4ABF_12                ; $4C00  30 0A
         POP HL                           ; $4C02  E1
@@ -10246,17 +10246,17 @@ SUB_4ABF_11:
 SUB_4ABF_12:
         POP HL                           ; $4C0C  E1
         EX (SP),HL                       ; $4C0D  E3
-        CALL SUB_45A3                    ; $4C0E  CD A3 45
+        CALL SYNCHR                    ; $4C0E  CD A3 45
         INC L                            ; $4C11  2C
         CALL SUB_20B2                    ; $4C12  CD B2 20
         OR A                             ; $4C15  B7
 SUB_4ABF_13:
-        JP Z,SUB_14E4_2                  ; $4C16  CA EB 14
+        JP Z,ERR_TYPE_MISMATCH                  ; $4C16  CA EB 14
         PUSH AF                          ; $4C19  F5
         LD A,(HL)                        ; $4C1A  7E
         CALL SUB_4C5F                    ; $4C1B  CD 5F 4C
         PUSH DE                          ; $4C1E  D5
-        CALL SUB_1A85                    ; $4C1F  CD 85 1A
+        CALL FRMEVL_REQVAL                    ; $4C1F  CD 85 1A
         PUSH HL                          ; $4C22  E5
         CALL SUB_4A37                    ; $4C23  CD 37 4A
         EX DE,HL                         ; $4C26  EB
@@ -10273,7 +10273,7 @@ SUB_4ABF_13:
         RET Z                            ; $4C33  C8
         LD A,(HL)                        ; $4C34  7E
         SUB B                            ; $4C35  90
-        JP C,SUB_14E4_2                  ; $4C36  DA EB 14
+        JP C,ERR_TYPE_MISMATCH                  ; $4C36  DA EB 14
         INC A                            ; $4C39  3C
         CP C                             ; $4C3A  B9
         JR C,SUB_4ABF_14                 ; $4C3B  38 01
@@ -10318,11 +10318,11 @@ SUB_4C5F:
         LD E,$FF                         ; $4C5F  1E FF
         CP $29                           ; $4C61  FE 29
         JR Z,SUB_4C5F_1                  ; $4C63  28 07
-        CALL SUB_45A3                    ; $4C65  CD A3 45
+        CALL SYNCHR                    ; $4C65  CD A3 45
         INC L                            ; $4C68  2C
         CALL SUB_20B2                    ; $4C69  CD B2 20
 SUB_4C5F_1:
-        CALL SUB_45A3                    ; $4C6C  CD A3 45
+        CALL SYNCHR                    ; $4C6C  CD A3 45
         ADD HL,HL                        ; $4C6F  29
         RET                              ; $4C70  C9
         DEFB    $CD                                              ; $4C71
@@ -10330,7 +10330,7 @@ SUB_4C5F_1:
         DEFB    $C2,$7D,$4C,$CD                                  ; $4C74
         DEFW    SUB_4A3A                 ; $4C78
         DEFB    $CD                                              ; $4C7A
-        DEFW    SUB_4900                 ; $4C7B
+        DEFW    GARBAG                 ; $4C7B
         DEFB    $2A                                              ; $4C7D
         DEFW    TPA_START_130            ; $4C7E
         DEFW    SUB_2AEB                 ; $4C80
@@ -10338,31 +10338,31 @@ SUB_4C5F_1:
         DEFW    SUB_3BB3_2               ; $4C84
         DEFW    SUB_3BB3_62              ; $4C86
         DEFB    $3F,$CD                                          ; $4C88
-        DEFW    SUB_4291                 ; $4C8A
+        DEFW    OUTCHR                 ; $4C8A
         DEFB    $3E,$20,$CD                                      ; $4C8C
-        DEFW    SUB_4291                 ; $4C8F
+        DEFW    OUTCHR                 ; $4C8F
         DEFB    $C3                                              ; $4C91
-        DEFW    SUB_4CA1                 ; $4C92
+        DEFW    INLIN                 ; $4C92
 SUB_4C5F_2:
-        CALL SUB_43A2                    ; $4C94  CD A2 43
+        CALL CONIN_POLL                    ; $4C94  CD A2 43
         CP $01                           ; $4C97  FE 01
         JP NZ,SUB_4CA1_9                 ; $4C99  C2 F0 4C
         LD (HL),$00                      ; $4C9C  36 00
         JR SUB_4CA1_2                    ; $4C9E  18 13
 SUB_4C5F_3:
         LD (HL),B                        ; $4CA0  70
-SUB_4CA1:
+INLIN:
         XOR A                            ; $4CA1  AF
         LD (TPA_START_57),A              ; $4CA2  32 57 08
         XOR A                            ; $4CA5  AF
         LD (SUB_0CA8_8),A                ; $4CA6  32 B6 0C
 SUB_4CA1_1:
         CALL SUB_4DBC                    ; $4CA9  CD BC 4D
-        CALL SUB_43A2                    ; $4CAC  CD A2 43
+        CALL CONIN_POLL                    ; $4CAC  CD A2 43
         CP $01                           ; $4CAF  FE 01
         JR NZ,SUB_4CA1_7                 ; $4CB1  20 32
 SUB_4CA1_2:
-        CALL SUB_4406                    ; $4CB3  CD 06 44
+        CALL PRINT_CRLF                    ; $4CB3  CD 06 44
         LD HL,$FFFF                      ; $4CB6  21 FF FF
         JP SUB_3EDB_10                   ; $4CB9  C3 05 3F
 SUB_4CA1_3:
@@ -10374,21 +10374,21 @@ SUB_4CA1_3:
 SUB_4CA1_4:
         DEC B                            ; $4CC7  05
         JR Z,SUB_4C5F_3                  ; $4CC8  28 D6
-        CALL SUB_4291                    ; $4CCA  CD 91 42
+        CALL OUTCHR                    ; $4CCA  CD 91 42
         INC B                            ; $4CCD  04
 SUB_4CA1_5:
         DEC B                            ; $4CCE  05
         DEC HL                           ; $4CCF  2B
         JR Z,SUB_4CA1_6                  ; $4CD0  28 0D
         LD A,(HL)                        ; $4CD2  7E
-        CALL SUB_4291                    ; $4CD3  CD 91 42
+        CALL OUTCHR                    ; $4CD3  CD 91 42
         JR SUB_4C5F_2                    ; $4CD6  18 BC
         DEFB    $05,$2B,$CD                                      ; $4CD8
-        DEFW    SUB_4291                 ; $4CDB
+        DEFW    OUTCHR                 ; $4CDB
         DEFB    $20,$B5                                          ; $4CDD
 SUB_4CA1_6:
-        CALL SUB_4291                    ; $4CDF  CD 91 42
-        CALL SUB_4406                    ; $4CE2  CD 06 44
+        CALL OUTCHR                    ; $4CDF  CD 91 42
+        CALL PRINT_CRLF                    ; $4CE2  CD 06 44
 SUB_4CA1_7:
         LD HL,TPA_START_90               ; $4CE5  21 31 0A
         LD B,$01                         ; $4CE8  06 01
@@ -10405,7 +10405,7 @@ SUB_4CA1_9:
         OR A                             ; $4CF8  B7
         JR Z,SUB_4CA1_12                 ; $4CF9  28 09
         LD A,$5C                         ; $4CFB  3E 5C
-        CALL SUB_4291                    ; $4CFD  CD 91 42
+        CALL OUTCHR                    ; $4CFD  CD 91 42
 SUB_4CA1_10:
         XOR A                            ; $4D00  AF
 SUB_4CA1_11:
@@ -10426,13 +10426,13 @@ SUB_4CA1_13:
         CP $0A                           ; $4D19  FE 0A
         JR NZ,SUB_4CA1_14                ; $4D1B  20 07
         DEC B                            ; $4D1D  05
-        JP Z,SUB_4CA1                    ; $4D1E  CA A1 4C
+        JP Z,INLIN                    ; $4D1E  CA A1 4C
         INC B                            ; $4D21  04
         JR SUB_4CA1_20                   ; $4D22  18 3D
 SUB_4CA1_14:
         CP $15                           ; $4D24  FE 15
         CALL Z,SUB_4610                  ; $4D26  CC 10 46
-        JP Z,SUB_4CA1                    ; $4D29  CA A1 4C
+        JP Z,INLIN                    ; $4D29  CA A1 4C
         CP $08                           ; $4D2C  FE 08
         JR NZ,SUB_4CA1_15                ; $4D2E  20 0A
         DEC B                            ; $4D30  05
@@ -10453,7 +10453,7 @@ SUB_4CA1_17:
         PUSH HL                          ; $4D4A  E5
         LD (HL),$00                      ; $4D4B  36 00
 SUB_4CA1_18:
-        CALL SUB_4406                    ; $4D4D  CD 06 44
+        CALL PRINT_CRLF                    ; $4D4D  CD 06 44
         LD HL,TPA_START_90               ; $4D50  21 31 0A
         CALL SUB_211B                    ; $4D53  CD 1B 21
         POP HL                           ; $4D56  E1
@@ -10475,9 +10475,9 @@ SUB_4CA1_20:
         LD A,$07                         ; $4D6C  3E 07
         JR Z,SUB_4CA1_22                 ; $4D6E  28 11
         LD HL,TPA_START_90               ; $4D70  21 31 0A
-        CALL SUB_14FB                    ; $4D73  CD FB 14
+        CALL LINGET                    ; $4D73  CD FB 14
         EX DE,HL                         ; $4D76  EB
-        LD (TPA_START_69),HL             ; $4D77  22 67 08
+        LD (CURLIN),HL             ; $4D77  22 67 08
         JP SUB_124F_1                    ; $4D7A  C3 55 12
 SUB_4CA1_21:
         LD A,C                           ; $4D7D  79
@@ -10485,14 +10485,14 @@ SUB_4CA1_21:
         INC HL                           ; $4D7F  23
         INC B                            ; $4D80  04
 SUB_4CA1_22:
-        CALL SUB_4291                    ; $4D81  CD 91 42
+        CALL OUTCHR                    ; $4D81  CD 91 42
         SUB $0A                          ; $4D84  D6 0A
         JP NZ,SUB_4C5F_2                 ; $4D86  C2 94 4C
         LD (TPA_START_93),A              ; $4D89  32 34 0B
         LD A,$0D                         ; $4D8C  3E 0D
-        CALL SUB_4291                    ; $4D8E  CD 91 42
+        CALL OUTCHR                    ; $4D8E  CD 91 42
 SUB_4CA1_23:
-        CALL SUB_43A2                    ; $4D91  CD A2 43
+        CALL CONIN_POLL                    ; $4D91  CD A2 43
         OR A                             ; $4D94  B7
         JR Z,SUB_4CA1_23                 ; $4D95  28 FA
         CP $0D                           ; $4D97  FE 0D
@@ -10514,7 +10514,7 @@ SUB_4CA1_24:
         DEFW    SUB_3289_10              ; $4DB5
         DEFW    SUB_0CA8_8               ; $4DB7
         DEFB    $C3                                              ; $4DB9
-        DEFW    SUB_13E4                 ; $4DBA
+        DEFW    CHRGET                 ; $4DBA
 SUB_4DBC:
         LD A,(TPA_START_93)              ; $4DBC  3A 34 0B
         LD (SUB_4E06_2),A                ; $4DBF  32 1B 4E
@@ -10531,7 +10531,7 @@ SUB_4DC3_1:
         LD HL,TPA_START_90               ; $4DCD  21 31 0A
 SUB_4DC3_2:
         LD A,(HL)                        ; $4DD0  7E
-        CALL SUB_4291                    ; $4DD1  CD 91 42
+        CALL OUTCHR                    ; $4DD1  CD 91 42
         INC HL                           ; $4DD4  23
         DJNZ SUB_4DC3_2                  ; $4DD5  10 F9
 SUB_4DC3_3:
@@ -10578,44 +10578,44 @@ SUB_4E06:
         LD B,A                           ; $4E07  47
 SUB_4E06_1:
         LD A,$08                         ; $4E08  3E 08
-        CALL SUB_4291                    ; $4E0A  CD 91 42
+        CALL OUTCHR                    ; $4E0A  CD 91 42
         LD A,$20                         ; $4E0D  3E 20
-        CALL SUB_4291                    ; $4E0F  CD 91 42
+        CALL OUTCHR                    ; $4E0F  CD 91 42
         LD A,$08                         ; $4E12  3E 08
-        CALL SUB_4291                    ; $4E14  CD 91 42
+        CALL OUTCHR                    ; $4E14  CD 91 42
         DJNZ SUB_4E06_1                  ; $4E17  10 EF
         POP BC                           ; $4E19  C1
         RET                              ; $4E1A  C9
 SUB_4E06_2:
         DEFW    SUB_21FC_1               ; $4E1B
         DEFB    $71,$0B,$CD,$CD,$24,$CD                          ; $4E1D
-        DEFW    SUB_13E4                 ; $4E23
+        DEFW    CHRGET                 ; $4E23
         DEFB    $EB,$CD,$80,$4E,$33,$33,$20,$05,$09,$F9,$22      ; $4E25
         DEFW    TPA_START_120            ; $4E30
         DEFB    $2A                                              ; $4E32
-        DEFW    TPA_START_69             ; $4E33
+        DEFW    CURLIN             ; $4E33
         DEFB    $E5,$2A,$71,$0B,$E5,$D5,$18,$24,$C2              ; $4E35
         DEFW    SUB_0CA8_54              ; $4E3E
         DEFB    $EB,$CD,$80,$4E,$C2,$A8,$4E,$F9,$22              ; $4E40
         DEFW    TPA_START_120            ; $4E49
         DEFW    SUB_2AEB                 ; $4E4B
-        DEFW    TPA_START_69             ; $4E4D
+        DEFW    CURLIN             ; $4E4D
         DEFB    $22,$94,$0C                                      ; $4E4F
         DEFW    SUB_22E1_10              ; $4E52
         DEFB    $23,$5E,$23,$56,$23,$7E,$23,$66,$6F,$22          ; $4E54
-        DEFW    TPA_START_69             ; $4E5E
+        DEFW    CURLIN             ; $4E5E
         DEFB    $EB,$CD                                          ; $4E60
         DEFW    SUB_1A8C_1+1             ; $4E62
         DEFB    $E5,$CD                                          ; $4E64
         DEFW    SUB_2B06                 ; $4E66
-        DEFW    SUB_28E1                 ; $4E68
+        DEFW    FAC_NEGATE_MANT                 ; $4E68
         DEFB    $09,$01,$AF,$00,$41,$C5,$33,$C3                  ; $4E6A
-        DEFW    SUB_129A_2               ; $4E72
+        DEFW    NEWSTT               ; $4E72
         DEFB    $2A,$94                                          ; $4E74
         DEFW    SUB_21FC_4               ; $4E76
-        DEFW    TPA_START_69             ; $4E78
+        DEFW    CURLIN             ; $4E78
         DEFB    $E1,$F1,$F1,$C3                                  ; $4E7A
-        DEFW    SUB_129A_2               ; $4E7E
+        DEFW    NEWSTT               ; $4E7E
         DEFB    $21,$04                                          ; $4E80
         DEFW    SUB_3809_23              ; $4E82
         DEFB    $7E                                              ; $4E84
@@ -10625,43 +10625,43 @@ SUB_4E06_2:
         DEFB    $10,$00,$09,$18,$F2,$01,$AF,$00,$B9,$C0,$E5,$4E  ; $4E8D
         DEFW    SUB_4610_3               ; $4E99
         DEFB    $60,$69,$CD                                      ; $4E9B
-        DEFW    SUB_459D                 ; $4E9E
+        DEFW    DCMP_HL_DE                 ; $4E9E
         DEFB    $E1,$01,$06,$00,$C8,$09,$18,$DC,$11,$1E,$00,$C3  ; $4EA0
-        DEFW    SUB_0CA8_61              ; $4EAC
+        DEFW    ERROR              ; $4EAC
         DEFB    $3E,$80,$32                                      ; $4EAE
         DEFW    TPA_START_113            ; $4EB1
         DEFB    $7E,$FE,$25,$F5,$CC                              ; $4EB3
-        DEFW    SUB_13E4                 ; $4EB8
+        DEFW    CHRGET                 ; $4EB8
         DEFB    $CD                                              ; $4EBA
-        DEFW    SUB_3BB3                 ; $4EBB
+        DEFW    PTRGET                 ; $4EBB
         DEFB    $E3,$E5,$EB,$CD                                  ; $4EBD
         DEFW    SUB_1DE3                 ; $4EC1
         DEFB    $CD                                              ; $4EC3
         DEFW    SUB_2B6A                 ; $4EC4
         DEFB    $CD                                              ; $4EC6
-        DEFW    SUB_2BF4                 ; $4EC7
+        DEFW    FP_INT                 ; $4EC7
         DEFB    $22                                              ; $4EC9
         DEFW    SUB_0CA8_8               ; $4ECA
         DEFB    $F1,$CA,$9E,$27,$0E,$20,$CD                      ; $4ECC
-        DEFW    SUB_449F                 ; $4ED3
+        DEFW    CHECK_STACK                 ; $4ED3
         DEFW    SUB_2124_25              ; $4ED5
         DEFB    $C0,$FF,$39,$F9                                  ; $4ED7
         DEFW    SUB_0CA8_85              ; $4EDB
         DEFB    $20,$2B,$CD                                      ; $4EDD
-        DEFW    SUB_13E4                 ; $4EE0
+        DEFW    CHRGET                 ; $4EE0
         DEFB    $22                                              ; $4EE2
         DEFW    TPA_START_114            ; $4EE3
         DEFB    $28,$3B,$CD                                      ; $4EE5
-        DEFW    SUB_45A3                 ; $4EE8
+        DEFW    SYNCHR                 ; $4EE8
         DEFB    $28,$C5,$D5,$CD                                  ; $4EEA
-        DEFW    SUB_3BB3                 ; $4EEE
+        DEFW    PTRGET                 ; $4EEE
         DEFB    $E3,$73,$23,$72,$23,$E3,$D1,$C1,$7E,$FE          ; $4EF0
         DEFW    SUB_201A_5               ; $4EFA
         DEFW    SUB_0CA8_33              ; $4EFC
         DEFB    $CD                                              ; $4EFE
-        DEFW    SUB_13E4                 ; $4EFF
+        DEFW    CHRGET                 ; $4EFF
         DEFB    $18,$E8,$CD                                      ; $4F01
-        DEFW    SUB_45A3                 ; $4F04
+        DEFW    SYNCHR                 ; $4F04
         DEFB    $29,$22                                          ; $4F06
         DEFW    TPA_START_114            ; $4F08
         DEFW    SUB_2124_4               ; $4F0A
@@ -10684,7 +10684,7 @@ SUB_4E06_2:
         DEFB    $F9,$2A                                          ; $4F30
         DEFW    TPA_START_114            ; $4F32
         DEFB    $C3                                              ; $4F34
-        DEFW    SUB_129A_2               ; $4F35
+        DEFW    NEWSTT               ; $4F35
         DEFB    $AF,$32                                          ; $4F37
         DEFW    SUB_0CA8_12              ; $4F39
         DEFB    $32,$BE,$0C,$7E,$11,$BE,$00                      ; $4F3B
@@ -10693,7 +10693,7 @@ SUB_4E06_2:
         DEFW    SUB_0CA8_12              ; $4F46
         DEFW    SUB_2B18_1               ; $4F48
         DEFB    $CD                                              ; $4F4A
-        DEFW    SUB_13E4                 ; $4F4B
+        DEFW    CHRGET                 ; $4F4B
         DEFB    $CD                                              ; $4F4D
         DEFW    SUB_53F7                 ; $4F4E
         DEFB    $E5,$21,$00                                      ; $4F50
@@ -10701,9 +10701,9 @@ SUB_4E06_2:
         DEFW    SUB_0CA8_14              ; $4F55
         DEFW    SUB_2BBE_6               ; $4F57
         DEFB    $CD                                              ; $4F59
-        DEFW    SUB_13E4                 ; $4F5A
+        DEFW    CHRGET                 ; $4F5A
         DEFB    $CA,$C5,$4F,$CD                                  ; $4F5C
-        DEFW    SUB_45A3                 ; $4F60
+        DEFW    SYNCHR                 ; $4F60
         DEFB    $2C,$FE,$2C                                      ; $4F62
         DEFW    SUB_101B_14              ; $4F65
         DEFB    $CD                                              ; $4F67
@@ -10714,56 +10714,56 @@ SUB_4E06_2:
         DEFW    SUB_0CA8_14              ; $4F6F
         DEFW    SUB_2BBE_6               ; $4F71
         DEFB    $CD                                              ; $4F73
-        DEFW    SUB_13E4                 ; $4F74
+        DEFW    CHRGET                 ; $4F74
         DEFB    $28,$4D,$CD                                      ; $4F76
-        DEFW    SUB_45A3                 ; $4F79
+        DEFW    SYNCHR                 ; $4F79
         DEFW    SUB_101B_15              ; $4F7B
         DEFB    $A6,$00                                          ; $4F7D
         DEFW    SUB_2874_20              ; $4F7F
         DEFB    $18,$CD                                          ; $4F81
-        DEFW    SUB_45A3                 ; $4F83
+        DEFW    SYNCHR                 ; $4F83
         DEFB    $41,$CD                                          ; $4F85
-        DEFW    SUB_45A3                 ; $4F87
+        DEFW    SYNCHR                 ; $4F87
         DEFB    $4C,$CD                                          ; $4F89
-        DEFW    SUB_45A3                 ; $4F8B
+        DEFW    SYNCHR                 ; $4F8B
         DEFB    $4C,$CA,$E9,$50,$CD                              ; $4F8D
-        DEFW    SUB_45A3                 ; $4F92
+        DEFW    SYNCHR                 ; $4F92
         DEFB    $2C,$BB,$C2                                      ; $4F94
         DEFW    SUB_0CA8_54              ; $4F97
         DEFB    $B7,$F5,$32,$BE,$0C,$CD                          ; $4F99
-        DEFW    SUB_13E4                 ; $4F9F
+        DEFW    CHRGET                 ; $4F9F
         DEFB    $CD,$84,$0F,$C5,$CD                              ; $4FA1
         DEFW    SUB_2426                 ; $4FA6
         DEFB    $C1,$D1,$C5,$60,$69,$22,$C1,$0C,$CD              ; $4FA8
-        DEFW    SUB_0FAB                 ; $4FB1
+        DEFW    FNDLIN                 ; $4FB1
         DEFB    $30                                              ; $4FB3
         DEFW    SUB_53F7_4               ; $4FB4
         DEFB    $5D,$22,$BF,$0C,$E1,$CD                          ; $4FB6
-        DEFW    SUB_459D                 ; $4FBC
+        DEFW    DCMP_HL_DE                 ; $4FBC
         DEFB    $D2                                              ; $4FBE
-        DEFW    SUB_14E4_2               ; $4FBF
+        DEFW    ERR_TYPE_MISMATCH               ; $4FBF
         DEFB    $F1,$C2,$E9,$50,$2A                              ; $4FC1
         DEFW    TPA_START_70             ; $4FC6
         DEFB    $2B,$23,$7E,$23,$B6,$CA,$75,$50,$23,$5E,$23,$56,$EB,$22 ; $4FC8
-        DEFW    TPA_START_69             ; $4FD6
+        DEFW    CURLIN             ; $4FD6
         DEFB    $EB,$CD                                          ; $4FD8
-        DEFW    SUB_13E4                 ; $4FDA
+        DEFW    CHRGET                 ; $4FDA
         DEFW    SUB_2874_18              ; $4FDC
         DEFB    $EA,$FE,$3A,$28,$F6,$11,$B3,$00                  ; $4FDE
         DEFW    SUB_2874_20              ; $4FE6
         DEFB    $09,$CD                                          ; $4FE8
-        DEFW    SUB_13E4                 ; $4FEA
+        DEFW    CHRGET                 ; $4FEA
         DEFB    $CD,$CF                                          ; $4FEC
         DEFW    SUB_2B06_2               ; $4FEE
         DEFB    $18,$E7,$CD                                      ; $4FF0
-        DEFW    SUB_13E4                 ; $4FF3
+        DEFW    CHRGET                 ; $4FF3
         DEFB    $28,$E5                                          ; $4FF5
         DEFW    SUB_3EDB_3               ; $4FF7
 SUB_4E06_3:
         DEFW    SUB_31F3_2               ; $4FF9
         DEFW    TPA_START_113            ; $4FFB
         DEFB    $CD                                              ; $4FFD
-        DEFW    SUB_3BB3                 ; $4FFE
+        DEFW    PTRGET                 ; $4FFE
         DEFB    $28,$48,$78,$F6,$80                              ; $5000  "(Hxv"
         DEFB    $47,$AF,$CD                                      ; $5005
         DEFW    SUB_3BB3_46+1            ; $5008
@@ -10775,9 +10775,9 @@ SUB_4E06_3:
         DEFB    $20,$09,$F1,$18,$4B,$7E                          ; $5014
         DEFW    SUB_28F5_2               ; $501A
         DEFB    $CA                                              ; $501C
-        DEFW    SUB_14E4_2               ; $501D
+        DEFW    ERR_TYPE_MISMATCH               ; $501D
         DEFB    $E1,$CD                                          ; $501F
-        DEFW    SUB_3BB3                 ; $5021
+        DEFW    PTRGET                 ; $5021
 SUB_4E06_4:
         DEFB    $7A,$B3,$20,$10,$78,$F6,$80                      ; $5023
         DEFW    SUB_3A18_6               ; $502A
@@ -10786,7 +10786,7 @@ SUB_4E06_4:
         DEFW    SUB_3BB3_11              ; $5030
 SUB_4E06_5:
         DEFB    $7A,$B3,$CA                                      ; $5032
-        DEFW    SUB_14E4_2               ; $5035
+        DEFW    ERR_TYPE_MISMATCH               ; $5035
         DEFW    SUB_4291_6               ; $5037
         DEFB    $4B                                              ; $5039
         DEFW    SUB_5810_2               ; $503A
@@ -10799,22 +10799,22 @@ SUB_4E06_5:
         DEFB    $50                                              ; $5057
         DEFW    SUB_2BBE_6               ; $5058
         DEFB    $CD                                              ; $505A
-        DEFW    SUB_13E4                 ; $505B
+        DEFW    CHRGET                 ; $505B
         DEFB    $CA,$DC,$4F                                      ; $505D
         DEFW    SUB_28F5_2               ; $5060
         DEFB    $20,$0A,$CD                                      ; $5062
-        DEFW    SUB_13E4                 ; $5065
+        DEFW    CHRGET                 ; $5065
         DEFB    $CD                                              ; $5067
-        DEFW    SUB_45A3                 ; $5068
+        DEFW    SYNCHR                 ; $5068
         DEFB    $29,$CA,$DC,$4F,$CD                              ; $506A
-        DEFW    SUB_45A3                 ; $506F
+        DEFW    SYNCHR                 ; $506F
         DEFB    $2C,$C3,$F7                                      ; $5071
         DEFW    SUB_29E8_15              ; $5074
         DEFW    TPA_START_129            ; $5076
         DEFW    SUB_2AEB                 ; $5078
         DEFW    TPA_START_128            ; $507A
         DEFB    $CD                                              ; $507C
-        DEFW    SUB_459D                 ; $507D
+        DEFW    DCMP_HL_DE                 ; $507D
         DEFW    SUB_3FF9_7               ; $507F
         DEFB    $E5,$4E,$23,$23,$7E,$B7,$F5,$E6,$7F,$77,$23,$CD  ; $5081
         DEFW    SUB_3EA3                 ; $508D
@@ -10826,7 +10826,7 @@ SUB_4E06_5:
         DEFW    SUB_2AEB                 ; $50A6
         DEFW    TPA_START_130            ; $50A8
         DEFB    $CD                                              ; $50AA
-        DEFW    SUB_459D                 ; $50AB
+        DEFW    DCMP_HL_DE                 ; $50AB
         DEFW    TPA_START_31             ; $50AD
         DEFB    $13                                              ; $50AF
         DEFW    SUB_1E72_24              ; $50B0
@@ -10837,7 +10837,7 @@ SUB_4E06_5:
         DEFW    SUB_2AC5_2               ; $50C0
         DEFW    TPA_START_130            ; $50C2
         DEFB    $EB,$CD                                          ; $50C4
-        DEFW    SUB_459D                 ; $50C6
+        DEFW    DCMP_HL_DE                 ; $50C6
         DEFW    SUB_1E72_11              ; $50C8
         DEFB    $E5,$23,$23,$7E,$B7,$F5,$E6,$7F,$77,$23,$CD      ; $50CA
         DEFW    SUB_3EA3                 ; $50D5
@@ -10849,7 +10849,7 @@ SUB_4E06_5:
         DEFW    SUB_2AEB                 ; $50EC
         DEFW    TPA_START_129            ; $50EE
         DEFB    $EB,$CD                                          ; $50F0
-        DEFW    SUB_459D                 ; $50F2
+        DEFW    DCMP_HL_DE                 ; $50F2
         DEFB    $28,$18,$7E,$23,$23,$23,$F5,$CD                  ; $50F4
         DEFW    SUB_3EA3                 ; $50FC
         DEFB    $F1,$FE                                          ; $50FE
@@ -10862,7 +10862,7 @@ SUB_4E06_5:
         DEFW    SUB_2AEB                 ; $510E
         DEFW    TPA_START_130            ; $5110
         DEFB    $EB,$CD                                          ; $5112
-        DEFW    SUB_459D                 ; $5114
+        DEFW    DCMP_HL_DE                 ; $5114
         DEFB    $28,$55,$7E,$23,$23,$F5,$23,$CD                  ; $5116
         DEFW    SUB_3EA3                 ; $511E
         DEFB    $4E                                              ; $5120
@@ -10875,21 +10875,21 @@ SUB_4E06_5:
         DEFW    SUB_2AEB                 ; $5135
         DEFW    TPA_START_111            ; $5137
         DEFB    $EB,$CD                                          ; $5139
-        DEFW    SUB_459D                 ; $513B
+        DEFW    DCMP_HL_DE                 ; $513B
         DEFB    $28,$CF,$01,$35,$51,$C5,$AF,$B6,$23,$5E,$23,$56,$23,$C8,$E5,$2A ; $513D
         DEFW    TPA_START_128            ; $514D
         DEFB    $CD                                              ; $514F
-        DEFW    SUB_459D                 ; $5150
+        DEFW    DCMP_HL_DE                 ; $5150
         DEFB    $E1,$D8,$E5,$2A                                  ; $5152
         DEFW    TPA_START_70             ; $5156
         DEFB    $CD                                              ; $5158
-        DEFW    SUB_459D                 ; $5159
+        DEFW    DCMP_HL_DE                 ; $5159
         DEFB    $E1,$D0,$E5,$2B,$2B,$2B,$E5                      ; $515B
         DEFW    SUB_44C2_2               ; $5162
         DEFB    $48,$E1,$06,$03                                  ; $5164
         DEFW    SUB_4ABF_7               ; $5168
         DEFB    $2B,$E1,$C9,$CD                                  ; $516A
-        DEFW    SUB_4900                 ; $516E
+        DEFW    GARBAG                 ; $516E
         DEFB    $2A                                              ; $5170
         DEFW    TPA_START_130            ; $5171
         DEFW    SUB_4CA1_17              ; $5173
@@ -10914,7 +10914,7 @@ SUB_4E06_5:
         DEFB    $2A,$BF,$0C,$CD                                  ; $519F
         DEFW    SUB_22AF                 ; $51A3
         DEFB    $CD                                              ; $51A5
-        DEFW    SUB_0F5C                 ; $51A6
+        DEFW    RELINK_PROGRAM                 ; $51A6
         DEFW    TPA_START_16             ; $51A8
         DEFB    $32                                              ; $51AA
         DEFW    SUB_0CA8_13              ; $51AB
@@ -10943,7 +10943,7 @@ SUB_4E06_6:
         LD HL,(SUB_0CA8_9)               ; $51D5  2A B8 0C
         LD (TPA_START_110),HL            ; $51D8  22 6B 0B
 SUB_4E06_7:
-        CALL SUB_459D                    ; $51DB  CD 9D 45
+        CALL DCMP_HL_DE                    ; $51DB  CD 9D 45
         LD A,(DE)                        ; $51DE  1A
         LD (BC),A                        ; $51DF  02
         INC DE                           ; $51E0  13
@@ -10959,20 +10959,20 @@ SUB_4E06_7:
         EX DE,HL                         ; $51EF  EB
         LD HL,(TPA_START_70)             ; $51F0  2A 69 08
         DEC HL                           ; $51F3  2B
-        JP Z,SUB_129A_2                  ; $51F4  CA 86 13
-        CALL SUB_0FAB                    ; $51F7  CD AB 0F
-        JP NC,SUB_1506_6                 ; $51FA  D2 91 15
+        JP Z,NEWSTT                  ; $51F4  CA 86 13
+        CALL FNDLIN                    ; $51F7  CD AB 0F
+        JP NC,ERR_SYNTAX                 ; $51FA  D2 91 15
         DEC BC                           ; $51FD  0B
         LD H,B                           ; $51FE  60
         LD L,C                           ; $51FF  69
 SUB_4E06_8:
-        JP SUB_129A_2                    ; $5200  C3 86 13
+        JP NEWSTT                    ; $5200  C3 86 13
         DEFB    $C3,$CF,$15                                      ; $5203
         DEFW    TPA_START_29             ; $5206
         DEFB    $CD,$8D                                          ; $5208
         DEFW    SUB_2B52                 ; $520A
         DEFB    $CD                                              ; $520C
-        DEFW    SUB_13E4                 ; $520D
+        DEFW    CHRGET                 ; $520D
         DEFB    $28,$4D,$CD                                      ; $520F
         DEFW    SUB_1A8C_1+1             ; $5212
         DEFB    $E5,$CD                                          ; $5214
@@ -10993,25 +10993,25 @@ SUB_4E06_8:
         DEFW    SUB_48BE_1               ; $5233
         DEFW    SUB_2BBE_6               ; $5235
         DEFB    $CD                                              ; $5237
-        DEFW    SUB_13E4                 ; $5238
+        DEFW    CHRGET                 ; $5238
         DEFB    $28,$22                                          ; $523A
         DEFW    SUB_3BB3_7               ; $523C
         DEFB    $28,$05,$CD                                      ; $523E
-        DEFW    SUB_45A3                 ; $5241
+        DEFW    SYNCHR                 ; $5241
         DEFW    SUB_2B28_2               ; $5243
         DEFB    $CD                                              ; $5245
-        DEFW    SUB_13E4                 ; $5246
+        DEFW    CHRGET                 ; $5246
         DEFW    SUB_2BF4_8               ; $5248
         DEFB    $CD                                              ; $524A
-        DEFW    SUB_4291                 ; $524B
+        DEFW    OUTCHR                 ; $524B
         DEFB    $18                                              ; $524D
         DEFW    SUB_3EC0_1               ; $524E
         DEFB    $22,$CD                                          ; $5250
-        DEFW    SUB_4291                 ; $5252
+        DEFW    OUTCHR                 ; $5252
         DEFB    $CD                                              ; $5254
         DEFW    SUB_48BE_1               ; $5255
         DEFB    $3E,$22,$CD                                      ; $5257
-        DEFW    SUB_4291                 ; $525A
+        DEFW    OUTCHR                 ; $525A
         DEFB    $18,$D7,$E5,$2A                                  ; $525C
         DEFW    TPA_START_67             ; $5260
         DEFB    $7C,$B5,$28,$1E,$7E,$FE                          ; $5262
@@ -11021,13 +11021,13 @@ SUB_4E06_8:
         DEFB    $7D,$93,$6F,$7C,$9A,$67,$11,$FE,$FF,$19          ; $526E
         DEFW    TPA_START_89             ; $5278
         DEFB    $3E,$20,$CD                                      ; $527A
-        DEFW    SUB_4291                 ; $527D
+        DEFW    OUTCHR                 ; $527D
         DEFB    $2B,$7C                                          ; $527F
         DEFW    SUB_20B5                 ; $5281
         DEFB    $F6,$E1,$CD                                      ; $5283
-        DEFW    SUB_4406                 ; $5286
+        DEFW    PRINT_CRLF                 ; $5286
         DEFB    $C3                                              ; $5288
-        DEFW    SUB_189A                 ; $5289
+        DEFW    RESET_INPUT_STATE                 ; $5289
         DEFW    TPA_START_5              ; $528B
         DEFB    $FE,$23,$C0,$C5,$CD                              ; $528D
         DEFW    SUB_52A9                 ; $5292
@@ -11036,7 +11036,7 @@ SUB_4E06_8:
         DEFB    $05,$FE,$03,$C2                                  ; $5297
         DEFW    SUB_0CA8_46+1            ; $529B
         DEFB    $CD                                              ; $529D
-        DEFW    SUB_45A3                 ; $529E
+        DEFW    SYNCHR                 ; $529E
         DEFB    $2C                                              ; $52A0
 SUB_52A1:
         EX DE,HL                         ; $52A1  EB
@@ -11049,9 +11049,9 @@ SUB_52A1_2:
         RET                              ; $52A8  C9
 SUB_52A9:
         DEC HL                           ; $52A9  2B
-        CALL SUB_13E4                    ; $52AA  CD E4 13
+        CALL CHRGET                    ; $52AA  CD E4 13
         CP $23                           ; $52AD  FE 23
-        CALL Z,SUB_13E4                  ; $52AF  CC E4 13
+        CALL Z,CHRGET                  ; $52AF  CC E4 13
         CALL SUB_1A8C_1+1                ; $52B2  CD 90 1A
 SUB_52A9_1:
         CALL SUB_20B5                    ; $52B5  CD B5 20
@@ -11107,7 +11107,7 @@ SUB_52CF_1:
         DEFB    $07,$F5                                          ; $52FF
         DEFW    SUB_3777_4               ; $5301
         DEFB    $4A,$F1,$BE,$D2                                  ; $5303
-        DEFW    SUB_14E4_2               ; $5307
+        DEFW    ERR_TYPE_MISMATCH               ; $5307
         DEFB    $3C,$23,$4E,$23,$66,$69,$32                      ; $5309
         DEFW    TPA_START_96             ; $5310
         DEFB    $C3                                              ; $5312
@@ -11121,11 +11121,11 @@ SUB_52CF_1:
         DEFW    SUB_58FE_8               ; $531F
         DEFW    SUB_13E5_5               ; $5321
         DEFB    $CD,$8B,$52,$CD                                  ; $5323
-        DEFW    SUB_3BB3                 ; $5327
+        DEFW    PTRGET                 ; $5327
         DEFB    $CD                                              ; $5329
         DEFW    SUB_2CB3                 ; $532A
         DEFB    $01                                              ; $532C
-        DEFW    SUB_189A                 ; $532D
+        DEFW    RESET_INPUT_STATE                 ; $532D
         DEFB    $C5,$D5,$01,$F1,$15,$AF                          ; $532F
         DEFW    SUB_5E2A_52              ; $5335
         DEFB    $F5,$C5,$E5,$CD                                  ; $5337
@@ -11183,7 +11183,7 @@ SUB_52CF_1:
         DEFB    $E1,$C9,$CD                                      ; $53DA
         DEFW    SUB_1DE3                 ; $53DD
         DEFB    $F5,$CD                                          ; $53DF
-        DEFW    SUB_13E4                 ; $53E1
+        DEFW    CHRGET                 ; $53E1
         DEFB    $F1,$F5,$DC                                      ; $53E3
         DEFW    SUB_3125                 ; $53E6
         DEFB    $F1                                              ; $53E8
@@ -11203,11 +11203,11 @@ SUB_53F7_3:
         LD (TPA_START_73),A              ; $5406  32 6E 08
 SUB_53F7_4:
         DEC HL                           ; $5409  2B
-        CALL SUB_13E4                    ; $540A  CD E4 13
+        CALL CHRGET                    ; $540A  CD E4 13
         JR Z,SUB_53F7_6+1                ; $540D  28 11
-        CALL SUB_45A3                    ; $540F  CD A3 45
+        CALL SYNCHR                    ; $540F  CD A3 45
         INC L                            ; $5412  2C
-        CALL SUB_45A3                    ; $5413  CD A3 45
+        CALL SYNCHR                    ; $5413  CD A3 45
         LD D,D                           ; $5416  52
         JP NZ,SUB_0CA8_54                ; $5417  C2 92 0D
         POP AF                           ; $541A  F1
@@ -11220,13 +11220,13 @@ SUB_53F7_6:
         LD HL,DEFAULT_DMA                ; $5424  21 80 00
         LD (HL),$00                      ; $5427  36 00
         LD (TPA_START_75),HL             ; $5429  22 73 08
-        CALL SUB_44F5                    ; $542C  CD F5 44
+        CALL DO_NEW                    ; $542C  CD F5 44
         LD A,(TPA_START_73)              ; $542F  3A 6E 08
         LD (TPA_START_76),A              ; $5432  32 93 08
         LD HL,(TPA_START_74)             ; $5435  2A 71 08
         LD (TPA_START_75),HL             ; $5438  22 73 08
         LD (TPA_START_67),HL             ; $543B  22 63 08
-        LD HL,(TPA_START_69)             ; $543E  2A 67 08
+        LD HL,(CURLIN)             ; $543E  2A 67 08
 SUB_53F7_7:
         INC HL                           ; $5441  23
         LD A,H                           ; $5442  7C
@@ -11235,10 +11235,10 @@ SUB_53F7_8:
         INC A                            ; $5444  3C
 SUB_53F7_9:
         JR NZ,SUB_53F7_10                ; $5445  20 03
-        LD (TPA_START_69),HL             ; $5447  22 67 08
+        LD (CURLIN),HL             ; $5447  22 67 08
 SUB_53F7_10:
         CALL SUB_5889                    ; $544A  CD 89 58
-        JP C,SUB_0CA8_76                 ; $544D  DA 61 0E
+        JP C,MAIN_LINE_LOOP                 ; $544D  DA 61 0E
 SUB_53F7_11:
         CP $FE                           ; $5450  FE FE
         JR NZ,SUB_53F7_13                ; $5452  20 05
@@ -11255,7 +11255,7 @@ SUB_53F7_14:
         LD A,(SUB_0CA8_11)               ; $5466  3A BC 0C
         OR A                             ; $5469  B7
         CALL NZ,SUB_5DEB                 ; $546A  C4 EB 5D
-        CALL SUB_0F5C                    ; $546D  CD 5C 0F
+        CALL RELINK_PROGRAM                    ; $546D  CD 5C 0F
         INC HL                           ; $5470  23
         INC HL                           ; $5471  23
         LD (TPA_START_128),HL            ; $5472  22 92 0B
@@ -11263,7 +11263,7 @@ SUB_53F7_14:
         LD A,(HL)                        ; $5478  7E
         LD (TPA_START_73),A              ; $5479  32 6E 08
         LD (HL),$00                      ; $547C  36 00
-        CALL SUB_450B                    ; $547E  CD 0B 45
+        CALL RUN_INIT                    ; $547E  CD 0B 45
         LD A,(TPA_START_73)              ; $5481  3A 6E 08
         LD (TPA_START_76),A              ; $5484  32 93 08
         LD A,(SUB_0CA8_13)               ; $5487  3A C3 0C
@@ -11271,19 +11271,19 @@ SUB_53F7_14:
         JP NZ,SUB_4E06_6                 ; $548B  C2 BD 51
         LD A,(TPA_START_72)              ; $548E  3A 6D 08
         OR A                             ; $5491  B7
-        JP Z,SUB_0CA8_74                 ; $5492  CA 46 0E
-        JP SUB_129A_2                    ; $5495  C3 86 13
+        JP Z,PROMPT_READY                 ; $5492  CA 46 0E
+        JP NEWSTT                    ; $5495  C3 86 13
 SUB_5498:
-        CALL SUB_189A                    ; $5498  CD 9A 18
+        CALL RESET_INPUT_STATE                    ; $5498  CD 9A 18
         CALL SUB_573C                    ; $549B  CD 3C 57
         JP SUB_450B_14                   ; $549E  C3 99 45
 SUB_5498_1:
-        CALL SUB_44F5                    ; $54A1  CD F5 44
-        JP SUB_449F_1                    ; $54A4  C3 B4 44
+        CALL DO_NEW                    ; $54A1  CD F5 44
+        JP ERR_OUT_OF_MEMORY                    ; $54A4  C3 B4 44
         DEFB    $C1,$CD                                          ; $54A7
         DEFW    SUB_53F7                 ; $54A9
         DEFB    $2B,$CD                                          ; $54AB
-        DEFW    SUB_13E4                 ; $54AD
+        DEFW    CHRGET                 ; $54AD
         DEFB    $28,$06,$CD                                      ; $54AF
         DEFW    SUB_5498                 ; $54B2
         DEFB    $C3                                              ; $54B4
@@ -11293,7 +11293,7 @@ SUB_5498_1:
         DEFB    $CD                                              ; $54BB
         DEFW    SUB_5889                 ; $54BC
         DEFB    $DA                                              ; $54BE
-        DEFW    SUB_0CA8_76              ; $54BF
+        DEFW    MAIN_LINE_LOOP              ; $54BF
         DEFB    $3C,$CA                                          ; $54C1
         DEFW    SUB_0CA8_46+1            ; $54C3
 SUB_5498_2:
@@ -11301,7 +11301,7 @@ SUB_5498_2:
         LD BC,RST5_VEC                   ; $54C8  01 28 00
         ADD HL,BC                        ; $54CB  09
         INC (HL)                         ; $54CC  34
-        JP SUB_0CA8_76                   ; $54CD  C3 61 0E
+        JP MAIN_LINE_LOOP                   ; $54CD  C3 61 0E
 SUB_5498_3:
         PUSH HL                          ; $54D0  E5
         LD HL,(TPA_START_67)             ; $54D1  2A 63 08
@@ -11309,18 +11309,18 @@ SUB_5498_3:
 SUB_5498_4:
         OR L                             ; $54D5  B5
         LD DE,$0042                      ; $54D6  11 42 00
-        JP NZ,SUB_0CA8_61                ; $54D9  C2 AC 0D
+        JP NZ,ERROR                ; $54D9  C2 AC 0D
         POP HL                           ; $54DC  E1
         JP SUB_129A_6                    ; $54DD  C3 C4 13
         DEFB    $16,$02,$CD                                      ; $54E0
         DEFW    SUB_53F7_1               ; $54E3
         DEFB    $2B,$CD                                          ; $54E5
-        DEFW    SUB_13E4                 ; $54E7
-        DEFW    SUB_101B_1               ; $54E9
+        DEFW    CHRGET                 ; $54E7
+        DEFW    CRUNCH_LOOP               ; $54E9
         DEFB    $CD                                              ; $54EB
-        DEFW    SUB_45A3                 ; $54EC
+        DEFW    SYNCHR                 ; $54EC
         DEFB    $2C,$FE,$50,$CA,$9D,$5D,$CD                      ; $54EE
-        DEFW    SUB_45A3                 ; $54F5
+        DEFW    SYNCHR                 ; $54F5
         DEFB    $41,$C3,$C6,$20,$CD                              ; $54F7
         DEFW    SUB_22E1_1               ; $54FC
         DEFW    SUB_2AC5_3               ; $54FE
@@ -11332,7 +11332,7 @@ SUB_5498_4:
         DEFW    SUB_2AEB                 ; $5509
         DEFW    TPA_START_70             ; $550B
 SUB_5498_5:
-        CALL SUB_459D                    ; $550D  CD 9D 45
+        CALL DCMP_HL_DE                    ; $550D  CD 9D 45
         JP Z,SUB_5498                    ; $5510  CA 98 54
         LD A,(HL)                        ; $5513  7E
 SUB_5498_6:
@@ -11361,12 +11361,12 @@ SUB_551C_2:
         DEFB    $E1,$C9                                          ; $5533
 SUB_551C_3:
         DEFB    $C1,$E1,$7E,$FE,$2C,$C0,$CD                      ; $5535
-        DEFW    SUB_13E4                 ; $553C
+        DEFW    CHRGET                 ; $553C
 SUB_551C_4:
         PUSH BC                          ; $553E  C5
         LD A,(HL)                        ; $553F  7E
         CP $23                           ; $5540  FE 23
-        CALL Z,SUB_13E4                  ; $5542  CC E4 13
+        CALL Z,CHRGET                  ; $5542  CC E4 13
         CALL SUB_20B2                    ; $5545  CD B2 20
         EX (SP),HL                       ; $5548  E3
         PUSH HL                          ; $5549  E5
@@ -11398,11 +11398,11 @@ SUB_554F_1:
         DEFB    $C5,$CD                                          ; $5584
         DEFW    SUB_20AF                 ; $5586
         DEFB    $F5,$CD                                          ; $5588
-        DEFW    SUB_45A3                 ; $558A
+        DEFW    SYNCHR                 ; $558A
         DEFB    $41,$CD                                          ; $558C
-        DEFW    SUB_45A3                 ; $558E
+        DEFW    SYNCHR                 ; $558E
         DEFB    $53,$CD                                          ; $5590
-        DEFW    SUB_3BB3                 ; $5592
+        DEFW    PTRGET                 ; $5592
         DEFB    $CD                                              ; $5594
         DEFW    SUB_2CB3                 ; $5595
         DEFB    $F1,$C1,$E3,$4F,$D5,$E5,$2A,$34,$5E,$06,$00,$09  ; $5597
@@ -11411,27 +11411,27 @@ SUB_554F_1:
         DEFW    SUB_2AEB                 ; $55A6
         DEFW    SUB_0CA8_8               ; $55A8
         DEFB    $CD                                              ; $55AA
-        DEFW    SUB_459D                 ; $55AB
+        DEFW    DCMP_HL_DE                 ; $55AB
         DEFB    $DA                                              ; $55AD
         DEFW    SUB_0CA8_52+1            ; $55AE
         DEFB    $E1,$D1,$EB,$71,$23,$73,$23,$72,$E1,$18,$C0,$F6,$37,$F5,$CD ; $55B0
-        DEFW    SUB_3BB3                 ; $55BF
+        DEFW    PTRGET                 ; $55BF
         DEFB    $CD                                              ; $55C1
         DEFW    SUB_2CB3                 ; $55C2
         DEFB    $D5,$CD                                          ; $55C4
-        DEFW    SUB_1A85                 ; $55C6
+        DEFW    FRMEVL_REQVAL                 ; $55C6
         DEFB    $C1,$E3,$E5,$C5                                  ; $55C8
         DEFW    SUB_3777_4               ; $55CC
         DEFB    $4A,$46,$E3,$7E,$4F,$C5,$E5,$F5,$23,$5E,$23,$56,$B7,$CA,$3B ; $55CE
         DEFW    SUB_29E8_17              ; $55DD
         DEFW    TPA_START_70             ; $55DF
         DEFB    $CD                                              ; $55E1
-        DEFW    SUB_459D                 ; $55E2
+        DEFW    DCMP_HL_DE                 ; $55E2
         DEFW    SUB_3006_6               ; $55E4
         DEFB    $2A                                              ; $55E6
         DEFW    TPA_START_128            ; $55E7
         DEFB    $CD                                              ; $55E9
-        DEFW    SUB_459D                 ; $55EA
+        DEFW    DCMP_HL_DE                 ; $55EA
         DEFW    SUB_2824_4               ; $55EC
         DEFB    $59,$16                                          ; $55EE
         DEFW    SUB_29E8_5               ; $55F0
@@ -11440,7 +11440,7 @@ SUB_554F_1:
         DEFW    SUB_2AEB                 ; $55F5
         DEFW    TPA_START_110            ; $55F7
         DEFB    $CD                                              ; $55F9
-        DEFW    SUB_459D                 ; $55FA
+        DEFW    DCMP_HL_DE                 ; $55FA
         DEFB    $DA,$4E,$56,$F1,$79,$CD                          ; $55FC
         DEFW    SUB_48D6                 ; $5602
         DEFB    $E1,$C1,$E3,$D5,$C5                              ; $5604
@@ -11473,17 +11473,17 @@ SUB_5645_2:
         DEFW    SUB_4868_9               ; $565B
         DEFB    $C1,$E3,$C5,$E5,$F5,$C3,$FF,$55                  ; $565D
 SUB_5645_3:
-        CALL SUB_13E4                    ; $5665  CD E4 13
-        CALL SUB_45A3                    ; $5668  CD A3 45
+        CALL CHRGET                    ; $5665  CD E4 13
+        CALL SYNCHR                    ; $5668  CD A3 45
         INC H                            ; $566B  24
-        CALL SUB_45A3                    ; $566C  CD A3 45
+        CALL SYNCHR                    ; $566C  CD A3 45
         JR Z,SUB_554F_2                  ; $566F  28 CD
         OR D                             ; $5671  B2
         JR NZ,SUB_5645_2                 ; $5672  20 D5
         LD A,(HL)                        ; $5674  7E
         CP $2C                           ; $5675  FE 2C
         JR NZ,SUB_5645_4                 ; $5677  20 0F
-        CALL SUB_13E4                    ; $5679  CD E4 13
+        CALL CHRGET                    ; $5679  CD E4 13
         CALL SUB_52A9                    ; $567C  CD A9 52
         CP $02                           ; $567F  FE 02
         JP Z,SUB_0CA8_46+1               ; $5681  CA 6A 0D
@@ -11491,14 +11491,14 @@ SUB_5645_3:
         XOR A                            ; $5687  AF
 SUB_5645_4:
         PUSH AF                          ; $5688  F5
-        CALL SUB_45A3                    ; $5689  CD A3 45
+        CALL SYNCHR                    ; $5689  CD A3 45
         ADD HL,HL                        ; $568C  29
         POP AF                           ; $568D  F1
         EX (SP),HL                       ; $568E  E3
         PUSH AF                          ; $568F  F5
         LD A,L                           ; $5690  7D
         OR A                             ; $5691  B7
-        JP Z,SUB_14E4_2                  ; $5692  CA EB 14
+        JP Z,ERR_TYPE_MISMATCH                  ; $5692  CA EB 14
         PUSH HL                          ; $5695  E5
         CALL SUB_485A                    ; $5696  CD 5A 48
         EX DE,HL                         ; $5699  EB
@@ -11519,12 +11519,12 @@ SUB_5645_7:
         DEC C                            ; $56AE  0D
         JR NZ,SUB_5645_5                 ; $56AF  20 EA
         POP AF                           ; $56B1  F1
-        CALL SUB_189A                    ; $56B2  CD 9A 18
+        CALL RESET_INPUT_STATE                    ; $56B2  CD 9A 18
         JP SUB_4868_9                    ; $56B5  C3 98 48
 SUB_5645_8:
         LD HL,(TPA_START_120)            ; $56B8  2A 81 0B
         LD SP,HL                         ; $56BB  F9
-        JP SUB_45B5_7                    ; $56BC  C3 E7 45
+        JP ERROR_REPORT                    ; $56BC  C3 E7 45
 SUB_5645_9:
         CALL SUB_5889                    ; $56BF  CD 89 58
         JP C,SUB_0CA8_49+1               ; $56C2  DA 76 0D
@@ -11711,7 +11711,7 @@ SUB_57A0_3:
         DEFB    $58,$E1,$C9,$CD                                  ; $57FE
         DEFW    SUB_56FF                 ; $5802
         DEFB    $E1,$C3                                          ; $5804
-        DEFW    SUB_189A                 ; $5806
+        DEFW    RESET_INPUT_STATE                 ; $5806
 SUB_5808:
         PUSH BC                          ; $5808  C5
         LD BC,DEFAULT_DMA                ; $5809  01 80 00
@@ -11885,7 +11885,7 @@ SUB_58A4_5:
         LD A,(HL)                        ; $58E4  7E
         CP $2E                           ; $58E5  FE 2E
         JR NZ,SUB_58A4_6                 ; $58E7  20 08
-        CALL SUB_58FE                    ; $58E9  CD FE 58
+        CALL FILE_OPEN                    ; $58E9  CD FE 58
         POP AF                           ; $58EC  F1
         SCF                              ; $58ED  37
         PUSH AF                          ; $58EE  F5
@@ -11902,7 +11902,7 @@ SUB_58A4_7:
         POP AF                           ; $58FB  F1
         POP HL                           ; $58FC  E1
         RET                              ; $58FD  C9
-SUB_58FE:
+FILE_OPEN:
         LD A,D                           ; $58FE  7A
         CP $0B                           ; $58FF  FE 0B
         JP Z,SUB_0CA8_51+1               ; $5901  CA 7C 0D
@@ -11913,7 +11913,7 @@ SUB_58FE:
         LD (BC),A                        ; $590C  02
         INC BC                           ; $590D  03
         DEC D                            ; $590E  15
-        JR SUB_58FE                      ; $590F  18 ED
+        JR FILE_OPEN                      ; $590F  18 ED
 SUB_58FE_1:
         INC D                            ; $5911  14
         DEC D                            ; $5912  15
@@ -11938,22 +11938,22 @@ SUB_58FE_3:
         DEFW    SUB_101B_9               ; $5938
         DEFW    TPA_START_80             ; $593A
         DEFB    $06,$0C,$1A,$77,$23,$13,$10,$FA,$E1,$CD          ; $593C
-        DEFW    SUB_45A3                 ; $5946
+        DEFW    SYNCHR                 ; $5946
         DEFB    $41,$CD                                          ; $5948
-        DEFW    SUB_45A3                 ; $594A
+        DEFW    SYNCHR                 ; $594A
         DEFB    $53,$CD                                          ; $594C
         DEFW    SUB_58A4                 ; $594E
         DEFB    $E5,$3A                                          ; $5950
         DEFW    TPA_START_80             ; $5952
         DEFB    $21,$BD,$08,$BE,$C2                              ; $5954
-        DEFW    SUB_14E4_2               ; $5959
+        DEFW    ERR_TYPE_MISMATCH               ; $5959
         DEFB    $11                                              ; $595B
         DEFW    TPA_START_80             ; $595C
         DEFW    SUB_0CA8_89              ; $595E
         DEFB    $CD,$05,$00,$3C,$C2,$88,$0D,$0E                  ; $5960
         DEFW    SUB_101B_11              ; $5968
         DEFB    $BD,$08,$CD,$05,$00,$E1,$C9,$01                  ; $596A
-        DEFW    SUB_189A                 ; $5972
+        DEFW    RESET_INPUT_STATE                 ; $5972
         DEFB    $C5,$CD                                          ; $5974
         DEFW    SUB_1A8C_1+1             ; $5976
         DEFB    $E5                                              ; $5978
@@ -11970,13 +11970,13 @@ SUB_58FE_3:
         DEFB    $03,$FE,$52,$C2                                  ; $5995
         DEFW    SUB_0CA8_46+1            ; $5999
         DEFB    $E1,$CD                                          ; $599B
-        DEFW    SUB_45A3                 ; $599D
+        DEFW    SYNCHR                 ; $599D
         DEFB    $2C,$D5,$FE,$23,$CC                              ; $599F
-        DEFW    SUB_13E4                 ; $59A4
+        DEFW    CHRGET                 ; $59A4
         DEFB    $CD                                              ; $59A6
         DEFW    SUB_20B2                 ; $59A7
         DEFB    $CD                                              ; $59A9
-        DEFW    SUB_45A3                 ; $59AA
+        DEFW    SYNCHR                 ; $59AA
         DEFB    $2C,$7B,$B7,$CA                                  ; $59AC
         DEFW    SUB_0CA8_48+1            ; $59B0
         DEFB    $D1                                              ; $59B2
@@ -12056,7 +12056,7 @@ SUB_58FE_9:
         CALL BDOS_VEC                    ; $5A22  CD 05 00
         INC A                            ; $5A25  3C
         JR NZ,SUB_58FE_10                ; $5A26  20 0B
-        CALL SUB_0C98                    ; $5A28  CD 98 0C
+        CALL POP_REDISPATCH                    ; $5A28  CD 98 0C
         CP $03                           ; $5A2B  FE 03
         JP NZ,SUB_0CA8_47+1              ; $5A2D  C2 6D 0D
         INC DE                           ; $5A30  13
@@ -12101,7 +12101,7 @@ SUB_58FE_15:
         DEFB    $C0,$CD                                          ; $5A64
         DEFW    SUB_554F                 ; $5A66
         DEFB    $CD,$D9,$25                                      ; $5A68
-SUB_58FE_16:
+DO_SYSTEM:
         JP WBOOT_VEC                     ; $5A6B  C3 00 00
         DEFB    $C0,$E5,$CD                                      ; $5A6E
         DEFW    SUB_554F                 ; $5A71
@@ -12139,13 +12139,13 @@ SUB_58FE_16:
         DEFW    SUB_0CA8_47+1            ; $5AEB
         DEFB    $E6,$03,$87,$87,$87,$87,$87,$4F,$06,$00,$21,$81,$00,$09,$0E,$0B ; $5AED
         DEFB    $7E,$23,$CD                                      ; $5AFD
-        DEFW    SUB_4291                 ; $5B00
+        DEFW    OUTCHR                 ; $5B00
         DEFB    $79,$FE                                          ; $5B02
         DEFW    SUB_1E72_25              ; $5B04
         DEFB    $0A,$7E,$FE,$20                                  ; $5B06
         DEFW    TPA_START_36             ; $5B0A
         DEFB    $3E,$2E,$CD                                      ; $5B0C
-        DEFW    SUB_4291                 ; $5B0F
+        DEFW    OUTCHR                 ; $5B0F
         DEFB    $0D,$20,$E9                                      ; $5B11
         DEFW    SUB_341F_4               ; $5B14
         DEFB    $0B                                              ; $5B16
@@ -12153,11 +12153,11 @@ SUB_58FE_16:
         DEFW    SUB_3A18_9               ; $5B19
         DEFW    TPA_START_62             ; $5B1B
         DEFB    $BA,$38,$08,$3E,$20,$CD                          ; $5B1D
-        DEFW    SUB_4291                 ; $5B23
+        DEFW    OUTCHR                 ; $5B23
         DEFB    $CD                                              ; $5B25
-        DEFW    SUB_4291                 ; $5B26
+        DEFW    OUTCHR                 ; $5B26
         DEFB    $DC                                              ; $5B28
-        DEFW    SUB_4406                 ; $5B29
+        DEFW    PRINT_CRLF                 ; $5B29
         DEFB    $11                                              ; $5B2B
         DEFW    TPA_START_80             ; $5B2C
         DEFW    SUB_101B_41              ; $5B2E
@@ -12232,25 +12232,25 @@ SUB_5BA3:
         LD HL,(TPA_START_110)            ; $5BA3  2A 6B 0B
         LD BC,$FF2A                      ; $5BA6  01 2A FF
         ADD HL,BC                        ; $5BA9  09
-        CALL SUB_459D                    ; $5BAA  CD 9D 45
+        CALL DCMP_HL_DE                    ; $5BAA  CD 9D 45
         RET NC                           ; $5BAD  D0
         JP SUB_5498_1                    ; $5BAE  C3 A1 54
 SUB_5BB1:
         CP $03                           ; $5BB1  FE 03
         RET NZ                           ; $5BB3  C0
         DEC HL                           ; $5BB4  2B
-        CALL SUB_13E4                    ; $5BB5  CD E4 13
+        CALL CHRGET                    ; $5BB5  CD E4 13
         PUSH DE                          ; $5BB8  D5
         LD DE,DEFAULT_DMA                ; $5BB9  11 80 00
         JR Z,SUB_5BB1_1                  ; $5BBC  28 05
         PUSH BC                          ; $5BBE  C5
-        CALL SUB_14E4                    ; $5BBF  CD E4 14
+        CALL FRMEVL_NUMERIC                    ; $5BBF  CD E4 14
         POP BC                           ; $5BC2  C1
 SUB_5BB1_1:
         PUSH HL                          ; $5BC3  E5
         LD HL,(SUB_0CA8_10)              ; $5BC4  2A BA 0C
-        CALL SUB_459D                    ; $5BC7  CD 9D 45
-        JP C,SUB_14E4_2                  ; $5BCA  DA EB 14
+        CALL DCMP_HL_DE                    ; $5BC7  CD 9D 45
+        JP C,ERR_TYPE_MISMATCH                  ; $5BCA  DA EB 14
         LD HL,$00A9                      ; $5BCD  21 A9 00
         ADD HL,BC                        ; $5BD0  09
         LD (HL),E                        ; $5BD1  73
@@ -12274,9 +12274,9 @@ SUB_5BB1_2:
         DEFW    SUB_0CA8_46+1            ; $5BED
         DEFB    $C5,$E5,$21,$AD,$00                              ; $5BEF  "Ee!-"
         DEFB    $09,$5E,$23,$56,$13,$E3,$7E,$FE,$2C,$CC          ; $5BF4
-        DEFW    SUB_14E4                 ; $5BFE
+        DEFW    FRMEVL_NUMERIC                 ; $5BFE
         DEFB    $2B,$CD                                          ; $5C00
-        DEFW    SUB_13E4                 ; $5C02
+        DEFW    CHRGET                 ; $5C02
         DEFB    $C2                                              ; $5C04
         DEFW    SUB_0CA8_54              ; $5C05
         DEFB    $E3,$7B,$B2,$CA,$7F,$0D,$2B,$73,$23,$72,$1B,$E1,$C1,$E5 ; $5C07
@@ -12284,7 +12284,7 @@ SUB_5BB1_2:
         DEFB    $B0,$00,$09,$AF,$77,$23                          ; $5C17
         DEFW    SUB_2124_14              ; $5C1D
         DEFB    $A9,$00,$09,$7E,$23,$66,$6F,$EB,$D5,$E5,$21,$80,$00,$CD ; $5C1F
-        DEFW    SUB_459D                 ; $5C2D
+        DEFW    DCMP_HL_DE                 ; $5C2D
         DEFB    $E1,$20,$05,$11,$00,$00                          ; $5C2F
         DEFW    SUB_3809_2               ; $5C35
         DEFB    $42                                              ; $5C37
@@ -12300,10 +12300,10 @@ SUB_5BB1_2:
         DEFB    $EB,$30,$06,$09,$E3,$30,$01,$23                  ; $5C4C
         DEFW    SUB_3BB3_53              ; $5C54
         DEFB    $20,$E8,$7D,$E6,$7F,$5F,$16,$00,$C1,$7D,$6C,$61,$29,$DA ; $5C56
-        DEFW    SUB_14E4_2               ; $5C64
+        DEFW    ERR_TYPE_MISMATCH               ; $5C64
         DEFW    SUB_3006_2               ; $5C66
         DEFB    $01,$23,$78,$B7,$C2                              ; $5C68
-        DEFW    SUB_14E4_2               ; $5C6D
+        DEFW    ERR_TYPE_MISMATCH               ; $5C6D
         DEFW    SUB_341F_1               ; $5C6F
         DEFB    $5E,$E1,$C1,$E5,$21,$B2,$00                      ; $5C71  "^aAe!2"
         DEFB    $09,$22,$36                                      ; $5C78
@@ -12312,7 +12312,7 @@ SUB_5BB1_2:
         DEFW    SUB_3809_3               ; $5C81
         DEFB    $5E,$E1,$E5,$21,$80                              ; $5C83  "^ae!"
         DEFB    $00,$7D,$93,$6F,$7C,$9A,$67,$D1,$D5,$CD          ; $5C88
-        DEFW    SUB_459D                 ; $5C92
+        DEFW    DCMP_HL_DE                 ; $5C92
         DEFW    TPA_START_38             ; $5C94
         DEFB    $62                                              ; $5C96
         DEFW    SUB_3A18_10              ; $5C97
@@ -12320,7 +12320,7 @@ SUB_5BB1_2:
         DEFW    SUB_2874_18              ; $5C9B
         DEFW    SUB_101B_18              ; $5C9D
         DEFB    $80,$00,$CD                                      ; $5C9F
-        DEFW    SUB_459D                 ; $5CA2
+        DEFW    DCMP_HL_DE                 ; $5CA2
         DEFB    $30,$05,$E5,$CD,$F5,$5C,$E1                      ; $5CA4
         DEFW    SUB_44C2_1               ; $5CAB
         DEFW    SUB_29E8_14              ; $5CAD
@@ -12343,7 +12343,7 @@ SUB_5BB1_2:
         DEFB    $5D,$EB,$22,$36,$5E,$50,$59,$C1,$18,$CD,$F6,$AF,$32,$6F,$08,$C5 ; $5CEA
         DEFB    $D5,$E5,$2A,$34,$5E,$EB,$21,$AB,$00              ; $5CFA  "Ue*4^k!+"
         DEFB    $09,$E5,$7E,$23,$66,$6F,$13,$CD                  ; $5D03
-        DEFW    SUB_459D                 ; $5D0B
+        DEFW    DCMP_HL_DE                 ; $5D0B
         DEFB    $E1,$73,$23,$72,$20,$06,$3A,$6F,$08              ; $5D0D
         DEFW    SUB_2874_18              ; $5D16
         DEFB    $0D,$21,$26,$5D,$E5,$C5,$E5,$21,$26,$00,$09,$C3,$DB,$57,$E1,$D1 ; $5D18
@@ -12425,10 +12425,10 @@ SUB_5D90:
         CALL SUB_5D78                    ; $5D94  CD 78 5D
         EX DE,HL                         ; $5D97  EB
         POP DE                           ; $5D98  D1
-        CALL SUB_459D                    ; $5D99  CD 9D 45
+        CALL DCMP_HL_DE                    ; $5D99  CD 9D 45
         RET                              ; $5D9C  C9
         DEFB    $CD                                              ; $5D9D
-        DEFW    SUB_13E4                 ; $5D9E
+        DEFW    CHRGET                 ; $5D9E
         DEFB    $22                                              ; $5DA0
         DEFW    TPA_START_114            ; $5DA1
         DEFB    $CD                                              ; $5DA3
@@ -12446,7 +12446,7 @@ SUB_5D90:
         DEFW    SUB_2AEB                 ; $5DBA
         DEFW    TPA_START_128            ; $5DBC
         DEFB    $CD                                              ; $5DBE
-        DEFW    SUB_459D                 ; $5DBF
+        DEFW    DCMP_HL_DE                 ; $5DBF
         DEFB    $C8,$21                                          ; $5DC1
         DEFW    SUB_3A18_18              ; $5DC3
         DEFB    $7D,$81,$6F,$7C,$CE,$00,$67,$1A,$90,$AE          ; $5DC5
@@ -12465,7 +12465,7 @@ SUB_5DEB:
         EX DE,HL                         ; $5DF1  EB
 SUB_5DEB_1:
         LD HL,(TPA_START_128)            ; $5DF2  2A 92 0B
-        CALL SUB_459D                    ; $5DF5  CD 9D 45
+        CALL DCMP_HL_DE                    ; $5DF5  CD 9D 45
         RET Z                            ; $5DF8  C8
         LD HL,SUB_3A18_17                ; $5DF9  21 30 3B
         LD A,L                           ; $5DFC  7D
@@ -12498,25 +12498,25 @@ SUB_5DEB_2:
         LD B,$0D                         ; $5E1D  06 0D
         JR SUB_5DEB_1                    ; $5E1F  18 D1
         DEFB    $E5,$2A                                          ; $5E21
-        DEFW    TPA_START_69             ; $5E23
+        DEFW    CURLIN             ; $5E23
         DEFB    $7C,$A5                                          ; $5E25
         DEFW    SUB_3BB3_22              ; $5E27
         DEFB    $C0                                              ; $5E29
 ; [AI] Break-point check: if the Control-C/stop flag at $0CBC is set, raises a break (jumps to the
 ;       stop handler); a lightweight interruptibility test placed in hot paths.
-SUB_5E2A:
+CHECK_STOP:
         PUSH AF                          ; $5E2A  F5
         LD A,(SUB_0CA8_11)               ; $5E2B  3A BC 0C
         OR A                             ; $5E2E  B7
-        JP NZ,SUB_14E4_2                 ; $5E2F  C2 EB 14
+        JP NZ,ERR_TYPE_MISMATCH                 ; $5E2F  C2 EB 14
         POP AF                           ; $5E32  F1
         RET                              ; $5E33  C9
         DEFB    $00,$00,$00,$00,$00,$00,$00                      ; $5E34
 ; [AI] Warm-start path: closes files, terminates the program text with a null, and re-enters direct
 ;       mode at the 'Ok' prompt; the target of an interpreter restart that preserves the loaded
 ;       program.
-SUB_5E2A_1:
-        CALL SUB_44E0                    ; $5E3B  CD E0 44
+WARM_START:
+        CALL CLOSE_ALL_FILES                    ; $5E3B  CD E0 44
         LD HL,(TPA_START_70)             ; $5E3E  2A 69 08
         DEC HL                           ; $5E41  2B
         LD (HL),$00                      ; $5E42  36 00
@@ -12524,14 +12524,14 @@ SUB_5E2A_1:
         LD A,(HL)                        ; $5E47  7E
         OR A                             ; $5E48  B7
         JP NZ,SUB_53F7_2                 ; $5E49  C2 FD 53
-        JP SUB_0CA8_74                   ; $5E4C  C3 46 0E
+        JP PROMPT_READY                   ; $5E4C  C3 46 0E
 SUB_5E2A_2:
         DEFB    $00,$00                                          ; $5E4F
 ; [AI] Cold-start initializer reached from $0100. Reads the BIOS jump-table base from the warm-boot
 ;       vector at $0001, derives the CONST/CONIN/CONOUT entry addresses, and self-patches them into
 ;       the program's 'CALL $0000' console sites; then sizes free memory and prints the sign-on
 ;       banner.
-SUB_5E2A_3:
+COLD_START:
         LD HL,$6146                      ; $5E51  21 46 61
 SUB_5E2A_4:
         LD SP,HL                         ; $5E54  F9
@@ -12546,7 +12546,7 @@ SUB_5E2A_8:
 SUB_5E2A_9:
         LD HL,($0001)                    ; $5E5F  2A 01 00
 SUB_5E2A_10:
-        LD (SUB_58FE_16+1),HL            ; $5E62  22 6C 5A
+        LD (DO_SYSTEM+1),HL            ; $5E62  22 6C 5A
 SUB_5E2A_11:
         LD A,H                           ; $5E65  7C
 SUB_5E2A_12:
@@ -12616,7 +12616,7 @@ SUB_5E2A_43:
 SUB_5E2A_44:
         LD (SUB_42EA_1+1),DE             ; $5E94  ED 53 F0 42
 SUB_5E2A_45:
-        CALL SUB_0CA8                    ; $5E98  CD A8 0C
+        CALL GET_MEMTOP                    ; $5E98  CD A8 0C
         LD L,$09                         ; $5E9B  2E 09
         LD DE,SUB_2602_10                ; $5E9D  11 F8 27
         LD (HL),E                        ; $5EA0  73
@@ -12651,7 +12651,7 @@ SUB_5E2A_45:
 SUB_5E2A_46:
         LD (TPA_START_84),HL             ; $5ED6  22 EF 08
         LD HL,$FFFE                      ; $5ED9  21 FE FF
-        LD (TPA_START_69),HL             ; $5EDC  22 67 08
+        LD (CURLIN),HL             ; $5EDC  22 67 08
         XOR A                            ; $5EDF  AF
         LD (TPA_START_66),A              ; $5EE0  32 62 08
 SUB_5E2A_47:
@@ -12674,7 +12674,7 @@ SUB_5E2A_49:
 SUB_5E2A_50:
         LD A,B                           ; $5F06  78
         LD (SUB_2602_15),A               ; $5F07  32 15 28
-        CALL SUB_207E                    ; $5F0A  CD 7E 20
+        CALL SET_WIDTH                    ; $5F0A  CD 7E 20
         LD HL,DEFAULT_DMA                ; $5F0D  21 80 00
         LD (SUB_0CA8_10),HL              ; $5F10  22 BA 0C
         LD HL,TPA_START_106              ; $5F13  21 4A 0B
@@ -12712,7 +12712,7 @@ SUB_5E2A_51:
         LD (SUB_5E2A_63),HL              ; $5F54  22 CE 5F
 SUB_5E2A_52:
         LD HL,$007F                      ; $5F57  21 7F 00
-        CALL SUB_13E4                    ; $5F5A  CD E4 13
+        CALL CHRGET                    ; $5F5A  CD E4 13
         OR A                             ; $5F5D  B7
         JP Z,SUB_5E2A_65                 ; $5F5E  CA D1 5F
         CP $2F                           ; $5F61  FE 2F
@@ -12725,13 +12725,13 @@ SUB_5E2A_53:
 SUB_5E2A_54:
         CP $2F                           ; $5F6C  FE 2F
         JR Z,SUB_5E2A_55                 ; $5F6E  28 09
-        CALL SUB_13E4                    ; $5F70  CD E4 13
+        CALL CHRGET                    ; $5F70  CD E4 13
         OR A                             ; $5F73  B7
         JR NZ,SUB_5E2A_54                ; $5F74  20 F6
         JP SUB_5E2A_65                   ; $5F76  C3 D1 5F
 SUB_5E2A_55:
         LD (HL),$00                      ; $5F79  36 00
-        CALL SUB_13E4                    ; $5F7B  CD E4 13
+        CALL CHRGET                    ; $5F7B  CD E4 13
 SUB_5E2A_56:
         CP $53                           ; $5F7E  FE 53
         JR Z,SUB_5E2A_61                 ; $5F80  28 3A
@@ -12741,8 +12741,8 @@ SUB_5E2A_56:
         CP $46                           ; $5F88  FE 46
         JP NZ,SUB_0CA8_54                ; $5F8A  C2 92 0D
 SUB_5E2A_57:
-        CALL SUB_13E4                    ; $5F8D  CD E4 13
-        CALL SUB_45A3                    ; $5F90  CD A3 45
+        CALL CHRGET                    ; $5F8D  CD E4 13
+        CALL SYNCHR                    ; $5F90  CD A3 45
 SUB_5E2A_58:
         LD A,($F1CD)                     ; $5F93  3A CD F1
         INC E                            ; $5F96  1C
@@ -12750,10 +12750,10 @@ SUB_5E2A_58:
         JR Z,SUB_5E2A_59                 ; $5F98  28 10
         LD A,D                           ; $5F9A  7A
         OR A                             ; $5F9B  B7
-        JP NZ,SUB_14E4_2                 ; $5F9C  C2 EB 14
+        JP NZ,ERR_TYPE_MISMATCH                 ; $5F9C  C2 EB 14
         LD A,E                           ; $5F9F  7B
         CP $10                           ; $5FA0  FE 10
-        JP NC,SUB_14E4_2                 ; $5FA2  D2 EB 14
+        JP NC,ERR_TYPE_MISMATCH                 ; $5FA2  D2 EB 14
         LD (TPA_START_76),A              ; $5FA5  32 93 08
         JR SUB_5E2A_60                   ; $5FA8  18 05
 SUB_5E2A_59:
@@ -12762,14 +12762,14 @@ SUB_5E2A_59:
         EX DE,HL                         ; $5FAE  EB
 SUB_5E2A_60:
         DEC HL                           ; $5FAF  2B
-        CALL SUB_13E4                    ; $5FB0  CD E4 13
+        CALL CHRGET                    ; $5FB0  CD E4 13
         JR Z,SUB_5E2A_65                 ; $5FB3  28 1C
-        CALL SUB_45A3                    ; $5FB5  CD A3 45
+        CALL SYNCHR                    ; $5FB5  CD A3 45
         CPL                              ; $5FB8  2F
         JP SUB_5E2A_56                   ; $5FB9  C3 7E 5F
 SUB_5E2A_61:
-        CALL SUB_13E4                    ; $5FBC  CD E4 13
-        CALL SUB_45A3                    ; $5FBF  CD A3 45
+        CALL CHRGET                    ; $5FBC  CD E4 13
+        CALL SYNCHR                    ; $5FBF  CD A3 45
         LD A,($F1CD)                     ; $5FC2  3A CD F1
         INC E                            ; $5FC5  1C
         EX DE,HL                         ; $5FC6  EB
@@ -12827,7 +12827,7 @@ SUB_5E2A_68:
         LD A,D                           ; $6010  7A
         SBC A,H                          ; $6011  9C
         LD H,A                           ; $6012  67
-        JP C,SUB_449F_1                  ; $6013  DA B4 44
+        JP C,ERR_OUT_OF_MEMORY                  ; $6013  DA B4 44
         LD B,$03                         ; $6016  06 03
 SUB_5E2A_69:
         OR A                             ; $6018  B7
@@ -12849,7 +12849,7 @@ SUB_5E2A_70:
         LD A,D                           ; $602C  7A
         SBC A,H                          ; $602D  9C
         LD H,A                           ; $602E  67
-        JP C,SUB_449F_1                  ; $602F  DA B4 44
+        JP C,ERR_OUT_OF_MEMORY                  ; $602F  DA B4 44
         LD (TPA_START_104),HL            ; $6032  22 46 0B
         EX DE,HL                         ; $6035  EB
         LD (TPA_START_68),HL             ; $6036  22 65 08
@@ -12858,7 +12858,7 @@ SUB_5E2A_70:
         LD (TPA_START_120),HL            ; $603D  22 81 0B
         LD HL,(TPA_START_70)             ; $6040  2A 69 08
         EX DE,HL                         ; $6043  EB
-        CALL SUB_44C2                    ; $6044  CD C2 44
+        CALL CHECK_FRE_GC                    ; $6044  CD C2 44
         LD A,L                           ; $6047  7D
         SUB E                            ; $6048  93
         LD L,A                           ; $6049  6F
@@ -12878,10 +12878,10 @@ SUB_5E2A_70:
         LD HL,SUB_48BE                   ; $6063  21 BE 48
         LD (SUB_0CA8_75+1),HL            ; $6066  22 57 0E
 SUB_5E2A_71:
-        CALL SUB_4406                    ; $6069  CD 06 44
+        CALL PRINT_CRLF                    ; $6069  CD 06 44
         LD HL,SUB_0CA8_40                ; $606C  21 4B 0D
         LD (TPA_START+1),HL              ; $606F  22 01 01
-        JP SUB_5E2A_1                    ; $6072  C3 3B 5E
+        JP WARM_START                    ; $6072  C3 3B 5E
         DEFB    $0D,$0A,$0A,$4F,$77,$6E,$65,$64,$20,$62,$79,$20,$4D,$69,$63,$72 ; $6075
         DEFB    "osoft"    ; $6085  string
         DEFB    $0D    ; $608A  terminator

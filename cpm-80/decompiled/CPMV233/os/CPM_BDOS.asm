@@ -14,25 +14,25 @@ DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS
 
 ; -- Mid-instruction references (shown inline as cover+offset) --
 ;   $9D90 -> SUB_9D7F_1+2         z80 skip idiom: enters the operand of $11 at $9D8E
-;   $9DB1 -> SUB_9DA4_2+1         shared instruction tail: $9DB1 is reachable code inside the instruction at $9DB0
+;   $9DB1 -> DIR_FETCH_BLOCK+1         shared instruction tail: $9DB1 is reachable code inside the instruction at $9DB0
 ;   $9DB9 -> SUB_9DA4_3+1         shared instruction tail: $9DB9 is reachable code inside the instruction at $9DB8
 ;   $9DD3 -> SUB_9DA4_5+2         shared instruction tail: $9DD3 is reachable code inside the instruction at $9DD1
 ;   $9E99 -> SUB_9DA4_14+1        shared instruction tail: $9E99 is reachable code inside the instruction at $9E98
-;   $9EC8 -> SUB_9DA4_16+2        shared instruction tail: $9EC8 is reachable code inside the instruction at $9EC6
+;   $9EC8 -> CON_OUT_EXPAND_TAIL+2        shared instruction tail: $9EC8 is reachable code inside the instruction at $9EC6
 ;   $9EE0 -> SUB_9DA4_19+2        shared instruction tail: $9EE0 is reachable code inside the instruction at $9EDE
 ;   $9EF3 -> SUB_9DA4_21+2        shared instruction tail: $9EF3 is reachable code inside the instruction at $9EF1
 ;   $9EFE -> SUB_9DA4_23+1        shared instruction tail: $9EFE is reachable code inside the instruction at $9EFD
 ;   $9F01 -> SUB_9DA4_24+2        shared instruction tail: $9F01 is reachable code inside the instruction at $9EFF
-;   $9F04 -> SUB_9DA4_25+1        z80 skip idiom: enters the operand of $01 at $9F03
+;   $9F04 -> BDOS_RETURN_AH+1        z80 skip idiom: enters the operand of $01 at $9F03
 ;   $9F0C -> SUB_9DA4_27+1        shared instruction tail: $9F0C is reachable code inside the instruction at $9F0B
 ;   $9FD1 -> SUB_9FC3_1+1         shared instruction tail: $9FD1 is reachable code inside the instruction at $9FD0
 ;   $A084 -> SUB_A077_1+2         shared instruction tail: $A084 is reachable code inside the instruction at $A082
-;   $A12C -> SUB_A11E_1+2         shared instruction tail: $A12C is reachable code inside the instruction at $A12A
+;   $A12C -> DIR_SEARCH_RESULT+2         shared instruction tail: $A12C is reachable code inside the instruction at $A12A
 ;   $A178 -> SUB_A169_2+1         shared instruction tail: $A178 is reachable code inside the instruction at $A177
-;   $A1C6 -> SUB_A18C_1+2         shared instruction tail: $A1C6 is reachable code inside the instruction at $A1C4
+;   $A1C6 -> DISK_BUF_FLUSH+2         shared instruction tail: $A1C6 is reachable code inside the instruction at $A1C4
 ;   $A1DA -> SUB_A18C_2+2         shared instruction tail: $A1DA is reachable code inside the instruction at $A1D8
 ;   $A1E0 -> SUB_A18C_3+1         shared instruction tail: $A1E0 is reachable code inside the instruction at $A1DF
-;   $A32D -> SUB_A318_1+2         shared instruction tail: $A32D is reachable code inside the instruction at $A32B
+;   $A32D -> DISK_SETTRK_SEC+2         shared instruction tail: $A32D is reachable code inside the instruction at $A32B
 ;   $A517 -> SUB_A4A2_5+1         shared instruction tail: $A517 is reachable code inside the instruction at $A516
 ;   $A51F -> SUB_A4A2_6+1         shared instruction tail: $A51F is reachable code inside the instruction at $A51E
 ;   $A524 -> SUB_A4A2_7+1         shared instruction tail: $A524 is reachable code inside the instruction at $A523
@@ -41,24 +41,24 @@ DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS
 
     ORG $9C00
 
-L_9C00:
+BDOS_IMAGE_HEADER:
         CP L                             ; $9C00  BD
         LD D,$00                         ; $9C01  16 00
         LD BC,$404D                      ; $9C03  01 4D 40
-        JP L_9C11                        ; $9C06  C3 11 9C
-        DEFW    L_9C99                   ; $9C09
+        JP BDOS_ENTRY                        ; $9C06  C3 11 9C
+        DEFW    BDOS_ERROR                   ; $9C09
         DEFB    $A5,$9C,$AB,$9C,$B1,$9C                          ; $9C0B
-L_9C11:
+BDOS_ENTRY:
         EX DE,HL                         ; $9C11  EB
-        LD (L_9F43),HL                   ; $9C12  22 43 9F
+        LD (BDOS_DE_PARAM),HL                   ; $9C12  22 43 9F
         EX DE,HL                         ; $9C15  EB
         LD A,E                           ; $9C16  7B
         LD ($A9D6),A                     ; $9C17  32 D6 A9
         LD HL,WBOOT_VEC                  ; $9C1A  21 00 00
-        LD (L_9F45),HL                   ; $9C1D  22 45 9F
+        LD (BDOS_RETURN_VAL),HL                   ; $9C1D  22 45 9F
         ADD HL,SP                        ; $9C20  39
-        LD (SUB_9DA4_29),HL              ; $9C21  22 0F 9F
-        LD SP,L_9F41                     ; $9C24  31 41 9F
+        LD (BDOS_SAVED_SP),HL              ; $9C21  22 0F 9F
+        LD SP,BDOS_STACK                     ; $9C24  31 41 9F
         XOR A                            ; $9C27  AF
         LD ($A9E0),A                     ; $9C28  32 E0 A9
         LD ($A9DE),A                     ; $9C2B  32 DE A9
@@ -68,7 +68,7 @@ L_9C11:
         CP $29                           ; $9C33  FE 29
         RET NC                           ; $9C35  D0
         LD C,E                           ; $9C36  4B
-        LD HL,L_9C47                     ; $9C37  21 47 9C
+        LD HL,BDOS_DISPATCH_TBL                     ; $9C37  21 47 9C
         LD E,A                           ; $9C3A  5F
         LD D,$00                         ; $9C3B  16 00
         ADD HL,DE                        ; $9C3D  19
@@ -76,21 +76,21 @@ L_9C11:
         LD E,(HL)                        ; $9C3F  5E
         INC HL                           ; $9C40  23
         LD D,(HL)                        ; $9C41  56
-        LD HL,(L_9F43)                   ; $9C42  2A 43 9F
+        LD HL,(BDOS_DE_PARAM)                   ; $9C42  2A 43 9F
         EX DE,HL                         ; $9C45  EB
         JP (HL)                          ; $9C46  E9
-L_9C47:
+BDOS_DISPATCH_TBL:
         DEFW    $FA03                    ; $9C47
-        DEFW    SUB_9DA4_16+2            ; $9C49
+        DEFW    CON_OUT_EXPAND_TAIL+2            ; $9C49
         DEFW    SUB_9D7F_1+2             ; $9C4B
-        DEFW    SUB_9DA4_17              ; $9C4D
+        DEFW    BDOS_READER_INPUT              ; $9C4D
         DEFW    $FA12                    ; $9C4F
         DEFW    $FA0F                    ; $9C51
-        DEFW    SUB_9DA4_18              ; $9C53
-        DEFW    SUB_9DA4_20              ; $9C55
+        DEFW    BDOS_DIRECT_CON_IO              ; $9C53
+        DEFW    BDOS_GET_IOBYTE              ; $9C55
         DEFW    SUB_9DA4_21+2            ; $9C57
-        DEFW    SUB_9DA4_22              ; $9C59
-        DEFW    SUB_9DA4_6               ; $9C5B
+        DEFW    BDOS_PRINT_STRING_FN              ; $9C59
+        DEFW    BDOS_READ_CON_BUF               ; $9C5B
         DEFW    SUB_9DA4_23+1            ; $9C5D
         DEFW    $A87E                    ; $9C5F
         DEFW    $A883                    ; $9C61
@@ -108,7 +108,7 @@ L_9C47:
         DEFW    $A904                    ; $9C79
         DEFW    $A90A                    ; $9C7B
         DEFW    $A911                    ; $9C7D
-        DEFW    SUB_A11E_1+2             ; $9C7F
+        DEFW    DIR_SEARCH_RESULT+2             ; $9C7F
         DEFW    $A917                    ; $9C81
         DEFW    $A91D                    ; $9C83
         DEFW    $A926                    ; $9C85
@@ -118,64 +118,64 @@ L_9C47:
         DEFW    $A94D                    ; $9C8D
         DEFW    $A80E                    ; $9C8F
         DEFW    $A953                    ; $9C91
-        DEFW    SUB_9DA4_25+1            ; $9C93
-        DEFW    SUB_9DA4_25+1            ; $9C95
+        DEFW    BDOS_RETURN_AH+1            ; $9C93
+        DEFW    BDOS_RETURN_AH+1            ; $9C95
         DEFW    $A99B                    ; $9C97
-L_9C99:
+BDOS_ERROR:
         DEFB    $21,$CA,$9C,$CD,$E5,$9C,$FE,$03,$CA,$00,$00,$C9,$21,$D5,$9C,$C3 ; $9C99
         DEFB    $B4,$9C,$21,$E1,$9C,$C3,$B4,$9C,$21,$DC,$9C,$CD,$E5,$9C,$C3,$00 ; $9CA9
         DEFB    $00,$42,$64,$6F,$73,$20,$45,$72,$72,$20,$4F,$6E,$20,$20,$3A,$20 ; $9CB9
         DEFB    $24,$42,$61,$64,$20,$53,$65,$63,$74,$6F,$72,$24,$53,$65,$6C,$65 ; $9CC9
         DEFB    $63,$74,$24,$46,$69,$6C,$65,$20,$52,$2F,$4F,$24,$E5,$CD,$C9,$9D ; $9CD9
         DEFB    $3A                                              ; $9CE9
-        DEFW    L_9F42                   ; $9CEA
+        DEFW    FCB_USER_SCRATCH                   ; $9CEA
         DEFB    $C6,$41,$32,$C6,$9C,$01,$BA,$9C,$CD              ; $9CEC
         DEFW    SUB_9DA4_5+2             ; $9CF5
         DEFB    $C1,$CD                                          ; $9CF7
         DEFW    SUB_9DA4_5+2             ; $9CF9
-SUB_9CFB:
-        LD HL,SUB_9DA4_28                ; $9CFB  21 0E 9F
+FCB_SEQ_IO_STEP:
+        LD HL,CON_OUT_STATE                ; $9CFB  21 0E 9F
         LD A,(HL)                        ; $9CFE  7E
         LD (HL),$20                      ; $9CFF  36 20
         PUSH DE                          ; $9D01  D5
         LD B,$00                         ; $9D02  06 00
-        LD HL,(L_9F43)                   ; $9D04  2A 43 9F
+        LD HL,(BDOS_DE_PARAM)                   ; $9D04  2A 43 9F
         ADD HL,BC                        ; $9D07  09
         EX DE,HL                         ; $9D08  EB
-        CALL SUB_A15E                    ; $9D09  CD 5E A1
+        CALL FCB_FIELD_ADDR                    ; $9D09  CD 5E A1
         POP BC                           ; $9D0C  C1
-        CALL SUB_9F4F                    ; $9D0D  CD 4F 9F
-        CALL SUB_9FC3                    ; $9D10  CD C3 9F
-        JP SUB_A18C_1+2                  ; $9D13  C3 C6 A1
+        CALL FCB_SET_REC_FLAG                    ; $9D0D  CD 4F 9F
+        CALL DISK_READ_RECORD                    ; $9D10  CD C3 9F
+        JP DISK_BUF_FLUSH+2                  ; $9D13  C3 C6 A1
         DEFB    $CD,$54,$A1,$0E,$0C,$CD                          ; $9D16
-        DEFW    SUB_A318                 ; $9D1C
+        DEFW    FCB_EXTENT_TO_TRKSEC                 ; $9D1C
         DEFB    $2A                                              ; $9D1E
-        DEFW    L_9F43                   ; $9D1F
+        DEFW    BDOS_DE_PARAM                   ; $9D1F
         DEFB    $7E,$11,$10,$00,$19,$77,$CD                      ; $9D21
-        DEFW    SUB_A1F5                 ; $9D28
+        DEFW    BDOS_CHECK_ERROR                 ; $9D28
         DEFB    $C8,$CD,$44,$A1,$0E,$10,$1E,$0C,$CD              ; $9D2A
-        DEFW    SUB_A401                 ; $9D33
+        DEFW    DISK_STORE_SEC_TRK                 ; $9D33
         DEFB    $CD                                              ; $9D35
-        DEFW    SUB_A318_1+2             ; $9D36
+        DEFW    DISK_SETTRK_SEC+2             ; $9D36
         DEFB    $C3,$27,$A4,$0E,$0C,$CD                          ; $9D38
-        DEFW    SUB_A318                 ; $9D3E
+        DEFW    FCB_EXTENT_TO_TRKSEC                 ; $9D3E
         DEFB    $CD                                              ; $9D40
-        DEFW    SUB_A1F5                 ; $9D41
+        DEFW    BDOS_CHECK_ERROR                 ; $9D41
         DEFB    $C8,$0E,$00,$1E,$0C                              ; $9D43
-SUB_9D48:
-        CALL SUB_A401                    ; $9D48  CD 01 A4
-        CALL SUB_A318_1+2                ; $9D4B  CD 2D A3
-        JP SUB_A401_2                    ; $9D4E  C3 40 A4
+DIR_BUF_READ_REC:
+        CALL DISK_STORE_SEC_TRK                    ; $9D48  CD 01 A4
+        CALL DISK_SETTRK_SEC+2                ; $9D4B  CD 2D A3
+        JP DISK_RET_AXORC                    ; $9D4E  C3 40 A4
         DEFB    $0E,$0F,$CD                                      ; $9D51
-        DEFW    SUB_A318                 ; $9D54
+        DEFW    FCB_EXTENT_TO_TRKSEC                 ; $9D54
         DEFB    $CD                                              ; $9D56
-        DEFW    SUB_A1F5                 ; $9D57
+        DEFW    BDOS_CHECK_ERROR                 ; $9D57
         DEFB    $C8,$CD,$A6,$A0,$7E,$F5,$E5,$CD                  ; $9D59
-        DEFW    SUB_A15E                 ; $9D61
+        DEFW    FCB_FIELD_ADDR                 ; $9D61
         DEFB    $EB,$2A                                          ; $9D63
-        DEFW    L_9F43                   ; $9D65
+        DEFW    BDOS_DE_PARAM                   ; $9D65
         DEFB    $0E,$20,$D5,$CD                                  ; $9D67
-        DEFW    SUB_9F4F                 ; $9D6B
+        DEFW    FCB_SET_REC_FLAG                 ; $9D6B
         DEFB    $CD                                              ; $9D6D
         DEFW    SUB_A169_2+1             ; $9D6E
         DEFB    $D1,$21,$0C,$00,$19,$4E,$21,$0F,$00              ; $9D70
@@ -186,14 +186,14 @@ SUB_9D48_1:
         POP AF                           ; $9D7C  F1
         LD (HL),A                        ; $9D7D  77
         LD A,C                           ; $9D7E  79
-SUB_9D7F:
+FCB_SET_RESULT_CODE:
         CP (HL)                          ; $9D7F  BE
         LD A,B                           ; $9D80  78
-        JP Z,SUB_A451_2                  ; $9D81  CA 8B A4
+        JP Z,DISK_RESET_STATE                  ; $9D81  CA 8B A4
         LD A,$00                         ; $9D84  3E 00
-        JP C,SUB_A451_2                  ; $9D86  DA 8B A4
+        JP C,DISK_RESET_STATE                  ; $9D86  DA 8B A4
         LD A,$80                         ; $9D89  3E 80
-        LD HL,(L_9F43)                   ; $9D8B  2A 43 9F
+        LD HL,(BDOS_DE_PARAM)                   ; $9D8B  2A 43 9F
 SUB_9D7F_1:
         LD DE,$000F                      ; $9D8E  11 0F 00
         ADD HL,DE                        ; $9D91  19
@@ -214,28 +214,28 @@ SUB_9D7F_2:
         DEC HL                           ; $9DA0  2B
         RET                              ; $9DA1  C9
         DEFB    $AF,$32                                          ; $9DA2
-SUB_9DA4:
+DIR_ENTRY_WRITE:
         LD B,L                           ; $9DA4  45
         SBC A,A                          ; $9DA5  9F
         LD ($A9EA),A                     ; $9DA6  32 EA A9
         LD ($A9EB),A                     ; $9DA9  32 EB A9
 SUB_9DA4_1:
-        CALL SUB_A11E                    ; $9DAC  CD 1E A1
+        CALL DIR_SEARCH                    ; $9DAC  CD 1E A1
         RET NZ                           ; $9DAF  C0
-SUB_9DA4_2:
-        CALL SUB_A169                    ; $9DB0  CD 69 A1
+DIR_FETCH_BLOCK:
+        CALL DISK_SET_DMA_READ                    ; $9DB0  CD 69 A1
         AND $80                          ; $9DB3  E6 80
         RET NZ                           ; $9DB5  C0
         LD C,$0F                         ; $9DB6  0E 0F
 SUB_9DA4_3:
-        CALL SUB_A318                    ; $9DB8  CD 18 A3
-        CALL SUB_A1F5                    ; $9DBB  CD F5 A1
+        CALL FCB_EXTENT_TO_TRKSEC                    ; $9DB8  CD 18 A3
+        CALL BDOS_CHECK_ERROR                    ; $9DBB  CD F5 A1
         RET Z                            ; $9DBE  C8
         LD BC,RST2_VEC                   ; $9DBF  01 10 00
-        CALL SUB_A15E                    ; $9DC2  CD 5E A1
+        CALL FCB_FIELD_ADDR                    ; $9DC2  CD 5E A1
         ADD HL,BC                        ; $9DC5  09
         EX DE,HL                         ; $9DC6  EB
-        LD HL,(L_9F43)                   ; $9DC7  2A 43 9F
+        LD HL,(BDOS_DE_PARAM)                   ; $9DC7  2A 43 9F
 SUB_9DA4_4:
         ADD HL,BC                        ; $9DCA  09
         LD C,$10                         ; $9DCB  0E 10
@@ -252,10 +252,10 @@ SUB_9DA4_5:
         JP NZ,SUB_A4A2_2                 ; $9DDC  C2 E1 A4
         LD A,(HL)                        ; $9DDF  7E
         LD (DE),A                        ; $9DE0  12
-SUB_9DA4_6:
+BDOS_READ_CON_BUF:
         CP (HL)                          ; $9DE1  BE
         JP NZ,SUB_A4A2_6+1               ; $9DE2  C2 1F A5
-        JP SUB_A4A2_4                    ; $9DE5  C3 FD A4
+        JP DISK_SYSTEM_INIT                    ; $9DE5  C3 FD A4
         DEFB    $CD,$94,$A4,$EB,$CD,$94,$A4                      ; $9DE8
 SUB_9DA4_7:
         EX DE,HL                         ; $9DEF  EB
@@ -277,12 +277,12 @@ SUB_9DA4_8:
         RET NZ                           ; $9E02  C0
         JP $FA09                         ; $9E03  C3 09 FA
         DEFB    $CD                                              ; $9E06
-        DEFW    SUB_9CFB                 ; $9E07
+        DEFW    FCB_SEQ_IO_STEP                 ; $9E07
         DEFB    $CD,$14,$9D,$D8,$F5,$4F,$CD                      ; $9E09
         DEFW    SUB_9D7F_1+2             ; $9E10
         DEFB    $F1,$C9,$FE,$0D,$C8,$FE,$0A,$C8,$FE,$09,$C8,$FE,$08,$C8,$FE,$20 ; $9E12
         DEFB    $C9,$3A                                          ; $9E22
-        DEFW    SUB_9DA4_28              ; $9E24
+        DEFW    CON_OUT_STATE              ; $9E24
         DEFB    $B7,$C2,$45,$9D,$CD,$06,$FA,$E6,$01,$C8,$CD,$09,$FA,$FE,$13,$C2 ; $9E26
         DEFB    $42,$9D,$CD,$09,$FA,$FE,$03                      ; $9E36
 SUB_9DA4_9:
@@ -290,7 +290,7 @@ SUB_9DA4_9:
         XOR A                            ; $9E40  AF
         RET                              ; $9E41  C9
         DEFB    $32                                              ; $9E42
-        DEFW    SUB_9DA4_28              ; $9E43
+        DEFW    CON_OUT_STATE              ; $9E43
         DEFB    $3E,$01,$C9,$3A                                  ; $9E45
         DEFW    SUB_9DA4_26              ; $9E49
         DEFB    $B7,$C2,$62,$9D,$C5,$CD,$23,$9D,$C1,$C5,$CD,$0C,$FA,$C1,$C5,$3A ; $9E4B
@@ -321,10 +321,10 @@ SUB_9DA4_13:
         LD C,A                           ; $9E8F  4F
         LD A,C                           ; $9E90  79
         CP $09                           ; $9E91  FE 09
-        JP NZ,SUB_9D48                   ; $9E93  C2 48 9D
+        JP NZ,DIR_BUF_READ_REC                   ; $9E93  C2 48 9D
         LD C,$20                         ; $9E96  0E 20
 SUB_9DA4_14:
-        CALL SUB_9D48                    ; $9E98  CD 48 9D
+        CALL DIR_BUF_READ_REC                    ; $9E98  CD 48 9D
         LD A,(SUB_9DA4_27+1)             ; $9E9B  3A 0C 9F
         AND $07                          ; $9E9E  E6 07
         JP NZ,SUB_9D7F_2                 ; $9EA0  C2 96 9D
@@ -332,7 +332,7 @@ SUB_9DA4_14:
         DEFB    $CD                                              ; $9EA4
         DEFW    SUB_9DA4_1               ; $9EA5
         DEFB    $0E,$20,$CD,$0C,$FA,$0E,$08,$C3,$0C,$FA,$0E,$23,$CD ; $9EA7
-        DEFW    SUB_9D48                 ; $9EB4
+        DEFW    DIR_BUF_READ_REC                 ; $9EB4
         DEFB    $CD,$C9,$9D,$3A                                  ; $9EB6
         DEFW    SUB_9DA4_27+1            ; $9EBA
         DEFB    $21                                              ; $9EBC
@@ -340,16 +340,16 @@ SUB_9DA4_14:
         DEFB    $BE,$D0                                          ; $9EBF
 SUB_9DA4_15:
         LD C,$20                         ; $9EC1  0E 20
-        CALL SUB_9D48                    ; $9EC3  CD 48 9D
-SUB_9DA4_16:
+        CALL DIR_BUF_READ_REC                    ; $9EC3  CD 48 9D
+CON_OUT_EXPAND_TAIL:
         JP SUB_9DA4_3+1                  ; $9EC6  C3 B9 9D
         LD C,$0D                         ; $9EC9  0E 0D
-        CALL SUB_9D48                    ; $9ECB  CD 48 9D
-SUB_9DA4_17:
+        CALL DIR_BUF_READ_REC                    ; $9ECB  CD 48 9D
+BDOS_READER_INPUT:
         LD C,$0A                         ; $9ECE  0E 0A
-        JP SUB_9D48                      ; $9ED0  C3 48 9D
+        JP DIR_BUF_READ_REC                      ; $9ED0  C3 48 9D
         DEFB    $0A                                              ; $9ED3
-SUB_9DA4_18:
+BDOS_DIRECT_CON_IO:
         CP $24                           ; $9ED4  FE 24
         RET Z                            ; $9ED6  C8
         INC BC                           ; $9ED7  03
@@ -364,18 +364,18 @@ SUB_9DA4_19:
         DEFB    $32                                              ; $9EE4
         DEFW    SUB_9DA4_27              ; $9EE5
         DEFB    $2A                                              ; $9EE7
-        DEFW    L_9F43                   ; $9EE8
+        DEFW    BDOS_DE_PARAM                   ; $9EE8
         DEFB    $4E,$23,$E5                                      ; $9EEA
-SUB_9DA4_20:
+BDOS_GET_IOBYTE:
         LD B,$00                         ; $9EED  06 00
         PUSH BC                          ; $9EEF  C5
         PUSH HL                          ; $9EF0  E5
 SUB_9DA4_21:
-        CALL SUB_9CFB                    ; $9EF1  CD FB 9C
+        CALL FCB_SEQ_IO_STEP                    ; $9EF1  CD FB 9C
         AND $7F                          ; $9EF4  E6 7F
         POP HL                           ; $9EF6  E1
         POP BC                           ; $9EF7  C1
-SUB_9DA4_22:
+BDOS_PRINT_STRING_FN:
         CP $0D                           ; $9EF8  FE 0D
         JP Z,SUB_9DA4_15                 ; $9EFA  CA C1 9E
 SUB_9DA4_23:
@@ -383,7 +383,7 @@ SUB_9DA4_23:
 SUB_9DA4_24:
         JP Z,$CDC2                       ; $9EFF  CA C2 CD
         AND H                            ; $9F02  A4
-SUB_9DA4_25:
+BDOS_RETURN_AH:
         LD BC,$FFEC                      ; $9F03  01 EC FF
         ADD HL,BC                        ; $9F06  09
         EX DE,HL                         ; $9F07  EB
@@ -393,9 +393,9 @@ SUB_9DA4_26:
         CP (HL)                          ; $9F0A  BE
 SUB_9DA4_27:
         JP C,SUB_A4A2_5+1                ; $9F0B  DA 17 A5
-SUB_9DA4_28:
+CON_OUT_STATE:
         LD (HL),A                        ; $9F0E  77
-SUB_9DA4_29:
+BDOS_SAVED_SP:
         LD BC,IOBYTE                     ; $9F0F  01 03 00
         ADD HL,BC                        ; $9F12  09
         EX DE,HL                         ; $9F13  EB
@@ -404,68 +404,68 @@ SUB_9DA4_29:
         LD (DE),A                        ; $9F16  12
         LD A,$FF                         ; $9F17  3E FF
         LD ($A9D2),A                     ; $9F19  32 D2 A9
-        JP SUB_A401_1                    ; $9F1C  C3 10 A4
+        JP DISK_SEEK_RECORD                    ; $9F1C  C3 10 A4
         DEFB    $21                                              ; $9F1F
-        DEFW    L_9F45                   ; $9F20
+        DEFW    BDOS_RETURN_VAL                   ; $9F20
         DEFB    $35,$C9,$CD,$54,$A1,$2A                          ; $9F22
-        DEFW    L_9F43                   ; $9F28
+        DEFW    BDOS_DE_PARAM                   ; $9F28
         DEFB    $E5,$21,$AC,$A9,$22                              ; $9F2A
-        DEFW    L_9F43                   ; $9F2F
+        DEFW    BDOS_DE_PARAM                   ; $9F2F
         DEFB    $0E,$01,$CD                                      ; $9F31
-        DEFW    SUB_A318                 ; $9F34
+        DEFW    FCB_EXTENT_TO_TRKSEC                 ; $9F34
         DEFB    $CD                                              ; $9F36
-        DEFW    SUB_A1F5                 ; $9F37
+        DEFW    BDOS_CHECK_ERROR                 ; $9F37
         DEFB    $E1,$22                                          ; $9F39
-        DEFW    L_9F43                   ; $9F3B
+        DEFW    BDOS_DE_PARAM                   ; $9F3B
         DEFB    $C8,$EB,$21,$0F                                  ; $9F3D
-L_9F41:
+BDOS_STACK:
         DEFB    $00                                              ; $9F41
-L_9F42:
+FCB_USER_SCRATCH:
         DEFB    $19                                              ; $9F42
-L_9F43:
+BDOS_DE_PARAM:
         DEFB    $0E,$11                                          ; $9F43
-L_9F45:
+BDOS_RETURN_VAL:
         DEFB    $AF,$77,$23,$0D,$C2                              ; $9F45
         DEFW    SUB_A4A2_10              ; $9F4A
         DEFB    $21,$0D,$00                                      ; $9F4C
-SUB_9F4F:
+FCB_SET_REC_FLAG:
         ADD HL,DE                        ; $9F4F  19
 SUB_9F4F_1:
         LD (HL),A                        ; $9F50  77
-        CALL SUB_A18C                    ; $9F51  CD 8C A1
-        CALL SUB_A3FD                    ; $9F54  CD FD A3
+        CALL DISK_DEBLOCK                    ; $9F51  CD 8C A1
+        CALL DISK_SET_SEC_PARM                    ; $9F54  CD FD A3
         JP SUB_A169_2+1                  ; $9F57  C3 78 A1
         DEFB    $AF,$32,$D2,$A9,$CD                              ; $9F5A
-        DEFW    SUB_A4A2                 ; $9F5F
+        DEFW    DIR_SEARCH_FIRST                 ; $9F5F
         DEFB    $CD                                              ; $9F61
-        DEFW    SUB_A1F5                 ; $9F62
+        DEFW    BDOS_CHECK_ERROR                 ; $9F62
         DEFB    $C8,$2A                                          ; $9F64
-        DEFW    L_9F43                   ; $9F66
+        DEFW    BDOS_DE_PARAM                   ; $9F66
         DEFB    $01,$0C,$00,$09,$7E,$3C,$E6,$1F,$77,$CA,$83,$A5,$47,$3A,$C5,$A9 ; $9F68
         DEFB    $A0,$21,$D2,$A9,$A6,$CA,$8E,$A5,$C3,$AC,$A5,$01,$02,$00,$09,$34 ; $9F78
         DEFB    $7E,$E6,$0F,$CA,$B6,$A5,$0E,$0F,$CD              ; $9F88
-        DEFW    SUB_A318                 ; $9F91
+        DEFW    FCB_EXTENT_TO_TRKSEC                 ; $9F91
         DEFB    $CD                                              ; $9F93
-        DEFW    SUB_A1F5                 ; $9F94
+        DEFW    BDOS_CHECK_ERROR                 ; $9F94
         DEFB    $C2,$AC,$A5,$3A,$D3,$A9,$3C,$CA,$B6,$A5,$CD      ; $9F96
         DEFW    SUB_A4A2_7+1             ; $9FA1
         DEFB    $CD                                              ; $9FA3
-        DEFW    SUB_A1F5                 ; $9FA4
+        DEFW    BDOS_CHECK_ERROR                 ; $9FA4
         DEFB    $CA,$B6,$A5,$C3,$AF,$A5,$CD                      ; $9FA6
-        DEFW    SUB_A451_1               ; $9FAD
+        DEFW    DIR_NAME_MASK               ; $9FAD
         DEFB    $CD                                              ; $9FAF
-        DEFW    SUB_A0BB                 ; $9FB0
-SUB_9FB2:
+        DEFW    DISK_COMPUTE_BLOCK                 ; $9FB0
+DISK_RET_OK:
         XOR A                            ; $9FB2  AF
         JP SUB_9DA4_24+2                 ; $9FB3  C3 01 9F
         DEFB    $CD,$05                                          ; $9FB6
-SUB_9FB8:
+DISK_RET_STATUS:
         SBC A,A                          ; $9FB8  9F
         JP SUB_A169_2+1                  ; $9FB9  C3 78 A1
         DEFB    $3E,$01,$32,$D5,$A9,$3E,$FF                      ; $9FBC
-SUB_9FC3:
+DISK_READ_RECORD:
         LD ($A9D3),A                     ; $9FC3  32 D3 A9
-        CALL SUB_A0BB                    ; $9FC6  CD BB A0
+        CALL DISK_COMPUTE_BLOCK                    ; $9FC6  CD BB A0
         LD A,($A9E3)                     ; $9FC9  3A E3 A9
         LD HL,$A9E1                      ; $9FCC  21 E1 A9
         CP (HL)                          ; $9FCF  BE
@@ -473,19 +473,19 @@ SUB_9FC3_1:
         JP C,SUB_A55A_9                  ; $9FD0  DA E6 A5
         CP $80                           ; $9FD3  FE 80
         JP NZ,SUB_A55A_12                ; $9FD5  C2 FB A5
-        CALL SUB_A55A                    ; $9FD8  CD 5A A5
+        CALL DISK_RW_DISPATCH                    ; $9FD8  CD 5A A5
         XOR A                            ; $9FDB  AF
         LD ($A9E3),A                     ; $9FDC  32 E3 A9
-        LD A,(L_9F45)                    ; $9FDF  3A 45 9F
+        LD A,(BDOS_RETURN_VAL)                    ; $9FDF  3A 45 9F
         OR A                             ; $9FE2  B7
         JP NZ,SUB_A55A_12                ; $9FE3  C2 FB A5
-        CALL SUB_A077                    ; $9FE6  CD 77 A0
+        CALL FCB_NAME_COMPARE                    ; $9FE6  CD 77 A0
         CALL SUB_A077_1+2                ; $9FE9  CD 84 A0
         JP Z,SUB_A55A_12                 ; $9FEC  CA FB A5
-        CALL SUB_A08A                    ; $9FEF  CD 8A A0
+        CALL DIR_NEXT_ENTRY                    ; $9FEF  CD 8A A0
         CALL SUB_9FC3_1+1                ; $9FF2  CD D1 9F
-        CALL SUB_9FB2                    ; $9FF5  CD B2 9F
-        JP SUB_A0D2                      ; $9FF8  C3 D2 A0
+        CALL DISK_RET_OK                    ; $9FF5  CD B2 9F
+        JP DISK_SELECT_DRIVE                      ; $9FF8  C3 D2 A0
         DEFB    $C3,$05,$9F,$3E,$01                              ; $9FFB
         DEFW    SUB_9DA4_15              ; $A000
         DEFB    $FE,$08,$C2,$16,$9E,$78,$B7,$CA                  ; $A002
@@ -504,7 +504,7 @@ SUB_9FC3_1:
         DEFB    $C3                                              ; $A034
         DEFW    SUB_9DA4_8               ; $A035
         DEFB    $FE,$10,$C2,$48,$9E,$E5,$21                      ; $A037
-SUB_A03E:
+CON_RUB_RESTORE:
         DEC C                            ; $A03E  0D
         SBC A,A                          ; $A03F  9F
         LD A,$01                         ; $A040  3E 01
@@ -517,21 +517,21 @@ SUB_A03E:
         DEFB    $21                                              ; $A051
         DEFW    SUB_9DA4_27+1            ; $A052
         DEFB    $BE,$D2                                          ; $A054
-        DEFW    SUB_9DA4_6               ; $A056
+        DEFW    BDOS_READ_CON_BUF               ; $A056
         DEFB    $35,$CD                                          ; $A058
-        DEFW    SUB_9DA4                 ; $A05A
+        DEFW    DIR_ENTRY_WRITE                 ; $A05A
         DEFB    $C3,$4E                                          ; $A05C
-SUB_A05E:
+CON_CTRL_R_RETYPE:
         SBC A,(HL)                       ; $A05E  9E
         CP $15                           ; $A05F  FE 15
         JP NZ,SUB_9DA4_10                ; $A061  C2 6B 9E
-        CALL SUB_9DA4_2+1                ; $A064  CD B1 9D
+        CALL DIR_FETCH_BLOCK+1                ; $A064  CD B1 9D
         POP HL                           ; $A067  E1
-        JP SUB_9DA4_6                    ; $A068  C3 E1 9D
+        JP BDOS_READ_CON_BUF                    ; $A068  C3 E1 9D
         DEFB    $FE,$12,$C2,$A6,$9E,$C5,$CD                      ; $A06B
-        DEFW    SUB_9DA4_2+1             ; $A072
+        DEFW    DIR_FETCH_BLOCK+1             ; $A072
         DEFB    $C1,$E1,$E5                                      ; $A074
-SUB_A077:
+FCB_NAME_COMPARE:
         PUSH BC                          ; $A077  C5
         LD A,B                           ; $A078  78
         OR A                             ; $A079  B7
@@ -542,11 +542,11 @@ SUB_A077:
         PUSH BC                          ; $A080  C5
         PUSH HL                          ; $A081  E5
 SUB_A077_1:
-        CALL SUB_9D7F                    ; $A082  CD 7F 9D
+        CALL FCB_SET_RESULT_CODE                    ; $A082  CD 7F 9D
         POP HL                           ; $A085  E1
         POP BC                           ; $A086  C1
         JP SUB_9DA4_12                   ; $A087  C3 78 9E
-SUB_A08A:
+DIR_NEXT_ENTRY:
         PUSH HL                          ; $A08A  E5
         LD A,(SUB_9DA4_26)               ; $A08B  3A 0A 9F
         OR A                             ; $A08E  B7
@@ -554,15 +554,15 @@ SUB_A08A:
         LD HL,SUB_9DA4_27+1              ; $A092  21 0C 9F
         SUB (HL)                         ; $A095  96
         LD (SUB_9DA4_26),A               ; $A096  32 0A 9F
-        CALL SUB_9DA4                    ; $A099  CD A4 9D
+        CALL DIR_ENTRY_WRITE                    ; $A099  CD A4 9D
         LD HL,SUB_9DA4_26                ; $A09C  21 0A 9F
         DEC (HL)                         ; $A09F  35
         JP NZ,SUB_9DA4_14+1              ; $A0A0  C2 99 9E
         JP SUB_9DA4_8                    ; $A0A3  C3 F1 9D
         DEFB    $23,$77,$04,$C5,$E5,$4F,$CD                      ; $A0A6
-        DEFW    SUB_9D7F                 ; $A0AD
+        DEFW    FCB_SET_RESULT_CODE                 ; $A0AD
         DEFB    $E1,$C1,$7E,$FE,$03,$78,$C2,$BD,$9E,$FE,$01,$CA  ; $A0AF
-SUB_A0BB:
+DISK_COMPUTE_BLOCK:
         NOP                              ; $A0BB  00
         NOP                              ; $A0BC  00
         CP C                             ; $A0BD  B9
@@ -570,11 +570,11 @@ SUB_A0BB:
         POP HL                           ; $A0C1  E1
         LD (HL),B                        ; $A0C2  70
         LD C,$0D                         ; $A0C3  0E 0D
-        JP SUB_9D48                      ; $A0C5  C3 48 9D
+        JP DIR_BUF_READ_REC                      ; $A0C5  C3 48 9D
         DEFB    $CD,$06,$9D,$C3                                  ; $A0C8
         DEFW    SUB_9DA4_24+2            ; $A0CC
         DEFB    $CD,$15,$FA,$C3                                  ; $A0CE
-SUB_A0D2:
+DISK_SELECT_DRIVE:
         LD BC,$799F                      ; $A0D2  01 9F 79
         INC A                            ; $A0D5  3C
         JP Z,SUB_9DA4_19+2               ; $A0D6  CA E0 9E
@@ -589,53 +589,53 @@ SUB_A0D2:
         DEFW    SUB_9DA4_5+2             ; $A0FC
         DEFB    $CD,$23,$32,$D5,$A9,$3E,$00                      ; $A0FE  "M#2U)>"
         DEFB    $32,$D3,$A9,$CD,$54,$A1,$2A                      ; $A105
-        DEFW    L_9F43                   ; $A10C
+        DEFW    BDOS_DE_PARAM                   ; $A10C
         DEFB    $CD,$47,$A1,$CD                                  ; $A10E
-        DEFW    SUB_A0BB                 ; $A112
+        DEFW    DISK_COMPUTE_BLOCK                 ; $A112
         DEFB    $3A,$E3,$A9,$FE,$80                              ; $A114  ":c)~"
         DEFB    $D2,$05,$9F,$CD,$77                              ; $A119
-SUB_A11E:
+DIR_SEARCH:
         AND B                            ; $A11E  A0
         CALL SUB_A077_1+2                ; $A11F  CD 84 A0
         LD C,$00                         ; $A122  0E 00
         JP NZ,$A66E                      ; $A124  C2 6E A6
-        CALL SUB_A03E                    ; $A127  CD 3E A0
-SUB_A11E_1:
+        CALL CON_RUB_RESTORE                    ; $A127  CD 3E A0
+DIR_SEARCH_RESULT:
         LD ($A9D7),A                     ; $A12A  32 D7 A9
         LD BC,WBOOT_VEC                  ; $A12D  01 00 00
         OR A                             ; $A130  B7
         JP Z,$A63B                       ; $A131  CA 3B A6
         LD C,A                           ; $A134  4F
         DEC BC                           ; $A135  0B
-        CALL SUB_A05E                    ; $A136  CD 5E A0
+        CALL CON_CTRL_R_RETYPE                    ; $A136  CD 5E A0
         LD B,H                           ; $A139  44
         LD C,L                           ; $A13A  4D
-        CALL SUB_A3BE                    ; $A13B  CD BE A3
+        CALL FCB_ALLOC_BLOCK_NUM                    ; $A13B  CD BE A3
         LD A,L                           ; $A13E  7D
         OR H                             ; $A13F  B4
         JP NZ,$A648                      ; $A140  C2 48 A6
         LD A,$02                         ; $A143  3E 02
         JP SUB_9DA4_24+2                 ; $A145  C3 01 9F
         DEFB    $22,$E5,$A9,$EB,$2A                              ; $A148
-        DEFW    L_9F43                   ; $A14D
+        DEFW    BDOS_DE_PARAM                   ; $A14D
         DEFB    $01,$10,$00,$09,$3A,$DD,$A9,$B7,$3A,$D7,$A9,$CA,$64,$A6,$CD ; $A14F
-SUB_A15E:
+FCB_FIELD_ADDR:
         LD H,H                           ; $A15E  64
         AND C                            ; $A15F  A1
         LD (HL),E                        ; $A160  73
         JP $A66C                         ; $A161  C3 6C A6
         DEFB    $4F,$06,$00,$09,$09                              ; $A164
-SUB_A169:
+DISK_SET_DMA_READ:
         LD (HL),E                        ; $A169  73
         INC HL                           ; $A16A  23
         LD (HL),D                        ; $A16B  72
         LD C,$02                         ; $A16C  0E 02
-        LD A,(L_9F45)                    ; $A16E  3A 45 9F
+        LD A,(BDOS_RETURN_VAL)                    ; $A16E  3A 45 9F
         OR A                             ; $A171  B7
 SUB_A169_1:
         RET NZ                           ; $A172  C0
         PUSH BC                          ; $A173  C5
-        CALL SUB_A08A                    ; $A174  CD 8A A0
+        CALL DIR_NEXT_ENTRY                    ; $A174  CD 8A A0
 SUB_A169_2:
         LD A,($A9D5)                     ; $A177  3A D5 A9
         DEC A                            ; $A17A  3D
@@ -650,7 +650,7 @@ SUB_A169_2:
         PUSH HL                          ; $A187  E5
         LD HL,($A9B9)                    ; $A188  2A B9 A9
         LD D,A                           ; $A18B  57
-SUB_A18C:
+DISK_DEBLOCK:
         LD (HL),A                        ; $A18C  77
         INC HL                           ; $A18D  23
         INC D                            ; $A18E  14
@@ -662,7 +662,7 @@ SUB_A18C:
         PUSH BC                          ; $A19D  C5
         CALL SUB_9FC3_1+1                ; $A19E  CD D1 9F
         POP BC                           ; $A1A1  C1
-        CALL SUB_9FB8                    ; $A1A2  CD B8 9F
+        CALL DISK_RET_STATUS                    ; $A1A2  CD B8 9F
         LD HL,($A9E5)                    ; $A1A5  2A E5 A9
         LD C,$00                         ; $A1A8  0E 00
         LD A,($A9C4)                     ; $A1AA  3A C4 A9
@@ -677,9 +677,9 @@ SUB_A18C:
         CALL SUB_9FC3_1+1                ; $A1BB  CD D1 9F
         POP BC                           ; $A1BE  C1
         PUSH BC                          ; $A1BF  C5
-        CALL SUB_9FB8                    ; $A1C0  CD B8 9F
+        CALL DISK_RET_STATUS                    ; $A1C0  CD B8 9F
         POP BC                           ; $A1C3  C1
-SUB_A18C_1:
+DISK_BUF_FLUSH:
         LD A,($A9E3)                     ; $A1C4  3A E3 A9
         LD HL,$A9E1                      ; $A1C7  21 E1 A9
         CP (HL)                          ; $A1CA  BE
@@ -692,7 +692,7 @@ SUB_A18C_1:
         LD HL,$A6DF                      ; $A1D4  21 DF A6
         PUSH AF                          ; $A1D7  F5
 SUB_A18C_2:
-        CALL SUB_A169                    ; $A1D8  CD 69 A1
+        CALL DISK_SET_DMA_READ                    ; $A1D8  CD 69 A1
         AND $7F                          ; $A1DB  E6 7F
         LD (HL),A                        ; $A1DD  77
         POP AF                           ; $A1DE  F1
@@ -701,12 +701,12 @@ SUB_A18C_3:
         JP NZ,$A700                      ; $A1E1  C2 00 A7
         LD A,($A9D5)                     ; $A1E4  3A D5 A9
         CP $01                           ; $A1E7  FE 01
-SUB_A18C_4:
+DISK_BUF_PURGE:
         JP NZ,$A700                      ; $A1E9  C2 00 A7
-        CALL SUB_A0D2                    ; $A1EC  CD D2 A0
-        CALL SUB_A55A                    ; $A1EF  CD 5A A5
-        LD HL,L_9F45                     ; $A1F2  21 45 9F
-SUB_A1F5:
+        CALL DISK_SELECT_DRIVE                    ; $A1EC  CD D2 A0
+        CALL DISK_RW_DISPATCH                    ; $A1EF  CD 5A A5
+        LD HL,BDOS_RETURN_VAL                     ; $A1F2  21 45 9F
+BDOS_CHECK_ERROR:
         LD A,(HL)                        ; $A1F5  7E
         OR A                             ; $A1F6  B7
         JP NZ,$A6FE                      ; $A1F7  C2 FE A6
@@ -714,7 +714,7 @@ SUB_A1F5:
         LD ($A9E3),A                     ; $A1FB  32 E3 A9
         LD (HL),$00                      ; $A1FE  36 00
         SBC A,L                          ; $A200  9D
-        LD (L_9F45),A                    ; $A201  32 45 9F
+        LD (BDOS_RETURN_VAL),A                    ; $A201  32 45 9F
         RET                              ; $A204  C9
         DEFB    $3E,$01,$C3                                      ; $A205
         DEFW    SUB_9DA4_24+2            ; $A208
@@ -722,13 +722,13 @@ SUB_A1F5:
         DEFB    $21,$0B,$9C,$5E,$23,$56,$EB,$E9,$0C,$0D,$C8,$1A,$77,$13,$23,$C3 ; $A247
         DEFW    SUB_9F4F_1               ; $A257
         DEFB    $3A                                              ; $A259
-        DEFW    L_9F42                   ; $A25A
+        DEFW    FCB_USER_SCRATCH                   ; $A25A
         DEFB    $4F,$CD,$1B,$FA,$7C,$B5,$C8,$5E,$23,$56,$23,$22,$B3,$A9,$23,$23 ; $A25C
         DEFB    $22,$B5,$A9,$23,$23,$22,$B7,$A9,$23,$23,$EB,$22,$D0,$A9,$21,$B9 ; $A26C
         DEFB    $A9,$0E,$08,$CD                                  ; $A27C
-        DEFW    SUB_9F4F                 ; $A280
+        DEFW    FCB_SET_REC_FLAG                 ; $A280
         DEFB    $2A,$BB,$A9,$EB,$21,$C1,$A9,$0E,$0F,$CD          ; $A282
-        DEFW    SUB_9F4F                 ; $A28C
+        DEFW    FCB_SET_REC_FLAG                 ; $A28C
         DEFB    $2A,$C6,$A9,$7C,$21,$DD,$A9,$36,$FF,$B7          ; $A28E
         DEFW    SUB_9DA4_4               ; $A298
         DEFB    $9F,$36,$00,$3E,$FF,$B7,$C9,$CD,$18              ; $A29A
@@ -753,7 +753,7 @@ SUB_A1F5_2:
         JP NC,$AFA0                      ; $A301  D2 A0 AF
         LD ($A9D5),A                     ; $A304  32 D5 A9
         PUSH BC                          ; $A307  C5
-        LD HL,(L_9F43)                   ; $A308  2A 43 9F
+        LD HL,(BDOS_DE_PARAM)                   ; $A308  2A 43 9F
         EX DE,HL                         ; $A30B  EB
         LD HL,$0021                      ; $A30C  21 21 00
         ADD HL,DE                        ; $A30F  19
@@ -764,7 +764,7 @@ SUB_A1F5_2:
         RLA                              ; $A315  17
         INC HL                           ; $A316  23
         LD A,(HL)                        ; $A317  7E
-SUB_A318:
+FCB_EXTENT_TO_TRKSEC:
         RLA                              ; $A318  17
         AND $1F                          ; $A319  E6 1F
         LD C,A                           ; $A31B  4F
@@ -781,7 +781,7 @@ SUB_A318:
         INC L                            ; $A327  2C
         DEC L                            ; $A328  2D
         LD L,$06                         ; $A329  2E 06
-SUB_A318_1:
+DISK_SETTRK_SEC:
         JP NZ,$A78B                      ; $A32B  C2 8B A7
         LD HL,RST4_VEC                   ; $A32E  21 20 00
         ADD HL,DE                        ; $A331  19
@@ -799,11 +799,11 @@ SUB_A318_1:
         JP Z,$A77F                       ; $A344  CA 7F A7
         PUSH BC                          ; $A347  C5
         PUSH DE                          ; $A348  D5
-        CALL SUB_A4A2                    ; $A349  CD A2 A4
+        CALL DIR_SEARCH_FIRST                    ; $A349  CD A2 A4
         POP DE                           ; $A34C  D1
         POP BC                           ; $A34D  C1
         LD L,$03                         ; $A34E  2E 03
-        LD A,(L_9F45)                    ; $A350  3A 45 9F
+        LD A,(BDOS_RETURN_VAL)                    ; $A350  3A 45 9F
         INC A                            ; $A353  3C
         JP Z,$A784                       ; $A354  CA 84 A7
         LD HL,$000C                      ; $A357  21 0C 00
@@ -812,8 +812,8 @@ SUB_A318_1:
         LD HL,$000E                      ; $A35C  21 0E 00
         ADD HL,DE                        ; $A35F  19
         LD (HL),B                        ; $A360  70
-        CALL SUB_A451                    ; $A361  CD 51 A4
-        LD A,(L_9F45)                    ; $A364  3A 45 9F
+        CALL DIR_SEARCH_FIRST_INIT                    ; $A361  CD 51 A4
+        LD A,(BDOS_RETURN_VAL)                    ; $A364  3A 45 9F
         INC A                            ; $A367  3C
         JP NZ,$A77F                      ; $A368  C2 7F A7
         POP BC                           ; $A36B  C1
@@ -823,16 +823,16 @@ SUB_A318_1:
         JP Z,$A784                       ; $A370  CA 84 A7
         CALL SUB_A4A2_7+1                ; $A373  CD 24 A5
         LD L,$05                         ; $A376  2E 05
-        LD A,(L_9F45)                    ; $A378  3A 45 9F
+        LD A,(BDOS_RETURN_VAL)                    ; $A378  3A 45 9F
         INC A                            ; $A37B  3C
         JP Z,$A784                       ; $A37C  CA 84 A7
         POP BC                           ; $A37F  C1
         XOR A                            ; $A380  AF
         JP SUB_9DA4_24+2                 ; $A381  C3 01 9F
         DEFB    $E5,$CD                                          ; $A384
-        DEFW    SUB_A169                 ; $A386
+        DEFW    DISK_SET_DMA_READ                 ; $A386
         DEFB    $36,$C0,$E1,$C1,$7D,$32                          ; $A388
-        DEFW    L_9F45                   ; $A38E
+        DEFW    BDOS_RETURN_VAL                   ; $A38E
         DEFB    $C3                                              ; $A390
         DEFW    SUB_A169_2+1             ; $A391
         DEFB    $0E,$FF,$CD,$03,$A7,$CC                          ; $A393
@@ -840,7 +840,7 @@ SUB_A318_1:
         DEFB    $C9,$0E,$00,$CD,$03,$A7,$CC,$03,$A6,$C9,$EB,$19,$4E,$06,$00,$21 ; $A39B
         DEFB    $0C,$00,$19,$7E,$0F,$E6,$80,$81,$4F,$3E,$00,$88,$47,$7E,$0F,$E6 ; $A3AB
         DEFB    $0F,$80,$47                                      ; $A3BB
-SUB_A3BE:
+FCB_ALLOC_BLOCK_NUM:
         LD HL,$000E                      ; $A3BE  21 0E 00
         ADD HL,DE                        ; $A3C1  19
         LD A,(HL)                        ; $A3C2  7E
@@ -859,31 +859,31 @@ SUB_A3BE:
         AND $01                          ; $A3CF  E6 01
         RET                              ; $A3D1  C9
         DEFB    $0E,$0C,$CD                                      ; $A3D2
-        DEFW    SUB_A318                 ; $A3D5
+        DEFW    FCB_EXTENT_TO_TRKSEC                 ; $A3D5
         DEFB    $2A                                              ; $A3D7
-        DEFW    L_9F43                   ; $A3D8
+        DEFW    BDOS_DE_PARAM                   ; $A3D8
         DEFB    $11,$21,$00,$19,$E5,$72,$23,$72,$23,$72,$CD      ; $A3DA
-        DEFW    SUB_A1F5                 ; $A3E5
+        DEFW    BDOS_CHECK_ERROR                 ; $A3E5
         DEFB    $CA,$0C,$A8,$CD                                  ; $A3E7
-        DEFW    SUB_A15E                 ; $A3EB
+        DEFW    FCB_FIELD_ADDR                 ; $A3EB
         DEFB    $11,$0F,$00                                      ; $A3ED
         DEFW    SUB_A55A_6               ; $A3F0
         DEFB    $A7,$E1,$E5,$5F,$79,$96,$23                      ; $A3F2
         DEFW    SUB_9DA4_12              ; $A3F9
         DEFB    $23,$7B                                          ; $A3FB
-SUB_A3FD:
+DISK_SET_SEC_PARM:
         SBC A,(HL)                       ; $A3FD  9E
         JP C,$A806                       ; $A3FE  DA 06 A8
-SUB_A401:
+DISK_STORE_SEC_TRK:
         LD (HL),E                        ; $A401  73
         DEC HL                           ; $A402  2B
         LD (HL),B                        ; $A403  70
         DEC HL                           ; $A404  2B
         LD (HL),C                        ; $A405  71
-        CALL SUB_A318_1+2                ; $A406  CD 2D A3
+        CALL DISK_SETTRK_SEC+2                ; $A406  CD 2D A3
         JP $A7E4                         ; $A409  C3 E4 A7
         DEFB    $E1,$C9,$2A,$43                                  ; $A40C
-SUB_A401_1:
+DISK_SEEK_RECORD:
         SBC A,A                          ; $A410  9F
         LD DE,RST4_VEC                   ; $A411  11 20 00
         CALL $A7A5                       ; $A414  CD A5 A7
@@ -896,46 +896,46 @@ SUB_A401_1:
         LD (HL),A                        ; $A41F  77
         RET                              ; $A420  C9
         DEFB    $2A,$AF,$A9,$3A                                  ; $A421
-        DEFW    L_9F42                   ; $A425
+        DEFW    FCB_USER_SCRATCH                   ; $A425
         DEFB    $4F,$CD,$EA,$A0,$E5,$EB,$CD,$59,$9F,$E1,$CC,$47,$9F,$7D,$1F,$D8 ; $A427
         DEFB    $2A,$AF,$A9,$4D,$44,$CD,$0B,$A1,$22              ; $A437
-SUB_A401_2:
+DISK_RET_AXORC:
         XOR A                            ; $A440  AF
         XOR C                            ; $A441  A9
         JP SUB_A1F5_1                    ; $A442  C3 A3 A2
         DEFB    $3A,$D6,$A9,$21                                  ; $A445
-        DEFW    L_9F42                   ; $A449
+        DEFW    FCB_USER_SCRATCH                   ; $A449
         DEFB    $BE,$C8,$77,$C3,$21,$A8                          ; $A44B
-SUB_A451:
+DIR_SEARCH_FIRST_INIT:
         LD A,$FF                         ; $A451  3E FF
         LD ($A9DE),A                     ; $A453  32 DE A9
-        LD HL,(L_9F43)                   ; $A456  2A 43 9F
+        LD HL,(BDOS_DE_PARAM)                   ; $A456  2A 43 9F
         LD A,(HL)                        ; $A459  7E
-SUB_A451_1:
+DIR_NAME_MASK:
         AND $1F                          ; $A45A  E6 1F
         DEC A                            ; $A45C  3D
         LD ($A9D6),A                     ; $A45D  32 D6 A9
         CP $1E                           ; $A460  FE 1E
         JP NC,$A875                      ; $A462  D2 75 A8
-        LD A,(L_9F42)                    ; $A465  3A 42 9F
+        LD A,(FCB_USER_SCRATCH)                    ; $A465  3A 42 9F
         LD ($A9DF),A                     ; $A468  32 DF A9
         LD A,(HL)                        ; $A46B  7E
         LD ($A9E0),A                     ; $A46C  32 E0 A9
         AND $E0                          ; $A46F  E6 E0
         LD (HL),A                        ; $A471  77
         CALL $A845                       ; $A472  CD 45 A8
-        LD A,(L_9F41)                    ; $A475  3A 41 9F
-        LD HL,(L_9F43)                   ; $A478  2A 43 9F
+        LD A,(BDOS_STACK)                    ; $A475  3A 41 9F
+        LD HL,(BDOS_DE_PARAM)                   ; $A478  2A 43 9F
         OR (HL)                          ; $A47B  B6
         LD (HL),A                        ; $A47C  77
         RET                              ; $A47D  C9
         DEFB    $3E,$22,$C3                                      ; $A47E
         DEFW    SUB_9DA4_24+2            ; $A481
         DEFB    $21,$00,$00,$22,$AD,$A9,$22,$AF                  ; $A483
-SUB_A451_2:
+DISK_RESET_STATE:
         XOR C                            ; $A48B  A9
         XOR A                            ; $A48C  AF
-        LD (L_9F42),A                    ; $A48D  32 42 9F
+        LD (FCB_USER_SCRATCH),A                    ; $A48D  32 42 9F
         LD HL,DEFAULT_DMA                ; $A490  21 80 00
         LD ($A9B1),HL                    ; $A493  22 B1 A9
         CALL SUB_A18C_2+2                ; $A496  CD DA A1
@@ -943,22 +943,22 @@ SUB_A451_2:
         DEFB    $CD                                              ; $A49C
         DEFW    SUB_A169_1               ; $A49D
         DEFB    $CD,$51,$A8                                      ; $A49F
-SUB_A4A2:
-        JP SUB_A451                      ; $A4A2  C3 51 A4
+DIR_SEARCH_FIRST:
+        JP DIR_SEARCH_FIRST_INIT                      ; $A4A2  C3 51 A4
         DEFB    $CD,$51,$A8,$C3                                  ; $A4A5
-        DEFW    SUB_A4A2                 ; $A4A9
+        DEFW    DIR_SEARCH_FIRST                 ; $A4A9
         DEFB    $0E,$00,$EB,$7E,$FE,$3F,$CA,$C2,$A8,$CD,$A6,$A0,$7E,$FE,$3F,$C4 ; $A4AB
         DEFW    SUB_A169_1               ; $A4BB
         DEFB    $CD,$51,$A8,$0E,$0F,$CD                          ; $A4BD
-        DEFW    SUB_A318                 ; $A4C3
+        DEFW    FCB_EXTENT_TO_TRKSEC                 ; $A4C3
         DEFB    $C3                                              ; $A4C5
-        DEFW    SUB_A18C_4               ; $A4C6
+        DEFW    DISK_BUF_PURGE               ; $A4C6
         DEFB    $2A,$D9,$A9,$22                                  ; $A4C8
-        DEFW    L_9F43                   ; $A4CC
+        DEFW    BDOS_DE_PARAM                   ; $A4CC
         DEFB    $CD,$51,$A8,$CD                                  ; $A4CE
-        DEFW    SUB_A318_1+2             ; $A4D2
+        DEFW    DISK_SETTRK_SEC+2             ; $A4D2
         DEFB    $C3                                              ; $A4D4
-        DEFW    SUB_A18C_4               ; $A4D5
+        DEFW    DISK_BUF_PURGE               ; $A4D5
         DEFB    $CD,$51,$A8,$CD                                  ; $A4D7
 SUB_A4A2_1:
         SBC A,H                          ; $A4DB  9C
@@ -978,7 +978,7 @@ SUB_A4A2_3:
         DEFB    $CD,$51,$A8,$C3                                  ; $A4EF
         DEFW    SUB_A4A2_7+1             ; $A4F3
         DEFB    $CD,$51,$A8,$CD,$16,$A4,$C3,$01                  ; $A4F5
-SUB_A4A2_4:
+DISK_SYSTEM_INIT:
         AND E                            ; $A4FD  A3
         LD HL,($FBAF)                    ; $A4FE  2A AF FB
         XOR A                            ; $A501  AF
@@ -1028,7 +1028,7 @@ SUB_A4A2_11:
         LD ($FE6D),HL                    ; $A554  22 6D FE
         POP AF                           ; $A557  F1
         CP $02                           ; $A558  FE 02
-SUB_A55A:
+DISK_RW_DISPATCH:
         JR Z,SUB_A55A_1                  ; $A55A  28 08
         CALL $FF98                       ; $A55C  CD 98 FF
         LD ($FE73),HL                    ; $A55F  22 73 FE
