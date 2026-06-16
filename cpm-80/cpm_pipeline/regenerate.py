@@ -562,7 +562,7 @@ def regenerate_60k_bios(*, write: bool = False, ai_names=None, extra_seeds=None)
     mem[_BIOS_60K_ORG:_BIOS_60K_ORG + _BIOS_60K_LEN] = bios
 
     seeds = set(bios_jump_table_seeds(mem, _BIOS_60K_ORG, _BIOS_60K_LEN)) | set(extra_seeds or {})
-    force = dict(extract_semantic_labels(old))
+    force = _genuine_labels(old)
     force.update(ai_names or {})
     force.update(extra_seeds or {})
 
@@ -579,6 +579,7 @@ def regenerate_60k_bios(*, write: bool = False, ai_names=None, extra_seeds=None)
     finally:
         ov.unlink(missing_ok=True)
     src = src.replace("{out_bin}", "CPM_BIOS.bin")
+    src = splice_curated_header(old, src)
     merged, mig, drop = migrate_comments(old, src)
     rebuilt = _assemble_savebin(merged)
     ok = rebuilt == bios
@@ -586,6 +587,27 @@ def regenerate_60k_bios(*, write: bool = False, ai_names=None, extra_seeds=None)
         _BIOS_60K.write_text(merged, encoding="utf-8")
     return RegenResult(_BIOS_60K, ok, mig, drop, len(force),
                        notes=[] if ok else ["NOT byte-identical -- not written"])
+
+
+_BIOS_BOOT_PATCHES = (_REPO / "cpm-80" / "decompiled" / "CPMV233-60K" / "bios_boot_patches.json")
+
+
+def derive_booted_bios(template_bytes: bytes | None = None) -> bytes:
+    """Apply the 6502 boot loader's runtime patches to the BIOS *template* (the
+    form shipped in CPM60.COM at COM 0x2600, which os/CPM_BIOS.asm now holds) to
+    produce the *booted* BIOS image that actually runs at $FA00. The 185-entry
+    patch table (bios_boot_patches.json) is what the boot loader writes while
+    relocating the system into the Language Card -- most visibly NOP-ing the
+    $FA00 cold-boot JP (cold start is handled 6502-side). Round-trips: the booted
+    image this returns equals the pre-template-conversion source's bytes."""
+    import json
+    if template_bytes is None:
+        template_bytes = _assemble_savebin(_BIOS_60K.read_text(encoding="utf-8"))
+    data = json.loads(_BIOS_BOOT_PATCHES.read_text(encoding="utf-8"))
+    out = bytearray(template_bytes)
+    for off, byte in data["patches"]:
+        out[off] = byte
+    return bytes(out)
 
 
 # ── 60K BDOS recipe (CPMV233-60K) ──────────────────────────────────────
@@ -600,16 +622,23 @@ _BDOS_60K = (_REPO / "cpm-80" / "decompiled" / "CPMV233-60K" / "os" / "CPM_BDOS.
 _BDOS_60K_ORG = 0xDC00
 _BDOS_60K_LEN = 0x0E00
 
-# A label minted purely by the localizer's collision path (<head>_<n>_<hex>); it
-# carries no curation, so a recipe drops it rather than re-forcing it (keeps the
-# regeneration idempotent and lets the data-aware localizer re-derive cleanly).
-_LOCALIZER_JUNK_RE = re.compile(r".+_\d+_[0-9A-Fa-f]{4}$")
-
-
 def _genuine_labels(text: str) -> dict[int, str]:
-    """extract_semantic_labels minus localizer-collision junk."""
-    return {a: n for a, n in extract_semantic_labels(text).items()
-            if not _LOCALIZER_JUNK_RE.match(n)}
+    """extract_semantic_labels minus localizer-derived locals.
+
+    A local is any ``<head>_<n>`` (or the ``<head>_<n>_<hex>`` collision form)
+    whose ``<head>`` is itself a label. These are minted by localize_labels, not
+    curated, and are address-specific -- carrying one across a re-disassembly is
+    unsafe: on a byte-shifted variant (the BIOS *template* vs the booted BIOS,
+    185 bytes apart) a forced local can collide with a fresh operand target and
+    break the round-trip. Only genuine heads transfer; locals are re-derived.
+    Dropping them also keeps regeneration idempotent."""
+    sem = extract_semantic_labels(text)
+    names = set(sem.values())
+
+    def derived(n):
+        m = re.match(r"^(.+)_\d+(?:_[0-9A-Fa-f]{4})?$", n)
+        return bool(m) and m.group(1) in names
+    return {a: n for a, n in sem.items() if not derived(n)}
 
 
 def splice_curated_header(old_text: str, new_text: str) -> str:
