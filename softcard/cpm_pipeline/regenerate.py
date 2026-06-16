@@ -386,7 +386,7 @@ def _docs_targets():
                     (_SYM / "cpm_2_2.json", _SYM / "cpm_2_23_bios.json"), "jp",
                     savebin="build/CPM223_DiskCallbacks.bin"))
     # 6502 boot loader / RWTS / install fragments (both variants).
-    for var, suf in (("CPM223", "223"), ("CPM220", "220")):
+    for var, suf in (("CPM223", "223"), ("CPMV220", "220")):
         t.append(Target(_DOCS / f"{var}_BootLoader.asm", "6502",
                         _INVEST / f"loader_{suf}.bin", 0, 0x0C00, 0x0800,
                         (_SYM / "apple2.json",), "jmp"))
@@ -408,9 +408,9 @@ def _decompiled_os_targets():
     auto-labeled (so all of them, not just the BIOS, benefit from AI naming)."""
     from .decompile_os import _REGIONS
     out = []
-    for variant, sub in (("softcard_cpm_2_23", "CPMV233"),
-                         ("softcard_cpm_2_20", "CPM220")):
-        base = _REPO / "softcard" / "decompiled" / sub / "os"
+    for variant, sub in (("softcard_cpm_2_23", "CPMV223-44K"),
+                         ("softcard_cpm_2_20", "CPMV220")):
+        base = _REPO / "softcard" / sub / "os"
         for r in _REGIONS[variant]:
             ext = ".s" if r.cpu == "6502" else ".asm"
             stem = f"CPM_{r.name}"
@@ -496,10 +496,10 @@ def regenerate(target, *, ai_names=None, write=False, preserve=True):
                        notes=[] if ok else ["NOT byte-identical -- not written"])
 
 
-# ── 60K BIOS recipe (CPMV233-60K) ──────────────────────────────────────
+# ── 60K BIOS recipe (CPMV223-60K) ──────────────────────────────────────
 #
 # The 60K BIOS is NOT one of the DECOMPILED_OS_TARGETS: it lives in the
-# CPMV233-60K tree, which has no registry binary (its bytes come from the
+# CPMV223-60K tree, which has no registry binary (its bytes come from the
 # CPM60.COM installer payload at COM offset 0x2600, ORG $FA00, *after* the 6502
 # boot loader's runtime patches -- the booted image, which DELTA.md confirms is
 # exactly what the checked-in source reassembles to). It was also last written
@@ -513,7 +513,7 @@ def regenerate(target, *, ai_names=None, write=False, preserve=True):
 # every curated `EQU` symbol (a symbol overlay -- names a plain re-disassembly
 # would not reproduce), then verify byte-identical. force_labels also lets new
 # AI names be planted (e.g. $FCA4 = CONSOLE_PUT_CHAR).
-_BIOS_60K = (_REPO / "softcard" / "decompiled" / "CPMV233-60K" / "os" / "CPM_BIOS.asm")
+_BIOS_60K = (_REPO / "softcard" / "CPMV223-60K" / "os" / "CPM_BIOS.asm")
 _BIOS_60K_ORG = 0xFA00
 _BIOS_60K_LEN = 0x0600
 
@@ -553,7 +553,7 @@ _LINK_NOTE = "  ; [link] master defines CPM60_LINK and owns this; standalone kee
 def _guard_link_directives(text: str) -> str:
     """Wrap each DEVICE / ORG / SAVEBIN in ``IFNDEF CPM60_LINK ... ENDIF`` so the
     module assembles standalone (CPM60_LINK unset) but can be INCLUDEd into the
-    CPM60.COM master link (CPMV233-60K/CPM60.asm), which defines CPM60_LINK and
+    CPM60.COM master link (CPMV223-60K/CPM60.asm), which defines CPM60_LINK and
     owns those directives. A fresh disassembly emits them unguarded, so the 60K
     BIOS/BDOS regenerators re-apply this -- otherwise a regen would silently
     strip the guards and break the master build.
@@ -608,7 +608,7 @@ def _assemble_link_mode(module_text: str, run_org: int, length: int) -> bytes:
 
 
 def regenerate_60k_bios(*, write: bool = False, ai_names=None, extra_seeds=None) -> RegenResult:
-    """Regenerate softcard/decompiled/CPMV233-60K/os/CPM_BIOS.asm byte-identical.
+    """Regenerate softcard/CPMV223-60K/os/CPM_BIOS.asm byte-identical.
 
     Carries all curated inline labels + curated EQU symbols, seeds the BIOS jump
     table, and accepts `ai_names`/`extra_seeds` ({addr: name}) to plant new
@@ -656,10 +656,10 @@ def regenerate_60k_bios(*, write: bool = False, ai_names=None, extra_seeds=None)
 # cold-boot SELF-modifications with ~147 bytes of post-boot dead-RAM reuse caught
 # in a snapshot -- it was not a meaningful "running BIOS" and the 6502 loader does
 # not patch the BIOS at all. It was removed; the real cold-boot self-mods are
-# catalogued in decompiled/CPMV233-60K/BOOT_AND_PATCHING.md section 3c.)
+# catalogued in CPMV223-60K/BOOT_AND_PATCHING.md section 3c.)
 
 
-# ── 60K BDOS recipe (CPMV233-60K) ──────────────────────────────────────
+# ── 60K BDOS recipe (CPMV223-60K) ──────────────────────────────────────
 #
 # The 60K BDOS is byte-identical to the CPM60.COM payload at COM offset 0x1700
 # (the boot loader does NOT patch it; only the BIOS and CCP are patched). It was
@@ -667,7 +667,7 @@ def regenerate_60k_bios(*, write: bool = False, ai_names=None, extra_seeds=None)
 # stranded code to recover; this recipe simply makes it reproducible/force-
 # labelable while preserving its large hand-written bank-map header, which a
 # fresh disassembly would discard.
-_BDOS_60K = (_REPO / "softcard" / "decompiled" / "CPMV233-60K" / "os" / "CPM_BDOS.asm")
+_BDOS_60K = (_REPO / "softcard" / "CPMV223-60K" / "os" / "CPM_BDOS.asm")
 _BDOS_60K_ORG = 0xDC00
 _BDOS_60K_LEN = 0x0E00
 
@@ -712,7 +712,7 @@ def splice_curated_header(old_text: str, new_text: str) -> str:
 
 
 def regenerate_60k_bdos(*, write: bool = False, ai_names=None, extra_seeds=None) -> RegenResult:
-    """Regenerate softcard/decompiled/CPMV233-60K/os/CPM_BDOS.asm byte-identical.
+    """Regenerate softcard/CPMV223-60K/os/CPM_BDOS.asm byte-identical.
 
     Seeds the primary entry (the ``JP`` at $DC06), carries genuine inline labels
     + curated EQU symbols, splices the curated bank-map header back in, and

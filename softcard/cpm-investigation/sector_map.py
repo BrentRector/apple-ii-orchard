@@ -110,13 +110,13 @@ def classify_sector(track, phys, disk_data, interleave):
 
 
 def main():
-    with open('e:/Orchard/softcard/disks/CPMV233.DSK', 'rb') as f:
+    with open('e:/Orchard/softcard/disks/CPMV223-44K.DSK', 'rb') as f:
         disk = f.read()
 
     print("# CP/M 2.23 Disk-Sector Map")
     print()
     print("This is a comprehensive map of every physical sector in the 140 KB CP/M 2.23")
-    print("disk image (`CPMV233.DSK`). For each sector, the table shows the first 8")
+    print("disk image (`CPMV223-44K.DSK`). For each sector, the table shows the first 8")
     print("bytes (a quick signature), what role the sector plays in the boot sequence,")
     print("and where the bytes end up in Apple memory after the loader runs.")
     print()

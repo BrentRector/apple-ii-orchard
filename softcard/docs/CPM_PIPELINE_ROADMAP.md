@@ -72,7 +72,7 @@ even before the relevant stage is fully automated.
   (it already documents the intended pipeline; replace the
   fallback-to-pre-extracted-bin path with one that genuinely assembles
   + reconstructs).
-- Round-trip test: build CPMV220Disk1.po and CPMV233.DSK from their
+- Round-trip test: build CPMV220Disk1.po and CPMV223-44K.DSK from their
   manually-annotated sources, byte-compare against originals.
 
 **Scope estimate.** 1-2 sessions. The write side of the format is
@@ -427,5 +427,5 @@ verification at every step.
 **Roadmap committed; no code yet.** Next concrete action is Phase 1
 (Stage 7 — `.dsk` reconstruction) when work resumes. The first
 deliverable will be a tool that takes the existing 11 manually-
-annotated `.asm` sources and rebuilds CPMV220Disk1.po and CPMV233.DSK
+annotated `.asm` sources and rebuilds CPMV220Disk1.po and CPMV223-44K.DSK
 byte-identical to the originals.

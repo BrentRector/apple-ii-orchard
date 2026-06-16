@@ -27,7 +27,7 @@
 ;   at Apple $113D (copies $A300-$B9FF -> $8000-$96FF).
 ;
 ; ANNOTATION POLICY
-;   Annotations here are derived solely from the bytes in CPMV233.DSK.
+;   Annotations here are derived solely from the bytes in CPMV223-44K.DSK.
 ;   Routine purposes are inferred from the operations the bytes perform
 ;   (which state addresses they touch, what conditions they branch on,
 ;   what other routines they call) and from cross-reference within

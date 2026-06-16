@@ -73,7 +73,7 @@ def looks_like_bios_at(buf, jt_offset, jt_addr):
 
 
 def main():
-    path = 'e:/Orchard/softcard/disks/CPMV233.DSK'
+    path = 'e:/Orchard/softcard/disks/CPMV223-44K.DSK'
     print(f"Searching {path} for valid BIOS layout...\n")
 
     print(f"{'Interpretation':>30}  {'jt offset':>10}  {'BIOS-high bytes/1KB':>20}")

@@ -9,7 +9,7 @@ import pytest
 from cpm_pipeline.region_disasm import assemble_z80, disasm_z80_region, load_symbols
 
 REPO_ROOT = Path(__file__).resolve().parents[2]          # softcard/
-CCP = REPO_ROOT / "decompiled" / "CPMV233-60K" / "os" / "CPM_CCP.asm"
+CCP = REPO_ROOT / "CPMV223-60K" / "os" / "CPM_CCP.asm"
 SYMS = REPO_ROOT.parent / "shared" / "symbols" / "cpm_2_2.json"
 HAS_SJASMPLUS = shutil.which("sjasmplus") is not None
 

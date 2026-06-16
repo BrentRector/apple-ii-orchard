@@ -366,7 +366,7 @@ The work is done by the **6502 boot loader**: it banks in the Language Card
 (`STA $C08B`) and copies the system up in page blocks (CCP to `$D000`, BDOS so it
 resolves at `$DC06`, leaving the BIOS at `$FA00`). The full mechanism, with the
 relocated sources, is in
-[`decompiled/CPMV233-60K/`](../decompiled/CPMV233-60K/DELTA.md).
+[`CPMV223-60K/`](../CPMV223-60K/DELTA.md).
 
 How faithful is the move? Comparing the **pristine** 60K modules (extracted from
 `CPM60.COM`'s embedded payload, never run) against the verified 44K originals,

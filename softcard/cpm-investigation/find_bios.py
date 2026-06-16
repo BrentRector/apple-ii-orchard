@@ -84,8 +84,8 @@ def describe_hit(name, offset, count, targets):
 
 
 def main():
-    for path in ['e:/Orchard/softcard/disks/CPMV233.DSK',
-                 'e:/Orchard/softcard/disks/CPM220Disk1.po']:
+    for path in ['e:/Orchard/softcard/disks/CPMV223-44K.DSK',
+                 'e:/Orchard/softcard/disks/CPMV220-Disk1.po']:
         print(f"\n=== {path} ===")
         # Search both raw file order and physical-reconstructed order
         with open(path, 'rb') as f:

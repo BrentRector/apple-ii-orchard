@@ -42,7 +42,7 @@ softcard/
   cpm_pipeline/       productized detect → trace → reconstruct pipeline
   softcard_emu/       reusable whole-system SoftCard emulator
   docs/               CPM*.asm (annotated source) + CPM_*.md (analysis)
-  disks/              CPMV233.DSK, CPM220Disk{1,2}.po, CPMV233-60K.DSK
+  disks/              CPMV223-44K.DSK, CPMV220Disk{1,2}.po, CPMV223-60K.DSK
 shared/
   nibbler/        WOZ/DSK toolkit + 6502 and Z-80 emulators
   disasm6502/     6502 disassembler (ca65-compatible, round-trips)
@@ -144,8 +144,8 @@ The [`softcard/`](softcard/) tree investigates how Microsoft SoftCard CP/M boots
 
 ```bash
 source shared/toolchain/env.sh
-python -m cpm_pipeline detect softcard/disks/CPMV233.DSK
-python -m softcard_emu softcard/disks/CPMV233.DSK --keys "DIR\r"
+python -m cpm_pipeline detect softcard/disks/CPMV223-44K.DSK
+python -m softcard_emu softcard/disks/CPMV223-44K.DSK --keys "DIR\r"
 ```
 
 ### Decompiled distributions
@@ -154,8 +154,8 @@ python -m softcard_emu softcard/disks/CPMV233.DSK --keys "DIR\r"
 
 ```
 decompiled/
-  CPMV233/   CP/M 2.23  — os/ (boot loader, RWTS, BIOS, CCP+BDOS) + utilities/ (20 .COM programs)
-  CPM220/    CP/M 2.20  — os/ (boot loader, RWTS, BIOS, CCP+BDOS) + utilities/ (11 .COM programs)
+  CPMV223-44K/   CP/M 2.23  — os/ (boot loader, RWTS, BIOS, CCP+BDOS) + utilities/ (20 .COM programs)
+  CPMV220/    CP/M 2.20  — os/ (boot loader, RWTS, BIOS, CCP+BDOS) + utilities/ (11 .COM programs)
   rebuild.sh verify_roundtrip.py generate_distribution.py
 ```
 
@@ -163,7 +163,7 @@ Every source file reassembles to the original bytes, and `rebuild.sh` reconstruc
 
 ```bash
 source shared/toolchain/env.sh
-bash softcard/decompiled/rebuild.sh CPMV233      # -> byte-identical CPMV233.DSK
+bash softcard/decompiled/rebuild.sh CPMV223-44K      # -> byte-identical CPMV223-44K.DSK
 python softcard/decompiled/verify_roundtrip.py   # reassemble every file, both releases
 ```
 
@@ -173,9 +173,9 @@ Given a `.DSK`, the pipeline verifies it's a SoftCard CP/M disk, reverse-enginee
 
 ```bash
 source shared/toolchain/env.sh
-python -m cpm_pipeline list-files     softcard/disks/CPMV233.DSK
-python -m cpm_pipeline decompile-os   softcard/disks/CPMV233.DSK out_os
-python -m cpm_pipeline decompile-disk softcard/disks/CPMV233.DSK out   # interactive: verify → OS → pick a file → decompile it
+python -m cpm_pipeline list-files     softcard/disks/CPMV223-44K.DSK
+python -m cpm_pipeline decompile-os   softcard/disks/CPMV223-44K.DSK out_os
+python -m cpm_pipeline decompile-disk softcard/disks/CPMV223-44K.DSK out   # interactive: verify → OS → pick a file → decompile it
 ```
 
 Add `--ai` to layer in machine-generated prose comments via Claude (`claude-opus-4-8`; needs `ANTHROPIC_API_KEY`).

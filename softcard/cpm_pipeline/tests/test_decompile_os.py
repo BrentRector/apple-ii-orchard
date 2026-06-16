@@ -9,12 +9,12 @@ import pytest
 from cpm_pipeline.decompile_os import decompile_os
 
 REPO_ROOT = Path(__file__).resolve().parents[2]  # softcard/
-DSK_223 = REPO_ROOT / "disks" / "CPMV233.DSK"
-PO_220 = REPO_ROOT / "disks" / "CPM220Disk1.po"
+DSK_223 = REPO_ROOT / "disks" / "CPMV223-44K.DSK"
+PO_220 = REPO_ROOT / "disks" / "CPMV220-Disk1.po"
 HAS_SJASMPLUS = shutil.which("sjasmplus") is not None
 
 
-@pytest.mark.skipif(not DSK_223.exists(), reason="CPMV233.DSK missing")
+@pytest.mark.skipif(not DSK_223.exists(), reason="CPMV223-44K.DSK missing")
 def test_223_all_regions_decompile(tmp_path):
     r = decompile_os(DSK_223, tmp_path / "os", force=True)
     assert r.variant == "softcard_cpm_2_23"
@@ -29,7 +29,7 @@ def test_223_all_regions_decompile(tmp_path):
     assert (r.out_dir / "README.md").exists()
 
 
-@pytest.mark.skipif(not PO_220.exists(), reason="CPM220Disk1.po missing")
+@pytest.mark.skipif(not PO_220.exists(), reason="CPMV220-Disk1.po missing")
 def test_220_regions_decompile(tmp_path):
     r = decompile_os(PO_220, tmp_path / "os", force=True)
     assert r.variant == "softcard_cpm_2_20"
@@ -37,7 +37,7 @@ def test_220_regions_decompile(tmp_path):
 
 
 @pytest.mark.skipif(not (DSK_223.exists() and HAS_SJASMPLUS),
-                    reason="CPMV233.DSK or sjasmplus missing")
+                    reason="CPMV223-44K.DSK or sjasmplus missing")
 def test_223_bios_auto_disasm_roundtrips(tmp_path):
     # The machine disassembly of the BIOS must reassemble to the original bytes.
     r = decompile_os(DSK_223, tmp_path / "os", gold=False, force=True)

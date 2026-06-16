@@ -313,7 +313,7 @@ JMP_TABLE:
 ; produce 512 bytes byte-identical to the install-fragment source bytes
 ; at loader Apple $1200-$13FF.
 ;
-; The bytes are extracted from CPMV233.DSK at:
+; The bytes are extracted from CPMV223-44K.DSK at:
 ;   trk0:phys3 → 256 bytes that source Apple $1200-$12FF (= here $0200-$02FF)
 ;   trk0:phys5 → 256 bytes that source Apple $1300-$13FF (= here $0300-$03FF)
 ;

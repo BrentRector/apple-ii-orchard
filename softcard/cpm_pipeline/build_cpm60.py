@@ -5,7 +5,7 @@ at $0100 followed by the embedded 60K system image it writes to a disk's system
 tracks. The image pieces live at fixed offsets inside the .COM but RUN at other
 addresses -- the CCP/BDOS/BIOS run high, inside the language card.
 
-The canonical build assembles ONE master source, ``CPMV233-60K/CPM60.asm``,
+The canonical build assembles ONE master source, ``CPMV223-60K/CPM60.asm``,
 which places every piece at its .COM file offset while assembling the relocating
 Z-80 modules as real code at their run address via ``DISP ... ENT`` (so their
 labels resolve correctly) -- the same technique GBASIC.COM's interpreter uses.
@@ -15,7 +15,7 @@ are ``INCLUDE``d from their canonical sources, each wrapped in a MODULE and
 bracketing its own DEVICE/ORG/SAVEBIN behind ``IFNDEF CPM60_LINK``.
 
 Every source is the as-shipped form, so the master reproduces the original
-CPM60.COM (the file on CPMV233.DSK) byte-for-byte with no post-placement
+CPM60.COM (the file on CPMV223-44K.DSK) byte-for-byte with no post-placement
 transform. ``build_cpm60_com_via_layout`` is an independent cross-check that
 concatenates the separately assembled components per a Python layout table;
 both methods must equal ``reference_com`` (the genuine file extracted from the
@@ -34,9 +34,9 @@ from .filesystem import extract_file, read_disk
 from .regenerate import _assemble_savebin
 
 _REPO = Path(__file__).resolve().parents[2]
-_60K = _REPO / "softcard" / "decompiled" / "CPMV233-60K"
+_60K = _REPO / "softcard" / "CPMV223-60K"
 _OS = _60K / "os"
-_DISK = _REPO / "softcard" / "disks" / "CPMV233.DSK"
+_DISK = _REPO / "softcard" / "disks" / "CPMV223-44K.DSK"
 _SJASMPLUS = _REPO / "shared" / "toolchain" / "sjasmplus" / "sjasmplus-1.23.0.win" / "sjasmplus.exe"
 
 COM_SIZE = 0x2C00
@@ -150,5 +150,5 @@ def build_cpm60_com_via_layout() -> bytes:
 
 
 def reference_com() -> bytes:
-    """The genuine CPM60.COM, extracted from CPMV233.DSK."""
+    """The genuine CPM60.COM, extracted from CPMV223-44K.DSK."""
     return bytes(extract_file(read_disk(_DISK), "CPM60.COM"))

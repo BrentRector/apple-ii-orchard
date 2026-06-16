@@ -3,7 +3,7 @@
   "name": "CP/M 2.20 SoftCard BIOS (Z-80, $DA00-$DFFF)",
   "description": "Microsoft SoftCard CP/M 2.20 BIOS jump-table labels. Companion to cpm_2_2.json (standard CP/M zero-page + BDOS conventions). 2.20 places the BIOS in language-card RAM with the jump table at $DA00. These addresses are specific to the 2.20 build.",
   "sources": [
-    {"name": "Disassembly of CPM220Disk1.po BIOS region $DA00+", "url": "in-repo: softcard/cpm-investigation/bios_220.bin"}
+    {"name": "Disassembly of CPMV220-Disk1.po BIOS region $DA00+", "url": "in-repo: softcard/cpm-investigation/bios_220.bin"}
   ],
   "categories": {
     "bios_jump_table_220": {

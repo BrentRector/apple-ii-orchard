@@ -23,14 +23,14 @@ way to an interactive A> prompt, with both CPUs modeled:
 Quick start:
 
     from softcard_emu import SoftCardMachine
-    m = SoftCardMachine("CPMV233.DSK")
+    m = SoftCardMachine("CPMV223-44K.DSK")
     m.type_keys("DIR\\r")
     m.run()
     print("\\n".join(m.screen_text()))
 
 CLI:
 
-    python -m softcard_emu CPMV233.DSK --keys "DIR\\r"
+    python -m softcard_emu CPMV223-44K.DSK --keys "DIR\\r"
 
 Architecture: the machine is a thin composition of independent
 subsystems, each in its own module:

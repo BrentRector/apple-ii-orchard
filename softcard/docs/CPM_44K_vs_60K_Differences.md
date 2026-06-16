@@ -16,7 +16,7 @@ carried along by it — those are where the work is.
 This is a functional narrative, not a byte diff. For the exact addresses and the
 byte-level evidence behind each claim, see
 [`CPM_Memory_Layout.md`](CPM_Memory_Layout.md) and
-[`../decompiled/CPMV233-60K/DELTA.md`](../decompiled/CPMV233-60K/DELTA.md).
+[`../CPMV223-60K/DELTA.md`](../CPMV223-60K/DELTA.md).
 
 ## At a glance
 

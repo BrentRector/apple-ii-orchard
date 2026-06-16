@@ -47,8 +47,8 @@ def show_jump_table(buf, offset, expected_count):
 
 def main():
     cases = [
-        ('2.23', 'e:/Orchard/softcard/disks/CPMV233.DSK',    0x02400),  # physical-order offset
-        ('2.20', 'e:/Orchard/softcard/disks/CPM220Disk1.po', 0x02200),
+        ('2.23', 'e:/Orchard/softcard/disks/CPMV223-44K.DSK',    0x02400),  # physical-order offset
+        ('2.20', 'e:/Orchard/softcard/disks/CPMV220-Disk1.po', 0x02200),
     ]
 
     extracted = {}

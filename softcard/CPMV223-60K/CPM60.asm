@@ -1,7 +1,7 @@
 ; ============================================================================
 ;  CPM60.COM  --  Microsoft 60K-update installer  (11,264 bytes / $2C00)
 ;  Single-source master link.  Assembles byte-identically to the CPM60.COM
-;  file on CPMV233.DSK.
+;  file on CPMV223-44K.DSK.
 ; ----------------------------------------------------------------------------
 ;  CPM60.COM is a Z-80 .COM (the installer at $0100) that carries an embedded
 ;  60K system image and writes it to a disk's system tracks. The image pieces

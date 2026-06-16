@@ -3,7 +3,7 @@
   "name": "CP/M 2.23 SoftCard BIOS (Z-80, $FA00-$FFFF)",
   "description": "Microsoft SoftCard CP/M 2.23 BIOS-internal labels. Companion to cpm_2_2.json (which holds the standard CP/M zero-page and BDOS conventions). These addresses are specific to the 2.23 build and don't apply to other CP/M variants. The BIOS base is $FA00 (jump table first); earlier revisions of this file used the wrong-address-model base $FAB8 and have been rebased by -$B8.",
   "sources": [
-    {"name": "Disassembly of CPMV233.DSK BIOS region $FA00-$FF47", "url": "in-repo: softcard/cpm-investigation/bios_223.bin"},
+    {"name": "Disassembly of CPMV223-44K.DSK BIOS region $FA00-$FF47", "url": "in-repo: softcard/cpm-investigation/bios_223.bin"},
     {"name": "softcard/docs/CPM223_BIOS.asm prose annotation", "url": "in-repo"}
   ],
   "categories": {

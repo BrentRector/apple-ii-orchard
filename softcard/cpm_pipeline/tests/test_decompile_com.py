@@ -10,11 +10,11 @@ from cpm_pipeline.decompile_com import decompile_com, trace_com
 from cpm_pipeline.filesystem import extract
 
 REPO_ROOT = Path(__file__).resolve().parents[2]  # softcard/
-DSK_223 = REPO_ROOT / "disks" / "CPMV233.DSK"
+DSK_223 = REPO_ROOT / "disks" / "CPMV223-44K.DSK"
 HAS_SJASMPLUS = shutil.which("sjasmplus") is not None
 
 
-@pytest.mark.skipif(not DSK_223.exists(), reason="CPMV233.DSK missing")
+@pytest.mark.skipif(not DSK_223.exists(), reason="CPMV223-44K.DSK missing")
 def test_trace_com_discovers_code_and_bdos():
     com = extract(DSK_223, "STAT.COM")
     tr = trace_com(com, max_instructions=500_000)
@@ -24,7 +24,7 @@ def test_trace_com_discovers_code_and_bdos():
     assert tr.bdos_calls
 
 
-@pytest.mark.skipif(not DSK_223.exists(), reason="CPMV233.DSK missing")
+@pytest.mark.skipif(not DSK_223.exists(), reason="CPMV223-44K.DSK missing")
 def test_decompile_file_produces_asm(tmp_path):
     r = decompile_com(DSK_223, "DUMP.COM", tmp_path)
     assert r.asm_path.exists()
@@ -35,7 +35,7 @@ def test_decompile_file_produces_asm(tmp_path):
 
 
 @pytest.mark.skipif(not (DSK_223.exists() and HAS_SJASMPLUS),
-                    reason="CPMV233.DSK or sjasmplus missing")
+                    reason="CPMV223-44K.DSK or sjasmplus missing")
 @pytest.mark.parametrize("name", ["DUMP.COM", "STAT.COM", "PIP.COM", "CPM60.COM"])
 def test_decompiled_com_roundtrips(tmp_path, name):
     r = decompile_com(DSK_223, name, tmp_path / name.split(".")[0])

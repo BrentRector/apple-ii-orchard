@@ -15,7 +15,7 @@ The address chain from a CP/M allocation block to a byte offset in the ``.dsk``
                                (cpm_pipeline.disk_format.sector_offset)
 
 The SoftCard CP/M SECTRAN skew was derived empirically and verified against the
-documented directory of ``CPMV233.DSK`` (see docs/CPM_Filesystem.md): logical
+documented directory of ``CPMV223-44K.DSK`` (see docs/CPM_Filesystem.md): logical
 sector ``L`` within a track maps to physical sector ``(L * 3) % 16``. With it,
 the 22 documented files parse with exact record counts and ``CPM60.COM`` extracts
 to its expected 11,264 bytes; the standard utilities (``PIP``/``MBASIC``/``STAT``)

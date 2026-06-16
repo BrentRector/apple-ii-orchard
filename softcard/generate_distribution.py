@@ -2,8 +2,8 @@
 """(Re)generate the raw decompiled source for a distribution: every OS region
 and every .COM utility, as commented assembly that round-trips byte-identical.
 
-    python generate_distribution.py CPM220     # 2.20 (CPM220Disk1.po)
-    python generate_distribution.py CPMV233    # 2.23 (CPMV233.DSK)
+    python generate_distribution.py CPMV220     # 2.20 (CPMV220-Disk1.po)
+    python generate_distribution.py CPMV223-44K    # 2.23 (CPMV223-44K.DSK)
 
 This writes the *raw* (un-annotated) disassembly into <DISTRO>/os and
 <DISTRO>/utilities. The AI `[AI]` prose layer is added separately (the toolchain's
@@ -32,7 +32,7 @@ from cpm_pipeline.decompile_com import decompile_com    # noqa: E402
 from cpm_pipeline import filesystem as fs               # noqa: E402
 
 DISKS = REPO / "softcard" / "disks"
-DISTROS = {"CPMV233": "CPMV233.DSK", "CPM220": "CPM220Disk1.po"}
+DISTROS = {"CPMV223-44K": "CPMV223-44K.DSK", "CPMV220": "CPMV220-Disk1.po"}
 
 
 def _normalize_savebin(path: Path) -> None:

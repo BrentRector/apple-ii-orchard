@@ -1,6 +1,6 @@
-# CPMV233 — Microsoft SoftCard CP/M 2.23 (`CPMV233.DSK`)
+# CPMV223-44K — Microsoft SoftCard CP/M 2.23 (`CPMV223-44K.DSK`)
 
-A complete decompilation of `CPMV233.DSK` (SoftCard CP/M **2.23**, the Videx-aware
+A complete decompilation of `CPMV223-44K.DSK` (SoftCard CP/M **2.23**, the Videx-aware
 release): the operating system (6502 + Z-80) and every `.COM` program in the
 filesystem, as commented assembly that reassembles **byte-identical**, with an AI
 prose layer (`[AI]`). See [`../README.md`](../README.md) for the overview of both
@@ -32,8 +32,8 @@ not decompiled.)
 
 ```bash
 source ../../../shared/toolchain/env.sh
-bash ../rebuild.sh CPMV233               # -> rebuilt/CPMV233.DSK  (BYTE-IDENTICAL)
-python ../verify_roundtrip.py CPMV233    # reassemble every source file, compare to original
+bash ../rebuild.sh CPMV223-44K               # -> rebuilt/CPMV223-44K.DSK  (BYTE-IDENTICAL)
+python ../verify_roundtrip.py CPMV223-44K    # reassemble every source file, compare to original
 ```
 
 The full-disk reconstruction assembles the boot-pipeline sources and carries the

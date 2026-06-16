@@ -1,6 +1,6 @@
 # Microsoft SoftCard CP/M 2.23 — Filesystem (Tracks 3+)
 
-The boot pipeline traced in [the cpm-videx investigation](https://wiseowl.com/projects/cpm-videx) covers tracks 0-2 of `CPMV233.DSK` — the boot stub, RWTS, stage-2 loader, install fragments, the 29-sector LOAD_CPM staging, and the BIOS handler bytes loaded by the second `JSR $BBEB`. **Tracks 3-34 are CP/M filesystem data** — standard CP/M 2.x directory and file allocation, holding the user-visible programs that ship on the disk.
+The boot pipeline traced in [the cpm-videx investigation](https://wiseowl.com/projects/cpm-videx) covers tracks 0-2 of `CPMV223-44K.DSK` — the boot stub, RWTS, stage-2 loader, install fragments, the 29-sector LOAD_CPM staging, and the BIOS handler bytes loaded by the second `JSR $BBEB`. **Tracks 3-34 are CP/M filesystem data** — standard CP/M 2.x directory and file allocation, holding the user-visible programs that ship on the disk.
 
 This document inventories what's on the user-visible side. The boot pipeline has nothing to do with this content; the Disk II's RWTS reads it on demand once the system is up and CP/M is running.
 
@@ -24,7 +24,7 @@ Each directory entry is 32 bytes: 1 byte user/status, 8 bytes filename, 3 bytes 
 
 ## File inventory
 
-Parsing the directory entries on tracks 3-4 of `CPMV233.DSK` (skipping deleted files marked `$E5`):
+Parsing the directory entries on tracks 3-4 of `CPMV223-44K.DSK` (skipping deleted files marked `$E5`):
 
 | Filename | Records | Bytes | Notes |
 |----------|---------|-------|-------|

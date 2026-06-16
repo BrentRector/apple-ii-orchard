@@ -11,15 +11,15 @@ import pytest
 from softcard_emu import SoftCardMachine
 
 REPO = Path(__file__).resolve().parents[2]  # softcard/
-DSK_223 = REPO / "disks" / "CPMV233.DSK"
-PO_220 = REPO / "disks" / "CPM220Disk1.po"
+DSK_223 = REPO / "disks" / "CPMV223-44K.DSK"
+PO_220 = REPO / "disks" / "CPMV220-Disk1.po"
 
 
 def _has(p):
     return p.exists()
 
 
-@pytest.mark.skipif(not _has(DSK_223), reason="CPMV233.DSK missing")
+@pytest.mark.skipif(not _has(DSK_223), reason="CPMV223-44K.DSK missing")
 def test_223_boots_to_prompt_with_videx():
     m = SoftCardMachine(DSK_223)
     res = m.run(total_steps=40_000_000)
@@ -31,7 +31,7 @@ def test_223_boots_to_prompt_with_videx():
     assert "idle" in res
 
 
-@pytest.mark.skipif(not _has(DSK_223), reason="CPMV233.DSK missing")
+@pytest.mark.skipif(not _has(DSK_223), reason="CPMV223-44K.DSK missing")
 def test_223_dir_lists_directory():
     m = SoftCardMachine(DSK_223)
     m.type_keys("DIR\r")
@@ -43,7 +43,7 @@ def test_223_dir_lists_directory():
     assert len(m.disk_reads) > 0              # directory came off the image
 
 
-@pytest.mark.skipif(not _has(PO_220), reason="CPM220Disk1.po missing")
+@pytest.mark.skipif(not _has(PO_220), reason="CPMV220-Disk1.po missing")
 def test_220_with_videx_faults_and_stays_dark():
     m = SoftCardMachine(PO_220)
     m.run(total_steps=40_000_000)
@@ -52,14 +52,14 @@ def test_220_with_videx_faults_and_stays_dark():
     assert m.videx.vram_writes == 0
 
 
-@pytest.mark.skipif(not _has(PO_220), reason="CPM220Disk1.po missing")
+@pytest.mark.skipif(not _has(PO_220), reason="CPMV220-Disk1.po missing")
 def test_220_without_videx_boots_clean():
     m = SoftCardMachine(PO_220, videx=False)
     res = m.run(total_steps=40_000_000)
     assert "idle" in res                      # waiting at the console
 
 
-@pytest.mark.skipif(not _has(DSK_223), reason="CPMV233.DSK missing")
+@pytest.mark.skipif(not _has(DSK_223), reason="CPMV223-44K.DSK missing")
 def test_language_card_banking():
     m = SoftCardMachine(DSK_223)
     lc = m.lc

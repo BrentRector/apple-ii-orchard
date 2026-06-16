@@ -70,15 +70,15 @@ assembler comments, so the source still reassembles byte-identically.
 ```sh
 source ../../shared/toolchain/env.sh
 
-python -m cpm_pipeline list-files       ../disks/CPMV233.DSK
-python -m cpm_pipeline decompile-os     ../disks/CPMV233.DSK out_os
-python -m cpm_pipeline decompile-file   ../disks/CPMV233.DSK CPM60.COM out_cpm60
-python -m cpm_pipeline decompile-disk   ../disks/CPMV233.DSK out          # interactive
-python -m cpm_pipeline decompile-disk   ../disks/CPMV233.DSK out --select CPM60.COM --ai
+python -m cpm_pipeline list-files       ../disks/CPMV223-44K.DSK
+python -m cpm_pipeline decompile-os     ../disks/CPMV223-44K.DSK out_os
+python -m cpm_pipeline decompile-file   ../disks/CPMV223-44K.DSK CPM60.COM out_cpm60
+python -m cpm_pipeline decompile-disk   ../disks/CPMV223-44K.DSK out          # interactive
+python -m cpm_pipeline decompile-disk   ../disks/CPMV223-44K.DSK out --select CPM60.COM --ai
 ```
 
 The CP/M directory parser was validated against the documented inventory of
-`CPMV233.DSK` (22 files; `CPM60.COM` = 88 records / 11,264 bytes) — see
+`CPMV223-44K.DSK` (22 files; `CPM60.COM` = 88 records / 11,264 bytes) — see
 [`../docs/CPM_Filesystem.md`](../docs/CPM_Filesystem.md). OS-region segmentation
 is gold for the recognized SoftCard 2.20/2.23 family and best-effort otherwise.
 
@@ -86,34 +86,34 @@ is gold for the recognized SoftCard 2.20/2.23 family and best-effort otherwise.
 source ../../shared/toolchain/env.sh   # ca65 + ld65 + sjasmplus on PATH
 
 # Inspect any disk and report what it looks like
-python -m cpm_pipeline detect ../disks/CPMV233.DSK
-# → CPMV233.DSK: DSK format, 143360 bytes (35T x 16S x 256B)
+python -m cpm_pipeline detect ../disks/CPMV223-44K.DSK
+# → CPMV223-44K.DSK: DSK format, 143360 bytes (35T x 16S x 256B)
 #     boot stub: count=1, loads 10 sectors of track 0
 #     skew table: 0 2 4 6 8 A C E 1 3 5 7 9 B D F
 #     variant: softcard_cpm_2_23 (confidence: high)
 
 # Build the disk; auto-detect variant from the reference
 python -m cpm_pipeline build \
-    --reference ../disks/CPMV233.DSK \
+    --reference ../disks/CPMV223-44K.DSK \
     --output ../../build/cpm223_rebuilt.dsk \
     --verify
 # → auto-detected variant: 223 (confidence: high)
 # → wrote ../../build/cpm223_rebuilt.dsk
-# → BYTE-IDENTICAL to ../disks/CPMV233.DSK
+# → BYTE-IDENTICAL to ../disks/CPMV223-44K.DSK
 
 # Or pin the variant explicitly:
 python -m cpm_pipeline build 220 \
-    --reference ../disks/CPM220Disk1.po \
+    --reference ../disks/CPMV220-Disk1.po \
     --output ../../build/cpm220_rebuilt.po \
     --verify
-# → BYTE-IDENTICAL to ../disks/CPM220Disk1.po
+# → BYTE-IDENTICAL to ../disks/CPMV220-Disk1.po
 
 # End-to-end: take a disk, produce a complete annotated source tree
-python -m cpm_pipeline generate ../disks/CPMV233.DSK ../../build/cpm223_tree
+python -m cpm_pipeline generate ../disks/CPMV223-44K.DSK ../../build/cpm223_tree
 # → output_dir/{README.md, analysis/, source/, symbols/, build.sh}
 # Then:
 bash ../../build/cpm223_tree/build.sh
-# → wrote rebuilt.dsk; BYTE-IDENTICAL to CPMV233.DSK
+# → wrote rebuilt.dsk; BYTE-IDENTICAL to CPMV223-44K.DSK
 
 # Trace the Z-80 BIOS -- jump table, fill regions, cold-boot generator
 python -m cpm_pipeline trace-z80 ../cpm-investigation/bios_223.bin
@@ -134,8 +134,8 @@ python -m cpm_pipeline trace-z80 ../cpm-investigation/bios_220.bin
 #     device 4 -> CALL $DCEE
 
 # Trace the boot loader -- install-copy loops and disk-helper calls
-python -m cpm_pipeline trace ../disks/CPMV233.DSK
-# → LoadSchedule for CPMV233.DSK
+python -m cpm_pipeline trace ../disks/CPMV223-44K.DSK
+# → LoadSchedule for CPMV223-44K.DSK
 #     variant: softcard_cpm_2_23
 #     stage-2 entry: $1000
 #     boot-stub-loaded sectors: 10  (each $0XX0 <- trk0:physN)

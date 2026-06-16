@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""CPM60.COM builds byte-identical to the genuine file on CPMV233.DSK.
+"""CPM60.COM builds byte-identical to the genuine file on CPMV223-44K.DSK.
 
 Two independent build paths must both reproduce the original:
   * the canonical single master source CPM60.asm (DISP places each relocating

@@ -20,9 +20,9 @@ def _has(p):
     return (REPO_ROOT / p).exists()
 
 
-@pytest.mark.skipif(not _has("disks/CPMV233.DSK"), reason="CPMV233.DSK not in repo")
+@pytest.mark.skipif(not _has("disks/CPMV223-44K.DSK"), reason="CPMV223-44K.DSK not in repo")
 def test_trace_2_23_basics():
-    sched = trace_loader(REPO_ROOT / "disks" / "CPMV233.DSK")
+    sched = trace_loader(REPO_ROOT / "disks" / "CPMV223-44K.DSK")
     # Boot-stub destinations come straight from Phase 2 -- 10 sectors.
     assert len(sched.boot_stub_destinations) == 10
     # Install-copy detection finds the four well-known stage-2 copies.
@@ -41,10 +41,10 @@ def test_trace_2_23_basics():
     assert rv.length == 6
 
 
-@pytest.mark.skipif(not _has("disks/CPMV233.DSK"), reason="CPMV233.DSK not in repo")
+@pytest.mark.skipif(not _has("disks/CPMV223-44K.DSK"), reason="CPMV223-44K.DSK not in repo")
 def test_trace_2_23_disk_helper_call():
     """2.23 stage-2 calls JSR $BBEB (the LC-RAM disk helper)."""
-    sched = trace_loader(REPO_ROOT / "disks" / "CPMV233.DSK")
+    sched = trace_loader(REPO_ROOT / "disks" / "CPMV223-44K.DSK")
     bbeb = next((c for c in sched.load_cpm_calls
                  if c.target_addr == 0xBBEB), None)
     assert bbeb is not None, (
@@ -55,9 +55,9 @@ def test_trace_2_23_disk_helper_call():
     assert bbeb.param == 0x80
 
 
-@pytest.mark.skipif(not _has("disks/CPM220Disk1.po"), reason="CPM220Disk1.po not in repo")
+@pytest.mark.skipif(not _has("disks/CPMV220-Disk1.po"), reason="CPMV220-Disk1.po not in repo")
 def test_trace_2_20_basics():
-    sched = trace_loader(REPO_ROOT / "disks" / "CPM220Disk1.po")
+    sched = trace_loader(REPO_ROOT / "disks" / "CPMV220-Disk1.po")
     assert len(sched.boot_stub_destinations) == 10
     # 2.20 has 4 install copies just like 2.23, with similar shape but
     # different exact addresses.
@@ -68,18 +68,18 @@ def test_trace_2_20_basics():
     assert big.dst_addr == 0x02FF
 
 
-@pytest.mark.skipif(not _has("disks/CPM220Disk1.po"), reason="CPM220Disk1.po not in repo")
+@pytest.mark.skipif(not _has("disks/CPMV220-Disk1.po"), reason="CPMV220-Disk1.po not in repo")
 def test_trace_2_20_disk_helper_call():
     """2.20 stage-2 calls JSR into the loader-resident $0F__ disk routines."""
-    sched = trace_loader(REPO_ROOT / "disks" / "CPM220Disk1.po")
+    sched = trace_loader(REPO_ROOT / "disks" / "CPMV220-Disk1.po")
     # 2.20 uses JSR $0F7D and JSR $0FAD (loader-resident, not LC RAM).
     targets = {c.target_addr for c in sched.load_cpm_calls}
     assert 0x0F7D in targets, f"expected JSR $0F7D; got {[hex(t) for t in targets]}"
 
 
 def test_summary_is_string():
-    if not _has("disks/CPMV233.DSK"):
-        pytest.skip("CPMV233.DSK not in repo")
-    sched = trace_loader(REPO_ROOT / "disks" / "CPMV233.DSK")
+    if not _has("disks/CPMV223-44K.DSK"):
+        pytest.skip("CPMV223-44K.DSK not in repo")
+    sched = trace_loader(REPO_ROOT / "disks" / "CPMV223-44K.DSK")
     s = sched.summary()
     assert isinstance(s, str) and "LoadSchedule" in s

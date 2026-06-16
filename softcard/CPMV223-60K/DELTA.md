@@ -1,7 +1,7 @@
 # SoftCard CP/M 2.23 — the 44K → 60K delta (what `CPM60.COM` changes)
 
 This tree is the decompilation of the **60K** SoftCard CP/M system (the disk
-`CPMV233-60K.DSK`, which is `CPMV233.DSK` after running `CPM60.COM`). It exists to
+`CPMV223-60K.DSK`, which is `CPMV223-44K.DSK` after running `CPM60.COM`). It exists to
 answer one question: **what does the 60K conversion change, and how does it give a
 larger transient program area?**
 
@@ -21,7 +21,7 @@ byte-level evidence is in the per-module sections below.
 CP/M records its resident-system addresses in page zero. Reading them from a booted
 image of each disk (Z-80 address space):
 
-| vector | 44K (`CPMV233.DSK`) | 60K (`CPMV233-60K.DSK`) | delta |
+| vector | 44K (`CPMV223-44K.DSK`) | 60K (`CPMV223-60K.DSK`) | delta |
 |---|---|---|---|
 | BDOS entry (`JP` at `$0005`) | `$9C06` | `$DC06` | **+$4000** |
 | BIOS warm boot (`JP` at `$0000`) | `$FA03` | `$FA03` | **0 (unchanged)** |
@@ -110,7 +110,7 @@ relocated CCP/BDOS up to `$D000+`, and run from there** — leaving the BIOS at
 | `CPM60_COM.md` | — | Full decompilation of `CPM60.COM` (byte map, installer, payload, install/boot mechanism) |
 
 Every Z-80 / 6502 OS source here is the **as-shipped** form — exactly the bytes on
-`CPMV233-60K.DSK` and in `CPM60.COM`. Spots that an earlier pass had captured in
+`CPMV223-60K.DSK` and in `CPM60.COM`. Spots that an earlier pass had captured in
 their runtime-modified form (BIOS cold-boot self-writes, the boot loader's `$1000`
 reset-plant target, the InstallFragments `STA $FFFF` placeholder, the CCP private-
 stack scratch) have been reverted to as-shipped and documented in
@@ -122,12 +122,12 @@ byte comes from a source file.
 
 ## Method and provenance
 
-There are two sources of truth: **`CPMV233.DSK`** (the 44K system) and
-**`CPM60.COM`** (the program on it). **`CPMV233-60K.DSK` is derived** — it is what
+There are two sources of truth: **`CPMV223-44K.DSK`** (the 44K system) and
+**`CPM60.COM`** (the program on it). **`CPMV223-60K.DSK` is derived** — it is what
 `CPM60.COM` produces by overwriting a 44K disk — and differs from the 44K disk only
 in the boot tracks and OS pieces (app/data files unchanged). The OS sources here are
 the **as-shipped** bytes from those files: `CPM60.COM`'s payload and the
-`CPMV233-60K.DSK` system tracks carry byte-identical OS images (verified
+`CPMV223-60K.DSK` system tracks carry byte-identical OS images (verified
 per-sector), and the sources reassemble to them.
 
 `softcard_emu` (which models the Language Card) is used only to *trace* — to tell

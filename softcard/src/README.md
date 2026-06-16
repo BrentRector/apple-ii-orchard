@@ -36,10 +36,10 @@ override selects 44K.)
 | Module | Status | Sharing model |
 |---|---|---|
 | `os/CPM_CCP.asm` | **shared — done** | the **only** clean re-ORG; one source, byte-identical at both ORGs via the two knobs above. Dispatch/pointer tables relocate as `DEFW <label>` (disassembler's static data-flow). |
-| BDOS | **config-specific** | same CP/M 2.2 BDOS but re-laid-out across two LC banks (two relocation deltas) + console group genuinely rewritten; merging is not worth it. Use `decompiled/CPMV233-60K/os/CPM_BDOS.asm` (byte-identical) + the 44K BDOS. |
+| BDOS | **config-specific** | same CP/M 2.2 BDOS but re-laid-out across two LC banks (two relocation deltas) + console group genuinely rewritten; merging is not worth it. Use `CPMV223-60K/os/CPM_BDOS.asm` (byte-identical) + the 44K BDOS. |
 | BIOS | **config-specific** | same `$FA00` origin but ~184 B longer; carries the relocation/banking subsystem. |
 | boot loader | **config-specific** | 60K-specific (it *performs* the LC relocation). |
-| RWTS | **config-specific** | the same Disk II driver re-ORG'd `+$1600` but with ~250 B of scattered genuine diffs (0.857). The real driver is `decompiled/CPMV233-60K/os/CPM_RWTS.s` (`$D000`, recovered from `CPM60.COM 0x400`; was mislabeled — held BIOS bytes). |
+| RWTS | **config-specific** | the same Disk II driver re-ORG'd `+$1600` but with ~250 B of scattered genuine diffs (0.857). The real driver is `CPMV223-60K/os/CPM_RWTS.s` (`$D000`, recovered from `CPM60.COM 0x400`; was mislabeled — held BIOS bytes). |
 
 **Why only the CCP is shared:** the 60K conversion *is* the Language-Card relocation +
 banking, and that machinery lives in the BDOS/BIOS/loader/RWTS — so those genuinely
@@ -51,12 +51,12 @@ conversion except for its load address, which is exactly why it re-ORGs cleanly.
 The build is "shared module where it's clean (CCP), config-specific module otherwise",
 and the disk assembler already reproduces both targets byte-identical from source:
 
-- **44K disk** (`CPMV233.DSK`, which also carries `CPM60.COM`): `reconstruct_disk("223", ...)`
+- **44K disk** (`CPMV223-44K.DSK`, which also carries `CPM60.COM`): `reconstruct_disk("223", ...)`
   rebuilds the whole disk from the OS sources + each `.COM`'s re-assembled disassembly and
   verifies `diff_count == 0` (`tests/test_reconstruct.py`). `CPM60.COM` — the 60K installer —
   is one of those files, so it is rebuilt byte-identical too (`tests/test_decompile_com.py`).
 - **60K system** (what `CPM60.COM` installs): the 60K OS modules in
-  `decompiled/CPMV233-60K/os/` (CCP from *this* shared source at `$D300`, plus the
+  `CPMV223-60K/os/` (CCP from *this* shared source at `$D300`, plus the
   config-specific BDOS/BIOS/loader/RWTS) each reassemble byte-identical to the
   `CPM60.COM` payload.
 

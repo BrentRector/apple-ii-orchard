@@ -11,7 +11,7 @@ from cpm_pipeline.region_disasm import assemble_z80
 
 REPO = Path(__file__).resolve().parents[2]               # softcard/
 SHARED = REPO / "src" / "os" / "CPM_CCP.asm"
-CCP60 = REPO / "decompiled" / "CPMV233-60K" / "os" / "CPM_CCP.asm"
+CCP60 = REPO / "CPMV223-60K" / "os" / "CPM_CCP.asm"
 HAS = shutil.which("sjasmplus") is not None
 skip = pytest.mark.skipif(not HAS or not SHARED.exists(), reason="sjasmplus or shared CCP missing")
 

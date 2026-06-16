@@ -8,7 +8,7 @@ image it will **verify** the disk, **decompile** the entire operating system
 **rebuild** a byte-identical disk from that source.
 
 Fully decompiled, AI-annotated distributions of **both** releases — CP/M **2.23**
-(`CPMV233.DSK`) and **2.20** (`CPM220Disk1.po`): boot loader, RWTS, BIOS, CCP/BDOS,
+(`CPMV223-44K.DSK`) and **2.20** (`CPMV220-Disk1.po`): boot loader, RWTS, BIOS, CCP/BDOS,
 and every `.COM` utility, plus one-command byte-identical rebuilds — live in
 [`decompiled/`](decompiled/).
 
@@ -59,11 +59,11 @@ byte-identically.
 
 ```bash
 source ../shared/toolchain/env.sh
-python -m cpm_pipeline list-files     disks/CPMV233.DSK
-python -m cpm_pipeline decompile-disk disks/CPMV233.DSK /tmp/out        # interactive
-python -m cpm_pipeline decompile-file disks/CPMV233.DSK CPM60.COM /tmp/cpm60 --ai
-python -m cpm_pipeline build 223 --reference disks/CPMV233.DSK --output /tmp/rebuilt.dsk --verify
-# → BYTE-IDENTICAL to disks/CPMV233.DSK
+python -m cpm_pipeline list-files     disks/CPMV223-44K.DSK
+python -m cpm_pipeline decompile-disk disks/CPMV223-44K.DSK /tmp/out        # interactive
+python -m cpm_pipeline decompile-file disks/CPMV223-44K.DSK CPM60.COM /tmp/cpm60 --ai
+python -m cpm_pipeline build 223 --reference disks/CPMV223-44K.DSK --output /tmp/rebuilt.dsk --verify
+# → BYTE-IDENTICAL to disks/CPMV223-44K.DSK
 ```
 
 ## What's in this tree
@@ -74,8 +74,8 @@ python -m cpm_pipeline build 223 --reference disks/CPMV233.DSK --output /tmp/reb
 | [`softcard_emu/`](softcard_emu/) | Reusable whole-system emulator (subsystem architecture around a central memory bus): 6502 + Z-80 share one Apple memory image; boots the 44K/56K/60K configurations to the `A>` prompt and can run `CPM60.COM` to convert a disk to 60K. See its [README](softcard_emu/README.md). |
 | [`cpm-investigation/`](cpm-investigation/) | The original extraction scripts and the intermediate region binaries the pipeline assembles against. |
 | [`docs/`](docs/) | The hand-annotated, byte-identical `CPM*.asm` sources and the analysis write-ups (`CPM_*.md`). |
-| [`disks/`](disks/) | The disk images: `CPMV233.DSK` (2.23, 44K), `CPMV233-60K.DSK` (the same after `CPM60`, from a real Apple), `CPM220Disk1.po` / `CPM220Disk2.po` (2.20, 56K). `CPMV233-60K-EMU.DSK` is the emulator-produced 60K disk (regenerable). |
-| [`decompiled/`](decompiled/) | Fully decompiled, AI-annotated distributions of both releases (`CPMV233` + `CPM220`) + one-command byte-identical rebuilds. |
+| [`disks/`](disks/) | The disk images: `CPMV223-44K.DSK` (2.23, 44K), `CPMV223-60K.DSK` (the same after `CPM60`, from a real Apple), `CPMV220-Disk1.po` / `CPMV220-Disk2.po` (2.20, 56K). `CPMV223-60K-EMU.DSK` is the emulator-produced 60K disk (regenerable). |
+| [`decompiled/`](decompiled/) | Fully decompiled, AI-annotated distributions of both releases (`CPMV223-44K` + `CPMV220`) + one-command byte-identical rebuilds. |
 
 ## Scope and honest caveats
 

@@ -28,8 +28,8 @@ HAS_ASSEMBLERS = (
 
 @pytest.mark.skipif(not HAS_ASSEMBLERS, reason="ca65/ld65/sjasmplus not on PATH")
 def test_cpm223_reconstruct_byte_identical():
-    """CPMV233.DSK rebuilt from docs/CPM223_*.asm + remaining staging."""
-    reference = REPO_ROOT / "disks" / "CPMV233.DSK"
+    """CPMV223-44K.DSK rebuilt from docs/CPM223_*.asm + remaining staging."""
+    reference = REPO_ROOT / "disks" / "CPMV223-44K.DSK"
     if not reference.exists():
         pytest.skip(f"reference disk missing: {reference}")
     with tempfile.TemporaryDirectory() as tmp:
@@ -38,7 +38,7 @@ def test_cpm223_reconstruct_byte_identical():
             "223", reference_path=reference, output_path=out, verify=True,
         )
         assert result.diff_count == 0, (
-            f"CPMV233.DSK reconstruction differs at {result.diff_count} byte(s); "
+            f"CPMV223-44K.DSK reconstruction differs at {result.diff_count} byte(s); "
             f"first offsets: {[hex(o) for o in result.diff_offsets]}"
         )
         # Confirm at least one byte came from a freshly assembled source
@@ -48,8 +48,8 @@ def test_cpm223_reconstruct_byte_identical():
 
 @pytest.mark.skipif(not HAS_ASSEMBLERS, reason="ca65/ld65/sjasmplus not on PATH")
 def test_cpm220_reconstruct_byte_identical():
-    """CPM220Disk1.po rebuilt from docs/CPM220_*.asm + remaining staging."""
-    reference = REPO_ROOT / "disks" / "CPM220Disk1.po"
+    """CPMV220-Disk1.po rebuilt from docs/CPM220_*.asm + remaining staging."""
+    reference = REPO_ROOT / "disks" / "CPMV220-Disk1.po"
     if not reference.exists():
         pytest.skip(f"reference disk missing: {reference}")
     with tempfile.TemporaryDirectory() as tmp:
@@ -67,7 +67,7 @@ def test_format_transcode_dsk_to_po():
     through the physical-sector view. The output bytes differ from the
     reference because of the format change, but the *physical* sector
     contents must match."""
-    reference = REPO_ROOT / "disks" / "CPMV233.DSK"
+    reference = REPO_ROOT / "disks" / "CPMV223-44K.DSK"
     if not reference.exists():
         pytest.skip(f"reference disk missing: {reference}")
     with tempfile.TemporaryDirectory() as tmp:

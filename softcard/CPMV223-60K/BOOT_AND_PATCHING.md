@@ -2,7 +2,7 @@
 
 This document describes the dynamic behaviour the checked-in sources deliberately
 do **not** capture. The `os/*.asm` / `os/*.s` files are the **as-shipped** code —
-exactly the bytes on `CPMV233-60K.DSK` and inside `CPM60.COM`. As the system
+exactly the bytes on `CPMV223-60K.DSK` and inside `CPM60.COM`. As the system
 installs and boots, it *modifies* a small set of those bytes in place. Each such
 spot is left as-shipped in the source (with a meaningful label and a pointer to
 this file); the *what / why* of the change lives here.

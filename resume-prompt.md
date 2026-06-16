@@ -106,7 +106,7 @@ Seven-stage Python package implementing the roadmap end-to-end:
 | 7 | `build` | Assemble all `softcard/docs/CPM*.asm` and place per chunk map → `.dsk`/`.po` byte-identical |
 | 6 | `generate` | End-to-end orchestration: produce a complete annotated source tree with build script |
 
-95 tests pass (was 50 at investigation closure). Both target disks (CPMV233.DSK + CPM220Disk1.po) reconstruct byte-identical from a single CLI invocation; Phase 7's auto-generated build.sh closes the loop.
+95 tests pass (was 50 at investigation closure). Both target disks (CPMV223-44K.DSK + CPMV220-Disk1.po) reconstruct byte-identical from a single CLI invocation; Phase 7's auto-generated build.sh closes the loop.
 
 **New documentation:**
 
@@ -256,7 +256,7 @@ tests; `python -m softcard_emu DISK --keys "DIR\r"`).
 `softcard/cpm-investigation/emu_softcard_v2.py` is now a deprecation shim.
 NEW HARDWARE: Apple language card (banked $D000-$FFFF, $C080-$C08F
 semantics; 2.20B's 56K LC-resident BIOS runs through honest banking).
-FINDING: the 44K-vs-60K banner question dissolved — CPMV233.DSK's
+FINDING: the 44K-vs-60K banner question dissolved — CPMV223-44K.DSK's
 boot tracks ARE the 44K build (banner inside the BIOS pages, trk2
 fsec8); "60K" strings belong to trk2 fsec7 + CPM60.COM (the 60K
 system loader on the filesystem). April's thread mislabeled the disk.
@@ -370,9 +370,9 @@ softcard/                   — CP/M-80 / Microsoft SoftCard work
     CPM223_*.asm                      — annotated 6502 + Z-80 source, 2.23 (round-trip byte-identical)
     CPM220_*.asm                      — same set for 2.20, all round-tripping byte-identical
   disks/
-    CPMV233.DSK               — CP/M 2.23 disk image (DOS 3.3 order — V233 is a misnomer for 2.23)
-    CPM220Disk1.po            — CP/M 2.20 distribution disk 1 (ProDOS sector order)
-    CPM220Disk2.po            — CP/M 2.20 distribution disk 2
+    CPMV223-44K.DSK               — CP/M 2.23 disk image (DOS 3.3 order — V233 is a misnomer for 2.23)
+    CPMV220-Disk1.po            — CP/M 2.20 distribution disk 1 (ProDOS sector order)
+    CPMV220-Disk2.po            — CP/M 2.20 distribution disk 2
 
 shared/                   — reusable tooling used by both trees
   nibbler/                  — Apple ][ WOZ-disk-analysis toolkit (DISASMS REMOVED 2026-05-03)

@@ -2,8 +2,8 @@
 """Verify that every committed .asm in a decompiled distribution reassembles
 byte-identically to the original code it describes.
 
-    python verify_roundtrip.py CPMV233      # 2.23 (CPMV233.DSK)
-    python verify_roundtrip.py CPM220       # 2.20 (CPM220Disk1.po)
+    python verify_roundtrip.py CPMV223-44K      # 2.23 (CPMV223-44K.DSK)
+    python verify_roundtrip.py CPMV220       # 2.20 (CPMV220-Disk1.po)
     python verify_roundtrip.py              # both
 
 For each OS region, reassemble (ca65+ld65 for 6502, sjasmplus for Z-80) and
@@ -35,7 +35,7 @@ DISKS = REPO / "softcard" / "disks"
 
 # distro -> (disk image, [ (region name, cpu, region binary, live length) ])
 DISTROS = {
-    "CPMV233": ("CPMV233.DSK", [
+    "CPMV223-44K": ("CPMV223-44K.DSK", [
         ("CPM_BootLoader", "6502", "loader_223.bin", 0x0C00),
         ("CPM_RWTS", "6502", "rwts_223.bin", 0x0600),
         ("CPM_InstallFragments", "6502", "installfragments_223.bin", 0x0200),
@@ -43,7 +43,7 @@ DISTROS = {
         ("CPM_SystemImage", "z80", "sysimg_223.bin", 0x1700),
         ("CPM_BIOS", "z80", "bios_223.bin", 0x0548),
     ]),
-    "CPM220": ("CPM220Disk1.po", [
+    "CPMV220": ("CPMV220-Disk1.po", [
         ("CPM_BootLoader", "6502", "loader_220.bin", 0x0C00),
         ("CPM_RWTS", "6502", "rwts_220.bin", 0x0600),
         ("CPM_InstallFragments", "6502", "installfragments_220.bin", 0x0200),

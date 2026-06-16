@@ -24,7 +24,7 @@ model got wrong above $2000:
 | `$F000-$FFFF` | `$0000-$0FFF` | -$F000 (Apple ZP/stack/text/pages 8-15) |
 
 Empirical confirmation: `softcard/cpm-investigation/emu_softcard_v2.py`
-(bidirectional CPU switching + this map) boots CPMV233.DSK from disk
+(bidirectional CPU switching + this map) boots CPMV223-44K.DSK from disk
 bytes alone to the authentic banner on an emulated Videx (real firmware
 ROM execution):
 
@@ -148,7 +148,7 @@ state machine wedges). NEXT STEPS:
    the directory read doesn't complete; fix the v2 model.
 2. Then re-test "DIR\r" end-to-end (expect directory listing on the
    Videx screen).
-3. Run 2.20 (CPM220Disk1.po) under v2 WITH Videx → re-verify the hang
+3. Run 2.20 (CPMV220-Disk1.po) under v2 WITH Videx → re-verify the hang
    mechanism at corrected addresses (device 4 dispatch target, what's
    really at the dispatch landing, whether PUSH-HL/SP-wrap story holds).
    Note 2.20's 6502 phase currently halts at $FF51 in v1-style runs —
@@ -164,7 +164,7 @@ state machine wedges). NEXT STEPS:
    decision (keep bytes, shift ORG/labels/comments — big but mechanical,
    round-trip tests protect it).
 
-## Evidence quick-reference (post-6502-phase memory, CPMV233.DSK)
+## Evidence quick-reference (post-6502-phase memory, CPMV223-44K.DSK)
 
 - $03B8-$03BF: `02 00 00 06 00 00 02 00` (slot 3 = Videx = device 6)
 - $0A00: `C3 D1 FE C3 B8 FA C3 10 FB ...` (BIOS jump table, 17 entries)
@@ -430,12 +430,12 @@ Facts extracted from the April 2026 Joshua Norrid thread:
   Firmware Protocol in the boot track; 2.23 does" — correct in spirit
   pre-disassembly. Credited in Part 13's update.
 - Disk inventory from the thread: "Softcard 16-sector disk (Microsoft
-  1980).dsk" = 2.20; the .cpm file = 2.20B 44K master; CPM220Disk1/2.po
-  = 2.20B 56K masters; CPMV233.DSK = 2.23 (1982); plus 2.25/2.26/2.28B
+  1980).dsk" = 2.20; the .cpm file = 2.20B 44K master; CPMV220Disk1/2.po
+  = 2.20B 56K masters; CPMV223-44K.DSK = 2.23 (1982); plus 2.25/2.26/2.28B
   for later SoftCard models (different architectures — SoftCard II /
   Premium have on-board ROM+RAM, per Joshua; the no-ROM rule applies
   to the ORIGINAL SoftCard only).
-- DISCREPANCY NOTED: the thread reports CPMV233.DSK's banner as "60K
+- DISCREPANCY NOTED: the thread reports CPMV223-44K.DSK's banner as "60K
   Ver. 2.23" on real/A2FPGA hardware; v2 boots it to "44K Ver. 2.23".
   Likely the LC-RAM probe failing in v2's flat memory model selects
   the smaller system configuration. Re-check when LC banking is

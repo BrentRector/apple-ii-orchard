@@ -41,7 +41,7 @@
 ; The companion narrative is docs/CPM_BootLoader.md and the
 ; per-physical-sector reference is docs/CPM_DiskSectorMap.md.
 ;
-; Source: nibbler 6502 disassembly of CPMV233.DSK track 0, reconstructed
+; Source: nibbler 6502 disassembly of CPMV223-44K.DSK track 0, reconstructed
 ; into the Apple ][ memory layout the boot stub creates.
 ; ============================================================================
 

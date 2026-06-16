@@ -6,7 +6,7 @@ executable on it** into human-readable assembly source, reassembles that source,
 and produces a new disk image that is **byte-for-byte identical** to the original.
 The rebuilt image also boots and runs in the emulator.
 
-Two disks are covered: `CPMV233.DSK` (CP/M 2.23) and `CPM220Disk1.po` (CP/M 2.20).
+Two disks are covered: `CPMV223-44K.DSK` (CP/M 2.23) and `CPMV220-Disk1.po` (CP/M 2.20).
 
 ## The flow
 
@@ -14,17 +14,17 @@ Two disks are covered: `CPMV233.DSK` (CP/M 2.23) and `CPM220Disk1.po` (CP/M 2.20
 source shared/toolchain/env.sh
 
 # 1. Treat the image as unknown. Identify it.
-python -m cpm_pipeline detect softcard/disks/CPMV233.DSK
+python -m cpm_pipeline detect softcard/disks/CPMV223-44K.DSK
 #   -> DSK format, 35T x 16S; boot stub present; variant softcard_cpm_2_23 (high)
 
 # 2. Decompile the whole operating system (6502 boot + Z-80 BIOS/CCP/BDOS) to source.
-python -m cpm_pipeline decompile-os   softcard/disks/CPMV233.DSK out/os --ai --ai-backend cli
+python -m cpm_pipeline decompile-os   softcard/disks/CPMV223-44K.DSK out/os --ai --ai-backend cli
 
 # 3. Decompile every program in the CP/M filesystem (emulation-assisted) to source.
-python -m cpm_pipeline decompile-disk softcard/disks/CPMV233.DSK out --select <each .COM> --ai --ai-backend cli
+python -m cpm_pipeline decompile-disk softcard/disks/CPMV223-44K.DSK out --select <each .COM> --ai --ai-backend cli
 
 # 4. Reassemble EVERYTHING and rebuild the whole disk from source; verify byte-identical.
-python -m cpm_pipeline.reconstruct softcard/disks/CPMV233.DSK build/cpm223_fromsource.dsk
+python -m cpm_pipeline.reconstruct softcard/disks/CPMV223-44K.DSK build/cpm223_fromsource.dsk
 
 # 5. Boot the rebuilt-from-source image to prove it is not just identical but live.
 python -m softcard_emu build/cpm223_fromsource.dsk --keys "DIR\r"
@@ -111,6 +111,6 @@ honestly rather than papered over:
   residue (the same class of "garbage" `CPM60.COM` writes when it rewrites the
   OS). These are emitted as data, not invented code.
 
-Finally, the rebuilt-from-source `CPMV233.DSK` **boots in the emulator** and runs
+Finally, the rebuilt-from-source `CPMV223-44K.DSK` **boots in the emulator** and runs
 `DIR`, listing the disk's files — the reassembled source is not just byte-identical,
 it is live.

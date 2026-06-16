@@ -3,8 +3,8 @@
 # Rebuild a decompiled distribution's disk image byte-identically from source,
 # and verify that every source file in it reassembles to the original bytes.
 #
-#     bash softcard/decompiled/rebuild.sh CPMV233     # 2.23 -> CPMV233.DSK
-#     bash softcard/decompiled/rebuild.sh CPM220      # 2.20 -> CPM220Disk1.po
+#     bash softcard/decompiled/rebuild.sh CPMV223-44K     # 2.23 -> CPMV223-44K.DSK
+#     bash softcard/decompiled/rebuild.sh CPMV220      # 2.20 -> CPMV220-Disk1.po
 #
 # Requires the local toolchain (ca65 + ld65 + sjasmplus); this script sources
 # shared/toolchain/env.sh to put them on PATH (install per
@@ -18,9 +18,9 @@ source "$ROOT/shared/toolchain/env.sh"
 
 DISTRO="${1:-}"
 case "$DISTRO" in
-  CPMV233) VARIANT=223; DISK="$ROOT/softcard/disks/CPMV233.DSK" ;;
-  CPM220)  VARIANT=220; DISK="$ROOT/softcard/disks/CPM220Disk1.po" ;;
-  *) echo "usage: rebuild.sh {CPMV233|CPM220}" >&2; exit 2 ;;
+  CPMV223-44K) VARIANT=223; DISK="$ROOT/softcard/disks/CPMV223-44K.DSK" ;;
+  CPMV220)  VARIANT=220; DISK="$ROOT/softcard/disks/CPMV220-Disk1.po" ;;
+  *) echo "usage: rebuild.sh {CPMV223-44K|CPMV220}" >&2; exit 2 ;;
 esac
 
 EXT="${DISK##*.}"

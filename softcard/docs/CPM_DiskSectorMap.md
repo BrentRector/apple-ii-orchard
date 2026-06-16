@@ -13,7 +13,7 @@
 > PUSH-HL hang carries the superseded framing.
 
 This is a comprehensive map of every physical sector in the 140 KB CP/M 2.23
-disk image (`CPMV233.DSK`). For each sector, the table shows the first 8
+disk image (`CPMV223-44K.DSK`). For each sector, the table shows the first 8
 bytes (a quick signature), what role the sector plays in the boot sequence,
 and where the bytes end up in Apple memory after the loader runs.
 

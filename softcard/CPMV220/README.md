@@ -1,6 +1,6 @@
-# CPM220 — Microsoft SoftCard CP/M 2.20 (`CPM220Disk1.po`)
+# CPMV220 — Microsoft SoftCard CP/M 2.20 (`CPMV220-Disk1.po`)
 
-A complete decompilation of `CPM220Disk1.po` (SoftCard CP/M **2.20**, the
+A complete decompilation of `CPMV220-Disk1.po` (SoftCard CP/M **2.20**, the
 pre-Videx release): the operating system (6502 + Z-80) and every `.COM` program in
 the filesystem, as commented assembly that reassembles **byte-identical**, with an
 AI prose layer (`[AI]`). See [`../README.md`](../README.md) for the overview of both
@@ -27,13 +27,13 @@ ca65 `.s` + a `.cfg`; Z-80 regions as sjasmplus `.asm`.
 
 Note the 2.20-specific tools: `CPM56.COM` (the 56K loader, vs 2.23's `CPM60`),
 `FORMAT.COM`, and `RW13.COM`. (`CONFIGIO.BAS` and `DUMP.ASM` are source text, not
-machine code, so they're not decompiled. `CPM220Disk2.po` is a second distribution
+machine code, so they're not decompiled. `CPMV220-Disk2.po` is a second distribution
 disk and is not part of this bootable-system distribution.)
 
 ## Rebuild
 
 ```bash
 source ../../../shared/toolchain/env.sh
-bash ../rebuild.sh CPM220                # -> rebuilt/CPM220.po  (BYTE-IDENTICAL)
-python ../verify_roundtrip.py CPM220     # reassemble every source file, compare to original
+bash ../rebuild.sh CPMV220                # -> rebuilt/CPMV220.po  (BYTE-IDENTICAL)
+python ../verify_roundtrip.py CPMV220     # reassemble every source file, compare to original
 ```
