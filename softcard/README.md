@@ -7,10 +7,15 @@ image it will **verify** the disk, **decompile** the entire operating system
 (6502 *and* Z-80) and any program in the filesystem into commented assembly, and
 **rebuild** a byte-identical disk from that source.
 
-Fully decompiled, AI-annotated distributions of **both** releases — CP/M **2.23**
-(`CPMV223-44K.DSK`) and **2.20** (`CPMV220-Disk1.po`): boot loader, RWTS, BIOS, CCP/BDOS,
-and every `.COM` utility, plus one-command byte-identical rebuilds — live in
-[`decompiled/`](decompiled/).
+Each release is a self-contained folder — the operating system (6502 + Z-80) and
+every `.COM` utility as commented assembly, the disk image itself, and a master
+README with the byte-identical rebuild:
+
+| Folder | CP/M | Disk image | Notes |
+|--------|------|-----------|-------|
+| [`CPMV223-44K/`](CPMV223-44K/) | **2.23** | `CPMV223-44K.DSK` (DOS 3.3 order) | the Videx fix; basis for 60K |
+| [`CPMV223-60K/`](CPMV223-60K/) | **2.23** | `CPMV223-60K.DSK` | CCP/BDOS relocated into the language card; the `CPM60.asm` installer master |
+| [`CPMV220/`](CPMV220/) | **2.20** | `CPMV220-Disk1/2.po` (ProDOS order) | the earlier release |
 
 ## Setup
 
@@ -72,10 +77,9 @@ python -m cpm_pipeline build 223 --reference CPMV223-44K/CPMV223-44K.DSK --outpu
 |------|----------|
 | [`cpm_pipeline/`](cpm_pipeline/) | The toolchain package (detect/trace/decompile/build). See its [README](cpm_pipeline/README.md). |
 | [`softcard_emu/`](softcard_emu/) | Reusable whole-system emulator (subsystem architecture around a central memory bus): 6502 + Z-80 share one Apple memory image; boots the 44K/56K/60K configurations to the `A>` prompt and can run `CPM60.COM` to convert a disk to 60K. See its [README](softcard_emu/README.md). |
+| [`CPMV223-44K/`](CPMV223-44K/) · [`CPMV223-60K/`](CPMV223-60K/) · [`CPMV220/`](CPMV220/) | The three release folders (os/ + utilities/ + the disk image + a master README), per the table above. |
 | [`cpm-investigation/`](cpm-investigation/) | The original extraction scripts and the intermediate region binaries the pipeline assembles against. |
-| [`docs/`](docs/) | The hand-annotated, byte-identical `CPM*.asm` sources and the analysis write-ups (`CPM_*.md`). |
-| [`disks/`](disks/) | The disk images: `CPMV223-44K.DSK` (2.23, 44K), `CPMV223-60K.DSK` (the same after `CPM60`, from a real Apple), `CPMV220-Disk1.po` / `CPMV220-Disk2.po` (2.20, 56K). `CPMV223-60K-EMU.DSK` is the emulator-produced 60K disk (regenerable). |
-| [`decompiled/`](decompiled/) | Fully decompiled, AI-annotated distributions of both releases (`CPMV223-44K` + `CPMV220`) + one-command byte-identical rebuilds. |
+| [`docs/`](docs/) | Analysis write-ups (`CPM_*.md`) and the 2.20 disk-build sources (`CPM220_*.asm`); the 2.23 sources now live in `CPMV223-44K/os/`. |
 
 ## Scope and honest caveats
 

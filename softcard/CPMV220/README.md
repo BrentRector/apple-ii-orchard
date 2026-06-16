@@ -33,7 +33,11 @@ disk and is not part of this bootable-system distribution.)
 ## Rebuild
 
 ```bash
-source ../../../shared/toolchain/env.sh
-bash ../rebuild.sh CPMV220                # -> rebuilt/CPMV220.po  (BYTE-IDENTICAL)
-python ../verify_roundtrip.py CPMV220     # reassemble every source file, compare to original
+source shared/toolchain/env.sh        # from the repo root: ca65 + ld65 + sjasmplus
+python -m cpm_pipeline.reconstruct softcard/CPMV220/CPMV220-Disk1.po rebuilt.po
+# -> BYTE-IDENTICAL to CPMV220-Disk1.po
 ```
+
+> The 2.20 OS still builds from `../docs/CPM220_*.asm` and its `.COM`s are
+> re-decompiled on the fly (the 2.23-style unification into a self-contained
+> `os/` + `utilities/bin/` tree is pending).
