@@ -2,7 +2,7 @@
 
 **Last updated:** 2026-06-11 (late) — **PUBLISHED HANG MECHANISM OVERTURNED. The real 2.20 failure is $C800 expansion-ROM window ownership destroyed by the SoftCard's own CPU-switch access. Doc-correction cascade now includes de-confirming the series' central conclusion. PENDING USER REVIEW before article updates.**
 
-> **READ FIRST on resume:** `cpm-80/docs/CPM_SoftCard_RealMap_Findings.md` —
+> **READ FIRST on resume:** `softcard/docs/CPM_SoftCard_RealMap_Findings.md` —
 > both 2026-06-11 sessions' findings, in order. Short version:
 > (A) The real SoftCard Z-80→Apple translation (Z-80 $F000-$FFFF =
 > Apple $0000-$0FFF; $B000-$DFFF = $D000-$FFFF; $E000-$EFFF = Apple
@@ -84,13 +84,13 @@ This file is the canonical session-recovery prompt. **If this conversation crash
 
 ## What's New since 2026-05-02 (closure → toolset shipping)
 
-The investigation closed on 2026-05-02 with the "future tool" vision in `cpm-80/docs/CPM_PIPELINE_ROADMAP.md`. Between 2026-05-03 and 2026-05-04 that vision became reality:
+The investigation closed on 2026-05-02 with the "future tool" vision in `softcard/docs/CPM_PIPELINE_ROADMAP.md`. Between 2026-05-03 and 2026-05-04 that vision became reality:
 
 **Disassembler infrastructure (2026-05-03):**
 
 - New top-level packages `disasm6502/`, `disasm_z80/`, `disasm_common/` at the repo root. Production-quality, ca65/sjasmplus output, recursive-descent walker + JSON symbol-table input + a second-pass data analyzer (strings, fills, jump tables, pointer tables). Both packages round-trip byte-identical against real CP/M binaries.
 - `nibbler/disasm.py` and `nibbler/z80.py` **deleted** as dead middle layer; nibbler is back to being a pure WOZ-disk-analysis toolkit. Apple-panic Walkthrough migrated to reference `disasm6502`.
-- All 11 hand-annotated `cpm-80/docs/CPM*.asm` files **now reassemble byte-identical** via ca65/ld65 (6502) or sjasmplus (Z-80). Six pytest regression tests in `cpm-80/cpm-investigation/tests/test_annotated_docs.py` enforce the round-trip property going forward. The bring-up surfaced **9 real bugs** in pre-existing prose annotations (duplicate banner header, 459-byte "GAP" not emitted, JMP_TABLE misinterpretation, off-by-one labels, etc.) — see the round-trip-discipline article and devlog for the catalog.
+- All 11 hand-annotated `softcard/docs/CPM*.asm` files **now reassemble byte-identical** via ca65/ld65 (6502) or sjasmplus (Z-80). Six pytest regression tests in `softcard/cpm-investigation/tests/test_annotated_docs.py` enforce the round-trip property going forward. The bring-up surfaced **9 real bugs** in pre-existing prose annotations (duplicate banner header, 459-byte "GAP" not emitted, JMP_TABLE misinterpretation, off-by-one labels, etc.) — see the round-trip-discipline article and devlog for the catalog.
 
 **`cpm_pipeline` package (2026-05-04):**
 
@@ -103,15 +103,15 @@ Seven-stage Python package implementing the roadmap end-to-end:
 | 5 | `trace-z80` | Parse BIOS jump table + trap-marker pages + cold-boot generator + dispatch cases |
 | 4 | `handoff` | Find Z-80 reset vector plant + BDOS entry plant + CPU-switch trigger |
 | 3 | `diff` | Compare two disks at the routine level — Videx fix surfaces as `cases_only_in_b: [6]` |
-| 7 | `build` | Assemble all `cpm-80/docs/CPM*.asm` and place per chunk map → `.dsk`/`.po` byte-identical |
+| 7 | `build` | Assemble all `softcard/docs/CPM*.asm` and place per chunk map → `.dsk`/`.po` byte-identical |
 | 6 | `generate` | End-to-end orchestration: produce a complete annotated source tree with build script |
 
 95 tests pass (was 50 at investigation closure). Both target disks (CPMV233.DSK + CPM220Disk1.po) reconstruct byte-identical from a single CLI invocation; Phase 7's auto-generated build.sh closes the loop.
 
 **New documentation:**
 
-- `cpm-80/docs/CPM_BootTrace.md` (556 lines) — synthesis sector-0-to-A-prompt across both 2.20 and 2.23
-- `cpm-80/docs/CPM_PIPELINE_ROADMAP.md` (431 lines) — the seven-stage build plan that drove the work
+- `softcard/docs/CPM_BootTrace.md` (556 lines) — synthesis sector-0-to-A-prompt across both 2.20 and 2.23
+- `softcard/docs/CPM_PIPELINE_ROADMAP.md` (431 lines) — the seven-stage build plan that drove the work
 - `cpm_pipeline/README.md` — package overview with all current CLI verbs
 
 **New writeups (wiseowl.com):**
@@ -253,7 +253,7 @@ Part 6, the tools page, and the project entry.
 The v2 emulator is packaged as the reusable top-level `softcard_emu/`
 package (machine.py + langcard.py + videx.py + CLI + README + 5 smoke
 tests; `python -m softcard_emu DISK --keys "DIR\r"`).
-`cpm-80/cpm-investigation/emu_softcard_v2.py` is now a deprecation shim.
+`softcard/cpm-investigation/emu_softcard_v2.py` is now a deprecation shim.
 NEW HARDWARE: Apple language card (banked $D000-$FFFF, $C080-$C08F
 semantics; 2.20B's 56K LC-resident BIOS runs through honest banking).
 FINDING: the 44K-vs-60K banner question dissolved — CPMV233.DSK's
@@ -295,7 +295,7 @@ Earlier emulator-era entries (still the most-cited for follow-up work):
 ### Reference (`src/content/reference/`)
 
 - `apple-ii-tn-misc-8-pascal-1-1-firmware-protocol.mdx` — full text of Apple Tech Note Misc #8
-- `cpm-videx-disk-sector-map.mdx` — 560-row map of every physical sector → role → final address. Pointer to `cpm-80/docs/CPM_DiskSectorMap.md` in the Orchard repo. **The natural capstone reference.**
+- `cpm-videx-disk-sector-map.mdx` — 560-row map of every physical sector → role → final address. Pointer to `softcard/docs/CPM_DiskSectorMap.md` in the Orchard repo. **The natural capstone reference.**
 - `videx-videoterm-manual.mdx`, `thunderclock-plus-manual.mdx` — pre-existing
 - `public/reference/apple-ii-technical-notes-1989-09.pdf` — source PDF
 
@@ -332,7 +332,7 @@ Earlier emulator-era entries (still the most-cited for follow-up work):
 ```
 Three top-level trees (reorganized 2026-06-13 — see README.md for the map). The
 six Python packages still import by bare name; conftest.py / env.sh / pip -e make
-them resolvable. ca65/sjasmplus paths inside docs/CPM*.asm resolve with cwd=cpm-80/.
+them resolvable. ca65/sjasmplus paths inside docs/CPM*.asm resolve with cwd=softcard/.
 
 apple-ii/                 — Apple II reverse-engineering work
   apple-panic/              — game RE: WOZ, disassembly, assets, write-ups
@@ -340,7 +340,7 @@ apple-ii/                 — Apple II reverse-engineering work
   docs/
     DiskII_BootROM.md / .asm  — Apple Disk II P6 PROM (pre-existing)
 
-cpm-80/                   — CP/M-80 / Microsoft SoftCard work
+softcard/                   — CP/M-80 / Microsoft SoftCard work
   cpm-investigation/        — extraction scripts, intermediate binaries, disassemblies,
                               emulator (2026-04-29), original build harness, regression
                               tests for the annotated docs (test_annotated_docs.py)
@@ -376,7 +376,7 @@ cpm-80/                   — CP/M-80 / Microsoft SoftCard work
 
 shared/                   — reusable tooling used by both trees
   nibbler/                  — Apple ][ WOZ-disk-analysis toolkit (DISASMS REMOVED 2026-05-03)
-    z80_cpu.py                — Z-80 emulator (used by cpm-80/cpm-investigation + softcard_emu)
+    z80_cpu.py                — Z-80 emulator (used by softcard/cpm-investigation + softcard_emu)
     cli.py                    — info / scan / protect / nibbles / boot / decode / dsk / flux
   disasm6502/               — production 6502 disassembler. ca65/ld65 output, byte-identical
                               round-trip. opcodes (256+50 undoc), symbols, walker, formatter, CLI.
@@ -395,7 +395,7 @@ conftest.py               — adds the three trees to sys.path so pytest works w
 resume-prompt.md          — THIS FILE
 ```
 
-**Test count:** 100 total across all packages (cpm_pipeline 32, cpm-80/cpm-investigation/tests 11 annotation regressions, disasm6502 11, disasm_z80 21, disasm_common 15, plus 10 elsewhere). With `source shared/toolchain/env.sh` active: 100 pass / 0 skip; without the assembler toolchain: 81 pass / 19 skip.
+**Test count:** 100 total across all packages (cpm_pipeline 32, softcard/cpm-investigation/tests 11 annotation regressions, disasm6502 11, disasm_z80 21, disasm_common 15, plus 10 elsewhere). With `source shared/toolchain/env.sh` active: 100 pass / 0 skip; without the assembler toolchain: 81 pass / 19 skip.
 
 ---
 
@@ -431,9 +431,9 @@ Both fit a future "bidirectional CPU switch + LC RAM bank" emulator pass that fu
 
 ### Pipeline follow-on enhancements (each independent, none blocking)
 
-Per `cpm-80/docs/CPM_PIPELINE_ROADMAP.md`'s open-questions inventory and the `cpm-pipeline-seven-stages` article's "what stayed manual" section:
+Per `softcard/docs/CPM_PIPELINE_ROADMAP.md`'s open-questions inventory and the `cpm-pipeline-seven-stages` article's "what stayed manual" section:
 
-1. **Auto-generated annotated source.** Stage 7 currently copies pre-existing `cpm-80/docs/CPM*.asm` files. A future enhancement would have it invoke `disasm6502`/`disasm_z80` directly, using the structural analysis from prior stages to seed entry points and data regions. Output would be byte-identical for known regions and fall back to less-prose-heavy disassembler output for newly-explored regions.
+1. **Auto-generated annotated source.** Stage 7 currently copies pre-existing `softcard/docs/CPM*.asm` files. A future enhancement would have it invoke `disasm6502`/`disasm_z80` directly, using the structural analysis from prior stages to seed entry points and data regions. Output would be byte-identical for known regions and fall back to less-prose-heavy disassembler output for newly-explored regions.
 
 2. **Auto-derived chunk map.** `chunk_map.py` is hand-maintained. Stage 2's `LoadSchedule` has the structural information needed (the install copies tell you where bytes get moved during boot); the auto-derivation isn't wired up.
 
@@ -459,7 +459,7 @@ None block the headline result.
 - `$0200-$03FF`: Z-80 install fragments (warm-boot routine at `$03C0`)
 - `$03B9-$03BF`: per-slot device codes (built by slot scanner)
 - `$A300-$B9FF`: CCP + BDOS + banner string (from sysimg)
-- `$BA00-$BFFF`: original 6502 RWTS routines (preserved by PREP_HANDOFF #1; see `cpm-80/docs/CPM223_RWTS.asm` for byte-by-byte map)
+- `$BA00-$BFFF`: original 6502 RWTS routines (preserved by PREP_HANDOFF #1; see `softcard/docs/CPM223_RWTS.asm` for byte-by-byte map)
 
 ### Z-80 memory after CP/M is running
 

@@ -3,11 +3,11 @@
 The project is organized into three top-level trees:
 
     apple-ii/   Apple II reverse-engineering work
-    cpm-80/     CP/M-80 / Microsoft SoftCard work
+    softcard/     CP/M-80 / Microsoft SoftCard work
     shared/     reusable tooling (nibbler, disasm*, symbols, toolchain)
 
 The importable Python packages live one level down inside these trees
-(`shared/nibbler`, `cpm-80/softcard_emu`, `cpm-80/cpm_pipeline`,
+(`shared/nibbler`, `softcard/softcard_emu`, `softcard/cpm_pipeline`,
 `shared/disasm6502`, ...). Adding each tree root to ``sys.path`` lets the
 packages be imported by their bare names (``import nibbler``) from any test,
 regardless of which tree the test itself lives in. This mirrors what
@@ -20,7 +20,7 @@ from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parent
 
-for _name in ("shared", "cpm-80", "apple-ii", "."):
+for _name in ("shared", "softcard", "apple-ii", "."):
     _dir = (_ROOT / _name).resolve()
     if _dir.is_dir() and str(_dir) not in sys.path:
         sys.path.insert(0, str(_dir))

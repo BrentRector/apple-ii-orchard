@@ -22,7 +22,7 @@ export PATH
 
 # Make the importable packages resolvable by bare name (import nibbler, etc.)
 # without a pip install, mirroring conftest.py for the test runner.
-for _orchard_tree in "${_orchard_root}/shared" "${_orchard_root}/cpm-80" "${_orchard_root}/apple-ii"; do
+for _orchard_tree in "${_orchard_root}/shared" "${_orchard_root}/softcard" "${_orchard_root}/apple-ii"; do
     case ":${PYTHONPATH:-}:" in
         *":${_orchard_tree}:"*) ;;
         *) PYTHONPATH="${_orchard_tree}${PYTHONPATH:+:${PYTHONPATH}}" ;;

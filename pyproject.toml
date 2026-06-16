@@ -14,7 +14,7 @@ license = { file = "LICENSE" }
 # nibbler's `flux` command renders the magnetic surface as a PNG.
 flux = ["numpy", "Pillow"]
 
-# The six importable packages live across the shared/ and cpm-80/ trees.
+# The six importable packages live across the shared/ and softcard/ trees.
 # This mapping lets `pip install -e .` expose them by their bare names
 # (import nibbler, import cpm_pipeline, ...) from anywhere, matching what
 # conftest.py does for the test runner and env.sh does for the shell.
@@ -33,13 +33,13 @@ nibbler = "shared/nibbler"
 disasm_common = "shared/disasm_common"
 disasm6502 = "shared/disasm6502"
 disasm_z80 = "shared/disasm_z80"
-softcard_emu = "cpm-80/softcard_emu"
-cpm_pipeline = "cpm-80/cpm_pipeline"
+softcard_emu = "softcard/softcard_emu"
+cpm_pipeline = "softcard/cpm_pipeline"
 
 [tool.pytest.ini_options]
 # Discover the test suites across all three trees from the repo root.
 testpaths = [
     "shared",
-    "cpm-80",
+    "softcard",
     "apple-ii",
 ]

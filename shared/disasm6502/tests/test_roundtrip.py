@@ -61,9 +61,9 @@ def test_loader_223_roundtrip():
     First byte is the DOS sector-count byte, so entry is $0801 (not $0800).
     Everything past $083C is data (text strings + zero pad + RWTS chunks).
     """
-    src = REPO_ROOT.parent / "cpm-80" / "cpm-investigation" / "loader_223.bin"
+    src = REPO_ROOT.parent / "softcard" / "cpm-investigation" / "loader_223.bin"
     if not src.exists():
-        pytest.skip("cpm-80/cpm-investigation/loader_223.bin missing")
+        pytest.skip("softcard/cpm-investigation/loader_223.bin missing")
     apple_syms = REPO_ROOT / "symbols" / "apple2.json"
     original = src.read_bytes()
     rebuilt = _roundtrip(

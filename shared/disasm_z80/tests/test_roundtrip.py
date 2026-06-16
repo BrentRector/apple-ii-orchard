@@ -62,10 +62,10 @@ def test_cpm_223_bios_roundtrip():
 
     Exercises base + ED block-op + CB bit-op opcodes plus a real Z-80 code-
     overlap idiom (CALL into the middle of a JR instruction at $FB45)."""
-    src = REPO_ROOT.parent / "cpm-80" / "cpm-investigation" / "bios_223.bin"
+    src = REPO_ROOT.parent / "softcard" / "cpm-investigation" / "bios_223.bin"
     cpm_syms = REPO_ROOT / "symbols" / "cpm_2_2.json"
     if not src.exists():
-        pytest.skip("cpm-80/cpm-investigation/bios_223.bin missing")
+        pytest.skip("softcard/cpm-investigation/bios_223.bin missing")
     # The on-disk file is 2048 bytes (sector-aligned extraction with trailing
     # padding); the live BIOS is the first 1352 bytes. Truncate.
     original = src.read_bytes()[:0x548]
