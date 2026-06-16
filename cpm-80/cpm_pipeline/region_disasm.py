@@ -60,6 +60,7 @@ def resolve_computed_dispatch(walker, mem, org, length, *, dyn_dispatch=None):
     tables = scan_static_dispatch(mem, walker, body_start=body_start, body_end=body_end)
     if dyn_dispatch:
         tables = _merge_dispatch(tables, dyn_dispatch, mem, walker, body_start, body_end)
+    dispatch_words = set()
     for t in tables:
         # mark the table body as data BEFORE re-tracing entries, so a target that
         # happens to fall inside the table is never decoded as code.
@@ -75,7 +76,13 @@ def resolve_computed_dispatch(walker, mem, org, length, *, dyn_dispatch=None):
         for e in t.entry_targets:                # trace non-executed arms into code
             if body_start <= e < body_end:
                 walker.trace(e)
-    return tables
+        # emit each pointer entry as a DEFW directly (robust to entries that point
+        # OUT of the module, e.g. BDOS fn 0/4/5 -> BIOS $FAxx, which the analyzer's
+        # in-range pointer-table detector would reject).
+        if t.kind == "pointer":
+            for i in range(t.n_entries):
+                dispatch_words.add(t.table_addr + 2 * i)
+    return tables, dispatch_words
 
 
 def seed_leading_jp_vector(walker, mem, org, length):
@@ -203,9 +210,10 @@ def disasm_z80_region(mem: bytearray, org: int, length: int, *,
     pointer_words = None
     if resolve_dispatch:
         seed_leading_jp_vector(walker, mem, org, length)
-        resolve_computed_dispatch(walker, mem, org, length, dyn_dispatch=dyn_dispatch)
+        _, dispatch_words = resolve_computed_dispatch(walker, mem, org, length,
+                                                      dyn_dispatch=dyn_dispatch)
         label_inrange_operands(walker, mem, org, length)
-        pointer_words = scan_pointer_words(walker, mem, org, length)
+        pointer_words = scan_pointer_words(walker, mem, org, length) | dispatch_words
     if force_labels:
         for addr, name in force_labels.items():
             if org <= addr < org + length:

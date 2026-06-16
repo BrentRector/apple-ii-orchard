@@ -156,20 +156,33 @@ def step_state(state: RegState, instr) -> RegState:
     if op == "ld_r_hl":              # LD r,(HL)
         r = eff[1]
         if r == "A":
-            # reading the low byte of the table word out of a BASE_IDX cursor
+            # read-into-HL idiom: LD A,(HL) takes the table word's low byte
             if s.hl.kind == VKind.BASE_IDX:
                 s.a = AbsVal(VKind.MEM_PTR, s.hl.const)
             else:
                 s.a = U
         elif r == "H":
-            # reading the high byte: HL becomes the table word (deref complete-ish)
+            # ...then LD H,(HL) takes the high byte -> HL is the table word
             if s.hl.kind == VKind.BASE_IDX and s.a.kind == VKind.MEM_PTR \
                     and s.a.const == s.hl.const:
-                s.hl = AbsVal(VKind.MEM_PTR, s.hl.const)   # high half in
+                s.hl = AbsVal(VKind.MEM_PTR, s.hl.const)
             else:
                 s.hl = U
+        elif r == "E":
+            # read-into-DE idiom (CP/M 2.2 BDOS): LD E,(HL) low byte into E
+            if s.hl.kind == VKind.BASE_IDX:
+                s.de = AbsVal(VKind.MEM_PTR, s.hl.const)
+            else:
+                s.de = U
+        elif r == "D":
+            # ...then LD D,(HL) high byte -> DE is the table word; an EX DE,HL
+            # next moves it into HL for the JP (HL).
+            if s.hl.kind == VKind.BASE_IDX and s.de.kind == VKind.MEM_PTR \
+                    and s.de.const == s.hl.const:
+                s.de = AbsVal(VKind.MEM_PTR, s.hl.const, derefed=True)
+            else:
+                s.de = U
         else:
-            # writing L/B/C/D/E from (HL): drops the containing pair
             _clobber_half(s, r)
         return s
 
@@ -261,13 +274,25 @@ def resolve_dispatch_at(mem, walker, jp_addr, *, body_start, body_end, starts=No
         if walker.labels.get(starts[k]) is not None:
             break
 
-    state = RegState()
+    block = []
     for k in range(lo_idx, idx):
         try:
-            ins = decode_at(mem, starts[k])
+            block.append(decode_at(mem, starts[k]))
         except (IndexError, KeyError):
             return None
+    state = RegState()
+    for ins in block:
         state = step_state(state, ins)
+
+    # function-count guard: `CP $n` immediately followed by `RET NC` bounds the
+    # table at exactly n entries (valid codes 0..n-1). This is how a CP/M-style
+    # dispatcher caps its table, and it survives entries that point OUT of the
+    # module (e.g. BDOS fn 0/4/5 -> BIOS $FAxx), which the plausibility walk can't.
+    guard = None
+    for i in range(len(block) - 1):
+        m = re.match(r"^CP \$([0-9A-Fa-f]{1,2})$", block[i].mnemonic.strip())
+        if m and block[i + 1].mnemonic.strip() == "RET NC":
+            guard = int(m.group(1), 16)
 
     reg = jp.mnemonic[4:6]            # HL / IX / IY
     cur = _get(state, reg)
@@ -276,7 +301,10 @@ def resolve_dispatch_at(mem, walker, jp_addr, *, body_start, body_end, starts=No
     if cur.kind == VKind.MEM_PTR and cur.const is not None \
             and body_start <= cur.const < body_end:
         base = cur.const
-        targets = _walk_pointer_extent(mem, walker, base, body_start, body_end)
+        if guard is not None and 4 <= guard <= MAX_TABLE_ENTRIES:
+            targets = _read_n_pointers(mem, base, guard, body_end)
+        else:
+            targets = _walk_pointer_extent(mem, walker, base, body_start, body_end)
         if len(targets) >= 4:
             return DispatchTable(jp_addr, base, "pointer", tuple(targets), len(targets))
         return None
@@ -291,6 +319,20 @@ def resolve_dispatch_at(mem, walker, jp_addr, *, body_start, body_end, starts=No
         return None
 
     return None
+
+
+def _read_n_pointers(mem, base, n, body_end):
+    """Read exactly n little-endian word entries from base (used when a function-
+    count guard fixes the table size). Entries may point outside the module (e.g.
+    BIOS routes); they are kept verbatim and rendered as DEFW <label-or-literal>."""
+    out = []
+    a = base
+    for _ in range(n):
+        if a + 1 >= body_end:
+            break
+        out.append(mem[a] | (mem[a + 1] << 8))
+        a += 2
+    return out
 
 
 def _walk_pointer_extent(mem, walker, base, body_start, body_end):

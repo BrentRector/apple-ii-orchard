@@ -95,6 +95,35 @@ def test_reject_bare_jp_hl():
     assert resolve_dispatch_at(m, w, 0x1001, body_start=ORG, body_end=0x1100) is None
 
 
+def test_de_read_idiom_with_guard_and_external_entry():
+    # CP/M 2.2 BDOS shape: a `CP $n / RET NC` function-count guard bounds the
+    # table, the pointer is read into DE (LD E,(HL)/INC HL/LD D,(HL)/EX DE,HL),
+    # and one entry points OUT of the module (like the BDOS' BIOS routes).
+    code = bytes([
+        0xFE, 0x06,        # $1000 CP $06         (guard: 6 functions)
+        0xD0,              # $1002 RET NC
+        0x21, 0x10, 0x10,  # $1003 LD HL,$1010
+        0x5F,              # $1006 LD E,A
+        0x16, 0x00,        # $1007 LD D,$00
+        0x19, 0x19,        # $1009 ADD HL,DE x2
+        0x5E, 0x23, 0x56,  # $100B LD E,(HL); INC HL; LD D,(HL)
+        0xEB,              # $100E EX DE,HL
+        0xE9,              # $100F JP (HL)
+    ])
+    m = _mem(code)
+    entries = [0x1020, 0x1023, 0x0050, 0x1026, 0x1029, 0x102C]   # $0050 is external
+    a = 0x1010
+    for e in entries:
+        m[a] = e & 0xFF; m[a + 1] = e >> 8; a += 2
+    for e in entries:
+        if e >= 0x1000:
+            m[e] = 0xC9
+    w = Walker(m, start=ORG, end=0x1100); w.trace(ORG)
+    t = resolve_dispatch_at(m, w, 0x100F, body_start=ORG, body_end=0x1100)
+    assert t is not None and t.kind == "pointer" and t.n_entries == 6
+    assert t.entry_targets == tuple(entries)      # the external $0050 is kept
+
+
 def test_scan_finds_only_real_table():
     m, _ = _with_table()
     w = Walker(m, start=ORG, end=0x1100); w.trace(ORG)
