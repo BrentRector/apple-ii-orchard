@@ -39,14 +39,15 @@ def test_220_regions_decompile(tmp_path):
 @pytest.mark.skipif(not (DSK_223.exists() and HAS_SJASMPLUS),
                     reason="CPMV223-44K.DSK or sjasmplus missing")
 def test_223_bios_auto_disasm_roundtrips(tmp_path):
-    # The machine disassembly of the BIOS must reassemble to the original bytes.
+    # The machine disassembly of the as-shipped on-disk BIOS ($FA00-$FDFF, 1024 B)
+    # must reassemble to the original pristine bytes.
     r = decompile_os(DSK_223, tmp_path / "os", gold=False, force=True)
     bios = next(reg for reg in r.regions if reg.name == "BIOS")
     res = subprocess.run(["sjasmplus", str(bios.asm_path)],
                          capture_output=True, text=True, cwd=str(bios.asm_path.parent))
     assert res.returncode == 0, res.stdout + res.stderr
     rebuilt = bios.asm_path.with_suffix(".bin")
-    original = (REPO_ROOT / "cpm-investigation" / "bios_223.bin").read_bytes()[:0x548]
+    original = (REPO_ROOT / "cpm-investigation" / "bios_223_disk.bin").read_bytes()
     assert rebuilt.read_bytes() == original, "BIOS auto-disassembly did not round-trip"
 
 

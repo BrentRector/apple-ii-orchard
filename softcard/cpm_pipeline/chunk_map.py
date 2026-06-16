@@ -78,20 +78,12 @@ SOURCES_223: dict[str, ChunkSource | Path] = {
         cpu="z80", org=0x8000, size=0x1700,
         expected_bin_name="build/CPM223_SystemImage.bin",
     ),
-    "CPM223_BIOS": ChunkSource(
-        asm_path=DOCS / "CPM223_BIOS.asm",
-        # True base $FA00 (jump table first; = Apple $0A00 through the
-        # real SoftCard map). Was 0xFAB8 -- the wrong-address-model org;
-        # see docs/CPM_SoftCard_RealMap_Findings.md.
-        cpu="z80", org=0xFA00, size=0x0548,
-        expected_bin_name="build/CPM223_BIOS.bin",
-    ),
-    # The pristine on-disk BIOS image as it sits in the LOAD_CPM staging area
-    # (jump table first, org $FA00). This differs from CPM223_BIOS.asm, which is
-    # the cold-boot-PATCHED runtime BIOS used for analysis; the disk holds the
-    # un-patched copy, so it needs its own source.
+    # The as-shipped pristine on-disk BIOS ($FA00-$FDFF) -- exactly what LOAD_CPM
+    # reads off the system tracks. The cold-boot self-modifications and the
+    # $FE00-$FF47 runtime tail (generated at cold boot, not on disk) are
+    # documented in CPMV223-44K/BOOT_AND_PATCHING.md, not baked into this source.
     "CPM223_BIOS_Disk": ChunkSource(
-        asm_path=DOCS / "CPM223_BIOS_Disk.asm",
+        asm_path=OS223_44K / "CPM_BIOS.asm",
         cpu="z80", org=0xFA00, size=0x0400,
         expected_bin_name="build/CPM223_BIOS_Disk.bin",
     ),

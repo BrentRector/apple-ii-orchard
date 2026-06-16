@@ -63,7 +63,10 @@ _REGIONS = {
         OsRegion("DiskCallbacks", "z80", 0x1A00, 0x0200, "diskcallbacks_223.bin",
                  ("cpm_2_2.json", "cpm_2_23_bios.json")),
         OsRegion("SystemImage", "z80", 0x8000, 0x1700, "sysimg_223.bin", ("cpm_2_2.json",)),
-        OsRegion("BIOS", "z80", 0xFA00, 0x0548, "bios_223.bin",
+        # The AS-SHIPPED pristine on-disk BIOS ($FA00-$FDFF, 1024 B) -- what the
+        # disk holds. (The patched $0548 runtime form lives only in bios_223.bin,
+        # used by version_delta's cold-boot trace; see CPMV223-44K/BOOT_AND_PATCHING.md.)
+        OsRegion("BIOS", "z80", 0xFA00, 0x0400, "bios_223_disk.bin",
                  ("cpm_2_2.json", "cpm_2_23_bios.json")),
     ],
     "softcard_cpm_2_20": [
