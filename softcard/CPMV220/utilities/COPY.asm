@@ -4,990 +4,371 @@
 
     DEVICE NOSLOT64K
 
+; -- External symbols --
+WBOOT_VEC            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
+BDOS_VEC             EQU $0005               ; BDOS call vector — JP BDOS_ENTRY. Programs use CALL $0005 to invoke BDOS. Word at $0006 is also the top-of-TPA marker.
+RST6_VEC             EQU $0030               ; Z-80 RST 6 ($30) restart vector — 8 bytes. Available for application/debugger use.
+DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS cold-init / DRV_ALLRESET (fn 13) set the DMA address here and WBOOT re-issues SETDMA($0080); sector/record I/O moves 128 bytes through it. At program load this same buffer doubles as the command tail: the first byte ($0080) holds the tail length (0-127) and the characters follow at $0081 (CMDLINE).
+
 ; -- Mid-instruction references (shown inline as cover+offset) --
-;   $0143 -> TPA_START_10+1       shared instruction tail: $0143 is reachable code inside the instruction at $0142
-;   $014A -> TPA_START_12+1       shared instruction tail: $014A is reachable code inside the instruction at $0149
-;   $0160 -> TPA_START_31+1       shared instruction tail: $0160 is reachable code inside the instruction at $015F
-;   $0201 -> TPA_START_94+1       shared instruction tail: $0201 is reachable code inside the instruction at $0200
-;   $0202 -> TPA_START_94+2       shared instruction tail: $0202 is reachable code inside the instruction at $0200
-;   $0226 -> TPA_START_98+2       shared instruction tail: $0226 is reachable code inside the instruction at $0224
-;   $025B -> TPA_START_103+2      shared instruction tail: $025B is reachable code inside the instruction at $0259
-;   $026B -> TPA_START_104+2      shared instruction tail: $026B is reachable code inside the instruction at $0269
-;   $027B -> TPA_START_105+2      shared instruction tail: $027B is reachable code inside the instruction at $0279
-;   $028B -> TPA_START_106+2      shared instruction tail: $028B is reachable code inside the instruction at $0289
-;   $029B -> TPA_START_107+2      shared instruction tail: $029B is reachable code inside the instruction at $0299
-;   $02AB -> TPA_START_108+2      shared instruction tail: $02AB is reachable code inside the instruction at $02A9
-;   $02BB -> TPA_START_109+2      shared instruction tail: $02BB is reachable code inside the instruction at $02B9
-;   $02CB -> TPA_START_110+2      shared instruction tail: $02CB is reachable code inside the instruction at $02C9
-;   $02DB -> TPA_START_111+2      shared instruction tail: $02DB is reachable code inside the instruction at $02D9
-;   $02EB -> TPA_START_112+2      shared instruction tail: $02EB is reachable code inside the instruction at $02E9
-;   $02FB -> TPA_START_113+2      shared instruction tail: $02FB is reachable code inside the instruction at $02F9
-;   $032B -> TPA_START_117+1      shared instruction tail: $032B is reachable code inside the instruction at $032A
-;   $0352 -> TPA_START_120+1      shared instruction tail: $0352 is reachable code inside the instruction at $0351
-;   $0379 -> TPA_START_122+1      shared instruction tail: $0379 is reachable code inside the instruction at $0378
-;   $03EA -> TPA_START_135+1      shared instruction tail: $03EA is reachable code inside the instruction at $03E9
-;   $04C4 -> TPA_START_155+1      shared instruction tail: $04C4 is reachable code inside the instruction at $04C3
+;   $0230 -> SUB_020E_2+2         shared instruction tail: $0230 is reachable code inside the instruction at $022E
+;   $02A4 -> SUB_0289_2+1         shared instruction tail: $02A4 is reachable code inside the instruction at $02A3
 
     ORG $0100
 
 TPA_START:
-        JR NZ,TPA_START_2                ; $0100  20 20
-        JR NZ,TPA_START_11               ; $0102  20 43
-        LD C,A                           ; $0104  4F
-        LD D,B                           ; $0105  50
+        LD HL,($F3DE)                    ; $0100  2A DE F3
 TPA_START_1:
-        LD E,C                           ; $0106  59
-        LD D,D                           ; $0107  52
-        LD C,C                           ; $0108  49
-        LD B,A                           ; $0109  47
-        LD C,B                           ; $010A  48
-        LD D,H                           ; $010B  54
-        JR NZ,TPA_START_9                ; $010C  20 28
-        LD B,E                           ; $010E  43
-        ADD HL,HL                        ; $010F  29
-        JR NZ,TPA_START_10+1             ; $0110  20 31
-        ADD HL,SP                        ; $0112  39
-        SCF                              ; $0113  37
-        ADD HL,SP                        ; $0114  39
-        INC L                            ; $0115  2C
-        JR NZ,TPA_START_28               ; $0116  20 44
-        LD C,C                           ; $0118  49
-        LD B,A                           ; $0119  47
-        LD C,C                           ; $011A  49
-        LD D,H                           ; $011B  54
-        LD B,C                           ; $011C  41
-        LD C,H                           ; $011D  4C
-        JR NZ,TPA_START_44               ; $011E  20 52
-        LD B,L                           ; $0120  45
-        LD D,E                           ; $0121  53
+        LD (SUB_0289_2+1),HL             ; $0103  22 A4 02
 TPA_START_2:
-        LD B,L                           ; $0122  45
+        CALL SUB_0242                    ; $0106  CD 42 02
 TPA_START_3:
-        LD B,C                           ; $0123  41
+        LD DE,L_0300                     ; $0109  11 00 03
 TPA_START_4:
-        LD D,D                           ; $0124  52
+        CALL SUB_0245                    ; $010C  CD 45 02
 TPA_START_5:
-        LD B,E                           ; $0125  43
+        LD A,($0007)                     ; $010F  3A 07 00
 TPA_START_6:
-        LD C,B                           ; $0126  48
+        SUB $07                          ; $0112  D6 07
 TPA_START_7:
-        INC L                            ; $0127  2C
+        LD (L_02E0),A                    ; $0114  32 E0 02
 TPA_START_8:
-        JR NZ,TPA_START_12+1             ; $0128  20 20
-        LD D,B                           ; $012A  50
-        LD C,C                           ; $012B  49
-        LD D,B                           ; $012C  50
-        JR NZ,TPA_START_59               ; $012D  20 56
-        LD B,L                           ; $012F  45
-        LD D,D                           ; $0130  52
-        LD D,E                           ; $0131  53
-        JR NZ,TPA_START_33               ; $0132  20 31
-        LD L,$35                         ; $0134  2E 35
+        LD A,(DEFAULT_DMA)               ; $0117  3A 80 00
 TPA_START_9:
-        INC BC                           ; $0136  03
-        LD BC,TPA_START_1                ; $0137  01 06 01
-        NOP                              ; $013A  00
-        INC H                            ; $013B  24
-        INC H                            ; $013C  24
-        INC H                            ; $013D  24
-        JR NZ,TPA_START_31+1             ; $013E  20 20
-        JR NZ,TPA_START_32               ; $0140  20 20
+        OR A                             ; $011A  B7
 TPA_START_10:
-        JR NZ,TPA_START_75               ; $0142  20 53
-        LD D,L                           ; $0144  55
-        LD B,D                           ; $0145  42
-        NOP                              ; $0146  00
+        JP NZ,TPA_START_19               ; $011B  C2 33 01
 TPA_START_11:
-        NOP                              ; $0147  00
-        NOP                              ; $0148  00
+        CALL SUB_0249                    ; $011E  CD 49 02
 TPA_START_12:
-        JR NZ,TPA_START_62               ; $0149  20 3D
+        LD A,$80                         ; $0121  3E 80
 TPA_START_13:
-        LD L,$3A                         ; $014B  2E 3A
+        LD (DEFAULT_DMA),A               ; $0123  32 80 00
 TPA_START_14:
-        INC L                            ; $014D  2C
+        LD C,$0A                         ; $0126  0E 0A
 TPA_START_15:
-        INC A                            ; $014E  3C
+        LD DE,DEFAULT_DMA                ; $0128  11 80 00
 TPA_START_16:
-        LD A,$0D                         ; $014F  3E 0D
+        CALL BDOS_VEC                    ; $012B  CD 05 00
 TPA_START_17:
-        LD E,A                           ; $0151  5F
+        LD A,$0A                         ; $012E  3E 0A
 TPA_START_18:
-        LD E,E                           ; $0152  5B
+        CALL SUB_024E                    ; $0130  CD 4E 02
 TPA_START_19:
-        LD E,L                           ; $0153  5D
+        LD SP,L_0300                     ; $0133  31 00 03
 TPA_START_20:
-        LD C,C                           ; $0154  49
+        LD HL,$0082                      ; $0136  21 82 00
 TPA_START_21:
-        LD C,(HL)                        ; $0155  4E
+        CALL SUB_0254                    ; $0139  CD 54 02
 TPA_START_22:
-        LD D,B                           ; $0156  50
+        LD (L_043C),A                    ; $013C  32 3C 04
 TPA_START_23:
-        LD C,C                           ; $0157  49
+        CALL SUB_0268                    ; $013F  CD 68 02
+        LD D,A                           ; $0142  57
+        CALL SUB_0254                    ; $0143  CD 54 02
+        CP $3D                           ; $0146  FE 3D
 TPA_START_24:
-        LD D,D                           ; $0158  52
+        JP NZ,SUB_0268_2                 ; $0148  C2 6C 02
+        CALL SUB_0254                    ; $014B  CD 54 02
+        LD (L_041A),A                    ; $014E  32 1A 04
+        CALL SUB_0268                    ; $0151  CD 68 02
+        LD E,A                           ; $0154  5F
+        LD (L_02DE),DE                   ; $0155  ED 53 DE 02
+        CALL SUB_0254                    ; $0159  CD 54 02
+        CP $2F                           ; $015C  FE 2F
+        LD DE,SUB_020E_2+2               ; $015E  11 30 02
+        JR NZ,TPA_START_25               ; $0161  20 0A
+        CALL SUB_0254                    ; $0163  CD 54 02
+        CP $53                           ; $0166  FE 53
+        JR NZ,TPA_START_24               ; $0168  20 DE
+        LD DE,RST6_VEC                   ; $016A  11 30 00
 TPA_START_25:
-        LD B,H                           ; $0159  44
+        LD (L_02E2),DE                   ; $016D  ED 53 E2 02
 TPA_START_26:
-        LD D,B                           ; $015A  50
+        PUSH DE                          ; $0171  D5
+        LD HL,WBOOT_VEC                  ; $0172  21 00 00
+        LD ($F3E0),HL                    ; $0175  22 E0 F3
+        LD HL,(L_02DE)                   ; $0178  2A DE 02
+        LD DE,L_03FC                     ; $017B  11 FC 03
+        LD A,L                           ; $017E  7D
+        CP H                             ; $017F  BC
+        JR Z,TPA_START_27                ; $0180  28 0C
+        CALL SUB_02BD                    ; $0182  CD BD 02
+        CALL SUB_0242                    ; $0185  CD 42 02
+        LD DE,L_035B                     ; $0188  11 5B 03
+        CALL SUB_0245                    ; $018B  CD 45 02
 TPA_START_27:
-        LD D,H                           ; $015B  54
+        POP HL                           ; $018E  E1
 TPA_START_28:
-        LD D,D                           ; $015C  52
+        LD A,(L_02E0)                    ; $018F  3A E0 02
+        LD B,A                           ; $0192  47
+        LD E,A                           ; $0193  5F
+        LD D,$00                         ; $0194  16 00
+        OR A                             ; $0196  B7
+        SBC HL,DE                        ; $0197  ED 52
+        JR NC,TPA_START_29               ; $0199  30 05
+        ADD HL,DE                        ; $019B  19
+        LD B,L                           ; $019C  45
+        LD HL,WBOOT_VEC                  ; $019D  21 00 00
 TPA_START_29:
-        LD D,L                           ; $015D  55
+        PUSH HL                          ; $01A0  E5
+        LD A,(L_02E1)                    ; $01A1  3A E1 02
+        OR A                             ; $01A4  B7
+        PUSH AF                          ; $01A5  F5
+        CALL Z,SUB_0208                  ; $01A6  CC 08 02
+        POP AF                           ; $01A9  F1
+        CALL NZ,SUB_020E                 ; $01AA  C4 0E 02
+        POP HL                           ; $01AD  E1
+        LD A,L                           ; $01AE  7D
+        OR H                             ; $01AF  B4
+        JR NZ,TPA_START_28               ; $01B0  20 DD
+        CALL SUB_0242                    ; $01B2  CD 42 02
+        LD DE,L_037B                     ; $01B5  11 7B 03
 TPA_START_30:
-        LD D,D                           ; $015E  52
+        CALL SUB_0245                    ; $01B8  CD 45 02
+        LD SP,L_0300                     ; $01BB  31 00 03
+        CALL SUB_0242                    ; $01BE  CD 42 02
+        LD DE,L_0389                     ; $01C1  11 89 03
+        CALL SUB_0245                    ; $01C4  CD 45 02
+        LD HL,$0800                      ; $01C7  21 00 08
+        LD ($F3E8),HL                    ; $01CA  22 E8 F3
 TPA_START_31:
-        LD SP,$5255                      ; $015F  31 55 52
+        CALL SUB_02C8                    ; $01CD  CD C8 02
+        CP $4E                           ; $01D0  FE 4E
+        JR NZ,TPA_START_33               ; $01D2  20 17
+        CALL SUB_023F                    ; $01D4  CD 3F 02
+        LD HL,(L_02DE)                   ; $01D7  2A DE 02
+        LD A,L                           ; $01DA  7D
+        AND H                            ; $01DB  A4
+        JP NZ,TPA_START_32               ; $01DC  C2 E8 01
+        CALL SUB_0242                    ; $01DF  CD 42 02
+        LD DE,L_03AC                     ; $01E2  11 AC 03
+        CALL SUB_02BD                    ; $01E5  CD BD 02
 TPA_START_32:
-        LD ($4452),A                     ; $0162  32 52 44
+        JP WBOOT_VEC                     ; $01E8  C3 00 00
 TPA_START_33:
-        LD D,D                           ; $0165  52
+        CP $59                           ; $01EB  FE 59
+        JR NZ,TPA_START_31               ; $01ED  20 DE
+        CALL SUB_023F                    ; $01EF  CD 3F 02
+        LD DE,(L_02E2)                   ; $01F2  ED 5B E2 02
+        LD A,D                           ; $01F6  7A
+        OR A                             ; $01F7  B7
+        JR NZ,TPA_START_34               ; $01F8  20 0B
+        INC A                            ; $01FA  3C
+        LD (L_02E1),A                    ; $01FB  32 E1 02
+        LD HL,(L_02DE)                   ; $01FE  2A DE 02
+        LD L,H                           ; $0201  6C
+        LD (L_02DE),HL                   ; $0202  22 DE 02
 TPA_START_34:
-        LD C,A                           ; $0166  4F
-TPA_START_35:
-        LD D,L                           ; $0167  55
-TPA_START_36:
-        LD D,H                           ; $0168  54
-TPA_START_37:
-        LD C,H                           ; $0169  4C
-TPA_START_38:
-        LD D,B                           ; $016A  50
-TPA_START_39:
-        LD D,H                           ; $016B  54
-TPA_START_40:
-        LD D,L                           ; $016C  55
-TPA_START_41:
-        LD C,H                           ; $016D  4C
-TPA_START_42:
-        LD SP,$5250                      ; $016E  31 50 52
-TPA_START_43:
-        LD C,(HL)                        ; $0171  4E
-TPA_START_44:
-        LD C,H                           ; $0172  4C
-TPA_START_45:
-        LD D,E                           ; $0173  53
-TPA_START_46:
-        LD D,H                           ; $0174  54
-TPA_START_47:
-        LD D,B                           ; $0175  50
-TPA_START_48:
-        LD D,H                           ; $0176  54
-TPA_START_49:
-        LD D,B                           ; $0177  50
-TPA_START_50:
-        LD D,L                           ; $0178  55
-TPA_START_51:
-        LD D,B                           ; $0179  50
-TPA_START_52:
-        LD SP,$5055                      ; $017A  31 55 50
-TPA_START_53:
-        LD ($5550),A                     ; $017D  32 50 55
-TPA_START_54:
-        LD C,(HL)                        ; $0180  4E
-TPA_START_55:
-        LD D,H                           ; $0181  54
-TPA_START_56:
-        LD D,H                           ; $0182  54
-TPA_START_57:
-        LD E,C                           ; $0183  59
-TPA_START_58:
-        LD B,E                           ; $0184  43
-TPA_START_59:
-        LD D,D                           ; $0185  52
-TPA_START_60:
-        LD D,H                           ; $0186  54
-TPA_START_61:
-        LD D,L                           ; $0187  55
-TPA_START_62:
-        LD B,E                           ; $0188  43
-TPA_START_63:
-        LD SP,$4F43                      ; $0189  31 43 4F
-TPA_START_64:
-        LD C,(HL)                        ; $018C  4E
-TPA_START_65:
-        LD C,(HL)                        ; $018D  4E
-TPA_START_66:
-        LD D,L                           ; $018E  55
-TPA_START_67:
-        LD C,H                           ; $018F  4C
-TPA_START_68:
-        LD B,L                           ; $0190  45
-TPA_START_69:
-        LD C,A                           ; $0191  4F
-TPA_START_70:
-        LD B,(HL)                        ; $0192  46
-TPA_START_71:
-        NOP                              ; $0193  00
-TPA_START_72:
-        LD B,H                           ; $0194  44
-TPA_START_73:
-        LD C,C                           ; $0195  49
-TPA_START_74:
-        LD D,E                           ; $0196  53
-TPA_START_75:
-        LD C,E                           ; $0197  4B
-TPA_START_76:
-        JR NZ,TPA_START_92               ; $0198  20 52
-TPA_START_77:
-        LD B,L                           ; $019A  45
-TPA_START_78:
-        LD B,C                           ; $019B  41
-TPA_START_79:
-        LD B,H                           ; $019C  44
-TPA_START_80:
-        JR NZ,TPA_START_91               ; $019D  20 45
-TPA_START_81:
-        LD D,D                           ; $019F  52
-TPA_START_82:
-        LD D,D                           ; $01A0  52
-TPA_START_83:
-        LD C,A                           ; $01A1  4F
-TPA_START_84:
-        LD D,D                           ; $01A2  52
-TPA_START_85:
-        INC H                            ; $01A3  24
-TPA_START_86:
-        LD B,H                           ; $01A4  44
-TPA_START_87:
-        LD C,C                           ; $01A5  49
-TPA_START_88:
-        LD D,E                           ; $01A6  53
-TPA_START_89:
-        LD C,E                           ; $01A7  4B
-TPA_START_90:
-        JR NZ,TPA_START_94+1             ; $01A8  20 57
-        LD D,D                           ; $01AA  52
-        LD C,C                           ; $01AB  49
-        LD D,H                           ; $01AC  54
-        LD B,L                           ; $01AD  45
-        JR NZ,TPA_START_93               ; $01AE  20 45
-        LD D,D                           ; $01B0  52
-        LD D,D                           ; $01B1  52
-        LD C,A                           ; $01B2  4F
-        LD D,D                           ; $01B3  52
-        INC H                            ; $01B4  24
-        LD D,(HL)                        ; $01B5  56
-        LD B,L                           ; $01B6  45
-        LD D,D                           ; $01B7  52
-        LD C,C                           ; $01B8  49
-        LD B,(HL)                        ; $01B9  46
-        LD E,C                           ; $01BA  59
-        JR NZ,TPA_START_94+2             ; $01BB  20 45
-        LD D,D                           ; $01BD  52
-        LD D,D                           ; $01BE  52
-        LD C,A                           ; $01BF  4F
-        LD D,D                           ; $01C0  52
-        INC H                            ; $01C1  24
-        LD C,(HL)                        ; $01C2  4E
-        LD C,A                           ; $01C3  4F
-        LD D,H                           ; $01C4  54
-        JR NZ,TPA_START_96               ; $01C5  20 41
-        JR NZ,TPA_START_97               ; $01C7  20 43
-        LD C,B                           ; $01C9  48
-        LD B,C                           ; $01CA  41
-        LD D,D                           ; $01CB  52
-        LD B,C                           ; $01CC  41
-        LD B,E                           ; $01CD  43
-        LD D,H                           ; $01CE  54
-        LD B,L                           ; $01CF  45
-        LD D,D                           ; $01D0  52
-        JR NZ,TPA_START_98+2             ; $01D1  20 53
-        LD C,C                           ; $01D3  49
-        LD C,(HL)                        ; $01D4  4E
-        LD C,E                           ; $01D5  4B
-        INC H                            ; $01D6  24
-        LD D,D                           ; $01D7  52
-        LD B,L                           ; $01D8  45
-        LD B,C                           ; $01D9  41
-        LD B,H                           ; $01DA  44
-        LD B,L                           ; $01DB  45
-        LD D,D                           ; $01DC  52
-        JR NZ,TPA_START_100              ; $01DD  20 53
-        LD D,H                           ; $01DF  54
-        LD C,A                           ; $01E0  4F
-        LD D,B                           ; $01E1  50
-        LD D,B                           ; $01E2  50
-        LD C,C                           ; $01E3  49
-TPA_START_91:
-        LD C,(HL)                        ; $01E4  4E
-        LD B,A                           ; $01E5  47
-        DEC C                            ; $01E6  0D
-        LD A,(BC)                        ; $01E7  0A
-        INC H                            ; $01E8  24
-        LD C,(HL)                        ; $01E9  4E
-        LD C,A                           ; $01EA  4F
-        LD D,H                           ; $01EB  54
-TPA_START_92:
-        JR NZ,TPA_START_99               ; $01EC  20 41
-        JR NZ,TPA_START_101              ; $01EE  20 43
-        LD C,B                           ; $01F0  48
-        LD B,C                           ; $01F1  41
-        LD D,D                           ; $01F2  52
-        LD B,C                           ; $01F3  41
-        LD B,E                           ; $01F4  43
-TPA_START_93:
-        LD D,H                           ; $01F5  54
-        LD B,L                           ; $01F6  45
-        LD D,D                           ; $01F7  52
-        JR NZ,TPA_START_102              ; $01F8  20 53
-        LD C,A                           ; $01FA  4F
-        LD D,L                           ; $01FB  55
-        LD D,D                           ; $01FC  52
-        LD B,E                           ; $01FD  43
-        LD B,L                           ; $01FE  45
-        INC H                            ; $01FF  24
-TPA_START_94:
-        JP TPA_START_156                 ; $0200  C3 CE 04
-TPA_START_95:
-        RET                              ; $0203  C9
-        DEFB    $00,$00,$C9,$00                                  ; $0204
-TPA_START_96:
-        NOP                              ; $0208  00
-        LD A,(DE)                        ; $0209  1A
-        NOP                              ; $020A  00
-        NOP                              ; $020B  00
-TPA_START_97:
-        NOP                              ; $020C  00
-        NOP                              ; $020D  00
-        NOP                              ; $020E  00
-        NOP                              ; $020F  00
-        JR Z,TPA_START_103+2             ; $0210  28 49
-        LD C,(HL)                        ; $0212  4E
-        LD D,B                           ; $0213  50
-        LD A,($4F2F)                     ; $0214  3A 2F 4F
-        LD D,L                           ; $0217  55
-        LD D,H                           ; $0218  54
-        LD A,($5053)                     ; $0219  3A 53 50
-        LD B,C                           ; $021C  41
-        LD B,E                           ; $021D  43
-        LD B,L                           ; $021E  45
-        ADD HL,HL                        ; $021F  29
-        JR Z,TPA_START_104+2             ; $0220  28 49
-        LD C,(HL)                        ; $0222  4E
-        LD D,B                           ; $0223  50
-TPA_START_98:
-        LD A,($4F2F)                     ; $0224  3A 2F 4F
-        LD D,L                           ; $0227  55
-        LD D,H                           ; $0228  54
-        LD A,($5053)                     ; $0229  3A 53 50
-        LD B,C                           ; $022C  41
-        LD B,E                           ; $022D  43
-        LD B,L                           ; $022E  45
-TPA_START_99:
-        ADD HL,HL                        ; $022F  29
-        JR Z,TPA_START_105+2             ; $0230  28 49
-TPA_START_100:
-        LD C,(HL)                        ; $0232  4E
-TPA_START_101:
-        LD D,B                           ; $0233  50
-        LD A,($4F2F)                     ; $0234  3A 2F 4F
-        LD D,L                           ; $0237  55
-        LD D,H                           ; $0238  54
-        LD A,($5053)                     ; $0239  3A 53 50
-        LD B,C                           ; $023C  41
-        LD B,E                           ; $023D  43
-        LD B,L                           ; $023E  45
-        ADD HL,HL                        ; $023F  29
-        JR Z,TPA_START_106+2             ; $0240  28 49
-        LD C,(HL)                        ; $0242  4E
-        LD D,B                           ; $0243  50
-        LD A,($4F2F)                     ; $0244  3A 2F 4F
-        LD D,L                           ; $0247  55
-        LD D,H                           ; $0248  54
-        LD A,($5053)                     ; $0249  3A 53 50
-        LD B,C                           ; $024C  41
-TPA_START_102:
-        LD B,E                           ; $024D  43
-        LD B,L                           ; $024E  45
-        ADD HL,HL                        ; $024F  29
-        JR Z,TPA_START_107+2             ; $0250  28 49
-        LD C,(HL)                        ; $0252  4E
-        LD D,B                           ; $0253  50
-        LD A,($4F2F)                     ; $0254  3A 2F 4F
-        LD D,L                           ; $0257  55
-        LD D,H                           ; $0258  54
-TPA_START_103:
-        LD A,($5053)                     ; $0259  3A 53 50
-        LD B,C                           ; $025C  41
-        LD B,E                           ; $025D  43
-        LD B,L                           ; $025E  45
-        ADD HL,HL                        ; $025F  29
-        JR Z,TPA_START_108+2             ; $0260  28 49
-        LD C,(HL)                        ; $0262  4E
-        LD D,B                           ; $0263  50
-        LD A,($4F2F)                     ; $0264  3A 2F 4F
-        LD D,L                           ; $0267  55
-        LD D,H                           ; $0268  54
-TPA_START_104:
-        LD A,($5053)                     ; $0269  3A 53 50
-        LD B,C                           ; $026C  41
-        LD B,E                           ; $026D  43
-        LD B,L                           ; $026E  45
-        ADD HL,HL                        ; $026F  29
-        JR Z,TPA_START_109+2             ; $0270  28 49
-        LD C,(HL)                        ; $0272  4E
-        LD D,B                           ; $0273  50
-        LD A,($4F2F)                     ; $0274  3A 2F 4F
-        LD D,L                           ; $0277  55
-        LD D,H                           ; $0278  54
-TPA_START_105:
-        LD A,($5053)                     ; $0279  3A 53 50
-        LD B,C                           ; $027C  41
-        LD B,E                           ; $027D  43
-        LD B,L                           ; $027E  45
-        ADD HL,HL                        ; $027F  29
-        JR Z,TPA_START_110+2             ; $0280  28 49
-        LD C,(HL)                        ; $0282  4E
-        LD D,B                           ; $0283  50
-        LD A,($4F2F)                     ; $0284  3A 2F 4F
-        LD D,L                           ; $0287  55
-        LD D,H                           ; $0288  54
-TPA_START_106:
-        LD A,($5053)                     ; $0289  3A 53 50
-        LD B,C                           ; $028C  41
-        LD B,E                           ; $028D  43
-        LD B,L                           ; $028E  45
-        ADD HL,HL                        ; $028F  29
-        JR Z,TPA_START_111+2             ; $0290  28 49
-        LD C,(HL)                        ; $0292  4E
-        LD D,B                           ; $0293  50
-        LD A,($4F2F)                     ; $0294  3A 2F 4F
-        LD D,L                           ; $0297  55
-        LD D,H                           ; $0298  54
-TPA_START_107:
-        LD A,($5053)                     ; $0299  3A 53 50
-        LD B,C                           ; $029C  41
-        LD B,E                           ; $029D  43
-        LD B,L                           ; $029E  45
-        ADD HL,HL                        ; $029F  29
-        JR Z,TPA_START_112+2             ; $02A0  28 49
-        LD C,(HL)                        ; $02A2  4E
-        LD D,B                           ; $02A3  50
-        LD A,($4F2F)                     ; $02A4  3A 2F 4F
-        LD D,L                           ; $02A7  55
-        LD D,H                           ; $02A8  54
-TPA_START_108:
-        LD A,($5053)                     ; $02A9  3A 53 50
-        LD B,C                           ; $02AC  41
-        LD B,E                           ; $02AD  43
-        LD B,L                           ; $02AE  45
-        ADD HL,HL                        ; $02AF  29
-        JR Z,TPA_START_113+2             ; $02B0  28 49
-        LD C,(HL)                        ; $02B2  4E
-        LD D,B                           ; $02B3  50
-        LD A,($4F2F)                     ; $02B4  3A 2F 4F
-        LD D,L                           ; $02B7  55
-        LD D,H                           ; $02B8  54
-TPA_START_109:
-        LD A,($5053)                     ; $02B9  3A 53 50
-        LD B,C                           ; $02BC  41
-        LD B,E                           ; $02BD  43
-        LD B,L                           ; $02BE  45
-        ADD HL,HL                        ; $02BF  29
-        JR Z,TPA_START_114               ; $02C0  28 49
-        LD C,(HL)                        ; $02C2  4E
-        LD D,B                           ; $02C3  50
-        LD A,($4F2F)                     ; $02C4  3A 2F 4F
-        LD D,L                           ; $02C7  55
-        LD D,H                           ; $02C8  54
-TPA_START_110:
-        LD A,($5053)                     ; $02C9  3A 53 50
-        LD B,C                           ; $02CC  41
-        LD B,E                           ; $02CD  43
-        LD B,L                           ; $02CE  45
-        ADD HL,HL                        ; $02CF  29
-        JR Z,TPA_START_115               ; $02D0  28 49
-        LD C,(HL)                        ; $02D2  4E
-        LD D,B                           ; $02D3  50
-        LD A,($4F2F)                     ; $02D4  3A 2F 4F
-        LD D,L                           ; $02D7  55
-        LD D,H                           ; $02D8  54
-TPA_START_111:
-        LD A,($5053)                     ; $02D9  3A 53 50
-        LD B,C                           ; $02DC  41
-        LD B,E                           ; $02DD  43
-        LD B,L                           ; $02DE  45
-        ADD HL,HL                        ; $02DF  29
-        JR Z,TPA_START_117+1             ; $02E0  28 49
-        LD C,(HL)                        ; $02E2  4E
-        LD D,B                           ; $02E3  50
-        LD A,($4F2F)                     ; $02E4  3A 2F 4F
-        LD D,L                           ; $02E7  55
-        LD D,H                           ; $02E8  54
-TPA_START_112:
-        LD A,($5053)                     ; $02E9  3A 53 50
-        LD B,C                           ; $02EC  41
-        LD B,E                           ; $02ED  43
-        LD B,L                           ; $02EE  45
-        ADD HL,HL                        ; $02EF  29
-        JR Z,TPA_START_118               ; $02F0  28 49
-        LD C,(HL)                        ; $02F2  4E
-        LD D,B                           ; $02F3  50
-        LD A,($4F2F)                     ; $02F4  3A 2F 4F
-        LD D,L                           ; $02F7  55
-        LD D,H                           ; $02F8  54
-TPA_START_113:
-        LD A,($5053)                     ; $02F9  3A 53 50
-        LD B,C                           ; $02FC  41
-        LD B,E                           ; $02FD  43
-        LD B,L                           ; $02FE  45
-        ADD HL,HL                        ; $02FF  29
-        LD (HL),D                        ; $0300  72
-        LD (HL),H                        ; $0301  74
-        JR NZ,TPA_START_120              ; $0302  20 4D
-        LD B,C                           ; $0304  41
-        LD D,E                           ; $0305  53
-        LD D,H                           ; $0306  54
-        LD B,L                           ; $0307  45
-        LD D,D                           ; $0308  52
-        JR NZ,TPA_START_121              ; $0309  20 64
-TPA_START_114:
-        LD L,C                           ; $030B  69
-        LD (HL),E                        ; $030C  73
-        LD L,E                           ; $030D  6B
-        JR NZ,TPA_START_122+1            ; $030E  20 69
-        LD L,(HL)                        ; $0310  6E
-        LD (HL),H                        ; $0311  74
-        LD L,A                           ; $0312  6F
-        JR NZ,TPA_START_122+1            ; $0313  20 64
-        LD (HL),D                        ; $0315  72
-        LD L,C                           ; $0316  69
-        HALT                             ; $0317  76
-        DEFB    $65,$20,$5A                                      ; $0318
-TPA_START_115:
-        LD A,($0A0D)                     ; $031B  3A 0D 0A
-        LD C,C                           ; $031E  49
-        LD L,(HL)                        ; $031F  6E
-TPA_START_116:
-        LD (HL),E                        ; $0320  73
-        LD H,L                           ; $0321  65
-        LD (HL),D                        ; $0322  72
-        LD (HL),H                        ; $0323  74
-        JR NZ,TPA_START_122+1            ; $0324  20 53
-        LD C,H                           ; $0326  4C
-        LD B,C                           ; $0327  41
-        LD D,(HL)                        ; $0328  56
-        LD B,L                           ; $0329  45
-TPA_START_117:
-        JR NZ,TPA_START_119              ; $032A  20 20
-        LD H,H                           ; $032C  64
-        LD L,C                           ; $032D  69
-        LD (HL),E                        ; $032E  73
-        LD L,E                           ; $032F  6B
-        JR NZ,TPA_START_125              ; $0330  20 69
-        LD L,(HL)                        ; $0332  6E
-        LD (HL),H                        ; $0333  74
-        LD L,A                           ; $0334  6F
-        JR NZ,TPA_START_125              ; $0335  20 64
-        LD (HL),D                        ; $0337  72
-        LD L,C                           ; $0338  69
-        HALT                             ; $0339  76
-        DEFB    $65                                              ; $033A
-TPA_START_118:
-        JR NZ,TPA_START_124              ; $033B  20 5A
-        LD A,($0A0D)                     ; $033D  3A 0D 0A
-        DEC C                            ; $0340  0D
-        LD A,(BC)                        ; $0341  0A
-        LD D,B                           ; $0342  50
-        LD (HL),D                        ; $0343  72
-        LD H,L                           ; $0344  65
-        LD (HL),E                        ; $0345  73
-        LD (HL),E                        ; $0346  73
-        JR NZ,TPA_START_125              ; $0347  20 52
-        LD B,L                           ; $0349  45
-        LD D,H                           ; $034A  54
-        LD D,L                           ; $034B  55
-TPA_START_119:
-        LD D,D                           ; $034C  52
-        LD C,(HL)                        ; $034D  4E
-        JR NZ,TPA_START_129              ; $034E  20 74
-        LD L,A                           ; $0350  6F
-TPA_START_120:
-        JR NZ,TPA_START_127              ; $0351  20 62
-        LD H,L                           ; $0353  65
-        LD H,A                           ; $0354  67
-        LD L,C                           ; $0355  69
-        LD L,(HL)                        ; $0356  6E
-        JR NZ,TPA_START_123              ; $0357  20 24
-        DEC C                            ; $0359  0D
-        LD A,(BC)                        ; $035A  0A
-        DEC C                            ; $035B  0D
-        LD A,(BC)                        ; $035C  0A
-        INC H                            ; $035D  24
-        DEC C                            ; $035E  0D
-        LD A,(BC)                        ; $035F  0A
-        DEC C                            ; $0360  0D
-        LD A,(BC)                        ; $0361  0A
-        LD C,C                           ; $0362  49
-        LD L,(HL)                        ; $0363  6E
-        LD (HL),E                        ; $0364  73
-        LD H,L                           ; $0365  65
-        LD (HL),D                        ; $0366  72
-        LD (HL),H                        ; $0367  74
-        JR NZ,TPA_START_128              ; $0368  20 4D
-        LD B,C                           ; $036A  41
-        LD D,E                           ; $036B  53
-        LD D,H                           ; $036C  54
-        LD B,L                           ; $036D  45
-        LD D,D                           ; $036E  52
-TPA_START_121:
-        JR NZ,TPA_START_132              ; $036F  20 64
-        LD L,C                           ; $0371  69
-        LD (HL),E                        ; $0372  73
-        LD L,E                           ; $0373  6B
-        JR NZ,TPA_START_133              ; $0374  20 61
-        LD L,(HL)                        ; $0376  6E
-        LD H,H                           ; $0377  64
-TPA_START_122:
-        JR NZ,TPA_START_135+1            ; $0378  20 70
-        LD (HL),D                        ; $037A  72
-        LD H,L                           ; $037B  65
-        LD (HL),E                        ; $037C  73
-TPA_START_123:
-        LD (HL),E                        ; $037D  73
-        JR NZ,TPA_START_131              ; $037E  20 52
-        LD B,L                           ; $0380  45
-        LD D,H                           ; $0381  54
-        LD D,L                           ; $0382  55
-        LD D,D                           ; $0383  52
-        LD C,(HL)                        ; $0384  4E
-        JR NZ,TPA_START_126              ; $0385  20 24
-        DEC C                            ; $0387  0D
-        LD A,(BC)                        ; $0388  0A
-        LD C,C                           ; $0389  49
-        LD L,(HL)                        ; $038A  6E
-        LD (HL),E                        ; $038B  73
-        LD H,L                           ; $038C  65
-        LD (HL),D                        ; $038D  72
-        LD (HL),H                        ; $038E  74
-        JR NZ,TPA_START_134              ; $038F  20 53
-        LD C,H                           ; $0391  4C
-        LD B,C                           ; $0392  41
-        LD D,(HL)                        ; $0393  56
-        LD B,L                           ; $0394  45
-        JR NZ,TPA_START_128              ; $0395  20 20
-TPA_START_124:
-        LD H,H                           ; $0397  64
-        LD L,C                           ; $0398  69
-        LD (HL),E                        ; $0399  73
-        LD L,E                           ; $039A  6B
-TPA_START_125:
-        JR NZ,TPA_START_137              ; $039B  20 61
-        LD L,(HL)                        ; $039D  6E
-        LD H,H                           ; $039E  64
-        JR NZ,TPA_START_138              ; $039F  20 70
-        LD (HL),D                        ; $03A1  72
-        LD H,L                           ; $03A2  65
-        LD (HL),E                        ; $03A3  73
-        LD (HL),E                        ; $03A4  73
-        JR NZ,TPA_START_136              ; $03A5  20 52
-        LD B,L                           ; $03A7  45
-        LD D,H                           ; $03A8  54
-        LD D,L                           ; $03A9  55
-        LD D,D                           ; $03AA  52
-TPA_START_126:
-        LD C,(HL)                        ; $03AB  4E
-        JR NZ,TPA_START_131              ; $03AC  20 24
-        AND D                            ; $03AE  A2
-        DEC D                            ; $03AF  15
-        ADC A,(HL)                       ; $03B0  8E
-        JP (HL)                          ; $03B1  E9
-        DEFB    $03                                              ; $03B2
-        DEFW    TPA_START_116            ; $03B3
-TPA_START_127:
-        LD C,$AD                         ; $03B5  0E AD
-TPA_START_128:
-        JP PE,$D003                      ; $03B7  EA 03 D0
-        LD HL,$E1AE                      ; $03BA  21 AE E1
-        INC BC                           ; $03BD  03
-        RET PE                           ; $03BE  E8
-        RET PO                           ; $03BF  E0
-        DJNZ TPA_START_120+1             ; $03C0  10 90
-        DEC B                            ; $03C2  05
-        AND D                            ; $03C3  A2
-TPA_START_129:
-        NOP                              ; $03C4  00
-        XOR $E0                          ; $03C5  EE E0
-        INC BC                           ; $03C7  03
-        ADC A,(HL)                       ; $03C8  8E
-        POP HL                           ; $03C9  E1
-        INC BC                           ; $03CA  03
-        XOR (HL)                         ; $03CB  AE
-        JP (HL)                          ; $03CC  E9
-        DEFB    $03,$E8                                          ; $03CD
-TPA_START_130:
-        RET PO                           ; $03CF  E0
-        RET NZ                           ; $03D0  C0
-        RET NC                           ; $03D1  D0
-TPA_START_131:
-        LD (BC),A                        ; $03D2  02
-        AND D                            ; $03D3  A2
-        RET NC                           ; $03D4  D0
-TPA_START_132:
-        ADC A,(HL)                       ; $03D5  8E
-        JP (HL)                          ; $03D6  E9
-TPA_START_133:
-        INC BC                           ; $03D7  03
-        ADD A,$00                        ; $03D8  C6 00
-        RET NC                           ; $03DA  D0
-        CALL NC,$1060                    ; $03DB  D4 60 10
-        LD C,C                           ; $03DE  49
-        OR B                             ; $03DF  B0
-        JR NZ,TPA_START_130              ; $03E0  20 ED
-        DEFB $FD  ; ignored IY prefix; inner: RET ; $03E2  FD C9
-        RET                              ; $03E3  C9
-TPA_START_134:
-        OR B                             ; $03E4  B0
-        LD H,(HL)                        ; $03E5  66
-        LD B,$88                         ; $03E6  06 88
-        RET NC                           ; $03E8  D0
-TPA_START_135:
-        SUB $A9                          ; $03E9  D6 A9
-        AND B                            ; $03EB  A0
-        LD C,H                           ; $03EC  4C
-        DEFB $ED,$FD  ; invalid ED prefix ; $03ED  ED FD
-        ADD HL,DE                        ; $03EF  19
-        LD C,L                           ; $03F0  4D
-        RRCA                             ; $03F1  0F
-        LD BC,$208B                      ; $03F2  01 8B 20
-        ADC A,C                          ; $03F5  89
-        OR $25                           ; $03F6  F6 25
-        ADD HL,SP                        ; $03F8  39
-TPA_START_136:
-        DEC HL                           ; $03F9  2B
-        LD SP,$3BB0                      ; $03FA  31 B0 3B
-        EX DE,HL                         ; $03FD  EB
-TPA_START_137:
-        POP AF                           ; $03FE  F1
-        LD B,$20                         ; $03FF  06 20
-        JR NZ,TPA_START_139              ; $0401  20 20
-        JR NZ,TPA_START_140              ; $0403  20 20
-        JR NZ,TPA_START_141              ; $0405  20 41
-        LD D,B                           ; $0407  50
-        LD D,B                           ; $0408  50
-        LD C,H                           ; $0409  4C
-        LD B,L                           ; $040A  45
-        JR NZ,TPA_START_147              ; $040B  20 5D
-        LD E,E                           ; $040D  5B
-        JR NZ,TPA_START_142              ; $040E  20 43
-        LD D,B                           ; $0410  50
-TPA_START_138:
-        CPL                              ; $0411  2F
-        LD C,L                           ; $0412  4D
-        DEC C                            ; $0413  0D
-        LD A,(BC)                        ; $0414  0A
-        LD SP,$2036                      ; $0415  31 36 20
-        LD D,E                           ; $0418  53
-        LD H,L                           ; $0419  65
-        LD H,E                           ; $041A  63
-        LD (HL),H                        ; $041B  74
-        LD L,A                           ; $041C  6F
-        LD (HL),D                        ; $041D  72
-        JR NZ,TPA_START_145              ; $041E  20 44
-        LD L,C                           ; $0420  69
-        LD (HL),E                        ; $0421  73
-        LD L,E                           ; $0422  6B
-TPA_START_139:
-        JR NZ,TPA_START_146              ; $0423  20 43
-TPA_START_140:
-        LD L,A                           ; $0425  6F
-        LD (HL),B                        ; $0426  70
-        LD A,C                           ; $0427  79
-        JR NZ,TPA_START_150              ; $0428  20 50
-        LD (HL),D                        ; $042A  72
-        LD L,A                           ; $042B  6F
-        LD H,A                           ; $042C  67
-        LD (HL),D                        ; $042D  72
-        LD H,C                           ; $042E  61
-        LD L,L                           ; $042F  6D
-        DEC C                            ; $0430  0D
-        LD A,(BC)                        ; $0431  0A
-        JR NZ,TPA_START_143              ; $0432  20 20
-        JR NZ,TPA_START_144              ; $0434  20 20
-        JR Z,TPA_START_151               ; $0436  28 43
-        ADD HL,HL                        ; $0438  29
-        JR NZ,TPA_START_148              ; $0439  20 31
-        ADD HL,SP                        ; $043B  39
-        JR C,TPA_START_149               ; $043C  38 30
-        JR NZ,TPA_START_152              ; $043E  20 4D
-        LD L,C                           ; $0440  69
-        LD H,E                           ; $0441  63
-        LD (HL),D                        ; $0442  72
-        LD L,A                           ; $0443  6F
-        LD (HL),E                        ; $0444  73
-        LD L,A                           ; $0445  6F
-        LD H,(HL)                        ; $0446  66
-        LD (HL),H                        ; $0447  74
-TPA_START_141:
-        DEC C                            ; $0448  0D
-        LD A,(BC)                        ; $0449  0A
-        DEC C                            ; $044A  0D
-        LD A,(BC)                        ; $044B  0A
-        INC H                            ; $044C  24
-        LD B,E                           ; $044D  43
-        LD L,A                           ; $044E  6F
-        LD L,L                           ; $044F  6D
-        LD L,L                           ; $0450  6D
-        LD H,C                           ; $0451  61
-        LD L,(HL)                        ; $0452  6E
-TPA_START_142:
-        LD H,H                           ; $0453  64
-TPA_START_143:
-        JR NZ,TPA_START_153              ; $0454  20 45
-TPA_START_144:
-        LD (HL),D                        ; $0456  72
-        LD (HL),D                        ; $0457  72
-        LD L,A                           ; $0458  6F
-        LD (HL),D                        ; $0459  72
-        INC H                            ; $045A  24
-        LD B,E                           ; $045B  43
-        LD L,A                           ; $045C  6F
-        LD (HL),B                        ; $045D  70
-        LD A,C                           ; $045E  79
-        LD L,C                           ; $045F  69
-        LD L,(HL)                        ; $0460  6E
-        LD H,A                           ; $0461  67
-        LD L,$2E                         ; $0462  2E 2E
-TPA_START_145:
-        LD L,$24                         ; $0464  2E 24
-        LD B,H                           ; $0466  44
-        LD L,C                           ; $0467  69
-TPA_START_146:
-        LD (HL),E                        ; $0468  73
-        LD L,E                           ; $0469  6B
-TPA_START_147:
-        JR NZ,TPA_START_155              ; $046A  20 57
-TPA_START_148:
-        LD (HL),D                        ; $046C  72
-        LD L,C                           ; $046D  69
-TPA_START_149:
-        LD (HL),H                        ; $046E  74
-        LD H,L                           ; $046F  65
-        JR NZ,TPA_START_154              ; $0470  20 50
-        LD (HL),D                        ; $0472  72
-        LD L,A                           ; $0473  6F
-        LD (HL),H                        ; $0474  74
-        LD H,L                           ; $0475  65
-        LD H,E                           ; $0476  63
-        LD (HL),H                        ; $0477  74
-        LD H,L                           ; $0478  65
-        LD H,H                           ; $0479  64
-TPA_START_150:
-        INC H                            ; $047A  24
-TPA_START_151:
-        LD B,E                           ; $047B  43
-        LD C,A                           ; $047C  4F
-        LD D,B                           ; $047D  50
-        LD E,C                           ; $047E  59
-        JR NZ,TPA_START_155+1            ; $047F  20 43
-        LD L,A                           ; $0481  6F
-        LD L,L                           ; $0482  6D
-        LD (HL),B                        ; $0483  70
-        LD L,H                           ; $0484  6C
-        LD H,L                           ; $0485  65
-        LD (HL),H                        ; $0486  74
-        LD H,L                           ; $0487  65
-        INC H                            ; $0488  24
-        LD B,H                           ; $0489  44
-        LD L,A                           ; $048A  6F
-        JR NZ,$0506                      ; $048B  20 79
-TPA_START_152:
-        LD L,A                           ; $048D  6F
-        LD (HL),L                        ; $048E  75
-        JR NZ,$0508                      ; $048F  20 77
-        LD L,C                           ; $0491  69
-        LD (HL),E                        ; $0492  73
-        LD L,B                           ; $0493  68
-        JR NZ,$050A                      ; $0494  20 74
-        LD L,A                           ; $0496  6F
-        JR NZ,$0506                      ; $0497  20 6D
-        LD H,C                           ; $0499  61
-        LD L,E                           ; $049A  6B
-TPA_START_153:
-        LD H,L                           ; $049B  65
-        JR NZ,TPA_START_159              ; $049C  20 61
-        LD L,(HL)                        ; $049E  6E
-        LD L,A                           ; $049F  6F
-        LD (HL),H                        ; $04A0  74
-        LD L,B                           ; $04A1  68
-        LD H,L                           ; $04A2  65
-        LD (HL),D                        ; $04A3  72
-        JR NZ,$0509                      ; $04A4  20 63
-        LD L,A                           ; $04A6  6F
-        LD (HL),B                        ; $04A7  70
-        LD A,C                           ; $04A8  79
-        CCF                              ; $04A9  3F
-        JR NZ,TPA_START_157              ; $04AA  20 24
-        LD C,C                           ; $04AC  49
-        LD L,(HL)                        ; $04AD  6E
-        LD (HL),E                        ; $04AE  73
-        LD H,L                           ; $04AF  65
-        LD (HL),D                        ; $04B0  72
-        LD (HL),H                        ; $04B1  74
-        JR NZ,TPA_START_158              ; $04B2  20 43
-        LD D,B                           ; $04B4  50
-        CPL                              ; $04B5  2F
-        LD C,L                           ; $04B6  4D
-        JR NZ,$050C                      ; $04B7  20 53
-        LD A,C                           ; $04B9  79
-        LD (HL),E                        ; $04BA  73
-        LD (HL),H                        ; $04BB  74
-        LD H,L                           ; $04BC  65
-        LD L,L                           ; $04BD  6D
-        JR NZ,$0524                      ; $04BE  20 64
-        LD L,C                           ; $04C0  69
-        LD (HL),E                        ; $04C1  73
-TPA_START_154:
-        LD L,E                           ; $04C2  6B
-TPA_START_155:
-        JR NZ,$052E                      ; $04C3  20 69
-        LD L,(HL)                        ; $04C5  6E
-        LD (HL),H                        ; $04C6  74
-        LD L,A                           ; $04C7  6F
-        JR NZ,$052E                      ; $04C8  20 64
-        LD (HL),D                        ; $04CA  72
-        LD L,C                           ; $04CB  69
-        HALT                             ; $04CC  76
-        DEFB    $65                                              ; $04CD
-TPA_START_156:
-        JR NZ,$0511                      ; $04CE  20 41
-TPA_START_157:
-        LD A,($0A0D)                     ; $04D0  3A 0D 0A
-        LD C,B                           ; $04D3  48
-        LD L,C                           ; $04D4  69
-        LD (HL),H                        ; $04D5  74
-        JR NZ,$052A                      ; $04D6  20 52
-        LD B,L                           ; $04D8  45
-        LD D,H                           ; $04D9  54
-        LD D,L                           ; $04DA  55
-        LD D,D                           ; $04DB  52
-        LD C,(HL)                        ; $04DC  4E
-        JR NZ,$0503                      ; $04DD  20 24
-        LD B,H                           ; $04DF  44
-        LD L,C                           ; $04E0  69
-        LD (HL),E                        ; $04E1  73
-        LD L,E                           ; $04E2  6B
-        JR NZ,$052E                      ; $04E3  20 49
-        CPL                              ; $04E5  2F
-        LD C,A                           ; $04E6  4F
-        JR NZ,$052E                      ; $04E7  20 45
-        LD (HL),D                        ; $04E9  72
-        LD (HL),D                        ; $04EA  72
-        LD L,A                           ; $04EB  6F
-        LD (HL),D                        ; $04EC  72
-        INC H                            ; $04ED  24
-        LD C,C                           ; $04EE  49
-        LD L,(HL)                        ; $04EF  6E
-        HALT                             ; $04F0  76
-        DEFB    $61,$6C,$69,$64,$20,$44                          ; $04F1
-TPA_START_158:
-        LD (HL),D                        ; $04F7  72
-        LD L,C                           ; $04F8  69
-        HALT                             ; $04F9  76
-        DEFB    $65,$24,$49,$6E,$73                              ; $04FA
-TPA_START_159:
-        LD H,L                           ; $04FF  65
+        JP TPA_START_26                  ; $0205  C3 71 01
+SUB_0208:
+        LD DE,L_045E                     ; $0208  11 5E 04
+        CALL SUB_025C                    ; $020B  CD 5C 02
+SUB_020E:
+        LD C,$01                         ; $020E  0E 01
+        LD HL,($F3E0)                    ; $0210  2A E0 F3
+        LD A,(L_02E1)                    ; $0213  3A E1 02
+        OR A                             ; $0216  B7
+        JR NZ,SUB_020E_1                 ; $0217  20 0A
+        PUSH HL                          ; $0219  E5
+        PUSH BC                          ; $021A  C5
+        LD A,(L_02DE)                    ; $021B  3A DE 02
+        CALL SUB_0231                    ; $021E  CD 31 02
+        POP BC                           ; $0221  C1
+        POP HL                           ; $0222  E1
+SUB_020E_1:
+        LD ($F3E0),HL                    ; $0223  22 E0 F3
+        LD DE,L_0487                     ; $0226  11 87 04
+        CALL SUB_025C                    ; $0229  CD 5C 02
+        LD C,$02                         ; $022C  0E 02
+SUB_020E_2:
+        LD A,(L_02DF)                    ; $022E  3A DF 02
+SUB_0231:
+        CALL SUB_0289                    ; $0231  CD 89 02
+        LD A,C                           ; $0234  79
+        LD ($F3EB),A                     ; $0235  32 EB F3
+        LD A,B                           ; $0238  78
+        LD ($F000),A                     ; $0239  32 00 F0
+        JP SUB_0289_1                    ; $023C  C3 9D 02
+SUB_023F:
+        CALL SUB_024E                    ; $023F  CD 4E 02
+SUB_0242:
+        LD DE,L_0459                     ; $0242  11 59 04
+SUB_0245:
+        LD C,$09                         ; $0245  0E 09
+SUB_0245_1:
+        JR SUB_024E_2                    ; $0247  18 08
+SUB_0249:
+        CALL SUB_0242                    ; $0249  CD 42 02
+SUB_0249_1:
+        LD A,$2A                         ; $024C  3E 2A
+SUB_024E:
+        LD E,A                           ; $024E  5F
+SUB_024E_1:
+        LD C,$02                         ; $024F  0E 02
+SUB_024E_2:
+        JP BDOS_VEC                      ; $0251  C3 05 00
+SUB_0254:
+        LD A,(HL)                        ; $0254  7E
+SUB_0254_1:
+        INC HL                           ; $0255  23
+SUB_0254_2:
+        CP $E0                           ; $0256  FE E0
+SUB_0254_3:
+        RET C                            ; $0258  D8
+        SUB $20                          ; $0259  D6 20
+        RET                              ; $025B  C9
+SUB_025C:
+        LD HL,(L_02DE)                   ; $025C  2A DE 02
+        LD A,L                           ; $025F  7D
+        CP H                             ; $0260  BC
+        RET NZ                           ; $0261  C0
+        PUSH BC                          ; $0262  C5
+        CALL SUB_02BD                    ; $0263  CD BD 02
+        POP BC                           ; $0266  C1
+        RET                              ; $0267  C9
+SUB_0268:
+        SUB $41                          ; $0268  D6 41
+SUB_0268_1:
+        JR NC,SUB_0268_4                 ; $026A  30 05
+SUB_0268_2:
+        LD DE,L_034D                     ; $026C  11 4D 03
+SUB_0268_3:
+        JR SUB_0268_5                    ; $026F  18 12
+SUB_0268_4:
+        LD C,A                           ; $0271  4F
+        CALL SUB_0254                    ; $0272  CD 54 02
+        CP $3A                           ; $0275  FE 3A
+        JR NZ,SUB_0268_2                 ; $0277  20 F3
+        LD A,($F3B8)                     ; $0279  3A B8 F3
+        DEC A                            ; $027C  3D
+        CP C                             ; $027D  B9
+        LD A,C                           ; $027E  79
+        RET NC                           ; $027F  D0
+        LD DE,L_03EE                     ; $0280  11 EE 03
+SUB_0268_5:
+        CALL SUB_0245                    ; $0283  CD 45 02
+SUB_0268_6:
+        JP TPA_START_11                  ; $0286  C3 1E 01
+SUB_0289:
+        LD E,A                           ; $0289  5F
+        INC A                            ; $028A  3C
+        AND $01                          ; $028B  E6 01
+        LD ($F3E4),A                     ; $028D  32 E4 F3
+        LD A,E                           ; $0290  7B
+        AND $0E                          ; $0291  E6 0E
+        ADD A,A                          ; $0293  87
+        ADD A,A                          ; $0294  87
+        ADD A,A                          ; $0295  87
+        SUB $61                          ; $0296  D6 61
+        CPL                              ; $0298  2F
+        LD ($F3E6),A                     ; $0299  32 E6 F3
+        RET                              ; $029C  C9
+SUB_0289_1:
+        LD HL,$14AE                      ; $029D  21 AE 14
+        LD ($F3D0),HL                    ; $02A0  22 D0 F3
+SUB_0289_2:
+        LD (WBOOT_VEC),A                 ; $02A3  32 00 00
+        LD A,($F3EA)                     ; $02A6  3A EA F3
+        OR A                             ; $02A9  B7
+        RET Z                            ; $02AA  C8
+        PUSH AF                          ; $02AB  F5
+        CALL SUB_0242                    ; $02AC  CD 42 02
+        POP AF                           ; $02AF  F1
+        LD DE,L_03DF                     ; $02B0  11 DF 03
+        CP $10                           ; $02B3  FE 10
+        JR NZ,SUB_0289_3                 ; $02B5  20 03
+        LD DE,L_0366                     ; $02B7  11 66 03
+SUB_0289_3:
+        JP TPA_START_30                  ; $02BA  C3 B8 01
+SUB_02BD:
+        CALL SUB_0245                    ; $02BD  CD 45 02
+SUB_02BD_1:
+        CALL SUB_02C8                    ; $02C0  CD C8 02
+        CP $0D                           ; $02C3  FE 0D
+        JR NZ,SUB_02BD_1                 ; $02C5  20 F9
+        RET                              ; $02C7  C9
+SUB_02C8:
+        LD E,$FF                         ; $02C8  1E FF
+        LD C,$06                         ; $02CA  0E 06
+        CALL BDOS_VEC                    ; $02CC  CD 05 00
+        OR A                             ; $02CF  B7
+SUB_02C8_1:
+        JR Z,SUB_02C8                    ; $02D0  28 F6
+        CP $03                           ; $02D2  FE 03
+        JP Z,WBOOT_VEC                   ; $02D4  CA 00 00
+        CP $60                           ; $02D7  FE 60
+        RET C                            ; $02D9  D8
+        SUB $20                          ; $02DA  D6 20
+        RET                              ; $02DC  C9
+        DEFB    $23                                              ; $02DD
+L_02DE:
+        DEFB    $00                                              ; $02DE
+L_02DF:
+        DEFB    $00                                              ; $02DF
+L_02E0:
+        DEFB    $00                                              ; $02E0
+L_02E1:
+        DEFB    $00                                              ; $02E1
+L_02E2:
+        DEFS    30, $00    ; $02E2  fill
+L_0300:
+        DEFB    "      APPLE ][ CP/M"    ; $0300  string
+        DEFB    $0D    ; $0313  terminator
+        DEFB    $0A,$31,$36,$20,$53,$65,$63,$74,$6F,$72,$20,$44,$69,$73,$6B,$20 ; $0314
+        DEFB    "Copy Program"    ; $0324  string
+        DEFB    $0D    ; $0330  terminator
+        DEFB    $0A,$20,$20,$20,$20,$28,$43,$29,$20,$31,$39,$38,$30,$20,$4D,$69 ; $0331
+        DEFB    "crosoft"    ; $0341  string
+        DEFB    $0D    ; $0348  terminator
+        DEFB    $0A,$0D,$0A,$24                                  ; $0349
+L_034D:
+        DEFB    $43,$6F,$6D,$6D,$61,$6E,$64,$20,$45,$72,$72,$6F,$72,$24 ; $034D
+L_035B:
+        DEFB    $43,$6F,$70,$79,$69,$6E,$67,$2E,$2E,$2E,$24      ; $035B
+L_0366:
+        DEFB    $44,$69,$73,$6B,$20,$57,$72,$69,$74,$65,$20,$50,$72,$6F,$74,$65 ; $0366
+        DEFB    $63,$74,$65,$64,$24                              ; $0376
+L_037B:
+        DEFB    $43,$4F,$50,$59,$20,$43,$6F,$6D,$70,$6C,$65,$74,$65,$24 ; $037B
+L_0389:
+        DEFB    $44,$6F,$20,$79,$6F,$75,$20,$77,$69,$73,$68,$20,$74,$6F,$20,$6D ; $0389
+        DEFB    $61,$6B,$65,$20,$61,$6E,$6F,$74,$68,$65,$72,$20,$63,$6F,$70,$79 ; $0399
+        DEFB    $3F,$20,$24                                      ; $03A9
+L_03AC:
+        DEFB    "Insert CP/M System disk into drive A:"    ; $03AC  string
+        DEFB    $0D    ; $03D1  terminator
+        DEFB    $0A,$48,$69,$74,$20,$52,$45,$54,$55,$52,$4E,$20,$24 ; $03D2
+L_03DF:
+        DEFB    $44,$69,$73,$6B,$20,$49,$2F,$4F,$20,$45,$72,$72,$6F,$72,$24 ; $03DF
+L_03EE:
+        DEFB    $49,$6E,$76,$61,$6C,$69,$64,$20,$44,$72,$69,$76,$65,$24 ; $03EE
+L_03FC:
+        DEFB    $49,$6E,$73,$65,$72,$74,$20,$4D,$41,$53,$54,$45,$52,$20,$64,$69 ; $03FC
+        DEFB    $73,$6B,$20,$69,$6E,$74,$6F,$20,$64,$72,$69,$76,$65,$20 ; $040C
+L_041A:
+        DEFB    $5A,$3A,$0D,$0A,$49,$6E,$73,$65,$72,$74,$20,$53,$4C,$41,$56,$45 ; $041A
+        DEFB    $20,$20,$64,$69,$73,$6B,$20,$69,$6E,$74,$6F,$20,$64,$72,$69,$76 ; $042A
+        DEFB    $65,$20                                          ; $043A
+L_043C:
+        DEFB    $5A,$3A,$0D,$0A,$0D,$0A,$50,$72,$65,$73,$73,$20,$52,$45,$54,$55 ; $043C
+        DEFB    $52,$4E,$20,$74,$6F,$20,$62,$65,$67,$69,$6E,$20,$24 ; $044C
+L_0459:
+        DEFB    $0D,$0A,$0D,$0A,$24                              ; $0459
+L_045E:
+        DEFB    $0D,$0A,$0D,$0A,$49,$6E,$73,$65,$72,$74,$20,$4D,$41,$53,$54,$45 ; $045E
+        DEFB    $52,$20,$64,$69,$73,$6B,$20,$61,$6E,$64,$20,$70,$72,$65,$73,$73 ; $046E
+        DEFB    $20,$52,$45,$54,$55,$52,$4E,$20,$24              ; $047E
+L_0487:
+        DEFB    $0D,$0A,$49,$6E,$73,$65,$72,$74,$20,$53,$4C,$41,$56,$45,$20,$20 ; $0487
+        DEFB    $64,$69,$73,$6B,$20,$61,$6E,$64,$20,$70,$72,$65,$73,$73,$20,$52 ; $0497
+        DEFB    $45,$54,$55,$52,$4E,$20,$24,$A2,$15,$8E,$E9,$03,$20,$03,$0E,$AD ; $04A7
+        DEFB    $EA,$03,$D0,$21,$AE,$E1,$03,$E8,$E0,$10,$90,$05,$A2,$00,$EE,$E0 ; $04B7
+        DEFB    $03,$8E,$E1,$03,$AE,$E9,$03,$E8,$E0,$C0          ; $04C7
+        DEFW    SUB_02C8_1               ; $04D1
+        DEFB    $A2,$D0,$8E,$E9,$03,$C6,$00,$D0,$D4,$60,$10,$49,$B0,$20,$ED,$FD ; $04D3
+        DEFB    $C9,$B0,$66,$06,$88,$D0,$D6,$A9,$A0,$4C,$ED,$FD,$19,$4D ; $04E3
+        DEFW    TPA_START_5              ; $04F1
+        DEFB    $8B,$20,$89,$F6,$25,$39,$2B,$31,$B0,$3B,$EB,$F1,$06 ; $04F3
 
     SAVEBIN "COPY.bin", $0100, $0400

@@ -12,61 +12,57 @@ DEFAULT_CR           EQU $007C               ; Default FCB current record byte (
 DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS cold-init / DRV_ALLRESET (fn 13) set the DMA address here and WBOOT re-issues SETDMA($0080); sector/record I/O moves 128 bytes through it. At program load this same buffer doubles as the command tail: the first byte ($0080) holds the tail length (0-127) and the characters follow at $0081 (CMDLINE).
 
 ; -- Mid-instruction references (shown inline as cover+offset) --
-;   $0312 -> SUB_02FE_3+1         z80 skip idiom: enters the operand of $11 at $0311
-;   $031E -> SUB_02FE_5+1         z80 skip idiom: enters the operand of $3E at $031D
-;   $032C -> SUB_02FE_7+2         shared instruction tail: $032C is reachable code inside the instruction at $032A
-;   $0332 -> SUB_02FE_8+2         shared instruction tail: $0332 is reachable code inside the instruction at $0330
-;   $0342 -> SUB_02FE_11+1        z80 skip idiom: enters the operand of $21 at $0341
-;   $03B9 -> SUB_03A2_1+1         shared instruction tail: $03B9 is reachable code inside the instruction at $03B8
-;   $048B -> SUB_0478_3+1         z80 skip idiom: enters the operand of $11 at $048A
-;   $050B -> SUB_04FC_3+1         z80 skip idiom: enters the operand of $11 at $050A
-;   $050C -> SUB_04FC_3+2         z80 skip idiom: enters the operand of $11 at $050A
-;   $050E -> SUB_04FC_4+1         shared instruction tail: $050E is reachable code inside the instruction at $050D
-;   $050F -> SUB_04FC_4+2         shared instruction tail: $050F is reachable code inside the instruction at $050D
-;   $0511 -> SUB_04FC_5+1         z80 skip idiom: enters the operand of $11 at $0510
-;   $0512 -> SUB_04FC_5+2         z80 skip idiom: enters the operand of $11 at $0510
-;   $0514 -> SUB_04FC_6+1         shared instruction tail: $0514 is reachable code inside the instruction at $0513
-;   $0515 -> SUB_04FC_6+2         shared instruction tail: $0515 is reachable code inside the instruction at $0513
-;   $0542 -> SUB_04FC_12+1        shared instruction tail: $0542 is reachable code inside the instruction at $0541
-;   $055F -> SUB_04FC_15+1        shared instruction tail: $055F is reachable code inside the instruction at $055E
-;   $058E -> SUB_04FC_18+1        shared instruction tail: $058E is reachable code inside the instruction at $058D
+;   $0494 -> SUB_048B_2+1         z80 skip idiom: enters the operand of $11 at $0493
+;   $04AB -> SUB_048B_3+1         shared instruction tail: $04AB is reachable code inside the instruction at $04AA
 
     ORG $0100
 
 TPA_START:
         LD HL,($F3DE)                    ; $0100  2A DE F3
 TPA_START_1:
-        LD (L_04AB),HL                   ; $0103  22 AB 04
+        LD (SUB_048B_3+1),HL             ; $0103  22 AB 04
 TPA_START_2:
         LD A,($0007)                     ; $0106  3A 07 00
 TPA_START_3:
         SUB $0B                          ; $0109  D6 0B
 TPA_START_4:
-        LD (SUB_04FC_9),A                ; $010B  32 19 05
+        LD (L_0519),A                    ; $010B  32 19 05
 TPA_START_5:
-        LD DE,SUB_04FC_18+1              ; $010E  11 8E 05
+        LD DE,L_058E                     ; $010E  11 8E 05
 TPA_START_6:
         JR TPA_START_8                   ; $0111  18 03
 TPA_START_7:
         LD DE,L_05DE                     ; $0113  11 DE 05
 TPA_START_8:
         CALL SUB_04CB                    ; $0116  CD CB 04
-        CALL SUB_04C2                    ; $0119  CD C2 04
 TPA_START_9:
-        LD SP,SUB_04FC_12+1              ; $011C  31 42 05
-        CALL SUB_04C2                    ; $011F  CD C2 04
-        LD A,$2A                         ; $0122  3E 2A
-        CALL SUB_04FC                    ; $0124  CD FC 04
-        LD A,$80                         ; $0127  3E 80
-        LD ($0922),A                     ; $0129  32 22 09
-        LD DE,$0922                      ; $012C  11 22 09
-        LD C,$0A                         ; $012F  0E 0A
-        CALL BDOS_VEC                    ; $0131  CD 05 00
-        CALL SUB_04C2                    ; $0134  CD C2 04
-        LD A,($0923)                     ; $0137  3A 23 09
-        CP $03                           ; $013A  FE 03
-        JR C,TPA_START_9                 ; $013C  38 DE
+        CALL SUB_04C2                    ; $0119  CD C2 04
 TPA_START_10:
+        LD SP,L_0542                     ; $011C  31 42 05
+TPA_START_11:
+        CALL SUB_04C2                    ; $011F  CD C2 04
+TPA_START_12:
+        LD A,$2A                         ; $0122  3E 2A
+TPA_START_13:
+        CALL SUB_04FC                    ; $0124  CD FC 04
+TPA_START_14:
+        LD A,$80                         ; $0127  3E 80
+TPA_START_15:
+        LD ($0922),A                     ; $0129  32 22 09
+TPA_START_16:
+        LD DE,$0922                      ; $012C  11 22 09
+TPA_START_17:
+        LD C,$0A                         ; $012F  0E 0A
+TPA_START_18:
+        CALL BDOS_VEC                    ; $0131  CD 05 00
+TPA_START_19:
+        CALL SUB_04C2                    ; $0134  CD C2 04
+TPA_START_20:
+        LD A,($0923)                     ; $0137  3A 23 09
+TPA_START_21:
+        CP $03                           ; $013A  FE 03
+TPA_START_22:
+        JR C,TPA_START_10                ; $013C  38 DE
         LD E,A                           ; $013E  5F
         LD D,$00                         ; $013F  16 00
         LD HL,$0924                      ; $0141  21 24 09
@@ -74,18 +70,18 @@ TPA_START_10:
         ADD HL,DE                        ; $0145  19
         LD (HL),$00                      ; $0146  36 00
         POP HL                           ; $0148  E1
-        CALL SUB_03A2_1+1                ; $0149  CD B9 03
-        JR Z,TPA_START_9                 ; $014C  28 CE
+        CALL SUB_03B9                    ; $0149  CD B9 03
+        JR Z,TPA_START_10                ; $014C  28 CE
         CP $43                           ; $014E  FE 43
         JR NZ,SUB_01B2_1                 ; $0150  20 69
-        CALL SUB_03A2_1+1                ; $0152  CD B9 03
+        CALL SUB_03B9                    ; $0152  CD B9 03
         CP $41                           ; $0155  FE 41
         JR NZ,SUB_01B2_1                 ; $0157  20 62
-        CALL SUB_03A2_1+1                ; $0159  CD B9 03
+        CALL SUB_03B9                    ; $0159  CD B9 03
         CP $54                           ; $015C  FE 54
         JR NZ,SUB_01B2_1                 ; $015E  20 5B
-        CALL SUB_03A2_1+1                ; $0160  CD B9 03
-        LD DE,SUB_04FC_5+1               ; $0163  11 11 05
+        CALL SUB_03B9                    ; $0160  CD B9 03
+        LD DE,L_0511                     ; $0163  11 11 05
         CALL NZ,SUB_03A2                 ; $0166  C4 A2 03
         PUSH BC                          ; $0169  C5
         LD DE,L_05EC                     ; $016A  11 EC 05
@@ -93,36 +89,36 @@ TPA_START_10:
         POP BC                           ; $0170  C1
         CALL SUB_03E4                    ; $0171  CD E4 03
         CALL SUB_04BF                    ; $0174  CD BF 04
-TPA_START_11:
+TPA_START_23:
         CALL SUB_0423                    ; $0177  CD 23 04
-        JR Z,TPA_START_9                 ; $017A  28 A0
+        JR Z,TPA_START_10                ; $017A  28 A0
         PUSH HL                          ; $017C  E5
-        LD HL,SUB_04FC_17                ; $017D  21 8A 05
+        LD HL,L_058A                     ; $017D  21 8A 05
         LD B,$03                         ; $0180  06 03
-        LD A,(SUB_04FC_4+1)              ; $0182  3A 0E 05
-TPA_START_12:
+        LD A,(L_050E)                    ; $0182  3A 0E 05
+TPA_START_24:
         RRA                              ; $0185  1F
-        JR C,TPA_START_13                ; $0186  38 03
+        JR C,TPA_START_25                ; $0186  38 03
         INC HL                           ; $0188  23
-        DJNZ TPA_START_12                ; $0189  10 FA
-TPA_START_13:
+        DJNZ TPA_START_24                ; $0189  10 FA
+TPA_START_25:
         CALL SUB_04BB                    ; $018B  CD BB 04
         LD A,(HL)                        ; $018E  7E
         CALL SUB_04FC                    ; $018F  CD FC 04
         CALL SUB_04BB                    ; $0192  CD BB 04
         POP HL                           ; $0195  E1
         LD B,$1E                         ; $0196  06 1E
-TPA_START_14:
+TPA_START_26:
         LD A,(HL)                        ; $0198  7E
         CALL SUB_04FC                    ; $0199  CD FC 04
         INC HL                           ; $019C  23
-        DJNZ TPA_START_14                ; $019D  10 F9
+        DJNZ TPA_START_26                ; $019D  10 F9
         CALL SUB_01B2                    ; $019F  CD B2 01
-        JR Z,TPA_START_15                ; $01A2  28 03
+        JR Z,TPA_START_27                ; $01A2  28 03
         CALL SUB_01AC                    ; $01A4  CD AC 01
-TPA_START_15:
+TPA_START_27:
         CALL SUB_04C2                    ; $01A7  CD C2 04
-        JR TPA_START_11                  ; $01AA  18 CB
+        JR TPA_START_23                  ; $01AA  18 CB
 SUB_01AC:
         CALL SUB_01B2                    ; $01AC  CD B2 01
         JR Z,SUB_01AC                    ; $01AF  28 FB
@@ -142,498 +138,542 @@ SUB_01B2_2:
         INC HL                           ; $01C3  23
         DJNZ SUB_01B2_2                  ; $01C4  10 FC
         LD B,$1E                         ; $01C6  06 1E
-        LD HL,SUB_04FC_16                ; $01C8  21 6C 05
+        LD HL,L_056C                     ; $01C8  21 6C 05
 SUB_01B2_3:
         LD (HL),A                        ; $01CB  77
         INC HL                           ; $01CC  23
         DJNZ SUB_01B2_3                  ; $01CD  10 FC
         LD HL,$0924                      ; $01CF  21 24 09
-        LD DE,SUB_04FC_5+2               ; $01D2  11 12 05
+        LD DE,L_0512                     ; $01D2  11 12 05
         CALL SUB_03A2                    ; $01D5  CD A2 03
         LD DE,$005D                      ; $01D8  11 5D 00
         LD B,$08                         ; $01DB  06 08
 SUB_01B2_4:
-        CALL SUB_03A2_1+1                ; $01DD  CD B9 03
-        JR Z,SUB_01B2_8                  ; $01E0  28 25
+        CALL SUB_03B9                    ; $01DD  CD B9 03
+        JR Z,SUB_01B2_7                  ; $01E0  28 25
         CP $2E                           ; $01E2  FE 2E
-        JR Z,SUB_01B2_6                  ; $01E4  28 08
-SUB_01B2_5:
+        JR Z,SUB_01B2_5                  ; $01E4  28 08
         CP $3D                           ; $01E6  FE 3D
-        JR Z,SUB_01B2_9                  ; $01E8  28 20
+        JR Z,SUB_01B2_8                  ; $01E8  28 20
         LD (DE),A                        ; $01EA  12
         INC DE                           ; $01EB  13
         DJNZ SUB_01B2_4                  ; $01EC  10 EF
-SUB_01B2_6:
+SUB_01B2_5:
         LD B,$03                         ; $01EE  06 03
         LD DE,$0065                      ; $01F0  11 65 00
-SUB_01B2_7:
-        CALL SUB_03A2_1+1                ; $01F3  CD B9 03
-        JR Z,SUB_01B2_8                  ; $01F6  28 0F
+SUB_01B2_6:
+        CALL SUB_03B9                    ; $01F3  CD B9 03
+        JR Z,SUB_01B2_7                  ; $01F6  28 0F
         CP $3D                           ; $01F8  FE 3D
-        JR Z,SUB_01B2_9                  ; $01FA  28 0E
+        JR Z,SUB_01B2_8                  ; $01FA  28 0E
         LD (DE),A                        ; $01FC  12
         INC DE                           ; $01FD  13
-        DJNZ SUB_01B2_7                  ; $01FE  10 F3
-        LD E,A                           ; $0200  5F
-        LD C,$02                         ; $0201  0E 02
-        CALL BDOS_VEC                    ; $0203  CD 05 00
-        POP HL                           ; $0206  E1
+        DJNZ SUB_01B2_6                  ; $01FE  10 F3
+        CALL SUB_03B9                    ; $0200  CD B9 03
+        CP $3D                           ; $0203  FE 3D
+        JR Z,SUB_01B2_8                  ; $0205  28 03
+SUB_01B2_7:
+        JP TPA_START_7                   ; $0207  C3 13 01
 SUB_01B2_8:
-        POP DE                           ; $0207  D1
-        POP BC                           ; $0208  C1
-        POP AF                           ; $0209  F1
+        LD DE,L_0511                     ; $020A  11 11 05
+        CALL SUB_03A2                    ; $020D  CD A2 03
+        LD DE,L_056C                     ; $0210  11 6C 05
+        CALL SUB_03B9                    ; $0213  CD B9 03
+        JR Z,SUB_01B2_7                  ; $0216  28 EF
+        DEC HL                           ; $0218  2B
+        LD B,$1F                         ; $0219  06 1F
 SUB_01B2_9:
-        RET                              ; $020A  C9
-        DEFB    $B7,$00,$00,$00,$00                              ; $020B
-        DEFW    TPA_START                ; $0210
-        DEFS    49, $00    ; $0212  fill
-        DEFB    $0E,$0D,$0C,$0B,$0A,$09,$08,$07,$06,$05          ; $0243
-        DEFW    SUB_02FE_1               ; $024D
-        DEFB    $02,$01,$0F                                      ; $024F
-        DEFW    TPA_START                ; $0252
-        DEFB    $02,$03,$04,$05,$06,$07,$08,$09,$0A,$0B,$0C,$00,$0F ; $0254
-        DEFW    SUB_02FE_2               ; $0261
-        DEFW    SUB_01B2_9               ; $0263
-        DEFB    $06,$0D                                          ; $0265
-        DEFW    TPA_START_3              ; $0267
-        DEFB    $08                                              ; $0269
-        DEFW    SUB_03E4_2               ; $026A
-        DEFS    30, $00    ; $026C  fill
-        DEFB    $49,$41,$42,$54,$09,$20,$20,$20,$41,$50,$50,$4C,$45,$20,$5D,$5B ; $028A
-        DEFB    " CP/M"    ; $029A  string
-        DEFB    $0D    ; $029F  terminator
-        DEFB    $0A,$41,$70,$70,$6C,$65,$20,$44,$4F,$53,$20,$74,$6F,$20,$43,$50 ; $02A0
-        DEFB    "/M file transfer program"    ; $02B0  string
-        DEFB    $0D    ; $02C8  terminator
-        DEFB    $0A,$09,$28,$43,$29,$20,$31,$39,$38,$30,$20,$4D,$69,$63,$72,$6F ; $02C9
-        DEFB    $73,$6F,$66,$74                                  ; $02D9
+        CALL SUB_03B9                    ; $021B  CD B9 03
+        JR Z,SUB_01B2_10                 ; $021E  28 06
+        LD (DE),A                        ; $0220  12
+        INC DE                           ; $0221  13
+        DJNZ SUB_01B2_9                  ; $0222  10 F7
+        JR SUB_01B2_7                    ; $0224  18 E1
 SUB_01B2_10:
-        INC H                            ; $02DD  24
-        LD B,E                           ; $02DE  43
-        LD L,A                           ; $02DF  6F
-        LD L,L                           ; $02E0  6D
-        LD L,L                           ; $02E1  6D
-        LD H,C                           ; $02E2  61
+        CALL SUB_04BF                    ; $0226  CD BF 04
+        LD HL,(L_0511)                   ; $0229  2A 11 05
+        LD DE,$4141                      ; $022C  11 41 41
+        ADD HL,DE                        ; $022F  19
+        LD A,L                           ; $0230  7D
+        LD (L_0658),A                    ; $0231  32 58 06
+        LD A,H                           ; $0234  7C
+        LD (L_0676),A                    ; $0235  32 76 06
+        CALL SUB_04D8                    ; $0238  CD D8 04
+        LD DE,L_05EC                     ; $023B  11 EC 05
+        CALL SUB_04ED                    ; $023E  CD ED 04
+        CALL SUB_03E4                    ; $0241  CD E4 03
+SUB_01B2_11:
+        CALL SUB_0423                    ; $0244  CD 23 04
+        JP Z,SUB_01B2_18                 ; $0247  CA DD 02
+        EX DE,HL                         ; $024A  EB
+        LD HL,L_056C                     ; $024B  21 6C 05
+        LD B,$1E                         ; $024E  06 1E
+SUB_01B2_12:
+        LD A,(DE)                        ; $0250  1A
+        AND $7F                          ; $0251  E6 7F
+        CP (HL)                          ; $0253  BE
+        JR NZ,SUB_01B2_11                ; $0254  20 EE
+        INC HL                           ; $0256  23
+        INC DE                           ; $0257  13
+        DJNZ SUB_01B2_12                 ; $0258  10 F6
+        LD HL,L_050E                     ; $025A  21 0E 05
+        LD A,(HL)                        ; $025D  7E
+        AND $7F                          ; $025E  E6 7F
+        JR Z,SUB_01B2_13                 ; $0260  28 0A
+        CP $04                           ; $0262  FE 04
+        JR Z,SUB_01B2_13                 ; $0264  28 06
+        LD DE,L_06A1                     ; $0266  11 A1 06
+        JP TPA_START_8                   ; $0269  C3 16 01
+SUB_01B2_13:
+        LD (HL),A                        ; $026C  77
+        CALL SUB_0470                    ; $026D  CD 70 04
+        XOR A                            ; $0270  AF
+        LD ($006A),A                     ; $0271  32 6A 00
+        LD (L_0514),A                    ; $0274  32 14 05
+        LD (L_0515),A                    ; $0277  32 15 05
+        LD ($0068),A                     ; $027A  32 68 00
+        CALL SUB_02E3                    ; $027D  CD E3 02
+        LD DE,DEFAULT_FCB                ; $0280  11 5C 00
+        PUSH DE                          ; $0283  D5
+        LD C,$13                         ; $0284  0E 13
+        CALL BDOS_VEC                    ; $0286  CD 05 00
+        POP DE                           ; $0289  D1
+        PUSH DE                          ; $028A  D5
+        LD C,$16                         ; $028B  0E 16
+        CALL BDOS_VEC                    ; $028D  CD 05 00
+        LD DE,L_06BC                     ; $0290  11 BC 06
+        INC A                            ; $0293  3C
+        JP Z,TPA_START_8                 ; $0294  CA 16 01
+        POP DE                           ; $0297  D1
+        CALL SUB_031E                    ; $0298  CD 1E 03
+        LD DE,L_05EC                     ; $029B  11 EC 05
+        CALL SUB_04ED                    ; $029E  CD ED 04
+        LD A,$FF                         ; $02A1  3E FF
+        LD (L_0518),A                    ; $02A3  32 18 05
+SUB_01B2_14:
+        LD A,(L_0518)                    ; $02A6  3A 18 05
+        INC A                            ; $02A9  3C
+        JR NZ,SUB_01B2_15                ; $02AA  20 12
+        LD HL,(L_050F)                   ; $02AC  2A 0F 05
+        LD A,L                           ; $02AF  7D
+        OR H                             ; $02B0  B4
+        JR Z,SUB_01B2_16                 ; $02B1  28 22
+        CALL SUB_0478                    ; $02B3  CD 78 04
+        LD HL,($0823)                    ; $02B6  2A 23 08
+        LD (L_050F),HL                   ; $02B9  22 0F 05
+        LD A,$0C                         ; $02BC  3E 0C
+SUB_01B2_15:
+        LD E,A                           ; $02BE  5F
+        INC A                            ; $02BF  3C
+        LD (L_0518),A                    ; $02C0  32 18 05
+        LD D,$00                         ; $02C3  16 00
+        LD HL,$0822                      ; $02C5  21 22 08
+        ADD HL,DE                        ; $02C8  19
+        LD A,(HL)                        ; $02C9  7E
+        INC HL                           ; $02CA  23
+        LD H,(HL)                        ; $02CB  66
+        LD L,A                           ; $02CC  6F
+        OR H                             ; $02CD  B4
+        JR Z,SUB_01B2_16                 ; $02CE  28 05
+        CALL SUB_0332                    ; $02D0  CD 32 03
+        JR SUB_01B2_14                   ; $02D3  18 D1
+SUB_01B2_16:
+        CALL SUB_0353                    ; $02D5  CD 53 03
+SUB_01B2_17:
+        LD DE,L_068F                     ; $02D8  11 8F 06
+        JR SUB_01B2_19                   ; $02DB  18 03
+SUB_01B2_18:
+        LD DE,L_0708                     ; $02DD  11 08 07
+SUB_01B2_19:
+        JP TPA_START_8                   ; $02E0  C3 16 01
 SUB_02E3:
-        LD L,(HL)                        ; $02E3  6E
-        LD H,H                           ; $02E4  64
-        JR NZ,SUB_02FE_7+2               ; $02E5  20 45
-        LD (HL),D                        ; $02E7  72
-        LD (HL),D                        ; $02E8  72
-        LD L,A                           ; $02E9  6F
-        LD (HL),D                        ; $02EA  72
-        INC H                            ; $02EB  24
-        DEC C                            ; $02EC  0D
-        LD A,(BC)                        ; $02ED  0A
-        DEC C                            ; $02EE  0D
-        LD A,(BC)                        ; $02EF  0A
-        LD C,C                           ; $02F0  49
-        LD L,(HL)                        ; $02F1  6E
-        LD (HL),E                        ; $02F2  73
-        LD H,L                           ; $02F3  65
-        LD (HL),D                        ; $02F4  72
-        LD (HL),H                        ; $02F5  74
-        JR NZ,SUB_02FE_9                 ; $02F6  20 41
-        LD (HL),B                        ; $02F8  70
-        LD (HL),B                        ; $02F9  70
-        LD L,H                           ; $02FA  6C
-        LD H,L                           ; $02FB  65
-        JR NZ,SUB_02FE_11+1              ; $02FC  20 44
+        LD HL,$0800                      ; $02E3  21 00 08
+        LD ($F3E8),HL                    ; $02E6  22 E8 F3
+        LD A,$01                         ; $02E9  3E 01
+        LD ($F3E0),A                     ; $02EB  32 E0 F3
+        DEC A                            ; $02EE  3D
+        LD ($006A),A                     ; $02EF  32 6A 00
+        LD A,(L_0514)                    ; $02F2  3A 14 05
+        LD ($0068),A                     ; $02F5  32 68 00
+        LD DE,L_0616                     ; $02F8  11 16 06
+SUB_02E3_1:
+        JP SUB_04ED                      ; $02FB  C3 ED 04
 SUB_02FE:
-        LD C,A                           ; $02FE  4F
-        LD D,E                           ; $02FF  53
-        DEC B                            ; $0300  05
-        LD (SUB_0478_4),HL               ; $0301  22 94 04
+        CALL SUB_02E3                    ; $02FE  CD E3 02
+        LD DE,DEFAULT_FCB                ; $0301  11 5C 00
 SUB_02FE_1:
-        LD HL,$0011                      ; $0304  21 11 00
+        LD C,$0F                         ; $0304  0E 0F
+        CALL BDOS_VEC                    ; $0306  CD 05 00
+        LD A,(L_0515)                    ; $0309  3A 15 05
+        LD (DEFAULT_CR),A                ; $030C  32 7C 00
+        JP SUB_0470                      ; $030F  C3 70 04
 SUB_02FE_2:
-        CALL SUB_0478_3+1                ; $0307  CD 8B 04
-        LD A,(L_0749)                    ; $030A  3A 49 07
-        CP $7A                           ; $030D  FE 7A
-        JR Z,SUB_02FE_4                  ; $030F  28 06
-SUB_02FE_3:
-        LD DE,L_06F2                     ; $0311  11 F2 06
-        JP TPA_START_8                   ; $0314  C3 16 01
-SUB_02FE_4:
-        LD HL,(L_0723)                   ; $0317  2A 23 07
-        LD (SUB_04FC_3+2),HL             ; $031A  22 0C 05
-SUB_02FE_5:
-        LD A,$FF                         ; $031D  3E FF
-        LD (SUB_04FC_3+1),A              ; $031F  32 0B 05
-        RET                              ; $0322  C9
-SUB_02FE_6:
-        LD A,(SUB_04FC_3+1)              ; $0323  3A 0B 05
-        ADD A,$23                        ; $0326  C6 23
-        JR NC,SUB_02FE_10                ; $0328  30 11
-SUB_02FE_7:
-        LD HL,(SUB_04FC_3+2)             ; $032A  2A 0C 05
-        LD A,L                           ; $032D  7D
-        OR H                             ; $032E  B4
-        RET Z                            ; $032F  C8
-SUB_02FE_8:
-        CALL SUB_0478_3+1                ; $0330  CD 8B 04
-        LD HL,(L_0723)                   ; $0333  2A 23 07
-        LD (SUB_04FC_3+2),HL             ; $0336  22 0C 05
-SUB_02FE_9:
-        LD A,$0B                         ; $0339  3E 0B
-SUB_02FE_10:
-        LD (SUB_04FC_3+1),A              ; $033B  32 0B 05
-        LD D,$00                         ; $033E  16 00
-        LD E,A                           ; $0340  5F
-SUB_02FE_11:
-        LD HL,L_0722                     ; $0341  21 22 07
-        ADD HL,DE                        ; $0344  19
+        LD A,(DEFAULT_CR)                ; $0312  3A 7C 00
+        LD (L_0515),A                    ; $0315  32 15 05
+        LD A,($0068)                     ; $0318  3A 68 00
+        LD (L_0514),A                    ; $031B  32 14 05
+SUB_031E:
+        LD DE,DEFAULT_FCB                ; $031E  11 5C 00
+        LD C,$10                         ; $0321  0E 10
+        CALL BDOS_VEC                    ; $0323  CD 05 00
+        LD HL,$1A22                      ; $0326  21 22 1A
+        LD (L_0516),HL                   ; $0329  22 16 05
+        LD DE,L_05EC                     ; $032C  11 EC 05
+        JP SUB_0459                      ; $032F  C3 59 04
+SUB_0332:
+        CALL SUB_0481                    ; $0332  CD 81 04
+        LD HL,L_0517                     ; $0335  21 17 05
+        LD A,(HL)                        ; $0338  7E
+        INC A                            ; $0339  3C
+        CP $C0                           ; $033A  FE C0
+        JR NZ,SUB_0332_1                 ; $033C  20 02
+        LD A,$D0                         ; $033E  3E D0
+SUB_0332_1:
+        LD (HL),A                        ; $0340  77
+        LD HL,L_0513                     ; $0341  21 13 05
+        INC (HL)                         ; $0344  34
         LD A,(HL)                        ; $0345  7E
-        LD C,A                           ; $0346  4F
-        OR A                             ; $0347  B7
-        RET Z                            ; $0348  C8
-        INC A                            ; $0349  3C
-        JR Z,SUB_02FE_6                  ; $034A  28 D7
-        INC HL                           ; $034C  23
-        LD B,(HL)                        ; $034D  46
-        INC HL                           ; $034E  23
-        LD A,(HL)                        ; $034F  7E
-        LD (SUB_04FC_4+1),A              ; $0350  32 0E 05
+        LD HL,L_0519                     ; $0346  21 19 05
+        CP (HL)                          ; $0349  BE
+        RET C                            ; $034A  D8
+        CALL SUB_0353                    ; $034B  CD 53 03
+        LD DE,L_05EC                     ; $034E  11 EC 05
+        JR SUB_02E3_1                    ; $0351  18 A8
 SUB_0353:
-        INC HL                           ; $0353  23
-        LD (SUB_04FC_4+2),BC             ; $0354  ED 43 0F 05
-        RET                              ; $0358  C9
-        DEFB    $3A                                              ; $0359
-        DEFW    SUB_04FC_5+1             ; $035A
-        DEFB    $4F                                              ; $035C
-        DEFW    SUB_01B2_5               ; $035D
-        DEFB    $3C,$32,$E4,$F3,$79,$E6,$0E,$87,$87,$87,$2F,$C6,$61,$32,$E6,$F3 ; $035F
-        DEFB    $C9,$3A                                          ; $036F
-        DEFW    SUB_04FC_5+2             ; $0371
-        DEFB    $3C,$32,$5C,$00,$C9,$11,$22,$18,$ED,$53,$E8,$F3,$18,$11,$ED,$5B ; $0373
-        DEFW    SUB_04FC_7               ; $0383
-        DEFB    $ED,$53,$E8,$F3,$18,$07,$11,$22,$17,$ED,$53,$E8,$F3,$7D,$11,$52 ; $0385
-        DEFB    $05,$6C,$26,$00,$19,$66,$6F,$22,$E0,$F3          ; $0395
-        DEFW    TPA_START_10             ; $039F
-        DEFB    $32                                              ; $03A1
+        LD A,(L_0513)                    ; $0353  3A 13 05
+        OR A                             ; $0356  B7
+        JP Z,SUB_01B2_17                 ; $0357  CA D8 02
+        PUSH AF                          ; $035A  F5
+        CALL SUB_02FE                    ; $035B  CD FE 02
+        POP AF                           ; $035E  F1
+        LD B,$00                         ; $035F  06 00
+        ADD A,A                          ; $0361  87
+        RL B                             ; $0362  CB 10
+        LD C,A                           ; $0364  4F
+        LD HL,$0A22                      ; $0365  21 22 0A
+SUB_0353_1:
+        PUSH BC                          ; $0368  C5
+        PUSH HL                          ; $0369  E5
+        EX DE,HL                         ; $036A  EB
+        LD C,$1A                         ; $036B  0E 1A
+        CALL BDOS_VEC                    ; $036D  CD 05 00
+        LD A,(L_050E)                    ; $0370  3A 0E 05
+        OR A                             ; $0373  B7
+        JR NZ,SUB_0353_3                 ; $0374  20 0B
+        LD B,$80                         ; $0376  06 80
+        POP HL                           ; $0378  E1
+        PUSH HL                          ; $0379  E5
+SUB_0353_2:
+        LD A,(HL)                        ; $037A  7E
+        AND $7F                          ; $037B  E6 7F
+        LD (HL),A                        ; $037D  77
+        INC HL                           ; $037E  23
+        DJNZ SUB_0353_2                  ; $037F  10 F9
+SUB_0353_3:
+        LD DE,DEFAULT_FCB                ; $0381  11 5C 00
+        LD C,$15                         ; $0384  0E 15
+        CALL BDOS_VEC                    ; $0386  CD 05 00
+        OR A                             ; $0389  B7
+        LD DE,L_06CB                     ; $038A  11 CB 06
+        JP NZ,TPA_START_8                ; $038D  C2 16 01
+        POP HL                           ; $0390  E1
+        LD DE,DEFAULT_DMA                ; $0391  11 80 00
+        ADD HL,DE                        ; $0394  19
+        POP BC                           ; $0395  C1
+        DEC BC                           ; $0396  0B
+        LD A,B                           ; $0397  78
+        OR C                             ; $0398  B1
+        JR NZ,SUB_0353_1                 ; $0399  20 CD
+        XOR A                            ; $039B  AF
+        LD (L_0513),A                    ; $039C  32 13 05
+        JP SUB_02FE_2                    ; $039F  C3 12 03
 SUB_03A2:
-        EX DE,HL                         ; $03A2  EB
-        DI                               ; $03A3  F3
-        LD HL,$0E03                      ; $03A4  21 03 0E
-        LD ($F3D0),HL                    ; $03A7  22 D0 F3
-        LD (WBOOT_VEC),A                 ; $03AA  32 00 00
-        LD A,($F3EA)                     ; $03AD  3A EA F3
-        OR A                             ; $03B0  B7
-        RET Z                            ; $03B1  C8
-        LD DE,L_06D5                     ; $03B2  11 D5 06
-        CALL SUB_04D3                    ; $03B5  CD D3 04
-SUB_03A2_1:
-        JP TPA_START_9                   ; $03B8  C3 1C 01
-        DEFB    $3E,$20,$18,$3D,$CD                              ; $03BB
-        DEFW    SUB_04C2                 ; $03C0
-        DEFB    $3E                                              ; $03C2
+        INC HL                           ; $03A2  23
+        LD A,(HL)                        ; $03A3  7E
+        DEC HL                           ; $03A4  2B
+        CP $3A                           ; $03A5  FE 3A
+        RET NZ                           ; $03A7  C0
+        CALL SUB_03B9                    ; $03A8  CD B9 03
+        SUB $41                          ; $03AB  D6 41
+        INC HL                           ; $03AD  23
+        LD C,A                           ; $03AE  4F
+        LD A,($F3B8)                     ; $03AF  3A B8 F3
+        DEC A                            ; $03B2  3D
+        CP C                             ; $03B3  B9
+        JR C,SUB_03C3_1                  ; $03B4  38 25
+        LD A,C                           ; $03B6  79
+        LD (DE),A                        ; $03B7  12
+        RET                              ; $03B8  C9
+SUB_03B9:
+        LD A,(HL)                        ; $03B9  7E
+        INC HL                           ; $03BA  23
+        CP $60                           ; $03BB  FE 60
+        JR C,SUB_03B9_1                  ; $03BD  38 02
+        SUB $20                          ; $03BF  D6 20
+SUB_03B9_1:
+        OR A                             ; $03C1  B7
+        RET                              ; $03C2  C9
 SUB_03C3:
-        DEC C                            ; $03C3  0D
-        CALL SUB_04FC                    ; $03C4  CD FC 04
-        LD A,$0A                         ; $03C7  3E 0A
-        JR SUB_03E4_1                    ; $03C9  18 31
-        DEFB    $D5,$CD                                          ; $03CB
-        DEFW    SUB_04C2                 ; $03CD
-        DEFB    $CD                                              ; $03CF
-        DEFW    SUB_04C2                 ; $03D0
-        DEFB    $D1,$0E,$09                                      ; $03D2
-        DEFW    SUB_04FC_21              ; $03D5
-        DEFB    $00,$2A                                          ; $03D7
-        DEFW    SUB_04FC_5+1             ; $03D9
-        DEFB    $7D,$BC,$C8,$11,$39,$06,$CD,$F3,$04              ; $03DB
+        LD HL,L_03CD                     ; $03C3  21 CD 03
+        PUSH HL                          ; $03C6  E5
+        LD HL,($0001)                    ; $03C7  2A 01 00
+        LD L,$1B                         ; $03CA  2E 1B
+        JP (HL)                          ; $03CC  E9
+L_03CD:
+        DEFB    $7D,$B4,$28,$0A,$11,$0A,$00,$19,$7E,$23,$66,$6F,$56,$C9 ; $03CD
+SUB_03C3_1:
+        LD DE,L_06E4                     ; $03DB  11 E4 06
+        CALL SUB_04CB                    ; $03DE  CD CB 04
+        JP TPA_START_10                  ; $03E1  C3 1C 01
 SUB_03E4:
-        CALL SUB_04BF                    ; $03E4  CD BF 04
-        LD DE,L_0717                     ; $03E7  11 17 07
-        JP SUB_04D3                      ; $03EA  C3 D3 04
-        DEFB    $2A                                              ; $03ED
-        DEFW    SUB_04FC_5+1             ; $03EE
-        DEFB    $7D,$BC,$C0,$C5,$CD                              ; $03F0
-        DEFW    SUB_04D3                 ; $03F5
-        DEFB    $CD                                              ; $03F7
-        DEFW    SUB_01AC                 ; $03F8
-        DEFB    $C1,$C9                                          ; $03FA
+        CALL SUB_0459                    ; $03E4  CD 59 04
+        CALL SUB_03C3                    ; $03E7  CD C3 03
+        PUSH DE                          ; $03EA  D5
+        LD C,$00                         ; $03EB  0E 00
+        CALL SUB_03C3                    ; $03ED  CD C3 03
+        POP AF                           ; $03F0  F1
+        CP D                             ; $03F1  BA
+        LD HL,L_055F                     ; $03F2  21 5F 05
+        JR NZ,SUB_03E4_1                 ; $03F5  20 0A
+        CP $1A                           ; $03F7  FE 1A
+        LD HL,L_0542                     ; $03F9  21 42 05
+        JR NZ,SUB_03E4_1                 ; $03FC  20 03
+        LD HL,L_0552                     ; $03FE  21 52 05
 SUB_03E4_1:
-        PUSH AF                          ; $03FC  F5
-        PUSH BC                          ; $03FD  C5
-        PUSH DE                          ; $03FE  D5
-        PUSH HL                          ; $03FF  E5
-        LD (BC),A                        ; $0400  02
-        LD DE,DEFAULT_FCB                ; $0401  11 5C 00
-        LD C,$0F                         ; $0404  0E 0F
-        CALL BDOS_VEC                    ; $0406  CD 05 00
-        LD A,(SUB_04FC_6+2)              ; $0409  3A 15 05
+        LD (SUB_048B_2+1),HL             ; $0401  22 94 04
+        LD HL,$0011                      ; $0404  21 11 00
+        CALL SUB_048B                    ; $0407  CD 8B 04
+        LD A,(L_0749)                    ; $040A  3A 49 07
+        CP $7A                           ; $040D  FE 7A
+        JR Z,SUB_03E4_2                  ; $040F  28 06
+        LD DE,L_06F2                     ; $0411  11 F2 06
+        JP TPA_START_8                   ; $0414  C3 16 01
 SUB_03E4_2:
-        LD (DEFAULT_CR),A                ; $040C  32 7C 00
-        JP SUB_0470                      ; $040F  C3 70 04
-        DEFB    $3A,$7C,$00,$32                                  ; $0412
-        DEFW    SUB_04FC_6+2             ; $0416
-        DEFB    $3A,$68,$00,$32                                  ; $0418
-        DEFW    SUB_04FC_6+1             ; $041C
-        DEFB    $11,$5C,$00,$0E,$10                              ; $041E
+        LD HL,(L_0723)                   ; $0417  2A 23 07
+        LD (L_050C),HL                   ; $041A  22 0C 05
+        LD A,$FF                         ; $041D  3E FF
+        LD (L_050B),A                    ; $041F  32 0B 05
+        RET                              ; $0422  C9
 SUB_0423:
-        CALL BDOS_VEC                    ; $0423  CD 05 00
-        LD HL,$1A22                      ; $0426  21 22 1A
-        LD (SUB_04FC_7),HL               ; $0429  22 16 05
-        LD DE,L_05EC                     ; $042C  11 EC 05
-        JP SUB_0423_1                    ; $042F  C3 59 04
-        DEFB    $CD                                              ; $0432
-        DEFW    SUB_0478_2               ; $0433
-        DEFB    $21,$17,$05,$7E,$3C,$FE,$C0,$20,$02,$3E,$D0,$77,$21 ; $0435
-        DEFW    SUB_04FC_6               ; $0442
-        DEFB    $34,$7E,$21                                      ; $0444
-        DEFW    SUB_04FC_9               ; $0447
-        DEFB    $BE,$D8,$CD                                      ; $0449
-        DEFW    SUB_0353                 ; $044C
-        DEFB    $11                                              ; $044E
-        DEFW    L_05EC                   ; $044F
-        DEFB    $18,$A8,$3A                                      ; $0451
-        DEFW    SUB_04FC_6               ; $0454
-        DEFB    $B7,$CA,$D8                                      ; $0456
+        LD A,(L_050B)                    ; $0423  3A 0B 05
+        ADD A,$23                        ; $0426  C6 23
+        JR NC,SUB_0423_1                 ; $0428  30 11
+        LD HL,(L_050C)                   ; $042A  2A 0C 05
+        LD A,L                           ; $042D  7D
+        OR H                             ; $042E  B4
+        RET Z                            ; $042F  C8
+        CALL SUB_048B                    ; $0430  CD 8B 04
+        LD HL,(L_0723)                   ; $0433  2A 23 07
+        LD (L_050C),HL                   ; $0436  22 0C 05
+        LD A,$0B                         ; $0439  3E 0B
 SUB_0423_1:
-        LD (BC),A                        ; $0459  02
-        PUSH AF                          ; $045A  F5
-        CALL SUB_02FE                    ; $045B  CD FE 02
-        POP AF                           ; $045E  F1
-        LD B,$00                         ; $045F  06 00
-        ADD A,A                          ; $0461  87
-        RL B                             ; $0462  CB 10
-        LD C,A                           ; $0464  4F
-        LD HL,$0A22                      ; $0465  21 22 0A
-SUB_0423_2:
-        PUSH BC                          ; $0468  C5
-        PUSH HL                          ; $0469  E5
-        EX DE,HL                         ; $046A  EB
-        LD C,$1A                         ; $046B  0E 1A
-        CALL BDOS_VEC                    ; $046D  CD 05 00
+        LD (L_050B),A                    ; $043B  32 0B 05
+        LD D,$00                         ; $043E  16 00
+        LD E,A                           ; $0440  5F
+        LD HL,L_0722                     ; $0441  21 22 07
+        ADD HL,DE                        ; $0444  19
+        LD A,(HL)                        ; $0445  7E
+        LD C,A                           ; $0446  4F
+        OR A                             ; $0447  B7
+        RET Z                            ; $0448  C8
+        INC A                            ; $0449  3C
+        JR Z,SUB_0423                    ; $044A  28 D7
+        INC HL                           ; $044C  23
+        LD B,(HL)                        ; $044D  46
+        INC HL                           ; $044E  23
+        LD A,(HL)                        ; $044F  7E
+        LD (L_050E),A                    ; $0450  32 0E 05
+        INC HL                           ; $0453  23
+        LD (L_050F),BC                   ; $0454  ED 43 0F 05
+        RET                              ; $0458  C9
+SUB_0459:
+        LD A,(L_0511)                    ; $0459  3A 11 05
+        LD C,A                           ; $045C  4F
+        AND $01                          ; $045D  E6 01
+        INC A                            ; $045F  3C
+        LD ($F3E4),A                     ; $0460  32 E4 F3
+        LD A,C                           ; $0463  79
+        AND $0E                          ; $0464  E6 0E
+        ADD A,A                          ; $0466  87
+        ADD A,A                          ; $0467  87
+        ADD A,A                          ; $0468  87
+        CPL                              ; $0469  2F
+        ADD A,$61                        ; $046A  C6 61
+        LD ($F3E6),A                     ; $046C  32 E6 F3
+        RET                              ; $046F  C9
 SUB_0470:
-        LD A,(SUB_04FC_4+1)              ; $0470  3A 0E 05
-        OR A                             ; $0473  B7
-        JR NZ,SUB_0478_2                 ; $0474  20 0B
-        LD B,$80                         ; $0476  06 80
+        LD A,(L_0512)                    ; $0470  3A 12 05
+        INC A                            ; $0473  3C
+        LD (DEFAULT_FCB),A               ; $0474  32 5C 00
+        RET                              ; $0477  C9
 SUB_0478:
-        POP HL                           ; $0478  E1
-        PUSH HL                          ; $0479  E5
-SUB_0478_1:
-        LD A,(HL)                        ; $047A  7E
-        AND $7F                          ; $047B  E6 7F
-        LD (HL),A                        ; $047D  77
-        INC HL                           ; $047E  23
-        DJNZ SUB_0478_1                  ; $047F  10 F9
-SUB_0478_2:
-        LD DE,DEFAULT_FCB                ; $0481  11 5C 00
-        LD C,$15                         ; $0484  0E 15
-        CALL BDOS_VEC                    ; $0486  CD 05 00
-        OR A                             ; $0489  B7
-SUB_0478_3:
-        LD DE,L_06CB                     ; $048A  11 CB 06
-        JP NZ,TPA_START_8                ; $048D  C2 16 01
-        POP HL                           ; $0490  E1
-        LD DE,DEFAULT_DMA                ; $0491  11 80 00
-SUB_0478_4:
-        ADD HL,DE                        ; $0494  19
-        POP BC                           ; $0495  C1
-        DEC BC                           ; $0496  0B
-        LD A,B                           ; $0497  78
-        OR C                             ; $0498  B1
-        JR NZ,SUB_0423_2                 ; $0499  20 CD
-        XOR A                            ; $049B  AF
-        LD (SUB_04FC_6),A                ; $049C  32 13 05
-        JP SUB_02FE_3+1                  ; $049F  C3 12 03
-        DEFB    $23,$7E,$2B,$FE,$3A,$C0,$CD                      ; $04A2
-        DEFW    SUB_03A2_1+1             ; $04A9
-L_04AB:
-        DEFB    $D6,$41,$23,$4F,$3A,$B8,$F3,$3D,$B9,$38,$25,$79,$12,$C9,$7E,$23 ; $04AB
+        LD DE,$1822                      ; $0478  11 22 18
+        LD ($F3E8),DE                    ; $047B  ED 53 E8 F3
+        JR SUB_048B_1                    ; $047F  18 11
+SUB_0481:
+        LD DE,(L_0516)                   ; $0481  ED 5B 16 05
+        LD ($F3E8),DE                    ; $0485  ED 53 E8 F3
+        JR SUB_048B_1                    ; $0489  18 07
+SUB_048B:
+        LD DE,$1722                      ; $048B  11 22 17
+        LD ($F3E8),DE                    ; $048E  ED 53 E8 F3
+SUB_048B_1:
+        LD A,L                           ; $0492  7D
+SUB_048B_2:
+        LD DE,L_0552                     ; $0493  11 52 05
+        LD L,H                           ; $0496  6C
+        LD H,$00                         ; $0497  26 00
+        ADD HL,DE                        ; $0499  19
+        LD H,(HL)                        ; $049A  66
+        LD L,A                           ; $049B  6F
+        LD ($F3E0),HL                    ; $049C  22 E0 F3
+        LD A,$01                         ; $049F  3E 01
+        LD ($F3EB),A                     ; $04A1  32 EB F3
+        LD HL,$0E03                      ; $04A4  21 03 0E
+        LD ($F3D0),HL                    ; $04A7  22 D0 F3
+SUB_048B_3:
+        LD (WBOOT_VEC),A                 ; $04AA  32 00 00
+        LD A,($F3EA)                     ; $04AD  3A EA F3
+        OR A                             ; $04B0  B7
+        RET Z                            ; $04B1  C8
+        LD DE,L_06D5                     ; $04B2  11 D5 06
+        CALL SUB_04D3                    ; $04B5  CD D3 04
+        JP TPA_START_10                  ; $04B8  C3 1C 01
 SUB_04BB:
-        CP $60                           ; $04BB  FE 60
-        JR C,SUB_04BF_1                  ; $04BD  38 02
+        LD A,$20                         ; $04BB  3E 20
+        JR SUB_04FC                      ; $04BD  18 3D
 SUB_04BF:
-        SUB $20                          ; $04BF  D6 20
-SUB_04BF_1:
-        OR A                             ; $04C1  B7
+        CALL SUB_04C2                    ; $04BF  CD C2 04
 SUB_04C2:
-        RET                              ; $04C2  C9
-        DEFB    $21,$CD,$03,$E5,$2A,$01,$00,$2E                  ; $04C3
+        LD A,$0D                         ; $04C2  3E 0D
+SUB_04C2_1:
+        CALL SUB_04FC                    ; $04C4  CD FC 04
+SUB_04C2_2:
+        LD A,$0A                         ; $04C7  3E 0A
+SUB_04C2_3:
+        JR SUB_04FC                      ; $04C9  18 31
 SUB_04CB:
-        DEC DE                           ; $04CB  1B
+        PUSH DE                          ; $04CB  D5
 SUB_04CB_1:
-        JP (HL)                          ; $04CC  E9
-        DEFB    $7D,$B4,$28,$0A,$11,$0A                          ; $04CD
+        CALL SUB_04C2                    ; $04CC  CD C2 04
+SUB_04CB_2:
+        CALL SUB_04C2                    ; $04CF  CD C2 04
+SUB_04CB_3:
+        POP DE                           ; $04D2  D1
 SUB_04D3:
-        NOP                              ; $04D3  00
-        ADD HL,DE                        ; $04D4  19
-        LD A,(HL)                        ; $04D5  7E
-        INC HL                           ; $04D6  23
-        LD H,(HL)                        ; $04D7  66
+        LD C,$09                         ; $04D3  0E 09
+SUB_04D3_1:
+        JP BDOS_VEC                      ; $04D5  C3 05 00
 SUB_04D8:
-        LD L,A                           ; $04D8  6F
-        LD D,(HL)                        ; $04D9  56
-        RET                              ; $04DA  C9
-        DEFB    $11,$E4,$06,$CD                                  ; $04DB
-        DEFW    SUB_04CB                 ; $04DF
-        DEFB    $C3                                              ; $04E1
-        DEFW    TPA_START_9              ; $04E2
-        DEFB    $CD                                              ; $04E4
-        DEFW    SUB_0423_1               ; $04E5
-        DEFB    $CD                                              ; $04E7
-        DEFW    SUB_03C3                 ; $04E8
-        DEFB    $D5,$0E,$00                                      ; $04EA
+        LD HL,(L_0511)                   ; $04D8  2A 11 05
+        LD A,L                           ; $04DB  7D
+        CP H                             ; $04DC  BC
+        RET Z                            ; $04DD  C8
+        LD DE,L_0639                     ; $04DE  11 39 06
+        CALL SUB_04F3                    ; $04E1  CD F3 04
+        CALL SUB_04BF                    ; $04E4  CD BF 04
+        LD DE,L_0717                     ; $04E7  11 17 07
+        JP SUB_04D3                      ; $04EA  C3 D3 04
 SUB_04ED:
-        CALL SUB_03C3                    ; $04ED  CD C3 03
-        POP AF                           ; $04F0  F1
-        CP D                             ; $04F1  BA
-        LD HL,SUB_04FC_15+1              ; $04F2  21 5F 05
-        JR NZ,SUB_04FC_1                 ; $04F5  20 0A
-        CP $1A                           ; $04F7  FE 1A
-        LD HL,SUB_04FC_12+1              ; $04F9  21 42 05
+        LD HL,(L_0511)                   ; $04ED  2A 11 05
+        LD A,L                           ; $04F0  7D
+        CP H                             ; $04F1  BC
+        RET NZ                           ; $04F2  C0
+SUB_04F3:
+        PUSH BC                          ; $04F3  C5
+        CALL SUB_04D3                    ; $04F4  CD D3 04
+        CALL SUB_01AC                    ; $04F7  CD AC 01
+        POP BC                           ; $04FA  C1
+        RET                              ; $04FB  C9
 SUB_04FC:
-        JR NZ,SUB_04FC_1                 ; $04FC  20 03
-        LD HL,$CD52                      ; $04FE  21 52 CD
+        PUSH AF                          ; $04FC  F5
 SUB_04FC_1:
-        CP C                             ; $0501  B9
-        INC BC                           ; $0502  03
-        CP $3D                           ; $0503  FE 3D
-        JR Z,SUB_04FC_3                  ; $0505  28 03
+        PUSH BC                          ; $04FD  C5
 SUB_04FC_2:
-        JP TPA_START_7                   ; $0507  C3 13 01
+        PUSH DE                          ; $04FE  D5
 SUB_04FC_3:
-        LD DE,SUB_04FC_5+1               ; $050A  11 11 05
+        PUSH HL                          ; $04FF  E5
 SUB_04FC_4:
-        CALL SUB_03A2                    ; $050D  CD A2 03
+        LD E,A                           ; $0500  5F
 SUB_04FC_5:
-        LD DE,SUB_04FC_16                ; $0510  11 6C 05
+        LD C,$02                         ; $0501  0E 02
 SUB_04FC_6:
-        CALL SUB_03A2_1+1                ; $0513  CD B9 03
+        CALL BDOS_VEC                    ; $0503  CD 05 00
 SUB_04FC_7:
-        JR Z,SUB_04FC_2                  ; $0516  28 EF
+        POP HL                           ; $0506  E1
 SUB_04FC_8:
-        DEC HL                           ; $0518  2B
+        POP DE                           ; $0507  D1
 SUB_04FC_9:
-        LD B,$1F                         ; $0519  06 1F
+        POP BC                           ; $0508  C1
 SUB_04FC_10:
-        CALL SUB_03A2_1+1                ; $051B  CD B9 03
-        JR Z,SUB_04FC_11                 ; $051E  28 06
-        LD (DE),A                        ; $0520  12
-        INC DE                           ; $0521  13
-        DJNZ SUB_04FC_10                 ; $0522  10 F7
-        JR SUB_04FC_2                    ; $0524  18 E1
+        POP AF                           ; $0509  F1
 SUB_04FC_11:
-        CALL SUB_04BF                    ; $0526  CD BF 04
-        LD HL,(SUB_04FC_5+1)             ; $0529  2A 11 05
-        LD DE,$4141                      ; $052C  11 41 41
-        ADD HL,DE                        ; $052F  19
-        LD A,L                           ; $0530  7D
-        LD (L_0658),A                    ; $0531  32 58 06
-        LD A,H                           ; $0534  7C
-        LD (L_0676),A                    ; $0535  32 76 06
-        CALL SUB_04D8                    ; $0538  CD D8 04
-        LD DE,L_05EC                     ; $053B  11 EC 05
-        CALL SUB_04ED                    ; $053E  CD ED 04
-SUB_04FC_12:
-        CALL SUB_03E4                    ; $0541  CD E4 03
-SUB_04FC_13:
-        CALL SUB_0423                    ; $0544  CD 23 04
-        JP Z,SUB_01B2_10                 ; $0547  CA DD 02
-        EX DE,HL                         ; $054A  EB
-        LD HL,SUB_04FC_16                ; $054B  21 6C 05
-        LD B,$1E                         ; $054E  06 1E
-SUB_04FC_14:
-        LD A,(DE)                        ; $0550  1A
-        AND $7F                          ; $0551  E6 7F
-        CP (HL)                          ; $0553  BE
-        JR NZ,SUB_04FC_13                ; $0554  20 EE
-        INC HL                           ; $0556  23
-        INC DE                           ; $0557  13
-        DJNZ SUB_04FC_14                 ; $0558  10 F6
-        LD HL,SUB_04FC_4+1               ; $055A  21 0E 05
-        LD A,(HL)                        ; $055D  7E
-SUB_04FC_15:
-        AND $7F                          ; $055E  E6 7F
-        JR Z,SUB_04FC_16                 ; $0560  28 0A
-        CP $04                           ; $0562  FE 04
-        JR Z,SUB_04FC_16                 ; $0564  28 06
-        LD DE,L_06A1                     ; $0566  11 A1 06
-        JP TPA_START_8                   ; $0569  C3 16 01
-SUB_04FC_16:
-        LD (HL),A                        ; $056C  77
-        CALL SUB_0470                    ; $056D  CD 70 04
-        XOR A                            ; $0570  AF
-        LD ($006A),A                     ; $0571  32 6A 00
-        LD (SUB_04FC_6+1),A              ; $0574  32 14 05
-        LD (SUB_04FC_6+2),A              ; $0577  32 15 05
-        LD ($0068),A                     ; $057A  32 68 00
-        CALL SUB_02E3                    ; $057D  CD E3 02
-        LD DE,DEFAULT_FCB                ; $0580  11 5C 00
-        PUSH DE                          ; $0583  D5
-        LD C,$13                         ; $0584  0E 13
-        CALL BDOS_VEC                    ; $0586  CD 05 00
-        POP DE                           ; $0589  D1
-SUB_04FC_17:
-        PUSH DE                          ; $058A  D5
-        LD C,$16                         ; $058B  0E 16
-SUB_04FC_18:
-        CALL BDOS_VEC                    ; $058D  CD 05 00
-        LD DE,L_06BC                     ; $0590  11 BC 06
-        INC A                            ; $0593  3C
-        JP Z,TPA_START_8                 ; $0594  CA 16 01
-        POP DE                           ; $0597  D1
-        CALL SUB_02FE_5+1                ; $0598  CD 1E 03
-        LD DE,L_05EC                     ; $059B  11 EC 05
-        CALL SUB_04ED                    ; $059E  CD ED 04
-        LD A,$FF                         ; $05A1  3E FF
-        LD (SUB_04FC_8),A                ; $05A3  32 18 05
-SUB_04FC_19:
-        LD A,(SUB_04FC_8)                ; $05A6  3A 18 05
-        INC A                            ; $05A9  3C
-        JR NZ,SUB_04FC_20                ; $05AA  20 12
-        LD HL,(SUB_04FC_4+2)             ; $05AC  2A 0F 05
-        LD A,L                           ; $05AF  7D
-        OR H                             ; $05B0  B4
-        JR Z,SUB_04FC_22                 ; $05B1  28 22
-        CALL SUB_0478                    ; $05B3  CD 78 04
-        LD HL,($0823)                    ; $05B6  2A 23 08
-        LD (SUB_04FC_4+2),HL             ; $05B9  22 0F 05
-        LD A,$0C                         ; $05BC  3E 0C
-SUB_04FC_20:
-        LD E,A                           ; $05BE  5F
-        INC A                            ; $05BF  3C
-        LD (SUB_04FC_8),A                ; $05C0  32 18 05
-SUB_04FC_21:
-        LD D,$00                         ; $05C3  16 00
-        LD HL,$0822                      ; $05C5  21 22 08
-        ADD HL,DE                        ; $05C8  19
-        LD A,(HL)                        ; $05C9  7E
-        INC HL                           ; $05CA  23
-        LD H,(HL)                        ; $05CB  66
-        LD L,A                           ; $05CC  6F
-        OR H                             ; $05CD  B4
-        JR Z,SUB_04FC_22                 ; $05CE  28 05
-        CALL SUB_02FE_8+2                ; $05D0  CD 32 03
-        JR SUB_04FC_19                   ; $05D3  18 D1
-SUB_04FC_22:
-        CALL SUB_0353                    ; $05D5  CD 53 03
-        LD DE,L_068F                     ; $05D8  11 8F 06
-        JR SUB_04FC_23                   ; $05DB  18 03
-        DEFB    $11                                              ; $05DD
+        RET                              ; $050A  C9
+L_050B:
+        DEFB    $B7                                              ; $050B
+L_050C:
+        DEFB    $00,$00                                          ; $050C
+L_050E:
+        DEFB    $00                                              ; $050E
+L_050F:
+        DEFB    $00,$00                                          ; $050F
+L_0511:
+        DEFB    $01                                              ; $0511
+L_0512:
+        DEFB    $00                                              ; $0512
+L_0513:
+        DEFB    $00                                              ; $0513
+L_0514:
+        DEFB    $00                                              ; $0514
+L_0515:
+        DEFB    $00                                              ; $0515
+L_0516:
+        DEFB    $00                                              ; $0516
+L_0517:
+        DEFB    $00                                              ; $0517
+L_0518:
+        DEFB    $00                                              ; $0518
+L_0519:
+        DEFS    41, $00    ; $0519  fill
+L_0542:
+        DEFB    $00,$0E,$0D,$0C,$0B,$0A,$09                      ; $0542
+        DEFW    L_0708                   ; $0549
+        DEFW    SUB_04FC_7               ; $054B
+        DEFW    SUB_02FE_1               ; $054D
+        DEFB    $02,$01,$0F                                      ; $054F
+L_0552:
+        DEFW    TPA_START                ; $0552
+        DEFB    $02,$03,$04,$05,$06,$07,$08,$09,$0A,$0B,$0C      ; $0554
+L_055F:
+        DEFB    $00,$0F,$07,$03                                  ; $055F
+        DEFW    SUB_01B2_8               ; $0563
+        DEFB    $06,$0D                                          ; $0565
+        DEFW    TPA_START_3              ; $0567
+        DEFB    $08,$0C,$04                                      ; $0569
+L_056C:
+        DEFS    30, $00    ; $056C  fill
+L_058A:
+        DEFB    $49,$41,$42,$54                                  ; $058A
+L_058E:
+        DEFB    $09,$20,$20,$20,$41,$50,$50,$4C,$45,$20,$5D,$5B,$20,$43,$50,$2F ; $058E
+        DEFB    $4D,$0D,$0A,$41,$70,$70,$6C,$65,$20,$44,$4F,$53,$20,$74,$6F,$20 ; $059E
+        DEFB    "CP/M file transfer program"    ; $05AE  string
+        DEFB    $0D    ; $05C8  terminator
+        DEFB    $0A,$09,$28,$43,$29,$20,$31,$39,$38,$30,$20,$4D,$69,$63,$72,$6F ; $05C9
+        DEFB    $73,$6F,$66,$74,$24                              ; $05D9
 L_05DE:
-        DEFB    $08,$07                                          ; $05DE
-SUB_04FC_23:
-        JP TPA_START_8                   ; $05E0  C3 16 01
-        DEFB    $21,$00,$08,$22,$E8,$F3                          ; $05E3
-        DEFW    TPA_START_10             ; $05E9
-        DEFB    $32                                              ; $05EB
+        DEFB    $43,$6F,$6D,$6D,$61,$6E,$64,$20,$45,$72,$72,$6F,$72,$24 ; $05DE
 L_05EC:
-        DEFB    $E0,$F3,$3D,$32,$6A,$00                          ; $05EC  "`s=2j"
-        DEFB    $3A                                              ; $05F2
-        DEFW    SUB_04FC_6+1             ; $05F3
-        DEFB    $32,$68,$00,$11,$16,$06,$C3                      ; $05F5
-        DEFW    SUB_04ED                 ; $05FC
-        DEFB    $CD,$E3,$20,$64,$69,$73,$6B,$20,$61,$6E,$64,$20,$68,$69,$74,$20 ; $05FE  "Mc disk and hit RETURN $"
-        DEFB    $52,$45,$54,$55,$52,$4E,$20,$24,$0D              ; $060E
-        DEFB    $0A,$49,$6E,$73,$65,$72,$74,$20,$43,$50,$2F,$4D,$20,$64,$69,$73 ; $0617
-        DEFB    $6B,$20,$61,$6E,$64,$20,$68,$69,$74,$20,$52,$45,$54,$55,$52,$4E ; $0627
-        DEFB    $20,$24,$49,$6E,$73,$65,$72,$74,$20,$41,$70,$70,$6C,$65,$20,$44 ; $0637
-        DEFB    $4F,$53,$20,$64,$69,$73,$6B,$20,$69,$6E,$20,$64,$72,$69,$76,$65 ; $0647
-        DEFB    $20                                              ; $0657
+        DEFB    $0D,$0A,$0D,$0A,$49,$6E,$73,$65,$72,$74,$20,$41,$70,$70,$6C,$65 ; $05EC
+        DEFB    $20,$44,$4F,$53,$20,$64,$69,$73,$6B,$20,$61,$6E,$64,$20,$68,$69 ; $05FC
+        DEFB    $74,$20,$52,$45,$54,$55,$52,$4E,$20,$24          ; $060C
+L_0616:
+        DEFB    $0D,$0A,$49,$6E,$73,$65,$72,$74,$20,$43,$50,$2F,$4D,$20,$64,$69 ; $0616
+        DEFB    $73,$6B,$20,$61,$6E,$64,$20,$68,$69,$74,$20,$52,$45,$54,$55,$52 ; $0626
+        DEFB    $4E,$20,$24                                      ; $0636
+L_0639:
+        DEFB    $49,$6E,$73,$65,$72,$74,$20,$41,$70,$70,$6C,$65,$20,$44,$4F,$53 ; $0639
+        DEFB    $20,$64,$69,$73,$6B,$20,$69,$6E,$20,$64,$72,$69,$76,$65,$20 ; $0649
 L_0658:
         DEFB    $5A,$3A,$0D,$0A,$49,$6E,$73,$65,$72,$74,$20,$43,$50,$2F,$4D,$20 ; $0658
         DEFB    $64,$69,$73,$6B,$20,$69,$6E,$20,$64,$72,$69,$76,$65,$20 ; $0668
@@ -651,24 +691,26 @@ L_06BC:
 L_06CB:
         DEFB    $44,$69,$73,$6B,$20,$66,$75,$6C,$6C,$24          ; $06CB
 L_06D5:
-        DEFB    $44,$69,$73,$6B,$20,$49,$2F,$4F,$20,$45,$72,$72,$6F,$72,$24,$49 ; $06D5
-        DEFB    $6E,$76,$61,$6C,$69,$64,$20,$44,$72,$69,$76,$65,$24 ; $06E5
+        DEFB    $44,$69,$73,$6B,$20,$49,$2F,$4F,$20,$45,$72,$72,$6F,$72,$24 ; $06D5
+L_06E4:
+        DEFB    $49,$6E,$76,$61,$6C,$69,$64,$20,$44,$72,$69,$76,$65,$24 ; $06E4
 L_06F2:
-        DEFB    $4E,$6F,$74,$20,$61,$6E,$20,$41,$70,$70,$6C,$65,$20,$44,$24,$44 ; $06F2
-        DEFB    $45,$53,$54,$49,$4E,$41,$54,$49,$4F,$4E,$20,$49,$53,$20,$52,$2F ; $0702
-        DEFB    $4F,$2C,$20,$44,$45                              ; $0712
+        DEFB    $4E,$6F,$74,$20,$61,$6E,$20,$41,$70,$70,$6C,$65,$20,$44,$4F,$53 ; $06F2
+        DEFB    $20,$64,$69,$73,$6B,$24                          ; $0702
+L_0708:
+        DEFB    $46,$69,$6C,$65,$20,$6E,$6F,$74,$20,$66,$6F,$75,$6E,$64,$24 ; $0708
 L_0717:
-        DEFB    $4C,$45,$54,$45,$20,$28,$59,$2F,$4E,$29,$3F      ; $0717
+        DEFB    $57,$6F,$72,$6B,$69,$6E,$67,$2E,$2E,$2E,$24      ; $0717
 L_0722:
-        DEFB    $24                                              ; $0722
+        DEFB    $65                                              ; $0722
 L_0723:
-        DEFB    $2A,$2A,$4E,$4F,$54,$20,$44,$45,$4C,$45,$54,$45,$44,$2A,$2A,$24 ; $0723
-        DEFB    $24,$24,$24,$24,$24,$24,$4E,$4F,$54,$20,$46,$4F,$55,$4E,$44,$24 ; $0733
-        DEFB    $43,$4F,$50,$59,$49,$4E                          ; $0743
+        DEFB    $78,$74,$20,$61,$6E,$64,$20,$42,$69,$6E,$61,$72,$79,$20,$66,$69 ; $0723
+        DEFB    $6C,$65,$73,$20,$6F,$6E,$6C,$79,$24,$44,$69,$72,$65,$63,$74,$6F ; $0733
+        DEFB    $72,$79,$20,$66,$75,$6C                          ; $0743
 L_0749:
-        DEFB    $47,$20,$2D,$24,$52,$45,$51,$55,$49,$52,$45,$53,$20,$43,$50,$2F ; $0749
-        DEFB    $4D,$20,$32,$2E,$30,$20,$4F,$52,$20,$4E,$45,$57,$45,$52,$20,$46 ; $0759
-        DEFB    $4F,$52,$20,$4F,$50,$45,$52,$41,$54,$49,$4F,$4E,$2E,$24,$55,$4E ; $0769
-        DEFB    $52,$45,$43,$4F,$47,$4E,$49                      ; $0779
+        DEFB    $6C,$24,$44,$69,$73,$6B,$20,$66,$75,$6C,$6C,$24,$44,$69,$73,$6B ; $0749
+        DEFB    $20,$49,$2F,$4F,$20,$45,$72,$72,$6F,$72,$24,$49,$6E,$76,$61,$6C ; $0759
+        DEFB    $69,$64,$20,$44,$72,$69,$76,$65,$24,$4E,$6F,$74,$20,$61,$6E,$20 ; $0769
+        DEFB    $41,$70,$70,$6C,$65,$20,$44                      ; $0779
 
     SAVEBIN "APDOS.bin", $0100, $0680
