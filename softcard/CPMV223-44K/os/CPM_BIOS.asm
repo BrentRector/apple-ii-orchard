@@ -5,11 +5,12 @@
 ; Range:  $FA00-$FDFF  (1024 bytes)
 ;
 ; This is the AS-SHIPPED pristine on-disk BIOS -- exactly the 1024 bytes that
-; LOAD_CPM reads off the system tracks into $FA00-$FDFF. It is NOT the running
-; BIOS: at cold boot the Z-80 self-modifies ~a dozen bytes in place and generates
-; the $FE00-$FF47 tail (the device/console code) that is not on disk. Those
-; runtime changes -- what, where, and why -- are catalogued in
-; ../BOOT_AND_PATCHING.md, deliberately not baked into this source.
+; LOAD_CPM reads off the system tracks into $FA00-$FDFF, loaded VERBATIM (this
+; $FA00-$FDFF image is not self-modified at run time -- it is byte-identical to
+; the running BIOS there). What makes the resident BIOS larger is the
+; $FE00-$FF47 device/console tail that the cold-boot routine builds in RAM (it is
+; not on disk) plus the page-zero vectors it plants. That boot-time setup is
+; documented in ../BOOT_AND_PATCHING.md, deliberately not baked into this source.
 
     DEVICE NOSLOT64K
 
