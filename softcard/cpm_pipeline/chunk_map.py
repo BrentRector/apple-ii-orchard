@@ -29,6 +29,7 @@ from .assemble import ChunkSource
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DOCS = REPO_ROOT / "docs"
 INVEST = REPO_ROOT / "cpm-investigation"
+OS223_44K = REPO_ROOT / "CPMV223-44K" / "os"   # canonical 2.23 OS source tree (disk build reads here)
 
 
 @dataclass(frozen=True)
@@ -52,26 +53,28 @@ class ChunkSpec:
 
 # ── 2.23 sources ───────────────────────────────────────────────────────
 SOURCES_223: dict[str, ChunkSource | Path] = {
-    # Annotated sources we assemble fresh:
+    # The canonical 2.23 OS sources now live in CPMV223-44K/os/; the disk build
+    # assembles them directly (verified byte-identical to the former docs/CPM223_*
+    # round-trip sources, which are retired). 6502 = ca65 .s; Z-80 = sjasmplus .asm.
     "CPM223_BootLoader": ChunkSource(
-        asm_path=DOCS / "CPM223_BootLoader.asm",
+        asm_path=OS223_44K / "CPM_BootLoader.s",
         cpu="6502", org=0x0800, size=0x0C00,
     ),
     "CPM223_RWTS": ChunkSource(
-        asm_path=DOCS / "CPM223_RWTS.asm",
+        asm_path=OS223_44K / "CPM_RWTS.s",
         cpu="6502", org=0x0A00, size=0x0600,
     ),
     "CPM223_InstallFragments": ChunkSource(
-        asm_path=DOCS / "CPM223_InstallFragments.asm",
+        asm_path=OS223_44K / "CPM_InstallFragments.s",
         cpu="6502", org=0x0200, size=0x0200,
     ),
     "CPM223_DiskCallbacks": ChunkSource(
-        asm_path=DOCS / "CPM223_DiskCallbacks.asm",
+        asm_path=OS223_44K / "CPM_DiskCallbacks.asm",
         cpu="z80", org=0x1A00, size=0x0200,
         expected_bin_name="build/CPM223_DiskCallbacks.bin",
     ),
     "CPM223_SystemImage": ChunkSource(
-        asm_path=DOCS / "CPM223_SystemImage.asm",
+        asm_path=OS223_44K / "CPM_SystemImage.asm",
         cpu="z80", org=0x8000, size=0x1700,
         expected_bin_name="build/CPM223_SystemImage.bin",
     ),
