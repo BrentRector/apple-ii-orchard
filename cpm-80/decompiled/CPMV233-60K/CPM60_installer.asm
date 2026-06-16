@@ -29,7 +29,9 @@
 ; the in-system "write the system tracks" routine.
 ; ============================================================================
 
+    IFNDEF CPM60_LINK  ; [link] master defines CPM60_LINK and owns this; standalone keeps it
     DEVICE NOSLOT64K
+    ENDIF
 
 ; -- CP/M page-zero / BDOS --
 WBOOT_VEC   EQU $0000   ; warm-boot vector (JP WBOOT). Also poked as RPC trigger.
@@ -47,7 +49,9 @@ RW_SECTOR   EQU $F3E0   ; sector value
 DRV_MASK    EQU $F3E4   ; (current drive & 3) - target drive for the 6502 RWTS
 DRV_NAME    EQU $F3E6   ; drive letter glyph for messages
 
+    IFNDEF CPM60_LINK  ; [link] master defines CPM60_LINK and owns this; standalone keeps it
     ORG $0100
+    ENDIF
 
 ; ---------------------------------------------------------------------------
 ; 1) DETERMINE TARGET DRIVE
@@ -292,4 +296,6 @@ SUB_020D:
         DEFB    " directory space",$0D
         DEFB    $0A,$24,$00,$63,$70,$2F,$6D,$20,$20,$20,$20,$73,$79,$73 ; $0353  ...00 "cp/m    sys"
 
+    IFNDEF CPM60_LINK  ; [link] master defines CPM60_LINK and owns this; standalone keeps it
     SAVEBIN "CPM60_installer.bin", $0100, $0261
+    ENDIF

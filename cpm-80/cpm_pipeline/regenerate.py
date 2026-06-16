@@ -546,6 +546,67 @@ def _curated_equs(text: str) -> dict[int, tuple[str, str]]:
     return out
 
 
+_LINK_GUARD_RE = re.compile(r"^(\s*)(DEVICE\s+\S+|ORG\s+\$[0-9A-Fa-f]+|SAVEBIN\s+\".*)$")
+_LINK_NOTE = "  ; [link] master defines CPM60_LINK and owns this; standalone keeps it"
+
+
+def _guard_link_directives(text: str) -> str:
+    """Wrap each DEVICE / ORG / SAVEBIN in ``IFNDEF CPM60_LINK ... ENDIF`` so the
+    module assembles standalone (CPM60_LINK unset) but can be INCLUDEd into the
+    CPM60.COM master link (CPMV233-60K/CPM60.asm), which defines CPM60_LINK and
+    owns those directives. A fresh disassembly emits them unguarded, so the 60K
+    BIOS/BDOS regenerators re-apply this -- otherwise a regen would silently
+    strip the guards and break the master build.
+
+    Robust + idempotent: first STRIP every existing ``IFNDEF CPM60_LINK`` guard
+    (as a pair with its directive and trailing ``ENDIF``), which also clears the
+    lone *dangling* ``IFNDEF`` that ``splice_curated_header`` carries over from
+    the old DEVICE guard (the block it re-injects ends just before ``DEVICE`` and
+    so includes that ``IFNDEF`` but not its ``ENDIF``). Then re-wrap cleanly, so
+    the result can never double-guard or leave a dangling ``IFNDEF`` (which under
+    CPM60_LINK would skip the whole module body)."""
+    raw = text.split("\n")
+    norm, i = [], 0
+    while i < len(raw):
+        if raw[i].strip().startswith("IFNDEF CPM60_LINK"):
+            i += 1                                       # drop the IFNDEF
+            if i < len(raw):
+                norm.append(raw[i]); i += 1              # keep the directive it guarded
+                if i < len(raw) and raw[i].strip() == "ENDIF":
+                    i += 1                               # drop the matching ENDIF
+            continue
+        norm.append(raw[i]); i += 1
+    out = []
+    for line in norm:
+        m = _LINK_GUARD_RE.match(line)
+        if m:
+            ind = m.group(1)
+            out.append(f"{ind}IFNDEF CPM60_LINK{_LINK_NOTE}")
+            out.append(line)
+            out.append(f"{ind}ENDIF")
+        else:
+            out.append(line)
+    return "\n".join(out)
+
+
+def _assemble_link_mode(module_text: str, run_org: int, length: int) -> bytes:
+    """Assemble a module the way the CPM60.COM master INCLUDEs it -- with
+    ``CPM60_LINK`` DEFINED, so the module's own DEVICE/ORG/SAVEBIN are guarded
+    out and the wrapper supplies them. If the guards are wrong (e.g. a dangling
+    ``IFNDEF``), the body is skipped and this returns too few / no bytes, so a
+    byte-compare against the standalone build catches the breakage that the
+    standalone check alone is blind to. Returns b"" on failure."""
+    body = (f"    DEVICE NOSLOT64K\n    DEFINE CPM60_LINK\n    ORG ${run_org:04X}\n"
+            + module_text +
+            f'\n    SAVEBIN "linked.bin", ${run_org:04X}, ${length:04X}\n')
+    with tempfile.TemporaryDirectory() as tds:
+        td = Path(tds)
+        (td / "r.asm").write_text(body, encoding="utf-8")
+        subprocess.run(["sjasmplus", "r.asm"], cwd=str(td), capture_output=True, text=True)
+        out = td / "linked.bin"
+        return out.read_bytes() if out.exists() else b""
+
+
 def regenerate_60k_bios(*, write: bool = False, ai_names=None, extra_seeds=None) -> RegenResult:
     """Regenerate cpm-80/decompiled/CPMV233-60K/os/CPM_BIOS.asm byte-identical.
 
@@ -581,8 +642,10 @@ def regenerate_60k_bios(*, write: bool = False, ai_names=None, extra_seeds=None)
     src = src.replace("{out_bin}", "CPM_BIOS.bin")
     src = splice_curated_header(old, src)
     merged, mig, drop = migrate_comments(old, src)
-    rebuilt = _assemble_savebin(merged)
-    ok = rebuilt == bios
+    merged = _guard_link_directives(merged)      # keep the CPM60.COM master-link guards
+    rebuilt = _assemble_savebin(merged)          # standalone (CPM60_LINK unset)
+    linked = _assemble_link_mode(merged, _BIOS_60K_ORG, _BIOS_60K_LEN)  # as the master INCLUDEs it
+    ok = rebuilt == bios and linked == bios
     if write and ok:
         _BIOS_60K.write_text(merged, encoding="utf-8")
     return RegenResult(_BIOS_60K, ok, mig, drop, len(force),
@@ -683,8 +746,10 @@ def regenerate_60k_bdos(*, write: bool = False, ai_names=None, extra_seeds=None)
     src = src.replace("{out_bin}", "CPM_BDOS.bin")
     src = splice_curated_header(old, src)
     merged, mig, drop = migrate_comments(old, src)
-    rebuilt = _assemble_savebin(merged)
-    ok = rebuilt == bdos
+    merged = _guard_link_directives(merged)      # keep the CPM60.COM master-link guards
+    rebuilt = _assemble_savebin(merged)          # standalone (CPM60_LINK unset)
+    linked = _assemble_link_mode(merged, _BDOS_60K_ORG, _BDOS_60K_LEN)  # as the master INCLUDEs it
+    ok = rebuilt == bdos and linked == bdos
     if write and ok:
         _BDOS_60K.write_text(merged, encoding="utf-8")
     return RegenResult(_BDOS_60K, ok, mig, drop, len(force),

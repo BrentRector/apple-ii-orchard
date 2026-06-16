@@ -63,7 +63,9 @@
 ;   across the two LC banks; the 44K version runs entirely in flat RAM.
 ; ===========================================================================
 
+    IFNDEF CPM60_LINK  ; [link] master defines CPM60_LINK and owns this; standalone keeps it
     DEVICE NOSLOT64K
+    ENDIF
 
 ; -- External symbols --
 WBOOT_VEC            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
@@ -76,7 +78,9 @@ LIST                 EQU $FA0F               ; BIOS entry 5  -- printer (LIST de
 PUNCH                EQU $FA12               ; BIOS entry 6  -- punch device output
 READER               EQU $FA15               ; BIOS entry 7  -- reader device input
 
+    IFNDEF CPM60_LINK  ; [link] master defines CPM60_LINK and owns this; standalone keeps it
     ORG $DC00
+    ENDIF
 
 BDOS_IMAGE_HEADER:
         CP L                             ; $DC00  BD
@@ -778,4 +782,6 @@ LC_RDWR_BANK1:
         DEFW    LC_CALL_B5C0_7           ; $E9F6
         DEFB    $C9,$E5,$00,$00,$00,$00,$80,$00                  ; $E9F8
 
+    IFNDEF CPM60_LINK  ; [link] master defines CPM60_LINK and owns this; standalone keeps it
     SAVEBIN "CPM_BDOS.bin", $DC00, $0E00
+    ENDIF

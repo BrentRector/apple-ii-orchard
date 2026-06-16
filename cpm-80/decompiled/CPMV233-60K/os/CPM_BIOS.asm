@@ -22,7 +22,9 @@
 ; and booted; the CCP's only delta was the private-stack scratch at $DB5C.)
 ; ===========================================================================
 
+    IFNDEF CPM60_LINK  ; [link] master defines CPM60_LINK and owns this; standalone keeps it
     DEVICE NOSLOT64K
+    ENDIF
 
 ; -- External symbols --
 WBOOT_VEC            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
@@ -42,7 +44,9 @@ SLOT_INFO_BASE       EQU $F3B8               ; Slot-info table for cold-boot gen
 ;   $FEFC -> BIOS_BOOT_7+1        shared instruction tail: $FEFC is reachable code inside the instruction at $FEFB
 ;   $FF59 -> BIOS_BOOT_13+1       shared instruction tail: $FF59 is reachable code inside the instruction at $FF58
 
+    IFNDEF CPM60_LINK  ; [link] master defines CPM60_LINK and owns this; standalone keeps it
     ORG $FA00
+    ENDIF
 
 BOOT:
         JP BIOS_BOOT                     ; $FA00  C3 EA FE
@@ -658,4 +662,6 @@ SIGNON_BANNER:
         DEFB    $0A,$0D,$0A                                      ; $FFFB
         DEFW    BOOT                     ; $FFFE
 
+    IFNDEF CPM60_LINK  ; [link] master defines CPM60_LINK and owns this; standalone keeps it
     SAVEBIN "CPM_BIOS.bin", $FA00, $0600
+    ENDIF

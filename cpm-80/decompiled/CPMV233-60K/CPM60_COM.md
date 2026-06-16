@@ -24,8 +24,8 @@ The SoftCard window translation used throughout (Z-80 address vs. Apple address)
 | `0x10D-0x111` | Z-80 | `PRINT_STR` helper | `$020D` | BDOS fn `$09` trampoline |
 | `0x112-0x252` | Z-80 (data) | User-facing `$`-strings | `$0212` | Banner, prompts, 4 error messages |
 | `0x253-0x254` | data | Trailer | `$0353` | `0D 0A 24 00` |
-| `0x255-0x25F` | data | FCB template | `$0355` | `00 'cp/m    ' 'sys' 00...` — placeholder file `CP/M.SYS` |
-| `0x260-0x2FF` | — | Zero pad | — | Unused gap to next region |
+| `0x255-0x260` | data | FCB template | `$0355` | `00 'cp/m    ' 'sys'` — placeholder file `CP/M.SYS` (the `'s'` of `sys` is the installer's last byte, file `0x260`) |
+| `0x261-0x2FF` | — | Zero pad | — | Unused gap to next region |
 | `0x300-0x3FF` | 6502 | BootLoader install/denibble-prep page | `$0800` | Install/denibble-prep, Microsoft signon fragments, 6-and-2 postnibble loop at `$0885` (byte-identical, ca65/ld65 verified) |
 | `0x400-0x9BC` | 6502 | RWTS Disk II driver (STANDALONE) | `~$0400` (helpers at `$D000-$D3xx`) | Disk II read/write/seek; head `38 86 27 8E 78 06`; `D5 AA AD` prologue; `C08C`/`C08D,X` switches; `D369` table. Not present in any of the three OS sources |
 | `0x9BD-0x9FF` | — | Zero pad | — | Tail of RWTS region |
@@ -40,15 +40,19 @@ The SoftCard window translation used throughout (Z-80 address vs. Apple address)
 | `0xDF0-0xDFF` | 6502 (data) | Jump-vector tail | `$03F0` (InstallFragments) | Vector tail to `$03C0` |
 | `0xE00-0x1670` | Z-80 | CCP payload | `$D300` (== Apple `$F300`) | CP/M CCP; head `c3 0c d6` (`JP $D60C`) |
 | `0x1671-0x16FF` | — | Pad | — | Gap to BDOS payload |
-| `0x1700-0x24FE` | Z-80 | BDOS payload (60K, modified) | `$DC00` (== Apple `$FC00`), split-mirrored to `$B000-$C0BF` | CP/M 2.2 BDOS with LC bank-switch insertions; head `bd 16 00`, entry `JP $DC11` |
-| `0x24FF-0x25FF` | — | Pad | — | Gap to BIOS payload |
+| `0x1700-0x24FF` | Z-80 | BDOS payload (60K, modified) | `$DC00` (== Apple `$FC00`), split-mirrored to `$B000-$C0BF` | CP/M 2.2 BDOS (`0xE00` bytes) with LC bank-switch insertions; head `bd 16 00`, entry `JP $DC11`. Its first 6 bytes (`bd 16 00 01 4d 40`) are the serial shared with the CCP's tail at `0x1700-0x1705` |
+| `0x2500-0x25FF` | — | Pad | — | Gap to BIOS payload |
 | `0x2600-0x2BFF` | Z-80 | BIOS payload | `$FA00` (== Apple `$FA00`, identity band) | 60K BIOS; jump table `c3 ea fe`/`c3 b8 fa`; RWTS bridge + RPC dispatch. RWTS.s window reconstructs to an exact 1536-byte match here |
 
 Every byte in `0x300-0xDFF` is classified as code, table, string, or zero-pad, with zero unclassified nonzero bytes. The Z-80 payload heads (`c3 0c d6` @ `0xE00`, `bd 16 00` @ `0x1700`, `c3 ea fe` @ `0x2600`) all match the established region map.
 
+### Single-source reassembly
+
+The whole file rebuilds byte-for-byte from one master assembler source, [`CPM60.asm`](CPM60.asm). It places each piece at its `.COM` offset, `INCBIN`s the three 6502 pieces (boot loader / RWTS / install fragments, ca65) at their slices, and assembles the relocating Z-80 modules (`CCP`→`$D300`, `BDOS`→`$DC00`, `BIOS`→`$FA00`) as **real code at their run address** via `DISP … ENT` — the same technique GBASIC.COM's interpreter uses — so their labels resolve correctly while the bytes stay at the `.COM` offset. Each Z-80 module is `INCLUDE`d from its canonical source (wrapped in a `MODULE`, with `DEVICE`/`ORG`/`SAVEBIN` bracketed behind `IFNDEF CPM60_LINK` so it still assembles standalone). The CCP/BDOS file regions overlap by 6 bytes (`0x1700-0x1705`) — the shared `BD160001 4D40` serial that ends the CCP and begins the BDOS — and the gaps are `$00`. The pipeline build is `cpm_pipeline.build_cpm60.build_cpm60_com()`; `build_cpm60_com_via_layout()` is an independent component-concat cross-check, and both equal the genuine file on `CPMV233.DSK`.
+
 ## 3. The Installer Driver
 
-The driver occupies file `0x000-0x25F` (608 bytes, ORG `$0100`) and reassembles via sjasmplus to exactly `CPM60.COM[0x000:0x260]` with zero diffs. It is a stand-alone clone of the in-system sysgen / disk-write path: it pokes the same `$F3Dx`/`$F3Ex` bridge variables and uses the same `$0E03` RPC opcode as `CPM_CCP.asm SUB_DB06` (`$DB06`, the CCP sysgen path) and `BIOS RPC_DISPATCH` (`$FB45`, `LD ($E700),A`).
+The driver occupies file `0x000-0x260` (609 bytes, `$0261`, ORG `$0100`) and reassembles via sjasmplus to exactly `CPM60.COM[0x000:0x261]` with zero diffs. It is a stand-alone clone of the in-system sysgen / disk-write path: it pokes the same `$F3Dx`/`$F3Ex` bridge variables and uses the same `$0E03` RPC opcode as `CPM_CCP.asm SUB_DB06` (`$DB06`, the CCP sysgen path) and `BIOS RPC_DISPATCH` (`$FB45`, `LD ($E700),A`).
 
 Step by step:
 
