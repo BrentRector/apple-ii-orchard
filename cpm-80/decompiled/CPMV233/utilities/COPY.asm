@@ -19,9 +19,9 @@ CMDLINE              EQU $0081               ; Command-line tail characters (upp
 ; [AI] COM program entry point at $0100; sets up the stack-top pointer and begins by printing the
 ;       sign-on banner.
 TPA_START:
-        LD DE,SUB_04FC_15                ; $0100  11 4C 05
+        LD DE,CHECK_SOURCE_SYSTEM_15                ; $0100  11 4C 05
 TPA_START_1:
-        CALL SUB_0434                    ; $0103  CD 34 04
+        CALL PRINT_CRLF_STRING                    ; $0103  CD 34 04
 TPA_START_2:
         LD C,$20                         ; $0106  0E 20
 TPA_START_3:
@@ -35,13 +35,13 @@ TPA_START_6:
 TPA_START_7:
         JP NZ,TPA_START_26               ; $0111  C2 41 01
 TPA_START_8:
-        CALL SUB_043F                    ; $0114  CD 3F 04
+        CALL PRINT_CRLF                    ; $0114  CD 3F 04
 TPA_START_9:
         LD A,$2A                         ; $0117  3E 2A
 TPA_START_10:
-        CALL SUB_0446                    ; $0119  CD 46 04
+        CALL PRINT_CHAR                    ; $0119  CD 46 04
 TPA_START_11:
-        LD HL,SUB_04FC_6                 ; $011C  21 20 05
+        LD HL,CHECK_SOURCE_SYSTEM_6                 ; $011C  21 20 05
 TPA_START_12:
         LD B,$08                         ; $011F  06 08
 TPA_START_13:
@@ -61,7 +61,7 @@ TPA_START_19:
 TPA_START_20:
         CALL BDOS_VEC                    ; $0130  CD 05 00
 TPA_START_21:
-        CALL SUB_043F                    ; $0133  CD 3F 04
+        CALL PRINT_CRLF                    ; $0133  CD 3F 04
 TPA_START_22:
         LD HL,CMDLINE                    ; $0136  21 81 00
 TPA_START_23:
@@ -77,146 +77,146 @@ TPA_START_25:
 ; [AI] Main start after the command tail has been normalized/re-read; establishes the local stack
 ;       and parses the source drive, optional '=' destination, and option switches.
 TPA_START_26:
-        LD SP,SUB_04FC_15                ; $0141  31 4C 05
-        CALL SUB_043F                    ; $0144  CD 3F 04
+        LD SP,CHECK_SOURCE_SYSTEM_15                ; $0141  31 4C 05
+        CALL PRINT_CRLF                    ; $0144  CD 3F 04
         LD HL,$0082                      ; $0147  21 82 00
-        CALL SUB_044C                    ; $014A  CD 4C 04
-        LD (SUB_04FC_36),A               ; $014D  32 72 07
-        LD (SUB_04FC_30),A               ; $0150  32 0B 07
-        LD (SUB_04FC_32),A               ; $0153  32 25 07
-        CALL SUB_046D                    ; $0156  CD 6D 04
-        LD (SUB_04FC_2),A                ; $0159  32 1C 05
-        LD (SUB_04FC_3),A                ; $015C  32 1D 05
-        CALL SUB_044C                    ; $015F  CD 4C 04
+        CALL NEXT_TAIL_CHAR                    ; $014A  CD 4C 04
+        LD (CHECK_SOURCE_SYSTEM_36),A               ; $014D  32 72 07
+        LD (CHECK_SOURCE_SYSTEM_30),A               ; $0150  32 0B 07
+        LD (CHECK_SOURCE_SYSTEM_32),A               ; $0153  32 25 07
+        CALL PARSE_DRIVE_SPEC                    ; $0156  CD 6D 04
+        LD (CHECK_SOURCE_SYSTEM_2),A                ; $0159  32 1C 05
+        LD (CHECK_SOURCE_SYSTEM_3),A                ; $015C  32 1D 05
+        CALL NEXT_TAIL_CHAR                    ; $015F  CD 4C 04
         CP $3D                           ; $0162  FE 3D
         JR Z,TPA_START_27                ; $0164  28 0C
         CP $2F                           ; $0166  FE 2F
-        JP NZ,SUB_046D_1                 ; $0168  C2 71 04
+        JP NZ,PARSE_DRIVE_SPEC_1                 ; $0168  C2 71 04
         LD A,$FF                         ; $016B  3E FF
-        LD (SUB_04FC_6),A                ; $016D  32 20 05
+        LD (CHECK_SOURCE_SYSTEM_6),A                ; $016D  32 20 05
         JR TPA_START_29                  ; $0170  18 17
 ; [AI] Handles the explicit 'dest=source' form: stores the destination drive letter, then parses
 ;       the source drive that follows the '=' sign.
 TPA_START_27:
-        CALL SUB_044C                    ; $0172  CD 4C 04
-        LD (SUB_04FC_35),A               ; $0175  32 4B 07
-        CALL SUB_046D                    ; $0178  CD 6D 04
-        LD (SUB_04FC_2),A                ; $017B  32 1C 05
+        CALL NEXT_TAIL_CHAR                    ; $0172  CD 4C 04
+        LD (CHECK_SOURCE_SYSTEM_35),A               ; $0175  32 4B 07
+        CALL PARSE_DRIVE_SPEC                    ; $0178  CD 6D 04
+        LD (CHECK_SOURCE_SYSTEM_2),A                ; $017B  32 1C 05
 ; [AI] Option-switch scanning loop: reads the next tail character and dispatches on '/' followed by
 ;       an S/D/F/V letter, ending when the tail is exhausted.
 TPA_START_28:
-        CALL SUB_044C                    ; $017E  CD 4C 04
+        CALL NEXT_TAIL_CHAR                    ; $017E  CD 4C 04
         OR A                             ; $0181  B7
         JR Z,TPA_START_33                ; $0182  28 2D
         CP $2F                           ; $0184  FE 2F
-        JP NZ,SUB_046D_1                 ; $0186  C2 71 04
+        JP NZ,PARSE_DRIVE_SPEC_1                 ; $0186  C2 71 04
 ; [AI] Decodes one option switch after a '/': 'S'=system-copy, 'D'=double-side/extra, 'F'=format,
 ;       'V'=verify, storing a nonzero flag for each in the option block at $0522-$0525.
 TPA_START_29:
-        CALL SUB_044C                    ; $0189  CD 4C 04
+        CALL NEXT_TAIL_CHAR                    ; $0189  CD 4C 04
         CP $53                           ; $018C  FE 53
         JR NZ,TPA_START_30               ; $018E  20 05
-        LD (SUB_04FC_8),A                ; $0190  32 22 05
+        LD (CHECK_SOURCE_SYSTEM_8),A                ; $0190  32 22 05
         JR TPA_START_28                  ; $0193  18 E9
 ; [AI] Tests the option letter for 'D' and sets its flag at $0523 if matched.
 TPA_START_30:
         CP $44                           ; $0195  FE 44
         JR NZ,TPA_START_31               ; $0197  20 05
-        LD (SUB_04FC_9),A                ; $0199  32 23 05
+        LD (CHECK_SOURCE_SYSTEM_9),A                ; $0199  32 23 05
         JR TPA_START_28                  ; $019C  18 E0
 ; [AI] Tests the option letter for 'F' (format) and sets its flag at $0525 if matched.
 TPA_START_31:
         CP $46                           ; $019E  FE 46
         JR NZ,TPA_START_32               ; $01A0  20 05
-        LD (SUB_04FC_11),A               ; $01A2  32 25 05
+        LD (CHECK_SOURCE_SYSTEM_11),A               ; $01A2  32 25 05
         JR TPA_START_28                  ; $01A5  18 D7
 ; [AI] Tests the option letter for 'V' (verify) and sets its flag at $0524; any other letter is
 ;       rejected as a command error.
 TPA_START_32:
         CP $56                           ; $01A7  FE 56
-        JP NZ,SUB_046D_1                 ; $01A9  C2 71 04
-        LD (SUB_04FC_10),A               ; $01AC  32 24 05
+        JP NZ,PARSE_DRIVE_SPEC_1                 ; $01A9  C2 71 04
+        LD (CHECK_SOURCE_SYSTEM_10),A               ; $01AC  32 24 05
         JR TPA_START_28                  ; $01AF  18 CD
 ; [AI] Begin a copy pass: clears the run-state flag, computes the number of tracks/buffers to copy
 ;       from the TPA size at $0007, and adjusts it down when verify mode needs a compare buffer.
 TPA_START_33:
         XOR A                            ; $01B1  AF
-        LD (SUB_04FC_12),A               ; $01B2  32 26 05
+        LD (CHECK_SOURCE_SYSTEM_12),A               ; $01B2  32 26 05
         LD A,($0007)                     ; $01B5  3A 07 00
         SUB $14                          ; $01B8  D6 14
         LD B,A                           ; $01BA  47
-        LD A,(SUB_04FC_10)               ; $01BB  3A 24 05
+        LD A,(CHECK_SOURCE_SYSTEM_10)               ; $01BB  3A 24 05
         OR A                             ; $01BE  B7
         JR Z,TPA_START_34                ; $01BF  28 0B
         SRL B                            ; $01C1  CB 38
         LD C,$00                         ; $01C3  0E 00
         LD HL,$2400                      ; $01C5  21 00 24
         ADD HL,BC                        ; $01C8  09
-        LD (SUB_04FC_13),HL              ; $01C9  22 28 05
+        LD (CHECK_SOURCE_SYSTEM_13),HL              ; $01C9  22 28 05
 TPA_START_34:
         LD A,B                           ; $01CC  78
-        LD (SUB_04FC_4),A                ; $01CD  32 1E 05
-        LD A,(SUB_04FC_6)                ; $01D0  3A 20 05
+        LD (CHECK_SOURCE_SYSTEM_4),A                ; $01CD  32 1E 05
+        LD A,(CHECK_SOURCE_SYSTEM_6)                ; $01D0  3A 20 05
         OR A                             ; $01D3  B7
         JP Z,TPA_START_41                ; $01D4  CA 33 02
-        LD A,(SUB_04FC_9)                ; $01D7  3A 23 05
+        LD A,(CHECK_SOURCE_SYSTEM_9)                ; $01D7  3A 23 05
         OR A                             ; $01DA  B7
         JR Z,TPA_START_37                ; $01DB  28 25
-        LD A,(SUB_04FC_8)                ; $01DD  3A 22 05
+        LD A,(CHECK_SOURCE_SYSTEM_8)                ; $01DD  3A 22 05
         OR A                             ; $01E0  B7
-        JP NZ,SUB_046D_1                 ; $01E1  C2 71 04
-        LD DE,SUB_04FC_31                ; $01E4  11 0E 07
-        CALL SUB_04D6                    ; $01E7  CD D6 04
-        LD A,(SUB_04FC_11)               ; $01EA  3A 25 05
+        JP NZ,PARSE_DRIVE_SPEC_1                 ; $01E1  C2 71 04
+        LD DE,CHECK_SOURCE_SYSTEM_31                ; $01E4  11 0E 07
+        CALL PROMPT_PRESS_RETURN                    ; $01E7  CD D6 04
+        LD A,(CHECK_SOURCE_SYSTEM_11)               ; $01EA  3A 25 05
         OR A                             ; $01ED  B7
         JR NZ,TPA_START_35               ; $01EE  20 06
-        CALL SUB_04FC                    ; $01F0  CD FC 04
+        CALL CHECK_SOURCE_SYSTEM                    ; $01F0  CD FC 04
         OR A                             ; $01F3  B7
         JR Z,TPA_START_36                ; $01F4  28 06
 TPA_START_35:
-        CALL SUB_035E                    ; $01F6  CD 5E 03
+        CALL FORMAT_DEST_DISK                    ; $01F6  CD 5E 03
         JP TPA_START_46                  ; $01F9  C3 7A 02
 TPA_START_36:
-        CALL SUB_03D3                    ; $01FC  CD D3 03
+        CALL OPEN_SYSTEM_FCB                    ; $01FC  CD D3 03
         JP TPA_START_46                  ; $01FF  C3 7A 02
 ; [AI] Single-drive whole-disk copy branch (no /S): prompts for source and destination swaps on
 ;       drive A and sets up the track range starting at $002C.
 TPA_START_37:
-        LD A,(SUB_04FC_8)                ; $0202  3A 22 05
+        LD A,(CHECK_SOURCE_SYSTEM_8)                ; $0202  3A 22 05
         OR A                             ; $0205  B7
         JR Z,TPA_START_39                ; $0206  28 22
-        LD A,(SUB_04FC_9)                ; $0208  3A 23 05
+        LD A,(CHECK_SOURCE_SYSTEM_9)                ; $0208  3A 23 05
         OR A                             ; $020B  B7
-        JP NZ,SUB_046D_1                 ; $020C  C2 71 04
+        JP NZ,PARSE_DRIVE_SPEC_1                 ; $020C  C2 71 04
         LD A,$41                         ; $020F  3E 41
-        LD (SUB_04FC_35),A               ; $0211  32 4B 07
+        LD (CHECK_SOURCE_SYSTEM_35),A               ; $0211  32 4B 07
         XOR A                            ; $0214  AF
-        LD (SUB_04FC_2),A                ; $0215  32 1C 05
+        LD (CHECK_SOURCE_SYSTEM_2),A                ; $0215  32 1C 05
 ; [AI] Builds the prompt strings by copying the drive letter into the 'SOURCE'/'DESTINATION'
 ;       message templates, then sets up the disk-copy track loop entry.
 TPA_START_38:
-        LD DE,SUB_04FC_34                ; $0218  11 2F 07
-        CALL SUB_040E                    ; $021B  CD 0E 04
-        LD DE,SUB_04FC_39                ; $021E  11 9A 07
-        CALL SUB_040E                    ; $0221  CD 0E 04
+        LD DE,CHECK_SOURCE_SYSTEM_34                ; $0218  11 2F 07
+        CALL SET_SYSTEM_FILENAME                    ; $021B  CD 0E 04
+        LD DE,CHECK_SOURCE_SYSTEM_39                ; $021E  11 9A 07
+        CALL SET_SYSTEM_FILENAME                    ; $0221  CD 0E 04
         LD DE,$002C                      ; $0224  11 2C 00
         JP TPA_START_42                  ; $0227  C3 43 02
 ; [AI] Two-drive copy branch: prompts to insert the source disk, then falls through to perform the
 ;       system-file copy.
 TPA_START_39:
-        LD DE,SUB_04FC_29                ; $022A  11 E6 06
-        CALL SUB_04D6                    ; $022D  CD D6 04
+        LD DE,CHECK_SOURCE_SYSTEM_29                ; $022A  11 E6 06
+        CALL PROMPT_PRESS_RETURN                    ; $022D  CD D6 04
 TPA_START_40:
         JP TPA_START_35                  ; $0230  C3 F6 01
 ; [AI] Selects the copy strategy when neither system nor double flags are set, choosing between
 ;       same-drive prompting and a straight whole-disk track copy at $0230.
 TPA_START_41:
-        LD A,(SUB_04FC_8)                ; $0233  3A 22 05
+        LD A,(CHECK_SOURCE_SYSTEM_8)                ; $0233  3A 22 05
         OR A                             ; $0236  B7
         JR NZ,TPA_START_38               ; $0237  20 DF
-        LD A,(SUB_04FC_9)                ; $0239  3A 23 05
+        LD A,(CHECK_SOURCE_SYSTEM_9)                ; $0239  3A 23 05
         OR A                             ; $023C  B7
-        JP NZ,SUB_046D_1                 ; $023D  C2 71 04
+        JP NZ,PARSE_DRIVE_SPEC_1                 ; $023D  C2 71 04
         LD DE,TPA_START_40               ; $0240  11 30 02
 ; [AI] Sets up the per-track copy loop: initializes the SoftCard 6502 track counter in the shared
 ;       parameter block and, if source and destination differ, prints the copying message.
@@ -226,20 +226,20 @@ TPA_START_42:
         LD H,C                           ; $0247  61
         PUSH DE                          ; $0248  D5
         LD ($F3E0),HL                    ; $0249  22 E0 F3
-        LD HL,(SUB_04FC_2)               ; $024C  2A 1C 05
+        LD HL,(CHECK_SOURCE_SYSTEM_2)               ; $024C  2A 1C 05
         LD A,L                           ; $024F  7D
         CP H                             ; $0250  BC
         JR Z,TPA_START_43                ; $0251  28 0C
-        LD DE,SUB_04FC_33                ; $0253  11 28 07
-        CALL SUB_04D6                    ; $0256  CD D6 04
-        LD DE,SUB_04FC_17                ; $0259  11 AB 05
-        CALL SUB_0376                    ; $025C  CD 76 03
+        LD DE,CHECK_SOURCE_SYSTEM_33                ; $0253  11 28 07
+        CALL PROMPT_PRESS_RETURN                    ; $0256  CD D6 04
+        LD DE,CHECK_SOURCE_SYSTEM_17                ; $0259  11 AB 05
+        CALL PRINT_IF_SAME_DRIVE                    ; $025C  CD 76 03
 TPA_START_43:
         POP HL                           ; $025F  E1
 ; [AI] Track-batch loop: reads as many tracks as fit in TPA memory (capped by the buffer count at
 ;       $051E), copying each batch from source to destination before reusing the buffer.
 TPA_START_44:
-        LD A,(SUB_04FC_4)                ; $0260  3A 1E 05
+        LD A,(CHECK_SOURCE_SYSTEM_4)                ; $0260  3A 1E 05
         LD E,A                           ; $0263  5F
         LD D,$00                         ; $0264  16 00
         LD B,A                           ; $0266  47
@@ -251,7 +251,7 @@ TPA_START_44:
         LD HL,WBOOT_VEC                  ; $026E  21 00 00
 TPA_START_45:
         PUSH HL                          ; $0271  E5
-        CALL SUB_02C1                    ; $0272  CD C1 02
+        CALL COPY_TRACK_BATCH                    ; $0272  CD C1 02
         POP HL                           ; $0275  E1
         LD A,L                           ; $0276  7D
         OR H                             ; $0277  B4
@@ -259,18 +259,18 @@ TPA_START_45:
 ; [AI] Operation-complete path: prints the 'Operation completed' message and asks whether to
 ;       repeat.
 TPA_START_46:
-        LD DE,SUB_04FC_24                ; $027A  11 4A 06
+        LD DE,CHECK_SOURCE_SYSTEM_24                ; $027A  11 4A 06
 TPA_START_47:
-        CALL SUB_0434                    ; $027D  CD 34 04
-        LD SP,SUB_04FC_15                ; $0280  31 4C 05
-        LD DE,SUB_04FC_25                ; $0283  11 62 06
-        CALL SUB_0434                    ; $0286  CD 34 04
-        LD HL,SUB_04FC_43                ; $0289  21 00 08
+        CALL PRINT_CRLF_STRING                    ; $027D  CD 34 04
+        LD SP,CHECK_SOURCE_SYSTEM_15                ; $0280  31 4C 05
+        LD DE,CHECK_SOURCE_SYSTEM_25                ; $0283  11 62 06
+        CALL PRINT_CRLF_STRING                    ; $0286  CD 34 04
+        LD HL,CHECK_SOURCE_SYSTEM_43                ; $0289  21 00 08
         LD ($F3E8),HL                    ; $028C  22 E8 F3
 ; [AI] Reads a Y/N answer to the repeat prompt, looping until the user presses 'N' (exit) or 'Y'
 ;       (restart).
 TPA_START_48:
-        CALL SUB_04E7                    ; $028F  CD E7 04
+        CALL READ_CONSOLE_CHAR                    ; $028F  CD E7 04
         CP $4E                           ; $0292  FE 4E
         JR Z,TPA_START_49                ; $0294  28 06
         CP $59                           ; $0296  FE 59
@@ -279,268 +279,268 @@ TPA_START_48:
 ; [AI] User answered No: if no destination drive was distinct, prompt to reinsert the CP/M system
 ;       disk before warm-booting back to CP/M.
 TPA_START_49:
-        CALL SUB_0446                    ; $029C  CD 46 04
-        LD HL,(SUB_04FC_2)               ; $029F  2A 1C 05
+        CALL PRINT_CHAR                    ; $029C  CD 46 04
+        LD HL,(CHECK_SOURCE_SYSTEM_2)               ; $029F  2A 1C 05
         LD A,L                           ; $02A2  7D
         AND H                            ; $02A3  A4
         JR NZ,TPA_START_50               ; $02A4  20 06
-        LD DE,SUB_04FC_26                ; $02A6  11 8D 06
-        CALL SUB_04DC                    ; $02A9  CD DC 04
+        LD DE,CHECK_SOURCE_SYSTEM_26                ; $02A6  11 8D 06
+        CALL PRINT_WAIT_RETURN                    ; $02A9  CD DC 04
 TPA_START_50:
         JP WBOOT_VEC                     ; $02AC  C3 00 00
 ; [AI] User answered Yes: re-arm the system flag and jump back to L_01B1 to run another copy pass.
 TPA_START_51:
-        CALL SUB_0446                    ; $02AF  CD 46 04
-        CALL SUB_043F                    ; $02B2  CD 3F 04
-        CALL SUB_043F                    ; $02B5  CD 3F 04
-        LD A,(SUB_04FC_8)                ; $02B8  3A 22 05
-        LD (SUB_04FC_7),A                ; $02BB  32 21 05
+        CALL PRINT_CHAR                    ; $02AF  CD 46 04
+        CALL PRINT_CRLF                    ; $02B2  CD 3F 04
+        CALL PRINT_CRLF                    ; $02B5  CD 3F 04
+        LD A,(CHECK_SOURCE_SYSTEM_8)                ; $02B8  3A 22 05
+        LD (CHECK_SOURCE_SYSTEM_7),A                ; $02BB  32 21 05
         JP TPA_START_33                  ; $02BE  C3 B1 01
 ; [AI] Copies one batch of B tracks: optionally opens/creates the destination CPM.SYS file (system
 ;       mode), reads the source tracks into TPA RAM via the 6502, writes them out, and verifies on
 ;       /V.
-SUB_02C1:
+COPY_TRACK_BATCH:
         LD A,B                           ; $02C1  78
-        LD (SUB_04FC_5),A                ; $02C2  32 1F 05
+        LD (CHECK_SOURCE_SYSTEM_5),A                ; $02C2  32 1F 05
         LD HL,($F3E0)                    ; $02C5  2A E0 F3
-        LD (SUB_04FC_14),HL              ; $02C8  22 2A 05
-        LD A,(SUB_04FC_7)                ; $02CB  3A 21 05
+        LD (CHECK_SOURCE_SYSTEM_14),HL              ; $02C8  22 2A 05
+        LD A,(CHECK_SOURCE_SYSTEM_7)                ; $02CB  3A 21 05
         OR A                             ; $02CE  B7
-        JR NZ,SUB_02C1_2                 ; $02CF  20 2F
-        LD DE,SUB_04FC_38                ; $02D1  11 90 07
-        CALL SUB_0461                    ; $02D4  CD 61 04
-        LD A,(SUB_04FC_8)                ; $02D7  3A 22 05
+        JR NZ,COPY_TRACK_BATCH_2                 ; $02CF  20 2F
+        LD DE,CHECK_SOURCE_SYSTEM_38                ; $02D1  11 90 07
+        CALL WAIT_IF_SAME_DRIVE                    ; $02D4  CD 61 04
+        LD A,(CHECK_SOURCE_SYSTEM_8)                ; $02D7  3A 22 05
         OR A                             ; $02DA  B7
-        JR Z,SUB_02C1_1                  ; $02DB  28 1B
-        LD A,(SUB_04FC_2)                ; $02DD  3A 1C 05
+        JR Z,COPY_TRACK_BATCH_1                  ; $02DB  28 1B
+        LD A,(CHECK_SOURCE_SYSTEM_2)                ; $02DD  3A 1C 05
         LD E,A                           ; $02E0  5F
         LD C,$0E                         ; $02E1  0E 0E
         CALL BDOS_VEC                    ; $02E3  CD 05 00
-        LD DE,SUB_03D3_2                 ; $02E6  11 EA 03
+        LD DE,OPEN_SYSTEM_FCB_2                 ; $02E6  11 EA 03
         LD C,$11                         ; $02E9  0E 11
         CALL BDOS_VEC                    ; $02EB  CD 05 00
         INC A                            ; $02EE  3C
-        JP Z,SUB_037F_2                  ; $02EF  CA C3 03
-        LD HL,(SUB_04FC_14)              ; $02F2  2A 2A 05
+        JP Z,READ_SYSTEM_FILE_2                  ; $02EF  CA C3 03
+        LD HL,(CHECK_SOURCE_SYSTEM_14)              ; $02F2  2A 2A 05
         LD ($F3E0),HL                    ; $02F5  22 E0 F3
-SUB_02C1_1:
-        LD A,(SUB_04FC_2)                ; $02F8  3A 1C 05
+COPY_TRACK_BATCH_1:
+        LD A,(CHECK_SOURCE_SYSTEM_2)                ; $02F8  3A 1C 05
         LD C,$01                         ; $02FB  0E 01
-        CALL SUB_04A2                    ; $02FD  CD A2 04
+        CALL RW_DISK_SIDE                    ; $02FD  CD A2 04
 ; [AI] Read+write phase of a track batch: reads the source side into the buffer, then selects the
 ;       destination and writes the buffer back out.
-SUB_02C1_2:
-        LD DE,SUB_04FC_40                ; $0300  11 BE 07
-        CALL SUB_0461                    ; $0303  CD 61 04
-        LD A,(SUB_04FC_12)               ; $0306  3A 26 05
+COPY_TRACK_BATCH_2:
+        LD DE,CHECK_SOURCE_SYSTEM_40                ; $0300  11 BE 07
+        CALL WAIT_IF_SAME_DRIVE                    ; $0303  CD 61 04
+        LD A,(CHECK_SOURCE_SYSTEM_12)               ; $0306  3A 26 05
         OR A                             ; $0309  B7
-        CALL Z,SUB_0353                  ; $030A  CC 53 03
-        LD HL,(SUB_04FC_14)              ; $030D  2A 2A 05
-SUB_02C1_3:
+        CALL Z,INIT_FORMAT_DEST                  ; $030A  CC 53 03
+        LD HL,(CHECK_SOURCE_SYSTEM_14)              ; $030D  2A 2A 05
+COPY_TRACK_BATCH_3:
         LD ($F3E0),HL                    ; $0310  22 E0 F3
-        LD A,(SUB_04FC_3)                ; $0313  3A 1D 05
+        LD A,(CHECK_SOURCE_SYSTEM_3)                ; $0313  3A 1D 05
         LD C,$02                         ; $0316  0E 02
-        CALL SUB_04A2                    ; $0318  CD A2 04
-        LD A,(SUB_04FC_10)               ; $031B  3A 24 05
+        CALL RW_DISK_SIDE                    ; $0318  CD A2 04
+        LD A,(CHECK_SOURCE_SYSTEM_10)               ; $031B  3A 24 05
         OR A                             ; $031E  B7
         RET Z                            ; $031F  C8
-SUB_02C1_4:
-        LD HL,(SUB_04FC_14)              ; $0320  2A 2A 05
+COPY_TRACK_BATCH_4:
+        LD HL,(CHECK_SOURCE_SYSTEM_14)              ; $0320  2A 2A 05
         LD ($F3E0),HL                    ; $0323  22 E0 F3
-        LD HL,(SUB_04FC_13)              ; $0326  2A 28 05
-SUB_02C1_5:
+        LD HL,(CHECK_SOURCE_SYSTEM_13)              ; $0326  2A 28 05
+COPY_TRACK_BATCH_5:
         PUSH HL                          ; $0329  E5
         LD C,$01                         ; $032A  0E 01
-        LD A,(SUB_04FC_3)                ; $032C  3A 1D 05
-        CALL SUB_04A5                    ; $032F  CD A5 04
+        LD A,(CHECK_SOURCE_SYSTEM_3)                ; $032C  3A 1D 05
+        CALL TRACK_TRANSFER_LOOP                    ; $032F  CD A5 04
         POP HL                           ; $0332  E1
         LD DE,$F000                      ; $0333  11 00 F0
         ADD HL,DE                        ; $0336  19
         EX DE,HL                         ; $0337  EB
         LD HL,$1400                      ; $0338  21 00 14
-        LD A,(SUB_04FC_5)                ; $033B  3A 1F 05
+        LD A,(CHECK_SOURCE_SYSTEM_5)                ; $033B  3A 1F 05
         LD B,A                           ; $033E  47
         LD C,$00                         ; $033F  0E 00
 ; [AI] Verify loop comparing the just-written destination data (read back to $F000-relative buffer)
 ;       byte-for-byte against the original at $1400, reporting a verify error on mismatch.
-SUB_02C1_6:
+COPY_TRACK_BATCH_6:
         LD A,(DE)                        ; $0341  1A
         CP (HL)                          ; $0342  BE
-        JR NZ,SUB_02C1_7                 ; $0343  20 08
+        JR NZ,COPY_TRACK_BATCH_7                 ; $0343  20 08
         INC HL                           ; $0345  23
         INC DE                           ; $0346  13
         DEC BC                           ; $0347  0B
         LD A,C                           ; $0348  79
         OR B                             ; $0349  B0
-        JR NZ,SUB_02C1_6                 ; $034A  20 F5
+        JR NZ,COPY_TRACK_BATCH_6                 ; $034A  20 F5
         RET                              ; $034C  C9
 ; [AI] Verify-failure exit: loads the 'Disk Verify error' message pointer and prints it before re-
 ;       prompting.
-SUB_02C1_7:
-        LD DE,SUB_04FC_23                ; $034D  11 35 06
+COPY_TRACK_BATCH_7:
+        LD DE,CHECK_SOURCE_SYSTEM_23                ; $034D  11 35 06
         JP TPA_START_47                  ; $0350  C3 7D 02
 ; [AI] One-time per-run initialization that marks the destination as needing formatting and, when
 ;       appropriate, formats it before the first write.
-SUB_0353:
+INIT_FORMAT_DEST:
         LD A,$FF                         ; $0353  3E FF
-        LD (SUB_04FC_12),A               ; $0355  32 26 05
-        CALL SUB_04FC                    ; $0358  CD FC 04
+        LD (CHECK_SOURCE_SYSTEM_12),A               ; $0355  32 26 05
+        CALL CHECK_SOURCE_SYSTEM                    ; $0358  CD FC 04
         OR A                             ; $035B  B7
-        JR Z,SUB_037F                    ; $035C  28 21
+        JR Z,READ_SYSTEM_FILE                    ; $035C  28 21
 ; [AI] Formats the destination disk: prompts for the disk, runs the 6502 format routine, and writes
 ;       a fresh CP/M system image, reporting write-protect or I/O errors.
-SUB_035E:
-        LD DE,SUB_04FC_41                ; $035E  11 ED 07
-        CALL SUB_0376                    ; $0361  CD 76 03
-        LD A,(SUB_04FC_3)                ; $0364  3A 1D 05
-        CALL SUB_048E                    ; $0367  CD 8E 04
+FORMAT_DEST_DISK:
+        LD DE,CHECK_SOURCE_SYSTEM_41                ; $035E  11 ED 07
+        CALL PRINT_IF_SAME_DRIVE                    ; $0361  CD 76 03
+        LD A,(CHECK_SOURCE_SYSTEM_3)                ; $0364  3A 1D 05
+        CALL DRIVE_TO_6502_PARAMS                    ; $0367  CD 8E 04
         LD HL,$1900                      ; $036A  21 00 19
-        CALL SUB_0417                    ; $036D  CD 17 04
-        CALL SUB_037F                    ; $0370  CD 7F 03
-        LD DE,SUB_04FC_18                ; $0373  11 AE 05
+        CALL CALL_6502_DISK                    ; $036D  CD 17 04
+        CALL READ_SYSTEM_FILE                    ; $0370  CD 7F 03
+        LD DE,CHECK_SOURCE_SYSTEM_18                ; $0373  11 AE 05
 ; [AI] Prints a message (DE) only when source and destination are on the same drive, so single-
 ;       drive copies show the extra swap prompts and two-drive copies stay quiet.
-SUB_0376:
-        LD HL,(SUB_04FC_2)               ; $0376  2A 1C 05
+PRINT_IF_SAME_DRIVE:
+        LD HL,(CHECK_SOURCE_SYSTEM_2)               ; $0376  2A 1C 05
         LD A,L                           ; $0379  7D
         CP H                             ; $037A  BC
         RET Z                            ; $037B  C8
-        JP SUB_0434                      ; $037C  C3 34 04
+        JP PRINT_CRLF_STRING                      ; $037C  C3 34 04
 ; [AI] In system-copy mode, opens the source CPM*.SYS file, validates it, and reads the OS image
 ;       into the copy buffer, reporting 'System not found' if absent.
-SUB_037F:
-        LD A,(SUB_04FC_8)                ; $037F  3A 22 05
+READ_SYSTEM_FILE:
+        LD A,(CHECK_SOURCE_SYSTEM_8)                ; $037F  3A 22 05
         OR A                             ; $0382  B7
         RET Z                            ; $0383  C8
-        CALL SUB_03D3                    ; $0384  CD D3 03
+        CALL OPEN_SYSTEM_FCB                    ; $0384  CD D3 03
         LD C,$1B                         ; $0387  0E 1B
         CALL BDOS_VEC                    ; $0389  CD 05 00
         LD DE,RST2_VEC                   ; $038C  11 10 00
         ADD HL,DE                        ; $038F  19
         LD A,(HL)                        ; $0390  7E
         OR A                             ; $0391  B7
-        JR NZ,SUB_037F_3                 ; $0392  20 34
+        JR NZ,READ_SYSTEM_FILE_3                 ; $0392  20 34
         INC HL                           ; $0394  23
         LD A,(HL)                        ; $0395  7E
         AND $F0                          ; $0396  E6 F0
-        JR NZ,SUB_037F_3                 ; $0398  20 2E
+        JR NZ,READ_SYSTEM_FILE_3                 ; $0398  20 2E
         LD C,$16                         ; $039A  0E 16
-        LD DE,SUB_03D3_2                 ; $039C  11 EA 03
+        LD DE,OPEN_SYSTEM_FCB_2                 ; $039C  11 EA 03
         CALL BDOS_VEC                    ; $039F  CD 05 00
         INC A                            ; $03A2  3C
-        JR Z,SUB_037F_4                  ; $03A3  28 28
-        LD HL,SUB_03D3_5                 ; $03A5  21 FA 03
+        JR Z,READ_SYSTEM_FILE_4                  ; $03A3  28 28
+        LD HL,OPEN_SYSTEM_FCB_5                 ; $03A5  21 FA 03
         LD C,$80                         ; $03A8  0E 80
         LD B,$0C                         ; $03AA  06 0C
 ; [AI] Builds a 12-byte ascending FCB record-list (records $80-$8B) used to read the multi-record
 ;       system file in one BDOS random/sequential pass.
-SUB_037F_1:
+READ_SYSTEM_FILE_1:
         LD (HL),C                        ; $03AC  71
         INC C                            ; $03AD  0C
         INC HL                           ; $03AE  23
-        DJNZ SUB_037F_1                  ; $03AF  10 FB
+        DJNZ READ_SYSTEM_FILE_1                  ; $03AF  10 FB
         LD A,$60                         ; $03B1  3E 60
-        LD (SUB_03D3_4),A                ; $03B3  32 F9 03
+        LD (OPEN_SYSTEM_FCB_4),A                ; $03B3  32 F9 03
         XOR A                            ; $03B6  AF
-        LD (SUB_03D3_3),A                ; $03B7  32 F8 03
+        LD (OPEN_SYSTEM_FCB_3),A                ; $03B7  32 F8 03
         LD C,$10                         ; $03BA  0E 10
-        LD DE,SUB_03D3_2                 ; $03BC  11 EA 03
+        LD DE,OPEN_SYSTEM_FCB_2                 ; $03BC  11 EA 03
         CALL BDOS_VEC                    ; $03BF  CD 05 00
         RET                              ; $03C2  C9
 ; [AI] Error exit selecting the 'System not found on source disk' message.
-SUB_037F_2:
-        LD DE,SUB_04FC_21                ; $03C3  11 FA 05
-        JR SUB_037F_5                    ; $03C6  18 08
+READ_SYSTEM_FILE_2:
+        LD DE,CHECK_SOURCE_SYSTEM_21                ; $03C3  11 FA 05
+        JR READ_SYSTEM_FILE_5                    ; $03C6  18 08
 ; [AI] Error exit selecting the 'Disk space already in use' message (destination not empty for
 ;       system write).
-SUB_037F_3:
-        LD DE,SUB_04FC_19                ; $03C8  11 BF 05
-        JR SUB_037F_5                    ; $03CB  18 03
+READ_SYSTEM_FILE_3:
+        LD DE,CHECK_SOURCE_SYSTEM_19                ; $03C8  11 BF 05
+        JR READ_SYSTEM_FILE_5                    ; $03CB  18 03
 ; [AI] Error exit selecting the 'Not enough directory space' message.
-SUB_037F_4:
-        LD DE,SUB_04FC_20                ; $03CD  11 DC 05
+READ_SYSTEM_FILE_4:
+        LD DE,CHECK_SOURCE_SYSTEM_20                ; $03CD  11 DC 05
 ; [AI] Common message-print-and-restart tail for the three system-file error cases.
-SUB_037F_5:
-        JP SUB_046D_3                    ; $03D0  C3 88 04
+READ_SYSTEM_FILE_5:
+        JP PARSE_DRIVE_SPEC_3                    ; $03D0  C3 88 04
 ; [AI] Resets the disk system (BDOS 13), selects the working drive (BDOS 14), and opens the system
 ;       FCB at $03EA (BDOS 15).
-SUB_03D3:
+OPEN_SYSTEM_FCB:
         LD C,$0D                         ; $03D3  0E 0D
         CALL BDOS_VEC                    ; $03D5  CD 05 00
-        LD A,(SUB_04FC_3)                ; $03D8  3A 1D 05
+        LD A,(CHECK_SOURCE_SYSTEM_3)                ; $03D8  3A 1D 05
         LD E,A                           ; $03DB  5F
         LD C,$0E                         ; $03DC  0E 0E
         CALL BDOS_VEC                    ; $03DE  CD 05 00
         LD C,$13                         ; $03E1  0E 13
-        LD DE,SUB_03D3_2                 ; $03E3  11 EA 03
-SUB_03D3_1:
+        LD DE,OPEN_SYSTEM_FCB_2                 ; $03E3  11 EA 03
+OPEN_SYSTEM_FCB_1:
         CALL BDOS_VEC                    ; $03E6  CD 05 00
         RET                              ; $03E9  C9
-SUB_03D3_2:
+OPEN_SYSTEM_FCB_2:
         DEFB    $00,$63,$70,$2F,$6D,$20,$20,$20,$20,$73,$79,$73,$00,$00 ; $03EA
-SUB_03D3_3:
+OPEN_SYSTEM_FCB_3:
         DEFB    $00                                              ; $03F8
-SUB_03D3_4:
+OPEN_SYSTEM_FCB_4:
         DEFB    $00                                              ; $03F9
-SUB_03D3_5:
+OPEN_SYSTEM_FCB_5:
         DEFS    20, $00    ; $03FA  fill
 ; [AI] Copies the 11-byte 'CPM System' filename template into the destination FCB so the system
 ;       file can be created on the target disk.
-SUB_040E:
-        LD HL,SUB_04FC_42                ; $040E  21 FC 07
+SET_SYSTEM_FILENAME:
+        LD HL,CHECK_SOURCE_SYSTEM_42                ; $040E  21 FC 07
         LD BC,$000B                      ; $0411  01 0B 00
         LDIR                             ; $0414  ED B0
         RET                              ; $0416  C9
-; [AI] Invokes the relocated 6502 disk routine via the SoftCard handoff (SUB_042C) and inspects its
+; [AI] Invokes the relocated 6502 disk routine via the SoftCard handoff (SOFTCARD_HANDOFF) and inspects its
 ;       returned status byte at $F3EA, branching to a Disk-I/O or write-protect error if nonzero.
-SUB_0417:
-        CALL SUB_042C                    ; $0417  CD 2C 04
+CALL_6502_DISK:
+        CALL SOFTCARD_HANDOFF                    ; $0417  CD 2C 04
         LD A,($F3EA)                     ; $041A  3A EA F3
         OR A                             ; $041D  B7
         RET Z                            ; $041E  C8
-        LD DE,SUB_04FC_27                ; $041F  11 C6 06
+        LD DE,CHECK_SOURCE_SYSTEM_27                ; $041F  11 C6 06
         CP $10                           ; $0422  FE 10
-        JR NZ,SUB_0417_1                 ; $0424  20 03
-        LD DE,SUB_04FC_22                ; $0426  11 1D 06
-SUB_0417_1:
+        JR NZ,CALL_6502_DISK_1                 ; $0424  20 03
+        LD DE,CHECK_SOURCE_SYSTEM_22                ; $0426  11 1D 06
+CALL_6502_DISK_1:
         JP TPA_START_47                  ; $0429  C3 7D 02
 ; [AI] Performs the actual Z-80-to-6502 control transfer: stores the 6502 entry address and the
 ;       command byte into the SoftCard handoff block so the 6502 side executes the disk operation.
-SUB_042C:
+SOFTCARD_HANDOFF:
         LD ($F3D0),HL                    ; $042C  22 D0 F3
         LD HL,($F3DE)                    ; $042F  2A DE F3
         LD (HL),A                        ; $0432  77
         RET                              ; $0433  C9
 ; [AI] Emits a CR/LF then prints the $-terminated string at DE via BDOS function 9.
-SUB_0434:
+PRINT_CRLF_STRING:
         PUSH DE                          ; $0434  D5
-SUB_0434_1:
+PRINT_CRLF_STRING_1:
         LD A,$0D                         ; $0435  3E 0D
-SUB_0434_2:
-        CALL SUB_0446                    ; $0437  CD 46 04
-SUB_0434_3:
+PRINT_CRLF_STRING_2:
+        CALL PRINT_CHAR                    ; $0437  CD 46 04
+PRINT_CRLF_STRING_3:
         POP DE                           ; $043A  D1
-SUB_0434_4:
+PRINT_CRLF_STRING_4:
         LD C,$09                         ; $043B  0E 09
-SUB_0434_5:
-        JR SUB_0446_2                    ; $043D  18 0A
+PRINT_CRLF_STRING_5:
+        JR PRINT_CHAR_2                    ; $043D  18 0A
 ; [AI] Outputs a CR then LF to the console (used to advance a line without printing a string).
-SUB_043F:
+PRINT_CRLF:
         LD A,$0D                         ; $043F  3E 0D
-SUB_043F_1:
-        CALL SUB_0446                    ; $0441  CD 46 04
-SUB_043F_2:
+PRINT_CRLF_1:
+        CALL PRINT_CHAR                    ; $0441  CD 46 04
+PRINT_CRLF_2:
         LD A,$0A                         ; $0444  3E 0A
 ; [AI] Outputs the single character in A to the console via BDOS function 2.
-SUB_0446:
+PRINT_CHAR:
         LD E,A                           ; $0446  5F
-SUB_0446_1:
+PRINT_CHAR_1:
         LD C,$02                         ; $0447  0E 02
-SUB_0446_2:
+PRINT_CHAR_2:
         JP BDOS_VEC                      ; $0449  C3 05 00
 ; [AI] Fetches and uppercases the next non-blank character from the command tail, decrementing the
 ;       tail length; returns zero when the tail is exhausted.
-SUB_044C:
+NEXT_TAIL_CHAR:
         LD A,(CMDLINE)                   ; $044C  3A 81 00
         OR A                             ; $044F  B7
         RET Z                            ; $0450  C8
@@ -549,50 +549,50 @@ SUB_044C:
         LD A,(HL)                        ; $0455  7E
         INC HL                           ; $0456  23
         CP $20                           ; $0457  FE 20
-        JR Z,SUB_044C                    ; $0459  28 F1
+        JR Z,NEXT_TAIL_CHAR                    ; $0459  28 F1
         CP $60                           ; $045B  FE 60
         RET C                            ; $045D  D8
         SUB $20                          ; $045E  D6 20
         RET                              ; $0460  C9
 ; [AI] When source and destination are the same drive, waits for the user to press RETURN (so they
 ;       can swap disks); otherwise returns immediately.
-SUB_0461:
-        LD HL,(SUB_04FC_2)               ; $0461  2A 1C 05
+WAIT_IF_SAME_DRIVE:
+        LD HL,(CHECK_SOURCE_SYSTEM_2)               ; $0461  2A 1C 05
         LD A,L                           ; $0464  7D
         CP H                             ; $0465  BC
         RET NZ                           ; $0466  C0
         PUSH BC                          ; $0467  C5
-        CALL SUB_04DC                    ; $0468  CD DC 04
+        CALL PRINT_WAIT_RETURN                    ; $0468  CD DC 04
         POP BC                           ; $046B  C1
         RET                              ; $046C  C9
 ; [AI] Parses a drive specifier ('A:'..): converts the letter to a 0-based drive number, requires
 ;       the trailing ':', and validates it against the number of logged drives, else reports an
 ;       invalid/command error.
-SUB_046D:
+PARSE_DRIVE_SPEC:
         SUB $41                          ; $046D  D6 41
-        JR NC,SUB_046D_2                 ; $046F  30 05
+        JR NC,PARSE_DRIVE_SPEC_2                 ; $046F  30 05
 ; [AI] Command-error exit: prints 'Command error' and restarts the prompt loop.
-SUB_046D_1:
-        LD DE,SUB_04FC_16                ; $0471  11 9D 05
-        JR SUB_046D_3                    ; $0474  18 12
-SUB_046D_2:
+PARSE_DRIVE_SPEC_1:
+        LD DE,CHECK_SOURCE_SYSTEM_16                ; $0471  11 9D 05
+        JR PARSE_DRIVE_SPEC_3                    ; $0474  18 12
+PARSE_DRIVE_SPEC_2:
         LD C,A                           ; $0476  4F
-        CALL SUB_044C                    ; $0477  CD 4C 04
+        CALL NEXT_TAIL_CHAR                    ; $0477  CD 4C 04
         CP $3A                           ; $047A  FE 3A
-        JR NZ,SUB_046D_1                 ; $047C  20 F3
+        JR NZ,PARSE_DRIVE_SPEC_1                 ; $047C  20 F3
         LD A,($F3B8)                     ; $047E  3A B8 F3
         DEC A                            ; $0481  3D
         CP C                             ; $0482  B9
         LD A,C                           ; $0483  79
         RET NC                           ; $0484  D0
-        LD DE,SUB_04FC_28                ; $0485  11 D8 06
+        LD DE,CHECK_SOURCE_SYSTEM_28                ; $0485  11 D8 06
 ; [AI] Prints the error/usage message at DE then restarts at the top of the prompt loop.
-SUB_046D_3:
-        CALL SUB_0434                    ; $0488  CD 34 04
+PARSE_DRIVE_SPEC_3:
+        CALL PRINT_CRLF_STRING                    ; $0488  CD 34 04
         JP TPA_START_8                   ; $048B  C3 14 01
 ; [AI] Translates a logical drive number into the 6502 disk parameters (slot/drive select and head-
 ;       stepping value) stored in the SoftCard handoff block at $F3E4/$F3E6.
-SUB_048E:
+DRIVE_TO_6502_PARAMS:
         LD E,A                           ; $048E  5F
         INC A                            ; $048F  3C
         AND $01                          ; $0490  E6 01
@@ -608,120 +608,120 @@ SUB_048E:
         RET                              ; $04A1  C9
 ; [AI] Reads or writes a whole disk side starting at TPA buffer $2400: sets the operation code in C
 ;       and falls into the per-track transfer loop.
-SUB_04A2:
+RW_DISK_SIDE:
         LD HL,$2400                      ; $04A2  21 00 24
 ; [AI] Per-track transfer driver: walks B tracks, calling the 6502 read/write routine for each and
 ;       advancing both the 6502 track pointer and the Z-80 memory buffer pointer (skipping the
 ;       language-card hole).
-SUB_04A5:
-        CALL SUB_048E                    ; $04A5  CD 8E 04
+TRACK_TRANSFER_LOOP:
+        CALL DRIVE_TO_6502_PARAMS                    ; $04A5  CD 8E 04
         LD A,C                           ; $04A8  79
         LD ($F3EB),A                     ; $04A9  32 EB F3
-        LD A,(SUB_04FC_5)                ; $04AC  3A 1F 05
+        LD A,(CHECK_SOURCE_SYSTEM_5)                ; $04AC  3A 1F 05
         LD B,A                           ; $04AF  47
 ; [AI] Body of the track-transfer loop: hands one track's parameters to the 6502 routine, then
 ;       advances the source/destination buffer page, wrapping the buffer page address across the
 ;       $C000-$D000 I/O gap.
-SUB_04A5_1:
+TRACK_TRANSFER_LOOP_1:
         PUSH BC                          ; $04B0  C5
         PUSH HL                          ; $04B1  E5
         LD ($F3E8),HL                    ; $04B2  22 E8 F3
-        LD HL,SUB_04FC_44                ; $04B5  21 03 0E
-        CALL SUB_0417                    ; $04B8  CD 17 04
+        LD HL,CHECK_SOURCE_SYSTEM_44                ; $04B5  21 03 0E
+        CALL CALL_6502_DISK                    ; $04B8  CD 17 04
         LD HL,($F3E0)                    ; $04BB  2A E0 F3
         INC H                            ; $04BE  24
         LD A,H                           ; $04BF  7C
         SUB $10                          ; $04C0  D6 10
-        JR NZ,SUB_04A5_2                 ; $04C2  20 02
+        JR NZ,TRACK_TRANSFER_LOOP_2                 ; $04C2  20 02
         LD H,A                           ; $04C4  67
         INC L                            ; $04C5  2C
-SUB_04A5_2:
+TRACK_TRANSFER_LOOP_2:
         LD ($F3E0),HL                    ; $04C6  22 E0 F3
         POP HL                           ; $04C9  E1
         INC H                            ; $04CA  24
         LD A,H                           ; $04CB  7C
         CP $C0                           ; $04CC  FE C0
-        JR NZ,SUB_04A5_4                 ; $04CE  20 02
-SUB_04A5_3:
+        JR NZ,TRACK_TRANSFER_LOOP_4                 ; $04CE  20 02
+TRACK_TRANSFER_LOOP_3:
         LD H,$D0                         ; $04D0  26 D0
-SUB_04A5_4:
+TRACK_TRANSFER_LOOP_4:
         POP BC                           ; $04D2  C1
-        DJNZ SUB_04A5_1                  ; $04D3  10 DB
+        DJNZ TRACK_TRANSFER_LOOP_1                  ; $04D3  10 DB
         RET                              ; $04D5  C9
 ; [AI] Prints the message at DE, then prints the standard 'Press RETURN to begin' tail and waits
 ;       for RETURN.
-SUB_04D6:
-        CALL SUB_0434                    ; $04D6  CD 34 04
-        LD DE,SUB_04FC_37                ; $04D9  11 77 07
+PROMPT_PRESS_RETURN:
+        CALL PRINT_CRLF_STRING                    ; $04D6  CD 34 04
+        LD DE,CHECK_SOURCE_SYSTEM_37                ; $04D9  11 77 07
 ; [AI] Prints the $-string at DE and then waits until the user presses RETURN.
-SUB_04DC:
-        CALL SUB_0434                    ; $04DC  CD 34 04
+PRINT_WAIT_RETURN:
+        CALL PRINT_CRLF_STRING                    ; $04DC  CD 34 04
 ; [AI] Wait-for-RETURN loop: reads console characters until a carriage return is seen.
-SUB_04DC_1:
-        CALL SUB_04E7                    ; $04DF  CD E7 04
+PRINT_WAIT_RETURN_1:
+        CALL READ_CONSOLE_CHAR                    ; $04DF  CD E7 04
         CP $0D                           ; $04E2  FE 0D
-        JR NZ,SUB_04DC_1                 ; $04E4  20 F9
+        JR NZ,PRINT_WAIT_RETURN_1                 ; $04E4  20 F9
         RET                              ; $04E6  C9
 ; [AI] Reads one console character via BDOS direct console I/O (function 6), looping until a key is
 ;       ready; aborts to CP/M on Ctrl-C and uppercases letters.
-SUB_04E7:
+READ_CONSOLE_CHAR:
         LD E,$FF                         ; $04E7  1E FF
         LD C,$06                         ; $04E9  0E 06
         CALL BDOS_VEC                    ; $04EB  CD 05 00
         OR A                             ; $04EE  B7
-        JR Z,SUB_04E7                    ; $04EF  28 F6
+        JR Z,READ_CONSOLE_CHAR                    ; $04EF  28 F6
         CP $03                           ; $04F1  FE 03
         JP Z,TPA_START_50                ; $04F3  CA AC 02
         CP $60                           ; $04F6  FE 60
-SUB_04E7_1:
+READ_CONSOLE_CHAR_1:
         RET C                            ; $04F8  D8
         SUB $20                          ; $04F9  D6 20
         RET                              ; $04FB  C9
 ; [AI] Tests whether the source disk already holds a CP/M system (when not forcing a format) by
 ;       reading track 0 via the 6502 and returning its status, so COPY knows whether it must format
 ;       the destination.
-SUB_04FC:
-        LD A,(SUB_04FC_11)               ; $04FC  3A 25 05
+CHECK_SOURCE_SYSTEM:
+        LD A,(CHECK_SOURCE_SYSTEM_11)               ; $04FC  3A 25 05
         OR A                             ; $04FF  B7
         RET NZ                           ; $0500  C0
-        LD A,(SUB_04FC_3)                ; $0501  3A 1D 05
-SUB_04FC_1:
-        CALL SUB_048E                    ; $0504  CD 8E 04
+        LD A,(CHECK_SOURCE_SYSTEM_3)                ; $0501  3A 1D 05
+CHECK_SOURCE_SYSTEM_1:
+        CALL DRIVE_TO_6502_PARAMS                    ; $0504  CD 8E 04
         LD HL,$2300                      ; $0507  21 00 23
         LD ($F3E8),HL                    ; $050A  22 E8 F3
         LD A,$01                         ; $050D  3E 01
         LD ($F3EB),A                     ; $050F  32 EB F3
-        LD HL,SUB_04FC_44                ; $0512  21 03 0E
-        CALL SUB_042C                    ; $0515  CD 2C 04
+        LD HL,CHECK_SOURCE_SYSTEM_44                ; $0512  21 03 0E
+        CALL SOFTCARD_HANDOFF                    ; $0515  CD 2C 04
         LD A,($F3EA)                     ; $0518  3A EA F3
         RET                              ; $051B  C9
-SUB_04FC_2:
+CHECK_SOURCE_SYSTEM_2:
         DEFB    $00                                              ; $051C
-SUB_04FC_3:
+CHECK_SOURCE_SYSTEM_3:
         DEFB    $00                                              ; $051D
-SUB_04FC_4:
+CHECK_SOURCE_SYSTEM_4:
         DEFB    $00                                              ; $051E
-SUB_04FC_5:
+CHECK_SOURCE_SYSTEM_5:
         DEFB    $00                                              ; $051F
-SUB_04FC_6:
+CHECK_SOURCE_SYSTEM_6:
         DEFB    $00                                              ; $0520
-SUB_04FC_7:
+CHECK_SOURCE_SYSTEM_7:
         DEFB    $00                                              ; $0521
-SUB_04FC_8:
+CHECK_SOURCE_SYSTEM_8:
         DEFB    $00                                              ; $0522
-SUB_04FC_9:
+CHECK_SOURCE_SYSTEM_9:
         DEFB    $00                                              ; $0523
-SUB_04FC_10:
+CHECK_SOURCE_SYSTEM_10:
         DEFB    $00                                              ; $0524
-SUB_04FC_11:
+CHECK_SOURCE_SYSTEM_11:
         DEFB    $00                                              ; $0525
-SUB_04FC_12:
+CHECK_SOURCE_SYSTEM_12:
         DEFB    $00,$00                                          ; $0526
-SUB_04FC_13:
+CHECK_SOURCE_SYSTEM_13:
         DEFB    $00,$00                                          ; $0528
-SUB_04FC_14:
+CHECK_SOURCE_SYSTEM_14:
         DEFS    34, $00    ; $052A  fill
-SUB_04FC_15:
+CHECK_SOURCE_SYSTEM_15:
         DEFB    $0A,$0D,$0A,$20,$20,$20,$20,$20,$20,$20,$53,$6F,$66,$74,$63,$61 ; $054C
         DEFB    "rd CP/M"    ; $055C  string
         DEFB    $0D    ; $0563  terminator
@@ -732,92 +732,92 @@ SUB_04FC_15:
         DEFB    "crosoft"    ; $0591  string
         DEFB    $0D    ; $0598  terminator
         DEFB    $0A,$0D,$0A,$24                                  ; $0599
-SUB_04FC_16:
+CHECK_SOURCE_SYSTEM_16:
         DEFB    $43,$6F,$6D,$6D,$61,$6E,$64,$20,$65,$72,$72,$6F,$72,$24 ; $059D
-SUB_04FC_17:
+CHECK_SOURCE_SYSTEM_17:
         DEFB    $0A,$0D,$0A                                      ; $05AB
-SUB_04FC_18:
+CHECK_SOURCE_SYSTEM_18:
         DEFB    $43,$6F,$70,$79,$69,$6E,$67,$2E,$2E,$2E,$20,$20,$20,$08,$08,$08 ; $05AE
         DEFB    $24                                              ; $05BE
-SUB_04FC_19:
+CHECK_SOURCE_SYSTEM_19:
         DEFB    $0A,$0D,$0A,$44,$69,$73,$6B,$20,$73,$70,$61,$63,$65,$20,$61,$6C ; $05BF
         DEFB    $72,$65,$61,$64,$79,$20,$69,$6E,$20,$75,$73,$65,$24 ; $05CF
-SUB_04FC_20:
+CHECK_SOURCE_SYSTEM_20:
         DEFB    $0A,$0D,$0A,$4E,$6F,$74,$20,$65,$6E,$6F,$75,$67,$68,$20,$64,$69 ; $05DC
         DEFB    $72,$65,$63,$74,$6F,$72,$79,$20,$73,$70,$61,$63,$65,$24 ; $05EC
-SUB_04FC_21:
+CHECK_SOURCE_SYSTEM_21:
         DEFB    $0A,$0D,$0A,$53,$79,$73,$74,$65,$6D,$20,$6E,$6F,$74,$20,$66,$6F ; $05FA
         DEFB    $75,$6E,$64,$20,$6F,$6E,$20,$73,$6F,$75,$72,$63,$65,$20,$64,$69 ; $060A
         DEFB    $73,$6B,$24                                      ; $061A
-SUB_04FC_22:
+CHECK_SOURCE_SYSTEM_22:
         DEFB    $0A,$0D,$0A,$44,$69,$73,$6B,$20,$57,$72,$69,$74,$65,$20,$50,$72 ; $061D
         DEFB    $6F,$74,$65,$63,$74,$65,$64,$24                  ; $062D
-SUB_04FC_23:
+CHECK_SOURCE_SYSTEM_23:
         DEFB    $0A,$0D,$0A,$44,$69,$73,$6B,$20,$56,$65,$72,$69,$66,$79,$20,$65 ; $0635
         DEFB    $72,$72,$6F,$72,$24                              ; $0645
-SUB_04FC_24:
+CHECK_SOURCE_SYSTEM_24:
         DEFB    $0A,$0D,$0A,$4F,$70,$65,$72,$61,$74,$69,$6F,$6E,$20,$63,$6F,$6D ; $064A
         DEFB    $70,$6C,$65,$74,$65,$64,$2E,$24                  ; $065A
-SUB_04FC_25:
+CHECK_SOURCE_SYSTEM_25:
         DEFB    $0A,$0D,$0A,$44,$6F,$20,$79,$6F,$75,$20,$77,$69,$73,$68,$20,$74 ; $0662
         DEFB    "o repeat this operation? "    ; $0672  string
         DEFB    $00    ; $068B  terminator
         DEFB    $24                                              ; $068C
-SUB_04FC_26:
+CHECK_SOURCE_SYSTEM_26:
         DEFB    $0A,$0D,$0A,$49,$6E,$73,$65,$72,$74,$20,$43,$50,$2F,$4D,$20,$53 ; $068D
         DEFB    "ystem disk into drive A:"    ; $069D  string
         DEFB    $0D    ; $06B5  terminator
         DEFB    $0A,$50,$72,$65,$73,$73,$20,$52,$45,$54,$55,$52,$4E,$20,$00,$24 ; $06B6
-SUB_04FC_27:
+CHECK_SOURCE_SYSTEM_27:
         DEFB    $0A,$0D,$0A,$44,$69,$73,$6B,$20,$49,$2F,$4F,$20,$65,$72,$72,$6F ; $06C6
         DEFB    $72,$24                                          ; $06D6
-SUB_04FC_28:
+CHECK_SOURCE_SYSTEM_28:
         DEFB    $49,$6E,$76,$61,$6C,$69,$64,$20,$64,$72,$69,$76,$65,$24 ; $06D8
-SUB_04FC_29:
+CHECK_SOURCE_SYSTEM_29:
         DEFB    $49,$6E,$73,$65,$72,$74,$20,$64,$69,$73,$6B,$20,$74,$6F,$20,$62 ; $06E6
         DEFB    $65,$20,$66,$6F,$72,$6D,$61,$74,$74,$65,$64,$20,$69,$6E,$20,$64 ; $06F6
         DEFB    $72,$69,$76,$65,$20                              ; $0706
-SUB_04FC_30:
+CHECK_SOURCE_SYSTEM_30:
         DEFB    $5A,$3A,$24                                      ; $070B
-SUB_04FC_31:
+CHECK_SOURCE_SYSTEM_31:
         DEFB    $49,$6E,$73,$65,$72,$74,$20,$64,$69,$73,$6B,$20,$69,$6E,$74,$6F ; $070E
         DEFB    $20,$64,$72,$69,$76,$65,$20                      ; $071E
-SUB_04FC_32:
+CHECK_SOURCE_SYSTEM_32:
         DEFB    $5A,$3A,$24                                      ; $0725
-SUB_04FC_33:
+CHECK_SOURCE_SYSTEM_33:
         DEFB    $49,$6E,$73,$65,$72,$74,$20                      ; $0728
-SUB_04FC_34:
+CHECK_SOURCE_SYSTEM_34:
         DEFB    $53,$4F,$55,$52,$43,$45,$20,$20,$20,$20,$20,$20,$64,$69,$73,$6B ; $072F
         DEFB    $20,$69,$6E,$74,$6F,$20,$64,$72,$69,$76,$65,$20  ; $073F
-SUB_04FC_35:
+CHECK_SOURCE_SYSTEM_35:
         DEFB    $5A,$3A,$0D,$0A,$49,$6E,$73,$65,$72,$74,$20,$44,$45,$53,$54,$49 ; $074B
         DEFB    $4E,$41,$54,$49,$4F,$4E,$20,$64,$69,$73,$6B,$20,$69,$6E,$74,$6F ; $075B
         DEFB    $20,$64,$72,$69,$76,$65,$20                      ; $076B
-SUB_04FC_36:
+CHECK_SOURCE_SYSTEM_36:
         DEFB    $5A,$3A,$0D,$0A,$24                              ; $0772
-SUB_04FC_37:
+CHECK_SOURCE_SYSTEM_37:
         DEFB    $0A,$50,$72,$65,$73,$73,$20,$52,$45,$54,$55,$52,$4E,$20,$74,$6F ; $0777
         DEFB    " begin "    ; $0787  string
         DEFB    $00    ; $078E  terminator
         DEFB    $24                                              ; $078F
-SUB_04FC_38:
+CHECK_SOURCE_SYSTEM_38:
         DEFB    $0A,$0D,$0A,$49,$6E,$73,$65,$72,$74,$20          ; $0790
-SUB_04FC_39:
+CHECK_SOURCE_SYSTEM_39:
         DEFB    "SOURCE      disk and press RETURN "    ; $079A  string
         DEFB    $00    ; $07BC  terminator
         DEFB    $24                                              ; $07BD
-SUB_04FC_40:
+CHECK_SOURCE_SYSTEM_40:
         DEFB    $0A,$49,$6E,$73,$65,$72,$74,$20,$44,$45,$53,$54,$49,$4E,$41,$54 ; $07BE
         DEFB    "ION disk and press RETURN "    ; $07CE  string
         DEFB    $00    ; $07E8  terminator
         DEFB    $24,$0A,$0D,$0A                                  ; $07E9
-SUB_04FC_41:
+CHECK_SOURCE_SYSTEM_41:
         DEFB    "Formatting..."    ; $07ED  string
         DEFB    $00    ; $07FA  terminator
         DEFB    $24                                              ; $07FB
-SUB_04FC_42:
+CHECK_SOURCE_SYSTEM_42:
         DEFB    $43,$50,$2F,$4D                                  ; $07FC
-SUB_04FC_43:
+CHECK_SOURCE_SYSTEM_43:
         DEFB    " System"    ; $0800  string
         DEFB    $00    ; $0807  terminator
         DEFS    248, $00    ; $0808  fill
@@ -825,7 +825,7 @@ SUB_04FC_43:
         DEFB    $7C,$AD,$00,$20,$85,$26,$A9,$FF,$9D,$8F,$C0,$1D,$8C,$C0,$48,$68 ; $0910
         DEFB    $EA,$A0,$04,$48,$68,$20,$92,$19,$88,$D0,$F8,$A9,$D5,$20,$91,$19 ; $0920
         DEFB    $A9,$AA,$20,$91,$19,$A9,$AD,$20,$91,$19,$98,$A0,$56 ; $0930
-        DEFW    SUB_037F_5               ; $093D
+        DEFW    READ_SYSTEM_FILE_5               ; $093D
         DEFB    $B9,$00,$20,$59,$FF,$1F,$AA,$BD,$00,$1B,$A6,$27,$9D,$8D,$C0,$BD ; $093F
         DEFB    $8C,$C0,$88,$D0,$EB,$A5,$26,$EA,$59,$00,$1F,$AA,$BD,$00,$1B,$AE ; $094F
         DEFB    $78,$06,$9D,$8D,$C0,$BD,$8C,$C0,$B9,$00,$1F,$C8,$D0,$EA,$AA,$BD ; $095F
@@ -839,7 +839,7 @@ SUB_04FC_43:
         DEFB    $00,$21,$C8,$D0,$EE,$BC,$8C,$C0,$10,$FB,$D9,$00,$1B,$D0,$13,$BD ; $09DF
         DEFB    $8C,$C0,$10,$FB,$C9,$DE,$D0,$0A,$EA,$BD,$8C,$C0,$10,$FB,$C9,$AA ; $09EF
         DEFB    $F0,$5C,$38,$60,$A0,$FC,$84,$26,$C8              ; $09FF
-        DEFW    SUB_04A5_3               ; $0A08
+        DEFW    TRACK_TRANSFER_LOOP_3               ; $0A08
         DEFB    $E6,$26,$F0,$F3,$BD,$8C,$C0,$10,$FB,$C9,$D5,$D0,$F0,$EA,$BD,$8C ; $0A0A
         DEFB    $C0,$10,$FB,$C9,$AA,$D0,$F2,$A0,$03,$BD,$8C,$C0,$10,$FB,$C9,$96 ; $0A1A
         DEFB    $D0,$E7,$A9,$00,$85,$27,$BD,$8C,$C0,$10,$FB,$2A,$85,$26,$BD,$8C ; $0A2A
@@ -851,8 +851,8 @@ SUB_04FC_43:
         DEFB    $C9,$0C,$B0,$01,$A8,$38,$20,$AD,$1A,$B9,$D1,$1A,$20,$BC,$1A,$A5 ; $0A8A
         DEFB    $27,$18,$20,$B0,$1A,$B9,$DD,$1A,$20,$BC,$1A,$E6,$26,$D0,$C3,$20 ; $0A9A
         DEFB    $BC,$1A,$18,$AD,$78,$04                          ; $0AAA
-        DEFW    SUB_02C1_5               ; $0AB0
-        DEFW    SUB_04FC_14              ; $0AB2
+        DEFW    COPY_TRACK_BATCH_5               ; $0AB0
+        DEFW    CHECK_SOURCE_SYSTEM_14              ; $0AB2
         DEFB    $2B,$AA,$BD,$80,$C0,$A6,$2B,$60,$A2,$11,$CA,$D0,$FD,$E6,$46,$D0 ; $0AB4
         DEFB    $06,$E6,$47,$D0,$02,$C6,$47,$38,$E9,$01,$D0,$EC,$60,$01,$30,$28 ; $0AC4
         DEFB    $24,$20,$1E,$1D,$1C,$1C,$1C,$1C,$1C,$70,$2C,$26,$22,$1F,$1E,$1D ; $0AD4
@@ -865,7 +865,7 @@ SUB_04FC_43:
         DEFS    86, $00    ; $0B40  fill
         DEFW    TPA_START                ; $0B96
         DEFB    $98,$99,$02,$03,$9C                              ; $0B98
-        DEFW    SUB_04FC_1               ; $0B9D
+        DEFW    CHECK_SOURCE_SYSTEM_1               ; $0B9D
         DEFB    $06,$A0,$A1,$A2,$A3,$A4,$A5,$07,$08,$A8,$A9,$AA,$09,$0A,$0B,$0C ; $0B9F
         DEFB    $0D,$B0,$B1,$0E,$0F,$10,$11,$12,$13,$B8,$14,$15,$16,$17,$18,$19 ; $0BAF
         DEFB    $1A,$C0,$C1,$C2,$C3,$C4,$C5,$C6,$C7,$C8,$C9,$CA,$1B,$CC,$1C,$1D ; $0BBF
@@ -873,50 +873,50 @@ SUB_04FC_43:
         DEFB    $28,$E0,$E1,$E2,$E3,$E4,$29,$2A,$2B,$E8,$2C,$2D,$2E,$2F,$30,$31 ; $0BDF
         DEFB    $32,$F0,$F1,$33,$34,$35,$36,$37,$38,$F8,$39,$3A,$3B,$3C,$3D,$3E ; $0BEF
         DEFB    $3F,$08,$78,$20,$07,$1C,$28,$60,$A0,$02,$8C,$F8,$06,$A0,$04,$8C ; $0BFF
-        DEFW    SUB_04E7_1               ; $0C0F
+        DEFW    READ_CONSOLE_CHAR_1               ; $0C0F
         DEFB    $AD                                              ; $0C11
-        DEFW    SUB_03D3_1               ; $0C12
+        DEFW    OPEN_SYSTEM_FCB_1               ; $0C12
         DEFB    $AA,$CD,$E7,$03,$F0,$1D,$8A,$48,$AD,$E7,$03,$AA,$68,$48,$8D,$E7 ; $0C14
         DEFB    $03,$BD,$8E,$C0,$A0,$08,$BD,$8C,$C0,$DD,$8C,$C0,$D0,$F6,$88,$D0 ; $0C24
         DEFB    $F8,$68,$AA,$BD,$8E,$C0,$BD,$8C,$C0,$A0,$08,$BD,$8C,$C0,$48,$68 ; $0C34
         DEFB    $8E,$F8,$05,$DD,$8C,$C0                          ; $0C44
-        DEFW    SUB_037F_5               ; $0C4A
+        DEFW    READ_SYSTEM_FILE_5               ; $0C4A
         DEFB    $88,$D0,$F0,$08,$BD,$89,$C0,$A9,$EF,$85,$46,$A9,$D8,$85,$47,$AD ; $0C4C
         DEFB    $E4,$03,$CD,$E5,$03,$F0,$07,$8D,$E5,$03,$28,$A0  ; $0C5C
-        DEFW    SUB_04FC_43              ; $0C68
+        DEFW    CHECK_SOURCE_SYSTEM_43              ; $0C68
         DEFB    $6A,$90,$05,$BD,$8A,$C0,$B0,$03,$BD,$8B,$C0,$66,$35,$28,$08,$D0 ; $0C6A
         DEFB    $08,$A0,$07,$20,$BC,$1A,$88,$D0,$FA,$AE,$F8,$05,$28,$D0,$0D,$A0 ; $0C7A
         DEFB    $12,$88,$D0,$FD,$E6,$46,$D0,$F7,$E6,$47,$D0,$F3,$4C,$DA,$1C,$48 ; $0C8A
         DEFB    $20,$BA,$1C,$B9,$78,$04,$24,$35,$30,$03,$B9      ; $0C9A
-        DEFW    SUB_04E7_1               ; $0CA5
+        DEFW    READ_CONSOLE_CHAR_1               ; $0CA5
         DEFB    $8D,$78,$04,$68,$24,$35,$30,$05,$99              ; $0CA7
-        DEFW    SUB_04E7_1               ; $0CB0
-        DEFW    SUB_02C1_3               ; $0CB2
+        DEFW    READ_CONSOLE_CHAR_1               ; $0CB0
+        DEFW    COPY_TRACK_BATCH_3               ; $0CB2
         DEFB    $99,$78,$04,$4C,$5F,$1A,$8A,$4A,$4A,$4A,$4A,$A8,$60,$48,$AD,$E4 ; $0CB4
         DEFB    $03,$6A,$66,$35,$20,$BA,$1C,$68,$0A,$24,$35,$30,$05,$99 ; $0CC4
-        DEFW    SUB_04E7_1               ; $0CD2
-        DEFW    SUB_02C1_3               ; $0CD4
+        DEFW    READ_CONSOLE_CHAR_1               ; $0CD2
+        DEFW    COPY_TRACK_BATCH_3               ; $0CD4
         DEFB    $99,$78,$04,$60,$A9,$CD,$85,$2F,$A9,$AA,$85,$50,$A0,$00,$A9,$39 ; $0CD6
         DEFB    $99,$00,$1F,$88,$D0,$FA,$A0,$56,$A9,$2A,$99,$FF,$1F,$88,$D0,$FA ; $0CE6
         DEFB    $84,$41,$A9,$50,$20,$C1,$1C,$A9,$26,$85,$51,$A5,$41,$0A,$20,$99 ; $0CF6
         DEFB    $1C,$20,$3E,$1D,$A9,$40,$B0,$23,$A9,$30,$8D,$78,$05,$38,$CE,$78 ; $0D06
         DEFB    $05,$F0,$F1                                      ; $0D16
-        DEFW    SUB_02C1_4               ; $0D19
+        DEFW    COPY_TRACK_BATCH_4               ; $0D19
         DEFB    $1A,$B0,$F5,$A5,$2D,$D0,$F1,$20,$9B,$19,$B0,$EC,$E6,$41,$A5,$41 ; $0D1B
         DEFB    $C9,$23,$90,$D2,$A9,$00,$8D                      ; $0D2B
-        DEFW    SUB_03D3_2               ; $0D32
+        DEFW    OPEN_SYSTEM_FCB_2               ; $0D32
         DEFB    $BD,$88,$C0,$60,$68,$68,$A9,$10,$D0,$F3,$A9,$00,$85,$52,$A0,$80 ; $0D34
         DEFB    $2C,$A4,$51,$20,$D4,$1D,$B0,$EC                  ; $0D44
-        DEFW    SUB_02C1_4               ; $0D4C
+        DEFW    COPY_TRACK_BATCH_4               ; $0D4C
         DEFB    $19,$B0,$62,$E6,$52,$A5,$52,$C9,$10,$90,$EC,$A0,$0F,$84,$52,$A9 ; $0D4E
         DEFB    $30,$8D,$78,$05,$99,$57,$1E,$88,$10,$FA,$A4,$51,$20,$D2,$1D,$20 ; $0D5E
         DEFB    $D2,$1D,$48,$68,$88,$D0,$F5                      ; $0D6E
-        DEFW    SUB_02C1_4               ; $0D75
+        DEFW    COPY_TRACK_BATCH_4               ; $0D75
         DEFB    $1A,$B0,$23,$A5,$2D,$F0,$15,$A9,$10,$C5,$51,$A5,$51,$E9,$01,$85 ; $0D77
         DEFB    $51,$C9,$05,$B0,$11,$38,$60                      ; $0D87
-        DEFW    SUB_02C1_4               ; $0D8E
+        DEFW    COPY_TRACK_BATCH_4               ; $0D8E
         DEFB    $1A,$B0,$05,$20,$9B,$19,$90,$1C,$CE,$78,$05,$D0,$F1 ; $0D90
-        DEFW    SUB_02C1_4               ; $0D9D
+        DEFW    COPY_TRACK_BATCH_4               ; $0D9D
         DEFB    $1A,$B0,$0B,$A5,$2D,$C9,$0F,$D0,$05,$20,$9B,$19,$90,$91,$CE,$78 ; $0D9F
         DEFB    $05,$D0,$EB,$38,$60,$A4,$2D,$B9,$57,$1E,$30,$DD,$A9,$FF,$99,$57 ; $0DAF
         DEFB    $1E,$C6,$52,$10,$CA,$A5,$41,$D0,$0A,$A5,$51,$C9,$10,$90,$E5,$C6 ; $0DBF
@@ -924,7 +924,7 @@ SUB_04FC_43:
         DEFB    $9D,$8F,$C0,$DD,$8C,$C0,$48,$68,$EA,$EA,$48,$68,$20,$92,$19,$88 ; $0DDF
         DEFB    $D0,$F8,$A9,$D5,$20,$91,$19,$A9,$AA,$20,$91,$19,$A9,$96,$20,$91 ; $0DEF
         DEFB    $19,$A5,$2F,$20                                  ; $0DFF
-SUB_04FC_44:
+CHECK_SOURCE_SYSTEM_44:
         DEFB    $3C,$1E,$A5,$41,$20,$3C,$1E,$A5,$52,$20,$3C,$1E,$A5,$2F,$45,$41 ; $0E03
         DEFB    $45,$52,$48,$4A,$05,$50,$9D,$8D,$C0,$BD,$8C,$C0,$68,$09,$AA,$20 ; $0E13
         DEFB    $4C,$1E,$A9,$DE,$20,$91,$19,$A9,$AA,$20,$91,$19,$A9,$EB,$20,$91 ; $0E23

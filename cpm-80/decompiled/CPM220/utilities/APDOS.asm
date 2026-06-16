@@ -15,8 +15,8 @@ DEFAULT_CR           EQU $007C               ; Default FCB current record byte (
 DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS cold-init / DRV_ALLRESET (fn 13) set the DMA address here and WBOOT re-issues SETDMA($0080); sector/record I/O moves 128 bytes through it. At program load this same buffer doubles as the command tail: the first byte ($0080) holds the tail length (0-127) and the characters follow at $0081 (CMDLINE).
 
 ; -- Mid-instruction references (shown inline as cover+offset) --
-;   $0494 -> SUB_048B_2+1         z80 skip idiom: enters the operand of $11 at $0493
-;   $04AB -> SUB_048B_3+1         shared instruction tail: $04AB is reachable code inside the instruction at $04AA
+;   $0494 -> READ_SECTOR_2+1         z80 skip idiom: enters the operand of $11 at $0493
+;   $04AB -> READ_SECTOR_3+1         shared instruction tail: $04AB is reachable code inside the instruction at $04AA
 
     ORG $0100
 
@@ -25,37 +25,37 @@ DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS
 TPA_START:
         LD HL,($F3DE)                    ; $0100  2A DE F3
 TPA_START_1:
-        LD (SUB_048B_3+1),HL             ; $0103  22 AB 04
+        LD (READ_SECTOR_3+1),HL             ; $0103  22 AB 04
 TPA_START_2:
         LD A,($0007)                     ; $0106  3A 07 00
 TPA_START_3:
         SUB $0B                          ; $0109  D6 0B
 TPA_START_4:
-        LD (SUB_04FC_24),A               ; $010B  32 19 05
+        LD (PUT_CHAR_24),A               ; $010B  32 19 05
 ; [AI] Loads the address of the sign-on/banner-plus-help string and falls into the print-and-prompt
 ;       path; the alternate entry at L_0113 loads the command-error message instead.
 TPA_START_5:
-        LD DE,SUB_04FC_30                ; $010E  11 8E 05
+        LD DE,PUT_CHAR_30                ; $010E  11 8E 05
 TPA_START_6:
         JR TPA_START_8                   ; $0111  18 03
 ; [AI] Error re-entry point: loads the 'Command Error' message pointer before printing it and
 ;       looping back to re-prompt the user.
 TPA_START_7:
-        LD DE,SUB_04FC_31                ; $0113  11 DE 05
+        LD DE,PUT_CHAR_31                ; $0113  11 DE 05
 TPA_START_8:
-        CALL SUB_04CB                    ; $0116  CD CB 04
+        CALL PRINT_MSG_NL                    ; $0116  CD CB 04
 TPA_START_9:
-        CALL SUB_04C2                    ; $0119  CD C2 04
+        CALL PRINT_CRLF                    ; $0119  CD C2 04
 ; [AI] Main command-prompt loop. Resets the stack, reads a line of console input via BDOS, and
 ;       dispatches on the first keyword ('CAT' vs a file-copy specification).
 TPA_START_10:
-        LD SP,SUB_04FC_25                ; $011C  31 42 05
+        LD SP,PUT_CHAR_25                ; $011C  31 42 05
 TPA_START_11:
-        CALL SUB_04C2                    ; $011F  CD C2 04
+        CALL PRINT_CRLF                    ; $011F  CD C2 04
 TPA_START_12:
         LD A,$2A                         ; $0122  3E 2A
 TPA_START_13:
-        CALL SUB_04FC                    ; $0124  CD FC 04
+        CALL PUT_CHAR                    ; $0124  CD FC 04
 TPA_START_14:
         LD A,$80                         ; $0127  3E 80
 TPA_START_15:
@@ -67,7 +67,7 @@ TPA_START_17:
 TPA_START_18:
         CALL BDOS_VEC                    ; $0131  CD 05 00
 TPA_START_19:
-        CALL SUB_04C2                    ; $0134  CD C2 04
+        CALL PRINT_CRLF                    ; $0134  CD C2 04
 TPA_START_20:
         LD A,($0923)                     ; $0137  3A 23 09
 TPA_START_21:
@@ -81,66 +81,66 @@ TPA_START_22:
         ADD HL,DE                        ; $0145  19
         LD (HL),$00                      ; $0146  36 00
         POP HL                           ; $0148  E1
-        CALL SUB_03B9                    ; $0149  CD B9 03
+        CALL GET_NEXT_CHAR                    ; $0149  CD B9 03
         JR Z,TPA_START_10                ; $014C  28 CE
         CP $43                           ; $014E  FE 43
-        JR NZ,SUB_01B2_1                 ; $0150  20 69
-        CALL SUB_03B9                    ; $0152  CD B9 03
+        JR NZ,CON_STATUS_1                 ; $0150  20 69
+        CALL GET_NEXT_CHAR                    ; $0152  CD B9 03
         CP $41                           ; $0155  FE 41
-        JR NZ,SUB_01B2_1                 ; $0157  20 62
-        CALL SUB_03B9                    ; $0159  CD B9 03
+        JR NZ,CON_STATUS_1                 ; $0157  20 62
+        CALL GET_NEXT_CHAR                    ; $0159  CD B9 03
         CP $54                           ; $015C  FE 54
-        JR NZ,SUB_01B2_1                 ; $015E  20 5B
-        CALL SUB_03B9                    ; $0160  CD B9 03
-        LD DE,SUB_04FC_16                ; $0163  11 11 05
-        CALL NZ,SUB_03A2                 ; $0166  C4 A2 03
+        JR NZ,CON_STATUS_1                 ; $015E  20 5B
+        CALL GET_NEXT_CHAR                    ; $0160  CD B9 03
+        LD DE,PUT_CHAR_16                ; $0163  11 11 05
+        CALL NZ,PARSE_DRIVE_PREFIX                 ; $0166  C4 A2 03
         PUSH BC                          ; $0169  C5
-        LD DE,SUB_04FC_32                ; $016A  11 EC 05
-        CALL SUB_04ED                    ; $016D  CD ED 04
+        LD DE,PUT_CHAR_32                ; $016A  11 EC 05
+        CALL PROMPT_IF_SAME_DRIVE                    ; $016D  CD ED 04
         POP BC                           ; $0170  C1
-        CALL SUB_03E4                    ; $0171  CD E4 03
-        CALL SUB_04BF                    ; $0174  CD BF 04
+        CALL INIT_APPLE_VOLUME                    ; $0171  CD E4 03
+        CALL PRINT_BLANK_LINE                    ; $0174  CD BF 04
 ; [AI] Apple-DOS directory listing loop (the CAT command): fetches each directory entry, prints its
 ;       file-type letter and 30-character name, and pauses for keypresses between screens.
 TPA_START_23:
-        CALL SUB_0423                    ; $0177  CD 23 04
+        CALL NEXT_DIR_ENTRY                    ; $0177  CD 23 04
         JR Z,TPA_START_10                ; $017A  28 A0
         PUSH HL                          ; $017C  E5
-        LD HL,SUB_04FC_29                ; $017D  21 8A 05
+        LD HL,PUT_CHAR_29                ; $017D  21 8A 05
         LD B,$03                         ; $0180  06 03
-        LD A,(SUB_04FC_14)               ; $0182  3A 0E 05
+        LD A,(PUT_CHAR_14)               ; $0182  3A 0E 05
 TPA_START_24:
         RRA                              ; $0185  1F
         JR C,TPA_START_25                ; $0186  38 03
         INC HL                           ; $0188  23
         DJNZ TPA_START_24                ; $0189  10 FA
 TPA_START_25:
-        CALL SUB_04BB                    ; $018B  CD BB 04
+        CALL PRINT_SPACE                    ; $018B  CD BB 04
         LD A,(HL)                        ; $018E  7E
-        CALL SUB_04FC                    ; $018F  CD FC 04
-        CALL SUB_04BB                    ; $0192  CD BB 04
+        CALL PUT_CHAR                    ; $018F  CD FC 04
+        CALL PRINT_SPACE                    ; $0192  CD BB 04
         POP HL                           ; $0195  E1
         LD B,$1E                         ; $0196  06 1E
 TPA_START_26:
         LD A,(HL)                        ; $0198  7E
-        CALL SUB_04FC                    ; $0199  CD FC 04
+        CALL PUT_CHAR                    ; $0199  CD FC 04
         INC HL                           ; $019C  23
         DJNZ TPA_START_26                ; $019D  10 F9
-        CALL SUB_01B2                    ; $019F  CD B2 01
+        CALL CON_STATUS                    ; $019F  CD B2 01
         JR Z,TPA_START_27                ; $01A2  28 03
-        CALL SUB_01AC                    ; $01A4  CD AC 01
+        CALL WAIT_FOR_KEY                    ; $01A4  CD AC 01
 TPA_START_27:
-        CALL SUB_04C2                    ; $01A7  CD C2 04
+        CALL PRINT_CRLF                    ; $01A7  CD C2 04
         JR TPA_START_23                  ; $01AA  18 CB
 ; [AI] Blocks until a console key is actually pressed, polling the direct-console-I/O BDOS call in
 ;       a loop; used to pause directory listings and message output.
-SUB_01AC:
-        CALL SUB_01B2                    ; $01AC  CD B2 01
-        JR Z,SUB_01AC                    ; $01AF  28 FB
+WAIT_FOR_KEY:
+        CALL CON_STATUS                    ; $01AC  CD B2 01
+        JR Z,WAIT_FOR_KEY                    ; $01AF  28 FB
         RET                              ; $01B1  C9
 ; [AI] Non-blocking console-status read via BDOS direct console I/O (function 6, E=$FF); returns Z
 ;       set when no key is waiting so callers can poll the keyboard.
-SUB_01B2:
+CON_STATUS:
         LD E,$FF                         ; $01B2  1E FF
         LD C,$06                         ; $01B4  0E 06
         CALL BDOS_VEC                    ; $01B6  CD 05 00
@@ -148,123 +148,123 @@ SUB_01B2:
         RET                              ; $01BA  C9
 ; [AI] Parses a file-copy command line of the form name.type=destination: blanks the FCB name
 ;       field, then scans the filename, optional extension, and the '=' separator.
-SUB_01B2_1:
+CON_STATUS_1:
         LD A,$20                         ; $01BB  3E 20
         LD HL,$005D                      ; $01BD  21 5D 00
         LD B,$0B                         ; $01C0  06 0B
-SUB_01B2_2:
+CON_STATUS_2:
         LD (HL),A                        ; $01C2  77
         INC HL                           ; $01C3  23
-        DJNZ SUB_01B2_2                  ; $01C4  10 FC
+        DJNZ CON_STATUS_2                  ; $01C4  10 FC
         LD B,$1E                         ; $01C6  06 1E
-        LD HL,SUB_04FC_28                ; $01C8  21 6C 05
-SUB_01B2_3:
+        LD HL,PUT_CHAR_28                ; $01C8  21 6C 05
+CON_STATUS_3:
         LD (HL),A                        ; $01CB  77
         INC HL                           ; $01CC  23
-        DJNZ SUB_01B2_3                  ; $01CD  10 FC
+        DJNZ CON_STATUS_3                  ; $01CD  10 FC
         LD HL,$0924                      ; $01CF  21 24 09
-        LD DE,SUB_04FC_17                ; $01D2  11 12 05
-        CALL SUB_03A2                    ; $01D5  CD A2 03
+        LD DE,PUT_CHAR_17                ; $01D2  11 12 05
+        CALL PARSE_DRIVE_PREFIX                    ; $01D5  CD A2 03
         LD DE,$005D                      ; $01D8  11 5D 00
         LD B,$08                         ; $01DB  06 08
-SUB_01B2_4:
-        CALL SUB_03B9                    ; $01DD  CD B9 03
-        JR Z,SUB_01B2_7                  ; $01E0  28 25
+CON_STATUS_4:
+        CALL GET_NEXT_CHAR                    ; $01DD  CD B9 03
+        JR Z,CON_STATUS_7                  ; $01E0  28 25
         CP $2E                           ; $01E2  FE 2E
-        JR Z,SUB_01B2_5                  ; $01E4  28 08
+        JR Z,CON_STATUS_5                  ; $01E4  28 08
         CP $3D                           ; $01E6  FE 3D
-        JR Z,SUB_01B2_8                  ; $01E8  28 20
+        JR Z,CON_STATUS_8                  ; $01E8  28 20
         LD (DE),A                        ; $01EA  12
         INC DE                           ; $01EB  13
-        DJNZ SUB_01B2_4                  ; $01EC  10 EF
+        DJNZ CON_STATUS_4                  ; $01EC  10 EF
 ; [AI] Scans the up-to-3-character Apple-DOS file extension after the '.' separator, stopping on
 ;       '=' or end of line.
-SUB_01B2_5:
+CON_STATUS_5:
         LD B,$03                         ; $01EE  06 03
         LD DE,$0065                      ; $01F0  11 65 00
-SUB_01B2_6:
-        CALL SUB_03B9                    ; $01F3  CD B9 03
-        JR Z,SUB_01B2_7                  ; $01F6  28 0F
+CON_STATUS_6:
+        CALL GET_NEXT_CHAR                    ; $01F3  CD B9 03
+        JR Z,CON_STATUS_7                  ; $01F6  28 0F
         CP $3D                           ; $01F8  FE 3D
-        JR Z,SUB_01B2_8                  ; $01FA  28 0E
+        JR Z,CON_STATUS_8                  ; $01FA  28 0E
         LD (DE),A                        ; $01FC  12
         INC DE                           ; $01FD  13
-        DJNZ SUB_01B2_6                  ; $01FE  10 F3
-        CALL SUB_03B9                    ; $0200  CD B9 03
+        DJNZ CON_STATUS_6                  ; $01FE  10 F3
+        CALL GET_NEXT_CHAR                    ; $0200  CD B9 03
         CP $3D                           ; $0203  FE 3D
-        JR Z,SUB_01B2_8                  ; $0205  28 03
+        JR Z,CON_STATUS_8                  ; $0205  28 03
 ; [AI] Syntax-error exit for the copy parser: jumps to L_0113 to print 'Command Error' and re-
 ;       prompt.
-SUB_01B2_7:
+CON_STATUS_7:
         JP TPA_START_7                   ; $0207  C3 13 01
 ; [AI] Handles the destination half (after '='): parses the optional CP/M drive prefix and copies
 ;       the up-to-30-character target name into the working buffer.
-SUB_01B2_8:
-        LD DE,SUB_04FC_16                ; $020A  11 11 05
-        CALL SUB_03A2                    ; $020D  CD A2 03
-        LD DE,SUB_04FC_28                ; $0210  11 6C 05
-        CALL SUB_03B9                    ; $0213  CD B9 03
-        JR Z,SUB_01B2_7                  ; $0216  28 EF
+CON_STATUS_8:
+        LD DE,PUT_CHAR_16                ; $020A  11 11 05
+        CALL PARSE_DRIVE_PREFIX                    ; $020D  CD A2 03
+        LD DE,PUT_CHAR_28                ; $0210  11 6C 05
+        CALL GET_NEXT_CHAR                    ; $0213  CD B9 03
+        JR Z,CON_STATUS_7                  ; $0216  28 EF
         DEC HL                           ; $0218  2B
         LD B,$1F                         ; $0219  06 1F
-SUB_01B2_9:
-        CALL SUB_03B9                    ; $021B  CD B9 03
-        JR Z,SUB_01B2_10                 ; $021E  28 06
+CON_STATUS_9:
+        CALL GET_NEXT_CHAR                    ; $021B  CD B9 03
+        JR Z,CON_STATUS_10                 ; $021E  28 06
         LD (DE),A                        ; $0220  12
         INC DE                           ; $0221  13
-        DJNZ SUB_01B2_9                  ; $0222  10 F7
-        JR SUB_01B2_7                    ; $0224  18 E1
+        DJNZ CON_STATUS_9                  ; $0222  10 F7
+        JR CON_STATUS_7                    ; $0224  18 E1
 ; [AI] After parsing both names, computes the drive-letter characters for the 'Insert disk in drive
 ;       X:' prompts, opens the CP/M output file, and begins matching the source name against the
 ;       Apple-DOS directory.
-SUB_01B2_10:
-        CALL SUB_04BF                    ; $0226  CD BF 04
-        LD HL,(SUB_04FC_16)              ; $0229  2A 11 05
+CON_STATUS_10:
+        CALL PRINT_BLANK_LINE                    ; $0226  CD BF 04
+        LD HL,(PUT_CHAR_16)              ; $0229  2A 11 05
         LD DE,$4141                      ; $022C  11 41 41
         ADD HL,DE                        ; $022F  19
         LD A,L                           ; $0230  7D
-        LD (SUB_04FC_35),A               ; $0231  32 58 06
+        LD (PUT_CHAR_35),A               ; $0231  32 58 06
         LD A,H                           ; $0234  7C
-        LD (SUB_04FC_36),A               ; $0235  32 76 06
-        CALL SUB_04D8                    ; $0238  CD D8 04
-        LD DE,SUB_04FC_32                ; $023B  11 EC 05
-        CALL SUB_04ED                    ; $023E  CD ED 04
-        CALL SUB_03E4                    ; $0241  CD E4 03
+        LD (PUT_CHAR_36),A               ; $0235  32 76 06
+        CALL PROMPT_CPM_DISK                    ; $0238  CD D8 04
+        LD DE,PUT_CHAR_32                ; $023B  11 EC 05
+        CALL PROMPT_IF_SAME_DRIVE                    ; $023E  CD ED 04
+        CALL INIT_APPLE_VOLUME                    ; $0241  CD E4 03
 ; [AI] Searches the Apple-DOS directory for an entry whose name matches the requested source file,
 ;       comparing 30 bytes with the high bit masked off (Apple DOS stores names in high-ASCII).
-SUB_01B2_11:
-        CALL SUB_0423                    ; $0244  CD 23 04
-        JP Z,SUB_01B2_18                 ; $0247  CA DD 02
+CON_STATUS_11:
+        CALL NEXT_DIR_ENTRY                    ; $0244  CD 23 04
+        JP Z,CON_STATUS_18                 ; $0247  CA DD 02
         EX DE,HL                         ; $024A  EB
-        LD HL,SUB_04FC_28                ; $024B  21 6C 05
+        LD HL,PUT_CHAR_28                ; $024B  21 6C 05
         LD B,$1E                         ; $024E  06 1E
-SUB_01B2_12:
+CON_STATUS_12:
         LD A,(DE)                        ; $0250  1A
         AND $7F                          ; $0251  E6 7F
         CP (HL)                          ; $0253  BE
-        JR NZ,SUB_01B2_11                ; $0254  20 EE
+        JR NZ,CON_STATUS_11                ; $0254  20 EE
         INC HL                           ; $0256  23
         INC DE                           ; $0257  13
-        DJNZ SUB_01B2_12                 ; $0258  10 F6
-        LD HL,SUB_04FC_14                ; $025A  21 0E 05
+        DJNZ CON_STATUS_12                 ; $0258  10 F6
+        LD HL,PUT_CHAR_14                ; $025A  21 0E 05
         LD A,(HL)                        ; $025D  7E
         AND $7F                          ; $025E  E6 7F
-        JR Z,SUB_01B2_13                 ; $0260  28 0A
+        JR Z,CON_STATUS_13                 ; $0260  28 0A
         CP $04                           ; $0262  FE 04
-        JR Z,SUB_01B2_13                 ; $0264  28 06
-        LD DE,SUB_04FC_38                ; $0266  11 A1 06
+        JR Z,CON_STATUS_13                 ; $0264  28 06
+        LD DE,PUT_CHAR_38                ; $0266  11 A1 06
         JP TPA_START_8                   ; $0269  C3 16 01
 ; [AI] Source file found: records its file type, resets the byte counters and EOF flags, then
 ;       creates/opens the CP/M destination file via BDOS make-file before copying.
-SUB_01B2_13:
+CON_STATUS_13:
         LD (HL),A                        ; $026C  77
-        CALL SUB_0470                    ; $026D  CD 70 04
+        CALL SET_FCB_DRIVE                    ; $026D  CD 70 04
         XOR A                            ; $0270  AF
         LD ($006A),A                     ; $0271  32 6A 00
-        LD (SUB_04FC_19),A               ; $0274  32 14 05
-        LD (SUB_04FC_20),A               ; $0277  32 15 05
+        LD (PUT_CHAR_19),A               ; $0274  32 14 05
+        LD (PUT_CHAR_20),A               ; $0277  32 15 05
         LD ($0068),A                     ; $027A  32 68 00
-        CALL SUB_02E3                    ; $027D  CD E3 02
+        CALL SETUP_RWTS                    ; $027D  CD E3 02
         LD DE,DEFAULT_FCB                ; $0280  11 5C 00
         PUSH DE                          ; $0283  D5
         LD C,$13                         ; $0284  0E 13
@@ -273,33 +273,33 @@ SUB_01B2_13:
         PUSH DE                          ; $028A  D5
         LD C,$16                         ; $028B  0E 16
         CALL BDOS_VEC                    ; $028D  CD 05 00
-        LD DE,SUB_04FC_39                ; $0290  11 BC 06
+        LD DE,PUT_CHAR_39                ; $0290  11 BC 06
         INC A                            ; $0293  3C
         JP Z,TPA_START_8                 ; $0294  CA 16 01
         POP DE                           ; $0297  D1
-        CALL SUB_031E                    ; $0298  CD 1E 03
-        LD DE,SUB_04FC_32                ; $029B  11 EC 05
-        CALL SUB_04ED                    ; $029E  CD ED 04
+        CALL CLOSE_AND_RESET                    ; $0298  CD 1E 03
+        LD DE,PUT_CHAR_32                ; $029B  11 EC 05
+        CALL PROMPT_IF_SAME_DRIVE                    ; $029E  CD ED 04
         LD A,$FF                         ; $02A1  3E FF
-        LD (SUB_04FC_23),A               ; $02A3  32 18 05
+        LD (PUT_CHAR_23),A               ; $02A3  32 18 05
 ; [AI] Track/sector-list walk: reads successive Apple-DOS T/S list sectors, following the link to
 ;       the next list when the current one is exhausted, to enumerate every data sector of the file.
-SUB_01B2_14:
-        LD A,(SUB_04FC_23)               ; $02A6  3A 18 05
+CON_STATUS_14:
+        LD A,(PUT_CHAR_23)               ; $02A6  3A 18 05
         INC A                            ; $02A9  3C
-        JR NZ,SUB_01B2_15                ; $02AA  20 12
-        LD HL,(SUB_04FC_15)              ; $02AC  2A 0F 05
+        JR NZ,CON_STATUS_15                ; $02AA  20 12
+        LD HL,(PUT_CHAR_15)              ; $02AC  2A 0F 05
         LD A,L                           ; $02AF  7D
         OR H                             ; $02B0  B4
-        JR Z,SUB_01B2_16                 ; $02B1  28 22
-        CALL SUB_0478                    ; $02B3  CD 78 04
+        JR Z,CON_STATUS_16                 ; $02B1  28 22
+        CALL READ_CATALOG_SECTOR                    ; $02B3  CD 78 04
         LD HL,($0823)                    ; $02B6  2A 23 08
-        LD (SUB_04FC_15),HL              ; $02B9  22 0F 05
+        LD (PUT_CHAR_15),HL              ; $02B9  22 0F 05
         LD A,$0C                         ; $02BC  3E 0C
-SUB_01B2_15:
+CON_STATUS_15:
         LD E,A                           ; $02BE  5F
         INC A                            ; $02BF  3C
-        LD (SUB_04FC_23),A               ; $02C0  32 18 05
+        LD (PUT_CHAR_23),A               ; $02C0  32 18 05
         LD D,$00                         ; $02C3  16 00
         LD HL,$0822                      ; $02C5  21 22 08
         ADD HL,DE                        ; $02C8  19
@@ -308,96 +308,96 @@ SUB_01B2_15:
         LD H,(HL)                        ; $02CB  66
         LD L,A                           ; $02CC  6F
         OR H                             ; $02CD  B4
-        JR Z,SUB_01B2_16                 ; $02CE  28 05
-        CALL SUB_0332                    ; $02D0  CD 32 03
-        JR SUB_01B2_14                   ; $02D3  18 D1
+        JR Z,CON_STATUS_16                 ; $02CE  28 05
+        CALL PROCESS_DATA_SECTOR                    ; $02D0  CD 32 03
+        JR CON_STATUS_14                   ; $02D3  18 D1
 ; [AI] End-of-file path: flushes the last partial CP/M record buffer to disk and falls through to
 ;       print the 'Transfer complete' message.
-SUB_01B2_16:
-        CALL SUB_0353                    ; $02D5  CD 53 03
+CON_STATUS_16:
+        CALL FLUSH_BUFFER                    ; $02D5  CD 53 03
 ; [AI] Loads the 'Transfer complete' message pointer and jumps to the print-and-reprompt routine.
-SUB_01B2_17:
-        LD DE,SUB_04FC_37                ; $02D8  11 8F 06
-        JR SUB_01B2_19                   ; $02DB  18 03
+CON_STATUS_17:
+        LD DE,PUT_CHAR_37                ; $02D8  11 8F 06
+        JR CON_STATUS_19                   ; $02DB  18 03
 ; [AI] Directory-exhausted (source not found while scanning): loads the 'File not found' message
 ;       and prints it.
-SUB_01B2_18:
-        LD DE,SUB_04FC_44                ; $02DD  11 08 07
-SUB_01B2_19:
+CON_STATUS_18:
+        LD DE,PUT_CHAR_44                ; $02DD  11 08 07
+CON_STATUS_19:
         JP TPA_START_8                   ; $02E0  C3 16 01
 ; [AI] Programs the SoftCard's Apple-DOS RWTS parameter block at $F3xx for a sector operation: sets
 ;       buffer address ($F3E8=$0800), command, and the current track/sector before calling the BIOS
 ;       Apple-disk routine.
-SUB_02E3:
+SETUP_RWTS:
         LD HL,$0800                      ; $02E3  21 00 08
         LD ($F3E8),HL                    ; $02E6  22 E8 F3
         LD A,$01                         ; $02E9  3E 01
         LD ($F3E0),A                     ; $02EB  32 E0 F3
         DEC A                            ; $02EE  3D
         LD ($006A),A                     ; $02EF  32 6A 00
-        LD A,(SUB_04FC_19)               ; $02F2  3A 14 05
+        LD A,(PUT_CHAR_19)               ; $02F2  3A 14 05
         LD ($0068),A                     ; $02F5  32 68 00
-        LD DE,SUB_04FC_33                ; $02F8  11 16 06
-SUB_02E3_1:
-        JP SUB_04ED                      ; $02FB  C3 ED 04
+        LD DE,PUT_CHAR_33                ; $02F8  11 16 06
+SETUP_RWTS_1:
+        JP PROMPT_IF_SAME_DRIVE                      ; $02FB  C3 ED 04
 ; [AI] Writes one filled 128-byte record to the CP/M output file (BDOS write-sequential, function
 ;       15), restoring the saved current-record byte, then advances the record number.
-SUB_02FE:
-        CALL SUB_02E3                    ; $02FE  CD E3 02
+WRITE_RECORD:
+        CALL SETUP_RWTS                    ; $02FE  CD E3 02
         LD DE,DEFAULT_FCB                ; $0301  11 5C 00
-SUB_02FE_1:
+WRITE_RECORD_1:
         LD C,$0F                         ; $0304  0E 0F
         CALL BDOS_VEC                    ; $0306  CD 05 00
-        LD A,(SUB_04FC_20)               ; $0309  3A 15 05
+        LD A,(PUT_CHAR_20)               ; $0309  3A 15 05
         LD (DEFAULT_CR),A                ; $030C  32 7C 00
-        JP SUB_0470                      ; $030F  C3 70 04
-; [AI] Closes the CP/M output file: restores FCB record fields and falls into SUB_031E to issue the
+        JP SET_FCB_DRIVE                      ; $030F  C3 70 04
+; [AI] Closes the CP/M output file: restores FCB record fields and falls into CLOSE_AND_RESET to issue the
 ;       BDOS close call.
-SUB_02FE_2:
+WRITE_RECORD_2:
         LD A,(DEFAULT_CR)                ; $0312  3A 7C 00
-        LD (SUB_04FC_20),A               ; $0315  32 15 05
+        LD (PUT_CHAR_20),A               ; $0315  32 15 05
         LD A,($0068)                     ; $0318  3A 68 00
-        LD (SUB_04FC_19),A               ; $031B  32 14 05
+        LD (PUT_CHAR_19),A               ; $031B  32 14 05
 ; [AI] Closes the current CP/M file via BDOS function 16, then reinitializes the sector buffer
 ;       pointer for the next transfer.
-SUB_031E:
+CLOSE_AND_RESET:
         LD DE,DEFAULT_FCB                ; $031E  11 5C 00
         LD C,$10                         ; $0321  0E 10
         CALL BDOS_VEC                    ; $0323  CD 05 00
         LD HL,$1A22                      ; $0326  21 22 1A
-        LD (SUB_04FC_21),HL              ; $0329  22 16 05
-        LD DE,SUB_04FC_32                ; $032C  11 EC 05
-        JP SUB_0459                      ; $032F  C3 59 04
+        LD (PUT_CHAR_21),HL              ; $0329  22 16 05
+        LD DE,PUT_CHAR_32                ; $032C  11 EC 05
+        JP SELECT_DRIVE                      ; $032F  C3 59 04
 ; [AI] Processes one Apple-DOS data sector: reads it, increments the sector counter, and when a
 ;       full CP/M-record's worth of data has accumulated flushes it and refills the buffer.
-SUB_0332:
-        CALL SUB_0481                    ; $0332  CD 81 04
-        LD HL,SUB_04FC_22                ; $0335  21 17 05
+PROCESS_DATA_SECTOR:
+        CALL READ_DATA_SECTOR                    ; $0332  CD 81 04
+        LD HL,PUT_CHAR_22                ; $0335  21 17 05
         LD A,(HL)                        ; $0338  7E
         INC A                            ; $0339  3C
         CP $C0                           ; $033A  FE C0
-        JR NZ,SUB_0332_1                 ; $033C  20 02
+        JR NZ,PROCESS_DATA_SECTOR_1                 ; $033C  20 02
         LD A,$D0                         ; $033E  3E D0
-SUB_0332_1:
+PROCESS_DATA_SECTOR_1:
         LD (HL),A                        ; $0340  77
-        LD HL,SUB_04FC_18                ; $0341  21 13 05
+        LD HL,PUT_CHAR_18                ; $0341  21 13 05
         INC (HL)                         ; $0344  34
         LD A,(HL)                        ; $0345  7E
-        LD HL,SUB_04FC_24                ; $0346  21 19 05
+        LD HL,PUT_CHAR_24                ; $0346  21 19 05
         CP (HL)                          ; $0349  BE
         RET C                            ; $034A  D8
-        CALL SUB_0353                    ; $034B  CD 53 03
-        LD DE,SUB_04FC_32                ; $034E  11 EC 05
-        JR SUB_02E3_1                    ; $0351  18 A8
+        CALL FLUSH_BUFFER                    ; $034B  CD 53 03
+        LD DE,PUT_CHAR_32                ; $034E  11 EC 05
+        JR SETUP_RWTS_1                    ; $0351  18 A8
 ; [AI] Buffer-flush routine: writes out all complete 128-byte CP/M records currently held in the
 ;       file buffer via repeated set-DMA + write-sequential BDOS calls, masking high bits for text
 ;       files.
-SUB_0353:
-        LD A,(SUB_04FC_18)               ; $0353  3A 13 05
+FLUSH_BUFFER:
+        LD A,(PUT_CHAR_18)               ; $0353  3A 13 05
         OR A                             ; $0356  B7
-        JP Z,SUB_01B2_17                 ; $0357  CA D8 02
+        JP Z,CON_STATUS_17                 ; $0357  CA D8 02
         PUSH AF                          ; $035A  F5
-        CALL SUB_02FE                    ; $035B  CD FE 02
+        CALL WRITE_RECORD                    ; $035B  CD FE 02
         POP AF                           ; $035E  F1
         LD B,$00                         ; $035F  06 00
         ADD A,A                          ; $0361  87
@@ -407,30 +407,30 @@ SUB_0353:
 ; [AI] Per-record write loop inside the flush: sets the DMA address to the next 128-byte slice,
 ;       optionally strips high bits for Apple text files, writes the record, and aborts on a disk-
 ;       full error.
-SUB_0353_1:
+FLUSH_BUFFER_1:
         PUSH BC                          ; $0368  C5
         PUSH HL                          ; $0369  E5
         EX DE,HL                         ; $036A  EB
         LD C,$1A                         ; $036B  0E 1A
         CALL BDOS_VEC                    ; $036D  CD 05 00
-        LD A,(SUB_04FC_14)               ; $0370  3A 0E 05
+        LD A,(PUT_CHAR_14)               ; $0370  3A 0E 05
         OR A                             ; $0373  B7
-        JR NZ,SUB_0353_3                 ; $0374  20 0B
+        JR NZ,FLUSH_BUFFER_3                 ; $0374  20 0B
         LD B,$80                         ; $0376  06 80
         POP HL                           ; $0378  E1
         PUSH HL                          ; $0379  E5
-SUB_0353_2:
+FLUSH_BUFFER_2:
         LD A,(HL)                        ; $037A  7E
         AND $7F                          ; $037B  E6 7F
         LD (HL),A                        ; $037D  77
         INC HL                           ; $037E  23
-        DJNZ SUB_0353_2                  ; $037F  10 F9
-SUB_0353_3:
+        DJNZ FLUSH_BUFFER_2                  ; $037F  10 F9
+FLUSH_BUFFER_3:
         LD DE,DEFAULT_FCB                ; $0381  11 5C 00
         LD C,$15                         ; $0384  0E 15
         CALL BDOS_VEC                    ; $0386  CD 05 00
         OR A                             ; $0389  B7
-        LD DE,SUB_04FC_40                ; $038A  11 CB 06
+        LD DE,PUT_CHAR_40                ; $038A  11 CB 06
         JP NZ,TPA_START_8                ; $038D  C2 16 01
         POP HL                           ; $0390  E1
         LD DE,DEFAULT_DMA                ; $0391  11 80 00
@@ -439,131 +439,131 @@ SUB_0353_3:
         DEC BC                           ; $0396  0B
         LD A,B                           ; $0397  78
         OR C                             ; $0398  B1
-        JR NZ,SUB_0353_1                 ; $0399  20 CD
+        JR NZ,FLUSH_BUFFER_1                 ; $0399  20 CD
         XOR A                            ; $039B  AF
-        LD (SUB_04FC_18),A               ; $039C  32 13 05
-        JP SUB_02FE_2                    ; $039F  C3 12 03
+        LD (PUT_CHAR_18),A               ; $039C  32 13 05
+        JP WRITE_RECORD_2                    ; $039F  C3 12 03
 ; [AI] Parses an optional 'X:' CP/M drive prefix from the input: validates the letter against the
 ;       BIOS drive count at $F3B8 and stores the 0-based drive code, reporting 'Invalid Drive' if
 ;       out of range.
-SUB_03A2:
+PARSE_DRIVE_PREFIX:
         INC HL                           ; $03A2  23
         LD A,(HL)                        ; $03A3  7E
         DEC HL                           ; $03A4  2B
         CP $3A                           ; $03A5  FE 3A
         RET NZ                           ; $03A7  C0
-        CALL SUB_03B9                    ; $03A8  CD B9 03
+        CALL GET_NEXT_CHAR                    ; $03A8  CD B9 03
         SUB $41                          ; $03AB  D6 41
         INC HL                           ; $03AD  23
         LD C,A                           ; $03AE  4F
         LD A,($F3B8)                     ; $03AF  3A B8 F3
         DEC A                            ; $03B2  3D
         CP C                             ; $03B3  B9
-        JR C,SUB_03C3_2                  ; $03B4  38 25
+        JR C,CALL_RWTS_BIOS_2                  ; $03B4  38 25
         LD A,C                           ; $03B6  79
         LD (DE),A                        ; $03B7  12
         RET                              ; $03B8  C9
 ; [AI] Reads the next command-line character, advancing the pointer and folding lowercase to
 ;       uppercase; returns Z set on a NUL terminator so callers can detect end of input.
-SUB_03B9:
+GET_NEXT_CHAR:
         LD A,(HL)                        ; $03B9  7E
         INC HL                           ; $03BA  23
         CP $60                           ; $03BB  FE 60
-        JR C,SUB_03B9_1                  ; $03BD  38 02
+        JR C,GET_NEXT_CHAR_1                  ; $03BD  38 02
         SUB $20                          ; $03BF  D6 20
-SUB_03B9_1:
+GET_NEXT_CHAR_1:
         OR A                             ; $03C1  B7
         RET                              ; $03C2  C9
 ; [AI] Calls a vendor-specific BIOS extension entry by taking the BIOS base from the warm-boot
 ;       vector at $0001 and forcing the low byte to $1B, then continues into the small DEFB helper
 ;       at $03CD.
-SUB_03C3:
-        LD HL,SUB_03C3_1                 ; $03C3  21 CD 03
+CALL_RWTS_BIOS:
+        LD HL,CALL_RWTS_BIOS_1                 ; $03C3  21 CD 03
         PUSH HL                          ; $03C6  E5
         LD HL,($0001)                    ; $03C7  2A 01 00
         LD L,$1B                         ; $03CA  2E 1B
         JP (HL)                          ; $03CC  E9
-SUB_03C3_1:
+CALL_RWTS_BIOS_1:
         DEFB    $7D,$B4,$28,$0A,$11,$0A,$00,$19,$7E,$23,$66,$6F,$56,$C9 ; $03CD
 ; [AI] Invalid-drive error handler: prints the 'Invalid Drive' message and returns to the command
 ;       prompt.
-SUB_03C3_2:
-        LD DE,SUB_04FC_42                ; $03DB  11 E4 06
-        CALL SUB_04CB                    ; $03DE  CD CB 04
+CALL_RWTS_BIOS_2:
+        LD DE,PUT_CHAR_42                ; $03DB  11 E4 06
+        CALL PRINT_MSG_NL                    ; $03DE  CD CB 04
         JP TPA_START_10                  ; $03E1  C3 1C 01
 ; [AI] Initializes the Apple-DOS volume: selects the drive, reads the VTOC, validates it (checks
 ;       the DOS version/catalog marker), and caches the first catalog track/sector pointer for
 ;       directory traversal.
-SUB_03E4:
-        CALL SUB_0459                    ; $03E4  CD 59 04
-        CALL SUB_03C3                    ; $03E7  CD C3 03
+INIT_APPLE_VOLUME:
+        CALL SELECT_DRIVE                    ; $03E4  CD 59 04
+        CALL CALL_RWTS_BIOS                    ; $03E7  CD C3 03
         PUSH DE                          ; $03EA  D5
         LD C,$00                         ; $03EB  0E 00
-        CALL SUB_03C3                    ; $03ED  CD C3 03
+        CALL CALL_RWTS_BIOS                    ; $03ED  CD C3 03
         POP AF                           ; $03F0  F1
         CP D                             ; $03F1  BA
-        LD HL,SUB_04FC_27                ; $03F2  21 5F 05
-        JR NZ,SUB_03E4_1                 ; $03F5  20 0A
+        LD HL,PUT_CHAR_27                ; $03F2  21 5F 05
+        JR NZ,INIT_APPLE_VOLUME_1                 ; $03F5  20 0A
         CP $1A                           ; $03F7  FE 1A
-        LD HL,SUB_04FC_25                ; $03F9  21 42 05
-        JR NZ,SUB_03E4_1                 ; $03FC  20 03
-        LD HL,SUB_04FC_26                ; $03FE  21 52 05
-SUB_03E4_1:
-        LD (SUB_048B_2+1),HL             ; $0401  22 94 04
+        LD HL,PUT_CHAR_25                ; $03F9  21 42 05
+        JR NZ,INIT_APPLE_VOLUME_1                 ; $03FC  20 03
+        LD HL,PUT_CHAR_26                ; $03FE  21 52 05
+INIT_APPLE_VOLUME_1:
+        LD (READ_SECTOR_2+1),HL             ; $0401  22 94 04
         LD HL,$0011                      ; $0404  21 11 00
-        CALL SUB_048B                    ; $0407  CD 8B 04
-        LD A,(SUB_04FC_48)               ; $040A  3A 49 07
+        CALL READ_SECTOR                    ; $0407  CD 8B 04
+        LD A,(PUT_CHAR_48)               ; $040A  3A 49 07
         CP $7A                           ; $040D  FE 7A
-        JR Z,SUB_03E4_2                  ; $040F  28 06
-        LD DE,SUB_04FC_43                ; $0411  11 F2 06
+        JR Z,INIT_APPLE_VOLUME_2                  ; $040F  28 06
+        LD DE,PUT_CHAR_43                ; $0411  11 F2 06
         JP TPA_START_8                   ; $0414  C3 16 01
 ; [AI] Records the catalog (directory) starting track/sector returned from the VTOC and sets the
 ;       directory-walk position flag for the entry iterator.
-SUB_03E4_2:
-        LD HL,(SUB_04FC_47)              ; $0417  2A 23 07
-        LD (SUB_04FC_13),HL              ; $041A  22 0C 05
+INIT_APPLE_VOLUME_2:
+        LD HL,(PUT_CHAR_47)              ; $0417  2A 23 07
+        LD (PUT_CHAR_13),HL              ; $041A  22 0C 05
         LD A,$FF                         ; $041D  3E FF
-        LD (SUB_04FC_12),A               ; $041F  32 0B 05
+        LD (PUT_CHAR_12),A               ; $041F  32 0B 05
         RET                              ; $0422  C9
 ; [AI] Apple-DOS directory iterator: returns the next catalog file entry, advancing to the next
 ;       catalog sector when the current one is exhausted; returns Z when the directory ends. Yields
 ;       the entry's type byte and first T/S-list pointer.
-SUB_0423:
-        LD A,(SUB_04FC_12)               ; $0423  3A 0B 05
+NEXT_DIR_ENTRY:
+        LD A,(PUT_CHAR_12)               ; $0423  3A 0B 05
         ADD A,$23                        ; $0426  C6 23
-        JR NC,SUB_0423_1                 ; $0428  30 11
-        LD HL,(SUB_04FC_13)              ; $042A  2A 0C 05
+        JR NC,NEXT_DIR_ENTRY_1                 ; $0428  30 11
+        LD HL,(PUT_CHAR_13)              ; $042A  2A 0C 05
         LD A,L                           ; $042D  7D
         OR H                             ; $042E  B4
         RET Z                            ; $042F  C8
-        CALL SUB_048B                    ; $0430  CD 8B 04
-        LD HL,(SUB_04FC_47)              ; $0433  2A 23 07
-        LD (SUB_04FC_13),HL              ; $0436  22 0C 05
+        CALL READ_SECTOR                    ; $0430  CD 8B 04
+        LD HL,(PUT_CHAR_47)              ; $0433  2A 23 07
+        LD (PUT_CHAR_13),HL              ; $0436  22 0C 05
         LD A,$0B                         ; $0439  3E 0B
-SUB_0423_1:
-        LD (SUB_04FC_12),A               ; $043B  32 0B 05
+NEXT_DIR_ENTRY_1:
+        LD (PUT_CHAR_12),A               ; $043B  32 0B 05
         LD D,$00                         ; $043E  16 00
         LD E,A                           ; $0440  5F
-        LD HL,SUB_04FC_46                ; $0441  21 22 07
+        LD HL,PUT_CHAR_46                ; $0441  21 22 07
         ADD HL,DE                        ; $0444  19
         LD A,(HL)                        ; $0445  7E
         LD C,A                           ; $0446  4F
         OR A                             ; $0447  B7
         RET Z                            ; $0448  C8
         INC A                            ; $0449  3C
-        JR Z,SUB_0423                    ; $044A  28 D7
+        JR Z,NEXT_DIR_ENTRY                    ; $044A  28 D7
         INC HL                           ; $044C  23
         LD B,(HL)                        ; $044D  46
         INC HL                           ; $044E  23
         LD A,(HL)                        ; $044F  7E
-        LD (SUB_04FC_14),A               ; $0450  32 0E 05
+        LD (PUT_CHAR_14),A               ; $0450  32 0E 05
         INC HL                           ; $0453  23
-        LD (SUB_04FC_15),BC              ; $0454  ED 43 0F 05
+        LD (PUT_CHAR_15),BC              ; $0454  ED 43 0F 05
         RET                              ; $0458  C9
 ; [AI] Translates a parsed drive code into the SoftCard's Apple-disk slot/drive select characters
 ;       and stores them in the $F3E4/$F3E6 RWTS parameter cells.
-SUB_0459:
-        LD A,(SUB_04FC_16)               ; $0459  3A 11 05
+SELECT_DRIVE:
+        LD A,(PUT_CHAR_16)               ; $0459  3A 11 05
         LD C,A                           ; $045C  4F
         AND $01                          ; $045D  E6 01
         INC A                            ; $045F  3C
@@ -579,33 +579,33 @@ SUB_0459:
         RET                              ; $046F  C9
 ; [AI] Sets the drive byte of the default FCB ($005C) from the parsed destination drive code
 ;       (stored as 1-based per CP/M FCB convention).
-SUB_0470:
-        LD A,(SUB_04FC_17)               ; $0470  3A 12 05
+SET_FCB_DRIVE:
+        LD A,(PUT_CHAR_17)               ; $0470  3A 12 05
         INC A                            ; $0473  3C
         LD (DEFAULT_FCB),A               ; $0474  32 5C 00
         RET                              ; $0477  C9
 ; [AI] Points the Apple-DOS RWTS buffer pointer ($F3E8) at the catalog-sector work area and falls
 ;       into the common BIOS-call setup.
-SUB_0478:
+READ_CATALOG_SECTOR:
         LD DE,$1822                      ; $0478  11 22 18
         LD ($F3E8),DE                    ; $047B  ED 53 E8 F3
-        JR SUB_048B_1                    ; $047F  18 11
+        JR READ_SECTOR_1                    ; $047F  18 11
 ; [AI] Points the Apple-DOS RWTS buffer pointer at the current data-sector work area (address held
 ;       at $0516) and falls into the common BIOS-call setup.
-SUB_0481:
-        LD DE,(SUB_04FC_21)              ; $0481  ED 5B 16 05
+READ_DATA_SECTOR:
+        LD DE,(PUT_CHAR_21)              ; $0481  ED 5B 16 05
         LD ($F3E8),DE                    ; $0485  ED 53 E8 F3
-        JR SUB_048B_1                    ; $0489  18 07
+        JR READ_SECTOR_1                    ; $0489  18 07
 ; [AI] Common Apple-DOS sector-read entry: sets the RWTS buffer pointer, derives the track/sector
 ;       parameters from HL, and invokes the BIOS Apple-disk read; checks the $F3EA status afterward
 ;       and reports 'Disk I/O Error' on failure.
-SUB_048B:
+READ_SECTOR:
         LD DE,$1722                      ; $048B  11 22 17
         LD ($F3E8),DE                    ; $048E  ED 53 E8 F3
-SUB_048B_1:
+READ_SECTOR_1:
         LD A,L                           ; $0492  7D
-SUB_048B_2:
-        LD DE,SUB_04FC_26                ; $0493  11 52 05
+READ_SECTOR_2:
+        LD DE,PUT_CHAR_26                ; $0493  11 52 05
         LD L,H                           ; $0496  6C
         LD H,$00                         ; $0497  26 00
         ADD HL,DE                        ; $0499  19
@@ -616,203 +616,203 @@ SUB_048B_2:
         LD ($F3EB),A                     ; $04A1  32 EB F3
         LD HL,$0E03                      ; $04A4  21 03 0E
         LD ($F3D0),HL                    ; $04A7  22 D0 F3
-SUB_048B_3:
+READ_SECTOR_3:
         LD (WBOOT_VEC),A                 ; $04AA  32 00 00
         LD A,($F3EA)                     ; $04AD  3A EA F3
         OR A                             ; $04B0  B7
         RET Z                            ; $04B1  C8
-        LD DE,SUB_04FC_41                ; $04B2  11 D5 06
-        CALL SUB_04D3                    ; $04B5  CD D3 04
+        LD DE,PUT_CHAR_41                ; $04B2  11 D5 06
+        CALL PRINT_MSG                    ; $04B5  CD D3 04
         JP TPA_START_10                  ; $04B8  C3 1C 01
 ; [AI] Emits a single space ($20) to the console via the character-output helper; used to separate
 ;       fields in directory listings.
-SUB_04BB:
+PRINT_SPACE:
         LD A,$20                         ; $04BB  3E 20
-        JR SUB_04FC                      ; $04BD  18 3D
-; [AI] Outputs two CR/LF pairs (a blank line) by calling the CR/LF routine twice; SUB_04C2 emits a
+        JR PUT_CHAR                      ; $04BD  18 3D
+; [AI] Outputs two CR/LF pairs (a blank line) by calling the CR/LF routine twice; PRINT_CRLF emits a
 ;       single CR/LF.
-SUB_04BF:
-        CALL SUB_04C2                    ; $04BF  CD C2 04
+PRINT_BLANK_LINE:
+        CALL PRINT_CRLF                    ; $04BF  CD C2 04
 ; [AI] Outputs a carriage-return/line-feed pair to the console using the buffered character-output
 ;       routine.
-SUB_04C2:
+PRINT_CRLF:
         LD A,$0D                         ; $04C2  3E 0D
-SUB_04C2_1:
-        CALL SUB_04FC                    ; $04C4  CD FC 04
-SUB_04C2_2:
+PRINT_CRLF_1:
+        CALL PUT_CHAR                    ; $04C4  CD FC 04
+PRINT_CRLF_2:
         LD A,$0A                         ; $04C7  3E 0A
-SUB_04C2_3:
-        JR SUB_04FC                      ; $04C9  18 31
+PRINT_CRLF_3:
+        JR PUT_CHAR                      ; $04C9  18 31
 ; [AI] Prints a '$'-terminated message preceded by two CR/LF blank lines (saves the message
 ;       pointer, emits the leading newlines, then prints via BDOS function 9).
-SUB_04CB:
+PRINT_MSG_NL:
         PUSH DE                          ; $04CB  D5
-SUB_04CB_1:
-        CALL SUB_04C2                    ; $04CC  CD C2 04
-SUB_04CB_2:
-        CALL SUB_04C2                    ; $04CF  CD C2 04
-SUB_04CB_3:
+PRINT_MSG_NL_1:
+        CALL PRINT_CRLF                    ; $04CC  CD C2 04
+PRINT_MSG_NL_2:
+        CALL PRINT_CRLF                    ; $04CF  CD C2 04
+PRINT_MSG_NL_3:
         POP DE                           ; $04D2  D1
 ; [AI] Prints a '$'-terminated string via BDOS function 9 (print-string); the common message-output
 ;       primitive used throughout.
-SUB_04D3:
+PRINT_MSG:
         LD C,$09                         ; $04D3  0E 09
-SUB_04D3_1:
+PRINT_MSG_1:
         JP BDOS_VEC                      ; $04D5  C3 05 00
 ; [AI] If the destination is the same physical Apple drive as the source, prompts the user to swap
 ;       disks ('Insert CP/M disk...') and waits, since one drive must hold both the Apple-DOS and
 ;       CP/M volumes.
-SUB_04D8:
-        LD HL,(SUB_04FC_16)              ; $04D8  2A 11 05
+PROMPT_CPM_DISK:
+        LD HL,(PUT_CHAR_16)              ; $04D8  2A 11 05
         LD A,L                           ; $04DB  7D
         CP H                             ; $04DC  BC
         RET Z                            ; $04DD  C8
-        LD DE,SUB_04FC_34                ; $04DE  11 39 06
-        CALL SUB_04F3                    ; $04E1  CD F3 04
-        CALL SUB_04BF                    ; $04E4  CD BF 04
-        LD DE,SUB_04FC_45                ; $04E7  11 17 07
-        JP SUB_04D3                      ; $04EA  C3 D3 04
+        LD DE,PUT_CHAR_34                ; $04DE  11 39 06
+        CALL PRINT_MSG_WAIT                    ; $04E1  CD F3 04
+        CALL PRINT_BLANK_LINE                    ; $04E4  CD BF 04
+        LD DE,PUT_CHAR_45                ; $04E7  11 17 07
+        JP PRINT_MSG                      ; $04EA  C3 D3 04
 ; [AI] Conditionally prints a disk-swap prompt: only when source and destination are on the same
 ;       drive (low byte of $0511 equals high byte) does it print the message and wait for a
 ;       keypress.
-SUB_04ED:
-        LD HL,(SUB_04FC_16)              ; $04ED  2A 11 05
+PROMPT_IF_SAME_DRIVE:
+        LD HL,(PUT_CHAR_16)              ; $04ED  2A 11 05
         LD A,L                           ; $04F0  7D
         CP H                             ; $04F1  BC
         RET NZ                           ; $04F2  C0
 ; [AI] Prints a '$'-terminated prompt then blocks until the user presses a key (print-and-wait),
 ;       preserving BC across the call.
-SUB_04F3:
+PRINT_MSG_WAIT:
         PUSH BC                          ; $04F3  C5
-        CALL SUB_04D3                    ; $04F4  CD D3 04
-        CALL SUB_01AC                    ; $04F7  CD AC 01
+        CALL PRINT_MSG                    ; $04F4  CD D3 04
+        CALL WAIT_FOR_KEY                    ; $04F7  CD AC 01
         POP BC                           ; $04FA  C1
         RET                              ; $04FB  C9
 ; [AI] Console character-output primitive: prints the character in A via BDOS function 2 while
 ;       preserving all registers; the workhorse behind every screen write in the program.
-SUB_04FC:
+PUT_CHAR:
         PUSH AF                          ; $04FC  F5
-SUB_04FC_1:
+PUT_CHAR_1:
         PUSH BC                          ; $04FD  C5
-SUB_04FC_2:
+PUT_CHAR_2:
         PUSH DE                          ; $04FE  D5
-SUB_04FC_3:
+PUT_CHAR_3:
         PUSH HL                          ; $04FF  E5
-SUB_04FC_4:
+PUT_CHAR_4:
         LD E,A                           ; $0500  5F
-SUB_04FC_5:
+PUT_CHAR_5:
         LD C,$02                         ; $0501  0E 02
-SUB_04FC_6:
+PUT_CHAR_6:
         CALL BDOS_VEC                    ; $0503  CD 05 00
-SUB_04FC_7:
+PUT_CHAR_7:
         POP HL                           ; $0506  E1
-SUB_04FC_8:
+PUT_CHAR_8:
         POP DE                           ; $0507  D1
-SUB_04FC_9:
+PUT_CHAR_9:
         POP BC                           ; $0508  C1
-SUB_04FC_10:
+PUT_CHAR_10:
         POP AF                           ; $0509  F1
-SUB_04FC_11:
+PUT_CHAR_11:
         RET                              ; $050A  C9
-SUB_04FC_12:
+PUT_CHAR_12:
         DEFB    $B7                                              ; $050B
-SUB_04FC_13:
+PUT_CHAR_13:
         DEFB    $00,$00                                          ; $050C
-SUB_04FC_14:
+PUT_CHAR_14:
         DEFB    $00                                              ; $050E
-SUB_04FC_15:
+PUT_CHAR_15:
         DEFB    $00,$00                                          ; $050F
-SUB_04FC_16:
+PUT_CHAR_16:
         DEFB    $01                                              ; $0511
-SUB_04FC_17:
+PUT_CHAR_17:
         DEFB    $00                                              ; $0512
-SUB_04FC_18:
+PUT_CHAR_18:
         DEFB    $00                                              ; $0513
-SUB_04FC_19:
+PUT_CHAR_19:
         DEFB    $00                                              ; $0514
-SUB_04FC_20:
+PUT_CHAR_20:
         DEFB    $00                                              ; $0515
-SUB_04FC_21:
+PUT_CHAR_21:
         DEFB    $00                                              ; $0516
-SUB_04FC_22:
+PUT_CHAR_22:
         DEFB    $00                                              ; $0517
-SUB_04FC_23:
+PUT_CHAR_23:
         DEFB    $00                                              ; $0518
-SUB_04FC_24:
+PUT_CHAR_24:
         DEFS    41, $00    ; $0519  fill
-SUB_04FC_25:
+PUT_CHAR_25:
         DEFB    $00,$0E,$0D,$0C,$0B,$0A,$09                      ; $0542
-        DEFW    SUB_04FC_44              ; $0549
-        DEFW    SUB_04FC_7               ; $054B
-        DEFW    SUB_02FE_1               ; $054D
+        DEFW    PUT_CHAR_44              ; $0549
+        DEFW    PUT_CHAR_7               ; $054B
+        DEFW    WRITE_RECORD_1               ; $054D
         DEFB    $02,$01,$0F                                      ; $054F
-SUB_04FC_26:
+PUT_CHAR_26:
         DEFW    TPA_START                ; $0552
         DEFB    $02,$03,$04,$05,$06,$07,$08,$09,$0A,$0B,$0C      ; $0554
-SUB_04FC_27:
+PUT_CHAR_27:
         DEFB    $00,$0F,$07,$03                                  ; $055F
-        DEFW    SUB_01B2_8               ; $0563
+        DEFW    CON_STATUS_8               ; $0563
         DEFB    $06,$0D                                          ; $0565
         DEFW    TPA_START_3              ; $0567
         DEFB    $08,$0C,$04                                      ; $0569
-SUB_04FC_28:
+PUT_CHAR_28:
         DEFS    30, $00    ; $056C  fill
-SUB_04FC_29:
+PUT_CHAR_29:
         DEFB    $49,$41,$42,$54                                  ; $058A
-SUB_04FC_30:
+PUT_CHAR_30:
         DEFB    $09,$20,$20,$20,$41,$50,$50,$4C,$45,$20,$5D,$5B,$20,$43,$50,$2F ; $058E
         DEFB    $4D,$0D,$0A,$41,$70,$70,$6C,$65,$20,$44,$4F,$53,$20,$74,$6F,$20 ; $059E
         DEFB    "CP/M file transfer program"    ; $05AE  string
         DEFB    $0D    ; $05C8  terminator
         DEFB    $0A,$09,$28,$43,$29,$20,$31,$39,$38,$30,$20,$4D,$69,$63,$72,$6F ; $05C9
         DEFB    $73,$6F,$66,$74,$24                              ; $05D9
-SUB_04FC_31:
+PUT_CHAR_31:
         DEFB    $43,$6F,$6D,$6D,$61,$6E,$64,$20,$45,$72,$72,$6F,$72,$24 ; $05DE
-SUB_04FC_32:
+PUT_CHAR_32:
         DEFB    $0D,$0A,$0D,$0A,$49,$6E,$73,$65,$72,$74,$20,$41,$70,$70,$6C,$65 ; $05EC
         DEFB    $20,$44,$4F,$53,$20,$64,$69,$73,$6B,$20,$61,$6E,$64,$20,$68,$69 ; $05FC
         DEFB    $74,$20,$52,$45,$54,$55,$52,$4E,$20,$24          ; $060C
-SUB_04FC_33:
+PUT_CHAR_33:
         DEFB    $0D,$0A,$49,$6E,$73,$65,$72,$74,$20,$43,$50,$2F,$4D,$20,$64,$69 ; $0616
         DEFB    $73,$6B,$20,$61,$6E,$64,$20,$68,$69,$74,$20,$52,$45,$54,$55,$52 ; $0626
         DEFB    $4E,$20,$24                                      ; $0636
-SUB_04FC_34:
+PUT_CHAR_34:
         DEFB    $49,$6E,$73,$65,$72,$74,$20,$41,$70,$70,$6C,$65,$20,$44,$4F,$53 ; $0639
         DEFB    $20,$64,$69,$73,$6B,$20,$69,$6E,$20,$64,$72,$69,$76,$65,$20 ; $0649
-SUB_04FC_35:
+PUT_CHAR_35:
         DEFB    $5A,$3A,$0D,$0A,$49,$6E,$73,$65,$72,$74,$20,$43,$50,$2F,$4D,$20 ; $0658
         DEFB    $64,$69,$73,$6B,$20,$69,$6E,$20,$64,$72,$69,$76,$65,$20 ; $0668
-SUB_04FC_36:
+PUT_CHAR_36:
         DEFB    $51,$3A,$0D,$0A,$48,$69,$74,$20,$52,$45,$54,$55,$52,$4E,$20,$74 ; $0676
         DEFB    $6F,$20,$62,$65,$67,$69,$6E,$20,$24              ; $0686
-SUB_04FC_37:
+PUT_CHAR_37:
         DEFB    $54,$72,$61,$6E,$73,$66,$65,$72,$20,$63,$6F,$6D,$70,$6C,$65,$74 ; $068F
         DEFB    $65,$24                                          ; $069F
-SUB_04FC_38:
+PUT_CHAR_38:
         DEFB    $54,$65,$78,$74,$20,$61,$6E,$64,$20,$42,$69,$6E,$61,$72,$79,$20 ; $06A1
         DEFB    $66,$69,$6C,$65,$73,$20,$6F,$6E,$6C,$79,$24      ; $06B1
-SUB_04FC_39:
+PUT_CHAR_39:
         DEFB    $44,$69,$72,$65,$63,$74,$6F,$72,$79,$20,$66,$75,$6C,$6C,$24 ; $06BC
-SUB_04FC_40:
+PUT_CHAR_40:
         DEFB    $44,$69,$73,$6B,$20,$66,$75,$6C,$6C,$24          ; $06CB
-SUB_04FC_41:
+PUT_CHAR_41:
         DEFB    $44,$69,$73,$6B,$20,$49,$2F,$4F,$20,$45,$72,$72,$6F,$72,$24 ; $06D5
-SUB_04FC_42:
+PUT_CHAR_42:
         DEFB    $49,$6E,$76,$61,$6C,$69,$64,$20,$44,$72,$69,$76,$65,$24 ; $06E4
-SUB_04FC_43:
+PUT_CHAR_43:
         DEFB    $4E,$6F,$74,$20,$61,$6E,$20,$41,$70,$70,$6C,$65,$20,$44,$4F,$53 ; $06F2
         DEFB    $20,$64,$69,$73,$6B,$24                          ; $0702
-SUB_04FC_44:
+PUT_CHAR_44:
         DEFB    $46,$69,$6C,$65,$20,$6E,$6F,$74,$20,$66,$6F,$75,$6E,$64,$24 ; $0708
-SUB_04FC_45:
+PUT_CHAR_45:
         DEFB    $57,$6F,$72,$6B,$69,$6E,$67,$2E,$2E,$2E,$24      ; $0717
-SUB_04FC_46:
+PUT_CHAR_46:
         DEFB    $65                                              ; $0722
-SUB_04FC_47:
+PUT_CHAR_47:
         DEFB    $78,$74,$20,$61,$6E,$64,$20,$42,$69,$6E,$61,$72,$79,$20,$66,$69 ; $0723
         DEFB    $6C,$65,$73,$20,$6F,$6E,$6C,$79,$24,$44,$69,$72,$65,$63,$74,$6F ; $0733
         DEFB    $72,$79,$20,$66,$75,$6C                          ; $0743
-SUB_04FC_48:
+PUT_CHAR_48:
         DEFB    $6C,$24,$44,$69,$73,$6B,$20,$66,$75,$6C,$6C,$24,$44,$69,$73,$6B ; $0749
         DEFB    $20,$49,$2F,$4F,$20,$45,$72,$72,$6F,$72,$24,$49,$6E,$76,$61,$6C ; $0759
         DEFB    $69,$64,$20,$44,$72,$69,$76,$65,$24,$4E,$6F,$74,$20,$61,$6E,$20 ; $0769

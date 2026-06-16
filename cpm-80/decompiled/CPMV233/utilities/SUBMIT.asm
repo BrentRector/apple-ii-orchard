@@ -58,348 +58,348 @@ TPA_START_12:
 TPA_START_13:
         ADD HL,SP                        ; $01E2  39
 TPA_START_14:
-        LD (SUB_0599_30),HL              ; $01E3  22 F0 05
+        LD (PTR_COMPARE_30),HL              ; $01E3  22 F0 05
 TPA_START_15:
         LD HL,$0E93                      ; $01E6  21 93 0E
 TPA_START_16:
         LD SP,HL                         ; $01E9  F9
 TPA_START_17:
-        CALL SUB_02CC                    ; $01EA  CD CC 02
+        CALL PARSE_ARGS                    ; $01EA  CD CC 02
 TPA_START_18:
-        CALL SUB_038A                    ; $01ED  CD 8A 03
-        CALL SUB_04FE                    ; $01F0  CD FE 04
-        CALL SUB_0587                    ; $01F3  CD 87 05
+        CALL BUILD_SCRIPT                    ; $01ED  CD 8A 03
+        CALL WRITE_SUB_FILE                    ; $01F0  CD FE 04
+        CALL WARM_BOOT                    ; $01F3  CD 87 05
         RET                              ; $01F6  C9
 ; [AI] BDOS print-string wrapper (function 9): stores the DE string pointer passed in BC into the
 ;       $05DC parameter slot and calls BDOS to print until '$'.
-SUB_01F7:
-        LD HL,SUB_0599_13                ; $01F7  21 DD 05
-SUB_01F7_1:
+BDOS_PRINT_STRING:
+        LD HL,PTR_COMPARE_13                ; $01F7  21 DD 05
+BDOS_PRINT_STRING_1:
         LD (HL),B                        ; $01FA  70
-SUB_01F7_2:
+BDOS_PRINT_STRING_2:
         DEC HL                           ; $01FB  2B
-SUB_01F7_3:
+BDOS_PRINT_STRING_3:
         LD (HL),C                        ; $01FC  71
-SUB_01F7_4:
-        LD HL,(SUB_0599_12)              ; $01FD  2A DC 05
-SUB_01F7_5:
+BDOS_PRINT_STRING_4:
+        LD HL,(PTR_COMPARE_12)              ; $01FD  2A DC 05
+BDOS_PRINT_STRING_5:
         EX DE,HL                         ; $0200  EB
-SUB_01F7_6:
+BDOS_PRINT_STRING_6:
         LD C,$09                         ; $0201  0E 09
-SUB_01F7_7:
-        CALL SUB_058A                    ; $0203  CD 8A 05
-SUB_01F7_8:
+BDOS_PRINT_STRING_7:
+        CALL BDOS_ENTRY_A                    ; $0203  CD 8A 05
+BDOS_PRINT_STRING_8:
         RET                              ; $0206  C9
 ; [AI] BDOS open-file wrapper (function 15): stashes the FCB pointer and opens it, recording the
 ;       directory return code at $05DE (FF = not found).
-SUB_0207:
-        LD HL,SUB_0599_16                ; $0207  21 E0 05
-SUB_0207_1:
+BDOS_OPEN_FILE:
+        LD HL,PTR_COMPARE_16                ; $0207  21 E0 05
+BDOS_OPEN_FILE_1:
         LD (HL),B                        ; $020A  70
-SUB_0207_2:
+BDOS_OPEN_FILE_2:
         DEC HL                           ; $020B  2B
-SUB_0207_3:
+BDOS_OPEN_FILE_3:
         LD (HL),C                        ; $020C  71
-SUB_0207_4:
-        LD HL,(SUB_0599_15)              ; $020D  2A DF 05
-SUB_0207_5:
+BDOS_OPEN_FILE_4:
+        LD HL,(PTR_COMPARE_15)              ; $020D  2A DF 05
+BDOS_OPEN_FILE_5:
         EX DE,HL                         ; $0210  EB
-SUB_0207_6:
+BDOS_OPEN_FILE_6:
         LD C,$0F                         ; $0211  0E 0F
-SUB_0207_7:
-        CALL SUB_058D                    ; $0213  CD 8D 05
-SUB_0207_8:
-        LD (SUB_0599_14),A               ; $0216  32 DE 05
-SUB_0207_9:
+BDOS_OPEN_FILE_7:
+        CALL BDOS_ENTRY_B                    ; $0213  CD 8D 05
+BDOS_OPEN_FILE_8:
+        LD (PTR_COMPARE_14),A               ; $0216  32 DE 05
+BDOS_OPEN_FILE_9:
         RET                              ; $0219  C9
 ; [AI] BDOS close-file wrapper (function 16): closes the FCB and records the result at $05DE, used
 ;       to finalize the $$$.SUB output file.
-SUB_021A:
-        LD HL,SUB_0599_18                ; $021A  21 E2 05
+BDOS_CLOSE_FILE:
+        LD HL,PTR_COMPARE_18                ; $021A  21 E2 05
         LD (HL),B                        ; $021D  70
         DEC HL                           ; $021E  2B
         LD (HL),C                        ; $021F  71
-        LD HL,(SUB_0599_17)              ; $0220  2A E1 05
+        LD HL,(PTR_COMPARE_17)              ; $0220  2A E1 05
         EX DE,HL                         ; $0223  EB
         LD C,$10                         ; $0224  0E 10
-        CALL SUB_058D                    ; $0226  CD 8D 05
-        LD (SUB_0599_14),A               ; $0229  32 DE 05
+        CALL BDOS_ENTRY_B                    ; $0226  CD 8D 05
+        LD (PTR_COMPARE_14),A               ; $0229  32 DE 05
         RET                              ; $022C  C9
 ; [AI] BDOS delete-file wrapper (function 19): erases any pre-existing $$$.SUB before a fresh batch
 ;       file is created.
-SUB_022D:
-        LD HL,SUB_0599_20                ; $022D  21 E4 05
+BDOS_DELETE_FILE:
+        LD HL,PTR_COMPARE_20                ; $022D  21 E4 05
         LD (HL),B                        ; $0230  70
         DEC HL                           ; $0231  2B
         LD (HL),C                        ; $0232  71
-        LD HL,(SUB_0599_19)              ; $0233  2A E3 05
+        LD HL,(PTR_COMPARE_19)              ; $0233  2A E3 05
         EX DE,HL                         ; $0236  EB
         LD C,$13                         ; $0237  0E 13
-        CALL SUB_058A                    ; $0239  CD 8A 05
+        CALL BDOS_ENTRY_A                    ; $0239  CD 8A 05
         RET                              ; $023C  C9
 ; [AI] BDOS read-sequential wrapper (function 20): reads the next 128-byte record of the .SUB file
 ;       into the DMA buffer, returning the status code in A.
-SUB_023D:
-        LD HL,SUB_0599_22                ; $023D  21 E6 05
-SUB_023D_1:
+BDOS_READ_SEQ:
+        LD HL,PTR_COMPARE_22                ; $023D  21 E6 05
+BDOS_READ_SEQ_1:
         LD (HL),B                        ; $0240  70
-SUB_023D_2:
+BDOS_READ_SEQ_2:
         DEC HL                           ; $0241  2B
-SUB_023D_3:
+BDOS_READ_SEQ_3:
         LD (HL),C                        ; $0242  71
-SUB_023D_4:
-        LD HL,(SUB_0599_21)              ; $0243  2A E5 05
-SUB_023D_5:
+BDOS_READ_SEQ_4:
+        LD HL,(PTR_COMPARE_21)              ; $0243  2A E5 05
+BDOS_READ_SEQ_5:
         EX DE,HL                         ; $0246  EB
-SUB_023D_6:
+BDOS_READ_SEQ_6:
         LD C,$14                         ; $0247  0E 14
-SUB_023D_7:
-        CALL SUB_058D                    ; $0249  CD 8D 05
-SUB_023D_8:
+BDOS_READ_SEQ_7:
+        CALL BDOS_ENTRY_B                    ; $0249  CD 8D 05
+BDOS_READ_SEQ_8:
         RET                              ; $024C  C9
 ; [AI] BDOS write-sequential wrapper (function 21): writes the next 128-byte record of the $$$.SUB
 ;       output file from the DMA buffer.
-SUB_024D:
-        LD HL,SUB_0599_24                ; $024D  21 E8 05
+BDOS_WRITE_SEQ:
+        LD HL,PTR_COMPARE_24                ; $024D  21 E8 05
         LD (HL),B                        ; $0250  70
         DEC HL                           ; $0251  2B
         LD (HL),C                        ; $0252  71
-        LD HL,(SUB_0599_23)              ; $0253  2A E7 05
+        LD HL,(PTR_COMPARE_23)              ; $0253  2A E7 05
         EX DE,HL                         ; $0256  EB
         LD C,$15                         ; $0257  0E 15
-        CALL SUB_058D                    ; $0259  CD 8D 05
+        CALL BDOS_ENTRY_B                    ; $0259  CD 8D 05
         RET                              ; $025C  C9
 ; [AI] BDOS make-file wrapper (function 22): creates a new directory entry for $$$.SUB, recording
 ;       the FF-on-full status at $05DE.
-SUB_025D:
-        LD HL,SUB_0599_26                ; $025D  21 EA 05
+BDOS_MAKE_FILE:
+        LD HL,PTR_COMPARE_26                ; $025D  21 EA 05
         LD (HL),B                        ; $0260  70
         DEC HL                           ; $0261  2B
         LD (HL),C                        ; $0262  71
-        LD HL,(SUB_0599_25)              ; $0263  2A E9 05
+        LD HL,(PTR_COMPARE_25)              ; $0263  2A E9 05
         EX DE,HL                         ; $0266  EB
         LD C,$16                         ; $0267  0E 16
-        CALL SUB_058D                    ; $0269  CD 8D 05
-        LD (SUB_0599_14),A               ; $026C  32 DE 05
+        CALL BDOS_ENTRY_B                    ; $0269  CD 8D 05
+        LD (PTR_COMPARE_14),A               ; $026C  32 DE 05
         RET                              ; $026F  C9
 ; [AI] Block-copy helper: copies E bytes from the source pointer (popped off the stack) to the
 ;       destination pointer in BC, used to relocate FCBs and message fragments into work areas.
-SUB_0270:
-        LD HL,SUB_0599_29                ; $0270  21 EF 05
-SUB_0270_1:
+BLOCK_COPY:
+        LD HL,PTR_COMPARE_29                ; $0270  21 EF 05
+BLOCK_COPY_1:
         LD (HL),E                        ; $0273  73
-SUB_0270_2:
+BLOCK_COPY_2:
         DEC HL                           ; $0274  2B
-SUB_0270_3:
+BLOCK_COPY_3:
         LD (HL),B                        ; $0275  70
-SUB_0270_4:
+BLOCK_COPY_4:
         DEC HL                           ; $0276  2B
-SUB_0270_5:
+BLOCK_COPY_5:
         LD (HL),C                        ; $0277  71
-SUB_0270_6:
+BLOCK_COPY_6:
         DEC HL                           ; $0278  2B
-SUB_0270_7:
+BLOCK_COPY_7:
         POP DE                           ; $0279  D1
-SUB_0270_8:
+BLOCK_COPY_8:
         POP BC                           ; $027A  C1
-SUB_0270_9:
+BLOCK_COPY_9:
         LD (HL),B                        ; $027B  70
-SUB_0270_10:
+BLOCK_COPY_10:
         DEC HL                           ; $027C  2B
-SUB_0270_11:
+BLOCK_COPY_11:
         LD (HL),C                        ; $027D  71
-SUB_0270_12:
+BLOCK_COPY_12:
         PUSH DE                          ; $027E  D5
 ; [AI] Copy loop body: moves one byte, advances both pointers, and counts down the length until it
 ;       underflows to -1.
-SUB_0270_13:
-        LD A,(SUB_0599_29)               ; $027F  3A EF 05
-SUB_0270_14:
+BLOCK_COPY_13:
+        LD A,(PTR_COMPARE_29)               ; $027F  3A EF 05
+BLOCK_COPY_14:
         DEC A                            ; $0282  3D
-SUB_0270_15:
-        LD (SUB_0599_29),A               ; $0283  32 EF 05
-SUB_0270_16:
+BLOCK_COPY_15:
+        LD (PTR_COMPARE_29),A               ; $0283  32 EF 05
+BLOCK_COPY_16:
         CP $FF                           ; $0286  FE FF
-SUB_0270_17:
-        JP Z,SUB_0270_31                 ; $0288  CA A6 02
-SUB_0270_18:
-        LD HL,(SUB_0599_27)              ; $028B  2A EB 05
-SUB_0270_19:
+BLOCK_COPY_17:
+        JP Z,BLOCK_COPY_31                 ; $0288  CA A6 02
+BLOCK_COPY_18:
+        LD HL,(PTR_COMPARE_27)              ; $028B  2A EB 05
+BLOCK_COPY_19:
         PUSH HL                          ; $028E  E5
-SUB_0270_20:
-        LD HL,(SUB_0599_28)              ; $028F  2A ED 05
-SUB_0270_21:
+BLOCK_COPY_20:
+        LD HL,(PTR_COMPARE_28)              ; $028F  2A ED 05
+BLOCK_COPY_21:
         POP BC                           ; $0292  C1
-SUB_0270_22:
+BLOCK_COPY_22:
         LD A,(BC)                        ; $0293  0A
-SUB_0270_23:
+BLOCK_COPY_23:
         LD (HL),A                        ; $0294  77
-SUB_0270_24:
-        LD HL,(SUB_0599_27)              ; $0295  2A EB 05
-SUB_0270_25:
+BLOCK_COPY_24:
+        LD HL,(PTR_COMPARE_27)              ; $0295  2A EB 05
+BLOCK_COPY_25:
         INC HL                           ; $0298  23
-SUB_0270_26:
-        LD (SUB_0599_27),HL              ; $0299  22 EB 05
-SUB_0270_27:
-        LD HL,(SUB_0599_28)              ; $029C  2A ED 05
-SUB_0270_28:
+BLOCK_COPY_26:
+        LD (PTR_COMPARE_27),HL              ; $0299  22 EB 05
+BLOCK_COPY_27:
+        LD HL,(PTR_COMPARE_28)              ; $029C  2A ED 05
+BLOCK_COPY_28:
         INC HL                           ; $029F  23
-SUB_0270_29:
-        LD (SUB_0599_28),HL              ; $02A0  22 ED 05
-SUB_0270_30:
-        JP SUB_0270_13                   ; $02A3  C3 7F 02
+BLOCK_COPY_29:
+        LD (PTR_COMPARE_28),HL              ; $02A0  22 ED 05
+BLOCK_COPY_30:
+        JP BLOCK_COPY_13                   ; $02A3  C3 7F 02
 ; [AI] Copy-loop exit once the byte count is exhausted.
-SUB_0270_31:
+BLOCK_COPY_31:
         RET                              ; $02A6  C9
 ; [AI] Fatal-error reporter: prints the standard 'Error On Line nnn' prefix, the run-time line
 ;       counter, and the specific message identified by BC, then restores the CCP stack and aborts
 ;       SUBMIT.
-SUB_02A7:
-        LD HL,SUB_0599_32                ; $02A7  21 F3 05
-SUB_02A7_1:
+FATAL_ERROR:
+        LD HL,PTR_COMPARE_32                ; $02A7  21 F3 05
+FATAL_ERROR_1:
         LD (HL),B                        ; $02AA  70
-SUB_02A7_2:
+FATAL_ERROR_2:
         DEC HL                           ; $02AB  2B
-SUB_02A7_3:
+FATAL_ERROR_3:
         LD (HL),C                        ; $02AC  71
-SUB_02A7_4:
+FATAL_ERROR_4:
         LD BC,TPA_START_1                ; $02AD  01 28 01
-SUB_02A7_5:
-        CALL SUB_01F7                    ; $02B0  CD F7 01
-SUB_02A7_6:
+FATAL_ERROR_5:
+        CALL BDOS_PRINT_STRING                    ; $02B0  CD F7 01
+FATAL_ERROR_6:
         LD BC,TPA_START_2                ; $02B3  01 2B 01
-SUB_02A7_7:
-        CALL SUB_01F7                    ; $02B6  CD F7 01
-SUB_02A7_8:
-        LD BC,SUB_0599_7                 ; $02B9  01 B6 05
-SUB_02A7_9:
-        CALL SUB_01F7                    ; $02BC  CD F7 01
-SUB_02A7_10:
-        LD HL,(SUB_0599_31)              ; $02BF  2A F2 05
-SUB_02A7_11:
+FATAL_ERROR_7:
+        CALL BDOS_PRINT_STRING                    ; $02B6  CD F7 01
+FATAL_ERROR_8:
+        LD BC,PTR_COMPARE_7                 ; $02B9  01 B6 05
+FATAL_ERROR_9:
+        CALL BDOS_PRINT_STRING                    ; $02BC  CD F7 01
+FATAL_ERROR_10:
+        LD HL,(PTR_COMPARE_31)              ; $02BF  2A F2 05
+FATAL_ERROR_11:
         LD B,H                           ; $02C2  44
-SUB_02A7_12:
+FATAL_ERROR_12:
         LD C,L                           ; $02C3  4D
-SUB_02A7_13:
-        CALL SUB_01F7                    ; $02C4  CD F7 01
-SUB_02A7_14:
-        LD HL,(SUB_0599_30)              ; $02C7  2A F0 05
-SUB_02A7_15:
+FATAL_ERROR_13:
+        CALL BDOS_PRINT_STRING                    ; $02C4  CD F7 01
+FATAL_ERROR_14:
+        LD HL,(PTR_COMPARE_30)              ; $02C7  2A F0 05
+FATAL_ERROR_15:
         LD SP,HL                         ; $02CA  F9
-SUB_02A7_16:
+FATAL_ERROR_16:
         RET                              ; $02CB  C9
 ; [AI] Argument-setup phase: copies the command tail into the parameter array, copies the default
 ;       FCB and forces its type to 'SUB', and bails out with 'No SUB File Present' if the open
 ;       fails.
-SUB_02CC:
+PARSE_ARGS:
         LD BC,CMDLINE                    ; $02CC  01 81 00
-SUB_02CC_1:
+PARSE_ARGS_1:
         PUSH BC                          ; $02CF  C5
-SUB_02CC_2:
+PARSE_ARGS_2:
         LD E,$7F                         ; $02D0  1E 7F
-SUB_02CC_3:
-        LD BC,SUB_0599_33                ; $02D2  01 F4 05
-SUB_02CC_4:
-        CALL SUB_0270                    ; $02D5  CD 70 02
-SUB_02CC_5:
+PARSE_ARGS_3:
+        LD BC,PTR_COMPARE_33                ; $02D2  01 F4 05
+PARSE_ARGS_4:
+        CALL BLOCK_COPY                    ; $02D5  CD 70 02
+PARSE_ARGS_5:
         LD HL,(DEFAULT_DMA)              ; $02D8  2A 80 00
-SUB_02CC_6:
+PARSE_ARGS_6:
         LD H,$00                         ; $02DB  26 00
-SUB_02CC_7:
-        LD BC,SUB_0599_33                ; $02DD  01 F4 05
-SUB_02CC_8:
+PARSE_ARGS_7:
+        LD BC,PTR_COMPARE_33                ; $02DD  01 F4 05
+PARSE_ARGS_8:
         ADD HL,BC                        ; $02E0  09
-SUB_02CC_9:
+PARSE_ARGS_9:
         LD (HL),$00                      ; $02E1  36 00
-SUB_02CC_10:
+PARSE_ARGS_10:
         LD BC,TPA_START_3                ; $02E3  01 3A 01
-SUB_02CC_11:
+PARSE_ARGS_11:
         PUSH BC                          ; $02E6  C5
-SUB_02CC_12:
+PARSE_ARGS_12:
         LD E,$03                         ; $02E7  1E 03
-SUB_02CC_13:
+PARSE_ARGS_13:
         LD BC,$0065                      ; $02E9  01 65 00
-SUB_02CC_14:
-        CALL SUB_0270                    ; $02EC  CD 70 02
-SUB_02CC_15:
+PARSE_ARGS_14:
+        CALL BLOCK_COPY                    ; $02EC  CD 70 02
+PARSE_ARGS_15:
         LD BC,DEFAULT_FCB                ; $02EF  01 5C 00
-SUB_02CC_16:
-        CALL SUB_0207                    ; $02F2  CD 07 02
-SUB_02CC_17:
-        LD A,(SUB_0599_14)               ; $02F5  3A DE 05
-SUB_02CC_18:
+PARSE_ARGS_16:
+        CALL BDOS_OPEN_FILE                    ; $02F2  CD 07 02
+PARSE_ARGS_17:
+        LD A,(PTR_COMPARE_14)               ; $02F5  3A DE 05
+PARSE_ARGS_18:
         CP $FF                           ; $02F8  FE FF
-SUB_02CC_19:
-        JP NZ,SUB_02CC_20                ; $02FA  C2 03 03
+PARSE_ARGS_19:
+        JP NZ,PARSE_ARGS_20                ; $02FA  C2 03 03
         LD BC,TPA_START_4                ; $02FD  01 3D 01
-        CALL SUB_02A7                    ; $0300  CD A7 02
+        CALL FATAL_ERROR                    ; $0300  CD A7 02
 ; [AI] Initializes the .SUB input read pointer/record index ($0674=$80) so the first call to the
 ;       char reader triggers a fresh sector read.
-SUB_02CC_20:
+PARSE_ARGS_20:
         LD HL,$0674                      ; $0303  21 74 06
-SUB_02CC_21:
+PARSE_ARGS_21:
         LD (HL),$80                      ; $0306  36 80
-SUB_02CC_22:
+PARSE_ARGS_22:
         RET                              ; $0308  C9
 ; [AI] Get-next-character from the .SUB file: refills the 128-byte record via BDOS read when the
 ;       index wraps, returns ^Z ($1A) at end of file, advances the displayed line counter on CR, and
 ;       folds lowercase a-z to uppercase.
-SUB_0309:
+GET_NEXT_CHAR:
         LD A,$7F                         ; $0309  3E 7F
-SUB_0309_1:
+GET_NEXT_CHAR_1:
         LD HL,$0674                      ; $030B  21 74 06
-SUB_0309_2:
+GET_NEXT_CHAR_2:
         CP (HL)                          ; $030E  BE
-SUB_0309_3:
-        JP NC,SUB_0309_10                ; $030F  D2 25 03
-SUB_0309_4:
+GET_NEXT_CHAR_3:
+        JP NC,GET_NEXT_CHAR_10                ; $030F  D2 25 03
+GET_NEXT_CHAR_4:
         LD BC,DEFAULT_FCB                ; $0312  01 5C 00
-SUB_0309_5:
-        CALL SUB_023D                    ; $0315  CD 3D 02
-SUB_0309_6:
+GET_NEXT_CHAR_5:
+        CALL BDOS_READ_SEQ                    ; $0315  CD 3D 02
+GET_NEXT_CHAR_6:
         CP $00                           ; $0318  FE 00
-SUB_0309_7:
-        JP Z,SUB_0309_8                  ; $031A  CA 20 03
+GET_NEXT_CHAR_7:
+        JP Z,GET_NEXT_CHAR_8                  ; $031A  CA 20 03
         LD A,$1A                         ; $031D  3E 1A
         RET                              ; $031F  C9
 ; [AI] Reset the in-record byte index to zero after a successful sector read so scanning starts at
 ;       the top of the new record.
-SUB_0309_8:
+GET_NEXT_CHAR_8:
         LD HL,$0674                      ; $0320  21 74 06
-SUB_0309_9:
+GET_NEXT_CHAR_9:
         LD (HL),$00                      ; $0323  36 00
-SUB_0309_10:
+GET_NEXT_CHAR_10:
         LD A,($0674)                     ; $0325  3A 74 06
-SUB_0309_11:
+GET_NEXT_CHAR_11:
         INC A                            ; $0328  3C
-SUB_0309_12:
+GET_NEXT_CHAR_12:
         LD ($0674),A                     ; $0329  32 74 06
-SUB_0309_13:
+GET_NEXT_CHAR_13:
         DEC A                            ; $032C  3D
-SUB_0309_14:
+GET_NEXT_CHAR_14:
         LD C,A                           ; $032D  4F
-SUB_0309_15:
+GET_NEXT_CHAR_15:
         LD B,$00                         ; $032E  06 00
-SUB_0309_16:
+GET_NEXT_CHAR_16:
         LD HL,DEFAULT_DMA                ; $0330  21 80 00
-SUB_0309_17:
+GET_NEXT_CHAR_17:
         ADD HL,BC                        ; $0333  09
-SUB_0309_18:
+GET_NEXT_CHAR_18:
         LD A,(HL)                        ; $0334  7E
-SUB_0309_19:
+GET_NEXT_CHAR_19:
         LD ($0675),A                     ; $0335  32 75 06
-SUB_0309_20:
+GET_NEXT_CHAR_20:
         CP $0D                           ; $0338  FE 0D
-SUB_0309_21:
-        JP NZ,SUB_0309_22                ; $033A  C2 62 03
-        LD A,(SUB_0599_9)                ; $033D  3A B8 05
+GET_NEXT_CHAR_21:
+        JP NZ,GET_NEXT_CHAR_22                ; $033A  C2 62 03
+        LD A,(PTR_COMPARE_9)                ; $033D  3A B8 05
         INC A                            ; $0340  3C
-        LD (SUB_0599_9),A                ; $0341  32 B8 05
+        LD (PTR_COMPARE_9),A                ; $0341  32 B8 05
         LD C,A                           ; $0344  4F
         LD A,$39                         ; $0345  3E 39
         CP C                             ; $0347  B9
-        JP NC,SUB_0309_22                ; $0348  D2 62 03
-        LD HL,SUB_0599_9                 ; $034B  21 B8 05
+        JP NC,GET_NEXT_CHAR_22                ; $0348  D2 62 03
+        LD HL,PTR_COMPARE_9                 ; $034B  21 B8 05
         LD (HL),$30                      ; $034E  36 30
         DEC HL                           ; $0350  2B
         LD A,(HL)                        ; $0351  7E
@@ -408,195 +408,195 @@ SUB_0309_21:
         LD C,A                           ; $0354  4F
         LD A,$39                         ; $0355  3E 39
         CP C                             ; $0357  B9
-        JP NC,SUB_0309_22                ; $0358  D2 62 03
-        LD HL,SUB_0599_8                 ; $035B  21 B7 05
+        JP NC,GET_NEXT_CHAR_22                ; $0358  D2 62 03
+        LD HL,PTR_COMPARE_8                 ; $035B  21 B7 05
         LD (HL),$30                      ; $035E  36 30
         DEC HL                           ; $0360  2B
         INC (HL)                         ; $0361  34
 ; [AI] Lowercase-folding tail of the char reader: maps a-z to uppercase by clearing bit 5 before
 ;       returning the character.
-SUB_0309_22:
+GET_NEXT_CHAR_22:
         LD A,($0675)                     ; $0362  3A 75 06
-SUB_0309_23:
+GET_NEXT_CHAR_23:
         SUB $61                          ; $0365  D6 61
-SUB_0309_24:
+GET_NEXT_CHAR_24:
         CP $1A                           ; $0367  FE 1A
-SUB_0309_25:
-        JP NC,SUB_0309_26                ; $0369  D2 74 03
+GET_NEXT_CHAR_25:
+        JP NC,GET_NEXT_CHAR_26                ; $0369  D2 74 03
         LD A,($0675)                     ; $036C  3A 75 06
         AND $5F                          ; $036F  E6 5F
         LD ($0675),A                     ; $0371  32 75 06
-SUB_0309_26:
+GET_NEXT_CHAR_26:
         LD A,($0675)                     ; $0374  3A 75 06
-SUB_0309_27:
+GET_NEXT_CHAR_27:
         RET                              ; $0377  C9
 ; [AI] Flush one completed output record to $$$.SUB via BDOS write-sequential, aborting with 'Disk
 ;       Write Error' if the write fails.
-SUB_0378:
-        LD BC,SUB_0599_10                ; $0378  01 BB 05
-        CALL SUB_024D                    ; $037B  CD 4D 02
+FLUSH_OUTPUT_RECORD:
+        LD BC,PTR_COMPARE_10                ; $0378  01 BB 05
+        CALL BDOS_WRITE_SEQ                    ; $037B  CD 4D 02
         CP $00                           ; $037E  FE 00
-        JP Z,SUB_0378_1                  ; $0380  CA 89 03
+        JP Z,FLUSH_OUTPUT_RECORD_1                  ; $0380  CA 89 03
         LD BC,TPA_START_5                ; $0383  01 53 01
-        CALL SUB_02A7                    ; $0386  CD A7 02
-SUB_0378_1:
+        CALL FATAL_ERROR                    ; $0386  CD A7 02
+FLUSH_OUTPUT_RECORD_1:
         RET                              ; $0389  C9
 ; [AI] Main per-line processing loop: reads characters from the .SUB file, expands $n parameter
 ;       references, $$ literals and ^X control characters, accumulates each line into the output
 ;       buffer, and loops until end of file.
-SUB_038A:
+BUILD_SCRIPT:
         LD HL,$0676                      ; $038A  21 76 06
-SUB_038A_1:
+BUILD_SCRIPT_1:
         LD (HL),$00                      ; $038D  36 00
-SUB_038A_2:
+BUILD_SCRIPT_2:
         LD HL,WBOOT_VEC                  ; $038F  21 00 00
-SUB_038A_3:
+BUILD_SCRIPT_3:
         LD ($0E76),HL                    ; $0392  22 76 0E
-SUB_038A_4:
+BUILD_SCRIPT_4:
         LD HL,$0E7C                      ; $0395  21 7C 0E
-SUB_038A_5:
+BUILD_SCRIPT_5:
         LD (HL),$01                      ; $0398  36 01
 ; [AI] Top of the line loop: tests the not-done flag and exits when the last line has been
 ;       processed.
-SUB_038A_6:
+BUILD_SCRIPT_6:
         LD A,($0E7C)                     ; $039A  3A 7C 0E
-SUB_038A_7:
+BUILD_SCRIPT_7:
         RRA                              ; $039D  1F
-SUB_038A_8:
-        JP NC,SUB_038A_49                ; $039E  D2 80 04
-SUB_038A_9:
+BUILD_SCRIPT_8:
+        JP NC,BUILD_SCRIPT_49                ; $039E  D2 80 04
+BUILD_SCRIPT_9:
         LD HL,$0E78                      ; $03A1  21 78 0E
-SUB_038A_10:
+BUILD_SCRIPT_10:
         LD (HL),$00                      ; $03A4  36 00
 ; [AI] Reads the next source character and classifies it (^Z/CR/'$'/'^'/ordinary) to drive the
 ;       substitution logic.
-SUB_038A_11:
-        CALL SUB_0309                    ; $03A6  CD 09 03
-SUB_038A_12:
+BUILD_SCRIPT_11:
+        CALL GET_NEXT_CHAR                    ; $03A6  CD 09 03
+BUILD_SCRIPT_12:
         LD ($0E7D),A                     ; $03A9  32 7D 0E
-SUB_038A_13:
+BUILD_SCRIPT_13:
         SUB $1A                          ; $03AC  D6 1A
-SUB_038A_14:
+BUILD_SCRIPT_14:
         ADD A,$FF                        ; $03AE  C6 FF
-SUB_038A_15:
+BUILD_SCRIPT_15:
         SBC A,A                          ; $03B0  9F
-SUB_038A_16:
+BUILD_SCRIPT_16:
         PUSH AF                          ; $03B1  F5
-SUB_038A_17:
+BUILD_SCRIPT_17:
         LD A,($0E7D)                     ; $03B2  3A 7D 0E
-SUB_038A_18:
+BUILD_SCRIPT_18:
         SUB $0D                          ; $03B5  D6 0D
-SUB_038A_19:
+BUILD_SCRIPT_19:
         ADD A,$FF                        ; $03B7  C6 FF
-SUB_038A_20:
+BUILD_SCRIPT_20:
         SBC A,A                          ; $03B9  9F
-SUB_038A_21:
+BUILD_SCRIPT_21:
         POP BC                           ; $03BA  C1
-SUB_038A_22:
+BUILD_SCRIPT_22:
         LD C,B                           ; $03BB  48
-SUB_038A_23:
+BUILD_SCRIPT_23:
         AND C                            ; $03BC  A1
-SUB_038A_24:
+BUILD_SCRIPT_24:
         RRA                              ; $03BD  1F
-SUB_038A_25:
-        JP NC,SUB_038A_48                ; $03BE  D2 6B 04
-SUB_038A_26:
+BUILD_SCRIPT_25:
+        JP NC,BUILD_SCRIPT_48                ; $03BE  D2 6B 04
+BUILD_SCRIPT_26:
         LD A,($0E7D)                     ; $03C1  3A 7D 0E
-SUB_038A_27:
+BUILD_SCRIPT_27:
         CP $0A                           ; $03C4  FE 0A
-SUB_038A_28:
-        JP Z,SUB_038A_47                 ; $03C6  CA 68 04
-SUB_038A_29:
+BUILD_SCRIPT_28:
+        JP Z,BUILD_SCRIPT_47                 ; $03C6  CA 68 04
+BUILD_SCRIPT_29:
         LD A,($0E7D)                     ; $03C9  3A 7D 0E
-SUB_038A_30:
+BUILD_SCRIPT_30:
         CP $24                           ; $03CC  FE 24
-SUB_038A_31:
-        JP NZ,SUB_038A_39                ; $03CE  C2 36 04
-        CALL SUB_0309                    ; $03D1  CD 09 03
+BUILD_SCRIPT_31:
+        JP NZ,BUILD_SCRIPT_39                ; $03CE  C2 36 04
+        CALL GET_NEXT_CHAR                    ; $03D1  CD 09 03
         LD ($0E7D),A                     ; $03D4  32 7D 0E
         CP $24                           ; $03D7  FE 24
-        JP NZ,SUB_038A_32                ; $03D9  C2 E6 03
+        JP NZ,BUILD_SCRIPT_32                ; $03D9  C2 E6 03
         LD HL,($0E7D)                    ; $03DC  2A 7D 0E
         LD C,L                           ; $03DF  4D
-        CALL SUB_04C4                    ; $03E0  CD C4 04
-        JP SUB_038A_38                   ; $03E3  C3 33 04
-SUB_038A_32:
+        CALL APPEND_CHAR                    ; $03E0  CD C4 04
+        JP BUILD_SCRIPT_38                   ; $03E3  C3 33 04
+BUILD_SCRIPT_32:
         LD A,($0E7D)                     ; $03E6  3A 7D 0E
         SUB $30                          ; $03E9  D6 30
         LD ($0E7D),A                     ; $03EB  32 7D 0E
         LD C,A                           ; $03EE  4F
         LD A,$09                         ; $03EF  3E 09
         CP C                             ; $03F1  B9
-        JP NC,SUB_038A_33                ; $03F2  D2 FE 03
+        JP NC,BUILD_SCRIPT_33                ; $03F2  D2 FE 03
         LD BC,TPA_START_8                ; $03F5  01 8D 01
-        CALL SUB_02A7                    ; $03F8  CD A7 02
-        JP SUB_038A_38                   ; $03FB  C3 33 04
-SUB_038A_33:
+        CALL FATAL_ERROR                    ; $03F8  CD A7 02
+        JP BUILD_SCRIPT_38                   ; $03FB  C3 33 04
+BUILD_SCRIPT_33:
         LD HL,$0E7A                      ; $03FE  21 7A 0E
         LD (HL),$00                      ; $0401  36 00
-        CALL SUB_04AD                    ; $0403  CD AD 04
-SUB_038A_34:
+        CALL SKIP_PARAM_SPACES                    ; $0403  CD AD 04
+BUILD_SCRIPT_34:
         LD A,($0E7D)                     ; $0406  3A 7D 0E
         CP $00                           ; $0409  FE 00
-        JP Z,SUB_038A_37                 ; $040B  CA 22 04
+        JP Z,BUILD_SCRIPT_37                 ; $040B  CA 22 04
         LD HL,$0E7D                      ; $040E  21 7D 0E
         DEC (HL)                         ; $0411  35
-SUB_038A_35:
-        CALL SUB_0481                    ; $0412  CD 81 04
+BUILD_SCRIPT_35:
+        CALL SCAN_PARAM_TOKEN                    ; $0412  CD 81 04
         RRA                              ; $0415  1F
-        JP NC,SUB_038A_36                ; $0416  D2 1C 04
-        JP SUB_038A_35                   ; $0419  C3 12 04
-SUB_038A_36:
-        CALL SUB_04AD                    ; $041C  CD AD 04
-        JP SUB_038A_34                   ; $041F  C3 06 04
-SUB_038A_37:
-        CALL SUB_0481                    ; $0422  CD 81 04
+        JP NC,BUILD_SCRIPT_36                ; $0416  D2 1C 04
+        JP BUILD_SCRIPT_35                   ; $0419  C3 12 04
+BUILD_SCRIPT_36:
+        CALL SKIP_PARAM_SPACES                    ; $041C  CD AD 04
+        JP BUILD_SCRIPT_34                   ; $041F  C3 06 04
+BUILD_SCRIPT_37:
+        CALL SCAN_PARAM_TOKEN                    ; $0422  CD 81 04
         RRA                              ; $0425  1F
-        JP NC,SUB_038A_38                ; $0426  D2 33 04
+        JP NC,BUILD_SCRIPT_38                ; $0426  D2 33 04
         LD HL,($0E79)                    ; $0429  2A 79 0E
         LD C,L                           ; $042C  4D
-        CALL SUB_04C4                    ; $042D  CD C4 04
-        JP SUB_038A_37                   ; $0430  C3 22 04
-SUB_038A_38:
-        JP SUB_038A_47                   ; $0433  C3 68 04
+        CALL APPEND_CHAR                    ; $042D  CD C4 04
+        JP BUILD_SCRIPT_37                   ; $0430  C3 22 04
+BUILD_SCRIPT_38:
+        JP BUILD_SCRIPT_47                   ; $0433  C3 68 04
 ; [AI] Handles the '^' escape: reads the following letter and converts ^A.. into the corresponding
 ;       control character, erroring on an out-of-range letter.
-SUB_038A_39:
+BUILD_SCRIPT_39:
         LD A,($0E7D)                     ; $0436  3A 7D 0E
-SUB_038A_40:
+BUILD_SCRIPT_40:
         CP $5E                           ; $0439  FE 5E
-SUB_038A_41:
-        JP NZ,SUB_038A_44                ; $043B  C2 61 04
-        CALL SUB_0309                    ; $043E  CD 09 03
+BUILD_SCRIPT_41:
+        JP NZ,BUILD_SCRIPT_44                ; $043B  C2 61 04
+        CALL GET_NEXT_CHAR                    ; $043E  CD 09 03
         SUB $41                          ; $0441  D6 41
         LD ($0E7D),A                     ; $0443  32 7D 0E
         LD C,A                           ; $0446  4F
         LD A,$19                         ; $0447  3E 19
         CP C                             ; $0449  B9
-        JP NC,SUB_038A_42                ; $044A  D2 56 04
+        JP NC,BUILD_SCRIPT_42                ; $044A  D2 56 04
         LD BC,TPA_START_9                ; $044D  01 9D 01
-        CALL SUB_02A7                    ; $0450  CD A7 02
-        JP SUB_038A_43                   ; $0453  C3 5E 04
-SUB_038A_42:
+        CALL FATAL_ERROR                    ; $0450  CD A7 02
+        JP BUILD_SCRIPT_43                   ; $0453  C3 5E 04
+BUILD_SCRIPT_42:
         LD A,($0E7D)                     ; $0456  3A 7D 0E
         INC A                            ; $0459  3C
         LD C,A                           ; $045A  4F
-        CALL SUB_04C4                    ; $045B  CD C4 04
-SUB_038A_43:
-        JP SUB_038A_47                   ; $045E  C3 68 04
+        CALL APPEND_CHAR                    ; $045B  CD C4 04
+BUILD_SCRIPT_43:
+        JP BUILD_SCRIPT_47                   ; $045E  C3 68 04
 ; [AI] Ordinary-character path: appends the unmodified character to the current output line.
-SUB_038A_44:
+BUILD_SCRIPT_44:
         LD HL,($0E7D)                    ; $0461  2A 7D 0E
-SUB_038A_45:
+BUILD_SCRIPT_45:
         LD C,L                           ; $0464  4D
-SUB_038A_46:
-        CALL SUB_04C4                    ; $0465  CD C4 04
+BUILD_SCRIPT_46:
+        CALL APPEND_CHAR                    ; $0465  CD C4 04
 ; [AI] Continue the line loop after a single character or substitution has been emitted.
-SUB_038A_47:
-        JP SUB_038A_11                   ; $0468  C3 A6 03
+BUILD_SCRIPT_47:
+        JP BUILD_SCRIPT_11                   ; $0468  C3 A6 03
 ; [AI] End-of-line handling: sets the done flag when the source character was CR, emits the line,
 ;       and re-tests the loop condition.
-SUB_038A_48:
+BUILD_SCRIPT_48:
         LD A,($0E7D)                     ; $046B  3A 7D 0E
         SUB $0D                          ; $046E  D6 0D
         SUB $01                          ; $0470  D6 01
@@ -604,17 +604,17 @@ SUB_038A_48:
         LD ($0E7C),A                     ; $0473  32 7C 0E
         LD HL,($0E78)                    ; $0476  2A 78 0E
         LD C,L                           ; $0479  4D
-        CALL SUB_04C4                    ; $047A  CD C4 04
-        JP SUB_038A_6                    ; $047D  C3 9A 03
+        CALL APPEND_CHAR                    ; $047A  CD C4 04
+        JP BUILD_SCRIPT_6                    ; $047D  C3 9A 03
 ; [AI] Exit point of the line-processing loop.
-SUB_038A_49:
+BUILD_SCRIPT_49:
         RET                              ; $0480  C9
 ; [AI] Scans one whitespace-delimited token of the parameter array, returning whether a non-space,
 ;       non-NUL token byte was found and advancing the token index.
-SUB_0481:
+SCAN_PARAM_TOKEN:
         LD HL,($0E7A)                    ; $0481  2A 7A 0E
         LD H,$00                         ; $0484  26 00
-        LD BC,SUB_0599_33                ; $0486  01 F4 05
+        LD BC,PTR_COMPARE_33                ; $0486  01 F4 05
         ADD HL,BC                        ; $0489  09
         LD A,(HL)                        ; $048A  7E
         LD ($0E79),A                     ; $048B  32 79 0E
@@ -630,100 +630,100 @@ SUB_0481:
         LD C,B                           ; $049D  48
         OR C                             ; $049E  B1
         RRA                              ; $049F  1F
-        JP C,SUB_0481_1                  ; $04A0  DA AA 04
+        JP C,SCAN_PARAM_TOKEN_1                  ; $04A0  DA AA 04
         LD HL,$0E7A                      ; $04A3  21 7A 0E
         INC (HL)                         ; $04A6  34
         LD A,$01                         ; $04A7  3E 01
         RET                              ; $04A9  C9
 ; [AI] Returns 'no token' (A=0) when a delimiter or end of the parameter list is reached.
-SUB_0481_1:
+SCAN_PARAM_TOKEN_1:
         LD A,$00                         ; $04AA  3E 00
         RET                              ; $04AC  C9
 ; [AI] Skips leading spaces in the parameter array so the next parameter token can be read.
-SUB_04AD:
+SKIP_PARAM_SPACES:
         LD HL,($0E7A)                    ; $04AD  2A 7A 0E
         LD H,$00                         ; $04B0  26 00
-        LD BC,SUB_0599_33                ; $04B2  01 F4 05
+        LD BC,PTR_COMPARE_33                ; $04B2  01 F4 05
         ADD HL,BC                        ; $04B5  09
         LD A,(HL)                        ; $04B6  7E
         CP $20                           ; $04B7  FE 20
-        JP NZ,SUB_04AD_1                 ; $04B9  C2 C3 04
+        JP NZ,SKIP_PARAM_SPACES_1                 ; $04B9  C2 C3 04
         LD HL,$0E7A                      ; $04BC  21 7A 0E
         INC (HL)                         ; $04BF  34
-        JP SUB_04AD                      ; $04C0  C3 AD 04
-SUB_04AD_1:
+        JP SKIP_PARAM_SPACES                      ; $04C0  C3 AD 04
+SKIP_PARAM_SPACES_1:
         RET                              ; $04C3  C9
 ; [AI] Appends one character (in C) to the growing batch image: bumps the byte counter, range-
 ;       checks it against the buffer limit ('Command Buffer Overflow'), stores the byte, and counts
 ;       characters per line guarding against 'Command Too Long'.
-SUB_04C4:
+APPEND_CHAR:
         LD HL,$0E7B                      ; $04C4  21 7B 0E
-SUB_04C4_1:
+APPEND_CHAR_1:
         LD (HL),C                        ; $04C7  71
-SUB_04C4_2:
+APPEND_CHAR_2:
         LD HL,($0E76)                    ; $04C8  2A 76 0E
-SUB_04C4_3:
+APPEND_CHAR_3:
         INC HL                           ; $04CB  23
-SUB_04C4_4:
+APPEND_CHAR_4:
         LD ($0E76),HL                    ; $04CC  22 76 0E
-SUB_04C4_5:
+APPEND_CHAR_5:
         LD DE,$07FF                      ; $04CF  11 FF 07
-SUB_04C4_6:
-        CALL SUB_0599                    ; $04D2  CD 99 05
-SUB_04C4_7:
-        JP NC,SUB_04C4_8                 ; $04D5  D2 DE 04
+APPEND_CHAR_6:
+        CALL PTR_COMPARE                    ; $04D2  CD 99 05
+APPEND_CHAR_7:
+        JP NC,APPEND_CHAR_8                 ; $04D5  D2 DE 04
         LD BC,TPA_START_6                ; $04D8  01 64 01
-        CALL SUB_02A7                    ; $04DB  CD A7 02
-SUB_04C4_8:
+        CALL FATAL_ERROR                    ; $04DB  CD A7 02
+APPEND_CHAR_8:
         LD HL,($0E76)                    ; $04DE  2A 76 0E
-SUB_04C4_9:
+APPEND_CHAR_9:
         LD BC,$0676                      ; $04E1  01 76 06
-SUB_04C4_10:
+APPEND_CHAR_10:
         ADD HL,BC                        ; $04E4  09
-SUB_04C4_11:
+APPEND_CHAR_11:
         LD A,($0E7B)                     ; $04E5  3A 7B 0E
-SUB_04C4_12:
+APPEND_CHAR_12:
         LD (HL),A                        ; $04E8  77
-SUB_04C4_13:
+APPEND_CHAR_13:
         LD A,($0E78)                     ; $04E9  3A 78 0E
-SUB_04C4_14:
+APPEND_CHAR_14:
         INC A                            ; $04EC  3C
-SUB_04C4_15:
+APPEND_CHAR_15:
         LD ($0E78),A                     ; $04ED  32 78 0E
-SUB_04C4_16:
+APPEND_CHAR_16:
         LD C,A                           ; $04F0  4F
-SUB_04C4_17:
+APPEND_CHAR_17:
         LD A,$7D                         ; $04F1  3E 7D
-SUB_04C4_18:
+APPEND_CHAR_18:
         CP C                             ; $04F3  B9
-SUB_04C4_19:
-        JP NC,SUB_04C4_22                ; $04F4  D2 FD 04
-SUB_04C4_20:
+APPEND_CHAR_19:
+        JP NC,APPEND_CHAR_22                ; $04F4  D2 FD 04
+APPEND_CHAR_20:
         LD BC,TPA_START_7                ; $04F7  01 7C 01
-SUB_04C4_21:
-        CALL SUB_02A7                    ; $04FA  CD A7 02
-SUB_04C4_22:
+APPEND_CHAR_21:
+        CALL FATAL_ERROR                    ; $04FA  CD A7 02
+APPEND_CHAR_22:
         RET                              ; $04FD  C9
 ; [AI] Output phase: deletes the old $$$.SUB, creates a new one, then writes the accumulated batch
 ;       image back out in reverse 128-byte-record order (so the CCP reads lines first-in-last-out),
 ;       padding the final record with '$'/^Z and closing the file.
-SUB_04FE:
-        LD BC,SUB_0599_10                ; $04FE  01 BB 05
-        CALL SUB_022D                    ; $0501  CD 2D 02
-        LD HL,SUB_0599_11                ; $0504  21 DB 05
+WRITE_SUB_FILE:
+        LD BC,PTR_COMPARE_10                ; $04FE  01 BB 05
+        CALL BDOS_DELETE_FILE                    ; $0501  CD 2D 02
+        LD HL,PTR_COMPARE_11                ; $0504  21 DB 05
         LD (HL),$00                      ; $0507  36 00
-        LD BC,SUB_0599_10                ; $0509  01 BB 05
-        CALL SUB_025D                    ; $050C  CD 5D 02
-        LD A,(SUB_0599_14)               ; $050F  3A DE 05
+        LD BC,PTR_COMPARE_10                ; $0509  01 BB 05
+        CALL BDOS_MAKE_FILE                    ; $050C  CD 5D 02
+        LD A,(PTR_COMPARE_14)               ; $050F  3A DE 05
         CP $FF                           ; $0512  FE FF
-        JP NZ,SUB_04FE_1                 ; $0514  C2 1D 05
+        JP NZ,WRITE_SUB_FILE_1                 ; $0514  C2 1D 05
         LD BC,TPA_START_10               ; $0517  01 B7 01
-        CALL SUB_02A7                    ; $051A  CD A7 02
-SUB_04FE_1:
-        CALL SUB_057A                    ; $051D  CD 7A 05
+        CALL FATAL_ERROR                    ; $051A  CD A7 02
+WRITE_SUB_FILE_1:
+        CALL FETCH_IMAGE_BYTE                    ; $051D  CD 7A 05
         LD ($0E7E),A                     ; $0520  32 7E 0E
         CP $00                           ; $0523  FE 00
-        JP Z,SUB_04FE_4                  ; $0525  CA 65 05
+        JP Z,WRITE_SUB_FILE_4                  ; $0525  CA 65 05
         LD A,($0E7E)                     ; $0528  3A 7E 0E
         LD (DEFAULT_DMA),A               ; $052B  32 80 00
         LD C,A                           ; $052E  4F
@@ -738,12 +738,12 @@ SUB_04FE_1:
         LD (HL),$24                      ; $0540  36 24
 ; [AI] Reverse-fill inner loop: pulls bytes off the buffer back-to-front to assemble each outgoing
 ;       record in the order the CCP expects.
-SUB_04FE_2:
+WRITE_SUB_FILE_2:
         LD A,$00                         ; $0542  3E 00
         LD HL,$0E7E                      ; $0544  21 7E 0E
         CP (HL)                          ; $0547  BE
-        JP NC,SUB_04FE_3                 ; $0548  D2 5F 05
-        CALL SUB_057A                    ; $054B  CD 7A 05
+        JP NC,WRITE_SUB_FILE_3                 ; $0548  D2 5F 05
+        CALL FETCH_IMAGE_BYTE                    ; $054B  CD 7A 05
         LD HL,($0E7E)                    ; $054E  2A 7E 0E
         LD H,$00                         ; $0551  26 00
         LD BC,DEFAULT_DMA                ; $0553  01 80 00
@@ -751,23 +751,23 @@ SUB_04FE_2:
         LD (HL),A                        ; $0557  77
         LD HL,$0E7E                      ; $0558  21 7E 0E
         DEC (HL)                         ; $055B  35
-        JP SUB_04FE_2                    ; $055C  C3 42 05
-SUB_04FE_3:
-        CALL SUB_0378                    ; $055F  CD 78 03
-        JP SUB_04FE_1                    ; $0562  C3 1D 05
-SUB_04FE_4:
-        LD BC,SUB_0599_10                ; $0565  01 BB 05
-        CALL SUB_021A                    ; $0568  CD 1A 02
-        LD A,(SUB_0599_14)               ; $056B  3A DE 05
+        JP WRITE_SUB_FILE_2                    ; $055C  C3 42 05
+WRITE_SUB_FILE_3:
+        CALL FLUSH_OUTPUT_RECORD                    ; $055F  CD 78 03
+        JP WRITE_SUB_FILE_1                    ; $0562  C3 1D 05
+WRITE_SUB_FILE_4:
+        LD BC,PTR_COMPARE_10                ; $0565  01 BB 05
+        CALL BDOS_CLOSE_FILE                    ; $0568  CD 1A 02
+        LD A,(PTR_COMPARE_14)               ; $056B  3A DE 05
         CP $FF                           ; $056E  FE FF
-        JP NZ,SUB_04FE_5                 ; $0570  C2 79 05
+        JP NZ,WRITE_SUB_FILE_5                 ; $0570  C2 79 05
         LD BC,TPA_START_11               ; $0573  01 C6 01
-        CALL SUB_02A7                    ; $0576  CD A7 02
-SUB_04FE_5:
+        CALL FATAL_ERROR                    ; $0576  CD A7 02
+WRITE_SUB_FILE_5:
         RET                              ; $0579  C9
 ; [AI] Fetch-byte-from-image helper: decrements the buffer index and returns the byte at that
 ;       position, used when emitting records in reverse.
-SUB_057A:
+FETCH_IMAGE_BYTE:
         LD HL,($0E76)                    ; $057A  2A 76 0E
         DEC HL                           ; $057D  2B
         LD ($0E76),HL                    ; $057E  22 76 0E
@@ -777,86 +777,86 @@ SUB_057A:
         RET                              ; $0586  C9
 ; [AI] Final warm-boot trampoline: jumps to the page-zero WBOOT vector to restart CP/M so the CCP
 ;       begins executing the just-written $$$.SUB script.
-SUB_0587:
+WARM_BOOT:
         JP WBOOT_VEC                     ; $0587  C3 00 00
 ; [AI] Indirect BDOS call site (JP $0005) used by the print/read/write wrappers to enter the BDOS.
-SUB_058A:
+BDOS_ENTRY_A:
         JP BDOS_VEC                      ; $058A  C3 05 00
 ; [AI] Second BDOS call trampoline (JP $0005) used by the open/close/delete/make wrappers.
-SUB_058D:
+BDOS_ENTRY_B:
         JP BDOS_VEC                      ; $058D  C3 05 00
         DEFB    $CD,$05,$00,$C9,$C9,$C9,$5F,$16,$00              ; $0590
 ; [AI] 16-bit pointer-vs-limit comparison (DE minus HL): used by the output writer to detect when
 ;       the batch image has overrun the available buffer.
-SUB_0599:
+PTR_COMPARE:
         LD A,E                           ; $0599  7B
-SUB_0599_1:
+PTR_COMPARE_1:
         SUB L                            ; $059A  95
-SUB_0599_2:
+PTR_COMPARE_2:
         LD L,A                           ; $059B  6F
-SUB_0599_3:
+PTR_COMPARE_3:
         LD A,D                           ; $059C  7A
-SUB_0599_4:
+PTR_COMPARE_4:
         SBC A,H                          ; $059D  9C
-SUB_0599_5:
+PTR_COMPARE_5:
         LD H,A                           ; $059E  67
-SUB_0599_6:
+PTR_COMPARE_6:
         RET                              ; $059F  C9
         DEFS    22, $00    ; $05A0  fill
-SUB_0599_7:
+PTR_COMPARE_7:
         DEFB    $30                                              ; $05B6
-SUB_0599_8:
+PTR_COMPARE_8:
         DEFB    $30                                              ; $05B7
-SUB_0599_9:
+PTR_COMPARE_9:
         DEFB    $31,$20,$24                                      ; $05B8
-SUB_0599_10:
+PTR_COMPARE_10:
         DEFB    $00,$24,$24,$24,$20,$20,$20,$20,$20,$53,$55,$42,$00,$00,$00,$1A ; $05BB
         DEFS    16, $1A    ; $05CB  fill
-SUB_0599_11:
+PTR_COMPARE_11:
         DEFB    $1A                                              ; $05DB
-SUB_0599_12:
+PTR_COMPARE_12:
         DEFB    $1A                                              ; $05DC
-SUB_0599_13:
+PTR_COMPARE_13:
         DEFB    $1A                                              ; $05DD
-SUB_0599_14:
+PTR_COMPARE_14:
         DEFB    $1A                                              ; $05DE
-SUB_0599_15:
+PTR_COMPARE_15:
         DEFB    $1A                                              ; $05DF
-SUB_0599_16:
+PTR_COMPARE_16:
         DEFB    $1A                                              ; $05E0
-SUB_0599_17:
+PTR_COMPARE_17:
         DEFB    $1A                                              ; $05E1
-SUB_0599_18:
+PTR_COMPARE_18:
         DEFB    $1A                                              ; $05E2
-SUB_0599_19:
+PTR_COMPARE_19:
         DEFB    $1A                                              ; $05E3
-SUB_0599_20:
+PTR_COMPARE_20:
         DEFB    $1A                                              ; $05E4
-SUB_0599_21:
+PTR_COMPARE_21:
         DEFB    $1A                                              ; $05E5
-SUB_0599_22:
+PTR_COMPARE_22:
         DEFB    $1A                                              ; $05E6
-SUB_0599_23:
+PTR_COMPARE_23:
         DEFB    $1A                                              ; $05E7
-SUB_0599_24:
+PTR_COMPARE_24:
         DEFB    $1A                                              ; $05E8
-SUB_0599_25:
+PTR_COMPARE_25:
         DEFB    $1A                                              ; $05E9
-SUB_0599_26:
+PTR_COMPARE_26:
         DEFB    $1A                                              ; $05EA
-SUB_0599_27:
+PTR_COMPARE_27:
         DEFB    $1A,$1A                                          ; $05EB
-SUB_0599_28:
+PTR_COMPARE_28:
         DEFB    $1A,$1A                                          ; $05ED
-SUB_0599_29:
+PTR_COMPARE_29:
         DEFB    $1A                                              ; $05EF
-SUB_0599_30:
+PTR_COMPARE_30:
         DEFB    $1A,$1A                                          ; $05F0
-SUB_0599_31:
+PTR_COMPARE_31:
         DEFB    $1A                                              ; $05F2
-SUB_0599_32:
+PTR_COMPARE_32:
         DEFB    $1A                                              ; $05F3
-SUB_0599_33:
+PTR_COMPARE_33:
         DEFS    12, $1A    ; $05F4  fill
 
     SAVEBIN "SUBMIT.bin", $0100, $0500

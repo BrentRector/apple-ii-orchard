@@ -17,7 +17,7 @@ DEFAULT_FCB          EQU $005C               ; Default File Control Block — po
 ; [AI] The $0100 transient-program entry point where CP/M loads and starts RW13.COM; it begins by
 ;       printing the sign-on banner.
 TPA_START:
-        LD DE,SUB_0144_10                ; $0100  11 A8 01
+        LD DE,CALL_HL_10                ; $0100  11 A8 01
 ; [AI] Loads BDOS function 9 (print $-terminated string) into C ahead of the sign-on call.
 TPA_START_1:
         LD C,$09                         ; $0103  0E 09
@@ -42,7 +42,7 @@ TPA_START_6:
 ; [AI] If the character is neither 'X' nor 'x', branch to the no-argument path that performs the
 ;       16-to-13 conversion.
 TPA_START_7:
-        JR NZ,SUB_0144_5                 ; $0111  20 3D
+        JR NZ,CALL_HL_5                 ; $0111  20 3D
 ; [AI] On the 'X' (restore-to-16-sector) path, checks the BIOS state byte at $FE0A to see whether
 ;       13-sector mode is currently active before undoing it.
 TPA_START_8:
@@ -52,13 +52,13 @@ TPA_START_8:
         LD HL,($F3EE)                    ; $011A  2A EE F3
         LD ($FE09),HL                    ; $011D  22 09 FE
         LD C,$00                         ; $0120  0E 00
-        CALL SUB_0137                    ; $0122  CD 37 01
+        CALL GET_BIOS_XLT_PTR                    ; $0122  CD 37 01
         LD E,(HL)                        ; $0125  5E
         INC HL                           ; $0126  23
         LD D,(HL)                        ; $0127  56
         PUSH DE                          ; $0128  D5
         LD C,$01                         ; $0129  0E 01
-        CALL SUB_0137                    ; $012B  CD 37 01
+        CALL GET_BIOS_XLT_PTR                    ; $012B  CD 37 01
         POP DE                           ; $012E  D1
         LD (HL),E                        ; $012F  73
         INC HL                           ; $0130  23
@@ -66,68 +66,68 @@ TPA_START_8:
 ; [AI] Loads the address of the 'returned to 16 sector operation' success message for the restore
 ;       path.
 TPA_START_9:
-        LD DE,SUB_0144_14                ; $0132  11 35 02
-        JR SUB_0144_2                    ; $0135  18 11
+        LD DE,CALL_HL_14                ; $0132  11 35 02
+        JR CALL_HL_2                    ; $0135  18 11
 ; [AI] Computes a pointer into the live BIOS based on the WBOOT vector and a per-call offset in C,
 ;       used to patch the BIOS sector-translation/skew vectors when switching disk formats.
-SUB_0137:
+GET_BIOS_XLT_PTR:
         LD HL,($0001)                    ; $0137  2A 01 00
         LD L,$1B                         ; $013A  2E 1B
-        CALL SUB_0144                    ; $013C  CD 44 01
+        CALL CALL_HL                    ; $013C  CD 44 01
         LD DE,$000A                      ; $013F  11 0A 00
         ADD HL,DE                        ; $0142  19
         RET                              ; $0143  C9
 ; [AI] Indirect call thunk that jumps to the BIOS address computed in HL (JP (HL)), letting
-;       SUB_0137 invoke a BIOS routine through a fixed call site.
-SUB_0144:
+;       GET_BIOS_XLT_PTR invoke a BIOS routine through a fixed call site.
+CALL_HL:
         JP (HL)                          ; $0144  E9
 ; [AI] Loads the address of the 'Invalid Drive' error message for cases where the requested drive
 ;       does not exist.
-SUB_0144_1:
-        LD DE,SUB_0144_13                ; $0145  11 23 02
+CALL_HL_1:
+        LD DE,CALL_HL_13                ; $0145  11 23 02
 ; [AI] Common message-print-then-exit tail: prints the $-string in DE via BDOS and falls through to
 ;       the warm-boot return.
-SUB_0144_2:
+CALL_HL_2:
         LD C,$09                         ; $0148  0E 09
 ; [AI] Performs the BDOS function-9 call to print the selected message.
-SUB_0144_3:
+CALL_HL_3:
         CALL BDOS_VEC                    ; $014A  CD 05 00
 ; [AI] Returns control to CP/M by jumping to the warm-boot vector, reloading the CCP.
-SUB_0144_4:
+CALL_HL_4:
         JP WBOOT_VEC                     ; $014D  C3 00 00
 ; [AI] Start of the no-argument (16-to-13 sector conversion) path; reads the BIOS mode byte at
 ;       $FE0A to check current disk format.
-SUB_0144_5:
+CALL_HL_5:
         LD A,($FE0A)                     ; $0150  3A 0A FE
 ; [AI] Compares the current BIOS mode against $0E to detect whether the drive is already in
 ;       13-sector mode.
-SUB_0144_6:
+CALL_HL_6:
         CP $0E                           ; $0153  FE 0E
 ; [AI] Preloads the address of the 'Drive Z: converted to 13 sec. operation' success message for
 ;       the conversion path.
-SUB_0144_7:
-        LD DE,SUB_0144_16                ; $0155  11 71 02
+CALL_HL_7:
+        LD DE,CALL_HL_16                ; $0155  11 71 02
 ; [AI] If not already in the expected mode, branch to print the error/message and exit.
-SUB_0144_8:
-        JR NZ,SUB_0144_2                 ; $0158  20 EE
+CALL_HL_8:
+        JR NZ,CALL_HL_2                 ; $0158  20 EE
         LD A,(DEFAULT_FCB)               ; $015A  3A 5C 00
         CP $01                           ; $015D  FE 01
-        JR Z,SUB_0144_1                  ; $015F  28 E4
-        JR NC,SUB_0144_9                 ; $0161  30 05
-        LD DE,SUB_0144_15                ; $0163  11 5F 02
-        JR SUB_0144_2                    ; $0166  18 E0
+        JR Z,CALL_HL_1                  ; $015F  28 E4
+        JR NC,CALL_HL_9                 ; $0161  30 05
+        LD DE,CALL_HL_15                ; $0163  11 5F 02
+        JR CALL_HL_2                    ; $0166  18 E0
 ; [AI] Validates and records the selected drive: forms its letter ('A'+n) for patching into the
 ;       success message and checks it against the count of configured drives before performing the
 ;       conversion.
-SUB_0144_9:
+CALL_HL_9:
         LD C,A                           ; $0168  4F
         ADD A,$40                        ; $0169  C6 40
-        LD (SUB_0144_12),A               ; $016B  32 FB 01
+        LD (CALL_HL_12),A               ; $016B  32 FB 01
         LD A,($F3B8)                     ; $016E  3A B8 F3
         CP C                             ; $0171  B9
-        JR C,SUB_0144_1                  ; $0172  38 D1
-        CALL SUB_02D0                    ; $0174  CD D0 02
-        LD (SUB_02D0_2),A                ; $0177  32 15 08
+        JR C,CALL_HL_1                  ; $0172  38 D1
+        CALL DRIVE_ODD_EVEN_SEL                    ; $0174  CD D0 02
+        LD (DRIVE_ODD_EVEN_SEL_2),A                ; $0177  32 15 08
         DEC C                            ; $017A  0D
         LD A,C                           ; $017B  79
         ADD A,A                          ; $017C  87
@@ -136,10 +136,10 @@ SUB_0144_9:
         AND $F0                          ; $017F  E6 F0
         CPL                              ; $0181  2F
         ADD A,$61                        ; $0182  C6 61
-        LD (SUB_02D0_1),A                ; $0184  32 0E 08
+        LD (DRIVE_ODD_EVEN_SEL_1),A                ; $0184  32 0E 08
         LD HL,($0001)                    ; $0187  2A 01 00
         LD L,$1B                         ; $018A  2E 1B
-        CALL SUB_0137                    ; $018C  CD 37 01
+        CALL GET_BIOS_XLT_PTR                    ; $018C  CD 37 01
         LD (HL),$F0                      ; $018F  36 F0
         INC HL                           ; $0191  23
         LD A,($0007)                     ; $0192  3A 07 00
@@ -149,9 +149,9 @@ SUB_0144_9:
         LD ($F3D0),HL                    ; $019B  22 D0 F3
         LD HL,($F3DE)                    ; $019E  2A DE F3
         LD (HL),A                        ; $01A1  77
-        LD DE,SUB_0144_11                ; $01A2  11 F5 01
-        JP SUB_0144_2                    ; $01A5  C3 48 01
-SUB_0144_10:
+        LD DE,CALL_HL_11                ; $01A2  11 F5 01
+        JP CALL_HL_2                    ; $01A5  C3 48 01
+CALL_HL_10:
         DEFB    $0D,$0A,$0D,$0A,$20,$20,$20,$20,$20,$41,$50,$50,$4C,$45,$20,$5D ; $01A8
         DEFB    "[ CP/M"    ; $01B8  string
         DEFB    $0D    ; $01BE  terminator
@@ -162,32 +162,32 @@ SUB_0144_10:
         DEFB    "rosoft"    ; $01EA  string
         DEFB    $0D    ; $01F0  terminator
         DEFB    $0A,$0D,$0A,$24                                  ; $01F1
-SUB_0144_11:
+CALL_HL_11:
         DEFB    $44,$72,$69,$76,$65,$20                          ; $01F5
-SUB_0144_12:
+CALL_HL_12:
         DEFB    "Z: converted to 13 sec. operation"    ; $01FB  string
         DEFB    $0D    ; $021C  terminator
         DEFB    $0A,$0D,$0A,$24,$0A,$24                          ; $021D
-SUB_0144_13:
+CALL_HL_13:
         DEFB    "Invalid Drive"    ; $0223  string
         DEFB    $0D    ; $0230  terminator
         DEFB    $0A,$0D,$0A,$24                                  ; $0231
-SUB_0144_14:
+CALL_HL_14:
         DEFB    "Drive returned to 16 sector operation"    ; $0235  string
         DEFB    $0D    ; $025A  terminator
         DEFB    $0A,$0D,$0A,$24                                  ; $025B
-SUB_0144_15:
+CALL_HL_15:
         DEFB    "Command Error"    ; $025F  string
         DEFB    $0D    ; $026C  terminator
         DEFB    $0A,$0D,$0A,$24                                  ; $026D
-SUB_0144_16:
+CALL_HL_16:
         DEFB    "Must 'RW13 X' first"    ; $0271  string
         DEFB    $0D    ; $0284  terminator
         DEFB    $0A,$0D,$0A,$24,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00 ; $0285
         DEFS    59, $00    ; $0295  fill
 ; [AI] Derives a disk-controller parameter (drive odd/even selector, yielding 1 or 2) from the
 ;       drive number in C for use by the 6502 disk routine.
-SUB_02D0:
+DRIVE_ODD_EVEN_SEL:
         LD A,C                           ; $02D0  79
         DEC A                            ; $02D1  3D
         AND $01                          ; $02D2  E6 01
@@ -252,7 +252,7 @@ SUB_02D0:
         DEFB    $7E,$16,$E6,$26,$D0,$C3,$20,$7E,$16,$18,$AD,$78,$04,$29,$03,$2A ; $0665
         DEFB    $05,$2B,$AA,$BD,$80,$C0,$A6,$2B,$60,$A2,$11,$CA,$D0,$FD,$E6,$46 ; $0675
         DEFB    $D0,$06,$E6,$47                                  ; $0685
-        DEFW    SUB_02D0                 ; $0689
+        DEFW    DRIVE_ODD_EVEN_SEL                 ; $0689
         DEFB    $C6,$47,$38,$E9,$01,$D0,$EC,$60                  ; $068B
         DEFW    TPA_START                ; $0693
         DEFB    $08,$10,$18,$02,$03,$04,$05,$06,$20,$28,$30,$07,$09,$38,$40,$0A ; $0695
@@ -279,9 +279,9 @@ SUB_02D0:
         DEFB    $FF,$FE,$FE,$FF,$FF,$FE,$FE,$FF,$FF,$FE,$FE,$FF,$FF,$FE,$FE,$FF ; $07E5
         DEFB    $FF,$FE,$FE,$FF,$FF,$FE,$FE,$FF,$FF,$FE,$FE,$A9,$00,$8D,$06,$10 ; $07F5
         DEFB    $A9,$8C,$8D,$07,$10,$AD,$E6,$03,$C9              ; $0805
-SUB_02D0_1:
+DRIVE_ODD_EVEN_SEL_1:
         DEFB    $60,$D0,$07,$AD,$E4,$03,$C9                      ; $080E
-SUB_02D0_2:
+DRIVE_ODD_EVEN_SEL_2:
         DEFB    $02,$F0,$03,$4C,$06,$0E,$A0,$02,$8C,$F8,$06,$A0,$04,$8C,$F8,$04 ; $0815
         DEFB    $AD,$E6,$03,$AA,$CD,$E7,$03,$F0,$1D,$8A,$A8,$AD,$E7,$03,$AA,$98 ; $0825
         DEFB    $48,$8D,$E7,$03,$BD,$8E,$C0,$A0,$08,$BD,$8C,$C0,$DD,$8C,$C0,$D0 ; $0835
@@ -301,7 +301,7 @@ SUB_02D0_2:
         DEFB    $53,$19,$F0,$36,$A5,$2F,$8D,$E3,$03,$AD,$E2,$03,$F0,$08,$C5,$2F ; $0915
         DEFB    $F0,$04,$A9,$20,$D0,$E8,$AC,$E1,$03,$AD,$E0,$03,$C9,$03,$B0,$03 ; $0925
         DEFB    $98,$90,$03,$B9,$E0,$19,$C5,$2D,$D0,$96,$28,$90,$19,$20,$00 ; $0935
-        DEFW    SUB_02D0_2               ; $0944
+        DEFW    DRIVE_ODD_EVEN_SEL_2               ; $0944
         DEFB    $B0,$8D,$28,$20,$C4,$15,$AE,$F8,$05,$18,$A9,$00,$24,$38,$8D,$EA ; $0946
         DEFB    $03,$BD,$88,$C0,$60,$20,$6D,$14,$90,$EF,$A9,$10,$B0,$EF,$0A,$20 ; $0956
         DEFB    $6C,$19,$4E,$78,$04,$60,$85,$2E,$20,$8F,$19,$B9,$78,$04,$24,$35 ; $0966

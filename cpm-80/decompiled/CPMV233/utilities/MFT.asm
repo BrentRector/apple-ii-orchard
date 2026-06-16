@@ -23,9 +23,9 @@ CMDLINE              EQU $0081               ; Command-line tail characters (upp
 TPA_START:
         LD SP,$0A41                      ; $0100  31 41 0A
 TPA_START_1:
-        LD HL,SUB_04DD_1                 ; $0103  21 E5 04
+        LD HL,BDOS_SET_DMA_1                 ; $0103  21 E5 04
 TPA_START_2:
-        CALL SUB_04A2                    ; $0106  CD A2 04
+        CALL PRINT_STRING                    ; $0106  CD A2 04
 TPA_START_3:
         XOR A                            ; $0109  AF
 TPA_START_4:
@@ -67,11 +67,11 @@ TPA_START_21:
 TPA_START_22:
         LD (DEFAULT_DMA),A               ; $012F  32 80 00
 TPA_START_23:
-        CALL SUB_04AB                    ; $0132  CD AB 04
+        CALL PRINT_CRLF                    ; $0132  CD AB 04
 TPA_START_24:
         LD A,$2A                         ; $0135  3E 2A
 TPA_START_25:
-        CALL SUB_04B2                    ; $0137  CD B2 04
+        CALL CONOUT                    ; $0137  CD B2 04
 TPA_START_26:
         LD A,$50                         ; $013A  3E 50
 TPA_START_27:
@@ -90,11 +90,11 @@ TPA_START_33:
         OR A                             ; $014B  B7
 TPA_START_34:
         JR Z,TPA_START_21                ; $014C  28 E0
-        CALL SUB_04AB                    ; $014E  CD AB 04
+        CALL PRINT_CRLF                    ; $014E  CD AB 04
 TPA_START_35:
-        LD HL,SUB_04DD_2                 ; $0151  21 3E 05
-        CALL SUB_04A2                    ; $0154  CD A2 04
-        CALL SUB_04BD                    ; $0157  CD BD 04
+        LD HL,BDOS_SET_DMA_2                 ; $0151  21 3E 05
+        CALL PRINT_STRING                    ; $0154  CD A2 04
+        CALL WAIT_FOR_RETURN                    ; $0157  CD BD 04
         LD A,($0B44)                     ; $015A  3A 44 0B
         OR A                             ; $015D  B7
         JR NZ,TPA_START_39               ; $015E  20 3A
@@ -124,16 +124,16 @@ TPA_START_38:
         JR Z,TPA_START_21                ; $017F  28 AD
         LD HL,$0A85                      ; $0181  21 85 0A
         LD ($0AD5),HL                    ; $0184  22 D5 0A
-        CALL SUB_037E                    ; $0187  CD 7E 03
+        CALL PARSE_SOURCE_FCB_LIST                    ; $0187  CD 7E 03
         LD A,($0B46)                     ; $018A  3A 46 0B
         OR A                             ; $018D  B7
         JP Z,TPA_START_56                ; $018E  CA 72 03
-        LD HL,SUB_04DD_12                ; $0191  21 40 06
+        LD HL,BDOS_SET_DMA_12                ; $0191  21 40 06
         LD ($0ADB),HL                    ; $0194  22 DB 0A
         LD ($0ADD),HL                    ; $0197  22 DD 0A
 TPA_START_39:
-        LD HL,SUB_04DD_3                 ; $019A  21 68 05
-        CALL SUB_04A2                    ; $019D  CD A2 04
+        LD HL,BDOS_SET_DMA_3                 ; $019A  21 68 05
+        CALL PRINT_STRING                    ; $019D  CD A2 04
         LD HL,$0B80                      ; $01A0  21 80 0B
         LD ($0ADF),HL                    ; $01A3  22 DF 0A
         LD HL,($0A81)                    ; $01A6  2A 81 0A
@@ -167,12 +167,12 @@ TPA_START_40:
         LDIR                             ; $01E6  ED B0
         LD ($0ADB),HL                    ; $01E8  22 DB 0A
         LD HL,$005D                      ; $01EB  21 5D 00
-        CALL SUB_0489                    ; $01EE  CD 89 04
+        CALL PRINT_FCB_NAME                    ; $01EE  CD 89 04
         XOR A                            ; $01F1  AF
         LD (DEFAULT_FCB),A               ; $01F2  32 5C 00
         LD ($0068),A                     ; $01F5  32 68 00
         LD (DEFAULT_CR),A                ; $01F8  32 7C 00
-        CALL SUB_04CD                    ; $01FB  CD CD 04
+        CALL BDOS_DELETE_FILE                    ; $01FB  CD CD 04
         LD HL,($0ADB)                    ; $01FE  2A DB 0A
         EX DE,HL                         ; $0201  EB
 TPA_START_41:
@@ -190,7 +190,7 @@ TPA_START_41:
 TPA_START_42:
         LD HL,($0ADF)                    ; $0215  2A DF 0A
         EX DE,HL                         ; $0218  EB
-        CALL SUB_04DD                    ; $0219  CD DD 04
+        CALL BDOS_SET_DMA                    ; $0219  CD DD 04
         LD C,$14                         ; $021C  0E 14
         LD DE,DEFAULT_FCB                ; $021E  11 5C 00
         CALL BDOS_VEC                    ; $0221  CD 05 00
@@ -198,10 +198,10 @@ TPA_START_42:
         JR Z,TPA_START_43                ; $0225  28 12
         CP $01                           ; $0227  FE 01
         JR Z,TPA_START_44                ; $0229  28 3A
-        LD HL,SUB_04DD_6                 ; $022B  21 92 05
-        CALL SUB_04A2                    ; $022E  CD A2 04
+        LD HL,BDOS_SET_DMA_6                 ; $022B  21 92 05
+        CALL PRINT_STRING                    ; $022E  CD A2 04
         LD HL,$005D                      ; $0231  21 5D 00
-        CALL SUB_0489                    ; $0234  CD 89 04
+        CALL PRINT_FCB_NAME                    ; $0234  CD 89 04
         JR TPA_START_44                  ; $0237  18 2C
 TPA_START_43:
         LD HL,($0ADF)                    ; $0239  2A DF 0A
@@ -225,8 +225,8 @@ TPA_START_43:
         LD ($0B44),A                     ; $0262  32 44 0B
 TPA_START_44:
         LD DE,DEFAULT_DMA                ; $0265  11 80 00
-        CALL SUB_04DD                    ; $0268  CD DD 04
-        CALL SUB_04D5                    ; $026B  CD D5 04
+        CALL BDOS_SET_DMA                    ; $0268  CD DD 04
+        CALL BDOS_CLOSE_FILE                    ; $026B  CD D5 04
         LD HL,($0AD7)                    ; $026E  2A D7 0A
         EX DE,HL                         ; $0271  EB
         LD HL,($0ADB)                    ; $0272  2A DB 0A
@@ -239,9 +239,9 @@ TPA_START_44:
         OR A                             ; $027F  B7
         JP Z,TPA_START_40                ; $0280  CA D4 01
 TPA_START_45:
-        LD HL,SUB_04DD_7                 ; $0283  21 A6 05
-        CALL SUB_04A2                    ; $0286  CD A2 04
-        CALL SUB_04BD                    ; $0289  CD BD 04
+        LD HL,BDOS_SET_DMA_7                 ; $0283  21 A6 05
+        CALL PRINT_STRING                    ; $0286  CD A2 04
+        CALL WAIT_FOR_RETURN                    ; $0289  CD BD 04
         LD C,$0D                         ; $028C  0E 0D
         CALL BDOS_VEC                    ; $028E  CD 05 00
         LD A,($0B45)                     ; $0291  3A 45 0B
@@ -251,7 +251,7 @@ TPA_START_45:
         LD DE,DEFAULT_FCB                ; $029A  11 5C 00
         LD BC,$0021                      ; $029D  01 21 00
         LDIR                             ; $02A0  ED B0
-        CALL SUB_04CD                    ; $02A2  CD CD 04
+        CALL BDOS_DELETE_FILE                    ; $02A2  CD CD 04
         LD HL,($0ADD)                    ; $02A5  2A DD 0A
         LD DE,$FFFC                      ; $02A8  11 FC FF
         ADD HL,DE                        ; $02AB  19
@@ -290,7 +290,7 @@ TPA_START_47:
 TPA_START_48:
         INC A                            ; $02F3  3C
         JR NZ,TPA_START_49               ; $02F4  20 06
-        LD HL,SUB_04DD_9                 ; $02F6  21 FB 05
+        LD HL,BDOS_SET_DMA_9                 ; $02F6  21 FB 05
         JP TPA_START_54                  ; $02F9  C3 60 03
 TPA_START_49:
         LD HL,($0ADD)                    ; $02FC  2A DD 0A
@@ -318,7 +318,7 @@ TPA_START_50:
 TPA_START_51:
         LD HL,($0ADF)                    ; $031E  2A DF 0A
         EX DE,HL                         ; $0321  EB
-        CALL SUB_04DD                    ; $0322  CD DD 04
+        CALL BDOS_SET_DMA                    ; $0322  CD DD 04
         LD C,$15                         ; $0325  0E 15
         LD DE,DEFAULT_FCB                ; $0327  11 5C 00
         CALL BDOS_VEC                    ; $032A  CD 05 00
@@ -340,57 +340,57 @@ TPA_START_52:
         LD BC,$0021                      ; $034B  01 21 00
         LDIR                             ; $034E  ED B0
         LD DE,DEFAULT_DMA                ; $0350  11 80 00
-        CALL SUB_04DD                    ; $0353  CD DD 04
-        CALL SUB_04D5                    ; $0356  CD D5 04
+        CALL BDOS_SET_DMA                    ; $0353  CD DD 04
+        CALL BDOS_CLOSE_FILE                    ; $0356  CD D5 04
         INC A                            ; $0359  3C
         JP NZ,TPA_START_46               ; $035A  C2 B1 02
 TPA_START_53:
-        LD HL,SUB_04DD_10                ; $035D  21 1C 06
+        LD HL,BDOS_SET_DMA_10                ; $035D  21 1C 06
 TPA_START_54:
-        CALL SUB_04A2                    ; $0360  CD A2 04
+        CALL PRINT_STRING                    ; $0360  CD A2 04
         LD HL,$005D                      ; $0363  21 5D 00
-        CALL SUB_0489                    ; $0366  CD 89 04
+        CALL PRINT_FCB_NAME                    ; $0366  CD 89 04
         JR TPA_START_56                  ; $0369  18 07
 TPA_START_55:
         LD A,($0B44)                     ; $036B  3A 44 0B
         OR A                             ; $036E  B7
         JP NZ,TPA_START_35               ; $036F  C2 51 01
 TPA_START_56:
-        LD HL,SUB_04DD_8                 ; $0372  21 D2 05
-        CALL SUB_04A2                    ; $0375  CD A2 04
-        CALL SUB_04BD                    ; $0378  CD BD 04
+        LD HL,BDOS_SET_DMA_8                 ; $0372  21 D2 05
+        CALL PRINT_STRING                    ; $0375  CD A2 04
+        CALL WAIT_FOR_RETURN                    ; $0378  CD BD 04
         JP WBOOT_VEC                     ; $037B  C3 00 00
 ; [AI] Parses the entire command tail into a list of source-file FCB patterns, validating each via
 ;       BDOS search-first ($11) and counting how many ambiguous (wildcard) names were given.
-SUB_037E:
-        LD HL,SUB_04DD_12                ; $037E  21 40 06
+PARSE_SOURCE_FCB_LIST:
+        LD HL,BDOS_SET_DMA_12                ; $037E  21 40 06
         LD ($0ADB),HL                    ; $0381  22 DB 0A
-SUB_037E_1:
+PARSE_SOURCE_FCB_LIST_1:
         LD HL,($0AD5)                    ; $0384  2A D5 0A
         LD A,(HL)                        ; $0387  7E
         OR A                             ; $0388  B7
         RET Z                            ; $0389  C8
-        CALL SUB_0413                    ; $038A  CD 13 04
+        CALL PARSE_FCB_TOKEN                    ; $038A  CD 13 04
         LD ($0AD5),HL                    ; $038D  22 D5 0A
-        JR NC,SUB_037E_2                 ; $0390  30 09
-        LD HL,SUB_04DD_4                 ; $0392  21 76 05
-        CALL SUB_04A2                    ; $0395  CD A2 04
+        JR NC,PARSE_SOURCE_FCB_LIST_2                 ; $0390  30 09
+        LD HL,BDOS_SET_DMA_4                 ; $0392  21 76 05
+        CALL PRINT_STRING                    ; $0395  CD A2 04
         JP TPA_START_56                  ; $0398  C3 72 03
-SUB_037E_2:
+PARSE_SOURCE_FCB_LIST_2:
         XOR A                            ; $039B  AF
         LD ($0B2F),A                     ; $039C  32 2F 0B
         LD DE,$0B23                      ; $039F  11 23 0B
         LD C,$11                         ; $03A2  0E 11
-SUB_037E_3:
+PARSE_SOURCE_FCB_LIST_3:
         CALL BDOS_VEC                    ; $03A4  CD 05 00
         CP $FF                           ; $03A7  FE FF
-        JR NZ,SUB_037E_4                 ; $03A9  20 0E
-        LD HL,SUB_04DD_5                 ; $03AB  21 86 05
-        CALL SUB_04A2                    ; $03AE  CD A2 04
+        JR NZ,PARSE_SOURCE_FCB_LIST_4                 ; $03A9  20 0E
+        LD HL,BDOS_SET_DMA_5                 ; $03AB  21 86 05
+        CALL PRINT_STRING                    ; $03AE  CD A2 04
         LD HL,$0B24                      ; $03B1  21 24 0B
-        CALL SUB_0489                    ; $03B4  CD 89 04
-        JR SUB_037E_1                    ; $03B7  18 CB
-SUB_037E_4:
+        CALL PRINT_FCB_NAME                    ; $03B4  CD 89 04
+        JR PARSE_SOURCE_FCB_LIST_1                    ; $03B7  18 CB
+PARSE_SOURCE_FCB_LIST_4:
         AND $03                          ; $03B9  E6 03
         LD L,A                           ; $03BB  6F
         LD H,$00                         ; $03BC  26 00
@@ -405,8 +405,8 @@ SUB_037E_4:
         PUSH HL                          ; $03C9  E5
         POP IX                           ; $03CA  DD E1
         BIT 7,(IX+10)                    ; $03CC  DD CB 0A 7E
-        JR NZ,SUB_037E_3                 ; $03D0  20 D2
-SUB_037E_5:
+        JR NZ,PARSE_SOURCE_FCB_LIST_3                 ; $03D0  20 D2
+PARSE_SOURCE_FCB_LIST_5:
         EX DE,HL                         ; $03D2  EB
         LD HL,$0B46                      ; $03D3  21 46 0B
         INC (HL)                         ; $03D6  34
@@ -414,18 +414,18 @@ SUB_037E_5:
         EX DE,HL                         ; $03DA  EB
         LD BC,$000C                      ; $03DB  01 0C 00
         LDIR                             ; $03DE  ED B0
-        LD HL,SUB_04DD_11                ; $03E0  21 2F 06
+        LD HL,BDOS_SET_DMA_11                ; $03E0  21 2F 06
         LD BC,CDISK                      ; $03E3  01 04 00
         LDIR                             ; $03E6  ED B0
         EX DE,HL                         ; $03E8  EB
         LD ($0ADB),HL                    ; $03E9  22 DB 0A
         LD (HL),$FF                      ; $03EC  36 FF
         LD DE,$0B23                      ; $03EE  11 23 0B
-SUB_037E_6:
+PARSE_SOURCE_FCB_LIST_6:
         LD C,$12                         ; $03F1  0E 12
         CALL BDOS_VEC                    ; $03F3  CD 05 00
         CP $FF                           ; $03F6  FE FF
-        JR Z,SUB_037E_1                  ; $03F8  28 8A
+        JR Z,PARSE_SOURCE_FCB_LIST_1                  ; $03F8  28 8A
         AND $03                          ; $03FA  E6 03
         LD L,A                           ; $03FC  6F
         LD H,$00                         ; $03FD  26 00
@@ -439,23 +439,23 @@ SUB_037E_6:
         PUSH HL                          ; $0408  E5
         POP IX                           ; $0409  DD E1
         BIT 7,(IX+10)                    ; $040B  DD CB 0A 7E
-        JR NZ,SUB_037E_6                 ; $040F  20 E0
-        JR SUB_037E_5                    ; $0411  18 BF
+        JR NZ,PARSE_SOURCE_FCB_LIST_6                 ; $040F  20 E0
+        JR PARSE_SOURCE_FCB_LIST_5                    ; $0411  18 BF
 ; [AI] Extracts one filename token from the command tail into an 11-byte FCB pattern: skips
 ;       comma/space separators, uppercases, expands '*' to '?' fill, and splits name from extension;
 ;       returns carry set on syntax error.
-SUB_0413:
+PARSE_FCB_TOKEN:
         LD A,(HL)                        ; $0413  7E
         OR A                             ; $0414  B7
         RET Z                            ; $0415  C8
         CP $2C                           ; $0416  FE 2C
-        JR Z,SUB_0413_1                  ; $0418  28 04
+        JR Z,PARSE_FCB_TOKEN_1                  ; $0418  28 04
         CP $20                           ; $041A  FE 20
-        JR NZ,SUB_0413_2                 ; $041C  20 03
-SUB_0413_1:
+        JR NZ,PARSE_FCB_TOKEN_2                 ; $041C  20 03
+PARSE_FCB_TOKEN_1:
         INC HL                           ; $041E  23
-        JR SUB_0413                      ; $041F  18 F2
-SUB_0413_2:
+        JR PARSE_FCB_TOKEN                      ; $041F  18 F2
+PARSE_FCB_TOKEN_2:
         LD DE,$0B23                      ; $0421  11 23 0B
         XOR A                            ; $0424  AF
         LD (DE),A                        ; $0425  12
@@ -463,167 +463,167 @@ SUB_0413_2:
         PUSH DE                          ; $0427  D5
         LD B,$0B                         ; $0428  06 0B
         LD A,$20                         ; $042A  3E 20
-SUB_0413_3:
+PARSE_FCB_TOKEN_3:
         LD (DE),A                        ; $042C  12
         INC DE                           ; $042D  13
         DEC B                            ; $042E  05
-        JR NZ,SUB_0413_3                 ; $042F  20 FB
+        JR NZ,PARSE_FCB_TOKEN_3                 ; $042F  20 FB
         POP DE                           ; $0431  D1
         LD B,$09                         ; $0432  06 09
-SUB_0413_4:
+PARSE_FCB_TOKEN_4:
         LD A,(HL)                        ; $0434  7E
         OR A                             ; $0435  B7
-        JR Z,SUB_0413_10                 ; $0436  28 4D
+        JR Z,PARSE_FCB_TOKEN_10                 ; $0436  28 4D
         INC HL                           ; $0438  23
         CP $2C                           ; $0439  FE 2C
-        JR Z,SUB_0413_10                 ; $043B  28 48
+        JR Z,PARSE_FCB_TOKEN_10                 ; $043B  28 48
         CP $20                           ; $043D  FE 20
-        JR Z,SUB_0413_10                 ; $043F  28 44
+        JR Z,PARSE_FCB_TOKEN_10                 ; $043F  28 44
         CP $2E                           ; $0441  FE 2E
-        JR Z,SUB_0413_7                  ; $0443  28 1A
+        JR Z,PARSE_FCB_TOKEN_7                  ; $0443  28 1A
         CP $2A                           ; $0445  FE 2A
-        JR Z,SUB_0413_5                  ; $0447  28 07
+        JR Z,PARSE_FCB_TOKEN_5                  ; $0447  28 07
         LD (DE),A                        ; $0449  12
         INC DE                           ; $044A  13
         DEC B                            ; $044B  05
-        JR Z,SUB_0413_11                 ; $044C  28 39
-        JR SUB_0413_4                    ; $044E  18 E4
-SUB_0413_5:
+        JR Z,PARSE_FCB_TOKEN_11                 ; $044C  28 39
+        JR PARSE_FCB_TOKEN_4                    ; $044E  18 E4
+PARSE_FCB_TOKEN_5:
         DEC B                            ; $0450  05
-        JR Z,SUB_0413_6                  ; $0451  28 06
+        JR Z,PARSE_FCB_TOKEN_6                  ; $0451  28 06
         LD A,$3F                         ; $0453  3E 3F
         LD (DE),A                        ; $0455  12
         INC DE                           ; $0456  13
-        JR SUB_0413_5                    ; $0457  18 F7
-SUB_0413_6:
+        JR PARSE_FCB_TOKEN_5                    ; $0457  18 F7
+PARSE_FCB_TOKEN_6:
         LD A,(HL)                        ; $0459  7E
         CP $2E                           ; $045A  FE 2E
-        JR NZ,SUB_0413_10                ; $045C  20 27
+        JR NZ,PARSE_FCB_TOKEN_10                ; $045C  20 27
         INC HL                           ; $045E  23
-SUB_0413_7:
+PARSE_FCB_TOKEN_7:
         LD DE,$0B2C                      ; $045F  11 2C 0B
         LD B,$04                         ; $0462  06 04
-SUB_0413_8:
+PARSE_FCB_TOKEN_8:
         LD A,(HL)                        ; $0464  7E
         OR A                             ; $0465  B7
-        JR Z,SUB_0413_10                 ; $0466  28 1D
+        JR Z,PARSE_FCB_TOKEN_10                 ; $0466  28 1D
         INC HL                           ; $0468  23
         CP $2C                           ; $0469  FE 2C
-        JR Z,SUB_0413_10                 ; $046B  28 18
+        JR Z,PARSE_FCB_TOKEN_10                 ; $046B  28 18
         CP $20                           ; $046D  FE 20
-        JR Z,SUB_0413_10                 ; $046F  28 14
+        JR Z,PARSE_FCB_TOKEN_10                 ; $046F  28 14
         CP $2A                           ; $0471  FE 2A
-        JR Z,SUB_0413_9                  ; $0473  28 07
+        JR Z,PARSE_FCB_TOKEN_9                  ; $0473  28 07
         LD (DE),A                        ; $0475  12
         INC DE                           ; $0476  13
         DEC B                            ; $0477  05
-        JR Z,SUB_0413_11                 ; $0478  28 0D
-        JR SUB_0413_8                    ; $047A  18 E8
-SUB_0413_9:
+        JR Z,PARSE_FCB_TOKEN_11                 ; $0478  28 0D
+        JR PARSE_FCB_TOKEN_8                    ; $047A  18 E8
+PARSE_FCB_TOKEN_9:
         DEC B                            ; $047C  05
-        JR Z,SUB_0413_10                 ; $047D  28 06
+        JR Z,PARSE_FCB_TOKEN_10                 ; $047D  28 06
         LD A,$3F                         ; $047F  3E 3F
         LD (DE),A                        ; $0481  12
         INC DE                           ; $0482  13
-        JR SUB_0413_9                    ; $0483  18 F7
-SUB_0413_10:
+        JR PARSE_FCB_TOKEN_9                    ; $0483  18 F7
+PARSE_FCB_TOKEN_10:
         XOR A                            ; $0485  AF
         RET                              ; $0486  C9
-SUB_0413_11:
+PARSE_FCB_TOKEN_11:
         SCF                              ; $0487  37
         RET                              ; $0488  C9
 ; [AI] Prints an 8.3 filename from an FCB-style buffer to the console (8 name chars, a dot, then
 ;       the extension), used in error messages to show the offending file.
-SUB_0489:
+PRINT_FCB_NAME:
         LD B,$08                         ; $0489  06 08
-SUB_0489_1:
+PRINT_FCB_NAME_1:
         LD A,(HL)                        ; $048B  7E
         INC HL                           ; $048C  23
         CP $20                           ; $048D  FE 20
-        JR Z,SUB_0489_2                  ; $048F  28 03
-        CALL SUB_04B2                    ; $0491  CD B2 04
-SUB_0489_2:
-        DJNZ SUB_0489_1                  ; $0494  10 F5
+        JR Z,PRINT_FCB_NAME_2                  ; $048F  28 03
+        CALL CONOUT                    ; $0491  CD B2 04
+PRINT_FCB_NAME_2:
+        DJNZ PRINT_FCB_NAME_1                  ; $0494  10 F5
         LD A,$2E                         ; $0496  3E 2E
-        CALL SUB_04B2                    ; $0498  CD B2 04
-        CALL SUB_04A2                    ; $049B  CD A2 04
-        CALL SUB_04AB                    ; $049E  CD AB 04
+        CALL CONOUT                    ; $0498  CD B2 04
+        CALL PRINT_STRING                    ; $049B  CD A2 04
+        CALL PRINT_CRLF                    ; $049E  CD AB 04
         RET                              ; $04A1  C9
 ; [AI] Prints a null-terminated string pointed to by HL one character at a time via the console-
 ;       output helper; the standard message-printing routine.
-SUB_04A2:
+PRINT_STRING:
         LD A,(HL)                        ; $04A2  7E
-SUB_04A2_1:
+PRINT_STRING_1:
         OR A                             ; $04A3  B7
-SUB_04A2_2:
+PRINT_STRING_2:
         RET Z                            ; $04A4  C8
-SUB_04A2_3:
-        CALL SUB_04B2                    ; $04A5  CD B2 04
-SUB_04A2_4:
+PRINT_STRING_3:
+        CALL CONOUT                    ; $04A5  CD B2 04
+PRINT_STRING_4:
         INC HL                           ; $04A8  23
-SUB_04A2_5:
-        JR SUB_04A2                      ; $04A9  18 F7
+PRINT_STRING_5:
+        JR PRINT_STRING                      ; $04A9  18 F7
 ; [AI] Emits a CRLF (carriage return $0D then line feed $0A) to the console by falling through into
 ;       the single-character output routine.
-SUB_04AB:
+PRINT_CRLF:
         LD A,$0D                         ; $04AB  3E 0D
-SUB_04AB_1:
-        CALL SUB_04B2                    ; $04AD  CD B2 04
-SUB_04AB_2:
+PRINT_CRLF_1:
+        CALL CONOUT                    ; $04AD  CD B2 04
+PRINT_CRLF_2:
         LD A,$0A                         ; $04B0  3E 0A
 ; [AI] Outputs the single character in A to the console via BDOS function 2, preserving HL and BC;
 ;       the lowest-level console-write primitive.
-SUB_04B2:
+CONOUT:
         PUSH HL                          ; $04B2  E5
-SUB_04B2_1:
+CONOUT_1:
         PUSH BC                          ; $04B3  C5
-SUB_04B2_2:
+CONOUT_2:
         LD C,$02                         ; $04B4  0E 02
-SUB_04B2_3:
+CONOUT_3:
         LD E,A                           ; $04B6  5F
-SUB_04B2_4:
+CONOUT_4:
         CALL BDOS_VEC                    ; $04B7  CD 05 00
-SUB_04B2_5:
+CONOUT_5:
         POP BC                           ; $04BA  C1
-SUB_04B2_6:
+CONOUT_6:
         POP HL                           ; $04BB  E1
-SUB_04B2_7:
+CONOUT_7:
         RET                              ; $04BC  C9
 ; [AI] Disk-swap pause: reads console keystrokes via BDOS function 1 until the user presses RETURN
 ;       ($0D), then prints a CRLF. The leading read of $E010 touches Apple II soft-switch/firmware
 ;       space mapped on the SoftCard.
-SUB_04BD:
+WAIT_FOR_RETURN:
         LD A,($E010)                     ; $04BD  3A 10 E0
-SUB_04BD_1:
+WAIT_FOR_RETURN_1:
         LD C,$01                         ; $04C0  0E 01
         CALL BDOS_VEC                    ; $04C2  CD 05 00
-SUB_04BD_2:
+WAIT_FOR_RETURN_2:
         CP $0D                           ; $04C5  FE 0D
-        JR NZ,SUB_04BD_1                 ; $04C7  20 F7
-        CALL SUB_04AB                    ; $04C9  CD AB 04
+        JR NZ,WAIT_FOR_RETURN_1                 ; $04C7  20 F7
+        CALL PRINT_CRLF                    ; $04C9  CD AB 04
         RET                              ; $04CC  C9
 ; [AI] Deletes any existing destination file via BDOS function 15 (open... here used to
 ;       delete/erase) on the default FCB before re-creating it, preventing duplicate directory
 ;       entries.
-SUB_04CD:
+BDOS_DELETE_FILE:
         LD DE,DEFAULT_FCB                ; $04CD  11 5C 00
         LD C,$0F                         ; $04D0  0E 0F
         JP BDOS_VEC                      ; $04D2  C3 05 00
 ; [AI] Closes the default FCB via BDOS function 16, flushing the directory entry after a file has
 ;       been written.
-SUB_04D5:
+BDOS_CLOSE_FILE:
         LD DE,DEFAULT_FCB                ; $04D5  11 5C 00
         LD C,$10                         ; $04D8  0E 10
         JP BDOS_VEC                      ; $04DA  C3 05 00
 ; [AI] Sets the DMA transfer address to the buffer in DE via BDOS function 26 before each disk read
 ;       or write, then restores DE.
-SUB_04DD:
+BDOS_SET_DMA:
         PUSH DE                          ; $04DD  D5
         LD C,$1A                         ; $04DE  0E 1A
         CALL BDOS_VEC                    ; $04E0  CD 05 00
         POP DE                           ; $04E3  D1
         RET                              ; $04E4  C9
-SUB_04DD_1:
+BDOS_SET_DMA_1:
         DEFB    $0D,$0A,$09,$20,$20,$53,$6F,$66,$74,$63,$61,$72,$64,$20,$43,$50 ; $04E5
         DEFB    $2F,$4D,$0D,$0A,$53,$69,$6E,$67,$6C,$65,$20,$44,$72,$69,$76,$65 ; $04F5
         DEFB    " File Transfer Program"    ; $0505  string
@@ -632,40 +632,40 @@ SUB_04DD_1:
         DEFB    "y Mycroft Labs"    ; $052C  string
         DEFB    $0D    ; $053A  terminator
         DEFB    $0A,$0A,$00                                      ; $053B
-SUB_04DD_2:
+BDOS_SET_DMA_2:
         DEFB    "Insert SOURCE      disk and press RETURN "    ; $053E  string
         DEFB    $00    ; $0567  terminator
-SUB_04DD_3:
+BDOS_SET_DMA_3:
         DEFB    $0D,$0A,$43,$6F,$70,$79,$69,$6E,$67,$20,$2D,$0D,$0A,$00 ; $0568
-SUB_04DD_4:
+BDOS_SET_DMA_4:
         DEFB    "Command error"    ; $0576  string
         DEFB    $0D    ; $0583  terminator
         DEFB    $0A,$00                                          ; $0584
-SUB_04DD_5:
+BDOS_SET_DMA_5:
         DEFB    "Not found: "    ; $0586  string
         DEFB    $00    ; $0591  terminator
-SUB_04DD_6:
+BDOS_SET_DMA_6:
         DEFB    $0D,$0A,$44,$69,$73,$6B,$20,$72,$65,$61,$64,$20,$65,$72,$72,$6F ; $0592
         DEFB    $72,$3A,$20,$00                                  ; $05A2
-SUB_04DD_7:
+BDOS_SET_DMA_7:
         DEFB    $0D,$0A,$49,$6E,$73,$65,$72,$74,$20,$44,$45,$53,$54,$49,$4E,$41 ; $05A6
         DEFB    "TION disk and press RETURN "    ; $05B6  string
         DEFB    $00    ; $05D1  terminator
-SUB_04DD_8:
+BDOS_SET_DMA_8:
         DEFB    $0D,$0A,$49,$6E,$73,$65,$72,$74,$20,$61,$20,$73,$79,$73,$74,$65 ; $05D2
         DEFB    "m disk and press RETURN "    ; $05E2  string
         DEFB    $00    ; $05FA  terminator
-SUB_04DD_9:
+BDOS_SET_DMA_9:
         DEFB    $0D,$0A,$44,$69,$73,$6B,$20,$6F,$72,$20,$64,$69,$72,$65,$63,$74 ; $05FB
         DEFB    "ory full error: "    ; $060B  string
         DEFB    $00    ; $061B  terminator
-SUB_04DD_10:
+BDOS_SET_DMA_10:
         DEFB    $0D,$0A,$44,$69,$73,$6B,$20,$49,$2F,$4F,$20,$65,$72,$72,$6F,$72 ; $061C
         DEFB    $3A,$20,$00                                      ; $062C
-SUB_04DD_11:
+BDOS_SET_DMA_11:
         DEFB    $00,$00,$00,$00,$49,$4E,$41,$54,$49,$4F,$4E,$20,$64,$69,$73,$6B ; $062F
         DEFB    $20                                              ; $063F
-SUB_04DD_12:
+BDOS_SET_DMA_12:
         DEFB    "and press RETURN "    ; $0640  string
         DEFB    $00    ; $0651  terminator
         DEFB    $0D,$0A,$49,$6E,$73,$65,$72,$74,$20,$61,$20,$73,$79,$73,$74,$65 ; $0652
@@ -687,7 +687,7 @@ SUB_04DD_12:
         DEFB    $C3,$71,$03,$7A,$E6,$38,$0F,$4F,$21,$EE,$05,$09,$CD ; $06A2
         DEFW    TPA_START_48             ; $06AF
         DEFB    $C3                                              ; $06B1
-        DEFW    SUB_04BD_2               ; $06B2
+        DEFW    WAIT_FOR_RETURN_2               ; $06B2
         DEFB    $21,$EA,$05,$CD                                  ; $06B4
         DEFW    TPA_START_48             ; $06B8
         DEFB    $CD                                              ; $06BA
@@ -700,7 +700,7 @@ SUB_04DD_12:
         DEFW    TPA_START_48             ; $06D7
         DEFB    $CD,$A3,$02,$F5,$CD,$A3,$02,$57,$F1,$5F,$CD,$95,$06,$C3,$71,$03 ; $06D9
         DEFB    $79,$87,$87,$4F,$21                              ; $06E9
-        DEFW    SUB_04DD_7               ; $06EE
+        DEFW    BDOS_SET_DMA_7               ; $06EE
         DEFB    $09,$CD                                          ; $06F0
         DEFW    TPA_START_48             ; $06F2
         DEFB    $CD,$A3,$02,$CD,$92,$06,$C3,$71,$03,$79,$87,$87  ; $06F4

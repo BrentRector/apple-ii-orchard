@@ -23,7 +23,7 @@ TPA_START:
 TPA_START_1:
         LD ($000B),A                     ; $0102  32 0B 00
 TPA_START_2:
-        CALL SUB_0260                    ; $0105  CD 60 02
+        CALL PARSE_DENSITY_ARG                    ; $0105  CD 60 02
 TPA_START_3:
         LD C,$09                         ; $0108  0E 09
 TPA_START_4:
@@ -89,24 +89,24 @@ TPA_START_20:
 ; [AI] Parses the command-line tail for the optional density digit and, if present, patches the
 ;       bootstrap's hardware addresses accordingly; with no argument it falls through to print the
 ;       interactive prompt and read the user's choice.
-SUB_0260:
+PARSE_DENSITY_ARG:
         LD DE,TPA_START_18               ; $0260  11 2F 01
-SUB_0260_1:
+PARSE_DENSITY_ARG_1:
         LD A,(DEFAULT_DMA)               ; $0263  3A 80 00
-SUB_0260_2:
+PARSE_DENSITY_ARG_2:
         OR A                             ; $0266  B7
-SUB_0260_3:
+PARSE_DENSITY_ARG_3:
         RET Z                            ; $0267  C8
         LD A,($0082)                     ; $0268  3A 82 00
         SBC A,$30                        ; $026B  DE 30
         RET C                            ; $026D  D8
         CP $1D                           ; $026E  FE 1D
-        JR NZ,SUB_0260_4                 ; $0270  20 06
+        JR NZ,PARSE_DENSITY_ARG_4                 ; $0270  20 06
         LD HL,$FF59                      ; $0272  21 59 FF
         JP TPA_START_15                  ; $0275  C3 26 01
 ; [AI] Validates that the supplied digit is in range (below $0A) before using it; values out of
 ;       range simply return, leaving the default boot configuration unchanged.
-SUB_0260_4:
+PARSE_DENSITY_ARG_4:
         CP $0A                           ; $0278  FE 0A
         RET NC                           ; $027A  D0
         LD B,A                           ; $027B  47

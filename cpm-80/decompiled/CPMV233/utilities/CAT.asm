@@ -16,9 +16,9 @@ DEFAULT_FCB          EQU $005C               ; Default File Control Block — po
 DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS cold-init / DRV_ALLRESET (fn 13) set the DMA address here and WBOOT re-issues SETDMA($0080); sector/record I/O moves 128 bytes through it. At program load this same buffer doubles as the command tail: the first byte ($0080) holds the tail length (0-127) and the characters follow at $0081 (CMDLINE).
 
 ; -- Mid-instruction references (shown inline as cover+offset) --
-;   $0235 -> SUB_022B_1+1         z80 skip idiom: enters the operand of $11 at $0234
-;   $0239 -> SUB_022B_2+1         z80 skip idiom: enters the operand of $11 at $0238
-;   $032C -> SUB_031E_1+1         shared instruction tail: $032C is reachable code inside the instruction at $032B
+;   $0235 -> COUNT_FREE_BLOCKS_1+1         z80 skip idiom: enters the operand of $11 at $0234
+;   $0239 -> COUNT_FREE_BLOCKS_2+1         z80 skip idiom: enters the operand of $11 at $0238
+;   $032C -> LIST_AND_SUMMARY_1+1         shared instruction tail: $032C is reachable code inside the instruction at $032B
 
     ORG $0100
 
@@ -26,121 +26,121 @@ DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS
 ;       to CAT's private stack, then runs init, the directory scan, the listing, and the summary
 ;       before restoring SP and returning to the CCP.
 TPA_START:
-        LD (SUB_031E_19),SP              ; $0100  ED 73 D3 03
+        LD (LIST_AND_SUMMARY_19),SP              ; $0100  ED 73 D3 03
 TPA_START_1:
-        LD SP,SUB_031E_21                ; $0104  31 FB 03
+        LD SP,LIST_AND_SUMMARY_21                ; $0104  31 FB 03
 TPA_START_2:
-        CALL SUB_0145                    ; $0107  CD 45 01
+        CALL INIT_CATALOG                    ; $0107  CD 45 01
 TPA_START_3:
-        CALL SUB_0251                    ; $010A  CD 51 02
+        CALL READ_DPB_PARAMS                    ; $010A  CD 51 02
         LD C,$11                         ; $010D  0E 11
         LD DE,DEFAULT_FCB                ; $010F  11 5C 00
         CALL BDOS_VEC                    ; $0112  CD 05 00
         INC A                            ; $0115  3C
         JR Z,TPA_START_5                 ; $0116  28 16
 TPA_START_4:
-        CALL SUB_01E4                    ; $0118  CD E4 01
-        CALL SUB_0185                    ; $011B  CD 85 01
+        CALL DMA_ENTRY_ADDR                    ; $0118  CD E4 01
+        CALL INSERT_SORTED_ENTRY                    ; $011B  CD 85 01
         LD C,$12                         ; $011E  0E 12
         LD DE,DEFAULT_FCB                ; $0120  11 5C 00
         CALL BDOS_VEC                    ; $0123  CD 05 00
         INC A                            ; $0126  3C
         JR NZ,TPA_START_4                ; $0127  20 EF
-        CALL SUB_031E                    ; $0129  CD 1E 03
+        CALL LIST_AND_SUMMARY                    ; $0129  CD 1E 03
         JR TPA_START_6                   ; $012C  18 06
 TPA_START_5:
-        LD HL,SUB_031E_8                 ; $012E  21 87 03
-        CALL SUB_02E7                    ; $0131  CD E7 02
+        LD HL,LIST_AND_SUMMARY_8                 ; $012E  21 87 03
+        CALL PRINT_STRING_FF                    ; $0131  CD E7 02
 TPA_START_6:
-        CALL SUB_022B                    ; $0134  CD 2B 02
-        CALL SUB_027E                    ; $0137  CD 7E 02
-        LD HL,SUB_031E_13                ; $013A  21 BD 03
-        CALL SUB_02E7                    ; $013D  CD E7 02
-        LD SP,(SUB_031E_19)              ; $0140  ED 7B D3 03
+        CALL COUNT_FREE_BLOCKS                    ; $0134  CD 2B 02
+        CALL PRINT_DECIMAL_16                    ; $0137  CD 7E 02
+        LD HL,LIST_AND_SUMMARY_13                ; $013A  21 BD 03
+        CALL PRINT_STRING_FF                    ; $013D  CD E7 02
+        LD SP,(LIST_AND_SUMMARY_19)              ; $0140  ED 7B D3 03
         RET                              ; $0144  C9
 ; [AI] Initialization: sets up the entry-table pointers/counters in CAT's data area, selects the
 ;       requested drive via BDOS function 14 when an explicit drive letter was given, and expands a
 ;       blank filename in the FCB to the all-match pattern '???????????'.
-SUB_0145:
-        LD HL,SUB_031E_20                ; $0145  21 DD 03
-SUB_0145_1:
-        LD (SUB_031E_21),HL              ; $0148  22 FB 03
-SUB_0145_2:
+INIT_CATALOG:
+        LD HL,LIST_AND_SUMMARY_20                ; $0145  21 DD 03
+INIT_CATALOG_1:
+        LD (LIST_AND_SUMMARY_21),HL              ; $0148  22 FB 03
+INIT_CATALOG_2:
         LD A,$FF                         ; $014B  3E FF
-SUB_0145_3:
-        LD (SUB_031E_23),A               ; $014D  32 FD 03
-SUB_0145_4:
+INIT_CATALOG_3:
+        LD (LIST_AND_SUMMARY_23),A               ; $014D  32 FD 03
+INIT_CATALOG_4:
         LD A,$3F                         ; $0150  3E 3F
-SUB_0145_5:
+INIT_CATALOG_5:
         LD ($0068),A                     ; $0152  32 68 00
-SUB_0145_6:
+INIT_CATALOG_6:
         LD A,(DEFAULT_FCB)               ; $0155  3A 5C 00
-SUB_0145_7:
+INIT_CATALOG_7:
         OR A                             ; $0158  B7
-SUB_0145_8:
-        JR Z,SUB_0145_9                  ; $0159  28 07
+INIT_CATALOG_8:
+        JR Z,INIT_CATALOG_9                  ; $0159  28 07
         DEC A                            ; $015B  3D
         LD E,A                           ; $015C  5F
         LD C,$0E                         ; $015D  0E 0E
         CALL BDOS_VEC                    ; $015F  CD 05 00
-SUB_0145_9:
+INIT_CATALOG_9:
         LD HL,$005D                      ; $0162  21 5D 00
-SUB_0145_10:
+INIT_CATALOG_10:
         LD A,(HL)                        ; $0165  7E
-SUB_0145_11:
+INIT_CATALOG_11:
         CP $20                           ; $0166  FE 20
-SUB_0145_12:
-        JR NZ,SUB_0145_14                ; $0168  20 07
+INIT_CATALOG_12:
+        JR NZ,INIT_CATALOG_14                ; $0168  20 07
         LD B,$0B                         ; $016A  06 0B
-SUB_0145_13:
+INIT_CATALOG_13:
         LD (HL),$3F                      ; $016C  36 3F
         INC HL                           ; $016E  23
-        DJNZ SUB_0145_13                 ; $016F  10 FB
-SUB_0145_14:
+        DJNZ INIT_CATALOG_13                 ; $016F  10 FB
+INIT_CATALOG_14:
         LD A,($F3BB)                     ; $0171  3A BB F3
-SUB_0145_15:
+INIT_CATALOG_15:
         OR A                             ; $0174  B7
-SUB_0145_16:
+INIT_CATALOG_16:
         RET Z                            ; $0175  C8
         LD A,$FC                         ; $0176  3E FC
-        LD (SUB_031E_1+1),A              ; $0178  32 2C 03
+        LD (LIST_AND_SUMMARY_1+1),A              ; $0178  32 2C 03
         LD A,$7C                         ; $017B  3E 7C
-        LD (SUB_031E_16),A               ; $017D  32 CC 03
+        LD (LIST_AND_SUMMARY_16),A               ; $017D  32 CC 03
         XOR A                            ; $0180  AF
-        LD (SUB_031E_2),A                ; $0181  32 30 03
+        LD (LIST_AND_SUMMARY_2),A                ; $0181  32 30 03
         RET                              ; $0184  C9
 ; [AI] Inserts one matched directory entry into the sorted, de-duplicated name table (insertion
-;       sort): skips deleted/dummy entries, finds the insertion slot via SUB_01CB, shifts later
+;       sort): skips deleted/dummy entries, finds the insertion slot via COMPARE_DIR_NAME, shifts later
 ;       entries up, and bumps the unique-file count at $03D1.
-SUB_0185:
+INSERT_SORTED_ENTRY:
         PUSH HL                          ; $0185  E5
         POP IX                           ; $0186  DD E1
         BIT 7,(IX+10)                    ; $0188  DD CB 0A 7E
         RET NZ                           ; $018C  C0
         RES 7,(IX+9)                     ; $018D  DD CB 09 BE
-        LD DE,SUB_031E_20                ; $0191  11 DD 03
-SUB_0185_1:
-        CALL SUB_01F8                    ; $0194  CD F8 01
-        CALL SUB_01CB                    ; $0197  CD CB 01
-        JR C,SUB_0185_1                  ; $019A  38 F8
-        JR Z,SUB_0185_2                  ; $019C  28 0A
-        CALL SUB_01AE                    ; $019E  CD AE 01
-        LD A,(SUB_031E_18)               ; $01A1  3A D1 03
+        LD DE,LIST_AND_SUMMARY_20                ; $0191  11 DD 03
+INSERT_SORTED_ENTRY_1:
+        CALL ADVANCE_DE_32                    ; $0194  CD F8 01
+        CALL COMPARE_DIR_NAME                    ; $0197  CD CB 01
+        JR C,INSERT_SORTED_ENTRY_1                  ; $019A  38 F8
+        JR Z,INSERT_SORTED_ENTRY_2                  ; $019C  28 0A
+        CALL MAKE_TABLE_GAP                    ; $019E  CD AE 01
+        LD A,(LIST_AND_SUMMARY_18)               ; $01A1  3A D1 03
         INC A                            ; $01A4  3C
-        LD (SUB_031E_18),A               ; $01A5  32 D1 03
-SUB_0185_2:
+        LD (LIST_AND_SUMMARY_18),A               ; $01A5  32 D1 03
+INSERT_SORTED_ENTRY_2:
         LD BC,RST4_VEC                   ; $01A8  01 20 00
         LDIR                             ; $01AB  ED B0
-SUB_0185_3:
+INSERT_SORTED_ENTRY_3:
         DEC B                            ; $01AD  05
 ; [AI] Makes room in the sorted name table by moving the block from the insertion point upward by
-;       one 32-byte slot (LDDR), so the new entry from SUB_0185 can be written in place.
-SUB_01AE:
+;       one 32-byte slot (LDDR), so the new entry from INSERT_SORTED_ENTRY can be written in place.
+MAKE_TABLE_GAP:
         PUSH HL                          ; $01AE  E5
         PUSH DE                          ; $01AF  D5
-        LD HL,(SUB_031E_21)              ; $01B0  2A FB 03
-        CALL SUB_01F1                    ; $01B3  CD F1 01
-        LD (SUB_031E_21),HL              ; $01B6  22 FB 03
+        LD HL,(LIST_AND_SUMMARY_21)              ; $01B0  2A FB 03
+        CALL ADVANCE_HL_32                    ; $01B3  CD F1 01
+        LD (LIST_AND_SUMMARY_21),HL              ; $01B6  22 FB 03
         PUSH HL                          ; $01B9  E5
         INC HL                           ; $01BA  23
         OR A                             ; $01BB  B7
@@ -150,7 +150,7 @@ SUB_01AE:
         POP HL                           ; $01C0  E1
         LD D,H                           ; $01C1  54
         LD E,L                           ; $01C2  5D
-        CALL SUB_01F8                    ; $01C3  CD F8 01
+        CALL ADVANCE_DE_32                    ; $01C3  CD F8 01
         LDDR                             ; $01C6  ED B8
         POP DE                           ; $01C8  D1
         POP HL                           ; $01C9  E1
@@ -158,63 +158,63 @@ SUB_01AE:
 ; [AI] Compares a 12-byte directory name (drive+filename) against a table entry to drive the
 ;       insertion sort, returning carry for 'before', zero for 'equal' (duplicate to skip), and
 ;       discarding the caller's return on an exact higher-or-equal match.
-SUB_01CB:
+COMPARE_DIR_NAME:
         PUSH HL                          ; $01CB  E5
         PUSH DE                          ; $01CC  D5
         LD B,$0C                         ; $01CD  06 0C
-SUB_01CB_1:
+COMPARE_DIR_NAME_1:
         LD A,(DE)                        ; $01CF  1A
         CP (HL)                          ; $01D0  BE
-        JR NZ,SUB_01CB_3                 ; $01D1  20 0E
+        JR NZ,COMPARE_DIR_NAME_3                 ; $01D1  20 0E
         INC DE                           ; $01D3  13
         INC HL                           ; $01D4  23
-        DJNZ SUB_01CB_1                  ; $01D5  10 F8
+        DJNZ COMPARE_DIR_NAME_1                  ; $01D5  10 F8
         EX DE,HL                         ; $01D7  EB
         LD A,(DE)                        ; $01D8  1A
         CP (HL)                          ; $01D9  BE
-        JR NC,SUB_01CB_2                 ; $01DA  30 04
+        JR NC,COMPARE_DIR_NAME_2                 ; $01DA  30 04
         POP DE                           ; $01DC  D1
         POP HL                           ; $01DD  E1
         POP BC                           ; $01DE  C1
         RET                              ; $01DF  C9
-SUB_01CB_2:
+COMPARE_DIR_NAME_2:
         XOR A                            ; $01E0  AF
-SUB_01CB_3:
+COMPARE_DIR_NAME_3:
         POP DE                           ; $01E1  D1
         POP HL                           ; $01E2  E1
         RET                              ; $01E3  C9
 ; [AI] Computes the address within the 128-byte DMA buffer of the directory entry that BDOS Search
 ;       matched: the search return code in A (0-3) selects one of the four 32-byte entries packed
 ;       into the sector.
-SUB_01E4:
+DMA_ENTRY_ADDR:
         LD HL,DEFAULT_DMA                ; $01E4  21 80 00
         DEC A                            ; $01E7  3D
         RET Z                            ; $01E8  C8
         LD DE,RST4_VEC                   ; $01E9  11 20 00
-SUB_01E4_1:
+DMA_ENTRY_ADDR_1:
         ADD HL,DE                        ; $01EC  19
         DEC A                            ; $01ED  3D
-        JR NZ,SUB_01E4_1                 ; $01EE  20 FC
+        JR NZ,DMA_ENTRY_ADDR_1                 ; $01EE  20 FC
         RET                              ; $01F0  C9
 ; [AI] Advances a 16-bit pointer in HL by 32 ($20), i.e. steps to the next 32-byte directory/name
 ;       record in the table.
-SUB_01F1:
+ADVANCE_HL_32:
         PUSH DE                          ; $01F1  D5
         LD DE,RST4_VEC                   ; $01F2  11 20 00
         ADD HL,DE                        ; $01F5  19
         POP DE                           ; $01F6  D1
         RET                              ; $01F7  C9
-; [AI] Same +32 step as SUB_01F1 but applied to DE instead of HL (via EX DE,HL around the add),
+; [AI] Same +32 step as ADVANCE_HL_32 but applied to DE instead of HL (via EX DE,HL around the add),
 ;       used when both source and destination table pointers must be advanced.
-SUB_01F8:
+ADVANCE_DE_32:
         EX DE,HL                         ; $01F8  EB
-        CALL SUB_01F1                    ; $01F9  CD F1 01
+        CALL ADVANCE_HL_32                    ; $01F9  CD F1 01
         EX DE,HL                         ; $01FC  EB
         RET                              ; $01FD  C9
 ; [AI] Accumulates a file's size into the running total: reads the FCB record-count/extent fields,
 ;       converts them to kilobytes, adds to the 16-bit total at $03CF, then formats that file's size
 ;       in k for its listing line via SUB_02BB.
-SUB_01FE:
+TALLY_FILE_SIZE:
         PUSH HL                          ; $01FE  E5
         LD BC,$000C                      ; $01FF  01 0C 00
         ADD HL,BC                        ; $0202  09
@@ -233,125 +233,125 @@ SUB_01FE:
         ADD A,E                          ; $0218  83
         LD E,A                           ; $0219  5F
         LD D,$00                         ; $021A  16 00
-        LD HL,(SUB_031E_17)              ; $021C  2A CF 03
+        LD HL,(LIST_AND_SUMMARY_17)              ; $021C  2A CF 03
         ADD HL,DE                        ; $021F  19
-        LD (SUB_031E_17),HL              ; $0220  22 CF 03
-        LD HL,SUB_031E_10                ; $0223  21 A9 03
-        CALL SUB_02BB                    ; $0226  CD BB 02
+        LD (LIST_AND_SUMMARY_17),HL              ; $0220  22 CF 03
+        LD HL,LIST_AND_SUMMARY_10                ; $0223  21 A9 03
+        CALL FORMAT_SIZE_FIELD                    ; $0226  CD BB 02
         POP HL                           ; $0229  E1
         RET                              ; $022A  C9
 ; [AI] Computes free disk space: gets the allocation-vector address (BDOS 27) and disk parameter
 ;       block (BDOS 31), counts the zero (free) bits across the allocation bitmap, and accumulates
 ;       the free block count.
-SUB_022B:
+COUNT_FREE_BLOCKS:
         LD C,$1B                         ; $022B  0E 1B
         CALL BDOS_VEC                    ; $022D  CD 05 00
         EXX                              ; $0230  D9
         LD HL,WBOOT_VEC                  ; $0231  21 00 00
-SUB_022B_1:
+COUNT_FREE_BLOCKS_1:
         LD DE,$0001                      ; $0234  11 01 00
         EXX                              ; $0237  D9
-SUB_022B_2:
+COUNT_FREE_BLOCKS_2:
         LD DE,DEFAULT_DMA                ; $0238  11 80 00
-SUB_022B_3:
+COUNT_FREE_BLOCKS_3:
         LD C,(HL)                        ; $023B  4E
         LD B,$08                         ; $023C  06 08
-SUB_022B_4:
+COUNT_FREE_BLOCKS_4:
         RLC C                            ; $023E  CB 01
-        JR C,SUB_022B_5                  ; $0240  38 03
+        JR C,COUNT_FREE_BLOCKS_5                  ; $0240  38 03
         EXX                              ; $0242  D9
         ADD HL,DE                        ; $0243  19
         EXX                              ; $0244  D9
-SUB_022B_5:
+COUNT_FREE_BLOCKS_5:
         DEC DE                           ; $0245  1B
         LD A,D                           ; $0246  7A
         OR E                             ; $0247  B3
-        JR Z,SUB_022B_6                  ; $0248  28 05
-        DJNZ SUB_022B_4                  ; $024A  10 F2
+        JR Z,COUNT_FREE_BLOCKS_6                  ; $0248  28 05
+        DJNZ COUNT_FREE_BLOCKS_4                  ; $024A  10 F2
         INC HL                           ; $024C  23
-        JR SUB_022B_3                    ; $024D  18 EC
-SUB_022B_6:
+        JR COUNT_FREE_BLOCKS_3                    ; $024D  18 EC
+COUNT_FREE_BLOCKS_6:
         EXX                              ; $024F  D9
         RET                              ; $0250  C9
 ; [AI] Reads the selected drive's Disk Parameter Block via BDOS function 31 and extracts parameters
 ;       (block shift/size and total block count) needed to size files and compute free space,
 ;       patching them into the code's working values.
-SUB_0251:
+READ_DPB_PARAMS:
         LD C,$1F                         ; $0251  0E 1F
-SUB_0251_1:
+READ_DPB_PARAMS_1:
         CALL BDOS_VEC                    ; $0253  CD 05 00
-SUB_0251_2:
+READ_DPB_PARAMS_2:
         INC HL                           ; $0256  23
-SUB_0251_3:
+READ_DPB_PARAMS_3:
         INC HL                           ; $0257  23
-SUB_0251_4:
+READ_DPB_PARAMS_4:
         INC HL                           ; $0258  23
-SUB_0251_5:
+READ_DPB_PARAMS_5:
         LD A,(HL)                        ; $0259  7E
-SUB_0251_6:
+READ_DPB_PARAMS_6:
         INC A                            ; $025A  3C
-SUB_0251_7:
+READ_DPB_PARAMS_7:
         RRCA                             ; $025B  0F
-SUB_0251_8:
+READ_DPB_PARAMS_8:
         RRCA                             ; $025C  0F
-SUB_0251_9:
+READ_DPB_PARAMS_9:
         RRCA                             ; $025D  0F
-SUB_0251_10:
-        LD (SUB_022B_1+1),A              ; $025E  32 35 02
-SUB_0251_11:
+READ_DPB_PARAMS_10:
+        LD (COUNT_FREE_BLOCKS_1+1),A              ; $025E  32 35 02
+READ_DPB_PARAMS_11:
         INC HL                           ; $0261  23
-SUB_0251_12:
+READ_DPB_PARAMS_12:
         INC HL                           ; $0262  23
-SUB_0251_13:
+READ_DPB_PARAMS_13:
         LD E,(HL)                        ; $0263  5E
-SUB_0251_14:
+READ_DPB_PARAMS_14:
         INC HL                           ; $0264  23
-SUB_0251_15:
+READ_DPB_PARAMS_15:
         LD D,(HL)                        ; $0265  56
-SUB_0251_16:
+READ_DPB_PARAMS_16:
         INC DE                           ; $0266  13
-SUB_0251_17:
-        LD (SUB_022B_2+1),DE             ; $0267  ED 53 39 02
-SUB_0251_18:
+READ_DPB_PARAMS_17:
+        LD (COUNT_FREE_BLOCKS_2+1),DE             ; $0267  ED 53 39 02
+READ_DPB_PARAMS_18:
         XOR A                            ; $026B  AF
-SUB_0251_19:
+READ_DPB_PARAMS_19:
         LD L,A                           ; $026C  6F
-SUB_0251_20:
+READ_DPB_PARAMS_20:
         LD A,($0007)                     ; $026D  3A 07 00
-SUB_0251_21:
+READ_DPB_PARAMS_21:
         LD H,A                           ; $0270  67
-SUB_0251_22:
+READ_DPB_PARAMS_22:
         DEC H                            ; $0271  25
-SUB_0251_23:
+READ_DPB_PARAMS_23:
         INC H                            ; $0272  24
-SUB_0251_24:
+READ_DPB_PARAMS_24:
         LD A,(HL)                        ; $0273  7E
-SUB_0251_25:
+READ_DPB_PARAMS_25:
         ADD A,$0C                        ; $0274  C6 0C
-SUB_0251_26:
+READ_DPB_PARAMS_26:
         CP $C9                           ; $0276  FE C9
-SUB_0251_27:
-        JR NZ,SUB_0251_23                ; $0278  20 F8
-        LD (SUB_0185_3),A                ; $027A  32 AD 01
+READ_DPB_PARAMS_27:
+        JR NZ,READ_DPB_PARAMS_23                ; $0278  20 F8
+        LD (INSERT_SORTED_ENTRY_3),A                ; $027A  32 AD 01
         RET                              ; $027D  C9
 ; [AI] Recursively prints an unsigned 16-bit number in HL as decimal to the console (divide-by-10
 ;       on the stack, then emit each digit via BDOS function 2). Used to print the file count,
 ;       used-k and available-k totals.
-SUB_027E:
+PRINT_DECIMAL_16:
         PUSH BC                          ; $027E  C5
         PUSH DE                          ; $027F  D5
         PUSH HL                          ; $0280  E5
         LD BC,$FFF6                      ; $0281  01 F6 FF
         LD DE,$FFFF                      ; $0284  11 FF FF
-SUB_027E_1:
+PRINT_DECIMAL_16_1:
         ADD HL,BC                        ; $0287  09
         INC DE                           ; $0288  13
-        JR C,SUB_027E_1                  ; $0289  38 FC
+        JR C,PRINT_DECIMAL_16_1                  ; $0289  38 FC
         SBC HL,BC                        ; $028B  ED 42
         EX DE,HL                         ; $028D  EB
         LD A,H                           ; $028E  7C
         OR L                             ; $028F  B5
-        CALL NZ,SUB_027E                 ; $0290  C4 7E 02
+        CALL NZ,PRINT_DECIMAL_16                 ; $0290  C4 7E 02
         LD A,E                           ; $0293  7B
         ADD A,$30                        ; $0294  C6 30
         LD E,A                           ; $0296  5F
@@ -365,8 +365,8 @@ SUB_027E_1:
         DEFB    $66,$74,$20,$2D,$20,$50,$65,$74,$65,$72,$73      ; $02B0
 ; [AI] Formats a two-digit decimal size into the 'xxxk' field of the listing-line template,
 ;       blanking leading-zero digits to spaces for right-aligned numeric output.
-SUB_02BB:
-        CALL SUB_02CF                    ; $02BB  CD CF 02
+FORMAT_SIZE_FIELD:
+        CALL BIN_TO_DEC_DIGITS                    ; $02BB  CD CF 02
         ADD A,$30                        ; $02BE  C6 30
         LD (HL),A                        ; $02C0  77
         DEC HL                           ; $02C1  2B
@@ -380,26 +380,26 @@ SUB_02BB:
         RET NZ                           ; $02CB  C0
         LD (HL),$20                      ; $02CC  36 20
         RET                              ; $02CE  C9
-; [AI] Binary-to-decimal helper: divides the value in A by 100 then by 10 (via SUB_02D4), storing
+; [AI] Binary-to-decimal helper: divides the value in A by 100 then by 10 (via DIV_DIGIT_STEP), storing
 ;       ASCII digit characters into the buffer at HL for the size field.
-SUB_02CF:
+BIN_TO_DEC_DIGITS:
         LD C,$64                         ; $02CF  0E 64
-        CALL SUB_02D4                    ; $02D1  CD D4 02
+        CALL DIV_DIGIT_STEP                    ; $02D1  CD D4 02
 ; [AI] Repeated-subtraction divide step: divides A by the divisor in C, writing the quotient as an
 ;       ASCII digit at (HL) and leaving the remainder in A for the next, lower-place division.
-SUB_02D4:
+DIV_DIGIT_STEP:
         LD (HL),$2F                      ; $02D4  36 2F
-SUB_02D4_1:
+DIV_DIGIT_STEP_1:
         INC (HL)                         ; $02D6  34
         SUB C                            ; $02D7  91
-        JR NC,SUB_02D4_1                 ; $02D8  30 FC
+        JR NC,DIV_DIGIT_STEP_1                 ; $02D8  30 FC
         ADD A,C                          ; $02DA  81
         INC HL                           ; $02DB  23
         LD C,$0A                         ; $02DC  0E 0A
         RET                              ; $02DE  C9
 ; [AI] Single-character console output (BDOS function 2) preserving HL, the leaf used by the string
 ;       printer.
-SUB_02DF:
+CONOUT_CHAR:
         PUSH HL                          ; $02DF  E5
         LD C,$02                         ; $02E0  0E 02
         CALL BDOS_VEC                    ; $02E2  CD 05 00
@@ -408,162 +408,162 @@ SUB_02DF:
 ; [AI] Prints a $FF-terminated string starting at HL, one character at a time through SUB_02DF.
 ;       This is CAT's string-output primitive (it uses $FF, not the BDOS '$' convention, as the
 ;       terminator).
-SUB_02E7:
+PRINT_STRING_FF:
         LD A,$FF                         ; $02E7  3E FF
         LD E,(HL)                        ; $02E9  5E
         CP E                             ; $02EA  BB
         RET Z                            ; $02EB  C8
-        CALL SUB_02DF                    ; $02EC  CD DF 02
+        CALL CONOUT_CHAR                    ; $02EC  CD DF 02
         INC HL                           ; $02EF  23
-        JR SUB_02E7                      ; $02F0  18 F5
+        JR PRINT_STRING_FF                      ; $02F0  18 F5
 ; [AI] Prints the record-separator string at $03C8 ('\r') between catalog columns/entries before
 ;       emitting the next filename line.
-SUB_02F2:
+PRINT_CRLF:
         PUSH HL                          ; $02F2  E5
-        LD HL,SUB_031E_14                ; $02F3  21 C8 03
-        JR SUB_02F8_1                    ; $02F6  18 04
+        LD HL,LIST_AND_SUMMARY_14                ; $02F3  21 C8 03
+        JR PRINT_COL_SEP_1                    ; $02F6  18 04
 ; [AI] Prints the inter-column separator string at $03CB (' : ') used to lay the file listing out
 ;       in multiple columns across the screen.
-SUB_02F8:
+PRINT_COL_SEP:
         PUSH HL                          ; $02F8  E5
-        LD HL,SUB_031E_15                ; $02F9  21 CB 03
-SUB_02F8_1:
+        LD HL,LIST_AND_SUMMARY_15                ; $02F9  21 CB 03
+PRINT_COL_SEP_1:
         PUSH DE                          ; $02FC  D5
         PUSH BC                          ; $02FD  C5
-        JR SUB_0300_1                    ; $02FE  18 17
-; [AI] Builds and prints one file's listing line: tallies its size (SUB_01FE), copies the 8.3
+        JR PRINT_FILE_LINE_1                    ; $02FE  18 17
+; [AI] Builds and prints one file's listing line: tallies its size (TALLY_FILE_SIZE), copies the 8.3
 ;       filename and the 'k' size field into the line template at $039C, then outputs the assembled
 ;       line.
-SUB_0300:
+PRINT_FILE_LINE:
         PUSH HL                          ; $0300  E5
         PUSH DE                          ; $0301  D5
         PUSH BC                          ; $0302  C5
-        CALL SUB_01FE                    ; $0303  CD FE 01
+        CALL TALLY_FILE_SIZE                    ; $0303  CD FE 01
         INC HL                           ; $0306  23
-        LD DE,SUB_031E_9                 ; $0307  11 9C 03
+        LD DE,LIST_AND_SUMMARY_9                 ; $0307  11 9C 03
         LD BC,RST1_VEC                   ; $030A  01 08 00
         LDIR                             ; $030D  ED B0
         INC DE                           ; $030F  13
         LD C,$03                         ; $0310  0E 03
         LDIR                             ; $0312  ED B0
-        LD HL,SUB_031E_9                 ; $0314  21 9C 03
-SUB_0300_1:
-        CALL SUB_02E7                    ; $0317  CD E7 02
+        LD HL,LIST_AND_SUMMARY_9                 ; $0314  21 9C 03
+PRINT_FILE_LINE_1:
+        CALL PRINT_STRING_FF                    ; $0317  CD E7 02
         POP BC                           ; $031A  C1
         POP DE                           ; $031B  D1
         POP HL                           ; $031C  E1
         RET                              ; $031D  C9
 ; [AI] Main listing/summary pass: walks the sorted name table laying entries out in columns that
 ;       fit the screen width, then prints the 'Total nk in mk available' free-space summary line.
-SUB_031E:
-        CALL SUB_02F2                    ; $031E  CD F2 02
-        LD HL,SUB_031E_8                 ; $0321  21 87 03
-        LD A,(SUB_031E_18)               ; $0324  3A D1 03
+LIST_AND_SUMMARY:
+        CALL PRINT_CRLF                    ; $031E  CD F2 02
+        LD HL,LIST_AND_SUMMARY_8                 ; $0321  21 87 03
+        LD A,(LIST_AND_SUMMARY_18)               ; $0324  3A D1 03
         OR A                             ; $0327  B7
-        JR Z,SUB_031E_6                  ; $0328  28 50
+        JR Z,LIST_AND_SUMMARY_6                  ; $0328  28 50
         DEC A                            ; $032A  3D
-SUB_031E_1:
+LIST_AND_SUMMARY_1:
         AND $FE                          ; $032B  E6 FE
         LD L,A                           ; $032D  6F
         LD H,$00                         ; $032E  26 00
-SUB_031E_2:
+LIST_AND_SUMMARY_2:
         ADD HL,HL                        ; $0330  29
         ADD HL,HL                        ; $0331  29
         ADD HL,HL                        ; $0332  29
         ADD HL,HL                        ; $0333  29
-        CALL SUB_01F1                    ; $0334  CD F1 01
+        CALL ADVANCE_HL_32                    ; $0334  CD F1 01
         LD C,L                           ; $0337  4D
         LD B,H                           ; $0338  44
         LD DE,WBOOT_VEC                  ; $0339  11 00 00
-SUB_031E_3:
-        LD HL,SUB_031E_23                ; $033C  21 FD 03
+LIST_AND_SUMMARY_3:
+        LD HL,LIST_AND_SUMMARY_23                ; $033C  21 FD 03
         ADD HL,DE                        ; $033F  19
-SUB_031E_4:
-        CALL SUB_0300                    ; $0340  CD 00 03
+LIST_AND_SUMMARY_4:
+        CALL PRINT_FILE_LINE                    ; $0340  CD 00 03
         ADD HL,BC                        ; $0343  09
-        LD A,(SUB_031E_21)               ; $0344  3A FB 03
+        LD A,(LIST_AND_SUMMARY_21)               ; $0344  3A FB 03
         SUB L                            ; $0347  95
-        LD A,(SUB_031E_22)               ; $0348  3A FC 03
+        LD A,(LIST_AND_SUMMARY_22)               ; $0348  3A FC 03
         SBC A,H                          ; $034B  9C
-        JR C,SUB_031E_5                  ; $034C  38 05
-        CALL SUB_02F8                    ; $034E  CD F8 02
-        JR SUB_031E_4                    ; $0351  18 ED
-SUB_031E_5:
-        CALL SUB_01F8                    ; $0353  CD F8 01
-        CALL SUB_02F2                    ; $0356  CD F2 02
+        JR C,LIST_AND_SUMMARY_5                  ; $034C  38 05
+        CALL PRINT_COL_SEP                    ; $034E  CD F8 02
+        JR LIST_AND_SUMMARY_4                    ; $0351  18 ED
+LIST_AND_SUMMARY_5:
+        CALL ADVANCE_DE_32                    ; $0353  CD F8 01
+        CALL PRINT_CRLF                    ; $0356  CD F2 02
         LD A,E                           ; $0359  7B
         SUB C                            ; $035A  91
         LD A,D                           ; $035B  7A
         SBC A,B                          ; $035C  98
-        JR C,SUB_031E_3                  ; $035D  38 DD
-        LD HL,SUB_031E_11                ; $035F  21 AE 03
-        CALL SUB_02E7                    ; $0362  CD E7 02
-        LD HL,(SUB_031E_17)              ; $0365  2A CF 03
-        CALL SUB_027E                    ; $0368  CD 7E 02
-        LD HL,SUB_031E_12                ; $036B  21 B7 03
-        CALL SUB_02E7                    ; $036E  CD E7 02
-        LD HL,(SUB_031E_18)              ; $0371  2A D1 03
-        CALL SUB_027E                    ; $0374  CD 7E 02
-        LD HL,SUB_031E_7                 ; $0377  21 7E 03
-SUB_031E_6:
-        CALL SUB_02E7                    ; $037A  CD E7 02
+        JR C,LIST_AND_SUMMARY_3                  ; $035D  38 DD
+        LD HL,LIST_AND_SUMMARY_11                ; $035F  21 AE 03
+        CALL PRINT_STRING_FF                    ; $0362  CD E7 02
+        LD HL,(LIST_AND_SUMMARY_17)              ; $0365  2A CF 03
+        CALL PRINT_DECIMAL_16                    ; $0368  CD 7E 02
+        LD HL,LIST_AND_SUMMARY_12                ; $036B  21 B7 03
+        CALL PRINT_STRING_FF                    ; $036E  CD E7 02
+        LD HL,(LIST_AND_SUMMARY_18)              ; $0371  2A D1 03
+        CALL PRINT_DECIMAL_16                    ; $0374  CD 7E 02
+        LD HL,LIST_AND_SUMMARY_7                 ; $0377  21 7E 03
+LIST_AND_SUMMARY_6:
+        CALL PRINT_STRING_FF                    ; $037A  CD E7 02
         RET                              ; $037D  C9
-SUB_031E_7:
+LIST_AND_SUMMARY_7:
         DEFB    $20,$66,$69,$6C,$65,$73,$2C,$20,$FF              ; $037E
-SUB_031E_8:
+LIST_AND_SUMMARY_8:
         DEFB    $0D,$0A,$4E,$6F,$20,$66,$69,$6C,$65,$28,$73,$29,$20,$66,$6F,$75 ; $0387
         DEFB    $6E,$64,$2C,$20,$FF                              ; $0397
-SUB_031E_9:
+LIST_AND_SUMMARY_9:
         DEFB    $66,$69,$6C,$65,$6E,$61,$6D,$65,$2E,$74,$79,$70,$20 ; $039C
-SUB_031E_10:
+LIST_AND_SUMMARY_10:
         DEFB    $78,$78,$78,$6B,$FF                              ; $03A9
-SUB_031E_11:
+LIST_AND_SUMMARY_11:
         DEFB    $0D,$0A,$54,$6F,$74,$61,$6C,$20,$FF              ; $03AE
-SUB_031E_12:
+LIST_AND_SUMMARY_12:
         DEFB    $6B,$20,$69,$6E,$20,$FF                          ; $03B7
-SUB_031E_13:
+LIST_AND_SUMMARY_13:
         DEFB    $6B,$20,$61,$76,$61,$69,$6C,$61,$62,$6C,$65      ; $03BD
-SUB_031E_14:
+LIST_AND_SUMMARY_14:
         DEFB    $0D,$0A,$FF                                      ; $03C8
-SUB_031E_15:
+LIST_AND_SUMMARY_15:
         DEFB    $20                                              ; $03CB
-SUB_031E_16:
+LIST_AND_SUMMARY_16:
         DEFB    $3A,$20,$FF                                      ; $03CC
-SUB_031E_17:
+LIST_AND_SUMMARY_17:
         DEFB    $00,$00                                          ; $03CF
-SUB_031E_18:
+LIST_AND_SUMMARY_18:
         DEFB    $00,$00                                          ; $03D1
-SUB_031E_19:
+LIST_AND_SUMMARY_19:
         DEFB    $CD                                              ; $03D3
-        DEFW    SUB_01F8                 ; $03D4
+        DEFW    ADVANCE_DE_32                 ; $03D4
         DEFB    $CD                                              ; $03D6
-        DEFW    SUB_02F2                 ; $03D7
+        DEFW    PRINT_CRLF                 ; $03D7
         DEFB    $7B,$91,$7A,$98                                  ; $03D9
-SUB_031E_20:
+LIST_AND_SUMMARY_20:
         DEFB    $38,$DD,$21                                      ; $03DD
-        DEFW    SUB_031E_11              ; $03E0
+        DEFW    LIST_AND_SUMMARY_11              ; $03E0
         DEFB    $CD                                              ; $03E2
-        DEFW    SUB_02E7                 ; $03E3
+        DEFW    PRINT_STRING_FF                 ; $03E3
         DEFB    $2A                                              ; $03E5
-        DEFW    SUB_031E_17              ; $03E6
+        DEFW    LIST_AND_SUMMARY_17              ; $03E6
         DEFB    $CD                                              ; $03E8
-        DEFW    SUB_027E                 ; $03E9
+        DEFW    PRINT_DECIMAL_16                 ; $03E9
         DEFB    $21                                              ; $03EB
-        DEFW    SUB_031E_12              ; $03EC
+        DEFW    LIST_AND_SUMMARY_12              ; $03EC
         DEFB    $CD                                              ; $03EE
-        DEFW    SUB_02E7                 ; $03EF
+        DEFW    PRINT_STRING_FF                 ; $03EF
         DEFB    $2A                                              ; $03F1
-        DEFW    SUB_031E_18              ; $03F2
+        DEFW    LIST_AND_SUMMARY_18              ; $03F2
         DEFB    $CD                                              ; $03F4
-        DEFW    SUB_027E                 ; $03F5
+        DEFW    PRINT_DECIMAL_16                 ; $03F5
         DEFB    $21                                              ; $03F7
-        DEFW    SUB_031E_7               ; $03F8
+        DEFW    LIST_AND_SUMMARY_7               ; $03F8
         DEFB    $CD                                              ; $03FA
-SUB_031E_21:
+LIST_AND_SUMMARY_21:
         DEFB    $E7                                              ; $03FB
-SUB_031E_22:
+LIST_AND_SUMMARY_22:
         DEFB    $02                                              ; $03FC
-SUB_031E_23:
+LIST_AND_SUMMARY_23:
         DEFB    $C9,$20,$66                                      ; $03FD
 
     SAVEBIN "CAT.bin", $0100, $0300

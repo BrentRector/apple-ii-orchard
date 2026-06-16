@@ -18,19 +18,19 @@ CMDLINE              EQU $0081               ; Command-line tail characters (upp
 ; [AI] Standard CP/M transient entry point at $0100; sets up the local stack and begins the FORMAT
 ;       program.
 TPA_START:
-        LD SP,SUB_0210_4                 ; $0100  31 39 02
+        LD SP,TO_UPPER_4                 ; $0100  31 39 02
 ; [AI] Prints the program banner: loads DE with the banner string address ($0239) ahead of the
 ;       print-string call.
 TPA_START_1:
-        LD DE,SUB_0210_4                 ; $0103  11 39 02
+        LD DE,TO_UPPER_4                 ; $0103  11 39 02
 TPA_START_2:
-        CALL SUB_01C8                    ; $0106  CD C8 01
+        CALL PRINT_STRING                    ; $0106  CD C8 01
 ; [AI] Reads the command-tail length byte and saves it as a flag indicating whether arguments were
 ;       given on the command line.
 TPA_START_3:
         LD A,(DEFAULT_DMA)               ; $0109  3A 80 00
 TPA_START_4:
-        LD (SUB_0210_1),A                ; $010C  32 16 02
+        LD (TO_UPPER_1),A                ; $010C  32 16 02
 TPA_START_5:
         OR A                             ; $010F  B7
 TPA_START_6:
@@ -39,13 +39,13 @@ TPA_START_6:
 ;       the running 6502 format routine's drive-select slots ($030A, $036D).
 TPA_START_7:
         LD A,($0082)                     ; $0113  3A 82 00
-        CALL SUB_0210                    ; $0116  CD 10 02
-        LD (SUB_0210_12),A               ; $0119  32 0A 03
-        LD (SUB_0210_15),A               ; $011C  32 6D 03
+        CALL TO_UPPER                    ; $0116  CD 10 02
+        LD (TO_UPPER_12),A               ; $0119  32 0A 03
+        LD (TO_UPPER_15),A               ; $011C  32 6D 03
         SUB $41                          ; $011F  D6 41
         JR C,TPA_START_9                 ; $0121  38 0D
         JR NZ,TPA_START_8                ; $0123  20 03
-        LD (SUB_0210_2),A                ; $0125  32 17 02
+        LD (TO_UPPER_2),A                ; $0125  32 17 02
 ; [AI] Validates the argument syntax, requiring the second tail character to be a colon (':') as in
 ;       a 'X:' drive specifier.
 TPA_START_8:
@@ -56,10 +56,10 @@ TPA_START_8:
 ; [AI] Command-error path: points DE at the 'Command Error' message for printing before re-
 ;       prompting.
 TPA_START_9:
-        LD DE,SUB_0210_6                 ; $0130  11 93 02
+        LD DE,TO_UPPER_6                 ; $0130  11 93 02
 ; [AI] Prints the pending message (DE) and falls through to the end-of-pass cleanup.
 TPA_START_10:
-        CALL SUB_01C8                    ; $0133  CD C8 01
+        CALL PRINT_STRING                    ; $0133  CD C8 01
         JR TPA_START_18                  ; $0136  18 66
 ; [AI] Range-checks the requested drive against the BIOS maximum-drive byte ($F3B8); an out-of-
 ;       range drive selects the 'Invalid Drive' message.
@@ -68,75 +68,75 @@ TPA_START_11:
         LD A,C                           ; $013B  79
         CP (HL)                          ; $013C  BE
         JR C,TPA_START_12                ; $013D  38 05
-        LD DE,SUB_0210_10                ; $013F  11 D5 02
+        LD DE,TO_UPPER_10                ; $013F  11 D5 02
         JR TPA_START_10                  ; $0142  18 EF
 ; [AI] Selects the target drive (via the SoftCard BIOS sub-entry) and prints the 'Insert disk to be
 ;       formatted in drive X:' prompt.
 TPA_START_12:
-        CALL SUB_01E9                    ; $0144  CD E9 01
-        LD DE,SUB_0210_11                ; $0147  11 E3 02
-        CALL SUB_01C8                    ; $014A  CD C8 01
+        CALL BIOS_SELECT_DRIVE                    ; $0144  CD E9 01
+        LD DE,TO_UPPER_11                ; $0147  11 E3 02
+        CALL PRINT_STRING                    ; $014A  CD C8 01
 ; [AI] Waits for the user to press RETURN (loops on console input until carriage return) before
 ;       formatting begins.
 TPA_START_13:
-        CALL SUB_0201                    ; $014D  CD 01 02
+        CALL WAIT_KEY                    ; $014D  CD 01 02
         CP $0D                           ; $0150  FE 0D
         JR NZ,TPA_START_13               ; $0152  20 F9
-        CALL SUB_01D2                    ; $0154  CD D2 01
+        CALL TOGGLE_SIDE_AND_STEP                    ; $0154  CD D2 01
         OR A                             ; $0157  B7
         JR NZ,TPA_START_16               ; $0158  20 19
-        LD DE,SUB_0210_14                ; $015A  11 5A 03
-        CALL SUB_01C8                    ; $015D  CD C8 01
+        LD DE,TO_UPPER_14                ; $015A  11 5A 03
+        CALL PRINT_STRING                    ; $015D  CD C8 01
 ; [AI] Y/N confirmation loop after the 'will be ERASED' warning; accepts only 'Y' or 'N' and
 ;       ignores other keys.
 TPA_START_14:
-        CALL SUB_0201                    ; $0160  CD 01 02
+        CALL WAIT_KEY                    ; $0160  CD 01 02
         CP $59                           ; $0163  FE 59
         JR Z,TPA_START_15                ; $0165  28 09
         CP $4E                           ; $0167  FE 4E
         JR NZ,TPA_START_14               ; $0169  20 F5
-        CALL SUB_01CC                    ; $016B  CD CC 01
+        CALL CONOUT_CHAR                    ; $016B  CD CC 01
         JR TPA_START_18                  ; $016E  18 2E
 ; [AI] User confirmed with 'Y': echoes the key and proceeds to perform the format.
 TPA_START_15:
-        CALL SUB_01CC                    ; $0170  CD CC 01
+        CALL CONOUT_CHAR                    ; $0170  CD CC 01
 ; [AI] Format execution: prints 'Formatting...', sets the track count ($1400 into BIOS field
 ;       $F3D0), and invokes the formatter, then reports the result based on the BIOS error code at
 ;       $F3EA (0 = complete, $10 = write-protected, else I/O error).
 TPA_START_16:
-        LD DE,SUB_0210_5                 ; $0173  11 81 02
-        CALL SUB_01C8                    ; $0176  CD C8 01
+        LD DE,TO_UPPER_5                 ; $0173  11 81 02
+        CALL PRINT_STRING                    ; $0176  CD C8 01
         LD HL,$1400                      ; $0179  21 00 14
         LD ($F3D0),HL                    ; $017C  22 D0 F3
         LD HL,($F3DE)                    ; $017F  2A DE F3
         LD (HL),A                        ; $0182  77
         LD A,$0D                         ; $0183  3E 0D
-        CALL SUB_01CC                    ; $0185  CD CC 01
-        LD DE,SUB_0210_8                 ; $0188  11 B6 02
+        CALL CONOUT_CHAR                    ; $0185  CD CC 01
+        LD DE,TO_UPPER_8                 ; $0188  11 B6 02
         LD A,($F3EA)                     ; $018B  3A EA F3
         OR A                             ; $018E  B7
         JR Z,TPA_START_17                ; $018F  28 0A
-        LD DE,SUB_0210_9                 ; $0191  11 C6 02
+        LD DE,TO_UPPER_9                 ; $0191  11 C6 02
         CP $10                           ; $0194  FE 10
         JR NZ,TPA_START_17               ; $0196  20 03
-        LD DE,SUB_0210_7                 ; $0198  11 A1 02
+        LD DE,TO_UPPER_7                 ; $0198  11 A1 02
 ; [AI] Prints the selected result/error message for the completed (or failed) format pass.
 TPA_START_17:
-        CALL SUB_01C8                    ; $019B  CD C8 01
+        CALL PRINT_STRING                    ; $019B  CD C8 01
 ; [AI] End-of-pass: clears the 'args supplied' flag at $0216 so that, after this pass, the program
 ;       switches to interactive prompting.
 TPA_START_18:
-        LD HL,SUB_0210_1                 ; $019E  21 16 02
+        LD HL,TO_UPPER_1                 ; $019E  21 16 02
         LD A,(HL)                        ; $01A1  7E
         LD (HL),$00                      ; $01A2  36 00
         OR A                             ; $01A4  B7
-        JR NZ,SUB_01E9_1                 ; $01A5  20 48
+        JR NZ,BIOS_SELECT_DRIVE_1                 ; $01A5  20 48
 ; [AI] Interactive-mode entry: prints the 'Format disk in which drive?' prompt when no drive was
 ;       given on the command line.
 TPA_START_19:
-        LD DE,SUB_0210_16                ; $01A7  11 91 03
+        LD DE,TO_UPPER_16                ; $01A7  11 91 03
 TPA_START_20:
-        CALL SUB_01C8                    ; $01AA  CD C8 01
+        CALL PRINT_STRING                    ; $01AA  CD C8 01
 ; [AI] Reads a console line into the DMA buffer: sets the buffer max-length byte to $80 then calls
 ;       BDOS read-console-buffer (function 10).
 TPA_START_21:
@@ -153,7 +153,7 @@ TPA_START_25:
 TPA_START_26:
         LD A,$0A                         ; $01BA  3E 0A
 TPA_START_27:
-        CALL SUB_01CC                    ; $01BC  CD CC 01
+        CALL CONOUT_CHAR                    ; $01BC  CD CC 01
 ; [AI] Checks whether the user typed anything; an empty line (no first character) ends the program,
 ;       otherwise loops back to process the entered drive.
 TPA_START_28:
@@ -161,86 +161,86 @@ TPA_START_28:
 TPA_START_29:
         OR A                             ; $01C2  B7
 TPA_START_30:
-        JR Z,SUB_01E9_1                  ; $01C3  28 2A
+        JR Z,BIOS_SELECT_DRIVE_1                  ; $01C3  28 2A
         JP TPA_START_7                   ; $01C5  C3 13 01
 ; [AI] Print-string helper: loads C=9 (BDOS print-string) and prints the '$'-terminated message
 ;       pointed to by DE.
-SUB_01C8:
+PRINT_STRING:
         LD C,$09                         ; $01C8  0E 09
-SUB_01C8_1:
-        JR SUB_01CC_2                    ; $01CA  18 03
+PRINT_STRING_1:
+        JR CONOUT_CHAR_2                    ; $01CA  18 03
 ; [AI] Console-output-character helper: loads C=2 (BDOS console out) and writes the character in A.
-SUB_01CC:
+CONOUT_CHAR:
         LD E,A                           ; $01CC  5F
-SUB_01CC_1:
+CONOUT_CHAR_1:
         LD C,$02                         ; $01CD  0E 02
 ; [AI] Shared BDOS tail-call used by both the print-string and console-out helpers.
-SUB_01CC_2:
+CONOUT_CHAR_2:
         JP BDOS_VEC                      ; $01CF  C3 05 00
 ; [AI] Toggles a side/select flag at $0218 and calls into the SoftCard BIOS sub-entry at offset
 ;       $27, used to drive the Apple disk hardware during formatting.
-SUB_01D2:
-        LD HL,SUB_0210_3                 ; $01D2  21 18 02
+TOGGLE_SIDE_AND_STEP:
+        LD HL,TO_UPPER_3                 ; $01D2  21 18 02
         LD C,(HL)                        ; $01D5  4E
         LD A,C                           ; $01D6  79
         XOR $01                          ; $01D7  EE 01
         LD (HL),A                        ; $01D9  77
-        CALL SUB_01E3                    ; $01DA  CD E3 01
+        CALL BIOS_CALL_1E                    ; $01DA  CD E3 01
         LD HL,($0001)                    ; $01DD  2A 01 00
         LD L,$27                         ; $01E0  2E 27
         JP (HL)                          ; $01E2  E9
 ; [AI] Calls the SoftCard BIOS sub-entry at offset $1E by patching the low byte of the BDOS-pointer
 ;       word ($0001) and jumping through it; a 6502-bridge driver service.
-SUB_01E3:
+BIOS_CALL_1E:
         LD HL,($0001)                    ; $01E3  2A 01 00
         LD L,$1E                         ; $01E6  2E 1E
         JP (HL)                          ; $01E8  E9
 ; [AI] Calls the SoftCard BIOS sub-entry at offset $1B (the drive-select service) by patching the
 ;       low byte of the BDOS pointer and jumping through it.
-SUB_01E9:
+BIOS_SELECT_DRIVE:
         LD HL,($0001)                    ; $01E9  2A 01 00
         LD L,$1B                         ; $01EC  2E 1B
         JP (HL)                          ; $01EE  E9
 ; [AI] Program-exit path: if no command-line drive was given it shows 'Insert CP/M System disk in
 ;       drive A:' / 'Press RETURN' before warm-booting.
-SUB_01E9_1:
-        LD A,(SUB_0210_2)                ; $01EF  3A 17 02
-SUB_01E9_2:
+BIOS_SELECT_DRIVE_1:
+        LD A,(TO_UPPER_2)                ; $01EF  3A 17 02
+BIOS_SELECT_DRIVE_2:
         OR A                             ; $01F2  B7
-SUB_01E9_3:
-        JR NZ,SUB_01E9_4                 ; $01F3  20 09
-        LD DE,SUB_0210_13                ; $01F5  11 25 03
-        CALL SUB_01C8                    ; $01F8  CD C8 01
-        CALL SUB_0201                    ; $01FB  CD 01 02
+BIOS_SELECT_DRIVE_3:
+        JR NZ,BIOS_SELECT_DRIVE_4                 ; $01F3  20 09
+        LD DE,TO_UPPER_13                ; $01F5  11 25 03
+        CALL PRINT_STRING                    ; $01F8  CD C8 01
+        CALL WAIT_KEY                    ; $01FB  CD 01 02
 ; [AI] Final exit via the warm-boot vector, returning the user to the CP/M command processor.
-SUB_01E9_4:
+BIOS_SELECT_DRIVE_4:
         JP WBOOT_VEC                     ; $01FE  C3 00 00
 ; [AI] Single-key input wait using BDOS function 6 (direct console I/O) with E=$FF; spins until a
 ;       key is pressed and aborts to warm boot on Ctrl-C ($03).
-SUB_0201:
+WAIT_KEY:
         LD E,$FF                         ; $0201  1E FF
-SUB_0201_1:
+WAIT_KEY_1:
         LD C,$06                         ; $0203  0E 06
         CALL BDOS_VEC                    ; $0205  CD 05 00
         OR A                             ; $0208  B7
-        JR Z,SUB_0201                    ; $0209  28 F6
+        JR Z,WAIT_KEY                    ; $0209  28 F6
         CP $03                           ; $020B  FE 03
         JP Z,WBOOT_VEC                   ; $020D  CA 00 00
 ; [AI] Lowercase-to-uppercase converter: characters at or above $60 have $20 subtracted so drive
 ;       letters are normalized to upper case.
-SUB_0210:
+TO_UPPER:
         CP $60                           ; $0210  FE 60
         RET C                            ; $0212  D8
         SUB $20                          ; $0213  D6 20
         RET                              ; $0215  C9
-SUB_0210_1:
+TO_UPPER_1:
         DEFB    $00                                              ; $0216
-SUB_0210_2:
+TO_UPPER_2:
         DEFB    $FF                                              ; $0217
-SUB_0210_3:
+TO_UPPER_3:
         DEFB    $01,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00 ; $0218
         DEFS    17, $00    ; $0228  fill
-SUB_0210_4:
+TO_UPPER_4:
         DEFB    $0D,$0A,$0D,$0A,$20,$20,$20,$20,$41,$50,$50,$4C,$45,$20,$5D,$5B ; $0239
         DEFB    " CP/M"    ; $0249  string
         DEFB    $0D    ; $024E  terminator
@@ -251,41 +251,41 @@ SUB_0210_4:
         DEFB    "osoft"    ; $0279  string
         DEFB    $0D    ; $027E  terminator
         DEFB    $0A,$24                                          ; $027F
-SUB_0210_5:
+TO_UPPER_5:
         DEFB    $0D,$0A,$0D,$0A,$46,$6F,$72,$6D,$61,$74,$74,$69,$6E,$67,$2E,$2E ; $0281
         DEFB    $2E,$24                                          ; $0291
-SUB_0210_6:
+TO_UPPER_6:
         DEFB    $43,$6F,$6D,$6D,$61,$6E,$64,$20,$45,$72,$72,$6F,$72,$24 ; $0293
-SUB_0210_7:
+TO_UPPER_7:
         DEFB    $44,$69,$73,$6B,$20,$57,$72,$69,$74,$65,$20,$50,$72,$6F,$74,$65 ; $02A1
         DEFB    $63,$74,$65,$64,$24                              ; $02B1
-SUB_0210_8:
+TO_UPPER_8:
         DEFB    $46,$4F,$52,$4D,$41,$54,$20,$43,$6F,$6D,$70,$6C,$65,$74,$65,$24 ; $02B6
-SUB_0210_9:
+TO_UPPER_9:
         DEFB    $44,$69,$73,$6B,$20,$49,$2F,$4F,$20,$45,$72,$72,$6F,$72,$24 ; $02C6
-SUB_0210_10:
+TO_UPPER_10:
         DEFB    $49,$6E,$76,$61,$6C,$69,$64,$20,$44,$72,$69,$76,$65,$24 ; $02D5
-SUB_0210_11:
+TO_UPPER_11:
         DEFB    $0D,$0A,$49,$6E,$73,$65,$72,$74,$20,$64,$69,$73,$6B,$20,$74,$6F ; $02E3
         DEFB    $20,$62,$65,$20,$66,$6F,$72,$6D,$61,$74,$74,$65,$64,$20,$69,$6E ; $02F3
         DEFB    $20,$64,$72,$69,$76,$65,$20                      ; $0303
-SUB_0210_12:
+TO_UPPER_12:
         DEFB    $5A,$3A,$0D,$0A,$50,$72,$65,$73,$73,$20,$52,$45,$54,$55,$52,$4E ; $030A
         DEFB    $20,$74,$6F,$20,$62,$65,$67,$69,$6E,$20,$24      ; $031A
-SUB_0210_13:
+TO_UPPER_13:
         DEFB    $0D,$0A,$49,$6E,$73,$65,$72,$74,$20,$43,$50,$2F,$4D,$20,$53,$79 ; $0325
         DEFB    "stem disk in drive A:"    ; $0335  string
         DEFB    $0D    ; $034A  terminator
         DEFB    $0A,$50,$72,$65,$73,$73,$20,$52,$45,$54,$55,$52,$4E,$20,$24 ; $034B
-SUB_0210_14:
+TO_UPPER_14:
         DEFB    $0D,$0A,$0D,$0A,$07,$44,$69,$73,$6B,$20,$69,$6E,$20,$64,$72,$69 ; $035A
         DEFB    $76,$65,$20                                      ; $036A
-SUB_0210_15:
+TO_UPPER_15:
         DEFB    "Z: will be ERASED"    ; $036D  string
         DEFB    $0D    ; $037E  terminator
         DEFB    $0A,$43,$6F,$6E,$74,$69,$6E,$75,$65,$20,$28,$59,$2F,$4E,$29,$3F ; $037F
         DEFB    $20,$24                                          ; $038F
-SUB_0210_16:
+TO_UPPER_16:
         DEFB    $0D,$0A,$0D,$0A,$46,$6F,$72,$6D,$61,$74,$20,$64,$69,$73,$6B,$20 ; $0391
         DEFB    "in which drive? $9System disk in drive A:"    ; $03A1  string
         DEFB    $0D    ; $03CA  terminator
@@ -322,13 +322,13 @@ SUB_0210_16:
         DEFB    $B9,$DD,$15,$20,$BC,$15,$E6,$26,$D0,$C3,$20,$BC,$15,$18,$AD,$78 ; $059F
         DEFB    $04,$29,$03,$2A,$05,$2B,$AA,$BD,$80,$C0,$A6,$2B,$60,$A2,$11,$CA ; $05AF
         DEFB    $D0,$FD,$E6,$46,$D0,$06,$E6,$47,$D0,$02,$C6,$47,$38 ; $05BF
-        DEFW    SUB_01E9                 ; $05CC
+        DEFW    BIOS_SELECT_DRIVE                 ; $05CC
         DEFB    $D0,$EC                                          ; $05CE
         DEFW    TPA_START_14             ; $05D0
         DEFB    $30,$28,$24,$20,$1E,$1D,$1C,$1C,$1C,$1C,$1C,$70,$2C,$26,$22,$1F ; $05D2
         DEFB    $1E,$1D,$1C,$1C,$1C,$1C,$1C,$E5,$0F,$90,$EB,$68,$AA,$60,$A2,$00 ; $05E2
         DEFB    $86,$D1,$86,$86,$AD                              ; $05F2
-        DEFW    SUB_0201_1               ; $05F7
+        DEFW    WAIT_KEY_1               ; $05F7
         DEFB    $C9,$AF,$D0,$12,$AD,$04,$02,$96,$97,$9A,$9B,$9D,$9E,$9F,$A6,$A7 ; $05F9
         DEFB    $AB,$AC,$AD,$AE,$AF,$B2,$B3,$B4,$B5,$B6,$B7,$B9,$BA,$BB,$BC,$BD ; $0609
         DEFB    $BE,$BF,$CB,$CD,$CE,$CF,$D3,$D6,$D7,$D9,$DA,$DB,$DC,$DD,$DE,$DF ; $0619
@@ -371,7 +371,7 @@ SUB_0210_16:
         DEFB    $84,$52,$A9,$30,$8D,$78,$05,$99,$D1,$18,$88,$10,$FA,$A4,$51,$20 ; $0858
         DEFB    $CF,$18,$20,$CF,$18,$48,$68,$88,$D0,$F5,$20,$03,$15,$B0,$23,$A5 ; $0868
         DEFB    $2D,$F0,$15,$A9,$10,$C5,$51,$A5,$51              ; $0878
-        DEFW    SUB_01E9                 ; $0881
+        DEFW    BIOS_SELECT_DRIVE                 ; $0881
         DEFB    $85,$51,$C9,$05,$B0,$11,$38,$60,$20,$03,$15,$B0,$05,$20,$9B,$14 ; $0883
         DEFB    $90,$1C,$CE,$78,$05,$D0,$F1,$20,$03,$15,$B0,$0B,$A5,$2D,$C9,$0F ; $0893
         DEFB    $D0,$05,$20,$9B,$14,$90,$94,$CE,$78,$05,$D0,$EB,$38,$60,$A4,$2D ; $08A3
@@ -391,7 +391,7 @@ SUB_0210_16:
         DEFB    $A9,$20,$20,$35,$1A,$A5,$80,$20,$DA,$FD,$4C,$EC,$16,$86,$DA,$84 ; $0983
         DEFB    $88,$BA,$20,$6F,$1A,$85,$E2,$20,$6F,$1A,$85,$E3,$A0,$00,$A2,$00 ; $0993
         DEFB    $B1,$E2,$D0,$03,$A0,$01,$60,$DD                  ; $09A3
-        DEFW    SUB_0210                 ; $09AB
+        DEFW    TO_UPPER                 ; $09AB
         DEFB    $D0,$07,$E8,$C8,$C4,$88,$D0,$EE,$60,$A5,$DA,$18,$65,$E2,$85,$E2 ; $09AD
         DEFB    $90,$E0,$E6,$E3,$D0,$DC,$A5,$D0,$F0,$01,$60,$A2,$00,$20,$21,$15 ; $09BD
         DEFB    $C0,$FF,$F0,$04,$A2,$05,$D0,$14,$A5,$E9,$C5,$73,$90,$06,$A5,$E8 ; $09CD

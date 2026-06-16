@@ -14,8 +14,8 @@ RST6_VEC             EQU $0030               ; Z-80 RST 6 ($30) restart vector â
 DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS cold-init / DRV_ALLRESET (fn 13) set the DMA address here and WBOOT re-issues SETDMA($0080); sector/record I/O moves 128 bytes through it. At program load this same buffer doubles as the command tail: the first byte ($0080) holds the tail length (0-127) and the characters follow at $0081 (CMDLINE).
 
 ; -- Mid-instruction references (shown inline as cover+offset) --
-;   $0230 -> SUB_020E_2+2         shared instruction tail: $0230 is reachable code inside the instruction at $022E
-;   $02A4 -> SUB_0289_2+1         shared instruction tail: $02A4 is reachable code inside the instruction at $02A3
+;   $0230 -> COPY_TRACK_2+2         shared instruction tail: $0230 is reachable code inside the instruction at $022E
+;   $02A4 -> DRIVE_TO_SLOT_2+1         shared instruction tail: $02A4 is reachable code inside the instruction at $02A3
 
     ORG $0100
 
@@ -24,19 +24,19 @@ DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS
 TPA_START:
         LD HL,($F3DE)                    ; $0100  2A DE F3
 TPA_START_1:
-        LD (SUB_0289_2+1),HL             ; $0103  22 A4 02
+        LD (DRIVE_TO_SLOT_2+1),HL             ; $0103  22 A4 02
 TPA_START_2:
-        CALL SUB_0242                    ; $0106  CD 42 02
+        CALL PRINT_BLANK_LINE                    ; $0106  CD 42 02
 TPA_START_3:
-        LD DE,SUB_02C8_7                 ; $0109  11 00 03
+        LD DE,GET_KEY_UPPER_7                 ; $0109  11 00 03
 TPA_START_4:
-        CALL SUB_0245                    ; $010C  CD 45 02
+        CALL PRINT_STRING                    ; $010C  CD 45 02
 TPA_START_5:
         LD A,($0007)                     ; $010F  3A 07 00
 TPA_START_6:
         SUB $07                          ; $0112  D6 07
 TPA_START_7:
-        LD (SUB_02C8_4),A                ; $0114  32 E0 02
+        LD (GET_KEY_UPPER_4),A                ; $0114  32 E0 02
 TPA_START_8:
         LD A,(DEFAULT_DMA)               ; $0117  3A 80 00
 TPA_START_9:
@@ -44,7 +44,7 @@ TPA_START_9:
 TPA_START_10:
         JP NZ,TPA_START_19               ; $011B  C2 33 01
 TPA_START_11:
-        CALL SUB_0249                    ; $011E  CD 49 02
+        CALL PRINT_STAR_PROMPT                    ; $011E  CD 49 02
 TPA_START_12:
         LD A,$80                         ; $0121  3E 80
 TPA_START_13:
@@ -58,54 +58,54 @@ TPA_START_16:
 TPA_START_17:
         LD A,$0A                         ; $012E  3E 0A
 TPA_START_18:
-        CALL SUB_024E                    ; $0130  CD 4E 02
+        CALL CONOUT_CHAR                    ; $0130  CD 4E 02
 TPA_START_19:
-        LD SP,SUB_02C8_7                 ; $0133  31 00 03
+        LD SP,GET_KEY_UPPER_7                 ; $0133  31 00 03
 TPA_START_20:
         LD HL,$0082                      ; $0136  21 82 00
 TPA_START_21:
-        CALL SUB_0254                    ; $0139  CD 54 02
+        CALL GET_NEXT_UPPER                    ; $0139  CD 54 02
 TPA_START_22:
-        LD (SUB_02C8_18),A               ; $013C  32 3C 04
+        LD (GET_KEY_UPPER_18),A               ; $013C  32 3C 04
 TPA_START_23:
-        CALL SUB_0268                    ; $013F  CD 68 02
+        CALL PARSE_DRIVE_SPEC                    ; $013F  CD 68 02
         LD D,A                           ; $0142  57
-        CALL SUB_0254                    ; $0143  CD 54 02
+        CALL GET_NEXT_UPPER                    ; $0143  CD 54 02
         CP $3D                           ; $0146  FE 3D
 TPA_START_24:
-        JP NZ,SUB_0268_2                 ; $0148  C2 6C 02
-        CALL SUB_0254                    ; $014B  CD 54 02
-        LD (SUB_02C8_17),A               ; $014E  32 1A 04
-        CALL SUB_0268                    ; $0151  CD 68 02
+        JP NZ,PARSE_DRIVE_SPEC_2                 ; $0148  C2 6C 02
+        CALL GET_NEXT_UPPER                    ; $014B  CD 54 02
+        LD (GET_KEY_UPPER_17),A               ; $014E  32 1A 04
+        CALL PARSE_DRIVE_SPEC                    ; $0151  CD 68 02
         LD E,A                           ; $0154  5F
-        LD (SUB_02C8_2),DE               ; $0155  ED 53 DE 02
-        CALL SUB_0254                    ; $0159  CD 54 02
+        LD (GET_KEY_UPPER_2),DE               ; $0155  ED 53 DE 02
+        CALL GET_NEXT_UPPER                    ; $0159  CD 54 02
         CP $2F                           ; $015C  FE 2F
-        LD DE,SUB_020E_2+2               ; $015E  11 30 02
+        LD DE,COPY_TRACK_2+2               ; $015E  11 30 02
         JR NZ,TPA_START_25               ; $0161  20 0A
-        CALL SUB_0254                    ; $0163  CD 54 02
+        CALL GET_NEXT_UPPER                    ; $0163  CD 54 02
         CP $53                           ; $0166  FE 53
         JR NZ,TPA_START_24               ; $0168  20 DE
         LD DE,RST6_VEC                   ; $016A  11 30 00
 TPA_START_25:
-        LD (SUB_02C8_6),DE               ; $016D  ED 53 E2 02
+        LD (GET_KEY_UPPER_6),DE               ; $016D  ED 53 E2 02
 TPA_START_26:
         PUSH DE                          ; $0171  D5
         LD HL,WBOOT_VEC                  ; $0172  21 00 00
         LD ($F3E0),HL                    ; $0175  22 E0 F3
-        LD HL,(SUB_02C8_2)               ; $0178  2A DE 02
-        LD DE,SUB_02C8_16                ; $017B  11 FC 03
+        LD HL,(GET_KEY_UPPER_2)               ; $0178  2A DE 02
+        LD DE,GET_KEY_UPPER_16                ; $017B  11 FC 03
         LD A,L                           ; $017E  7D
         CP H                             ; $017F  BC
         JR Z,TPA_START_27                ; $0180  28 0C
-        CALL SUB_02BD                    ; $0182  CD BD 02
-        CALL SUB_0242                    ; $0185  CD 42 02
-        LD DE,SUB_02C8_9                 ; $0188  11 5B 03
-        CALL SUB_0245                    ; $018B  CD 45 02
+        CALL PROMPT_WAIT_RETURN                    ; $0182  CD BD 02
+        CALL PRINT_BLANK_LINE                    ; $0185  CD 42 02
+        LD DE,GET_KEY_UPPER_9                 ; $0188  11 5B 03
+        CALL PRINT_STRING                    ; $018B  CD 45 02
 TPA_START_27:
         POP HL                           ; $018E  E1
 TPA_START_28:
-        LD A,(SUB_02C8_4)                ; $018F  3A E0 02
+        LD A,(GET_KEY_UPPER_4)                ; $018F  3A E0 02
         LD B,A                           ; $0192  47
         LD E,A                           ; $0193  5F
         LD D,$00                         ; $0194  16 00
@@ -117,171 +117,171 @@ TPA_START_28:
         LD HL,WBOOT_VEC                  ; $019D  21 00 00
 TPA_START_29:
         PUSH HL                          ; $01A0  E5
-        LD A,(SUB_02C8_5)                ; $01A1  3A E1 02
+        LD A,(GET_KEY_UPPER_5)                ; $01A1  3A E1 02
         OR A                             ; $01A4  B7
         PUSH AF                          ; $01A5  F5
-        CALL Z,SUB_0208                  ; $01A6  CC 08 02
+        CALL Z,PROMPT_INSERT_MASTER                  ; $01A6  CC 08 02
         POP AF                           ; $01A9  F1
-        CALL NZ,SUB_020E                 ; $01AA  C4 0E 02
+        CALL NZ,COPY_TRACK                 ; $01AA  C4 0E 02
         POP HL                           ; $01AD  E1
         LD A,L                           ; $01AE  7D
         OR H                             ; $01AF  B4
         JR NZ,TPA_START_28               ; $01B0  20 DD
-        CALL SUB_0242                    ; $01B2  CD 42 02
-        LD DE,SUB_02C8_11                ; $01B5  11 7B 03
+        CALL PRINT_BLANK_LINE                    ; $01B2  CD 42 02
+        LD DE,GET_KEY_UPPER_11                ; $01B5  11 7B 03
 TPA_START_30:
-        CALL SUB_0245                    ; $01B8  CD 45 02
-        LD SP,SUB_02C8_7                 ; $01BB  31 00 03
-        CALL SUB_0242                    ; $01BE  CD 42 02
-        LD DE,SUB_02C8_12                ; $01C1  11 89 03
-        CALL SUB_0245                    ; $01C4  CD 45 02
+        CALL PRINT_STRING                    ; $01B8  CD 45 02
+        LD SP,GET_KEY_UPPER_7                 ; $01BB  31 00 03
+        CALL PRINT_BLANK_LINE                    ; $01BE  CD 42 02
+        LD DE,GET_KEY_UPPER_12                ; $01C1  11 89 03
+        CALL PRINT_STRING                    ; $01C4  CD 45 02
         LD HL,$0800                      ; $01C7  21 00 08
         LD ($F3E8),HL                    ; $01CA  22 E8 F3
 TPA_START_31:
-        CALL SUB_02C8                    ; $01CD  CD C8 02
+        CALL GET_KEY_UPPER                    ; $01CD  CD C8 02
         CP $4E                           ; $01D0  FE 4E
         JR NZ,TPA_START_33               ; $01D2  20 17
-        CALL SUB_023F                    ; $01D4  CD 3F 02
-        LD HL,(SUB_02C8_2)               ; $01D7  2A DE 02
+        CALL PRINT_CRLF_BLANK                    ; $01D4  CD 3F 02
+        LD HL,(GET_KEY_UPPER_2)               ; $01D7  2A DE 02
         LD A,L                           ; $01DA  7D
         AND H                            ; $01DB  A4
         JP NZ,TPA_START_32               ; $01DC  C2 E8 01
-        CALL SUB_0242                    ; $01DF  CD 42 02
-        LD DE,SUB_02C8_13                ; $01E2  11 AC 03
-        CALL SUB_02BD                    ; $01E5  CD BD 02
+        CALL PRINT_BLANK_LINE                    ; $01DF  CD 42 02
+        LD DE,GET_KEY_UPPER_13                ; $01E2  11 AC 03
+        CALL PROMPT_WAIT_RETURN                    ; $01E5  CD BD 02
 TPA_START_32:
         JP WBOOT_VEC                     ; $01E8  C3 00 00
 TPA_START_33:
         CP $59                           ; $01EB  FE 59
         JR NZ,TPA_START_31               ; $01ED  20 DE
-        CALL SUB_023F                    ; $01EF  CD 3F 02
-        LD DE,(SUB_02C8_6)               ; $01F2  ED 5B E2 02
+        CALL PRINT_CRLF_BLANK                    ; $01EF  CD 3F 02
+        LD DE,(GET_KEY_UPPER_6)               ; $01F2  ED 5B E2 02
         LD A,D                           ; $01F6  7A
         OR A                             ; $01F7  B7
         JR NZ,TPA_START_34               ; $01F8  20 0B
         INC A                            ; $01FA  3C
-        LD (SUB_02C8_5),A                ; $01FB  32 E1 02
-        LD HL,(SUB_02C8_2)               ; $01FE  2A DE 02
+        LD (GET_KEY_UPPER_5),A                ; $01FB  32 E1 02
+        LD HL,(GET_KEY_UPPER_2)               ; $01FE  2A DE 02
         LD L,H                           ; $0201  6C
-        LD (SUB_02C8_2),HL               ; $0202  22 DE 02
+        LD (GET_KEY_UPPER_2),HL               ; $0202  22 DE 02
 TPA_START_34:
         JP TPA_START_26                  ; $0205  C3 71 01
 ; [AI] Prints the 'Insert MASTER disk...' prompt (only when the master and slave are the same
 ;       physical drive) before falling through to the per-track copy driver.
-SUB_0208:
-        LD DE,SUB_02C8_20                ; $0208  11 5E 04
-        CALL SUB_025C                    ; $020B  CD 5C 02
+PROMPT_INSERT_MASTER:
+        LD DE,GET_KEY_UPPER_20                ; $0208  11 5E 04
+        CALL MAYBE_PROMPT_SWAP                    ; $020B  CD 5C 02
 ; [AI] Per-track copy driver: drives the read-from-source then write-to-destination sequence,
 ;       advancing the current track pointer in the SoftCard work area between halves of a single-
 ;       drive swap copy.
-SUB_020E:
+COPY_TRACK:
         LD C,$01                         ; $020E  0E 01
         LD HL,($F3E0)                    ; $0210  2A E0 F3
-        LD A,(SUB_02C8_5)                ; $0213  3A E1 02
+        LD A,(GET_KEY_UPPER_5)                ; $0213  3A E1 02
         OR A                             ; $0216  B7
-        JR NZ,SUB_020E_1                 ; $0217  20 0A
+        JR NZ,COPY_TRACK_1                 ; $0217  20 0A
         PUSH HL                          ; $0219  E5
         PUSH BC                          ; $021A  C5
-        LD A,(SUB_02C8_2)                ; $021B  3A DE 02
-        CALL SUB_0231                    ; $021E  CD 31 02
+        LD A,(GET_KEY_UPPER_2)                ; $021B  3A DE 02
+        CALL DO_DISK_OP                    ; $021E  CD 31 02
         POP BC                           ; $0221  C1
         POP HL                           ; $0222  E1
-SUB_020E_1:
+COPY_TRACK_1:
         LD ($F3E0),HL                    ; $0223  22 E0 F3
-        LD DE,SUB_02C8_21                ; $0226  11 87 04
-        CALL SUB_025C                    ; $0229  CD 5C 02
+        LD DE,GET_KEY_UPPER_21                ; $0226  11 87 04
+        CALL MAYBE_PROMPT_SWAP                    ; $0229  CD 5C 02
         LD C,$02                         ; $022C  0E 02
-SUB_020E_2:
-        LD A,(SUB_02C8_3)                ; $022E  3A DF 02
+COPY_TRACK_2:
+        LD A,(GET_KEY_UPPER_3)                ; $022E  3A DF 02
 ; [AI] Stages one disk operation for the 6502 side: converts the drive code, writes the resulting
 ;       slot/track parameters into the $F3xx SoftCard mailbox, and dispatches to the 6502 copy
 ;       routine.
-SUB_0231:
-        CALL SUB_0289                    ; $0231  CD 89 02
+DO_DISK_OP:
+        CALL DRIVE_TO_SLOT                    ; $0231  CD 89 02
         LD A,C                           ; $0234  79
         LD ($F3EB),A                     ; $0235  32 EB F3
         LD A,B                           ; $0238  78
         LD ($F000),A                     ; $0239  32 00 F0
-        JP SUB_0289_1                    ; $023C  C3 9D 02
+        JP DRIVE_TO_SLOT_1                    ; $023C  C3 9D 02
 ; [AI] Emits a CR/LF (BDOS console-out of $0A) and then prints the standard CR/LF-prefixed message,
 ;       used to terminate a prompt line before printing the next message.
-SUB_023F:
-        CALL SUB_024E                    ; $023F  CD 4E 02
+PRINT_CRLF_BLANK:
+        CALL CONOUT_CHAR                    ; $023F  CD 4E 02
 ; [AI] Loads DE with the address of the bare CR/LF/'$' string and falls through to the print-string
 ;       call, giving a one-line 'print a blank line' helper.
-SUB_0242:
-        LD DE,SUB_02C8_19                ; $0242  11 59 04
+PRINT_BLANK_LINE:
+        LD DE,GET_KEY_UPPER_19                ; $0242  11 59 04
 ; [AI] Prints the '$'-terminated string at DE via BDOS function 9 (print string); the common
 ;       message-output path for all of COPY's UI text.
-SUB_0245:
+PRINT_STRING:
         LD C,$09                         ; $0245  0E 09
-SUB_0245_1:
-        JR SUB_024E_2                    ; $0247  18 08
+PRINT_STRING_1:
+        JR CONOUT_CHAR_2                    ; $0247  18 08
 ; [AI] Prints a blank line then a single '*' character, used as the prompt marker shown when COPY
 ;       needs the operator to type a command line.
-SUB_0249:
-        CALL SUB_0242                    ; $0249  CD 42 02
-SUB_0249_1:
+PRINT_STAR_PROMPT:
+        CALL PRINT_BLANK_LINE                    ; $0249  CD 42 02
+PRINT_STAR_PROMPT_1:
         LD A,$2A                         ; $024C  3E 2A
 ; [AI] Outputs the single character in A to the console via BDOS function 2 (console output).
-SUB_024E:
+CONOUT_CHAR:
         LD E,A                           ; $024E  5F
-SUB_024E_1:
+CONOUT_CHAR_1:
         LD C,$02                         ; $024F  0E 02
-SUB_024E_2:
+CONOUT_CHAR_2:
         JP BDOS_VEC                      ; $0251  C3 05 00
 ; [AI] Fetches the next command-line character via HL and folds lowercase letters to uppercase
 ;       (chars >= $E0 pass through, others have $20 subtracted) so parsing is case-insensitive.
-SUB_0254:
+GET_NEXT_UPPER:
         LD A,(HL)                        ; $0254  7E
-SUB_0254_1:
+GET_NEXT_UPPER_1:
         INC HL                           ; $0255  23
-SUB_0254_2:
+GET_NEXT_UPPER_2:
         CP $E0                           ; $0256  FE E0
-SUB_0254_3:
+GET_NEXT_UPPER_3:
         RET C                            ; $0258  D8
         SUB $20                          ; $0259  D6 20
         RET                              ; $025B  C9
 ; [AI] Before each disk transfer, checks whether source and destination resolve to the same drive
 ;       and, if so, pauses to prompt the operator to swap disks.
-SUB_025C:
-        LD HL,(SUB_02C8_2)               ; $025C  2A DE 02
+MAYBE_PROMPT_SWAP:
+        LD HL,(GET_KEY_UPPER_2)               ; $025C  2A DE 02
         LD A,L                           ; $025F  7D
         CP H                             ; $0260  BC
         RET NZ                           ; $0261  C0
         PUSH BC                          ; $0262  C5
-        CALL SUB_02BD                    ; $0263  CD BD 02
+        CALL PROMPT_WAIT_RETURN                    ; $0263  CD BD 02
         POP BC                           ; $0266  C1
         RET                              ; $0267  C9
 ; [AI] Parses and validates a drive letter from the command line: normalizes it to a 0-based drive
 ;       number, requires a following ':', and range-checks it against the BIOS drive count, jumping
 ;       to the error path on any failure.
-SUB_0268:
+PARSE_DRIVE_SPEC:
         SUB $41                          ; $0268  D6 41
-SUB_0268_1:
-        JR NC,SUB_0268_4                 ; $026A  30 05
-SUB_0268_2:
-        LD DE,SUB_02C8_8                 ; $026C  11 4D 03
-SUB_0268_3:
-        JR SUB_0268_5                    ; $026F  18 12
-SUB_0268_4:
+PARSE_DRIVE_SPEC_1:
+        JR NC,PARSE_DRIVE_SPEC_4                 ; $026A  30 05
+PARSE_DRIVE_SPEC_2:
+        LD DE,GET_KEY_UPPER_8                 ; $026C  11 4D 03
+PARSE_DRIVE_SPEC_3:
+        JR PARSE_DRIVE_SPEC_5                    ; $026F  18 12
+PARSE_DRIVE_SPEC_4:
         LD C,A                           ; $0271  4F
-        CALL SUB_0254                    ; $0272  CD 54 02
+        CALL GET_NEXT_UPPER                    ; $0272  CD 54 02
         CP $3A                           ; $0275  FE 3A
-        JR NZ,SUB_0268_2                 ; $0277  20 F3
+        JR NZ,PARSE_DRIVE_SPEC_2                 ; $0277  20 F3
         LD A,($F3B8)                     ; $0279  3A B8 F3
         DEC A                            ; $027C  3D
         CP C                             ; $027D  B9
         LD A,C                           ; $027E  79
         RET NC                           ; $027F  D0
-        LD DE,SUB_02C8_15                ; $0280  11 EE 03
-SUB_0268_5:
-        CALL SUB_0245                    ; $0283  CD 45 02
-SUB_0268_6:
+        LD DE,GET_KEY_UPPER_15                ; $0280  11 EE 03
+PARSE_DRIVE_SPEC_5:
+        CALL PRINT_STRING                    ; $0283  CD 45 02
+PARSE_DRIVE_SPEC_6:
         JP TPA_START_11                  ; $0286  C3 1E 01
 ; [AI] Translates a CP/M drive number into the SoftCard hardware's slot/drive-select parameters and
 ;       stores them in the $F3xx work area so the 6502 routine targets the correct physical floppy.
-SUB_0289:
+DRIVE_TO_SLOT:
         LD E,A                           ; $0289  5F
         INC A                            ; $028A  3C
         AND $01                          ; $028B  E6 01
@@ -297,41 +297,41 @@ SUB_0289:
         RET                              ; $029C  C9
 ; [AI] Records the 6502 routine's status byte and, if the disk operation reported an error, prints
 ;       either the write-protect or generic I/O-error message and returns to the retry loop.
-SUB_0289_1:
+DRIVE_TO_SLOT_1:
         LD HL,$14AE                      ; $029D  21 AE 14
         LD ($F3D0),HL                    ; $02A0  22 D0 F3
-SUB_0289_2:
+DRIVE_TO_SLOT_2:
         LD (WBOOT_VEC),A                 ; $02A3  32 00 00
         LD A,($F3EA)                     ; $02A6  3A EA F3
         OR A                             ; $02A9  B7
         RET Z                            ; $02AA  C8
         PUSH AF                          ; $02AB  F5
-        CALL SUB_0242                    ; $02AC  CD 42 02
+        CALL PRINT_BLANK_LINE                    ; $02AC  CD 42 02
         POP AF                           ; $02AF  F1
-        LD DE,SUB_02C8_14                ; $02B0  11 DF 03
+        LD DE,GET_KEY_UPPER_14                ; $02B0  11 DF 03
         CP $10                           ; $02B3  FE 10
-        JR NZ,SUB_0289_3                 ; $02B5  20 03
-        LD DE,SUB_02C8_10                ; $02B7  11 66 03
-SUB_0289_3:
+        JR NZ,DRIVE_TO_SLOT_3                 ; $02B5  20 03
+        LD DE,GET_KEY_UPPER_10                ; $02B7  11 66 03
+DRIVE_TO_SLOT_3:
         JP TPA_START_30                  ; $02BA  C3 B8 01
 ; [AI] Prints the prompt string at DE and then waits for the operator to press RETURN, looping on
 ;       console input until a carriage return arrives.
-SUB_02BD:
-        CALL SUB_0245                    ; $02BD  CD 45 02
-SUB_02BD_1:
-        CALL SUB_02C8                    ; $02C0  CD C8 02
+PROMPT_WAIT_RETURN:
+        CALL PRINT_STRING                    ; $02BD  CD 45 02
+PROMPT_WAIT_RETURN_1:
+        CALL GET_KEY_UPPER                    ; $02C0  CD C8 02
         CP $0D                           ; $02C3  FE 0D
-        JR NZ,SUB_02BD_1                 ; $02C5  20 F9
+        JR NZ,PROMPT_WAIT_RETURN_1                 ; $02C5  20 F9
         RET                              ; $02C7  C9
 ; [AI] Reads one keystroke via BDOS function 6 (direct console I/O), blocking until a key is
 ;       pressed, aborting to warm boot on Ctrl-C, and folding the key to uppercase.
-SUB_02C8:
+GET_KEY_UPPER:
         LD E,$FF                         ; $02C8  1E FF
         LD C,$06                         ; $02CA  0E 06
         CALL BDOS_VEC                    ; $02CC  CD 05 00
         OR A                             ; $02CF  B7
-SUB_02C8_1:
-        JR Z,SUB_02C8                    ; $02D0  28 F6
+GET_KEY_UPPER_1:
+        JR Z,GET_KEY_UPPER                    ; $02D0  28 F6
         CP $03                           ; $02D2  FE 03
         JP Z,WBOOT_VEC                   ; $02D4  CA 00 00
         CP $60                           ; $02D7  FE 60
@@ -339,17 +339,17 @@ SUB_02C8_1:
         SUB $20                          ; $02DA  D6 20
         RET                              ; $02DC  C9
         DEFB    $23                                              ; $02DD
-SUB_02C8_2:
+GET_KEY_UPPER_2:
         DEFB    $00                                              ; $02DE
-SUB_02C8_3:
+GET_KEY_UPPER_3:
         DEFB    $00                                              ; $02DF
-SUB_02C8_4:
+GET_KEY_UPPER_4:
         DEFB    $00                                              ; $02E0
-SUB_02C8_5:
+GET_KEY_UPPER_5:
         DEFB    $00                                              ; $02E1
-SUB_02C8_6:
+GET_KEY_UPPER_6:
         DEFS    30, $00    ; $02E2  fill
-SUB_02C8_7:
+GET_KEY_UPPER_7:
         DEFB    "      APPLE ][ CP/M"    ; $0300  string
         DEFB    $0D    ; $0313  terminator
         DEFB    $0A,$31,$36,$20,$53,$65,$63,$74,$6F,$72,$20,$44,$69,$73,$6B,$20 ; $0314
@@ -359,50 +359,50 @@ SUB_02C8_7:
         DEFB    "crosoft"    ; $0341  string
         DEFB    $0D    ; $0348  terminator
         DEFB    $0A,$0D,$0A,$24                                  ; $0349
-SUB_02C8_8:
+GET_KEY_UPPER_8:
         DEFB    $43,$6F,$6D,$6D,$61,$6E,$64,$20,$45,$72,$72,$6F,$72,$24 ; $034D
-SUB_02C8_9:
+GET_KEY_UPPER_9:
         DEFB    $43,$6F,$70,$79,$69,$6E,$67,$2E,$2E,$2E,$24      ; $035B
-SUB_02C8_10:
+GET_KEY_UPPER_10:
         DEFB    $44,$69,$73,$6B,$20,$57,$72,$69,$74,$65,$20,$50,$72,$6F,$74,$65 ; $0366
         DEFB    $63,$74,$65,$64,$24                              ; $0376
-SUB_02C8_11:
+GET_KEY_UPPER_11:
         DEFB    $43,$4F,$50,$59,$20,$43,$6F,$6D,$70,$6C,$65,$74,$65,$24 ; $037B
-SUB_02C8_12:
+GET_KEY_UPPER_12:
         DEFB    $44,$6F,$20,$79,$6F,$75,$20,$77,$69,$73,$68,$20,$74,$6F,$20,$6D ; $0389
         DEFB    $61,$6B,$65,$20,$61,$6E,$6F,$74,$68,$65,$72,$20,$63,$6F,$70,$79 ; $0399
         DEFB    $3F,$20,$24                                      ; $03A9
-SUB_02C8_13:
+GET_KEY_UPPER_13:
         DEFB    "Insert CP/M System disk into drive A:"    ; $03AC  string
         DEFB    $0D    ; $03D1  terminator
         DEFB    $0A,$48,$69,$74,$20,$52,$45,$54,$55,$52,$4E,$20,$24 ; $03D2
-SUB_02C8_14:
+GET_KEY_UPPER_14:
         DEFB    $44,$69,$73,$6B,$20,$49,$2F,$4F,$20,$45,$72,$72,$6F,$72,$24 ; $03DF
-SUB_02C8_15:
+GET_KEY_UPPER_15:
         DEFB    $49,$6E,$76,$61,$6C,$69,$64,$20,$44,$72,$69,$76,$65,$24 ; $03EE
-SUB_02C8_16:
+GET_KEY_UPPER_16:
         DEFB    $49,$6E,$73,$65,$72,$74,$20,$4D,$41,$53,$54,$45,$52,$20,$64,$69 ; $03FC
         DEFB    $73,$6B,$20,$69,$6E,$74,$6F,$20,$64,$72,$69,$76,$65,$20 ; $040C
-SUB_02C8_17:
+GET_KEY_UPPER_17:
         DEFB    $5A,$3A,$0D,$0A,$49,$6E,$73,$65,$72,$74,$20,$53,$4C,$41,$56,$45 ; $041A
         DEFB    $20,$20,$64,$69,$73,$6B,$20,$69,$6E,$74,$6F,$20,$64,$72,$69,$76 ; $042A
         DEFB    $65,$20                                          ; $043A
-SUB_02C8_18:
+GET_KEY_UPPER_18:
         DEFB    $5A,$3A,$0D,$0A,$0D,$0A,$50,$72,$65,$73,$73,$20,$52,$45,$54,$55 ; $043C
         DEFB    $52,$4E,$20,$74,$6F,$20,$62,$65,$67,$69,$6E,$20,$24 ; $044C
-SUB_02C8_19:
+GET_KEY_UPPER_19:
         DEFB    $0D,$0A,$0D,$0A,$24                              ; $0459
-SUB_02C8_20:
+GET_KEY_UPPER_20:
         DEFB    $0D,$0A,$0D,$0A,$49,$6E,$73,$65,$72,$74,$20,$4D,$41,$53,$54,$45 ; $045E
         DEFB    $52,$20,$64,$69,$73,$6B,$20,$61,$6E,$64,$20,$70,$72,$65,$73,$73 ; $046E
         DEFB    $20,$52,$45,$54,$55,$52,$4E,$20,$24              ; $047E
-SUB_02C8_21:
+GET_KEY_UPPER_21:
         DEFB    $0D,$0A,$49,$6E,$73,$65,$72,$74,$20,$53,$4C,$41,$56,$45,$20,$20 ; $0487
         DEFB    $64,$69,$73,$6B,$20,$61,$6E,$64,$20,$70,$72,$65,$73,$73,$20,$52 ; $0497
         DEFB    $45,$54,$55,$52,$4E,$20,$24,$A2,$15,$8E,$E9,$03,$20,$03,$0E,$AD ; $04A7
         DEFB    $EA,$03,$D0,$21,$AE,$E1,$03,$E8,$E0,$10,$90,$05,$A2,$00,$EE,$E0 ; $04B7
         DEFB    $03,$8E,$E1,$03,$AE,$E9,$03,$E8,$E0,$C0          ; $04C7
-        DEFW    SUB_02C8_1               ; $04D1
+        DEFW    GET_KEY_UPPER_1               ; $04D1
         DEFB    $A2,$D0,$8E,$E9,$03,$C6,$00,$D0,$D4,$60,$10,$49,$B0,$20,$ED,$FD ; $04D3
         DEFB    $C9,$B0,$66,$06,$88,$D0,$D6,$A9,$A0,$4C,$ED,$FD,$19,$4D ; $04E3
         DEFW    TPA_START_5              ; $04F1

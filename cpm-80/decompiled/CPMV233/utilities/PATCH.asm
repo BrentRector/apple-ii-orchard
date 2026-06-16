@@ -17,19 +17,19 @@ DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS
 CMDLINE              EQU $0081               ; Command-line tail characters (uppercase, with leading space). Same buffer as DEFAULT_DMA.
 
 ; -- Mid-instruction references (shown inline as cover+offset) --
-;   $03C2 -> SUB_03BF_1+1         z80 skip idiom: enters the operand of $21 at $03C1
-;   $0427 -> SUB_0424_1+1         z80 skip idiom: enters the operand of $21 at $0426
-;   $042A -> SUB_0424_2+1         z80 skip idiom: enters the operand of $21 at $0429
-;   $042D -> SUB_0424_3+1         z80 skip idiom: enters the operand of $21 at $042C
-;   $0430 -> SUB_0424_4+1         z80 skip idiom: enters the operand of $21 at $042F
-;   $0433 -> SUB_0424_5+1         z80 skip idiom: enters the operand of $21 at $0432
+;   $03C2 -> WRITE_RECORD_VERIFY_1+1         z80 skip idiom: enters the operand of $21 at $03C1
+;   $0427 -> BIOS_DISK_DISPATCH_1+1         z80 skip idiom: enters the operand of $21 at $0426
+;   $042A -> BIOS_DISK_DISPATCH_2+1         z80 skip idiom: enters the operand of $21 at $0429
+;   $042D -> BIOS_DISK_DISPATCH_3+1         z80 skip idiom: enters the operand of $21 at $042C
+;   $0430 -> BIOS_DISK_DISPATCH_4+1         z80 skip idiom: enters the operand of $21 at $042F
+;   $0433 -> BIOS_DISK_DISPATCH_5+1         z80 skip idiom: enters the operand of $21 at $0432
 
     ORG $0100
 
 ; [AI] Program entry at $0100. Sets the stack just below the work area and begins by saving the
 ;       command-tail length to decide command-line vs. interactive operation.
 TPA_START:
-        LD SP,SUB_0424_14                ; $0100  31 FD 04
+        LD SP,BIOS_DISK_DISPATCH_14                ; $0100  31 FD 04
 ; [AI] Captures the command-tail length byte; a nonzero value means arguments were supplied so the
 ;       sign-on banner is skipped.
 TPA_START_1:
@@ -41,7 +41,7 @@ TPA_START_3:
 TPA_START_4:
         JR NZ,TPA_START_8                ; $010A  20 08
 TPA_START_5:
-        LD DE,SUB_0424_13                ; $010C  11 9D 04
+        LD DE,BIOS_DISK_DISPATCH_13                ; $010C  11 9D 04
 TPA_START_6:
         LD C,$09                         ; $010F  0E 09
 TPA_START_7:
@@ -59,11 +59,11 @@ TPA_START_11:
 TPA_START_12:
         LD ($006A),A                     ; $011E  32 6A 00
 TPA_START_13:
-        CALL SUB_0390                    ; $0121  CD 90 03
+        CALL READ_COMMAND_LINE                    ; $0121  CD 90 03
         LD A,(IX+1)                      ; $0124  DD 7E 01
         CP $3A                           ; $0127  FE 3A
         JR NZ,TPA_START_14               ; $0129  20 15
-        CALL SUB_036A                    ; $012B  CD 6A 03
+        CALL GET_NEXT_CHAR                    ; $012B  CD 6A 03
         SUB $40                          ; $012E  D6 40
         LD (DEFAULT_FCB),A               ; $0130  32 5C 00
         INC IX                           ; $0133  DD 23
@@ -88,7 +88,7 @@ TPA_START_15:
 ; [AI] Scans the filename portion of the command, storing characters into the FCB and branching on
 ;       the extension dot, terminating space, or the '=' that introduces the patch value.
 TPA_START_16:
-        CALL SUB_036A                    ; $014D  CD 6A 03
+        CALL GET_NEXT_CHAR                    ; $014D  CD 6A 03
         JR Z,TPA_START_17                ; $0150  28 10
         CP $2E                           ; $0152  FE 2E
         JR Z,TPA_START_18                ; $0154  28 0F
@@ -108,7 +108,7 @@ TPA_START_18:
         LD HL,$0065                      ; $0167  21 65 00
 ; [AI] Loop copying extension characters into the FCB type field until a delimiter or length limit.
 TPA_START_19:
-        CALL SUB_036A                    ; $016A  CD 6A 03
+        CALL GET_NEXT_CHAR                    ; $016A  CD 6A 03
         JR Z,TPA_START_17                ; $016D  28 F3
         CP $20                           ; $016F  FE 20
         JR Z,TPA_START_21                ; $0171  28 0B
@@ -124,7 +124,7 @@ TPA_START_20:
 ; [AI] Begins parsing the sector/offset number: clears the mode flag and accumulates a hex value
 ;       (D:HL) digit-by-digit until '=' or a delimiter.
 TPA_START_21:
-        LD (SUB_0424_14),A               ; $017E  32 FD 04
+        LD (BIOS_DISK_DISPATCH_14),A               ; $017E  32 FD 04
         LD HL,WBOOT_VEC                  ; $0181  21 00 00
         LD D,L                           ; $0184  55
 ; [AI] Hex-accumulation loop for the address/sector argument; shifts the running value left one
@@ -133,7 +133,7 @@ TPA_START_22:
         LD A,(IX+0)                      ; $0185  DD 7E 00
         CP $3D                           ; $0188  FE 3D
         JR Z,TPA_START_24                ; $018A  28 13
-        CALL SUB_0353                    ; $018C  CD 53 03
+        CALL PARSE_HEX_NIBBLE                    ; $018C  CD 53 03
         JP Z,TPA_START_42                ; $018F  CA 19 03
         LD C,A                           ; $0192  4F
         LD A,D                           ; $0193  7A
@@ -150,10 +150,10 @@ TPA_START_23:
 ; [AI] Stores the finished sector/byte address (D and HL) into the work area, then resets the
 ;       patch-byte buffer pointers/counts in preparation for reading the replacement bytes.
 TPA_START_24:
-        CALL SUB_036A                    ; $019F  CD 6A 03
+        CALL GET_NEXT_CHAR                    ; $019F  CD 6A 03
         LD A,D                           ; $01A2  7A
-        LD (SUB_0424_15),A               ; $01A3  32 FE 04
-        LD (SUB_0424_16),HL              ; $01A6  22 FF 04
+        LD (BIOS_DISK_DISPATCH_15),A               ; $01A3  32 FE 04
+        LD (BIOS_DISK_DISPATCH_16),HL              ; $01A6  22 FF 04
         LD HL,WBOOT_VEC                  ; $01A9  21 00 00
         LD A,L                           ; $01AC  7D
         LD ($0501),A                     ; $01AD  32 01 05
@@ -167,10 +167,10 @@ TPA_START_25:
         LD A,(IX+0)                      ; $01BD  DD 7E 00
         CP $28                           ; $01C0  FE 28
         JR Z,TPA_START_27                ; $01C2  28 14
-        CALL SUB_0340                    ; $01C4  CD 40 03
+        CALL PARSE_HEX_BYTE                    ; $01C4  CD 40 03
         JR C,TPA_START_29                ; $01C7  38 2C
-        CALL SUB_0377                    ; $01C9  CD 77 03
-        CALL SUB_036A                    ; $01CC  CD 6A 03
+        CALL APPEND_PATCH_BYTE                    ; $01C9  CD 77 03
+        CALL GET_NEXT_CHAR                    ; $01CC  CD 6A 03
         JR Z,TPA_START_29                ; $01CF  28 24
         CP $20                           ; $01D1  FE 20
         JR Z,TPA_START_25                ; $01D3  28 E8
@@ -180,15 +180,15 @@ TPA_START_26:
 ; [AI] Begins parsing the parenthesised compare/old-byte list used when the user wants the patch
 ;       applied only if the existing bytes match.
 TPA_START_27:
-        CALL SUB_036A                    ; $01D8  CD 6A 03
+        CALL GET_NEXT_CHAR                    ; $01D8  CD 6A 03
         LD HL,$0507                      ; $01DB  21 07 05
         LD IY,$0506                      ; $01DE  FD 21 06 05
 ; [AI] Loop reading hex bytes of the old-value (compare) list until the closing ')'.
 TPA_START_28:
-        CALL SUB_0340                    ; $01E2  CD 40 03
+        CALL PARSE_HEX_BYTE                    ; $01E2  CD 40 03
         JR C,TPA_START_26                ; $01E5  38 EE
-        CALL SUB_0377                    ; $01E7  CD 77 03
-        CALL SUB_036A                    ; $01EA  CD 6A 03
+        CALL APPEND_PATCH_BYTE                    ; $01E7  CD 77 03
+        CALL GET_NEXT_CHAR                    ; $01EA  CD 6A 03
         CP $20                           ; $01ED  FE 20
         JR Z,TPA_START_28                ; $01EF  28 F1
         CP $29                           ; $01F1  FE 29
@@ -204,7 +204,7 @@ TPA_START_29:
 ;       sector size used to split the byte offset into record number plus in-record offset.
 TPA_START_30:
         LD C,A                           ; $01FF  4F
-        CALL SUB_0424_1+1                ; $0200  CD 27 04
+        CALL BIOS_DISK_DISPATCH_1+1                ; $0200  CD 27 04
         LD A,H                           ; $0203  7C
         OR L                             ; $0204  B5
         JP Z,TPA_START_43                ; $0205  CA 1E 03
@@ -216,7 +216,7 @@ TPA_START_30:
         LD L,A                           ; $020F  6F
         LD A,(HL)                        ; $0210  7E
         LD ($0505),A                     ; $0211  32 05 05
-        LD A,(SUB_0424_15)               ; $0214  3A FE 04
+        LD A,(BIOS_DISK_DISPATCH_15)               ; $0214  3A FE 04
         LD C,A                           ; $0217  4F
         AND $7F                          ; $0218  E6 7F
         LD B,A                           ; $021A  47
@@ -234,10 +234,10 @@ TPA_START_31:
         SBC A,A                          ; $022A  9F
         LD ($0562),A                     ; $022B  32 62 05
         LD A,C                           ; $022E  79
-        LD HL,(SUB_0424_16)              ; $022F  2A FF 04
+        LD HL,(BIOS_DISK_DISPATCH_16)              ; $022F  2A FF 04
         ADD A,A                          ; $0232  87
         ADC HL,HL                        ; $0233  ED 6A
-        LD A,(SUB_0424_14)               ; $0235  3A FD 04
+        LD A,(BIOS_DISK_DISPATCH_14)               ; $0235  3A FD 04
         OR A                             ; $0238  B7
         JR Z,TPA_START_32                ; $0239  28 32
         LD (DEFAULT_RND),HL              ; $023B  22 7D 00
@@ -247,17 +247,17 @@ TPA_START_31:
         LD DE,DEFAULT_FCB                ; $0244  11 5C 00
         CALL BDOS_VEC                    ; $0247  CD 05 00
         INC A                            ; $024A  3C
-        LD DE,SUB_0424_9                 ; $024B  11 5B 04
+        LD DE,BIOS_DISK_DISPATCH_9                 ; $024B  11 5B 04
         JP Z,TPA_START_47                ; $024E  CA 30 03
-        CALL SUB_03E3                    ; $0251  CD E3 03
-        CALL SUB_03BF_1+1                ; $0254  CD C2 03
+        CALL SET_DMA_BUF1                    ; $0251  CD E3 03
+        CALL WRITE_RECORD_VERIFY_1+1                ; $0254  CD C2 03
         LD A,($0562)                     ; $0257  3A 62 05
         OR A                             ; $025A  B7
         JR Z,TPA_START_34                ; $025B  28 40
         LD HL,(DEFAULT_RND)              ; $025D  2A 7D 00
         PUSH HL                          ; $0260  E5
-        CALL SUB_03D7                    ; $0261  CD D7 03
-        CALL SUB_03BF_1+1                ; $0264  CD C2 03
+        CALL ADVANCE_TO_REC2                    ; $0261  CD D7 03
+        CALL WRITE_RECORD_VERIFY_1+1                ; $0264  CD C2 03
         POP HL                           ; $0267  E1
         LD (DEFAULT_RND),HL              ; $0268  22 7D 00
         JR TPA_START_34                  ; $026B  18 30
@@ -280,14 +280,14 @@ TPA_START_33:
         LD ($0502),A                     ; $027E  32 02 05
         LD ($0503),BC                    ; $0281  ED 43 03 05
         LD BC,$0564                      ; $0285  01 64 05
-        CALL SUB_0424_4+1                ; $0288  CD 30 04
-        CALL SUB_03EB                    ; $028B  CD EB 03
-        CALL SUB_041C                    ; $028E  CD 1C 04
+        CALL BIOS_DISK_DISPATCH_4+1                ; $0288  CD 30 04
+        CALL READ_RECORD_1                    ; $028B  CD EB 03
+        CALL BIOS_READ_CHECK                    ; $028E  CD 1C 04
         LD A,($0562)                     ; $0291  3A 62 05
         OR A                             ; $0294  B7
         JR Z,TPA_START_34                ; $0295  28 06
-        CALL SUB_03F8                    ; $0297  CD F8 03
-        CALL SUB_041C                    ; $029A  CD 1C 04
+        CALL READ_RECORD_2                    ; $0297  CD F8 03
+        CALL BIOS_READ_CHECK                    ; $029A  CD 1C 04
 ; [AI] Applies the parsed patch bytes into the in-memory record buffer at the computed offset,
 ;       simultaneously verifying old bytes against the compare list when one was given.
 TPA_START_34:
@@ -338,16 +338,16 @@ TPA_START_38:
 ; [AI] After merging, the write path: random-writes the modified record(s) back to disk, handling
 ;       the second record when the patch crosses a sector boundary.
 TPA_START_39:
-        LD A,(SUB_0424_14)               ; $02D9  3A FD 04
+        LD A,(BIOS_DISK_DISPATCH_14)               ; $02D9  3A FD 04
         OR A                             ; $02DC  B7
         JR Z,TPA_START_41                ; $02DD  28 20
-        CALL SUB_03E3                    ; $02DF  CD E3 03
-        CALL SUB_03BF                    ; $02E2  CD BF 03
+        CALL SET_DMA_BUF1                    ; $02DF  CD E3 03
+        CALL WRITE_RECORD_VERIFY                    ; $02E2  CD BF 03
         LD A,($0562)                     ; $02E5  3A 62 05
         OR A                             ; $02E8  B7
         JR Z,TPA_START_40                ; $02E9  28 06
-        CALL SUB_03D7                    ; $02EB  CD D7 03
-        CALL SUB_03BF                    ; $02EE  CD BF 03
+        CALL ADVANCE_TO_REC2                    ; $02EB  CD D7 03
+        CALL WRITE_RECORD_VERIFY                    ; $02EE  CD BF 03
 ; [AI] Closes the file via BDOS function 16 after a successful write and reports a write/disk error
 ;       if the close fails.
 TPA_START_40:
@@ -360,41 +360,41 @@ TPA_START_40:
 ; [AI] Sequential/alternate write path that re-positions the DMA, writes the record, and on a
 ;       second-record patch writes the following record too.
 TPA_START_41:
-        CALL SUB_03EB                    ; $02FF  CD EB 03
+        CALL READ_RECORD_1                    ; $02FF  CD EB 03
         LD BC,$0564                      ; $0302  01 64 05
-        CALL SUB_0424_4+1                ; $0305  CD 30 04
-        CALL SUB_0415                    ; $0308  CD 15 04
+        CALL BIOS_DISK_DISPATCH_4+1                ; $0305  CD 30 04
+        CALL BIOS_WRITE_CHECK                    ; $0308  CD 15 04
         LD A,($0562)                     ; $030B  3A 62 05
         OR A                             ; $030E  B7
         JR Z,TPA_START_48                ; $030F  28 22
-        CALL SUB_03F8                    ; $0311  CD F8 03
-        CALL SUB_0415                    ; $0314  CD 15 04
+        CALL READ_RECORD_2                    ; $0311  CD F8 03
+        CALL BIOS_WRITE_CHECK                    ; $0314  CD 15 04
         JR TPA_START_48                  ; $0317  18 1A
 ; [AI] Error handler that loads DE with the 'Command error' message and falls into the print-and-
 ;       exit routine.
 TPA_START_42:
-        LD DE,SUB_0424_7                 ; $0319  11 3E 04
+        LD DE,BIOS_DISK_DISPATCH_7                 ; $0319  11 3E 04
         JR TPA_START_47                  ; $031C  18 12
 ; [AI] Error handler that selects the 'Invalid Drive' message.
 TPA_START_43:
-        LD DE,SUB_0424_11                ; $031E  11 7C 04
+        LD DE,BIOS_DISK_DISPATCH_11                ; $031E  11 7C 04
         JR TPA_START_47                  ; $0321  18 0D
 ; [AI] Error handler that selects the 'Disk I/O error' message.
 TPA_START_44:
-        LD DE,SUB_0424_8                 ; $0323  11 4C 04
+        LD DE,BIOS_DISK_DISPATCH_8                 ; $0323  11 4C 04
         JR TPA_START_47                  ; $0326  18 08
 ; [AI] Error handler that selects the 'End of File error' message.
 TPA_START_45:
-        LD DE,SUB_0424_10                ; $0328  11 6A 04
+        LD DE,BIOS_DISK_DISPATCH_10                ; $0328  11 6A 04
         JR TPA_START_47                  ; $032B  18 03
 ; [AI] Error handler that selects the 'Verification error' message used when an old-byte compare
 ;       fails.
 TPA_START_46:
-        LD DE,SUB_0424_12                ; $032D  11 8A 04
-; [AI] Prints the selected error/status message (via SUB_037D) before falling through to the
+        LD DE,BIOS_DISK_DISPATCH_12                ; $032D  11 8A 04
+; [AI] Prints the selected error/status message (via PRINT_MSG_CRLF) before falling through to the
 ;       loop/exit decision.
 TPA_START_47:
-        CALL SUB_037D                    ; $0330  CD 7D 03
+        CALL PRINT_MSG_CRLF                    ; $0330  CD 7D 03
 ; [AI] Post-operation tail: restores the saved command-tail flag; loops back to L_0114 in
 ;       interactive mode or warm-boots back to CP/M when run from the command line.
 TPA_START_48:
@@ -403,10 +403,10 @@ TPA_START_48:
         OR A                             ; $0339  B7
         JP Z,TPA_START_8                 ; $033A  CA 14 01
         JP WBOOT_VEC                     ; $033D  C3 00 00
-; [AI] Parses a full hex byte (two hex digits) from the input via two SUB_0353 calls, returning the
+; [AI] Parses a full hex byte (two hex digits) from the input via two PARSE_HEX_NIBBLE calls, returning the
 ;       combined value or setting carry at end-of-input.
-SUB_0340:
-        CALL SUB_0353                    ; $0340  CD 53 03
+PARSE_HEX_BYTE:
+        CALL PARSE_HEX_NIBBLE                    ; $0340  CD 53 03
         SCF                              ; $0343  37
         RET Z                            ; $0344  C8
         ADD A,A                          ; $0345  87
@@ -414,31 +414,31 @@ SUB_0340:
         ADD A,A                          ; $0347  87
         ADD A,A                          ; $0348  87
         PUSH AF                          ; $0349  F5
-        CALL SUB_0353                    ; $034A  CD 53 03
-        JR Z,SUB_0353_1                  ; $034D  28 18
+        CALL PARSE_HEX_NIBBLE                    ; $034A  CD 53 03
+        JR Z,PARSE_HEX_NIBBLE_1                  ; $034D  28 18
         LD C,A                           ; $034F  4F
         POP AF                           ; $0350  F1
         OR C                             ; $0351  B1
         RET                              ; $0352  C9
 ; [AI] Reads one character and converts it from ASCII to a hex nibble (0-F), jumping to the Command
 ;       error handler on any non-hex character.
-SUB_0353:
-        CALL SUB_036A                    ; $0353  CD 6A 03
+PARSE_HEX_NIBBLE:
+        CALL GET_NEXT_CHAR                    ; $0353  CD 6A 03
         RET Z                            ; $0356  C8
         SUB $30                          ; $0357  D6 30
-        JR C,SUB_0353_1                  ; $0359  38 0C
+        JR C,PARSE_HEX_NIBBLE_1                  ; $0359  38 0C
         CP $0A                           ; $035B  FE 0A
         RET C                            ; $035D  D8
         SUB $07                          ; $035E  D6 07
         CP $0A                           ; $0360  FE 0A
-        JR C,SUB_0353_1                  ; $0362  38 03
+        JR C,PARSE_HEX_NIBBLE_1                  ; $0362  38 03
         CP $10                           ; $0364  FE 10
         RET C                            ; $0366  D8
-SUB_0353_1:
+PARSE_HEX_NIBBLE_1:
         JP TPA_START_42                  ; $0367  C3 19 03
 ; [AI] Low-level input fetch: returns the next command/input character via the IX scan pointer,
 ;       folding lowercase to uppercase and returning Z on the terminating null.
-SUB_036A:
+GET_NEXT_CHAR:
         LD A,(IX+0)                      ; $036A  DD 7E 00
         OR A                             ; $036D  B7
         RET Z                            ; $036E  C8
@@ -449,14 +449,14 @@ SUB_036A:
         RET                              ; $0376  C9
 ; [AI] Appends a parsed byte to a growing buffer and bumps the associated length counter held at
 ;       (IY) â used to build the new-byte and old-byte patch lists.
-SUB_0377:
+APPEND_PATCH_BYTE:
         INC HL                           ; $0377  23
         LD (HL),A                        ; $0378  77
         INC (IY+0)                       ; $0379  FD 34 00
         RET                              ; $037C  C9
 ; [AI] Prints the '$'-terminated string at DE (BDOS function 9) followed by a CR/LF; the standard
 ;       message-output helper.
-SUB_037D:
+PRINT_MSG_CRLF:
         LD C,$09                         ; $037D  0E 09
         CALL BDOS_VEC                    ; $037F  CD 05 00
         LD E,$0D                         ; $0382  1E 0D
@@ -464,156 +464,156 @@ SUB_037D:
         CALL BDOS_VEC                    ; $0386  CD 05 00
 ; [AI] Outputs a single line-feed (BDOS console-out, function 2) â the CR/LF helper's second
 ;       half.
-SUB_0389:
+PRINT_LF:
         LD E,$0A                         ; $0389  1E 0A
-SUB_0389_1:
+PRINT_LF_1:
         LD C,$02                         ; $038B  0E 02
-SUB_0389_2:
+PRINT_LF_2:
         JP BDOS_VEC                      ; $038D  C3 05 00
 ; [AI] Interactive-mode handler: prints the '*' prompt and reads a command line via BDOS read-
 ;       console-buffer (function 10) into $007D, then points the parser at it.
-SUB_0390:
+READ_COMMAND_LINE:
         LD A,(DEFAULT_DMA)               ; $0390  3A 80 00
-SUB_0390_1:
+READ_COMMAND_LINE_1:
         OR A                             ; $0393  B7
-SUB_0390_2:
-        JR NZ,SUB_0390_15                ; $0394  20 24
-SUB_0390_3:
-        LD DE,SUB_0424_6                 ; $0396  11 3A 04
-SUB_0390_4:
+READ_COMMAND_LINE_2:
+        JR NZ,READ_COMMAND_LINE_15                ; $0394  20 24
+READ_COMMAND_LINE_3:
+        LD DE,BIOS_DISK_DISPATCH_6                 ; $0396  11 3A 04
+READ_COMMAND_LINE_4:
         LD C,$09                         ; $0399  0E 09
-SUB_0390_5:
+READ_COMMAND_LINE_5:
         CALL BDOS_VEC                    ; $039B  CD 05 00
-SUB_0390_6:
+READ_COMMAND_LINE_6:
         LD A,$7D                         ; $039E  3E 7D
-SUB_0390_7:
+READ_COMMAND_LINE_7:
         LD (DEFAULT_DMA),A               ; $03A0  32 80 00
-SUB_0390_8:
+READ_COMMAND_LINE_8:
         LD C,$0A                         ; $03A3  0E 0A
-SUB_0390_9:
+READ_COMMAND_LINE_9:
         LD DE,DEFAULT_DMA                ; $03A5  11 80 00
-SUB_0390_10:
+READ_COMMAND_LINE_10:
         CALL BDOS_VEC                    ; $03A8  CD 05 00
-SUB_0390_11:
-        CALL SUB_0389                    ; $03AB  CD 89 03
-SUB_0390_12:
+READ_COMMAND_LINE_11:
+        CALL PRINT_LF                    ; $03AB  CD 89 03
+READ_COMMAND_LINE_12:
         LD A,(CMDLINE)                   ; $03AE  3A 81 00
-SUB_0390_13:
+READ_COMMAND_LINE_13:
         OR A                             ; $03B1  B7
-SUB_0390_14:
-        JR Z,SUB_0390_3                  ; $03B2  28 E2
+READ_COMMAND_LINE_14:
+        JR Z,READ_COMMAND_LINE_3                  ; $03B2  28 E2
         ADD A,$82                        ; $03B4  C6 82
         LD L,A                           ; $03B6  6F
         LD H,$00                         ; $03B7  26 00
         LD (HL),H                        ; $03B9  74
-SUB_0390_15:
+READ_COMMAND_LINE_15:
         LD IX,$0082                      ; $03BA  DD 21 82 00
         RET                              ; $03BE  C9
 ; [AI] Performs a BDOS random-write-with-verify (function 34) of the patched record to the default
 ;       FCB and maps the BDOS return code onto the appropriate error message.
-SUB_03BF:
+WRITE_RECORD_VERIFY:
         LD C,$22                         ; $03BF  0E 22
-SUB_03BF_1:
+WRITE_RECORD_VERIFY_1:
         LD HL,$210E                      ; $03C1  21 0E 21
         LD DE,DEFAULT_FCB                ; $03C4  11 5C 00
         CALL BDOS_VEC                    ; $03C7  CD 05 00
         OR A                             ; $03CA  B7
         RET Z                            ; $03CB  C8
         CP $04                           ; $03CC  FE 04
-        JR Z,SUB_03BF_2                  ; $03CE  28 01
+        JR Z,WRITE_RECORD_VERIFY_2                  ; $03CE  28 01
         DEC A                            ; $03D0  3D
-SUB_03BF_2:
+WRITE_RECORD_VERIFY_2:
         JP Z,TPA_START_45                ; $03D1  CA 28 03
         JP TPA_START_44                  ; $03D4  C3 23 03
 ; [AI] Increments the FCB random-record number and points the DMA at the second buffer so the
 ;       following (spanned) record can be read or written.
-SUB_03D7:
+ADVANCE_TO_REC2:
         LD HL,(DEFAULT_RND)              ; $03D7  2A 7D 00
         INC HL                           ; $03DA  23
         LD (DEFAULT_RND),HL              ; $03DB  22 7D 00
         LD DE,$05E4                      ; $03DE  11 E4 05
-        JR SUB_03E3_1                    ; $03E1  18 03
+        JR SET_DMA_BUF1_1                    ; $03E1  18 03
 ; [AI] Sets the DMA address to the primary record buffer ($0564) via BDOS set-DMA (function 26)
 ;       ahead of a transfer.
-SUB_03E3:
+SET_DMA_BUF1:
         LD DE,$0564                      ; $03E3  11 64 05
-SUB_03E3_1:
+SET_DMA_BUF1_1:
         LD C,$1A                         ; $03E6  0E 1A
         JP BDOS_VEC                      ; $03E8  C3 05 00
 ; [AI] Sets up and issues a record read by loading the record number into the FCB and dispatching
 ;       through the jump-table read primitive.
-SUB_03EB:
+READ_RECORD_1:
         LD BC,($0503)                    ; $03EB  ED 4B 03 05
-        CALL SUB_0424_5+1                ; $03EF  CD 33 04
+        CALL BIOS_DISK_DISPATCH_5+1                ; $03EF  CD 33 04
         LD A,($0502)                     ; $03F2  3A 02 05
         LD C,A                           ; $03F5  4F
-        JR SUB_0424_3+1                  ; $03F6  18 35
+        JR BIOS_DISK_DISPATCH_3+1                  ; $03F6  18 35
 ; [AI] Reads the second (spanned) record into the alternate buffer, advancing the record/sector
 ;       number and carrying into the next track when the per-track sector count is exceeded.
-SUB_03F8:
+READ_RECORD_2:
         LD BC,$05E4                      ; $03F8  01 E4 05
-        CALL SUB_0424_4+1                ; $03FB  CD 30 04
+        CALL BIOS_DISK_DISPATCH_4+1                ; $03FB  CD 30 04
         LD A,($0502)                     ; $03FE  3A 02 05
         INC A                            ; $0401  3C
         LD HL,$0505                      ; $0402  21 05 05
         CP (HL)                          ; $0405  BE
-        JR C,SUB_03F8_1                  ; $0406  38 09
+        JR C,READ_RECORD_2_1                  ; $0406  38 09
         LD BC,($0503)                    ; $0408  ED 4B 03 05
         INC BC                           ; $040C  03
-        CALL SUB_0424_5+1                ; $040D  CD 33 04
+        CALL BIOS_DISK_DISPATCH_5+1                ; $040D  CD 33 04
         XOR A                            ; $0410  AF
-SUB_03F8_1:
+READ_RECORD_2_1:
         LD C,A                           ; $0411  4F
-        CALL SUB_0424_3+1                ; $0412  CD 2D 04
+        CALL BIOS_DISK_DISPATCH_3+1                ; $0412  CD 2D 04
 ; [AI] Issues a write primitive (jump-table slot 1) and checks its status, branching to the disk-
 ;       error handler on failure.
-SUB_0415:
+BIOS_WRITE_CHECK:
         LD C,$01                         ; $0415  0E 01
-        CALL SUB_0424_2+1                ; $0417  CD 2A 04
-        JR SUB_041C_1                    ; $041A  18 03
+        CALL BIOS_DISK_DISPATCH_2+1                ; $0417  CD 2A 04
+        JR BIOS_READ_CHECK_1                    ; $041A  18 03
 ; [AI] Issues a read primitive and checks its status, branching to the disk-error handler on
 ;       failure.
-SUB_041C:
-        CALL SUB_0424                    ; $041C  CD 24 04
-SUB_041C_1:
+BIOS_READ_CHECK:
+        CALL BIOS_DISK_DISPATCH                    ; $041C  CD 24 04
+BIOS_READ_CHECK_1:
         OR A                             ; $041F  B7
         RET Z                            ; $0420  C8
         JP TPA_START_44                  ; $0421  C3 23 03
 ; [AI] Head of the misdisassembled BIOS-style jump table: loads an entry index into E, then (at
 ;       $0435) fetches the BIOS jump-table base from page zero, indexes it with E, and JP (HL)s into
 ;       the selected BIOS disk routine.
-SUB_0424:
+BIOS_DISK_DISPATCH:
         LD E,$27                         ; $0424  1E 27
-SUB_0424_1:
+BIOS_DISK_DISPATCH_1:
         LD HL,$1B1E                      ; $0426  21 1E 1B
-SUB_0424_2:
+BIOS_DISK_DISPATCH_2:
         LD HL,$2A1E                      ; $0429  21 1E 2A
-SUB_0424_3:
+BIOS_DISK_DISPATCH_3:
         LD HL,$211E                      ; $042C  21 1E 21
-SUB_0424_4:
+BIOS_DISK_DISPATCH_4:
         LD HL,$241E                      ; $042F  21 1E 24
-SUB_0424_5:
+BIOS_DISK_DISPATCH_5:
         LD HL,$1E1E                      ; $0432  21 1E 1E
         LD HL,($0001)                    ; $0435  2A 01 00
         LD L,E                           ; $0438  6B
         JP (HL)                          ; $0439  E9
-SUB_0424_6:
+BIOS_DISK_DISPATCH_6:
         DEFB    $0D,$0A,$2A,$24                                  ; $043A
-SUB_0424_7:
+BIOS_DISK_DISPATCH_7:
         DEFB    $43,$6F,$6D,$6D,$61,$6E,$64,$20,$65,$72,$72,$6F,$72,$24 ; $043E
-SUB_0424_8:
+BIOS_DISK_DISPATCH_8:
         DEFB    $44,$69,$73,$6B,$20,$49,$2F,$4F,$20,$65,$72,$72,$6F,$72,$24 ; $044C
-SUB_0424_9:
+BIOS_DISK_DISPATCH_9:
         DEFB    $46,$69,$6C,$65,$20,$6E,$6F,$74,$20,$66,$6F,$75,$6E,$64,$24 ; $045B
-SUB_0424_10:
+BIOS_DISK_DISPATCH_10:
         DEFB    $45,$6E,$64,$20,$6F,$66,$20,$46,$69,$6C,$65,$20,$65,$72,$72,$6F ; $046A
         DEFB    $72,$24                                          ; $047A
-SUB_0424_11:
+BIOS_DISK_DISPATCH_11:
         DEFB    $49,$6E,$76,$61,$6C,$69,$64,$20,$44,$72,$69,$76,$65,$24 ; $047C
-SUB_0424_12:
+BIOS_DISK_DISPATCH_12:
         DEFB    $56,$65,$72,$69,$66,$69,$63,$61,$74,$69,$6F,$6E,$20,$65,$72,$72 ; $048A
         DEFB    $6F,$72,$24                                      ; $049A
-SUB_0424_13:
+BIOS_DISK_DISPATCH_13:
         DEFB    $0D,$0A,$0D,$0A,$20,$20,$53,$6F,$66,$74,$63,$61,$72,$64,$20,$43 ; $049D
         DEFB    $50,$2F,$4D,$0D,$0A,$44,$69,$73,$6B,$20,$50,$61,$74,$63,$68,$20 ; $04AD
         DEFB    "Utility"    ; $04BD  string
@@ -622,11 +622,11 @@ SUB_0424_13:
         DEFB    $6F,$66,$74,$0D,$0A,$24,$46,$69,$6C,$65,$20,$6E,$6F,$74,$20,$66 ; $04D5
         DEFB    $6F,$75,$6E,$64,$24,$45,$6E,$64,$20,$6F,$66,$20,$46,$69,$6C,$65 ; $04E5
         DEFB    $20,$65,$72,$72,$6F,$72,$24,$49                  ; $04F5
-SUB_0424_14:
+BIOS_DISK_DISPATCH_14:
         DEFB    $6E                                              ; $04FD
-SUB_0424_15:
+BIOS_DISK_DISPATCH_15:
         DEFB    $76                                              ; $04FE
-SUB_0424_16:
+BIOS_DISK_DISPATCH_16:
         DEFB    $61                                              ; $04FF
 
     SAVEBIN "PATCH.bin", $0100, $0400

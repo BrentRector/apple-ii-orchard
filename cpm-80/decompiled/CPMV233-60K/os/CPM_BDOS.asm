@@ -75,37 +75,37 @@ READER               EQU $FA15               ; BIOS entry 7  -- reader device in
 
     ORG $DC00
 
-L_DC00:
+BDOS_IMAGE_HEADER:
         CP L                             ; $DC00  BD
         LD D,$00                         ; $DC01  16 00
         LD BC,$404D                      ; $DC03  01 4D 40
-        JP L_DC11                        ; $DC06  C3 11 DC
-        DEFW    L_DCA5                   ; $DC09
+        JP BDOS_ENTRY                        ; $DC06  C3 11 DC
+        DEFW    BDOS_ERROR                   ; $DC09
         DEFB    $B2,$DC,$B7,$DC,$BC,$DC                          ; $DC0B
-L_DC11:
-        LD (SUB_DF36_9),A                ; $DC11  32 8B E0
-        LD (SUB_DDB3_37),DE              ; $DC14  ED 53 11 DF
+BDOS_ENTRY:
+        LD (LC_CALL_B5C0_9),A                ; $DC11  32 8B E0
+        LD (CON_CRLF_37),DE              ; $DC14  ED 53 11 DF
         LD A,E                           ; $DC18  7B
         LD ($BFE3),A                     ; $DC19  32 E3 BF
         LD HL,WBOOT_VEC                  ; $DC1C  21 00 00
-        LD (SUB_DDB3_38),HL              ; $DC1F  22 13 DF
-        LD (SUB_DDB3_35),SP              ; $DC22  ED 73 DD DE
-        LD SP,SUB_DDB3_36                ; $DC26  31 0F DF
+        LD (CON_CRLF_38),HL              ; $DC1F  22 13 DF
+        LD (CON_CRLF_35),SP              ; $DC22  ED 73 DD DE
+        LD SP,CON_CRLF_36                ; $DC26  31 0F DF
         XOR A                            ; $DC29  AF
         LD ($BFED),A                     ; $DC2A  32 ED BF
         LD ($BFEB),A                     ; $DC2D  32 EB BF
-        LD (SUB_DF36_6),A                ; $DC30  32 87 DF
-        LD HL,SUB_DF36_1                 ; $DC33  21 45 DF
+        LD (LC_CALL_B5C0_6),A                ; $DC30  32 87 DF
+        LD HL,LC_CALL_B5C0_1                 ; $DC33  21 45 DF
         PUSH HL                          ; $DC36  E5
         LD A,C                           ; $DC37  79
         CP $29                           ; $DC38  FE 29
         RET NC                           ; $DC3A  D0
         CP $0C                           ; $DC3B  FE 0C
         JR NC,L_DC42                     ; $DC3D  30 03
-        LD (SUB_DF36_8),A                ; $DC3F  32 83 E0
+        LD (LC_CALL_B5C0_8),A                ; $DC3F  32 83 E0
 L_DC42:
         LD C,E                           ; $DC42  4B
-        LD HL,L_DC53                     ; $DC43  21 53 DC
+        LD HL,BDOS_DISPATCH_TBL                     ; $DC43  21 53 DC
         LD E,A                           ; $DC46  5F
         LD D,$00                         ; $DC47  16 00
         ADD HL,DE                        ; $DC49  19
@@ -113,22 +113,22 @@ L_DC42:
         LD E,(HL)                        ; $DC4B  5E
         INC HL                           ; $DC4C  23
         LD D,(HL)                        ; $DC4D  56
-        LD HL,(SUB_DDB3_37)              ; $DC4E  2A 11 DF
+        LD HL,(CON_CRLF_37)              ; $DC4E  2A 11 DF
         EX DE,HL                         ; $DC51  EB
         JP (HL)                          ; $DC52  E9
-L_DC53:
+BDOS_DISPATCH_TBL:
         DEFW    WBOOT                    ; $DC53
-        DEFW    SUB_DDB3_20              ; $DC55
-        DEFW    SUB_DD7D                 ; $DC57
-        DEFW    SUB_DDB3_21              ; $DC59
+        DEFW    CON_CRLF_20              ; $DC55
+        DEFW    CON_OUT_TAB                 ; $DC57
+        DEFW    CON_CRLF_21              ; $DC59
         DEFW    PUNCH                    ; $DC5B
         DEFW    LIST                     ; $DC5D
-        DEFW    SUB_DDB3_22              ; $DC5F
-        DEFW    SUB_DDB3_24              ; $DC61
-        DEFW    SUB_DDB3_25              ; $DC63
-        DEFW    SUB_DDB3_26              ; $DC65
-        DEFW    SUB_DDB3_2               ; $DC67
-        DEFW    SUB_DDB3_27              ; $DC69
+        DEFW    CON_CRLF_22              ; $DC5F
+        DEFW    CON_CRLF_24              ; $DC61
+        DEFW    CON_CRLF_25              ; $DC63
+        DEFW    CON_CRLF_26              ; $DC65
+        DEFW    CON_CRLF_2               ; $DC67
+        DEFW    CON_CRLF_27              ; $DC69
         DEFW    $BEA3                    ; $DC6B
         DEFW    $BEA8                    ; $DC6D
         DEFW    $BE47                    ; $DC6F
@@ -155,372 +155,372 @@ L_DC53:
         DEFW    $BF6B                    ; $DC99
         DEFW    $BE31                    ; $DC9B
         DEFW    $BF71                    ; $DC9D
-        DEFW    SUB_DDB3_29              ; $DC9F
-        DEFW    SUB_DDB3_29              ; $DCA1
+        DEFW    CON_CRLF_29              ; $DC9F
+        DEFW    CON_CRLF_29              ; $DCA1
         DEFW    $BF92                    ; $DCA3
-L_DCA5:
+BDOS_ERROR:
         DEFB    $21,$D5,$DC,$CD,$F0,$DC,$FE,$03,$C2,$41,$DF,$18,$10,$21,$E0,$DC ; $DCA5
         DEFB    $18,$08,$21,$EC,$DC,$18,$03,$21,$E7,$DC,$CD,$F0,$DC,$C3,$00,$00 ; $DCB5
         DEFB    $42,$64,$6F,$73,$20,$45,$72,$72,$20,$4F,$6E,$20,$20,$3A,$20,$24 ; $DCC5
         DEFB    $42,$61,$64,$20,$53,$65,$63,$74,$6F,$72,$24,$53,$65,$6C,$65,$63 ; $DCD5
         DEFB    $74,$24,$46,$69,$6C,$65,$20,$52,$2F,$4F,$24,$E5,$CD ; $DCE5
-        DEFW    SUB_DDB3                 ; $DCF2
+        DEFW    CON_CRLF                 ; $DCF2
         DEFB    $3A,$10,$DF,$C6,$41,$32,$D1,$DC,$01,$C5,$DC,$CD  ; $DCF4
-        DEFW    SUB_DDB3_1               ; $DD00
+        DEFW    CON_CRLF_1               ; $DD00
         DEFB    $C1,$CD                                          ; $DD02
-        DEFW    SUB_DDB3_1               ; $DD04
-SUB_DD06:
-        LD HL,SUB_DDB3_34                ; $DD06  21 DC DE
+        DEFW    CON_CRLF_1               ; $DD04
+CONIN_RAW:
+        LD HL,CON_CRLF_34                ; $DD06  21 DC DE
         LD A,(HL)                        ; $DD09  7E
         LD (HL),$00                      ; $DD0A  36 00
         OR A                             ; $DD0C  B7
         RET NZ                           ; $DD0D  C0
         JP CONIN                         ; $DD0E  C3 09 FA
-SUB_DD11:
-        CALL SUB_DD06                    ; $DD11  CD 06 DD
-        CALL SUB_DF36                    ; $DD14  CD 36 DF
+CONIN_ECHO:
+        CALL CONIN_RAW                    ; $DD11  CD 06 DD
+        CALL LC_CALL_B5C0                    ; $DD14  CD 36 DF
         RET C                            ; $DD17  D8
         PUSH AF                          ; $DD18  F5
         LD C,A                           ; $DD19  4F
-        CALL SUB_DD7D                    ; $DD1A  CD 7D DD
+        CALL CON_OUT_TAB                    ; $DD1A  CD 7D DD
         POP AF                           ; $DD1D  F1
         RET                              ; $DD1E  C9
-SUB_DD1F:
-        LD A,(SUB_DDB3_34)               ; $DD1F  3A DC DE
+CON_BREAK_STATUS:
+        LD A,(CON_CRLF_34)               ; $DD1F  3A DC DE
         OR A                             ; $DD22  B7
-        JR NZ,SUB_DD1F_3                 ; $DD23  20 1A
+        JR NZ,CON_BREAK_STATUS_3                 ; $DD23  20 1A
         CALL CONST                       ; $DD25  CD 06 FA
         AND $01                          ; $DD28  E6 01
-SUB_DD1F_1:
+CON_BREAK_STATUS_1:
         RET Z                            ; $DD2A  C8
         CALL CONIN                       ; $DD2B  CD 09 FA
         CP $13                           ; $DD2E  FE 13
-        JR NZ,SUB_DD1F_2                 ; $DD30  20 0A
+        JR NZ,CON_BREAK_STATUS_2                 ; $DD30  20 0A
         CALL CONIN                       ; $DD32  CD 09 FA
         CP $03                           ; $DD35  FE 03
         JP Z,WBOOT_VEC                   ; $DD37  CA 00 00
         XOR A                            ; $DD3A  AF
         RET                              ; $DD3B  C9
-SUB_DD1F_2:
-        LD (SUB_DDB3_34),A               ; $DD3C  32 DC DE
-SUB_DD1F_3:
+CON_BREAK_STATUS_2:
+        LD (CON_CRLF_34),A               ; $DD3C  32 DC DE
+CON_BREAK_STATUS_3:
         LD A,$01                         ; $DD3F  3E 01
         RET                              ; $DD41  C9
-SUB_DD42:
-        LD A,(SUB_DDB3_30)               ; $DD42  3A D8 DE
+CON_OUT_CHAR:
+        LD A,(CON_CRLF_30)               ; $DD42  3A D8 DE
         OR A                             ; $DD45  B7
-        JR NZ,SUB_DD42_2                 ; $DD46  20 13
+        JR NZ,CON_OUT_CHAR_2                 ; $DD46  20 13
         PUSH BC                          ; $DD48  C5
-        CALL SUB_DD1F                    ; $DD49  CD 1F DD
+        CALL CON_BREAK_STATUS                    ; $DD49  CD 1F DD
         POP BC                           ; $DD4C  C1
         PUSH BC                          ; $DD4D  C5
         CALL CONOUT                      ; $DD4E  CD 0C FA
         POP BC                           ; $DD51  C1
         PUSH BC                          ; $DD52  C5
-SUB_DD42_1:
-        LD A,(SUB_DDB3_33)               ; $DD53  3A DB DE
+CON_OUT_CHAR_1:
+        LD A,(CON_CRLF_33)               ; $DD53  3A DB DE
         OR A                             ; $DD56  B7
         CALL NZ,LIST                     ; $DD57  C4 0F FA
         POP BC                           ; $DD5A  C1
-SUB_DD42_2:
-        LD (SUB_DF36_9),A                ; $DD5B  32 8B E0
+CON_OUT_CHAR_2:
+        LD (LC_CALL_B5C0_9),A                ; $DD5B  32 8B E0
         CALL $B5D5                       ; $DD5E  CD D5 B5
-        JP SUB_DF36_4                    ; $DD61  C3 81 DF
+        JP LC_CALL_B5C0_4                    ; $DD61  C3 81 DF
         DEFB    $32                                              ; $DD64
-        DEFW    SUB_DF36_8               ; $DD65
+        DEFW    LC_CALL_B5C0_8               ; $DD65
         DEFB    $FE,$0A,$C0,$36,$00,$C9                          ; $DD67
-SUB_DD6D:
+CON_OUT_EXPAND:
         LD A,C                           ; $DD6D  79
-        CALL SUB_DF36                    ; $DD6E  CD 36 DF
-        JR NC,SUB_DD7D                   ; $DD71  30 0A
+        CALL LC_CALL_B5C0                    ; $DD6E  CD 36 DF
+        JR NC,CON_OUT_TAB                   ; $DD71  30 0A
         PUSH AF                          ; $DD73  F5
         LD C,$5E                         ; $DD74  0E 5E
-        CALL SUB_DD42                    ; $DD76  CD 42 DD
+        CALL CON_OUT_CHAR                    ; $DD76  CD 42 DD
         POP AF                           ; $DD79  F1
         OR $40                           ; $DD7A  F6 40
         LD C,A                           ; $DD7C  4F
-SUB_DD7D:
+CON_OUT_TAB:
         LD A,C                           ; $DD7D  79
         CP $09                           ; $DD7E  FE 09
-        JR NZ,SUB_DD42                   ; $DD80  20 C0
-SUB_DD7D_1:
+        JR NZ,CON_OUT_CHAR                   ; $DD80  20 C0
+CON_OUT_TAB_1:
         LD C,$20                         ; $DD82  0E 20
-        CALL SUB_DD42                    ; $DD84  CD 42 DD
-        LD A,(SUB_DDB3_32)               ; $DD87  3A DA DE
+        CALL CON_OUT_CHAR                    ; $DD84  CD 42 DD
+        LD A,(CON_CRLF_32)               ; $DD87  3A DA DE
         AND $07                          ; $DD8A  E6 07
-        JR NZ,SUB_DD7D_1                 ; $DD8C  20 F4
+        JR NZ,CON_OUT_TAB_1                 ; $DD8C  20 F4
         RET                              ; $DD8E  C9
-SUB_DD8F:
-        CALL SUB_DD97                    ; $DD8F  CD 97 DD
+CON_ERASE_CHAR:
+        CALL CON_BACKSPACE                    ; $DD8F  CD 97 DD
         LD C,$20                         ; $DD92  0E 20
         CALL CONOUT                      ; $DD94  CD 0C FA
-SUB_DD97:
+CON_BACKSPACE:
         LD C,$08                         ; $DD97  0E 08
         JP CONOUT                        ; $DD99  C3 0C FA
-SUB_DD9C:
+CON_LINE_KILL:
         LD C,$23                         ; $DD9C  0E 23
-        CALL SUB_DD42                    ; $DD9E  CD 42 DD
-        CALL SUB_DDB3                    ; $DDA1  CD B3 DD
-SUB_DD9C_1:
-        LD A,(SUB_DDB3_32)               ; $DDA4  3A DA DE
-        LD HL,SUB_DDB3_31                ; $DDA7  21 D9 DE
+        CALL CON_OUT_CHAR                    ; $DD9E  CD 42 DD
+        CALL CON_CRLF                    ; $DDA1  CD B3 DD
+CON_LINE_KILL_1:
+        LD A,(CON_CRLF_32)               ; $DDA4  3A DA DE
+        LD HL,CON_CRLF_31                ; $DDA7  21 D9 DE
         CP (HL)                          ; $DDAA  BE
         RET NC                           ; $DDAB  D0
         LD C,$20                         ; $DDAC  0E 20
-        CALL SUB_DD42                    ; $DDAE  CD 42 DD
-        JR SUB_DD9C_1                    ; $DDB1  18 F1
-SUB_DDB3:
+        CALL CON_OUT_CHAR                    ; $DDAE  CD 42 DD
+        JR CON_LINE_KILL_1                    ; $DDB1  18 F1
+CON_CRLF:
         LD C,$0D                         ; $DDB3  0E 0D
-        CALL SUB_DD42                    ; $DDB5  CD 42 DD
+        CALL CON_OUT_CHAR                    ; $DDB5  CD 42 DD
         LD C,$0A                         ; $DDB8  0E 0A
-        JR SUB_DD42                      ; $DDBA  18 86
-SUB_DDB3_1:
+        JR CON_OUT_CHAR                      ; $DDBA  18 86
+CON_CRLF_1:
         LD A,(BC)                        ; $DDBC  0A
         CP $24                           ; $DDBD  FE 24
         RET Z                            ; $DDBF  C8
         INC BC                           ; $DDC0  03
         PUSH BC                          ; $DDC1  C5
         LD C,A                           ; $DDC2  4F
-        CALL SUB_DD7D                    ; $DDC3  CD 7D DD
+        CALL CON_OUT_TAB                    ; $DDC3  CD 7D DD
         POP BC                           ; $DDC6  C1
-        JR SUB_DDB3_1                    ; $DDC7  18 F3
-SUB_DDB3_2:
-        LD A,(SUB_DDB3_32)               ; $DDC9  3A DA DE
-        LD (SUB_DDB3_31),A               ; $DDCC  32 D9 DE
-        LD HL,(SUB_DDB3_37)              ; $DDCF  2A 11 DF
+        JR CON_CRLF_1                    ; $DDC7  18 F3
+CON_CRLF_2:
+        LD A,(CON_CRLF_32)               ; $DDC9  3A DA DE
+        LD (CON_CRLF_31),A               ; $DDCC  32 D9 DE
+        LD HL,(CON_CRLF_37)              ; $DDCF  2A 11 DF
         LD C,(HL)                        ; $DDD2  4E
         INC HL                           ; $DDD3  23
         PUSH HL                          ; $DDD4  E5
         LD B,$00                         ; $DDD5  06 00
-SUB_DDB3_3:
+CON_CRLF_3:
         PUSH BC                          ; $DDD7  C5
         PUSH HL                          ; $DDD8  E5
-SUB_DDB3_4:
-        CALL SUB_DD06                    ; $DDD9  CD 06 DD
+CON_CRLF_4:
+        CALL CONIN_RAW                    ; $DDD9  CD 06 DD
         AND $7F                          ; $DDDC  E6 7F
         POP HL                           ; $DDDE  E1
         POP BC                           ; $DDDF  C1
         CP $0D                           ; $DDE0  FE 0D
-        JP Z,SUB_DDB3_19                 ; $DDE2  CA 95 DE
+        JP Z,CON_CRLF_19                 ; $DDE2  CA 95 DE
         CP $0A                           ; $DDE5  FE 0A
-        JP Z,SUB_DDB3_19                 ; $DDE7  CA 95 DE
+        JP Z,CON_CRLF_19                 ; $DDE7  CA 95 DE
         CP $08                           ; $DDEA  FE 08
-        JR NZ,SUB_DDB3_5                 ; $DDEC  20 0D
+        JR NZ,CON_CRLF_5                 ; $DDEC  20 0D
         LD A,B                           ; $DDEE  78
         OR A                             ; $DDEF  B7
-        JR Z,SUB_DDB3_3                  ; $DDF0  28 E5
+        JR Z,CON_CRLF_3                  ; $DDF0  28 E5
         DEC B                            ; $DDF2  05
-        LD A,(SUB_DDB3_32)               ; $DDF3  3A DA DE
-        LD (SUB_DDB3_30),A               ; $DDF6  32 D8 DE
-        JR SUB_DDB3_12                   ; $DDF9  18 4D
-SUB_DDB3_5:
+        LD A,(CON_CRLF_32)               ; $DDF3  3A DA DE
+        LD (CON_CRLF_30),A               ; $DDF6  32 D8 DE
+        JR CON_CRLF_12                   ; $DDF9  18 4D
+CON_CRLF_5:
         CP $7F                           ; $DDFB  FE 7F
-        JR NZ,SUB_DDB3_6                 ; $DDFD  20 09
+        JR NZ,CON_CRLF_6                 ; $DDFD  20 09
         LD A,B                           ; $DDFF  78
         OR A                             ; $DE00  B7
-        JR Z,SUB_DDB3_3                  ; $DE01  28 D4
+        JR Z,CON_CRLF_3                  ; $DE01  28 D4
         LD A,(HL)                        ; $DE03  7E
         DEC B                            ; $DE04  05
         DEC HL                           ; $DE05  2B
-        JR SUB_DDB3_17                   ; $DE06  18 76
-SUB_DDB3_6:
+        JR CON_CRLF_17                   ; $DE06  18 76
+CON_CRLF_6:
         CP $05                           ; $DE08  FE 05
-        JR NZ,SUB_DDB3_7                 ; $DE0A  20 0B
+        JR NZ,CON_CRLF_7                 ; $DE0A  20 0B
         PUSH BC                          ; $DE0C  C5
         PUSH HL                          ; $DE0D  E5
-        CALL SUB_DDB3                    ; $DE0E  CD B3 DD
+        CALL CON_CRLF                    ; $DE0E  CD B3 DD
         XOR A                            ; $DE11  AF
-        LD (SUB_DDB3_31),A               ; $DE12  32 D9 DE
-        JR SUB_DDB3_4                    ; $DE15  18 C2
-SUB_DDB3_7:
+        LD (CON_CRLF_31),A               ; $DE12  32 D9 DE
+        JR CON_CRLF_4                    ; $DE15  18 C2
+CON_CRLF_7:
         CP $10                           ; $DE17  FE 10
-        JR NZ,SUB_DDB3_8                 ; $DE19  20 0B
+        JR NZ,CON_CRLF_8                 ; $DE19  20 0B
         PUSH HL                          ; $DE1B  E5
-        LD HL,SUB_DDB3_33                ; $DE1C  21 DB DE
+        LD HL,CON_CRLF_33                ; $DE1C  21 DB DE
         LD A,$01                         ; $DE1F  3E 01
         SUB (HL)                         ; $DE21  96
         LD (HL),A                        ; $DE22  77
         POP HL                           ; $DE23  E1
-        JR SUB_DDB3_3                    ; $DE24  18 B1
-SUB_DDB3_8:
+        JR CON_CRLF_3                    ; $DE24  18 B1
+CON_CRLF_8:
         CP $18                           ; $DE26  FE 18
-        JR NZ,SUB_DDB3_10                ; $DE28  20 10
+        JR NZ,CON_CRLF_10                ; $DE28  20 10
         POP HL                           ; $DE2A  E1
-SUB_DDB3_9:
-        LD A,(SUB_DDB3_31)               ; $DE2B  3A D9 DE
-        LD HL,SUB_DDB3_32                ; $DE2E  21 DA DE
+CON_CRLF_9:
+        LD A,(CON_CRLF_31)               ; $DE2B  3A D9 DE
+        LD HL,CON_CRLF_32                ; $DE2E  21 DA DE
         CP (HL)                          ; $DE31  BE
-        JR NC,SUB_DDB3_2                 ; $DE32  30 95
+        JR NC,CON_CRLF_2                 ; $DE32  30 95
         DEC (HL)                         ; $DE34  35
-        CALL SUB_DD8F                    ; $DE35  CD 8F DD
-        JR SUB_DDB3_9                    ; $DE38  18 F1
-SUB_DDB3_10:
+        CALL CON_ERASE_CHAR                    ; $DE35  CD 8F DD
+        JR CON_CRLF_9                    ; $DE38  18 F1
+CON_CRLF_10:
         CP $15                           ; $DE3A  FE 15
-        JR NZ,SUB_DDB3_11                ; $DE3C  20 06
-        CALL SUB_DD9C                    ; $DE3E  CD 9C DD
+        JR NZ,CON_CRLF_11                ; $DE3C  20 06
+        CALL CON_LINE_KILL                    ; $DE3E  CD 9C DD
         POP HL                           ; $DE41  E1
-        JR SUB_DDB3_2                    ; $DE42  18 85
-SUB_DDB3_11:
+        JR CON_CRLF_2                    ; $DE42  18 85
+CON_CRLF_11:
         CP $12                           ; $DE44  FE 12
-        JR NZ,SUB_DDB3_16                ; $DE46  20 33
-SUB_DDB3_12:
+        JR NZ,CON_CRLF_16                ; $DE46  20 33
+CON_CRLF_12:
         PUSH BC                          ; $DE48  C5
-        CALL SUB_DD9C                    ; $DE49  CD 9C DD
+        CALL CON_LINE_KILL                    ; $DE49  CD 9C DD
         POP BC                           ; $DE4C  C1
         POP HL                           ; $DE4D  E1
         PUSH HL                          ; $DE4E  E5
         PUSH BC                          ; $DE4F  C5
-SUB_DDB3_13:
+CON_CRLF_13:
         LD A,B                           ; $DE50  78
         OR A                             ; $DE51  B7
-        JR Z,SUB_DDB3_14                 ; $DE52  28 0C
+        JR Z,CON_CRLF_14                 ; $DE52  28 0C
         INC HL                           ; $DE54  23
         LD C,(HL)                        ; $DE55  4E
         DEC B                            ; $DE56  05
         PUSH BC                          ; $DE57  C5
         PUSH HL                          ; $DE58  E5
-        CALL SUB_DD6D                    ; $DE59  CD 6D DD
+        CALL CON_OUT_EXPAND                    ; $DE59  CD 6D DD
         POP HL                           ; $DE5C  E1
         POP BC                           ; $DE5D  C1
-        JR SUB_DDB3_13                   ; $DE5E  18 F0
-SUB_DDB3_14:
+        JR CON_CRLF_13                   ; $DE5E  18 F0
+CON_CRLF_14:
         PUSH HL                          ; $DE60  E5
-        LD A,(SUB_DDB3_30)               ; $DE61  3A D8 DE
+        LD A,(CON_CRLF_30)               ; $DE61  3A D8 DE
         OR A                             ; $DE64  B7
-        JP Z,SUB_DDB3_4                  ; $DE65  CA D9 DD
-        LD HL,SUB_DDB3_32                ; $DE68  21 DA DE
+        JP Z,CON_CRLF_4                  ; $DE65  CA D9 DD
+        LD HL,CON_CRLF_32                ; $DE68  21 DA DE
         SUB (HL)                         ; $DE6B  96
-        LD (SUB_DDB3_30),A               ; $DE6C  32 D8 DE
-SUB_DDB3_15:
-        CALL SUB_DD8F                    ; $DE6F  CD 8F DD
-        LD HL,SUB_DDB3_30                ; $DE72  21 D8 DE
+        LD (CON_CRLF_30),A               ; $DE6C  32 D8 DE
+CON_CRLF_15:
+        CALL CON_ERASE_CHAR                    ; $DE6F  CD 8F DD
+        LD HL,CON_CRLF_30                ; $DE72  21 D8 DE
         DEC (HL)                         ; $DE75  35
-        JR NZ,SUB_DDB3_15                ; $DE76  20 F7
-        JP SUB_DDB3_4                    ; $DE78  C3 D9 DD
-SUB_DDB3_16:
+        JR NZ,CON_CRLF_15                ; $DE76  20 F7
+        JP CON_CRLF_4                    ; $DE78  C3 D9 DD
+CON_CRLF_16:
         INC HL                           ; $DE7B  23
         LD (HL),A                        ; $DE7C  77
         INC B                            ; $DE7D  04
-SUB_DDB3_17:
+CON_CRLF_17:
         PUSH BC                          ; $DE7E  C5
         PUSH HL                          ; $DE7F  E5
         LD C,A                           ; $DE80  4F
-        CALL SUB_DD6D                    ; $DE81  CD 6D DD
+        CALL CON_OUT_EXPAND                    ; $DE81  CD 6D DD
         POP HL                           ; $DE84  E1
         POP BC                           ; $DE85  C1
         LD A,(HL)                        ; $DE86  7E
         CP $03                           ; $DE87  FE 03
         LD A,B                           ; $DE89  78
-        JR NZ,SUB_DDB3_18                ; $DE8A  20 05
+        JR NZ,CON_CRLF_18                ; $DE8A  20 05
         CP $01                           ; $DE8C  FE 01
         JP Z,WBOOT_VEC                   ; $DE8E  CA 00 00
-SUB_DDB3_18:
+CON_CRLF_18:
         CP C                             ; $DE91  B9
-        JP C,SUB_DDB3_3                  ; $DE92  DA D7 DD
-SUB_DDB3_19:
+        JP C,CON_CRLF_3                  ; $DE92  DA D7 DD
+CON_CRLF_19:
         POP HL                           ; $DE95  E1
         LD (HL),B                        ; $DE96  70
         LD C,$0D                         ; $DE97  0E 0D
-        JP SUB_DD42                      ; $DE99  C3 42 DD
-SUB_DDB3_20:
-        CALL SUB_DD11                    ; $DE9C  CD 11 DD
-        JR SUB_DDB3_28                   ; $DE9F  18 2F
-SUB_DDB3_21:
+        JP CON_OUT_CHAR                      ; $DE99  C3 42 DD
+CON_CRLF_20:
+        CALL CONIN_ECHO                    ; $DE9C  CD 11 DD
+        JR CON_CRLF_28                   ; $DE9F  18 2F
+CON_CRLF_21:
         CALL READER                      ; $DEA1  CD 15 FA
-        JR SUB_DDB3_28                   ; $DEA4  18 2A
-SUB_DDB3_22:
+        JR CON_CRLF_28                   ; $DEA4  18 2A
+CON_CRLF_22:
         LD A,C                           ; $DEA6  79
         INC A                            ; $DEA7  3C
-        JR Z,SUB_DDB3_23                 ; $DEA8  28 07
+        JR Z,CON_CRLF_23                 ; $DEA8  28 07
         INC A                            ; $DEAA  3C
         JP Z,CONST                       ; $DEAB  CA 06 FA
         JP CONOUT                        ; $DEAE  C3 0C FA
-SUB_DDB3_23:
+CON_CRLF_23:
         CALL CONST                       ; $DEB1  CD 06 FA
         OR A                             ; $DEB4  B7
-        JP Z,SUB_DF36_2                  ; $DEB5  CA 63 DF
+        JP Z,LC_CALL_B5C0_2                  ; $DEB5  CA 63 DF
         CALL CONIN                       ; $DEB8  CD 09 FA
-        JR SUB_DDB3_28                   ; $DEBB  18 13
-SUB_DDB3_24:
+        JR CON_CRLF_28                   ; $DEBB  18 13
+CON_CRLF_24:
         LD A,(IOBYTE)                    ; $DEBD  3A 03 00
-        JR SUB_DDB3_28                   ; $DEC0  18 0E
-SUB_DDB3_25:
+        JR CON_CRLF_28                   ; $DEC0  18 0E
+CON_CRLF_25:
         LD HL,IOBYTE                     ; $DEC2  21 03 00
         LD (HL),C                        ; $DEC5  71
         RET                              ; $DEC6  C9
-SUB_DDB3_26:
+CON_CRLF_26:
         EX DE,HL                         ; $DEC7  EB
         LD C,L                           ; $DEC8  4D
         LD B,H                           ; $DEC9  44
-        JP SUB_DDB3_1                    ; $DECA  C3 BC DD
-SUB_DDB3_27:
-        CALL SUB_DD1F                    ; $DECD  CD 1F DD
-SUB_DDB3_28:
-        LD (SUB_DDB3_38),A               ; $DED0  32 13 DF
-SUB_DDB3_29:
+        JP CON_CRLF_1                    ; $DECA  C3 BC DD
+CON_CRLF_27:
+        CALL CON_BREAK_STATUS                    ; $DECD  CD 1F DD
+CON_CRLF_28:
+        LD (CON_CRLF_38),A               ; $DED0  32 13 DF
+CON_CRLF_29:
         RET                              ; $DED3  C9
         DEFB    $3E,$01,$18,$F8                                  ; $DED4
-SUB_DDB3_30:
+CON_CRLF_30:
         DEFB    $00                                              ; $DED8
-SUB_DDB3_31:
+CON_CRLF_31:
         DEFB    $00                                              ; $DED9
-SUB_DDB3_32:
+CON_CRLF_32:
         DEFB    $00                                              ; $DEDA
-SUB_DDB3_33:
+CON_CRLF_33:
         DEFB    $00                                              ; $DEDB
-SUB_DDB3_34:
+CON_CRLF_34:
         DEFB    $00                                              ; $DEDC
-SUB_DDB3_35:
+CON_CRLF_35:
         DEFS    50, $00    ; $DEDD  fill
-SUB_DDB3_36:
+CON_CRLF_36:
         DEFB    $00,$00                                          ; $DF0F
-SUB_DDB3_37:
+CON_CRLF_37:
         DEFB    $00,$00                                          ; $DF11
-SUB_DDB3_38:
+CON_CRLF_38:
         DEFB    $00,$00,$21,$0B,$DC,$5E,$23,$56,$EB,$32          ; $DF13
-        DEFW    SUB_DF36_8               ; $DF1D
+        DEFW    LC_CALL_B5C0_8               ; $DF1D
         DEFB    $E9,$32                                          ; $DF1F
-        DEFW    SUB_DF36_8               ; $DF21
+        DEFW    LC_CALL_B5C0_8               ; $DF21
         DEFB    $CD,$27,$FA,$18,$06,$32                          ; $DF23
-        DEFW    SUB_DF36_8               ; $DF29
+        DEFW    LC_CALL_B5C0_8               ; $DF29
         DEFB    $CD,$2A,$FA,$B7,$28,$10,$21,$09,$DC,$18,$E2      ; $DF2B
-SUB_DF36:
-        LD (SUB_DF36_9),A                ; $DF36  32 8B E0
+LC_CALL_B5C0:
+        LD (LC_CALL_B5C0_9),A                ; $DF36  32 8B E0
         JP $B5C0                         ; $DF39  C3 C0 B5
         DEFB    $32                                              ; $DF3C
-        DEFW    SUB_DF36_8               ; $DF3D
+        DEFW    LC_CALL_B5C0_8               ; $DF3D
         DEFB    $ED,$B0,$32                                      ; $DF3F
-        DEFW    SUB_DF36_9               ; $DF42
+        DEFW    LC_CALL_B5C0_9               ; $DF42
         DEFB    $C9                                              ; $DF44
-SUB_DF36_1:
+LC_CALL_B5C0_1:
         DEFB    $32                                              ; $DF45
-        DEFW    SUB_DF36_9               ; $DF46
+        DEFW    LC_CALL_B5C0_9               ; $DF46
         DEFB    $3A,$EB,$BF,$B7,$28,$15,$2A                      ; $DF48
-        DEFW    SUB_DDB3_37              ; $DF4F
+        DEFW    CON_CRLF_37              ; $DF4F
         DEFB    $36,$00,$3A,$ED,$BF,$B7,$28,$0A,$77,$3A,$EC,$BF,$32,$E3,$BF,$CD ; $DF51
         DEFB    $47,$BE                                          ; $DF61
-SUB_DF36_2:
-        LD (SUB_DF36_8),A                ; $DF63  32 83 E0
-        LD A,(SUB_DF36_6)                ; $DF66  3A 87 DF
+LC_CALL_B5C0_2:
+        LD (LC_CALL_B5C0_8),A                ; $DF63  32 83 E0
+        LD A,(LC_CALL_B5C0_6)                ; $DF66  3A 87 DF
         OR A                             ; $DF69  B7
-        JR Z,SUB_DF36_3                  ; $DF6A  28 0C
-        LD DE,(SUB_DF36_5)               ; $DF6C  ED 5B 85 DF
-        LD HL,SUB_DF36_7                 ; $DF70  21 88 DF
+        JR Z,LC_CALL_B5C0_3                  ; $DF6A  28 0C
+        LD DE,(LC_CALL_B5C0_5)               ; $DF6C  ED 5B 85 DF
+        LD HL,LC_CALL_B5C0_7                 ; $DF70  21 88 DF
         LD BC,$0024                      ; $DF73  01 24 00
         LDIR                             ; $DF76  ED B0
-SUB_DF36_3:
-        LD HL,(SUB_DDB3_38)              ; $DF78  2A 13 DF
+LC_CALL_B5C0_3:
+        LD HL,(CON_CRLF_38)              ; $DF78  2A 13 DF
         LD A,L                           ; $DF7B  7D
         LD B,H                           ; $DF7C  44
-        LD SP,(SUB_DDB3_35)              ; $DF7D  ED 7B DD DE
-SUB_DF36_4:
-        LD (SUB_DF36_8),A                ; $DF81  32 83 E0
+        LD SP,(CON_CRLF_35)              ; $DF7D  ED 7B DD DE
+LC_CALL_B5C0_4:
+        LD (LC_CALL_B5C0_8),A                ; $DF81  32 83 E0
         RET                              ; $DF84  C9
-SUB_DF36_5:
+LC_CALL_B5C0_5:
         DEFB    $00,$00                                          ; $DF85
-SUB_DF36_6:
+LC_CALL_B5C0_6:
         DEFB    $00                                              ; $DF87
-SUB_DF36_7:
+LC_CALL_B5C0_7:
         DEFS    36, $00    ; $DF88  fill
         DEFB    $8D,$83,$C0,$A2,$AC,$2C,$A2,$AA,$88,$B1,$3E,$4A,$3E,$56,$0B,$4A ; $DFAC
         DEFB    $3E,$56,$0B,$99,$00,$09,$E8,$D0,$EF,$98,$D0,$EA,$4C,$E5,$FF,$8D ; $DFBC
@@ -529,21 +529,21 @@ SUB_DF36_7:
         DEFS    20, $00    ; $DFEC  fill
         DEFB    $FE,$0D,$28,$0E,$FE,$0A,$28,$0A,$FE,$09,$28,$06,$FE,$08,$28,$02 ; $E000
         DEFB    $FE,$20,$C3                                      ; $E010
-        DEFW    SUB_DF36_4               ; $E013
+        DEFW    LC_CALL_B5C0_4               ; $E013
         DEFB    $79,$21                                          ; $E015
-        DEFW    SUB_DDB3_32              ; $E017
+        DEFW    CON_CRLF_32              ; $E017
         DEFB    $FE,$7F,$C8,$34,$FE,$20,$D0,$35,$7E,$B7,$C8,$79,$FE,$08,$C2,$64 ; $E019
         DEFB    $DD,$35,$C9,$3A,$10,$DF,$4F,$CD,$1B,$FA,$7C,$B5,$C8,$5E,$23,$56 ; $E029
         DEFB    $23,$22,$C0,$BF,$23,$23,$22,$C2,$BF,$23,$23,$22,$C4,$BF,$23,$23 ; $E039
         DEFB    $ED                                              ; $E049
-        DEFW    SUB_DD42_1               ; $E04A
+        DEFW    CON_OUT_CHAR_1               ; $E04A
         DEFB    $BF,$11,$C6,$BF,$01,$08,$00,$ED,$B0,$2A,$C8,$BF,$11,$CE,$BF,$01 ; $E04C
         DEFB    $0F,$00,$ED,$B0,$2A,$D3,$BF,$7C,$21,$EA,$BF,$36,$FF,$B7,$28,$02 ; $E05C
         DEFB    $36,$00,$3E,$FF,$B7,$C9,$CD,$18,$FA,$AF,$2A,$C2,$BF,$77,$23,$77 ; $E06C
         DEFB    $2A,$C4,$BF,$77,$23,$77,$C9                      ; $E07C
-SUB_DF36_8:
+LC_CALL_B5C0_8:
         DEFB    $2A,$F7,$BF,$0E,$02,$CD,$5F,$B7                  ; $E083
-SUB_DF36_9:
+LC_CALL_B5C0_9:
         DEFB    $22,$F2,$BF,$22,$F9,$BF,$21,$F2,$BF,$4E,$23,$46,$2A,$C4,$BF,$5E ; $E08B
         DEFB    $23,$56,$2A,$C2,$BF,$7E,$23,$66,$6F,$79,$93,$78,$9A,$30,$0E,$E5 ; $E09B
         DEFB    $2A,$CE,$BF,$7B,$95,$5F,$7A,$9C,$57,$E1,$2B,$18,$EC,$E5,$2A,$CE ; $E0AB
@@ -551,19 +551,19 @@ SUB_DF36_9:
         DEFB    $C5,$D5,$E5,$EB,$2A,$DB,$BF,$19,$44,$4D,$CD,$1E,$FA,$D1,$2A,$C2 ; $E0CB
         DEFB    $BF,$73,$23,$72,$D1,$2A,$C4,$BF,$73,$23,$72,$C1,$79,$93,$4F,$78 ; $E0DB
         DEFB    $9A,$47                                          ; $E0EB
-        DEFW    SUB_DD1F_1               ; $E0ED
+        DEFW    CON_BREAK_STATUS_1               ; $E0ED
         DEFB    $BF,$EB,$CD,$30,$FA,$4D,$44,$C3,$21,$FA,$21,$D0,$BF,$4E,$3A,$F0 ; $E0EF
         DEFB    $BF,$B7,$1F,$0D,$20,$FB,$47,$3E,$08,$96,$4F,$3A,$EF,$BF,$0D,$28 ; $E0FF
         DEFB    $04,$B7,$17,$18,$F9,$80,$C9,$2A                  ; $E10F
-        DEFW    SUB_DDB3_37              ; $E117
+        DEFW    CON_CRLF_37              ; $E117
         DEFB    $11,$10,$00,$19,$09,$3A,$EA,$BF,$B7,$28,$04,$6E,$26,$00,$C9,$09 ; $E119
         DEFB    $5E,$23,$56,$EB,$C9,$CD,$B9,$B6,$4F,$06,$00,$CD,$D6,$B6,$22,$F2 ; $E129
         DEFB    $BF,$C9,$2A,$F2,$BF,$7D,$B4,$C9,$3A,$D0,$BF,$2A,$F2,$BF,$29,$3D ; $E139
         DEFB    $20,$FC,$22,$F4,$BF,$3A,$D1,$BF,$4F,$3A,$F0,$BF,$A1,$B5,$6F,$22 ; $E149
         DEFB    $F2,$BF,$C9,$2A                                  ; $E159
-        DEFW    SUB_DDB3_37              ; $E15D
+        DEFW    CON_CRLF_37              ; $E15D
         DEFB    $11,$0C,$00,$19,$C9,$2A                          ; $E15F
-        DEFW    SUB_DDB3_37              ; $E165
+        DEFW    CON_CRLF_37              ; $E165
         DEFB    $11,$0F,$00,$19,$EB,$21,$11,$00,$19,$C9,$CD,$24,$B7,$7E,$32,$F0 ; $E167
         DEFB    $BF,$EB,$7E,$32,$EE,$BF,$CD,$1C,$B7,$3A,$D2,$BF,$A6,$32,$EF,$BF ; $E177
         DEFB    $C9,$CD,$24,$B7,$3A,$E2,$BF,$FE,$02,$20,$01,$AF,$4F,$3A,$F0,$BF ; $E187
@@ -576,7 +576,7 @@ SUB_DF36_9:
         DEFB    $09,$00,$19,$7E,$17,$D0,$21,$0F,$DC,$C3,$18,$DF,$CD,$8D,$B7,$C8 ; $E1F7
         DEFB    $21,$0D,$DC,$C3,$18,$DF,$2A,$C6,$BF,$3A,$F6,$BF,$85,$6F,$D0,$24 ; $E207
         DEFB    $C9,$2A                                          ; $E217
-        DEFW    SUB_DDB3_37              ; $E219
+        DEFW    CON_CRLF_37              ; $E219
         DEFB    $11,$0E,$00,$19,$7E,$C9,$CD,$A3,$BF,$CD,$EB,$B7,$CD,$77,$BE,$C9 ; $E21B
         DEFB    $CD,$D8,$B7,$36,$00                              ; $E22B  "MX76"
         DEFB    $C9,$CD,$D8,$B7,$F6,$80                          ; $E230  "IMX7v"
@@ -602,23 +602,23 @@ SUB_DF36_9:
         DEFB    $23,$0B,$78,$B1,$20,$F8,$2A,$D7,$BF,$EB,$2A,$CC,$BF,$73,$23,$72 ; $E35F
         DEFB    $CD,$32,$B6,$2A,$C0,$BF,$36,$03,$23,$36,$00,$CD,$74,$B8,$0E,$FF ; $E36F
         DEFB    $CD,$7B,$B8,$CD,$6B,$B8,$C8,$CD,$CD,$B7,$3E,$E5,$BE,$28,$EF,$3A ; $E37F
-        DEFW    SUB_DDB3_36              ; $E38F
+        DEFW    CON_CRLF_36              ; $E38F
         DEFB    $BE,$20,$0A,$23,$7E,$D6,$24,$20,$04,$3D,$32      ; $E391
-        DEFW    SUB_DDB3_38              ; $E39C
+        DEFW    CON_CRLF_38              ; $E39C
         DEFB    $0E,$01,$CD,$DB,$B8,$CD,$05,$B8,$C3,$3D,$B9,$3A,$E1,$BF,$C3 ; $E39E
-        DEFW    SUB_DDB3_28              ; $E3AD
+        DEFW    CON_CRLF_28              ; $E3AD
         DEFB    $C5,$F5,$3A,$D2,$BF,$2F,$47,$79,$A0,$4F,$F1,$A0,$91,$E6,$1F,$C1 ; $E3AF
         DEFB    $C9,$3E,$FF,$32,$E1,$BF,$21,$E5,$BF,$71,$2A      ; $E3BF
-        DEFW    SUB_DDB3_37              ; $E3CA
+        DEFW    CON_CRLF_37              ; $E3CA
         DEFB    $22,$E6,$BF,$CD,$74,$B8,$CD,$32,$B6,$0E,$00,$CD,$7B,$B8,$CD,$6B ; $E3CC
         DEFB    $B8,$28,$52,$2A,$E6,$BF,$EB,$1A,$FE,$E5,$28,$07,$D5,$CD,$F8,$B7 ; $E3DC
         DEFB    $D1,$30,$42,$CD,$CD,$B7,$3A,$E5,$BF,$4F,$06,$00,$79,$B7,$28,$24 ; $E3EC
         DEFB    $1A,$FE,$3F,$28,$19,$78,$FE,$0D,$28,$14,$FE,$0C,$1A,$28,$07,$96 ; $E3FC
         DEFB    $E6,$7F,$20,$C5,$18,$08,$C5,$4E,$CD,$6F,$B9,$C1,$20,$BB,$13,$23 ; $E40C
         DEFB    $04,$0D,$18,$D8,$3A,$F7,$BF,$E6,$03,$32          ; $E41C
-        DEFW    SUB_DDB3_38              ; $E426
+        DEFW    CON_CRLF_38              ; $E426
         DEFB    $21,$E1,$BF,$7E,$17,$D0,$AF,$77,$C9,$CD,$74,$B8,$3E,$FF,$C3 ; $E428
-        DEFW    SUB_DDB3_28              ; $E437
+        DEFW    CON_CRLF_28              ; $E437
         DEFB    $CD,$C3,$B7,$0E,$0C,$CD,$80,$B9,$CD,$6B,$B8,$C8,$CD,$B3,$B7,$CD ; $E439
         DEFB    $CD,$B7,$36,$E5,$0E,$00,$CD,$DB,$B8,$CD,$3C,$B8,$CD,$95,$B9,$18 ; $E449
         DEFB    $E7,$50,$59,$79,$B0,$28,$0B,$0B,$D5,$C5,$CD,$A7,$B8,$1F,$30,$1A ; $E459
@@ -626,68 +626,68 @@ SUB_DF36_9:
         DEFB    $CD,$A7,$B8,$1F,$30,$04,$D1,$C1,$18,$D9,$17,$3C,$CD,$D5,$B8,$E1 ; $E479
         DEFB    $D1,$C9,$79,$B0,$20,$CD,$21,$00                  ; $E489  "QIy0 M!"
         DEFB    $00,$C9,$0E,$00,$1E,$20,$D5,$06,$00,$2A          ; $E491
-        DEFW    SUB_DDB3_37              ; $E49B
+        DEFW    CON_CRLF_37              ; $E49B
         DEFB    $09,$EB,$CD,$CD,$B7,$C1,$06,$00,$EB,$ED,$B0,$CD,$43,$B6,$C3,$3C ; $E49D
         DEFB    $B8,$CD,$C3,$B7,$0E,$0C,$CD,$80,$B9,$2A          ; $E4AD
-        DEFW    SUB_DDB3_37              ; $E4B7
+        DEFW    CON_CRLF_37              ; $E4B7
         DEFB    $7E,$11,$10,$00,$19,$77,$CD,$6B,$B8,$C8,$CD,$B3,$B7,$0E,$10,$1E ; $E4B9
         DEFB    $0C,$CD,$57,$BA,$CD,$95,$B9,$18,$ED,$0E,$0C,$CD,$80,$B9,$CD,$6B ; $E4C9
         DEFB    $B8,$C8,$0E,$00,$1E,$0C,$CD,$57,$BA,$CD,$95,$B9,$18,$F0,$0E,$0F ; $E4D9
         DEFB    $CD,$80,$B9,$CD,$6B,$B8,$C8,$CD,$1C,$B7,$7E,$F5,$E5,$CD,$CD,$B7 ; $E4E9
         DEFB    $ED,$5B                                          ; $E4F9
-        DEFW    SUB_DDB3_37              ; $E4FB
+        DEFW    CON_CRLF_37              ; $E4FB
         DEFB    $01,$20,$00,$D5,$ED,$B0,$CD,$F1,$B7,$D1,$21,$0C,$00,$19,$4E,$21 ; $E4FD
         DEFB    $0F,$00,$19,$46,$E1,$F1,$77,$79,$BE,$78,$28,$06,$3E,$00,$38,$02 ; $E50D
         DEFB    $3E,$80,$2A                                      ; $E51D
-        DEFW    SUB_DDB3_37              ; $E520
+        DEFW    CON_CRLF_37              ; $E520
         DEFB    $11,$0F,$00,$19,$77,$C9,$7E,$23,$B6,$2B,$C0,$1A,$77,$13,$23,$1A ; $E522
         DEFB    $77,$1B,$2B,$C9,$AF,$32                          ; $E532
-        DEFW    SUB_DDB3_38              ; $E538
+        DEFW    CON_CRLF_38              ; $E538
         DEFB    $32,$F7,$BF,$32,$F8,$BF,$CD,$8D                  ; $E53A  "2w?2x?M"
         DEFB    $B7,$C0,$CD,$D8,$B7,$E6,$80                      ; $E542  "7@MX7f"
         DEFB    $C0,$0E,$0F,$CD,$80,$B9,$CD,$6B,$B8,$C8,$01,$10,$00,$CD,$CD,$B7 ; $E549
         DEFB    $09,$EB,$2A                                      ; $E559
-        DEFW    SUB_DDB3_37              ; $E55C
+        DEFW    CON_CRLF_37              ; $E55C
         DEFB    $09,$0E,$10,$3A,$EA,$BF,$B7,$28,$10,$7E,$B7,$1A,$20,$01,$77,$B7 ; $E55E
         DEFB    $20,$02,$7E,$12,$BE,$20,$35,$18,$13,$CD,$E8,$BA,$EB,$CD,$E8,$BA ; $E56E
         DEFB    $EB,$1A,$BE,$20,$27,$13,$23,$1A,$BE,$20,$21,$0D,$13,$23,$0D,$20 ; $E57E
         DEFB    $D2,$01,$EC,$FF,$09,$EB,$09,$1A,$BE,$38,$09,$77,$01,$03,$00,$09 ; $E58E
         DEFB    $EB,$09,$7E,$12,$3E,$FF,$32,$DF,$BF,$C3,$68,$BA,$21 ; $E59E
-        DEFW    SUB_DDB3_38              ; $E5AB
+        DEFW    CON_CRLF_38              ; $E5AB
         DEFB    $35,$C9,$CD,$C3,$B7,$2A                          ; $E5AD
-        DEFW    SUB_DDB3_37              ; $E5B3
+        DEFW    CON_CRLF_37              ; $E5B3
         DEFB    $E5,$21,$B9,$BF,$22                              ; $E5B5
-        DEFW    SUB_DDB3_37              ; $E5BA
+        DEFW    CON_CRLF_37              ; $E5BA
         DEFB    $0E,$01,$CD,$80,$B9,$CD,$6B,$B8,$E1,$22          ; $E5BC
-        DEFW    SUB_DDB3_37              ; $E5C6
+        DEFW    CON_CRLF_37              ; $E5C6
         DEFB    $C8,$EB,$21,$0F,$00,$19,$0E,$11,$AF,$77,$23,$0D,$20,$FB,$21,$0D ; $E5C8
         DEFB    $00,$19,$77,$CD,$05,$B8,$CD,$53,$BA,$C3,$F1,$B7,$AF,$32,$DF,$BF ; $E5D8
         DEFB    $CD,$F6,$BA,$CD,$6B,$B8,$C8,$2A                  ; $E5E8
-        DEFW    SUB_DDB3_37              ; $E5F0
+        DEFW    CON_CRLF_37              ; $E5F0
         DEFB    $01,$0C,$00,$09,$7E,$3C,$E6,$1F,$77,$28,$0D,$47,$3A,$D2,$BF,$A0 ; $E5F2
         DEFB    $21,$DF,$BF,$A6,$28,$0C,$18,$24,$01,$02,$00,$09,$34,$7E,$E6,$0F ; $E602
         DEFB    $28,$24,$0E,$0F,$CD,$80,$B9,$CD,$6B,$B8,$20,$10,$3A,$E0,$BF,$3C ; $E612
         DEFB    $28,$14,$CD,$6F,$BB,$CD,$6B,$B8,$28,$0C,$18,$03,$CD,$B0,$BA,$CD ; $E622
         DEFB    $31,$B7,$AF,$C3                                  ; $E632
-        DEFW    SUB_DDB3_28              ; $E636
+        DEFW    CON_CRLF_28              ; $E636
         DEFB    $CD,$D4,$DE,$C3,$F1,$B7,$3E,$01,$32,$E2,$BF,$3E,$FF,$32,$E0,$BF ; $E638
         DEFB    $CD,$31,$B7,$3A,$F0,$BF,$21,$EE,$BF,$BE,$38,$11,$FE,$80,$20,$21 ; $E648
         DEFB    $CD,$A4,$BB,$AF,$32,$F0,$BF,$3A                  ; $E658
-        DEFW    SUB_DDB3_38              ; $E660
+        DEFW    CON_CRLF_38              ; $E660
         DEFB    $B7,$20,$14,$CD,$EE,$B6,$CD,$FB,$B6,$28,$0C,$CD,$01,$B7,$CD,$51 ; $E662
         DEFB    $B6,$CD,$20,$DF,$C3,$48,$B7,$C3,$D4,$DE,$3E,$01,$32,$E2,$BF,$3E ; $E672
         DEFB    $00,$32,$E0,$BF,$CD,$C3,$B7,$2A                  ; $E682
-        DEFW    SUB_DDB3_37              ; $E68A
+        DEFW    CON_CRLF_37              ; $E68A
         DEFB    $CD,$B6,$B7,$CD,$31,$B7,$3A,$F0,$BF,$FE,$80      ; $E68C  "M67M17:p?~"
         DEFB    $D2,$D4,$DE,$CD,$EE,$B6,$CD,$FB,$B6,$0E,$00,$20,$43,$CD,$B9,$B6 ; $E697
         DEFB    $32,$E4,$BF,$01,$00,$00,$B7,$28,$07,$4F,$0B,$CD,$D6,$B6,$44,$4D ; $E6A7
         DEFB    $CD,$1A,$BA,$7D,$B4,$20,$05,$3E,$02,$C3          ; $E6B7
-        DEFW    SUB_DDB3_28              ; $E6C1
+        DEFW    CON_CRLF_28              ; $E6C1
         DEFB    $22,$F2,$BF,$EB,$2A                              ; $E6C3
-        DEFW    SUB_DDB3_37              ; $E6C8
+        DEFW    CON_CRLF_37              ; $E6C8
         DEFB    $01,$10,$00,$09,$3A,$EA,$BF,$B7,$3A,$E4,$BF,$28,$06,$CD,$D3,$B7 ; $E6CA
         DEFB    $73,$18,$08,$4F,$06,$00,$09,$09,$73,$23,$72,$0E,$02,$3A ; $E6DA
-        DEFW    SUB_DDB3_38              ; $E6E8
+        DEFW    CON_CRLF_38              ; $E6E8
         DEFB    $B7,$C0,$C5,$CD,$01,$B7,$3A,$E2,$BF,$3D,$3D,$20,$3A,$C1,$C5,$79 ; $E6EA
         DEFB    $3D,$3D,$20,$33,$E5,$2A,$C6,$BF,$57,$77,$23,$14,$F2,$C3,$BC,$CD ; $E6FA
         DEFB    $54,$B8,$2A,$F4,$BF,$0E,$02,$22,$F2,$BF,$C5,$CD,$51,$B6,$C1,$CD ; $E70A
@@ -696,83 +696,83 @@ SUB_DF36_9:
         DEFB    $3A,$F0,$BF,$21,$EE,$BF,$BE,$38,$04,$77,$34,$0E,$02,$F5,$CD,$D8 ; $E73A
         DEFB    $B7,$E6,$7F,$77,$F1,$FE,$7F,$20,$1A,$3A,$E2,$BF,$FE,$01,$20,$13 ; $E74A
         DEFB    $CD,$48,$B7,$CD,$A4,$BB,$21                      ; $E75A
-        DEFW    SUB_DDB3_38              ; $E761
+        DEFW    CON_CRLF_38              ; $E761
         DEFB    $7E,$B7,$20,$04,$3D,$32,$F0,$BF,$36,$00,$C3,$48,$B7,$AF,$32,$E2 ; $E763
         DEFB    $BF,$C5,$2A                                      ; $E773
-        DEFW    SUB_DDB3_37              ; $E776
+        DEFW    CON_CRLF_37              ; $E776
         DEFB    $EB,$21,$21,$00,$19,$7E,$E6,$7F,$F5,$7E,$17,$23,$7E,$17,$E6,$1F ; $E778
         DEFB    $4F,$7E,$1F,$1F,$1F,$1F,$E6,$0F,$47,$F1,$23,$6E,$2C,$2D,$2E,$06 ; $E788
         DEFB    " W! "    ; $E798  string
         DEFB    $00    ; $E79C  terminator
         DEFB    $19,$77,$21,$0C,$00,$19,$79,$96,$20,$0A,$21,$0E,$00,$19,$78,$96 ; $E79D
         DEFB    $E6,$7F,$28,$34,$C5,$D5,$CD,$F6,$BA,$D1,$C1,$2E,$03,$3A ; $E7AD
-        DEFW    SUB_DDB3_38              ; $E7BB
+        DEFW    CON_CRLF_38              ; $E7BB
         DEFB    $3C,$28,$2A,$21,$0C,$00,$19,$71,$21,$0E,$00,$19,$70,$CD,$A7,$BA ; $E7BD
         DEFB    $3A                                              ; $E7CD
-        DEFW    SUB_DDB3_38              ; $E7CE
+        DEFW    CON_CRLF_38              ; $E7CE
         DEFB    $3C,$20,$12,$C1,$C5,$2E,$04,$0C,$28,$10,$CD,$6F,$BB,$2E,$05,$3A ; $E7D0
-        DEFW    SUB_DDB3_38              ; $E7E0
+        DEFW    CON_CRLF_38              ; $E7E0
         DEFB    $3C,$28,$05,$C1,$AF,$C3                          ; $E7E2
-        DEFW    SUB_DDB3_28              ; $E7E8
+        DEFW    CON_CRLF_28              ; $E7E8
         DEFB    $E5,$CD,$D8,$B7,$36,$C0,$E1,$C1,$7D,$32          ; $E7EA
-        DEFW    SUB_DDB3_38              ; $E7F4
+        DEFW    CON_CRLF_38              ; $E7F4
         DEFB    $C3,$F1,$B7,$0E,$FF,$CD,$30,$BD,$CC,$03,$BC,$C9,$0E,$00,$CD,$30 ; $E7F6
         DEFB    $BD,$CC,$41,$BC,$C9,$EB,$19,$4E,$06,$00,$21,$0C,$00,$19,$7E,$0F ; $E806
         DEFB    $E6,$80,$81,$4F,$3E,$00,$88,$47,$7E,$0F,$E6,$0F,$80,$47,$21,$0E ; $E816
         DEFB    $00,$19,$7E,$87,$87,$87,$87,$F5,$80,$47,$F5,$E1,$7D,$E1,$B5,$E6 ; $E826
         DEFB    $01,$C9,$0E,$0C,$CD,$80,$B9,$2A                  ; $E836
-        DEFW    SUB_DDB3_37              ; $E83E
+        DEFW    CON_CRLF_37              ; $E83E
         DEFB    $11,$21,$00,$19,$E5,$72,$23,$72,$23,$72,$CD,$6B,$B8,$28,$20,$CD ; $E840
         DEFB    $CD,$B7,$11,$0F,$00,$CD,$CB,$BD,$E1,$E5,$5F,$79,$96,$23,$78,$9E ; $E850
         DEFB    $23,$7B,$9E,$38,$05,$73,$2B,$70,$2B,$71,$CD,$95,$B9,$18,$DB,$E1 ; $E860
         DEFB    $C9,$CD,$A3,$BF,$2A                              ; $E870
-        DEFW    SUB_DDB3_37              ; $E875
+        DEFW    CON_CRLF_37              ; $E875
         DEFB    $11,$20,$00,$CD,$CB,$BD,$21,$21,$00,$19,$71,$23,$70,$23,$77,$C9 ; $E877
         DEFB    $3A,$E3,$BF,$21,$10,$DF,$BE,$C8,$77,$2A,$BC,$BF,$3A,$10,$DF,$4F ; $E887
         DEFB    $CD,$5F,$B7,$E5,$EB,$CD,$EC,$B5,$E1,$CC,$15,$DF,$7D,$1F,$D8,$2A ; $E897
         DEFB    $BC,$BF,$4D,$44,$CD,$7A,$B7,$22,$BC,$BF,$C3,$0F,$B9,$CD,$A3,$BF ; $E8A7
         DEFB    $3E,$FF,$32,$EB,$BF,$2A                          ; $E8B7
-        DEFW    SUB_DDB3_37              ; $E8BD
+        DEFW    CON_CRLF_37              ; $E8BD
         DEFB    $7E,$E6,$1F,$3D,$32,$E3,$BF,$FE,$1E,$30,$10,$3A,$10,$DF,$32,$EC ; $E8BF
         DEFB    $BF,$7E,$32,$ED,$BF,$E6,$E0,$77,$CD,$47,$BE,$3A  ; $E8CF
-        DEFW    SUB_DDB3_36              ; $E8DB
+        DEFW    CON_CRLF_36              ; $E8DB
         DEFB    $2A                                              ; $E8DD
-        DEFW    SUB_DDB3_37              ; $E8DE
+        DEFW    CON_CRLF_37              ; $E8DE
         DEFB    $B6,$77,$C9,$3E,$22,$C3                          ; $E8E0
-        DEFW    SUB_DDB3_28              ; $E8E6
+        DEFW    CON_CRLF_28              ; $E8E6
         DEFB    $21,$00,$00,$22,$BA,$BF,$22,$BC,$BF,$AF,$32,$10,$DF,$21,$80,$00 ; $E8E8
         DEFB    $22,$BE,$BF,$CD,$4F,$B8,$18,$90,$CD,$E1,$B7,$C3,$A7,$BA,$CD,$74 ; $E8F8
         DEFB    $BE,$C3,$F6,$BA,$CD,$A3,$BF,$0E,$00,$EB,$7E,$FE,$3F,$28,$0E,$CD ; $E908
         DEFB    $1C,$B7,$7E,$FE,$3F,$C4,$EB,$B7,$CD,$77,$BE,$0E,$0F,$CD,$80,$B9 ; $E918
         DEFB    $C3,$5D,$B8,$ED,$5B                              ; $E928
-        DEFW    SUB_DF36_5               ; $E92D
+        DEFW    LC_CALL_B5C0_5               ; $E92D
         DEFB    $CD,$A3,$BF,$EB,$CD,$77,$BE,$CD,$95,$B9,$C3,$5D,$B8,$CD,$74,$BE ; $E92F
         DEFB    $CD,$F9,$B9,$C3,$69,$B9,$CD,$74,$BE,$C3,$FE,$BB,$CD,$74,$BE,$C3 ; $E93F
         DEFB    $3C,$BC,$CD,$E1,$B7,$C3,$6F,$BB,$CD,$74,$BE,$CD,$6E,$BA,$C3,$69 ; $E94F
         DEFB    $B9,$2A,$BC,$BF,$18,$23,$3A,$10,$DF,$C3          ; $E95F
-        DEFW    SUB_DDB3_28              ; $E969
+        DEFW    CON_CRLF_28              ; $E969
         DEFB    $EB,$22,$BE,$BF,$C3,$4F,$B8,$2A,$CC,$BF,$18,$11,$2A,$BA,$BF,$18 ; $E96B
         DEFB    $0C,$CD,$74,$BE,$CD,$92,$BA,$C3,$69,$B9,$2A,$C8,$BF,$22 ; $E97B
-        DEFW    SUB_DDB3_38              ; $E989
+        DEFW    CON_CRLF_38              ; $E989
         DEFB    $C9,$3A,$E3,$BF,$FE,$FF,$20,$06,$3A              ; $E98B
-        DEFW    SUB_DDB3_36              ; $E994
+        DEFW    CON_CRLF_36              ; $E994
         DEFB    $C3                                              ; $E996
-        DEFW    SUB_DDB3_28              ; $E997
+        DEFW    CON_CRLF_28              ; $E997
         DEFB    $E6,$1F,$32                                      ; $E999
-        DEFW    SUB_DDB3_36              ; $E99C
+        DEFW    CON_CRLF_36              ; $E99C
         DEFB    $C9,$CD,$74,$BE,$C3,$B9,$BD,$CD,$74,$BE,$C3,$C2,$BD,$CD,$74,$BE ; $E99E
         DEFB    $C3,$F8,$BD,$2A                                  ; $E9AE
-        DEFW    SUB_DDB3_37              ; $E9B2
+        DEFW    CON_CRLF_37              ; $E9B2
         DEFB    $7D,$2F,$5F,$7C,$2F,$2A,$BC,$BF,$A4,$57,$7D,$A3,$5F,$2A,$BA,$BF ; $E9B4
         DEFB    $EB,$22,$BC,$BF,$7D,$A3,$6F,$7C,$A2,$67,$22,$BA,$BF,$C9,$CD,$74 ; $E9C4
         DEFB    $BE,$3E,$02,$32,$E2,$BF,$0E,$00,$CD,$34,$BD,$CC,$41,$BC,$C9,$21 ; $E9D4
-        DEFW    SUB_DF36_6               ; $E9E4
+        DEFW    LC_CALL_B5C0_6               ; $E9E4
         DEFB    $34,$23,$22                                      ; $E9E6
-        DEFW    SUB_DDB3_37              ; $E9E9
+        DEFW    CON_CRLF_37              ; $E9E9
         DEFB    $EB,$22                                          ; $E9EB
-        DEFW    SUB_DF36_5               ; $E9ED
+        DEFW    LC_CALL_B5C0_5               ; $E9ED
         DEFB    $01,$24,$00,$CD,$3C,$DF,$11                      ; $E9EF
-        DEFW    SUB_DF36_7               ; $E9F6
+        DEFW    LC_CALL_B5C0_7               ; $E9F6
         DEFB    $C9,$E5,$00,$00,$00,$00,$80,$00                  ; $E9F8
 
     SAVEBIN "CPM_BDOS.bin", $DC00, $0E00

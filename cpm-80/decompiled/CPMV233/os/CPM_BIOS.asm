@@ -375,12 +375,12 @@ READER_IMPL:
         NOP                              ; $FBC3  00
 ; [AI] RPC helper used by the disk sector-address builder to push a computed parameter byte to the
 ;       6502 transfer engine.
-SUB_FBC4:
+DISK_RPC_PUSH_ADDR:
         RST $38                          ; $FBC4  FF
         RST $38                          ; $FBC5  FF
 ; [AI] Disk-translation continuation reached for positive-flagged sectors; resumes building the
 ;       6502 read/write request from the running address.
-SUB_FBC4_1:
+DISK_RPC_PUSH_ADDR_1:
         NOP                              ; $FBC6  00
         NOP                              ; $FBC7  00
         RST $38                          ; $FBC8  FF
@@ -393,7 +393,7 @@ SUB_FBC4_1:
         NOP                              ; $FBCF  00
 ; [AI] Disk-translation branch for the negative-flag (extended) case in the READ/WRITE address
 ;       computation.
-SUB_FBC4_2:
+DISK_RPC_PUSH_ADDR_2:
         RST $38                          ; $FBD0  FF
         RST $38                          ; $FBD1  FF
         NOP                              ; $FBD2  00
@@ -414,7 +414,7 @@ SUB_FBC4_2:
         RST $38                          ; $FBE1  FF
 ; [AI] Disk-translation continuation handling the second sector-address component when the
 ;       skew/offset byte is positive.
-SUB_FBC4_3:
+DISK_RPC_PUSH_ADDR_3:
         NOP                              ; $FBE2  00
         NOP                              ; $FBE3  00
         RST $38                          ; $FBE4  FF
@@ -431,7 +431,7 @@ SUB_FBC4_3:
         NOP                              ; $FBEF  00
 ; [AI] RPC helper that loads a register-count/command byte and traps to the 6502 to push slot-
 ;       firmware parameters.
-SUB_FBF0:
+SLOT_FW_RPC_PUSH:
         RST $30                          ; $FBF0  F7
         RST $38                          ; $FBF1  FF
         NOP                              ; $FBF2  00
@@ -519,7 +519,7 @@ DISK_WAIT_XFER:
         LD HL,BIOS_DMA                   ; $FCBA  21 D4 FE
         JR Z,DISK_WAIT_XFER_1            ; $FCBD  28 0C
         OR A                             ; $FCBF  B7
-        JP P,SUB_FBC4_1                  ; $FCC0  F2 C6 FB
+        JP P,DISK_RPC_PUSH_ADDR_1                  ; $FCC0  F2 C6 FB
         DEC HL                           ; $FCC3  2B
         AND $7F                          ; $FCC4  E6 7F
         LD E,A                           ; $FCC6  5F
@@ -531,13 +531,13 @@ DISK_WAIT_XFER:
 ;       WRITE rather than a READ.
 DISK_WAIT_XFER_1:
         OR A                             ; $FCCB  B7
-        JP M,SUB_FBC4_2                  ; $FCCC  FA D0 FB
+        JP M,DISK_RPC_PUSH_ADDR_2                  ; $FCCC  FA D0 FB
         DEC HL                           ; $FCCF  2B
-        CALL SUB_FBC4                    ; $FCD0  CD C4 FB
+        CALL DISK_RPC_PUSH_ADDR                    ; $FCD0  CD C4 FB
         LD HL,(BIOS_SECTOR_1)            ; $FCD3  2A D3 FE
         LD A,($F3A1)                     ; $FCD6  3A A1 F3
         OR A                             ; $FCD9  B7
-        JP P,SUB_FBC4_3                  ; $FCDA  F2 E2 FB
+        JP P,DISK_RPC_PUSH_ADDR_3                  ; $FCDA  F2 E2 FB
         AND $7F                          ; $FCDD  E6 7F
         LD E,L                           ; $FCDF  5D
         LD L,H                           ; $FCE0  6C
@@ -850,7 +850,7 @@ INIT_KEYBOARD_2:
         PUSH BC                          ; $FE90  C5
         LD A,($F3A2)                     ; $FE91  3A A2 F3
         LD B,$07                         ; $FE94  06 07
-        CALL SUB_FBF0                    ; $FE96  CD F0 FB
+        CALL SLOT_FW_RPC_PUSH                    ; $FE96  CD F0 FB
         POP BC                           ; $FE99  C1
         LD A,B                           ; $FE9A  78
         CP $07                           ; $FE9B  FE 07

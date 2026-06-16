@@ -23,28 +23,28 @@ TPA_START:
 TPA_START_1:
         ADD HL,SP                        ; $0103  39
 TPA_START_2:
-        LD (SUB_01CE_12),HL              ; $0104  22 15 02
+        LD (READ_RECORD_12),HL              ; $0104  22 15 02
 TPA_START_3:
-        LD SP,SUB_01CE_13                ; $0107  31 57 02
+        LD SP,READ_RECORD_13                ; $0107  31 57 02
 TPA_START_4:
-        CALL SUB_01C1                    ; $010A  CD C1 01
+        CALL OPEN_INPUT_FILE                    ; $010A  CD C1 01
 TPA_START_5:
         CP $FF                           ; $010D  FE FF
 TPA_START_6:
         JP NZ,TPA_START_7                ; $010F  C2 1B 01
-        LD DE,SUB_01CE_10                ; $0112  11 F3 01
-        CALL SUB_019C                    ; $0115  CD 9C 01
+        LD DE,READ_RECORD_10                ; $0112  11 F3 01
+        CALL PRINT_STRING                    ; $0115  CD 9C 01
         JP TPA_START_32                  ; $0118  C3 51 01
 TPA_START_7:
         LD A,$80                         ; $011B  3E 80
 TPA_START_8:
-        LD (SUB_01CE_11),A               ; $011D  32 13 02
+        LD (READ_RECORD_11),A               ; $011D  32 13 02
 TPA_START_9:
         LD HL,WBOOT_VEC                  ; $0120  21 00 00
 TPA_START_10:
         PUSH HL                          ; $0123  E5
 TPA_START_11:
-        CALL SUB_01A2                    ; $0124  CD A2 01
+        CALL GET_NEXT_BYTE                    ; $0124  CD A2 01
 TPA_START_12:
         POP HL                           ; $0127  E1
 TPA_START_13:
@@ -58,9 +58,9 @@ TPA_START_16:
 TPA_START_17:
         JP NZ,TPA_START_26               ; $012F  C2 44 01
 TPA_START_18:
-        CALL SUB_0172                    ; $0132  CD 72 01
+        CALL PRINT_CRLF                    ; $0132  CD 72 01
 TPA_START_19:
-        CALL SUB_0159                    ; $0135  CD 59 01
+        CALL CHECK_ABORT_KEY                    ; $0135  CD 59 01
 TPA_START_20:
         RRCA                             ; $0138  0F
 TPA_START_21:
@@ -68,209 +68,209 @@ TPA_START_21:
 TPA_START_22:
         LD A,H                           ; $013C  7C
 TPA_START_23:
-        CALL SUB_018F                    ; $013D  CD 8F 01
+        CALL PRINT_HEX_BYTE                    ; $013D  CD 8F 01
 TPA_START_24:
         LD A,L                           ; $0140  7D
 TPA_START_25:
-        CALL SUB_018F                    ; $0141  CD 8F 01
+        CALL PRINT_HEX_BYTE                    ; $0141  CD 8F 01
 TPA_START_26:
         INC HL                           ; $0144  23
 TPA_START_27:
         LD A,$20                         ; $0145  3E 20
 TPA_START_28:
-        CALL SUB_0165                    ; $0147  CD 65 01
+        CALL PRINT_CHAR                    ; $0147  CD 65 01
 TPA_START_29:
         LD A,B                           ; $014A  78
 TPA_START_30:
-        CALL SUB_018F                    ; $014B  CD 8F 01
+        CALL PRINT_HEX_BYTE                    ; $014B  CD 8F 01
 TPA_START_31:
         JP TPA_START_10                  ; $014E  C3 23 01
 TPA_START_32:
-        CALL SUB_0172                    ; $0151  CD 72 01
-        LD HL,(SUB_01CE_12)              ; $0154  2A 15 02
+        CALL PRINT_CRLF                    ; $0151  CD 72 01
+        LD HL,(READ_RECORD_12)              ; $0154  2A 15 02
         LD SP,HL                         ; $0157  F9
         RET                              ; $0158  C9
 ; [AI] Polls console status via BDOS function 11 so a keypress during the dump can abort the output
 ;       mid-stream.
-SUB_0159:
+CHECK_ABORT_KEY:
         PUSH HL                          ; $0159  E5
-SUB_0159_1:
+CHECK_ABORT_KEY_1:
         PUSH DE                          ; $015A  D5
-SUB_0159_2:
+CHECK_ABORT_KEY_2:
         PUSH BC                          ; $015B  C5
-SUB_0159_3:
+CHECK_ABORT_KEY_3:
         LD C,$0B                         ; $015C  0E 0B
-SUB_0159_4:
+CHECK_ABORT_KEY_4:
         CALL BDOS_VEC                    ; $015E  CD 05 00
-SUB_0159_5:
+CHECK_ABORT_KEY_5:
         POP BC                           ; $0161  C1
-SUB_0159_6:
+CHECK_ABORT_KEY_6:
         POP DE                           ; $0162  D1
-SUB_0159_7:
+CHECK_ABORT_KEY_7:
         POP HL                           ; $0163  E1
-SUB_0159_8:
+CHECK_ABORT_KEY_8:
         RET                              ; $0164  C9
 ; [AI] Outputs the character in A to the console via BDOS function 2 (console output), preserving
 ;       all registers.
-SUB_0165:
+PRINT_CHAR:
         PUSH HL                          ; $0165  E5
-SUB_0165_1:
+PRINT_CHAR_1:
         PUSH DE                          ; $0166  D5
-SUB_0165_2:
+PRINT_CHAR_2:
         PUSH BC                          ; $0167  C5
-SUB_0165_3:
+PRINT_CHAR_3:
         LD C,$02                         ; $0168  0E 02
-SUB_0165_4:
+PRINT_CHAR_4:
         LD E,A                           ; $016A  5F
-SUB_0165_5:
+PRINT_CHAR_5:
         CALL BDOS_VEC                    ; $016B  CD 05 00
-SUB_0165_6:
+PRINT_CHAR_6:
         POP BC                           ; $016E  C1
-SUB_0165_7:
+PRINT_CHAR_7:
         POP DE                           ; $016F  D1
-SUB_0165_8:
+PRINT_CHAR_8:
         POP HL                           ; $0170  E1
-SUB_0165_9:
+PRINT_CHAR_9:
         RET                              ; $0171  C9
 ; [AI] Emits a CR/LF pair to the console to end the current line of the hex dump.
-SUB_0172:
+PRINT_CRLF:
         LD A,$0D                         ; $0172  3E 0D
-SUB_0172_1:
-        CALL SUB_0165                    ; $0174  CD 65 01
-SUB_0172_2:
+PRINT_CRLF_1:
+        CALL PRINT_CHAR                    ; $0174  CD 65 01
+PRINT_CRLF_2:
         LD A,$0A                         ; $0177  3E 0A
-SUB_0172_3:
-        CALL SUB_0165                    ; $0179  CD 65 01
-SUB_0172_4:
+PRINT_CRLF_3:
+        CALL PRINT_CHAR                    ; $0179  CD 65 01
+PRINT_CRLF_4:
         RET                              ; $017C  C9
 ; [AI] Converts the low nibble of A to its ASCII hex digit (0-9 or A-F) and prints it; the core
 ;       nibble-to-hex routine.
-SUB_017D:
+PRINT_HEX_NIBBLE:
         AND $0F                          ; $017D  E6 0F
-SUB_017D_1:
+PRINT_HEX_NIBBLE_1:
         CP $0A                           ; $017F  FE 0A
-SUB_017D_2:
-        JP NC,SUB_017D_5                 ; $0181  D2 89 01
-SUB_017D_3:
+PRINT_HEX_NIBBLE_2:
+        JP NC,PRINT_HEX_NIBBLE_5                 ; $0181  D2 89 01
+PRINT_HEX_NIBBLE_3:
         ADD A,$30                        ; $0184  C6 30
-SUB_017D_4:
-        JP SUB_017D_6                    ; $0186  C3 8B 01
-SUB_017D_5:
+PRINT_HEX_NIBBLE_4:
+        JP PRINT_HEX_NIBBLE_6                    ; $0186  C3 8B 01
+PRINT_HEX_NIBBLE_5:
         ADD A,$37                        ; $0189  C6 37
-SUB_017D_6:
-        CALL SUB_0165                    ; $018B  CD 65 01
-SUB_017D_7:
+PRINT_HEX_NIBBLE_6:
+        CALL PRINT_CHAR                    ; $018B  CD 65 01
+PRINT_HEX_NIBBLE_7:
         RET                              ; $018E  C9
 ; [AI] Prints the full byte in A as two hexadecimal digits by emitting the high nibble then the low
 ;       nibble.
-SUB_018F:
+PRINT_HEX_BYTE:
         PUSH AF                          ; $018F  F5
-SUB_018F_1:
+PRINT_HEX_BYTE_1:
         RRCA                             ; $0190  0F
-SUB_018F_2:
+PRINT_HEX_BYTE_2:
         RRCA                             ; $0191  0F
-SUB_018F_3:
+PRINT_HEX_BYTE_3:
         RRCA                             ; $0192  0F
-SUB_018F_4:
+PRINT_HEX_BYTE_4:
         RRCA                             ; $0193  0F
-SUB_018F_5:
-        CALL SUB_017D                    ; $0194  CD 7D 01
-SUB_018F_6:
+PRINT_HEX_BYTE_5:
+        CALL PRINT_HEX_NIBBLE                    ; $0194  CD 7D 01
+PRINT_HEX_BYTE_6:
         POP AF                           ; $0197  F1
-SUB_018F_7:
-        CALL SUB_017D                    ; $0198  CD 7D 01
-SUB_018F_8:
+PRINT_HEX_BYTE_7:
+        CALL PRINT_HEX_NIBBLE                    ; $0198  CD 7D 01
+PRINT_HEX_BYTE_8:
         RET                              ; $019B  C9
 ; [AI] Prints the '$'-terminated string pointed to by DE via BDOS function 9 (print string); used
 ;       for the version banner and the no-file error message.
-SUB_019C:
+PRINT_STRING:
         LD C,$09                         ; $019C  0E 09
         CALL BDOS_VEC                    ; $019E  CD 05 00
         RET                              ; $01A1  C9
 ; [AI] Returns the next byte of the input file in A, refilling the DMA buffer with a fresh record
 ;       (and signalling end-of-file via carry) whenever the current 128-byte buffer is exhausted.
-SUB_01A2:
-        LD A,(SUB_01CE_11)               ; $01A2  3A 13 02
-SUB_01A2_1:
+GET_NEXT_BYTE:
+        LD A,(READ_RECORD_11)               ; $01A2  3A 13 02
+GET_NEXT_BYTE_1:
         CP $80                           ; $01A5  FE 80
-SUB_01A2_2:
-        JP NZ,SUB_01A2_6                 ; $01A7  C2 B3 01
-SUB_01A2_3:
-        CALL SUB_01CE                    ; $01AA  CD CE 01
-SUB_01A2_4:
+GET_NEXT_BYTE_2:
+        JP NZ,GET_NEXT_BYTE_6                 ; $01A7  C2 B3 01
+GET_NEXT_BYTE_3:
+        CALL READ_RECORD                    ; $01AA  CD CE 01
+GET_NEXT_BYTE_4:
         OR A                             ; $01AD  B7
-SUB_01A2_5:
-        JP Z,SUB_01A2_6                  ; $01AE  CA B3 01
+GET_NEXT_BYTE_5:
+        JP Z,GET_NEXT_BYTE_6                  ; $01AE  CA B3 01
         SCF                              ; $01B1  37
         RET                              ; $01B2  C9
-SUB_01A2_6:
+GET_NEXT_BYTE_6:
         LD E,A                           ; $01B3  5F
-SUB_01A2_7:
+GET_NEXT_BYTE_7:
         LD D,$00                         ; $01B4  16 00
-SUB_01A2_8:
+GET_NEXT_BYTE_8:
         INC A                            ; $01B6  3C
-SUB_01A2_9:
-        LD (SUB_01CE_11),A               ; $01B7  32 13 02
-SUB_01A2_10:
+GET_NEXT_BYTE_9:
+        LD (READ_RECORD_11),A               ; $01B7  32 13 02
+GET_NEXT_BYTE_10:
         LD HL,DEFAULT_DMA                ; $01BA  21 80 00
-SUB_01A2_11:
+GET_NEXT_BYTE_11:
         ADD HL,DE                        ; $01BD  19
-SUB_01A2_12:
+GET_NEXT_BYTE_12:
         LD A,(HL)                        ; $01BE  7E
-SUB_01A2_13:
+GET_NEXT_BYTE_13:
         OR A                             ; $01BF  B7
-SUB_01A2_14:
+GET_NEXT_BYTE_14:
         RET                              ; $01C0  C9
 ; [AI] Opens the command-line file by clearing the FCB current-record byte and invoking BDOS
 ;       function 15 (open file); returns $FF in A if the file does not exist.
-SUB_01C1:
+OPEN_INPUT_FILE:
         XOR A                            ; $01C1  AF
-SUB_01C1_1:
+OPEN_INPUT_FILE_1:
         LD (DEFAULT_CR),A                ; $01C2  32 7C 00
-SUB_01C1_2:
+OPEN_INPUT_FILE_2:
         LD DE,DEFAULT_FCB                ; $01C5  11 5C 00
-SUB_01C1_3:
+OPEN_INPUT_FILE_3:
         LD C,$0F                         ; $01C8  0E 0F
-SUB_01C1_4:
+OPEN_INPUT_FILE_4:
         CALL BDOS_VEC                    ; $01CA  CD 05 00
-SUB_01C1_5:
+OPEN_INPUT_FILE_5:
         RET                              ; $01CD  C9
 ; [AI] Reads the next sequential 128-byte record into the DMA buffer via BDOS function 20 (read
 ;       sequential); returns nonzero on end-of-file.
-SUB_01CE:
+READ_RECORD:
         PUSH HL                          ; $01CE  E5
-SUB_01CE_1:
+READ_RECORD_1:
         PUSH DE                          ; $01CF  D5
-SUB_01CE_2:
+READ_RECORD_2:
         PUSH BC                          ; $01D0  C5
-SUB_01CE_3:
+READ_RECORD_3:
         LD DE,DEFAULT_FCB                ; $01D1  11 5C 00
-SUB_01CE_4:
+READ_RECORD_4:
         LD C,$14                         ; $01D4  0E 14
-SUB_01CE_5:
+READ_RECORD_5:
         CALL BDOS_VEC                    ; $01D6  CD 05 00
-SUB_01CE_6:
+READ_RECORD_6:
         POP BC                           ; $01D9  C1
-SUB_01CE_7:
+READ_RECORD_7:
         POP DE                           ; $01DA  D1
-SUB_01CE_8:
+READ_RECORD_8:
         POP HL                           ; $01DB  E1
-SUB_01CE_9:
+READ_RECORD_9:
         RET                              ; $01DC  C9
         DEFB    $46,$49,$4C,$45,$20,$44,$55,$4D,$50,$20,$56,$45,$52,$53,$49,$4F ; $01DD
         DEFB    $4E,$20,$31,$2E,$34,$24                          ; $01ED
-SUB_01CE_10:
+READ_RECORD_10:
         DEFB    $0D,$0A,$4E,$4F,$20,$49,$4E,$50,$55,$54,$20,$46,$49,$4C,$45,$20 ; $01F3
         DEFB    $50,$52,$45,$53,$45,$4E,$54,$20,$4F,$4E,$20,$44,$49,$53,$4B,$24 ; $0203
-SUB_01CE_11:
+READ_RECORD_11:
         DEFB    $EA,$21                                          ; $0213
-SUB_01CE_12:
+READ_RECORD_12:
         DEFB    $F5,$C5,$D5,$E5,$59,$0E,$02,$CD,$06,$10,$E1,$D1,$C1,$F1,$C9,$FE ; $0215
         DEFB    $20,$C8,$FE,$09,$C8,$FE,$2C,$C8,$FE,$0D,$C8,$FE,$7F,$CA,$3C,$05 ; $0225
         DEFB    $C9,$0E,$0D,$CD,$15,$00,$0E,$0A,$CD,$15,$00,$C9,$CD,$09,$07,$FE ; $0235
         DEFB    $0D,$CA,$2A,$05,$CD,$24,$00,$CA,$41,$00,$0E,$04,$21,$8B,$06,$36 ; $0245
         DEFB    $20,$23                                          ; $0255
-SUB_01CE_13:
+READ_RECORD_13:
         DEFB    $0D,$C2,$54,$00,$0E,$05,$21,$8B,$06,$77,$CD,$09,$07,$CD,$24,$00 ; $0257
         DEFB    $CA,$72,$00,$23,$0D,$CA,$2A,$05,$C3,$60,$00,$3A,$8B,$06,$FE,$20 ; $0267
         DEFB    $C9,$D6,$30,$FE,$0A,$D8,$C6,$F9,$FE,$10,$D8,$C3,$2A,$05,$CD,$41 ; $0277

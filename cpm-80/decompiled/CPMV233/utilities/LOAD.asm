@@ -14,14 +14,14 @@ DEFAULT_FCB          EQU $005C               ; Default File Control Block — po
 DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS cold-init / DRV_ALLRESET (fn 13) set the DMA address here and WBOOT re-issues SETDMA($0080); sector/record I/O moves 128 bytes through it. At program load this same buffer doubles as the command tail: the first byte ($0080) holds the tail length (0-127) and the characters follow at $0081 (CMDLINE).
 
 ; -- Mid-instruction references (shown inline as cover+offset) --
-;   $0400 -> SUB_03FF+1           z80 skip idiom: enters the operand of $21 at $03FF
+;   $0400 -> BDOS_MAKE_FILE+1           z80 skip idiom: enters the operand of $21 at $03FF
 
     ORG $0100
 
 ; [AI] The $0100 program entry point. The opening JP jumps over the embedded copyright/message
 ;       string block to the real startup code at L_0240.
 TPA_START:
-        JP SUB_023B_1                    ; $0100  C3 40 02
+        JP MAIN                    ; $0100  C3 40 02
         DEFB    $20,$43,$4F,$50,$59,$52,$49,$47,$48,$54,$20,$28,$43,$29,$20,$31 ; $0103
         DEFB    $39,$37,$38,$2C,$20,$44,$49,$47,$49,$54,$41,$4C,$20,$52,$45,$53 ; $0113
         DEFB    $45,$41,$52,$43,$48,$20                          ; $0123
@@ -72,149 +72,149 @@ TPA_START_19:
         DEFB    $45,$24                                          ; $0239
 ; [AI] Restores the saved CCP stack pointer from $07E7 and returns, so the program can exit cleanly
 ;       back to the console command processor instead of warm-booting.
-SUB_023B:
-        LD HL,(SUB_07B8_9)               ; $023B  2A E7 07
+RESTORE_CCP_STACK:
+        LD HL,(SUB16_DE_MINUS_MEM_9)               ; $023B  2A E7 07
         LD SP,HL                         ; $023E  F9
         RET                              ; $023F  C9
 ; [AI] Startup/initialization code: saves the entry stack pointer, sets up LOAD's own stack and
 ;       working variables, then validates the command-line filename before the main load.
-SUB_023B_1:
+MAIN:
         LD HL,WBOOT_VEC                  ; $0240  21 00 00
-SUB_023B_2:
+RESTORE_CCP_STACK_2:
         ADD HL,SP                        ; $0243  39
-SUB_023B_3:
-        LD (SUB_07B8_9),HL               ; $0244  22 E7 07
-SUB_023B_4:
+RESTORE_CCP_STACK_3:
+        LD (SUB16_DE_MINUS_MEM_9),HL               ; $0244  22 E7 07
+RESTORE_CCP_STACK_4:
         LD HL,$0D65                      ; $0247  21 65 0D
-SUB_023B_5:
+RESTORE_CCP_STACK_5:
         LD SP,HL                         ; $024A  F9
-SUB_023B_6:
+RESTORE_CCP_STACK_6:
         LD HL,TPA_START                  ; $024B  21 00 01
-SUB_023B_7:
+RESTORE_CCP_STACK_7:
         LD ($0C16),HL                    ; $024E  22 16 0C
-SUB_023B_8:
-        LD HL,SUB_03FF+1                 ; $0251  21 00 04
-SUB_023B_9:
+RESTORE_CCP_STACK_8:
+        LD HL,BDOS_MAKE_FILE+1                 ; $0251  21 00 04
+RESTORE_CCP_STACK_9:
         LD ($0C0B),HL                    ; $0254  22 0B 0C
-SUB_023B_10:
+RESTORE_CCP_STACK_10:
         LD BC,DEFAULT_FCB                ; $0257  01 5C 00
-SUB_023B_11:
+RESTORE_CCP_STACK_11:
         PUSH BC                          ; $025A  C5
-SUB_023B_12:
+RESTORE_CCP_STACK_12:
         LD E,$21                         ; $025B  1E 21
-SUB_023B_13:
-        LD BC,SUB_07B8_10                ; $025D  01 E9 07
-SUB_023B_14:
-        CALL SUB_0422                    ; $0260  CD 22 04
-SUB_023B_15:
+RESTORE_CCP_STACK_13:
+        LD BC,SUB16_DE_MINUS_MEM_10                ; $025D  01 E9 07
+RESTORE_CCP_STACK_14:
+        CALL BLOCK_COPY                    ; $0260  CD 22 04
+RESTORE_CCP_STACK_15:
         LD BC,TPA_START_15               ; $0263  01 F7 01
-SUB_023B_16:
+RESTORE_CCP_STACK_16:
         PUSH BC                          ; $0266  C5
-SUB_023B_17:
+RESTORE_CCP_STACK_17:
         LD E,$04                         ; $0267  1E 04
-SUB_023B_18:
-        LD BC,SUB_07B8_11                ; $0269  01 F2 07
-SUB_023B_19:
-        CALL SUB_0422                    ; $026C  CD 22 04
-SUB_023B_20:
-        LD BC,SUB_07B8_10                ; $026F  01 E9 07
-SUB_023B_21:
-        CALL SUB_038A                    ; $0272  CD 8A 03
-SUB_023B_22:
+RESTORE_CCP_STACK_18:
+        LD BC,SUB16_DE_MINUS_MEM_11                ; $0269  01 F2 07
+RESTORE_CCP_STACK_19:
+        CALL BLOCK_COPY                    ; $026C  CD 22 04
+RESTORE_CCP_STACK_20:
+        LD BC,SUB16_DE_MINUS_MEM_10                ; $026F  01 E9 07
+RESTORE_CCP_STACK_21:
+        CALL BDOS_OPEN_FILE                    ; $0272  CD 8A 03
+RESTORE_CCP_STACK_22:
         LD A,($0C1A)                     ; $0275  3A 1A 0C
-SUB_023B_23:
+RESTORE_CCP_STACK_23:
         CP $FF                           ; $0278  FE FF
-SUB_023B_24:
-        JP NZ,SUB_023B_25                ; $027A  C2 83 02
+RESTORE_CCP_STACK_24:
+        JP NZ,RESTORE_CCP_STACK_25                ; $027A  C2 83 02
         LD BC,TPA_START_16               ; $027D  01 FB 01
-        CALL SUB_0364                    ; $0280  CD 64 03
-SUB_023B_25:
+        CALL FATAL_ERROR                    ; $0280  CD 64 03
+RESTORE_CCP_STACK_25:
         LD BC,TPA_START_17               ; $0283  01 0E 02
-SUB_023B_26:
+RESTORE_CCP_STACK_26:
         PUSH BC                          ; $0286  C5
-SUB_023B_27:
+RESTORE_CCP_STACK_27:
         LD E,$03                         ; $0287  1E 03
-SUB_023B_28:
+RESTORE_CCP_STACK_28:
         LD BC,$0065                      ; $0289  01 65 00
-SUB_023B_29:
-        CALL SUB_0422                    ; $028C  CD 22 04
-SUB_023B_30:
+RESTORE_CCP_STACK_29:
+        CALL BLOCK_COPY                    ; $028C  CD 22 04
+RESTORE_CCP_STACK_30:
         LD BC,DEFAULT_FCB                ; $028F  01 5C 00
-SUB_023B_31:
-        CALL SUB_03CF                    ; $0292  CD CF 03
-SUB_023B_32:
+RESTORE_CCP_STACK_31:
+        CALL BDOS_DELETE_FILE                    ; $0292  CD CF 03
+RESTORE_CCP_STACK_32:
         LD BC,DEFAULT_FCB                ; $0295  01 5C 00
-SUB_023B_33:
-        CALL SUB_03FF                    ; $0298  CD FF 03
-SUB_023B_34:
+RESTORE_CCP_STACK_33:
+        CALL BDOS_MAKE_FILE                    ; $0298  CD FF 03
+RESTORE_CCP_STACK_34:
         LD BC,DEFAULT_FCB                ; $029B  01 5C 00
-SUB_023B_35:
-        CALL SUB_038A                    ; $029E  CD 8A 03
-SUB_023B_36:
+RESTORE_CCP_STACK_35:
+        CALL BDOS_OPEN_FILE                    ; $029E  CD 8A 03
+RESTORE_CCP_STACK_36:
         LD A,($0C1A)                     ; $02A1  3A 1A 0C
-SUB_023B_37:
+RESTORE_CCP_STACK_37:
         CP $FF                           ; $02A4  FE FF
-SUB_023B_38:
-        JP NZ,SUB_023B_39                ; $02A6  C2 B2 02
+RESTORE_CCP_STACK_38:
+        JP NZ,RESTORE_CCP_STACK_39                ; $02A6  C2 B2 02
         LD BC,TPA_START_18               ; $02A9  01 11 02
-        CALL SUB_0364                    ; $02AC  CD 64 03
-        JP SUB_023B_40                   ; $02AF  C3 C9 02
-SUB_023B_39:
-        CALL SUB_04E4                    ; $02B2  CD E4 04
+        CALL FATAL_ERROR                    ; $02AC  CD 64 03
+        JP RESTORE_CCP_STACK_40                   ; $02AF  C3 C9 02
+RESTORE_CCP_STACK_39:
+        CALL LOAD_HEX_FILE                    ; $02B2  CD E4 04
         LD BC,DEFAULT_FCB                ; $02B5  01 5C 00
-        CALL SUB_039D                    ; $02B8  CD 9D 03
+        CALL BDOS_CLOSE_FILE                    ; $02B8  CD 9D 03
         LD A,($0C1A)                     ; $02BB  3A 1A 0C
         CP $FF                           ; $02BE  FE FF
-        JP NZ,SUB_023B_40                ; $02C0  C2 C9 02
+        JP NZ,RESTORE_CCP_STACK_40                ; $02C0  C2 C9 02
         LD BC,TPA_START_19               ; $02C3  01 29 02
-        CALL SUB_0364                    ; $02C6  CD 64 03
-SUB_023B_40:
-        CALL SUB_02E0                    ; $02C9  CD E0 02
-        CALL SUB_023B                    ; $02CC  CD 3B 02
+        CALL FATAL_ERROR                    ; $02C6  CD 64 03
+RESTORE_CCP_STACK_40:
+        CALL PRINT_CRLF                    ; $02C9  CD E0 02
+        CALL RESTORE_CCP_STACK                    ; $02CC  CD 3B 02
         RET                              ; $02CF  C9
 ; [AI] Console output of a single character: stashes the byte then invokes BDOS function 2 (console
 ;       out) via SUB_0766. The primitive used by all the higher-level print routines.
-SUB_02D0:
+CONOUT:
         LD HL,$0C0D                      ; $02D0  21 0D 0C
         LD (HL),C                        ; $02D3  71
         LD HL,($0C0D)                    ; $02D4  2A 0D 0C
         LD H,$00                         ; $02D7  26 00
         EX DE,HL                         ; $02D9  EB
         LD C,$02                         ; $02DA  0E 02
-        CALL SUB_0766                    ; $02DC  CD 66 07
+        CALL BDOS_CALL                    ; $02DC  CD 66 07
         RET                              ; $02DF  C9
 ; [AI] Emits a CR/LF pair (0x0D, 0x0A) to the console to start a new output line.
-SUB_02E0:
+PRINT_CRLF:
         LD C,$0D                         ; $02E0  0E 0D
-        CALL SUB_02D0                    ; $02E2  CD D0 02
+        CALL CONOUT                    ; $02E2  CD D0 02
         LD C,$0A                         ; $02E5  0E 0A
-        CALL SUB_02D0                    ; $02E7  CD D0 02
+        CALL CONOUT                    ; $02E7  CD D0 02
         RET                              ; $02EA  C9
 ; [AI] Converts a single 4-bit nibble (0-15) in C to its ASCII hex digit ('0'-'9' or 'A'-'F') and
 ;       prints it.
-SUB_02EB:
+PRINT_HEX_NIBBLE:
         LD HL,$0C0E                      ; $02EB  21 0E 0C
         LD (HL),C                        ; $02EE  71
         LD A,$09                         ; $02EF  3E 09
         LD HL,$0C0E                      ; $02F1  21 0E 0C
         CP (HL)                          ; $02F4  BE
-        JP NC,SUB_02EB_1                 ; $02F5  D2 06 03
+        JP NC,PRINT_HEX_NIBBLE_1                 ; $02F5  D2 06 03
         LD A,($0C0E)                     ; $02F8  3A 0E 0C
         ADD A,$41                        ; $02FB  C6 41
         SUB $0A                          ; $02FD  D6 0A
         LD C,A                           ; $02FF  4F
-        CALL SUB_02D0                    ; $0300  CD D0 02
-        JP SUB_02EB_2                    ; $0303  C3 0F 03
-SUB_02EB_1:
+        CALL CONOUT                    ; $0300  CD D0 02
+        JP PRINT_HEX_NIBBLE_2                    ; $0303  C3 0F 03
+PRINT_HEX_NIBBLE_1:
         LD A,($0C0E)                     ; $0306  3A 0E 0C
         ADD A,$30                        ; $0309  C6 30
         LD C,A                           ; $030B  4F
-        CALL SUB_02D0                    ; $030C  CD D0 02
-SUB_02EB_2:
+        CALL CONOUT                    ; $030C  CD D0 02
+PRINT_HEX_NIBBLE_2:
         RET                              ; $030F  C9
 ; [AI] Prints one byte as two hex digits by isolating and emitting the high nibble then the low
 ;       nibble via SUB_02EB.
-SUB_0310:
+PRINT_HEX_BYTE:
         LD HL,$0C0F                      ; $0310  21 0F 0C
         LD (HL),C                        ; $0313  71
         LD A,($0C0F)                     ; $0314  3A 0F 0C
@@ -224,15 +224,15 @@ SUB_0310:
         RRA                              ; $031B  1F
         RRA                              ; $031C  1F
         LD C,A                           ; $031D  4F
-        CALL SUB_02EB                    ; $031E  CD EB 02
+        CALL PRINT_HEX_NIBBLE                    ; $031E  CD EB 02
         LD A,($0C0F)                     ; $0321  3A 0F 0C
         AND $0F                          ; $0324  E6 0F
         LD C,A                           ; $0326  4F
-        CALL SUB_02EB                    ; $0327  CD EB 02
+        CALL PRINT_HEX_NIBBLE                    ; $0327  CD EB 02
         RET                              ; $032A  C9
 ; [AI] Prints a 16-bit value (passed in BC) as four hex digits, high byte then low byte, using
 ;       SUB_0310. Used to show addresses.
-SUB_032B:
+PRINT_HEX_WORD:
         LD HL,$0C11                      ; $032B  21 11 0C
         LD (HL),B                        ; $032E  70
         DEC HL                           ; $032F  2B
@@ -240,15 +240,15 @@ SUB_032B:
         LD HL,($0C10)                    ; $0331  2A 10 0C
         LD A,H                           ; $0334  7C
         LD C,A                           ; $0335  4F
-        CALL SUB_0310                    ; $0336  CD 10 03
+        CALL PRINT_HEX_BYTE                    ; $0336  CD 10 03
         LD HL,($0C10)                    ; $0339  2A 10 0C
         LD A,L                           ; $033C  7D
         LD C,A                           ; $033D  4F
-        CALL SUB_0310                    ; $033E  CD 10 03
+        CALL PRINT_HEX_BYTE                    ; $033E  CD 10 03
         RET                              ; $0341  C9
 ; [AI] Prints the '$'-terminated message whose address is in BC by calling BDOS function 9 (print
 ;       string) through SUB_0766.
-SUB_0342:
+PRINT_STRING:
         LD HL,$0C13                      ; $0342  21 13 0C
         LD (HL),B                        ; $0345  70
         DEC HL                           ; $0346  2B
@@ -256,68 +256,68 @@ SUB_0342:
         LD HL,($0C12)                    ; $0348  2A 12 0C
         EX DE,HL                         ; $034B  EB
         LD C,$09                         ; $034C  0E 09
-        CALL SUB_0766                    ; $034E  CD 66 07
+        CALL BDOS_CALL                    ; $034E  CD 66 07
         RET                              ; $0351  C9
 ; [AI] Starts a fresh line (CR/LF) and then prints the '$'-terminated message addressed by BC; the
 ;       standard 'newline + label' output helper.
-SUB_0352:
+PRINT_LINE:
         LD HL,$0C15                      ; $0352  21 15 0C
         LD (HL),B                        ; $0355  70
         DEC HL                           ; $0356  2B
         LD (HL),C                        ; $0357  71
-        CALL SUB_02E0                    ; $0358  CD E0 02
+        CALL PRINT_CRLF                    ; $0358  CD E0 02
         LD HL,($0C14)                    ; $035B  2A 14 0C
         LD B,H                           ; $035E  44
         LD C,L                           ; $035F  4D
-        CALL SUB_0342                    ; $0360  CD 42 03
+        CALL PRINT_STRING                    ; $0360  CD 42 03
         RET                              ; $0363  C9
 ; [AI] Fatal error reporter: prints the 'ERROR:' banner, the supplied error message, the 'LOAD
-;       ADDRESS' label and the current load address, then unwinds to the CCP via SUB_023B (aborting
+;       ADDRESS' label and the current load address, then unwinds to the CCP via RESTORE_CCP_STACK (aborting
 ;       the program).
-SUB_0364:
+FATAL_ERROR:
         LD HL,$0C19                      ; $0364  21 19 0C
         LD (HL),B                        ; $0367  70
         DEC HL                           ; $0368  2B
         LD (HL),C                        ; $0369  71
         LD BC,TPA_START_1                ; $036A  01 29 01
-        CALL SUB_0352                    ; $036D  CD 52 03
+        CALL PRINT_LINE                    ; $036D  CD 52 03
         LD HL,($0C18)                    ; $0370  2A 18 0C
         LD B,H                           ; $0373  44
         LD C,L                           ; $0374  4D
-        CALL SUB_0342                    ; $0375  CD 42 03
+        CALL PRINT_STRING                    ; $0375  CD 42 03
         LD BC,TPA_START_2                ; $0378  01 31 01
-        CALL SUB_0342                    ; $037B  CD 42 03
+        CALL PRINT_STRING                    ; $037B  CD 42 03
         LD HL,($0C16)                    ; $037E  2A 16 0C
         LD B,H                           ; $0381  44
         LD C,L                           ; $0382  4D
-        CALL SUB_032B                    ; $0383  CD 2B 03
-        CALL SUB_023B                    ; $0386  CD 3B 02
+        CALL PRINT_HEX_WORD                    ; $0383  CD 2B 03
+        CALL RESTORE_CCP_STACK                    ; $0386  CD 3B 02
         RET                              ; $0389  C9
 ; [AI] BDOS function 15 (open file) on the FCB in BC; stores the returned directory code at $0C1A
 ;       so the caller can test for an open failure (0xFF = file not found).
-SUB_038A:
+BDOS_OPEN_FILE:
         LD HL,$0C1C                      ; $038A  21 1C 0C
-SUB_038A_1:
+BDOS_OPEN_FILE_1:
         LD (HL),B                        ; $038D  70
-SUB_038A_2:
+BDOS_OPEN_FILE_2:
         DEC HL                           ; $038E  2B
-SUB_038A_3:
+BDOS_OPEN_FILE_3:
         LD (HL),C                        ; $038F  71
-SUB_038A_4:
+BDOS_OPEN_FILE_4:
         LD HL,($0C1B)                    ; $0390  2A 1B 0C
-SUB_038A_5:
+BDOS_OPEN_FILE_5:
         EX DE,HL                         ; $0393  EB
-SUB_038A_6:
+BDOS_OPEN_FILE_6:
         LD C,$0F                         ; $0394  0E 0F
-SUB_038A_7:
-        CALL SUB_0769                    ; $0396  CD 69 07
-SUB_038A_8:
+BDOS_OPEN_FILE_7:
+        CALL BDOS_CALL_RET                    ; $0396  CD 69 07
+BDOS_OPEN_FILE_8:
         LD ($0C1A),A                     ; $0399  32 1A 0C
-SUB_038A_9:
+BDOS_OPEN_FILE_9:
         RET                              ; $039C  C9
 ; [AI] BDOS function 16 (close file) on the FCB in BC, saving the result code at $0C1A to detect a
 ;       close failure on the output file.
-SUB_039D:
+BDOS_CLOSE_FILE:
         LD HL,$0C1E                      ; $039D  21 1E 0C
         LD (HL),B                        ; $03A0  70
         DEC HL                           ; $03A1  2B
@@ -325,57 +325,57 @@ SUB_039D:
         LD HL,($0C1D)                    ; $03A3  2A 1D 0C
         EX DE,HL                         ; $03A6  EB
         LD C,$10                         ; $03A7  0E 10
-        CALL SUB_0769                    ; $03A9  CD 69 07
+        CALL BDOS_CALL_RET                    ; $03A9  CD 69 07
         LD ($0C1A),A                     ; $03AC  32 1A 0C
         RET                              ; $03AF  C9
         DEFB    $21,$20,$0C,$70,$2B,$71,$2A,$1F,$0C,$EB,$0E,$11,$CD ; $03B0
-        DEFW    SUB_0769                 ; $03BD
+        DEFW    BDOS_CALL_RET                 ; $03BD
         DEFB    $32,$1A,$0C,$C9,$11,$00,$00,$0E,$12,$CD          ; $03BF
-        DEFW    SUB_0769                 ; $03C9
+        DEFW    BDOS_CALL_RET                 ; $03C9
         DEFB    $32,$1A,$0C,$C9                                  ; $03CB
 ; [AI] BDOS function 19 (delete file) on the FCB in BC, used to remove any pre-existing output .COM
 ;       file before creating a new one.
-SUB_03CF:
+BDOS_DELETE_FILE:
         LD HL,$0C22                      ; $03CF  21 22 0C
-SUB_03CF_1:
+BDOS_DELETE_FILE_1:
         LD (HL),B                        ; $03D2  70
-SUB_03CF_2:
+BDOS_DELETE_FILE_2:
         DEC HL                           ; $03D3  2B
-SUB_03CF_3:
+BDOS_DELETE_FILE_3:
         LD (HL),C                        ; $03D4  71
-SUB_03CF_4:
+BDOS_DELETE_FILE_4:
         LD HL,($0C21)                    ; $03D5  2A 21 0C
-SUB_03CF_5:
+BDOS_DELETE_FILE_5:
         EX DE,HL                         ; $03D8  EB
-SUB_03CF_6:
+BDOS_DELETE_FILE_6:
         LD C,$13                         ; $03D9  0E 13
-SUB_03CF_7:
-        CALL SUB_0766                    ; $03DB  CD 66 07
-SUB_03CF_8:
+BDOS_DELETE_FILE_7:
+        CALL BDOS_CALL                    ; $03DB  CD 66 07
+BDOS_DELETE_FILE_8:
         RET                              ; $03DE  C9
 ; [AI] BDOS function 20 (read sequential) on the FCB in BC, returning the read status used to
 ;       detect end-of-file on the source HEX file.
-SUB_03DF:
+BDOS_READ_SEQ:
         LD HL,$0C24                      ; $03DF  21 24 0C
-SUB_03DF_1:
+BDOS_READ_SEQ_1:
         LD (HL),B                        ; $03E2  70
-SUB_03DF_2:
+BDOS_READ_SEQ_2:
         DEC HL                           ; $03E3  2B
-SUB_03DF_3:
+BDOS_READ_SEQ_3:
         LD (HL),C                        ; $03E4  71
-SUB_03DF_4:
+BDOS_READ_SEQ_4:
         LD HL,($0C23)                    ; $03E5  2A 23 0C
-SUB_03DF_5:
+BDOS_READ_SEQ_5:
         EX DE,HL                         ; $03E8  EB
-SUB_03DF_6:
+BDOS_READ_SEQ_6:
         LD C,$14                         ; $03E9  0E 14
-SUB_03DF_7:
-        CALL SUB_0769                    ; $03EB  CD 69 07
-SUB_03DF_8:
+BDOS_READ_SEQ_7:
+        CALL BDOS_CALL_RET                    ; $03EB  CD 69 07
+BDOS_READ_SEQ_8:
         RET                              ; $03EE  C9
 ; [AI] BDOS function 21 (write sequential) on the FCB in BC, writing one 128-byte record of the
 ;       assembled .COM output to disk.
-SUB_03EF:
+BDOS_WRITE_SEQ:
         LD HL,$0C26                      ; $03EF  21 26 0C
         LD (HL),B                        ; $03F2  70
         DEC HL                           ; $03F3  2B
@@ -383,371 +383,371 @@ SUB_03EF:
         LD HL,($0C25)                    ; $03F5  2A 25 0C
         EX DE,HL                         ; $03F8  EB
         LD C,$15                         ; $03F9  0E 15
-        CALL SUB_0769                    ; $03FB  CD 69 07
+        CALL BDOS_CALL_RET                    ; $03FB  CD 69 07
         RET                              ; $03FE  C9
 ; [AI] BDOS function 22 (make file) for the FCB in BC, creating the output file; the returned code
 ;       at $0C1A flags a 'no directory space' failure.
-SUB_03FF:
+BDOS_MAKE_FILE:
         LD HL,$0C28                      ; $03FF  21 28 0C
-SUB_03FF_1:
+BDOS_MAKE_FILE_1:
         LD (HL),B                        ; $0402  70
-SUB_03FF_2:
+BDOS_MAKE_FILE_2:
         DEC HL                           ; $0403  2B
-SUB_03FF_3:
+BDOS_MAKE_FILE_3:
         LD (HL),C                        ; $0404  71
-SUB_03FF_4:
+BDOS_MAKE_FILE_4:
         LD HL,($0C27)                    ; $0405  2A 27 0C
-SUB_03FF_5:
+BDOS_MAKE_FILE_5:
         EX DE,HL                         ; $0408  EB
-SUB_03FF_6:
+BDOS_MAKE_FILE_6:
         LD C,$16                         ; $0409  0E 16
-SUB_03FF_7:
-        CALL SUB_0769                    ; $040B  CD 69 07
-SUB_03FF_8:
+BDOS_MAKE_FILE_7:
+        CALL BDOS_CALL_RET                    ; $040B  CD 69 07
+BDOS_MAKE_FILE_8:
         LD ($0C1A),A                     ; $040E  32 1A 0C
-SUB_03FF_9:
+BDOS_MAKE_FILE_9:
         RET                              ; $0411  C9
         DEFB    $21,$2A,$0C,$70,$2B,$71,$2A,$29,$0C,$EB,$0E,$17,$CD ; $0412
-        DEFW    SUB_0766                 ; $041F
+        DEFW    BDOS_CALL                 ; $041F
         DEFB    $C9                                              ; $0421
 ; [AI] Block-copy (memmove) helper: copies E bytes from the source address in BC to the destination
 ;       popped from the caller's stack, used to relocate message bytes and fill the record buffer.
-SUB_0422:
+BLOCK_COPY:
         LD HL,$0C2F                      ; $0422  21 2F 0C
-SUB_0422_1:
+BLOCK_COPY_1:
         LD (HL),E                        ; $0425  73
-SUB_0422_2:
+BLOCK_COPY_2:
         DEC HL                           ; $0426  2B
-SUB_0422_3:
+BLOCK_COPY_3:
         LD (HL),B                        ; $0427  70
-SUB_0422_4:
+BLOCK_COPY_4:
         DEC HL                           ; $0428  2B
-SUB_0422_5:
+BLOCK_COPY_5:
         LD (HL),C                        ; $0429  71
-SUB_0422_6:
+BLOCK_COPY_6:
         DEC HL                           ; $042A  2B
-SUB_0422_7:
+BLOCK_COPY_7:
         POP DE                           ; $042B  D1
-SUB_0422_8:
+BLOCK_COPY_8:
         POP BC                           ; $042C  C1
-SUB_0422_9:
+BLOCK_COPY_9:
         LD (HL),B                        ; $042D  70
-SUB_0422_10:
+BLOCK_COPY_10:
         DEC HL                           ; $042E  2B
-SUB_0422_11:
+BLOCK_COPY_11:
         LD (HL),C                        ; $042F  71
-SUB_0422_12:
+BLOCK_COPY_12:
         PUSH DE                          ; $0430  D5
-SUB_0422_13:
+BLOCK_COPY_13:
         LD A,($0C2F)                     ; $0431  3A 2F 0C
-SUB_0422_14:
+BLOCK_COPY_14:
         DEC A                            ; $0434  3D
-SUB_0422_15:
+BLOCK_COPY_15:
         LD ($0C2F),A                     ; $0435  32 2F 0C
-SUB_0422_16:
+BLOCK_COPY_16:
         CP $FF                           ; $0438  FE FF
-SUB_0422_17:
-        JP Z,SUB_0422_31                 ; $043A  CA 58 04
-SUB_0422_18:
+BLOCK_COPY_17:
+        JP Z,BLOCK_COPY_31                 ; $043A  CA 58 04
+BLOCK_COPY_18:
         LD HL,($0C2B)                    ; $043D  2A 2B 0C
-SUB_0422_19:
+BLOCK_COPY_19:
         PUSH HL                          ; $0440  E5
-SUB_0422_20:
+BLOCK_COPY_20:
         LD HL,($0C2D)                    ; $0441  2A 2D 0C
-SUB_0422_21:
+BLOCK_COPY_21:
         POP BC                           ; $0444  C1
-SUB_0422_22:
+BLOCK_COPY_22:
         LD A,(BC)                        ; $0445  0A
-SUB_0422_23:
+BLOCK_COPY_23:
         LD (HL),A                        ; $0446  77
-SUB_0422_24:
+BLOCK_COPY_24:
         LD HL,($0C2B)                    ; $0447  2A 2B 0C
-SUB_0422_25:
+BLOCK_COPY_25:
         INC HL                           ; $044A  23
-SUB_0422_26:
+BLOCK_COPY_26:
         LD ($0C2B),HL                    ; $044B  22 2B 0C
-SUB_0422_27:
+BLOCK_COPY_27:
         LD HL,($0C2D)                    ; $044E  2A 2D 0C
-SUB_0422_28:
+BLOCK_COPY_28:
         INC HL                           ; $0451  23
-SUB_0422_29:
+BLOCK_COPY_29:
         LD ($0C2D),HL                    ; $0452  22 2D 0C
-SUB_0422_30:
-        JP SUB_0422_13                   ; $0455  C3 31 04
-SUB_0422_31:
+BLOCK_COPY_30:
+        JP BLOCK_COPY_13                   ; $0455  C3 31 04
+BLOCK_COPY_31:
         RET                              ; $0458  C9
 ; [AI] Reads the next byte of the source HEX file, refilling the 128-byte DMA buffer with a fresh
 ;       BDOS sequential read (and inserting an EOF/^Z marker) whenever the current record is
 ;       exhausted.
-SUB_0459:
+GET_SOURCE_BYTE:
         LD HL,($0C0B)                    ; $0459  2A 0B 0C
-SUB_0459_1:
+GET_SOURCE_BYTE_1:
         INC HL                           ; $045C  23
-SUB_0459_2:
+GET_SOURCE_BYTE_2:
         LD ($0C0B),HL                    ; $045D  22 0B 0C
-SUB_0459_3:
-        LD DE,SUB_03FF                   ; $0460  11 FF 03
-SUB_0459_4:
-        CALL SUB_0796                    ; $0463  CD 96 07
-SUB_0459_5:
-        JP C,SUB_0459_11                 ; $0466  DA 72 04
-SUB_0459_6:
+GET_SOURCE_BYTE_3:
+        LD DE,BDOS_MAKE_FILE                   ; $0460  11 FF 03
+GET_SOURCE_BYTE_4:
+        CALL SUB16_DE_MINUS_HL                    ; $0463  CD 96 07
+GET_SOURCE_BYTE_5:
+        JP C,GET_SOURCE_BYTE_11                 ; $0466  DA 72 04
+GET_SOURCE_BYTE_6:
         LD HL,($0C0B)                    ; $0469  2A 0B 0C
-SUB_0459_7:
+GET_SOURCE_BYTE_7:
         LD BC,$080A                      ; $046C  01 0A 08
-SUB_0459_8:
+GET_SOURCE_BYTE_8:
         ADD HL,BC                        ; $046F  09
-SUB_0459_9:
+GET_SOURCE_BYTE_9:
         LD A,(HL)                        ; $0470  7E
-SUB_0459_10:
+GET_SOURCE_BYTE_10:
         RET                              ; $0471  C9
-SUB_0459_11:
+GET_SOURCE_BYTE_11:
         LD HL,WBOOT_VEC                  ; $0472  21 00 00
-SUB_0459_12:
+GET_SOURCE_BYTE_12:
         LD ($0C0B),HL                    ; $0475  22 0B 0C
-SUB_0459_13:
-        LD DE,SUB_03FF                   ; $0478  11 FF 03
-SUB_0459_14:
+GET_SOURCE_BYTE_13:
+        LD DE,BDOS_MAKE_FILE                   ; $0478  11 FF 03
+GET_SOURCE_BYTE_14:
         LD HL,$0C0B                      ; $047B  21 0B 0C
-SUB_0459_15:
-        CALL SUB_07B8                    ; $047E  CD B8 07
-SUB_0459_16:
-        JP C,SUB_0459_41                 ; $0481  DA DA 04
-SUB_0459_17:
-        JP SUB_0459_23                   ; $0484  C3 97 04
-SUB_0459_18:
+GET_SOURCE_BYTE_15:
+        CALL SUB16_DE_MINUS_MEM                    ; $047E  CD B8 07
+GET_SOURCE_BYTE_16:
+        JP C,GET_SOURCE_BYTE_41                 ; $0481  DA DA 04
+GET_SOURCE_BYTE_17:
+        JP GET_SOURCE_BYTE_23                   ; $0484  C3 97 04
+GET_SOURCE_BYTE_18:
         LD DE,DEFAULT_DMA                ; $0487  11 80 00
-SUB_0459_19:
+GET_SOURCE_BYTE_19:
         LD HL,($0C0B)                    ; $048A  2A 0B 0C
-SUB_0459_20:
+GET_SOURCE_BYTE_20:
         ADD HL,DE                        ; $048D  19
-SUB_0459_21:
+GET_SOURCE_BYTE_21:
         LD ($0C0B),HL                    ; $048E  22 0B 0C
-SUB_0459_22:
-        JP NC,SUB_0459_13                ; $0491  D2 78 04
-        JP SUB_0459_41                   ; $0494  C3 DA 04
-SUB_0459_23:
-        LD BC,SUB_07B8_10                ; $0497  01 E9 07
-SUB_0459_24:
-        CALL SUB_03DF                    ; $049A  CD DF 03
-SUB_0459_25:
+GET_SOURCE_BYTE_22:
+        JP NC,GET_SOURCE_BYTE_13                ; $0491  D2 78 04
+        JP GET_SOURCE_BYTE_41                   ; $0494  C3 DA 04
+GET_SOURCE_BYTE_23:
+        LD BC,SUB16_DE_MINUS_MEM_10                ; $0497  01 E9 07
+GET_SOURCE_BYTE_24:
+        CALL BDOS_READ_SEQ                    ; $049A  CD DF 03
+GET_SOURCE_BYTE_25:
         LD ($0C30),A                     ; $049D  32 30 0C
-SUB_0459_26:
+GET_SOURCE_BYTE_26:
         CP $00                           ; $04A0  FE 00
-SUB_0459_27:
-        JP NZ,SUB_0459_38                ; $04A2  C2 BA 04
-SUB_0459_28:
+GET_SOURCE_BYTE_27:
+        JP NZ,GET_SOURCE_BYTE_38                ; $04A2  C2 BA 04
+GET_SOURCE_BYTE_28:
         LD BC,DEFAULT_DMA                ; $04A5  01 80 00
-SUB_0459_29:
+GET_SOURCE_BYTE_29:
         PUSH BC                          ; $04A8  C5
-SUB_0459_30:
+GET_SOURCE_BYTE_30:
         LD HL,($0C0B)                    ; $04A9  2A 0B 0C
-SUB_0459_31:
+GET_SOURCE_BYTE_31:
         LD BC,$080A                      ; $04AC  01 0A 08
-SUB_0459_32:
+GET_SOURCE_BYTE_32:
         ADD HL,BC                        ; $04AF  09
-SUB_0459_33:
+GET_SOURCE_BYTE_33:
         LD B,H                           ; $04B0  44
-SUB_0459_34:
+GET_SOURCE_BYTE_34:
         LD C,L                           ; $04B1  4D
-SUB_0459_35:
+GET_SOURCE_BYTE_35:
         LD E,$80                         ; $04B2  1E 80
-SUB_0459_36:
-        CALL SUB_0422                    ; $04B4  CD 22 04
-SUB_0459_37:
-        JP SUB_0459_40                   ; $04B7  C3 D7 04
-SUB_0459_38:
+GET_SOURCE_BYTE_36:
+        CALL BLOCK_COPY                    ; $04B4  CD 22 04
+GET_SOURCE_BYTE_37:
+        JP GET_SOURCE_BYTE_40                   ; $04B7  C3 D7 04
+GET_SOURCE_BYTE_38:
         LD A,($0C30)                     ; $04BA  3A 30 0C
         CP $01                           ; $04BD  FE 01
-        JP Z,SUB_0459_39                 ; $04BF  CA C8 04
+        JP Z,GET_SOURCE_BYTE_39                 ; $04BF  CA C8 04
         LD BC,TPA_START_3                ; $04C2  01 41 01
-        CALL SUB_0364                    ; $04C5  CD 64 03
-SUB_0459_39:
+        CALL FATAL_ERROR                    ; $04C5  CD 64 03
+GET_SOURCE_BYTE_39:
         LD HL,($0C0B)                    ; $04C8  2A 0B 0C
         LD BC,$080A                      ; $04CB  01 0A 08
         ADD HL,BC                        ; $04CE  09
         LD (HL),$1A                      ; $04CF  36 1A
-        LD HL,SUB_03FF                   ; $04D1  21 FF 03
+        LD HL,BDOS_MAKE_FILE                   ; $04D1  21 FF 03
         LD ($0C0B),HL                    ; $04D4  22 0B 0C
-SUB_0459_40:
-        JP SUB_0459_18                   ; $04D7  C3 87 04
-SUB_0459_41:
+GET_SOURCE_BYTE_40:
+        JP GET_SOURCE_BYTE_18                   ; $04D7  C3 87 04
+GET_SOURCE_BYTE_41:
         LD HL,WBOOT_VEC                  ; $04DA  21 00 00
-SUB_0459_42:
+GET_SOURCE_BYTE_42:
         LD ($0C0B),HL                    ; $04DD  22 0B 0C
-SUB_0459_43:
+GET_SOURCE_BYTE_43:
         LD A,($080A)                     ; $04E0  3A 0A 08
-SUB_0459_44:
+GET_SOURCE_BYTE_44:
         RET                              ; $04E3  C9
 ; [AI] The main HEX-load driver: scans the source file for each Intel-HEX record (synchronizing on
 ;       the ':' start mark), parses its byte count, load address and record type, stores the data
 ;       bytes into the output image, and on the end record prints the load summary.
-SUB_04E4:
+LOAD_HEX_FILE:
         LD HL,WBOOT_VEC                  ; $04E4  21 00 00
-SUB_04E4_1:
+LOAD_HEX_FILE_1:
         LD ($0C36),HL                    ; $04E7  22 36 0C
-SUB_04E4_2:
+LOAD_HEX_FILE_2:
         LD ($0C38),HL                    ; $04EA  22 38 0C
-SUB_04E4_3:
+LOAD_HEX_FILE_3:
         LD ($0C3A),HL                    ; $04ED  22 3A 0C
-SUB_04E4_4:
+LOAD_HEX_FILE_4:
         LD A,L                           ; $04F0  7D
-SUB_04E4_5:
+LOAD_HEX_FILE_5:
         LD ($0D3C),A                     ; $04F1  32 3C 0D
-SUB_04E4_6:
+LOAD_HEX_FILE_6:
         LD HL,TPA_START                  ; $04F4  21 00 01
-SUB_04E4_7:
+LOAD_HEX_FILE_7:
         LD ($0C34),HL                    ; $04F7  22 34 0C
-SUB_04E4_8:
+LOAD_HEX_FILE_8:
         LD ($0D3D),HL                    ; $04FA  22 3D 0D
-SUB_04E4_9:
+LOAD_HEX_FILE_9:
         LD HL,$080A                      ; $04FD  21 0A 08
-SUB_04E4_10:
+LOAD_HEX_FILE_10:
         LD (HL),$1A                      ; $0500  36 1A
-SUB_04E4_11:
-        CALL SUB_0459                    ; $0502  CD 59 04
-SUB_04E4_12:
+LOAD_HEX_FILE_11:
+        CALL GET_SOURCE_BYTE                    ; $0502  CD 59 04
+LOAD_HEX_FILE_12:
         CP $3A                           ; $0505  FE 3A
-SUB_04E4_13:
-        JP Z,SUB_04E4_15                 ; $0507  CA 0D 05
-SUB_04E4_14:
-        JP SUB_04E4_11                   ; $050A  C3 02 05
-SUB_04E4_15:
+LOAD_HEX_FILE_13:
+        JP Z,LOAD_HEX_FILE_15                 ; $0507  CA 0D 05
+LOAD_HEX_FILE_14:
+        JP LOAD_HEX_FILE_11                   ; $050A  C3 02 05
+LOAD_HEX_FILE_15:
         LD HL,$0C32                      ; $050D  21 32 0C
         LD (HL),$00                      ; $0510  36 00
-        CALL SUB_073D                    ; $0512  CD 3D 07
+        CALL GET_CHECKSUM_BYTE                    ; $0512  CD 3D 07
         LD ($0C31),A                     ; $0515  32 31 0C
         CP $00                           ; $0518  FE 00
-        JP NZ,SUB_04E4_16                ; $051A  C2 20 05
-        JP SUB_04E4_22                   ; $051D  C3 A1 05
-SUB_04E4_16:
+        JP NZ,LOAD_HEX_FILE_16                ; $051A  C2 20 05
+        JP LOAD_HEX_FILE_22                   ; $051D  C3 A1 05
+LOAD_HEX_FILE_16:
         LD A,($0C31)                     ; $0520  3A 31 0C
         LD DE,$0C3A                      ; $0523  11 3A 0C
-        CALL SUB_0772                    ; $0526  CD 72 07
+        CALL TABLE_INDEX_ADD                    ; $0526  CD 72 07
         EX DE,HL                         ; $0529  EB
         DEC HL                           ; $052A  2B
         LD (HL),E                        ; $052B  73
         INC HL                           ; $052C  23
         LD (HL),D                        ; $052D  72
-        CALL SUB_073D                    ; $052E  CD 3D 07
+        CALL GET_CHECKSUM_BYTE                    ; $052E  CD 3D 07
         PUSH AF                          ; $0531  F5
-        CALL SUB_073D                    ; $0532  CD 3D 07
+        CALL GET_CHECKSUM_BYTE                    ; $0532  CD 3D 07
         LD E,A                           ; $0535  5F
         POP BC                           ; $0536  C1
         LD C,B                           ; $0537  48
-        CALL SUB_074C                    ; $0538  CD 4C 07
+        CALL CALC_LOAD_ADDR                    ; $0538  CD 4C 07
         LD ($0C34),HL                    ; $053B  22 34 0C
         LD ($0C16),HL                    ; $053E  22 16 0C
         LD A,$00                         ; $0541  3E 00
         LD DE,$0C36                      ; $0543  11 36 0C
-        CALL SUB_07AA                    ; $0546  CD AA 07
+        CALL SUB16_MEM_MINUS_A                    ; $0546  CD AA 07
         OR L                             ; $0549  B5
-        JP NZ,SUB_04E4_17                ; $054A  C2 53 05
+        JP NZ,LOAD_HEX_FILE_17                ; $054A  C2 53 05
         LD HL,($0C16)                    ; $054D  2A 16 0C
         LD ($0C36),HL                    ; $0550  22 36 0C
-SUB_04E4_17:
-        CALL SUB_073D                    ; $0553  CD 3D 07
+LOAD_HEX_FILE_17:
+        CALL GET_CHECKSUM_BYTE                    ; $0553  CD 3D 07
         LD ($0C33),A                     ; $0556  32 33 0C
-SUB_04E4_18:
+LOAD_HEX_FILE_18:
         LD A,($0C31)                     ; $0559  3A 31 0C
         DEC A                            ; $055C  3D
         LD ($0C31),A                     ; $055D  32 31 0C
         CP $FF                           ; $0560  FE FF
-        JP Z,SUB_04E4_19                 ; $0562  CA 76 05
-        CALL SUB_073D                    ; $0565  CD 3D 07
+        JP Z,LOAD_HEX_FILE_19                 ; $0562  CA 76 05
+        CALL GET_CHECKSUM_BYTE                    ; $0565  CD 3D 07
         LD C,A                           ; $0568  4F
-        CALL SUB_05FD                    ; $0569  CD FD 05
+        CALL STORE_LOAD_BYTE                    ; $0569  CD FD 05
         LD HL,($0C16)                    ; $056C  2A 16 0C
         INC HL                           ; $056F  23
         LD ($0C16),HL                    ; $0570  22 16 0C
-        JP SUB_04E4_18                   ; $0573  C3 59 05
-SUB_04E4_19:
+        JP LOAD_HEX_FILE_18                   ; $0573  C3 59 05
+LOAD_HEX_FILE_19:
         LD DE,$0C38                      ; $0576  11 38 0C
         LD BC,$0C16                      ; $0579  01 16 0C
-        CALL SUB_079D                    ; $057C  CD 9D 07
-        JP NC,SUB_04E4_20                ; $057F  D2 89 05
+        CALL CMP16_PTRS                    ; $057C  CD 9D 07
+        JP NC,LOAD_HEX_FILE_20                ; $057F  D2 89 05
         LD HL,($0C16)                    ; $0582  2A 16 0C
         DEC HL                           ; $0585  2B
         LD ($0C38),HL                    ; $0586  22 38 0C
-SUB_04E4_20:
-        CALL SUB_072E                    ; $0589  CD 2E 07
+LOAD_HEX_FILE_20:
+        CALL GET_HEX_BYTE                    ; $0589  CD 2E 07
         LD HL,$0C32                      ; $058C  21 32 0C
         ADD A,(HL)                       ; $058F  86
         CP $00                           ; $0590  FE 00
-        JP Z,SUB_04E4_21                 ; $0592  CA 9E 05
+        JP Z,LOAD_HEX_FILE_21                 ; $0592  CA 9E 05
         LD BC,TPA_START_10               ; $0595  01 A8 01
-        CALL SUB_0352                    ; $0598  CD 52 03
-        CALL SUB_0680                    ; $059B  CD 80 06
-SUB_04E4_21:
-        JP SUB_04E4_11                   ; $059E  C3 02 05
-SUB_04E4_22:
+        CALL PRINT_LINE                    ; $0598  CD 52 03
+        CALL DUMP_RECORD                    ; $059B  CD 80 06
+LOAD_HEX_FILE_21:
+        JP LOAD_HEX_FILE_11                   ; $059E  C3 02 05
+LOAD_HEX_FILE_22:
         LD HL,($0C16)                    ; $05A1  2A 16 0C
         LD ($0C34),HL                    ; $05A4  22 34 0C
-SUB_04E4_23:
+LOAD_HEX_FILE_23:
         LD BC,$0C34                      ; $05A7  01 34 0C
         LD DE,$0D3D                      ; $05AA  11 3D 0D
-        CALL SUB_079D                    ; $05AD  CD 9D 07
-        JP NC,SUB_04E4_24                ; $05B0  D2 C2 05
+        CALL CMP16_PTRS                    ; $05AD  CD 9D 07
+        JP NC,LOAD_HEX_FILE_24                ; $05B0  D2 C2 05
         LD C,$00                         ; $05B3  0E 00
-        CALL SUB_05FD                    ; $05B5  CD FD 05
+        CALL STORE_LOAD_BYTE                    ; $05B5  CD FD 05
         LD HL,($0C16)                    ; $05B8  2A 16 0C
         INC HL                           ; $05BB  23
         LD ($0C16),HL                    ; $05BC  22 16 0C
-        JP SUB_04E4_23                   ; $05BF  C3 A7 05
-SUB_04E4_24:
+        JP LOAD_HEX_FILE_23                   ; $05BF  C3 A7 05
+LOAD_HEX_FILE_24:
         LD BC,TPA_START_11               ; $05C2  01 B9 01
-        CALL SUB_0352                    ; $05C5  CD 52 03
+        CALL PRINT_LINE                    ; $05C5  CD 52 03
         LD HL,($0C36)                    ; $05C8  2A 36 0C
         LD B,H                           ; $05CB  44
         LD C,L                           ; $05CC  4D
-SUB_04E4_25:
-        CALL SUB_032B                    ; $05CD  CD 2B 03
+LOAD_HEX_FILE_25:
+        CALL PRINT_HEX_WORD                    ; $05CD  CD 2B 03
         LD BC,TPA_START_12               ; $05D0  01 C8 01
-        CALL SUB_0352                    ; $05D3  CD 52 03
+        CALL PRINT_LINE                    ; $05D3  CD 52 03
         LD HL,($0C38)                    ; $05D6  2A 38 0C
         LD B,H                           ; $05D9  44
         LD C,L                           ; $05DA  4D
-        CALL SUB_032B                    ; $05DB  CD 2B 03
+        CALL PRINT_HEX_WORD                    ; $05DB  CD 2B 03
         LD BC,TPA_START_13               ; $05DE  01 D7 01
-        CALL SUB_0352                    ; $05E1  CD 52 03
+        CALL PRINT_LINE                    ; $05E1  CD 52 03
         LD HL,($0C3A)                    ; $05E4  2A 3A 0C
         LD B,H                           ; $05E7  44
         LD C,L                           ; $05E8  4D
-        CALL SUB_032B                    ; $05E9  CD 2B 03
+        CALL PRINT_HEX_WORD                    ; $05E9  CD 2B 03
         LD BC,TPA_START_14               ; $05EC  01 E6 01
-        CALL SUB_0352                    ; $05EF  CD 52 03
+        CALL PRINT_LINE                    ; $05EF  CD 52 03
         LD HL,($0D3C)                    ; $05F2  2A 3C 0D
         LD C,L                           ; $05F5  4D
-        CALL SUB_0310                    ; $05F6  CD 10 03
-        CALL SUB_02E0                    ; $05F9  CD E0 02
+        CALL PRINT_HEX_BYTE                    ; $05F6  CD 10 03
+        CALL PRINT_CRLF                    ; $05F9  CD E0 02
         RET                              ; $05FC  C9
 ; [AI] Stores one decoded data byte (in C) at the current load address: flushes the in-memory
 ;       output buffer to disk via BDOS writes whenever it crosses a 256-byte page boundary, keeping
 ;       the on-disk file aligned to the program's load addresses.
-SUB_05FD:
+STORE_LOAD_BYTE:
         LD HL,$0D3F                      ; $05FD  21 3F 0D
         LD (HL),C                        ; $0600  71
         LD BC,$0D3D                      ; $0601  01 3D 0D
         LD DE,$0C16                      ; $0604  11 16 0C
-        CALL SUB_079D                    ; $0607  CD 9D 07
-        JP NC,SUB_05FD_1                 ; $060A  D2 13 06
+        CALL CMP16_PTRS                    ; $0607  CD 9D 07
+        JP NC,STORE_LOAD_BYTE_1                 ; $060A  D2 13 06
         LD BC,TPA_START_4                ; $060D  01 4B 01
-        CALL SUB_0364                    ; $0610  CD 64 03
-SUB_05FD_1:
+        CALL FATAL_ERROR                    ; $0610  CD 64 03
+STORE_LOAD_BYTE_1:
         LD DE,$00FF                      ; $0613  11 FF 00
         LD HL,($0D3D)                    ; $0616  2A 3D 0D
         ADD HL,DE                        ; $0619  19
         EX DE,HL                         ; $061A  EB
         LD HL,$0C16                      ; $061B  21 16 0C
-        CALL SUB_07B8                    ; $061E  CD B8 07
-        JP NC,SUB_05FD_5                 ; $0621  D2 70 06
+        CALL SUB16_DE_MINUS_MEM                    ; $061E  CD B8 07
+        JP NC,STORE_LOAD_BYTE_5                 ; $0621  D2 70 06
         LD HL,$0D40                      ; $0624  21 40 0D
         LD (HL),$00                      ; $0627  36 00
-SUB_05FD_2:
+STORE_LOAD_BYTE_2:
         LD A,$7F                         ; $0629  3E 7F
         LD HL,$0D40                      ; $062B  21 40 0D
         CP (HL)                          ; $062E  BE
-        JP C,SUB_05FD_3                  ; $062F  DA 58 06
+        JP C,STORE_LOAD_BYTE_3                  ; $062F  DA 58 06
         LD HL,($0D3D)                    ; $0632  2A 3D 0D
         LD A,L                           ; $0635  7D
         LD C,A                           ; $0636  4F
@@ -767,19 +767,19 @@ SUB_05FD_2:
         LD ($0D3D),HL                    ; $064E  22 3D 0D
         LD HL,$0D40                      ; $0651  21 40 0D
         INC (HL)                         ; $0654  34
-        JP NZ,SUB_05FD_2                 ; $0655  C2 29 06
-SUB_05FD_3:
+        JP NZ,STORE_LOAD_BYTE_2                 ; $0655  C2 29 06
+STORE_LOAD_BYTE_3:
         LD HL,$0D3C                      ; $0658  21 3C 0D
         INC (HL)                         ; $065B  34
         LD BC,DEFAULT_FCB                ; $065C  01 5C 00
-        CALL SUB_03EF                    ; $065F  CD EF 03
+        CALL BDOS_WRITE_SEQ                    ; $065F  CD EF 03
         CP $00                           ; $0662  FE 00
-        JP Z,SUB_05FD_4                  ; $0664  CA 6D 06
+        JP Z,STORE_LOAD_BYTE_4                  ; $0664  CA 6D 06
         LD BC,TPA_START_5                ; $0667  01 61 01
-        CALL SUB_0364                    ; $066A  CD 64 03
-SUB_05FD_4:
-        JP SUB_05FD_1                    ; $066D  C3 13 06
-SUB_05FD_5:
+        CALL FATAL_ERROR                    ; $066A  CD 64 03
+STORE_LOAD_BYTE_4:
+        JP STORE_LOAD_BYTE_1                    ; $066D  C3 13 06
+STORE_LOAD_BYTE_5:
         LD HL,($0C16)                    ; $0670  2A 16 0C
         LD A,L                           ; $0673  7D
         LD C,A                           ; $0674  4F
@@ -792,110 +792,110 @@ SUB_05FD_5:
 ; [AI] Diagnostic hex dump of the just-loaded record's bytes, printing the address followed by the
 ;       data in 16-byte rows; invoked on a checksum or other record error to show the offending
 ;       data.
-SUB_0680:
+DUMP_RECORD:
         LD BC,TPA_START_6                ; $0680  01 6C 01
-        CALL SUB_0352                    ; $0683  CD 52 03
+        CALL PRINT_LINE                    ; $0683  CD 52 03
         LD HL,($0C34)                    ; $0686  2A 34 0C
         LD B,H                           ; $0689  44
         LD C,L                           ; $068A  4D
-        CALL SUB_032B                    ; $068B  CD 2B 03
+        CALL PRINT_HEX_WORD                    ; $068B  CD 2B 03
         LD BC,TPA_START_7                ; $068E  01 7B 01
-        CALL SUB_0352                    ; $0691  CD 52 03
+        CALL PRINT_LINE                    ; $0691  CD 52 03
         LD HL,($0C16)                    ; $0694  2A 16 0C
         LD B,H                           ; $0697  44
         LD C,L                           ; $0698  4D
-        CALL SUB_032B                    ; $0699  CD 2B 03
+        CALL PRINT_HEX_WORD                    ; $0699  CD 2B 03
         LD BC,TPA_START_8                ; $069C  01 8A 01
-        CALL SUB_0352                    ; $069F  CD 52 03
-        CALL SUB_06E6                    ; $06A2  CD E6 06
-SUB_0680_1:
+        CALL PRINT_LINE                    ; $069F  CD 52 03
+        CALL DUMP_ADDR_HEADER                    ; $06A2  CD E6 06
+DUMP_RECORD_1:
         LD BC,$0C16                      ; $06A5  01 16 0C
         LD DE,$0C34                      ; $06A8  11 34 0C
-        CALL SUB_079D                    ; $06AB  CD 9D 07
-        JP NC,SUB_0680_3                 ; $06AE  D2 DF 06
+        CALL CMP16_PTRS                    ; $06AB  CD 9D 07
+        JP NC,DUMP_RECORD_3                 ; $06AE  D2 DF 06
         LD HL,($0C34)                    ; $06B1  2A 34 0C
         LD A,L                           ; $06B4  7D
         AND $0F                          ; $06B5  E6 0F
         CP $00                           ; $06B7  FE 00
-        JP NZ,SUB_0680_2                 ; $06B9  C2 BF 06
-        CALL SUB_06E6                    ; $06BC  CD E6 06
-SUB_0680_2:
+        JP NZ,DUMP_RECORD_2                 ; $06B9  C2 BF 06
+        CALL DUMP_ADDR_HEADER                    ; $06BC  CD E6 06
+DUMP_RECORD_2:
         LD BC,$0D3D                      ; $06BF  01 3D 0D
         LD DE,$0C34                      ; $06C2  11 34 0C
-        CALL SUB_079D                    ; $06C5  CD 9D 07
+        CALL CMP16_PTRS                    ; $06C5  CD 9D 07
         LD BC,$0C3C                      ; $06C8  01 3C 0C
         ADD HL,BC                        ; $06CB  09
         LD C,(HL)                        ; $06CC  4E
-        CALL SUB_0310                    ; $06CD  CD 10 03
+        CALL PRINT_HEX_BYTE                    ; $06CD  CD 10 03
         LD HL,($0C34)                    ; $06D0  2A 34 0C
         INC HL                           ; $06D3  23
         LD ($0C34),HL                    ; $06D4  22 34 0C
         LD C,$20                         ; $06D7  0E 20
-        CALL SUB_02D0                    ; $06D9  CD D0 02
-        JP SUB_0680_1                    ; $06DC  C3 A5 06
-SUB_0680_3:
-        CALL SUB_02E0                    ; $06DF  CD E0 02
-        CALL SUB_023B                    ; $06E2  CD 3B 02
+        CALL CONOUT                    ; $06D9  CD D0 02
+        JP DUMP_RECORD_1                    ; $06DC  C3 A5 06
+DUMP_RECORD_3:
+        CALL PRINT_CRLF                    ; $06DF  CD E0 02
+        CALL RESTORE_CCP_STACK                    ; $06E2  CD 3B 02
         RET                              ; $06E5  C9
-; [AI] Prints the address column header for the SUB_0680 hex dump: a new line, the 4-digit address,
+; [AI] Prints the address column header for the DUMP_RECORD hex dump: a new line, the 4-digit address,
 ;       then ': ' separator.
-SUB_06E6:
-        CALL SUB_02E0                    ; $06E6  CD E0 02
+DUMP_ADDR_HEADER:
+        CALL PRINT_CRLF                    ; $06E6  CD E0 02
         LD HL,($0C34)                    ; $06E9  2A 34 0C
         LD B,H                           ; $06EC  44
         LD C,L                           ; $06ED  4D
-        CALL SUB_032B                    ; $06EE  CD 2B 03
+        CALL PRINT_HEX_WORD                    ; $06EE  CD 2B 03
         LD C,$3A                         ; $06F1  0E 3A
-        CALL SUB_02D0                    ; $06F3  CD D0 02
+        CALL CONOUT                    ; $06F3  CD D0 02
         LD C,$20                         ; $06F6  0E 20
-        CALL SUB_02D0                    ; $06F8  CD D0 02
+        CALL CONOUT                    ; $06F8  CD D0 02
         RET                              ; $06FB  C9
 ; [AI] Reads one ASCII character from the source file and converts it from a hex digit to its 0-15
 ;       value, reporting an 'invalid hex digit' error if the character is not 0-9 or A-F.
-SUB_06FC:
-        CALL SUB_0459                    ; $06FC  CD 59 04
+GET_HEX_DIGIT:
+        CALL GET_SOURCE_BYTE                    ; $06FC  CD 59 04
         LD ($0D41),A                     ; $06FF  32 41 0D
         SUB $30                          ; $0702  D6 30
         LD C,A                           ; $0704  4F
         LD A,$09                         ; $0705  3E 09
         CP C                             ; $0707  B9
-        JP C,SUB_06FC_1                  ; $0708  DA 11 07
+        JP C,GET_HEX_DIGIT_1                  ; $0708  DA 11 07
         LD A,($0D41)                     ; $070B  3A 41 0D
         SUB $30                          ; $070E  D6 30
         RET                              ; $0710  C9
-SUB_06FC_1:
+GET_HEX_DIGIT_1:
         LD A,($0D41)                     ; $0711  3A 41 0D
         SUB $41                          ; $0714  D6 41
         LD C,A                           ; $0716  4F
         LD A,$05                         ; $0717  3E 05
         CP C                             ; $0719  B9
-        JP NC,SUB_06FC_2                 ; $071A  D2 26 07
+        JP NC,GET_HEX_DIGIT_2                 ; $071A  D2 26 07
         LD BC,TPA_START_9                ; $071D  01 96 01
-        CALL SUB_0352                    ; $0720  CD 52 03
-        CALL SUB_0680                    ; $0723  CD 80 06
-SUB_06FC_2:
+        CALL PRINT_LINE                    ; $0720  CD 52 03
+        CALL DUMP_RECORD                    ; $0723  CD 80 06
+GET_HEX_DIGIT_2:
         LD A,($0D41)                     ; $0726  3A 41 0D
         SUB $41                          ; $0729  D6 41
         ADD A,$0A                        ; $072B  C6 0A
         RET                              ; $072D  C9
 ; [AI] Reads two source characters and combines them (high nibble shifted left 4, OR low nibble)
 ;       into one assembled byte value via SUB_06FC.
-SUB_072E:
-        CALL SUB_06FC                    ; $072E  CD FC 06
+GET_HEX_BYTE:
+        CALL GET_HEX_DIGIT                    ; $072E  CD FC 06
         ADD A,A                          ; $0731  87
         ADD A,A                          ; $0732  87
         ADD A,A                          ; $0733  87
         ADD A,A                          ; $0734  87
         PUSH AF                          ; $0735  F5
-        CALL SUB_06FC                    ; $0736  CD FC 06
+        CALL GET_HEX_DIGIT                    ; $0736  CD FC 06
         POP BC                           ; $0739  C1
         LD C,B                           ; $073A  48
         OR C                             ; $073B  B1
         RET                              ; $073C  C9
-; [AI] Reads one HEX byte through SUB_072E and folds it into the running record checksum at $0C32;
+; [AI] Reads one HEX byte through GET_HEX_BYTE and folds it into the running record checksum at $0C32;
 ;       the core 'get checksummed byte' used while parsing a record.
-SUB_073D:
-        CALL SUB_072E                    ; $073D  CD 2E 07
+GET_CHECKSUM_BYTE:
+        CALL GET_HEX_BYTE                    ; $073D  CD 2E 07
         LD ($0D42),A                     ; $0740  32 42 0D
         LD HL,$0C32                      ; $0743  21 32 0C
         ADD A,(HL)                       ; $0746  86
@@ -904,7 +904,7 @@ SUB_073D:
         RET                              ; $074B  C9
 ; [AI] Computes a record's full 16-bit load address by taking the base address and adding the byte
 ;       offset (multiplied/shifted into place), combining the high and low parts.
-SUB_074C:
+CALC_LOAD_ADDR:
         LD HL,$0D44                      ; $074C  21 44 0D
         LD (HL),E                        ; $074F  73
         DEC HL                           ; $0750  2B
@@ -912,24 +912,24 @@ SUB_074C:
         LD HL,($0D43)                    ; $0752  2A 43 0D
         LD H,$00                         ; $0755  26 00
         LD C,$08                         ; $0757  0E 08
-        CALL SUB_078D                    ; $0759  CD 8D 07
+        CALL SHIFT_LEFT_HL                    ; $0759  CD 8D 07
         LD A,($0D44)                     ; $075C  3A 44 0D
-        CALL SUB_077F                    ; $075F  CD 7F 07
+        CALL OR_BYTE_INTO_WORD                    ; $075F  CD 7F 07
         RET                              ; $0762  C9
         DEFB    $C3,$00,$00                                      ; $0763
 ; [AI] BDOS call trampoline (JP $0005); routines load the function number in C and the parameter in
 ;       DE then jump here to reach the BDOS.
-SUB_0766:
+BDOS_CALL:
         JP BDOS_VEC                      ; $0766  C3 05 00
 ; [AI] A second BDOS-call trampoline (JP $0005), used by the file-open/close/read/write/create
 ;       routines that need the directory/status code returned in A.
-SUB_0769:
+BDOS_CALL_RET:
         JP BDOS_VEC                      ; $0769  C3 05 00
-        DEFW    SUB_04E4_25              ; $076C
+        DEFW    LOAD_HEX_FILE_25              ; $076C
         DEFB    $00,$C9,$C9,$C9                                  ; $076E
 ; [AI] Indexes a 16-bit table by the value in A: forms a word pointer and adds the addressed table
 ;       entry to HL, a small lookup/add helper used in address computation.
-SUB_0772:
+TABLE_INDEX_ADD:
         EX DE,HL                         ; $0772  EB
         LD E,A                           ; $0773  5F
         LD D,$00                         ; $0774  16 00
@@ -944,7 +944,7 @@ SUB_0772:
         RET                              ; $077E  C9
 ; [AI] ORs the 8-bit value in A into the low byte of HL (high byte OR 0), merging a byte into a
 ;       16-bit accumulator.
-SUB_077F:
+OR_BYTE_INTO_WORD:
         LD E,A                           ; $077F  5F
         LD D,$00                         ; $0780  16 00
         LD A,E                           ; $0782  7B
@@ -957,32 +957,32 @@ SUB_077F:
         DEFB    $5E,$23,$56,$EB                                  ; $0789
 ; [AI] Left-shifts HL by C bit positions (repeated ADD HL,HL), i.e. multiplies HL by a power of
 ;       two; used in scaling the record's address fields.
-SUB_078D:
+SHIFT_LEFT_HL:
         ADD HL,HL                        ; $078D  29
         DEC C                            ; $078E  0D
-        JP NZ,SUB_078D                   ; $078F  C2 8D 07
+        JP NZ,SHIFT_LEFT_HL                   ; $078F  C2 8D 07
         RET                              ; $0792  C9
         DEFB    $5F,$16,$00                                      ; $0793
 ; [AI] 16-bit subtraction HL = DE - HL, leaving the borrow in the carry flag so the caller can
 ;       compare two addresses.
-SUB_0796:
+SUB16_DE_MINUS_HL:
         LD A,E                           ; $0796  7B
-SUB_0796_1:
+SUB16_DE_MINUS_HL_1:
         SUB L                            ; $0797  95
-SUB_0796_2:
+SUB16_DE_MINUS_HL_2:
         LD L,A                           ; $0798  6F
-SUB_0796_3:
+SUB16_DE_MINUS_HL_3:
         LD A,D                           ; $0799  7A
-SUB_0796_4:
+SUB16_DE_MINUS_HL_4:
         SBC A,H                          ; $079A  9C
-SUB_0796_5:
+SUB16_DE_MINUS_HL_5:
         LD H,A                           ; $079B  67
-SUB_0796_6:
+SUB16_DE_MINUS_HL_6:
         RET                              ; $079C  C9
 ; [AI] 16-bit compare-by-subtraction of two memory-resident pointers: loads the word at (BC),
 ;       subtracts it from the word at (DE), returning carry to signal which pointer is larger (loop-
 ;       termination test).
-SUB_079D:
+CMP16_PTRS:
         LD L,C                           ; $079D  69
         LD H,B                           ; $079E  60
         LD C,(HL)                        ; $079F  4E
@@ -998,7 +998,7 @@ SUB_079D:
         RET                              ; $07A9  C9
 ; [AI] Computes HL = word at (DE) minus the byte in A, a mixed 8/16-bit subtraction used when
 ;       checking the high-load-address bound.
-SUB_07AA:
+SUB16_MEM_MINUS_A:
         LD L,A                           ; $07AA  6F
         LD H,$00                         ; $07AB  26 00
         LD A,(DE)                        ; $07AD  1A
@@ -1012,30 +1012,30 @@ SUB_07AA:
         DEFB    $5F,$16,$00                                      ; $07B5
 ; [AI] 16-bit subtraction of the word at (HL) from DE, returning the result in HL with carry set,
 ;       used to test whether the current address has crossed a record/page boundary.
-SUB_07B8:
+SUB16_DE_MINUS_MEM:
         LD A,E                           ; $07B8  7B
-SUB_07B8_1:
+SUB16_DE_MINUS_MEM_1:
         SUB (HL)                         ; $07B9  96
-SUB_07B8_2:
+SUB16_DE_MINUS_MEM_2:
         LD E,A                           ; $07BA  5F
-SUB_07B8_3:
+SUB16_DE_MINUS_MEM_3:
         LD A,D                           ; $07BB  7A
-SUB_07B8_4:
+SUB16_DE_MINUS_MEM_4:
         INC HL                           ; $07BC  23
-SUB_07B8_5:
+SUB16_DE_MINUS_MEM_5:
         SBC A,(HL)                       ; $07BD  9E
-SUB_07B8_6:
+SUB16_DE_MINUS_MEM_6:
         LD D,A                           ; $07BE  57
-SUB_07B8_7:
+SUB16_DE_MINUS_MEM_7:
         EX DE,HL                         ; $07BF  EB
-SUB_07B8_8:
+SUB16_DE_MINUS_MEM_8:
         RET                              ; $07C0  C9
         DEFS    38, $1A    ; $07C1  fill
-SUB_07B8_9:
+SUB16_DE_MINUS_MEM_9:
         DEFB    $1A,$1A                                          ; $07E7
-SUB_07B8_10:
+SUB16_DE_MINUS_MEM_10:
         DEFS    9, $1A    ; $07E9  fill
-SUB_07B8_11:
+SUB16_DE_MINUS_MEM_11:
         DEFS    14, $1A    ; $07F2  fill
 
     SAVEBIN "LOAD.bin", $0100, $0700

@@ -18,7 +18,7 @@ DEFAULT_RND          EQU $007D               ; Default FCB random record number 
 DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS cold-init / DRV_ALLRESET (fn 13) set the DMA address here and WBOOT re-issues SETDMA($0080); sector/record I/O moves 128 bytes through it. At program load this same buffer doubles as the command tail: the first byte ($0080) holds the tail length (0-127) and the characters follow at $0081 (CMDLINE).
 
 ; -- Mid-instruction references (shown inline as cover+offset) --
-;   $102E -> SUB_0DBA_21+1        shared instruction tail: $102E is reachable code inside the instruction at $102D
+;   $102E -> FILE_STATUS_MAIN_21+1        shared instruction tail: $102E is reachable code inside the instruction at $102D
 
     ORG $0100
 
@@ -167,7 +167,7 @@ TPA_START_48:
 TPA_START_49:
         LD SP,HL                         ; $043D  F9
 TPA_START_50:
-        CALL SUB_04ED                    ; $043E  CD ED 04
+        CALL BDOS_GET_VERSION                    ; $043E  CD ED 04
 TPA_START_51:
         CP $20                           ; $0441  FE 20
 TPA_START_52:
@@ -175,7 +175,7 @@ TPA_START_52:
 TPA_START_53:
         LD BC,TPA_START_44               ; $0446  01 11 04
 TPA_START_54:
-        CALL SUB_04D2                    ; $0449  CD D2 04
+        CALL PRINT_LINE                    ; $0449  CD D2 04
 TPA_START_55:
         JP TPA_START_59                  ; $044C  C3 8B 04
 ; [AI] Version check passed; begins command dispatch by examining the parsed command tail to choose
@@ -197,24 +197,24 @@ TPA_START_56:
         AND C                            ; $0467  A1
         RRA                              ; $0468  1F
         JP NC,TPA_START_57               ; $0469  D2 72 04
-        CALL SUB_0D33                    ; $046C  CD 33 0D
+        CALL REPORT_DISK_STATUS                    ; $046C  CD 33 0D
         JP TPA_START_59                  ; $046F  C3 8B 04
 ; [AI] Branch taken when a filename argument is present, dispatching to the per-file status path
-;       (SUB_1402) rather than the disk-summary path.
+;       (HANDLE_FILE_OR_ASSIGN) rather than the disk-summary path.
 TPA_START_57:
         LD A,(DEFAULT_FCB)               ; $0472  3A 5C 00
         CP $00                           ; $0475  FE 00
         JP Z,TPA_START_58                ; $0477  CA 80 04
-        CALL SUB_1402                    ; $047A  CD 02 14
+        CALL HANDLE_FILE_OR_ASSIGN                    ; $047A  CD 02 14
         JP TPA_START_59                  ; $047D  C3 8B 04
 ; [AI] No-argument path: probes for an embedded assignment/keyword command and, if none, falls
 ;       through to the default directory/file listing.
 TPA_START_58:
-        CALL SUB_0A87                    ; $0480  CD 87 0A
+        CALL DISPATCH_COMMAND                    ; $0480  CD 87 0A
         CPL                              ; $0483  2F
         RRA                              ; $0484  1F
         JP NC,TPA_START_59               ; $0485  D2 8B 04
-        CALL SUB_0DBA                    ; $0488  CD BA 0D
+        CALL FILE_STATUS_MAIN                    ; $0488  CD BA 0D
 ; [AI] Common exit: restores the caller's stack pointer saved at startup and returns to the CCP.
 TPA_START_59:
         LD HL,(SUB_14F8_17)              ; $048B  2A 32 15
@@ -224,130 +224,130 @@ TPA_START_61:
         RET                              ; $048F  C9
 ; [AI] Console output of a single character (BDOS function 2) given in C; the program's lowest-
 ;       level print primitive.
-SUB_0490:
+CONOUT_CHAR:
         LD HL,SUB_14F8_4                 ; $0490  21 22 15
-SUB_0490_1:
+CONOUT_CHAR_1:
         LD (HL),C                        ; $0493  71
-SUB_0490_2:
+CONOUT_CHAR_2:
         LD HL,(SUB_14F8_4)               ; $0494  2A 22 15
-SUB_0490_3:
+CONOUT_CHAR_3:
         LD H,$00                         ; $0497  26 00
-SUB_0490_4:
+CONOUT_CHAR_4:
         EX DE,HL                         ; $0499  EB
-SUB_0490_5:
+CONOUT_CHAR_5:
         LD C,$02                         ; $049A  0E 02
-SUB_0490_6:
-        CALL SUB_144C                    ; $049C  CD 4C 14
-SUB_0490_7:
+CONOUT_CHAR_6:
+        CALL BDOS_CALL_VOID                    ; $049C  CD 4C 14
+CONOUT_CHAR_7:
         RET                              ; $049F  C9
 ; [AI] Prints a CR/LF pair by emitting $0D then $0A through the single-character printer.
-SUB_04A0:
+PRINT_CRLF:
         LD C,$0D                         ; $04A0  0E 0D
-SUB_04A0_1:
-        CALL SUB_0490                    ; $04A2  CD 90 04
-SUB_04A0_2:
+PRINT_CRLF_1:
+        CALL CONOUT_CHAR                    ; $04A2  CD 90 04
+PRINT_CRLF_2:
         LD C,$0A                         ; $04A5  0E 0A
-SUB_04A0_3:
-        CALL SUB_0490                    ; $04A7  CD 90 04
-SUB_04A0_4:
+PRINT_CRLF_3:
+        CALL CONOUT_CHAR                    ; $04A7  CD 90 04
+PRINT_CRLF_4:
         RET                              ; $04AA  C9
 ; [AI] Prints a single space character; convenience wrapper around the character printer.
-SUB_04AB:
+PRINT_SPACE:
         LD C,$20                         ; $04AB  0E 20
-        CALL SUB_0490                    ; $04AD  CD 90 04
+        CALL CONOUT_CHAR                    ; $04AD  CD 90 04
         RET                              ; $04B0  C9
 ; [AI] Prints a $00-terminated string whose address is passed in BC, looping character by character
 ;       until the null.
-SUB_04B1:
+PRINT_STRING:
         LD HL,SUB_14F8_6                 ; $04B1  21 24 15
-SUB_04B1_1:
+PRINT_STRING_1:
         LD (HL),B                        ; $04B4  70
-SUB_04B1_2:
+PRINT_STRING_2:
         DEC HL                           ; $04B5  2B
-SUB_04B1_3:
+PRINT_STRING_3:
         LD (HL),C                        ; $04B6  71
-SUB_04B1_4:
+PRINT_STRING_4:
         LD HL,(SUB_14F8_5)               ; $04B7  2A 23 15
-SUB_04B1_5:
+PRINT_STRING_5:
         LD A,(HL)                        ; $04BA  7E
-SUB_04B1_6:
+PRINT_STRING_6:
         CP $00                           ; $04BB  FE 00
-SUB_04B1_7:
-        JP Z,SUB_04B1_15                 ; $04BD  CA D1 04
-SUB_04B1_8:
+PRINT_STRING_7:
+        JP Z,PRINT_STRING_15                 ; $04BD  CA D1 04
+PRINT_STRING_8:
         LD HL,(SUB_14F8_5)               ; $04C0  2A 23 15
-SUB_04B1_9:
+PRINT_STRING_9:
         LD C,(HL)                        ; $04C3  4E
-SUB_04B1_10:
-        CALL SUB_0490                    ; $04C4  CD 90 04
-SUB_04B1_11:
+PRINT_STRING_10:
+        CALL CONOUT_CHAR                    ; $04C4  CD 90 04
+PRINT_STRING_11:
         LD HL,(SUB_14F8_5)               ; $04C7  2A 23 15
-SUB_04B1_12:
+PRINT_STRING_12:
         INC HL                           ; $04CA  23
-SUB_04B1_13:
+PRINT_STRING_13:
         LD (SUB_14F8_5),HL               ; $04CB  22 23 15
-SUB_04B1_14:
-        JP SUB_04B1_4                    ; $04CE  C3 B7 04
-SUB_04B1_15:
+PRINT_STRING_14:
+        JP PRINT_STRING_4                    ; $04CE  C3 B7 04
+PRINT_STRING_15:
         RET                              ; $04D1  C9
 ; [AI] Prints a message string (address in BC) preceded by a CR/LF, the standard way STAT emits a
 ;       fresh report line.
-SUB_04D2:
+PRINT_LINE:
         LD HL,SUB_14F8_8                 ; $04D2  21 26 15
-SUB_04D2_1:
+PRINT_LINE_1:
         LD (HL),B                        ; $04D5  70
-SUB_04D2_2:
+PRINT_LINE_2:
         DEC HL                           ; $04D6  2B
-SUB_04D2_3:
+PRINT_LINE_3:
         LD (HL),C                        ; $04D7  71
-SUB_04D2_4:
-        CALL SUB_04A0                    ; $04D8  CD A0 04
-SUB_04D2_5:
+PRINT_LINE_4:
+        CALL PRINT_CRLF                    ; $04D8  CD A0 04
+PRINT_LINE_5:
         LD HL,(SUB_14F8_7)               ; $04DB  2A 25 15
-SUB_04D2_6:
+PRINT_LINE_6:
         LD B,H                           ; $04DE  44
-SUB_04D2_7:
+PRINT_LINE_7:
         LD C,L                           ; $04DF  4D
-SUB_04D2_8:
-        CALL SUB_04B1                    ; $04E0  CD B1 04
-SUB_04D2_9:
+PRINT_LINE_8:
+        CALL PRINT_STRING                    ; $04E0  CD B1 04
+PRINT_LINE_9:
         RET                              ; $04E3  C9
 ; [AI] BDOS function 11 (console status / break check), returning whether a key is waiting; used to
 ;       honor user abort during listings.
-SUB_04E4:
+BDOS_CONST:
         LD DE,WBOOT_VEC                  ; $04E4  11 00 00
         LD C,$0B                         ; $04E7  0E 0B
-        CALL SUB_144F                    ; $04E9  CD 4F 14
+        CALL BDOS_CALL_A                    ; $04E9  CD 4F 14
         RET                              ; $04EC  C9
 ; [AI] BDOS function 12 (return version number); called at startup to verify this is CP/M 2.x
 ;       before running.
-SUB_04ED:
+BDOS_GET_VERSION:
         LD DE,WBOOT_VEC                  ; $04ED  11 00 00
-SUB_04ED_1:
+BDOS_GET_VERSION_1:
         LD C,$0C                         ; $04F0  0E 0C
-SUB_04ED_2:
-        CALL SUB_144F                    ; $04F2  CD 4F 14
-SUB_04ED_3:
+BDOS_GET_VERSION_2:
+        CALL BDOS_CALL_A                    ; $04F2  CD 4F 14
+BDOS_GET_VERSION_3:
         RET                              ; $04F5  C9
 ; [AI] BDOS function 14 (select disk) using the drive number in C, making a given drive current for
 ;       subsequent disk-parameter queries.
-SUB_04F6:
+BDOS_SELECT_DISK:
         LD HL,SUB_14F8_10                ; $04F6  21 28 15
         LD (HL),C                        ; $04F9  71
         LD HL,(SUB_14F8_10)              ; $04FA  2A 28 15
         LD H,$00                         ; $04FD  26 00
         EX DE,HL                         ; $04FF  EB
         LD C,$0E                         ; $0500  0E 0E
-        CALL SUB_144C                    ; $0502  CD 4C 14
+        CALL BDOS_CALL_VOID                    ; $0502  CD 4C 14
         RET                              ; $0505  C9
         DEFB    $21,$2A,$15,$70,$2B,$71,$2A,$29,$15,$EB,$0E,$0F,$CD ; $0506
-        DEFW    SUB_144F                 ; $0513
+        DEFW    BDOS_CALL_A                 ; $0513
         DEFB    $32                                              ; $0515
         DEFW    SUB_14F8_9               ; $0516
         DEFB    $C9                                              ; $0518
 ; [AI] BDOS function 17 (search first) on the FCB pointed to by BC; begins a directory scan and
 ;       stores the returned directory code.
-SUB_0519:
+BDOS_SEARCH_FIRST:
         LD HL,SUB_14F8_12                ; $0519  21 2C 15
         LD (HL),B                        ; $051C  70
         DEC HL                           ; $051D  2B
@@ -355,27 +355,27 @@ SUB_0519:
         LD HL,(SUB_14F8_11)              ; $051F  2A 2B 15
         EX DE,HL                         ; $0522  EB
         LD C,$11                         ; $0523  0E 11
-        CALL SUB_144F                    ; $0525  CD 4F 14
+        CALL BDOS_CALL_A                    ; $0525  CD 4F 14
         LD (SUB_14F8_9),A                ; $0528  32 27 15
         RET                              ; $052B  C9
 ; [AI] BDOS function 18 (search next); continues the directory scan started by search-first,
 ;       storing the directory code.
-SUB_052C:
+BDOS_SEARCH_NEXT:
         LD DE,WBOOT_VEC                  ; $052C  11 00 00
         LD C,$12                         ; $052F  0E 12
-        CALL SUB_144F                    ; $0531  CD 4F 14
+        CALL BDOS_CALL_A                    ; $0531  CD 4F 14
         LD (SUB_14F8_9),A                ; $0534  32 27 15
         RET                              ; $0537  C9
 ; [AI] BDOS function 25 (return current default drive number); used when printing which drive a
 ;       report refers to.
-SUB_0538:
+BDOS_GET_CUR_DRIVE:
         LD DE,WBOOT_VEC                  ; $0538  11 00 00
         LD C,$19                         ; $053B  0E 19
-        CALL SUB_144F                    ; $053D  CD 4F 14
+        CALL BDOS_CALL_A                    ; $053D  CD 4F 14
         RET                              ; $0540  C9
 ; [AI] BDOS function 26 (set DMA address) to the buffer pointed to by BC, redirecting where
 ;       directory reads land.
-SUB_0541:
+BDOS_SET_DMA:
         LD HL,SUB_14F8_14                ; $0541  21 2E 15
         LD (HL),B                        ; $0544  70
         DEC HL                           ; $0545  2B
@@ -383,60 +383,60 @@ SUB_0541:
         LD HL,(SUB_14F8_13)              ; $0547  2A 2D 15
         EX DE,HL                         ; $054A  EB
         LD C,$1A                         ; $054B  0E 1A
-        CALL SUB_144C                    ; $054D  CD 4C 14
+        CALL BDOS_CALL_VOID                    ; $054D  CD 4C 14
         RET                              ; $0550  C9
 ; [AI] BDOS function 27 (get allocation-vector address) for the current drive, returned in HL;
 ;       basis of the free-space computation.
-SUB_0551:
+BDOS_GET_ALLOC_VEC:
         LD DE,WBOOT_VEC                  ; $0551  11 00 00
         LD C,$1B                         ; $0554  0E 1B
-        CALL SUB_1452                    ; $0556  CD 52 14
+        CALL BDOS_CALL_HL                    ; $0556  CD 52 14
         RET                              ; $0559  C9
 ; [AI] BDOS function 24 (return login/active-drive bit vector) in HL; used to enumerate which
 ;       drives are online for DSK: status.
-SUB_055A:
+BDOS_GET_LOGIN_VEC:
         LD DE,WBOOT_VEC                  ; $055A  11 00 00
         LD C,$18                         ; $055D  0E 18
-        CALL SUB_1452                    ; $055F  CD 52 14
+        CALL BDOS_CALL_HL                    ; $055F  CD 52 14
         RET                              ; $0562  C9
 ; [AI] BDOS function 28 (write-protect current disk), invoked by the 'd:=R/O' temporary read-only
 ;       assignment command.
-SUB_0563:
+BDOS_WRITE_PROTECT:
         LD DE,WBOOT_VEC                  ; $0563  11 00 00
         LD C,$1C                         ; $0566  0E 1C
-        CALL SUB_144C                    ; $0568  CD 4C 14
+        CALL BDOS_CALL_VOID                    ; $0568  CD 4C 14
         RET                              ; $056B  C9
 ; [AI] BDOS function 29 (return read-only drive bit vector) in HL; tells STAT which drives are
 ;       currently write-protected.
-SUB_056C:
+BDOS_GET_RO_VEC:
         LD DE,WBOOT_VEC                  ; $056C  11 00 00
         LD C,$1D                         ; $056F  0E 1D
-        CALL SUB_1452                    ; $0571  CD 52 14
+        CALL BDOS_CALL_HL                    ; $0571  CD 52 14
         RET                              ; $0574  C9
         DEFB    $11,$5C,$00,$0E,$1E,$CD                          ; $0575
-        DEFW    SUB_144C                 ; $057B
+        DEFW    BDOS_CALL_VOID                 ; $057B
         DEFB    $C9                                              ; $057D
 ; [AI] BDOS function 31 (get disk-parameter-block address) in HL, saved at $151E; the source of
 ;       every drive-characteristics number STAT prints.
-SUB_057E:
+BDOS_GET_DPB:
         LD DE,WBOOT_VEC                  ; $057E  11 00 00
         LD C,$1F                         ; $0581  0E 1F
-        CALL SUB_1452                    ; $0583  CD 52 14
+        CALL BDOS_CALL_HL                    ; $0583  CD 52 14
         LD (SUB_14F8_2),HL               ; $0586  22 1E 15
         RET                              ; $0589  C9
 ; [AI] BDOS function 32 with E=$FF (query, not set, the current user number), used in the Active
 ;       User display.
-SUB_058A:
+BDOS_GET_USER:
         LD DE,$00FF                      ; $058A  11 FF 00
         LD C,$20                         ; $058D  0E 20
-        CALL SUB_144F                    ; $058F  CD 4F 14
+        CALL BDOS_CALL_A                    ; $058F  CD 4F 14
         RET                              ; $0592  C9
         DEFB    $21,$2F,$15,$71,$2A,$2F,$15,$26,$00,$EB,$0E,$20,$CD ; $0593
-        DEFW    SUB_144C                 ; $05A0
+        DEFW    BDOS_CALL_VOID                 ; $05A0
         DEFB    $C9                                              ; $05A2
 ; [AI] BDOS function 35 (compute file size) for the FCB in BC, leaving the record count in the
 ;       random-record field for the size report.
-SUB_05A3:
+BDOS_COMPUTE_FILESIZE:
         LD HL,SUB_14F8_16                ; $05A3  21 31 15
         LD (HL),B                        ; $05A6  70
         DEC HL                           ; $05A7  2B
@@ -444,31 +444,31 @@ SUB_05A3:
         LD HL,(SUB_14F8_15)              ; $05A9  2A 30 15
         EX DE,HL                         ; $05AC  EB
         LD C,$23                         ; $05AD  0E 23
-        CALL SUB_144C                    ; $05AF  CD 4C 14
+        CALL BDOS_CALL_VOID                    ; $05AF  CD 4C 14
         RET                              ; $05B2  C9
 ; [AI] Fetches the current disk parameter block and derives the drive's total 128-byte-record
 ;       capacity into $1554, the master capacity figure for reports.
-SUB_05B3:
-        CALL SUB_057E                    ; $05B3  CD 7E 05
+GET_DRIVE_CAPACITY:
+        CALL BDOS_GET_DPB                    ; $05B3  CD 7E 05
         LD HL,(SUB_14F8_2)               ; $05B6  2A 1E 15
         INC HL                           ; $05B9  23
         INC HL                           ; $05BA  23
         LD C,(HL)                        ; $05BB  4E
         LD HL,$0001                      ; $05BC  21 01 00
-        CALL SUB_14BD                    ; $05BF  CD BD 14
+        CALL SHL_HL                    ; $05BF  CD BD 14
         LD DE,DEFAULT_DMA                ; $05C2  11 80 00
-        CALL SUB_149E                    ; $05C5  CD 9E 14
+        CALL MUL16                    ; $05C5  CD 9E 14
         LD (SUB_14F8_18),HL              ; $05C8  22 54 15
         RET                              ; $05CB  C9
 ; [AI] Selects drive number C and refreshes the cached disk-parameter/capacity values, called
 ;       whenever STAT switches the drive it is reporting on.
-SUB_05CC:
+SELECT_DRIVE_REFRESH:
         LD HL,SUB_14F8_19                ; $05CC  21 56 15
         LD (HL),C                        ; $05CF  71
         LD HL,(SUB_14F8_19)              ; $05D0  2A 56 15
         LD C,L                           ; $05D3  4D
-        CALL SUB_04F6                    ; $05D4  CD F6 04
-        CALL SUB_05B3                    ; $05D7  CD B3 05
+        CALL BDOS_SELECT_DISK                    ; $05D4  CD F6 04
+        CALL GET_DRIVE_CAPACITY                    ; $05D7  CD B3 05
         RET                              ; $05DA  C9
 ; [AI] Given a directory-entry index in BC, computes the byte offset of that entry's allocation map
 ;       within the current DMA buffer.
@@ -479,7 +479,7 @@ SUB_05DB:
         LD (HL),C                        ; $05E0  71
         LD C,$03                         ; $05E1  0E 03
         LD HL,SUB_14F8_20                ; $05E3  21 57 15
-        CALL SUB_14C3                    ; $05E6  CD C3 14
+        CALL SHR_MEM                    ; $05E6  CD C3 14
         EX DE,HL                         ; $05E9  EB
         LD HL,(SUB_14F8_3)               ; $05EA  2A 20 15
         ADD HL,DE                        ; $05ED  19
@@ -487,11 +487,11 @@ SUB_05DB:
 SUB_05DB_1:
         LD DE,SUB_14F8_20                ; $05F0  11 57 15
         PUSH HL                          ; $05F3  E5
-        CALL SUB_1472                    ; $05F4  CD 72 14
+        CALL AND16_BYTE                    ; $05F4  CD 72 14
         INC HL                           ; $05F7  23
         LD C,L                           ; $05F8  4D
         POP HL                           ; $05F9  E1
-        CALL SUB_14B2                    ; $05FA  CD B2 14
+        CALL ROTATE_BYTE_LEFT                    ; $05FA  CD B2 14
         RET                              ; $05FD  C9
 ; [AI] Compares the four-character keyword at the address in BC against 'R/O ' (the disk-assignment
 ;       keyword), returning a match flag.
@@ -532,26 +532,26 @@ SUB_05FE_3:
         RET                              ; $0638  C9
 ; [AI] Command-tail tokenizer: skips leading spaces, then copies the next token (up to a delimiter)
 ;       from $0080 into the scratch buffer at $1559.
-SUB_0639:
+PARSE_NEXT_TOKEN:
         LD HL,(SUB_14F8_24)              ; $0639  2A 5D 15
         LD H,$00                         ; $063C  26 00
         LD BC,DEFAULT_DMA                ; $063E  01 80 00
         ADD HL,BC                        ; $0641  09
         LD A,(HL)                        ; $0642  7E
         CP $20                           ; $0643  FE 20
-        JP NZ,SUB_0639_1                 ; $0645  C2 4F 06
+        JP NZ,PARSE_NEXT_TOKEN_1                 ; $0645  C2 4F 06
         LD HL,SUB_14F8_24                ; $0648  21 5D 15
         INC (HL)                         ; $064B  34
-        JP SUB_0639                      ; $064C  C3 39 06
+        JP PARSE_NEXT_TOKEN                      ; $064C  C3 39 06
 ; [AI] Inner loop of the tokenizer that classifies each character as a delimiter (space, comma,
 ;       colon, '*', '.', relational signs, '=') to bound the token.
-SUB_0639_1:
+PARSE_NEXT_TOKEN_1:
         LD HL,SUB_14F8_28                ; $064F  21 61 15
         LD (HL),$00                      ; $0652  36 00
-SUB_0639_2:
+PARSE_NEXT_TOKEN_2:
         LD A,(SUB_14F8_28)               ; $0654  3A 61 15
         CP $04                           ; $0657  FE 04
-        JP NC,SUB_0639_7                 ; $0659  D2 E6 06
+        JP NC,PARSE_NEXT_TOKEN_7                 ; $0659  D2 E6 06
         LD HL,(SUB_14F8_24)              ; $065C  2A 5D 15
         LD H,$00                         ; $065F  26 00
         LD BC,DEFAULT_DMA                ; $0661  01 80 00
@@ -561,15 +561,15 @@ SUB_0639_2:
         LD C,A                           ; $0669  4F
         LD A,$01                         ; $066A  3E 01
         CP C                             ; $066C  B9
-        JP NC,SUB_0639_3                 ; $066D  D2 7A 06
+        JP NC,PARSE_NEXT_TOKEN_3                 ; $066D  D2 7A 06
         LD HL,(SUB_14F8_29)              ; $0670  2A 62 15
         LD C,L                           ; $0673  4D
         CALL SUB_06EB                    ; $0674  CD EB 06
-        JP SUB_0639_4                    ; $0677  C3 7F 06
-SUB_0639_3:
+        JP PARSE_NEXT_TOKEN_4                    ; $0677  C3 7F 06
+PARSE_NEXT_TOKEN_3:
         LD C,$20                         ; $067A  0E 20
         CALL SUB_06EB                    ; $067C  CD EB 06
-SUB_0639_4:
+PARSE_NEXT_TOKEN_4:
         LD A,$01                         ; $067F  3E 01
         LD HL,SUB_14F8_29                ; $0681  21 62 15
         SUB (HL)                         ; $0684  96
@@ -632,19 +632,19 @@ SUB_0639_4:
         LD C,B                           ; $06CB  48
         OR C                             ; $06CC  B1
         RRA                              ; $06CD  1F
-        JP NC,SUB_0639_5                 ; $06CE  D2 DF 06
+        JP NC,PARSE_NEXT_TOKEN_5                 ; $06CE  D2 DF 06
         LD HL,(SUB_14F8_24)              ; $06D1  2A 5D 15
         LD H,$00                         ; $06D4  26 00
         LD BC,DEFAULT_DMA                ; $06D6  01 80 00
         ADD HL,BC                        ; $06D9  09
         LD (HL),$01                      ; $06DA  36 01
-        JP SUB_0639_6                    ; $06DC  C3 E3 06
-SUB_0639_5:
+        JP PARSE_NEXT_TOKEN_6                    ; $06DC  C3 E3 06
+PARSE_NEXT_TOKEN_5:
         LD HL,SUB_14F8_24                ; $06DF  21 5D 15
         INC (HL)                         ; $06E2  34
-SUB_0639_6:
-        JP SUB_0639_2                    ; $06E3  C3 54 06
-SUB_0639_7:
+PARSE_NEXT_TOKEN_6:
+        JP PARSE_NEXT_TOKEN_2                    ; $06E3  C3 54 06
+PARSE_NEXT_TOKEN_7:
         LD HL,SUB_14F8_24                ; $06E6  21 5D 15
         INC (HL)                         ; $06E9  34
         RET                              ; $06EA  C9
@@ -664,7 +664,7 @@ SUB_06EB:
         RET                              ; $0700  C9
 ; [AI] Prints an unsigned 16-bit value (BC) in decimal using divisor DE for scaling, suppressing
 ;       leading zeros; STAT's general number-printing routine.
-SUB_0701:
+PRINT_DECIMAL:
         LD HL,SUB_14F8_33                ; $0701  21 67 15
         LD (HL),D                        ; $0704  72
         DEC HL                           ; $0705  2B
@@ -675,30 +675,30 @@ SUB_0701:
         LD (HL),C                        ; $070A  71
         LD HL,SUB_14F8_34                ; $070B  21 68 15
         LD (HL),$01                      ; $070E  36 01
-SUB_0701_1:
+PRINT_DECIMAL_1:
         LD A,$00                         ; $0710  3E 00
         LD DE,SUB_14F8_32                ; $0712  11 66 15
-        CALL SUB_14EA                    ; $0715  CD EA 14
+        CALL CMP_LOOP_BOUND                    ; $0715  CD EA 14
         OR L                             ; $0718  B5
-        JP Z,SUB_0701_4                  ; $0719  CA 72 07
+        JP Z,PRINT_DECIMAL_4                  ; $0719  CA 72 07
         LD HL,(SUB_14F8_31)              ; $071C  2A 64 15
         EX DE,HL                         ; $071F  EB
         LD HL,(SUB_14F8_32)              ; $0720  2A 66 15
-        CALL SUB_147F                    ; $0723  CD 7F 14
+        CALL DIV16                    ; $0723  CD 7F 14
         LD HL,SUB_14F8_35                ; $0726  21 69 15
         LD (HL),E                        ; $0729  73
         LD HL,(SUB_14F8_31)              ; $072A  2A 64 15
         EX DE,HL                         ; $072D  EB
-        CALL SUB_1481                    ; $072E  CD 81 14
+        CALL DIV16_INNER                    ; $072E  CD 81 14
         LD (SUB_14F8_31),HL              ; $0731  22 64 15
         LD D,B                           ; $0734  50
         LD E,C                           ; $0735  59
         LD HL,$000A                      ; $0736  21 0A 00
-        CALL SUB_147F                    ; $0739  CD 7F 14
+        CALL DIV16                    ; $0739  CD 7F 14
         EX DE,HL                         ; $073C  EB
         LD (SUB_14F8_32),HL              ; $073D  22 66 15
         LD A,$00                         ; $0740  3E 00
-        CALL SUB_14D3                    ; $0742  CD D3 14
+        CALL SUB16_BYTE_HL                    ; $0742  CD D3 14
         OR L                             ; $0745  B5
         ADD A,$FF                        ; $0746  C6 FF
         SBC A,A                          ; $0748  9F
@@ -714,23 +714,23 @@ SUB_0701_1:
         LD C,B                           ; $0755  48
         AND C                            ; $0756  A1
         RRA                              ; $0757  1F
-        JP NC,SUB_0701_2                 ; $0758  D2 61 07
-        CALL SUB_04AB                    ; $075B  CD AB 04
-        JP SUB_0701_3                    ; $075E  C3 6F 07
-SUB_0701_2:
+        JP NC,PRINT_DECIMAL_2                 ; $0758  D2 61 07
+        CALL PRINT_SPACE                    ; $075B  CD AB 04
+        JP PRINT_DECIMAL_3                    ; $075E  C3 6F 07
+PRINT_DECIMAL_2:
         LD HL,SUB_14F8_34                ; $0761  21 68 15
         LD (HL),$00                      ; $0764  36 00
         LD A,(SUB_14F8_35)               ; $0766  3A 69 15
         ADD A,$30                        ; $0769  C6 30
         LD C,A                           ; $076B  4F
-        CALL SUB_0490                    ; $076C  CD 90 04
-SUB_0701_3:
-        JP SUB_0701_1                    ; $076F  C3 10 07
-SUB_0701_4:
+        CALL CONOUT_CHAR                    ; $076C  CD 90 04
+PRINT_DECIMAL_3:
+        JP PRINT_DECIMAL_1                    ; $076F  C3 10 07
+PRINT_DECIMAL_4:
         RET                              ; $0772  C9
 ; [AI] Block-counting helper that repeatedly subtracts $0400 from a value, accumulating how many 1K
 ;       blocks it represents (used in free/used space totals).
-SUB_0773:
+ACCUM_1K_BLOCKS:
         LD HL,SUB_14F8_38                ; $0773  21 6D 15
         LD (HL),D                        ; $0776  72
         DEC HL                           ; $0777  2B
@@ -742,18 +742,18 @@ SUB_0773:
         LD HL,(SUB_14F8_37)              ; $077D  2A 6C 15
         LD DE,SUB_14F8_18                ; $0780  11 54 15
         PUSH HL                          ; $0783  E5
-        CALL SUB_145A                    ; $0784  CD 5A 14
+        CALL ADD16_MEM                    ; $0784  CD 5A 14
         EX DE,HL                         ; $0787  EB
         POP HL                           ; $0788  E1
         LD (HL),E                        ; $0789  73
         INC HL                           ; $078A  23
         LD (HL),D                        ; $078B  72
-SUB_0773_1:
+ACCUM_1K_BLOCKS_1:
         LD HL,(SUB_14F8_37)              ; $078C  2A 6C 15
         EX DE,HL                         ; $078F  EB
         LD BC,TPA_START_43               ; $0790  01 00 04
         CALL SUB_14E2                    ; $0793  CD E2 14
-        JP C,SUB_0773_2                  ; $0796  DA B6 07
+        JP C,ACCUM_1K_BLOCKS_2                  ; $0796  DA B6 07
         LD HL,(SUB_14F8_37)              ; $0799  2A 6C 15
         EX DE,HL                         ; $079C  EB
         LD BC,TPA_START_43               ; $079D  01 00 04
@@ -772,12 +772,12 @@ SUB_0773_1:
         LD (HL),C                        ; $07B0  71
         INC HL                           ; $07B1  23
         LD (HL),B                        ; $07B2  70
-        JP SUB_0773_1                    ; $07B3  C3 8C 07
-SUB_0773_2:
+        JP ACCUM_1K_BLOCKS_1                    ; $07B3  C3 8C 07
+ACCUM_1K_BLOCKS_2:
         RET                              ; $07B6  C9
 ; [AI] Walks the disk directory counting either all used records or only those matching, returning
 ;       a 16-bit record total used for the 'bytes remaining/used' figures.
-SUB_07B7:
+COUNT_USED_RECORDS:
         LD HL,SUB_14F8_39                ; $07B7  21 6E 15
         LD (HL),C                        ; $07BA  71
         LD HL,WBOOT_VEC                  ; $07BB  21 00 00
@@ -788,63 +788,63 @@ SUB_07B7:
         LD L,A                           ; $07C8  6F
         LD H,$00                         ; $07C9  26 00
         LD (SUB_14F8_42),HL              ; $07CB  22 73 15
-SUB_07B7_1:
+COUNT_USED_RECORDS_1:
         LD BC,BDOS_VEC                   ; $07CE  01 05 00
         LD HL,(SUB_14F8_2)               ; $07D1  2A 1E 15
         ADD HL,BC                        ; $07D4  09
         EX DE,HL                         ; $07D5  EB
         LD BC,SUB_14F8_42                ; $07D6  01 73 15
-        CALL SUB_14DD                    ; $07D9  CD DD 14
-        JP C,SUB_07B7_4                  ; $07DC  DA 0E 08
+        CALL CMP16_BC_DE                    ; $07D9  CD DD 14
+        JP C,COUNT_USED_RECORDS_4                  ; $07DC  DA 0E 08
         LD A,(SUB_14F8_39)               ; $07DF  3A 6E 15
         RRA                              ; $07E2  1F
-        JP NC,SUB_07B7_2                 ; $07E3  D2 F1 07
+        JP NC,COUNT_USED_RECORDS_2                 ; $07E3  D2 F1 07
         LD HL,(SUB_14F8_42)              ; $07E6  2A 73 15
         LD B,H                           ; $07E9  44
         LD C,L                           ; $07EA  4D
         CALL SUB_05DB                    ; $07EB  CD DB 05
         LD (SUB_14F8_43),A               ; $07EE  32 75 15
-SUB_07B7_2:
+COUNT_USED_RECORDS_2:
         LD A,(SUB_14F8_43)               ; $07F1  3A 75 15
         RRA                              ; $07F4  1F
-        JP C,SUB_07B7_3                  ; $07F5  DA 01 08
+        JP C,COUNT_USED_RECORDS_3                  ; $07F5  DA 01 08
         LD DE,SUB_14F8_41                ; $07F8  11 71 15
         LD BC,SUB_14F8_40                ; $07FB  01 6F 15
-        CALL SUB_0773                    ; $07FE  CD 73 07
-SUB_07B7_3:
+        CALL ACCUM_1K_BLOCKS                    ; $07FE  CD 73 07
+COUNT_USED_RECORDS_3:
         LD DE,$0001                      ; $0801  11 01 00
         LD HL,(SUB_14F8_42)              ; $0804  2A 73 15
         ADD HL,DE                        ; $0807  19
         LD (SUB_14F8_42),HL              ; $0808  22 73 15
-        JP NC,SUB_07B7_1                 ; $080B  D2 CE 07
-SUB_07B7_4:
+        JP NC,COUNT_USED_RECORDS_1                 ; $080B  D2 CE 07
+COUNT_USED_RECORDS_4:
         LD HL,(SUB_14F8_40)              ; $080E  2A 6F 15
         RET                              ; $0811  C9
 ; [AI] Prints the '** Aborted **' message, the standard response when the user breaks out of a long
 ;       listing.
-SUB_0812:
+PRINT_ABORTED:
         LD BC,TPA_START_5                ; $0812  01 B9 01
-        CALL SUB_04D2                    ; $0815  CD D2 04
+        CALL PRINT_LINE                    ; $0815  CD D2 04
         RET                              ; $0818  C9
 ; [AI] Implements the USR: report: prints the active user number, then scans the directory marking
 ;       which user areas contain active files and lists them.
-SUB_0819:
+REPORT_USR:
         LD BC,TPA_START_6                ; $0819  01 C7 01
-        CALL SUB_04D2                    ; $081C  CD D2 04
-        CALL SUB_058A                    ; $081F  CD 8A 05
+        CALL PRINT_LINE                    ; $081C  CD D2 04
+        CALL BDOS_GET_USER                    ; $081F  CD 8A 05
         LD C,A                           ; $0822  4F
         LD B,$00                         ; $0823  06 00
         LD DE,$000A                      ; $0825  11 0A 00
-        CALL SUB_0701                    ; $0828  CD 01 07
+        CALL PRINT_DECIMAL                    ; $0828  CD 01 07
         LD BC,TPA_START_7                ; $082B  01 D5 01
-        CALL SUB_04D2                    ; $082E  CD D2 04
+        CALL PRINT_LINE                    ; $082E  CD D2 04
         LD HL,SUB_14F8_44                ; $0831  21 76 15
         LD (HL),$00                      ; $0834  36 00
-SUB_0819_1:
+REPORT_USR_1:
         LD A,$1F                         ; $0836  3E 1F
         LD HL,SUB_14F8_44                ; $0838  21 76 15
         CP (HL)                          ; $083B  BE
-        JP C,SUB_0819_2                  ; $083C  DA 51 08
+        JP C,REPORT_USR_2                  ; $083C  DA 51 08
         LD HL,(SUB_14F8_44)              ; $083F  2A 76 15
         LD H,$00                         ; $0842  26 00
         LD BC,SUB_14F8_45                ; $0844  01 77 15
@@ -854,18 +854,18 @@ SUB_0819_1:
         LD L,C                           ; $084B  69
         DEC HL                           ; $084C  2B
         INC (HL)                         ; $084D  34
-        JP NZ,SUB_0819_1                 ; $084E  C2 36 08
-SUB_0819_2:
+        JP NZ,REPORT_USR_1                 ; $084E  C2 36 08
+REPORT_USR_2:
         LD BC,$29CF                      ; $0851  01 CF 29
-        CALL SUB_0541                    ; $0854  CD 41 05
+        CALL BDOS_SET_DMA                    ; $0854  CD 41 05
         LD BC,TPA_START_1                ; $0857  01 2A 01
-        CALL SUB_0519                    ; $085A  CD 19 05
+        CALL BDOS_SEARCH_FIRST                    ; $085A  CD 19 05
 ; [AI] Directory-scan loop for the user report that reads each entry's user-number byte and records
 ;       that user area as having active files.
-SUB_0819_3:
+REPORT_USR_3:
         LD A,(SUB_14F8_9)                ; $085D  3A 27 15
         CP $FF                           ; $0860  FE FF
-        JP Z,SUB_0819_5                  ; $0862  CA 93 08
+        JP Z,REPORT_USR_5                  ; $0862  CA 93 08
         LD A,(SUB_14F8_9)                ; $0865  3A 27 15
         AND $03                          ; $0868  E6 03
         ADD A,A                          ; $086A  87
@@ -880,7 +880,7 @@ SUB_0819_3:
         LD A,(HL)                        ; $0876  7E
         LD (SUB_14F8_44),A               ; $0877  32 76 15
         CP $E5                           ; $087A  FE E5
-        JP Z,SUB_0819_4                  ; $087C  CA 8D 08
+        JP Z,REPORT_USR_4                  ; $087C  CA 8D 08
         LD A,(SUB_14F8_44)               ; $087F  3A 76 15
         AND $1F                          ; $0882  E6 1F
         LD C,A                           ; $0884  4F
@@ -888,54 +888,54 @@ SUB_0819_3:
         LD HL,SUB_14F8_45                ; $0887  21 77 15
         ADD HL,BC                        ; $088A  09
         LD (HL),$01                      ; $088B  36 01
-SUB_0819_4:
-        CALL SUB_052C                    ; $088D  CD 2C 05
-        JP SUB_0819_3                    ; $0890  C3 5D 08
-SUB_0819_5:
+REPORT_USR_4:
+        CALL BDOS_SEARCH_NEXT                    ; $088D  CD 2C 05
+        JP REPORT_USR_3                    ; $0890  C3 5D 08
+REPORT_USR_5:
         LD HL,SUB_14F8_44                ; $0893  21 76 15
         LD (HL),$00                      ; $0896  36 00
-SUB_0819_6:
+REPORT_USR_6:
         LD A,$1F                         ; $0898  3E 1F
         LD HL,SUB_14F8_44                ; $089A  21 76 15
         CP (HL)                          ; $089D  BE
-        JP C,SUB_0819_8                  ; $089E  DA C2 08
+        JP C,REPORT_USR_8                  ; $089E  DA C2 08
         LD HL,(SUB_14F8_44)              ; $08A1  2A 76 15
         LD H,$00                         ; $08A4  26 00
         LD BC,SUB_14F8_45                ; $08A6  01 77 15
         ADD HL,BC                        ; $08A9  09
         LD A,(HL)                        ; $08AA  7E
         RRA                              ; $08AB  1F
-        JP NC,SUB_0819_7                 ; $08AC  D2 BB 08
+        JP NC,REPORT_USR_7                 ; $08AC  D2 BB 08
         LD HL,(SUB_14F8_44)              ; $08AF  2A 76 15
         LD C,L                           ; $08B2  4D
         LD B,$00                         ; $08B3  06 00
         LD DE,$000A                      ; $08B5  11 0A 00
-        CALL SUB_0701                    ; $08B8  CD 01 07
-SUB_0819_7:
+        CALL PRINT_DECIMAL                    ; $08B8  CD 01 07
+REPORT_USR_7:
         LD HL,SUB_14F8_44                ; $08BB  21 76 15
         INC (HL)                         ; $08BE  34
-        JP NZ,SUB_0819_6                 ; $08BF  C2 98 08
-SUB_0819_8:
+        JP NZ,REPORT_USR_6                 ; $08BF  C2 98 08
+REPORT_USR_8:
         RET                              ; $08C2  C9
 ; [AI] Implements the DSK: drive-characteristics report, printing capacity, record/directory-entry
 ;       counts, records-per-extent/block, sectors-per-track, and reserved tracks from the DPB.
-SUB_08C3:
+PRINT_DRIVE_CHARS:
         LD BC,TPA_START_8                ; $08C3  01 E3 01
-        CALL SUB_04D2                    ; $08C6  CD D2 04
-        CALL SUB_0538                    ; $08C9  CD 38 05
+        CALL PRINT_LINE                    ; $08C6  CD D2 04
+        CALL BDOS_GET_CUR_DRIVE                    ; $08C9  CD 38 05
         ADD A,$41                        ; $08CC  C6 41
         LD C,A                           ; $08CE  4F
-        CALL SUB_0490                    ; $08CF  CD 90 04
+        CALL CONOUT_CHAR                    ; $08CF  CD 90 04
         LD C,$3A                         ; $08D2  0E 3A
-        CALL SUB_0490                    ; $08D4  CD 90 04
+        CALL CONOUT_CHAR                    ; $08D4  CD 90 04
         LD BC,TPA_START_9                ; $08D7  01 E8 01
-        CALL SUB_04B1                    ; $08DA  CD B1 04
+        CALL PRINT_STRING                    ; $08DA  CD B1 04
         LD HL,(SUB_14F8_2)               ; $08DD  2A 1E 15
         INC HL                           ; $08E0  23
         INC HL                           ; $08E1  23
         LD C,(HL)                        ; $08E2  4E
         LD HL,$0001                      ; $08E3  21 01 00
-        CALL SUB_14BD                    ; $08E6  CD BD 14
+        CALL SHL_HL                    ; $08E6  CD BD 14
         LD (SUB_14F8_46),HL              ; $08E9  22 97 15
         LD BC,BDOS_VEC                   ; $08EC  01 05 00
         LD HL,(SUB_14F8_2)               ; $08EF  2A 1E 15
@@ -946,11 +946,11 @@ SUB_08C3:
         INC BC                           ; $08F6  03
         LD HL,(SUB_14F8_46)              ; $08F7  2A 97 15
         EX DE,HL                         ; $08FA  EB
-        CALL SUB_14A0                    ; $08FB  CD A0 14
+        CALL MUL16_BC                    ; $08FB  CD A0 14
         LD (SUB_14F8_47),HL              ; $08FE  22 99 15
-SUB_08C3_1:
+PRINT_DRIVE_CHARS_1:
         LD A,$00                         ; $0901  3E 00
-        CALL SUB_14D3                    ; $0903  CD D3 14
+        CALL SUB16_BYTE_HL                    ; $0903  CD D3 14
         OR L                             ; $0906  B5
         SUB $01                          ; $0907  D6 01
         SBC A,A                          ; $0909  9F
@@ -964,25 +964,25 @@ SUB_08C3_1:
         LD C,B                           ; $0916  48
         AND C                            ; $0917  A1
         RRA                              ; $0918  1F
-        JP NC,SUB_08C3_2                 ; $0919  D2 25 09
+        JP NC,PRINT_DRIVE_CHARS_2                 ; $0919  D2 25 09
         LD BC,TPA_START_10               ; $091C  01 FF 01
-        CALL SUB_04D2                    ; $091F  CD D2 04
-        JP SUB_08C3_3                    ; $0922  C3 2D 09
-SUB_08C3_2:
+        CALL PRINT_LINE                    ; $091F  CD D2 04
+        JP PRINT_DRIVE_CHARS_3                    ; $0922  C3 2D 09
+PRINT_DRIVE_CHARS_2:
         LD HL,(SUB_14F8_47)              ; $0925  2A 99 15
         LD B,H                           ; $0928  44
         LD C,L                           ; $0929  4D
-        CALL SUB_09C0                    ; $092A  CD C0 09
-SUB_08C3_3:
+        CALL PRINT_CAPACITY_FIELD                    ; $092A  CD C0 09
+PRINT_DRIVE_CHARS_3:
         LD BC,TPA_START_12               ; $092D  01 07 02
-        CALL SUB_04B1                    ; $0930  CD B1 04
+        CALL PRINT_STRING                    ; $0930  CD B1 04
         LD C,$00                         ; $0933  0E 00
-        CALL SUB_07B7                    ; $0935  CD B7 07
+        CALL COUNT_USED_RECORDS                    ; $0935  CD B7 07
         LD B,H                           ; $0938  44
         LD C,L                           ; $0939  4D
-        CALL SUB_09C0                    ; $093A  CD C0 09
+        CALL PRINT_CAPACITY_FIELD                    ; $093A  CD C0 09
         LD BC,TPA_START_13               ; $093D  01 20 02
-        CALL SUB_04B1                    ; $0940  CD B1 04
+        CALL PRINT_STRING                    ; $0940  CD B1 04
         LD BC,$0007                      ; $0943  01 07 00
         LD HL,(SUB_14F8_2)               ; $0946  2A 1E 15
         ADD HL,BC                        ; $0949  09
@@ -990,9 +990,9 @@ SUB_08C3_3:
         INC HL                           ; $094B  23
         LD B,(HL)                        ; $094C  46
         INC BC                           ; $094D  03
-        CALL SUB_09C0                    ; $094E  CD C0 09
+        CALL PRINT_CAPACITY_FIELD                    ; $094E  CD C0 09
         LD BC,TPA_START_14               ; $0951  01 39 02
-        CALL SUB_04B1                    ; $0954  CD B1 04
+        CALL PRINT_STRING                    ; $0954  CD B1 04
         LD BC,$000B                      ; $0957  01 0B 00
         LD HL,(SUB_14F8_2)               ; $095A  2A 1E 15
         ADD HL,BC                        ; $095D  09
@@ -1004,9 +1004,9 @@ SUB_08C3_3:
         ADD HL,HL                        ; $0963  29
         LD B,H                           ; $0964  44
         LD C,L                           ; $0965  4D
-        CALL SUB_09C0                    ; $0966  CD C0 09
+        CALL PRINT_CAPACITY_FIELD                    ; $0966  CD C0 09
         LD BC,TPA_START_15               ; $0969  01 54 02
-        CALL SUB_04B1                    ; $096C  CD B1 04
+        CALL PRINT_STRING                    ; $096C  CD B1 04
         LD BC,CDISK                      ; $096F  01 04 00
         LD HL,(SUB_14F8_2)               ; $0972  2A 1E 15
         ADD HL,BC                        ; $0975  09
@@ -1015,78 +1015,78 @@ SUB_08C3_3:
         LD L,A                           ; $0978  6F
         LD H,$00                         ; $0979  26 00
         LD DE,DEFAULT_DMA                ; $097B  11 80 00
-        CALL SUB_149E                    ; $097E  CD 9E 14
+        CALL MUL16                    ; $097E  CD 9E 14
         LD B,H                           ; $0981  44
         LD C,L                           ; $0982  4D
-        CALL SUB_09C0                    ; $0983  CD C0 09
+        CALL PRINT_CAPACITY_FIELD                    ; $0983  CD C0 09
         LD BC,TPA_START_16               ; $0986  01 6F 02
-        CALL SUB_04B1                    ; $0989  CD B1 04
+        CALL PRINT_STRING                    ; $0989  CD B1 04
         LD HL,(SUB_14F8_46)              ; $098C  2A 97 15
         LD B,H                           ; $098F  44
         LD C,L                           ; $0990  4D
-        CALL SUB_09C0                    ; $0991  CD C0 09
+        CALL PRINT_CAPACITY_FIELD                    ; $0991  CD C0 09
         LD BC,TPA_START_17               ; $0994  01 7F 02
-        CALL SUB_04B1                    ; $0997  CD B1 04
+        CALL PRINT_STRING                    ; $0997  CD B1 04
         LD HL,(SUB_14F8_2)               ; $099A  2A 1E 15
         LD C,(HL)                        ; $099D  4E
         INC HL                           ; $099E  23
         LD B,(HL)                        ; $099F  46
-        CALL SUB_09C0                    ; $09A0  CD C0 09
+        CALL PRINT_CAPACITY_FIELD                    ; $09A0  CD C0 09
         LD BC,TPA_START_18               ; $09A3  01 8E 02
-        CALL SUB_04B1                    ; $09A6  CD B1 04
+        CALL PRINT_STRING                    ; $09A6  CD B1 04
         LD BC,$000D                      ; $09A9  01 0D 00
         LD HL,(SUB_14F8_2)               ; $09AC  2A 1E 15
         ADD HL,BC                        ; $09AF  09
         LD C,(HL)                        ; $09B0  4E
         INC HL                           ; $09B1  23
         LD B,(HL)                        ; $09B2  46
-        CALL SUB_09C0                    ; $09B3  CD C0 09
+        CALL PRINT_CAPACITY_FIELD                    ; $09B3  CD C0 09
         LD BC,TPA_START_19               ; $09B6  01 9D 02
-        CALL SUB_04B1                    ; $09B9  CD B1 04
-        CALL SUB_04A0                    ; $09BC  CD A0 04
+        CALL PRINT_STRING                    ; $09B9  CD B1 04
+        CALL PRINT_CRLF                    ; $09BC  CD A0 04
         RET                              ; $09BF  C9
 ; [AI] Formats a capacity value (BC) as a decimal kilobyte/record count followed by 'k', the shared
 ;       formatter for the drive-characteristics figures.
-SUB_09C0:
+PRINT_CAPACITY_FIELD:
         LD HL,SUB_14F8_49                ; $09C0  21 9C 15
         LD (HL),B                        ; $09C3  70
         DEC HL                           ; $09C4  2B
         LD (HL),C                        ; $09C5  71
-        CALL SUB_04A0                    ; $09C6  CD A0 04
+        CALL PRINT_CRLF                    ; $09C6  CD A0 04
         LD HL,(SUB_14F8_48)              ; $09C9  2A 9B 15
         LD B,H                           ; $09CC  44
         LD C,L                           ; $09CD  4D
         LD DE,$2710                      ; $09CE  11 10 27
-        CALL SUB_0701                    ; $09D1  CD 01 07
+        CALL PRINT_DECIMAL                    ; $09D1  CD 01 07
         LD C,$3A                         ; $09D4  0E 3A
-        CALL SUB_0490                    ; $09D6  CD 90 04
-        CALL SUB_04AB                    ; $09D9  CD AB 04
+        CALL CONOUT_CHAR                    ; $09D6  CD 90 04
+        CALL PRINT_SPACE                    ; $09D9  CD AB 04
         RET                              ; $09DC  C9
 ; [AI] Top-level DSK: handler that iterates the online-drive bit vector and prints full
 ;       characteristics for every logged-in drive.
-SUB_09DD:
-        CALL SUB_055A                    ; $09DD  CD 5A 05
+REPORT_DSK:
+        CALL BDOS_GET_LOGIN_VEC                    ; $09DD  CD 5A 05
         LD (SUB_14F8_50),HL              ; $09E0  22 9D 15
         LD HL,SUB_14F8_51                ; $09E3  21 9F 15
         LD (HL),$00                      ; $09E6  36 00
-SUB_09DD_1:
+REPORT_DSK_1:
         LD A,$00                         ; $09E8  3E 00
         LD DE,SUB_14F8_50                ; $09EA  11 9D 15
-        CALL SUB_14EA                    ; $09ED  CD EA 14
+        CALL CMP_LOOP_BOUND                    ; $09ED  CD EA 14
         OR L                             ; $09F0  B5
-        JP Z,SUB_09DD_3                  ; $09F1  CA 18 0A
+        JP Z,REPORT_DSK_3                  ; $09F1  CA 18 0A
         LD HL,(SUB_14F8_50)              ; $09F4  2A 9D 15
         LD A,L                           ; $09F7  7D
         RRA                              ; $09F8  1F
-        JP NC,SUB_09DD_2                 ; $09F9  D2 06 0A
+        JP NC,REPORT_DSK_2                 ; $09F9  D2 06 0A
         LD HL,(SUB_14F8_51)              ; $09FC  2A 9F 15
         LD C,L                           ; $09FF  4D
-        CALL SUB_05CC                    ; $0A00  CD CC 05
-        CALL SUB_08C3                    ; $0A03  CD C3 08
-SUB_09DD_2:
+        CALL SELECT_DRIVE_REFRESH                    ; $0A00  CD CC 05
+        CALL PRINT_DRIVE_CHARS                    ; $0A03  CD C3 08
+REPORT_DSK_2:
         LD C,$01                         ; $0A06  0E 01
         LD HL,SUB_14F8_50                ; $0A08  21 9D 15
-        CALL SUB_14C3                    ; $0A0B  CD C3 14
+        CALL SHR_MEM                    ; $0A0B  CD C3 14
         EX DE,HL                         ; $0A0E  EB
         DEC HL                           ; $0A0F  2B
         LD (HL),E                        ; $0A10  73
@@ -1094,12 +1094,12 @@ SUB_09DD_2:
         LD (HL),D                        ; $0A12  72
         INC HL                           ; $0A13  23
         INC (HL)                         ; $0A14  34
-        JP SUB_09DD_1                    ; $0A15  C3 E8 09
-SUB_09DD_3:
+        JP REPORT_DSK_1                    ; $0A15  C3 E8 09
+REPORT_DSK_3:
         RET                              ; $0A18  C9
 ; [AI] Generic table lookup: compares the current token against a table of fixed-width keyword
 ;       entries (count in E, table in BC), returning the 1-based match index or 0.
-SUB_0A19:
+LOOKUP_KEYWORD:
         LD HL,SUB_14F8_53                ; $0A19  21 A2 15
         LD (HL),E                        ; $0A1C  73
         DEC HL                           ; $0A1D  2B
@@ -1111,20 +1111,20 @@ SUB_0A19:
         LD HL,SUB_14F8_57                ; $0A26  21 A6 15
         LD (HL),$00                      ; $0A29  36 00
         LD (HL),$01                      ; $0A2B  36 01
-SUB_0A19_1:
+LOOKUP_KEYWORD_1:
         LD A,(SUB_14F8_53)               ; $0A2D  3A A2 15
         LD HL,SUB_14F8_57                ; $0A30  21 A6 15
         CP (HL)                          ; $0A33  BE
-        JP C,SUB_0A19_6                  ; $0A34  DA 84 0A
+        JP C,LOOKUP_KEYWORD_6                  ; $0A34  DA 84 0A
         LD HL,SUB_14F8_56                ; $0A37  21 A5 15
         LD (HL),$01                      ; $0A3A  36 01
         LD HL,SUB_14F8_54                ; $0A3C  21 A3 15
         LD (HL),$00                      ; $0A3F  36 00
-SUB_0A19_2:
+LOOKUP_KEYWORD_2:
         LD A,$03                         ; $0A41  3E 03
         LD HL,SUB_14F8_54                ; $0A43  21 A3 15
         CP (HL)                          ; $0A46  BE
-        JP C,SUB_0A19_4                  ; $0A47  DA 72 0A
+        JP C,LOOKUP_KEYWORD_4                  ; $0A47  DA 72 0A
         LD HL,(SUB_14F8_55)              ; $0A4A  2A A4 15
         LD H,$00                         ; $0A4D  26 00
         EX DE,HL                         ; $0A4F  EB
@@ -1138,52 +1138,52 @@ SUB_0A19_2:
         POP DE                           ; $0A5E  D1
         LD A,(DE)                        ; $0A5F  1A
         CP (HL)                          ; $0A60  BE
-        JP Z,SUB_0A19_3                  ; $0A61  CA 69 0A
+        JP Z,LOOKUP_KEYWORD_3                  ; $0A61  CA 69 0A
         LD HL,SUB_14F8_56                ; $0A64  21 A5 15
         LD (HL),$00                      ; $0A67  36 00
-SUB_0A19_3:
+LOOKUP_KEYWORD_3:
         LD HL,SUB_14F8_55                ; $0A69  21 A4 15
         INC (HL)                         ; $0A6C  34
         DEC HL                           ; $0A6D  2B
         INC (HL)                         ; $0A6E  34
-        JP NZ,SUB_0A19_2                 ; $0A6F  C2 41 0A
-SUB_0A19_4:
+        JP NZ,LOOKUP_KEYWORD_2                 ; $0A6F  C2 41 0A
+LOOKUP_KEYWORD_4:
         LD A,(SUB_14F8_56)               ; $0A72  3A A5 15
         RRA                              ; $0A75  1F
-        JP NC,SUB_0A19_5                 ; $0A76  D2 7D 0A
+        JP NC,LOOKUP_KEYWORD_5                 ; $0A76  D2 7D 0A
         LD A,(SUB_14F8_57)               ; $0A79  3A A6 15
         RET                              ; $0A7C  C9
-SUB_0A19_5:
+LOOKUP_KEYWORD_5:
         LD HL,SUB_14F8_57                ; $0A7D  21 A6 15
         INC (HL)                         ; $0A80  34
-        JP NZ,SUB_0A19_1                 ; $0A81  C2 2D 0A
-SUB_0A19_6:
+        JP NZ,LOOKUP_KEYWORD_1                 ; $0A81  C2 2D 0A
+LOOKUP_KEYWORD_6:
         LD A,$00                         ; $0A84  3E 00
         RET                              ; $0A86  C9
 ; [AI] Main command interpreter for the DEV:/VAL:/USR:/DSK:/R-O-keyword family: matches the next
 ;       token against the keyword table and dispatches to the matching report.
-SUB_0A87:
+DISPATCH_COMMAND:
         LD HL,SUB_14F8_61                ; $0A87  21 AA 15
         LD (HL),$00                      ; $0A8A  36 00
-SUB_0A87_1:
-        CALL SUB_0639                    ; $0A8C  CD 39 06
+DISPATCH_COMMAND_1:
+        CALL PARSE_NEXT_TOKEN                    ; $0A8C  CD 39 06
         LD E,$08                         ; $0A8F  1E 08
         LD BC,TPA_START_2                ; $0A91  01 39 01
-        CALL SUB_0A19                    ; $0A94  CD 19 0A
+        CALL LOOKUP_KEYWORD                    ; $0A94  CD 19 0A
         LD (SUB_14F8_58),A               ; $0A97  32 A7 15
         CP $00                           ; $0A9A  FE 00
-        JP NZ,SUB_0A87_2                 ; $0A9C  C2 A8 0A
+        JP NZ,DISPATCH_COMMAND_2                 ; $0A9C  C2 A8 0A
         LD A,(SUB_14F8_61)               ; $0A9F  3A AA 15
         SUB $00                          ; $0AA2  D6 00
         ADD A,$FF                        ; $0AA4  C6 FF
         SBC A,A                          ; $0AA6  9F
         RET                              ; $0AA7  C9
-SUB_0A87_2:
+DISPATCH_COMMAND_2:
         LD HL,SUB_14F8_61                ; $0AA8  21 AA 15
         INC (HL)                         ; $0AAB  34
         LD A,(SUB_14F8_58)               ; $0AAC  3A A7 15
         CP $05                           ; $0AAF  FE 05
-        JP NZ,SUB_0A87_5                 ; $0AB1  C2 18 0B
+        JP NZ,DISPATCH_COMMAND_5                 ; $0AB1  C2 18 0B
         LD A,(IOBYTE)                    ; $0AB4  3A 03 00
         LD (SUB_14F8_60),A               ; $0AB7  32 A9 15
         LD HL,SUB_14F8_59                ; $0ABA  21 A8 15
@@ -1192,11 +1192,11 @@ SUB_0A87_2:
         LD (HL),$00                      ; $0AC0  36 00
 ; [AI] VAL: handler branch that prints, for each logical device, its name and the set of physical-
 ;       device choices available via the IOBYTE.
-SUB_0A87_3:
+DISPATCH_COMMAND_3:
         LD A,$03                         ; $0AC2  3E 03
         LD HL,SUB_14F8_58                ; $0AC4  21 A7 15
         CP (HL)                          ; $0AC7  BE
-        JP C,SUB_0A87_4                  ; $0AC8  DA 15 0B
+        JP C,DISPATCH_COMMAND_4                  ; $0AC8  DA 15 0B
         LD A,(SUB_14F8_58)               ; $0ACB  3A A7 15
         ADD A,A                          ; $0ACE  87
         ADD A,A                          ; $0ACF  87
@@ -1206,9 +1206,9 @@ SUB_0A87_3:
         ADD HL,BC                        ; $0AD6  09
         LD B,H                           ; $0AD7  44
         LD C,L                           ; $0AD8  4D
-        CALL SUB_0C69                    ; $0AD9  CD 69 0C
+        CALL PRINT_DEV_NAME                    ; $0AD9  CD 69 0C
         LD BC,TPA_START_20               ; $0ADC  01 AD 02
-        CALL SUB_04B1                    ; $0ADF  CD B1 04
+        CALL PRINT_STRING                    ; $0ADF  CD B1 04
         LD A,(SUB_14F8_60)               ; $0AE2  3A A9 15
         AND $03                          ; $0AE5  E6 03
         ADD A,A                          ; $0AE7  87
@@ -1221,7 +1221,7 @@ SUB_0A87_3:
         ADD HL,BC                        ; $0AF3  09
         LD B,H                           ; $0AF4  44
         LD C,L                           ; $0AF5  4D
-        CALL SUB_0C69                    ; $0AF6  CD 69 0C
+        CALL PRINT_DEV_NAME                    ; $0AF6  CD 69 0C
         LD A,(SUB_14F8_59)               ; $0AF9  3A A8 15
         ADD A,$10                        ; $0AFC  C6 10
         LD (SUB_14F8_59),A               ; $0AFE  32 A8 15
@@ -1230,36 +1230,36 @@ SUB_0A87_3:
         RRA                              ; $0B06  1F
         RRA                              ; $0B07  1F
         LD (SUB_14F8_60),A               ; $0B08  32 A9 15
-        CALL SUB_04A0                    ; $0B0B  CD A0 04
+        CALL PRINT_CRLF                    ; $0B0B  CD A0 04
         LD HL,SUB_14F8_58                ; $0B0E  21 A7 15
         INC (HL)                         ; $0B11  34
-        JP NZ,SUB_0A87_3                 ; $0B12  C2 C2 0A
-SUB_0A87_4:
-        JP SUB_0A87_19                   ; $0B15  C3 46 0C
+        JP NZ,DISPATCH_COMMAND_3                 ; $0B12  C2 C2 0A
+DISPATCH_COMMAND_4:
+        JP DISPATCH_COMMAND_19                   ; $0B15  C3 46 0C
 ; [AI] DEV: handler branch that lists the current physical-device assignment of each logical device
 ;       and parses 'logical=physical' reassignment requests.
-SUB_0A87_5:
+DISPATCH_COMMAND_5:
         LD A,(SUB_14F8_58)               ; $0B18  3A A7 15
         CP $06                           ; $0B1B  FE 06
-        JP NZ,SUB_0A87_12                ; $0B1D  C2 AE 0B
+        JP NZ,DISPATCH_COMMAND_12                ; $0B1D  C2 AE 0B
         LD BC,TPA_START_21               ; $0B20  01 B2 02
-        CALL SUB_04D2                    ; $0B23  CD D2 04
+        CALL PRINT_LINE                    ; $0B23  CD D2 04
         LD BC,TPA_START_22               ; $0B26  01 C8 02
-        CALL SUB_04D2                    ; $0B29  CD D2 04
+        CALL PRINT_LINE                    ; $0B29  CD D2 04
         LD BC,TPA_START_23               ; $0B2C  01 FA 02
-        CALL SUB_04D2                    ; $0B2F  CD D2 04
+        CALL PRINT_LINE                    ; $0B2F  CD D2 04
         LD BC,TPA_START_24               ; $0B32  01 15 03
-        CALL SUB_04D2                    ; $0B35  CD D2 04
+        CALL PRINT_LINE                    ; $0B35  CD D2 04
         LD BC,TPA_START_25               ; $0B38  01 29 03
-        CALL SUB_04D2                    ; $0B3B  CD D2 04
+        CALL PRINT_LINE                    ; $0B3B  CD D2 04
         LD HL,SUB_14F8_58                ; $0B3E  21 A7 15
         LD (HL),$00                      ; $0B41  36 00
-SUB_0A87_6:
+DISPATCH_COMMAND_6:
         LD A,$03                         ; $0B43  3E 03
         LD HL,SUB_14F8_58                ; $0B45  21 A7 15
         CP (HL)                          ; $0B48  BE
-        JP C,SUB_0A87_11                 ; $0B49  DA AB 0B
-        CALL SUB_04A0                    ; $0B4C  CD A0 04
+        JP C,DISPATCH_COMMAND_11                 ; $0B49  DA AB 0B
+        CALL PRINT_CRLF                    ; $0B4C  CD A0 04
         LD A,(SUB_14F8_58)               ; $0B4F  3A A7 15
         ADD A,A                          ; $0B52  87
         ADD A,A                          ; $0B53  87
@@ -1269,26 +1269,26 @@ SUB_0A87_6:
         ADD HL,BC                        ; $0B5A  09
         LD B,H                           ; $0B5B  44
         LD C,L                           ; $0B5C  4D
-        CALL SUB_0C69                    ; $0B5D  CD 69 0C
+        CALL PRINT_DEV_NAME                    ; $0B5D  CD 69 0C
         LD BC,TPA_START_26               ; $0B60  01 38 03
-        CALL SUB_04B1                    ; $0B63  CD B1 04
+        CALL PRINT_STRING                    ; $0B63  CD B1 04
         LD HL,SUB_14F8_59                ; $0B66  21 A8 15
         LD (HL),$00                      ; $0B69  36 00
-SUB_0A87_7:
+DISPATCH_COMMAND_7:
         LD A,$0C                         ; $0B6B  3E 0C
         LD HL,SUB_14F8_59                ; $0B6D  21 A8 15
         CP (HL)                          ; $0B70  BE
-        JP C,SUB_0A87_10                 ; $0B71  DA A4 0B
-        JP SUB_0A87_9                    ; $0B74  C3 85 0B
-SUB_0A87_8:
+        JP C,DISPATCH_COMMAND_10                 ; $0B71  DA A4 0B
+        JP DISPATCH_COMMAND_9                    ; $0B74  C3 85 0B
+DISPATCH_COMMAND_8:
         LD A,(SUB_14F8_59)               ; $0B77  3A A8 15
         ADD A,$04                        ; $0B7A  C6 04
         LD (SUB_14F8_59),A               ; $0B7C  32 A8 15
-        JP NC,SUB_0A87_7                 ; $0B7F  D2 6B 0B
-        JP SUB_0A87_10                   ; $0B82  C3 A4 0B
-SUB_0A87_9:
+        JP NC,DISPATCH_COMMAND_7                 ; $0B7F  D2 6B 0B
+        JP DISPATCH_COMMAND_10                   ; $0B82  C3 A4 0B
+DISPATCH_COMMAND_9:
         LD C,$20                         ; $0B85  0E 20
-        CALL SUB_0490                    ; $0B87  CD 90 04
+        CALL CONOUT_CHAR                    ; $0B87  CD 90 04
         LD A,(SUB_14F8_58)               ; $0B8A  3A A7 15
         ADD A,A                          ; $0B8D  87
         ADD A,A                          ; $0B8E  87
@@ -1302,32 +1302,32 @@ SUB_0A87_9:
         ADD HL,BC                        ; $0B9B  09
         LD B,H                           ; $0B9C  44
         LD C,L                           ; $0B9D  4D
-        CALL SUB_0C69                    ; $0B9E  CD 69 0C
-        JP SUB_0A87_8                    ; $0BA1  C3 77 0B
-SUB_0A87_10:
+        CALL PRINT_DEV_NAME                    ; $0B9E  CD 69 0C
+        JP DISPATCH_COMMAND_8                    ; $0BA1  C3 77 0B
+DISPATCH_COMMAND_10:
         LD HL,SUB_14F8_58                ; $0BA4  21 A7 15
         INC (HL)                         ; $0BA7  34
-        JP NZ,SUB_0A87_6                 ; $0BA8  C2 43 0B
-SUB_0A87_11:
-        JP SUB_0A87_19                   ; $0BAB  C3 46 0C
-SUB_0A87_12:
+        JP NZ,DISPATCH_COMMAND_6                 ; $0BA8  C2 43 0B
+DISPATCH_COMMAND_11:
+        JP DISPATCH_COMMAND_19                   ; $0BAB  C3 46 0C
+DISPATCH_COMMAND_12:
         LD A,(SUB_14F8_58)               ; $0BAE  3A A7 15
         CP $07                           ; $0BB1  FE 07
-        JP NZ,SUB_0A87_13                ; $0BB3  C2 BF 0B
-        CALL SUB_0819                    ; $0BB6  CD 19 08
+        JP NZ,DISPATCH_COMMAND_13                ; $0BB3  C2 BF 0B
+        CALL REPORT_USR                    ; $0BB6  CD 19 08
         LD A,$01                         ; $0BB9  3E 01
         RET                              ; $0BBB  C9
         DEFB    $C3                                              ; $0BBC
-        DEFW    SUB_0A87_19              ; $0BBD
-SUB_0A87_13:
+        DEFW    DISPATCH_COMMAND_19              ; $0BBD
+DISPATCH_COMMAND_13:
         LD A,(SUB_14F8_58)               ; $0BBF  3A A7 15
         CP $08                           ; $0BC2  FE 08
-        JP NZ,SUB_0A87_14                ; $0BC4  C2 CD 0B
-        CALL SUB_09DD                    ; $0BC7  CD DD 09
-        JP SUB_0A87_19                   ; $0BCA  C3 46 0C
+        JP NZ,DISPATCH_COMMAND_14                ; $0BC4  C2 CD 0B
+        CALL REPORT_DSK                    ; $0BC7  CD DD 09
+        JP DISPATCH_COMMAND_19                   ; $0BCA  C3 46 0C
 ; [AI] Parses and applies an IOBYTE reassignment ('CON:=CRT:' style), encoding the chosen physical
 ;       device into the correct 2-bit field of the I/O byte.
-SUB_0A87_14:
+DISPATCH_COMMAND_14:
         LD A,(SUB_14F8_58)               ; $0BCD  3A A7 15
         DEC A                            ; $0BD0  3D
         LD (SUB_14F8_58),A               ; $0BD1  32 A7 15
@@ -1336,16 +1336,16 @@ SUB_0A87_14:
         ADD A,A                          ; $0BD6  87
         ADD A,A                          ; $0BD7  87
         LD (SUB_14F8_59),A               ; $0BD8  32 A8 15
-        CALL SUB_0639                    ; $0BDB  CD 39 06
+        CALL PARSE_NEXT_TOKEN                    ; $0BDB  CD 39 06
         LD A,(SUB_14F8_22)               ; $0BDE  3A 59 15
         CP $3D                           ; $0BE1  FE 3D
-        JP Z,SUB_0A87_15                 ; $0BE3  CA EF 0B
+        JP Z,DISPATCH_COMMAND_15                 ; $0BE3  CA EF 0B
         LD BC,TPA_START_27               ; $0BE6  01 3B 03
-        CALL SUB_04D2                    ; $0BE9  CD D2 04
+        CALL PRINT_LINE                    ; $0BE9  CD D2 04
         LD A,$01                         ; $0BEC  3E 01
         RET                              ; $0BEE  C9
-SUB_0A87_15:
-        CALL SUB_0639                    ; $0BEF  CD 39 06
+DISPATCH_COMMAND_15:
+        CALL PARSE_NEXT_TOKEN                    ; $0BEF  CD 39 06
         LD HL,(SUB_14F8_59)              ; $0BF2  2A A8 15
         LD H,$00                         ; $0BF5  26 00
         LD BC,TPA_START_3                ; $0BF7  01 59 01
@@ -1353,24 +1353,24 @@ SUB_0A87_15:
         LD B,H                           ; $0BFB  44
         LD C,L                           ; $0BFC  4D
         LD E,$04                         ; $0BFD  1E 04
-        CALL SUB_0A19                    ; $0BFF  CD 19 0A
+        CALL LOOKUP_KEYWORD                    ; $0BFF  CD 19 0A
         DEC A                            ; $0C02  3D
         LD (SUB_14F8_59),A               ; $0C03  32 A8 15
         CP $FF                           ; $0C06  FE FF
-        JP NZ,SUB_0A87_16                ; $0C08  C2 14 0C
+        JP NZ,DISPATCH_COMMAND_16                ; $0C08  C2 14 0C
         LD BC,TPA_START_28               ; $0C0B  01 49 03
-        CALL SUB_04D2                    ; $0C0E  CD D2 04
+        CALL PRINT_LINE                    ; $0C0E  CD D2 04
         LD A,$01                         ; $0C11  3E 01
         RET                              ; $0C13  C9
-SUB_0A87_16:
+DISPATCH_COMMAND_16:
         LD HL,SUB_14F8_60                ; $0C14  21 A9 15
         LD (HL),$FC                      ; $0C17  36 FC
-SUB_0A87_17:
+DISPATCH_COMMAND_17:
         LD A,(SUB_14F8_58)               ; $0C19  3A A7 15
         DEC A                            ; $0C1C  3D
         LD (SUB_14F8_58),A               ; $0C1D  32 A7 15
         CP $FF                           ; $0C20  FE FF
-        JP Z,SUB_0A87_18                 ; $0C22  CA 38 0C
+        JP Z,DISPATCH_COMMAND_18                 ; $0C22  CA 38 0C
         LD A,(SUB_14F8_60)               ; $0C25  3A A9 15
         RLCA                             ; $0C28  07
         RLCA                             ; $0C29  07
@@ -1379,10 +1379,10 @@ SUB_0A87_17:
         ADD A,A                          ; $0C30  87
         ADD A,A                          ; $0C31  87
         LD (SUB_14F8_59),A               ; $0C32  32 A8 15
-        JP SUB_0A87_17                   ; $0C35  C3 19 0C
+        JP DISPATCH_COMMAND_17                   ; $0C35  C3 19 0C
 ; [AI] Commits the new IOBYTE: masks out the old field and ORs in the freshly built device code at
 ;       page-zero $0003.
-SUB_0A87_18:
+DISPATCH_COMMAND_18:
         LD A,(SUB_14F8_60)               ; $0C38  3A A9 15
         LD HL,IOBYTE                     ; $0C3B  21 03 00
         AND (HL)                         ; $0C3E  A6
@@ -1391,50 +1391,50 @@ SUB_0A87_18:
         LD (IOBYTE),A                    ; $0C43  32 03 00
 ; [AI] Post-command continuation that checks the trailing delimiter, looping to process another
 ;       comma-separated assignment or reporting a bad-delimiter error.
-SUB_0A87_19:
-        CALL SUB_0639                    ; $0C46  CD 39 06
+DISPATCH_COMMAND_19:
+        CALL PARSE_NEXT_TOKEN                    ; $0C46  CD 39 06
         LD A,(SUB_14F8_22)               ; $0C49  3A 59 15
         CP $20                           ; $0C4C  FE 20
-        JP NZ,SUB_0A87_20                ; $0C4E  C2 54 0C
+        JP NZ,DISPATCH_COMMAND_20                ; $0C4E  C2 54 0C
         LD A,$01                         ; $0C51  3E 01
         RET                              ; $0C53  C9
-SUB_0A87_20:
+DISPATCH_COMMAND_20:
         LD A,(SUB_14F8_22)               ; $0C54  3A 59 15
         CP $2C                           ; $0C57  FE 2C
-        JP Z,SUB_0A87_21                 ; $0C59  CA 65 0C
+        JP Z,DISPATCH_COMMAND_21                 ; $0C59  CA 65 0C
         LD BC,TPA_START_29               ; $0C5C  01 5C 03
-        CALL SUB_04D2                    ; $0C5F  CD D2 04
+        CALL PRINT_LINE                    ; $0C5F  CD D2 04
         LD A,$01                         ; $0C62  3E 01
         RET                              ; $0C64  C9
-SUB_0A87_21:
-        JP SUB_0A87_1                    ; $0C65  C3 8C 0A
+DISPATCH_COMMAND_21:
+        JP DISPATCH_COMMAND_1                    ; $0C65  C3 8C 0A
         DEFB    $C9                                              ; $0C68
 ; [AI] Prints a device-name field from the keyword tables (address in BC), stopping at the ':'
 ;       separator and emitting the colon itself.
-SUB_0C69:
+PRINT_DEV_NAME:
         LD HL,SUB_14F8_63                ; $0C69  21 AC 15
         LD (HL),B                        ; $0C6C  70
         DEC HL                           ; $0C6D  2B
         LD (HL),C                        ; $0C6E  71
-SUB_0C69_1:
+PRINT_DEV_NAME_1:
         LD HL,(SUB_14F8_62)              ; $0C6F  2A AB 15
         LD A,(HL)                        ; $0C72  7E
         CP $3A                           ; $0C73  FE 3A
-        JP Z,SUB_0C69_2                  ; $0C75  CA 89 0C
+        JP Z,PRINT_DEV_NAME_2                  ; $0C75  CA 89 0C
         LD HL,(SUB_14F8_62)              ; $0C78  2A AB 15
         LD C,(HL)                        ; $0C7B  4E
-        CALL SUB_0490                    ; $0C7C  CD 90 04
+        CALL CONOUT_CHAR                    ; $0C7C  CD 90 04
         LD HL,(SUB_14F8_62)              ; $0C7F  2A AB 15
         INC HL                           ; $0C82  23
         LD (SUB_14F8_62),HL              ; $0C83  22 AB 15
-        JP SUB_0C69_1                    ; $0C86  C3 6F 0C
-SUB_0C69_2:
+        JP PRINT_DEV_NAME_1                    ; $0C86  C3 6F 0C
+PRINT_DEV_NAME_2:
         LD C,$3A                         ; $0C89  0E 3A
-        CALL SUB_0490                    ; $0C8B  CD 90 04
+        CALL CONOUT_CHAR                    ; $0C8B  CD 90 04
         RET                              ; $0C8E  C9
 ; [AI] Prints a 16-bit value (BC) as decimal followed by 'k' and a CR/LF; the formatter for the
 ;       'bytes remaining on d:' line.
-SUB_0C8F:
+PRINT_KBYTES_LINE:
         LD HL,SUB_14F8_65                ; $0C8F  21 AE 15
         LD (HL),B                        ; $0C92  70
         DEC HL                           ; $0C93  2B
@@ -1443,30 +1443,30 @@ SUB_0C8F:
         LD (SUB_14F8_68),HL              ; $0C98  22 B1 15
         LD HL,SUB_14F8_67                ; $0C9B  21 B0 15
         LD (HL),$00                      ; $0C9E  36 00
-SUB_0C8F_1:
+PRINT_KBYTES_LINE_1:
         LD A,$00                         ; $0CA0  3E 00
         LD DE,SUB_14F8_68                ; $0CA2  11 B1 15
-        CALL SUB_14EA                    ; $0CA5  CD EA 14
+        CALL CMP_LOOP_BOUND                    ; $0CA5  CD EA 14
         OR L                             ; $0CA8  B5
-        JP Z,SUB_0C8F_3                  ; $0CA9  CA FC 0C
+        JP Z,PRINT_KBYTES_LINE_3                  ; $0CA9  CA FC 0C
         LD HL,(SUB_14F8_64)              ; $0CAC  2A AD 15
         EX DE,HL                         ; $0CAF  EB
         LD HL,(SUB_14F8_68)              ; $0CB0  2A B1 15
-        CALL SUB_147F                    ; $0CB3  CD 7F 14
+        CALL DIV16                    ; $0CB3  CD 7F 14
         LD A,E                           ; $0CB6  7B
         LD (SUB_14F8_66),A               ; $0CB7  32 AF 15
         LD HL,(SUB_14F8_64)              ; $0CBA  2A AD 15
         EX DE,HL                         ; $0CBD  EB
-        CALL SUB_1481                    ; $0CBE  CD 81 14
+        CALL DIV16_INNER                    ; $0CBE  CD 81 14
         LD (SUB_14F8_64),HL              ; $0CC1  22 AD 15
         LD D,B                           ; $0CC4  50
         LD E,C                           ; $0CC5  59
         LD HL,$000A                      ; $0CC6  21 0A 00
-        CALL SUB_147F                    ; $0CC9  CD 7F 14
+        CALL DIV16                    ; $0CC9  CD 7F 14
         EX DE,HL                         ; $0CCC  EB
         LD (SUB_14F8_68),HL              ; $0CCD  22 B1 15
         LD A,$00                         ; $0CD0  3E 00
-        CALL SUB_14D3                    ; $0CD2  CD D3 14
+        CALL SUB16_BYTE_HL                    ; $0CD2  CD D3 14
         OR L                             ; $0CD5  B5
         SUB $01                          ; $0CD6  D6 01
         SBC A,A                          ; $0CD8  9F
@@ -1482,92 +1482,92 @@ SUB_0C8F_1:
         LD C,B                           ; $0CE5  48
         OR C                             ; $0CE6  B1
         RRA                              ; $0CE7  1F
-        JP NC,SUB_0C8F_2                 ; $0CE8  D2 F9 0C
+        JP NC,PRINT_KBYTES_LINE_2                 ; $0CE8  D2 F9 0C
         LD HL,SUB_14F8_67                ; $0CEB  21 B0 15
         LD (HL),$01                      ; $0CEE  36 01
         LD A,(SUB_14F8_66)               ; $0CF0  3A AF 15
         ADD A,$30                        ; $0CF3  C6 30
         LD C,A                           ; $0CF5  4F
-        CALL SUB_0490                    ; $0CF6  CD 90 04
-SUB_0C8F_2:
-        JP SUB_0C8F_1                    ; $0CF9  C3 A0 0C
-SUB_0C8F_3:
+        CALL CONOUT_CHAR                    ; $0CF6  CD 90 04
+PRINT_KBYTES_LINE_2:
+        JP PRINT_KBYTES_LINE_1                    ; $0CF9  C3 A0 0C
+PRINT_KBYTES_LINE_3:
         LD C,$6B                         ; $0CFC  0E 6B
-        CALL SUB_0490                    ; $0CFE  CD 90 04
-        CALL SUB_04A0                    ; $0D01  CD A0 04
+        CALL CONOUT_CHAR                    ; $0CFE  CD 90 04
+        CALL PRINT_CRLF                    ; $0D01  CD A0 04
         RET                              ; $0D04  C9
 ; [AI] Prints the standard '<n>k, Space: ' free-space preamble: gets the allocation vector, prints
 ;       the drive letter, then the remaining-kilobytes figure.
-SUB_0D05:
-        CALL SUB_0551                    ; $0D05  CD 51 05
+PRINT_SPACE_PREAMBLE:
+        CALL BDOS_GET_ALLOC_VEC                    ; $0D05  CD 51 05
         LD (SUB_14F8_3),HL               ; $0D08  22 20 15
-        CALL SUB_0538                    ; $0D0B  CD 38 05
+        CALL BDOS_GET_CUR_DRIVE                    ; $0D0B  CD 38 05
         ADD A,$41                        ; $0D0E  C6 41
         LD C,A                           ; $0D10  4F
-        CALL SUB_0490                    ; $0D11  CD 90 04
+        CALL CONOUT_CHAR                    ; $0D11  CD 90 04
         LD BC,TPA_START_30               ; $0D14  01 6A 03
-        CALL SUB_04B1                    ; $0D17  CD B1 04
+        CALL PRINT_STRING                    ; $0D17  CD B1 04
         RET                              ; $0D1A  C9
 ; [AI] Counts free 1K blocks from the allocation vector and prints the resulting free-space figure
 ;       for the current drive.
-SUB_0D1B:
+PRINT_FREE_SPACE:
         LD C,$01                         ; $0D1B  0E 01
-        CALL SUB_07B7                    ; $0D1D  CD B7 07
+        CALL COUNT_USED_RECORDS                    ; $0D1D  CD B7 07
         LD B,H                           ; $0D20  44
         LD C,L                           ; $0D21  4D
-        CALL SUB_0C8F                    ; $0D22  CD 8F 0C
+        CALL PRINT_KBYTES_LINE                    ; $0D22  CD 8F 0C
         RET                              ; $0D25  C9
-; [AI] Prints a complete 'Bytes Remaining On d: <n>k' line, combining the drive header (SUB_0D05)
-;       and the free-block count (SUB_0D1B).
-SUB_0D26:
+; [AI] Prints a complete 'Bytes Remaining On d: <n>k' line, combining the drive header (PRINT_SPACE_PREAMBLE)
+;       and the free-block count (PRINT_FREE_SPACE).
+PRINT_BYTES_REMAINING:
         LD BC,TPA_START_31               ; $0D26  01 6D 03
-        CALL SUB_04D2                    ; $0D29  CD D2 04
-        CALL SUB_0D05                    ; $0D2C  CD 05 0D
-        CALL SUB_0D1B                    ; $0D2F  CD 1B 0D
+        CALL PRINT_LINE                    ; $0D29  CD D2 04
+        CALL PRINT_SPACE_PREAMBLE                    ; $0D2C  CD 05 0D
+        CALL PRINT_FREE_SPACE                    ; $0D2F  CD 1B 0D
         RET                              ; $0D32  C9
 ; [AI] Handles the disk-status (R/O and login bit-vector) report, iterating drives and printing
 ;       each as R/O or R/W according to the BDOS bit vectors.
-SUB_0D33:
-        CALL SUB_055A                    ; $0D33  CD 5A 05
+REPORT_DISK_STATUS:
+        CALL BDOS_GET_LOGIN_VEC                    ; $0D33  CD 5A 05
         LD (SUB_14F8_69),HL              ; $0D36  22 B3 15
-        CALL SUB_056C                    ; $0D39  CD 6C 05
+        CALL BDOS_GET_RO_VEC                    ; $0D39  CD 6C 05
         LD (SUB_14F8_70),HL              ; $0D3C  22 B5 15
         LD HL,SUB_14F8_71                ; $0D3F  21 B7 15
         LD (HL),$00                      ; $0D42  36 00
-SUB_0D33_1:
+REPORT_DISK_STATUS_1:
         LD A,$00                         ; $0D44  3E 00
         LD DE,SUB_14F8_69                ; $0D46  11 B3 15
-        CALL SUB_14EA                    ; $0D49  CD EA 14
+        CALL CMP_LOOP_BOUND                    ; $0D49  CD EA 14
         OR L                             ; $0D4C  B5
-        JP Z,SUB_0D33_5                  ; $0D4D  CA A5 0D
+        JP Z,REPORT_DISK_STATUS_5                  ; $0D4D  CA A5 0D
         LD HL,(SUB_14F8_69)              ; $0D50  2A B3 15
         LD A,L                           ; $0D53  7D
         RRA                              ; $0D54  1F
-        JP NC,SUB_0D33_4                 ; $0D55  D2 86 0D
+        JP NC,REPORT_DISK_STATUS_4                 ; $0D55  D2 86 0D
         LD HL,(SUB_14F8_71)              ; $0D58  2A B7 15
         LD C,L                           ; $0D5B  4D
-        CALL SUB_05CC                    ; $0D5C  CD CC 05
-        CALL SUB_0D05                    ; $0D5F  CD 05 0D
+        CALL SELECT_DRIVE_REFRESH                    ; $0D5C  CD CC 05
+        CALL PRINT_SPACE_PREAMBLE                    ; $0D5F  CD 05 0D
         LD BC,TPA_START_32               ; $0D62  01 81 03
-        CALL SUB_04B1                    ; $0D65  CD B1 04
+        CALL PRINT_STRING                    ; $0D65  CD B1 04
         LD HL,(SUB_14F8_70)              ; $0D68  2A B5 15
         LD A,L                           ; $0D6B  7D
         RRA                              ; $0D6C  1F
-        JP NC,SUB_0D33_2                 ; $0D6D  D2 78 0D
+        JP NC,REPORT_DISK_STATUS_2                 ; $0D6D  D2 78 0D
         LD C,$4F                         ; $0D70  0E 4F
-        CALL SUB_0490                    ; $0D72  CD 90 04
-        JP SUB_0D33_3                    ; $0D75  C3 7D 0D
-SUB_0D33_2:
+        CALL CONOUT_CHAR                    ; $0D72  CD 90 04
+        JP REPORT_DISK_STATUS_3                    ; $0D75  C3 7D 0D
+REPORT_DISK_STATUS_2:
         LD C,$57                         ; $0D78  0E 57
-        CALL SUB_0490                    ; $0D7A  CD 90 04
-SUB_0D33_3:
+        CALL CONOUT_CHAR                    ; $0D7A  CD 90 04
+REPORT_DISK_STATUS_3:
         LD BC,TPA_START_33               ; $0D7D  01 84 03
-        CALL SUB_04B1                    ; $0D80  CD B1 04
-        CALL SUB_0D1B                    ; $0D83  CD 1B 0D
-SUB_0D33_4:
+        CALL PRINT_STRING                    ; $0D80  CD B1 04
+        CALL PRINT_FREE_SPACE                    ; $0D83  CD 1B 0D
+REPORT_DISK_STATUS_4:
         LD C,$01                         ; $0D86  0E 01
         LD HL,SUB_14F8_69                ; $0D88  21 B3 15
-        CALL SUB_14C3                    ; $0D8B  CD C3 14
+        CALL SHR_MEM                    ; $0D8B  CD C3 14
         EX DE,HL                         ; $0D8E  EB
         DEC HL                           ; $0D8F  2B
         LD (HL),E                        ; $0D90  73
@@ -1575,7 +1575,7 @@ SUB_0D33_4:
         LD (HL),D                        ; $0D92  72
         LD C,$01                         ; $0D93  0E 01
         LD HL,SUB_14F8_70                ; $0D95  21 B5 15
-        CALL SUB_14C3                    ; $0D98  CD C3 14
+        CALL SHR_MEM                    ; $0D98  CD C3 14
         EX DE,HL                         ; $0D9B  EB
         DEC HL                           ; $0D9C  2B
         LD (HL),E                        ; $0D9D  73
@@ -1583,50 +1583,50 @@ SUB_0D33_4:
         LD (HL),D                        ; $0D9F  72
         INC HL                           ; $0DA0  23
         INC (HL)                         ; $0DA1  34
-        JP SUB_0D33_1                    ; $0DA2  C3 44 0D
-SUB_0D33_5:
-        CALL SUB_04A0                    ; $0DA5  CD A0 04
+        JP REPORT_DISK_STATUS_1                    ; $0DA2  C3 44 0D
+REPORT_DISK_STATUS_5:
+        CALL PRINT_CRLF                    ; $0DA5  CD A0 04
         RET                              ; $0DA8  C9
 ; [AI] If a drive letter was given in the FCB, selects that drive so the following operation
 ;       reports on the user-named disk rather than the default.
-SUB_0DA9:
+SELECT_FCB_DRIVE:
         LD A,(DEFAULT_FCB)               ; $0DA9  3A 5C 00
         CP $00                           ; $0DAC  FE 00
-        JP Z,SUB_0DA9_1                  ; $0DAE  CA B9 0D
+        JP Z,SELECT_FCB_DRIVE_1                  ; $0DAE  CA B9 0D
         LD A,(DEFAULT_FCB)               ; $0DB1  3A 5C 00
         DEC A                            ; $0DB4  3D
         LD C,A                           ; $0DB5  4F
-        CALL SUB_05CC                    ; $0DB6  CD CC 05
-SUB_0DA9_1:
+        CALL SELECT_DRIVE_REFRESH                    ; $0DB6  CD CC 05
+SELECT_FCB_DRIVE_1:
         RET                              ; $0DB9  C9
 ; [AI] Main file-status driver: prepares the wildcard FCB, scans the directory for matching files,
 ;       and produces the size/attribute listing; the default no-keyword command.
-SUB_0DBA:
-        CALL SUB_05B3                    ; $0DBA  CD B3 05
-        CALL SUB_0DA9                    ; $0DBD  CD A9 0D
+FILE_STATUS_MAIN:
+        CALL GET_DRIVE_CAPACITY                    ; $0DBA  CD B3 05
+        CALL SELECT_FCB_DRIVE                    ; $0DBD  CD A9 0D
         LD HL,SUB_14F8_1                 ; $0DC0  21 1D 15
         LD (HL),$00                      ; $0DC3  36 00
         LD HL,$29CC                      ; $0DC5  21 CC 29
         LD (HL),$FF                      ; $0DC8  36 FF
-        CALL SUB_136C                    ; $0DCA  CD 6C 13
+        CALL PARSE_SET_INDICATOR                    ; $0DCA  CD 6C 13
         RRA                              ; $0DCD  1F
-        JP NC,SUB_0DBA_2                 ; $0DCE  D2 E4 0D
+        JP NC,FILE_STATUS_MAIN_2                 ; $0DCE  D2 E4 0D
         LD A,($29CC)                     ; $0DD1  3A CC 29
         CP $00                           ; $0DD4  FE 00
-        JP NZ,SUB_0DBA_1                 ; $0DD6  C2 DA 0D
+        JP NZ,FILE_STATUS_MAIN_1                 ; $0DD6  C2 DA 0D
         RET                              ; $0DD9  C9
-SUB_0DBA_1:
+FILE_STATUS_MAIN_1:
         LD A,($29CC)                     ; $0DDA  3A CC 29
         DEC A                            ; $0DDD  3D
         LD ($29CC),A                     ; $0DDE  32 CC 29
-        JP SUB_0DBA_3                    ; $0DE1  C3 F0 0D
-SUB_0DBA_2:
+        JP FILE_STATUS_MAIN_3                    ; $0DE1  C3 F0 0D
+FILE_STATUS_MAIN_2:
         LD A,($005D)                     ; $0DE4  3A 5D 00
         CP $20                           ; $0DE7  FE 20
-        JP NZ,SUB_0DBA_3                 ; $0DE9  C2 F0 0D
-        CALL SUB_0D26                    ; $0DEC  CD 26 0D
+        JP NZ,FILE_STATUS_MAIN_3                 ; $0DE9  C2 F0 0D
+        CALL PRINT_BYTES_REMAINING                    ; $0DEC  CD 26 0D
         RET                              ; $0DEF  C9
-SUB_0DBA_3:
+FILE_STATUS_MAIN_3:
         LD HL,WBOOT_VEC                  ; $0DF0  21 00 00
         LD (SUB_14F8_72),HL              ; $0DF3  22 B8 15
         LD A,L                           ; $0DF6  7D
@@ -1636,13 +1636,13 @@ SUB_0DBA_3:
         LD HL,$006A                      ; $0DFF  21 6A 00
         LD (HL),$3F                      ; $0E02  36 3F
         LD BC,DEFAULT_FCB                ; $0E04  01 5C 00
-        CALL SUB_0519                    ; $0E07  CD 19 05
+        CALL BDOS_SEARCH_FIRST                    ; $0E07  CD 19 05
 ; [AI] Directory-read loop that pages through directory entries via search-first/search-next,
 ;       collecting matching filenames into the in-memory file table.
-SUB_0DBA_4:
+FILE_STATUS_MAIN_4:
         LD A,(SUB_14F8_9)                ; $0E0A  3A 27 15
         CP $FF                           ; $0E0D  FE FF
-        JP Z,SUB_0DBA_24                 ; $0E0F  CA 43 10
+        JP Z,FILE_STATUS_MAIN_24                 ; $0E0F  CA 43 10
         LD A,(SUB_14F8_9)                ; $0E12  3A 27 15
         AND $03                          ; $0E15  E6 03
         ADD A,A                          ; $0E17  87
@@ -1658,27 +1658,27 @@ SUB_0DBA_4:
         LD (HL),$00                      ; $0E27  36 00
         LD HL,WBOOT_VEC                  ; $0E29  21 00 00
         LD ($29BE),HL                    ; $0E2C  22 BE 29
-SUB_0DBA_5:
+FILE_STATUS_MAIN_5:
         LD A,($29CB)                     ; $0E2F  3A CB 29
         CPL                              ; $0E32  2F
         LD BC,SUB_14F8_72                ; $0E33  01 B8 15
         LD DE,$29BE                      ; $0E36  11 BE 29
         PUSH AF                          ; $0E39  F5
-        CALL SUB_14DD                    ; $0E3A  CD DD 14
+        CALL CMP16_BC_DE                    ; $0E3A  CD DD 14
         SBC A,A                          ; $0E3D  9F
         POP BC                           ; $0E3E  C1
         LD C,B                           ; $0E3F  48
         AND C                            ; $0E40  A1
         RRA                              ; $0E41  1F
-        JP NC,SUB_0DBA_10                ; $0E42  D2 98 0E
-        CALL SUB_135D                    ; $0E45  CD 5D 13
+        JP NC,FILE_STATUS_MAIN_10                ; $0E42  D2 98 0E
+        CALL DIR_ENTRY_ADDR                    ; $0E45  CD 5D 13
         LD HL,$29C6                      ; $0E48  21 C6 29
         LD (HL),$01                      ; $0E4B  36 01
-SUB_0DBA_6:
+FILE_STATUS_MAIN_6:
         LD A,$0B                         ; $0E4D  3E 0B
         LD HL,$29C6                      ; $0E4F  21 C6 29
         CP (HL)                          ; $0E52  BE
-        JP C,SUB_0DBA_9                  ; $0E53  DA 8E 0E
+        JP C,FILE_STATUS_MAIN_9                  ; $0E53  DA 8E 0E
         LD HL,($29C6)                    ; $0E56  2A C6 29
         LD H,$00                         ; $0E59  26 00
         EX DE,HL                         ; $0E5B  EB
@@ -1693,42 +1693,42 @@ SUB_0DBA_6:
         POP BC                           ; $0E6B  C1
         LD A,(BC)                        ; $0E6C  0A
         CP (HL)                          ; $0E6D  BE
-        JP Z,SUB_0DBA_7                  ; $0E6E  CA 79 0E
+        JP Z,FILE_STATUS_MAIN_7                  ; $0E6E  CA 79 0E
         LD HL,$29C6                      ; $0E71  21 C6 29
         LD (HL),$0B                      ; $0E74  36 0B
-        JP SUB_0DBA_8                    ; $0E76  C3 84 0E
-SUB_0DBA_7:
+        JP FILE_STATUS_MAIN_8                    ; $0E76  C3 84 0E
+FILE_STATUS_MAIN_7:
         LD A,($29C6)                     ; $0E79  3A C6 29
         SUB $0B                          ; $0E7C  D6 0B
         SUB $01                          ; $0E7E  D6 01
         SBC A,A                          ; $0E80  9F
         LD ($29CB),A                     ; $0E81  32 CB 29
-SUB_0DBA_8:
+FILE_STATUS_MAIN_8:
         LD A,($29C6)                     ; $0E84  3A C6 29
         INC A                            ; $0E87  3C
         LD ($29C6),A                     ; $0E88  32 C6 29
-        JP NZ,SUB_0DBA_6                 ; $0E8B  C2 4D 0E
-SUB_0DBA_9:
+        JP NZ,FILE_STATUS_MAIN_6                 ; $0E8B  C2 4D 0E
+FILE_STATUS_MAIN_9:
         LD HL,($29BE)                    ; $0E8E  2A BE 29
         INC HL                           ; $0E91  23
         LD ($29BE),HL                    ; $0E92  22 BE 29
-        JP SUB_0DBA_5                    ; $0E95  C3 2F 0E
-SUB_0DBA_10:
+        JP FILE_STATUS_MAIN_5                    ; $0E95  C3 2F 0E
+FILE_STATUS_MAIN_10:
         LD A,($29CB)                     ; $0E98  3A CB 29
         RRA                              ; $0E9B  1F
-        JP NC,SUB_0DBA_11                ; $0E9C  D2 A9 0E
+        JP NC,FILE_STATUS_MAIN_11                ; $0E9C  D2 A9 0E
         LD HL,($29BE)                    ; $0E9F  2A BE 29
         DEC HL                           ; $0EA2  2B
         LD ($29BE),HL                    ; $0EA3  22 BE 29
-        JP SUB_0DBA_15                   ; $0EA6  C3 60 0F
+        JP FILE_STATUS_MAIN_15                   ; $0EA6  C3 60 0F
 ; [AI] Inserts a newly found directory entry into the sorted file table, copying its name and
 ;       initializing its per-file record/extent accumulators.
-SUB_0DBA_11:
+FILE_STATUS_MAIN_11:
         LD HL,(SUB_14F8_72)              ; $0EA9  2A B8 15
         LD ($29BE),HL                    ; $0EAC  22 BE 29
         INC HL                           ; $0EAF  23
         LD (SUB_14F8_72),HL              ; $0EB0  22 B8 15
-        CALL SUB_135D                    ; $0EB3  CD 5D 13
+        CALL DIR_ENTRY_ADDR                    ; $0EB3  CD 5D 13
         LD DE,TPA_START_11               ; $0EB6  11 00 02
         LD HL,SUB_14F8_72                ; $0EB9  21 B8 15
         CALL SUB_14F8                    ; $0EBC  CD F8 14
@@ -1746,15 +1746,15 @@ SUB_0DBA_11:
         LD C,B                           ; $0ED2  48
         OR C                             ; $0ED3  B1
         RRA                              ; $0ED4  1F
-        JP NC,SUB_0DBA_12                ; $0ED5  D2 ED 0E
+        JP NC,FILE_STATUS_MAIN_12                ; $0ED5  D2 ED 0E
         LD BC,TPA_START_35               ; $0ED8  01 A5 03
-        CALL SUB_04D2                    ; $0EDB  CD D2 04
+        CALL PRINT_LINE                    ; $0EDB  CD D2 04
         LD HL,WBOOT_VEC                  ; $0EDE  21 00 00
         LD ($29BE),HL                    ; $0EE1  22 BE 29
         LD HL,$0001                      ; $0EE4  21 01 00
         LD (SUB_14F8_72),HL              ; $0EE7  22 B8 15
-        CALL SUB_135D                    ; $0EEA  CD 5D 13
-SUB_0DBA_12:
+        CALL DIR_ENTRY_ADDR                    ; $0EEA  CD 5D 13
+FILE_STATUS_MAIN_12:
         LD HL,($29BE)                    ; $0EED  2A BE 29
         LD BC,SUB_14F8_73                ; $0EF0  01 BA 15
         ADD HL,HL                        ; $0EF3  29
@@ -1768,11 +1768,11 @@ SUB_0DBA_12:
         LD (HL),D                        ; $0EFD  72
         LD HL,$29C6                      ; $0EFE  21 C6 29
         LD (HL),$00                      ; $0F01  36 00
-SUB_0DBA_13:
+FILE_STATUS_MAIN_13:
         LD A,$0B                         ; $0F03  3E 0B
         LD HL,$29C6                      ; $0F05  21 C6 29
         CP (HL)                          ; $0F08  BE
-        JP C,SUB_0DBA_14                 ; $0F09  DA 2E 0F
+        JP C,FILE_STATUS_MAIN_14                 ; $0F09  DA 2E 0F
         LD HL,($29C6)                    ; $0F0C  2A C6 29
         LD H,$00                         ; $0F0F  26 00
         EX DE,HL                         ; $0F11  EB
@@ -1790,8 +1790,8 @@ SUB_0DBA_13:
         LD A,($29C6)                     ; $0F24  3A C6 29
         INC A                            ; $0F27  3C
         LD ($29C6),A                     ; $0F28  32 C6 29
-        JP NZ,SUB_0DBA_13                ; $0F2B  C2 03 0F
-SUB_0DBA_14:
+        JP NZ,FILE_STATUS_MAIN_13                ; $0F2B  C2 03 0F
+FILE_STATUS_MAIN_14:
         LD HL,($29BE)                    ; $0F2E  2A BE 29
         LD BC,$19BA                      ; $0F31  01 BA 19
         ADD HL,HL                        ; $0F34  29
@@ -1823,7 +1823,7 @@ SUB_0DBA_14:
         LD (HL),$00                      ; $0F5E  36 00
 ; [AI] Accumulates a directory extent's record count and combines its R/O and System attribute bits
 ;       into the running totals for that file.
-SUB_0DBA_15:
+FILE_STATUS_MAIN_15:
         LD HL,($29BE)                    ; $0F60  2A BE 29
         LD BC,$19BA                      ; $0F63  01 BA 19
         ADD HL,HL                        ; $0F66  29
@@ -1851,7 +1851,7 @@ SUB_0DBA_15:
         ADD HL,BC                        ; $0F88  09
         LD A,(HL)                        ; $0F89  7E
         POP DE                           ; $0F8A  D1
-        CALL SUB_1465                    ; $0F8B  CD 65 14
+        CALL INDEX_ARRAY                    ; $0F8B  CD 65 14
         LD BC,$000C                      ; $0F8E  01 0C 00
         PUSH HL                          ; $0F91  E5
         LD HL,($29BA)                    ; $0F92  2A BA 29
@@ -1866,7 +1866,7 @@ SUB_0DBA_15:
         LD L,A                           ; $0FA1  6F
         LD H,$00                         ; $0FA2  26 00
         LD DE,DEFAULT_DMA                ; $0FA4  11 80 00
-        CALL SUB_149E                    ; $0FA7  CD 9E 14
+        CALL MUL16                    ; $0FA7  CD 9E 14
         POP BC                           ; $0FAA  C1
         ADD HL,BC                        ; $0FAB  09
         PUSH HL                          ; $0FAC  E5
@@ -1884,27 +1884,27 @@ SUB_0DBA_15:
         LD HL,(SUB_14F8_2)               ; $0FC1  2A 1E 15
         ADD HL,BC                        ; $0FC4  09
         LD A,$FF                         ; $0FC5  3E FF
-        CALL SUB_14F5                    ; $0FC7  CD F5 14
-        JP NC,SUB_0DBA_16                ; $0FCA  D2 D2 0F
+        CALL CMP_A_MEM                    ; $0FC7  CD F5 14
+        JP NC,FILE_STATUS_MAIN_16                ; $0FCA  D2 D2 0F
         LD HL,$29C7                      ; $0FCD  21 C7 29
         LD (HL),$02                      ; $0FD0  36 02
-SUB_0DBA_16:
+FILE_STATUS_MAIN_16:
         LD HL,$29C6                      ; $0FD2  21 C6 29
         LD (HL),$10                      ; $0FD5  36 10
-SUB_0DBA_17:
+FILE_STATUS_MAIN_17:
         LD A,$1F                         ; $0FD7  3E 1F
         LD HL,$29C6                      ; $0FD9  21 C6 29
         CP (HL)                          ; $0FDC  BE
-        JP C,SUB_0DBA_23                 ; $0FDD  DA 3D 10
-        JP SUB_0DBA_19                   ; $0FE0  C3 F1 0F
-SUB_0DBA_18:
+        JP C,FILE_STATUS_MAIN_23                 ; $0FDD  DA 3D 10
+        JP FILE_STATUS_MAIN_19                   ; $0FE0  C3 F1 0F
+FILE_STATUS_MAIN_18:
         LD A,($29C7)                     ; $0FE3  3A C7 29
         LD HL,$29C6                      ; $0FE6  21 C6 29
         ADD A,(HL)                       ; $0FE9  86
         LD (HL),A                        ; $0FEA  77
-        JP NC,SUB_0DBA_17                ; $0FEB  D2 D7 0F
-        JP SUB_0DBA_23                   ; $0FEE  C3 3D 10
-SUB_0DBA_19:
+        JP NC,FILE_STATUS_MAIN_17                ; $0FEB  D2 D7 0F
+        JP FILE_STATUS_MAIN_23                   ; $0FEE  C3 3D 10
+FILE_STATUS_MAIN_19:
         LD HL,($29C6)                    ; $0FF1  2A C6 29
         LD H,$00                         ; $0FF4  26 00
         EX DE,HL                         ; $0FF6  EB
@@ -1914,7 +1914,7 @@ SUB_0DBA_19:
         LD ($29C8),A                     ; $0FFC  32 C8 29
         LD A,($29C7)                     ; $0FFF  3A C7 29
         CP $02                           ; $1002  FE 02
-        JP NZ,SUB_0DBA_20                ; $1004  C2 1C 10
+        JP NZ,FILE_STATUS_MAIN_20                ; $1004  C2 1C 10
         LD HL,($29C6)                    ; $1007  2A C6 29
         LD H,$00                         ; $100A  26 00
         LD BC,$0001                      ; $100C  01 01 00
@@ -1925,68 +1925,68 @@ SUB_0DBA_19:
         LD A,($29C8)                     ; $1015  3A C8 29
         OR (HL)                          ; $1018  B6
         LD ($29C8),A                     ; $1019  32 C8 29
-SUB_0DBA_20:
+FILE_STATUS_MAIN_20:
         LD A,($29C8)                     ; $101C  3A C8 29
         CP $00                           ; $101F  FE 00
-        JP Z,SUB_0DBA_22                 ; $1021  CA 3A 10
+        JP Z,FILE_STATUS_MAIN_22                 ; $1021  CA 3A 10
         LD HL,($29BE)                    ; $1024  2A BE 29
         LD BC,$21BA                      ; $1027  01 BA 21
         ADD HL,HL                        ; $102A  29
         ADD HL,BC                        ; $102B  09
         PUSH HL                          ; $102C  E5
-SUB_0DBA_21:
+FILE_STATUS_MAIN_21:
         LD HL,($29BE)                    ; $102D  2A BE 29
         LD BC,$1DBA                      ; $1030  01 BA 1D
         ADD HL,HL                        ; $1033  29
         ADD HL,BC                        ; $1034  09
         EX DE,HL                         ; $1035  EB
         POP BC                           ; $1036  C1
-        CALL SUB_0773                    ; $1037  CD 73 07
-SUB_0DBA_22:
-        JP SUB_0DBA_18                   ; $103A  C3 E3 0F
-SUB_0DBA_23:
-        CALL SUB_052C                    ; $103D  CD 2C 05
-        JP SUB_0DBA_4                    ; $1040  C3 0A 0E
+        CALL ACCUM_1K_BLOCKS                    ; $1037  CD 73 07
+FILE_STATUS_MAIN_22:
+        JP FILE_STATUS_MAIN_18                   ; $103A  C3 E3 0F
+FILE_STATUS_MAIN_23:
+        CALL BDOS_SEARCH_NEXT                    ; $103D  CD 2C 05
+        JP FILE_STATUS_MAIN_4                    ; $1040  C3 0A 0E
 ; [AI] End of directory scan: if no matching files were found prints 'File Not Found', otherwise
 ;       proceeds to sort and print the file table.
-SUB_0DBA_24:
+FILE_STATUS_MAIN_24:
         LD A,$00                         ; $1043  3E 00
         LD DE,SUB_14F8_72                ; $1045  11 B8 15
-        CALL SUB_14EA                    ; $1048  CD EA 14
+        CALL CMP_LOOP_BOUND                    ; $1048  CD EA 14
         OR L                             ; $104B  B5
-        JP NZ,SUB_0DBA_25                ; $104C  C2 58 10
+        JP NZ,FILE_STATUS_MAIN_25                ; $104C  C2 58 10
         LD BC,TPA_START_36               ; $104F  01 BA 03
-        CALL SUB_04D2                    ; $1052  CD D2 04
-        JP SUB_0DBA_57                   ; $1055  C3 5C 13
+        CALL PRINT_LINE                    ; $1052  CD D2 04
+        JP FILE_STATUS_MAIN_57                   ; $1055  C3 5C 13
 ; [AI] Whole-disk file listing path: sorts the collected file table alphabetically by repeated
 ;       selection/exchange before printing.
-SUB_0DBA_25:
+FILE_STATUS_MAIN_25:
         LD A,($29CC)                     ; $1058  3A CC 29
         CP $FF                           ; $105B  FE FF
-        JP NZ,SUB_0DBA_47                ; $105D  C2 93 12
+        JP NZ,FILE_STATUS_MAIN_47                ; $105D  C2 93 12
         LD A,$01                         ; $1060  3E 01
         LD HL,SUB_14F8_72                ; $1062  21 B8 15
-        CALL SUB_14F5                    ; $1065  CD F5 14
-        JP NC,SUB_0DBA_34                ; $1068  D2 64 11
+        CALL CMP_A_MEM                    ; $1065  CD F5 14
+        JP NC,FILE_STATUS_MAIN_34                ; $1068  D2 64 11
         LD HL,$0001                      ; $106B  21 01 00
         LD ($29C0),HL                    ; $106E  22 C0 29
-SUB_0DBA_26:
+FILE_STATUS_MAIN_26:
         LD A,$00                         ; $1071  3E 00
         LD HL,$29C0                      ; $1073  21 C0 29
-        CALL SUB_14F5                    ; $1076  CD F5 14
-        JP NC,SUB_0DBA_34                ; $1079  D2 64 11
+        CALL CMP_A_MEM                    ; $1076  CD F5 14
+        JP NC,FILE_STATUS_MAIN_34                ; $1079  D2 64 11
         LD HL,WBOOT_VEC                  ; $107C  21 00 00
         LD ($29C0),HL                    ; $107F  22 C0 29
         LD HL,WBOOT_VEC                  ; $1082  21 00 00
         LD ($29C4),HL                    ; $1085  22 C4 29
-SUB_0DBA_27:
+FILE_STATUS_MAIN_27:
         LD HL,(SUB_14F8_72)              ; $1088  2A B8 15
         DEC HL                           ; $108B  2B
         DEC HL                           ; $108C  2B
         EX DE,HL                         ; $108D  EB
         LD HL,$29C4                      ; $108E  21 C4 29
         CALL SUB_14F8                    ; $1091  CD F8 14
-        JP C,SUB_0DBA_33                 ; $1094  DA 61 11
+        JP C,FILE_STATUS_MAIN_33                 ; $1094  DA 61 11
         LD HL,($29C4)                    ; $1097  2A C4 29
         LD BC,SUB_14F8_74                ; $109A  01 BC 15
         ADD HL,HL                        ; $109D  29
@@ -1996,7 +1996,7 @@ SUB_0DBA_27:
         LD D,(HL)                        ; $10A1  56
         EX DE,HL                         ; $10A2  EB
         LD ($29BE),HL                    ; $10A3  22 BE 29
-        CALL SUB_135D                    ; $10A6  CD 5D 13
+        CALL DIR_ENTRY_ADDR                    ; $10A6  CD 5D 13
         LD HL,($29BC)                    ; $10A9  2A BC 29
         LD ($29BA),HL                    ; $10AC  22 BA 29
         LD HL,($29C4)                    ; $10AF  2A C4 29
@@ -2008,14 +2008,14 @@ SUB_0DBA_27:
         LD D,(HL)                        ; $10B9  56
         EX DE,HL                         ; $10BA  EB
         LD ($29BE),HL                    ; $10BB  22 BE 29
-        CALL SUB_135D                    ; $10BE  CD 5D 13
+        CALL DIR_ENTRY_ADDR                    ; $10BE  CD 5D 13
         LD HL,$29C6                      ; $10C1  21 C6 29
         LD (HL),$01                      ; $10C4  36 01
-SUB_0DBA_28:
+FILE_STATUS_MAIN_28:
         LD A,$0B                         ; $10C6  3E 0B
         LD HL,$29C6                      ; $10C8  21 C6 29
         CP (HL)                          ; $10CB  BE
-        JP C,SUB_0DBA_32                 ; $10CC  DA 54 11
+        JP C,FILE_STATUS_MAIN_32                 ; $10CC  DA 54 11
         LD HL,($29C6)                    ; $10CF  2A C6 29
         LD H,$00                         ; $10D2  26 00
         EX DE,HL                         ; $10D4  EB
@@ -2035,7 +2035,7 @@ SUB_0DBA_28:
         POP DE                           ; $10ED  D1
         LD A,(DE)                        ; $10EE  1A
         CP C                             ; $10EF  B9
-        JP NC,SUB_0DBA_29                ; $10F0  D2 3B 11
+        JP NC,FILE_STATUS_MAIN_29                ; $10F0  D2 3B 11
         LD HL,($29C4)                    ; $10F3  2A C4 29
         LD BC,SUB_14F8_73                ; $10F6  01 BA 15
         ADD HL,HL                        ; $10F9  29
@@ -2078,51 +2078,51 @@ SUB_0DBA_28:
         LD ($29C0),HL                    ; $1130  22 C0 29
         LD HL,$29C6                      ; $1133  21 C6 29
         LD (HL),$0B                      ; $1136  36 0B
-        JP SUB_0DBA_30                   ; $1138  C3 4A 11
-SUB_0DBA_29:
+        JP FILE_STATUS_MAIN_30                   ; $1138  C3 4A 11
+FILE_STATUS_MAIN_29:
         LD A,($29CA)                     ; $113B  3A CA 29
         LD HL,$29C9                      ; $113E  21 C9 29
         CP (HL)                          ; $1141  BE
-        JP NC,SUB_0DBA_30                ; $1142  D2 4A 11
+        JP NC,FILE_STATUS_MAIN_30                ; $1142  D2 4A 11
         LD HL,$29C6                      ; $1145  21 C6 29
         LD (HL),$0B                      ; $1148  36 0B
-SUB_0DBA_30:
+FILE_STATUS_MAIN_30:
         LD A,($29C6)                     ; $114A  3A C6 29
-SUB_0DBA_31:
+FILE_STATUS_MAIN_31:
         INC A                            ; $114D  3C
         LD ($29C6),A                     ; $114E  32 C6 29
-        JP NZ,SUB_0DBA_28                ; $1151  C2 C6 10
-SUB_0DBA_32:
+        JP NZ,FILE_STATUS_MAIN_28                ; $1151  C2 C6 10
+FILE_STATUS_MAIN_32:
         LD DE,$0001                      ; $1154  11 01 00
         LD HL,($29C4)                    ; $1157  2A C4 29
         ADD HL,DE                        ; $115A  19
         LD ($29C4),HL                    ; $115B  22 C4 29
-        JP NC,SUB_0DBA_27                ; $115E  D2 88 10
-SUB_0DBA_33:
-        JP SUB_0DBA_26                   ; $1161  C3 71 10
+        JP NC,FILE_STATUS_MAIN_27                ; $115E  D2 88 10
+FILE_STATUS_MAIN_33:
+        JP FILE_STATUS_MAIN_26                   ; $1161  C3 71 10
 ; [AI] Prints the file-listing column header (' Size'/' Recs Bytes Ext Acc') depending on whether a
 ;       size column was requested.
-SUB_0DBA_34:
+FILE_STATUS_MAIN_34:
         LD A,(SUB_14F8_1)                ; $1164  3A 1D 15
         RRA                              ; $1167  1F
-        JP NC,SUB_0DBA_35                ; $1168  D2 74 11
+        JP NC,FILE_STATUS_MAIN_35                ; $1168  D2 74 11
         LD BC,TPA_START_37               ; $116B  01 C9 03
-        CALL SUB_04D2                    ; $116E  CD D2 04
-        JP SUB_0DBA_36                   ; $1171  C3 77 11
-SUB_0DBA_35:
-        CALL SUB_04A0                    ; $1174  CD A0 04
-SUB_0DBA_36:
+        CALL PRINT_LINE                    ; $116E  CD D2 04
+        JP FILE_STATUS_MAIN_36                   ; $1171  C3 77 11
+FILE_STATUS_MAIN_35:
+        CALL PRINT_CRLF                    ; $1174  CD A0 04
+FILE_STATUS_MAIN_36:
         LD BC,TPA_START_38               ; $1177  01 D0 03
-        CALL SUB_04B1                    ; $117A  CD B1 04
+        CALL PRINT_STRING                    ; $117A  CD B1 04
         LD HL,WBOOT_VEC                  ; $117D  21 00 00
         LD ($29C0),HL                    ; $1180  22 C0 29
 ; [AI] Per-file print loop: emits each file's record count, byte size, extent count, R/O+SYS access
 ;       flags, drive letter, and formatted name.
-SUB_0DBA_37:
+FILE_STATUS_MAIN_37:
         LD BC,SUB_14F8_72                ; $1183  01 B8 15
         LD DE,$29C0                      ; $1186  11 C0 29
-        CALL SUB_14DD                    ; $1189  CD DD 14
-        JP NC,SUB_0DBA_46                ; $118C  D2 8D 12
+        CALL CMP16_BC_DE                    ; $1189  CD DD 14
+        JP NC,FILE_STATUS_MAIN_46                ; $118C  D2 8D 12
         LD HL,($29C0)                    ; $118F  2A C0 29
         LD BC,SUB_14F8_73                ; $1192  01 BA 15
         ADD HL,HL                        ; $1195  29
@@ -2132,8 +2132,8 @@ SUB_0DBA_37:
         LD D,(HL)                        ; $1199  56
         EX DE,HL                         ; $119A  EB
         LD ($29BE),HL                    ; $119B  22 BE 29
-        CALL SUB_135D                    ; $119E  CD 5D 13
-        CALL SUB_04A0                    ; $11A1  CD A0 04
+        CALL DIR_ENTRY_ADDR                    ; $119E  CD 5D 13
+        CALL PRINT_CRLF                    ; $11A1  CD A0 04
         LD L,$10                         ; $11A4  2E 10
         PUSH HL                          ; $11A6  E5
         LD HL,($29BC)                    ; $11A7  2A BC 29
@@ -2141,35 +2141,35 @@ SUB_0DBA_37:
         LD C,L                           ; $11AB  4D
         LD DE,DEFAULT_FCB                ; $11AC  11 5C 00
         POP HL                           ; $11AF  E1
-SUB_0DBA_38:
+FILE_STATUS_MAIN_38:
         LD A,(BC)                        ; $11B0  0A
         LD (DE),A                        ; $11B1  12
         INC BC                           ; $11B2  03
         INC DE                           ; $11B3  13
         DEC L                            ; $11B4  2D
-        JP NZ,SUB_0DBA_38                ; $11B5  C2 B0 11
+        JP NZ,FILE_STATUS_MAIN_38                ; $11B5  C2 B0 11
         LD HL,DEFAULT_FCB                ; $11B8  21 5C 00
         LD (HL),$00                      ; $11BB  36 00
         LD A,(SUB_14F8_1)                ; $11BD  3A 1D 15
         RRA                              ; $11C0  1F
-        JP NC,SUB_0DBA_41                ; $11C1  D2 E9 11
+        JP NC,FILE_STATUS_MAIN_41                ; $11C1  D2 E9 11
         LD BC,DEFAULT_FCB                ; $11C4  01 5C 00
-        CALL SUB_05A3                    ; $11C7  CD A3 05
+        CALL BDOS_COMPUTE_FILESIZE                    ; $11C7  CD A3 05
         LD A,($007F)                     ; $11CA  3A 7F 00
         CP $00                           ; $11CD  FE 00
-        JP Z,SUB_0DBA_39                 ; $11CF  CA DB 11
+        JP Z,FILE_STATUS_MAIN_39                 ; $11CF  CA DB 11
         LD BC,TPA_START_39               ; $11D2  01 E6 03
-        CALL SUB_04B1                    ; $11D5  CD B1 04
-        JP SUB_0DBA_40                   ; $11D8  C3 E6 11
-SUB_0DBA_39:
+        CALL PRINT_STRING                    ; $11D5  CD B1 04
+        JP FILE_STATUS_MAIN_40                   ; $11D8  C3 E6 11
+FILE_STATUS_MAIN_39:
         LD HL,(DEFAULT_RND)              ; $11DB  2A 7D 00
         LD B,H                           ; $11DE  44
         LD C,L                           ; $11DF  4D
         LD DE,$2710                      ; $11E0  11 10 27
-        CALL SUB_0701                    ; $11E3  CD 01 07
-SUB_0DBA_40:
-        CALL SUB_04AB                    ; $11E6  CD AB 04
-SUB_0DBA_41:
+        CALL PRINT_DECIMAL                    ; $11E3  CD 01 07
+FILE_STATUS_MAIN_40:
+        CALL PRINT_SPACE                    ; $11E6  CD AB 04
+FILE_STATUS_MAIN_41:
         LD HL,($29BE)                    ; $11E9  2A BE 29
         LD BC,$25BA                      ; $11EC  01 BA 25
         ADD HL,HL                        ; $11EF  29
@@ -2178,8 +2178,8 @@ SUB_0DBA_41:
         INC HL                           ; $11F2  23
         LD B,(HL)                        ; $11F3  46
         LD DE,$2710                      ; $11F4  11 10 27
-        CALL SUB_0701                    ; $11F7  CD 01 07
-        CALL SUB_04AB                    ; $11FA  CD AB 04
+        CALL PRINT_DECIMAL                    ; $11F7  CD 01 07
+        CALL PRINT_SPACE                    ; $11FA  CD AB 04
         LD HL,($29BE)                    ; $11FD  2A BE 29
         LD BC,$21BA                      ; $1200  01 BA 21
         ADD HL,HL                        ; $1203  29
@@ -2188,10 +2188,10 @@ SUB_0DBA_41:
         INC HL                           ; $1206  23
         LD B,(HL)                        ; $1207  46
         LD DE,$2710                      ; $1208  11 10 27
-        CALL SUB_0701                    ; $120B  CD 01 07
+        CALL PRINT_DECIMAL                    ; $120B  CD 01 07
         LD C,$6B                         ; $120E  0E 6B
-        CALL SUB_0490                    ; $1210  CD 90 04
-        CALL SUB_04AB                    ; $1213  CD AB 04
+        CALL CONOUT_CHAR                    ; $1210  CD 90 04
+        CALL PRINT_SPACE                    ; $1213  CD AB 04
         LD HL,($29BE)                    ; $1216  2A BE 29
         LD BC,$19BA                      ; $1219  01 BA 19
         ADD HL,HL                        ; $121C  29
@@ -2200,33 +2200,33 @@ SUB_0DBA_41:
         INC HL                           ; $121F  23
         LD B,(HL)                        ; $1220  46
         LD DE,TPA_START_40               ; $1221  11 E8 03
-        CALL SUB_0701                    ; $1224  CD 01 07
-        CALL SUB_04AB                    ; $1227  CD AB 04
+        CALL PRINT_DECIMAL                    ; $1224  CD 01 07
+        CALL PRINT_SPACE                    ; $1227  CD AB 04
         LD C,$52                         ; $122A  0E 52
-        CALL SUB_0490                    ; $122C  CD 90 04
+        CALL CONOUT_CHAR                    ; $122C  CD 90 04
         LD C,$2F                         ; $122F  0E 2F
-        CALL SUB_0490                    ; $1231  CD 90 04
+        CALL CONOUT_CHAR                    ; $1231  CD 90 04
         LD BC,$0009                      ; $1234  01 09 00
         LD HL,($29BC)                    ; $1237  2A BC 29
         ADD HL,BC                        ; $123A  09
         LD A,(HL)                        ; $123B  7E
         RLCA                             ; $123C  07
         RRA                              ; $123D  1F
-        JP NC,SUB_0DBA_42                ; $123E  D2 49 12
+        JP NC,FILE_STATUS_MAIN_42                ; $123E  D2 49 12
         LD C,$4F                         ; $1241  0E 4F
-        CALL SUB_0490                    ; $1243  CD 90 04
-        JP SUB_0DBA_43                   ; $1246  C3 4E 12
-SUB_0DBA_42:
+        CALL CONOUT_CHAR                    ; $1243  CD 90 04
+        JP FILE_STATUS_MAIN_43                   ; $1246  C3 4E 12
+FILE_STATUS_MAIN_42:
         LD C,$57                         ; $1249  0E 57
-        CALL SUB_0490                    ; $124B  CD 90 04
-SUB_0DBA_43:
-        CALL SUB_04AB                    ; $124E  CD AB 04
-        CALL SUB_0538                    ; $1251  CD 38 05
+        CALL CONOUT_CHAR                    ; $124B  CD 90 04
+FILE_STATUS_MAIN_43:
+        CALL PRINT_SPACE                    ; $124E  CD AB 04
+        CALL BDOS_GET_CUR_DRIVE                    ; $1251  CD 38 05
         ADD A,$41                        ; $1254  C6 41
         LD C,A                           ; $1256  4F
-        CALL SUB_0490                    ; $1257  CD 90 04
+        CALL CONOUT_CHAR                    ; $1257  CD 90 04
         LD C,$3A                         ; $125A  0E 3A
-        CALL SUB_0490                    ; $125C  CD 90 04
+        CALL CONOUT_CHAR                    ; $125C  CD 90 04
         LD BC,$000A                      ; $125F  01 0A 00
         LD HL,($29BC)                    ; $1262  2A BC 29
         ADD HL,BC                        ; $1265  09
@@ -2234,49 +2234,49 @@ SUB_0DBA_43:
         RLCA                             ; $1267  07
         LD ($29C8),A                     ; $1268  32 C8 29
         RRA                              ; $126B  1F
-        JP NC,SUB_0DBA_44                ; $126C  D2 74 12
+        JP NC,FILE_STATUS_MAIN_44                ; $126C  D2 74 12
         LD C,$28                         ; $126F  0E 28
-        CALL SUB_0490                    ; $1271  CD 90 04
-SUB_0DBA_44:
-        CALL SUB_13C0                    ; $1274  CD C0 13
+        CALL CONOUT_CHAR                    ; $1271  CD 90 04
+FILE_STATUS_MAIN_44:
+        CALL PRINT_FILENAME                    ; $1274  CD C0 13
         LD A,($29C8)                     ; $1277  3A C8 29
         RRA                              ; $127A  1F
-        JP NC,SUB_0DBA_45                ; $127B  D2 83 12
+        JP NC,FILE_STATUS_MAIN_45                ; $127B  D2 83 12
         LD C,$29                         ; $127E  0E 29
-        CALL SUB_0490                    ; $1280  CD 90 04
-SUB_0DBA_45:
+        CALL CONOUT_CHAR                    ; $1280  CD 90 04
+FILE_STATUS_MAIN_45:
         LD HL,($29C0)                    ; $1283  2A C0 29
         INC HL                           ; $1286  23
         LD ($29C0),HL                    ; $1287  22 C0 29
-        JP SUB_0DBA_37                   ; $128A  C3 83 11
-SUB_0DBA_46:
-        CALL SUB_0D26                    ; $128D  CD 26 0D
-        JP SUB_0DBA_57                   ; $1290  C3 5C 13
+        JP FILE_STATUS_MAIN_37                   ; $128A  C3 83 11
+FILE_STATUS_MAIN_46:
+        CALL PRINT_BYTES_REMAINING                    ; $128D  CD 26 0D
+        JP FILE_STATUS_MAIN_57                   ; $1290  C3 5C 13
 ; [AI] Set-indicator path: applies the requested $R/O, $R/W, $SYS, or $DIR attribute change to each
 ;       matched file via a jump-table dispatch.
-SUB_0DBA_47:
+FILE_STATUS_MAIN_47:
         LD HL,WBOOT_VEC                  ; $1293  21 00 00
         LD ($29C0),HL                    ; $1296  22 C0 29
-SUB_0DBA_48:
+FILE_STATUS_MAIN_48:
         LD BC,SUB_14F8_72                ; $1299  01 B8 15
         LD DE,$29C0                      ; $129C  11 C0 29
-        CALL SUB_14DD                    ; $129F  CD DD 14
-        JP NC,SUB_0DBA_57                ; $12A2  D2 5C 13
-        CALL SUB_04E4                    ; $12A5  CD E4 04
+        CALL CMP16_BC_DE                    ; $129F  CD DD 14
+        JP NC,FILE_STATUS_MAIN_57                ; $12A2  D2 5C 13
+        CALL BDOS_CONST                    ; $12A5  CD E4 04
         RRA                              ; $12A8  1F
-        JP NC,SUB_0DBA_49                ; $12A9  D2 B0 12
-        CALL SUB_0812                    ; $12AC  CD 12 08
+        JP NC,FILE_STATUS_MAIN_49                ; $12A9  D2 B0 12
+        CALL PRINT_ABORTED                    ; $12AC  CD 12 08
         RET                              ; $12AF  C9
-SUB_0DBA_49:
+FILE_STATUS_MAIN_49:
         LD HL,($29C0)                    ; $12B0  2A C0 29
         LD ($29BE),HL                    ; $12B3  22 BE 29
-        CALL SUB_135D                    ; $12B6  CD 5D 13
-        CALL SUB_04A0                    ; $12B9  CD A0 04
-        CALL SUB_13C0                    ; $12BC  CD C0 13
+        CALL DIR_ENTRY_ADDR                    ; $12B6  CD 5D 13
+        CALL PRINT_CRLF                    ; $12B9  CD A0 04
+        CALL PRINT_FILENAME                    ; $12BC  CD C0 13
         LD HL,($29CC)                    ; $12BF  2A CC 29
         LD C,L                           ; $12C2  4D
         LD B,$00                         ; $12C3  06 00
-        LD HL,SUB_0DBA_54                ; $12C5  21 17 13
+        LD HL,FILE_STATUS_MAIN_54                ; $12C5  21 17 13
         ADD HL,BC                        ; $12C8  09
         ADD HL,BC                        ; $12C9  09
         LD E,(HL)                        ; $12CA  5E
@@ -2284,7 +2284,7 @@ SUB_0DBA_49:
         LD D,(HL)                        ; $12CC  56
         EX DE,HL                         ; $12CD  EB
         JP (HL)                          ; $12CE  E9
-SUB_0DBA_50:
+SET_ATTR_RO:
         LD BC,$0009                      ; $12CF  01 09 00
         LD HL,($29BC)                    ; $12D2  2A BC 29
         ADD HL,BC                        ; $12D5  09
@@ -2293,8 +2293,8 @@ SUB_0DBA_50:
         LD HL,($29BC)                    ; $12D9  2A BC 29
         ADD HL,BC                        ; $12DC  09
         LD (HL),A                        ; $12DD  77
-        JP SUB_0DBA_55                   ; $12DE  C3 1F 13
-SUB_0DBA_51:
+        JP FILE_STATUS_MAIN_55                   ; $12DE  C3 1F 13
+SET_ATTR_RW:
         LD BC,$0009                      ; $12E1  01 09 00
         LD HL,($29BC)                    ; $12E4  2A BC 29
         ADD HL,BC                        ; $12E7  09
@@ -2303,8 +2303,8 @@ SUB_0DBA_51:
         LD HL,($29BC)                    ; $12EB  2A BC 29
         ADD HL,BC                        ; $12EE  09
         LD (HL),A                        ; $12EF  77
-        JP SUB_0DBA_55                   ; $12F0  C3 1F 13
-SUB_0DBA_52:
+        JP FILE_STATUS_MAIN_55                   ; $12F0  C3 1F 13
+SET_ATTR_SYS:
         LD BC,$000A                      ; $12F3  01 0A 00
         LD HL,($29BC)                    ; $12F6  2A BC 29
         ADD HL,BC                        ; $12F9  09
@@ -2313,8 +2313,8 @@ SUB_0DBA_52:
         LD HL,($29BC)                    ; $12FD  2A BC 29
         ADD HL,BC                        ; $1300  09
         LD (HL),A                        ; $1301  77
-        JP SUB_0DBA_55                   ; $1302  C3 1F 13
-SUB_0DBA_53:
+        JP FILE_STATUS_MAIN_55                   ; $1302  C3 1F 13
+SET_ATTR_DIR:
         LD BC,$000A                      ; $1305  01 0A 00
         LD HL,($29BC)                    ; $1308  2A BC 29
         ADD HL,BC                        ; $130B  09
@@ -2323,34 +2323,34 @@ SUB_0DBA_53:
         LD HL,($29BC)                    ; $130F  2A BC 29
         ADD HL,BC                        ; $1312  09
         LD (HL),A                        ; $1313  77
-        JP SUB_0DBA_55                   ; $1314  C3 1F 13
-SUB_0DBA_54:
-        DEFW    SUB_0DBA_50              ; $1317
-        DEFW    SUB_0DBA_51              ; $1319
-        DEFW    SUB_0DBA_52              ; $131B
-        DEFW    SUB_0DBA_53              ; $131D
-SUB_0DBA_55:
-        DEFW    SUB_0DBA_21+1            ; $131F
-SUB_0DBA_56:
+        JP FILE_STATUS_MAIN_55                   ; $1314  C3 1F 13
+FILE_STATUS_MAIN_54:
+        DEFW    SET_ATTR_RO              ; $1317
+        DEFW    SET_ATTR_RW              ; $1319
+        DEFW    SET_ATTR_SYS              ; $131B
+        DEFW    SET_ATTR_DIR              ; $131D
+FILE_STATUS_MAIN_55:
+        DEFW    FILE_STATUS_MAIN_21+1            ; $131F
+FILE_STATUS_MAIN_56:
         DEFB    $E5,$2A,$BC,$29,$44                              ; $1321
-        DEFW    SUB_0DBA_31              ; $1326
+        DEFW    FILE_STATUS_MAIN_31              ; $1326
         DEFB    $5C,$00,$E1,$0A,$12,$03,$13,$2D,$C2,$2B,$13,$21,$5C,$00,$36,$00 ; $1328
         DEFB    $CD,$75,$05,$01,$EC,$03,$CD                      ; $1338
-        DEFW    SUB_04B1                 ; $133F
+        DEFW    PRINT_STRING                 ; $133F
         DEFB    $3A,$CC,$29,$87,$87                              ; $1341
-        DEFW    SUB_0639_1               ; $1346
+        DEFW    PARSE_NEXT_TOKEN_1               ; $1346
         DEFB    $00,$21,$99                                      ; $1348
-        DEFW    SUB_08C3_1               ; $134B
+        DEFW    PRINT_DRIVE_CHARS_1               ; $134B
         DEFB    $44,$4D,$CD                                      ; $134D
-        DEFW    SUB_04B1                 ; $1350
+        DEFW    PRINT_STRING                 ; $1350
         DEFB    $2A,$C0,$29,$23,$22,$C0,$29,$C3                  ; $1352
-        DEFW    SUB_0DBA_48              ; $135A
+        DEFW    FILE_STATUS_MAIN_48              ; $135A
 ; [AI] Shared local return used by the directory/attribute paths to fall out to the caller.
-SUB_0DBA_57:
+FILE_STATUS_MAIN_57:
         RET                              ; $135C  C9
 ; [AI] Computes the address of a directory entry inside the DMA buffer by multiplying the entry
 ;       index by 16 (entries are 32 bytes, two per record half) and adding the buffer base.
-SUB_135D:
+DIR_ENTRY_ADDR:
         LD HL,($29BE)                    ; $135D  2A BE 29
         ADD HL,HL                        ; $1360  29
         ADD HL,HL                        ; $1361  29
@@ -2362,23 +2362,23 @@ SUB_135D:
         RET                              ; $136B  C9
 ; [AI] Recognizes and sets up the 'SET' attribute command form ('d:file $R/O' etc.), copying the
 ;       keyword and selecting the matching indicator action.
-SUB_136C:
+PARSE_SET_INDICATOR:
         LD A,($006D)                     ; $136C  3A 6D 00
         CP $20                           ; $136F  FE 20
-        JP NZ,SUB_136C_1                 ; $1371  C2 77 13
+        JP NZ,PARSE_SET_INDICATOR_1                 ; $1371  C2 77 13
         LD A,$00                         ; $1374  3E 00
         RET                              ; $1376  C9
-SUB_136C_1:
+PARSE_SET_INDICATOR_1:
         LD L,$04                         ; $1377  2E 04
         LD DE,SUB_14F8_22                ; $1379  11 59 15
         LD BC,$006E                      ; $137C  01 6E 00
-SUB_136C_2:
+PARSE_SET_INDICATOR_2:
         LD A,(BC)                        ; $137F  0A
         LD (DE),A                        ; $1380  12
         INC BC                           ; $1381  03
         INC DE                           ; $1382  13
         DEC L                            ; $1383  2D
-        JP NZ,SUB_136C_2                 ; $1384  C2 7F 13
+        JP NZ,PARSE_SET_INDICATOR_2                 ; $1384  C2 7F 13
         LD A,(SUB_14F8_22)               ; $1387  3A 59 15
         SUB $53                          ; $138A  D6 53
         SUB $01                          ; $138C  D6 01
@@ -2392,33 +2392,33 @@ SUB_136C_2:
         LD C,B                           ; $1399  48
         AND C                            ; $139A  A1
         RRA                              ; $139B  1F
-        JP NC,SUB_136C_3                 ; $139C  D2 A7 13
+        JP NC,PARSE_SET_INDICATOR_3                 ; $139C  D2 A7 13
         LD HL,SUB_14F8_1                 ; $139F  21 1D 15
         LD (HL),$01                      ; $13A2  36 01
         LD A,$FE                         ; $13A4  3E FE
         RET                              ; $13A6  C9
-SUB_136C_3:
+PARSE_SET_INDICATOR_3:
         LD E,$04                         ; $13A7  1E 04
         LD BC,TPA_START_4                ; $13A9  01 A9 01
-        CALL SUB_0A19                    ; $13AC  CD 19 0A
+        CALL LOOKUP_KEYWORD                    ; $13AC  CD 19 0A
         LD ($29CC),A                     ; $13AF  32 CC 29
         CP $00                           ; $13B2  FE 00
-        JP NZ,SUB_136C_4                 ; $13B4  C2 BD 13
+        JP NZ,PARSE_SET_INDICATOR_4                 ; $13B4  C2 BD 13
         LD BC,TPA_START_34               ; $13B7  01 8E 03
-        CALL SUB_04D2                    ; $13BA  CD D2 04
-SUB_136C_4:
+        CALL PRINT_LINE                    ; $13BA  CD D2 04
+PARSE_SET_INDICATOR_4:
         LD A,$01                         ; $13BD  3E 01
         RET                              ; $13BF  C9
 ; [AI] Prints an 11-character CP/M filename from a directory entry, masking the high attribute bits
 ;       and inserting the '.' before the 3-character type.
-SUB_13C0:
+PRINT_FILENAME:
         LD HL,$29CD                      ; $13C0  21 CD 29
         LD (HL),$01                      ; $13C3  36 01
-SUB_13C0_1:
+PRINT_FILENAME_1:
         LD A,$0B                         ; $13C5  3E 0B
         LD HL,$29CD                      ; $13C7  21 CD 29
         CP (HL)                          ; $13CA  BE
-        JP C,SUB_13C0_4                  ; $13CB  DA 01 14
+        JP C,PRINT_FILENAME_4                  ; $13CB  DA 01 14
         LD HL,($29CD)                    ; $13CE  2A CD 29
         LD H,$00                         ; $13D1  26 00
         EX DE,HL                         ; $13D3  EB
@@ -2428,73 +2428,73 @@ SUB_13C0_1:
         AND (HL)                         ; $13DA  A6
         LD ($29CE),A                     ; $13DB  32 CE 29
         CP $20                           ; $13DE  FE 20
-        JP Z,SUB_13C0_3                  ; $13E0  CA F7 13
+        JP Z,PRINT_FILENAME_3                  ; $13E0  CA F7 13
         LD A,($29CD)                     ; $13E3  3A CD 29
         CP $09                           ; $13E6  FE 09
-        JP NZ,SUB_13C0_2                 ; $13E8  C2 F0 13
+        JP NZ,PRINT_FILENAME_2                 ; $13E8  C2 F0 13
         LD C,$2E                         ; $13EB  0E 2E
-        CALL SUB_0490                    ; $13ED  CD 90 04
-SUB_13C0_2:
+        CALL CONOUT_CHAR                    ; $13ED  CD 90 04
+PRINT_FILENAME_2:
         LD HL,($29CE)                    ; $13F0  2A CE 29
         LD C,L                           ; $13F3  4D
-        CALL SUB_0490                    ; $13F4  CD 90 04
-SUB_13C0_3:
+        CALL CONOUT_CHAR                    ; $13F4  CD 90 04
+PRINT_FILENAME_3:
         LD A,($29CD)                     ; $13F7  3A CD 29
         INC A                            ; $13FA  3C
         LD ($29CD),A                     ; $13FB  32 CD 29
-        JP NZ,SUB_13C0_1                 ; $13FE  C2 C5 13
-SUB_13C0_4:
+        JP NZ,PRINT_FILENAME_1                 ; $13FE  C2 C5 13
+PRINT_FILENAME_4:
         RET                              ; $1401  C9
 ; [AI] Per-file/assignment command handler: distinguishes 'd:=R/O' disk assignment from a filename
 ;       query and dispatches to the file-status or disk-assign routines.
-SUB_1402:
-        CALL SUB_0639                    ; $1402  CD 39 06
-        CALL SUB_0639                    ; $1405  CD 39 06
+HANDLE_FILE_OR_ASSIGN:
+        CALL PARSE_NEXT_TOKEN                    ; $1402  CD 39 06
+        CALL PARSE_NEXT_TOKEN                    ; $1405  CD 39 06
         LD A,(SUB_14F8_22)               ; $1408  3A 59 15
         CP $3D                           ; $140B  FE 3D
-        JP NZ,SUB_1402_3                 ; $140D  C2 2F 14
-        CALL SUB_0639                    ; $1410  CD 39 06
+        JP NZ,HANDLE_FILE_OR_ASSIGN_3                 ; $140D  C2 2F 14
+        CALL PARSE_NEXT_TOKEN                    ; $1410  CD 39 06
         LD BC,TPA_START_41               ; $1413  01 F5 03
         CALL SUB_05FE                    ; $1416  CD FE 05
         RRA                              ; $1419  1F
-        JP NC,SUB_1402_1                 ; $141A  D2 26 14
-        CALL SUB_0DA9                    ; $141D  CD A9 0D
-        CALL SUB_0563                    ; $1420  CD 63 05
-        JP SUB_1402_2                    ; $1423  C3 2C 14
-SUB_1402_1:
+        JP NC,HANDLE_FILE_OR_ASSIGN_1                 ; $141A  D2 26 14
+        CALL SELECT_FCB_DRIVE                    ; $141D  CD A9 0D
+        CALL BDOS_WRITE_PROTECT                    ; $1420  CD 63 05
+        JP HANDLE_FILE_OR_ASSIGN_2                    ; $1423  C3 2C 14
+HANDLE_FILE_OR_ASSIGN_1:
         LD BC,TPA_START_42               ; $1426  01 F9 03
-        CALL SUB_04D2                    ; $1429  CD D2 04
-SUB_1402_2:
-        JP SUB_1402_5                    ; $142C  C3 48 14
-SUB_1402_3:
-        CALL SUB_0DA9                    ; $142F  CD A9 0D
+        CALL PRINT_LINE                    ; $1429  CD D2 04
+HANDLE_FILE_OR_ASSIGN_2:
+        JP HANDLE_FILE_OR_ASSIGN_5                    ; $142C  C3 48 14
+HANDLE_FILE_OR_ASSIGN_3:
+        CALL SELECT_FCB_DRIVE                    ; $142F  CD A9 0D
         LD E,$08                         ; $1432  1E 08
         LD BC,TPA_START_2                ; $1434  01 39 01
-        CALL SUB_0A19                    ; $1437  CD 19 0A
+        CALL LOOKUP_KEYWORD                    ; $1437  CD 19 0A
         CP $08                           ; $143A  FE 08
-        JP NZ,SUB_1402_4                 ; $143C  C2 45 14
-        CALL SUB_08C3                    ; $143F  CD C3 08
-        JP SUB_1402_5                    ; $1442  C3 48 14
-SUB_1402_4:
-        CALL SUB_0DBA                    ; $1445  CD BA 0D
-SUB_1402_5:
+        JP NZ,HANDLE_FILE_OR_ASSIGN_4                 ; $143C  C2 45 14
+        CALL PRINT_DRIVE_CHARS                    ; $143F  CD C3 08
+        JP HANDLE_FILE_OR_ASSIGN_5                    ; $1442  C3 48 14
+HANDLE_FILE_OR_ASSIGN_4:
+        CALL FILE_STATUS_MAIN                    ; $1445  CD BA 0D
+HANDLE_FILE_OR_ASSIGN_5:
         RET                              ; $1448  C9
         DEFB    $C3,$00,$00                                      ; $1449
 ; [AI] BDOS call shim (jump to $0005) used for functions whose result is not needed by the caller.
-SUB_144C:
+BDOS_CALL_VOID:
         JP BDOS_VEC                      ; $144C  C3 05 00
 ; [AI] BDOS call shim (jump to $0005) used where the A/HL result of the call is consumed.
-SUB_144F:
+BDOS_CALL_A:
         JP BDOS_VEC                      ; $144F  C3 05 00
 ; [AI] BDOS call shim that uses CALL/RET (preserving STAT's stack frame) for functions invoked mid-
 ;       routine.
-SUB_1452:
+BDOS_CALL_HL:
         CALL BDOS_VEC                    ; $1452  CD 05 00
         RET                              ; $1455  C9
         DEFB    $C9,$C9,$69,$60                                  ; $1456
 ; [AI] 16-bit add of the word at (HL) to the word at (DE), returning the sum in HL; a PL/M-style
 ;       runtime arithmetic helper.
-SUB_145A:
+ADD16_MEM:
         LD C,(HL)                        ; $145A  4E
         INC HL                           ; $145B  23
         LD B,(HL)                        ; $145C  46
@@ -2508,7 +2508,7 @@ SUB_145A:
         RET                              ; $1464  C9
 ; [AI] Adds an 8-bit index (A) to the 16-bit base at (DE), returning the element address in HL;
 ;       array-indexing helper.
-SUB_1465:
+INDEX_ARRAY:
         EX DE,HL                         ; $1465  EB
         LD E,A                           ; $1466  5F
         LD D,$00                         ; $1467  16 00
@@ -2523,7 +2523,7 @@ SUB_1465:
         RET                              ; $1471  C9
 ; [AI] 16-bit AND of an 8-bit value (A, zero-extended) with the word at (DE), used for masking
 ;       attribute/allocation bits.
-SUB_1472:
+AND16_BYTE:
         EX DE,HL                         ; $1472  EB
         LD E,A                           ; $1473  5F
         LD D,$00                         ; $1474  16 00
@@ -2538,15 +2538,15 @@ SUB_1472:
         RET                              ; $147E  C9
 ; [AI] Unsigned 16-bit divide (HL by BC) producing quotient and remainder; the core of decimal
 ;       conversion and block-count arithmetic.
-SUB_147F:
+DIV16:
         LD B,H                           ; $147F  44
         LD C,L                           ; $1480  4D
 ; [AI] Inner restoring-division routine entered with the dividend already in HL:DE form; shared
 ;       body of the 16-bit divide.
-SUB_1481:
+DIV16_INNER:
         LD HL,WBOOT_VEC                  ; $1481  21 00 00
         LD A,$10                         ; $1484  3E 10
-SUB_1481_1:
+DIV16_INNER_1:
         PUSH AF                          ; $1486  F5
         ADD HL,HL                        ; $1487  29
         EX DE,HL                         ; $1488  EB
@@ -2560,59 +2560,59 @@ SUB_1481_1:
         SBC A,B                          ; $1490  98
         LD H,A                           ; $1491  67
         INC DE                           ; $1492  13
-        JP NC,SUB_1481_2                 ; $1493  D2 98 14
+        JP NC,DIV16_INNER_2                 ; $1493  D2 98 14
         ADD HL,BC                        ; $1496  09
         DEC DE                           ; $1497  1B
-SUB_1481_2:
+DIV16_INNER_2:
         POP AF                           ; $1498  F1
         DEC A                            ; $1499  3D
-        JP NZ,SUB_1481_1                 ; $149A  C2 86 14
+        JP NZ,DIV16_INNER_1                 ; $149A  C2 86 14
         RET                              ; $149D  C9
 ; [AI] Unsigned 16-bit multiply of HL by BC returning the product in HL; runtime helper for
 ;       capacity and size scaling.
-SUB_149E:
+MUL16:
         LD B,H                           ; $149E  44
         LD C,L                           ; $149F  4D
 ; [AI] Multiply entry point taking the multiplier already split into BC, performing the
 ;       16-iteration shift-add product.
-SUB_14A0:
+MUL16_BC:
         LD HL,WBOOT_VEC                  ; $14A0  21 00 00
         LD A,$10                         ; $14A3  3E 10
-SUB_14A0_1:
+MUL16_BC_1:
         ADD HL,HL                        ; $14A5  29
         EX DE,HL                         ; $14A6  EB
         ADD HL,HL                        ; $14A7  29
         EX DE,HL                         ; $14A8  EB
-        JP NC,SUB_14A0_2                 ; $14A9  D2 AD 14
+        JP NC,MUL16_BC_2                 ; $14A9  D2 AD 14
         ADD HL,BC                        ; $14AC  09
-SUB_14A0_2:
+MUL16_BC_2:
         DEC A                            ; $14AD  3D
-        JP NZ,SUB_14A0_1                 ; $14AE  C2 A5 14
+        JP NZ,MUL16_BC_1                 ; $14AE  C2 A5 14
         RET                              ; $14B1  C9
 ; [AI] Rotates the byte at (HL) left by C bit positions, a small bit-field positioning helper.
-SUB_14B2:
+ROTATE_BYTE_LEFT:
         LD A,(HL)                        ; $14B2  7E
-SUB_14B2_1:
+ROTATE_BYTE_LEFT_1:
         RLCA                             ; $14B3  07
         DEC C                            ; $14B4  0D
-        JP NZ,SUB_14B2_1                 ; $14B5  C2 B3 14
+        JP NZ,ROTATE_BYTE_LEFT_1                 ; $14B5  C2 B3 14
         RET                              ; $14B8  C9
         DEFB    $5E,$23,$56,$EB                                  ; $14B9
 ; [AI] Shifts HL left by C bits (multiply by a power of two), used to scale record counts to byte
 ;       capacities.
-SUB_14BD:
+SHL_HL:
         ADD HL,HL                        ; $14BD  29
         DEC C                            ; $14BE  0D
-        JP NZ,SUB_14BD                   ; $14BF  C2 BD 14
+        JP NZ,SHL_HL                   ; $14BF  C2 BD 14
         RET                              ; $14C2  C9
 ; [AI] Loads the 16-bit value at (HL) and shifts it right by C bits (divide by a power of two),
 ;       e.g. to convert records to kilobytes.
-SUB_14C3:
+SHR_MEM:
         LD E,(HL)                        ; $14C3  5E
         INC HL                           ; $14C4  23
         LD D,(HL)                        ; $14C5  56
         EX DE,HL                         ; $14C6  EB
-SUB_14C3_1:
+SHR_MEM_1:
         LD A,H                           ; $14C7  7C
         OR A                             ; $14C8  B7
         RRA                              ; $14C9  1F
@@ -2621,11 +2621,11 @@ SUB_14C3_1:
         RRA                              ; $14CC  1F
         LD L,A                           ; $14CD  6F
         DEC C                            ; $14CE  0D
-        JP NZ,SUB_14C3_1                 ; $14CF  C2 C7 14
+        JP NZ,SHR_MEM_1                 ; $14CF  C2 C7 14
         RET                              ; $14D2  C9
 ; [AI] Computes the 16-bit difference (A zero-extended) minus the word in HL, a signed-comparison
 ;       helper.
-SUB_14D3:
+SUB16_BYTE_HL:
         LD E,A                           ; $14D3  5F
         LD D,$00                         ; $14D4  16 00
         LD A,E                           ; $14D6  7B
@@ -2637,7 +2637,7 @@ SUB_14D3:
         RET                              ; $14DC  C9
 ; [AI] 16-bit signed compare of the word pointed to by BC against the word pointed to by DE,
 ;       setting carry for the less-than test in loops.
-SUB_14DD:
+CMP16_BC_DE:
         LD L,C                           ; $14DD  69
         LD H,B                           ; $14DE  60
         LD C,(HL)                        ; $14DF  4E
@@ -2656,7 +2656,7 @@ SUB_14E2:
         RET                              ; $14E9  C9
 ; [AI] Compares an 8-bit loop bound (A) against the 16-bit word at (DE), used as the termination
 ;       test in counted loops.
-SUB_14EA:
+CMP_LOOP_BOUND:
         LD L,A                           ; $14EA  6F
         LD H,$00                         ; $14EB  26 00
         LD A,(DE)                        ; $14ED  1A
@@ -2669,7 +2669,7 @@ SUB_14EA:
         RET                              ; $14F4  C9
 ; [AI] Compares an 8-bit value (A) against the 16-bit word at (HL), setting carry to drive
 ;       while/until loop conditions.
-SUB_14F5:
+CMP_A_MEM:
         LD E,A                           ; $14F5  5F
         LD D,$00                         ; $14F6  16 00
 ; [AI] Subtracts the word at (HL) from the 16-bit value in DE and returns it in HL, the comparison

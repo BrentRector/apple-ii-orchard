@@ -22,7 +22,7 @@ TPA_START:
 TPA_START_1:
         OR A                             ; $0103  B7
 TPA_START_2:
-        LD DE,SUB_01BB_1                 ; $0104  11 C0 01
+        LD DE,CONOUT_CHAR_1                 ; $0104  11 C0 01
 TPA_START_3:
         JP Z,TPA_START_11                ; $0107  CA 8D 01
         LD C,$13                         ; $010A  0E 13
@@ -33,23 +33,23 @@ TPA_START_3:
         LD C,$16                         ; $0114  0E 16
         CALL BDOS_VEC                    ; $0116  CD 05 00
         INC A                            ; $0119  3C
-        LD DE,SUB_01BB_2                 ; $011A  11 CE 01
+        LD DE,CONOUT_CHAR_2                 ; $011A  11 CE 01
         JP Z,TPA_START_11                ; $011D  CA 8D 01
-; [AI] Opening handshake with the host: spin in SUB_01A0 until an 'R' ($52) byte arrives,
+; [AI] Opening handshake with the host: spin in HOST_RECV_BYTE until an 'R' ($52) byte arrives,
 ;       signalling the sender is ready to begin the transfer.
 TPA_START_4:
-        CALL SUB_01A0                    ; $0120  CD A0 01
+        CALL HOST_RECV_BYTE                    ; $0120  CD A0 01
         CP $52                           ; $0123  FE 52
         JP NZ,TPA_START_4                ; $0125  C2 20 01
         LD E,$53                         ; $0128  1E 53
-        CALL SUB_0193                    ; $012A  CD 93 01
+        CALL HOST_SEND_BYTE                    ; $012A  CD 93 01
 ; [AI] Second handshake phase: after replying 'S', loop receiving until a 'G' ($47) 'go' byte is
 ;       seen, at which point the bulk download may start.
 TPA_START_5:
-        CALL SUB_01A0                    ; $012D  CD A0 01
+        CALL HOST_RECV_BYTE                    ; $012D  CD A0 01
         CP $47                           ; $0130  FE 47
         JP NZ,TPA_START_5                ; $0132  C2 2D 01
-        LD HL,SUB_01BB_4                 ; $0135  21 F5 01
+        LD HL,CONOUT_CHAR_4                 ; $0135  21 F5 01
 ; [AI] Emits the 'Downloading' progress message (data at $01F5) to the console one character at a
 ;       time, stopping at the $00 terminator.
 TPA_START_6:
@@ -58,7 +58,7 @@ TPA_START_6:
         JP Z,TPA_START_7                 ; $013A  CA 47 01
         PUSH HL                          ; $013D  E5
         LD E,A                           ; $013E  5F
-        CALL SUB_01BB                    ; $013F  CD BB 01
+        CALL CONOUT_CHAR                    ; $013F  CD BB 01
         POP HL                           ; $0142  E1
         INC HL                           ; $0143  23
         JP TPA_START_6                   ; $0144  C3 38 01
@@ -69,10 +69,10 @@ TPA_START_7:
         LD HL,DEFAULT_DMA                ; $0147  21 80 00
         LD C,$00                         ; $014A  0E 00
         LD D,$81                         ; $014C  16 81
-; [AI] Inner byte-receive loop: pulls each incoming byte via SUB_01A0 into the buffer while
+; [AI] Inner byte-receive loop: pulls each incoming byte via HOST_RECV_BYTE into the buffer while
 ;       accumulating an XOR checksum in C; a final zero result means the record was received intact.
 TPA_START_8:
-        CALL SUB_01A0                    ; $014E  CD A0 01
+        CALL HOST_RECV_BYTE                    ; $014E  CD A0 01
         LD (HL),A                        ; $0151  77
         XOR C                            ; $0152  A9
         LD C,A                           ; $0153  4F
@@ -82,21 +82,21 @@ TPA_START_8:
         OR A                             ; $0159  B7
         JP Z,TPA_START_9                 ; $015A  CA 6A 01
         LD E,$42                         ; $015D  1E 42
-        CALL SUB_01BB                    ; $015F  CD BB 01
+        CALL CONOUT_CHAR                    ; $015F  CD BB 01
         LD E,$42                         ; $0162  1E 42
-        CALL SUB_0193                    ; $0164  CD 93 01
+        CALL HOST_SEND_BYTE                    ; $0164  CD 93 01
         JP TPA_START_7                   ; $0167  C3 47 01
 ; [AI] Good-record path: echoes '.' as progress, writes the 128-byte buffer to the file with BDOS
 ;       function $15 (write sequential), sends 'G' to acknowledge, and loops back for the next
 ;       record.
 TPA_START_9:
         LD E,$2E                         ; $016A  1E 2E
-        CALL SUB_01BB                    ; $016C  CD BB 01
+        CALL CONOUT_CHAR                    ; $016C  CD BB 01
         LD DE,DEFAULT_FCB                ; $016F  11 5C 00
         LD C,$15                         ; $0172  0E 15
         CALL BDOS_VEC                    ; $0174  CD 05 00
         LD E,$47                         ; $0177  1E 47
-        CALL SUB_0193                    ; $0179  CD 93 01
+        CALL HOST_SEND_BYTE                    ; $0179  CD 93 01
         JP TPA_START_7                   ; $017C  C3 47 01
 ; [AI] End-of-transfer handler reached when the host's $83 control byte is seen: stores it, closes
 ;       the output file with BDOS function $10 (close file), and points at the 'DOWNLOAD Complete'
@@ -106,56 +106,56 @@ TPA_START_10:
         LD DE,DEFAULT_FCB                ; $0182  11 5C 00
         LD C,$10                         ; $0185  0E 10
         CALL BDOS_VEC                    ; $0187  CD 05 00
-        LD DE,SUB_01BB_3                 ; $018A  11 E1 01
-; [AI] Common exit tail: prints the DE-pointed message (error or completion) via SUB_01B6, then
+        LD DE,CONOUT_CHAR_3                 ; $018A  11 E1 01
+; [AI] Common exit tail: prints the DE-pointed message (error or completion) via PRINT_STRING, then
 ;       falls through to warm-boot back to CP/M.
 TPA_START_11:
-        CALL SUB_01B6                    ; $018D  CD B6 01
+        CALL PRINT_STRING                    ; $018D  CD B6 01
 TPA_START_12:
         JP WBOOT_VEC                     ; $0190  C3 00 00
 ; [AI] Transmit-one-byte routine to the SoftCard host: polls status port $E0AE bit 1 until the
 ;       transmit register is free, then writes the byte in E to data port $E0AF.
-SUB_0193:
+HOST_SEND_BYTE:
         LD A,($E0AE)                     ; $0193  3A AE E0
         AND $02                          ; $0196  E6 02
-        JP Z,SUB_0193                    ; $0198  CA 93 01
+        JP Z,HOST_SEND_BYTE                    ; $0198  CA 93 01
         LD A,E                           ; $019B  7B
         LD ($E0AF),A                     ; $019C  32 AF E0
         RET                              ; $019F  C9
 ; [AI] Receive-one-byte routine from the SoftCard host: polls status port $E0AE bit 0 for a ready
 ;       byte at $E0AF, and meanwhile watches command port $E000 for the $83 end-of-file control code
 ;       that diverts to L_017F.
-SUB_01A0:
+HOST_RECV_BYTE:
         LD A,($E0AE)                     ; $01A0  3A AE E0
         RRA                              ; $01A3  1F
-        JP C,SUB_01A0_1                  ; $01A4  DA B2 01
+        JP C,HOST_RECV_BYTE_1                  ; $01A4  DA B2 01
         LD A,($E000)                     ; $01A7  3A 00 E0
         CP $83                           ; $01AA  FE 83
         JP Z,TPA_START_10                ; $01AC  CA 7F 01
-        JP SUB_01A0                      ; $01AF  C3 A0 01
-SUB_01A0_1:
+        JP HOST_RECV_BYTE                      ; $01AF  C3 A0 01
+HOST_RECV_BYTE_1:
         LD A,($E0AF)                     ; $01B2  3A AF E0
         RET                              ; $01B5  C9
 ; [AI] Print-string helper: loads C=$09 and jumps to the BDOS print-string ($-terminated) function
 ;       with the string address in DE.
-SUB_01B6:
+PRINT_STRING:
         LD C,$09                         ; $01B6  0E 09
-SUB_01B6_1:
+PRINT_STRING_1:
         JP BDOS_VEC                      ; $01B8  C3 05 00
 ; [AI] Console-output-one-character helper: loads C=$02 and jumps to the BDOS console-out function
 ;       to display the character in E.
-SUB_01BB:
+CONOUT_CHAR:
         LD C,$02                         ; $01BB  0E 02
         JP BDOS_VEC                      ; $01BD  C3 05 00
-SUB_01BB_1:
+CONOUT_CHAR_1:
         DEFB    $43,$6F,$6D,$6D,$61,$6E,$64,$20,$45,$72,$72,$6F,$72,$24 ; $01C0
-SUB_01BB_2:
+CONOUT_CHAR_2:
         DEFB    $4E,$6F,$20,$64,$69,$72,$65,$63,$74,$6F,$72,$79,$20,$73,$70,$61 ; $01CE
         DEFB    $63,$65,$24                                      ; $01DE
-SUB_01BB_3:
+CONOUT_CHAR_3:
         DEFB    $0D,$0A,$44,$4F,$57,$4E,$4C,$4F,$41,$44,$20,$43,$6F,$6D,$70,$6C ; $01E1
         DEFB    $65,$74,$65,$24                                  ; $01F1
-SUB_01BB_4:
+CONOUT_CHAR_4:
         DEFB    "Downloading"    ; $01F5  string
         DEFB    $00    ; $0200  terminator
         DEFB    $FA,$09,$C3,$8B,$13,$0E,$2C,$F5,$79,$CD,$24,$11,$F1,$C9,$CD,$D4 ; $0201
