@@ -36,7 +36,7 @@ def test_decompile_disk_end_to_end(tmp_path, capsys):
     # OS auto-disassembly (both CPUs) + gold tree
     assert (out_dir / "os" / "auto" / "CPM_BIOS.asm").exists()          # Z-80
     assert (out_dir / "os" / "auto" / "CPM_BootLoader.s").exists()      # 6502
-    assert (out_dir / "os" / "gold" / "source" / "CPM223_BIOS.asm").exists()
+    assert (out_dir / "os" / "gold" / "source" / "CPM_BIOS.asm").exists()
     # selected program decompiled to Z-80 source
     assert (out_dir / "files" / "DUMP" / "DUMP.asm").exists()
     text = capsys.readouterr().out

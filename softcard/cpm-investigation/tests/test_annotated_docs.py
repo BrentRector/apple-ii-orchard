@@ -79,34 +79,6 @@ def _z80_chunk_roundtrip(asm_name, bin_name, expected_savebin, length=None):
         )
 
 
-@pytest.mark.skipif(not HAS_SJASMPLUS, reason="sjasmplus not on PATH")
-def test_cpm223_bios_annotated_roundtrip():
-    """docs/CPM223_BIOS.asm must reassemble to bios_223.bin[:1352]."""
-    _z80_chunk_roundtrip(
-        "CPM223_BIOS.asm", "bios_223.bin",
-        expected_savebin="build/CPM223_BIOS.bin",
-        length=0x548,
-    )
-
-
-@pytest.mark.skipif(not HAS_SJASMPLUS, reason="sjasmplus not on PATH")
-def test_cpm223_diskcallbacks_annotated_roundtrip():
-    """docs/CPM223_DiskCallbacks.asm must reassemble to diskcallbacks_223.bin."""
-    _z80_chunk_roundtrip(
-        "CPM223_DiskCallbacks.asm", "diskcallbacks_223.bin",
-        expected_savebin="build/CPM223_DiskCallbacks.bin",
-    )
-
-
-@pytest.mark.skipif(not HAS_SJASMPLUS, reason="sjasmplus not on PATH")
-def test_cpm223_systemimage_annotated_roundtrip():
-    """docs/CPM223_SystemImage.asm must reassemble to sysimg_223.bin."""
-    _z80_chunk_roundtrip(
-        "CPM223_SystemImage.asm", "sysimg_223.bin",
-        expected_savebin="build/CPM223_SystemImage.bin",
-    )
-
-
 def _ca65_chunk_roundtrip(asm_name, bin_name, *, org, size):
     """Generic ca65 + ld65 round-trip for hand-annotated 6502 docs that use
     .incbin from the original binary (paths resolved relative to REPO_ROOT)."""
@@ -140,33 +112,8 @@ def _ca65_chunk_roundtrip(asm_name, bin_name, *, org, size):
         )
 
 
-@pytest.mark.skipif(not HAS_CA65, reason="ca65 + ld65 not on PATH")
-def test_cpm223_rwts_annotated_roundtrip():
-    """docs/CPM223_RWTS.asm must reassemble to rwts_223.bin via ca65 + ld65.
-    Uses .incbin to pull the 459-byte gap (Z-80 BIOS code + GCR tables) and
-    .res to fill the trailing 21 zero-bytes."""
-    _ca65_chunk_roundtrip("CPM223_RWTS.asm", "rwts_223.bin",
-                          org=0x0A00, size=0x0600)
-
-
-@pytest.mark.skipif(not HAS_CA65, reason="ca65 + ld65 not on PATH")
-def test_cpm223_installfragments_annotated_roundtrip():
-    """docs/CPM223_InstallFragments.asm must reassemble to installfragments_223.bin."""
-    _ca65_chunk_roundtrip("CPM223_InstallFragments.asm",
-                          "installfragments_223.bin",
-                          org=0x0200, size=0x0200)
-
-
-@pytest.mark.skipif(not HAS_CA65, reason="ca65 + ld65 not on PATH")
-def test_cpm223_bootloader_annotated_roundtrip():
-    """docs/CPM223_BootLoader.asm must reassemble to loader_223.bin via ca65 + ld65.
-    Uses .incbin to pull regions that live in companion files (RWTS, install
-    fragments) plus several inline corrections to off-by-one prose annotations."""
-    _ca65_chunk_roundtrip("CPM223_BootLoader.asm", "loader_223.bin",
-                          org=0x0800, size=0x0C00)
-
-
-# ── CP/M 2.20 chunks (5 chunks; same playbook as 2.23) ────────────────
+# ── CP/M 2.20 chunks (the 2.23 docs round-trips are retired; 2.23 OS is
+# now sourced canonically from CPMV223-44K/os/) ──
 @pytest.mark.skipif(not HAS_SJASMPLUS, reason="sjasmplus not on PATH")
 def test_cpm220_bios_annotated_roundtrip():
     _z80_chunk_roundtrip(

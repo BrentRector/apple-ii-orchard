@@ -25,7 +25,7 @@ def test_223_all_regions_decompile(tmp_path):
         assert reg.asm_path.exists()
         assert reg.asm_path.suffix == (".s" if reg.cpu == "6502" else ".asm")
     # gold tree present for a recognized variant
-    assert r.gold_dir and (r.gold_dir / "source" / "CPM223_BIOS.asm").exists()
+    assert r.gold_dir and (r.gold_dir / "source" / "CPM_BIOS.asm").exists()
     assert (r.out_dir / "README.md").exists()
 
 

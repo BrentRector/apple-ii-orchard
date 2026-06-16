@@ -82,15 +82,17 @@ class GenerateResult:
         return "\n".join(lines)
 
 
-# Sources that ship with each variant (mapped by variant suffix)
+# Sources that ship with each variant (mapped by variant suffix). 2.23 is
+# sourced from its canonical CPMV223-44K/os/ tree; 2.20 still from docs/ (pending
+# its unification). The per-variant base directory is SOURCE_BASE_BY_VARIANT.
 SOURCES_BY_VARIANT = {
     "softcard_cpm_2_23": [
-        "CPM223_BootLoader.asm",
-        "CPM223_RWTS.asm",
-        "CPM223_InstallFragments.asm",
-        "CPM223_DiskCallbacks.asm",
-        "CPM223_SystemImage.asm",
-        "CPM223_BIOS.asm",
+        "CPM_BootLoader.s",
+        "CPM_RWTS.s",
+        "CPM_InstallFragments.s",
+        "CPM_DiskCallbacks.asm",
+        "CPM_SystemImage.asm",
+        "CPM_BIOS.asm",
     ],
     "softcard_cpm_2_20": [
         "CPM220_BootLoader.asm",
@@ -99,6 +101,11 @@ SOURCES_BY_VARIANT = {
         "CPM220_SystemImage.asm",
         "CPM220_BIOS.asm",
     ],
+}
+
+SOURCE_BASE_BY_VARIANT = {
+    "softcard_cpm_2_23": REPO_ROOT / "CPMV223-44K" / "os",
+    "softcard_cpm_2_20": DOCS,
 }
 
 # Symbol files by variant
@@ -167,8 +174,9 @@ def generate(disk_path: Path | str, output_dir: Path | str,
     else:
         source_dir = output_dir / "source"
         source_dir.mkdir()
+        source_base = SOURCE_BASE_BY_VARIANT.get(info.variant, DOCS)
         for fname in sources_to_copy:
-            src = DOCS / fname
+            src = source_base / fname
             if src.exists():
                 shutil.copy2(src, source_dir / fname)
                 result.sources_copied.append(f"source/{fname}")

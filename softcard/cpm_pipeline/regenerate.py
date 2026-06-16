@@ -363,30 +363,26 @@ class Target:
 
 
 def _docs_targets():
+    # The 2.23 docs/CPM223_* round-trip sources are RETIRED: the 2.23 OS is now
+    # sourced canonically from CPMV223-44K/os/ (the disk build reads it via
+    # chunk_map). Only the 2.20 docs sources remain, pending the 2.20 unification.
     t = []
-    # Z-80 BIOS (runtime + on-disk), from gen_bios's recipe.
+    # Z-80 BIOS (runtime + on-disk), from gen_bios's recipe (2.20).
     bios = [
-        ("CPM223_BIOS",      "bios_223.bin",    0, 0x548,   0xFA00, "cpm_2_23_bios.json"),
         ("CPM220_BIOS",      "bios_220.bin",    0, 0x800,   0xDA00, "cpm_2_20_bios.json"),
-        ("CPM223_BIOS_Disk", "staging_223.bin", 6400, 7424, 0xFA00, "cpm_2_23_bios.json"),
         ("CPM220_BIOS_Disk", "staging_220.bin", 5888, 7168, 0xDA00, "cpm_2_20_bios.json"),
     ]
     for stem, b, lo, hi, org, bsym in bios:
         t.append(Target(_DOCS / f"{stem}.asm", "z80", _INVEST / b, lo, hi, org,
                         (_SYM / bsym, _SYM / "cpm_2_2.json"), "bios",
                         savebin=f"build/{stem}.bin"))
-    # Z-80 CCP+BDOS system image (both variants).
-    for stem, b in (("CPM223_SystemImage", "sysimg_223.bin"),
-                    ("CPM220_SystemImage", "sysimg_220.bin")):
+    # Z-80 CCP+BDOS system image (2.20).
+    for stem, b in (("CPM220_SystemImage", "sysimg_220.bin"),):
         t.append(Target(_DOCS / f"{stem}.asm", "z80", _INVEST / b, 0, 0x1700, 0x8000,
                         (_SYM / "cpm_2_2.json",), "jp", savebin=f"build/{stem}.bin"))
-    # Z-80 disk callbacks (2.23 only).
-    t.append(Target(_DOCS / "CPM223_DiskCallbacks.asm", "z80",
-                    _INVEST / "diskcallbacks_223.bin", 0, 0x200, 0x1A00,
-                    (_SYM / "cpm_2_2.json", _SYM / "cpm_2_23_bios.json"), "jp",
-                    savebin="build/CPM223_DiskCallbacks.bin"))
-    # 6502 boot loader / RWTS / install fragments (both variants).
-    for var, suf in (("CPM223", "223"), ("CPMV220", "220")):
+    # 6502 boot loader / RWTS / install fragments (2.20). ("CPM220" builds the
+    # docs/CPM220_*.asm filenames -- it must NOT be the folder name "CPMV220".)
+    for var, suf in (("CPM220", "220"),):
         t.append(Target(_DOCS / f"{var}_BootLoader.asm", "6502",
                         _INVEST / f"loader_{suf}.bin", 0, 0x0C00, 0x0800,
                         (_SYM / "apple2.json",), "jmp"))
