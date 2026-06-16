@@ -1,4 +1,4 @@
-# Orchard
+# Apple ][ Orchard
 
 I always wanted to know how Apple II copy protection actually worked.
 
