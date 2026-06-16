@@ -1,42 +1,95 @@
-# CPMV223-44K — Microsoft SoftCard CP/M 2.23 (`CPMV223-44K.DSK`)
+# CPMV223-44K — Microsoft SoftCard CP/M 2.23 (44K)
 
-A complete decompilation of `CPMV223-44K.DSK` (SoftCard CP/M **2.23**, the Videx-aware
-release): the operating system (6502 + Z-80) and every `.COM` program in the
-filesystem, as commented assembly that reassembles **byte-identical**, with an AI
-prose layer (`[AI]`). See [`../README.md`](../README.md) for the overview of both
-distributions and the shared tooling.
+A complete, **byte-identical** decompilation of the SoftCard CP/M **2.23** boot
+disk — the Videx-aware release, and the basis for the 60K system (running
+`CPM60.COM` converts this disk to [`../CPMV223-60K`](../CPMV223-60K)). Everything
+on the disk, the operating system (6502 + Z-80) and every `.COM` program, is
+here as commented assembly that reassembles to the original bytes, with an AI
+prose layer (lines marked `[AI]`). See [`../README.md`](../README.md) for the
+overview of all three releases and the shared tooling.
+
+## What's in this folder
+
+```
+CPMV223-44K/
+  CPMV223-44K.DSK       the original disk image (140K, DOS 3.3 sector order)
+  os/                   the operating system + boot pipeline, as source
+  utilities/            one annotated .asm per .COM program on the disk
+    bin/                those programs reassembled (byte-identical to the disk)
+  BOOT_AND_PATCHING.md  how the system boots + what the running system builds
+  README.md             this file
+```
 
 ## `os/` — the operating system
 
+The disk's system area (tracks 0-2) holds the boot pipeline and the staged CP/M
+system. These sources reassemble to exactly those bytes; the disk build
+(`chunk_map`) reads them directly.
+
 | File | CPU | Load | What it is |
 |------|-----|------|------------|
-| `CPM_BootLoader.s` | 6502 | `$0800` | Stage-2 boot loader, install-copy logic, LOAD_CPM staging |
+| `CPM_BootLoader.s` | 6502 | `$0800` | Stage-2 boot loader, install-copy logic, the `LOAD_CPM` staging read |
 | `CPM_RWTS.s` | 6502 | `$0A00` | Read/Write Track-Sector engine (GCR 6-and-2 codec) |
 | `CPM_InstallFragments.s` | 6502 | `$0200` | Fragments the stage-2 loader copies into place |
 | `CPM_DiskCallbacks.asm` | Z-80 | `$1A00` | Z-80 thunks bridging BDOS/BIOS disk requests to the 6502 RWTS |
-| `CPM_SystemImage.asm` | Z-80 | `$8000` | CCP (command processor) + BDOS |
-| `CPM_BIOS.asm` | Z-80 | `$FA00` | BIOS: 17-entry jump table + console/disk/IOBYTE primitives (incl. the Videx device-6 path) |
+| `CPM_SystemImage.asm` | Z-80 | `$8000` | The staged **CCP + BDOS** image `LOAD_CPM` reads (runs at `$9300`/`$9C00`) |
+| `CPM_BIOS.asm` | Z-80 | `$FA00` | The **as-shipped** pristine on-disk BIOS (`$FA00-$FDFF`); jump table + console/disk/IOBYTE primitives |
+| `CPM_BDOS.asm` | Z-80 | `$9C00` | The 2.23 BDOS on its own (a semantic view of the BDOS half of `CPM_SystemImage`) |
 
-6502 regions ship as ca65 `.s` + a `.cfg` linker config; Z-80 regions as sjasmplus
-`.asm`.
+6502 regions are ca65 `.s` + a `.cfg` linker config; Z-80 regions are sjasmplus
+`.asm`. The standalone CCP lives in the shared [`../../src/os/CPM_CCP.asm`](../../src/os/CPM_CCP.asm)
+(one source builds the 44K and 60K CCP). The BIOS is the bytes on disk; the
+running BIOS additionally builds a `$FE00-$FF47` device/console tail in RAM (the
+Videx/Pascal path) — see [`BOOT_AND_PATCHING.md`](BOOT_AND_PATCHING.md).
 
-## `utilities/` — the filesystem programs (20 `.COM`)
+## `utilities/` — the filesystem programs
 
-`APDOS ASM AUTORUN BOOT CAT COPY CPM60 DDT DOWNLOAD DUMP ED GBASIC LOAD MBASIC
-MFT PATCH PIP STAT SUBMIT XSUB`
+The 20 `.COM` programs in the disk's filesystem, each as an annotated `.asm`
+that reassembles byte-identical; `bin/` holds the assembled output.
 
-(`CONFIGIO.BAS` and `DUMP.ASM` are BASIC/asm source, not machine code, so they're
-not decompiled.)
+`APDOS ASM AUTORUN BOOT CAT COPY DDT DOWNLOAD DUMP ED GBASIC LOAD MBASIC MFT
+PATCH PIP STAT SUBMIT XSUB` — plus `CPM60.COM`, whose canonical source is the
+60K master [`../CPMV223-60K/CPM60.asm`](../CPMV223-60K/CPM60.asm).
+(`CONFIGIO.BAS` and `DUMP.ASM` are BASIC/asm text files on the disk, not machine
+code.) `GBASIC` self-relocates and is one file via `DISP`; see its header.
 
-## Rebuild
+## How the disk is laid out
+
+- **Tracks 0-2** — the reserved system area: the boot sector, the 6502 boot
+  loader / RWTS / install fragments, and the `LOAD_CPM` staging (CCP + BDOS +
+  disk callbacks + the on-disk BIOS).
+- **Tracks 3+** — the CP/M filesystem (the 20 `.COM` + the `.BAS`/`.ASM` files).
+- **`cp/m.sys`** — a hidden directory entry at user `$1F` reserving 12 KB of data
+  blocks (`$80-$8B`); it's how `CPM60.COM` protects the embedded 60K system it
+  writes to the data tracks during conversion.
+
+The full boot/load/cold-boot-generate sequence is in
+[`BOOT_AND_PATCHING.md`](BOOT_AND_PATCHING.md).
+
+## Building the disk from source
+
+From the repo root, with the toolchain on PATH:
 
 ```bash
-source ../../../shared/toolchain/env.sh
-bash ../rebuild.sh CPMV223-44K               # -> rebuilt/CPMV223-44K.DSK  (BYTE-IDENTICAL)
-python ../verify_roundtrip.py CPMV223-44K    # reassemble every source file, compare to original
+source shared/toolchain/env.sh        # ca65 + ld65 + sjasmplus
+
+# Rebuild the WHOLE disk from source and verify byte-identical:
+python -m cpm_pipeline.reconstruct softcard/CPMV223-44K/CPMV223-44K.DSK rebuilt.dsk
 ```
 
-The full-disk reconstruction assembles the boot-pipeline sources and carries the
-CP/M filesystem (the user programs) from the reference image; ~7.4 KB of CCP/BDOS
-staging not yet split into annotated source is carried from the prior extraction
-(see [`../../cpm_pipeline/chunk_map.py`](../../cpm_pipeline/chunk_map.py)).
+This assembles the OS region from `os/`, lays in every `.COM` from
+`utilities/bin/` (and `CPM60.COM` from the 60K master), carries the filesystem's
+data files, and prints a per-byte provenance summary. It exits 0 only when the
+result is **byte-identical** to `CPMV223-44K.DSK` (over 80% of the disk comes
+from re-assembled source; the rest is filesystem data, the directory, and free
+space). The same check runs in CI as
+`test_cpm223_full_disk_reconstruct_byte_identical`.
+
+`bin/` is the committed assembled output. To regenerate it from the sources
+(each `.asm` SAVEBINs `<NAME>.bin`, which is the same bytes as the disk's
+`<NAME>.COM`):
+
+```bash
+cd softcard/CPMV223-44K/utilities
+for f in *.asm; do sjasmplus "$f" && mv "${f%.asm}.bin" "bin/${f%.asm}.COM"; done
+```
