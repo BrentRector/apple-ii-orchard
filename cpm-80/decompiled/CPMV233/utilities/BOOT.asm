@@ -23,7 +23,7 @@ TPA_START:
 TPA_START_1:
         LD ($000B),A                     ; $0102  32 0B 00
 TPA_START_2:
-        CALL PARSE_DENSITY_ARG                    ; $0105  CD 60 02
+        CALL PARSE_DENSITY_ARG           ; $0105  CD 60 02
 TPA_START_3:
         LD C,$09                         ; $0108  0E 09
 TPA_START_4:
@@ -101,12 +101,12 @@ PARSE_DENSITY_ARG_3:
         SBC A,$30                        ; $026B  DE 30
         RET C                            ; $026D  D8
         CP $1D                           ; $026E  FE 1D
-        JR NZ,PARSE_DENSITY_ARG_4                 ; $0270  20 06
+        JR NZ,VALIDATE_PATCH_DIGIT       ; $0270  20 06
         LD HL,$FF59                      ; $0272  21 59 FF
         JP TPA_START_15                  ; $0275  C3 26 01
 ; [AI] Validates that the supplied digit is in range (below $0A) before using it; values out of
 ;       range simply return, leaving the default boot configuration unchanged.
-PARSE_DENSITY_ARG_4:
+VALIDATE_PATCH_DIGIT:
         CP $0A                           ; $0278  FE 0A
         RET NC                           ; $027A  D0
         LD B,A                           ; $027B  47

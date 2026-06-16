@@ -24,16 +24,16 @@ TPA_START_1:
 TPA_START_2:
         JP NZ,TPA_START_6                ; $0104  C2 10 01
 TPA_START_3:
-        LD DE,PRINT_STRING_8                 ; $0107  11 A9 02
+        LD DE,MSG_COMMAND_ERROR          ; $0107  11 A9 02
 TPA_START_4:
-        CALL PRINT_STRING                    ; $010A  CD A6 01
+        CALL PRINT_STRING                ; $010A  CD A6 01
 TPA_START_5:
         JP WBOOT_VEC                     ; $010D  C3 00 00
 ; [AI] Main update routine entered when a command-line argument is present: it computes the drive-
 ;       letter strings for the prompts (drive Z and the slot label), emits the 'Insert 16 sector
 ;       disk' prompt, waits for RETURN, then loops over tracks rewriting them to the 56K layout.
 TPA_START_6:
-        CALL DRIVE_TO_SLOT_NUM                    ; $0110  CD F9 02
+        CALL DRIVE_TO_SLOT_NUM           ; $0110  CD F9 02
         LD ($F3E4),A                     ; $0113  32 E4 F3
         DEC C                            ; $0116  0D
         LD A,C                           ; $0117  79
@@ -47,10 +47,10 @@ TPA_START_7:
         LD ($F3E6),A                     ; $0120  32 E6 F3
         LD A,C                           ; $0123  79
         ADD A,$41                        ; $0124  C6 41
-        LD (PRINT_STRING_3),A                ; $0126  32 1D 02
-        LD DE,PRINT_STRING_2                 ; $0129  11 AB 01
-        CALL PRINT_STRING                    ; $012C  CD A6 01
-        CALL WAIT_KEYPRESS                    ; $012F  CD 9A 01
+        LD (MSG_DRIVE_BEGIN),A           ; $0126  32 1D 02
+        LD DE,MSG_SIGNON_PROMPT          ; $0129  11 AB 01
+        CALL PRINT_STRING                ; $012C  CD A6 01
+        CALL WAIT_KEYPRESS               ; $012F  CD 9A 01
         LD A,$02                         ; $0132  3E 02
         LD ($F3EB),A                     ; $0134  32 EB F3
         LD A,$13                         ; $0137  3E 13
@@ -64,17 +64,17 @@ TPA_START_8:
         LD ($F3E0),HL                    ; $0141  22 E0 F3
         PUSH BC                          ; $0144  C5
         PUSH HL                          ; $0145  E5
-        LD HL,DRIVE_TO_SLOT_NUM_2                 ; $0146  21 03 0E
-        CALL PUT_RELOC_BYTE                    ; $0149  CD 92 01
+        LD HL,DRIVE_TO_SLOT_NUM_2        ; $0146  21 03 0E
+        CALL PUT_RELOC_BYTE              ; $0149  CD 92 01
         LD A,($F3EA)                     ; $014C  3A EA F3
         OR A                             ; $014F  B7
         JP Z,TPA_START_10                ; $0150  CA 64 01
-        LD DE,PRINT_STRING_6                 ; $0153  11 79 02
+        LD DE,MSG_DISK_IO_ERROR          ; $0153  11 79 02
         CP $10                           ; $0156  FE 10
         JP NZ,TPA_START_9                ; $0158  C2 5E 01
-        LD DE,PRINT_STRING_7                 ; $015B  11 8E 02
+        LD DE,MSG_WRITE_PROTECTED        ; $015B  11 8E 02
 TPA_START_9:
-        CALL PRINT_STRING                    ; $015E  CD A6 01
+        CALL PRINT_STRING                ; $015E  CD A6 01
         JP TPA_START_14                  ; $0161  C3 7D 01
 ; [AI] Loop-continuation path taken on a successful track write: it bumps the progress counter and
 ;       the track-address high byte (wrapping to the next page) and decrements the track count,
@@ -95,19 +95,19 @@ TPA_START_12:
         DEC B                            ; $0173  05
         JP NZ,TPA_START_8                ; $0174  C2 41 01
 TPA_START_13:
-        LD DE,PRINT_STRING_4                 ; $0177  11 36 02
-        CALL PRINT_STRING                    ; $017A  CD A6 01
+        LD DE,MSG_UPDATED_56K            ; $0177  11 36 02
+        CALL PRINT_STRING                ; $017A  CD A6 01
 ; [AI] Completion/exit tail: prints the 'Disk has been updated to 56K' and 'Hit RETURN to re-boot'
 ;       messages, waits for a keypress, then sets up the slot-6 boot address ($C600) and falls
 ;       through to the final warm-boot jump.
 TPA_START_14:
-        LD DE,PRINT_STRING_5                 ; $017D  11 57 02
-        CALL PRINT_STRING                    ; $0180  CD A6 01
-        CALL WAIT_KEYPRESS                    ; $0183  CD 9A 01
+        LD DE,MSG_HIT_RETURN_REBOOT      ; $017D  11 57 02
+        CALL PRINT_STRING                ; $0180  CD A6 01
+        CALL WAIT_KEYPRESS               ; $0183  CD 9A 01
         LD HL,$C600                      ; $0186  21 00 C6
         LD ($F3D0),HL                    ; $0189  22 D0 F3
         LD HL,($F3DE)                    ; $018C  2A DE F3
-        JP DRIVE_TO_SLOT_NUM_3                    ; $018F  C3 00 2A
+        JP WRITE_LAST_AND_BOOT           ; $018F  C3 00 2A
 ; [AI] Helper that stores a byte through the BIOS-maintained pointer at $F3DE: it sets the
 ;       DMA/scratch pointer ($F3D0) from HL, reloads the working pointer, and writes A. Used to
 ;       deposit progress/status bytes into the relocated system image.
@@ -125,7 +125,7 @@ WAIT_KEYPRESS_1:
         LD E,$FF                         ; $019C  1E FF
         CALL BDOS_VEC                    ; $019E  CD 05 00
         OR A                             ; $01A1  B7
-        JP Z,WAIT_KEYPRESS                    ; $01A2  CA 9A 01
+        JP Z,WAIT_KEYPRESS               ; $01A2  CA 9A 01
         RET                              ; $01A5  C9
 ; [AI] Print-string helper: loads C=9 and tails into the BDOS so the '$'-terminated message string
 ;       pointed to by DE is written to the console. This is the program's single output primitive.
@@ -133,7 +133,7 @@ PRINT_STRING:
         LD C,$09                         ; $01A6  0E 09
 PRINT_STRING_1:
         JP BDOS_VEC                      ; $01A8  C3 05 00
-PRINT_STRING_2:
+MSG_SIGNON_PROMPT:
         DEFB    $0D,$0A,$0D,$0A,$20,$20,$20,$20,$20,$20,$41,$70,$70,$6C,$65,$20 ; $01AB
         DEFB    "][ CP/M"    ; $01BB  string
         DEFB    $0D    ; $01C2  terminator
@@ -146,26 +146,26 @@ PRINT_STRING_2:
         DEFB    $0A,$0D,$0A,$49,$6E,$73,$65,$72,$74,$20,$31,$36,$20,$73,$65,$63 ; $01F9
         DEFB    $74,$6F,$72,$20,$64,$69,$73,$6B,$20,$69,$6E,$74,$6F,$20,$64,$72 ; $0209
         DEFB    $69,$76,$65,$20                                  ; $0219
-PRINT_STRING_3:
+MSG_DRIVE_BEGIN:
         DEFB    $5A,$3A,$0D,$0A,$48,$69,$74,$20,$52,$45,$54,$55,$52,$4E,$20,$74 ; $021D
         DEFB    $6F,$20,$62,$65,$67,$69,$6E,$20,$24              ; $022D
-PRINT_STRING_4:
+MSG_UPDATED_56K:
         DEFB    $0D,$0A,$0D,$0A,$44,$69,$73,$6B,$20,$68,$61,$73,$20,$62,$65,$65 ; $0236
         DEFB    $6E,$20,$75,$70,$64,$61,$74,$65,$64,$20,$74,$6F,$20,$35,$36,$4B ; $0246
         DEFB    $24                                              ; $0256
-PRINT_STRING_5:
+MSG_HIT_RETURN_REBOOT:
         DEFB    $0D,$0A,$0D,$0A,$48,$69,$74,$20,$52,$45,$54,$55,$52,$4E,$20,$74 ; $0257
         DEFB    $6F,$20,$72,$65,$2D,$62,$6F,$6F,$74,$20,$73,$79,$73,$74,$65,$6D ; $0267
         DEFB    $20,$24                                          ; $0277
-PRINT_STRING_6:
+MSG_DISK_IO_ERROR:
         DEFB    $0D,$0A,$0D,$0A,$44,$69,$73,$6B,$20,$49,$2F,$4F,$20,$65,$72,$72 ; $0279
         DEFB    $6F,$72,$0D,$0A,$24                              ; $0289
-PRINT_STRING_7:
+MSG_WRITE_PROTECTED:
         DEFB    $0D,$0A,$0D,$0A,$44,$69,$73,$6B,$20,$77,$72,$69,$74,$65,$20,$70 ; $028E
         DEFB    "rotected"    ; $029E  string
         DEFB    $0D    ; $02A6  terminator
         DEFB    $0A,$24                                          ; $02A7
-PRINT_STRING_8:
+MSG_COMMAND_ERROR:
         DEFB    $0D,$0A,$43,$6F,$6D,$6D,$61,$6E,$64,$20,$65,$72,$72,$6F,$72,$24 ; $02A9
         DEFB    "2Disk has been updated to 56K$"    ; $02B9  string
         DEFB    $0D    ; $02D7  terminator
@@ -520,7 +520,7 @@ DRIVE_TO_SLOT_NUM_2:
         DEFB    $CF,$11,$0F,$00,$19,$EB,$21,$11,$00,$19,$C9,$CD,$AE,$D0,$7E,$32 ; $1AB0
         DEFB    $E3,$D9,$EB,$7E,$32,$E1,$D9,$CD,$A6,$D0,$3A,$C5,$D9,$A6,$32,$E2 ; $1AC0
         DEFB    $D9,$C9,$CD,$AE,$D0,$3A,$D5,$D9                  ; $1AD0
-        DEFW    DRIVE_TO_SLOT_NUM_1               ; $1AD8
+        DEFW    DRIVE_TO_SLOT_NUM_1      ; $1AD8
         DEFB    $C2,$DE,$D0,$AF,$4F,$3A,$E3,$D9,$81,$77,$EB,$3A,$E1,$D9,$77,$C9 ; $1ADA
         DEFB    $0C,$0D,$C8,$7C,$B7,$1F,$67,$7D,$1F,$6F,$C3,$EB,$D0,$0E,$80,$2A ; $1AEA
         DEFB    $B9,$D9,$AF,$86,$23,$0D,$C2,$FD,$D0,$C9,$0C,$0D,$C8,$29,$C3,$05 ; $1AFA
@@ -573,7 +573,7 @@ DRIVE_TO_SLOT_NUM_2:
         DEFB    $1F,$D2,$EC,$D3,$D1,$C1,$C3,$C0,$D3,$17,$3C,$CD,$64,$D2,$E1,$D1 ; $1DE3
         DEFB    $C9,$79,$B0,$C2,$C0,$D3,$21,$00                  ; $1DF3  "Iy0B@S!"
         DEFB    $00,$C9,$0E,$00,$1E,$20,$D5,$06                  ; $1DFB
-        DEFW    DRIVE_TO_SLOT_NUM_3               ; $1E03
+        DEFW    WRITE_LAST_AND_BOOT      ; $1E03
         DEFB    $43,$CF,$09,$EB,$CD,$5E,$D1,$C1,$CD,$4F,$CF,$CD,$C3,$CF,$C3,$C6 ; $1E05
         DEFB    $D1,$CD,$54,$D1,$0E,$0C,$CD,$18,$D3,$2A,$43,$CF,$7E,$11,$10,$00 ; $1E15
         DEFB    $19,$77,$CD,$F5,$D1,$C8,$CD,$44,$D1,$0E,$10,$1E,$0C,$CD,$01,$D4 ; $1E25
@@ -693,9 +693,9 @@ DRIVE_TO_SLOT_NUM_2:
         DEFB    $79,$C9,$11,$03,$00,$C3,$2F,$DB,$3A,$00,$E0,$17,$30,$FA,$32,$10 ; $2527
         DEFB    $E0,$3F,$1F,$C9,$22,$D0,$F3,$32,$00,$00,$C9,$4F,$3A,$03,$00,$E6 ; $2537
         DEFB    $03                                              ; $2547
-        DEFW    DRIVE_TO_SLOT_NUM_1               ; $2548
+        DEFW    DRIVE_TO_SLOT_NUM_1      ; $2548
         DEFB    $20,$4B,$2A,$92,$F3,$E9,$3A,$03,$00,$E6,$03      ; $254A
-        DEFW    DRIVE_TO_SLOT_NUM_1               ; $2555
+        DEFW    DRIVE_TO_SLOT_NUM_1      ; $2555
         DEFB    $2A,$84,$F3,$28,$06,$30,$07,$2A,$82,$F3,$E9,$2A,$8A,$F3,$E9,$3A ; $2557
         DEFB    $03,$00,$E6,$C0,$FE,$80,$38,$27,$28,$DB,$2A,$94,$F3,$E9,$3A,$03 ; $2567
         DEFB    $00,$E6,$30,$FE,$10,$38,$18,$2A,$8E,$F3,$20,$E2,$2A,$90,$F3,$E9 ; $2577
@@ -719,7 +719,7 @@ DRIVE_TO_SLOT_NUM_2:
         DEFB    $AE,$32,$45,$F0,$21,$F0,$FD,$18,$79,$3E,$FF,$01,$3E,$3F,$32,$32 ; $268D
         DEFB    $F0,$E1,$C9,$21,$F4,$FB,$C9,$AF,$6F,$67,$22,$24,$F0,$32,$45,$F0 ; $269D
         DEFB    $21,$C1,$FB,$C9,$2E,$42,$01,$2E                  ; $26AD
-        DEFW    WAIT_KEYPRESS_1               ; $26B5
+        DEFW    WAIT_KEYPRESS_1          ; $26B5
         DEFB    $2E                                              ; $26B7
         DEFW    TPA_START_7              ; $26B8
         DEFB    $2E,$58,$26,$FC,$C9,$2A,$AA,$DE,$7D,$FE,$28,$38,$02,$2E,$00,$7C ; $26BA
@@ -737,7 +737,7 @@ DRIVE_TO_SLOT_NUM_2:
         DEFB    $7E,$12,$13,$79,$12,$21,$33,$DA,$18,$E0,$1A,$77,$2E,$00,$C9,$79 ; $277A
         DEFB    $32,$A9,$DE,$C9,$ED,$43,$B8,$DE,$C9,$AF,$32,$B4,$DE,$3E,$02,$21 ; $278A
         DEFB    $B1,$DE,$77,$23,$77,$23,$77,$18,$4F,$61,$2E,$00,$22,$B1,$DE,$79 ; $279A
-        DEFW    DRIVE_TO_SLOT_NUM_1               ; $27AA
+        DEFW    DRIVE_TO_SLOT_NUM_1      ; $27AA
         DEFB    $20,$0F,$2E,$08,$3A,$AD,$DE,$67,$22,$B4,$DE,$2A,$A8,$DE,$22,$B6 ; $27AC
         DEFB    $DE,$21,$B4,$DE,$7E,$B7,$28,$28,$35,$3A,$AD,$DE,$23,$BE,$20,$20 ; $27BC
         DEFB    $3A,$A8,$DE,$2A,$B6,$DE,$BD,$20,$17,$3A,$A9,$DE,$BC,$20,$11,$24 ; $27CC
@@ -752,19 +752,19 @@ DRIVE_TO_SLOT_NUM_2:
         DEFB    $F8,$1F,$CB,$1D,$ED,$5B,$B8,$DE,$01,$80,$00,$3A,$B1,$DE,$B7,$20 ; $2850
         DEFB    $05,$3C,$32,$B0,$DE,$EB,$ED,$B0,$3A,$B2,$DE,$1F,$3E,$00,$D0,$CD ; $2860
         DEFB    $73,$DE,$C9,$AF,$32,$B0,$DE,$3E,$02,$21,$3E,$01,$32,$EB,$F3,$21 ; $2870
-        DEFW    DRIVE_TO_SLOT_NUM_2               ; $2880
+        DEFW    DRIVE_TO_SLOT_NUM_2      ; $2880
         DEFB    $CD,$3B,$DB,$3A,$EA,$F3,$B7,$C8,$D1,$FE,$10,$C0,$2A,$0D,$CC,$E9 ; $2882
         DEFB    $00,$09,$03,$0C,$06,$0F,$01,$0A,$04,$0D,$07,$08,$02,$0B,$05,$0E ; $2892
         DEFB    $00,$00,$00,$A7,$DE,$00,$31                      ; $28A2
         DEFW    TPA_START                ; $28A9
         DEFB    $3E,$C9,$32,$00,$DA,$3E,$95,$32,$03              ; $28AB
-        DEFW    DRIVE_TO_SLOT_NUM_3               ; $28B4
+        DEFW    WRITE_LAST_AND_BOOT      ; $28B4
         DEFB    $DE,$F3,$22,$3F,$DB,$AF,$32,$04,$00,$3A,$BB,$F3,$FE,$05,$30,$1F ; $28B6
         DEFB    $D6,$03,$38,$1B,$20,$06,$21,$B0,$1F,$22,$0E,$DB,$F5,$CD,$59,$DF ; $28C6
         DEFB    $F1,$22,$42,$DC,$CD,$54,$DF,$22,$2D,$DB,$3E,$03,$32,$FD,$DA,$3A ; $28D6
         DEFB    $B9,$F3,$D6,$03,$38,$08,$CD,$59,$DF,$22,$2F,$DD,$1E,$80,$3A,$BA ; $28E6
         DEFB    $F3,$D6,$03,$38,$14,$F5,$CD,$59,$DF,$22,$43,$DD,$F1 ; $28F6
-        DEFW    DRIVE_TO_SLOT_NUM_1               ; $2903
+        DEFW    DRIVE_TO_SLOT_NUM_1      ; $2903
         DEFB    $30,$08,$CD,$54,$DF,$22,$49,$DD,$18,$0B,$21,$3E,$1A,$22,$48,$DD ; $2905
         DEFB    $3E,$C9,$32,$4A,$DD,$3A,$81,$F3,$B7,$20,$0B,$21,$AE,$DF,$11,$80 ; $2915
         DEFB    $F3,$01,$16,$00,$ED,$B0,$CD,$A2,$DA,$3A,$98,$F3,$CD,$64,$DF,$3A ; $2925
@@ -785,7 +785,7 @@ DRIVE_TO_SLOT_NUM_2:
         DEFB    $C4,$C9,$65,$20,$5D                              ; $29FB
 ; [AI] Final landing pad at $2A00 (the program's top end): it writes the last relocated byte
 ;       through HL and jumps to the warm-boot vector, rebooting into the freshly-written 56K system.
-DRIVE_TO_SLOT_NUM_3:
+WRITE_LAST_AND_BOOT:
         LD (HL),A                        ; $2A00  77
         JP WBOOT_VEC                     ; $2A01  C3 00 00
         DEFS    252, $00    ; $2A04  fill

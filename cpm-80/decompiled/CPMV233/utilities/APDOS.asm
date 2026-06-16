@@ -15,8 +15,8 @@ DEFAULT_CR           EQU $007C               ; Default FCB current record byte (
 DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS cold-init / DRV_ALLRESET (fn 13) set the DMA address here and WBOOT re-issues SETDMA($0080); sector/record I/O moves 128 bytes through it. At program load this same buffer doubles as the command tail: the first byte ($0080) holds the tail length (0-127) and the characters follow at $0081 (CMDLINE).
 
 ; -- Mid-instruction references (shown inline as cover+offset) --
-;   $0494 -> READ_APPLE_SECTOR_2+1         z80 skip idiom: enters the operand of $11 at $0493
-;   $04AB -> READ_APPLE_SECTOR_3+1         shared instruction tail: $04AB is reachable code inside the instruction at $04AA
+;   $0494 -> READ_APPLE_SECTOR_2+1 z80 skip idiom: enters the operand of $11 at $0493
+;   $04AB -> READ_APPLE_SECTOR_3+1 shared instruction tail: $04AB is reachable code inside the instruction at $04AA
 
     ORG $0100
 
@@ -25,31 +25,31 @@ DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS
 TPA_START:
         LD HL,($F3DE)                    ; $0100  2A DE F3
 TPA_START_1:
-        LD (READ_APPLE_SECTOR_3+1),HL             ; $0103  22 AB 04
+        LD (READ_APPLE_SECTOR_3+1),HL    ; $0103  22 AB 04
 TPA_START_2:
         LD A,($0007)                     ; $0106  3A 07 00
 TPA_START_3:
         SUB $0B                          ; $0109  D6 0B
 TPA_START_4:
-        LD (CONOUT_CHAR_24),A               ; $010B  32 19 05
+        LD (CONOUT_CHAR_24),A            ; $010B  32 19 05
 TPA_START_5:
-        LD DE,CONOUT_CHAR_30                ; $010E  11 8E 05
+        LD DE,CONOUT_CHAR_30             ; $010E  11 8E 05
 TPA_START_6:
         JR TPA_START_8                   ; $0111  18 03
 TPA_START_7:
-        LD DE,CONOUT_CHAR_31                ; $0113  11 DE 05
+        LD DE,CONOUT_CHAR_31             ; $0113  11 DE 05
 TPA_START_8:
-        CALL PRINT_MSG_BANNER                    ; $0116  CD CB 04
+        CALL PRINT_MSG_BANNER            ; $0116  CD CB 04
 TPA_START_9:
-        CALL PRINT_CRLF                    ; $0119  CD C2 04
+        CALL PRINT_CRLF                  ; $0119  CD C2 04
 TPA_START_10:
-        LD SP,CONOUT_CHAR_25                ; $011C  31 42 05
+        LD SP,CONOUT_CHAR_25             ; $011C  31 42 05
 TPA_START_11:
-        CALL PRINT_CRLF                    ; $011F  CD C2 04
+        CALL PRINT_CRLF                  ; $011F  CD C2 04
 TPA_START_12:
         LD A,$2A                         ; $0122  3E 2A
 TPA_START_13:
-        CALL CONOUT_CHAR                    ; $0124  CD FC 04
+        CALL CONOUT_CHAR                 ; $0124  CD FC 04
 TPA_START_14:
         LD A,$80                         ; $0127  3E 80
 TPA_START_15:
@@ -61,7 +61,7 @@ TPA_START_17:
 TPA_START_18:
         CALL BDOS_VEC                    ; $0131  CD 05 00
 TPA_START_19:
-        CALL PRINT_CRLF                    ; $0134  CD C2 04
+        CALL PRINT_CRLF                  ; $0134  CD C2 04
 TPA_START_20:
         LD A,($0923)                     ; $0137  3A 23 09
 TPA_START_21:
@@ -75,60 +75,60 @@ TPA_START_22:
         ADD HL,DE                        ; $0145  19
         LD (HL),$00                      ; $0146  36 00
         POP HL                           ; $0148  E1
-        CALL GET_UPPER_CHAR                    ; $0149  CD B9 03
+        CALL GET_UPPER_CHAR              ; $0149  CD B9 03
         JR Z,TPA_START_10                ; $014C  28 CE
         CP $43                           ; $014E  FE 43
-        JR NZ,CONSOLE_STATUS_1                 ; $0150  20 69
-        CALL GET_UPPER_CHAR                    ; $0152  CD B9 03
+        JR NZ,PARSE_FILESPEC             ; $0150  20 69
+        CALL GET_UPPER_CHAR              ; $0152  CD B9 03
         CP $41                           ; $0155  FE 41
-        JR NZ,CONSOLE_STATUS_1                 ; $0157  20 62
-        CALL GET_UPPER_CHAR                    ; $0159  CD B9 03
+        JR NZ,PARSE_FILESPEC             ; $0157  20 62
+        CALL GET_UPPER_CHAR              ; $0159  CD B9 03
         CP $54                           ; $015C  FE 54
-        JR NZ,CONSOLE_STATUS_1                 ; $015E  20 5B
-        CALL GET_UPPER_CHAR                    ; $0160  CD B9 03
-        LD DE,CONOUT_CHAR_16                ; $0163  11 11 05
-        CALL NZ,PARSE_DRIVE_PREFIX                 ; $0166  C4 A2 03
+        JR NZ,PARSE_FILESPEC             ; $015E  20 5B
+        CALL GET_UPPER_CHAR              ; $0160  CD B9 03
+        LD DE,CONOUT_CHAR_16             ; $0163  11 11 05
+        CALL NZ,PARSE_DRIVE_PREFIX       ; $0166  C4 A2 03
         PUSH BC                          ; $0169  C5
-        LD DE,CONOUT_CHAR_32                ; $016A  11 EC 05
-        CALL PROMPT_SWAP_IF_SAME                    ; $016D  CD ED 04
+        LD DE,CONOUT_CHAR_32             ; $016A  11 EC 05
+        CALL PROMPT_SWAP_IF_SAME         ; $016D  CD ED 04
         POP BC                           ; $0170  C1
-        CALL READ_APPLE_CATALOG                    ; $0171  CD E4 03
-        CALL PRINT_BLANK_LINE                    ; $0174  CD BF 04
+        CALL READ_APPLE_CATALOG          ; $0171  CD E4 03
+        CALL PRINT_BLANK_LINE            ; $0174  CD BF 04
 TPA_START_23:
-        CALL NEXT_CATALOG_ENTRY                    ; $0177  CD 23 04
+        CALL NEXT_CATALOG_ENTRY          ; $0177  CD 23 04
         JR Z,TPA_START_10                ; $017A  28 A0
         PUSH HL                          ; $017C  E5
-        LD HL,CONOUT_CHAR_29                ; $017D  21 8A 05
+        LD HL,CONOUT_CHAR_29             ; $017D  21 8A 05
         LD B,$03                         ; $0180  06 03
-        LD A,(CONOUT_CHAR_14)               ; $0182  3A 0E 05
+        LD A,(CONOUT_CHAR_14)            ; $0182  3A 0E 05
 TPA_START_24:
         RRA                              ; $0185  1F
         JR C,TPA_START_25                ; $0186  38 03
         INC HL                           ; $0188  23
         DJNZ TPA_START_24                ; $0189  10 FA
 TPA_START_25:
-        CALL PRINT_SPACE                    ; $018B  CD BB 04
+        CALL PRINT_SPACE                 ; $018B  CD BB 04
         LD A,(HL)                        ; $018E  7E
-        CALL CONOUT_CHAR                    ; $018F  CD FC 04
-        CALL PRINT_SPACE                    ; $0192  CD BB 04
+        CALL CONOUT_CHAR                 ; $018F  CD FC 04
+        CALL PRINT_SPACE                 ; $0192  CD BB 04
         POP HL                           ; $0195  E1
         LD B,$1E                         ; $0196  06 1E
 TPA_START_26:
         LD A,(HL)                        ; $0198  7E
-        CALL CONOUT_CHAR                    ; $0199  CD FC 04
+        CALL CONOUT_CHAR                 ; $0199  CD FC 04
         INC HL                           ; $019C  23
         DJNZ TPA_START_26                ; $019D  10 F9
-        CALL CONSOLE_STATUS                    ; $019F  CD B2 01
+        CALL CONSOLE_STATUS              ; $019F  CD B2 01
         JR Z,TPA_START_27                ; $01A2  28 03
-        CALL DRAIN_CONSOLE                    ; $01A4  CD AC 01
+        CALL DRAIN_CONSOLE               ; $01A4  CD AC 01
 TPA_START_27:
-        CALL PRINT_CRLF                    ; $01A7  CD C2 04
+        CALL PRINT_CRLF                  ; $01A7  CD C2 04
         JR TPA_START_23                  ; $01AA  18 CB
 ; [AI] Drains/flushes pending console input by repeatedly polling direct console I/O until no key
 ;       is waiting, so a queued keystroke is not mistaken for the user's RETURN.
 DRAIN_CONSOLE:
-        CALL CONSOLE_STATUS                    ; $01AC  CD B2 01
-        JR Z,DRAIN_CONSOLE                    ; $01AF  28 FB
+        CALL CONSOLE_STATUS              ; $01AC  CD B2 01
+        JR Z,DRAIN_CONSOLE               ; $01AF  28 FB
         RET                              ; $01B1  C9
 ; [AI] Direct console status/read via BDOS function 6 with E=$FF; returns whether a key is
 ;       currently available and consumes it.
@@ -138,110 +138,110 @@ CONSOLE_STATUS:
         CALL BDOS_VEC                    ; $01B6  CD 05 00
         OR A                             ; $01B9  B7
         RET                              ; $01BA  C9
-CONSOLE_STATUS_1:
+PARSE_FILESPEC:
         LD A,$20                         ; $01BB  3E 20
         LD HL,$005D                      ; $01BD  21 5D 00
         LD B,$0B                         ; $01C0  06 0B
 CONSOLE_STATUS_2:
         LD (HL),A                        ; $01C2  77
         INC HL                           ; $01C3  23
-        DJNZ CONSOLE_STATUS_2                  ; $01C4  10 FC
+        DJNZ CONSOLE_STATUS_2            ; $01C4  10 FC
         LD B,$1E                         ; $01C6  06 1E
-        LD HL,CONOUT_CHAR_28                ; $01C8  21 6C 05
+        LD HL,CONOUT_CHAR_28             ; $01C8  21 6C 05
 CONSOLE_STATUS_3:
         LD (HL),A                        ; $01CB  77
         INC HL                           ; $01CC  23
-        DJNZ CONSOLE_STATUS_3                  ; $01CD  10 FC
+        DJNZ CONSOLE_STATUS_3            ; $01CD  10 FC
         LD HL,$0924                      ; $01CF  21 24 09
-        LD DE,CONOUT_CHAR_17                ; $01D2  11 12 05
-        CALL PARSE_DRIVE_PREFIX                    ; $01D5  CD A2 03
+        LD DE,CONOUT_CHAR_17             ; $01D2  11 12 05
+        CALL PARSE_DRIVE_PREFIX          ; $01D5  CD A2 03
         LD DE,$005D                      ; $01D8  11 5D 00
         LD B,$08                         ; $01DB  06 08
 CONSOLE_STATUS_4:
-        CALL GET_UPPER_CHAR                    ; $01DD  CD B9 03
-        JR Z,CONSOLE_STATUS_7                  ; $01E0  28 25
+        CALL GET_UPPER_CHAR              ; $01DD  CD B9 03
+        JR Z,CONSOLE_STATUS_7            ; $01E0  28 25
         CP $2E                           ; $01E2  FE 2E
-        JR Z,CONSOLE_STATUS_5                  ; $01E4  28 08
+        JR Z,CONSOLE_STATUS_5            ; $01E4  28 08
         CP $3D                           ; $01E6  FE 3D
-        JR Z,CONSOLE_STATUS_8                  ; $01E8  28 20
+        JR Z,CONSOLE_STATUS_8            ; $01E8  28 20
         LD (DE),A                        ; $01EA  12
         INC DE                           ; $01EB  13
-        DJNZ CONSOLE_STATUS_4                  ; $01EC  10 EF
+        DJNZ CONSOLE_STATUS_4            ; $01EC  10 EF
 CONSOLE_STATUS_5:
         LD B,$03                         ; $01EE  06 03
         LD DE,$0065                      ; $01F0  11 65 00
 CONSOLE_STATUS_6:
-        CALL GET_UPPER_CHAR                    ; $01F3  CD B9 03
-        JR Z,CONSOLE_STATUS_7                  ; $01F6  28 0F
+        CALL GET_UPPER_CHAR              ; $01F3  CD B9 03
+        JR Z,CONSOLE_STATUS_7            ; $01F6  28 0F
         CP $3D                           ; $01F8  FE 3D
-        JR Z,CONSOLE_STATUS_8                  ; $01FA  28 0E
+        JR Z,CONSOLE_STATUS_8            ; $01FA  28 0E
         LD (DE),A                        ; $01FC  12
         INC DE                           ; $01FD  13
-        DJNZ CONSOLE_STATUS_6                  ; $01FE  10 F3
-        CALL GET_UPPER_CHAR                    ; $0200  CD B9 03
+        DJNZ CONSOLE_STATUS_6            ; $01FE  10 F3
+        CALL GET_UPPER_CHAR              ; $0200  CD B9 03
         CP $3D                           ; $0203  FE 3D
-        JR Z,CONSOLE_STATUS_8                  ; $0205  28 03
+        JR Z,CONSOLE_STATUS_8            ; $0205  28 03
 CONSOLE_STATUS_7:
         JP TPA_START_7                   ; $0207  C3 13 01
 CONSOLE_STATUS_8:
-        LD DE,CONOUT_CHAR_16                ; $020A  11 11 05
-        CALL PARSE_DRIVE_PREFIX                    ; $020D  CD A2 03
-        LD DE,CONOUT_CHAR_28                ; $0210  11 6C 05
-        CALL GET_UPPER_CHAR                    ; $0213  CD B9 03
-        JR Z,CONSOLE_STATUS_7                  ; $0216  28 EF
+        LD DE,CONOUT_CHAR_16             ; $020A  11 11 05
+        CALL PARSE_DRIVE_PREFIX          ; $020D  CD A2 03
+        LD DE,CONOUT_CHAR_28             ; $0210  11 6C 05
+        CALL GET_UPPER_CHAR              ; $0213  CD B9 03
+        JR Z,CONSOLE_STATUS_7            ; $0216  28 EF
         DEC HL                           ; $0218  2B
         LD B,$1F                         ; $0219  06 1F
 CONSOLE_STATUS_9:
-        CALL GET_UPPER_CHAR                    ; $021B  CD B9 03
-        JR Z,CONSOLE_STATUS_10                 ; $021E  28 06
+        CALL GET_UPPER_CHAR              ; $021B  CD B9 03
+        JR Z,CONSOLE_STATUS_10           ; $021E  28 06
         LD (DE),A                        ; $0220  12
         INC DE                           ; $0221  13
-        DJNZ CONSOLE_STATUS_9                  ; $0222  10 F7
-        JR CONSOLE_STATUS_7                    ; $0224  18 E1
+        DJNZ CONSOLE_STATUS_9            ; $0222  10 F7
+        JR CONSOLE_STATUS_7              ; $0224  18 E1
 CONSOLE_STATUS_10:
-        CALL PRINT_BLANK_LINE                    ; $0226  CD BF 04
-        LD HL,(CONOUT_CHAR_16)              ; $0229  2A 11 05
+        CALL PRINT_BLANK_LINE            ; $0226  CD BF 04
+        LD HL,(CONOUT_CHAR_16)           ; $0229  2A 11 05
         LD DE,$4141                      ; $022C  11 41 41
         ADD HL,DE                        ; $022F  19
         LD A,L                           ; $0230  7D
-        LD (CONOUT_CHAR_35),A               ; $0231  32 58 06
+        LD (CONOUT_CHAR_35),A            ; $0231  32 58 06
         LD A,H                           ; $0234  7C
-        LD (CONOUT_CHAR_36),A               ; $0235  32 76 06
-        CALL PROMPT_SWAP_CPM                    ; $0238  CD D8 04
-        LD DE,CONOUT_CHAR_32                ; $023B  11 EC 05
-        CALL PROMPT_SWAP_IF_SAME                    ; $023E  CD ED 04
-        CALL READ_APPLE_CATALOG                    ; $0241  CD E4 03
+        LD (CONOUT_CHAR_36),A            ; $0235  32 76 06
+        CALL PROMPT_SWAP_CPM             ; $0238  CD D8 04
+        LD DE,CONOUT_CHAR_32             ; $023B  11 EC 05
+        CALL PROMPT_SWAP_IF_SAME         ; $023E  CD ED 04
+        CALL READ_APPLE_CATALOG          ; $0241  CD E4 03
 CONSOLE_STATUS_11:
-        CALL NEXT_CATALOG_ENTRY                    ; $0244  CD 23 04
-        JP Z,CONSOLE_STATUS_18                 ; $0247  CA DD 02
+        CALL NEXT_CATALOG_ENTRY          ; $0244  CD 23 04
+        JP Z,CONSOLE_STATUS_18           ; $0247  CA DD 02
         EX DE,HL                         ; $024A  EB
-        LD HL,CONOUT_CHAR_28                ; $024B  21 6C 05
+        LD HL,CONOUT_CHAR_28             ; $024B  21 6C 05
         LD B,$1E                         ; $024E  06 1E
 CONSOLE_STATUS_12:
         LD A,(DE)                        ; $0250  1A
         AND $7F                          ; $0251  E6 7F
         CP (HL)                          ; $0253  BE
-        JR NZ,CONSOLE_STATUS_11                ; $0254  20 EE
+        JR NZ,CONSOLE_STATUS_11          ; $0254  20 EE
         INC HL                           ; $0256  23
         INC DE                           ; $0257  13
-        DJNZ CONSOLE_STATUS_12                 ; $0258  10 F6
-        LD HL,CONOUT_CHAR_14                ; $025A  21 0E 05
+        DJNZ CONSOLE_STATUS_12           ; $0258  10 F6
+        LD HL,CONOUT_CHAR_14             ; $025A  21 0E 05
         LD A,(HL)                        ; $025D  7E
         AND $7F                          ; $025E  E6 7F
-        JR Z,CONSOLE_STATUS_13                 ; $0260  28 0A
+        JR Z,CONSOLE_STATUS_13           ; $0260  28 0A
         CP $04                           ; $0262  FE 04
-        JR Z,CONSOLE_STATUS_13                 ; $0264  28 06
-        LD DE,CONOUT_CHAR_38                ; $0266  11 A1 06
+        JR Z,CONSOLE_STATUS_13           ; $0264  28 06
+        LD DE,CONOUT_CHAR_38             ; $0266  11 A1 06
         JP TPA_START_8                   ; $0269  C3 16 01
 CONSOLE_STATUS_13:
         LD (HL),A                        ; $026C  77
-        CALL SET_DEST_FCB_DRIVE                    ; $026D  CD 70 04
+        CALL SET_DEST_FCB_DRIVE          ; $026D  CD 70 04
         XOR A                            ; $0270  AF
         LD ($006A),A                     ; $0271  32 6A 00
-        LD (CONOUT_CHAR_19),A               ; $0274  32 14 05
-        LD (CONOUT_CHAR_20),A               ; $0277  32 15 05
+        LD (CONOUT_CHAR_19),A            ; $0274  32 14 05
+        LD (CONOUT_CHAR_20),A            ; $0277  32 15 05
         LD ($0068),A                     ; $027A  32 68 00
-        CALL SETUP_SRC_READ                    ; $027D  CD E3 02
+        CALL SETUP_SRC_READ              ; $027D  CD E3 02
         LD DE,DEFAULT_FCB                ; $0280  11 5C 00
         PUSH DE                          ; $0283  D5
         LD C,$13                         ; $0284  0E 13
@@ -250,31 +250,31 @@ CONSOLE_STATUS_13:
         PUSH DE                          ; $028A  D5
         LD C,$16                         ; $028B  0E 16
         CALL BDOS_VEC                    ; $028D  CD 05 00
-        LD DE,CONOUT_CHAR_39                ; $0290  11 BC 06
+        LD DE,CONOUT_CHAR_39             ; $0290  11 BC 06
         INC A                            ; $0293  3C
         JP Z,TPA_START_8                 ; $0294  CA 16 01
         POP DE                           ; $0297  D1
-        CALL CREATE_DEST_FILE                    ; $0298  CD 1E 03
-        LD DE,CONOUT_CHAR_32                ; $029B  11 EC 05
-        CALL PROMPT_SWAP_IF_SAME                    ; $029E  CD ED 04
+        CALL CREATE_DEST_FILE            ; $0298  CD 1E 03
+        LD DE,CONOUT_CHAR_32             ; $029B  11 EC 05
+        CALL PROMPT_SWAP_IF_SAME         ; $029E  CD ED 04
         LD A,$FF                         ; $02A1  3E FF
-        LD (CONOUT_CHAR_23),A               ; $02A3  32 18 05
+        LD (CONOUT_CHAR_23),A            ; $02A3  32 18 05
 CONSOLE_STATUS_14:
-        LD A,(CONOUT_CHAR_23)               ; $02A6  3A 18 05
+        LD A,(CONOUT_CHAR_23)            ; $02A6  3A 18 05
         INC A                            ; $02A9  3C
-        JR NZ,CONSOLE_STATUS_15                ; $02AA  20 12
-        LD HL,(CONOUT_CHAR_15)              ; $02AC  2A 0F 05
+        JR NZ,CONSOLE_STATUS_15          ; $02AA  20 12
+        LD HL,(CONOUT_CHAR_15)           ; $02AC  2A 0F 05
         LD A,L                           ; $02AF  7D
         OR H                             ; $02B0  B4
-        JR Z,CONSOLE_STATUS_16                 ; $02B1  28 22
-        CALL SET_DMA_DIRCONT                    ; $02B3  CD 78 04
+        JR Z,CONSOLE_STATUS_16           ; $02B1  28 22
+        CALL SET_DMA_DIRCONT             ; $02B3  CD 78 04
         LD HL,($0823)                    ; $02B6  2A 23 08
-        LD (CONOUT_CHAR_15),HL              ; $02B9  22 0F 05
+        LD (CONOUT_CHAR_15),HL           ; $02B9  22 0F 05
         LD A,$0C                         ; $02BC  3E 0C
 CONSOLE_STATUS_15:
         LD E,A                           ; $02BE  5F
         INC A                            ; $02BF  3C
-        LD (CONOUT_CHAR_23),A               ; $02C0  32 18 05
+        LD (CONOUT_CHAR_23),A            ; $02C0  32 18 05
         LD D,$00                         ; $02C3  16 00
         LD HL,$0822                      ; $02C5  21 22 08
         ADD HL,DE                        ; $02C8  19
@@ -283,16 +283,16 @@ CONSOLE_STATUS_15:
         LD H,(HL)                        ; $02CB  66
         LD L,A                           ; $02CC  6F
         OR H                             ; $02CD  B4
-        JR Z,CONSOLE_STATUS_16                 ; $02CE  28 05
-        CALL READ_DATA_SECTOR                    ; $02D0  CD 32 03
-        JR CONSOLE_STATUS_14                   ; $02D3  18 D1
+        JR Z,CONSOLE_STATUS_16           ; $02CE  28 05
+        CALL READ_DATA_SECTOR            ; $02D0  CD 32 03
+        JR CONSOLE_STATUS_14             ; $02D3  18 D1
 CONSOLE_STATUS_16:
-        CALL WRITE_CPM_RECORDS                    ; $02D5  CD 53 03
+        CALL WRITE_CPM_RECORDS           ; $02D5  CD 53 03
 CONSOLE_STATUS_17:
-        LD DE,CONOUT_CHAR_37                ; $02D8  11 8F 06
-        JR CONSOLE_STATUS_19                   ; $02DB  18 03
+        LD DE,CONOUT_CHAR_37             ; $02D8  11 8F 06
+        JR CONSOLE_STATUS_19             ; $02DB  18 03
 CONSOLE_STATUS_18:
-        LD DE,CONOUT_CHAR_44                ; $02DD  11 08 07
+        LD DE,CONOUT_CHAR_44             ; $02DD  11 08 07
 CONSOLE_STATUS_19:
         JP TPA_START_8                   ; $02E0  C3 16 01
 ; [AI] Loads the SoftCard's Apple-side I/O parameter block ($F3E0/$F3E8) to point at the 2KB Apple
@@ -305,27 +305,27 @@ SETUP_SRC_READ:
         LD ($F3E0),A                     ; $02EB  32 E0 F3
         DEC A                            ; $02EE  3D
         LD ($006A),A                     ; $02EF  32 6A 00
-        LD A,(CONOUT_CHAR_19)               ; $02F2  3A 14 05
+        LD A,(CONOUT_CHAR_19)            ; $02F2  3A 14 05
         LD ($0068),A                     ; $02F5  32 68 00
-        LD DE,CONOUT_CHAR_33                ; $02F8  11 16 06
+        LD DE,CONOUT_CHAR_33             ; $02F8  11 16 06
 SETUP_SRC_READ_1:
-        JP PROMPT_SWAP_IF_SAME                      ; $02FB  C3 ED 04
+        JP PROMPT_SWAP_IF_SAME           ; $02FB  C3 ED 04
 ; [AI] Closes the current CP/M output file (BDOS function 15 open variant) and resets the Apple-
 ;       side parameters, called when an output buffer must be flushed mid-transfer.
 CLOSE_OUTPUT_FILE:
-        CALL SETUP_SRC_READ                    ; $02FE  CD E3 02
+        CALL SETUP_SRC_READ              ; $02FE  CD E3 02
         LD DE,DEFAULT_FCB                ; $0301  11 5C 00
 CLOSE_OUTPUT_FILE_1:
         LD C,$0F                         ; $0304  0E 0F
         CALL BDOS_VEC                    ; $0306  CD 05 00
-        LD A,(CONOUT_CHAR_20)               ; $0309  3A 15 05
+        LD A,(CONOUT_CHAR_20)            ; $0309  3A 15 05
         LD (DEFAULT_CR),A                ; $030C  32 7C 00
-        JP SET_DEST_FCB_DRIVE                      ; $030F  C3 70 04
+        JP SET_DEST_FCB_DRIVE            ; $030F  C3 70 04
 CLOSE_OUTPUT_FILE_2:
         LD A,(DEFAULT_CR)                ; $0312  3A 7C 00
-        LD (CONOUT_CHAR_20),A               ; $0315  32 15 05
+        LD (CONOUT_CHAR_20),A            ; $0315  32 15 05
         LD A,($0068)                     ; $0318  3A 68 00
-        LD (CONOUT_CHAR_19),A               ; $031B  32 14 05
+        LD (CONOUT_CHAR_19),A            ; $031B  32 14 05
 ; [AI] Opens/creates the CP/M destination file (BDOS function 16 close) and resets the record-count
 ;       workspace ($0516) before beginning to write a new file.
 CREATE_DEST_FILE:
@@ -333,39 +333,39 @@ CREATE_DEST_FILE:
         LD C,$10                         ; $0321  0E 10
         CALL BDOS_VEC                    ; $0323  CD 05 00
         LD HL,$1A22                      ; $0326  21 22 1A
-        LD (CONOUT_CHAR_21),HL              ; $0329  22 16 05
-        LD DE,CONOUT_CHAR_32                ; $032C  11 EC 05
-        JP SELECT_SRC_DRIVE                      ; $032F  C3 59 04
+        LD (CONOUT_CHAR_21),HL           ; $0329  22 16 05
+        LD DE,CONOUT_CHAR_32             ; $032C  11 EC 05
+        JP SELECT_SRC_DRIVE              ; $032F  C3 59 04
 ; [AI] Reads the next Apple DOS data sector via the 6502 side, advancing the track/sector counters
 ;       ($0517/$0513) and forcing a fresh CP/M write once a full buffer has accumulated.
 READ_DATA_SECTOR:
-        CALL SET_DMA_TSLIST                    ; $0332  CD 81 04
-        LD HL,CONOUT_CHAR_22                ; $0335  21 17 05
+        CALL SET_DMA_TSLIST              ; $0332  CD 81 04
+        LD HL,CONOUT_CHAR_22             ; $0335  21 17 05
         LD A,(HL)                        ; $0338  7E
         INC A                            ; $0339  3C
         CP $C0                           ; $033A  FE C0
-        JR NZ,READ_DATA_SECTOR_1                 ; $033C  20 02
+        JR NZ,READ_DATA_SECTOR_1         ; $033C  20 02
         LD A,$D0                         ; $033E  3E D0
 READ_DATA_SECTOR_1:
         LD (HL),A                        ; $0340  77
-        LD HL,CONOUT_CHAR_18                ; $0341  21 13 05
+        LD HL,CONOUT_CHAR_18             ; $0341  21 13 05
         INC (HL)                         ; $0344  34
         LD A,(HL)                        ; $0345  7E
-        LD HL,CONOUT_CHAR_24                ; $0346  21 19 05
+        LD HL,CONOUT_CHAR_24             ; $0346  21 19 05
         CP (HL)                          ; $0349  BE
         RET C                            ; $034A  D8
-        CALL WRITE_CPM_RECORDS                    ; $034B  CD 53 03
-        LD DE,CONOUT_CHAR_32                ; $034E  11 EC 05
-        JR SETUP_SRC_READ_1                    ; $0351  18 A8
+        CALL WRITE_CPM_RECORDS           ; $034B  CD 53 03
+        LD DE,CONOUT_CHAR_32             ; $034E  11 EC 05
+        JR SETUP_SRC_READ_1              ; $0351  18 A8
 ; [AI] Flushes the accumulated Apple DOS data ($0A22 buffer) to the CP/M file as a series of
 ;       128-byte records (BDOS set-DMA function 26 then write), stripping the high bit for text
 ;       files.
 WRITE_CPM_RECORDS:
-        LD A,(CONOUT_CHAR_18)               ; $0353  3A 13 05
+        LD A,(CONOUT_CHAR_18)            ; $0353  3A 13 05
         OR A                             ; $0356  B7
-        JP Z,CONSOLE_STATUS_17                 ; $0357  CA D8 02
+        JP Z,CONSOLE_STATUS_17           ; $0357  CA D8 02
         PUSH AF                          ; $035A  F5
-        CALL CLOSE_OUTPUT_FILE                    ; $035B  CD FE 02
+        CALL CLOSE_OUTPUT_FILE           ; $035B  CD FE 02
         POP AF                           ; $035E  F1
         LD B,$00                         ; $035F  06 00
         ADD A,A                          ; $0361  87
@@ -378,9 +378,9 @@ WRITE_CPM_RECORDS_1:
         EX DE,HL                         ; $036A  EB
         LD C,$1A                         ; $036B  0E 1A
         CALL BDOS_VEC                    ; $036D  CD 05 00
-        LD A,(CONOUT_CHAR_14)               ; $0370  3A 0E 05
+        LD A,(CONOUT_CHAR_14)            ; $0370  3A 0E 05
         OR A                             ; $0373  B7
-        JR NZ,WRITE_CPM_RECORDS_3                 ; $0374  20 0B
+        JR NZ,WRITE_CPM_RECORDS_3        ; $0374  20 0B
         LD B,$80                         ; $0376  06 80
         POP HL                           ; $0378  E1
         PUSH HL                          ; $0379  E5
@@ -389,13 +389,13 @@ WRITE_CPM_RECORDS_2:
         AND $7F                          ; $037B  E6 7F
         LD (HL),A                        ; $037D  77
         INC HL                           ; $037E  23
-        DJNZ WRITE_CPM_RECORDS_2                  ; $037F  10 F9
+        DJNZ WRITE_CPM_RECORDS_2         ; $037F  10 F9
 WRITE_CPM_RECORDS_3:
         LD DE,DEFAULT_FCB                ; $0381  11 5C 00
         LD C,$15                         ; $0384  0E 15
         CALL BDOS_VEC                    ; $0386  CD 05 00
         OR A                             ; $0389  B7
-        LD DE,CONOUT_CHAR_40                ; $038A  11 CB 06
+        LD DE,CONOUT_CHAR_40             ; $038A  11 CB 06
         JP NZ,TPA_START_8                ; $038D  C2 16 01
         POP HL                           ; $0390  E1
         LD DE,DEFAULT_DMA                ; $0391  11 80 00
@@ -404,10 +404,10 @@ WRITE_CPM_RECORDS_3:
         DEC BC                           ; $0396  0B
         LD A,B                           ; $0397  78
         OR C                             ; $0398  B1
-        JR NZ,WRITE_CPM_RECORDS_1                 ; $0399  20 CD
+        JR NZ,WRITE_CPM_RECORDS_1        ; $0399  20 CD
         XOR A                            ; $039B  AF
-        LD (CONOUT_CHAR_18),A               ; $039C  32 13 05
-        JP CLOSE_OUTPUT_FILE_2                    ; $039F  C3 12 03
+        LD (CONOUT_CHAR_18),A            ; $039C  32 13 05
+        JP CLOSE_OUTPUT_FILE_2           ; $039F  C3 12 03
 ; [AI] Parses an optional drive-letter prefix ('X:') from the command, converting the letter to a
 ;       0-based drive number and validating it against the number of logical drives reported at
 ;       $F3B8.
@@ -417,14 +417,14 @@ PARSE_DRIVE_PREFIX:
         DEC HL                           ; $03A4  2B
         CP $3A                           ; $03A5  FE 3A
         RET NZ                           ; $03A7  C0
-        CALL GET_UPPER_CHAR                    ; $03A8  CD B9 03
+        CALL GET_UPPER_CHAR              ; $03A8  CD B9 03
         SUB $41                          ; $03AB  D6 41
         INC HL                           ; $03AD  23
         LD C,A                           ; $03AE  4F
         LD A,($F3B8)                     ; $03AF  3A B8 F3
         DEC A                            ; $03B2  3D
         CP C                             ; $03B3  B9
-        JR C,CALL_SOFTCARD_BIOS_2                  ; $03B4  38 25
+        JR C,ERR_INVALID_DRIVE           ; $03B4  38 25
         LD A,C                           ; $03B6  79
         LD (DE),A                        ; $03B7  12
         RET                              ; $03B8  C9
@@ -434,7 +434,7 @@ GET_UPPER_CHAR:
         LD A,(HL)                        ; $03B9  7E
         INC HL                           ; $03BA  23
         CP $60                           ; $03BB  FE 60
-        JR C,GET_UPPER_CHAR_1                  ; $03BD  38 02
+        JR C,GET_UPPER_CHAR_1            ; $03BD  38 02
         SUB $20                          ; $03BF  D6 20
 GET_UPPER_CHAR_1:
         OR A                             ; $03C1  B7
@@ -442,7 +442,7 @@ GET_UPPER_CHAR_1:
 ; [AI] Calls into the SoftCard BIOS through the warm-boot page vector ($0001) with L forced to $1B,
 ;       reaching a SoftCard-specific BIOS extension entry that services Apple DOS disk requests.
 CALL_SOFTCARD_BIOS:
-        LD HL,CALL_SOFTCARD_BIOS_1                 ; $03C3  21 CD 03
+        LD HL,CALL_SOFTCARD_BIOS_1       ; $03C3  21 CD 03
         PUSH HL                          ; $03C6  E5
         LD HL,($0001)                    ; $03C7  2A 01 00
         LD L,$1B                         ; $03CA  2E 1B
@@ -450,81 +450,81 @@ CALL_SOFTCARD_BIOS:
 CALL_SOFTCARD_BIOS_1:
         DEFB    $7D,$B4,$28,$0A,$11,$0A,$00,$19,$7E,$23,$66,$6F,$56,$C9 ; $03CD
 ; [AI] Invalid-drive error path: prints the 'Invalid Drive' message and restarts the command loop.
-CALL_SOFTCARD_BIOS_2:
-        LD DE,CONOUT_CHAR_42                ; $03DB  11 E4 06
-        CALL PRINT_MSG_BANNER                    ; $03DE  CD CB 04
+ERR_INVALID_DRIVE:
+        LD DE,CONOUT_CHAR_42             ; $03DB  11 E4 06
+        CALL PRINT_MSG_BANNER            ; $03DE  CD CB 04
         JP TPA_START_10                  ; $03E1  C3 1C 01
 ; [AI] Mounts and reads the Apple DOS VTOC/catalog: sets up the source drive, calls the 6502
 ;       reader, and picks the record-stride table ($0542/$0552/$055F) based on the disk's file-type
 ;       byte.
 READ_APPLE_CATALOG:
-        CALL SELECT_SRC_DRIVE                    ; $03E4  CD 59 04
-        CALL CALL_SOFTCARD_BIOS                    ; $03E7  CD C3 03
+        CALL SELECT_SRC_DRIVE            ; $03E4  CD 59 04
+        CALL CALL_SOFTCARD_BIOS          ; $03E7  CD C3 03
         PUSH DE                          ; $03EA  D5
         LD C,$00                         ; $03EB  0E 00
-        CALL CALL_SOFTCARD_BIOS                    ; $03ED  CD C3 03
+        CALL CALL_SOFTCARD_BIOS          ; $03ED  CD C3 03
         POP AF                           ; $03F0  F1
         CP D                             ; $03F1  BA
-        LD HL,CONOUT_CHAR_27                ; $03F2  21 5F 05
-        JR NZ,READ_APPLE_CATALOG_1                 ; $03F5  20 0A
+        LD HL,CONOUT_CHAR_27             ; $03F2  21 5F 05
+        JR NZ,READ_APPLE_CATALOG_1       ; $03F5  20 0A
         CP $1A                           ; $03F7  FE 1A
-        LD HL,CONOUT_CHAR_25                ; $03F9  21 42 05
-        JR NZ,READ_APPLE_CATALOG_1                 ; $03FC  20 03
-        LD HL,CONOUT_CHAR_26                ; $03FE  21 52 05
+        LD HL,CONOUT_CHAR_25             ; $03F9  21 42 05
+        JR NZ,READ_APPLE_CATALOG_1       ; $03FC  20 03
+        LD HL,CONOUT_CHAR_26             ; $03FE  21 52 05
 READ_APPLE_CATALOG_1:
-        LD (READ_APPLE_SECTOR_2+1),HL             ; $0401  22 94 04
+        LD (READ_APPLE_SECTOR_2+1),HL    ; $0401  22 94 04
         LD HL,$0011                      ; $0404  21 11 00
-        CALL READ_APPLE_SECTOR                    ; $0407  CD 8B 04
-        LD A,(CONOUT_CHAR_48)               ; $040A  3A 49 07
+        CALL READ_APPLE_SECTOR           ; $0407  CD 8B 04
+        LD A,(CONOUT_CHAR_48)            ; $040A  3A 49 07
         CP $7A                           ; $040D  FE 7A
-        JR Z,READ_APPLE_CATALOG_2                  ; $040F  28 06
-        LD DE,CONOUT_CHAR_43                ; $0411  11 F2 06
+        JR Z,READ_APPLE_CATALOG_2        ; $040F  28 06
+        LD DE,CONOUT_CHAR_43             ; $0411  11 F2 06
         JP TPA_START_8                   ; $0414  C3 16 01
 READ_APPLE_CATALOG_2:
-        LD HL,(CONOUT_CHAR_47)              ; $0417  2A 23 07
-        LD (CONOUT_CHAR_13),HL              ; $041A  22 0C 05
+        LD HL,(CONOUT_CHAR_47)           ; $0417  2A 23 07
+        LD (CONOUT_CHAR_13),HL           ; $041A  22 0C 05
         LD A,$FF                         ; $041D  3E FF
-        LD (CONOUT_CHAR_12),A               ; $041F  32 0B 05
+        LD (CONOUT_CHAR_12),A            ; $041F  32 0B 05
         RET                              ; $0422  C9
 ; [AI] Iterates the Apple DOS catalog one directory entry at a time, chaining to the next catalog
 ;       sector via the link in $050C when the current sector's entries are exhausted; returns Z at
 ;       end of directory.
 NEXT_CATALOG_ENTRY:
-        LD A,(CONOUT_CHAR_12)               ; $0423  3A 0B 05
+        LD A,(CONOUT_CHAR_12)            ; $0423  3A 0B 05
         ADD A,$23                        ; $0426  C6 23
-        JR NC,NEXT_CATALOG_ENTRY_1                 ; $0428  30 11
-        LD HL,(CONOUT_CHAR_13)              ; $042A  2A 0C 05
+        JR NC,NEXT_CATALOG_ENTRY_1       ; $0428  30 11
+        LD HL,(CONOUT_CHAR_13)           ; $042A  2A 0C 05
         LD A,L                           ; $042D  7D
         OR H                             ; $042E  B4
         RET Z                            ; $042F  C8
-        CALL READ_APPLE_SECTOR                    ; $0430  CD 8B 04
-        LD HL,(CONOUT_CHAR_47)              ; $0433  2A 23 07
-        LD (CONOUT_CHAR_13),HL              ; $0436  22 0C 05
+        CALL READ_APPLE_SECTOR           ; $0430  CD 8B 04
+        LD HL,(CONOUT_CHAR_47)           ; $0433  2A 23 07
+        LD (CONOUT_CHAR_13),HL           ; $0436  22 0C 05
         LD A,$0B                         ; $0439  3E 0B
 NEXT_CATALOG_ENTRY_1:
-        LD (CONOUT_CHAR_12),A               ; $043B  32 0B 05
+        LD (CONOUT_CHAR_12),A            ; $043B  32 0B 05
         LD D,$00                         ; $043E  16 00
         LD E,A                           ; $0440  5F
-        LD HL,CONOUT_CHAR_46                ; $0441  21 22 07
+        LD HL,CONOUT_CHAR_46             ; $0441  21 22 07
         ADD HL,DE                        ; $0444  19
         LD A,(HL)                        ; $0445  7E
         LD C,A                           ; $0446  4F
         OR A                             ; $0447  B7
         RET Z                            ; $0448  C8
         INC A                            ; $0449  3C
-        JR Z,NEXT_CATALOG_ENTRY                    ; $044A  28 D7
+        JR Z,NEXT_CATALOG_ENTRY          ; $044A  28 D7
         INC HL                           ; $044C  23
         LD B,(HL)                        ; $044D  46
         INC HL                           ; $044E  23
         LD A,(HL)                        ; $044F  7E
-        LD (CONOUT_CHAR_14),A               ; $0450  32 0E 05
+        LD (CONOUT_CHAR_14),A            ; $0450  32 0E 05
         INC HL                           ; $0453  23
-        LD (CONOUT_CHAR_15),BC              ; $0454  ED 43 0F 05
+        LD (CONOUT_CHAR_15),BC           ; $0454  ED 43 0F 05
         RET                              ; $0458  C9
 ; [AI] Translates the parsed logical drive number ($0511) into the SoftCard's Apple-side slot/drive
 ;       selector bytes ($F3E4 slot-flag and $F3E6 drive code) for the next sector read.
 SELECT_SRC_DRIVE:
-        LD A,(CONOUT_CHAR_16)               ; $0459  3A 11 05
+        LD A,(CONOUT_CHAR_16)            ; $0459  3A 11 05
         LD C,A                           ; $045C  4F
         AND $01                          ; $045D  E6 01
         INC A                            ; $045F  3C
@@ -541,7 +541,7 @@ SELECT_SRC_DRIVE:
 ; [AI] Stamps the destination FCB's drive field ($005C) from the parsed output-drive number ($0512)
 ;       so the CP/M file is created on the requested drive.
 SET_DEST_FCB_DRIVE:
-        LD A,(CONOUT_CHAR_17)               ; $0470  3A 12 05
+        LD A,(CONOUT_CHAR_17)            ; $0470  3A 12 05
         INC A                            ; $0473  3C
         LD (DEFAULT_FCB),A               ; $0474  32 5C 00
         RET                              ; $0477  C9
@@ -550,13 +550,13 @@ SET_DEST_FCB_DRIVE:
 SET_DMA_DIRCONT:
         LD DE,$1822                      ; $0478  11 22 18
         LD ($F3E8),DE                    ; $047B  ED 53 E8 F3
-        JR READ_APPLE_SECTOR_1                    ; $047F  18 11
+        JR READ_APPLE_SECTOR_1           ; $047F  18 11
 ; [AI] Points the Apple-side DMA parameter ($F3E8) at the current file's track/sector-list buffer
 ;       (address held in $0516) before reading data sectors.
 SET_DMA_TSLIST:
-        LD DE,(CONOUT_CHAR_21)              ; $0481  ED 5B 16 05
+        LD DE,(CONOUT_CHAR_21)           ; $0481  ED 5B 16 05
         LD ($F3E8),DE                    ; $0485  ED 53 E8 F3
-        JR READ_APPLE_SECTOR_1                    ; $0489  18 07
+        JR READ_APPLE_SECTOR_1           ; $0489  18 07
 ; [AI] Issues an Apple DOS sector read through the 6502 side: sets the DMA target to $1722,
 ;       programs the track/sector from HL via the skew table at $0552, arms the parameter block, and
 ;       signals the request.
@@ -566,7 +566,7 @@ READ_APPLE_SECTOR:
 READ_APPLE_SECTOR_1:
         LD A,L                           ; $0492  7D
 READ_APPLE_SECTOR_2:
-        LD DE,CONOUT_CHAR_26                ; $0493  11 52 05
+        LD DE,CONOUT_CHAR_26             ; $0493  11 52 05
         LD L,H                           ; $0496  6C
         LD H,$00                         ; $0497  26 00
         ADD HL,DE                        ; $0499  19
@@ -582,34 +582,34 @@ READ_APPLE_SECTOR_3:
         LD A,($F3EA)                     ; $04AD  3A EA F3
         OR A                             ; $04B0  B7
         RET Z                            ; $04B1  C8
-        LD DE,CONOUT_CHAR_41                ; $04B2  11 D5 06
-        CALL PRINT_STRING                    ; $04B5  CD D3 04
+        LD DE,CONOUT_CHAR_41             ; $04B2  11 D5 06
+        CALL PRINT_STRING                ; $04B5  CD D3 04
         JP TPA_START_10                  ; $04B8  C3 1C 01
 ; [AI] Emits a single space to the console (loads A=$20 and falls into the console-output
 ;       primitive); used to format the file-listing columns.
 PRINT_SPACE:
         LD A,$20                         ; $04BB  3E 20
-        JR CONOUT_CHAR                      ; $04BD  18 3D
+        JR CONOUT_CHAR                   ; $04BD  18 3D
 ; [AI] Prints a blank line by emitting two CR/LF pairs via SUB_04C2.
 PRINT_BLANK_LINE:
-        CALL PRINT_CRLF                    ; $04BF  CD C2 04
+        CALL PRINT_CRLF                  ; $04BF  CD C2 04
 ; [AI] Outputs a CR/LF pair to the console; the standard newline primitive for APDOS's text output.
 PRINT_CRLF:
         LD A,$0D                         ; $04C2  3E 0D
 PRINT_CRLF_1:
-        CALL CONOUT_CHAR                    ; $04C4  CD FC 04
+        CALL CONOUT_CHAR                 ; $04C4  CD FC 04
 PRINT_CRLF_2:
         LD A,$0A                         ; $04C7  3E 0A
 PRINT_CRLF_3:
-        JR CONOUT_CHAR                      ; $04C9  18 31
+        JR CONOUT_CHAR                   ; $04C9  18 31
 ; [AI] Prints a leading blank line then a '$'-terminated message string (in DE) via BDOS print-
 ;       string function 9, for banner/prompt output.
 PRINT_MSG_BANNER:
         PUSH DE                          ; $04CB  D5
 PRINT_MSG_BANNER_1:
-        CALL PRINT_CRLF                    ; $04CC  CD C2 04
+        CALL PRINT_CRLF                  ; $04CC  CD C2 04
 PRINT_MSG_BANNER_2:
-        CALL PRINT_CRLF                    ; $04CF  CD C2 04
+        CALL PRINT_CRLF                  ; $04CF  CD C2 04
 PRINT_MSG_BANNER_3:
         POP DE                           ; $04D2  D1
 ; [AI] Prints the '$'-terminated string at DE using BDOS function 9 (print string).
@@ -620,19 +620,19 @@ PRINT_STRING_1:
 ; [AI] When the source and destination are the same physical drive, prompts the user to swap to the
 ;       CP/M (destination) disk and waits, since a single drive must hold each disk in turn.
 PROMPT_SWAP_CPM:
-        LD HL,(CONOUT_CHAR_16)              ; $04D8  2A 11 05
+        LD HL,(CONOUT_CHAR_16)           ; $04D8  2A 11 05
         LD A,L                           ; $04DB  7D
         CP H                             ; $04DC  BC
         RET Z                            ; $04DD  C8
-        LD DE,CONOUT_CHAR_34                ; $04DE  11 39 06
-        CALL PROMPT_WAIT_KEY                    ; $04E1  CD F3 04
-        CALL PRINT_BLANK_LINE                    ; $04E4  CD BF 04
-        LD DE,CONOUT_CHAR_45                ; $04E7  11 17 07
-        JP PRINT_STRING                      ; $04EA  C3 D3 04
+        LD DE,CONOUT_CHAR_34             ; $04DE  11 39 06
+        CALL PROMPT_WAIT_KEY             ; $04E1  CD F3 04
+        CALL PRINT_BLANK_LINE            ; $04E4  CD BF 04
+        LD DE,CONOUT_CHAR_45             ; $04E7  11 17 07
+        JP PRINT_STRING                  ; $04EA  C3 D3 04
 ; [AI] Conditionally prints the disk-swap prompt only when source and destination drives differ,
 ;       then waits for RETURN; skips the prompt for a same-drive transfer.
 PROMPT_SWAP_IF_SAME:
-        LD HL,(CONOUT_CHAR_16)              ; $04ED  2A 11 05
+        LD HL,(CONOUT_CHAR_16)           ; $04ED  2A 11 05
         LD A,L                           ; $04F0  7D
         CP H                             ; $04F1  BC
         RET NZ                           ; $04F2  C0
@@ -640,8 +640,8 @@ PROMPT_SWAP_IF_SAME:
 ;       preserving BC across the wait.
 PROMPT_WAIT_KEY:
         PUSH BC                          ; $04F3  C5
-        CALL PRINT_STRING                    ; $04F4  CD D3 04
-        CALL DRAIN_CONSOLE                    ; $04F7  CD AC 01
+        CALL PRINT_STRING                ; $04F4  CD D3 04
+        CALL DRAIN_CONSOLE               ; $04F7  CD AC 01
         POP BC                           ; $04FA  C1
         RET                              ; $04FB  C9
 ; [AI] Console output primitive: writes the character in A via BDOS function 2, preserving all
@@ -698,16 +698,16 @@ CONOUT_CHAR_24:
         DEFS    41, $00    ; $0519  fill
 CONOUT_CHAR_25:
         DEFB    $00,$0E,$0D,$0C,$0B,$0A,$09                      ; $0542
-        DEFW    CONOUT_CHAR_44              ; $0549
-        DEFW    CONOUT_CHAR_7               ; $054B
-        DEFW    CLOSE_OUTPUT_FILE_1               ; $054D
+        DEFW    CONOUT_CHAR_44           ; $0549
+        DEFW    CONOUT_CHAR_7            ; $054B
+        DEFW    CLOSE_OUTPUT_FILE_1      ; $054D
         DEFB    $02,$01,$0F                                      ; $054F
 CONOUT_CHAR_26:
         DEFW    TPA_START                ; $0552
         DEFB    $02,$03,$04,$05,$06,$07,$08,$09,$0A,$0B,$0C      ; $0554
 CONOUT_CHAR_27:
         DEFB    $00,$0F,$07,$03                                  ; $055F
-        DEFW    CONSOLE_STATUS_8               ; $0563
+        DEFW    CONSOLE_STATUS_8         ; $0563
         DEFB    $06,$0D                                          ; $0565
         DEFW    TPA_START_3              ; $0567
         DEFB    $08,$0C,$04                                      ; $0569

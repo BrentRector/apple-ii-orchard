@@ -22,7 +22,7 @@ TPA_START:
 TPA_START_1:
         OR A                             ; $0103  B7
 TPA_START_2:
-        LD DE,BDOS_CONOUT_1                 ; $0104  11 C0 01
+        LD DE,MSG_COMMAND_ERROR          ; $0104  11 C0 01
 TPA_START_3:
         JP Z,TPA_START_11                ; $0107  CA 8D 01
         LD C,$13                         ; $010A  0E 13
@@ -33,23 +33,23 @@ TPA_START_3:
         LD C,$16                         ; $0114  0E 16
         CALL BDOS_VEC                    ; $0116  CD 05 00
         INC A                            ; $0119  3C
-        LD DE,BDOS_CONOUT_2                 ; $011A  11 CE 01
+        LD DE,MSG_NO_DIR_SPACE           ; $011A  11 CE 01
         JP Z,TPA_START_11                ; $011D  CA 8D 01
 ; [AI] Handshake wait loop: receives bytes from the serial port until the protocol start character
 ;       'R' ($52) arrives, then replies 'S' to signal readiness.
 TPA_START_4:
-        CALL SERIAL_GET_BYTE                    ; $0120  CD A0 01
+        CALL SERIAL_GET_BYTE             ; $0120  CD A0 01
         CP $52                           ; $0123  FE 52
         JP NZ,TPA_START_4                ; $0125  C2 20 01
         LD E,$53                         ; $0128  1E 53
-        CALL SERIAL_PUT_BYTE                    ; $012A  CD 93 01
+        CALL SERIAL_PUT_BYTE             ; $012A  CD 93 01
 ; [AI] Second handshake wait loop: receives bytes until the 'G' (go, $47) character arrives,
 ;       marking the start of the actual data transfer.
 TPA_START_5:
-        CALL SERIAL_GET_BYTE                    ; $012D  CD A0 01
+        CALL SERIAL_GET_BYTE             ; $012D  CD A0 01
         CP $47                           ; $0130  FE 47
         JP NZ,TPA_START_5                ; $0132  C2 2D 01
-        LD HL,BDOS_CONOUT_4                 ; $0135  21 F5 01
+        LD HL,MSG_DOWNLOADING            ; $0135  21 F5 01
 ; [AI] Banner-send loop: walks the null-terminated "Downloading" string at $01F5 and transmits each
 ;       character out the serial port to the host.
 TPA_START_6:
@@ -58,7 +58,7 @@ TPA_START_6:
         JP Z,TPA_START_7                 ; $013A  CA 47 01
         PUSH HL                          ; $013D  E5
         LD E,A                           ; $013E  5F
-        CALL BDOS_CONOUT                    ; $013F  CD BB 01
+        CALL BDOS_CONOUT                 ; $013F  CD BB 01
         POP HL                           ; $0142  E1
         INC HL                           ; $0143  23
         JP TPA_START_6                   ; $0144  C3 38 01
@@ -71,7 +71,7 @@ TPA_START_7:
 ; [AI] Inner byte-receive loop for one record: fetches each byte via the port-read routine, stores
 ;       it to the buffer, and folds it into the running XOR checksum.
 TPA_START_8:
-        CALL SERIAL_GET_BYTE                    ; $014E  CD A0 01
+        CALL SERIAL_GET_BYTE             ; $014E  CD A0 01
         LD (HL),A                        ; $0151  77
         XOR C                            ; $0152  A9
         LD C,A                           ; $0153  4F
@@ -81,21 +81,21 @@ TPA_START_8:
         OR A                             ; $0159  B7
         JP Z,TPA_START_9                 ; $015A  CA 6A 01
         LD E,$42                         ; $015D  1E 42
-        CALL BDOS_CONOUT                    ; $015F  CD BB 01
+        CALL BDOS_CONOUT                 ; $015F  CD BB 01
         LD E,$42                         ; $0162  1E 42
-        CALL SERIAL_PUT_BYTE                    ; $0164  CD 93 01
+        CALL SERIAL_PUT_BYTE             ; $0164  CD 93 01
         JP TPA_START_7                   ; $0167  C3 47 01
 ; [AI] Good-record path: transmits a '.' progress mark, then calls BDOS write-sequential (function
 ;       21) to append the received 128-byte record to the output file before looping for the next
 ;       record.
 TPA_START_9:
         LD E,$2E                         ; $016A  1E 2E
-        CALL BDOS_CONOUT                    ; $016C  CD BB 01
+        CALL BDOS_CONOUT                 ; $016C  CD BB 01
         LD DE,DEFAULT_FCB                ; $016F  11 5C 00
         LD C,$15                         ; $0172  0E 15
         CALL BDOS_VEC                    ; $0174  CD 05 00
         LD E,$47                         ; $0177  1E 47
-        CALL SERIAL_PUT_BYTE                    ; $0179  CD 93 01
+        CALL SERIAL_PUT_BYTE             ; $0179  CD 93 01
         JP TPA_START_7                   ; $017C  C3 47 01
 ; [AI] End-of-transfer handler: reached when the host sends the terminator byte ($83); closes the
 ;       output file via BDOS close (function 16) and points to the completion message before
@@ -105,11 +105,11 @@ TPA_START_10:
         LD DE,DEFAULT_FCB                ; $0182  11 5C 00
         LD C,$10                         ; $0185  0E 10
         CALL BDOS_VEC                    ; $0187  CD 05 00
-        LD DE,BDOS_CONOUT_3                 ; $018A  11 E1 01
+        LD DE,MSG_DOWNLOAD_COMPLETE      ; $018A  11 E1 01
 ; [AI] Common message-and-exit tail: prints the DE-pointed '$'-terminated status string then falls
 ;       through to warm-boot back to CP/M.
 TPA_START_11:
-        CALL BDOS_PRINT_STRING                    ; $018D  CD B6 01
+        CALL BDOS_PRINT_STRING           ; $018D  CD B6 01
 ; [AI] Final exit: jumps to the warm-boot vector to terminate the program and return to the CCP
 ;       prompt.
 TPA_START_12:
@@ -119,7 +119,7 @@ TPA_START_12:
 SERIAL_PUT_BYTE:
         LD A,($E0AE)                     ; $0193  3A AE E0
         AND $02                          ; $0196  E6 02
-        JP Z,SERIAL_PUT_BYTE                    ; $0198  CA 93 01
+        JP Z,SERIAL_PUT_BYTE             ; $0198  CA 93 01
         LD A,E                           ; $019B  7B
         LD ($E0AF),A                     ; $019C  32 AF E0
         RET                              ; $019F  C9
@@ -129,14 +129,14 @@ SERIAL_PUT_BYTE:
 SERIAL_GET_BYTE:
         LD A,($E0AE)                     ; $01A0  3A AE E0
         RRA                              ; $01A3  1F
-        JP C,SERIAL_GET_BYTE_1                  ; $01A4  DA B2 01
+        JP C,SERIAL_RX_READY             ; $01A4  DA B2 01
         LD A,($E000)                     ; $01A7  3A 00 E0
         CP $83                           ; $01AA  FE 83
         JP Z,TPA_START_10                ; $01AC  CA 7F 01
-        JP SERIAL_GET_BYTE                      ; $01AF  C3 A0 01
+        JP SERIAL_GET_BYTE               ; $01AF  C3 A0 01
 ; [AI] Receive-ready exit of the read routine: loads the just-arrived byte from the data register
 ;       ($E0AF) into A and returns it to the caller.
-SERIAL_GET_BYTE_1:
+SERIAL_RX_READY:
         LD A,($E0AF)                     ; $01B2  3A AF E0
         RET                              ; $01B5  C9
 ; [AI] Print-string helper: sets C to BDOS function 9 (print '$'-terminated string) and tail-jumps
@@ -151,15 +151,15 @@ BDOS_PRINT_STRING_1:
 BDOS_CONOUT:
         LD C,$02                         ; $01BB  0E 02
         JP BDOS_VEC                      ; $01BD  C3 05 00
-BDOS_CONOUT_1:
+MSG_COMMAND_ERROR:
         DEFB    $43,$6F,$6D,$6D,$61,$6E,$64,$20,$45,$72,$72,$6F,$72,$24 ; $01C0
-BDOS_CONOUT_2:
+MSG_NO_DIR_SPACE:
         DEFB    $4E,$6F,$20,$64,$69,$72,$65,$63,$74,$6F,$72,$79,$20,$73,$70,$61 ; $01CE
         DEFB    $63,$65,$24                                      ; $01DE
-BDOS_CONOUT_3:
+MSG_DOWNLOAD_COMPLETE:
         DEFB    $0D,$0A,$44,$4F,$57,$4E,$4C,$4F,$41,$44,$20,$43,$6F,$6D,$70,$6C ; $01E1
         DEFB    $65,$74,$65,$24                                  ; $01F1
-BDOS_CONOUT_4:
+MSG_DOWNLOADING:
         DEFB    "Downloading"    ; $01F5  string
         DEFB    $00    ; $0200  terminator
         DEFB    $FA,$09,$C3,$8B,$13,$0E,$2C,$F5,$79,$CD,$24,$11,$F1,$C9,$CD,$D4 ; $0201
