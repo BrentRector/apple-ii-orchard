@@ -11,8 +11,8 @@ import pytest
 from softcard_emu import SoftCardMachine
 
 REPO = Path(__file__).resolve().parents[2]  # softcard/
-DSK_223 = REPO / "disks" / "CPMV223-44K.DSK"
-PO_220 = REPO / "disks" / "CPMV220-Disk1.po"
+DSK_223 = REPO / "CPMV223-44K" / "CPMV223-44K.DSK"
+PO_220 = REPO / "CPMV220" / "CPMV220-Disk1.po"
 
 
 def _has(p):

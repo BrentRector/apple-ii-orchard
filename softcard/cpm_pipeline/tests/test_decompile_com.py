@@ -10,7 +10,7 @@ from cpm_pipeline.decompile_com import decompile_com, trace_com
 from cpm_pipeline.filesystem import extract
 
 REPO_ROOT = Path(__file__).resolve().parents[2]  # softcard/
-DSK_223 = REPO_ROOT / "disks" / "CPMV223-44K.DSK"
+DSK_223 = REPO_ROOT / "CPMV223-44K" / "CPMV223-44K.DSK"
 HAS_SJASMPLUS = shutil.which("sjasmplus") is not None
 
 

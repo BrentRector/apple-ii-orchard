@@ -228,8 +228,8 @@ The disassembly was produced by:
    stub loads them (sectors 0, 2, 4, 6, 8, A, C, E, 1, 3, 5 → memory
    addresses $0800, $0A00, $0B00, $0C00, $0D00, $0E00, $0F00, $1000,
    $1100, $1200, $1300).
-2. Both `softcard/disks/CPMV223-44K.DSK` (CP/M 2.23, DOS 3.3 sector order) and
-   `softcard/disks/CPMV220-Disk1.po` (CP/M 2.20, ProDOS sector order) yield the
+2. Both `softcard/CPMV223-44K/CPMV223-44K.DSK` (CP/M 2.23, DOS 3.3 sector order) and
+   `softcard/CPMV220/CPMV220-Disk1.po` (CP/M 2.20, ProDOS sector order) yield the
    same boot-stub bytes at file offset 0 and the same boot-stub-loaded
    bytes at $1000 (`AD 81 C0 AD 81 C0 ...` — the Apple II language
    card switch).

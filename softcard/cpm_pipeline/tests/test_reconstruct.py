@@ -29,7 +29,7 @@ HAS_ASSEMBLERS = (
 @pytest.mark.skipif(not HAS_ASSEMBLERS, reason="ca65/ld65/sjasmplus not on PATH")
 def test_cpm223_reconstruct_byte_identical():
     """CPMV223-44K.DSK rebuilt from docs/CPM223_*.asm + remaining staging."""
-    reference = REPO_ROOT / "disks" / "CPMV223-44K.DSK"
+    reference = REPO_ROOT / "CPMV223-44K" / "CPMV223-44K.DSK"
     if not reference.exists():
         pytest.skip(f"reference disk missing: {reference}")
     with tempfile.TemporaryDirectory() as tmp:
@@ -49,7 +49,7 @@ def test_cpm223_reconstruct_byte_identical():
 @pytest.mark.skipif(not HAS_ASSEMBLERS, reason="ca65/ld65/sjasmplus not on PATH")
 def test_cpm220_reconstruct_byte_identical():
     """CPMV220-Disk1.po rebuilt from docs/CPM220_*.asm + remaining staging."""
-    reference = REPO_ROOT / "disks" / "CPMV220-Disk1.po"
+    reference = REPO_ROOT / "CPMV220" / "CPMV220-Disk1.po"
     if not reference.exists():
         pytest.skip(f"reference disk missing: {reference}")
     with tempfile.TemporaryDirectory() as tmp:
@@ -67,7 +67,7 @@ def test_format_transcode_dsk_to_po():
     through the physical-sector view. The output bytes differ from the
     reference because of the format change, but the *physical* sector
     contents must match."""
-    reference = REPO_ROOT / "disks" / "CPMV223-44K.DSK"
+    reference = REPO_ROOT / "CPMV223-44K" / "CPMV223-44K.DSK"
     if not reference.exists():
         pytest.skip(f"reference disk missing: {reference}")
     with tempfile.TemporaryDirectory() as tmp:

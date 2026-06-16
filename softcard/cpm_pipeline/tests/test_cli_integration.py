@@ -7,7 +7,7 @@ import pytest
 from cpm_pipeline.cli import main
 
 REPO_ROOT = Path(__file__).resolve().parents[2]  # softcard/
-DSK_223 = REPO_ROOT / "disks" / "CPMV223-44K.DSK"
+DSK_223 = REPO_ROOT / "CPMV223-44K" / "CPMV223-44K.DSK"
 
 
 @pytest.mark.skipif(not DSK_223.exists(), reason="CPMV223-44K.DSK missing")

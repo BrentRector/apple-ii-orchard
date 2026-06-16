@@ -47,9 +47,9 @@ def main():
     print(f"Pattern (10 bytes): {pattern.hex()}")
 
     # Check raw and physical-reconstructed
-    with open('e:/Orchard/softcard/disks/CPMV220-Disk1.po', 'rb') as f:
+    with open('e:/Orchard/softcard/CPMV220/CPMV220-Disk1.po', 'rb') as f:
         raw = f.read()
-    phys = reconstruct_physical('e:/Orchard/softcard/disks/CPMV220-Disk1.po')
+    phys = reconstruct_physical('e:/Orchard/softcard/CPMV220/CPMV220-Disk1.po')
 
     print("\n2.20 jump-table pattern in RAW file:")
     for h in find_pattern(raw, pattern):
@@ -72,9 +72,9 @@ def main():
     print("\n--- 2.23 ---")
     # 2.23 jump table starts: C3 D1 FE C3 B8 FA C3 10 FB
     pattern23 = bytes.fromhex('C3D1FE C3B8FA C3 10 FB'.replace(' ', ''))
-    with open('e:/Orchard/softcard/disks/CPMV223-44K.DSK', 'rb') as f:
+    with open('e:/Orchard/softcard/CPMV223-44K/CPMV223-44K.DSK', 'rb') as f:
         raw23 = f.read()
-    phys23 = reconstruct_physical('e:/Orchard/softcard/disks/CPMV223-44K.DSK')
+    phys23 = reconstruct_physical('e:/Orchard/softcard/CPMV223-44K/CPMV223-44K.DSK')
 
     print("\n2.23 jump-table pattern in RAW file:")
     for h in find_pattern(raw23, pattern23):

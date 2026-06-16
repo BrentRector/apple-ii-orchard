@@ -36,7 +36,7 @@ from .regenerate import _assemble_savebin
 _REPO = Path(__file__).resolve().parents[2]
 _60K = _REPO / "softcard" / "CPMV223-60K"
 _OS = _60K / "os"
-_DISK = _REPO / "softcard" / "disks" / "CPMV223-44K.DSK"
+_DISK = _REPO / "softcard" / "CPMV223-44K" / "CPMV223-44K.DSK"
 _SJASMPLUS = _REPO / "shared" / "toolchain" / "sjasmplus" / "sjasmplus-1.23.0.win" / "sjasmplus.exe"
 
 COM_SIZE = 0x2C00

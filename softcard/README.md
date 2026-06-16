@@ -59,11 +59,11 @@ byte-identically.
 
 ```bash
 source ../shared/toolchain/env.sh
-python -m cpm_pipeline list-files     disks/CPMV223-44K.DSK
-python -m cpm_pipeline decompile-disk disks/CPMV223-44K.DSK /tmp/out        # interactive
-python -m cpm_pipeline decompile-file disks/CPMV223-44K.DSK CPM60.COM /tmp/cpm60 --ai
-python -m cpm_pipeline build 223 --reference disks/CPMV223-44K.DSK --output /tmp/rebuilt.dsk --verify
-# → BYTE-IDENTICAL to disks/CPMV223-44K.DSK
+python -m cpm_pipeline list-files     CPMV223-44K/CPMV223-44K.DSK
+python -m cpm_pipeline decompile-disk CPMV223-44K/CPMV223-44K.DSK /tmp/out        # interactive
+python -m cpm_pipeline decompile-file CPMV223-44K/CPMV223-44K.DSK CPM60.COM /tmp/cpm60 --ai
+python -m cpm_pipeline build 223 --reference CPMV223-44K/CPMV223-44K.DSK --output /tmp/rebuilt.dsk --verify
+# → BYTE-IDENTICAL to CPMV223-44K/CPMV223-44K.DSK
 ```
 
 ## What's in this tree

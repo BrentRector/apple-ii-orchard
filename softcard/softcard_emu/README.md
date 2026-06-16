@@ -43,13 +43,13 @@ about "who answers at this address" is scattered elsewhere.
 ## Usage
 
 ```sh
-python -m softcard_emu softcard/disks/CPMV223-44K.DSK --keys "DIR\r"
+python -m softcard_emu softcard/CPMV223-44K/CPMV223-44K.DSK --keys "DIR\r"
 ```
 
 ```python
 from softcard_emu import SoftCardMachine
 
-m = SoftCardMachine("softcard/disks/CPMV223-44K.DSK")        # or softcard/disks/CPMV220-Disk1.po
+m = SoftCardMachine("softcard/CPMV223-44K/CPMV223-44K.DSK")        # or softcard/CPMV220/CPMV220-Disk1.po
 m.type_keys("DIR\r")
 print(m.run())                            # 'z80-idle (keyboard poll)' etc.
 print("\n".join(m.screen_text()))         # the 80-column display

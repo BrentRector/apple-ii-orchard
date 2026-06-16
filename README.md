@@ -16,7 +16,7 @@ That first investigation grew into a second one — the Microsoft SoftCard, the 
 
 A few pieces of this repo stand on their own:
 
-- **Complete, rebuildable source for two CP/M boot disks.** [`softcard/decompiled/`](softcard/decompiled/) holds the *entire* Microsoft SoftCard CP/M operating system for both **version 2.20** and **version 2.23** — boot loader, RWTS, BIOS, CCP, and BDOS — rendered as commented assembly, alongside every `.COM` utility in each disk's filesystem (20 programs on the 2.23 disk, 11 on 2.20: the Digital Research tools plus the Microsoft/SoftCard additions). It all reassembles to **byte-identical** disk images, proven by `rebuild.sh`. This is the artifact the whole CP/M investigation was built to produce.
+- **Complete, rebuildable source for the CP/M boot disks.** [`softcard/`](softcard/) holds one folder per release (`CPMV223-44K/`, `CPMV223-60K/`, `CPMV220/`), each with the *entire* Microsoft SoftCard CP/M operating system for **version 2.20** and **version 2.23** — boot loader, RWTS, BIOS, CCP, and BDOS — rendered as commented assembly, alongside every `.COM` utility in each disk's filesystem (20 programs on the 2.23 disk, 11 on 2.20: the Digital Research tools plus the Microsoft/SoftCard additions). It all reassembles to **byte-identical** disk images, proven by `rebuild.sh`. This is the artifact the whole CP/M investigation was built to produce.
 - **A whole-system SoftCard emulator.** [`softcard/softcard_emu/`](softcard/softcard_emu/) boots an unmodified CP/M `.dsk` to an interactive `A>` prompt — 6502 and Z-80 on one shared memory bus, the SoftCard's address translation and CPU switch, a Disk II, a Videx Videoterm, and a language card. It reproduces the historical 2.20-with-Videx hang fault-for-fault, boots the 44K / 56K / 60K builds, and even runs `CPM60.COM` itself to relocate a system into the language card.
 - **Apple Panic, fully reverse engineered.** [`apple-ii/apple-panic/`](apple-ii/apple-panic/) — nine layers of copy protection defeated, the boot traced across ~70 million emulated instructions, and the game extracted into ~8,800 lines of commented 6502 assembly.
 - **The tooling underneath it all.** A from-scratch WOZ/DSK toolkit with full 6502 and Z-80 emulators ([`nibbler`](shared/nibbler/)), ca65/sjasmplus-compatible round-tripping disassemblers for both CPUs, and a `.DSK` → annotated-source decompilation pipeline ([`cpm_pipeline`](softcard/cpm_pipeline/)).
@@ -36,13 +36,14 @@ apple-ii/
   apple-panic/    game RE: WOZ, disassembly, assets, write-ups
   scripts/        ~38 investigation scripts (working artifacts)
   docs/           Disk II P6 Boot ROM reference
-softcard/
-  decompiled/         complete rebuildable source for the 2.20 + 2.23 boot disks
-  cpm-investigation/  extraction scripts + intermediate binaries
+softcard/             Microsoft Z-80 SoftCard — one self-contained folder per CP/M release
+  CPMV223-44K/        CP/M 2.23, 44K (the Videx fix; basis for 60K): os/ + utilities/ + the .DSK
+  CPMV223-60K/        CP/M 2.23, 60K: os/ + the CPM60.asm master + the .DSK
+  CPMV220/            CP/M 2.20: os/ + utilities/ + the two .po disks
   cpm_pipeline/       productized detect → trace → reconstruct pipeline
   softcard_emu/       reusable whole-system SoftCard emulator
-  docs/               CPM*.asm (annotated source) + CPM_*.md (analysis)
-  disks/              CPMV223-44K.DSK, CPMV220Disk{1,2}.po, CPMV223-60K.DSK
+  docs/               CPM_*.md analysis (+ legacy CPM*.asm disk-build sources, retired during reorg)
+  cpm-investigation/  extraction scripts + intermediate binaries
 shared/
   nibbler/        WOZ/DSK toolkit + 6502 and Z-80 emulators
   disasm6502/     6502 disassembler (ca65-compatible, round-trips)
@@ -144,28 +145,22 @@ The [`softcard/`](softcard/) tree investigates how Microsoft SoftCard CP/M boots
 
 ```bash
 source shared/toolchain/env.sh
-python -m cpm_pipeline detect softcard/disks/CPMV223-44K.DSK
-python -m softcard_emu softcard/disks/CPMV223-44K.DSK --keys "DIR\r"
+python -m cpm_pipeline detect softcard/CPMV223-44K/CPMV223-44K.DSK
+python -m softcard_emu softcard/CPMV223-44K/CPMV223-44K.DSK --keys "DIR\r"
 ```
 
-### Decompiled distributions
+### Per-release source trees
 
-[`softcard/decompiled/`](softcard/decompiled/) is the headline deliverable: the complete source for **both** boot disks (CP/M 2.20 and 2.23), each rendered as commented assembly and organized identically —
+[`softcard/`](softcard/) is the headline deliverable: the complete source for the SoftCard CP/M boot disks, each in a self-contained folder rendered as commented assembly —
 
 ```
-decompiled/
-  CPMV223-44K/   CP/M 2.23  — os/ (boot loader, RWTS, BIOS, CCP+BDOS) + utilities/ (20 .COM programs)
-  CPMV220/    CP/M 2.20  — os/ (boot loader, RWTS, BIOS, CCP+BDOS) + utilities/ (11 .COM programs)
-  rebuild.sh verify_roundtrip.py generate_distribution.py
+softcard/
+  CPMV223-44K/   CP/M 2.23, 44K (the Videx fix) — README + os/ + utilities/ + the .DSK
+  CPMV223-60K/   CP/M 2.23, 60K — README + os/ + the CPM60.asm master + the .DSK
+  CPMV220/       CP/M 2.20 — README + os/ + utilities/ + the two .po disks
 ```
 
-Every source file reassembles to the original bytes, and `rebuild.sh` reconstructs each disk image byte-for-byte. Diffing the two `os/CPM_BIOS.asm` files is exactly where the 2.20 → 2.23 Videx fix becomes visible. See [`softcard/decompiled/README.md`](softcard/decompiled/README.md).
-
-```bash
-source shared/toolchain/env.sh
-bash softcard/decompiled/rebuild.sh CPMV223-44K      # -> byte-identical CPMV223-44K.DSK
-python softcard/decompiled/verify_roundtrip.py   # reassemble every file, both releases
-```
+Every source file reassembles to the original bytes; each folder's README gives the one-command, byte-identical disk rebuild. Diffing the 2.20 vs 2.23 `os/CPM_BIOS.asm` is exactly where the Videx fix becomes visible.
 
 ### Decompilation toolchain
 
@@ -173,9 +168,9 @@ Given a `.DSK`, the pipeline verifies it's a SoftCard CP/M disk, reverse-enginee
 
 ```bash
 source shared/toolchain/env.sh
-python -m cpm_pipeline list-files     softcard/disks/CPMV223-44K.DSK
-python -m cpm_pipeline decompile-os   softcard/disks/CPMV223-44K.DSK out_os
-python -m cpm_pipeline decompile-disk softcard/disks/CPMV223-44K.DSK out   # interactive: verify → OS → pick a file → decompile it
+python -m cpm_pipeline list-files     softcard/CPMV223-44K/CPMV223-44K.DSK
+python -m cpm_pipeline decompile-os   softcard/CPMV223-44K/CPMV223-44K.DSK out_os
+python -m cpm_pipeline decompile-disk softcard/CPMV223-44K/CPMV223-44K.DSK out   # interactive: verify → OS → pick a file → decompile it
 ```
 
 Add `--ai` to layer in machine-generated prose comments via Claude (`claude-opus-4-8`; needs `ANTHROPIC_API_KEY`).

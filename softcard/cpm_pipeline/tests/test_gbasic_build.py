@@ -17,7 +17,7 @@ from cpm_pipeline.filesystem import read_disk, extract_file
 
 REPO = Path(__file__).resolve().parents[2]               # softcard/
 GBASIC = REPO / "CPMV223-44K" / "utilities" / "GBASIC.asm"
-DISK = REPO / "disks" / "CPMV223-44K.DSK"
+DISK = REPO / "CPMV223-44K" / "CPMV223-44K.DSK"
 HAS = bool(shutil.which("sjasmplus") and DISK.exists())
 skip = pytest.mark.skipif(not HAS, reason="sjasmplus or CPMV223-44K.DSK missing")
 

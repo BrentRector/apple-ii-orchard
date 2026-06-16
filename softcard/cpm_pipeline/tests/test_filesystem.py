@@ -10,8 +10,8 @@ from cpm_pipeline.filesystem import softcard_params, read_directory, NotCpmFiles
 from cpm_pipeline.disk_format import read_disk
 
 REPO_ROOT = Path(__file__).resolve().parents[2]  # softcard/
-DSK_223 = REPO_ROOT / "disks" / "CPMV223-44K.DSK"
-PO_220 = REPO_ROOT / "disks" / "CPMV220-Disk1.po"
+DSK_223 = REPO_ROOT / "CPMV223-44K" / "CPMV223-44K.DSK"
+PO_220 = REPO_ROOT / "CPMV220" / "CPMV220-Disk1.po"
 
 
 def _has(p):

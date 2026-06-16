@@ -14,7 +14,7 @@ def _has(p):
     return (REPO_ROOT / p).exists()
 
 
-@pytest.mark.skipif(not (_has("disks/CPMV223-44K.DSK") and _has("disks/CPMV220-Disk1.po")),
+@pytest.mark.skipif(not (_has("CPMV223-44K/CPMV223-44K.DSK") and _has("CPMV220/CPMV220-Disk1.po")),
                     reason="both disks needed")
 def test_diff_2_20_vs_2_23_surfaces_videx_fix():
     """The headline test: comparing 2.20 vs 2.23 must mechanically
@@ -30,8 +30,8 @@ def test_diff_2_20_vs_2_23_surfaces_videx_fix():
       * dispatch case 6 only in 2.23 (the Videx fix)
     """
     delta = compare_disks(
-        REPO_ROOT / "disks" / "CPMV220-Disk1.po",
-        REPO_ROOT / "disks" / "CPMV223-44K.DSK",
+        REPO_ROOT / "CPMV220" / "CPMV220-Disk1.po",
+        REPO_ROOT / "CPMV223-44K" / "CPMV223-44K.DSK",
     )
     # Variant
     assert not delta.same_variant
@@ -59,12 +59,12 @@ def test_diff_2_20_vs_2_23_surfaces_videx_fix():
     assert 4 in delta.cases_with_different_handler
 
 
-@pytest.mark.skipif(not _has("disks/CPMV220-Disk1.po"), reason="CPMV220-Disk1.po missing")
+@pytest.mark.skipif(not _has("CPMV220/CPMV220-Disk1.po"), reason="CPMV220-Disk1.po missing")
 def test_diff_same_disk_is_zero():
     """Diffing a disk against itself surfaces no differences."""
     delta = compare_disks(
-        REPO_ROOT / "disks" / "CPMV220-Disk1.po",
-        REPO_ROOT / "disks" / "CPMV220-Disk1.po",
+        REPO_ROOT / "CPMV220" / "CPMV220-Disk1.po",
+        REPO_ROOT / "CPMV220" / "CPMV220-Disk1.po",
     )
     assert delta.same_variant
     assert delta.boot_stub_diff_bytes == 0
@@ -73,12 +73,12 @@ def test_diff_same_disk_is_zero():
     assert delta.cases_with_different_handler == []
 
 
-@pytest.mark.skipif(not (_has("disks/CPMV220-Disk1.po") and _has("disks/CPMV223-44K.DSK")),
+@pytest.mark.skipif(not (_has("CPMV220/CPMV220-Disk1.po") and _has("CPMV223-44K/CPMV223-44K.DSK")),
                     reason="both disks needed")
 def test_diff_summary_string():
     delta = compare_disks(
-        REPO_ROOT / "disks" / "CPMV220-Disk1.po",
-        REPO_ROOT / "disks" / "CPMV223-44K.DSK",
+        REPO_ROOT / "CPMV220" / "CPMV220-Disk1.po",
+        REPO_ROOT / "CPMV223-44K" / "CPMV223-44K.DSK",
     )
     s = delta.summary()
     assert "DiskDelta" in s

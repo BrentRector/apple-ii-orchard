@@ -14,9 +14,9 @@ def _has(p):
     return (REPO_ROOT / p).exists()
 
 
-@pytest.mark.skipif(not _has("disks/CPMV223-44K.DSK"), reason="CPMV223-44K.DSK missing")
+@pytest.mark.skipif(not _has("CPMV223-44K/CPMV223-44K.DSK"), reason="CPMV223-44K.DSK missing")
 def test_handoff_2_23():
-    h = find_handoff(REPO_ROOT / "disks" / "CPMV223-44K.DSK")
+    h = find_handoff(REPO_ROOT / "CPMV223-44K" / "CPMV223-44K.DSK")
     # Z-80 reset vector: 6502 plants JP $FA00 at Apple $1000-$1002
     assert h.z80_reset_plant is not None
     assert h.z80_reset_plant.plant_addr == 0x1000
@@ -31,9 +31,9 @@ def test_handoff_2_23():
     assert h.bdos_entry_plant.target_addr == 0x9C06
 
 
-@pytest.mark.skipif(not _has("disks/CPMV220-Disk1.po"), reason="CPMV220-Disk1.po missing")
+@pytest.mark.skipif(not _has("CPMV220/CPMV220-Disk1.po"), reason="CPMV220-Disk1.po missing")
 def test_handoff_2_20():
-    h = find_handoff(REPO_ROOT / "disks" / "CPMV220-Disk1.po")
+    h = find_handoff(REPO_ROOT / "CPMV220" / "CPMV220-Disk1.po")
     # Z-80 reset: JP $DA00 (2.20's BIOS at $DACC, cold-boot landing $DA00)
     assert h.z80_reset_plant is not None
     assert h.z80_reset_plant.target_addr == 0xDA00
@@ -45,9 +45,9 @@ def test_handoff_2_20():
     assert h.bdos_entry_plant.target_addr == 0xCC06
 
 
-@pytest.mark.skipif(not _has("disks/CPMV223-44K.DSK"), reason="CPMV223-44K.DSK missing")
+@pytest.mark.skipif(not _has("CPMV223-44K/CPMV223-44K.DSK"), reason="CPMV223-44K.DSK missing")
 def test_handoff_summary_string():
-    h = find_handoff(REPO_ROOT / "disks" / "CPMV223-44K.DSK")
+    h = find_handoff(REPO_ROOT / "CPMV223-44K" / "CPMV223-44K.DSK")
     s = h.summary()
     assert "HandoffInfo" in s
     assert "JP $FA00" in s

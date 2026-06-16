@@ -18,8 +18,8 @@ source "$ROOT/shared/toolchain/env.sh"
 
 DISTRO="${1:-}"
 case "$DISTRO" in
-  CPMV223-44K) VARIANT=223; DISK="$ROOT/softcard/disks/CPMV223-44K.DSK" ;;
-  CPMV220)  VARIANT=220; DISK="$ROOT/softcard/disks/CPMV220-Disk1.po" ;;
+  CPMV223-44K) VARIANT=223; DISK="$ROOT/softcard/CPMV223-44K/CPMV223-44K.DSK" ;;
+  CPMV220)  VARIANT=220; DISK="$ROOT/softcard/CPMV220/CPMV220-Disk1.po" ;;
   *) echo "usage: rebuild.sh {CPMV223-44K|CPMV220}" >&2; exit 2 ;;
 esac
 

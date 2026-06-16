@@ -22,12 +22,12 @@ def _has(p):
     return (REPO_ROOT / p).exists()
 
 
-@pytest.mark.skipif(not _has("disks/CPMV223-44K.DSK"), reason="CPMV223-44K.DSK missing")
+@pytest.mark.skipif(not _has("CPMV223-44K/CPMV223-44K.DSK"), reason="CPMV223-44K.DSK missing")
 def test_generate_2_23_tree_structure():
     """Generated tree has analysis + source + symbols + build.sh + README."""
     with tempfile.TemporaryDirectory() as tmp:
         out = Path(tmp) / "tree"
-        result = generate(REPO_ROOT / "disks" / "CPMV223-44K.DSK", out)
+        result = generate(REPO_ROOT / "CPMV223-44K" / "CPMV223-44K.DSK", out)
         # Directory layout
         assert (out / "README.md").exists()
         assert (out / "build.sh").exists()
@@ -48,18 +48,18 @@ def test_generate_2_23_tree_structure():
         assert result.variant == "softcard_cpm_2_23"
 
 
-@pytest.mark.skipif(not _has("disks/CPMV220-Disk1.po"), reason="CPMV220-Disk1.po missing")
+@pytest.mark.skipif(not _has("CPMV220/CPMV220-Disk1.po"), reason="CPMV220-Disk1.po missing")
 def test_generate_2_20_tree_structure():
     """2.20 has 5 sources, 2 symbols (no cpm_2_23_bios.json)."""
     with tempfile.TemporaryDirectory() as tmp:
         out = Path(tmp) / "tree"
-        result = generate(REPO_ROOT / "disks" / "CPMV220-Disk1.po", out)
+        result = generate(REPO_ROOT / "CPMV220" / "CPMV220-Disk1.po", out)
         assert result.variant == "softcard_cpm_2_20"
         assert len(result.sources_copied) == 5
         assert len(result.symbols_copied) == 2
 
 
-@pytest.mark.skipif(not _has("disks/CPMV223-44K.DSK") or not HAS_ASSEMBLERS,
+@pytest.mark.skipif(not _has("CPMV223-44K/CPMV223-44K.DSK") or not HAS_ASSEMBLERS,
                     reason="CPMV223-44K.DSK or assemblers missing")
 def test_generate_2_23_build_script_round_trips():
     """The auto-generated build.sh's equivalent reconstruction must
@@ -69,7 +69,7 @@ def test_generate_2_23_build_script_round_trips():
 
     with tempfile.TemporaryDirectory() as tmp:
         out = Path(tmp) / "tree"
-        result = generate(REPO_ROOT / "disks" / "CPMV223-44K.DSK", out)
+        result = generate(REPO_ROOT / "CPMV223-44K" / "CPMV223-44K.DSK", out)
         # Verify the build script content describes the right command
         script = result.build_script.read_text(encoding="utf-8")
         assert "python -m cpm_pipeline build 223" in script
@@ -81,7 +81,7 @@ def test_generate_2_23_build_script_round_trips():
         rebuilt.parent.mkdir(parents=True, exist_ok=True)
         r = reconstruct_disk(
             "223",
-            reference_path=REPO_ROOT / "disks" / "CPMV223-44K.DSK",
+            reference_path=REPO_ROOT / "CPMV223-44K" / "CPMV223-44K.DSK",
             output_path=rebuilt,
             verify=True,
         )
@@ -92,15 +92,15 @@ def test_generate_2_23_build_script_round_trips():
 
 def test_overwrite_protection():
     """Without overwrite=True, generating into an existing dir errors."""
-    if not _has("disks/CPMV223-44K.DSK"):
+    if not _has("CPMV223-44K/CPMV223-44K.DSK"):
         pytest.skip("CPMV223-44K.DSK missing")
     with tempfile.TemporaryDirectory() as tmp:
         out = Path(tmp) / "tree"
         out.mkdir()
         (out / "stub").write_text("don't delete me")
         with pytest.raises(FileExistsError):
-            generate(REPO_ROOT / "disks" / "CPMV223-44K.DSK", out, overwrite=False)
+            generate(REPO_ROOT / "CPMV223-44K" / "CPMV223-44K.DSK", out, overwrite=False)
         # Now with overwrite=True it works (and the stub gets deleted)
-        result = generate(REPO_ROOT / "disks" / "CPMV223-44K.DSK", out, overwrite=True)
+        result = generate(REPO_ROOT / "CPMV223-44K" / "CPMV223-44K.DSK", out, overwrite=True)
         assert not (out / "stub").exists()
         assert result.variant == "softcard_cpm_2_23"
