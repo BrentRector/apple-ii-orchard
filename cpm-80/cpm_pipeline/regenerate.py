@@ -494,3 +494,95 @@ def regenerate(target, *, ai_names=None, write=False, preserve=True):
             target.out_path.with_suffix(".cfg").write_text(cfg, encoding="utf-8")
     return RegenResult(target.out_path, ok, migrated, dropped, len(names),
                        notes=[] if ok else ["NOT byte-identical -- not written"])
+
+
+# ── 60K BIOS recipe (CPMV233-60K) ──────────────────────────────────────
+#
+# The 60K BIOS is NOT one of the DECOMPILED_OS_TARGETS: it lives in the
+# CPMV233-60K tree, which has no registry binary (its bytes come from the
+# CPM60.COM installer payload at COM offset 0x2600, ORG $FA00, *after* the 6502
+# boot loader's runtime patches -- the booted image, which DELTA.md confirms is
+# exactly what the checked-in source reassembles to). It was also last written
+# *before* the disassembler's trace/dispatch upgrades, so its BIOS jump table
+# was stranded as DEFB and chunks of the relocation/banking code sat unlabeled.
+#
+# This recipe regenerates it through the current pipeline: source the booted
+# bytes by reassembling the byte-identical checked-in source, re-disassemble at
+# $FA00/$0600 with the BIOS jump-table seeds (so the table renders as JP) plus
+# any extra code seeds, carry every curated inline label (force_labels) AND
+# every curated `EQU` symbol (a symbol overlay -- names a plain re-disassembly
+# would not reproduce), then verify byte-identical. force_labels also lets new
+# AI names be planted (e.g. $FCA4 = CONSOLE_PUT_CHAR).
+_BIOS_60K = (_REPO / "cpm-80" / "decompiled" / "CPMV233-60K" / "os" / "CPM_BIOS.asm")
+_BIOS_60K_ORG = 0xFA00
+_BIOS_60K_LEN = 0x0600
+
+
+def _assemble_savebin(text: str) -> bytes:
+    """Assemble a source carrying a literal ``SAVEBIN "name", org, len`` and
+    return the emitted bytes (b"" on failure). Unlike assemble_z80 -- which
+    substitutes a ``{out_bin}`` placeholder -- this reads back the file the
+    source's own SAVEBIN names, so it works on a checked-in source as-is."""
+    m = re.search(r'SAVEBIN\s+"([^"]+)"', text)
+    if not m:
+        return b""
+    with tempfile.TemporaryDirectory() as tds:
+        td = Path(tds)
+        (td / "r.asm").write_text(text, encoding="utf-8")
+        subprocess.run(["sjasmplus", "r.asm"], cwd=str(td), capture_output=True, text=True)
+        out = td / m.group(1)
+        return out.read_bytes() if out.exists() else b""
+
+
+def _curated_equs(text: str) -> dict[int, tuple[str, str]]:
+    """Header ``NAME EQU $XXXX ; comment`` symbols -> {addr: (name, comment)}.
+    These external-symbol names are curated, not in the loaded symbol JSON, so
+    they must be carried as an overlay or a re-disassembly drops them."""
+    out: dict[int, tuple[str, str]] = {}
+    for line in text.splitlines():
+        m = re.match(r"^([A-Za-z_][A-Za-z0-9_]*)\s+EQU\s+\$([0-9A-Fa-f]+)\s*(?:;\s*(.*))?$", line)
+        if m:
+            out[int(m.group(2), 16)] = (m.group(1), (m.group(3) or "").strip())
+    return out
+
+
+def regenerate_60k_bios(*, write: bool = False, ai_names=None, extra_seeds=None) -> RegenResult:
+    """Regenerate cpm-80/decompiled/CPMV233-60K/os/CPM_BIOS.asm byte-identical.
+
+    Carries all curated inline labels + curated EQU symbols, seeds the BIOS jump
+    table, and accepts `ai_names`/`extra_seeds` ({addr: name}) to plant new
+    semantic names and trace previously-stranded routines as code. Returns a
+    RegenResult; writes only when byte-identical.
+    """
+    old = _BIOS_60K.read_text(encoding="utf-8")
+    bios = _assemble_savebin(old)
+    if len(bios) != _BIOS_60K_LEN:
+        return RegenResult(_BIOS_60K, False, 0, 0, 0, notes=["source did not reassemble"])
+    mem = bytearray(0x10000)
+    mem[_BIOS_60K_ORG:_BIOS_60K_ORG + _BIOS_60K_LEN] = bios
+
+    seeds = set(bios_jump_table_seeds(mem, _BIOS_60K_ORG, _BIOS_60K_LEN)) | set(extra_seeds or {})
+    force = dict(extract_semantic_labels(old))
+    force.update(ai_names or {})
+    force.update(extra_seeds or {})
+
+    equs = _curated_equs(old)
+    ov_names = {a: nm for a, (nm, _c) in equs.items()}
+    ov_comments = {a: c for a, (_nm, c) in equs.items() if c}
+    import json
+    ov = _SYM / "_60k_bios_overlay.json"
+    ov.write_text(json.dumps(overlay_json(ov_names, comments=ov_comments)), encoding="utf-8")
+    try:
+        syms = _load_z80_syms(_SYM / "cpm_2_2.json", ov)
+        src = disasm_z80_region(mem, _BIOS_60K_ORG, _BIOS_60K_LEN, symbols=syms,
+                                seeds=sorted(seeds), source_name="", force_labels=force)
+    finally:
+        ov.unlink(missing_ok=True)
+    src = src.replace("{out_bin}", "CPM_BIOS.bin")
+    merged, mig, drop = migrate_comments(old, src)
+    rebuilt = _assemble_savebin(merged)
+    ok = rebuilt == bios
+    if write and ok:
+        _BIOS_60K.write_text(merged, encoding="utf-8")
+    return RegenResult(_BIOS_60K, ok, mig, drop, len(force),
+                       notes=[] if ok else ["NOT byte-identical -- not written"])
