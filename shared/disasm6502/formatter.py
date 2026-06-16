@@ -58,7 +58,7 @@ class Ca65Formatter:
     """Emit ca65 source + linker config from a Walker result."""
 
     def __init__(self, mem, walker, symbols=None, *,
-                 origin=None, length=None, source_name=""):
+                 origin=None, length=None, source_name="", pointer_words=None):
         """
         Args:
             mem:     full 64K memory image used by the walker
@@ -67,6 +67,9 @@ class Ca65Formatter:
             origin:  load address; defaults to walker.start
             length:  number of bytes to emit; defaults to walker.end - origin
             source_name: shown in the header comment
+            pointer_words: addresses to emit as a 2-byte `.word <label>` pointer
+                (resolved static pointers / dispatch entries), so they relocate
+                with ORG.
         """
         self.mem = mem
         self.walker = walker
@@ -74,6 +77,7 @@ class Ca65Formatter:
         self.origin = origin if origin is not None else walker.start
         self.length = length if length is not None else (walker.end - self.origin)
         self.source_name = source_name
+        self.pointer_words = pointer_words or set()
         # Mid-instruction reference state (populated by _prepare_overlap_labels):
         #   _overlap_covers[addr] = (cover, offset)  anonymous -> inline cover+offset
         #   _overlap_named[addr]  = (name, cover, offset)  named -> equate, keep name
@@ -318,6 +322,7 @@ class Ca65Formatter:
             symbols=self.symbols,
             cpu="6502",
             body_start=self.origin, body_end=body_end,
+            pointer_words=self.pointer_words,
         )
         runs_by_addr = {r.addr: r for r in runs}
         addr = self.origin

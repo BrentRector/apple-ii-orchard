@@ -169,6 +169,9 @@ from .region_disasm import bios_jump_table_seeds
 import disasm6502.symbols as _d6502_syms
 from disasm6502.walker import Walker as _Walker6502
 from disasm6502.formatter import Ca65Formatter
+from disasm6502.opcodes import OPCODES as _OPCODES_6502
+
+_ABS_MODES_6502 = ("ABS", "ABX", "ABY", "IND")
 
 
 def leading_jp_seeds(mem, org, length, *, op):
@@ -194,22 +197,128 @@ def _load_6502_syms(*paths):
     return t
 
 
+# ── 6502 relocation passes (parity with the Z-80 disasm_z80_region passes) ──
+# These plant labels / pointer words so absolute operands and pointer tables
+# render as relocatable symbols, reusing the shared classify_data machinery.
+# They stay byte-identical: a `.word LABEL` / symbolic operand assembles to the
+# same bytes; only the structure improves. `_6502_isize` decodes one length.
+def _6502_isize(mem, a):
+    e = _OPCODES_6502.get(mem[a])
+    return (e[2] if e else 1) or 1
+
+
+def seed_leading_jmp_vector_6502(walker, mem, org, length):
+    """Seed each slot of a leading `JMP nn` vector at the origin (the analogue of
+    seed_leading_jp_vector). Mostly redundant -- the caller already seeds via
+    leading_jp_seeds(op=0x4C) -- but kept for parity and robustness."""
+    a = org
+    while a + 2 < org + length and (a - org) < 0x30 and mem[a] == 0x4C:
+        walker.trace(a)
+        a += 3
+
+
+def resolve_jmp_indirect_6502(walker, mem, org, length):
+    """For each `JMP ($vec)` (opcode 0x6C): if the vector and its target are
+    in-range, label + trace the target and emit the vector word as a relocatable
+    `.word`. The 6502 dispatch analogue of the Z-80 computed-jump resolver, but
+    a direct read -- no register tracking. Returns the vector-word addresses."""
+    body_end = org + length
+    pw = set()
+    a = org
+    while a + 2 < body_end:
+        if a in walker.code and mem[a] == 0x6C:                  # JMP IND
+            vec = mem[a + 1] | (mem[a + 2] << 8)
+            if org <= vec < body_end - 1:
+                tgt = mem[vec] | (mem[vec + 1] << 8)
+                if org <= tgt < body_end:
+                    walker.add_label(tgt)
+                    walker.trace(tgt)
+                    walker.add_label(vec)
+                    pw.add(vec)
+        a += _6502_isize(mem, a) if a in walker.code else 1
+    return pw
+
+
+def label_inrange_operands_6502(walker, mem, org, length):
+    """Plant a label on every in-range ABS/ABX/ABY/IND operand so the formatter
+    renders it as a symbol that relocates with ORG. A genuine in-range 16-bit
+    constant would be mislabeled; the byte-identical round-trip catches that."""
+    body_end = org + length
+    a = org
+    while a < body_end:
+        if a in walker.code:
+            e = _OPCODES_6502.get(mem[a])
+            if e is None:
+                a += 1
+                continue
+            _, mode, size = e
+            if mode in _ABS_MODES_6502 and a + 2 < body_end:
+                v = mem[a + 1] | (mem[a + 2] << 8)
+                if org <= v < body_end:
+                    walker.add_label(v)
+            a += size or 1
+        else:
+            a += 1
+
+
+def scan_pointer_words_6502(walker, mem, org, length):
+    """Find static pointer words in data: a 2-byte LE value resolving to a label
+    or instruction-start -> emit as `.word <label>`. Greedy + 2-byte aligned;
+    skip if the pointer's high byte is itself a referenced label (a `.word`
+    there would swallow that label). A false positive surfaces as a relocation
+    mismatch in the round-trip."""
+    body_end = org + length
+    starts = set()
+    a = org
+    while a < body_end:
+        if a in walker.code:
+            starts.add(a)
+            a += _6502_isize(mem, a)
+        else:
+            a += 1
+    pw = set()
+    a = org
+    while a + 1 < body_end:
+        if a in walker.code or walker.in_data_region(a):
+            a += 1
+            continue
+        v = mem[a] | (mem[a + 1] << 8)
+        if (org <= v < body_end and (v in walker.labels or v in starts)
+                and (a + 1) not in walker.labels):
+            pw.add(a)
+            walker.add_label(v)
+            a += 2
+        else:
+            a += 1
+    return pw
+
+
 def disasm_6502_region(mem, org, length, *, symbols=None, seeds=(), source_name="",
-                       force_labels=None):
+                       force_labels=None, resolve_dispatch=True):
     """Disassemble a 6502 region to ca65 source. Returns (asm_text, cfg_text).
 
     `force_labels` ({addr: name}) plants a label at each in-range address (see
-    disasm_z80_region) to preserve hand-curated / AI semantic names."""
+    disasm_z80_region) to preserve hand-curated / AI semantic names.
+
+    `resolve_dispatch` runs the relocation passes (JMP-indirect resolution,
+    in-range operand labeling, static pointer words) so absolute operands and
+    pointer tables render as relocatable symbols -- parity with the Z-80 path."""
     walker = _Walker6502(mem, start=org, end=org + length)
     for s in sorted(set(seeds) | {org}):
         walker.trace(s)
+    pointer_words = None
+    if resolve_dispatch:
+        seed_leading_jmp_vector_6502(walker, mem, org, length)
+        dispatch_words = resolve_jmp_indirect_6502(walker, mem, org, length)
+        label_inrange_operands_6502(walker, mem, org, length)
+        pointer_words = scan_pointer_words_6502(walker, mem, org, length) | dispatch_words
     if force_labels:
         for addr, name in force_labels.items():
             if org <= addr < org + length:
                 walker.labels[addr] = name
     walker.name_labels(symbols=symbols)
     fmt = Ca65Formatter(mem, walker, symbols, origin=org, length=length,
-                        source_name=source_name)
+                        source_name=source_name, pointer_words=pointer_words)
     return fmt.emit_source(), fmt.emit_config()
 
 
