@@ -1,9 +1,10 @@
 # CPMV220 — Microsoft SoftCard CP/M 2.20
 
 A complete, **byte-identical** decompilation of SoftCard CP/M **2.20** — the
-earlier, pre-Videx release. Everything on the boot disk, the operating system
-(6502 + Z-80) and every `.COM` program, is here as commented assembly that
-reassembles to the original bytes. See [`../README.md`](../README.md) for the
+earlier, pre-Videx release. Everything on the bootable **Disk1**, the operating
+system (6502 + Z-80) and every `.COM` program on it, is here as commented
+assembly that reassembles to the original bytes. (Disk2 is a companion tools
+disk; its extra programs are not decompiled — see below.) See [`../README.md`](../README.md) for the
 overview of all three releases and the shared tooling.
 
 2.20 ships on **two disks**: **Disk1** is the bootable system + the core SoftCard

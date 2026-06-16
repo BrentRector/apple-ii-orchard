@@ -8003,7 +8003,7 @@ CLOSE_FILE_6:
         POP DE                           ; $5AF6  D1
 CLOSE_FILE_7:
         CALL $7BFA                       ; $5AF7  CD FA 7B
-        LD C,$10                         ; $5AFA  0E 10   ; [AI] BDOS fn 10 = close file
+        LD C,$10                         ; $5AFA  0E 10   ; [AI] BDOS fn 16 = close file
         CALL BDOS_VEC                    ; $5AFC  CD 05 00 ; [AI] DE -> FCB
         POP BC                           ; $5AFF  C1
         LD D,$29                         ; $5B00  16 29
@@ -8258,11 +8258,11 @@ OPEN_BY_MODE:
         CP $02                           ; $5D9A  FE 02   ; [AI] output mode?
         JR NZ,OPEN_BY_MODE_2                 ; $5D9C  20 12   ; [AI] no -> just open existing
         PUSH DE                          ; $5D9E  D5
-        LD C,$13                         ; $5D9F  0E 13   ; [AI] BDOS fn 13 = delete file (clear old)
+        LD C,$13                         ; $5D9F  0E 13   ; [AI] BDOS fn 19 = delete file (clear old)
         CALL BDOS_VEC                    ; $5DA1  CD 05 00
         POP DE                           ; $5DA4  D1
 OPEN_BY_MODE_1:
-        LD C,$16                         ; $5DA5  0E 16   ; [AI] BDOS fn 16 = make (create) file
+        LD C,$16                         ; $5DA5  0E 16   ; [AI] BDOS fn 22 = make (create) file
         CALL BDOS_VEC                    ; $5DA7  CD 05 00
         INC A                            ; $5DAA  3C       ; [AI] $FF -> 0 means "no directory space"
         JP Z,SUB_0C75_10+1               ; $5DAB  CA 62 0D ; [AI] -> "Disk full" error

@@ -198,7 +198,7 @@ def cmd_build(args):
         pct_assembled = (100 * result.bytes_from_assembled / total) if total else 0
         print(f"wrote {result.output_path}")
         print(f"  {result.chunks_written} chunks placed")
-        print(f"  {result.bytes_from_assembled} bytes from freshly assembled docs/CPM*.asm "
+        print(f"  {result.bytes_from_assembled} bytes from freshly assembled OS source (the per-disk os/ tree) "
               f"({pct_assembled:.1f}%)")
         print(f"  {result.bytes_from_extracted} bytes from pre-extracted .bin "
               f"(uncovered by annotated source)")

@@ -1,4 +1,4 @@
-"""Assembler wrappers: take a `docs/CPM*.asm` source file, produce its bytes.
+"""Assembler wrappers: take an OS source file (a per-disk os/ tree), produce its bytes.
 
 Wraps the same ca65/ld65 (6502) and sjasmplus (Z-80) toolchains that the
 docs round-trip regression tests use. The tests are in

@@ -77,7 +77,7 @@ MSG_VERIFY_ERR:
 MSG_NOT_CHAR_SINK:
         DEFB    $4E,$4F,$54,$20,$41,$20,$43,$48,$41,$52,$41,$43,$54,$45,$52,$20 ; $02C2
         DEFB    $53,$49,$4E,$4B,$24                              ; $02D2
-; [AI] "READER STOPPING:<CR><LF>$" (DEFW at $02E5 are the ':' / CR bytes of this literal)
+; [AI] "READER STOPPING<CR><LF>$" (the bytes at $02E5/$02E6 are 'G',CR -- end of the literal; the disassembler rendered them as a DEFW)
 MSG_READER_STOPPING:
         DEFB    $52,$45,$41,$44,$45,$52,$20,$53,$54,$4F,$50,$50,$49,$4E ; $02D7
         DEFW    EMIT_CHAR_4               ; $02E5

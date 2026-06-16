@@ -8,7 +8,7 @@ Quick start::
 
     source shared/toolchain/env.sh   # puts ca65 + ld65 + sjasmplus on PATH
 
-    # Reconstruct CPMV223-44K.DSK from docs/CPM223_*.asm
+    # Reconstruct CPMV223-44K.DSK from CPMV223-44K/os/
     python -m cpm_pipeline build 223 \\
         --reference CPMV223-44K.DSK \\
         --output build/cpm223_rebuilt.dsk \\

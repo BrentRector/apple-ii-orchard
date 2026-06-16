@@ -235,19 +235,30 @@ def _assemble_com(disk_path, name: str, td: Path) -> bytes:
     return out_bin.read_bytes()
 
 
-def _com_from_committed(disk_path, name: str, td: Path) -> bytes:
+def _com_from_committed(disk_path, name: str, td: Path,
+                        expected: bytes | None = None) -> bytes:
     """Bytes for a `.COM`, preferring committed per-disk source over on-the-fly
     decompilation: the assembled binary in ``<disk>/utilities/bin/<name>`` (built
     from ``utilities/<stem>.asm``), and the 60K ``CPM60.asm`` master for
     CPM60.COM. Falls back to :func:`_assemble_com` for disks whose utilities are
-    not unified yet (e.g. 2.20)."""
+    not unified yet.
+
+    When ``expected`` (the disk's own file bytes) is given, a committed source is
+    trusted ONLY if it equals ``expected`` -- so reconstructing a *different* disk
+    that happens to share the folder (e.g. CPMV220 Disk2 vs Disk1, whose PIP.COM
+    differ) never silently uses the wrong disk's binary; it re-decompiles instead.
+    """
     cand = disk_path.parent / "utilities" / "bin" / name
     if cand.exists():
-        return cand.read_bytes()
+        b = cand.read_bytes()
+        if expected is None or b == expected:
+            return b
     if name == "CPM60.COM":
         try:
             from .build_cpm60 import build_cpm60_com
-            return build_cpm60_com()
+            cb = build_cpm60_com()
+            if expected is None or cb == expected:
+                return cb
         except Exception:
             pass
     return _assemble_com(disk_path, name, td)
@@ -265,6 +276,13 @@ def reconstruct_full_disk(disk_path, output_path, *, variant: str | None = None,
     / free space are carried as data. The point is not that a copy equals itself,
     but that every *code* region is independently regenerated from human-readable
     source and still lands on the exact original bytes.
+
+    This targets a variant's **bootable system disk** (the OS region is overlaid
+    from that variant's chunk map). Pointing it at a non-system disk of the same
+    family -- e.g. CPMV220 Disk2, a tools/data disk with a different boot sector
+    and its own undecompiled .COMs -- will not be byte-identical (``byte_identical``
+    is reported False): the OS overlay does not apply and those .COMs have no
+    committed source, so they fall back to re-decompilation.
     """
     from .decompile_os import detect                   # variant detection
     from .filesystem import (read_directory, extract_file, softcard_params,
@@ -301,7 +319,8 @@ def reconstruct_full_disk(disk_path, output_path, *, variant: str | None = None,
         td = Path(tds)
         for f in read_directory(ref, p):
             is_com = f.name.endswith(".COM")
-            data = _com_from_committed(disk_path, f.name, td) if is_com else extract_file(ref, f.name, p, f.user)
+            actual = bytes(extract_file(ref, f.name, p, f.user))
+            data = _com_from_committed(disk_path, f.name, td, expected=actual) if is_com else actual
             tag = COM_SOURCE if is_com else DATA_FILE
             written = 0
             for blk in f.blocks:

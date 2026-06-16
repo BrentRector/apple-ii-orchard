@@ -3,7 +3,7 @@
 Several places disassemble a flat block of Z-80 bytes at a fixed origin, seeded
 by known entry points, with a symbol table, into sjasmplus source that
 round-trips byte-identical: the `.COM` decompiler (`decompile_com`), and the
-BIOS source generators (`cpm-investigation/gen_bios.py`). This module holds the
+BIOS source generators. This module holds the
 one copy of that logic so they don't each re-implement it.
 
 `disasm_z80_region` returns source text containing a literal ``{out_bin}``
