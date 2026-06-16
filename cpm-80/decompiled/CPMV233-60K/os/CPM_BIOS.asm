@@ -20,7 +20,7 @@ BOOT:
         NOP                              ; $FA01  00
         NOP                              ; $FA02  00
 WBOOT:
-        JP SLOT_E000_ADDR_1                    ; $FA03  C3 B8 FA
+        JP BIOS_WBOOT                    ; $FA03  C3 B8 FA
 CONST:
         DEFB    $C3,$10,$FB                                      ; $FA06
 CONIN:
@@ -89,9 +89,9 @@ SLOT_E000_ADDR:
         LD A,E                           ; $FAB4  7B
         OR H                             ; $FAB5  B4
         LD H,A                           ; $FAB6  67
-SUB_FAB1_1_FAB7:
+RET_VECTOR:
         RET                              ; $FAB7  C9
-SLOT_E000_ADDR_1:
+BIOS_WBOOT:
         LD SP,DEFAULT_DMA                ; $FAB8  31 80 00
         LD A,($E051)                     ; $FABB  3A 51 E0
         LD HL,$0E00                      ; $FABE  21 00 0E
@@ -126,15 +126,15 @@ SLOT_E000_ADDR_2:
         LD A,(CDISK)                     ; $FB09  3A 04 00
         LD C,A                           ; $FB0C  4F
         JP $D300                         ; $FB0D  C3 00 D3
-SLOT_E000_ADDR_3:
+BIOS_CONST:
         DEFB    $2A,$80,$F3,$E9,$3A,$00,$E0,$17,$9F,$C9          ; $FB10
-SLOT_E000_ADDR_4:
+BIOS_CONIN:
         DEFB    $CD,$5A,$FB,$E6,$7F,$21,$AB,$F3,$06,$06,$4F      ; $FB1A
-SLOT_E000_ADDR_5:
+KEY_TABLE_SCAN:
         DEFB    $23,$7E,$23                                      ; $FB25
-        DEFW    SUB_FAB1_1_FAB7          ; $FB28
+        DEFW    RET_VECTOR          ; $FB28
         DEFB    $31,$FB,$B9,$7E,$C8,$10,$F4                      ; $FB2A
-SLOT_E000_ADDR_6:
+KBD_STROBE_CLEAR:
         DEFB    $79,$C9,$11,$03,$00,$C3,$B7,$FD,$3A,$00,$E0,$17,$30,$FA,$32,$10 ; $FB31
         DEFB    $E0,$3F,$1F,$C9                                  ; $FB41
 RPC_DISPATCH:
@@ -153,37 +153,37 @@ SUB_FB5A_2:
         DEFB    $2A,$8A,$F3                                      ; $FB6C
 SUB_FB5A_3:
         DEFB    $E9                                              ; $FB6F
-SUB_FB5A_4:
+BIOS_LIST:
         DEFB    $3A,$03,$00,$E6,$C0,$FE,$80,$38,$27,$28,$DB,$2A,$94,$F3,$E9 ; $FB70
-SUB_FB5A_5:
+BIOS_PUNCH:
         DEFB    $3A,$03,$00,$E6,$30,$FE,$10,$38,$18,$2A,$8E,$F3,$28,$E2,$2A,$90 ; $FB7F
         DEFB    $F3,$E9                                          ; $FB8F
-SUB_FB5A_6:
+BIOS_READER:
         DEFB    $3A,$03,$00,$E6,$0C,$FE,$08,$38,$CE,$28,$D0,$2A,$8C,$F3,$E9 ; $FB91
 SUB_FB5A_7:
         DEFB    $37                                              ; $FBA0
-SUB_FB5A_8:
+CONSOLE_WRITE_CHAR:
         DEFB    $9F,$21,$A2,$F3,$6E,$2C,$CA,$A4,$FC,$21,$E4,$FE,$77,$CB,$B9,$23 ; $FBA1
         DEFB    $7E,$B7,$CA,$56,$FC,$35,$3A,$96,$F3,$21,$ED,$FE,$28,$0C,$B7,$F2 ; $FBB1
         DEFB    $C6,$FB,$2B,$E6,$7F                              ; $FBC1
 SUB_FBC4_1:
         DEFB    $5F,$79,$93,$77,$C9                              ; $FBC6
 SUB_FBC4_2:
-        DEFW    SUB_FAB1_1_FAB7          ; $FBCB
+        DEFW    RET_VECTOR          ; $FBCB
         DEFB    $D0,$FB,$2B                                      ; $FBCD
-SUB_FBC4_3:
+CURSOR_POSITION:
         DEFB    $CD,$C4,$FB,$2A,$EC,$FE,$3A,$A1,$F3,$B7,$F2,$E2,$FB,$E6,$7F,$5D ; $FBD0
         DEFB    $6C,$63                                          ; $FBE0
-SUB_FBC4_4:
+EMIT_CURSOR_MOVE:
         DEFB    $5F,$84,$4F,$7B,$85,$F5,$06,$07,$CD,$A4,$FC,$F1,$06,$0A,$4F,$C3 ; $FBE2
         DEFB    $A4,$FC                                          ; $FBF2
-SUB_FBF0_1:
+BIOS_SETSEC:
         DEFB    $79,$32,$EB,$FE,$C9                              ; $FBF4
 BIOS_SETDMA:
         LD (SELDSK_IMPL_4_3),BC          ; $FBF9  ED 43 FA FE
         RET                              ; $FBFD  C9
         DEFS    88, $00    ; $FBFE  fill
-BIOS_SETDMA_1:
+CHECK_UNIT_DEFAULT:
         DEFB    $47,$21,$E6,$FE,$7E,$5F,$B7,$20,$12,$3A,$97,$F3,$B7,$28,$06,$B9 ; $FC56
         DEFB    $20,$03,$36,$80,$C9                              ; $FC66
 BIOS_SETDMA_2:

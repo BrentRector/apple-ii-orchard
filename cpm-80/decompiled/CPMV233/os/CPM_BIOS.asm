@@ -380,7 +380,7 @@ DISK_RPC_PUSH_ADDR:
         RST $38                          ; $FBC5  FF
 ; [AI] Disk-translation continuation reached for positive-flagged sectors; resumes building the
 ;       6502 read/write request from the running address.
-DISK_RPC_PUSH_ADDR_1:
+DISK_XLAT_POS_SECTOR:
         NOP                              ; $FBC6  00
         NOP                              ; $FBC7  00
         RST $38                          ; $FBC8  FF
@@ -393,7 +393,7 @@ DISK_RPC_PUSH_ADDR_1:
         NOP                              ; $FBCF  00
 ; [AI] Disk-translation branch for the negative-flag (extended) case in the READ/WRITE address
 ;       computation.
-DISK_RPC_PUSH_ADDR_2:
+DISK_XLAT_NEG_SECTOR:
         RST $38                          ; $FBD0  FF
         RST $38                          ; $FBD1  FF
         NOP                              ; $FBD2  00
@@ -414,7 +414,7 @@ DISK_RPC_PUSH_ADDR_2:
         RST $38                          ; $FBE1  FF
 ; [AI] Disk-translation continuation handling the second sector-address component when the
 ;       skew/offset byte is positive.
-DISK_RPC_PUSH_ADDR_3:
+DISK_XLAT_SECTOR_HI:
         NOP                              ; $FBE2  00
         NOP                              ; $FBE3  00
         RST $38                          ; $FBE4  FF
@@ -519,7 +519,7 @@ DISK_WAIT_XFER:
         LD HL,BIOS_DMA                   ; $FCBA  21 D4 FE
         JR Z,DISK_WAIT_XFER_1            ; $FCBD  28 0C
         OR A                             ; $FCBF  B7
-        JP P,DISK_RPC_PUSH_ADDR_1                  ; $FCC0  F2 C6 FB
+        JP P,DISK_XLAT_POS_SECTOR                  ; $FCC0  F2 C6 FB
         DEC HL                           ; $FCC3  2B
         AND $7F                          ; $FCC4  E6 7F
         LD E,A                           ; $FCC6  5F
@@ -531,13 +531,13 @@ DISK_WAIT_XFER:
 ;       WRITE rather than a READ.
 DISK_WAIT_XFER_1:
         OR A                             ; $FCCB  B7
-        JP M,DISK_RPC_PUSH_ADDR_2                  ; $FCCC  FA D0 FB
+        JP M,DISK_XLAT_NEG_SECTOR                  ; $FCCC  FA D0 FB
         DEC HL                           ; $FCCF  2B
         CALL DISK_RPC_PUSH_ADDR                    ; $FCD0  CD C4 FB
         LD HL,(BIOS_SECTOR_1)            ; $FCD3  2A D3 FE
         LD A,($F3A1)                     ; $FCD6  3A A1 F3
         OR A                             ; $FCD9  B7
-        JP P,DISK_RPC_PUSH_ADDR_3                  ; $FCDA  F2 E2 FB
+        JP P,DISK_XLAT_SECTOR_HI                  ; $FCDA  F2 E2 FB
         AND $7F                          ; $FCDD  E6 7F
         LD E,L                           ; $FCDF  5D
         LD L,H                           ; $FCE0  6C
