@@ -36,9 +36,12 @@ loaded **verbatim** — there is no in-place self-modification of that region
 (byte-for-byte identical to the running image there; verified against the
 post-cold-boot snapshot `cpm-investigation/bios_223.bin`).
 
-The resident BIOS is larger (`$FA00-$FF47`, 1352 bytes) because the on-disk
-cold-boot code **builds the `$FE00-$FF47` device/console tail in RAM** — it is
-not on disk. The 17-entry jump table at `$FA00` already points into that tail
+The resident BIOS is larger because the on-disk cold-boot code **builds a
+device/console tail in RAM from `$FE00` upward** — it is not on disk. (The
+runtime snapshot `cpm-investigation/bios_223.bin` captures `$FA00-$FF47`, 1352
+bytes; the code also uses scratch cells higher in the page, e.g. `$FF59` and
+`$FF80`, so the exact upper bound is fuzzy.) The 17-entry jump table at `$FA00`
+already points into that tail
 (`HOME_IMPL=$FE6C`, `SETTRK_IMPL=$FE77`, `SELDSK_IMPL=$FE8E`, `READ_IMPL=$FEBD`,
 `WRITE_IMPL=$FEC0`, `BOOT_LANDING=$FED1`), so the tail must be populated before
 any BIOS call is serviced.

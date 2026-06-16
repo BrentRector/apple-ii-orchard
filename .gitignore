@@ -11,10 +11,10 @@ build/
 apple-ii/apple-panic/output/
 
 # Rebuilt disk images from the decompiled distributions (regenerable)
-softcard/decompiled/**/rebuilt/
+softcard/*/rebuilt/
 
 # Emulator-produced 60K disk (regenerable by running CPM60.COM in softcard_emu)
-softcard/disks/CPMV233-60K-EMU.DSK
+softcard/CPMV223-60K/CPMV223-60K-EMU.DSK
 
 # Large generated images (reproducible via nibbler flux)
 **/*_flux.png

@@ -37,19 +37,21 @@ system. These sources reassemble to exactly those bytes; the disk build
 | `CPM_BDOS.asm` | Z-80 | `$9C00` | The 2.23 BDOS on its own (a semantic view of the BDOS half of `CPM_SystemImage`) |
 
 6502 regions are ca65 `.s` + a `.cfg` linker config; Z-80 regions are sjasmplus
-`.asm`. The standalone CCP lives in the shared [`../../src/os/CPM_CCP.asm`](../../src/os/CPM_CCP.asm)
+`.asm`. The standalone CCP lives in the shared [`../src/os/CPM_CCP.asm`](../src/os/CPM_CCP.asm)
 (one source builds the 44K and 60K CCP). The BIOS is the bytes on disk; the
 running BIOS additionally builds a `$FE00-$FF47` device/console tail in RAM (the
 Videx/Pascal path) — see [`BOOT_AND_PATCHING.md`](BOOT_AND_PATCHING.md).
 
 ## `utilities/` — the filesystem programs
 
-The 20 `.COM` programs in the disk's filesystem, each as an annotated `.asm`
-that reassembles byte-identical; `bin/` holds the assembled output.
+19 of the 20 `.COM` programs in the disk's filesystem are here as annotated
+`.asm` that reassemble byte-identical, with `bin/` holding the assembled output:
 
 `APDOS ASM AUTORUN BOOT CAT COPY DDT DOWNLOAD DUMP ED GBASIC LOAD MBASIC MFT
-PATCH PIP STAT SUBMIT XSUB` — plus `CPM60.COM`, whose canonical source is the
-60K master [`../CPMV223-60K/CPM60.asm`](../CPMV223-60K/CPM60.asm).
+PATCH PIP STAT SUBMIT XSUB`
+
+The 20th, `CPM60.COM`, is built from the 60K master
+[`../CPMV223-60K/CPM60.asm`](../CPMV223-60K/CPM60.asm).
 (`CONFIGIO.BAS` and `DUMP.ASM` are BASIC/asm text files on the disk, not machine
 code.) `GBASIC` self-relocates and is one file via `DISP`; see its header.
 
