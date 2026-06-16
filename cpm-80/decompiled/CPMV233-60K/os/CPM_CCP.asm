@@ -18,178 +18,178 @@ CMDLINE              EQU $0081               ; Command-line tail characters (upp
 TPA_START            EQU $0100               ; Start of Transient Program Area. .COM files load here and execute starting at $0100.
 
 ; -- Mid-instruction references (shown inline as cover+offset) --
-;   $DB26 -> SUB_DB06_1_1+1       shared instruction tail: $DB26 is reachable code inside the instruction at $DB25
+;   $DB26 -> RELOC_PATCH_STORE+1       shared instruction tail: $DB26 is reachable code inside the instruction at $DB25
 
     ORG $D300
 
-L_D300:
-        JP SUB_D5E5_5                    ; $D300  C3 0C D6
+CCP_ENTRY:
+        JP CCP_MAIN                    ; $D300  C3 0C D6
 L_D303:
-        JP SUB_D5E5_4_1                  ; $D303  C3 08 D6
-L_D306:
+        JP WARMBOOT_CLEAR_LINE                  ; $D303  C3 08 D6
+READBUF_MAX:
         DEFB    $7F                                              ; $D306
-L_D307:
+READBUF_LEN:
         DEFB    $00                                              ; $D307
-L_D308:
+READBUF_TEXT:
         DEFS    16, $20    ; $D308  fill
         DEFB    "COPYRIGHT (C) 1979, DIGITAL RESEARCH  "    ; $D318  string
         DEFB    $00    ; $D33E  terminator
         DEFS    73, $00    ; $D33F  fill
-L_D388:
-        DEFW    L_D308                   ; $D388
-L_D38A:
+PARSE_PTR:
+        DEFW    READBUF_TEXT                   ; $D388
+TOKEN_PTR:
         DEFB    $00,$00                                          ; $D38A
-SUB_D38C:
+CONOUT:
         LD E,A                           ; $D38C  5F
         LD C,$02                         ; $D38D  0E 02
         JR SUB_D3B6_1                    ; $D38F  18 28
-SUB_D391:
+CONOUT_SPACE:
         LD A,$20                         ; $D391  3E 20
-SUB_D393:
+CONOUT_BC:
         PUSH BC                          ; $D393  C5
-        CALL SUB_D38C                    ; $D394  CD 8C D3
+        CALL CONOUT                    ; $D394  CD 8C D3
 SUB_D393_1:
         POP BC                           ; $D397  C1
         RET                              ; $D398  C9
-SUB_D399:
+PRINT_CRLF:
         LD A,$0D                         ; $D399  3E 0D
-        CALL SUB_D393                    ; $D39B  CD 93 D3
+        CALL CONOUT_BC                    ; $D39B  CD 93 D3
         LD A,$0A                         ; $D39E  3E 0A
-        JR SUB_D393                      ; $D3A0  18 F1
-SUB_D3A2:
+        JR CONOUT_BC                      ; $D3A0  18 F1
+PRINT_MSG_CRLF:
         PUSH BC                          ; $D3A2  C5
-        CALL SUB_D399                    ; $D3A3  CD 99 D3
+        CALL PRINT_CRLF                    ; $D3A3  CD 99 D3
         POP HL                           ; $D3A6  E1
-SUB_D3A7:
+PRINT_STRING:
         LD A,(HL)                        ; $D3A7  7E
         OR A                             ; $D3A8  B7
         RET Z                            ; $D3A9  C8
         INC HL                           ; $D3AA  23
         PUSH HL                          ; $D3AB  E5
-        CALL SUB_D38C                    ; $D3AC  CD 8C D3
+        CALL CONOUT                    ; $D3AC  CD 8C D3
         POP HL                           ; $D3AF  E1
-        JR SUB_D3A7                      ; $D3B0  18 F5
-SUB_D3B2:
+        JR PRINT_STRING                      ; $D3B0  18 F5
+BDOS_RESET_DISK:
         LD C,$0D                         ; $D3B2  0E 0D
         JR SUB_D3B6_1                    ; $D3B4  18 03
-SUB_D3B6:
+BDOS_SELECT_DISK:
         LD E,A                           ; $D3B6  5F
         LD C,$0E                         ; $D3B7  0E 0E
 SUB_D3B6_1:
         JP BDOS_VEC                      ; $D3B9  C3 05 00
-SUB_D3BC:
+BDOS_CLOSE_FILE:
         LD C,$10                         ; $D3BC  0E 10
-SUB_D3BC_1:
+BDOS_CALL_SAVERES:
         CALL BDOS_VEC                    ; $D3BE  CD 05 00
-        LD (SUB_DB06_1_17),A             ; $D3C1  32 A7 DB
+        LD (SEARCH_DIRCODE),A             ; $D3C1  32 A7 DB
         INC A                            ; $D3C4  3C
         RET                              ; $D3C5  C9
-SUB_D3C6:
+SEARCH_FIRST_DEF:
         XOR A                            ; $D3C6  AF
-        LD (SUB_DB06_1_16),A             ; $D3C7  32 A6 DB
-        LD DE,SUB_DB06_1_11              ; $D3CA  11 86 DB
-SUB_D3CD:
+        LD (EXTENT_FLAG),A             ; $D3C7  32 A6 DB
+        LD DE,PARSE_FCB_AREA              ; $D3CA  11 86 DB
+BDOS_SEARCH_FIRST:
         LD C,$0F                         ; $D3CD  0E 0F
-        JR SUB_D3BC_1                    ; $D3CF  18 ED
-SUB_D3D1:
-        LD DE,SUB_DB06_1_11              ; $D3D1  11 86 DB
+        JR BDOS_CALL_SAVERES                    ; $D3CF  18 ED
+BDOS_SEARCH_FIRST2:
+        LD DE,PARSE_FCB_AREA              ; $D3D1  11 86 DB
         LD C,$11                         ; $D3D4  0E 11
-        JR SUB_D3BC_1                    ; $D3D6  18 E6
-SUB_D3D8:
+        JR BDOS_CALL_SAVERES                    ; $D3D6  18 E6
+BDOS_SEARCH_NEXT:
         LD C,$12                         ; $D3D8  0E 12
-        JR SUB_D3BC_1                    ; $D3DA  18 E2
-SUB_D3DC:
+        JR BDOS_CALL_SAVERES                    ; $D3DA  18 E2
+BDOS_DELETE_FILE:
         LD C,$13                         ; $D3DC  0E 13
         JR SUB_D3B6_1                    ; $D3DE  18 D9
-SUB_D3E0:
-        LD DE,SUB_DB06_1_11              ; $D3E0  11 86 DB
-SUB_D3E3:
+BDOS_READ_SEQ_FCB:
+        LD DE,PARSE_FCB_AREA              ; $D3E0  11 86 DB
+BDOS_READ_SEQ:
         LD C,$14                         ; $D3E3  0E 14
 SUB_D3E3_1:
         CALL BDOS_VEC                    ; $D3E5  CD 05 00
         OR A                             ; $D3E8  B7
         RET                              ; $D3E9  C9
-SUB_D3EA:
+BDOS_WRITE_SEQ:
         LD C,$15                         ; $D3EA  0E 15
         JR SUB_D3E3_1                    ; $D3EC  18 F7
-SUB_D3EE:
+BDOS_MAKE_FILE:
         LD C,$16                         ; $D3EE  0E 16
-        JR SUB_D3BC_1                    ; $D3F0  18 CC
-SUB_D3F2:
+        JR BDOS_CALL_SAVERES                    ; $D3F0  18 CC
+BDOS_RENAME_FILE:
         LD C,$17                         ; $D3F2  0E 17
         JR SUB_D3B6_1                    ; $D3F4  18 C3
-SUB_D3F6:
+BDOS_GET_USER:
         LD E,$FF                         ; $D3F6  1E FF
-SUB_D3F8:
+BDOS_SET_USER:
         LD C,$20                         ; $D3F8  0E 20
         JR SUB_D3B6_1                    ; $D3FA  18 BD
-SUB_D3FC:
-        CALL SUB_D3F6                    ; $D3FC  CD F6 D3
+SAVE_USER_TO_CDISK:
+        CALL BDOS_GET_USER                    ; $D3FC  CD F6 D3
 SUB_D3FC_1:
         ADD A,A                          ; $D3FF  87
         ADD A,A                          ; $D400  87
         ADD A,A                          ; $D401  87
         ADD A,A                          ; $D402  87
-        LD HL,SUB_DB06_1_18              ; $D403  21 A8 DB
+        LD HL,CUR_DRIVE              ; $D403  21 A8 DB
         OR (HL)                          ; $D406  B6
         LD (CDISK),A                     ; $D407  32 04 00
         RET                              ; $D40A  C9
-SUB_D40B:
-        LD A,(SUB_DB06_1_18)             ; $D40B  3A A8 DB
+RESTORE_CDISK_DRIVE:
+        LD A,(CUR_DRIVE)             ; $D40B  3A A8 DB
         LD (CDISK),A                     ; $D40E  32 04 00
         RET                              ; $D411  C9
-SUB_D412:
+TO_UPPER:
         CP $61                           ; $D412  FE 61
         RET C                            ; $D414  D8
         CP $7B                           ; $D415  FE 7B
         RET NC                           ; $D417  D0
         AND $5F                          ; $D418  E6 5F
         RET                              ; $D41A  C9
-SUB_D41B:
-        LD A,(SUB_DB06_1_6)              ; $D41B  3A 64 DB
+READ_COMMAND_LINE:
+        LD A,(SUBMIT_FLAG)              ; $D41B  3A 64 DB
         OR A                             ; $D41E  B7
-        JR Z,SUB_D41B_1                  ; $D41F  28 52
-        LD A,(SUB_DB06_1_18)             ; $D421  3A A8 DB
+        JR Z,READ_CON_BUFFER                  ; $D41F  28 52
+        LD A,(CUR_DRIVE)             ; $D421  3A A8 DB
         OR A                             ; $D424  B7
         LD A,$00                         ; $D425  3E 00
-        CALL NZ,SUB_D3B6                 ; $D427  C4 B6 D3
-        LD DE,SUB_DB06_1_7               ; $D42A  11 65 DB
-        CALL SUB_D3CD                    ; $D42D  CD CD D3
-        JR Z,SUB_D41B_1                  ; $D430  28 41
+        CALL NZ,BDOS_SELECT_DISK                 ; $D427  C4 B6 D3
+        LD DE,SUBMIT_FCB               ; $D42A  11 65 DB
+        CALL BDOS_SEARCH_FIRST                    ; $D42D  CD CD D3
+        JR Z,READ_CON_BUFFER                  ; $D430  28 41
         LD A,(SUB_DB06_1_9)              ; $D432  3A 74 DB
         DEC A                            ; $D435  3D
-        LD (SUB_DB06_1_10),A             ; $D436  32 85 DB
-        LD DE,SUB_DB06_1_7               ; $D439  11 65 DB
-        CALL SUB_D3E3                    ; $D43C  CD E3 D3
-        JR NZ,SUB_D41B_1                 ; $D43F  20 32
-        LD DE,L_D307                     ; $D441  11 07 D3
+        LD (SUBMIT_REC_NO),A             ; $D436  32 85 DB
+        LD DE,SUBMIT_FCB               ; $D439  11 65 DB
+        CALL BDOS_READ_SEQ                    ; $D43C  CD E3 D3
+        JR NZ,READ_CON_BUFFER                 ; $D43F  20 32
+        LD DE,READBUF_LEN                     ; $D441  11 07 D3
         LD HL,DEFAULT_DMA                ; $D444  21 80 00
         LD BC,DEFAULT_DMA                ; $D447  01 80 00
         LDIR                             ; $D44A  ED B0
-        LD HL,SUB_DB06_1_8               ; $D44C  21 73 DB
+        LD HL,SUBMIT_EXTENT               ; $D44C  21 73 DB
         LD (HL),$00                      ; $D44F  36 00
         INC HL                           ; $D451  23
         DEC (HL)                         ; $D452  35
-        LD DE,SUB_DB06_1_7               ; $D453  11 65 DB
-        CALL SUB_D3BC                    ; $D456  CD BC D3
-        JR Z,SUB_D41B_1                  ; $D459  28 18
-        LD A,(SUB_DB06_1_18)             ; $D45B  3A A8 DB
+        LD DE,SUBMIT_FCB               ; $D453  11 65 DB
+        CALL BDOS_CLOSE_FILE                    ; $D456  CD BC D3
+        JR Z,READ_CON_BUFFER                  ; $D459  28 18
+        LD A,(CUR_DRIVE)             ; $D45B  3A A8 DB
         OR A                             ; $D45E  B7
-        CALL NZ,SUB_D3B6                 ; $D45F  C4 B6 D3
-        LD HL,L_D308                     ; $D462  21 08 D3
-        CALL SUB_D3A7                    ; $D465  CD A7 D3
-        CALL SUB_D49A                    ; $D468  CD 9A D4
-        JR Z,SUB_D41B_2                  ; $D46B  28 14
-        CALL SUB_D4B5                    ; $D46D  CD B5 D4
-        JP SUB_D5E5_6                    ; $D470  C3 31 D6
-SUB_D41B_1:
-        CALL SUB_D4B5                    ; $D473  CD B5 D4
-        CALL SUB_D3FC                    ; $D476  CD FC D3
+        CALL NZ,BDOS_SELECT_DISK                 ; $D45F  C4 B6 D3
+        LD HL,READBUF_TEXT                     ; $D462  21 08 D3
+        CALL PRINT_STRING                    ; $D465  CD A7 D3
+        CALL CHECK_CON_BREAK                    ; $D468  CD 9A D4
+        JR Z,UPPERCASE_LINE                  ; $D46B  28 14
+        CALL CLOSE_SUBMIT_FILE                    ; $D46D  CD B5 D4
+        JP CCP_PROMPT                    ; $D470  C3 31 D6
+READ_CON_BUFFER:
+        CALL CLOSE_SUBMIT_FILE                    ; $D473  CD B5 D4
+        CALL SAVE_USER_TO_CDISK                    ; $D476  CD FC D3
         LD C,$0A                         ; $D479  0E 0A
-        LD DE,L_D306                     ; $D47B  11 06 D3
+        LD DE,READBUF_MAX                     ; $D47B  11 06 D3
         CALL BDOS_VEC                    ; $D47E  CD 05 00
-SUB_D41B_2:
-        LD HL,L_D307                     ; $D481  21 07 D3
+UPPERCASE_LINE:
+        LD HL,READBUF_LEN                     ; $D481  21 07 D3
         LD B,(HL)                        ; $D484  46
 SUB_D41B_3:
         INC HL                           ; $D485  23
@@ -197,16 +197,16 @@ SUB_D41B_3:
         OR A                             ; $D487  B7
         JR Z,SUB_D41B_4                  ; $D488  28 08
         LD A,(HL)                        ; $D48A  7E
-        CALL SUB_D412                    ; $D48B  CD 12 D4
+        CALL TO_UPPER                    ; $D48B  CD 12 D4
         LD (HL),A                        ; $D48E  77
         DEC B                            ; $D48F  05
         JR SUB_D41B_3                    ; $D490  18 F3
 SUB_D41B_4:
         LD (HL),A                        ; $D492  77
-        LD HL,L_D308                     ; $D493  21 08 D3
-        LD (L_D388),HL                   ; $D496  22 88 D3
+        LD HL,READBUF_TEXT                     ; $D493  21 08 D3
+        LD (PARSE_PTR),HL                   ; $D496  22 88 D3
         RET                              ; $D499  C9
-SUB_D49A:
+CHECK_CON_BREAK:
         LD C,$0B                         ; $D49A  0E 0B
         CALL BDOS_VEC                    ; $D49C  CD 05 00
         OR A                             ; $D49F  B7
@@ -215,41 +215,41 @@ SUB_D49A:
         CALL BDOS_VEC                    ; $D4A3  CD 05 00
         OR A                             ; $D4A6  B7
         RET                              ; $D4A7  C9
-SUB_D4A8:
+BDOS_GET_CUR_DISK:
         LD C,$19                         ; $D4A8  0E 19
         JP BDOS_VEC                      ; $D4AA  C3 05 00
-SUB_D4AD:
+SET_DMA_DEFAULT:
         LD DE,DEFAULT_DMA                ; $D4AD  11 80 00
-SUB_D4B0:
+BDOS_SET_DMA:
         LD C,$1A                         ; $D4B0  0E 1A
         JP BDOS_VEC                      ; $D4B2  C3 05 00
-SUB_D4B5:
-        LD HL,SUB_DB06_1_6               ; $D4B5  21 64 DB
+CLOSE_SUBMIT_FILE:
+        LD HL,SUBMIT_FLAG               ; $D4B5  21 64 DB
         LD A,(HL)                        ; $D4B8  7E
         OR A                             ; $D4B9  B7
         RET Z                            ; $D4BA  C8
         LD (HL),$00                      ; $D4BB  36 00
         XOR A                            ; $D4BD  AF
-        CALL SUB_D3B6                    ; $D4BE  CD B6 D3
-        LD DE,SUB_DB06_1_7               ; $D4C1  11 65 DB
-        CALL SUB_D3DC                    ; $D4C4  CD DC D3
-        LD A,(SUB_DB06_1_18)             ; $D4C7  3A A8 DB
-        JP SUB_D3B6                      ; $D4CA  C3 B6 D3
-SUB_D4CD:
-        LD DE,SUB_D531_18_2              ; $D4CD  11 DF D5
-        LD HL,SUB_DB06_1_21              ; $D4D0  21 00 DC
+        CALL BDOS_SELECT_DISK                    ; $D4BE  CD B6 D3
+        LD DE,SUBMIT_FCB               ; $D4C1  11 65 DB
+        CALL BDOS_DELETE_FILE                    ; $D4C4  CD DC D3
+        LD A,(CUR_DRIVE)             ; $D4C7  3A A8 DB
+        JP BDOS_SELECT_DISK                      ; $D4CA  C3 B6 D3
+CHECK_NULL_FCB:
+        LD DE,NULL_FCB_TEMPLATE              ; $D4CD  11 DF D5
+        LD HL,FCB_TAIL_SIG              ; $D4D0  21 00 DC
         LD B,$06                         ; $D4D3  06 06
 SUB_D4CD_1:
         LD A,(DE)                        ; $D4D5  1A
         CP (HL)                          ; $D4D6  BE
-        JP NZ,SUB_D5E5_8                 ; $D4D7  C2 7E D6
+        JP NZ,GO_LOAD_AND_RUN                 ; $D4D7  C2 7E D6
         INC DE                           ; $D4DA  13
         INC HL                           ; $D4DB  23
         DJNZ SUB_D4CD_1                  ; $D4DC  10 F7
         RET                              ; $D4DE  C9
-SUB_D4DF:
-        CALL SUB_D399                    ; $D4DF  CD 99 D3
-        LD HL,(L_D38A)                   ; $D4E2  2A 8A D3
+REPORT_BAD_CMD:
+        CALL PRINT_CRLF                    ; $D4DF  CD 99 D3
+        LD HL,(TOKEN_PTR)                   ; $D4E2  2A 8A D3
 SUB_D4DF_1:
         LD A,(HL)                        ; $D4E5  7E
         CP $20                           ; $D4E6  FE 20
@@ -257,22 +257,22 @@ SUB_D4DF_1:
         OR A                             ; $D4EA  B7
         JR Z,SUB_D4DF_2                  ; $D4EB  28 08
         PUSH HL                          ; $D4ED  E5
-        CALL SUB_D38C                    ; $D4EE  CD 8C D3
+        CALL CONOUT                    ; $D4EE  CD 8C D3
         POP HL                           ; $D4F1  E1
         INC HL                           ; $D4F2  23
         JR SUB_D4DF_1                    ; $D4F3  18 F0
 SUB_D4DF_2:
         LD A,$3F                         ; $D4F5  3E 3F
-        CALL SUB_D38C                    ; $D4F7  CD 8C D3
-        CALL SUB_D399                    ; $D4FA  CD 99 D3
-        CALL SUB_D4B5                    ; $D4FD  CD B5 D4
-        JP SUB_D5E5_6                    ; $D500  C3 31 D6
-SUB_D503:
+        CALL CONOUT                    ; $D4F7  CD 8C D3
+        CALL PRINT_CRLF                    ; $D4FA  CD 99 D3
+        CALL CLOSE_SUBMIT_FILE                    ; $D4FD  CD B5 D4
+        JP CCP_PROMPT                    ; $D500  C3 31 D6
+IS_FCB_DELIM:
         LD A,(DE)                        ; $D503  1A
         OR A                             ; $D504  B7
         RET Z                            ; $D505  C8
         CP $20                           ; $D506  FE 20
-        JR C,SUB_D4DF                    ; $D508  38 D5
+        JR C,REPORT_BAD_CMD                    ; $D508  38 D5
         RET Z                            ; $D50A  C8
         CP $3D                           ; $D50B  FE 3D
         RET Z                            ; $D50D  C8
@@ -289,34 +289,34 @@ SUB_D503:
         CP $3E                           ; $D51D  FE 3E
         RET Z                            ; $D51F  C8
         RET                              ; $D520  C9
-SUB_D521:
+SKIP_SPACES:
         LD A,(DE)                        ; $D521  1A
         OR A                             ; $D522  B7
         RET Z                            ; $D523  C8
         CP $20                           ; $D524  FE 20
         RET NZ                           ; $D526  C0
         INC DE                           ; $D527  13
-        JR SUB_D521                      ; $D528  18 F7
-SUB_D52A:
+        JR SKIP_SPACES                      ; $D528  18 F7
+ADD_A_TO_HL:
         ADD A,L                          ; $D52A  85
         LD L,A                           ; $D52B  6F
         RET NC                           ; $D52C  D0
         INC H                            ; $D52D  24
         RET                              ; $D52E  C9
-SUB_D52F:
+PARSE_FCB_DEF:
         LD A,$00                         ; $D52F  3E 00
-SUB_D531:
-        LD HL,SUB_DB06_1_11              ; $D531  21 86 DB
-        CALL SUB_D52A                    ; $D534  CD 2A D5
+PARSE_FCB:
+        LD HL,PARSE_FCB_AREA              ; $D531  21 86 DB
+        CALL ADD_A_TO_HL                    ; $D534  CD 2A D5
         PUSH HL                          ; $D537  E5
         PUSH HL                          ; $D538  E5
         XOR A                            ; $D539  AF
-        LD (SUB_DB06_1_19),A             ; $D53A  32 A9 DB
-        LD HL,(L_D388)                   ; $D53D  2A 88 D3
+        LD (FCB_DRIVE_REQ),A             ; $D53A  32 A9 DB
+        LD HL,(PARSE_PTR)                   ; $D53D  2A 88 D3
         EX DE,HL                         ; $D540  EB
-        CALL SUB_D521                    ; $D541  CD 21 D5
+        CALL SKIP_SPACES                    ; $D541  CD 21 D5
         EX DE,HL                         ; $D544  EB
-        LD (L_D38A),HL                   ; $D545  22 8A D3
+        LD (TOKEN_PTR),HL                   ; $D545  22 8A D3
         EX DE,HL                         ; $D548  EB
         POP HL                           ; $D549  E1
         LD A,(DE)                        ; $D54A  1A
@@ -330,18 +330,18 @@ SUB_D531:
         JR Z,SUB_D531_2                  ; $D555  28 07
         DEC DE                           ; $D557  1B
 SUB_D531_1:
-        LD A,(SUB_DB06_1_18)             ; $D558  3A A8 DB
+        LD A,(CUR_DRIVE)             ; $D558  3A A8 DB
         LD (HL),A                        ; $D55B  77
         JR SUB_D531_3                    ; $D55C  18 06
 SUB_D531_2:
         LD A,B                           ; $D55E  78
-        LD (SUB_DB06_1_19),A             ; $D55F  32 A9 DB
+        LD (FCB_DRIVE_REQ),A             ; $D55F  32 A9 DB
         LD (HL),B                        ; $D562  70
         INC DE                           ; $D563  13
 SUB_D531_3:
         LD B,$08                         ; $D564  06 08
 SUB_D531_4:
-        CALL SUB_D503                    ; $D566  CD 03 D5
+        CALL IS_FCB_DELIM                    ; $D566  CD 03 D5
         JR Z,SUB_D531_8                  ; $D569  28 15
         INC HL                           ; $D56B  23
         CP $2A                           ; $D56C  FE 2A
@@ -354,7 +354,7 @@ SUB_D531_5:
 SUB_D531_6:
         DJNZ SUB_D531_4                  ; $D576  10 EE
 SUB_D531_7:
-        CALL SUB_D503                    ; $D578  CD 03 D5
+        CALL IS_FCB_DELIM                    ; $D578  CD 03 D5
         JR Z,SUB_D531_9                  ; $D57B  28 08
         INC DE                           ; $D57D  13
         JR SUB_D531_7                    ; $D57E  18 F8
@@ -368,7 +368,7 @@ SUB_D531_9:
         JR NZ,SUB_D531_14                ; $D589  20 1B
         INC DE                           ; $D58B  13
 SUB_D531_10:
-        CALL SUB_D503                    ; $D58C  CD 03 D5
+        CALL IS_FCB_DELIM                    ; $D58C  CD 03 D5
         JR Z,SUB_D531_14                 ; $D58F  28 15
         INC HL                           ; $D591  23
         CP $2A                           ; $D592  FE 2A
@@ -381,7 +381,7 @@ SUB_D531_11:
 SUB_D531_12:
         DJNZ SUB_D531_10                 ; $D59C  10 EE
 SUB_D531_13:
-        CALL SUB_D503                    ; $D59E  CD 03 D5
+        CALL IS_FCB_DELIM                    ; $D59E  CD 03 D5
         JR Z,SUB_D531_15                 ; $D5A1  28 08
         INC DE                           ; $D5A3  13
         JR SUB_D531_13                   ; $D5A4  18 F8
@@ -396,7 +396,7 @@ SUB_D531_16:
         LD (HL),$00                      ; $D5AE  36 00
         DJNZ SUB_D531_16                 ; $D5B0  10 FB
         EX DE,HL                         ; $D5B2  EB
-        LD (L_D388),HL                   ; $D5B3  22 88 D3
+        LD (PARSE_PTR),HL                   ; $D5B3  22 88 D3
         POP HL                           ; $D5B6  E1
         LD BC,$000B                      ; $D5B7  01 0B 00
 SUB_D531_17:
@@ -411,27 +411,27 @@ SUB_D531_18:
         LD A,B                           ; $D5C4  78
         OR A                             ; $D5C5  B7
         RET                              ; $D5C6  C9
-SUB_D531_18_1:
+CMD_NAME_TABLE:
         DEFB    $44,$49,$52,$20,$45,$52,$41,$20,$54,$59,$50,$45,$53,$41,$56,$45 ; $D5C7
         DEFB    $52,$45,$4E,$20,$55,$53,$45,$52                  ; $D5D7
-SUB_D531_18_2:
+NULL_FCB_TEMPLATE:
         DEFB    $BD,$16,$00,$01,$4D,$40                          ; $D5DF
-SUB_D5E5:
-        LD HL,SUB_D531_18_1              ; $D5E5  21 C7 D5
+LOOKUP_BUILTIN:
+        LD HL,CMD_NAME_TABLE              ; $D5E5  21 C7 D5
         LD C,$00                         ; $D5E8  0E 00
 SUB_D5E5_1:
         LD A,C                           ; $D5EA  79
         CP $06                           ; $D5EB  FE 06
         RET NC                           ; $D5ED  D0
-        LD DE,SUB_DB06_1_12              ; $D5EE  11 87 DB
+        LD DE,PARSE_FCB_NAME              ; $D5EE  11 87 DB
         LD B,$04                         ; $D5F1  06 04
-SUB_D5E5_2:
+CMD_MATCH_LOOP:
         LD A,(DE)                        ; $D5F3  1A
         CP (HL)                          ; $D5F4  BE
         JR NZ,SUB_D5E5_3                 ; $D5F5  20 0B
         INC DE                           ; $D5F7  13
         INC HL                           ; $D5F8  23
-        DJNZ SUB_D5E5_2                  ; $D5F9  10 F8
+        DJNZ CMD_MATCH_LOOP                  ; $D5F9  10 F8
         LD A,(DE)                        ; $D5FB  1A
         CP $20                           ; $D5FC  FE 20
         JR NZ,SUB_D5E5_4                 ; $D5FE  20 05
@@ -443,11 +443,11 @@ SUB_D5E5_3:
 SUB_D5E5_4:
         INC C                            ; $D605  0C
         JR SUB_D5E5_1                    ; $D606  18 E2
-SUB_D5E5_4_1:
+WARMBOOT_CLEAR_LINE:
         XOR A                            ; $D608  AF
-        LD (L_D307),A                    ; $D609  32 07 D3
-SUB_D5E5_5:
-        LD SP,SUB_DB06_1_6               ; $D60C  31 64 DB
+        LD (READBUF_LEN),A                    ; $D609  32 07 D3
+CCP_MAIN:
+        LD SP,SUBMIT_FLAG               ; $D60C  31 64 DB
         PUSH BC                          ; $D60F  C5
         LD A,C                           ; $D610  79
         RRA                              ; $D611  1F
@@ -456,38 +456,38 @@ SUB_D5E5_5:
         RRA                              ; $D614  1F
         AND $0F                          ; $D615  E6 0F
         LD E,A                           ; $D617  5F
-        CALL SUB_D3F8                    ; $D618  CD F8 D3
-        CALL SUB_D3B2                    ; $D61B  CD B2 D3
-        LD (SUB_DB06_1_6),A              ; $D61E  32 64 DB
+        CALL BDOS_SET_USER                    ; $D618  CD F8 D3
+        CALL BDOS_RESET_DISK                    ; $D61B  CD B2 D3
+        LD (SUBMIT_FLAG),A              ; $D61E  32 64 DB
         POP BC                           ; $D621  C1
         LD A,C                           ; $D622  79
         AND $0F                          ; $D623  E6 0F
-        LD (SUB_DB06_1_18),A             ; $D625  32 A8 DB
-        CALL SUB_D3B6                    ; $D628  CD B6 D3
-        LD A,(L_D307)                    ; $D62B  3A 07 D3
+        LD (CUR_DRIVE),A             ; $D625  32 A8 DB
+        CALL BDOS_SELECT_DISK                    ; $D628  CD B6 D3
+        LD A,(READBUF_LEN)                    ; $D62B  3A 07 D3
         OR A                             ; $D62E  B7
-        JR NZ,SUB_D5E5_7                 ; $D62F  20 16
-SUB_D5E5_6:
-        LD SP,SUB_DB06_1_6               ; $D631  31 64 DB
-        CALL SUB_D399                    ; $D634  CD 99 D3
-        CALL SUB_D4A8                    ; $D637  CD A8 D4
+        JR NZ,CCP_EXECUTE                 ; $D62F  20 16
+CCP_PROMPT:
+        LD SP,SUBMIT_FLAG               ; $D631  31 64 DB
+        CALL PRINT_CRLF                    ; $D634  CD 99 D3
+        CALL BDOS_GET_CUR_DISK                    ; $D637  CD A8 D4
         ADD A,$41                        ; $D63A  C6 41
-        CALL SUB_D38C                    ; $D63C  CD 8C D3
+        CALL CONOUT                    ; $D63C  CD 8C D3
         LD A,$3E                         ; $D63F  3E 3E
-        CALL SUB_D38C                    ; $D641  CD 8C D3
-        CALL SUB_D41B                    ; $D644  CD 1B D4
-SUB_D5E5_7:
+        CALL CONOUT                    ; $D641  CD 8C D3
+        CALL READ_COMMAND_LINE                    ; $D644  CD 1B D4
+CCP_EXECUTE:
         LD DE,DEFAULT_DMA                ; $D647  11 80 00
-        CALL SUB_D4B0                    ; $D64A  CD B0 D4
-        CALL SUB_D4A8                    ; $D64D  CD A8 D4
-        LD (SUB_DB06_1_18),A             ; $D650  32 A8 DB
-        CALL SUB_D52F                    ; $D653  CD 2F D5
-        CALL NZ,SUB_D4DF                 ; $D656  C4 DF D4
-        LD A,(SUB_DB06_1_19)             ; $D659  3A A9 DB
+        CALL BDOS_SET_DMA                    ; $D64A  CD B0 D4
+        CALL BDOS_GET_CUR_DISK                    ; $D64D  CD A8 D4
+        LD (CUR_DRIVE),A             ; $D650  32 A8 DB
+        CALL PARSE_FCB_DEF                    ; $D653  CD 2F D5
+        CALL NZ,REPORT_BAD_CMD                 ; $D656  C4 DF D4
+        LD A,(FCB_DRIVE_REQ)             ; $D659  3A A9 DB
         OR A                             ; $D65C  B7
-        JP NZ,SUB_D707_1                 ; $D65D  C2 26 D9
-        CALL SUB_D5E5                    ; $D660  CD E5 D5
-        LD HL,SUB_D5E5_7_1               ; $D663  21 70 D6
+        JP NZ,LOAD_AND_RUN                 ; $D65D  C2 26 D9
+        CALL LOOKUP_BUILTIN                    ; $D660  CD E5 D5
+        LD HL,BUILTIN_JUMP_TABLE               ; $D663  21 70 D6
         LD E,A                           ; $D666  5F
         LD D,$00                         ; $D667  16 00
         ADD HL,DE                        ; $D669  19
@@ -497,37 +497,37 @@ SUB_D5E5_7:
         LD H,(HL)                        ; $D66D  66
         LD L,A                           ; $D66E  6F
         JP (HL)                          ; $D66F  E9
-SUB_D5E5_7_1:
-        DEFW    SUB_D707_1_D718          ; $D670
-        DEFW    SUB_D707_13_D7B1         ; $D672
-        DEFW    SUB_D707_16_D7EE         ; $D674
-        DEFW    SUB_D707_21              ; $D676
-        DEFW    SUB_D707_27              ; $D678
-        DEFW    SUB_D707_34              ; $D67A
-        DEFW    SUB_D707_1               ; $D67C
-SUB_D5E5_8:
+BUILTIN_JUMP_TABLE:
+        DEFW    CMD_DIR          ; $D670
+        DEFW    CMD_ERA         ; $D672
+        DEFW    CMD_TYPE         ; $D674
+        DEFW    CMD_SAVE              ; $D676
+        DEFW    CMD_REN              ; $D678
+        DEFW    CMD_USER              ; $D67A
+        DEFW    LOAD_AND_RUN               ; $D67C
+GO_LOAD_AND_RUN:
         LD HL,$76F3                      ; $D67E  21 F3 76
-        LD (L_D300),HL                   ; $D681  22 00 D3
-        LD HL,L_D300                     ; $D684  21 00 D3
+        LD (CCP_ENTRY),HL                   ; $D681  22 00 D3
+        LD HL,CCP_ENTRY                     ; $D684  21 00 D3
         JP (HL)                          ; $D687  E9
-SUB_D688:
-        LD BC,SUB_D688_1                 ; $D688  01 8E D6
-        JP SUB_D3A2                      ; $D68B  C3 A2 D3
-SUB_D688_1:
+ERR_READ:
+        LD BC,MSG_READ_ERROR                 ; $D688  01 8E D6
+        JP PRINT_MSG_CRLF                      ; $D68B  C3 A2 D3
+MSG_READ_ERROR:
         DEFB    "Read error"    ; $D68E  string
         DEFB    $00    ; $D698  terminator
-SUB_D699:
-        LD BC,SUB_D699_1                 ; $D699  01 9F D6
-        JP SUB_D3A2                      ; $D69C  C3 A2 D3
-SUB_D699_1:
+ERR_NO_FILE:
+        LD BC,MSG_NO_FILE                 ; $D699  01 9F D6
+        JP PRINT_MSG_CRLF                      ; $D69C  C3 A2 D3
+MSG_NO_FILE:
         DEFB    "No file"    ; $D69F  string
         DEFB    $00    ; $D6A6  terminator
-SUB_D6A7:
-        CALL SUB_D52F                    ; $D6A7  CD 2F D5
-        LD A,(SUB_DB06_1_19)             ; $D6AA  3A A9 DB
+PARSE_DECIMAL:
+        CALL PARSE_FCB_DEF                    ; $D6A7  CD 2F D5
+        LD A,(FCB_DRIVE_REQ)             ; $D6AA  3A A9 DB
         OR A                             ; $D6AD  B7
-        JP NZ,SUB_D4DF                   ; $D6AE  C2 DF D4
-        LD HL,SUB_DB06_1_12              ; $D6B1  21 87 DB
+        JP NZ,REPORT_BAD_CMD                   ; $D6AE  C2 DF D4
+        LD HL,PARSE_FCB_NAME              ; $D6B1  21 87 DB
         LD BC,$000B                      ; $D6B4  01 0B 00
 SUB_D6A7_1:
         LD A,(HL)                        ; $D6B7  7E
@@ -536,21 +536,21 @@ SUB_D6A7_1:
         INC HL                           ; $D6BC  23
         SUB $30                          ; $D6BD  D6 30
         CP $0A                           ; $D6BF  FE 0A
-        JP NC,SUB_D4DF                   ; $D6C1  D2 DF D4
+        JP NC,REPORT_BAD_CMD                   ; $D6C1  D2 DF D4
         LD D,A                           ; $D6C4  57
         LD A,B                           ; $D6C5  78
         AND $E0                          ; $D6C6  E6 E0
-        JP NZ,SUB_D4DF                   ; $D6C8  C2 DF D4
+        JP NZ,REPORT_BAD_CMD                   ; $D6C8  C2 DF D4
         LD A,B                           ; $D6CB  78
         RLCA                             ; $D6CC  07
         RLCA                             ; $D6CD  07
         RLCA                             ; $D6CE  07
         ADD A,B                          ; $D6CF  80
-        JP C,SUB_D4DF                    ; $D6D0  DA DF D4
+        JP C,REPORT_BAD_CMD                    ; $D6D0  DA DF D4
         ADD A,B                          ; $D6D3  80
-        JP C,SUB_D4DF                    ; $D6D4  DA DF D4
+        JP C,REPORT_BAD_CMD                    ; $D6D4  DA DF D4
         ADD A,D                          ; $D6D7  82
-        JP C,SUB_D4DF                    ; $D6D8  DA DF D4
+        JP C,REPORT_BAD_CMD                    ; $D6D8  DA DF D4
         LD B,A                           ; $D6DB  47
         DEC C                            ; $D6DC  0D
         JR NZ,SUB_D6A7_1                 ; $D6DD  20 D8
@@ -558,66 +558,66 @@ SUB_D6A7_1:
 SUB_D6A7_2:
         LD A,(HL)                        ; $D6E0  7E
         CP $20                           ; $D6E1  FE 20
-        JP NZ,SUB_D4DF                   ; $D6E3  C2 DF D4
+        JP NZ,REPORT_BAD_CMD                   ; $D6E3  C2 DF D4
         INC HL                           ; $D6E6  23
         DEC C                            ; $D6E7  0D
         JR NZ,SUB_D6A7_2                 ; $D6E8  20 F6
         LD A,B                           ; $D6EA  78
         RET                              ; $D6EB  C9
-SUB_D6EC:
+GET_DIR_BYTE:
         LD HL,DEFAULT_DMA                ; $D6EC  21 80 00
         ADD A,C                          ; $D6EF  81
-        CALL SUB_D52A                    ; $D6F0  CD 2A D5
+        CALL ADD_A_TO_HL                    ; $D6F0  CD 2A D5
         LD A,(HL)                        ; $D6F3  7E
         RET                              ; $D6F4  C9
-SUB_D6F5:
+CLEAR_FCB_DRIVE:
         XOR A                            ; $D6F5  AF
-        LD (SUB_DB06_1_11),A             ; $D6F6  32 86 DB
-        LD A,(SUB_DB06_1_19)             ; $D6F9  3A A9 DB
+        LD (PARSE_FCB_AREA),A             ; $D6F6  32 86 DB
+        LD A,(FCB_DRIVE_REQ)             ; $D6F9  3A A9 DB
         OR A                             ; $D6FC  B7
         RET Z                            ; $D6FD  C8
         DEC A                            ; $D6FE  3D
-        LD HL,SUB_DB06_1_18              ; $D6FF  21 A8 DB
+        LD HL,CUR_DRIVE              ; $D6FF  21 A8 DB
         CP (HL)                          ; $D702  BE
         RET Z                            ; $D703  C8
-        JP SUB_D3B6                      ; $D704  C3 B6 D3
-SUB_D707:
-        LD A,(SUB_DB06_1_19)             ; $D707  3A A9 DB
+        JP BDOS_SELECT_DISK                      ; $D704  C3 B6 D3
+RESELECT_DRIVE:
+        LD A,(FCB_DRIVE_REQ)             ; $D707  3A A9 DB
         OR A                             ; $D70A  B7
         RET Z                            ; $D70B  C8
         DEC A                            ; $D70C  3D
-        LD HL,SUB_DB06_1_18              ; $D70D  21 A8 DB
+        LD HL,CUR_DRIVE              ; $D70D  21 A8 DB
         CP (HL)                          ; $D710  BE
         RET Z                            ; $D711  C8
-        LD A,(SUB_DB06_1_18)             ; $D712  3A A8 DB
-        JP SUB_D3B6                      ; $D715  C3 B6 D3
-SUB_D707_1_D718:
-        CALL SUB_D52F                    ; $D718  CD 2F D5
-        CALL SUB_D6F5                    ; $D71B  CD F5 D6
-        LD HL,SUB_DB06_1_12              ; $D71E  21 87 DB
+        LD A,(CUR_DRIVE)             ; $D712  3A A8 DB
+        JP BDOS_SELECT_DISK                      ; $D715  C3 B6 D3
+CMD_DIR:
+        CALL PARSE_FCB_DEF                    ; $D718  CD 2F D5
+        CALL CLEAR_FCB_DRIVE                    ; $D71B  CD F5 D6
+        LD HL,PARSE_FCB_NAME              ; $D71E  21 87 DB
         LD A,(HL)                        ; $D721  7E
         CP $20                           ; $D722  FE 20
         JR NZ,SUB_D707_3_D72D            ; $D724  20 07
         LD B,$0B                         ; $D726  06 0B
-SUB_D707_2_D728:
+DIR_FILL_WILDCARD:
         LD (HL),$3F                      ; $D728  36 3F
         INC HL                           ; $D72A  23
-        DJNZ SUB_D707_2_D728             ; $D72B  10 FB
+        DJNZ DIR_FILL_WILDCARD             ; $D72B  10 FB
 SUB_D707_3_D72D:
         LD E,$00                         ; $D72D  1E 00
         PUSH DE                          ; $D72F  D5
-        CALL SUB_D3D1                    ; $D730  CD D1 D3
-        CALL Z,SUB_D699                  ; $D733  CC 99 D6
+        CALL BDOS_SEARCH_FIRST2                    ; $D730  CD D1 D3
+        CALL Z,ERR_NO_FILE                  ; $D733  CC 99 D6
 SUB_D707_4_D736:
         JR Z,SUB_D707_12_D7AD            ; $D736  28 75
-        LD A,(SUB_DB06_1_17)             ; $D738  3A A7 DB
+        LD A,(SEARCH_DIRCODE)             ; $D738  3A A7 DB
         RRCA                             ; $D73B  0F
         RRCA                             ; $D73C  0F
         RRCA                             ; $D73D  0F
         AND $60                          ; $D73E  E6 60
         LD C,A                           ; $D740  4F
         LD A,$0A                         ; $D741  3E 0A
-        CALL SUB_D6EC                    ; $D743  CD EC D6
+        CALL GET_DIR_BYTE                    ; $D743  CD EC D6
         RLA                              ; $D746  17
         JR C,SUB_D707_11_D7A3            ; $D747  38 5A
         POP DE                           ; $D749  D1
@@ -627,25 +627,25 @@ SUB_D707_4_D736:
         AND $03                          ; $D74D  E6 03
         PUSH AF                          ; $D74F  F5
         JR NZ,SUB_D707_5_D766            ; $D750  20 14
-        CALL SUB_D399                    ; $D752  CD 99 D3
+        CALL PRINT_CRLF                    ; $D752  CD 99 D3
         PUSH BC                          ; $D755  C5
-        CALL SUB_D4A8                    ; $D756  CD A8 D4
+        CALL BDOS_GET_CUR_DISK                    ; $D756  CD A8 D4
         POP BC                           ; $D759  C1
         ADD A,$41                        ; $D75A  C6 41
-        CALL SUB_D393                    ; $D75C  CD 93 D3
+        CALL CONOUT_BC                    ; $D75C  CD 93 D3
         LD A,$3A                         ; $D75F  3E 3A
-        CALL SUB_D393                    ; $D761  CD 93 D3
+        CALL CONOUT_BC                    ; $D761  CD 93 D3
         JR SUB_D707_6_D76E               ; $D764  18 08
 SUB_D707_5_D766:
-        CALL SUB_D391                    ; $D766  CD 91 D3
+        CALL CONOUT_SPACE                    ; $D766  CD 91 D3
         LD A,$3A                         ; $D769  3E 3A
-        CALL SUB_D393                    ; $D76B  CD 93 D3
+        CALL CONOUT_BC                    ; $D76B  CD 93 D3
 SUB_D707_6_D76E:
-        CALL SUB_D391                    ; $D76E  CD 91 D3
+        CALL CONOUT_SPACE                    ; $D76E  CD 91 D3
         LD B,$01                         ; $D771  06 01
 SUB_D707_7_D773:
         LD A,B                           ; $D773  78
-        CALL SUB_D6EC                    ; $D774  CD EC D6
+        CALL GET_DIR_BYTE                    ; $D774  CD EC D6
         AND $7F                          ; $D777  E6 7F
         CP $20                           ; $D779  FE 20
         JR NZ,SUB_D707_9_D790            ; $D77B  20 13
@@ -654,74 +654,74 @@ SUB_D707_7_D773:
         CP $03                           ; $D77F  FE 03
         JR NZ,SUB_D707_8_D78E            ; $D781  20 0B
         LD A,$09                         ; $D783  3E 09
-        CALL SUB_D6EC                    ; $D785  CD EC D6
+        CALL GET_DIR_BYTE                    ; $D785  CD EC D6
         AND $7F                          ; $D788  E6 7F
         CP $20                           ; $D78A  FE 20
         JR Z,SUB_D707_10_D7A2            ; $D78C  28 14
 SUB_D707_8_D78E:
         LD A,$20                         ; $D78E  3E 20
 SUB_D707_9_D790:
-        CALL SUB_D393                    ; $D790  CD 93 D3
+        CALL CONOUT_BC                    ; $D790  CD 93 D3
         INC B                            ; $D793  04
         LD A,B                           ; $D794  78
         CP $0C                           ; $D795  FE 0C
         JR NC,SUB_D707_10_D7A2           ; $D797  30 09
         CP $09                           ; $D799  FE 09
         JR NZ,SUB_D707_7_D773            ; $D79B  20 D6
-        CALL SUB_D391                    ; $D79D  CD 91 D3
+        CALL CONOUT_SPACE                    ; $D79D  CD 91 D3
         JR SUB_D707_7_D773               ; $D7A0  18 D1
 SUB_D707_10_D7A2:
         POP AF                           ; $D7A2  F1
 SUB_D707_11_D7A3:
-        CALL SUB_D49A                    ; $D7A3  CD 9A D4
+        CALL CHECK_CON_BREAK                    ; $D7A3  CD 9A D4
         JR NZ,SUB_D707_12_D7AD           ; $D7A6  20 05
-        CALL SUB_D3D8                    ; $D7A8  CD D8 D3
+        CALL BDOS_SEARCH_NEXT                    ; $D7A8  CD D8 D3
         JR SUB_D707_4_D736               ; $D7AB  18 89
 SUB_D707_12_D7AD:
         POP DE                           ; $D7AD  D1
-        JP SUB_D707_16                   ; $D7AE  C3 38 DA
-SUB_D707_13_D7B1:
-        CALL SUB_D52F                    ; $D7B1  CD 2F D5
+        JP FINISH_AND_LOOP                   ; $D7AE  C3 38 DA
+CMD_ERA:
+        CALL PARSE_FCB_DEF                    ; $D7B1  CD 2F D5
         CP $0B                           ; $D7B4  FE 0B
         JR NZ,SUB_D707_14_D7D3           ; $D7B6  20 1B
-        LD BC,SUB_D707_15_D7E3           ; $D7B8  01 E3 D7
-        CALL SUB_D3A2                    ; $D7BB  CD A2 D3
-        CALL SUB_D41B                    ; $D7BE  CD 1B D4
-        LD HL,L_D307                     ; $D7C1  21 07 D3
+        LD BC,MSG_ALL_YN           ; $D7B8  01 E3 D7
+        CALL PRINT_MSG_CRLF                    ; $D7BB  CD A2 D3
+        CALL READ_COMMAND_LINE                    ; $D7BE  CD 1B D4
+        LD HL,READBUF_LEN                     ; $D7C1  21 07 D3
         DEC (HL)                         ; $D7C4  35
-        JP NZ,SUB_D5E5_6                 ; $D7C5  C2 31 D6
+        JP NZ,CCP_PROMPT                 ; $D7C5  C2 31 D6
         INC HL                           ; $D7C8  23
         LD A,(HL)                        ; $D7C9  7E
         CP $59                           ; $D7CA  FE 59
-        JP NZ,SUB_D5E5_6                 ; $D7CC  C2 31 D6
+        JP NZ,CCP_PROMPT                 ; $D7CC  C2 31 D6
         INC HL                           ; $D7CF  23
-        LD (L_D388),HL                   ; $D7D0  22 88 D3
+        LD (PARSE_PTR),HL                   ; $D7D0  22 88 D3
 SUB_D707_14_D7D3:
-        CALL SUB_D6F5                    ; $D7D3  CD F5 D6
-        LD DE,SUB_DB06_1_11              ; $D7D6  11 86 DB
-        CALL SUB_D3DC                    ; $D7D9  CD DC D3
+        CALL CLEAR_FCB_DRIVE                    ; $D7D3  CD F5 D6
+        LD DE,PARSE_FCB_AREA              ; $D7D6  11 86 DB
+        CALL BDOS_DELETE_FILE                    ; $D7D9  CD DC D3
         INC A                            ; $D7DC  3C
-        CALL Z,SUB_D699                  ; $D7DD  CC 99 D6
-        JP SUB_D707_16                   ; $D7E0  C3 38 DA
-SUB_D707_15_D7E3:
+        CALL Z,ERR_NO_FILE                  ; $D7DD  CC 99 D6
+        JP FINISH_AND_LOOP                   ; $D7E0  C3 38 DA
+MSG_ALL_YN:
         DEFB    "All (y/n)?"    ; $D7E3  string
         DEFB    $00    ; $D7ED  terminator
-SUB_D707_16_D7EE:
-        CALL SUB_D52F                    ; $D7EE  CD 2F D5
-        JP NZ,SUB_D4DF                   ; $D7F1  C2 DF D4
-        CALL SUB_D6F5                    ; $D7F4  CD F5 D6
-        CALL SUB_D3C6                    ; $D7F7  CD C6 D3
+CMD_TYPE:
+        CALL PARSE_FCB_DEF                    ; $D7EE  CD 2F D5
+        JP NZ,REPORT_BAD_CMD                   ; $D7F1  C2 DF D4
+        CALL CLEAR_FCB_DRIVE                    ; $D7F4  CD F5 D6
+        CALL SEARCH_FIRST_DEF                    ; $D7F7  CD C6 D3
         JR Z,SUB_D707_20                 ; $D7FA  28 38
-        CALL SUB_D399                    ; $D7FC  CD 99 D3
-        LD HL,SUB_DB06_1_20              ; $D7FF  21 AA DB
+        CALL PRINT_CRLF                    ; $D7FC  CD 99 D3
+        LD HL,DIR_LINE_COUNT              ; $D7FF  21 AA DB
         LD (HL),$FF                      ; $D802  36 FF
-SUB_D707_17_D804:
-        LD HL,SUB_DB06_1_20              ; $D804  21 AA DB
+TYPE_RECORD_LOOP:
+        LD HL,DIR_LINE_COUNT              ; $D804  21 AA DB
         LD A,(HL)                        ; $D807  7E
         CP $80                           ; $D808  FE 80
         JR C,SUB_D707_18                 ; $D80A  38 09
         PUSH HL                          ; $D80C  E5
-        CALL SUB_D3E0                    ; $D80D  CD E0 D3
+        CALL BDOS_READ_SEQ_FCB                    ; $D80D  CD E0 D3
         POP HL                           ; $D810  E1
         JR NZ,SUB_D707_19                ; $D811  20 1A
         XOR A                            ; $D813  AF
@@ -729,35 +729,35 @@ SUB_D707_17_D804:
 SUB_D707_18:
         INC (HL)                         ; $D815  34
         LD HL,DEFAULT_DMA                ; $D816  21 80 00
-        CALL SUB_D52A                    ; $D819  CD 2A D5
+        CALL ADD_A_TO_HL                    ; $D819  CD 2A D5
         LD A,(HL)                        ; $D81C  7E
         CP $1A                           ; $D81D  FE 1A
-        JP Z,SUB_D707_16                 ; $D81F  CA 38 DA
-        CALL SUB_D38C                    ; $D822  CD 8C D3
-        CALL SUB_D49A                    ; $D825  CD 9A D4
-        JP NZ,SUB_D707_16                ; $D828  C2 38 DA
-        JR SUB_D707_17_D804              ; $D82B  18 D7
+        JP Z,FINISH_AND_LOOP                 ; $D81F  CA 38 DA
+        CALL CONOUT                    ; $D822  CD 8C D3
+        CALL CHECK_CON_BREAK                    ; $D825  CD 9A D4
+        JP NZ,FINISH_AND_LOOP                ; $D828  C2 38 DA
+        JR TYPE_RECORD_LOOP              ; $D82B  18 D7
 SUB_D707_19:
         DEC A                            ; $D82D  3D
-        JP Z,SUB_D707_16                 ; $D82E  CA 38 DA
-        CALL SUB_D688                    ; $D831  CD 88 D6
+        JP Z,FINISH_AND_LOOP                 ; $D82E  CA 38 DA
+        CALL ERR_READ                    ; $D831  CD 88 D6
 SUB_D707_20:
-        CALL SUB_D707                    ; $D834  CD 07 D7
-        JP SUB_D4DF                      ; $D837  C3 DF D4
-SUB_D707_21:
-        CALL SUB_D6A7                    ; $D83A  CD A7 D6
+        CALL RESELECT_DRIVE                    ; $D834  CD 07 D7
+        JP REPORT_BAD_CMD                      ; $D837  C3 DF D4
+CMD_SAVE:
+        CALL PARSE_DECIMAL                    ; $D83A  CD A7 D6
         PUSH AF                          ; $D83D  F5
-        CALL SUB_D52F                    ; $D83E  CD 2F D5
-        JP NZ,SUB_D4DF                   ; $D841  C2 DF D4
-        CALL SUB_D6F5                    ; $D844  CD F5 D6
-        LD DE,SUB_DB06_1_11              ; $D847  11 86 DB
+        CALL PARSE_FCB_DEF                    ; $D83E  CD 2F D5
+        JP NZ,REPORT_BAD_CMD                   ; $D841  C2 DF D4
+        CALL CLEAR_FCB_DRIVE                    ; $D844  CD F5 D6
+        LD DE,PARSE_FCB_AREA              ; $D847  11 86 DB
         PUSH DE                          ; $D84A  D5
-        CALL SUB_D3DC                    ; $D84B  CD DC D3
+        CALL BDOS_DELETE_FILE                    ; $D84B  CD DC D3
         POP DE                           ; $D84E  D1
-        CALL SUB_D3EE                    ; $D84F  CD EE D3
+        CALL BDOS_MAKE_FILE                    ; $D84F  CD EE D3
         JR Z,SUB_D707_24                 ; $D852  28 2F
         XOR A                            ; $D854  AF
-        LD (SUB_DB06_1_16),A             ; $D855  32 A6 DB
+        LD (EXTENT_FLAG),A             ; $D855  32 A6 DB
         POP AF                           ; $D858  F1
         LD L,A                           ; $D859  6F
         LD H,$00                         ; $D85A  26 00
@@ -772,42 +772,42 @@ SUB_D707_22:
         LD HL,DEFAULT_DMA                ; $D866  21 80 00
         ADD HL,DE                        ; $D869  19
         PUSH HL                          ; $D86A  E5
-        CALL SUB_D4B0                    ; $D86B  CD B0 D4
-        LD DE,SUB_DB06_1_11              ; $D86E  11 86 DB
-        CALL SUB_D3EA                    ; $D871  CD EA D3
+        CALL BDOS_SET_DMA                    ; $D86B  CD B0 D4
+        LD DE,PARSE_FCB_AREA              ; $D86E  11 86 DB
+        CALL BDOS_WRITE_SEQ                    ; $D871  CD EA D3
         POP DE                           ; $D874  D1
         POP HL                           ; $D875  E1
         JR NZ,SUB_D707_24                ; $D876  20 0B
         JR SUB_D707_22                   ; $D878  18 E6
 SUB_D707_23:
-        LD DE,SUB_DB06_1_11              ; $D87A  11 86 DB
-        CALL SUB_D3BC                    ; $D87D  CD BC D3
+        LD DE,PARSE_FCB_AREA              ; $D87A  11 86 DB
+        CALL BDOS_CLOSE_FILE                    ; $D87D  CD BC D3
         INC A                            ; $D880  3C
         JR NZ,SUB_D707_25                ; $D881  20 06
 SUB_D707_24:
-        LD BC,SUB_D707_26                ; $D883  01 8F D8
-        CALL SUB_D3A2                    ; $D886  CD A2 D3
+        LD BC,MSG_NO_SPACE                ; $D883  01 8F D8
+        CALL PRINT_MSG_CRLF                    ; $D886  CD A2 D3
 SUB_D707_25:
-        CALL SUB_D4AD                    ; $D889  CD AD D4
-        JP SUB_D707_16                   ; $D88C  C3 38 DA
-SUB_D707_26:
+        CALL SET_DMA_DEFAULT                    ; $D889  CD AD D4
+        JP FINISH_AND_LOOP                   ; $D88C  C3 38 DA
+MSG_NO_SPACE:
         DEFB    "No space"    ; $D88F  string
         DEFB    $00    ; $D897  terminator
-SUB_D707_27:
-        CALL SUB_D52F                    ; $D898  CD 2F D5
-        JP NZ,SUB_D4DF                   ; $D89B  C2 DF D4
-        LD A,(SUB_DB06_1_19)             ; $D89E  3A A9 DB
+CMD_REN:
+        CALL PARSE_FCB_DEF                    ; $D898  CD 2F D5
+        JP NZ,REPORT_BAD_CMD                   ; $D89B  C2 DF D4
+        LD A,(FCB_DRIVE_REQ)             ; $D89E  3A A9 DB
         PUSH AF                          ; $D8A1  F5
-        CALL SUB_D6F5                    ; $D8A2  CD F5 D6
-        CALL SUB_D3D1                    ; $D8A5  CD D1 D3
+        CALL CLEAR_FCB_DRIVE                    ; $D8A2  CD F5 D6
+        CALL BDOS_SEARCH_FIRST2                    ; $D8A5  CD D1 D3
         JR NZ,SUB_D707_32                ; $D8A8  20 50
-        LD HL,SUB_DB06_1_11              ; $D8AA  21 86 DB
-        LD DE,SUB_DB06_1_15              ; $D8AD  11 96 DB
+        LD HL,PARSE_FCB_AREA              ; $D8AA  21 86 DB
+        LD DE,RELOC_FIXUP_VEC              ; $D8AD  11 96 DB
         LD BC,RST2_VEC                   ; $D8B0  01 10 00
         LDIR                             ; $D8B3  ED B0
-        LD HL,(L_D388)                   ; $D8B5  2A 88 D3
+        LD HL,(PARSE_PTR)                   ; $D8B5  2A 88 D3
         EX DE,HL                         ; $D8B8  EB
-        CALL SUB_D521                    ; $D8B9  CD 21 D5
+        CALL SKIP_SPACES                    ; $D8B9  CD 21 D5
         CP $3D                           ; $D8BC  FE 3D
         JR Z,SUB_D707_28                 ; $D8BE  28 04
         CP $5F                           ; $D8C0  FE 5F
@@ -815,12 +815,12 @@ SUB_D707_27:
 SUB_D707_28:
         EX DE,HL                         ; $D8C4  EB
         INC HL                           ; $D8C5  23
-        LD (L_D388),HL                   ; $D8C6  22 88 D3
-        CALL SUB_D52F                    ; $D8C9  CD 2F D5
+        LD (PARSE_PTR),HL                   ; $D8C6  22 88 D3
+        CALL PARSE_FCB_DEF                    ; $D8C9  CD 2F D5
         JR NZ,SUB_D707_31                ; $D8CC  20 26
         POP AF                           ; $D8CE  F1
         LD B,A                           ; $D8CF  47
-        LD HL,SUB_DB06_1_19              ; $D8D0  21 A9 DB
+        LD HL,FCB_DRIVE_REQ              ; $D8D0  21 A9 DB
         LD A,(HL)                        ; $D8D3  7E
         OR A                             ; $D8D4  B7
         JR Z,SUB_D707_29                 ; $D8D5  28 04
@@ -830,78 +830,78 @@ SUB_D707_28:
 SUB_D707_29:
         LD (HL),B                        ; $D8DB  70
         XOR A                            ; $D8DC  AF
-        LD (SUB_DB06_1_11),A             ; $D8DD  32 86 DB
-        CALL SUB_D3D1                    ; $D8E0  CD D1 D3
+        LD (PARSE_FCB_AREA),A             ; $D8DD  32 86 DB
+        CALL BDOS_SEARCH_FIRST2                    ; $D8E0  CD D1 D3
         JR Z,SUB_D707_30                 ; $D8E3  28 09
-        LD DE,SUB_DB06_1_11              ; $D8E5  11 86 DB
-        CALL SUB_D3F2                    ; $D8E8  CD F2 D3
-        JP SUB_D707_16                   ; $D8EB  C3 38 DA
+        LD DE,PARSE_FCB_AREA              ; $D8E5  11 86 DB
+        CALL BDOS_RENAME_FILE                    ; $D8E8  CD F2 D3
+        JP FINISH_AND_LOOP                   ; $D8EB  C3 38 DA
 SUB_D707_30:
-        CALL SUB_D699                    ; $D8EE  CD 99 D6
-        JP SUB_D707_16                   ; $D8F1  C3 38 DA
+        CALL ERR_NO_FILE                    ; $D8EE  CD 99 D6
+        JP FINISH_AND_LOOP                   ; $D8F1  C3 38 DA
 SUB_D707_31:
-        CALL SUB_D707                    ; $D8F4  CD 07 D7
-        JP SUB_D4DF                      ; $D8F7  C3 DF D4
+        CALL RESELECT_DRIVE                    ; $D8F4  CD 07 D7
+        JP REPORT_BAD_CMD                      ; $D8F7  C3 DF D4
 SUB_D707_32:
-        LD BC,SUB_D707_33                ; $D8FA  01 03 D9
-        CALL SUB_D3A2                    ; $D8FD  CD A2 D3
-        JP SUB_D707_16                   ; $D900  C3 38 DA
-SUB_D707_33:
+        LD BC,MSG_FILE_EXISTS                ; $D8FA  01 03 D9
+        CALL PRINT_MSG_CRLF                    ; $D8FD  CD A2 D3
+        JP FINISH_AND_LOOP                   ; $D900  C3 38 DA
+MSG_FILE_EXISTS:
         DEFB    "File exists"    ; $D903  string
         DEFB    $00    ; $D90E  terminator
-SUB_D707_34:
-        CALL SUB_D6A7                    ; $D90F  CD A7 D6
+CMD_USER:
+        CALL PARSE_DECIMAL                    ; $D90F  CD A7 D6
         CP $10                           ; $D912  FE 10
-        JP NC,SUB_D4DF                   ; $D914  D2 DF D4
+        JP NC,REPORT_BAD_CMD                   ; $D914  D2 DF D4
         LD E,A                           ; $D917  5F
-        LD A,(SUB_DB06_1_12)             ; $D918  3A 87 DB
+        LD A,(PARSE_FCB_NAME)             ; $D918  3A 87 DB
         CP $20                           ; $D91B  FE 20
-        JP Z,SUB_D4DF                    ; $D91D  CA DF D4
-        CALL SUB_D3F8                    ; $D920  CD F8 D3
-        JP SUB_D707_17                   ; $D923  C3 3B DA
-SUB_D707_1:
-        CALL SUB_D4CD                    ; $D926  CD CD D4
-        LD A,(SUB_DB06_1_12)             ; $D929  3A 87 DB
+        JP Z,REPORT_BAD_CMD                    ; $D91D  CA DF D4
+        CALL BDOS_SET_USER                    ; $D920  CD F8 D3
+        JP CHECK_TRAILING                   ; $D923  C3 3B DA
+LOAD_AND_RUN:
+        CALL CHECK_NULL_FCB                    ; $D926  CD CD D4
+        LD A,(PARSE_FCB_NAME)             ; $D929  3A 87 DB
         CP $20                           ; $D92C  FE 20
-        JR NZ,SUB_D707_2                 ; $D92E  20 16
-        LD A,(SUB_DB06_1_19)             ; $D930  3A A9 DB
+        JR NZ,LOADER_OPEN                 ; $D92E  20 16
+        LD A,(FCB_DRIVE_REQ)             ; $D930  3A A9 DB
         OR A                             ; $D933  B7
-        JP Z,SUB_D707_17                 ; $D934  CA 3B DA
+        JP Z,CHECK_TRAILING                 ; $D934  CA 3B DA
         DEC A                            ; $D937  3D
         PUSH AF                          ; $D938  F5
-        CALL SUB_D3B6                    ; $D939  CD B6 D3
+        CALL BDOS_SELECT_DISK                    ; $D939  CD B6 D3
         POP AF                           ; $D93C  F1
-        LD (SUB_DB06_1_18),A             ; $D93D  32 A8 DB
-        CALL SUB_D40B                    ; $D940  CD 0B D4
-        JP SUB_D707_17                   ; $D943  C3 3B DA
-SUB_D707_2:
-        CALL SUB_D3F6                    ; $D946  CD F6 D3
-        LD (SUB_DB06_1_5),A              ; $D949  32 43 DB
-        LD DE,SUB_DB06_1_13              ; $D94C  11 8F DB
+        LD (CUR_DRIVE),A             ; $D93D  32 A8 DB
+        CALL RESTORE_CDISK_DRIVE                    ; $D940  CD 0B D4
+        JP CHECK_TRAILING                   ; $D943  C3 3B DA
+LOADER_OPEN:
+        CALL BDOS_GET_USER                    ; $D946  CD F6 D3
+        LD (SAVED_FCB_BYTE),A              ; $D949  32 43 DB
+        LD DE,PARSE_FCB_TYPE              ; $D94C  11 8F DB
         LD A,(DE)                        ; $D94F  1A
         CP $20                           ; $D950  FE 20
-        JP NZ,SUB_D4DF                   ; $D952  C2 DF D4
+        JP NZ,REPORT_BAD_CMD                   ; $D952  C2 DF D4
         PUSH DE                          ; $D955  D5
-        CALL SUB_D6F5                    ; $D956  CD F5 D6
+        CALL CLEAR_FCB_DRIVE                    ; $D956  CD F5 D6
         POP DE                           ; $D959  D1
-        LD HL,SUB_D707_15_2              ; $D95A  21 35 DA
+        LD HL,DEFAULT_EXT_COM              ; $D95A  21 35 DA
         LD BC,IOBYTE                     ; $D95D  01 03 00
         LDIR                             ; $D960  ED B0
-SUB_D707_3:
-        CALL SUB_D3C6                    ; $D962  CD C6 D3
-        JR NZ,SUB_D707_4                 ; $D965  20 0D
-        CALL SUB_D3F6                    ; $D967  CD F6 D3
+LOADER_OPEN_RETRY:
+        CALL SEARCH_FIRST_DEF                    ; $D962  CD C6 D3
+        JR NZ,LOADER_READ_TPA                 ; $D965  20 0D
+        CALL BDOS_GET_USER                    ; $D967  CD F6 D3
         OR A                             ; $D96A  B7
-        JP Z,SUB_D707_14                 ; $D96B  CA 1B DA
+        JP Z,LOADER_FAIL                 ; $D96B  CA 1B DA
         XOR A                            ; $D96E  AF
-        CALL SUB_DA50                    ; $D96F  CD 50 DA
-        JR SUB_D707_3                    ; $D972  18 EE
-SUB_D707_4:
-        LD A,(SUB_DB06_1_11)             ; $D974  3A 86 DB
+        CALL SET_USER_E                    ; $D96F  CD 50 DA
+        JR LOADER_OPEN_RETRY                    ; $D972  18 EE
+LOADER_READ_TPA:
+        LD A,(PARSE_FCB_AREA)             ; $D974  3A 86 DB
         OR A                             ; $D977  B7
         JR Z,SUB_D707_5                  ; $D978  28 04
         DEC A                            ; $D97A  3D
-        CALL SUB_D3B6                    ; $D97B  CD B6 D3
+        CALL BDOS_SELECT_DISK                    ; $D97B  CD B6 D3
 SUB_D707_5:
         LD C,$1F                         ; $D97E  0E 1F
         CALL BDOS_VEC                    ; $D980  CD 05 00
@@ -909,158 +909,158 @@ SUB_D707_5:
         INC HL                           ; $D984  23
         LD A,(HL)                        ; $D985  7E
         CP $03                           ; $D986  FE 03
-        JR NZ,SUB_D707_6                 ; $D988  20 09
+        JR NZ,LOAD_READ_LOOP                 ; $D988  20 09
         INC HL                           ; $D98A  23
         INC HL                           ; $D98B  23
         INC HL                           ; $D98C  23
         LD A,(HL)                        ; $D98D  7E
         CP $8B                           ; $D98E  FE 8B
-        JP Z,SUB_DA50_1                  ; $D990  CA 54 DA
-SUB_D707_6:
+        JP Z,RELOC_LOAD                  ; $D990  CA 54 DA
+LOAD_READ_LOOP:
         LD HL,TPA_START                  ; $D993  21 00 01
 SUB_D707_7:
         PUSH HL                          ; $D996  E5
         EX DE,HL                         ; $D997  EB
-        CALL SUB_D4B0                    ; $D998  CD B0 D4
-        LD DE,SUB_DB06_1_11              ; $D99B  11 86 DB
-        CALL SUB_D3E3                    ; $D99E  CD E3 D3
+        CALL BDOS_SET_DMA                    ; $D998  CD B0 D4
+        LD DE,PARSE_FCB_AREA              ; $D99B  11 86 DB
+        CALL BDOS_READ_SEQ                    ; $D99E  CD E3 D3
         JR NZ,SUB_D707_8                 ; $D9A1  20 11
         POP HL                           ; $D9A3  E1
         LD DE,DEFAULT_DMA                ; $D9A4  11 80 00
         ADD HL,DE                        ; $D9A7  19
-        LD DE,L_D300                     ; $D9A8  11 00 D3
+        LD DE,CCP_ENTRY                     ; $D9A8  11 00 D3
         OR A                             ; $D9AB  B7
         PUSH HL                          ; $D9AC  E5
         SBC HL,DE                        ; $D9AD  ED 52
         POP HL                           ; $D9AF  E1
-        JR NC,SUB_D707_15                ; $D9B0  30 72
+        JR NC,ERR_BAD_LOAD                ; $D9B0  30 72
         JR SUB_D707_7                    ; $D9B2  18 E2
 SUB_D707_8:
         POP HL                           ; $D9B4  E1
         DEC A                            ; $D9B5  3D
-        JR NZ,SUB_D707_15                ; $D9B6  20 6C
-SUB_D707_9:
-        CALL SUB_DA4D                    ; $D9B8  CD 4D DA
-        CALL SUB_D707                    ; $D9BB  CD 07 D7
-        CALL SUB_D52F                    ; $D9BE  CD 2F D5
-        LD HL,SUB_DB06_1_19              ; $D9C1  21 A9 DB
+        JR NZ,ERR_BAD_LOAD                ; $D9B6  20 6C
+RUN_TRANSIENT:
+        CALL LOAD_GET_SAVED_USER                    ; $D9B8  CD 4D DA
+        CALL RESELECT_DRIVE                    ; $D9BB  CD 07 D7
+        CALL PARSE_FCB_DEF                    ; $D9BE  CD 2F D5
+        LD HL,FCB_DRIVE_REQ              ; $D9C1  21 A9 DB
         PUSH HL                          ; $D9C4  E5
         LD A,(HL)                        ; $D9C5  7E
-        LD (SUB_DB06_1_11),A             ; $D9C6  32 86 DB
+        LD (PARSE_FCB_AREA),A             ; $D9C6  32 86 DB
         LD A,$10                         ; $D9C9  3E 10
-        CALL SUB_D531                    ; $D9CB  CD 31 D5
+        CALL PARSE_FCB                    ; $D9CB  CD 31 D5
         POP HL                           ; $D9CE  E1
         LD A,(HL)                        ; $D9CF  7E
-        LD (SUB_DB06_1_15),A             ; $D9D0  32 96 DB
+        LD (RELOC_FIXUP_VEC),A             ; $D9D0  32 96 DB
         XOR A                            ; $D9D3  AF
-        LD (SUB_DB06_1_16),A             ; $D9D4  32 A6 DB
+        LD (EXTENT_FLAG),A             ; $D9D4  32 A6 DB
         LD DE,DEFAULT_FCB                ; $D9D7  11 5C 00
-        LD HL,SUB_DB06_1_11              ; $D9DA  21 86 DB
+        LD HL,PARSE_FCB_AREA              ; $D9DA  21 86 DB
         LD BC,$0021                      ; $D9DD  01 21 00
         LDIR                             ; $D9E0  ED B0
-        LD HL,L_D308                     ; $D9E2  21 08 D3
-SUB_D707_10:
+        LD HL,READBUF_TEXT                     ; $D9E2  21 08 D3
+COPY_TAIL_SKIP:
         LD A,(HL)                        ; $D9E5  7E
         OR A                             ; $D9E6  B7
-        JR Z,SUB_D707_11                 ; $D9E7  28 07
+        JR Z,COPY_CMD_TAIL                 ; $D9E7  28 07
         CP $20                           ; $D9E9  FE 20
-        JR Z,SUB_D707_11                 ; $D9EB  28 03
+        JR Z,COPY_CMD_TAIL                 ; $D9EB  28 03
         INC HL                           ; $D9ED  23
-        JR SUB_D707_10                   ; $D9EE  18 F5
-SUB_D707_11:
+        JR COPY_TAIL_SKIP                   ; $D9EE  18 F5
+COPY_CMD_TAIL:
         LD B,$00                         ; $D9F0  06 00
         LD DE,CMDLINE                    ; $D9F2  11 81 00
 SUB_D707_12:
         LD A,(HL)                        ; $D9F5  7E
         LD (DE),A                        ; $D9F6  12
         OR A                             ; $D9F7  B7
-        JR Z,SUB_D707_13                 ; $D9F8  28 05
+        JR Z,DISPATCH_TPA                 ; $D9F8  28 05
         INC B                            ; $D9FA  04
         INC HL                           ; $D9FB  23
         INC DE                           ; $D9FC  13
         JR SUB_D707_12                   ; $D9FD  18 F6
-SUB_D707_13:
+DISPATCH_TPA:
         LD A,B                           ; $D9FF  78
         LD (DEFAULT_DMA),A               ; $DA00  32 80 00
-        CALL SUB_D399                    ; $DA03  CD 99 D3
-        CALL SUB_D4AD                    ; $DA06  CD AD D4
-        CALL SUB_D3FC                    ; $DA09  CD FC D3
+        CALL PRINT_CRLF                    ; $DA03  CD 99 D3
+        CALL SET_DMA_DEFAULT                    ; $DA06  CD AD D4
+        CALL SAVE_USER_TO_CDISK                    ; $DA09  CD FC D3
         CALL TPA_START                   ; $DA0C  CD 00 01
-        LD SP,SUB_DB06_1_6               ; $DA0F  31 64 DB
-        CALL SUB_D40B                    ; $DA12  CD 0B D4
-        CALL SUB_D3B6                    ; $DA15  CD B6 D3
-        JP SUB_D5E5_6                    ; $DA18  C3 31 D6
-SUB_D707_14:
-        CALL SUB_DA4D                    ; $DA1B  CD 4D DA
-        CALL SUB_D707                    ; $DA1E  CD 07 D7
-        JP SUB_D4DF                      ; $DA21  C3 DF D4
-SUB_D707_15:
-        LD BC,SUB_D707_15_1              ; $DA24  01 2C DA
-        CALL SUB_D3A2                    ; $DA27  CD A2 D3
-        JR SUB_D707_16                   ; $DA2A  18 0C
-SUB_D707_15_1:
+        LD SP,SUBMIT_FLAG               ; $DA0F  31 64 DB
+        CALL RESTORE_CDISK_DRIVE                    ; $DA12  CD 0B D4
+        CALL BDOS_SELECT_DISK                    ; $DA15  CD B6 D3
+        JP CCP_PROMPT                    ; $DA18  C3 31 D6
+LOADER_FAIL:
+        CALL LOAD_GET_SAVED_USER                    ; $DA1B  CD 4D DA
+        CALL RESELECT_DRIVE                    ; $DA1E  CD 07 D7
+        JP REPORT_BAD_CMD                      ; $DA21  C3 DF D4
+ERR_BAD_LOAD:
+        LD BC,MSG_BAD_LOAD              ; $DA24  01 2C DA
+        CALL PRINT_MSG_CRLF                    ; $DA27  CD A2 D3
+        JR FINISH_AND_LOOP                   ; $DA2A  18 0C
+MSG_BAD_LOAD:
         DEFB    "Bad load"    ; $DA2C  string
         DEFB    $00    ; $DA34  terminator
-SUB_D707_15_2:
+DEFAULT_EXT_COM:
         DEFB    $43,$4F,$4D                                      ; $DA35
-SUB_D707_16:
-        CALL SUB_D707                    ; $DA38  CD 07 D7
-SUB_D707_17:
-        CALL SUB_D52F                    ; $DA3B  CD 2F D5
-        LD A,(SUB_DB06_1_12)             ; $DA3E  3A 87 DB
+FINISH_AND_LOOP:
+        CALL RESELECT_DRIVE                    ; $DA38  CD 07 D7
+CHECK_TRAILING:
+        CALL PARSE_FCB_DEF                    ; $DA3B  CD 2F D5
+        LD A,(PARSE_FCB_NAME)             ; $DA3E  3A 87 DB
         SUB $20                          ; $DA41  D6 20
-        LD HL,SUB_DB06_1_19              ; $DA43  21 A9 DB
+        LD HL,FCB_DRIVE_REQ              ; $DA43  21 A9 DB
         OR (HL)                          ; $DA46  B6
-        JP NZ,SUB_D4DF                   ; $DA47  C2 DF D4
-        JP SUB_D5E5_6                    ; $DA4A  C3 31 D6
-SUB_DA4D:
-        LD A,(SUB_DB06_1_5)              ; $DA4D  3A 43 DB
-SUB_DA50:
+        JP NZ,REPORT_BAD_CMD                   ; $DA47  C2 DF D4
+        JP CCP_PROMPT                    ; $DA4A  C3 31 D6
+LOAD_GET_SAVED_USER:
+        LD A,(SAVED_FCB_BYTE)              ; $DA4D  3A 43 DB
+SET_USER_E:
         LD E,A                           ; $DA50  5F
-        JP SUB_D3F8                      ; $DA51  C3 F8 D3
-SUB_DA50_1:
+        JP BDOS_SET_USER                      ; $DA51  C3 F8 D3
+RELOC_LOAD:
         LD HL,($F3DE)                    ; $DA54  2A DE F3
-        LD (SUB_DB06_1_1+1),HL           ; $DA57  22 26 DB
+        LD (RELOC_PATCH_STORE+1),HL           ; $DA57  22 26 DB
         XOR A                            ; $DA5A  AF
-        LD (SUB_DB06_1_14),A             ; $DA5B  32 92 DB
+        LD (RELOC_PASS_CNT),A             ; $DA5B  32 92 DB
         LD A,$11                         ; $DA5E  3E 11
-        LD (SUB_DB06_1_3),A              ; $DA60  32 41 DB
+        LD (RELOC_PAGE_HI),A              ; $DA60  32 41 DB
         LD DE,$D2FF                      ; $DA63  11 FF D2
-SUB_DA50_2:
+RELOC_BUILD_PASS:
         XOR A                            ; $DA66  AF
-        LD (SUB_DB06_1_16),A             ; $DA67  32 A6 DB
-        LD HL,SUB_DB06_1_15              ; $DA6A  21 96 DB
-SUB_DA50_3:
+        LD (EXTENT_FLAG),A             ; $DA67  32 A6 DB
+        LD HL,RELOC_FIXUP_VEC              ; $DA6A  21 96 DB
+RELOC_VEC_LOOP:
         LD A,(HL)                        ; $DA6D  7E
         OR A                             ; $DA6E  B7
         JR Z,SUB_DA50_4                  ; $DA6F  28 06
-        CALL SUB_DA8D                    ; $DA71  CD 8D DA
+        CALL RELOC_EMIT                    ; $DA71  CD 8D DA
         INC HL                           ; $DA74  23
-        JR SUB_DA50_3                    ; $DA75  18 F6
+        JR RELOC_VEC_LOOP                    ; $DA75  18 F6
 SUB_DA50_4:
         LD A,$A6                         ; $DA77  3E A6
         CP L                             ; $DA79  BD
         JP NZ,SUB_DA50_5                 ; $DA7A  C2 82 DA
-        CALL SUB_DAC8                    ; $DA7D  CD C8 DA
-        JR NZ,SUB_DA50_2                 ; $DA80  20 E4
+        CALL RELOC_READ_NEXT                    ; $DA7D  CD C8 DA
+        JR NZ,RELOC_BUILD_PASS                 ; $DA80  20 E4
 SUB_DA50_5:
         XOR A                            ; $DA82  AF
         LD (DE),A                        ; $DA83  12
-        CALL SUB_DAD4                    ; $DA84  CD D4 DA
-        CALL SUB_DB06                    ; $DA87  CD 06 DB
-        JP SUB_D707_9                    ; $DA8A  C3 B8 D9
-SUB_DA8D:
+        CALL RELOC_SORT                    ; $DA84  CD D4 DA
+        CALL RELOC_APPLY                    ; $DA87  CD 06 DB
+        JP RUN_TRANSIENT                    ; $DA8A  C3 B8 D9
+RELOC_EMIT:
         PUSH HL                          ; $DA8D  E5
         PUSH AF                          ; $DA8E  F5
         SRL A                            ; $DA8F  CB 3F
         SRL A                            ; $DA91  CB 3F
         ADD A,$03                        ; $DA93  C6 03
-        LD (SUB_DB06_1_4),A              ; $DA95  32 42 DB
+        LD (RELOC_REC_FLAG),A              ; $DA95  32 42 DB
         POP AF                           ; $DA98  F1
         AND $03                          ; $DA99  E6 03
         ADD A,A                          ; $DA9B  87
         ADD A,A                          ; $DA9C  87
-        LD HL,SUB_DB06_1_2               ; $DA9D  21 31 DB
+        LD HL,DEINTERLEAVE_MAP               ; $DA9D  21 31 DB
         ADD A,L                          ; $DAA0  85
         LD L,A                           ; $DAA1  6F
         JR NC,SUB_DA8D_1                 ; $DAA2  30 01
@@ -1068,16 +1068,16 @@ SUB_DA8D:
 SUB_DA8D_1:
         LD B,$04                         ; $DAA5  06 04
 SUB_DA8D_2:
-        LD A,(SUB_DB06_1_4)              ; $DAA7  3A 42 DB
+        LD A,(RELOC_REC_FLAG)              ; $DAA7  3A 42 DB
         LD (DE),A                        ; $DAAA  12
         DEC DE                           ; $DAAB  1B
         LD A,(HL)                        ; $DAAC  7E
         INC HL                           ; $DAAD  23
         LD (DE),A                        ; $DAAE  12
         DEC DE                           ; $DAAF  1B
-        LD A,(SUB_DB06_1_3)              ; $DAB0  3A 41 DB
+        LD A,(RELOC_PAGE_HI)              ; $DAB0  3A 41 DB
         CP $F0                           ; $DAB3  FE F0
-        JP Z,SUB_D707_15                 ; $DAB5  CA 24 DA
+        JP Z,ERR_BAD_LOAD                 ; $DAB5  CA 24 DA
         CP $C0                           ; $DAB8  FE C0
         JR NZ,SUB_DA8D_3                 ; $DABA  20 02
         LD A,$D0                         ; $DABC  3E D0
@@ -1085,20 +1085,20 @@ SUB_DA8D_3:
         LD (DE),A                        ; $DABE  12
         INC A                            ; $DABF  3C
         DEC DE                           ; $DAC0  1B
-        LD (SUB_DB06_1_3),A              ; $DAC1  32 41 DB
+        LD (RELOC_PAGE_HI),A              ; $DAC1  32 41 DB
         DJNZ SUB_DA8D_2                  ; $DAC4  10 E1
         POP HL                           ; $DAC6  E1
         RET                              ; $DAC7  C9
-SUB_DAC8:
+RELOC_READ_NEXT:
         PUSH HL                          ; $DAC8  E5
         PUSH DE                          ; $DAC9  D5
-        LD HL,SUB_DB06_1_14              ; $DACA  21 92 DB
+        LD HL,RELOC_PASS_CNT              ; $DACA  21 92 DB
         INC (HL)                         ; $DACD  34
-        CALL SUB_D3C6                    ; $DACE  CD C6 D3
+        CALL SEARCH_FIRST_DEF                    ; $DACE  CD C6 D3
         POP DE                           ; $DAD1  D1
         POP HL                           ; $DAD2  E1
         RET                              ; $DAD3  C9
-SUB_DAD4:
+RELOC_SORT:
         LD HL,$D2FF                      ; $DAD4  21 FF D2
 SUB_DAD4_1:
         LD D,H                           ; $DAD7  54
@@ -1144,7 +1144,7 @@ SUB_DAD4_5:
         OR A                             ; $DB02  B7
         JR NZ,SUB_DAD4_1                 ; $DB03  20 D2
         RET                              ; $DB05  C9
-SUB_DB06:
+RELOC_APPLY:
         LD DE,$D2FF                      ; $DB06  11 FF D2
 SUB_DB06_1:
         LD A,(DE)                        ; $DB09  1A
@@ -1162,19 +1162,19 @@ SUB_DB06_1:
         LD ($F3EB),A                     ; $DB1C  32 EB F3
         LD HL,$0E03                      ; $DB1F  21 03 0E
         LD ($F3D0),HL                    ; $DB22  22 D0 F3
-SUB_DB06_1_1:
+RELOC_PATCH_STORE:
         LD (WBOOT_VEC),A                 ; $DB25  32 00 00
         LD A,($F3EA)                     ; $DB28  3A EA F3
         OR A                             ; $DB2B  B7
         JR Z,SUB_DB06_1                  ; $DB2C  28 DB
-        JP SUB_D707_6                    ; $DB2E  C3 93 D9
-SUB_DB06_1_2:
+        JP LOAD_READ_LOOP                    ; $DB2E  C3 93 D9
+DEINTERLEAVE_MAP:
         DEFB    $00,$09,$03,$0C,$06,$0F,$01,$0A,$04,$0D,$07,$08,$02,$0B,$05,$0E ; $DB31
-SUB_DB06_1_3:
+RELOC_PAGE_HI:
         DEFB    $00                                              ; $DB41
-SUB_DB06_1_4:
+RELOC_REC_FLAG:
         DEFB    $00                                              ; $DB42
-SUB_DB06_1_5:
+SAVED_FCB_BYTE:
         DEFS    25, $00    ; $DB43  fill
 CCP_STACK:
         DEFS    8, $00     ; $DB5C  top 8 bytes of the CCP private stack (base = $DB64, set by
@@ -1182,37 +1182,37 @@ CCP_STACK:
                            ;        CCP's PUSH/CALL grow the stack down into here at run time. A booted
                            ;        snapshot captures leftover return addresses ($D397 $D3FF $D481 $D647)
                            ;        here -- they are stack contents, NOT a dispatch/pointer table.
-SUB_DB06_1_6:
+SUBMIT_FLAG:
         DEFB    $00                                              ; $DB64
-SUB_DB06_1_7:
+SUBMIT_FCB:
         DEFB    $00,$24,$24,$24,$20,$20,$20,$20,$20,$53,$55,$42,$00,$00 ; $DB65
-SUB_DB06_1_8:
+SUBMIT_EXTENT:
         DEFB    $00                                              ; $DB73
 SUB_DB06_1_9:
         DEFS    17, $00    ; $DB74  fill
-SUB_DB06_1_10:
+SUBMIT_REC_NO:
         DEFB    $00                                              ; $DB85
-SUB_DB06_1_11:
+PARSE_FCB_AREA:
         DEFB    $00                                              ; $DB86
-SUB_DB06_1_12:
+PARSE_FCB_NAME:
         DEFS    8, $00    ; $DB87  fill
-SUB_DB06_1_13:
+PARSE_FCB_TYPE:
         DEFB    $00,$00,$00                                      ; $DB8F
-SUB_DB06_1_14:
+RELOC_PASS_CNT:
         DEFB    $00,$00,$00,$00                                  ; $DB92
-SUB_DB06_1_15:
+RELOC_FIXUP_VEC:
         DEFS    16, $00    ; $DB96  fill
-SUB_DB06_1_16:
+EXTENT_FLAG:
         DEFB    $00                                              ; $DBA6
-SUB_DB06_1_17:
+SEARCH_DIRCODE:
         DEFB    $00                                              ; $DBA7
-SUB_DB06_1_18:
+CUR_DRIVE:
         DEFB    $00                                              ; $DBA8
-SUB_DB06_1_19:
+FCB_DRIVE_REQ:
         DEFB    $00                                              ; $DBA9
-SUB_DB06_1_20:
+DIR_LINE_COUNT:
         DEFS    86, $00    ; $DBAA  fill
-SUB_DB06_1_21:
+FCB_TAIL_SIG:
         DEFB    $BD,$16,$00,$01,$4D,$40                          ; $DC00
 
     SAVEBIN "CPM_CCP.bin", $D300, $0906

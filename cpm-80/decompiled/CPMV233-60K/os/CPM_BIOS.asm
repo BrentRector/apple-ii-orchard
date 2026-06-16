@@ -53,7 +53,7 @@ CONST:
 CONIN:
         JP BIOS_CONIN                    ; $FA09  C3 1A FB
 CONOUT:
-        JP SUB_FB4C_1                    ; $FA0C  C3 4D FB
+        JP CONOUT_DISPATCH                    ; $FA0C  C3 4D FB
 LIST:
         JP BIOS_LIST                     ; $FA0F  C3 70 FB
 PUNCH:
@@ -82,17 +82,17 @@ SECTRAN:
         LD H,B                           ; $FA30  60
         LD L,C                           ; $FA31  69
         RET                              ; $FA32  C9
-L_FA33:
+DISK_PARAM_TBL:
         DEFS    8, $00    ; $FA33  fill
         DEFB    $FD,$FE,$73,$FA,$C5,$FF                          ; $FA3B
         DEFW    BIOS_BOOT_17             ; $FA41
         DEFS    8, $00    ; $FA43  fill
         DEFB    $FD,$FE,$73,$FA,$D1,$FF,$8F,$FF,$00,$00,$00,$00,$00,$00,$00,$00 ; $FA4B
         DEFB    $FD,$FE,$73,$FA,$DD,$FF                          ; $FA5B
-        DEFW    SUB_FF9D_2               ; $FA61
+        DEFW    HANDLER_TBL_FETCH               ; $FA61
         DEFS    8, $00    ; $FA63  fill
         DEFB    $FD,$FE,$73,$FA,$E9,$FF                          ; $FA6B
-        DEFW    SUB_FFA8_2               ; $FA71
+        DEFW    BANNER_RESTORE_A               ; $FA71
         DEFB    $20,$00,$03,$07,$00,$8B,$00,$2F,$00,$C0,$00,$0C,$00,$03,$00 ; $FA73
 SLOT_SCAN_INIT:
         LD DE,$0007                      ; $FA82  11 07 00
@@ -169,15 +169,15 @@ BIOS_CONST:
         LD HL,($F380)                    ; $FB10  2A 80 F3
         JP (HL)                          ; $FB13  E9
         DEFB    $3A                                              ; $FB14
-L_FB15:
+CONST_VEC_PATCH:
         DEFB    $00,$E0,$17,$9F,$C9                              ; $FB15
 BIOS_CONIN:
-        CALL SUB_FB5A                    ; $FB1A  CD 5A FB
+        CALL CONIN_DISPATCH                    ; $FB1A  CD 5A FB
         AND $7F                          ; $FB1D  E6 7F
         LD HL,$F3AB                      ; $FB1F  21 AB F3
         LD B,$06                         ; $FB22  06 06
         LD C,A                           ; $FB24  4F
-KEY_TABLE_SCAN:
+KEY_REMAP_SCAN:
         INC HL                           ; $FB25  23
         LD A,(HL)                        ; $FB26  7E
         INC HL                           ; $FB27  23
@@ -186,12 +186,12 @@ KEY_TABLE_SCAN:
         CP C                             ; $FB2C  B9
         LD A,(HL)                        ; $FB2D  7E
         RET Z                            ; $FB2E  C8
-        DJNZ KEY_TABLE_SCAN              ; $FB2F  10 F4
+        DJNZ KEY_REMAP_SCAN              ; $FB2F  10 F4
 KBD_STROBE_CLEAR:
         LD A,C                           ; $FB31  79
         RET                              ; $FB32  C9
         DEFB    $11,$03,$00,$C3                                  ; $FB33
-L_FB37:
+CONIN_HANDLER_VEC:
         DEFB    $39,$FB,$3A,$00,$E0,$17                          ; $FB37
         DEFW    SECTRAN                  ; $FB3D
         DEFB    $32,$10,$E0,$3F,$1F,$C9                          ; $FB3F
@@ -200,58 +200,58 @@ RPC_DISPATCH:
 RPC_DISPATCH_1:
         LD (WBOOT_VEC),A                 ; $FB48  32 00 00
         RET                              ; $FB4B  C9
-SUB_FB4C:
+CONOUT_SET_C:
         LD C,A                           ; $FB4C  4F
-SUB_FB4C_1:
+CONOUT_DISPATCH:
         LD A,(IOBYTE)                    ; $FB4D  3A 03 00
         AND $03                          ; $FB50  E6 03
         CP $02                           ; $FB52  FE 02
-        JR NZ,CONSOLE_WRITE_CHAR         ; $FB54  20 4B
-SUB_FB4C_2:
+        JR NZ,CONOUT_ESC_PROC         ; $FB54  20 4B
+CONOUT_UC1:
         LD HL,($F392)                    ; $FB56  2A 92 F3
         JP (HL)                          ; $FB59  E9
-SUB_FB5A:
+CONIN_DISPATCH:
         LD A,(IOBYTE)                    ; $FB5A  3A 03 00
         AND $03                          ; $FB5D  E6 03
         CP $02                           ; $FB5F  FE 02
         LD HL,($F384)                    ; $FB61  2A 84 F3
-        JR Z,SUB_FB5A_2                  ; $FB64  28 06
-        JR NC,SUB_FB5A_3                 ; $FB66  30 07
-SUB_FB5A_1:
+        JR Z,CONIN_UC1                  ; $FB64  28 06
+        JR NC,CONIN_VEC_JP                 ; $FB66  30 07
+CONIN_TTY:
         LD HL,($F382)                    ; $FB68  2A 82 F3
         JP (HL)                          ; $FB6B  E9
-SUB_FB5A_2:
+CONIN_UC1:
         LD HL,($F38A)                    ; $FB6C  2A 8A F3
-SUB_FB5A_3:
+CONIN_VEC_JP:
         JP (HL)                          ; $FB6F  E9
 BIOS_LIST:
         LD A,(IOBYTE)                    ; $FB70  3A 03 00
         AND $C0                          ; $FB73  E6 C0
         CP $80                           ; $FB75  FE 80
-        JR C,SUB_FB5A_7                  ; $FB77  38 27
-        JR Z,SUB_FB4C_2                  ; $FB79  28 DB
+        JR C,DEV_NULL_RET                  ; $FB77  38 27
+        JR Z,CONOUT_UC1                  ; $FB79  28 DB
         LD HL,($F394)                    ; $FB7B  2A 94 F3
         JP (HL)                          ; $FB7E  E9
 BIOS_PUNCH:
         LD A,(IOBYTE)                    ; $FB7F  3A 03 00
         AND $30                          ; $FB82  E6 30
         CP $10                           ; $FB84  FE 10
-        JR C,SUB_FB5A_7                  ; $FB86  38 18
+        JR C,DEV_NULL_RET                  ; $FB86  38 18
         LD HL,($F38E)                    ; $FB88  2A 8E F3
-        JR Z,SUB_FB5A_3                  ; $FB8B  28 E2
+        JR Z,CONIN_VEC_JP                  ; $FB8B  28 E2
         LD HL,($F390)                    ; $FB8D  2A 90 F3
         JP (HL)                          ; $FB90  E9
 BIOS_READER:
         LD A,(IOBYTE)                    ; $FB91  3A 03 00
         AND $0C                          ; $FB94  E6 0C
         CP $08                           ; $FB96  FE 08
-        JR C,SUB_FB5A_1                  ; $FB98  38 CE
-        JR Z,SUB_FB5A_2                  ; $FB9A  28 D0
+        JR C,CONIN_TTY                  ; $FB98  38 CE
+        JR Z,CONIN_UC1                  ; $FB9A  28 D0
         LD HL,($F38C)                    ; $FB9C  2A 8C F3
         JP (HL)                          ; $FB9F  E9
-SUB_FB5A_7:
+DEV_NULL_RET:
         SCF                              ; $FBA0  37
-CONSOLE_WRITE_CHAR:
+CONOUT_ESC_PROC:
         SBC A,A                          ; $FBA1  9F
         LD HL,$F3A2                      ; $FBA2  21 A2 F3
         LD L,(HL)                        ; $FBA5  6E
@@ -263,28 +263,28 @@ CONSOLE_WRITE_CHAR:
         INC HL                           ; $FBB0  23
         LD A,(HL)                        ; $FBB1  7E
         OR A                             ; $FBB2  B7
-        JP Z,CHECK_UNIT_DEFAULT          ; $FBB3  CA 56 FC
+        JP Z,CONOUT_SEQ_MATCH          ; $FBB3  CA 56 FC
         DEC (HL)                         ; $FBB6  35
         LD A,($F396)                     ; $FBB7  3A 96 F3
         LD HL,BIOS_BOOT_1                ; $FBBA  21 ED FE
-        JR Z,SUB_FBC4_2                  ; $FBBD  28 0C
+        JR Z,COORD_SIGN_CHK                  ; $FBBD  28 0C
         OR A                             ; $FBBF  B7
-        JP P,SUB_FBC4_1                  ; $FBC0  F2 C6 FB
+        JP P,COORD_BIAS_SUB                  ; $FBC0  F2 C6 FB
         DEC HL                           ; $FBC3  2B
-SUB_FBC4:
+COORD_MASK7:
         AND $7F                          ; $FBC4  E6 7F
-SUB_FBC4_1:
+COORD_BIAS_SUB:
         LD E,A                           ; $FBC6  5F
         LD A,C                           ; $FBC7  79
         SUB E                            ; $FBC8  93
         LD (HL),A                        ; $FBC9  77
         RET                              ; $FBCA  C9
-SUB_FBC4_2:
+COORD_SIGN_CHK:
         OR A                             ; $FBCB  B7
         JP M,CURSOR_POSITION             ; $FBCC  FA D0 FB
         DEC HL                           ; $FBCF  2B
 CURSOR_POSITION:
-        CALL SUB_FBC4                    ; $FBD0  CD C4 FB
+        CALL COORD_MASK7                    ; $FBD0  CD C4 FB
         LD HL,(BIOS_BOOT+2)              ; $FBD3  2A EC FE
         LD A,($F3A1)                     ; $FBD6  3A A1 F3
         OR A                             ; $FBD9  B7
@@ -304,7 +304,7 @@ EMIT_CURSOR_MOVE:
         CALL CONSOLE_PUT_CHAR            ; $FBEA  CD A4 FC
         POP AF                           ; $FBED  F1
         LD B,$0A                         ; $FBEE  06 0A
-SUB_FBF0:
+CONOUT_EMIT_C:
         LD C,A                           ; $FBF0  4F
         JP CONSOLE_PUT_CHAR              ; $FBF1  C3 A4 FC
 BIOS_SETSEC:
@@ -315,53 +315,53 @@ BIOS_SETDMA:
         LD (BIOS_BOOT_6+2),BC            ; $FBF9  ED 43 FA FE
         RET                              ; $FBFD  C9
         DEFS    88, $00    ; $FBFE  fill
-CHECK_UNIT_DEFAULT:
+CONOUT_SEQ_MATCH:
         LD B,A                           ; $FC56  47
         LD HL,L_FEE6                     ; $FC57  21 E6 FE
         LD A,(HL)                        ; $FC5A  7E
         LD E,A                           ; $FC5B  5F
         OR A                             ; $FC5C  B7
-        JR NZ,CHECK_UNIT_DEFAULT_2       ; $FC5D  20 12
+        JR NZ,SEQ_TBL_SCAN       ; $FC5D  20 12
         LD A,($F397)                     ; $FC5F  3A 97 F3
         OR A                             ; $FC62  B7
-        JR Z,CHECK_UNIT_DEFAULT_1        ; $FC63  28 06
+        JR Z,SEQ_PRINTABLE_CHK        ; $FC63  28 06
         CP C                             ; $FC65  B9
-        JR NZ,CHECK_UNIT_DEFAULT_1       ; $FC66  20 03
+        JR NZ,SEQ_PRINTABLE_CHK       ; $FC66  20 03
         LD (HL),$80                      ; $FC68  36 80
         RET                              ; $FC6A  C9
-CHECK_UNIT_DEFAULT_1:
+SEQ_PRINTABLE_CHK:
         LD A,$1F                         ; $FC6B  3E 1F
         CP C                             ; $FC6D  B9
         JP C,CONSOLE_PUT_CHAR            ; $FC6E  DA A4 FC
-CHECK_UNIT_DEFAULT_2:
+SEQ_TBL_SCAN:
         LD HL,$F3A0                      ; $FC71  21 A0 F3
         LD B,$09                         ; $FC74  06 09
 CHECK_UNIT_DEFAULT_3:
         LD A,(HL)                        ; $FC76  7E
         OR A                             ; $FC77  B7
-        JR Z,CHECK_UNIT_DEFAULT_4        ; $FC78  28 04
+        JR Z,SEQ_TBL_NEXT        ; $FC78  28 04
         XOR E                            ; $FC7A  AB
         CP C                             ; $FC7B  B9
-        JR Z,CHECK_UNIT_DEFAULT_5        ; $FC7C  28 05
-CHECK_UNIT_DEFAULT_4:
+        JR Z,SEQ_EMIT_ENTRY        ; $FC7C  28 05
+SEQ_TBL_NEXT:
         DEC HL                           ; $FC7E  2B
         DJNZ CHECK_UNIT_DEFAULT_3        ; $FC7F  10 F5
         JR CONSOLE_PUT_CHAR              ; $FC81  18 21
-CHECK_UNIT_DEFAULT_5:
+SEQ_EMIT_ENTRY:
         LD DE,$000B                      ; $FC83  11 0B 00
         ADD HL,DE                        ; $FC86  19
         LD A,(HL)                        ; $FC87  7E
         OR A                             ; $FC88  B7
         LD C,A                           ; $FC89  4F
-        JP P,CHECK_UNIT_DEFAULT_6        ; $FC8A  F2 9A FC
+        JP P,SEQ_SET_PENDING        ; $FC8A  F2 9A FC
         AND $7F                          ; $FC8D  E6 7F
         LD C,A                           ; $FC8F  4F
         PUSH BC                          ; $FC90  C5
         LD A,($F3A2)                     ; $FC91  3A A2 F3
         LD B,$07                         ; $FC94  06 07
-        CALL SUB_FBF0                    ; $FC96  CD F0 FB
+        CALL CONOUT_EMIT_C                    ; $FC96  CD F0 FB
         POP BC                           ; $FC99  C1
-CHECK_UNIT_DEFAULT_6:
+SEQ_SET_PENDING:
         LD A,B                           ; $FC9A  78
         CP $07                           ; $FC9B  FE 07
         JR NZ,CONSOLE_PUT_CHAR           ; $FC9D  20 05
@@ -373,12 +373,12 @@ CONSOLE_PUT_CHAR:
         LD A,(L_FEE4)                    ; $FCA8  3A E4 FE
         OR A                             ; $FCAB  B7
         LD HL,($F388)                    ; $FCAC  2A 88 F3
-        JR Z,SUB_FCA4_1                  ; $FCAF  28 03
+        JR Z,CONOUT_PHYS_JP                  ; $FCAF  28 03
         LD HL,($F386)                    ; $FCB1  2A 86 F3
-SUB_FCA4_1:
+CONOUT_PHYS_JP:
         JP (HL)                          ; $FCB4  E9
         DEFB    $11,$03,$00,$C3                                  ; $FCB5
-L_FCB9:
+CONOUT_HANDLER_VEC:
         DEFB    $BB,$FC,$2A,$E7,$FE,$3A,$E9,$FE,$77,$CD,$E2,$FC,$2A,$28,$F0,$3A ; $FCB9
         DEFB    $24,$F0,$5F,$16,$F0,$19,$22,$E7,$FE,$7E,$32,$E9  ; $FCC9
         DEFW    BIOS_BOOT_8              ; $FCD5
@@ -413,7 +413,7 @@ INIT_PASCAL_1_0:
         LD ($F046),A                     ; $FD94  32 46 F0
         LD A,(HL)                        ; $FD97  7E
         RET                              ; $FD98  C9
-L_FD99:
+CONST_SLOT3_TBL:
         DEFB    $21,$1D,$0E,$1E,$03,$3E,$01,$CD,$AD,$FD,$3A,$48,$F0,$1F,$9F,$C9 ; $FD99
         DEFB    $21,$E1,$0D,$79,$32,$45,$F0                      ; $FDA9
 INIT_PASCAL_1_1:
@@ -433,24 +433,24 @@ INIT_PASCAL_1_1:
         DEFB    $8B,$C0,$4C,$F7,$D1,$A9,$01,$20,$EF,$0D,$20,$26,$0E,$48,$A0,$0E ; $FE0A
         DEFB    $4C,$D6,$0D,$48,$20,$26,$0E,$A0,$10,$4C,$D6,$0D,$98,$09,$C0,$AA ; $FE1A
         DEFB    $98,$0A,$0A,$0A,$0A,$A8,$8C,$F8,$06,$A9,$00,$85,$F6,$86,$F7 ; $FE2A
-        DEFW    SUB_FFA8_1               ; $FE39
+        DEFW    BANNER_PUT_ATTR               ; $FE39
         DEFB    $CF,$B1,$F6,$60,$A5,$48,$48,$A5,$45,$A6,$46,$A4,$47,$28,$58,$60 ; $FE3B
         DEFB    $CD                                              ; $FE4B
         DEFW    SLOT_IOBASE_8E           ; $FE4C
         DEFB    $7E,$1F,$30,$FC,$2C,$7E,$C9,$11,$01,$00,$C3      ; $FE4E
-L_FE59:
+READER_HANDLER_TBL:
         DEFB    $68,$FE,$CD                                      ; $FE59
         DEFW    SLOT_E000_ADDR           ; $FE5C
         DEFB    $2E,$C1,$7E,$17,$38,$FC,$CD                      ; $FE5E
         DEFW    SLOT_IOBASE_80           ; $FE65
         DEFB    $71,$C9,$11,$02,$00,$C3                          ; $FE67
-L_FE6D:
+PUNCH_HANDLER_TBL:
         DEFB    $68,$FE,$11,$02,$00                              ; $FE6D
-L_FE72:
+AUX_DEV_STUB:
         DEFB    $C3                                              ; $FE72
-L_FE73:
+AUX_DEV_VEC:
         DEFB    $00                                              ; $FE73
-L_FE74:
+AUX_DEV_VEC_HI:
         DEFB    $00                                              ; $FE74
 INIT_PASCAL_1_1_1:
         LD A,(BIOS_BOOT_4)               ; $FE75  3A F2 FE
@@ -471,7 +471,7 @@ SLOT_IOBASE_8E:
         LD HL,$E08E                      ; $FE8A  21 8E E0
 SLOT_IOBASE_8E_1:
         LD A,E                           ; $FE8D  7B
-SELDSK_IMPL:
+SLOT_IOBASE_CALC:
         ADD A,A                          ; $FE8E  87
         ADD A,A                          ; $FE8F  87
         ADD A,A                          ; $FE90  87
@@ -493,8 +493,8 @@ SELDSK_IMPL_1:
         INC DE                           ; $FEA6  13
         LD A,C                           ; $FEA7  79
         LD (DE),A                        ; $FEA8  12
-        LD HL,L_FA33                     ; $FEA9  21 33 FA
-        CALL SELDSK_IMPL                 ; $FEAC  CD 8E FE
+        LD HL,DISK_PARAM_TBL                     ; $FEA9  21 33 FA
+        CALL SLOT_IOBASE_CALC                 ; $FEAC  CD 8E FE
         PUSH HL                          ; $FEAF  E5
         LD DE,$000A                      ; $FEB0  11 0A 00
         ADD HL,DE                        ; $FEB3  19
@@ -553,7 +553,7 @@ BIOS_BOOT_8:
         LD A,($F3BB)                     ; $FF05  3A BB F3
         CP $06                           ; $FF08  FE 06
         JR NZ,BIOS_BOOT_9                ; $FF0A  20 0A
-        LD HL,L_FD99                     ; $FF0C  21 99 FD
+        LD HL,CONST_SLOT3_TBL                     ; $FF0C  21 99 FD
         LD ($F380),HL                    ; $FF0F  22 80 F3
         SUB $03                          ; $FF12  D6 03
         JR BIOS_BOOT_10                  ; $FF14  18 13
@@ -563,72 +563,72 @@ BIOS_BOOT_9:
         SUB $03                          ; $FF1A  D6 03
         JR C,BIOS_BOOT_11                ; $FF1C  38 1E
         JR NZ,BIOS_BOOT_10               ; $FF1E  20 09
-        LD HL,L_FB15                     ; $FF20  21 15 FB
+        LD HL,CONST_VEC_PATCH                     ; $FF20  21 15 FB
         LD (HL),$BE                      ; $FF23  36 BE
         INC HL                           ; $FF25  23
         INC HL                           ; $FF26  23
         LD (HL),$1F                      ; $FF27  36 1F
 BIOS_BOOT_10:
         PUSH AF                          ; $FF29  F5
-        CALL SUB_FF9D                    ; $FF2A  CD 9D FF
+        CALL GET_CONOUT_HANDLER                    ; $FF2A  CD 9D FF
         POP AF                           ; $FF2D  F1
-        LD (L_FCB9),HL                   ; $FF2E  22 B9 FC
-        CALL SUB_FF98                    ; $FF31  CD 98 FF
-        LD (L_FB37),HL                   ; $FF34  22 37 FB
+        LD (CONOUT_HANDLER_VEC),HL                   ; $FF2E  22 B9 FC
+        CALL GET_CONIN_HANDLER                    ; $FF31  CD 98 FF
+        LD (CONIN_HANDLER_VEC),HL                   ; $FF34  22 37 FB
         LD A,$03                         ; $FF37  3E 03
         LD (BIOS_WBOOT_3+1),A            ; $FF39  32 05 FB
 BIOS_BOOT_11:
         LD A,($F3B9)                     ; $FF3C  3A B9 F3
         SUB $03                          ; $FF3F  D6 03
         JR C,BIOS_BOOT_12                ; $FF41  38 06
-        CALL SUB_FF9D                    ; $FF43  CD 9D FF
-        LD (L_FE59),HL                   ; $FF46  22 59 FE
+        CALL GET_CONOUT_HANDLER                    ; $FF43  CD 9D FF
+        LD (READER_HANDLER_TBL),HL                   ; $FF46  22 59 FE
 BIOS_BOOT_12:
         LD A,($F3BA)                     ; $FF49  3A BA F3
         SUB $03                          ; $FF4C  D6 03
         JR C,BIOS_BOOT_14                ; $FF4E  38 14
         PUSH AF                          ; $FF50  F5
-        CALL SUB_FF9D                    ; $FF51  CD 9D FF
-        LD (L_FE6D),HL                   ; $FF54  22 6D FE
+        CALL GET_CONOUT_HANDLER                    ; $FF51  CD 9D FF
+        LD (PUNCH_HANDLER_TBL),HL                   ; $FF54  22 6D FE
         POP AF                           ; $FF57  F1
 BIOS_BOOT_13:
         CP $02                           ; $FF58  FE 02
         JR Z,BIOS_BOOT_14                ; $FF5A  28 08
-        CALL SUB_FF98                    ; $FF5C  CD 98 FF
-        LD (L_FE73),HL                   ; $FF5F  22 73 FE
+        CALL GET_CONIN_HANDLER                    ; $FF5C  CD 98 FF
+        LD (AUX_DEV_VEC),HL                   ; $FF5F  22 73 FE
         JR BIOS_BOOT_15                  ; $FF62  18 0B
 BIOS_BOOT_14:
         LD HL,$1A3E                      ; $FF64  21 3E 1A
-        LD (L_FE72),HL                   ; $FF67  22 72 FE
+        LD (AUX_DEV_STUB),HL                   ; $FF67  22 72 FE
         LD A,$C9                         ; $FF6A  3E C9
-        LD (L_FE74),A                    ; $FF6C  32 74 FE
+        LD (AUX_DEV_VEC_HI),A                    ; $FF6C  32 74 FE
 BIOS_BOOT_15:
         CALL SLOT_SCAN_INIT              ; $FF6F  CD 82 FA
         LD A,($F398)                     ; $FF72  3A 98 F3
-        CALL SUB_FFA8                    ; $FF75  CD A8 FF
-        LD HL,L_FFB7                     ; $FF78  21 B7 FF
+        CALL BANNER_PUT_CHAR                    ; $FF75  CD A8 FF
+        LD HL,SIGNON_BANNER                     ; $FF78  21 B7 FF
 BIOS_BOOT_16:
         LD A,(HL)                        ; $FF7B  7E
         OR A                             ; $FF7C  B7
 BIOS_BOOT_17:
         JP Z,BIOS_WBOOT_2                ; $FF7D  CA E3 FA
         PUSH HL                          ; $FF80  E5
-        CALL SUB_FB4C                    ; $FF81  CD 4C FB
+        CALL CONOUT_SET_C                    ; $FF81  CD 4C FB
         POP HL                           ; $FF84  E1
         INC HL                           ; $FF85  23
         JR BIOS_BOOT_16                  ; $FF86  18 F3
-L_FF88:
+CONOUT_VEC_TABLE:
         DEFB    $0E,$FD,$71,$FD,$5B,$FE,$A9,$FD                  ; $FF88
-L_FF90:
+CONIN_VEC_TABLE:
         DEFB    $4B,$FE,$C1,$FD,$B7,$FD,$B7,$FD                  ; $FF90
-SUB_FF98:
-        LD HL,L_FF90                     ; $FF98  21 90 FF
-        JR SUB_FF9D_1                    ; $FF9B  18 03
-SUB_FF9D:
-        LD HL,L_FF88                     ; $FF9D  21 88 FF
-SUB_FF9D_1:
+GET_CONIN_HANDLER:
+        LD HL,CONIN_VEC_TABLE                     ; $FF98  21 90 FF
+        JR HANDLER_TBL_INDEX                    ; $FF9B  18 03
+GET_CONOUT_HANDLER:
+        LD HL,CONOUT_VEC_TABLE                     ; $FF9D  21 88 FF
+HANDLER_TBL_INDEX:
         ADD A,A                          ; $FFA0  87
-SUB_FF9D_2:
+HANDLER_TBL_FETCH:
         ADD A,L                          ; $FFA1  85
         LD L,A                           ; $FFA2  6F
         LD A,(HL)                        ; $FFA3  7E
@@ -636,18 +636,18 @@ SUB_FF9D_2:
         LD H,(HL)                        ; $FFA5  66
         LD L,A                           ; $FFA6  6F
         RET                              ; $FFA7  C9
-SUB_FFA8:
+BANNER_PUT_CHAR:
         OR A                             ; $FFA8  B7
         JP P,SUB_FFA8_3                  ; $FFA9  F2 B4 FF
         PUSH AF                          ; $FFAC  F5
-SUB_FFA8_1:
+BANNER_PUT_ATTR:
         LD A,($F397)                     ; $FFAD  3A 97 F3
-        CALL SUB_FB4C                    ; $FFB0  CD 4C FB
-SUB_FFA8_2:
+        CALL CONOUT_SET_C                    ; $FFB0  CD 4C FB
+BANNER_RESTORE_A:
         POP AF                           ; $FFB3  F1
 SUB_FFA8_3:
-        JP SUB_FB4C                      ; $FFB4  C3 4C FB
-L_FFB7:
+        JP CONOUT_SET_C                      ; $FFB4  C3 4C FB
+SIGNON_BANNER:
         DEFB    $0D,$0A,$0A,$0A,$20,$20,$20,$20,$20,$53,$6F,$66,$74,$63,$61,$72 ; $FFB7
         DEFB    "d CP/M"    ; $FFC7  string
         DEFB    $0D    ; $FFCD  terminator

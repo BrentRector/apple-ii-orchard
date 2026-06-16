@@ -13,15 +13,15 @@ SCRN_HOLE_0678_S0    = $0678             ; Screen-hole; slot N -> $0678+N
 
 .org $D000
 
-L_D000:
+WRITE_SECTOR:
         SEC                          ; $D000  38
-L_D001:
+WRITE_SENSE_PROTECT:
         STX $27                      ; $D001  86 27
         STX SCRN_HOLE_0678_S0        ; $D003  8E 78 06
         LDA $C08D,X                  ; $D006  BD 8D C0
         LDA $C08E,X                  ; $D009  BD 8E C0
-L_D00C:
-        BMI L_D08A                   ; $D00C  30 7C
+WRITE_CHECK_PROTECT:
+        BMI DRIVE_READ_EXIT                   ; $D00C  30 7C
         LDA $0C00                    ; $D00E  AD 00 0C
         STA $26                      ; $D011  85 26
         LDA #$FF                     ; $D013  A9 FF
@@ -30,73 +30,73 @@ L_D00C:
         PHA                          ; $D01B  48
         PLA                          ; $D01C  68
         NOP                          ; $D01D  EA
-L_D01E:
+WRITE_SYNC_LEADER:
         LDY #$04                     ; $D01E  A0 04
-L_D020:
+WRITE_SYNC_LOOP:
         PHA                          ; $D020  48
         PLA                          ; $D021  68
-        JSR SUB_D090                 ; $D022  20 90 D0
+        JSR WRITE_NIBBLE_PAD                 ; $D022  20 90 D0
         DEY                          ; $D025  88
-L_D026:
-        BNE L_D020                   ; $D026  D0 F8
-L_D028:
+WRITE_SYNC_NEXT:
+        BNE WRITE_SYNC_LOOP                   ; $D026  D0 F8
+WRITE_DATA_PROLOG:
         LDA #$D5                     ; $D028  A9 D5
-        JSR SUB_D08F                 ; $D02A  20 8F D0
-L_D02D:
+        JSR WRITE_NIBBLE_CLC                 ; $D02A  20 8F D0
+WRITE_PROLOG_AA:
         LDA #$AA                     ; $D02D  A9 AA
-        JSR SUB_D08F                 ; $D02F  20 8F D0
+        JSR WRITE_NIBBLE_CLC                 ; $D02F  20 8F D0
         LDA #$AD                     ; $D032  A9 AD
-        JSR SUB_D08F                 ; $D034  20 8F D0
+        JSR WRITE_NIBBLE_CLC                 ; $D034  20 8F D0
         TYA                          ; $D037  98
         LDY #$56                     ; $D038  A0 56
-        BNE L_D03F                   ; $D03A  D0 03
-L_D03C:
+        BNE ENC_LOW6_CHAIN                   ; $D03A  D0 03
+ENC_LOW6_READ:
         LDA $0C00,Y                  ; $D03C  B9 00 0C
-L_D03F:
+ENC_LOW6_CHAIN:
         EOR $0BFF,Y                  ; $D03F  59 FF 0B
         TAX                          ; $D042  AA
-        LDA SUB_D092_1,X             ; $D043  BD 69 D3
-L_D046:
+        LDA WRITE_NIB_TABLE,X             ; $D043  BD 69 D3
+WRITE_NIB_RELOAD:
         LDX $27                      ; $D046  A6 27
         STA $C08D,X                  ; $D048  9D 8D C0
         LDA $C08C,X                  ; $D04B  BD 8C C0
         DEY                          ; $D04E  88
-        BNE L_D03C                   ; $D04F  D0 EB
+        BNE ENC_LOW6_READ                   ; $D04F  D0 EB
         LDA $26                      ; $D051  A5 26
         NOP                          ; $D053  EA
-L_D054:
+ENC_DATA_CHAIN:
         EOR $0900,Y                  ; $D054  59 00 09
         TAX                          ; $D057  AA
-        LDA SUB_D092_1,X             ; $D058  BD 69 D3
+        LDA WRITE_NIB_TABLE,X             ; $D058  BD 69 D3
         LDX SCRN_HOLE_0678_S0        ; $D05B  AE 78 06
         STA $C08D,X                  ; $D05E  9D 8D C0
         LDA $C08C,X                  ; $D061  BD 8C C0
         LDA $0900,Y                  ; $D064  B9 00 09
         INY                          ; $D067  C8
-        BNE L_D054                   ; $D068  D0 EA
+        BNE ENC_DATA_CHAIN                   ; $D068  D0 EA
         TAX                          ; $D06A  AA
-        LDA SUB_D092_1,X             ; $D06B  BD 69 D3
+        LDA WRITE_NIB_TABLE,X             ; $D06B  BD 69 D3
         LDX $27                      ; $D06E  A6 27
-        JSR SUB_D092                 ; $D070  20 92 D0
+        JSR WRITE_NIBBLE                 ; $D070  20 92 D0
         LDA #$DE                     ; $D073  A9 DE
-        JSR SUB_D08F                 ; $D075  20 8F D0
+        JSR WRITE_NIBBLE_CLC                 ; $D075  20 8F D0
         LDA #$AA                     ; $D078  A9 AA
-        JSR SUB_D08F                 ; $D07A  20 8F D0
+        JSR WRITE_NIBBLE_CLC                 ; $D07A  20 8F D0
         LDA #$EB                     ; $D07D  A9 EB
-        JSR SUB_D08F                 ; $D07F  20 8F D0
+        JSR WRITE_NIBBLE_CLC                 ; $D07F  20 8F D0
         LDA #$FF                     ; $D082  A9 FF
-        JSR SUB_D08F                 ; $D084  20 8F D0
+        JSR WRITE_NIBBLE_CLC                 ; $D084  20 8F D0
         LDA $C08E,X                  ; $D087  BD 8E C0
-L_D08A:
+DRIVE_READ_EXIT:
         LDA $C08C,X                  ; $D08A  BD 8C C0
         RTS                          ; $D08D  60
         .byte   $EA                                              ; $D08E
-SUB_D08F:
+WRITE_NIBBLE_CLC:
         CLC                          ; $D08F  18
-SUB_D090:
+WRITE_NIBBLE_PAD:
         PHA                          ; $D090  48
         PLA                          ; $D091  68
-SUB_D092:
+WRITE_NIBBLE:
         STA $C08D,X                  ; $D092  9D 8D C0
         ORA $C08C,X                  ; $D095  1D 8C C0
         RTS                          ; $D098  60
@@ -104,7 +104,7 @@ SUB_D092:
         .byte   $8C, $C0, $10, $FB, $C9, $AA, $D0, $F2, $A0, $56, $BD, $8C, $C0, $10, $FB, $C9 ; $D0A9
         .byte   $AD, $D0, $E7, $EA, $EA, $A9, $00                ; $D0B9  "-Pgjj)"
         .byte   $88, $84, $26, $BC, $8C, $C0, $10, $FB, $59, $13, $D3, $A4, $26, $99, $00 ; $D0C0
-        .word   L_D00C                   ; $D0CF
+        .word   WRITE_CHECK_PROTECT                   ; $D0CF
         .byte   $EE, $84, $26, $BC, $8C, $C0, $10, $FB, $59, $13, $D3, $A4, $26, $99, $00, $09 ; $D0D1
         .byte   $C8, $D0, $EE, $BC, $8C, $C0, $10, $FB, $D9, $13, $D3, $D0, $13, $BD, $8C, $C0 ; $D0E1
         .byte   $10, $FB, $C9, $DE, $D0, $0A, $EA, $BD, $8C, $C0, $10, $FB, $C9, $AA, $F0, $5C ; $D0F1
@@ -120,12 +120,12 @@ SUB_D092:
         .byte   $04, $C5, $26, $90, $02, $A5, $26, $C9, $0C, $B0, $01, $A8, $38, $20, $BB, $D1 ; $D191
         .byte   $B9, $DF, $D1, $20, $CA, $D1, $A5, $27, $18, $20, $BE, $D1, $B9, $EB, $D1, $20 ; $D1A1
         .byte   $CA, $D1, $E6                                    ; $D1B1
-        .word   L_D026                   ; $D1B4
+        .word   WRITE_SYNC_NEXT                   ; $D1B4
         .byte   $C3, $20, $CA, $D1, $18, $AD, $78, $04, $29, $03, $2A, $05, $2B, $AA, $BD, $80 ; $D1B6
         .byte   $C0, $A6, $2B, $60, $A2, $11, $CA, $D0, $FD, $E6 ; $D1C6
-        .word   L_D046                   ; $D1D0
+        .word   WRITE_NIB_RELOAD                   ; $D1D0
         .byte   $06, $E6, $47, $D0, $02, $C6, $47, $38, $E9      ; $D1D2
-        .word   L_D001                   ; $D1DB
+        .word   WRITE_SENSE_PROTECT                   ; $D1DB
         .byte   $EC, $60, $01, $30, $28, $24, $20, $1E, $1D, $1C, $1C, $1C, $1C, $1C, $70, $2C ; $D1DD
         .byte   $26, $22, $1F, $1E, $1D, $1C, $1C, $1C, $1C, $1C, $A9, $F3, $8D, $E9, $03, $A0 ; $D1ED
         .byte   $00, $8C, $E8, $03, $8C, $E0, $03, $C8, $8C, $E4, $03, $8C, $EB, $03, $A9, $60 ; $D1FD
@@ -133,7 +133,7 @@ SUB_D092:
         .byte   $90, $08, $20, $2D, $FF, $28, $68, $4C, $F7, $D1, $28, $EE, $E9, $03, $AE, $E1 ; $D21D
         .byte   $03, $E8, $E0, $10, $D0, $05, $A2, $00, $EE, $E0, $03, $8E, $E1, $03, $68, $38 ; $D22D
         .byte   $E9                                              ; $D23D
-        .word   L_D001                   ; $D23E
+        .word   WRITE_SENSE_PROTECT                   ; $D23E
         .byte   $D6, $A9, $08, $8D, $E9, $03, $60, $AF, $32, $F6, $FE, $3E, $02, $21, $F3, $FE ; $D240
         .byte   $77, $23, $77, $23, $77, $18, $48, $61, $2E, $00, $22, $F3, $FE, $79, $FE, $02 ; $D250
         .byte   $20, $0F, $2E, $08, $3A, $EF, $FE, $67, $22, $F6, $FE, $2A, $EA, $FE, $22, $F8 ; $D260
@@ -154,7 +154,7 @@ SUB_D092:
         .byte   $08, $22, $E8, $F3, $21, $03, $0E, $CD, $D2, $FE, $3A, $EA, $F3, $B7, $C8, $D1 ; $D342
         .byte   $FE, $10, $20, $DB, $C3, $D9, $FE, $00, $09, $03, $0C, $06, $0F, $01, $0A, $04 ; $D352
         .byte   $0D, $07, $08, $02, $0B, $05, $0E                ; $D362
-SUB_D092_1:
+WRITE_NIB_TABLE:
         .byte   $96, $97, $9A, $9B, $9D, $9E, $9F, $A6, $A7, $AB, $AC, $AD, $AE, $AF, $B2, $B3 ; $D369
         .byte   $B4, $B5, $B6, $B7, $B9, $BA, $BB, $BC, $BD, $BE, $BF, $CB, $CD, $CE, $CF, $D3 ; $D379
         .byte   $D6, $D7, $D9, $DA, $DB, $DC, $DD, $DE, $DF, $E5, $E6, $E7, $E9, $EA, $EB, $EC ; $D389
@@ -163,7 +163,7 @@ SUB_D092_1:
         .byte   $07, $08, $A8, $A9, $AA, $09, $0A, $0B, $0C, $0D, $B0, $B1, $0E, $0F, $10, $11 ; $D3B9
         .byte   $12, $13, $B8, $14, $15, $16, $17, $18, $19, $1A, $C0, $C1, $C2, $C3, $C4, $C5 ; $D3C9
         .byte   $C6, $C7, $C8, $C9, $CA, $1B, $CC, $1C, $1D      ; $D3D9
-        .word   L_D01E                   ; $D3E2
+        .word   WRITE_SYNC_LEADER                   ; $D3E2
         .byte   $D1, $D2, $1F, $D4, $D5, $20, $21, $D8, $22, $23, $24, $25, $26, $27, $28, $E0 ; $D3E4
         .byte   $E1, $E2, $E3, $E4, $29, $2A, $2B, $E8, $2C, $2D, $2E, $2F, $30, $31, $32, $F0 ; $D3F4
         .byte   $F1, $33, $34, $35, $36, $37, $38, $F8, $39, $3A, $3B, $3C, $3D, $3E, $3F, $AD ; $D404
@@ -177,9 +177,9 @@ SUB_D092_1:
         .byte   $E5, $03, $F0, $07, $8D, $E5, $03, $28, $A0, $00, $08, $6A, $90, $05, $BD, $8A ; $D484
         .byte   $C0, $B0, $03, $BD, $8B, $C0, $66, $35, $28, $08, $D0, $0B, $A0, $07, $20, $CA ; $D494
         .byte   $D1, $88, $D0, $FA, $AE, $F8, $05, $AD, $E0, $03, $20, $62, $D5, $AD, $EB, $03 ; $D4A4
-        .word   L_D028                   ; $D4B4
+        .word   WRITE_DATA_PROLOG                   ; $D4B4
         .byte   $11, $C9, $01, $F0, $0D, $A0, $12, $88, $D0, $FD, $E6 ; $D4B6
-        .word   L_D046                   ; $D4C1
+        .word   WRITE_NIB_RELOAD                   ; $D4C1
         .byte   $F7, $E6, $47, $D0, $F3, $6A, $08, $B0, $03, $20, $5F, $D1, $A0, $30, $8C, $78 ; $D4C3
         .byte   $05, $AE, $F8, $05, $20, $03, $D1, $90, $24, $CE, $78, $05, $10, $F3, $AD, $78 ; $D4D3
         .byte   $04, $48, $A9, $60, $20, $94, $D5, $CE, $F8, $06, $F0, $28, $A9, $04, $8D, $F8 ; $D4E3
@@ -187,12 +187,12 @@ SUB_D092_1:
         .byte   $78, $04, $F0, $19, $AD, $78, $04, $48, $98, $20, $94, $D5, $68, $CE, $F8, $04 ; $D503
         .byte   $D0, $E5, $F0, $CA, $68, $A9, $40, $28, $4C, $4E, $D5, $F0, $2A, $A5, $2F, $8D ; $D513  "PepJh)@(LNUp*%/"
         .byte   $E3, $03, $AD, $E2, $03, $F0, $08, $C5, $2F, $F0, $04, $A9 ; $D523
-        .word   L_D020                   ; $D52F
+        .word   WRITE_SYNC_LOOP                   ; $D52F
         .byte   $E8, $AD, $E1, $03, $A8, $B9, $AD, $D5, $C5      ; $D531
-        .word   L_D02D                   ; $D53A
+        .word   WRITE_PROLOG_AA                   ; $D53A
         .byte   $9F, $28, $90, $19, $20, $99, $D0, $08, $B0, $96, $28, $20, $83, $08, $18, $A9 ; $D53C
         .byte   $00, $24, $38, $8D, $EA, $03, $AE, $F8, $05, $BD, $88, $C0, $60, $20 ; $D54C
-        .word   L_D000                   ; $D55A
+        .word   WRITE_SECTOR                   ; $D55A
         .byte   $90, $EC, $A9, $10, $D0, $EC, $0A, $20, $6A, $D5, $4E, $78, $04, $60, $85, $2E ; $D55C
         .byte   $20, $8D, $D5, $B9, $78, $04, $24, $35, $30, $03, $B9, $F8, $04, $8D, $78, $04 ; $D56C
         .byte   $A5, $2E, $24, $35, $30, $05, $99, $F8, $04, $10, $03, $99, $78, $04, $4C, $6D ; $D57C
