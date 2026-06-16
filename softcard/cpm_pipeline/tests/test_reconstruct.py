@@ -1,9 +1,10 @@
 """End-to-end reconstruction tests.
 
-For each known SoftCard CP/M disk image, assemble all the docs/CPM*.asm
-sources, place them on disk per the chunk map, and verify the result is
-byte-identical to the original. This is the master integration test for
-Phase 1 of the pipeline (Stage 7 of the roadmap).
+For each known SoftCard CP/M disk image, assemble the OS sources (the 2.23
+disk now from CPMV223-44K/os/; 2.20 still from docs/CPM220_*.asm), place them
+on disk per the chunk map, and verify byte-identical. The whole-disk variant
+also rebuilds every .COM from committed source. This is the master integration
+test for the reconstruction pipeline.
 
 Requires ca65 + ld65 + sjasmplus on PATH. Skips silently if any are
 missing.
@@ -15,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from cpm_pipeline.reconstruct import reconstruct_disk
+from cpm_pipeline.reconstruct import reconstruct_disk, reconstruct_full_disk
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -44,6 +45,25 @@ def test_cpm223_reconstruct_byte_identical():
         # Confirm at least one byte came from a freshly assembled source
         # (otherwise the pipeline isn't doing what we think it is).
         assert result.bytes_from_assembled > 0
+
+
+@pytest.mark.skipif(not HAS_ASSEMBLERS, reason="ca65/ld65/sjasmplus not on PATH")
+def test_cpm223_full_disk_reconstruct_byte_identical():
+    """Whole CPMV223-44K.DSK rebuilt from committed source: the OS region from
+    CPMV223-44K/os/, every .COM from utilities/bin/ (+ CPM60.COM from the 60K
+    CPM60.asm master), and only the filesystem data carried. Byte-identical, and
+    a real majority of bytes provably come from re-assembled source."""
+    reference = REPO_ROOT / "CPMV223-44K" / "CPMV223-44K.DSK"
+    if not reference.exists():
+        pytest.skip(f"reference disk missing: {reference}")
+    with tempfile.TemporaryDirectory() as tmp:
+        out = Path(tmp) / "cpm223_full.dsk"
+        res = reconstruct_full_disk(reference, out, verify=True)
+        assert res.byte_identical, (
+            f"whole-disk rebuild differs; first offsets: "
+            f"{[hex(o) for o in res.diff_offsets]}")
+        # The OS region + every .COM come from source -> well over half the disk.
+        assert res.from_source_bytes > res.total_bytes // 2
 
 
 @pytest.mark.skipif(not HAS_ASSEMBLERS, reason="ca65/ld65/sjasmplus not on PATH")

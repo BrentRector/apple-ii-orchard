@@ -235,17 +235,36 @@ def _assemble_com(disk_path, name: str, td: Path) -> bytes:
     return out_bin.read_bytes()
 
 
+def _com_from_committed(disk_path, name: str, td: Path) -> bytes:
+    """Bytes for a `.COM`, preferring committed per-disk source over on-the-fly
+    decompilation: the assembled binary in ``<disk>/utilities/bin/<name>`` (built
+    from ``utilities/<stem>.asm``), and the 60K ``CPM60.asm`` master for
+    CPM60.COM. Falls back to :func:`_assemble_com` for disks whose utilities are
+    not unified yet (e.g. 2.20)."""
+    cand = disk_path.parent / "utilities" / "bin" / name
+    if cand.exists():
+        return cand.read_bytes()
+    if name == "CPM60.COM":
+        try:
+            from .build_cpm60 import build_cpm60_com
+            return build_cpm60_com()
+        except Exception:
+            pass
+    return _assemble_com(disk_path, name, td)
+
+
 def reconstruct_full_disk(disk_path, output_path, *, variant: str | None = None,
                           verify: bool = True) -> FullRebuildResult:
     """Rebuild the whole disk from source and (optionally) verify byte-identical.
 
     The image is assembled into a blank buffer, never copied wholesale from the
     reference: the OS region comes from the variant's annotated sources, every
-    ``.COM`` from its own re-assembled disassembly, and the filesystem's data
-    files / directory / file padding / free space are carried as data. The point
-    is not that a copy equals itself, but that every *code* region is
-    independently regenerated from human-readable source and still lands on the
-    exact original bytes.
+    ``.COM`` from its committed per-disk source (``utilities/bin/`` + the 60K
+    ``CPM60.asm`` master, falling back to on-the-fly re-decompilation for disks
+    not yet unified), and the filesystem's data files / directory / file padding
+    / free space are carried as data. The point is not that a copy equals itself,
+    but that every *code* region is independently regenerated from human-readable
+    source and still lands on the exact original bytes.
     """
     from .decompile_os import detect                   # variant detection
     from .filesystem import (read_directory, extract_file, softcard_params,
@@ -282,7 +301,7 @@ def reconstruct_full_disk(disk_path, output_path, *, variant: str | None = None,
         td = Path(tds)
         for f in read_directory(ref, p):
             is_com = f.name.endswith(".COM")
-            data = _assemble_com(disk_path, f.name, td) if is_com else extract_file(ref, f.name, p, f.user)
+            data = _com_from_committed(disk_path, f.name, td) if is_com else extract_file(ref, f.name, p, f.user)
             tag = COM_SOURCE if is_com else DATA_FILE
             written = 0
             for blk in f.blocks:
