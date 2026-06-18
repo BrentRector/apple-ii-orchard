@@ -31,9 +31,18 @@ def test_prodos_offset_track_0():
     assert sector_offset(0, 1, "po") == 0x8 * SECTOR_SIZE
 
 
+def test_cpm_offset_identity():
+    """CP/M logical order: physical sector P → on-disk position P (identity)."""
+    assert sector_offset(0, 0, "cpm") == 0
+    assert sector_offset(0, 5, "cpm") == 5 * SECTOR_SIZE
+    assert sector_offset(3, 7, "cpm") == (3 * 16 + 7) * SECTOR_SIZE
+
+
 def test_format_detection():
     assert detect_format("foo.dsk") == "dsk"
     assert detect_format("foo.po") == "po"
+    assert detect_format("foo.cpm") == "cpm"
+    assert detect_format("FOO.CPM") == "cpm"
     import pytest
     with pytest.raises(ValueError):
         detect_format("foo.bin")

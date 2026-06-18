@@ -14,16 +14,16 @@ disk of extra tools — the Digital Research dev set (`ASM` `DDT` `ED` `LOAD`
 `NRDRDSK` `DRIVERS`), and a `TIMER` example. The two disks share the OS staging
 (tracks 1-2) but differ on the boot sector and filesystem.
 
-Each disk is provided in **both** `.po` (ProDOS sector order — the original) and
-`.dsk` (DOS 3.3 sector order — a lossless conversion of the same physical
-sectors, for DOS-3.3-oriented tooling/emulators).
+The reference disk images live in the canonical archive at
+[`../reference/softcard-cpm-archive/`](../reference/softcard-cpm-archive/), not in
+this folder. This build is the 2.20**B** **56K** system (`os/` reconstructs
+`softcard-cpm2.20b-56k-system-disk1.po`); code resolves the disks via
+`cpm_pipeline.reference_data` (`DISK_2_20B_56K_SYSTEM` / `DISK_2_20B_56K_TOOLS`).
 
 ## What's in this folder
 
 ```
 CPMV220/
-  CPMV220-Disk1.po / .dsk   the bootable 2.20 disk (ProDOS / DOS 3.3 order)
-  CPMV220-Disk2.po / .dsk   the second distribution disk (extra DR + Apple-DOS tools)
   os/                   the operating system + boot pipeline, as source
   utilities/            one annotated .asm per .COM on Disk1
     bin/                those programs reassembled (byte-identical to the disk)
@@ -74,8 +74,8 @@ From the repo root, with the toolchain on PATH:
 
 ```bash
 source shared/toolchain/env.sh        # ca65 + ld65 + sjasmplus
-python -m cpm_pipeline.reconstruct softcard/CPMV220/CPMV220-Disk1.po rebuilt.po
-# -> BYTE-IDENTICAL to CPMV220-Disk1.po
+python -m cpm_pipeline.reconstruct softcard/reference/softcard-cpm-archive/os/softcard-cpm2.20b-56k-system-disk1.po rebuilt.po
+# -> BYTE-IDENTICAL to the archived 2.20B 56K system disk
 ```
 
 This assembles the OS region from `os/`, lays in every `.COM` from

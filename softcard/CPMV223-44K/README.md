@@ -10,9 +10,12 @@ overview of all three releases and the shared tooling.
 
 ## What's in this folder
 
+The reference disk image lives in the canonical archive at
+[`../reference/softcard-cpm-archive/os/softcard-cpm2.23-44k-system.dsk`](../reference/softcard-cpm-archive/),
+not in this folder; code resolves it via `cpm_pipeline.reference_data.DISK_2_23_44K_SYSTEM`.
+
 ```
 CPMV223-44K/
-  CPMV223-44K.DSK       the original disk image (140K, DOS 3.3 sector order)
   os/                   the operating system + boot pipeline, as source
   utilities/            one annotated .asm per .COM program on the disk
     bin/                those programs reassembled (byte-identical to the disk)
@@ -76,13 +79,13 @@ From the repo root, with the toolchain on PATH:
 source shared/toolchain/env.sh        # ca65 + ld65 + sjasmplus
 
 # Rebuild the WHOLE disk from source and verify byte-identical:
-python -m cpm_pipeline.reconstruct softcard/CPMV223-44K/CPMV223-44K.DSK rebuilt.dsk
+python -m cpm_pipeline.reconstruct softcard/reference/softcard-cpm-archive/os/softcard-cpm2.23-44k-system.dsk rebuilt.dsk
 ```
 
 This assembles the OS region from `os/`, lays in every `.COM` from
 `utilities/bin/` (and `CPM60.COM` from the 60K master), carries the filesystem's
 data files, and prints a per-byte provenance summary. It exits 0 only when the
-result is **byte-identical** to `CPMV223-44K.DSK` (over 80% of the disk comes
+result is **byte-identical** to the archived `softcard-cpm2.23-44k-system.dsk` (over 80% of the disk comes
 from re-assembled source; the rest is filesystem data, the directory, and free
 space). The same check runs in CI as
 `test_cpm223_full_disk_reconstruct_byte_identical`.

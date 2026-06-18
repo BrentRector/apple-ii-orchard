@@ -56,14 +56,14 @@ def diff_summary(images, max_track=5):
 
 def main():
     images = {
-        '223':    load_physical('e:/Orchard/softcard/CPMV223-44K/CPMV223-44K.DSK'),
-        '220-d1': load_physical('e:/Orchard/softcard/CPMV220/CPMV220-Disk1.po'),
+        '223':    load_physical('e:/Orchard/softcard/reference/softcard-cpm-archive/os/softcard-cpm2.23-44k-system.dsk'),
+        '220-d1': load_physical('e:/Orchard/softcard/reference/softcard-cpm-archive/os/softcard-cpm2.20b-56k-system-disk1.po'),
     }
     diff_summary(images, max_track=3)
 
     # Also: confirm 220 d1 vs d2 are identical for system area
-    d1 = load_physical('e:/Orchard/softcard/CPMV220/CPMV220-Disk1.po')
-    d2 = load_physical('e:/Orchard/softcard/CPMV220/CPMV220-Disk2.po')
+    d1 = load_physical('e:/Orchard/softcard/reference/softcard-cpm-archive/os/softcard-cpm2.20b-56k-system-disk1.po')
+    d2 = load_physical('e:/Orchard/softcard/reference/softcard-cpm-archive/utilities/softcard-cpm2.20b-56k-tools-disk2.po')
     print("\n2.20 disk 1 vs disk 2 (system area):")
     for t in range(3):
         for s in range(16):

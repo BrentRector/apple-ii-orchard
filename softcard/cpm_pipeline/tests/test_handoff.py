@@ -1,22 +1,18 @@
 """Phase 5 (Stage 4) — handoff identification tests."""
 
-from pathlib import Path
-
 import pytest
 
 from cpm_pipeline.handoff import find_handoff
+from cpm_pipeline.reference_data import (
+    DISK_2_20B_56K_SYSTEM,
+    DISK_2_23_44K_SYSTEM,
+    present,
+)
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-
-
-def _has(p):
-    return (REPO_ROOT / p).exists()
-
-
-@pytest.mark.skipif(not _has("CPMV223-44K/CPMV223-44K.DSK"), reason="CPMV223-44K.DSK missing")
+@pytest.mark.skipif(not present(DISK_2_23_44K_SYSTEM), reason="2.23 44K system disk missing")
 def test_handoff_2_23():
-    h = find_handoff(REPO_ROOT / "CPMV223-44K" / "CPMV223-44K.DSK")
+    h = find_handoff(DISK_2_23_44K_SYSTEM)
     # Z-80 reset vector: 6502 plants JP $FA00 at Apple $1000-$1002
     assert h.z80_reset_plant is not None
     assert h.z80_reset_plant.plant_addr == 0x1000
@@ -31,9 +27,9 @@ def test_handoff_2_23():
     assert h.bdos_entry_plant.target_addr == 0x9C06
 
 
-@pytest.mark.skipif(not _has("CPMV220/CPMV220-Disk1.po"), reason="CPMV220-Disk1.po missing")
+@pytest.mark.skipif(not present(DISK_2_20B_56K_SYSTEM), reason="2.20B 56K system disk 1 missing")
 def test_handoff_2_20():
-    h = find_handoff(REPO_ROOT / "CPMV220" / "CPMV220-Disk1.po")
+    h = find_handoff(DISK_2_20B_56K_SYSTEM)
     # Z-80 reset: JP $DA00 (2.20's BIOS at $DACC, cold-boot landing $DA00)
     assert h.z80_reset_plant is not None
     assert h.z80_reset_plant.target_addr == 0xDA00
@@ -45,9 +41,9 @@ def test_handoff_2_20():
     assert h.bdos_entry_plant.target_addr == 0xCC06
 
 
-@pytest.mark.skipif(not _has("CPMV223-44K/CPMV223-44K.DSK"), reason="CPMV223-44K.DSK missing")
+@pytest.mark.skipif(not present(DISK_2_23_44K_SYSTEM), reason="2.23 44K system disk missing")
 def test_handoff_summary_string():
-    h = find_handoff(REPO_ROOT / "CPMV223-44K" / "CPMV223-44K.DSK")
+    h = find_handoff(DISK_2_23_44K_SYSTEM)
     s = h.summary()
     assert "HandoffInfo" in s
     assert "JP $FA00" in s

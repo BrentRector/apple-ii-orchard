@@ -1,6 +1,6 @@
 """Disk format primitives: sector ordering, file-offset math.
 
-Apple II disk images come in two physical-to-on-disk orderings:
+Apple II disk images come in a few physical-to-on-disk orderings:
 
   * **DOS 3.3 order** (`.dsk` files): sectors stored in DOS 3.3 *logical*
     order. The "logical" sector at position N on disk is the N-th sector
@@ -8,6 +8,11 @@ Apple II disk images come in two physical-to-on-disk orderings:
   * **ProDOS order** (`.po` files): sectors stored in physical-block-pair
     order. ProDOS reads two physical sectors at a time; the on-disk
     position is the ProDOS-block layout.
+  * **CP/M logical order** (`.cpm` files): sectors stored straight in CP/M
+    *logical* order -- the SoftCard SECTRAN skew is already resolved out, so
+    logical sector L sits at on-disk position L (identity interleave, and the
+    filesystem layer reads it with an identity skew). Verified by extracting
+    `MBASIC.COM` from a 2.20B `.cpm` image to its exact known bytes.
 
 Both formats hold the same logical-vs-physical sector contents -- they
 differ only in the order they're stored on disk. nibbler's GCR module
@@ -52,6 +57,8 @@ def sector_offset(track: int, phys_sector: int, format: str) -> int:
         on_disk_pos = DOS33_INTERLEAVE[phys_sector]
     elif format == "po":
         on_disk_pos = PRODOS_INTERLEAVE[phys_sector]
+    elif format == "cpm":
+        on_disk_pos = phys_sector            # CP/M logical order: no interleave
     else:
         raise ValueError(f"unknown disk format {format!r}")
     return (track * SECTORS_PER_TRACK + on_disk_pos) * SECTOR_SIZE
@@ -60,16 +67,19 @@ def sector_offset(track: int, phys_sector: int, format: str) -> int:
 def detect_format(path: Path | str) -> str:
     """Infer disk format from file extension.
 
-    Returns 'dsk' or 'po'. Raises ValueError if neither extension applies.
+    Returns 'dsk' (DOS 3.3 order), 'po' (ProDOS order), or 'cpm' (raw CP/M
+    logical sector order). Raises ValueError if no known extension applies.
     """
     suffix = Path(path).suffix.lower()
     if suffix == ".dsk":
         return "dsk"
     if suffix == ".po":
         return "po"
+    if suffix == ".cpm":
+        return "cpm"
     raise ValueError(
         f"can't detect disk format from extension {suffix!r}; "
-        f"expected .dsk or .po"
+        f"expected .dsk, .po, or .cpm"
     )
 
 

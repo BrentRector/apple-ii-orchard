@@ -110,7 +110,7 @@ def classify_sector(track, phys, disk_data, interleave):
 
 
 def main():
-    with open('e:/Orchard/softcard/CPMV223-44K/CPMV223-44K.DSK', 'rb') as f:
+    with open('e:/Orchard/softcard/reference/softcard-cpm-archive/os/softcard-cpm2.23-44k-system.dsk', 'rb') as f:
         disk = f.read()
 
     print("# CP/M 2.23 Disk-Sector Map")

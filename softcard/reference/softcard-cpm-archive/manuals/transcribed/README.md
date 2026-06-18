@@ -1,0 +1,323 @@
+# Transcribed manuals (AI reconstructions)
+
+Vision-model transcriptions of the scanned SoftCard manuals in `../`. These are convenience copies for full-text search and diffing. **The scanned PDFs are the authoritative source of record** - verify exact bytes/addresses/opcodes against the scan. Each page was transcribed from two overlapping half-scans; every table/code page then went through an independent adversarial verification pass that re-checks each digit, hex value, and opcode against the image.
+
+## software-and-hardware-details.md
+
+- Source: `../Microsoft_SoftCard_-_Software_and_Hardware_Details.pdf` (md5 `d3758b2c67832f171cbd7ba6f3f180b3`)
+- Pages: 38/38
+- Page types: blank:2, code:2, cover:1, figure:1, frontmatter:2, mixed:16, table:3, text:11
+- Verified (table/code/mixed): 21  |  low-confidence after verify: 0
+- Figures kept as images: p38
+
+Spot-check (transcriber-flagged uncertain tokens):
+- **page 9**
+  - ET (DEC 4, HEX 04, CHAR shown as 'ET' in scan; standard ASCII would be EOT)
+- **page 11**
+  - row 92 char column: appears blank/backslash in standard column
+  - row 96 (hex 60) characters: rendered as backtick/apostrophe glyph
+- **page 25**
+  - 013B C0 RNZ — opcode byte faint
+  - 0133 FE40 CPI 64 — operand could be hex; printed as decimal 64
+- **page 26**
+  - 0148 00 STATE: DB
+  - PRGEND label
+  - 0130 line: 35 35 C3 00 (repeated 35)
+- **page 29**
+  - 0100 hex-dump byte 'C7' (could be C7)
+  - 0100 hex-dump byte 'D0' (faint, possibly D0)
+  - 0110 hex-dump byte 'DE' (could be DE)
+- **page 37**
+  - 47 ρF (the unit glyph for C4 reads ρF, likely intended pF)
+  - 200 ρF (C6, C8 unit glyph reads ρF, likely intended pF)
+- **page 38**
+  - T7/EN-011 (printer imprint, faint)
+  - U8 = LS283 (could be LS83)
+  - Q1 = 2N3906
+  - C12 = 2.2uF
+  - various tiny pin numbers on logic gates
+
+## cpm-reference-manual.md
+
+- Source: `../Microsoft_SoftCard_-_CPM_Reference_Manual.pdf` (md5 `a68340225075e1097fd06f9a304bc6a5`)
+- Pages: 154/154
+- Page types: blank:10, code:14, cover:1, figure:1, frontmatter:2, mixed:29, table:2, text:95
+- Verified (table/code/mixed): 3  |  low-confidence after verify: 0
+- Figures kept as images: p53, p63, p92, p93
+
+Spot-check (transcriber-flagged uncertain tokens):
+- **page 19**
+  - clt-I
+- **page 32**
+  - UC1: (console
+- **page 35**
+  - Qs↑z
+  - Ss↑z
+- **page 45**
+  - 3-39
+- **page 51**
+  - page_label 3-39 (footer appears inconsistent with the Chapter 2 divider content)
+- **page 77**
+  - 0187 6e6f20 (hex bytes of nofile db, partly obscured)
+  - 0196 6e6f20 (hex bytes of nodir db, partly obscured)
+  - 01a9 6f7574 (hex bytes of space db, partly obscured)
+  - 01bb 777269 (hex bytes of wrprot db, partly obscured)
+  - 01cc 636f70 (hex bytes of normal db, partly obscured)
+- **page 79**
+  - 0124 cda201
+  - 0127 el
+  - 0161 cldlel
+- **page 81**
+  - 01dd 46494c0
+  - 01f3 0d0a4e0
+  - c1d1e1 (printed 'cldlel')
+  - 'file dump version 2.0$' (printed 'file du p version 2.0$')
+  - pop d (printed 'pop ?!')
+- **page 83**
+  - 0100 31bc0
+  - 010a d2160
+  - 012e 113a0
+  - 0153 c3000
+  - 0150 cab90
+- **page 84**
+  - 0168 cdc20
+  - 016f ca780
+  - 017c 115c0
+  - 017f cd050
+  - 0183 c2b90
+  - 0186 c3370
+  - 018b c2b90
+  - 0190 115c0
+  - 0193 cd050
+  - 0197 c2b90
+  - 019a cdcf0
+  - 01ad d4c80
+  - 01b6 c3370
+  - 01b9 11590
+  - 01bc cdda0
+  - 01bf c3370
+- **page 85**
+  - 0lc2
+  - 0lc4
+  - 0lc7
+  - 0lc8
+  - 0lca
+  - 0lcb
+  - 0lce
+  - 0lcf
+  - 0ldl cdc80
+  - 0ld4
+  - 0ld6
+  - 0ld9
+  - 0lda
+  - 0ldb cdcf0
+  - 0lde
+  - 0ldf
+  - 0lel cd0050
+  - 0le4
+  - 0le5 li6b0
+  - 0le8 cdda0
+  - 0leb
+  - 0led 117a0
+  - 0lf0
+  - 0lf3 21000
+  - 0lf6 117c0
+  - 0lf9
+  - 0lfa
+  - 0lfb
+  - 0lfc
+  - 0lfd d630
+  - 0lff fe0a
+  - 0201 d2130
+  - 020c d2f90
+  - 0210 c3f90
+  - 0213 c630
+  - 0215 fe61
+- **page 86**
+  - 023a 4e6f29 (nospace db hex bytes)
+  - 024d 547970 (datmsg db hex bytes)
+- **page 98**
+  - FI↑z0TT (the character between ↑z and TT reads as 0)
+- **page 99**
+  - 3FO↑z-3D5DICHANGES↑⟨cr⟩ (final command separator before ⟨cr⟩ rendered as ↑ with no following z)
+  - ALL·SOURCE / ALL GOOD (mid-dot vs space between ALL and SOURCE)
+- **page 104**
+  - _ U
+- **page 115**
+  - string-literal quote glyphs in the four examples ''''/'a'''/''''''/'''''' (mix of apostrophes/double-quotes in the small font)
+- **page 122**
+  - JMB
+- **page 123**
+  - b1$c2
+- **page 128**
+  - 0113 7EB7C20001 (machine code bytes for MOV A,M! ORA A! JNZ SORT)
+  - 0119 5F16002148 (machine code bytes for the DAD D! DAD D line)
+  - 0126 965778239E (machine code bytes for SUB M! ... SBB M)
+  - 0128 DA3F01 (address column shows 0128 but JC target appears to be next discrete instruction)
+  - 012E B2CA3F01
+- **page 129**
+  - 070140004701...4C30A01006E (the :07014000 HEX record middle bytes are partly obscured by the brace artifact)
+  - 1001480005006400 1E0032D014000700E8032C01BB (spacing/D vs B in 32D0 region)
+  - 00000000000 (final HEX record terminator digit count)
+- **page 130**
+  - 0140 05 00 07 00 ... ascii tail '2.D.D.,.' rendering is approximate
+  - front panel arrow annotations are diagram callouts
+  - T4 'trade mode' (likely meant 'trace mode')
+  - 0160 row: one cell shows garbled '(.J' in scan, transcribed as 00
+- **page 131**
+  - 1FFMH (likely 1FFFH)
+  - *N, 0^Z0TT (circled ^Z annotations)
+  - *NJHC^Z0T
+  - *-2DIC^Z0LT
+  - MVI M,0 vs MVI M,0 in ED edits
+  - LXI N,I (likely H,I)
+  - ASM SORT.AAZ
+  - 003H USE FACTOR
+  - trailing ASCII dump columns 0140-0170
+- **page 145**
+  - ↑l (tab markers rendered as up-arrow + small L glyph)
+  - LOOP--P-0-0-L (struck/rubbed-out characters before LXI)
+  - rubout )
+  - LARGER-RST VALUE SO FAR
+  - C,A . (trailing period)
+- **page 146**
+  - 0E00
+  - 211901
+  - D20D01
+  - C20701
+  - 322101
+  - C30000
+  - 0200040305
+- **page 147**
+  - initial CPU state register-state label is hand-annotation, transcribed as written
+- **page 148**
+  - 0120 row data (bytes 05 11 00 22 21 00 02 ... obscured by 'Program data' circle/arrow annotation)
+  - ASCII gutter glyphs on 0119/0120 rows (hand-marked, low confidence)
+  - P=0116 100 (handwritten new PC value)
+- **page 149**
+  - MOV A,M=0108 (last byte of first trace block, trailing =0108 partly obscured)
+  - JNZ 0107*0107 (trailing *0107 is breakpoint-hit notation, faint)
+  - G0 command (rendered as -G0; glyph faint)
+- **page 150**
+  - 011B INR B (label printed as 0118)
+  - B=0800 vs B=0000 at P=0104
+  - 0123 22
+- **page 151**
+  - register flag fields C0Z1M0E1I1 / C0Z0M0E0I1 / C1Z0M1E0I0 (slashed-zero DDT font; flag letters and digits inferred)
+  - trace line 8 P=0107 / 0108 columns (faint scan)
+  - -G0 (could read -G@)
+  - 16K DDT VER 1.0
+- **page 152**
+  - -G.116 (the dot/period after G is faint)
+  - C1Z1M0E1I1 (DDT flag display)
+  - 0LT vs OLT (the editor line-target token)
+  - SSUB^ZCMP^Z0LT (handwritten-circled ED command line, ^Z = ctl-Z)
+  - SNC^ZC^Z0LT (handwritten-circled ED command line)
+  - 002H USE FACTOR (assembler use-factor value)
+- **page 153**
+  - G116
+  - 06 (first byte, circled)
+  - trailing ASCII columns on dump line 1 (." !..~.w.#..x.)
+  - trailing ASCII columns on dump line 2 (.'...#)
+  - line2 second byte 27 vs 2?
+  - address 0121 leading digit
+
+## software-utilities-manual.md
+
+- Source: `../Microsoft_SoftCard_-_Software_Utilities_Manual.pdf` (md5 `9ec1db25c5bd27adb4c6943a2c4a14be`)
+- Pages: 36/36
+- Page types: blank:1, code:4, cover:1, mixed:3, text:27
+- Verified (table/code/mixed): 7  |  low-confidence after verify: 0
+
+Spot-check (transcriber-flagged uncertain tokens):
+- **page 32**
+  - fname.typ₂ (subscript 2 on UPLOAD line)
+- **page 33**
+  - 0189 (JNZ address may read C27F01 vs C28F01)
+  - WRKMSG comment 'DOING IT' printed as 'DONG IT'
+- **page 34**
+  - 01D7 436F6D6D61 (DB byte preview, partially clipped by label column)
+  - 01E5 46696C6520 (DB byte preview)
+  - 01F4 0D0A55504C (DB byte preview)
+  - 0206 55706C6F61 (DB byte preview)
+- **page 35**
+  - 011A NDSMSG (could read NDISMSG)
+  - 0135 WRKMSG
+- **page 36**
+  - 0196 E602 (trailing stray mark after value)
+  - 01C0 CMDMSG hex bytes 436F6D6D61
+  - 01CE NDSMSG hex bytes 4E6F206469
+  - 01E1 DONMSG hex bytes 0D0A446F77
+  - 01F5 WRKMSG hex bytes 446F776E6C
+
+## volume-1.md
+
+- Source: `../Microsoft_SoftCard_-_Volume_1.pdf` (md5 `2ac3438bd0f7adcf3c4aa6c069c27151`)
+- Pages: 62/62
+- Page types: blank:6, cover:4, frontmatter:4, mixed:2, text:46
+- Verified (table/code/mixed): 2  |  low-confidence after verify: 0
+- Figures kept as images: p1
+
+Spot-check (transcriber-flagged uncertain tokens):
+- **page 28**
+  - 1-b
+- **page 62**
+  - A>MBASIC/M:32768
+
+## volume-2.md
+
+- Source: `../Microsoft_SoftCard_-_Volume_2.pdf` (md5 `0140e81f71d52469d5274c64a5fc5535`)
+- Pages: 152/152
+- Page types: blank:7, code:2, cover:2, frontmatter:2, mixed:49, table:8, text:82
+- Verified (table/code/mixed): 59  |  low-confidence after verify: 0
+- Figures kept as images: p1
+
+Spot-check (transcriber-flagged uncertain tokens):
+- **page 32**
+  - X − Y/Z (algebraic column rendered as fractions in original; relations of fraction bars approximated)
+  - (X²)Y algebraic exponent
+  - X↑(Y↑Z) algebraic superscript Z above Y
+- **page 45**
+  - X↑3/Y↑2 (up-arrow exponent operator)
+- **page 46**
+  - Y↑2 (up-arrow exponent operator rendered as ↑)
+- **page 56**
+  - IF I 10 GOTO 100 (line 20: the operator/condition between I and 10 is not legible in the scan)
+- **page 62**
+  - messsage (printed as shown, sic)
+- **page 68**
+  - 160 LSET D$=DESC($)
+- **page 78**
+  - spacing inside the PRINT USING format-string literals (quoted runs of #, spaces and . are hard to count exactly from scan)
+  - exponential symbol rendered as ↑↑↑↑ (printed as up-arrows)
+- **page 88**
+  - A↑2 (up-arrow exponent operator, printed as ↑)
+  - B↑3 (up-arrow exponent operator)
+- **page 93**
+  - LPOs
+  - values of te expressions
+- **page 97**
+  - ASCII code I.
+  - x(ASCII codes are listed
+- **page 110**
+  - VPOS(I) argument letter (printed I but text refers to X)
+- **page 118**
+  - 1010 HPLOT 140,96 (low-res scan)
+  - 2010 PI=6.28318/N
+  - 2020 Y(I)=SIN(A)*95+96
+- **page 119**
+  - 3110 GET 1
+  - M200,2200,100
+- **page 127**
+  - 30 INPUT "2-DIGIT CODE" (text label reads 2-DIGIT though code is described as three-digit)
+- **page 128**
+  - 500 ASC(F$)=55 (printed as 55, not 255 as in lines 410/580)
+  - 530 LSET Q$=KI$(Q%) (printed KI$, not MKI$)
+- **page 129**
+  - 50 WRITE#1 literal: "*** DCJCJC ***" -- the placeholder characters between the asterisks are low-resolution; reads as DCJCJC
+- **page 136**
+  - MID$(A$,1,1) left-side row reads as 1,1 in scan though context suggests I,1
+- **page 144**
+  - 094 char shown as up-arrow (↑)
+  - 095 char shown as '<'
+  - 096 char shown as a left/grave-style quote

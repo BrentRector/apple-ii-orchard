@@ -17,9 +17,13 @@ from pathlib import Path
 import pytest
 
 from cpm_pipeline.reconstruct import reconstruct_disk, reconstruct_full_disk
+from cpm_pipeline.reference_data import (
+    DISK_2_20B_56K_SYSTEM,
+    DISK_2_23_44K_SYSTEM,
+    present,
+)
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
 HAS_ASSEMBLERS = (
     shutil.which("ca65") is not None
     and shutil.which("ld65") is not None
@@ -29,9 +33,9 @@ HAS_ASSEMBLERS = (
 
 @pytest.mark.skipif(not HAS_ASSEMBLERS, reason="ca65/ld65/sjasmplus not on PATH")
 def test_cpm223_reconstruct_byte_identical():
-    """CPMV223-44K.DSK rebuilt from docs/CPM223_*.asm + remaining staging."""
-    reference = REPO_ROOT / "CPMV223-44K" / "CPMV223-44K.DSK"
-    if not reference.exists():
+    """2.23 44K system disk rebuilt from CPMV223-44K/os/ + remaining staging."""
+    reference = DISK_2_23_44K_SYSTEM
+    if not present(reference):
         pytest.skip(f"reference disk missing: {reference}")
     with tempfile.TemporaryDirectory() as tmp:
         out = Path(tmp) / "cpm223.dsk"
@@ -39,7 +43,7 @@ def test_cpm223_reconstruct_byte_identical():
             "223", reference_path=reference, output_path=out, verify=True,
         )
         assert result.diff_count == 0, (
-            f"CPMV223-44K.DSK reconstruction differs at {result.diff_count} byte(s); "
+            f"2.23 44K reconstruction differs at {result.diff_count} byte(s); "
             f"first offsets: {[hex(o) for o in result.diff_offsets]}"
         )
         # Confirm at least one byte came from a freshly assembled source
@@ -49,12 +53,12 @@ def test_cpm223_reconstruct_byte_identical():
 
 @pytest.mark.skipif(not HAS_ASSEMBLERS, reason="ca65/ld65/sjasmplus not on PATH")
 def test_cpm223_full_disk_reconstruct_byte_identical():
-    """Whole CPMV223-44K.DSK rebuilt from committed source: the OS region from
-    CPMV223-44K/os/, every .COM from utilities/bin/ (+ CPM60.COM from the 60K
-    CPM60.asm master), and only the filesystem data carried. Byte-identical, and
-    a real majority of bytes provably come from re-assembled source."""
-    reference = REPO_ROOT / "CPMV223-44K" / "CPMV223-44K.DSK"
-    if not reference.exists():
+    """Whole 2.23 44K system disk rebuilt from committed source: the OS region
+    from CPMV223-44K/os/, every .COM from utilities/bin/ (+ CPM60.COM from the
+    60K CPM60.asm master), and only the filesystem data carried. Byte-identical,
+    and a real majority of bytes provably come from re-assembled source."""
+    reference = DISK_2_23_44K_SYSTEM
+    if not present(reference):
         pytest.skip(f"reference disk missing: {reference}")
     with tempfile.TemporaryDirectory() as tmp:
         out = Path(tmp) / "cpm223_full.dsk"
@@ -68,9 +72,9 @@ def test_cpm223_full_disk_reconstruct_byte_identical():
 
 @pytest.mark.skipif(not HAS_ASSEMBLERS, reason="ca65/ld65/sjasmplus not on PATH")
 def test_cpm220_reconstruct_byte_identical():
-    """CPMV220-Disk1.po rebuilt from docs/CPM220_*.asm + remaining staging."""
-    reference = REPO_ROOT / "CPMV220" / "CPMV220-Disk1.po"
-    if not reference.exists():
+    """2.20B 56K system disk 1 rebuilt from docs/CPM220_*.asm + remaining staging."""
+    reference = DISK_2_20B_56K_SYSTEM
+    if not present(reference):
         pytest.skip(f"reference disk missing: {reference}")
     with tempfile.TemporaryDirectory() as tmp:
         out = Path(tmp) / "cpm220.po"
@@ -87,8 +91,8 @@ def test_format_transcode_dsk_to_po():
     through the physical-sector view. The output bytes differ from the
     reference because of the format change, but the *physical* sector
     contents must match."""
-    reference = REPO_ROOT / "CPMV223-44K" / "CPMV223-44K.DSK"
-    if not reference.exists():
+    reference = DISK_2_23_44K_SYSTEM
+    if not present(reference):
         pytest.skip(f"reference disk missing: {reference}")
     with tempfile.TemporaryDirectory() as tmp:
         # Write the 2.23 disk in .po order (different on-disk byte order

@@ -49,8 +49,8 @@ def count_identical(a, b, max_track=3):
 
 def main():
     paths = {
-        '223': 'e:/Orchard/softcard/CPMV223-44K/CPMV223-44K.DSK',
-        '220': 'e:/Orchard/softcard/CPMV220/CPMV220-Disk1.po',
+        '223': 'e:/Orchard/softcard/reference/softcard-cpm-archive/os/softcard-cpm2.23-44k-system.dsk',
+        '220': 'e:/Orchard/softcard/reference/softcard-cpm-archive/os/softcard-cpm2.20b-56k-system-disk1.po',
     }
     print(f"Identical-sector counts in tracks 0-2 (out of 48 total):")
     print(f"  {'223 order':>10}  {'220 order':>10}  {'identical':>10}")

@@ -1,16 +1,14 @@
 """End-to-end CLI tests for the decompilation toolchain."""
 
-from pathlib import Path
-
 import pytest
 
 from cpm_pipeline.cli import main
+from cpm_pipeline.reference_data import DISK_2_23_44K_SYSTEM, present
 
-REPO_ROOT = Path(__file__).resolve().parents[2]  # softcard/
-DSK_223 = REPO_ROOT / "CPMV223-44K" / "CPMV223-44K.DSK"
+DSK_223 = DISK_2_23_44K_SYSTEM
 
 
-@pytest.mark.skipif(not DSK_223.exists(), reason="CPMV223-44K.DSK missing")
+@pytest.mark.skipif(not present(DSK_223), reason="softcard-cpm2.23-44k-system.dsk missing")
 def test_list_files_cli(capsys):
     rc = main(["list-files", str(DSK_223)])
     assert rc == 0
@@ -19,14 +17,14 @@ def test_list_files_cli(capsys):
     assert "22 file(s)" in out
 
 
-@pytest.mark.skipif(not DSK_223.exists(), reason="CPMV223-44K.DSK missing")
+@pytest.mark.skipif(not present(DSK_223), reason="softcard-cpm2.23-44k-system.dsk missing")
 def test_decompile_file_cli(tmp_path, capsys):
     rc = main(["decompile-file", str(DSK_223), "DUMP.COM", "--out", str(tmp_path / "d")])
     assert rc == 0
     assert (tmp_path / "d" / "DUMP.asm").exists()
 
 
-@pytest.mark.skipif(not DSK_223.exists(), reason="CPMV223-44K.DSK missing")
+@pytest.mark.skipif(not present(DSK_223), reason="softcard-cpm2.23-44k-system.dsk missing")
 def test_decompile_disk_end_to_end(tmp_path, capsys):
     # Non-interactive selection drives the full verify -> OS -> list -> file flow.
     rc = main(["decompile-disk", str(DSK_223), str(tmp_path / "out"),

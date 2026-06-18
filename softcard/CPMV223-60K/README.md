@@ -13,7 +13,7 @@ writes.
 
 ```
 CPMV223-60K/
-  CPMV223-60K.DSK     the original 60K disk image
+  CPMV223-60K.DSK     the reconstructed 60K disk image (DERIVED; no original media, so it stays here rather than in the archive)
   CPM60.asm           the master that assembles CPM60.COM byte-identically
   CPM60_installer.asm the Z-80 installer driver (INCLUDEd by CPM60.asm)
   os/                 the relocated 60K OS components CPM60.COM carries + installs
@@ -63,7 +63,7 @@ differences are catalogued in [`DELTA.md`](DELTA.md).
 The byte-identical buildable artifact is **`CPM60.COM`** (above). The 60K **disk**
 is then produced by running `CPM60.COM` on a 44K boot disk — it rewrites only the
 system tracks (0-2); the entire filesystem (tracks 3+, the 20 `.COM` + the
-`.BAS`/`.ASM` files) is **byte-identical to `../CPMV223-44K/CPMV223-44K.DSK`**.
+`.BAS`/`.ASM` files) is **byte-identical to the archived `softcard-cpm2.23-44k-system.dsk`**.
 The cold-boot relocation `CPM60.COM` performs (the `COPY_PAGES` moves into the
 language card, the in-LC patches, the reset-plant) is documented byte-by-byte in
 [`BOOT_AND_PATCHING.md`](BOOT_AND_PATCHING.md). `softcard_emu` reproduces this

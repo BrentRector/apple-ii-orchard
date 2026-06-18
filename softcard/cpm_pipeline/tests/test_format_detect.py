@@ -1,20 +1,14 @@
 """Tests for Stage 1 disk-format detection."""
 
-from pathlib import Path
-
 import pytest
 
 from cpm_pipeline.format_detect import (
     detect, DiskFormat,
     SOFTCARD_BOOT_FINGERPRINT, SOFTCARD_223_PASCAL11_SIGNATURE,
 )
-
-
-REPO_ROOT = Path(__file__).resolve().parents[2]
-
-
-def _has(path):
-    return (REPO_ROOT / path).exists()
+from cpm_pipeline.reference_data import (
+    DISK_2_23_44K_SYSTEM, DISK_2_20B_56K_SYSTEM, DISK_2_20B_56K_TOOLS, present,
+)
 
 
 # ── Sanity checks on the signature constants ─────────────────────────
@@ -34,9 +28,9 @@ def test_pascal11_signature_is_12_bytes():
 
 
 # ── Real-disk detection tests ────────────────────────────────────────
-@pytest.mark.skipif(not _has("CPMV223-44K/CPMV223-44K.DSK"), reason="CPMV223-44K.DSK not in repo")
+@pytest.mark.skipif(not present(DISK_2_23_44K_SYSTEM), reason="softcard-cpm2.23-44k-system.dsk not in repo")
 def test_detect_2_23():
-    info = detect(REPO_ROOT / "CPMV223-44K" / "CPMV223-44K.DSK")
+    info = detect(DISK_2_23_44K_SYSTEM)
     assert info.format == "dsk"
     assert info.size_bytes == 143360
     assert info.has_boot_stub
@@ -51,9 +45,9 @@ def test_detect_2_23():
     assert info.variant_confidence == "high"
 
 
-@pytest.mark.skipif(not _has("CPMV220/CPMV220-Disk1.po"), reason="CPMV220-Disk1.po not in repo")
+@pytest.mark.skipif(not present(DISK_2_20B_56K_SYSTEM), reason="softcard-cpm2.20b-56k-system-disk1.po not in repo")
 def test_detect_2_20_disk1():
-    info = detect(REPO_ROOT / "CPMV220" / "CPMV220-Disk1.po")
+    info = detect(DISK_2_20B_56K_SYSTEM)
     assert info.format == "po"
     assert info.size_bytes == 143360
     assert info.has_boot_stub
@@ -62,20 +56,20 @@ def test_detect_2_20_disk1():
     assert info.variant == "softcard_cpm_2_20"
 
 
-@pytest.mark.skipif(not _has("CPMV220/CPMV220-Disk2.po"), reason="CPMV220-Disk2.po not in repo")
+@pytest.mark.skipif(not present(DISK_2_20B_56K_TOOLS), reason="softcard-cpm2.20b-56k-tools-disk2.po not in repo")
 def test_detect_2_20_disk2():
     """Disk 2 of the 2.20 set -- should also detect as 2.20 (same boot stub)."""
-    info = detect(REPO_ROOT / "CPMV220" / "CPMV220-Disk2.po")
+    info = detect(DISK_2_20B_56K_TOOLS)
     assert info.has_boot_stub
     assert info.variant == "softcard_cpm_2_20"
 
 
-@pytest.mark.skipif(not _has("CPMV223-44K/CPMV223-44K.DSK"), reason="CPMV223-44K.DSK not in repo")
+@pytest.mark.skipif(not present(DISK_2_23_44K_SYSTEM), reason="softcard-cpm2.23-44k-system.dsk not in repo")
 def test_destinations_match_chunk_map_2_23():
     """The detected boot-stub destinations should match the manually-
     maintained chunk_map.py for the 2.23 variant."""
     from cpm_pipeline.chunk_map import CHUNKS_223
-    info = detect(REPO_ROOT / "CPMV223-44K" / "CPMV223-44K.DSK")
+    info = detect(DISK_2_23_44K_SYSTEM)
     # Build the (apple_addr, phys_sector) set the chunk map declares
     # for BootLoader bytes (sectors loaded by the boot stub).
     chunk_map_destinations = set()
@@ -95,8 +89,8 @@ def test_destinations_match_chunk_map_2_23():
 
 def test_summary_is_string():
     """Smoke: `info.summary()` returns a non-empty string."""
-    if not _has("CPMV223-44K/CPMV223-44K.DSK"):
-        pytest.skip("CPMV223-44K.DSK not in repo")
-    info = detect(REPO_ROOT / "CPMV223-44K" / "CPMV223-44K.DSK")
+    if not present(DISK_2_23_44K_SYSTEM):
+        pytest.skip("softcard-cpm2.23-44k-system.dsk not in repo")
+    info = detect(DISK_2_23_44K_SYSTEM)
     s = info.summary()
     assert isinstance(s, str) and len(s) > 0
