@@ -33,6 +33,9 @@ from .disk_format import read_disk, sector_offset, SECTOR_SIZE, SECTORS_PER_TRAC
 # CP/M SECTRAN skew for SoftCard Apple CP/M: logical sector -> physical sector.
 SOFTCARD_SKEW = tuple((i * 3) % SECTORS_PER_TRACK for i in range(SECTORS_PER_TRACK))
 
+# A `.cpm` image already stores sectors in CP/M logical order, so no SECTRAN.
+IDENTITY_SKEW = tuple(range(SECTORS_PER_TRACK))
+
 # Standard SoftCard CP/M 2.2 disk parameters (5.25" Apple Disk II).
 RESERVED_TRACKS = 3        # tracks 0-2 are the boot pipeline
 BLOCK_SIZE = 1024          # BLS: 1 KB allocation block
@@ -47,7 +50,7 @@ class NotCpmFilesystem(ValueError):
 @dataclass
 class CpmParams:
     """Disk parameters needed to locate the directory and file data."""
-    fmt: str                                    # 'dsk' (DOS 3.3 order) or 'po' (ProDOS)
+    fmt: str                                    # 'dsk' (DOS 3.3) / 'po' (ProDOS) / 'cpm' (CP/M logical order)
     reserved_tracks: int = RESERVED_TRACKS
     sectors_per_track: int = SECTORS_PER_TRACK
     sector_size: int = SECTOR_SIZE
@@ -82,8 +85,14 @@ class CpmFile:
 
 
 def softcard_params(fmt: str) -> CpmParams:
-    """Return the standard SoftCard CP/M parameters for the given image format."""
-    return CpmParams(fmt=fmt)
+    """Return the standard SoftCard CP/M parameters for the given image format.
+
+    A `.cpm` image is already in CP/M logical sector order, so its SECTRAN skew
+    is resolved out -- read it with an identity skew (and identity interleave,
+    via disk_format), i.e. logical sector L sits at on-disk position L.
+    """
+    skew = IDENTITY_SKEW if fmt == "cpm" else SOFTCARD_SKEW
+    return CpmParams(fmt=fmt, skew=skew)
 
 
 def _block_locations(p: CpmParams, block: int):

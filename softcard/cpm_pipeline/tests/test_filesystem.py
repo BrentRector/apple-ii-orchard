@@ -6,8 +6,12 @@ from pathlib import Path
 import pytest
 
 from cpm_pipeline import filesystem as fs
-from cpm_pipeline.filesystem import softcard_params, read_directory, NotCpmFilesystem
-from cpm_pipeline.disk_format import read_disk
+from cpm_pipeline.filesystem import (
+    softcard_params, read_directory, NotCpmFilesystem, SOFTCARD_SKEW,
+)
+from cpm_pipeline.disk_format import (
+    read_disk, write_disk, sector_offset, SECTORS_PER_TRACK, TRACKS,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]  # softcard/
 DSK_223 = REPO_ROOT / "CPMV223-44K" / "CPMV223-44K.DSK"
@@ -76,6 +80,28 @@ def test_220_po_parses_and_extracts():
     pip = fs.extract(PO_220, "PIP.COM")
     assert pip[:1] == b"\xC3"
     assert len(pip) % 128 == 0
+
+
+@pytest.mark.skipif(not _has(DSK_223), reason="CPMV223-44K.DSK missing")
+def test_cpm_order_roundtrip_matches_dsk(tmp_path):
+    """A `.cpm` (CP/M logical sector order) image of the same disk must parse
+    identically to the `.dsk`. Build one by re-laying the 223 fixture into
+    logical order (logical sector L -> on-disk position L), then compare."""
+    dsk = read_disk(DSK_223)
+    cpm = bytearray(len(dsk))
+    for t in range(TRACKS):
+        for L in range(SECTORS_PER_TRACK):
+            src = sector_offset(t, SOFTCARD_SKEW[L], "dsk")   # where .dsk holds logical L
+            dst = sector_offset(t, L, "cpm")                  # where .cpm holds logical L
+            cpm[dst:dst + 256] = dsk[src:src + 256]
+    cpm_path = tmp_path / "roundtrip.cpm"
+    write_disk(cpm_path, cpm)
+
+    dsk_files = {f.name: f.records for f in fs.list_files(DSK_223)}
+    cpm_files = {f.name: f.records for f in fs.list_files(cpm_path)}
+    assert cpm_files == dsk_files
+    # a real multi-block extraction is byte-identical across the two orderings
+    assert fs.extract(cpm_path, "CPM60.COM") == fs.extract(DSK_223, "CPM60.COM")
 
 
 def test_rejects_non_cpm_image():

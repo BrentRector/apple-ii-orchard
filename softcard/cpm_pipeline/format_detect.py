@@ -97,7 +97,7 @@ SOFTCARD_223_PASCAL11_SIGNATURE = bytes.fromhex(
 class DiskFormat:
     """Structured detection result for a single disk image."""
     path: Path
-    format: str                                 # 'dsk' or 'po'
+    format: str                                 # 'dsk' / 'po' / 'cpm'
     size_bytes: int
     tracks: int = TRACKS
     sectors_per_track: int = SECTORS_PER_TRACK
@@ -204,7 +204,12 @@ def detect(path: Path | str) -> DiskFormat:
         # Read all 16 sectors of track 0 in physical-sector order
         # (regardless of on-disk format) so we can search the loader
         # bytes for signatures.
-        interleave = DOS33_INTERLEAVE if fmt == "dsk" else PRODOS_INTERLEAVE
+        if fmt == "dsk":
+            interleave = DOS33_INTERLEAVE
+        elif fmt == "po":
+            interleave = PRODOS_INTERLEAVE
+        else:  # cpm: CP/M logical order, identity interleave
+            interleave = list(range(SECTORS_PER_TRACK))
         track0_physical = bytearray(16 * SECTOR_SIZE)
         for phys in range(16):
             on_disk = interleave[phys]

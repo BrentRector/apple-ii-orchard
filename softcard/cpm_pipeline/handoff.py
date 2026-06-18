@@ -187,7 +187,7 @@ def _find_compact_vector_plant(image: bytearray, target_apple_addr: int,
             jp_target_hi = None
             scan = pc + 3
             while scan < pc + 50 and scan + 3 <= len(image):
-                if (image[scan] == 0xA9 and scan + 4 <= len(image)
+                if (image[scan] == 0xA9 and scan + 5 <= len(image)
                         and image[scan + 2] == 0x8D
                         and image[scan + 3] == (target_lo + 1) & 0xFF
                         and image[scan + 4] == target_hi):
@@ -200,7 +200,7 @@ def _find_compact_vector_plant(image: bytearray, target_apple_addr: int,
                     jp_target_lo = image[scan + 1]
                     jp_target_hi = image[scan + 2]
                     break
-                if (image[scan] == 0xA9 and scan + 4 <= len(image)
+                if (image[scan] == 0xA9 and scan + 5 <= len(image)
                         and image[scan + 2] == 0x8D
                         and image[scan + 3] == (target_lo + 2) & 0xFF
                         and image[scan + 4] == target_hi):

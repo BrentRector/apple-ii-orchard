@@ -25,6 +25,7 @@ from .loader_trace import trace_loader
 from .cold_boot_trace import trace_cold_boot
 from .handoff import find_handoff
 from .version_delta import compare_disks
+from .dedup import dedup as dedup_disks
 from .generate import generate as generate_source_tree
 from .filesystem import list_files as cpm_list_files
 
@@ -159,6 +160,70 @@ def cmd_handoff(args):
 def cmd_diff(args):
     delta = compare_disks(args.disk_a, args.disk_b)
     print(delta.summary())
+
+    # CP/M serial number (6 bytes at the BDOS base).
+    from .component_diff import system_component_diff, cpm_serial, serial_str
+    sa, sb = cpm_serial(args.disk_a), cpm_serial(args.disk_b)
+    if sa is not None or sb is not None:
+        same = sa == sb
+        print(f"  CP/M serial: A={serial_str(sa)}  B={serial_str(sb)} "
+              f"({'same' if same else 'DIFFERENT'})")
+
+    # Classify system-track differences by OS component (44K variants).
+    comp = system_component_diff(args.disk_a, args.disk_b)
+    if comp is not None:
+        print("  system components (tracks 0-2):")
+        if any(d for d, _ in comp.values()):
+            for c, (d, t) in comp.items():
+                print(f"    {c:18} {'%d byte diff' % d if d else 'identical'}")
+        else:
+            print("    all identical")
+
+    # Filesystem-level differences (which files differ).
+    from .dedup import compare_logical
+    v = compare_logical(args.disk_a, args.disk_b)
+    if v.file_diffs:
+        print("  filesystem:")
+        for fd in v.file_diffs:
+            print(f"    {fd}")
+    return 0
+
+
+def cmd_dedup(args):
+    if len(args.disks) < 2:
+        print("dedup needs at least two disk images", file=sys.stderr)
+        return 2
+    keepers, drops, verdicts = dedup_disks(args.disks)
+    print(f"# logical dedup of {len(args.disks)} disks -> "
+          f"{len(keepers)} to keep, {len(drops)} redundant\n")
+    print("Keep:")
+    for p in keepers:
+        print(f"  {p.name}")
+    if drops:
+        print("\nRedundant (drop):")
+        for r in drops:
+            extra = (f" (missing: {', '.join(r.missing)})"
+                     if r.kind == "subset" else "")
+            print(f"  {r.path.name}  --  {r.kind} of {r.kept.name}{extra}")
+    # Same-OS pairs that diverge in files (each keeps something the other lacks).
+    near = [v for v in verdicts.values()
+            if v.os_same and v.relation == "divergent" and v.file_diffs]
+    if near:
+        print("\nKept apart (same OS, each has files the other lacks):")
+        for v in near:
+            print("  " + v.summary().replace("\n", "\n  "))
+
+    # Lineage: group by CP/M serial (the licensed copy a disk's system descends
+    # from). Independent of byte-level dedup -- a resize/reserialize-free copy
+    # keeps the serial, so this clusters disks by origin.
+    from .component_diff import lineage_groups
+    lin = lineage_groups(args.disks)
+    print("\nLineage (CP/M serial = originating license):")
+    for serial, group in sorted(lin.items(),
+                                key=lambda kv: (kv[0] == "unknown", -len(kv[1]), kv[0])):
+        print(f"  {serial}  ({len(group)} disk{'s' if len(group) != 1 else ''}):")
+        for d in group:
+            print(f"    {d.name}")
     return 0
 
 
@@ -296,6 +361,11 @@ def main(argv=None):
     df.add_argument("disk_a", help="First disk image")
     df.add_argument("disk_b", help="Second disk image")
 
+    dd = sub.add_parser("dedup",
+                        help="Cluster disks by LOGICAL identity (same files + same OS), "
+                             "ignoring CPM60/CPM56 don't-care fill and sector order")
+    dd.add_argument("disks", nargs="+", help="Two or more disk images to compare")
+
     gn = sub.add_parser("generate",
                         help="Generate complete annotated source tree from a disk image")
     gn.add_argument("disk", help="Path to a .dsk or .po image")
@@ -340,6 +410,8 @@ def main(argv=None):
         return cmd_handoff(args)
     if args.command == "diff":
         return cmd_diff(args)
+    if args.command == "dedup":
+        return cmd_dedup(args)
     if args.command == "generate":
         return cmd_generate(args)
     if args.command == "build":
