@@ -10,11 +10,18 @@
 
 .org $0200
 
-; [AI] Origin ($0200) of the 512-byte fragment image the CP/M loader copies into low memory; the
-;       byte here is a placeholder and the region stays zero-filled until the real installed code
-;       begins at $034A. That code is Z-80, not 6502 (this is the SoftCard's installed CP/M
-;       fragment), starting LD A,($F3BB)/CP 3 to test the current console/display state before
-;       dispatching to the BIOS console and Apple $C0xx video routines.
+; [DOC S&HD 2-6/2-12] Origin ($0200) of the 512-byte I/O Configuration Block image the CP/M loader
+;       copies into low memory: 6502 $0200-$03FF = Z-80 0F200H-0F3FFH, loaded and initialized at
+;       boot (one per system disk, edited via CONFIGIO). [AI] The byte here is a placeholder and the
+;       region stays zero-filled until the real installed code begins at $034A. That code is Z-80,
+;       not 6502 (this is the disk-loaded config-block driver, not card ROM -- the SoftCard has no
+;       on-board ROM); $034A sits in the Slot-3 TTY: console driver block (config-block real origin
+;       0F300H per the manual's ORIGIN EQU). [DOC S&HD 2-26/2-27] It starts LD A,($F3BB)/CP 3:
+;       $F3BB is the Card Type Table (SLTTYP) entry for slot 3, the console device (entry = 0F3B8H+S,
+;       so slot 3 = 0F3BBH), and CP 3 tests it against card type 3 (Apple Communications / CCS 7710A
+;       serial); type 3 or 4 means an 80-column external terminal. It then dispatches to the BIOS
+;       console and the Apple memory-mapped-I/O ($C0xx; 6502 $C000-$CFFF = Z-80 0E000H-0EFFFH) video
+;       routines.
 IN:
         BRK                          ; $0200  00
         .res    329, $00    ; $0201  fill
