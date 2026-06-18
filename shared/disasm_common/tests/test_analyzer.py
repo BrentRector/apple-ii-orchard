@@ -84,10 +84,33 @@ def test_short_string_below_threshold():
     assert runs[0].kind == DataKind.MIXED
 
 
-def test_string_without_terminator_is_mixed():
+def test_unterminated_referenced_string_is_string():
+    # Policy (2026-06-18): a printable, texty run of >= MIN_UNTERMINATED_STRING
+    # with no terminator is a string IFF the code references its address (a
+    # label) -- the reference is the boundary/length signal (a CP/M command
+    # name / message stored without a $00/$24).
+    m = _mem_with(b"HELLO\xFF", at=0x0100)
+    runs = classify_data(m, 0x0100, 0x0106, code_set=set(),
+                         labels={0x0100: "MSG"})
+    assert runs[0].kind == DataKind.STRING
+    assert runs[0].metadata["terminator"] is None
+    assert runs[0].metadata["chars"] == b"HELLO"
+
+
+def test_unterminated_unreferenced_run_stays_mixed():
+    # Same bytes, but nothing references $0100 -- no label -> stays MIXED, so
+    # incidental printable-range binary is not mis-tagged as text.
     m = _mem_with(b"HELLO\xFF", at=0x0100)
     runs = classify_data(m, 0x0100, 0x0106, code_set=set())
-    # Five printables but no terminator -- treated as MIXED
+    assert runs[0].kind == DataKind.MIXED
+
+
+def test_unterminated_binary_run_stays_mixed_even_if_referenced():
+    # A referenced run that is NOT texty (mostly punctuation / high-bit binary)
+    # stays MIXED: the label gate is necessary but the word-ratio gate also fires.
+    m = _mem_with(bytes([0xA1, 0xBD, 0x9C, 0xFE, 0xAB, 0xC3]), at=0x0100)
+    runs = classify_data(m, 0x0100, 0x0106, code_set=set(),
+                         labels={0x0100: "TBL"})
     assert runs[0].kind == DataKind.MIXED
 
 

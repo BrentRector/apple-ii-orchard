@@ -171,6 +171,13 @@ def _fill_length(mem, addr, end):
     return n
 
 
+# Minimum printable run length to treat a *terminator-less* byte run as text.
+# Terminated strings need only 4 chars (the terminator is strong evidence);
+# an un-terminated run is weaker, so require a slightly longer run to avoid
+# tagging an incidental 4-byte printable patch (e.g. a table cell) as a string.
+MIN_UNTERMINATED_STRING = 5
+
+
 def _string_length(mem, addr, end):
     """Length (including terminator) of a string starting at addr, or 0
     if no such string. Requires at least 4 printable chars + a terminator."""
@@ -180,6 +187,34 @@ def _string_length(mem, addr, end):
     if n >= 4 and addr + n < end and is_string_terminator(mem[addr + n]):
         return n + 1
     return 0
+
+
+def _word_char(b7):
+    """A 7-bit byte that reads as text: letter, digit, or space."""
+    return (0x41 <= (b7 & 0xDF) <= 0x5A) or 0x30 <= b7 <= 0x39 or b7 == 0x20
+
+
+def _unterminated_string_length(mem, addr, end):
+    """Length of a printable run starting at addr with no trailing terminator,
+    or 0 if it is too short or does not read as text.
+
+    A high-bit-clean printable byte ($20-$7E or, for the Apple 6502 high-bit
+    convention, $A0-$FE) run only counts as text when most of it (masked to
+    7 bits) is letters/digits/spaces -- otherwise it is binary that merely lies
+    in the printable byte range (e.g. a packed table whose bytes happen to be
+    $A0-$FE). The caller additionally requires the run to be *referenced by
+    code* (a label), which is the real signal that an un-terminated run is a
+    string the program addresses: a CP/M command name or message stored without
+    a $00/$24 terminator. Together those two gates keep binary out."""
+    n = 0
+    while addr + n < end and is_printable_byte(mem[addr + n]):
+        n += 1
+    if n < MIN_UNTERMINATED_STRING:
+        return 0
+    word = sum(1 for i in range(n) if _word_char(mem[addr + i] & 0x7F))
+    if word < 0.70 * n:
+        return 0
+    return n
 
 
 def _is_likely_code_addr(addr, labels, symbols, body_start, body_end):
@@ -259,12 +294,18 @@ def _pointer_table_length(mem, addr, end, *, labels, symbols, body_start, body_e
 
 
 def _mixed_length(mem, addr, end, labels):
-    """Length of a generic byte run. Stops at the first label boundary
-    (so the label gets emitted on its own line) and caps at 16 bytes
-    for readable column-aligned output."""
+    """Length of a generic byte run. Stops at the first label boundary (so the
+    label gets emitted on its own line), at the start of a structure that begins
+    inside the run (a fill block or a terminated string -- so a $00-terminated
+    message embedded after a few non-printable bytes is not swallowed into the
+    hex blob), and caps at 16 bytes for readable column-aligned output."""
     n = 1  # always consume at least the first byte
     while addr + n < end and n < 16:
         if labels is not None and (addr + n) in labels:
+            break
+        if _fill_length(mem, addr + n, end) >= 8:
+            break
+        if _string_length(mem, addr + n, end):     # a terminated string starts here
             break
         n += 1
     return n
@@ -311,6 +352,18 @@ def classify_at(mem, addr, end, *, labels=None, symbols=None, cpu="z80",
                    for i in range(pt_n)]
         return DataRun(addr, bytes(mem[addr:addr + pt_n * 2]),
                        DataKind.POINTER_TABLE, {"targets": targets})
+
+    # Un-terminated string: a printable, texty run the structured detectors
+    # declined, that ALSO starts at a code-referenced address (a label). The
+    # reference is the boundary/length signal -- the code does `LD HL,msg` /
+    # `LDA #<msg`, so `addr` is where a distinct string begins even though it
+    # abuts its neighbour with no terminator. Requiring the label keeps
+    # incidental printable-range binary (unreferenced) out of the string class.
+    if labels is not None and labels.get(addr):
+        us_n = _unterminated_string_length(mem, addr, end)
+        if us_n:
+            return DataRun(addr, bytes(mem[addr:addr + us_n]), DataKind.STRING,
+                           {"chars": bytes(mem[addr:addr + us_n]), "terminator": None})
 
     # Default: mixed bytes up to label or 16-byte limit
     mixed_n = _mixed_length(mem, addr, end, labels)

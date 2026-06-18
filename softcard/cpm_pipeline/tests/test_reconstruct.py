@@ -18,6 +18,7 @@ import pytest
 
 from cpm_pipeline.reconstruct import reconstruct_disk, reconstruct_full_disk
 from cpm_pipeline.reference_data import (
+    DISK_2_20_44K_SYSTEM,
     DISK_2_20B_56K_SYSTEM,
     DISK_2_23_44K_SYSTEM,
     present,
@@ -83,6 +84,44 @@ def test_cpm220_reconstruct_byte_identical():
         )
         assert result.diff_count == 0
         assert result.bytes_from_assembled > 0
+
+
+@pytest.mark.skipif(not HAS_ASSEMBLERS, reason="ca65/ld65/sjasmplus not on PATH")
+def test_cpm220_44k_reconstruct_byte_identical():
+    """2.20-44K (original 1980) system disk rebuilt from the clean-room
+    CPMV220-44K/os/ tree + remaining staging. The OS sources are the
+    independently decompiled, adversarially-verified 44K assembly (BIOS $AA00,
+    SystemImage $9300, 6502 BootLoader)."""
+    reference = DISK_2_20_44K_SYSTEM
+    if not present(reference):
+        pytest.skip(f"reference disk missing: {reference}")
+    with tempfile.TemporaryDirectory() as tmp:
+        out = Path(tmp) / "cpm220_44k.dsk"
+        result = reconstruct_disk(
+            "220-44k", reference_path=reference, output_path=out, verify=True,
+        )
+        assert result.diff_count == 0, (
+            f"2.20-44K reconstruction differs at {result.diff_count} byte(s); "
+            f"first offsets: {[hex(o) for o in result.diff_offsets]}"
+        )
+        assert result.bytes_from_assembled > 0
+
+
+@pytest.mark.skipif(not HAS_ASSEMBLERS, reason="ca65/ld65/sjasmplus not on PATH")
+def test_cpm220_44k_full_disk_reconstruct_byte_identical():
+    """Whole 2.20-44K system disk rebuilt from source: the OS region from the
+    clean-room CPMV220-44K/os/ tree, every .COM from its decompilation, only
+    filesystem data carried. Byte-identical, majority of bytes from source."""
+    reference = DISK_2_20_44K_SYSTEM
+    if not present(reference):
+        pytest.skip(f"reference disk missing: {reference}")
+    with tempfile.TemporaryDirectory() as tmp:
+        out = Path(tmp) / "cpm220_44k_full.dsk"
+        res = reconstruct_full_disk(reference, out, verify=True)
+        assert res.byte_identical, (
+            f"whole-disk rebuild differs; first offsets: "
+            f"{[hex(o) for o in res.diff_offsets]}")
+        assert res.from_source_bytes > res.total_bytes // 2
 
 
 @pytest.mark.skipif(not HAS_ASSEMBLERS, reason="ca65/ld65/sjasmplus not on PATH")

@@ -78,6 +78,10 @@ class SjasmFormatter:
         self._overlap_addrs = set()
 
     def emit_source(self):
+        # Label every in-range data address the code references, so a referenced
+        # string/table/variable splits out with its own name (and un-terminated
+        # strings, which require a code reference, can be recognised).
+        self._harvest_data_labels()
         # Classify every in-range label that lands mid-instruction and mint a
         # label on each covering instruction BEFORE emitting the body, so the
         # operand site can reference it inline as `cover+offset` (no equate).
@@ -116,6 +120,54 @@ class SjasmFormatter:
                 return overlap_expr(cover_name, offset)
             return None
         return _resolve_label(addr, self.symbols, self.walker.labels)
+
+    def _harvest_data_labels(self):
+        """Add a label at every in-range DATA address the code references via a
+        16-bit operand (``LD HL,nn`` / ``LD (nn),A`` / ...). The reference is the
+        boundary/length signal a terminator-less string needs, and it makes data
+        operands read as the datum they point at. In-range constants that are not
+        addresses (a ``LD BC,$0010`` count) are naturally filtered: they rarely
+        fall inside this region's own address window. Byte-identical.
+
+        A label is NOT dropped inside an already-recognised terminated string or
+        fill run: a coincidental operand value (a count, a masked constant) that
+        happens to equal a mid-string address would otherwise split the message
+        in two. Terminated strings/fills are self-delimiting and need no label."""
+        body_start, body_end = self.origin, self.origin + self.length
+        protected = self._protected_data_bytes()
+        addr = self.origin
+        while addr < body_end:
+            if addr in self.walker.code:
+                try:
+                    instr = decode_at(self.mem, addr)
+                except (IndexError, KeyError):
+                    addr += 1
+                    continue
+                for m in _HEX_LITERAL_RE.finditer(instr.mnemonic):
+                    if len(m.group(1)) != 4:
+                        continue
+                    val = int(m.group(1), 16)
+                    if (body_start <= val < body_end
+                            and val not in self.walker.code
+                            and val not in protected):
+                        self.walker.add_label(val)
+                addr += instr.size or 1
+            else:
+                addr += 1
+        self.walker.name_labels(self.symbols)
+
+    def _protected_data_bytes(self):
+        """Bytes already inside a self-delimiting terminated string or fill run
+        (classified with the current labels), which a harvested label must not
+        split."""
+        protected = set()
+        for r in classify_data(self.mem, self.origin, self.origin + self.length,
+                               code_set=self.walker.code, labels=self.walker.labels,
+                               cpu="z80", body_start=self.origin,
+                               body_end=self.origin + self.length):
+            if r.kind in (DataKind.STRING, DataKind.FILL):
+                protected.update(range(r.addr, r.end))
+        return protected
 
     def _decode_size(self, addr):
         return decode_at(self.mem, addr).size
@@ -350,8 +402,9 @@ class SjasmFormatter:
                 piece = chars[i:i + n].decode("ascii")
                 tag = "  string" if i == 0 else ""
                 lines.append(f'        DEFB    "{piece}"    ; ${addr + i:04X}{tag}')
-            lines.append(f'        DEFB    ${term:02X}'
-                         f'    ; ${addr + len(chars):04X}  terminator')
+            if term is not None:
+                lines.append(f'        DEFB    ${term:02X}'
+                             f'    ; ${addr + len(chars):04X}  terminator')
             return lines
         # High-bit / special chars: emit as chunked bytes + a decoded comment.
         decoded = "".join(
