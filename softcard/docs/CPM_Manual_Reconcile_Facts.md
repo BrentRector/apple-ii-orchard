@@ -616,3 +616,18 @@ These carry `needs-pdf-check` confidence in the extracts. Confirm against the au
 **BIOS relocation is a genuine 2.23 change.** Within a fixed config the BIOS moved up: 2.20-44K runs at `$AA00`, but 2.23-44K runs at `$FA00` (NOT the manual's 44K `$AA00`). So 2.23 deliberately rebased the BIOS into the top language-card window, independent of the 44K/56K config. (2.20's two configs are simply the same BIOS at `$AA00` (44K) or `$DA00` (56K) — a `$3000` shift.)
 
 **Tooling status.** **DONE:** BIOS lookup + cold-boot trace are now **config-aware**. `reference_data.bios_bin` keys on the detected BIOS base (the Z-80 reset-plant target), the 2.20-44K BIOS is extracted to `cpm-investigation/bios_220_44k.bin`, and `trace_cold_boot` handles the `$AA00` ORG. So `cpm_pipeline diff <2.20-44k> <2.23-44k>` now auto-traces the 2.20-44K BIOS and the **dispatch-case rows above are tool-verified** (device-6 delta + `$AA00`-based 2.20 handlers) — locked in by `test_diff_44k_2_20_vs_2_23_is_config_clean`. **REMAINING (handoff loader-scan, NOT config-aware):** the BDOS-entry detector reports `$CC06` for both 2.20 configs (see the BDOS row), and the **CPU-switch trigger** is still "incomplete detection (skipped)" for the 2.20-44K disk. Both are loader-scan limitations separate from the BIOS/cold-boot path, left for a future handoff pass.
+
+**External corroboration + new deltas (community "Apple II Softcard CP/M Reference").** The only freely-available source that documents the 2.23 BIOS (alongside 2.20B) is a SECONDARY, community-authored disassembly note — no Microsoft attribution, contains typos — saved with provenance + caveats at `../reference/softcard-cpm-archive/notes/apple-ii-softcard-cpm-reference.txt`. Treat its addresses as leads to verify against our byte-identical CPMV223 disassembly (the primary 2.23 authority). It independently corroborates our findings and adds three new 2.20B→2.23 deltas:
+
+- **Device 6 = "Firmware Card"** and *"versions 2.23 and later also inspect `$Cn0B`"* — exactly our device-6 / 11-byte `$Cn0B` Pascal-1.1 probe.
+- **Firmware-Card console routines at `FD99H`/`FDA9H`/`FDB7H`** — on our as-shipped 2.23 BIOS those bytes are `F7`/`FF`/`00` (the generator-page trap filler), i.e. runtime-generated handler slots, with the `$FDB0` RET stub between them. Confirms the cold-boot-generator model.
+- **6502 Firmware-Card routines `$DD0-$E3E`, incl. `$E26-$E3E` "sets up the coresident ROM area at `$C800`"** — our 2.23 6502 source has these card-I/O routines (`$C08C`/`$C08E`, save area `$03E7`), and the `$03C0` mode-switch `JSR $0E36`s into the region. Corroborates the corrected `$C800`-window mechanism (2.23 claims `$C800` on the 6502 side). `[verify the exact $E26/$E36 byte mapping]`
+- **No FORMAT program in 2.23+** (folded into COPY) — matches our filesystem diff (`FORMAT`/`RW13`/`CPM56` only on the 2.20 disk).
+
+| New delta (2.20B → 2.23) | what changed | status |
+|---|---|---|
+| Comm-Card ACIA driver | uses the **6502** to read the ACIA, not the Z-80 (Z-80 memory-refresh pre-read clears ACIA status flags and loses data) | reference; not yet checked vs our disasm |
+| Max drive count | **6** (≤2.20B) → **4** (2.23/2.25/2.26) | reference |
+| 60K BIOS banking | LC **bank 1** holds 6502 RWTS + Z-80 BIOS + ⅔ of BDOS; **bank 2** freed for a larger TPA (2.20B used bank 2 only) | reference; matches our 60K model |
+
+(The post-2.20 *Microsoft* manuals are NOT 2.23 documentation: the 1980 set is 2.20-era; the 1983 Premium SoftCard IIe manual is a different card whose BIOS is 2.26.)
