@@ -4,22 +4,20 @@ These run whole-system boots (a few million emulated instructions);
 each ends early via the idle heuristics, so the suite stays fast.
 """
 
-from pathlib import Path
-
 import pytest
 
+from cpm_pipeline.reference_data import (
+    DISK_2_20B_56K_SYSTEM,
+    DISK_2_23_44K_SYSTEM,
+    present,
+)
 from softcard_emu import SoftCardMachine
 
-REPO = Path(__file__).resolve().parents[2]  # softcard/
-DSK_223 = REPO / "CPMV223-44K" / "CPMV223-44K.DSK"
-PO_220 = REPO / "CPMV220" / "CPMV220-Disk1.po"
+DSK_223 = DISK_2_23_44K_SYSTEM
+PO_220 = DISK_2_20B_56K_SYSTEM
 
 
-def _has(p):
-    return p.exists()
-
-
-@pytest.mark.skipif(not _has(DSK_223), reason="CPMV223-44K.DSK missing")
+@pytest.mark.skipif(not present(DSK_223), reason="softcard-cpm2.23-44k-system.dsk missing")
 def test_223_boots_to_prompt_with_videx():
     m = SoftCardMachine(DSK_223)
     res = m.run(total_steps=40_000_000)
@@ -31,7 +29,7 @@ def test_223_boots_to_prompt_with_videx():
     assert "idle" in res
 
 
-@pytest.mark.skipif(not _has(DSK_223), reason="CPMV223-44K.DSK missing")
+@pytest.mark.skipif(not present(DSK_223), reason="softcard-cpm2.23-44k-system.dsk missing")
 def test_223_dir_lists_directory():
     m = SoftCardMachine(DSK_223)
     m.type_keys("DIR\r")
@@ -43,7 +41,7 @@ def test_223_dir_lists_directory():
     assert len(m.disk_reads) > 0              # directory came off the image
 
 
-@pytest.mark.skipif(not _has(PO_220), reason="CPMV220-Disk1.po missing")
+@pytest.mark.skipif(not present(PO_220), reason="softcard-cpm2.20b-56k-system-disk1.po missing")
 def test_220_with_videx_faults_and_stays_dark():
     m = SoftCardMachine(PO_220)
     m.run(total_steps=40_000_000)
@@ -52,14 +50,14 @@ def test_220_with_videx_faults_and_stays_dark():
     assert m.videx.vram_writes == 0
 
 
-@pytest.mark.skipif(not _has(PO_220), reason="CPMV220-Disk1.po missing")
+@pytest.mark.skipif(not present(PO_220), reason="softcard-cpm2.20b-56k-system-disk1.po missing")
 def test_220_without_videx_boots_clean():
     m = SoftCardMachine(PO_220, videx=False)
     res = m.run(total_steps=40_000_000)
     assert "idle" in res                      # waiting at the console
 
 
-@pytest.mark.skipif(not _has(DSK_223), reason="CPMV223-44K.DSK missing")
+@pytest.mark.skipif(not present(DSK_223), reason="softcard-cpm2.23-44k-system.dsk missing")
 def test_language_card_banking():
     m = SoftCardMachine(DSK_223)
     lc = m.lc

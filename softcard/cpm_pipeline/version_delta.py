@@ -139,20 +139,14 @@ def _read_boot_sector(path: Path, fmt: str) -> bytes:
 
 
 def _guess_bios_path_for_disk(disk_path: Path, info: DiskFormat) -> Path | None:
-    """Find a matching BIOS binary for the variant detected on this disk."""
-    repo_root = disk_path.resolve().parent
-    for _ in range(3):
-        invest = repo_root / "cpm-investigation"
-        if invest.is_dir():
-            if info.variant == "softcard_cpm_2_23":
-                p = invest / "bios_223.bin"
-            elif info.variant == "softcard_cpm_2_20":
-                p = invest / "bios_220.bin"
-            else:
-                return None
-            return p if p.exists() else None
-        repo_root = repo_root.parent
-    return None
+    """Find the extracted BIOS binary for the variant detected on this disk.
+
+    Delegates to the shared package-relative lookup so it works regardless of
+    where the disk image lives. disk_path is unused but kept for call symmetry.
+    """
+    del disk_path
+    from .reference_data import bios_bin
+    return bios_bin(info.variant)
 
 
 def compare_disks(path_a: Path | str, path_b: Path | str) -> DiskDelta:

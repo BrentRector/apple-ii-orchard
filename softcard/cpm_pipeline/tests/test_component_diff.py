@@ -1,7 +1,5 @@
 """Component-level diff: byte differences localized to the OS component."""
 
-from pathlib import Path
-
 import pytest
 
 from cpm_pipeline import chunk_map
@@ -9,17 +7,15 @@ from cpm_pipeline.component_diff import (
     system_component_diff, cpm_serial, lineage_groups,
 )
 from cpm_pipeline.disk_format import sector_offset
+from cpm_pipeline.reference_data import (
+    DISK_2_23_44K_SYSTEM, DISK_2_20B_56K_SYSTEM, present,
+)
 
-REPO = Path(__file__).resolve().parents[2]
-DSK_223 = REPO / "CPMV223-44K" / "CPMV223-44K.DSK"
-PO_220 = REPO / "CPMV220" / "CPMV220-Disk1.po"
-
-
-def _has(p):
-    return p.exists()
+DSK_223 = DISK_2_23_44K_SYSTEM
+PO_220 = DISK_2_20B_56K_SYSTEM
 
 
-@pytest.mark.skipif(not _has(DSK_223), reason="CPMV223-44K.DSK missing")
+@pytest.mark.skipif(not present(DSK_223), reason="2.23 44K system disk missing")
 def test_identical_disk_has_no_component_diff():
     comp = system_component_diff(DSK_223, DSK_223)
     assert comp is not None
@@ -28,7 +24,7 @@ def test_identical_disk_has_no_component_diff():
     assert {"boot sector", "RWTS", "CCP+BDOS", "BIOS"} <= set(comp)
 
 
-@pytest.mark.skipif(not _has(DSK_223), reason="CPMV223-44K.DSK missing")
+@pytest.mark.skipif(not present(DSK_223), reason="2.23 44K system disk missing")
 def test_cpm_serial_has_prefix_and_length():
     ser = cpm_serial(DSK_223)
     assert ser is not None
@@ -37,7 +33,7 @@ def test_cpm_serial_has_prefix_and_length():
     assert ser == b"\xbd\x16\x00\x01\x4d\x40"  # CPMV223-44K's known serial
 
 
-@pytest.mark.skipif(not _has(DSK_223), reason="CPMV223-44K.DSK missing")
+@pytest.mark.skipif(not present(DSK_223), reason="2.23 44K system disk missing")
 def test_lineage_groups_shared_serial():
     # Two copies of one disk share their serial -> a single lineage of 2.
     groups = lineage_groups([DSK_223, DSK_223])
@@ -47,7 +43,7 @@ def test_lineage_groups_shared_serial():
     assert serial.startswith("BD 16 00")
 
 
-@pytest.mark.skipif(not (_has(DSK_223) and _has(PO_220)), reason="fixtures missing")
+@pytest.mark.skipif(not present(DSK_223, PO_220), reason="fixtures missing")
 def test_lineage_separates_distinct_licenses():
     if cpm_serial(PO_220) is None:
         pytest.skip("2.20 serial not readable")
@@ -55,7 +51,7 @@ def test_lineage_separates_distinct_licenses():
     assert len(groups) == 2                     # different licensed copies
 
 
-@pytest.mark.skipif(not _has(DSK_223), reason="CPMV223-44K.DSK missing")
+@pytest.mark.skipif(not present(DSK_223), reason="2.23 44K system disk missing")
 def test_flip_in_bios_localizes_to_bios(tmp_path):
     chunks, _ = chunk_map.get_variant("223")
     bios = next(s for s in chunks if s.source_name.endswith("BIOS_Disk"))

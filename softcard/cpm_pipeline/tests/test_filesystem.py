@@ -1,7 +1,5 @@
 """CP/M filesystem reader tests, validated against the documented directory of
-CPMV223-44K.DSK (docs/CPM_Filesystem.md)."""
-
-from pathlib import Path
+the 2.23 44K system disk (docs/CPM_Filesystem.md)."""
 
 import pytest
 
@@ -12,17 +10,15 @@ from cpm_pipeline.filesystem import (
 from cpm_pipeline.disk_format import (
     read_disk, write_disk, sector_offset, SECTORS_PER_TRACK, TRACKS,
 )
+from cpm_pipeline.reference_data import (
+    DISK_2_23_44K_SYSTEM, DISK_2_20B_56K_SYSTEM, present,
+)
 
-REPO_ROOT = Path(__file__).resolve().parents[2]  # softcard/
-DSK_223 = REPO_ROOT / "CPMV223-44K" / "CPMV223-44K.DSK"
-PO_220 = REPO_ROOT / "CPMV220" / "CPMV220-Disk1.po"
-
-
-def _has(p):
-    return p.exists()
+DSK_223 = DISK_2_23_44K_SYSTEM
+PO_220 = DISK_2_20B_56K_SYSTEM
 
 
-# Documented directory of CPMV223-44K.DSK: filename -> total 128-byte records.
+# Documented directory of the 2.23 44K system disk: filename -> total 128-byte records.
 GROUND_TRUTH_223 = {
     "APDOS.COM": 13, "ASM.COM": 64, "AUTORUN.COM": 1, "BOOT.COM": 4,
     "CAT.COM": 6, "CONFIGIO.BAS": 58, "COPY.COM": 28, "CPM60.COM": 88,
@@ -33,7 +29,7 @@ GROUND_TRUTH_223 = {
 }
 
 
-@pytest.mark.skipif(not _has(DSK_223), reason="CPMV223-44K.DSK missing")
+@pytest.mark.skipif(not present(DSK_223), reason="2.23 44K system disk missing")
 def test_223_directory_matches_documented_inventory():
     files = {f.name: f for f in fs.list_files(DSK_223)}
     assert set(files) == set(GROUND_TRUTH_223), (
@@ -47,13 +43,13 @@ def test_223_directory_matches_documented_inventory():
         assert files[name].size == recs * 128
 
 
-@pytest.mark.skipif(not _has(DSK_223), reason="CPMV223-44K.DSK missing")
+@pytest.mark.skipif(not present(DSK_223), reason="2.23 44K system disk missing")
 def test_223_extract_cpm60_exact_size():
     data = fs.extract(DSK_223, "CPM60.COM")
     assert len(data) == 11264  # 88 records x 128
 
 
-@pytest.mark.skipif(not _has(DSK_223), reason="CPMV223-44K.DSK missing")
+@pytest.mark.skipif(not present(DSK_223), reason="2.23 44K system disk missing")
 def test_223_standard_utilities_have_com_entry():
     # Standard Digital Research / Microsoft .COM files start with a JP ($C3).
     for name in ("PIP.COM", "MBASIC.COM", "STAT.COM", "ED.COM"):
@@ -61,7 +57,7 @@ def test_223_standard_utilities_have_com_entry():
         assert data[:1] == b"\xC3", f"{name} does not start with JP"
 
 
-@pytest.mark.skipif(not _has(DSK_223), reason="CPMV223-44K.DSK missing")
+@pytest.mark.skipif(not present(DSK_223), reason="2.23 44K system disk missing")
 def test_223_multi_extent_file_merges():
     # MBASIC spans two extents (128 + 64 records).
     files = {f.name: f for f in fs.list_files(DSK_223)}
@@ -69,7 +65,7 @@ def test_223_multi_extent_file_merges():
     assert files["MBASIC.COM"].records == 192
 
 
-@pytest.mark.skipif(not _has(PO_220), reason="CPMV220-Disk1.po missing")
+@pytest.mark.skipif(not present(PO_220), reason="2.20B 56K system disk 1 missing")
 def test_220_po_parses_and_extracts():
     # Same SoftCard skew/params must also work on the 2.20 ProDOS-order disk.
     files = fs.list_files(PO_220)
@@ -82,7 +78,7 @@ def test_220_po_parses_and_extracts():
     assert len(pip) % 128 == 0
 
 
-@pytest.mark.skipif(not _has(DSK_223), reason="CPMV223-44K.DSK missing")
+@pytest.mark.skipif(not present(DSK_223), reason="2.23 44K system disk missing")
 def test_cpm_order_roundtrip_matches_dsk(tmp_path):
     """A `.cpm` (CP/M logical sector order) image of the same disk must parse
     identically to the `.dsk`. Build one by re-laying the 223 fixture into

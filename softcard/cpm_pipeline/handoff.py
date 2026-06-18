@@ -365,17 +365,12 @@ def find_handoff(disk_path: Path | str,
 
 
 def _guess_bios_path(disk_path: Path, variant: str) -> Path | None:
-    """Try to find a matching bios_NNN.bin in cpm-investigation/."""
-    repo_root = disk_path.resolve().parent
-    for _ in range(3):  # walk up a couple of levels looking for the layout
-        invest = repo_root / "cpm-investigation"
-        if invest.is_dir():
-            if variant == "softcard_cpm_2_23":
-                p = invest / "bios_223.bin"
-            elif variant == "softcard_cpm_2_20":
-                p = invest / "bios_220.bin"
-            else:
-                return None
-            return p if p.exists() else None
-        repo_root = repo_root.parent
-    return None
+    """Find the matching bios_NNN.bin for `variant`.
+
+    Delegates to reference_data.bios_bin, which locates the binary relative to
+    the package (not the disk), so the disk image may live anywhere. disk_path
+    is kept in the signature for API symmetry with the other detectors.
+    """
+    del disk_path  # intentionally unused: aux data is package-relative, not disk-relative
+    from .reference_data import bios_bin
+    return bios_bin(variant)

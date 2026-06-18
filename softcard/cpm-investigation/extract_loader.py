@@ -61,8 +61,8 @@ def build_image(path):
 
 def main():
     cases = [
-        ('223', 'e:/Orchard/softcard/CPMV223-44K/CPMV223-44K.DSK'),
-        ('220', 'e:/Orchard/softcard/CPMV220/CPMV220-Disk1.po'),
+        ('223', 'e:/Orchard/softcard/reference/softcard-cpm-archive/os/softcard-cpm2.23-44k-system.dsk'),
+        ('220', 'e:/Orchard/softcard/reference/softcard-cpm-archive/os/softcard-cpm2.20b-56k-system-disk1.po'),
     ]
     for label, path in cases:
         img = build_image(path)

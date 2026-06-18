@@ -6,8 +6,6 @@ exercised end-to-end by the `dedup` verb; here we cover the building blocks with
 repo fixtures: a content fingerprint that survives a sector-order change, and
 clustering.)"""
 
-from pathlib import Path
-
 import pytest
 
 from cpm_pipeline.dedup import (
@@ -17,30 +15,28 @@ from cpm_pipeline.disk_format import (
     read_disk, write_disk, sector_offset, TRACKS, SECTORS_PER_TRACK,
 )
 from cpm_pipeline.filesystem import SOFTCARD_SKEW
+from cpm_pipeline.reference_data import (
+    DISK_2_23_44K_SYSTEM, DISK_2_20B_56K_SYSTEM, present,
+)
 
-REPO = Path(__file__).resolve().parents[2]  # softcard/
-DSK_223 = REPO / "CPMV223-44K" / "CPMV223-44K.DSK"
-PO_220 = REPO / "CPMV220" / "CPMV220-Disk1.po"
-
-
-def _has(p):
-    return p.exists()
+DSK_223 = DISK_2_23_44K_SYSTEM
+PO_220 = DISK_2_20B_56K_SYSTEM
 
 
-@pytest.mark.skipif(not _has(DSK_223), reason="CPMV223-44K.DSK missing")
+@pytest.mark.skipif(not present(DSK_223), reason="softcard-cpm2.23-44k-system.dsk missing")
 def test_disk_is_logical_dup_of_itself():
     v = compare_logical(DSK_223, DSK_223)
     assert v.is_duplicate, v.summary()
 
 
-@pytest.mark.skipif(not (_has(DSK_223) and _has(PO_220)), reason="fixtures missing")
+@pytest.mark.skipif(not present(DSK_223, PO_220), reason="fixtures missing")
 def test_different_versions_are_distinct():
     v = compare_logical(DSK_223, PO_220)
     assert not v.is_duplicate
     assert v.file_diffs or v.os_diffs
 
 
-@pytest.mark.skipif(not _has(DSK_223), reason="CPMV223-44K.DSK missing")
+@pytest.mark.skipif(not present(DSK_223), reason="softcard-cpm2.23-44k-system.dsk missing")
 def test_fileset_fingerprint_is_order_invariant(tmp_path):
     """Re-lay the filesystem tracks into CP/M logical order (a .cpm); the
     content fingerprint must be unchanged -- it follows the directory, not the
@@ -67,7 +63,7 @@ def test_content_relation():
     assert _content_relation(a, c) == "divergent"  # shared file differs -> not a subset
 
 
-@pytest.mark.skipif(not (_has(DSK_223) and _has(PO_220)), reason="fixtures missing")
+@pytest.mark.skipif(not present(DSK_223, PO_220), reason="fixtures missing")
 def test_dedup_drops_exact_copy(tmp_path):
     """An exact copy is dropped as a duplicate; a different version is kept."""
     copy = tmp_path / "copy.dsk"
@@ -77,7 +73,7 @@ def test_dedup_drops_exact_copy(tmp_path):
     assert drops[0].kind == "duplicate"
 
 
-@pytest.mark.skipif(not _has(DSK_223), reason="CPMV223-44K.DSK missing")
+@pytest.mark.skipif(not present(DSK_223), reason="softcard-cpm2.23-44k-system.dsk missing")
 def test_subset_relation_detected():
     """compare_logical recognizes a subset relationship (same OS, A's files a
     proper subset of B's). Constructed by comparing a disk with itself after we

@@ -2,19 +2,18 @@
 
 import shutil
 import subprocess
-from pathlib import Path
 
 import pytest
 
 from cpm_pipeline.decompile_com import decompile_com, trace_com
 from cpm_pipeline.filesystem import extract
+from cpm_pipeline.reference_data import DISK_2_23_44K_SYSTEM, present
 
-REPO_ROOT = Path(__file__).resolve().parents[2]  # softcard/
-DSK_223 = REPO_ROOT / "CPMV223-44K" / "CPMV223-44K.DSK"
+DSK_223 = DISK_2_23_44K_SYSTEM
 HAS_SJASMPLUS = shutil.which("sjasmplus") is not None
 
 
-@pytest.mark.skipif(not DSK_223.exists(), reason="CPMV223-44K.DSK missing")
+@pytest.mark.skipif(not present(DSK_223), reason="2.23 44K system disk missing")
 def test_trace_com_discovers_code_and_bdos():
     com = extract(DSK_223, "STAT.COM")
     tr = trace_com(com, max_instructions=500_000)
@@ -24,7 +23,7 @@ def test_trace_com_discovers_code_and_bdos():
     assert tr.bdos_calls
 
 
-@pytest.mark.skipif(not DSK_223.exists(), reason="CPMV223-44K.DSK missing")
+@pytest.mark.skipif(not present(DSK_223), reason="2.23 44K system disk missing")
 def test_decompile_file_produces_asm(tmp_path):
     r = decompile_com(DSK_223, "DUMP.COM", tmp_path)
     assert r.asm_path.exists()
@@ -34,8 +33,8 @@ def test_decompile_file_produces_asm(tmp_path):
     assert "ORG" in text.upper() or "$0100" in text
 
 
-@pytest.mark.skipif(not (DSK_223.exists() and HAS_SJASMPLUS),
-                    reason="CPMV223-44K.DSK or sjasmplus missing")
+@pytest.mark.skipif(not (present(DSK_223) and HAS_SJASMPLUS),
+                    reason="2.23 44K system disk or sjasmplus missing")
 @pytest.mark.parametrize("name", ["DUMP.COM", "STAT.COM", "PIP.COM", "CPM60.COM"])
 def test_decompiled_com_roundtrips(tmp_path, name):
     r = decompile_com(DSK_223, name, tmp_path / name.split(".")[0])
