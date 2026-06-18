@@ -149,7 +149,7 @@ def _disassemble(com: bytes, entries: list[int], out_base: Path, source_name: st
     mem = bytearray(0x10000)
     mem[TPA:TPA + len(com)] = com
     src = disasm_z80_region(mem, TPA, len(com), symbols=load_symbols(CPM_SYMBOLS),
-                            seeds=entries, source_name=source_name)
+                            seeds=entries, source_name=source_name, auto_coverage=True)
     asm_path = out_base.with_suffix(".asm")
     bin_path = out_base.with_suffix(".bin")
     asm_path.write_text(src.replace("{out_bin}", bin_path.as_posix()), encoding="utf-8")

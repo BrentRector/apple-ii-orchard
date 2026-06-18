@@ -192,7 +192,8 @@ def _merge_dispatch(static_tables, dyn_dispatch, mem, walker, body_start, body_e
 def disasm_z80_region(mem: bytearray, org: int, length: int, *,
                       symbols: SymbolTable | None = None,
                       seeds=(), source_name: str = "", force_labels=None,
-                      resolve_dispatch=True, dyn_dispatch=None) -> str:
+                      resolve_dispatch=True, dyn_dispatch=None,
+                      auto_coverage=False) -> str:
     """Disassemble `mem[org:org+length]` to sjasmplus source (with `{out_bin}`).
 
     `mem` is a full 64 KB image with the region already placed at `org`. Every
@@ -214,6 +215,20 @@ def disasm_z80_region(mem: bytearray, org: int, length: int, *,
                                                       dyn_dispatch=dyn_dispatch)
         label_inrange_operands(walker, mem, org, length)
         pointer_words = scan_pointer_words(walker, mem, org, length) | dispatch_words
+    if auto_coverage:
+        # Recover code the seeds/dispatch didn't reach (un-executed paths after a
+        # dynamic trace, fall-through-after-terminal routines): a validated,
+        # core-anchored, string-walled sweep. Byte-identical (code/data split only).
+        from disasm_common.coverage import (
+            maximize_coverage, z80_decoder, z80_dispatch_scanner, z80_ref_harvester,
+        )
+        maximize_coverage(
+            walker, mem, cpu="z80", decoder=z80_decoder(mem),
+            scan_dispatch=z80_dispatch_scanner(mem, org, org + length),
+            harvest_refs=z80_ref_harvester(mem, org, org + length),
+        )
+        if resolve_dispatch:
+            pointer_words = (pointer_words or set()) | scan_pointer_words(walker, mem, org, length)
     if force_labels:
         for addr, name in force_labels.items():
             if org <= addr < org + length:
