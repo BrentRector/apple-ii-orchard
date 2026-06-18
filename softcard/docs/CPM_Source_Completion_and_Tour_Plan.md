@@ -22,20 +22,21 @@ free space) is carried verbatim — that is faithful, not a gap.
 - **Document:** OS manual-reconciled (`[DOC]` tags); `.COM` are decompiled + **AI-commented only**.
 - **REMAINING:** (b) manual-reconcile the 19 `.COM` comments (SoftCard tools — APDOS/COPY/CONFIGIO/DOWNLOAD — against the Software Utilities manual; stock DR tools against the CP/M Reference); add a short note accounting for the carried data files.
 
-### 2.20-44K — net-new tree, heavily leveraged
-- **Nothing exists** (no `CPMV220-44K/`, no `chunk_map` entry, no reconstruct). We have only `cpm-investigation/bios_220_44k.bin`. The repo's "220" pipeline targets the **2.20B-56K** disk.
-- **Leverage:** the 44K OS ≈ the done **2.20B-56K** source relocated **−$3000** (BIOS `$AA00`, BDOS `$9C00`, CCP `$9400`) with **Language-Card banking removed**; most stock `.COM` are byte-identical to existing 56K/2.23 decompiles.
-- **Disk contents (19 files):** APDOS, ASM, CONFIGIO.BAS, COPY, CPM56, DDT, DOWNLOAD, DUMP(.ASM/.COM), ED, FORMAT, GBASIC, LOAD, MBASIC, PIP, RW13, STAT, SUBMIT, XSUB. 2.20-specific: CPM56/FORMAT/RW13 (present in the 56K `CPMV220/utilities`); COPY differs from 2.23 (8 vs 28 records).
+### 2.20-44K — the ORIGINAL build (corrected 2026-06-18 per Brent)
+- **The 44K disk is the as-shipped ORIGINAL, not a derivative.** Every memory layout (44K / 56K / 60K) is the **SAME OS source recompiled at config-specific base addresses**. `CPM56.COM` / `CPM60.COM` overlay the original 44K system tracks **in place** to produce the 56K / 60K disks (each carries that same source assembled at its config's bases). So **2.20-44K is canonical/primary; 56K and 60K derive FROM it** via CPM56/CPM60, not the other way round.
+- **Base addresses:** 44K = BIOS `$AA00` / BDOS `$9C00` / CCP `$9400` (original); 56K = `$DA00` / `$CC00` / `$C400` (LC bank 2); 60K = relocated + both LC banks. The "89% identical to the 56K disk" we measured is exactly this address relocation.
+- The repo's existing `CPMV220/os` is the **2.20B-56K** assembly of this source. Build 2.20-44K by **assembling the OS source at the 44K (original) bases** -> byte-identical, the same way `CPM60.asm` already builds from one master via DISP/MODULE/INCBIN relocating Z-80 modules to run addresses. The end state is ONE base-parameterized 2.20 OS source with 44K/56K/60K build targets (the shared-source-tree vision).
+- **Disk contents (19 files):** APDOS, ASM, CONFIGIO.BAS, COPY, CPM56, DDT, DOWNLOAD, DUMP(.ASM/.COM), ED, FORMAT, GBASIC, LOAD, MBASIC, PIP, RW13, STAT, SUBMIT, XSUB.
 - **BUILD STEPS (in order):**
-  1. **Per-`.COM` byte-identity sweep** — extract each `.COM`, md5 vs existing `bin/` (CPMV220 + CPMV223-44K) → reuse vs decompile-fresh.
-  2. **OS decompile** — derive from the 56K source (re-ORG to 44K addresses), then resolve the real config deltas (no-LC-banking, the loader/install, 2.20-vs-2.20B byte diffs). The bulk of the work.
-  3. **`chunk_map` `220-44k`** — sector→source map + a `reconstruct_full_disk` path; add variant `'220-44k'` to `get_variant`.
+  1. **Per-`.COM` byte-identity sweep** — DONE: 12/17 reuse existing decompiles, 5 new (CPM56, DDT, SUBMIT, GBASIC, MBASIC).
+  2. **OS source, base-parameterized** — make the 2.20 OS source assemble at config-specific bases (the 44K assembly being the original); reproduce the 44K disk's system tracks byte-identical. NOTE the 2.20 (1980) vs 2.20B sub-version question: confirm whether the 44K-1980 and the 56K-2.20B share one source or are two sub-versions (compare 2.20B-44K vs 2.20B-56K = pure config delta to isolate it).
+  3. **`chunk_map` `220-44k`** — config-aware variant (44K addresses + the disk's sector layout) + a `reconstruct_full_disk` path; add to `get_variant`.
   4. **Byte-identical reconstruct + a regression test** (the gate, mirroring `test_cpm220_reconstruct_byte_identical`).
   5. **Comment + manual-reconcile** (OS `[DOC]` + utilities).
 
 ### Sequencing
-- **2.20-56K already done** (today's `CPMV220` = 2.20B-56K, byte-identical) → "56K later" is mostly **relabel/formalize**.
-- **60K** has a source tree (`CPMV223-60K/os`) + derived disk; reconstruct via the 60K build. Largely there; finish utilities + comments.
+- Under the corrected model, **44K is primary; 56K/60K are CPM56/CPM60 overlays** of it (the same source at higher bases). The repo's existing `CPMV220` (2.20B-56K, byte-identical) is the 56K assembly — so once the OS source is base-parameterized, 56K falls out of the same tree.
+- **60K** already proves the pattern: `CPMV223-60K` builds from the `CPM60.asm` master with relocation. The end state is one base-parameterized OS source per sub-version with 44K/56K/60K targets.
 
 ---
 
@@ -65,5 +66,6 @@ free space) is carried verbatim — that is faithful, not a gap.
 - 2026-06-18: plan created; starting (a) 2.20-44K build.
 - 2026-06-18 (a) progress:
   - **Step 1 (.COM sweep) DONE:** of 17 `.COM`, **12 are byte-identical to existing decompiles** (reuse: APDOS, ASM, COPY, DOWNLOAD, DUMP, ED, FORMAT, LOAD, PIP, RW13, STAT, XSUB) and **5 are new** (decompile: CPM56, DDT, SUBMIT, GBASIC, MBASIC). 2 data files carried (CONFIGIO.BAS, DUMP.ASM).
-  - **Step 2 (OS) scoped:** the 2.20-44K OS region (tracks 0-2) is **89% byte-identical** to the done 2.20B-56K (1,338/12,288 bytes differ; concentrated in Track 1 + wherever absolute addresses live). So **derive from the 56K source** (re-ORG −$3000: BIOS $AA00, BDOS $9C00, CCP $9400) + resolve the ~11% deltas (no-LC-banking, loader, 2.20-vs-2.20B). The pipeline's `decompile-os` is NOT yet config-aware (it labels the 2.20-44K BIOS `$DA00`, the 56K default) — needs a `'220-44k'` variant with 44K addresses, like the diff tooling's config-aware fix.
-  - **Remaining (a):** add `'220-44k'` to `chunk_map.py` (44K addresses + the disk's sector layout) → create `CPMV220-44K/os/` by re-ORGing the 56K source + reconciling the 11% deltas → assemble the 12 reuse + 5 new `.COM` → byte-identical `reconstruct_full_disk` + regression test → comments. Multi-turn engineering build.
+  - **Step 2 (OS) scoped + REFRAMED (per Brent):** the 44K is the ORIGINAL; every layout is the SAME source recompiled at config-specific bases (CPM56/CPM60 overlay the 44K tracks). The 2.20-44K OS region is 89% byte-identical to the 2.20B-56K disk = exactly the address relocation. So: assemble a base-parameterized 2.20 OS source at the 44K (original) bases (BIOS $AA00 / BDOS $9C00 / CCP $9400) -> byte-identical. The pipeline's `decompile-os` is NOT yet config-aware (labels the 2.20-44K BIOS `$DA00`) -> needs a config-aware `'220-44k'` variant.
+  - **Model CONFIRMED empirically (boot tracks 0-2):** 2.20B-44K vs 2.20B-56K = **1,304 B** differ (pure relocation; same source, different base) — and 2.20-1980 vs 2.20B at the same 44K config = only **42 B** differ (so "plain 2.20" ≈ "2.20B" + a tiny patch). The build is therefore: base-parameterize the shared 2.20 OS source, assemble at 44K (original) -> ≈ the 2.20B-44K disk via relocation, then apply the 42-byte 2.20-vs-2.20B patch for the 1980 disk. Mechanism: the `CPM60.asm` master pattern (DISP/MODULE/INCBIN relocating modules to run addresses).
+  - **Remaining (a):** base-parameterize the 2.20 OS source (ORG-driven, à la CPM60.asm) with a 44K target -> config-aware `'220-44k'` chunk_map -> assemble the 12 reuse + 5 new `.COM` -> byte-identical `reconstruct_full_disk` + regression test -> comments.
