@@ -15,9 +15,10 @@
 ;   $9400-$9CFF  CCP -- command line parse, built-in table (DIR ERA TYPE SAVE
 ;                REN USER), 8-word dispatch table at $95C2, transient .COM
 ;                loader, $$$.SUB chaining, and the CP/M error texts.
-;   $9D00-$A8FF  BDOS (Microsoft SoftCard BDOS) -- function entry at $9E11
-;                (save caller SP, switch to local stack, dispatch on C via the
-;                runtime pointer cell $9F43), FCB/directory/disk-record logic.
+;   $9D00-$A8FF  BDOS (Microsoft SoftCard BDOS) -- function entry $9E16 (the
+;                referenced re-entry: save caller SP, switch to local stack,
+;                dispatch on C via the runtime pointer cell $9F43); $9E09-$9E15
+;                is data. FCB/directory/disk-record logic follows.
 ;   $A900-$A9FF  BDOS variable + buffer page; $E5 (uninitialized) on disk.
 ;
 ; Message mechanism (prior finding, confirmed): the error texts are reached two
@@ -30,6 +31,12 @@
 ; Address facts cross-checked against the 2.20 manual reconcile sheet:
 ; CCP=$9400, BDOS=$9C00-region, I/O Config Block at 6502 $0200-$03FF (Z-80
 ; $F200-$F3FF), 6502 RPC cells $45-$49, A$VEC=$F3D0, Z$CPU=$F3DE.
+;
+; Clean-room: decompiled solely from these bytes + public CP/M 2.2 architecture
+; and softcard/docs/CPM_Manual_Reconcile_Facts.md -- no 56K/2.23 source. The
+; code/data split was adversarially verified and reassembles BYTE-IDENTICAL;
+; comment PROSE is [AI] machine-inferred (a hint, not a manual citation) unless
+; marked [DOC <manual> <page>]; [?] = open question.
 ; ============================================================================
 
     DEVICE NOSLOT64K

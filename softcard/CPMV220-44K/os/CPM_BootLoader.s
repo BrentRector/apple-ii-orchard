@@ -5,6 +5,12 @@
 ;  Disk II controller PROM.  Reverse-engineered from the raw on-disk bytes;
 ;  reassembles BYTE-IDENTICAL.
 ;
+;  Clean-room: decompiled solely from these bytes + public Apple II / Disk II /
+;  SoftCard knowledge and softcard/docs/CPM_Manual_Reconcile_Facts.md -- no
+;  56K/2.23 source. The code/data split was adversarially verified; comment
+;  PROSE is [AI] machine-inferred (a hint, not a manual citation) unless marked
+;  [DOC <manual> <page>]; [?] = open question.
+;
 ;  Layout (6502 addresses; this image lives on disk and at $0800 at boot):
 ;    $0800        sector-count byte read by the $Cn00 boot PROM (data, =$01)
 ;    $0801-$082C  BOOT0  - sector-load loop, then JMP $1000 (stage-2)
