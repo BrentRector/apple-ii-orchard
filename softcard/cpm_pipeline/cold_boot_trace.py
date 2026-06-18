@@ -311,14 +311,16 @@ def trace_cold_boot(bios_path: Path | str,
             target = raw_full[1] | (raw_full[2] << 8)
             if not (0xFA00 <= target <= 0xFFFF):
                 if 0xDA00 <= target <= 0xE1FF:
-                    bios_org = 0xDA00
+                    bios_org = 0xDA00       # CP/M 2.20B, 56K
+                elif 0xAA00 <= target <= 0xB1FF:
+                    bios_org = 0xAA00       # CP/M 2.20, 44K (56K BIOS - $3000)
 
     # Truncate to the chunk's live size (slice lengths unchanged from
     # the pre-correction extraction; only the base label moved).
     if bios_org == 0xFA00:
         bios_size = 0x0548  # 1352 bytes: $FA00-$FF47
-    elif bios_org == 0xDA00:
-        bios_size = 0x0800  # 2 KB chunk: $DA00-$E1FF (live BIOS ends $DFFF)
+    elif bios_org in (0xDA00, 0xAA00):
+        bios_size = 0x0800  # 2 KB chunk: 2.20 BIOS (56K $DA00 / 44K $AA00)
     else:
         bios_size = len(raw_full)
     raw = raw_full[:bios_size]

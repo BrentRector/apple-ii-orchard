@@ -3,6 +3,7 @@
 import pytest
 
 from cpm_pipeline.reference_data import (
+    DISK_2_20_44K_SYSTEM,
     DISK_2_20B_56K_SYSTEM,
     DISK_2_23_44K_SYSTEM,
     present,
@@ -53,6 +54,29 @@ def test_diff_2_20_vs_2_23_surfaces_videx_fix():
     # (because BIOSes live at different base addresses)
     assert 3 in delta.cases_with_different_handler
     assert 4 in delta.cases_with_different_handler
+
+
+@pytest.mark.skipif(not present(DISK_2_20_44K_SYSTEM, DISK_2_23_44K_SYSTEM),
+                    reason="both 44K disks needed")
+def test_diff_44k_2_20_vs_2_23_is_config_clean():
+    """SAME-CONFIG diff (2.20-44K vs 2.23-44K) isolates the VERSION delta.
+
+    The device-6 Videx fix surfaces, and config-aware BIOS selection traces the
+    2.20 side against its own 44K BIOS ($AA00, bios_220_44k.bin) -- not the 56K
+    bios_220.bin -- so the dispatch handlers are $AA00-based.
+    """
+    delta = compare_disks(DISK_2_20_44K_SYSTEM, DISK_2_23_44K_SYSTEM)
+    assert delta.handoff_a.z80_reset_plant.target_addr == 0xAA00
+    assert delta.handoff_b.z80_reset_plant.target_addr == 0xFA00
+    # The Videx fix: 2.23 adds dispatch case 6.
+    assert delta.cases_only_in_b == [6]
+    # 2.20-44K dispatch handlers live in the $AA00 BIOS region -> config-aware
+    # selection picked bios_220_44k.bin rather than the 56K bios_220.bin.
+    assert delta.cold_boot_a is not None
+    for c in delta.cold_boot_a.dispatch_cases:
+        assert 0xAA00 <= c.handler_addr <= 0xAFFF, (
+            f"device {c.device_code} handler ${c.handler_addr:04X} not in the 44K BIOS"
+        )
 
 
 @pytest.mark.skipif(not present(DISK_2_20B_56K_SYSTEM),

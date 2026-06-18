@@ -29,6 +29,7 @@ from pathlib import Path
 from .format_detect import detect, DiskFormat
 from .handoff import find_handoff, HandoffInfo
 from .cold_boot_trace import trace_cold_boot, ColdBootSchedule
+from .reference_data import bios_bin
 from .disk_format import (
     DOS33_INTERLEAVE, PRODOS_INTERLEAVE, SECTOR_SIZE,
 )
@@ -138,17 +139,6 @@ def _read_boot_sector(path: Path, fmt: str) -> bytes:
     return raw[:SECTOR_SIZE]
 
 
-def _guess_bios_path_for_disk(disk_path: Path, info: DiskFormat) -> Path | None:
-    """Find the extracted BIOS binary for the variant detected on this disk.
-
-    Delegates to the shared package-relative lookup so it works regardless of
-    where the disk image lives. disk_path is unused but kept for call symmetry.
-    """
-    del disk_path
-    from .reference_data import bios_bin
-    return bios_bin(info.variant)
-
-
 def compare_disks(path_a: Path | str, path_b: Path | str) -> DiskDelta:
     """Run all prior phases on both disks and produce a structured diff."""
     path_a = Path(path_a)
@@ -159,15 +149,20 @@ def compare_disks(path_a: Path | str, path_b: Path | str) -> DiskDelta:
     handoff_a = find_handoff(path_a)
     handoff_b = find_handoff(path_b)
 
-    # Cold-boot schedules require BIOS binaries; auto-locate them.
+    # Cold-boot schedules require BIOS binaries; locate them by the detected
+    # BIOS base (the Z-80 reset-plant target), which distinguishes the 2.20 44K
+    # ($AA00) vs 56K ($DA00) BIOSes that share one variant id. Pass that base as
+    # bios_org so the trace reports addresses against the correct origin.
     cold_a = None
     cold_b = None
-    bios_a = _guess_bios_path_for_disk(path_a, info_a)
-    bios_b = _guess_bios_path_for_disk(path_b, info_b)
+    base_a = handoff_a.z80_reset_plant.target_addr if handoff_a.z80_reset_plant else None
+    base_b = handoff_b.z80_reset_plant.target_addr if handoff_b.z80_reset_plant else None
+    bios_a = bios_bin(info_a.variant, base=base_a)
+    bios_b = bios_bin(info_b.variant, base=base_b)
     if bios_a:
-        cold_a = trace_cold_boot(bios_a)
+        cold_a = trace_cold_boot(bios_a, bios_org=base_a)
     if bios_b:
-        cold_b = trace_cold_boot(bios_b)
+        cold_b = trace_cold_boot(bios_b, bios_org=base_b)
 
     delta = DiskDelta(
         path_a=path_a, path_b=path_b,

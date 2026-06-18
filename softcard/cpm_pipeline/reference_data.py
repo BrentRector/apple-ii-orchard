@@ -67,15 +67,27 @@ _BIOS_BIN = {
     "softcard_cpm_2_20": "bios_220.bin",
 }
 
+#: Detected BIOS base (ORG) -> extracted BIOS binary. More specific than the
+#: variant string: it distinguishes the 2.20 44K ($AA00) and 56K ($DA00) BIOSes,
+#: which share the `softcard_cpm_2_20` variant id (the 44K image is the 56K image
+#: with absolute operands shifted down $3000).
+_BIOS_BIN_BY_BASE = {
+    0xFA00: "bios_223.bin",       # CP/M 2.23
+    0xDA00: "bios_220.bin",       # CP/M 2.20B, 56K
+    0xAA00: "bios_220_44k.bin",   # CP/M 2.20, 44K
+}
 
-def bios_bin(variant: str) -> Path | None:
-    """Extracted BIOS binary for a SoftCard CP/M variant, or None if unknown/absent.
 
-    Located relative to THIS package (cpm-investigation/), never relative to a
-    disk image -- so BIOS-dependent detectors (handoff, version delta, cold-boot
-    trace) work no matter where the disk lives (per-release tree or archive).
+def bios_bin(variant: str | None = None, *, base: int | None = None) -> Path | None:
+    """Extracted BIOS binary for a SoftCard CP/M build, or None if unknown/absent.
+
+    Prefer `base` (the detected BIOS ORG -- e.g. the Z-80 reset-plant target) when
+    known: it distinguishes the 2.20 44K ($AA00) vs 56K ($DA00) BIOSes that share
+    one variant id. Falls back to the variant string. Located relative to THIS
+    package (cpm-investigation/), never relative to a disk image -- so the
+    BIOS-dependent detectors work no matter where the disk lives.
     """
-    name = _BIOS_BIN.get(variant)
+    name = _BIOS_BIN_BY_BASE.get(base) if base is not None else _BIOS_BIN.get(variant)
     if name is None:
         return None
     p = INVEST / name
