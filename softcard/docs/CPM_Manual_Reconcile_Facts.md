@@ -594,3 +594,25 @@ These carry `needs-pdf-check` confidence in the extracts. Confirm against the au
 1. **Videx card type number — RESOLVED (not a real conflict).** The recognized-types list (printed 2-5) numbers categories 1-4 with no sentinels; the Card Type Table (printed 2-26/2-27) prepends 0=none / 1=unknown-ROM, shifting real cards +1, so list-type-3 = table-value-4 (same card). The stored/read byte is **value 4** for the Videx, confirmed by the 2.20 BIOS dispatch. See Section 3.6. No PDF check needed for this item.
 2. **Memory-configuration labeling — RESOLVED for CPMV220.** Section 2.3's "56K (Language Card)" column (BIOS `DA00H`, BDOS `CC00H`) matches CPMV220's source ORG/EQU exactly; the 2.23 trees rebased BIOS to `$FA00`. The project's **60K** config is a separate post-1980 layout. Architecture (`BOOT=0000H`, `TBASE=0100H`, `0005H` entry) is SHARED.
 3. **Screen-function table column meaning.** The prompt assumed "two address columns for 44K vs 56K"; the manual's two columns are **Software vs Hardware** (Section 3.4). No conflict in the manual itself — noted to prevent a mis-annotation.
+
+---
+
+## 9. CP/M 2.20 → 2.23 Differences (reverse-engineered; NOT from the manual)
+
+**Provenance.** The manuals document CP/M **2.20 only**. Everything in this section is **reverse-engineered from the byte-identical sources** (tag `[RE]`) or mechanically extracted by `cpm_pipeline diff` (tag `[DIFF]`). It is NOT manual-backed and must never carry a `[DOC]` citation.
+
+**Method — isolate VERSION from CONFIG.** Compare the SAME memory configuration, so a memory-layout difference is not mistaken for a version change. Canonical pair: **2.20 44K** (`softcard-cpm2.20-44k-system-1980.dsk`) vs **2.23 44K** (`softcard-cpm2.23-44k-system.dsk`). (An earlier diff compared a 2.20 **56K** disk against the 2.23 **44K** disk and so conflated config with version — e.g. the BDOS-entry `$CC06 → $9C06` shift is purely 56K-vs-44K config and **vanishes** in the same-config diff.)
+
+| Aspect | 2.20 (44K) | 2.23 (44K) | Kind | Evidence |
+|---|---|---|---|---|
+| BIOS base / Z-80 reset plant | `JP $AA00` | `JP $FA00` | **VERSION** | `[DIFF]` reset vector; `[RE]` the 2.20-44K BIOS jump table sits at physical `0x2200`, ORG `$AA00` (BOOT→`$AEA8`), i.e. the 2.20-56K BIOS shifted down `$3000` |
+| Cold-boot dispatch cases | `[3, 4]` | `[3, 4, 6]` | **VERSION** | `[RE]` device **6** is the Videx fix; 2.20 has no Pascal-1.1 branch (detect: "no Pascal-1.1 branch found"), 2.23 adds it |
+| Slot-scan Pascal-1.1 probe | absent | 11-byte branch reading `$Cn0B`, assigns the Videx device **6** | **VERSION** | `[RE]` this branch IS the entire Videx fix |
+| Generator-page filler | `$E5` (executes as `PUSH HL`) | `FF FF 00 00 / F7 F7 00 00` (RST traps) | **VERSION** | `[RE]` safety upgrade against the exact PUSH-HL-spam hang class |
+| BDOS entry / base | `$9C06` / `$9C00` | `$9C06` / `$9C00` | SAME (config) | `[RE]` both are 44K (manual 44K BDOS = `9C00H`); the 56K disk's `$CC06` was config noise |
+| CCP base | 44K (`$9400`) | 44K (`$9400`) | SAME (config) | `[RE]` manual 44K CCP = `9400H` |
+| CP/M serial | per-copy | per-copy | n/a | `[DIFF]` differs (per-licensed-copy fingerprint, not a version trait) |
+
+**BIOS relocation is a genuine 2.23 change.** Within a fixed config the BIOS moved up: 2.20-44K runs at `$AA00`, but 2.23-44K runs at `$FA00` (NOT the manual's 44K `$AA00`). So 2.23 deliberately rebased the BIOS into the top language-card window, independent of the 44K/56K config. (2.20's two configs are simply the same BIOS at `$AA00` (44K) or `$DA00` (56K) — a `$3000` shift.)
+
+**Tooling status (automation pending).** `cpm_pipeline diff` does not yet trace the 2.20-44K BIOS: variant detection maps both 2.20 configs to `softcard_cpm_2_20` → the 56K `bios_220.bin` (`$DA00`), and no extracted `$AA00` 44K BIOS exists. To make the dispatch-case / CPU-switch rows fully tool-verified for the 44K pair: (1) extract the 2.20-44K BIOS (physical `0x2200`, ORG `$AA00`) to `cpm-investigation/bios_220_44k.bin`; (2) make BIOS lookup + cold-boot trace **config-aware** (key on the detected BIOS base, not just the variant string); (3) re-run `cpm_pipeline diff <2.20-44k> <2.23-44k>`. Until then the `[DIFF]` reset/serial rows are from the config-mismatched run (still correct for the reset vector and version-independent facts), the `[RE]` rows are from direct inspection, and the **CPU-switch trigger** (`$C400` vs `$0E36` in the mismatched run) is left **UNCONFIRMED** for the clean 44K pair pending that fix.
