@@ -59,13 +59,20 @@ class SjasmFormatter:
     """Emit sjasmplus source from a Walker result."""
 
     def __init__(self, mem, walker, symbols=None, *,
-                 origin=None, length=None, source_name="", pointer_words=None):
+                 origin=None, length=None, source_name="", pointer_words=None,
+                 relocatable=False):
         self.mem = mem
         self.walker = walker
         self.symbols = symbols
         self.origin = origin if origin is not None else walker.start
         self.length = length if length is not None else (walker.end - self.origin)
         self.source_name = source_name
+        # Relocatable mode: force EVERY in-range absolute operand address to a
+        # label (even one that lands inside code), so ORG/DISP can move the whole
+        # module to a different run address. Mid-instruction targets resolve via
+        # the cover+offset machinery. Used to build the one OS source that both
+        # the disk (44K bases) and CPM56.COM (DISP'd to 56K bases) assemble from.
+        self.relocatable = relocatable
         # Addresses to emit as a 2-byte `DEFW <label>` pointer (resolved static
         # pointers / dispatch entries), so they relocate with ORG.
         self.pointer_words = pointer_words or set()
@@ -147,9 +154,14 @@ class SjasmFormatter:
                     if len(m.group(1)) != 4:
                         continue
                     val = int(m.group(1), 16)
+                    # Normally skip addresses already classified as code (they get
+                    # a label only if they are a control-flow target). In
+                    # relocatable mode, label them anyway -- an in-range address
+                    # operand must relocate, and a mid-instruction target is
+                    # handled as cover+offset by _prepare_overlap_labels.
                     if (body_start <= val < body_end
-                            and val not in self.walker.code
-                            and val not in protected):
+                            and val not in protected
+                            and (self.relocatable or val not in self.walker.code)):
                         self.walker.add_label(val)
                 addr += instr.size or 1
             else:

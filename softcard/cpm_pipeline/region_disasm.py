@@ -193,7 +193,7 @@ def disasm_z80_region(mem: bytearray, org: int, length: int, *,
                       symbols: SymbolTable | None = None,
                       seeds=(), source_name: str = "", force_labels=None,
                       resolve_dispatch=True, dyn_dispatch=None,
-                      auto_coverage=False) -> str:
+                      auto_coverage=False, relocatable=False) -> str:
     """Disassemble `mem[org:org+length]` to sjasmplus source (with `{out_bin}`).
 
     `mem` is a full 64 KB image with the region already placed at `org`. Every
@@ -235,7 +235,8 @@ def disasm_z80_region(mem: bytearray, org: int, length: int, *,
                 walker.labels[addr] = name
     walker.name_labels(symbols=symbols)
     fmt = SjasmFormatter(mem, walker, symbols, origin=org, length=length,
-                         source_name=source_name, pointer_words=pointer_words)
+                         source_name=source_name, pointer_words=pointer_words,
+                         relocatable=relocatable)
     return fmt.emit_source()
 
 
