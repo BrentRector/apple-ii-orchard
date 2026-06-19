@@ -448,7 +448,17 @@ CALL_SOFTCARD_BIOS:
         LD L,$1B                         ; $03CA  2E 1B
         JP (HL)                          ; $03CC  E9
 CALL_SOFTCARD_BIOS_1:
-        DEFB    $7D,$B4,$28,$0A,$11,$0A,$00,$19,$7E,$23,$66,$6F,$56,$C9 ; $03CD
+        LD A,L                           ; $03CD  7D
+        OR H                             ; $03CE  B4
+        JR Z,ERR_INVALID_DRIVE           ; $03CF  28 0A
+        LD DE,$000A                      ; $03D1  11 0A 00
+        ADD HL,DE                        ; $03D4  19
+        LD A,(HL)                        ; $03D5  7E
+        INC HL                           ; $03D6  23
+        LD H,(HL)                        ; $03D7  66
+        LD L,A                           ; $03D8  6F
+        LD D,(HL)                        ; $03D9  56
+        RET                              ; $03DA  C9
 ; [AI] Invalid-drive error path: prints the 'Invalid Drive' message and restarts the command loop.
 ERR_INVALID_DRIVE:
         LD DE,CONOUT_CHAR_42             ; $03DB  11 E4 06
@@ -716,52 +726,43 @@ CONOUT_CHAR_28:
 CONOUT_CHAR_29:
         DEFB    $49,$41,$42,$54                                  ; $058A
 CONOUT_CHAR_30:
-        DEFB    $09,$20,$20,$20,$41,$50,$50,$4C,$45,$20,$5D,$5B,$20,$43,$50,$2F ; $058E
-        DEFB    $4D,$0D,$0A,$41,$70,$70,$6C,$65,$20,$44,$4F,$53,$20,$74,$6F,$20 ; $059E
-        DEFB    "CP/M file transfer program"    ; $05AE  string
-        DEFB    $0D    ; $05C8  terminator
-        DEFB    $0A,$09,$28,$43,$29,$20,$31,$39,$38,$30,$20,$4D,$69,$63,$72,$6F ; $05C9
-        DEFB    $73,$6F,$66,$74,$24                              ; $05D9
+        DEFB    $09,"   APPLE ][ CP/M",$0D,$0A      ; $058E
+        DEFB    "Apple DOS to CP/M file transfer program",$0D ; $059E
+        DEFB    $0A,$09,"(C) 1980 Microsoft$"       ; $05C9
 CONOUT_CHAR_31:
-        DEFB    $43,$6F,$6D,$6D,$61,$6E,$64,$20,$45,$72,$72,$6F,$72,$24 ; $05DE
+        DEFB    "Command Error$"                    ; $05DE
 CONOUT_CHAR_32:
-        DEFB    $0D,$0A,$0D,$0A,$49,$6E,$73,$65,$72,$74,$20,$41,$70,$70,$6C,$65 ; $05EC
-        DEFB    $20,$44,$4F,$53,$20,$64,$69,$73,$6B,$20,$61,$6E,$64,$20,$68,$69 ; $05FC
-        DEFB    $74,$20,$52,$45,$54,$55,$52,$4E,$20,$24          ; $060C
+        DEFB    $0D,$0A,$0D,$0A,"Insert Apple DOS disk and hit RETURN $" ; $05EC
 CONOUT_CHAR_33:
-        DEFB    $0D,$0A,$49,$6E,$73,$65,$72,$74,$20,$43,$50,$2F,$4D,$20,$64,$69 ; $0616
-        DEFB    $73,$6B,$20,$61,$6E,$64,$20,$68,$69,$74,$20,$52,$45,$54,$55,$52 ; $0626
-        DEFB    $4E,$20,$24                                      ; $0636
+        DEFB    $0D,$0A,"Insert CP/M disk and hit RETURN $" ; $0616
 CONOUT_CHAR_34:
-        DEFB    $49,$6E,$73,$65,$72,$74,$20,$41,$70,$70,$6C,$65,$20,$44,$4F,$53 ; $0639
-        DEFB    $20,$64,$69,$73,$6B,$20,$69,$6E,$20,$64,$72,$69,$76,$65,$20 ; $0649
+        DEFB    "Insert Apple DOS disk in drive "   ; $0639
 CONOUT_CHAR_35:
-        DEFB    $5A,$3A,$0D,$0A,$49,$6E,$73,$65,$72,$74,$20,$43,$50,$2F,$4D,$20 ; $0658
-        DEFB    $64,$69,$73,$6B,$20,$69,$6E,$20,$64,$72,$69,$76,$65,$20 ; $0668
+        DEFB    "Z:",$0D,$0A,"Insert CP/M disk in drive " ; $0658
 CONOUT_CHAR_36:
-        DEFB    $51,$3A,$0D,$0A,$48,$69,$74,$20,$52,$45,$54,$55,$52,$4E,$20,$74 ; $0676
-        DEFB    $6F,$20,$62,$65,$67,$69,$6E,$20,$24              ; $0686
+        DEFB    "Q:",$0D,$0A,"Hit RETURN to begin $" ; $0676
 CONOUT_CHAR_37:
-        DEFB    $54,$72,$61,$6E,$73,$66,$65,$72,$20,$63,$6F,$6D,$70,$6C,$65,$74 ; $068F
-        DEFB    $65,$24                                          ; $069F
+        DEFB    "Transfer complete$"                ; $068F
 CONOUT_CHAR_38:
-        DEFB    $54,$65,$78,$74,$20,$61,$6E,$64,$20,$42,$69,$6E,$61,$72,$79,$20 ; $06A1
-        DEFB    $66,$69,$6C,$65,$73,$20,$6F,$6E,$6C,$79,$24      ; $06B1
+        DEFB    "Text and Binary files only$"       ; $06A1
 CONOUT_CHAR_39:
-        DEFB    $44,$69,$72,$65,$63,$74,$6F,$72,$79,$20,$66,$75,$6C,$6C,$24 ; $06BC
+        DEFB    "Directory full$"                   ; $06BC
 CONOUT_CHAR_40:
-        DEFB    $44,$69,$73,$6B,$20,$66,$75,$6C,$6C,$24          ; $06CB
+        DEFB    "Disk full$"                        ; $06CB
 CONOUT_CHAR_41:
-        DEFB    $44,$69,$73,$6B,$20,$49,$2F,$4F,$20,$45,$72,$72,$6F,$72,$24 ; $06D5
+        DEFB    "Disk I/O Error$"                   ; $06D5
 CONOUT_CHAR_42:
-        DEFB    $49,$6E,$76,$61,$6C,$69,$64,$20,$44,$72,$69,$76,$65,$24 ; $06E4
+        DEFB    "Invalid Drive$"                    ; $06E4
 CONOUT_CHAR_43:
-        DEFB    $4E,$6F,$74,$20,$61,$6E,$20,$41,$70,$70,$6C,$65,$20,$44,$4F,$53 ; $06F2
-        DEFB    $20,$64,$69,$73,$6B,$24                          ; $0702
+        DEFB    "Not an Apple DOS disk$"            ; $06F2
 CONOUT_CHAR_44:
-        DEFB    $46,$69,$6C,$65,$20,$6E,$6F,$74,$20,$66,$6F,$75,$6E,$64,$24 ; $0708
+        DEFB    "File not found$"                   ; $0708
 CONOUT_CHAR_45:
-        DEFB    $57,$6F,$72,$6B,$69,$6E,$67,$2E,$2E,$2E,$24      ; $0717
+        DEFB    "Working...$"                       ; $0717
+; [AI] $0722-$077F: data cells, NOT a printed string. CONOUT_CHAR_46/47/48 are read
+;       as binary (byte index base / catalog-link word / DOS-version byte). The image
+;       holds stale tail bytes (a leftover copy of earlier message text) that the loader
+;       never zeroed; at runtime these addresses are overwritten by the read sectors.
 CONOUT_CHAR_46:
         DEFB    $65                                              ; $0722
 CONOUT_CHAR_47:

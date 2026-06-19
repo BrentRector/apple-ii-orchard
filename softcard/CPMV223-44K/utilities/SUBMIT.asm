@@ -20,37 +20,36 @@ CMDLINE              EQU $0081               ; Command-line tail characters (upp
 ;       code.
 TPA_START:
         JP TPA_START_12                  ; $0100  C3 DF 01
-        DEFB    $20,$63,$6F,$70,$79,$72,$69,$67,$68,$74,$28,$63,$29,$20,$31,$39 ; $0103
-        DEFB    $37,$37,$2C,$20,$64,$69,$67,$69,$74,$61,$6C,$20,$72,$65,$73,$65 ; $0113
-        DEFB    $61,$72,$63,$68,$20                              ; $0123
+        DEFB    " copyright(c) 1977, digital rese"               ; $0103
+        DEFB    "arch "                                          ; $0123
 TPA_START_1:
-        DEFB    $0D,$0A,$24                                      ; $0128
+        DEFB    $0D,$0A,"$"                                      ; $0128
 TPA_START_2:
-        DEFB    $45,$72,$72,$6F,$72,$20,$4F,$6E,$20,$4C,$69,$6E,$65,$20,$24 ; $012B
+        DEFB    "Error On Line $"                                ; $012B
 TPA_START_3:
-        DEFB    $53,$55,$42                                      ; $013A
+        DEFB    "SUB"                                            ; $013A
 TPA_START_4:
-        DEFB    $4E,$6F,$20,$27,$53,$55,$42,$27,$20,$46,$69,$6C,$65,$20,$50,$72 ; $013D
-        DEFB    $65,$73,$65,$6E,$74,$24                          ; $014D
+        DEFB    "No 'SUB' File Pr"                                ; $013D
+        DEFB    "esent$"                                         ; $014D
 TPA_START_5:
-        DEFB    $44,$69,$73,$6B,$20,$57,$72,$69,$74,$65,$20,$45,$72,$72,$6F,$72 ; $0153
-        DEFB    $24                                              ; $0163
+        DEFB    "Disk Write Error"                               ; $0153
+        DEFB    "$"                                              ; $0163
 TPA_START_6:
-        DEFB    $43,$6F,$6D,$6D,$61,$6E,$64,$20,$42,$75,$66,$66,$65,$72,$20,$4F ; $0164
-        DEFB    $76,$65,$72,$66,$6C,$6F,$77,$24                  ; $0174
+        DEFB    "Command Buffer O"                               ; $0164
+        DEFB    "verflow$"                                       ; $0174
 TPA_START_7:
-        DEFB    $43,$6F,$6D,$6D,$61,$6E,$64,$20,$54,$6F,$6F,$20,$4C,$6F,$6E,$67 ; $017C
-        DEFB    $24                                              ; $018C
+        DEFB    "Command Too Long"                               ; $017C
+        DEFB    "$"                                              ; $018C
 TPA_START_8:
-        DEFB    $50,$61,$72,$61,$6D,$65,$74,$65,$72,$20,$45,$72,$72,$6F,$72,$24 ; $018D
+        DEFB    "Parameter Error$"                               ; $018D
 TPA_START_9:
-        DEFB    $49,$6E,$76,$61,$6C,$69,$64,$20,$43,$6F,$6E,$74,$72,$6F,$6C,$20 ; $019D
-        DEFB    $43,$68,$61,$72,$61,$63,$74,$65,$72,$24          ; $01AD
+        DEFB    "Invalid Control "                               ; $019D
+        DEFB    "Character$"                                     ; $01AD
 TPA_START_10:
-        DEFB    $44,$69,$72,$65,$63,$74,$6F,$72,$79,$20,$46,$75,$6C,$6C,$24 ; $01B7
+        DEFB    "Directory Full$"                                ; $01B7
 TPA_START_11:
-        DEFB    $43,$61,$6E,$6E,$6F,$74,$20,$43,$6C,$6F,$73,$65,$2C,$20,$52,$65 ; $01C6
-        DEFB    $61,$64,$2F,$4F,$6E,$6C,$79,$3F,$24              ; $01D6
+        DEFB    "Cannot Close, Re"                               ; $01C6
+        DEFB    "ad/Only?$"                                      ; $01D6
 ; [AI] Real startup: captures the CCP's stack pointer, switches to SUBMIT's private stack, then
 ;       calls the four phases (parse args, build script, write $$$.SUB, warm boot).
 TPA_START_12:
@@ -785,6 +784,9 @@ BDOS_ENTRY_A:
 ; [AI] Second BDOS call trampoline (JP $0005) used by the open/close/delete/make wrappers.
 BDOS_ENTRY_B:
         JP BDOS_VEC                      ; $058D  C3 05 00
+; [AI] Dead remnant: decodes as CALL $0005 / RET / (C9 C9) / LD E,A / LD D,$00, but no label or
+;       jump in this program targets $0590 and BDOS_ENTRY_B above ends in JP (no fall-through), so
+;       these bytes are never executed -- left as DEFB (unreferenced source leftover, not live code).
         DEFB    $CD,$05,$00,$C9,$C9,$C9,$5F,$16,$00              ; $0590
 ; [AI] 16-bit pointer-vs-limit comparison (DE minus HL): used by the output writer to detect when
 ;       the batch image has overrun the available buffer.

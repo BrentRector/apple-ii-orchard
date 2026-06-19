@@ -636,7 +636,7 @@ MSG_INSERT_SOURCE:
         DEFB    "Insert SOURCE      disk and press RETURN "    ; $053E  string
         DEFB    $00    ; $0567  terminator
 MSG_COPYING:
-        DEFB    $0D,$0A,$43,$6F,$70,$79,$69,$6E,$67,$20,$2D,$0D,$0A,$00 ; $0568
+        DEFB    $0D,$0A,"Copying -",$0D,$0A,$00 ; $0568  CRLF "Copying -" CRLF NUL
 MSG_COMMAND_ERROR:
         DEFB    "Command error"    ; $0576  string
         DEFB    $0D    ; $0583  terminator
@@ -645,64 +645,57 @@ MSG_NOT_FOUND:
         DEFB    "Not found: "    ; $0586  string
         DEFB    $00    ; $0591  terminator
 MSG_DISK_READ_ERROR:
-        DEFB    $0D,$0A,$44,$69,$73,$6B,$20,$72,$65,$61,$64,$20,$65,$72,$72,$6F ; $0592
-        DEFB    $72,$3A,$20,$00                                  ; $05A2
+        DEFB    $0D,$0A,"Disk read erro"    ; $0592  CRLF "Disk read erro"
+        DEFB    "r: "                        ; $05A2  "r: "
+        DEFB    $00                          ; $05A5  terminator
 MSG_INSERT_DEST:
-        DEFB    $0D,$0A,$49,$6E,$73,$65,$72,$74,$20,$44,$45,$53,$54,$49,$4E,$41 ; $05A6
+        DEFB    $0D,$0A,"Insert DESTINA"    ; $05A6  CRLF "Insert DESTINA"
         DEFB    "TION disk and press RETURN "    ; $05B6  string
         DEFB    $00    ; $05D1  terminator
 MSG_INSERT_SYSTEM:
-        DEFB    $0D,$0A,$49,$6E,$73,$65,$72,$74,$20,$61,$20,$73,$79,$73,$74,$65 ; $05D2
+        DEFB    $0D,$0A,"Insert a syste"    ; $05D2  CRLF "Insert a syste"
         DEFB    "m disk and press RETURN "    ; $05E2  string
         DEFB    $00    ; $05FA  terminator
 MSG_DISK_FULL:
-        DEFB    $0D,$0A,$44,$69,$73,$6B,$20,$6F,$72,$20,$64,$69,$72,$65,$63,$74 ; $05FB
+        DEFB    $0D,$0A,"Disk or direct"    ; $05FB  CRLF "Disk or direct"
         DEFB    "ory full error: "    ; $060B  string
         DEFB    $00    ; $061B  terminator
 MSG_DISK_IO_ERROR:
-        DEFB    $0D,$0A,$44,$69,$73,$6B,$20,$49,$2F,$4F,$20,$65,$72,$72,$6F,$72 ; $061C
-        DEFB    $3A,$20,$00                                      ; $062C
+        DEFB    $0D,$0A,"Disk I/O error"    ; $061C  CRLF "Disk I/O error"
+        DEFB    ": ",$00                     ; $062C  ": " NUL
 BDOS_SET_DMA_11:
-        DEFB    $00,$00,$00,$00,$49,$4E,$41,$54,$49,$4F,$4E,$20,$64,$69,$73,$6B ; $062F
-        DEFB    $20                                              ; $063F
+        ; [AI] First 4 bytes are live numeric data: the LDIR at $03E0-$03E6 copies them
+        ;      (BC=4) over CDISK..$0007 as an FCB-field init (all zero). The trailing
+        ;      "INATION disk " ASCII is overlapping string-table tail shared with the
+        ;      end of MSG_INSERT_DEST, never read as text from here.
+        DEFB    $00,$00,$00,$00             ; $062F  4-byte zero data field (copied by LDIR)
+        DEFB    "INATION disk "             ; $0633  overlapping string tail (data, not reached as text)
 MSG_PRESS_RETURN:
         DEFB    "and press RETURN "    ; $0640  string
         DEFB    $00    ; $0651  terminator
-        DEFB    $0D,$0A,$49,$6E,$73,$65,$72,$74,$20,$61,$20,$73,$79,$73,$74,$65 ; $0652
+        ; [AI] Unreferenced duplicate of MSG_INSERT_SYSTEM ($05D2); no live code points here.
+        DEFB    $0D,$0A,"Insert a syste"    ; $0652  CRLF "Insert a syste"
         DEFB    "m disk and press RETURN "    ; $0662  string
         DEFB    $00    ; $067A  terminator
-        DEFB    $0D,$0A,$44,$69,$73                              ; $067B
-        DEFW    TPA_START_48             ; $0680
-        DEFB    $CD                                              ; $0682
-        DEFW    TPA_START_50             ; $0683
-        DEFB    $CD                                              ; $0685
-        DEFW    TPA_START_47             ; $0686
-        DEFB    $0E,$2C,$CD,$15,$00,$C3,$F4,$04,$21,$12,$06,$C3,$99,$04,$21,$0E ; $0688
-        DEFB    $06,$CD                                          ; $0698
-        DEFW    TPA_START_48             ; $069A
-        DEFB    $CD                                              ; $069C
-        DEFW    TPA_START_50             ; $069D
-        DEFB    $CD                                              ; $069F
-        DEFW    TPA_START_47             ; $06A0
-        DEFB    $C3,$71,$03,$7A,$E6,$38,$0F,$4F,$21,$EE,$05,$09,$CD ; $06A2
-        DEFW    TPA_START_48             ; $06AF
-        DEFB    $C3                                              ; $06B1
-        DEFW    WAIT_FOR_RETURN_2        ; $06B2
-        DEFB    $21,$EA,$05,$CD                                  ; $06B4
-        DEFW    TPA_START_48             ; $06B8
-        DEFB    $CD                                              ; $06BA
-        DEFW    TPA_START_50             ; $06BB
-        DEFB    $CD                                              ; $06BD
-        DEFW    TPA_START_47             ; $06BE
-        DEFB    $0E,$2C,$CD,$15,$00,$7A,$E6,$07,$CD              ; $06C0
-        DEFW    TPA_START_47             ; $06C9
-        DEFB    $C3,$71,$03,$79,$87,$87,$4F,$21,$CE,$05,$09,$CD  ; $06CB
-        DEFW    TPA_START_48             ; $06D7
-        DEFB    $CD,$A3,$02,$F5,$CD,$A3,$02,$57,$F1,$5F,$CD,$95,$06,$C3,$71,$03 ; $06D9
-        DEFB    $79,$87,$87,$4F,$21                              ; $06E9
-        DEFW    MSG_INSERT_DEST          ; $06EE
-        DEFB    $09,$CD                                          ; $06F0
-        DEFW    TPA_START_48             ; $06F2
-        DEFB    $CD,$A3,$02,$CD,$92,$06,$C3,$71,$03,$79,$87,$87  ; $06F4
+; [AI] $067B-$06FF: DEAD TAIL IMAGE -- left as DEFB data, NOT decoded to instructions.
+;      These 133 bytes are code-shaped (they look like a relocated/alternate copy of the
+;      destination-copy and error-report routines: CALLs to $02F3/$0303/$02BE, "JP $0371",
+;      a "0D 0A Dis..." string fragment), but NO label, JP, CALL, or computed jump anywhere
+;      in MFT reaches this range -- it is past the last live data (MSG_PRESS_RETURN $0640
+;      and the unreferenced string at $0652). Several of its absolute operands also point
+;      into the middle of live instructions/strings ($0371 is mid-"JP NZ" at $036F, $04F4 is
+;      mid-MSG_BANNER), so the bytes do not form coherent code at THIS load address. It is a
+;      stale build/relocation artifact in the file tail that is never executed; preserved
+;      verbatim only to keep MFT.COM byte-identical.
+DEAD_TAIL_IMAGE:
+        DEFB    $0D,$0A,$44,$69,$73,$F3,$02,$CD,$03,$03,$CD,$BE,$02,$0E,$2C,$CD ; $067B
+        DEFB    $15,$00,$C3,$F4,$04,$21,$12,$06,$C3,$99,$04,$21,$0E,$06,$CD,$F3 ; $068B
+        DEFB    $02,$CD,$03,$03,$CD,$BE,$02,$C3,$71,$03,$7A,$E6,$38,$0F,$4F,$21 ; $069B
+        DEFB    $EE,$05,$09,$CD,$F3,$02,$C3,$C5,$04,$21,$EA,$05,$CD,$F3,$02,$CD ; $06AB
+        DEFB    $03,$03,$CD,$BE,$02,$0E,$2C,$CD,$15,$00,$7A,$E6,$07,$CD,$BE,$02 ; $06BB
+        DEFB    $C3,$71,$03,$79,$87,$87,$4F,$21,$CE,$05,$09,$CD,$F3,$02,$CD,$A3 ; $06CB
+        DEFB    $02,$F5,$CD,$A3,$02,$57,$F1,$5F,$CD,$95,$06,$C3,$71,$03,$79,$87 ; $06DB
+        DEFB    $87,$4F,$21,$A6,$05,$09,$CD,$F3,$02,$CD,$A3,$02,$CD,$92,$06,$C3 ; $06EB
+        DEFB    $71,$03,$79,$87,$87                              ; $06FB
 
     SAVEBIN "MFT.bin", $0100, $0600
