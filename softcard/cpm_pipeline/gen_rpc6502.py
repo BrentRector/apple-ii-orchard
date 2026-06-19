@@ -44,6 +44,32 @@ ENTRIES = [0x9400, 0x948C, 0x9492, 0x9498, 0x94AD, 0x94B8, 0x94BD,
 
 OUT_S = _REPO / "softcard" / "CPMV220-44K" / "os" / "CPM_RPC6502.s"
 
+# Semantic names for the 6502 CODE in the block (proposed by an AI review grounded
+# in the captured Microsoft manuals: the manuals call this "CP/M sector read and
+# write routines", use "retry"/"warm boot"/"bootstrap loader"). These describe
+# what the 6502 code DOES and are byte-identical (labels are zero-width). Only
+# routines reached by COHERENT 6502 control flow are named; purely-internal branch
+# targets stay auto (L_xxxx). NOTE: the Z-80 side CALLs several of these addresses
+# (e.g. $9498, $948C) but lands mid-6502-instruction or in the skew table -- that
+# Z-80->6502 DISPATCH is NOT yet understood (see header note), so we do not assert
+# those are clean entry points.
+NAMES = {
+    0x9400: "SECTOR_RW",          # block base (run via JP(HL)); DEC retry, re-enter $0F3E
+    0x940E: "SECTOR_MATCH",       # skew sector via $0F9D,Y; compare addr-field $2D
+    0x943A: "DRIVE_MOTOR_ON",     # LDA $C088,X (Disk II motor/drive soft switch)
+    0x945A: "SECTOR_XFER_BYTE",   # move a byte between buffer halves $0478/$04F8
+    0x947D: "SLOT_TO_INDEX",      # TXA; 4x LSR; TAY  (slot*16 -> index)
+    0x9484: "SECTOR_MOVE",        # self-modified mover; the Z-80 plants its operand
+    # $9488/$948A are the two 16-bit self-mod cells the Z-80 writes into SECTOR_MOVE
+    # (LD HL,(L_9488) etc.); left auto-named (L_9488/L_948A) -- the self-mod path
+    # tied to the un-understood Z-80 dispatch, so not asserting a firm name.
+    0x949D: "SECTOR_XLATE_TABLE", # 16-byte CP/M logical->physical sector table
+    0x94AD: "WBOOT_LOAD",         # warm-boot reload: set load buffer, slot 6, loop
+    0x94CD: "WBOOT_READ_SECTOR",  # per-sector read loop body (JSR $0E10)
+    0x94DA: "WBOOT_ERR_MONITOR",  # read error -> $FF2D monitor, JMP $0FAD
+    0x94DD: "WBOOT_NEXT_SECTOR",  # advance buffer page / sector / track
+}
+
 
 def _block_bytes() -> bytes:
     from .reference_data import INVEST
@@ -103,6 +129,16 @@ _HEADER = """\
 ;   $94AD  warm-boot reload: point the load buffer at $A400 (44K)/$E400 (56K),
 ;          slot 6, loop reading sectors via $0E10, advancing the buffer page
 ;
+; OPEN QUESTION -- the Z-80->6502 dispatch is NOT understood. The Z-80 CCP/BDOS
+; CALLs several addresses in this block (e.g. CALL $9498, CALL $948C), but those
+; land mid-6502-instruction or inside the skew table, not on 6502 routine starts.
+; So "the Z-80 CALL target is a 6502 run-address" is WRONG, and a simple
+; "address = RPC selector" was a hand-wave. How a Z-80 CALL into $94xx actually
+; reaches/selects this 6502 service is unresolved (the SoftCard CPU-switch detail).
+; The 6502 CODE here is coherent and named accordingly; the Z-80-side entry
+; symbols (CPM_SystemImage.asm SUB_94xx EQUs) are kept verbatim, NOT semantically
+; named, pending that investigation.
+;
 ; Clean-room decompile; comments are [AI] inference unless tagged otherwise.
 ; Reassembles BYTE-IDENTICAL to the on-disk block (see test_rpc6502_build).
 ; ============================================================================
@@ -115,6 +151,8 @@ def generate() -> str:
     blk = _block_bytes()
     mem[BLOCK_START:BLOCK_END] = blk
     w = _trace_code(mem)
+    for addr, name in NAMES.items():       # semantic names for the 6502 code
+        w.labels[addr] = name
     w.name_labels()
     fmt = Ca65Formatter(mem, w, None, origin=BLOCK_START,
                         length=BLOCK_END - BLOCK_START, source_name="CPM_RPC6502")

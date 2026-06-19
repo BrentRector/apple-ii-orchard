@@ -319,7 +319,12 @@ L_93E9:
         DEFB    $01,$0B                                          ; $93FE
 L_9400:    ; $9400-$9500  embedded 6502 RPC block (see CPM_RPC6502.s, ca65) -- INCBIN'd byte-identical
         INCBIN  "CPM_RPC6502.bin"
-; -- 6502 block entry points / data cells, as offsets from L_9400 (relocate with ORG) --
+; -- Addresses the Z-80 references inside the 6502 block, as offsets from L_9400
+;    (so they relocate with ORG). OPEN: how a Z-80 CALL into $94xx actually
+;    reaches/selects the 6502 service is NOT understood -- several of these land
+;    mid-6502-instruction or inside the skew table, so they are NOT semantic 6502
+;    entry points. Kept verbatim, auto-named, pending that investigation. The
+;    6502 CODE itself is named in CPM_RPC6502.s. --
 L_9407           EQU L_9400 + $007
 L_9408           EQU L_9400 + $008
 L_9488           EQU L_9400 + $088
