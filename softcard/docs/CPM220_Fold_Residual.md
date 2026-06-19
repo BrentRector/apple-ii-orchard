@@ -63,6 +63,29 @@ So the genuine config (44K↔56K) residual is just **3 items**:
 Two of the three are addresses (Brent's hypothesis); one is a real config
 constant.
 
+## DEFW-table relocatability — two classes (and why phase 2 is the real test)
+
+The remaining ~81 un-relocated bytes are pointer tables the clean-room decompile
+decoded as *code* (e.g. `$95C2` dispatch, the `$9E47` table). Pushing on these
+surfaced two structural facts:
+
+1. **Odd-byte alignment + mixed targets** — `$9E47` is a 2-byte pointer table at
+   ODD alignment (words at `$9E47,$9E49,…`); the analyzer's pointer-table
+   heuristic does not fire on it (simply marking the range as data left it MIXED
+   `DEFB` and even nudged GATE2 up). These need **explicit per-table
+   `pointer_words`** (per-table RE: alignment, extent, in-range entries), not a
+   blanket reclassify.
+2. **Cross-region (BIOS) entries can't relocate in-source** — many table entries
+   point at the BIOS (`$AA03`→`$DA03`, +$3000), but `$AAxx` is just past the
+   SystemImage's own `$9300-$A9FF` range, so there is no in-source label to bind.
+   They relocate correctly only in the **CPM56.asm whole-system assembly**
+   (phase 2), where the BIOS module's labels exist.
+
+**So a standalone SystemImage GATE2=0 is partly not achievable by design.** The
+in-image pointers can be DEFW-labelled in the SystemImage; the BIOS-pointing ones
+must wait for phase 2. The authoritative relocation test is **CPM56.COM
+byte-identical**, not the standalone-SystemImage GATE2 proxy.
+
 ## Refined fold model
 
 The 44K↔56K config delta is **~99.4% uniform +$3000** (1001/1007 bytes → labels),
