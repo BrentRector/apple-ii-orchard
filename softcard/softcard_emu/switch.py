@@ -12,11 +12,17 @@ This module owns that policy in one place:
   * ``SoftCardSwitch`` -- decides whether an access triggers a switch,
     computes the 6502 resume address, and tracks switch bookkeeping.
 
-The trigger conditions are exactly those discovered for real hardware:
-the 6502 switches on a *warm-loop* store to the card's slot page
-($C7xx, or $C4xx in 2.20's image before the scanner patches it) while
-PC is still in the warm loop (< $0400); the Z-80 switches on any access
-whose translated address lands in the $C700 page.
+The trigger is the SoftCard's defining behavior: *any* access to the
+card's slot page toggles the active CPU, from either side and from any
+PC -- it is a per-access hardware toggle, not something gated to a
+particular routine. Both sides key on the $C700 page (the SoftCard
+modelled in slot 7): the 6502 switches on a store there, the Z-80 on
+any access whose translated address lands there. Modelling the 6502
+side as a true per-write toggle (rather than only the runtime warm
+loop) is what lets the disk's own boot-time slot scanner find the
+SoftCard: it probes each slot with a `STA $Cn00`, and the SoftCard's
+slot responds by switching to the Z-80, which runs the boot's planted
+handshake (clears the $3E "found" flag, bounces back).
 """
 
 
@@ -44,16 +50,21 @@ class SoftCardSwitch:
         self.switches = 0            # total CPU switches (both directions)
 
     def trigger_6502_write(self, addr, pc, mem_peek):
-        """True if a 6502 write to ``addr`` at ``pc`` triggers a switch.
+        """True if a 6502 write to ``addr`` triggers a CPU switch.
 
-        On a trigger, records ``resume_6502``: the warm loop's store to
-        the slot page is a 3-byte ``STA abs`` ($8D) when it switches, so
-        the 6502 must resume *past* that instruction (pc+3); any other
-        opcode resumes at pc. ``mem_peek(pc)`` reads the opcode (low
-        memory, always the flat plane).
+        Any write to the SoftCard's slot page switches -- the runtime
+        warm loop's store AND the boot slot scanner's `STA $Cn00` probe
+        alike (no PC gate; the toggle is hardware, not routine-specific).
+        On a trigger, records ``resume_6502``: a 3-byte ``STA abs`` ($8D)
+        resumes *past* the store (pc+3); any other opcode resumes at pc.
+        ``mem_peek(pc)`` reads the opcode (low memory, always flat).
+
+        The page is $C700 only -- the same slot the Z-80 side switches on
+        (``is_z80_switch``), i.e. the SoftCard modelled in slot 7. (Earlier
+        code also matched $C400, harmless only while gated to the warm
+        loop; ungated it spuriously switched on ordinary $C400 writes.)
         """
-        if ((addr & 0xFF00) == 0xC700 or (addr & 0xFF00) == 0xC400) \
-                and pc < 0x0400:
+        if (addr & 0xFF00) == 0xC700:
             self.resume_6502 = (pc + 3) & 0xFFFF if mem_peek(pc) == 0x8D else pc
             return True
         return False

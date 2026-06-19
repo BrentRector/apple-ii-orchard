@@ -80,6 +80,25 @@ def assemble_chunk(source: ChunkSource, *, cwd: Path | None = None) -> bytes:
     raise AssemblyError(f"unknown CPU {source.cpu!r} for {source.asm_path.name}")
 
 
+def _build_z80_incbin_dep(src_path: Path, out_bin: Path, defines: tuple) -> None:
+    """sjasmplus a Z-80 INCBIN dependency to `out_bin` (a Z-80 routine embedded in
+    a 6502 image and INCBIN'd by it -- the reverse of `_build_incbin_dep`). The
+    Z-80 source must SAVEBIN to the literal ``{out_bin}`` placeholder, which we
+    rewrite to `out_bin`. `defines` become -D flags. Raises on failure."""
+    if not shutil.which("sjasmplus"):
+        raise AssemblyError("sjasmplus not on PATH (source shared/toolchain/env.sh)")
+    if not src_path.exists():
+        raise AssemblyError(f"Z-80 INCBIN dep source missing: {src_path}")
+    tmp_src = out_bin.parent / src_path.name
+    text = src_path.read_text(encoding="utf-8")
+    tmp_src.write_text(_SAVEBIN_RE.sub(rf'\1{out_bin.as_posix()}\3', text),
+                       encoding="utf-8")
+    cmd = ["sjasmplus"] + [f"-D{d}" for d in defines] + [tmp_src.name]
+    r = subprocess.run(cmd, capture_output=True, text=True, cwd=str(out_bin.parent))
+    if r.returncode != 0 or not out_bin.exists():
+        raise AssemblyError(f"sjasmplus failed for {src_path.name}:\n{r.stdout}{r.stderr}")
+
+
 def _assemble_6502(source: ChunkSource, *, cwd: Path | None) -> bytes:
     """Run ca65 + ld65 against a 6502 source, return the binary bytes."""
     if not shutil.which("ca65") or not shutil.which("ld65"):
@@ -89,12 +108,20 @@ def _assemble_6502(source: ChunkSource, *, cwd: Path | None) -> bytes:
         tmp = Path(tmp)
         # Copy the source to the temp dir so the assembler's working
         # directory doesn't matter. (.incbin paths in the source resolve
-        # relative to cwd, which we set to the repo root.)
+        # relative to cwd, which we set to the repo root -- or to tmp when the
+        # source INCBINs a sub-assembled Z-80 block staged there.)
         copied_asm = tmp / source.asm_path.name.replace(".asm", ".s")
         copied_asm.write_text(
             source.asm_path.read_text(encoding="utf-8"),
             encoding="utf-8",
         )
+
+        # Sub-assemble any INCBIN'd Z-80 blocks (embedded Z-80 routines extracted
+        # to their own sjasmplus source and INCBIN'd back into this 6502 image,
+        # so each CPU's code is real source in its own assembler) into tmp, where
+        # the source's `.incbin "name.bin"` resolves (ca65 runs with cwd=tmp).
+        for bin_name, src_path, defines in source.incbin_deps:
+            _build_z80_incbin_dep(Path(src_path), tmp / bin_name, defines)
 
         # Synthesize linker config
         cfg = tmp / (source.asm_path.stem + ".cfg")
@@ -111,9 +138,12 @@ def _assemble_6502(source: ChunkSource, *, cwd: Path | None) -> bytes:
         obj = copied_asm.with_suffix(".o")
         out_bin = tmp / "out.bin"
 
+        # When the source INCBINs a sub-assembled block, run ca65 from tmp so the
+        # relative `.incbin` path resolves there; otherwise from the repo root.
+        ca_cwd = str(tmp) if source.incbin_deps else cwd
         ca65 = subprocess.run(
             ["ca65", str(copied_asm), "-o", str(obj)],
-            capture_output=True, text=True, cwd=cwd,
+            capture_output=True, text=True, cwd=ca_cwd,
         )
         if ca65.returncode != 0:
             raise AssemblyError(

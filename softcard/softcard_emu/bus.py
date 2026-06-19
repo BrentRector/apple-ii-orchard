@@ -81,9 +81,10 @@ class Bus:
     # -- 6502 data path --------------------------------------------------
     def write6502(self, addr, val):
         c = self._c
-        # SoftCard CPU switch: warm-loop store to the card's slot page
-        # ($C400 ships in 2.20's image; the scanner patches the installed
-        # copy). Only from the warm loop (pc < $0400).
+        # SoftCard CPU switch: any 6502 store to the card's slot page ($C700)
+        # hands the bus to the Z-80 -- a per-write hardware toggle, fired from
+        # the runtime warm loop and the boot scanner's slot probe alike (the
+        # trigger policy lives in SoftCardSwitch).
         if self.switch.trigger_6502_write(addr, c.pc, self.flat_read):
             if self.videx:
                 self.videx.track(addr, '6502-wr', c.pc)

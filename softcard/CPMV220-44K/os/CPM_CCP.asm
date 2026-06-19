@@ -322,7 +322,165 @@ L_93E9:
         LD (L_9488),HL                   ; $93FA  22 88 94
         POP HL                           ; $93FD  E1
         DEFB    $01,$0B                                          ; $93FE
-L_9400:    ; $9400-$9500  embedded 6502 RPC block (see CPM_RPC6502.s, ca65) -- INCBIN'd byte-identical
+L_9400:    ; $9400-$9500  embedded 6502 RPC block -- 6502 code (NOT Z-80), run on the
+;          ; 6502 via the SoftCard CPU switch. Assembled from CPM_RPC6502.s (ca65,
+;          ; authoritative) and INCBIN'd here byte-identical. Its exact source listing
+;          ; follows so this file is self-documenting.
+;   >>> CPM_RPC6502.s -- verbatim listing of the INCBIN'd source (regen: inject_incbin_listing) >>>
+;
+; PRERR           = $FF2D         ; Apple II Monitor: print "ERR" + bell
+;
+; .org $9400
+;
+; SECTOR_RW:
+;         DEC $04F8                    ; $9400  CE F8 04
+;         BNE $93EA                    ; $9403  D0 E5
+;         BEQ $93D1                    ; $9405  F0 CA
+;         PLA                          ; $9407  68
+;         LDA #$40                     ; $9408  A9 40
+; SECTOR_RW_1:
+;         PLP                          ; $940A  28
+;         JMP $0F3E                    ; $940B  4C 3E 0F
+; SECTOR_MATCH:
+;         BEQ DRIVE_MOTOR_ON           ; $940E  F0 2A
+;         LDA $2F                      ; $9410  A5 2F
+;         STA $03E3                    ; $9412  8D E3 03
+;         LDA $03E2                    ; $9415  AD E2 03
+;         BEQ SECTOR_MATCH_1           ; $9418  F0 08
+;         CMP $2F                      ; $941A  C5 2F
+;         BEQ SECTOR_MATCH_1           ; $941C  F0 04
+;         LDA #$20                     ; $941E  A9 20
+;         BNE SECTOR_RW_1              ; $9420  D0 E8
+; SECTOR_MATCH_1:
+;         LDA $03E1                    ; $9422  AD E1 03
+;         TAY                          ; $9425  A8
+;         LDA $0F9D,Y                  ; $9426  B9 9D 0F
+;         CMP $2D                      ; $9429  C5 2D
+;         BNE $93CC                    ; $942B  D0 9F
+;         PLP                          ; $942D  28
+;         BCC DRIVE_MOTOR_ON_2         ; $942E  90 19
+;         JSR $0B00                    ; $9430  20 00 0B
+;         PHP                          ; $9433  08
+;         BCS $93CC                    ; $9434  B0 96
+;         PLP                          ; $9436  28
+;         JSR $0BC6                    ; $9437  20 C6 0B
+; DRIVE_MOTOR_ON:
+;         CLC                          ; $943A  18
+;         LDA #$00                     ; $943B  A9 00
+; DRIVE_MOTOR_ON_1:
+;         BIT $38                      ; $943D  24 38
+;         STA $03EA                    ; $943F  8D EA 03
+;         LDX $05F8                    ; $9442  AE F8 05
+;         LDA $C088,X                  ; $9445  BD 88 C0
+;         RTS                          ; $9448  60
+; DRIVE_MOTOR_ON_2:
+;         JSR $0A25                    ; $9449  20 25 0A
+;         BCC DRIVE_MOTOR_ON           ; $944C  90 EC
+;         LDA #$10                     ; $944E  A9 10
+;         BNE DRIVE_MOTOR_ON_1+1       ; $9450  D0 EC
+;         ASL                          ; $9452  0A
+;         JSR $0F5A                    ; $9453  20 5A 0F
+;         LSR $0478                    ; $9456  4E 78 04
+;         RTS                          ; $9459  60
+; SECTOR_XFER_BYTE:
+;         STA $2E                      ; $945A  85 2E
+;         JSR $0F7D                    ; $945C  20 7D 0F
+;         LDA $0478,Y                  ; $945F  B9 78 04
+;         BIT $35                      ; $9462  24 35
+;         BMI SECTOR_XFER_BYTE_1       ; $9464  30 03
+;         LDA $04F8,Y                  ; $9466  B9 F8 04
+; SECTOR_XFER_BYTE_1:
+;         STA $0478                    ; $9469  8D 78 04
+;         LDA $2E                      ; $946C  A5 2E
+;         BIT $35                      ; $946E  24 35
+;         BMI SECTOR_XFER_BYTE_2       ; $9470  30 05
+;         STA $04F8,Y                  ; $9472  99 F8 04
+;         BPL SECTOR_XFER_BYTE_3       ; $9475  10 03
+; SECTOR_XFER_BYTE_2:
+;         STA $0478,Y                  ; $9477  99 78 04
+; SECTOR_XFER_BYTE_3:
+;         JMP $0BDE                    ; $947A  4C DE 0B
+; SLOT_TO_INDEX:
+;         TXA                          ; $947D  8A
+;         LSR                          ; $947E  4A
+;         LSR                          ; $947F  4A
+;         LSR                          ; $9480  4A
+;         LSR                          ; $9481  4A
+;         TAY                          ; $9482  A8
+;         RTS                          ; $9483  60
+; SECTOR_MOVE:
+;         PHA                          ; $9484  48
+;         LDA $03E4                    ; $9485  AD E4 03
+;         .byte   $6A, $66, $35, $20                               ; $9488
+; SECTOR_MOVE_1:
+;         ADC $680F,X                  ; $948C  7D 0F 68
+;         ASL                          ; $948F  0A
+;         BIT $35                      ; $9490  24 35
+; SECTOR_MOVE_2:
+;         BMI SECTOR_MOVE_4            ; $9492  30 05
+;         STA $04F8,Y                  ; $9494  99 F8 04
+; SECTOR_MOVE_3:
+;         BPL SECTOR_MOVE_5            ; $9497  10 03
+; SECTOR_MOVE_4:
+;         STA $0478,Y                  ; $9499  99 78 04
+; SECTOR_MOVE_5:
+;         RTS                          ; $949C  60
+; SECTOR_XLATE_TABLE:
+;         .byte   $00, $02, $04, $06, $08, $0A, $0C, $0E, $01, $03, $05, $07, $09, $0B, $0D, $0F ; $949D
+; WBOOT_LOAD:
+;         .ifdef CFG_56K
+;             lda     #>$E400          ; $94AD  warm-boot load buffer hi (56K)
+;         .else
+;             lda     #>$A400          ; $94AD  warm-boot load buffer hi (44K)
+;         .endif
+;         STA $03E9                    ; $94AF  8D E9 03
+;         LDY #$00                     ; $94B2  A0 00
+;         STY $03E8                    ; $94B4  8C E8 03
+; WBOOT_LOAD_1:
+;         STY $03E0                    ; $94B7  8C E0 03
+;         INY                          ; $94BA  C8
+; WBOOT_LOAD_2:
+;         STY $03E4                    ; $94BB  8C E4 03
+;         STY $03EB                    ; $94BE  8C EB 03
+;         LDA #$60                     ; $94C1  A9 60
+;         STA $03E6                    ; $94C3  8D E6 03
+;         LDA #$0B                     ; $94C6  A9 0B
+;         STA $03E1                    ; $94C8  8D E1 03
+;         LDA #$1C                     ; $94CB  A9 1C
+; WBOOT_READ_SECTOR:
+;         PHA                          ; $94CD  48
+;         PHP                          ; $94CE  08
+;         SEI                          ; $94CF  78
+; WBOOT_READ_SECTOR_1:
+;         JSR $0E10                    ; $94D0  20 10 0E
+;         BCC WBOOT_NEXT_SECTOR        ; $94D3  90 08
+;         JSR PRERR                    ; $94D5  20 2D FF
+;         PLP                          ; $94D8  28
+;         PLA                          ; $94D9  68
+; WBOOT_ERR_MONITOR:
+;         JMP $0FAD                    ; $94DA  4C AD 0F
+; WBOOT_NEXT_SECTOR:
+;         PLP                          ; $94DD  28
+;         INC $03E9                    ; $94DE  EE E9 03
+;         LDX $03E1                    ; $94E1  AE E1 03
+; WBOOT_NEXT_SECTOR_1:
+;         INX                          ; $94E4  E8
+;         CPX #$10                     ; $94E5  E0 10
+;         BNE WBOOT_NEXT_SECTOR_3      ; $94E7  D0 05
+; WBOOT_NEXT_SECTOR_2:
+;         LDX #$00                     ; $94E9  A2 00
+;         INC $03E0                    ; $94EB  EE E0 03
+; WBOOT_NEXT_SECTOR_3:
+;         STX $03E1                    ; $94EE  8E E1 03
+;         PLA                          ; $94F1  68
+;         SEC                          ; $94F2  38
+;         SBC #$01                     ; $94F3  E9 01
+;         BNE WBOOT_READ_SECTOR        ; $94F5  D0 D6
+;         LDA #$08                     ; $94F7  A9 08
+;         STA $03E9                    ; $94F9  8D E9 03
+;         RTS                          ; $94FC  60
+;         .byte   $FF, $FF, $FF, $00                               ; $94FD
+;   <<< end listing <<<
         INCBIN  "CPM_RPC6502.bin"
 ; -- Addresses the Z-80 references inside the 6502 block, as offsets from L_9400
 ;    (so they relocate with ORG). OPEN: how a Z-80 CALL into $94xx actually

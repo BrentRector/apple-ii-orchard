@@ -173,8 +173,16 @@ def generate() -> str:
             out.append(f"{indent}    lda     #>$A400          ; $94AD  warm-boot load buffer hi (44K)")
             out.append(f"{indent}.endif")
         else:
+            # Symbolize the one Apple Monitor ROM call in this block ($FF2D =
+            # PRERR). "$FF2D" and "PRERR" are both 5 chars, so column alignment
+            # (and the assembled bytes) are unchanged.
+            if "JSR $FF2D" in l:
+                l = l.replace("$FF2D", "PRERR")
             out.append(l)
-    return _HEADER + ".setcpu \"6502\"\n.segment \"CODE\"\n\n" + "\n".join(out) + "\n"
+    equs = ("PRERR           = $FF2D         "
+            "; Apple II Monitor: print \"ERR\" + bell\n\n")
+    return (_HEADER + ".setcpu \"6502\"\n.segment \"CODE\"\n\n"
+            + equs + "\n".join(out) + "\n")
 
 
 def write() -> Path:

@@ -38,6 +38,8 @@
 .setcpu "6502"
 .segment "CODE"
 
+PRERR           = $FF2D         ; Apple II Monitor: print "ERR" + bell
+
 .org $9400
 
 SECTOR_RW:
@@ -162,7 +164,7 @@ WBOOT_READ_SECTOR:
 WBOOT_READ_SECTOR_1:
         JSR $0E10                    ; $94D0  20 10 0E
         BCC WBOOT_NEXT_SECTOR        ; $94D3  90 08
-        JSR $FF2D                    ; $94D5  20 2D FF
+        JSR PRERR                    ; $94D5  20 2D FF
         PLP                          ; $94D8  28
         PLA                          ; $94D9  68
 WBOOT_ERR_MONITOR:

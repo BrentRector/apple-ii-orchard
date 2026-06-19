@@ -61,6 +61,16 @@ SOURCES_223: dict[str, ChunkSource | Path] = {
     "CPM223_BootLoader": ChunkSource(
         asm_path=OS223_44K / "CPM_BootLoader.s",
         cpu="6502", org=0x0800, size=0x0C00,
+        # Two embedded Z-80 blocks -- the slot-probe handshake ($11B1, run at
+        # $1000) and the disk-translate routine ($0C39, run at $BC39) -- each real
+        # Z-80 source, sub-assembled by sjasmplus and INCBIN'd (CPM_RPC6502
+        # pattern, CPUs swapped).
+        incbin_deps=(
+            ("CPM_BootLoader_ProbeOvl.bin",
+             OS223_44K / "CPM_BootLoader_ProbeOvl.asm", ()),
+            ("CPM_BootLoader_DiskXlate.bin",
+             OS223_44K / "CPM_BootLoader_DiskXlate.asm", ()),
+        ),
     ),
     "CPM223_RWTS": ChunkSource(
         asm_path=OS223_44K / "CPM_RWTS.s",
@@ -168,6 +178,15 @@ SOURCES_220: dict[str, ChunkSource | Path] = {
     "CPM220_BootLoader": ChunkSource(
         asm_path=OS220 / "CPM_BootLoader.s",
         cpu="6502", org=0x0800, size=0x0C00,
+        # Two embedded Z-80 blocks -- slot-probe handshake ($1169) and slot-3
+        # console driver ($134A) -- each real Z-80 source, sub-assembled by
+        # sjasmplus and INCBIN'd (CPM_RPC6502 pattern, CPUs swapped).
+        incbin_deps=(
+            ("CPM_BootLoader_ProbeOvl.bin",
+             OS220 / "CPM_BootLoader_ProbeOvl.asm", ()),
+            ("CPM_BootLoader_ConInit.bin",
+             OS220 / "CPM_BootLoader_ConInit.asm", ()),
+        ),
     ),
     "CPM220_RWTS": ChunkSource(
         asm_path=OS220 / "CPM_RWTS.s",
@@ -254,6 +273,16 @@ SOURCES_220_44K: dict[str, ChunkSource | Path] = {
     "CPM220_44K_BootLoader": ChunkSource(
         asm_path=OS220_44K / "CPM_BootLoader.s",
         cpu="6502", org=0x0800, size=0x0C00,
+        # The boot image embeds two Z-80 blocks -- the slot-probe handshake
+        # ($1169) and the console driver ($134A); each is real Z-80 source,
+        # sub-assembled by sjasmplus and INCBIN'd at its offset (the CPM_RPC6502
+        # pattern with the CPUs swapped).
+        incbin_deps=(
+            ("CPM_BootLoader_ProbeOvl.bin",
+             OS220_44K / "CPM_BootLoader_ProbeOvl.asm", ()),
+            ("CPM_BootLoader_ConInit.bin",
+             OS220_44K / "CPM_BootLoader_ConInit.asm", ()),
+        ),
     ),
     # The former combined SystemImage is split into two OS component FILES, CCP
     # and BDOS (boundary = BDOS base $9C00), that COMPILE TOGETHER: CPM_CCP.asm
