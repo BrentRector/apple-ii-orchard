@@ -259,6 +259,9 @@ SOURCES_220_44K: dict[str, ChunkSource | Path] = {
         asm_path=OS220_44K / "CPM_SystemImage.asm",
         cpu="z80", org=0x9300, size=0x1700,
         expected_bin_name="build/CPM220_44K_SystemImage.bin",
+        # The CCP embeds a 6502 RPC block at $9400-$9500; it lives in its own ca65
+        # source and is INCBIN'd. Assemble it (44K config: no CFG_56K) first.
+        incbin_deps=(("CPM_RPC6502.bin", OS220_44K / "CPM_RPC6502.s", ()),),
     ),
     # As-shipped pristine on-disk BIOS ($AA00-$AEFF) -- what LOAD_CPM reads.
     "CPM220_44K_BIOS_Disk": ChunkSource(

@@ -317,57 +317,28 @@ L_93E9:
         LD (L_9488),HL                   ; $93FA  22 88 94
         POP HL                           ; $93FD  E1
         DEFB    $01,$0B                                          ; $93FE
-L_9400:
-        DEFB    $CE,$F8,$04,$D0,$E5,$F0,$CA                      ; $9400
-L_9407:
-        DEFB    $68                                              ; $9407
-L_9408:
-        DEFB    $A9,$40,$28,$4C,$3E,$0F                          ; $9408
-        DEFB    $F0,$2A,$A5,$2F,$8D                              ; $940E  "p*%/"
-        DEFB    $E3,$03,$AD,$E2,$03,$F0,$08,$C5,$2F,$F0,$04,$A9,$20,$D0,$E8,$AD ; $9413
-        DEFB    $E1,$03,$A8,$B9,$9D,$0F,$C5,$2D,$D0,$9F,$28,$90,$19,$20,$00,$0B ; $9423
-        DEFB    $08,$B0,$96,$28,$20,$C6,$0B,$18,$A9,$00,$24,$38,$8D,$EA,$03,$AE ; $9433
-        DEFB    $F8,$05,$BD,$88,$C0,$60,$20,$25,$0A,$90,$EC,$A9,$10,$D0,$EC,$0A ; $9443
-        DEFB    $20,$5A,$0F,$4E,$78,$04,$60,$85,$2E,$20,$7D,$0F,$B9,$78,$04,$24 ; $9453
-        DEFB    $35,$30,$03,$B9,$F8,$04,$8D,$78,$04,$A5,$2E,$24,$35,$30,$05,$99 ; $9463
-        DEFB    $F8,$04,$10,$03,$99,$78,$04,$4C,$DE,$0B,$8A,$4A,$4A,$4A,$4A,$A8 ; $9473
-        DEFB    $60,$48,$AD,$E4,$03                              ; $9483
-L_9488:
-        DEFB    $6A,$66                                          ; $9488
-L_948A:
-        DEFB    $35,$20                                          ; $948A
-SUB_948C:
-        DEFB    $7D,$0F,$68,$0A,$24,$35                          ; $948C
-SUB_9492:
-        DEFB    $30,$05,$99,$F8,$04,$10                          ; $9492
-SUB_9498:
-        DEFB    $03,$99,$78,$04,$60,$00,$02,$04,$06,$08          ; $9498
-SUB_94A2:
-        DEFB    $0A,$0C,$0E,$01,$03                              ; $94A2
-SUB_94A7:
-        DEFB    $05,$07,$09,$0B,$0D,$0F,$A9,$A4,$8D,$E9,$03,$A0,$00,$8C,$E8,$03 ; $94A7
-        DEFB    $8C                                              ; $94B7
-SUB_94B8:
-        DEFB    $E0,$03,$C8,$8C,$E4                              ; $94B8
-SUB_94BD:
-        DEFB    $03,$8C,$EB,$03,$A9,$60,$8D,$E6,$03,$A9,$0B,$8D,$E1,$03,$A9,$1C ; $94BD
-        DEFB    $48,$08,$78                                      ; $94CD
-SUB_94D0:
-        DEFB    $20,$10,$0E,$90,$08,$20,$2D,$FF,$28,$68          ; $94D0
-SUB_94DA:
-        DEFB    $4C,$AD,$0F,$28,$EE,$E9,$03,$AE,$E1,$03          ; $94DA
-SUB_94E4:
-        DEFB    $E8,$E0,$10,$D0,$05                              ; $94E4
-SUB_94E9:
-        DEFB    $A2,$00,$EE,$E0,$03,$8E                          ; $94E9
-SUB_94EF:
-        DEFB    $E1,$03,$68,$38,$E9,$01,$D0,$D6,$A9,$08          ; $94EF
-SUB_94F9:
-        DEFB    $8D,$E9,$03,$60,$FF                              ; $94F9
-SUB_94FE:
-        DEFB    $FF                                              ; $94FE
-L_94FF:
-        DEFB    $FF,$00                                          ; $94FF
+L_9400:    ; $9400-$9500  embedded 6502 RPC block (see CPM_RPC6502.s, ca65) -- INCBIN'd byte-identical
+        INCBIN  "CPM_RPC6502.bin"
+; -- 6502 block entry points / data cells, as offsets from L_9400 (relocate with ORG) --
+L_9407           EQU L_9400 + $007
+L_9408           EQU L_9400 + $008
+L_9488           EQU L_9400 + $088
+L_948A           EQU L_9400 + $08A
+SUB_948C         EQU L_9400 + $08C
+SUB_9492         EQU L_9400 + $092
+SUB_9498         EQU L_9400 + $098
+SUB_94A2         EQU L_9400 + $0A2
+SUB_94A7         EQU L_9400 + $0A7
+SUB_94B8         EQU L_9400 + $0B8
+SUB_94BD         EQU L_9400 + $0BD
+SUB_94D0         EQU L_9400 + $0D0
+SUB_94DA         EQU L_9400 + $0DA
+SUB_94E4         EQU L_9400 + $0E4
+SUB_94E9         EQU L_9400 + $0E9
+SUB_94EF         EQU L_9400 + $0EF
+SUB_94F9         EQU L_9400 + $0F9
+SUB_94FE         EQU L_9400 + $0FE
+L_94FF           EQU L_9400 + $0FF
 SUB_94FE_1:
         INC HL                           ; $9501  23
         LD A,(HL)                        ; $9502  7E

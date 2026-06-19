@@ -60,7 +60,7 @@ class SjasmFormatter:
 
     def __init__(self, mem, walker, symbols=None, *,
                  origin=None, length=None, source_name="", pointer_words=None,
-                 relocatable=False):
+                 relocatable=False, foreign_regions=None):
         self.mem = mem
         self.walker = walker
         self.symbols = symbols
@@ -73,6 +73,15 @@ class SjasmFormatter:
         # the cover+offset machinery. Used to build the one OS source that both
         # the disk (44K bases) and CPM56.COM (DISP'd to 56K bases) assemble from.
         self.relocatable = relocatable
+        # Foreign-CPU code regions rendered as an INCBIN of a separately-assembled
+        # binary (e.g. the embedded 6502 RPC block, built by ca65). Each is
+        # {start, end, base_label, incbin, include(optional)}: the span emits a
+        # base label + INCBIN (so it is opaque, never relocated or pointer-scanned)
+        # + an INCLUDE of the offset EQUs that let Z-80 code reference its entry
+        # points (they relocate because they are base_label + offset).
+        self.foreign_regions = list(foreign_regions or [])
+        self._foreign_by_start = {r["start"]: r for r in self.foreign_regions}
+        self._foreign_spans = [(r["start"], r["end"]) for r in self.foreign_regions]
         # Addresses to emit as a 2-byte `DEFW <label>` pointer (resolved static
         # pointers / dispatch entries), so they relocate with ORG.
         self.pointer_words = pointer_words or set()
@@ -339,10 +348,21 @@ class SjasmFormatter:
             cpu="z80",
             body_start=self.origin, body_end=body_end,
             pointer_words=self.pointer_words,
+            fixed_mixed=self._foreign_spans,
         )
         runs_by_addr = {r.addr: r for r in runs}
         addr = self.origin
         while addr < body_end:
+            # A foreign-CPU code region renders as an opaque INCBIN of its
+            # separately-assembled binary + an INCLUDE of its entry-point EQUs.
+            # Its bytes never relocate; its labels (defined by the INCLUDE as
+            # base+offset) do, because the base label sits here and moves with ORG.
+            fr = self._foreign_by_start.get(addr)
+            if fr is not None:
+                out.extend(self._emit_foreign_region(fr))
+                placed.add(addr)
+                addr = fr["end"]
+                continue
             label_name = self.walker.labels.get(addr)
             if label_name:
                 out.append(f"{label_name}:")
@@ -365,6 +385,22 @@ class SjasmFormatter:
                 referenced.update(refs)
                 addr = run.end
         return out, referenced, placed
+
+    def _emit_foreign_region(self, fr):
+        """Emit a foreign-CPU code span as `base:` + INCBIN + optional INCLUDE.
+        The bytes come verbatim from the separately-assembled binary, so they are
+        never relocated or pointer-scanned; the INCLUDE defines the entry-point
+        symbols as `base + offset`, which relocate with ORG via the base label."""
+        base = fr.get("base_label", f"FOREIGN_{fr['start']:04X}")
+        out = [
+            f"{base}:    ; ${fr['start']:04X}-${fr['end']-1:04X}  "
+            f"embedded {fr.get('cpu', '6502')} code (assembled separately, INCBIN'd)",
+            f'        INCBIN  "{fr["incbin"]}"',
+        ]
+        if fr.get("include"):
+            out.append(f'        INCLUDE "{fr["include"]}"   '
+                       f"; entry points / cells as {base}+offset (relocate with ORG)")
+        return out
 
     def _render_data_run(self, run):
         """Format one DataRun. Returns (lines, referenced_addrs)."""

@@ -189,11 +189,147 @@ def _merge_dispatch(static_tables, dyn_dispatch, mem, walker, body_start, body_e
     return kept
 
 
+# ── Foreign-CPU code regions (e.g. an embedded 6502 RPC block in a Z-80 image) ──
+#
+# Some SoftCard CP/M modules carry machine code for the OTHER CPU inline: the
+# 2.20 CCP embeds a 6502 RPC payload that the SoftCard runs on the 6502 side via
+# the CPU switch. From the Z-80 assembler's view those bytes are DATA (decoding
+# them as Z-80 is garbage, and auto-detecting pointers in them wrongly relocates
+# mid-instruction bytes). We pin such a span as opaque DEFB AND annotate the
+# foreign-code bytes with the other CPU's mnemonics so the source is readable.
+
+def _format_6502_instr(mem, addr):
+    """Return (size, "MNEM operand") for the 6502 instruction at `addr`, or
+    (1, None) if the opcode is unknown. Operands are literal (no symbol lookup);
+    this is comment text, never assembled."""
+    from disasm6502.opcodes import OPCODES
+    e = OPCODES.get(mem[addr])
+    if e is None:
+        return 1, None
+    mn, mode, size = e
+    if mode in ("IMP", "ACC"):
+        op = ""
+    elif mode == "IMM":
+        op = f"#${mem[addr+1]:02X}"
+    elif mode == "ZP":
+        op = f"${mem[addr+1]:02X}"
+    elif mode == "ZPX":
+        op = f"${mem[addr+1]:02X},X"
+    elif mode == "ZPY":
+        op = f"${mem[addr+1]:02X},Y"
+    elif mode == "IZX":
+        op = f"(${mem[addr+1]:02X},X)"
+    elif mode == "IZY":
+        op = f"(${mem[addr+1]:02X}),Y"
+    elif mode == "REL":
+        off = mem[addr+1]
+        off = off - 256 if off > 127 else off
+        op = f"${(addr + 2 + off) & 0xFFFF:04X}"
+    else:  # ABS/ABX/ABY/IND
+        v = mem[addr+1] | (mem[addr+2] << 8)
+        if mode == "IND":
+            op = f"(${v:04X})"
+        else:
+            op = f"${v:04X}" + {"ABS": "", "ABX": ",X", "ABY": ",Y"}[mode]
+    return size, f"{mn} {op}".strip()
+
+
+def foreign_code_map(mem, start, end, *, entries, data_subregions=()):
+    """Disassemble a foreign 6502-code span and return {addr: (size, mnemonic)}
+    for every instruction start the trace proves is code.
+
+    Recursive descent from `entries` (the Z-80 references into the block + its
+    own internal flow) plus an after-terminal sweep (the byte following a JMP/
+    RTS/RTI/BRK is the next routine, often entered only from outside the block).
+    `data_subregions` ((start,end) spans -- lookup tables, the trailing pad, the
+    Z-80-accessed word cells) are never decoded as code, so they neither desync
+    the sweep nor get a spurious mnemonic.
+
+    These are SoftCard-specific blocks analysed by hand, so the caller supplies
+    the entry points and data spans; the result is comment-only annotation, so a
+    mis-trace can never change emitted bytes."""
+    from disasm6502.opcodes import OPCODES, UNDOC_MNEMONICS
+
+    def in_data(a):
+        return any(s <= a < e for s, e in data_subregions)
+
+    code = set()
+
+    def trace(a):
+        stack = [a]
+        while stack:
+            x = stack.pop()
+            while start <= x < end and x not in code and not in_data(x):
+                ent = OPCODES.get(mem[x])
+                if ent is None:
+                    break
+                mn, mode, size = ent
+                if mn in UNDOC_MNEMONICS:
+                    break
+                if mn == "NOP" and mem[x] != 0xEA:
+                    break
+                if x + size > end or any(in_data(x + i) for i in range(size)):
+                    break
+                for i in range(size):
+                    code.add(x + i)
+                if mode == "REL":
+                    off = mem[x+1]
+                    off = off - 256 if off > 127 else off
+                    t = (x + 2 + off) & 0xFFFF
+                    if start <= t < end:
+                        stack.append(t)
+                if mn == "JSR":
+                    t = mem[x+1] | (mem[x+2] << 8)
+                    if start <= t < end:
+                        stack.append(t)
+                if mn == "JMP" and mode == "ABS":
+                    t = mem[x+1] | (mem[x+2] << 8)
+                    if start <= t < end:
+                        stack.append(t)
+                    break
+                if mn in ("JMP", "RTS", "RTI", "BRK"):
+                    break
+                x += size
+
+    for e in entries:
+        if start <= e < end:
+            trace(e)
+    # After-terminal sweep to a fixpoint: a routine reached only from outside the
+    # block still sits right after a terminal instruction we did trace.
+    changed = True
+    while changed:
+        changed = False
+        for a in sorted(code):
+            ent = OPCODES.get(mem[a])
+            if not ent:
+                continue
+            mn, _mode, size = ent
+            if mn in ("JMP", "RTS", "RTI", "BRK"):
+                nxt = a + size
+                if start <= nxt < end and nxt not in code and not in_data(nxt):
+                    before = len(code)
+                    trace(nxt)
+                    if len(code) > before:
+                        changed = True
+    # Build the instr-start -> (size, mnemonic) map over confirmed code.
+    annot = {}
+    a = start
+    while a < end:
+        if a in code:
+            size, mnem = _format_6502_instr(mem, a)
+            annot[a] = (size, mnem)
+            a += size or 1
+        else:
+            a += 1
+    return annot
+
+
 def disasm_z80_region(mem: bytearray, org: int, length: int, *,
                       symbols: SymbolTable | None = None,
                       seeds=(), source_name: str = "", force_labels=None,
                       resolve_dispatch=True, dyn_dispatch=None,
-                      auto_coverage=False, relocatable=False) -> str:
+                      auto_coverage=False, relocatable=False,
+                      foreign_regions=None) -> str:
     """Disassemble `mem[org:org+length]` to sjasmplus source (with `{out_bin}`).
 
     `mem` is a full 64 KB image with the region already placed at `org`. Every
@@ -206,6 +342,13 @@ def disasm_z80_region(mem: bytearray, org: int, length: int, *,
     byte-identical as long as the address is an instruction (or data-run) start.
     """
     walker = Walker(mem, start=org, end=org + length)
+    # Foreign-CPU code spans are DATA to the Z-80: mark them as data regions
+    # BEFORE tracing so the walker never decodes them as Z-80 (a Z-80 CALL into
+    # the block still gets its label, but the bytes stay data) and the
+    # pointer/operand passes skip them. They render as an INCBIN of a
+    # separately-assembled binary; their entry-point symbols come from an INCLUDE.
+    for fr in (foreign_regions or []):
+        walker.add_data_region(fr["start"], fr["end"])
     for s in sorted(set(seeds) | {org}):
         walker.trace(s)
     pointer_words = None
@@ -234,10 +377,60 @@ def disasm_z80_region(mem: bytearray, org: int, length: int, *,
             if org <= addr < org + length:
                 walker.labels[addr] = name
     walker.name_labels(symbols=symbols)
+    # For each foreign region, the base label is the walker's label at its start
+    # (e.g. L_9400 -- what Z-80 code uses for the block base); every other
+    # in-region referenced label becomes `<base> + offset` in the INCLUDE.
+    fr_render = []
+    for fr in (foreign_regions or []):
+        start = fr["start"]
+        base = walker.labels.get(start) or f"FOREIGN_{start:04X}"
+        walker.add_label(start, base)
+        fr_render.append({**fr, "base_label": base})
     fmt = SjasmFormatter(mem, walker, symbols, origin=org, length=length,
                          source_name=source_name, pointer_words=pointer_words,
-                         relocatable=relocatable)
+                         relocatable=relocatable, foreign_regions=fr_render)
     return fmt.emit_source()
+
+
+def foreign_include_text(mem, org, length, fr, *, symbols=None, seeds=(),
+                         force_labels=None):
+    """Generate the sjasmplus EQU include for a foreign region's entry points:
+    every in-region address Z-80 code references, as ``name EQU <base> + $off``
+    so it relocates with ORG (the base label sits at the INCBIN). Re-runs the
+    Z-80 trace to discover which in-region addresses are referenced (same walker
+    inputs as `disasm_z80_region`), then emits an EQU per in-region label except
+    the base itself."""
+    walker = Walker(mem, start=org, end=org + length)
+    for f in (force_labels or {}).items():
+        pass
+    for f in [fr]:
+        walker.add_data_region(f["start"], f["end"])
+    for s in sorted(set(seeds) | {org}):
+        walker.trace(s)
+    # operand/pointer passes so data-cell references in the block are labelled too
+    label_inrange_operands(walker, mem, org, length)
+    scan_pointer_words(walker, mem, org, length)
+    if force_labels:
+        for addr, name in force_labels.items():
+            if org <= addr < org + length:
+                walker.labels[addr] = name
+    walker.name_labels(symbols=symbols)
+    start, end = fr["start"], fr["end"]
+    base = walker.labels.get(start) or f"FOREIGN_{start:04X}"
+    lines = [
+        f"; Entry points + data cells of the embedded {fr.get('cpu','6502')} block,",
+        f"; as offsets from {base} (the INCBIN base) so they relocate with ORG.",
+        f"; Generated -- do not edit by hand.",
+        "",
+    ]
+    for addr in sorted(walker.labels):
+        if not (start <= addr < end) or addr == start:
+            continue
+        name = walker.labels[addr]
+        if not name:
+            continue
+        lines.append(f"{name:<16} EQU {base} + ${addr - start:03X}")
+    return "\n".join(lines) + "\n"
 
 
 def assemble_z80(src_with_placeholder: str) -> bytes:

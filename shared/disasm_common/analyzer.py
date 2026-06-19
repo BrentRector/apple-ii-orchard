@@ -371,15 +371,32 @@ def classify_at(mem, addr, end, *, labels=None, symbols=None, cpu="z80",
 
 
 # ── Range classifier ──────────────────────────────────────────────────
+def _in_spans(addr, spans):
+    """The (start, end) span containing `addr`, or None."""
+    for s, e in spans:
+        if s <= addr < e:
+            return (s, e)
+    return None
+
+
 def classify_data(mem, start, end, *, code_set, labels=None, symbols=None,
-                  cpu="z80", body_start=None, body_end=None, pointer_words=None):
+                  cpu="z80", body_start=None, body_end=None, pointer_words=None,
+                  fixed_mixed=None):
     """Walk [start, end), skip code addresses, and yield DataRun objects
     covering the non-code regions. The caller is responsible for emitting
-    code lines for addresses in `code_set`."""
+    code lines for addresses in `code_set`.
+
+    `fixed_mixed` is a list of (start, end) spans that must be emitted as
+    opaque MIXED `DEFB` bytes -- no string/table/pointer auto-detection. Used to
+    pin a foreign-CPU code region (e.g. an embedded 6502 RPC block carried inside
+    a Z-80 image): from the host CPU's view it is data, and auto-detecting
+    pointers in it would wrongly relocate mid-instruction bytes of the other CPU.
+    Runs still cap at interior labels so referenced addresses keep their lines."""
     if body_start is None:
         body_start = start
     if body_end is None:
         body_end = end
+    fixed_mixed = fixed_mixed or []
     runs = []
     addr = start
     while addr < end:
@@ -397,6 +414,19 @@ def classify_data(mem, start, end, *, code_set, labels=None, symbols=None,
         # interior labels exist (the default path only labels code targets).
         sub = addr
         while sub < non_code_end:
+            # A pinned fixed-MIXED span (foreign-CPU code): emit opaque DEFB
+            # bytes up to the span end / next interior label, bypassing all
+            # auto-detection so nothing in it relocates or is mis-read.
+            span = _in_spans(sub, fixed_mixed)
+            if span is not None:
+                cap = min(span[1], non_code_end)
+                if labels:
+                    nxt = [a for a in labels if sub < a < cap and labels[a] is not None]
+                    if nxt:
+                        cap = min(cap, min(nxt))
+                runs.append(DataRun(sub, bytes(mem[sub:cap]), DataKind.MIXED, {}))
+                sub = cap
+                continue
             # A resolved static pointer / dispatch entry emits as a 2-byte
             # `DEFW <label>` so it relocates with ORG.
             if (pointer_words and sub in pointer_words and sub + 2 <= non_code_end
