@@ -21,26 +21,15 @@ DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS
 ;       table data to the real initialization code at L_04CE.
 PIP_ENTRY:
         JP INIT_PIP                  ; $0100  C3 CE 04
-        DEFB    $C9,$00,$00,$C9,$00,$00,$1A,$00,$00,$00,$00,$00,$00,$28,$49,$4E ; $0103
-        DEFB    $50,$3A,$2F,$4F,$55,$54,$3A,$53,$50,$41,$43,$45,$29,$28,$49,$4E ; $0113
-        DEFB    $50,$3A,$2F,$4F,$55,$54,$3A,$53,$50,$41,$43,$45,$29,$28,$49,$4E ; $0123
-        DEFB    $50,$3A,$2F,$4F,$55,$54,$3A,$53,$50,$41,$43,$45,$29,$28,$49,$4E ; $0133
-        DEFB    $50,$3A,$2F,$4F,$55,$54,$3A,$53,$50,$41,$43,$45,$29,$28,$49,$4E ; $0143
-        DEFB    $50,$3A,$2F,$4F,$55,$54,$3A,$53,$50,$41,$43,$45,$29,$28,$49,$4E ; $0153
-        DEFB    $50,$3A,$2F,$4F,$55,$54,$3A,$53,$50,$41,$43,$45,$29,$28,$49,$4E ; $0163
-        DEFB    $50,$3A,$2F,$4F,$55,$54,$3A,$53,$50,$41,$43,$45,$29,$28,$49,$4E ; $0173
-        DEFB    $50,$3A,$2F,$4F,$55,$54,$3A,$53,$50,$41,$43,$45,$29,$28,$49,$4E ; $0183
-        DEFB    $50,$3A,$2F,$4F,$55,$54,$3A,$53,$50,$41,$43,$45,$29,$28,$49,$4E ; $0193
-        DEFB    $50,$3A,$2F,$4F,$55,$54,$3A,$53,$50,$41,$43,$45,$29,$28,$49,$4E ; $01A3
-        DEFB    $50,$3A,$2F,$4F,$55,$54,$3A,$53,$50,$41,$43,$45,$29,$28,$49,$4E ; $01B3
-        DEFB    $50,$3A,$2F,$4F,$55,$54,$3A,$53,$50,$41,$43,$45,$29,$28,$49,$4E ; $01C3
-        DEFB    $50,$3A,$2F,$4F,$55,$54,$3A,$53,$50,$41,$43,$45,$29,$28,$49,$4E ; $01D3
-        DEFB    $50,$3A,$2F,$4F,$55,$54,$3A,$53,$50,$41,$43,$45,$29,$28,$49,$4E ; $01E3
-        DEFB    $50,$3A,$2F,$4F,$55,$54,$3A,$53,$50,$41,$43,$45,$29,$20,$20,$20 ; $01F3
-        DEFB    $43,$4F,$50,$59,$52,$49,$47,$48,$54,$20,$28,$43,$29,$20,$31,$39 ; $0203
-        DEFB    $37,$39,$2C,$20,$44,$49,$47,$49,$54,$41,$4C,$20,$52,$45,$53,$45 ; $0213
-        DEFB    $41,$52,$43,$48,$2C,$20,$20,$50,$49,$50,$20,$56,$45,$52,$53,$20 ; $0223
-        DEFB    $31,$2E,$35                                      ; $0233
+; [AI] $0103-$010F: 13 bytes of leftover header/jump-table data ahead of the banner text.
+        DEFB    $C9,$00,$00,$C9,$00,$00,$1A,$00,$00,$00,$00,$00,$00 ; $0103
+; [AI] $0110-$0235: inline copyright/version banner (ASCII). The "(INP:/OUT:SPACE)"
+;       run pads the banner out so the build/version string sits at a fixed offset.
+        DEFB    "(INP:/OUT:SPACE)(INP:/OUT:SPACE)(INP:/OUT:SPACE)(INP:/OUT:SPACE)" ; $0110
+        DEFB    "(INP:/OUT:SPACE)(INP:/OUT:SPACE)(INP:/OUT:SPACE)(INP:/OUT:SPACE)" ; $0150
+        DEFB    "(INP:/OUT:SPACE)(INP:/OUT:SPACE)(INP:/OUT:SPACE)(INP:/OUT:SPACE)" ; $0190
+        DEFB    "(INP:/OUT:SPACE)(INP:/OUT:SPACE)(INP:/OUT:SPACE)   "             ; $01D0
+        DEFB    "COPYRIGHT (C) 1979, DIGITAL RESEARCH,  PIP VERS 1.5"            ; $0203
 VEC_PUNCH_DEV:
         DEFB    $03,$01                                          ; $0236
 VEC_READER_DEV:
@@ -56,93 +45,76 @@ DEVICE_NAME_TABLE:
         DEFB    "NNULEOF"    ; $028C
         DEFB    $00    ; $0293  terminator
 MSG_DISK_READ_ERR:
-        DEFB    $44,$49,$53,$4B,$20,$52,$45,$41,$44,$20,$45,$52,$52,$4F,$52,$24 ; $0294
+        DEFB    "DISK READ ERROR$"    ; $0294  string
 MSG_DISK_WRITE_ERR:
-        DEFB    $44,$49,$53,$4B,$20,$57,$52,$49,$54,$45,$20,$45,$52,$52,$4F,$52 ; $02A4
-        DEFB    $24                                              ; $02B4
+        DEFB    "DISK WRITE ERROR$"    ; $02A4  string
 MSG_VERIFY_ERR:
-        DEFB    $56,$45,$52,$49,$46,$59,$20,$45,$52,$52,$4F,$52,$24 ; $02B5
+        DEFB    "VERIFY ERROR$"    ; $02B5  string
 MSG_NOT_CHAR_SINK:
-        DEFB    $4E,$4F,$54,$20,$41,$20,$43,$48,$41,$52,$41,$43,$54,$45,$52,$20 ; $02C2
-        DEFB    $53,$49,$4E,$4B,$24                              ; $02D2
+        DEFB    "NOT A CHARACTER SINK$"    ; $02C2  string
 MSG_READER_STOPPED:
-        DEFB    $52,$45,$41,$44,$45,$52,$20,$53,$54,$4F,$50,$50,$49,$4E ; $02D7
-        DEFW    SUB_0D0C_4               ; $02E5
-        DEFB    $0A,$24                                          ; $02E7
+        DEFB    "READER STOPPING"    ; $02D7  string
+        DEFB    $0D,$0A,"$"          ; $02E6  CR LF terminator
 MSG_NOT_CHAR_SRC:
-        DEFB    $4E,$4F,$54,$20,$41,$20,$43,$48,$41,$52,$41,$43,$54,$45,$52,$20 ; $02E9
-        DEFB    $53,$4F,$55,$52,$43,$45,$24                      ; $02F9
+        DEFB    "NOT A CHARACTER SOURCE$"    ; $02E9  string
 MSG_ABORTED:
-        DEFB    $41,$42,$4F,$52,$54,$45,$44,$24                  ; $0300
+        DEFB    "ABORTED$"    ; $0300  string
 MSG_BAD_PARAMETER:
-        DEFB    $42,$41,$44,$20,$50,$41,$52,$41,$4D,$45,$54,$45,$52,$24 ; $0308
+        DEFB    "BAD PARAMETER$"    ; $0308  string
 MSG_INVALID_USER:
-        DEFB    $49,$4E,$56,$41,$4C,$49,$44,$20,$55,$53,$45,$52,$20,$4E,$55,$4D ; $0316
-        DEFB    $42,$45,$52,$24                                  ; $0326
+        DEFB    "INVALID USER NUMBER$"    ; $0316  string
 MSG_RECORD_TOO_LONG:
-        DEFB    $52,$45,$43,$4F,$52,$44,$20,$54,$4F,$4F,$20,$4C,$4F,$4E,$47,$24 ; $032A
+        DEFB    "RECORD TOO LONG$"    ; $032A  string
 MSG_INVALID_DIGIT:
-        DEFB    $49,$4E,$56,$41,$4C,$49,$44,$20,$44,$49,$47,$49,$54,$24 ; $033A
+        DEFB    "INVALID DIGIT$"    ; $033A  string
 MSG_EOF_CTLZ:
-        DEFB    $45,$4E,$44,$20,$4F,$46,$20,$46,$49,$4C,$45,$2C,$20,$43,$54,$4C ; $0348
-        DEFB    $2D,$5A,$3F,$24                                  ; $0358
+        DEFB    "END OF FILE, CTL-Z?$"    ; $0348  string
 MSG_CHECKSUM_ERR:
-        DEFB    $43,$48,$45,$43,$4B,$53,$55,$4D,$20,$45,$52,$52,$4F,$52,$24 ; $035C
+        DEFB    "CHECKSUM ERROR$"    ; $035C  string
 MSG_CORRECT_ERROR:
-        DEFB    $43,$4F,$52,$52,$45,$43,$54,$20,$45,$52,$52,$4F,$52,$2C,$20,$54 ; $036B
-        DEFB    $59,$50,$45,$20,$52,$45,$54,$55,$52,$4E,$20,$4F,$52,$20,$43,$54 ; $037B
-        DEFB    $4C,$2D,$5A,$24                                  ; $038B
+        DEFB    "CORRECT ERROR, TYPE RETURN OR CTL-Z$"    ; $036B  string
 MSG_INVALID_FORMAT:
-        DEFB    $49,$4E,$56,$41,$4C,$49,$44,$20,$46,$4F,$52,$4D,$41,$54,$24 ; $038F
+        DEFB    "INVALID FORMAT$"    ; $038F  string
 PSEUDO_NAME_HEX:
-        DEFB    $48,$45,$58,$24                                  ; $039E
+        DEFB    "HEX$"    ; $039E  string
 FCB_NAME_FILL:
         DEFB    $24,$24,$24                                      ; $03A2
 MSG_NO_DIR_SPACE:
-        DEFB    $4E,$4F,$20,$44,$49,$52,$45,$43,$54,$4F,$52,$59,$20,$53,$50,$41 ; $03A5
-        DEFB    $43,$45,$24                                      ; $03B5
+        DEFB    "NO DIRECTORY SPACE$"    ; $03A5  string
 MSG_NO_FILE:
-        DEFB    $4E,$4F,$20,$46,$49,$4C,$45,$24                  ; $03B8
+        DEFB    "NO FILE$"    ; $03B8  string
 PSEUDO_NAME_COM:
-        DEFB    $43,$4F,$4D,$24                                  ; $03C0
+        DEFB    "COM$"    ; $03C0  string
 MSG_START_NOT_FOUND:
-        DEFB    $53,$54,$41,$52,$54,$20,$4E,$4F,$54,$20,$46,$4F,$55,$4E,$44,$24 ; $03C4
+        DEFB    "START NOT FOUND$"    ; $03C4  string
 MSG_QUIT_NOT_FOUND:
-        DEFB    $51,$55,$49,$54,$20,$4E,$4F,$54,$20,$46,$4F,$55,$4E,$44,$24 ; $03D4
+        DEFB    "QUIT NOT FOUND$"    ; $03D4  string
 MSG_CANNOT_CLOSE:
-        DEFB    $43,$41,$4E,$4E,$4F,$54,$20,$43,$4C,$4F,$53,$45,$20,$44,$45,$53 ; $03E3
-        DEFB    $54,$49,$4E,$41,$54,$49,$4F,$4E,$20,$46,$49,$4C,$45,$24 ; $03F3
+        DEFB    "CANNOT CLOSE DESTINATION FILE$"    ; $03E3  string
 MSG_DEST_RO_DELETE:
-        DEFB    $44,$45,$53,$54,$49,$4E,$41,$54,$49,$4F,$4E,$20,$49,$53,$20,$52 ; $0401
-        DEFB    $2F,$4F,$2C,$20,$44,$45,$4C,$45,$54,$45,$20,$28,$59,$2F,$4E,$29 ; $0411
-        DEFB    $3F,$24                                          ; $0421
+        DEFB    "DESTINATION IS R/O, DELETE (Y/N)?$"    ; $0401  string
 MSG_NOT_DELETED:
-        DEFB    $2A,$2A,$4E,$4F,$54,$20,$44,$45,$4C,$45,$54,$45,$44,$2A,$2A,$24 ; $0423
+        DEFB    "**NOT DELETED**$"    ; $0423  string
 FCB_TYPE_FILL:
         DEFB    $24,$24,$24                                      ; $0433
 FCB_RENAME_FILL:
         DEFB    $24,$24,$24                                      ; $0436
 MSG_NOT_FOUND:
-        DEFB    $4E,$4F,$54,$20,$46,$4F,$55,$4E,$44,$24          ; $0439
+        DEFB    "NOT FOUND$"    ; $0439  string
 MSG_COPYING:
-        DEFB    $43,$4F,$50,$59,$49,$4E,$47,$20,$2D,$24          ; $0443
+        DEFB    "COPYING -$"    ; $0443  string
 MSG_NEED_CPM2:
-        DEFB    $52,$45,$51,$55,$49,$52,$45,$53,$20,$43,$50,$2F,$4D,$20,$32,$2E ; $044D
-        DEFB    $30,$20,$4F,$52,$20,$4E,$45,$57,$45,$52,$20,$46,$4F,$52,$20,$4F ; $045D
-        DEFB    $50,$45,$52,$41,$54,$49,$4F,$4E,$2E,$24          ; $046D
+        DEFB    "REQUIRES CP/M 2.0 OR NEWER FOR OPERATION.$"    ; $044D  string
 MSG_UNREC_DEST:
-        DEFB    $55,$4E,$52,$45,$43,$4F,$47,$4E,$49,$5A,$45,$44,$20,$44,$45,$53 ; $0477
-        DEFB    $54,$49,$4E,$41,$54,$49,$4F,$4E,$24              ; $0487
+        DEFB    "UNRECOGNIZED DESTINATION$"    ; $0477  string
 MSG_CANNOT_WRITE:
-        DEFB    $43,$41,$4E,$4E,$4F,$54,$20,$57,$52,$49,$54,$45,$24 ; $0490
+        DEFB    "CANNOT WRITE$"    ; $0490  string
 MSG_INVALID_PIP_FMT:
-        DEFB    $49,$4E,$56,$41,$4C,$49,$44,$20,$50,$49,$50,$20,$46,$4F,$52,$4D ; $049D
-        DEFB    $41,$54,$24                                      ; $04AD
+        DEFB    "INVALID PIP FORMAT$"    ; $049D  string
 MSG_CANNOT_READ:
-        DEFB    $43,$41,$4E,$4E,$4F,$54,$20,$52,$45,$41,$44,$24  ; $04B0
+        DEFB    "CANNOT READ$"    ; $04B0  string
 MSG_INVALID_SEP:
-        DEFB    $49,$4E,$56,$41,$4C,$49,$44,$20,$53,$45,$50,$41,$52,$41,$54,$4F ; $04BC
-        DEFB    $52,$24                                          ; $04CC
+        DEFB    "INVALID SEPARATOR$"    ; $04BC  string
 ; [AI] Real startup code: sets the stack pointer to the top of PIP's data area and begins one-time
 ;       initialization before the command loop.
 INIT_PIP:
@@ -600,6 +572,8 @@ TPA_START_91:
         LD A,($1EA5)                     ; $07DB  3A A5 1E
         LD ($1ECC),A                     ; $07DE  32 CC 1E
         JP PARSE_PIP_CMD                  ; $07E1  C3 14 05
+; [AI] $07E4: 2 dead bytes (EI; HALT) between the command loop and SUB_07E6;
+;       unreachable code-shaped padding, left as data.
         DEFB    $FB,$76                                          ; $07E4
 SUB_07E6:
         LD HL,SUB_1D9B_1                 ; $07E6  21 F2 1D
@@ -609,19 +583,20 @@ SUB_07E6:
         LD HL,(VEC_READER_DEV)              ; $07EE  2A 38 02
         JP (HL)                          ; $07F1  E9
 SUB_07E6_1:
-        DEFB    $C9                                              ; $07F2
+        RET                              ; $07F2  C9
 SUB_07F3:
         LD HL,SUB_07F3_1                 ; $07F3  21 FB 07
         PUSH HL                          ; $07F6  E5
         LD HL,(VEC_PUNCH_DEV)              ; $07F7  2A 36 02
         JP (HL)                          ; $07FA  E9
 SUB_07F3_1:
-        DEFW    SUB_0937_1               ; $07FB
-        DEFB    $01,$C9,$3E,$FA,$CD,$A6,$1D,$3E,$FA,$CD,$A6,$1D  ; $07FD
-        DEFW    SUB_11AD_1               ; $0809
-        DEFB    $00                                              ; $080B
-        DEFW    SUB_0DBE_1               ; $080C
-        DEFB    $03,$CD,$05,$00,$C9                              ; $080E
+        LD A,($0109)                     ; $07FB  3A 09 01
+        RET                              ; $07FE  C9
+; [AI] $07FF-$0812: unreachable code-shaped bytes (decode as two LD A,$FA / CALL $1DA6
+;       delays + RET, then an LD DE,0 / LD C,3 / CALL $0005 / RET aux-input wrapper).
+;       Never reached in this build; left as data.
+        DEFB    $3E,$FA,$CD,$A6,$1D,$3E,$FA,$CD,$A6,$1D,$C9     ; $07FF
+        DEFB    $11,$00,$00,$0E,$03,$CD,$05,$00,$C9             ; $080A
 ; [AI] BDOS console-input wrapper (function 1): waits for and returns one echoed character from
 ;       CON:.
 BDOS_CONIN:
@@ -692,9 +667,13 @@ SUB_084C_2:
         CALL BDOS_VEC                    ; $0851  CD 05 00
 SUB_084C_3:
         RET                              ; $0854  C9
-        DEFB    $11,$00                                          ; $0855
-        DEFW    SUB_0DBE_1               ; $0857
-        DEFB    $0D,$CD,$05,$00,$C9                              ; $0859
+; [AI] Unreferenced BDOS reset-disk-system wrapper (function 13): resets the disk
+;       subsystem and selects drive A. Present in PIP's code but never called.
+BDOS_RESET_DISK:
+        LD DE,$0000                      ; $0855  11 00 00
+        LD C,$0D                         ; $0858  0E 0D
+        CALL BDOS_VEC                    ; $085A  CD 05 00
+        RET                              ; $085D  C9
 ; [AI] BDOS select-disk wrapper (function 14): selects the drive whose code is in C as the current
 ;       default disk.
 BDOS_SELECT_DISK:
@@ -868,9 +847,18 @@ BDOS_SET_DMA:
         LD C,$21                         ; $0949  0E 21
         CALL BDOS_VEC                    ; $094B  CD 05 00
         RET                              ; $094E  C9
-        DEFB    $21,$C8,$1E,$70,$2B,$71,$2A,$C7,$1E              ; $094F
-        DEFW    SUB_0E45_8               ; $0958
-        DEFB    $22,$CD,$05,$00,$C9                              ; $095A
+; [AI] Unreferenced BDOS write-random wrapper (function 34, $22): writes the DMA
+;       buffer to the random record of the FCB at BC. Present in PIP but never called.
+BDOS_WRITE_RANDOM:
+        LD HL,$1EC8                      ; $094F  21 C8 1E
+        LD (HL),B                        ; $0952  70
+        DEC HL                           ; $0953  2B
+        LD (HL),C                        ; $0954  71
+        LD HL,($1EC7)                    ; $0955  2A C7 1E
+        EX DE,HL                         ; $0958  EB
+        LD C,$22                         ; $0959  0E 22
+        CALL BDOS_VEC                    ; $095B  CD 05 00
+        RET                              ; $095E  C9
 ; [AI] BDOS set-multi-sector / random-record helper (function 36, set-random-record): prepares the
 ;       FCB at BC for random access.
 BDOS_SET_RANDOM_REC:
@@ -983,6 +971,7 @@ SUB_09AF_3:
 SUB_09AF_4:
         CALL CONOUT_CRLF                    ; $0A11  CD 2E 08
         JP CMD_LOOP                  ; $0A14  C3 0E 05
+; [AI] $0A17: dead RET ($C9) after the unconditional jump above; unreachable.
         DEFB    $C9                                              ; $0A17
 ; [AI] General block-copy primitive: moves E bytes from the source pointer to the destination
 ;       pointer (both passed via the stack/BC), used to relocate FCBs, filenames, and the command
@@ -1328,20 +1317,20 @@ SUB_0BD0_12:
         LD HL,IOBYTE                     ; $0C50  21 03 00
         LD (HL),$80                      ; $0C53  36 80
         JP SUB_0BD0_15                   ; $0C55  C3 71 0C
-        DEFW    TPA_START_69             ; $0C58
-        DEFB    $0D                                              ; $0C5A
+; [AI] $0C58: dead JP SUB_0BD0_25 (C3 05 0D) after the unconditional jump above; unreachable.
+        DEFB    $C3,$05,$0D                                      ; $0C58
 SUB_0BD0_13:
         LD HL,IOBYTE                     ; $0C5B  21 03 00
         LD (HL),$C0                      ; $0C5E  36 C0
         JP SUB_0BD0_15                   ; $0C60  C3 71 0C
-        DEFW    TPA_START_69             ; $0C63
-        DEFB    $0D                                              ; $0C65
+; [AI] $0C63: dead JP SUB_0BD0_25 (C3 05 0D) after the unconditional jump above; unreachable.
+        DEFB    $C3,$05,$0D                                      ; $0C63
 SUB_0BD0_14:
         LD HL,IOBYTE                     ; $0C66  21 03 00
         LD (HL),$80                      ; $0C69  36 80
         JP SUB_0BD0_15                   ; $0C6B  C3 71 0C
-        DEFW    TPA_START_69             ; $0C6E
-        DEFB    $0D                                              ; $0C70
+; [AI] $0C6E: dead JP SUB_0BD0_25 (C3 05 0D) after the unconditional jump above; unreachable.
+        DEFB    $C3,$05,$0D                                      ; $0C6E
 SUB_0BD0_15:
         LD HL,($1F80)                    ; $0C71  2A 80 1F
         LD H,$00                         ; $0C74  26 00
@@ -1353,20 +1342,20 @@ SUB_0BD0_16:
         LD HL,IOBYTE                     ; $0C7F  21 03 00
         LD (HL),$10                      ; $0C82  36 10
         JP SUB_0BD0_19                   ; $0C84  C3 A0 0C
-        DEFW    TPA_START_69             ; $0C87
-        DEFB    $0D                                              ; $0C89
+; [AI] $0C87: dead JP SUB_0BD0_25 (C3 05 0D) after the unconditional jump above; unreachable.
+        DEFB    $C3,$05,$0D                                      ; $0C87
 SUB_0BD0_17:
         LD HL,IOBYTE                     ; $0C8A  21 03 00
         LD (HL),$20                      ; $0C8D  36 20
         JP SUB_0BD0_19                   ; $0C8F  C3 A0 0C
-        DEFW    TPA_START_69             ; $0C92
-        DEFB    $0D                                              ; $0C94
+; [AI] $0C92: dead JP SUB_0BD0_25 (C3 05 0D) after the unconditional jump above; unreachable.
+        DEFB    $C3,$05,$0D                                      ; $0C92
 SUB_0BD0_18:
         LD HL,IOBYTE                     ; $0C95  21 03 00
         LD (HL),$30                      ; $0C98  36 30
         JP SUB_0BD0_19                   ; $0C9A  C3 A0 0C
-        DEFW    TPA_START_69             ; $0C9D
-        DEFB    $0D                                              ; $0C9F
+; [AI] $0C9D: dead JP SUB_0BD0_25 (C3 05 0D) after the unconditional jump above; unreachable.
+        DEFB    $C3,$05,$0D                                      ; $0C9D
 SUB_0BD0_19:
         LD HL,($1F80)                    ; $0CA0  2A 80 1F
         LD H,$00                         ; $0CA3  26 00
@@ -1378,20 +1367,20 @@ SUB_0BD0_20:
         LD HL,IOBYTE                     ; $0CAE  21 03 00
         LD (HL),$00                      ; $0CB1  36 00
         JP SUB_0BD0_23                   ; $0CB3  C3 CF 0C
-        DEFW    TPA_START_69             ; $0CB6
-        DEFB    $0D                                              ; $0CB8
+; [AI] $0CB6: dead JP SUB_0BD0_25 (C3 05 0D) after the unconditional jump above; unreachable.
+        DEFB    $C3,$05,$0D                                      ; $0CB6
 SUB_0BD0_21:
         LD HL,IOBYTE                     ; $0CB9  21 03 00
         LD (HL),$01                      ; $0CBC  36 01
         JP SUB_0BD0_23                   ; $0CBE  C3 CF 0C
-        DEFW    TPA_START_69             ; $0CC1
-        DEFB    $0D                                              ; $0CC3
+; [AI] $0CC1: dead JP SUB_0BD0_25 (C3 05 0D) after the unconditional jump above; unreachable.
+        DEFB    $C3,$05,$0D                                      ; $0CC1
 SUB_0BD0_22:
         LD HL,IOBYTE                     ; $0CC4  21 03 00
         LD (HL),$03                      ; $0CC7  36 03
         JP SUB_0BD0_23                   ; $0CC9  C3 CF 0C
-        DEFW    TPA_START_69             ; $0CCC
-        DEFB    $0D                                              ; $0CCE
+; [AI] $0CCC: dead JP SUB_0BD0_25 (C3 05 0D) after the unconditional jump above; unreachable.
+        DEFB    $C3,$05,$0D                                      ; $0CCC
 SUB_0BD0_23:
         LD HL,($1F80)                    ; $0CCF  2A 80 1F
         LD H,$00                         ; $0CD2  26 00
@@ -1817,20 +1806,20 @@ SUB_0F3C_7:
         LD HL,IOBYTE                     ; $0FBF  21 03 00
         LD (HL),$04                      ; $0FC2  36 04
         JP SUB_0F3C_10                   ; $0FC4  C3 E0 0F
-        DEFB    $C3                                              ; $0FC7
-        DEFW    SUB_0F3C_25              ; $0FC8
+; [AI] $0FC7: dead JP SUB_0F3C_25 (C3 6D 10) after the unconditional jump above; unreachable.
+        DEFB    $C3,$6D,$10                                      ; $0FC7
 SUB_0F3C_8:
         LD HL,IOBYTE                     ; $0FCA  21 03 00
         LD (HL),$08                      ; $0FCD  36 08
         JP SUB_0F3C_10                   ; $0FCF  C3 E0 0F
-        DEFB    $C3                                              ; $0FD2
-        DEFW    SUB_0F3C_25              ; $0FD3
+; [AI] $0FD2: dead JP SUB_0F3C_25 (C3 6D 10) after the unconditional jump above; unreachable.
+        DEFB    $C3,$6D,$10                                      ; $0FD2
 SUB_0F3C_9:
         LD HL,IOBYTE                     ; $0FD5  21 03 00
         LD (HL),$0C                      ; $0FD8  36 0C
         JP SUB_0F3C_10                   ; $0FDA  C3 E0 0F
-        DEFB    $C3                                              ; $0FDD
-        DEFW    SUB_0F3C_25              ; $0FDE
+; [AI] $0FDD: dead JP SUB_0F3C_25 (C3 6D 10) after the unconditional jump above; unreachable.
+        DEFB    $C3,$6D,$10                                      ; $0FDD
 SUB_0F3C_10:
         LD DE,WBOOT_VEC                  ; $0FE0  11 00 00
         LD C,$03                         ; $0FE3  0E 03
@@ -1862,20 +1851,20 @@ SUB_0F3C_20:
         LD HL,IOBYTE                     ; $1011  21 03 00
         LD (HL),$00                      ; $1014  36 00
         JP SUB_0F3C_23                   ; $1016  C3 32 10
-        DEFB    $C3                                              ; $1019
-        DEFW    SUB_0F3C_25              ; $101A
+; [AI] $1019: dead JP SUB_0F3C_25 (C3 6D 10) after the unconditional jump above; unreachable.
+        DEFB    $C3,$6D,$10                                      ; $1019
 SUB_0F3C_21:
         LD HL,IOBYTE                     ; $101C  21 03 00
         LD (HL),$01                      ; $101F  36 01
         JP SUB_0F3C_23                   ; $1021  C3 32 10
-        DEFB    $C3                                              ; $1024
-        DEFW    SUB_0F3C_25              ; $1025
+; [AI] $1024: dead JP SUB_0F3C_25 (C3 6D 10) after the unconditional jump above; unreachable.
+        DEFB    $C3,$6D,$10                                      ; $1024
 SUB_0F3C_22:
         LD HL,IOBYTE                     ; $1027  21 03 00
         LD (HL),$03                      ; $102A  36 03
         JP SUB_0F3C_23                   ; $102C  C3 32 10
-        DEFB    $C3                                              ; $102F
-        DEFW    SUB_0F3C_25              ; $1030
+; [AI] $102F: dead JP SUB_0F3C_25 (C3 6D 10) after the unconditional jump above; unreachable.
+        DEFB    $C3,$6D,$10                                      ; $102F
 SUB_0F3C_23:
         LD HL,$1F90                      ; $1032  21 90 1F
         LD (HL),$00                      ; $1035  36 00
@@ -2071,13 +2060,14 @@ SUB_110D_6:
 SUB_110D_7:
         LD A,($1F91)                     ; $119E  3A 91 1F
         RET                              ; $11A1  C9
-        DEFB    $C3                                              ; $11A2
-        DEFW    SUB_110D_9               ; $11A3
+; [AI] $11A2: dead JP SUB_110D_9 (C3 A9 11) after the RET above; unreachable.
+        DEFB    $C3,$A9,$11                                      ; $11A2
 SUB_110D_8:
         LD A,($1F91)                     ; $11A5  3A 91 1F
         RET                              ; $11A8  C9
 SUB_110D_9:
         JP SUB_110D_2                    ; $11A9  C3 28 11
+; [AI] $11AC: dead RET ($C9) after the unconditional jump above; unreachable.
         DEFB    $C9                                              ; $11AC
 ; [AI] Incremental string matcher used by the S (start) and Q (quit) options: advances the match
 ;       position against the target string and reports a full or reset match.
@@ -2447,6 +2437,7 @@ SUB_1220_35:
         RET                              ; $1433  C9
 SUB_1220_36:
         JP SUB_1220_7                    ; $1434  C3 A5 12
+; [AI] $1437: dead RET ($C9) after the unconditional jump above; unreachable.
         DEFB    $C9                                              ; $1437
 ; [AI] Delimiter test: returns true if the character in C is one of PIP's separator characters
 ;       (space, '=', '.', ':', ',', '<', '>', etc.) from the separator table at $0249.
@@ -3074,6 +3065,7 @@ SUB_17DA_4:
         RET                              ; $1857  C9
 SUB_17DA_5:
         JP COPY_MULTI_DIR                      ; $1858  C3 DA 17
+; [AI] $185B: dead RET ($C9) after the unconditional jump above; unreachable.
         DEFB    $C9                                              ; $185B
 ; [AI] Reports the 'INVALID PIP FORMAT' (or similar syntax) error message and aborts the command.
 ERR_INVALID_FORMAT:
@@ -3595,6 +3587,7 @@ SUB_1B78_6:
         CALL COPY_FILE                    ; $1C42  CD B2 1A
 SUB_1B78_7:
         JP SUB_1B78_1                    ; $1C45  C3 81 1B
+; [AI] $1C48: dead RET ($C9) after the unconditional jump above; unreachable.
         DEFB    $C9                                              ; $1C48
 ; [AI] Prints a matched file's name (with the '.' between name and extension) to the console as PIP
 ;       echoes which file it is copying.
@@ -3766,7 +3759,13 @@ AND16:
         AND H                            ; $1D48  A4
         LD H,A                           ; $1D49  67
         RET                              ; $1D4A  C9
-        DEFB    $5E,$23,$56,$EB                                  ; $1D4B
+; [AI] Loads the 16-bit word pointed to by HL, then falls through into MUL10 (the
+;       "load word then multiply by ten" entry point; same idiom as LOADW_SHR16).
+LOADW_MUL10:
+        LD E,(HL)                        ; $1D4B  5E
+        INC HL                           ; $1D4C  23
+        LD D,(HL)                        ; $1D4D  56
+        EX DE,HL                         ; $1D4E  EB
 ; [AI] Multiplies HL by ten (HL*2 saved, HL*8, then add) to accumulate decimal digits during
 ;       numeric option parsing.
 MUL10:
@@ -3788,7 +3787,13 @@ OR16_A:
         OR H                             ; $1D5D  B4
         LD H,A                           ; $1D5E  67
         RET                              ; $1D5F  C9
-        DEFB    $5E,$23,$56,$EB                                  ; $1D60
+; [AI] Loads the 16-bit word pointed to by HL, then falls through into SHL16 (the
+;       "load word then shift left" entry point; same idiom as LOADW_SHR16).
+LOADW_SHL16:
+        LD E,(HL)                        ; $1D60  5E
+        INC HL                           ; $1D61  23
+        LD D,(HL)                        ; $1D62  56
+        EX DE,HL                         ; $1D63  EB
 ; [AI] Shifts HL left by the count in C (HL << C), used to scale record/byte counts into addresses.
 SHL16:
         ADD HL,HL                        ; $1D64  29
@@ -3876,8 +3881,19 @@ SUB16_DE_A:
         SBC A,H                          ; $1DA3  9C
         LD H,A                           ; $1DA4  67
         RET                              ; $1DA5  C9
-        DEFW    SUB_0BD0_2               ; $1DA6
-        DEFB    $48,$0D,$C2,$A9,$1D,$3D,$C2,$A8,$1D,$C9,$00,$00,$00,$00,$00,$00 ; $1DA8
+; [AI] Nested busy-wait delay loop (CALLed by the unreferenced punch/aux code at $0801/$0806):
+;       outer count in A, inner count reloaded from B each pass, spinning until both reach zero.
+DELAY_LOOP:
+        LD B,$0C                         ; $1DA6  06 0C
+DELAY_OUTER:
+        LD C,B                           ; $1DA8  48
+DELAY_INNER:
+        DEC C                            ; $1DA9  0D
+        JP NZ,DELAY_INNER                ; $1DAA  C2 A9 1D
+        DEC A                            ; $1DAD  3D
+        JP NZ,DELAY_OUTER                ; $1DAE  C2 A8 1D
+        RET                              ; $1DB1  C9
+        DEFB    $00,$00,$00,$00,$00,$00                          ; $1DB2
         DEFS    58, $00    ; $1DB8  fill
 SUB_1D9B_1:
         DEFB    $00                                              ; $1DF2

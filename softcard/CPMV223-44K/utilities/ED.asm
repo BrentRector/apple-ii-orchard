@@ -26,39 +26,39 @@ DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS
 ED_ENTRY:
         JP ED_INIT                       ; $0100  C3 C0 01
 MSG_COPYRIGHT:
-        DEFB    $20,$43,$4F,$50,$59,$52,$49,$47,$48,$54,$20,$28,$43,$29,$20,$31 ; $0103
-        DEFB    $39,$37,$39,$2C,$20,$44,$49,$47,$49,$54,$41,$4C,$20,$52,$45,$53 ; $0113
-        DEFB    $45,$41,$52,$43,$48,$20                          ; $0123
+        DEFB    " COPYRIGHT (C) 1"                      ; $0103
+        DEFB    "979, DIGITAL RES"                      ; $0113
+        DEFB    "EARCH "                                ; $0123
 MSG_DISK_FULL:
-        DEFB    $44,$49,$53,$4B,$20,$4F,$52,$20,$44,$49,$52,$45,$43,$54,$4F,$52 ; $0129
-        DEFB    $59,$20,$46,$55,$4C,$4C,$24                      ; $0139
+        DEFB    "DISK OR DIRECTOR"                      ; $0129
+        DEFB    "Y FULL$"                               ; $0139
 MSG_FILE_EXISTS:
-        DEFB    $46,$49,$4C,$45,$20,$45,$58,$49,$53,$54,$53,$2C,$20,$45,$52,$41 ; $0140
-        DEFB    $53,$45,$20,$49,$54,$24                          ; $0150
+        DEFB    "FILE EXISTS, ERA"                      ; $0140
+        DEFB    "SE IT$"                                ; $0150
 MSG_NEW_FILE:
-        DEFB    $4E,$45,$57,$20,$46,$49,$4C,$45,$24              ; $0156
+        DEFB    "NEW FILE$"                             ; $0156
 MSG_READ_ONLY:
-        DEFB    $2A,$2A,$20,$46,$49,$4C,$45,$20,$49,$53,$20,$52,$45,$41,$44,$2F ; $015F
-        DEFB    $4F,$4E,$4C,$59,$20,$2A,$2A,$24                  ; $016F
+        DEFB    "** FILE IS READ/"                      ; $015F
+        DEFB    "ONLY **$"                              ; $016F
 MSG_SYS_NO_ACCESS:
-        DEFB    $22,$53,$59,$53,$54,$45,$4D,$22,$20,$46,$49,$4C,$45,$20,$4E,$4F ; $0177
-        DEFB    $54,$20,$41,$43,$43,$45,$53,$53,$49,$42,$4C,$45,$24 ; $0187
+        DEFB    $22,"SYSTEM",$22," FILE NO"             ; $0177
+        DEFB    "T ACCESSIBLE$"                         ; $0187
 EXT_BAK:
-        DEFB    $42,$41,$4B                                      ; $0194
+        DEFB    "BAK"                                   ; $0194
 EXT_TMP:
-        DEFB    $24,$24,$24                                      ; $0197
+        DEFB    "$$$"                                   ; $0197
 EXT_BAK2:
-        DEFB    $42,$41,$4B                                      ; $019A
+        DEFB    "BAK"                                   ; $019A
 EXT_TMP2:
-        DEFB    $24,$24,$24                                      ; $019D
+        DEFB    "$$$"                                   ; $019D
 MSG_YN_PROMPT:
-        DEFB    $2D,$28,$59,$2F,$4E,$29,$3F,$24                  ; $01A0
+        DEFB    "-(Y/N)?$"                              ; $01A0
 MSG_NO_MEMORY:
-        DEFB    $4E,$4F,$20,$4D,$45,$4D,$4F,$52,$59,$24          ; $01A8
+        DEFB    "NO MEMORY$"                            ; $01A8
 MSG_BREAK_OPEN:
-        DEFB    $42,$52,$45,$41,$4B,$20,$22,$24                  ; $01B2
+        DEFB    "BREAK ",$22,"$"                        ; $01B2
 MSG_BREAK_AT:
-        DEFB    $22,$20,$41,$54,$20,$24                          ; $01BA
+        DEFB    $22," AT $"                             ; $01BA
 ; [AI] Real program entry: sets the stack and computes the size of available memory (TPA top vs.
 ;       BDOS base) to lay out ED's line-pointer and text buffers.
 ED_INIT:
@@ -376,8 +376,10 @@ CMD_H_REOPEN:
         LD A,($1D21)                     ; $037A  3A 21 1D
         LD ($1B64),A                     ; $037D  32 64 1B
         JP ED_RESTART                    ; $0380  C3 BB 02
-        DEFB    $C3                                              ; $0383
-        DEFW    CMD_NEXT                 ; $0384
+; [AI] Unreferenced dead code (preceded by an unconditional JP, no branch targets it);
+;       decodes as a stray JP CMD_NEXT. Bytes unchanged.
+DEAD_0383:
+        JP CMD_NEXT                      ; $0383  C3 EE 0A
 ; [AI] Handles the 'I' (insert) command: enters interactive insert mode, reading console lines into
 ;       the edit buffer until terminated.
 CMD_INSERT:
@@ -1323,7 +1325,11 @@ CMD_ERROR:
 ; [AI] Loop continuation point that re-enters the per-command read at L_0327.
 CMD_NEXT:
         JP ED_COMMAND_LOOP               ; $0AEE  C3 27 03
-        DEFB    $FB,$76                                          ; $0AF1
+; [AI] Unreferenced dead code (preceded by an unconditional JP, no branch targets it);
+;       decodes as EI / HALT. Bytes unchanged.
+DEAD_0AF1:
+        EI                               ; $0AF1  FB
+        HALT                             ; $0AF2  76
 ; [AI] Reads one character from the console with echo via BDOS function 1 (console input).
 CON_GETCH:
         LD DE,WBOOT_VEC                  ; $0AF3  11 00 00
@@ -2717,7 +2723,14 @@ SRC_CP_DEC:
         DEC HL                           ; $13B5  2B
         LD ($1D22),HL                    ; $13B6  22 22 1D
         RET                              ; $13B9  C9
-        DEFB    $2A,$24,$1D,$2B,$22,$24,$1D,$C9                  ; $13BA
+; [AI] Decrements the current destination/output-line index by one (the DST counterpart of
+;       SRC_CP_DEC above; completes the SRC/DST x INC/DEC family). Not reached by any static
+;       caller in this file. Bytes unchanged.
+DST_CP_DEC:
+        LD HL,($1D24)                    ; $13BA  2A 24 1D
+        DEC HL                           ; $13BD  2B
+        LD ($1D24),HL                    ; $13BE  22 24 1D
+        RET                              ; $13C1  C9
 ; [AI] Increments the displayed current-line-number counter.
 LINENO_INC:
         LD HL,($1C10)                    ; $13C2  2A 10 1C
@@ -2816,7 +2829,8 @@ SUB_13CA_8:
         ADD HL,DE                        ; $144C  19
         LD ($1D22),HL                    ; $144D  22 22 1D
         RET                              ; $1450  C9
-        DEFB    $C9                                              ; $1451
+; [AI] Unreferenced trailing RET (dead byte after the routine's RET; no branch targets it).
+        RET                              ; $1451  C9
 ; [AI] Calls the block-move routine in the forward/down direction (insert direction).
 MOVE_CP_FWD:
         LD C,$01                         ; $1452  0E 01
@@ -2906,7 +2920,8 @@ SUB_14C4_2:
         RET                              ; $14FF  C9
 SUB_14C4_3:
         JP PULL_SRC_LINE                 ; $1500  C3 C4 14
-        DEFB    $C9                                              ; $1503
+; [AI] Unreferenced trailing RET (dead byte after the unconditional JP; no branch targets it).
+        RET                              ; $1503  C9
 ; [AI] Stores a character into the edit buffer applying case translation only when the upper-case
 ;       mode flag is set.
 STORE_CASE:
@@ -2947,7 +2962,8 @@ SUB_151B_1:
         RET                              ; $1548  C9
 SUB_151B_2:
         JP WRITE_LINE                    ; $1549  C3 1B 15
-        DEFB    $C9                                              ; $154C
+; [AI] Unreferenced trailing RET (dead byte after the unconditional JP; no branch targets it).
+        RET                              ; $154C  C9
 ; [AI] Copies a span of complete lines from the buffer to the output file until the destination
 ;       boundary is reached, used by the write/scroll-down operations.
 WRITE_LINES:
@@ -3610,7 +3626,14 @@ SUB_19AA_2:
         DEC A                            ; $19C4  3D
         JP NZ,SUB_19AA_1                 ; $19C5  C2 B1 19
         RET                              ; $19C8  C9
-        DEFB    $5E,$23,$56,$EB                                  ; $19C9
+; [AI] Unreferenced dead code (preceded by an unconditional RET, no branch targets it);
+;       decodes as a "load HL from (HL)" idiom (LD E,(HL) / INC HL / LD D,(HL) / EX DE,HL).
+;       Bytes unchanged.
+DEAD_19C9:
+        LD E,(HL)                        ; $19C9  5E
+        INC HL                           ; $19CA  23
+        LD D,(HL)                        ; $19CB  56
+        EX DE,HL                         ; $19CC  EB
 ; [AI] Shifts HL left by the count in C (multiply by a power of two), a helper for the startup
 ;       buffer-size arithmetic.
 SHL_HL:
@@ -3754,7 +3777,7 @@ LIB_FCB:
         DEFB    $00                                              ; $1A73
 SUB_1A11_7:
         DEFS    8, $20    ; $1A74  fill
-        DEFB    $4C,$49,$42                                      ; $1A7C
+        DEFB    "LIB"                                   ; $1A7C  FCB extension field (.LIB)
 SUB_1A11_8:
         DEFS    20, $00    ; $1A7F  fill
 SUB_1A11_9:
@@ -3764,7 +3787,7 @@ LIB_REC_INDEX:
 X_FCB_ACTIVE:
         DEFB    $00                                              ; $1A95
 XLIB_FCB_TEMPLATE:
-        DEFB    $58,$24,$24,$24,$24,$24,$24,$24,$4C,$49,$42      ; $1A96
+        DEFB    "X$$$$$$$LIB"                           ; $1A96  FCB name "X$$$$$$$" + ext "LIB"
 SUB_1A11_13:
         DEFB    $00,$00                                          ; $1AA1
         DEFW    SUB_19FD_3               ; $1AA3

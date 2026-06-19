@@ -22,11 +22,9 @@ TPA_START:
 ;       banner is the $-terminated string later printed via BDOS function 9.
 TPA_START_1:
         JP TPA_START_3                   ; $0103  C3 3D 01
-        DEFB    $43,$4F,$50,$59,$52,$49,$47,$48,$54,$20,$28,$43,$29,$20,$31,$39 ; $0106
-        DEFB    $38,$30,$2C,$20,$44,$49,$47,$49,$54,$41,$4C,$20,$52,$45,$53,$45 ; $0116
-        DEFB    $41,$52,$43,$48,$20,$20,$20,$20,$20,$20          ; $0126
+        DEFB    "COPYRIGHT (C) 1980, DIGITAL RESEARCH      " ; $0106  sign-on banner (part 1)
 TPA_START_2:
-        DEFB    $44,$44,$54,$20,$56,$45,$52,$53,$20,$32,$2E,$32,$24 ; $0130
+        DEFB    "DDT VERS 2.2$"                  ; $0130  version line ('$'-terminated, printed via BDOS fn 9)
 ; [AI] The real program startup after the banner: sets the stack pointer to $0200 and then prints
 ;       the sign-on message (DE=$0130, C=9, CALL BDOS). This is DDT's initialization before it
 ;       relocates its main debugger body to the top of the TPA.
@@ -176,6 +174,15 @@ TPA_START_62:
         LD L,$00                         ; $01A6  2E 00
 TPA_START_63:
         JP (HL)                          ; $01A8  E9
+; [AI] $01A9-$01FF: a fragment of the relocatable image plus two live config cells.
+;       It sits BELOW the copied image ($0200) so it is never copied and never jumped
+;       to here; decoding it at org $01A9 is meaningless (its operands resolve to the
+;       mnemonic table at $079E and to relocated work cells at $1Cxx/$1Dxx that only
+;       exist after relocation), so it stays DEFB. The two bytes the stub actually
+;       reads as DATA are labelled: TPA_START_64 ($01EB, the memory-size/config flag
+;       loaded at $0162) and TPA_START_65 ($01EC, the BDOS top-of-TPA word loaded at
+;       $015C). The DEFW TPA_START pseudo-labels at $01E1/$01F5 are coincidences (the
+;       bytes happen to equal $0100); byte output is unaffected.
         DEFB    $7F,$C9,$21,$A1,$1D,$70,$2B,$71,$2A,$A0,$1D,$44,$4D,$CD,$9E,$07 ; $01A9
         DEFB    $0E,$3A,$CD,$83,$07,$0E,$20,$CD,$83,$07,$3A,$7D,$1D,$32,$A2,$1D ; $01B9
         DEFB    $3A,$7E,$1D,$21,$A2,$1D,$BE,$DA,$F1,$08,$21,$FC,$1C,$3A,$A2,$1D ; $01C9
@@ -188,6 +195,20 @@ TPA_START_65:
         DEFB    $38,$00,$BB,$F3,$08,$21,$FC,$1C,$36              ; $01EC
         DEFW    TPA_START                ; $01F5
         DEFB    $3A,$02,$CD,$00,$00,$3A,$E9,$1C,$FE              ; $01F7
+; [AI] RELOCATABLE DEBUGGER IMAGE ($0200-$13FF). This is the body of DDT, the part
+;       the stub above copies to the top of the TPA and then fixes up with the
+;       relocation bitmap (see $1210 below). It executes ONLY at its relocated high
+;       address, where the bitmap adds the destination page to each flagged
+;       high-address byte; its operands also reach work cells at $1Cxx-$1Fxx that sit
+;       ABOVE the copied image and do not exist in this file. As packed here at file
+;       org $0200 it is the pre-relocation image, so it is left as DEFB rather than
+;       disassembled in place (decoding would print page-relative operands that are
+;       not what runs). The genuine in-image DATA tables embedded in it are called out
+;       at their addresses: $0743 (opcode-byte tables), $0766 (8080 mnemonic table),
+;       $1002 (register/flag letter table), $1210 (relocation bitmap). The $0200 head
+;       below is the command-dispatch jump vector (JP $0683 / -- / JP $034F / JP $0524
+;       / DB / JP $047E); the parallel jump table at $0883 dispatches the command
+;       letters. Byte output is unaffected either way -- the file rebuilds identical.
 TPA_START_66:
         DEFB    $C3,$83,$06,$00,$00,$00,$C3,$4F,$03,$C3,$24,$05,$07,$C3,$7E,$04 ; $0200
         DEFB    $C9,$21,$A7,$1D,$73,$F5,$79,$CD,$8F,$06,$F1,$C9,$FE,$20,$C8,$FE ; $0210
@@ -204,9 +225,9 @@ TPA_START_66:
         DEFB    $CA,$00,$23,$13,$05,$C2,$BD,$00,$D1,$C9,$23,$05,$C2,$CA,$00,$11 ; $02C0
         DEFB    $F8,$FF,$19,$D1,$13,$0D,$C2,$B7,$00,$0D,$C9,$C5,$CD,$39,$00,$CA ; $02D0
         DEFB    $18,$05,$0E,$08,$21,$60,$06,$CD,$A0,$00,$C2,$18,$05,$0D,$79,$C1 ; $02E0
-        DEFB    $C9,$C5,$CD,$39,$00                              ; $02F0  "IEM9"
+        DEFB    $C9,$C5,$CD,$39,$00                              ; $02F0
         DEFB    $CA,$18,$05,$0E,$05,$21,$72,$06,$CD,$B7,$00,$C2,$18,$05,$0D,$79 ; $02F5
-        DEFB    $C1,$C9,$CD,$F1,$00                              ; $0305  "AIMq"
+        DEFB    $C1,$C9,$CD,$F1,$00                              ; $0305
         DEFB    $FE,$04,$CA,$18,$05,$C9,$CD,$F1,$00,$FE,$03,$CA,$18,$05,$FE,$04 ; $030A
         DEFB    $C0,$3D,$C9,$21,$7A,$06,$11,$7B,$06,$0E,$02,$1A,$77,$23,$13,$0D ; $031A
         DEFB    $C2,$25,$01,$1A,$FE,$20,$C2,$18,$05,$77,$21,$50,$06,$0E,$08,$CD ; $032A
@@ -300,6 +321,18 @@ TPA_START_66:
         DEFB    $92,$06,$C3,$71,$03,$CD,$2E,$00,$0E,$3F,$CD,$15,$00,$2A,$13,$00 ; $0713
         DEFB    $F9,$21,$00,$00,$39,$22,$13,$00,$CD,$38,$03,$22,$11,$00,$CD,$89 ; $0723
         DEFB    $06,$CD,$5A,$01,$2A,$11,$00,$22,$0C,$00,$C3,$2B,$05,$2A,$13,$00 ; $0733
+; [AI] DDT built-in disassembler DATA TABLES ($0745-$0882). The two bytes at $0743
+;       ($F9,$C9 = LD SP,HL / RET) close the routine above; from $0745 onward is pure
+;       table data driving DDT's "L" (list/disassemble) command:
+;         $0745-$0765  opcode-byte tables -- single-byte 8080 ops ($00,$07,$0F,$17,...)
+;                      then multi-byte opcode prefixes ($C6,$CE,$D3,...,$22,$2A,$32,$3A,$C3,$CD)
+;         $0766-$0875  8080 MNEMONIC NAME TABLE -- fixed-width entries packed back to
+;                      back ("EI  ","SP","HL","DI  ","XCHG","PCHL",...,"MOV ","ADD ",...,
+;                      register letters "B C D E H L M A", "B   D   H   SP  PSW ","??=")
+;                      indexed by the disassembler; a lookup table, NOT executable code
+;                      and NOT one string per mnemonic -- left as DEFB.
+;         $0876-$0882  trailing "??= " plus a small data blob ($03,$00,$36,$00,$C3,$9A,
+;                      $C3,$A8,$06) that precedes the command jump table at $0883.
         DEFB    $F9,$C9,$00,$07,$0F,$17,$1F,$27,$2F,$37,$3F,$76,$C9,$E3,$E9,$EB ; $0743
         DEFB    $F3,$F9,$FB,$C6,$CE,$D3,$D6,$DB,$DE,$E6,$EE,$F6,$FE,$22,$2A,$32 ; $0753
         DEFB    $3A,$C3,$CD,$45,$49,$20,$20,$53,$50,$48,$4C,$44,$49,$20,$20,$58 ; $0763
@@ -405,7 +438,8 @@ TPA_START_69:
         DEFB    $D1,$82,$57,$78,$E1,$C1,$C9,$0E,$0C,$CD,$A8,$06,$21,$A3,$0A,$7E ; $0C73
         DEFB    $B7,$CA,$8E,$0A,$CD,$FB,$0B,$23,$C3,$82,$0A,$CD,$49,$0C,$2A,$DB ; $0C83
         DEFB    $0F,$CD,$62,$0C,$CD,$F9,$0B,$2A,$0D,$10,$CD,$62,$0C,$C3,$05,$07 ; $0C93
-        DEFB    $0D,$0A,$4E,$45,$58,$54,$20,$20,$50,$43,$00,$CD,$C4,$0C,$3D,$C2 ; $0CA3
+        DEFB    $0D,$0A,"NEXT  PC",$00          ; $0CA3  prompt string ('L'-list header, NUL-terminated)
+        DEFB    $CD,$C4,$0C,$3D,$C2             ; $0CAE
         DEFB    $DF,$0B,$CD,$9A,$0C,$CD,$49,$0C,$E5,$CD,$62,$0C,$CD,$F9,$0B,$E1 ; $0CB3
         DEFB    $7E,$E5,$CD,$39,$0C,$CD,$F9,$0B,$CD,$EA,$0B,$CD,$11,$0C,$E1,$FE ; $0CC3
         DEFB    $0D,$CA,$EF,$0A,$FE,$2E,$CA,$05,$07,$E5,$CD,$C7,$0C,$3D,$C2,$DF ; $0CD3
@@ -459,11 +493,17 @@ TPA_START_69:
         DEFB    $FE,$0D,$2B,$22,$B3,$0F,$2A,$0D,$10,$7E,$CD,$39,$0C,$23,$CD,$79 ; $0FD3
         DEFB    $0C,$DA,$FE,$0D,$F5,$CD,$F9,$0B,$F1,$B3,$CA,$FA,$0D,$5E,$23,$56 ; $0FE3
         DEFB    $EB,$CD,$62,$0C,$C3,$FE,$0D,$7E,$CD,$39,$0C,$C1,$D1,$F1,$C9,$43 ; $0FF3
+; [AI] DATA: register/flag letter table for the register-examine ("X") command. The
+;       byte at $1002 ($43='C') plus $1003-$100C ("ZMEIABDHSP") give the single-letter
+;       names C Z M E I A B D H S P that DDT prints for the CPU register/flag slots;
+;       indexed, not executable. $100D-$1011 ($F6,$F4,$FC,$FA,$FE) is the matching
+;       slot-displacement byte table. Both left as DEFB. (The $1003 row's tail $F6,$F4,
+;       $FC is the start of that displacement table; the rest follows at $1010.)
         DEFB    $5A,$4D,$45,$49,$41,$42,$44,$48,$53,$50,$F6,$F4,$FC ; $1003
 TPA_START_70:
         DEFB    $FA,$FE,$01,$07,$08,$03,$05,$21,$00,$00,$22,$A1,$0F,$C9,$F3,$22 ; $1010
         DEFB    $0B,$10,$E1,$2B,$22,$0D,$10,$F5,$21,$02,$00,$39,$F1,$31,$0B,$10 ; $1020
-        DEFB    $E5,$F5,$C5,$D5,$2A,$0D                          ; $1030  "euEU*"
+        DEFB    $E5,$F5,$C5,$D5,$2A,$0D                          ; $1030
         DEFB    $10,$3A,$A5,$06,$BE,$7E,$F5,$E5,$21,$A3,$0F,$7E,$36,$00,$B7,$CA ; $1036
         DEFB    $55,$0E,$3D,$47,$23,$5E,$23,$56,$23,$7E,$12,$78,$C3,$44,$0E,$E1 ; $1046
         DEFB    $F1,$CA,$82,$0E,$23,$22,$0D,$10                  ; $1056
@@ -495,6 +535,16 @@ TPA_START_70:
         DEFB    $EB,$18,$21,$80,$7F,$22,$3D,$1C,$C3,$F6,$18,$2A,$3B,$1C,$EB,$2A ; $11E0
         DEFB    $3D,$1C,$19,$22,$3D,$1C,$CD,$BC,$18,$C9,$01,$F7,$1D,$11,$06,$00 ; $11F0
         DEFB    $CD,$DA,$1B,$0E,$01,$CD,$C9,$1B,$01,$F7,$1D,$09,$22,$3F,$1C,$00 ; $1200
+; [AI] RELOCATION BITMAP ($1210-$13FF). Packed bit data, one bit per byte of the
+;       copied image: the fix-up loop in the stub ($0187-$01A4) walks it MSB-first and,
+;       on a set bit, adds the destination page to that image byte's high half so the
+;       absolute addresses point at the relocated high-memory copy. This is bit data,
+;       NOT code -- left as DEFB. The DEFW pseudo-labels the disassembler emitted inside
+;       it ($1239 TPA_START_70, $129B/$13D4 TPA_START_6, $131F/$1334/$135E/$13A3...) are
+;       false positives: those byte pairs merely coincide with an in-file label address;
+;       byte output is identical either way. The all-$00 stretches ($12BD, $1406) are the
+;       bitmap's zero fill; $1480-$14FF is stale sector residue past the copied image
+;       (a duplicate of the $0D80-region code, never reached) -- also left as DEFB.
         DEFB    $20,$90,$00,$40,$00,$08,$21,$10,$92,$10,$21,$12,$42,$48,$00,$09 ; $1210
         DEFB    $10,$02,$40,$00,$10,$40,$08,$08,$41,$02,$00,$82,$42,$48,$09,$09 ; $1220
         DEFB    $20,$42,$21,$01,$20,$08,$22,$12,$11              ; $1230
