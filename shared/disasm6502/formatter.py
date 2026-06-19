@@ -148,6 +148,11 @@ class Ca65Formatter:
         # Classify every in-range label that lands mid-instruction and mint a
         # label on each covering instruction BEFORE emitting the body, so the
         # operand site can reference it inline as `cover+offset` (no equate).
+        # Label every in-range data address the code references (absolute
+        # operands), so a referenced string/table/variable splits out with its
+        # own name and un-terminated strings (which require a code reference) are
+        # recognised.
+        self._harvest_data_labels()
         self._prepare_overlap_labels()
         # Two-pass emission: build the body so we know which external symbols
         # are actually referenced.
@@ -167,6 +172,45 @@ class Ca65Formatter:
         out.extend(self._emit_overlap_notes())
         out.extend(body_lines)
         return "\n".join(out) + "\n"
+
+    def _harvest_data_labels(self):
+        """Add a label at every in-range DATA address the code references via an
+        absolute operand (ABS/ABX/ABY/IND), so a referenced string/table/variable
+        splits out with its own name and an un-terminated string (which requires a
+        code reference) is recognised. (6502 addresses split across two immediate
+        bytes -- ``LDA #<a`` / ``LDY #>a`` -- are not recovered here.)
+        A label is not dropped inside an already-recognised terminated string or
+        fill run (self-delimiting), so a coincidental operand value cannot split a
+        message. Byte-identical."""
+        body_start, body_end = self.origin, self.origin + self.length
+        protected = self._protected_data_bytes()
+        addr = self.origin
+        while addr < body_end:
+            if addr in self.walker.code:
+                op = self.mem[addr]
+                mnem, mode, size = OPCODES[op]
+                if mode in ("ABS", "ABX", "ABY", "IND"):
+                    val = self.mem[addr + 1] | (self.mem[addr + 2] << 8)
+                    if (body_start <= val < body_end
+                            and val not in self.walker.code
+                            and val not in protected):
+                        self.walker.add_label(val)
+                addr += size if size > 0 else 1
+            else:
+                addr += 1
+        self.walker.name_labels(self.symbols)
+
+    def _protected_data_bytes(self):
+        """Bytes already inside a self-delimiting terminated string or fill run,
+        which a harvested label must not split."""
+        protected = set()
+        for r in classify_data(self.mem, self.origin, self.origin + self.length,
+                               code_set=self.walker.code, labels=self.walker.labels,
+                               cpu="6502", body_start=self.origin,
+                               body_end=self.origin + self.length):
+            if r.kind in (DataKind.STRING, DataKind.FILL):
+                protected.update(range(r.addr, r.end))
+        return protected
 
     def _decode_size(self, addr):
         return OPCODES[self.mem[addr]][2]
@@ -367,22 +411,34 @@ class Ca65Formatter:
         bytes_str = ", ".join(f"${b:02X}" for b in run.raw)
         return ([f"        .byte   {bytes_str:<48} ; ${run.addr:04X}"], set())
 
+    # Strings longer than this are split across multiple `.byte "..."` lines.
+    _STRING_PER_LINE = 56
+
     def _render_string(self, run):
         chars = run.metadata["chars"]
-        term = run.metadata["terminator"]
-        if all(0x20 <= b <= 0x7E for b in chars):
-            try:
-                quoted = chars.decode("ascii").replace('"', '\\"')
-                return [f'        .byte   "{quoted}", ${term:02X}'
-                        f'    ; ${run.addr:04X}  string']
-            except UnicodeDecodeError:
-                pass
+        term = run.metadata["terminator"]   # may be None (un-terminated run)
+        addr = run.addr
+        # Quoted form only when every char is plain ASCII needing no escaping
+        # (no quote/backslash, which ca65 would not round-trip without
+        # .feature string_escapes); chunked so each directive stays readable.
+        if all(0x20 <= b <= 0x7E and b not in (0x22, 0x5C) for b in chars):
+            lines = []
+            n = self._STRING_PER_LINE
+            for i in range(0, len(chars), n):
+                piece = chars[i:i + n].decode("ascii")
+                tag = "  string" if i == 0 else ""
+                lines.append(f'        .byte   "{piece}"    ; ${addr + i:04X}{tag}')
+            if term is not None:
+                lines.append(f'        .byte   ${term:02X}'
+                             f'    ; ${addr + len(chars):04X}  terminator')
+            return lines
+        # High-bit / special chars: emit as bytes + a decoded comment.
         bytes_str = ", ".join(f"${b:02X}" for b in run.raw)
         decoded = "".join(
             chr(b & 0x7F) if 0x20 <= (b & 0x7F) <= 0x7E else "."
             for b in chars
         )
-        return [f'        .byte   {bytes_str:<48} ; ${run.addr:04X}  "{decoded}"']
+        return [f'        .byte   {bytes_str:<48} ; ${addr:04X}  "{decoded}"']
 
     def _render_jump_table(self, run):
         lines = ["        ; jump table"]

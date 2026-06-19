@@ -264,6 +264,22 @@ def _com_from_committed(disk_path, name: str, td: Path,
     return _assemble_com(disk_path, name, td)
 
 
+def _detect_variant(disk_path) -> str:
+    """Map a disk to a chunk-map variant. 2.23 -> '223'. 2.20 splits by memory
+    config: the original 44K build plants the Z-80 reset vector at $AA00 ('220-44k'),
+    the 2.20B-56K build at $DA00 ('220')."""
+    from .decompile_os import detect
+    v = detect(disk_path).variant
+    if v.endswith("2_23"):
+        return "223"
+    if v.endswith("2_20"):
+        from .handoff import find_handoff
+        h = find_handoff(disk_path)
+        tgt = h.z80_reset_plant.target_addr if h.z80_reset_plant else None
+        return "220-44k" if tgt == 0xAA00 else "220"
+    raise ValueError(f"unrecognized SoftCard CP/M variant: {v!r}")
+
+
 def reconstruct_full_disk(disk_path, output_path, *, variant: str | None = None,
                           verify: bool = True) -> FullRebuildResult:
     """Rebuild the whole disk from source and (optionally) verify byte-identical.
@@ -291,10 +307,7 @@ def reconstruct_full_disk(disk_path, output_path, *, variant: str | None = None,
     disk_path, output_path = Path(disk_path), Path(output_path)
     fmt = detect_format(disk_path)
     if variant is None:
-        v = detect(disk_path).variant
-        variant = "223" if v.endswith("2_23") else "220" if v.endswith("2_20") else None
-        if variant is None:
-            raise ValueError(f"unrecognized SoftCard CP/M variant: {v!r}")
+        variant = _detect_variant(disk_path)
 
     ref = bytearray(read_disk(disk_path))
     n = len(ref)
@@ -360,7 +373,7 @@ def main(argv=None) -> int:
         description="Rebuild a whole SoftCard CP/M disk from re-assembled source; verify byte-identical.")
     ap.add_argument("disk", help="reference .dsk/.po image")
     ap.add_argument("output", help="output disk image path")
-    ap.add_argument("--variant", choices=("220", "223"), default=None)
+    ap.add_argument("--variant", choices=("220", "223", "220-44k"), default=None)
     args = ap.parse_args(argv)
     res = reconstruct_full_disk(args.disk, args.output, variant=args.variant)
     print(res.summary())

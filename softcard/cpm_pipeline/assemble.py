@@ -43,6 +43,16 @@ class ChunkSource:
     # For 6502: the build/...bin name baked into the SAVEBIN directive
     # (Z-80 uses SAVEBIN; 6502 we synthesize a linker config and ignore this.)
     expected_bin_name: str | None = None
+    # Z-80 sources may INCBIN a separately-assembled foreign-CPU binary (e.g. the
+    # embedded 6502 RPC block). Each entry is a 6502 ca65 source (with a sibling
+    # .cfg) to assemble into a `bin_name` placed beside the Z-80 source so its
+    # INCBIN resolves. `defines` are -D flags for the config (e.g. CFG_56K).
+    incbin_deps: tuple = ()   # tuple of (bin_name, ca65_src_path, defines_tuple)
+    # Z-80 sources may INCLUDE sibling component sources (e.g. CPM_CCP.asm INCLUDEs
+    # CPM_BDOS.asm so the two compile as one unit, cross-refs resolving without
+    # equates). Each path is copied verbatim beside the main source so the INCLUDE
+    # resolves at assembly time.
+    include_files: tuple = ()   # tuple of Paths copied into the build dir
 
 
 def assemble_chunk(source: ChunkSource, *, cwd: Path | None = None) -> bytes:
@@ -133,6 +143,27 @@ _SAVEBIN_RE = re.compile(
 )
 
 
+def _build_incbin_dep(src_path: Path, out_bin: Path, defines: tuple) -> None:
+    """ca65 + ld65 a 6502 INCBIN dependency (with its sibling .cfg) to `out_bin`.
+    `defines` become -D flags (e.g. ('CFG_56K',)). Raises on failure."""
+    if not shutil.which("ca65") or not shutil.which("ld65"):
+        raise AssemblyError("ca65/ld65 not on PATH (source shared/toolchain/env.sh)")
+    cfg = src_path.with_suffix(".cfg")
+    if not src_path.exists() or not cfg.exists():
+        raise AssemblyError(f"INCBIN dep source/cfg missing: {src_path}")
+    obj = out_bin.with_suffix(".o")
+    cmd = ["ca65", str(src_path), "-o", str(obj)]
+    for d in defines:
+        cmd += ["-D", d]
+    ca = subprocess.run(cmd, capture_output=True, text=True)
+    if ca.returncode != 0:
+        raise AssemblyError(f"ca65 failed for {src_path.name}:\n{ca.stdout}{ca.stderr}")
+    ld = subprocess.run(["ld65", "-C", str(cfg), "-o", str(out_bin), str(obj)],
+                        capture_output=True, text=True)
+    if ld.returncode != 0 or not out_bin.exists():
+        raise AssemblyError(f"ld65 failed for {src_path.name}:\n{ld.stdout}{ld.stderr}")
+
+
 def _assemble_z80(source: ChunkSource, *, cwd: Path | None) -> bytes:
     """Run sjasmplus against a Z-80 source, return the binary bytes."""
     if not shutil.which("sjasmplus"):
@@ -149,9 +180,21 @@ def _assemble_z80(source: ChunkSource, *, cwd: Path | None) -> bytes:
         new_text = _SAVEBIN_RE.sub(rf'\1{out_bin.as_posix()}\3', text)
         copied_asm.write_text(new_text, encoding="utf-8")
 
+        # Assemble any INCBIN'd foreign-CPU dependencies into the temp dir, so
+        # the Z-80 source's `INCBIN "name"` resolves there (sjasmplus runs with
+        # cwd=tmp below). Each dep is a ca65 6502 source + sibling .cfg.
+        for bin_name, src_path, defines in source.incbin_deps:
+            _build_incbin_dep(Path(src_path), tmp / bin_name, defines)
+        # Copy INCLUDE'd component sources verbatim into the temp dir.
+        for inc in source.include_files:
+            shutil.copy(Path(inc), tmp / Path(inc).name)
+
+        # When there are INCBIN/INCLUDE deps, run from the temp dir so relative
+        # INCBIN/INCLUDE paths resolve there (mirrors the CPM60.COM build).
+        run_cwd = str(tmp) if (source.incbin_deps or source.include_files) else cwd
         result = subprocess.run(
-            ["sjasmplus", str(copied_asm)],
-            capture_output=True, text=True, cwd=cwd,
+            ["sjasmplus", copied_asm.name if source.incbin_deps else str(copied_asm)],
+            capture_output=True, text=True, cwd=run_cwd,
         )
         if result.returncode != 0:
             raise AssemblyError(

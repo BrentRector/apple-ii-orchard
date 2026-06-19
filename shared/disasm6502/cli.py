@@ -57,6 +57,10 @@ def main(argv=None):
     p.add_argument("--data-region", action="append", default=[],
                    dest="data_regions",
                    help="treat START-END_INCL as data (repeatable)")
+    p.add_argument("--auto-coverage", action="store_true",
+                   help="grow code coverage past recursive descent: harvest "
+                        "jump/pointer-table targets and validated after-terminal "
+                        "sweep (byte-identical; minimizes .byte-that-is-code)")
     p.add_argument("--output", required=True,
                    help="output path WITHOUT extension (writes .s and .cfg)")
     args = p.parse_args(argv)
@@ -87,6 +91,16 @@ def main(argv=None):
     entries = [_parse_addr(e) for e in args.entry] if args.entry else [org]
     for e in entries:
         walker.trace(e)
+    if args.auto_coverage:
+        from disasm_common.coverage import (
+            maximize_coverage, m6502_decoder, m6502_ref_harvester,
+        )
+        maximize_coverage(
+            walker, mem, cpu="6502",
+            decoder=m6502_decoder(mem),
+            scan_dispatch=None,   # no computed-jump resolver for the 6502 yet
+            harvest_refs=m6502_ref_harvester(mem, org, org + length),
+        )
     walker.name_labels(symbols=symbols)
 
     fmt = Ca65Formatter(

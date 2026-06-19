@@ -30,7 +30,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 DOCS = REPO_ROOT / "docs"
 INVEST = REPO_ROOT / "cpm-investigation"
 OS223_44K = REPO_ROOT / "CPMV223-44K" / "os"   # canonical 2.23 OS source tree (disk build reads here)
-OS220 = REPO_ROOT / "CPMV220" / "os"           # canonical 2.20 OS source tree
+OS220 = REPO_ROOT / "CPMV220" / "os"           # canonical 2.20B-56K OS source tree
+OS220_44K = REPO_ROOT / "CPMV220-44K" / "os"   # canonical 2.20-44K OS source tree (clean-room decompile)
 
 
 @dataclass(frozen=True)
@@ -244,11 +245,85 @@ def _build_chunks_220():
 _build_chunks_220()
 
 
+# ── 2.20-44K sources (clean-room decompile, CPMV220-44K/os/) ────────────
+# The original 1980 44K build: same boot/staging sector layout as the 2.20B-56K
+# disk, but the Z-80 OS is assembled at the 44K (original) runtime bases --
+# SystemImage (serial page + CCP + BDOS) at $9300, BIOS at $AA00 (vs the 56K
+# $C300/$DA00). 6502 BootLoader is its own 44K image. Round-trips byte-identical.
+SOURCES_220_44K: dict[str, ChunkSource | Path] = {
+    "CPM220_44K_BootLoader": ChunkSource(
+        asm_path=OS220_44K / "CPM_BootLoader.s",
+        cpu="6502", org=0x0800, size=0x0C00,
+    ),
+    # The former combined SystemImage is split into two OS component FILES, CCP
+    # and BDOS (boundary = BDOS base $9C00), that COMPILE TOGETHER: CPM_CCP.asm
+    # carries the shared header + CCP body and INCLUDEs CPM_BDOS.asm, so CCP<->BDOS
+    # references resolve directly (no cross-component equates). The combined unit
+    # assembles the whole $9300-$A9FF image, which the chunk map slices into
+    # sectors. (For the 56K fold, CPM56.asm DEFINEs CPM_LINK and DISPs this same
+    # CPM_CCP.asm -- the CPM60.asm pattern.)
+    "CPM220_44K_System": ChunkSource(
+        asm_path=OS220_44K / "CPM_CCP.asm",
+        cpu="z80", org=0x9300, size=0x1700,
+        expected_bin_name="build/CPM220_44K_System.bin",
+        # CCP embeds a 6502 RPC block ($9400-$9500), INCBIN'd from its ca65 source
+        # (44K config: no CFG_56K); CCP INCLUDEs the BDOS component source.
+        incbin_deps=(("CPM_RPC6502.bin", OS220_44K / "CPM_RPC6502.s", ()),),
+        include_files=(OS220_44K / "CPM_BDOS.asm",),
+    ),
+    # As-shipped pristine on-disk BIOS ($AA00-$AEFF) -- what LOAD_CPM reads.
+    "CPM220_44K_BIOS_Disk": ChunkSource(
+        asm_path=OS220_44K / "CPM_BIOS.asm",
+        cpu="z80", org=0xAA00, size=0x0500,
+        expected_bin_name="build/CPM220_44K_BIOS_Disk.bin",
+    ),
+}
+
+
+CHUNKS_220_44K: list[ChunkSpec] = []
+
+
+def _build_chunks_220_44k():
+    # Same boot stub + 28-sector LOAD_CPM staging layout as the 2.20 (56K) disk;
+    # only the Z-80 source ORGs differ (44K bases).
+    boot_stub_loads = [
+        (0x0, 0x0800), (0x2, 0x0A00), (0x4, 0x0B00), (0x6, 0x0C00),
+        (0x8, 0x0D00), (0xA, 0x0E00), (0xC, 0x0F00), (0xE, 0x1000),
+        (0x1, 0x1100), (0x3, 0x1200), (0x5, 0x1300),
+    ]
+    for phys, apple_addr in boot_stub_loads:
+        CHUNKS_220_44K.append(ChunkSpec(
+            source_name="CPM220_44K_BootLoader",
+            src_offset=apple_addr - 0x0800, length=0x100,
+            track=0, phys_sector=phys,
+        ))
+    staging_sectors = [(0, p) for p in range(0xB, 0x10)]
+    staging_sectors += [(1, p) for p in range(0x10)]
+    staging_sectors += [(2, p) for p in range(0x7)]
+    # offset $0000-$16FF -> CPM220_44K_System (CCP+BDOS compiled together);
+    # $1700-$1BFF -> BIOS ($AA00)
+    for i, (track, phys) in enumerate(staging_sectors):
+        off = i * 0x100
+        if off < 0x1700:
+            src, base = "CPM220_44K_System", 0x0000
+        else:
+            src, base = "CPM220_44K_BIOS_Disk", 0x1700
+        CHUNKS_220_44K.append(ChunkSpec(
+            source_name=src, src_offset=off - base, length=0x100,
+            track=track, phys_sector=phys,
+        ))
+
+
+_build_chunks_220_44k()
+
+
 # ── Convenience ────────────────────────────────────────────────────────
 def get_variant(variant: str) -> tuple[list[ChunkSpec], dict]:
-    """Return (chunks, sources) for variant '220' or '223'."""
+    """Return (chunks, sources) for variant '220', '223', or '220-44k'."""
     if variant == "223":
         return CHUNKS_223, SOURCES_223
     if variant == "220":
         return CHUNKS_220, SOURCES_220
-    raise ValueError(f"unknown variant {variant!r}; expected '220' or '223'")
+    if variant == "220-44k":
+        return CHUNKS_220_44K, SOURCES_220_44K
+    raise ValueError(f"unknown variant {variant!r}; expected '220', '223', or '220-44k'")

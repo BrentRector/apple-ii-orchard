@@ -59,13 +59,29 @@ class SjasmFormatter:
     """Emit sjasmplus source from a Walker result."""
 
     def __init__(self, mem, walker, symbols=None, *,
-                 origin=None, length=None, source_name="", pointer_words=None):
+                 origin=None, length=None, source_name="", pointer_words=None,
+                 relocatable=False, foreign_regions=None):
         self.mem = mem
         self.walker = walker
         self.symbols = symbols
         self.origin = origin if origin is not None else walker.start
         self.length = length if length is not None else (walker.end - self.origin)
         self.source_name = source_name
+        # Relocatable mode: force EVERY in-range absolute operand address to a
+        # label (even one that lands inside code), so ORG/DISP can move the whole
+        # module to a different run address. Mid-instruction targets resolve via
+        # the cover+offset machinery. Used to build the one OS source that both
+        # the disk (44K bases) and CPM56.COM (DISP'd to 56K bases) assemble from.
+        self.relocatable = relocatable
+        # Foreign-CPU code regions rendered as an INCBIN of a separately-assembled
+        # binary (e.g. the embedded 6502 RPC block, built by ca65). Each is
+        # {start, end, base_label, incbin, include(optional)}: the span emits a
+        # base label + INCBIN (so it is opaque, never relocated or pointer-scanned)
+        # + an INCLUDE of the offset EQUs that let Z-80 code reference its entry
+        # points (they relocate because they are base_label + offset).
+        self.foreign_regions = list(foreign_regions or [])
+        self._foreign_by_start = {r["start"]: r for r in self.foreign_regions}
+        self._foreign_spans = [(r["start"], r["end"]) for r in self.foreign_regions]
         # Addresses to emit as a 2-byte `DEFW <label>` pointer (resolved static
         # pointers / dispatch entries), so they relocate with ORG.
         self.pointer_words = pointer_words or set()
@@ -78,6 +94,10 @@ class SjasmFormatter:
         self._overlap_addrs = set()
 
     def emit_source(self):
+        # Label every in-range data address the code references, so a referenced
+        # string/table/variable splits out with its own name (and un-terminated
+        # strings, which require a code reference, can be recognised).
+        self._harvest_data_labels()
         # Classify every in-range label that lands mid-instruction and mint a
         # label on each covering instruction BEFORE emitting the body, so the
         # operand site can reference it inline as `cover+offset` (no equate).
@@ -116,6 +136,59 @@ class SjasmFormatter:
                 return overlap_expr(cover_name, offset)
             return None
         return _resolve_label(addr, self.symbols, self.walker.labels)
+
+    def _harvest_data_labels(self):
+        """Add a label at every in-range DATA address the code references via a
+        16-bit operand (``LD HL,nn`` / ``LD (nn),A`` / ...). The reference is the
+        boundary/length signal a terminator-less string needs, and it makes data
+        operands read as the datum they point at. In-range constants that are not
+        addresses (a ``LD BC,$0010`` count) are naturally filtered: they rarely
+        fall inside this region's own address window. Byte-identical.
+
+        A label is NOT dropped inside an already-recognised terminated string or
+        fill run: a coincidental operand value (a count, a masked constant) that
+        happens to equal a mid-string address would otherwise split the message
+        in two. Terminated strings/fills are self-delimiting and need no label."""
+        body_start, body_end = self.origin, self.origin + self.length
+        protected = self._protected_data_bytes()
+        addr = self.origin
+        while addr < body_end:
+            if addr in self.walker.code:
+                try:
+                    instr = decode_at(self.mem, addr)
+                except (IndexError, KeyError):
+                    addr += 1
+                    continue
+                for m in _HEX_LITERAL_RE.finditer(instr.mnemonic):
+                    if len(m.group(1)) != 4:
+                        continue
+                    val = int(m.group(1), 16)
+                    # Normally skip addresses already classified as code (they get
+                    # a label only if they are a control-flow target). In
+                    # relocatable mode, label them anyway -- an in-range address
+                    # operand must relocate, and a mid-instruction target is
+                    # handled as cover+offset by _prepare_overlap_labels.
+                    if (body_start <= val < body_end
+                            and val not in protected
+                            and (self.relocatable or val not in self.walker.code)):
+                        self.walker.add_label(val)
+                addr += instr.size or 1
+            else:
+                addr += 1
+        self.walker.name_labels(self.symbols)
+
+    def _protected_data_bytes(self):
+        """Bytes already inside a self-delimiting terminated string or fill run
+        (classified with the current labels), which a harvested label must not
+        split."""
+        protected = set()
+        for r in classify_data(self.mem, self.origin, self.origin + self.length,
+                               code_set=self.walker.code, labels=self.walker.labels,
+                               cpu="z80", body_start=self.origin,
+                               body_end=self.origin + self.length):
+            if r.kind in (DataKind.STRING, DataKind.FILL):
+                protected.update(range(r.addr, r.end))
+        return protected
 
     def _decode_size(self, addr):
         return decode_at(self.mem, addr).size
@@ -275,10 +348,21 @@ class SjasmFormatter:
             cpu="z80",
             body_start=self.origin, body_end=body_end,
             pointer_words=self.pointer_words,
+            fixed_mixed=self._foreign_spans,
         )
         runs_by_addr = {r.addr: r for r in runs}
         addr = self.origin
         while addr < body_end:
+            # A foreign-CPU code region renders as an opaque INCBIN of its
+            # separately-assembled binary + an INCLUDE of its entry-point EQUs.
+            # Its bytes never relocate; its labels (defined by the INCLUDE as
+            # base+offset) do, because the base label sits here and moves with ORG.
+            fr = self._foreign_by_start.get(addr)
+            if fr is not None:
+                out.extend(self._emit_foreign_region(fr))
+                placed.add(addr)
+                addr = fr["end"]
+                continue
             label_name = self.walker.labels.get(addr)
             if label_name:
                 out.append(f"{label_name}:")
@@ -301,6 +385,22 @@ class SjasmFormatter:
                 referenced.update(refs)
                 addr = run.end
         return out, referenced, placed
+
+    def _emit_foreign_region(self, fr):
+        """Emit a foreign-CPU code span as `base:` + INCBIN + optional INCLUDE.
+        The bytes come verbatim from the separately-assembled binary, so they are
+        never relocated or pointer-scanned; the INCLUDE defines the entry-point
+        symbols as `base + offset`, which relocate with ORG via the base label."""
+        base = fr.get("base_label", f"FOREIGN_{fr['start']:04X}")
+        out = [
+            f"{base}:    ; ${fr['start']:04X}-${fr['end']-1:04X}  "
+            f"embedded {fr.get('cpu', '6502')} code (assembled separately, INCBIN'd)",
+            f'        INCBIN  "{fr["incbin"]}"',
+        ]
+        if fr.get("include"):
+            out.append(f'        INCLUDE "{fr["include"]}"   '
+                       f"; entry points / cells as {base}+offset (relocate with ORG)")
+        return out
 
     def _render_data_run(self, run):
         """Format one DataRun. Returns (lines, referenced_addrs)."""
@@ -350,8 +450,9 @@ class SjasmFormatter:
                 piece = chars[i:i + n].decode("ascii")
                 tag = "  string" if i == 0 else ""
                 lines.append(f'        DEFB    "{piece}"    ; ${addr + i:04X}{tag}')
-            lines.append(f'        DEFB    ${term:02X}'
-                         f'    ; ${addr + len(chars):04X}  terminator')
+            if term is not None:
+                lines.append(f'        DEFB    ${term:02X}'
+                             f'    ; ${addr + len(chars):04X}  terminator')
             return lines
         # High-bit / special chars: emit as chunked bytes + a decoded comment.
         decoded = "".join(

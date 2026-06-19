@@ -44,6 +44,11 @@ def main(argv=None):
     p.add_argument("--entry", action="append", default=[])
     p.add_argument("--data-region", action="append", default=[],
                    dest="data_regions")
+    p.add_argument("--auto-coverage", action="store_true",
+                   help="grow code coverage past recursive descent: resolve "
+                        "computed-jump dispatch tables, harvest jump/pointer-table "
+                        "targets, and validated after-terminal sweep "
+                        "(byte-identical; minimizes DEFB-that-is-code)")
     p.add_argument("--output", required=True,
                    help="output path WITHOUT extension (writes .asm)")
     args = p.parse_args(argv)
@@ -71,6 +76,16 @@ def main(argv=None):
     entries = [_parse_addr(e) for e in args.entry] if args.entry else [org]
     for e in entries:
         walker.trace(e)
+    if args.auto_coverage:
+        from disasm_common.coverage import (
+            maximize_coverage, z80_decoder, z80_dispatch_scanner, z80_ref_harvester,
+        )
+        maximize_coverage(
+            walker, mem, cpu="z80",
+            decoder=z80_decoder(mem),
+            scan_dispatch=z80_dispatch_scanner(mem, org, org + length),
+            harvest_refs=z80_ref_harvester(mem, org, org + length),
+        )
     walker.name_labels(symbols=symbols)
 
     fmt = SjasmFormatter(

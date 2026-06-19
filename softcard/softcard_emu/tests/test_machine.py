@@ -7,6 +7,7 @@ each ends early via the idle heuristics, so the suite stays fast.
 import pytest
 
 from cpm_pipeline.reference_data import (
+    DISK_2_20_44K_SYSTEM,
     DISK_2_20B_56K_SYSTEM,
     DISK_2_23_44K_SYSTEM,
     present,
@@ -15,6 +16,7 @@ from softcard_emu import SoftCardMachine
 
 DSK_223 = DISK_2_23_44K_SYSTEM
 PO_220 = DISK_2_20B_56K_SYSTEM
+DSK_220_44K = DISK_2_20_44K_SYSTEM
 
 
 @pytest.mark.skipif(not present(DSK_223), reason="softcard-cpm2.23-44k-system.dsk missing")
@@ -55,6 +57,48 @@ def test_220_without_videx_boots_clean():
     m = SoftCardMachine(PO_220, videx=False)
     res = m.run(total_steps=40_000_000)
     assert "idle" in res                      # waiting at the console
+
+
+@pytest.mark.skipif(not present(DSK_220_44K),
+                    reason="softcard-cpm2.20-44k-system-1980.dsk missing")
+def test_220_44k_boots_to_prompt_40col():
+    # The original 1980 2.20 / 44K disk, no Videx: boots on the genuine Apple
+    # 40-column screen (real $D000-$FFFF monitor ROM) to the A> prompt.
+    m = SoftCardMachine(str(DSK_220_44K), videx=False)
+    res = m.run(total_steps=60_000_000)
+    screen = "\n".join(m.screen_text())
+    assert "APPLE ][ CP/M" in screen
+    assert "44K VER. 2.20" in screen
+    assert "A>" in screen
+    assert "idle" in res                      # waiting at the console
+
+
+@pytest.mark.skipif(not present(DSK_220_44K),
+                    reason="softcard-cpm2.20-44k-system-1980.dsk missing")
+def test_220_44k_dir_lists_directory():
+    m = SoftCardMachine(str(DSK_220_44K), videx=False)
+    m.run(total_steps=60_000_000)
+    m.type_keys("DIR\r")
+    res = m.run(total_steps=60_000_000)
+    screen = "\n".join(m.screen_text())
+    assert "FORMAT" in screen and "CPM56" in screen and "COM" in screen
+    assert "idle" in res                      # returns to the console after DIR
+    assert len(m.disk_reads) > 0              # directory came off the image
+
+
+@pytest.mark.skipif(not present(DSK_223), reason="softcard-cpm2.23-44k-system.dsk missing")
+def test_223_without_videx_boots_40col():
+    # 2.23 is not 80-column-only: with no Videx present it falls back to the
+    # Apple 40-column screen (real $D000-$FFFF ROM COUT1, normal-video INVFLG).
+    # The II+ 40-col display is uppercase-only, so the BIOS upper-cases the
+    # banner here (vs the mixed-case "Softcard CP/M" the Videx 80-col shows).
+    m = SoftCardMachine(DSK_223, videx=False)
+    res = m.run(total_steps=40_000_000)
+    screen = "\n".join(m.screen_text())
+    assert "SOFTCARD CP/M" in screen
+    assert "44K VER. 2.23" in screen
+    assert "A>" in screen
+    assert "idle" in res
 
 
 @pytest.mark.skipif(not present(DSK_223), reason="softcard-cpm2.23-44k-system.dsk missing")

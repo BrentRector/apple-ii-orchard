@@ -36,6 +36,26 @@ def _text40_row_base(row):
     return 0x400 + (row % 8) * 0x80 + (row // 8) * 0x28
 
 
+# Genuine Apple II+ motherboard ROM ($D000-$FFFF: Applesoft + Autostart
+# monitor). The 6502 executes the real monitor routines (COUT1/HOME/CROUT/
+# SAVE/RESTORE/...) the SoftCard's console handler calls, so no PC-hook
+# stand-ins are needed. CRC32 F66F9C26 (reset vector $FFFC -> $FA62 = Autostart).
+APPLE2_ROM_CANDIDATES = [
+    Path(__file__).resolve().parent / "roms" / "apple2plus_rom_d000_ffff.bin",
+]
+
+
+def find_apple2_rom(explicit=None):
+    """Locate the 12 KB Apple II+ $D000-$FFFF ROM image, or None."""
+    if explicit:
+        p = Path(explicit)
+        return p if p.exists() else None
+    for p in APPLE2_ROM_CANDIDATES:
+        if p.exists():
+            return p
+    return None
+
+
 class SoftCardMachine:
     """Boot a SoftCard CP/M disk image and interact with it.
 
@@ -66,7 +86,7 @@ class SoftCardMachine:
 
     def __init__(self, dsk_path, *, videx=True, language_card=True,
                  sector_hook=True, c8_arbitrate=True, videx_rom=None,
-                 slot=6):
+                 apple2_rom=None, slot=6):
         dsk_path = str(dsk_path)
         # Storage order is inferred from the extension: .po images are in
         # ProDOS sector order, everything else (.dsk) in DOS 3.3 order.
@@ -77,6 +97,9 @@ class SoftCardMachine:
                            else DOS33_INTERLEAVE)
         with open(dsk_path, 'rb') as f:
             self.dsk_bytes = f.read()
+        # Which SoftCard CP/M build? 2.20's RWTS read primitive is at a different
+        # address than 2.23's, so the sector hook must be installed accordingly.
+        self.variant = self._detect_variant(dsk_path)
         # dsk_bytes is the pristine image (read-only reference); disk_image
         # is the runtime-writable copy the sector hook reads from and writes
         # back to, so a guest can modify its own disk (e.g. CPM60.COM).
@@ -102,9 +125,22 @@ class SoftCardMachine:
         self.disk_reads = []          # (track, sector_logical, phys, dest)
         self.disk_writes = []         # same, for sector-hook writes
 
+        # Genuine Apple II+ motherboard ROM ($D000-$FFFF). Always mapped (a
+        # real SoftCard Apple has it regardless of memory size); the 6502
+        # executes the actual monitor routines the SoftCard console handler
+        # calls, so no monitor PC-hook stand-ins are needed.
+        rom_path = find_apple2_rom(apple2_rom)
+        if rom_path is None:
+            raise FileNotFoundError(
+                "Apple II+ ROM ($D000-$FFFF) not found; pass apple2_rom= or "
+                "place it at softcard_emu/roms/apple2plus_rom_d000_ffff.bin")
+        self.apple2_rom = rom_path.read_bytes()        # 12 KB, $D000-$FFFF
+
         # Language card: present by default so CP/M sizes memory as on real
-        # hardware (omitting it gives a flat 48K-style map).
-        self.lc = LanguageCard(self.mem) if language_card else None
+        # hardware (omitting it gives a flat 48K-style map). Either way the
+        # motherboard ROM backs $D000-$FFFF (the LC overlays bankable RAM).
+        self.lc = (LanguageCard(self.mem, rom=self.apple2_rom)
+                   if language_card else None)
 
         self.videx = None
         if videx:
@@ -128,11 +164,11 @@ class SoftCardMachine:
         #      while m6502.read/write are still the cores' native methods,
         #      so attach_6502 below can capture them as the flat fallthrough).
         #   2. attach_* points the cores' memory hooks at the bus.
-        #   3. the remaining PC hooks (monitor/$C800-fetch/sector) layer on.
+        #   3. the remaining PC hooks ($C800-fetch/sector) layer on. The Apple
+        #      monitor is real ROM ($D000-$FFFF), executed in place -- no hooks.
         self._setup_boot()
         self.bus.attach_6502(self.m6502)
         self.bus.attach_z80(self.z)
-        self._install_monitor_hooks()
         self._install_c8_pc_hooks()
         if sector_hook:
             self._install_sector_hook()
@@ -141,36 +177,32 @@ class SoftCardMachine:
     # boot-state setup (P6 PROM post-state + hooks)
     # ------------------------------------------------------------------
     def _setup_boot(self):
-        """Seed memory and the 6502 to the state just after the Disk II
-        PROM has read track 0, sector 0, and is about to run it.
+        """Cold-boot the machine exactly as a real Apple II+ does: enter the
+        autostart ROM at its RESET vector and let it run.
 
-        Rather than emulate the PROM's nibble decode, we drop the first
-        sector at $0800 (where the PROM loads it) and reproduce the
-        documented post-PROM register/zero-page state, then let the disk's
-        own bootstrap take over. A handful of PC hooks stand in for ROM the
-        emulator does not carry: the P6 PROM's sector read, the Apple
-        monitor (see ``_install_monitor_hooks``), and a one-shot patch to
-        the slot scanner.
+        The autostart monitor brings the machine up itself -- SETNORM
+        (INVFLG=$FF, normal video), INIT (text mode + 40-column window),
+        SETVID/SETKBD (the COUT1/KEYIN I/O vectors), HOME -- prints "Apple ][",
+        scans the slots, finds the Disk II, and JMPs its $Cn00 PROM, which
+        reads track 0 sector 0 and runs the disk's bootstrap. Every ROM byte
+        is real ($D000-$FFFF motherboard ROM, executed in place); the only
+        firmware we still service with a hook is the Disk II P6 PROM's nibble
+        read (p6_hook at $Cn5C), plus a one-shot $3E patch that keeps the
+        disk's own slot scan deterministic. NOTHING about the post-RESET CPU
+        or zero-page state is hand-seeded -- the ROM establishes all of it
+        (which is why the screen, keyboard, and 6502<->Z-80 register-passing
+        all work without the stand-in monitor hooks earlier versions needed).
         """
         mem = self.mem
-        mem[0x0800:0x0900] = self.dsk_bytes[:256]   # track 0 sector 0 -> $0800
-
         if self.lc is None:
-            # Flat mode (no language card): the monitor entries are RAM, so
-            # seed them with RTS ($60). The PC hooks below make execution
-            # there a no-op anyway, but a *data* read of these addresses
-            # (e.g. a checksum) should see ROM-like bytes, not $00.
-            for addr in (0xFF58, 0xFCA8, 0xFF2D, 0xFB2F, 0xFE89, 0xFE93,
-                         0xFD8E, 0xFDED, 0xFD0C, 0xFF65, 0xFF4A, 0xFF3F):
-                mem[addr] = 0x60
-            # Reset/IRQ vectors: reset -> $0801 boot entry, IRQ/BRK -> $0002.
-            mem[0xFFFC:0x10000] = bytes([0x01, 0x08, 0x02, 0x00])
-        # Trap stray BRK/IRQ: the vector points at $0002, where $02 is a KIL
-        # opcode that halts the 6502 -- so a wild jump surfaces as a clean
-        # stop instead of running off into noise.
+            # Flat mode (no language card): no bankable RAM at $D000-$FFFF, so
+            # the motherboard ROM sits in the plane directly (reads and fetches
+            # both see it). With a language card the LanguageCard serves the
+            # same ROM and overlays RAM banking on top.
+            mem[0xD000:0x10000] = self.apple2_rom
+        # KIL pad under a stray BRK (the real BRK/IRQ vectors live in ROM at
+        # $FFFA-$FFFF; this is just defensive padding at $0002).
         mem[0x0002] = 0x02
-        mem[0xFFFE] = 0x02
-        mem[0xFFFF] = 0x00
 
         # Disk II P6 state-machine PROM, loaded at the slot's $Cn00 page so
         # any code that reads it sees real bytes. The actual sector read is
@@ -198,25 +230,21 @@ class SoftCardMachine:
             mem[0xC300:0xC400] = self.videx.rom[768:1024]
             mem[0xC800:0xCC00] = self.videx.rom[0:1024]
 
-        # Post-PROM 6502 state (Apple Disk II boot convention):
-        #   PC=$0801  entry just past the sector-0 length byte at $0800
-        #   X = slot*16 ($n0) so $Cn page code can index its soft switches
-        #   SP=$FD    the PROM has pushed a couple of bytes
+        # Power-on reset: enter the ROM RESET routine. The autostart cold-start
+        # path is selected when the power-up byte $03F4 != ($03F3 EOR $A5);
+        # freshly-cleared RAM satisfies that, but force it so a re-run is cold.
+        # The ROM RESET sets the stack, registers, and all of zero page itself
+        # (SETNORM/INIT/SETVID/SETKBD/HOME), then scans slots and boots the
+        # Disk II -- no post-PROM hand-seeding needed. (The reset vector reads
+        # through the language card in ROM mode -- its power-on default -- or
+        # straight from the plane in flat mode.)
         c = self.m6502
-        c.pc = 0x0801
-        c.x = self.slot * 16
-        c.sp = 0xFD
-        c.a = 0
-        c.y = 0
-        # Zero-page the boot reads:
-        #   $2B  the slot the boot came from, as $n0 (Disk II convention)
-        #   $26/$27  RWTS-style destination pointer (lo/hi); next read lands
-        #            at $0900 and walks upward sector by sector
-        #   $3D  current sector number for the p6_hook to fetch
-        mem[0x2B] = self.slot * 16
-        mem[0x26] = 0x00
-        mem[0x27] = 0x09
-        mem[0x3D] = 0x01
+        rv = (self.lc.read(0xFFFC) | (self.lc.read(0xFFFD) << 8)) if self.lc \
+            else (mem[0xFFFC] | (mem[0xFFFD] << 8))
+        c.pc = rv
+        c.sp = 0xFF
+        c.a = c.x = c.y = 0
+        mem[0x03F4] = 0x00                            # force autostart cold start
         c.disk.motor_on = True
         c.disk.current_qtrack = 0
 
@@ -251,62 +279,6 @@ class SoftCardMachine:
             return False
         c.add_breakpoint(0x106A, patch_3e)
         c.add_breakpoint(0x1063, patch_3e)
-
-    # ------------------------------------------------------------------
-    # monitor entries as PC hooks ("run from ROM" regardless of RAM)
-    # ------------------------------------------------------------------
-    def _install_monitor_hooks(self):
-        """Stand in for the Apple II monitor ROM, which we do not load.
-
-        The SoftCard BIOS runs console I/O on the 6502 side and calls
-        monitor ROM routines to do it. We don't carry that ROM, so we
-        intercept its entry points as PC breakpoints. Two of them are
-        load-bearing and implemented faithfully -- SAVE/RESTORE, because
-        the BIOS's two-processor register-passing protocol round-trips the
-        registers through the $45-$48 save area (see the softcard-videx
-        series, Part 4). The rest are stubbed to a clean RTS: their screen
-        side effects either don't matter to the boot path or are produced
-        elsewhere (the Videx firmware, or the 40-column text page).
-        """
-        # A faithful RTS that does not need a real ROM byte to execute:
-        # pull the return address off the stack and resume past it.
-        def mon_rts(cpu):
-            lo = cpu.mem[0x0100 + ((cpu.sp + 1) & 0xFF)]
-            hi = cpu.mem[0x0100 + ((cpu.sp + 2) & 0xFF)]
-            cpu.sp = (cpu.sp + 2) & 0xFF
-            cpu.pc = (((hi << 8) | lo) + 1) & 0xFFFF
-            return False
-
-        def mon_save(cpu):                 # $FF4A SAVE: A,X,Y,P,SP -> $45-$49
-            cpu.mem[0x45] = cpu.a
-            cpu.mem[0x46] = cpu.x
-            cpu.mem[0x47] = cpu.y
-            cpu.mem[0x48] = cpu._get_p()
-            cpu.mem[0x49] = cpu.sp
-            cpu.D = 0                       # SAVE also clears decimal mode
-            return mon_rts(cpu)
-
-        def mon_restore(cpu):              # $FF3F RESTORE: $45-$48 -> A,X,Y,P
-            cpu._set_p(cpu.mem[0x48])
-            cpu.a = cpu.mem[0x45]
-            cpu.x = cpu.mem[0x46]
-            cpu.y = cpu.mem[0x47]
-            return mon_rts(cpu)
-
-        self.m6502.add_breakpoint(0xFF4A, mon_save)
-        self.m6502.add_breakpoint(0xFF3F, mon_restore)
-        # Stubbed monitor routines (canonical Apple II monitor names):
-        #   FF58 a guaranteed RTS    FCA8 WAIT (delay)      FF2D PRERR
-        #   FB2F INIT/SETTXT setup   FE89 SETKBD            FE93 SETVID
-        #   FD8E CROUT (CR out)      FDED COUT (char out)   FD0C RDKEY
-        #   FF65 MON (monitor warm)  FC58 HOME (clear)      FC22 VTAB
-        #   FC42 (cursor/clear)      FC9C CLREOL            FC70 SCROLL
-        #   FB39 (text mode setup)   FDF0 COUT1 (screen char out)
-        for entry in (0xFF58, 0xFCA8, 0xFF2D, 0xFB2F, 0xFE89, 0xFE93,
-                      0xFD8E, 0xFDED, 0xFD0C, 0xFF65,
-                      0xFC58, 0xFC22, 0xFC42, 0xFC9C, 0xFC70, 0xFB39,
-                      0xFDF0):
-            self.m6502.add_breakpoint(entry, mon_rts)
 
     # ------------------------------------------------------------------
     # instruction-fetch coverage for $C100-$CFFF (fetches bypass read())
@@ -348,7 +320,20 @@ class SoftCardMachine:
                 self.m6502.add_breakpoint(a, chained)
 
     # ------------------------------------------------------------------
-    # sector-level disk service at the RWTS read primitive ($BE11)
+    # variant detection (which RWTS read primitive to hook)
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _detect_variant(dsk_path):
+        """'220-44k' | '220' | '223' | None. 2.20-44K's runtime RWTS read
+        primitive ($0E10) differs from 2.23's ($BE11), so the sector hook must
+        match. Pattern-based (no assembler); falls back to None (-> 2.23 hook)."""
+        try:
+            from cpm_pipeline.reconstruct import _detect_variant
+            return _detect_variant(dsk_path)
+        except Exception:
+            return None
+
+    # sector-level disk service at the RWTS read primitive ($BE11 / $0E10)
     # ------------------------------------------------------------------
     def _install_sector_hook(self):
         """Service runtime disk I/O directly from the image at the BIOS's
@@ -416,7 +401,48 @@ class SoftCardMachine:
                 self.disk_writes.append((track, sec_log, phys, dest))
             return ret(carry=0, err=0x00)
 
-        self.m6502.add_breakpoint(0xBE11, rwts_sector_hook)
+        # 2.20-44K runs a different RWTS: its read primitive is RWTS_RW ($0E10),
+        # which select/seek/reads the sector named by a DIFFERENT cell contract
+        # than 2.23 -- but, like 2.23, the TRACK is in $03E0 (the IOB sector cell
+        # at $03E1 is the CP/M-logical sector; $03E4 is the drive/command flag,
+        # held constant at 1 by RWTS_TOP, NOT the track). The CP/M-logical sector
+        # maps to physical via skew table $0F9D; dest is $03E8/$03E9. Verified
+        # against the real RWTS_RW (CPM_BootLoader.s): the 28-sector system load
+        # walks $03E0 = track 0 (sec $0B-$0F), track 1 (all), track 2 (sec
+        # $00-$06). Reading the track from $03E4 (the old bug) pinned every read
+        # to track 1, scrambling the load so the Z-80 ran garbage and halted.
+        def rwts220_sector_hook(c):
+            track = c.mem[0x03E0]
+            sec_log = c.mem[0x03E1] & 0x0F
+            phys = c.mem[0x0F9D + sec_log]            # CP/M-logical -> physical
+            file_idx = self.interleave[phys]          # physical -> byte offset
+            off = (track * 16 + file_idx) * 256
+            dest = c.mem[0x03E8] | (c.mem[0x03E9] << 8)
+
+            def ret(carry):                            # success = carry clear
+                c.C = carry
+                lo = c.mem[0x0100 + ((c.sp + 1) & 0xFF)]
+                hi = c.mem[0x0100 + ((c.sp + 2) & 0xFF)]
+                c.sp = (c.sp + 2) & 0xFF
+                c.pc = (((hi << 8) | lo) + 1) & 0xFFFF
+                return False
+
+            if track >= 35 or off + 256 > len(self.disk_image):
+                return ret(carry=1)
+            c.mem[0x05F8] = c.mem[0x03E6]              # current slot*16 (bookkeeping)
+            c.mem[0x03E5] = track                      # current track = target
+            if dest + 256 <= 0x10000:
+                c.mem[dest:dest + 256] = self.disk_image[off:off + 256]
+            else:
+                for i in range(256):
+                    c.mem[(dest + i) & 0xFFFF] = self.disk_image[off + i]
+            self.disk_reads.append((track, sec_log, phys, dest))
+            return ret(carry=0)
+
+        if self.variant == "220-44k":
+            self.m6502.add_breakpoint(0x0E10, rwts220_sector_hook)
+        else:
+            self.m6502.add_breakpoint(0xBE11, rwts_sector_hook)
 
     # ------------------------------------------------------------------
     # public interface
