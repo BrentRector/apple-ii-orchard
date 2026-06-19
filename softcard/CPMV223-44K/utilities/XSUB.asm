@@ -21,15 +21,11 @@ TPA_START:
         LD BC,TPA_START_20+1             ; $0100  01 BC 01
 TPA_START_1:
         JP TPA_START_4                   ; $0103  C3 57 01
-        DEFB    $20,$45,$78,$74,$65,$6E,$64,$65,$64,$20,$53,$75,$62,$6D,$69,$74 ; $0106
-        DEFB    $20,$56,$65,$72,$73,$20,$32,$2E,$30              ; $0116
+        DEFB    " Extended Submit Vers 2.0"    ; $0106  string (embedded version banner, no terminator)
 TPA_START_2:
-        DEFB    $58,$73,$75,$62,$20,$41,$6C,$72,$65,$61,$64,$79,$20,$50,$72,$65 ; $011F
-        DEFB    $73,$65,$6E,$74,$24                              ; $012F
+        DEFB    "Xsub Already Present$"    ; $011F  string
 TPA_START_3:
-        DEFB    $52,$65,$71,$75,$69,$72,$65,$73,$20,$43,$50,$2F,$4D,$20,$56,$65 ; $0134
-        DEFB    $72,$73,$69,$6F,$6E,$20,$32,$2E,$30,$20,$6F,$72,$20,$6C,$61,$74 ; $0144
-        DEFB    $65,$72,$24                                      ; $0154
+        DEFB    "Requires CP/M Version 2.0 or later$"    ; $0134  string
 ; [AI] Start of real initialization after the embedded message block; pushes BC (the saved image
 ;       length) and falls through to the CP/M version check.
 TPA_START_4:
@@ -167,10 +163,22 @@ TPA_START_23:
         POP DE                           ; $01D7  D1
         LD L,$00                         ; $01D8  2E 00
         JP (HL)                          ; $01DA  E9
+; [AI] Resident-image data + signature, NOT decoded as code here: first 4 bytes are the "xsub"
+;       installed-signature the version check above compares against high memory ($016B loop). The
+;       remaining bytes are part of the relocatable resident copied from $0200 and run only after
+;       relocation into high RAM, so their absolute operands are page-relative and out of this
+;       file's $0100-$03FF range — left as DEFB.
 TPA_START_24:
-        DEFB    $78,$73,$75,$62,$62,$05,$00,$C9,$21,$6E,$1E,$70,$2B,$71,$2A,$6D ; $01DB
+        DEFB    $78,$73,$75,$62,$62,$05,$00,$C9,$21,$6E,$1E,$70,$2B,$71,$2A,$6D ; $01DB  "xsub"...
         DEFB    $1E,$EB,$0E,$16,$CD,$05,$00,$32,$5F,$1E,$C9,$21,$70,$1E,$70,$2B ; $01EB
         DEFB    $71,$2A,$6F,$1E,$EB                              ; $01FB
+; [AI] Relocatable RESIDENT IMAGE (the part copied to high RAM by the loop at $01A5 and fixed up by
+;       the relocation bitmap near $03B7). It executes ONLY at its relocated high-memory page, where
+;       the bitmap adds that page to each flagged absolute-address high byte. Decoding it at the file
+;       org $0200 is meaningless (its CALL/JP/LD operands resolve to page-relative addresses outside
+;       $0100-$03FF), so it is left as DEFB. Where the relocation bitmap flags a word as an in-image
+;       pointer, the disassembler emitted a DEFW (e.g. $0227/$023E/$024A/$0272/$0284/$0315) — those
+;       are relocation fix-up sites, not code labels at those file addresses.
 TPA_START_25:
         DEFB    $C3,$0D,$00,$05,$00,$C9,$C3,$5D,$00,$78,$73,$75,$62,$2A,$01,$00 ; $0200
         DEFB    $22,$2D,$00,$21,$2F,$00,$22,$01,$00,$2A,$06,$00,$22,$2B,$00,$21 ; $0210
@@ -181,8 +189,9 @@ TPA_START_25:
         DEFW    TPA_START_19             ; $023E
         DEFB    $CD,$81,$00,$21,$06,$00,$22,$06,$00,$2A          ; $0240
         DEFW    TPA_START_20+1           ; $024A
-        DEFB    $E9,$0D,$0A,$28,$78,$73,$75,$62,$20,$61,$63,$74,$69,$76,$65,$29 ; $024C
-        DEFB    $24,$E1,$E5,$7C,$FE,$FF,$D2,$2A,$00,$79,$FE,$0A,$CA,$A5,$00,$FE ; $025C
+        DEFB    $E9                                              ; $024C  resident code (JP (HL) tail)
+        DEFB    $0D,$0A,"(xsub active)$"    ; $024D  string (printed by resident when installed)
+        DEFB    $E1,$E5,$7C,$FE,$FF,$D2,$2A,$00,$79,$FE,$0A,$CA,$A5,$00,$FE ; $025D
         DEFB    $1A,$C2,$2A,$00,$EB,$22                          ; $026C
         DEFW    TPA_START_19             ; $0272
         DEFB    $EB,$C3,$2A,$00,$0E,$1A,$11,$37,$01,$CD,$2A,$00,$C9,$0E,$1A,$2A ; $0274
@@ -199,6 +208,9 @@ TPA_START_25:
         DEFW    TPA_START                ; $0315
         DEFB    "$$$     SUB"    ; $0317  string
         DEFB    $00    ; $0322  terminator
+; [AI] Continuation of the relocatable resident image (more resident code/data + work cells). Its
+;       operands reference the resident's relocated high-RAM addresses ($1Dxx/$1Exx/$1Fxx work
+;       area), all outside this file's $0100-$03FF range — left as DEFB, same reasoning as $0200.
         DEFB    $00,$00,$71,$D5,$3A,$28,$1F,$3D,$32,$28,$1F,$FE,$FF,$CA,$4E,$0A ; $0323
         DEFB    $2A,$24,$1F,$E5,$2A,$26,$1F,$C1,$0A,$77,$2A,$24,$1F,$23,$22,$24 ; $0333
         DEFB    $1F,$2A,$26,$1F,$23,$22,$26,$1F,$C3,$27,$0A,$C9,$21,$00,$00,$22 ; $0343
@@ -208,6 +220,11 @@ TPA_START_25:
         DEFB    $1F,$FE,$00,$CA,$AD,$0A,$3A,$2A,$1F,$FE,$01,$CA,$97,$0A,$01,$94 ; $0383
         DEFB    $02,$CD,$AF,$09,$2A,$4E,$1E,$22,$50,$1E,$EB,$2A,$B2,$1D,$19,$36 ; $0393
         DEFB    $1A,$3A,$AC,$1D,$32,$29,$1F,$C3,$B7,$0A,$11,$80,$00,$2A,$4E,$1E ; $03A3
+; [AI] RELOCATION BITMAP for the resident image (1 bit per copied byte; the fix-up loop at $01B9
+;       consumes it MSB-first and, on a set bit, adds the destination page to that image byte's high
+;       half). This is packed bit data, NOT code — left as DEFB. The DEFW TPA_START at $03D5 is a
+;       disassembler false positive: those two bitmap bytes ($00,$01) merely coincide with $0100;
+;       byte output is unaffected either way.
         DEFB    $19,$22,$4E,$1E,$21,$29,$1F,$80,$00,$20,$80,$24,$02,$40,$80,$42 ; $03B3
         DEFB    $41,$24,$10,$00,$00,$08,$21,$11,$09,$04,$41,$08,$81,$20,$82,$22 ; $03C3
         DEFB    $21,$24                                          ; $03D3

@@ -257,11 +257,19 @@ READ_RECORD_8:
         POP HL                           ; $01DB  E1
 READ_RECORD_9:
         RET                              ; $01DC  C9
-        DEFB    $46,$49,$4C,$45,$20,$44,$55,$4D,$50,$20,$56,$45,$52,$53,$49,$4F ; $01DD
-        DEFB    $4E,$20,$31,$2E,$34,$24                          ; $01ED
+        DEFB    "FILE DUMP VERSION 1.4$"                         ; $01DD  embedded version banner
 MSG_NO_INPUT_FILE:
-        DEFB    $0D,$0A,$4E,$4F,$20,$49,$4E,$50,$55,$54,$20,$46,$49,$4C,$45,$20 ; $01F3
-        DEFB    $50,$52,$45,$53,$45,$4E,$54,$20,$4F,$4E,$20,$44,$49,$53,$4B,$24 ; $0203
+        DEFB    $0D,$0A,"NO INPUT FILE PRESENT ON DISK$"          ; $01F3
+; [AI] Uninitialized data area ($0213-$02FF). BUF_POS is the program's 1-byte
+;       buffer-position variable; READ_RECORD_12 ($0215) is the 2-byte cell that
+;       holds the saved CCP stack pointer; READ_RECORD_13 ($0257) is the TOP of
+;       the program's private stack (LD SP,READ_RECORD_13). Everything from $0214
+;       onward is BSS that the .COM image carries as leftover disk-sector bytes,
+;       NOT this program's code. The "code-shaped" bytes below are never reached
+;       by any label or branch in this file and their decoded CALL/JP operands
+;       ($053C, $052A, $0560, $0600, $0700, $1006, ...) all fall OUTSIDE the
+;       $0100-$02FF program image -- stale residue, left as DEFB. (The DEFW
+;       TPA_START at $028D is a coincidence: those two bytes happen to be $00,$01.)
 BUF_POS:
         DEFB    $EA,$21                                          ; $0213
 READ_RECORD_12:

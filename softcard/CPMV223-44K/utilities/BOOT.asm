@@ -62,15 +62,26 @@ TPA_START_16:
         LD HL,($F3DE)                    ; $0129  2A DE F3
 TPA_START_17:
         JP $000B                         ; $012C  C3 0B 00
+; [AI] BDOS fn-9 prompt string (terminated by '$'). Printed when no density arg is
+;       supplied: "<3>=13 sector, <CR>=16 sector: ". Leading 0D 0A 0A 0A = CR + 3x LF.
 TPA_START_18:
-        DEFB    $0D,$0A,$0A,$0A,$3C,$33,$3E,$3D,$31,$33,$20,$73,$65,$63,$74,$6F ; $012F
-        DEFB    $72,$2C,$20,$3C,$43,$52,$3E,$3D,$31,$36,$20,$73,$65,$63,$74,$6F ; $013F  "r, <CR>=16 sector: $))"
-        DEFB    $72,$3A,$20,$24,$A9,$A9,$8D                      ; $014F
-        DEFB    $1F,$03,$A9,$60,$8D,$20,$03,$4C,$01,$03          ; $0156
+        DEFB    $0D,$0A,$0A,$0A,"<3>=13 sector, <CR>=16 sector: $" ; $012F
+; [AI] 6502 (not Z-80) launch stub — NOT executed by the Z-80 here and NOT part of the
+;       LDIR payload (which starts at TPA_START_19/$0160). The SoftCard hand-off runs it
+;       on the 6502 side: LDA #$A9 / STA $031F / LDA #$60 / STA $0320 / JMP $0301. Data
+;       to this assembler; left as DEFB.
+        DEFB    $A9,$A9,$8D,$1F,$03,$A9,$60,$8D,$20,$03,$4C,$01,$03 ; $0153
+; [AI] 256-byte 6502 disk bootstrap PAYLOAD (NOT Z-80 code). The Z-80 LDIRs this whole
+;       block ($0160-$025F) to Apple II RAM at $5000, then hands off to the 6502. These
+;       are 6502 opcodes (e.g. $BD = LDA abs,X reading the $C0xx slot/disk soft switches,
+;       $4C = JMP); they are pure data to this assembler and must stay DEFB. PARSE_DENSITY_ARG
+;       self-modifies into it (the LD (TPA_START_20),A patch at $0283).
 TPA_START_19:
         DEFB    $A2,$20,$A0,$00,$A9,$03,$85,$3C,$18,$88,$98,$24,$3C,$F0,$F5,$26 ; $0160
         DEFB    $3C,$90,$F8,$C0,$D5,$F0,$ED,$CA,$8A,$99,$00,$08,$D0,$E6,$20,$58 ; $0170
         DEFB    $FF,$BA,$A9,$60,$48,$A9                          ; $0180
+; [AI] Continuation of the 6502 payload; this byte ($0186) is the self-mod target written
+;       by LD (TPA_START_20),A at $0283 (density patch). Still 6502 data — left as DEFB.
 TPA_START_20:
         DEFB    $0C,$0A,$0A,$0A,$85,$2B,$AA,$A9,$D0,$48,$BD,$8E,$C0,$BD,$8C,$C0 ; $0186
         DEFB    $BD,$8A,$C0,$BD,$89,$C0,$A0,$50,$BD,$80,$C0,$98,$29,$03,$0A,$05 ; $0196

@@ -361,8 +361,10 @@ PRINT_DECIMAL_16_1:
         POP DE                           ; $029D  D1
         POP BC                           ; $029E  C1
         RET                              ; $029F  C9
-        DEFB    $28,$63,$29,$20,$31,$39,$38,$32,$20,$4D,$69,$63,$72,$6F,$73,$6F ; $02A0
-        DEFB    $66,$74,$20,$2D,$20,$50,$65,$74,$65,$72,$73      ; $02B0
+        ; [AI] Embedded copyright string, unreferenced (no label/jump targets it, no
+        ;       $FF/$ terminator) -- it sits in the gap between PRINT_DECIMAL_16's RET
+        ;       and FORMAT_SIZE_FIELD and is never printed or executed.
+        DEFB    "(c) 1982 Microsoft - Peters"   ; $02A0
 ; [AI] Formats a two-digit decimal size into the 'xxxk' field of the listing-line template,
 ;       blanking leading-zero digits to spaces for right-aligned numeric output.
 FORMAT_SIZE_FIELD:
@@ -509,30 +511,36 @@ LIST_AND_SUMMARY_6:
         CALL PRINT_STRING_FF                    ; $037A  CD E7 02
         RET                              ; $037D  C9
 LIST_AND_SUMMARY_7:
-        DEFB    $20,$66,$69,$6C,$65,$73,$2C,$20,$FF              ; $037E
+        DEFB    " files, ",$FF                          ; $037E
 LIST_AND_SUMMARY_8:
-        DEFB    $0D,$0A,$4E,$6F,$20,$66,$69,$6C,$65,$28,$73,$29,$20,$66,$6F,$75 ; $0387
-        DEFB    $6E,$64,$2C,$20,$FF                              ; $0397
+        DEFB    $0D,$0A,"No file(s) found, ",$FF        ; $0387
 LIST_AND_SUMMARY_9:
-        DEFB    $66,$69,$6C,$65,$6E,$61,$6D,$65,$2E,$74,$79,$70,$20 ; $039C
+        DEFB    "filename.typ "                         ; $039C  listing-line template (overwritten at runtime)
 LIST_AND_SUMMARY_10:
-        DEFB    $78,$78,$78,$6B,$FF                              ; $03A9
+        DEFB    "xxxk",$FF                              ; $03A9  size-field template (overwritten at runtime)
 LIST_AND_SUMMARY_11:
-        DEFB    $0D,$0A,$54,$6F,$74,$61,$6C,$20,$FF              ; $03AE
+        DEFB    $0D,$0A,"Total ",$FF                    ; $03AE
 LIST_AND_SUMMARY_12:
-        DEFB    $6B,$20,$69,$6E,$20,$FF                          ; $03B7
+        DEFB    "k in ",$FF                             ; $03B7
 LIST_AND_SUMMARY_13:
-        DEFB    $6B,$20,$61,$76,$61,$69,$6C,$61,$62,$6C,$65      ; $03BD
+        DEFB    "k available"                           ; $03BD  (continues into LIST_AND_SUMMARY_14's $0D,$0A,$FF)
 LIST_AND_SUMMARY_14:
         DEFB    $0D,$0A,$FF                                      ; $03C8
 LIST_AND_SUMMARY_15:
-        DEFB    $20                                              ; $03CB
+        DEFB    " "                                     ; $03CB  inter-column separator (no $FF; LAS_16 supplies it)
 LIST_AND_SUMMARY_16:
-        DEFB    $3A,$20,$FF                                      ; $03CC
+        DEFB    ": ",$FF                                ; $03CC
 LIST_AND_SUMMARY_17:
         DEFB    $00,$00                                          ; $03CF
 LIST_AND_SUMMARY_18:
         DEFB    $00,$00                                          ; $03D1
+; [AI] $03D3-$03FF is CAT's uninitialized variable/buffer area, NOT executed code:
+;       LAS_19 ($03D3) stores the caller's SP (LD (LAS_19),SP / LD SP,(LAS_19));
+;       LAS_20 ($03DD) is the sorted name-table buffer base and the stack (SP starts
+;       at LAS_21=$03FB) grows down into it; LAS_21/22 ($03FB/$03FC) hold the
+;       table-end pointer and LAS_23 ($03FD) a flag/first table cell. The file-image
+;       bytes here are leftover linker fill that happens to disassemble as code-shaped
+;       address words -- nothing jumps or calls into this range, so it stays DEFB/DEFW.
 LIST_AND_SUMMARY_19:
         DEFB    $CD                                              ; $03D3
         DEFW    ADVANCE_DE_32                 ; $03D4

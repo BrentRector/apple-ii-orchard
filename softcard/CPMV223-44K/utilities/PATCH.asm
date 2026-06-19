@@ -597,31 +597,44 @@ BIOS_DISK_DISPATCH_5:
         LD HL,($0001)                    ; $0435  2A 01 00
         LD L,E                           ; $0438  6B
         JP (HL)                          ; $0439  E9
+; [AI] '*' interactive prompt: CR,LF,"*",'$' (BDOS fn-9 terminator). Printed at $0396.
 BIOS_DISK_DISPATCH_6:
-        DEFB    $0D,$0A,$2A,$24                                  ; $043A
+        DEFB    $0D,$0A,"*$"                                     ; $043A
+; [AI] "Command error$" — syntax/command error message ($'-terminated). Used at $0319.
 BIOS_DISK_DISPATCH_7:
-        DEFB    $43,$6F,$6D,$6D,$61,$6E,$64,$20,$65,$72,$72,$6F,$72,$24 ; $043E
+        DEFB    "Command error$"                                ; $043E
+; [AI] "Disk I/O error$" — disk error message. Used at $0323.
 BIOS_DISK_DISPATCH_8:
-        DEFB    $44,$69,$73,$6B,$20,$49,$2F,$4F,$20,$65,$72,$72,$6F,$72,$24 ; $044C
+        DEFB    "Disk I/O error$"                               ; $044C
+; [AI] "File not found$" — file-not-found message. Used at $024B.
 BIOS_DISK_DISPATCH_9:
-        DEFB    $46,$69,$6C,$65,$20,$6E,$6F,$74,$20,$66,$6F,$75,$6E,$64,$24 ; $045B
+        DEFB    "File not found$"                               ; $045B
+; [AI] "End of File error$" — EOF message. Used at $0328.
 BIOS_DISK_DISPATCH_10:
-        DEFB    $45,$6E,$64,$20,$6F,$66,$20,$46,$69,$6C,$65,$20,$65,$72,$72,$6F ; $046A
-        DEFB    $72,$24                                          ; $047A
+        DEFB    "End of File erro"                              ; $046A
+        DEFB    "r$"                                            ; $047A
+; [AI] "Invalid Drive$" — invalid-drive message. Used at $031E.
 BIOS_DISK_DISPATCH_11:
-        DEFB    $49,$6E,$76,$61,$6C,$69,$64,$20,$44,$72,$69,$76,$65,$24 ; $047C
+        DEFB    "Invalid Drive$"                                ; $047C
+; [AI] "Verification error$" — old-byte compare-mismatch message. Used at $032D.
 BIOS_DISK_DISPATCH_12:
-        DEFB    $56,$65,$72,$69,$66,$69,$63,$61,$74,$69,$6F,$6E,$20,$65,$72,$72 ; $048A
-        DEFB    $6F,$72,$24                                      ; $049A
+        DEFB    "Verification err"                              ; $048A
+        DEFB    "or$"                                           ; $049A
+; [AI] Sign-on banner ("  Softcard CP/M\r\nDisk Patch Utility\r\n(C) 1982 Microsoft\r\n$"),
+;       printed via BDOS fn-9 at $010C. The fn-9 print stops at the '$' at $04DA.
 BIOS_DISK_DISPATCH_13:
-        DEFB    $0D,$0A,$0D,$0A,$20,$20,$53,$6F,$66,$74,$63,$61,$72,$64,$20,$43 ; $049D
-        DEFB    $50,$2F,$4D,$0D,$0A,$44,$69,$73,$6B,$20,$50,$61,$74,$63,$68,$20 ; $04AD
+        DEFB    $0D,$0A,$0D,$0A,"  Softcard C"                   ; $049D
+        DEFB    "P/M",$0D,$0A,"Disk Patch "                     ; $04AD
         DEFB    "Utility"    ; $04BD  string
         DEFB    $0D    ; $04C4  terminator
-        DEFB    $0A,$28,$43,$29,$20,$31,$39,$38,$32,$20,$4D,$69,$63,$72,$6F,$73 ; $04C5
-        DEFB    $6F,$66,$74,$0D,$0A,$24,$46,$69,$6C,$65,$20,$6E,$6F,$74,$20,$66 ; $04D5
-        DEFB    $6F,$75,$6E,$64,$24,$45,$6E,$64,$20,$6F,$66,$20,$46,$69,$6C,$65 ; $04E5
-        DEFB    $20,$65,$72,$72,$6F,$72,$24,$49                  ; $04F5
+        DEFB    $0A,"(C) 1982 Micros"                           ; $04C5
+        DEFB    "oft",$0D,$0A,"$"                                ; $04D5  banner ends at the '$'
+; [AI] Unreferenced leftover ASCII ("File not found$End of File error$I...") past the banner's
+;       '$' terminator at $04DA. Never printed (fn-9 stops at $04DA) and reached by no label; the
+;       three scratch cells below ($04FD-$04FF) overlay its last bytes. Kept as inert data.
+        DEFB    "File not f"                                     ; $04DB
+        DEFB    "ound$End of File"                              ; $04E5
+        DEFB    " error$I"                                       ; $04F5
 BIOS_DISK_DISPATCH_14:
         DEFB    $6E                                              ; $04FD
 BIOS_DISK_DISPATCH_15:

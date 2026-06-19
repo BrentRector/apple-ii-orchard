@@ -152,16 +152,18 @@ BDOS_CONOUT:
         LD C,$02                         ; $01BB  0E 02
         JP BDOS_VEC                      ; $01BD  C3 05 00
 MSG_COMMAND_ERROR:
-        DEFB    $43,$6F,$6D,$6D,$61,$6E,$64,$20,$45,$72,$72,$6F,$72,$24 ; $01C0
+        DEFB    "Command Error$"                                 ; $01C0  ('$' = BDOS fn 9 terminator)
 MSG_NO_DIR_SPACE:
-        DEFB    $4E,$6F,$20,$64,$69,$72,$65,$63,$74,$6F,$72,$79,$20,$73,$70,$61 ; $01CE
-        DEFB    $63,$65,$24                                      ; $01DE
+        DEFB    "No directory space$"                            ; $01CE
 MSG_DOWNLOAD_COMPLETE:
-        DEFB    $0D,$0A,$44,$4F,$57,$4E,$4C,$4F,$41,$44,$20,$43,$6F,$6D,$70,$6C ; $01E1
-        DEFB    $65,$74,$65,$24                                  ; $01F1
+        DEFB    $0D,$0A,"DOWNLOAD Complete$"                     ; $01E1  CR LF then text
 MSG_DOWNLOADING:
         DEFB    "Downloading"    ; $01F5  string
         DEFB    $00    ; $0200  terminator
+; [AI] $0201-$02FF : trailing bytes within the 512-byte (.COM = 4 records) file image, past the
+;       program proper. No code path above references or jumps here; the bytes decode as plausible
+;       Z-80 but CALL/JP out-of-range addresses ($1124/$138B/$114B...), i.e. a stale TPA memory
+;       image left in the final record, not DOWNLOAD code. Kept as data (it is data).
         DEFB    $FA,$09,$C3,$8B,$13,$0E,$2C,$F5,$79,$CD,$24,$11,$F1,$C9,$CD,$D4 ; $0201
         DEFB    $11,$C8,$FE,$09,$C9,$CD,$4B,$11,$FE,$0D,$CA,$3C,$07,$CD,$0F,$00 ; $0211
         DEFB    $CA,$16,$00,$0E,$06,$21,$C8,$09,$36,$20,$23,$0D,$C2,$29,$00,$0E ; $0221
