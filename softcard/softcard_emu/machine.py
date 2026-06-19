@@ -77,6 +77,9 @@ class SoftCardMachine:
                            else DOS33_INTERLEAVE)
         with open(dsk_path, 'rb') as f:
             self.dsk_bytes = f.read()
+        # Which SoftCard CP/M build? 2.20's RWTS read primitive is at a different
+        # address than 2.23's, so the sector hook must be installed accordingly.
+        self.variant = self._detect_variant(dsk_path)
         # dsk_bytes is the pristine image (read-only reference); disk_image
         # is the runtime-writable copy the sector hook reads from and writes
         # back to, so a guest can modify its own disk (e.g. CPM60.COM).
@@ -348,7 +351,20 @@ class SoftCardMachine:
                 self.m6502.add_breakpoint(a, chained)
 
     # ------------------------------------------------------------------
-    # sector-level disk service at the RWTS read primitive ($BE11)
+    # variant detection (which RWTS read primitive to hook)
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _detect_variant(dsk_path):
+        """'220-44k' | '220' | '223' | None. 2.20-44K's runtime RWTS read
+        primitive ($0E10) differs from 2.23's ($BE11), so the sector hook must
+        match. Pattern-based (no assembler); falls back to None (-> 2.23 hook)."""
+        try:
+            from cpm_pipeline.reconstruct import _detect_variant
+            return _detect_variant(dsk_path)
+        except Exception:
+            return None
+
+    # sector-level disk service at the RWTS read primitive ($BE11 / $0E10)
     # ------------------------------------------------------------------
     def _install_sector_hook(self):
         """Service runtime disk I/O directly from the image at the BIOS's
@@ -416,7 +432,43 @@ class SoftCardMachine:
                 self.disk_writes.append((track, sec_log, phys, dest))
             return ret(carry=0, err=0x00)
 
-        self.m6502.add_breakpoint(0xBE11, rwts_sector_hook)
+        # 2.20-44K runs a different RWTS: its read primitive is RWTS_RW ($0E10),
+        # which select/seek/reads the sector named by a DIFFERENT cell contract
+        # (track $03E4, CP/M-logical sector $03E1, skew table $0F9D, dest
+        # $03E8/$03E9 -- vs 2.23's track $03E0 / skew $BF9E). Without this the
+        # 28-sector LOAD_CPM system load never completes and the boot thrashes.
+        def rwts220_sector_hook(c):
+            track = c.mem[0x03E4]
+            sec_log = c.mem[0x03E1] & 0x0F
+            phys = c.mem[0x0F9D + sec_log]            # CP/M-logical -> physical
+            file_idx = self.interleave[phys]          # physical -> byte offset
+            off = (track * 16 + file_idx) * 256
+            dest = c.mem[0x03E8] | (c.mem[0x03E9] << 8)
+
+            def ret(carry):                            # success = carry clear
+                c.C = carry
+                lo = c.mem[0x0100 + ((c.sp + 1) & 0xFF)]
+                hi = c.mem[0x0100 + ((c.sp + 2) & 0xFF)]
+                c.sp = (c.sp + 2) & 0xFF
+                c.pc = (((hi << 8) | lo) + 1) & 0xFFFF
+                return False
+
+            if track >= 35 or off + 256 > len(self.disk_image):
+                return ret(carry=1)
+            c.mem[0x05F8] = c.mem[0x03E6]              # current slot*16 (bookkeeping)
+            c.mem[0x03E5] = track                      # current track = target
+            if dest + 256 <= 0x10000:
+                c.mem[dest:dest + 256] = self.disk_image[off:off + 256]
+            else:
+                for i in range(256):
+                    c.mem[(dest + i) & 0xFFFF] = self.disk_image[off + i]
+            self.disk_reads.append((track, sec_log, phys, dest))
+            return ret(carry=0)
+
+        if self.variant == "220-44k":
+            self.m6502.add_breakpoint(0x0E10, rwts220_sector_hook)
+        else:
+            self.m6502.add_breakpoint(0xBE11, rwts_sector_hook)
 
     # ------------------------------------------------------------------
     # public interface
