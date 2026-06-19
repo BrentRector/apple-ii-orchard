@@ -48,6 +48,11 @@ class ChunkSource:
     # .cfg) to assemble into a `bin_name` placed beside the Z-80 source so its
     # INCBIN resolves. `defines` are -D flags for the config (e.g. CFG_56K).
     incbin_deps: tuple = ()   # tuple of (bin_name, ca65_src_path, defines_tuple)
+    # Z-80 sources may INCLUDE sibling component sources (e.g. CPM_CCP.asm INCLUDEs
+    # CPM_BDOS.asm so the two compile as one unit, cross-refs resolving without
+    # equates). Each path is copied verbatim beside the main source so the INCLUDE
+    # resolves at assembly time.
+    include_files: tuple = ()   # tuple of Paths copied into the build dir
 
 
 def assemble_chunk(source: ChunkSource, *, cwd: Path | None = None) -> bytes:
@@ -180,10 +185,13 @@ def _assemble_z80(source: ChunkSource, *, cwd: Path | None) -> bytes:
         # cwd=tmp below). Each dep is a ca65 6502 source + sibling .cfg.
         for bin_name, src_path, defines in source.incbin_deps:
             _build_incbin_dep(Path(src_path), tmp / bin_name, defines)
+        # Copy INCLUDE'd component sources verbatim into the temp dir.
+        for inc in source.include_files:
+            shutil.copy(Path(inc), tmp / Path(inc).name)
 
-        # When there are INCBIN deps, run from the temp dir so relative INCBIN
-        # paths resolve to the staged binaries (mirrors the CPM60.COM build).
-        run_cwd = str(tmp) if source.incbin_deps else cwd
+        # When there are INCBIN/INCLUDE deps, run from the temp dir so relative
+        # INCBIN/INCLUDE paths resolve there (mirrors the CPM60.COM build).
+        run_cwd = str(tmp) if (source.incbin_deps or source.include_files) else cwd
         result = subprocess.run(
             ["sjasmplus", copied_asm.name if source.incbin_deps else str(copied_asm)],
             capture_output=True, text=True, cwd=run_cwd,

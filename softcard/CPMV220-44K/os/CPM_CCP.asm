@@ -38,7 +38,14 @@
 ; comment PROSE is [AI] machine-inferred (a hint, not a manual citation) unless
 ; marked [DOC <manual> <page>]; [?] = open question.
 ; ============================================================================
+
+    IFNDEF CPM_LINK
+    DEVICE NOSLOT64K
+    ENDIF
+
 ; -- External symbols --
+BDOS_DISPATCH_PTR    EQU $9F43               ; runtime pointer cell used by the BDOS function dispatch
+
 ; -- Mid-instruction references (shown inline as cover+offset) --
 ;   $9504 -> SUB_94FE_2+1         shared instruction tail: $9504 is reachable code inside the instruction at $9503
 ;   $9539 -> SUB_9529_1+2         z80 skip idiom: enters the operand of $11 at $9537
@@ -162,74 +169,10 @@
 ;   $A845 -> SUB_A7A5_21+1        shared instruction tail: $A845 is reachable code inside the instruction at $A844
 ;   $A851 -> SUB_A7A5_24+1        shared instruction tail: $A851 is reachable code inside the instruction at $A850
 ;   $A875 -> SUB_A7A5_25+1        shared instruction tail: $A875 is reachable code inside the instruction at $A874
-; ----------------------------------------------------------------------------
-; COMPONENT: CCP ($9300-$9BFF). Split from the former CPM_SystemImage.asm at the
-; BDOS base ($9C00). EQUs below resolve symbols defined in CPM_BDOS.asm.
-; ============================================================================
 
-    DEVICE NOSLOT64K
-
-; -- symbols referenced here but defined in CPM_BDOS / externally --
-BDOS_DISPATCH_PTR  EQU $9F43
-L_A910             EQU $A910
-L_A9AD             EQU $A9AD
-L_A9B1             EQU $A9B1
-L_A9B3             EQU $A9B3
-L_A9B9             EQU $A9B9
-L_A9BD             EQU $A9BD
-L_A9BF             EQU $A9BF
-L_A9C6             EQU $A9C6
-L_A9C8             EQU $A9C8
-L_A9CA             EQU $A9CA
-L_A9CC             EQU $A9CC
-L_A9DD             EQU $A9DD
-L_A9E9             EQU $A9E9
-L_A9EA             EQU $A9EA
-L_A9EC             EQU $A9EC
-SUB_9DA4_35        EQU $9F44
-SUB_9DA4_37        EQU $9F48
-SUB_9DA4_38        EQU $9F4E
-SUB_9FA1           EQU $9FA1
-SUB_9FA1_2         EQU $9FB0
-SUB_9FB8           EQU $9FB8
-SUB_9FB8_2         EQU $9FC2
-SUB_A0EA           EQU $A0EA
-SUB_A0F7           EQU $A0F7
-SUB_A0F7_1         EQU $A103
-SUB_A10B           EQU $A10B
-SUB_A10B_1         EQU $A11C
-SUB_A10B_4         EQU $A12B
-SUB_A15E           EQU $A15E
-SUB_A164_1         EQU $A168
-SUB_A178_1         EQU $A17D
-SUB_A178_3         EQU $A18B
-SUB_A178_4         EQU $A193
-SUB_A19C           EQU $A19C
-SUB_A19C_1         EQU $A19D
-SUB_A19C_5         EQU $A1C3
-SUB_A1C6_1         EQU $A1D3
-SUB_A1C6_2         EQU $A1D8
-SUB_A1C6_3         EQU $A1DF
-SUB_A1C6_4         EQU $A1E3
-SUB_A1F5           EQU $A1F5
-SUB_A1FE           EQU $A1FE
-SUB_A1FE_1         EQU $A204
-SUB_A1FE_3         EQU $A218
-SUB_A1FE_4         EQU $A220
-SUB_A1FE_6         EQU $A234
-SUB_A1FE_8         EQU $A255
-SUB_A25C           EQU $A25C
-SUB_A264           EQU $A264
-SUB_A26B           EQU $A26B
-SUB_A26B_1         EQU $A275
-SUB_A26B_11        EQU $A2D1
-SUB_A26B_15        EQU $A2F6
-SUB_A26B_2         EQU $A287
-SUB_A26B_4         EQU $A28E
-SUB_A26B_5         EQU $A29C
-SUB_A26B_8         EQU $A2B1
-
+    IFNDEF CPM_LINK
     ORG $9300
+    ENDIF
 
 
 L_9300:
@@ -1517,4 +1460,7 @@ SUB_9866_69:
         CALL SUB_A178_3+1                ; $9BFB  CD 8C A1
         JP SUB_9866_51                   ; $9BFE  C3 D2 9A
 
-    SAVEBIN "{out_bin}", $9300, $0900
+    INCLUDE "CPM_BDOS.asm"   ; BDOS compiles together with the CCP
+    IFNDEF CPM_LINK
+    SAVEBIN "{out_bin}", $9300, $1700
+    ENDIF

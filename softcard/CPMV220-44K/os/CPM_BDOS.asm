@@ -1,39 +1,12 @@
 ; ============================================================================
 ; Microsoft SoftCard CP/M 2.20 (44K) -- BDOS component ($9C00-$A9FF)
 ; ----------------------------------------------------------------------------
-; Split from the former CPM_SystemImage.asm at the BDOS base ($9C00). BDOS
-; function entry $9C06; dispatch via the runtime pointer cell $9F43. EQUs below
-; resolve symbols defined in CPM_CCP.asm.
+; A body fragment INCLUDEd by CPM_CCP.asm (which carries DEVICE/ORG and the
+; shared header) so the two compile as ONE unit -- CCP<->BDOS references
+; resolve directly, no equates. BDOS function entry $9C06; dispatch via the
+; runtime pointer cell $9F43 (BDOS_DISPATCH_PTR, defined in CPM_CCP.asm).
 ; ============================================================================
 
-    DEVICE NOSLOT64K
-
-; -- symbols referenced here but defined in CPM_CCP / externally --
-BDOS_DISPATCH_PTR  EQU $9F43
-L_9400             EQU $9400
-L_9408             EQU $9408
-SUB_9498           EQU $9498
-SUB_94A7           EQU $94A7
-SUB_94BD           EQU $94BD
-SUB_9529           EQU $9529
-SUB_95D5           EQU $95D5
-SUB_9609           EQU $9609
-SUB_965E           EQU $965E
-SUB_965E_1         EQU $965F
-SUB_972E_10        EQU $9781
-SUB_9842           EQU $9842
-SUB_9866           EQU $9866
-SUB_9866_55        EQU $9B2E
-SUB_9866_57        EQU $9B3E
-SUB_9866_58        EQU $9B43
-SUB_9866_59        EQU $9B4E
-SUB_9866_62        EQU $9B71
-SUB_9866_63        EQU $9B85
-SUB_9866_68        EQU $9BDB
-
-    ORG $9C00
-
-        DEFB    $9A    ; $9C00  spillover: tail of the CCP JP at $9BFE
 SUB_9866_70:
         POP HL                           ; $9C01  E1
         DEC A                            ; $9C02  3D
@@ -2044,5 +2017,3 @@ L_A9EB:
 L_A9EC:
         DEFS    20, $E5    ; $A9EC  fill
 
-
-    SAVEBIN "{out_bin}", $9C00, $0E00
