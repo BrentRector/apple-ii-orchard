@@ -47,6 +47,8 @@ class Chunk:
     entries: list[int] = field(default_factory=list)   # entry-point addresses
     data_regions: list[tuple[int, int]] = field(default_factory=list)
     symbols: list[Path] = field(default_factory=list)
+    offset: int = 0            # byte offset into bin_path (share one staging bin
+                               # across regions, e.g. CCP + BDOS)
 
 
 # ── 2.23 chunk map ─────────────────────────────────────────────────────
@@ -84,10 +86,18 @@ CHUNKS_223 = [
         org=0x1A00, entries=[0x1A00],
         symbols=[CPM22],
     ),
+    # The system image is two independent modules: CCP ($8000-$8CFF) then BDOS
+    # ($8D00 staged, runs $9C00). The BDOS shares the staging bin at offset $0D00.
     Chunk(
-        "CPM223_SystemImage", "z80",
+        "CPM223_CCP", "z80",
         INVEST / "sysimg_223.bin",
-        org=0x8000, entries=[0x8000],
+        org=0x8000, length=0x0D00, entries=[0x8000],
+        symbols=[CPM22],
+    ),
+    Chunk(
+        "CPM223_BDOS", "z80",
+        INVEST / "sysimg_223.bin",
+        org=0x9C00, length=0x0A00, offset=0x0D00, entries=[0x9C00],
         symbols=[CPM22],
     ),
     Chunk(
@@ -166,13 +176,21 @@ def run_chunk(chunk: Chunk, tmp: Path) -> Result:
         return Result(chunk, False, 0, 0, 0, 0, None,
                       note=f"missing input: {chunk.bin_path.name}")
 
-    raw = chunk.bin_path.read_bytes()
-    length = chunk.length if chunk.length is not None else len(raw)
-    original_truncated = raw[:length]
+    full = chunk.bin_path.read_bytes()
+    avail = len(full) - chunk.offset
+    length = chunk.length if chunk.length is not None else avail
+    raw = full[chunk.offset:chunk.offset + length]
+    original_truncated = raw
 
     out_base = tmp / chunk.name
+    # The disassemblers read from the start of their input; for a sliced region
+    # (offset > 0) feed them a sliced temp bin instead of the shared staging bin.
+    in_path = chunk.bin_path
+    if chunk.offset:
+        in_path = tmp / f"{chunk.name}_in.bin"
+        in_path.write_bytes(raw)
     cli_argv = [
-        str(chunk.bin_path),
+        str(in_path),
         "--org", _addr(chunk.org),
         "--length", _addr(length),
         "--output", str(out_base),
