@@ -88,6 +88,9 @@ class Bus:
             if self.videx:
                 self.videx.track(addr, '6502-wr', c.pc)
             raise Yield()
+        if addr == 0xC010:                            # any access clears the
+            self.kbd.clear_strobe()                   # keyboard strobe (incl.
+            return                                    # a write, per real HW)
         if 0xC080 <= addr <= 0xC08F and self.lc:
             self.lc.access(addr & 0xF, is_read=False)
             return
@@ -163,6 +166,9 @@ class Bus:
             if self.videx:
                 self.videx.track(ap, 'z80-wr', z.pc)
             raise Yield()
+        if ap == 0xC010:                              # write clears the keyboard
+            self.kbd.clear_strobe()                   # strobe (SoftCard CONIN
+            return True                               # does LD ($E010),A)
         if 0xC080 <= ap <= 0xC08F and self.lc:
             self.lc.access(ap & 0xF, is_read=False)
             return True

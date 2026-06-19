@@ -19,12 +19,14 @@ Models the standard Apple II language-card banking:
   protects; a WRITE to an odd switch clears the counter without
   changing protection (Sather, *Understanding the Apple II*).
 
-The ROM plane here is not an Apple ROM dump: this emulator services
-monitor entry points with PC hooks (see machine.py), so the ROM plane
-exists to give LC-detection probes honest ROM-vs-RAM semantics (reads
-with ROM selected return stable bytes distinct from RAM content). It
-is filled with $60 (RTS) plus the real monitor SAVE/RESTORE byte
-sequences and the reset/IRQ vectors.
+The ROM plane is the genuine Apple II+ motherboard ROM ($D000-$FFFF:
+Applesoft + the Autostart monitor), passed in by the machine. With it
+mapped, the 6502 fetches and executes the real monitor routines
+(COUT1/HOME/CROUT/SAVE/RESTORE/...) the SoftCard's console handler
+calls -- no PC-hook stand-ins needed (see machine.py). If no ROM image
+is supplied (``rom=None``) the plane falls back to an $60 (RTS) fill
+plus the SAVE/RESTORE sequences and reset/IRQ vectors, enough for
+LC-detection probes to see honest ROM-vs-RAM semantics.
 
 6502 *instruction fetches* honor banking too: the CPU core fetches
 opcodes and pc-relative operand bytes through ``CPU6502.fetch_hook``,
@@ -40,24 +42,32 @@ are likewise fully banked.
 
 
 class LanguageCard:
-    def __init__(self, apple_mem):
+    def __init__(self, apple_mem, rom=None):
         # $E000-$FFFF common RAM and bank-2 $D000-$DFFF live in the
         # shared apple_mem array (so direct pokes by setup code remain
         # visible when RAM is banked in); bank 1 is a separate 4 KB.
         self.mem = apple_mem
         self.bank1 = bytearray(0x1000)
 
-        self.rom = bytearray([0x60]) * 0x3000          # RTS-filled
-        # real monitor RESTORE ($FF3F) and SAVE ($FF4A) byte sequences
-        self.rom[0xFF3F - 0xD000:0xFF4A - 0xD000] = bytes.fromhex(
-            "A54848A545A646A4472860")
-        self.rom[0xFF4A - 0xD000:0xFF58 - 0xD000] = bytes.fromhex(
-            "85458646844708688548BA8649D8")
-        # reset -> $0801 boot entry; IRQ/BRK -> $0002 trap
-        self.rom[0xFFFC - 0xD000] = 0x01
-        self.rom[0xFFFD - 0xD000] = 0x08
-        self.rom[0xFFFE - 0xD000] = 0x02
-        self.rom[0xFFFF - 0xD000] = 0x00
+        if rom is not None:
+            if len(rom) != 0x3000:
+                raise ValueError(
+                    f"motherboard ROM must be $3000 (12288) bytes for "
+                    f"$D000-$FFFF, got {len(rom)}")
+            self.rom = bytearray(rom)                   # genuine Apple II+ ROM
+        else:
+            # Fallback stub (no ROM image): $60 (RTS) fill + the real monitor
+            # SAVE/RESTORE byte sequences + reset/IRQ vectors, enough for
+            # LC-detection probes. The machine normally passes the real ROM.
+            self.rom = bytearray([0x60]) * 0x3000
+            self.rom[0xFF3F - 0xD000:0xFF4A - 0xD000] = bytes.fromhex(
+                "A54848A545A646A4472860")
+            self.rom[0xFF4A - 0xD000:0xFF58 - 0xD000] = bytes.fromhex(
+                "85458646844708688548BA8649D8")
+            self.rom[0xFFFC - 0xD000] = 0x01           # reset -> $0801 boot
+            self.rom[0xFFFD - 0xD000] = 0x08
+            self.rom[0xFFFE - 0xD000] = 0x02           # IRQ/BRK -> $0002 trap
+            self.rom[0xFFFF - 0xD000] = 0x00
 
         # power-on state: ROM read, bank 2, write enabled
         self.read_ram = False
