@@ -255,13 +255,21 @@ SOURCES_220_44K: dict[str, ChunkSource | Path] = {
         asm_path=OS220_44K / "CPM_BootLoader.s",
         cpu="6502", org=0x0800, size=0x0C00,
     ),
-    "CPM220_44K_SystemImage": ChunkSource(
-        asm_path=OS220_44K / "CPM_SystemImage.asm",
-        cpu="z80", org=0x9300, size=0x1700,
-        expected_bin_name="build/CPM220_44K_SystemImage.bin",
-        # The CCP embeds a 6502 RPC block at $9400-$9500; it lives in its own ca65
-        # source and is INCBIN'd. Assemble it (44K config: no CFG_56K) first.
+    # The former combined SystemImage is split into its two OS components, CCP and
+    # BDOS (boundary = BDOS base $9C00), so each is a relocatable module the fold
+    # can DISP independently (the CPM60.asm pattern).
+    "CPM220_44K_CCP": ChunkSource(
+        asm_path=OS220_44K / "CPM_CCP.asm",
+        cpu="z80", org=0x9300, size=0x0900,
+        expected_bin_name="build/CPM220_44K_CCP.bin",
+        # The CCP embeds a 6502 RPC block at $9400-$9500; INCBIN'd from its ca65
+        # source. Assemble it (44K config: no CFG_56K) first.
         incbin_deps=(("CPM_RPC6502.bin", OS220_44K / "CPM_RPC6502.s", ()),),
+    ),
+    "CPM220_44K_BDOS": ChunkSource(
+        asm_path=OS220_44K / "CPM_BDOS.asm",
+        cpu="z80", org=0x9C00, size=0x0E00,
+        expected_bin_name="build/CPM220_44K_BDOS.bin",
     ),
     # As-shipped pristine on-disk BIOS ($AA00-$AEFF) -- what LOAD_CPM reads.
     "CPM220_44K_BIOS_Disk": ChunkSource(
@@ -292,11 +300,14 @@ def _build_chunks_220_44k():
     staging_sectors = [(0, p) for p in range(0xB, 0x10)]
     staging_sectors += [(1, p) for p in range(0x10)]
     staging_sectors += [(2, p) for p in range(0x7)]
-    # offset $0000-$16FF -> CPM220_44K_SystemImage; $1700-$1BFF -> CPM220_44K_BIOS_Disk
+    # offset $0000-$08FF -> CCP ($9300); $0900-$16FF -> BDOS ($9C00);
+    # $1700-$1BFF -> BIOS ($AA00)
     for i, (track, phys) in enumerate(staging_sectors):
         off = i * 0x100
-        if off < 0x1700:
-            src, base = "CPM220_44K_SystemImage", 0x0000
+        if off < 0x0900:
+            src, base = "CPM220_44K_CCP", 0x0000
+        elif off < 0x1700:
+            src, base = "CPM220_44K_BDOS", 0x0900
         else:
             src, base = "CPM220_44K_BIOS_Disk", 0x1700
         CHUNKS_220_44K.append(ChunkSpec(

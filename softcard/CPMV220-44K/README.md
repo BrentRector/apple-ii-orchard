@@ -27,8 +27,16 @@ reassembles byte-identical. Runtime layout (the original 44K column): CCP
 | File | CPU | Org | Notes |
 |------|-----|-----|-------|
 | `CPM_BootLoader.s` | 6502 | `$0800` | boot sector + RWTS + stage-2 + install image; COPYRIGHT banner |
-| `CPM_SystemImage.asm` | Z-80 | `$9300` | serial page + CCP + BDOS; `$9400-$94FC` is an **embedded 6502 RPC block** (runs via the CPU-switch); messages use a computed position-relative locator; BDOS dispatch is runtime-pointer (`LD HL,($9F43)`) |
+| `CPM_CCP.asm` | Z-80 | `$9300` | serial page + CCP (`$9300-$9BFF`); `INCBIN`s the embedded 6502 RPC block (`CPM_RPC6502.s`) at `$9400` |
+| `CPM_BDOS.asm` | Z-80 | `$9C00` | BDOS (`$9C00-$A9FF`); function entry `$9C06`; dispatch via runtime pointer cell `$9F43` |
+| `CPM_RPC6502.s` | 6502 | `$9400` | the embedded 6502 RPC / warm-boot / sector-service block; assembled separately, `INCBIN`'d into CCP. One config byte (`$94AE`, the warm-boot buffer hi) is `CFG_56K`-conditional |
 | `CPM_BIOS.asm` | Z-80 | `$AA00` | 17-entry jump table; runtime handlers are `$E5` trap-fill on disk |
+
+The former combined `CPM_SystemImage.asm` was **split into its two OS
+components** (`CPM_CCP.asm` + `CPM_BDOS.asm`, boundary = BDOS base `$9C00`) so
+each is a relocatable module the 56K fold (`CPM56.asm`) can `DISP` independently,
+mirroring the `CPM60.asm` pattern. Each carries absolute-address `EQU`s for the
+symbols it references across the boundary; both reconstruct byte-identical.
 
 ## utilities/ — the .COM programs (19 disk files)
 
