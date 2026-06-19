@@ -35,13 +35,14 @@ system. These sources reassemble to exactly those bytes; the disk build
 | `CPM_RWTS.s` | 6502 | `$0A00` | Read/Write Track-Sector engine (GCR 6-and-2 codec) |
 | `CPM_InstallFragments.s` | 6502 | `$0200` | Fragments the stage-2 loader copies into place |
 | `CPM_DiskCallbacks.asm` | Z-80 | `$1A00` | Z-80 thunks bridging BDOS/BIOS disk requests to the 6502 RWTS |
-| `CPM_SystemImage.asm` | Z-80 | `$8000` | The staged **CCP + BDOS** image `LOAD_CPM` reads (runs at `$9300`/`$9C00`) |
+| `CPM_CCP.asm` | Z-80 | `$8000` | The CCP module; also assembles the staged **CCP + BDOS** image `LOAD_CPM` reads, by INCLUDEing `CPM_BDOS.asm` (runs at `$9300`/`$9C00`) |
+| `CPM_BDOS.asm` | Z-80 | `$9C00` | The 2.23 BDOS module (builds standalone; INCLUDEd by `CPM_CCP.asm` under `DISP $9C00`) |
 | `CPM_BIOS.asm` | Z-80 | `$FA00` | The **as-shipped** pristine on-disk BIOS (`$FA00-$FDFF`); jump table + console/disk/IOBYTE primitives |
-| `CPM_BDOS.asm` | Z-80 | `$9C00` | The 2.23 BDOS on its own (a semantic view of the BDOS half of `CPM_SystemImage`) |
 
 6502 regions are ca65 `.s` + a `.cfg` linker config; Z-80 regions are sjasmplus
-`.asm`. The standalone CCP lives in the shared [`../src/os/CPM_CCP.asm`](../src/os/CPM_CCP.asm)
-(one source builds the 44K and 60K CCP). The BIOS is the bytes on disk; the
+`.asm`. The CP/M system image is **two independent module files** — `CPM_CCP.asm`
+(the CCP) and `CPM_BDOS.asm` (the BDOS); the CCP INCLUDEs the BDOS so the two
+compile as one staged image and reassemble byte-identical. The BIOS is the bytes on disk; the
 running BIOS additionally builds a `$FE00-$FF47` device/console tail in RAM (the
 Videx/Pascal path) — see [`BOOT_AND_PATCHING.md`](BOOT_AND_PATCHING.md).
 

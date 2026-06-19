@@ -60,7 +60,9 @@ def _component_of(spec) -> str:
         if 0x1000 <= addr < 0x1200:
             return "stage-2 loader"
         return "install fragments"
-    if name.endswith("SystemImage"):
+    # The CCP+BDOS system image: "..._System" (2.23, CCP INCLUDEs BDOS as two
+    # independent module files) or the legacy combined "..._SystemImage" (2.20-56K).
+    if name.endswith("_System") or name.endswith("SystemImage"):
         return "CCP+BDOS"
     if name.endswith("DiskCallbacks"):
         return "disk callbacks"

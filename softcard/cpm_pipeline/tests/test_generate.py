@@ -40,8 +40,8 @@ def test_generate_2_23_tree_structure():
         assert (out / "analysis" / "02_loader.txt").exists()
         assert (out / "analysis" / "03_cold_boot.txt").exists()
         assert (out / "analysis" / "04_handoff.txt").exists()
-        # 6 sources for 2.23
-        assert len(result.sources_copied) == 6
+        # 7 sources for 2.23 (the system image is two modules: CCP + BDOS)
+        assert len(result.sources_copied) == 7
         # 3 symbol tables for 2.23
         assert len(result.symbols_copied) == 3
         # Variant detected

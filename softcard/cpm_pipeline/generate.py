@@ -14,7 +14,7 @@ human reading, modification, and rebuild:
             CPM223_BootLoader.asm         -- ca65 source (6502)
             CPM223_RWTS.asm
             CPM223_DiskCallbacks.asm      -- sjasmplus source (Z-80)
-            CPM223_SystemImage.asm
+            CPM_CCP.asm  +  CPM_BDOS.asm   -- the two system-image modules
             CPM223_BIOS.asm
             CPM223_InstallFragments.asm
         symbols/
@@ -91,7 +91,10 @@ SOURCES_BY_VARIANT = {
         "CPM_RWTS.s",
         "CPM_InstallFragments.s",
         "CPM_DiskCallbacks.asm",
-        "CPM_SystemImage.asm",
+        # The system image is two independent modules: CCP (which INCLUDEs BDOS to
+        # assemble the staging image) + BDOS. (Was the combined CPM_SystemImage.asm.)
+        "CPM_CCP.asm",
+        "CPM_BDOS.asm",
         "CPM_BIOS.asm",
     ],
     "softcard_cpm_2_20": [

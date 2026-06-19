@@ -157,7 +157,8 @@ Coverage today (both 2.20 and 2.23):
 - **100% of the boot/OS region** (10,240 bytes for 2.23; 9,984 for 2.20)
   comes from freshly assembled `softcard/docs/CPM*.asm` — **0 bytes from a
   pre-extracted `.bin`**. The 29-sector LOAD_CPM staging area is now split
-  across `CPM223_SystemImage` (CCP+BDOS), `CPM223_DiskCallbacks`, and
+  across `CPM223_44K_System` (CCP+BDOS: `CPM_CCP.asm` INCLUDEs `CPM_BDOS.asm`,
+  two independent module files), `CPM223_DiskCallbacks`, and
   `CPM223_BIOS_Disk` (the pristine on-disk BIOS image, jump table at $FA00).
 - For the **whole disk**, [`reconstruct.py`](reconstruct.py)'s `reconstruct_full_disk`
   (also `python -m cpm_pipeline.reconstruct <disk> <out>`) rebuilds

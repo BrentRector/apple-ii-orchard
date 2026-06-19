@@ -8,8 +8,10 @@ physical (track, sector) position on the disk." The binary is one of:
     sources emit.
 Both variants are now fully sourced: every boot/OS sector maps to an
 assembled `docs/CPM*.asm` source (no pre-extracted `.bin` remains in the
-map). The CCP+BDOS+BIOS LOAD_CPM staging area is split across
-`CPM*_SystemImage`, `CPM*_DiskCallbacks` (2.23), and `CPM*_BIOS_Disk`
+map). The CCP+BDOS+BIOS LOAD_CPM staging area is split across the system image
+(`CPM223_44K_System` = CPM_CCP.asm INCLUDEing CPM_BDOS.asm, the two
+independent modules; the 2.20-56K tree still uses the legacy combined
+`CPM220_SystemImage`), `CPM*_DiskCallbacks` (2.23), and `CPM*_BIOS_Disk`
 (the pristine on-disk BIOS image). A future phase (Stage 2 of the
 roadmap) will derive these maps automatically from boot-loader tracing
 instead of hand-listing them.
@@ -85,10 +87,16 @@ SOURCES_223: dict[str, ChunkSource | Path] = {
         cpu="z80", org=0x1A00, size=0x0200,
         expected_bin_name="build/CPM223_DiskCallbacks.bin",
     ),
-    "CPM223_SystemImage": ChunkSource(
-        asm_path=OS223_44K / "CPM_SystemImage.asm",
+    # The CP/M system image is TWO independent modules -- the CCP and the BDOS --
+    # each its own source file. CPM_CCP.asm carries the CCP (staged $8000-$8CFF) and
+    # assembles the full $8000 staging image by INCLUDEing CPM_BDOS.asm (staged
+    # $8D00, runs $9C00) under DISP $9C00, so the two compile as ONE unit and
+    # reassemble byte-identical. (Mirrors the CPMV220-44K CPM_CCP+CPM_BDOS split.)
+    "CPM223_44K_System": ChunkSource(
+        asm_path=OS223_44K / "CPM_CCP.asm",
         cpu="z80", org=0x8000, size=0x1700,
-        expected_bin_name="build/CPM223_SystemImage.bin",
+        expected_bin_name="build/CPM223_44K_System.bin",
+        include_files=(OS223_44K / "CPM_BDOS.asm",),
     ),
     # The as-shipped pristine on-disk BIOS ($FA00-$FDFF) -- exactly what LOAD_CPM
     # reads off the system tracks. The cold-boot self-modifications and the
@@ -150,13 +158,13 @@ def _build_chunks_223():
 
     # Each 256-byte staging sector now comes from an assembled annotated
     # source rather than the pre-extracted staging_223.bin:
-    #   offset $0000-$16FF (sectors 0-22)  -> CPM223_SystemImage   (CCP + BDOS)
+    #   offset $0000-$16FF (sectors 0-22)  -> CPM223_44K_System  (CCP + INCLUDEd BDOS)
     #   offset $1700-$18FF (sectors 23-24) -> CPM223_DiskCallbacks
     #   offset $1900-$1CFF (sectors 25-28) -> CPM223_BIOS_Disk     (pristine BIOS @ $FA00)
     for i, (track, phys) in enumerate(staging_sectors):
         off = i * 0x100
         if off < 0x1700:
-            src, base = "CPM223_SystemImage", 0x0000
+            src, base = "CPM223_44K_System", 0x0000
         elif off < 0x1900:
             src, base = "CPM223_DiskCallbacks", 0x1700
         else:

@@ -21,7 +21,7 @@ filesystem (the 20 `.COM`/data files in `utilities/`).
 
    | staging offset | bytes | source (`os/`) | what it is |
    |---|---|---|---|
-   | `$0000-$16FF` | `$1700` | `CPM_SystemImage.asm` | CCP + BDOS (loaded high into `$9300`/`$9C00`) |
+   | `$0000-$16FF` | `$1700` | `CPM_CCP.asm` + `CPM_BDOS.asm` | the two system-image modules: CCP INCLUDEs BDOS (loaded high into `$9300`/`$9C00`) |
    | `$1700-$18FF` | `$0200` | `CPM_DiskCallbacks.asm` | Z-80 thunks bridging BDOS/BIOS disk I/O to the 6502 RWTS |
    | `$1900-$1CFF` | `$0400` | `CPM_BIOS.asm` | the pristine on-disk BIOS, landed at `$FA00-$FDFF` |
 

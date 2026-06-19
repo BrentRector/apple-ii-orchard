@@ -9,12 +9,23 @@
 ; Source: CPM_BDOS
 ; Range:  $9C00-$A5FF  (2560 bytes)
 ;
-; This is the 2.23 / 44K BDOS (FBASE = $9C00). The function dispatch, FCB layout,
-; and page-zero call convention are generic CP/M 2.2 and reconcile to the SoftCard
-; CP/M 2.20 manual; the load address ($9C00) and any device-table specifics are
-; build-specific and stay [AI].
+; This is the 2.23 / 44K BDOS (FBASE = $9C00) -- one of the two independent modules
+; of the CP/M system image (the other is the CCP, CPM_CCP.asm). The function
+; dispatch, FCB layout, and page-zero call convention are generic CP/M 2.2 and
+; reconcile to the SoftCard CP/M 2.20 manual; the load address ($9C00) and any
+; device-table specifics are build-specific and stay [AI].
+;
+; This file builds two ways. STANDALONE (CPM_LINK undefined): assembles at its
+; $9C00 run address to the 2560-byte BDOS image. INCLUDEd by CPM_CCP.asm (which
+; DEFINEs CPM_LINK and wraps the INCLUDE in DISP $9C00): only the body is emitted,
+; placed at the BDOS staging offset $8D00 inside the $8000 system image, byte-
+; identical either way. DEVICE/ORG/SAVEBIN below are therefore IFNDEF CPM_LINK.
+; The BDOS tail ($A531-region) is SYS_INIT, the in-place relocator the loader runs
+; at staging ($9631) before the BDOS is copied up to $9C00.
 
+    IFNDEF CPM_LINK
     DEVICE NOSLOT64K
+    ENDIF
 
 ; -- External symbols --
 ; [DOC CPMREF 3-44] WBOOT_VEC: page-zero location $0000 normally holds a JMP to the
@@ -61,7 +72,9 @@ DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS
 ;   $A5DE -> BANNER_DATE+1         shared instruction tail: $A5DE is reachable code inside the instruction at $A5DD
 ;   $A5F1 -> BANNER_MICROSOFT+2        shared instruction tail: $A5F1 is reachable code inside the instruction at $A5EF
 
+    IFNDEF CPM_LINK
     ORG $9C00
+    ENDIF
 
 BDOS_IMAGE_HEADER:
         CP L                             ; $9C00  BD
@@ -1184,4 +1197,6 @@ BANNER_END:
         NOP                              ; $A5FE  00
         DEFB    $FA                                              ; $A5FF
 
-    SAVEBIN "CPM_BDOS.bin", $9C00, $0A00
+    IFNDEF CPM_LINK
+    SAVEBIN "{out_bin}", $9C00, $0A00
+    ENDIF
