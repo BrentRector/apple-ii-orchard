@@ -3,6 +3,7 @@
 ; Range:  $0100-$14FF  (5120 bytes)
 
     DEVICE NOSLOT64K
+    INCLUDE "apple_softcard.inc"   ; Apple/SoftCard external names (single source of truth)
 
 ; -- External symbols --
 BDOS_VEC             EQU $0005               ; BDOS call vector — JP BDOS_ENTRY. Programs use CALL $0005 to invoke BDOS. Word at $0006 is also the top-of-TPA marker.
@@ -42,7 +43,7 @@ RELOC_START_4:
 RELOC_START_5:
         CALL BDOS_VEC                    ; $0147  CD 05 00
 RELOC_START_6:
-        LD A,($F3BB)                     ; $014A  3A BB F3
+        LD A,(SLTTYP3)                     ; $014A  3A BB F3
 RELOC_START_7:
         SUB $03                          ; $014D  D6 03
 RELOC_START_8:

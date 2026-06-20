@@ -32,15 +32,15 @@
 ; [AI] SoftCard shared-memory cells used by the Z-80 front end (all in the
 ; [AI] Apple ][ CP/M I/O Configuration Block, 6502 $200-$3FF = Z-80
 ; [AI] $F200-$F3FF [DOC S&HD 2-6; facts sec.2.2]):
-; [AI]   $F3B8 -> Disk Count Byte = configured drives x2
+; [AI]   DSKCNT -> Disk Count Byte = configured drives x2
 ; [AI]            [DOC S&HD 2-27; facts sec.3.7]; used to range-check the
 ; [AI]            requested "X:" drive letter.
-; [AI]   $F3D0 -> A$VEC, the 6502-call vector [DOC S&HD 2-25; facts sec.4.2];
+; [AI]   A_VEC -> A$VEC, the 6502-call vector [DOC S&HD 2-25; facts sec.4.2];
 ; [AI]            armed with $1400 (the run-address of the embedded engine).
-; [AI]   $F3DE -> Z$CPU, the SoftCard-location word [DOC S&HD 2-25;
+; [AI]   Z_CPU -> Z$CPU, the SoftCard-location word [DOC S&HD 2-25;
 ; [AI]            facts sec.4.3]; FORMAT reads it to find where to store the
 ; [AI]            Y/N answer byte for the 6502 side.
-; [AI]   $F3EA -> last 6502 status/result byte [RE]: 0 = OK ("FORMAT
+; [AI]   DSK_STATUS -> last 6502 status/result byte [RE]: 0 = OK ("FORMAT
 ; [AI]            Complete"), $10 = write-protected ("Disk Write Protected"),
 ; [AI]            any other nonzero = "Disk I/O Error".
 ; [AI]
@@ -59,6 +59,7 @@
 ; [AI] ===================================================================
 
     DEVICE NOSLOT64K
+    INCLUDE "apple_softcard.inc"   ; Apple/SoftCard external names (single source of truth)
 
 ; -- External symbols --
 WBOOT_VEC            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
@@ -98,7 +99,7 @@ PRINT_AND_EPILOGUE:
         CALL PRINT_STR                   ; $0133  CD C8 01   ; [AI] "Command Error"
         JR EPILOGUE                      ; $0136  18 66
 VALIDATE_DRIVE:
-        LD HL,$F3B8                      ; $0138  21 B8 F3   ; [AI] SoftCard Disk Count Byte = configured drives [DOC S&HD 2-27; facts sec.3.7]
+        LD HL,DSKCNT                      ; $0138  21 B8 F3   ; [AI] SoftCard Disk Count Byte = configured drives [DOC S&HD 2-27; facts sec.3.7]
         LD A,C                           ; $013B  79
         CP (HL)                          ; $013C  BE         ; [AI] drive index vs drive count
         JR C,DRIVE_OK                    ; $013D  38 05
@@ -131,13 +132,13 @@ DO_FORMAT:
         LD DE,MSG_FORMATTING             ; $0173  11 81 02
         CALL PRINT_STR                   ; $0176  CD C8 01   ; [AI] "Formatting..."
         LD HL,$1400                      ; $0179  21 00 14   ; [AI] run-address of the embedded 6502 formatter (file $0400 + $1000)
-        LD ($F3D0),HL                    ; $017C  22 D0 F3   ; [AI] arm A$VEC with the 6502 entry [DOC S&HD 2-25; facts sec.4.2]
-        LD HL,($F3DE)                    ; $017F  2A DE F3    ; [AI] HL = Z$CPU SoftCard location [DOC S&HD 2-25; facts sec.4.3]
+        LD (A_VEC),HL                    ; $017C  22 D0 F3   ; [AI] arm A$VEC with the 6502 entry [DOC S&HD 2-25; facts sec.4.2]
+        LD HL,(Z_CPU)                    ; $017F  2A DE F3    ; [AI] HL = Z$CPU SoftCard location [DOC S&HD 2-25; facts sec.4.3]
         LD (HL),A                        ; $0182  77         ; [AI] store the Y/N answer byte there for the 6502 side; this write also switches CPUs and runs the formatter
         LD A,$0D                         ; $0183  3E 0D
         CALL CONOUT                      ; $0185  CD CC 01   ; [AI] newline after the formatter pass
         LD DE,MSG_FORMAT_COMPLETE        ; $0188  11 B6 02   ; [AI] default result message
-        LD A,($F3EA)                     ; $018B  3A EA F3   ; [AI] 6502 status byte from the format pass [RE]
+        LD A,(DSK_STATUS)                     ; $018B  3A EA F3   ; [AI] 6502 status byte from the format pass [RE]
         OR A                             ; $018E  B7
         JR Z,PRINT_RESULT                ; $018F  28 0A      ; [AI] 0 -> success ("FORMAT Complete")
         LD DE,MSG_IO_ERROR               ; $0191  11 C6 02
@@ -294,7 +295,7 @@ MSG_WHICH_DRIVE:                                                 ; [AI] "\r\n\r\
 ; [AI] FORMAT runs on the Z-80 but carries this 1536-byte block of REAL 6502
 ; [AI] machine code that the SoftCard runs on the 6502 (CPU switch). The
 ; [AI] Z-80 front end stages LD HL,$1400 ($0179 above) as the 6502 entry and
-; [AI] pokes the $F3D0/$F3DE handoff doorbell, so the block runs RELOCATED at
+; [AI] pokes the A_VEC/Z_CPU handoff doorbell, so the block runs RELOCATED at
 ; [AI] $1400-$19FF (file $0400 + $1000); its internal self-references are
 ; [AI] written as $14xx-$19xx. It is disassembled as real 6502 in
 ; [AI] FORMAT_6502.s (ca65) and INCBIN'd here byte-for-byte, so each CPU's

@@ -6,6 +6,7 @@
 ; Range:  $0100-$077F  (1664 bytes)
 
     DEVICE NOSLOT64K
+    INCLUDE "apple_softcard.inc"   ; Apple/SoftCard external names (single source of truth)
 
 ; -- External symbols --
 WBOOT_VEC            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
@@ -20,10 +21,10 @@ DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS
 
     ORG $0100
 
-; [AI] $0100 transient entry point. Captures the SoftCard's saved Apple-side memory pointer ($F3DE)
+; [AI] $0100 transient entry point. Captures the SoftCard's saved Apple-side memory pointer (Z_CPU)
 ;       and computes a usable-memory limit from the BIOS base ($0007) before parsing the command.
 TPA_START:
-        LD HL,($F3DE)                    ; $0100  2A DE F3
+        LD HL,(Z_CPU)                    ; $0100  2A DE F3
 TPA_START_1:
         LD (READ_APPLE_SECTOR_3+1),HL    ; $0103  22 AB 04
 TPA_START_2:
@@ -295,14 +296,14 @@ CONSOLE_STATUS_18:
         LD DE,CONOUT_CHAR_44             ; $02DD  11 08 07
 CONSOLE_STATUS_19:
         JP TPA_START_8                   ; $02E0  C3 16 01
-; [AI] Loads the SoftCard's Apple-side I/O parameter block ($F3E0/$F3E8) to point at the 2KB Apple
+; [AI] Loads the SoftCard's Apple-side I/O parameter block (DSK_TRACK/DSK_BUFFER) to point at the 2KB Apple
 ;       DOS sector staging buffer at $0800 and selects the message for the source (Apple) disk
 ;       prompt.
 SETUP_SRC_READ:
         LD HL,$0800                      ; $02E3  21 00 08
-        LD ($F3E8),HL                    ; $02E6  22 E8 F3
+        LD (DSK_BUFFER),HL                    ; $02E6  22 E8 F3
         LD A,$01                         ; $02E9  3E 01
-        LD ($F3E0),A                     ; $02EB  32 E0 F3
+        LD (DSK_TRACK),A                     ; $02EB  32 E0 F3
         DEC A                            ; $02EE  3D
         LD ($006A),A                     ; $02EF  32 6A 00
         LD A,(CONOUT_CHAR_19)            ; $02F2  3A 14 05
@@ -410,7 +411,7 @@ WRITE_CPM_RECORDS_3:
         JP CLOSE_OUTPUT_FILE_2           ; $039F  C3 12 03
 ; [AI] Parses an optional drive-letter prefix ('X:') from the command, converting the letter to a
 ;       0-based drive number and validating it against the number of logical drives reported at
-;       $F3B8.
+;       DSKCNT.
 PARSE_DRIVE_PREFIX:
         INC HL                           ; $03A2  23
         LD A,(HL)                        ; $03A3  7E
@@ -421,7 +422,7 @@ PARSE_DRIVE_PREFIX:
         SUB $41                          ; $03AB  D6 41
         INC HL                           ; $03AD  23
         LD C,A                           ; $03AE  4F
-        LD A,($F3B8)                     ; $03AF  3A B8 F3
+        LD A,(DSKCNT)                     ; $03AF  3A B8 F3
         DEC A                            ; $03B2  3D
         CP C                             ; $03B3  B9
         JR C,ERR_INVALID_DRIVE           ; $03B4  38 25
@@ -532,13 +533,13 @@ NEXT_CATALOG_ENTRY_1:
         LD (CONOUT_CHAR_15),BC           ; $0454  ED 43 0F 05
         RET                              ; $0458  C9
 ; [AI] Translates the parsed logical drive number ($0511) into the SoftCard's Apple-side slot/drive
-;       selector bytes ($F3E4 slot-flag and $F3E6 drive code) for the next sector read.
+;       selector bytes (DSK_DIR slot-flag and DSK_UNIT drive code) for the next sector read.
 SELECT_SRC_DRIVE:
         LD A,(CONOUT_CHAR_16)            ; $0459  3A 11 05
         LD C,A                           ; $045C  4F
         AND $01                          ; $045D  E6 01
         INC A                            ; $045F  3C
-        LD ($F3E4),A                     ; $0460  32 E4 F3
+        LD (DSK_DIR),A                     ; $0460  32 E4 F3
         LD A,C                           ; $0463  79
         AND $0E                          ; $0464  E6 0E
         ADD A,A                          ; $0466  87
@@ -546,7 +547,7 @@ SELECT_SRC_DRIVE:
         ADD A,A                          ; $0468  87
         CPL                              ; $0469  2F
         ADD A,$61                        ; $046A  C6 61
-        LD ($F3E6),A                     ; $046C  32 E6 F3
+        LD (DSK_UNIT),A                     ; $046C  32 E6 F3
         RET                              ; $046F  C9
 ; [AI] Stamps the destination FCB's drive field ($005C) from the parsed output-drive number ($0512)
 ;       so the CP/M file is created on the requested drive.
@@ -555,24 +556,24 @@ SET_DEST_FCB_DRIVE:
         INC A                            ; $0473  3C
         LD (DEFAULT_FCB),A               ; $0474  32 5C 00
         RET                              ; $0477  C9
-; [AI] Points the Apple-side DMA parameter ($F3E8) at the $1822 staging area, used when reading the
+; [AI] Points the Apple-side DMA parameter (DSK_BUFFER) at the $1822 staging area, used when reading the
 ;       directory-continuation sector.
 SET_DMA_DIRCONT:
         LD DE,$1822                      ; $0478  11 22 18
-        LD ($F3E8),DE                    ; $047B  ED 53 E8 F3
+        LD (DSK_BUFFER),DE                    ; $047B  ED 53 E8 F3
         JR READ_APPLE_SECTOR_1           ; $047F  18 11
-; [AI] Points the Apple-side DMA parameter ($F3E8) at the current file's track/sector-list buffer
+; [AI] Points the Apple-side DMA parameter (DSK_BUFFER) at the current file's track/sector-list buffer
 ;       (address held in $0516) before reading data sectors.
 SET_DMA_TSLIST:
         LD DE,(CONOUT_CHAR_21)           ; $0481  ED 5B 16 05
-        LD ($F3E8),DE                    ; $0485  ED 53 E8 F3
+        LD (DSK_BUFFER),DE                    ; $0485  ED 53 E8 F3
         JR READ_APPLE_SECTOR_1           ; $0489  18 07
 ; [AI] Issues an Apple DOS sector read through the 6502 side: sets the DMA target to $1722,
 ;       programs the track/sector from HL via the skew table at $0552, arms the parameter block, and
 ;       signals the request.
 READ_APPLE_SECTOR:
         LD DE,$1722                      ; $048B  11 22 17
-        LD ($F3E8),DE                    ; $048E  ED 53 E8 F3
+        LD (DSK_BUFFER),DE                    ; $048E  ED 53 E8 F3
 READ_APPLE_SECTOR_1:
         LD A,L                           ; $0492  7D
 READ_APPLE_SECTOR_2:
@@ -582,14 +583,14 @@ READ_APPLE_SECTOR_2:
         ADD HL,DE                        ; $0499  19
         LD H,(HL)                        ; $049A  66
         LD L,A                           ; $049B  6F
-        LD ($F3E0),HL                    ; $049C  22 E0 F3
+        LD (DSK_TRACK),HL                    ; $049C  22 E0 F3
         LD A,$01                         ; $049F  3E 01
-        LD ($F3EB),A                     ; $04A1  32 EB F3
+        LD (DSK_CMD),A                     ; $04A1  32 EB F3
         LD HL,$0E03                      ; $04A4  21 03 0E
-        LD ($F3D0),HL                    ; $04A7  22 D0 F3
+        LD (A_VEC),HL                    ; $04A7  22 D0 F3
 READ_APPLE_SECTOR_3:
         LD (WBOOT_VEC),A                 ; $04AA  32 00 00
-        LD A,($F3EA)                     ; $04AD  3A EA F3
+        LD A,(DSK_STATUS)                     ; $04AD  3A EA F3
         OR A                             ; $04B0  B7
         RET Z                            ; $04B1  C8
         LD DE,CONOUT_CHAR_41             ; $04B2  11 D5 06

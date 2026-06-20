@@ -16,12 +16,13 @@
 ; [AI]   [DOC CPMREF 3-44; facts sec.5] and pokes the SoftCard/BIOS data area ($Fxxx). The
 ; [AI]   bytes from $0300 onward are a 6502 machine-code payload (Apple-side 13-sector RWTS
 ; [AI]   replacement plus nibble/skew tables); the install path stages it, points the
-; [AI]   SoftCard 6502 call vector A$VEC ($F3D0) [DOC S&HD 2-25; facts sec.4.2] at the engine,
-; [AI]   and writes through Z$CPU ($F3DE) [DOC S&HD 2-24/2-25; facts sec.4.3] to hand the CPU
+; [AI]   SoftCard 6502 call vector A$VEC (A_VEC) [DOC S&HD 2-25; facts sec.4.2] at the engine,
+; [AI]   and writes through Z$CPU (Z_CPU) [DOC S&HD 2-24/2-25; facts sec.4.3] to hand the CPU
 ; [AI]   to the 6502 for each sector I/O. The 6502 block is real source in RW13_6502.s (ca65,
 ; [AI]   ORG'd at its $1300 run address) and INCBIN'd back below byte-for-byte.
 
     DEVICE NOSLOT64K
+    INCLUDE "apple_softcard.inc"   ; Apple/SoftCard external names (single source of truth)
 
 ; -- External symbols --
 WBOOT_VEC            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
@@ -50,7 +51,7 @@ INSTALL_13SEC:
         LD A,($FE0A)                     ; $0113  3A 0A FE  ; [AI] BIOS flag: current sector mode of selected drive
         CP $0E                           ; $0116  FE 0E     ; [AI] already 13-sector? ($0E sentinel) -> skip re-patch
         JR Z,INSTALL_DONE_MSG            ; $0118  28 18
-        LD HL,($F3EE)                    ; $011A  2A EE F3  ; [AI] HL = saved BIOS sector-handler vector
+        LD HL,(DSK_SAVEVEC)                    ; $011A  2A EE F3  ; [AI] HL = saved BIOS sector-handler vector
         LD ($FE09),HL                    ; $011D  22 09 FE  ; [AI] stash original 16-sector handler for later restore
         LD C,$00                         ; $0120  0E 00     ; [AI] select BIOS jump-table slot 0 (read entry)
         CALL BIOS_JMPTAB_ENTRY           ; $0122  CD 37 01  ; [AI] HL -> operand bytes of that BIOS jump-table entry
@@ -118,7 +119,7 @@ RESTORE_DRIVE:
         LD C,A                           ; $0168  4F        ; [AI] C = drive code
         ADD A,$40                        ; $0169  C6 40     ; [AI] convert to ASCII drive letter (1->'A')...
         LD (MSG_DRIVE_LETTER),A          ; $016B  32 FB 01  ; [AI] patch the 'Z:' slot in the converted-message text
-        LD A,($F3B8)                     ; $016E  3A B8 F3  ; [AI] BIOS Disk Count Byte (controllers x 2) [DOC S&HD 2-27; facts sec.3.7]
+        LD A,(DSKCNT)                     ; $016E  3A B8 F3  ; [AI] BIOS Disk Count Byte (controllers x 2) [DOC S&HD 2-27; facts sec.3.7]
         CP C                             ; $0171  B9
         JR C,ERR_INVALID_DRIVE           ; $0172  38 D1     ; [AI] requested drive > count -> invalid
         CALL HEAD_SELECT                 ; $0174  CD D0 02  ; [AI] A = side/parity (1 or 2) for this drive
@@ -141,8 +142,8 @@ RESTORE_DRIVE:
         SUB $09                          ; $0195  D6 09     ; [AI] derive driver page in high RAM
         LD (HL),A                        ; $0197  77        ; [AI] high byte of new handler address
         LD HL,$1300                      ; $0198  21 00 13  ; [AI] $1300 = 6502 engine run address (13-sector marker)
-        LD ($F3D0),HL                    ; $019B  22 D0 F3  ; [AI] arm A$VEC with 6502 routine address [DOC S&HD 2-25; facts sec.4.2]
-        LD HL,($F3DE)                    ; $019E  2A DE F3  ; [AI] HL = Z$CPU SoftCard location [DOC S&HD 2-24/2-25; facts sec.4.3]
+        LD (A_VEC),HL                    ; $019B  22 D0 F3  ; [AI] arm A$VEC with 6502 routine address [DOC S&HD 2-25; facts sec.4.2]
+        LD HL,(Z_CPU)                    ; $019E  2A DE F3  ; [AI] HL = Z$CPU SoftCard location [DOC S&HD 2-24/2-25; facts sec.4.3]
         LD (HL),A                        ; $01A1  77        ; [AI] store driver page (write also primes the CPU-switch cell)
         LD DE,MSG_CONVERTED              ; $01A2  11 F5 01  ; [AI] "Drive Z: converted to 13 sec. operation"
         JP PRINT_AND_WBOOT               ; $01A5  C3 48 01
@@ -198,9 +199,9 @@ HEAD_SELECT:
 ; RW13 is a Z-80 transient that reconfigures a drive to read/write the older
 ; Apple 13-sector format. The actual low-level disk I/O runs on the 6502: this
 ; block is genuine 6502 machine code (NOT Z-80), carried verbatim in the .COM.
-; The Z-80 front end stages it, points the SoftCard 6502 vector A$VEC ($F3D0) at
-; $1300 (LD HL,$1300 / LD ($F3D0),HL above), and installs a BIOS sector handler
-; that hands the CPU to the 6502 (SoftCard RPC via $F3D0/$F3DE) for each I/O.
+; The Z-80 front end stages it, points the SoftCard 6502 vector A$VEC (A_VEC) at
+; $1300 (LD HL,$1300 / LD (A_VEC),HL above), and installs a BIOS sector handler
+; that hands the CPU to the 6502 (SoftCard RPC via A_VEC/Z_CPU) for each I/O.
 ;
 ; The 6502 is disassembled as REAL 6502 in RW13_6502.s (ca65) and INCBIN'd here
 ; byte-for-byte, so each CPU's code is real source in its own assembler (the

@@ -22,20 +22,20 @@
 ; [AI]
 ; [AI] SoftCard shared-memory cells used (all in the Apple ][ CP/M I/O Configuration
 ; [AI] Block region, 6502 $200-$3FF = Z-80 $F200-$F3FF [DOC S&HD 2-6; facts sec.2.2]):
-; [AI]   $F3DE -> Z$CPU SoftCard-location word [DOC S&HD 2-25; facts sec.4.3]; "a write
+; [AI]   Z_CPU -> Z$CPU SoftCard-location word [DOC S&HD 2-25; facts sec.4.3]; "a write
 ; [AI]            to the SoftCard address switches CPUs" [DOC S&HD 2-25; facts sec.4.3].
 ; [AI]            COPY reads Z$CPU at entry, caches it (MAIN $0103), and self-modifies
 ; [AI]            the dispatch store at $02A3 (CHECK_6502_STATUS_PATCH) to write through
 ; [AI]            it -- that write is the CPU-switch that runs the armed 6502 routine.
-; [AI]   $F3D0 -> A$VEC 6502-call vector [DOC S&HD 2-25; facts sec.4.2]; re-armed with
+; [AI]   A_VEC -> A$VEC 6502-call vector [DOC S&HD 2-25; facts sec.4.2]; re-armed with
 ; [AI]            $14AE (the run-address of the embedded 6502 driver) before dispatch.
-; [AI]   $F3E0 -> word: current track counter for the copy loop [RE]
-; [AI]   $F3E4 -> read/write direction flag latched by DECODE_DRIVE [RE]
-; [AI]   $F3E6 -> drive-select / unit value latched by DECODE_DRIVE [RE]
-; [AI]   $F3E8 -> word: buffer/track-size parameter handed to the 6502 ($0800) [RE]
-; [AI]   $F3EA -> last 6502 status/result byte (0 = OK, $10 = write-protected) [RE]
-; [AI]   $F3EB -> command code passed to the 6502 (1 = read MASTER, 2 = write SLAVE) [RE]
-; [AI]   $F3B8 -> Disk Count Byte = configured drives [DOC S&HD 2-27; facts sec.3.7],
+; [AI]   DSK_TRACK -> word: current track counter for the copy loop [RE]
+; [AI]   DSK_DIR -> read/write direction flag latched by DECODE_DRIVE [RE]
+; [AI]   DSK_UNIT -> drive-select / unit value latched by DECODE_DRIVE [RE]
+; [AI]   DSK_BUFFER -> word: buffer/track-size parameter handed to the 6502 ($0800) [RE]
+; [AI]   DSK_STATUS -> last 6502 status/result byte (0 = OK, $10 = write-protected) [RE]
+; [AI]   DSK_CMD -> command code passed to the 6502 (1 = read MASTER, 2 = write SLAVE) [RE]
+; [AI]   DSKCNT -> Disk Count Byte = configured drives [DOC S&HD 2-27; facts sec.3.7],
 ; [AI]            used to range-check the "X:" drive letter.
 ; [AI]   $F000 -> 6502 zero-page $00 (Z-80 $F000 = 6502 ZP $0000 [facts sec.2.1]): the
 ; [AI]            driver's track-count loop counter. COPY seeds it with the batch track
@@ -44,6 +44,7 @@
 ; [AI]   NOT a write to $F000.
 
     DEVICE NOSLOT64K
+    INCLUDE "apple_softcard.inc"   ; Apple/SoftCard external names (single source of truth)
 
 ; -- External symbols --
 WBOOT_VEC            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
@@ -61,7 +62,7 @@ DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer [DOC 
 ; [AI] Initialise: recover the saved SoftCard-location word, clear the screen / print
 ; [AI] the banner, then read and parse the command tail before the main copy sequence.
 MAIN:
-        LD HL,($F3DE)                    ; $0100  2A DE F3   ; [AI] load Z$CPU SoftCard-location word [DOC S&HD 2-25; facts sec.4.3]
+        LD HL,(Z_CPU)                    ; $0100  2A DE F3   ; [AI] load Z$CPU SoftCard-location word [DOC S&HD 2-25; facts sec.4.3]
 TPA_START_1:
         LD (CHECK_6502_STATUS_PATCH+1),HL ; $0103 22 A4 02   ; [AI] self-modify: cache Z$CPU as the operand of the CPU-switch dispatch write at $02A3
 TPA_START_2:
@@ -140,7 +141,7 @@ SET_RESUME:
 COPY_PASS:
         PUSH DE                          ; $0171  D5         ; [AI] save resume vector
         LD HL,WBOOT_VEC                  ; $0172  21 00 00   ; [AI] HL = 0 (track 0 start)
-        LD ($F3E0),HL                    ; $0175  22 E0 F3   ; [AI] reset track counter to 0
+        LD (DSK_TRACK),HL                    ; $0175  22 E0 F3   ; [AI] reset track counter to 0
         LD HL,(SRC_DST_DRIVES)           ; $0178  2A DE 02   ; [AI] HL = {dst,src} drive pair
         LD DE,PROMPT_INSERT_MASTER       ; $017B  11 FC 03   ; [AI] "Insert MASTER disk into drive Z:"
         LD A,L                           ; $017E  7D         ; [AI] L = source drive
@@ -186,7 +187,7 @@ ASK_ANOTHER:
         LD DE,MSG_ANOTHER_COPY           ; $01C1  11 89 03   ; [AI] "Do you wish to make another copy? $"
         CALL PRINT_STRING                ; $01C4  CD 45 02
         LD HL,$0800                      ; $01C7  21 00 08   ; [AI] track transfer size = 2048 bytes
-        LD ($F3E8),HL                    ; $01CA  22 E8 F3   ; [AI] hand buffer/size parameter to the 6502 side
+        LD (DSK_BUFFER),HL                    ; $01CA  22 E8 F3   ; [AI] hand buffer/size parameter to the 6502 side
 ASK_YN:
         CALL CONIN_UPPER                 ; $01CD  CD C8 02   ; [AI] read one console key (uppercased)
         CP $4E                           ; $01D0  FE 4E      ; [AI] 'N'?
@@ -223,11 +224,11 @@ COPY_BATCH_READ:
         LD DE,MSG_INSERT_MASTER2         ; $0208  11 5E 04   ; [AI] "Insert MASTER disk and press RETURN"
         CALL PROMPT_IF_SAME_DRIVE        ; $020B  CD 5C 02   ; [AI] prompt only when src==dst drive
 ; [AI] ===== Write a batch of SLAVE tracks =====
-; [AI] Sets the 6502 command to 1 (read) here; the SINGLE_DRIVE_FLAG + the $F3E0 track
+; [AI] Sets the 6502 command to 1 (read) here; the SINGLE_DRIVE_FLAG + the DSK_TRACK track
 ; [AI] index choose read vs write. Falls through into the per-track transfer.
 COPY_DIR_WRITE:
         LD C,$01                         ; $020E  0E 01      ; [AI] 6502 command = 1 (read MASTER)
-        LD HL,($F3E0)                    ; $0210  2A E0 F3   ; [AI] current track index
+        LD HL,(DSK_TRACK)                    ; $0210  2A E0 F3   ; [AI] current track index
         LD A,(SINGLE_DRIVE_FLAG)         ; $0213  3A E1 02
         OR A                             ; $0216  B7
         JR NZ,DO_TRANSFER                ; $0217  20 0A      ; [AI] write phase -> skip the read setup
@@ -238,7 +239,7 @@ COPY_DIR_WRITE:
         POP BC                           ; $0221  C1
         POP HL                           ; $0222  E1
 DO_TRANSFER:
-        LD ($F3E0),HL                    ; $0223  22 E0 F3   ; [AI] update track index
+        LD (DSK_TRACK),HL                    ; $0223  22 E0 F3   ; [AI] update track index
         LD DE,MSG_INSERT_SLAVE2          ; $0226  11 87 04   ; [AI] "Insert SLAVE disk and press RETURN"
         CALL PROMPT_IF_SAME_DRIVE        ; $0229  CD 5C 02   ; [AI] prompt for SLAVE on single-drive write
         LD C,$02                         ; $022C  0E 02      ; [AI] 6502 command = 2 (write SLAVE)
@@ -246,13 +247,13 @@ COPY_DIR_WRITE_2:
         LD A,(DST_DRIVE)                 ; $022E  3A DF 02   ; [AI] destination drive number  (entry $0230 = +2)
 ; [AI] Latch the per-operation parameters for the 6502 copier, then fall into the
 ; [AI] dispatch (CHECK_6502_STATUS arms A$VEC and does the CPU-switch write at $02A3).
-; [AI]   A = drive number -> DECODE_DRIVE writes $F3E4 (direction) and $F3E6 (unit)
-; [AI]   C = command byte -> $F3EB
+; [AI]   A = drive number -> DECODE_DRIVE writes DSK_DIR (direction) and DSK_UNIT (unit)
+; [AI]   C = command byte -> DSK_CMD
 ; [AI]   B = track-count -> $F000 (6502 ZP $00), the loop counter COPY_6502 decrements
 SET_RW_PARAMS:
-        CALL DECODE_DRIVE                ; $0231  CD 89 02   ; [AI] derive $F3E4 / $F3E6 from drive A
+        CALL DECODE_DRIVE                ; $0231  CD 89 02   ; [AI] derive DSK_DIR / DSK_UNIT from drive A
         LD A,C                           ; $0234  79
-        LD ($F3EB),A                     ; $0235  32 EB F3   ; [AI] store command code for the 6502 driver
+        LD (DSK_CMD),A                     ; $0235  32 EB F3   ; [AI] store command code for the 6502 driver
         LD A,B                           ; $0238  78
         LD ($F000),A                     ; $0239  32 00 F0   ; [AI] load the 6502 track-count loop counter (Z-80 $F000 = 6502 ZP $00, DEC $00 per call in COPY_6502)
         JP CHECK_6502_STATUS             ; $023C  C3 9D 02   ; [AI] arm A$VEC, do the CPU-switch write (dispatch), inspect result
@@ -299,7 +300,7 @@ PROMPT_IF_SAME_DRIVE:
         POP BC                           ; $0266  C1
         RET                              ; $0267  C9
 ; [AI] Convert an ASCII drive letter in A to a 0-based drive number, requiring a
-; [AI] trailing ':' and validating it against the Disk Count Byte at $F3B8
+; [AI] trailing ':' and validating it against the Disk Count Byte at DSKCNT
 ; [AI] [DOC S&HD 2-27; facts sec.3.7]. Bad letter / missing ':' -> "Command Error$";
 ; [AI] out-of-range drive -> "Invalid Drive$".
 DRIVE_FROM_CHAR:
@@ -315,7 +316,7 @@ DRIVE_VALIDATE:
         CALL NEXT_CHAR                   ; $0272  CD 54 02   ; [AI] peek following char
         CP $3A                           ; $0275  FE 3A      ; [AI] ':' after the letter?
         JR NZ,CMD_ERROR                  ; $0277  20 F3      ; [AI] missing ':' -> command error
-        LD A,($F3B8)                     ; $0279  3A B8 F3   ; [AI] Disk Count Byte = configured drives [DOC S&HD 2-27; facts sec.3.7]
+        LD A,(DSKCNT)                     ; $0279  3A B8 F3   ; [AI] Disk Count Byte = configured drives [DOC S&HD 2-27; facts sec.3.7]
         DEC A                            ; $027C  3D         ; [AI] highest valid drive number
         CP C                             ; $027D  B9         ; [AI] in range?
         LD A,C                           ; $027E  79         ; [AI] return drive number in A
@@ -325,14 +326,14 @@ PRINT_ERR_RESTART:
         CALL PRINT_STRING                ; $0283  CD 45 02   ; [AI] show the error message
 PRINT_ERR_RESTART_1:
         JP PROMPT_INPUT                  ; $0286  C3 1E 01   ; [AI] re-prompt for a fresh command line
-; [AI] Decode drive number in A into the embedded 6502 driver's direction ($F3E4) and
-; [AI] unit/select ($F3E6) parameters. $F3E4 = (A+1)&1 (odd/even drive); $F3E6 =
+; [AI] Decode drive number in A into the embedded 6502 driver's direction (DSK_DIR) and
+; [AI] unit/select (DSK_UNIT) parameters. DSK_DIR = (A+1)&1 (odd/even drive); DSK_UNIT =
 ; [AI] ~((A&$0E)*8 - $61) selects the physical unit. [RE] -- not a manual config cell.
 DECODE_DRIVE:
         LD E,A                           ; $0289  5F
         INC A                            ; $028A  3C
         AND $01                          ; $028B  E6 01
-        LD ($F3E4),A                     ; $028D  32 E4 F3   ; [AI] direction/side flag for the 6502 driver
+        LD (DSK_DIR),A                     ; $028D  32 E4 F3   ; [AI] direction/side flag for the 6502 driver
         LD A,E                           ; $0290  7B
         AND $0E                          ; $0291  E6 0E      ; [AI] isolate unit bits
         ADD A,A                          ; $0293  87
@@ -340,21 +341,21 @@ DECODE_DRIVE:
         ADD A,A                          ; $0295  87         ; [AI] *8
         SUB $61                          ; $0296  D6 61
         CPL                              ; $0298  2F
-        LD ($F3E6),A                     ; $0299  32 E6 F3   ; [AI] unit-select value for the 6502 driver
+        LD (DSK_UNIT),A                     ; $0299  32 E6 F3   ; [AI] unit-select value for the 6502 driver
         RET                              ; $029C  C9
 ; [AI] Arm the A$VEC 6502-call vector with the embedded driver's run-address $14AE
 ; [AI] [DOC S&HD 2-25; facts sec.4.2], then DISPATCH to the 6502 and examine the status
 ; [AI] byte it returns. The dispatch is the self-modified write at $02A3: its operand is
 ; [AI] the Z$CPU word cached at MAIN ($0103), so it writes through the SoftCard address
 ; [AI] -- "a write to the SoftCard address switches CPUs" [DOC S&HD 2-25; facts sec.4.3]
-; [AI] -- handing control to the 6502 routine just armed in A$VEC. On return $F3EA = 0
+; [AI] -- handing control to the 6502 routine just armed in A$VEC. On return DSK_STATUS = 0
 ; [AI] OK; $10 = write-protected; anything else = generic I/O error. [RE]
 CHECK_6502_STATUS:
         LD HL,$14AE                      ; $029D  21 AE 14   ; [AI] run-address of the embedded 6502 driver (see COPY_6502 / INCBIN below)
-        LD ($F3D0),HL                    ; $02A0  22 D0 F3   ; [AI] arm A$VEC with the driver address [DOC S&HD 2-25; facts sec.4.2]
+        LD (A_VEC),HL                    ; $02A0  22 D0 F3   ; [AI] arm A$VEC with the driver address [DOC S&HD 2-25; facts sec.4.2]
 CHECK_6502_STATUS_PATCH:
         LD (WBOOT_VEC),A                 ; $02A3  32 00 00   ; [AI] CPU-SWITCH dispatch: operand = cached Z$CPU (patched at $0103); this write runs the 6502 (entry $02A4 = +1)
-        LD A,($F3EA)                     ; $02A6  3A EA F3   ; [AI] 6502 result/status byte returned by the call
+        LD A,(DSK_STATUS)                     ; $02A6  3A EA F3   ; [AI] 6502 result/status byte returned by the call
         OR A                             ; $02A9  B7         ; [AI] 0 = success?
         RET Z                            ; $02AA  C8         ; [AI] OK -> continue
         PUSH AF                          ; $02AB  F5
@@ -464,7 +465,7 @@ MSG_INSERT_SLAVE2:
 ; Genuine 6502 machine code (COPY runs on the Z-80; the SoftCard runs THIS on the
 ; 6502). Disassembled as real 6502 in COPY_6502.s (ca65) and INCBIN'd here
 ; byte-for-byte. The block is RELOCATED +$1000 to run at $14AE-$14FF: COPY's Z-80
-; side does LD HL,$14AE / LD ($F3D0),HL (the SoftCard A$VEC handoff cell) before
+; side does LD HL,$14AE / LD (A_VEC),HL (the SoftCard A$VEC handoff cell) before
 ; ringing the $F000 doorbell (LD ($F000),A at $0239), so $14AE is its only entry.
 ; It drives the SoftCard's inner read/write-track engine (JSR $0E03) once per
 ; sector. The Z-80 only refers to the block by the IMMEDIATE run-address $14AE

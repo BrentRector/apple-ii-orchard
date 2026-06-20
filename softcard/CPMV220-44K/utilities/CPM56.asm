@@ -3,6 +3,7 @@
 ; Range:  $0100-$2AFF  (10752 bytes)
 
     DEVICE NOSLOT64K
+    INCLUDE "apple_softcard.inc"   ; Apple/SoftCard external names (single source of truth)
 
 ; -- External symbols --
 WBOOT_VEC            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
@@ -30,7 +31,7 @@ L_010D:
         JP WBOOT_VEC                     ; $010D  C3 00 00
 L_0110:
         CALL SUB_02F9                    ; $0110  CD F9 02
-        LD ($F3E4),A                     ; $0113  32 E4 F3
+        LD (DSK_DIR),A                     ; $0113  32 E4 F3
         DEC C                            ; $0116  0D
         LD A,C                           ; $0117  79
         AND $0E                          ; $0118  E6 0E
@@ -40,7 +41,7 @@ L_011A:
         ADD A,A                          ; $011C  87
         CPL                              ; $011D  2F
         ADD A,$61                        ; $011E  C6 61
-        LD ($F3E6),A                     ; $0120  32 E6 F3
+        LD (DSK_UNIT),A                     ; $0120  32 E6 F3
         LD A,C                           ; $0123  79
         ADD A,$41                        ; $0124  C6 41
         LD (L_021D),A                    ; $0126  32 1D 02
@@ -48,18 +49,18 @@ L_011A:
         CALL SUB_01A6                    ; $012C  CD A6 01
         CALL SUB_019A                    ; $012F  CD 9A 01
         LD A,$02                         ; $0132  3E 02
-        LD ($F3EB),A                     ; $0134  32 EB F3
+        LD (DSK_CMD),A                     ; $0134  32 EB F3
         LD A,$13                         ; $0137  3E 13
-        LD ($F3E9),A                     ; $0139  32 E9 F3
+        LD (DSK_PARM9),A                     ; $0139  32 E9 F3
         LD HL,WBOOT_VEC                  ; $013C  21 00 00
         LD B,$27                         ; $013F  06 27
 L_0141:
-        LD ($F3E0),HL                    ; $0141  22 E0 F3
+        LD (DSK_TRACK),HL                    ; $0141  22 E0 F3
         PUSH BC                          ; $0144  C5
         PUSH HL                          ; $0145  E5
         LD HL,L_0E03                     ; $0146  21 03 0E
         CALL SUB_0192                    ; $0149  CD 92 01
-        LD A,($F3EA)                     ; $014C  3A EA F3
+        LD A,(DSK_STATUS)                     ; $014C  3A EA F3
         OR A                             ; $014F  B7
         JP Z,L_0164                      ; $0150  CA 64 01
         LD DE,L_0279                     ; $0153  11 79 02
@@ -70,7 +71,7 @@ L_015E:
         CALL SUB_01A6                    ; $015E  CD A6 01
         JP L_017D                        ; $0161  C3 7D 01
 L_0164:
-        LD HL,$F3E9                      ; $0164  21 E9 F3
+        LD HL,DSK_PARM9                      ; $0164  21 E9 F3
         INC (HL)                         ; $0167  34
         POP HL                           ; $0168  E1
         INC H                            ; $0169  24
@@ -92,12 +93,12 @@ L_017D:
         CALL SUB_01A6                    ; $0180  CD A6 01
         CALL SUB_019A                    ; $0183  CD 9A 01
         LD HL,$C600                      ; $0186  21 00 C6
-        LD ($F3D0),HL                    ; $0189  22 D0 F3
-        LD HL,($F3DE)                    ; $018C  2A DE F3
+        LD (A_VEC),HL                    ; $0189  22 D0 F3
+        LD HL,(Z_CPU)                    ; $018C  2A DE F3
         JP SUB_02F9_4                    ; $018F  C3 00 2A
 SUB_0192:
-        LD ($F3D0),HL                    ; $0192  22 D0 F3
-        LD HL,($F3DE)                    ; $0195  2A DE F3
+        LD (A_VEC),HL                    ; $0192  22 D0 F3
+        LD HL,(Z_CPU)                    ; $0195  2A DE F3
         LD (HL),A                        ; $0198  77
         RET                              ; $0199  C9
 SUB_019A:
@@ -169,7 +170,7 @@ SUB_02F9_3:
 ; CPM56 is a Z-80 transient that rewrites the 44K boot tracks into the 56K
 ; layout. The actual disk I/O runs on the 6502: this block is genuine 6502
 ; machine code (NOT Z-80), carried verbatim in the .COM. The Z-80 side stages
-; it, then hands the CPU to the 6502 (SoftCard RPC, via $F3D0/$F3DE) to
+; it, then hands the CPU to the 6502 (SoftCard RPC, via A_VEC/Z_CPU) to
 ; read/write tracks.
 ;
 ; The 6502 is disassembled as REAL 6502 in CPM56_6502.s (ca65) and INCBIN'd
@@ -220,7 +221,7 @@ EMBEDDED_6502:
     DISP $C34A
 
 L_C34A:
-        LD A,($F3BB)                     ; $C34A  3A BB F3
+        LD A,(SLTTYP3)                     ; $C34A  3A BB F3
         CP $03                           ; $C34D  FE 03
         JP NZ,$DB0C                      ; $C34F  C2 0C DB
         LD A,($E0BE)                     ; $C352  3A BE E0
@@ -232,7 +233,7 @@ L_C358:
         AND $7F                          ; $C35B  E6 7F
         RET                              ; $C35D  C9
 L_C35E:
-        LD A,($F3BB)                     ; $C35E  3A BB F3
+        LD A,(SLTTYP3)                     ; $C35E  3A BB F3
         CP $03                           ; $C361  FE 03
         JP NZ,$DC3E                      ; $C363  C2 3E DC
 L_C366:
@@ -240,10 +241,10 @@ L_C366:
         AND $02                          ; $C369  E6 02
         JR Z,L_C366                      ; $C36B  28 F9
         LD A,C                           ; $C36D  79
-        LD ($F045),A                     ; $C36E  32 45 F0
+        LD (RPC_ACC),A                     ; $C36E  32 45 F0
         LD HL,$037C                      ; $C371  21 7C 03
-        LD ($F3D0),HL                    ; $C374  22 D0 F3
-        LD HL,($F3DE)                    ; $C377  2A DE F3
+        LD (A_VEC),HL                    ; $C374  22 D0 F3
+        LD HL,(Z_CPU)                    ; $C377  2A DE F3
         LD (HL),A                        ; $C37A  77
         RET                              ; $C37B  C9
         DEFB    $8D,$BF,$C0,$60,$4A,$F3,$58,$F3,$12,$DB,$5E,$F3,$3E,$DC,$45,$DD ; $C37C

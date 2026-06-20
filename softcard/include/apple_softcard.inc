@@ -66,6 +66,20 @@ RPC_STATUS  EQU $F048      ; 6502 P/status (Apple $48 STATUS)
 RPC_SP      EQU $F049      ; 6502 stack pointer on return (Apple $49 SPNT)
 RPC_ENTER_Z80 EQU $F3C0    ; 6502->Z-80 mode-switch routine; 6502 RESET/NMI/BRK vectors [DOC S&HD 2-25]
 
+; ---- SoftCard 6502 disk-driver interface ($F3E0-$F3EE) [RE] ----------------------
+; The transient disk utilities (COPY/FORMAT/RW13/APDOS/CPM56) stage parameters for the
+; SoftCard's 6502 disk driver in these config-block cells, arm A_VEC, then trigger the
+; call via Z_CPU.  Names/semantics are reverse-engineered from those utilities (not
+; manual-documented), so they carry [RE] at their definitions and use sites.
+DSK_TRACK   EQU $F3E0      ; [RE] current track index (word)
+DSK_DIR     EQU $F3E4      ; [RE] read/write direction / slot flag (set by DECODE_DRIVE)
+DSK_UNIT    EQU $F3E6      ; [RE] drive-select / unit value (set by DECODE_DRIVE)
+DSK_BUFFER  EQU $F3E8      ; [RE] DMA buffer / track-size parameter to the 6502 (word)
+DSK_PARM9   EQU $F3E9      ; [RE] secondary disk-driver parameter cell ($F3E9)
+DSK_STATUS  EQU $F3EA      ; [RE] 6502 result/status byte (0 = OK, $10 = write-protected)
+DSK_CMD     EQU $F3EB      ; [RE] command code for the 6502 disk driver
+DSK_SAVEVEC EQU $F3EE      ; [RE] saved BIOS sector-handler vector
+
 ; ---- Apple soft switches (Z-80 $E0xx = Apple $C0xx) [apple2.json] ----------------
 KEYBD       EQU $E000      ; Apple $C000 -- keyboard data (bit 7 = strobe) [DOC S&HD 2-23]
 KEYSTB      EQU $E010      ; Apple $C010 -- keyboard clear-strobe [DOC S&HD 2-23]
