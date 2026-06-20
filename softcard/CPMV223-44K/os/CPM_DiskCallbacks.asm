@@ -22,25 +22,141 @@
 ;       0F800-0FFFF) and are NOT touchable by ordinary 6502 subroutine calls. Crossing to the 6502
 ;       to run that hardware access is the RPC mechanism: the Z-80 stores a 6502 target at A$VEC
 ;       ($F3D0) and WRITEs through the SoftCard cell Z$CPU ($F3DE) to switch CPUs and execute it.
-;       [AI] The following raw DEFB bytes are the rest of these thunks (CALL $A851 dispatch,
-;       references to the $9F41-$9F45 and $A9AD-$A9E0 disk scratch variables -- code-inferred, not
-;       manual-documented) plus a 64-entry parameter table at $1B00, none of which the disassembler
-;       labelled.
-DISK_CALLBACK_ENTRY:
+;       [AI] $1A00-$1AAB is a back-to-back series of 15 small Z-80 thunks. They are NOT reached by
+;       recursive descent from $1A00 (that path is just XOR C / JP $A929); each thunk is ENTERED FROM
+;       OUTSIDE -- the resident $A9xx/$A8xx/... system jumps/calls directly into the individual $1Axx
+;       entry addresses below. Common idioms: marshal a 16-bit arg through the $9F41-$9F45 scratch
+;       cells, gate a request via CALL $A851, then JP/CALL into the resident driver ($A1xx/$A3xx/
+;       $A6xx/$A7xx/$A9xx). The $A9AD-$A9E0 cells are the disk scratch variables (track/sector/DMA
+;       working copies). All out-of-module $9Fxx/$Axx targets are the resident system, not dead bytes.
+;       Code runs $1A00-$1AAB (last RET); $1AAC onward is genuine DATA: disk-callback variable cells,
+;       a fill gap, then a 256-byte $00-aligned block at $1B00 carrying the 4-byte-record $FF/$F7/$00
+;       generator-page pattern. NOTE (checked the docs, per the prompt): this $1B00 block is NOT a
+;       disk-parameter / sector-translate table -- the manuals document no such structure here. The
+;       $FF FF 00 00 / F7 F7 00 00 pattern is the cold-boot generator-page RST-trap filler (the SAME
+;       pattern the 2.23 BIOS uses for its runtime-generated console/firmware-init stubs at $FD4F-$FD7F
+;       and $FD83+, where $FF=RST 38H, $F7=RST 30H, $00=NOP). This is a reverse-engineered finding, not
+;       a manual fact, so it is tagged [RE]/[AI], never [DOC] -- see CPM_Manual_Reconcile_Facts.md S.9
+;       ("Generator-page filler ... FF FF 00 00 / F7 F7 00 00 (RST traps) ... [RE] safety upgrade
+;       against the PUSH-HL-spam hang class"). It is left as DEFB data per the no-code-as-bytes scope.
+DISK_CALLBACK_ENTRY:                     ; entry: dispatch into resident $A929
         XOR C                            ; $1A00  A9
         JP $A929                         ; $1A01  C3 29 A9
-        DEFB    $3A,$42,$9F,$C3,$01,$9F,$EB,$22,$B1,$A9,$C3,$DA,$A1,$2A,$BF,$A9 ; $1A04
-        DEFB    $C3,$29,$A9,$2A,$AD,$A9,$C3,$29,$A9,$CD,$51,$A8,$CD,$3B,$A4,$C3 ; $1A14
-        DEFB    $01,$A3,$2A,$BB,$A9,$22,$45,$9F,$C9,$3A,$D6,$A9,$FE,$FF,$C2,$3B ; $1A24
-        DEFB    $A9,$3A,$41,$9F,$C3,$01,$9F,$E6,$1F,$32,$41,$9F,$C9,$CD,$51,$A8 ; $1A34
-        DEFB    $C3,$93,$A7,$CD,$51,$A8,$C3,$9C,$A7,$CD,$51,$A8,$C3,$D2,$A7,$2A ; $1A44
-        DEFB    $43,$9F,$7D,$2F,$5F,$7C,$2F,$2A,$AF,$A9,$A4,$57,$7D,$A3,$5F,$2A ; $1A54
-        DEFB    $AD,$A9,$EB,$22,$AF,$A9,$7D,$A3,$6F,$7C,$A2,$67,$22,$AD,$A9,$C9 ; $1A64
-        DEFB    $3A,$DE,$A9,$B7,$CA,$91,$A9,$2A,$43,$9F,$36,$00,$3A,$E0,$A9,$B7 ; $1A74
-        DEFB    $CA,$91,$A9,$77,$3A,$DF,$A9,$32,$D6,$A9,$CD,$45,$A8,$2A,$0F,$9F ; $1A84
-        DEFB    $F9,$2A,$45,$9F,$7D,$44,$C9,$CD,$51,$A8,$3E,$02,$32,$D5,$A9,$0E ; $1A94
-        DEFB    $00,$CD,$07,$A7,$CC,$03,$A6,$C9,$E5,$00,$00,$00,$00,$80,$00,$00 ; $1AA4
-        DEFS    76, $00    ; $1AB4  fill
+THUNK_1A04:                              ; entry: load scratch $9F42, hand off to $9F01
+        LD A,($9F42)                     ; $1A04  3A 42 9F
+        JP $9F01                         ; $1A07  C3 01 9F
+THUNK_1A0A:                              ; entry: stash DE->$A9B1, jump to driver $A1DA
+        EX DE,HL                         ; $1A0A  EB
+        LD ($A9B1),HL                    ; $1A0B  22 B1 A9
+        JP $A1DA                         ; $1A0E  C3 DA A1
+THUNK_1A11:                              ; entry: fetch $A9BF, dispatch via $A929
+        LD HL,($A9BF)                    ; $1A11  2A BF A9
+        JP $A929                         ; $1A14  C3 29 A9
+THUNK_1A17:                              ; entry: fetch $A9AD (track/sec scratch), dispatch via $A929
+        LD HL,($A9AD)                    ; $1A17  2A AD A9
+        JP $A929                         ; $1A1A  C3 29 A9
+THUNK_1A1D:                              ; entry: gate ($A851), call $A43B, tail-jump $A301
+        CALL $A851                       ; $1A1D  CD 51 A8
+        CALL $A43B                       ; $1A20  CD 3B A4
+        JP $A301                         ; $1A23  C3 01 A3
+THUNK_1A26:                              ; entry: copy $A9BB -> $9F45 scratch, return
+        LD HL,($A9BB)                    ; $1A26  2A BB A9
+        LD ($9F45),HL                    ; $1A29  22 45 9F
+        RET                              ; $1A2C  C9
+THUNK_1A2D:                              ; entry: if $A9D6 != $FF dispatch $A93B, else fall to $9F01
+        LD A,($A9D6)                     ; $1A2D  3A D6 A9
+        CP $FF                           ; $1A30  FE FF
+        JP NZ,$A93B                      ; $1A32  C2 3B A9
+        LD A,($9F41)                     ; $1A35  3A 41 9F
+        JP $9F01                         ; $1A38  C3 01 9F
+THUNK_1A3B:                              ; entry: mask A to 5 bits, store to $9F41 scratch, return
+        AND $1F                          ; $1A3B  E6 1F
+        LD ($9F41),A                     ; $1A3D  32 41 9F
+        RET                              ; $1A40  C9
+THUNK_1A41:                              ; entry: gate ($A851), tail-jump driver $A793
+        CALL $A851                       ; $1A41  CD 51 A8
+        JP $A793                         ; $1A44  C3 93 A7
+THUNK_1A47:                              ; entry: gate ($A851), tail-jump driver $A79C
+        CALL $A851                       ; $1A47  CD 51 A8
+        JP $A79C                         ; $1A4A  C3 9C A7
+THUNK_1A4D:                              ; entry: gate ($A851), tail-jump driver $A7D2
+        CALL $A851                       ; $1A4D  CD 51 A8
+        JP $A7D2                         ; $1A50  C3 D2 A7
+THUNK_1A53:                              ; entry: bit-twiddle scratch ($9F43 with $A9AD/$A9AF masks)
+        LD HL,($9F43)                    ; $1A53  2A 43 9F
+        LD A,L                           ; $1A56  7D
+        CPL                              ; $1A57  2F
+        LD E,A                           ; $1A58  5F
+        LD A,H                           ; $1A59  7C
+        CPL                              ; $1A5A  2F
+        LD HL,($A9AF)                    ; $1A5B  2A AF A9
+        AND H                            ; $1A5E  A4
+        LD D,A                           ; $1A5F  57
+        LD A,L                           ; $1A60  7D
+        AND E                            ; $1A61  A3
+        LD E,A                           ; $1A62  5F
+        LD HL,($A9AD)                    ; $1A63  2A AD A9
+        EX DE,HL                         ; $1A66  EB
+        LD ($A9AF),HL                    ; $1A67  22 AF A9
+        LD A,L                           ; $1A6A  7D
+        AND E                            ; $1A6B  A3
+        LD L,A                           ; $1A6C  6F
+        LD A,H                           ; $1A6D  7C
+        AND D                            ; $1A6E  A2
+        LD H,A                           ; $1A6F  67
+        LD ($A9AD),HL                    ; $1A70  22 AD A9
+        RET                              ; $1A73  C9
+THUNK_1A74:                              ; entry: guarded write of $A9E0 via ptr $9F43; warm-exit via $A991
+        LD A,($A9DE)                     ; $1A74  3A DE A9
+        OR A                             ; $1A77  B7
+        JP Z,$A991                       ; $1A78  CA 91 A9
+        LD HL,($9F43)                    ; $1A7B  2A 43 9F
+        LD (HL),$00                      ; $1A7E  36 00
+        LD A,($A9E0)                     ; $1A80  3A E0 A9
+        OR A                             ; $1A83  B7
+        JP Z,$A991                       ; $1A84  CA 91 A9
+        LD (HL),A                        ; $1A87  77
+        LD A,($A9DF)                     ; $1A88  3A DF A9
+        LD ($A9D6),A                     ; $1A8B  32 D6 A9
+        CALL $A845                       ; $1A8E  CD 45 A8
+        LD HL,($9F0F)                    ; $1A91  2A 0F 9F
+        LD SP,HL                         ; $1A94  F9
+        LD HL,($9F45)                    ; $1A95  2A 45 9F
+        LD A,L                           ; $1A98  7D
+        LD B,H                           ; $1A99  44
+        RET                              ; $1A9A  C9
+THUNK_1A9B:                              ; entry: gate ($A851); set $A9D5=2, C=0; call $A707 then cond $A603
+        CALL $A851                       ; $1A9B  CD 51 A8
+        LD A,$02                         ; $1A9E  3E 02
+        LD ($A9D5),A                     ; $1AA0  32 D5 A9
+        LD C,$00                         ; $1AA3  0E 00
+        CALL $A707                       ; $1AA5  CD 07 A7
+        CALL Z,$A603                     ; $1AA8  CC 03 A6
+        RET                              ; $1AAB  C9
+
+; ---------------------------------------------------------------------------
+; DATA. Code/data boundary at $1AAC (last instruction is the RET at $1AAB that
+; closes THUNK_1A9B). $1AAC-$1AB3 are disk-callback variable cells, $1AB4-$1AFF
+; is $00 fill, and $1B00-$1BFF is the generator-page filler block (see below).
+; ---------------------------------------------------------------------------
+; [AI] Disk-callback page variable cells (initial/template values; the thunks above and the resident
+;       $A9xx/$9Fxx system read and rewrite these at run time -- they are working storage, not code).
+        DEFB    $E5                      ; $1AAC  $E5 -- CP/M unused-byte / empty-sector fill marker
+        DEFB    $00,$00,$00,$00          ; $1AAD  variable cells (init 0)
+        DEFB    $80                      ; $1AB1  variable cell (init $80 -- default DMA-buffer-page style sentinel)
+        DEFB    $00,$00                  ; $1AB2  variable cells (init 0)
+        DEFS    76, $00    ; $1AB4  $00 fill up to the $1B00 page boundary
+; [AI]/[RE] $1B00-$1BFF: 256-byte generator-page filler block, sixty-four 4-byte records. Checked the
+;       SoftCard manuals per the prompt: this is NOT a disk-parameter or sector-translate table -- the
+;       manuals document no such structure on this page. The $FF/$F7/$00 bytes are an executable
+;       RST-trap pattern ($FF=RST 38H, $F7=RST 30H, $00=NOP; a few records substitute $10 for $00, the
+;       same per-slot variation seen in the BIOS copy at $FD5F/$FD83+). It is the cold-boot generator-page
+;       filler -- the IDENTICAL pattern the 2.23 BIOS
+;       carries for its runtime-generated console / firmware-init stubs (CPM_BIOS.asm $FD4F-$FD7F and
+;       INIT_PASCAL_1_0/1_1 at $FD83+). [RE] per CPM_Manual_Reconcile_Facts.md Section 9: "Generator-page
+;       filler ... FF FF 00 00 / F7 F7 00 00 (RST traps) ... safety upgrade against the PUSH-HL-spam hang
+;       class" -- a 2.23 VERSION trait, so tagged [RE]/[AI] and never [DOC]. Left as DEFB data: on this
+;       page the bytes are a static template, not reached by execution from the thunks above.
         DEFB    $FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00 ; $1B00
         DEFB    $FF,$FF,$00,$00,$FF,$FF,$10,$10,$FF,$FF,$00,$10,$FF,$FF,$10,$00 ; $1B10
         DEFB    $FF,$FF,$00,$00,$FF,$FF,$10,$10,$FF,$FF,$00,$10,$FF,$FF,$10,$00 ; $1B20
