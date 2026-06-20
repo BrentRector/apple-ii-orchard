@@ -172,63 +172,270 @@ TPA_START_24:
         DEFB    $78,$73,$75,$62,$62,$05,$00,$C9,$21,$6E,$1E,$70,$2B,$71,$2A,$6D ; $01DB  "xsub"...
         DEFB    $1E,$EB,$0E,$16,$CD,$05,$00,$32,$5F,$1E,$C9,$21,$70,$1E,$70,$2B ; $01EB
         DEFB    $71,$2A,$6F,$1E,$EB                              ; $01FB
-; [AI] Relocatable RESIDENT IMAGE (the part copied to high RAM by the loop at $01A5 and fixed up by
-;       the relocation bitmap near $03B7). It executes ONLY at its relocated high-memory page, where
-;       the bitmap adds that page to each flagged absolute-address high byte. Decoding it at the file
-;       org $0200 is meaningless (its CALL/JP/LD operands resolve to page-relative addresses outside
-;       $0100-$03FF), so it is left as DEFB. Where the relocation bitmap flags a word as an in-image
-;       pointer, the disassembler emitted a DEFW (e.g. $0227/$023E/$024A/$0272/$0284/$0315) — those
-;       are relocation fix-up sites, not code labels at those file addresses.
-TPA_START_25:
-        DEFB    $C3,$0D,$00,$05,$00,$C9,$C3,$5D,$00,$78,$73,$75,$62,$2A,$01,$00 ; $0200
-        DEFB    $22,$2D,$00,$21,$2F,$00,$22,$01,$00,$2A,$06,$00,$22,$2B,$00,$21 ; $0210
-        DEFB    $06,$00,$22,$06,$00,$E1,$22                      ; $0220
-        DEFW    TPA_START_20+1           ; $0227
-        DEFB    $E9,$C3,$00,$00,$00,$C9,$31,$DE,$01,$0E,$09,$11,$4D,$00,$CD,$2A ; $0229
-        DEFB    $00,$21,$80,$00,$22                              ; $0239
-        DEFW    TPA_START_19             ; $023E
-        DEFB    $CD,$81,$00,$21,$06,$00,$22,$06,$00,$2A          ; $0240
-        DEFW    TPA_START_20+1           ; $024A
-        DEFB    $E9                                              ; $024C  resident code (JP (HL) tail)
-        DEFB    $0D,$0A,"(xsub active)$"    ; $024D  string (printed by resident when installed)
-        DEFB    $E1,$E5,$7C,$FE,$FF,$D2,$2A,$00,$79,$FE,$0A,$CA,$A5,$00,$FE ; $025D
-        DEFB    $1A,$C2,$2A,$00,$EB,$22                          ; $026C
-        DEFW    TPA_START_19             ; $0272
-        DEFB    $EB,$C3,$2A,$00,$0E,$1A,$11,$37,$01,$CD,$2A,$00,$C9,$0E,$1A,$2A ; $0274
-        DEFW    TPA_START_19             ; $0284
-        DEFB    $EB,$CD,$2A,$00,$C9,$C5,$D5,$CD,$78,$00,$D1,$C1,$CD,$2A,$00,$F5 ; $0286
-        DEFB    $CD,$81,$00,$F1,$C9,$0E,$0F,$11,$16,$01,$CD,$8B,$00,$3C,$C9,$D5 ; $0296
-        DEFB    $CD,$9B,$00,$D1,$0E,$0A,$CA,$0D,$01,$D5,$3A,$25,$01,$B7,$CA,$2A ; $02A6
-        DEFB    $00,$3D,$32,$36,$01,$0E,$14,$11,$16,$01,$CD,$8B,$00,$21,$37,$01 ; $02B6
-        DEFB    $5E,$16,$00,$19,$23,$36,$0D,$23,$36,$0A,$23,$36,$24,$0E,$09,$11 ; $02C6
-        DEFB    $38,$01,$CD,$2A,$00,$E1,$11,$37,$01,$1A,$BE,$DA,$E6,$00,$7E,$12 ; $02D6
-        DEFB    $4F,$0C,$23,$1A,$77,$23,$13,$0D,$C2,$E9,$00,$0E,$10,$11,$16,$01 ; $02E6
-        DEFB    $21,$0E,$00,$19,$36,$00,$3A,$36,$01,$3D,$32,$25,$01,$B7,$C2,$09 ; $02F6
-        DEFB    $01,$0E,$13,$CD,$8B,$00,$C9,$2A,$2D,$00,$22,$01,$00,$C3,$2A ; $0306
-        DEFW    TPA_START                ; $0315
-        DEFB    "$$$     SUB"    ; $0317  string
-        DEFB    $00    ; $0322  terminator
-; [AI] Continuation of the relocatable resident image (more resident code/data + work cells). Its
-;       operands reference the resident's relocated high-RAM addresses ($1Dxx/$1Exx/$1Fxx work
-;       area), all outside this file's $0100-$03FF range — left as DEFB, same reasoning as $0200.
-        DEFB    $00,$00,$71,$D5,$3A,$28,$1F,$3D,$32,$28,$1F,$FE,$FF,$CA,$4E,$0A ; $0323
-        DEFB    $2A,$24,$1F,$E5,$2A,$26,$1F,$C1,$0A,$77,$2A,$24,$1F,$23,$22,$24 ; $0333
-        DEFB    $1F,$2A,$26,$1F,$23,$22,$26,$1F,$C3,$27,$0A,$C9,$21,$00,$00,$22 ; $0343
-        DEFB    $4E,$1E,$2A,$B4,$1D,$4D,$CD,$5E,$08,$CD,$37,$09,$21,$29,$1F,$36 ; $0353
-        DEFB    $00,$3A,$AC,$1D,$21,$29,$1F,$BE,$DA,$BE,$0A,$2A,$4E,$1E,$EB,$2A ; $0363
-        DEFB    $B2,$1D,$19,$44,$4D,$CD,$86,$09,$01,$B7,$1D,$CD,$C3,$08,$32,$2A ; $0373
-        DEFB    $1F,$FE,$00,$CA,$AD,$0A,$3A,$2A,$1F,$FE,$01,$CA,$97,$0A,$01,$94 ; $0383
-        DEFB    $02,$CD,$AF,$09,$2A,$4E,$1E,$22,$50,$1E,$EB,$2A,$B2,$1D,$19,$36 ; $0393
-        DEFB    $1A,$3A,$AC,$1D,$32,$29,$1F,$C3,$B7,$0A,$11,$80,$00,$2A,$4E,$1E ; $03A3
-; [AI] RELOCATION BITMAP for the resident image (1 bit per copied byte; the fix-up loop at $01B9
-;       consumes it MSB-first and, on a set bit, adds the destination page to that image byte's high
-;       half). This is packed bit data, NOT code — left as DEFB. The DEFW TPA_START at $03D5 is a
-;       disassembler false positive: those two bitmap bytes ($00,$01) merely coincide with $0100;
-;       byte output is unaffected either way.
-        DEFB    $19,$22,$4E,$1E,$21,$29,$1F,$80,$00,$20,$80,$24,$02,$40,$80,$42 ; $03B3
+; [AI] Self-relocating RESIDENT IMAGE, decoded as real Z-80 at page-relative base
+;       $0000 and placed here via DISP $0000 (the loader copies these bytes from file
+;       $0200 to high RAM, then the bitmap that follows adds the destination page to
+;       each flagged operand high byte). Decoded against reference base $0000 because
+;       its internal operands are page-relative (JP $000D, JP $005D, LD ($002B),HL...).
+;       Wrapped in a local MODULE so its L_/SUB_ labels don't collide with the loader's
+;       TPA_START_* labels. Genuine in-image DATA remaining as DEFB: the printed
+;       "(xsub active)$" string ($004D area, tail "e)$" at $005A), the "$$$     SUB"
+;       FCB-name string ($0116), the in-image relocatable pointer words (DEFW <label>),
+;       and the $01AD-$01B9 work-cell-init tail. Round-trips byte-identical.
+TPA_START_25:                       ; loader copy-source label (value $0200)
+    MODULE XSUB_RESIDENT
+    DISP $0000                      ; image is page-relative; internal labels resolve at $0000
+L_0000:
+        JP L_000D                        ; $0000  C3 0D 00
+L_0003:
+        DEC B                            ; $0003  05
+        NOP                              ; $0004  00
+        RET                              ; $0005  C9
+L_0006:
+        JP SUB_002A_4                    ; $0006  C3 5D 00
+L_0009:
+        LD A,B                           ; $0009  78
+        LD (HL),E                        ; $000A  73
+        LD (HL),L                        ; $000B  75
+        LD H,D                           ; $000C  62
+L_000D:
+        LD HL,(L_0000+1)                 ; $000D  2A 01 00
+        LD (SUB_002A_1),HL               ; $0010  22 2D 00
+        LD HL,SUB_002A_2                 ; $0013  21 2F 00
+        LD (L_0000+1),HL                 ; $0016  22 01 00
+        LD HL,(L_0006)                   ; $0019  2A 06 00
+        LD (SUB_002A+1),HL               ; $001C  22 2B 00
+        LD HL,L_0006                     ; $001F  21 06 00
+        LD (L_0006),HL                   ; $0022  22 06 00
+        POP HL                           ; $0025  E1
+        LD ($01BC),HL                    ; $0026  22 BC 01
+        JP (HL)                          ; $0029  E9
+SUB_002A:
+        JP L_0000                        ; $002A  C3 00 00
+SUB_002A_1:
+        NOP                              ; $002D  00
+        RET                              ; $002E  C9
+SUB_002A_2:
+        LD SP,$01DE                      ; $002F  31 DE 01
+        LD C,$09                         ; $0032  0E 09
+        LD DE,SUB_002A_3                 ; $0034  11 4D 00
+        CALL SUB_002A                    ; $0037  CD 2A 00
+        LD HL,SUB_0078_1                 ; $003A  21 80 00
+        LD (L_01BA),HL                   ; $003D  22 BA 01
+        CALL SUB_0081                    ; $0040  CD 81 00
+        LD HL,L_0006                     ; $0043  21 06 00
+        LD (L_0006),HL                   ; $0046  22 06 00
+        LD HL,($01BC)                    ; $0049  2A BC 01
+        JP (HL)                          ; $004C  E9
+SUB_002A_3:                              ; [AI] "\r\n(xsub active)$" string (loaded as a
+                                         ;       print pointer at $0034, not executed); the
+                                         ;       disassembler renders its leading bytes as
+                                         ;       instructions, tail "e)$" as DEFB below
+        DEC C                            ; $004D  0D
+        LD A,(BC)                        ; $004E  0A
+        JR Z,SUB_009B_4                  ; $004F  28 78
+        LD (HL),E                        ; $0051  73
+        LD (HL),L                        ; $0052  75
+        LD H,D                           ; $0053  62
+        JR NZ,SUB_009B_2                 ; $0054  20 61
+        LD H,E                           ; $0056  63
+        LD (HL),H                        ; $0057  74
+        LD L,C                           ; $0058  69
+        HALT                             ; $0059  76
+        DEFB    $65,$29,$24                                      ; $005A  "e)$" string tail
+SUB_002A_4:
+        POP HL                           ; $005D  E1
+        PUSH HL                          ; $005E  E5
+        LD A,H                           ; $005F  7C
+        CP $FF                           ; $0060  FE FF
+        JP NC,SUB_002A                   ; $0062  D2 2A 00
+        LD A,C                           ; $0065  79
+        CP $0A                           ; $0066  FE 0A
+        JP Z,SUB_009B_1                  ; $0068  CA A5 00
+        CP $1A                           ; $006B  FE 1A
+        JP NZ,SUB_002A                   ; $006D  C2 2A 00
+        EX DE,HL                         ; $0070  EB
+        LD (L_01BA),HL                   ; $0071  22 BA 01
+        EX DE,HL                         ; $0074  EB
+        JP SUB_002A                      ; $0075  C3 2A 00
+SUB_0078:
+        LD C,$1A                         ; $0078  0E 1A
+        LD DE,SUB_009B_12                ; $007A  11 37 01
+        CALL SUB_002A                    ; $007D  CD 2A 00
+SUB_0078_1:
+        RET                              ; $0080  C9
+SUB_0081:
+        LD C,$1A                         ; $0081  0E 1A
+        LD HL,(L_01BA)                   ; $0083  2A BA 01
+        EX DE,HL                         ; $0086  EB
+        CALL SUB_002A                    ; $0087  CD 2A 00
+        RET                              ; $008A  C9
+SUB_008B:
+        PUSH BC                          ; $008B  C5
+        PUSH DE                          ; $008C  D5
+        CALL SUB_0078                    ; $008D  CD 78 00
+        POP DE                           ; $0090  D1
+        POP BC                           ; $0091  C1
+        CALL SUB_002A                    ; $0092  CD 2A 00
+        PUSH AF                          ; $0095  F5
+        CALL SUB_0081                    ; $0096  CD 81 00
+        POP AF                           ; $0099  F1
+        RET                              ; $009A  C9
+SUB_009B:
+        LD C,$0F                         ; $009B  0E 0F
+        LD DE,L_0116                     ; $009D  11 16 01
+        CALL SUB_008B                    ; $00A0  CD 8B 00
+        INC A                            ; $00A3  3C
+        RET                              ; $00A4  C9
+SUB_009B_1:
+        PUSH DE                          ; $00A5  D5
+        CALL SUB_009B                    ; $00A6  CD 9B 00
+        POP DE                           ; $00A9  D1
+        LD C,$0A                         ; $00AA  0E 0A
+        JP Z,SUB_009B_9                  ; $00AC  CA 0D 01
+        PUSH DE                          ; $00AF  D5
+        LD A,(SUB_009B_10)               ; $00B0  3A 25 01
+        OR A                             ; $00B3  B7
+        JP Z,SUB_002A                    ; $00B4  CA 2A 00
+SUB_009B_2:
+        DEC A                            ; $00B7  3D
+        LD (SUB_009B_11),A               ; $00B8  32 36 01
+        LD C,$14                         ; $00BB  0E 14
+        LD DE,L_0116                     ; $00BD  11 16 01
+SUB_009B_3:
+        CALL SUB_008B                    ; $00C0  CD 8B 00
+        LD HL,SUB_009B_12                ; $00C3  21 37 01
+        LD E,(HL)                        ; $00C6  5E
+        LD D,$00                         ; $00C7  16 00
+SUB_009B_4:
+        ADD HL,DE                        ; $00C9  19
+        INC HL                           ; $00CA  23
+        LD (HL),$0D                      ; $00CB  36 0D
+SUB_009B_5:
+        INC HL                           ; $00CD  23
+        LD (HL),$0A                      ; $00CE  36 0A
+        INC HL                           ; $00D0  23
+        LD (HL),$24                      ; $00D1  36 24
+        LD C,$09                         ; $00D3  0E 09
+        LD DE,SUB_009B_12+1              ; $00D5  11 38 01
+        CALL SUB_002A                    ; $00D8  CD 2A 00
+        POP HL                           ; $00DB  E1
+        LD DE,SUB_009B_12                ; $00DC  11 37 01
+        LD A,(DE)                        ; $00DF  1A
+        CP (HL)                          ; $00E0  BE
+        JP C,SUB_009B_6                  ; $00E1  DA E6 00
+        LD A,(HL)                        ; $00E4  7E
+        LD (DE),A                        ; $00E5  12
+SUB_009B_6:
+        LD C,A                           ; $00E6  4F
+        INC C                            ; $00E7  0C
+        INC HL                           ; $00E8  23
+SUB_009B_7:
+        LD A,(DE)                        ; $00E9  1A
+        LD (HL),A                        ; $00EA  77
+        INC HL                           ; $00EB  23
+        INC DE                           ; $00EC  13
+        DEC C                            ; $00ED  0D
+        JP NZ,SUB_009B_7                 ; $00EE  C2 E9 00
+        LD C,$10                         ; $00F1  0E 10
+        LD DE,L_0116                     ; $00F3  11 16 01
+        LD HL,L_000D+1                   ; $00F6  21 0E 00
+        ADD HL,DE                        ; $00F9  19
+        LD (HL),$00                      ; $00FA  36 00
+        LD A,(SUB_009B_11)               ; $00FC  3A 36 01
+        DEC A                            ; $00FF  3D
+        LD (SUB_009B_10),A               ; $0100  32 25 01
+        OR A                             ; $0103  B7
+        JP NZ,SUB_009B_8                 ; $0104  C2 09 01
+        LD C,$13                         ; $0107  0E 13
+SUB_009B_8:
+        CALL SUB_008B                    ; $0109  CD 8B 00
+        RET                              ; $010C  C9
+SUB_009B_9:
+        LD HL,(SUB_002A_1)               ; $010D  2A 2D 00
+        LD (L_0000+1),HL                 ; $0110  22 01 00
+        JP SUB_002A                      ; $0113  C3 2A 00
+L_0116:                                  ; [AI] "$$$     SUB" default FCB name string
+        DEFB    $01,$24,$24,$24,$20,$20,$20,$20,$20,$53,$55,$42  ; $0116
+        DEFW    L_0000                   ; $0122  in-image relocatable pointer word
+        DEFB    $00                                              ; $0124
+SUB_009B_10:
+        LD (HL),C                        ; $0125  71
+        PUSH DE                          ; $0126  D5
+        LD A,($1F28)                     ; $0127  3A 28 1F
+        DEC A                            ; $012A  3D
+        LD ($1F28),A                     ; $012B  32 28 1F
+        CP $FF                           ; $012E  FE FF
+        JP Z,$0A4E                       ; $0130  CA 4E 0A
+        LD HL,($1F24)                    ; $0133  2A 24 1F
+SUB_009B_11:
+        PUSH HL                          ; $0136  E5
+SUB_009B_12:
+        LD HL,($1F26)                    ; $0137  2A 26 1F
+        POP BC                           ; $013A  C1
+        LD A,(BC)                        ; $013B  0A
+        LD (HL),A                        ; $013C  77
+        LD HL,($1F24)                    ; $013D  2A 24 1F
+        INC HL                           ; $0140  23
+        LD ($1F24),HL                    ; $0141  22 24 1F
+        LD HL,($1F26)                    ; $0144  2A 26 1F
+        INC HL                           ; $0147  23
+        LD ($1F26),HL                    ; $0148  22 26 1F
+        JP $0A27                         ; $014B  C3 27 0A
+        DEFB    $C9,$21                                          ; $014E
+        DEFW    L_0000                   ; $0150  in-image relocatable pointer word
+SUB_009B_13:
+        LD ($1E4E),HL                    ; $0152  22 4E 1E
+        LD HL,($1DB4)                    ; $0155  2A B4 1D
+        LD C,L                           ; $0158  4D
+        CALL $085E                       ; $0159  CD 5E 08
+        CALL $0937                       ; $015C  CD 37 09
+        LD HL,$1F29                      ; $015F  21 29 1F
+        LD (HL),$00                      ; $0162  36 00
+        LD A,($1DAC)                     ; $0164  3A AC 1D
+        LD HL,$1F29                      ; $0167  21 29 1F
+        CP (HL)                          ; $016A  BE
+        JP C,$0ABE                       ; $016B  DA BE 0A
+        LD HL,($1E4E)                    ; $016E  2A 4E 1E
+        EX DE,HL                         ; $0171  EB
+        LD HL,($1DB2)                    ; $0172  2A B2 1D
+        ADD HL,DE                        ; $0175  19
+        LD B,H                           ; $0176  44
+        LD C,L                           ; $0177  4D
+        CALL $0986                       ; $0178  CD 86 09
+        LD BC,$1DB7                      ; $017B  01 B7 1D
+        CALL $08C3                       ; $017E  CD C3 08
+        LD ($1F2A),A                     ; $0181  32 2A 1F
+        CP $00                           ; $0184  FE 00
+        JP Z,$0AAD                       ; $0186  CA AD 0A
+        LD A,($1F2A)                     ; $0189  3A 2A 1F
+        CP $01                           ; $018C  FE 01
+        JP Z,$0A97                       ; $018E  CA 97 0A
+        LD BC,$0294                      ; $0191  01 94 02
+        CALL $09AF                       ; $0194  CD AF 09
+        LD HL,($1E4E)                    ; $0197  2A 4E 1E
+        LD ($1E50),HL                    ; $019A  22 50 1E
+        EX DE,HL                         ; $019D  EB
+        LD HL,($1DB2)                    ; $019E  2A B2 1D
+        ADD HL,DE                        ; $01A1  19
+        LD (HL),$1A                      ; $01A2  36 1A
+        LD A,($1DAC)                     ; $01A4  3A AC 1D
+        LD ($1F29),A                     ; $01A7  32 29 1F
+        JP $0AB7                         ; $01AA  C3 B7 0A
+        DEFB    $11                                              ; $01AD
+        DEFW    SUB_0078_1               ; $01AE  in-image relocatable pointer word
+        DEFB    $2A,$4E,$1E,$19,$22,$4E,$1E,$21,$29,$1F          ; $01B0  work-cell-init tail
+L_01BA:
+        DEFW    SUB_0078_1               ; $01BA  in-image relocatable pointer word
+    ENT
+    ENDMODULE
+; [AI] RELOCATION BITMAP for the resident image ($03BC onward: 1 bit per copied byte; the
+;       fix-up loop at $01B9 consumes it MSB-first and, on a set bit, adds the destination
+;       page to that image byte's high half). Packed bit data, NOT code — left as DEFB,
+;       followed by the trailing zero pad to the $0300-byte file size.
+        DEFB    $20,$80,$24,$02,$40,$80,$42                      ; $03BC
         DEFB    $41,$24,$10,$00,$00,$08,$21,$11,$09,$04,$41,$08,$81,$20,$82,$22 ; $03C3
-        DEFB    $21,$24                                          ; $03D3
-        DEFW    TPA_START                ; $03D5
+        DEFB    $21,$24,$00,$01                                  ; $03D3
         DEFB    $22,$10,$00,$84,$02,$22,$11,$04,$00,$00,$00,$00,$00,$00,$00,$00 ; $03D7
         DEFS    25, $00    ; $03E7  fill
 
