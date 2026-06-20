@@ -66,37 +66,16 @@ TPA_START_17:
 ;       supplied: "<3>=13 sector, <CR>=16 sector: ". Leading 0D 0A 0A 0A = CR + 3x LF.
 TPA_START_18:
         DEFB    $0D,$0A,$0A,$0A,"<3>=13 sector, <CR>=16 sector: $" ; $012F
-; [AI] 6502 (not Z-80) launch stub — NOT executed by the Z-80 here and NOT part of the
-;       LDIR payload (which starts at TPA_START_19/$0160). The SoftCard hand-off runs it
-;       on the 6502 side: LDA #$A9 / STA $031F / LDA #$60 / STA $0320 / JMP $0301. Data
-;       to this assembler; left as DEFB.
-        DEFB    $A9,$A9,$8D,$1F,$03,$A9,$60,$8D,$20,$03,$4C,$01,$03 ; $0153
-; [AI] 256-byte 6502 disk bootstrap PAYLOAD (NOT Z-80 code). The Z-80 LDIRs this whole
-;       block ($0160-$025F) to Apple II RAM at $5000, then hands off to the 6502. These
-;       are 6502 opcodes (e.g. $BD = LDA abs,X reading the $C0xx slot/disk soft switches,
-;       $4C = JMP); they are pure data to this assembler and must stay DEFB. PARSE_DENSITY_ARG
-;       self-modifies into it (the LD (TPA_START_20),A patch at $0283).
-TPA_START_19:
-        DEFB    $A2,$20,$A0,$00,$A9,$03,$85,$3C,$18,$88,$98,$24,$3C,$F0,$F5,$26 ; $0160
-        DEFB    $3C,$90,$F8,$C0,$D5,$F0,$ED,$CA,$8A,$99,$00,$08,$D0,$E6,$20,$58 ; $0170
-        DEFB    $FF,$BA,$A9,$60,$48,$A9                          ; $0180
-; [AI] Continuation of the 6502 payload; this byte ($0186) is the self-mod target written
-;       by LD (TPA_START_20),A at $0283 (density patch). Still 6502 data — left as DEFB.
-TPA_START_20:
-        DEFB    $0C,$0A,$0A,$0A,$85,$2B,$AA,$A9,$D0,$48,$BD,$8E,$C0,$BD,$8C,$C0 ; $0186
-        DEFB    $BD,$8A,$C0,$BD,$89,$C0,$A0,$50,$BD,$80,$C0,$98,$29,$03,$0A,$05 ; $0196
-        DEFB    $2B,$AA,$BD,$81,$C0,$A9,$56,$20,$A8,$FC,$88,$10,$EB,$A9,$03,$85 ; $01A6
-        DEFB    $27,$A9,$00,$85,$26,$85,$3D,$18,$08,$BD,$8C,$C0,$10,$FB,$49,$D5 ; $01B6
-        DEFB    $D0,$F7,$BD,$8C,$C0,$10,$FB,$C9,$AA,$D0,$F3,$EA,$BD,$8C,$C0,$10 ; $01C6
-        DEFB    $FB,$C9,$B5,$F0,$09,$28,$90,$DF,$49,$AD,$F0,$1F,$D0,$D9,$A0,$03 ; $01D6
-        DEFB    $84,$2A,$BD,$8C,$C0,$10,$FB,$2A,$85,$3C,$BD,$8C,$C0,$10,$FB,$25 ; $01E6
-        DEFB    $3C,$88,$D0,$EE,$28,$C5,$3D,$D0,$BE,$B0,$BD,$A0,$9A,$84,$3C,$BC ; $01F6
-        DEFB    $8C,$C0,$10,$FB,$59,$00,$08,$A4,$3C,$88,$99,$00,$08,$D0,$EE,$84 ; $0206
-        DEFB    $3C,$BC,$8C,$C0,$10,$FB,$59,$00,$08,$A4,$3C,$91,$26,$C8,$D0,$EF ; $0216
-        DEFB    $BC,$8C,$C0,$10,$FB,$59,$00,$08,$D0,$8D,$60,$A8,$A2,$00,$B9,$00 ; $0226
-        DEFB    $08,$4A,$3E,$CC,$03,$4A,$3E,$99,$03,$85,$3C,$B1,$26,$0A,$0A,$0A ; $0236
-        DEFB    $05,$3C,$91,$26,$C8,$E8,$E0,$33,$D0,$E4,$C6,$2A,$D0,$DE,$CC,$00 ; $0246
-        DEFB    $03,$D0,$03,$4C,$53,$11,$4C,$2D,$FF,$00          ; $0256
+; -- embedded 6502 region $0153-$025F: 6502 launch stub + disk-bootstrap payload --
+; This is genuine 6502 machine code (BOOT runs on the Z-80; the SoftCard runs THIS
+; on the 6502). Disassembled as real 6502 in BOOT_6502.s (ca65) and INCBIN'd here
+; byte-for-byte, so each CPU's code is real source in its own assembler. The Z-80
+; LDIRs the $0160 read engine to Apple RAM $5000 and hands the 6502 off to it;
+; PARSE_DENSITY_ARG self-modifies the density byte at TPA_START_20 before launch.
+BOOT_6502:
+        INCBIN  "BOOT_6502.bin"          ; $0153-$025F  (269 bytes of 6502)
+TPA_START_19 EQU BOOT_6502 + $000D       ; $0160  LDIR payload start (read engine)
+TPA_START_20 EQU BOOT_6502 + $0033       ; $0186  density self-mod target (LDA #$0C imm)
 ; [AI] Parses the command-line tail for the optional density digit and, if present, patches the
 ;       bootstrap's hardware addresses accordingly; with no argument it falls through to print the
 ;       interactive prompt and read the user's choice.

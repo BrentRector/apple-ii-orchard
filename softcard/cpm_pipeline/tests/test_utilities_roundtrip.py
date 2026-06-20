@@ -39,10 +39,28 @@ _skip = lambda disk: pytest.mark.skipif(  # noqa: E731
     not (HAS_SJASM and present(disk)), reason="sjasmplus or 44K system disk missing")
 
 
+def _incbin_deps(asm_path: Path):
+    """Discover any embedded-6502 INCBIN dependencies of a utility source.
+
+    A utility that carries an embedded 6502 payload extracts it to a sibling ca65
+    source ``<NAME>.s`` (+ ``<NAME>.cfg``) and INCBINs the assembled ``<NAME>.bin``.
+    The INCBIN directive is the single declaration of the dependency, so we just
+    scan for it and pair each ``.bin`` with its sibling ca65 source -- no separate
+    registry to keep in sync. Returns the ``(bin_name, ca65_src, defines)`` tuples
+    `assemble_z80` sub-assembles into the build dir."""
+    deps = []
+    for m in re.finditer(r'(?im)^\s*INCBIN\s+"([^"]+\.bin)"', asm_path.read_text(encoding="latin-1")):
+        bin_name = m.group(1)
+        ca65_src = asm_path.parent / (Path(bin_name).stem + ".s")
+        if ca65_src.exists():
+            deps.append((bin_name, ca65_src, ()))
+    return deps
+
+
 def _assemble(asm_path: Path) -> bytes:
     src = re.sub(r'SAVEBIN\s+"[^"]+"', 'SAVEBIN "{out_bin}"',
                  asm_path.read_text(encoding="latin-1"))
-    return assemble_z80(src)
+    return assemble_z80(src, incbin_deps=_incbin_deps(asm_path))
 
 
 # (tree, name, disk) for every utility .asm in each 44K tree, vs that tree's disk
