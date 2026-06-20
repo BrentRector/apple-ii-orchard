@@ -40,37 +40,27 @@ symbols it references across the boundary; both reconstruct byte-identical.
 
 ## utilities/ — the .COM programs (19 disk files)
 
-The disk carries 17 `.COM` + 2 data files. All 17 `.COM` reconstruct
-byte-identical (the whole-disk rebuild decompiles each and lands on the exact
-original bytes).
+The disk carries 17 `.COM` + 2 data files. **CPMV220-44K is the BASE source tree:**
+the utility `.asm` here are the single source-of-record for every `.COM` that is
+byte-identical across the 44K releases, so the 2.23-44K tree carries only the
+utilities whose bytes differ. Each `.asm` reassembles byte-identical to its disk
+`.COM` (gated by `test_utilities_roundtrip.py`; the shared ones are additionally
+cross-checked against the 2.23-44K disk).
 
-**Decompiled here (5 — new to this disk, no byte-identical prior decompile):**
+**Decompiled here (12):**
 
-| File | Source-of-record |
-|------|------------------|
-| `CPM56.COM` | `utilities/CPM56.asm` — the SoftCard 56K-overlay installer |
-| `DDT.COM` | `utilities/DDT.asm` — the CP/M dynamic debugging tool |
-| `SUBMIT.COM` | `utilities/SUBMIT.asm` — the CP/M batch processor |
-| `GBASIC.COM` | stock Microsoft BASIC (graphics); reconstructs byte-identical via `cpm_pipeline.decompile_com` on demand — full committed listing omitted (≈25 KB stock interpreter, mostly data tables) |
-| `MBASIC.COM` | stock Microsoft BASIC; same as GBASIC |
+| Group | Files |
+|-------|-------|
+| shared base (byte-identical on both 44K disks) | `APDOS ASM DOWNLOAD DUMP ED LOAD PIP STAT XSUB` |
+| 2.20-44K-specific (bytes differ from 2.23-44K) | `CPM56` (SoftCard 56K-overlay installer), `DDT`, `SUBMIT` |
 
-**Reused (12 — byte-identical to an already-decompiled build, per the user's
-"reuse the binary-identical apps" direction):**
+**Not yet decompiled (3 — TODO):** `COPY`, `FORMAT`, `RW13`. Their 2.20-44K bytes
+differ from **both** the 2.23-44K and the 2.20-56K versions, so no existing `.asm`
+covers them; they still need their own 2.20-44K decompilation.
 
-| File | Byte-identical source |
-|------|-----------------------|
-| `APDOS.COM` | `CPMV220/utilities/APDOS.asm` (also `CPMV223-44K`) |
-| `ASM.COM` | `CPMV223-44K/utilities/ASM.asm` |
-| `COPY.COM` | `CPMV220/utilities/COPY.asm` |
-| `DOWNLOAD.COM` | `CPMV220/utilities/DOWNLOAD.asm` (also `CPMV223-44K`) |
-| `DUMP.COM` | `CPMV223-44K/utilities/DUMP.asm` |
-| `ED.COM` | `CPMV223-44K/utilities/ED.asm` |
-| `FORMAT.COM` | `CPMV220/utilities/FORMAT.asm` |
-| `LOAD.COM` | `CPMV223-44K/utilities/LOAD.asm` |
-| `PIP.COM` | `CPMV220/utilities/PIP.asm` (also `CPMV223-44K`) |
-| `RW13.COM` | `CPMV220/utilities/RW13.asm` |
-| `STAT.COM` | `CPMV220/utilities/STAT.asm` (also `CPMV223-44K`) |
-| `XSUB.COM` | `CPMV223-44K/utilities/XSUB.asm` |
+**On-demand (2):** `GBASIC`, `MBASIC` — stock Microsoft BASIC; reconstruct
+byte-identical via `cpm_pipeline.decompile_com` on demand (≈25 KB stock
+interpreters, mostly data tables; full committed listing omitted).
 
 **Carried as data (2):** `CONFIGIO.BAS` (BASIC source text), `DUMP.ASM` (8080
 assembler source text) — genuine non-code text files, carried verbatim.

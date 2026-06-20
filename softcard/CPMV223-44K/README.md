@@ -46,11 +46,14 @@ Videx/Pascal path) — see [`BOOT_AND_PATCHING.md`](BOOT_AND_PATCHING.md).
 
 ## `utilities/` — the filesystem programs
 
-19 of the 20 `.COM` programs in the disk's filesystem are here as annotated
-`.asm` that reassemble byte-identical, with `bin/` holding the assembled output:
+[`../CPMV220-44K`](../CPMV220-44K) is the **base** source tree, so the 9 `.COM`
+that are byte-identical across the 44K releases live there (one source for all),
+not here: `APDOS ASM DOWNLOAD DUMP ED LOAD PIP STAT XSUB`.
 
-`APDOS ASM AUTORUN BOOT CAT COPY DDT DOWNLOAD DUMP ED GBASIC LOAD MBASIC MFT
-PATCH PIP STAT SUBMIT XSUB`
+The 10 whose bytes differ from 2.20-44K or are 2.23-only are here as annotated
+`.asm` that reassemble byte-identical (with `bin/` holding the assembled output):
+
+`AUTORUN BOOT CAT COPY DDT GBASIC MBASIC MFT PATCH SUBMIT`
 
 The 20th, `CPM60.COM`, is built from the 60K master
 [`../CPMV223-60K/CPM60.asm`](../CPMV223-60K/CPM60.asm).

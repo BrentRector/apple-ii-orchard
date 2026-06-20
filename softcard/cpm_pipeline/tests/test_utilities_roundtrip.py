@@ -1,12 +1,16 @@
 # -*- coding: utf-8 -*-
-"""Every 2.23-44K utility source must rebuild byte-identical to its disk .COM.
+"""Every 44K utility source must rebuild byte-identical to its disk .COM.
 
-The `CPMV223-44K/utilities/*.asm` files are sjasmplus decompilations of the stock
-transient programs on softcard-cpm2.23-44k-system.dsk. This pins them: each
-committed source, assembled standalone (SAVEBIN target swapped for a temp path),
-must equal the genuine NAME.COM extracted from the disk. It is the gate that lets
-the code-as-bytes sweep (decoding code/strings still rendered as DEFB) proceed
-without silently diverging from what the original program actually was.
+The `CPMV220-44K/utilities/*.asm` and `CPMV223-44K/utilities/*.asm` files are
+sjasmplus decompilations of the transient programs on the two 44K system disks.
+This pins them: each committed source, assembled standalone (SAVEBIN target
+swapped for a temp path), must equal the genuine NAME.COM on its disk.
+
+CPMV220-44K is the BASE source tree. The utilities that are byte-identical across
+the 2.20-44K and 2.23-44K disks live ONLY in CPMV220-44K (one source for all
+releases); the cross-check below proves the base source also reassembles to the
+2.23-44K disk's copy. The 2.23-44K tree carries only the utilities whose bytes
+differ from 2.20-44K or are 2.23-only (plus the two BASICs).
 """
 import re
 import shutil
@@ -16,28 +20,58 @@ import pytest
 
 from cpm_pipeline.region_disasm import assemble_z80
 from cpm_pipeline.filesystem import read_disk, extract_file
-from cpm_pipeline.reference_data import DISK_2_23_44K_SYSTEM, present
+from cpm_pipeline.reference_data import (
+    DISK_2_20_44K_SYSTEM, DISK_2_23_44K_SYSTEM, present)
 
 REPO = Path(__file__).resolve().parents[2]               # softcard/
-UTIL_DIR = REPO / "CPMV223-44K" / "utilities"
-DISK = DISK_2_23_44K_SYSTEM
-HAS = bool(shutil.which("sjasmplus") and present(DISK))
-skip = pytest.mark.skipif(
-    not HAS, reason="sjasmplus or softcard-cpm2.23-44k-system.dsk missing")
 
-# Every NAME.asm here corresponds to NAME.COM on the system disk.
-UTILITIES = sorted(p.stem for p in UTIL_DIR.glob("*.asm"))
+# each 44K tree's utilities are checked against THAT tree's disk
+TREE_DISK = {
+    "CPMV220-44K": DISK_2_20_44K_SYSTEM,
+    "CPMV223-44K": DISK_2_23_44K_SYSTEM,
+}
+# byte-identical-across-both-disks utilities: they live ONLY in the CPMV220-44K
+# base and must also reassemble == the 2.23-44K disk copy.
+SHARED_BASE = ["APDOS", "ASM", "DOWNLOAD", "DUMP", "ED", "LOAD", "PIP", "STAT", "XSUB"]
+
+HAS_SJASM = shutil.which("sjasmplus") is not None
+_skip = lambda disk: pytest.mark.skipif(  # noqa: E731
+    not (HAS_SJASM and present(disk)), reason="sjasmplus or 44K system disk missing")
 
 
-@skip
-@pytest.mark.parametrize("name", UTILITIES)
-def test_utility_source_is_byte_identical(name):
+def _assemble(asm_path: Path) -> bytes:
     src = re.sub(r'SAVEBIN\s+"[^"]+"', 'SAVEBIN "{out_bin}"',
-                 (UTIL_DIR / f"{name}.asm").read_text(encoding="latin-1"))
-    built = assemble_z80(src)
-    com = bytes(extract_file(read_disk(Path(DISK)), f"{name}.COM"))
-    assert built, f"{name}.asm failed to assemble"
+                 asm_path.read_text(encoding="latin-1"))
+    return assemble_z80(src)
+
+
+# (tree, name, disk) for every utility .asm in each 44K tree, vs that tree's disk
+_CASES = [
+    (tree, p.stem, disk)
+    for tree, disk in TREE_DISK.items()
+    for p in sorted((REPO / tree / "utilities").glob("*.asm"))
+]
+
+
+@pytest.mark.parametrize(
+    "tree,name,disk", _CASES, ids=[f"{t}:{n}" for t, n, _ in _CASES])
+def test_utility_source_is_byte_identical(tree, name, disk):
+    if not (HAS_SJASM and present(disk)):
+        pytest.skip("sjasmplus or 44K system disk missing")
+    built = _assemble(REPO / tree / "utilities" / f"{name}.asm")
+    com = bytes(extract_file(read_disk(Path(disk)), f"{name}.COM"))
+    assert built, f"{tree}/{name}.asm failed to assemble"
     assert built == com, (
-        f"{name}.asm rebuilt {len(built)} bytes, expected {len(com)} "
-        f"(does NOT round-trip byte-identical to {name}.COM)"
-    )
+        f"{tree}/{name}.asm rebuilt {len(built)} bytes, expected {len(com)} "
+        f"(does NOT round-trip byte-identical to {name}.COM on its disk)")
+
+
+@_skip(DISK_2_23_44K_SYSTEM)
+@pytest.mark.parametrize("name", SHARED_BASE)
+def test_shared_base_utility_also_matches_223_disk(name):
+    """The single base (2.20-44K) source for a shared utility must be byte-identical
+    on the 2.23-44K disk too -- the justification for keeping only one copy."""
+    built = _assemble(REPO / "CPMV220-44K" / "utilities" / f"{name}.asm")
+    com = bytes(extract_file(read_disk(Path(DISK_2_23_44K_SYSTEM)), f"{name}.COM"))
+    assert built and built == com, (
+        f"shared base CPMV220-44K/{name}.asm does not match the 2.23-44K disk copy")
