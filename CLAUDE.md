@@ -17,8 +17,10 @@ sources reassemble to **byte-identical** disk images.
 ```
 apple-ii/    Apple II RE — apple-panic/ (game RE), scripts/ (~38 investigation scripts), docs/ (Disk II P6 ROM)
 softcard/    CP/M-80 / Microsoft SoftCard
-  CPMV223-44K/  CPMV223-60K/  CPMV220/   per-release SOURCE trees: os/ + utilities/ (reference disk images live in the
-                                          archive, NOT here; CPMV220 is actually the 2.20B 56K build; CPMV223-60K keeps its DERIVED 60K disk)
+  CPMV220-44K/  CPMV223-44K/  CPMV223-60K/  CPMV220/   per-release SOURCE trees: os/ + utilities/ (reference disk images live
+                                          in the archive, NOT here). CPMV220-44K = the BASE 2.20-44K tree (canonical; owns the
+                                          byte-identical-shared utilities + the GBASIC destination); CPMV220 = the 2.20B-56K build;
+                                          CPMV223-60K keeps its DERIVED 60K disk. The two 44K trees are at the full standard (2026-06-20)
   cpm_pipeline/    .DSK -> annotated source pipeline (detect/trace/reconstruct/decompile-*), byte-identical rebuild.
                    reference_data.py = SINGLE SOURCE OF TRUTH for disk/test-data paths (import its DISK_* constants + present()/bios_bin(); never hard-code a path)
   softcard_emu/    whole-system emulator: 6502 + Z-80 on one Apple memory bus (python -m softcard_emu DISK --keys "DIR\r")
@@ -41,8 +43,12 @@ Python packages live inside the trees but import by **bare name**; a repo-root
 ```bash
 source shared/toolchain/env.sh   # no install; also puts ca65/ld65/sjasmplus on PATH (+ packages on PYTHONPATH)
 # or: pip install -e .
-python -m pytest                 # 167 passed with env.sh active (fewer + some skips without the toolchain)
+python -m pytest softcard/ shared/   # the CP/M gate: 215 passed with env.sh active (2026-06-20)
+python -m pytest                      # whole repo incl. apple-ii (larger total; fewer + skips without the toolchain)
 ```
+The canonical CP/M byte-identical gate is `source shared/toolchain/env.sh && python -m pytest softcard/ shared/`
+(**215 passed**). Note: WITHOUT sourcing env.sh, sjasmplus/ca65 are off PATH and the byte-identical
+round-trip cases **SKIP** (they do not fail) — always source env.sh and confirm new cases show PASSED, not SKIPPED.
 
 The `CPM*.asm` build sources resolve assembler paths with `cwd=softcard/`. The
 pipeline `--ai` layer needs `ANTHROPIC_API_KEY` and uses `claude-opus-4-8`.
@@ -86,10 +92,26 @@ Write-ups publish to **wiseowl.com** (Astro v6, Cloudflare Pages) at
 
 ## Current focus
 
-The **canonical SoftCard / Apple CP/M archive** at
-`softcard/reference/softcard-cpm-archive/` (one-stop source: disk images,
-manuals, schematics, datasheets, photos; `MANIFEST.csv` is the authoritative
-per-file record). Most recent thread: AI vision-transcription of the scanned
-manual PDFs to searchable Markdown (`manuals/transcribed/`), with the scanned
-PDFs kept as the authoritative source. See `resume-prompt.md` for live state and
-open items (hosting decision for the archive, secondary MS cards, etc.).
+**IMMEDIATE NEXT TASK: decompile GBASIC.COM (2.20-44K disk) to the full standard,
+byte-identical, SUPERSET-FIRST** (GBASIC is the graphics superset; MBASIC is the
+graphics-OFF build of the same MS BASIC-80 Rev 5.2 engine). Owned in the base tree
+`softcard/CPMV220-44K/utilities/`. GBASIC self-relocates to `$3000`, so decode the
+interpreter body via `DISP $3000` (the existing `CPMV223-44K/utilities/GBASIC.asm`
+is the structural template). **Read the full recipe + binary facts first** in the
+memory files `project_gbasic_2_20_44k_re_kickoff` and
+`project_gbasic_vs_mbasic_relationship`, and `resume-prompt.md`.
+
+This sits on the branch **`softcard-bootloaders-to-standard`** (not yet merged),
+where ALL FOUR PHASES of the source-completion plan are DONE for both 44K trees
+(`CPMV220-44K` + `CPMV223-44K`): code-as-bytes, semantic naming (0 machine labels),
+`[DOC]` citations, and the missing 2.20-44K utilities. Gate: **215 passed**
+(`source shared/toolchain/env.sh && python -m pytest softcard/ shared/`). Plan +
+state: `softcard/docs/CPM_Source_Completion_and_Tour_Plan.md`,
+`project_softcard_source_completion_and_tour`. After the BASICs: 56K/60K trees to the
+same standard, the CPM56->os/ fold, then the wiseowl "Guided Tour" article series.
+
+Background (the longer-running asset): the **canonical SoftCard / Apple CP/M archive**
+at `softcard/reference/softcard-cpm-archive/` (one-stop source: disk images, manuals,
+schematics, datasheets, photos; `MANIFEST.csv` authoritative; manuals AI-transcribed
+to `manuals/transcribed/`, scanned PDFs authoritative). Open: archive hosting
+decision, secondary MS cards.
