@@ -17,6 +17,12 @@
 .setcpu "6502"
 .segment "CODE"
 
+; -- Apple II soft switches / Monitor entries (canonical; see shared/symbols/apple2.json) --
+LC_ROM_BANK2_WR      = $C081    ; LC: read ROM, write-enable RAM bank 2
+LC_RAM_BANK2_RDWR    = $C083    ; LC: read/write RAM bank 2 (read twice to arm write)
+SAVE                 = $FF4A    ; Monitor: save A,X,Y,P,S -> the $45-$49 register-pass cells
+IORTS                = $FF58    ; Monitor: a bare RTS used as a no-op 6502 call target [DOC S&HD 2-25]
+
 .org $0200
 
 IN:
@@ -26,7 +32,32 @@ IN:
         .byte   $60, $FE, $4C, $FE, $4C, $FE, $20, $1B, $AA, $D9, $D4, $A9, $A8, $1E, $BD, $0B ; $0390  [DOC S&HD 2-14/2-19] I/O Vector Table tail: $0390=Punch Out #2, $0392/$0394=List Out #1/#2. Then the Software screen-function table headers: $0396=SXYOFF (cursor XY coord offset; high bit picks X/Y order) and $0397=SFLDIN (lead-in char, 0=none); $0398=SSFTAB base (Software Screen Function table, functions 1-9)
         .byte   $0C, $A0, $00, $0C, $0B, $1D, $0E, $0F, $19, $1E, $1F, $1C, $0B, $5B, $00, $7F ; $03A0  [DOC S&HD 2-14/2-17] $03A0 ends SSFTAB; $03A1=HW cursor offset, $03A2=HW lead-in, $03A3-$03AB = Hardware Screen Function table (Clear Screen, Clear EOP/EOL, Normal/Inverse, Home, Address Cursor, Up, Forward). $03AC = Keyboard Character Redefinition Table (up to six 2-byte ASCII redefs, high-bit-set terminator)
         .byte   $02, $5C, $15, $09, $FF, $FF, $FF, $FF, $00, $00, $00, $00, $00, $00, $00, $00 ; $03B0  [DOC S&HD 2-26/2-27] $03B8 = Disk Count Byte (number of disk-controller cards x2). $03B9-$03BF = Card Type Table, one byte per slot 1-7 (SLTTYP, entry = $03B8+S); stamped at boot with the detected card type (4 = High-Speed Serial / Videx Videoterm / Sup-R-Term; here all 00 = as-shipped, pre-detection)
-        .byte   $AD, $83, $C0, $AD, $83, $C0, $8D, $FF, $FF, $AD, $81, $C0, $20, $36, $0E, $20 ; $03C0  [DOC S&HD 2-25] $03C0 = start of the 6502->Z-80 mode-switching routine; the 6502 RESET, NMI, and BREAK vectors point here, and a JMP here puts the 6502 on "hold" and returns to Z-80 mode. [AI] body: LDA $C083 x2 / STA $FFFF / LDA $C081 toggles Language-Card banking around the switch, then JSR $0E36
-        .byte   $58, $FF, $8D, $81, $C0, $78, $20, $4A, $FF, $4C, $C0, $03, $00, $20, $00, $00 ; $03D0  [DOC S&HD 2-24/2-25] RPC (6502-subroutine-call) cells. $03D0 = A$VEC: address of the 6502 sub to call, stored low-high; here $FF58 = the Apple Monitor RTS the interrupt handler parks here as a no-op call target. $03DB ends with JMP $03C0 (back to the mode-switch routine). $03DE = Z$CPU: SoftCard location (low byte 0, high byte 0ENH for slot N); a WRITE through it switches CPUs
+; [DOC S&HD 2-25] $03C0 = the 6502 -> Z-80 mode-switch routine. The 6502 RESET, NMI, and
+;       BREAK vectors point here; a JMP here puts the 6502 on "hold" and returns to Z-80
+;       mode. It brackets the work in Language-Card banking (read RAM bank2, ..., read ROM)
+;       and hands the 6502 register state to the Z-80 via the Monitor SAVE.
+MODE_SWITCH:
+        LDA LC_RAM_BANK2_RDWR        ; $03C0  AD 83 C0
+        LDA LC_RAM_BANK2_RDWR        ; $03C3  AD 83 C0
+        STA $FFFF                    ; $03C6  8D FF FF  operand patched to the $Cn00 SoftCard switch
+        LDA LC_ROM_BANK2_WR          ; $03C9  AD 81 C0
+        JSR $0E36                    ; $03CC  20 36 0E
+; [DOC S&HD 2-24/2-25] A$VEC: the operand bytes of the JSR below ($03D0-$03D1) ARE the
+;       6502-subroutine-call vector -- the Z-80 patches them to the 6502 sub to run; as
+;       shipped they hold $FF58 (IORTS, the Monitor RTS) = a harmless no-op call.
+        JSR IORTS                    ; $03CF  20 58 FF  operand $03D0 = A$VEC (here $FF58)
+        STA LC_ROM_BANK2_WR          ; $03D2  8D 81 C0
+        SEI                          ; $03D5  78
+        JSR SAVE                     ; $03D6  20 4A FF  A,X,Y,P,S -> $45-$49 for the Z-80
+        JMP MODE_SWITCH              ; $03D9  4C C0 03  ($03DB ends the routine)
+; [DOC S&HD 2-24/2-25] $03DE = Z$CPU: the SoftCard location cell (low 0, high $En for slot N);
+;       a WRITE through it switches CPUs. $00 as shipped (stamped at boot). $03DC-$03DD precede it.
+        .byte   $00, $20, $00, $00                              ; $03DC  ($03DE-$03DF = Z$CPU)
+; [AI] $03E0 = the page-3 DOS-style RWTS IOB (drive / command / track / sector / load-address
+;       cells the boot loader's RWTS_ENGINE reads and writes, e.g. STY $03E0 / INC $03E0);
+;       $00 as shipped (filled at run time). The $60 at $03E7 is the cell's shipped value.
         .byte   $00, $00, $00, $00, $00, $00, $00, $60, $00, $00, $00, $00, $00, $00, $00, $00 ; $03E0
+; [AI] $03EF-$03FF = the RPC dispatch-vector template: $C0 $03 pointers to the $03C0 mode-switch
+;       routine and $4C C0 03 (JMP $03C0) re-entry stubs the RPC mechanism dispatches through
+;       (the page-3 control tail SOFTCARD_INSTALL copies into place). Vector-table data.
         .byte   $C0, $03, $C0, $03, $A6, $4C, $C0, $03, $4C, $C0, $03, $4C, $C0, $03, $C0, $03 ; $03F0
