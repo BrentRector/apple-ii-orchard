@@ -38,7 +38,7 @@ TPA_START_5:
 ;       branching to the not-resident path that prints the version-error message.
 TPA_START_6:
         CP $06                           ; $015B  FE 06
-; [AI] If the version check fails, jumps to L_0179 to emit the 'Requires CP/M Version 2.0 or later'
+; [AI] If the version check fails, jumps to TPA_START_9 to emit the 'Requires CP/M Version 2.0 or later'
 ;       message and exit without installing.
 TPA_START_7:
         JP NZ,TPA_START_9                ; $015D  C2 79 01
@@ -65,7 +65,7 @@ TPA_START_8:
 TPA_START_9:
         LD C,$09                         ; $0179  0E 09
 ; [AI] Sets DE=$011F, the address of the 'Xsub Already Present$' message, before the shared BDOS
-;       print call at L_017E.
+;       print call at TPA_START_11.
 TPA_START_10:
         LD DE,TPA_START_2                ; $017B  11 1F 01
 ; [AI] Shared BDOS print-string-and-return tail: CALL $0005 then POP BC / RET back to the CCP.
@@ -177,7 +177,7 @@ TPA_START_24:
 ;       $0200 to high RAM, then the bitmap that follows adds the destination page to
 ;       each flagged operand high byte). Decoded against reference base $0000 because
 ;       its internal operands are page-relative (JP $000D, JP $005D, LD ($002B),HL...).
-;       Wrapped in a local MODULE so its L_/SUB_ labels don't collide with the loader's
+;       Wrapped in a local MODULE so its internal labels don't collide with the loader's
 ;       TPA_START_* labels. Genuine in-image DATA remaining as DEFB: the printed
 ;       "(xsub active)$" string ($004D area, tail "e)$" at $005A), the "$$$     SUB"
 ;       FCB-name string ($0116), the in-image relocatable pointer words (DEFW <label>),
@@ -185,181 +185,181 @@ TPA_START_24:
 TPA_START_25:                       ; loader copy-source label (value $0200)
     MODULE XSUB_RESIDENT
     DISP $0000                      ; image is page-relative; internal labels resolve at $0000
-L_0000:
-        JP L_000D                        ; $0000  C3 0D 00
-L_0003:
+BDOS_TRAMPOLINE:
+        JP INSTALL_INTERCEPT                        ; $0000  C3 0D 00
+BDOS_TRAMPOLINE_TAIL:
         DEC B                            ; $0003  05
         NOP                              ; $0004  00
         RET                              ; $0005  C9
-L_0006:
-        JP SUB_002A_4                    ; $0006  C3 5D 00
-L_0009:
+BDOS_INTERCEPT:
+        JP BDOS_DISPATCH                    ; $0006  C3 5D 00
+XSUB_SIGNATURE:
         LD A,B                           ; $0009  78
         LD (HL),E                        ; $000A  73
         LD (HL),L                        ; $000B  75
         LD H,D                           ; $000C  62
-L_000D:
-        LD HL,(L_0000+1)                 ; $000D  2A 01 00
-        LD (SUB_002A_1),HL               ; $0010  22 2D 00
-        LD HL,SUB_002A_2                 ; $0013  21 2F 00
-        LD (L_0000+1),HL                 ; $0016  22 01 00
-        LD HL,(L_0006)                   ; $0019  2A 06 00
-        LD (SUB_002A+1),HL               ; $001C  22 2B 00
-        LD HL,L_0006                     ; $001F  21 06 00
-        LD (L_0006),HL                   ; $0022  22 06 00
+INSTALL_INTERCEPT:
+        LD HL,(BDOS_TRAMPOLINE+1)                 ; $000D  2A 01 00
+        LD (OLD_BDOS_VEC),HL               ; $0010  22 2D 00
+        LD HL,ACTIVATE_XSUB                 ; $0013  21 2F 00
+        LD (BDOS_TRAMPOLINE+1),HL                 ; $0016  22 01 00
+        LD HL,(BDOS_INTERCEPT)                   ; $0019  2A 06 00
+        LD (CALL_REAL_BDOS+1),HL               ; $001C  22 2B 00
+        LD HL,BDOS_INTERCEPT                     ; $001F  21 06 00
+        LD (BDOS_INTERCEPT),HL                   ; $0022  22 06 00
         POP HL                           ; $0025  E1
         LD ($01BC),HL                    ; $0026  22 BC 01
         JP (HL)                          ; $0029  E9
-SUB_002A:
-        JP L_0000                        ; $002A  C3 00 00
-SUB_002A_1:
+CALL_REAL_BDOS:
+        JP BDOS_TRAMPOLINE                        ; $002A  C3 00 00
+OLD_BDOS_VEC:
         NOP                              ; $002D  00
         RET                              ; $002E  C9
-SUB_002A_2:
+ACTIVATE_XSUB:
         LD SP,$01DE                      ; $002F  31 DE 01
         LD C,$09                         ; $0032  0E 09
-        LD DE,SUB_002A_3                 ; $0034  11 4D 00
-        CALL SUB_002A                    ; $0037  CD 2A 00
-        LD HL,SUB_0078_1                 ; $003A  21 80 00
-        LD (L_01BA),HL                   ; $003D  22 BA 01
-        CALL SUB_0081                    ; $0040  CD 81 00
-        LD HL,L_0006                     ; $0043  21 06 00
-        LD (L_0006),HL                   ; $0046  22 06 00
+        LD DE,MSG_XSUB_ACTIVE                 ; $0034  11 4D 00
+        CALL CALL_REAL_BDOS                    ; $0037  CD 2A 00
+        LD HL,SET_DMA_SCRATCH_RET                 ; $003A  21 80 00
+        LD (CALLER_DMA_PTR),HL                   ; $003D  22 BA 01
+        CALL RESTORE_CALLER_DMA                    ; $0040  CD 81 00
+        LD HL,BDOS_INTERCEPT                     ; $0043  21 06 00
+        LD (BDOS_INTERCEPT),HL                   ; $0046  22 06 00
         LD HL,($01BC)                    ; $0049  2A BC 01
         JP (HL)                          ; $004C  E9
-SUB_002A_3:                              ; [AI] "\r\n(xsub active)$" string (loaded as a
+MSG_XSUB_ACTIVE:                              ; [AI] "\r\n(xsub active)$" string (loaded as a
                                          ;       print pointer at $0034, not executed); the
                                          ;       disassembler renders its leading bytes as
                                          ;       instructions, tail "e)$" as DEFB below
         DEC C                            ; $004D  0D
         LD A,(BC)                        ; $004E  0A
-        JR Z,SUB_009B_4                  ; $004F  28 78
+        JR Z,READ_LINE_FROM_SUBMIT_4                  ; $004F  28 78
         LD (HL),E                        ; $0051  73
         LD (HL),L                        ; $0052  75
         LD H,D                           ; $0053  62
-        JR NZ,SUB_009B_2                 ; $0054  20 61
+        JR NZ,READ_LINE_FROM_SUBMIT_2                 ; $0054  20 61
         LD H,E                           ; $0056  63
         LD (HL),H                        ; $0057  74
         LD L,C                           ; $0058  69
         HALT                             ; $0059  76
         DEFB    $65,$29,$24                                      ; $005A  "e)$" string tail
-SUB_002A_4:
+BDOS_DISPATCH:
         POP HL                           ; $005D  E1
         PUSH HL                          ; $005E  E5
         LD A,H                           ; $005F  7C
         CP $FF                           ; $0060  FE FF
-        JP NC,SUB_002A                   ; $0062  D2 2A 00
+        JP NC,CALL_REAL_BDOS                   ; $0062  D2 2A 00
         LD A,C                           ; $0065  79
         CP $0A                           ; $0066  FE 0A
-        JP Z,SUB_009B_1                  ; $0068  CA A5 00
+        JP Z,READ_LINE_FROM_SUBMIT                  ; $0068  CA A5 00
         CP $1A                           ; $006B  FE 1A
-        JP NZ,SUB_002A                   ; $006D  C2 2A 00
+        JP NZ,CALL_REAL_BDOS                   ; $006D  C2 2A 00
         EX DE,HL                         ; $0070  EB
-        LD (L_01BA),HL                   ; $0071  22 BA 01
+        LD (CALLER_DMA_PTR),HL                   ; $0071  22 BA 01
         EX DE,HL                         ; $0074  EB
-        JP SUB_002A                      ; $0075  C3 2A 00
-SUB_0078:
+        JP CALL_REAL_BDOS                      ; $0075  C3 2A 00
+SET_DMA_SCRATCH:
         LD C,$1A                         ; $0078  0E 1A
-        LD DE,SUB_009B_12                ; $007A  11 37 01
-        CALL SUB_002A                    ; $007D  CD 2A 00
-SUB_0078_1:
+        LD DE,SUBMIT_REC_BUF                ; $007A  11 37 01
+        CALL CALL_REAL_BDOS                    ; $007D  CD 2A 00
+SET_DMA_SCRATCH_RET:
         RET                              ; $0080  C9
-SUB_0081:
+RESTORE_CALLER_DMA:
         LD C,$1A                         ; $0081  0E 1A
-        LD HL,(L_01BA)                   ; $0083  2A BA 01
+        LD HL,(CALLER_DMA_PTR)                   ; $0083  2A BA 01
         EX DE,HL                         ; $0086  EB
-        CALL SUB_002A                    ; $0087  CD 2A 00
+        CALL CALL_REAL_BDOS                    ; $0087  CD 2A 00
         RET                              ; $008A  C9
-SUB_008B:
+BDOS_WITH_SCRATCH_DMA:
         PUSH BC                          ; $008B  C5
         PUSH DE                          ; $008C  D5
-        CALL SUB_0078                    ; $008D  CD 78 00
+        CALL SET_DMA_SCRATCH                    ; $008D  CD 78 00
         POP DE                           ; $0090  D1
         POP BC                           ; $0091  C1
-        CALL SUB_002A                    ; $0092  CD 2A 00
+        CALL CALL_REAL_BDOS                    ; $0092  CD 2A 00
         PUSH AF                          ; $0095  F5
-        CALL SUB_0081                    ; $0096  CD 81 00
+        CALL RESTORE_CALLER_DMA                    ; $0096  CD 81 00
         POP AF                           ; $0099  F1
         RET                              ; $009A  C9
-SUB_009B:
+OPEN_SUBMIT_FILE:
         LD C,$0F                         ; $009B  0E 0F
-        LD DE,L_0116                     ; $009D  11 16 01
-        CALL SUB_008B                    ; $00A0  CD 8B 00
+        LD DE,SUBMIT_FCB                     ; $009D  11 16 01
+        CALL BDOS_WITH_SCRATCH_DMA                    ; $00A0  CD 8B 00
         INC A                            ; $00A3  3C
         RET                              ; $00A4  C9
-SUB_009B_1:
+READ_LINE_FROM_SUBMIT:
         PUSH DE                          ; $00A5  D5
-        CALL SUB_009B                    ; $00A6  CD 9B 00
+        CALL OPEN_SUBMIT_FILE                    ; $00A6  CD 9B 00
         POP DE                           ; $00A9  D1
         LD C,$0A                         ; $00AA  0E 0A
-        JP Z,SUB_009B_9                  ; $00AC  CA 0D 01
+        JP Z,SUBMIT_EXHAUSTED                  ; $00AC  CA 0D 01
         PUSH DE                          ; $00AF  D5
-        LD A,(SUB_009B_10)               ; $00B0  3A 25 01
+        LD A,(SUBMIT_REC_COUNT)               ; $00B0  3A 25 01
         OR A                             ; $00B3  B7
-        JP Z,SUB_002A                    ; $00B4  CA 2A 00
-SUB_009B_2:
+        JP Z,CALL_REAL_BDOS                    ; $00B4  CA 2A 00
+READ_LINE_FROM_SUBMIT_2:
         DEC A                            ; $00B7  3D
-        LD (SUB_009B_11),A               ; $00B8  32 36 01
+        LD (SUBMIT_REC_TEMP),A               ; $00B8  32 36 01
         LD C,$14                         ; $00BB  0E 14
-        LD DE,L_0116                     ; $00BD  11 16 01
-SUB_009B_3:
-        CALL SUB_008B                    ; $00C0  CD 8B 00
-        LD HL,SUB_009B_12                ; $00C3  21 37 01
+        LD DE,SUBMIT_FCB                     ; $00BD  11 16 01
+READ_LINE_FROM_SUBMIT_3:
+        CALL BDOS_WITH_SCRATCH_DMA                    ; $00C0  CD 8B 00
+        LD HL,SUBMIT_REC_BUF                ; $00C3  21 37 01
         LD E,(HL)                        ; $00C6  5E
         LD D,$00                         ; $00C7  16 00
-SUB_009B_4:
+READ_LINE_FROM_SUBMIT_4:
         ADD HL,DE                        ; $00C9  19
         INC HL                           ; $00CA  23
         LD (HL),$0D                      ; $00CB  36 0D
-SUB_009B_5:
+READ_LINE_FROM_SUBMIT_5:
         INC HL                           ; $00CD  23
         LD (HL),$0A                      ; $00CE  36 0A
         INC HL                           ; $00D0  23
         LD (HL),$24                      ; $00D1  36 24
         LD C,$09                         ; $00D3  0E 09
-        LD DE,SUB_009B_12+1              ; $00D5  11 38 01
-        CALL SUB_002A                    ; $00D8  CD 2A 00
+        LD DE,SUBMIT_REC_BUF+1              ; $00D5  11 38 01
+        CALL CALL_REAL_BDOS                    ; $00D8  CD 2A 00
         POP HL                           ; $00DB  E1
-        LD DE,SUB_009B_12                ; $00DC  11 37 01
+        LD DE,SUBMIT_REC_BUF                ; $00DC  11 37 01
         LD A,(DE)                        ; $00DF  1A
         CP (HL)                          ; $00E0  BE
-        JP C,SUB_009B_6                  ; $00E1  DA E6 00
+        JP C,READ_LINE_FROM_SUBMIT_6                  ; $00E1  DA E6 00
         LD A,(HL)                        ; $00E4  7E
         LD (DE),A                        ; $00E5  12
-SUB_009B_6:
+READ_LINE_FROM_SUBMIT_6:
         LD C,A                           ; $00E6  4F
         INC C                            ; $00E7  0C
         INC HL                           ; $00E8  23
-SUB_009B_7:
+READ_LINE_FROM_SUBMIT_7:
         LD A,(DE)                        ; $00E9  1A
         LD (HL),A                        ; $00EA  77
         INC HL                           ; $00EB  23
         INC DE                           ; $00EC  13
         DEC C                            ; $00ED  0D
-        JP NZ,SUB_009B_7                 ; $00EE  C2 E9 00
+        JP NZ,READ_LINE_FROM_SUBMIT_7                 ; $00EE  C2 E9 00
         LD C,$10                         ; $00F1  0E 10
-        LD DE,L_0116                     ; $00F3  11 16 01
-        LD HL,L_000D+1                   ; $00F6  21 0E 00
+        LD DE,SUBMIT_FCB                     ; $00F3  11 16 01
+        LD HL,INSTALL_INTERCEPT+1                   ; $00F6  21 0E 00
         ADD HL,DE                        ; $00F9  19
         LD (HL),$00                      ; $00FA  36 00
-        LD A,(SUB_009B_11)               ; $00FC  3A 36 01
+        LD A,(SUBMIT_REC_TEMP)               ; $00FC  3A 36 01
         DEC A                            ; $00FF  3D
-        LD (SUB_009B_10),A               ; $0100  32 25 01
+        LD (SUBMIT_REC_COUNT),A               ; $0100  32 25 01
         OR A                             ; $0103  B7
-        JP NZ,SUB_009B_8                 ; $0104  C2 09 01
+        JP NZ,READ_LINE_FROM_SUBMIT_8                 ; $0104  C2 09 01
         LD C,$13                         ; $0107  0E 13
-SUB_009B_8:
-        CALL SUB_008B                    ; $0109  CD 8B 00
+READ_LINE_FROM_SUBMIT_8:
+        CALL BDOS_WITH_SCRATCH_DMA                    ; $0109  CD 8B 00
         RET                              ; $010C  C9
-SUB_009B_9:
-        LD HL,(SUB_002A_1)               ; $010D  2A 2D 00
-        LD (L_0000+1),HL                 ; $0110  22 01 00
-        JP SUB_002A                      ; $0113  C3 2A 00
-L_0116:                                  ; [AI] "$$$     SUB" default FCB name string
+SUBMIT_EXHAUSTED:
+        LD HL,(OLD_BDOS_VEC)               ; $010D  2A 2D 00
+        LD (BDOS_TRAMPOLINE+1),HL                 ; $0110  22 01 00
+        JP CALL_REAL_BDOS                      ; $0113  C3 2A 00
+SUBMIT_FCB:                                  ; [AI] "$$$     SUB" default FCB name string
         DEFB    $01,$24,$24,$24,$20,$20,$20,$20,$20,$53,$55,$42  ; $0116
-        DEFW    L_0000                   ; $0122  in-image relocatable pointer word
+        DEFW    BDOS_TRAMPOLINE                   ; $0122  in-image relocatable pointer word
         DEFB    $00                                              ; $0124
-SUB_009B_10:
+SUBMIT_REC_COUNT:
         LD (HL),C                        ; $0125  71
         PUSH DE                          ; $0126  D5
         LD A,($1F28)                     ; $0127  3A 28 1F
@@ -368,9 +368,9 @@ SUB_009B_10:
         CP $FF                           ; $012E  FE FF
         JP Z,$0A4E                       ; $0130  CA 4E 0A
         LD HL,($1F24)                    ; $0133  2A 24 1F
-SUB_009B_11:
+SUBMIT_REC_TEMP:
         PUSH HL                          ; $0136  E5
-SUB_009B_12:
+SUBMIT_REC_BUF:
         LD HL,($1F26)                    ; $0137  2A 26 1F
         POP BC                           ; $013A  C1
         LD A,(BC)                        ; $013B  0A
@@ -383,8 +383,8 @@ SUB_009B_12:
         LD ($1F26),HL                    ; $0148  22 26 1F
         JP $0A27                         ; $014B  C3 27 0A
         DEFB    $C9,$21                                          ; $014E
-        DEFW    L_0000                   ; $0150  in-image relocatable pointer word
-SUB_009B_13:
+        DEFW    BDOS_TRAMPOLINE                   ; $0150  in-image relocatable pointer word
+SUBMIT_WORK_CELLS:                              ; [AI] head of resident scratch/work-cell region; the disassembler renders this DATA blob as bogus instructions (out-of-image $1Dxx/$1Exx/$1Fxx absolute refs that never execute)
         LD ($1E4E),HL                    ; $0152  22 4E 1E
         LD HL,($1DB4)                    ; $0155  2A B4 1D
         LD C,L                           ; $0158  4D
@@ -423,10 +423,10 @@ SUB_009B_13:
         LD ($1F29),A                     ; $01A7  32 29 1F
         JP $0AB7                         ; $01AA  C3 B7 0A
         DEFB    $11                                              ; $01AD
-        DEFW    SUB_0078_1               ; $01AE  in-image relocatable pointer word
+        DEFW    SET_DMA_SCRATCH_RET               ; $01AE  in-image relocatable pointer word
         DEFB    $2A,$4E,$1E,$19,$22,$4E,$1E,$21,$29,$1F          ; $01B0  work-cell-init tail
-L_01BA:
-        DEFW    SUB_0078_1               ; $01BA  in-image relocatable pointer word
+CALLER_DMA_PTR:
+        DEFW    SET_DMA_SCRATCH_RET               ; $01BA  in-image relocatable pointer word
     ENT
     ENDMODULE
 ; [AI] RELOCATION BITMAP for the resident image ($03BC onward: 1 bit per copied byte; the

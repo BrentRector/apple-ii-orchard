@@ -39,7 +39,7 @@ TPA_START_2:
 TPA_START_3:
         OR A                             ; $0109  B7
 TPA_START_4:
-        JR NZ,TPA_START_8                ; $010A  20 08
+        JR NZ,MAIN_COMMAND_LOOP                ; $010A  20 08
 TPA_START_5:
         LD DE,BIOS_DISK_DISPATCH_13                ; $010C  11 9D 04
 TPA_START_6:
@@ -48,7 +48,7 @@ TPA_START_7:
         CALL BDOS_VEC                    ; $0111  CD 05 00
 ; [AI] Top of the main per-command loop (interactive re-entry point): seeds the work area with the
 ;       warm-boot zero word and clears parser state before parsing the next command.
-TPA_START_8:
+MAIN_COMMAND_LOOP:
         LD HL,WBOOT_VEC                  ; $0114  21 00 00
 TPA_START_9:
         LD ($0506),HL                    ; $0117  22 06 05
@@ -99,9 +99,9 @@ TPA_START_16:
         LD (HL),A                        ; $015E  77
         INC HL                           ; $015F  23
         DJNZ TPA_START_16                ; $0160  10 EB
-; [AI] Common 'syntax/command error' exit: jumps to L_0319 to print the Command error message.
+; [AI] Common 'syntax/command error' exit: jumps to COMMAND_ERROR to print the Command error message.
 TPA_START_17:
-        JP TPA_START_42                  ; $0162  C3 19 03
+        JP COMMAND_ERROR                  ; $0162  C3 19 03
 ; [AI] Parses the 3-character file-type/extension into the FCB type field after a '.' is seen.
 TPA_START_18:
         LD B,$04                         ; $0165  06 04
@@ -134,7 +134,7 @@ TPA_START_22:
         CP $3D                           ; $0188  FE 3D
         JR Z,TPA_START_24                ; $018A  28 13
         CALL PARSE_HEX_NIBBLE                    ; $018C  CD 53 03
-        JP Z,TPA_START_42                ; $018F  CA 19 03
+        JP Z,COMMAND_ERROR                ; $018F  CA 19 03
         LD C,A                           ; $0192  4F
         LD A,D                           ; $0193  7A
         LD B,$04                         ; $0194  06 04
@@ -176,7 +176,7 @@ TPA_START_25:
         JR Z,TPA_START_25                ; $01D3  28 E8
 ; [AI] Error shortcut to the Command error exit for malformed value lists.
 TPA_START_26:
-        JP TPA_START_42                  ; $01D5  C3 19 03
+        JP COMMAND_ERROR                  ; $01D5  C3 19 03
 ; [AI] Begins parsing the parenthesised compare/old-byte list used when the user wants the patch
 ;       applied only if the existing bytes match.
 TPA_START_27:
@@ -200,7 +200,7 @@ TPA_START_29:
         DEC A                            ; $01F8  3D
         JP P,TPA_START_30                ; $01F9  F2 FF 01
         LD A,(CDISK)                     ; $01FC  3A 04 00
-; [AI] Calls into the disk-parameter lookup (SUB_0427) and, from the returned DPB, fetches the
+; [AI] Calls into the disk-parameter lookup (BIOS_DISK_DISPATCH_1+1) and, from the returned DPB, fetches the
 ;       sector size used to split the byte offset into record number plus in-record offset.
 TPA_START_30:
         LD C,A                           ; $01FF  4F
@@ -301,7 +301,7 @@ TPA_START_34:
         LD HL,$0508                      ; $02AC  21 08 05
         LD IX,$0535                      ; $02AF  DD 21 35 05
 ; [AI] Byte-merge loop: walks the record buffer, checking each existing byte against the expected-
-;       old list and overwriting it with the new byte, aborting to L_032D on a verification
+;       old list and overwriting it with the new byte, aborting to VERIFY_ERROR on a verification
 ;       mismatch.
 TPA_START_35:
         LD A,C                           ; $02B3  79
@@ -314,9 +314,9 @@ TPA_START_35:
         CP (HL)                          ; $02BC  BE
         JR Z,TPA_START_36                ; $02BD  28 0A
         XOR (IX+0)                       ; $02BF  DD AE 00
-        JP NZ,TPA_START_46               ; $02C2  C2 2D 03
+        JP NZ,VERIFY_ERROR               ; $02C2  C2 2D 03
         OR B                             ; $02C5  B0
-        JP Z,TPA_START_46                ; $02C6  CA 2D 03
+        JP Z,VERIFY_ERROR                ; $02C6  CA 2D 03
 ; [AI] Advances the compare-list pointer/count after a matched old byte.
 TPA_START_36:
         DEC C                            ; $02C9  0D
@@ -372,7 +372,7 @@ TPA_START_41:
         JR TPA_START_48                  ; $0317  18 1A
 ; [AI] Error handler that loads DE with the 'Command error' message and falls into the print-and-
 ;       exit routine.
-TPA_START_42:
+COMMAND_ERROR:
         LD DE,BIOS_DISK_DISPATCH_7                 ; $0319  11 3E 04
         JR TPA_START_47                  ; $031C  18 12
 ; [AI] Error handler that selects the 'Invalid Drive' message.
@@ -389,19 +389,19 @@ TPA_START_45:
         JR TPA_START_47                  ; $032B  18 03
 ; [AI] Error handler that selects the 'Verification error' message used when an old-byte compare
 ;       fails.
-TPA_START_46:
+VERIFY_ERROR:
         LD DE,BIOS_DISK_DISPATCH_12                ; $032D  11 8A 04
 ; [AI] Prints the selected error/status message (via PRINT_MSG_CRLF) before falling through to the
 ;       loop/exit decision.
 TPA_START_47:
         CALL PRINT_MSG_CRLF                    ; $0330  CD 7D 03
-; [AI] Post-operation tail: restores the saved command-tail flag; loops back to L_0114 in
+; [AI] Post-operation tail: restores the saved command-tail flag; loops back to MAIN_COMMAND_LOOP in
 ;       interactive mode or warm-boots back to CP/M when run from the command line.
 TPA_START_48:
         LD A,($0563)                     ; $0333  3A 63 05
         LD (DEFAULT_DMA),A               ; $0336  32 80 00
         OR A                             ; $0339  B7
-        JP Z,TPA_START_8                 ; $033A  CA 14 01
+        JP Z,MAIN_COMMAND_LOOP                 ; $033A  CA 14 01
         JP WBOOT_VEC                     ; $033D  C3 00 00
 ; [AI] Parses a full hex byte (two hex digits) from the input via two PARSE_HEX_NIBBLE calls, returning the
 ;       combined value or setting carry at end-of-input.
@@ -435,7 +435,7 @@ PARSE_HEX_NIBBLE:
         CP $10                           ; $0364  FE 10
         RET C                            ; $0366  D8
 PARSE_HEX_NIBBLE_1:
-        JP TPA_START_42                  ; $0367  C3 19 03
+        JP COMMAND_ERROR                  ; $0367  C3 19 03
 ; [AI] Low-level input fetch: returns the next command/input character via the IX scan pointer,
 ;       folding lowercase to uppercase and returning Z on the terminating null.
 GET_NEXT_CHAR:

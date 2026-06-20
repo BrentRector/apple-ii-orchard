@@ -213,7 +213,7 @@ ADVANCE_DE_32:
         RET                              ; $01FD  C9
 ; [AI] Accumulates a file's size into the running total: reads the FCB record-count/extent fields,
 ;       converts them to kilobytes, adds to the 16-bit total at $03CF, then formats that file's size
-;       in k for its listing line via SUB_02BB.
+;       in k for its listing line via FORMAT_SIZE_FIELD.
 TALLY_FILE_SIZE:
         PUSH HL                          ; $01FE  E5
         LD BC,$000C                      ; $01FF  01 0C 00
@@ -407,7 +407,7 @@ CONOUT_CHAR:
         CALL BDOS_VEC                    ; $02E2  CD 05 00
         POP HL                           ; $02E5  E1
         RET                              ; $02E6  C9
-; [AI] Prints a $FF-terminated string starting at HL, one character at a time through SUB_02DF.
+; [AI] Prints a $FF-terminated string starting at HL, one character at a time through CONOUT_CHAR.
 ;       This is CAT's string-output primitive (it uses $FF, not the BDOS '$' convention, as the
 ;       terminator).
 PRINT_STRING_FF:

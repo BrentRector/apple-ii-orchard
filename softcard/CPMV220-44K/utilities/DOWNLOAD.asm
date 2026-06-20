@@ -191,7 +191,10 @@ MSG_DOWNLOADING:
 DOWNLOAD_BSS_IMAGE:
     MODULE DOWNLOAD_OVERLAY
     DISP $0000                           ; leftover image is page-relative; internal labels resolve at $0000
-L_0000:
+; [AI] Truncated lead-in (first instruction's head was cut off before $0201);
+;       the real routine starts at $0005: load C with ',' ($2C), preserve A, and
+;       emit the char via the $1124 output thunk -- a print-comma helper.
+OVL_LEADIN:
         JP M,$C309                       ; $0000  FA 09 C3   (truncated lead-in; see note)
         ADC A,E                          ; $0003  8B
         INC DE                           ; $0004  13
@@ -201,36 +204,47 @@ L_0000:
         CALL $1124                       ; $0009  CD 24 11
         POP AF                           ; $000C  F1
         RET                              ; $000D  C9
-L_000E:
+; [AI] Whitespace/separator classifier: fetch a char via the $11D4 input thunk;
+;       Z is set on space (returned by the thunk), and a tab ($09) is also treated
+;       as a separator. Entry+1 ($000F) is the common "classify current char" target.
+OVL_IS_SEPARATOR:
         CALL $11D4                       ; $000E  CD D4 11
         RET Z                            ; $0011  C8
         CP $09                           ; $0012  FE 09
         RET                              ; $0014  C9
-L_0015:
+; [AI] Read one whitespace-skipped token: fetch a char ($114B input thunk), abort
+;       to $073C on CR, skip leading separators (loop back to entry+1 $0016), then
+;       blank the 6-byte field buffer at $09C8 ready to receive the token.
+OVL_READ_TOKEN:
         CALL $114B                       ; $0015  CD 4B 11
         CP $0D                           ; $0018  FE 0D
         JP Z,$073C                       ; $001A  CA 3C 07
-        CALL L_000E+1                    ; $001D  CD 0F 00
-        JP Z,L_0015+1                    ; $0020  CA 16 00
+        CALL OVL_IS_SEPARATOR+1          ; $001D  CD 0F 00
+        JP Z,OVL_READ_TOKEN+1            ; $0020  CA 16 00
         LD C,$06                         ; $0023  0E 06
         LD HL,$09C8                      ; $0025  21 C8 09
-L_0028:
+OVL_BLANK_FIELD:
         LD (HL),$20                      ; $0028  36 20
         INC HL                           ; $002A  23
         DEC C                            ; $002B  0D
-        JP NZ,L_0028+1                   ; $002C  C2 29 00
+        JP NZ,OVL_BLANK_FIELD+1          ; $002C  C2 29 00
         LD C,$07                         ; $002F  0E 07
         LD HL,$09C8                      ; $0031  21 C8 09
         LD (HL),A                        ; $0034  77
-L_0035:
+; [AI] Token-character copy loop: read each char ($114B), stop at a separator
+;       (return Z), store into the field, decrement the 7-byte field counter, and
+;       abort to $073C if the field overflows.
+OVL_COPY_TOKEN:
         CALL $114B                       ; $0035  CD 4B 11
-        CALL L_000E+1                    ; $0038  CD 0F 00
+        CALL OVL_IS_SEPARATOR+1          ; $0038  CD 0F 00
         RET Z                            ; $003B  C8
         INC HL                           ; $003C  23
         DEC C                            ; $003D  0D
         JP Z,$073C                       ; $003E  CA 3C 07
-        JP L_0035                        ; $0041  C3 35 00
-L_0044:
+        JP OVL_COPY_TOKEN                ; $0041  C3 35 00
+; [AI] Parse the field into a 16-bit value via the $121B number thunk; copies the
+;       DE result to BC and sets flags (DEC B/INC B) for the checked wrapper below.
+OVL_PARSE_VALUE:
         CALL $121B                       ; $0044  CD 1B 12
         LD C,E                           ; $0047  4B
         LD B,D                           ; $0048  42
@@ -238,43 +252,56 @@ L_0044:
         DEC B                            ; $004A  05
         INC B                            ; $004B  04
         RET                              ; $004C  C9
-L_004D:
+; [AI] Checked parse: run OVL_PARSE_VALUE+1 preserving BC; abort to $073C on a
+;       parse error (NZ), else return the parsed value.
+OVL_PARSE_VALUE_CHECKED:
         PUSH BC                          ; $004D  C5
-        CALL L_0044+1                    ; $004E  CD 45 00
+        CALL OVL_PARSE_VALUE+1           ; $004E  CD 45 00
         POP BC                           ; $0051  C1
         JP NZ,$073C                      ; $0052  C2 3C 07
         RET                              ; $0055  C9
-L_0056:
+; [AI] Index extractor: A <<3, mask $38 -- isolates bits 3-5 (a x8 index, e.g.
+;       a 3-bit field scaled into a table-row offset). Byte-identical to DUMP.asm's
+;       OVL_INDEX_X8 (shared relocatable overlay family); named to match.
+OVL_INDEX_X8:
         RLA                              ; $0056  17
         RLA                              ; $0057  17
         RLA                              ; $0058  17
         AND $38                          ; $0059  E6 38
         RET                              ; $005B  C9
-L_005C:
+; [AI] Index extractor: A <<4, mask $30 -- isolates bits 4-5 (a x16 index).
+;       Byte-identical to DUMP.asm's OVL_INDEX_X16 (shared relocatable overlay
+;       family); named to match.
+OVL_INDEX_X16:
         RLA                              ; $005C  17
         RLA                              ; $005D  17
         RLA                              ; $005E  17
         RLA                              ; $005F  17
         AND $30                          ; $0060  E6 30
         RET                              ; $0062  C9
-L_0063:
+; [AI] Scan-for-byte loop: compare A against (HL), advancing while the C counter
+;       lasts; Z exit ($0064) on a match. Entry $0063 does the first compare.
+OVL_SCAN_BYTE:
         CP (HL)                          ; $0063  BE
-L_0064:
+OVL_SCAN_BYTE_LOOP:
         RET Z                            ; $0064  C8
         INC HL                           ; $0065  23
         DEC C                            ; $0066  0D
-        JP NZ,L_0064                     ; $0067  C2 64 00
+        JP NZ,OVL_SCAN_BYTE_LOOP         ; $0067  C2 64 00
         DEC C                            ; $006A  0D
         RET                              ; $006B  C9
-L_006C:
+; [AI] Table-match search: takes the search key in HL (via EX at $006C) and walks
+;       the table whose head pointer is at ($09C8), comparing each 2-byte entry for
+;       a match. Returns Z on hit. $006D is the entry that loads the table pointer.
+OVL_TABLE_MATCH:
         EX DE,HL                         ; $006C  EB
-SUB_006D:
+OVL_TABLE_MATCH_LOAD:
         LD HL,($09C8)                    ; $006D  2A C8 09
         EX DE,HL                         ; $0070  EB
         LD A,E                           ; $0071  7B
-SUB_006D_1:
+OVL_TABLE_MATCH_CMP:
         CP (HL)                          ; $0072  BE
-        JP NZ,SUB_006D_2                 ; $0073  C2 7E 00
+        JP NZ,OVL_TABLE_MATCH_NEXT       ; $0073  C2 7E 00
         INC HL                           ; $0076  23
         LD A,D                           ; $0077  7A
         DEC C                            ; $0078  0D
@@ -283,73 +310,86 @@ SUB_006D_1:
         INC C                            ; $007B  0C
         DEC HL                           ; $007C  2B
         DEC HL                           ; $007D  2B
-SUB_006D_2:
+OVL_TABLE_MATCH_NEXT:
         DEC HL                           ; $007E  2B
         DEC C                            ; $007F  0D
-        JP NZ,SUB_006D_1                 ; $0080  C2 72 00
+        JP NZ,OVL_TABLE_MATCH_CMP        ; $0080  C2 72 00
         DEC C                            ; $0083  0D
         RET                              ; $0084  C9
-SUB_006D_3:
+; [AI] Trailing-blank check: the byte at $09CC of the parsed field must be a space
+;       ($20), else abort to $073C (rejects an over-long token).
+OVL_CHECK_FIELD_PAD:
         LD A,($09CC)                     ; $0085  3A CC 09
         CP $20                           ; $0088  FE 20
         JP NZ,$073C                      ; $008A  C2 3C 07
-SUB_006D_4:
+; [AI] 4-byte field walker: seeds a mode flag at $16DE ('H' $48), then walks the
+;       field in 4-byte records (B=4) against the $09C8 buffer, applying the
+;       suffix classifier (OVL_MATCH_SUFFIX) and advancing HL by -4 ($FFFC) per row.
+OVL_FIELD_WALK:
         LD A,$48                         ; $008D  3E 48
         LD ($16DE),A                     ; $008F  32 DE 16
         LD B,$04                         ; $0092  06 04
         PUSH HL                          ; $0094  E5
         LD DE,$09C8                      ; $0095  11 C8 09
         LD A,(HL)                        ; $0098  7E
-SUB_006D_5:
+OVL_FIELD_WALK_CMP:
         CP $40                           ; $0099  FE 40
         LD A,(DE)                        ; $009B  1A
-        CALL Z,SUB_00B8                  ; $009C  CC B8 00
+        CALL Z,OVL_MATCH_SUFFIX          ; $009C  CC B8 00
         CP (HL)                          ; $009F  BE
-        JP NZ,SUB_006D_7                 ; $00A0  C2 AC 00
+        JP NZ,OVL_FIELD_WALK_NEXT        ; $00A0  C2 AC 00
         INC HL                           ; $00A3  23
         INC DE                           ; $00A4  13
         DEC B                            ; $00A5  05
-        JP NZ,SUB_006D_5                 ; $00A6  C2 99 00
+        JP NZ,OVL_FIELD_WALK_CMP         ; $00A6  C2 99 00
         POP DE                           ; $00A9  D1
         RET                              ; $00AA  C9
-SUB_006D_6:
+OVL_FIELD_WALK_RESTORE:
         POP HL                           ; $00AB  E1
-SUB_006D_7:
+OVL_FIELD_WALK_NEXT:
         LD DE,$FFFC                      ; $00AC  11 FC FF
         ADD HL,DE                        ; $00AF  19
         DEC C                            ; $00B0  0D
-        JP NZ,SUB_006D_4+1               ; $00B1  C2 8E 00
+        JP NZ,OVL_FIELD_WALK+1           ; $00B1  C2 8E 00
         LD B,C                           ; $00B4  41
         DEC C                            ; $00B5  0D
         RET                              ; $00B6  C9
-SUB_006D_8:
+; [AI] Suffix classifier: bump the caller's return address past the inline data
+;       byte (EX (SP),HL / INC HL / EX (SP),HL), record the suffix at $16DE, then
+;       test for the 'H'/'X'/'Y' radix-or-register suffixes. $00C0 is the bare
+;       'X'/'Y' test (entry+1 reused as OVL_IS_XY).
+OVL_MATCH_SUFFIX_THUNK:
         EX (SP),HL                       ; $00B7  E3
-SUB_00B8:
+OVL_MATCH_SUFFIX:
         INC HL                           ; $00B8  23
         EX (SP),HL                       ; $00B9  E3
         LD ($16DE),A                     ; $00BA  32 DE 16
         CP $48                           ; $00BD  FE 48
         RET Z                            ; $00BF  C8
-SUB_00B8_1:
+OVL_IS_XY:
         CP $58                           ; $00C0  FE 58
         RET Z                            ; $00C2  C8
         CP $59                           ; $00C3  FE 59
         RET                              ; $00C5  C9
-SUB_00B8_2:
+; [AI] Bracketed-expression parser: read a token (OVL_READ_TOKEN+1); if it opens
+;       with '[' ($5B) dispatch to the bracket body, else look the 8-entry symbol
+;       table at $09AE up via OVL_TABLE_MATCH and return its index, aborting to
+;       $073C on no match.
+OVL_PARSE_BRACKET:
         PUSH BC                          ; $00C6  C5
-        CALL L_0015+1                    ; $00C7  CD 16 00
+        CALL OVL_READ_TOKEN+1            ; $00C7  CD 16 00
         LD A,($09C8)                     ; $00CA  3A C8 09
         CP $5B                           ; $00CD  FE 5B
-        JP Z,SUB_00B8_3                  ; $00CF  CA E1 00
+        JP Z,OVL_BRACKET_BODY            ; $00CF  CA E1 00
         LD C,$08                         ; $00D2  0E 08
         LD HL,$09AE                      ; $00D4  21 AE 09
-        CALL SUB_006D                    ; $00D7  CD 6D 00
+        CALL OVL_TABLE_MATCH_LOAD        ; $00D7  CD 6D 00
         JP NZ,$073C                      ; $00DA  C2 3C 07
         LD A,C                           ; $00DD  79
         POP BC                           ; $00DE  C1
         RET                              ; $00DF  C9
         DEFB    $21                                              ; $00E0  LD-HL opcode skipped into mid-operand by JP Z,$00E1
-SUB_00B8_3:
+OVL_BRACKET_BODY:
         DEFB $DD  ; ignored IX prefix; inner: LD D,$7E ; $00E1  DD 16 7E
         LD D,$7E                         ; $00E2  16 7E
         OR A                             ; $00E4  B7
@@ -359,7 +399,7 @@ SUB_00B8_3:
         CP $5D                           ; $00EC  FE 5D
         JP NZ,$073C                      ; $00EE  C2 3C 07
         LD A,($09C9)                     ; $00F1  3A C9 09
-        CALL SUB_00B8_1+1                ; $00F4  CD C1 00
+        CALL OVL_IS_XY+1                 ; $00F4  CD C1 00
         JP NZ,$073C                      ; $00F7  C2 3C 07
         CALL $017E                       ; $00FA  CD 7E 01
         DEFB    $3A,$CB                                          ; $00FD  truncated LD A,(nn): high operand byte past file end

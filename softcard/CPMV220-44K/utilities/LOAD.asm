@@ -19,7 +19,7 @@ DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS
     ORG $0100
 
 ; [AI] The $0100 program entry point. The opening JP jumps over the embedded copyright/message
-;       string block to the real startup code at L_0240.
+;       string block to the real startup code at MAIN.
 TPA_START:
         JP MAIN                    ; $0100  C3 40 02
         DEFB    " COPYRIGHT (C) 1978, DIGITAL RESEARCH " ; $0103
@@ -164,7 +164,7 @@ RESTORE_CCP_STACK_40:
         CALL RESTORE_CCP_STACK                    ; $02CC  CD 3B 02
         RET                              ; $02CF  C9
 ; [AI] Console output of a single character: stashes the byte then invokes BDOS function 2 (console
-;       out) via SUB_0766. The primitive used by all the higher-level print routines.
+;       out) via BDOS_CALL. The primitive used by all the higher-level print routines.
 CONOUT:
         LD HL,$0C0D                      ; $02D0  21 0D 0C
         LD (HL),C                        ; $02D3  71
@@ -204,7 +204,7 @@ PRINT_HEX_NIBBLE_1:
 PRINT_HEX_NIBBLE_2:
         RET                              ; $030F  C9
 ; [AI] Prints one byte as two hex digits by isolating and emitting the high nibble then the low
-;       nibble via SUB_02EB.
+;       nibble via PRINT_HEX_NIBBLE.
 PRINT_HEX_BYTE:
         LD HL,$0C0F                      ; $0310  21 0F 0C
         LD (HL),C                        ; $0313  71
@@ -222,7 +222,7 @@ PRINT_HEX_BYTE:
         CALL PRINT_HEX_NIBBLE                    ; $0327  CD EB 02
         RET                              ; $032A  C9
 ; [AI] Prints a 16-bit value (passed in BC) as four hex digits, high byte then low byte, using
-;       SUB_0310. Used to show addresses.
+;       PRINT_HEX_BYTE. Used to show addresses.
 PRINT_HEX_WORD:
         LD HL,$0C11                      ; $032B  21 11 0C
         LD (HL),B                        ; $032E  70
@@ -238,7 +238,7 @@ PRINT_HEX_WORD:
         CALL PRINT_HEX_BYTE                    ; $033E  CD 10 03
         RET                              ; $0341  C9
 ; [AI] Prints the '$'-terminated message whose address is in BC by calling BDOS function 9 (print
-;       string) through SUB_0766.
+;       string) through BDOS_CALL.
 PRINT_STRING:
         LD HL,$0C13                      ; $0342  21 13 0C
         LD (HL),B                        ; $0345  70
@@ -895,7 +895,7 @@ GET_HEX_DIGIT_2:
         ADD A,$0A                        ; $072B  C6 0A
         RET                              ; $072D  C9
 ; [AI] Reads two source characters and combines them (high nibble shifted left 4, OR low nibble)
-;       into one assembled byte value via SUB_06FC.
+;       into one assembled byte value via GET_HEX_DIGIT.
 GET_HEX_BYTE:
         CALL GET_HEX_DIGIT                    ; $072E  CD FC 06
         ADD A,A                          ; $0731  87

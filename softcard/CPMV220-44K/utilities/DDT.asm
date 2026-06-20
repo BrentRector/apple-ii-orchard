@@ -13,175 +13,175 @@ DDT_IMG_LEN          EQU $1010               ; [AI] image byte count copied to h
 
 ; [AI] DDT loads as a $0100-based .COM whose entry stub (this $0100-$01A8 region)
 ; copies a position-independent debugger image up to the top of the TPA and
-; relocates it before entering. BC = L_1010 = length of the image to move; the
-; stub at L_013D moves L_0200.. to high RAM, then applies the relocation bitmap
+; relocates it before entering. BC = DDT_IMG_LEN ($1010) = length of the image to move; the
+; stub at RELOC_AND_START moves DDT_IMAGE.. to high RAM, then applies the relocation bitmap
 ; (one bit per body byte, set => add the page bias H to that byte) and JP (HL)s
 ; into the relocated copy. The body itself ($0200-$0768) and its bitmap are kept
 ; below as DEFB: a byte-identical decode would require a relocating disassembly
 ; pass against the runtime load address, which is the relocated-body residual.
-L_0100:
+DDT_LOADER:
         LD BC,DDT_IMG_LEN                     ; $0100  01 10 10
-L_0103:
-        JP L_013D                        ; $0103  C3 3D 01
+DDT_LOADER_GO:
+        JP RELOC_AND_START                        ; $0103  C3 3D 01
         ; Digital Research copyright banner embedded in the .COM image (not
         ; printed; "DDT VERS 2.2$" below is the banner that BDOS fn 9 prints).
         ; 36 chars + 6 trailing spaces padding the field to $0130.
         DEFB    "COPYRIGHT (C) 1980, DIGITAL RESEARCH      " ; $0106  banner string
-L_0130:
+BANNER_MSG:
         DEFB    "DDT VERS 2.2$"    ; $0130  string  (printed via BDOS fn 9, '$'-terminated)
-L_013D:
+RELOC_AND_START:
         LD SP,DDT_IMG_BASE                     ; $013D  31 00 02
-L_0140:
+RELOC_START_1:
         PUSH BC                          ; $0140  C5
-L_0141:
+RELOC_START_2:
         PUSH BC                          ; $0141  C5
-L_0142:
-        LD DE,L_0130                     ; $0142  11 30 01
-L_0145:
+RELOC_START_3:
+        LD DE,BANNER_MSG                     ; $0142  11 30 01
+RELOC_START_4:
         LD C,$09                         ; $0145  0E 09
-L_0147:
+RELOC_START_5:
         CALL BDOS_VEC                    ; $0147  CD 05 00
-L_014A:
+RELOC_START_6:
         LD A,($F3BB)                     ; $014A  3A BB F3
-L_014D:
+RELOC_START_7:
         SUB $03                          ; $014D  D6 03
-L_014F:
-        JP Z,L_0158                      ; $014F  CA 58 01
-L_0152:
+RELOC_START_8:
+        JP Z,STORE_VER_DIGIT                      ; $014F  CA 58 01
+RELOC_START_9:
         DEC A                            ; $0152  3D
-L_0153:
-        JP Z,L_0158                      ; $0153  CA 58 01
-L_0156:
+RELOC_START_10:
+        JP Z,STORE_VER_DIGIT                      ; $0153  CA 58 01
+RELOC_START_11:
         LD A,$01                         ; $0156  3E 01
-L_0158:
+STORE_VER_DIGIT:
         DEC A                            ; $0158  3D
-L_0159:
+STORE_VER_DIGIT_1:
         LD (DDT_IMG_BASE+$06A4),A                    ; $0159  32 A4 08
-L_015C:
-        LD HL,(L_01EC)                   ; $015C  2A EC 01
-L_015F:
+STORE_VER_DIGIT_2:
+        LD HL,(LOADER_CFG_VERWORD)                   ; $015C  2A EC 01
+STORE_VER_DIGIT_3:
         LD (DDT_IMG_BASE+$06A6),HL                   ; $015F  22 A6 08
-L_0162:
-        LD A,(L_01EB)                    ; $0162  3A EB 01
-L_0165:
+STORE_VER_DIGIT_4:
+        LD A,(LOADER_CFG_VERSUB)                    ; $0162  3A EB 01
+STORE_VER_DIGIT_5:
         LD (DDT_IMG_BASE+$06A5),A                    ; $0165  32 A5 08
-L_0168:
+COMPUTE_TPA_TOP:
         POP BC                           ; $0168  C1
-L_0169:
+COMPUTE_TPA_TOP_1:
         LD HL,$0007                      ; $0169  21 07 00
-L_016C:
+COMPUTE_TPA_TOP_2:
         LD A,(HL)                        ; $016C  7E
-L_016D:
+COMPUTE_TPA_TOP_3:
         DEC A                            ; $016D  3D
-L_016E:
+COMPUTE_TPA_TOP_4:
         SUB B                            ; $016E  90
-L_016F:
+COMPUTE_TPA_TOP_5:
         LD D,A                           ; $016F  57
-L_0170:
+COMPUTE_TPA_TOP_6:
         LD E,$00                         ; $0170  1E 00
-L_0172:
+COMPUTE_TPA_TOP_7:
         PUSH DE                          ; $0172  D5
-L_0173:
+COMPUTE_TPA_TOP_8:
         LD HL,DDT_IMG_BASE                     ; $0173  21 00 02
-L_0176:
+MOVE_IMAGE_LOOP:
         LD A,B                           ; $0176  78
-L_0177:
+MOVE_IMAGE_LOOP_1:
         OR C                             ; $0177  B1
-L_0178:
-        JP Z,L_0183                      ; $0178  CA 83 01
-L_017B:
+MOVE_IMAGE_LOOP_2:
+        JP Z,MOVE_IMAGE_DONE                      ; $0178  CA 83 01
+MOVE_IMAGE_LOOP_3:
         DEC BC                           ; $017B  0B
-L_017C:
+MOVE_IMAGE_LOOP_4:
         LD A,(HL)                        ; $017C  7E
-L_017D:
+MOVE_IMAGE_LOOP_5:
         LD (DE),A                        ; $017D  12
-L_017E:
+MOVE_IMAGE_LOOP_6:
         INC DE                           ; $017E  13
-L_017F:
+MOVE_IMAGE_LOOP_7:
         INC HL                           ; $017F  23
-L_0180:
-        JP L_0176                        ; $0180  C3 76 01
-L_0183:
+MOVE_IMAGE_LOOP_8:
+        JP MOVE_IMAGE_LOOP                        ; $0180  C3 76 01
+MOVE_IMAGE_DONE:
         POP DE                           ; $0183  D1
-L_0184:
+MOVE_IMAGE_DONE_1:
         POP BC                           ; $0184  C1
-L_0185:
+MOVE_IMAGE_DONE_2:
         PUSH HL                          ; $0185  E5   ; HL -> relocation bitmap (immediately follows the moved image)
         ; [AI] Relocation pass: walk DE over the moved image; every 8th byte pull
         ; the next bitmap byte (EX (SP),HL), shift a bit out (RLA), and when set add
         ; the page bias H (= D, the high byte of the destination) to that image byte.
-L_0186:
+APPLY_RELOC_LOOP:
         LD H,D                           ; $0186  62
-L_0187:
+APPLY_RELOC_LOOP_1:
         LD A,B                           ; $0187  78
-L_0188:
+APPLY_RELOC_LOOP_2:
         OR C                             ; $0188  B1
-L_0189:
-        JP Z,L_01A5                      ; $0189  CA A5 01
-L_018C:
+APPLY_RELOC_LOOP_3:
+        JP Z,RELOC_DONE                      ; $0189  CA A5 01
+APPLY_RELOC_LOOP_4:
         DEC BC                           ; $018C  0B
-L_018D:
+APPLY_RELOC_LOOP_5:
         LD A,E                           ; $018D  7B
-L_018E:
+APPLY_RELOC_LOOP_6:
         AND $07                          ; $018E  E6 07
-L_0190:
-        JP NZ,L_0198                     ; $0190  C2 98 01
-L_0193:
+APPLY_RELOC_SHIFT:
+        JP NZ,APPLY_RELOC_TEST_BIT                     ; $0190  C2 98 01
+APPLY_RELOC_SHIFT_1:
         EX (SP),HL                       ; $0193  E3
-L_0194:
+APPLY_RELOC_SHIFT_2:
         LD A,(HL)                        ; $0194  7E
-L_0195:
+APPLY_RELOC_SHIFT_3:
         INC HL                           ; $0195  23
-L_0196:
+APPLY_RELOC_SHIFT_4:
         EX (SP),HL                       ; $0196  E3
-L_0197:
+APPLY_RELOC_SHIFT_5:
         LD L,A                           ; $0197  6F
-L_0198:
+APPLY_RELOC_TEST_BIT:
         LD A,L                           ; $0198  7D
-L_0199:
+APPLY_RELOC_TEST_BIT_1:
         RLA                              ; $0199  17
-L_019A:
+APPLY_RELOC_TEST_BIT_2:
         LD L,A                           ; $019A  6F
-L_019B:
-        JP NC,L_01A1                     ; $019B  D2 A1 01
-L_019E:
+APPLY_RELOC_TEST_BIT_3:
+        JP NC,APPLY_RELOC_NEXT                     ; $019B  D2 A1 01
+APPLY_RELOC_BIAS:
         LD A,(DE)                        ; $019E  1A
-L_019F:
+APPLY_RELOC_BIAS_1:
         ADD A,H                          ; $019F  84
-L_01A0:
+APPLY_RELOC_BIAS_2:
         LD (DE),A                        ; $01A0  12
-L_01A1:
+APPLY_RELOC_NEXT:
         INC DE                           ; $01A1  13
-L_01A2:
-        JP L_0187                        ; $01A2  C3 87 01
-L_01A5:
+APPLY_RELOC_NEXT_1:
+        JP APPLY_RELOC_LOOP_1                        ; $01A2  C3 87 01
+RELOC_DONE:
         POP DE                           ; $01A5  D1
-L_01A6:
+RELOC_DONE_1:
         LD L,$00                         ; $01A6  2E 00
-L_01A8:
+RELOC_ENTER_IMAGE:
         JP (HL)                          ; $01A8  E9
-L_01A9:
+RELOC_TAIL:
         LD A,A                           ; $01A9  7F
-L_01AA:
+RELOC_TAIL_1:
         RET                              ; $01AA  C9
         ; [AI] $01AB-$01FF: tail of the low entry block that stays resident below
         ; the relocated body. It mixes short helper code and the two loader config
-        ; cells (L_01EB / L_01EC, read at $0163/$015D) with absolute references into
+        ; cells (LOADER_CFG_VERSUB / LOADER_CFG_VERWORD, read at $0163/$015D) with absolute references into
         ; the post-relocation image ($1Cxx/$1Dxx) and shared body helpers ($07xx/
         ; $08xx). Because its operand addresses are only correct after the high-RAM
         ; move, a faithful decode needs the same relocating pass as the body -- kept
-        ; as DEFB (relocated-body residual). L_01EB/L_01EC are data, not code.
+        ; as DEFB (relocated-body residual). LOADER_CFG_VERSUB/LOADER_CFG_VERWORD are data, not code.
         DEFB    $21,$A1,$1D,$70,$2B,$71,$2A,$A0,$1D,$44,$4D,$CD,$9E,$07,$0E,$3A ; $01AB
         DEFB    $CD,$83,$07,$0E,$20,$CD,$83,$07,$3A,$7D,$1D,$32,$A2,$1D,$3A,$7E ; $01BB
         DEFB    $1D,$21,$A2,$1D,$BE,$DA,$F1,$08,$21,$FC,$1C,$3A,$A2,$1D,$BE,$D2 ; $01CB
         DEFB    $EA,$08,$2A,$A2,$1D,$26                          ; $01DB
-        DEFW    L_0100                   ; $01E1
+        DEFW    DDT_LOADER                   ; $01E1
         DEFB    $FD,$1C,$09,$4E,$CD,$83,$07,$21                  ; $01E3
-L_01EB:
+LOADER_CFG_VERSUB:
         DEFB    $FF                                              ; $01EB
-L_01EC:
+LOADER_CFG_VERWORD:
         DEFB    $38,$00,$BB,$F3,$08,$21,$FC,$1C,$36              ; $01EC
-        DEFW    L_0100                   ; $01F5
+        DEFW    DDT_LOADER                   ; $01F5
         DEFB    $3A,$02,$CD,$00,$00,$3A,$E9,$1C,$FE              ; $01F7
 ; [AI] Self-relocating relocatable DEBUGGER IMAGE, decoded as real Z-80 at page-
 ;       relative base $0000 and placed via DISP $0000. The loader copies these
@@ -203,52 +203,52 @@ L_01EC:
 ;                            LD (nn),A x3, LD DE,nn x2, LD A,(nn) x1), ZERO JP/CALL;
 ;                            bytes are the cells' initial values, NOT code -- kept DEFB.
 ;       Round-trips byte-identical.
-L_0200:                             ; loader copy-source anchor (global, value $0200)
+DDT_IMAGE:                          ; loader copy-source anchor (global, value $0200 = DDT_IMG_BASE)
     MODULE DDT_RESIDENT
     DISP $0000                      ; image is page-relative; internal labels resolve at $0000
 
 
 ; -- Mid-instruction references (shown inline as cover+offset) --
-;   $0001 -> L_0000+1             shared instruction tail: $0001 is reachable code inside the instruction at $0000
-;   $0002 -> L_0000+2             shared instruction tail: $0002 is reachable code inside the instruction at $0000
-;   $000B -> SUB_0009+2           shared instruction tail: $000B is reachable code inside the instruction at $0009
-;   $000E -> SUB_0009_2+1         shared instruction tail: $000E is reachable code inside the instruction at $000D
-;   $005B -> SUB_003C_3+2         shared instruction tail: $005B is reachable code inside the instruction at $0059
-;   $005D -> SUB_003C_4+1         shared instruction tail: $005D is reachable code inside the instruction at $005C
-;   $0065 -> SUB_003C_6+1         shared instruction tail: $0065 is reachable code inside the instruction at $0064
-;   $007C -> SUB_003C_9+2         shared instruction tail: $007C is reachable code inside the instruction at $007A
-;   $047E -> SUB_033B_15+2        z80 skip idiom: enters the operand of $21 at $047C
-;   $06AE -> SUB_06A8_1+1         shared instruction tail: $06AE is reachable code inside the instruction at $06AD
-;   $06AF -> SUB_06A8_1+2         shared instruction tail: $06AF is reachable code inside the instruction at $06AD
+;   $0001 -> JMP_DISPATCH+1             shared instruction tail: $0001 is reachable code inside the instruction at $0000
+;   $0002 -> JMP_DISPATCH+2             shared instruction tail: $0002 is reachable code inside the instruction at $0000
+;   $000B -> ABORT_TO_PROMPT+2           shared instruction tail: $000B is reachable code inside the instruction at $0009
+;   $000E -> WORK_END+1         shared instruction tail: $000E is reachable code inside the instruction at $000D
+;   $005B -> PARSE_TOKEN_NEXT+2         shared instruction tail: $005B is reachable code inside the instruction at $0059
+;   $005D -> PARSE_TOKEN_SCAN+1         shared instruction tail: $005D is reachable code inside the instruction at $005C
+;   $0065 -> PARSE_TOKEN_6+1         shared instruction tail: $0065 is reachable code inside the instruction at $0064
+;   $007C -> PARSE_TOKEN_ERR+2         shared instruction tail: $007C is reachable code inside the instruction at $007A
+;   $047E -> DISASM_LXI+2        z80 skip idiom: enters the operand of $21 at $047C
+;   $06AE -> BDOS_ENTRY_RET+1         shared instruction tail: $06AE is reachable code inside the instruction at $06AD
+;   $06AF -> BDOS_ENTRY_RET+2         shared instruction tail: $06AF is reachable code inside the instruction at $06AD
 
 
-L_0000:
-        JP SUB_033B_34                   ; $0000  C3 83 06
-L_0003:
+JMP_DISPATCH:
+        JP MAIN_INIT                   ; $0000  C3 83 06
+NOP_PAD:
         NOP                              ; $0003  00
         NOP                              ; $0004  00
         NOP                              ; $0005  00
-SUB_0006:
-        JP SUB_033B_1                    ; $0006  C3 4F 03
-SUB_0009:
-        JP SUB_033B_30                   ; $0009  C3 24 05
-SUB_0009_1:
+DISASM_ONE:
+        JP GO_RUN                    ; $0006  C3 4F 03
+ABORT_TO_PROMPT:
+        JP ABORT_RESTART                   ; $0009  C3 24 05
+WORK_ADDR:
         RLCA                             ; $000C  07
-SUB_0009_2:
-        JP SUB_033B_15+2                 ; $000D  C3 7E 04
-L_0010:
+WORK_END:
+        JP DISASM_LXI+2                 ; $000D  C3 7E 04
+GO_TEMP_COUNT:
         DEFB    $C9                                              ; $0010
-L_0011:
+ASM_PUT_PTR:
         DEFB    $21,$A7                                          ; $0011
-L_0013:
+SAVED_SP:
         DEFB    $1D,$73                                          ; $0013
-SUB_0015:
+PUT_CHAR:
         PUSH AF                          ; $0015  F5
         LD A,C                           ; $0016  79
-        CALL SUB_068F                    ; $0017  CD 8F 06
+        CALL CON_PUT_RAW                    ; $0017  CD 8F 06
         POP AF                           ; $001A  F1
         RET                              ; $001B  C9
-SUB_001C:
+IS_DELIMITER:
         CP $20                           ; $001C  FE 20
         RET Z                            ; $001E  C8
         CP $09                           ; $001F  FE 09
@@ -258,62 +258,62 @@ SUB_001C:
         CP $0D                           ; $0025  FE 0D
         RET Z                            ; $0027  C8
         CP $7F                           ; $0028  FE 7F
-        JP Z,SUB_033B_30                 ; $002A  CA 24 05
+        JP Z,ABORT_RESTART                 ; $002A  CA 24 05
         RET                              ; $002D  C9
-SUB_002E:
+PUT_CRLF:
         LD C,$0D                         ; $002E  0E 0D
-        CALL SUB_0015                    ; $0030  CD 15 00
+        CALL PUT_CHAR                    ; $0030  CD 15 00
         LD C,$0A                         ; $0033  0E 0A
-        CALL SUB_0015                    ; $0035  CD 15 00
-SUB_002E_1:
+        CALL PUT_CHAR                    ; $0035  CD 15 00
+PUT_CRLF_RET:
         RET                              ; $0038  C9
-SUB_0039:
-        CALL SUB_068C                    ; $0039  CD 8C 06
-SUB_003C:
+GET_NONBLANK:
+        CALL CON_GET_RAW                    ; $0039  CD 8C 06
+PARSE_TOKEN:
         CP $0D                           ; $003C  FE 0D
-        JP Z,SUB_033B_29                 ; $003E  CA 18 05
-        CALL SUB_001C                    ; $0041  CD 1C 00
-        JP Z,SUB_0039                    ; $0044  CA 39 00
+        JP Z,SYNTAX_ERROR                 ; $003E  CA 18 05
+        CALL IS_DELIMITER                    ; $0041  CD 1C 00
+        JP Z,GET_NONBLANK                    ; $0044  CA 39 00
         LD C,$04                         ; $0047  0E 04
-        LD HL,L_067A                     ; $0049  21 7A 06
-SUB_003C_1:
+        LD HL,TOKEN_BUF                     ; $0049  21 7A 06
+PARSE_TOKEN_CLR:
         LD (HL),$20                      ; $004C  36 20
         INC HL                           ; $004E  23
         DEC C                            ; $004F  0D
-        JP NZ,SUB_003C_1                 ; $0050  C2 4C 00
+        JP NZ,PARSE_TOKEN_CLR                 ; $0050  C2 4C 00
         LD C,$05                         ; $0053  0E 05
-        LD HL,L_067A                     ; $0055  21 7A 06
-SUB_003C_2:
+        LD HL,TOKEN_BUF                     ; $0055  21 7A 06
+PARSE_TOKEN_STORE:
         LD (HL),A                        ; $0058  77
-SUB_003C_3:
-        CALL SUB_068C                    ; $0059  CD 8C 06
-SUB_003C_4:
-        CALL SUB_001C                    ; $005C  CD 1C 00
-SUB_003C_5:
-        JP Z,SUB_003C_7                  ; $005F  CA 6A 00
+PARSE_TOKEN_NEXT:
+        CALL CON_GET_RAW                    ; $0059  CD 8C 06
+PARSE_TOKEN_SCAN:
+        CALL IS_DELIMITER                    ; $005C  CD 1C 00
+PARSE_TOKEN_5:
+        JP Z,PARSE_TOKEN_DONE                  ; $005F  CA 6A 00
         INC HL                           ; $0062  23
         DEC C                            ; $0063  0D
-SUB_003C_6:
-        JP Z,SUB_033B_29                 ; $0064  CA 18 05
-        JP SUB_003C_2                    ; $0067  C3 58 00
-SUB_003C_7:
-        LD A,(L_067A)                    ; $006A  3A 7A 06
+PARSE_TOKEN_6:
+        JP Z,SYNTAX_ERROR                 ; $0064  CA 18 05
+        JP PARSE_TOKEN_STORE                    ; $0067  C3 58 00
+PARSE_TOKEN_DONE:
+        LD A,(TOKEN_BUF)                    ; $006A  3A 7A 06
         CP $20                           ; $006D  FE 20
         RET                              ; $006F  C9
-SUB_003C_8:
+HEX_DIGIT_VAL:
         SUB $30                          ; $0070  D6 30
         CP $0A                           ; $0072  FE 0A
         RET C                            ; $0074  D8
         ADD A,$F9                        ; $0075  C6 F9
         CP $10                           ; $0077  FE 10
         RET C                            ; $0079  D8
-SUB_003C_9:
-        JP SUB_033B_29                   ; $007A  C3 18 05
-SUB_007D:
-        CALL SUB_0698                    ; $007D  CD 98 06
-SUB_007D_1:
+PARSE_TOKEN_ERR:
+        JP SYNTAX_ERROR                   ; $007A  C3 18 05
+PARSE_HEX16:
+        CALL READ_LINE                    ; $007D  CD 98 06
+ASM_LINE_BUF:
         DEC A                            ; $0080  3D
-        JP NZ,SUB_033B_29                ; $0081  C2 18 05
+        JP NZ,SYNTAX_ERROR                ; $0081  C2 18 05
         EX DE,HL                         ; $0084  EB
         LD C,(HL)                        ; $0085  4E
         INC HL                           ; $0086  23
@@ -322,330 +322,330 @@ SUB_007D_1:
         DEC B                            ; $0089  05
         INC B                            ; $008A  04
         RET                              ; $008B  C9
-SUB_008C:
-        CALL SUB_007D                    ; $008C  CD 7D 00
-        JP NZ,SUB_033B_29                ; $008F  C2 18 05
+PARSE_HEX16_REQ:
+        CALL PARSE_HEX16                    ; $008C  CD 7D 00
+        JP NZ,SYNTAX_ERROR                ; $008F  C2 18 05
         RET                              ; $0092  C9
-SUB_0093:
+SHIFT3_MASK38:
         RLA                              ; $0093  17
         RLA                              ; $0094  17
         RLA                              ; $0095  17
         AND $38                          ; $0096  E6 38
         RET                              ; $0098  C9
-SUB_0099:
+SHIFT3_MASK30:
         RLA                              ; $0099  17
         RLA                              ; $009A  17
         RLA                              ; $009B  17
         RLA                              ; $009C  17
         AND $30                          ; $009D  E6 30
         RET                              ; $009F  C9
-SUB_00A0:
+MATCH_4CHAR_REVTBL:
         EX DE,HL                         ; $00A0  EB
-        LD HL,(L_067A)                   ; $00A1  2A 7A 06
+        LD HL,(TOKEN_BUF)                   ; $00A1  2A 7A 06
         EX DE,HL                         ; $00A4  EB
-SUB_00A0_1:
+MATCH_4CHAR_REVTBL_1:
         LD A,E                           ; $00A5  7B
         CP (HL)                          ; $00A6  BE
-        JP NZ,SUB_00A0_2                 ; $00A7  C2 AF 00
+        JP NZ,MATCH_4CHAR_REVTBL_2                 ; $00A7  C2 AF 00
         INC HL                           ; $00AA  23
         LD A,D                           ; $00AB  7A
         CP (HL)                          ; $00AC  BE
         RET Z                            ; $00AD  C8
         DEC HL                           ; $00AE  2B
-SUB_00A0_2:
+MATCH_4CHAR_REVTBL_2:
         DEC HL                           ; $00AF  2B
         DEC HL                           ; $00B0  2B
         DEC C                            ; $00B1  0D
-        JP NZ,SUB_00A0_1                 ; $00B2  C2 A5 00
+        JP NZ,MATCH_4CHAR_REVTBL_1                 ; $00B2  C2 A5 00
         DEC C                            ; $00B5  0D
         RET                              ; $00B6  C9
-SUB_00B7:
+MATCH_MNEM_TBL:
         LD B,$04                         ; $00B7  06 04
         PUSH DE                          ; $00B9  D5
-        LD DE,L_067A                     ; $00BA  11 7A 06
-SUB_00B7_1:
+        LD DE,TOKEN_BUF                     ; $00BA  11 7A 06
+MATCH_MNEM_TBL_1:
         LD A,(DE)                        ; $00BD  1A
         CP (HL)                          ; $00BE  BE
-        JP NZ,SUB_00B7_2                 ; $00BF  C2 CA 00
+        JP NZ,MATCH_MNEM_TBL_2                 ; $00BF  C2 CA 00
         INC HL                           ; $00C2  23
         INC DE                           ; $00C3  13
         DEC B                            ; $00C4  05
-        JP NZ,SUB_00B7_1                 ; $00C5  C2 BD 00
+        JP NZ,MATCH_MNEM_TBL_1                 ; $00C5  C2 BD 00
         POP DE                           ; $00C8  D1
         RET                              ; $00C9  C9
-SUB_00B7_2:
+MATCH_MNEM_TBL_2:
         INC HL                           ; $00CA  23
         DEC B                            ; $00CB  05
-        JP NZ,SUB_00B7_2                 ; $00CC  C2 CA 00
+        JP NZ,MATCH_MNEM_TBL_2                 ; $00CC  C2 CA 00
         LD DE,$FFF8                      ; $00CF  11 F8 FF
         ADD HL,DE                        ; $00D2  19
         POP DE                           ; $00D3  D1
         INC DE                           ; $00D4  13
         DEC C                            ; $00D5  0D
-        JP NZ,SUB_00B7                   ; $00D6  C2 B7 00
+        JP NZ,MATCH_MNEM_TBL                   ; $00D6  C2 B7 00
         DEC C                            ; $00D9  0D
         RET                              ; $00DA  C9
-SUB_00DB:
+ASM_PARSE_REG8:
         PUSH BC                          ; $00DB  C5
-        CALL SUB_0039                    ; $00DC  CD 39 00
-        JP Z,SUB_033B_29                 ; $00DF  CA 18 05
+        CALL GET_NONBLANK                    ; $00DC  CD 39 00
+        JP Z,SYNTAX_ERROR                 ; $00DF  CA 18 05
         LD C,$08                         ; $00E2  0E 08
-        LD HL,L_0660                     ; $00E4  21 60 06
-        CALL SUB_00A0                    ; $00E7  CD A0 00
-        JP NZ,SUB_033B_29                ; $00EA  C2 18 05
+        LD HL,REGPAIR_NAME_TBL                     ; $00E4  21 60 06
+        CALL MATCH_4CHAR_REVTBL                    ; $00E7  CD A0 00
+        JP NZ,SYNTAX_ERROR                ; $00EA  C2 18 05
         DEC C                            ; $00ED  0D
         LD A,C                           ; $00EE  79
         POP BC                           ; $00EF  C1
         RET                              ; $00F0  C9
-SUB_00F1:
+ASM_PARSE_REGPAIR:
         PUSH BC                          ; $00F1  C5
-        CALL SUB_0039                    ; $00F2  CD 39 00
-        JP Z,SUB_033B_29                 ; $00F5  CA 18 05
+        CALL GET_NONBLANK                    ; $00F2  CD 39 00
+        JP Z,SYNTAX_ERROR                 ; $00F5  CA 18 05
         LD C,$05                         ; $00F8  0E 05
-        LD HL,L_0672                     ; $00FA  21 72 06
-        CALL SUB_00B7                    ; $00FD  CD B7 00
-SUB_00F1_1:
-        JP NZ,SUB_033B_29                ; $0100  C2 18 05
+        LD HL,MNEM_PSW_KEY                     ; $00FA  21 72 06
+        CALL MATCH_MNEM_TBL                    ; $00FD  CD B7 00
+ASM_PARSE_REGPAIR_1:
+        JP NZ,SYNTAX_ERROR                ; $0100  C2 18 05
         DEC C                            ; $0103  0D
         LD A,C                           ; $0104  79
         POP BC                           ; $0105  C1
         RET                              ; $0106  C9
-SUB_0107:
-        CALL SUB_00F1                    ; $0107  CD F1 00
+ASM_PARSE_RP_NOSP:
+        CALL ASM_PARSE_REGPAIR                    ; $0107  CD F1 00
         CP $04                           ; $010A  FE 04
-        JP Z,SUB_033B_29                 ; $010C  CA 18 05
+        JP Z,SYNTAX_ERROR                 ; $010C  CA 18 05
         RET                              ; $010F  C9
-SUB_0110:
-        CALL SUB_00F1                    ; $0110  CD F1 00
+ASM_PARSE_RP_PSW:
+        CALL ASM_PARSE_REGPAIR                    ; $0110  CD F1 00
         CP $03                           ; $0113  FE 03
-        JP Z,SUB_033B_29                 ; $0115  CA 18 05
+        JP Z,SYNTAX_ERROR                 ; $0115  CA 18 05
         CP $04                           ; $0118  FE 04
         RET NZ                           ; $011A  C0
         DEC A                            ; $011B  3D
         RET                              ; $011C  C9
-SUB_011D:
-        LD HL,L_067A                     ; $011D  21 7A 06
-        LD DE,L_067B                     ; $0120  11 7B 06
+ASM_PARSE_COND:
+        LD HL,TOKEN_BUF                     ; $011D  21 7A 06
+        LD DE,TOKEN_BUF_1                     ; $0120  11 7B 06
         LD C,$02                         ; $0123  0E 02
-SUB_011D_1:
+ASM_PARSE_COND_1:
         LD A,(DE)                        ; $0125  1A
         LD (HL),A                        ; $0126  77
         INC HL                           ; $0127  23
         INC DE                           ; $0128  13
         DEC C                            ; $0129  0D
-        JP NZ,SUB_011D_1                 ; $012A  C2 25 01
+        JP NZ,ASM_PARSE_COND_1                 ; $012A  C2 25 01
         LD A,(DE)                        ; $012D  1A
         CP $20                           ; $012E  FE 20
-        JP NZ,SUB_033B_29                ; $0130  C2 18 05
+        JP NZ,SYNTAX_ERROR                ; $0130  C2 18 05
         LD (HL),A                        ; $0133  77
-        LD HL,L_0650                     ; $0134  21 50 06
+        LD HL,REG8_NAME_TBL                     ; $0134  21 50 06
         LD C,$08                         ; $0137  0E 08
-        CALL SUB_00A0                    ; $0139  CD A0 00
-        JP NZ,SUB_033B_29                ; $013C  C2 18 05
+        CALL MATCH_4CHAR_REVTBL                    ; $0139  CD A0 00
+        JP NZ,SYNTAX_ERROR                ; $013C  C2 18 05
         DEC C                            ; $013F  0D
         LD A,C                           ; $0140  79
-        CALL SUB_0093                    ; $0141  CD 93 00
+        CALL SHIFT3_MASK38                    ; $0141  CD 93 00
         RET                              ; $0144  C9
-SUB_0145:
-        CALL SUB_011D                    ; $0145  CD 1D 01
+ASM_PARSE_RST:
+        CALL ASM_PARSE_COND                    ; $0145  CD 1D 01
         PUSH AF                          ; $0148  F5
-        CALL SUB_007D                    ; $0149  CD 7D 00
+        CALL PARSE_HEX16                    ; $0149  CD 7D 00
         POP AF                           ; $014C  F1
         OR $C0                           ; $014D  F6 C0
         RET                              ; $014F  C9
-SUB_0150:
+ASM_EMIT_DE:
         LD A,(DE)                        ; $0150  1A
-SUB_0151:
-        LD HL,(L_0011)                   ; $0151  2A 11 00
+ASM_EMIT_A:
+        LD HL,(ASM_PUT_PTR)                   ; $0151  2A 11 00
         LD (HL),A                        ; $0154  77
         INC HL                           ; $0155  23
-        LD (L_0011),HL                   ; $0156  22 11 00
+        LD (ASM_PUT_PTR),HL                   ; $0156  22 11 00
         RET                              ; $0159  C9
-SUB_015A:
-        CALL SUB_068C                    ; $015A  CD 8C 06
+ASM_ENCODE_LINE:
+        CALL CON_GET_RAW                    ; $015A  CD 8C 06
         CP $0D                           ; $015D  FE 0D
-        JP Z,SUB_033B_32                 ; $015F  CA 40 05
+        JP Z,RESTORE_SP_RET                 ; $015F  CA 40 05
         CP $2E                           ; $0162  FE 2E
-        JP Z,SUB_033B_32                 ; $0164  CA 40 05
-        CALL SUB_003C                    ; $0167  CD 3C 00
-        JP Z,SUB_033B_29                 ; $016A  CA 18 05
+        JP Z,RESTORE_SP_RET                 ; $0164  CA 40 05
+        CALL PARSE_TOKEN                    ; $0167  CD 3C 00
+        JP Z,SYNTAX_ERROR                 ; $016A  CA 18 05
         LD C,$11                         ; $016D  0E 11
-        LD HL,L_05A6                     ; $016F  21 A6 05
-        LD DE,SUB_033B_33                ; $0172  11 45 05
-        CALL SUB_00B7                    ; $0175  CD B7 00
-        JP NZ,SUB_015A_1                 ; $0178  C2 7E 01
-        JP SUB_0150                      ; $017B  C3 50 01
-SUB_015A_1:
+        LD HL,MNEM_IMM_TBL                     ; $016F  21 A6 05
+        LD DE,OPCODE_NOARG_TBL                ; $0172  11 45 05
+        CALL MATCH_MNEM_TBL                    ; $0175  CD B7 00
+        JP NZ,ASM_TRY_CALLJMP                 ; $0178  C2 7E 01
+        JP ASM_EMIT_DE                      ; $017B  C3 50 01
+ASM_TRY_CALLJMP:
         LD C,$0A                         ; $017E  0E 0A
-        LD HL,L_05CE                     ; $0180  21 CE 05
-        CALL SUB_00B7                    ; $0183  CD B7 00
-        JP NZ,SUB_015A_2                 ; $0186  C2 92 01
-        CALL SUB_0150                    ; $0189  CD 50 01
-        CALL SUB_008C                    ; $018C  CD 8C 00
-        JP SUB_0151                      ; $018F  C3 51 01
-SUB_015A_2:
+        LD HL,MNEM_ADDR_TBL                     ; $0180  21 CE 05
+        CALL MATCH_MNEM_TBL                    ; $0183  CD B7 00
+        JP NZ,ASM_TRY_SHLD                 ; $0186  C2 92 01
+        CALL ASM_EMIT_DE                    ; $0189  CD 50 01
+        CALL PARSE_HEX16_REQ                    ; $018C  CD 8C 00
+        JP ASM_EMIT_A                      ; $018F  C3 51 01
+ASM_TRY_SHLD:
         LD C,$06                         ; $0192  0E 06
-        LD HL,L_05E6                     ; $0194  21 E6 05
-        CALL SUB_00B7                    ; $0197  CD B7 00
-        JP NZ,SUB_015A_4                 ; $019A  C2 AA 01
-        CALL SUB_0150                    ; $019D  CD 50 01
-SUB_015A_3:
-        CALL SUB_007D                    ; $01A0  CD 7D 00
-        CALL SUB_0151                    ; $01A3  CD 51 01
+        LD HL,MNEM_SHLD                     ; $0194  21 E6 05
+        CALL MATCH_MNEM_TBL                    ; $0197  CD B7 00
+        JP NZ,ASM_TRY_MOV                 ; $019A  C2 AA 01
+        CALL ASM_EMIT_DE                    ; $019D  CD 50 01
+ASM_EMIT_IMM16:
+        CALL PARSE_HEX16                    ; $01A0  CD 7D 00
+        CALL ASM_EMIT_A                    ; $01A3  CD 51 01
         LD A,B                           ; $01A6  78
-        JP SUB_0151                      ; $01A7  C3 51 01
-SUB_015A_4:
+        JP ASM_EMIT_A                      ; $01A7  C3 51 01
+ASM_TRY_MOV:
         LD C,$01                         ; $01AA  0E 01
-        LD HL,L_05EA                     ; $01AC  21 EA 05
-        CALL SUB_00B7                    ; $01AF  CD B7 00
-        JP NZ,SUB_015A_6                 ; $01B2  C2 C6 01
-        CALL SUB_00DB                    ; $01B5  CD DB 00
-        CALL SUB_0093                    ; $01B8  CD 93 00
+        LD HL,MNEM_MOV                     ; $01AC  21 EA 05
+        CALL MATCH_MNEM_TBL                    ; $01AF  CD B7 00
+        JP NZ,ASM_TRY_CMP                 ; $01B2  C2 C6 01
+        CALL ASM_PARSE_REG8                    ; $01B5  CD DB 00
+        CALL SHIFT3_MASK38                    ; $01B8  CD 93 00
         LD B,A                           ; $01BB  47
         LD C,$40                         ; $01BC  0E 40
-SUB_015A_5:
-        CALL SUB_00DB                    ; $01BE  CD DB 00
+ASM_EMIT_REGREG:
+        CALL ASM_PARSE_REG8                    ; $01BE  CD DB 00
         OR C                             ; $01C1  B1
         OR B                             ; $01C2  B0
-        JP SUB_0151                      ; $01C3  C3 51 01
-SUB_015A_6:
+        JP ASM_EMIT_A                      ; $01C3  C3 51 01
+ASM_TRY_CMP:
         LD C,$08                         ; $01C6  0E 08
-        LD HL,L_060A                     ; $01C8  21 0A 06
-        CALL SUB_00B7                    ; $01CB  CD B7 00
-        JP NZ,SUB_015A_7                 ; $01CE  C2 DC 01
+        LD HL,MNEM_CMP                     ; $01C8  21 0A 06
+        CALL MATCH_MNEM_TBL                    ; $01CB  CD B7 00
+        JP NZ,ASM_TRY_DCR                 ; $01CE  C2 DC 01
         DEC C                            ; $01D1  0D
         LD A,C                           ; $01D2  79
-        CALL SUB_0093                    ; $01D3  CD 93 00
+        CALL SHIFT3_MASK38                    ; $01D3  CD 93 00
         LD B,A                           ; $01D6  47
         LD C,$80                         ; $01D7  0E 80
-        JP SUB_015A_5                    ; $01D9  C3 BE 01
-SUB_015A_7:
+        JP ASM_EMIT_REGREG                    ; $01D9  C3 BE 01
+ASM_TRY_DCR:
         LD C,$02                         ; $01DC  0E 02
-        LD HL,L_0612                     ; $01DE  21 12 06
-        CALL SUB_00B7                    ; $01E1  CD B7 00
-        JP NZ,SUB_015A_8                 ; $01E4  C2 F4 01
+        LD HL,MNEM_DCR                     ; $01DE  21 12 06
+        CALL MATCH_MNEM_TBL                    ; $01E1  CD B7 00
+        JP NZ,ASM_TRY_MVI                 ; $01E4  C2 F4 01
         INC C                            ; $01E7  0C
         INC C                            ; $01E8  0C
         INC C                            ; $01E9  0C
-        CALL SUB_00DB                    ; $01EA  CD DB 00
-        CALL SUB_0093                    ; $01ED  CD 93 00
+        CALL ASM_PARSE_REG8                    ; $01EA  CD DB 00
+        CALL SHIFT3_MASK38                    ; $01ED  CD 93 00
         OR C                             ; $01F0  B1
-        JP SUB_0151                      ; $01F1  C3 51 01
-SUB_015A_8:
+        JP ASM_EMIT_A                      ; $01F1  C3 51 01
+ASM_TRY_MVI:
         LD C,$01                         ; $01F4  0E 01
-        LD HL,L_0616                     ; $01F6  21 16 06
-        CALL SUB_00B7                    ; $01F9  CD B7 00
-        JP NZ,SUB_015A_9                 ; $01FC  C2 10 02
-        CALL SUB_00DB                    ; $01FF  CD DB 00
-        CALL SUB_0093                    ; $0202  CD 93 00
+        LD HL,MNEM_MVI                     ; $01F6  21 16 06
+        CALL MATCH_MNEM_TBL                    ; $01F9  CD B7 00
+        JP NZ,ASM_TRY_LXI                 ; $01FC  C2 10 02
+        CALL ASM_PARSE_REG8                    ; $01FF  CD DB 00
+        CALL SHIFT3_MASK38                    ; $0202  CD 93 00
         OR $06                           ; $0205  F6 06
-        CALL SUB_0151                    ; $0207  CD 51 01
-        CALL SUB_008C                    ; $020A  CD 8C 00
-        JP SUB_0151                      ; $020D  C3 51 01
-SUB_015A_9:
+        CALL ASM_EMIT_A                    ; $0207  CD 51 01
+        CALL PARSE_HEX16_REQ                    ; $020A  CD 8C 00
+        JP ASM_EMIT_A                      ; $020D  C3 51 01
+ASM_TRY_LXI:
         LD C,$06                         ; $0210  0E 06
-        LD HL,L_062E                     ; $0212  21 2E 06
-        CALL SUB_00B7                    ; $0215  CD B7 00
-        JP NZ,SUB_015A_11                ; $0218  C2 36 02
+        LD HL,MNEM_DCX                     ; $0212  21 2E 06
+        CALL MATCH_MNEM_TBL                    ; $0215  CD B7 00
+        JP NZ,ASM_TRY_DCX                ; $0218  C2 36 02
         LD A,C                           ; $021B  79
         CP $04                           ; $021C  FE 04
-        JP C,SUB_015A_10                 ; $021E  DA 23 02
+        JP C,ASM_LXI_ENC                 ; $021E  DA 23 02
         ADD A,$05                        ; $0221  C6 05
-SUB_015A_10:
+ASM_LXI_ENC:
         LD B,A                           ; $0223  47
-        CALL SUB_0107                    ; $0224  CD 07 01
-        CALL SUB_0099                    ; $0227  CD 99 00
+        CALL ASM_PARSE_RP_NOSP                    ; $0224  CD 07 01
+        CALL SHIFT3_MASK30                    ; $0227  CD 99 00
         OR B                             ; $022A  B0
-        CALL SUB_0151                    ; $022B  CD 51 01
+        CALL ASM_EMIT_A                    ; $022B  CD 51 01
         AND $CF                          ; $022E  E6 CF
         CP $01                           ; $0230  FE 01
         RET NZ                           ; $0232  C0
-        JP SUB_015A_3                    ; $0233  C3 A0 01
-SUB_015A_11:
+        JP ASM_EMIT_IMM16                    ; $0233  C3 A0 01
+ASM_TRY_DCX:
         LD C,$01                         ; $0236  0E 01
-        LD HL,L_0632                     ; $0238  21 32 06
-        CALL SUB_00B7                    ; $023B  CD B7 00
-        JP NZ,SUB_015A_12                ; $023E  C2 51 02
-        CALL SUB_008C                    ; $0241  CD 8C 00
+        LD HL,MNEM_RST                     ; $0238  21 32 06
+        CALL MATCH_MNEM_TBL                    ; $023B  CD B7 00
+        JP NZ,ASM_TRY_RST                ; $023E  C2 51 02
+        CALL PARSE_HEX16_REQ                    ; $0241  CD 8C 00
         CP $08                           ; $0244  FE 08
-        JP NC,SUB_033B_29                ; $0246  D2 18 05
-        CALL SUB_0093                    ; $0249  CD 93 00
+        JP NC,SYNTAX_ERROR                ; $0246  D2 18 05
+        CALL SHIFT3_MASK38                    ; $0249  CD 93 00
         OR $C7                           ; $024C  F6 C7
-        JP SUB_0151                      ; $024E  C3 51 01
-SUB_015A_12:
+        JP ASM_EMIT_A                      ; $024E  C3 51 01
+ASM_TRY_RST:
         LD C,$02                         ; $0251  0E 02
-        LD HL,L_063E                     ; $0253  21 3E 06
-        CALL SUB_00B7                    ; $0256  CD B7 00
-        JP NZ,SUB_015A_15                ; $0259  C2 71 02
+        LD HL,MNEM_PUSH                     ; $0253  21 3E 06
+        CALL MATCH_MNEM_TBL                    ; $0256  CD B7 00
+        JP NZ,ASM_TRY_JCR                ; $0259  C2 71 02
         DEC C                            ; $025C  0D
-        JP NZ,SUB_015A_13                ; $025D  C2 65 02
+        JP NZ,ASM_RST_ENC                ; $025D  C2 65 02
         LD C,$C1                         ; $0260  0E C1
-        JP SUB_015A_14                   ; $0262  C3 67 02
-SUB_015A_13:
+        JP ASM_PUSHPOP_ENC                   ; $0262  C3 67 02
+ASM_RST_ENC:
         LD C,$C5                         ; $0265  0E C5
-SUB_015A_14:
-        CALL SUB_0110                    ; $0267  CD 10 01
-        CALL SUB_0099                    ; $026A  CD 99 00
+ASM_PUSHPOP_ENC:
+        CALL ASM_PARSE_RP_PSW                    ; $0267  CD 10 01
+        CALL SHIFT3_MASK30                    ; $026A  CD 99 00
         OR C                             ; $026D  B1
-        JP SUB_0151                      ; $026E  C3 51 01
-SUB_015A_15:
-        LD A,(L_067A)                    ; $0271  3A 7A 06
+        JP ASM_EMIT_A                      ; $026E  C3 51 01
+ASM_TRY_JCR:
+        LD A,(TOKEN_BUF)                    ; $0271  3A 7A 06
         CP $4A                           ; $0274  FE 4A
-        JP NZ,SUB_015A_16                ; $0276  C2 81 02
-        CALL SUB_0145                    ; $0279  CD 45 01
+        JP NZ,ASM_TRY_C_COND                ; $0276  C2 81 02
+        CALL ASM_PARSE_RST                    ; $0279  CD 45 01
         OR $02                           ; $027C  F6 02
-        JP SUB_015A_17                   ; $027E  C3 8B 02
-SUB_015A_16:
+        JP ASM_EMIT_COND_ADDR                   ; $027E  C3 8B 02
+ASM_TRY_C_COND:
         CP $43                           ; $0281  FE 43
-        JP NZ,SUB_015A_18                ; $0283  C2 96 02
-        CALL SUB_0145                    ; $0286  CD 45 01
+        JP NZ,ASM_TRY_R_COND                ; $0283  C2 96 02
+        CALL ASM_PARSE_RST                    ; $0286  CD 45 01
         OR $04                           ; $0289  F6 04
-SUB_015A_17:
-        CALL SUB_0151                    ; $028B  CD 51 01
+ASM_EMIT_COND_ADDR:
+        CALL ASM_EMIT_A                    ; $028B  CD 51 01
         LD A,C                           ; $028E  79
-        CALL SUB_0151                    ; $028F  CD 51 01
+        CALL ASM_EMIT_A                    ; $028F  CD 51 01
         LD A,B                           ; $0292  78
-        JP SUB_0151                      ; $0293  C3 51 01
-SUB_015A_18:
+        JP ASM_EMIT_A                      ; $0293  C3 51 01
+ASM_TRY_R_COND:
         CP $52                           ; $0296  FE 52
-        JP NZ,SUB_033B_29                ; $0298  C2 18 05
-        CALL SUB_011D                    ; $029B  CD 1D 01
+        JP NZ,SYNTAX_ERROR                ; $0298  C2 18 05
+        CALL ASM_PARSE_COND                    ; $029B  CD 1D 01
         OR $C0                           ; $029E  F6 C0
-        JP SUB_0151                      ; $02A0  C3 51 01
-SUB_02A3:
-        LD HL,(SUB_0009_2+1)             ; $02A3  2A 0E 00
+        JP ASM_EMIT_A                      ; $02A0  C3 51 01
+DISASM_FETCH:
+        LD HL,(WORK_END+1)             ; $02A3  2A 0E 00
         PUSH DE                          ; $02A6  D5
         EX DE,HL                         ; $02A7  EB
-        LD HL,(SUB_0009_1)               ; $02A8  2A 0C 00
+        LD HL,(WORK_ADDR)               ; $02A8  2A 0C 00
         LD A,E                           ; $02AB  7B
         SUB L                            ; $02AC  95
         LD A,D                           ; $02AD  7A
         SBC A,H                          ; $02AE  9C
-        JP NC,SUB_02A3_1                 ; $02AF  D2 B7 02
-        LD HL,(L_0013)                   ; $02B2  2A 13 00
+        JP NC,DISASM_FETCH_1                 ; $02AF  D2 B7 02
+        LD HL,(SAVED_SP)                   ; $02B2  2A 13 00
         LD SP,HL                         ; $02B5  F9
         RET                              ; $02B6  C9
-SUB_02A3_1:
+DISASM_FETCH_1:
         POP DE                           ; $02B7  D1
         LD A,(HL)                        ; $02B8  7E
         INC HL                           ; $02B9  23
-        LD (SUB_0009_1),HL               ; $02BA  22 0C 00
+        LD (WORK_ADDR),HL               ; $02BA  22 0C 00
         RET                              ; $02BD  C9
-SUB_02BE:
+PUT_REG8_NAME:
         INC A                            ; $02BE  3C
         AND $07                          ; $02BF  E6 07
         CP $06                           ; $02C1  FE 06
-        JP C,SUB_02BE_1                  ; $02C3  DA C8 02
+        JP C,PUT_REG8_NAME_1                  ; $02C3  DA C8 02
         ADD A,$03                        ; $02C6  C6 03
-SUB_02BE_1:
+PUT_REG8_NAME_1:
         CP $05                           ; $02C8  FE 05
-        JP C,SUB_02BE_2                  ; $02CA  DA CF 02
+        JP C,PUT_REG8_NAME_2                  ; $02CA  DA CF 02
         ADD A,$02                        ; $02CD  C6 02
-SUB_02BE_2:
+PUT_REG8_NAME_2:
         ADD A,$41                        ; $02CF  C6 41
         LD C,A                           ; $02D1  4F
-        JP SUB_0015                      ; $02D2  C3 15 00
-SUB_02D5:
+        JP PUT_CHAR                      ; $02D2  C3 15 00
+PUT_HEX_BYTE:
         LD B,A                           ; $02D5  47
         AND $F0                          ; $02D6  E6 F0
         RRCA                             ; $02D8  0F
@@ -657,7 +657,7 @@ SUB_02D5:
         ADC A,$40                        ; $02DF  CE 40
         DAA                              ; $02E1  27
         LD C,A                           ; $02E2  4F
-        CALL SUB_0015                    ; $02E3  CD 15 00
+        CALL PUT_CHAR                    ; $02E3  CD 15 00
         LD A,B                           ; $02E6  78
         AND $0F                          ; $02E7  E6 0F
         ADD A,$90                        ; $02E9  C6 90
@@ -665,312 +665,312 @@ SUB_02D5:
         ADC A,$40                        ; $02EC  CE 40
         DAA                              ; $02EE  27
         LD C,A                           ; $02EF  4F
-        JP SUB_0015                      ; $02F0  C3 15 00
-SUB_02F3:
+        JP PUT_CHAR                      ; $02F0  C3 15 00
+PUT_MNEM4:
         LD B,$04                         ; $02F3  06 04
-SUB_02F3_1:
+PUT_MNEM4_1:
         LD C,(HL)                        ; $02F5  4E
-        CALL SUB_0015                    ; $02F6  CD 15 00
+        CALL PUT_CHAR                    ; $02F6  CD 15 00
         INC HL                           ; $02F9  23
         DEC B                            ; $02FA  05
-        JP NZ,SUB_02F3_1                 ; $02FB  C2 F5 02
+        JP NZ,PUT_MNEM4_1                 ; $02FB  C2 F5 02
         LD C,$20                         ; $02FE  0E 20
-        JP SUB_0015                      ; $0300  C3 15 00
-SUB_0303:
+        JP PUT_CHAR                      ; $0300  C3 15 00
+OPCODE_MID_FIELD:
         LD A,D                           ; $0303  7A
         AND $38                          ; $0304  E6 38
         RRCA                             ; $0306  0F
         RRCA                             ; $0307  0F
-SUB_0303_1:
+OPCODE_MID_FIELD_1:
         RRCA                             ; $0308  0F
         RET                              ; $0309  C9
-SUB_030A:
-        CALL SUB_0303                    ; $030A  CD 03 03
+PUT_CONDJMP_MNEM:
+        CALL OPCODE_MID_FIELD                    ; $030A  CD 03 03
         ADD A,A                          ; $030D  87
         LD C,A                           ; $030E  4F
-        LD HL,L_0642                     ; $030F  21 42 06
+        LD HL,COND_NAME_TBL                     ; $030F  21 42 06
         ADD HL,BC                        ; $0312  09
         LD C,(HL)                        ; $0313  4E
-        CALL SUB_0015                    ; $0314  CD 15 00
+        CALL PUT_CHAR                    ; $0314  CD 15 00
         INC HL                           ; $0317  23
         LD C,(HL)                        ; $0318  4E
-        CALL SUB_0015                    ; $0319  CD 15 00
+        CALL PUT_CHAR                    ; $0319  CD 15 00
         LD C,$20                         ; $031C  0E 20
-        CALL SUB_0015                    ; $031E  CD 15 00
-        JP SUB_0015                      ; $0321  C3 15 00
-SUB_0324:
-        CALL SUB_0303                    ; $0324  CD 03 03
+        CALL PUT_CHAR                    ; $031E  CD 15 00
+        JP PUT_CHAR                      ; $0321  C3 15 00
+PUT_REGPAIR_NAME:
+        CALL OPCODE_MID_FIELD                    ; $0324  CD 03 03
         AND $06                          ; $0327  E6 06
         CP $06                           ; $0329  FE 06
-        JP NZ,SUB_02BE                   ; $032B  C2 BE 02
+        JP NZ,PUT_REG8_NAME                   ; $032B  C2 BE 02
         LD C,$53                         ; $032E  0E 53
-        CALL SUB_0015                    ; $0330  CD 15 00
+        CALL PUT_CHAR                    ; $0330  CD 15 00
         LD C,$50                         ; $0333  0E 50
-        JP SUB_0015                      ; $0335  C3 15 00
-SUB_0338:
-        CALL SUB_002E                    ; $0338  CD 2E 00
-SUB_033B:
-        LD HL,(SUB_0009_1)               ; $033B  2A 0C 00
+        JP PUT_CHAR                      ; $0335  C3 15 00
+PUT_CRLF_THEN_ADDR:
+        CALL PUT_CRLF                    ; $0338  CD 2E 00
+PUT_ADDR16:
+        LD HL,(WORK_ADDR)               ; $033B  2A 0C 00
         LD A,H                           ; $033E  7C
-        CALL SUB_02D5                    ; $033F  CD D5 02
+        CALL PUT_HEX_BYTE                    ; $033F  CD D5 02
         LD A,L                           ; $0342  7D
-        CALL SUB_02D5                    ; $0343  CD D5 02
+        CALL PUT_HEX_BYTE                    ; $0343  CD D5 02
         LD C,$20                         ; $0346  0E 20
-        CALL SUB_0015                    ; $0348  CD 15 00
-        CALL SUB_0015                    ; $034B  CD 15 00
+        CALL PUT_CHAR                    ; $0348  CD 15 00
+        CALL PUT_CHAR                    ; $034B  CD 15 00
         RET                              ; $034E  C9
-SUB_033B_1:
-        LD HL,L_0000                     ; $034F  21 00 00
+GO_RUN:
+        LD HL,JMP_DISPATCH                     ; $034F  21 00 00
         ADD HL,SP                        ; $0352  39
-        LD (L_0013),HL                   ; $0353  22 13 00
-        LD A,(L_0010)                    ; $0356  3A 10 00
+        LD (SAVED_SP),HL                   ; $0353  22 13 00
+        LD A,(GO_TEMP_COUNT)                    ; $0356  3A 10 00
         OR A                             ; $0359  B7
-        JP Z,SUB_033B_2                  ; $035A  CA 71 03
+        JP Z,DISASM_LINE                  ; $035A  CA 71 03
         LD HL,$FFFF                      ; $035D  21 FF FF
-        LD (SUB_0009_2+1),HL             ; $0360  22 0E 00
+        LD (WORK_END+1),HL             ; $0360  22 0E 00
         INC A                            ; $0363  3C
-        JP NZ,SUB_033B_2                 ; $0364  C2 71 03
+        JP NZ,DISASM_LINE                 ; $0364  C2 71 03
         INC A                            ; $0367  3C
-        LD (L_0010),A                    ; $0368  32 10 00
-        LD HL,(SUB_0009_1)               ; $036B  2A 0C 00
-        JP SUB_033B_4                    ; $036E  C3 97 03
-SUB_033B_2:
-        CALL SUB_069E                    ; $0371  CD 9E 06
-        JP NZ,SUB_033B_32                ; $0374  C2 40 05
-        LD HL,L_0010                     ; $0377  21 10 00
+        LD (GO_TEMP_COUNT),A                    ; $0368  32 10 00
+        LD HL,(WORK_ADDR)               ; $036B  2A 0C 00
+        JP DISASM_DECODE                    ; $036E  C3 97 03
+DISASM_LINE:
+        CALL CON_BREAK_CHECK                    ; $0371  CD 9E 06
+        JP NZ,RESTORE_SP_RET                ; $0374  C2 40 05
+        LD HL,GO_TEMP_COUNT                     ; $0377  21 10 00
         LD A,(HL)                        ; $037A  7E
         OR A                             ; $037B  B7
-        JP Z,SUB_033B_3                  ; $037C  CA 83 03
+        JP Z,DISASM_LINE_1                  ; $037C  CA 83 03
         DEC (HL)                         ; $037F  35
-        JP Z,SUB_033B_32                 ; $0380  CA 40 05
-SUB_033B_3:
-        LD HL,(SUB_0009_1)               ; $0383  2A 0C 00
-        CALL SUB_06A1                    ; $0386  CD A1 06
-        CALL SUB_002E                    ; $0389  CD 2E 00
+        JP Z,RESTORE_SP_RET                 ; $0380  CA 40 05
+DISASM_LINE_1:
+        LD HL,(WORK_ADDR)               ; $0383  2A 0C 00
+        CALL BIOS_CALL_STUB                    ; $0386  CD A1 06
+        CALL PUT_CRLF                    ; $0389  CD 2E 00
         LD C,$20                         ; $038C  0E 20
-        CALL SUB_0015                    ; $038E  CD 15 00
-        CALL SUB_0015                    ; $0391  CD 15 00
-        CALL SUB_033B                    ; $0394  CD 3B 03
-SUB_033B_4:
-        CALL SUB_02A3                    ; $0397  CD A3 02
+        CALL PUT_CHAR                    ; $038E  CD 15 00
+        CALL PUT_CHAR                    ; $0391  CD 15 00
+        CALL PUT_ADDR16                    ; $0394  CD 3B 03
+DISASM_DECODE:
+        CALL DISASM_FETCH                    ; $0397  CD A3 02
         LD D,A                           ; $039A  57
-        LD HL,SUB_033B_33                ; $039B  21 45 05
-        LD BC,L_0011                     ; $039E  01 11 00
-SUB_033B_5:
+        LD HL,OPCODE_NOARG_TBL                ; $039B  21 45 05
+        LD BC,ASM_PUT_PTR                     ; $039E  01 11 00
+DISASM_SCAN_GRP1:
         CP (HL)                          ; $03A1  BE
-        JP Z,SUB_033B_27                 ; $03A2  CA FD 04
+        JP Z,DISASM_GRP1_NAME                 ; $03A2  CA FD 04
         INC HL                           ; $03A5  23
         DEC C                            ; $03A6  0D
-        JP NZ,SUB_033B_5                 ; $03A7  C2 A1 03
+        JP NZ,DISASM_SCAN_GRP1                 ; $03A7  C2 A1 03
         LD C,$0A                         ; $03AA  0E 0A
-SUB_033B_6:
+DISASM_SCAN_GRP2:
         CP (HL)                          ; $03AC  BE
-        JP Z,SUB_033B_25                 ; $03AD  CA E9 04
+        JP Z,DISASM_GRP2_NAME                 ; $03AD  CA E9 04
         INC HL                           ; $03B0  23
         DEC C                            ; $03B1  0D
-        JP NZ,SUB_033B_6                 ; $03B2  C2 AC 03
+        JP NZ,DISASM_SCAN_GRP2                 ; $03B2  C2 AC 03
         LD C,$06                         ; $03B5  0E 06
-SUB_033B_7:
+DISASM_SCAN_GRP3:
         CP (HL)                          ; $03B7  BE
-        JP Z,SUB_033B_23                 ; $03B8  CA CE 04
+        JP Z,DISASM_GRP3_NAME                 ; $03B8  CA CE 04
         INC HL                           ; $03BB  23
         DEC C                            ; $03BC  0D
-        JP NZ,SUB_033B_7                 ; $03BD  C2 B7 03
+        JP NZ,DISASM_SCAN_GRP3                 ; $03BD  C2 B7 03
         AND $C0                          ; $03C0  E6 C0
         CP $40                           ; $03C2  FE 40
-        JP Z,SUB_033B_21                 ; $03C4  CA B4 04
+        JP Z,DISASM_MOV                 ; $03C4  CA B4 04
         CP $80                           ; $03C7  FE 80
-        JP Z,SUB_033B_20                 ; $03C9  CA A5 04
+        JP Z,DISASM_ALU_REG                 ; $03C9  CA A5 04
         LD A,D                           ; $03CC  7A
         AND $C7                          ; $03CD  E6 C7
         SUB $04                          ; $03CF  D6 04
-        JP Z,SUB_033B_17                 ; $03D1  CA 96 04
+        JP Z,DISASM_INR                 ; $03D1  CA 96 04
         DEC A                            ; $03D4  3D
-        JP Z,SUB_033B_16                 ; $03D5  CA 90 04
+        JP Z,DISASM_DCR                 ; $03D5  CA 90 04
         DEC A                            ; $03D8  3D
-        JP Z,SUB_033B_15                 ; $03D9  CA 7C 04
+        JP Z,DISASM_LXI                 ; $03D9  CA 7C 04
         LD A,D                           ; $03DC  7A
         AND $C0                          ; $03DD  E6 C0
-        JP Z,SUB_033B_12                 ; $03DF  CA 4A 04
+        JP Z,DISASM_ARITH_IMM                 ; $03DF  CA 4A 04
         LD A,D                           ; $03E2  7A
         AND $07                          ; $03E3  E6 07
-        JP Z,SUB_033B_11                 ; $03E5  CA 3F 04
+        JP Z,DISASM_R_GROUP                 ; $03E5  CA 3F 04
         SUB $02                          ; $03E8  D6 02
-        JP Z,SUB_033B_10                 ; $03EA  CA 34 04
+        JP Z,DISASM_XCHG_GRP                 ; $03EA  CA 34 04
         SUB $02                          ; $03ED  D6 02
-        JP Z,SUB_033B_9                  ; $03EF  CA 29 04
+        JP Z,DISASM_PCHL_GRP                  ; $03EF  CA 29 04
         SUB $03                          ; $03F2  D6 03
-        JP Z,SUB_033B_8                  ; $03F4  CA 1A 04
+        JP Z,DISASM_RST                  ; $03F4  CA 1A 04
         LD A,D                           ; $03F7  7A
         AND $08                          ; $03F8  E6 08
-        JP NZ,SUB_033B_28                ; $03FA  C2 0B 05
+        JP NZ,DISASM_DB_BYTE                ; $03FA  C2 0B 05
         LD A,D                           ; $03FD  7A
         AND $07                          ; $03FE  E6 07
         LD C,A                           ; $0400  4F
         DEC A                            ; $0401  3D
-        LD HL,L_0639                     ; $0402  21 39 06
+        LD HL,MNEM_POP                     ; $0402  21 39 06
         ADD HL,BC                        ; $0405  09
-        CALL SUB_02F3                    ; $0406  CD F3 02
-        CALL SUB_0303                    ; $0409  CD 03 03
+        CALL PUT_MNEM4                    ; $0406  CD F3 02
+        CALL OPCODE_MID_FIELD                    ; $0409  CD 03 03
         CP $06                           ; $040C  FE 06
-        JP NZ,SUB_033B_19                ; $040E  C2 9F 04
-        LD HL,L_0636                     ; $0411  21 36 06
-        CALL SUB_02F3                    ; $0414  CD F3 02
-        JP SUB_033B_2                    ; $0417  C3 71 03
-SUB_033B_8:
-        LD HL,L_0632                     ; $041A  21 32 06
-        CALL SUB_02F3                    ; $041D  CD F3 02
-        CALL SUB_0303                    ; $0420  CD 03 03
-        CALL SUB_02D5                    ; $0423  CD D5 02
-        JP SUB_033B_2                    ; $0426  C3 71 03
-SUB_033B_9:
+        JP NZ,DISASM_REG_TAIL                ; $040E  C2 9F 04
+        LD HL,MNEM_PSW                     ; $0411  21 36 06
+        CALL PUT_MNEM4                    ; $0414  CD F3 02
+        JP DISASM_LINE                    ; $0417  C3 71 03
+DISASM_RST:
+        LD HL,MNEM_RST                     ; $041A  21 32 06
+        CALL PUT_MNEM4                    ; $041D  CD F3 02
+        CALL OPCODE_MID_FIELD                    ; $0420  CD 03 03
+        CALL PUT_HEX_BYTE                    ; $0423  CD D5 02
+        JP DISASM_LINE                    ; $0426  C3 71 03
+DISASM_PCHL_GRP:
         LD C,$43                         ; $0429  0E 43
-        CALL SUB_0015                    ; $042B  CD 15 00
-        CALL SUB_030A                    ; $042E  CD 0A 03
-        JP SUB_033B_24                   ; $0431  C3 D9 04
-SUB_033B_10:
+        CALL PUT_CHAR                    ; $042B  CD 15 00
+        CALL PUT_CONDJMP_MNEM                    ; $042E  CD 0A 03
+        JP DISASM_ADDR16_TAIL                   ; $0431  C3 D9 04
+DISASM_XCHG_GRP:
         LD C,$4A                         ; $0434  0E 4A
-        CALL SUB_0015                    ; $0436  CD 15 00
-        CALL SUB_030A                    ; $0439  CD 0A 03
-        JP SUB_033B_24                   ; $043C  C3 D9 04
-SUB_033B_11:
+        CALL PUT_CHAR                    ; $0436  CD 15 00
+        CALL PUT_CONDJMP_MNEM                    ; $0439  CD 0A 03
+        JP DISASM_ADDR16_TAIL                   ; $043C  C3 D9 04
+DISASM_R_GROUP:
         LD C,$52                         ; $043F  0E 52
-        CALL SUB_0015                    ; $0441  CD 15 00
-        CALL SUB_030A                    ; $0444  CD 0A 03
-        JP SUB_033B_2                    ; $0447  C3 71 03
-SUB_033B_12:
-        LD HL,L_061A                     ; $044A  21 1A 06
+        CALL PUT_CHAR                    ; $0441  CD 15 00
+        CALL PUT_CONDJMP_MNEM                    ; $0444  CD 0A 03
+        JP DISASM_LINE                    ; $0447  C3 71 03
+DISASM_ARITH_IMM:
+        LD HL,MNEM_RP_TBL                     ; $044A  21 1A 06
         LD A,D                           ; $044D  7A
         AND $07                          ; $044E  E6 07
-        JP Z,SUB_033B_28                 ; $0450  CA 0B 05
+        JP Z,DISASM_DB_BYTE                 ; $0450  CA 0B 05
         LD A,D                           ; $0453  7A
         AND $0F                          ; $0454  E6 0F
         DEC A                            ; $0456  3D
-        JP Z,SUB_033B_14                 ; $0457  CA 6E 04
+        JP Z,DISASM_MVI                 ; $0457  CA 6E 04
         CP $03                           ; $045A  FE 03
-        JP C,SUB_033B_13                 ; $045C  DA 61 04
+        JP C,DISASM_ARITH_IMM_1                 ; $045C  DA 61 04
         SUB $05                          ; $045F  D6 05
-SUB_033B_13:
+DISASM_ARITH_IMM_1:
         ADD A,A                          ; $0461  87
         ADD A,A                          ; $0462  87
         LD C,A                           ; $0463  4F
         ADD HL,BC                        ; $0464  09
-        CALL SUB_02F3                    ; $0465  CD F3 02
-        CALL SUB_0324                    ; $0468  CD 24 03
-        JP SUB_033B_2                    ; $046B  C3 71 03
-SUB_033B_14:
-        CALL SUB_02F3                    ; $046E  CD F3 02
-        CALL SUB_0324                    ; $0471  CD 24 03
+        CALL PUT_MNEM4                    ; $0465  CD F3 02
+        CALL PUT_REGPAIR_NAME                    ; $0468  CD 24 03
+        JP DISASM_LINE                    ; $046B  C3 71 03
+DISASM_MVI:
+        CALL PUT_MNEM4                    ; $046E  CD F3 02
+        CALL PUT_REGPAIR_NAME                    ; $0471  CD 24 03
         LD C,$2C                         ; $0474  0E 2C
-        CALL SUB_0015                    ; $0476  CD 15 00
-        JP SUB_033B_24                   ; $0479  C3 D9 04
-SUB_033B_15:
-        LD HL,L_0616                     ; $047C  21 16 06
-        CALL SUB_02F3                    ; $047F  CD F3 02
-        CALL SUB_0303                    ; $0482  CD 03 03
-        CALL SUB_02BE                    ; $0485  CD BE 02
+        CALL PUT_CHAR                    ; $0476  CD 15 00
+        JP DISASM_ADDR16_TAIL                   ; $0479  C3 D9 04
+DISASM_LXI:
+        LD HL,MNEM_MVI                     ; $047C  21 16 06
+        CALL PUT_MNEM4                    ; $047F  CD F3 02
+        CALL OPCODE_MID_FIELD                    ; $0482  CD 03 03
+        CALL PUT_REG8_NAME                    ; $0485  CD BE 02
         LD C,$2C                         ; $0488  0E 2C
-        CALL SUB_0015                    ; $048A  CD 15 00
-        JP SUB_033B_26                   ; $048D  C3 F4 04
-SUB_033B_16:
-        LD HL,L_0612                     ; $0490  21 12 06
-        JP SUB_033B_18                   ; $0493  C3 99 04
-SUB_033B_17:
-        LD HL,L_060E                     ; $0496  21 0E 06
-SUB_033B_18:
-        CALL SUB_02F3                    ; $0499  CD F3 02
-        CALL SUB_0303                    ; $049C  CD 03 03
-SUB_033B_19:
-        CALL SUB_02BE                    ; $049F  CD BE 02
-        JP SUB_033B_2                    ; $04A2  C3 71 03
-SUB_033B_20:
+        CALL PUT_CHAR                    ; $048A  CD 15 00
+        JP DISASM_ADDR_TAIL2                   ; $048D  C3 F4 04
+DISASM_DCR:
+        LD HL,MNEM_DCR                     ; $0490  21 12 06
+        JP DISASM_INRDCR_TAIL                   ; $0493  C3 99 04
+DISASM_INR:
+        LD HL,MNEM_INR                     ; $0496  21 0E 06
+DISASM_INRDCR_TAIL:
+        CALL PUT_MNEM4                    ; $0499  CD F3 02
+        CALL OPCODE_MID_FIELD                    ; $049C  CD 03 03
+DISASM_REG_TAIL:
+        CALL PUT_REG8_NAME                    ; $049F  CD BE 02
+        JP DISASM_LINE                    ; $04A2  C3 71 03
+DISASM_ALU_REG:
         LD A,D                           ; $04A5  7A
         AND $38                          ; $04A6  E6 38
         RRCA                             ; $04A8  0F
         LD C,A                           ; $04A9  4F
-        LD HL,L_05EE                     ; $04AA  21 EE 05
+        LD HL,MNEM_ALU_REG_TBL                     ; $04AA  21 EE 05
         ADD HL,BC                        ; $04AD  09
-        CALL SUB_02F3                    ; $04AE  CD F3 02
-        JP SUB_033B_22                   ; $04B1  C3 C5 04
-SUB_033B_21:
-        LD HL,L_05EA                     ; $04B4  21 EA 05
-        CALL SUB_02F3                    ; $04B7  CD F3 02
-        CALL SUB_0303                    ; $04BA  CD 03 03
-        CALL SUB_02BE                    ; $04BD  CD BE 02
+        CALL PUT_MNEM4                    ; $04AE  CD F3 02
+        JP DISASM_MOV_TAIL                   ; $04B1  C3 C5 04
+DISASM_MOV:
+        LD HL,MNEM_MOV                     ; $04B4  21 EA 05
+        CALL PUT_MNEM4                    ; $04B7  CD F3 02
+        CALL OPCODE_MID_FIELD                    ; $04BA  CD 03 03
+        CALL PUT_REG8_NAME                    ; $04BD  CD BE 02
         LD C,$2C                         ; $04C0  0E 2C
-        CALL SUB_0015                    ; $04C2  CD 15 00
-SUB_033B_22:
+        CALL PUT_CHAR                    ; $04C2  CD 15 00
+DISASM_MOV_TAIL:
         LD A,D                           ; $04C5  7A
         AND $07                          ; $04C6  E6 07
-        CALL SUB_02BE                    ; $04C8  CD BE 02
-        JP SUB_033B_2                    ; $04CB  C3 71 03
-SUB_033B_23:
+        CALL PUT_REG8_NAME                    ; $04C8  CD BE 02
+        JP DISASM_LINE                    ; $04CB  C3 71 03
+DISASM_GRP3_NAME:
         LD A,C                           ; $04CE  79
         ADD A,A                          ; $04CF  87
         ADD A,A                          ; $04D0  87
         LD C,A                           ; $04D1  4F
-        LD HL,L_05CE                     ; $04D2  21 CE 05
+        LD HL,MNEM_ADDR_TBL                     ; $04D2  21 CE 05
         ADD HL,BC                        ; $04D5  09
-        CALL SUB_02F3                    ; $04D6  CD F3 02
-SUB_033B_24:
-        CALL SUB_02A3                    ; $04D9  CD A3 02
+        CALL PUT_MNEM4                    ; $04D6  CD F3 02
+DISASM_ADDR16_TAIL:
+        CALL DISASM_FETCH                    ; $04D9  CD A3 02
         PUSH AF                          ; $04DC  F5
-        CALL SUB_02A3                    ; $04DD  CD A3 02
+        CALL DISASM_FETCH                    ; $04DD  CD A3 02
         LD D,A                           ; $04E0  57
         POP AF                           ; $04E1  F1
         LD E,A                           ; $04E2  5F
-        CALL SUB_0695                    ; $04E3  CD 95 06
-        JP SUB_033B_2                    ; $04E6  C3 71 03
-SUB_033B_25:
+        CALL PUT_HEX16_DE                    ; $04E3  CD 95 06
+        JP DISASM_LINE                    ; $04E6  C3 71 03
+DISASM_GRP2_NAME:
         LD A,C                           ; $04E9  79
         ADD A,A                          ; $04EA  87
         ADD A,A                          ; $04EB  87
         LD C,A                           ; $04EC  4F
-        LD HL,L_05A6                     ; $04ED  21 A6 05
+        LD HL,MNEM_IMM_TBL                     ; $04ED  21 A6 05
         ADD HL,BC                        ; $04F0  09
-        CALL SUB_02F3                    ; $04F1  CD F3 02
-SUB_033B_26:
-        CALL SUB_02A3                    ; $04F4  CD A3 02
-        CALL SUB_0692                    ; $04F7  CD 92 06
-        JP SUB_033B_2                    ; $04FA  C3 71 03
-SUB_033B_27:
+        CALL PUT_MNEM4                    ; $04F1  CD F3 02
+DISASM_ADDR_TAIL2:
+        CALL DISASM_FETCH                    ; $04F4  CD A3 02
+        CALL PUT_HEX16                    ; $04F7  CD 92 06
+        JP DISASM_LINE                    ; $04FA  C3 71 03
+DISASM_GRP1_NAME:
         LD A,C                           ; $04FD  79
         ADD A,A                          ; $04FE  87
         ADD A,A                          ; $04FF  87
         LD C,A                           ; $0500  4F
-        LD HL,L_0562                     ; $0501  21 62 05
+        LD HL,MNEM_GRP1_TBL                     ; $0501  21 62 05
         ADD HL,BC                        ; $0504  09
-        CALL SUB_02F3                    ; $0505  CD F3 02
-        JP SUB_033B_2                    ; $0508  C3 71 03
-SUB_033B_28:
-        LD HL,L_0676                     ; $050B  21 76 06
-        CALL SUB_02F3                    ; $050E  CD F3 02
+        CALL PUT_MNEM4                    ; $0505  CD F3 02
+        JP DISASM_LINE                    ; $0508  C3 71 03
+DISASM_DB_BYTE:
+        LD HL,MNEM_UNKNOWN                     ; $050B  21 76 06
+        CALL PUT_MNEM4                    ; $050E  CD F3 02
         LD A,D                           ; $0511  7A
-        CALL SUB_0692                    ; $0512  CD 92 06
-        JP SUB_033B_2                    ; $0515  C3 71 03
-SUB_033B_29:
-        CALL SUB_002E                    ; $0518  CD 2E 00
+        CALL PUT_HEX16                    ; $0512  CD 92 06
+        JP DISASM_LINE                    ; $0515  C3 71 03
+SYNTAX_ERROR:
+        CALL PUT_CRLF                    ; $0518  CD 2E 00
         LD C,$3F                         ; $051B  0E 3F
-        CALL SUB_0015                    ; $051D  CD 15 00
-        LD HL,(L_0013)                   ; $0520  2A 13 00
+        CALL PUT_CHAR                    ; $051D  CD 15 00
+        LD HL,(SAVED_SP)                   ; $0520  2A 13 00
         LD SP,HL                         ; $0523  F9
-SUB_033B_30:
-        LD HL,L_0000                     ; $0524  21 00 00
+ABORT_RESTART:
+        LD HL,JMP_DISPATCH                     ; $0524  21 00 00
         ADD HL,SP                        ; $0527  39
-        LD (L_0013),HL                   ; $0528  22 13 00
-SUB_033B_31:
-        CALL SUB_0338                    ; $052B  CD 38 03
-        LD (L_0011),HL                   ; $052E  22 11 00
-        CALL SUB_0689                    ; $0531  CD 89 06
-        CALL SUB_015A                    ; $0534  CD 5A 01
-        LD HL,(L_0011)                   ; $0537  2A 11 00
-        LD (SUB_0009_1),HL               ; $053A  22 0C 00
-        JP SUB_033B_31                   ; $053D  C3 2B 05
-SUB_033B_32:
-        LD HL,(L_0013)                   ; $0540  2A 13 00
+        LD (SAVED_SP),HL                   ; $0528  22 13 00
+COMMAND_LOOP:
+        CALL PUT_CRLF_THEN_ADDR                    ; $052B  CD 38 03
+        LD (ASM_PUT_PTR),HL                   ; $052E  22 11 00
+        CALL CON_STATUS_INIT                    ; $0531  CD 89 06
+        CALL ASM_ENCODE_LINE                    ; $0534  CD 5A 01
+        LD HL,(ASM_PUT_PTR)                   ; $0537  2A 11 00
+        LD (WORK_ADDR),HL               ; $053A  22 0C 00
+        JP COMMAND_LOOP                   ; $053D  C3 2B 05
+RESTORE_SP_RET:
+        LD HL,(SAVED_SP)                   ; $0540  2A 13 00
         LD SP,HL                         ; $0543  F9
         RET                              ; $0544  C9
-SUB_033B_33:
+OPCODE_NOARG_TBL:
         NOP                              ; $0545  00
         RLCA                             ; $0546  07
         RRCA                             ; $0547  0F
@@ -983,157 +983,159 @@ SUB_033B_33:
         HALT                             ; $054E  76
         DEFB    $C9,$E3,$E9,$EB,$F3,$F9,$FB,$C6,$CE,$D3,$D6,$DB,$DE,$E6,$EE,$F6 ; $054F
         DEFB    $FE,$22,$2A                                      ; $055F
-L_0562:
+MNEM_GRP1_TBL:
         DEFB    $32,$3A,$C3,$CD,$45,$49,$20,$20,$53,$50,$48,$4C,$44,$49,$20,$20 ; $0562  "2:CMEI  SPHLDI  XCHGPCHLXTHLRET "
         DEFB    $58,$43,$48,$47,$50,$43,$48,$4C,$58,$54,$48,$4C,$52,$45,$54,$20 ; $0572
         DEFB    $48,$4C,$54,$20,$43,$4D,$43,$20,$53,$54,$43,$20,$43,$4D,$41,$20 ; $0582
         DEFB    $44,$41,$41,$20,$52,$41,$52,$20,$52,$41,$4C,$20,$52,$52,$43,$20 ; $0592
         DEFB    $52,$4C,$43,$20                                  ; $05A2
-L_05A6:
+MNEM_IMM_TBL:
         DEFB    "NOP CPI ORI XRI ANI SBI IN  SUI OUT ACI "    ; $05A6  string
-L_05CE:
+MNEM_ADDR_TBL:
         DEFB    "ADI CALLJMP LDA STA LHLD"    ; $05CE  string
-L_05E6:
+MNEM_SHLD:
         DEFB    $53,$48,$4C,$44                                  ; $05E6
-L_05EA:
+MNEM_MOV:
         DEFB    $4D,$4F,$56,$20                                  ; $05EA
-L_05EE:
+MNEM_ALU_REG_TBL:
         DEFB    "ADD ADC SUB SBB ANA XRA ORA "    ; $05EE  string
-L_060A:
+MNEM_CMP:
         DEFB    $43,$4D,$50,$20                                  ; $060A
-L_060E:
+MNEM_INR:
         DEFB    $49,$4E,$52,$20                                  ; $060E
-L_0612:
+MNEM_DCR:
         DEFB    $44,$43,$52,$20                                  ; $0612
-L_0616:
+MNEM_MVI:
         DEFB    $4D,$56,$49,$20                                  ; $0616
-L_061A:
+MNEM_RP_TBL:
         DEFB    "LXI STAXINX DAD LDAX"    ; $061A  string
-L_062E:
+MNEM_DCX:
         DEFB    $44,$43,$58,$20                                  ; $062E
-L_0632:
+MNEM_RST:
         DEFB    $52,$53,$54,$20                                  ; $0632
-L_0636:
+MNEM_PSW:
         DEFB    $50,$53,$57                                      ; $0636
-L_0639:
+MNEM_POP:
         DEFB    " POP "    ; $0639  string
-L_063E:
+MNEM_PUSH:
         DEFB    $50,$55,$53,$48                                  ; $063E
-L_0642:
+COND_NAME_TBL:
         DEFB    "NZZ NCC POPEP "    ; $0642  string
-L_0650:
+REG8_NAME_TBL:
         DEFB    "M B C D E H L M "    ; $0650  string
-L_0660:
+REGPAIR_NAME_TBL:
         DEFB    "A B   D   H   SP  "    ; $0660  string
-L_0672:
+MNEM_PSW_KEY:
         DEFB    $50,$53,$57,$20                                  ; $0672
-L_0676:
+MNEM_UNKNOWN:
         DEFB    $3F,$3F,$3D,$20                                  ; $0676
-L_067A:
+TOKEN_BUF:
         DEFB    $03                                              ; $067A
-L_067B:
+TOKEN_BUF_1:
         DEFB    $00,$36,$00,$C3,$9A                              ; $067B
-L_0680:
+DISASM_ONE_VEC:
         DEFB    $C3                                              ; $0680
-        DEFW    SUB_06A8                 ; $0681
-SUB_033B_34:
-        JP SUB_06A8_2                    ; $0683  C3 B0 06
-L_0686:
+        DEFW    BDOS                 ; $0681
+MAIN_INIT:
+        JP STARTUP                    ; $0683  C3 B0 06
+TRACE_TRAP_VEC:
         DEFB    $C3                                              ; $0686
-        DEFW    SUB_0E17_1               ; $0687
-SUB_0689:
-        JP SUB_0BEA                      ; $0689  C3 EA 0B
-SUB_068C:
-        JP SUB_0C11                      ; $068C  C3 11 0C
-SUB_068F:
-        JP SUB_0BFB                      ; $068F  C3 FB 0B
-SUB_0692:
-        JP SUB_0C39                      ; $0692  C3 39 0C
-SUB_0695:
-        JP SUB_0C53_1                    ; $0695  C3 61 0C
-SUB_0698:
-        JP SUB_0CC4                      ; $0698  C3 C4 0C
+        DEFW    TRACE_TRAP               ; $0687
+CON_STATUS_INIT:
+        JP RESET_LINE_BUF                      ; $0689  C3 EA 0B
+CON_GET_RAW:
+        JP GET_LINE_CHAR                      ; $068C  C3 11 0C
+CON_PUT_RAW:
+        JP PUT_CHAR_A                      ; $068F  C3 FB 0B
+PUT_HEX16:
+        JP PUT_HEX_BYTE2                      ; $0692  C3 39 0C
+PUT_HEX16_DE:
+        JP PUT_HEX16_EXDE                    ; $0695  C3 61 0C
+READ_LINE:
+        JP PARSE_PARAMS                      ; $0698  C3 C4 0C
         DEFB    $C3                                              ; $069B
-        DEFW    SUB_0C9A                 ; $069C
-SUB_069E:
-        JP SUB_0C53                      ; $069E  C3 53 0C
-SUB_06A1:
+        DEFW    FETCH_WORD_HL                 ; $069C
+CON_BREAK_CHECK:
+        JP CON_BREAK_POLL                      ; $069E  C3 53 0C
+BIOS_CALL_STUB:
         RET                              ; $06A1  C9
-SUB_06A1_1:
+INIT_PAD:
         NOP                              ; $06A2  00
         NOP                              ; $06A3  00
-SUB_06A1_2:
+FLAG_REL_ADDR:
         NOP                              ; $06A4  00
-SUB_06A1_3:
+BREAK_OPCODE:
         RST $38                          ; $06A5  FF
-SUB_06A1_4:
-        JR C,SUB_06A8                    ; $06A6  38 00
-SUB_06A8:
+BIOS_VEC_PTR:
+        JR C,BDOS                    ; $06A6  38 00
+BDOS:
         EX (SP),HL                       ; $06A8  E3
-        LD (L_0F9E),HL                   ; $06A9  22 9E 0F
+        LD (SAVED_HL),HL                   ; $06A9  22 9E 0F
         EX (SP),HL                       ; $06AC  E3
-SUB_06A8_1:
-        JP L_0000                        ; $06AD  C3 00 00
-SUB_06A8_2:
-        LD HL,(SUB_0006)                 ; $06B0  2A 06 00
-        LD (SUB_06A8_1+1),HL             ; $06B3  22 AE 06
-        LD HL,SUB_06A8                   ; $06B6  21 A8 06
-        LD (L_0000+1),HL                 ; $06B9  22 01 00
-        LD HL,L_0000                     ; $06BC  21 00 00
-        LD (SUB_0006),HL                 ; $06BF  22 06 00
+BDOS_ENTRY_RET:
+        JP JMP_DISPATCH                        ; $06AD  C3 00 00
+STARTUP:
+        LD HL,(DISASM_ONE)                 ; $06B0  2A 06 00
+        LD (BDOS_ENTRY_RET+1),HL             ; $06B3  22 AE 06
+        LD HL,BDOS                   ; $06B6  21 A8 06
+        LD (JMP_DISPATCH+1),HL                 ; $06B9  22 01 00
+        LD HL,JMP_DISPATCH                     ; $06BC  21 00 00
+        LD (DISASM_ONE),HL                 ; $06BF  22 06 00
         XOR A                            ; $06C2  AF
-        LD (L_0FA3),A                    ; $06C3  32 A3 0F
-        LD HL,SUB_00F1_1                 ; $06C6  21 00 01
-        LD (SUB_0009_1),HL               ; $06C9  22 0C 00
-        LD (L_0FB1),HL                   ; $06CC  22 B1 0F
-        LD (L_0FDB),HL                   ; $06CF  22 DB 0F
-        LD (L_100D),HL                   ; $06D2  22 0D 10
-        LD HL,SUB_00F1_1                 ; $06D5  21 00 01
-        LD SP,L_100B                     ; $06D8  31 0B 10
+        LD (BREAK_SAVE_AREA),A                    ; $06C3  32 A3 0F
+        LD HL,ASM_PARSE_REGPAIR_1                 ; $06C6  21 00 01
+        LD (WORK_ADDR),HL               ; $06C9  22 0C 00
+        LD (ADDR_CURSOR),HL                   ; $06CC  22 B1 0F
+        LD (DMA_PTR),HL                   ; $06CF  22 DB 0F
+        LD (USER_PC),HL                   ; $06D2  22 0D 10
+        LD HL,ASM_PARSE_REGPAIR_1                 ; $06D5  21 00 01
+        LD SP,USER_SP                     ; $06D8  31 0B 10
         PUSH HL                          ; $06DB  E5
-        LD HL,L_0000+2                   ; $06DC  21 02 00
+        LD HL,JMP_DISPATCH+2                   ; $06DC  21 02 00
         PUSH HL                          ; $06DF  E5
         DEC HL                           ; $06E0  2B
         DEC HL                           ; $06E1  2B
-        LD (L_100B),HL                   ; $06E2  22 0B 10
+        LD (USER_SP),HL                   ; $06E2  22 0B 10
         PUSH HL                          ; $06E5  E5
         PUSH HL                          ; $06E6  E5
-        LD (L_0FA1),HL                   ; $06E7  22 A1 0F
-        LD HL,(SUB_06A1_4)               ; $06EA  2A A6 06
+        LD (STEP_COUNT),HL                   ; $06E7  22 A1 0F
+        LD HL,(BIOS_VEC_PTR)               ; $06EA  2A A6 06
         LD (HL),$C3                      ; $06ED  36 C3
-        LD DE,L_0686                     ; $06EF  11 86 06
+        LD DE,TRACE_TRAP_VEC                     ; $06EF  11 86 06
         INC HL                           ; $06F2  23
         LD (HL),E                        ; $06F3  73
         INC HL                           ; $06F4  23
         LD (HL),D                        ; $06F5  72
-        LD A,(SUB_003C_4+1)              ; $06F6  3A 5D 00
+        LD A,(PARSE_TOKEN_SCAN+1)              ; $06F6  3A 5D 00
         CP $20                           ; $06F9  FE 20
-        JP Z,SUB_06A8_4                  ; $06FB  CA 05 07
-        LD HL,L_0000                     ; $06FE  21 00 00
-SUB_06A8_3:
+        JP Z,READ_COMMAND                  ; $06FB  CA 05 07
+        LD HL,JMP_DISPATCH                     ; $06FE  21 00 00
+STARTUP_LOAD_FILE:
+        ; [AI] command-line named a file: push the load address and enter the
+        ; R-command file-load body to load it (no disassembly here).
         PUSH HL                          ; $0701  E5
-        JP SUB_09C7_3                    ; $0702  C3 E1 09
-SUB_06A8_4:
-        LD SP,L_1003                     ; $0705  31 03 10
-        CALL SUB_09C7                    ; $0708  CD C7 09
-        JP C,SUB_06A8_5                  ; $070B  DA 14 07
-        LD HL,L_0680                     ; $070E  21 80 06
-        LD (SUB_0006),HL                 ; $0711  22 06 00
-SUB_06A8_5:
-        CALL SUB_0C49                    ; $0714  CD 49 0C
+        JP CMD_R_LOAD_BODY                    ; $0702  C3 E1 09
+READ_COMMAND:
+        LD SP,STACK_AREA                     ; $0705  31 03 10
+        CALL ABOVE_TPA_BASE                    ; $0708  CD C7 09
+        JP C,STARTUP_NO_FILE                  ; $070B  DA 14 07
+        LD HL,DISASM_ONE_VEC                     ; $070E  21 80 06
+        LD (DISASM_ONE),HL                 ; $0711  22 06 00
+STARTUP_NO_FILE:
+        CALL PUT_CRLF2                    ; $0714  CD 49 0C
         LD A,$2D                         ; $0717  3E 2D
-        CALL SUB_0BFB                    ; $0719  CD FB 0B
-        CALL SUB_0BEA                    ; $071C  CD EA 0B
-        CALL SUB_0C11                    ; $071F  CD 11 0C
+        CALL PUT_CHAR_A                    ; $0719  CD FB 0B
+        CALL RESET_LINE_BUF                    ; $071C  CD EA 0B
+        CALL GET_LINE_CHAR                    ; $071F  CD 11 0C
         CP $0D                           ; $0722  FE 0D
-        JP Z,SUB_06A8_4                  ; $0724  CA 05 07
+        JP Z,READ_COMMAND                  ; $0724  CA 05 07
         SUB $41                          ; $0727  D6 41
-        JP C,SUB_0BA8_5                  ; $0729  DA DF 0B
+        JP C,CMD_ERROR                  ; $0729  DA DF 0B
         CP $1A                           ; $072C  FE 1A
-        JP NC,SUB_0BA8_5                 ; $072E  D2 DF 0B
+        JP NC,CMD_ERROR                 ; $072E  D2 DF 0B
         LD E,A                           ; $0731  5F
         LD D,$00                         ; $0732  16 00
-        LD HL,L_073E                     ; $0734  21 3E 07
+        LD HL,CMD_DISPATCH_TBL                     ; $0734  21 3E 07
         ADD HL,DE                        ; $0737  19
         ADD HL,DE                        ; $0738  19
         LD E,(HL)                        ; $0739  5E
@@ -1141,247 +1143,247 @@ SUB_06A8_5:
         LD D,(HL)                        ; $073B  56
         EX DE,HL                         ; $073C  EB
         JP (HL)                          ; $073D  E9
-L_073E:
-        DEFW    SUB_0772_1               ; $073E
-        DEFW    SUB_0BA8_5               ; $0740
-        DEFW    SUB_0BA8_5               ; $0742
-        DEFW    SUB_0772_5               ; $0744
-        DEFW    SUB_0BA8_5               ; $0746
-        DEFW    SUB_0880_1               ; $0748
-        DEFW    SUB_0880_3               ; $074A
-        DEFW    SUB_08E0_2               ; $074C
-        DEFW    SUB_08E0_3               ; $074E
-        DEFW    SUB_0BA8_5               ; $0750
-        DEFW    SUB_0BA8_5               ; $0752
-        DEFW    SUB_0772_2               ; $0754
-        DEFW    SUB_08E0_10              ; $0756
-        DEFW    SUB_0BA8_5               ; $0758
-        DEFW    SUB_0BA8_5               ; $075A
-        DEFW    SUB_0BA8_5               ; $075C
-        DEFW    SUB_0BA8_5               ; $075E
-        DEFW    SUB_09C7_1               ; $0760
-        DEFW    SUB_0A5A_4               ; $0762
-        DEFW    SUB_0A5A_8               ; $0764
-        DEFW    SUB_0A5A_7               ; $0766
-        DEFW    SUB_0BA8_5               ; $0768
-        DEFW    SUB_0BA8_5               ; $076A
-        DEFW    SUB_0A5A_11              ; $076C
-        DEFW    SUB_0BA8_5               ; $076E
-        DEFW    SUB_0BA8_5               ; $0770
-SUB_0772:
+CMD_DISPATCH_TBL:
+        DEFW    CMD_A_ASSEMBLE               ; $073E
+        DEFW    CMD_ERROR               ; $0740
+        DEFW    CMD_ERROR               ; $0742
+        DEFW    CMD_D_DUMP               ; $0744
+        DEFW    CMD_ERROR               ; $0746
+        DEFW    CMD_F_FILL               ; $0748
+        DEFW    CMD_G_GO               ; $074A
+        DEFW    CMD_H_HEXMATH               ; $074C
+        DEFW    CMD_I_INPUT               ; $074E
+        DEFW    CMD_ERROR               ; $0750
+        DEFW    CMD_ERROR               ; $0752
+        DEFW    CMD_L_LIST               ; $0754
+        DEFW    CMD_M_MOVE              ; $0756
+        DEFW    CMD_ERROR               ; $0758
+        DEFW    CMD_ERROR               ; $075A
+        DEFW    CMD_ERROR               ; $075C
+        DEFW    CMD_ERROR               ; $075E
+        DEFW    CMD_R_READ               ; $0760
+        DEFW    CMD_S_SET               ; $0762
+        DEFW    CMD_T_TRACE               ; $0764
+        DEFW    CMD_U_UNTRACE               ; $0766
+        DEFW    CMD_ERROR               ; $0768
+        DEFW    CMD_ERROR               ; $076A
+        DEFW    CMD_X_EXAMINE              ; $076C
+        DEFW    CMD_ERROR               ; $076E
+        DEFW    CMD_ERROR               ; $0770
+GET_CMD_CHAR:
         PUSH HL                          ; $0772  E5
         PUSH DE                          ; $0773  D5
         PUSH BC                          ; $0774  C5
         XOR A                            ; $0775  AF
-        LD (SUB_003C_3+2),A              ; $0776  32 5B 00
+        LD (PARSE_TOKEN_NEXT+2),A              ; $0776  32 5B 00
         LD C,$0F                         ; $0779  0E 0F
-        LD DE,SUB_003C_4                 ; $077B  11 5C 00
-        CALL SUB_06A8                    ; $077E  CD A8 06
+        LD DE,PARSE_TOKEN_SCAN                 ; $077B  11 5C 00
+        CALL BDOS                    ; $077E  CD A8 06
         POP BC                           ; $0781  C1
         POP DE                           ; $0782  D1
         POP HL                           ; $0783  E1
         RET                              ; $0784  C9
-SUB_0772_1:
-        CALL SUB_09C7                    ; $0785  CD C7 09
-        JP NC,SUB_0BA8_5                 ; $0788  D2 DF 0B
-        CALL SUB_0CC4                    ; $078B  CD C4 0C
+CMD_A_ASSEMBLE:
+        CALL ABOVE_TPA_BASE                    ; $0785  CD C7 09
+        JP NC,CMD_ERROR                 ; $0788  D2 DF 0B
+        CALL PARSE_PARAMS                    ; $078B  CD C4 0C
         DEC A                            ; $078E  3D
-        JP NZ,SUB_0BA8_5                 ; $078F  C2 DF 0B
-        CALL SUB_0C9A                    ; $0792  CD 9A 0C
-        LD (SUB_0009_1),HL               ; $0795  22 0C 00
-        CALL SUB_0009                    ; $0798  CD 09 00
-        JP SUB_06A8_4                    ; $079B  C3 05 07
-SUB_0772_2:
-        CALL SUB_09C7                    ; $079E  CD C7 09
-        JP NC,SUB_0BA8_5                 ; $07A1  D2 DF 0B
-        CALL SUB_0CC4                    ; $07A4  CD C4 0C
-        JP Z,SUB_0772_3                  ; $07A7  CA C2 07
-        CALL SUB_0C9A                    ; $07AA  CD 9A 0C
-        LD (SUB_0009_1),HL               ; $07AD  22 0C 00
+        JP NZ,CMD_ERROR                 ; $078F  C2 DF 0B
+        CALL FETCH_WORD_HL                    ; $0792  CD 9A 0C
+        LD (WORK_ADDR),HL               ; $0795  22 0C 00
+        CALL ABORT_TO_PROMPT                    ; $0798  CD 09 00
+        JP READ_COMMAND                    ; $079B  C3 05 07
+CMD_L_LIST:
+        CALL ABOVE_TPA_BASE                    ; $079E  CD C7 09
+        JP NC,CMD_ERROR                 ; $07A1  D2 DF 0B
+        CALL PARSE_PARAMS                    ; $07A4  CD C4 0C
+        JP Z,CMD_L_DEFAULTS                  ; $07A7  CA C2 07
+        CALL FETCH_WORD_HL                    ; $07AA  CD 9A 0C
+        LD (WORK_ADDR),HL               ; $07AD  22 0C 00
         DEC A                            ; $07B0  3D
-        JP Z,SUB_0772_3                  ; $07B1  CA C2 07
-        CALL SUB_0C9A                    ; $07B4  CD 9A 0C
-        LD (SUB_0009_2+1),HL             ; $07B7  22 0E 00
+        JP Z,CMD_L_DEFAULTS                  ; $07B1  CA C2 07
+        CALL FETCH_WORD_HL                    ; $07B4  CD 9A 0C
+        LD (WORK_END+1),HL             ; $07B7  22 0E 00
         DEC A                            ; $07BA  3D
-        JP NZ,SUB_0BA8_5                 ; $07BB  C2 DF 0B
+        JP NZ,CMD_ERROR                 ; $07BB  C2 DF 0B
         XOR A                            ; $07BE  AF
-        JP SUB_0772_4                    ; $07BF  C3 C4 07
-SUB_0772_3:
+        JP CMD_L_SET_COUNT                    ; $07BF  C3 C4 07
+CMD_L_DEFAULTS:
         LD A,$0C                         ; $07C2  3E 0C
-SUB_0772_4:
-        LD (L_0010),A                    ; $07C4  32 10 00
-        CALL SUB_0006                    ; $07C7  CD 06 00
-        JP SUB_06A8_4                    ; $07CA  C3 05 07
-SUB_0772_5:
-        CALL SUB_0CC4                    ; $07CD  CD C4 0C
-        JP Z,SUB_0772_7                  ; $07D0  CA EC 07
-        CALL SUB_0C9A                    ; $07D3  CD 9A 0C
-        JP C,SUB_0772_6                  ; $07D6  DA DC 07
-        LD (L_0FB1),HL                   ; $07D9  22 B1 0F
-SUB_0772_6:
+CMD_L_SET_COUNT:
+        LD (GO_TEMP_COUNT),A                    ; $07C4  32 10 00
+        CALL DISASM_ONE                    ; $07C7  CD 06 00
+        JP READ_COMMAND                    ; $07CA  C3 05 07
+CMD_D_DUMP:
+        CALL PARSE_PARAMS                    ; $07CD  CD C4 0C
+        JP Z,CMD_D_DEFAULTS                  ; $07D0  CA EC 07
+        CALL FETCH_WORD_HL                    ; $07D3  CD 9A 0C
+        JP C,CMD_D_6                  ; $07D6  DA DC 07
+        LD (ADDR_CURSOR),HL                   ; $07D9  22 B1 0F
+CMD_D_6:
         AND $7F                          ; $07DC  E6 7F
         DEC A                            ; $07DE  3D
-        JP Z,SUB_0772_7                  ; $07DF  CA EC 07
-        CALL SUB_0C9A                    ; $07E2  CD 9A 0C
+        JP Z,CMD_D_DEFAULTS                  ; $07DF  CA EC 07
+        CALL FETCH_WORD_HL                    ; $07E2  CD 9A 0C
         DEC A                            ; $07E5  3D
-        JP NZ,SUB_0BA8_5                 ; $07E6  C2 DF 0B
-        JP SUB_0772_9                    ; $07E9  C3 09 08
-SUB_0772_7:
-        LD HL,(L_0FB1)                   ; $07EC  2A B1 0F
+        JP NZ,CMD_ERROR                 ; $07E6  C2 DF 0B
+        JP CMD_D_SET_END                    ; $07E9  C3 09 08
+CMD_D_DEFAULTS:
+        LD HL,(ADDR_CURSOR)                   ; $07EC  2A B1 0F
         LD A,L                           ; $07EF  7D
         AND $F0                          ; $07F0  E6 F0
         LD L,A                           ; $07F2  6F
-        LD DE,SUB_003C_5                 ; $07F3  11 5F 00
+        LD DE,PARSE_TOKEN_5                 ; $07F3  11 5F 00
         ADD HL,DE                        ; $07F6  19
-        JP C,SUB_0772_8                  ; $07F7  DA 06 08
-        LD A,(SUB_06A1_2)                ; $07FA  3A A4 06
+        JP C,CMD_D_CLAMP                  ; $07F7  DA 06 08
+        LD A,(FLAG_REL_ADDR)                ; $07FA  3A A4 06
         OR A                             ; $07FD  B7
-        JP Z,SUB_0772_9                  ; $07FE  CA 09 08
+        JP Z,CMD_D_SET_END                  ; $07FE  CA 09 08
         INC HL                           ; $0801  23
         ADD HL,DE                        ; $0802  19
-        JP NC,SUB_0772_9                 ; $0803  D2 09 08
-SUB_0772_8:
+        JP NC,CMD_D_SET_END                 ; $0803  D2 09 08
+CMD_D_CLAMP:
         LD HL,$FFFF                      ; $0806  21 FF FF
-SUB_0772_9:
-        LD (L_0FB3),HL                   ; $0809  22 B3 0F
-SUB_0772_10:
-        CALL SUB_0C49                    ; $080C  CD 49 0C
-        CALL SUB_0C53                    ; $080F  CD 53 0C
-        JP NZ,SUB_06A8_4                 ; $0812  C2 05 07
-        LD HL,(L_0FB1)                   ; $0815  2A B1 0F
-        LD (L_0FB5),HL                   ; $0818  22 B5 0F
-        CALL SUB_0C62                    ; $081B  CD 62 0C
-SUB_0772_11:
-        CALL SUB_0BF9                    ; $081E  CD F9 0B
+CMD_D_SET_END:
+        LD (ADDR_LIMIT),HL                   ; $0809  22 B3 0F
+CMD_D_ROW:
+        CALL PUT_CRLF2                    ; $080C  CD 49 0C
+        CALL CON_BREAK_POLL                    ; $080F  CD 53 0C
+        JP NZ,READ_COMMAND                 ; $0812  C2 05 07
+        LD HL,(ADDR_CURSOR)                   ; $0815  2A B1 0F
+        LD (ROW_START),HL                   ; $0818  22 B5 0F
+        CALL PUT_HEX16_HL                    ; $081B  CD 62 0C
+CMD_D_HEX:
+        CALL PUT_SPACE                    ; $081E  CD F9 0B
         LD A,(HL)                        ; $0821  7E
-        CALL SUB_0C39                    ; $0822  CD 39 0C
+        CALL PUT_HEX_BYTE2                    ; $0822  CD 39 0C
         INC HL                           ; $0825  23
-        CALL SUB_0C79                    ; $0826  CD 79 0C
-        JP C,SUB_0772_13                 ; $0829  DA 42 08
-        LD A,(SUB_06A1_2)                ; $082C  3A A4 06
+        CALL SUB_LIMIT                    ; $0826  CD 79 0C
+        JP C,CMD_D_ASCII                 ; $0829  DA 42 08
+        LD A,(FLAG_REL_ADDR)                ; $082C  3A A4 06
         OR A                             ; $082F  B7
-        JP NZ,SUB_0772_12                ; $0830  C2 3C 08
+        JP NZ,CMD_D_12                ; $0830  C2 3C 08
         LD A,L                           ; $0833  7D
         AND $07                          ; $0834  E6 07
-        JP NZ,SUB_0772_11                ; $0836  C2 1E 08
-        JP SUB_0772_13                   ; $0839  C3 42 08
-SUB_0772_12:
+        JP NZ,CMD_D_HEX                ; $0836  C2 1E 08
+        JP CMD_D_ASCII                   ; $0839  C3 42 08
+CMD_D_12:
         LD A,L                           ; $083C  7D
         AND $0F                          ; $083D  E6 0F
-        JP NZ,SUB_0772_11                ; $083F  C2 1E 08
-SUB_0772_13:
-        LD (L_0FB1),HL                   ; $0842  22 B1 0F
-        LD HL,(L_0FB5)                   ; $0845  2A B5 0F
+        JP NZ,CMD_D_HEX                ; $083F  C2 1E 08
+CMD_D_ASCII:
+        LD (ADDR_CURSOR),HL                   ; $0842  22 B1 0F
+        LD HL,(ROW_START)                   ; $0845  2A B5 0F
         EX DE,HL                         ; $0848  EB
-        CALL SUB_0BF9                    ; $0849  CD F9 0B
-SUB_0772_14:
+        CALL PUT_SPACE                    ; $0849  CD F9 0B
+CMD_D_ASCII_LOOP:
         LD A,(DE)                        ; $084C  1A
-        CALL SUB_0C6A                    ; $084D  CD 6A 0C
+        CALL PUT_PRINTABLE                    ; $084D  CD 6A 0C
         INC DE                           ; $0850  13
-        LD HL,(L_0FB1)                   ; $0851  2A B1 0F
+        LD HL,(ADDR_CURSOR)                   ; $0851  2A B1 0F
         LD A,L                           ; $0854  7D
         SUB E                            ; $0855  93
-        JP NZ,SUB_0772_14                ; $0856  C2 4C 08
+        JP NZ,CMD_D_ASCII_LOOP                ; $0856  C2 4C 08
         LD A,H                           ; $0859  7C
         SUB D                            ; $085A  92
-        JP NZ,SUB_0772_14                ; $085B  C2 4C 08
-        LD HL,(L_0FB1)                   ; $085E  2A B1 0F
-        CALL SUB_0C79                    ; $0861  CD 79 0C
-        JP C,SUB_06A8_4                  ; $0864  DA 05 07
-        JP SUB_0772_10                   ; $0867  C3 0C 08
-SUB_086A:
-        CALL SUB_0CC4                    ; $086A  CD C4 0C
+        JP NZ,CMD_D_ASCII_LOOP                ; $085B  C2 4C 08
+        LD HL,(ADDR_CURSOR)                   ; $085E  2A B1 0F
+        CALL SUB_LIMIT                    ; $0861  CD 79 0C
+        JP C,READ_COMMAND                  ; $0864  DA 05 07
+        JP CMD_D_ROW                   ; $0867  C3 0C 08
+PARSE_3HEX:
+        CALL PARSE_PARAMS                    ; $086A  CD C4 0C
         CP $03                           ; $086D  FE 03
-        JP NZ,SUB_0BA8_5                 ; $086F  C2 DF 0B
-        CALL SUB_0C9A                    ; $0872  CD 9A 0C
+        JP NZ,CMD_ERROR                 ; $086F  C2 DF 0B
+        CALL FETCH_WORD_HL                    ; $0872  CD 9A 0C
         PUSH HL                          ; $0875  E5
-        CALL SUB_0C9A                    ; $0876  CD 9A 0C
+        CALL FETCH_WORD_HL                    ; $0876  CD 9A 0C
         PUSH HL                          ; $0879  E5
-        CALL SUB_0C9A                    ; $087A  CD 9A 0C
+        CALL FETCH_WORD_HL                    ; $087A  CD 9A 0C
         POP DE                           ; $087D  D1
         POP BC                           ; $087E  C1
         RET                              ; $087F  C9
-SUB_0880:
+SUB16_DE_BC:
         LD A,E                           ; $0880  7B
         SUB C                            ; $0881  91
         LD A,D                           ; $0882  7A
         SBC A,B                          ; $0883  98
         RET                              ; $0884  C9
-SUB_0880_1:
-        CALL SUB_086A                    ; $0885  CD 6A 08
+CMD_F_FILL:
+        CALL PARSE_3HEX                    ; $0885  CD 6A 08
         LD A,H                           ; $0888  7C
         OR A                             ; $0889  B7
-        JP NZ,SUB_0BA8_5                 ; $088A  C2 DF 0B
-SUB_0880_2:
-        CALL SUB_0880                    ; $088D  CD 80 08
-        JP C,SUB_06A8_4                  ; $0890  DA 05 07
+        JP NZ,CMD_ERROR                 ; $088A  C2 DF 0B
+CMD_F_LOOP:
+        CALL SUB16_DE_BC                    ; $088D  CD 80 08
+        JP C,READ_COMMAND                  ; $0890  DA 05 07
         LD A,L                           ; $0893  7D
         LD (BC),A                        ; $0894  02
         INC BC                           ; $0895  03
         LD A,B                           ; $0896  78
         OR C                             ; $0897  B1
-        JP Z,SUB_06A8_4                  ; $0898  CA 05 07
-        JP SUB_0880_2                    ; $089B  C3 8D 08
-SUB_0880_3:
-        CALL SUB_0C49                    ; $089E  CD 49 0C
-        CALL SUB_0CC4                    ; $08A1  CD C4 0C
-        CALL SUB_0C9A                    ; $08A4  CD 9A 0C
+        JP Z,READ_COMMAND                  ; $0898  CA 05 07
+        JP CMD_F_LOOP                    ; $089B  C3 8D 08
+CMD_G_GO:
+        CALL PUT_CRLF2                    ; $089E  CD 49 0C
+        CALL PARSE_PARAMS                    ; $08A1  CD C4 0C
+        CALL FETCH_WORD_HL                    ; $08A4  CD 9A 0C
         PUSH HL                          ; $08A7  E5
-        CALL SUB_0C9A                    ; $08A8  CD 9A 0C
+        CALL FETCH_WORD_HL                    ; $08A8  CD 9A 0C
         PUSH HL                          ; $08AB  E5
-        CALL SUB_0C9A                    ; $08AC  CD 9A 0C
+        CALL FETCH_WORD_HL                    ; $08AC  CD 9A 0C
         LD B,H                           ; $08AF  44
         LD C,L                           ; $08B0  4D
         POP DE                           ; $08B1  D1
         POP HL                           ; $08B2  E1
-SUB_0880_4:
+RUN_USER:
         DI                               ; $08B3  F3
-        JP Z,SUB_0880_6                  ; $08B4  CA CF 08
-        JP C,SUB_0880_5                  ; $08B7  DA BD 08
-        LD (L_100D),HL                   ; $08BA  22 0D 10
-SUB_0880_5:
+        JP Z,RUN_USER_DONE                  ; $08B4  CA CF 08
+        JP C,RUN_USER_1                  ; $08B7  DA BD 08
+        LD (USER_PC),HL                   ; $08BA  22 0D 10
+RUN_USER_1:
         AND $7F                          ; $08BD  E6 7F
         DEC A                            ; $08BF  3D
-        JP Z,SUB_0880_6                  ; $08C0  CA CF 08
-        CALL SUB_08E0                    ; $08C3  CD E0 08
+        JP Z,RUN_USER_DONE                  ; $08C0  CA CF 08
+        CALL SET_BREAKPOINT                    ; $08C3  CD E0 08
         DEC A                            ; $08C6  3D
-        JP Z,SUB_0880_6                  ; $08C7  CA CF 08
+        JP Z,RUN_USER_DONE                  ; $08C7  CA CF 08
         LD E,C                           ; $08CA  59
         LD D,B                           ; $08CB  50
-        CALL SUB_08E0                    ; $08CC  CD E0 08
-SUB_0880_6:
-        LD SP,L_1003                     ; $08CF  31 03 10
+        CALL SET_BREAKPOINT                    ; $08CC  CD E0 08
+RUN_USER_DONE:
+        LD SP,STACK_AREA                     ; $08CF  31 03 10
         POP DE                           ; $08D2  D1
         POP BC                           ; $08D3  C1
         POP AF                           ; $08D4  F1
         POP HL                           ; $08D5  E1
         LD SP,HL                         ; $08D6  F9
-        LD HL,(L_100D)                   ; $08D7  2A 0D 10
+        LD HL,(USER_PC)                   ; $08D7  2A 0D 10
         PUSH HL                          ; $08DA  E5
-        LD HL,(L_100B)                   ; $08DB  2A 0B 10
+        LD HL,(USER_SP)                   ; $08DB  2A 0B 10
         EI                               ; $08DE  FB
         RET                              ; $08DF  C9
-SUB_08E0:
+SET_BREAKPOINT:
         PUSH AF                          ; $08E0  F5
         PUSH BC                          ; $08E1  C5
-        LD HL,L_0FA3                     ; $08E2  21 A3 0F
+        LD HL,BREAK_SAVE_AREA                     ; $08E2  21 A3 0F
         LD A,(HL)                        ; $08E5  7E
         INC (HL)                         ; $08E6  34
         OR A                             ; $08E7  B7
-        JP Z,SUB_08E0_1                  ; $08E8  CA FB 08
+        JP Z,SET_BREAKPOINT_1                  ; $08E8  CA FB 08
         INC HL                           ; $08EB  23
         LD A,(HL)                        ; $08EC  7E
         INC HL                           ; $08ED  23
         LD B,(HL)                        ; $08EE  46
         INC HL                           ; $08EF  23
         CP E                             ; $08F0  BB
-        JP NZ,SUB_08E0_1                 ; $08F1  C2 FB 08
+        JP NZ,SET_BREAKPOINT_1                 ; $08F1  C2 FB 08
         LD A,B                           ; $08F4  78
         CP D                             ; $08F5  BA
-        JP NZ,SUB_08E0_1                 ; $08F6  C2 FB 08
+        JP NZ,SET_BREAKPOINT_1                 ; $08F6  C2 FB 08
         LD A,(HL)                        ; $08F9  7E
         LD (DE),A                        ; $08FA  12
-SUB_08E0_1:
+SET_BREAKPOINT_1:
         INC HL                           ; $08FB  23
         LD (HL),E                        ; $08FC  73
         INC HL                           ; $08FD  23
@@ -1389,24 +1391,24 @@ SUB_08E0_1:
         INC HL                           ; $08FF  23
         LD A,(DE)                        ; $0900  1A
         LD (HL),A                        ; $0901  77
-        LD A,(SUB_06A1_3)                ; $0902  3A A5 06
+        LD A,(BREAK_OPCODE)                ; $0902  3A A5 06
         LD (DE),A                        ; $0905  12
         POP BC                           ; $0906  C1
         POP AF                           ; $0907  F1
         RET                              ; $0908  C9
-SUB_08E0_2:
-        CALL SUB_0CC4                    ; $0909  CD C4 0C
+CMD_H_HEXMATH:
+        CALL PARSE_PARAMS                    ; $0909  CD C4 0C
         CP $02                           ; $090C  FE 02
-        JP NZ,SUB_0BA8_5                 ; $090E  C2 DF 0B
-        CALL SUB_0C9A                    ; $0911  CD 9A 0C
+        JP NZ,CMD_ERROR                 ; $090E  C2 DF 0B
+        CALL FETCH_WORD_HL                    ; $0911  CD 9A 0C
         PUSH HL                          ; $0914  E5
-        CALL SUB_0C9A                    ; $0915  CD 9A 0C
+        CALL FETCH_WORD_HL                    ; $0915  CD 9A 0C
         POP DE                           ; $0918  D1
         PUSH HL                          ; $0919  E5
-        CALL SUB_0C49                    ; $091A  CD 49 0C
+        CALL PUT_CRLF2                    ; $091A  CD 49 0C
         ADD HL,DE                        ; $091D  19
-        CALL SUB_0C62                    ; $091E  CD 62 0C
-        CALL SUB_0BF9                    ; $0921  CD F9 0B
+        CALL PUT_HEX16_HL                    ; $091E  CD 62 0C
+        CALL PUT_SPACE                    ; $0921  CD F9 0B
         POP HL                           ; $0924  E1
         XOR A                            ; $0925  AF
         SUB L                            ; $0926  95
@@ -1415,69 +1417,69 @@ SUB_08E0_2:
         SBC A,H                          ; $092A  9C
         LD H,A                           ; $092B  67
         ADD HL,DE                        ; $092C  19
-        CALL SUB_0C62                    ; $092D  CD 62 0C
-        JP SUB_06A8_4                    ; $0930  C3 05 07
-SUB_08E0_3:
+        CALL PUT_HEX16_HL                    ; $092D  CD 62 0C
+        JP READ_COMMAND                    ; $0930  C3 05 07
+CMD_I_INPUT:
         XOR A                            ; $0933  AF
-        LD (SUB_003C_9+2),A              ; $0934  32 7C 00
-        LD (SUB_003C_4),A                ; $0937  32 5C 00
-        CALL SUB_0C11                    ; $093A  CD 11 0C
+        LD (PARSE_TOKEN_ERR+2),A              ; $0934  32 7C 00
+        LD (PARSE_TOKEN_SCAN),A                ; $0937  32 5C 00
+        CALL GET_LINE_CHAR                    ; $093A  CD 11 0C
         LD C,$09                         ; $093D  0E 09
-        LD HL,SUB_003C_4+1               ; $093F  21 5D 00
-SUB_08E0_4:
+        LD HL,PARSE_TOKEN_SCAN+1               ; $093F  21 5D 00
+CMD_I_NAME_LOOP:
         LD (HL),A                        ; $0942  77
         INC HL                           ; $0943  23
         DEC C                            ; $0944  0D
-        JP Z,SUB_0BA8_5                  ; $0945  CA DF 0B
-        CALL SUB_0C11                    ; $0948  CD 11 0C
+        JP Z,CMD_ERROR                  ; $0945  CA DF 0B
+        CALL GET_LINE_CHAR                    ; $0948  CD 11 0C
         CP $2E                           ; $094B  FE 2E
-        JP Z,SUB_08E0_5                  ; $094D  CA 55 09
+        JP Z,CMD_I_NAME_PAD                  ; $094D  CA 55 09
         CP $0D                           ; $0950  FE 0D
-        JP NZ,SUB_08E0_4                 ; $0952  C2 42 09
-SUB_08E0_5:
+        JP NZ,CMD_I_NAME_LOOP                 ; $0952  C2 42 09
+CMD_I_NAME_PAD:
         DEC C                            ; $0955  0D
-        JP Z,SUB_08E0_6                  ; $0956  CA 5F 09
+        JP Z,CMD_I_EXT                  ; $0956  CA 5F 09
         LD (HL),$20                      ; $0959  36 20
         INC HL                           ; $095B  23
-        JP SUB_08E0_5                    ; $095C  C3 55 09
-SUB_08E0_6:
+        JP CMD_I_NAME_PAD                    ; $095C  C3 55 09
+CMD_I_EXT:
         LD C,$04                         ; $095F  0E 04
         CP $2E                           ; $0961  FE 2E
-        JP NZ,SUB_08E0_8                 ; $0963  C2 7A 09
-        LD HL,SUB_003C_6+1               ; $0966  21 65 00
-SUB_08E0_7:
-        CALL SUB_0C11                    ; $0969  CD 11 0C
+        JP NZ,CMD_I_EXT_PAD                 ; $0963  C2 7A 09
+        LD HL,PARSE_TOKEN_6+1               ; $0966  21 65 00
+CMD_I_EXT_LOOP:
+        CALL GET_LINE_CHAR                    ; $0969  CD 11 0C
         CP $0D                           ; $096C  FE 0D
-        JP Z,SUB_08E0_8                  ; $096E  CA 7A 09
+        JP Z,CMD_I_EXT_PAD                  ; $096E  CA 7A 09
         LD (HL),A                        ; $0971  77
         INC HL                           ; $0972  23
         DEC C                            ; $0973  0D
-        JP Z,SUB_0BA8_5                  ; $0974  CA DF 0B
-        JP SUB_08E0_7                    ; $0977  C3 69 09
-SUB_08E0_8:
+        JP Z,CMD_ERROR                  ; $0974  CA DF 0B
+        JP CMD_I_EXT_LOOP                    ; $0977  C3 69 09
+CMD_I_EXT_PAD:
         DEC C                            ; $097A  0D
-        JP Z,SUB_08E0_9                  ; $097B  CA 84 09
+        JP Z,CMD_I_DONE                  ; $097B  CA 84 09
         LD (HL),$20                      ; $097E  36 20
         INC HL                           ; $0980  23
-        JP SUB_08E0_8                    ; $0981  C3 7A 09
-SUB_08E0_9:
+        JP CMD_I_EXT_PAD                    ; $0981  C3 7A 09
+CMD_I_DONE:
         LD (HL),$00                      ; $0984  36 00
-        JP SUB_06A8_4                    ; $0986  C3 05 07
-SUB_08E0_10:
-        CALL SUB_086A                    ; $0989  CD 6A 08
-SUB_08E0_11:
-        CALL SUB_0880                    ; $098C  CD 80 08
-        JP C,SUB_06A8_4                  ; $098F  DA 05 07
+        JP READ_COMMAND                    ; $0986  C3 05 07
+CMD_M_MOVE:
+        CALL PARSE_3HEX                    ; $0989  CD 6A 08
+CMD_M_LOOP:
+        CALL SUB16_DE_BC                    ; $098C  CD 80 08
+        JP C,READ_COMMAND                  ; $098F  DA 05 07
         LD A,(BC)                        ; $0992  0A
         INC BC                           ; $0993  03
         LD (HL),A                        ; $0994  77
         INC HL                           ; $0995  23
         LD A,H                           ; $0996  7C
         OR L                             ; $0997  B5
-        JP Z,SUB_06A8_4                  ; $0998  CA 05 07
-        JP SUB_08E0_11                   ; $099B  C3 8C 09
-SUB_099E:
-        LD HL,SUB_003C_6+1               ; $099E  21 65 00
+        JP Z,READ_COMMAND                  ; $0998  CA 05 07
+        JP CMD_M_LOOP                   ; $099B  C3 8C 09
+IS_HEX_REQ:
+        LD HL,PARSE_TOKEN_6+1               ; $099E  21 65 00
         LD A,(HL)                        ; $09A1  7E
         AND $7F                          ; $09A2  E6 7F
         CP $48                           ; $09A4  FE 48
@@ -1492,115 +1494,120 @@ SUB_099E:
         AND $7F                          ; $09B0  E6 7F
         CP $58                           ; $09B2  FE 58
         RET                              ; $09B4  C9
-SUB_09B5:
+CMP_DMA_PTR:
         EX DE,HL                         ; $09B5  EB
-        LD HL,(L_0FDB)                   ; $09B6  2A DB 0F
+        LD HL,(DMA_PTR)                   ; $09B6  2A DB 0F
         LD A,L                           ; $09B9  7D
         SUB E                            ; $09BA  93
         LD A,H                           ; $09BB  7C
         SBC A,D                          ; $09BC  9A
         EX DE,HL                         ; $09BD  EB
         RET                              ; $09BE  C9
-SUB_09BF:
-        CALL SUB_09B5                    ; $09BF  CD B5 09
+BUMP_DMA_PTR:
+        CALL CMP_DMA_PTR                    ; $09BF  CD B5 09
         RET NC                           ; $09C2  D0
-        LD (L_0FDB),HL                   ; $09C3  22 DB 0F
+        LD (DMA_PTR),HL                   ; $09C3  22 DB 0F
         RET                              ; $09C6  C9
-SUB_09C7:
+ABOVE_TPA_BASE:
         PUSH HL                          ; $09C7  E5
-        LD HL,L_0000                     ; $09C8  21 00 00
-        CALL SUB_09B5                    ; $09CB  CD B5 09
+        LD HL,JMP_DISPATCH                     ; $09C8  21 00 00
+        CALL CMP_DMA_PTR                    ; $09CB  CD B5 09
         POP HL                           ; $09CE  E1
         RET                              ; $09CF  C9
-SUB_09C7_1:
-        CALL SUB_0CC4                    ; $09D0  CD C4 0C
-        LD HL,L_0000                     ; $09D3  21 00 00
-        JP Z,SUB_09C7_2                  ; $09D6  CA E0 09
+CMD_R_READ:
+        CALL PARSE_PARAMS                    ; $09D0  CD C4 0C
+        LD HL,JMP_DISPATCH                     ; $09D3  21 00 00
+        JP Z,CMD_R_2                  ; $09D6  CA E0 09
         DEC A                            ; $09D9  3D
-        JP NZ,SUB_0BA8_5                 ; $09DA  C2 DF 0B
-        CALL SUB_0C9A                    ; $09DD  CD 9A 0C
-SUB_09C7_2:
+        JP NZ,CMD_ERROR                 ; $09DA  C2 DF 0B
+        CALL FETCH_WORD_HL                    ; $09DD  CD 9A 0C
+CMD_R_2:
         PUSH HL                          ; $09E0  E5
-SUB_09C7_3:
-        CALL SUB_0772                    ; $09E1  CD 72 07
+CMD_R_LOAD_BODY:
+        ; [AI] R-command file-load body (also the command-line-file startup target
+        ; reached from STARTUP_LOAD_FILE): read the named file via GET_CMD_CHAR
+        ; (BDOS read-sequential fn $14), then for a .HEX file (IS_HEX_REQ) parse
+        ; Intel-HEX records (CMD_R_HEX_LINE), else copy raw 128-byte records into
+        ; the TPA (CMD_R_HEX_REC/CMD_R_COPY_REC). No disassembler is invoked.
+        CALL GET_CMD_CHAR                    ; $09E1  CD 72 07
         CP $FF                           ; $09E4  FE FF
-        JP Z,SUB_0BA8_5                  ; $09E6  CA DF 0B
-        CALL SUB_099E                    ; $09E9  CD 9E 09
-        JP Z,SUB_09C7_6                  ; $09EC  CA 15 0A
+        JP Z,CMD_ERROR                  ; $09E6  CA DF 0B
+        CALL IS_HEX_REQ                    ; $09E9  CD 9E 09
+        JP Z,CMD_R_HEX_LINE                  ; $09EC  CA 15 0A
         POP HL                           ; $09EF  E1
-        LD DE,SUB_00F1_1                 ; $09F0  11 00 01
+        LD DE,ASM_PARSE_REGPAIR_1                 ; $09F0  11 00 01
         ADD HL,DE                        ; $09F3  19
-SUB_09C7_4:
+CMD_R_HEX_REC:
         PUSH HL                          ; $09F4  E5
-        LD DE,SUB_003C_4                 ; $09F5  11 5C 00
+        LD DE,PARSE_TOKEN_SCAN                 ; $09F5  11 5C 00
         LD C,$14                         ; $09F8  0E 14
-        CALL SUB_06A8                    ; $09FA  CD A8 06
+        CALL BDOS                    ; $09FA  CD A8 06
         POP HL                           ; $09FD  E1
         OR A                             ; $09FE  B7
-        JP NZ,SUB_0A5A_1                 ; $09FF  C2 7A 0A
-        LD DE,SUB_007D_1                 ; $0A02  11 80 00
+        JP NZ,PRINT_NEXT_PC                 ; $09FF  C2 7A 0A
+        LD DE,ASM_LINE_BUF                 ; $0A02  11 80 00
         LD C,$80                         ; $0A05  0E 80
-SUB_09C7_5:
+CMD_R_COPY_REC:
         LD A,(DE)                        ; $0A07  1A
         INC DE                           ; $0A08  13
         LD (HL),A                        ; $0A09  77
         INC HL                           ; $0A0A  23
         DEC C                            ; $0A0B  0D
-        JP NZ,SUB_09C7_5                 ; $0A0C  C2 07 0A
-        CALL SUB_09BF                    ; $0A0F  CD BF 09
-        JP SUB_09C7_4                    ; $0A12  C3 F4 09
-SUB_09C7_6:
-        CALL SUB_0BA8                    ; $0A15  CD A8 0B
+        JP NZ,CMD_R_COPY_REC                 ; $0A0C  C2 07 0A
+        CALL BUMP_DMA_PTR                    ; $0A0F  CD BF 09
+        JP CMD_R_HEX_REC                    ; $0A12  C3 F4 09
+CMD_R_HEX_LINE:
+        CALL GET_HEXFILE_CHAR                    ; $0A15  CD A8 0B
         CP $1A                           ; $0A18  FE 1A
-        JP Z,SUB_0BA8_5                  ; $0A1A  CA DF 0B
+        JP Z,CMD_ERROR                  ; $0A1A  CA DF 0B
         SBC A,$3A                        ; $0A1D  DE 3A
-        JP NZ,SUB_09C7_6                 ; $0A1F  C2 15 0A
+        JP NZ,CMD_R_HEX_LINE                 ; $0A1F  C2 15 0A
         LD D,A                           ; $0A22  57
         POP HL                           ; $0A23  E1
         PUSH HL                          ; $0A24  E5
-        CALL SUB_0A5A                    ; $0A25  CD 5A 0A
+        CALL GET_HEX_BYTE_REC                    ; $0A25  CD 5A 0A
         LD E,A                           ; $0A28  5F
-        CALL SUB_0A5A                    ; $0A29  CD 5A 0A
+        CALL GET_HEX_BYTE_REC                    ; $0A29  CD 5A 0A
         PUSH AF                          ; $0A2C  F5
-        CALL SUB_0A5A                    ; $0A2D  CD 5A 0A
+        CALL GET_HEX_BYTE_REC                    ; $0A2D  CD 5A 0A
         POP BC                           ; $0A30  C1
         LD C,A                           ; $0A31  4F
         ADD HL,BC                        ; $0A32  09
         LD A,E                           ; $0A33  7B
         OR A                             ; $0A34  B7
-        JP NZ,SUB_09C7_7                 ; $0A35  C2 40 0A
+        JP NZ,CMD_R_DATA_REC                 ; $0A35  C2 40 0A
         LD H,B                           ; $0A38  60
         LD L,C                           ; $0A39  69
-        LD (L_100D),HL                   ; $0A3A  22 0D 10
-        JP SUB_0A5A_1                    ; $0A3D  C3 7A 0A
-SUB_09C7_7:
-        CALL SUB_0A5A                    ; $0A40  CD 5A 0A
-SUB_09C7_8:
-        CALL SUB_0A5A                    ; $0A43  CD 5A 0A
+        LD (USER_PC),HL                   ; $0A3A  22 0D 10
+        JP PRINT_NEXT_PC                    ; $0A3D  C3 7A 0A
+CMD_R_DATA_REC:
+        CALL GET_HEX_BYTE_REC                    ; $0A40  CD 5A 0A
+CMD_R_DATA_LOOP:
+        CALL GET_HEX_BYTE_REC                    ; $0A43  CD 5A 0A
         LD (HL),A                        ; $0A46  77
         INC HL                           ; $0A47  23
         DEC E                            ; $0A48  1D
-        JP NZ,SUB_09C7_8                 ; $0A49  C2 43 0A
-        CALL SUB_0A5A                    ; $0A4C  CD 5A 0A
+        JP NZ,CMD_R_DATA_LOOP                 ; $0A49  C2 43 0A
+        CALL GET_HEX_BYTE_REC                    ; $0A4C  CD 5A 0A
         PUSH AF                          ; $0A4F  F5
-        CALL SUB_09BF                    ; $0A50  CD BF 09
+        CALL BUMP_DMA_PTR                    ; $0A50  CD BF 09
         POP AF                           ; $0A53  F1
-        JP NZ,SUB_0BA8_5                 ; $0A54  C2 DF 0B
-        JP SUB_09C7_6                    ; $0A57  C3 15 0A
-SUB_0A5A:
+        JP NZ,CMD_ERROR                 ; $0A54  C2 DF 0B
+        JP CMD_R_HEX_LINE                    ; $0A57  C3 15 0A
+GET_HEX_BYTE_REC:
         PUSH BC                          ; $0A5A  C5
         PUSH HL                          ; $0A5B  E5
         PUSH DE                          ; $0A5C  D5
-        CALL SUB_0BA8                    ; $0A5D  CD A8 0B
-        CALL SUB_0C8D                    ; $0A60  CD 8D 0C
+        CALL GET_HEXFILE_CHAR                    ; $0A5D  CD A8 0B
+        CALL HEX_DIGIT_VAL2                    ; $0A60  CD 8D 0C
         RLCA                             ; $0A63  07
         RLCA                             ; $0A64  07
         RLCA                             ; $0A65  07
         RLCA                             ; $0A66  07
         AND $F0                          ; $0A67  E6 F0
         PUSH AF                          ; $0A69  F5
-        CALL SUB_0BA8                    ; $0A6A  CD A8 0B
-        CALL SUB_0C8D                    ; $0A6D  CD 8D 0C
+        CALL GET_HEXFILE_CHAR                    ; $0A6A  CD A8 0B
+        CALL HEX_DIGIT_VAL2                    ; $0A6D  CD 8D 0C
         POP BC                           ; $0A70  C1
         OR B                             ; $0A71  B0
         LD B,A                           ; $0A72  47
@@ -1611,298 +1618,298 @@ SUB_0A5A:
         POP HL                           ; $0A77  E1
         POP BC                           ; $0A78  C1
         RET                              ; $0A79  C9
-SUB_0A5A_1:
+PRINT_NEXT_PC:
         LD C,$0C                         ; $0A7A  0E 0C
-        CALL SUB_06A8                    ; $0A7C  CD A8 06
-        LD HL,L_0AA3                     ; $0A7F  21 A3 0A
-SUB_0A5A_2:
+        CALL BDOS                    ; $0A7C  CD A8 06
+        LD HL,NEXT_PC_MSG                     ; $0A7F  21 A3 0A
+PRINT_NEXT_PC_1:
         LD A,(HL)                        ; $0A82  7E
         OR A                             ; $0A83  B7
-        JP Z,SUB_0A5A_3                  ; $0A84  CA 8E 0A
-        CALL SUB_0BFB                    ; $0A87  CD FB 0B
+        JP Z,PRINT_NEXT_PC_2                  ; $0A84  CA 8E 0A
+        CALL PUT_CHAR_A                    ; $0A87  CD FB 0B
         INC HL                           ; $0A8A  23
-        JP SUB_0A5A_2                    ; $0A8B  C3 82 0A
-SUB_0A5A_3:
-        CALL SUB_0C49                    ; $0A8E  CD 49 0C
-        LD HL,(L_0FDB)                   ; $0A91  2A DB 0F
-        CALL SUB_0C62                    ; $0A94  CD 62 0C
-        CALL SUB_0BF9                    ; $0A97  CD F9 0B
-        LD HL,(L_100D)                   ; $0A9A  2A 0D 10
-        CALL SUB_0C62                    ; $0A9D  CD 62 0C
-        JP SUB_06A8_4                    ; $0AA0  C3 05 07
-L_0AA3:
+        JP PRINT_NEXT_PC_1                    ; $0A8B  C3 82 0A
+PRINT_NEXT_PC_2:
+        CALL PUT_CRLF2                    ; $0A8E  CD 49 0C
+        LD HL,(DMA_PTR)                   ; $0A91  2A DB 0F
+        CALL PUT_HEX16_HL                    ; $0A94  CD 62 0C
+        CALL PUT_SPACE                    ; $0A97  CD F9 0B
+        LD HL,(USER_PC)                   ; $0A9A  2A 0D 10
+        CALL PUT_HEX16_HL                    ; $0A9D  CD 62 0C
+        JP READ_COMMAND                    ; $0AA0  C3 05 07
+NEXT_PC_MSG:
         DEFB    $0D,$0A                                          ; $0AA3
         DEFB    "NEXT  PC"    ; $0AA5  string
         DEFB    $00    ; $0AAD  terminator
-SUB_0A5A_4:
-        CALL SUB_0CC4                    ; $0AAE  CD C4 0C
+CMD_S_SET:
+        CALL PARSE_PARAMS                    ; $0AAE  CD C4 0C
         DEC A                            ; $0AB1  3D
-        JP NZ,SUB_0BA8_5                 ; $0AB2  C2 DF 0B
-        CALL SUB_0C9A                    ; $0AB5  CD 9A 0C
-SUB_0A5A_5:
-        CALL SUB_0C49                    ; $0AB8  CD 49 0C
+        JP NZ,CMD_ERROR                 ; $0AB2  C2 DF 0B
+        CALL FETCH_WORD_HL                    ; $0AB5  CD 9A 0C
+CMD_S_LOOP:
+        CALL PUT_CRLF2                    ; $0AB8  CD 49 0C
         PUSH HL                          ; $0ABB  E5
-        CALL SUB_0C62                    ; $0ABC  CD 62 0C
-        CALL SUB_0BF9                    ; $0ABF  CD F9 0B
+        CALL PUT_HEX16_HL                    ; $0ABC  CD 62 0C
+        CALL PUT_SPACE                    ; $0ABF  CD F9 0B
         POP HL                           ; $0AC2  E1
         LD A,(HL)                        ; $0AC3  7E
         PUSH HL                          ; $0AC4  E5
-        CALL SUB_0C39                    ; $0AC5  CD 39 0C
-        CALL SUB_0BF9                    ; $0AC8  CD F9 0B
-        CALL SUB_0BEA                    ; $0ACB  CD EA 0B
-        CALL SUB_0C11                    ; $0ACE  CD 11 0C
+        CALL PUT_HEX_BYTE2                    ; $0AC5  CD 39 0C
+        CALL PUT_SPACE                    ; $0AC8  CD F9 0B
+        CALL RESET_LINE_BUF                    ; $0ACB  CD EA 0B
+        CALL GET_LINE_CHAR                    ; $0ACE  CD 11 0C
         POP HL                           ; $0AD1  E1
         CP $0D                           ; $0AD2  FE 0D
-        JP Z,SUB_0A5A_6                  ; $0AD4  CA EF 0A
+        JP Z,CMD_S_NEXT                  ; $0AD4  CA EF 0A
         CP $2E                           ; $0AD7  FE 2E
-        JP Z,SUB_06A8_4                  ; $0AD9  CA 05 07
+        JP Z,READ_COMMAND                  ; $0AD9  CA 05 07
         PUSH HL                          ; $0ADC  E5
-        CALL SUB_0CC7                    ; $0ADD  CD C7 0C
+        CALL PARSE_PARAMS_1                    ; $0ADD  CD C7 0C
         DEC A                            ; $0AE0  3D
-        JP NZ,SUB_0BA8_5                 ; $0AE1  C2 DF 0B
-        CALL SUB_0C9A                    ; $0AE4  CD 9A 0C
+        JP NZ,CMD_ERROR                 ; $0AE1  C2 DF 0B
+        CALL FETCH_WORD_HL                    ; $0AE4  CD 9A 0C
         LD A,H                           ; $0AE7  7C
         OR A                             ; $0AE8  B7
-        JP NZ,SUB_0BA8_5                 ; $0AE9  C2 DF 0B
+        JP NZ,CMD_ERROR                 ; $0AE9  C2 DF 0B
         LD A,L                           ; $0AEC  7D
         POP HL                           ; $0AED  E1
         LD (HL),A                        ; $0AEE  77
-SUB_0A5A_6:
+CMD_S_NEXT:
         INC HL                           ; $0AEF  23
-        JP SUB_0A5A_5                    ; $0AF0  C3 B8 0A
-SUB_0A5A_7:
+        JP CMD_S_LOOP                    ; $0AF0  C3 B8 0A
+CMD_U_UNTRACE:
         XOR A                            ; $0AF3  AF
-        JP SUB_0A5A_9                    ; $0AF4  C3 F9 0A
-SUB_0A5A_8:
+        JP CMD_T_SETUP                    ; $0AF4  C3 F9 0A
+CMD_T_TRACE:
         LD A,$FF                         ; $0AF7  3E FF
-SUB_0A5A_9:
-        LD (L_0FA0),A                    ; $0AF9  32 A0 0F
-        CALL SUB_0CC4                    ; $0AFC  CD C4 0C
-        LD HL,L_0000                     ; $0AFF  21 00 00
-        JP Z,SUB_0A5A_10                 ; $0B02  CA 12 0B
+CMD_T_SETUP:
+        LD (TRACE_DISPLAY_FLAG),A                    ; $0AF9  32 A0 0F
+        CALL PARSE_PARAMS                    ; $0AFC  CD C4 0C
+        LD HL,JMP_DISPATCH                     ; $0AFF  21 00 00
+        JP Z,CMD_T_SETUP_1                 ; $0B02  CA 12 0B
         DEC A                            ; $0B05  3D
-        JP NZ,SUB_0BA8_5                 ; $0B06  C2 DF 0B
-        CALL SUB_0C9A                    ; $0B09  CD 9A 0C
+        JP NZ,CMD_ERROR                 ; $0B06  C2 DF 0B
+        CALL FETCH_WORD_HL                    ; $0B09  CD 9A 0C
         LD A,L                           ; $0B0C  7D
         OR H                             ; $0B0D  B4
-        JP Z,SUB_0BA8_5                  ; $0B0E  CA DF 0B
+        JP Z,CMD_ERROR                  ; $0B0E  CA DF 0B
         DEC HL                           ; $0B11  2B
-SUB_0A5A_10:
-        LD (L_0FA1),HL                   ; $0B12  22 A1 0F
-        CALL SUB_0D78                    ; $0B15  CD 78 0D
-        JP SUB_0880_4                    ; $0B18  C3 B3 08
-SUB_0A5A_11:
-        CALL SUB_0C11                    ; $0B1B  CD 11 0C
+CMD_T_SETUP_1:
+        LD (STEP_COUNT),HL                   ; $0B12  22 A1 0F
+        CALL PRINT_REG_LINE                    ; $0B15  CD 78 0D
+        JP RUN_USER                    ; $0B18  C3 B3 08
+CMD_X_EXAMINE:
+        CALL GET_LINE_CHAR                    ; $0B1B  CD 11 0C
         CP $0D                           ; $0B1E  FE 0D
-        JP NZ,SUB_0A5A_12                ; $0B20  C2 29 0B
-        CALL SUB_0D78                    ; $0B23  CD 78 0D
-        JP SUB_06A8_4                    ; $0B26  C3 05 07
-SUB_0A5A_12:
-        LD BC,SUB_0009+2                 ; $0B29  01 0B 00
-        LD HL,L_0E02                     ; $0B2C  21 02 0E
-SUB_0A5A_13:
+        JP NZ,CMD_X_ONE_REG                ; $0B20  C2 29 0B
+        CALL PRINT_REG_LINE                    ; $0B23  CD 78 0D
+        JP READ_COMMAND                    ; $0B26  C3 05 07
+CMD_X_ONE_REG:
+        LD BC,ABORT_TO_PROMPT+2                 ; $0B29  01 0B 00
+        LD HL,REG_NAME_TBL                     ; $0B2C  21 02 0E
+CMD_X_FIND_REG:
         CP (HL)                          ; $0B2F  BE
-        JP Z,SUB_0A5A_14                 ; $0B30  CA 3C 0B
+        JP Z,CMD_X_SET_REG                 ; $0B30  CA 3C 0B
         INC HL                           ; $0B33  23
         INC B                            ; $0B34  04
         DEC C                            ; $0B35  0D
-        JP NZ,SUB_0A5A_13                ; $0B36  C2 2F 0B
-        JP SUB_0BA8_5                    ; $0B39  C3 DF 0B
-SUB_0A5A_14:
-        CALL SUB_0C11                    ; $0B3C  CD 11 0C
+        JP NZ,CMD_X_FIND_REG                ; $0B36  C2 2F 0B
+        JP CMD_ERROR                    ; $0B39  C3 DF 0B
+CMD_X_SET_REG:
+        CALL GET_LINE_CHAR                    ; $0B3C  CD 11 0C
         CP $0D                           ; $0B3F  FE 0D
-        JP NZ,SUB_0BA8_5                 ; $0B41  C2 DF 0B
+        JP NZ,CMD_ERROR                 ; $0B41  C2 DF 0B
         PUSH BC                          ; $0B44  C5
-        CALL SUB_0C49                    ; $0B45  CD 49 0C
-        CALL SUB_0D4E                    ; $0B48  CD 4E 0D
-        CALL SUB_0BF9                    ; $0B4B  CD F9 0B
-        CALL SUB_0BEA                    ; $0B4E  CD EA 0B
-        CALL SUB_0CC4                    ; $0B51  CD C4 0C
+        CALL PUT_CRLF2                    ; $0B45  CD 49 0C
+        CALL PUT_REG_FIELD                    ; $0B48  CD 4E 0D
+        CALL PUT_SPACE                    ; $0B4B  CD F9 0B
+        CALL RESET_LINE_BUF                    ; $0B4E  CD EA 0B
+        CALL PARSE_PARAMS                    ; $0B51  CD C4 0C
         OR A                             ; $0B54  B7
-        JP Z,SUB_06A8_4                  ; $0B55  CA 05 07
+        JP Z,READ_COMMAND                  ; $0B55  CA 05 07
         DEC A                            ; $0B58  3D
-        JP NZ,SUB_0BA8_5                 ; $0B59  C2 DF 0B
-        CALL SUB_0C9A                    ; $0B5C  CD 9A 0C
+        JP NZ,CMD_ERROR                 ; $0B59  C2 DF 0B
+        CALL FETCH_WORD_HL                    ; $0B5C  CD 9A 0C
         POP BC                           ; $0B5F  C1
         LD A,B                           ; $0B60  78
         CP $05                           ; $0B61  FE 05
-        JP NC,SUB_0B87_1                 ; $0B63  D2 8D 0B
+        JP NC,CMD_X_SET_RP                 ; $0B63  D2 8D 0B
         LD A,H                           ; $0B66  7C
         OR A                             ; $0B67  B7
-        JP NZ,SUB_0BA8_5                 ; $0B68  C2 DF 0B
+        JP NZ,CMD_ERROR                 ; $0B68  C2 DF 0B
         LD A,L                           ; $0B6B  7D
         CP $02                           ; $0B6C  FE 02
-        JP NC,SUB_0BA8_5                 ; $0B6E  D2 DF 0B
-        CALL SUB_0D17                    ; $0B71  CD 17 0D
+        JP NC,CMD_ERROR                 ; $0B6E  D2 DF 0B
+        CALL FLAG_BIT_INFO                    ; $0B71  CD 17 0D
         LD H,A                           ; $0B74  67
         LD B,C                           ; $0B75  41
         LD A,$FE                         ; $0B76  3E FE
-        CALL SUB_0B87                    ; $0B78  CD 87 0B
+        CALL ROTATE_TO_BIT                    ; $0B78  CD 87 0B
         AND H                            ; $0B7B  A4
         LD B,C                           ; $0B7C  41
         LD H,A                           ; $0B7D  67
         LD A,L                           ; $0B7E  7D
-        CALL SUB_0B87                    ; $0B7F  CD 87 0B
+        CALL ROTATE_TO_BIT                    ; $0B7F  CD 87 0B
         OR H                             ; $0B82  B4
         LD (DE),A                        ; $0B83  12
-        JP SUB_06A8_4                    ; $0B84  C3 05 07
-SUB_0B87:
+        JP READ_COMMAND                    ; $0B84  C3 05 07
+ROTATE_TO_BIT:
         DEC B                            ; $0B87  05
         RET Z                            ; $0B88  C8
         RLCA                             ; $0B89  07
-        JP SUB_0B87                      ; $0B8A  C3 87 0B
-SUB_0B87_1:
-        JP NZ,SUB_0B87_2                 ; $0B8D  C2 9D 0B
+        JP ROTATE_TO_BIT                      ; $0B8A  C3 87 0B
+CMD_X_SET_RP:
+        JP NZ,CMD_X_SET_RP_1                 ; $0B8D  C2 9D 0B
         LD A,H                           ; $0B90  7C
         OR A                             ; $0B91  B7
-        JP NZ,SUB_0BA8_5                 ; $0B92  C2 DF 0B
+        JP NZ,CMD_ERROR                 ; $0B92  C2 DF 0B
         LD A,L                           ; $0B95  7D
-        LD HL,L_1008                     ; $0B96  21 08 10
+        LD HL,FLAG_BYTE                     ; $0B96  21 08 10
         LD (HL),A                        ; $0B99  77
-        JP SUB_06A8_4                    ; $0B9A  C3 05 07
-SUB_0B87_2:
+        JP READ_COMMAND                    ; $0B9A  C3 05 07
+CMD_X_SET_RP_1:
         PUSH HL                          ; $0B9D  E5
-        CALL SUB_0D35                    ; $0B9E  CD 35 0D
+        CALL REG_CELL_ADDR                    ; $0B9E  CD 35 0D
         POP DE                           ; $0BA1  D1
         LD (HL),E                        ; $0BA2  73
         INC HL                           ; $0BA3  23
         LD (HL),D                        ; $0BA4  72
-        JP SUB_06A8_4                    ; $0BA5  C3 05 07
-SUB_0BA8:
+        JP READ_COMMAND                    ; $0BA5  C3 05 07
+GET_HEXFILE_CHAR:
         PUSH HL                          ; $0BA8  E5
         PUSH DE                          ; $0BA9  D5
         PUSH BC                          ; $0BAA  C5
-        LD A,(SUB_003C_3+2)              ; $0BAB  3A 5B 00
+        LD A,(PARSE_TOKEN_NEXT+2)              ; $0BAB  3A 5B 00
         AND $7F                          ; $0BAE  E6 7F
-        JP Z,SUB_0BA8_2                  ; $0BB0  CA C8 0B
-SUB_0BA8_1:
+        JP Z,GET_HEXFILE_CHAR_2                  ; $0BB0  CA C8 0B
+GET_HEXFILE_CHAR_1:
         LD D,$00                         ; $0BB3  16 00
         LD E,A                           ; $0BB5  5F
-        LD HL,SUB_007D_1                 ; $0BB6  21 80 00
+        LD HL,ASM_LINE_BUF                 ; $0BB6  21 80 00
         ADD HL,DE                        ; $0BB9  19
         LD A,(HL)                        ; $0BBA  7E
         CP $1A                           ; $0BBB  FE 1A
-        JP Z,SUB_0BA8_3                  ; $0BBD  CA DA 0B
-        LD HL,SUB_003C_3+2               ; $0BC0  21 5B 00
+        JP Z,GET_HEXFILE_CHAR_EOF                  ; $0BBD  CA DA 0B
+        LD HL,PARSE_TOKEN_NEXT+2               ; $0BC0  21 5B 00
         INC (HL)                         ; $0BC3  34
         OR A                             ; $0BC4  B7
-        JP SUB_0BA8_4                    ; $0BC5  C3 DB 0B
-SUB_0BA8_2:
+        JP GET_HEXFILE_CHAR_RET                    ; $0BC5  C3 DB 0B
+GET_HEXFILE_CHAR_2:
         LD C,$14                         ; $0BC8  0E 14
-        LD DE,SUB_003C_4                 ; $0BCA  11 5C 00
-        CALL SUB_06A8                    ; $0BCD  CD A8 06
+        LD DE,PARSE_TOKEN_SCAN                 ; $0BCA  11 5C 00
+        CALL BDOS                    ; $0BCD  CD A8 06
         OR A                             ; $0BD0  B7
-        JP NZ,SUB_0BA8_3                 ; $0BD1  C2 DA 0B
-        LD (SUB_003C_3+2),A              ; $0BD4  32 5B 00
-        JP SUB_0BA8_1                    ; $0BD7  C3 B3 0B
-SUB_0BA8_3:
+        JP NZ,GET_HEXFILE_CHAR_EOF                 ; $0BD1  C2 DA 0B
+        LD (PARSE_TOKEN_NEXT+2),A              ; $0BD4  32 5B 00
+        JP GET_HEXFILE_CHAR_1                    ; $0BD7  C3 B3 0B
+GET_HEXFILE_CHAR_EOF:
         SCF                              ; $0BDA  37
-SUB_0BA8_4:
+GET_HEXFILE_CHAR_RET:
         POP BC                           ; $0BDB  C1
         POP DE                           ; $0BDC  D1
         POP HL                           ; $0BDD  E1
         RET                              ; $0BDE  C9
-SUB_0BA8_5:
-        CALL SUB_0C49                    ; $0BDF  CD 49 0C
+CMD_ERROR:
+        CALL PUT_CRLF2                    ; $0BDF  CD 49 0C
         LD A,$3F                         ; $0BE2  3E 3F
-        CALL SUB_0BFB                    ; $0BE4  CD FB 0B
-        JP SUB_06A8_4                    ; $0BE7  C3 05 07
-SUB_0BEA:
+        CALL PUT_CHAR_A                    ; $0BE4  CD FB 0B
+        JP READ_COMMAND                    ; $0BE7  C3 05 07
+RESET_LINE_BUF:
         LD C,$0A                         ; $0BEA  0E 0A
-        LD DE,L_0FB9                     ; $0BEC  11 B9 0F
-        CALL SUB_06A8                    ; $0BEF  CD A8 06
-        LD HL,L_0FBB                     ; $0BF2  21 BB 0F
-        LD (L_0FB7),HL                   ; $0BF5  22 B7 0F
+        LD DE,LINE_BUF_MAX                     ; $0BEC  11 B9 0F
+        CALL BDOS                    ; $0BEF  CD A8 06
+        LD HL,LINE_BUF                     ; $0BF2  21 BB 0F
+        LD (LINE_BUF_PTR),HL                   ; $0BF5  22 B7 0F
         RET                              ; $0BF8  C9
-SUB_0BF9:
+PUT_SPACE:
         LD A,$20                         ; $0BF9  3E 20
-SUB_0BFB:
+PUT_CHAR_A:
         PUSH HL                          ; $0BFB  E5
         PUSH DE                          ; $0BFC  D5
         PUSH BC                          ; $0BFD  C5
         LD E,A                           ; $0BFE  5F
         LD C,$02                         ; $0BFF  0E 02
-        CALL SUB_06A8                    ; $0C01  CD A8 06
+        CALL BDOS                    ; $0C01  CD A8 06
         POP BC                           ; $0C04  C1
         POP DE                           ; $0C05  D1
         POP HL                           ; $0C06  E1
         RET                              ; $0C07  C9
-SUB_0C08:
+TO_UPPER:
         CP $7F                           ; $0C08  FE 7F
         RET Z                            ; $0C0A  C8
         CP $61                           ; $0C0B  FE 61
         RET C                            ; $0C0D  D8
         AND $5F                          ; $0C0E  E6 5F
         RET                              ; $0C10  C9
-SUB_0C11:
+GET_LINE_CHAR:
         PUSH HL                          ; $0C11  E5
-        LD HL,L_0FBA                     ; $0C12  21 BA 0F
+        LD HL,LINE_BUF_LEN                     ; $0C12  21 BA 0F
         LD A,(HL)                        ; $0C15  7E
         OR A                             ; $0C16  B7
         LD A,$0D                         ; $0C17  3E 0D
-        JP Z,SUB_0C11_1                  ; $0C19  CA 28 0C
+        JP Z,GET_LINE_CHAR_1                  ; $0C19  CA 28 0C
         DEC (HL)                         ; $0C1C  35
-        LD HL,(L_0FB7)                   ; $0C1D  2A B7 0F
+        LD HL,(LINE_BUF_PTR)                   ; $0C1D  2A B7 0F
         LD A,(HL)                        ; $0C20  7E
         INC HL                           ; $0C21  23
-        LD (L_0FB7),HL                   ; $0C22  22 B7 0F
-        CALL SUB_0C08                    ; $0C25  CD 08 0C
-SUB_0C11_1:
+        LD (LINE_BUF_PTR),HL                   ; $0C22  22 B7 0F
+        CALL TO_UPPER                    ; $0C25  CD 08 0C
+GET_LINE_CHAR_1:
         POP HL                           ; $0C28  E1
         RET                              ; $0C29  C9
-SUB_0C2A:
+PUT_HEX_NIBBLE:
         CP $0A                           ; $0C2A  FE 0A
-        JP NC,SUB_0C2A_1                 ; $0C2C  D2 34 0C
+        JP NC,PUT_HEX_NIBBLE_1                 ; $0C2C  D2 34 0C
         ADD A,$30                        ; $0C2F  C6 30
-        JP SUB_0BFB                      ; $0C31  C3 FB 0B
-SUB_0C2A_1:
+        JP PUT_CHAR_A                      ; $0C31  C3 FB 0B
+PUT_HEX_NIBBLE_1:
         ADD A,$37                        ; $0C34  C6 37
-        JP SUB_0BFB                      ; $0C36  C3 FB 0B
-SUB_0C39:
+        JP PUT_CHAR_A                      ; $0C36  C3 FB 0B
+PUT_HEX_BYTE2:
         PUSH AF                          ; $0C39  F5
         RRA                              ; $0C3A  1F
         RRA                              ; $0C3B  1F
         RRA                              ; $0C3C  1F
         RRA                              ; $0C3D  1F
         AND $0F                          ; $0C3E  E6 0F
-        CALL SUB_0C2A                    ; $0C40  CD 2A 0C
+        CALL PUT_HEX_NIBBLE                    ; $0C40  CD 2A 0C
         POP AF                           ; $0C43  F1
         AND $0F                          ; $0C44  E6 0F
-        JP SUB_0C2A                      ; $0C46  C3 2A 0C
-SUB_0C49:
+        JP PUT_HEX_NIBBLE                      ; $0C46  C3 2A 0C
+PUT_CRLF2:
         LD A,$0D                         ; $0C49  3E 0D
-        CALL SUB_0BFB                    ; $0C4B  CD FB 0B
+        CALL PUT_CHAR_A                    ; $0C4B  CD FB 0B
         LD A,$0A                         ; $0C4E  3E 0A
-        JP SUB_0BFB                      ; $0C50  C3 FB 0B
-SUB_0C53:
+        JP PUT_CHAR_A                      ; $0C50  C3 FB 0B
+CON_BREAK_POLL:
         PUSH BC                          ; $0C53  C5
         PUSH DE                          ; $0C54  D5
         PUSH HL                          ; $0C55  E5
         LD C,$0B                         ; $0C56  0E 0B
-        CALL SUB_06A8                    ; $0C58  CD A8 06
+        CALL BDOS                    ; $0C58  CD A8 06
         AND $01                          ; $0C5B  E6 01
         POP HL                           ; $0C5D  E1
         POP DE                           ; $0C5E  D1
         POP BC                           ; $0C5F  C1
         RET                              ; $0C60  C9
-SUB_0C53_1:
+PUT_HEX16_EXDE:
         EX DE,HL                         ; $0C61  EB
-SUB_0C62:
+PUT_HEX16_HL:
         LD A,H                           ; $0C62  7C
-        CALL SUB_0C39                    ; $0C63  CD 39 0C
+        CALL PUT_HEX_BYTE2                    ; $0C63  CD 39 0C
         LD A,L                           ; $0C66  7D
-        JP SUB_0C39                      ; $0C67  C3 39 0C
-SUB_0C6A:
+        JP PUT_HEX_BYTE2                      ; $0C67  C3 39 0C
+PUT_PRINTABLE:
         CP $7F                           ; $0C6A  FE 7F
-        JP NC,SUB_0C6A_1                 ; $0C6C  D2 74 0C
+        JP NC,PUT_PRINTABLE_DOT                 ; $0C6C  D2 74 0C
         CP $20                           ; $0C6F  FE 20
-        JP NC,SUB_0BFB                   ; $0C71  D2 FB 0B
-SUB_0C6A_1:
+        JP NC,PUT_CHAR_A                   ; $0C71  D2 FB 0B
+PUT_PRINTABLE_DOT:
         LD A,$2E                         ; $0C74  3E 2E
-        JP SUB_0BFB                      ; $0C76  C3 FB 0B
-SUB_0C79:
+        JP PUT_CHAR_A                      ; $0C76  C3 FB 0B
+SUB_LIMIT:
         EX DE,HL                         ; $0C79  EB
-        LD HL,(L_0FB3)                   ; $0C7A  2A B3 0F
+        LD HL,(ADDR_LIMIT)                   ; $0C7A  2A B3 0F
         LD A,L                           ; $0C7D  7D
         SUB E                            ; $0C7E  93
         LD L,A                           ; $0C7F  6F
@@ -1910,22 +1917,22 @@ SUB_0C79:
         SBC A,D                          ; $0C81  9A
         EX DE,HL                         ; $0C82  EB
         RET                              ; $0C83  C9
-SUB_0C84:
+IS_END_DELIM:
         CP $0D                           ; $0C84  FE 0D
         RET Z                            ; $0C86  C8
         CP $2C                           ; $0C87  FE 2C
         RET Z                            ; $0C89  C8
         CP $20                           ; $0C8A  FE 20
         RET                              ; $0C8C  C9
-SUB_0C8D:
+HEX_DIGIT_VAL2:
         SUB $30                          ; $0C8D  D6 30
         CP $0A                           ; $0C8F  FE 0A
         RET C                            ; $0C91  D8
         ADD A,$F9                        ; $0C92  C6 F9
         CP $10                           ; $0C94  FE 10
         RET C                            ; $0C96  D8
-        JP SUB_0BA8_5                    ; $0C97  C3 DF 0B
-SUB_0C9A:
+        JP CMD_ERROR                    ; $0C97  C3 DF 0B
+FETCH_WORD_HL:
         EX DE,HL                         ; $0C9A  EB
         LD E,(HL)                        ; $0C9B  5E
         INC HL                           ; $0C9C  23
@@ -1933,249 +1940,249 @@ SUB_0C9A:
         INC HL                           ; $0C9E  23
         EX DE,HL                         ; $0C9F  EB
         RET                              ; $0CA0  C9
-SUB_0CA1:
+PARSE_HEX_TOKEN:
         EX DE,HL                         ; $0CA1  EB
-        LD HL,L_0000                     ; $0CA2  21 00 00
-SUB_0CA1_1:
-        CALL SUB_0C8D                    ; $0CA5  CD 8D 0C
+        LD HL,JMP_DISPATCH                     ; $0CA2  21 00 00
+PARSE_HEX_TOKEN_1:
+        CALL HEX_DIGIT_VAL2                    ; $0CA5  CD 8D 0C
         ADD HL,HL                        ; $0CA8  29
         ADD HL,HL                        ; $0CA9  29
         ADD HL,HL                        ; $0CAA  29
         ADD HL,HL                        ; $0CAB  29
         OR L                             ; $0CAC  B5
         LD L,A                           ; $0CAD  6F
-        CALL SUB_0C11                    ; $0CAE  CD 11 0C
-        CALL SUB_0C84                    ; $0CB1  CD 84 0C
-        JP NZ,SUB_0CA1_1                 ; $0CB4  C2 A5 0C
+        CALL GET_LINE_CHAR                    ; $0CAE  CD 11 0C
+        CALL IS_END_DELIM                    ; $0CB1  CD 84 0C
+        JP NZ,PARSE_HEX_TOKEN_1                 ; $0CB4  C2 A5 0C
         EX DE,HL                         ; $0CB7  EB
         RET                              ; $0CB8  C9
-SUB_0CB9:
+STORE_PARAM:
         LD (HL),E                        ; $0CB9  73
         INC HL                           ; $0CBA  23
         LD (HL),D                        ; $0CBB  72
         INC HL                           ; $0CBC  23
         PUSH HL                          ; $0CBD  E5
-        LD HL,L_0FAA                     ; $0CBE  21 AA 0F
+        LD HL,PARAM_LIST                     ; $0CBE  21 AA 0F
         INC (HL)                         ; $0CC1  34
         POP HL                           ; $0CC2  E1
         RET                              ; $0CC3  C9
-SUB_0CC4:
-        CALL SUB_0C11                    ; $0CC4  CD 11 0C
-SUB_0CC7:
-        LD HL,L_0FAA                     ; $0CC7  21 AA 0F
+PARSE_PARAMS:
+        CALL GET_LINE_CHAR                    ; $0CC4  CD 11 0C
+PARSE_PARAMS_1:
+        LD HL,PARAM_LIST                     ; $0CC7  21 AA 0F
         LD (HL),$00                      ; $0CCA  36 00
         INC HL                           ; $0CCC  23
         CP $0D                           ; $0CCD  FE 0D
-        JP Z,SUB_0CC7_3                  ; $0CCF  CA 09 0D
+        JP Z,PARSE_PARAMS_DONE                  ; $0CCF  CA 09 0D
         CP $2C                           ; $0CD2  FE 2C
-        JP NZ,SUB_0CC7_1                 ; $0CD4  C2 E2 0C
+        JP NZ,PARSE_PARAMS_2                 ; $0CD4  C2 E2 0C
         LD A,$80                         ; $0CD7  3E 80
-        LD (L_0FAA),A                    ; $0CD9  32 AA 0F
-        LD DE,L_0000                     ; $0CDC  11 00 00
-        JP SUB_0CC7_2                    ; $0CDF  C3 E5 0C
-SUB_0CC7_1:
-        CALL SUB_0CA1                    ; $0CE2  CD A1 0C
-SUB_0CC7_2:
-        CALL SUB_0CB9                    ; $0CE5  CD B9 0C
+        LD (PARAM_LIST),A                    ; $0CD9  32 AA 0F
+        LD DE,JMP_DISPATCH                     ; $0CDC  11 00 00
+        JP PARSE_PARAMS_3                    ; $0CDF  C3 E5 0C
+PARSE_PARAMS_2:
+        CALL PARSE_HEX_TOKEN                    ; $0CE2  CD A1 0C
+PARSE_PARAMS_3:
+        CALL STORE_PARAM                    ; $0CE5  CD B9 0C
         CP $0D                           ; $0CE8  FE 0D
-        JP Z,SUB_0CC7_3                  ; $0CEA  CA 09 0D
-        CALL SUB_0C11                    ; $0CED  CD 11 0C
-        CALL SUB_0CA1                    ; $0CF0  CD A1 0C
-        CALL SUB_0CB9                    ; $0CF3  CD B9 0C
+        JP Z,PARSE_PARAMS_DONE                  ; $0CEA  CA 09 0D
+        CALL GET_LINE_CHAR                    ; $0CED  CD 11 0C
+        CALL PARSE_HEX_TOKEN                    ; $0CF0  CD A1 0C
+        CALL STORE_PARAM                    ; $0CF3  CD B9 0C
         CP $0D                           ; $0CF6  FE 0D
-        JP Z,SUB_0CC7_3                  ; $0CF8  CA 09 0D
-        CALL SUB_0C11                    ; $0CFB  CD 11 0C
-        CALL SUB_0CA1                    ; $0CFE  CD A1 0C
-        CALL SUB_0CB9                    ; $0D01  CD B9 0C
+        JP Z,PARSE_PARAMS_DONE                  ; $0CF8  CA 09 0D
+        CALL GET_LINE_CHAR                    ; $0CFB  CD 11 0C
+        CALL PARSE_HEX_TOKEN                    ; $0CFE  CD A1 0C
+        CALL STORE_PARAM                    ; $0D01  CD B9 0C
         CP $0D                           ; $0D04  FE 0D
-        JP NZ,SUB_0BA8_5                 ; $0D06  C2 DF 0B
-SUB_0CC7_3:
-        LD DE,L_0FAA                     ; $0D09  11 AA 0F
+        JP NZ,CMD_ERROR                 ; $0D06  C2 DF 0B
+PARSE_PARAMS_DONE:
+        LD DE,PARAM_LIST                     ; $0D09  11 AA 0F
         LD A,(DE)                        ; $0D0C  1A
         CP $81                           ; $0D0D  FE 81
-        JP Z,SUB_0BA8_5                  ; $0D0F  CA DF 0B
+        JP Z,CMD_ERROR                  ; $0D0F  CA DF 0B
         INC DE                           ; $0D12  13
         OR A                             ; $0D13  B7
         RLCA                             ; $0D14  07
         RRCA                             ; $0D15  0F
         RET                              ; $0D16  C9
-SUB_0D17:
+FLAG_BIT_INFO:
         PUSH HL                          ; $0D17  E5
-        LD HL,L_0E12                     ; $0D18  21 12 0E
+        LD HL,REG_INFO_TBL                     ; $0D18  21 12 0E
         LD E,B                           ; $0D1B  58
         LD D,$00                         ; $0D1C  16 00
         ADD HL,DE                        ; $0D1E  19
         LD C,(HL)                        ; $0D1F  4E
-        LD HL,L_1007                     ; $0D20  21 07 10
+        LD HL,REG_INFO_HI                     ; $0D20  21 07 10
         LD A,(HL)                        ; $0D23  7E
         EX DE,HL                         ; $0D24  EB
         POP HL                           ; $0D25  E1
         RET                              ; $0D26  C9
-SUB_0D27:
-        CALL SUB_0D17                    ; $0D27  CD 17 0D
-SUB_0D27_1:
+GET_FLAG_BIT:
+        CALL FLAG_BIT_INFO                    ; $0D27  CD 17 0D
+GET_FLAG_BIT_1:
         DEC C                            ; $0D2A  0D
-        JP Z,SUB_0D27_2                  ; $0D2B  CA 32 0D
+        JP Z,GET_FLAG_BIT_2                  ; $0D2B  CA 32 0D
         RRA                              ; $0D2E  1F
-        JP SUB_0D27_1                    ; $0D2F  C3 2A 0D
-SUB_0D27_2:
+        JP GET_FLAG_BIT_1                    ; $0D2F  C3 2A 0D
+GET_FLAG_BIT_2:
         AND $01                          ; $0D32  E6 01
         RET                              ; $0D34  C9
-SUB_0D35:
+REG_CELL_ADDR:
         SUB $06                          ; $0D35  D6 06
-        LD HL,L_0E0D                     ; $0D37  21 0D 0E
+        LD HL,FLAG_BIT_TBL                     ; $0D37  21 0D 0E
         LD E,A                           ; $0D3A  5F
         LD D,$00                         ; $0D3B  16 00
         ADD HL,DE                        ; $0D3D  19
         LD E,(HL)                        ; $0D3E  5E
         LD D,$FF                         ; $0D3F  16 FF
-        LD HL,L_100F                     ; $0D41  21 0F 10
+        LD HL,REG_BASE                     ; $0D41  21 0F 10
         ADD HL,DE                        ; $0D44  19
         RET                              ; $0D45  C9
-SUB_0D46:
-        CALL SUB_0D35                    ; $0D46  CD 35 0D
+REG_CELL_VALUE:
+        CALL REG_CELL_ADDR                    ; $0D46  CD 35 0D
         LD E,(HL)                        ; $0D49  5E
         INC HL                           ; $0D4A  23
         LD D,(HL)                        ; $0D4B  56
         EX DE,HL                         ; $0D4C  EB
         RET                              ; $0D4D  C9
-SUB_0D4E:
+PUT_REG_FIELD:
         LD A,(HL)                        ; $0D4E  7E
-        CALL SUB_0BFB                    ; $0D4F  CD FB 0B
+        CALL PUT_CHAR_A                    ; $0D4F  CD FB 0B
         LD A,B                           ; $0D52  78
         CP $05                           ; $0D53  FE 05
-        JP NC,SUB_0D4E_1                 ; $0D55  D2 5F 0D
-        CALL SUB_0D27                    ; $0D58  CD 27 0D
-        CALL SUB_0C2A                    ; $0D5B  CD 2A 0C
+        JP NC,PUT_REG_FIELD_1                 ; $0D55  D2 5F 0D
+        CALL GET_FLAG_BIT                    ; $0D58  CD 27 0D
+        CALL PUT_HEX_NIBBLE                    ; $0D5B  CD 2A 0C
         RET                              ; $0D5E  C9
-SUB_0D4E_1:
+PUT_REG_FIELD_1:
         PUSH AF                          ; $0D5F  F5
         LD A,$3D                         ; $0D60  3E 3D
-        CALL SUB_0BFB                    ; $0D62  CD FB 0B
+        CALL PUT_CHAR_A                    ; $0D62  CD FB 0B
         POP AF                           ; $0D65  F1
-        JP NZ,SUB_0D4E_2                 ; $0D66  C2 71 0D
-        LD HL,L_1008                     ; $0D69  21 08 10
+        JP NZ,PUT_REG_FIELD_2                 ; $0D66  C2 71 0D
+        LD HL,FLAG_BYTE                     ; $0D69  21 08 10
         LD A,(HL)                        ; $0D6C  7E
-        CALL SUB_0C39                    ; $0D6D  CD 39 0C
+        CALL PUT_HEX_BYTE2                    ; $0D6D  CD 39 0C
         RET                              ; $0D70  C9
-SUB_0D4E_2:
-        CALL SUB_0D46                    ; $0D71  CD 46 0D
-        CALL SUB_0C62                    ; $0D74  CD 62 0C
+PUT_REG_FIELD_2:
+        CALL REG_CELL_VALUE                    ; $0D71  CD 46 0D
+        CALL PUT_HEX16_HL                    ; $0D74  CD 62 0C
         RET                              ; $0D77  C9
-SUB_0D78:
-        LD HL,L_0E02                     ; $0D78  21 02 0E
+PRINT_REG_LINE:
+        LD HL,REG_NAME_TBL                     ; $0D78  21 02 0E
         LD B,$00                         ; $0D7B  06 00
-        CALL SUB_0C49                    ; $0D7D  CD 49 0C
-SUB_0D78_1:
+        CALL PUT_CRLF2                    ; $0D7D  CD 49 0C
+PRINT_REG_LINE_1:
         PUSH BC                          ; $0D80  C5
         PUSH HL                          ; $0D81  E5
-        CALL SUB_0D4E                    ; $0D82  CD 4E 0D
+        CALL PUT_REG_FIELD                    ; $0D82  CD 4E 0D
         POP HL                           ; $0D85  E1
         POP BC                           ; $0D86  C1
         INC B                            ; $0D87  04
         INC HL                           ; $0D88  23
         LD A,B                           ; $0D89  78
         CP $0B                           ; $0D8A  FE 0B
-        JP NC,SUB_0D78_3                 ; $0D8C  D2 B5 0D
+        JP NC,PRINT_REG_LINE_3                 ; $0D8C  D2 B5 0D
         PUSH AF                          ; $0D8F  F5
-        LD A,(SUB_06A1_2)                ; $0D90  3A A4 06
+        LD A,(FLAG_REL_ADDR)                ; $0D90  3A A4 06
         OR A                             ; $0D93  B7
-        JP NZ,SUB_0D78_2                 ; $0D94  C2 A8 0D
+        JP NZ,PRINT_REG_LINE_2                 ; $0D94  C2 A8 0D
         LD A,B                           ; $0D97  78
         CP $09                           ; $0D98  FE 09
-        JP NZ,SUB_0D78_2                 ; $0D9A  C2 A8 0D
-        CALL SUB_0C49                    ; $0D9D  CD 49 0C
+        JP NZ,PRINT_REG_LINE_2                 ; $0D9A  C2 A8 0D
+        CALL PUT_CRLF2                    ; $0D9D  CD 49 0C
         LD A,$09                         ; $0DA0  3E 09
-        CALL SUB_0BFB                    ; $0DA2  CD FB 0B
-        JP SUB_0D78_2                    ; $0DA5  C3 A8 0D
-SUB_0D78_2:
+        CALL PUT_CHAR_A                    ; $0DA2  CD FB 0B
+        JP PRINT_REG_LINE_2                    ; $0DA5  C3 A8 0D
+PRINT_REG_LINE_2:
         POP AF                           ; $0DA8  F1
         LD A,B                           ; $0DA9  78
         CP $05                           ; $0DAA  FE 05
-        JP C,SUB_0D78_1                  ; $0DAC  DA 80 0D
-        CALL SUB_0BF9                    ; $0DAF  CD F9 0B
-        JP SUB_0D78_1                    ; $0DB2  C3 80 0D
-SUB_0D78_3:
-        CALL SUB_0BF9                    ; $0DB5  CD F9 0B
-        CALL SUB_0EDF                    ; $0DB8  CD DF 0E
+        JP C,PRINT_REG_LINE_1                  ; $0DAC  DA 80 0D
+        CALL PUT_SPACE                    ; $0DAF  CD F9 0B
+        JP PRINT_REG_LINE_1                    ; $0DB2  C3 80 0D
+PRINT_REG_LINE_3:
+        CALL PUT_SPACE                    ; $0DB5  CD F9 0B
+        CALL NEXT_PC_FOR_OPCODE                    ; $0DB8  CD DF 0E
         PUSH AF                          ; $0DBB  F5
         PUSH DE                          ; $0DBC  D5
         PUSH BC                          ; $0DBD  C5
-        CALL SUB_09C7                    ; $0DBE  CD C7 09
-        JP NC,SUB_0D78_4                 ; $0DC1  D2 D5 0D
-        LD HL,(L_100D)                   ; $0DC4  2A 0D 10
-        LD (SUB_0009_1),HL               ; $0DC7  22 0C 00
-        LD HL,L_0010                     ; $0DCA  21 10 00
+        CALL ABOVE_TPA_BASE                    ; $0DBE  CD C7 09
+        JP NC,PRINT_REG_LINE_4                 ; $0DC1  D2 D5 0D
+        LD HL,(USER_PC)                   ; $0DC4  2A 0D 10
+        LD (WORK_ADDR),HL               ; $0DC7  22 0C 00
+        LD HL,GO_TEMP_COUNT                     ; $0DCA  21 10 00
         LD (HL),$FF                      ; $0DCD  36 FF
-        CALL SUB_0006                    ; $0DCF  CD 06 00
-        JP SUB_0D78_6                    ; $0DD2  C3 FE 0D
-SUB_0D78_4:
+        CALL DISASM_ONE                    ; $0DCF  CD 06 00
+        JP PRINT_REG_LINE_6                    ; $0DD2  C3 FE 0D
+PRINT_REG_LINE_4:
         DEC HL                           ; $0DD5  2B
-        LD (L_0FB3),HL                   ; $0DD6  22 B3 0F
-        LD HL,(L_100D)                   ; $0DD9  2A 0D 10
+        LD (ADDR_LIMIT),HL                   ; $0DD6  22 B3 0F
+        LD HL,(USER_PC)                   ; $0DD9  2A 0D 10
         LD A,(HL)                        ; $0DDC  7E
-        CALL SUB_0C39                    ; $0DDD  CD 39 0C
+        CALL PUT_HEX_BYTE2                    ; $0DDD  CD 39 0C
         INC HL                           ; $0DE0  23
-        CALL SUB_0C79                    ; $0DE1  CD 79 0C
-        JP C,SUB_0D78_6                  ; $0DE4  DA FE 0D
+        CALL SUB_LIMIT                    ; $0DE1  CD 79 0C
+        JP C,PRINT_REG_LINE_6                  ; $0DE4  DA FE 0D
         PUSH AF                          ; $0DE7  F5
-        CALL SUB_0BF9                    ; $0DE8  CD F9 0B
+        CALL PUT_SPACE                    ; $0DE8  CD F9 0B
         POP AF                           ; $0DEB  F1
         OR E                             ; $0DEC  B3
-        JP Z,SUB_0D78_5                  ; $0DED  CA FA 0D
+        JP Z,PRINT_REG_LINE_5                  ; $0DED  CA FA 0D
         LD E,(HL)                        ; $0DF0  5E
         INC HL                           ; $0DF1  23
         LD D,(HL)                        ; $0DF2  56
         EX DE,HL                         ; $0DF3  EB
-        CALL SUB_0C62                    ; $0DF4  CD 62 0C
-        JP SUB_0D78_6                    ; $0DF7  C3 FE 0D
-SUB_0D78_5:
+        CALL PUT_HEX16_HL                    ; $0DF4  CD 62 0C
+        JP PRINT_REG_LINE_6                    ; $0DF7  C3 FE 0D
+PRINT_REG_LINE_5:
         LD A,(HL)                        ; $0DFA  7E
-        CALL SUB_0C39                    ; $0DFB  CD 39 0C
-SUB_0D78_6:
+        CALL PUT_HEX_BYTE2                    ; $0DFB  CD 39 0C
+PRINT_REG_LINE_6:
         POP BC                           ; $0DFE  C1
         POP DE                           ; $0DFF  D1
         POP AF                           ; $0E00  F1
         RET                              ; $0E01  C9
-L_0E02:
+REG_NAME_TBL:
         DEFB    "CZMEIABDHSP"    ; $0E02  string
-L_0E0D:
+FLAG_BIT_TBL:
         DEFB    $F6,$F4,$FC,$FA,$FE                              ; $0E0D
-L_0E12:
-        DEFW    SUB_06A8_3               ; $0E12
-        DEFW    SUB_0303_1               ; $0E14
+REG_INFO_TBL:
+        DEFW    STARTUP_LOAD_FILE               ; $0E12
+        DEFW    OPCODE_MID_FIELD_1               ; $0E14
         DEFB    $05                                              ; $0E16
-SUB_0E17:
-        LD HL,L_0000                     ; $0E17  21 00 00
-        LD (L_0FA1),HL                   ; $0E1A  22 A1 0F
+CLR_PASS_COUNT:
+        LD HL,JMP_DISPATCH                     ; $0E17  21 00 00
+        LD (STEP_COUNT),HL                   ; $0E1A  22 A1 0F
         RET                              ; $0E1D  C9
-SUB_0E17_1:
+TRACE_TRAP:
         DI                               ; $0E1E  F3
-        LD (L_100B),HL                   ; $0E1F  22 0B 10
+        LD (USER_SP),HL                   ; $0E1F  22 0B 10
         POP HL                           ; $0E22  E1
         DEC HL                           ; $0E23  2B
-        LD (L_100D),HL                   ; $0E24  22 0D 10
+        LD (USER_PC),HL                   ; $0E24  22 0D 10
         PUSH AF                          ; $0E27  F5
-        LD HL,L_0000+2                   ; $0E28  21 02 00
+        LD HL,JMP_DISPATCH+2                   ; $0E28  21 02 00
         ADD HL,SP                        ; $0E2B  39
         POP AF                           ; $0E2C  F1
-        LD SP,L_100B                     ; $0E2D  31 0B 10
+        LD SP,USER_SP                     ; $0E2D  31 0B 10
         PUSH HL                          ; $0E30  E5
         PUSH AF                          ; $0E31  F5
         PUSH BC                          ; $0E32  C5
         PUSH DE                          ; $0E33  D5
-        LD HL,(L_100D)                   ; $0E34  2A 0D 10
-        LD A,(SUB_06A1_3)                ; $0E37  3A A5 06
+        LD HL,(USER_PC)                   ; $0E34  2A 0D 10
+        LD A,(BREAK_OPCODE)                ; $0E37  3A A5 06
         CP (HL)                          ; $0E3A  BE
         LD A,(HL)                        ; $0E3B  7E
         PUSH AF                          ; $0E3C  F5
         PUSH HL                          ; $0E3D  E5
-        LD HL,L_0FA3                     ; $0E3E  21 A3 0F
+        LD HL,BREAK_SAVE_AREA                     ; $0E3E  21 A3 0F
         LD A,(HL)                        ; $0E41  7E
         LD (HL),$00                      ; $0E42  36 00
-SUB_0E17_2:
+TRACE_TRAP_RESTORE:
         OR A                             ; $0E44  B7
-        JP Z,SUB_0E17_3                  ; $0E45  CA 55 0E
+        JP Z,TRACE_TRAP_3                  ; $0E45  CA 55 0E
         DEC A                            ; $0E48  3D
         LD B,A                           ; $0E49  47
         INC HL                           ; $0E4A  23
@@ -2186,87 +2193,87 @@ SUB_0E17_2:
         LD A,(HL)                        ; $0E4F  7E
         LD (DE),A                        ; $0E50  12
         LD A,B                           ; $0E51  78
-        JP SUB_0E17_2                    ; $0E52  C3 44 0E
-SUB_0E17_3:
+        JP TRACE_TRAP_RESTORE                    ; $0E52  C3 44 0E
+TRACE_TRAP_3:
         POP HL                           ; $0E55  E1
         POP AF                           ; $0E56  F1
-        JP Z,SUB_0E17_4                  ; $0E57  CA 82 0E
+        JP Z,TRACE_TRAP_RESUME                  ; $0E57  CA 82 0E
         INC HL                           ; $0E5A  23
-        LD (L_100D),HL                   ; $0E5B  22 0D 10
+        LD (USER_PC),HL                   ; $0E5B  22 0D 10
         EX DE,HL                         ; $0E5E  EB
-        LD BC,L_0000                     ; $0E5F  01 00 00
-        CALL SUB_0880                    ; $0E62  CD 80 08
-        JP C,L_0000                      ; $0E65  DA 00 00
-        LD HL,SUB_06A8_1+1               ; $0E68  21 AE 06
+        LD BC,JMP_DISPATCH                     ; $0E5F  01 00 00
+        CALL SUB16_DE_BC                    ; $0E62  CD 80 08
+        JP C,JMP_DISPATCH                      ; $0E65  DA 00 00
+        LD HL,BDOS_ENTRY_RET+1               ; $0E68  21 AE 06
         LD C,(HL)                        ; $0E6B  4E
         INC HL                           ; $0E6C  23
         LD B,(HL)                        ; $0E6D  46
-        CALL SUB_0880                    ; $0E6E  CD 80 08
-        JP C,SUB_0E17_4                  ; $0E71  DA 82 0E
-        CALL SUB_0E17                    ; $0E74  CD 17 0E
-        LD HL,(L_0F9E)                   ; $0E77  2A 9E 0F
+        CALL SUB16_DE_BC                    ; $0E6E  CD 80 08
+        JP C,TRACE_TRAP_RESUME                  ; $0E71  DA 82 0E
+        CALL CLR_PASS_COUNT                    ; $0E74  CD 17 0E
+        LD HL,(SAVED_HL)                   ; $0E77  2A 9E 0F
         EX DE,HL                         ; $0E7A  EB
         LD A,$82                         ; $0E7B  3E 82
         OR A                             ; $0E7D  B7
         SCF                              ; $0E7E  37
-        JP SUB_0880_4                    ; $0E7F  C3 B3 08
-SUB_0E17_4:
+        JP RUN_USER                    ; $0E7F  C3 B3 08
+TRACE_TRAP_RESUME:
         EI                               ; $0E82  FB
-        LD HL,(L_0FA1)                   ; $0E83  2A A1 0F
+        LD HL,(STEP_COUNT)                   ; $0E83  2A A1 0F
         LD A,H                           ; $0E86  7C
         OR L                             ; $0E87  B5
-        JP Z,SUB_0E17_6                  ; $0E88  CA A8 0E
+        JP Z,TRACE_TRAP_DISPLAY                  ; $0E88  CA A8 0E
         DEC HL                           ; $0E8B  2B
-        LD (L_0FA1),HL                   ; $0E8C  22 A1 0F
-        CALL SUB_0C53                    ; $0E8F  CD 53 0C
-        JP NZ,SUB_0E17_6                 ; $0E92  C2 A8 0E
-        LD A,(L_0FA0)                    ; $0E95  3A A0 0F
+        LD (STEP_COUNT),HL                   ; $0E8C  22 A1 0F
+        CALL CON_BREAK_POLL                    ; $0E8F  CD 53 0C
+        JP NZ,TRACE_TRAP_DISPLAY                 ; $0E92  C2 A8 0E
+        LD A,(TRACE_DISPLAY_FLAG)                    ; $0E95  3A A0 0F
         OR A                             ; $0E98  B7
-        JP NZ,SUB_0E17_5                 ; $0E99  C2 A2 0E
-        CALL SUB_0EDF                    ; $0E9C  CD DF 0E
-        JP SUB_0880_4                    ; $0E9F  C3 B3 08
-SUB_0E17_5:
-        CALL SUB_0D78                    ; $0EA2  CD 78 0D
-        JP SUB_0880_4                    ; $0EA5  C3 B3 08
-SUB_0E17_6:
-        CALL SUB_0E17                    ; $0EA8  CD 17 0E
+        JP NZ,TRACE_TRAP_5                 ; $0E99  C2 A2 0E
+        CALL NEXT_PC_FOR_OPCODE                    ; $0E9C  CD DF 0E
+        JP RUN_USER                    ; $0E9F  C3 B3 08
+TRACE_TRAP_5:
+        CALL PRINT_REG_LINE                    ; $0EA2  CD 78 0D
+        JP RUN_USER                    ; $0EA5  C3 B3 08
+TRACE_TRAP_DISPLAY:
+        CALL CLR_PASS_COUNT                    ; $0EA8  CD 17 0E
         LD A,$2A                         ; $0EAB  3E 2A
-        CALL SUB_0BFB                    ; $0EAD  CD FB 0B
-        LD HL,(L_100D)                   ; $0EB0  2A 0D 10
-        CALL SUB_09C7                    ; $0EB3  CD C7 09
-        JP NC,SUB_0E17_7                 ; $0EB6  D2 BC 0E
-        LD (SUB_0009_1),HL               ; $0EB9  22 0C 00
-SUB_0E17_7:
-        CALL SUB_0C62                    ; $0EBC  CD 62 0C
-        LD HL,(L_100B)                   ; $0EBF  2A 0B 10
-        LD (L_0FB1),HL                   ; $0EC2  22 B1 0F
-        JP SUB_06A8_4                    ; $0EC5  C3 05 07
-SUB_0EC8:
-        LD DE,SUB_0009_2                 ; $0EC8  11 0D 00
-        LD HL,L_0F83                     ; $0ECB  21 83 0F
-SUB_0EC8_1:
+        CALL PUT_CHAR_A                    ; $0EAD  CD FB 0B
+        LD HL,(USER_PC)                   ; $0EB0  2A 0D 10
+        CALL ABOVE_TPA_BASE                    ; $0EB3  CD C7 09
+        JP NC,TRACE_TRAP_7                 ; $0EB6  D2 BC 0E
+        LD (WORK_ADDR),HL               ; $0EB9  22 0C 00
+TRACE_TRAP_7:
+        CALL PUT_HEX16_HL                    ; $0EBC  CD 62 0C
+        LD HL,(USER_SP)                   ; $0EBF  2A 0B 10
+        LD (ADDR_CURSOR),HL                   ; $0EC2  22 B1 0F
+        JP READ_COMMAND                    ; $0EC5  C3 05 07
+CLASSIFY_OPCODE:
+        LD DE,WORK_END                 ; $0EC8  11 0D 00
+        LD HL,OPCODE_CLASS_TBL                     ; $0ECB  21 83 0F
+CLASSIFY_OPCODE_1:
         LD A,(HL)                        ; $0ECE  7E
         AND B                            ; $0ECF  A0
         INC HL                           ; $0ED0  23
         CP (HL)                          ; $0ED1  BE
         INC HL                           ; $0ED2  23
-        JP Z,SUB_0EC8_2                  ; $0ED3  CA DB 0E
+        JP Z,CLASSIFY_OPCODE_2                  ; $0ED3  CA DB 0E
         INC D                            ; $0ED6  14
         DEC E                            ; $0ED7  1D
-        JP NZ,SUB_0EC8_1                 ; $0ED8  C2 CE 0E
-SUB_0EC8_2:
+        JP NZ,CLASSIFY_OPCODE_1                 ; $0ED8  C2 CE 0E
+CLASSIFY_OPCODE_2:
         LD E,D                           ; $0EDB  5A
         LD D,$00                         ; $0EDC  16 00
         RET                              ; $0EDE  C9
-SUB_0EDF:
-        LD HL,(L_100D)                   ; $0EDF  2A 0D 10
+NEXT_PC_FOR_OPCODE:
+        LD HL,(USER_PC)                   ; $0EDF  2A 0D 10
         LD B,(HL)                        ; $0EE2  46
         INC HL                           ; $0EE3  23
         PUSH HL                          ; $0EE4  E5
-        CALL SUB_0EC8                    ; $0EE5  CD C8 0E
-        LD HL,L_0F9D                     ; $0EE8  21 9D 0F
+        CALL CLASSIFY_OPCODE                    ; $0EE5  CD C8 0E
+        LD HL,SAVED_REG_COUNT                     ; $0EE8  21 9D 0F
         LD (HL),E                        ; $0EEB  73
-        LD HL,L_0EF6                     ; $0EEC  21 F6 0E
+        LD HL,NEXTPC_CLASS_TBL                     ; $0EEC  21 F6 0E
         ADD HL,DE                        ; $0EEF  19
         ADD HL,DE                        ; $0EF0  19
         LD E,(HL)                        ; $0EF1  5E
@@ -2274,35 +2281,35 @@ SUB_0EDF:
         LD D,(HL)                        ; $0EF3  56
         EX DE,HL                         ; $0EF4  EB
         JP (HL)                          ; $0EF5  E9
-L_0EF6:
-        DEFW    SUB_0EDF_1               ; $0EF6
-        DEFW    SUB_0F33_1               ; $0EF8
-        DEFW    SUB_0EDF_1               ; $0EFA
-        DEFW    SUB_0F33_1               ; $0EFC
-        DEFW    SUB_0EDF_2               ; $0EFE
-        DEFW    SUB_0F33_2               ; $0F00
-        DEFW    SUB_0F33_4               ; $0F02
-        DEFW    SUB_0F33_8               ; $0F04
-        DEFW    SUB_0F33_8               ; $0F06
-        DEFW    SUB_0F33_7               ; $0F08
-        DEFW    SUB_0F33_7               ; $0F0A
-        DEFW    SUB_0F33_6               ; $0F0C
-        DEFW    SUB_0F33_8               ; $0F0E
-        DEFW    SUB_0F33_5               ; $0F10
-SUB_0EDF_1:
-        CALL SUB_0F28                    ; $0F12  CD 28 0F
-        JP NZ,SUB_0F33_9                 ; $0F15  C2 7D 0F
-SUB_0EDF_2:
-        CALL SUB_0F33                    ; $0F18  CD 33 0F
-        JP SUB_0F33_9                    ; $0F1B  C3 7D 0F
-SUB_0F1E:
-        LD A,(SUB_06A8_1+1)              ; $0F1E  3A AE 06
+NEXTPC_CLASS_TBL:
+        DEFW    NEXT_PC_1               ; $0EF6
+        DEFW    NEXT_PC_COND               ; $0EF8
+        DEFW    NEXT_PC_1               ; $0EFA
+        DEFW    NEXT_PC_COND               ; $0EFC
+        DEFW    NEXT_PC_2               ; $0EFE
+        DEFW    NEXT_PC_RST               ; $0F00
+        DEFW    NEXT_PC_RET_COND               ; $0F02
+        DEFW    NEXT_PC_2BYTE               ; $0F04
+        DEFW    NEXT_PC_2BYTE               ; $0F06
+        DEFW    NEXT_PC_3BYTE               ; $0F08
+        DEFW    NEXT_PC_3BYTE               ; $0F0A
+        DEFW    NEXT_PC_RET               ; $0F0C
+        DEFW    NEXT_PC_2BYTE               ; $0F0E
+        DEFW    NEXT_PC_PEEK_SP               ; $0F10
+NEXT_PC_1:
+        CALL PEEK_TWO_TARGETS                    ; $0F12  CD 28 0F
+        JP NZ,NEXT_PC_1BYTE                 ; $0F15  C2 7D 0F
+NEXT_PC_2:
+        CALL TARGET_FROM_SP_CELL                    ; $0F18  CD 33 0F
+        JP NEXT_PC_1BYTE                    ; $0F1B  C3 7D 0F
+PC_AT_BREAK_ENTRY:
+        LD A,(BDOS_ENTRY_RET+1)              ; $0F1E  3A AE 06
         CP E                             ; $0F21  BB
         RET NZ                           ; $0F22  C0
-        LD A,(SUB_06A8_1+2)              ; $0F23  3A AF 06
+        LD A,(BDOS_ENTRY_RET+2)              ; $0F23  3A AF 06
         CP D                             ; $0F26  BA
         RET                              ; $0F27  C9
-SUB_0F28:
+PEEK_TWO_TARGETS:
         POP BC                           ; $0F28  C1
         POP HL                           ; $0F29  E1
         LD E,(HL)                        ; $0F2A  5E
@@ -2311,111 +2318,111 @@ SUB_0F28:
         INC HL                           ; $0F2D  23
         PUSH HL                          ; $0F2E  E5
         PUSH BC                          ; $0F2F  C5
-        JP SUB_0F1E                      ; $0F30  C3 1E 0F
-SUB_0F33:
-        LD HL,(L_1009)                   ; $0F33  2A 09 10
+        JP PC_AT_BREAK_ENTRY                      ; $0F30  C3 1E 0F
+TARGET_FROM_SP_CELL:
+        LD HL,(SP_CELL_PTR)                   ; $0F33  2A 09 10
         LD E,(HL)                        ; $0F36  5E
         INC HL                           ; $0F37  23
         LD D,(HL)                        ; $0F38  56
         RET                              ; $0F39  C9
-SUB_0F33_1:
-        CALL SUB_0F28                    ; $0F3A  CD 28 0F
-        JP Z,SUB_0F33_5                  ; $0F3D  CA 68 0F
+NEXT_PC_COND:
+        CALL PEEK_TWO_TARGETS                    ; $0F3A  CD 28 0F
+        JP Z,NEXT_PC_PEEK_SP                  ; $0F3D  CA 68 0F
         POP BC                           ; $0F40  C1
         PUSH BC                          ; $0F41  C5
         LD A,$02                         ; $0F42  3E 02
-        JP SUB_0F33_10                   ; $0F44  C3 7F 0F
-SUB_0F33_2:
-        LD A,(SUB_06A1_3)                ; $0F47  3A A5 06
+        JP NEXT_PC_SET_LEN                   ; $0F44  C3 7F 0F
+NEXT_PC_RST:
+        LD A,(BREAK_OPCODE)                ; $0F47  3A A5 06
         CP B                             ; $0F4A  B8
         LD A,B                           ; $0F4B  78
-        JP NZ,SUB_0F33_3                 ; $0F4C  C2 53 0F
+        JP NZ,NEXT_PC_RST_1                 ; $0F4C  C2 53 0F
         XOR A                            ; $0F4F  AF
-        JP SUB_0F33_11                   ; $0F50  C3 81 0F
-SUB_0F33_3:
+        JP NEXT_PC_RETURN                   ; $0F50  C3 81 0F
+NEXT_PC_RST_1:
         AND $38                          ; $0F53  E6 38
         LD E,A                           ; $0F55  5F
         LD D,$00                         ; $0F56  16 00
-        JP SUB_0F33_9                    ; $0F58  C3 7D 0F
-SUB_0F33_4:
-        LD HL,(L_100B)                   ; $0F5B  2A 0B 10
+        JP NEXT_PC_1BYTE                    ; $0F58  C3 7D 0F
+NEXT_PC_RET_COND:
+        LD HL,(USER_SP)                   ; $0F5B  2A 0B 10
         EX DE,HL                         ; $0F5E  EB
-        CALL SUB_0F1E                    ; $0F5F  CD 1E 0F
-        JP NZ,SUB_0F33_9                 ; $0F62  C2 7D 0F
-        JP SUB_0EDF_2                    ; $0F65  C3 18 0F
-SUB_0F33_5:
+        CALL PC_AT_BREAK_ENTRY                    ; $0F5F  CD 1E 0F
+        JP NZ,NEXT_PC_1BYTE                 ; $0F62  C2 7D 0F
+        JP NEXT_PC_2                    ; $0F65  C3 18 0F
+NEXT_PC_PEEK_SP:
         POP DE                           ; $0F68  D1
         PUSH DE                          ; $0F69  D5
-        JP SUB_0F33_9                    ; $0F6A  C3 7D 0F
-SUB_0F33_6:
-        CALL SUB_0F33                    ; $0F6D  CD 33 0F
+        JP NEXT_PC_1BYTE                    ; $0F6A  C3 7D 0F
+NEXT_PC_RET:
+        CALL TARGET_FROM_SP_CELL                    ; $0F6D  CD 33 0F
         POP BC                           ; $0F70  C1
         PUSH BC                          ; $0F71  C5
         LD A,$02                         ; $0F72  3E 02
-        JP SUB_0F33_10                   ; $0F74  C3 7F 0F
-SUB_0F33_7:
+        JP NEXT_PC_SET_LEN                   ; $0F74  C3 7F 0F
+NEXT_PC_3BYTE:
         POP DE                           ; $0F77  D1
         INC DE                           ; $0F78  13
         PUSH DE                          ; $0F79  D5
-SUB_0F33_8:
+NEXT_PC_2BYTE:
         POP DE                           ; $0F7A  D1
         INC DE                           ; $0F7B  13
         PUSH DE                          ; $0F7C  D5
-SUB_0F33_9:
+NEXT_PC_1BYTE:
         LD A,$01                         ; $0F7D  3E 01
-SUB_0F33_10:
+NEXT_PC_SET_LEN:
         INC A                            ; $0F7F  3C
         SCF                              ; $0F80  37
-SUB_0F33_11:
+NEXT_PC_RETURN:
         POP HL                           ; $0F81  E1
         RET                              ; $0F82  C9
-L_0F83:
+OPCODE_CLASS_TBL:
         DEFB    $FF,$C3,$C7,$C2,$FF,$CD,$C7,$C4,$FF,$C9,$C7,$C7,$FF,$E9,$C7,$06 ; $0F83
         DEFB    $C7,$C6,$CF,$01,$E7,$22,$C7,$C0,$F7,$D3          ; $0F93
-L_0F9D:
+SAVED_REG_COUNT:
         DEFB    $01                                              ; $0F9D
-L_0F9E:
+SAVED_HL:
         DEFB    $65,$1C                                          ; $0F9E
-L_0FA0:
+TRACE_DISPLAY_FLAG:
         DEFB    $CD                                              ; $0FA0
-L_0FA1:
+STEP_COUNT:
         DEFB    $0F,$08                                          ; $0FA1
-L_0FA3:
+BREAK_SAVE_AREA:
         DEFB    $01,$65,$1C,$C5,$1E,$10,$01                      ; $0FA3
-L_0FAA:
+PARAM_LIST:
         DEFB    $75,$1C,$CD,$11,$09,$01,$EB                      ; $0FAA
-L_0FB1:
+ADDR_CURSOR:
         DEFB    $03,$CD                                          ; $0FB1
-L_0FB3:
+ADDR_LIMIT:
         DEFB    $2F,$15                                          ; $0FB3
-L_0FB5:
+ROW_START:
         DEFB    $01,$65                                          ; $0FB5
-L_0FB7:
+LINE_BUF_PTR:
         DEFB    $1C,$CD                                          ; $0FB7
-L_0FB9:
+LINE_BUF_MAX:
         DEFB    $20                                              ; $0FB9
-L_0FBA:
+LINE_BUF_LEN:
         DEFB    $08                                              ; $0FBA
-L_0FBB:
+LINE_BUF:
         DEFB    $C9,$0E,$07,$21,$3D,$1C,$CD,$C5,$1B,$3E,$FF,$CD,$9C,$1B,$2B,$EB ; $0FBB
         DEFB    $21,$39,$1C,$73,$C9,$21,$F7,$1D,$22,$3F,$1C,$01,$00,$40,$11,$3D ; $0FCB
-L_0FDB:
+DMA_PTR:
         DEFB    $1C,$CD,$DA,$1B,$DA,$EB,$18,$21,$80,$7F,$22,$3D,$1C,$C3,$F6,$18 ; $0FDB
         DEFB    $2A,$3B,$1C,$EB,$2A,$3D,$1C,$19,$22,$3D,$1C,$CD,$BC,$18,$C9,$01 ; $0FEB
         DEFB    $F7,$1D,$11,$06,$00,$CD,$DA,$1B                  ; $0FFB
-L_1003:
+STACK_AREA:
         DEFB    $0E,$01,$CD,$C9                                  ; $1003
-L_1007:
+REG_INFO_HI:
         DEFB    $1B                                              ; $1007
-L_1008:
+FLAG_BYTE:
         DEFB    $01                                              ; $1008
-L_1009:
+SP_CELL_PTR:
         DEFB    $F7,$1D                                          ; $1009
-L_100B:
+USER_SP:
         DEFB    $09,$22                                          ; $100B
-L_100D:
+USER_PC:
         DEFB    $3F,$1C                                          ; $100D
-L_100F:
+REG_BASE:
         DEFB    $00                                              ; $100F
 
     ENT
@@ -2436,7 +2443,7 @@ L_100F:
         DEFB    $00,$04,$00,$20,$84,$20,$08,$42,$10,$92,$04,$21,$24,$44,$24,$04 ; $126B
         DEFB    $88,$22,$24,$92,$42,$24,$90,$92,$44,$08,$41,$08,$21,$02,$10,$11 ; $127B
         DEFB    $10,$41,$08,$42,$08,$08,$90,$92,$49,$24,$84,$90,$92,$12,$48,$20 ; $128B
-        DEFW    L_0142                   ; $129B
+        DEFW    RELOC_START_3                   ; $129B
         DEFB    $24,$90,$92,$49,$09,$24,$92,$48,$08,$92,$49,$08,$24,$08,$91,$04 ; $129D
         DEFB    $81,$12,$48,$11,$24,$89,$21,$20,$24,$92,$49,$20  ; $12AD
         DEFS    39, $00    ; $12B9  fill
@@ -2446,10 +2453,10 @@ L_100F:
         DEFB    $00    ; $12FF  terminator
         DEFB    $81,$24,$49,$24,$92,$49,$12,$44,$42,$49,$24,$90,$48,$92,$00,$48 ; $1300
         DEFB    $84,$12,$49,$24,$88,$92,$20,$90,$49,$11,$10,$84,$92,$48,$48 ; $1310
-        DEFW    L_0188                   ; $131F
+        DEFW    APPLY_RELOC_LOOP_2                   ; $131F
         DEFB    $09,$20,$24,$92,$22,$02,$48,$24,$42,$40,$44,$08,$20,$10,$80,$08 ; $1321
         DEFB    $10,$91,$08                                      ; $1331
-        DEFW    L_0190                   ; $1334
+        DEFW    APPLY_RELOC_SHIFT                   ; $1334
         DEFB    $20,$08,$01,$21,$08,$82,$04,$10,$82,$44,$10,$92,$40,$24,$00,$00 ; $1336
         DEFB    $00,$80,$44,$24,$20,$89,$10,$92,$00,$08,$40,$02,$49,$08,$41,$11 ; $1346
         DEFB    $01,$09,$24,$12,$22,$41,$20,$09                  ; $1356
@@ -2461,11 +2468,11 @@ L_100F:
         DEFB    $00    ; $138F  terminator
         DEFB    $10,$00,$08,$11,$09,$02,$10,$80,$20,$84,$20,$20,$04,$42,$10,$88 ; $1390
         DEFB    $00,$00,$00                                      ; $13A0
-        DEFW    L_0140                   ; $13A3
+        DEFW    RELOC_START_1                   ; $13A3
         DEFB    $00,$92,$00,$82,$40,$42,$10,$49,$09,$24,$24,$90,$90,$40,$20,$20 ; $13A5
         DEFB    $44,$40,$40,$10,$80,$41,$24,$08,$91,$12,$21,$08,$02,$22,$09,$09 ; $13B5
         DEFB    $02,$49,$20,$92,$48,$48,$91,$12,$21,$02,$44,$00,$00,$00,$08 ; $13C5
-        DEFW    L_0142                   ; $13D4
+        DEFW    RELOC_START_3                   ; $13D4
         DEFB    $02,$40,$81,$00,$08,$44,$08,$20,$92,$40,$44,$22,$49,$12,$49,$21 ; $13D6
         DEFB    $24,$92,$49,$04,$04,$20,$41,$22,$01,$55,$55,$55,$49,$24,$84,$00 ; $13E6
         DEFB    $24,$09,$02,$42,$20,$24,$49,$09,$02              ; $13F6

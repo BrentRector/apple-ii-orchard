@@ -13,349 +13,245 @@ CMDLINE              EQU $0081               ; Command-line tail characters (upp
 
     ORG $0100
 
-L_0100:
-        JP L_01DF                        ; $0100  C3 DF 01
+ENTRY:
+        JP MAIN                          ; $0100  C3 DF 01
         ; $0103  In-image sign-on banner string (DRI copyright). Not printed by
         ;        SUBMIT itself; embedded by the linker/assembler as the standard
         ;        Digital Research copyright tag. [AI] printable-ASCII run -> literal.
         DEFB    " copyright(c) 1977, digital research "    ; $0103  string
-L_0128:
+MSG_CRLF:
         DEFB    $0D,$0A,$24                                      ; $0128
-L_012B:
+MSG_ERROR_ON_LINE:
         DEFB    "Error On Line $"    ; $012B  string
-L_013A:
+FN_SUB_EXT:
         DEFB    $53,$55,$42                                      ; $013A
-L_013D:
+MSG_NO_SUB_FILE:
         DEFB    "No 'SUB' File Present$"    ; $013D  string
-L_0153:
+MSG_DISK_WRITE_ERR:
         DEFB    "Disk Write Error$"    ; $0153  string
-L_0164:
+MSG_CMD_BUF_OVERFLOW:
         DEFB    "Command Buffer Overflow$"    ; $0164  string
-L_017C:
+MSG_CMD_TOO_LONG:
         DEFB    "Command Too Long$"    ; $017C  string
-L_018D:
+MSG_PARAM_ERROR:
         DEFB    "Parameter Error$"    ; $018D  string
-L_019D:
+MSG_INVALID_CTRL_CHAR:
         DEFB    "Invalid Control Character$"    ; $019D  string
-L_01B7:
+MSG_DIRECTORY_FULL:
         DEFB    "Directory Full$"    ; $01B7  string
-L_01C6:
+MSG_CANNOT_CLOSE:
         DEFB    "Cannot Close, Read/Only?$"    ; $01C6  string
-L_01DF:
+MAIN:
         LD HL,WBOOT_VEC                  ; $01DF  21 00 00
-L_01E2:
-        ADD HL,SP                        ; $01E2  39
-L_01E3:
-        LD (L_05F0),HL                   ; $01E3  22 F0 05
-L_01E6:
+        ADD HL,SP                        ; $01E2  39   HL = caller's SP (CCP stack)
+        LD (SAVED_SP),HL                 ; $01E3  22 F0 05  save for FATAL_ERROR exit
         LD HL,$0E93                      ; $01E6  21 93 0E
-L_01E9:
-        LD SP,HL                         ; $01E9  F9
-L_01EA:
-        CALL SUB_02CC                    ; $01EA  CD CC 02
-L_01ED:
-        CALL SUB_038A                    ; $01ED  CD 8A 03
-        CALL SUB_04FE                    ; $01F0  CD FE 04
-        CALL SUB_0587                    ; $01F3  CD 87 05
+        LD SP,HL                         ; $01E9  F9   switch to local stack
+        CALL OPEN_SUB_FILE               ; $01EA  CD CC 02  phase 1: open the .SUB
+        CALL PARSE_SUB_FILE              ; $01ED  CD 8A 03  phase 2: parse + substitute
+        CALL BUILD_DOLLAR_SUB            ; $01F0  CD FE 04  phase 3: emit $$$.SUB
+        CALL WARM_BOOT                   ; $01F3  CD 87 05  exit to CP/M
         RET                              ; $01F6  C9
-SUB_01F7:
-        LD HL,L_05DD                     ; $01F7  21 DD 05
-SUB_01F7_1:
+BDOS_PRINT_STRING:
+        LD HL,ARG_PRINT_HI               ; $01F7  21 DD 05
         LD (HL),B                        ; $01FA  70
-SUB_01F7_2:
         DEC HL                           ; $01FB  2B
-SUB_01F7_3:
         LD (HL),C                        ; $01FC  71
-SUB_01F7_4:
-        LD HL,(L_05DC)                   ; $01FD  2A DC 05
-SUB_01F7_5:
+        LD HL,(ARG_PRINT)                ; $01FD  2A DC 05
         EX DE,HL                         ; $0200  EB
-SUB_01F7_6:
-        LD C,$09                         ; $0201  0E 09
-SUB_01F7_7:
-        CALL SUB_058A                    ; $0203  CD 8A 05
-SUB_01F7_8:
+        LD C,$09                         ; $0201  0E 09  BDOS fn 9 = print $-string
+        CALL BDOS_CALL                   ; $0203  CD 8A 05
         RET                              ; $0206  C9
-SUB_0207:
-        LD HL,L_05E0                     ; $0207  21 E0 05
-SUB_0207_1:
+BDOS_OPEN_FILE:
+        LD HL,ARG_OPEN_HI                ; $0207  21 E0 05
         LD (HL),B                        ; $020A  70
-SUB_0207_2:
         DEC HL                           ; $020B  2B
-SUB_0207_3:
         LD (HL),C                        ; $020C  71
-SUB_0207_4:
-        LD HL,(L_05DF)                   ; $020D  2A DF 05
-SUB_0207_5:
+        LD HL,(ARG_OPEN)                 ; $020D  2A DF 05
         EX DE,HL                         ; $0210  EB
-SUB_0207_6:
-        LD C,$0F                         ; $0211  0E 0F
-SUB_0207_7:
-        CALL SUB_058D                    ; $0213  CD 8D 05
-SUB_0207_8:
-        LD (L_05DE),A                    ; $0216  32 DE 05
-SUB_0207_9:
+        LD C,$0F                         ; $0211  0E 0F  BDOS fn 15 = open file
+        CALL BDOS_CALL_RET               ; $0213  CD 8D 05
+        LD (BDOS_RESULT),A               ; $0216  32 DE 05
         RET                              ; $0219  C9
-SUB_021A:
-        LD HL,L_05E2                     ; $021A  21 E2 05
+BDOS_CLOSE_FILE:
+        LD HL,ARG_CLOSE_HI               ; $021A  21 E2 05
         LD (HL),B                        ; $021D  70
         DEC HL                           ; $021E  2B
         LD (HL),C                        ; $021F  71
-        LD HL,(L_05E1)                   ; $0220  2A E1 05
+        LD HL,(ARG_CLOSE)                ; $0220  2A E1 05
         EX DE,HL                         ; $0223  EB
-        LD C,$10                         ; $0224  0E 10
-        CALL SUB_058D                    ; $0226  CD 8D 05
-        LD (L_05DE),A                    ; $0229  32 DE 05
+        LD C,$10                         ; $0224  0E 10  BDOS fn 16 = close file
+        CALL BDOS_CALL_RET               ; $0226  CD 8D 05
+        LD (BDOS_RESULT),A               ; $0229  32 DE 05
         RET                              ; $022C  C9
-SUB_022D:
-        LD HL,L_05E4                     ; $022D  21 E4 05
+BDOS_DELETE_FILE:
+        LD HL,ARG_DELETE_HI              ; $022D  21 E4 05
         LD (HL),B                        ; $0230  70
         DEC HL                           ; $0231  2B
         LD (HL),C                        ; $0232  71
-        LD HL,(L_05E3)                   ; $0233  2A E3 05
+        LD HL,(ARG_DELETE)               ; $0233  2A E3 05
         EX DE,HL                         ; $0236  EB
-        LD C,$13                         ; $0237  0E 13
-        CALL SUB_058A                    ; $0239  CD 8A 05
+        LD C,$13                         ; $0237  0E 13  BDOS fn 19 = delete file
+        CALL BDOS_CALL                   ; $0239  CD 8A 05
         RET                              ; $023C  C9
-SUB_023D:
-        LD HL,L_05E6                     ; $023D  21 E6 05
-SUB_023D_1:
+BDOS_READ_SEQ:
+        LD HL,ARG_READ_HI                ; $023D  21 E6 05
         LD (HL),B                        ; $0240  70
-SUB_023D_2:
         DEC HL                           ; $0241  2B
-SUB_023D_3:
         LD (HL),C                        ; $0242  71
-SUB_023D_4:
-        LD HL,(L_05E5)                   ; $0243  2A E5 05
-SUB_023D_5:
+        LD HL,(ARG_READ)                 ; $0243  2A E5 05
         EX DE,HL                         ; $0246  EB
-SUB_023D_6:
-        LD C,$14                         ; $0247  0E 14
-SUB_023D_7:
-        CALL SUB_058D                    ; $0249  CD 8D 05
-SUB_023D_8:
+        LD C,$14                         ; $0247  0E 14  BDOS fn 20 = read sequential
+        CALL BDOS_CALL_RET               ; $0249  CD 8D 05
         RET                              ; $024C  C9
-SUB_024D:
-        LD HL,L_05E8                     ; $024D  21 E8 05
+BDOS_WRITE_SEQ:
+        LD HL,ARG_WRITE_HI               ; $024D  21 E8 05
         LD (HL),B                        ; $0250  70
         DEC HL                           ; $0251  2B
         LD (HL),C                        ; $0252  71
-        LD HL,(L_05E7)                   ; $0253  2A E7 05
+        LD HL,(ARG_WRITE)                ; $0253  2A E7 05
         EX DE,HL                         ; $0256  EB
-        LD C,$15                         ; $0257  0E 15
-        CALL SUB_058D                    ; $0259  CD 8D 05
+        LD C,$15                         ; $0257  0E 15  BDOS fn 21 = write sequential
+        CALL BDOS_CALL_RET               ; $0259  CD 8D 05
         RET                              ; $025C  C9
-SUB_025D:
-        LD HL,L_05EA                     ; $025D  21 EA 05
+BDOS_MAKE_FILE:
+        LD HL,ARG_MAKE_HI                ; $025D  21 EA 05
         LD (HL),B                        ; $0260  70
         DEC HL                           ; $0261  2B
         LD (HL),C                        ; $0262  71
-        LD HL,(L_05E9)                   ; $0263  2A E9 05
+        LD HL,(ARG_MAKE)                 ; $0263  2A E9 05
         EX DE,HL                         ; $0266  EB
-        LD C,$16                         ; $0267  0E 16
-        CALL SUB_058D                    ; $0269  CD 8D 05
-        LD (L_05DE),A                    ; $026C  32 DE 05
+        LD C,$16                         ; $0267  0E 16  BDOS fn 22 = make file
+        CALL BDOS_CALL_RET               ; $0269  CD 8D 05
+        LD (BDOS_RESULT),A               ; $026C  32 DE 05
         RET                              ; $026F  C9
-SUB_0270:
-        LD HL,L_05EF                     ; $0270  21 EF 05
-SUB_0270_1:
-        LD (HL),E                        ; $0273  73
-SUB_0270_2:
+; MEMCPY -- copy a byte count from one buffer to another.
+; Args (PL/M-style): BC = destination pointer, E = byte count, and the SOURCE
+; pointer is PUSHed by the caller just before the CALL (recovered below via
+; POP after the return address). [AI]
+MEMCPY:
+        LD HL,COPY_CNT                   ; $0270  21 EF 05
+        LD (HL),E                        ; $0273  73   stash count
         DEC HL                           ; $0274  2B
-SUB_0270_3:
-        LD (HL),B                        ; $0275  70
-SUB_0270_4:
+        LD (HL),B                        ; $0275  70   stash dest hi
         DEC HL                           ; $0276  2B
-SUB_0270_5:
-        LD (HL),C                        ; $0277  71
-SUB_0270_6:
+        LD (HL),C                        ; $0277  71   stash dest lo
         DEC HL                           ; $0278  2B
-SUB_0270_7:
-        POP DE                           ; $0279  D1
-SUB_0270_8:
-        POP BC                           ; $027A  C1
-SUB_0270_9:
-        LD (HL),B                        ; $027B  70
-SUB_0270_10:
+        POP DE                           ; $0279  D1   DE = return address
+        POP BC                           ; $027A  C1   BC = caller-pushed source ptr
+        LD (HL),B                        ; $027B  70   stash src hi
         DEC HL                           ; $027C  2B
-SUB_0270_11:
-        LD (HL),C                        ; $027D  71
-SUB_0270_12:
-        PUSH DE                          ; $027E  D5
-SUB_0270_13:
-        LD A,(L_05EF)                    ; $027F  3A EF 05
-SUB_0270_14:
+        LD (HL),C                        ; $027D  71   stash src lo
+        PUSH DE                          ; $027E  D5   restore return address
+MEMCPY_LOOP:
+        LD A,(COPY_CNT)                  ; $027F  3A EF 05
         DEC A                            ; $0282  3D
-SUB_0270_15:
-        LD (L_05EF),A                    ; $0283  32 EF 05
-SUB_0270_16:
-        CP $FF                           ; $0286  FE FF
-SUB_0270_17:
-        JP Z,SUB_0270_31                 ; $0288  CA A6 02
-SUB_0270_18:
-        LD HL,(L_05EB)                   ; $028B  2A EB 05
-SUB_0270_19:
+        LD (COPY_CNT),A                  ; $0283  32 EF 05
+        CP $FF                           ; $0286  FE FF  count wrapped past 0?
+        JP Z,MEMCPY_DONE                 ; $0288  CA A6 02
+        LD HL,(COPY_SRC)                 ; $028B  2A EB 05
         PUSH HL                          ; $028E  E5
-SUB_0270_20:
-        LD HL,(L_05ED)                   ; $028F  2A ED 05
-SUB_0270_21:
+        LD HL,(COPY_DST)                 ; $028F  2A ED 05
         POP BC                           ; $0292  C1
-SUB_0270_22:
-        LD A,(BC)                        ; $0293  0A
-SUB_0270_23:
-        LD (HL),A                        ; $0294  77
-SUB_0270_24:
-        LD HL,(L_05EB)                   ; $0295  2A EB 05
-SUB_0270_25:
+        LD A,(BC)                        ; $0293  0A   A = *src
+        LD (HL),A                        ; $0294  77   *dst = A
+        LD HL,(COPY_SRC)                 ; $0295  2A EB 05
         INC HL                           ; $0298  23
-SUB_0270_26:
-        LD (L_05EB),HL                   ; $0299  22 EB 05
-SUB_0270_27:
-        LD HL,(L_05ED)                   ; $029C  2A ED 05
-SUB_0270_28:
+        LD (COPY_SRC),HL                 ; $0299  22 EB 05
+        LD HL,(COPY_DST)                 ; $029C  2A ED 05
         INC HL                           ; $029F  23
-SUB_0270_29:
-        LD (L_05ED),HL                   ; $02A0  22 ED 05
-SUB_0270_30:
-        JP SUB_0270_13                   ; $02A3  C3 7F 02
-SUB_0270_31:
+        LD (COPY_DST),HL                 ; $02A0  22 ED 05
+        JP MEMCPY_LOOP                   ; $02A3  C3 7F 02
+MEMCPY_DONE:
         RET                              ; $02A6  C9
-SUB_02A7:
-        LD HL,L_05F3                     ; $02A7  21 F3 05
-SUB_02A7_1:
+; FATAL_ERROR -- print "Error On Line nnn <message>$", abandon processing, and
+; restore the saved entry stack (whose RET returns to the CCP). BC = $-message. [AI]
+FATAL_ERROR:
+        LD HL,ERR_MSG_PTR_HI             ; $02A7  21 F3 05
         LD (HL),B                        ; $02AA  70
-SUB_02A7_2:
         DEC HL                           ; $02AB  2B
-SUB_02A7_3:
-        LD (HL),C                        ; $02AC  71
-SUB_02A7_4:
-        LD BC,L_0128                     ; $02AD  01 28 01
-SUB_02A7_5:
-        CALL SUB_01F7                    ; $02B0  CD F7 01
-SUB_02A7_6:
-        LD BC,L_012B                     ; $02B3  01 2B 01
-SUB_02A7_7:
-        CALL SUB_01F7                    ; $02B6  CD F7 01
-SUB_02A7_8:
-        LD BC,L_05B6                     ; $02B9  01 B6 05
-SUB_02A7_9:
-        CALL SUB_01F7                    ; $02BC  CD F7 01
-SUB_02A7_10:
-        LD HL,(L_05F2)                   ; $02BF  2A F2 05
-SUB_02A7_11:
+        LD (HL),C                        ; $02AC  71   save message ptr
+        LD BC,MSG_CRLF                   ; $02AD  01 28 01
+        CALL BDOS_PRINT_STRING           ; $02B0  CD F7 01
+        LD BC,MSG_ERROR_ON_LINE          ; $02B3  01 2B 01
+        CALL BDOS_PRINT_STRING           ; $02B6  CD F7 01
+        LD BC,LINE_NUM                   ; $02B9  01 B6 05  decimal line counter
+        CALL BDOS_PRINT_STRING           ; $02BC  CD F7 01
+        LD HL,(ERR_MSG_PTR)              ; $02BF  2A F2 05
         LD B,H                           ; $02C2  44
-SUB_02A7_12:
         LD C,L                           ; $02C3  4D
-SUB_02A7_13:
-        CALL SUB_01F7                    ; $02C4  CD F7 01
-SUB_02A7_14:
-        LD HL,(L_05F0)                   ; $02C7  2A F0 05
-SUB_02A7_15:
-        LD SP,HL                         ; $02CA  F9
-SUB_02A7_16:
+        CALL BDOS_PRINT_STRING           ; $02C4  CD F7 01
+        LD HL,(SAVED_SP)                 ; $02C7  2A F0 05
+        LD SP,HL                         ; $02CA  F9   restore entry stack
         RET                              ; $02CB  C9
-SUB_02CC:
-        LD BC,CMDLINE                    ; $02CC  01 81 00
-SUB_02CC_1:
+; OPEN_SUB_FILE -- phase 1. Copy the command tail into CMD_BUF, force the FCB's
+; file type to "SUB", open it, and prime the read-buffer cursor. [AI]
+OPEN_SUB_FILE:
+        LD BC,CMDLINE                    ; $02CC  01 81 00  push source = command tail
         PUSH BC                          ; $02CF  C5
-SUB_02CC_2:
-        LD E,$7F                         ; $02D0  1E 7F
-SUB_02CC_3:
-        LD BC,L_05F4                     ; $02D2  01 F4 05
-SUB_02CC_4:
-        CALL SUB_0270                    ; $02D5  CD 70 02
-SUB_02CC_5:
-        LD HL,(DEFAULT_DMA)              ; $02D8  2A 80 00
-SUB_02CC_6:
+        LD E,$7F                         ; $02D0  1E 7F   count = 127
+        LD BC,CMD_BUF                    ; $02D2  01 F4 05  dest = local text buffer
+        CALL MEMCPY                      ; $02D5  CD 70 02
+        LD HL,(DEFAULT_DMA)              ; $02D8  2A 80 00  HL = tail length (byte $0080)
         LD H,$00                         ; $02DB  26 00
-SUB_02CC_7:
-        LD BC,L_05F4                     ; $02DD  01 F4 05
-SUB_02CC_8:
+        LD BC,CMD_BUF                    ; $02DD  01 F4 05
         ADD HL,BC                        ; $02E0  09
-SUB_02CC_9:
-        LD (HL),$00                      ; $02E1  36 00
-SUB_02CC_10:
-        LD BC,L_013A                     ; $02E3  01 3A 01
-SUB_02CC_11:
+        LD (HL),$00                      ; $02E1  36 00   NUL-terminate the copy
+        LD BC,FN_SUB_EXT                 ; $02E3  01 3A 01  push source = "SUB" type
         PUSH BC                          ; $02E6  C5
-SUB_02CC_12:
-        LD E,$03                         ; $02E7  1E 03
-SUB_02CC_13:
-        LD BC,$0065                      ; $02E9  01 65 00
-SUB_02CC_14:
-        CALL SUB_0270                    ; $02EC  CD 70 02
-SUB_02CC_15:
+        LD E,$03                         ; $02E7  1E 03   count = 3
+        LD BC,$0065                      ; $02E9  01 65 00  dest = DEFAULT_FCB+9 (file type)
+        CALL MEMCPY                      ; $02EC  CD 70 02
         LD BC,DEFAULT_FCB                ; $02EF  01 5C 00
-SUB_02CC_16:
-        CALL SUB_0207                    ; $02F2  CD 07 02
-SUB_02CC_17:
-        LD A,(L_05DE)                    ; $02F5  3A DE 05
-SUB_02CC_18:
-        CP $FF                           ; $02F8  FE FF
-SUB_02CC_19:
-        JP NZ,SUB_02CC_20                ; $02FA  C2 03 03
-        LD BC,L_013D                     ; $02FD  01 3D 01
-        CALL SUB_02A7                    ; $0300  CD A7 02
-SUB_02CC_20:
-        LD HL,$0674                      ; $0303  21 74 06
-SUB_02CC_21:
-        LD (HL),$80                      ; $0306  36 80
-SUB_02CC_22:
+        CALL BDOS_OPEN_FILE              ; $02F2  CD 07 02
+        LD A,(BDOS_RESULT)               ; $02F5  3A DE 05
+        CP $FF                           ; $02F8  FE FF   $FF = open failed
+        JP NZ,OPEN_SUB_FILE_1            ; $02FA  C2 03 03
+        LD BC,MSG_NO_SUB_FILE            ; $02FD  01 3D 01
+        CALL FATAL_ERROR                 ; $0300  CD A7 02
+OPEN_SUB_FILE_1:
+        LD HL,$0674                      ; $0303  21 74 06  read-buffer cursor
+        LD (HL),$80                      ; $0306  36 80   = 128 -> next GETC reads a record
         RET                              ; $0308  C9
-SUB_0309:
-        LD A,$7F                         ; $0309  3E 7F
-SUB_0309_1:
-        LD HL,$0674                      ; $030B  21 74 06
-SUB_0309_2:
-        CP (HL)                          ; $030E  BE
-SUB_0309_3:
-        JP NC,SUB_0309_10                ; $030F  D2 25 03
-SUB_0309_4:
-        LD BC,DEFAULT_FCB                ; $0312  01 5C 00
-SUB_0309_5:
-        CALL SUB_023D                    ; $0315  CD 3D 02
-SUB_0309_6:
-        CP $00                           ; $0318  FE 00
-SUB_0309_7:
-        JP Z,SUB_0309_8                  ; $031A  CA 20 03
-        LD A,$1A                         ; $031D  3E 1A
+; GET_NEXT_CHAR -- return the next character of the .SUB file in A. Reads a fresh
+; 128-byte record through the DMA buffer when the cursor ($0674) reaches 128,
+; counts source lines on CR (the LINE_NUM decimal string), and folds lowercase
+; a-z to uppercase. Returns $1A (EOF) at end of file. [AI]
+GET_NEXT_CHAR:
+        LD A,$7F                         ; $0309  3E 7F   127
+        LD HL,$0674                      ; $030B  21 74 06  in-record cursor
+        CP (HL)                          ; $030E  BE   cursor still < 128?
+        JP NC,GET_NEXT_CHAR_FETCH        ; $030F  D2 25 03
+        LD BC,DEFAULT_FCB                ; $0312  01 5C 00  buffer exhausted -> read next record
+        CALL BDOS_READ_SEQ               ; $0315  CD 3D 02
+        CP $00                           ; $0318  FE 00   read OK?
+        JP Z,GET_NEXT_CHAR_NEWREC        ; $031A  CA 20 03
+        LD A,$1A                         ; $031D  3E 1A   EOF
         RET                              ; $031F  C9
-SUB_0309_8:
+GET_NEXT_CHAR_NEWREC:
         LD HL,$0674                      ; $0320  21 74 06
-SUB_0309_9:
-        LD (HL),$00                      ; $0323  36 00
-SUB_0309_10:
+        LD (HL),$00                      ; $0323  36 00   reset cursor to 0
+GET_NEXT_CHAR_FETCH:
         LD A,($0674)                     ; $0325  3A 74 06
-SUB_0309_11:
         INC A                            ; $0328  3C
-SUB_0309_12:
-        LD ($0674),A                     ; $0329  32 74 06
-SUB_0309_13:
+        LD ($0674),A                     ; $0329  32 74 06  advance cursor
         DEC A                            ; $032C  3D
-SUB_0309_14:
         LD C,A                           ; $032D  4F
-SUB_0309_15:
         LD B,$00                         ; $032E  06 00
-SUB_0309_16:
         LD HL,DEFAULT_DMA                ; $0330  21 80 00
-SUB_0309_17:
-        ADD HL,BC                        ; $0333  09
-SUB_0309_18:
+        ADD HL,BC                        ; $0333  09   HL = &DMA[cursor]
         LD A,(HL)                        ; $0334  7E
-SUB_0309_19:
-        LD ($0675),A                     ; $0335  32 75 06
-SUB_0309_20:
-        CP $0D                           ; $0338  FE 0D
-SUB_0309_21:
-        JP NZ,SUB_0309_22                ; $033A  C2 62 03
-        LD A,(L_05B8)                    ; $033D  3A B8 05
+        LD ($0675),A                     ; $0335  32 75 06  stash current char
+        CP $0D                           ; $0338  FE 0D   carriage return?
+        JP NZ,GET_NEXT_CHAR_FOLD         ; $033A  C2 62 03
+        LD A,(LINE_NUM+2)                ; $033D  3A B8 05  bump ones digit
         INC A                            ; $0340  3C
-        LD (L_05B8),A                    ; $0341  32 B8 05
+        LD (LINE_NUM+2),A                ; $0341  32 B8 05
         LD C,A                           ; $0344  4F
-        LD A,$39                         ; $0345  3E 39
+        LD A,$39                         ; $0345  3E 39   '9'
         CP C                             ; $0347  B9
-        JP NC,SUB_0309_22                ; $0348  D2 62 03
-        LD HL,L_05B8                     ; $034B  21 B8 05
+        JP NC,GET_NEXT_CHAR_FOLD         ; $0348  D2 62 03  no carry past '9'
+        LD HL,LINE_NUM+2                 ; $034B  21 B8 05  carry: ones -> '0', bump tens
         LD (HL),$30                      ; $034E  36 30
         DEC HL                           ; $0350  2B
         LD A,(HL)                        ; $0351  7E
@@ -364,334 +260,301 @@ SUB_0309_21:
         LD C,A                           ; $0354  4F
         LD A,$39                         ; $0355  3E 39
         CP C                             ; $0357  B9
-        JP NC,SUB_0309_22                ; $0358  D2 62 03
-        LD HL,L_05B7                     ; $035B  21 B7 05
+        JP NC,GET_NEXT_CHAR_FOLD         ; $0358  D2 62 03
+        LD HL,LINE_NUM+1                 ; $035B  21 B7 05  carry: tens -> '0', bump hundreds
         LD (HL),$30                      ; $035E  36 30
         DEC HL                           ; $0360  2B
         INC (HL)                         ; $0361  34
-SUB_0309_22:
+GET_NEXT_CHAR_FOLD:
         LD A,($0675)                     ; $0362  3A 75 06
-SUB_0309_23:
-        SUB $61                          ; $0365  D6 61
-SUB_0309_24:
-        CP $1A                           ; $0367  FE 1A
-SUB_0309_25:
-        JP NC,SUB_0309_26                ; $0369  D2 74 03
+        SUB $61                          ; $0365  D6 61   - 'a'
+        CP $1A                           ; $0367  FE 1A   in a..z?
+        JP NC,GET_NEXT_CHAR_DONE         ; $0369  D2 74 03
         LD A,($0675)                     ; $036C  3A 75 06
-        AND $5F                          ; $036F  E6 5F
+        AND $5F                          ; $036F  E6 5F   clear bit 5 -> uppercase
         LD ($0675),A                     ; $0371  32 75 06
-SUB_0309_26:
+GET_NEXT_CHAR_DONE:
         LD A,($0675)                     ; $0374  3A 75 06
-SUB_0309_27:
         RET                              ; $0377  C9
-SUB_0378:
-        LD BC,L_05BB                     ; $0378  01 BB 05
-        CALL SUB_024D                    ; $037B  CD 4D 02
+; WRITE_RECORD -- write one 128-byte record of the $$$.SUB file (FCB_SUBSUB);
+; a non-zero BDOS status is a fatal disk-write error. [AI]
+WRITE_RECORD:
+        LD BC,FCB_SUBSUB                 ; $0378  01 BB 05
+        CALL BDOS_WRITE_SEQ              ; $037B  CD 4D 02
         CP $00                           ; $037E  FE 00
-        JP Z,SUB_0378_1                  ; $0380  CA 89 03
-        LD BC,L_0153                     ; $0383  01 53 01
-        CALL SUB_02A7                    ; $0386  CD A7 02
-SUB_0378_1:
+        JP Z,WRITE_RECORD_1              ; $0380  CA 89 03
+        LD BC,MSG_DISK_WRITE_ERR         ; $0383  01 53 01
+        CALL FATAL_ERROR                 ; $0386  CD A7 02
+WRITE_RECORD_1:
         RET                              ; $0389  C9
-SUB_038A:
-        LD HL,$0676                      ; $038A  21 76 06
-SUB_038A_1:
+; PARSE_SUB_FILE -- phase 2. Read the .SUB file character by character, expanding
+; $0..$9 parameter references (and ^x control-character escapes) against the
+; command tail, and append each translated line to the in-memory output buffer at
+; $0676. Lines are stored CCP-style; EMIT_CHAR prepends the per-line length.
+; Work cells: $0E76 = output byte count, $0E78 = current line length,
+; $0E7C = "more lines" flag, $0E7D = current input char. [AI]
+PARSE_SUB_FILE:
+        LD HL,$0676                      ; $038A  21 76 06  output buffer length byte
         LD (HL),$00                      ; $038D  36 00
-SUB_038A_2:
-        LD HL,WBOOT_VEC                  ; $038F  21 00 00
-SUB_038A_3:
-        LD ($0E76),HL                    ; $0392  22 76 0E
-SUB_038A_4:
+        LD HL,WBOOT_VEC                  ; $038F  21 00 00  HL = 0
+        LD ($0E76),HL                    ; $0392  22 76 0E  output count = 0
         LD HL,$0E7C                      ; $0395  21 7C 0E
-SUB_038A_5:
-        LD (HL),$01                      ; $0398  36 01
-SUB_038A_6:
+        LD (HL),$01                      ; $0398  36 01   more-lines flag = 1
+PARSE_LINE_LOOP:
         LD A,($0E7C)                     ; $039A  3A 7C 0E
-SUB_038A_7:
         RRA                              ; $039D  1F
-SUB_038A_8:
-        JP NC,SUB_038A_49                ; $039E  D2 80 04
-SUB_038A_9:
+        JP NC,PARSE_DONE                 ; $039E  D2 80 04  flag clear -> finished
         LD HL,$0E78                      ; $03A1  21 78 0E
-SUB_038A_10:
-        LD (HL),$00                      ; $03A4  36 00
-SUB_038A_11:
-        CALL SUB_0309                    ; $03A6  CD 09 03
-SUB_038A_12:
+        LD (HL),$00                      ; $03A4  36 00   current line length = 0
+PARSE_CHAR_LOOP:
+        CALL GET_NEXT_CHAR               ; $03A6  CD 09 03
         LD ($0E7D),A                     ; $03A9  32 7D 0E
-SUB_038A_13:
-        SUB $1A                          ; $03AC  D6 1A
-SUB_038A_14:
-        ADD A,$FF                        ; $03AE  C6 FF
-SUB_038A_15:
+        SUB $1A                          ; $03AC  D6 1A   char == EOF($1A)?
+        ADD A,$FF                        ; $03AE  C6 FF   -> A = $FF (not EOF) / $00 (EOF)
         SBC A,A                          ; $03B0  9F
-SUB_038A_16:
         PUSH AF                          ; $03B1  F5
-SUB_038A_17:
         LD A,($0E7D)                     ; $03B2  3A 7D 0E
-SUB_038A_18:
-        SUB $0D                          ; $03B5  D6 0D
-SUB_038A_19:
-        ADD A,$FF                        ; $03B7  C6 FF
-SUB_038A_20:
+        SUB $0D                          ; $03B5  D6 0D   char == CR?
+        ADD A,$FF                        ; $03B7  C6 FF   -> A = $FF (not CR) / $00 (CR)
         SBC A,A                          ; $03B9  9F
-SUB_038A_21:
         POP BC                           ; $03BA  C1
-SUB_038A_22:
         LD C,B                           ; $03BB  48
-SUB_038A_23:
-        AND C                            ; $03BC  A1
-SUB_038A_24:
+        AND C                            ; $03BC  A1   (not EOF) AND (not CR)
         RRA                              ; $03BD  1F
-SUB_038A_25:
-        JP NC,SUB_038A_48                ; $03BE  D2 6B 04
-SUB_038A_26:
+        JP NC,END_OF_LINE                ; $03BE  D2 6B 04  EOF or CR -> end the line
+PARSE_CHAR:
         LD A,($0E7D)                     ; $03C1  3A 7D 0E
-SUB_038A_27:
-        CP $0A                           ; $03C4  FE 0A
-SUB_038A_28:
-        JP Z,SUB_038A_47                 ; $03C6  CA 68 04
-SUB_038A_29:
+        CP $0A                           ; $03C4  FE 0A   ignore LF
+        JP Z,PARSE_CHAR_NEXT             ; $03C6  CA 68 04
         LD A,($0E7D)                     ; $03C9  3A 7D 0E
-SUB_038A_30:
-        CP $24                           ; $03CC  FE 24
-SUB_038A_31:
-        JP NZ,SUB_038A_39                ; $03CE  C2 36 04
-        CALL SUB_0309                    ; $03D1  CD 09 03
+        CP $24                           ; $03CC  FE 24   '$' -> parameter reference?
+        JP NZ,PARSE_CARET                ; $03CE  C2 36 04
+        CALL GET_NEXT_CHAR               ; $03D1  CD 09 03  char after '$'
         LD ($0E7D),A                     ; $03D4  32 7D 0E
-        CP $24                           ; $03D7  FE 24
-        JP NZ,SUB_038A_32                ; $03D9  C2 E6 03
+        CP $24                           ; $03D7  FE 24   "$$" -> literal '$'
+        JP NZ,PARAM_DIGIT                ; $03D9  C2 E6 03
         LD HL,($0E7D)                    ; $03DC  2A 7D 0E
         LD C,L                           ; $03DF  4D
-        CALL SUB_04C4                    ; $03E0  CD C4 04
-        JP SUB_038A_38                   ; $03E3  C3 33 04
-SUB_038A_32:
+        CALL EMIT_CHAR                   ; $03E0  CD C4 04
+        JP PARAM_DONE                    ; $03E3  C3 33 04
+PARAM_DIGIT:
         LD A,($0E7D)                     ; $03E6  3A 7D 0E
-        SUB $30                          ; $03E9  D6 30
+        SUB $30                          ; $03E9  D6 30   ASCII digit -> 0..9
         LD ($0E7D),A                     ; $03EB  32 7D 0E
         LD C,A                           ; $03EE  4F
         LD A,$09                         ; $03EF  3E 09
-        CP C                             ; $03F1  B9
-        JP NC,SUB_038A_33                ; $03F2  D2 FE 03
-        LD BC,L_018D                     ; $03F5  01 8D 01
-        CALL SUB_02A7                    ; $03F8  CD A7 02
-        JP SUB_038A_38                   ; $03FB  C3 33 04
-SUB_038A_33:
-        LD HL,$0E7A                      ; $03FE  21 7A 0E
+        CP C                             ; $03F1  B9   digit in 0..9?
+        JP NC,PARAM_EXPAND               ; $03F2  D2 FE 03
+        LD BC,MSG_PARAM_ERROR            ; $03F5  01 8D 01
+        CALL FATAL_ERROR                 ; $03F8  CD A7 02
+        JP PARAM_DONE                    ; $03FB  C3 33 04
+PARAM_EXPAND:
+        LD HL,$0E7A                      ; $03FE  21 7A 0E  command-tail scan index = 0
         LD (HL),$00                      ; $0401  36 00
-        CALL SUB_04AD                    ; $0403  CD AD 04
-SUB_038A_34:
-        LD A,($0E7D)                     ; $0406  3A 7D 0E
+        CALL SKIP_SPACES                 ; $0403  CD AD 04
+PARAM_SKIP_LOOP:
+        LD A,($0E7D)                     ; $0406  3A 7D 0E  parameter number remaining
         CP $00                           ; $0409  FE 00
-        JP Z,SUB_038A_37                 ; $040B  CA 22 04
+        JP Z,PARAM_COPY                  ; $040B  CA 22 04
         LD HL,$0E7D                      ; $040E  21 7D 0E
-        DEC (HL)                         ; $0411  35
-SUB_038A_35:
-        CALL SUB_0481                    ; $0412  CD 81 04
+        DEC (HL)                         ; $0411  35   skip one more token
+PARAM_SKIP_TOKEN:
+        CALL SCAN_TOKEN_CHAR             ; $0412  CD 81 04
         RRA                              ; $0415  1F
-        JP NC,SUB_038A_36                ; $0416  D2 1C 04
-        JP SUB_038A_35                   ; $0419  C3 12 04
-SUB_038A_36:
-        CALL SUB_04AD                    ; $041C  CD AD 04
-        JP SUB_038A_34                   ; $041F  C3 06 04
-SUB_038A_37:
-        CALL SUB_0481                    ; $0422  CD 81 04
+        JP NC,PARAM_SKIP_NEXT            ; $0416  D2 1C 04  hit a separator
+        JP PARAM_SKIP_TOKEN              ; $0419  C3 12 04
+PARAM_SKIP_NEXT:
+        CALL SKIP_SPACES                 ; $041C  CD AD 04
+        JP PARAM_SKIP_LOOP               ; $041F  C3 06 04
+PARAM_COPY:
+        CALL SCAN_TOKEN_CHAR             ; $0422  CD 81 04
         RRA                              ; $0425  1F
-        JP NC,SUB_038A_38                ; $0426  D2 33 04
-        LD HL,($0E79)                    ; $0429  2A 79 0E
+        JP NC,PARAM_DONE                 ; $0426  D2 33 04  token finished
+        LD HL,($0E79)                    ; $0429  2A 79 0E  token char from scanner
         LD C,L                           ; $042C  4D
-        CALL SUB_04C4                    ; $042D  CD C4 04
-        JP SUB_038A_37                   ; $0430  C3 22 04
-SUB_038A_38:
-        JP SUB_038A_47                   ; $0433  C3 68 04
-SUB_038A_39:
+        CALL EMIT_CHAR                   ; $042D  CD C4 04
+        JP PARAM_COPY                    ; $0430  C3 22 04
+PARAM_DONE:
+        JP PARSE_CHAR_NEXT               ; $0433  C3 68 04
+PARSE_CARET:
         LD A,($0E7D)                     ; $0436  3A 7D 0E
-SUB_038A_40:
-        CP $5E                           ; $0439  FE 5E
-SUB_038A_41:
-        JP NZ,SUB_038A_44                ; $043B  C2 61 04
-        CALL SUB_0309                    ; $043E  CD 09 03
-        SUB $61                          ; $0441  D6 61
+        CP $5E                           ; $0439  FE 5E   '^' -> control-char escape?
+        JP NZ,PARSE_LITERAL              ; $043B  C2 61 04
+        CALL GET_NEXT_CHAR               ; $043E  CD 09 03  letter after '^'
+        SUB $61                          ; $0441  D6 61   - 'a'
         LD ($0E7D),A                     ; $0443  32 7D 0E
         LD C,A                           ; $0446  4F
-        LD A,$19                         ; $0447  3E 19
+        LD A,$19                         ; $0447  3E 19   in a..z (-> ^A..^Z)?
         CP C                             ; $0449  B9
-        JP NC,SUB_038A_42                ; $044A  D2 56 04
-        LD BC,L_019D                     ; $044D  01 9D 01
-        CALL SUB_02A7                    ; $0450  CD A7 02
-        JP SUB_038A_43                   ; $0453  C3 5E 04
-SUB_038A_42:
+        JP NC,EMIT_CTRL                  ; $044A  D2 56 04
+        LD BC,MSG_INVALID_CTRL_CHAR      ; $044D  01 9D 01
+        CALL FATAL_ERROR                 ; $0450  CD A7 02
+        JP PARSE_CARET_DONE              ; $0453  C3 5E 04
+EMIT_CTRL:
         LD A,($0E7D)                     ; $0456  3A 7D 0E
-        INC A                            ; $0459  3C
+        INC A                            ; $0459  3C   0-based -> ^A=1
         LD C,A                           ; $045A  4F
-        CALL SUB_04C4                    ; $045B  CD C4 04
-SUB_038A_43:
-        JP SUB_038A_47                   ; $045E  C3 68 04
-SUB_038A_44:
-        LD HL,($0E7D)                    ; $0461  2A 7D 0E
-SUB_038A_45:
+        CALL EMIT_CHAR                   ; $045B  CD C4 04
+PARSE_CARET_DONE:
+        JP PARSE_CHAR_NEXT               ; $045E  C3 68 04
+PARSE_LITERAL:
+        LD HL,($0E7D)                    ; $0461  2A 7D 0E  ordinary char -> emit as-is
         LD C,L                           ; $0464  4D
-SUB_038A_46:
-        CALL SUB_04C4                    ; $0465  CD C4 04
-SUB_038A_47:
-        JP SUB_038A_11                   ; $0468  C3 A6 03
-SUB_038A_48:
+        CALL EMIT_CHAR                   ; $0465  CD C4 04
+PARSE_CHAR_NEXT:
+        JP PARSE_CHAR_LOOP               ; $0468  C3 A6 03
+END_OF_LINE:
         LD A,($0E7D)                     ; $046B  3A 7D 0E
-        SUB $0D                          ; $046E  D6 0D
-        SUB $01                          ; $0470  D6 01
+        SUB $0D                          ; $046E  D6 0D   keep going only if char==CR
+        SUB $01                          ; $0470  D6 01   (CR -> $FF, EOF -> $00)
         SBC A,A                          ; $0472  9F
-        LD ($0E7C),A                     ; $0473  32 7C 0E
-        LD HL,($0E78)                    ; $0476  2A 78 0E
+        LD ($0E7C),A                     ; $0473  32 7C 0E  more-lines flag
+        LD HL,($0E78)                    ; $0476  2A 78 0E  current line length
         LD C,L                           ; $0479  4D
-        CALL SUB_04C4                    ; $047A  CD C4 04
-        JP SUB_038A_6                    ; $047D  C3 9A 03
-SUB_038A_49:
+        CALL EMIT_CHAR                   ; $047A  CD C4 04  append length prefix
+        JP PARSE_LINE_LOOP               ; $047D  C3 9A 03
+PARSE_DONE:
         RET                              ; $0480  C9
-SUB_0481:
+; SCAN_TOKEN_CHAR -- fetch the next character of the command tail (CMD_BUF, index
+; $0E7A) into $0E79. If it is a token character (> ' ' and not the NUL terminator)
+; advance the index and return A=1; otherwise leave the index and return A=0. [AI]
+SCAN_TOKEN_CHAR:
         LD HL,($0E7A)                    ; $0481  2A 7A 0E
         LD H,$00                         ; $0484  26 00
-        LD BC,L_05F4                     ; $0486  01 F4 05
+        LD BC,CMD_BUF                    ; $0486  01 F4 05
         ADD HL,BC                        ; $0489  09
-        LD A,(HL)                        ; $048A  7E
+        LD A,(HL)                        ; $048A  7E   A = CMD_BUF[index]
         LD ($0E79),A                     ; $048B  32 79 0E
-        SUB $20                          ; $048E  D6 20
+        SUB $20                          ; $048E  D6 20   > ' '?
         SUB $01                          ; $0490  D6 01
-        SBC A,A                          ; $0492  9F
+        SBC A,A                          ; $0492  9F   -> $00 if > ' '
         PUSH AF                          ; $0493  F5
         LD A,($0E79)                     ; $0494  3A 79 0E
-        SUB $00                          ; $0497  D6 00
+        SUB $00                          ; $0497  D6 00   == NUL?
         SUB $01                          ; $0499  D6 01
-        SBC A,A                          ; $049B  9F
+        SBC A,A                          ; $049B  9F   -> $FF if == NUL
         POP BC                           ; $049C  C1
         LD C,B                           ; $049D  48
-        OR C                             ; $049E  B1
+        OR C                             ; $049E  B1   separator (space/below) OR end?
         RRA                              ; $049F  1F
-        JP C,SUB_0481_1                  ; $04A0  DA AA 04
+        JP C,SCAN_TOKEN_CHAR_END         ; $04A0  DA AA 04
         LD HL,$0E7A                      ; $04A3  21 7A 0E
-        INC (HL)                         ; $04A6  34
+        INC (HL)                         ; $04A6  34   consume the token char
         LD A,$01                         ; $04A7  3E 01
         RET                              ; $04A9  C9
-SUB_0481_1:
+SCAN_TOKEN_CHAR_END:
         LD A,$00                         ; $04AA  3E 00
         RET                              ; $04AC  C9
-SUB_04AD:
+; SKIP_SPACES -- advance the command-tail index $0E7A past any run of spaces in
+; CMD_BUF, stopping at the first non-space character. [AI]
+SKIP_SPACES:
         LD HL,($0E7A)                    ; $04AD  2A 7A 0E
         LD H,$00                         ; $04B0  26 00
-        LD BC,L_05F4                     ; $04B2  01 F4 05
+        LD BC,CMD_BUF                    ; $04B2  01 F4 05
         ADD HL,BC                        ; $04B5  09
         LD A,(HL)                        ; $04B6  7E
-        CP $20                           ; $04B7  FE 20
-        JP NZ,SUB_04AD_1                 ; $04B9  C2 C3 04
+        CP $20                           ; $04B7  FE 20   space?
+        JP NZ,SKIP_SPACES_1              ; $04B9  C2 C3 04
         LD HL,$0E7A                      ; $04BC  21 7A 0E
         INC (HL)                         ; $04BF  34
-        JP SUB_04AD                      ; $04C0  C3 AD 04
-SUB_04AD_1:
+        JP SKIP_SPACES                   ; $04C0  C3 AD 04
+SKIP_SPACES_1:
         RET                              ; $04C3  C9
-SUB_04C4:
-        LD HL,$0E7B                      ; $04C4  21 7B 0E
-SUB_04C4_1:
+; EMIT_CHAR -- append the character in C to the in-memory output buffer at $0676,
+; bumping the total output count ($0E76) and the current line length ($0E78).
+; Overflowing the $07FF-byte buffer is a Command Buffer Overflow; a single line
+; longer than $7D characters is Command Too Long. [AI]
+EMIT_CHAR:
+        LD HL,$0E7B                      ; $04C4  21 7B 0E  char temp
         LD (HL),C                        ; $04C7  71
-SUB_04C4_2:
-        LD HL,($0E76)                    ; $04C8  2A 76 0E
-SUB_04C4_3:
+        LD HL,($0E76)                    ; $04C8  2A 76 0E  output count
         INC HL                           ; $04CB  23
-SUB_04C4_4:
         LD ($0E76),HL                    ; $04CC  22 76 0E
-SUB_04C4_5:
-        LD DE,$07FF                      ; $04CF  11 FF 07
-SUB_04C4_6:
-        CALL SUB_0599                    ; $04D2  CD 99 05
-SUB_04C4_7:
-        JP NC,SUB_04C4_8                 ; $04D5  D2 DE 04
-        LD BC,L_0164                     ; $04D8  01 64 01
-        CALL SUB_02A7                    ; $04DB  CD A7 02
-SUB_04C4_8:
+        LD DE,$07FF                      ; $04CF  11 FF 07  buffer capacity
+        CALL CMP_HL_DE                   ; $04D2  CD 99 05  count > capacity?
+        JP NC,EMIT_CHAR_STORE            ; $04D5  D2 DE 04
+        LD BC,MSG_CMD_BUF_OVERFLOW       ; $04D8  01 64 01
+        CALL FATAL_ERROR                 ; $04DB  CD A7 02
+EMIT_CHAR_STORE:
         LD HL,($0E76)                    ; $04DE  2A 76 0E
-SUB_04C4_9:
-        LD BC,$0676                      ; $04E1  01 76 06
-SUB_04C4_10:
+        LD BC,$0676                      ; $04E1  01 76 06  output buffer base
         ADD HL,BC                        ; $04E4  09
-SUB_04C4_11:
         LD A,($0E7B)                     ; $04E5  3A 7B 0E
-SUB_04C4_12:
-        LD (HL),A                        ; $04E8  77
-SUB_04C4_13:
-        LD A,($0E78)                     ; $04E9  3A 78 0E
-SUB_04C4_14:
+        LD (HL),A                        ; $04E8  77   store the char
+        LD A,($0E78)                     ; $04E9  3A 78 0E  current line length
         INC A                            ; $04EC  3C
-SUB_04C4_15:
         LD ($0E78),A                     ; $04ED  32 78 0E
-SUB_04C4_16:
         LD C,A                           ; $04F0  4F
-SUB_04C4_17:
-        LD A,$7D                         ; $04F1  3E 7D
-SUB_04C4_18:
+        LD A,$7D                         ; $04F1  3E 7D   max line length
         CP C                             ; $04F3  B9
-SUB_04C4_19:
-        JP NC,SUB_04C4_22                ; $04F4  D2 FD 04
-SUB_04C4_20:
-        LD BC,L_017C                     ; $04F7  01 7C 01
-SUB_04C4_21:
-        CALL SUB_02A7                    ; $04FA  CD A7 02
-SUB_04C4_22:
+        JP NC,EMIT_CHAR_DONE             ; $04F4  D2 FD 04
+        LD BC,MSG_CMD_TOO_LONG           ; $04F7  01 7C 01
+        CALL FATAL_ERROR                 ; $04FA  CD A7 02
+EMIT_CHAR_DONE:
         RET                              ; $04FD  C9
-SUB_04FE:
-        LD BC,L_05BB                     ; $04FE  01 BB 05
-        CALL SUB_022D                    ; $0501  CD 2D 02
-        LD HL,L_05DB                     ; $0504  21 DB 05
+; BUILD_DOLLAR_SUB -- phase 3. (Re)create $$$.SUB on drive A and flush the parsed
+; command buffer to it. The buffer is drained back-to-front (POP_OUTPUT_BYTE), so
+; the lines land on disk in reverse, which is how the CCP pops them. Each 128-byte
+; record carries its length at DMA[0] and a trailing '$' marker. [AI]
+BUILD_DOLLAR_SUB:
+        LD BC,FCB_SUBSUB                 ; $04FE  01 BB 05
+        CALL BDOS_DELETE_FILE            ; $0501  CD 2D 02  remove any old $$$.SUB
+        LD HL,FCB_SUBSUB_CR              ; $0504  21 DB 05  clear FCB current-record
         LD (HL),$00                      ; $0507  36 00
-        LD BC,L_05BB                     ; $0509  01 BB 05
-        CALL SUB_025D                    ; $050C  CD 5D 02
-        LD A,(L_05DE)                    ; $050F  3A DE 05
-        CP $FF                           ; $0512  FE FF
-        JP NZ,SUB_04FE_1                 ; $0514  C2 1D 05
-        LD BC,L_01B7                     ; $0517  01 B7 01
-        CALL SUB_02A7                    ; $051A  CD A7 02
-SUB_04FE_1:
-        CALL SUB_057A                    ; $051D  CD 7A 05
+        LD BC,FCB_SUBSUB                 ; $0509  01 BB 05
+        CALL BDOS_MAKE_FILE              ; $050C  CD 5D 02
+        LD A,(BDOS_RESULT)               ; $050F  3A DE 05
+        CP $FF                           ; $0512  FE FF   make failed?
+        JP NZ,BUILD_RECORD_LOOP          ; $0514  C2 1D 05
+        LD BC,MSG_DIRECTORY_FULL         ; $0517  01 B7 01
+        CALL FATAL_ERROR                 ; $051A  CD A7 02
+BUILD_RECORD_LOOP:
+        CALL POP_OUTPUT_BYTE             ; $051D  CD 7A 05  pop record length
         LD ($0E7E),A                     ; $0520  32 7E 0E
-        CP $00                           ; $0523  FE 00
-        JP Z,SUB_04FE_4                  ; $0525  CA 65 05
+        CP $00                           ; $0523  FE 00   length 0 -> nothing left
+        JP Z,BUILD_CLOSE                 ; $0525  CA 65 05
         LD A,($0E7E)                     ; $0528  3A 7E 0E
-        LD (DEFAULT_DMA),A               ; $052B  32 80 00
+        LD (DEFAULT_DMA),A               ; $052B  32 80 00  store length at DMA[0]
         LD C,A                           ; $052E  4F
         LD B,$00                         ; $052F  06 00
         LD HL,CMDLINE                    ; $0531  21 81 00
         ADD HL,BC                        ; $0534  09
-        LD (HL),$00                      ; $0535  36 00
+        LD (HL),$00                      ; $0535  36 00   NUL after the line text
         LD HL,($0E7E)                    ; $0537  2A 7E 0E
         LD H,$00                         ; $053A  26 00
-        LD BC,$0082                      ; $053C  01 82 00
+        LD BC,$0082                      ; $053C  01 82 00  DMA+2+len
         ADD HL,BC                        ; $053F  09
-        LD (HL),$24                      ; $0540  36 24
-SUB_04FE_2:
+        LD (HL),$24                      ; $0540  36 24   '$' marker after the line
+BUILD_FILL_LOOP:
         LD A,$00                         ; $0542  3E 00
         LD HL,$0E7E                      ; $0544  21 7E 0E
-        CP (HL)                          ; $0547  BE
-        JP NC,SUB_04FE_3                 ; $0548  D2 5F 05
-        CALL SUB_057A                    ; $054B  CD 7A 05
+        CP (HL)                          ; $0547  BE   length counted down to 0?
+        JP NC,BUILD_WRITE                ; $0548  D2 5F 05
+        CALL POP_OUTPUT_BYTE             ; $054B  CD 7A 05  next line char
         LD HL,($0E7E)                    ; $054E  2A 7E 0E
         LD H,$00                         ; $0551  26 00
         LD BC,DEFAULT_DMA                ; $0553  01 80 00
         ADD HL,BC                        ; $0556  09
-        LD (HL),A                        ; $0557  77
+        LD (HL),A                        ; $0557  77   store char at DMA[len]
         LD HL,$0E7E                      ; $0558  21 7E 0E
         DEC (HL)                         ; $055B  35
-        JP SUB_04FE_2                    ; $055C  C3 42 05
-SUB_04FE_3:
-        CALL SUB_0378                    ; $055F  CD 78 03
-        JP SUB_04FE_1                    ; $0562  C3 1D 05
-SUB_04FE_4:
-        LD BC,L_05BB                     ; $0565  01 BB 05
-        CALL SUB_021A                    ; $0568  CD 1A 02
-        LD A,(L_05DE)                    ; $056B  3A DE 05
-        CP $FF                           ; $056E  FE FF
-        JP NZ,SUB_04FE_5                 ; $0570  C2 79 05
-        LD BC,L_01C6                     ; $0573  01 C6 01
-        CALL SUB_02A7                    ; $0576  CD A7 02
-SUB_04FE_5:
+        JP BUILD_FILL_LOOP               ; $055C  C3 42 05
+BUILD_WRITE:
+        CALL WRITE_RECORD                ; $055F  CD 78 03
+        JP BUILD_RECORD_LOOP             ; $0562  C3 1D 05
+BUILD_CLOSE:
+        LD BC,FCB_SUBSUB                 ; $0565  01 BB 05
+        CALL BDOS_CLOSE_FILE             ; $0568  CD 1A 02
+        LD A,(BDOS_RESULT)               ; $056B  3A DE 05
+        CP $FF                           ; $056E  FE FF   close failed?
+        JP NZ,BUILD_DOLLAR_SUB_DONE      ; $0570  C2 79 05
+        LD BC,MSG_CANNOT_CLOSE           ; $0573  01 C6 01
+        CALL FATAL_ERROR                 ; $0576  CD A7 02
+BUILD_DOLLAR_SUB_DONE:
         RET                              ; $0579  C9
-SUB_057A:
+; POP_OUTPUT_BYTE -- remove and return the last byte of the in-memory output
+; buffer at $0676 (count in $0E76, predecrement). [AI]
+POP_OUTPUT_BYTE:
         LD HL,($0E76)                    ; $057A  2A 76 0E
         DEC HL                           ; $057D  2B
         LD ($0E76),HL                    ; $057E  22 76 0E
@@ -699,96 +562,97 @@ SUB_057A:
         ADD HL,BC                        ; $0584  09
         LD A,(HL)                        ; $0585  7E
         RET                              ; $0586  C9
-SUB_0587:
+; WARM_BOOT -- return to CP/M via the warm-boot vector ($0000). [AI]
+WARM_BOOT:
         JP WBOOT_VEC                     ; $0587  C3 00 00
-SUB_058A:
+BDOS_CALL:
         JP BDOS_VEC                      ; $058A  C3 05 00
-SUB_058D:
+BDOS_CALL_RET:
         JP BDOS_VEC                      ; $058D  C3 05 00
-SUB_058D_1:
+BDOS_CALLRET_UNUSED:
         CALL BDOS_VEC                    ; $0590  CD 05 00
         RET                              ; $0593  C9
+; $0590  Standalone dead library thunk (CALL BDOS_VEC / RET): not an internal of
+;        BDOS_CALL_RET (which is JP BDOS_VEC and never falls through here).
 ; $0594  Unreachable stale library tail. No call/jump targets $0590 or $0594,
-;        and the two BDOS thunks above ($058A/$058D) are JP BDOS_VEC, so control
-;        never falls through here. The bytes are still valid Z-80 -- a leftover
-;        runtime-helper tail (two RET tails + the standard LD E,A / LD D,0
+;        and the two BDOS thunks above (BDOS_CALL/BDOS_CALL_RET) are JP BDOS_VEC,
+;        so control never falls through here. The bytes are still valid Z-80 -- a
+;        leftover runtime-helper tail (two RET tails + the standard LD E,A / LD D,0
 ;        zero-extend-A-into-DE prologue) -- decoded in place for clarity. [AI]
         RET                              ; $0594  C9
         RET                              ; $0595  C9
         LD E,A                           ; $0596  5F
         LD D,$00                         ; $0597  16 00
-SUB_0599:
+; CMP_HL_DE -- 16-bit subtract HL = DE - HL, leaving the borrow in carry. Used by
+; EMIT_CHAR to test whether the output count has run past the buffer capacity. [AI]
+CMP_HL_DE:
         LD A,E                           ; $0599  7B
-SUB_0599_1:
         SUB L                            ; $059A  95
-SUB_0599_2:
         LD L,A                           ; $059B  6F
-SUB_0599_3:
         LD A,D                           ; $059C  7A
-SUB_0599_4:
         SBC A,H                          ; $059D  9C
-SUB_0599_5:
         LD H,A                           ; $059E  67
-SUB_0599_6:
         RET                              ; $059F  C9
         DEFS    22, $00    ; $05A0  fill
-L_05B6:
-        DEFB    $30                                              ; $05B6
-L_05B7:
-        DEFB    $30                                              ; $05B7
-L_05B8:
-        DEFB    $31,$20,$24                                      ; $05B8
-L_05BB:
-        DEFB    $00                                              ; $05BB
-        DEFB    "$$$     SUB"    ; $05BC  string
+; LINE_NUM -- the source-line counter as printable ASCII "hundreds tens ones",
+; followed by space + '$' terminator, so FATAL_ERROR can print it directly.
+; Starts at "001 $"; GET_NEXT_CHAR carries the digits on each CR. [AI]
+LINE_NUM:
+        DEFB    $30                                              ; $05B6  hundreds digit
+        DEFB    $30                                              ; $05B7  tens digit
+        DEFB    $31,$20,$24                                      ; $05B8  ones, ' ', '$'
+; FCB_SUBSUB -- File Control Block for the "$$$.SUB" output file on drive A. [AI]
+FCB_SUBSUB:
+        DEFB    $00                                              ; $05BB  drive = default (A)
+        DEFB    "$$$     SUB"    ; $05BC  string  filename + type
         DEFB    $00    ; $05C7  terminator
-        DEFB    $00,$00                                          ; $05C8
-        DEFS    17, $1A    ; $05CA  fill
-L_05DB:
-        DEFB    $1A                                              ; $05DB
-L_05DC:
-        DEFB    $1A                                              ; $05DC
-L_05DD:
-        DEFB    $1A                                              ; $05DD
-L_05DE:
-        DEFB    $1A                                              ; $05DE
-L_05DF:
-        DEFB    $1A                                              ; $05DF
-L_05E0:
-        DEFB    $1A                                              ; $05E0
-L_05E1:
-        DEFB    $1A                                              ; $05E1
-L_05E2:
-        DEFB    $1A                                              ; $05E2
-L_05E3:
-        DEFB    $1A                                              ; $05E3
-L_05E4:
-        DEFB    $1A                                              ; $05E4
-L_05E5:
-        DEFB    $1A                                              ; $05E5
-L_05E6:
-        DEFB    $1A                                              ; $05E6
-L_05E7:
-        DEFB    $1A                                              ; $05E7
-L_05E8:
-        DEFB    $1A                                              ; $05E8
-L_05E9:
-        DEFB    $1A                                              ; $05E9
-L_05EA:
-        DEFB    $1A                                              ; $05EA
-L_05EB:
-        DEFB    $1A,$1A                                          ; $05EB
-L_05ED:
-        DEFB    $1A,$1A                                          ; $05ED
-L_05EF:
-        DEFB    $1A                                              ; $05EF
-L_05F0:
-        DEFB    $1A,$1A                                          ; $05F0
-L_05F2:
-        DEFB    $1A                                              ; $05F2
-L_05F3:
-        DEFB    $1A                                              ; $05F3
-L_05F4:
-        DEFS    12, $1A    ; $05F4  fill
+        DEFB    $00,$00                                          ; $05C8  ex, s1/s2
+        DEFS    17, $1A    ; $05CA  fill  rc + allocation map
+FCB_SUBSUB_CR:
+        DEFB    $1A                                              ; $05DB  current-record (offset 32)
+ARG_PRINT:
+        DEFB    $1A                                              ; $05DC  BDOS print-string arg ptr (lo)
+ARG_PRINT_HI:
+        DEFB    $1A                                              ; $05DD  (hi)
+BDOS_RESULT:
+        DEFB    $1A                                              ; $05DE  last open/close/make status
+ARG_OPEN:
+        DEFB    $1A                                              ; $05DF  BDOS open arg ptr (lo)
+ARG_OPEN_HI:
+        DEFB    $1A                                              ; $05E0  (hi)
+ARG_CLOSE:
+        DEFB    $1A                                              ; $05E1  BDOS close arg ptr (lo)
+ARG_CLOSE_HI:
+        DEFB    $1A                                              ; $05E2  (hi)
+ARG_DELETE:
+        DEFB    $1A                                              ; $05E3  BDOS delete arg ptr (lo)
+ARG_DELETE_HI:
+        DEFB    $1A                                              ; $05E4  (hi)
+ARG_READ:
+        DEFB    $1A                                              ; $05E5  BDOS read arg ptr (lo)
+ARG_READ_HI:
+        DEFB    $1A                                              ; $05E6  (hi)
+ARG_WRITE:
+        DEFB    $1A                                              ; $05E7  BDOS write arg ptr (lo)
+ARG_WRITE_HI:
+        DEFB    $1A                                              ; $05E8  (hi)
+ARG_MAKE:
+        DEFB    $1A                                              ; $05E9  BDOS make arg ptr (lo)
+ARG_MAKE_HI:
+        DEFB    $1A                                              ; $05EA  (hi)
+COPY_SRC:
+        DEFB    $1A,$1A                                          ; $05EB  MEMCPY source pointer
+COPY_DST:
+        DEFB    $1A,$1A                                          ; $05ED  MEMCPY destination pointer
+COPY_CNT:
+        DEFB    $1A                                              ; $05EF  MEMCPY remaining count
+SAVED_SP:
+        DEFB    $1A,$1A                                          ; $05F0  entry stack pointer
+ERR_MSG_PTR:
+        DEFB    $1A                                              ; $05F2  FATAL_ERROR message ptr (lo)
+ERR_MSG_PTR_HI:
+        DEFB    $1A                                              ; $05F3  (hi)
+CMD_BUF:
+        DEFS    12, $1A    ; $05F4  fill  command-tail / line work buffer
 
     SAVEBIN "bin/SUBMIT.COM", $0100, $0500

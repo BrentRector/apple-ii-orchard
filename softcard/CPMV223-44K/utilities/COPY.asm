@@ -107,7 +107,7 @@ TPA_START_27:
 TPA_START_28:
         CALL NEXT_TAIL_CHAR              ; $017E  CD 4C 04
         OR A                             ; $0181  B7
-        JR Z,TPA_START_33                ; $0182  28 2D
+        JR Z,BEGIN_COPY_PASS                ; $0182  28 2D
         CP $2F                           ; $0184  FE 2F
         JP NZ,ERR_COMMAND                ; $0186  C2 71 04
 ; [AI] Decodes one option switch after a '/': 'S'=system-copy, 'D'=double-side/extra, 'F'=format,
@@ -139,7 +139,7 @@ TPA_START_32:
         JR TPA_START_28                  ; $01AF  18 CD
 ; [AI] Begin a copy pass: clears the run-state flag, computes the number of tracks/buffers to copy
 ;       from the TPA size at $0007, and adjusts it down when verify mode needs a compare buffer.
-TPA_START_33:
+BEGIN_COPY_PASS:
         XOR A                            ; $01B1  AF
         LD (CHECK_SOURCE_SYSTEM_12),A    ; $01B2  32 26 05
         LD A,($0007)                     ; $01B5  3A 07 00
@@ -288,14 +288,14 @@ TPA_START_49:
         CALL PRINT_WAIT_RETURN           ; $02A9  CD DC 04
 TPA_START_50:
         JP WBOOT_VEC                     ; $02AC  C3 00 00
-; [AI] User answered Yes: re-arm the system flag and jump back to L_01B1 to run another copy pass.
+; [AI] User answered Yes: re-arm the system flag and jump back to BEGIN_COPY_PASS to run another copy pass.
 TPA_START_51:
         CALL PRINT_CHAR                  ; $02AF  CD 46 04
         CALL PRINT_CRLF                  ; $02B2  CD 3F 04
         CALL PRINT_CRLF                  ; $02B5  CD 3F 04
         LD A,(CHECK_SOURCE_SYSTEM_8)     ; $02B8  3A 22 05
         LD (CHECK_SOURCE_SYSTEM_7),A     ; $02BB  32 21 05
-        JP TPA_START_33                  ; $02BE  C3 B1 01
+        JP BEGIN_COPY_PASS                  ; $02BE  C3 B1 01
 ; [AI] Copies one batch of B tracks: optionally opens/creates the destination CPM.SYS file (system
 ;       mode), reads the source tracks into TPA RAM via the 6502, writes them out, and verifies on
 ;       /V.

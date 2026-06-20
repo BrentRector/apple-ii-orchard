@@ -600,7 +600,7 @@ READ_APPLE_SECTOR_3:
 PRINT_SPACE:
         LD A,$20                         ; $04BB  3E 20
         JR CONOUT_CHAR                   ; $04BD  18 3D
-; [AI] Prints a blank line by emitting two CR/LF pairs via SUB_04C2.
+; [AI] Prints a blank line by emitting two CR/LF pairs via PRINT_CRLF.
 PRINT_BLANK_LINE:
         CALL PRINT_CRLF                  ; $04BF  CD C2 04
 ; [AI] Outputs a CR/LF pair to the console; the standard newline primitive for APDOS's text output.

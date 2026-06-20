@@ -2724,7 +2724,7 @@ CMP_A_MEM:
         LD E,A                           ; $14F5  5F
         LD D,$00                         ; $14F6  16 00
 ; [AI] Subtracts the word at (HL) from the 16-bit value in DE and returns it in HL, the comparison
-;       primitive behind SUB_14F5.
+;       primitive behind CMP_A_MEM.
 SUB16_MEM_FROM_DE:
         LD A,E                           ; $14F8  7B
         SUB (HL)                         ; $14F9  96

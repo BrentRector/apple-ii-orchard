@@ -291,13 +291,17 @@ BUF_POS_CELL:                            ; = BUF_POS ($0213); $0214 is the high-
 DUMP_BSS_IMAGE:                          ; = SAVED_SP ($0215) / PRIVATE_STACK_TOP ($0257) at run time
     MODULE DUMP_OVERLAY
     DISP $0000                           ; leftover image is page-relative; internal labels resolve at $0000
-L_0000:
+; [AI] Overlay console-output thunk: pushes all registers, moves the char from C to E,
+;       sets C=2 (BDOS CONOUT) and calls the BDOS vector (here an unrelocated $1006), then
+;       restores registers. OVL_CONOUT_CALL is the inner entry that OVL_SET_CONOUT_VECTOR
+;       self-modifies into a JP to redirect output.
+OVL_CONOUT:
         PUSH AF                          ; $0000  F5
         PUSH BC                          ; $0001  C5
         PUSH DE                          ; $0002  D5
         PUSH HL                          ; $0003  E5
         LD E,C                           ; $0004  59
-L_0005:
+OVL_CONOUT_CALL:
         LD C,$02                         ; $0005  0E 02
         CALL $1006                       ; $0007  CD 06 10
         POP HL                           ; $000A  E1
@@ -305,12 +309,15 @@ L_0005:
         POP BC                           ; $000C  C1
         POP AF                           ; $000D  F1
         RET                              ; $000E  C9
-L_000F:
+; [AI] Overlay character classifier: returns Z if A is a field delimiter -- space, tab,
+;       comma, or CR -- and treats DEL ($7F) as a special case (jumps to an unrelocated
+;       handler at $053C). OVL_IS_DELIM_2 is the comma/CR/DEL tail, also reached directly.
+OVL_IS_DELIM:
         CP $20                           ; $000F  FE 20
         RET Z                            ; $0011  C8
         CP $09                           ; $0012  FE 09
         RET Z                            ; $0014  C8
-SUB_0015:
+OVL_IS_DELIM_2:
         CP $2C                           ; $0015  FE 2C
         RET Z                            ; $0017  C8
         CP $0D                           ; $0018  FE 0D
@@ -318,43 +325,52 @@ SUB_0015:
         CP $7F                           ; $001B  FE 7F
         JP Z,$053C                       ; $001D  CA 3C 05
         RET                              ; $0020  C9
-SUB_0015_1:
+; [AI] Overlay CR/LF emitter. NOTE: this is unrelocated leftover code -- the two CALLs below
+;       target $0015 (OVL_IS_DELIM_2) where a relocated build would call the console-output
+;       routine; the loader's fixups were never applied to this image, so the call target is
+;       a placeholder, not the live program's CONOUT.
+OVL_EMIT_CRLF:
         LD C,$0D                         ; $0021  0E 0D
-SUB_0015_2:
-        CALL SUB_0015                    ; $0023  CD 15 00
+OVL_EMIT_CRLF_1:
+        CALL OVL_IS_DELIM_2              ; $0023  CD 15 00
         LD C,$0A                         ; $0026  0E 0A
-        CALL SUB_0015                    ; $0028  CD 15 00
+        CALL OVL_IS_DELIM_2              ; $0028  CD 15 00
         RET                              ; $002B  C9
-SUB_0015_3:
+; [AI] Overlay line/field parser: pulls input via an unrelocated getter ($0709), stops on CR,
+;       and scans whitespace-separated fields into the working buffer at $068B.
+OVL_PARSE_LINE:
         CALL $0709                       ; $002C  CD 09 07
         CP $0D                           ; $002F  FE 0D
         JP Z,$052A                       ; $0031  CA 2A 05
-        CALL SUB_0015_2+1                ; $0034  CD 24 00
-        JP Z,SUB_0041                    ; $0037  CA 41 00
+        CALL OVL_EMIT_CRLF_1+1           ; $0034  CD 24 00
+        JP Z,OVL_PARSE_LINE_1            ; $0037  CA 41 00
         LD C,$04                         ; $003A  0E 04
         LD HL,$068B                      ; $003C  21 8B 06
         LD (HL),$20                      ; $003F  36 20
-SUB_0041:
+OVL_PARSE_LINE_1:
         INC HL                           ; $0041  23
         DEC C                            ; $0042  0D
-        JP NZ,SUB_0041_1+2               ; $0043  C2 54 00
+        JP NZ,OVL_PARSE_LINE_2+2         ; $0043  C2 54 00
         LD C,$05                         ; $0046  0E 05
         LD HL,$068B                      ; $0048  21 8B 06
         LD (HL),A                        ; $004B  77
         CALL $0709                       ; $004C  CD 09 07
-        CALL SUB_0015_2+1                ; $004F  CD 24 00
-SUB_0041_1:
-        JP Z,SUB_0041_5+2                ; $0052  CA 72 00
+        CALL OVL_EMIT_CRLF_1+1           ; $004F  CD 24 00
+OVL_PARSE_LINE_2:
+        JP Z,OVL_PARSE_ADDR+2            ; $0052  CA 72 00
         INC HL                           ; $0055  23
         DEC C                            ; $0056  0D
         JP Z,$052A                       ; $0057  CA 2A 05
-        JP SUB_0041_3                    ; $005A  C3 60 00
-SUB_0041_2:
+        JP OVL_PARSE_LINE_3              ; $005A  C3 60 00
+OVL_PARSE_LINE_TAIL:
         LD A,($068B)                     ; $005D  3A 8B 06
-SUB_0041_3:
+OVL_PARSE_LINE_3:
         CP $20                           ; $0060  FE 20
         RET                              ; $0062  C9
-SUB_0041_4:
+; [AI] Overlay ASCII-hex-digit to binary nibble: subtract '0', accept 0-9 (CP $0A / RET C);
+;       else adjust the A-F range (+$F9) and accept $0A-$0F; an out-of-range char jumps to
+;       the unrelocated error path at $052A.
+OVL_ASCII_TO_HEX:
         SUB $30                          ; $0063  D6 30
         CP $0A                           ; $0065  FE 0A
         RET C                            ; $0067  D8
@@ -362,19 +378,23 @@ SUB_0041_4:
         CP $10                           ; $006A  FE 10
         RET C                            ; $006C  D8
         JP $052A                         ; $006D  C3 2A 05
-SUB_0041_5:
-        CALL SUB_0041                    ; $0070  CD 41 00
+; [AI] Overlay hex-field to 16-bit value: accumulates digits from the $068B buffer into a
+;       running value via the ADD HL,HL x4 (shift left a nibble) then add-nibble loop, with
+;       BC counting up to 4 digits. OVL_PARSE_ADDR+2/_1+2 are mid-routine re-entries used by
+;       callers that skip the leading guard CALL.
+OVL_PARSE_ADDR:
+        CALL OVL_PARSE_LINE_1            ; $0070  CD 41 00
         JP Z,$052A                       ; $0073  CA 2A 05
-SUB_0041_6:
-        LD DE,L_0000                     ; $0076  11 00 00
-        LD BC,L_0000                     ; $0079  01 00 00
+OVL_PARSE_ADDR_1:
+        LD DE,OVL_CONOUT                 ; $0076  11 00 00
+        LD BC,OVL_CONOUT                 ; $0079  01 00 00
         LD HL,$068B                      ; $007C  21 8B 06
         ADD HL,BC                        ; $007F  09
         LD A,(HL)                        ; $0080  7E
         CP $20                           ; $0081  FE 20
-SUB_0041_7:
-        JP Z,SUB_0041_11+1               ; $0083  CA B0 00
-        CALL SUB_0041_6+2                ; $0086  CD 78 00
+OVL_PARSE_ADDR_2:
+        JP Z,OVL_SET_CONOUT_VECTOR_1+1   ; $0083  CA B0 00
+        CALL OVL_PARSE_ADDR_1+2          ; $0086  CD 78 00
         LD L,E                           ; $0089  6B
         LD H,D                           ; $008A  62
         ADD HL,HL                        ; $008B  29
@@ -382,52 +402,60 @@ SUB_0041_7:
         ADD HL,HL                        ; $008D  29
         ADD HL,HL                        ; $008E  29
         LD E,A                           ; $008F  5F
-SUB_0041_8:
+OVL_PARSE_ADDR_3:
         LD D,$00                         ; $0090  16 00
         ADD HL,DE                        ; $0092  19
         EX DE,HL                         ; $0093  EB
         INC BC                           ; $0094  03
         LD A,C                           ; $0095  79
         CP $04                           ; $0096  FE 04
-        JP NZ,SUB_0041_8+1               ; $0098  C2 91 00
+        JP NZ,OVL_PARSE_ADDR_3+1         ; $0098  C2 91 00
         LD B,D                           ; $009B  42
         LD C,E                           ; $009C  4B
         LD A,E                           ; $009D  7B
         DEC B                            ; $009E  05
         INC B                            ; $009F  04
         RET                              ; $00A0  C9
-SUB_0041_9:
-        CALL SUB_0041_7+2                ; $00A1  CD 85 00
+OVL_PARSE_ADDR_4:
+        CALL OVL_PARSE_ADDR_2+2          ; $00A1  CD 85 00
         JP NZ,$052A                      ; $00A4  C2 2A 05
         RET                              ; $00A7  C9
-SUB_0041_10:
-        LD HL,L_0005                     ; $00A8  21 05 00
+; [AI] Overlay self-modifier: rewrites the OVL_CONOUT_CALL site ($0005) into a JP and patches
+;       its target word, redirecting the console-output thunk to a relocated handler.
+OVL_SET_CONOUT_VECTOR:
+        LD HL,OVL_CONOUT_CALL            ; $00A8  21 05 00
         LD (HL),$C3                      ; $00AB  36 C3
         LD (HL),$C3                      ; $00AD  36 C3
-SUB_0041_11:
-        LD HL,L_0000                     ; $00AF  21 00 00
-        LD (L_0005+1),HL                 ; $00B2  22 06 00
+OVL_SET_CONOUT_VECTOR_1:
+        LD HL,OVL_CONOUT                 ; $00AF  21 00 00
+        LD (OVL_CONOUT_CALL+1),HL        ; $00B2  22 06 00
         RET                              ; $00B5  C9
-SUB_0041_12:
+; [AI] Overlay 3-bit field-to-index helper: A << 3 (three RLAs) masked to $38 -- forms a
+;       table offset from a small value. Structural (named for the shift/mask shape; its
+;       caller is outside the truncated image, so the indexed table is unknown).
+OVL_INDEX_X8:
         RLA                              ; $00B6  17
         RLA                              ; $00B7  17
         RLA                              ; $00B8  17
         AND $38                          ; $00B9  E6 38
         RET                              ; $00BB  C9
-SUB_0041_13:
+; [AI] Overlay companion index helper: A << 4 (four RLAs) masked to $30. Structural, as above.
+OVL_INDEX_X16:
         RLA                              ; $00BC  17
         RLA                              ; $00BD  17
         RLA                              ; $00BE  17
         RLA                              ; $00BF  17
         AND $30                          ; $00C0  E6 30
         RET                              ; $00C2  C9
-SUB_0041_14:
+; [AI] Overlay word compare: tests the 16-bit value in DE against the word at the $068B buffer,
+;       walking backward through a table (DEC HL x3 / DEC C) until a match or the count runs out.
+OVL_MATCH_WORD:
         EX DE,HL                         ; $00C3  EB
         LD HL,($068B)                    ; $00C4  2A 8B 06
         EX DE,HL                         ; $00C7  EB
         LD A,E                           ; $00C8  7B
         CP (HL)                          ; $00C9  BE
-        JP NZ,SUB_0041_17                ; $00CA  C2 E7 00
+        JP NZ,OVL_MATCH_BYTES_2          ; $00CA  C2 E7 00
         INC HL                           ; $00CD  23
         LD A,D                           ; $00CE  7A
         CP (HL)                          ; $00CF  BE
@@ -436,20 +464,23 @@ SUB_0041_14:
         DEC HL                           ; $00D2  2B
         DEC HL                           ; $00D3  2B
         DEC C                            ; $00D4  0D
-        JP NZ,SUB_0041_16                ; $00D5  C2 DD 00
+        JP NZ,OVL_MATCH_BYTES_1          ; $00D5  C2 DD 00
         DEC C                            ; $00D8  0D
         RET                              ; $00D9  C9
-SUB_0041_15:
+; [AI] Overlay 4-byte compare loop: matches the 4 bytes at HL against the $068B buffer
+;       (B=4 counter). The image is truncated mid-routine here ($00E8 falls off the end into
+;       an unrelocated $00F5), so the tail is incomplete.
+OVL_MATCH_BYTES:
         LD B,$04                         ; $00DA  06 04
         PUSH DE                          ; $00DC  D5
-SUB_0041_16:
+OVL_MATCH_BYTES_1:
         LD DE,$068B                      ; $00DD  11 8B 06
         LD A,(DE)                        ; $00E0  1A
         CP (HL)                          ; $00E1  BE
         JP NZ,$0102                      ; $00E2  C2 02 01
         INC HL                           ; $00E5  23
         INC DE                           ; $00E6  13
-SUB_0041_17:
+OVL_MATCH_BYTES_2:
         DEC B                            ; $00E7  05
         JP NZ,$00F5                      ; $00E8  C2 F5 00
     ENT
