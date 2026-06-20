@@ -1162,11 +1162,8 @@ INSTALL_IMG:
 ;  0F3D0H = 6502 sub-call address, Z_CPU 0F3DEH = SoftCard location (a store
 ;  there flips CPUs) [DOC S&HD 2-24/2-25 ; facts sec.4.1/4.2/4.3].
 ;   >>> CPM_BootLoader_ConInit.asm -- verbatim listing of the INCBIN'd source (regen: inject_incbin_listing) >>>
+;     INCLUDE "apple_softcard.inc"   ; Apple/SoftCard external names (single source of truth)
 ;
-; A_ACC   EQU $F045        ; 6502 A-register RPC pass cell ($45)
-; A_VEC   EQU $F3D0        ; address of 6502 subroutine to call (low-high)
-; Z_CPU   EQU $F3DE        ; SoftCard location cell ($En00); a store there flips CPUs
-; SLTTYP3 EQU $F3BB        ; Card Type Table entry for slot 3
 ; SLOT3IO EQU $E0BE        ; slot-3 device status register (Apple $C0BE)
 ;
 ;     ORG $F34A
@@ -1192,7 +1189,7 @@ INSTALL_IMG:
 ;     AND $02                     ; Tx-ready bit set?
 ;     JR Z,OUT_WAIT               ; spin until ready
 ;     LD A,C                      ; char to send
-;     LD (A_ACC),A                ; hand it to the 6502 (A-reg cell)
+;     LD (RPC_ACC),A                ; hand it to the 6502 (A-reg cell)
 ;     LD HL,$037C                 ; 6502 sub: STA $C0BF ; RTS
 ;     LD (A_VEC),HL               ; A$VEC := $037C
 ;     LD HL,(Z_CPU)               ; HL := $En00
