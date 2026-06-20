@@ -215,6 +215,7 @@ SOURCES_220: dict[str, ChunkSource | Path] = {
         asm_path=OS220 / "CPM_BIOS.asm",
         cpu="z80", org=0xDA00, size=0x0500,
         expected_bin_name="build/CPM220_BIOS_Disk.bin",
+        include_files=(SOFTCARD_INC,),
     ),
 }
 
