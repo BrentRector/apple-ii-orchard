@@ -6,6 +6,7 @@
 ; Range:  $0100-$0EFF  (3584 bytes)
 
     DEVICE NOSLOT64K
+    INCLUDE "apple_softcard.inc"   ; Apple/SoftCard external names (single source of truth)
 
 ; -- External symbols --
 WBOOT_VEC            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
@@ -225,7 +226,7 @@ TPA_START_42:
         LD L,B                           ; $0246  68
         LD H,C                           ; $0247  61
         PUSH DE                          ; $0248  D5
-        LD ($F3E0),HL                    ; $0249  22 E0 F3
+        LD (DSK_TRACK),HL                    ; $0249  22 E0 F3
         LD HL,(CHECK_SOURCE_SYSTEM_2)    ; $024C  2A 1C 05
         LD A,L                           ; $024F  7D
         CP H                             ; $0250  BC
@@ -266,7 +267,7 @@ TPA_START_47:
         LD DE,CHECK_SOURCE_SYSTEM_25     ; $0283  11 62 06
         CALL PRINT_CRLF_STRING           ; $0286  CD 34 04
         LD HL,CHECK_SOURCE_SYSTEM_43     ; $0289  21 00 08
-        LD ($F3E8),HL                    ; $028C  22 E8 F3
+        LD (DSK_BUFFER),HL                    ; $028C  22 E8 F3
 ; [AI] Reads a Y/N answer to the repeat prompt, looping until the user presses 'N' (exit) or 'Y'
 ;       (restart).
 TPA_START_48:
@@ -302,7 +303,7 @@ TPA_START_51:
 COPY_TRACK_BATCH:
         LD A,B                           ; $02C1  78
         LD (CHECK_SOURCE_SYSTEM_5),A     ; $02C2  32 1F 05
-        LD HL,($F3E0)                    ; $02C5  2A E0 F3
+        LD HL,(DSK_TRACK)                    ; $02C5  2A E0 F3
         LD (CHECK_SOURCE_SYSTEM_14),HL   ; $02C8  22 2A 05
         LD A,(CHECK_SOURCE_SYSTEM_7)     ; $02CB  3A 21 05
         OR A                             ; $02CE  B7
@@ -322,7 +323,7 @@ COPY_TRACK_BATCH:
         INC A                            ; $02EE  3C
         JP Z,ERR_SYSTEM_NOT_FOUND        ; $02EF  CA C3 03
         LD HL,(CHECK_SOURCE_SYSTEM_14)   ; $02F2  2A 2A 05
-        LD ($F3E0),HL                    ; $02F5  22 E0 F3
+        LD (DSK_TRACK),HL                    ; $02F5  22 E0 F3
 COPY_TRACK_BATCH_1:
         LD A,(CHECK_SOURCE_SYSTEM_2)     ; $02F8  3A 1C 05
         LD C,$01                         ; $02FB  0E 01
@@ -337,7 +338,7 @@ BATCH_READ_WRITE:
         CALL Z,INIT_FORMAT_DEST          ; $030A  CC 53 03
         LD HL,(CHECK_SOURCE_SYSTEM_14)   ; $030D  2A 2A 05
 COPY_TRACK_BATCH_3:
-        LD ($F3E0),HL                    ; $0310  22 E0 F3
+        LD (DSK_TRACK),HL                    ; $0310  22 E0 F3
         LD A,(CHECK_SOURCE_SYSTEM_3)     ; $0313  3A 1D 05
         LD C,$02                         ; $0316  0E 02
         CALL RW_DISK_SIDE                ; $0318  CD A2 04
@@ -346,7 +347,7 @@ COPY_TRACK_BATCH_3:
         RET Z                            ; $031F  C8
 COPY_TRACK_BATCH_4:
         LD HL,(CHECK_SOURCE_SYSTEM_14)   ; $0320  2A 2A 05
-        LD ($F3E0),HL                    ; $0323  22 E0 F3
+        LD (DSK_TRACK),HL                    ; $0323  22 E0 F3
         LD HL,(CHECK_SOURCE_SYSTEM_13)   ; $0326  2A 28 05
 COPY_TRACK_BATCH_5:
         PUSH HL                          ; $0329  E5
@@ -492,11 +493,11 @@ SET_SYSTEM_FILENAME:
         LDIR                             ; $0414  ED B0
         RET                              ; $0416  C9
 ; [AI] Invokes the relocated 6502 disk routine via the SoftCard handoff (SOFTCARD_HANDOFF) and
-;       inspects its returned status byte at $F3EA, branching to a Disk-I/O or write-protect error
+;       inspects its returned status byte at DSK_STATUS, branching to a Disk-I/O or write-protect error
 ;       if nonzero.
 CALL_6502_DISK:
         CALL SOFTCARD_HANDOFF            ; $0417  CD 2C 04
-        LD A,($F3EA)                     ; $041A  3A EA F3
+        LD A,(DSK_STATUS)                     ; $041A  3A EA F3
         OR A                             ; $041D  B7
         RET Z                            ; $041E  C8
         LD DE,CHECK_SOURCE_SYSTEM_27     ; $041F  11 C6 06
@@ -508,8 +509,8 @@ CALL_6502_DISK_1:
 ; [AI] Performs the actual Z-80-to-6502 control transfer: stores the 6502 entry address and the
 ;       command byte into the SoftCard handoff block so the 6502 side executes the disk operation.
 SOFTCARD_HANDOFF:
-        LD ($F3D0),HL                    ; $042C  22 D0 F3
-        LD HL,($F3DE)                    ; $042F  2A DE F3
+        LD (A_VEC),HL                    ; $042C  22 D0 F3
+        LD HL,(Z_CPU)                    ; $042F  2A DE F3
         LD (HL),A                        ; $0432  77
         RET                              ; $0433  C9
 ; [AI] Emits a CR/LF then prints the $-terminated string at DE via BDOS function 9.
@@ -581,7 +582,7 @@ PARSE_DRIVE_SPEC_2:
         CALL NEXT_TAIL_CHAR              ; $0477  CD 4C 04
         CP $3A                           ; $047A  FE 3A
         JR NZ,ERR_COMMAND                ; $047C  20 F3
-        LD A,($F3B8)                     ; $047E  3A B8 F3
+        LD A,(DSKCNT)                     ; $047E  3A B8 F3
         DEC A                            ; $0481  3D
         CP C                             ; $0482  B9
         LD A,C                           ; $0483  79
@@ -592,12 +593,12 @@ PRINT_ERR_RESTART:
         CALL PRINT_CRLF_STRING           ; $0488  CD 34 04
         JP TPA_START_8                   ; $048B  C3 14 01
 ; [AI] Translates a logical drive number into the 6502 disk parameters (slot/drive select and head-
-;       stepping value) stored in the SoftCard handoff block at $F3E4/$F3E6.
+;       stepping value) stored in the SoftCard handoff block at DSK_DIR/DSK_UNIT.
 DRIVE_TO_6502_PARAMS:
         LD E,A                           ; $048E  5F
         INC A                            ; $048F  3C
         AND $01                          ; $0490  E6 01
-        LD ($F3E4),A                     ; $0492  32 E4 F3
+        LD (DSK_DIR),A                     ; $0492  32 E4 F3
         LD A,E                           ; $0495  7B
         AND $0E                          ; $0496  E6 0E
         ADD A,A                          ; $0498  87
@@ -605,7 +606,7 @@ DRIVE_TO_6502_PARAMS:
         ADD A,A                          ; $049A  87
         SUB $61                          ; $049B  D6 61
         CPL                              ; $049D  2F
-        LD ($F3E6),A                     ; $049E  32 E6 F3
+        LD (DSK_UNIT),A                     ; $049E  32 E6 F3
         RET                              ; $04A1  C9
 ; [AI] Reads or writes a whole disk side starting at TPA buffer $2400: sets the operation code in C
 ;       and falls into the per-track transfer loop.
@@ -617,7 +618,7 @@ RW_DISK_SIDE:
 TRACK_TRANSFER_LOOP:
         CALL DRIVE_TO_6502_PARAMS        ; $04A5  CD 8E 04
         LD A,C                           ; $04A8  79
-        LD ($F3EB),A                     ; $04A9  32 EB F3
+        LD (DSK_CMD),A                     ; $04A9  32 EB F3
         LD A,(CHECK_SOURCE_SYSTEM_5)     ; $04AC  3A 1F 05
         LD B,A                           ; $04AF  47
 ; [AI] Body of the track-transfer loop: hands one track's parameters to the 6502 routine, then
@@ -626,10 +627,10 @@ TRACK_TRANSFER_LOOP:
 TRACK_XFER_BODY:
         PUSH BC                          ; $04B0  C5
         PUSH HL                          ; $04B1  E5
-        LD ($F3E8),HL                    ; $04B2  22 E8 F3
+        LD (DSK_BUFFER),HL                    ; $04B2  22 E8 F3
         LD HL,CHECK_SOURCE_SYSTEM_44     ; $04B5  21 03 0E
         CALL CALL_6502_DISK              ; $04B8  CD 17 04
-        LD HL,($F3E0)                    ; $04BB  2A E0 F3
+        LD HL,(DSK_TRACK)                    ; $04BB  2A E0 F3
         INC H                            ; $04BE  24
         LD A,H                           ; $04BF  7C
         SUB $10                          ; $04C0  D6 10
@@ -637,7 +638,7 @@ TRACK_XFER_BODY:
         LD H,A                           ; $04C4  67
         INC L                            ; $04C5  2C
 TRACK_TRANSFER_LOOP_2:
-        LD ($F3E0),HL                    ; $04C6  22 E0 F3
+        LD (DSK_TRACK),HL                    ; $04C6  22 E0 F3
         POP HL                           ; $04C9  E1
         INC H                            ; $04CA  24
         LD A,H                           ; $04CB  7C
@@ -689,12 +690,12 @@ CHECK_SOURCE_SYSTEM:
 CHECK_SOURCE_SYSTEM_1:
         CALL DRIVE_TO_6502_PARAMS        ; $0504  CD 8E 04
         LD HL,$2300                      ; $0507  21 00 23
-        LD ($F3E8),HL                    ; $050A  22 E8 F3
+        LD (DSK_BUFFER),HL                    ; $050A  22 E8 F3
         LD A,$01                         ; $050D  3E 01
-        LD ($F3EB),A                     ; $050F  32 EB F3
+        LD (DSK_CMD),A                     ; $050F  32 EB F3
         LD HL,CHECK_SOURCE_SYSTEM_44     ; $0512  21 03 0E
         CALL SOFTCARD_HANDOFF            ; $0515  CD 2C 04
-        LD A,($F3EA)                     ; $0518  3A EA F3
+        LD A,(DSK_STATUS)                     ; $0518  3A EA F3
         RET                              ; $051B  C9
 CHECK_SOURCE_SYSTEM_2:
         DEFB    $00                                              ; $051C
@@ -806,7 +807,7 @@ CHECK_SOURCE_SYSTEM_43:
 ; the 6502). Disassembled as real 6502 in COPY_6502.s (ca65) and INCBIN'd here
 ; byte-for-byte. The block is RELOCATED +$1000 to run at $1900-$1E7F (its
 ; internal self-refs are $19xx-$1Exx). The Z-80 hands the 6502 a run-address via
-; $F3D0: $1900 (format track), $1E03 (read/write track = CHECK_SOURCE_SYSTEM_44),
+; A_VEC: $1900 (format track), $1E03 (read/write track = CHECK_SOURCE_SYSTEM_44),
 ; $1E67 (write-prep). See COPY_6502.s for the full routine map + data tables.
 COPY_6502:
         INCBIN  "COPY_6502.bin"          ; $0900-$0E7F  (1408 bytes of 6502)

@@ -4200,7 +4200,7 @@ GFX_SOFTSW_TEXT_PAGE1:
         LD A,(GFX_STMT_HPLOT_8)          ; $45D5  3A 96 4B
         OR A                             ; $45D8  B7
         JR Z,GFX_SOFTSW_TEXT_PAGE1_1     ; $45D9  28 06
-        LD HL,HOME                       ; $45DB  21 58 FC
+        LD HL,HOME_ROM                   ; $45DB  21 58 FC
         CALL RPC_CALL                    ; $45DE  CD E7 45
 GFX_SOFTSW_TEXT_PAGE1_1:
         XOR A                            ; $45E1  AF

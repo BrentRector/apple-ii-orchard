@@ -6,6 +6,7 @@
 ; Range:  $0100-$14FF  (5120 bytes)
 
     DEVICE NOSLOT64K
+    INCLUDE "apple_softcard.inc"   ; Apple/SoftCard external names (single source of truth)
 
 ; -- External symbols --
 BDOS_VEC             EQU $0005               ; BDOS call vector — JP BDOS_ENTRY. Programs use CALL $0005 to invoke BDOS. Word at $0006 is also the top-of-TPA marker.
@@ -45,11 +46,11 @@ RELOC_START_4:
 ;       copyright text.
 RELOC_START_5:
         CALL BDOS_VEC                    ; $0147  CD 05 00
-; [AI] Reads a system byte at $F3BB (a SoftCard/CP/M memory-size or configuration cell) to decide
+; [AI] Reads a system byte at SLTTYP3 (a SoftCard/CP/M memory-size or configuration cell) to decide
 ;       the relocation/flag value stored at $08A4 below. Begins the logic that tailors DDT's self-
 ;       relocation to the running system's memory size.
 RELOC_START_6:
-        LD A,($F3BB)                     ; $014A  3A BB F3
+        LD A,(SLTTYP3)                     ; $014A  3A BB F3
 RELOC_START_7:
         OR A                             ; $014D  B7
 RELOC_START_8:

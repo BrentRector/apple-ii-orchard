@@ -6,6 +6,7 @@
 ; Range:  $0100-$03FF  (768 bytes)
 
     DEVICE NOSLOT64K
+    INCLUDE "apple_softcard.inc"   ; Apple/SoftCard external names (single source of truth)
 
 ; -- External symbols --
 WBOOT_VEC            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
@@ -97,7 +98,7 @@ INIT_CATALOG_13:
         INC HL                           ; $016E  23
         DJNZ INIT_CATALOG_13                 ; $016F  10 FB
 INIT_CATALOG_14:
-        LD A,($F3BB)                     ; $0171  3A BB F3
+        LD A,(SLTTYP3)                     ; $0171  3A BB F3
 INIT_CATALOG_15:
         OR A                             ; $0174  B7
 INIT_CATALOG_16:

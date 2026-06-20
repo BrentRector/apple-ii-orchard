@@ -6,6 +6,7 @@
 ; Range:  $0100-$02FF  (512 bytes)
 
     DEVICE NOSLOT64K
+    INCLUDE "apple_softcard.inc"   ; Apple/SoftCard external names (single source of truth)
 
 ; -- External symbols --
 BDOS_VEC             EQU $0005               ; BDOS call vector — JP BDOS_ENTRY. Programs use CALL $0005 to invoke BDOS. Word at $0006 is also the top-of-TPA marker.
@@ -53,13 +54,13 @@ TPA_START_13:
         JR Z,TPA_START_15                ; $0122  28 02
 TPA_START_14:
         LD H,$C6                         ; $0124  26 C6
-; [AI] Stores the chosen 6502 boot entry address into the SoftCard hand-off slot at $F3D0, then
-;       reads the saved return pointer from $F3DE before jumping to the $000B switch routine that
+; [AI] Stores the chosen 6502 boot entry address into the SoftCard hand-off slot at A_VEC, then
+;       reads the saved return pointer from Z_CPU before jumping to the $000B switch routine that
 ;       drops back to the 6502.
 TPA_START_15:
-        LD ($F3D0),HL                    ; $0126  22 D0 F3
+        LD (A_VEC),HL                    ; $0126  22 D0 F3
 TPA_START_16:
-        LD HL,($F3DE)                    ; $0129  2A DE F3
+        LD HL,(Z_CPU)                    ; $0129  2A DE F3
 TPA_START_17:
         JP $000B                         ; $012C  C3 0B 00
 ; [AI] BDOS fn-9 prompt string (terminated by '$'). Printed when no density arg is

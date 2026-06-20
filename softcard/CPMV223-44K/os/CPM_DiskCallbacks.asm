@@ -10,6 +10,7 @@
 ; Range:  $1A00-$1BFF  (512 bytes)
 
     DEVICE NOSLOT64K
+    INCLUDE "apple_softcard.inc"   ; Apple/SoftCard external names (single source of truth)
 
     ORG $1A00
 
@@ -21,7 +22,7 @@
 ;       Apple-side disk drivers and disk sector buffers themselves live at 6502 $800-$FFF (Z-80
 ;       0F800-0FFFF) and are NOT touchable by ordinary 6502 subroutine calls. Crossing to the 6502
 ;       to run that hardware access is the RPC mechanism: the Z-80 stores a 6502 target at A$VEC
-;       ($F3D0) and WRITEs through the SoftCard cell Z$CPU ($F3DE) to switch CPUs and execute it.
+;       (A_VEC) and WRITEs through the SoftCard cell Z$CPU (Z_CPU) to switch CPUs and execute it.
 ;       [AI] $1A00-$1AAB is a back-to-back series of 15 small Z-80 thunks. They are NOT reached by
 ;       recursive descent from $1A00 (that path is just XOR C / JP $A929); each thunk is ENTERED FROM
 ;       OUTSIDE -- the resident $A9xx/$A8xx/... system jumps/calls directly into the individual $1Axx

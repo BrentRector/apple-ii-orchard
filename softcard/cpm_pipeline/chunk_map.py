@@ -85,6 +85,7 @@ SOURCES_223: dict[str, ChunkSource | Path] = {
         asm_path=OS223_44K / "CPM_DiskCallbacks.asm",
         cpu="z80", org=0x1A00, size=0x0200,
         expected_bin_name="build/CPM223_DiskCallbacks.bin",
+        include_files=(SOFTCARD_INC,),
     ),
     # The CP/M system image is TWO independent modules -- the CCP and the BDOS --
     # each its own source file. CPM_CCP.asm carries the CCP (staged $8000-$8CFF) and
@@ -108,6 +109,7 @@ SOURCES_223: dict[str, ChunkSource | Path] = {
         asm_path=OS223_44K / "CPM_BIOS.asm",
         cpu="z80", org=0xFA00, size=0x0400,
         expected_bin_name="build/CPM223_BIOS_Disk.bin",
+        include_files=(SOFTCARD_INC,),
     ),
 }
 

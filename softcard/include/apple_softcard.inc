@@ -108,4 +108,4 @@ VLINE       EQU $F828      ; lo-res vertical line (A=top row, V2=bottom, Y=col) 
 SCRN_ROM    EQU $F871      ; read lo-res pixel (Y,A) -> A colour 0..15            [apple2.json]
 PREAD       EQU $FB1E      ; read game-paddle/timer -> Y [DOC S&HD 2-25] [apple2.json]
 TEXT_ROM    EQU $FB2F      ; set text mode + full-screen window                  [apple2.json]
-HOME        EQU $FC58      ; clear text window, home cursor                      [apple2.json]
+HOME_ROM    EQU $FC58      ; clear text window, home cursor                      [apple2.json]
