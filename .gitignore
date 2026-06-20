@@ -28,6 +28,7 @@ emu_*.bin
 **/lowmem_*.bin
 **/rwts_*.bin
 **/title_*.bin
+**/installfragments_*.bin
 # cross-CPU INCBIN build artifacts: the .asm/.s sources are tracked, the .bin is
 # sub-assembled at build time (see chunk_map incbin_deps) and must not be tracked
 **/CPM_BootLoader_*.bin
