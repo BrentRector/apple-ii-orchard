@@ -20,7 +20,7 @@
 ;                            $BAxx/$BBxx/$BExx/$BFxx run-address, never the $0Axx store
 ;                            address. Decoded here at its store address; the instruction
 ;                            stream is identical either way.
-;     (3) $0C39-$0D43  Z-80  a Z-80 routine embedded inside the RWTS page image (it lives
+;     (3) $0C39-$0D4A  Z-80  a Z-80 routine embedded inside the RWTS page image (it lives
 ;                            in LC RAM at $BC39 after the copy, interleaved with the 6502
 ;                            nibble tables that physically follow at $BD5A/$BD9A). It is
 ;                            executed by the Z-80 CPU after the handoff, NOT by the 6502.
@@ -474,17 +474,19 @@ CPM_READ_TRACKS_2:
         LDX #$00                     ; $0C25  A2 00
         INC $03E0                    ; $0C27  EE E0 03
 ; ----------------------------------------------------------------------------
-; [AI] Z-80 ROUTINE embedded in the RWTS page image  ($0C39-$0D44 in file)
+; [AI] Z-80 ROUTINE embedded in the RWTS page image  ($0C39-$0D4A in file)
 ; ----------------------------------------------------------------------------
-; [AI] These 268 bytes ($0C39-$0D44) are Z-80 machine code, NOT 6502. After the
+; [AI] These 274 bytes ($0C39-$0D4A) are Z-80 machine code, NOT 6502. After the
 ;      copy they reside in language-card RAM at $BC39 and are executed by the Z-80
 ;      CPU once CP/M is running -- they are the disk read/sector-translate glue the
 ;      Z-80 BIOS calls (entries SECTOR_MAP $BC39 and DISK_READ $BD25), operating on
 ;      the BIOS scratch at $FExx and the page-3 IOB mirror at $F3xx ($03xx as seen
 ;      by the 6502). Never executed by the 6502. Assembled by the Z-80 assembler
 ;      from CPM_BootLoader_DiskXlate.asm (ORG'd at its $BC39 run address) and
-;      INCBIN'd here -- reassembles byte-identical to the original $0C39-$0D44
-;      bytes. The 6502 nibble-translate tables the RWTS reads ($BD5A write table,
+;      INCBIN'd here -- reassembles byte-identical to the original $0C39-$0D4A
+;      bytes (the DISK_READ error-classify tail at $BD45-$BD4A is now part of the
+;      routine, no longer a trailing .byte). The 6502 nibble-translate tables the
+;      RWTS reads ($BD5A write table,
 ;      $BD04+$96.. read table) physically follow this region in the page image.
 CPM_READ_TRACKS_3:
         STX $03E1                    ; $0C2A  8E E1 03
@@ -525,6 +527,7 @@ CPM_READ_TRACKS_3:
 ; BIOS_SEEK   EQU $AD25        ; BIOS seek/recalibrate helper
 ; BIOS_FLUSH  EQU $AD2C        ; BIOS deblock-flush helper
 ; BIOS_RWTS   EQU $FEC3        ; BIOS RWTS issue (runs one IOB operation)
+; BIOS_ERR    EQU $FEC6        ; BIOS RWTS error-handler entry (read failed)
 ; BIOS_RETRY  EQU $FECA        ; BIOS RWTS retry/return continuation
 ;
 ;     ORG $BC39
@@ -691,9 +694,11 @@ CPM_READ_TRACKS_3:
 ;         RET Z                            ; $BD41  C8         ok -> return
 ;         POP DE                           ; $BD42  D1
 ;         CP $10                           ; $BD43  FE 10      classify the error code
+;         JR NZ,SM_RET                     ; $BD45  20 DB      not a hard error -> SM_RET ($BD22)
+;         JP BIOS_ERR                      ; $BD47  C3 C6 FE   hard error -> BIOS error handler
+;         NOP                              ; $BD4A  00         pad to the page-table boundary
 ;   <<< end listing <<<
-        .incbin "CPM_BootLoader_DiskXlate.bin"   ; $0C39-$0D44  (Z-80; byte-identical)
-        .byte   $20, $DB, $C3, $C6, $FE, $00                     ; $0D45  " [CF~"
+        .incbin "CPM_BootLoader_DiskXlate.bin"   ; $0C39-$0D4A  (Z-80; byte-identical)
         .byte   $09, $03, $0C, $06, $0F, $01, $0A, $04, $0D, $07, $08, $02, $0B, $05, $0E, $96 ; $0D4B
         .byte   $97, $9A, $9B, $9D, $9E, $9F, $A6, $A7, $AB, $AC, $AD, $AE, $AF, $B2, $B3, $B4 ; $0D5B
         .byte   $B5, $B6, $B7, $B9, $BA, $BB, $BC, $BD, $BE, $BF, $CB, $CD, $CE, $CF, $D3, $D6 ; $0D6B

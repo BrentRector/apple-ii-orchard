@@ -14,8 +14,8 @@ filesystem (the 20 `.COM`/data files in `utilities/`).
 1. **Disk II P6 boot ROM** reads track 0 sector 0 to `$0800` and jumps in — the
    one standard sector. Everything after is the SoftCard's own code.
 2. **6502 boot loader** (`os/CPM_BootLoader.s`, runs `$0800`; the `$1000` page is
-   the relocator). It pulls in the **RWTS** (`os/CPM_RWTS.s`) and the
-   **install fragments** (`os/CPM_InstallFragments.s`), then runs `LOAD_CPM`: a
+   the relocator). It contains the **RWTS** (`$0A00-$0FFF`) and the **install
+   image** (`$1200-$13FF`, run at `$0200-$03FF`) inline, then runs `LOAD_CPM`: a
    29-sector read off tracks 0-2 (phys `0:$B..$F`, `1:$0..$F`, `2:$0..$7`) that
    stages the Z-80 system into low memory:
 

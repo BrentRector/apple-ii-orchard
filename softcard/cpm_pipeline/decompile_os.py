@@ -59,9 +59,11 @@ class OsRegion:
 # values the byte-identical gold sources assemble at).
 _REGIONS = {
     "softcard_cpm_2_23": [
+        # BootLoader ($0800-$13FF) is the single decode of the Apple-side OS: it
+        # already contains the RWTS ($0A00-$0FFF) and the install image
+        # ($1200-$13FF, run at $0200-$03FF), so there are no separate RWTS /
+        # InstallFragments regions (they were byte-identical duplicates).
         OsRegion("BootLoader", "6502", 0x0800, 0x0C00, "loader_223.bin", ("apple2.json",)),
-        OsRegion("RWTS", "6502", 0x0A00, 0x0600, "rwts_223.bin", ("apple2.json",)),
-        OsRegion("InstallFragments", "6502", 0x0200, 0x0200, "installfragments_223.bin", ("apple2.json",)),
         OsRegion("DiskCallbacks", "z80", 0x1A00, 0x0200, "diskcallbacks_223.bin",
                  ("cpm_2_2.json", "cpm_2_23_bios.json")),
         # The system image is two independent modules. The $8000 staging bin holds
@@ -77,9 +79,9 @@ _REGIONS = {
                  ("cpm_2_2.json", "cpm_2_23_bios.json")),
     ],
     "softcard_cpm_2_20": [
+        # BootLoader ($0800-$13FF) already contains the RWTS + install image, so no
+        # separate RWTS / InstallFragments regions (byte-identical duplicates).
         OsRegion("BootLoader", "6502", 0x0800, 0x0C00, "loader_220.bin", ("apple2.json",)),
-        OsRegion("RWTS", "6502", 0x0A00, 0x0600, "rwts_220.bin", ("apple2.json",)),
-        OsRegion("InstallFragments", "6502", 0x0200, 0x0200, "installfragments_220.bin", ("apple2.json",)),
         OsRegion("SystemImage", "z80", 0x8000, 0x1700, "sysimg_220.bin", ("cpm_2_2.json",)),
         # AS-SHIPPED pristine on-disk BIOS ($DA00-$DEFF, 1280 B); the patched $0800
         # runtime form lives only in bios_220.bin (version_delta cold-boot trace).

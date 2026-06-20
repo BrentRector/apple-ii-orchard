@@ -11,12 +11,10 @@ human reading, modification, and rebuild:
             03_cold_boot.txt              -- Phase 4 (trace-z80) report
             04_handoff.txt                -- Phase 5 (handoff) report
         source/
-            CPM223_BootLoader.asm         -- ca65 source (6502)
-            CPM223_RWTS.asm
-            CPM223_DiskCallbacks.asm      -- sjasmplus source (Z-80)
+            CPM_BootLoader.s              -- ca65 source (6502); incl. RWTS + install image
+            CPM_DiskCallbacks.asm         -- sjasmplus source (Z-80)
             CPM_CCP.asm  +  CPM_BDOS.asm   -- the two system-image modules
-            CPM223_BIOS.asm
-            CPM223_InstallFragments.asm
+            CPM_BIOS.asm
         symbols/
             apple2.json
             cpm_2_2.json
@@ -86,10 +84,12 @@ class GenerateResult:
 # sourced from its canonical per-disk os/ tree (CPMV223-44K/os/, CPMV220/os/; the
 # docs/CPM*.asm round-trip sources are retired). Base = SOURCE_BASE_BY_VARIANT.
 SOURCES_BY_VARIANT = {
+    # CPM_BootLoader.s is the single canonical decode of the Apple-side OS
+    # ($0800-$13FF) -- it already contains the RWTS and the install image, so there
+    # are no separate CPM_RWTS.s / CPM_InstallFragments.s (they were byte-identical
+    # duplicates and are removed).
     "softcard_cpm_2_23": [
         "CPM_BootLoader.s",
-        "CPM_RWTS.s",
-        "CPM_InstallFragments.s",
         "CPM_DiskCallbacks.asm",
         # The system image is two independent modules: CCP (which INCLUDEs BDOS to
         # assemble the staging image) + BDOS. (Was the combined CPM_SystemImage.asm.)
@@ -99,8 +99,6 @@ SOURCES_BY_VARIANT = {
     ],
     "softcard_cpm_2_20": [
         "CPM_BootLoader.s",
-        "CPM_RWTS.s",
-        "CPM_InstallFragments.s",
         "CPM_SystemImage.asm",
         "CPM_BIOS.asm",
     ],

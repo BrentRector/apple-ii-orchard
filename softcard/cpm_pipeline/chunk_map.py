@@ -74,14 +74,11 @@ SOURCES_223: dict[str, ChunkSource | Path] = {
              OS223_44K / "CPM_BootLoader_DiskXlate.asm", ()),
         ),
     ),
-    "CPM223_RWTS": ChunkSource(
-        asm_path=OS223_44K / "CPM_RWTS.s",
-        cpu="6502", org=0x0A00, size=0x0600,
-    ),
-    "CPM223_InstallFragments": ChunkSource(
-        asm_path=OS223_44K / "CPM_InstallFragments.s",
-        cpu="6502", org=0x0200, size=0x0200,
-    ),
+    # NOTE: there is no separate CPM223_RWTS / CPM223_InstallFragments source.
+    # CPM_BootLoader.s ($0800-$13FF) is the single canonical decode and already
+    # contains the RWTS ($0A00-$0FFF) and the install image ($1200-$13FF, run at
+    # $0200-$03FF); the former standalone files were byte-identical duplicates the
+    # build never placed, so they were removed.
     "CPM223_DiskCallbacks": ChunkSource(
         asm_path=OS223_44K / "CPM_DiskCallbacks.asm",
         cpu="z80", org=0x1A00, size=0x0200,
@@ -199,14 +196,9 @@ SOURCES_220: dict[str, ChunkSource | Path] = {
              OS220 / "CPM_BootLoader_ConInit.asm", ()),
         ),
     ),
-    "CPM220_RWTS": ChunkSource(
-        asm_path=OS220 / "CPM_RWTS.s",
-        cpu="6502", org=0x0A00, size=0x0600,
-    ),
-    "CPM220_InstallFragments": ChunkSource(
-        asm_path=OS220 / "CPM_InstallFragments.s",
-        cpu="6502", org=0x0200, size=0x0200,
-    ),
+    # (No separate CPM220_RWTS / CPM220_InstallFragments: CPM_BootLoader.s is the
+    # single canonical decode of $0800-$13FF, which already includes both regions;
+    # the standalone files were byte-identical duplicates the build never placed.)
     "CPM220_SystemImage": ChunkSource(
         asm_path=OS220 / "CPM_SystemImage.asm",
         cpu="z80", org=0x8000, size=0x1700,

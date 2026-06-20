@@ -2,7 +2,7 @@
 ;  CPM_BootLoader_DiskXlate.asm -- Z-80 disk read/sector-translate glue that
 ;  lives INSIDE the 2.23 / 44K 6502 boot image and is executed by the Z-80, not
 ;  the 6502 (the CPM_RPC6502 pattern, reversed CPU: the boot image is 6502/ca65,
-;  but these 268 bytes are Z-80 code, so they are assembled by the Z-80 assembler
+;  but these 274 bytes are Z-80 code, so they are assembled by the Z-80 assembler
 ;  and the resulting binary is INCBIN'd back into CPM_BootLoader.s at the right
 ;  offset). Stored in the boot image at $0C39, relocated by LOAD_CPM's PAGE_COPY
 ;  into language-card RAM at $BC39, and executed there by the Z-80 once CP/M is
@@ -14,7 +14,9 @@
 ;                         track/sector + buffer move; drives the page-3 IOB mirror
 ;                         at $F3xx (Apple $03xx) and the BIOS disk scratch at $FExx.
 ;    DISK_READ   ($BD25)  set up and issue one RWTS read through the IOB, then test
-;                         the completion status.
+;                         the completion status; its error-classify tail ($BD45-
+;                         $BD4A) jumps back to SM_RET on a soft error or to the BIOS
+;                         error handler ($FEC6) on a hard one.
 ;
 ;  Addresses are the Z-80 run view: $F3xx = Apple $03xx (page-3 IOB mirror, as the
 ;  6502 sees $03xx); $FExx = the Z-80 BIOS disk scratch; $ADxx = Z-80 BIOS helper
@@ -22,7 +24,7 @@
 ;  relative jump resolves to a label here. Byte-identical does NOT depend on ORG
 ;  (SAVEBIN emits the bytes regardless); $BC39 is chosen only so the JR/JR-cc
 ;  operands land on these labels. Reassembles BYTE-IDENTICAL to the original
-;  $0C39-$0D44 bytes (268 = $10C).
+;  $0C39-$0D4A bytes (274 = $112).
 ; ============================================================================
     DEVICE NOSLOT64K
 
@@ -54,6 +56,7 @@ BIOS_SKEW   EQU $AD4A        ; logical->physical sector skew table base
 BIOS_SEEK   EQU $AD25        ; BIOS seek/recalibrate helper
 BIOS_FLUSH  EQU $AD2C        ; BIOS deblock-flush helper
 BIOS_RWTS   EQU $FEC3        ; BIOS RWTS issue (runs one IOB operation)
+BIOS_ERR    EQU $FEC6        ; BIOS RWTS error-handler entry (read failed)
 BIOS_RETRY  EQU $FECA        ; BIOS RWTS retry/return continuation
 
     ORG $BC39
@@ -220,5 +223,8 @@ DISK_READ:
         RET Z                            ; $BD41  C8         ok -> return
         POP DE                           ; $BD42  D1
         CP $10                           ; $BD43  FE 10      classify the error code
+        JR NZ,SM_RET                     ; $BD45  20 DB      not a hard error -> SM_RET ($BD22)
+        JP BIOS_ERR                      ; $BD47  C3 C6 FE   hard error -> BIOS error handler
+        NOP                              ; $BD4A  00         pad to the page-table boundary
 
-    SAVEBIN "{out_bin}", $BC39, $010C    ; 268 bytes, $BC39..$BD44
+    SAVEBIN "{out_bin}", $BC39, $0112    ; 274 bytes, $BC39..$BD4A

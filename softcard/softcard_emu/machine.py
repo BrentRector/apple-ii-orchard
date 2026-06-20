@@ -345,7 +345,7 @@ class SoftCardMachine:
         2.20's RWTS lives at different addresses and never reaches $BE11, so
         on a 2.20 disk this hook simply never fires.
         """
-        # Live RWTS state block (contract from docs/CPM223_RWTS.asm):
+        # Live RWTS state block (contract from the RWTS in CPMV223-44K/os/CPM_BootLoader.s, $0A00-$0FFF):
         #   $03E0       track
         #   $03E1       sector, CP/M-logical (physical via skew table $BF9E)
         #   $03E4       drive select (bit 0 = drive 1 present)

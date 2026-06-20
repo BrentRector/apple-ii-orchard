@@ -31,9 +31,7 @@ system. These sources reassemble to exactly those bytes; the disk build
 
 | File | CPU | Load | What it is |
 |------|-----|------|------------|
-| `CPM_BootLoader.s` | 6502 | `$0800` | Stage-2 boot loader, install-copy logic, the `LOAD_CPM` staging read |
-| `CPM_RWTS.s` | 6502 | `$0A00` | Read/Write Track-Sector engine (GCR 6-and-2 codec) |
-| `CPM_InstallFragments.s` | 6502 | `$0200` | Fragments the stage-2 loader copies into place |
+| `CPM_BootLoader.s` | 6502 | `$0800` | Stage-2 boot loader (`$0800-$13FF`): install-copy logic, the `LOAD_CPM` staging read, the RWTS (`$0A00-$0FFF`, GCR 6-and-2 codec), and the install image (`$1200-$13FF`, run at `$0200-$03FF`). The single canonical decode of the Apple-side OS |
 | `CPM_DiskCallbacks.asm` | Z-80 | `$1A00` | Z-80 thunks bridging BDOS/BIOS disk requests to the 6502 RWTS |
 | `CPM_CCP.asm` | Z-80 | `$8000` | The CCP module; also assembles the staged **CCP + BDOS** image `LOAD_CPM` reads, by INCLUDEing `CPM_BDOS.asm` (runs at `$9300`/`$9C00`) |
 | `CPM_BDOS.asm` | Z-80 | `$9C00` | The 2.23 BDOS module (builds standalone; INCLUDEd by `CPM_CCP.asm` under `DISP $9C00`) |
