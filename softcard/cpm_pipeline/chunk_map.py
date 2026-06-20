@@ -34,6 +34,8 @@ INVEST = REPO_ROOT / "cpm-investigation"
 OS223_44K = REPO_ROOT / "CPMV223-44K" / "os"   # canonical 2.23 OS source tree (disk build reads here)
 OS220 = REPO_ROOT / "CPMV220" / "os"           # canonical 2.20B-56K OS source tree
 OS220_44K = REPO_ROOT / "CPMV220-44K" / "os"   # canonical 2.20-44K OS source tree (clean-room decompile)
+INCLUDE_DIR = REPO_ROOT / "include"            # shared single-source-of-truth EQU includes
+SOFTCARD_INC = INCLUDE_DIR / "apple_softcard.inc"   # Apple/SoftCard external-address names
 
 
 @dataclass(frozen=True)
@@ -308,6 +310,7 @@ SOURCES_220_44K: dict[str, ChunkSource | Path] = {
         asm_path=OS220_44K / "CPM_BIOS.asm",
         cpu="z80", org=0xAA00, size=0x0500,
         expected_bin_name="build/CPM220_44K_BIOS_Disk.bin",
+        include_files=(SOFTCARD_INC,),
     ),
 }
 

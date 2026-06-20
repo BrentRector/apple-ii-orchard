@@ -4114,7 +4114,7 @@ SCREEN_POS_FROM_TABLE:
         LD E,$07                         ; $4554  1E 07
         CALL SCREEN_POS_EMIT             ; $4556  CD 75 45
         LD HL,($0B11)                    ; $4559  2A 11 0B
-        LD A,($F396)                     ; $455C  3A 96 F3
+        LD A,(SXYOFF)                    ; $455C  3A 96 F3
         OR A                             ; $455F  B7
         JP P,SCREEN_POS_FROM_TABLE_1     ; $4560  F2 68 45
         AND $7F                          ; $4563  E6 7F
@@ -4135,7 +4135,7 @@ SCREEN_POS_FROM_TABLE_1:
 ; [RE] Emits one cursor-position component. Indexes the $F397 screen-config cell by E, applies the bit7 'present' test (AND $7F), and routes the value through the console output routine $6704. Part of the HTAB/VTAB cursor positioning path.
 SCREEN_POS_EMIT:
         LD D,$00                         ; $4575  16 00
-        LD HL,$F397                      ; $4577  21 97 F3
+        LD HL,SFLDIN                     ; $4577  21 97 F3
         ADD HL,DE                        ; $457A  19
         LD A,(HL)                        ; $457B  7E
         OR A                             ; $457C  B7
@@ -4143,7 +4143,7 @@ SCREEN_POS_EMIT:
         JP P,SCREEN_POS_EMIT_1           ; $457E  F2 8B 45
         AND $7F                          ; $4581  E6 7F
         PUSH AF                          ; $4583  F5
-        LD A,($F397)                     ; $4584  3A 97 F3
+        LD A,(SFLDIN)                    ; $4584  3A 97 F3
         CALL OUTDO_DEVICE2               ; $4587  CD 04 67
         POP AF                           ; $458A  F1
 SCREEN_POS_EMIT_1:
@@ -14762,7 +14762,7 @@ INIT_RPC_PATCH_1:
         LD (COLOR),A                     ; $8277  32 30 F0
 ; [RE] Cold-start console-width select from the SoftCard card type. LD A,($F3BB) reads SLTTYP+2 (the screen/card descriptor in the $F3xx I/O-config block): value 3 or 2 picks the 80-column geometry, else default $28 (40 columns). Result stored in the width cell $4B97 used by the cursor/screen code. [DOC: SoftCard I/O config / Card Type Table -- 40 vs 80 column console.]
 INIT_SCREEN_WIDTH:
-        LD A,(CARDTYPE_S3)               ; $827A  3A BB F3
+        LD A,(SLTTYP3)                   ; $827A  3A BB F3
         SUB $03                          ; $827D  D6 03
         JR Z,COLD_SET_WIDTH+1            ; $827F  28 06
 INIT_SCREEN_WIDTH_1:

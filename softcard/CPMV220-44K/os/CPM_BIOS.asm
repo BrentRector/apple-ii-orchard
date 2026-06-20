@@ -40,38 +40,12 @@
 
     DEVICE NOSLOT64K
 
-; ---- I/O Vector Table (config block) -- [DOC S&HD 2-18/2-19 ; facts sec.3.2] --
-; Eleven 2-byte primitive character-I/O vectors at $F380..$F394, normally
-; pointing into the BIOS; the CONST/CONIN/CONOUT/READER/PUNCH/LIST primitives
-; JP through these cells.
-CONST_VEC   EQU $F380        ; Console status vector
-CONIN1_VEC  EQU $F382        ; Console input vector #1 (TTY:/CRT:)
-CONIN2_VEC  EQU $F384        ; Console input vector #2 (UC1:)
-CONOUT1_VEC EQU $F386        ; Console output vector #1
-CONOUT2_VEC EQU $F388        ; Console output vector #2
-RDR1_VEC    EQU $F38A        ; Reader input vector #1
-RDR2_VEC    EQU $F38C        ; Reader input vector #2
-PUN1_VEC    EQU $F38E        ; Punch output vector #1
-PUN2_VEC    EQU $F390        ; Punch output vector #2
-LIST1_VEC   EQU $F392        ; List output vector #1
-LIST2_VEC   EQU $F394        ; List output vector #2
-; ---- Screen-function header/tables -- [DOC S&HD 2-14/2-15 ; facts sec.3.3/3.4]
-; Each 11-byte screen-function table starts with two header bytes (XY offset,
-; lead-in); the software table (matched against input) sits at $F396.., the
-; parallel hardware table (emitted to the terminal) at $F3A1..
-SXYOFF      EQU $F396        ; Software cursor XY coordinate offset (hi bit = X/Y order) [DOC S&HD 2-14]
-SFLDIN      EQU $F397        ; Software function lead-in char (0 = none) [DOC S&HD 2-14]
-HXYOFF      EQU $F3A1        ; Hardware cursor XY coordinate offset [DOC S&HD 2-14]
-HFLDIN      EQU $F3A2        ; Hardware function lead-in char [DOC S&HD 2-14]
-; ---- Disk count / card type table -- [DOC S&HD 2-26/2-27 ; facts sec.3.6/3.7]
-DSKCNT      EQU $F3B8        ; Disk Count Byte (controllers x2); Card Type Table indexes from here [DOC S&HD 2-27]
-SLTTYP      EQU $F3B9        ; Card Type Table base (entry for slot S at DSKCNT+S) [DOC S&HD 2-26]
-; ---- 6502 RPC mechanism -- [DOC S&HD 2-24/2-25 ; facts sec.4] ------------
-A_ACC       EQU $F045        ; 6502 A-register pass cell ($45) [DOC S&HD 2-24]
-A_XREG      EQU $F047        ; 6502 X-register pass cell ($47; $46 is Y, Y before X) [DOC S&HD 2-24]
-A_VEC       EQU $F3D0        ; address of 6502 subroutine to call (low-high) [DOC S&HD 2-25]
-KEYBD       EQU $E000        ; Apple keyboard (Z-80 view of 6502 $C000) [DOC S&HD 2-23]
-KEYSTB      EQU $E010        ; keyboard clear-strobe (KEYBD+$10) [DOC S&HD 2-23]
+; Apple / SoftCard external addresses -- the I/O Vector Table ($F380-$F394), the
+; screen-function cells (SXYOFF/SFLDIN/HXYOFF/HFLDIN), the Card Type Table
+; (DSKCNT/SLTTYP), the 6502 RPC cells (A_VEC, RPC_ACC, RPC_YREG) and the keyboard
+; (KEYBD/KEYSTB) -- all come from the shared single-source-of-truth include
+; (manual-cited / apple2.json). See softcard/include/apple_softcard.inc.
+    INCLUDE "apple_softcard.inc"
 ; ---- CP/M low memory -----------------------------------------------------
 BDOS_ENTRY  EQU $9C06        ; BDOS entry (44K: FBASE $9C00 + 6) -- [DOC CPMREF 3-41/3-42 ; facts sec.2.3]
 CCP_ENTRY   EQU $9400        ; CCP entry (44K: CBASE) -- [DOC CPMREF 3-41/3-42 ; facts sec.2.3]
@@ -656,7 +630,7 @@ CHAR_OUT_HI:
         LD HL,$F3DD                      ; $AE8A  config flag
         XOR (HL)                         ; $AE8D
 CHAR_POKE:
-        LD (A_ACC),A                     ; $AE8E  $F045 = char for 6502
+        LD (RPC_ACC),A                     ; $AE8E  $F045 = char for 6502
         LD HL,$FDF0                      ; $AE91  Apple Monitor COUT1
         JR $AF0F                         ; $AE94  -> 6502 RPC trampoline (off-image)
 
@@ -696,7 +670,7 @@ COLD_BOOT:
         INC H                            ; $AEA8
         RET P                            ; $AEA9
 CURSOR_XY:                               ; $AEAA  cursor X/Y word (overlaps code)
-        LD (A_ACC),A                     ; $AEAA  $F045
+        LD (RPC_ACC),A                     ; $AEAA  $F045
         LD HL,$FBC1                      ; $AEAD  Apple Monitor routine
         RET                              ; $AEB0
 
@@ -766,10 +740,10 @@ WAIT_POKE_LP:
 ; ============================================================================
 RPC_SETUP:
         LD A,C                           ; $AEEA
-        LD (A_ACC),A                     ; $AEEB  $F045 = 6502 A pass cell [DOC S&HD 2-24/2-25]
+        LD (RPC_ACC),A                     ; $AEEB  $F045 = 6502 A pass cell [DOC S&HD 2-24/2-25]
         CALL RPC_CALL_6502                    ; $AEEE  (runtime) 6502 call
         LD ($F6F8),A                     ; $AEF1
-        LD (A_XREG),A                    ; $AEF4  $F047 = 6502 X pass cell [DOC S&HD 2-24/2-25]
+        LD (RPC_YREG),A                  ; $AEF4  $F047 = 6502 Y pass cell (S&HD table mislabels Y/X) [DOC S&HD 2-24/2-25]
         LD A,($EFFF)                     ; $AEF7
         CALL SLOT_TO_EN                  ; $AEFA  ($AAC5)
         SUB $20                          ; $AEFD

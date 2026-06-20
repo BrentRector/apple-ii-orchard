@@ -18,31 +18,35 @@
 ; the TARGET VALUE of a SoftCard RPC call (stored at A_VEC, then a write to Z_CPU runs
 ; the 6502), so they are used as constants, not as Z-80 memory addresses.
 
-; ---- CP/M base page -------------------------------------------------------------
-WBOOT       EQU $0000      ; warm-boot vector (JP WBOOT)
-IOBYTE      EQU $0003      ; logical<->physical device map [DOC S&HD 2-19]
-CDISK       EQU $0004      ; current drive/user
-BDOS        EQU $0005      ; BDOS entry vector (CALL BDOS)
-DMABUF      EQU $0080      ; default 128-byte DMA buffer / command tail
+; (CP/M base-page vectors -- WBOOT $0000, BDOS $0005, IOBYTE $0003, etc. -- are NOT
+; defined here: they are not SoftCard-specific and each OS module defines them as its
+; own labels/equates.  This include is strictly the Apple/SoftCard hardware externals.)
 
 ; ---- SoftCard I/O Configuration Block (Z-80 $F200-$F3FF = Apple $0200-$03FF) -----
 ; [DOC S&HD 2-3, 2-16..2-27].  The I/O Vector Table: primitive char-I/O vectors that
 ; normally point into the BIOS but can be repatched (CONFIGIO) [DOC S&HD 2-18..2-19].
-IOVEC_CONSTAT EQU $F380    ; Console status vector  -> A=$FF if char ready
-IOVEC_CONIN1  EQU $F382    ; Console input vector #1 (TTY:/CRT:)
-IOVEC_CONIN2  EQU $F384    ; Console input vector #2 (UC1:)
-IOVEC_CONOUT1 EQU $F386    ; Console output vector #1
-IOVEC_CONOUT2 EQU $F388    ; Console output vector #2
-IOVEC_RDRIN1  EQU $F38A    ; Reader input vector #1 (PTR:)
-IOVEC_RDRIN2  EQU $F38C    ; Reader input vector #2
-IOVEC_PUNOUT1 EQU $F38E    ; Punch output vector #1
-IOVEC_PUNOUT2 EQU $F390    ; Punch output vector #2
-IOVEC_LSTOUT1 EQU $F392    ; List output vector #1 (LPT:)
-IOVEC_LSTOUT2 EQU $F394    ; List output vector #2
+CONST_VEC   EQU $F380      ; Console status vector  -> A=$FF if char ready
+CONIN1_VEC  EQU $F382      ; Console input vector #1 (TTY:/CRT:)
+CONIN2_VEC  EQU $F384      ; Console input vector #2 (UC1:)
+CONOUT1_VEC EQU $F386      ; Console output vector #1
+CONOUT2_VEC EQU $F388      ; Console output vector #2
+RDR1_VEC    EQU $F38A      ; Reader input vector #1 (PTR:)
+RDR2_VEC    EQU $F38C      ; Reader input vector #2
+PUN1_VEC    EQU $F38E      ; Punch output vector #1
+PUN2_VEC    EQU $F390      ; Punch output vector #2
+LIST1_VEC   EQU $F392      ; List output vector #1 (LPT:)
+LIST2_VEC   EQU $F394      ; List output vector #2
+; Screen Function Tables (software/hardware): the cursor-XY coordinate offset and the
+; function lead-in char used to translate screen-control sequences [DOC S&HD 2-13..2-14].
+SXYOFF      EQU $F396      ; Software cursor-XY coordinate offset (hi bit = X/Y order)
+SFLDIN      EQU $F397      ; Software function lead-in char (0 = none)
+HXYOFF      EQU $F3A1      ; Hardware cursor-XY coordinate offset
+HFLDIN      EQU $F3A2      ; Hardware function lead-in char
 ; Card Type Table: one byte per slot, value 0..5 (2=DiskII, 3=serial, 4=80-col/Videx,
-; 5=parallel) [DOC S&HD 2-26..2-27].  Slot S entry = CARDTYPE_BASE + S.
-CARDTYPE_BASE EQU $F3B8    ; (entry for slot S is at $F3B8 + S; $F3B9 = slot 1)
-CARDTYPE_S3   EQU $F3BB    ; slot 3 (console) card type -- 3/4 => external 80-col terminal
+; 5=parallel) [DOC S&HD 2-26..2-27].  The slot-S entry is at DSKCNT + S.
+DSKCNT      EQU $F3B8      ; Disk Count Byte; Card Type Table indexes from here [DOC S&HD 2-27]
+SLTTYP      EQU $F3B9      ; Card Type Table, slot 1 entry (slot S at DSKCNT+S)
+SLTTYP3     EQU $F3BB      ; slot 3 (console) card type -- 3/4 => external 80-col terminal
 
 ; ---- SoftCard 6502 RPC interface [DOC S&HD 2-24..2-25] ---------------------------
 ; Set A_VEC = 6502 subroutine address, optionally pass args via the register cells,
@@ -50,9 +54,11 @@ CARDTYPE_S3   EQU $F3BB    ; slot 3 (console) card type -- 3/4 => external 80-co
 ; calls these A$VEC / Z$CPU (sjasmplus forbids '$' in identifiers, so A_VEC / Z_CPU).
 A_VEC       EQU $F3D0      ; address of 6502 subroutine to call (low,high) [DOC S&HD 2-25]
 Z_CPU       EQU $F3DE      ; SoftCard trigger: a WRITE here runs the 6502 [DOC S&HD 2-24]
-; 6502 register pass areas = Apple monitor save block at Apple $0045-$0049 [apple2.json];
-; the RPC passes/returns the 6502 A,X,Y,P,SP through them [DOC S&HD 2-24].  (The manual's
-; table mislabels $46/$47 as Y/X; the Apple monitor SAVE order is A,X,Y, used here.)
+; 6502 register pass cells = the Apple monitor save block at Apple $0045-$0049
+; [apple2.json]; the RPC passes/returns the 6502 A,X,Y,P,SP through them [DOC S&HD 2-24].
+; Named for the cell ($46=XREG, $47=YREG, the monitor SAVE order).  NOTE: the S&HD
+; table mislabels $46/$47 as Y/X; GBASIC's HLINE call (Y=column via $F047) confirms the
+; cell at $47 carries 6502 Y, so the monitor-cell naming used here is the correct one.
 RPC_ACC     EQU $F045      ; 6502 A register (Apple $45 ACC)
 RPC_XREG    EQU $F046      ; 6502 X register (Apple $46 XREG)
 RPC_YREG    EQU $F047      ; 6502 Y register (Apple $47 YREG)
@@ -61,6 +67,8 @@ RPC_SP      EQU $F049      ; 6502 stack pointer on return (Apple $49 SPNT)
 RPC_ENTER_Z80 EQU $F3C0    ; 6502->Z-80 mode-switch routine; 6502 RESET/NMI/BRK vectors [DOC S&HD 2-25]
 
 ; ---- Apple soft switches (Z-80 $E0xx = Apple $C0xx) [apple2.json] ----------------
+KEYBD       EQU $E000      ; Apple $C000 -- keyboard data (bit 7 = strobe) [DOC S&HD 2-23]
+KEYSTB      EQU $E010      ; Apple $C010 -- keyboard clear-strobe [DOC S&HD 2-23]
 TXTCLR      EQU $E050      ; Apple $C050 -- graphics on (clear text)
 TXTSET      EQU $E051      ; Apple $C051 -- text on
 MIXCLR      EQU $E052      ; Apple $C052 -- full-screen graphics
