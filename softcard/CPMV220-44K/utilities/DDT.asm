@@ -9,15 +9,24 @@ BDOS_VEC             EQU $0005               ; BDOS call vector — JP BDOS_ENTR
 
     ORG $0100
 
+; [AI] DDT loads as a $0100-based .COM whose entry stub (this $0100-$01A8 region)
+; copies a position-independent debugger image up to the top of the TPA and
+; relocates it before entering. BC = L_1010 = length of the image to move; the
+; stub at L_013D moves L_0200.. to high RAM, then applies the relocation bitmap
+; (one bit per body byte, set => add the page bias H to that byte) and JP (HL)s
+; into the relocated copy. The body itself ($0200-$0768) and its bitmap are kept
+; below as DEFB: a byte-identical decode would require a relocating disassembly
+; pass against the runtime load address, which is the relocated-body residual.
 L_0100:
         LD BC,L_1010                     ; $0100  01 10 10
 L_0103:
         JP L_013D                        ; $0103  C3 3D 01
-        DEFB    $43,$4F,$50,$59,$52,$49,$47,$48,$54,$20,$28,$43,$29,$20,$31,$39 ; $0106
-        DEFB    $38,$30,$2C,$20,$44,$49,$47,$49,$54,$41,$4C,$20,$52,$45,$53,$45 ; $0116
-        DEFB    $41,$52,$43,$48,$20,$20,$20,$20,$20,$20          ; $0126
+        ; Digital Research copyright banner embedded in the .COM image (not
+        ; printed; "DDT VERS 2.2$" below is the banner that BDOS fn 9 prints).
+        ; 36 chars + 6 trailing spaces padding the field to $0130.
+        DEFB    "COPYRIGHT (C) 1980, DIGITAL RESEARCH      " ; $0106  banner string
 L_0130:
-        DEFB    "DDT VERS 2.2$"    ; $0130  string
+        DEFB    "DDT VERS 2.2$"    ; $0130  string  (printed via BDOS fn 9, '$'-terminated)
 L_013D:
         LD SP,L_0200                     ; $013D  31 00 02
 L_0140:
@@ -95,7 +104,10 @@ L_0183:
 L_0184:
         POP BC                           ; $0184  C1
 L_0185:
-        PUSH HL                          ; $0185  E5
+        PUSH HL                          ; $0185  E5   ; HL -> relocation bitmap (immediately follows the moved image)
+        ; [AI] Relocation pass: walk DE over the moved image; every 8th byte pull
+        ; the next bitmap byte (EX (SP),HL), shift a bit out (RLA), and when set add
+        ; the page bias H (= D, the high byte of the destination) to that image byte.
 L_0186:
         LD H,D                           ; $0186  62
 L_0187:
@@ -150,6 +162,13 @@ L_01A9:
         LD A,A                           ; $01A9  7F
 L_01AA:
         RET                              ; $01AA  C9
+        ; [AI] $01AB-$01FF: tail of the low entry block that stays resident below
+        ; the relocated body. It mixes short helper code and the two loader config
+        ; cells (L_01EB / L_01EC, read at $0163/$015D) with absolute references into
+        ; the post-relocation image ($1Cxx/$1Dxx) and shared body helpers ($07xx/
+        ; $08xx). Because its operand addresses are only correct after the high-RAM
+        ; move, a faithful decode needs the same relocating pass as the body -- kept
+        ; as DEFB (relocated-body residual). L_01EB/L_01EC are data, not code.
         DEFB    $21,$A1,$1D,$70,$2B,$71,$2A,$A0,$1D,$44,$4D,$CD,$9E,$07,$0E,$3A ; $01AB
         DEFB    $CD,$83,$07,$0E,$20,$CD,$83,$07,$3A,$7D,$1D,$32,$A2,$1D,$3A,$7E ; $01BB
         DEFB    $1D,$21,$A2,$1D,$BE,$DA,$F1,$08,$21,$FC,$1C,$3A,$A2,$1D,$BE,$D2 ; $01CB
@@ -162,6 +181,12 @@ L_01EC:
         DEFB    $38,$00,$BB,$F3,$08,$21,$FC,$1C,$36              ; $01EC
         DEFW    L_0100                   ; $01F5
         DEFB    $3A,$02,$CD,$00,$00,$3A,$E9,$1C,$FE              ; $01F7
+; [AI] Relocated debugger body ($0200-$0768): the position-independent image the
+; entry stub moves to the top of the TPA and fixes up via the relocation bitmap
+; before JP (HL). All internal references are pre-relocation values that only
+; resolve at the runtime load page, so this is kept verbatim as DEFB (the
+; relocated-body residual). It begins with the body's own JP dispatch table
+; (JP $0683 / JP $034F / JP $0524 / JP $047E ...).
 L_0200:
         DEFB    $C3,$83,$06,$00,$00,$00,$C3,$4F,$03,$C3,$24,$05,$07,$C3,$7E,$04 ; $0200
         DEFB    $C9,$21,$A7,$1D,$73,$F5,$79,$CD,$8F,$06,$F1,$C9,$FE,$20,$C8,$FE ; $0210
@@ -259,8 +284,15 @@ L_0200:
         DEFB    $2E,$00,$0E,$3F,$CD,$15,$00,$2A,$13,$00,$F9,$21,$00,$00,$39,$22 ; $0719
         DEFB    $13,$00,$CD,$38,$03,$22,$11,$00,$CD,$89,$06,$CD,$5A,$01,$2A,$11 ; $0729
         DEFB    $00,$22,$0C,$00,$C3,$2B,$05,$2A,$13,$00,$F9,$C9,$00,$07,$0F,$17 ; $0739
+        ; [AI] 8080 disassembler opcode-byte tables (the implied-operand opcode
+        ; values the assembler/disassembler matches against, e.g. $76=HLT, $C9=RET,
+        ; $E3=XTHL ...). Genuine data: keep as DEFB.
         DEFB    $1F,$27,$2F,$37,$3F,$76,$C9,$E3,$E9,$EB,$F3,$F9,$FB,$C6,$CE,$D3 ; $0749
         DEFB    $D6,$DB,$DE,$E6,$EE,$F6,$FE,$22,$2A,$32,$3A,$C3,$CD,$45,$49,$20 ; $0759
+        ; [AI] Packed 8080 mnemonic table ($0766-$0879): fixed-width 3-char fields
+        ; ("EI ","SPHL","DI  ","XCHG"...) plus the register-name fields
+        ; (" M"," B"..."PSW"," ??=") the disassembler indexes by opcode. A genuine
+        ; packed data table -- annotate, do NOT split into per-mnemonic literals.
         DEFB    $20,$53,$50,$48,$4C,$44,$49,$20,$20,$58,$43,$48,$47,$50,$43,$48 ; $0769
         DEFB    $4C,$58,$54,$48,$4C,$52,$45,$54,$20,$48,$4C,$54,$20,$43,$4D,$43 ; $0779
         DEFB    $20,$53,$54,$43,$20,$43,$4D,$41,$20,$44,$41,$41,$20,$52,$41,$52 ; $0789
@@ -463,6 +495,12 @@ L_1010:
         DEFB    $EB,$18,$21,$80,$7F,$22,$3D,$1C,$C3,$F6,$18,$2A,$3B,$1C,$EB,$2A ; $11E0
         DEFB    $3D,$1C,$19,$22,$3D,$1C,$CD,$BC,$18,$C9,$01,$F7,$1D,$11,$06,$00 ; $11F0
         DEFB    $CD,$DA,$1B,$0E,$01,$CD,$C9,$1B,$01,$F7,$1D,$09,$22,$3F,$1C,$00 ; $1200
+        ; [AI] Relocation bitmap for the moved body (one bit per image byte; the
+        ; relocation pass at $0187 consumes it 8 bits at a time). This is pure data
+        ; -- the DEFW L_xxxx and "..." renderings the disassembler emitted within
+        ; this block ($1239, $129B, $12F8, $131F, $1334, $135E, $138B, $13A3, $13D4
+        ; ...) are COINCIDENTAL bitmap bytes that happen to equal a label address or
+        ; printable run, NOT references. Byte-identical either way; kept as-is.
         DEFB    $20,$90,$00,$40,$00,$08,$21,$10,$92,$10,$21,$12,$42,$48,$00,$09 ; $1210
         DEFB    $10,$02,$40,$00,$10,$40,$08,$08,$41,$02,$00,$82,$42,$48,$09,$09 ; $1220
         DEFB    $20,$42,$21,$01,$20,$08,$22,$12,$11              ; $1230

@@ -15,9 +15,10 @@ CMDLINE              EQU $0081               ; Command-line tail characters (upp
 
 L_0100:
         JP L_01DF                        ; $0100  C3 DF 01
-        DEFB    $20,$63,$6F,$70,$79,$72,$69,$67,$68,$74,$28,$63,$29,$20,$31,$39 ; $0103
-        DEFB    $37,$37,$2C,$20,$64,$69,$67,$69,$74,$61,$6C,$20,$72,$65,$73,$65 ; $0113
-        DEFB    $61,$72,$63,$68,$20                              ; $0123
+        ; $0103  In-image sign-on banner string (DRI copyright). Not printed by
+        ;        SUBMIT itself; embedded by the linker/assembler as the standard
+        ;        Digital Research copyright tag. [AI] printable-ASCII run -> literal.
+        DEFB    " copyright(c) 1977, digital research "    ; $0103  string
 L_0128:
         DEFB    $0D,$0A,$24                                      ; $0128
 L_012B:
@@ -707,7 +708,15 @@ SUB_058D:
 SUB_058D_1:
         CALL BDOS_VEC                    ; $0590  CD 05 00
         RET                              ; $0593  C9
-        DEFB    $C9,$C9,$5F,$16,$00                              ; $0594
+; $0594  Unreachable stale library tail. No call/jump targets $0590 or $0594,
+;        and the two BDOS thunks above ($058A/$058D) are JP BDOS_VEC, so control
+;        never falls through here. The bytes are still valid Z-80 -- a leftover
+;        runtime-helper tail (two RET tails + the standard LD E,A / LD D,0
+;        zero-extend-A-into-DE prologue) -- decoded in place for clarity. [AI]
+        RET                              ; $0594  C9
+        RET                              ; $0595  C9
+        LD E,A                           ; $0596  5F
+        LD D,$00                         ; $0597  16 00
 SUB_0599:
         LD A,E                           ; $0599  7B
 SUB_0599_1:

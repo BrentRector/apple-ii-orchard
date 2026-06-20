@@ -624,11 +624,11 @@ BDOS_SET_DMA:
         POP DE                           ; $04E3  D1
         RET                              ; $04E4  C9
 MSG_BANNER:
-        DEFB    $0D,$0A,$09,$20,$20,$53,$6F,$66,$74,$63,$61,$72,$64,$20,$43,$50 ; $04E5
-        DEFB    $2F,$4D,$0D,$0A,$53,$69,$6E,$67,$6C,$65,$20,$44,$72,$69,$76,$65 ; $04F5
-        DEFB    " File Transfer Program"    ; $0505  string
+        DEFB    $0D,$0A,$09,"  Softcard CP"        ; $04E5  CRLF TAB "  Softcard CP"
+        DEFB    "/M",$0D,$0A,"Single Drive"        ; $04F5  "/M" CRLF "Single Drive"
+        DEFB    " File Transfer Program"           ; $0505  string
         DEFB    $0D    ; $051B  terminator
-        DEFB    $0A,$20,$20,$20,$20,$20,$28,$43,$29,$20,$31,$39,$38,$30,$20,$62 ; $051C
+        DEFB    $0A,"     (C) 1980 b"              ; $051C  LF "     (C) 1980 b"
         DEFB    "y Mycroft Labs"    ; $052C  string
         DEFB    $0D    ; $053A  terminator
         DEFB    $0A,$0A,$00                                      ; $053B

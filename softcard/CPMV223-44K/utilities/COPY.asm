@@ -723,14 +723,11 @@ CHECK_SOURCE_SYSTEM_13:
 CHECK_SOURCE_SYSTEM_14:
         DEFS    34, $00    ; $052A  fill
 CHECK_SOURCE_SYSTEM_15:
-        DEFB    $0A,$0D,$0A,$20,$20,$20,$20,$20,$20,$20,$53,$6F,$66,$74,$63,$61 ; $054C
-        DEFB    "rd CP/M"    ; $055C  string
+        DEFB    $0A,$0D,$0A,"       Softcard CP/M"    ; $054C  LF/CR/LF + banner line 1
         DEFB    $0D    ; $0563  terminator
-        DEFB    $0A,$31,$36,$20,$53,$65,$63,$74,$6F,$72,$20,$44,$69,$73,$6B,$20 ; $0564
-        DEFB    "Copy Program"    ; $0574  string
+        DEFB    $0A,"16 Sector Disk Copy Program"    ; $0564  LF + banner line 2
         DEFB    $0D    ; $0580  terminator
-        DEFB    $0A,$20,$20,$20,$20,$28,$43,$29,$20,$31,$39,$38,$32,$20,$4D,$69 ; $0581
-        DEFB    "crosoft"    ; $0591  string
+        DEFB    $0A,"    (C) 1982 Microsoft"    ; $0581  LF + banner line 3
         DEFB    $0D    ; $0598  terminator
         DEFB    $0A,$0D,$0A,$24                                  ; $0599
 CHECK_SOURCE_SYSTEM_16:

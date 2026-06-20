@@ -26,14 +26,21 @@ TPA_START_2:
         LD (SYM_TABLE_LIMIT),HL          ; $0106  22 CD 01
 TPA_START_3:
         JP MAIN_ENTRY                    ; $0109  C3 00 02
+; [AI] LIST_LINE_BUF is the list-output line buffer; at program load it holds the
+;       banner string " COPYRIGHT(C) 1978, DIGITAL RESEARCH " (one logical string,
+;       split here only by the interior labels code references). The leading bytes
+;       are now string literals: " " + "C" + "OPY" + "RIGHT(C) 1978, DIGITAL RESEARCH ".
+;       The labels TPA_START_5/_6/_7 ($010D/$010E/$0111) are load-bearing: the
+;       symbol-table report code overwrites TPA_START_7 with CR and prints from
+;       TPA_START_5 ("OPYRIGHT...") or TPA_START_6 as the use-factor header.
 LIST_LINE_BUF:
-        DEFB    $20                                              ; $010C
+        DEFB    " "    ; $010C  banner string (space)
 TPA_START_5:
-        DEFB    $43                                              ; $010D
+        DEFB    "C"    ; $010D  banner string
 TPA_START_6:
-        DEFB    $4F,$50,$59                                      ; $010E
+        DEFB    "OPY"    ; $010E  banner string ($4F,$50,$59)
 TPA_START_7:
-        DEFB    "RIGHT(C) 1978, DIGITAL RESEARCH "    ; $0111  string
+        DEFB    "RIGHT(C) 1978, DIGITAL RESEARCH "    ; $0111  banner string (tail)
         DEFB    $00    ; $0131  terminator
         DEFS    82, $00    ; $0132  fill
 LIST_LINE_LEN:
