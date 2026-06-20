@@ -31,11 +31,11 @@ TPA_START:
 TPA_START_1:
         DEFS    12, $3F    ; $012A  fill
         DEFB    $00,$00,$00                                      ; $0136
-; [AI] DATA: logical-device / command keyword table, 8 fixed-width 4-byte entries indexed by code*4:
-;       "CON:RDR:PUN:LST:DEV:VAL:USR:DSK:" (CON RDR PUN LST DEV VAL USR DSK). Left as DEFB (indexed table).
+; [AI] DATA: logical-device / command keyword table, 8 fixed-width 4-byte entries indexed by code*4
+;       (CON RDR PUN LST DEV VAL USR DSK). It is an indexed table AND a colon-delimited
+;       string, so it is rendered as a string literal (the 4-byte stride lands on each name).
 TPA_START_2:
-        DEFB    $43,$4F,$4E,$3A,$52,$44,$52,$3A,$50,$55,$4E,$3A,$4C,$53,$54,$3A ; $0139  "CON:RDR:PUN:LST:"
-        DEFB    $44,$45,$56,$3A,$56,$41,$4C,$3A,$55,$53,$52,$3A,$44,$53,$4B,$3A ; $0149  "DEV:VAL:USR:DSK:"
+        DEFB    "CON:RDR:PUN:LST:DEV:VAL:USR:DSK:"               ; $0139  device/command keyword table
 TPA_START_3:
         DEFB    "TTY:CRT:BAT:UC1:TTY:PTR:UR1:UR2:TTY:PTP:UP1:UP2:TTY:CRT:"    ; $0159  string
         DEFB    "LPT:UL1:R/O"    ; $0191
@@ -2826,15 +2826,18 @@ USR_AREA_IDX:
         DEFB    $1A                                              ; $1576
 USER_ACTIVE_TBL:
         DEFS    9, $1A    ; $1577  fill
-; [AI] DATA: remainder of the 32-byte USER_ACTIVE_TBL and the following scratch variables. From here on
-;       the .COM image holds STALE buffer content (uninitialized BSS captured at link time), not program
-;       data -- the bytes are whatever was in memory, not meaningful initial values.
+; [AI] These are LIVE scratch/BSS variables (the tail of the 32-byte USER_ACTIVE_TBL
+;       and the named variables below) -- STAT's Z-80 code reads and writes every one
+;       of them at runtime. Only their .COM-image INITIAL bytes are meaningless: this
+;       is uninitialized BSS, so the bytes are whatever was in the cross-assembler's
+;       buffer at link time, not intended initial values. (The block must still
+;       reassemble byte-identical, so the captured bytes are kept verbatim.)
         DEFB    $6F,$85,$70,$A0,$00,$84,$8B,$A5,$6D,$A6,$6E,$85,$9B,$86,$9C,$A9 ; $1580
         DEFB    $55,$A2,$00,$85,$5E,$86,$5F                      ; $1590
 RECS_PER_BLOCK:
         DEFB    $C5,$52                                          ; $1597
 DRIVE_RECORD_CAP:
-        DEFB    $F0,$05                                          ; $1599  [AI] uninitialized variable; .COM-image init bytes are stale (value $05F0 is coincidental, not a pointer)
+        DEFB    $F0,$05                                          ; $1599  [AI] live variable; its .COM-image init bytes are stale BSS (value $05F0 is leftover, not an intended initial value)
 CAP_FIELD_VALUE:
         DEFB    $20                                              ; $159B
 CAP_FIELD_VALUE_HI:
@@ -2888,82 +2891,16 @@ FILE_COUNT:
 FILE_DIRENT_TBL:
         DEFB    $94,$86                                          ; $15BA
 FILE_SORTKEY_TBL:
-        DEFB    $95,$A9,$03,$85,$8F,$A5,$94,$A6,$95,$E4,$6E,$D0,$07,$C5,$6D ; $15BC
-        DEFB    $D0,$03                                          ; $15CB  [AI] stale buffer byte (value $03D0 is coincidental, not a pointer to TPA_START_38)
-        DEFB    $4C,$59,$1D,$85,$5E,$86,$00,$A0,$00,$B1,$5E,$AA,$C8,$B1,$5E,$08 ; $15CD
-        DEFB    $C8,$B1,$5E,$65,$94,$85,$94,$C8,$B1,$5E,$65,$95,$85,$95,$28,$10 ; $15DD
-        DEFB    $D3,$8A,$30,$D0,$A6,$1C,$A6,$1B,$A6,$1A,$80,$1A,$65,$5E,$85,$5E ; $15ED
-        DEFB    $90,$02,$E6,$C9,$D4,$A0,$8D,$A0,$C4,$C5,$D9,$A0,$8D,$A0,$C2,$CE ; $15FD
-        DEFB    $C5,$A0,$C4,$CC,$D9,$CC,$D0,$8D                  ; $160D  "E DLYLP"
-        DEFB    $A0,$CC,$C4,$D8,$A0,$D3,$CC,$CF,$D4,$8D          ; $1615  " LDX SLOT"
-        DEFB    $D3,$C1,$CD,$C5,$C4,$D2,$D6,$A0,$CC,$C4,$C1,$A0,$C1,$AE,$D4,$D2 ; $161F  "SAMEDRV LDA A.TRK"
-        DEFB    $CB,$8D                                          ; $162F
-        DEFB    $A0,$CA,$D3,$D2,$A0,$CD,$D9,$D3,$C5,$C5,$CB,$8D  ; $1631  " JSR MYSEEK"
-        DEFB    $A0,$D0,$CC,$D0,$A0,$8D                          ; $163D  " PLP "
-        DEFB    $A0,$C2,$CE,$C5,$A0,$D4,$D2,$D9,$D4,$D2,$CB,$A0,$8D ; $1643  " BNE TRYTRK "
-        DEFB    $CD,$CF,$D4,$CF,$C6,$A0,$CC,$C4,$D9,$A0,$A3,$A4,$B1,$B2,$8D ; $1650  "MOTOF LDY #$12"
-        DEFB    $A0,$C4,$C5,$D9,$A0,$8D                          ; $165F  " DEY "
-        DEFB    $A0,$C2,$CE,$C5,$A0,$AA,$AD,$B1,$8D              ; $1665  " BNE *-1"
-        DEFB    $A0,$C9,$CE,$C3,$A0,$CD,$CF,$CE,$D4,$C9,$CD,$C5,$8D ; $166E  " INC MONTIME"
-        DEFB    $A0,$C2,$CE,$C5,$A0,$CD,$CF,$D4,$CF,$C6,$8D      ; $167B  " BNE MOTOF"
-        DEFB    $A0,$C9,$CE,$C3,$A0,$CD,$CF,$CE,$D4,$C9,$CD,$C5,$AB,$B1,$8D ; $1686  " INC MONTIME+1"
-        DEFB    $A0,$C2,$CE,$C5,$A0,$CD,$CF,$D4,$CF,$C6,$8D      ; $1695  " BNE MOTOF"
-        DEFB    $D4,$D2,$D9,$D4,$D2,$CB,$A0,$C5,$D1,$D5,$A0,$AA,$8D ; $16A0  "TRYTRK EQU *"
-        DEFB    $A0,$CC,$C4,$C1,$A0,$C1,$AE,$C3,$CD,$C4,$8D      ; $16AD  " LDA A.CMD"
-        DEFB    $A0,$C2,$C5,$D1,$A0,$C7,$C1,$CC,$CC,$C4,$CF,$CE,$C5,$8D ; $16B8  " BEQ GALLDONE"
-        DEFB    $A0,$D2,$CF,$D2,$A0,$8D                          ; $16C6  " ROR "
-        DEFB    $A0,$D0,$C8,$D0,$A0,$8D                          ; $16CC  " PHP "
-        DEFB    $A0,$C2,$C3,$D3,$A0,$D4,$D2,$D9,$D4,$D2,$CB,$B2,$A0,$8D ; $16D2  " BCS TRYTRK2 "
-        DEFB    $A0,$CA,$D3,$D2,$A0,$D0,$D2,$C5,$CE,$C9,$C2,$CC,$8D ; $16E0  " JSR PRENIBL"
-        DEFB    $D4,$D2,$D9,$D4,$D2,$CB,$B2,$A0,$CC,$C4,$D9,$A0,$A3,$A4,$B3,$B0 ; $16ED  "TRYTRK2 LDY #$30"
-        DEFB    $8D                                              ; $16FD
-        DEFB    $A0,$D3,$D4,$D9,$A0,$D2,$C5,$D4,$D2,$D9,$C3,$CE,$D4,$8D ; $16FE  " STY RETRYCNT"
-        DEFB    $D4,$D2,$D9,$C1,$C4,$D2,$A0,$CC,$C4,$D8,$A0,$D3,$CC,$CF,$D4,$8D ; $170C  "TRYADR LDX SLOT"
-        DEFB    $A0,$CA,$D3,$D2,$A0,$D2,$C4,$C1,$C4,$D2,$8D      ; $171C  " JSR RDADR"
-        DEFB    $A0,$C2,$C3,$C3,$A0,$D2,$C4,$D2,$C9,$C7,$C8,$D4,$8D ; $1727  " BCC RDRIGHT"
-        DEFB    $D4,$D2,$D9,$C1,$C4,$D2,$B2,$A0,$C4,$C5,$C3,$A0,$D2,$C5,$D4,$D2 ; $1734  "TRYADR2 DEC RETRYCNT "
-        DEFB    $D9,$C3,$CE,$D4,$A0,$8D                          ; $1744
-        DEFB    $A0,$C2,$D0,$CC,$A0,$D4,$D2,$D9,$C1,$C4,$D2,$A0,$8D ; $174A  " BPL TRYADR "
-        DEFB    $C7,$CF,$C3,$C1,$CC,$A0,$CC,$C4,$C1,$A0,$C3,$D5,$D2,$D4,$D2,$CB ; $1757  "GOCAL LDA CURTRK"
-        DEFB    $8D                                              ; $1767
-        DEFB    $A0,$D0,$C8,$C1,$A0,$8D                          ; $1768  " PHA "
-        DEFB    $A0,$CC,$C4,$C1,$A0,$A3,$A4,$B6,$B0,$8D          ; $176E  " LDA #$60"
-        DEFB    $A0,$CA,$D3,$D2,$A0,$D3,$C5,$D4,$D4,$D2,$CB,$8D  ; $1778  " JSR SETTRK"
-        DEFB    $A0,$C4,$C5,$C3,$A0,$D2,$C5,$C3,$C1,$CC,$C3,$CE,$D4,$8D ; $1784  " DEC RECALCNT"
-        DEFB    $A0,$C2,$C5,$D1,$A0,$C4,$D2,$D6,$C5,$D2,$D2,$8D  ; $1792  " BEQ DRVERR"
-        DEFB    $A0,$CC,$C4,$C1,$A0,$A3,$B4,$8D                  ; $179E  " LDA #4"
-        DEFB    $A0,$D3,$D4,$C1,$A0,$C4,$D2,$D6,$B1,$D4,$D2,$CB,$8D ; $17A6  " STA DRV1TRK"
-        DEFB    $A0,$CC,$C4,$C1,$A0,$A3,$B0,$8D                  ; $17B3  " LDA #0"
-        DEFB    $A0,$CA,$D3,$D2,$A0,$CD,$D9,$D3,$C5,$C5,$CB,$8D  ; $17BB  " JSR MYSEEK"
-        DEFB    $A0,$D0,$CC,$C1,$A0,$8D                          ; $17C7  " PLA "
-        DEFB    $D4,$D2,$D9,$C1,$C4,$D2,$B3,$A0,$CA,$D3,$D2,$A0,$CD,$D9,$D3,$C5 ; $17CD  "TRYADR3 JSR MYSEEK"
-        DEFB    $C5,$CB,$8D                                      ; $17DD
-        DEFB    $A0,$CA,$CD,$D0,$A0,$D4,$D2,$D9,$D4,$D2,$CB,$B2,$8D ; $17E0  " JMP TRYTRK2"
-        DEFB    $D2,$C4,$D2,$C9,$C7,$C8,$D4,$A0,$CC,$C4,$D9,$A0,$D4,$D2,$C1,$C3 ; $17ED  "RDRIGHT LDY TRACK"
-        DEFB    $CB,$8D                                          ; $17FD
-        DEFB    $A0,$C3,$D0,$D9,$A0,$C3,$D5,$D2,$D4,$D2,$CB,$8D  ; $17FF  " CPY CURTRK"
-        DEFB    $A0,$C2,$C5,$D1,$A0,$D2,$D4,$D4,$D2,$CB,$A0,$8D  ; $180B  " BEQ RTTRK "
-        DEFB    $A0,$CC,$C4,$C1,$A0,$C3,$D5,$D2,$D4,$D2,$CB,$8D  ; $1817  " LDA CURTRK"
-        DEFB    $A0,$D0,$C8,$C1,$A0,$8D                          ; $1823  " PHA "
-        DEFB    $A0,$D4,$D9,$C1,$A0,$8D                          ; $1829  " TYA "
-        DEFB    $A0,$CA,$D3,$D2,$A0,$D3,$C5,$D4,$D4,$D2,$CB,$8D  ; $182F  " JSR SETTRK"
-        DEFB    $A0,$D0,$CC,$C1,$A0,$8D                          ; $183B  " PLA "
-        DEFB    $A0,$C4,$C5,$C3,$A0,$D3,$C5,$C5,$CB,$C3,$CE,$D4,$8D ; $1841  " DEC SEEKCNT"
-        DEFB    $A0,$C2,$CE,$C5,$A0,$D4,$D2,$D9,$C1,$C4,$D2,$B3,$8D ; $184E  " BNE TRYADR3"
-        DEFB    $A0,$C2,$C5,$D1,$A0,$C7,$CF,$C3,$C1,$CC,$8D      ; $185B  " BEQ GOCAL"
-        DEFB    $C4,$D2,$D6,$C5,$D2,$D2,$A0,$D0,$CC,$C1,$A0,$8D  ; $1866  "DRVERR PLA "
-        DEFB    $A0,$CC,$C4,$C1,$A0,$A3,$A4,$B4,$B0,$8D          ; $1872  " LDA #$40"
-        DEFB    $CA,$CD,$D0,$D4,$CF,$B1,$A0,$D0,$CC,$D0,$A0,$8D  ; $187C  "JMPTO1 PLP "
-        DEFB    $A0,$CA,$CD,$D0,$A0,$C8,$CE,$C4,$CC,$C5,$D2,$D2,$8D ; $1888  " JMP HNDLERR"
-        DEFB    $C7,$C1,$CC,$CC,$C4,$CF,$CE,$C5,$A0,$C2,$C5,$D1,$A0,$C1,$CC,$CC ; $1895  "GALLDONE BEQ ALLDONE"
-        DEFB    $C4,$CF,$CE,$C5,$8D                              ; $18A5
-        DEFB    $D2,$D4,$D4,$D2,$CB,$A0,$CC,$C4,$C1,$A0,$C1,$AE,$D6,$CF,$CC,$8D ; $18AA  "RTTRK LDA A.VOL"
-        DEFB    $A0,$D0,$C8,$C1,$A0,$8D                          ; $18BA  " PHA "
-        DEFB    $A0,$CC,$C4,$C1,$A0,$D6,$CF,$CC,$D5,$CD,$C5,$8D  ; $18C0  " LDA VOLUME"
-        DEFB    $A0,$D3,$D4,$C1,$A0,$C1,$AE,$CF,$D6,$CF,$CC,$8D  ; $18CC  " STA A.OVOL"
-        DEFB    $A0,$D0,$CC,$C1,$A0,$8D                          ; $18D8  " PLA "
-        DEFB    $A0,$C2,$C5,$D1,$A0,$C3,$D2,$C5,$C3,$D4,$D6,$CF,$CC,$8D ; $18DE  " BEQ CRECTVOL"
-        DEFB    $A0,$C3,$CD,$D0,$A0,$D6,$CF,$CC,$D5,$CD,$C5,$8D  ; $18EC  " CMP VOLUME"
-        DEFB    $A0,$C2,$C5,$D1,$A0,$C3,$D2,$C5                  ; $18F8
+        DEFB    $95                                              ; $15BC  (low byte; word array filled at runtime by the file-sort)
+; -- $15BD-$18FF: stale 6502 work-buffer tail (the uninitialised top of STAT's
+;    BSS, captured into the .COM image). NOT Z-80 code or data -- nothing above
+;    references it. Its bytes are a fragment of assembled 6502 OBJECT CODE
+;    ($15BD-$15FF) followed by the 6502 ASSEMBLY-SOURCE LISTING of a Disk II
+;    seek/read driver as high-bit Apple text ($1600-$18FF). Extracted to the
+;    sibling ca65 source STAT_6502.s (disassembled as real 6502 + the listing as
+;    .charmap strings) and INCBIN'd here so each is legible yet byte-identical --
+;    the same cross-CPU pattern as CPM56_6502.s / COPY_6502.s. (Provides the bytes
+;    $15BD-$18FF.) See STAT_6502.s for the full annotation.
+        INCBIN  "STAT_6502.bin"                                  ; $15BD-$18FF  (835 bytes)
 
     SAVEBIN "STAT.bin", $0100, $1800

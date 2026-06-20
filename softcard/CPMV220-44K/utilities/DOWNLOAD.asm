@@ -160,26 +160,210 @@ MSG_DOWNLOAD_COMPLETE:
 MSG_DOWNLOADING:
         DEFB    "Downloading"    ; $01F5  string
         DEFB    $00    ; $0200  terminator
-; [AI] $0201-$02FF : trailing bytes within the 512-byte (.COM = 4 records) file image, past the
-;       program proper. No code path above references or jumps here; the bytes decode as plausible
-;       Z-80 but CALL/JP out-of-range addresses ($1124/$138B/$114B...), i.e. a stale TPA memory
-;       image left in the final record, not DOWNLOAD code. Kept as data (it is data).
-        DEFB    $FA,$09,$C3,$8B,$13,$0E,$2C,$F5,$79,$CD,$24,$11,$F1,$C9,$CD,$D4 ; $0201
-        DEFB    $11,$C8,$FE,$09,$C9,$CD,$4B,$11,$FE,$0D,$CA,$3C,$07,$CD,$0F,$00 ; $0211
-        DEFB    $CA,$16,$00,$0E,$06,$21,$C8,$09,$36,$20,$23,$0D,$C2,$29,$00,$0E ; $0221
-        DEFB    $07,$21,$C8,$09,$77,$CD,$4B,$11,$CD,$0F,$00,$C8,$23,$0D,$CA,$3C ; $0231
-        DEFB    $07,$C3,$35,$00,$CD,$1B,$12,$4B,$42,$79,$05,$04,$C9,$C5,$CD,$45 ; $0241
-        DEFB    $00,$C1,$C2,$3C,$07,$C9,$17,$17,$17,$E6,$38,$C9,$17,$17,$17,$17 ; $0251
-        DEFB    $E6,$30,$C9,$BE,$C8,$23,$0D                      ; $0261  "f0I>H#"
-        DEFB    $C2,$64,$00,$0D,$C9,$EB,$2A,$C8,$09,$EB,$7B,$BE,$C2,$7E,$00,$23 ; $0268
-        DEFB    $7A,$0D,$BE,$C8,$0C,$2B,$2B,$2B,$0D,$C2,$72,$00,$0D,$C9,$3A,$CC ; $0278
-        DEFB    $09,$FE,$20,$C2,$3C,$07,$3E,$48,$32,$DE,$16,$06,$04,$E5,$11,$C8 ; $0288
-        DEFB    $09,$7E,$FE,$40,$1A,$CC,$B8,$00,$BE,$C2,$AC,$00,$23,$13,$05,$C2 ; $0298
-        DEFB    $99,$00,$D1,$C9,$E1,$11,$FC,$FF,$19,$0D,$C2,$8E,$00,$41,$0D,$C9 ; $02A8
-        DEFB    $E3,$23,$E3,$32,$DE,$16,$FE,$48,$C8,$FE,$58,$C8,$FE,$59,$C9,$C5 ; $02B8
-        DEFB    $CD,$16,$00,$3A,$C8,$09,$FE,$5B,$CA,$E1,$00,$0E,$08,$21,$AE,$09 ; $02C8
-        DEFB    $CD,$6D,$00,$C2,$3C,$07,$79,$C1,$C9,$21,$DD,$16,$7E,$B7,$C2,$3C ; $02D8
-        DEFB    $07,$34,$3A,$CD,$09,$FE,$5D,$C2,$3C,$07,$3A,$C9,$09,$CD,$C1,$00 ; $02E8
-        DEFB    $C2,$3C,$07,$CD,$7E,$01,$3A,$CB                  ; $02F8
+
+; ── Leftover relocatable image in the file's final record ($0201-$02FF) ──────
+;
+; The real DOWNLOAD program ends at $01BD; $01C0-$0200 are its '$'/NUL-terminated
+; messages. The remaining bytes ($0201-$02FF) are NOT referenced by any path
+; above -- but they are also NOT random "stale TPA residue". Decoded as
+; page-relative Z-80 (run base $0000) the span is coherent, densely-connected
+; routine code: the same family of relocatable build-runtime overlay that
+; DUMP.COM's BSS tail also carries (char classifier, the RLA/AND $38 + RLA/AND
+; $30 nibble extractors, a 4-byte field walker at $008D, a BDOS-call thunk at
+; $0000). Every internal CALL/JP lands on an instruction boundary; the only
+; out-of-image operands ($1124, $11D4, $114B, $073C, $121B, $09C8, $16DE...) are
+; page-relative-to-another-base references the loader's relocator would fix at run
+; time, left here as literal addresses.
+;
+; The image is a WINDOW truncated by the 512-byte (4-record) file boundary, so a
+; few genuine fragments remain DEFB, each for a concrete reason:
+;   $0000  FA 09 C3 ...  the head is the tail of an instruction cut off before
+;                        $0201; it happens to decode as a valid 3-byte JP M, which
+;                        is what we emit (byte-identical) -- treat $0000-$0001 as a
+;                        truncated lead-in, not a real routine entry.
+;   $00E0  DEFB $21      the LD-HL opcode byte that the overlapping JP Z,$00E1 at
+;                        $00CF skips into mid-operand (a shared-instruction-tail
+;                        idiom; the jump enters $00E1 = DD 16 7E = LD D,$7E).
+;   $00FD  3A CB ..      a trailing LD A,(nn) whose 3rd (high-operand) byte falls
+;                        past the file's end -- truncated by the record boundary.
+; Decoded below at run base $0000 via DISP, in a local MODULE so its labels do not
+; collide with the loader's.
+DOWNLOAD_BSS_IMAGE:
+    MODULE DOWNLOAD_OVERLAY
+    DISP $0000                           ; leftover image is page-relative; internal labels resolve at $0000
+L_0000:
+        JP M,$C309                       ; $0000  FA 09 C3   (truncated lead-in; see note)
+        ADC A,E                          ; $0003  8B
+        INC DE                           ; $0004  13
+        LD C,$2C                         ; $0005  0E 2C
+        PUSH AF                          ; $0007  F5
+        LD A,C                           ; $0008  79
+        CALL $1124                       ; $0009  CD 24 11
+        POP AF                           ; $000C  F1
+        RET                              ; $000D  C9
+L_000E:
+        CALL $11D4                       ; $000E  CD D4 11
+        RET Z                            ; $0011  C8
+        CP $09                           ; $0012  FE 09
+        RET                              ; $0014  C9
+L_0015:
+        CALL $114B                       ; $0015  CD 4B 11
+        CP $0D                           ; $0018  FE 0D
+        JP Z,$073C                       ; $001A  CA 3C 07
+        CALL L_000E+1                    ; $001D  CD 0F 00
+        JP Z,L_0015+1                    ; $0020  CA 16 00
+        LD C,$06                         ; $0023  0E 06
+        LD HL,$09C8                      ; $0025  21 C8 09
+L_0028:
+        LD (HL),$20                      ; $0028  36 20
+        INC HL                           ; $002A  23
+        DEC C                            ; $002B  0D
+        JP NZ,L_0028+1                   ; $002C  C2 29 00
+        LD C,$07                         ; $002F  0E 07
+        LD HL,$09C8                      ; $0031  21 C8 09
+        LD (HL),A                        ; $0034  77
+L_0035:
+        CALL $114B                       ; $0035  CD 4B 11
+        CALL L_000E+1                    ; $0038  CD 0F 00
+        RET Z                            ; $003B  C8
+        INC HL                           ; $003C  23
+        DEC C                            ; $003D  0D
+        JP Z,$073C                       ; $003E  CA 3C 07
+        JP L_0035                        ; $0041  C3 35 00
+L_0044:
+        CALL $121B                       ; $0044  CD 1B 12
+        LD C,E                           ; $0047  4B
+        LD B,D                           ; $0048  42
+        LD A,C                           ; $0049  79
+        DEC B                            ; $004A  05
+        INC B                            ; $004B  04
+        RET                              ; $004C  C9
+L_004D:
+        PUSH BC                          ; $004D  C5
+        CALL L_0044+1                    ; $004E  CD 45 00
+        POP BC                           ; $0051  C1
+        JP NZ,$073C                      ; $0052  C2 3C 07
+        RET                              ; $0055  C9
+L_0056:
+        RLA                              ; $0056  17
+        RLA                              ; $0057  17
+        RLA                              ; $0058  17
+        AND $38                          ; $0059  E6 38
+        RET                              ; $005B  C9
+L_005C:
+        RLA                              ; $005C  17
+        RLA                              ; $005D  17
+        RLA                              ; $005E  17
+        RLA                              ; $005F  17
+        AND $30                          ; $0060  E6 30
+        RET                              ; $0062  C9
+L_0063:
+        CP (HL)                          ; $0063  BE
+L_0064:
+        RET Z                            ; $0064  C8
+        INC HL                           ; $0065  23
+        DEC C                            ; $0066  0D
+        JP NZ,L_0064                     ; $0067  C2 64 00
+        DEC C                            ; $006A  0D
+        RET                              ; $006B  C9
+L_006C:
+        EX DE,HL                         ; $006C  EB
+SUB_006D:
+        LD HL,($09C8)                    ; $006D  2A C8 09
+        EX DE,HL                         ; $0070  EB
+        LD A,E                           ; $0071  7B
+SUB_006D_1:
+        CP (HL)                          ; $0072  BE
+        JP NZ,SUB_006D_2                 ; $0073  C2 7E 00
+        INC HL                           ; $0076  23
+        LD A,D                           ; $0077  7A
+        DEC C                            ; $0078  0D
+        CP (HL)                          ; $0079  BE
+        RET Z                            ; $007A  C8
+        INC C                            ; $007B  0C
+        DEC HL                           ; $007C  2B
+        DEC HL                           ; $007D  2B
+SUB_006D_2:
+        DEC HL                           ; $007E  2B
+        DEC C                            ; $007F  0D
+        JP NZ,SUB_006D_1                 ; $0080  C2 72 00
+        DEC C                            ; $0083  0D
+        RET                              ; $0084  C9
+SUB_006D_3:
+        LD A,($09CC)                     ; $0085  3A CC 09
+        CP $20                           ; $0088  FE 20
+        JP NZ,$073C                      ; $008A  C2 3C 07
+SUB_006D_4:
+        LD A,$48                         ; $008D  3E 48
+        LD ($16DE),A                     ; $008F  32 DE 16
+        LD B,$04                         ; $0092  06 04
+        PUSH HL                          ; $0094  E5
+        LD DE,$09C8                      ; $0095  11 C8 09
+        LD A,(HL)                        ; $0098  7E
+SUB_006D_5:
+        CP $40                           ; $0099  FE 40
+        LD A,(DE)                        ; $009B  1A
+        CALL Z,SUB_00B8                  ; $009C  CC B8 00
+        CP (HL)                          ; $009F  BE
+        JP NZ,SUB_006D_7                 ; $00A0  C2 AC 00
+        INC HL                           ; $00A3  23
+        INC DE                           ; $00A4  13
+        DEC B                            ; $00A5  05
+        JP NZ,SUB_006D_5                 ; $00A6  C2 99 00
+        POP DE                           ; $00A9  D1
+        RET                              ; $00AA  C9
+SUB_006D_6:
+        POP HL                           ; $00AB  E1
+SUB_006D_7:
+        LD DE,$FFFC                      ; $00AC  11 FC FF
+        ADD HL,DE                        ; $00AF  19
+        DEC C                            ; $00B0  0D
+        JP NZ,SUB_006D_4+1               ; $00B1  C2 8E 00
+        LD B,C                           ; $00B4  41
+        DEC C                            ; $00B5  0D
+        RET                              ; $00B6  C9
+SUB_006D_8:
+        EX (SP),HL                       ; $00B7  E3
+SUB_00B8:
+        INC HL                           ; $00B8  23
+        EX (SP),HL                       ; $00B9  E3
+        LD ($16DE),A                     ; $00BA  32 DE 16
+        CP $48                           ; $00BD  FE 48
+        RET Z                            ; $00BF  C8
+SUB_00B8_1:
+        CP $58                           ; $00C0  FE 58
+        RET Z                            ; $00C2  C8
+        CP $59                           ; $00C3  FE 59
+        RET                              ; $00C5  C9
+SUB_00B8_2:
+        PUSH BC                          ; $00C6  C5
+        CALL L_0015+1                    ; $00C7  CD 16 00
+        LD A,($09C8)                     ; $00CA  3A C8 09
+        CP $5B                           ; $00CD  FE 5B
+        JP Z,SUB_00B8_3                  ; $00CF  CA E1 00
+        LD C,$08                         ; $00D2  0E 08
+        LD HL,$09AE                      ; $00D4  21 AE 09
+        CALL SUB_006D                    ; $00D7  CD 6D 00
+        JP NZ,$073C                      ; $00DA  C2 3C 07
+        LD A,C                           ; $00DD  79
+        POP BC                           ; $00DE  C1
+        RET                              ; $00DF  C9
+        DEFB    $21                                              ; $00E0  LD-HL opcode skipped into mid-operand by JP Z,$00E1
+SUB_00B8_3:
+        DEFB $DD  ; ignored IX prefix; inner: LD D,$7E ; $00E1  DD 16 7E
+        LD D,$7E                         ; $00E2  16 7E
+        OR A                             ; $00E4  B7
+        JP NZ,$073C                      ; $00E5  C2 3C 07
+        INC (HL)                         ; $00E8  34
+        LD A,($09CD)                     ; $00E9  3A CD 09
+        CP $5D                           ; $00EC  FE 5D
+        JP NZ,$073C                      ; $00EE  C2 3C 07
+        LD A,($09C9)                     ; $00F1  3A C9 09
+        CALL SUB_00B8_1+1                ; $00F4  CD C1 00
+        JP NZ,$073C                      ; $00F7  C2 3C 07
+        CALL $017E                       ; $00FA  CD 7E 01
+        DEFB    $3A,$CB                                          ; $00FD  truncated LD A,(nn): high operand byte past file end
+    ENT
+    ENDMODULE
 
     SAVEBIN "DOWNLOAD.bin", $0100, $0200

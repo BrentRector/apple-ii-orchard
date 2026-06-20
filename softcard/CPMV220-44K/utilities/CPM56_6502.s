@@ -33,14 +33,17 @@
 ; Data sub-regions kept as `.byte` (verified NOT code):
 ;   $0304-$0306  3-byte RPC entry prefix
 ;   $032D-$033C  write-nibble translate table (16 bytes, 6-and-2 low half)
-;   $033D-$035F  high-bit COPYRIGHT banner ("(C) 1980 MICROSOFT - NK")
+;   $033D-$035F  high-bit COPYRIGHT banner (a high-bit charmap, set up below,
+;                lets it be written as the string literal " COPYRIGHT (C) 1980
+;                MICROSOFT - NK ")
 ;   $0360-$03FF, $04BE-$04FF, $0668-$0755  $FF fill
 ;   $0650-$0667  head-stepper on/off settle-delay table (two 12-byte tables)
 ;   $0756-$07FF  read-translate (inverse 6-and-2 GCR) table -- 170 ($AA) bytes
 ;   $099D-$09AC  write-nibble table (16 bytes) embedded in the driver
 ;   $09FD-$09FF  $FF pad after the warm-boot RTS
 ;   $0B25-$0B2E  small data table ($C0 03 .. / $8D 8D 8D 8D)
-;   $0B2F-$0B68  high-bit error banners (printed by the slot-six check)
+;   $0B2F-$0B68  high-bit error banners ("CAN'T FIND Z80 SOFTCARD" / "MUST BOOT
+;                FROM SLOT SIX", each + $8D CR, printed by the slot-six check)
 ;   $0B69-$0B88  data tail -- $08C7 "JSR $0B6A" is an un-understood Z-80->6502
 ;                RPC selector (the bytes here are NOT coherent 6502 code; the
 ;                SoftCard CPU-switch dispatch into $0Bxx is unresolved, the same
@@ -54,6 +57,20 @@
 ; ============================================================================
 .setcpu "6502"
 .segment "CODE"
+
+; -- High-bit (Apple text) charmap --------------------------------------------
+; The banners this block prints via COUT are stored with the high bit SET (Apple
+; "normal video" text: 'A' = $C1, ' ' = $A0, etc.). So that they can be written
+; as readable string literals below ("MUST BOOT FROM SLOT SIX", ...) instead of
+; raw hex, remap the printable ASCII range $20-$7E to its high-bit form
+; $A0-$FE. .charmap affects ONLY characters inside string literals -- numeric
+; .byte values, instruction operands and the $8D (high-bit CR) / $00 terminators
+; that punctuate the banners are emitted verbatim and are unchanged by it. There
+; are no low-ASCII string literals anywhere in this file, so a single global
+; map here is sufficient and assembles BYTE-IDENTICAL.
+.repeat $5F, I
+    .charmap $20+I, $A0+I
+.endrepeat
 
 ; -- Apple II Monitor ROM entry points used by the slot-six check / warm boot --
 TEXT            = $FB2F         ; set text mode + full-screen window
@@ -99,9 +116,7 @@ L_0325:
         STA $3D                      ; $0328  85 3D
         JMP ($003E)                  ; $032A  6C 3E 00
         .byte   $00, $02, $04, $06, $08, $0A, $0C, $0E, $01, $03, $05, $07, $09, $0B, $0D, $0F ; $032D
-        .byte   $A0, $C3, $CF, $D0, $D9, $D2, $C9, $C7, $C8, $D4, $A0, $A8, $C3, $A9, $A0, $B1 ; $033D  " COPYRIGHT (C) 1"
-        .byte   $B9, $B8, $B0, $A0, $CD, $C9, $C3, $D2, $CF, $D3, $CF, $C6, $D4, $A0, $AD, $A0 ; $034D  "980 MICROSOFT - "
-        .byte   $CE, $CB, $A0                                    ; $035D  "NK "
+        .byte   " COPYRIGHT (C) 1980 MICROSOFT - NK " ; $033D  high-bit COPYRIGHT banner
         .res    114, $FF    ; $0360  fill
 L_03D2:
         .res    46, $FF    ; $03D2  fill
@@ -874,9 +889,9 @@ SUB_0A00_26:
         BNE SUB_0A00_24              ; $0B22  D0 F7
         RTS                          ; $0B24  60
         .byte   $C0, $03, $C0, $03, $C0, $03, $8D, $8D, $8D, $8D ; $0B25
-        .byte   $C3, $C1, $CE, $A7, $D4, $A0, $C6, $C9, $CE, $C4, $A0, $DA, $B8, $B0, $A0, $D3, $CF, $C6, $D4, $C3, $C1, $D2, $C4, $8D ; $0B2F  "CAN'T FIND Z80 SOFTCARD"
+        .byte   "CAN'T FIND Z80 SOFTCARD", $8D ; $0B2F  high-bit banner + CR
         .byte   $8D, $8D, $00, $8D, $8D, $8D, $8D                ; $0B47
-        .byte   $CD, $D5, $D3, $D4, $A0, $C2, $CF, $CF, $D4, $A0, $C6, $D2, $CF, $CD, $A0, $D3, $CC, $CF, $D4, $A0, $D3, $C9, $D8, $8D ; $0B4E  "MUST BOOT FROM SLOT SIX"
+        .byte   "MUST BOOT FROM SLOT SIX", $8D ; $0B4E  high-bit banner + CR
         .byte   $8D, $8D, $00, $AF                               ; $0B66
 SUB_0B6A:
         ; $08C7 "JSR $0B6A" -- un-understood Z-80->6502 RPC selector; these bytes

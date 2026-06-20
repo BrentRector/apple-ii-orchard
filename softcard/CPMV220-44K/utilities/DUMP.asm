@@ -14,6 +14,14 @@ DEFAULT_FCB          EQU $005C               ; Default File Control Block — po
 DEFAULT_CR           EQU $007C               ; Default FCB current record byte (overlaps end of DEFAULT_FCB2).
 DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS cold-init / DRV_ALLRESET (fn 13) set the DMA address here and WBOOT re-issues SETDMA($0080); sector/record I/O moves 128 bytes through it. At program load this same buffer doubles as the command tail: the first byte ($0080) holds the tail length (0-127) and the characters follow at $0081 (CMDLINE).
 
+; -- Program data cells (live BSS overlaid on the leftover image below) --
+;   The three addresses the live program reads/writes as RAM all fall inside the
+;   bytes the build left in the file's BSS tail (see the OVERLAY note at $0215).
+;   They are kept as literal addresses here so the live code resolves to them.
+BUF_POS              EQU $0213               ; 1-byte input-buffer position variable (LD A,(BUF_POS)/LD (BUF_POS),A).
+SAVED_SP             EQU $0215               ; 2-byte cell holding the CCP stack pointer saved at entry (LD (SAVED_SP),HL / LD HL,(SAVED_SP)).
+PRIVATE_STACK_TOP    EQU $0257               ; top of the program's private stack (LD SP,PRIVATE_STACK_TOP).
+
     ORG $0100
 
 ; [AI] Program entry at $0100; saves the CCP's stack pointer for a clean return, switches to a
@@ -23,9 +31,9 @@ TPA_START:
 TPA_START_1:
         ADD HL,SP                        ; $0103  39
 TPA_START_2:
-        LD (READ_RECORD_12),HL           ; $0104  22 15 02
+        LD (SAVED_SP),HL                 ; $0104  22 15 02
 TPA_START_3:
-        LD SP,READ_RECORD_13             ; $0107  31 57 02
+        LD SP,PRIVATE_STACK_TOP          ; $0107  31 57 02
 TPA_START_4:
         CALL OPEN_INPUT_FILE             ; $010A  CD C1 01
 TPA_START_5:
@@ -87,7 +95,7 @@ TPA_START_31:
         JP TPA_START_10                  ; $014E  C3 23 01
 TPA_START_32:
         CALL PRINT_CRLF                  ; $0151  CD 72 01
-        LD HL,(READ_RECORD_12)           ; $0154  2A 15 02
+        LD HL,(SAVED_SP)                 ; $0154  2A 15 02
         LD SP,HL                         ; $0157  F9
         RET                              ; $0158  C9
 ; [AI] Polls console status via BDOS function 11 so a keypress during the dump can abort the output
@@ -260,37 +268,191 @@ READ_RECORD_9:
         DEFB    "FILE DUMP VERSION 1.4$"                         ; $01DD  embedded version banner
 MSG_NO_INPUT_FILE:
         DEFB    $0D,$0A,"NO INPUT FILE PRESENT ON DISK$"          ; $01F3
-; [AI] Uninitialized data area ($0213-$02FF). BUF_POS is the program's 1-byte
-;       buffer-position variable; READ_RECORD_12 ($0215) is the 2-byte cell that
-;       holds the saved CCP stack pointer; READ_RECORD_13 ($0257) is the TOP of
-;       the program's private stack (LD SP,READ_RECORD_13). Everything from $0214
-;       onward is BSS that the .COM image carries as leftover disk-sector bytes,
-;       NOT this program's code. The "code-shaped" bytes below are never reached
-;       by any label or branch in this file and their decoded CALL/JP operands
-;       ($053C, $052A, $0560, $0600, $0700, $1006, ...) all fall OUTSIDE the
-;       $0100-$02FF program image -- stale residue, left as DEFB. (The DEFW
-;       TPA_START at $028D is a coincidence: those two bytes happen to be $00,$01.)
-BUF_POS:
-        DEFB    $EA,$21                                          ; $0213
-READ_RECORD_12:
-        DEFB    $F5,$C5,$D5,$E5,$59,$0E,$02,$CD,$06,$10,$E1,$D1,$C1,$F1,$C9,$FE ; $0215
-        DEFB    $20,$C8,$FE,$09,$C8,$FE,$2C,$C8,$FE,$0D,$C8,$FE,$7F,$CA,$3C,$05 ; $0225
-        DEFB    $C9,$0E,$0D,$CD,$15,$00,$0E,$0A,$CD,$15,$00,$C9,$CD,$09,$07,$FE ; $0235
-        DEFB    $0D,$CA,$2A,$05,$CD,$24,$00,$CA,$41,$00,$0E,$04,$21,$8B,$06,$36 ; $0245
-        DEFB    $20,$23                                          ; $0255
-READ_RECORD_13:
-        DEFB    $0D,$C2,$54,$00,$0E,$05,$21,$8B,$06,$77,$CD,$09,$07,$CD,$24,$00 ; $0257
-        DEFB    $CA,$72,$00,$23,$0D,$CA,$2A,$05,$C3,$60,$00,$3A,$8B,$06,$FE,$20 ; $0267
-        DEFB    $C9,$D6,$30,$FE,$0A,$D8,$C6,$F9,$FE,$10,$D8,$C3,$2A,$05,$CD,$41 ; $0277
-        DEFB    $00,$CA,$2A,$05,$11,$00                          ; $0287
-        DEFW    TPA_START                ; $028D
-        DEFB    $00,$00,$21,$8B,$06,$09,$7E,$FE,$20,$CA,$B0,$00,$CD,$78,$00,$6B ; $028F
-        DEFB    $62,$29,$29,$29,$29,$5F,$16,$00,$19,$EB,$03,$79,$FE,$04,$C2,$91 ; $029F
-        DEFB    $00,$42,$4B,$7B,$05,$04,$C9,$CD,$85,$00,$C2,$2A,$05,$C9,$21,$05 ; $02AF
-        DEFB    $00,$36,$C3,$36,$C3,$21,$00,$00,$22,$06,$00,$C9,$17,$17,$17,$E6 ; $02BF
-        DEFB    $38,$C9,$17,$17,$17,$17,$E6,$30,$C9,$EB,$2A,$8B,$06,$EB,$7B,$BE ; $02CF
-        DEFB    $C2,$E7,$00,$23,$7A,$BE,$C8,$2B,$2B,$2B,$0D,$C2,$DD,$00,$0D,$C9 ; $02DF
-        DEFB    $06,$04,$D5,$11,$8B,$06,$1A,$BE,$C2,$02,$01,$23,$13,$05,$C2,$F5 ; $02EF
-        DEFB    $00                                              ; $02FF
+
+; ── BSS variables + the leftover relocatable image they overlay ──────────────
+;
+; DUMP's uninitialized data lives from $0213 to the file's end. On disk those
+; bytes are NOT zero: the linker left a prior relocatable code image in the BSS
+; record. The live program above never executes any of it -- it only uses three
+; cells inside it as RAM (BUF_POS $0213, SAVED_SP $0215, PRIVATE_STACK_TOP $0257,
+; declared as EQUs above). But the bytes ARE coherent Z-80, not random residue:
+; decoded as page-relative code (run base $0000) the whole span $0215-$02FF is a
+; dense, fully-connected routine set (a char classifier, hex-nibble formatters,
+; a 4-byte field walker, a BDOS-call thunk at $0000), with every internal CALL/JP
+; landing on an instruction boundary. It is the same family of relocatable
+; build-runtime code that DOWNLOAD.COM's BSS tail also carries. Its out-of-image
+; operands ($1006, $0709, $052A, $053C, $068B...) are page-relative-to-another-
+; base references the loader's relocator would fix up at run time; we leave them
+; as literal addresses. The image is decoded below at run base $0000 via DISP, in
+; a local MODULE so its labels don't collide with the loader's.
+BUF_POS_CELL:                            ; = BUF_POS ($0213); $0214 is the high-byte
+                                         ;   pad of the 1-byte variable's cell
+        DEFB    $EA,$21                                          ; $0213  (leftover image bytes; live use = BUF_POS)
+DUMP_BSS_IMAGE:                          ; = SAVED_SP ($0215) / PRIVATE_STACK_TOP ($0257) at run time
+    MODULE DUMP_OVERLAY
+    DISP $0000                           ; leftover image is page-relative; internal labels resolve at $0000
+L_0000:
+        PUSH AF                          ; $0000  F5
+        PUSH BC                          ; $0001  C5
+        PUSH DE                          ; $0002  D5
+        PUSH HL                          ; $0003  E5
+        LD E,C                           ; $0004  59
+L_0005:
+        LD C,$02                         ; $0005  0E 02
+        CALL $1006                       ; $0007  CD 06 10
+        POP HL                           ; $000A  E1
+        POP DE                           ; $000B  D1
+        POP BC                           ; $000C  C1
+        POP AF                           ; $000D  F1
+        RET                              ; $000E  C9
+L_000F:
+        CP $20                           ; $000F  FE 20
+        RET Z                            ; $0011  C8
+        CP $09                           ; $0012  FE 09
+        RET Z                            ; $0014  C8
+SUB_0015:
+        CP $2C                           ; $0015  FE 2C
+        RET Z                            ; $0017  C8
+        CP $0D                           ; $0018  FE 0D
+        RET Z                            ; $001A  C8
+        CP $7F                           ; $001B  FE 7F
+        JP Z,$053C                       ; $001D  CA 3C 05
+        RET                              ; $0020  C9
+SUB_0015_1:
+        LD C,$0D                         ; $0021  0E 0D
+SUB_0015_2:
+        CALL SUB_0015                    ; $0023  CD 15 00
+        LD C,$0A                         ; $0026  0E 0A
+        CALL SUB_0015                    ; $0028  CD 15 00
+        RET                              ; $002B  C9
+SUB_0015_3:
+        CALL $0709                       ; $002C  CD 09 07
+        CP $0D                           ; $002F  FE 0D
+        JP Z,$052A                       ; $0031  CA 2A 05
+        CALL SUB_0015_2+1                ; $0034  CD 24 00
+        JP Z,SUB_0041                    ; $0037  CA 41 00
+        LD C,$04                         ; $003A  0E 04
+        LD HL,$068B                      ; $003C  21 8B 06
+        LD (HL),$20                      ; $003F  36 20
+SUB_0041:
+        INC HL                           ; $0041  23
+        DEC C                            ; $0042  0D
+        JP NZ,SUB_0041_1+2               ; $0043  C2 54 00
+        LD C,$05                         ; $0046  0E 05
+        LD HL,$068B                      ; $0048  21 8B 06
+        LD (HL),A                        ; $004B  77
+        CALL $0709                       ; $004C  CD 09 07
+        CALL SUB_0015_2+1                ; $004F  CD 24 00
+SUB_0041_1:
+        JP Z,SUB_0041_5+2                ; $0052  CA 72 00
+        INC HL                           ; $0055  23
+        DEC C                            ; $0056  0D
+        JP Z,$052A                       ; $0057  CA 2A 05
+        JP SUB_0041_3                    ; $005A  C3 60 00
+SUB_0041_2:
+        LD A,($068B)                     ; $005D  3A 8B 06
+SUB_0041_3:
+        CP $20                           ; $0060  FE 20
+        RET                              ; $0062  C9
+SUB_0041_4:
+        SUB $30                          ; $0063  D6 30
+        CP $0A                           ; $0065  FE 0A
+        RET C                            ; $0067  D8
+        ADD A,$F9                        ; $0068  C6 F9
+        CP $10                           ; $006A  FE 10
+        RET C                            ; $006C  D8
+        JP $052A                         ; $006D  C3 2A 05
+SUB_0041_5:
+        CALL SUB_0041                    ; $0070  CD 41 00
+        JP Z,$052A                       ; $0073  CA 2A 05
+SUB_0041_6:
+        LD DE,L_0000                     ; $0076  11 00 00
+        LD BC,L_0000                     ; $0079  01 00 00
+        LD HL,$068B                      ; $007C  21 8B 06
+        ADD HL,BC                        ; $007F  09
+        LD A,(HL)                        ; $0080  7E
+        CP $20                           ; $0081  FE 20
+SUB_0041_7:
+        JP Z,SUB_0041_11+1               ; $0083  CA B0 00
+        CALL SUB_0041_6+2                ; $0086  CD 78 00
+        LD L,E                           ; $0089  6B
+        LD H,D                           ; $008A  62
+        ADD HL,HL                        ; $008B  29
+        ADD HL,HL                        ; $008C  29
+        ADD HL,HL                        ; $008D  29
+        ADD HL,HL                        ; $008E  29
+        LD E,A                           ; $008F  5F
+SUB_0041_8:
+        LD D,$00                         ; $0090  16 00
+        ADD HL,DE                        ; $0092  19
+        EX DE,HL                         ; $0093  EB
+        INC BC                           ; $0094  03
+        LD A,C                           ; $0095  79
+        CP $04                           ; $0096  FE 04
+        JP NZ,SUB_0041_8+1               ; $0098  C2 91 00
+        LD B,D                           ; $009B  42
+        LD C,E                           ; $009C  4B
+        LD A,E                           ; $009D  7B
+        DEC B                            ; $009E  05
+        INC B                            ; $009F  04
+        RET                              ; $00A0  C9
+SUB_0041_9:
+        CALL SUB_0041_7+2                ; $00A1  CD 85 00
+        JP NZ,$052A                      ; $00A4  C2 2A 05
+        RET                              ; $00A7  C9
+SUB_0041_10:
+        LD HL,L_0005                     ; $00A8  21 05 00
+        LD (HL),$C3                      ; $00AB  36 C3
+        LD (HL),$C3                      ; $00AD  36 C3
+SUB_0041_11:
+        LD HL,L_0000                     ; $00AF  21 00 00
+        LD (L_0005+1),HL                 ; $00B2  22 06 00
+        RET                              ; $00B5  C9
+SUB_0041_12:
+        RLA                              ; $00B6  17
+        RLA                              ; $00B7  17
+        RLA                              ; $00B8  17
+        AND $38                          ; $00B9  E6 38
+        RET                              ; $00BB  C9
+SUB_0041_13:
+        RLA                              ; $00BC  17
+        RLA                              ; $00BD  17
+        RLA                              ; $00BE  17
+        RLA                              ; $00BF  17
+        AND $30                          ; $00C0  E6 30
+        RET                              ; $00C2  C9
+SUB_0041_14:
+        EX DE,HL                         ; $00C3  EB
+        LD HL,($068B)                    ; $00C4  2A 8B 06
+        EX DE,HL                         ; $00C7  EB
+        LD A,E                           ; $00C8  7B
+        CP (HL)                          ; $00C9  BE
+        JP NZ,SUB_0041_17                ; $00CA  C2 E7 00
+        INC HL                           ; $00CD  23
+        LD A,D                           ; $00CE  7A
+        CP (HL)                          ; $00CF  BE
+        RET Z                            ; $00D0  C8
+        DEC HL                           ; $00D1  2B
+        DEC HL                           ; $00D2  2B
+        DEC HL                           ; $00D3  2B
+        DEC C                            ; $00D4  0D
+        JP NZ,SUB_0041_16                ; $00D5  C2 DD 00
+        DEC C                            ; $00D8  0D
+        RET                              ; $00D9  C9
+SUB_0041_15:
+        LD B,$04                         ; $00DA  06 04
+        PUSH DE                          ; $00DC  D5
+SUB_0041_16:
+        LD DE,$068B                      ; $00DD  11 8B 06
+        LD A,(DE)                        ; $00E0  1A
+        CP (HL)                          ; $00E1  BE
+        JP NZ,$0102                      ; $00E2  C2 02 01
+        INC HL                           ; $00E5  23
+        INC DE                           ; $00E6  13
+SUB_0041_17:
+        DEC B                            ; $00E7  05
+        JP NZ,$00F5                      ; $00E8  C2 F5 00
+    ENT
+    ENDMODULE
 
     SAVEBIN "DUMP.bin", $0100, $0200

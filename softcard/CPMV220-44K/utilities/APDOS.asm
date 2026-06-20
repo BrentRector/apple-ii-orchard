@@ -759,20 +759,19 @@ CONOUT_CHAR_44:
         DEFB    "File not found$"                   ; $0708
 CONOUT_CHAR_45:
         DEFB    "Working...$"                       ; $0717
-; [AI] $0722-$077F: data cells, NOT a printed string. CONOUT_CHAR_46/47/48 are read
-;       as binary (byte index base / catalog-link word / DOS-version byte). The image
-;       holds stale tail bytes (a leftover copy of earlier message text) that the loader
-;       never zeroed; at runtime these addresses are overwritten by the read sectors.
+; [AI] $0722-$077F: at RUNTIME these are binary data cells -- CONOUT_CHAR_46/47/48 are
+;       read as a byte index base / catalog-link word / DOS-version byte after the Apple
+;       sector reads overwrite them. In the FILE IMAGE, however, the bytes here are LIVE
+;       ASCII message text: a second copy of the "...Binary files only$Directory full$
+;       Disk full$Disk I/O Error$Invalid Drive$Not an Apple D[OS disk]" run that the
+;       linker laid down (the message-pool tail, $24 = '$' = the BDOS print terminator).
+;       The label boundaries fall mid-word ($0722, $0723, $0749 are the addresses the code
+;       indexes), so the text is split there but kept as string literals, not raw hex.
 CONOUT_CHAR_46:
-        DEFB    $65                                              ; $0722
+        DEFB    "e"                                              ; $0722
 CONOUT_CHAR_47:
-        DEFB    $78,$74,$20,$61,$6E,$64,$20,$42,$69,$6E,$61,$72,$79,$20,$66,$69 ; $0723
-        DEFB    $6C,$65,$73,$20,$6F,$6E,$6C,$79,$24,$44,$69,$72,$65,$63,$74,$6F ; $0733
-        DEFB    $72,$79,$20,$66,$75,$6C                          ; $0743
+        DEFB    "xt and Binary files only$Directory ful" ; $0723
 CONOUT_CHAR_48:
-        DEFB    $6C,$24,$44,$69,$73,$6B,$20,$66,$75,$6C,$6C,$24,$44,$69,$73,$6B ; $0749
-        DEFB    $20,$49,$2F,$4F,$20,$45,$72,$72,$6F,$72,$24,$49,$6E,$76,$61,$6C ; $0759
-        DEFB    $69,$64,$20,$44,$72,$69,$76,$65,$24,$4E,$6F,$74,$20,$61,$6E,$20 ; $0769
-        DEFB    $41,$70,$70,$6C,$65,$20,$44                      ; $0779
+        DEFB    "l$Disk full$Disk I/O Error$Invalid Drive$Not an Apple D" ; $0749
 
     SAVEBIN "APDOS.bin", $0100, $0680
