@@ -303,51 +303,184 @@ SUB_93FC:
         CP $20                           ; $93FC  FE 20
         JR NZ,L_9405                     ; $93FE  20 05
         LD L,B                           ; $9400  68
-; [AI] -- Embedded 6502 RPC block ($9401-$94FF). 6502 machine code (NOT Z-80) carried
-;        inside the Z-80 system image; the SoftCard runs it on the 6502 side via the
-;        CPU-switch RPC, so from the Z-80's view it is opaque DATA (decoding it as Z-80
-;        is garbage) and it is kept as DEFB. It is the warm-boot / RWTS disk service:
-;        retry/sector-match/motor-on/sector-mover against the I/O-config cells
-;        ($03E0-$03EB), the slot-ROM page ($C088,X) and the RWTS helpers; it also holds
-;        a sector-skew table. The Z-80 CCP/BDOS CALL several interior addresses here
-;        (SUB_940B/SUB_941B/SUB_949A/... -- the labels below) as RPC selectors. Mirrors
-;        the CPMV220-44K $9400 block (there factored out to CPM_RPC6502.s). --
-        DEFB    $CE                                              ; $9401
-L_9402:
-        DEFB    $F8,$04,$D0                                      ; $9402
-L_9405:
-        DEFB    $E5,$F0,$CA,$68,$A9,$40                          ; $9405
-SUB_940B:
-        DEFB    $28,$4C,$3F,$BF,$F0,$2A,$A5,$2F,$8D              ; $940B  "(L??p*%/"
-        DEFB    $E3,$03,$AD,$E2,$03,$F0,$08                      ; $9414
-SUB_941B:
-        DEFB    $C5,$2F,$F0,$04,$A9,$20,$D0,$E8,$AD,$E1,$03,$A8,$B9,$9E,$BF,$C5 ; $941B
-        DEFB    $2D,$D0,$9F,$28,$90,$19,$20,$99,$BA,$08,$B0,$96,$28,$20,$D3,$BF ; $942B
-        DEFB    $18,$A9,$00,$24,$38,$8D,$EA,$03,$AE,$F8,$05,$BD,$88,$C0,$60,$20 ; $943B
-        DEFB    $00,$BA,$90,$EC,$A9,$10,$D0,$EC,$0A,$20,$5B,$BF,$4E,$78,$04,$60 ; $944B
-        DEFB    $85,$2E,$20,$7E,$BF,$B9,$78,$04,$24,$35,$30,$03,$B9,$F8,$04,$8D ; $945B
-        DEFB    $78,$04,$A5,$2E,$24,$35,$30,$05,$99,$F8,$04,$10,$03,$99,$78,$04 ; $946B
-        DEFB    $4C,$5F,$BB,$8A,$4A,$4A,$4A,$4A,$A8,$60,$48,$AD,$E4,$03,$6A,$66 ; $947B
-        DEFB    $35,$20,$7E,$BF,$68,$0A,$24,$35,$30,$05,$99,$F8,$04,$10,$03 ; $948B
-SUB_949A:
-        DEFB    $99,$78,$04,$60,$00,$02,$04,$06,$08,$0A,$0C,$0E,$01,$03 ; $949A
-SUB_94A8:
-        DEFB    $05,$07,$09,$0B,$0D                              ; $94A8
-SUB_94AD:
-        DEFB    $0F,$A2,$55                                      ; $94AD
-SUB_94B0:
-        DEFB    $A9,$00,$9D,$00,$0C,$CA,$10,$FA,$A8,$A2,$AC,$2C,$A2,$AA,$88,$B1 ; $94B0
-        DEFB    $3E,$4A,$3E,$56,$0B,$4A,$3E,$56,$0B,$99,$00,$09,$E8 ; $94C0
-SUB_94CD:
-        DEFB    $D0,$EF,$98                                      ; $94CD
-        DEFB    $D0,$EA,$60,$A0,$00                              ; $94D0  "Pj` "
-        DEFB    $A2,$56,$CA,$30,$FB,$B9,$00                      ; $94D5  ""VJ0{9"
-        DEFB    $09,$5E,$00                                      ; $94DC
-SUB_94DF:
-        DEFB    $0C,$2A,$5E,$00,$0C,$2A,$91,$3E,$C8,$D0,$ED      ; $94DF
-L_94EA:
-        DEFB    $60                                              ; $94EA
-        DEFS    21, $00    ; $94EB  fill ($94EB-$94FF: tail padding of the 6502 RPC block)
+L_9401:    ; $9401-$94FF  embedded 6502 RPC block -- 6502 code (NOT Z-80), run on the
+;          ; 6502 via the SoftCard CPU switch. Assembled from CPM_RPC6502.s (ca65,
+;          ; authoritative) and INCBIN'd here byte-identical. It is the RWTS / nibble
+;          ; disk service (retry/sector-match/motor-on/sector-mover against the
+;          ; I/O-config cells $03E0-$03EB + the 2.23 $BAxx-$BFxx RWTS, plus a 6-and-2
+;          ; nibble pack/unpack pair); the $949E sector-skew table is genuine data. Its
+;          ; exact source listing follows so this file is self-documenting.
+;   >>> CPM_RPC6502.s -- verbatim listing of the INCBIN'd source (regen: inject_incbin_listing) >>>
+;
+; .org $9401
+;
+; SECTOR_RW:
+;         DEC $04F8                    ; $9401  CE F8 04   [AI] retry counter (slot-0 screen hole)
+;         BNE $93EB                    ; $9404  D0 E5      [AI] -> RWTS body (out of block)
+;         BEQ $93D2                    ; $9406  F0 CA      [AI] -> RWTS body (out of block)
+; SECTOR_RW_1:
+;         PLA                          ; $9408  68
+;         LDA #$40                     ; $9409  A9 40
+; SECTOR_RW_2:
+;         PLP                          ; $940B  28
+;         JMP $BF3F                    ; $940C  4C 3F BF   [AI] 2.23 RWTS entry (2.20: $0F3E)
+; SECTOR_MATCH:
+;         BEQ DRIVE_MOTOR_ON           ; $940F  F0 2A
+;         LDA $2F                      ; $9411  A5 2F
+;         STA $03E3                    ; $9413  8D E3 03   [AI] I/O-config cell
+;         LDA $03E2                    ; $9416  AD E2 03
+;         BEQ SECTOR_MATCH_1           ; $9419  F0 08
+;         CMP $2F                      ; $941B  C5 2F
+;         BEQ SECTOR_MATCH_1           ; $941D  F0 04
+;         LDA #$20                     ; $941F  A9 20
+;         BNE SECTOR_RW_2              ; $9421  D0 E8
+; SECTOR_MATCH_1:
+;         LDA $03E1                    ; $9423  AD E1 03
+;         TAY                          ; $9426  A8
+;         LDA $BF9E,Y                  ; $9427  B9 9E BF   [AI] skew lookup (2.20: $0F9D,Y)
+;         CMP $2D                      ; $942A  C5 2D
+;         BNE $93CD                    ; $942C  D0 9F      [AI] -> RWTS body (out of block)
+;         PLP                          ; $942E  28
+;         BCC DRIVE_MOTOR_ON_2         ; $942F  90 19
+;         JSR $BA99                    ; $9431  20 99 BA   [AI] 2.23 RWTS helper (2.20: $0B00)
+;         PHP                          ; $9434  08
+;         BCS $93CD                    ; $9435  B0 96      [AI] -> RWTS body (out of block)
+;         PLP                          ; $9437  28
+;         JSR $BFD3                    ; $9438  20 D3 BF   [AI] 2.23 RWTS helper (2.20: $0BC6)
+; DRIVE_MOTOR_ON:
+;         CLC                          ; $943B  18
+;         LDA #$00                     ; $943C  A9 00
+; DRIVE_MOTOR_ON_1:
+;         BIT $38                      ; $943E  24 38      ; (also entered at +1 as LDA #$10/$38 -> see $9451)
+;         STA $03EA                    ; $9440  8D EA 03   [AI] I/O-config cell
+;         LDX $05F8                    ; $9443  AE F8 05   [AI] slot index (screen hole)
+;         LDA $C088,X                  ; $9446  BD 88 C0   [AI] motor on ($C088+slot*16)
+;         RTS                          ; $9449  60
+; DRIVE_MOTOR_ON_2:
+;         JSR $BA00                    ; $944A  20 00 BA   [AI] 2.23 RWTS helper (2.20: $0A25)
+;         BCC DRIVE_MOTOR_ON           ; $944D  90 EC
+;         LDA #$10                     ; $944F  A9 10
+;         BNE DRIVE_MOTOR_ON_1+1       ; $9451  D0 EC      [AI] skip BIT opcode: enters operand $38 of $943E
+;         ASL                          ; $9453  0A
+;         JSR $BF5B                    ; $9454  20 5B BF   [AI] 2.23 RWTS helper (2.20: $0F5A)
+;         LSR $0478                    ; $9457  4E 78 04
+;         RTS                          ; $945A  60
+; SECTOR_XFER_BYTE:
+;         STA $2E                      ; $945B  85 2E
+;         JSR $BF7E                    ; $945D  20 7E BF   [AI] 2.23 RWTS helper (2.20: $0F7D)
+;         LDA $0478,Y                  ; $9460  B9 78 04
+;         BIT $35                      ; $9463  24 35      [AI] bit-7 selects buffer bank
+;         BMI SECTOR_XFER_BYTE_1       ; $9465  30 03
+;         LDA $04F8,Y                  ; $9467  B9 F8 04
+; SECTOR_XFER_BYTE_1:
+;         STA $0478                    ; $946A  8D 78 04
+;         LDA $2E                      ; $946D  A5 2E
+;         BIT $35                      ; $946F  24 35
+;         BMI SECTOR_XFER_BYTE_2       ; $9471  30 05
+;         STA $04F8,Y                  ; $9473  99 F8 04
+;         BPL SECTOR_XFER_BYTE_3       ; $9476  10 03
+; SECTOR_XFER_BYTE_2:
+;         STA $0478,Y                  ; $9478  99 78 04
+; SECTOR_XFER_BYTE_3:
+;         JMP $BB5F                    ; $947B  4C 5F BB   [AI] 2.23 RWTS continue (2.20: $0BDE)
+; SLOT_TO_INDEX:
+;         TXA                          ; $947E  8A         [AI] $Cn slot byte -> index N
+;         LSR                          ; $947F  4A
+;         LSR                          ; $9480  4A
+;         LSR                          ; $9481  4A
+;         LSR                          ; $9482  4A
+;         TAY                          ; $9483  A8
+;         RTS                          ; $9484  60
+; SECTOR_MOVE:
+;         PHA                          ; $9485  48
+;         LDA $03E4                    ; $9486  AD E4 03   [AI] I/O-config cell
+;         ROR                          ; $9489  6A
+;         ROR $35                      ; $948A  66 35      [AI] shift bank-select bit into $35
+; SECTOR_MOVE_1:
+;         JSR $BF7E                    ; $948C  20 7E BF   [AI] 2.23 RWTS helper (2.20: $0F7D analog)
+;         PLA                          ; $948F  68
+;         ASL                          ; $9490  0A
+; SECTOR_MOVE_2:
+;         BIT $35                      ; $9491  24 35
+;         BMI SECTOR_MOVE_4            ; $9493  30 05
+;         STA $04F8,Y                  ; $9495  99 F8 04
+; SECTOR_MOVE_3:
+;         BPL SECTOR_MOVE_5            ; $9498  10 03
+; SECTOR_MOVE_4:
+;         STA $0478,Y                  ; $949A  99 78 04
+; SECTOR_MOVE_5:
+;         RTS                          ; $949D  60
+; ; [AI] Sector-skew translate table (logical->physical), 16 bytes. IDENTICAL to
+; ;      the 2.20-44K block's table at $949D. Genuine DATA, kept as .byte.
+; SECTOR_XLATE_TABLE:
+;         .byte   $00, $02, $04, $06, $08, $0A, $0C, $0E, $01, $03, $05, $07, $09, $0B, $0D, $0F ; $949E
+; ; [AI] PRENIBBLE encode: pack a 256-byte page (read via ($3E),Y) into 6-and-2
+; ;      nibble form -- high six bits to $0900,Y, the two low bits accumulated into
+; ;      the $0B56,X 2-bit buffer. (Replaces the 2.20 warm-boot sector RELOAD here.)
+; PRENIBBLE:
+;         LDX #$55                     ; $94AE  A2 55
+;         LDA #$00                     ; $94B0  A9 00
+; PRENIBBLE_CLR:
+;         STA $0C00,X                  ; $94B2  9D 00 0C   [AI] clear the $0C00 2-bit scratch
+;         DEX                          ; $94B5  CA
+;         BPL PRENIBBLE_CLR            ; $94B6  10 FA
+; PRENIBBLE_INIT:
+;         TAY                          ; $94B8  A8
+;         LDX #$AC                     ; $94B9  A2 AC      [AI] entry 1: X = -$54 (high half)
+; PRENIBBLE_ALT:
+;         BIT $AAA2                    ; $94BB  2C A2 AA   [AI] skip idiom: entry at +1 = LDX #$AA (entry 2)
+; PRENIBBLE_LOOP:
+;         DEY                          ; $94BE  88
+;         LDA ($3E),Y                  ; $94BF  B1 3E      [AI] source page pointer in $3E/$3F
+;         LSR                          ; $94C1  4A
+;         ROL $0B56,X                  ; $94C2  3E 56 0B   [AI] save low bit 0 into 2-bit buffer
+;         LSR                          ; $94C5  4A
+;         ROL $0B56,X                  ; $94C6  3E 56 0B   [AI] save low bit 1 into 2-bit buffer
+;         STA $0900,Y                  ; $94C9  99 00 09   [AI] high six bits -> $0900 buffer
+;         INX                          ; $94CC  E8
+;         BNE PRENIBBLE_LOOP           ; $94CD  D0 EF
+;         TYA                          ; $94CF  98
+;         BNE PRENIBBLE_ALT+1          ; $94D0  D0 EA      [AI] second pass via skip idiom (LDX #$AA)
+;         RTS                          ; $94D2  60
+; ; [AI] POSTNIBBLE decode: the inverse -- re-inject the $0C00,X 2-bit buffer into
+; ;      the $0900,Y six-bit data and write the rebuilt page back via ($3E),Y.
+; POSTNIBBLE:
+;         LDY #$00                     ; $94D3  A0 00
+; POSTNIBBLE_NEXT:
+;         LDX #$56                     ; $94D5  A2 56
+; POSTNIBBLE_DEX:
+;         DEX                          ; $94D7  CA
+;         BMI POSTNIBBLE_NEXT          ; $94D8  30 FB      [AI] wrap X back to $56
+;         LDA $0900,Y                  ; $94DA  B9 00 09   [AI] six-bit data
+;         LSR $0C00,X                  ; $94DD  5E 00 0C   [AI] pull low bit 0 from 2-bit buffer
+;         ROL                          ; $94E0  2A
+;         LSR $0C00,X                  ; $94E1  5E 00 0C   [AI] pull low bit 1 from 2-bit buffer
+;         ROL                          ; $94E4  2A
+;         STA ($3E),Y                  ; $94E5  91 3E      [AI] rebuilt byte -> dest page
+;         INY                          ; $94E7  C8
+;         BNE POSTNIBBLE_DEX           ; $94E8  D0 ED
+;         RTS                          ; $94EA  60
+; ; [AI] Tail padding to the end of the $94xx page (the routine ends at $94EA).
+;         .res    21, $00              ; $94EB  00 x21
+;   <<< end listing <<<
+        INCBIN  "CPM_RPC6502.bin"
+; -- Addresses the Z-80 references inside the 6502 block, as offsets from L_9401
+;    (so they relocate with ORG). OPEN: how a Z-80 CALL into $94xx actually
+;    reaches/selects the 6502 service is NOT understood -- several of these land
+;    mid-6502-instruction or inside the skew table, so they are NOT semantic 6502
+;    entry points. Kept verbatim, auto-named, pending that investigation. The
+;    6502 CODE itself is named in CPM_RPC6502.s. --
+L_9402           EQU L_9401 + $001
+L_9405           EQU L_9401 + $004
+SUB_940B         EQU L_9401 + $00A
+SUB_941B         EQU L_9401 + $01A
+SUB_949A         EQU L_9401 + $099
+SUB_94A8         EQU L_9401 + $0A7
+SUB_94AD         EQU L_9401 + $0AC
+SUB_94B0         EQU L_9401 + $0AF
+SUB_94CD         EQU L_9401 + $0CC
+SUB_94DF         EQU L_9401 + $0DE
+L_94EA           EQU L_9401 + $0E9
 ; [AI] -- end of embedded 6502 block; Z-80 code resumes at $9500 --
 SUB_94DF_1:
         LD A,C                           ; $9500  79

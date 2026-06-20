@@ -96,6 +96,9 @@ SOURCES_223: dict[str, ChunkSource | Path] = {
         asm_path=OS223_44K / "CPM_CCP.asm",
         cpu="z80", org=0x8000, size=0x1700,
         expected_bin_name="build/CPM223_44K_System.bin",
+        # CCP embeds a 6502 RPC block ($9401-$94FF), INCBIN'd from its ca65 source
+        # (the CPM_RPC6502 pattern; mirrors CPM220_44K_System).
+        incbin_deps=(("CPM_RPC6502.bin", OS223_44K / "CPM_RPC6502.s", ()),),
         include_files=(OS223_44K / "CPM_BDOS.asm",),
     ),
     # The as-shipped pristine on-disk BIOS ($FA00-$FDFF) -- exactly what LOAD_CPM
