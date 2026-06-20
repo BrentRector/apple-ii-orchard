@@ -91,6 +91,14 @@ def _build_z80_incbin_dep(src_path: Path, out_bin: Path, defines: tuple) -> None
         raise AssemblyError(f"Z-80 INCBIN dep source missing: {src_path}")
     tmp_src = out_bin.parent / src_path.name
     text = src_path.read_text(encoding="utf-8")
+    # Stage any shared includes the fragment pulls in (e.g. apple_softcard.inc) beside it
+    # so the bare-name INCLUDE resolves in the build dir.
+    _inc_dir = Path(__file__).resolve().parent.parent / "include"
+    for inc in re.findall(r'(?im)^\s*INCLUDE\s+"([^"]+)"', text):
+        cand = _inc_dir / inc
+        if cand.exists():
+            (out_bin.parent / inc).write_text(cand.read_text(encoding="latin-1"),
+                                              encoding="latin-1")
     tmp_src.write_text(_SAVEBIN_RE.sub(rf'\1{out_bin.as_posix()}\3', text),
                        encoding="utf-8")
     cmd = ["sjasmplus"] + [f"-D{d}" for d in defines] + [tmp_src.name]

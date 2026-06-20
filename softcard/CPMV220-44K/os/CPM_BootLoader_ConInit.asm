@@ -10,15 +10,12 @@
 ;
 ;  Slot-3 serial (type-3) card console primitives; each reads the card's status
 ;  register ($C0BE, seen as $E0BE by the Z-80) or RPCs the char to the 6502
-;  (set A$VEC=$F3D0, trigger via Z$CPU=$F3DE). Non-type-3 -> BIOS ($AB0C/$AC3E).
+;  (set A$VEC=A_VEC, trigger via Z$CPU=Z_CPU). Non-type-3 -> BIOS ($AB0C/$AC3E).
 ;  Reassembles BYTE-IDENTICAL to the original $134A-$137B bytes.
 ; ============================================================================
     DEVICE NOSLOT64K
+    INCLUDE "apple_softcard.inc"   ; Apple/SoftCard external names (single source of truth)
 
-A_ACC   EQU $F045        ; 6502 A-register RPC pass cell ($45)
-A_VEC   EQU $F3D0        ; address of 6502 subroutine to call (low-high)
-Z_CPU   EQU $F3DE        ; SoftCard location cell ($En00); a store there flips CPUs
-SLTTYP3 EQU $F3BB        ; Card Type Table entry for slot 3
 SLOT3IO EQU $E0BE        ; slot-3 device status register (Apple $C0BE)
 
     ORG $F34A
@@ -44,7 +41,7 @@ OUT_WAIT:                       ; $F366
     AND $02                     ; Tx-ready bit set?
     JR Z,OUT_WAIT               ; spin until ready
     LD A,C                      ; char to send
-    LD (A_ACC),A                ; hand it to the 6502 (A-reg cell)
+    LD (RPC_ACC),A                ; hand it to the 6502 (A-reg cell)
     LD HL,$037C                 ; 6502 sub: STA $C0BF ; RTS
     LD (A_VEC),HL               ; A$VEC := $037C
     LD HL,(Z_CPU)               ; HL := $En00
