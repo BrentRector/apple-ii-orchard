@@ -159,183 +159,27 @@ SUB_02F9_3:
         LD BC,L_27A5                     ; $0300  01 A5 27
         RET                              ; $0303  C9
 ; ============================================================================
-; EMBEDDED 6502 PAYLOAD  ($0304-$0B88)  -- disk-update bootstrap
+; EMBEDDED 6502 PAYLOAD  ($0304-$0B88)  -- disk-update engine
 ;
 ; CPM56 is a Z-80 transient that rewrites the 44K boot tracks into the 56K
 ; layout. The actual disk I/O runs on the 6502: this block is genuine 6502
 ; machine code (NOT Z-80), carried verbatim in the .COM. The Z-80 side stages
-; it, then hands the CPU to the 6502 (CPM_RPC mechanism) to read/write tracks.
-; Verified by 6502 disassembly; each routine's purpose is noted below. Kept as
-; DEFB for byte-identity; see DEFERRED note -- these spans want their own ca65
-; source + INCBIN once the utility-INCBIN infrastructure exists (adding an
-; INCBIN now would break the round-trip test). Apple Disk II data registers
-; $C08C-$C08F (read/write/load), monitor ROM $FBxx/$FExx/$FFxx, ZP $26/$27/
-; $3E/$3F (slot base + buffer ptr).
-; ----------------------------------------------------------------------------
-; $0304-$032C  6502: slot-setup + dispatch. Forms the Disk II soft-switch base
-;              ($C0s0) from slot# in ZP $27, primes the buffer pointer at $3E/$3F
-;              and the loop counter at $00, then JMP ($003E) to the selected
-;              track routine (table at $082D) -- or JMP $1000 when the pass count
-;              ($00) reaches $0B.
+; it, then hands the CPU to the 6502 (SoftCard RPC, via $F3D0/$F3DE) to
+; read/write tracks.
+;
+; The 6502 is disassembled as REAL 6502 in CPM56_6502.s (ca65) and INCBIN'd
+; here byte-for-byte, so each CPU's code is real source in its own assembler
+; (the CPM_RPC6502 cross-CPU INCBIN pattern). Routine map (see CPM56_6502.s for
+; the full disassembly + the code/data split):
+;   $0307 slot-setup+dispatch  $0400 write  $0500 read  $05C8 denibble/seek
+;   $0800 disk-engine driver + slot-six check  $09AD warm-boot reload
+; Nothing outside $0304-$0B88 references an address inside it (the Z-80 hands
+; off via the RPC slot, not a direct address ref), so no cross-CPU EQUs are
+; needed. The $FF fill at $0B89 and the relocated Z-80 body at $0D4A+ below are
+; separate residuals and are left exactly as-is.
 ; ============================================================================
-        DEFB    $09,$D0,$13,$8A,$4A,$4A,$4A,$4A,$09,$C0,$85,$3F,$A9,$5C,$85,$3E ; $0304
-        DEFB    $A9,$00,$85,$00,$E6,$27,$E6,$00,$A4,$00,$C0,$0B,$D0,$03,$4C,$00 ; $0314
-        DEFB    $10,$B9,$2D,$08,$85,$3D,$6C,$3E,$00                              ; $0324
-; $032D-$033C  6502 write-nibble translate table (16 entries, 6-and-2 GCR low half)
-        DEFB    $00,$02,$04,$06,$08,$0A,$0C,$0E,$01,$03,$05,$07,$09,$0B,$0D,$0F ; $032D
-; $033D-$035E  high-bit (Apple-text) banner -- 6502 data, kept as DEFB:
-        DEFB    $A0,$C3,$CF,$D0,$D9,$D2,$C9,$C7,$C8,$D4,$A0,$A8,$C3,$A9,$A0,$B1 ; $033D  " COPYRIGHT (C) 1"
-        DEFB    $B9,$B8,$B0,$A0,$CD,$C9,$C3,$D2,$CF,$D3,$CF,$C6,$D4,$A0,$AD,$A0 ; $034D  "980 MICROSOFT - "
-        DEFB    $CE,$CB,$A0                                      ; $035D  "NK "
-        DEFS    160, $FF    ; $0360  fill
-; ----------------------------------------------------------------------------
-; $0400-$04BD  6502: WRITE-NIBBLE / write-sector. Pre-nibbles the 256-byte
-;              buffer ($0D00/$0900) into 6-and-2 GCR, writes the address+data
-;              fields to the Disk II (sync, D5 AA AD data prologue, $C08D/$C08F
-;              write-mode switches), DE AA EB epilogue. Deferred to INCBIN.
-; ----------------------------------------------------------------------------
-        DEFB    $A2,$55,$A9,$00,$9D,$00,$0D,$CA,$10,$FA,$A8,$A2,$AC,$2C,$A2,$AA ; $0400
-        DEFB    $88,$B1,$3E,$4A,$3E,$56,$0C,$4A,$3E,$56,$0C,$99,$00,$09,$E8,$D0 ; $0410
-        DEFB    $EF,$98,$D0,$EA,$60,$38,$86,$27,$8E,$78,$06,$BD,$8D,$C0,$BD,$8E ; $0420
-        DEFB    $C0,$30,$7C,$AD,$00                              ; $0430  "@0|-"
-        DEFB    $0D,$85,$26,$A9,$FF,$9D,$8F,$C0,$1D,$8C,$C0,$48,$68,$EA,$A0,$04 ; $0435
-        DEFB    $48,$68,$20,$B5,$0A,$88,$D0,$F8,$A9,$D5,$20,$B4,$0A,$A9,$AA,$20 ; $0445
-        DEFB    $B4,$0A,$A9,$AD,$20,$B4,$0A,$98,$A0,$56,$D0,$03,$B9,$00,$0D,$59 ; $0455
-        DEFB    $FF,$0C,$AA,$BD,$56,$0D,$A6,$27,$9D,$8D,$C0,$BD,$8C,$C0,$88 ; $0465
-        DEFB    $D0,$EB,$A5,$26,$EA,$59,$00                      ; $0474  "Pk%&jY"
-        DEFB    $09,$AA,$BD,$56,$0D,$AE,$78,$06,$9D,$8D,$C0,$BD,$8C,$C0,$B9,$00 ; $047B
-        DEFB    $09                                              ; $048B
-        DEFB    $C8,$D0,$EA,$AA,$BD,$56,$0D                      ; $048C  "HPj*=V"
-        DEFB    $A6,$27,$20,$B7,$0A,$A9,$DE,$20,$B4,$0A,$A9,$AA,$20,$B4,$0A,$A9 ; $0493
-        DEFB    $EB,$20,$B4,$0A,$A9,$FF,$20,$B4,$0A,$BD,$8E,$C0,$BD,$8C,$C0,$60 ; $04A3
-        DEFB    $EA,$18,$48,$68,$9D,$8D,$C0,$1D,$8C,$C0,$60      ; $04B3
-        DEFS    66, $FF    ; $04BE  fill
-; ----------------------------------------------------------------------------
-; $0500-$05C7  6502: READ-sector. Spins on the Disk II read latch ($C08C, hi
-;              bit ready), syncs on the D5 AA AD data prologue, denibbles the
-;              6-and-2 stream back into the $0D00/$0900 buffers and checks the
-;              DE epilogue + running checksum. Falls into the seek block below.
-;              Deferred to INCBIN.
-; ----------------------------------------------------------------------------
-        DEFB    $A0,$20,$88,$F0,$63,$BD,$8C,$C0,$10,$FB,$49,$D5,$D0,$F4,$EA,$BD ; $0500
-        DEFB    $8C,$C0,$10,$FB,$C9,$AA,$D0,$F2,$A0,$56,$BD,$8C,$C0,$10 ; $0510
-        DEFB    $FB,$C9,$AD,$D0,$E7,$EA,$EA,$A9,$00              ; $051E  "{I-Pgjj)"
-        DEFB    $88,$84,$26,$BC,$8C,$C0,$10,$FB,$59,$00,$0D,$A4,$26,$99,$00,$0D ; $0527
-        DEFB    $D0,$EE,$84,$26,$BC,$8C,$C0,$10,$FB,$59,$00,$0D,$A4,$26,$99,$00 ; $0537
-        DEFB    $09,$C8,$D0,$EE,$BC,$8C,$C0,$10,$FB,$D9,$00,$0D,$D0,$13,$BD,$8C ; $0547
-        DEFB    $C0,$10,$FB,$C9,$DE,$D0,$0A,$EA,$BD,$8C,$C0,$10,$FB,$C9,$AA,$F0 ; $0557
-        DEFB    $5C,$38,$60,$A0,$FC,$84,$26,$C8,$D0,$04,$E6,$26,$F0,$F3,$BD,$8C ; $0567
-        DEFB    $C0,$10,$FB,$C9,$D5,$D0,$F0,$EA,$BD,$8C,$C0,$10,$FB,$C9,$AA,$D0 ; $0577
-        DEFB    $F2,$A0,$03,$BD,$8C,$C0,$10,$FB,$C9,$96,$D0,$E7,$A9,$00,$85,$27 ; $0587
-        DEFB    $BD,$8C,$C0,$10,$FB,$2A,$85,$26,$BD,$8C,$C0,$10,$FB,$25,$26,$99 ; $0597
-        DEFB    $2C,$00,$45,$27,$88,$10,$E7,$A8,$D0,$B7,$BD,$8C,$C0,$10,$FB,$C9 ; $05A7
-        DEFB    $DE,$D0,$AE,$EA,$BD,$8C,$C0,$10,$FB,$C9,$AA,$D0,$A4,$18,$60,$A0 ; $05B7
-        DEFB    $00                                              ; $05C7
-; ----------------------------------------------------------------------------
-; $05C8-$0667  6502: SEEK / arm-phase. $05C8 finishes the denibble tail; $05DE+
-;              steps the drive head from the current track ($0478) to the target
-;              ($2A), energising the four phase magnets via the $C080,X stepper
-;              switches through the on/off + settle-delay tables at $0C2C/$0C3B
-;              and $0C50/$0C5C. Deferred to INCBIN.
-; ----------------------------------------------------------------------------
-        DEFB    $A2,$56,$CA,$30,$FB,$B9,$00                      ; $05C8  6502 "LDX #$56 / DEX / BMI..."
-        DEFB    $09,$5E,$00,$0D,$2A,$5E,$00,$0D,$2A,$91,$3E,$C8,$D0,$ED,$60,$86 ; $05CF
-        DEFB    $2B,$85,$2A,$CD,$78,$04,$F0,$53,$A9,$00,$85,$26,$AD,$78,$04,$85 ; $05DF
-        DEFB    $27,$38,$E5,$2A,$F0,$33,$B0,$07,$49,$FF,$EE,$78,$04,$90,$05,$69 ; $05EF
-        DEFB    $FE,$CE,$78,$04,$C5,$26,$90,$02,$A5,$26,$C9,$0C,$B0,$01,$A8,$38 ; $05FF
-        DEFB    $20,$2C,$0C,$B9,$50,$0C,$20,$3B,$0C              ; $060F
-        DEFB    $A5,$27                                          ; $0618  6502 LDA $27 (not a pointer)
-        DEFB    $18,$20,$2F,$0C,$B9,$5C,$0C,$20,$3B,$0C,$E6,$26,$D0,$C3,$20,$3B ; $061A
-        DEFB    $0C,$18,$AD,$78,$04,$29,$03,$2A,$05,$2B,$AA,$BD,$80,$C0,$A6,$2B ; $062A
-        DEFB    $60,$A2,$11,$CA,$D0,$FD,$E6,$46,$D0,$06,$E6,$47,$D0,$02,$C6,$47 ; $063A
-        DEFB    $38,$E9,$01,$D0,$EC,$60,$01,$30,$28,$24,$20,$1E,$1D,$1C,$1C,$1C ; $064A
-        DEFB    $1C,$1C,$70,$2C,$26,$22,$1F,$1E,$1D,$1C,$1C,$1C,$1C,$1C ; $065A
-        DEFS    238, $FF    ; $0668  fill
-; ----------------------------------------------------------------------------
-; $0756-$07F6  6502 read-translate (inverse 6-and-2 GCR) table -- maps a disk
-;              nibble ($96..$FF) back to its 6-bit value. Sparse: legal nibbles
-;              hold the decoded value, illegal slots hold the next legal nibble.
-; ----------------------------------------------------------------------------
-        DEFB    $96,$97,$9A,$9B,$9D,$9E,$9F,$A6,$A7,$AB,$AC,$AD,$AE,$AF,$B2,$B3 ; $0756
-        DEFB    $B4,$B5,$B6,$B7,$B9,$BA,$BB,$BC,$BD,$BE,$BF,$CB,$CD,$CE,$CF,$D3 ; $0766
-        DEFB    $D6,$D7,$D9,$DA,$DB,$DC,$DD,$DE,$DF,$E5,$E6,$E7,$E9,$EA,$EB,$EC ; $0776
-        DEFB    $ED,$EE,$EF,$F2,$F3,$F4,$F5,$F6,$F7,$F9,$FA,$FB,$FC,$FD,$FE,$FF ; $0786
-        DEFB    $00,$01                                          ; $0796  table data (not a pointer)
-        DEFB    $98,$99,$02,$03,$9C,$04,$05,$06,$A0,$A1,$A2,$A3,$A4,$A5,$07,$08 ; $0798
-        DEFB    $A8,$A9,$AA,$09,$0A,$0B,$0C,$0D,$B0,$B1,$0E,$0F,$10,$11,$12,$13 ; $07A8
-        DEFB    $B8,$14,$15,$16,$17,$18,$19,$1A,$C0,$C1,$C2,$C3,$C4,$C5,$C6,$C7 ; $07B8
-        DEFB    $C8,$C9,$CA,$1B,$CC,$1C,$1D,$1E,$D0,$D1,$D2,$1F,$D4,$D5,$20,$21 ; $07C8
-        DEFB    $D8,$22,$23,$24,$25,$26,$27,$28,$E0,$E1,$E2,$E3,$E4,$29,$2A,$2B ; $07D8
-        DEFB    $E8,$2C,$2D,$2E,$2F,$30,$31,$32,$F0,$F1,$33,$34,$35,$36,$37,$38 ; $07E8
-; $07F8-$0B88  6502 disk-engine driver + slot-six check (uses Apple monitor ROM
-;              $FB2F/$FE89/$FE93/$FDED/$FF65...; runs the read/write/seek above)
-        DEFB    $F8,$39,$3A,$3B,$3C,$3D,$3E,$3F,$4C,$AD,$0F,$AD,$83,$C0,$08,$78 ; $07F8
-        DEFB    $20,$10,$0E,$AD,$81,$C0,$28,$60,$A0,$02,$8C,$F8,$06,$A0,$04,$8C ; $0808
-        DEFB    $F8,$04,$AD,$E6,$03,$AA,$CD,$E7,$03,$F0,$1D,$8A,$A8,$AD,$E7,$03 ; $0818
-        DEFB    $AA,$98,$48,$8D,$E7,$03,$BD,$8E,$C0,$A0,$08,$BD,$8C,$C0,$DD,$8C ; $0828
-        DEFB    $C0,$D0,$F6,$88,$D0,$F8,$68,$AA,$BD,$8E,$C0,$BD,$8C,$C0,$A0,$08 ; $0838
-        DEFB    $BD,$8C,$C0,$48,$68,$48,$68,$8E,$F8,$05,$DD,$8C,$C0,$D0,$03,$88 ; $0848
-        DEFB    $D0,$EE,$08,$BD,$89,$C0,$AD,$E8,$03,$85,$3E,$AD,$E9,$03,$85,$3F ; $0858
-        DEFB    $A9,$EF,$85,$46,$A9,$D8,$85,$47,$AD,$E4,$03,$CD,$E5,$03,$F0,$07 ; $0868
-        DEFB    $8D,$E5,$03,$28,$A0,$00,$08,$6A,$90,$05,$BD,$8A,$C0,$B0,$03,$BD ; $0878
-        DEFB    $8B,$C0,$66,$35,$28,$08,$D0,$0B,$A0,$07,$20,$3B,$0C,$88,$D0,$FA ; $0888
-        DEFB    $AE,$F8,$05,$AD,$E0,$03,$20,$52,$0F,$AD,$EB,$03,$28,$D0,$11,$C9 ; $0898
-        DEFB    $01,$F0,$0D,$A0,$12,$88,$D0,$FD,$E6,$46,$D0,$F7,$E6,$47,$D0,$F3 ; $08A8
-        DEFB    $6A,$08,$B0,$03,$20,$00,$0A,$A0,$30,$8C,$78,$05,$AE,$F8,$05,$20 ; $08B8
-        DEFB    $6A,$0B,$90,$24,$CE,$78,$05,$10,$F3,$AD,$78,$04,$48,$A9,$60,$20 ; $08C8
-        DEFB    $84,$0F,$CE,$F8,$06,$F0,$28,$A9,$04,$8D,$F8,$04,$A9,$00,$20,$52 ; $08D8
-        DEFB    $0F,$68,$20,$52,$0F,$4C,$BF,$0E,$A4,$2E,$CC,$78,$04,$F0,$19,$AD ; $08E8
-        DEFB    $78,$04,$48,$98,$20,$84,$0F,$68,$CE,$F8,$04,$D0,$E5,$F0,$CA,$68 ; $08F8
-        DEFB    $A9,$40,$28,$4C,$3E,$0F                          ; $0908
-        DEFB    $F0,$2A,$A5,$2F,$8D                              ; $090E  "p*%/"
-        DEFB    $E3,$03,$AD,$E2,$03,$F0,$08,$C5,$2F,$F0,$04,$A9,$20,$D0,$E8,$AD ; $0913
-        DEFB    $E1,$03,$A8,$B9,$9D,$0F,$C5,$2D,$D0,$9F,$28,$90,$19,$20,$00,$0B ; $0923
-        DEFB    $08,$B0,$96,$28,$20,$C6,$0B,$18,$A9,$00,$24,$38,$8D,$EA,$03,$AE ; $0933
-        DEFB    $F8,$05,$BD,$88,$C0,$60,$20,$25,$0A,$90,$EC,$A9,$10,$D0,$EC,$0A ; $0943
-        DEFB    $20,$5A,$0F,$4E,$78,$04,$60,$85,$2E,$20,$7D,$0F,$B9,$78,$04,$24 ; $0953
-        DEFB    $35,$30,$03,$B9,$F8,$04,$8D,$78,$04,$A5,$2E,$24,$35,$30,$05,$99 ; $0963
-        DEFB    $F8,$04,$10,$03,$99,$78,$04,$4C,$DE,$0B,$8A,$4A,$4A,$4A,$4A,$A8 ; $0973
-        DEFB    $60,$48,$AD,$E4,$03,$6A,$66,$35,$20,$7D,$0F,$68,$0A,$24,$35,$30 ; $0983
-        DEFB    $05,$99,$F8,$04,$10,$03,$99,$78,$04,$60,$00,$02,$04,$06,$08,$0A ; $0993
-        DEFB    $0C,$0E,$01,$03,$05,$07,$09,$0B,$0D,$0F,$A9,$E4,$8D,$E9,$03,$A0 ; $09A3
-        DEFB    $00,$8C,$E8,$03,$8C,$E0,$03,$C8,$8C,$E4,$03,$8C,$EB,$03,$A9,$60 ; $09B3
-        DEFB    $8D,$E6,$03,$A9,$0B,$8D,$E1,$03,$A9,$1C,$48,$08,$78,$20,$10,$0E ; $09C3
-        DEFB    $90,$08,$20,$2D,$FF,$28,$68,$4C,$AD,$0F,$28,$EE,$E9,$03,$AE,$E1 ; $09D3
-        DEFB    $03,$E8,$E0,$10,$D0,$05,$A2,$00,$EE,$E0,$03,$8E,$E1,$03,$68,$38 ; $09E3
-        DEFB    $E9,$01,$D0,$D6,$A9,$08,$8D,$E9,$03,$60,$FF,$FF,$FF,$AD,$81,$C0 ; $09F3
-        DEFB    $AD,$81,$C0,$20,$7D,$0F,$48,$9D,$88,$C0,$A9,$00,$99,$78,$04,$99 ; $0A03
-        DEFB    $F8,$04,$20,$2F,$FB,$20,$93,$FE,$20,$89,$FE,$68,$A2,$FF,$9A,$C9 ; $0A13
-        DEFB    $06,$F0,$10,$A0,$00,$B9,$4A,$11,$F0,$06,$20,$ED,$FD,$C8,$D0,$F5 ; $0A23
-        DEFB    $4C,$65,$FF,$A0,$0E,$B9,$68,$11,$99,$FF,$0F,$88,$D0,$F7,$B9,$00 ; $0A33
-        DEFB    $12,$99,$00,$02,$88,$D0,$F7,$A0,$F1,$B9,$FF,$12,$99 ; $0A43
-        DEFB    $FF,$02                                          ; $0A50  6502 STA $02FF,Y operand (not a pointer)
-        DEFB    $88,$D0,$F7,$8C,$B8,$03,$84,$3C,$88,$84          ; $0A52
-        DEFB    $3E,$A0,$C7,$20,$80                              ; $0A5C  "> G "
-        DEFB    $11,$EA,$A5,$3E,$F0,$18,$20,$17,$11,$85,$40,$86,$41,$20,$17,$11 ; $0A61
-        DEFB    $E0,$00,$F0,$1E,$C5,$40,$D0,$1A,$E4,$41,$F0,$1A,$D0,$14,$E6,$3E ; $0A71
-        DEFB    $8C,$C8,$03,$A9,$00,$8D,$C7,$03,$8D,$DE,$03,$98,$18,$69,$20,$8D ; $0A81
-        DEFB    $DF,$03,$A2,$00,$F0,$1F,$A2,$04,$A0,$05,$B1,$3C,$DD,$76,$11,$D0 ; $0A91
-        DEFB    $09,$A0,$07,$B1,$3C,$DD,$7A,$11,$F0,$03,$CA,$D0,$EB,$E8,$E0,$02 ; $0AA1
-        DEFB    $D0,$03,$EE,$B8,$03,$A4,$3D,$8A,$99,$F8,$02,$88,$C0,$C0,$D0,$9E ; $0AB1
-        DEFB    $0E,$B8,$03,$A5,$3E,$C9,$01,$F0,$1D,$84,$3D,$A9,$85,$85,$3C,$8D ; $0AC1
-        DEFB    $85,$C0,$A5,$3E,$F0,$10,$A0,$00,$B9,$2B,$11,$F0,$06,$20,$ED,$FD ; $0AD1
-        DEFB    $C8,$D0,$F5,$4C,$65,$FF,$A0,$10,$B9,$EF,$13,$99,$EF,$03,$88 ; $0AE1
-        DEFB    $D0,$F7,$A9,$C3,$8D                              ; $0AF0  "Pw)C"
-        DEFB    $00,$10,$A9,$00,$8D,$01,$10,$A9,$DA,$8D,$02,$10,$20,$AD,$0F,$A9 ; $0AF5
-        DEFB    $16,$8D,$CC,$0F,$A0,$06,$B9,$24,$11,$99,$F9,$FF,$88,$D0,$F7,$4C ; $0B05
-        DEFB    $D2,$03,$A9,$00,$AA,$A8,$18,$71,$3C,$90,$01,$E8,$C8,$D0,$F7,$60 ; $0B15
-        DEFB    $C0,$03,$C0,$03,$C0,$03,$8D,$8D,$8D,$8D          ; $0B25
-; high-bit (Apple-text) error banners, printed by the 6502 slot-six check via
-; COUT ($FDED); $8D = high-bit CR, $00 = end-of-string. Kept as DEFB (6502 data):
-        DEFB    $C3,$C1,$CE,$A7,$D4,$A0,$C6,$C9,$CE,$C4,$A0,$DA,$B8,$B0,$A0,$D3 ; $0B2F  "CAN'T FIND Z80 S"
-        DEFB    $CF,$C6,$D4,$C3,$C1,$D2,$C4,$8D                  ; $0B3F  "OFTCARD\r"
-        DEFB    $8D,$8D,$00,$8D,$8D,$8D,$8D                      ; $0B47  "\r\r\0\r\r\r\r"
-        DEFB    $CD,$D5,$D3,$D4,$A0,$C2,$CF,$CF,$D4,$A0,$C6,$D2,$CF,$CD,$A0,$D3 ; $0B4E  "MUST BOOT FROM S"
-        DEFB    $CC,$CF,$D4,$A0,$D3,$C9,$D8,$8D                  ; $0B5E  "LOT SIX\r"
-        DEFB    $8D,$8D,$00                                      ; $0B66  "\r\r\0"
-        DEFB    $AF,$32,$3E,$F0,$6F,$3A,$3D,$F0,$C6,$20,$67,$77,$18 ; $0B69  6502 driver tail (resumes)
-        DEFB    $F2,$03,$18,$38,$48,$3C,$38,$18,$48,$FF,$84,$3D,$8C,$87,$11,$8D ; $0B76
-        DEFB    $00,$00,$60                                      ; $0B86
+EMBEDDED_6502:
+        INCBIN  "CPM56_6502.bin"     ; $0304-$0B88  (2181 bytes of 6502)
         DEFS    119, $FF    ; $0B89  fill
         DEFS    330, $00    ; $0C00  fill
 ; ============================================================================
