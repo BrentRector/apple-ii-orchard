@@ -57,10 +57,24 @@ def _incbin_deps(asm_path: Path):
     return deps
 
 
+def _include_deps(asm_path: Path):
+    """Discover `INCLUDE "name.inc"` directives and resolve each against the shared
+    include dir (softcard/include/), so the bare-name INCLUDE assembles standalone.
+    Returns the ``(name, path)`` tuples `assemble_z80` stages into the build dir."""
+    deps = []
+    for m in re.finditer(r'(?im)^\s*INCLUDE\s+"([^"]+)"', asm_path.read_text(encoding="latin-1")):
+        name = m.group(1)
+        src = REPO / "include" / name
+        if src.exists():
+            deps.append((name, src))
+    return deps
+
+
 def _assemble(asm_path: Path) -> bytes:
     src = re.sub(r'SAVEBIN\s+"[^"]+"', 'SAVEBIN "{out_bin}"',
                  asm_path.read_text(encoding="latin-1"))
-    return assemble_z80(src, incbin_deps=_incbin_deps(asm_path))
+    return assemble_z80(src, incbin_deps=_incbin_deps(asm_path),
+                        include_files=_include_deps(asm_path))
 
 
 # (tree, name, disk) for every utility .asm in each 44K tree, vs that tree's disk
