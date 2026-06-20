@@ -17,6 +17,7 @@
 ; [AI]   to the Z-80 and are left as DEFB blocks below.
 
     DEVICE NOSLOT64K
+    INCLUDE "apple_softcard.inc"   ; Apple/SoftCard external names (single source of truth)
 
 ; -- External symbols --
 WBOOT_VEC            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
@@ -45,7 +46,7 @@ INSTALL_13SEC:
         LD A,($FE0A)                     ; $0113  3A 0A FE  ; [AI] BIOS flag: current sector mode of selected drive
         CP $0E                           ; $0116  FE 0E     ; [AI] already 13-sector? ($0E sentinel) -> skip re-patch
         JR Z,INSTALL_DONE_MSG            ; $0118  28 18
-        LD HL,($F3EE)                    ; $011A  2A EE F3  ; [AI] HL = saved BIOS sector-handler vector
+        LD HL,(DSK_SAVEVEC)                    ; $011A  2A EE F3  ; [AI] HL = saved BIOS sector-handler vector
         LD ($FE09),HL                    ; $011D  22 09 FE  ; [AI] stash original 16-sector handler for later restore
         LD C,$00                         ; $0120  0E 00     ; [AI] select BIOS jump-table slot 0 (read entry)
         CALL BIOS_JMPTAB_ENTRY           ; $0122  CD 37 01  ; [AI] HL -> operand bytes of that BIOS jump-table entry
@@ -109,7 +110,7 @@ RESTORE_DRIVE:
         LD C,A                           ; $0168  4F        ; [AI] C = drive code
         ADD A,$40                        ; $0169  C6 40     ; [AI] convert to ASCII drive letter (1->'A')...
         LD (MSG_DRIVE_LETTER),A          ; $016B  32 FB 01  ; [AI] patch the 'Z:' slot in the converted-message text
-        LD A,($F3B8)                     ; $016E  3A B8 F3  ; [AI] BIOS max-drive count
+        LD A,(DSKCNT)                     ; $016E  3A B8 F3  ; [AI] BIOS max-drive count
         CP C                             ; $0171  B9
         JR C,ERR_INVALID_DRIVE           ; $0172  38 D1     ; [AI] requested drive > max -> invalid
         CALL HEAD_SELECT                 ; $0174  CD D0 02  ; [AI] A = side/parity (1 or 2) for this drive
@@ -132,8 +133,8 @@ RESTORE_DRIVE:
         SUB $09                          ; $0195  D6 09     ; [AI] derive driver page in high RAM
         LD (HL),A                        ; $0197  77        ; [AI] high byte of new handler address
         LD HL,$1300                      ; $0198  21 00 13  ; [AI] $1300 = 13-sector marker / sectors-per-track config
-        LD ($F3D0),HL                    ; $019B  22 D0 F3  ; [AI] write into BIOS disk-geometry field
-        LD HL,($F3DE)                    ; $019E  2A DE F3  ; [AI] HL = another BIOS geometry pointer
+        LD (A_VEC),HL                    ; $019B  22 D0 F3  ; [AI] write into BIOS disk-geometry field
+        LD HL,(Z_CPU)                    ; $019E  2A DE F3  ; [AI] HL = another BIOS geometry pointer
         LD (HL),A                        ; $01A1  77        ; [AI] store driver page there too
         LD DE,MSG_CONVERTED              ; $01A2  11 F5 01  ; [AI] "Drive Z: converted to 13 sec. operation"
         JP PRINT_AND_WBOOT               ; $01A5  C3 48 01

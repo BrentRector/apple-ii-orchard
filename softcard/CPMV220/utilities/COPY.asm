@@ -17,18 +17,19 @@
 ; [AI] raw RWTS-style track read or write and returns a status byte.
 ; [AI]
 ; [AI] SoftCard shared-memory cells used (all in the Apple ][ CP/M BIOS data page):
-; [AI]   $F3DE -> word: saved across runs (carries the parse pointer / "Z:=Z:" patch)
-; [AI]   $F3E0 -> word: current track counter for the copy loop
-; [AI]   $F3E4 -> read/write direction flag latched by SET_RW_PARAMS
-; [AI]   $F3E6 -> drive-select / unit value latched by SET_RW_PARAMS
-; [AI]   $F3E8 -> word: buffer/track-size parameter handed to the 6502 ($0800)
-; [AI]   $F3EA -> last 6502 status/result byte (0 = OK, $10 = write-protected, else I/O err)
-; [AI]   $F3EB -> command code passed to the 6502 (1 = read MASTER, 2 = write SLAVE)
-; [AI]   $F3B8 -> number of logical drives configured (for ":" drive-letter validation)
-; [AI]   $F3D0 -> word constant ($14AE) re-armed before each 6502 dispatch
+; [AI]   Z_CPU -> word: saved across runs (carries the parse pointer / "Z:=Z:" patch)
+; [AI]   DSK_TRACK -> word: current track counter for the copy loop
+; [AI]   DSK_DIR -> read/write direction flag latched by SET_RW_PARAMS
+; [AI]   DSK_UNIT -> drive-select / unit value latched by SET_RW_PARAMS
+; [AI]   DSK_BUFFER -> word: buffer/track-size parameter handed to the 6502 ($0800)
+; [AI]   DSK_STATUS -> last 6502 status/result byte (0 = OK, $10 = write-protected, else I/O err)
+; [AI]   DSK_CMD -> command code passed to the 6502 (1 = read MASTER, 2 = write SLAVE)
+; [AI]   DSKCNT -> number of logical drives configured (for ":" drive-letter validation)
+; [AI]   A_VEC -> word constant ($14AE) re-armed before each 6502 dispatch
 ; [AI]   $F000 -> doorbell: writing the track byte here triggers the 6502 routine
 
     DEVICE NOSLOT64K
+    INCLUDE "apple_softcard.inc"   ; Apple/SoftCard external names (single source of truth)
 
 ; -- External symbols --
 WBOOT_VEC            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
@@ -46,7 +47,7 @@ DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS
 ; [AI] Initialise: recover the saved parse pointer, clear the screen / print the
 ; [AI] banner, then read and parse the command tail before the main copy sequence.
 MAIN:
-        LD HL,($F3DE)                    ; $0100  2A DE F3   ; [AI] load saved parse pointer from BIOS scratch
+        LD HL,(Z_CPU)                    ; $0100  2A DE F3   ; [AI] load saved parse pointer from BIOS scratch
 TPA_START_1:
         LD (SET_DE_PTR_PATCH+1),HL       ; $0103  22 A4 02   ; [AI] self-modify: store it as the operand of the LD DE at $02A3
 TPA_START_2:
@@ -126,7 +127,7 @@ COPY_PASS:
 ; [AI] TRACKS_TO_COPY tracks of $0800 bytes from MASTER to SLAVE.
         PUSH DE                          ; $0171  D5         ; [AI] save resume vector
         LD HL,WBOOT_VEC                  ; $0172  21 00 00   ; [AI] HL = 0 (track 0 start)
-        LD ($F3E0),HL                    ; $0175  22 E0 F3   ; [AI] reset BIOS track counter to 0
+        LD (DSK_TRACK),HL                    ; $0175  22 E0 F3   ; [AI] reset BIOS track counter to 0
         LD HL,(SRC_DST_DRIVES)           ; $0178  2A DE 02   ; [AI] HL = {dst,src} drive pair
         LD DE,PROMPT_INSERT_MASTER       ; $017B  11 FC 03   ; [AI] "Insert MASTER disk into drive Z:"
         LD A,L                           ; $017E  7D         ; [AI] L = source drive
@@ -172,7 +173,7 @@ ASK_ANOTHER:
         LD DE,MSG_ANOTHER_COPY           ; $01C1  11 89 03   ; [AI] "Do you wish to make another copy? $"
         CALL PRINT_STRING                ; $01C4  CD 45 02
         LD HL,$0800                      ; $01C7  21 00 08   ; [AI] track transfer size = 2048 bytes
-        LD ($F3E8),HL                    ; $01CA  22 E8 F3   ; [AI] hand buffer/size parameter to the 6502 side
+        LD (DSK_BUFFER),HL                    ; $01CA  22 E8 F3   ; [AI] hand buffer/size parameter to the 6502 side
 ASK_YN:
         CALL CONIN_UPPER                 ; $01CD  CD C8 02   ; [AI] read one console key (uppercased)
         CP $4E                           ; $01D0  FE 4E      ; [AI] 'N'?
@@ -211,10 +212,10 @@ COPY_BATCH_READ:
         CALL PROMPT_IF_SAME_DRIVE        ; $020B  CD 5C 02   ; [AI] prompt only when src==dst drive
 COPY_DIR_WRITE:
 ; [AI] ===== Write a batch of SLAVE tracks =====
-; [AI] Sets the 6502 command to 1 (read) here; SET_RW_PARAMS+the $F3E0 track index
+; [AI] Sets the 6502 command to 1 (read) here; SET_RW_PARAMS+the DSK_TRACK track index
 ; [AI] choose read vs write. Falls through into the per-track transfer loop.
         LD C,$01                         ; $020E  0E 01      ; [AI] 6502 command = 1 (read MASTER)
-        LD HL,($F3E0)                    ; $0210  2A E0 F3   ; [AI] current track index
+        LD HL,(DSK_TRACK)                    ; $0210  2A E0 F3   ; [AI] current track index
         LD A,(SINGLE_DRIVE_FLAG)         ; $0213  3A E1 02
         OR A                             ; $0216  B7
         JR NZ,DO_TRANSFER                ; $0217  20 0A      ; [AI] write phase -> skip the read setup
@@ -225,7 +226,7 @@ COPY_DIR_WRITE:
         POP BC                           ; $0221  C1
         POP HL                           ; $0222  E1
 DO_TRANSFER:
-        LD ($F3E0),HL                    ; $0223  22 E0 F3   ; [AI] update track index
+        LD (DSK_TRACK),HL                    ; $0223  22 E0 F3   ; [AI] update track index
         LD DE,MSG_INSERT_SLAVE2          ; $0226  11 87 04   ; [AI] "Insert SLAVE disk and press RETURN"
         CALL PROMPT_IF_SAME_DRIVE        ; $0229  CD 5C 02   ; [AI] prompt for SLAVE on single-drive write
         LD C,$02                         ; $022C  0E 02      ; [AI] 6502 command = 2 (write SLAVE)
@@ -233,12 +234,12 @@ COPY_DIR_WRITE_2:
         LD A,(DST_DRIVE)                 ; $022E  3A DF 02   ; [AI] destination drive number  (entry $0230 = +2)
 SET_RW_PARAMS:
 ; [AI] Latch the per-operation parameters for the 6502 copier, then ring the doorbell.
-; [AI]   A  = drive number   -> decoded into $F3E4 (direction) and $F3E6 (unit/select)
-; [AI]   C  = command byte    -> $F3EB
+; [AI]   A  = drive number   -> decoded into DSK_DIR (direction) and DSK_UNIT (unit/select)
+; [AI]   C  = command byte    -> DSK_CMD
 ; [AI]   B  = track byte (from caller) -> $F000 doorbell that launches the 6502 routine
-        CALL DECODE_DRIVE                ; $0231  CD 89 02   ; [AI] derive $F3E4 / $F3E6 from drive A
+        CALL DECODE_DRIVE                ; $0231  CD 89 02   ; [AI] derive DSK_DIR / DSK_UNIT from drive A
         LD A,C                           ; $0234  79
-        LD ($F3EB),A                     ; $0235  32 EB F3   ; [AI] store command code for 6502
+        LD (DSK_CMD),A                     ; $0235  32 EB F3   ; [AI] store command code for 6502
         LD A,B                           ; $0238  78
         LD ($F000),A                     ; $0239  32 00 F0   ; [AI] DOORBELL: poke track byte -> runs the 6502 copier
         JP CHECK_6502_STATUS             ; $023C  C3 9D 02   ; [AI] inspect result, report errors
@@ -289,7 +290,7 @@ PROMPT_IF_SAME_DRIVE:
         RET                              ; $0267  C9
 
 ; [AI] Convert an ASCII drive letter in A to a 0-based drive number, validating it
-; [AI] against the configured drive count ($F3B8). Accepts "X" or "X:". On a bad
+; [AI] against the configured drive count (DSKCNT). Accepts "X" or "X:". On a bad
 ; [AI] letter or out-of-range drive, prints "Invalid Drive$" / "Command Error$".
 DRIVE_FROM_CHAR:
         SUB $41                          ; $0268  D6 41      ; [AI] 'A' -> 0
@@ -304,7 +305,7 @@ DRIVE_VALIDATE:
         CALL NEXT_CHAR                   ; $0272  CD 54 02   ; [AI] peek following char
         CP $3A                           ; $0275  FE 3A      ; [AI] ':' after the letter?
         JR NZ,CMD_ERROR                  ; $0277  20 F3      ; [AI] missing ':' -> command error
-        LD A,($F3B8)                     ; $0279  3A B8 F3   ; [AI] number of configured drives
+        LD A,(DSKCNT)                     ; $0279  3A B8 F3   ; [AI] number of configured drives
         DEC A                            ; $027C  3D         ; [AI] highest valid drive number
         CP C                             ; $027D  B9         ; [AI] in range?
         LD A,C                           ; $027E  79         ; [AI] return drive number in A
@@ -315,14 +316,14 @@ PRINT_ERR_RESTART:
 SUB_0268_6:
         JP PROMPT_INPUT                  ; $0286  C3 1E 01   ; [AI] re-prompt for a fresh command line
 
-; [AI] Decode drive number in A into the 6502's direction ($F3E4) and unit/select
-; [AI] ($F3E6) parameters. $F3E4 = (A+1)&1 (odd/even drive -> read/write side);
-; [AI] $F3E6 = ~((A&$0E)*8 - $61) selects the physical unit.
+; [AI] Decode drive number in A into the 6502's direction (DSK_DIR) and unit/select
+; [AI] (DSK_UNIT) parameters. DSK_DIR = (A+1)&1 (odd/even drive -> read/write side);
+; [AI] DSK_UNIT = ~((A&$0E)*8 - $61) selects the physical unit.
 DECODE_DRIVE:
         LD E,A                           ; $0289  5F
         INC A                            ; $028A  3C
         AND $01                          ; $028B  E6 01
-        LD ($F3E4),A                     ; $028D  32 E4 F3   ; [AI] direction/side flag for the 6502
+        LD (DSK_DIR),A                     ; $028D  32 E4 F3   ; [AI] direction/side flag for the 6502
         LD A,E                           ; $0290  7B
         AND $0E                          ; $0291  E6 0E      ; [AI] isolate unit bits
         ADD A,A                          ; $0293  87
@@ -330,19 +331,19 @@ DECODE_DRIVE:
         ADD A,A                          ; $0295  87         ; [AI] *8
         SUB $61                          ; $0296  D6 61
         CPL                              ; $0298  2F
-        LD ($F3E6),A                     ; $0299  32 E6 F3   ; [AI] unit-select value for the 6502
+        LD (DSK_UNIT),A                     ; $0299  32 E6 F3   ; [AI] unit-select value for the 6502
         RET                              ; $029C  C9
 
 ; [AI] Examine the status byte returned by the 6502 copier and report disk errors.
-; [AI] $F3D0 is re-armed with $14AE before reading the result; the self-modified
-; [AI] store at $02A3 writes the result somewhere chosen at MAIN entry (the $F3DE
-; [AI] patch). $F3EA = 0 OK; $10 = write-protected; anything else = generic I/O error.
+; [AI] A_VEC is re-armed with $14AE before reading the result; the self-modified
+; [AI] store at $02A3 writes the result somewhere chosen at MAIN entry (the Z_CPU
+; [AI] patch). DSK_STATUS = 0 OK; $10 = write-protected; anything else = generic I/O error.
 CHECK_6502_STATUS:
         LD HL,$14AE                      ; $029D  21 AE 14
-        LD ($F3D0),HL                    ; $02A0  22 D0 F3   ; [AI] re-arm 6502 parameter word
+        LD (A_VEC),HL                    ; $02A0  22 D0 F3   ; [AI] re-arm 6502 parameter word
 SET_DE_PTR_PATCH:
         LD (WBOOT_VEC),A                 ; $02A3  32 00 00   ; [AI] self-modified target (operand patched at $0103; entry $02A4 = +1)
-        LD A,($F3EA)                     ; $02A6  3A EA F3   ; [AI] 6502 result/status byte
+        LD A,(DSK_STATUS)                     ; $02A6  3A EA F3   ; [AI] 6502 result/status byte
         OR A                             ; $02A9  B7         ; [AI] 0 = success?
         RET Z                            ; $02AA  C8         ; [AI] OK -> continue
         PUSH AF                          ; $02AB  F5
@@ -448,8 +449,8 @@ MSG_INSERT_SLAVE2:
 ; [AI] From here on the bytes are 6502 machine code (note $A2 LDX, $A9 LDA, $20 JSR,
 ; [AI] $4C JMP, $60 RTS, $D0/$10/$90 branches). This is the raw track read/write
 ; [AI] routine the SoftCard hands to the Apple's 6502 when the Z-80 pokes $F000. It
-; [AI] consumes the $F3xx parameters set up above (track in $F3E0/$F000, command in
-; [AI] $F3EB, direction in $F3E4, unit in $F3E6) and writes its result to $F3EA.
+; [AI] consumes the $F3xx parameters set up above (track in DSK_TRACK/$F000, command in
+; [AI] DSK_CMD, direction in DSK_DIR, unit in DSK_UNIT) and writes its result to DSK_STATUS.
 ; [AI] The two DEFW entries below are 6502 byte pairs the Z-80 disassembler happened
 ; [AI] to resolve as code addresses; they are preserved verbatim as data.
         DEFB    $45,$54,$55,$52,$4E,$20,$24,$A2,$15,$8E,$E9,$03,$20,$03,$0E,$AD ; $04A7 ; [AI] "ETURN $" then 6502 code begins

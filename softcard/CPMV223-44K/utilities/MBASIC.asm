@@ -6,6 +6,7 @@
 ; Range:  $0100-$60FF  (24576 bytes)
 
     DEVICE NOSLOT64K
+    INCLUDE "apple_softcard.inc"   ; Apple/SoftCard external names (single source of truth)
 
 ; -- External symbols --
 WBOOT_VEC            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
@@ -4288,7 +4289,7 @@ SUB_2554:
         DEFB    $E1,$7D,$18,$16                                  ; $258C
 SUB_2590:
         LD D,$00                         ; $2590  16 00
-        LD HL,$F397                      ; $2592  21 97 F3
+        LD HL,SFLDIN                      ; $2592  21 97 F3
         ADD HL,DE                        ; $2595  19
         LD A,(HL)                        ; $2596  7E
         OR A                             ; $2597  B7
@@ -4296,7 +4297,7 @@ SUB_2590:
         JP P,SUB_2590_1                  ; $2599  F2 A6 25
         AND $7F                          ; $259C  E6 7F
         PUSH AF                          ; $259E  F5
-        LD A,($F397)                     ; $259F  3A 97 F3
+        LD A,(SFLDIN)                     ; $259F  3A 97 F3
         CALL SUB_4382                    ; $25A2  CD 82 43
         POP AF                           ; $25A5  F1
 SUB_2590_1:
@@ -4343,7 +4344,7 @@ SUB_25C3_1:
         DEFW    SUB_2602                 ; $25FA
         DEFB    $AF,$32,$14,$28,$18,$BF                          ; $25FC
 SUB_2602:
-        LD ($F3D0),HL                    ; $2602  22 D0 F3
+        LD (A_VEC),HL                    ; $2602  22 D0 F3
 SUB_2602_1:
         LD (WBOOT_VEC),A                 ; $2605  32 00 00
         RET                              ; $2608  C9
@@ -4492,13 +4493,13 @@ SUB_2602_7:
         CALL SYNCHR                    ; $2782  CD A3 45
         ADD HL,HL                        ; $2785  29
         PUSH HL                          ; $2786  E5
-        LD HL,$F871                      ; $2787  21 71 F8
+        LD HL,SCRN_ROM                      ; $2787  21 71 F8
         CALL SUB_2602                    ; $278A  CD 02 26
-        LD A,($F045)                     ; $278D  3A 45 F0
+        LD A,(RPC_ACC)                     ; $278D  3A 45 F0
         JP SUB_2602_3                    ; $2790  C3 0C 27
 SUB_2602_8:
         CALL CHRGET                    ; $2793  CD E4 13
-        LD A,($F030)                     ; $2796  3A 30 F0
+        LD A,(COLOR)                     ; $2796  3A 30 F0
         AND $0F                          ; $2799  E6 0F
         JP SUB_2602_2                    ; $279B  C3 0B 27
         DEFW    SUB_450B_2               ; $279E
@@ -12639,7 +12640,7 @@ SUB_5E2A_45:
         LD (HL),D                        ; $5EB7  72
         LD HL,SUB_2602_9                 ; $5EB8  21 F5 27
         LD ($0001),HL                    ; $5EBB  22 01 00
-        LD HL,($F3DE)                    ; $5EBE  2A DE F3
+        LD HL,(Z_CPU)                    ; $5EBE  2A DE F3
         LD (SUB_2602_1+1),HL             ; $5EC1  22 06 26
         LD C,$0C                         ; $5EC4  0E 0C
         CALL BDOS_VEC                    ; $5EC6  CD 05 00
@@ -12661,8 +12662,8 @@ SUB_5E2A_47:
         LD (TPA_START_58),A              ; $5EEC  32 58 08
         LD HL,WBOOT_VEC                  ; $5EEF  21 00 00
         LD (TPA_START_59),HL             ; $5EF2  22 5A 08
-        LD ($F030),A                     ; $5EF5  32 30 F0
-        LD A,($F3BB)                     ; $5EF8  3A BB F3
+        LD (COLOR),A                     ; $5EF5  32 30 F0
+        LD A,(SLTTYP3)                     ; $5EF8  3A BB F3
         LD B,$28                         ; $5EFB  06 28
         OR A                             ; $5EFD  B7
 SUB_5E2A_48:

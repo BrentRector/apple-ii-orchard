@@ -36,6 +36,7 @@
 ; [AI] ===================================================================
 
     DEVICE NOSLOT64K
+    INCLUDE "apple_softcard.inc"   ; Apple/SoftCard external names (single source of truth)
 
 ; -- External symbols --
 WBOOT_VEC            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
@@ -8710,7 +8711,7 @@ SUB_6242:
         LD (HL),D                        ; $6247  72
         LD HL,SUB_49C3_2                 ; $6248  21 7A 4B
         LD ($0001),HL                    ; $624B  22 01 00 ; [AI] patch page-zero $0001 (the WBOOT JP target word) to hook BASIC's restart
-        LD HL,($F3DE)                    ; $624E  2A DE F3
+        LD HL,(Z_CPU)                    ; $624E  2A DE F3
         LD (L_45EB),HL                   ; $6251  22 EB 45
         LD C,$0C                         ; $6254  0E 0C   ; [AI] BDOS fn 0C = return CP/M version
         CALL BDOS_VEC                    ; $6256  CD 05 00 ; [AI] -> HL=version, A=L
@@ -8738,8 +8739,8 @@ INIT_CLI_2:
         LD HL,WBOOT_VEC                  ; $627F  21 00 00
         LD (L_0837),HL                   ; $6282  22 37 08
 INIT_CLI_3:
-        LD ($F030),A                     ; $6285  32 30 F0
-        LD A,($F3BB)                     ; $6288  3A BB F3
+        LD (COLOR),A                     ; $6285  32 30 F0
+        LD A,(SLTTYP3)                     ; $6288  3A BB F3
         SUB $03                          ; $628B  D6 03
         JR Z,INIT_CLI_4+1                ; $628D  28 06
         DEC A                            ; $628F  3D

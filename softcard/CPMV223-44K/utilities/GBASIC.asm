@@ -15,6 +15,7 @@
 ; one self-contained source that reassembles byte-identically to GBASIC.COM.
 
     DEVICE NOSLOT64K
+    INCLUDE "apple_softcard.inc"   ; Apple/SoftCard external names (single source of truth)
 
 ; -- External symbols (carried from the former GBASIC_RUN split; referenced by the body) --
 WBOOT_VEC            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
@@ -2566,7 +2567,7 @@ SUB_4539:
         DEFB    $18,$16                                          ; $4573
 SUB_4575:
         LD D,$00                         ; $4575  16 00
-        LD HL,$F397                      ; $4577  21 97 F3
+        LD HL,SFLDIN                      ; $4577  21 97 F3
         ADD HL,DE                        ; $457A  19
         LD A,(HL)                        ; $457B  7E
         OR A                             ; $457C  B7
@@ -2574,7 +2575,7 @@ SUB_4575:
         JP P,SUB_4575_1                  ; $457E  F2 8B 45
         AND $7F                          ; $4581  E6 7F
         PUSH AF                          ; $4583  F5
-        LD A,($F397)                     ; $4584  3A 97 F3
+        LD A,(SFLDIN)                     ; $4584  3A 97 F3
         CALL SUB_6704                    ; $4587  CD 04 67
         POP AF                           ; $458A  F1
 SUB_4575_1:
@@ -2608,7 +2609,7 @@ SUB_45A8:
         DEFW    GFX_DRAW_DISPATCH                 ; $45DF
         DEFB    $AF,$32,$96,$4B,$18,$BF                          ; $45E1
 GFX_DRAW_DISPATCH:
-        LD ($F3D0),HL                    ; $45E7  22 D0 F3
+        LD (A_VEC),HL                    ; $45E7  22 D0 F3
 SUB_45E7_1:
         LD (WBOOT_VEC),A                 ; $45EA  32 00 00
         RET                              ; $45ED  C9
@@ -2746,13 +2747,13 @@ SUB_45E7_7:
         CALL SYNCHR                    ; $4767  CD 25 69
         ADD HL,HL                        ; $476A  29
         PUSH HL                          ; $476B  E5
-        LD HL,$F871                      ; $476C  21 71 F8
+        LD HL,SCRN_ROM                      ; $476C  21 71 F8
         CALL GFX_DRAW_DISPATCH                    ; $476F  CD E7 45
-        LD A,($F045)                     ; $4772  3A 45 F0
+        LD A,(RPC_ACC)                     ; $4772  3A 45 F0
         JP SUB_45E7_3                    ; $4775  C3 F1 46
 SUB_45E7_8:
         CALL CHRGET                    ; $4778  CD C9 33
-        LD A,($F030)                     ; $477B  3A 30 F0
+        LD A,(COLOR)                     ; $477B  3A 30 F0
 SUB_45E7_9:
         AND $0F                          ; $477E  E6 0F
         JP SUB_45E7_2                    ; $4780  C3 F0 46
@@ -2773,8 +2774,8 @@ GFX_SET_MODE:
         LD B,(HL)                        ; $47C4  46
 SUB_45E7_11:
         PUSH HL                          ; $47C5  E5
-        LD ($E050),A                     ; $47C6  32 50 E0
-        LD HL,$E053                      ; $47C9  21 53 E0
+        LD (TXTCLR),A                     ; $47C6  32 50 E0
+        LD HL,MIXSET                      ; $47C9  21 53 E0
         RRA                              ; $47CC  1F
 SUB_45E7_12:
         LD D,$28                         ; $47CD  16 28
@@ -10156,7 +10157,7 @@ SUB_816D_12:
         LD (HL),D                        ; $8239  72
         LD HL,L_4B7A                     ; $823A  21 7A 4B
         LD ($0001),HL                    ; $823D  22 01 00
-        LD HL,($F3DE)                    ; $8240  2A DE F3
+        LD HL,(Z_CPU)                    ; $8240  2A DE F3
         LD (SUB_45E7_1+1),HL             ; $8243  22 EB 45
         LD C,$0C                         ; $8246  0E 0C
         CALL BDOS_VEC                    ; $8248  CD 05 00
@@ -10178,8 +10179,8 @@ SUB_816D_13:
 SUB_816D_14:
         LD HL,WBOOT_VEC                  ; $8271  21 00 00
         LD ($0837),HL                    ; $8274  22 37 08
-        LD ($F030),A                     ; $8277  32 30 F0
-        LD A,($F3BB)                     ; $827A  3A BB F3
+        LD (COLOR),A                     ; $8277  32 30 F0
+        LD A,(SLTTYP3)                     ; $827A  3A BB F3
         LD B,$28                         ; $827D  06 28
         OR A                             ; $827F  B7
         JR Z,SUB_816D_15                 ; $8280  28 06

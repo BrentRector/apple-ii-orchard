@@ -30,6 +30,7 @@
 ; [AI] ===================================================================
 
     DEVICE NOSLOT64K
+    INCLUDE "apple_softcard.inc"   ; Apple/SoftCard external names (single source of truth)
 
 ; -- External symbols --
 WBOOT_VEC            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
@@ -69,7 +70,7 @@ PRINT_AND_EPILOGUE:
         CALL PRINT_STR                   ; $0133  CD C8 01   ; [AI] "Command Error"
         JR EPILOGUE                      ; $0136  18 66
 VALIDATE_DRIVE:
-        LD HL,$F3B8                      ; $0138  21 B8 F3   ; [AI] SoftCard BIOS cell: number of configured drives
+        LD HL,DSKCNT                      ; $0138  21 B8 F3   ; [AI] SoftCard BIOS cell: number of configured drives
         LD A,C                           ; $013B  79
         CP (HL)                          ; $013C  BE         ; [AI] drive index vs drive count
         JR C,DRIVE_OK                    ; $013D  38 05
@@ -102,13 +103,13 @@ DO_FORMAT:
         LD DE,MSG_FORMATTING             ; $0173  11 81 02
         CALL PRINT_STR                   ; $0176  CD C8 01   ; [AI] "Formatting..."
         LD HL,$1400                      ; $0179  21 00 14   ; [AI] 6502 entry of the formatter blob (host address $1400)
-        LD ($F3D0),HL                    ; $017C  22 D0 F3   ; [AI] hand the 6502 entry address to the SoftCard BIOS
-        LD HL,($F3DE)                    ; $017F  2A DE F3    ; [AI] BIOS gives back a result/parameter pointer
+        LD (A_VEC),HL                    ; $017C  22 D0 F3   ; [AI] hand the 6502 entry address to the SoftCard BIOS
+        LD HL,(Z_CPU)                    ; $017F  2A DE F3    ; [AI] BIOS gives back a result/parameter pointer
         LD (HL),A                        ; $0182  77         ; [AI] store the Y/N answer ('Y'/'N') there for the 6502 side
         LD A,$0D                         ; $0183  3E 0D
         CALL CONOUT                      ; $0185  CD CC 01   ; [AI] newline; running the formatter happens via BIOS dispatch
         LD DE,MSG_FORMAT_COMPLETE        ; $0188  11 B6 02   ; [AI] default result message
-        LD A,($F3EA)                     ; $018B  3A EA F3   ; [AI] BIOS status byte from the format pass
+        LD A,(DSK_STATUS)                     ; $018B  3A EA F3   ; [AI] BIOS status byte from the format pass
         OR A                             ; $018E  B7
         JR Z,PRINT_RESULT                ; $018F  28 0A      ; [AI] 0 -> success ("FORMAT Complete")
         LD DE,MSG_IO_ERROR               ; $0191  11 C6 02
