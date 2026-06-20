@@ -6,12 +6,22 @@
 ; these bytes on the 6502 via the CPU switch; from the Z-80 they are opaque
 ; data, so the Z-80 CCP INCBINs the assembled binary of THIS file and references
 ; interior addresses below as L_9400 + offset (which relocate with ORG).
+; [DOC S&HD 2-24/2-25 ; facts sec.4] CPU switch / 6502-subroutine-call (RPC)
+; mechanism: the Z-80 loads parameter cells, stores the 6502 target at A$VEC
+; (0F3D0H) and writes the SoftCard location Z$CPU (0F3DEH) -> 6502 runs the code,
+; results read back from the same cells. (How a given Z-80 CALL site SELECTS this
+; particular 6502 service remains the OPEN QUESTION below -- [RE], not manual.)
 ;
 ; The block is position-independent: every internal reference is a fixed low
 ; Apple address (I/O-config cells $03E0-$03EB, zero page $2D/$2E/$2F/$35/$38/$3E,
 ; the slot-ROM page $C088,X, screen holes $0478/$04F8/$05F8, work buffers
 ; $0900/$0B56/$0C00) or a fixed call into the 2.23 RWTS, and every branch is
-; relative. [AI]
+; relative. [AI] The $03E0-$03EB working cells sit inside the I/O Configuration
+; Block region [DOC S&HD 2-6 ; facts sec.2.2/3] (6502 $200-$3FF = Z-80
+; 0F200H-0F3FFH); they are this disk-service's own scratch cells, NOT the manual's
+; named config-block structures. The sector buffers ($0478/$04F8) are screen-page-
+; adjacent, and the RWTS entry points it calls ($BA99/$BA00/$BF3F/...) are not
+; individually enumerated in the manual, so those stay [AI]/[RE].
 ;
 ; DIFFERS FROM THE 2.20-44K BLOCK (CPMV220-44K/os/CPM_RPC6502.s). The 2.20 and
 ; 2.23 blocks share the first ~$84 bytes of structure (retry/restore, sector

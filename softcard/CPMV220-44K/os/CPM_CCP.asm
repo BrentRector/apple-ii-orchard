@@ -14,7 +14,8 @@
 ;                CALL $94xx fan-in from the CCP -- those reference 6502 entries.
 ;   $9400-$9CFF  CCP -- command line parse, built-in table (DIR ERA TYPE SAVE
 ;                REN USER), 8-word dispatch table at $95C2, transient .COM
-;                loader, $$$.SUB chaining, and the CP/M error texts.
+;                loader, $$$.SUB chaining ($$$ is a standard CP/M file type
+;                [DOC CPMREF 3-45 ; facts sec.7.7]), and the CP/M error texts.
 ;   $9D00-$A8FF  BDOS (Microsoft SoftCard BDOS) -- function entry $9E16 (the
 ;                referenced re-entry: save caller SP, switch to local stack,
 ;                dispatch on C via the runtime pointer cell $9F43); $9E09-$9E15
@@ -427,6 +428,9 @@ RPC6502_BLOCK:    ; $9400-$9500  embedded 6502 RPC block -- 6502 code (NOT Z-80)
 ;         RTS                          ; $949C  60
 ; SECTOR_XLATE_TABLE:
 ;         .byte   $00, $02, $04, $06, $08, $0A, $0C, $0E, $01, $03, $05, $07, $09, $0B, $0D, $0F ; $949D
+; ; Warm-boot reload: re-reads CP/M (CCP+BDOS) from the boot disk into the system
+; ; image, which is why only ~5K of CP/M's 7K stays resident during a transient.
+; ; [DOC Vol1 1-19 ; facts sec.8.7]
 ; WBOOT_LOAD:
 ;         .ifdef CFG_56K
 ;             lda     #>$E400          ; $94AD  warm-boot load buffer hi (56K)
@@ -442,8 +446,8 @@ RPC6502_BLOCK:    ; $9400-$9500  embedded 6502 RPC block -- 6502 code (NOT Z-80)
 ; WBOOT_LOAD_2:
 ;         STY $03E4                    ; $94BB  8C E4 03
 ;         STY $03EB                    ; $94BE  8C EB 03
-;         LDA #$60                     ; $94C1  A9 60
-;         STA $03E6                    ; $94C3  8D E6 03
+;         LDA #$60                     ; $94C1  A9 60   slot 6 (6<<4): the boot disk
+;         STA $03E6                    ; $94C3  8D E6 03  controller, drives A:/B:, MUST be present [DOC Vol1 1-3/1-4 ; facts sec.8.9]
 ;         LDA #$0B                     ; $94C6  A9 0B
 ;         STA $03E1                    ; $94C8  8D E1 03
 ;         LDA #$1C                     ; $94CB  A9 1C
@@ -522,7 +526,7 @@ TEST_B_NZ:
         OR A                             ; $950E  B7
         RET                              ; $950F  C9
 CCP_CMD_NAMES:
-        DEFB    "DIR ERA TYPESAVEREN USER"  ; $9510  CCP built-in command name table: DIR ERA TYPE SAVE REN USER (4 bytes each)
+        DEFB    "DIR ERA TYPESAVEREN USER"  ; $9510  CCP built-in command name table: DIR ERA TYPE SAVE REN USER (4 bytes each) [DOC CPMREF 3-6 ; facts sec.7.8] the six CCP built-in commands (ERA DIR REN SAVE TYPE USER)
 CCP_CMD_NAMES_END:
         CP L                             ; $9528  BD
 SEARCH_BUILTIN:
@@ -532,7 +536,7 @@ SEARCH_BUILTIN:
         LD HL,$9710                      ; $952E  21 10 97
         LD C,$00                         ; $9531  0E 00
         LD A,C                           ; $9533  79
-        CP $06                           ; $9534  FE 06
+        CP $06                           ; $9534  FE 06  index past last built-in? there are exactly 6 [DOC CPMREF 3-6 ; facts sec.7.8] ERA DIR REN SAVE TYPE USER
         RET NC                           ; $9536  D0
 SEARCH_BUILTIN_1:
         LD DE,$9BCE                      ; $9537  11 CE 9B
@@ -586,7 +590,7 @@ CCP_MAIN_LOOP:
         LD A,$3E                         ; $9590  3E 3E
         CALL RPC6502_E08C                    ; $9592  CD 8C 94
         CALL SEARCH_BUILTIN_1+2                ; $9595  CD 39 95
-        LD DE,$0080                      ; $9598  11 80 00
+        LD DE,$0080                      ; $9598  11 80 00  default DMA buffer / command-tail buffer at 0080H [DOC CPMREF 3-47 ; facts sec.7.4/7.5] (byte 0080H = char count, then upper-cased tail; doubles as the initial DMA buffer)
         CALL RPC_CALL_HL                    ; $959B  CD D8 95
         CALL GET_CUR_DRIVE                    ; $959E  CD D0 95
         LD (CMD_EXEC_69),A               ; $95A1  32 EF 9B
@@ -609,7 +613,7 @@ CCP_MAIN_LOOP_1:
         JP (HL)                          ; $95C0  E9
         DEFB    $77                                              ; $95C1
 CMD_DISPATCH_TBL:
-        DEFB    $98,$1F,$99,$5D,$99                              ; $95C2
+        DEFB    $98,$1F,$99,$5D,$99                              ; $95C2  [AI/RE] CCP-internal address table, reached via CALL CMD_DISPATCH_TBL (CD C2 95) from $980F and $9897 -- NOT the JP (HL) built-in dispatcher at $95C0 (that one indexes base $97C1). A per-implementation table, not a manual structure.
 CMD_DISPATCH_TBL_2:
         DEFW    $99AD                    ; $95C7
         DEFW    CMD_EXEC_42              ; $95C9
@@ -933,7 +937,7 @@ MATCH_NAME_FIELD_4:
         JP NZ,COPY_FCB_NAME                   ; $9747  C2 42 98
         RET                              ; $974A  C9
 MATCH_NAME_FIELD_5:
-        LD HL,$0080                      ; $974B  21 80 00
+        LD HL,$0080                      ; $974B  21 80 00  base of command-tail buffer at 0080H [DOC CPMREF 3-47 ; facts sec.7.5] (0080H = tail length, 0081H+ = upper-cased command-line tail)
         ADD A,C                          ; $974E  81
 MATCH_NAME_FIELD_6:
         CALL RPC_DISPATCH_SETUP                    ; $974F  CD 59 96
@@ -1434,7 +1438,7 @@ CMD_EXEC_51:
         CALL PRINT_DIR_ENTRY_8+1                ; $9AD5  CD 40 98
         CALL RPC6502_E0D0                    ; $9AD8  CD D0 94
         JP Z,CMD_EXEC_61                 ; $9ADB  CA 6B 9B
-        LD HL,$0100                      ; $9ADE  21 00 01
+        LD HL,$0100                      ; $9ADE  21 00 01  TPA base = TBASE 0100H, the .COM transient load/exec address [DOC CPMREF 3-45 ; facts sec.7.4/7.7]
         PUSH HL                          ; $9AE1  E5
         EX DE,HL                         ; $9AE2  EB
         CALL RPC_CALL_HL                    ; $9AE3  CD D8 95

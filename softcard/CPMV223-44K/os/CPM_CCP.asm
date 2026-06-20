@@ -52,10 +52,10 @@ SYS_INIT_4           EQU $967B               ; SYS_INIT inner loop ($967B)
 ;    (INCLUDEd below); since the two compile as one unit those definitions resolve
 ;    the CCP's references, so they are NOT redefined here (a duplicate EQU is an
 ;    error). The four below are CCP-only and are defined here. --
-BDOS_VEC             EQU $0005               ; BDOS call vector -- JP BDOS_ENTRY. Programs CALL $0005; the word at $0006 doubles as the top-of-TPA marker.
-DEFAULT_FCB          EQU $005C               ; Default File Control Block -- the CCP populates it from command-line argument 1 (standard 36-byte FCB).
-CMDLINE              EQU $0081               ; Command-line tail characters (uppercase, leading space). Same buffer as DEFAULT_DMA ($0080).
-TPA_START            EQU $0100               ; Start of the Transient Program Area; .COM files load and start executing here.
+BDOS_VEC             EQU $0005               ; BDOS call vector -- JP BDOS_ENTRY. Programs CALL $0005; the word at $0006 doubles as the top-of-TPA marker. [DOC CPMREF 3-44 ; facts sec.7.1] OS calls pass fn# in C / info addr in DE through BOOT+$0005; $0006/$0007 hold FBASE = top of available memory.
+DEFAULT_FCB          EQU $005C               ; Default File Control Block -- the CCP populates it from command-line argument 1 (standard 36-byte FCB). [DOC CPMREF 3-46 ; facts sec.7.4] transients use the default FCB at $005C.
+CMDLINE              EQU $0081               ; Command-line tail characters (uppercase, leading space). Same buffer as DEFAULT_DMA ($0080). [DOC CPMREF 3-47/3-48 ; facts sec.7.5] $0080 = char count, $0081+ = the upper-cased command tail; the $0080 buffer doubles as the initial DMA buffer.
+TPA_START            EQU $0100               ; Start of the Transient Program Area; .COM files load and start executing here. [DOC CPMREF 3-44/3-45 ; facts sec.7.7] TBASE = $0100; a COM file is a TPA-executable memory image loaded at TBASE.
 
 ; -- Mid-instruction references (shown inline as cover+offset) --
 ;   $9307 -> SCAN_DELIM_1+1             shared instruction tail: $9307 is reachable code inside the instruction at $9306
@@ -105,6 +105,9 @@ TPA_START            EQU $0100               ; Start of the Transient Program Ar
 ;       buffer at $0080). [DOC CPMREF 3-44] $0005 holds a JMP to FBASE (the BDOS) and the
 ;       word at $0006 doubles as the top-of-TPA / start-of-FDOS pointer; OS calls pass the
 ;       function number in C and the info address in DE through $0005.
+;       [DOC CPMREF 3-46/3-47 ; facts sec.7.4] the default FCB sits at $005C; [DOC CPMREF
+;       3-47/3-48 ; facts sec.7.5] the default DMA / command-tail buffer at $0080 holds the
+;       command-line tail on transient entry (byte $0080 = count) and doubles as the DMA buffer.
 
 CCP_IMAGE_ENTRY:
         JP SYS_INIT                      ; $9300  C3 31 96  at load (image@$8000) -> the SYS_INIT
@@ -149,6 +152,13 @@ ADD_A_TO_HL:
         RET NC                           ; $932C  D0
         INC H                            ; $932D  24
         RET                              ; $932E  C9
+; [AI] Parse one filename token from the command line into an FCB: optional "d:" drive
+;      prefix (A=1..P), 8-byte name then 3-byte type, blank-padded, "*" expands to "?"
+;      wildcards.  This is the CCP command-line file-spec parse that fills the default FCB.
+;      [DOC CPMREF 3-46/3-47 ; facts sec.6] the per-field FCB offsets this loop fills --
+;      dr=drive 0-16 (0=default) at offset 0, f1..f8 name at 1-8, t1..t3 type at 9-11, ASCII
+;      upper-case high-bit-0 -- are the FCB Layout. [DOC CPMREF 3-46/3-47 ; facts sec.7.4] the
+;      CCP parses up to two file specs into FCB1 ($005C) and a second FCB at $006C.
 BUILD_FCB:
         LD A,$00                         ; $932F  3E 00
         LD HL,CCP_FCB                ; $9331  21 86 9B
@@ -267,7 +277,9 @@ FCB_COUNT_WILDCARDS_3:
 FCB_COUNT_WILDCARDS_RET:
         RET                              ; $93C6  C9
 ; Built-in command-name table: the 24 ASCII bytes "DIR ERA TYPESAVEREN USER"
-; ($93C7..$93DE), terminated by the $BD byte at $93DF.  These same bytes are
+; ($93C7..$93DE), terminated by the $BD byte at $93DF.  These are the six CCP
+; built-in command names DIR / ERA / REN / SAVE / TYPE / USER. [DOC CPMREF 3-6..3-13 ;
+; facts sec.7.8]  These same bytes are
 ; ALSO executed as Z-80 code: three live CALL targets land mid-table at
 ; CMD_NAME_TBL+$0A/$11/$15, each running a short LD-register setup prefix that
 ; falls through into the directory-search/file-match loop at SEARCH_BUILTIN
@@ -500,7 +512,7 @@ PARSE_SKIP_TOKEN:
 CCP_RESET_FCB:
         XOR A                            ; $9508  AF
         LD (SCAN_DELIM_1+1),A                  ; $9509  32 07 93
-        LD SP,CCP_STACK                ; $950C  31 64 9B
+        LD SP,CCP_STACK                ; $950C  31 64 9B  [DOC CPMREF 3-44 ; facts sec.7.3] CCP sets SP to its small (8-level) local stack on entry
         PUSH BC                          ; $950F  C5
         LD A,C                           ; $9510  79
         RRA                              ; $9511  1F
@@ -553,13 +565,17 @@ CCP_PROMPT_AND_READ_1:
         LD H,(HL)                        ; $956D  66
         LD L,A                           ; $956E  6F
         JP (HL)                          ; $956F  E9
-        DEFW    DIR_CMD               ; $9570
-        DEFW    ERA_CMD              ; $9572
-        DEFW    TYPE_CMD              ; $9574
-        DEFW    SAVE_CMD              ; $9576
-        DEFW    REN_CMD              ; $9578
-        DEFW    USER_CMD              ; $957A
-        DEFW    LOAD_GO_COPY+1            ; $957C
+; [AI] Built-in command dispatch table (indexed by the matched built-in number from
+;      SEARCH_BUILTIN). One handler address per CCP built-in. [DOC CPMREF 3-6..3-13 ;
+;      facts sec.7.8] the six CCP built-ins are DIR / ERA / REN / SAVE / TYPE / USER; a
+;      non-built-in falls through to the transient (.COM) loader.
+        DEFW    DIR_CMD               ; $9570  DIR  (directory listing)
+        DEFW    ERA_CMD              ; $9572  ERA  (erase file)
+        DEFW    TYPE_CMD              ; $9574  TYPE (type file to console)
+        DEFW    SAVE_CMD              ; $9576  SAVE (save TPA pages to file)
+        DEFW    REN_CMD              ; $9578  REN  (rename file)
+        DEFW    USER_CMD              ; $957A  USER (set user number)
+        DEFW    LOAD_GO_COPY+1            ; $957C  non-built-in: load + run a transient (.COM)
 CCP_WARM_BOOT_JMP:
         LD HL,$76F3                      ; $957E  21 F3 76
         LD (CCP_IMAGE_ENTRY),HL                   ; $9581  22 00 93
@@ -1422,11 +1438,13 @@ LOAD_AND_GO_4:
         LD A,(HL)                        ; $9ACF  7E
         LD (CCP_CMD_TAIL),A               ; $9AD0  32 96 9B
         XOR A                            ; $9AD3  AF
+; [AI] Set up page zero for the transient about to run: copy the parsed 33-byte FCB to the
+;      default FCB at $005C, then build the command-tail buffer at $0080 (count) / $0081+.
 SETUP_TPA_AND_TAIL:
         LD (CCP_USER_SCRATCH+1),A             ; $9AD4  32 A6 9B
-        LD DE,DEFAULT_FCB                ; $9AD7  11 5C 00
+        LD DE,DEFAULT_FCB                ; $9AD7  11 5C 00  [DOC CPMREF 3-46 ; facts sec.7.4] default FCB #1 at $005C
         LD HL,CCP_FCB                ; $9ADA  21 86 9B
-        LD BC,$0021                      ; $9ADD  01 21 00
+        LD BC,$0021                      ; $9ADD  01 21 00  ; 33-byte (sequential) FCB
         LDIR                             ; $9AE0  ED B0
         LD HL,SCAN_DELIM_2                     ; $9AE2  21 08 93
 SETUP_TPA_AND_TAIL_1:
@@ -1438,8 +1456,8 @@ SETUP_TPA_AND_TAIL_1:
         INC HL                           ; $9AED  23
         JR SETUP_TPA_AND_TAIL_1                    ; $9AEE  18 F5
 SETUP_TPA_AND_TAIL_2:
-        LD B,$00                         ; $9AF0  06 00
-        LD DE,CMDLINE                    ; $9AF2  11 81 00
+        LD B,$00                         ; $9AF0  06 00  ; B = running tail length, stored at $0080
+        LD DE,CMDLINE                    ; $9AF2  11 81 00  [DOC CPMREF 3-47/3-48 ; facts sec.7.5] command tail at $0081+, count byte at $0080
 SETUP_TPA_AND_TAIL_3:
         LD A,(HL)                        ; $9AF5  7E
         LD (DE),A                        ; $9AF6  12
@@ -1976,7 +1994,7 @@ SUBMIT_INSTALL_1:
         JP TRANSIENT_SIZE_STEP_1+1                 ; $9E2E  C3 93 99
         DEFB    $00,$09,$03,$0C,$06,$0F,$01,$0A,$04,$0D,$07,$08,$02,$0B,$05,$0E ; $9E31
         DEFS    37, $00    ; $9E41  fill
-        DEFB    "$$$     SUB"    ; $9E66  string
+        DEFB    "$$$     SUB"    ; $9E66  string  (FCB name+type of the SUBMIT chain file; "$$$" is the conventional CP/M temporary-file type [DOC CPMREF 3-45 ; facts sec.7.7])
         DEFB    $00    ; $9E71  terminator
         DEFS    142, $00    ; $9E72  fill
 BDOSCALL_HELPER_68:

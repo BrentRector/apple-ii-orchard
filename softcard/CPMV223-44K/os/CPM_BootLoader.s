@@ -1012,6 +1012,9 @@ RWTS_POSTNIB_2:
 ;      LC RAM, clear this slot two current-track screen-holes, reset TEXT/video/kbd
 ;      and the stack. Recover the boot slot from X (X/16); the 44K 2.23 build requires
 ;      slot 6 -- any other slot prints MSG_SLOT_SIX and drops to the monitor.
+; [DOC Vol1 1-3/1-4 ; facts sec.8.9] Apple CP/M's slot function assignments fix the
+;      A:/B: disk controller in slot 6 and require it to be present, so cold boot must
+;      come from the slot-6 controller -- the precondition this slot==6 check enforces.
 LOAD_CPM:
         LDA LC_ROM_BANK2_WR          ; $1000  AD 81 C0
         LDA LC_ROM_BANK2_WR          ; $1003  AD 81 C0
@@ -1078,7 +1081,7 @@ COPY_INSTALL_HI:
 ;      at $03B8 for Disk II matches.
 ; [DOC S&HD 2-26/2-27] The per-slot detected-card byte forms the Card Type Table
 ;      (manual symbol SLTTYP, Z-80 $F3B9 = 6502 $03B9; entry for slot S at $03B8+S),
-;      with the Disk Count Byte (controllers x2) at $03B8. [DOC S&HD 2-23/2-26] Values:
+;      with the Disk Count Byte (controllers x2) at $03B8. [DOC S&HD 2-26/2-27 ; facts sec.3.6] Values:
 ;      0=no ROM, 1=ROM unknown, 2=Apple Disk II, 3=Apple Comms/CCS 7710A serial,
 ;      4=Apple High-Speed Serial / Videx Videoterm / M&R Sup-R-Term / Silentype,
 ;      5=Apple Parallel Printer.
@@ -1099,16 +1102,19 @@ SLOTSCAN:
         CPX $41                      ; $1080  E4 41
         BEQ SLOTSCAN_TYPE                   ; $1082  F0 1A
         BNE SLOTSCAN_NONE                   ; $1084  D0 14
+; [DOC S&HD 2-24/2-25 ; facts sec.4.3] $03DE/$03DF is Z$CPU, the SoftCard-location cell
+;      (Z-80 $F3DE): the loader plants low byte = 0 ($03DE) and high byte = $En = found
+;      slot $Cn + $20 ($03DF), the form a later WRITE uses to switch CPUs.
 SLOTSCAN_SOFTCARD:
         INC $3E                      ; $1086  E6 3E
         STY $03C8                    ; $1088  8C C8 03
         LDA #$00                     ; $108B  A9 00
         STA $03C7                    ; $108D  8D C7 03
-        STA $03DE                    ; $1090  8D DE 03
+        STA $03DE                    ; $1090  8D DE 03   Z$CPU low byte = 0
         TYA                          ; $1093  98
         CLC                          ; $1094  18
-        ADC #$20                     ; $1095  69 20
-        STA $03DF                    ; $1097  8D DF 03
+        ADC #$20                     ; $1095  69 20       $Cn -> $En
+        STA $03DF                    ; $1097  8D DF 03   Z$CPU high byte = $En (N = SoftCard slot)
 SLOTSCAN_NONE:
         LDX #$00                     ; $109A  A2 00
         BEQ SLOTSCAN_STORE                   ; $109C  F0 2D
@@ -1213,10 +1219,13 @@ HANDOFF_1:
         JSR PAGE_COPY                 ; $113D  20 5C 11
         LDY #$06                     ; $1140  A0 06
 ; [AI] Copy 6 bytes from $116C to $FFF9 -> the $FFFA-$FFFF vectors (NMI/RESET/IRQ) all
-;      point at $03C0, the RPC service loop. [DOC S&HD 2-24/2-25] The actual CPU flip
-;      happens inside that loop by writing the SoftCard control location (Z$CPU,
-;      $03DE = 6502 $F3DE) holding $Cn00 (N = SoftCard slot); the write switches the bus
-;      to the Z-80. JMP $03D2 enters the loop and never returns to 6502 stage-2 code.
+;      point at $03C0, the RPC service loop. [DOC S&HD 2-25 ; facts sec.2.4/4.4] $03C0
+;      (Z-80 $F3C0) is the documented start of the 6502->Z-80 mode-switch routine, and the
+;      6502 RESET/NMI/BREAK vectors are specified to point here. [DOC S&HD 2-24/2-25 ;
+;      facts sec.4.3] The actual CPU flip happens inside that loop by writing the SoftCard
+;      control location (Z$CPU, $03DE = 6502 $F3DE) holding $Cn00 (N = SoftCard slot); the
+;      write switches the bus to the Z-80. JMP $03D2 enters the loop and never returns to
+;      6502 stage-2 code.
 HANDOFF_VECS:
         LDA $116C,Y                  ; $1142  B9 6C 11
         STA $FFF9,Y                  ; $1145  99 F9 FF
@@ -1306,8 +1315,29 @@ SIG_BYTE7_TBL:
 ; [AI] $1200-$137F is $00 fill: it becomes page-2 ($0200-$027F, the input buffer
 ;      area) that CP/M reuses. The 441-byte .res below spans this image low half.
         .res    441, $00    ; $11C7  fill
+; [DOC S&HD 2-18/2-19 ; facts sec.3.2] I/O Vector Table: eleven 2-byte BIOS character-I/O
+;      vectors (low-high), copied with this image to $0380-$0395 (Z-80 $F380). Each BIOS
+;      CONST/CONIN/CONOUT/READER/PUNCH/LIST primitive JMPs through one of these cells:
+;        $0380 $FB14 Console Status   $0382 $FB33 Console In #1   $0384 $FB33 Console In #2
+;        $0386 $FCB5 Console Out #1   $0388 $FCB5 Console Out #2  $038A $FE66 Reader In #1
+;        $038C $FE66 Reader In #2     $038E $FE60 Punch Out #1    $0390 $FE60 Punch Out #2
+;        $0392 $FE4C List Out #1      $0394 $FE4C List Out #2
         .byte   $14, $FB, $33, $FB, $33, $FB, $B5, $FC, $B5, $FC, $66, $FE, $66, $FE, $60, $FE ; $1380
+; [DOC S&HD 2-14 ; facts sec.3.3] $0396/$0397 (this image $1396/$1397, Z-80 $F396/$F397):
+;      software Cursor XY coordinate offset ($20) then lead-in character ($1B). The offset's
+;      high bit selects X/Y transmission order; lead-in 0 = none.
+; [DOC S&HD 2-14/2-15 ; facts sec.3.4] Software screen-function table (SSFTAB, Z-80 $F398),
+;      base at $0398 (this image $1398): the 11-byte parallel-to-hardware match table CP/M
+;      tests an incoming sequence against (entry 0 = function not implemented; high bit set =
+;      lead-in required).
         .byte   $60, $FE, $4C, $FE, $4C, $FE, $20, $1B, $AA, $D9, $D4, $A9, $A8, $1E, $BD, $0B ; $1390
+; [DOC S&HD 2-14/2-15 ; facts sec.3.3/3.4] $03A1/$03A2 = hardware Cursor XY offset / lead-in
+;      ($F3A1/$F3A2); $03A3-$03AB = the parallel Hardware screen-function table emitted to the
+;      terminal once SSFTAB matches.
+; [DOC S&HD 2-17 ; facts sec.3.5] Keyboard Character Redefinition Table at $03AC (Z-80 $F3AC,
+;      this image $13AC): up to six 2-byte {redefine-from, redefine-to} ASCII pairs (high bits
+;      cleared), terminated by a byte with the high bit set if fewer than six. Applies to
+;      TTY:/CRT: input only.
         .byte   $0C, $A0, $00, $0C, $0B, $1D, $0E, $0F, $19, $1E, $1F, $1C, $0B, $5B, $00, $7F ; $13A0
         .byte   $02, $5C, $15, $09, $FF, $FF, $FF, $FF           ; $13B0
         .res    8, $00    ; $13B8  fill
@@ -1320,14 +1350,21 @@ SIG_BYTE7_TBL:
 ;      JMP target stays the literal runtime $03C0 (not this $13C0 image copy). The
 ;      STA $FFFF operand is patched at runtime to $Cn00 (N = SoftCard slot); that
 ;      write switches the bus to the Z-80.
+; [DOC S&HD 2-25 ; facts sec.4.4] This $03C0 body is the documented 6502->Z-80
+;      mode-switch routine (Z-80 $F3C0): the RESET/NMI/BREAK vectors point here, and it
+;      hands the bus back to the Z-80.
         LDA LC_RAM_BANK2_RDWR           ; $03C0  AD 83 C0  bank LC RAM bank2 R/W
         LDA LC_RAM_BANK2_RDWR           ; $03C3  AD 83 C0   (two reads arm the LC write latch)
+        ; [DOC S&HD 2-24/2-25 ; facts sec.2.5/4.3] operand patched to $Cn00 (the SoftCard's
+        ;   slot-dependent control area / Z$CPU $03DE); a WRITE (not a read) there switches CPUs.
         STA $FFFF                       ; $03C6  8D FF FF  operand patched to $Cn00 -> switch to Z-80
         LDA LC_ROM_BANK2_WR             ; $03C9  AD 81 C0  bank ROM
         JSR $0E36                       ; $03CC  20 36 0E  into the RWTS read-byte spin (loader resident)
         JSR IORTS                       ; $03CF  20 58 FF  bare RTS (addressing probe / no-op)
         STA LC_ROM_BANK2_WR             ; $03D2  8D 81 C0  (resume here) bank ROM
         SEI                             ; $03D5  78
+        ; [DOC S&HD 2-24/2-25 ; facts sec.4.1] save area $45-$49 are the RPC register-pass
+        ;   cells (A=$45, Y=$46, X=$47, P=$48, 6502 SP at $49 on exit) the Z-80 reads back.
         JSR SAVE                        ; $03D6  20 4A FF  A,X,Y,P,S -> $45-$49 (results for Z-80)
         JMP $03C0                       ; $03D9  4C C0 03  loop -> hand the bus back to the Z-80
         .byte   $00, $20                                 ; $13DC  config cells (data)
