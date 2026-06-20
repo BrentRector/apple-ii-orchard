@@ -47,16 +47,18 @@ utilities whose bytes differ. Each `.asm` reassembles byte-identical to its disk
 `.COM` (gated by `test_utilities_roundtrip.py`; the shared ones are additionally
 cross-checked against the 2.23-44K disk).
 
-**Decompiled here (12):**
+**Decompiled here (15):**
 
 | Group | Files |
 |-------|-------|
 | shared base (byte-identical on both 44K disks) | `APDOS ASM DOWNLOAD DUMP ED LOAD PIP STAT XSUB` |
-| 2.20-44K-specific (bytes differ from 2.23-44K) | `CPM56` (SoftCard 56K-overlay installer), `DDT`, `SUBMIT` |
+| 2.20-44K-specific (bytes differ from 2.23-44K) | `CPM56` (SoftCard 56K-overlay installer), `DDT`, `SUBMIT`, `COPY`, `FORMAT`, `RW13` |
 
-**Not yet decompiled (3 — TODO):** `COPY`, `FORMAT`, `RW13`. Their 2.20-44K bytes
-differ from **both** the 2.23-44K and the 2.20-56K versions, so no existing `.asm`
-covers them; they still need their own 2.20-44K decompilation.
+`COPY`, `FORMAT`, and `RW13` are 2.20-44K-specific: their bytes differ from
+**both** the 2.23-44K and the 2.20-56K versions (and `FORMAT`/`RW13` are absent
+from 2.23, which folded `FORMAT` into `COPY`), so each carries its own
+decompilation. Each embeds a 6502 disk engine extracted to a sibling
+`<NAME>_6502.s` (ca65) and `INCBIN`'d back, byte-identical.
 
 **On-demand (2):** `GBASIC`, `MBASIC` — stock Microsoft BASIC; reconstruct
 byte-identical via `cpm_pipeline.decompile_com` on demand (≈25 KB stock
