@@ -611,7 +611,20 @@
     "L_0B64": "RESUME_TXTPTR",
     "L_0B66": "ON_ERROR_LINE",
     "L_0B6B": "SAVED_ERR_TXTPTR",
-    "L_0B6D": "CONT_TXTPTR"
+    "L_0B6D": "CONT_TXTPTR",
+    "L_47DA": "GFX_COLOR_INDEX",
+    "L_47DB": "GFX_COLOR_PATTERN",
+    "L_47DD": "GFX_HIRES_BYTE_ADDR",
+    "L_47DF": "GFX_HIRES_ROW_BASE",
+    "L_47E1": "GFX_HIRES_BIT_INDEX",
+    "L_47E2": "GFX_X_FRACTION",
+    "L_47E3": "GFX_X_COORD",
+    "L_47E5": "GFX_Y_COORD",
+    "L_4A81": "GFX_HIRES_COLOR_WORDS",
+    "L_5EAA": "FP_CONST_EXP_LOG2E",
+    "L_5EB2": "FP_POLY_SIN_COEFFS",
+    "L_38CA": "INPUT_SKIP_QUOTED",
+    "L_38D7": "INPUT_REDO"
   },
   "label_comments": {
     "1000": "[RE] Entry stub (reached by JP from $0100). LDDR block-copies the interpreter body from its on-disk position UP to run address $3000-$8482, then JP $81D3 to cold-start it. HL=$6490 (src end), DE=$8482 (dst end), BC=$5483 (count).",
@@ -1225,7 +1238,20 @@
     "L_0B64": "[RE] Saved current-statement text pointer for RESUME (copy of OLDTXT, stashed by the error reporter at $0DB0); RESUME ($36AE) reloads it to re-execute the statement that errored.",
     "L_0B66": "[RE] ON ERROR GOTO handler pointer (MS BASIC ONELIN): set by ON ERROR ($365E); the error reporter ($0DC3) traps to it when nonzero, else prints the error. Zero = no active handler.",
     "L_0B6B": "[RE] Saved error/statement text pointer (copy of ERR_SAVTXT when valid), stashed by the error reporter ($0DBC) and reloaded by CONT ($69B7).",
-    "L_0B6D": "[RE] CONT resume text pointer (copy of OLDTXT): STOP/END save it ($6979), the error reporter saves it ($0DC0), and CONT ($69AB) reloads it to resume the stopped program."
+    "L_0B6D": "[RE] CONT resume text pointer (copy of OLDTXT): STOP/END save it ($6979), the error reporter saves it ($0DC0), and CONT ($69AB) reloads it to resume the stopped program.",
+    "L_47DA": "[RE] Current hi-res plot color/mode index. Set by COLOR=/HCOLOR= (GFX_SET_COLOR_INDEX $4847); read by GFX_SELECT_COLOR_MASK ($4A91) and the SCRN color read to pick the bit-pattern mask.",
+    "L_47DB": "[RE] Two-byte hi-res pixel bit pattern for the current color (stored by GFX_SET_COLOR_INDEX_4 $4871); loaded into DE by GFX_LOAD_STEP_STATE ($49EF) for the plot/line writer.",
+    "L_47DD": "[RE] Hi-res screen byte address of the current plot point (init $8081). Computed by GFX_XY_TO_HIRES_ADDR; loaded into BC by GFX_LOAD_STEP_STATE; saved/restored around a SCRN(x,y) read.",
+    "L_47DF": "[RE] Hi-res row base screen address of the current point (init $1000). Built by GFX_XY_TO_HIRES_ADDR and advanced a row/column at a time by the Bresenham step routines.",
+    "L_47E1": "[RE] Intra-byte bit/column index of the current hi-res point (set $49D1; read $49A6/$49DB to index the column mask). The COLOR/SCRN state save reads it as a word spanning into GFX_X_FRACTION.",
+    "L_47E2": "[RE] X sub-byte offset added to the row base in GFX_LOAD_STEP_STATE ($49F3) to reach the plot byte; set by GFX_XY_TO_HIRES_ADDR_2 and recomputed at HPLOT line end.",
+    "L_47E3": "[RE] Current hi-res X coordinate (0-279), stored by GFX_XY_TO_HIRES_ADDR ($4978); reloaded by GFX_DRAW_LINE and at HPLOT line end to seed the next segment's delta.",
+    "L_47E5": "[RE] Current hi-res Y/row coordinate, stored by GFX_XY_TO_HIRES_ADDR ($497D); read/updated by GFX_DRAW_LINE to compute the vertical delta for Bresenham stepping.",
+    "L_4A81": "[RE] Apple hi-res color/pixel-pattern word table, indexed at $484F as base + 2*color: black($0000), violet($552A), green($2A55), white($7F7F) and their high-bit blue/orange variants. Supplies the two-byte plot pattern at GFX_COLOR_PATTERN.",
+    "L_5EAA": "[RE] MBF constant pair for the transcendental code: log2(e)=1.442695 followed by 0.5. FN_EXP loads it ($5E34) to scale x by log2(e); FN_TAN returns with HL pointing here ($5EFE).",
+    "L_5EB2": "[RE] MBF polynomial coefficient table (count byte then five 4-byte coefficients) for the SIN/COS series, evaluated by POLY_EVAL_ODD from FN_RND_2 ($5E91). Also doubled as a rotating XOR key table by the protected-program scramble ($8152/$817B).",
+    "L_38CA": "[RE] INPUT quoted-field scan: reached from INPUT_PROMPT_8 ($396A) on a '\"'; walks past the quoted string to its closing quote (ERROR_SYNTAX on end-of-line), then rejoins the field loop.",
+    "L_38D7": "[RE] INPUT field-mismatch abort: POP HL/POP HL/JP STMT_LINE_2 discards the parse state and jumps to the '?Redo from start' re-prompt; taken on a missing ',' ($3985) or a type/convert mismatch ($3994)."
   },
   "sections": {
     "1000": "SELF-RELOCATOR (runs at load address $1000)",

@@ -18,12 +18,8 @@
 
     ORG $0100
 
-; GBASIC.COM entry point: JP RELOCATE_AND_RUN ($1000), the self-relocator stub. CP/M loads the file at $0100 and starts here.
-COM_ENTRY:
         JP RELOCATE_AND_RUN              ; $0100  C3 00 10
-        DEFB    $76,$4F,$D7              ; $0103
-        DEFB    $4F                      ; $0106
-        DEFB    $00                      ; $0107
+        DEFB    $76,$4F,$D7,$4F,$00      ; $0103  "vOWO"
 STMT_DISPATCH_TBL:
         DEFW    STMT_END                 ; $0108
         DEFW    STMT_FOR                 ; $010A
@@ -1322,7 +1318,7 @@ CRUNCH_15:
         POP AF                           ; $3117  F1
         XOR A                            ; $3118  AF
 CRUNCH_16:
-        JP NZ,STMT_DISPATCH_TBL+54       ; $3119  C2 3E 01
+        JP NZ,$013E                      ; $3119  C2 3E 01
 CRUNCH_17:
         LD ($0B16),A                     ; $311C  32 16 0B
         POP AF                           ; $311F  F1
@@ -1484,7 +1480,7 @@ CRUNCH_36:
         CALL CRUNCH_EMIT                 ; $321A  CD 34 32
         JR CRUNCH_34                     ; $321D  18 EE
 CRUNCH_37:
-        LD HL,STMT_DISPATCH_TBL+56       ; $321F  21 40 01
+        LD HL,$0140                      ; $321F  21 40 01
         LD A,L                           ; $3222  7D
         SUB C                            ; $3223  91
         LD C,A                           ; $3224  4F
@@ -2140,7 +2136,7 @@ STMT_LET_4:
 STMT_LET_5:
         PUSH HL                          ; $3609  E5
         CP $03                           ; $360A  FE 03
-        JR NZ,STMT_LET_9                 ; $360C  20 2E
+        JR NZ,STMT_LET_8                 ; $360C  20 2E
         LD HL,($0CB1)                    ; $360E  2A B1 0C
         PUSH HL                          ; $3611  E5
         INC HL                           ; $3612  23
@@ -2153,20 +2149,19 @@ STMT_LET_5:
         LD HL,($0B73)                    ; $361E  2A 73 0B
         CALL CMP_HL_DE                   ; $3621  CD 1F 69
         POP DE                           ; $3624  D1
-        JR NC,STMT_LET_8                 ; $3625  30 11
+        JR NC,STMT_LET_7                 ; $3625  30 11
         LD HL,$0B45                      ; $3627  21 45 0B
         CALL CMP_HL_DE                   ; $362A  CD 1F 69
-        JR NC,STMT_LET_8                 ; $362D  30 09
+        JR NC,STMT_LET_7                 ; $362D  30 09
 STMT_LET_6:
         LD A,$D1                         ; $362F  3E D1
         CALL FREE_TOP_TEMP_DESCR         ; $3631  CD D9 6D
         EX DE,HL                         ; $3634  EB
-STMT_LET_7:
         CALL STR_BUILD_FROM_DESC         ; $3635  CD C6 6B
-STMT_LET_8:
+STMT_LET_7:
         CALL FREE_TOP_TEMP_DESCR         ; $3638  CD D9 6D
         EX (SP),HL                       ; $363B  E3
-STMT_LET_9:
+STMT_LET_8:
         CALL FP_MOVE_TYPED               ; $363C  CD C9 4E
         POP DE                           ; $363F  D1
         POP HL                           ; $3640  E1
@@ -2551,54 +2546,40 @@ STMT_LINE:
         JP STMT_LET_1                    ; $38B4  C3 F0 35
 ; INPUT error literal "?Redo from start" + CR/LF; STROUT'd by the INPUT re-prompt path (STMT_LINE_2) when the user's typed reply does not parse. Bytes after the terminator are INPUT-path code rendered as DEFB.
 MSG_REDO_FROM_START:
-        CCF                              ; $38B7  3F
-        LD D,D                           ; $38B8  52
-        LD H,L                           ; $38B9  65
-        LD H,H                           ; $38BA  64
-        LD L,A                           ; $38BB  6F
-        JR NZ,INPUT_PROMPT_2+2           ; $38BC  20 66
-        LD (HL),D                        ; $38BE  72
-        LD L,A                           ; $38BF  6F
-        LD L,L                           ; $38C0  6D
-        JR NZ,INPUT_PROMPT_5+1           ; $38C1  20 73
-        LD (HL),H                        ; $38C3  74
-        LD H,C                           ; $38C4  61
-        LD (HL),D                        ; $38C5  72
-        LD (HL),H                        ; $38C6  74
-        DEC C                            ; $38C7  0D
-        LD A,(BC)                        ; $38C8  0A
-        NOP                              ; $38C9  00
-STMT_LINE_2:
+        DEFB    "?Redo from start"       ; $38B7  string
+        DEFB    $0D                      ; $38C7  terminator
+        DEFB    $0A,$00                  ; $38C8
+STMT_LINE_1:
         INC HL                           ; $38CA  23
         LD A,(HL)                        ; $38CB  7E
         OR A                             ; $38CC  B7
         JP Z,ERROR_SYNTAX                ; $38CD  CA 6F 0D
         CP $22                           ; $38D0  FE 22
-        JR NZ,STMT_LINE_2                ; $38D2  20 F6
-        JP INPUT_PROMPT_9                ; $38D4  C3 62 39
-STMT_LINE_3:
+        JR NZ,STMT_LINE_1                ; $38D2  20 F6
+        JP INPUT_PROMPT_8                ; $38D4  C3 62 39
+STMT_LINE_2:
         POP HL                           ; $38D7  E1
         POP HL                           ; $38D8  E1
-        JP STMT_LINE_5                   ; $38D9  C3 E3 38
-STMT_LINE_4:
+        JP STMT_LINE_4                   ; $38D9  C3 E3 38
+STMT_LINE_3:
         LD A,($0B53)                     ; $38DC  3A 53 0B
         OR A                             ; $38DF  B7
         JP NZ,CONT_RESUME_RESTORE        ; $38E0  C2 69 0D
-STMT_LINE_5:
+STMT_LINE_4:
         POP BC                           ; $38E3  C1
         LD HL,MSG_REDO_FROM_START        ; $38E4  21 B7 38
         CALL STROUT                      ; $38E7  CD 40 6C
         LD HL,(OLDTXT)                   ; $38EA  2A 5C 0B
         RET                              ; $38ED  C9
-STMT_LINE_6:
+STMT_LINE_5:
         CALL GET_FILENUM_PREFIX_C1       ; $38EE  CD 0D 76
         PUSH HL                          ; $38F1  E5
         LD HL,$0A0D                      ; $38F2  21 0D 0A
-        JP INPUT_PROMPT_13               ; $38F5  C3 B3 39
+        JP INPUT_PROMPT_12               ; $38F5  C3 B3 39
 ; [RE] INPUT statement handler (token $85): prompt + read console line, parse values into the variable list.
 STMT_INPUT:
         CP $23                           ; $38F8  FE 23
-        JP Z,STMT_LINE_6                 ; $38FA  CA EE 38
+        JP Z,STMT_LINE_5                 ; $38FA  CA EE 38
         CALL INPUT_PROMPT_SEP            ; $38FD  CD 2E 71
         LD BC,INPUT_EMIT_PROMPT          ; $3900  01 2C 39
         PUSH BC                          ; $3903  C5
@@ -2632,13 +2613,12 @@ INPUT_EMIT_PROMPT:
         PUSH HL                          ; $392C  E5
         LD A,($0C94)                     ; $392D  3A 94 0C
         OR A                             ; $3930  B7
-        JR Z,INPUT_PROMPT_6              ; $3931  28 0A
+        JR Z,INPUT_PROMPT_5              ; $3931  28 0A
         LD A,$3F                         ; $3933  3E 3F
-INPUT_PROMPT_5:
         CALL OUTCHR                      ; $3935  CD 13 66
         LD A,$20                         ; $3938  3E 20
         CALL OUTCHR                      ; $393A  CD 13 66
-INPUT_PROMPT_6:
+INPUT_PROMPT_5:
         CALL INLIN                       ; $393D  CD 2B 70
         POP BC                           ; $3940  C1
         JP C,STMT_END_2+1                ; $3941  DA 66 69
@@ -2659,39 +2639,39 @@ INPUT_PARSE_VALUES:
         LD A,(HL)                        ; $3958  7E
         DEC HL                           ; $3959  2B
         CP $28                           ; $395A  FE 28
-        JR NZ,INPUT_PROMPT_10            ; $395C  20 19
+        JR NZ,INPUT_PROMPT_9             ; $395C  20 19
         INC HL                           ; $395E  23
         LD B,$00                         ; $395F  06 00
-INPUT_PROMPT_8:
+INPUT_PROMPT_7:
         INC B                            ; $3961  04
-INPUT_PROMPT_9:
+INPUT_PROMPT_8:
         CALL CHRGET                      ; $3962  CD C9 33
         JP Z,ERROR_SYNTAX                ; $3965  CA 6F 0D
         CP $22                           ; $3968  FE 22
-        JP Z,STMT_LINE_2                 ; $396A  CA CA 38
+        JP Z,STMT_LINE_1                 ; $396A  CA CA 38
         CP $28                           ; $396D  FE 28
-        JR Z,INPUT_PROMPT_8              ; $396F  28 F0
+        JR Z,INPUT_PROMPT_7              ; $396F  28 F0
         CP $29                           ; $3971  FE 29
-        JR NZ,INPUT_PROMPT_9             ; $3973  20 ED
-        DJNZ INPUT_PROMPT_9              ; $3975  10 EB
-INPUT_PROMPT_10:
+        JR NZ,INPUT_PROMPT_8             ; $3973  20 ED
+        DJNZ INPUT_PROMPT_8              ; $3975  10 EB
+INPUT_PROMPT_9:
         CALL CHRGET                      ; $3977  CD C9 33
-        JR Z,INPUT_PROMPT_11             ; $397A  28 05
+        JR Z,INPUT_PROMPT_10             ; $397A  28 05
         CP $2C                           ; $397C  FE 2C
         JP NZ,ERROR_SYNTAX               ; $397E  C2 6F 0D
-INPUT_PROMPT_11:
+INPUT_PROMPT_10:
         EX (SP),HL                       ; $3981  E3
         LD A,(HL)                        ; $3982  7E
         CP $2C                           ; $3983  FE 2C
-        JP NZ,STMT_LINE_3                ; $3985  C2 D7 38
+        JP NZ,STMT_LINE_2                ; $3985  C2 D7 38
         LD A,$01                         ; $3988  3E 01
         LD ($0CB7),A                     ; $398A  32 B7 0C
         CALL STMT_READ_4+1               ; $398D  CD D9 39
         LD A,($0CB7)                     ; $3990  3A B7 0C
         DEC A                            ; $3993  3D
-        JP NZ,STMT_LINE_3                ; $3994  C2 D7 38
+        JP NZ,STMT_LINE_2                ; $3994  C2 D7 38
         PUSH HL                          ; $3997  E5
-INPUT_PROMPT_12:
+INPUT_PROMPT_11:
         CALL FRMEVL_TEST_TYPE            ; $3998  CD C8 3D
         CALL Z,FRESTR                    ; $399B  CC BC 6D
         POP HL                           ; $399E  E1
@@ -2706,8 +2686,8 @@ INPUT_PROMPT_12:
         CALL CHRGET                      ; $39AB  CD C9 33
         OR A                             ; $39AE  B7
         POP HL                           ; $39AF  E1
-        JP NZ,STMT_LINE_5                ; $39B0  C2 E3 38
-INPUT_PROMPT_13:
+        JP NZ,STMT_LINE_4                ; $39B0  C2 E3 38
+INPUT_PROMPT_12:
         LD (HL),$2C                      ; $39B3  36 2C
         JR STMT_READ_1+1                 ; $39B5  18 05
 ; [RE] READ statement handler (token $87): reads the next DATA item into a variable.
@@ -2785,7 +2765,7 @@ STMT_READ_9:
         CALL CHRGET                      ; $3A28  CD C9 33
         JR Z,STMT_READ_10                ; $3A2B  28 05
         CP $2C                           ; $3A2D  FE 2C
-        JP NZ,STMT_LINE_4                ; $3A2F  C2 DC 38
+        JP NZ,STMT_LINE_3                ; $3A2F  C2 DC 38
 STMT_READ_10:
         EX (SP),HL                       ; $3A32  E3
         DEC HL                           ; $3A33  2B
@@ -3148,11 +3128,11 @@ FRMEVL_EVAL_OPERAND_5:
         CP $CD                           ; $3C7E  FE CD
         JP Z,GFX_FN_VPOS_3               ; $3C80  CA 78 47
         CP $D3                           ; $3C83  FE D3
-        JP Z,SUB_47C6_10                 ; $3C85  CA E6 47
+        JP Z,SUB_47C6_2                  ; $3C85  CA E6 47
         CP $EC                           ; $3C88  FE EC
         JP Z,GFX_FN_VPOS_2               ; $3C8A  CA 5D 47
         CP $ED                           ; $3C8D  FE ED
-        JP Z,SUB_47C6_11                 ; $3C8F  CA EF 47
+        JP Z,SUB_47C6_3                  ; $3C8F  CA EF 47
         CP $EE                           ; $3C92  FE EE
         JP Z,INKEY_SCAN_1                ; $3C94  CA CC 67
         CP $E7                           ; $3C97  FE E7
@@ -4528,35 +4508,10 @@ STMT_RANDOMIZE_3:
         RET                              ; $448A  C9
 ; Data string 'Random number seed (-32768- to 32767)' (with a $08 backspace splice) -- the interactive RANDOMIZE prompt emitted by STMT_RANDOMIZE via STROUT/QINLIN
 MSG_RANDOMIZE_PROMPT:
-        LD D,D                           ; $448B  52
-        LD H,C                           ; $448C  61
-        LD L,(HL)                        ; $448D  6E
-        LD H,H                           ; $448E  64
-        LD L,A                           ; $448F  6F
-        LD L,L                           ; $4490  6D
-        JR NZ,BLOCK_SCAN_FORNEXT_11      ; $4491  20 6E
-        LD (HL),L                        ; $4493  75
-        LD L,L                           ; $4494  6D
-        LD H,D                           ; $4495  62
-        LD H,L                           ; $4496  65
-        LD (HL),D                        ; $4497  72
-        JR NZ,BLOCK_SCAN_FORNEXT_12      ; $4498  20 73
-        LD H,L                           ; $449A  65
-        LD H,L                           ; $449B  65
-        LD H,H                           ; $449C  64
-        JR NZ,BLOCK_SCAN_FORNEXT_5       ; $449D  20 28
-        DEC L                            ; $449F  2D
-        INC SP                           ; $44A0  33
-        LD ($3637),A                     ; $44A1  32 37 36
-        JR C,BLOCK_SCAN_FORNEXT_7+1      ; $44A4  38 2D
-        EX AF,AF'                        ; $44A6  08
-        JR NZ,BLOCK_SCAN_FORNEXT_13      ; $44A7  20 74
-        LD L,A                           ; $44A9  6F
-        JR NZ,BLOCK_SCAN_FORNEXT_8       ; $44AA  20 33
-        LD ($3637),A                     ; $44AC  32 37 36
-        SCF                              ; $44AF  37
-        ADD HL,HL                        ; $44B0  29
-        NOP                              ; $44B1  00
+        DEFB    "Random number seed (-32768-"  ; $448B  string
+        DEFB    $08                      ; $44A6
+        DEFB    " to 32767)"             ; $44A7  string
+        DEFB    $00                      ; $44B1  terminator
 ; [RE] Enter the structured-block program scanner with delimiter set for WHILE/WEND (C=$1D); used to balance nested block-statement keywords while searching forward through program text.
 BLOCK_SCAN_WHILE:
         LD C,$1D                         ; $44B2  0E 1D
@@ -4576,16 +4531,14 @@ BLOCK_SCAN_FORNEXT_3:
         DEC HL                           ; $44C3  2B
 BLOCK_SCAN_FORNEXT_4:
         CALL CHRGET                      ; $44C4  CD C9 33
-BLOCK_SCAN_FORNEXT_5:
-        JR Z,BLOCK_SCAN_FORNEXT_6        ; $44C7  28 08
+        JR Z,BLOCK_SCAN_FORNEXT_5        ; $44C7  28 08
         CP TOK_ELSE                      ; $44C9  FE 9E
-        JR Z,BLOCK_SCAN_FORNEXT_9        ; $44CB  28 18
+        JR Z,BLOCK_SCAN_FORNEXT_6        ; $44CB  28 18
         CP TOK_THEN                      ; $44CD  FE DE
         JR NZ,BLOCK_SCAN_FORNEXT_4       ; $44CF  20 F3
-BLOCK_SCAN_FORNEXT_6:
+BLOCK_SCAN_FORNEXT_5:
         OR A                             ; $44D1  B7
-BLOCK_SCAN_FORNEXT_7:
-        JR NZ,BLOCK_SCAN_FORNEXT_9       ; $44D2  20 11
+        JR NZ,BLOCK_SCAN_FORNEXT_6       ; $44D2  20 11
         INC HL                           ; $44D4  23
         LD A,(HL)                        ; $44D5  7E
         INC HL                           ; $44D6  23
@@ -4595,37 +4548,35 @@ BLOCK_SCAN_FORNEXT_7:
         INC HL                           ; $44DC  23
         LD E,(HL)                        ; $44DD  5E
         INC HL                           ; $44DE  23
-BLOCK_SCAN_FORNEXT_8:
         LD D,(HL)                        ; $44DF  56
         EX DE,HL                         ; $44E0  EB
         LD ($0C71),HL                    ; $44E1  22 71 0C
         EX DE,HL                         ; $44E4  EB
-BLOCK_SCAN_FORNEXT_9:
+BLOCK_SCAN_FORNEXT_6:
         CALL CHRGET                      ; $44E5  CD C9 33
         LD A,C                           ; $44E8  79
         CP $1A                           ; $44E9  FE 1A
         LD A,(HL)                        ; $44EB  7E
-        JR Z,BLOCK_SCAN_FORNEXT_10       ; $44EC  28 0B
+        JR Z,BLOCK_SCAN_FORNEXT_7        ; $44EC  28 0B
         CP $AF                           ; $44EE  FE AF
         JR Z,BLOCK_SCAN_FORNEXT_2        ; $44F0  28 D0
         CP $B0                           ; $44F2  FE B0
         JR NZ,BLOCK_SCAN_FORNEXT_3       ; $44F4  20 CD
         DJNZ BLOCK_SCAN_FORNEXT_3        ; $44F6  10 CB
         RET                              ; $44F8  C9
-BLOCK_SCAN_FORNEXT_10:
+BLOCK_SCAN_FORNEXT_7:
         CP $82                           ; $44F9  FE 82
         JR Z,BLOCK_SCAN_FORNEXT_2        ; $44FB  28 C5
         CP $83                           ; $44FD  FE 83
         JR NZ,BLOCK_SCAN_FORNEXT_3       ; $44FF  20 C2
-BLOCK_SCAN_FORNEXT_11:
+BLOCK_SCAN_FORNEXT_8:
         DEC B                            ; $4501  05
         RET Z                            ; $4502  C8
         CALL CHRGET                      ; $4503  CD C9 33
-        JR Z,BLOCK_SCAN_FORNEXT_6        ; $4506  28 C9
+        JR Z,BLOCK_SCAN_FORNEXT_5        ; $4506  28 C9
         EX DE,HL                         ; $4508  EB
         LD HL,(SAVTXT)                   ; $4509  2A 44 08
         PUSH HL                          ; $450C  E5
-BLOCK_SCAN_FORNEXT_12:
         LD HL,($0C71)                    ; $450D  2A 71 0C
         LD (SAVTXT),HL                   ; $4510  22 44 08
         EX DE,HL                         ; $4513  EB
@@ -4634,20 +4585,20 @@ BLOCK_SCAN_FORNEXT_12:
         POP BC                           ; $4518  C1
         DEC HL                           ; $4519  2B
         CALL CHRGET                      ; $451A  CD C9 33
-BLOCK_SCAN_FORNEXT_13:
-        LD DE,BLOCK_SCAN_FORNEXT_6       ; $451D  11 D1 44
-        JR Z,BLOCK_SCAN_FORNEXT_14       ; $4520  28 08
+BLOCK_SCAN_FORNEXT_9:
+        LD DE,BLOCK_SCAN_FORNEXT_5       ; $451D  11 D1 44
+        JR Z,BLOCK_SCAN_FORNEXT_10       ; $4520  28 08
         CALL SYNCHR                      ; $4522  CD 25 69
         DEFB    ','                      ; $4525  2C  inline char arg consumed by the preceding CALL
         DEC HL                           ; $4526  2B
-        LD DE,BLOCK_SCAN_FORNEXT_11      ; $4527  11 01 45
-BLOCK_SCAN_FORNEXT_14:
+        LD DE,BLOCK_SCAN_FORNEXT_8       ; $4527  11 01 45
+BLOCK_SCAN_FORNEXT_10:
         EX (SP),HL                       ; $452A  E3
         LD (SAVTXT),HL                   ; $452B  22 44 08
         POP HL                           ; $452E  E1
         PUSH DE                          ; $452F  D5
         RET                              ; $4530  C9
-BLOCK_SCAN_FORNEXT_15:
+BLOCK_SCAN_FORNEXT_11:
         PUSH AF                          ; $4531  F5
         LD A,($0CB6)                     ; $4532  3A B6 0C
         LD ($0CB7),A                     ; $4535  32 B7 0C
@@ -5087,30 +5038,35 @@ SUB_47C6_1:
         LD A,(HL)                        ; $47D6  7E
         CP $2C                           ; $47D7  FE 2C
         RET                              ; $47D9  C9
+; [RE] Current hi-res plot color/mode index. Set by COLOR=/HCOLOR= (GFX_SET_COLOR_INDEX $4847); read by GFX_SELECT_COLOR_MASK ($4A91) and the SCRN color read to pick the bit-pattern mask.
+GFX_COLOR_INDEX:
+        DEFB    $00                      ; $47DA
+; [RE] Two-byte hi-res pixel bit pattern for the current color (stored by GFX_SET_COLOR_INDEX_4 $4871); loaded into DE by GFX_LOAD_STEP_STATE ($49EF) for the plot/line writer.
+GFX_COLOR_PATTERN:
+        DEFB    $00,$00                  ; $47DB
+; [RE] Hi-res screen byte address of the current plot point (init $8081). Computed by GFX_XY_TO_HIRES_ADDR; loaded into BC by GFX_LOAD_STEP_STATE; saved/restored around a SCRN(x,y) read.
+GFX_HIRES_BYTE_ADDR:
+        DEFB    $81,$80                  ; $47DD
+; [RE] Hi-res row base screen address of the current point (init $1000). Built by GFX_XY_TO_HIRES_ADDR and advanced a row/column at a time by the Bresenham step routines.
+GFX_HIRES_ROW_BASE:
+        DEFB    $00,$10                  ; $47DF
+; [RE] Intra-byte bit/column index of the current hi-res point (set $49D1; read $49A6/$49DB to index the column mask). The COLOR/SCRN state save reads it as a word spanning into GFX_X_FRACTION.
+GFX_HIRES_BIT_INDEX:
+        DEFB    $00                      ; $47E1
+; [RE] X sub-byte offset added to the row base in GFX_LOAD_STEP_STATE ($49F3) to reach the plot byte; set by GFX_XY_TO_HIRES_ADDR_2 and recomputed at HPLOT line end.
+GFX_X_FRACTION:
+        DEFB    $00                      ; $47E2
+; [RE] Current hi-res X coordinate (0-279), stored by GFX_XY_TO_HIRES_ADDR ($4978); reloaded by GFX_DRAW_LINE and at HPLOT line end to seed the next segment's delta.
+GFX_X_COORD:
+        DEFB    $00,$00                  ; $47E3
+; [RE] Current hi-res Y/row coordinate, stored by GFX_XY_TO_HIRES_ADDR ($497D); read/updated by GFX_DRAW_LINE to compute the vertical delta for Bresenham stepping.
+GFX_Y_COORD:
+        DEFB    $00                      ; $47E5
 SUB_47C6_2:
-        NOP                              ; $47DA  00
-SUB_47C6_3:
-        NOP                              ; $47DB  00
-        NOP                              ; $47DC  00
-SUB_47C6_4:
-        ADD A,C                          ; $47DD  81
-        ADD A,B                          ; $47DE  80
-SUB_47C6_5:
-        NOP                              ; $47DF  00
-SUB_47C6_6:
-        DJNZ SUB_47C6_7                  ; $47E0  10 00
-SUB_47C6_7:
-        NOP                              ; $47E2  00
-SUB_47C6_8:
-        NOP                              ; $47E3  00
-        NOP                              ; $47E4  00
-SUB_47C6_9:
-        NOP                              ; $47E5  00
-SUB_47C6_10:
         CALL CHRGET                      ; $47E6  CD C9 33
-        LD A,(SUB_47C6_2)                ; $47E9  3A DA 47
+        LD A,(GFX_COLOR_INDEX)           ; $47E9  3A DA 47
         JP GFX_FN_MKD_STR_1              ; $47EC  C3 F0 46
-SUB_47C6_11:
+SUB_47C6_3:
         CALL CHRGET                      ; $47EF  CD C9 33
         CALL SYNCHR                      ; $47F2  CD 25 69
         DEFB    '('                      ; $47F5  28  inline char arg consumed by the preceding CALL
@@ -5118,41 +5074,41 @@ SUB_47C6_11:
         CALL SYNCHR                      ; $47F9  CD 25 69
         DEFB    ')'                      ; $47FC  29  inline char arg consumed by the preceding CALL
         PUSH HL                          ; $47FD  E5
-        LD HL,(SUB_47C6_4)               ; $47FE  2A DD 47
+        LD HL,(GFX_HIRES_BYTE_ADDR)      ; $47FE  2A DD 47
         PUSH HL                          ; $4801  E5
-        LD HL,(SUB_47C6_5)               ; $4802  2A DF 47
+        LD HL,(GFX_HIRES_ROW_BASE)       ; $4802  2A DF 47
         PUSH HL                          ; $4805  E5
-        LD HL,(SUB_47C6_6+1)             ; $4806  2A E1 47
+        LD HL,(GFX_HIRES_BIT_INDEX)      ; $4806  2A E1 47
         PUSH HL                          ; $4809  E5
-        LD HL,SUB_47C6_12                ; $480A  21 19 48
+        LD HL,SUB_47C6_4                 ; $480A  21 19 48
         PUSH HL                          ; $480D  E5
         PUSH HL                          ; $480E  E5
         LD HL,GFX_HIRES_COLOR_MASK_TABLE_B  ; $480F  21 C5 4A
         LD (GFX_XY_TO_HIRES_ADDR_4+1),HL ; $4812  22 AB 49
         LD A,C                           ; $4815  79
         JP GFX_XY_TO_HIRES_ADDR_1        ; $4816  C3 80 49
-SUB_47C6_12:
+SUB_47C6_4:
         CALL GFX_LOAD_STEP_STATE         ; $4819  CD EA 49
         EXX                              ; $481C  D9
         LD A,(HL)                        ; $481D  7E
         AND C                            ; $481E  A1
         ADD A,A                          ; $481F  87
-        JR NZ,SUB_47C6_13                ; $4820  20 06
+        JR NZ,SUB_47C6_5                 ; $4820  20 06
         INC HL                           ; $4822  23
         LD A,(HL)                        ; $4823  7E
         AND B                            ; $4824  A0
         ADD A,A                          ; $4825  87
-        JR Z,SUB_47C6_14                 ; $4826  28 02
-SUB_47C6_13:
+        JR Z,SUB_47C6_6                  ; $4826  28 02
+SUB_47C6_5:
         LD A,$FF                         ; $4828  3E FF
-SUB_47C6_14:
+SUB_47C6_6:
         CALL GFX_STORE_SIGNED_BYTE_FAC   ; $482A  CD E7 46
         POP HL                           ; $482D  E1
-        LD (SUB_47C6_6+1),HL             ; $482E  22 E1 47
+        LD (GFX_HIRES_BIT_INDEX),HL      ; $482E  22 E1 47
         POP HL                           ; $4831  E1
-        LD (SUB_47C6_5),HL               ; $4832  22 DF 47
+        LD (GFX_HIRES_ROW_BASE),HL       ; $4832  22 DF 47
         POP HL                           ; $4835  E1
-        LD (SUB_47C6_4),HL               ; $4836  22 DD 47
+        LD (GFX_HIRES_BYTE_ADDR),HL      ; $4836  22 DD 47
         POP HL                           ; $4839  E1
         RET                              ; $483A  C9
 ; [RE] HCOLOR statement handler (token $D3): Apple graphics superset -- set the hi-res plotting color (CALL $6925 evaluates the operand).
@@ -5164,11 +5120,11 @@ GFX_STMT_HCOLOR:
 GFX_SET_COLOR_INDEX:
         CP $0D                           ; $4842  FE 0D
         JP NC,ERROR_FC                   ; $4844  D2 D0 34
-        LD (SUB_47C6_2),A                ; $4847  32 DA 47
+        LD (GFX_COLOR_INDEX),A           ; $4847  32 DA 47
         PUSH HL                          ; $484A  E5
         CP $08                           ; $484B  FE 08
         JR NC,GFX_SET_COLOR_INDEX_1      ; $484D  30 0E
-        LD HL,GFX_STEP_BIT_4             ; $484F  21 81 4A
+        LD HL,GFX_HIRES_COLOR_WORDS      ; $484F  21 81 4A
         ADD A,A                          ; $4852  87
         LD E,A                           ; $4853  5F
         LD D,$00                         ; $4854  16 00
@@ -5195,7 +5151,7 @@ GFX_SET_COLOR_INDEX_3:
         LD H,A                           ; $486F  67
         LD L,A                           ; $4870  6F
 GFX_SET_COLOR_INDEX_4:
-        LD (SUB_47C6_3),HL               ; $4871  22 DB 47
+        LD (GFX_COLOR_PATTERN),HL        ; $4871  22 DB 47
         LD HL,GFX_PLOT_BYTE_2            ; $4874  21 8E 48
         LD (GFX_PLOT_BYTE_1+1),HL        ; $4877  22 8C 48
 GFX_SET_COLOR_INDEX_5:
@@ -5300,7 +5256,7 @@ GFX_PLOT_BYTE_10:
 ; [RE] Bresenham line draw between the current point and a new endpoint. Computes |dx|,|dy|, picks X-major vs Y-major stepping ($4A1B / $4A65 step routines, self-modified into $4955/$4966), and walks the segment calling GFX_PLOT_BYTE ($4888) at each step. Drives HPLOT ... TO ... and connected HPLOT lists.
 GFX_DRAW_LINE:
         CALL GFX_SELECT_COLOR_MASK       ; $48F3  CD 91 4A
-        LD A,(SUB_47C6_9)                ; $48F6  3A E5 47
+        LD A,(GFX_Y_COORD)               ; $48F6  3A E5 47
         LD HL,GFX_LOAD_STEP_STATE_1      ; $48F9  21 FD 49
         SUB C                            ; $48FC  91
         JR NC,GFX_DRAW_LINE_1            ; $48FD  30 05
@@ -5311,10 +5267,10 @@ GFX_DRAW_LINE_1:
         PUSH HL                          ; $4904  E5
         PUSH AF                          ; $4905  F5
         LD A,C                           ; $4906  79
-        LD (SUB_47C6_9),A                ; $4907  32 E5 47
-        LD HL,(SUB_47C6_8)               ; $490A  2A E3 47
+        LD (GFX_Y_COORD),A               ; $4907  32 E5 47
+        LD HL,(GFX_X_COORD)              ; $490A  2A E3 47
         EX DE,HL                         ; $490D  EB
-        LD (SUB_47C6_8),HL               ; $490E  22 E3 47
+        LD (GFX_X_COORD),HL              ; $490E  22 E3 47
         OR A                             ; $4911  B7
         SBC HL,DE                        ; $4912  ED 52
         JR NC,GFX_DRAW_LINE_2            ; $4914  30 0A
@@ -5389,10 +5345,10 @@ GFX_XY_TO_HIRES_ADDR:
         PUSH HL                          ; $4973  E5
         CALL GFX_SELECT_COLOR_MASK       ; $4974  CD 91 4A
         EX DE,HL                         ; $4977  EB
-        LD (SUB_47C6_8),HL               ; $4978  22 E3 47
+        LD (GFX_X_COORD),HL              ; $4978  22 E3 47
         EX DE,HL                         ; $497B  EB
         LD A,C                           ; $497C  79
-        LD (SUB_47C6_9),A                ; $497D  32 E5 47
+        LD (GFX_Y_COORD),A               ; $497D  32 E5 47
 GFX_XY_TO_HIRES_ADDR_1:
         AND $C0                          ; $4980  E6 C0
         LD L,A                           ; $4982  6F
@@ -5412,7 +5368,7 @@ GFX_XY_TO_HIRES_ADDR_1:
         AND $1F                          ; $4991  E6 1F
         ADD A,$10                        ; $4993  C6 10
         LD H,A                           ; $4995  67
-        LD (SUB_47C6_5),HL               ; $4996  22 DF 47
+        LD (GFX_HIRES_ROW_BASE),HL       ; $4996  22 DF 47
         EX DE,HL                         ; $4999  EB
         CALL GFX_XY_HELPER               ; $499A  CD C4 49
         SUB $07                          ; $499D  D6 07
@@ -5420,9 +5376,9 @@ GFX_XY_TO_HIRES_ADDR_1:
         INC B                            ; $49A1  04
 GFX_XY_TO_HIRES_ADDR_2:
         LD A,B                           ; $49A2  78
-        LD (SUB_47C6_7),A                ; $49A3  32 E2 47
+        LD (GFX_X_FRACTION),A            ; $49A3  32 E2 47
 GFX_XY_TO_HIRES_ADDR_3:
-        LD A,(SUB_47C6_6+1)              ; $49A6  3A E1 47
+        LD A,(GFX_HIRES_BIT_INDEX)       ; $49A6  3A E1 47
         LD C,A                           ; $49A9  4F
 GFX_XY_TO_HIRES_ADDR_4:
         LD HL,$0000                      ; $49AA  21 00 00
@@ -5441,7 +5397,7 @@ GFX_XY_TO_HIRES_ADDR_5:
         ADD HL,BC                        ; $49BC  09
         LD D,(HL)                        ; $49BD  56
         EX DE,HL                         ; $49BE  EB
-        LD (SUB_47C6_4),HL               ; $49BF  22 DD 47
+        LD (GFX_HIRES_BYTE_ADDR),HL      ; $49BF  22 DD 47
         POP HL                           ; $49C2  E1
         RET                              ; $49C3  C9
 ; [RE] Coordinate sub-helper for GFX_XY_TO_HIRES_ADDR / line setup (divides/normalizes the X column into byte+bit). Called from the address-computation and line code.
@@ -5456,14 +5412,14 @@ GFX_XY_HELPER_1:
         LD B,A                           ; $49CD  47
         LD A,L                           ; $49CE  7D
         ADD A,$0E                        ; $49CF  C6 0E
-        LD (SUB_47C6_6+1),A              ; $49D1  32 E1 47
+        LD (GFX_HIRES_BIT_INDEX),A       ; $49D1  32 E1 47
         RET                              ; $49D4  C9
 ; [RE] Load the hi-res color bit-mask byte for the current intra-byte column: index the active pattern table ($4AC5, wrapping the 7-bit column via -7) and stash the masked pattern in A'.
 GFX_LOAD_COLUMN_MASK:
         EXX                              ; $49D5  D9
         LD HL,GFX_HIRES_COLOR_MASK_TABLE_B  ; $49D6  21 C5 4A
         LD D,$00                         ; $49D9  16 00
-        LD A,(SUB_47C6_6+1)              ; $49DB  3A E1 47
+        LD A,(GFX_HIRES_BIT_INDEX)       ; $49DB  3A E1 47
         SUB $07                          ; $49DE  D6 07
         JR NC,GFX_LOAD_COLUMN_MASK_1     ; $49E0  30 02
         ADD A,$07                        ; $49E2  C6 07
@@ -5475,20 +5431,20 @@ GFX_LOAD_COLUMN_MASK_1:
         EX AF,AF'                        ; $49E9  08
 ; [RE] Load the line/plot working state from the soft-switch save cells into the alternate registers: BC=byte addr ($47DD), DE=color pattern ($47DB), HL=row base+X-offset ($47DF + $47E2); used at each Bresenham step.
 GFX_LOAD_STEP_STATE:
-        LD HL,(SUB_47C6_4)               ; $49EA  2A DD 47
+        LD HL,(GFX_HIRES_BYTE_ADDR)      ; $49EA  2A DD 47
         LD C,L                           ; $49ED  4D
         LD B,H                           ; $49EE  44
-        LD HL,(SUB_47C6_3)               ; $49EF  2A DB 47
+        LD HL,(GFX_COLOR_PATTERN)        ; $49EF  2A DB 47
         EX DE,HL                         ; $49F2  EB
-        LD A,(SUB_47C6_7)                ; $49F3  3A E2 47
-        LD HL,(SUB_47C6_5)               ; $49F6  2A DF 47
+        LD A,(GFX_X_FRACTION)            ; $49F3  3A E2 47
+        LD HL,(GFX_HIRES_ROW_BASE)       ; $49F6  2A DF 47
         ADD A,L                          ; $49F9  85
         LD L,A                           ; $49FA  6F
         EXX                              ; $49FB  D9
         RET                              ; $49FC  C9
 GFX_LOAD_STEP_STATE_1:
         LD A,L                           ; $49FD  7D
-        LD HL,(SUB_47C6_5)               ; $49FE  2A DF 47
+        LD HL,(GFX_HIRES_ROW_BASE)       ; $49FE  2A DF 47
         SUB L                            ; $4A01  95
         PUSH AF                          ; $4A02  F5
         LD A,H                           ; $4A03  7C
@@ -5509,7 +5465,7 @@ GFX_LOAD_STEP_STATE_1:
 ; [RE] X-major Bresenham step: advance the hi-res X position by one pixel, recomputing the byte address (row table $47DF, page-base groups via SUB $0C/ADD $10) and the intra-byte bit so GFX_PLOT_BYTE writes the next column.
 GFX_STEP_ROW:
         LD A,L                           ; $4A1B  7D
-        LD HL,(SUB_47C6_5)               ; $4A1C  2A DF 47
+        LD HL,(GFX_HIRES_ROW_BASE)       ; $4A1C  2A DF 47
         SUB L                            ; $4A1F  95
         PUSH AF                          ; $4A20  F5
         LD A,H                           ; $4A21  7C
@@ -5539,7 +5495,7 @@ GFX_STEP_ROW_3:
 GFX_STEP_ROW_4:
         LD H,A                           ; $4A46  67
 GFX_STEP_ROW_5:
-        LD (SUB_47C6_5),HL               ; $4A47  22 DF 47
+        LD (GFX_HIRES_ROW_BASE),HL       ; $4A47  22 DF 47
         POP AF                           ; $4A4A  F1
         ADD A,L                          ; $4A4B  85
         LD L,A                           ; $4A4C  6F
@@ -5584,22 +5540,12 @@ GFX_STEP_BIT_3:
         RL B                             ; $4A7C  CB 10
         SET 7,B                          ; $4A7E  CB F8
         RET                              ; $4A80  C9
-GFX_STEP_BIT_4:
-        NOP                              ; $4A81  00
-        NOP                              ; $4A82  00
-        LD HL,(FIN_12+1)                 ; $4A83  2A 55 55
-        LD HL,(GET_PUT_RECORD_CORE_1)    ; $4A86  2A 7F 7F
-        ADD A,B                          ; $4A89  80
-        ADD A,B                          ; $4A8A  80
-        XOR D                            ; $4A8B  AA
-        PUSH DE                          ; $4A8C  D5
-        PUSH DE                          ; $4A8D  D5
-        XOR D                            ; $4A8E  AA
-        RST $38                          ; $4A8F  FF
-        RST $38                          ; $4A90  FF
+; [RE] Apple hi-res color/pixel-pattern word table, indexed at $484F as base + 2*color: black($0000), violet($552A), green($2A55), white($7F7F) and their high-bit blue/orange variants. Supplies the two-byte plot pattern at GFX_COLOR_PATTERN.
+GFX_HIRES_COLOR_WORDS:
+        DEFB    $00,$00,$2A,$55,$55,$2A,$7F,$7F,$80,$80,$AA,$D5,$D5,$AA,$FF,$FF  ; $4A81
 ; [RE] Select the color bit-pattern table for the current color index ($47DA). Picks one of the mask tables ($4AB7 / $4AC5) and stores its pointer into the plot routine's self-modified operand ($49AB), so GFX_PLOT_BYTE uses the right 2-byte pixel pattern. The tables at $4AB7/$4AC5 are the hi-res color bit patterns.
 GFX_SELECT_COLOR_MASK:
-        LD A,(SUB_47C6_2)                ; $4A91  3A DA 47
+        LD A,(GFX_COLOR_INDEX)           ; $4A91  3A DA 47
         LD HL,GFX_HIRES_COLOR_MASK_TABLE_B  ; $4A94  21 C5 4A
         CP $0C                           ; $4A97  FE 0C
         JR Z,GFX_SELECT_COLOR_MASK_3     ; $4A99  28 18
@@ -5679,7 +5625,7 @@ SUB_4ADE_1:
         JR Z,SUB_4ADE_2                  ; $4AF9  28 17
         PUSH HL                          ; $4AFB  E5
         LD HL,RELOCATE_AND_RUN           ; $4AFC  21 00 10
-        LD HL,(SUB_47C6_3)               ; $4AFF  2A DB 47
+        LD HL,(GFX_COLOR_PATTERN)        ; $4AFF  2A DB 47
         LD (RELOCATE_AND_RUN),HL         ; $4B02  22 00 10
         LD HL,RELOCATE_AND_RUN           ; $4B05  21 00 10
         LD DE,$1002                      ; $4B08  11 02 10
@@ -5738,15 +5684,15 @@ GFX_STMT_HPLOT_2:
         CP TOK_TO                        ; $4B5F  FE DD
         JR Z,GFX_STMT_HPLOT_2            ; $4B61  28 F0
         EXX                              ; $4B63  D9
-        LD A,(SUB_47C6_5)                ; $4B64  3A DF 47
+        LD A,(GFX_HIRES_ROW_BASE)        ; $4B64  3A DF 47
         SUB L                            ; $4B67  95
         CPL                              ; $4B68  2F
         INC A                            ; $4B69  3C
-        LD (SUB_47C6_7),A                ; $4B6A  32 E2 47
+        LD (GFX_X_FRACTION),A            ; $4B6A  32 E2 47
         LD L,C                           ; $4B6D  69
         LD H,B                           ; $4B6E  60
-        LD (SUB_47C6_4),HL               ; $4B6F  22 DD 47
-        LD HL,(SUB_47C6_8)               ; $4B72  2A E3 47
+        LD (GFX_HIRES_BYTE_ADDR),HL      ; $4B6F  22 DD 47
+        LD HL,(GFX_X_COORD)              ; $4B72  2A E3 47
         CALL GFX_XY_HELPER               ; $4B75  CD C4 49
         EXX                              ; $4B78  D9
         RET                              ; $4B79  C9
@@ -7444,7 +7390,7 @@ DDIV_1:
         CALL DP_SUB_CONST_8E             ; $5448  CD D4 52
         XOR A                            ; $544B  AF
 DDIV_2:
-        JP C,KWGRP_R+5                   ; $544C  DA 12 04
+        JP C,$0412                       ; $544C  DA 12 04
         LD A,($0CB3)                     ; $544F  3A B3 0C
         INC A                            ; $5452  3C
         DEC A                            ; $5453  3D
@@ -7502,7 +7448,7 @@ FIN:
         CALL SET_TYPE_DOUBLE             ; $54A3  CD 2D 50
 FIN_1:
         OR $AF                           ; $54A6  F6 AF
-        LD BC,BLOCK_SCAN_FORNEXT_15      ; $54A8  01 31 45
+        LD BC,BLOCK_SCAN_FORNEXT_11      ; $54A8  01 31 45
         PUSH BC                          ; $54AB  C5
         PUSH AF                          ; $54AC  F5
         LD A,$01                         ; $54AD  3E 01
@@ -7554,11 +7500,11 @@ FIN_5:
         LD A,(HL)                        ; $5502  7E
 FIN_6:
         CP $25                           ; $5503  FE 25
-        JP Z,FIN_13                      ; $5505  CA 5C 55
+        JP Z,FIN_12                      ; $5505  CA 5C 55
         CP $23                           ; $5508  FE 23
-        JP Z,FIN_14                      ; $550A  CA 6C 55
+        JP Z,FIN_13                      ; $550A  CA 6C 55
         CP $21                           ; $550D  FE 21
-        JP Z,FIN_15                      ; $550F  CA 6D 55
+        JP Z,FIN_14                      ; $550F  CA 6D 55
         CP $64                           ; $5512  FE 64
         JR Z,FIN_7                       ; $5514  28 04
         CP $44                           ; $5516  FE 44
@@ -7600,11 +7546,10 @@ FIN_10:
 FIN_11:
         CALL FRMEVL_TEST_TYPE            ; $5550  CD C8 3D
         INC C                            ; $5553  0C
-FIN_12:
         JR NZ,FIN_9                      ; $5554  20 DA
         CALL C,FIN_TYPE_FIXUP            ; $5556  DC 75 55
         JP FIN_2                         ; $5559  C3 CE 54
-FIN_13:
+FIN_12:
         CALL CHRGET                      ; $555C  CD C9 33
         POP AF                           ; $555F  F1
         PUSH HL                          ; $5560  E5
@@ -7614,9 +7559,9 @@ FIN_13:
         PUSH HL                          ; $5568  E5
         PUSH AF                          ; $5569  F5
         JR FIN_9                         ; $556A  18 C4
-FIN_14:
+FIN_13:
         OR A                             ; $556C  B7
-FIN_15:
+FIN_14:
         CALL FIN_TYPE_FIXUP              ; $556D  CD 75 55
         CALL CHRGET                      ; $5570  CD C9 33
         JR FIN_9                         ; $5573  18 BB
@@ -8110,7 +8055,7 @@ FOUT_CORE:
         LD D,A                           ; $585B  57
         INC D                            ; $585C  14
         CALL FOUT_SCALE10                ; $585D  CD 3C 5A
-        LD BC,KWGRP_F+2                  ; $5860  01 00 03
+        LD BC,$0300                      ; $5860  01 00 03
         PUSH AF                          ; $5863  F5
         LD A,($0CB8)                     ; $5864  3A B8 0C
         OR A                             ; $5867  B7
@@ -8759,7 +8704,7 @@ HEX_OCT_OUT:
         XOR A                            ; $5C3E  AF
         LD B,A                           ; $5C3F  47
 HEX_OCT_OUT_1:
-        JP NZ,COM_ENTRY+6                ; $5C40  C2 06 01
+        JP NZ,$0106                      ; $5C40  C2 06 01
         PUSH BC                          ; $5C43  C5
         CALL GETADR                      ; $5C44  CD C6 42
         POP BC                           ; $5C47  C1
@@ -9057,7 +9002,7 @@ FN_SQR_7:
         INC E                            ; $5E09  1C
         HALT                             ; $5E0A  76
         DEFB    $98,$22,$95,$B3,$98,$0A  ; $5E0B
-        DEFW    SUB_47C6_4               ; $5E11
+        DEFW    GFX_HIRES_BYTE_ADDR      ; $5E11
         DEFB    $98,$53,$D1,$99,$99,$0A,$1A,$9F  ; $5E13
         DEFW    PRINT_LIST_ENTRY_26      ; $5E1B
         DEFB    $BC,$CD,$98              ; $5E1D
@@ -9078,7 +9023,7 @@ RNDX_SEED_WORD:
         DEFB    $68                      ; $5E33
 ; [RE] EXP() handler (function token $0B): exponential e^x (MBF).
 FN_EXP:
-        LD HL,FN_RND_4+2                 ; $5E34  21 AA 5E
+        LD HL,FP_CONST_EXP_LOG2E         ; $5E34  21 AA 5E
         CALL FADD_FROM_MEM               ; $5E37  CD 9B 4B
 ; [RE] RND() handler (function token $08): pseudo-random number (reads the seed at $0CB4).
 FN_RND:
@@ -9117,7 +9062,7 @@ FN_RND_1:
         XOR $80                          ; $5E8C  EE 80
         LD ($0CB3),A                     ; $5E8E  32 B3 0C
 FN_RND_2:
-        LD HL,FN_RND_5                   ; $5E91  21 B2 5E
+        LD HL,FP_POLY_SIN_COEFFS         ; $5E91  21 B2 5E
         CALL POLY_EVAL_ODD               ; $5E94  CD 56 5D
         POP AF                           ; $5E97  F1
         RET P                            ; $5E98  F0
@@ -9125,41 +9070,14 @@ FN_RND_2:
         XOR $80                          ; $5E9C  EE 80
         LD ($0CB3),A                     ; $5E9E  32 B3 0C
         RET                              ; $5EA1  C9
-FN_RND_3:
-        NOP                              ; $5EA2  00
-        NOP                              ; $5EA3  00
-        NOP                              ; $5EA4  00
-        NOP                              ; $5EA5  00
-        ADD A,E                          ; $5EA6  83
-        LD SP,HL                         ; $5EA7  F9
-FN_RND_4:
-        LD ($DB7E),HL                    ; $5EA8  22 7E DB
-        RRCA                             ; $5EAB  0F
-        LD C,C                           ; $5EAC  49
-        ADD A,C                          ; $5EAD  81
-        NOP                              ; $5EAE  00
-        NOP                              ; $5EAF  00
-        NOP                              ; $5EB0  00
-        LD A,A                           ; $5EB1  7F
-FN_RND_5:
-        DEC B                            ; $5EB2  05
-        EI                               ; $5EB3  FB
-        RST $10                          ; $5EB4  D7
-        LD E,$86                         ; $5EB5  1E 86
-        LD H,L                           ; $5EB7  65
-        LD H,$99                         ; $5EB8  26 99
-        ADD A,A                          ; $5EBA  87
-        LD E,B                           ; $5EBB  58
-        INC (HL)                         ; $5EBC  34
-        INC HL                           ; $5EBD  23
-        ADD A,A                          ; $5EBE  87
-        POP HL                           ; $5EBF  E1
-        LD E,L                           ; $5EC0  5D
-        AND L                            ; $5EC1  A5
-        ADD A,(HL)                       ; $5EC2  86
-        IN A,($0F)                       ; $5EC3  DB 0F
-        LD C,C                           ; $5EC5  49
-        ADD A,E                          ; $5EC6  83
+        DEFB    $00,$00,$00,$00,$83,$F9,$22,$7E  ; $5EA2
+; [RE] MBF constant pair for the transcendental code: log2(e)=1.442695 followed by 0.5. FN_EXP loads it ($5E34) to scale x by log2(e); FN_TAN returns with HL pointing here ($5EFE).
+FP_CONST_EXP_LOG2E:
+        DEFB    $DB,$0F,$49,$81,$00,$00,$00,$7F  ; $5EAA
+; [RE] MBF polynomial coefficient table (count byte then five 4-byte coefficients) for the SIN/COS series, evaluated by POLY_EVAL_ODD from FN_RND_2 ($5E91). Also doubled as a rotating XOR key table by the protected-program scramble ($8152/$817B).
+FP_POLY_SIN_COEFFS:
+        DEFB    $05,$FB,$D7,$1E,$86,$65,$26,$99,$87,$58,$34,$23,$87,$E1,$5D,$A5  ; $5EB2
+        DEFB    $86,$DB,$0F,$49,$83      ; $5EC2
 ; [RE] COS() handler (function token $0C): cosine (MBF).
 FN_COS:
         CALL FAC_PUSH                    ; $5EC7  CD 9A 4E
@@ -9188,7 +9106,7 @@ FN_TAN:
 FN_TAN_1:
         LD HL,FN_TAN_2                   ; $5EF8  21 02 5F
         CALL POLY_EVAL_ODD               ; $5EFB  CD 56 5D
-        LD HL,FN_RND_4+2                 ; $5EFE  21 AA 5E
+        LD HL,FP_CONST_EXP_LOG2E         ; $5EFE  21 AA 5E
         RET                              ; $5F01  C9
 FN_TAN_2:
         ADD HL,BC                        ; $5F02  09
@@ -15179,7 +15097,7 @@ PROG_UNSCRAMBLE_1:
         SUB B                            ; $814F  90
         XOR (HL)                         ; $8150  AE
         PUSH AF                          ; $8151  F5
-        LD HL,FN_RND_5                   ; $8152  21 B2 5E
+        LD HL,FP_POLY_SIN_COEFFS         ; $8152  21 B2 5E
         LD A,L                           ; $8155  7D
         ADD A,B                          ; $8156  80
         LD L,A                           ; $8157  6F
@@ -15208,7 +15126,7 @@ PROG_SCRAMBLE_1:
         LD HL,(VARTAB)                   ; $8174  2A 6F 0B
         CALL CMP_HL_DE                   ; $8177  CD 1F 69
         RET Z                            ; $817A  C8
-        LD HL,FN_RND_5                   ; $817B  21 B2 5E
+        LD HL,FP_POLY_SIN_COEFFS         ; $817B  21 B2 5E
         LD A,L                           ; $817E  7D
         ADD A,B                          ; $817F  80
         LD L,A                           ; $8180  6F
@@ -15295,7 +15213,7 @@ COLD_START:
         LD HL,($0001)                    ; $81E1  2A 01 00
         LD (STMT_SYSTEM_WBOOT+1),HL      ; $81E4  22 EE 7D
         LD A,H                           ; $81E7  7C
-        LD (COM_ENTRY+7),A               ; $81E8  32 07 01
+        LD ($0107),A                     ; $81E8  32 07 01
         LD BC,$0004                      ; $81EB  01 04 00
         ADD HL,BC                        ; $81EE  09
         LD E,(HL)                        ; $81EF  5E
@@ -15549,7 +15467,7 @@ COLD_SET_WIDTH_15:
         LD A,H                           ; $83A3  7C
         CP $02                           ; $83A4  FE 02
         JR C,COLD_SET_WIDTH_16           ; $83A6  38 03
-        LD HL,FUNC_DISPATCH_TBL+78       ; $83A8  21 00 02
+        LD HL,$0200                      ; $83A8  21 00 02
 COLD_SET_WIDTH_16:
         LD A,E                           ; $83AB  7B
         SUB L                            ; $83AC  95

@@ -16,8 +16,10 @@ Table layout (validated against the dispatch decode):
 import re
 
 # (base, end_exclusive, name, is_defw_pointer_table)
+# NOTE: the $0100-$0107 entry/signature area is NOT a table -- the audit showed its only
+# "references" ($0106/$0107) are an inert JP-NZ cover operand and a write-once scratch cell,
+# both coincidental, so it is excluded here and kept literal in gen_gbasic.
 TABLES = [
-    (0x0100, 0x0108, "COM_ENTRY", False),          # .COM entry JP + signature/init bytes
     (0x0108, 0x01B2, "STMT_DISPATCH_TBL", True),
     (0x01B2, 0x021E, "FUNC_DISPATCH_TBL", True),
     (0x04ED, 0x04F9, "FRMEVL_PREC_TBL", False),    # 12 precedence BYTES (any offset ok)

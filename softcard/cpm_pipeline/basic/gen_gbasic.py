@@ -177,6 +177,18 @@ def main():
     # decode it as bogus instructions / DEFW pointers (which minted a stray L_5C05 label).
     FP_POW10_TBL = (0x5BE8, 0x5C2E)
     bwalk.add_data_region(*FP_POW10_TBL)
+    # Data regions the walker mis-decoded as code, identified by the mid-construct
+    # reference audit (workflow gbasic-idiom-proof-audit): a 'reference' INTO each was a
+    # disassembly artifact (string bytes / FP constant / color table read as an opcode).
+    AUDIT_DATA = [
+        (0x38B7, 0x38CA),   # "?Redo from start\r\n\0" (the INPUT 'Redo from start' prompt)
+        (0x448B, 0x44B2),   # "Random number seed (-32768- to 32767)\0" (RANDOMIZE prompt)
+        (0x47DA, 0x47E6),   # graphics state/variable block (HPLOT coordinate save cells)
+        (0x4A81, 0x4A91),   # Apple hi-res color/pixel-pattern WORD table
+        (0x5EA2, 0x5EC7),   # FN_RND MBF floating-point constant pool
+    ]
+    for lo, hi in AUDIT_DATA:
+        bwalk.add_data_region(lo, hi)
     # Register the body origin + every indirectly-reached entry point as a call TARGET
     # BEFORE any pass names labels: these are routine HEADS, so they must mint SUB_xxxx
     # head labels (not L_xxxx branch labels the localizer would fold into the preceding
@@ -188,6 +200,11 @@ def main():
     bwalk.trace(RUN)            # body origin (CRUNCH, reached via a stored vector)
     bwalk.trace(BODY_ENTRY)     # cold-start initializer (JP $81D3 after LDDR)
     for s in dispatch_seeds:
+        bwalk.trace(s)
+    # INPUT 'Redo from start' helpers ($38CA INPUT_SKIP_QUOTED, $38D7 INPUT_REDO): real
+    # code reached only by JP from the INPUT parser, sitting right after the now-pinned
+    # 'Redo from start' string -- seed them so they decode as code, not stranded DEFB.
+    for s in (0x38CA, 0x38D7):
         bwalk.trace(s)
     seed_leading_jp_vector(bwalk, body_mem, RUN, body_len)
     _, body_dispatch = resolve_computed_dispatch(bwalk, body_mem, RUN, body_len)
@@ -201,7 +218,7 @@ def main():
     # or fragmented by false pointer-cell classification). Such blobs are NOT data -- the
     # address operands inside them are frozen DEFB bytes that would not relocate. Run
     # BEFORE pointer-table detection so the recovered code is not mis-read as pointers.
-    recover_code(bwalk, body_mem, RUN, RUN + body_len, protected=[FP_POW10_TBL])
+    recover_code(bwalk, body_mem, RUN, RUN + body_len, protected=[FP_POW10_TBL] + AUDIT_DATA)
     label_inrange_operands(bwalk, body_mem, RUN, body_len)   # label the recovered code's
                                                              # operands so they relocate
     body_ptrs = scan_pointer_words(bwalk, body_mem, RUN, body_len) | body_dispatch
@@ -229,6 +246,11 @@ def main():
     # vector table and then the RAM workspace (SAVTXT/FAC/flags) -- named where used,
     # not blanket-labeled here.
     TABLE_LO, TABLE_HI = 0x0103, 0x081F
+    # Values the mid-construct audit proved are CONSTANTS or inert never-taken-branch
+    # operands that only coincidentally land in the table region (a CRUNCH/cold-start
+    # arithmetic constant, the operand of a dead JP-NZ/JP-C cover, a write-once scratch
+    # cell). Do NOT mint a label for them; they must render as plain literals.
+    AUDIT_BOGUS_VALUES = {0x0106, 0x0107, 0x013E, 0x0140, 0x0200, 0x0300, 0x0412}
     cover_lo = cover_idiom_sites(body_mem, bwalk.code, RUN, RUN + body_len)
     for a in sorted(bwalk.code):
         if a in cover_lo:                       # a coded-constant cover -> not an address
@@ -240,8 +262,10 @@ def main():
         for m in _reh.finditer(r"\$([0-9A-Fa-f]{4})", ins.mnemonic):
             v = int(m.group(1), 16)
             # mid-DEFW-pointer addresses are constants (labeling would split a
-            # relocatable dispatch pointer), so don't mint a label for them.
-            if TABLE_LO <= v < TABLE_HI and not lowtables.is_mid_pointer(v):
+            # relocatable dispatch pointer), so don't mint a label for them; nor for the
+            # audit's proven-bogus coincidental values.
+            if (TABLE_LO <= v < TABLE_HI and not lowtables.is_mid_pointer(v)
+                    and v not in AUDIT_BOGUS_VALUES):
                 hwalk.add_label(v)
 
     # ---- finalize HEADER now that body->low references are known -------------
