@@ -23,6 +23,7 @@ from pathlib import Path
 from cpm_pipeline.filesystem import read_disk, extract_file
 from cpm_pipeline import reference_data as rd
 from cpm_pipeline.basic._paths import asm_path, overlay_path, seeds_path, load_token_names
+from cpm_pipeline.basic import reswords
 
 from disasm_z80.walker import Walker
 from disasm_z80.formatter import SjasmFormatter
@@ -82,6 +83,16 @@ def main():
             t = body[i + 1] | (body[i + 2] << 8)
             if 0x0C00 <= t < 0x1000:
                 lowram_seeds.add(t)
+    # The reverse: header low-RAM code ($0C00-$100D) that JP/CALLs INTO the relocated
+    # body. Harvest those body targets so the body walker mints a label there -- the
+    # header references them, and cross-region substitution needs a label to resolve to.
+    hdr_body_seeds = set()
+    for a in range(0x0C00, RELOC_SRC_START - 2):
+        i = a - LOAD
+        if com[i] in _CALLS or com[i] in _JPS:
+            t = com[i + 1] | (com[i + 2] << 8)
+            if RUN <= t < RUN + (len(com) - (RELOC_SRC_START - LOAD)):
+                hdr_body_seeds.add(t)
 
     # SYNCHR reads the byte after each CALL as its expected character and returns
     # past it -- that byte is data, not the next instruction. Declaring it as an
@@ -104,6 +115,8 @@ def main():
     label_inrange_operands(hwalk, hdr_mem, LOAD, hdr_len)
     for s in lowram_seeds:
         hwalk.add_label(s)
+    hwalk.add_label(reswords.INDEX_ADDR)   # split the data run at the reserved-word
+                                           # table so it can be spliced out cleanly
     hwalk.name_labels()
     hdr_fmt = SjasmFormatter(hdr_mem, hwalk, origin=LOAD, length=hdr_len,
                              source_name="GBASIC", relocatable=False,
@@ -111,6 +124,9 @@ def main():
     hdr_fmt._harvest_data_labels()
     hdr_fmt._prepare_overlap_labels()
     hdr_lines, _, _ = hdr_fmt._emit_body()
+    # Decompose the reserved-word / token table ($021E-$04EC) into its structured
+    # form (index -> DEFW group labels, name entries + TOK_ tokens, operator pairs).
+    hdr_lines = reswords.splice_table_into(hdr_lines, com)
 
     # ---- BODY: its own image+walker at run $3000 ----------------------------
     # Statement/function handlers are reached only through the dispatch ADDRESS
@@ -137,7 +153,8 @@ def main():
     # BEFORE any pass names labels: these are routine HEADS, so they must mint SUB_xxxx
     # head labels (not L_xxxx branch labels the localizer would fold into the preceding
     # routine -- e.g. STMT_END at $6956 was mislabelled SUB_6937_4, a local of RESTORE).
-    entry_points = ({RUN, BODY_ENTRY} | dispatch_seeds) & set(range(RUN, RUN + body_len))
+    entry_points = (({RUN, BODY_ENTRY} | dispatch_seeds | hdr_body_seeds)
+                    & set(range(RUN, RUN + body_len)))
     for s in entry_points:
         bwalk.call_targets.add(s)
     bwalk.trace(RUN)            # body origin (CRUNCH, reached via a stored vector)
@@ -157,6 +174,9 @@ def main():
     # name_labels mints SUB_xxxx heads for them).
     for s in entry_points:
         bwalk.add_label(s)
+    # Label the LDDR copy boundary ($8483, top of the real interpreter; $8483-$84F1 is
+    # dead .COM padding) so the $1000 relocator's bounds derive from it, not literals.
+    bwalk.add_label(0x8483)
     bwalk.name_labels()
     # relocatable=False (the utility norm): label real control-flow/data targets but
     # leave in-range IMMEDIATE constants (e.g. LD BC,$3028 = graphics coords 48,40) as
@@ -167,6 +187,33 @@ def main():
     body_fmt._harvest_data_labels()
     body_fmt._prepare_overlap_labels()
     body_lines, _, _ = body_fmt._emit_body()
+
+    # Cross-region relocatability: header ($0100-$100D) and body ($3000+) are decoded
+    # by SEPARATE walkers, so each region's control-flow operands into the OTHER region
+    # were emitted as literals. Substitute them with the other walker's label so every
+    # JP/CALL/JR target relocates (the body relocates to $3000 in GBASIC and runs in
+    # place in MBASIC; a labeled operand assembles correctly for both). The machine
+    # names (SUB_/L_) are renamed consistently in both places by apply_naming.
+    import re as _re
+    _CF = _re.compile(r'\s*(JP|CALL|JR|DJNZ)\b')
+
+    def _xregion(lns, labels, lo, hi):
+        out = []
+        for ln in lns:
+            code, sep, rest = ln.partition(';')
+            if _CF.match(code):
+                code = _re.sub(
+                    r'\$([0-9A-Fa-f]{4})',
+                    lambda m: labels.get(int(m.group(1), 16), m.group(0))
+                    if lo <= int(m.group(1), 16) <= hi else m.group(0),
+                    code)
+            out.append(code + sep + rest)
+        return out
+
+    body_labels = {a: n for a, n in bwalk.labels.items() if n}
+    hdr_labels = {a: n for a, n in hwalk.labels.items() if n}
+    hdr_lines = _xregion(hdr_lines, body_labels, RUN, RUN + body_len)
+    body_lines = _xregion(body_lines, hdr_labels, LOAD, LOAD + hdr_len)
 
     # strip the formatters' own `ORG $xxxx` lines (we frame them ourselves)
     def strip_org(lines):

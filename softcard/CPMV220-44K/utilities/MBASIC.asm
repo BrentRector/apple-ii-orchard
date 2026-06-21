@@ -203,128 +203,242 @@ COM_ENTRY_16:
         LD E,(HL)                        ; $021A  5E
         DAA                              ; $021B  27
         DEFB $ED,$26  ; invalid ED prefix  ; $021C  ED 26
-COM_ENTRY_17:
-        LD D,D                           ; $021E  52
-        LD (BC),A                        ; $021F  02
-        LD H,E                           ; $0220  63
-        LD (BC),A                        ; $0221  02
-        LD L,(HL)                        ; $0222  6E
-        LD (BC),A                        ; $0223  02
-        XOR L                            ; $0224  AD
-        LD (BC),A                        ; $0225  02
-        EXX                              ; $0226  D9
-        LD (BC),A                        ; $0227  02
-        CP $02                           ; $0228  FE 02
-        INC D                            ; $022A  14
-        INC BC                           ; $022B  03
-        JR Z,COM_ENTRY_18                ; $022C  28 03
-        LD C,H                           ; $022E  4C
-        INC BC                           ; $022F  03
-        LD L,H                           ; $0230  6C
-COM_ENTRY_18:
-        INC BC                           ; $0231  03
-        LD L,L                           ; $0232  6D
-        INC BC                           ; $0233  03
-        LD (HL),D                        ; $0234  72
-        INC BC                           ; $0235  03
-        AND (HL)                         ; $0236  A6
-        INC BC                           ; $0237  03
-        CP A                             ; $0238  BF
-        INC BC                           ; $0239  03
-        IN A,($03)                       ; $023A  DB 03
-        XOR $03                          ; $023C  EE 03
-        INC C                            ; $023E  0C
-        INC B                            ; $023F  04
-        DEC C                            ; $0240  0D
-        INC B                            ; $0241  04
-        LD C,E                           ; $0242  4B
-        INC B                            ; $0243  04
-        ADD A,H                          ; $0244  84
-        INC B                            ; $0245  04
-        SBC A,E                          ; $0246  9B
-        INC B                            ; $0247  04
-        AND H                            ; $0248  A4
-        INC B                            ; $0249  04
-        CP D                             ; $024A  BA
-        INC B                            ; $024B  04
-        JP NC,$D604                      ; $024C  D2 04 D6
-        INC B                            ; $024F  04
-        RST $10                          ; $0250  D7
-COM_ENTRY_19:
-        INC B                            ; $0251  04
-        DEFB    $4E,$C4,$F7,$42,$D3,$06,$54,$CE,$0E,$53,$C3,$14  ; $0252
-        DEFB    $55,$54,$CF,$A7,$00      ; $025E  "UTO'"
-        DEFB    $55,$54,$54,$4F,$CE,$36,$45,$45,$D0,$D4,$00  ; $0263  "UTTON6EEPT"
-        DEFB    $4C,$4F,$53,$C5,$BC,$4F,$4E,$D4,$98,$4C,$45,$41,$D2,$92,$49,$4E  ; $026E
-        DEFB    $D4,$1B,$53,$4E,$C7,$1C,$44,$42,$CC,$1D,$56,$C9,$2A,$56,$D3,$2B  ; $027E
-        DEFB    $56,$C4,$2C,$4F,$D3,$0C,$48,$52,$A4,$15  ; $028E
-        DEFB    $41,$4C,$CC,$B1,$4F,$4D,$4D,$4F,$CE,$B3,$48,$41,$49,$CE,$B4,$4F  ; $0298  "ALL1OMMON3HAIN4OLORM"
-        DEFB    $4C,$4F,$D2,$CD,$00      ; $02A8
-        DEFB    $41,$54,$C1,$84,$49,$CD,$86,$45,$46,$53,$54,$D2,$A9,$45,$46,$49  ; $02AD
-        DEFB    $4E,$D4,$AA,$45,$46,$53,$4E,$C7,$AB,$45,$46,$44,$42,$CC,$AC,$45  ; $02BD
-        DEFB    $C6,$96                  ; $02CD
-        DEFB    $45,$4C,$45,$54,$C5,$A6,$45,$CC,$A6,$00  ; $02CF  "ELETE&EL&"
-        DEFB    $4E,$C4,$81,$4C,$53,$C5,$9E,$52,$41,$53,$C5,$A2,$44,$49,$D4,$A3  ; $02D9
-        DEFB    $52,$52,$4F,$D2,$A4,$52,$CC,$E5,$52,$D2,$E6,$58,$D0,$0B  ; $02E9
-        DEFB    $4F,$C6,$2E,$51,$D6,$FA,$00  ; $02F7  "OF.QVz"
-        DEFB    $4F,$D2                  ; $02FE
-; Interior continuation label inside the reserved-word name table (RESLST, ~$0522-$04D7 statement names plus per-keyword dispatch DEFW that CRUNCH folds to tokens). Not a routine; the FOUT reference at $34DE (LD BC,$0300) is an immediate-constant coincidence, not a real pointer into the table. Was L_0300. [RE]
-RESLST_8:
-        DEFB    $82,$49,$45,$4C,$C4,$B9,$49,$4C,$45,$D3,$BF,$CE,$E2,$52,$C5,$0F  ; $0300
-        DEFB    $49,$D8,$1E,$00,$4F,$54,$CF,$89,$4F,$20,$54,$CF,$89  ; $0310
-        DEFB    $4F,$53,$55,$C2,$8D      ; $031D  "OSUB"
-        DEFB    $45,$D4,$BA,$D2,$CC,$00  ; $0322  "ET:RL"
-        DEFB    $4F,$4D,$C5,$C7,$4C,$49,$CE,$CE,$47,$D2,$D1,$43,$4F,$4C,$4F,$D2  ; $0328
-        DEFB    $D3,$50,$4C,$4F,$D4,$D2  ; $0338
-; Interior continuation label inside the reserved-word name table (RESLST keyword-name + token-dispatch table). Holds keyword spelling bytes ('TAB','SCRN','EX$'...). The FN_LOF reference at $52FA (LD BC,$033E) is an immediate-constant coincidence, not a table pointer. Was L_033E. [RE]
-RESLST_9:
-        DEFB    $54,$41,$C2,$C9,$53,$43,$52,$CE,$ED,$45,$58,$A4  ; $033E  "TABISCRNmEX$"
-        DEFB    $19,$00,$4E,$50,$55,$D4,$85,$C6,$8B,$4E,$53,$54,$D2,$E9,$4E,$D4  ; $034A
-        DEFB    $05                      ; $035A
-        DEFB    $4D,$D0,$FB,$4E,$4B,$45,$59,$A4,$EE,$4E,$56,$45,$52,$53,$C5,$CA  ; $035B  "MP{NKEY$nNVERSEJ"
-        DEFB    $00                      ; $036B
-        DEFB    $00                      ; $036C
-        DEFB    $49,$4C,$CC,$C1,$00      ; $036D  "ILLA"
-        DEFB    $45,$D4,$88,$49,$4E,$C5,$AD,$4F,$41,$C4,$BD,$53,$45,$D4,$C2,$50  ; $0372
-        DEFB    $52,$49,$4E,$D4,$9B,$4C,$49,$53,$D4,$9C,$50,$4F,$D3,$1A,$49,$53  ; $0382
-        DEFB    $D4,$93,$4F,$C7,$0A,$4F,$C3,$2F,$45,$CE,$11,$45,$46,$54,$A4,$01  ; $0392
-        DEFB    $4F,$C6,$30,$00,$45,$52,$47,$C5,$BE,$4F,$C4,$FC,$4B,$49,$A4,$31  ; $03A2
-        DEFB    $4B,$53,$A4,$32,$4B,$44,$A4,$33,$49,$44,$A4,$03,$00,$45,$58,$D4  ; $03B2
-        DEFB    $83,$4F,$52,$4D,$41,$CC,$CB,$4F,$54,$52,$41,$43,$C5,$A0,$41,$4D  ; $03C2
-        DEFB    $C5,$C0,$45,$D7,$94,$4F,$D4,$E4,$00,$CE,$95,$50,$45,$CE,$B8,$D2  ; $03D2
-        DEFB    $F8,$43,$54,$A4,$18      ; $03E2
-        DEFB    $50,$54,$49,$4F,$CE,$B5,$00  ; $03E7  "PTION5"
-        DEFB    $55,$D4,$BB,$4F,$4B,$C5,$97,$52,$49,$4E,$D4,$91,$4F,$D3,$10,$45  ; $03EE
-        DEFB    $45,$CB,$16              ; $03FE
-        DEFB    $4C,$4F,$D4,$D0,$44,$CC,$35,$4F,$D0,$AE,$00  ; $0401  "LOTPDL5OP."
-        DEFB    $00,$45,$41,$C4,$87,$55  ; $040C
-L_0412:
-        DEFB    $CE,$8A,$45,$53,$54,$4F,$52,$C5,$8C,$45,$54,$55  ; $0412
-L_041E:
-        DEFB    $52,$CE,$8E,$45,$CD,$8F,$45,$53,$55,$4D,$C5,$A5,$53,$45,$D4,$C3  ; $041E
-        DEFB    $49,$47,$48,$54,$A4,$02,$4E,$C4,$08,$45,$4E,$55,$CD,$A8,$45,$53  ; $042E
-L_043E:
-        DEFB    $45,$D4,$C5,$41,$4E,$44,$4F,$4D,$49,$5A,$C5,$B6,$00  ; $043E  "ETEANDOMIZE6"
-        DEFB    $54,$4F,$D0,$90,$57,$41,$D0,$A1,$41,$56,$C5,$C4,$50,$43,$A8,$E3  ; $044B
-        DEFB    $54,$45,$D0,$E0,$47,$CE,$04,$51,$D2,$07,$49,$CE,$09,$54,$52,$A4  ; $045B
-        DEFB    $12,$54,$52,$49,$4E,$47,$A4,$E7,$50,$41,$43,$45,$A4,$17  ; $046B
-        DEFB    $59,$53,$54,$45,$CD,$B7,$43,$52,$CE,$EC,$00  ; $0479  "YSTEM7CRNl"
-        DEFB    $52,$41,$43,$C5,$9F      ; $0484
-        DEFB    $41,$42,$A8,$DF,$CF,$DD,$48,$45,$CE,$DE,$41,$CE,$0D  ; $0489  "AB(_O]HEN^AN"
-        DEFB    $45,$58,$D4,$C6,$00      ; $0496  "EXTF"
-        DEFB    $53,$49,$4E,$C7,$E8,$53,$D2,$E1,$00  ; $049B  "SINGhSRa"
-        DEFB    $41,$CC,$13              ; $04A4
-        DEFB    $41,$52,$50,$54,$D2,$EB,$4C,$49,$CE,$CF,$54,$41,$C2,$C8,$50,$4F  ; $04A7  "ARPTRkLINOTABHPOS4"
-        DEFB    $D3,$34,$00              ; $04B7
-        DEFB    $49,$44,$54,$C8,$9D      ; $04BA
-        DEFB    $41,$49,$D4,$D5,$48,$49,$4C,$C5,$AF,$45,$4E,$C4,$B0,$52,$49,$54  ; $04BF  "AITUHILE/END0RITE2"
-        DEFB    $C5,$B2,$00              ; $04CF
-        DEFB    $4F,$D2,$F9,$00,$00      ; $04D2
-L_04D7:
-        DEFB    $00                      ; $04D7
-L_04D8:
-        DEFB    $AB,$F2,$AD,$F3,$AA,$F4,$AF,$F5,$DE,$F6,$DC,$FD,$A7,$EA,$BE,$EF  ; $04D8  "+r-s*t/u^v\}'j>o=p<q"
-        DEFB    $BD,$F0,$BC,$F1,$00      ; $04E8
+; -- reserved-word table reference aliases (fixed low-region addresses) --
+L_021E               EQU $021E
+L_0251               EQU $0251
+L_0300               EQU $0300
+L_033E               EQU $033E
+L_0412               EQU $0412
+L_041E               EQU $041E
+L_043E               EQU $043E
+L_04D7               EQU $04D7
+L_04D8               EQU $04D8
+
+; -- Reserved-word / token table (CRUNCH keyword<->token map). The
+;    per-letter index points at each first-letter group; a name entry
+;    is the keyword TAIL (first letter implied), last char high-bit set,
+;    then the token byte; $00 ends a group. Operator sub-table = (char,
+;    token) pairs. Byte-identical to the original DEFB bytes.
+RESWORD_INDEX:                           ; $021E  per-letter group pointers A-Z
+        DEFW    KWGRP_A,KWGRP_B,KWGRP_C,KWGRP_D,KWGRP_E,KWGRP_F
+        DEFW    KWGRP_G,KWGRP_H,KWGRP_I,KWGRP_J,KWGRP_K,KWGRP_L
+        DEFW    KWGRP_M,KWGRP_N,KWGRP_O,KWGRP_P,KWGRP_Q,KWGRP_R
+        DEFW    KWGRP_S,KWGRP_T,KWGRP_U,KWGRP_V,KWGRP_W,KWGRP_X
+        DEFW    KWGRP_Y,KWGRP_Z
+KWGRP_A:                                 ; $0252
+        DEFB    'N','D'+$80,TOK_AND          ; AND
+        DEFB    'B','S'+$80,TOK_ABS          ; ABS
+        DEFB    'T','N'+$80,TOK_ATN          ; ATN
+        DEFB    'S','C'+$80,TOK_ASC          ; ASC
+        DEFB    'U','T','O'+$80,TOK_AUTO     ; AUTO
+        DEFB    $00                          ; end A-group
+KWGRP_B:                                 ; $0263
+        DEFB    'U','T','T','O','N'+$80,TOK_BUTTON ; BUTTON
+        DEFB    'E','E','P'+$80,TOK_BEEP     ; BEEP
+        DEFB    $00                          ; end B-group
+KWGRP_C:                                 ; $026E
+        DEFB    'L','O','S','E'+$80,TOK_CLOSE ; CLOSE
+        DEFB    'O','N','T'+$80,TOK_CONT     ; CONT
+        DEFB    'L','E','A','R'+$80,TOK_CLEAR ; CLEAR
+        DEFB    'I','N','T'+$80,TOK_CINT     ; CINT
+        DEFB    'S','N','G'+$80,TOK_CSNG     ; CSNG
+        DEFB    'D','B','L'+$80,TOK_CDBL     ; CDBL
+        DEFB    'V','I'+$80,TOK_CVI          ; CVI
+        DEFB    'V','S'+$80,TOK_CVS          ; CVS
+        DEFB    'V','D'+$80,TOK_CVD          ; CVD
+        DEFB    'O','S'+$80,TOK_COS          ; COS
+        DEFB    'H','R','$'+$80,TOK_CHRS     ; CHR$
+        DEFB    'A','L','L'+$80,TOK_CALL     ; CALL
+        DEFB    'O','M','M','O','N'+$80,TOK_COMMON ; COMMON
+        DEFB    'H','A','I','N'+$80,TOK_CHAIN ; CHAIN
+        DEFB    'O','L','O','R'+$80,TOK_COLOR ; COLOR
+        DEFB    $00                          ; end C-group
+KWGRP_D:                                 ; $02AD
+        DEFB    'A','T','A'+$80,TOK_DATA     ; DATA
+        DEFB    'I','M'+$80,TOK_DIM          ; DIM
+        DEFB    'E','F','S','T','R'+$80,TOK_DEFSTR ; DEFSTR
+        DEFB    'E','F','I','N','T'+$80,TOK_DEFINT ; DEFINT
+        DEFB    'E','F','S','N','G'+$80,TOK_DEFSNG ; DEFSNG
+        DEFB    'E','F','D','B','L'+$80,TOK_DEFDBL ; DEFDBL
+        DEFB    'E','F'+$80,TOK_DEF          ; DEF
+        DEFB    'E','L','E','T','E'+$80,TOK_DELETE ; DELETE
+        DEFB    'E','L'+$80,TOK_DEL          ; DEL
+        DEFB    $00                          ; end D-group
+KWGRP_E:                                 ; $02D9
+        DEFB    'N','D'+$80,TOK_END          ; END
+        DEFB    'L','S','E'+$80,TOK_ELSE     ; ELSE
+        DEFB    'R','A','S','E'+$80,TOK_ERASE ; ERASE
+        DEFB    'D','I','T'+$80,TOK_EDIT     ; EDIT
+        DEFB    'R','R','O','R'+$80,TOK_ERROR ; ERROR
+        DEFB    'R','L'+$80,TOK_ERL          ; ERL
+        DEFB    'R','R'+$80,TOK_ERR          ; ERR
+        DEFB    'X','P'+$80,TOK_EXP          ; EXP
+        DEFB    'O','F'+$80,TOK_EOF          ; EOF
+        DEFB    'Q','V'+$80,TOK_EQV          ; EQV
+        DEFB    $00                          ; end E-group
+KWGRP_F:                                 ; $02FE
+        DEFB    'O','R'+$80,TOK_FOR          ; FOR
+        DEFB    'I','E','L','D'+$80,TOK_FIELD ; FIELD
+        DEFB    'I','L','E','S'+$80,TOK_FILES ; FILES
+        DEFB    'N'+$80,TOK_FN               ; FN
+        DEFB    'R','E'+$80,TOK_FRE          ; FRE
+        DEFB    'I','X'+$80,TOK_FIX          ; FIX
+        DEFB    $00                          ; end F-group
+KWGRP_G:                                 ; $0314
+        DEFB    'O','T','O'+$80,TOK_GOTO     ; GOTO
+        DEFB    'O',' ','T','O'+$80,TOK_GOTO ; GO TO
+        DEFB    'O','S','U','B'+$80,TOK_GOSUB ; GOSUB
+        DEFB    'E','T'+$80,TOK_GET          ; GET
+        DEFB    'R'+$80,TOK_GR               ; GR
+        DEFB    $00                          ; end G-group
+KWGRP_H:                                 ; $0328
+        DEFB    'O','M','E'+$80,TOK_HOME     ; HOME
+        DEFB    'L','I','N'+$80,TOK_HLIN     ; HLIN
+        DEFB    'G','R'+$80,TOK_HGR          ; HGR
+        DEFB    'C','O','L','O','R'+$80,TOK_HCOLOR ; HCOLOR
+        DEFB    'P','L','O','T'+$80,TOK_HPLOT ; HPLOT
+        DEFB    'T','A','B'+$80,TOK_HTAB     ; HTAB
+        DEFB    'S','C','R','N'+$80,TOK_HSCRN ; HSCRN
+        DEFB    'E','X','$'+$80,TOK_HEXS     ; HEX$
+        DEFB    $00                          ; end H-group
+KWGRP_I:                                 ; $034C
+        DEFB    'N','P','U','T'+$80,TOK_INPUT ; INPUT
+        DEFB    'F'+$80,TOK_IF               ; IF
+        DEFB    'N','S','T','R'+$80,TOK_INSTR ; INSTR
+        DEFB    'N','T'+$80,TOK_INT          ; INT
+        DEFB    'M','P'+$80,TOK_IMP          ; IMP
+        DEFB    'N','K','E','Y','$'+$80,TOK_INKEYS ; INKEY$
+        DEFB    'N','V','E','R','S','E'+$80,TOK_INVERSE ; INVERSE
+        DEFB    $00                          ; end I-group
+KWGRP_J:                                 ; $036C
+        DEFB    $00                          ; end J-group
+KWGRP_K:                                 ; $036D
+        DEFB    'I','L','L'+$80,TOK_KILL     ; KILL
+        DEFB    $00                          ; end K-group
+KWGRP_L:                                 ; $0372
+        DEFB    'E','T'+$80,TOK_LET          ; LET
+        DEFB    'I','N','E'+$80,TOK_LINE     ; LINE
+        DEFB    'O','A','D'+$80,TOK_LOAD     ; LOAD
+        DEFB    'S','E','T'+$80,TOK_LSET     ; LSET
+        DEFB    'P','R','I','N','T'+$80,TOK_LPRINT ; LPRINT
+        DEFB    'L','I','S','T'+$80,TOK_LLIST ; LLIST
+        DEFB    'P','O','S'+$80,TOK_LPOS     ; LPOS
+        DEFB    'I','S','T'+$80,TOK_LIST     ; LIST
+        DEFB    'O','G'+$80,TOK_LOG          ; LOG
+        DEFB    'O','C'+$80,TOK_LOC          ; LOC
+        DEFB    'E','N'+$80,TOK_LEN          ; LEN
+        DEFB    'E','F','T','$'+$80,TOK_LEFTS ; LEFT$
+        DEFB    'O','F'+$80,TOK_LOF          ; LOF
+        DEFB    $00                          ; end L-group
+KWGRP_M:                                 ; $03A6
+        DEFB    'E','R','G','E'+$80,TOK_MERGE ; MERGE
+        DEFB    'O','D'+$80,TOK_MOD          ; MOD
+        DEFB    'K','I','$'+$80,TOK_MKIS     ; MKI$
+        DEFB    'K','S','$'+$80,TOK_MKSS     ; MKS$
+        DEFB    'K','D','$'+$80,TOK_MKDS     ; MKD$
+        DEFB    'I','D','$'+$80,TOK_MIDS     ; MID$
+        DEFB    $00                          ; end M-group
+KWGRP_N:                                 ; $03BF
+        DEFB    'E','X','T'+$80,TOK_NEXT     ; NEXT
+        DEFB    'O','R','M','A','L'+$80,TOK_NORMAL ; NORMAL
+        DEFB    'O','T','R','A','C','E'+$80,TOK_NOTRACE ; NOTRACE
+        DEFB    'A','M','E'+$80,TOK_NAME     ; NAME
+        DEFB    'E','W'+$80,TOK_NEW          ; NEW
+        DEFB    'O','T'+$80,TOK_NOT          ; NOT
+        DEFB    $00                          ; end N-group
+KWGRP_O:                                 ; $03DB
+        DEFB    'N'+$80,TOK_ON               ; ON
+        DEFB    'P','E','N'+$80,TOK_OPEN     ; OPEN
+        DEFB    'R'+$80,TOK_OR               ; OR
+        DEFB    'C','T','$'+$80,TOK_OCTS     ; OCT$
+        DEFB    'P','T','I','O','N'+$80,TOK_OPTION ; OPTION
+        DEFB    $00                          ; end O-group
+KWGRP_P:                                 ; $03EE
+        DEFB    'U','T'+$80,TOK_PUT          ; PUT
+        DEFB    'O','K','E'+$80,TOK_POKE     ; POKE
+        DEFB    'R','I','N','T'+$80,TOK_PRINT ; PRINT
+        DEFB    'O','S'+$80,TOK_POS          ; POS
+        DEFB    'E','E','K'+$80,TOK_PEEK     ; PEEK
+        DEFB    'L','O','T'+$80,TOK_PLOT     ; PLOT
+        DEFB    'D','L'+$80,TOK_PDL          ; PDL
+        DEFB    'O','P'+$80,TOK_POP          ; POP
+        DEFB    $00                          ; end P-group
+KWGRP_Q:                                 ; $040C
+        DEFB    $00                          ; end Q-group
+KWGRP_R:                                 ; $040D
+        DEFB    'E','A','D'+$80,TOK_READ     ; READ
+        DEFB    'U','N'+$80,TOK_RUN          ; RUN
+        DEFB    'E','S','T','O','R','E'+$80,TOK_RESTORE ; RESTORE
+        DEFB    'E','T','U','R','N'+$80,TOK_RETURN ; RETURN
+        DEFB    'E','M'+$80,TOK_REM          ; REM
+        DEFB    'E','S','U','M','E'+$80,TOK_RESUME ; RESUME
+        DEFB    'S','E','T'+$80,TOK_RSET     ; RSET
+        DEFB    'I','G','H','T','$'+$80,TOK_RIGHTS ; RIGHT$
+        DEFB    'N','D'+$80,TOK_RND          ; RND
+        DEFB    'E','N','U','M'+$80,TOK_RENUM ; RENUM
+        DEFB    'E','S','E','T'+$80,TOK_RESET ; RESET
+        DEFB    'A','N','D','O','M','I','Z','E'+$80,TOK_RANDOMIZE ; RANDOMIZE
+        DEFB    $00                          ; end R-group
+KWGRP_S:                                 ; $044B
+        DEFB    'T','O','P'+$80,TOK_STOP     ; STOP
+        DEFB    'W','A','P'+$80,TOK_SWAP     ; SWAP
+        DEFB    'A','V','E'+$80,TOK_SAVE     ; SAVE
+        DEFB    'P','C','('+$80,TOK_SPC_LP   ; SPC(
+        DEFB    'T','E','P'+$80,TOK_STEP     ; STEP
+        DEFB    'G','N'+$80,TOK_SGN          ; SGN
+        DEFB    'Q','R'+$80,TOK_SQR          ; SQR
+        DEFB    'I','N'+$80,TOK_SIN          ; SIN
+        DEFB    'T','R','$'+$80,TOK_STRS     ; STR$
+        DEFB    'T','R','I','N','G','$'+$80,TOK_STRINGS ; STRING$
+        DEFB    'P','A','C','E','$'+$80,TOK_SPACES ; SPACE$
+        DEFB    'Y','S','T','E','M'+$80,TOK_SYSTEM ; SYSTEM
+        DEFB    'C','R','N'+$80,TOK_SCRN     ; SCRN
+        DEFB    $00                          ; end S-group
+KWGRP_T:                                 ; $0484
+        DEFB    'R','A','C','E'+$80,TOK_TRACE ; TRACE
+        DEFB    'A','B','('+$80,TOK_TAB_LP   ; TAB(
+        DEFB    'O'+$80,TOK_TO               ; TO
+        DEFB    'H','E','N'+$80,TOK_THEN     ; THEN
+        DEFB    'A','N'+$80,TOK_TAN          ; TAN
+        DEFB    'E','X','T'+$80,TOK_TEXT     ; TEXT
+        DEFB    $00                          ; end T-group
+KWGRP_U:                                 ; $049B
+        DEFB    'S','I','N','G'+$80,TOK_USING ; USING
+        DEFB    'S','R'+$80,TOK_USR          ; USR
+        DEFB    $00                          ; end U-group
+KWGRP_V:                                 ; $04A4
+        DEFB    'A','L'+$80,TOK_VAL          ; VAL
+        DEFB    'A','R','P','T','R'+$80,TOK_VARPTR ; VARPTR
+        DEFB    'L','I','N'+$80,TOK_VLIN     ; VLIN
+        DEFB    'T','A','B'+$80,TOK_VTAB     ; VTAB
+        DEFB    'P','O','S'+$80,TOK_VPOS     ; VPOS
+        DEFB    $00                          ; end V-group
+KWGRP_W:                                 ; $04BA
+        DEFB    'I','D','T','H'+$80,TOK_WIDTH ; WIDTH
+        DEFB    'A','I','T'+$80,TOK_WAIT     ; WAIT
+        DEFB    'H','I','L','E'+$80,TOK_WHILE ; WHILE
+        DEFB    'E','N','D'+$80,TOK_WEND     ; WEND
+        DEFB    'R','I','T','E'+$80,TOK_WRITE ; WRITE
+        DEFB    $00                          ; end W-group
+KWGRP_X:                                 ; $04D2
+        DEFB    'O','R'+$80,TOK_XOR          ; XOR
+        DEFB    $00                          ; end X-group
+KWGRP_Y:                                 ; $04D6
+        DEFB    $00                          ; end Y-group
+KWGRP_Z:                                 ; $04D7
+        DEFB    $00                          ; end Z-group
+RESWORD_OPS:                             ; $04D8  operator (char,token) pairs
+        DEFB    '+'+$80,TOK_PLUS             ; '+'
+        DEFB    '-'+$80,TOK_MINUS            ; '-'
+        DEFB    '*'+$80,TOK_MUL              ; '*'
+        DEFB    '/'+$80,TOK_DIV              ; '/'
+        DEFB    '^'+$80,TOK_POW              ; '^'
+        DEFB    $DC,TOK_IDIV                 ; '\'
+        DEFB    $A7,TOK_REM_QUOTE            ; '''
+        DEFB    '>'+$80,TOK_GT               ; '>'
+        DEFB    '='+$80,TOK_EQ               ; '='
+        DEFB    '<'+$80,TOK_LT               ; '<'
+        DEFB    $00                          ; end operators
 L_04ED:
         DEFB    $79,$79,$7C,$7C          ; $04ED
         DEFW    CHAIN_MARK_VAR_8         ; $04F1
@@ -2875,7 +2989,7 @@ CRUNCH_RESWORD_TAIL:
         POP HL                           ; $1097  E1
         CALL CHRGET_UPCASE               ; $1098  CD E7 1C
         PUSH HL                          ; $109B  E5
-        LD HL,COM_ENTRY_17               ; $109C  21 1E 02
+        LD HL,L_021E                     ; $109C  21 1E 02
         SUB $41                          ; $109F  D6 41
         ADD A,A                          ; $10A1  87
         LD C,A                           ; $10A2  4F
@@ -3537,7 +3651,7 @@ CHRGOT_CONST_VALUE_3:
 ; [RE] DEFSTR statement handler (token $A9): declare a default-string letter range. DEFINT/DEFSNG/DEFDBL ($AA-$AC) enter a few bytes later with a different type code.
 STMT_DEFSTR:
         LD E,$03                         ; $149F  1E 03
-        LD BC,COM_ENTRY_17               ; $14A1  01 1E 02
+        LD BC,L_021E                     ; $14A1  01 1E 02
         LD BC,L_041E                     ; $14A4  01 1E 04
         LD BC,ERRMSG_TBL_FILE_NOT_FOUND_22  ; $14A7  01 1E 08
 STMT_DEFSTR_1:
@@ -5650,7 +5764,7 @@ DETOKENIZE_LINE_11:
         PUSH HL                          ; $2190  E5
         PUSH BC                          ; $2191  C5
         PUSH DE                          ; $2192  D5
-        LD HL,COM_ENTRY_19               ; $2193  21 51 02
+        LD HL,L_0251                     ; $2193  21 51 02
         LD B,A                           ; $2196  47
         LD C,$40                         ; $2197  0E 40
 DETOKENIZE_LINE_12:
@@ -9113,7 +9227,7 @@ FOUT_CORE:
         LD D,A                           ; $34D9  57
         INC D                            ; $34DA  14
         CALL FOUT_SCALE10                ; $34DB  CD BA 36
-        LD BC,RESLST_8                   ; $34DE  01 00 03
+        LD BC,L_0300                     ; $34DE  01 00 03
         PUSH AF                          ; $34E1  F5
         LD A,(CHAIN_BREAK_FLAG_15)       ; $34E2  3A DB 0C
         OR A                             ; $34E5  B7
@@ -14396,7 +14510,7 @@ FN_LOF:
         JP STR_FN_RETURN_CHAR_1          ; $52F5  C3 8D 4A
 FN_LOF_1:
         LD A,$01                         ; $52F8  3E 01
-        LD BC,RESLST_9                   ; $52FA  01 3E 03
+        LD BC,L_033E                     ; $52FA  01 3E 03
         LD BC,$073E                      ; $52FD  01 3E 07
 FN_LOF_2:
         PUSH AF                          ; $5300  F5

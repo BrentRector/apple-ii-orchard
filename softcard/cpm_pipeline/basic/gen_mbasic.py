@@ -9,6 +9,7 @@ from pathlib import Path
 from cpm_pipeline.filesystem import read_disk, extract_file
 from cpm_pipeline import reference_data as rd
 from cpm_pipeline.basic._paths import asm_path, overlay_path, seeds_path, load_token_names
+from cpm_pipeline.basic import reswords
 from disasm_z80.walker import Walker
 from disasm_z80.formatter import SjasmFormatter
 from cpm_pipeline.region_disasm import (seed_leading_jp_vector,
@@ -70,7 +71,8 @@ def main():
     # leaves them as data (the header walker only traces the entry); MBASIC's single
     # whole-file walker otherwise wandered in and decoded the keyword strings as
     # bogus code (LD B,C / ADC A,$DE / ...). Pin the table as data so it stays DEFB.
-    w.add_data_region(0x0252, 0x04ED)
+    w.add_data_region(0x021E, 0x04ED)   # per-letter index + name table + operator
+                                        # sub-table = pure data (see reswords)
     entry_pts = {LOAD, COLD} | dispatch | (mapped & set(range(LOAD, end)))
     for s in entry_pts:
         w.call_targets.add(s)
@@ -87,6 +89,7 @@ def main():
     ptrs = scan_pointer_words(w, mem, LOAD, len(com)) | disp
     for s in entry_pts:
         w.add_label(s)
+    w.add_label(reswords.INDEX_ADDR)   # split the data run at the reserved-word table
     w.name_labels()
 
     fmt = SjasmFormatter(mem, w, origin=LOAD, length=len(com),
@@ -95,6 +98,8 @@ def main():
     fmt._harvest_data_labels()
     fmt._prepare_overlap_labels()
     body, _, _ = fmt._emit_body()
+    # Decompose the reserved-word / token table ($021E-$04EC) into structured form.
+    body = reswords.splice_table_into(body, com)
 
     out = []
     out.append("; MBASIC.COM -- Microsoft BASIC-80 Rev 5.2 interpreter (graphics OFF), SoftCard CP/M 2.20 (44K).")
