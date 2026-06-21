@@ -410,541 +410,73 @@ OPERATOR_ROUTINE_TBL:
         DEFB    $02                      ; $051D
         DEFB    $1C                      ; $051E
         DEFW    INT16_COMP               ; $051F
-        DEFB    $00                      ; $0521
-        DEFB    "NEXT without FOR"       ; $0522  string
-        DEFB    $00                      ; $0532  terminator
-        DEFB    "Syntax error"           ; $0533  string
-        DEFB    $00                      ; $053F  terminator
-        DEFB    "RETURN without GOSUB"   ; $0540  string
-        DEFB    $00                      ; $0554  terminator
-        DEFB    "Out of DATA"            ; $0555  string
-        DEFB    $00                      ; $0560  terminator
-        DEFB    "Illegal function call"  ; $0561  string
-        DEFB    $00                      ; $0576  terminator
+; -- Error-message table. RAISE_ERROR ($0D89) is entered with the error code in E.
+;    The base ERROR_MESSAGE_TABLE ($0521) is a $00 = the empty message 0; the printer
+;    scans E terminators forward from it, so code E selects the E-th message (err 1 =
+;    'NEXT without FOR'). BASIC errors are codes 1..N; the disk errors (FIELD overflow
+;    on) are remapped to codes 50..70 (the scan does CP $32 / SUB $12). Codes are the
+;    ERR_* equates (msbasic_errors.inc); messages are not individually referenced, so
+;    only the few a trap loads by pointer keep an ERRMSG_* label.
+; [RE] Error-message table base AND the direct-mode empty message: the $00 here is error message 0 (the scan base) and is also printed by ERROR_RESUME_FROM_DIRECT as the empty '?<>' direct-mode error text.
+ERROR_MESSAGE_TABLE:
+        DEFB    $00                      ; $0521  err 0 (empty message, scan base)
+        DEFB    "NEXT without FOR",$00   ; $0522  ERR_NEXT_WITHOUT_FOR = 1
+        DEFB    "Syntax error",$00       ; $0533  ERR_SYNTAX_ERROR = 2
+        DEFB    "RETURN without GOSUB",$00  ; $0540  ERR_RETURN_WITHOUT_GOSUB = 3
+        DEFB    "Out of DATA",$00        ; $0555  ERR_OUT_OF_DATA = 4
+        DEFB    "Illegal function call",$00  ; $0561  ERR_ILLEGAL_FUNCTION_CALL = 5
 ; [RE] Error message string "Overflow" (error $06): loaded by the error reporter; the overflow trap also sets the current-message pointer ($0848) to it.
 ERRMSG_OVERFLOW:
-        DEFB    "Overflow"               ; $0577  string
-        DEFB    $00                      ; $057F  terminator
-        DEFB    "Out of memory"          ; $0580  string
-        DEFB    $00                      ; $058D  terminator
-        DEFB    "Undefined line number"  ; $058E  string
-        DEFB    $00                      ; $05A3  terminator
-        DEFB    "Subscript out of range" ; $05A4  string
-        DEFB    $00                      ; $05BA  terminator
-        DEFB    "Duplicate Definition"   ; $05BB  string
-        DEFB    $00                      ; $05CF  terminator
+        DEFB    "Overflow",$00           ; $0577  ERR_OVERFLOW = 6
+        DEFB    "Out of memory",$00      ; $0580  ERR_OUT_OF_MEMORY = 7
+        DEFB    "Undefined line number",$00  ; $058E  ERR_UNDEFINED_LINE_NUMBER = 8
+        DEFB    "Subscript out of range",$00  ; $05A4  ERR_SUBSCRIPT_OUT_OF_RANGE = 9
+        DEFB    "Duplicate Definition",$00  ; $05BB  ERR_DUPLICATE_DEFINITION = 10
 ; [RE] Error message string "Division by zero" (error $0B): the FP divide-by-zero path stores this pointer into the current-error-message cell ($0848).
 ERRMSG_DIVISION_BY_ZERO:
-        DEFB    "Division by zero"       ; $05D0  string
-        DEFB    $00                      ; $05E0  terminator
-        DEFB    "Illegal direct"         ; $05E1  string
-        DEFB    $00                      ; $05EF  terminator
-        DEFB    "Type mismatch"          ; $05F0  string
-        DEFB    $00                      ; $05FD  terminator
-        DEFB    $4F,$75,$74,$20,$6F      ; $05FE
-        DEFB    "f string space"         ; $0603  string
-        DEFB    $00                      ; $0611  terminator
-        DEFB    $53,$74,$72,$69,$6E,$67,$20,$74,$6F  ; $0612
-        DEFW    STMT_WIDTH_1             ; $061B
-        DEFB    $6C                      ; $061D
-        DEFB    $6F,$6E,$67              ; $061E
-        DEFW    FN_CVI_3                 ; $0621
-        DEFB    "tring formula too complex"  ; $0623  string
-        DEFB    $00                      ; $063C  terminator
-        DEFB    "Can't continue"         ; $063D  string
-        DEFB    $00                      ; $064B  terminator
-        DEFB    $55,$6E                  ; $064C
-        LD H,H                           ; $064E  64
-        LD H,L                           ; $064F  65
-        LD H,(HL)                        ; $0650  66
-        LD L,C                           ; $0651  69
-        LD L,(HL)                        ; $0652  6E
-        LD H,L                           ; $0653  65
-        LD H,H                           ; $0654  64
-        JR NZ,$06CC                      ; $0655  20 75
-        LD (HL),E                        ; $0657  73
-        LD H,L                           ; $0658  65
-        LD (HL),D                        ; $0659  72
-        JR NZ,$06C2                      ; $065A  20 66
-        LD (HL),L                        ; $065C  75
-        LD L,(HL)                        ; $065D  6E
-        LD H,E                           ; $065E  63
-        LD (HL),H                        ; $065F  74
-        LD L,C                           ; $0660  69
-        LD L,A                           ; $0661  6F
-        LD L,(HL)                        ; $0662  6E
-        NOP                              ; $0663  00
-        LD C,(HL)                        ; $0664  4E
-        LD L,A                           ; $0665  6F
-        JR NZ,SUB_064E_1                 ; $0666  20 52
-        LD B,L                           ; $0668  45
-        LD D,E                           ; $0669  53
-        LD D,L                           ; $066A  55
-        LD C,L                           ; $066B  4D
-        LD B,L                           ; $066C  45
-        NOP                              ; $066D  00
-        LD D,D                           ; $066E  52
-        LD B,L                           ; $066F  45
-        LD D,E                           ; $0670  53
-        LD D,L                           ; $0671  55
-        LD C,L                           ; $0672  4D
-        LD B,L                           ; $0673  45
-        JR NZ,$06ED                      ; $0674  20 77
-        LD L,C                           ; $0676  69
-        LD (HL),H                        ; $0677  74
-        LD L,B                           ; $0678  68
-        LD L,A                           ; $0679  6F
-        LD (HL),L                        ; $067A  75
-        LD (HL),H                        ; $067B  74
-        JR NZ,$06E3                      ; $067C  20 65
-        LD (HL),D                        ; $067E  72
-        LD (HL),D                        ; $067F  72
-        LD L,A                           ; $0680  6F
-        LD (HL),D                        ; $0681  72
-        NOP                              ; $0682  00
-        LD D,L                           ; $0683  55
-        LD L,(HL)                        ; $0684  6E
-        LD (HL),B                        ; $0685  70
-        LD (HL),D                        ; $0686  72
-        LD L,C                           ; $0687  69
-        LD L,(HL)                        ; $0688  6E
-        LD (HL),H                        ; $0689  74
-        LD H,C                           ; $068A  61
-        LD H,D                           ; $068B  62
-        LD L,H                           ; $068C  6C
-        LD H,L                           ; $068D  65
-        JR NZ,$06F5                      ; $068E  20 65
-        LD (HL),D                        ; $0690  72
-        LD (HL),D                        ; $0691  72
-        LD L,A                           ; $0692  6F
-        LD (HL),D                        ; $0693  72
-        NOP                              ; $0694  00
-        LD C,L                           ; $0695  4D
-        LD L,C                           ; $0696  69
-        LD (HL),E                        ; $0697  73
-        LD (HL),E                        ; $0698  73
-        LD L,C                           ; $0699  69
-        LD L,(HL)                        ; $069A  6E
-        LD H,A                           ; $069B  67
-        JR NZ,$070D                      ; $069C  20 6F
-        LD (HL),B                        ; $069E  70
-        LD H,L                           ; $069F  65
-        LD (HL),D                        ; $06A0  72
-        LD H,C                           ; $06A1  61
-        LD L,(HL)                        ; $06A2  6E
-        LD H,H                           ; $06A3  64
-        NOP                              ; $06A4  00
-        LD C,H                           ; $06A5  4C
-        LD L,C                           ; $06A6  69
-        LD L,(HL)                        ; $06A7  6E
-        LD H,L                           ; $06A8  65
-        JR NZ,$070D                      ; $06A9  20 62
-        LD (HL),L                        ; $06AB  75
-        LD H,(HL)                        ; $06AC  66
-        LD H,(HL)                        ; $06AD  66
-        LD H,L                           ; $06AE  65
-        LD (HL),D                        ; $06AF  72
-        JR NZ,$0721                      ; $06B0  20 6F
-        HALT                             ; $06B2  76
-        LD H,L                           ; $06B3  65
-        LD (HL),D                        ; $06B4  72
-        LD H,(HL)                        ; $06B5  66
-        LD L,H                           ; $06B6  6C
-        LD L,A                           ; $06B7  6F
-        LD (HL),A                        ; $06B8  77
-        NOP                              ; $06B9  00
-SUB_064E_1:
-        CCF                              ; $06BA  3F
-        NOP                              ; $06BB  00
-        CCF                              ; $06BC  3F
-        NOP                              ; $06BD  00
-        LD B,(HL)                        ; $06BE  46
-        LD C,A                           ; $06BF  4F
-        LD D,D                           ; $06C0  52
-SUB_064E_2:
-        JR NZ,$071A                      ; $06C1  20 57
-        LD L,C                           ; $06C3  69
-        LD (HL),H                        ; $06C4  74
-        LD L,B                           ; $06C5  68
-        LD L,A                           ; $06C6  6F
-        LD (HL),L                        ; $06C7  75
-        LD (HL),H                        ; $06C8  74
-        JR NZ,$0719                      ; $06C9  20 4E
-        LD B,L                           ; $06CB  45
-SUB_064E_3:
-        LD E,B                           ; $06CC  58
-        LD D,H                           ; $06CD  54
-        NOP                              ; $06CE  00
-        CCF                              ; $06CF  3F
-        NOP                              ; $06D0  00
-        CCF                              ; $06D1  3F
-        NOP                              ; $06D2  00
-        LD D,A                           ; $06D3  57
-        LD C,B                           ; $06D4  48
-        LD C,C                           ; $06D5  49
-        LD C,H                           ; $06D6  4C
-        LD B,L                           ; $06D7  45
-        JR NZ,$0751                      ; $06D8  20 77
-        LD L,C                           ; $06DA  69
-        LD (HL),H                        ; $06DB  74
-        LD L,B                           ; $06DC  68
-        LD L,A                           ; $06DD  6F
-        LD (HL),L                        ; $06DE  75
-        LD (HL),H                        ; $06DF  74
-        JR NZ,$0739                      ; $06E0  20 57
-        LD B,L                           ; $06E2  45
-SUB_064E_4:
-        LD C,(HL)                        ; $06E3  4E
-        LD B,H                           ; $06E4  44
-        NOP                              ; $06E5  00
-        LD D,A                           ; $06E6  57
-        LD B,L                           ; $06E7  45
-        LD C,(HL)                        ; $06E8  4E
-        LD B,H                           ; $06E9  44
-        JR NZ,$0763                      ; $06EA  20 77
-        LD L,C                           ; $06EC  69
-SUB_064E_5:
-        LD (HL),H                        ; $06ED  74
-        LD L,B                           ; $06EE  68
-        LD L,A                           ; $06EF  6F
-        LD (HL),L                        ; $06F0  75
-        LD (HL),H                        ; $06F1  74
-        JR NZ,$074B                      ; $06F2  20 57
-        LD C,B                           ; $06F4  48
-SUB_064E_6:
-        LD C,C                           ; $06F5  49
-        LD C,H                           ; $06F6  4C
-        LD B,L                           ; $06F7  45
-        NOP                              ; $06F8  00
-        LD D,D                           ; $06F9  52
-        LD H,L                           ; $06FA  65
-        LD (HL),E                        ; $06FB  73
-        LD H,L                           ; $06FC  65
-        LD (HL),H                        ; $06FD  74
-        JR NZ,SUB_0752_2                 ; $06FE  20 65
-SUB_064E_7:
-        LD (HL),D                        ; $0700  72
-        LD (HL),D                        ; $0701  72
-        LD L,A                           ; $0702  6F
-        LD (HL),D                        ; $0703  72
-        NOP                              ; $0704  00
-        LD B,A                           ; $0705  47
-        LD (HL),D                        ; $0706  72
-        LD H,C                           ; $0707  61
-        LD (HL),B                        ; $0708  70
-        LD L,B                           ; $0709  68
-        LD L,C                           ; $070A  69
-        LD H,E                           ; $070B  63
-        LD (HL),E                        ; $070C  73
-SUB_064E_8:
-        JR NZ,$0782                      ; $070D  20 73
-        LD (HL),H                        ; $070F  74
-        LD H,C                           ; $0710  61
-        LD (HL),H                        ; $0711  74
-        LD H,L                           ; $0712  65
-        LD L,L                           ; $0713  6D
-        LD H,L                           ; $0714  65
-        LD L,(HL)                        ; $0715  6E
-        LD (HL),H                        ; $0716  74
-        JR NZ,SUB_0752_5                 ; $0717  20 6E
-SUB_064E_9:
-        LD L,A                           ; $0719  6F
-SUB_064E_10:
-        LD (HL),H                        ; $071A  74
-        JR NZ,$0786                      ; $071B  20 69
-        LD L,L                           ; $071D  6D
-        LD (HL),B                        ; $071E  70
-        LD L,H                           ; $071F  6C
-        LD H,L                           ; $0720  65
-SUB_064E_11:
-        LD L,L                           ; $0721  6D
-        LD H,L                           ; $0722  65
-        LD L,(HL)                        ; $0723  6E
-        LD (HL),H                        ; $0724  74
-        LD H,L                           ; $0725  65
-        LD H,H                           ; $0726  64
-        NOP                              ; $0727  00
-        LD B,(HL)                        ; $0728  46
-        LD C,C                           ; $0729  49
-        LD B,L                           ; $072A  45
-        LD C,H                           ; $072B  4C
-        LD B,H                           ; $072C  44
-        JR NZ,$079E                      ; $072D  20 6F
-        HALT                             ; $072F  76
-        LD H,L                           ; $0730  65
-        LD (HL),D                        ; $0731  72
-        LD H,(HL)                        ; $0732  66
-        LD L,H                           ; $0733  6C
-        LD L,A                           ; $0734  6F
-        LD (HL),A                        ; $0735  77
-        NOP                              ; $0736  00
-        LD C,C                           ; $0737  49
-        LD L,(HL)                        ; $0738  6E
-SUB_064E_12:
-        LD (HL),H                        ; $0739  74
-        LD H,L                           ; $073A  65
-        LD (HL),D                        ; $073B  72
-        LD L,(HL)                        ; $073C  6E
-        LD H,C                           ; $073D  61
-SUB_064E_13:
-        LD L,H                           ; $073E  6C
-        JR NZ,$07A6                      ; $073F  20 65
-        LD (HL),D                        ; $0741  72
-        LD (HL),D                        ; $0742  72
-        LD L,A                           ; $0743  6F
-        LD (HL),D                        ; $0744  72
-        NOP                              ; $0745  00
-        LD B,D                           ; $0746  42
-        LD H,C                           ; $0747  61
-        LD H,H                           ; $0748  64
-        JR NZ,$07B1                      ; $0749  20 66
-SUB_064E_14:
-        LD L,C                           ; $074B  69
-        LD L,H                           ; $074C  6C
-        LD H,L                           ; $074D  65
-        JR NZ,$07BE                      ; $074E  20 6E
-        LD (HL),L                        ; $0750  75
-SUB_064E_15:
-        LD L,L                           ; $0751  6D
-        LD H,D                           ; $0752  62
-        LD H,L                           ; $0753  65
-        LD (HL),D                        ; $0754  72
-        NOP                              ; $0755  00
-        LD B,(HL)                        ; $0756  46
-        LD L,C                           ; $0757  69
-        LD L,H                           ; $0758  6C
-        LD H,L                           ; $0759  65
-        JR NZ,$07CA                      ; $075A  20 6E
-        LD L,A                           ; $075C  6F
-        LD (HL),H                        ; $075D  74
-        JR NZ,$07C6                      ; $075E  20 66
-        LD L,A                           ; $0760  6F
-        LD (HL),L                        ; $0761  75
-        LD L,(HL)                        ; $0762  6E
-SUB_0752_1:
-        LD H,H                           ; $0763  64
-        NOP                              ; $0764  00
-SUB_0752_2:
-        LD B,D                           ; $0765  42
-        LD H,C                           ; $0766  61
-        LD H,H                           ; $0767  64
-        JR NZ,$07D0                      ; $0768  20 66
-        LD L,C                           ; $076A  69
-        LD L,H                           ; $076B  6C
-        LD H,L                           ; $076C  65
-        JR NZ,$07DC                      ; $076D  20 6D
-        LD L,A                           ; $076F  6F
-        LD H,H                           ; $0770  64
-        LD H,L                           ; $0771  65
-        NOP                              ; $0772  00
-        LD B,(HL)                        ; $0773  46
-        LD L,C                           ; $0774  69
-        LD L,H                           ; $0775  6C
-        LD H,L                           ; $0776  65
-        JR NZ,$07DA                      ; $0777  20 61
-        LD L,H                           ; $0779  6C
-        LD (HL),D                        ; $077A  72
-        LD H,L                           ; $077B  65
-        LD H,C                           ; $077C  61
-        LD H,H                           ; $077D  64
-        LD A,C                           ; $077E  79
-        JR NZ,$07F0                      ; $077F  20 6F
-        LD (HL),B                        ; $0781  70
-SUB_0752_3:
-        LD H,L                           ; $0782  65
-        LD L,(HL)                        ; $0783  6E
-        NOP                              ; $0784  00
-        CCF                              ; $0785  3F
-SUB_0752_4:
-        NOP                              ; $0786  00
-SUB_0752_5:
-        LD B,H                           ; $0787  44
-        LD L,C                           ; $0788  69
-        LD (HL),E                        ; $0789  73
-        LD L,E                           ; $078A  6B
-        JR NZ,$07D6                      ; $078B  20 49
-        CPL                              ; $078D  2F
-        LD C,A                           ; $078E  4F
-        JR NZ,$07F6                      ; $078F  20 65
-        LD (HL),D                        ; $0791  72
-        LD (HL),D                        ; $0792  72
-        LD L,A                           ; $0793  6F
-        LD (HL),D                        ; $0794  72
-        NOP                              ; $0795  00
-        LD B,(HL)                        ; $0796  46
-        LD L,C                           ; $0797  69
-        LD L,H                           ; $0798  6C
-        LD H,L                           ; $0799  65
-        JR NZ,$07FD                      ; $079A  20 61
-        LD L,H                           ; $079C  6C
-        LD (HL),D                        ; $079D  72
-SUB_0752_6:
-        LD H,L                           ; $079E  65
-        LD H,C                           ; $079F  61
-        LD H,H                           ; $07A0  64
-        LD A,C                           ; $07A1  79
-        JR NZ,$0809                      ; $07A2  20 65
-        LD A,B                           ; $07A4  78
-        LD L,C                           ; $07A5  69
-SUB_0752_7:
-        LD (HL),E                        ; $07A6  73
-        LD (HL),H                        ; $07A7  74
-        LD (HL),E                        ; $07A8  73
-        NOP                              ; $07A9  00
-        CCF                              ; $07AA  3F
-        NOP                              ; $07AB  00
-        CCF                              ; $07AC  3F
-        NOP                              ; $07AD  00
-        LD B,H                           ; $07AE  44
-        LD L,C                           ; $07AF  69
-        LD (HL),E                        ; $07B0  73
-SUB_0752_8:
-        LD L,E                           ; $07B1  6B
-        JR NZ,$081A                      ; $07B2  20 66
-        LD (HL),L                        ; $07B4  75
-        LD L,H                           ; $07B5  6C
-        LD L,H                           ; $07B6  6C
-        NOP                              ; $07B7  00
-        LD C,C                           ; $07B8  49
-        LD L,(HL)                        ; $07B9  6E
-        LD (HL),B                        ; $07BA  70
-        LD (HL),L                        ; $07BB  75
-        LD (HL),H                        ; $07BC  74
-SUB_0752_9:
-        JR NZ,SUB_0752_25                ; $07BD  20 70
-        LD H,C                           ; $07BF  61
-        LD (HL),E                        ; $07C0  73
-        LD (HL),H                        ; $07C1  74
-        JR NZ,SUB_0752_24                ; $07C2  20 65
-        LD L,(HL)                        ; $07C4  6E
-        LD H,H                           ; $07C5  64
-SUB_0752_10:
-        NOP                              ; $07C6  00
-        LD B,D                           ; $07C7  42
-        LD H,C                           ; $07C8  61
-        LD H,H                           ; $07C9  64
-SUB_0752_11:
-        JR NZ,SUB_0752_26                ; $07CA  20 72
-        LD H,L                           ; $07CC  65
-        LD H,E                           ; $07CD  63
-        LD L,A                           ; $07CE  6F
-        LD (HL),D                        ; $07CF  72
-SUB_0752_12:
-        LD H,H                           ; $07D0  64
-        JR NZ,SUB_0752_27                ; $07D1  20 6E
-        LD (HL),L                        ; $07D3  75
-        LD L,L                           ; $07D4  6D
-        LD H,D                           ; $07D5  62
-SUB_0752_13:
-        LD H,L                           ; $07D6  65
-        LD (HL),D                        ; $07D7  72
-        NOP                              ; $07D8  00
-        LD B,D                           ; $07D9  42
-SUB_0752_14:
-        LD H,C                           ; $07DA  61
-        LD H,H                           ; $07DB  64
-SUB_0752_15:
-        JR NZ,SUB_0752_29                ; $07DC  20 66
-        LD L,C                           ; $07DE  69
-        LD L,H                           ; $07DF  6C
-        LD H,L                           ; $07E0  65
-        JR NZ,SUB_0752_30                ; $07E1  20 6E
-        LD H,C                           ; $07E3  61
-        LD L,L                           ; $07E4  6D
-        LD H,L                           ; $07E5  65
-        NOP                              ; $07E6  00
-        CCF                              ; $07E7  3F
-        NOP                              ; $07E8  00
-        LD B,H                           ; $07E9  44
-        LD L,C                           ; $07EA  69
-        LD (HL),D                        ; $07EB  72
-        LD H,L                           ; $07EC  65
-        LD H,E                           ; $07ED  63
-        LD (HL),H                        ; $07EE  74
-SUB_0752_16:
-        JR NZ,PTRFIL_1                   ; $07EF  20 73
-        LD (HL),H                        ; $07F1  74
-        LD H,C                           ; $07F2  61
-        LD (HL),H                        ; $07F3  74
-        LD H,L                           ; $07F4  65
-        LD L,L                           ; $07F5  6D
-SUB_0752_17:
-        LD H,L                           ; $07F6  65
-        LD L,(HL)                        ; $07F7  6E
-        LD (HL),H                        ; $07F8  74
-        JR NZ,PTRFIL_1                   ; $07F9  20 69
-        LD L,(HL)                        ; $07FB  6E
-SUB_0752_18:
-        JR NZ,PTRFIL_1                   ; $07FC  20 66
-        LD L,C                           ; $07FE  69
-        LD L,H                           ; $07FF  6C
-SUB_0752_19:
-        LD H,L                           ; $0800  65
-        NOP                              ; $0801  00
-        LD D,H                           ; $0802  54
-        LD L,A                           ; $0803  6F
-        LD L,A                           ; $0804  6F
-        JR NZ,FILTAB_1                   ; $0805  20 6D
-        LD H,C                           ; $0807  61
-        LD L,(HL)                        ; $0808  6E
-SUB_0752_20:
-        LD A,C                           ; $0809  79
-        JR NZ,FILTAB_SLOT0_SEED_1        ; $080A  20 66
-        LD L,C                           ; $080C  69
-        LD L,H                           ; $080D  6C
-        LD H,L                           ; $080E  65
-        LD (HL),E                        ; $080F  73
-        NOP                              ; $0810  00
-        LD B,H                           ; $0811  44
-        LD L,C                           ; $0812  69
-        LD (HL),E                        ; $0813  73
-        LD L,E                           ; $0814  6B
-        JR NZ,TXTTAB                     ; $0815  20 52
-        LD H,L                           ; $0817  65
-        LD H,C                           ; $0818  61
-        LD H,H                           ; $0819  64
-SUB_0752_21:
-        JR NZ,TXTTAB_1                   ; $081A  20 4F
-        LD L,(HL)                        ; $081C  6E
-        LD L,H                           ; $081D  6C
-SUB_0752_22:
-        LD A,C                           ; $081E  79
-        NOP                              ; $081F  00
-        LD B,H                           ; $0820  44
-        LD (HL),D                        ; $0821  72
-        LD L,C                           ; $0822  69
-        HALT                             ; $0823  76
-SUB_0752_23:
-        LD H,L                           ; $0824  65
-        JR NZ,FILTAB_8                   ; $0825  20 73
-        LD H,L                           ; $0827  65
-        LD L,H                           ; $0828  6C
-SUB_0752_24:
-        LD H,L                           ; $0829  65
-        LD H,E                           ; $082A  63
-        LD (HL),H                        ; $082B  74
-        JR NZ,FILTAB_4                   ; $082C  20 65
-        LD (HL),D                        ; $082E  72
-SUB_0752_25:
-        LD (HL),D                        ; $082F  72
-        LD L,A                           ; $0830  6F
-        LD (HL),D                        ; $0831  72
-        NOP                              ; $0832  00
-        LD B,(HL)                        ; $0833  46
-        LD L,C                           ; $0834  69
-        LD L,H                           ; $0835  6C
-        LD H,L                           ; $0836  65
-        JR NZ,FILTAB_2                   ; $0837  20 52
-        LD H,L                           ; $0839  65
-        LD H,C                           ; $083A  61
-        LD H,H                           ; $083B  64
-        JR NZ,FILTAB_3                   ; $083C  20 4F
-SUB_0752_26:
-        LD L,(HL)                        ; $083E  6E
-        LD L,H                           ; $083F  6C
-        LD A,C                           ; $0840  79
-SUB_0752_27:
-        NOP                              ; $0841  00
+        DEFB    "Division by zero",$00   ; $05D0  ERR_DIVISION_BY_ZERO = 11
+        DEFB    "Illegal direct",$00     ; $05E1  ERR_ILLEGAL_DIRECT = 12
+        DEFB    "Type mismatch",$00      ; $05F0  ERR_TYPE_MISMATCH = 13
+        DEFB    "Out of string space",$00  ; $05FE  ERR_OUT_OF_STRING_SPACE = 14
+        DEFB    "String too long",$00    ; $0612  ERR_STRING_TOO_LONG = 15
+        DEFB    "String formula too complex",$00  ; $0622  ERR_STRING_FORMULA_TOO_COMPLEX = 16
+        DEFB    "Can't continue",$00     ; $063D  ERR_CANT_CONTINUE = 17
+        DEFB    "Undefined user function",$00  ; $064C  ERR_UNDEFINED_USER_FUNCTION = 18
+        DEFB    "No RESUME",$00          ; $0664  ERR_NO_RESUME = 19
+        DEFB    "RESUME without error",$00  ; $066E  ERR_RESUME_WITHOUT_ERROR = 20
+        DEFB    "Unprintable error",$00  ; $0683  ERR_UNPRINTABLE_ERROR = 21
+        DEFB    "Missing operand",$00    ; $0695  ERR_MISSING_OPERAND = 22
+        DEFB    "Line buffer overflow",$00  ; $06A5  ERR_LINE_BUFFER_OVERFLOW = 23
+        DEFB    "?",$00                  ; $06BA  ERR_UNUSED_24 = 24
+        DEFB    "?",$00                  ; $06BC  ERR_UNUSED_25 = 25
+        DEFB    "FOR Without NEXT",$00   ; $06BE  ERR_FOR_WITHOUT_NEXT = 26
+        DEFB    "?",$00                  ; $06CF  ERR_UNUSED_27 = 27
+        DEFB    "?",$00                  ; $06D1  ERR_UNUSED_28 = 28
+        DEFB    "WHILE without WEND",$00 ; $06D3  ERR_WHILE_WITHOUT_WEND = 29
+        DEFB    "WEND without WHILE",$00 ; $06E6  ERR_WEND_WITHOUT_WHILE = 30
+        DEFB    "Reset error",$00        ; $06F9  ERR_RESET_ERROR = 31
+        DEFB    "Graphics statement not implemented",$00  ; $0705  ERR_GRAPHICS_STATEMENT_NOT_IMPLEMENTED = 32
+        DEFB    "FIELD overflow",$00     ; $0728  ERR_FIELD_OVERFLOW = 50
+        DEFB    "Internal error",$00     ; $0737  ERR_INTERNAL_ERROR = 51
+        DEFB    "Bad file number",$00    ; $0746  ERR_BAD_FILE_NUMBER = 52
+        DEFB    "File not found",$00     ; $0756  ERR_FILE_NOT_FOUND = 53
+        DEFB    "Bad file mode",$00      ; $0765  ERR_BAD_FILE_MODE = 54
+        DEFB    "File already open",$00  ; $0773  ERR_FILE_ALREADY_OPEN = 55
+        DEFB    "?",$00                  ; $0785  ERR_UNUSED_56 = 56
+        DEFB    "Disk I/O error",$00     ; $0787  ERR_DISK_I_O_ERROR = 57
+        DEFB    "File already exists",$00  ; $0796  ERR_FILE_ALREADY_EXISTS = 58
+        DEFB    "?",$00                  ; $07AA  ERR_UNUSED_59 = 59
+        DEFB    "?",$00                  ; $07AC  ERR_UNUSED_60 = 60
+        DEFB    "Disk full",$00          ; $07AE  ERR_DISK_FULL = 61
+        DEFB    "Input past end",$00     ; $07B8  ERR_INPUT_PAST_END = 62
+        DEFB    "Bad record number",$00  ; $07C7  ERR_BAD_RECORD_NUMBER = 63
+        DEFB    "Bad file name",$00      ; $07D9  ERR_BAD_FILE_NAME = 64
+        DEFB    "?",$00                  ; $07E7  ERR_UNUSED_65 = 65
+        DEFB    "Direct statement in file",$00  ; $07E9  ERR_DIRECT_STATEMENT_IN_FILE = 66
+        DEFB    "Too many files",$00     ; $0802  ERR_TOO_MANY_FILES = 67
+        DEFB    "Disk Read Only",$00     ; $0811  ERR_DISK_READ_ONLY = 68
+        DEFB    "Drive select error",$00 ; $0820  ERR_DRIVE_SELECT_ERROR = 69
+        DEFB    "File Read Only",$00     ; $0833  ERR_FILE_READ_ONLY = 70
 SUB_0752_28:
         EX DE,HL                         ; $0842  EB
         INC D                            ; $0843  14
@@ -1863,11 +1395,11 @@ OLDTXT:
 SAVSTK:
         NOP                              ; $0B81  00
         NOP                              ; $0B82  00
-; [RE] Error-handler saved text pointer: ERROR_DISPATCH stores SAVTXT ($0844) here ($0D8C); the message printer reads it ($0DFC/$0E00) to decide direct vs '? ... in <line>'; RESUME reloads it into SAVTXT ($36B5).
+; [RE] Error-handler saved text pointer: RAISE_ERROR stores SAVTXT ($0844) here ($0D8C); the message printer reads it ($0DFC/$0E00) to decide direct vs '? ... in <line>'; RESUME reloads it into SAVTXT ($36B5).
 ERR_SAVTXT:
         NOP                              ; $0B83  00
         NOP                              ; $0B84  00
-; [RE] Saved program line of the last error (MS BASIC ERRLIN): ERROR_DISPATCH records the offending line ($0D9B) for ERR/ERL reporting; LINGET '.' shortcut substitutes it as the current line number ($34D9).
+; [RE] Saved program line of the last error (MS BASIC ERRLIN): RAISE_ERROR records the offending line ($0D9B) for ERR/ERL reporting; LINGET '.' shortcut substitutes it as the current line number ($34D9).
 ERRLIN:
         NOP                              ; $0B85  00
         NOP                              ; $0B86  00
@@ -2226,7 +1758,7 @@ FILE_RECLEN_DEFAULT:
 ; 'Running a stored program' / protected-program flag (MBASIC equiv of GBASIC's $0C99, +$23 shift). COLD_START and CLEAR_VARS clear it; ILLEGAL_DIRECT_CHECK ($5E2B) tests it (zero => Illegal direct error). LOAD/MERGE sets it to $FE (the SAVE,P protected marker) then triggers PROG_SCRAMBLE. Was L_0CBC. [RE]
 RUNNING_PROG_FLAG:
         NOP                              ; $0CBC  00
-; [RE] CHAIN/ON-ERROR 'preserve variables' flag: CHAIN-with-ALL and CHAIN set it ($72BA/$72C7) so the CLEAR storage reset skips clearing variable space ($6894 test); ERROR_DISPATCH clears it ($0D90); cold-start zeroes it.
+; [RE] CHAIN/ON-ERROR 'preserve variables' flag: CHAIN-with-ALL and CHAIN set it ($72BA/$72C7) so the CLEAR storage reset skips clearing variable space ($6894 test); RAISE_ERROR clears it ($0D90); cold-start zeroes it.
 CHAIN_PRESERVE_FLAG:
         NOP                              ; $0CBD  00
 CHAIN_PRESERVE_FLAG_1:
@@ -2237,7 +1769,7 @@ CHAIN_PRESERVE_FLAG_2:
 CHAIN_PRESERVE_FLAG_3:
         NOP                              ; $0CC1  00
         NOP                              ; $0CC2  00
-; [RE] CHAIN-in-progress / break-pause flag: set to 1 during CHAIN string-var move ($752C) so the CLEAR reset preserves the string heap ($68CC test); also the Ctrl-C/list-pause flag polled by the auto-page LIST 'more' handler ($673B). Cleared by ERROR_DISPATCH and cold-start.
+; [RE] CHAIN-in-progress / break-pause flag: set to 1 during CHAIN string-var move ($752C) so the CLEAR reset preserves the string heap ($68CC test); also the Ctrl-C/list-pause flag polled by the auto-page LIST 'more' handler ($673B). Cleared by RAISE_ERROR and cold-start.
 CHAIN_BREAK_FLAG:
         NOP                              ; $0CC3  00
 CHAIN_BREAK_FLAG_1:
@@ -2413,7 +1945,7 @@ CONT_CMD:
         JR NZ,ERROR_DISPATCH             ; $0D5F  20 4B
 CONT_CMD_1:
         JP STMT_END_3                    ; $0D61  C3 E7 45
-; Named-error entry stubs: each loads an error code into E (LD E,n via the $1E opcode of the next LD BC) then falls through to ERROR_DISPATCH at $0D89. Overlapping table of error vectors.
+; Named-error entry stubs: each loads an error code into E (LD E,n via the $1E opcode of the next LD BC) then falls through to RAISE_ERROR at $0D89. Overlapping table of error vectors.
 ERR_CODED_ENTRY:
         LD E,$3D                         ; $0D64  1E 3D
 ERR_CODED_ENTRY_1:
@@ -2444,7 +1976,7 @@ ERR_CODED_ENTRY_11:
 CONT_RESUME_RESTORE:
         LD HL,(DATA_LINE_TXTPTR)         ; $0D8C  2A 73 0B
         LD (SAVTXT),HL                   ; $0D8F  22 67 08
-; Syntax-error entry: LD E,$02 then fall through the coded-error table into ERROR_DISPATCH ($0D89). Common target of statement parsers (JP $0D6F).
+; Syntax-error entry: LD E,$02 then fall through the coded-error table into RAISE_ERROR ($0D89). Common target of statement parsers (JP $0D6F).
 ERROR_SYNTAX:
         LD E,$02                         ; $0D92  1E 02
 ERROR_SYNTAX_1:
@@ -2516,7 +2048,7 @@ ERROR_REPORT_BODY_2:
         LD E,C                           ; $0DFB  59
         LD (CTRL_O_SUPPRESS),A           ; $0DFC  32 62 08
         CALL PRINT_CRLF_IF_COL           ; $0DFF  CD F9 43
-        LD HL,OPERATOR_ROUTINE_TBL+40    ; $0E02  21 21 05
+        LD HL,ERROR_MESSAGE_TABLE        ; $0E02  21 21 05
         LD A,E                           ; $0E05  7B
         CP $47                           ; $0E06  FE 47
         JR NC,ERROR_REPORT_BODY_3        ; $0E08  30 08
@@ -2543,7 +2075,7 @@ ERROR_RESUME_FROM_DIRECT:
         CP $3F                           ; $0E24  FE 3F
         JR NZ,STOP_BREAK                 ; $0E26  20 06
         POP HL                           ; $0E28  E1
-        LD HL,OPERATOR_ROUTINE_TBL+40    ; $0E29  21 21 05
+        LD HL,ERROR_MESSAGE_TABLE        ; $0E29  21 21 05
         JR ERROR_REPORT_BODY_3           ; $0E2C  18 E4
 ; [RE] STOP/Ctrl-C break: print 'Break' message ($6C40 STROUT), compute/print the current line number, then fall into the READY prompt and NEWSTT main loop.
 STOP_BREAK:

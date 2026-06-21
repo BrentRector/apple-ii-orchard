@@ -411,110 +411,72 @@ OPERATOR_ROUTINE_TBL:
         DEFW    IMUL                     ; $051B
         DEFW    IDIV                     ; $051D
         DEFW    INT16_COMP               ; $051F
-        DEFB    $00                      ; $0521
-        DEFB    "NEXT without FOR"       ; $0522  string
-        DEFB    $00                      ; $0532  terminator
-        DEFB    "Syntax error"           ; $0533  string
-        DEFB    $00                      ; $053F  terminator
-        DEFB    "RETURN without GOSUB"   ; $0540  string
-        DEFB    $00                      ; $0554  terminator
-        DEFB    "Out of DATA"            ; $0555  string
-        DEFB    $00                      ; $0560  terminator
-        DEFB    "Illegal function call"  ; $0561  string
-        DEFB    $00                      ; $0576  terminator
+; -- Error-message table. RAISE_ERROR ($0D89) is entered with the error code in E.
+;    The base ERROR_MESSAGE_TABLE ($0521) is a $00 = the empty message 0; the printer
+;    scans E terminators forward from it, so code E selects the E-th message (err 1 =
+;    'NEXT without FOR'). BASIC errors are codes 1..N; the disk errors (FIELD overflow
+;    on) are remapped to codes 50..70 (the scan does CP $32 / SUB $12). Codes are the
+;    ERR_* equates (msbasic_errors.inc); messages are not individually referenced, so
+;    only the few a trap loads by pointer keep an ERRMSG_* label.
+; [RE] Error-message table base AND the direct-mode empty message: the $00 here is error message 0 (the scan base) and is also printed by ERROR_RESUME_FROM_DIRECT as the empty '?<>' direct-mode error text.
+ERROR_MESSAGE_TABLE:
+        DEFB    $00                      ; $0521  err 0 (empty message, scan base)
+        DEFB    "NEXT without FOR",$00   ; $0522  ERR_NEXT_WITHOUT_FOR = 1
+        DEFB    "Syntax error",$00       ; $0533  ERR_SYNTAX_ERROR = 2
+        DEFB    "RETURN without GOSUB",$00  ; $0540  ERR_RETURN_WITHOUT_GOSUB = 3
+        DEFB    "Out of DATA",$00        ; $0555  ERR_OUT_OF_DATA = 4
+        DEFB    "Illegal function call",$00  ; $0561  ERR_ILLEGAL_FUNCTION_CALL = 5
 ; [RE] Error message string "Overflow" (error $06): loaded by the error reporter; the overflow trap also sets the current-message pointer ($0848) to it.
 ERRMSG_OVERFLOW:
-        DEFB    "Overflow"               ; $0577  string
-        DEFB    $00                      ; $057F  terminator
-        DEFB    "Out of memory"          ; $0580  string
-        DEFB    $00                      ; $058D  terminator
-        DEFB    "Undefined line number"  ; $058E  string
-        DEFB    $00                      ; $05A3  terminator
-        DEFB    "Subscript out of range" ; $05A4  string
-        DEFB    $00                      ; $05BA  terminator
-        DEFB    $44,$75,$70,$6C,$69,$63,$61,$74,$65,$20,$44  ; $05BB
-        DEFB    "efiniti"                ; $05C6  string
-        DEFB    $6F,$6E,$00              ; $05CD
+        DEFB    "Overflow",$00           ; $0577  ERR_OVERFLOW = 6
+        DEFB    "Out of memory",$00      ; $0580  ERR_OUT_OF_MEMORY = 7
+        DEFB    "Undefined line number",$00  ; $058E  ERR_UNDEFINED_LINE_NUMBER = 8
+        DEFB    "Subscript out of range",$00  ; $05A4  ERR_SUBSCRIPT_OUT_OF_RANGE = 9
+        DEFB    "Duplicate Definition",$00  ; $05BB  ERR_DUPLICATE_DEFINITION = 10
 ; [RE] Error message string "Division by zero" (error $0B): the FP divide-by-zero path stores this pointer into the current-error-message cell ($0848).
 ERRMSG_DIVISION_BY_ZERO:
-        DEFB    $44                      ; $05D0
-        DEFB    "ivision by zero"        ; $05D1  string
-        DEFB    $00                      ; $05E0  terminator
-        DEFB    "Illegal direct"         ; $05E1  string
-        DEFB    $00                      ; $05EF  terminator
-        DEFB    "Type mismatch"          ; $05F0  string
-        DEFB    $00                      ; $05FD  terminator
-        DEFB    $4F,$75,$74,$20,$6F      ; $05FE
-        DEFB    "f string space"         ; $0603  string
-        DEFB    $00                      ; $0611  terminator
-        DEFB    $53,$74,$72,$69,$6E,$67  ; $0612
-        DEFB    " too l"                 ; $0618  string
-        DEFB    $6F,$6E,$67,$00,$53,$74,$72,$69,$6E,$67  ; $061E
-        DEFB    " formula too complex"   ; $0628  string
-        DEFB    $00                      ; $063C  terminator
-        DEFB    "Can't continue"         ; $063D  string
-        DEFB    $00                      ; $064B  terminator
-        DEFB    "Undefined user function"  ; $064C  string
-        DEFB    $00                      ; $0663  terminator
-        DEFB    $4E,$6F,$20,$52,$45,$53  ; $0664
-        DEFB    $55,$4D,$45,$00          ; $066A
-        DEFB    "RESUME without error"   ; $066E  string
-        DEFB    $00                      ; $0682  terminator
-        DEFB    "Unprintable error"      ; $0683  string
-        DEFB    $00                      ; $0694  terminator
-        DEFB    "Missing operand"        ; $0695  string
-        DEFB    $00                      ; $06A4  terminator
-        DEFB    "Line buffer overflow"   ; $06A5  string
-        DEFB    $00                      ; $06B9  terminator
-        DEFB    $3F,$00,$3F,$00          ; $06BA
-        DEFB    "FOR Without NEXT"       ; $06BE  string
-        DEFB    $00                      ; $06CE  terminator
-        DEFB    $3F,$00,$3F,$00          ; $06CF
-        DEFB    "WHILE without WEND"     ; $06D3  string
-        DEFB    $00                      ; $06E5  terminator
-        DEFB    "WEND without WHILE"     ; $06E6  string
-        DEFB    $00                      ; $06F8  terminator
-        DEFB    $52,$65,$73,$65,$74,$20,$65  ; $06F9
-        DEFB    "rror"                   ; $0700  string
-        DEFB    $00                      ; $0704  terminator
-        DEFB    "FIELD overflow"         ; $0705  string
-        DEFB    $00                      ; $0713  terminator
-        DEFB    $49,$6E,$74,$65,$72,$6E,$61,$6C,$20,$65,$72,$72  ; $0714
-        DEFB    $6F,$72,$00              ; $0720
-        DEFB    "Bad file number"        ; $0723  string
-        DEFB    $00                      ; $0732  terminator
-        DEFB    $46,$69,$6C,$65,$20,$6E,$6F,$74,$20,$66,$6F  ; $0733
-        DEFB    $75,$6E,$64,$00          ; $073E
-        DEFB    "Bad file mode"          ; $0742  string
-        DEFB    $00                      ; $074F  terminator
-        DEFB    "File already open"      ; $0750  string
-        DEFB    $00                      ; $0761  terminator
-        DEFB    $3F,$00                  ; $0762
-        DEFB    "Disk I/O error"         ; $0764  string
-        DEFB    $00                      ; $0772  terminator
-        DEFB    "File already exists"    ; $0773  string
-        DEFB    $00                      ; $0786  terminator
-        DEFB    $3F,$00,$3F,$00          ; $0787
-        DEFB    "Disk full"              ; $078B  string
-        DEFB    $00                      ; $0794  terminator
-        DEFB    "Input past end"         ; $0795  string
-        DEFB    $00                      ; $07A3  terminator
-        DEFB    "Bad record number"      ; $07A4  string
-        DEFB    $00                      ; $07B5  terminator
-        DEFB    "Bad file name"          ; $07B6  string
-        DEFB    $00                      ; $07C3  terminator
-        DEFB    $3F,$00                  ; $07C4
-        DEFB    "Direct statement in file"  ; $07C6  string
-        DEFB    $00                      ; $07DE  terminator
-        DEFB    "Too many files"         ; $07DF  string
-        DEFB    $00                      ; $07ED  terminator
-        DEFB    "Disk Read Only"         ; $07EE  string
-        DEFB    $00                      ; $07FC  terminator
-        DEFB    $44,$72,$69              ; $07FD
-        DEFB    "ve select error"        ; $0800  string
-        DEFB    $00                      ; $080F  terminator
-        DEFB    "File Read Only"         ; $0810  string
-        DEFB    $00                      ; $081E  terminator
+        DEFB    "Division by zero",$00   ; $05D0  ERR_DIVISION_BY_ZERO = 11
+        DEFB    "Illegal direct",$00     ; $05E1  ERR_ILLEGAL_DIRECT = 12
+        DEFB    "Type mismatch",$00      ; $05F0  ERR_TYPE_MISMATCH = 13
+        DEFB    "Out of string space",$00  ; $05FE  ERR_OUT_OF_STRING_SPACE = 14
+        DEFB    "String too long",$00    ; $0612  ERR_STRING_TOO_LONG = 15
+        DEFB    "String formula too complex",$00  ; $0622  ERR_STRING_FORMULA_TOO_COMPLEX = 16
+        DEFB    "Can't continue",$00     ; $063D  ERR_CANT_CONTINUE = 17
+        DEFB    "Undefined user function",$00  ; $064C  ERR_UNDEFINED_USER_FUNCTION = 18
+        DEFB    "No RESUME",$00          ; $0664  ERR_NO_RESUME = 19
+        DEFB    "RESUME without error",$00  ; $066E  ERR_RESUME_WITHOUT_ERROR = 20
+        DEFB    "Unprintable error",$00  ; $0683  ERR_UNPRINTABLE_ERROR = 21
+        DEFB    "Missing operand",$00    ; $0695  ERR_MISSING_OPERAND = 22
+        DEFB    "Line buffer overflow",$00  ; $06A5  ERR_LINE_BUFFER_OVERFLOW = 23
+        DEFB    "?",$00                  ; $06BA  ERR_UNUSED_24 = 24
+        DEFB    "?",$00                  ; $06BC  ERR_UNUSED_25 = 25
+        DEFB    "FOR Without NEXT",$00   ; $06BE  ERR_FOR_WITHOUT_NEXT = 26
+        DEFB    "?",$00                  ; $06CF  ERR_UNUSED_27 = 27
+        DEFB    "?",$00                  ; $06D1  ERR_UNUSED_28 = 28
+        DEFB    "WHILE without WEND",$00 ; $06D3  ERR_WHILE_WITHOUT_WEND = 29
+        DEFB    "WEND without WHILE",$00 ; $06E6  ERR_WEND_WITHOUT_WHILE = 30
+        DEFB    "Reset error",$00        ; $06F9  ERR_RESET_ERROR = 31
+        DEFB    "FIELD overflow",$00     ; $0705  ERR_FIELD_OVERFLOW = 50
+        DEFB    "Internal error",$00     ; $0714  ERR_INTERNAL_ERROR = 51
+        DEFB    "Bad file number",$00    ; $0723  ERR_BAD_FILE_NUMBER = 52
+        DEFB    "File not found",$00     ; $0733  ERR_FILE_NOT_FOUND = 53
+        DEFB    "Bad file mode",$00      ; $0742  ERR_BAD_FILE_MODE = 54
+        DEFB    "File already open",$00  ; $0750  ERR_FILE_ALREADY_OPEN = 55
+        DEFB    "?",$00                  ; $0762  ERR_UNUSED_56 = 56
+        DEFB    "Disk I/O error",$00     ; $0764  ERR_DISK_I_O_ERROR = 57
+        DEFB    "File already exists",$00  ; $0773  ERR_FILE_ALREADY_EXISTS = 58
+        DEFB    "?",$00                  ; $0787  ERR_UNUSED_59 = 59
+        DEFB    "?",$00                  ; $0789  ERR_UNUSED_60 = 60
+        DEFB    "Disk full",$00          ; $078B  ERR_DISK_FULL = 61
+        DEFB    "Input past end",$00     ; $0795  ERR_INPUT_PAST_END = 62
+        DEFB    "Bad record number",$00  ; $07A4  ERR_BAD_RECORD_NUMBER = 63
+        DEFB    "Bad file name",$00      ; $07B6  ERR_BAD_FILE_NAME = 64
+        DEFB    "?",$00                  ; $07C4  ERR_UNUSED_65 = 65
+        DEFB    "Direct statement in file",$00  ; $07C6  ERR_DIRECT_STATEMENT_IN_FILE = 66
+        DEFB    "Too many files",$00     ; $07DF  ERR_TOO_MANY_FILES = 67
+        DEFB    "Disk Read Only",$00     ; $07EE  ERR_DISK_READ_ONLY = 68
+        DEFB    "Drive select error",$00 ; $07FD  ERR_DRIVE_SELECT_ERROR = 69
+        DEFB    "File Read Only",$00     ; $0810  ERR_FILE_READ_ONLY = 70
         DEFB    $D0,$34,$D0,$34,$D0,$34,$D0,$34,$D0,$34,$D0,$34,$D0,$34,$D0,$34  ; $081F
         DEFB    $D0,$34,$D0,$34,$01,$00  ; $082F
 ; [RE] Active-error/RESUME state flag (MS BASIC ERRFLG): ON-ERROR loads it as the in-effect error code E ($3669); RESUME stores INC'd value ($3695); cold-start zeroes it ($826E). Same byte reused as the LIST/EDIT mode flag by the EDIT line resolver ($625D).
@@ -572,10 +534,10 @@ OLDTXT:
 ; [RE] Saved stack pointer (MS BASIC SAVSTK): written via LD ($0B5E),SP at NEWSTT ($3377) and cold-start; restored to SP on error-recovery / FOR-stack unwinding (e.g. STMT_CALL_6 $72AF) to discard pending expression frames.
 SAVSTK:
         DEFB    $00,$00                  ; $0B5E
-; [RE] Error-handler saved text pointer: ERROR_DISPATCH stores SAVTXT ($0844) here ($0D8C); the message printer reads it ($0DFC/$0E00) to decide direct vs '? ... in <line>'; RESUME reloads it into SAVTXT ($36B5).
+; [RE] Error-handler saved text pointer: RAISE_ERROR stores SAVTXT ($0844) here ($0D8C); the message printer reads it ($0DFC/$0E00) to decide direct vs '? ... in <line>'; RESUME reloads it into SAVTXT ($36B5).
 ERR_SAVTXT:
         DEFB    $00,$00                  ; $0B60
-; [RE] Saved program line of the last error (MS BASIC ERRLIN): ERROR_DISPATCH records the offending line ($0D9B) for ERR/ERL reporting; LINGET '.' shortcut substitutes it as the current line number ($34D9).
+; [RE] Saved program line of the last error (MS BASIC ERRLIN): RAISE_ERROR records the offending line ($0D9B) for ERR/ERL reporting; LINGET '.' shortcut substitutes it as the current line number ($34D9).
 ERRLIN:
         DEFB    $00,$00                  ; $0B62
 ; [RE] Saved current-statement text pointer for RESUME (copy of OLDTXT, stashed by the error reporter at $0DB0); RESUME ($36AE) reloads it to re-execute the statement that errored.
@@ -610,10 +572,10 @@ RAM_DISPATCH_TRAMPOLINE:
         PUSH DE                          ; $0C79  D5
         JP (HL)                          ; $0C7A  E9
         DEFS    31, $00                  ; $0C7B  fill
-; [RE] CHAIN/ON-ERROR 'preserve variables' flag: CHAIN-with-ALL and CHAIN set it ($72BA/$72C7) so the CLEAR storage reset skips clearing variable space ($6894 test); ERROR_DISPATCH clears it ($0D90); cold-start zeroes it.
+; [RE] CHAIN/ON-ERROR 'preserve variables' flag: CHAIN-with-ALL and CHAIN set it ($72BA/$72C7) so the CLEAR storage reset skips clearing variable space ($6894 test); RAISE_ERROR clears it ($0D90); cold-start zeroes it.
 CHAIN_PRESERVE_FLAG:
         DEFB    $00,$00,$00,$00,$00,$00  ; $0C9A
-; [RE] CHAIN-in-progress / break-pause flag: set to 1 during CHAIN string-var move ($752C) so the CLEAR reset preserves the string heap ($68CC test); also the Ctrl-C/list-pause flag polled by the auto-page LIST 'more' handler ($673B). Cleared by ERROR_DISPATCH and cold-start.
+; [RE] CHAIN-in-progress / break-pause flag: set to 1 during CHAIN string-var move ($752C) so the CLEAR reset preserves the string heap ($68CC test); also the Ctrl-C/list-pause flag polled by the auto-page LIST 'more' handler ($673B). Cleared by RAISE_ERROR and cold-start.
 CHAIN_BREAK_FLAG:
         DEFS    77, $00                  ; $0CA0  fill
         DEFB    " in "                   ; $0CED  string
@@ -671,10 +633,10 @@ CONT_CMD:
         LD A,(ONEFLG)                    ; $0D36  3A 68 0B
         OR A                             ; $0D39  B7
         LD E,$13                         ; $0D3A  1E 13
-        JR NZ,ERROR_DISPATCH             ; $0D3C  20 4B
+        JR NZ,RAISE_ERROR                ; $0D3C  20 4B
 CONT_CMD_1:
         JP RESUME_AT_DIRECT              ; $0D3E  C3 69 69
-; Named-error entry stubs: each loads an error code into E (LD E,n via the $1E opcode of the next LD BC) then falls through to ERROR_DISPATCH at $0D89. Overlapping table of error vectors.
+; Named-error entry stubs: each loads an error code into E (LD E,n via the $1E opcode of the next LD BC) then falls through to RAISE_ERROR at $0D89. Overlapping table of error vectors.
 ERR_CODED_ENTRY:
         LD E,$3D                         ; $0D41  1E 3D
 ERR_CODED_ENTRY_1:
@@ -700,12 +662,12 @@ ERR_CODED_ENTRY_10:
         LD BC,$431E                      ; $0D61  01 1E 43
 ERR_CODED_ENTRY_11:
         LD BC,$3A1E                      ; $0D64  01 1E 3A
-        JR ERROR_DISPATCH                ; $0D67  18 20
+        JR RAISE_ERROR                   ; $0D67  18 20
 ; [RE] Restore saved program pointer ($0B50 -> $0844) on the no-continue path before re-entering the error/ready flow.
 CONT_RESUME_RESTORE:
         LD HL,(DATA_LINE_TXTPTR)         ; $0D69  2A 50 0B
         LD (SAVTXT),HL                   ; $0D6C  22 44 08
-; Syntax-error entry: LD E,$02 then fall through the coded-error table into ERROR_DISPATCH ($0D89). Common target of statement parsers (JP $0D6F).
+; Syntax-error entry: LD E,$02 then fall through the coded-error table into RAISE_ERROR ($0D89). Common target of statement parsers (JP $0D6F).
 ERROR_SYNTAX:
         LD E,$02                         ; $0D6F  1E 02
 ERROR_SYNTAX_1:
@@ -724,8 +686,8 @@ ERROR_SYNTAX_7:
         LD BC,$161E                      ; $0D83  01 1E 16
 ERROR_SYNTAX_8:
         LD BC,$0D1E                      ; $0D86  01 1E 0D
-; ERROR handler: saves current text ptr to $0B60, clears trap state ($0C9A/$0CA0), records resume line $0B62, then prints '?<msg> Error[ in line]' and returns to direct mode via $68F4.
-ERROR_DISPATCH:
+; [RE] Raise/report error #E (entered with the error code in E). Saves the current text pointer (SAVTXT) to ERR_SAVTXT, clears the ON-ERROR/CHAIN flags (CHAIN_PRESERVE_FLAG / CHAIN_BREAK_FLAG), records the offending line in ERRLIN, then either dispatches to the ON ERROR handler or prints '?<message> Error[ in <line>]' and returns to direct mode via RESET_RUN_STATE. The message is found by scanning E entries from ERROR_MESSAGE_TABLE; the error codes are the ERR_* equates.
+RAISE_ERROR:
         LD HL,(SAVTXT)                   ; $0D89  2A 44 08
         LD (ERR_SAVTXT),HL               ; $0D8C  22 60 0B
         XOR A                            ; $0D8F  AF
@@ -776,7 +738,7 @@ ERROR_REPORT_BODY_2:
         LD E,C                           ; $0DD8  59
         LD (CTRL_O_SUPPRESS),A           ; $0DD9  32 3F 08
         CALL PRINT_CRLF_IF_COL           ; $0DDC  CD 7B 67
-        LD HL,OPERATOR_ROUTINE_TBL+40    ; $0DDF  21 21 05
+        LD HL,ERROR_MESSAGE_TABLE        ; $0DDF  21 21 05
         LD A,E                           ; $0DE2  7B
         CP $47                           ; $0DE3  FE 47
         JR NC,ERROR_REPORT_BODY_3        ; $0DE5  30 08
@@ -804,7 +766,7 @@ ERROR_RESUME_FROM_DIRECT:
         CP $3F                           ; $0E01  FE 3F
         JR NZ,STOP_BREAK                 ; $0E03  20 06
         POP HL                           ; $0E05  E1
-        LD HL,OPERATOR_ROUTINE_TBL+40    ; $0E06  21 21 05
+        LD HL,ERROR_MESSAGE_TABLE        ; $0E06  21 21 05
         JR ERROR_REPORT_BODY_3           ; $0E09  18 E4
 ; [RE] STOP/Ctrl-C break: print 'Break' message ($6C40 STROUT), compute/print the current line number, then fall into the READY prompt and NEWSTT main loop.
 STOP_BREAK:
@@ -1512,7 +1474,7 @@ CRUNCH_EMIT:
         RET NZ                           ; $3239  C0
 CRUNCH_EMIT_1:
         LD E,$17                         ; $323A  1E 17
-        JP ERROR_DISPATCH                ; $323C  C3 89 0D
+        JP RAISE_ERROR                   ; $323C  C3 89 0D
 CRUNCH_EMIT_2:
         POP HL                           ; $323F  E1
         DEC HL                           ; $3240  2B
@@ -1933,10 +1895,10 @@ GETINT_CHRGET_POS:
 GETINT_POSITIVE:
         CALL GETINT                      ; $34CC  CD 88 40
         RET P                            ; $34CF  F0
-; [RE] 'Illegal function call' (FC, error $05) trap: LD E,$05; JP ERROR_DISPATCH. Common target of the range/argument guards throughout the interpreter.
+; [RE] 'Illegal function call' (FC, error $05) trap: LD E,$05; JP RAISE_ERROR. Common target of the range/argument guards throughout the interpreter.
 ERROR_FC:
         LD E,$05                         ; $34D0  1E 05
-        JP ERROR_DISPATCH                ; $34D2  C3 89 0D
+        JP RAISE_ERROR                   ; $34D2  C3 89 0D
 ; [RE] LINGET entry handling the '.' shortcut: if current char is '.' ($2E) substitute the current line number from $0B62 and CHRGET past it; otherwise fall into LINGET to parse an explicit decimal line number into DE.
 LINGET_DOT:
         LD A,(HL)                        ; $34D5  7E
@@ -2045,10 +2007,10 @@ STMT_GOTO_1:
         LD H,B                           ; $3573  60
         LD L,C                           ; $3574  69
         RET                              ; $3575  C9
-; [RE] 'Undefined line number' (error $08) trap: LD E,$08; JP ERROR_DISPATCH. Reached when FNDLIN cannot locate a target line (GOTO/GOSUB/ON/RESUME).
+; [RE] 'Undefined line number' (error $08) trap: LD E,$08; JP RAISE_ERROR. Reached when FNDLIN cannot locate a target line (GOTO/GOSUB/ON/RESUME).
 ERROR_UL:
         LD E,$08                         ; $3576  1E 08
-        JP ERROR_DISPATCH                ; $3578  C3 89 0D
+        JP RAISE_ERROR                   ; $3578  C3 89 0D
 ; [RE] POP statement handler (token $AE): discard the top GOSUB return frame.
 STMT_POP:
         LD ($0B54),HL                    ; $357B  22 54 0B
@@ -2074,7 +2036,7 @@ STMT_RETURN:
         CP $8D                           ; $35A3  FE 8D
 STMT_RETURN_1:
         LD E,$03                         ; $35A5  1E 03
-        JP NZ,ERROR_DISPATCH             ; $35A7  C2 89 0D
+        JP NZ,RAISE_ERROR                ; $35A7  C2 89 0D
         POP HL                           ; $35AA  E1
         LD (SAVTXT),HL                   ; $35AB  22 44 08
         LD HL,STMT_FOR_7                 ; $35AE  21 6B 33
@@ -2268,7 +2230,7 @@ STMT_ERROR:
         RET NZ                           ; $36C9  C0
         OR A                             ; $36CA  B7
         JP Z,ERROR_FC                    ; $36CB  CA D0 34
-        JP ERROR_DISPATCH                ; $36CE  C3 89 0D
+        JP RAISE_ERROR                   ; $36CE  C3 89 0D
 ; [RE] Parse an optional line-number range (default span $000A) via LINGET_DOT/LINGET, store the start/end pointers into the continue/trace cells $0B5A/$0B57/$0B58, then JP $0E3E to re-enter the NEWSTT main loop at that line.
 SCAN_LINE_RANGE_RESUME:
         LD DE,$000A                      ; $36D1  11 0A 00
@@ -2800,7 +2762,7 @@ STMT_READ_11:
         INC HL                           ; $3A50  23
         OR (HL)                          ; $3A51  B6
         LD E,$04                         ; $3A52  1E 04
-        JP Z,ERROR_DISPATCH              ; $3A54  CA 89 0D
+        JP Z,RAISE_ERROR                 ; $3A54  CA 89 0D
         INC HL                           ; $3A57  23
         LD E,(HL)                        ; $3A58  5E
         INC HL                           ; $3A59  23
@@ -3745,7 +3707,7 @@ CHECK_MEM_TOP:
         POP HL                           ; $401F  E1
         RET NZ                           ; $4020  C0
         LD E,$0C                         ; $4021  1E 0C
-        JP ERROR_DISPATCH                ; $4023  C3 89 0D
+        JP RAISE_ERROR                   ; $4023  C3 89 0D
 ; [RE] Fetch and validate a variable-name token after SYNCHR: requires an alphabetic first char (JP PO on letter test), records the name in $0B52, then resolves it via PTRGET (SUB_5F30_2).
 GETVAR_NAME:
         CALL SYNCHR                      ; $4026  CD 25 69
@@ -4558,7 +4520,7 @@ BLOCK_SCAN_FORNEXT_5:
         INC HL                           ; $44D6  23
         OR (HL)                          ; $44D7  B6
         LD E,C                           ; $44D8  59
-        JP Z,ERROR_DISPATCH              ; $44D9  CA 89 0D
+        JP Z,RAISE_ERROR                 ; $44D9  CA 89 0D
         INC HL                           ; $44DC  23
         LD E,(HL)                        ; $44DD  5E
         INC HL                           ; $44DE  23
@@ -5720,16 +5682,16 @@ GFX_STMT_HPLOT_2:
         RET                              ; $4B79  C9
 GFX_STMT_HPLOT_3:
         LD E,$1F                         ; $4B7A  1E 1F
-; [RE] Overlapping error-vector entry (LD E,n via the $1E of the next LD BC). +1 entry $4B7D = LD E,$39 then falls through the $01-prefixed LD BC stubs to the shared tail $4B88 (BDOS fn 14 select-disk reset, JP ERROR_DISPATCH $0D89). LD BC,$391E is the harmless fall-through cover. $4B7D stored into the BIOS-relative vector table at cold-start $821F.
+; [RE] Overlapping error-vector entry (LD E,n via the $1E of the next LD BC). +1 entry $4B7D = LD E,$39 then falls through the $01-prefixed LD BC stubs to the shared tail $4B88 (BDOS fn 14 select-disk reset, JP RAISE_ERROR $0D89). LD BC,$391E is the harmless fall-through cover. $4B7D stored into the BIOS-relative vector table at cold-start $821F.
 GFX_STMT_HPLOT_4:
         LD BC,$391E                      ; $4B7C  01 1E 39
-; [RE] Overlapping error-vector entry: +1 entry $4B80 = LD E,$44 then falls through to the shared BDOS-reset/ERROR_DISPATCH tail at $4B88. LD BC,$441E is the harmless fall-through cover. $4B80 stored into the BIOS-relative vector table at cold-start $822D.
+; [RE] Overlapping error-vector entry: +1 entry $4B80 = LD E,$44 then falls through to the shared BDOS-reset/RAISE_ERROR tail at $4B88. LD BC,$441E is the harmless fall-through cover. $4B80 stored into the BIOS-relative vector table at cold-start $822D.
 GFX_STMT_HPLOT_5:
         LD BC,$441E                      ; $4B7F  01 1E 44
-; [RE] Overlapping error-vector entry: +1 entry $4B83 = LD E,$45 then falls through to the shared BDOS-reset/ERROR_DISPATCH tail at $4B88. LD BC,$451E is the harmless fall-through cover. $4B83 stored into the BIOS-relative vector table at cold-start $8226.
+; [RE] Overlapping error-vector entry: +1 entry $4B83 = LD E,$45 then falls through to the shared BDOS-reset/RAISE_ERROR tail at $4B88. LD BC,$451E is the harmless fall-through cover. $4B83 stored into the BIOS-relative vector table at cold-start $8226.
 GFX_STMT_HPLOT_6:
         LD BC,$451E                      ; $4B82  01 1E 45
-; [RE] Overlapping error-vector entry: +1 entry $4B86 = LD E,$46 then falls straight into the shared BDOS-reset/ERROR_DISPATCH tail at $4B88. LD BC,$461E is the harmless fall-through cover. $4B86 stored into the BIOS-relative vector table at cold-start $8234.
+; [RE] Overlapping error-vector entry: +1 entry $4B86 = LD E,$46 then falls straight into the shared BDOS-reset/RAISE_ERROR tail at $4B88. LD BC,$461E is the harmless fall-through cover. $4B86 stored into the BIOS-relative vector table at cold-start $8234.
 GFX_STMT_HPLOT_7:
         LD BC,$461E                      ; $4B85  01 1E 46
         PUSH DE                          ; $4B88  D5
@@ -5738,7 +5700,7 @@ GFX_STMT_HPLOT_7:
         LD E,A                           ; $4B8E  5F
         CALL $0005                       ; $4B8F  CD 05 00
         POP DE                           ; $4B92  D1
-        JP ERROR_DISPATCH                ; $4B93  C3 89 0D
+        JP RAISE_ERROR                   ; $4B93  C3 89 0D
 GFX_STMT_HPLOT_8:
         NOP                              ; $4B96  00
 GFX_STMT_HPLOT_9:
@@ -9572,7 +9534,7 @@ PTRGET_SEARCH_27:
         JP Z,PTRGET_SEARCH_35            ; $6169  CA EB 61
 PTRGET_SEARCH_28:
         LD DE,$0009                      ; $616C  11 09 00
-        JP ERROR_DISPATCH                ; $616F  C3 89 0D
+        JP RAISE_ERROR                   ; $616F  C3 89 0D
 PTRGET_SEARCH_29:
         INC HL                           ; $6172  23
         LD A,($0871)                     ; $6173  3A 71 08
@@ -10809,7 +10771,7 @@ CHECK_STACK_ROOM_1:
         LD (SAVSTK),HL                   ; $683B  22 5E 0B
 CHECK_STACK_ROOM_2:
         LD DE,$0007                      ; $683E  11 07 00
-        JP ERROR_DISPATCH                ; $6841  C3 89 0D
+        JP RAISE_ERROR                   ; $6841  C3 89 0D
 ; [RE] String free/space guard: if the requested string allocation would collide with the variable space, trigger garbage collection (SUB_6C82) and retry; if still no room raise 'Out of string space' (E=$07/$0E) via $0D89.
 GC_CHECK_AND_COLLECT:
         CALL CMP_STR_VS_VARTOP           ; $6844  CD 57 68
@@ -11061,7 +11023,7 @@ STMT_CONT:
         LD A,H                           ; $69AE  7C
         OR L                             ; $69AF  B5
         LD DE,$0011                      ; $69B0  11 11 00
-        JP Z,ERROR_DISPATCH              ; $69B3  CA 89 0D
+        JP Z,RAISE_ERROR                 ; $69B3  CA 89 0D
         EX DE,HL                         ; $69B6  EB
         LD HL,(SAVED_ERR_TXTPTR)         ; $69B7  2A 6B 0B
         LD (SAVTXT),HL                   ; $69BA  22 44 08
@@ -11509,7 +11471,7 @@ PUT_STR_TEMP_1:
         LD A,(HL)                        ; $6C37  7E
         RET NZ                           ; $6C38  C0
         LD DE,$0010                      ; $6C39  11 10 00
-        JP ERROR_DISPATCH                ; $6C3C  C3 89 0D
+        JP RAISE_ERROR                   ; $6C3C  C3 89 0D
 PUT_STR_TEMP_2:
         INC HL                           ; $6C3F  23
 
@@ -11559,7 +11521,7 @@ GETSPA_2:
 GETSPA_3:
         POP AF                           ; $6C75  F1
         LD DE,$000E                      ; $6C76  11 0E 00
-        JP Z,ERROR_DISPATCH              ; $6C79  CA 89 0D
+        JP Z,RAISE_ERROR                 ; $6C79  CA 89 0D
         CP A                             ; $6C7C  BF
         PUSH AF                          ; $6C7D  F5
         LD BC,GETSPA_1+1                 ; $6C7E  01 5A 6C
@@ -11747,7 +11709,7 @@ STR_CONCAT:
         PUSH HL                          ; $6D82  E5
         ADD A,(HL)                       ; $6D83  86
         LD DE,$000F                      ; $6D84  11 0F 00
-        JP C,ERROR_DISPATCH              ; $6D87  DA 89 0D
+        JP C,RAISE_ERROR                 ; $6D87  DA 89 0D
         CALL ALLOC_STR_A                 ; $6D8A  CD DC 6B
         POP DE                           ; $6D8D  D1
         CALL FRESTR1                     ; $6D8E  CD C0 6D
@@ -12599,7 +12561,7 @@ WHILE_FIND_FRAME_3:
 ; [RE] WEND without matching WHILE: raise coded error $1E ('WEND without WHILE') via the error dispatcher at $0D89.
 WEND_NO_WHILE_ERR:
         LD DE,$001E                      ; $722A  11 1E 00
-        JP ERROR_DISPATCH                ; $722D  C3 89 0D
+        JP RAISE_ERROR                   ; $722D  C3 89 0D
 ; [RE] CALL statement handler (token $B1): call an external machine-code routine.
 STMT_CALL:
         LD A,$80                         ; $7230  3E 80
@@ -13586,7 +13548,7 @@ DIRECT_STMT_EXEC:
         LD A,H                           ; $7856  7C
         OR L                             ; $7857  B5
         LD DE,$0042                      ; $7858  11 42 00
-        JP NZ,ERROR_DISPATCH             ; $785B  C2 89 0D
+        JP NZ,RAISE_ERROR                ; $785B  C2 89 0D
         POP HL                           ; $785E  E1
         JP NEWSTT_NEXTLINE_2             ; $785F  C3 A9 33
 ; [RE] SAVE statement handler (token $C4): save the program to disk (tokenized or ASCII).

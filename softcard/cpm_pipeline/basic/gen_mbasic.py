@@ -9,7 +9,7 @@ from pathlib import Path
 from cpm_pipeline.filesystem import read_disk, extract_file
 from cpm_pipeline import reference_data as rd
 from cpm_pipeline.basic._paths import asm_path, overlay_path, seeds_path, load_token_names
-from cpm_pipeline.basic import reswords, lowtables
+from cpm_pipeline.basic import reswords, lowtables, errmsg
 from cpm_pipeline.basic.recover import recover_code
 from cpm_pipeline.basic.fixed_sites import (fixed_operand_sites, cover_idiom_sites,
                                             mid_string_constant_sites)
@@ -129,6 +129,8 @@ def main():
     body = reswords.splice_table_into(body, com)
     body = reswords.apply_reference_renames(body, com)
     body = lowtables.apply(body)               # dispatch/operator table refs -> base+offset
+    body = errmsg.splice_table_into(body, com)        # label every error message
+    body = errmsg.apply_reference_renames(body, com)
 
     out = []
     out.append("; MBASIC.COM -- Microsoft BASIC-80 Rev 5.2 interpreter (graphics OFF), SoftCard CP/M 2.20 (44K).")

@@ -23,8 +23,8 @@ TABLES = [
     (0x0108, 0x01B2, "STMT_DISPATCH_TBL", True),
     (0x01B2, 0x021E, "FUNC_DISPATCH_TBL", True),
     (0x04ED, 0x04F9, "FRMEVL_PREC_TBL", False),    # 12 precedence BYTES (any offset ok)
-    (0x04F9, 0x0522, "OPERATOR_ROUTINE_TBL", True),
-]
+    (0x04F9, 0x0521, "OPERATOR_ROUTINE_TBL", True),   # 20 DEFW; the $00 at $0521 is the
+]                                                     # error table's base (ERROR_MESSAGE_TABLE)
 
 
 def structured_labels():

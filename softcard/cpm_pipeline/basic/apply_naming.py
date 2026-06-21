@@ -116,6 +116,8 @@ INCLUDE_NAME = "apple_softcard.inc"
 INCLUDE_PATH = INCLUDE_DIR / INCLUDE_NAME
 TOKEN_INCLUDE_NAME = "msbasic_tokens.inc"   # MS BASIC keyword-token EQUs (BASIC sources)
 TOKEN_INCLUDE_PATH = INCLUDE_DIR / TOKEN_INCLUDE_NAME
+ERROR_INCLUDE_NAME = "msbasic_errors.inc"   # MS BASIC error-code EQUs (ERR_*)
+ERROR_INCLUDE_PATH = INCLUDE_DIR / ERROR_INCLUDE_NAME
 
 
 def load_external_symbols():

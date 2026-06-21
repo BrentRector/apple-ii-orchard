@@ -601,9 +601,7 @@
     "SUB_2BED": "DCOMP_REL",
     "SUB_2DC1": "IMUL",
     "SUB_52F8": "FN_CVI",
-    "SUB_56C8": "FN_EOF",
-    "L_0577": "ERRMSG_OVERFLOW",
-    "L_05D0": "ERRMSG_DIVISION_BY_ZERO"
+    "SUB_56C8": "FN_EOF"
   },
   "label_comments": {
     "101B": "MS BASIC-80 CRUNCH: tokenizes an input line. Scans the source text, folds reserved words to single-byte tokens via the reserved-word name table (DE=$08CF/$04D8 reserved-word pointers), passes through string literals ($22) and REM/DATA text verbatim, and emits the crunched line. Handles the GOTO/GOSUB ('GO TO'/'GO SUB') two-word forms. $0B15/$0B16 are CRUNCH mode flags.",
@@ -751,9 +749,9 @@
     "0D20": "[RE] Entry to FOR/GOSUB stack-frame fixup: HL = SP+4, fall into STKFRAME_SCAN to walk the runtime stack.",
     "0D24": "[RE] Walk runtime stack frames: skip FOR frames (token $AF, +16/+6 bytes), find GOSUB markers ($82), compare each frame's text pointer vs HL via FNDLIN-cmp ($691F) to fix up frames after a program edit/delete.",
     "0D51": "[RE] CONT command: if saved resume ptr $0844 is -1 (no CONTinue context) or trace flag $0B68 set, raise error E=$13 ('Can't continue'); else JP $6969 to resume.",
-    "0D64": "Named-error entry stubs: each loads an error code into E (LD E,n via the $1E opcode of the next LD BC) then falls through to ERROR_DISPATCH at $0D89. Overlapping table of error vectors.",
+    "0D64": "Named-error entry stubs: each loads an error code into E (LD E,n via the $1E opcode of the next LD BC) then falls through to RAISE_ERROR at $0D89. Overlapping table of error vectors.",
     "0D8C": "[RE] Restore saved program pointer ($0B50 -> $0844) on the no-continue path before re-entering the error/ready flow.",
-    "0D92": "Syntax-error entry: LD E,$02 then fall through the coded-error table into ERROR_DISPATCH ($0D89). Common target of statement parsers (JP $0D6F).",
+    "0D92": "Syntax-error entry: LD E,$02 then fall through the coded-error table into RAISE_ERROR ($0D89). Common target of statement parsers (JP $0D6F).",
     "0DAC": "ERROR handler: saves current text ptr to $0B60, clears trap state ($0C9A/$0CA0), records resume line $0B62, then prints '?<msg> Error[ in line]' and returns to direct mode via $68F4.",
     "0DC1": "[RE] Build/print the error text: emit '?', look up the 2-char error mnemonic, append ' Error', and optionally ' in <line>'; falls into the direct-mode READY path.",
     "0DCA": "Packed table of 2-letter error mnemonics (NF/SN/RG/OD/FC/OV/OM/UL/BS/DD/...) indexed by error code, printed by ERROR_PRINT_MSG.",
@@ -1124,13 +1122,13 @@
     "0B7D": "[RE] AUTO line-number increment (default $000A): set by the AUTO command ($36F6) and added to AUTLIN ($0B58) by the line dispatcher to form the next auto line number.",
     "0B7F": "[RE] Saved text pointer of the current statement (MS BASIC OLDTXT): NEWSTT records it each statement ($3374); STOP/END copies it to the CONT save ($0B6D at $6979); error/'Redo from start' restores from it.",
     "0B81": "[RE] Saved stack pointer (MS BASIC SAVSTK): written via LD ($0B5E),SP at NEWSTT ($3377) and cold-start; restored to SP on error-recovery / FOR-stack unwinding (e.g. STMT_CALL_6 $72AF) to discard pending expression frames.",
-    "0B83": "[RE] Error-handler saved text pointer: ERROR_DISPATCH stores SAVTXT ($0844) here ($0D8C); the message printer reads it ($0DFC/$0E00) to decide direct vs '? ... in <line>'; RESUME reloads it into SAVTXT ($36B5).",
-    "0B85": "[RE] Saved program line of the last error (MS BASIC ERRLIN): ERROR_DISPATCH records the offending line ($0D9B) for ERR/ERL reporting; LINGET '.' shortcut substitutes it as the current line number ($34D9).",
+    "0B83": "[RE] Error-handler saved text pointer: RAISE_ERROR stores SAVTXT ($0844) here ($0D8C); the message printer reads it ($0DFC/$0E00) to decide direct vs '? ... in <line>'; RESUME reloads it into SAVTXT ($36B5).",
+    "0B85": "[RE] Saved program line of the last error (MS BASIC ERRLIN): RAISE_ERROR records the offending line ($0D9B) for ERR/ERL reporting; LINGET '.' shortcut substitutes it as the current line number ($34D9).",
     "0B8B": "[RE] ON-ERROR trap-active flag (MS BASIC ONEFLG): nonzero while inside an error handler; gates ON-ERROR dispatch ($3663), RESUME ($368C), and blocks CONT ('Can't continue' at $0D2E); cleared by CLEAR ($68BE).",
     "0B8C": "[RE] FRMEVL operand text-pointer scratch (general TEMP): the precedence loop saves/reloads the current (HL) here ($3A85/$3A88) across operator recursion. The same cell is reused by FOUT to record the decimal-point buffer position during numeric formatting.",
     "0B92": "[RE] Start of variable + free space (MS BASIC VARTAB/STREND-grow pointer): base of the simple-variable table walked by PTRGET/CHAIN; the string-relocation copy grows the pool here; CLEAR re-points it just above program text. ,P-protected DECODE ends at $0B6F.",
-    "0CBD": "[RE] CHAIN/ON-ERROR 'preserve variables' flag: CHAIN-with-ALL and CHAIN set it ($72BA/$72C7) so the CLEAR storage reset skips clearing variable space ($6894 test); ERROR_DISPATCH clears it ($0D90); cold-start zeroes it.",
-    "0CC3": "[RE] CHAIN-in-progress / break-pause flag: set to 1 during CHAIN string-var move ($752C) so the CLEAR reset preserves the string heap ($68CC test); also the Ctrl-C/list-pause flag polled by the auto-page LIST 'more' handler ($673B). Cleared by ERROR_DISPATCH and cold-start.",
+    "0CBD": "[RE] CHAIN/ON-ERROR 'preserve variables' flag: CHAIN-with-ALL and CHAIN set it ($72BA/$72C7) so the CLEAR storage reset skips clearing variable space ($6894 test); RAISE_ERROR clears it ($0D90); cold-start zeroes it.",
+    "0CC3": "[RE] CHAIN-in-progress / break-pause flag: set to 1 during CHAIN string-var move ($752C) so the CLEAR reset preserves the string heap ($68CC test); also the Ctrl-C/list-pause flag polled by the auto-page LIST 'more' handler ($673B). Cleared by RAISE_ERROR and cold-start.",
     "14E4": "[RE] CHRGET then GETINT-positive: advances the text pointer, evaluates an expr to a signed 16-bit int (via SUB_34CC); used where a leading char must be skipped first (e.g. WIDTH/coord parsers at $60DD/$60F5/$7F41/$7F7F)",
     "14E7": "[RE] GETINT requiring a non-negative result: CALL GETINT; RET P if the high byte (D) is sign-positive (0..$7FFF), else fall into SUB_34CC_1 which loads E=$05 and JP $0D89 -> 'Illegal function call' (FC). Widely used by graphics/coord and array parsers",
     "1BE4": "[RE] FRMEVL operator-apply coercion (mis-split as DEFB, real code reached from FRMEVL_OPCOMBINE $3B76 when operand-type B==$04): CALL FN_CINT to force the operand to integer, then fall into FRMEVL_OP_POP_FRAME",
@@ -1176,7 +1174,7 @@
     "1E1D": "Continuation of FRMEVL_INT_OP_HANDLER (integer binary-operator dispatch): tests the operator token for XOR ($3C) and computes HL := HL XOR DE, else falls through to EQV/IMP. Was SUB_1E1D. [RE]",
     "1E5A": "USR(n) function call dispatch: after USRVEC_ADDR/FRMEVL_PAREN, fetch the USR vector address from the DEF-USR table and set up the call (push return, load arg type from $0B37), entering the user routine. Was SUB_1E5A. [RE]",
     "242B": "Taken branch of RENUM_FIXUP_IF_PENDING: when the renumber-pending flag ($0B79) is set, JP RENUM_PATCH_LINEREFS to run the line-reference fix-up pass. Was SUB_242B. [RE]",
-    "2803": "Disk-error exit helper reached from the coded-error stubs at $27F5+: save the error code, issue BDOS Select-Disk (C=$0E) using the CP/M current-drive byte at $0004 to reselect the default drive, then JP ERROR_DISPATCH. Was SUB_2803. [RE]",
+    "2803": "Disk-error exit helper reached from the coded-error stubs at $27F5+: save the error code, issue BDOS Select-Disk (C=$0E) using the CP/M current-drive byte at $0004 to reselect the default drive, then JP RAISE_ERROR. Was SUB_2803. [RE]",
     "2922": "Loop back of the bit-granular mantissa right-shift (MANT_SHIFT_BITS): JR to MANT_SHIFT_BYTES_4 to continue rotating C,D,E,B right one bit per step during FP exponent alignment in add/subtract. Was SUB_2922. [RE]",
     "2D48": "Continuation of FIX_DENORM (FIX/INT toward-integer denormalize): after FP_LOAD_FAC, unpack the FAC MSB (FP_UNPACK_MSB), force exponent $B8 and right-shift the mantissa to drop the fractional bits. Was SUB_2D48. [RE]",
     "2FB4": "Loop body of DP_SHIFT_LEFT_8: chained RLA across the 8 mantissa bytes from (HL), one bit left, used between partial products in the double-precision multiply (also CALLed at $30DC). Was SUB_2FB4. [RE]",
@@ -1208,8 +1206,9 @@
     "SUB_2DC1": "[RE] 16-bit signed integer multiply (OPERATOR_ROUTINE_TBL integer-multiply slot $051B): sign-normalize then a 16-iteration shift-and-add of BC into HL; on overflow promote both operands to single and re-enter FMUL.",
     "SUB_52F8": "[RE] CVI() function handler (FUNC_DISPATCH_TBL slot $0204; CVS/CVD enter at +offset with widths 2/4/8): free the argument string temp (FRETMP), check it is wide enough (else FC), reinterpret its bytes as a numeric and load the FAC.",
     "SUB_56C8": "[RE] EOF() function handler (FUNC_DISPATCH_TBL slot $020C): resolve the file number to its FCB and return the end-of-file boolean.",
-    "L_0577": "[RE] Error message string \"Overflow\" (error $06): loaded by the error reporter; the overflow trap also sets the current-message pointer ($0848) to it.",
-    "L_05D0": "[RE] Error message string \"Division by zero\" (error $0B): the FP divide-by-zero path stores this pointer into the current-error-message cell ($0848)."
+    "ERRMSG_OVERFLOW": "[RE] Error message string \"Overflow\" (error $06): loaded by the error reporter; the overflow trap also sets the current-message pointer ($0848) to it.",
+    "ERRMSG_DIVISION_BY_ZERO": "[RE] Error message string \"Division by zero\" (error $0B): the FP divide-by-zero path stores this pointer into the current-error-message cell ($0848).",
+    "ERROR_MESSAGE_TABLE": "[RE] Error-message table base AND the direct-mode empty message: the $00 here is error message 0 (the scan base) and is also printed by ERROR_RESUME_FROM_DIRECT as the empty '?<>' direct-mode error text."
   },
   "sections": {},
   "operand_rewrites": {
@@ -1329,5 +1328,6 @@
       "$DE",
       "TOK_THEN"
     ]
-  }
+  },
+  "inline_comments": {}
 }
