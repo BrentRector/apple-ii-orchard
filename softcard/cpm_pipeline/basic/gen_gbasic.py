@@ -23,7 +23,7 @@ from pathlib import Path
 from cpm_pipeline.filesystem import read_disk, extract_file
 from cpm_pipeline import reference_data as rd
 from cpm_pipeline.basic._paths import asm_path, overlay_path, seeds_path, load_token_names
-from cpm_pipeline.basic import reswords, lowtables, errmsg
+from cpm_pipeline.basic import reswords, lowtables, errmsg, errstub
 from cpm_pipeline.basic.recover import recover_code
 from cpm_pipeline.basic.fixed_sites import (fixed_operand_sites, cover_idiom_sites,
                                             mid_string_constant_sites)
@@ -286,6 +286,9 @@ def main():
     hdr_lines = lowtables.apply(hdr_lines)     # name dispatch/operator table bases+entries
     hdr_lines = errmsg.splice_table_into(hdr_lines, com)        # label every error message
     hdr_lines = errmsg.apply_reference_renames(hdr_lines, com)
+    stub_old = errstub.stub_old_labels(hdr_lines, com)          # capture old stub labels first
+    hdr_lines = errstub.splice_stubs_into(hdr_lines, com)       # coded-error stubs -> RAISE_* / LD E,ERR_*
+    hdr_lines = errstub.apply_reference_renames(hdr_lines, com, stub_old)
 
     # Inject the header's low-region labels into the body walker's label set so the body
     # formatter renders body->low references as that label (relocatable), not a literal.
@@ -319,6 +322,7 @@ def main():
     body_lines = reswords.apply_reference_renames(body_lines, com)
     body_lines = lowtables.apply(body_lines)   # dispatch/operator table refs -> base+offset
     body_lines = errmsg.apply_reference_renames(body_lines, com)   # error-message refs -> ERRMSG_*
+    body_lines = errstub.apply_reference_renames(body_lines, com, stub_old)  # error-raise refs -> RAISE_*
 
     # Cross-region relocatability: header ($0100-$100D) and body ($3000+) are decoded
     # by SEPARATE walkers, so each region's control-flow operands into the OTHER region

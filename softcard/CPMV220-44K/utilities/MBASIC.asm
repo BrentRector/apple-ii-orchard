@@ -7,6 +7,7 @@
     DEVICE NOSLOT64K
     INCLUDE "apple_softcard.inc"   ; canonical Apple/SoftCard external names
     INCLUDE "msbasic_tokens.inc"   ; MS BASIC keyword-token names
+    INCLUDE "msbasic_errors.inc"   ; MS BASIC error-code names (ERR_*)
 
     ORG $0100
 
@@ -1875,7 +1876,7 @@ SUB_0D04_3:
         NOP                              ; $0D0E  00
         NOP                              ; $0D0F  00
 SUB_0D04_4:
-        JR NZ,ERR_CODED_ENTRY_7          ; $0D10  20 69
+        JR NZ,$0D7B                      ; $0D10  20 69
         LD L,(HL)                        ; $0D12  6E
 SUB_0D04_5:
         JR NZ,MSG_BREAK                  ; $0D13  20 00
@@ -1947,30 +1948,43 @@ CONT_CMD_1:
         JP STMT_END_3                    ; $0D61  C3 E7 45
 ; Named-error entry stubs: each loads an error code into E (LD E,n via the $1E opcode of the next LD BC) then falls through to RAISE_ERROR at $0D89. Overlapping table of error vectors.
 ERR_CODED_ENTRY:
-        LD E,$3D                         ; $0D64  1E 3D
-ERR_CODED_ENTRY_1:
-        LD BC,$391E                      ; $0D66  01 1E 39
-ERR_CODED_ENTRY_2:
-        LD BC,$361E                      ; $0D69  01 1E 36
-ERR_CODED_ENTRY_3:
-        LD BC,$351E                      ; $0D6C  01 1E 35
-ERR_CODED_ENTRY_4:
-        LD BC,$341E                      ; $0D6F  01 1E 34
-        LD BC,$331E                      ; $0D72  01 1E 33
-ERR_CODED_ENTRY_5:
-        LD BC,$3E1E                      ; $0D75  01 1E 3E
-ERR_CODED_ENTRY_6:
-        LD BC,$371E                      ; $0D78  01 1E 37
-ERR_CODED_ENTRY_7:
-        LD BC,$401E                      ; $0D7B  01 1E 40
-ERR_CODED_ENTRY_8:
-        LD BC,$3F1E                      ; $0D7E  01 1E 3F
-ERR_CODED_ENTRY_9:
-        LD BC,$321E                      ; $0D81  01 1E 32
-ERR_CODED_ENTRY_10:
-        LD BC,$431E                      ; $0D84  01 1E 43
-ERR_CODED_ENTRY_11:
-        LD BC,$3A1E                      ; $0D87  01 1E 3A
+        LD E,ERR_DISK_FULL               ; $0D64  raise error 61
+        DEFB    $01                      ; $0D66  LD BC opcode = skip the next LD E
+RAISE_DISK_I_O_ERROR:
+        LD E,ERR_DISK_I_O_ERROR          ; $0D67  raise error 57
+        DEFB    $01                      ; $0D69  LD BC opcode = skip the next LD E
+RAISE_BAD_FILE_MODE:
+        LD E,ERR_BAD_FILE_MODE           ; $0D6A  raise error 54
+        DEFB    $01                      ; $0D6C  LD BC opcode = skip the next LD E
+RAISE_FILE_NOT_FOUND:
+        LD E,ERR_FILE_NOT_FOUND          ; $0D6D  raise error 53
+        DEFB    $01                      ; $0D6F  LD BC opcode = skip the next LD E
+RAISE_BAD_FILE_NUMBER:
+        LD E,ERR_BAD_FILE_NUMBER         ; $0D70  raise error 52
+        DEFB    $01                      ; $0D72  LD BC opcode = skip the next LD E
+RAISE_INTERNAL_ERROR:
+        LD E,ERR_INTERNAL_ERROR          ; $0D73  raise error 51
+        DEFB    $01                      ; $0D75  LD BC opcode = skip the next LD E
+RAISE_INPUT_PAST_END:
+        LD E,ERR_INPUT_PAST_END          ; $0D76  raise error 62
+        DEFB    $01                      ; $0D78  LD BC opcode = skip the next LD E
+RAISE_FILE_ALREADY_OPEN:
+        LD E,ERR_FILE_ALREADY_OPEN       ; $0D79  raise error 55
+        DEFB    $01                      ; $0D7B  LD BC opcode = skip the next LD E
+RAISE_BAD_FILE_NAME:
+        LD E,ERR_BAD_FILE_NAME           ; $0D7C  raise error 64
+        DEFB    $01                      ; $0D7E  LD BC opcode = skip the next LD E
+RAISE_BAD_RECORD_NUMBER:
+        LD E,ERR_BAD_RECORD_NUMBER       ; $0D7F  raise error 63
+        DEFB    $01                      ; $0D81  LD BC opcode = skip the next LD E
+RAISE_FIELD_OVERFLOW:
+        LD E,ERR_FIELD_OVERFLOW          ; $0D82  raise error 50
+        DEFB    $01                      ; $0D84  LD BC opcode = skip the next LD E
+RAISE_TOO_MANY_FILES:
+        LD E,ERR_TOO_MANY_FILES          ; $0D85  raise error 67
+        DEFB    $01                      ; $0D87  LD BC opcode = skip the next LD E
+RAISE_FILE_ALREADY_EXISTS:
+        LD E,ERR_FILE_ALREADY_EXISTS     ; $0D88  raise error 58
         JR ERROR_DISPATCH                ; $0D8A  18 20
 ; [RE] Restore saved program pointer ($0B50 -> $0844) on the no-continue path before re-entering the error/ready flow.
 CONT_RESUME_RESTORE:
@@ -1978,23 +1992,31 @@ CONT_RESUME_RESTORE:
         LD (SAVTXT),HL                   ; $0D8F  22 67 08
 ; Syntax-error entry: LD E,$02 then fall through the coded-error table into RAISE_ERROR ($0D89). Common target of statement parsers (JP $0D6F).
 ERROR_SYNTAX:
-        LD E,$02                         ; $0D92  1E 02
-ERROR_SYNTAX_1:
-        LD BC,$0B1E                      ; $0D94  01 1E 0B
-ERROR_SYNTAX_2:
-        LD BC,$011E                      ; $0D97  01 1E 01
-ERROR_SYNTAX_3:
-        LD BC,$0A1E                      ; $0D9A  01 1E 0A
-ERROR_SYNTAX_4:
-        LD BC,$121E                      ; $0D9D  01 1E 12
-ERROR_SYNTAX_5:
-        LD BC,$141E                      ; $0DA0  01 1E 14
-ERROR_SYNTAX_6:
-        LD BC,$061E                      ; $0DA3  01 1E 06
-ERROR_SYNTAX_7:
-        LD BC,$161E                      ; $0DA6  01 1E 16
-ERROR_SYNTAX_8:
-        LD BC,$0D1E                      ; $0DA9  01 1E 0D
+        LD E,ERR_SYNTAX_ERROR            ; $0D92  raise error 2
+        DEFB    $01                      ; $0D94  LD BC opcode = skip the next LD E
+RAISE_DIVISION_BY_ZERO:
+        LD E,ERR_DIVISION_BY_ZERO        ; $0D95  raise error 11
+        DEFB    $01                      ; $0D97  LD BC opcode = skip the next LD E
+RAISE_NEXT_WITHOUT_FOR:
+        LD E,ERR_NEXT_WITHOUT_FOR        ; $0D98  raise error 1
+        DEFB    $01                      ; $0D9A  LD BC opcode = skip the next LD E
+RAISE_DUPLICATE_DEFINITION:
+        LD E,ERR_DUPLICATE_DEFINITION    ; $0D9B  raise error 10
+        DEFB    $01                      ; $0D9D  LD BC opcode = skip the next LD E
+RAISE_UNDEFINED_USER_FUNCTION:
+        LD E,ERR_UNDEFINED_USER_FUNCTION ; $0D9E  raise error 18
+        DEFB    $01                      ; $0DA0  LD BC opcode = skip the next LD E
+RAISE_RESUME_WITHOUT_ERROR:
+        LD E,ERR_RESUME_WITHOUT_ERROR    ; $0DA1  raise error 20
+        DEFB    $01                      ; $0DA3  LD BC opcode = skip the next LD E
+RAISE_OVERFLOW:
+        LD E,ERR_OVERFLOW                ; $0DA4  raise error 6
+        DEFB    $01                      ; $0DA6  LD BC opcode = skip the next LD E
+RAISE_MISSING_OPERAND:
+        LD E,ERR_MISSING_OPERAND         ; $0DA7  raise error 22
+        DEFB    $01                      ; $0DA9  LD BC opcode = skip the next LD E
+RAISE_TYPE_MISMATCH:
+        LD E,ERR_TYPE_MISMATCH           ; $0DAA  raise error 13
 ; ERROR handler: saves current text ptr to $0B60, clears trap state ($0C9A/$0CA0), records resume line $0B62, then prints '?<msg> Error[ in line]' and returns to direct mode via $68F4.
 ERROR_DISPATCH:
         LD HL,(SAVTXT)                   ; $0DAC  2A 67 08
@@ -2873,9 +2895,9 @@ STMT_FOR_2:
         CALL SYNCHR                      ; $130A  CD A3 45
         DEFB    TOK_TO                   ; $130D  DD  inline keyword-token arg consumed by the preceding CALL
         CALL FRMEVL_TEST_TYPE            ; $130E  CD E3 1D
-        JP Z,ERROR_SYNTAX_8+1            ; $1311  CA AA 0D
+        JP Z,RAISE_TYPE_MISMATCH         ; $1311  CA AA 0D
 STMT_FOR_3:
-        JP NC,ERROR_SYNTAX_8+1           ; $1314  D2 AA 0D
+        JP NC,RAISE_TYPE_MISMATCH        ; $1314  D2 AA 0D
         PUSH AF                          ; $1317  F5
         CALL FRMEVL_NOPAREN              ; $1318  CD 90 1A
         POP AF                           ; $131B  F1
@@ -3468,7 +3490,7 @@ STMT_RESUME:
         LD DE,ONEFLG                     ; $16A7  11 8B 0B
         LD A,(DE)                        ; $16AA  1A
         OR A                             ; $16AB  B7
-        JP Z,ERROR_SYNTAX_5+1            ; $16AC  CA A1 0D
+        JP Z,RAISE_RESUME_WITHOUT_ERROR  ; $16AC  CA A1 0D
         INC A                            ; $16AF  3C
         LD (SUB_0752_31+2),A             ; $16B0  32 58 08
         LD (DE),A                        ; $16B3  12
@@ -4133,7 +4155,7 @@ FRMEVL_OPLOOP_4:
         LD HL,CHAIN_BREAK_FLAG_9         ; $1AE5  21 D4 0C
         LD A,(SUB_0B2A_5)                ; $1AE8  3A 37 0B
         SUB $03                          ; $1AEB  D6 03
-        JP Z,ERROR_SYNTAX_8+1            ; $1AED  CA AA 0D
+        JP Z,RAISE_TYPE_MISMATCH         ; $1AED  CA AA 0D
         OR A                             ; $1AF0  B7
         LD C,(HL)                        ; $1AF1  4E
         INC HL                           ; $1AF2  23
@@ -4239,7 +4261,7 @@ FRMEVL_OPCOMBINE_1:
         JR Z,FRMEVL_OP_COERCE_INT        ; $1B91  28 51
         LD A,D                           ; $1B93  7A
         CP $03                           ; $1B94  FE 03
-        JP Z,ERROR_SYNTAX_8+1            ; $1B96  CA AA 0D
+        JP Z,RAISE_TYPE_MISMATCH         ; $1B96  CA AA 0D
         JR NC,FRMEVL_OP_DISPATCH_REL_1   ; $1B99  30 53
 FRMEVL_OPCOMBINE_2:
         LD HL,OPERATOR_ROUTINE_TBL+30    ; $1B9B  21 17 05
@@ -4324,7 +4346,7 @@ FRMEVL_OP_DISPATCH_REL_1:
 FRMEVL_EVAL_OPERAND:
         CALL CHRGET                      ; $1C11  CD E4 13
 FRMEVL_EVAL_OPERAND_1:
-        JP Z,ERROR_SYNTAX_7+1            ; $1C14  CA A7 0D
+        JP Z,RAISE_MISSING_OPERAND       ; $1C14  CA A7 0D
         JP C,FIN_1+1                     ; $1C17  DA 25 31
         CALL IS_LETTER_A                 ; $1C1A  CD BF 46
         JP NC,FRMEVL_PAREN_3             ; $1C1D  D2 D7 1C
@@ -4482,7 +4504,7 @@ SCAN_AMP_RADIX_CONST_3:
         OR L                             ; $1D28  B5
         LD L,A                           ; $1D29  6F
         DEC B                            ; $1D2A  05
-        JP Z,ERROR_SYNTAX_6+1            ; $1D2B  CA A4 0D
+        JP Z,RAISE_OVERFLOW              ; $1D2B  CA A4 0D
         EX DE,HL                         ; $1D2E  EB
         JR SCAN_AMP_RADIX_CONST_1        ; $1D2F  18 D8
 SCAN_AMP_RADIX_CONST_4:
@@ -4493,7 +4515,7 @@ SCAN_AMP_RADIX_CONST_5:
         JR NC,SCAN_AMP_RADIX_CONST_6     ; $1D36  30 19
         CP $38                           ; $1D38  FE 38
         JP NC,ERROR_SYNTAX               ; $1D3A  D2 92 0D
-        LD BC,ERROR_SYNTAX_6+1           ; $1D3D  01 A4 0D
+        LD BC,RAISE_OVERFLOW             ; $1D3D  01 A4 0D
         PUSH BC                          ; $1D40  C5
         ADD HL,HL                        ; $1D41  29
         RET C                            ; $1D42  D8
@@ -4793,7 +4815,7 @@ STMT_DEF_2:
         LD H,(HL)                        ; $1ED6  66
         LD L,A                           ; $1ED7  6F
         OR H                             ; $1ED8  B4
-        JP Z,ERROR_SYNTAX_4+1            ; $1ED9  CA 9E 0D
+        JP Z,RAISE_UNDEFINED_USER_FUNCTION  ; $1ED9  CA 9E 0D
         LD A,(HL)                        ; $1EDC  7E
         CP $28                           ; $1EDD  FE 28
         JP NZ,STMT_DEF_9+1               ; $1EDF  C2 8E 1F
@@ -5721,13 +5743,13 @@ STMT_OPTION:
         DEFB    'E'                      ; $243D  45  inline char arg consumed by the preceding CALL
         LD A,(SUB_0C4B_13)               ; $243E  3A 97 0C
         OR A                             ; $2441  B7
-        JP NZ,ERROR_SYNTAX_3+1           ; $2442  C2 9B 0D
+        JP NZ,RAISE_DUPLICATE_DEFINITION ; $2442  C2 9B 0D
         PUSH HL                          ; $2445  E5
         LD HL,(VARTAB_1)                 ; $2446  2A 94 0B
         EX DE,HL                         ; $2449  EB
         LD HL,(VARTAB_2)                 ; $244A  2A 96 0B
         CALL CMP_HL_DE                   ; $244D  CD 9D 45
-        JP NZ,ERROR_SYNTAX_3+1           ; $2450  C2 9B 0D
+        JP NZ,RAISE_DUPLICATE_DEFINITION ; $2450  C2 9B 0D
         POP HL                           ; $2453  E1
         LD A,(HL)                        ; $2454  7E
         SUB $30                          ; $2455  D6 30
@@ -6928,7 +6950,7 @@ FN_INT:
 FP_NEGATE_CHECKED:
         CALL FRMEVL_TEST_TYPE            ; $2AEB  CD E3 1D
         JP M,INT_NEGATE_FAC              ; $2AEE  FA 61 2E
-        JP Z,ERROR_SYNTAX_8+1            ; $2AF1  CA AA 0D
+        JP Z,RAISE_TYPE_MISMATCH         ; $2AF1  CA AA 0D
 ; [RE] Negate FAC: flip the high (sign) bit of the FAC sign byte at $0CB3.
 FP_NEG:
         LD HL,CHAIN_BREAK_FLAG_10        ; $2AF4  21 D6 0C
@@ -6949,7 +6971,7 @@ INT16_TO_FP:
 ; [RE] Type/sign test for INT-class coercion: $3DC8 type-check, error on zero/string, return sign of mantissa for integer values.
 FP_TEST_SIGN:
         CALL FRMEVL_TEST_TYPE            ; $2B06  CD E3 1D
-        JP Z,ERROR_SYNTAX_8+1            ; $2B09  CA AA 0D
+        JP Z,RAISE_TYPE_MISMATCH         ; $2B09  CA AA 0D
         JP P,FP_SIGN                     ; $2B0C  F2 C5 2A
         LD HL,(CHAIN_BREAK_FLAG_9)       ; $2B0F  2A D4 0C
 ; [RE] Test FAC integer mantissa ($0CB1) for zero and return its sign via the SIGN tail.
@@ -7158,7 +7180,7 @@ FN_LPOS:
         CALL FRMEVL_TEST_TYPE            ; $2BF4  CD E3 1D
         LD HL,(CHAIN_BREAK_FLAG_9)       ; $2BF7  2A D4 0C
         RET M                            ; $2BFA  F8
-        JP Z,ERROR_SYNTAX_8+1            ; $2BFB  CA AA 0D
+        JP Z,RAISE_TYPE_MISMATCH         ; $2BFB  CA AA 0D
         JP PO,FN_LPOS_1                  ; $2BFE  E2 13 2C
         CALL FP_ARG_TO_TEMP2             ; $2C01  CD 6F 2B
         LD HL,FP_CONST_HALF_DBL          ; $2C04  21 56 38
@@ -7177,7 +7199,7 @@ FN_LPOS_2:
 FN_LPOS_3:
         LD A,(CHAIN_BREAK_FLAG_11)       ; $2C20  3A D7 0C
         CP $90                           ; $2C23  FE 90
-        JP NC,ERROR_SYNTAX_6+1           ; $2C25  D2 A4 0D
+        JP NC,RAISE_OVERFLOW             ; $2C25  D2 A4 0D
         CALL FP_SHIFT_MANTISSA           ; $2C28  CD BA 2C
         LD A,(CHAIN_BREAK_FLAG_11)       ; $2C2B  3A D7 0C
         OR A                             ; $2C2E  B7
@@ -7199,7 +7221,7 @@ FN_LPOS_5:
 FN_LPOS_6:
         JP FP_STORE_FAC_INT              ; $2C42  C3 55 2C
 FN_LPOS_7:
-        LD HL,ERROR_SYNTAX_6+1           ; $2C45  21 A4 0D
+        LD HL,RAISE_OVERFLOW             ; $2C45  21 A4 0D
         PUSH HL                          ; $2C48  E5
 ; [RE] Convert FAC to a 16-bit integer in HL: error if exponent>=$90 (out of range), else shift the mantissa down (FP_SHIFT_MANTISSA).
 FP_TO_INT:
@@ -7233,7 +7255,7 @@ FN_CINT:
         CALL FRMEVL_TEST_TYPE            ; $2C6C  CD E3 1D
         RET PO                           ; $2C6F  E0
         JP M,INT_TO_SINGLE               ; $2C70  FA 89 2C
-        JP Z,ERROR_SYNTAX_8+1            ; $2C73  CA AA 0D
+        JP Z,RAISE_TYPE_MISMATCH         ; $2C73  CA AA 0D
 ; [RE] CINT body: load FAC, round/scale to an integer, set the high byte and store back via FADD_NORMALIZE.
 FIX_TO_INT:
         CALL FP_LOAD_FAC                 ; $2C76  CD 33 2B
@@ -7260,7 +7282,7 @@ INT_TO_SINGLE_HL:
 FN_CSNG:
         CALL FRMEVL_TEST_TYPE            ; $2C98  CD E3 1D
         RET NC                           ; $2C9B  D0
-        JP Z,ERROR_SYNTAX_8+1            ; $2C9C  CA AA 0D
+        JP Z,RAISE_TYPE_MISMATCH         ; $2C9C  CA AA 0D
         CALL M,INT_TO_SINGLE             ; $2C9F  FC 89 2C
 ; [RE] Clear the FAC double-precision extension cells ($0CAD/$0CAF) when widening to single.
 FP_CLEAR_EXT:
@@ -7277,7 +7299,7 @@ SET_TYPE_DOUBLE_1:
 FP_INT_CHECK:
         CALL FRMEVL_TEST_TYPE            ; $2CB3  CD E3 1D
         RET Z                            ; $2CB6  C8
-        JP ERROR_SYNTAX_8+1              ; $2CB7  C3 AA 0D
+        JP RAISE_TYPE_MISMATCH           ; $2CB7  C3 AA 0D
 ; [RE] FP mantissa right-shift / denormalize-align helper: shifts the FAC mantissa (B,C,D,E build the 4-byte mantissa) right by the exponent difference so two FP values can be added; common to FADD/FP_INT.
 FP_SHIFT_MANTISSA:
         LD B,A                           ; $2CBA  47
@@ -7327,7 +7349,7 @@ FN_SGN:
         CALL FRMEVL_TEST_TYPE            ; $2CF8  CD E3 1D
         RET M                            ; $2CFB  F8
         JR NC,FIX_SCALE_1                ; $2CFC  30 1F
-        JP Z,ERROR_SYNTAX_8+1            ; $2CFE  CA AA 0D
+        JP Z,RAISE_TYPE_MISMATCH         ; $2CFE  CA AA 0D
         CALL FP_TO_INT                   ; $2D01  CD 49 2C
 ; [RE] FIX/round scaling: if exponent>=$98 already integral; else shift mantissa down to the integer position and re-round via FADD_COMBINE.
 FIX_SCALE:
@@ -7531,7 +7553,7 @@ IMULDIV_FLOAT_FALLBACK:
 INT_DIV_KERNEL:
         LD A,H                           ; $2E14  7C
         OR L                             ; $2E15  B5
-        JP Z,ERROR_SYNTAX_1+1            ; $2E16  CA 95 0D
+        JP Z,RAISE_DIVISION_BY_ZERO      ; $2E16  CA 95 0D
         CALL INT_SETSIGN_NEG             ; $2E19  CD 4B 2E
         PUSH BC                          ; $2E1C  C5
         EX DE,HL                         ; $2E1D  EB
@@ -8451,8 +8473,8 @@ FIN_EXP_DIGIT_22:
         CALL CMP_HL_DE                   ; $3367  CD 9D 45
         LD HL,ERRMSG_OVERFLOW            ; $336A  21 77 05
         LD (TXTTAB_1),HL                 ; $336D  22 6B 08
-        JP Z,ERROR_SYNTAX_6+1            ; $3370  CA A4 0D
-        JP ERROR_SYNTAX_1+1              ; $3373  C3 95 0D
+        JP Z,RAISE_OVERFLOW              ; $3370  CA A4 0D
+        JP RAISE_DIVISION_BY_ZERO        ; $3373  C3 95 0D
 FIN_EXP_DIGIT_23:
         POP AF                           ; $3376  F1
         LD HL,ERRMSG_OVERFLOW            ; $3377  21 77 05
@@ -10273,7 +10295,7 @@ SUB_3D4E_10:
         JR NZ,SUB_3D4E_7+1               ; $3DD7  20 D8
         LD A,(SUB_0B2A_4)                ; $3DD9  3A 36 0B
         OR A                             ; $3DDC  B7
-        JP NZ,ERROR_SYNTAX_3+1           ; $3DDD  C2 9B 0D
+        JP NZ,RAISE_DUPLICATE_DEFINITION ; $3DDD  C2 9B 0D
         POP AF                           ; $3DE0  F1
         LD B,H                           ; $3DE1  44
         LD C,L                           ; $3DE2  4D
@@ -11782,7 +11804,7 @@ STMT_SWAP_1:
         POP BC                           ; $465D  C1
         CALL FRMEVL_TEST_TYPE            ; $465E  CD E3 1D
         CP B                             ; $4661  B8
-        JP NZ,ERROR_SYNTAX_8+1           ; $4662  C2 AA 0D
+        JP NZ,RAISE_TYPE_MISMATCH        ; $4662  C2 AA 0D
         EX (SP),HL                       ; $4665  E3
         EX DE,HL                         ; $4666  EB
         PUSH HL                          ; $4667  E5
@@ -11949,7 +11971,7 @@ NEXT_LOOP_BODY:
         CALL NZ,PTRGET_1+1               ; $475D  C4 B3 3B
         LD (DATA_LINE_TXTPTR_3),HL       ; $4760  22 77 0B
         CALL STKFRAME_SCAN_INIT          ; $4763  CD 20 0D
-        JP NZ,ERROR_SYNTAX_2+1           ; $4766  C2 98 0D
+        JP NZ,RAISE_NEXT_WITHOUT_FOR     ; $4766  C2 98 0D
         LD SP,HL                         ; $4769  F9
         PUSH DE                          ; $476A  D5
         LD E,(HL)                        ; $476B  5E
@@ -11959,7 +11981,7 @@ NEXT_LOOP_BODY:
         PUSH HL                          ; $476F  E5
         LD HL,(SUB_0C4B_8)               ; $4770  2A 8D 0C
         CALL CMP_HL_DE                   ; $4773  CD 9D 45
-        JP NZ,ERROR_SYNTAX_2+1           ; $4776  C2 98 0D
+        JP NZ,RAISE_NEXT_WITHOUT_FOR     ; $4776  C2 98 0D
         POP HL                           ; $4779  E1
         POP DE                           ; $477A  D1
         PUSH DE                          ; $477B  D5
@@ -12014,7 +12036,7 @@ NEXT_LOOP_BODY_3:
         CALL IADD                        ; $47C3  CD A1 2D
         LD A,(SUB_0B2A_5)                ; $47C6  3A 37 0B
         CP $04                           ; $47C9  FE 04
-        JP Z,ERROR_SYNTAX_6+1            ; $47CB  CA A4 0D
+        JP Z,RAISE_OVERFLOW              ; $47CB  CA A4 0D
 NEXT_LOOP_BODY_4:
         EX DE,HL                         ; $47CE  EB
         POP HL                           ; $47CF  E1
@@ -13910,7 +13932,7 @@ PARSE_FILENUM_HASH:
         CP E                             ; $5295  BB
         JR Z,PARSE_FILENUM_HASH_1        ; $5296  28 05
         CP $03                           ; $5298  FE 03
-        JP NZ,ERR_CODED_ENTRY_2+1        ; $529A  C2 6A 0D
+        JP NZ,RAISE_BAD_FILE_MODE        ; $529A  C2 6A 0D
 PARSE_FILENUM_HASH_1:
         CALL SYNCHR                      ; $529D  CD A3 45
         DEFB    ','                      ; $52A0  2C  inline char arg consumed by the preceding CALL
@@ -13939,7 +13961,7 @@ FILE_NUM_TO_FCB_A:
 FCB_MODE_BYTE:
         LD A,(FILTAB_4)                  ; $52B9  3A 93 08
         CP E                             ; $52BC  BB
-        JP C,ERR_CODED_ENTRY_4+1         ; $52BD  DA 70 0D
+        JP C,RAISE_BAD_FILE_NUMBER       ; $52BD  DA 70 0D
         LD D,$00                         ; $52C0  16 00
         PUSH HL                          ; $52C2  E5
         LD HL,FILTAB                     ; $52C3  21 73 08
@@ -14022,7 +14044,7 @@ FN_CVI_6:
         PUSH HL                          ; $5339  E5
 FN_CVI_7:
         CALL GETC_FILE_EOF               ; $533A  CD 89 58
-        JP C,ERR_CODED_ENTRY_5+1         ; $533D  DA 76 0D
+        JP C,RAISE_INPUT_PAST_END        ; $533D  DA 76 0D
         CP $20                           ; $5340  FE 20
         JR NZ,FN_CVI_8                   ; $5342  20 04
         INC D                            ; $5344  14
@@ -14244,7 +14266,7 @@ STMT_MERGE_1:
         CALL GETC_FILE_EOF               ; $54BB  CD 89 58
         JP C,DIRECT_LINE_DISPATCH        ; $54BE  DA 61 0E
         INC A                            ; $54C1  3C
-        JP Z,ERR_CODED_ENTRY_2+1         ; $54C2  CA 6A 0D
+        JP Z,RAISE_BAD_FILE_MODE         ; $54C2  CA 6A 0D
 STMT_MERGE_2:
         LD HL,(PTRFIL)                   ; $54C5  2A 63 08
         LD BC,$0028                      ; $54C8  01 28 00
@@ -14346,9 +14368,9 @@ CLOSE_ALL_FILES:
 ; [RE] FIELD statement handler (token $B9): define random-file buffer field variables.
 STMT_FIELD:
         CALL FILE_NUM_TO_FCB             ; $5559  CD A9 52
-        JP Z,ERR_CODED_ENTRY_4+1         ; $555C  CA 70 0D
+        JP Z,RAISE_BAD_FILE_NUMBER       ; $555C  CA 70 0D
         SUB $03                          ; $555F  D6 03
-        JP NZ,ERR_CODED_ENTRY_2+1        ; $5561  C2 6A 0D
+        JP NZ,RAISE_BAD_FILE_MODE        ; $5561  C2 6A 0D
         EX DE,HL                         ; $5564  EB
         LD HL,$00A9                      ; $5565  21 A9 00
         ADD HL,BC                        ; $5568  09
@@ -14393,7 +14415,7 @@ STMT_FIELD_1:
         EX DE,HL                         ; $55A6  EB
         LD HL,(DETOKENIZE_SPACE_FLAG)    ; $55A7  2A B6 0C
         CALL CMP_HL_DE                   ; $55AA  CD 9D 45
-        JP C,ERR_CODED_ENTRY_9+1         ; $55AD  DA 82 0D
+        JP C,RAISE_FIELD_OVERFLOW        ; $55AD  DA 82 0D
         POP HL                           ; $55B0  E1
         POP DE                           ; $55B1  D1
         EX DE,HL                         ; $55B2  EB
@@ -14550,7 +14572,7 @@ FIELD_PAD_SPACES_4:
         CALL CHRGET                      ; $5679  CD E4 13
         CALL FILE_NUM_TO_FCB             ; $567C  CD A9 52
         CP $02                           ; $567F  FE 02
-        JP Z,ERR_CODED_ENTRY_2+1         ; $5681  CA 6A 0D
+        JP Z,RAISE_BAD_FILE_MODE         ; $5681  CA 6A 0D
         CALL STORE_CUR_FCB_PTR           ; $5684  CD A1 52
         XOR A                            ; $5687  AF
 FIELD_PAD_SPACES_5:
@@ -14591,14 +14613,14 @@ FIELD_PAD_SPACES_9:
         JP STMT_END_3                    ; $56BC  C3 E7 45
 FIELD_PAD_SPACES_10:
         CALL GETC_FILE_EOF               ; $56BF  CD 89 58
-        JP C,ERR_CODED_ENTRY_5+1         ; $56C2  DA 76 0D
+        JP C,RAISE_INPUT_PAST_END        ; $56C2  DA 76 0D
         JP FIELD_PAD_SPACES_8            ; $56C5  C3 AC 56
 ; [RE] EOF() function handler (FUNC_DISPATCH_TBL slot $020C): resolve the file number to its FCB and return the end-of-file boolean.
 FN_EOF:
         CALL FILE_NUM_TO_FCB_NZ          ; $56C8  CD B5 52
-        JP Z,ERR_CODED_ENTRY_4+1         ; $56CB  CA 70 0D
+        JP Z,RAISE_BAD_FILE_NUMBER       ; $56CB  CA 70 0D
         CP $02                           ; $56CE  FE 02
-        JP Z,ERR_CODED_ENTRY_2+1         ; $56D0  CA 6A 0D
+        JP Z,RAISE_BAD_FILE_MODE         ; $56D0  CA 6A 0D
 FN_EOF_1:
         LD HL,$0027                      ; $56D3  21 27 00
         ADD HL,BC                        ; $56D6  09
@@ -14647,9 +14669,9 @@ FILE_FLUSH_RECORD_CK:
         LD A,(FILTAB_17)                 ; $570C  3A F0 08
         CALL BDOS_FILE_CALL              ; $570F  CD 44 5B
         CP $FF                           ; $5712  FE FF
-        JP Z,ERR_CODED_ENTRY_10+1        ; $5714  CA 85 0D
+        JP Z,RAISE_TOO_MANY_FILES        ; $5714  CA 85 0D
         DEC A                            ; $5717  3D
-        JP Z,ERR_CODED_ENTRY_1+1         ; $5718  CA 67 0D
+        JP Z,RAISE_DISK_I_O_ERROR        ; $5718  CA 67 0D
         DEC A                            ; $571B  3D
         JP NZ,FILE_FLUSH_RECORD_CK_2     ; $571C  C2 2B 57
         POP DE                           ; $571F  D1
@@ -14662,7 +14684,7 @@ FILE_FLUSH_RECORD_CK_1:
         JP ERR_CODED_ENTRY               ; $5728  C3 64 0D
 FILE_FLUSH_RECORD_CK_2:
         INC A                            ; $572B  3C
-        JP Z,ERR_CODED_ENTRY_10+1        ; $572C  CA 85 0D
+        JP Z,RAISE_TOO_MANY_FILES        ; $572C  CA 85 0D
         POP BC                           ; $572F  C1
         LD HL,$0025                      ; $5730  21 25 00
         ADD HL,BC                        ; $5733  09
@@ -14724,7 +14746,7 @@ FILE_CLOSE_ONE_5:
 ; [RE] LOC() function body: return current record/position number from the FCB (random offset $AE vs sequential $26).
 FN_LOC_VALUE:
         CALL FILE_NUM_TO_FCB_NZ          ; $5779  CD B5 52
-        JP Z,ERR_CODED_ENTRY_4+1         ; $577C  CA 70 0D
+        JP Z,RAISE_BAD_FILE_NUMBER       ; $577C  CA 70 0D
         CP $03                           ; $577F  FE 03
         LD HL,$0026                      ; $5781  21 26 00
         JR NZ,FN_LOC_VALUE_1             ; $5784  20 03
@@ -14738,7 +14760,7 @@ FN_LOC_VALUE_1:
 ; [RE] LOF()/file-size helper: read a length byte from the FCB ($10 field) and return it as a numeric value.
 FN_LOF_VALUE:
         CALL FILE_NUM_TO_FCB_NZ          ; $5790  CD B5 52
-        JP Z,ERR_CODED_ENTRY_4+1         ; $5793  CA 70 0D
+        JP Z,RAISE_BAD_FILE_NUMBER       ; $5793  CA 70 0D
         LD HL,$0010                      ; $5796  21 10 00
         ADD HL,BC                        ; $5799  09
         LD A,(HL)                        ; $579A  7E
@@ -14957,7 +14979,7 @@ PARSE_FILENAME_TO_FCB:
         CALL FRETMP                      ; $58A8  CD 37 4A
         LD A,(HL)                        ; $58AB  7E
         OR A                             ; $58AC  B7
-        JP Z,ERR_CODED_ENTRY_7+1         ; $58AD  CA 7C 0D
+        JP Z,RAISE_BAD_FILE_NAME         ; $58AD  CA 7C 0D
         PUSH AF                          ; $58B0  F5
         INC HL                           ; $58B1  23
         LD E,(HL)                        ; $58B2  5E
@@ -14981,12 +15003,12 @@ PARSE_FILENAME_TO_FCB_1:
         LD C,$40                         ; $58C7  0E 40
 PARSE_FILENAME_TO_FCB_2:
         DEC E                            ; $58C9  1D
-        JP Z,ERR_CODED_ENTRY_7+1         ; $58CA  CA 7C 0D
+        JP Z,RAISE_BAD_FILE_NAME         ; $58CA  CA 7C 0D
         LD A,C                           ; $58CD  79
         SUB $40                          ; $58CE  D6 40
-        JP C,ERR_CODED_ENTRY_7+1         ; $58D0  DA 7C 0D
+        JP C,RAISE_BAD_FILE_NAME         ; $58D0  DA 7C 0D
         CP $1B                           ; $58D3  FE 1B
-        JP NC,ERR_CODED_ENTRY_7+1        ; $58D5  D2 7C 0D
+        JP NC,RAISE_BAD_FILE_NAME        ; $58D5  D2 7C 0D
         LD BC,FILTAB_11                  ; $58D8  01 CD 08
         LD (BC),A                        ; $58DB  02
         INC BC                           ; $58DC  03
@@ -15020,9 +15042,9 @@ PARSE_FILENAME_TO_FCB_6:
 FCB_PAD_FIELD:
         LD A,D                           ; $58FE  7A
         CP $0B                           ; $58FF  FE 0B
-        JP Z,ERR_CODED_ENTRY_7+1         ; $5901  CA 7C 0D
+        JP Z,RAISE_BAD_FILE_NAME         ; $5901  CA 7C 0D
         CP $03                           ; $5904  FE 03
-        JP C,ERR_CODED_ENTRY_7+1         ; $5906  DA 7C 0D
+        JP C,RAISE_BAD_FILE_NAME         ; $5906  DA 7C 0D
         RET Z                            ; $5909  C8
         LD A,$20                         ; $590A  3E 20
         LD (BC),A                        ; $590C  02
@@ -15051,7 +15073,7 @@ STMT_NAME:
         LD C,$0F                         ; $592D  0E 0F
         CALL $0005                       ; $592F  CD 05 00
         INC A                            ; $5932  3C
-        JP Z,ERR_CODED_ENTRY_3+1         ; $5933  CA 6D 0D
+        JP Z,RAISE_FILE_NOT_FOUND        ; $5933  CA 6D 0D
         LD HL,FILTAB_10                  ; $5936  21 BD 08
         LD DE,FILTAB_11                  ; $5939  11 CD 08
         LD B,$0C                         ; $593C  06 0C
@@ -15077,7 +15099,7 @@ STMT_NAME_2:
         LD C,$0F                         ; $595E  0E 0F
         CALL $0005                       ; $5960  CD 05 00
         INC A                            ; $5963  3C
-        JP NZ,ERR_CODED_ENTRY_11+1       ; $5964  C2 88 0D
+        JP NZ,RAISE_FILE_ALREADY_EXISTS  ; $5964  C2 88 0D
         LD C,$17                         ; $5967  0E 17
         LD DE,FILTAB_10                  ; $5969  11 BD 08
         CALL $0005                       ; $596C  CD 05 00
@@ -15092,7 +15114,7 @@ STMT_OPEN:
         CALL FRETMP                      ; $5979  CD 37 4A
         LD A,(HL)                        ; $597C  7E
         OR A                             ; $597D  B7
-        JP Z,ERR_CODED_ENTRY_2+1         ; $597E  CA 6A 0D
+        JP Z,RAISE_BAD_FILE_MODE         ; $597E  CA 6A 0D
         INC HL                           ; $5981  23
         LD C,(HL)                        ; $5982  4E
         INC HL                           ; $5983  23
@@ -15107,7 +15129,7 @@ STMT_OPEN:
         JR Z,STMT_OPEN_1                 ; $5992  28 07
         LD D,$03                         ; $5994  16 03
         CP $52                           ; $5996  FE 52
-        JP NZ,ERR_CODED_ENTRY_2+1        ; $5998  C2 6A 0D
+        JP NZ,RAISE_BAD_FILE_MODE        ; $5998  C2 6A 0D
 STMT_OPEN_1:
         POP HL                           ; $599B  E1
         CALL SYNCHR                      ; $599C  CD A3 45
@@ -15120,13 +15142,13 @@ STMT_OPEN_1:
         DEFB    ','                      ; $59AC  2C  inline char arg consumed by the preceding CALL
         LD A,E                           ; $59AD  7B
         OR A                             ; $59AE  B7
-        JP Z,ERR_CODED_ENTRY_4+1         ; $59AF  CA 70 0D
+        JP Z,RAISE_BAD_FILE_NUMBER       ; $59AF  CA 70 0D
         POP DE                           ; $59B2  D1
 STMT_OPEN_2:
         LD E,A                           ; $59B3  5F
         PUSH DE                          ; $59B4  D5
         CALL FILE_NUM_TO_FCB_A           ; $59B5  CD B8 52
-        JP NZ,ERR_CODED_ENTRY_6+1        ; $59B8  C2 79 0D
+        JP NZ,RAISE_FILE_ALREADY_OPEN    ; $59B8  C2 79 0D
         POP DE                           ; $59BB  D1
         PUSH BC                          ; $59BC  C5
         PUSH DE                          ; $59BD  D5
@@ -15190,7 +15212,7 @@ STMT_OPEN_5:
         LD C,$16                         ; $5A15  0E 16
         CALL $0005                       ; $5A17  CD 05 00
         INC A                            ; $5A1A  3C
-        JP Z,ERR_CODED_ENTRY_10+1        ; $5A1B  CA 85 0D
+        JP Z,RAISE_TOO_MANY_FILES        ; $5A1B  CA 85 0D
         JR STMT_OPEN_7                   ; $5A1E  18 13
 STMT_OPEN_6:
         LD C,$0F                         ; $5A20  0E 0F
@@ -15199,7 +15221,7 @@ STMT_OPEN_6:
         JR NZ,STMT_OPEN_7                ; $5A26  20 0B
         CALL RAM_DISPATCH_TRAMPOLINE     ; $5A28  CD 98 0C
         CP $03                           ; $5A2B  FE 03
-        JP NZ,ERR_CODED_ENTRY_3+1        ; $5A2D  C2 6D 0D
+        JP NZ,RAISE_FILE_NOT_FOUND       ; $5A2D  C2 6D 0D
         INC DE                           ; $5A30  13
         JR STMT_OPEN_5                   ; $5A31  18 E2
 STMT_OPEN_7:
@@ -15278,7 +15300,7 @@ STMT_KILL:
         CALL NZ,$0005                    ; $5AA2  C4 05 00
         POP AF                           ; $5AA5  F1
         POP DE                           ; $5AA6  D1
-        JP Z,ERR_CODED_ENTRY_3+1         ; $5AA7  CA 6D 0D
+        JP Z,RAISE_FILE_NOT_FOUND        ; $5AA7  CA 6D 0D
         LD C,$13                         ; $5AAA  0E 13
         CALL $0005                       ; $5AAC  CD 05 00
         POP HL                           ; $5AAF  E1
@@ -15311,7 +15333,7 @@ STMT_FILES_1:
         LD C,$11                         ; $5AE3  0E 11
         CALL $0005                       ; $5AE5  CD 05 00
         CP $FF                           ; $5AE8  FE FF
-        JP Z,ERR_CODED_ENTRY_3+1         ; $5AEA  CA 6D 0D
+        JP Z,RAISE_FILE_NOT_FOUND        ; $5AEA  CA 6D 0D
 STMT_FILES_2:
         AND $03                          ; $5AED  E6 03
         ADD A,A                          ; $5AEF  87
@@ -15396,7 +15418,7 @@ BDOS_FILE_CALL_1:
         OR A                             ; $5B60  B7
         RET Z                            ; $5B61  C8
         CP $05                           ; $5B62  FE 05
-        JP Z,ERR_CODED_ENTRY_10+1        ; $5B64  CA 85 0D
+        JP Z,RAISE_TOO_MANY_FILES        ; $5B64  CA 85 0D
         CP $03                           ; $5B67  FE 03
         LD A,$01                         ; $5B69  3E 01
         RET Z                            ; $5B6B  C8
@@ -15484,7 +15506,7 @@ STMT_PUT:
         CALL FILE_NUM_TO_FCB             ; $5BE7  CD A9 52
 STMT_PUT_1:
         CP $03                           ; $5BEA  FE 03
-        JP NZ,ERR_CODED_ENTRY_2+1        ; $5BEC  C2 6A 0D
+        JP NZ,RAISE_BAD_FILE_MODE        ; $5BEC  C2 6A 0D
         PUSH BC                          ; $5BEF  C5
         PUSH HL                          ; $5BF0  E5
         LD HL,$00AD                      ; $5BF1  21 AD 00
@@ -15503,7 +15525,7 @@ STMT_PUT_1:
         EX (SP),HL                       ; $5C07  E3
         LD A,E                           ; $5C08  7B
         OR D                             ; $5C09  B2
-        JP Z,ERR_CODED_ENTRY_8+1         ; $5C0A  CA 7F 0D
+        JP Z,RAISE_BAD_RECORD_NUMBER     ; $5C0A  CA 7F 0D
         DEC HL                           ; $5C0D  2B
         LD (HL),E                        ; $5C0E  73
         INC HL                           ; $5C0F  23
@@ -15730,7 +15752,7 @@ BLOCK_COPY_BC_2:
         LD B,H                           ; $5D3A  44
         LD C,L                           ; $5D3B  4D
         CALL FILE_BUF_REMAIN_BC          ; $5D3C  CD 90 5D
-        JP Z,ERR_CODED_ENTRY_9+1         ; $5D3F  CA 82 0D
+        JP Z,RAISE_FIELD_OVERFLOW        ; $5D3F  CA 82 0D
 BLOCK_COPY_BC_3:
         CALL FCB_STORE_POSPTR            ; $5D42  CD 85 5D
         LD HL,$00B1                      ; $5D45  21 B1 00
@@ -15758,7 +15780,7 @@ BLOCK_COPY_BC_4:
 BLOCK_COPY_BC_5:
         PUSH DE                          ; $5D63  D5
         CALL FILE_BUF_REMAIN             ; $5D64  CD 8E 5D
-        JP Z,ERR_CODED_ENTRY_9+1         ; $5D67  CA 82 0D
+        JP Z,RAISE_FIELD_OVERFLOW        ; $5D67  CA 82 0D
         CALL FCB_STORE_POSPTR            ; $5D6A  CD 85 5D
         LD HL,$00B1                      ; $5D6D  21 B1 00
         ADD HL,BC                        ; $5D70  09

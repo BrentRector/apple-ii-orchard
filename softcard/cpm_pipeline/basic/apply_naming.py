@@ -190,6 +190,7 @@ def apply(base_text, renames, label_comments, sections, inline, ext_syms=None,
             out.append(line)
             out.append(f'    INCLUDE "{INCLUDE_NAME}"   ; canonical Apple/SoftCard external names')
             out.append(f'    INCLUDE "{TOKEN_INCLUDE_NAME}"   ; MS BASIC keyword-token names')
+            out.append(f'    INCLUDE "{ERROR_INCLUDE_NAME}"   ; MS BASIC error-code names (ERR_*)')
             continue
         m = LABEL_DEF_RE.match(line)
         if m and (m.group(1) in renames or m.group(1) in label_comments
@@ -232,7 +233,8 @@ def verify_byte_identical(text):
     from cpm_pipeline import reference_data as rd
     src = re.sub(r'SAVEBIN\s+"[^"]+"', 'SAVEBIN "{out_bin}"', text)
     inc = [(nm, pth) for nm, pth in ((INCLUDE_NAME, INCLUDE_PATH),
-                                     (TOKEN_INCLUDE_NAME, TOKEN_INCLUDE_PATH))
+                                     (TOKEN_INCLUDE_NAME, TOKEN_INCLUDE_PATH),
+                                     (ERROR_INCLUDE_NAME, ERROR_INCLUDE_PATH))
            if pth.exists()]
     built = assemble_z80(src, include_files=inc)
     genuine = bytes(extract_file(read_disk(Path(rd.DISK_2_20_44K_SYSTEM)), COM_NAME))
