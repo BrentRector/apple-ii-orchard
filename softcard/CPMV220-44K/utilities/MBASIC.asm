@@ -6355,16 +6355,29 @@ SUB_27E1_1:
         LD A,(HL)                        ; $27F1  7E
         CP $2C                           ; $27F2  FE 2C
         RET                              ; $27F4  C9
-SUB_27E1_2:
-        LD E,$1F                         ; $27F5  1E 1F
-SUB_27E1_3:
-        LD BC,$391E                      ; $27F7  01 1E 39
-SUB_27E1_4:
-        LD BC,$441E                      ; $27FA  01 1E 44
-SUB_27E1_5:
-        LD BC,$451E                      ; $27FD  01 1E 45
-SUB_27E1_6:
-        LD BC,$461E                      ; $2800  01 1E 46
+; -- Disk-error raise vectors. The disk/RWTS error path enters one of these (the
+;    entries are also stored in the cold-start vector table); each sets E and falls
+;    through the shared tail (DISK_RESELECT_AND_RAISE) which reselects the default
+;    drive (BDOS fn 14) then JP RAISE_ERROR. Same overlap-skip idiom as the low-RAM
+;    coded-error stubs; labelled DISK_RAISE_* so codes shared with the low-RAM run
+;    don't collide.
+DISK_RAISE_RESET_ERROR:
+        LD E,ERR_RESET_ERROR             ; $27F5  raise error 31
+        DEFB    $01                      ; $27F7  LD BC opcode = skip the next LD E
+DISK_RAISE_DISK_I_O_ERROR:
+        LD E,ERR_DISK_I_O_ERROR          ; $27F8  raise error 57
+        DEFB    $01                      ; $27FA  LD BC opcode = skip the next LD E
+DISK_RAISE_DISK_READ_ONLY:
+        LD E,ERR_DISK_READ_ONLY          ; $27FB  raise error 68
+        DEFB    $01                      ; $27FD  LD BC opcode = skip the next LD E
+DISK_RAISE_DRIVE_SELECT_ERROR:
+        LD E,ERR_DRIVE_SELECT_ERROR      ; $27FE  raise error 69
+        DEFB    $01                      ; $2800  LD BC opcode = skip the next LD E
+DISK_RAISE_FILE_READ_ONLY:
+        LD E,ERR_FILE_READ_ONLY          ; $2801  raise error 70
+; [RE] Shared disk-error exit: save the code (E), issue BDOS Select-Disk (C=$0E) on
+;    the CP/M current-drive byte ($0004) to reselect the default drive, then raise.
+DISK_RESELECT_AND_RAISE:
         PUSH DE                          ; $2803  D5
         LD C,$0E                         ; $2804  0E 0E
         LD A,($0004)                     ; $2806  3A 04 00
@@ -16004,26 +16017,26 @@ COLD_START:
         EX DE,HL                         ; $5E98  EB
         LD DE,$F1F8                      ; $5E99  11 F8 F1
         ADD HL,DE                        ; $5E9C  19
-        LD DE,SUB_27E1_3+1               ; $5E9D  11 F8 27
+        LD DE,DISK_RAISE_DISK_I_O_ERROR  ; $5E9D  11 F8 27
         LD (HL),E                        ; $5EA0  73
         INC HL                           ; $5EA1  23
         LD (HL),D                        ; $5EA2  72
         INC HL                           ; $5EA3  23
-        LD DE,SUB_27E1_5+1               ; $5EA4  11 FE 27
+        LD DE,DISK_RAISE_DRIVE_SELECT_ERROR  ; $5EA4  11 FE 27
         LD (HL),E                        ; $5EA7  73
         INC HL                           ; $5EA8  23
         LD (HL),D                        ; $5EA9  72
         INC HL                           ; $5EAA  23
-        LD DE,SUB_27E1_4+1               ; $5EAB  11 FB 27
+        LD DE,DISK_RAISE_DISK_READ_ONLY  ; $5EAB  11 FB 27
         LD (HL),E                        ; $5EAE  73
         INC HL                           ; $5EAF  23
         LD (HL),D                        ; $5EB0  72
         INC HL                           ; $5EB1  23
-        LD DE,SUB_27E1_6+1               ; $5EB2  11 01 28
+        LD DE,DISK_RAISE_FILE_READ_ONLY  ; $5EB2  11 01 28
         LD (HL),E                        ; $5EB5  73
         INC HL                           ; $5EB6  23
         LD (HL),D                        ; $5EB7  72
-        LD HL,SUB_27E1_2                 ; $5EB8  21 F5 27
+        LD HL,DISK_RAISE_RESET_ERROR     ; $5EB8  21 F5 27
         LD ($0001),HL                    ; $5EBB  22 01 00
         LD HL,(Z_CPU)                    ; $5EBE  2A DE F3
         LD (RPC_TRIGGER_STORE+1),HL      ; $5EC1  22 06 26

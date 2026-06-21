@@ -5702,20 +5702,29 @@ GFX_STMT_HPLOT_2:
         CALL GFX_XY_HELPER               ; $4B75  CD C4 49
         EXX                              ; $4B78  D9
         RET                              ; $4B79  C9
-GFX_STMT_HPLOT_3:
-        LD E,$1F                         ; $4B7A  1E 1F
-; [RE] Overlapping error-vector entry (LD E,n via the $1E of the next LD BC). +1 entry $4B7D = LD E,$39 then falls through the $01-prefixed LD BC stubs to the shared tail $4B88 (BDOS fn 14 select-disk reset, JP RAISE_ERROR RAISE_ERROR). LD BC,$391E is the harmless fall-through cover. $4B7D stored into the BIOS-relative vector table at cold-start $821F.
-GFX_STMT_HPLOT_4:
-        LD BC,$391E                      ; $4B7C  01 1E 39
-; [RE] Overlapping error-vector entry: +1 entry $4B80 = LD E,$44 then falls through to the shared BDOS-reset/RAISE_ERROR tail at $4B88. LD BC,$441E is the harmless fall-through cover. $4B80 stored into the BIOS-relative vector table at cold-start $822D.
-GFX_STMT_HPLOT_5:
-        LD BC,$441E                      ; $4B7F  01 1E 44
-; [RE] Overlapping error-vector entry: +1 entry $4B83 = LD E,$45 then falls through to the shared BDOS-reset/RAISE_ERROR tail at $4B88. LD BC,$451E is the harmless fall-through cover. $4B83 stored into the BIOS-relative vector table at cold-start $8226.
-GFX_STMT_HPLOT_6:
-        LD BC,$451E                      ; $4B82  01 1E 45
-; [RE] Overlapping error-vector entry: +1 entry $4B86 = LD E,$46 then falls straight into the shared BDOS-reset/RAISE_ERROR tail at $4B88. LD BC,$461E is the harmless fall-through cover. $4B86 stored into the BIOS-relative vector table at cold-start $8234.
-GFX_STMT_HPLOT_7:
-        LD BC,$461E                      ; $4B85  01 1E 46
+; -- Disk-error raise vectors. The disk/RWTS error path enters one of these (the
+;    entries are also stored in the cold-start vector table); each sets E and falls
+;    through the shared tail (DISK_RESELECT_AND_RAISE) which reselects the default
+;    drive (BDOS fn 14) then JP RAISE_ERROR. Same overlap-skip idiom as the low-RAM
+;    coded-error stubs; labelled DISK_RAISE_* so codes shared with the low-RAM run
+;    don't collide.
+DISK_RAISE_RESET_ERROR:
+        LD E,ERR_RESET_ERROR             ; $4B7A  raise error 31
+        DEFB    $01                      ; $4B7C  LD BC opcode = skip the next LD E
+DISK_RAISE_DISK_I_O_ERROR:
+        LD E,ERR_DISK_I_O_ERROR          ; $4B7D  raise error 57
+        DEFB    $01                      ; $4B7F  LD BC opcode = skip the next LD E
+DISK_RAISE_DISK_READ_ONLY:
+        LD E,ERR_DISK_READ_ONLY          ; $4B80  raise error 68
+        DEFB    $01                      ; $4B82  LD BC opcode = skip the next LD E
+DISK_RAISE_DRIVE_SELECT_ERROR:
+        LD E,ERR_DRIVE_SELECT_ERROR      ; $4B83  raise error 69
+        DEFB    $01                      ; $4B85  LD BC opcode = skip the next LD E
+DISK_RAISE_FILE_READ_ONLY:
+        LD E,ERR_FILE_READ_ONLY          ; $4B86  raise error 70
+; [RE] Shared disk-error exit: save the code (E), issue BDOS Select-Disk (C=$0E) on
+;    the CP/M current-drive byte ($0004) to reselect the default drive, then raise.
+DISK_RESELECT_AND_RAISE:
         PUSH DE                          ; $4B88  D5
         LD C,$0E                         ; $4B89  0E 0E
         LD A,($0004)                     ; $4B8B  3A 04 00
@@ -15307,26 +15316,26 @@ COLD_START:
         EX DE,HL                         ; $821A  EB
         LD DE,$F1F8                      ; $821B  11 F8 F1
         ADD HL,DE                        ; $821E  19
-        LD DE,GFX_STMT_HPLOT_4+1         ; $821F  11 7D 4B
+        LD DE,DISK_RAISE_DISK_I_O_ERROR  ; $821F  11 7D 4B
         LD (HL),E                        ; $8222  73
         INC HL                           ; $8223  23
         LD (HL),D                        ; $8224  72
         INC HL                           ; $8225  23
-        LD DE,GFX_STMT_HPLOT_6+1         ; $8226  11 83 4B
+        LD DE,DISK_RAISE_DRIVE_SELECT_ERROR  ; $8226  11 83 4B
         LD (HL),E                        ; $8229  73
         INC HL                           ; $822A  23
         LD (HL),D                        ; $822B  72
         INC HL                           ; $822C  23
-        LD DE,GFX_STMT_HPLOT_5+1         ; $822D  11 80 4B
+        LD DE,DISK_RAISE_DISK_READ_ONLY  ; $822D  11 80 4B
         LD (HL),E                        ; $8230  73
         INC HL                           ; $8231  23
         LD (HL),D                        ; $8232  72
         INC HL                           ; $8233  23
-        LD DE,GFX_STMT_HPLOT_7+1         ; $8234  11 86 4B
+        LD DE,DISK_RAISE_FILE_READ_ONLY  ; $8234  11 86 4B
         LD (HL),E                        ; $8237  73
         INC HL                           ; $8238  23
         LD (HL),D                        ; $8239  72
-        LD HL,GFX_STMT_HPLOT_3           ; $823A  21 7A 4B
+        LD HL,DISK_RAISE_RESET_ERROR     ; $823A  21 7A 4B
         LD ($0001),HL                    ; $823D  22 01 00
         LD HL,(Z_CPU)                    ; $8240  2A DE F3
         LD (RPC_TRIGGER_STORE+1),HL      ; $8243  22 EB 45

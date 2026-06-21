@@ -135,6 +135,9 @@ def main():
     body = errstub.splice_stubs_into(body, com)       # coded-error stubs -> RAISE_* / LD E,ERR_*
     body = errstub.apply_reference_renames(body, com, stub_old)
     body = errstub.apply_direct_raise_renames(body, com)   # LD E,$nn;JP RAISE_ERROR -> LD E,ERR_*
+    disk_run = errstub.disk_vector_run(body)               # disk-error vectors (in-place body)
+    body = errstub.splice_disk_vectors_into(body, com, disk_run)
+    body = errstub.apply_disk_vector_renames(body, com, disk_run)  # vector-table refs -> DISK_RAISE_*
 
     out = []
     out.append("; MBASIC.COM -- Microsoft BASIC-80 Rev 5.2 interpreter (graphics OFF), SoftCard CP/M 2.20 (44K).")

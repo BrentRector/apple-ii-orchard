@@ -325,6 +325,9 @@ def main():
     body_lines = errmsg.apply_reference_renames(body_lines, com)   # error-message refs -> ERRMSG_*
     body_lines = errstub.apply_reference_renames(body_lines, com, stub_old)  # error-raise refs -> RAISE_*
     body_lines = errstub.apply_direct_raise_renames(body_lines, com)  # LD E,$nn;JP RAISE_ERROR -> LD E,ERR_*
+    disk_run = errstub.disk_vector_run(body_lines)             # disk-error vectors (relocated body)
+    body_lines = errstub.splice_disk_vectors_into(body_lines, com, disk_run)
+    body_lines = errstub.apply_disk_vector_renames(body_lines, com, disk_run)  # vector-table refs -> DISK_RAISE_*
 
     # Cross-region relocatability: header ($0100-$100D) and body ($3000+) are decoded
     # by SEPARATE walkers, so each region's control-flow operands into the OTHER region

@@ -91,15 +91,16 @@ def stub_old_labels(lines, com):
     return out
 
 
-def emit_run_lines(com, run):
-    """Structured assembly for one stub run: each entry labeled RAISE_<name>, body
+def emit_run_lines(com, run, label_prefix="RAISE_"):
+    """Structured assembly for one stub run: each entry labeled <prefix><name>, body
     LD E,ERR_<name>, and a DEFB $01 skip between entries (the last entry has none -- it
     falls into the JR/RAISE_ERROR that follows)."""
-    names = _name_map(com)
+    names = _code_err_names(com)
     L = []
     for i, (addr, code) in enumerate(run):
-        err_name, raise_name = names.get(code, (f"${code:02X}", f"RAISE_${code:02X}"))
-        L.append(f"{raise_name}:")
+        err_name = names.get(code, f"${code:02X}")
+        bare = err_name[len("ERR_"):] if err_name.startswith("ERR_") else err_name
+        L.append(f"{label_prefix}{bare}:")
         L.append(f"        LD E,{err_name:<26} ; ${addr:04X}  raise error {code}")
         if i != len(run) - 1:
             L.append(f"        DEFB    {'$01':<26} ; ${addr+2:04X}  LD BC opcode = skip the next LD E")
@@ -236,14 +237,17 @@ def apply_direct_raise_renames(lines, com):
     return out
 
 
-def apply_reference_renames(lines, com, old_labels=None):
-    """Rewrite every reference to a stub entry to its RAISE_<name> label, whatever form the
-    operand currently has (a literal $addr, an old machine label, or a local+offset like
+def apply_reference_renames(lines, com, old_labels=None, addrnames=None, run_spans=None):
+    """Rewrite every reference to a stub entry to its <name> label, whatever form the operand
+    currently has (a literal $addr, an old machine label, or a local+offset like
     SUB_xxxx_n+1). The instruction's real target is read from its `; $addr  HH HH` byte
-    comment; if that target is a stub entry, the operand is replaced. Byte-identical."""
-    addrnames = _stub_addr_names(com)
-    runs = decode_stubs(com)
-    run_spans = [(run[0][0], run[-1][0] + 2) for run in runs]   # [start, end) per run
+    comment; if that target is a stub entry, the operand is replaced. Byte-identical.
+    By default operates on the low-RAM coded-error stubs; pass addrnames/run_spans to reuse
+    it for another run (e.g. the disk-error vectors)."""
+    if addrnames is None:
+        addrnames = _stub_addr_names(com)
+    if run_spans is None:
+        run_spans = [(run[0][0], run[-1][0] + 2) for run in decode_stubs(com)]  # [start,end)
     old_labels = old_labels or {}
     labpat = (re.compile(r"\b(" + "|".join(re.escape(k) for k in
               sorted(old_labels, key=len, reverse=True)) + r")\b") if old_labels else None)
@@ -270,3 +274,102 @@ def apply_reference_renames(lines, com, old_labels=None):
                 code = om.group(1) + f"${tgt:04X}"     # data-as-code artifact) -> keep literal
         out.append(code + sep + rest)
     return out
+
+
+# ---- the disk-error-raise vector run -------------------------------------------------
+# A SECOND overlap-skip run sits outside the low-RAM range: the disk/RWTS error path JPs to
+# one of these entries (also held in a cold-start vector table) to set E, then falls into a
+# shared tail that reselects the default drive (BDOS fn 14) and JP RAISE_ERROR. decode_stubs
+# can't reach it (its scan is bounded to low RAM, and in the relocated GBASIC body the .COM
+# address != the run-time address anyway), so it is found in LINE space via the byte comments.
+# It is THE overlap run whose codes are all disk errors (>=50) or the disk reset error (31) --
+# which excludes the low-RAM runs (already spliced) and the coincidental same-idiom uses that
+# carry type codes / screen cells / FP field values (DEFSTR, screen HOME, FOUT).
+
+def _line_bytes(ln):
+    m = _CMT.search(ln)
+    if not m:
+        return None, None
+    return int(m.group(1), 16), [int(x, 16) for x in m.group(2).split()]
+
+
+def _runs_in_lines(lines):
+    """All overlap-skip runs visible in the emitted lines (by byte comment): a `LD E,$nn`
+    (1E nn) start, then `LD BC,$nn1E` (01 1E nn) continuations. Returns [[(entry_addr,
+    code), ...], ...] with each continuation's REAL entry at the +1 address."""
+    code_lines = [(a, b) for a, b in (_line_bytes(ln) for ln in lines) if a is not None]
+    runs, k = [], 0
+    while k < len(code_lines):
+        a, b = code_lines[k]
+        if len(b) >= 2 and b[0] == 0x1E:
+            ent = [(a, b[1])]; k += 1
+            while k < len(code_lines):
+                a2, b2 = code_lines[k]
+                if len(b2) >= 3 and b2[0] == 0x01 and b2[1] == 0x1E:
+                    ent.append((a2 + 1, b2[2])); k += 1
+                else:
+                    break
+            if len(ent) >= 2:
+                runs.append(ent)
+            continue
+        k += 1
+    return runs
+
+
+def disk_vector_run(lines):
+    """The disk-error-raise vector run (entries [(addr, code)]) found in line space, or None.
+    Must be called BEFORE the run is spliced (it keys off the LD BC cover byte comments)."""
+    for ent in _runs_in_lines(lines):
+        if all(c == 31 or c >= 50 for _a, c in ent):
+            return ent
+    return None
+
+
+def splice_disk_vectors_into(lines, com, run=None):
+    """Replace the disk-error vector run's LD BC covers (and the wrong neighbouring-routine
+    locals the formatter put on them) with the structured DISK_RAISE_<name> / LD E,ERR_<name>
+    / DEFB $01 form. DISK_RAISE_* (not RAISE_*) avoids colliding with the low-RAM disk entries
+    of the same code (e.g. Disk I/O error appears in both runs)."""
+    if run is None:
+        run = disk_vector_run(lines)
+    if run is None:
+        return list(lines)
+    cover_addrs = {run[0][0]} | {a - 1 for a, _c in run[1:]}   # LD E start + each 01 cover
+    is_lbl = re.compile(r"^([A-Za-z_]\w*):\s*$")
+    cover_idx = [i for i, ln in enumerate(lines)
+                 if (lb := _line_bytes(ln)[0]) is not None and lb in cover_addrs]
+    if not cover_idx:
+        return list(lines)
+    lo_i, hi_i = min(cover_idx), max(cover_idx)
+    j = lo_i - 1                                                # absorb the run's own labels
+    while j >= 0 and (is_lbl.match(lines[j]) or lines[j].lstrip().startswith(";")
+                      or not lines[j].strip()):
+        j -= 1
+    start = j + 1
+    header = [
+        "; -- Disk-error raise vectors. The disk/RWTS error path enters one of these (the",
+        ";    entries are also stored in the cold-start vector table); each sets E and falls",
+        ";    through the shared tail (DISK_RESELECT_AND_RAISE) which reselects the default",
+        ";    drive (BDOS fn 14) then JP RAISE_ERROR. Same overlap-skip idiom as the low-RAM",
+        ";    coded-error stubs; labelled DISK_RAISE_* so codes shared with the low-RAM run",
+        ";    don't collide.",
+    ]
+    block = emit_run_lines(com, run, label_prefix="DISK_RAISE_")
+    tail = [
+        "; [RE] Shared disk-error exit: save the code (E), issue BDOS Select-Disk (C=$0E) on",
+        ";    the CP/M current-drive byte ($0004) to reselect the default drive, then raise.",
+        "DISK_RESELECT_AND_RAISE:",
+    ]
+    return lines[:start] + header + block + tail + lines[hi_i + 1:]
+
+
+def apply_disk_vector_renames(lines, com, run):
+    """Rewrite every reference into the disk-error vector run (e.g. the cold-start table's
+    `LD DE,GFX_..+1` / `LD HL,GFX_..`) to its DISK_RAISE_<name> label, by target address."""
+    if run is None:
+        return list(lines)
+    names = _code_err_names(com)
+    addrnames = {a: "DISK_RAISE_" + (names[c][len("ERR_"):] if c in names else f"{c:02X}")
+                 for a, c in run}
+    span = [(run[0][0], run[-1][0] + 2)]
+    return apply_reference_renames(lines, com, addrnames=addrnames, run_spans=span)
