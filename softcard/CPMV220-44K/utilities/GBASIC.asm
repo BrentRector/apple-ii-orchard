@@ -7186,7 +7186,7 @@ DMUL_4:
         LD HL,$0CB3                      ; $5370  21 B3 0C
         CALL DP_SHIFT_RIGHT_LOOP         ; $5373  CD 0D 53
         JR DMUL_3                        ; $5376  18 F1
-; [RE] Double-precision MBF constant (8-byte mantissa $CD CC CC CC CC CC 4C exp $7D ~= 0.1) used as the divide-by-ten reciprocal seed by DDIV/the decimal scaler.
+; [RE] Double-precision MBF constant (8-byte mantissa $CD CC CC CC CC CC 4C exp $7D ~= 0.1) used as the divide-by-ten reciprocal seed by DDIV/the decimal scaler. [RE] MBF double-precision constant 0.1 (CD CC CC CC CC CC 4C 7D). Loaded by the double-precision code (LD DE,DP_CONST_TENTH at $5390). The repeating $CC is 0.1's mantissa.
 DP_CONST_TENTH:
         DEFB    $CD,$CC,$CC,$CC,$CC,$CC,$4C,$7D,$00  ; $5378  "MLLLLLL}"
         DEFB    $00,$00,$00              ; $5381
@@ -8588,13 +8588,13 @@ FOUT_DIGITS_INT_5:
         RET                              ; $5BD4  C9
         DEC DE                           ; $5BD5  1B
         LD C,$B6                         ; $5BD6  0E B6
-; [RE] Double-precision 0.5 rounding-bias FP constant: DADD'd to the value before FIX in FN_LPOS ($4F86) and in the fractional-digit generator ($5B05) to round-to-nearest
+; [RE] Double-precision 0.5 rounding-bias FP constant: DADD'd to the value before FIX in FN_LPOS ($4F86) and in the fractional-digit generator ($5B05) to round-to-nearest [RE] MBF double-precision constant 0.5.
 FP_CONST_HALF_DBL:
         NOP                              ; $5BD8  00
         NOP                              ; $5BD9  00
         NOP                              ; $5BDA  00
         NOP                              ; $5BDB  00
-; [RE] Single-precision 0.5 rounding constant loaded by FADD_LOAD_CONST/FADDT ($4B98, $5C90): added to the FAC during single-precision round-before-truncate in FOUT/FIX
+; [RE] Single-precision 0.5 rounding constant loaded by FADD_LOAD_CONST/FADDT ($4B98, $5C90): added to the FAC during single-precision round-before-truncate in FOUT/FIX [RE] MBF single-precision constant 0.5.
 FP_CONST_HALF_SNG:
         NOP                              ; $5BDC  00
         NOP                              ; $5BDD  00
