@@ -3820,23 +3820,9 @@ STMT_LINE:
         JP STMT_LET_1                    ; $18CF  C3 0B 16
 ; INPUT error literal "?Redo from start" + CR/LF; STROUT'd by the INPUT re-prompt path (STMT_LINE_2) when the user's typed reply does not parse. Bytes after the terminator are INPUT-path code rendered as DEFB.
 MSG_REDO_FROM_START:
-        CCF                              ; $18D2  3F
-        LD D,D                           ; $18D3  52
-        LD H,L                           ; $18D4  65
-        LD H,H                           ; $18D5  64
-        LD L,A                           ; $18D6  6F
-        JR NZ,INPUT_PROMPT_1+2           ; $18D7  20 66
-        LD (HL),D                        ; $18D9  72
-        LD L,A                           ; $18DA  6F
-        LD L,L                           ; $18DB  6D
-        JR NZ,INPUT_EMIT_PROMPT_1+1      ; $18DC  20 73
-        LD (HL),H                        ; $18DE  74
-        LD H,C                           ; $18DF  61
-        LD (HL),D                        ; $18E0  72
-        LD (HL),H                        ; $18E1  74
-        DEC C                            ; $18E2  0D
-        LD A,(BC)                        ; $18E3  0A
-        NOP                              ; $18E4  00
+        DEFB    "?Redo from start"       ; $18D2  string
+        DEFB    $0D                      ; $18E2  terminator
+        DEFB    $0A,$00                  ; $18E3
 MSG_REDO_FROM_START_1:
         INC HL                           ; $18E5  23
         LD A,(HL)                        ; $18E6  7E
@@ -3900,13 +3886,12 @@ INPUT_EMIT_PROMPT:
         PUSH HL                          ; $1947  E5
         LD A,(INPUT_PROMPT_QMARK_FLAG)   ; $1948  3A B7 0C
         OR A                             ; $194B  B7
-        JR Z,INPUT_EMIT_PROMPT_2         ; $194C  28 0A
+        JR Z,INPUT_EMIT_PROMPT_1         ; $194C  28 0A
         LD A,$3F                         ; $194E  3E 3F
-INPUT_EMIT_PROMPT_1:
         CALL OUTCHR                      ; $1950  CD 91 42
         LD A,$20                         ; $1953  3E 20
         CALL OUTCHR                      ; $1955  CD 91 42
-INPUT_EMIT_PROMPT_2:
+INPUT_EMIT_PROMPT_1:
         CALL INLIN                       ; $1958  CD A9 4C
         POP BC                           ; $195B  C1
         JP C,STMT_END_2+1                ; $195C  DA E4 45
@@ -5803,35 +5788,10 @@ STMT_RANDOMIZE_3:
         RET                              ; $24A5  C9
 ; Data string 'Random number seed (-32768- to 32767)' (with a $08 backspace splice) -- the interactive RANDOMIZE prompt emitted by STMT_RANDOMIZE via STROUT/QINLIN
 MSG_RANDOMIZE_PROMPT:
-        LD D,D                           ; $24A6  52
-        LD H,C                           ; $24A7  61
-        LD L,(HL)                        ; $24A8  6E
-        LD H,H                           ; $24A9  64
-        LD L,A                           ; $24AA  6F
-        LD L,L                           ; $24AB  6D
-        JR NZ,BLOCK_SCAN_FORNEXT_11      ; $24AC  20 6E
-        LD (HL),L                        ; $24AE  75
-        LD L,L                           ; $24AF  6D
-        LD H,D                           ; $24B0  62
-        LD H,L                           ; $24B1  65
-        LD (HL),D                        ; $24B2  72
-        JR NZ,BLOCK_SCAN_FORNEXT_12      ; $24B3  20 73
-        LD H,L                           ; $24B5  65
-        LD H,L                           ; $24B6  65
-        LD H,H                           ; $24B7  64
-        JR NZ,BLOCK_SCAN_FORNEXT_5       ; $24B8  20 28
-        DEC L                            ; $24BA  2D
-        INC SP                           ; $24BB  33
-        LD ($3637),A                     ; $24BC  32 37 36
-        JR C,BLOCK_SCAN_FORNEXT_7+1      ; $24BF  38 2D
-        EX AF,AF'                        ; $24C1  08
-        JR NZ,BLOCK_SCAN_FORNEXT_13      ; $24C2  20 74
-        LD L,A                           ; $24C4  6F
-        JR NZ,BLOCK_SCAN_FORNEXT_8       ; $24C5  20 33
-        LD ($3637),A                     ; $24C7  32 37 36
-        SCF                              ; $24CA  37
-        ADD HL,HL                        ; $24CB  29
-        NOP                              ; $24CC  00
+        DEFB    "Random number seed (-32768-"  ; $24A6  string
+        DEFB    $08                      ; $24C1
+        DEFB    " to 32767)"             ; $24C2  string
+        DEFB    $00                      ; $24CC  terminator
 ; [RE] Enter the structured-block program scanner with delimiter set for WHILE/WEND (C=$1D); used to balance nested block-statement keywords while searching forward through program text.
 BLOCK_SCAN_WHILE:
         LD C,$1D                         ; $24CD  0E 1D
@@ -5851,16 +5811,14 @@ BLOCK_SCAN_FORNEXT_3:
         DEC HL                           ; $24DE  2B
 BLOCK_SCAN_FORNEXT_4:
         CALL CHRGET                      ; $24DF  CD E4 13
-BLOCK_SCAN_FORNEXT_5:
-        JR Z,BLOCK_SCAN_FORNEXT_6        ; $24E2  28 08
+        JR Z,BLOCK_SCAN_FORNEXT_5        ; $24E2  28 08
         CP TOK_ELSE                      ; $24E4  FE 9E
-        JR Z,BLOCK_SCAN_FORNEXT_9        ; $24E6  28 18
+        JR Z,BLOCK_SCAN_FORNEXT_6        ; $24E6  28 18
         CP TOK_THEN                      ; $24E8  FE DE
         JR NZ,BLOCK_SCAN_FORNEXT_4       ; $24EA  20 F3
-BLOCK_SCAN_FORNEXT_6:
+BLOCK_SCAN_FORNEXT_5:
         OR A                             ; $24EC  B7
-BLOCK_SCAN_FORNEXT_7:
-        JR NZ,BLOCK_SCAN_FORNEXT_9       ; $24ED  20 11
+        JR NZ,BLOCK_SCAN_FORNEXT_6       ; $24ED  20 11
         INC HL                           ; $24EF  23
         LD A,(HL)                        ; $24F0  7E
         INC HL                           ; $24F1  23
@@ -5870,37 +5828,35 @@ BLOCK_SCAN_FORNEXT_7:
         INC HL                           ; $24F7  23
         LD E,(HL)                        ; $24F8  5E
         INC HL                           ; $24F9  23
-BLOCK_SCAN_FORNEXT_8:
         LD D,(HL)                        ; $24FA  56
         EX DE,HL                         ; $24FB  EB
         LD (SUB_0C4B_11),HL              ; $24FC  22 94 0C
         EX DE,HL                         ; $24FF  EB
-BLOCK_SCAN_FORNEXT_9:
+BLOCK_SCAN_FORNEXT_6:
         CALL CHRGET                      ; $2500  CD E4 13
         LD A,C                           ; $2503  79
         CP $1A                           ; $2504  FE 1A
         LD A,(HL)                        ; $2506  7E
-        JR Z,BLOCK_SCAN_FORNEXT_10       ; $2507  28 0B
+        JR Z,BLOCK_SCAN_FORNEXT_7        ; $2507  28 0B
         CP $AF                           ; $2509  FE AF
         JR Z,BLOCK_SCAN_FORNEXT_2        ; $250B  28 D0
         CP $B0                           ; $250D  FE B0
         JR NZ,BLOCK_SCAN_FORNEXT_3       ; $250F  20 CD
         DJNZ BLOCK_SCAN_FORNEXT_3        ; $2511  10 CB
         RET                              ; $2513  C9
-BLOCK_SCAN_FORNEXT_10:
+BLOCK_SCAN_FORNEXT_7:
         CP $82                           ; $2514  FE 82
         JR Z,BLOCK_SCAN_FORNEXT_2        ; $2516  28 C5
         CP $83                           ; $2518  FE 83
         JR NZ,BLOCK_SCAN_FORNEXT_3       ; $251A  20 C2
-BLOCK_SCAN_FORNEXT_11:
+BLOCK_SCAN_FORNEXT_8:
         DEC B                            ; $251C  05
         RET Z                            ; $251D  C8
         CALL CHRGET                      ; $251E  CD E4 13
-        JR Z,BLOCK_SCAN_FORNEXT_6        ; $2521  28 C9
+        JR Z,BLOCK_SCAN_FORNEXT_5        ; $2521  28 C9
         EX DE,HL                         ; $2523  EB
         LD HL,(SAVTXT)                   ; $2524  2A 67 08
         PUSH HL                          ; $2527  E5
-BLOCK_SCAN_FORNEXT_12:
         LD HL,(SUB_0C4B_11)              ; $2528  2A 94 0C
         LD (SAVTXT),HL                   ; $252B  22 67 08
         EX DE,HL                         ; $252E  EB
@@ -5909,20 +5865,19 @@ BLOCK_SCAN_FORNEXT_12:
         POP BC                           ; $2533  C1
         DEC HL                           ; $2534  2B
         CALL CHRGET                      ; $2535  CD E4 13
-BLOCK_SCAN_FORNEXT_13:
-        LD DE,BLOCK_SCAN_FORNEXT_6       ; $2538  11 EC 24
-        JR Z,BLOCK_SCAN_FORNEXT_14       ; $253B  28 08
+        LD DE,BLOCK_SCAN_FORNEXT_5       ; $2538  11 EC 24
+        JR Z,BLOCK_SCAN_FORNEXT_9        ; $253B  28 08
         CALL SYNCHR                      ; $253D  CD A3 45
         DEFB    ','                      ; $2540  2C  inline char arg consumed by the preceding CALL
         DEC HL                           ; $2541  2B
-        LD DE,BLOCK_SCAN_FORNEXT_11      ; $2542  11 1C 25
-BLOCK_SCAN_FORNEXT_14:
+        LD DE,BLOCK_SCAN_FORNEXT_8       ; $2542  11 1C 25
+BLOCK_SCAN_FORNEXT_9:
         EX (SP),HL                       ; $2545  E3
         LD (SAVTXT),HL                   ; $2546  22 67 08
         POP HL                           ; $2549  E1
         PUSH DE                          ; $254A  D5
         RET                              ; $254B  C9
-BLOCK_SCAN_FORNEXT_15:
+BLOCK_SCAN_FORNEXT_10:
         PUSH AF                          ; $254C  F5
         LD A,(CHAIN_BREAK_FLAG_13)       ; $254D  3A D9 0C
         LD (CHAIN_BREAK_FLAG_14),A       ; $2550  32 DA 0C
@@ -8128,7 +8083,7 @@ FIN:
         CALL SET_TYPE_DOUBLE             ; $3121  CD AB 2C
 FIN_1:
         OR $AF                           ; $3124  F6 AF
-        LD BC,BLOCK_SCAN_FORNEXT_15      ; $3126  01 4C 25
+        LD BC,BLOCK_SCAN_FORNEXT_10      ; $3126  01 4C 25
         PUSH BC                          ; $3129  C5
         PUSH AF                          ; $312A  F5
         LD A,$01                         ; $312B  3E 01
@@ -8811,7 +8766,7 @@ FOUT_EXPONENT_6:
         LD A,D                           ; $3544  7A
         JP NC,FOUT_EXPONENT_15           ; $3545  D2 B3 35
         RRA                              ; $3548  1F
-        JP C,FOUT_EXPONENT_27            ; $3549  DA 4D 36
+        JP C,FOUT_EXPONENT_26            ; $3549  DA 4D 36
         LD BC,$0603                      ; $354C  01 03 06
         CALL PRUSING_COMMA_FLAG          ; $354F  CD 49 37
         POP DE                           ; $3552  D1
@@ -8882,7 +8837,7 @@ FOUT_EXPONENT_14:
 FOUT_EXPONENT_15:
         PUSH HL                          ; $35B3  E5
         RRA                              ; $35B4  1F
-        JP C,FOUT_EXPONENT_28            ; $35B5  DA 54 36
+        JP C,FOUT_EXPONENT_27            ; $35B5  DA 54 36
         JR Z,FOUT_EXPONENT_17            ; $35B8  28 14
         LD DE,FP_CONST_ENOTATION_THRESHOLD  ; $35BA  11 5E 38
         CALL DCOMP                       ; $35BD  CD BE 2B
@@ -8949,7 +8904,7 @@ FOUT_EXPONENT_22:
         CALL P,FOUT_EMIT_ZEROS           ; $3620  F4 29 37
         PUSH BC                          ; $3623  C5
         CALL PRUSING_DIGIT_COUNT         ; $3624  CD 3D 37
-        JR FOUT_EXPONENT_25              ; $3627  18 11
+        JR FOUT_EXPONENT_24              ; $3627  18 11
 FOUT_EXPONENT_23:
         CALL FOUT_EMIT_ZEROS             ; $3629  CD 29 37
         LD A,C                           ; $362C  79
@@ -8959,32 +8914,31 @@ FOUT_EXPONENT_23:
         SUB D                            ; $3632  92
         SUB E                            ; $3633  93
         CALL FOUT_EMIT_ZEROS             ; $3634  CD 29 37
-FOUT_EXPONENT_24:
         PUSH BC                          ; $3637  C5
         LD B,A                           ; $3638  47
         LD C,A                           ; $3639  4F
-FOUT_EXPONENT_25:
+FOUT_EXPONENT_24:
         CALL FOUT_DIGITS_FRAC            ; $363A  CD 77 37
         POP BC                           ; $363D  C1
         OR C                             ; $363E  B1
-        JR NZ,FOUT_EXPONENT_26           ; $363F  20 03
+        JR NZ,FOUT_EXPONENT_25           ; $363F  20 03
         LD HL,(FRMEVL_TXTPTR_TEMP)       ; $3641  2A 8C 0B
-FOUT_EXPONENT_26:
+FOUT_EXPONENT_25:
         ADD A,E                          ; $3644  83
         DEC A                            ; $3645  3D
         CALL P,FOUT_EMIT_ZEROS           ; $3646  F4 29 37
         LD D,B                           ; $3649  50
         JP FOUT_EXPONENT_8               ; $364A  C3 65 35
-FOUT_EXPONENT_27:
+FOUT_EXPONENT_26:
         PUSH HL                          ; $364D  E5
         PUSH DE                          ; $364E  D5
         CALL INT_TO_SINGLE               ; $364F  CD 89 2C
         POP DE                           ; $3652  D1
         XOR A                            ; $3653  AF
-FOUT_EXPONENT_28:
-        JP Z,FOUT_EXPONENT_29+1          ; $3654  CA 5A 36
+FOUT_EXPONENT_27:
+        JP Z,FOUT_EXPONENT_28+1          ; $3654  CA 5A 36
         LD E,$10                         ; $3657  1E 10
-FOUT_EXPONENT_29:
+FOUT_EXPONENT_28:
         LD BC,$061E                      ; $3659  01 1E 06
         CALL FP_SIGN                     ; $365C  CD C5 2A
         SCF                              ; $365F  37
@@ -9008,16 +8962,16 @@ FOUT_EXPONENT_29:
         SUB E                            ; $3677  93
         PUSH AF                          ; $3678  F5
         PUSH BC                          ; $3679  C5
-FOUT_EXPONENT_30:
+FOUT_EXPONENT_29:
         CALL M,FIN_DIV10                 ; $367A  FC 12 32
-        JP M,FOUT_EXPONENT_30            ; $367D  FA 7A 36
+        JP M,FOUT_EXPONENT_29            ; $367D  FA 7A 36
         POP BC                           ; $3680  C1
         POP AF                           ; $3681  F1
         PUSH BC                          ; $3682  C5
         PUSH AF                          ; $3683  F5
-        JP M,FOUT_EXPONENT_31            ; $3684  FA 88 36
+        JP M,FOUT_EXPONENT_30            ; $3684  FA 88 36
         XOR A                            ; $3687  AF
-FOUT_EXPONENT_31:
+FOUT_EXPONENT_30:
         CPL                              ; $3688  2F
         INC A                            ; $3689  3C
         ADD A,B                          ; $368A  80
@@ -9031,19 +8985,19 @@ FOUT_EXPONENT_31:
         CALL FOUT_DIGIT_SEP              ; $3697  CD 64 37
         POP BC                           ; $369A  C1
         POP AF                           ; $369B  F1
-        JP NZ,FOUT_EXPONENT_32           ; $369C  C2 AB 36
+        JP NZ,FOUT_EXPONENT_31           ; $369C  C2 AB 36
         CALL DEC_HL_RET                  ; $369F  CD 9F 2A
         LD A,(HL)                        ; $36A2  7E
         CP $2E                           ; $36A3  FE 2E
         CALL NZ,FP_LOAD_DONE             ; $36A5  C4 3D 2B
         LD (FRMEVL_TXTPTR_TEMP),HL       ; $36A8  22 8C 0B
-FOUT_EXPONENT_32:
+FOUT_EXPONENT_31:
         POP AF                           ; $36AB  F1
-        JR C,FOUT_EXPONENT_33            ; $36AC  38 03
+        JR C,FOUT_EXPONENT_32            ; $36AC  38 03
         ADD A,E                          ; $36AE  83
         SUB B                            ; $36AF  90
         SUB D                            ; $36B0  92
-FOUT_EXPONENT_33:
+FOUT_EXPONENT_32:
         PUSH BC                          ; $36B1  C5
         CALL FOUT_EXPONENT               ; $36B2  CD 18 35
         EX DE,HL                         ; $36B5  EB
@@ -9789,7 +9743,7 @@ RNDX_SEED_WORD_1:
         LD L,B                           ; $3AB1  68
 ; [RE] EXP() handler (function token $0B): exponential e^x (MBF).
 FN_EXP:
-        LD HL,FN_RND_4+2                 ; $3AB2  21 28 3B
+        LD HL,FP_CONST_EXP_LOG2E         ; $3AB2  21 28 3B
         CALL FADD_FROM_MEM               ; $3AB5  CD 19 28
 ; [RE] RND() handler (function token $08): pseudo-random number (reads the seed at $0CB4).
 FN_RND:
@@ -9828,7 +9782,7 @@ FN_RND_1:
         XOR $80                          ; $3B0A  EE 80
         LD (CHAIN_BREAK_FLAG_10),A       ; $3B0C  32 D6 0C
 FN_RND_2:
-        LD HL,FN_RND_5                   ; $3B0F  21 30 3B
+        LD HL,FP_POLY_SIN_COEFFS         ; $3B0F  21 30 3B
         CALL POLY_EVAL_ODD               ; $3B12  CD D4 39
         POP AF                           ; $3B15  F1
         RET P                            ; $3B16  F0
@@ -9836,41 +9790,14 @@ FN_RND_2:
         XOR $80                          ; $3B1A  EE 80
         LD (CHAIN_BREAK_FLAG_10),A       ; $3B1C  32 D6 0C
         RET                              ; $3B1F  C9
-FN_RND_3:
-        NOP                              ; $3B20  00
-        NOP                              ; $3B21  00
-        NOP                              ; $3B22  00
-        NOP                              ; $3B23  00
-        ADD A,E                          ; $3B24  83
-        LD SP,HL                         ; $3B25  F9
-FN_RND_4:
-        LD ($DB7E),HL                    ; $3B26  22 7E DB
-        RRCA                             ; $3B29  0F
-        LD C,C                           ; $3B2A  49
-        ADD A,C                          ; $3B2B  81
-        NOP                              ; $3B2C  00
-        NOP                              ; $3B2D  00
-        NOP                              ; $3B2E  00
-        LD A,A                           ; $3B2F  7F
-FN_RND_5:
-        DEC B                            ; $3B30  05
-        EI                               ; $3B31  FB
-        RST $10                          ; $3B32  D7
-        LD E,$86                         ; $3B33  1E 86
-        LD H,L                           ; $3B35  65
-        LD H,$99                         ; $3B36  26 99
-        ADD A,A                          ; $3B38  87
-        LD E,B                           ; $3B39  58
-        INC (HL)                         ; $3B3A  34
-        INC HL                           ; $3B3B  23
-        ADD A,A                          ; $3B3C  87
-        POP HL                           ; $3B3D  E1
-        LD E,L                           ; $3B3E  5D
-        AND L                            ; $3B3F  A5
-        ADD A,(HL)                       ; $3B40  86
-        IN A,($0F)                       ; $3B41  DB 0F
-        LD C,C                           ; $3B43  49
-        ADD A,E                          ; $3B44  83
+        DEFB    $00,$00,$00,$00,$83,$F9,$22,$7E  ; $3B20
+; [RE] MBF constant pair for the transcendental code: log2(e)=1.442695 followed by 0.5. FN_EXP loads it to scale x by log2(e); FN_TAN returns with HL pointing here.
+FP_CONST_EXP_LOG2E:
+        DEFB    $DB,$0F,$49,$81,$00,$00,$00,$7F  ; $3B28
+; [RE] MBF polynomial coefficient table (count byte then five 4-byte coefficients) for the SIN/COS series, evaluated by POLY_EVAL_ODD. Also doubled as a rotating XOR key table by the protected-program scramble.
+FP_POLY_SIN_COEFFS:
+        DEFB    $05,$FB,$D7,$1E,$86,$65,$26,$99,$87,$58,$34,$23,$87,$E1,$5D,$A5  ; $3B30
+        DEFB    $86,$DB,$0F,$49,$83      ; $3B40
 ; [RE] COS() handler (function token $0C): cosine (MBF).
 FN_COS:
         CALL FAC_PUSH                    ; $3B45  CD 18 2B
@@ -9899,7 +9826,7 @@ FN_TAN:
 FN_TAN_1:
         LD HL,FN_TAN_2                   ; $3B76  21 80 3B
         CALL POLY_EVAL_ODD               ; $3B79  CD D4 39
-        LD HL,FN_RND_4+2                 ; $3B7C  21 28 3B
+        LD HL,FP_CONST_EXP_LOG2E         ; $3B7C  21 28 3B
         RET                              ; $3B7F  C9
 FN_TAN_2:
         ADD HL,BC                        ; $3B80  09
@@ -15868,7 +15795,7 @@ PROG_UNSCRAMBLE_1:
         SUB B                            ; $5DCD  90
         XOR (HL)                         ; $5DCE  AE
         PUSH AF                          ; $5DCF  F5
-        LD HL,FN_RND_5                   ; $5DD0  21 30 3B
+        LD HL,FP_POLY_SIN_COEFFS         ; $5DD0  21 30 3B
         LD A,L                           ; $5DD3  7D
         ADD A,B                          ; $5DD4  80
         LD L,A                           ; $5DD5  6F
@@ -15897,7 +15824,7 @@ PROG_SCRAMBLE_1:
         LD HL,(VARTAB)                   ; $5DF2  2A 92 0B
         CALL CMP_HL_DE                   ; $5DF5  CD 9D 45
         RET Z                            ; $5DF8  C8
-        LD HL,FN_RND_5                   ; $5DF9  21 30 3B
+        LD HL,FP_POLY_SIN_COEFFS         ; $5DF9  21 30 3B
         LD A,L                           ; $5DFC  7D
         ADD A,B                          ; $5DFD  80
         LD L,A                           ; $5DFE  6F

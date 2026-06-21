@@ -1,5 +1,7 @@
 {
   "renames": {
+    "3B28": "FP_CONST_EXP_LOG2E",
+    "3B30": "FP_POLY_SIN_COEFFS",
     "101B": "CRUNCH",
     "124F": "CRUNCH_EMIT",
     "13E4": "CHRGET",
@@ -601,6 +603,8 @@
     "SUB_56C8": "FN_EOF"
   },
   "label_comments": {
+    "3B28": "[RE] MBF constant pair for the transcendental code: log2(e)=1.442695 followed by 0.5. FN_EXP loads it to scale x by log2(e); FN_TAN returns with HL pointing here.",
+    "3B30": "[RE] MBF polynomial coefficient table (count byte then five 4-byte coefficients) for the SIN/COS series, evaluated by POLY_EVAL_ODD. Also doubled as a rotating XOR key table by the protected-program scramble.",
     "101B": "MS BASIC-80 CRUNCH: tokenizes an input line. Scans the source text, folds reserved words to single-byte tokens via the reserved-word name table (DE=$08CF/$04D8 reserved-word pointers), passes through string literals ($22) and REM/DATA text verbatim, and emits the crunched line. Handles the GOTO/GOSUB ('GO TO'/'GO SUB') two-word forms. $0B15/$0B16 are CRUNCH mode flags.",
     "124F": "[RE] CRUNCH output-byte helper: store A to the crunch buffer at (DE), advance DE, decrement remaining count BC; on buffer exhaustion raise error E=$17 (line/buffer overflow) via the RAISE_ERROR dispatcher.",
     "13E4": "MS BASIC CHRGET: INC HL then fetch the next program/text char at (HL) into A, skipping spaces, returning C set if it is a digit (0-9) and Z set at end-of-line ($00)/end-of-statement. Expands the embedded constant-token forms ($0B-$1E line-number/constant tokens, $1C/$1E etc.) into their literal values. Entry SUB_33C9_1 ($33CA) = CHRGOT (re-fetch current char without advancing).",

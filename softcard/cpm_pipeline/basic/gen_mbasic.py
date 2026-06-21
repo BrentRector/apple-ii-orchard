@@ -82,6 +82,17 @@ def main():
     dispatch_ptrs = {b + 2 * i for b, n in DISPATCH_TABLES.items() for i in range(n)}
     LOW_TABLES = (0x0108, 0x0522)
     w.add_data_region(*LOW_TABLES)
+    # Data regions the single walker otherwise mis-decodes as bogus code (the twins of the
+    # GBASIC mid-construct audit's AUDIT_DATA, located by byte signature in MBASIC.COM). The
+    # graphics-only ones -- the hi-res colour WORD table and the HPLOT coordinate cells -- do
+    # NOT appear here: this is the graphics-OFF build. Pin BEFORE tracing.
+    AUDIT_DATA = [
+        (0x18D2, 0x18E5),   # "?Redo from start\r\n\0" (the INPUT 'Redo from start' prompt)
+        (0x24A6, 0x24CD),   # "Random number seed (-32768- to 32767)\0" (RANDOMIZE prompt)
+        (0x3B20, 0x3B45),   # FN_RND MBF floating-point constant pool
+    ]
+    for lo, hi in AUDIT_DATA:
+        w.add_data_region(lo, hi)
     # Seed the handler addresses the dispatch tables point at, read at the correct
     # even-aligned table positions (the range `harvest` above starts at the odd $0103 and
     # samples the statement table misaligned, missing some targets -> DEFW literals).
@@ -104,7 +115,7 @@ def main():
     maximize_coverage(w, mem, cpu="z80", decoder=z80_decoder(mem),
         scan_dispatch=z80_dispatch_scanner(mem, LOAD, end),
         harvest_refs=z80_ref_harvester(mem, LOAD, end))
-    recover_code(w, mem, LOAD, end, protected=[LOW_TABLES])   # don't re-decode the tables
+    recover_code(w, mem, LOAD, end, protected=[LOW_TABLES] + AUDIT_DATA)   # don't re-decode the tables/data
     label_inrange_operands(w, mem, LOAD, len(com))   # label recovered code's operands
     ptrs = scan_pointer_words(w, mem, LOAD, len(com)) | disp | dispatch_ptrs
     for s in entry_pts:
