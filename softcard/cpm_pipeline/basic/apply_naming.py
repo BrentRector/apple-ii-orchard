@@ -176,6 +176,13 @@ def apply(base_text, renames, label_comments, sections, inline, ext_syms=None,
         sub = lambda s: tok.sub(lambda m: renames[m.group(1)] + (m.group(2) or ''), s)
     else:
         sub = lambda s: s
+    # PROSE comments are written against the BASE machine labels; the naming pass renames
+    # those labels in code but the comment text would keep the dead names. comment_sub keeps
+    # prose in sync: rename any referenced machine label to its semantic name, then drop any
+    # still-dangling bare L_/SUB_xxxx (an address that stays literal in code) to a $xxxx
+    # literal so no comment points at a label that no longer exists.
+    _bare_ml = re.compile(r'\b(?:L|SUB)_([0-9A-Fa-f]{4})\b')
+    comment_sub = lambda s: _bare_ml.sub(lambda mm: '$' + mm.group(1).upper(), sub(s))
     ext_syms = ext_syms or {}
     ext_re = (re.compile(r'\$(' + '|'.join(sorted(ext_syms)) + r')\b')
               if ext_syms else None)
@@ -201,9 +208,10 @@ def apply(base_text, renames, label_comments, sections, inline, ext_syms=None,
                 out.append("")
                 bar = "; " + "=" * 70
                 out.append(bar)
-                out.append(f"; {sections[old]}")
+                out.append(f"; {comment_sub(sections[old])}")
                 out.append(bar)
             for cl in label_comments.get(old, "").splitlines():
+                cl = comment_sub(cl)
                 out.append(f"; {cl}" if cl.strip() and not cl.lstrip().startswith(';') else cl)
             out.append(f"{new}:{m.group(2)}")
             continue
@@ -222,7 +230,7 @@ def apply(base_text, renames, label_comments, sections, inline, ext_syms=None,
         # inline comment by run-address (matches the trailing "; $XXXX  HH" tag)
         am = re.search(r';\s+\$([0-9A-Fa-f]{4})\b', new_line)
         if am and am.group(1).upper() in inline:
-            new_line = new_line.rstrip() + "   <- " + inline[am.group(1).upper()]
+            new_line = new_line.rstrip() + "   <- " + comment_sub(inline[am.group(1).upper()])
         out.append(new_line)
     return "\n".join(out) + "\n"
 

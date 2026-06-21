@@ -11,7 +11,7 @@
 
     ORG $0100
 
-; CP/M .COM entry point at $0100: JP COLD_START ($5E51). MBASIC runs in place (no relocation), so this is the only fixed CP/M load address. Replaces SUB_0100. [RE]
+; CP/M .COM entry point at $0100: JP COLD_START ($5E51). MBASIC runs in place (no relocation), so this is the only fixed CP/M load address. Replaces COM_ENTRY. [RE]
 COM_ENTRY:
         JP COLD_START                    ; $0100  C3 51 5E
         DEFW    FN_LPOS                  ; $0103
@@ -1742,21 +1742,21 @@ RAM_DISPATCH_TRAMPOLINE:
         NOP                              ; $0CB3  00
         NOP                              ; $0CB4  00
         NOP                              ; $0CB5  00
-; Editor/LIST working flag (MBASIC equiv of GBASIC's $0C93; the low-RAM cells shift +$23 between the two builds). INPUT_PROMPT_SEP stores 0 or ';' here; INLIN_CR_FINISH tests it to choose auto-redisplay of a prefilled buffer vs normal line terminate; DETOKENIZE_LINE clears it as the inter-token spacing state. Was L_0CB6. [RE]
+; Editor/LIST working flag (MBASIC equiv of GBASIC's $0C93; the low-RAM cells shift +$23 between the two builds). INPUT_PROMPT_SEP stores 0 or ';' here; INLIN_CR_FINISH tests it to choose auto-redisplay of a prefilled buffer vs normal line terminate; DETOKENIZE_LINE clears it as the inter-token spacing state. Was $0CB6. [RE]
 DETOKENIZE_SPACE_FLAG:
         NOP                              ; $0CB6  00
-; INPUT '?'-prompt suppression flag (MBASIC equiv of GBASIC's $0C94, +$23 shift). INPUT_PROMPT sets $FF (emit '? '); a trailing ',' clears it to 0 to suppress the question mark. INPUT_EMIT_PROMPT tests it. Was L_0CB7. [RE]
+; INPUT '?'-prompt suppression flag (MBASIC equiv of GBASIC's $0C94, +$23 shift). INPUT_PROMPT sets $FF (emit '? '); a trailing ',' clears it to 0 to suppress the question mark. INPUT_EMIT_PROMPT tests it. Was $0CB7. [RE]
 INPUT_PROMPT_QMARK_FLAG:
         NOP                              ; $0CB7  00
-; CHAIN string-compaction temp: CHAIN_COMPACT_STRINGS saves FRETOP (top-of-string) here ($5188) and restores it ($51D5) around the string-heap move that preserves COMMON variables. MBASIC equiv of GBASIC's $0C95 (+$23 shift). Was L_0CB8. [RE]
+; CHAIN string-compaction temp: CHAIN_COMPACT_STRINGS saves FRETOP (top-of-string) here ($5188) and restores it ($51D5) around the string-heap move that preserves COMMON variables. MBASIC equiv of GBASIC's $0C95 (+$23 shift). Was $0CB8. [RE]
 CHAIN_FRETOP_SAVE:
         NOP                              ; $0CB8  00
         NOP                              ; $0CB9  00
-; Default file record length / random-record limit cell. COLD_SET_WIDTH inits it to $0080 (128, the CP/M record size); FILE_NUM_TO_FCB range-checks the requested record number against it ($5BC4) and file setup re-stores it ($5FC7/$5FF8). MBASIC equiv of GBASIC's open-file-table-limit cell $0C97 (+$23 shift); the stale '$0CBA' in the FP comments is a transferred GBASIC note (real FP ARG temp is $0CDD). Was L_0CBA. [RE]
+; Default file record length / random-record limit cell. COLD_SET_WIDTH inits it to $0080 (128, the CP/M record size); FILE_NUM_TO_FCB range-checks the requested record number against it ($5BC4) and file setup re-stores it ($5FC7/$5FF8). MBASIC equiv of GBASIC's open-file-table-limit cell $0C97 (+$23 shift); the stale '$0CBA' in the FP comments is a transferred GBASIC note (real FP ARG temp is $0CDD). Was $0CBA. [RE]
 FILE_RECLEN_DEFAULT:
         NOP                              ; $0CBA  00
         NOP                              ; $0CBB  00
-; 'Running a stored program' / protected-program flag (MBASIC equiv of GBASIC's $0C99, +$23 shift). COLD_START and CLEAR_VARS clear it; ILLEGAL_DIRECT_CHECK ($5E2B) tests it (zero => Illegal direct error). LOAD/MERGE sets it to $FE (the SAVE,P protected marker) then triggers PROG_SCRAMBLE. Was L_0CBC. [RE]
+; 'Running a stored program' / protected-program flag (MBASIC equiv of GBASIC's $0C99, +$23 shift). COLD_START and CLEAR_VARS clear it; ILLEGAL_DIRECT_CHECK ($5E2B) tests it (zero => Illegal direct error). LOAD/MERGE sets it to $FE (the SAVE,P protected marker) then triggers PROG_SCRAMBLE. Was $0CBC. [RE]
 RUNNING_PROG_FLAG:
         NOP                              ; $0CBC  00
 ; [RE] CHAIN/ON-ERROR 'preserve variables' flag: CHAIN-with-ALL and CHAIN set it ($72BA/$72C7) so the CLEAR storage reset skips clearing variable space ($6894 test); RAISE_ERROR clears it ($0D90); cold-start zeroes it.
@@ -2485,7 +2485,7 @@ CRUNCH_4:
         POP BC                           ; $1092  C1
         POP BC                           ; $1093  C1
         JP CRUNCH_RESWORD_TAIL_8         ; $1094  C3 03 11
-; [RE] CRUNCH continuation reached via LD BC,L_307C/PUSH BC/RET (executable, rendered as DEFB): finishes tokenizing the reserved word that SUB_6A41 matched, emitting its token byte via CRUNCH_EMIT and looping back to CRUNCH_1.
+; [RE] CRUNCH continuation reached via LD BC,$307C/PUSH BC/RET: finishes tokenizing the reserved word that $6A41 matched, emitting its token byte via CRUNCH_EMIT and looping back to CRUNCH_1.
 CRUNCH_RESWORD_TAIL:
         POP HL                           ; $1097  E1
         CALL CHRGET_UPCASE               ; $1098  CD E7 1C
@@ -3046,7 +3046,7 @@ CHRGOT_1:
 CHRGOT_2:
         CP $10                           ; $13FE  FE 10
         JR NZ,CHRGOT_RELOAD_PTR_1        ; $1400  20 05
-; CHRGOT embedded-token continuation: on the $10-class constant token, reload the saved text pointer (TERM_POS_WORK+$10, $0B3A) and re-enter CHRGOT. Part of the in-place CHRGET/CHRGOT char-fetch + constant-token expansion ($13E0 area). Was SUB_1402. [RE]
+; CHRGOT embedded-token continuation: on the $10-class constant token, reload the saved text pointer (TERM_POS_WORK+$10, $0B3A) and re-enter CHRGOT. Part of the in-place CHRGET/CHRGOT char-fetch + constant-token expansion ($13E0 area). Was CHRGOT_RELOAD_PTR. [RE]
 CHRGOT_RELOAD_PTR:
         LD HL,(SUB_0B2A_8)               ; $1402  2A 3A 0B
         JR CHRGOT                        ; $1405  18 DE
@@ -3191,7 +3191,7 @@ STMT_DEFSTR_6:
         RET NZ                           ; $14DE  C0
         CALL CHRGET                      ; $14DF  CD E4 13
         JR STMT_DEFSTR_4                 ; $14E2  18 C6
-; [RE] CHRGET then GETINT-positive: advances the text pointer, evaluates an expr to a signed 16-bit int (via SUB_34CC); used where a leading char must be skipped first (e.g. WIDTH/coord parsers at $60DD/$60F5/$7F41/$7F7F)
+; [RE] CHRGET then GETINT-positive: advances the text pointer, evaluates an expr to a signed 16-bit int (via $34CC); used where a leading char must be skipped first (e.g. WIDTH/coord parsers at $60DD/$60F5/$7F41/$7F7F)
 GETINT_CHRGET_POS:
         CALL CHRGET                      ; $14E4  CD E4 13
 ; [RE] GETINT requiring a non-negative result: CALL GETINT; RET P if the high byte (D) is sign-positive (0..$7FFF), else fall into SUB_34CC_1 which loads E=$05 and JP RAISE_ERROR -> 'Illegal function call' (FC). Widely used by graphics/coord and array parsers
@@ -3218,7 +3218,7 @@ LINGET_NEXT:
         CP $0E                           ; $14FF  FE 0E
         JP Z,LINGET_TOKLINE              ; $1501  CA 06 15
         CP $0D                           ; $1504  FE 0D
-; [RE] LINGET digit-accumulation loop: read ASCII digits, DE = DE*10 + digit (via the *10 sequence and $1998 overflow guard at SUB_691F) until a non-digit; returns the parsed line number in DE.
+; [RE] LINGET digit-accumulation loop: read ASCII digits, DE = DE*10 + digit (via the *10 sequence and $1998 overflow guard at $691F) until a non-digit; returns the parsed line number in DE.
 LINGET_TOKLINE:
         EX DE,HL                         ; $1506  EB
         LD HL,(SUB_0B2A_11)              ; $1507  2A 3E 0B
@@ -3818,7 +3818,7 @@ STMT_LINE:
         POP HL                           ; $18CC  E1
         LD A,$03                         ; $18CD  3E 03
         JP STMT_LET_1                    ; $18CF  C3 0B 16
-; INPUT error literal "?Redo from start" + CR/LF; STROUT'd by the INPUT re-prompt path (STMT_LINE_2) when the user's typed reply does not parse. Bytes after the terminator are INPUT-path code rendered as DEFB.
+; INPUT error literal "?Redo from start" + CR/LF; STROUT'd by the INPUT re-prompt path (STMT_LINE_2) when the user's typed reply does not parse. The INPUT value-parse code follows the $00 terminator.
 MSG_REDO_FROM_START:
         DEFB    "?Redo from start"       ; $18D2  string
         DEFB    $0D                      ; $18E2  terminator
@@ -3881,7 +3881,7 @@ INPUT_PROMPT_2:
         CALL STRPRT                      ; $1942  CD C1 48
         POP HL                           ; $1945  E1
         RET                              ; $1946  C9
-; [RE] INPUT continuation (executable, rendered as DEFB): emits the '? ' prompt via OUTCHR, reads the console line (SUB_702B), and on empty/abort branches to STMT_END; falls through to the value-parse loop L_394D.
+; [RE] INPUT continuation: emits the '? ' prompt via OUTCHR, reads the console line ($702B), and on empty/abort branches to STMT_END; falls through to the value-parse loop $394D.
 INPUT_EMIT_PROMPT:
         PUSH HL                          ; $1947  E5
         LD A,(INPUT_PROMPT_QMARK_FLAG)   ; $1948  3A B7 0C
@@ -3903,7 +3903,7 @@ INPUT_EMIT_PROMPT_1:
         PUSH DE                          ; $1965  D5
         PUSH DE                          ; $1966  D5
         DEC HL                           ; $1967  2B
-; [RE] INPUT value-parse loop (executable, rendered as DEFB): for each variable, read a field from the typed line (honouring quotes and ',' separators), convert and assign via STMT_LET_2; on mismatch jumps to the '?Redo from start' re-prompt (STMT_LINE_1/2).
+; [RE] INPUT value-parse loop: for each variable, read a field from the typed line (honouring quotes and ',' separators), convert and assign via STMT_LET_2; on mismatch jumps to the '?Redo from start' re-prompt (STMT_LINE_1/2).
 INPUT_PARSE_VALUES:
         LD A,$80                         ; $1968  3E 80
         LD (DATA_LINE_TXTPTR_1),A        ; $196A  32 75 0B
@@ -4079,7 +4079,7 @@ EVAL_EXPR_AFTER_SYNCHR:
         CALL SYNCHR                      ; $1A85  CD A3 45
         DEFB    TOK_EQ                   ; $1A88  F0  inline keyword-token arg consumed by the preceding CALL
         JP FRMEVL_NOPAREN                ; $1A89  C3 90 1A
-; MS BASIC-80 FRMEVL: evaluate a complete expression (numeric or string) at (HL) into the FAC ($0CB1). $3A71 calls SYNCHR-context entry; $3A76/$3A78 is the precedence-driven operator loop: fetch an operand (EVAL, SUB_3BF6), then while the next token is a binary operator of high enough precedence, recurse and apply. Relational/arithmetic operator tokens >= $EF are handled here; precedence table at $04ED, operator-function dispatch table at $0517/$0503.
+; MS BASIC-80 FRMEVL: evaluate a complete expression (numeric or string) at (HL) into the FAC ($0CB1). $3A71 calls SYNCHR-context entry; $3A76/$3A78 is the precedence-driven operator loop: fetch an operand (EVAL, $3BF6), then while the next token is a binary operator of high enough precedence, recurse and apply. Relational/arithmetic operator tokens >= $EF are handled here; precedence table at $04ED, operator-function dispatch table at $0517/$0503.
 FRMEVL:
         CALL SYNCHR                      ; $1A8C  CD A3 45
         DEFB    '('                      ; $1A8F  28  inline char arg consumed by the preceding CALL
@@ -4327,7 +4327,7 @@ FRMEVL_OP_DISPATCH_REL_1:
         CALL FAC_PUSH                    ; $1C08  CD 18 2B
         CALL INT_TO_SINGLE_HL            ; $1C0B  CD 8C 2C
         JP FDIV_BY_TEN_1                 ; $1C0E  C3 F1 29
-; [RE] EVAL: fetch one operand/factor for FRMEVL. Parses a numeric constant (-> SUB_5F35 number scan), a parenthesized sub-expression, a string literal ($22), a variable reference, unary NOT ($E2)/minus, the FN call token ($E1), and the built-in function tokens (SCRN $CD/$EC/$ED, COLOR $D3, USR $E9, etc.) by dispatching to their FN_ handlers.
+; [RE] EVAL: fetch one operand/factor for FRMEVL. Parses a numeric constant (-> $5F35 number scan), a parenthesized sub-expression, a string literal ($22), a variable reference, unary NOT ($E2)/minus, the FN call token ($E1), and the built-in function tokens (SCRN $CD/$EC/$ED, COLOR $D3, USR $E9, etc.) by dispatching to their FN_ handlers.
 FRMEVL_EVAL_OPERAND:
         CALL CHRGET                      ; $1C11  CD E4 13
 FRMEVL_EVAL_OPERAND_1:
@@ -4440,7 +4440,7 @@ FRMEVL_PAREN_4:
         CALL NZ,FP_ARG_SETUP1            ; $1CE2  C4 6A 2B
         POP HL                           ; $1CE5  E1
         RET                              ; $1CE6  C9
-; [RE] Read char at (HL) and fold ASCII lowercase a-z ($61-$7A) to uppercase (AND $5F); leaves other chars unchanged. CRUNCH's case-insensitive keyword matcher uses this. SUB_3CCD ($3CCD) is the same fold applied to the char already in A.
+; [RE] Read char at (HL) and fold ASCII lowercase a-z ($61-$7A) to uppercase (AND $5F); leaves other chars unchanged. CRUNCH's case-insensitive keyword matcher uses this. $3CCD ($3CCD) is the same fold applied to the char already in A.
 CHRGET_UPCASE:
         LD A,(HL)                        ; $1CE7  7E
 ; Fold the char already in A from ASCII lowercase a-z ($61-$7A) to uppercase (AND $5F); other chars unchanged. Entry to CHRGET_UPCASE that skips the LD A,(HL); used by CRUNCH keyword matching and the &H/&O scanner
@@ -4659,7 +4659,7 @@ FRMEVL_INT_OP_HANDLER_1:
         RET                              ; $1E1A  C9
 FRMEVL_INT_OP_HANDLER_2:
         CP $3C                           ; $1E1B  FE 3C
-; Continuation of FRMEVL_INT_OP_HANDLER (integer binary-operator dispatch): tests the operator token for XOR ($3C) and computes HL := HL XOR DE, else falls through to EQV/IMP. Was SUB_1E1D. [RE]
+; Continuation of FRMEVL_INT_OP_HANDLER (integer binary-operator dispatch): tests the operator token for XOR ($3C) and computes HL := HL XOR DE, else falls through to EQV/IMP. Was FRMEVL_INT_OP_XOR. [RE]
 FRMEVL_INT_OP_XOR:
         JR NZ,FRMEVL_INT_OP_XOR_1        ; $1E1D  20 06
         LD A,E                           ; $1E1F  7B
@@ -4690,7 +4690,7 @@ FRMEVL_INT_OP_XOR_2:
         AND D                            ; $1E38  A2
         CPL                              ; $1E39  2F
         RET                              ; $1E3A  C9
-; [RE] 16-bit integer subtract (HL := HL - DE) then store the integer result into the FAC via FP_STORE (SUB_51EE).
+; [RE] 16-bit integer subtract (HL := HL - DE) then store the integer result into the FAC via FP_STORE ($51EE).
 FP_INT_SUB_TO_FAC:
         LD A,L                           ; $1E3B  7D
         SUB E                            ; $1E3C  93
@@ -5156,7 +5156,7 @@ STMT_LIST_2:
         CALL PRINT_ZSTRING               ; $2113  CD 1B 21
         CALL CRLF                        ; $2116  CD 06 44
         JR STMT_LIST_1                   ; $2119  18 B3
-; [RE] Print a $00-terminated message byte-by-byte through SUB_6800 (console out); used by LIST to emit the post-line trailer text at $0A0E.
+; [RE] Print a $00-terminated message byte-by-byte through $6800 (console out); used by LIST to emit the post-line trailer text at $0A0E.
 PRINT_ZSTRING:
         LD A,(HL)                        ; $211B  7E
         OR A                             ; $211C  B7
@@ -5164,7 +5164,7 @@ PRINT_ZSTRING:
         CALL OUTCHR_LF_EXPAND            ; $211E  CD 7E 44
         INC HL                           ; $2121  23
         JR PRINT_ZSTRING                 ; $2122  18 F7
-; [RE] LIST de-tokenizer: expand a crunched line back to ASCII into a buffer (BC=dest, D=remaining length). Copies literal bytes, and for reserved-word tokens (>= $0B) looks the keyword name up (SUB_41E1) and copies its spelling. Used by LIST and by the sign-on/error formatting. $0C93 tracks inter-token spacing.
+; [RE] LIST de-tokenizer: expand a crunched line back to ASCII into a buffer (BC=dest, D=remaining length). Copies literal bytes, and for reserved-word tokens (>= $0B) looks the keyword name up ($41E1) and copies its spelling. Used by LIST and by the sign-on/error formatting. $0C93 tracks inter-token spacing.
 DETOKENIZE_LINE:
         LD BC,BUF                        ; $2124  01 31 0A
 DETOKENIZE_LINE_1:
@@ -5439,7 +5439,7 @@ STMT_DELETE_2:
         POP BC                           ; $22AA  C1
         LD HL,SUB_0F28_2                 ; $22AB  21 38 0F
         EX (SP),HL                       ; $22AE  E3
-; [RE] Copy a string from (DE) into the string pool growing at $0B6F, byte-by-byte via SUB_691F until done; updates the $0B6F string-area pointer. Used by DELETE/edit to relocate text.
+; [RE] Copy a string from (DE) into the string pool growing at $0B6F, byte-by-byte via $691F until done; updates the $0B6F string-area pointer. Used by DELETE/edit to relocate text.
 BLOCK_MOVE_TO_VARTAB:
         EX DE,HL                         ; $22AF  EB
         LD HL,(VARTAB)                   ; $22B0  2A 92 0B
@@ -5473,7 +5473,7 @@ STMT_POKE:
         POP DE                           ; $22DE  D1
         LD (DE),A                        ; $22DF  12
         RET                              ; $22E0  C9
-; [RE] MS BASIC GETADR: evaluate FAC and convert to an unsigned 16-bit address in BC/$9180-bias form (for POKE/PEEK); rejects out-of-range via SUB_4BA6. Pushes FN_LPOS as the integer-fetch continuation.
+; [RE] MS BASIC GETADR: evaluate FAC and convert to an unsigned 16-bit address in BC/$9180-bias form (for POKE/PEEK); rejects out-of-range via $4BA6. Pushes FN_LPOS as the integer-fetch continuation.
 GETADR:
         LD BC,FN_LPOS                    ; $22E1  01 F4 2B
         PUSH BC                          ; $22E4  C5
@@ -5595,7 +5595,7 @@ STMT_RENUM_7:
         PUSH BC                          ; $238A  C5
 STMT_RENUM_8:
         CP $F6                           ; $238B  FE F6
-; [RE] RENUM pass 2: walk every program line, find line-number references after GOTO/GOSUB/THEN tokens ($A4/$0E markers), translate each old line number to its new value (SUB_34EB lookup) and rewrite the 3-byte encoded line-number token in place; reports 'Undefined line' for missing targets.
+; [RE] RENUM pass 2: walk every program line, find line-number references after GOTO/GOSUB/THEN tokens ($A4/$0E markers), translate each old line number to its new value ($34EB lookup) and rewrite the 3-byte encoded line-number token in place; reports 'Undefined line' for missing targets.
 RENUM_PATCH_LINEREFS:
         XOR A                            ; $238D  AF
         LD (DATA_LINE_TXTPTR_4),A        ; $238E  32 79 0B
@@ -6104,7 +6104,7 @@ GFX_STMT_HLIN:
         CALL GFX_LORES_HLIN_RPC          ; $26A5  CD 57 26
         POP HL                           ; $26A8  E1
         RET                              ; $26A9  C9
-; [RE] VLIN statement body (mirror of GFX_STMT_HLIN): parse coords, store Y0/Y1->$F045/$F047 and X->$F02D, then fall to the low-res draw RPC ($F828) via SUB_46C6_1.
+; [RE] VLIN statement body (mirror of GFX_STMT_HLIN): parse coords, store Y0/Y1->$F045/$F047 and X->$F02D, then fall to the low-res draw RPC ($F828) via STMT_CLEAR_1.
 GFX_STMT_VLIN:
         LD BC,$3028                      ; $26AA  01 28 30
         CALL GFX_PARSE_LINE_COORDS       ; $26AD  CD 72 26
@@ -6346,16 +6346,16 @@ SUB_2803_2:
         NOP                              ; $2814  00
 SUB_2803_3:
         LD D,B                           ; $2815  50
-; [RE] FADDT entry: load constant pointer (L_5BDC) then fall into FADD-with-operand; adds the FP value at (HL) to FAC.
+; [RE] FADDT entry: load constant pointer ($5BDC) then fall into FADD-with-operand; adds the FP value at (HL) to FAC.
 FADD_LOAD_CONST:
         LD HL,FP_CONST_HALF_SNG          ; $2816  21 5A 38
-; [RE] FADD with operand at (HL): load the addend mantissa/exp into regs (SUB_4EB8) then align-and-add against FAC.
+; [RE] FADD with operand at (HL): load the addend mantissa/exp into regs ($4EB8) then align-and-add against FAC.
 FADD_FROM_MEM:
         CALL FP_LOAD_MEM                 ; $2819  CD 36 2B
         JR FADD_ALIGN                    ; $281C  18 06
 FADD_FROM_MEM_1:
         CALL FP_LOAD_MEM                 ; $281E  CD 36 2B
-; [RE] FADD entry when addend already supplied; loads FAC into HL-pair (SUB_4E76 negate path) then aligns exponents.
+; [RE] FADD entry when addend already supplied; loads FAC into HL-pair ($4E76 negate path) then aligns exponents.
 FSUB:
         CALL FP_NEG                      ; $2821  CD F4 2A
 ; [RE] FADD core: compare exponents of addend (B) and FAC ($0CB4); if FAC=0 just store addend; shift the smaller mantissa right to align, then add.
@@ -6415,7 +6415,7 @@ FADD_ALIGN_3:
 ; [RE] FADD mantissa combine: CALL C,FCOMPL (sign disagreement) then drop into FADD proper to add/subtract the aligned mantissas.
 FADD_COMBINE:
         CALL C,FCOMPL                    ; $2871  DC E1 28
-; [RE] FP add/normalize core (FADDT path): align exponents, add/subtract mantissas, and renormalize the result in the FAC ($0CB1/$0CB4). SUB_4C09 ($4C09) is the normalize/round tail that writes the final exponent to $0CB4.
+; [RE] FP add/normalize core (FADDT path): align exponents, add/subtract mantissas, and renormalize the result in the FAC ($0CB1/$0CB4). $4C09 ($4C09) is the normalize/round tail that writes the final exponent to $0CB4.
 FADD:
         LD L,B                           ; $2874  68
         LD H,E                           ; $2875  63
@@ -6720,7 +6720,7 @@ FMUL_8:
         LD D,C                           ; $29E5  51
         LD C,A                           ; $29E6  4F
         RET                              ; $29E7  C9
-; [RE] FDIV reciprocal-divide setup: pushes the divisor (SUB_4E9A) and constant L_5384, then falls into FDIV restoring-division.
+; [RE] FDIV reciprocal-divide setup: pushes the divisor ($4E9A) and constant $5384, then falls into FDIV restoring-division.
 FDIV_BY_TEN:
         CALL FAC_PUSH                    ; $29E8  CD 18 2B
         LD HL,DP_CONST_2                 ; $29EB  21 02 30
@@ -6914,7 +6914,7 @@ FLOAT_A_1:
 FN_INT:
         CALL FP_TEST_SIGN                ; $2AE7  CD 06 2B
         RET P                            ; $2AEA  F0
-; [RE] Negate-FAC-and-continue: toggle the FAC sign (SUB_4E76) then re-dispatch through the integer/type check ($3DC8) path.
+; [RE] Negate-FAC-and-continue: toggle the FAC sign ($4E76) then re-dispatch through the integer/type check ($3DC8) path.
 FP_NEGATE_CHECKED:
         CALL FRMEVL_TEST_TYPE            ; $2AEB  CD E3 1D
         JP M,INT_NEGATE_FAC              ; $2AEE  FA 61 2E
@@ -6960,7 +6960,7 @@ FAC_PUSH:
         PUSH HL                          ; $2B22  E5
         EX DE,HL                         ; $2B23  EB
         RET                              ; $2B24  C9
-; [RE] Load operand at (HL) into regs (SUB_4EB8) then store DE/BC into the FAC; combined load-then-store helper.
+; [RE] Load operand at (HL) into regs ($4EB8) then store DE/BC into the FAC; combined load-then-store helper.
 FP_STORE_REGS_LD:
         CALL FP_LOAD_MEM                 ; $2B25  CD 36 2B
 ; [RE] MOVFR: store DE (mantissa low) and B,C (sign/high) into the FAC cells $0CB1/$0CB3.
@@ -7039,10 +7039,10 @@ FP_ARG_TO_TEMP1:
 FP_ARG_SETUP1:
         LD DE,FP_MOVE4_1                 ; $2B6A  11 46 2B
         JR FP_ARG_SETUP2_1               ; $2B6D  18 06
-; [RE] Load second operand from temp ($0CBA) and set up the type-driven move (SUB_4EC9) before a compare/op.
+; [RE] Load second operand from temp ($0CBA) and set up the type-driven move ($4EC9) before a compare/op.
 FP_ARG_TO_TEMP2:
         LD HL,CHAIN_BREAK_FLAG_17        ; $2B6F  21 DD 0C
-; [RE] Operand setup variant selecting the typed-move (SUB_4EC9); type-check and pick temp source $0CAD/$0CB1.
+; [RE] Operand setup variant selecting the typed-move ($4EC9); type-check and pick temp source $0CAD/$0CB1.
 FP_ARG_SETUP2:
         LD DE,FP_MOVE_TYPED              ; $2B72  11 47 2B
 FP_ARG_SETUP2_1:
@@ -7200,7 +7200,7 @@ FP_TO_INT:
         EX DE,HL                         ; $2C53  EB
 FP_TO_INT_1:
         POP DE                           ; $2C54  D1
-; [RE] Store HL into the FAC low cells ($0CB1) and set the value-type to $02 (single) in $0B14 (SUB_4FDA). The MOVFR/integer-into-FAC primitive used throughout the evaluator.
+; [RE] Store HL into the FAC low cells ($0CB1) and set the value-type to $02 (single) in $0B14 ($4FDA). The MOVFR/integer-into-FAC primitive used throughout the evaluator.
 FP_STORE_FAC_INT:
         LD (CHAIN_BREAK_FLAG_9),HL       ; $2C55  22 D4 0C
 ; [RE] Set the current value-type byte $0B14 to $02 (single precision).
@@ -7363,7 +7363,7 @@ FIX_SCALE_4:
         RET Z                            ; $2D40  C8
         CP $B8                           ; $2D41  FE B8
         RET NC                           ; $2D43  D0
-; [RE] Denormalize toward the integer point for FIX: set exponent $B8, align the mantissa (SUB_5306) and clear the guard cell $0CAC.
+; [RE] Denormalize toward the integer point for FIX: set exponent $B8, align the mantissa ($5306) and clear the guard cell $0CAC.
 FIX_DENORM:
         PUSH AF                          ; $2D44  F5
         CALL FP_LOAD_FAC                 ; $2D45  CD 33 2B
@@ -7507,7 +7507,7 @@ IMULDIV_FINISH_3:
         POP BC                           ; $2E01  C1
         POP DE                           ; $2E02  D1
         JP FMUL                          ; $2E03  C3 90 29
-; [RE] Float fallback for integer mul/div overflow: if result negative store integer (FP_STORE_FAC_INT $4FD7), else convert and re-enter via SUB_500E and jump to SUB_4E76 (FAC load).
+; [RE] Float fallback for integer mul/div overflow: if result negative store integer (FP_STORE_FAC_INT $4FD7), else convert and re-enter via $500E and jump to $4E76 (FAC load).
 IMULDIV_FLOAT_FALLBACK:
         LD A,B                           ; $2E06  78
         OR A                             ; $2E07  B7
@@ -7594,16 +7594,16 @@ INT_NEGATE_FAC:
         XOR $80                          ; $2E68  EE 80
         OR L                             ; $2E6A  B5
         RET NZ                           ; $2E6B  C0
-; [RE] Promote integer FAC to single-precision: move to DE, set up via SUB_502D, clear A, fall into FLOAT_FROM_INT.
+; [RE] Promote integer FAC to single-precision: move to DE, set up via $502D, clear A, fall into FLOAT_FROM_INT.
 INT_TO_SNG:
         EX DE,HL                         ; $2E6C  EB
         CALL SET_TYPE_DOUBLE_1+1         ; $2E6D  CD AE 2C
         XOR A                            ; $2E70  AF
-; Build a single-precision FAC from the signed integer in HL: load binary exponent $98 (2^24 bias) and enter the FP normalize/pack path at SUB_4E5B. MS BASIC-80 float-from-integer.
+; Build a single-precision FAC from the signed integer in HL: load binary exponent $98 (2^24 bias) and enter the FP normalize/pack path at $4E5B. MS BASIC-80 float-from-integer.
 FLOAT_FROM_INT:
         LD B,$98                         ; $2E71  06 98
         JP FLOAT_A_1                     ; $2E73  C3 D9 2A
-; 16-bit integer DIVIDE: multiply-by-reciprocal then RRA-shift the quotient (D:E) into H:L with rounding, store via SUB_4FDA and INT_ABS_STORE. MS BASIC-80 integer divide.
+; 16-bit integer DIVIDE: multiply-by-reciprocal then RRA-shift the quotient (D:E) into H:L with rounding, store via $4FDA and INT_ABS_STORE. MS BASIC-80 integer divide.
 INT_DIV_ROUND:
         PUSH DE                          ; $2E76  D5
         CALL INT_DIV_KERNEL              ; $2E77  CD 14 2E
@@ -7846,7 +7846,7 @@ DP_SHIFT_RIGHT_FROM_CB3:
 ; [RE] Shift the 8-byte double mantissa left by one bit (chained RLA across 8 bytes from [HL]); partial-product accumulation step for double multiply.
 DP_SHIFT_LEFT_8:
         LD C,$08                         ; $2FB2  0E 08
-; Loop body of DP_SHIFT_LEFT_8: chained RLA across the 8 mantissa bytes from (HL), one bit left, used between partial products in the double-precision multiply (also CALLed at $30DC). Was SUB_2FB4. [RE]
+; Loop body of DP_SHIFT_LEFT_8: chained RLA across the 8 mantissa bytes from (HL), one bit left, used between partial products in the double-precision multiply (also CALLed at $30DC). Was DP_SHIFT_LEFT_8_LOOP. [RE]
 DP_SHIFT_LEFT_8_LOOP:
         LD A,(HL)                        ; $2FB4  7E
         RLA                              ; $2FB5  17
@@ -7908,7 +7908,7 @@ DP_CONST_2:
         NOP                              ; $3002  00
         NOP                              ; $3003  00
         JR NZ,DP_SHIFT_RIGHT_N_2         ; $3004  20 84
-; Double-precision DIVIDE: handle exponent/sign, restoring-division by 15 iterations (DP_PUSH_OPERAND / DADD / DP_POP_OPERAND), building the quotient mantissa; promotes to single (SUB_4E76) when exponent small. MS BASIC-80 double divide.
+; Double-precision DIVIDE: handle exponent/sign, restoring-division by 15 iterations (DP_PUSH_OPERAND / DADD / DP_POP_OPERAND), building the quotient mantissa; promotes to single ($4E76) when exponent small. MS BASIC-80 double divide.
 FIN_DSCALE_DIV10:
         LD A,(CHAIN_BREAK_FLAG_11)       ; $3006  3A D7 0C
         CP $41                           ; $3009  FE 41
@@ -8213,7 +8213,7 @@ FIN_TYPE_FIXUP:
         POP DE                           ; $31FF  D1
         POP HL                           ; $3200  E1
         RET                              ; $3201  C9
-; [RE] FIN accumulate digit *10: RET if count zero, else multiply the running value by ten using the single-precision (SUB_4E30) or double-precision (DP_MUL10 $5488) path per type parity; returns A decremented.
+; [RE] FIN accumulate digit *10: RET if count zero, else multiply the running value by ten using the single-precision ($4E30) or double-precision (DP_MUL10 $5488) path per type parity; returns A decremented.
 FIN_MUL10:
         RET Z                            ; $3202  C8
 ; [RE] Body of FIN_MUL10 (entry past the RET Z guard): performs the *10 multiply by single- or double-precision path.
@@ -8229,7 +8229,7 @@ FIN_MUL10_DO:
 DEC_A_RET:
         DEC A                            ; $3210  3D
         RET                              ; $3211  C9
-; [RE] FIN fractional scale-down: divide the running value by ten via the single-precision (SUB_4D6A) or double-precision (DDIV $5388) path per type parity; returns A incremented to track the decimal exponent.
+; [RE] FIN fractional scale-down: divide the running value by ten via the single-precision ($4D6A) or double-precision (DDIV $5388) path per type parity; returns A incremented to track the decimal exponent.
 FIN_DIV10:
         PUSH DE                          ; $3212  D5
         PUSH HL                          ; $3213  E5
@@ -8308,7 +8308,7 @@ SUB_3248_6:
         CALL FP_CLEAR_EXT                ; $3281  CD A2 2C
         CALL DADD                        ; $3284  CD 8E 2E
         JR SUB_3248_1                    ; $3287  18 C8
-; [RE] FIN finalize: store the completed FAC (SUB_4E9A / SUB_4E56), unwind the saved registers and dispatch through SUB_4BA6 to return the converted number to the expression evaluator.
+; [RE] FIN finalize: store the completed FAC ($4E9A / $4E56), unwind the saved registers and dispatch through $4BA6 to return the converted number to the expression evaluator.
 FIN_DONE:
         CALL FAC_PUSH                    ; $3289  CD 18 2B
         CALL FLOAT_A                     ; $328C  CD D4 2A
@@ -9963,7 +9963,7 @@ PTRGET_9:
         JP Z,SUB_3D15_5                  ; $3C3F  CA 35 3D
         SUB $33                          ; $3C42  D6 33
         JP Z,SUB_3D15_5                  ; $3C44  CA 35 3D
-; [RE] PTRGET search/allocate core: walk the simple-variable table ($0B6F..$0B71) for the packed name in C/$0B14/$0871; on a hit return its address, on a miss create a new entry (allocate via STR/var-space grow, SUB_6811/SUB_622E). Detects '(' to branch to the array path (subscript eval + array search/alloc, $612C loop) honouring DIM and OPTION BASE.
+; [RE] PTRGET search/allocate core: walk the simple-variable table ($0B6F..$0B71) for the packed name in C/$0B14/$0871; on a hit return its address, on a miss create a new entry (allocate via STR/var-space grow, $6811/$622E). Detects '(' to branch to the array path (subscript eval + array search/alloc, $612C loop) honouring DIM and OPTION BASE.
 PTRGET_SEARCH:
         XOR A                            ; $3C47  AF
         LD (DATA_LINE_TXTPTR_1),A        ; $3C48  32 75 0B
@@ -10560,7 +10560,7 @@ STMT_EDIT_11:
         POP DE                           ; $3F9D  D1
         CALL CRLF                        ; $3F9E  CD 06 44
         JP STMT_EDIT_2                   ; $3FA1  C3 ED 3E
-; [RE] Line-editor helper: echo D characters of the line buffer at (HL) to the console (OUTCHR via SUB_6800), advancing HL and the column count B; ESC ($1B) enters the copy/scan sub-mode (EDIT_COPY_MODE). Part of the EDIT/line-input screen editor.
+; [RE] Line-editor helper: echo D characters of the line buffer at (HL) to the console (OUTCHR via $6800), advancing HL and the column count B; ESC ($1B) enters the copy/scan sub-mode (EDIT_COPY_MODE). Part of the EDIT/line-input screen editor.
 EDIT_ECHO_SPAN:
         LD A,(HL)                        ; $3FA4  7E
         OR A                             ; $3FA5  B7
@@ -10781,7 +10781,7 @@ EDIT_BUF_SHIFT_11:
         INC A                            ; $40CF  3C
         JP Z,PRINT_CRLF_IF_COL_1         ; $40D0  CA 01 44
         JP NEWSTT_READY                  ; $40D3  C3 46 0E
-; [RE] PRINT USING statement engine (reached from the PRINT dispatcher on token $E8 'USING'): evaluate the format string, then scan its field characters - '#' digit positions, '.' decimal point, ',' grouping, '+'/'-' sign, '$$' float-dollar, '**' asterisk-fill, '^^^^' exponential, '\ \' string field, '!' first-char, '&' variable string - formatting each argument (FOUT/SUB_5723 for numbers, STROUT for strings) and looping over the value list.
+; [RE] PRINT USING statement engine (reached from the PRINT dispatcher on token $E8 'USING'): evaluate the format string, then scan its field characters - '#' digit positions, '.' decimal point, ',' grouping, '+'/'-' sign, '$$' float-dollar, '**' asterisk-fill, '^^^^' exponential, '\ \' string field, '!' first-char, '&' variable string - formatting each argument (FOUT/$5723 for numbers, STROUT for strings) and looping over the value list.
 PRINT_USING:
         CALL FRMEVL_LOWPREC              ; $40D6  CD 91 1A
         CALL FP_INT_CHECK                ; $40D9  CD B3 2C
@@ -11090,7 +11090,7 @@ PRINT_USING_PUT_SIGN:
         CALL NZ,OUTCHR                   ; $428C  C4 91 42
         POP AF                           ; $428F  F1
         RET                              ; $4290  C9
-; [RE] OUTCHR: console character output with column tracking ($0837 cursor column), TAB ($09) expansion to 8-col stops, backspace ($08) and CR handling, then emits the byte through the BIOS console-out vector (SUB_666C, CALL into the runtime-patched $0000 cell).
+; [RE] OUTCHR: console character output with column tracking ($0837 cursor column), TAB ($09) expansion to 8-col stops, backspace ($08) and CR handling, then emits the byte through the BIOS console-out vector ($666C, CALL into the runtime-patched $0000 cell).
 OUTCHR:
         PUSH AF                          ; $4291  F5
         PUSH HL                          ; $4292  E5
@@ -11167,7 +11167,7 @@ OUTDO_RESET_COL:
         LD A,(SUB_0752_32)               ; $42FB  3A 5A 08
         OR A                             ; $42FE  B7
         RET Z                            ; $42FF  C8
-; [RE] High-level char-out with line-width/auto-CR logic: enforces the terminal width, expands TAB, handles backspace against the column counter ($0B11), and issues CRLF when the print column reaches the width. Wraps the OUTCHR primitive (SUB_6704).
+; [RE] High-level char-out with line-width/auto-CR logic: enforces the terminal width, expands TAB, handles backspace against the column counter ($0B11), and issues CRLF when the print column reaches the width. Wraps the OUTCHR primitive ($6704).
 OUTDO_WIDTH:
         LD A,$0D                         ; $4300  3E 0D
         CALL OUTDO_DEVICE                ; $4302  CD EA 42
@@ -11260,7 +11260,7 @@ OUTDO_DEVICE2_1:
         POP BC                           ; $438C  C1
         POP AF                           ; $438D  F1
         RET                              ; $438E  C9
-; [RE] Force end-of-line bookkeeping: calls SUB_6792 to clear column state, then falls into LINE_COUNT_INC to bump the printed-line counter / page check ($0B12 vs $083C).
+; [RE] Force end-of-line bookkeeping: calls $6792 to clear column state, then falls into LINE_COUNT_INC to bump the printed-line counter / page check ($0B12 vs $083C).
 LIST_NEWLINE_COUNT:
         CALL RESET_PRINT_STATE           ; $438F  CD 10 44
 ; [RE] Increments the printed-line counter ($0B12) up to the page limit ($083C); clamps at the limit and returns A=0. Drives the auto-page / line-width newline logic in OUTDO_WIDTH.
@@ -11275,7 +11275,7 @@ LINE_COUNT_INC:
 LINE_COUNT_INC_1:
         XOR A                            ; $43A0  AF
         RET                              ; $43A1  C9
-; [RE] Auto-page 'more' handler on the LIST/output path: skips when output is redirected ($0840 nonzero), tests pending key (SUB_7C0B), runs the input poll (SUB_781A) and Ctrl-C/break check ($0CA0), and on a full page pushes STMT_FOR_7 and prints the pause prompt string at $0CF2 via STROUT before resuming.
+; [RE] Auto-page 'more' handler on the LIST/output path: skips when output is redirected ($0840 nonzero), tests pending key ($7C0B), runs the input poll ($781A) and Ctrl-C/break check ($0CA0), and on a full page pushes STMT_FOR_7 and prints the pause prompt string at $0CF2 via STROUT before resuming.
 INCHR:
         PUSH HL                          ; $43A2  E5
         LD HL,(PTRFIL)                   ; $43A3  2A 63 08
@@ -11383,7 +11383,7 @@ RPC_CONST_POLL_1:
         POP BC                           ; $4434  C1
         OR A                             ; $4435  B7
         RET Z                            ; $4436  C8
-; [RE] Keyboard scan / pending-char handler (INKEY$ / Ctrl-C-Ctrl-S poll): reads a console char (SUB_675C), processes the Ctrl-S ($13) pause and Ctrl-C ($03) break ($0834 pending-key cell), and returns it. SUB_67B9_1 ($67CC) is the INKEY$ function evaluator.
+; [RE] Keyboard scan / pending-char handler (INKEY$ / Ctrl-C-Ctrl-S poll): reads a console char ($675C), processes the Ctrl-S ($13) pause and Ctrl-C ($03) break ($0834 pending-key cell), and returns it. SUB_67B9_1 ($67CC) is the INKEY$ function evaluator.
 INKEY_SCAN:
         CALL CONIN                       ; $4437  CD DA 43
         CP $13                           ; $443A  FE 13
@@ -11439,7 +11439,7 @@ OUTCHR_LF_EXPAND:
 ; [RE] After GC_CHECK_AND_COLLECT, copy a string of BC bytes downward from (HL) to (BC dest), comparing via HL/DE-compare; the string-move primitive used by string assignment.
 STR_COPY_DOWN:
         CALL GC_CHECK_AND_COLLECT        ; $448F  CD C2 44
-; [RE] String copy loop without the prior heap check: move bytes from (HL) to (BC) decrementing both until HL==DE (SUB_691F compare). Tail of STR_COPY_DOWN.
+; [RE] String copy loop without the prior heap check: move bytes from (HL) to (BC) decrementing both until HL==DE ($691F compare). Tail of STR_COPY_DOWN.
 STR_COPY_DOWN_NOCHK:
         PUSH BC                          ; $4492  C5
         EX (SP),HL                       ; $4493  E3
@@ -11477,7 +11477,7 @@ CHECK_STACK_ROOM_1:
 CHECK_STACK_ROOM_2:
         LD DE,ERR_OUT_OF_MEMORY          ; $44BC  11 07 00
         JP RAISE_ERROR                   ; $44BF  C3 AC 0D
-; [RE] String free/space guard: if the requested string allocation would collide with the variable space, trigger garbage collection (SUB_6C82) and retry; if still no room raise 'Out of string space' (E=$07/$0E) via RAISE_ERROR.
+; [RE] String free/space guard: if the requested string allocation would collide with the variable space, trigger garbage collection ($6C82) and retry; if still no room raise 'Out of string space' (E=$07/$0E) via RAISE_ERROR.
 GC_CHECK_AND_COLLECT:
         CALL CMP_STR_VS_VARTOP           ; $44C2  CD D5 44
         RET NC                           ; $44C5  D0
@@ -12057,7 +12057,7 @@ FN_SPACE_STR:
 FN_OCT_STR:
         CALL POW10_INT_TABLE_2+1         ; $4832  CD BF 38
         JR STR_FN_FINALIZE_1             ; $4835  18 03
-; [RE] Finalize a string-returning function result: scan the formed string (SUB_6BEA), build its descriptor and stage it as the string temporary returned through SUB_6E0B.
+; [RE] Finalize a string-returning function result: scan the formed string ($6BEA), build its descriptor and stage it as the string temporary returned through $6E0B.
 STR_FN_FINALIZE:
         CALL FOUT_2                      ; $4837  CD A0 33
 STR_FN_FINALIZE_1:
@@ -12065,7 +12065,7 @@ STR_FN_FINALIZE_1:
         CALL FRESTR                      ; $483D  CD 3A 4A
         LD BC,STR_FN_RETURN_CHAR_1       ; $4840  01 8D 4A
         PUSH BC                          ; $4843  C5
-; [RE] Build/allocate a string body from a descriptor: for the byte at (HL) call GETSPA to reserve space, copy via SUB_6DB0, returning the new descriptor; used by string concatenation/formatting.
+; [RE] Build/allocate a string body from a descriptor: for the byte at (HL) call GETSPA to reserve space, copy via $6DB0, returning the new descriptor; used by string concatenation/formatting.
 STR_BUILD_FROM_DESC:
         LD A,(HL)                        ; $4844  7E
         INC HL                           ; $4845  23
@@ -12090,7 +12090,7 @@ ALLOC_STR_A:
 ; [RE] Store a string descriptor (length A, body pointer DE) into the temporary descriptor cell $0B45..$0B47 and return HL pointing at it.
 STORE_STR_DESC:
         LD HL,MEMSIZ_4                   ; $485D  21 68 0B
-; Store-string-descriptor core with HL pre-loaded to the target descriptor cell: writes length A and body pointer DE at (HL), returns HL. STORE_STR_DESC ($485D) enters here with HL = temp-descriptor $0B68; also CALLed directly ($1006). Was SUB_4860. [RE]
+; Store-string-descriptor core with HL pre-loaded to the target descriptor cell: writes length A and body pointer DE at (HL), returns HL. STORE_STR_DESC ($485D) enters here with HL = temp-descriptor $0B68; also CALLed directly ($1006). Was STORE_STR_DESC_AT_HL. [RE]
 STORE_STR_DESC_AT_HL:
         PUSH HL                          ; $4860  E5
         LD (HL),A                        ; $4861  77
@@ -12380,7 +12380,7 @@ GARBAG_FIX_STR_PTR_1:
         LD H,B                           ; $49E9  60
         DEC HL                           ; $49EA  2B
         JP GARBAG_1                      ; $49EB  C3 03 49
-; [RE] FRESTR/movestring helper: pull a string's descriptor (via FRMEVL_EVAL_OPERAND), free its data with SUB_6DC0, then copy the bytes into freshly-allocated string space (SUB_6DA8 block copies); returns through FRMEVL fixup.
+; [RE] FRESTR/movestring helper: pull a string's descriptor (via FRMEVL_EVAL_OPERAND), free its data with $6DC0, then copy the bytes into freshly-allocated string space ($6DA8 block copies); returns through FRMEVL fixup.
 STR_CONCAT:
         PUSH BC                          ; $49EE  C5
         PUSH HL                          ; $49EF  E5
@@ -12410,7 +12410,7 @@ STR_CONCAT:
         EX (SP),HL                       ; $4A21  E3
         PUSH HL                          ; $4A22  E5
         JP PUT_STR_TEMP                  ; $4A23  C3 98 48
-; [RE] copy one string-descriptor's data: pops the descriptor (len in A, addr in BC) off the caller's stack and block-copies len bytes from (BC) to (DE) via SUB_6DB0.
+; [RE] copy one string-descriptor's data: pops the descriptor (len in A, addr in BC) off the caller's stack and block-copies len bytes from (BC) to (DE) via $6DB0.
 STR_COPY_DESCR_DATA:
         POP HL                           ; $4A26  E1
         EX (SP),HL                       ; $4A27  E3
@@ -12434,7 +12434,7 @@ BLOCK_COPY_BC_TO_DE_1:
 ; MS BASIC-80 FRETMP: free the most-recent temporary string descriptor (CALL FREFAC at $5035), then fall into FRESTR to reclaim its heap bytes if it was the topmost allocation.
 FRETMP:
         CALL FP_INT_CHECK                ; $4A37  CD B3 2C
-; MS BASIC-80 FRESTR: free the string whose descriptor pointer is in FAC ($0CB1); loads the descriptor then frees its data via FRESTR1 (SUB_6DC0).
+; MS BASIC-80 FRESTR: free the string whose descriptor pointer is in FAC ($0CB1); loads the descriptor then frees its data via FRESTR1 ($6DC0).
 FRESTR:
         LD HL,(CHAIN_BREAK_FLAG_9)       ; $4A3A  2A D4 0C
 ; MS BASIC-80 FRESTR entry with descriptor address already in HL: EX DE,HL then free.
@@ -12501,7 +12501,7 @@ FN_VAL_BODY:
 FN_ASC:
         CALL ALLOC_STR_1                 ; $4A83  CD 58 48
         CALL CONINT                      ; $4A86  CD B5 20
-; [RE] string-function epilogue: store result char (E) into the string work buffer at ($0B46) and return through SUB_6C1A (FRMEVL string-temp fixup).
+; [RE] string-function epilogue: store result char (E) into the string work buffer at ($0B46) and return through $6C1A (FRMEVL string-temp fixup).
 STR_FN_RETURN_CHAR:
         LD HL,(MEMSIZ_5)                 ; $4A89  2A 69 0B
         LD (HL),E                        ; $4A8C  73
@@ -12535,7 +12535,7 @@ FN_STRING_STR_2:
 FN_PEEK:
         CALL CONINT                      ; $4ABA  CD B5 20
         LD A,$20                         ; $4ABD  3E 20
-; [RE] STRING$/SPACE$ build helper: allocate B bytes of string space, fill with the pad char in A, returning the new descriptor; entry from the function epilogue at SUB_6E0B.
+; [RE] STRING$/SPACE$ build helper: allocate B bytes of string space, fill with the pad char in A, returning the new descriptor; entry from the function epilogue at $6E0B.
 STR_FILL_ALLOC:
         PUSH AF                          ; $4ABF  F5
         LD A,E                           ; $4AC0  7B
@@ -12898,7 +12898,7 @@ INLIN_GETCH:
 ; [RE] store char then reset editor state: clear the pending-control and auto-quote flags ($0834/$0C93) at the start of a fresh input line.
 INLIN_PUT_AND_RESET:
         LD (HL),B                        ; $4CA0  70
-; INLIN editor state reset (entered just below INLIN_PUT_AND_RESET): clear the pending-control self-mod byte ($0857) and the INLIN_REDISPLAY_FLAG ($0CB6) before reading a fresh input line. Was SUB_4CA1. [RE]
+; INLIN editor state reset (entered just below INLIN_PUT_AND_RESET): clear the pending-control self-mod byte ($0857) and the INLIN_REDISPLAY_FLAG ($0CB6) before reading a fresh input line. Was INLIN_RESET_EDIT_STATE. [RE]
 INLIN_RESET_EDIT_STATE:
         XOR A                            ; $4CA1  AF
         LD (SUB_0752_31+1),A             ; $4CA2  32 57 08
@@ -12994,7 +12994,7 @@ INLIN_CTRL_X:
         JP NZ,INLIN_CTRL_R               ; $4D3C  C2 44 4D
         LD A,$23                         ; $4D3F  3E 23
         JP INLIN_KILL_LINE               ; $4D41  C3 DF 4C
-; [RE] Ctrl-R / retype-line: terminate the buffer, CRLF, redisplay the line accumulated so far (SUB_4100) from $0A0E, then resume editing.
+; [RE] Ctrl-R / retype-line: terminate the buffer, CRLF, redisplay the line accumulated so far ($4100) from $0A0E, then resume editing.
 INLIN_CTRL_R:
         CP $12                           ; $4D44  FE 12
         JR NZ,INLIN_CTRL_R_1             ; $4D46  20 14
@@ -13548,7 +13548,7 @@ CHAIN_MARK_VAR_7:
         EX DE,HL                         ; $50A2  EB
         POP HL                           ; $50A3  E1
         JR CHAIN_MARK_VAR_7              ; $50A4  18 D6
-; [RE] CHAIN preserve pass: relocate kept simple/array variables, copying their bytes up out of the way (via SUB_691F compare and block move) and adjusting the variable/array area pointers ($0B71/$0B73) so they survive the new program load.
+; [RE] CHAIN preserve pass: relocate kept simple/array variables, copying their bytes up out of the way (via $691F compare and block move) and adjusting the variable/array area pointers ($0B71/$0B73) so they survive the new program load.
 CHAIN_COPY_VAR_BLOCK:
         EX DE,HL                         ; $50A6  EB
         LD HL,(VARTAB_2)                 ; $50A7  2A 96 0B
@@ -13571,7 +13571,7 @@ CHAIN_COPY_VAR_BLOCK_1:
         LD L,C                           ; $50BC  69
         LD (VARTAB_2),HL                 ; $50BD  22 96 0B
         RET                              ; $50C0  C9
-; [RE] CHAIN preserve pass over arrays: walk the array table, temporarily clearing each entry's preserve bit, summing sizes (SUB_6225) and relocating the kept ones.
+; [RE] CHAIN preserve pass over arrays: walk the array table, temporarily clearing each entry's preserve bit, summing sizes ($6225) and relocating the kept ones.
 CHAIN_SCAN_ARRAYS:
         LD HL,(VARTAB_2)                 ; $50C1  2A 96 0B
         EX DE,HL                         ; $50C4  EB
@@ -13601,7 +13601,7 @@ CHAIN_SCAN_ARRAYS_1:
         EX DE,HL                         ; $50E5  EB
         POP HL                           ; $50E6  E1
         JR CHAIN_SCAN_ARRAYS_1           ; $50E7  18 DC
-; [RE] CHAIN preserve pass over string variables/arrays: walk simple-variable and array storage ($0B6F/$0B71), freeing/relocating string descriptors (type 3) of kept variables via SUB_74C5.
+; [RE] CHAIN preserve pass over string variables/arrays: walk simple-variable and array storage ($0B6F/$0B71), freeing/relocating string descriptors (type 3) of kept variables via $74C5.
 CHAIN_SCAN_STRINGS:
         LD HL,(VARTAB)                   ; $50E9  2A 92 0B
 CHAIN_SCAN_STRINGS_1:
@@ -13664,7 +13664,7 @@ CHAIN_SCAN_STRINGS_5:
         JR Z,CHAIN_SCAN_STRINGS_4        ; $513D  28 CF
         LD BC,CHAIN_SCAN_STRINGS_5       ; $513F  01 35 51
         PUSH BC                          ; $5142  C5
-; [RE] move one kept string's data during CHAIN: if the string lives in program/heap space that the reload will clobber, copy it up into safe string space (SUB_6BC6/SUB_4ECD) and rewrite its descriptor pointer.
+; [RE] move one kept string's data during CHAIN: if the string lives in program/heap space that the reload will clobber, copy it up into safe string space ($6BC6/$4ECD) and rewrite its descriptor pointer.
 CHAIN_MOVE_STRING_VAR:
         XOR A                            ; $5143  AF
         OR (HL)                          ; $5144  B6
@@ -14240,7 +14240,7 @@ STMT_SAVE_1:
         CALL RENUM_PATCH_LINEREFS        ; $54FB  CD 8D 23
         CALL ILLEGAL_DIRECT_CHECK        ; $54FE  CD 2A 5E
         LD A,$FF                         ; $5501  3E FF
-; [RE] SAVE core: write the tokenized program image (line links + text) byte-by-byte to the open output file via PUTC_FILE (SUB_7B22), terminating at end-of-program.
+; [RE] SAVE core: write the tokenized program image (line links + text) byte-by-byte to the open output file via PUTC_FILE ($7B22), terminating at end-of-program.
 SAVE_WRITE_PROGRAM:
         CALL PUTC_FILE                   ; $5503  CD A0 57
         LD HL,(VARTAB)                   ; $5506  2A 92 0B
@@ -15221,7 +15221,7 @@ STMT_RESET:
         CALL $0005                       ; $5A82  CD 05 00
         POP HL                           ; $5A85  E1
         RET                              ; $5A86  C9
-; [RE] KILL statement: parse filename into the default FCB ($0080/$08AA) then BDOS delete-file (C=$13); '?' from BDOS -> error $0D4A. Reached via dispatch DEFW SUB_7E09 at $7A58.
+; [RE] KILL statement: parse filename into the default FCB ($0080/$08AA) then BDOS delete-file (C=$13); '?' from BDOS -> error $0D4A. Reached via dispatch DEFW $7E09 at $7A58.
 STMT_KILL:
         CALL PARSE_FILENAME_TO_FCB       ; $5A87  CD A4 58
         PUSH HL                          ; $5A8A  E5
@@ -15245,7 +15245,7 @@ STMT_KILL:
         CALL $0005                       ; $5AAC  CD 05 00
         POP HL                           ; $5AAF  E1
         RET                              ; $5AB0  C9
-; [RE] FILES statement: directory listing. Optional filespec parsed into FCB ($08AA), '*' expanded to '?' (SUB_7EBB), BDOS set-DMA ($1A) + search-first ($11)/search-next ($12); prints each 11-char name with '.' between name and extension via OUTCHR, columns from print-col ($083B).
+; [RE] FILES statement: directory listing. Optional filespec parsed into FCB ($08AA), '*' expanded to '?' ($7EBB), BDOS set-DMA ($1A) + search-first ($11)/search-next ($12); prints each 11-char name with '.' between name and extension via OUTCHR, columns from print-col ($083B).
 STMT_FILES:
         JR NZ,STMT_FILES_1               ; $5AB1  20 0D
         PUSH HL                          ; $5AB3  E5
@@ -15367,7 +15367,7 @@ BDOS_FILE_CALL_1:
 BDOS_FILE_CALL_2:
         POP AF                           ; $5B6E  F1
         RET                              ; $5B6F  C9
-; [RE] Sequential file read into the data buffer: set DMA via FCB cursor, loop BDOS read-sequential ($14) of 128-byte records (SUB_7F25 sets FCB ptr), copying each record into the user buffer until DE count exhausted.
+; [RE] Sequential file read into the data buffer: set DMA via FCB cursor, loop BDOS read-sequential ($14) of 128-byte records ($7F25 sets FCB ptr), copying each record into the user buffer until DE count exhausted.
 FILE_READ_RECORDS:
         EX DE,HL                         ; $5B70  EB
         CALL STRING_SPACE_ROOM_CHECK     ; $5B71  CD A3 5B
@@ -15398,7 +15398,7 @@ FILE_READ_RECORDS_1:
         RET NZ                           ; $5B9F  C0
         EX DE,HL                         ; $5BA0  EB
         JR FILE_READ_RECORDS_1           ; $5BA1  18 E3
-; [RE] Compute the FCB working pointer (current file-table entry $0B48 - $2A*1 reverse offset) and verify stack room (SUB_691F/SUB_781A); used before each BDOS sequential transfer.
+; [RE] Compute the FCB working pointer (current file-table entry $0B48 - $2A*1 reverse offset) and verify stack room ($691F/$781A); used before each BDOS sequential transfer.
 STRING_SPACE_ROOM_CHECK:
         LD HL,(FRETOP)                   ; $5BA3  2A 6B 0B
         LD BC,$FF2A                      ; $5BA6  01 2A FF
@@ -15664,7 +15664,7 @@ SUB_5D0D_1:
         LD HL,$0026                      ; $5D1F  21 26 00
         ADD HL,BC                        ; $5D22  09
         JP PUTC_FILE_3                   ; $5D23  C3 DB 57
-; Common register-restore epilogue of FIELD_WRITE_RECORD (POP HL/DE/BC; RET). The DEFW at $019F referencing it is a statement-dispatch-table misalignment artifact, not a real handler. Was SUB_5D26. [RE]
+; Common register-restore epilogue of FIELD_WRITE_RECORD (POP HL/DE/BC; RET). The DEFW at $019F referencing it is a statement-dispatch-table misalignment artifact, not a real handler. Was FIELD_WRITE_RECORD_RET. [RE]
 FIELD_WRITE_RECORD_RET:
         POP HL                           ; $5D26  E1
         POP DE                           ; $5D27  D1
@@ -15993,7 +15993,7 @@ SUB_5EBE_1:
         DEC A                            ; $5EFF  3D
         JR Z,COLD_SET_WIDTH+1            ; $5F00  28 03
         LD A,$28                         ; $5F02  3E 28
-; [RE] Select terminal line width during cold start: reads the configured console type ($F3BB) and sets the line-width work cell (SUB_4B20_12, $4B97) to 40 ($28) or the wide default, then initializes the file-control / disk-parameter pointers (SUB_4063).
+; [RE] Select terminal line width during cold start: reads the configured console type ($F3BB) and sets the line-width work cell (SUB_4B20_12, $4B97) to 40 ($28) or the wide default, then initializes the file-control / disk-parameter pointers ($4063).
 COLD_SET_WIDTH:
         LD BC,$503E                      ; $5F04  01 3E 50
         LD (SUB_2803_3),A                ; $5F07  32 15 28
