@@ -17,7 +17,6 @@ from disasm_z80.opcodes import decode_at
 from pathlib import Path
 
 _HEX = re.compile(r'\$([0-9A-Fa-f]{4})')
-_CF = ('JP', 'CALL', 'JR', 'DJNZ')
 
 
 def _gmap(g, m, gmem, mmem):
@@ -34,7 +33,11 @@ def _gmap(g, m, gmem, mmem):
 
 def fixed_operand_sites():
     """Return (gbasic_sites, mbasic_sites): sets of instruction run-addresses whose
-    in-body NON-control-flow operand is the same in both builds (fixed -> keep literal)."""
+    in-body operand is the same in both builds (fixed -> keep literal).
+
+    Control-flow operands count too: if a JP/CALL target is IDENTICAL in both builds it
+    does not relocate with the body, so a literal emits correct bytes for both and a
+    body label (e.g. a coincidental skip-idiom FDIV_6+1) would be wrong for the fold."""
     g = bytes(extract_file(read_disk(Path(rd.DISK_2_20_44K_SYSTEM)), "GBASIC.COM"))
     m = bytes(extract_file(read_disk(Path(rd.DISK_2_20_44K_SYSTEM)), "MBASIC.COM"))
     gmem, mmem = gbasic_run_image(g), flat_image(m)
@@ -48,8 +51,6 @@ def fixed_operand_sites():
         except (IndexError, KeyError):
             continue
         if _HEX.sub('#', gi.mnemonic) != _HEX.sub('#', mi.mnemonic):
-            continue
-        if gi.mnemonic.split()[0] in _CF:
             continue
         for vg, vm in zip(_HEX.findall(gi.mnemonic), _HEX.findall(mi.mnemonic)):
             if 0x3000 <= int(vg, 16) < 0x8500 and vg == vm:

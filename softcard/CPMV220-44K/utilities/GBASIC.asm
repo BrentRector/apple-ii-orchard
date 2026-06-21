@@ -6022,7 +6022,7 @@ MANT_SHIFT_BITS_3:
         LD B,E                           ; $4CB1  43
         ADD A,E                          ; $4CB2  83
         LD (HL),L                        ; $4CB3  75
-        CALL DATA_ARTIFACT_NOT_CODE      ; $4CB4  CD 8D 84
+        CALL $848D                       ; $4CB4  CD 8D 84
         XOR C                            ; $4CB7  A9
         LD A,A                           ; $4CB8  7F
         ADD A,E                          ; $4CB9  83
@@ -6033,7 +6033,7 @@ MANT_SHIFT_BITS_4:
         NOP                              ; $4CBD  00
         NOP                              ; $4CBE  00
         ADD A,C                          ; $4CBF  81
-        JP PO,FDIV_6+1                   ; $4CC0  E2 B0 4D
+        JP PO,$4DB0                      ; $4CC0  E2 B0 4D
         ADD A,E                          ; $4CC3  83
         LD A,(BC)                        ; $4CC4  0A
         LD (HL),D                        ; $4CC5  72
@@ -7747,7 +7747,7 @@ FIN_EXP_DIGIT:
         SUB $30                          ; $5620  D6 30
         LD E,A                           ; $5622  5F
 FIN_DONE_3:
-        JP M,FILE_READ_RECORDS_3+1       ; $5623  FA 1E 7F
+        JP M,$7F1E                       ; $5623  FA 1E 7F
         JP FIN_8                         ; $5626  C3 24 55
 FIN_DONE_4:
         OR A                             ; $5629  B7
@@ -9081,7 +9081,7 @@ FN_SQR_7:
         NOP                              ; $5E03  00
         DEC (HL)                         ; $5E04  35
         LD C,D                           ; $5E05  4A
-        JP Z,INPUT_PROMPT_12+1           ; $5E06  CA 99 39
+        JP Z,$3999                       ; $5E06  CA 99 39
         INC E                            ; $5E09  1C
         HALT                             ; $5E0A  76
         DEFB    $98,$22,$95,$B3,$98,$0A  ; $5E0B
@@ -9241,7 +9241,7 @@ FN_TAN_2:
         LD A,A                           ; $5F18  7F
         SUB C                            ; $5F19  91
         LD A,(HL)                        ; $5F1A  7E
-        CALL PO,MANT_SHIFT_BITS_4        ; $5F1B  E4 BB 4C
+        CALL PO,$4CBB                    ; $5F1B  E4 BB 4C
         LD A,(HL)                        ; $5F1E  7E
         LD L,H                           ; $5F1F  6C
         XOR D                            ; $5F20  AA

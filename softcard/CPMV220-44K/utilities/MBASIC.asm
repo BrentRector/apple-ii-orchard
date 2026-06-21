@@ -7147,7 +7147,7 @@ MANT_SHIFT_BITS_LOOP_3:
         NOP                              ; $293B  00
         NOP                              ; $293C  00
         ADD A,C                          ; $293D  81
-        JP PO,INPUT_PROMPT_SEP_1+1       ; $293E  E2 B0 4D
+        JP PO,$4DB0                      ; $293E  E2 B0 4D
         ADD A,E                          ; $2941  83
         LD A,(BC)                        ; $2942  0A
         LD (HL),D                        ; $2943  72
@@ -9912,12 +9912,12 @@ FP_POW10_FRAC_TABLE_3:
         NOP                              ; $3887  00
         NOP                              ; $3888  00
         NOP                              ; $3889  00
-        CALL PO,OPEN_NAMED_FILE_2+1      ; $388A  E4 0B 54
+        CALL PO,$540B                    ; $388A  E4 0B 54
         LD (BC),A                        ; $388D  02
         NOP                              ; $388E  00
         NOP                              ; $388F  00
         NOP                              ; $3890  00
-        JP Z,FN_TAN_3+1                  ; $3891  CA 9A 3B
+        JP Z,$3B9A                       ; $3891  CA 9A 3B
         NOP                              ; $3894  00
         NOP                              ; $3895  00
         NOP                              ; $3896  00
@@ -10259,7 +10259,7 @@ FN_SQR_8:
         NOP                              ; $3A81  00
         DEC (HL)                         ; $3A82  35
         LD C,D                           ; $3A83  4A
-        JP Z,FN_LOG_1+1                  ; $3A84  CA 99 39
+        JP Z,$3999                       ; $3A84  CA 99 39
         INC E                            ; $3A87  1C
         HALT                             ; $3A88  76
         DEFW    STMT_DELETE_1            ; $3A89
@@ -10428,7 +10428,7 @@ FN_TAN_2:
         SUB C                            ; $3B97  91
         LD A,(HL)                        ; $3B98  7E
 FN_TAN_3:
-        CALL PO,INLIN_2+2                ; $3B99  E4 BB 4C
+        CALL PO,$4CBB                    ; $3B99  E4 BB 4C
         LD A,(HL)                        ; $3B9C  7E
         LD L,H                           ; $3B9D  6C
         XOR D                            ; $3B9E  AA
