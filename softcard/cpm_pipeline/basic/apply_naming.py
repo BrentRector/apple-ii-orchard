@@ -190,9 +190,10 @@ def apply(base_text, renames, label_comments, sections, inline, ext_syms=None,
             out.append(f'    INCLUDE "{TOKEN_INCLUDE_NAME}"   ; MS BASIC keyword-token names')
             continue
         m = LABEL_DEF_RE.match(line)
-        if m and m.group(1) in renames:
+        if m and (m.group(1) in renames or m.group(1) in label_comments
+                  or m.group(1) in sections):
             old = m.group(1)
-            new = renames[old]
+            new = sub(old)                      # suffix-aware: renames a head AND its _N locals
             if old in sections:
                 out.append("")
                 bar = "; " + "=" * 70
