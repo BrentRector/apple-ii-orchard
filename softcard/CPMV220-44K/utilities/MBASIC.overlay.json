@@ -1195,5 +1195,123 @@
 "5D26": "Common register-restore epilogue of FIELD_WRITE_RECORD (POP HL/DE/BC; RET). The DEFW at $019F referencing it is a statement-dispatch-table misalignment artifact, not a real handler. Was SUB_5D26. [RE]",
 "5E27": "Exit of DIRECT_MODE_GUARD: pop the saved HL, INC A on the SAVTXT high-byte AND result and RET NZ (i.e. allow when a stored line is active). Shared tail just above ILLEGAL_DIRECT_CHECK. Was SUB_5E27. [RE]"
 },
-"sections": {}
+"sections": {},
+"operand_rewrites": {
+"0F96": [
+"$F3",
+"TOK_MINUS"
+],
+"107F": [
+"$89",
+"TOK_GOTO"
+],
+"111D": [
+"$9E",
+"TOK_ELSE"
+],
+"1129": [
+"$89",
+"TOK_GOTO"
+],
+"112C": [
+"$DE",
+"TOK_THEN"
+],
+"113D": [
+"$9E",
+"TOK_ELSE"
+],
+"114D": [
+"$8F",
+"TOK_REM"
+],
+"1328": [
+"$E0",
+"TOK_STEP"
+],
+"1344": [
+"$E0",
+"TOK_STEP"
+],
+"14B9": [
+"$F3",
+"TOK_MINUS"
+],
+"1728": [
+"$89",
+"TOK_GOTO"
+],
+"1754": [
+"$9E",
+"TOK_ELSE"
+],
+"1774": [
+"$E8",
+"TOK_USING"
+],
+"1AAB": [
+"$EF",
+"TOK_GT"
+],
+"1AAE": [
+"$F2",
+"TOK_PLUS"
+],
+"1AB3": [
+"$F2",
+"TOK_PLUS"
+],
+"1B1E": [
+"$EF",
+"TOK_GT"
+],
+"1C2A": [
+"$F2",
+"TOK_PLUS"
+],
+"1C2E": [
+"$F3",
+"TOK_MINUS"
+],
+"1C38": [
+"$E4",
+"TOK_NOT"
+],
+"1CB7": [
+"$85",
+"TOK_INPUT"
+],
+"1CBC": [
+"$E2",
+"TOK_FN"
+],
+"1DB3": [
+"$F3",
+"TOK_MINUS"
+],
+"1DBD": [
+"$F2",
+"TOK_PLUS"
+],
+"218B": [
+"$9E",
+"TOK_ELSE"
+],
+"21AE": [
+"$E2",
+"TOK_FN"
+],
+"23B3": [
+"$89",
+"TOK_GOTO"
+],
+"24E4": [
+"$9E",
+"TOK_ELSE"
+],
+"24E8": [
+"$DE",
+"TOK_THEN"
+]
+}
 }

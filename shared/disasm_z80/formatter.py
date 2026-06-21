@@ -60,7 +60,7 @@ class SjasmFormatter:
 
     def __init__(self, mem, walker, symbols=None, *,
                  origin=None, length=None, source_name="", pointer_words=None,
-                 relocatable=False, foreign_regions=None):
+                 relocatable=False, foreign_regions=None, inline_token_names=None):
         self.mem = mem
         self.walker = walker
         self.symbols = symbols
@@ -85,6 +85,10 @@ class SjasmFormatter:
         # Addresses to emit as a 2-byte `DEFW <label>` pointer (resolved static
         # pointers / dispatch entries), so they relocate with ORG.
         self.pointer_words = pointer_words or set()
+        # Optional {byte_value: name} map for high-bit inline operand bytes (e.g.
+        # the keyword tokens SYNCHR matches): render `DEFB TOK_TO` instead of hex.
+        # The name must be defined by an INCLUDE the assembled source pulls in.
+        self.inline_token_names = inline_token_names or {}
         # Mid-instruction reference state (populated by _prepare_overlap_labels):
         #   _overlap_covers[addr] = (cover, offset)  anonymous -> inline cover+offset
         #   _overlap_named[addr]  = (name, cover, offset)  named -> equate, keep name
@@ -372,6 +376,12 @@ class SjasmFormatter:
                 out.append(line)
                 referenced.update(refs)
                 addr += decode_at(self.mem, addr).size
+            elif addr in getattr(self.walker, "inline_data", {}):
+                # An inline operand byte consumed by the preceding CALL (e.g.
+                # SYNCHR's expected character). Emit it as a char constant so it
+                # reads as the datum it is, not a hex byte. Byte-identical.
+                out.append(self._fmt_inline_char(addr))
+                addr += 1
             else:
                 run = runs_by_addr.get(addr)
                 if run is None:
@@ -436,6 +446,21 @@ class SjasmFormatter:
             tag = f"  {comment}" if (comment and i == 0) else ""
             lines.append(f"        DEFB    {bytes_str:<48} ; ${addr + i:04X}{tag}")
         return lines or [f"        DEFB    $00 ; ${addr:04X}"]
+
+    def _fmt_inline_char(self, addr):
+        """Render an inline operand byte (consumed by the preceding CALL, e.g.
+        Microsoft BASIC's SYNCHR expected character) as a char constant when it
+        is printable ASCII, else hex. Byte-identical: 'x' assembles to its ASCII
+        code, which is the original byte."""
+        b = self.mem[addr]
+        if 0x20 <= b <= 0x7E and b not in (0x27, 0x5C):   # printable, not ' or \
+            operand, note = f"'{chr(b)}'", "inline char arg consumed by the preceding CALL"
+        elif b in self.inline_token_names:                # named keyword token
+            operand = self.inline_token_names[b]
+            note = "inline keyword-token arg consumed by the preceding CALL"
+        else:
+            operand, note = f"${b:02X}", "inline token arg consumed by the preceding CALL"
+        return f"        DEFB    {operand:<24} ; ${addr:04X}  {b:02X}  {note}"
 
     def _render_string(self, run):
         chars = run.metadata["chars"]

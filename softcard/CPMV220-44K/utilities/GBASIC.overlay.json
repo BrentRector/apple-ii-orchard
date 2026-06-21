@@ -659,7 +659,7 @@
 "6956": "[RE] END statement handler (token $81). Reached via the GONE/NEWSTT statement dispatcher at $33B1 (SUB $81; RLCA; LD HL,$0108; ADD HL,BC; load handler; JP).",
 "328F": "[RE] FOR statement handler (token $82): sets up the FOR/NEXT loop frame on the runtime stack.",
 "6AD2": "[RE] NEXT statement handler (token $83): advances/closes the current FOR loop frame.",
-"35B4": "[RE] DATA statement handler (token $84): no-op at run time (scanned/skipped). COMMON (token $B3) also dispatches to this same entry.",
+"35B4": "[RE] DATA statement handler (token $84): no-op at run time (scanned/skipped). COMMON (token $B3) also dispatches to this same entry. Dual-entry skip idiom: the $01 (LD BC,nn) opcode doubles as a 2-byte skip. Entered here, the full LD BC,$0E3A executes; entered at STMT_DATA+2 ($35B6, called from ERROR_PRINT_SETUP) the embedded bytes start LD C,$00 ($0E $00) instead. Two paths share these bytes; the literal CALL $35B6 is written STMT_DATA+2 so it relocates.",
 "38F8": "[RE] INPUT statement handler (token $85): prompt + read console line, parse values into the variable list.",
 "39B7": "[RE] READ statement handler (token $87): reads the next DATA item into a variable.",
 "35DB": "[RE] LET / implicit-assignment handler (token $88): evaluates RHS (CALL $5F35) and stores into the target variable.",
@@ -966,7 +966,7 @@
 "5D56": "[RE] Odd-power polynomial evaluator: forms x*P(x^2) for the series approximations (SIN/ATN/TAN), squaring the argument then calling the Horner evaluator POLY_EVAL.",
 "5D65": "[RE] MS BASIC-80 polynomial (Horner) evaluator: HL -> coefficient table (count byte then MBF coefficients); repeatedly FMUL by the argument and FADD the next coefficient. Shared by LOG/EXP/SIN/COS/TAN/ATN.",
 "5D8C": "[RE] Evaluate a polynomial in sqrt(x): pushes the argument, runs FN_SQR, then evaluates the series via POLY_EVAL (used by the ATN/LOG support path called at $4486).",
-"5F30": "[RE] PTRGET front-end: scan a variable name at the BASIC text pointer (HL). Accumulates the leading alpha + following alphanumerics (high-bit set) into the VARNAM buffer $0871, honouring type-suffix chars %/$/!/# to set VALTYP $0B14 (and the default-type table at $0B36), then falls into the table search at PTRGET_SEARCH ($5FC9). Called by LET ($5F35) and FRMEVL operand fetch.",
+"5F30": "[RE] PTRGET front-end: scan a variable name at the BASIC text pointer (HL). Accumulates the leading alpha + following alphanumerics (high-bit set) into the VARNAM buffer $0871, honouring type-suffix chars %/$/!/# to set VALTYP $0B14 (and the default-type table at $0B36), then falls into the table search at PTRGET_SEARCH ($5FC9). Called by LET ($5F35) and FRMEVL operand fetch. PTRGET_1 ($5F34, OR $AF) is a dual-entry skip idiom: the $F6 (OR n) opcode consumes the next byte ($AF), so falling in from PUSH BC leaves A non-zero; entering at PTRGET_1+1 ($5F35) via CALL runs that $AF byte as XOR A, zeroing A. Both reach LD ($0B13),A at $5F36 with the entry-selected flag. Every CALL $5F35 is written PTRGET_1+1 so it relocates.",
 "5FC9": "[RE] PTRGET search/allocate core: walk the simple-variable table ($0B6F..$0B71) for the packed name in C/$0B14/$0871; on a hit return its address, on a miss create a new entry (allocate via STR/var-space grow, SUB_6811/SUB_622E). Detects '(' to branch to the array path (subscript eval + array search/alloc, $612C loop) honouring DIM and OPTION BASE.",
 "6225": "[RE] Advance HL past one variable/array-table entry: load length byte at (HL), then add it to HL (falls into VARTAB_ADD_LEN). Used while scanning the array table during PTRGET and by the array-walk in DIM/index code ($6CBF, $740E...).",
 "6227": "[RE] HL += A (zero-extended) preserving BC: B:=0, C:=A, ADD HL,BC. Entry point used to step over a table entry whose length is already in A.",
@@ -1192,5 +1192,139 @@
 "4539": "GRAPHICS + TEXT-SCREEN STATEMENTS and the 6502 RPC PATH (SoftCard superset)  ---  Apple soft-switches reached as $E0xx (Z-80 $E000-$EFFF == Apple $C000-$CFFF); Apple monitor-ROM calls reached by the 6502 RPC (A$VEC=$F3D0, Z$CPU=$F3DE, SLTTYP+2=$F3BB).  Handlers $45xx-$4Bxx; dispatch table $0194-$01B0.",
 "6956": "BASIC-80 statement dispatch handlers (table base $0108, indexed by (token-$81)*2)",
 "6E85": "BASIC-80 function dispatch handlers (table base $01B2, indexed by token*2; dispatcher at $3D8E)"
+},
+"operand_rewrites": {
+"0DF4": [
+"$35B6",
+"STMT_DATA+2"
+],
+"0FBF": [
+"$5F35",
+"PTRGET_1+1"
+],
+"0F73": [
+"$F3",
+"TOK_MINUS"
+],
+"3064": [
+"$89",
+"TOK_GOTO"
+],
+"3102": [
+"$9E",
+"TOK_ELSE"
+],
+"310E": [
+"$89",
+"TOK_GOTO"
+],
+"3111": [
+"$DE",
+"TOK_THEN"
+],
+"3122": [
+"$9E",
+"TOK_ELSE"
+],
+"3132": [
+"$8F",
+"TOK_REM"
+],
+"330D": [
+"$E0",
+"TOK_STEP"
+],
+"3329": [
+"$E0",
+"TOK_STEP"
+],
+"349E": [
+"$F3",
+"TOK_MINUS"
+],
+"370D": [
+"$89",
+"TOK_GOTO"
+],
+"3739": [
+"$9E",
+"TOK_ELSE"
+],
+"3759": [
+"$E8",
+"TOK_USING"
+],
+"3A90": [
+"$EF",
+"TOK_GT"
+],
+"3A93": [
+"$F2",
+"TOK_PLUS"
+],
+"3A98": [
+"$F2",
+"TOK_PLUS"
+],
+"3B03": [
+"$EF",
+"TOK_GT"
+],
+"3C0F": [
+"$F2",
+"TOK_PLUS"
+],
+"3C13": [
+"$F3",
+"TOK_MINUS"
+],
+"3C1D": [
+"$E4",
+"TOK_NOT"
+],
+"3C9C": [
+"$85",
+"TOK_INPUT"
+],
+"3CA1": [
+"$E2",
+"TOK_FN"
+],
+"3D98": [
+"$F3",
+"TOK_MINUS"
+],
+"3DA2": [
+"$F2",
+"TOK_PLUS"
+],
+"4170": [
+"$9E",
+"TOK_ELSE"
+],
+"4193": [
+"$E2",
+"TOK_FN"
+],
+"4398": [
+"$89",
+"TOK_GOTO"
+],
+"44C9": [
+"$9E",
+"TOK_ELSE"
+],
+"44CD": [
+"$DE",
+"TOK_THEN"
+],
+"4B3A": [
+"$DD",
+"TOK_TO"
+],
+"4B5F": [
+"$DD",
+"TOK_TO"
+]
 }
 }
