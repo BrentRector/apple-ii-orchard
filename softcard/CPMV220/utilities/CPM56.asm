@@ -21,15 +21,15 @@
 ; [AI]     Z-80 front end; staged/dispatched through the SoftCard.
 ; [AI]
 ; [AI] SoftCard dispatch convention used here:
-; [AI]   $F3D0  = parameter/work pointer handed to the 6502 routine
-; [AI]   ($F3DE)= address of the SoftCard BIOS "write-trap" dispatch cell;
+; [AI]   A_VEC  = parameter/work pointer handed to the 6502 routine
+; [AI]   (Z_CPU)= address of the SoftCard BIOS "write-trap" dispatch cell;
 ; [AI]            storing A there hands control to the 6502 and runs the op.
-; [AI]   $F3E0  = source address (page-aligned) the 6502 reads the image from
-; [AI]   $F3E4  = selected Disk II drive number (1 or 2 within the slot)
-; [AI]   $F3E6  = slot/drive select nibble for the controller
-; [AI]   $F3E9  = current track/sector index being written
-; [AI]   $F3EB  = sectors-per-op / pass count
-; [AI]   $F3EA  = result status returned by the 6502 (0=ok, $10=write
+; [AI]   DSK_TRACK  = source address (page-aligned) the 6502 reads the image from
+; [AI]   DSK_DRIVE  = selected Disk II drive number (1 or 2 within the slot)
+; [AI]   DSK_SLOT  = slot/drive select nibble for the controller
+; [AI]   DSK_BUFFER_HI  = current track/sector index being written
+; [AI]   DSK_COMMAND  = sectors-per-op / pass count
+; [AI]   DSK_STATUS  = result status returned by the 6502 (0=ok, $10=write
 ; [AI]            protected, other=disk I/O error)
 ; [AI]
 ; [AI] NOTE: many "DEFW <Z80 label>" lines appear *inside* the DEFB blob
@@ -40,6 +40,7 @@
 ; [AI] ===================================================================
 
     DEVICE NOSLOT64K
+    INCLUDE "apple_softcard.inc"   ; Apple/SoftCard external names (single source of truth)
 
 ; -- External symbols --
 WBOOT_VEC            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
@@ -62,7 +63,7 @@ MAIN_REBOOT:
         JP WBOOT_VEC                     ; $010D  C3 00 00   ; [AI] warm boot back to CCP
 DO_UPDATE:
         CALL MAP_DRIVE                   ; $0110  CD F9 02   ; [AI] C = drive code, A = Disk II drive# (1/2)
-        LD ($F3E4),A                     ; $0113  32 E4 F3   ; [AI] tell SoftCard BIOS which drive# to use
+        LD (DSK_DRIVE),A                     ; $0113  32 E4 F3   ; [AI] tell SoftCard BIOS which drive# to use
         DEC C                            ; $0116  0D
         LD A,C                           ; $0117  79
         AND $0E                          ; $0118  E6 0E      ; [AI] isolate slot bits of the drive code
@@ -72,7 +73,7 @@ MAIN_CALC_SLOT:
         ADD A,A                          ; $011C  87         ; [AI] *8: shift slot into the controller-select position
         CPL                              ; $011D  2F
         ADD A,$61                        ; $011E  C6 61       ; [AI] form the slot/drive select nibble...
-        LD ($F3E6),A                     ; $0120  32 E6 F3   ; [AI] ...and store it in the SoftCard select cell
+        LD (DSK_SLOT),A                     ; $0120  32 E6 F3   ; [AI] ...and store it in the SoftCard select cell
         LD A,C                           ; $0123  79
         ADD A,$41                        ; $0124  C6 41       ; [AI] drive index -> ASCII drive letter ('A'+index)
         LD (MSG_DRIVE_LETTER),A          ; $0126  32 1D 02   ; [AI] patch the letter into the "...drive Z:" prompt
@@ -80,18 +81,18 @@ MAIN_CALC_SLOT:
         CALL PRINT_STR                   ; $012C  CD A6 01   ; [AI] banner + "Insert 16 sector disk... Hit RETURN to begin"
         CALL WAIT_KEY                    ; $012F  CD 9A 01   ; [AI] wait for the user to press a key (RETURN)
         LD A,$02                         ; $0132  3E 02
-        LD ($F3EB),A                     ; $0134  32 EB F3   ; [AI] sectors-per-op / pass count = 2
+        LD (DSK_COMMAND),A                     ; $0134  32 EB F3   ; [AI] sectors-per-op / pass count = 2
         LD A,$13                         ; $0137  3E 13
-        LD ($F3E9),A                     ; $0139  32 E9 F3   ; [AI] starting track/sector index = $13
+        LD (DSK_BUFFER_HI),A                     ; $0139  32 E9 F3   ; [AI] starting track/sector index = $13
         LD HL,WBOOT_VEC                  ; $013C  21 00 00   ; [AI] HL = $0000 = first source page of the system image
         LD B,$27                         ; $013F  06 27       ; [AI] B = $27 (39) blocks to write
 WRITE_LOOP:
-        LD ($F3E0),HL                    ; $0141  22 E0 F3   ; [AI] hand the 6502 the current source address
+        LD (DSK_TRACK),HL                    ; $0141  22 E0 F3   ; [AI] hand the 6502 the current source address
         PUSH BC                          ; $0144  C5
         PUSH HL                          ; $0145  E5
         LD HL,BIOS_PARAM_0E03            ; $0146  21 03 0E   ; [AI] HL -> SoftCard write parameter block
         CALL BIOS_DISPATCH               ; $0149  CD 92 01   ; [AI] write this block to disk via the 6502
-        LD A,($F3EA)                     ; $014C  3A EA F3   ; [AI] read back the 6502 result status
+        LD A,(DSK_STATUS)                     ; $014C  3A EA F3   ; [AI] read back the 6502 result status
         OR A                             ; $014F  B7
         JP Z,WRITE_OK                    ; $0150  CA 64 01   ; [AI] 0 -> block written OK
         LD DE,MSG_IO_ERROR               ; $0153  11 79 02
@@ -102,7 +103,7 @@ PRINT_DISK_ERR:
         CALL PRINT_STR                   ; $015E  CD A6 01   ; [AI] print the disk error message
         JP EPILOGUE                      ; $0161  C3 7D 01   ; [AI] abort to the reboot prompt
 WRITE_OK:
-        LD HL,$F3E9                      ; $0164  21 E9 F3
+        LD HL,DSK_BUFFER_HI                      ; $0164  21 E9 F3
         INC (HL)                         ; $0167  34         ; [AI] advance to the next track/sector index
         POP HL                           ; $0168  E1
         INC H                            ; $0169  24         ; [AI] source += $0100 (next page)
@@ -124,12 +125,12 @@ EPILOGUE:
         CALL PRINT_STR                   ; $0180  CD A6 01    ; [AI] "Hit RETURN to re-boot system"
         CALL WAIT_KEY                    ; $0183  CD 9A 01    ; [AI] wait for RETURN
         LD HL,$C600                      ; $0186  21 00 C6    ; [AI] $C600 = Disk II slot-6 boot ROM entry
-        LD ($F3D0),HL                    ; $0189  22 D0 F3    ; [AI] hand it to the SoftCard as the reboot target
-        LD HL,($F3DE)                    ; $018C  2A DE F3    ; [AI] HL = SoftCard BIOS dispatch cell
+        LD (A_VEC),HL                    ; $0189  22 D0 F3    ; [AI] hand it to the SoftCard as the reboot target
+        LD HL,(Z_CPU)                    ; $018C  2A DE F3    ; [AI] HL = SoftCard BIOS dispatch cell
         JP BIOS_DISPATCH_REBOOT          ; $018F  C3 00 2A    ; [AI] trigger 6502 reboot, then warm boot
 BIOS_DISPATCH:
-        LD ($F3D0),HL                    ; $0192  22 D0 F3   ; [AI] $F3D0 = parameter pointer for the 6502 op
-        LD HL,($F3DE)                    ; $0195  2A DE F3   ; [AI] HL = SoftCard BIOS write-trap dispatch cell
+        LD (A_VEC),HL                    ; $0192  22 D0 F3   ; [AI] A_VEC = parameter pointer for the 6502 op
+        LD HL,(Z_CPU)                    ; $0195  2A DE F3   ; [AI] HL = SoftCard BIOS write-trap dispatch cell
         LD (HL),A                        ; $0198  77         ; [AI] store -> hand control to the 6502, run the op
         RET                              ; $0199  C9
 WAIT_KEY:
@@ -808,7 +809,7 @@ BIOS_PARAM_0E03:
         DEFB    $AF,$32,$07,$C4,$C9,$3A,$A9,$DE,$B7,$C9,$CD,$3B,$DB,$AF,$32,$07 ; $29EB
         DEFB    $C4,$C9,$65,$20,$5D                              ; $29FB
 ; [AI] Final dispatch: store A into the SoftCard BIOS write-trap (HL was
-; [AI] loaded from ($F3DE)) to hand control to the 6502 -- which reboots
+; [AI] loaded from (Z_CPU)) to hand control to the 6502 -- which reboots
 ; [AI] from the Disk II slot-6 ROM ($C600, set at $0189) -- then warm boot.
 BIOS_DISPATCH_REBOOT:
         LD (HL),A                        ; $2A00  77         ; [AI] trigger the 6502 reboot op

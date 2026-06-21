@@ -39,15 +39,21 @@ def test_switch_6502_trigger_and_resume_rule():
     sw = SoftCardSwitch()
     mem = bytearray(65536)
     mem[0x03C0] = 0x8D            # STA abs at the warm-loop store
-    # $C700 store from the warm loop (pc < $0400) triggers; STA -> pc+3
+    mem[0x1185] = 0x8D            # STA abs at the boot scanner's slot probe
+    # Any $C700 store toggles the CPU -- a per-write hardware toggle, not gated
+    # to a routine. Warm loop (pc < $0400): STA -> resume at pc+3.
     assert sw.trigger_6502_write(0xC700, 0x03C0, mem.__getitem__) is True
     assert sw.resume_6502 == 0x03C3
-    # $C400 also triggers (2.20 image); non-$8D opcode -> resume at pc
+    # The same applies to the boot slot scanner's probe at pc=$1185 (>= $0400):
+    # this is what lets the disk detect the SoftCard without a fixup hook.
+    assert sw.trigger_6502_write(0xC700, 0x1185, mem.__getitem__) is True
+    assert sw.resume_6502 == 0x1188
+    # non-$8D opcode -> resume at pc (no skip)
     mem[0x0380] = 0xEA           # NOP
-    assert sw.trigger_6502_write(0xC4FF, 0x0380, mem.__getitem__) is True
+    assert sw.trigger_6502_write(0xC7FF, 0x0380, mem.__getitem__) is True
     assert sw.resume_6502 == 0x0380
-    # outside the warm loop: no trigger
-    assert sw.trigger_6502_write(0xC700, 0x0400, mem.__getitem__) is False
+    # $C400 is NOT a trigger ($C700 only -- matches is_z80_switch / slot 7)
+    assert sw.trigger_6502_write(0xC400, 0x03C0, mem.__getitem__) is False
     # unrelated page: no trigger
     assert sw.trigger_6502_write(0xC300, 0x0100, mem.__getitem__) is False
 

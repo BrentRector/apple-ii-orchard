@@ -23,11 +23,22 @@ HAS = bool(shutil.which("sjasmplus") and present(DISK))
 skip = pytest.mark.skipif(not HAS, reason="sjasmplus or softcard-cpm2.23-44k-system.dsk missing")
 
 
+def _include_deps(text):
+    """Stage any shared includes the source pulls in (apple_softcard.inc) from
+    softcard/include/ so the bare-name INCLUDE resolves standalone."""
+    deps = []
+    for name in re.findall(r'(?im)^\s*INCLUDE\s+"([^"]+)"', text):
+        src = REPO / "include" / name
+        if src.exists():
+            deps.append((name, src))
+    return deps
+
+
 @skip
 def test_gbasic_disp_source_is_byte_identical():
-    src = re.sub(r'SAVEBIN\s+"[^"]+"', 'SAVEBIN "{out_bin}"',
-                 GBASIC.read_text(encoding="latin-1"))
-    built = assemble_z80(src)
+    text = GBASIC.read_text(encoding="latin-1")
+    src = re.sub(r'SAVEBIN\s+"[^"]+"', 'SAVEBIN "{out_bin}"', text)
+    built = assemble_z80(src, include_files=_include_deps(text))
     genuine = bytes(extract_file(read_disk(DISK), "GBASIC.COM"))
     assert len(built) == 25600
     assert built == genuine

@@ -21,19 +21,20 @@
 ; [AI] L_058E onward.
 ; [AI]
 ; [AI] SoftCard 6502 interface ($F3xx shared block, written by Z-80, read by 6502):
-; [AI]   $F3DE/$F3DF  caller-saved 6502 stack ptr image (MAIN saves it at entry)
-; [AI]   $F3E0/$F3E1  6502 buffer/dest address for the current RWTS request
-; [AI]   $F3E4        Apple drive number (1 or 2)
-; [AI]   $F3E6        Apple slot*16 base ($60 = slot 6) for the RWTS call
-; [AI]   $F3E8/$F3E9  Z-80 buffer address the 6502 reads from / writes to
-; [AI]   $F3EA        6502 -> Z-80 status return (nonzero = disk I/O error)
-; [AI]   $F3EB        command/go flag handed to the 6502
-; [AI]   $F3D0        RWTS command word ($0E03 = read sector via DOS RWTS)
+; [AI]   Z_CPU/$F3DF  caller-saved 6502 stack ptr image (MAIN saves it at entry)
+; [AI]   DSK_TRACK/DSK_SECTOR  6502 buffer/dest address for the current RWTS request
+; [AI]   DSK_DRIVE        Apple drive number (1 or 2)
+; [AI]   DSK_SLOT        Apple slot*16 base ($60 = slot 6) for the RWTS call
+; [AI]   DSK_BUFFER/DSK_BUFFER_HI  Z-80 buffer address the 6502 reads from / writes to
+; [AI]   DSK_STATUS        6502 -> Z-80 status return (nonzero = disk I/O error)
+; [AI]   DSK_COMMAND        command/go flag handed to the 6502
+; [AI]   A_VEC        RWTS command word ($0E03 = read sector via DOS RWTS)
 ; [AI] CALL_6502 (SUB_03C3) reaches the 6502 by JP'ing through the page pointed to
 ; [AI] by the word at $0001 (the BIOS WBOOT page) with L forced to $1B.
 ; [AI] ============================================================================
 
     DEVICE NOSLOT64K
+    INCLUDE "apple_softcard.inc"   ; Apple/SoftCard external names (single source of truth)
 
 ; -- External symbols --
 WBOOT_VEC            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
@@ -50,7 +51,7 @@ DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS
 
 ; [AI] ===== MAIN: entry, prompt for command line, parse and dispatch =====
 MAIN:
-        LD HL,($F3DE)                    ; $0100  2A DE F3  ; [AI] grab 6502 stack-ptr image from shared block...
+        LD HL,(Z_CPU)                    ; $0100  2A DE F3  ; [AI] grab 6502 stack-ptr image from shared block...
 SAVE_6502_SP:
         LD (APPLE_RWTS_GO+1),HL          ; $0103  22 AB 04  ; [AI] ...and self-modify the LD (nn),A at $04AA to stash it (caller-save for the RPC)
 GET_SECTORS_PER_TRACK:
@@ -315,9 +316,9 @@ COPY_REPORT:
 ; [AI] SET_APPLE_PARAMS: arm the 6502 shared block for an Apple-side READ.
 SET_APPLE_PARAMS:
         LD HL,$0800                      ; $02E3  21 00 08  ; [AI] Z-80 buffer the 6502 reads into ($0800)
-        LD ($F3E8),HL                    ; $02E6  22 E8 F3  ; [AI] -> $F3E8 (Z-80 buffer ptr in shared block)
+        LD (DSK_BUFFER),HL                    ; $02E6  22 E8 F3  ; [AI] -> DSK_BUFFER (Z-80 buffer ptr in shared block)
         LD A,$01                         ; $02E9  3E 01
-        LD ($F3E0),A                     ; $02EB  32 E0 F3  ; [AI] 6502 buffer low = 1
+        LD (DSK_TRACK),A                     ; $02EB  32 E0 F3  ; [AI] 6502 buffer low = 1
         DEC A                            ; $02EE  3D
         LD ($006A),A                     ; $02EF  32 6A 00  ; [AI] clear FCB extent
         LD A,(DIR_REC_LO)                ; $02F2  3A 14 05
@@ -422,7 +423,7 @@ FLUSH_WRITE:
         JP SAVE_FCB_POS                  ; $039F  C3 12 03  ; [AI] save position + close, return to caller chain
 ; [AI] PARSE_DRIVE: if HL+1 is ':' the input has a "d:" drive prefix. Convert the
 ; [AI] drive letter to 0-based, range-check against the 6502-reported drive count
-; [AI] ($F3B8), store it at (DE), and skip the prefix in HL.
+; [AI] (DSKCNT), store it at (DE), and skip the prefix in HL.
 PARSE_DRIVE:
         INC HL                           ; $03A2  23
         LD A,(HL)                        ; $03A3  7E        ; [AI] peek second char
@@ -433,7 +434,7 @@ PARSE_DRIVE:
         SUB $41                          ; $03AB  D6 41     ; [AI] 'A' -> 0
         INC HL                           ; $03AD  23        ; [AI] skip the ':'
         LD C,A                           ; $03AE  4F
-        LD A,($F3B8)                     ; $03AF  3A B8 F3  ; [AI] number of drives the SoftCard/6502 reports
+        LD A,(DSKCNT)                     ; $03AF  3A B8 F3  ; [AI] number of drives the SoftCard/6502 reports
         DEC A                            ; $03B2  3D
         CP C                             ; $03B3  B9
         JR C,BAD_DRIVE                   ; $03B4  38 25     ; [AI] requested drive out of range
@@ -475,7 +476,7 @@ BAD_DRIVE:
 ; [AI] first catalog sector, choose the matching sector-skew table by what came
 ; [AI] back, then read the first directory data via APPLE_RWTS and validate it.
 READ_APPLE_DIR:
-        CALL SET_DRIVE_SLOT              ; $03E4  CD 59 04  ; [AI] compute $F3E4 drive + $F3E6 slot base
+        CALL SET_DRIVE_SLOT              ; $03E4  CD 59 04  ; [AI] compute DSK_DRIVE drive + DSK_SLOT slot base
         CALL CALL_6502                   ; $03E7  CD C3 03  ; [AI] 6502: locate the disk / read VTOC
         PUSH DE                          ; $03EA  D5
         LD C,$00                         ; $03EB  0E 00
@@ -539,14 +540,14 @@ NEXT_DIR_HAVE:
         INC HL                           ; $0453  23        ; [AI] HL -> the 30-byte filename field
         LD (DIR_FILE_TS),BC              ; $0454  ED 43 0F 05 ; [AI] save this file's first track/sector(=T/S list)
         RET                              ; $0458  C9
-; [AI] SET_DRIVE_SLOT: derive the 6502 RWTS drive number ($F3E4 = 1 or 2) and the
-; [AI] slot base byte ($F3E6) from the selected Apple drive (APPLE_DRIVE).
+; [AI] SET_DRIVE_SLOT: derive the 6502 RWTS drive number (DSK_DRIVE = 1 or 2) and the
+; [AI] slot base byte (DSK_SLOT) from the selected Apple drive (APPLE_DRIVE).
 SET_DRIVE_SLOT:
         LD A,(APPLE_DRIVE)               ; $0459  3A 11 05
         LD C,A                           ; $045C  4F
         AND $01                          ; $045D  E6 01     ; [AI] low bit -> drive 1/2 within the slot
         INC A                            ; $045F  3C
-        LD ($F3E4),A                     ; $0460  32 E4 F3  ; [AI] 6502 drive number (1 or 2)
+        LD (DSK_DRIVE),A                     ; $0460  32 E4 F3  ; [AI] 6502 drive number (1 or 2)
         LD A,C                           ; $0463  79
         AND $0E                          ; $0464  E6 0E     ; [AI] remaining bits select the slot
         ADD A,A                          ; $0466  87
@@ -554,7 +555,7 @@ SET_DRIVE_SLOT:
         ADD A,A                          ; $0468  87        ; [AI] *8 -> half-slot stride
         CPL                              ; $0469  2F
         ADD A,$61                        ; $046A  C6 61     ; [AI] form the $Cn-style slot I/O base byte
-        LD ($F3E6),A                     ; $046C  32 E6 F3  ; [AI] 6502 slot base
+        LD (DSK_SLOT),A                     ; $046C  32 E6 F3  ; [AI] 6502 slot base
         RET                              ; $046F  C9
 ; [AI] SET_FCB_DRIVE: copy the CP/M-target drive (APPLE_DRIVE_2) into the FCB.
 SET_FCB_DRIVE:
@@ -565,12 +566,12 @@ SET_FCB_DRIVE:
 ; [AI] SET_APPLE_BUF_HI: point the 6502 at the fixed T/S-list buffer ($1822) and read.
 SET_APPLE_BUF_HI:
         LD DE,$1822                      ; $0478  11 22 18
-        LD ($F3E8),DE                    ; $047B  ED 53 E8 F3
+        LD (DSK_BUFFER),DE                    ; $047B  ED 53 E8 F3
         JR APPLE_RWTS_SETUP              ; $047F  18 11
 ; [AI] SET_APPLE_BUF: point the 6502 at the CP/M-side data buffer (CPM_BUF_PTR) and read.
 SET_APPLE_BUF:
         LD DE,(CPM_BUF_PTR)              ; $0481  ED 5B 16 05
-        LD ($F3E8),DE                    ; $0485  ED 53 E8 F3
+        LD (DSK_BUFFER),DE                    ; $0485  ED 53 E8 F3
         JR APPLE_RWTS_SETUP              ; $0489  18 07
 ; [AI] APPLE_RWTS: read one Apple DOS track/sector via the 6502. HL on entry holds
 ; [AI] (track in L low / sector in H) per the caller. The sector is mapped through
@@ -578,7 +579,7 @@ SET_APPLE_BUF:
 ; [AI] track/sector and command are placed in the $F3xx block, and the 6502 is run.
 APPLE_RWTS:
         LD DE,$1722                      ; $048B  11 22 17  ; [AI] default Z-80 buffer = $1722 (catalog reads)
-        LD ($F3E8),DE                    ; $048E  ED 53 E8 F3
+        LD (DSK_BUFFER),DE                    ; $048E  ED 53 E8 F3
 APPLE_RWTS_SETUP:
         LD A,L                           ; $0492  7D        ; [AI] track number
 RWTS_SKEW_PTR:
@@ -588,14 +589,14 @@ RWTS_SKEW_PTR:
         ADD HL,DE                        ; $0499  19        ; [AI] index into skew table
         LD H,(HL)                        ; $049A  66        ; [AI] H = physical sector from table
         LD L,A                           ; $049B  6F        ; [AI] L = track
-        LD ($F3E0),HL                    ; $049C  22 E0 F3  ; [AI] hand track/sector to the 6502
+        LD (DSK_TRACK),HL                    ; $049C  22 E0 F3  ; [AI] hand track/sector to the 6502
         LD A,$01                         ; $049F  3E 01
-        LD ($F3EB),A                     ; $04A1  32 EB F3  ; [AI] set the 6502 go/command flag
+        LD (DSK_COMMAND),A                     ; $04A1  32 EB F3  ; [AI] set the 6502 go/command flag
         LD HL,$0E03                      ; $04A4  21 03 0E  ; [AI] RWTS command word ($0E03 = read)
-        LD ($F3D0),HL                    ; $04A7  22 D0 F3
+        LD (A_VEC),HL                    ; $04A7  22 D0 F3
 APPLE_RWTS_GO:
         LD (WBOOT_VEC),A                 ; $04AA  32 00 00  ; [AI] (operand self-modified at $0103 to the saved 6502 SP; triggers the 6502)
-        LD A,($F3EA)                     ; $04AD  3A EA F3  ; [AI] read back 6502 status
+        LD A,(DSK_STATUS)                     ; $04AD  3A EA F3  ; [AI] read back 6502 status
         OR A                             ; $04B0  B7
         RET Z                            ; $04B1  C8        ; [AI] 0 = success
         LD DE,STR_DISK_IO_ERROR          ; $04B2  11 D5 06  ; [AI] "Disk I/O Error"

@@ -49,6 +49,10 @@ def main(argv=None):
                         "computed-jump dispatch tables, harvest jump/pointer-table "
                         "targets, and validated after-terminal sweep "
                         "(byte-identical; minimizes DEFB-that-is-code)")
+    p.add_argument("--relocatable", action="store_true",
+                   help="label every in-range operand address (data refs and "
+                        "mid-instruction targets too) so the source relocates by "
+                        "ORG/DISP alone -- for the CCP/BDOS fold to other bases")
     p.add_argument("--output", required=True,
                    help="output path WITHOUT extension (writes .asm)")
     args = p.parse_args(argv)
@@ -92,6 +96,7 @@ def main(argv=None):
         mem, walker, symbols,
         origin=org, length=length,
         source_name=in_path.name,
+        relocatable=args.relocatable,
     )
     out_base = Path(args.output)
     asm_path = out_base.with_suffix(".asm")

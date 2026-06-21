@@ -89,7 +89,7 @@ BIOS_THUNK_SETL:
 BIOS_THUNK_JP:
         JP (HL)                          ; $015A  E9
 MSG_NOT_CPM_DISK:
-        DEFB    $4E,$6F,$74,$20,$61,$20,$43,$50,$2F,$4D,$20,$64,$69,$73,$6B,$24 ; $015B
+        DEFB    "Not a CP/M disk$" ; $015B
 SIG_BUF:
         DEFB    $00,$00,$00                                      ; $016B
 SIG_BYTE2:

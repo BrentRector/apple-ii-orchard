@@ -18,7 +18,8 @@ DEFAULT_RND          EQU $007D               ; Default FCB random record number 
 DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS cold-init / DRV_ALLRESET (fn 13) set the DMA address here and WBOOT re-issues SETDMA($0080); sector/record I/O moves 128 bytes through it. At program load this same buffer doubles as the command tail: the first byte ($0080) holds the tail length (0-127) and the characters follow at $0081 (CMDLINE).
 
 ; -- Mid-instruction references (shown inline as cover+offset) --
-;   $102E -> FILE_STATUS_MAIN_21+1        shared instruction tail: $102E is reachable code inside the instruction at $102D
+;   (none) -- the earlier $102E -> FILE_STATUS_MAIN_21+1 entry was a phantom from a DEFW data match at
+;            $131F that has since been decoded back into its real instruction (LD L,$10); $102E is not code.
 
     ORG $0100
 
@@ -26,22 +27,25 @@ DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS
 ;       real startup code.
 TPA_START:
         JP TPA_START_45                  ; $0100  C3 33 04
-        DEFB    $20,$20,$20,$43,$6F,$70,$79,$72,$69,$67,$68,$74,$20,$28,$63,$29 ; $0103
-        DEFB    $20,$31,$39,$37,$39,$2C,$20,$44,$69,$67,$69,$74,$61,$6C,$20,$52 ; $0113
-        DEFB    $65,$73,$65,$61,$72,$63,$68                      ; $0123
+        DEFB    "   Copyright (c) 1979, Digital Research"    ; $0103  string
 TPA_START_1:
         DEFS    12, $3F    ; $012A  fill
         DEFB    $00,$00,$00                                      ; $0136
+; [AI] DATA: logical-device / command keyword table, 8 fixed-width 4-byte entries indexed by code*4
+;       (CON RDR PUN LST DEV VAL USR DSK). It is an indexed table AND a colon-delimited
+;       string, so it is rendered as a string literal (the 4-byte stride lands on each name).
 TPA_START_2:
-        DEFB    $43,$4F,$4E,$3A,$52,$44,$52,$3A,$50,$55,$4E,$3A,$4C,$53,$54,$3A ; $0139
-        DEFB    $44,$45,$56,$3A,$56,$41,$4C,$3A,$55,$53,$52,$3A,$44,$53,$4B,$3A ; $0149
+        DEFB    "CON:RDR:PUN:LST:DEV:VAL:USR:DSK:"               ; $0139  device/command keyword table
 TPA_START_3:
         DEFB    "TTY:CRT:BAT:UC1:TTY:PTR:UR1:UR2:TTY:PTP:UP1:UP2:TTY:CRT:"    ; $0159  string
         DEFB    "LPT:UL1:R/O"    ; $0191
         DEFB    $00    ; $019C  terminator
-        DEFB    $52,$2F,$57,$00,$53,$59,$53,$00,$44,$49,$52,$00  ; $019D
+; [AI] DATA: tail of the $0199 indicator-name table -- 4-byte null-terminated entries "R/W"/"SYS"/"DIR"
+;       (the "R/O" entry is the run ending at $019B above); indexed by $29CC*4.
+        DEFB    "R/W",$00,"SYS",$00,"DIR",$00  ; $019D
+; [AI] DATA: space-separated indicator-keyword list "R/O R/W SYS DIR " scanned by the set-indicator parser.
 TPA_START_4:
-        DEFB    $52,$2F,$4F,$20,$52,$2F,$57,$20,$53,$59,$53,$20,$44,$49,$52,$20 ; $01A9
+        DEFB    "R/O R/W SYS DIR " ; $01A9
 TPA_START_5:
         DEFB    "** Aborted **"    ; $01B9  string
         DEFB    $00    ; $01C6  terminator
@@ -57,8 +61,9 @@ TPA_START_8:
 TPA_START_9:
         DEFB    " Drive Characteristics"    ; $01E8  string
         DEFB    $00    ; $01FE  terminator
+; [AI] "6" + "5536: " (TPA_START_11) spell the "65536: " capacity-overflow label.
 TPA_START_10:
-        DEFB    $36                                              ; $01FF
+        DEFB    "6"    ; $01FF  string
 TPA_START_11:
         DEFB    "5536: "    ; $0200  string
         DEFB    $00    ; $0206  terminator
@@ -105,7 +110,7 @@ TPA_START_25:
         DEFB    "Iobyte Assign:"    ; $0329  string
         DEFB    $00    ; $0337  terminator
 TPA_START_26:
-        DEFB    $20,$3D,$00                                      ; $0338
+        DEFB    " =",$00    ; $0338  string
 TPA_START_27:
         DEFB    "Bad Delimiter"    ; $033B  string
         DEFB    $00    ; $0348  terminator
@@ -116,12 +121,12 @@ TPA_START_29:
         DEFB    "Bad Delimiter"    ; $035C  string
         DEFB    $00    ; $0369  terminator
 TPA_START_30:
-        DEFB    $3A,$20,$00                                      ; $036A
+        DEFB    ": ",$00    ; $036A  string
 TPA_START_31:
         DEFB    "Bytes Remaining On "    ; $036D  string
         DEFB    $00    ; $0380  terminator
 TPA_START_32:
-        DEFB    $52,$2F,$00                                      ; $0381
+        DEFB    "R/",$00    ; $0381  string
 TPA_START_33:
         DEFB    ", Space: "    ; $0384  string
         DEFB    $00    ; $038D  terminator
@@ -140,14 +145,15 @@ TPA_START_37:
 TPA_START_38:
         DEFB    " Recs  Bytes  Ext Acc"    ; $03D0  string
         DEFB    $00    ; $03E5  terminator
+; [AI] "65" + "536" (TPA_START_40) spell the "65536" record-capacity literal printed by the DSK: report.
 TPA_START_39:
-        DEFB    $36,$35                                          ; $03E6
+        DEFB    "65"    ; $03E6  string
 TPA_START_40:
-        DEFB    $35,$33,$36,$00,$20,$73,$65,$74,$20,$74,$6F,$20,$00 ; $03E8
+        DEFB    "536",$00," set to ",$00 ; $03E8  string
 TPA_START_41:
-        DEFB    $52,$2F,$4F,$20                                  ; $03F5
+        DEFB    "R/O "    ; $03F5  string
 TPA_START_42:
-        DEFB    $49,$6E,$76,$61,$6C,$69,$64                      ; $03F9
+        DEFB    "Invalid"    ; $03F9  string
 TPA_START_43:
         DEFB    " Disk Assignment"    ; $0400  string
         DEFB    $00    ; $0410  terminator
@@ -340,11 +346,19 @@ BDOS_SELECT_DISK:
         LD C,$0E                         ; $0500  0E 0E
         CALL BDOS_CALL_VOID                    ; $0502  CD 4C 14
         RET                              ; $0505  C9
-        DEFB    $21,$2A,$15,$70,$2B,$71,$2A,$29,$15,$EB,$0E,$0F,$CD ; $0506
-        DEFW    BDOS_CALL_A                 ; $0513
-        DEFB    $32                                              ; $0515
-        DEFW    DIR_CODE               ; $0516
-        DEFB    $C9                                              ; $0518
+; [AI] Unreferenced (dead) BDOS function 15 (open file) wrapper on the FCB whose address is in C,
+;       storing the returned directory code; compiler-emitted but never called by STAT.
+BDOS_OPEN_FILE:
+        LD HL,SEL_DISK_ARG+2                ; $0506  21 2A 15
+        LD (HL),B                        ; $0509  70
+        DEC HL                           ; $050A  2B
+        LD (HL),C                        ; $050B  71
+        LD HL,(SEL_DISK_ARG+1)              ; $050C  2A 29 15
+        EX DE,HL                         ; $050F  EB
+        LD C,$0F                         ; $0510  0E 0F
+        CALL BDOS_CALL_A                    ; $0512  CD 4F 14
+        LD (DIR_CODE),A                ; $0515  32 27 15
+        RET                              ; $0518  C9
 ; [AI] BDOS function 17 (search first) on the FCB pointed to by BC; begins a directory scan and
 ;       stores the returned directory code.
 BDOS_SEARCH_FIRST:
@@ -413,9 +427,13 @@ BDOS_GET_RO_VEC:
         LD C,$1D                         ; $056F  0E 1D
         CALL BDOS_CALL_HL                    ; $0571  CD 52 14
         RET                              ; $0574  C9
-        DEFB    $11,$5C,$00,$0E,$1E,$CD                          ; $0575
-        DEFW    BDOS_CALL_VOID                 ; $057B
-        DEFB    $C9                                              ; $057D
+; [AI] BDOS function 30 (set file attributes) wrapper on the default FCB; called by the set-indicator
+;       finalize path (FILE_STATUS_MAIN_55) to commit a file's new R/O/SYS/DIR attribute bits to disk.
+BDOS_SET_FILE_ATTR:
+        LD DE,DEFAULT_FCB                ; $0575  11 5C 00
+        LD C,$1E                         ; $0578  0E 1E
+        CALL BDOS_CALL_VOID                    ; $057A  CD 4C 14
+        RET                              ; $057D  C9
 ; [AI] BDOS function 31 (get disk-parameter-block address) in HL, saved at $151E; the source of
 ;       every drive-characteristics number STAT prints.
 BDOS_GET_DPB:
@@ -431,9 +449,17 @@ BDOS_GET_USER:
         LD C,$20                         ; $058D  0E 20
         CALL BDOS_CALL_A                    ; $058F  CD 4F 14
         RET                              ; $0592  C9
-        DEFB    $21,$2F,$15,$71,$2A,$2F,$15,$26,$00,$EB,$0E,$20,$CD ; $0593
-        DEFW    BDOS_CALL_VOID                 ; $05A0
-        DEFB    $C9                                              ; $05A2
+; [AI] Unreferenced (dead) BDOS function 32 (set current user number) wrapper, user number in C;
+;       compiler-emitted but never called by STAT (the live caller, BDOS_GET_USER, queries with E=$FF).
+BDOS_SET_USER:
+        LD HL,SETDMA_ARG_HI+1                ; $0593  21 2F 15
+        LD (HL),C                        ; $0596  71
+        LD HL,(SETDMA_ARG_HI+1)              ; $0597  2A 2F 15
+        LD H,$00                         ; $059A  26 00
+        EX DE,HL                         ; $059C  EB
+        LD C,$20                         ; $059D  0E 20
+        CALL BDOS_CALL_VOID                    ; $059F  CD 4C 14
+        RET                              ; $05A2  C9
 ; [AI] BDOS function 35 (compute file size) for the FCB in BC, leaving the record count in the
 ;       random-record field for the size report.
 BDOS_COMPUTE_FILESIZE:
@@ -1317,8 +1343,9 @@ DISPATCH_COMMAND_12:
         CALL REPORT_USR                    ; $0BB6  CD 19 08
         LD A,$01                         ; $0BB9  3E 01
         RET                              ; $0BBB  C9
-        DEFB    $C3                                              ; $0BBC
-        DEFW    DISPATCH_COMMAND_19              ; $0BBD
+; [AI] Dead instruction: the original USR: fall-through to the post-command continuation, made
+;       unreachable by the RET above.
+        JP DISPATCH_COMMAND_19                   ; $0BBC  C3 46 0C
 DISPATCH_COMMAND_13:
         LD A,(KW_DISPATCH_IDX)               ; $0BBF  3A A7 15
         CP $08                           ; $0BC2  FE 08
@@ -1408,7 +1435,8 @@ DISPATCH_COMMAND_20:
         RET                              ; $0C64  C9
 DISPATCH_COMMAND_21:
         JP DISPATCH_COMMAND_1                    ; $0C65  C3 8C 0A
-        DEFB    $C9                                              ; $0C68
+; [AI] Dead instruction: trailing RET made unreachable by the JP above.
+        RET                              ; $0C68  C9
 ; [AI] Prints a device-name field from the keyword tables (address in BC), stopping at the ':'
 ;       separator and emitting the colon itself.
 PRINT_DEV_NAME:
@@ -2329,22 +2357,44 @@ FILE_STATUS_MAIN_54:
         DEFW    SET_ATTR_RW              ; $1319
         DEFW    SET_ATTR_SYS              ; $131B
         DEFW    SET_ATTR_DIR              ; $131D
+; [AI] Set-indicator finalize: copies the modified 16-byte directory entry into the default FCB,
+;       writes the new attributes via BDOS (fn 30), prints ' set to <R/O|R/W|SYS|DIR>', then advances
+;       to the next file. Target of the four SET_ATTR_* handlers.
 FILE_STATUS_MAIN_55:
-        DEFW    FILE_STATUS_MAIN_21+1            ; $131F
+        LD L,$10                         ; $131F  2E 10
 FILE_STATUS_MAIN_56:
-        DEFB    $E5,$2A,$BC,$29,$44                              ; $1321
-        DEFW    FILE_STATUS_MAIN_31              ; $1326
-        DEFB    $5C,$00,$E1,$0A,$12,$03,$13,$2D,$C2,$2B,$13,$21,$5C,$00,$36,$00 ; $1328
-        DEFB    $CD,$75,$05,$01,$EC,$03,$CD                      ; $1338
-        DEFW    PRINT_STRING                 ; $133F
-        DEFB    $3A,$CC,$29,$87,$87                              ; $1341
-        DEFW    PARSE_NEXT_TOKEN_1               ; $1346
-        DEFB    $00,$21,$99                                      ; $1348
-        DEFW    PRINT_DRIVE_CHARS_1               ; $134B
-        DEFB    $44,$4D,$CD                                      ; $134D
-        DEFW    PRINT_STRING                 ; $1350
-        DEFB    $2A,$C0,$29,$23,$22,$C0,$29,$C3                  ; $1352
-        DEFW    FILE_STATUS_MAIN_48              ; $135A
+        PUSH HL                          ; $1321  E5
+        LD HL,($29BC)                    ; $1322  2A BC 29
+        LD B,H                           ; $1325  44
+        LD C,L                           ; $1326  4D
+        LD DE,DEFAULT_FCB                ; $1327  11 5C 00
+        POP HL                           ; $132A  E1
+FILE_STATUS_MAIN_56_1:
+        LD A,(BC)                        ; $132B  0A
+        LD (DE),A                        ; $132C  12
+        INC BC                           ; $132D  03
+        INC DE                           ; $132E  13
+        DEC L                            ; $132F  2D
+        JP NZ,FILE_STATUS_MAIN_56_1                 ; $1330  C2 2B 13
+        LD HL,DEFAULT_FCB                ; $1333  21 5C 00
+        LD (HL),$00                      ; $1336  36 00
+        CALL BDOS_SET_FILE_ATTR                    ; $1338  CD 75 05
+        LD BC,TPA_START_40+4             ; $133B  01 EC 03
+        CALL PRINT_STRING                    ; $133E  CD B1 04
+        LD A,($29CC)                     ; $1341  3A CC 29
+        ADD A,A                          ; $1344  87
+        ADD A,A                          ; $1345  87
+        LD C,A                           ; $1346  4F
+        LD B,$00                         ; $1347  06 00
+        LD HL,$0199                      ; $1349  21 99 01  ; [AI] R/O\0R/W\0SYS\0DIR\0 indicator-name table inside TPA_START_3 (=$0191+8); indexed by $29CC*4
+        ADD HL,BC                        ; $134C  09
+        LD B,H                           ; $134D  44
+        LD C,L                           ; $134E  4D
+        CALL PRINT_STRING                    ; $134F  CD B1 04
+        LD HL,($29C0)                    ; $1352  2A C0 29
+        INC HL                           ; $1355  23
+        LD ($29C0),HL                    ; $1356  22 C0 29
+        JP FILE_STATUS_MAIN_48                   ; $1359  C3 99 12
 ; [AI] Shared local return used by the directory/attribute paths to fall out to the caller.
 FILE_STATUS_MAIN_57:
         RET                              ; $135C  C9
@@ -2479,7 +2529,8 @@ HANDLE_FILE_OR_ASSIGN_4:
         CALL FILE_STATUS_MAIN                    ; $1445  CD BA 0D
 HANDLE_FILE_OR_ASSIGN_5:
         RET                              ; $1448  C9
-        DEFB    $C3,$00,$00                                      ; $1449
+; [AI] Dead instruction: a warm-boot jump (JP $0000) left after the RET above; unreachable.
+        JP WBOOT_VEC                     ; $1449  C3 00 00
 ; [AI] BDOS call shim (jump to $0005) used for functions whose result is not needed by the caller.
 BDOS_CALL_VOID:
         JP BDOS_VEC                      ; $144C  C3 05 00
@@ -2491,7 +2542,7 @@ BDOS_CALL_A:
 BDOS_CALL_HL:
         CALL BDOS_VEC                    ; $1452  CD 05 00
         RET                              ; $1455  C9
-        DEFB    $C9,$C9,$69,$60                                  ; $1456
+        DEFB    $C9,$C9,$69,$60                                  ; $1456  [AI] unreferenced code-shaped leftover (two RETs + LD L,C/LD H,B); no label targets it -- left as data
 ; [AI] 16-bit add of the word at (HL) to the word at (DE), returning the sum in HL; a PL/M-style
 ;       runtime arithmetic helper.
 ADD16_MEM:
@@ -2597,7 +2648,7 @@ ROTATE_BYTE_LEFT_1:
         DEC C                            ; $14B4  0D
         JP NZ,ROTATE_BYTE_LEFT_1                 ; $14B5  C2 B3 14
         RET                              ; $14B8  C9
-        DEFB    $5E,$23,$56,$EB                                  ; $14B9
+        DEFB    $5E,$23,$56,$EB                                  ; $14B9  [AI] unreferenced fall-through fragment (LD E,(HL)/INC HL/LD D,(HL)/EX DE,HL feeding SHL_HL); no label targets it -- left as data
 ; [AI] Shifts HL left by C bits (multiply by a power of two), used to scale record counts to byte
 ;       capacities.
 SHL_HL:
@@ -2673,7 +2724,7 @@ CMP_A_MEM:
         LD E,A                           ; $14F5  5F
         LD D,$00                         ; $14F6  16 00
 ; [AI] Subtracts the word at (HL) from the 16-bit value in DE and returns it in HL, the comparison
-;       primitive behind SUB_14F5.
+;       primitive behind CMP_A_MEM.
 SUB16_MEM_FROM_DE:
         LD A,E                           ; $14F8  7B
         SUB (HL)                         ; $14F9  96
@@ -2775,12 +2826,18 @@ USR_AREA_IDX:
         DEFB    $1A                                              ; $1576
 USER_ACTIVE_TBL:
         DEFS    9, $1A    ; $1577  fill
+; [AI] These are LIVE scratch/BSS variables (the tail of the 32-byte USER_ACTIVE_TBL
+;       and the named variables below) -- STAT's Z-80 code reads and writes every one
+;       of them at runtime. Only their .COM-image INITIAL bytes are meaningless: this
+;       is uninitialized BSS, so the bytes are whatever was in the cross-assembler's
+;       buffer at link time, not intended initial values. (The block must still
+;       reassemble byte-identical, so the captured bytes are kept verbatim.)
         DEFB    $6F,$85,$70,$A0,$00,$84,$8B,$A5,$6D,$A6,$6E,$85,$9B,$86,$9C,$A9 ; $1580
         DEFB    $55,$A2,$00,$85,$5E,$86,$5F                      ; $1590
 RECS_PER_BLOCK:
         DEFB    $C5,$52                                          ; $1597
 DRIVE_RECORD_CAP:
-        DEFW    TEST_BLOCK_IN_USE_BIT               ; $1599
+        DEFB    $F0,$05                                          ; $1599  [AI] live variable; its .COM-image init bytes are stale BSS (value $05F0 is leftover, not an intended initial value)
 CAP_FIELD_VALUE:
         DEFB    $20                                              ; $159B
 CAP_FIELD_VALUE_HI:
@@ -2834,82 +2891,16 @@ FILE_COUNT:
 FILE_DIRENT_TBL:
         DEFB    $94,$86                                          ; $15BA
 FILE_SORTKEY_TBL:
-        DEFB    $95,$A9,$03,$85,$8F,$A5,$94,$A6,$95,$E4,$6E,$D0,$07,$C5,$6D ; $15BC
-        DEFW    TPA_START_38             ; $15CB
-        DEFB    $4C,$59,$1D,$85,$5E,$86,$00,$A0,$00,$B1,$5E,$AA,$C8,$B1,$5E,$08 ; $15CD
-        DEFB    $C8,$B1,$5E,$65,$94,$85,$94,$C8,$B1,$5E,$65,$95,$85,$95,$28,$10 ; $15DD
-        DEFB    $D3,$8A,$30,$D0,$A6,$1C,$A6,$1B,$A6,$1A,$80,$1A,$65,$5E,$85,$5E ; $15ED
-        DEFB    $90,$02,$E6,$C9,$D4,$A0,$8D,$A0,$C4,$C5,$D9,$A0,$8D,$A0,$C2,$CE ; $15FD
-        DEFB    $C5,$A0,$C4,$CC,$D9,$CC,$D0,$8D                  ; $160D  "E DLYLP"
-        DEFB    $A0,$CC,$C4,$D8,$A0,$D3,$CC,$CF,$D4,$8D          ; $1615  " LDX SLOT"
-        DEFB    $D3,$C1,$CD,$C5,$C4,$D2,$D6,$A0,$CC,$C4,$C1,$A0,$C1,$AE,$D4,$D2 ; $161F  "SAMEDRV LDA A.TRK"
-        DEFB    $CB,$8D                                          ; $162F
-        DEFB    $A0,$CA,$D3,$D2,$A0,$CD,$D9,$D3,$C5,$C5,$CB,$8D  ; $1631  " JSR MYSEEK"
-        DEFB    $A0,$D0,$CC,$D0,$A0,$8D                          ; $163D  " PLP "
-        DEFB    $A0,$C2,$CE,$C5,$A0,$D4,$D2,$D9,$D4,$D2,$CB,$A0,$8D ; $1643  " BNE TRYTRK "
-        DEFB    $CD,$CF,$D4,$CF,$C6,$A0,$CC,$C4,$D9,$A0,$A3,$A4,$B1,$B2,$8D ; $1650  "MOTOF LDY #$12"
-        DEFB    $A0,$C4,$C5,$D9,$A0,$8D                          ; $165F  " DEY "
-        DEFB    $A0,$C2,$CE,$C5,$A0,$AA,$AD,$B1,$8D              ; $1665  " BNE *-1"
-        DEFB    $A0,$C9,$CE,$C3,$A0,$CD,$CF,$CE,$D4,$C9,$CD,$C5,$8D ; $166E  " INC MONTIME"
-        DEFB    $A0,$C2,$CE,$C5,$A0,$CD,$CF,$D4,$CF,$C6,$8D      ; $167B  " BNE MOTOF"
-        DEFB    $A0,$C9,$CE,$C3,$A0,$CD,$CF,$CE,$D4,$C9,$CD,$C5,$AB,$B1,$8D ; $1686  " INC MONTIME+1"
-        DEFB    $A0,$C2,$CE,$C5,$A0,$CD,$CF,$D4,$CF,$C6,$8D      ; $1695  " BNE MOTOF"
-        DEFB    $D4,$D2,$D9,$D4,$D2,$CB,$A0,$C5,$D1,$D5,$A0,$AA,$8D ; $16A0  "TRYTRK EQU *"
-        DEFB    $A0,$CC,$C4,$C1,$A0,$C1,$AE,$C3,$CD,$C4,$8D      ; $16AD  " LDA A.CMD"
-        DEFB    $A0,$C2,$C5,$D1,$A0,$C7,$C1,$CC,$CC,$C4,$CF,$CE,$C5,$8D ; $16B8  " BEQ GALLDONE"
-        DEFB    $A0,$D2,$CF,$D2,$A0,$8D                          ; $16C6  " ROR "
-        DEFB    $A0,$D0,$C8,$D0,$A0,$8D                          ; $16CC  " PHP "
-        DEFB    $A0,$C2,$C3,$D3,$A0,$D4,$D2,$D9,$D4,$D2,$CB,$B2,$A0,$8D ; $16D2  " BCS TRYTRK2 "
-        DEFB    $A0,$CA,$D3,$D2,$A0,$D0,$D2,$C5,$CE,$C9,$C2,$CC,$8D ; $16E0  " JSR PRENIBL"
-        DEFB    $D4,$D2,$D9,$D4,$D2,$CB,$B2,$A0,$CC,$C4,$D9,$A0,$A3,$A4,$B3,$B0 ; $16ED  "TRYTRK2 LDY #$30"
-        DEFB    $8D                                              ; $16FD
-        DEFB    $A0,$D3,$D4,$D9,$A0,$D2,$C5,$D4,$D2,$D9,$C3,$CE,$D4,$8D ; $16FE  " STY RETRYCNT"
-        DEFB    $D4,$D2,$D9,$C1,$C4,$D2,$A0,$CC,$C4,$D8,$A0,$D3,$CC,$CF,$D4,$8D ; $170C  "TRYADR LDX SLOT"
-        DEFB    $A0,$CA,$D3,$D2,$A0,$D2,$C4,$C1,$C4,$D2,$8D      ; $171C  " JSR RDADR"
-        DEFB    $A0,$C2,$C3,$C3,$A0,$D2,$C4,$D2,$C9,$C7,$C8,$D4,$8D ; $1727  " BCC RDRIGHT"
-        DEFB    $D4,$D2,$D9,$C1,$C4,$D2,$B2,$A0,$C4,$C5,$C3,$A0,$D2,$C5,$D4,$D2 ; $1734  "TRYADR2 DEC RETRYCNT "
-        DEFB    $D9,$C3,$CE,$D4,$A0,$8D                          ; $1744
-        DEFB    $A0,$C2,$D0,$CC,$A0,$D4,$D2,$D9,$C1,$C4,$D2,$A0,$8D ; $174A  " BPL TRYADR "
-        DEFB    $C7,$CF,$C3,$C1,$CC,$A0,$CC,$C4,$C1,$A0,$C3,$D5,$D2,$D4,$D2,$CB ; $1757  "GOCAL LDA CURTRK"
-        DEFB    $8D                                              ; $1767
-        DEFB    $A0,$D0,$C8,$C1,$A0,$8D                          ; $1768  " PHA "
-        DEFB    $A0,$CC,$C4,$C1,$A0,$A3,$A4,$B6,$B0,$8D          ; $176E  " LDA #$60"
-        DEFB    $A0,$CA,$D3,$D2,$A0,$D3,$C5,$D4,$D4,$D2,$CB,$8D  ; $1778  " JSR SETTRK"
-        DEFB    $A0,$C4,$C5,$C3,$A0,$D2,$C5,$C3,$C1,$CC,$C3,$CE,$D4,$8D ; $1784  " DEC RECALCNT"
-        DEFB    $A0,$C2,$C5,$D1,$A0,$C4,$D2,$D6,$C5,$D2,$D2,$8D  ; $1792  " BEQ DRVERR"
-        DEFB    $A0,$CC,$C4,$C1,$A0,$A3,$B4,$8D                  ; $179E  " LDA #4"
-        DEFB    $A0,$D3,$D4,$C1,$A0,$C4,$D2,$D6,$B1,$D4,$D2,$CB,$8D ; $17A6  " STA DRV1TRK"
-        DEFB    $A0,$CC,$C4,$C1,$A0,$A3,$B0,$8D                  ; $17B3  " LDA #0"
-        DEFB    $A0,$CA,$D3,$D2,$A0,$CD,$D9,$D3,$C5,$C5,$CB,$8D  ; $17BB  " JSR MYSEEK"
-        DEFB    $A0,$D0,$CC,$C1,$A0,$8D                          ; $17C7  " PLA "
-        DEFB    $D4,$D2,$D9,$C1,$C4,$D2,$B3,$A0,$CA,$D3,$D2,$A0,$CD,$D9,$D3,$C5 ; $17CD  "TRYADR3 JSR MYSEEK"
-        DEFB    $C5,$CB,$8D                                      ; $17DD
-        DEFB    $A0,$CA,$CD,$D0,$A0,$D4,$D2,$D9,$D4,$D2,$CB,$B2,$8D ; $17E0  " JMP TRYTRK2"
-        DEFB    $D2,$C4,$D2,$C9,$C7,$C8,$D4,$A0,$CC,$C4,$D9,$A0,$D4,$D2,$C1,$C3 ; $17ED  "RDRIGHT LDY TRACK"
-        DEFB    $CB,$8D                                          ; $17FD
-        DEFB    $A0,$C3,$D0,$D9,$A0,$C3,$D5,$D2,$D4,$D2,$CB,$8D  ; $17FF  " CPY CURTRK"
-        DEFB    $A0,$C2,$C5,$D1,$A0,$D2,$D4,$D4,$D2,$CB,$A0,$8D  ; $180B  " BEQ RTTRK "
-        DEFB    $A0,$CC,$C4,$C1,$A0,$C3,$D5,$D2,$D4,$D2,$CB,$8D  ; $1817  " LDA CURTRK"
-        DEFB    $A0,$D0,$C8,$C1,$A0,$8D                          ; $1823  " PHA "
-        DEFB    $A0,$D4,$D9,$C1,$A0,$8D                          ; $1829  " TYA "
-        DEFB    $A0,$CA,$D3,$D2,$A0,$D3,$C5,$D4,$D4,$D2,$CB,$8D  ; $182F  " JSR SETTRK"
-        DEFB    $A0,$D0,$CC,$C1,$A0,$8D                          ; $183B  " PLA "
-        DEFB    $A0,$C4,$C5,$C3,$A0,$D3,$C5,$C5,$CB,$C3,$CE,$D4,$8D ; $1841  " DEC SEEKCNT"
-        DEFB    $A0,$C2,$CE,$C5,$A0,$D4,$D2,$D9,$C1,$C4,$D2,$B3,$8D ; $184E  " BNE TRYADR3"
-        DEFB    $A0,$C2,$C5,$D1,$A0,$C7,$CF,$C3,$C1,$CC,$8D      ; $185B  " BEQ GOCAL"
-        DEFB    $C4,$D2,$D6,$C5,$D2,$D2,$A0,$D0,$CC,$C1,$A0,$8D  ; $1866  "DRVERR PLA "
-        DEFB    $A0,$CC,$C4,$C1,$A0,$A3,$A4,$B4,$B0,$8D          ; $1872  " LDA #$40"
-        DEFB    $CA,$CD,$D0,$D4,$CF,$B1,$A0,$D0,$CC,$D0,$A0,$8D  ; $187C  "JMPTO1 PLP "
-        DEFB    $A0,$CA,$CD,$D0,$A0,$C8,$CE,$C4,$CC,$C5,$D2,$D2,$8D ; $1888  " JMP HNDLERR"
-        DEFB    $C7,$C1,$CC,$CC,$C4,$CF,$CE,$C5,$A0,$C2,$C5,$D1,$A0,$C1,$CC,$CC ; $1895  "GALLDONE BEQ ALLDONE"
-        DEFB    $C4,$CF,$CE,$C5,$8D                              ; $18A5
-        DEFB    $D2,$D4,$D4,$D2,$CB,$A0,$CC,$C4,$C1,$A0,$C1,$AE,$D6,$CF,$CC,$8D ; $18AA  "RTTRK LDA A.VOL"
-        DEFB    $A0,$D0,$C8,$C1,$A0,$8D                          ; $18BA  " PHA "
-        DEFB    $A0,$CC,$C4,$C1,$A0,$D6,$CF,$CC,$D5,$CD,$C5,$8D  ; $18C0  " LDA VOLUME"
-        DEFB    $A0,$D3,$D4,$C1,$A0,$C1,$AE,$CF,$D6,$CF,$CC,$8D  ; $18CC  " STA A.OVOL"
-        DEFB    $A0,$D0,$CC,$C1,$A0,$8D                          ; $18D8  " PLA "
-        DEFB    $A0,$C2,$C5,$D1,$A0,$C3,$D2,$C5,$C3,$D4,$D6,$CF,$CC,$8D ; $18DE  " BEQ CRECTVOL"
-        DEFB    $A0,$C3,$CD,$D0,$A0,$D6,$CF,$CC,$D5,$CD,$C5,$8D  ; $18EC  " CMP VOLUME"
-        DEFB    $A0,$C2,$C5,$D1,$A0,$C3,$D2,$C5                  ; $18F8
+        DEFB    $95                                              ; $15BC  (low byte; word array filled at runtime by the file-sort)
+; -- $15BD-$18FF: stale 6502 work-buffer tail (the uninitialised top of STAT's
+;    BSS, captured into the .COM image). NOT Z-80 code or data -- nothing above
+;    references it. Its bytes are a fragment of assembled 6502 OBJECT CODE
+;    ($15BD-$15FF) followed by the 6502 ASSEMBLY-SOURCE LISTING of a Disk II
+;    seek/read driver as high-bit Apple text ($1600-$18FF). Extracted to the
+;    sibling ca65 source STAT_6502.s (disassembled as real 6502 + the listing as
+;    .charmap strings) and INCBIN'd here so each is legible yet byte-identical --
+;    the same cross-CPU pattern as CPM56_6502.s / COPY_6502.s. (Provides the bytes
+;    $15BD-$18FF.) See STAT_6502.s for the full annotation.
+        INCBIN  "STAT_6502.bin"                                  ; $15BD-$18FF  (835 bytes)
 
     SAVEBIN "STAT.bin", $0100, $1800

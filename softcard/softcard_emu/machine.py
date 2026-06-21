@@ -66,9 +66,10 @@ class SoftCardMachine:
     ``Keyboard``, and the ``SoftCardSwitch`` -- and drives them with a
     cooperative scheduler (see ``run``): one CPU executes until it touches
     the SoftCard's slot page, which raises ``Yield`` and hands control to
-    the other. Firmware the emulator does not load as ROM (the Apple
-    monitor, the Disk II PROM, the BIOS sector primitive) is serviced by
-    PC breakpoints installed at boot; see the ``_install_*`` methods.
+    the other. The Apple monitor is the real $D000-$FFFF ROM, executed in
+    place (no stand-in hooks); the two firmware pieces the emulator still
+    services with PC breakpoints are the Disk II P6 PROM's sector read and
+    the BIOS sector primitive (see the ``_install_*`` methods).
 
     Args:
         dsk_path: .dsk (DOS 3.3 order) or .po (ProDOS order) image.
@@ -265,20 +266,14 @@ class SoftCardMachine:
             return False
         c.add_breakpoint(0xC000 | (self.slot << 8) | 0x5C, p6_hook)
 
-        # The boot's slot scanner walks $3E as a loop counter; on real
-        # hardware its first iteration starts from an indeterminate value
-        # that the PROM left set. Force $3E=0 on the first pass through the
-        # scanner so the count is deterministic (derivation in
-        # cpm-investigation/emu_softcard.py). 2.20 and 2.23 put the scanner
-        # at slightly different addresses, so patch both.
-        fired = [False]
-        def patch_3e(cpu):
-            if not fired[0]:
-                cpu.mem[0x3E] = 0
-                fired[0] = True
-            return False
-        c.add_breakpoint(0x106A, patch_3e)
-        c.add_breakpoint(0x1063, patch_3e)
+        # NB: the disk's boot-time slot scanner needs no help. It probes each
+        # slot with a STA $Cn00; on the SoftCard's slot ($C700) that write
+        # toggles the CPU (SoftCardSwitch.trigger_6502_write -- a true per-write
+        # toggle, not gated to the warm loop), the Z-80 runs the boot's planted
+        # handshake (SOFTCARD_PROBE_OVL at $1000: clears the $3E "found" flag and
+        # bounces back via $En00), and the scanner reads $3E=0 -> SoftCard found.
+        # A former patch_3e hook forced $3E=0 here to fake that detection back
+        # when the switch was warm-loop-only; the faithful toggle retired it.
 
     # ------------------------------------------------------------------
     # instruction-fetch coverage for $C100-$CFFF (fetches bypass read())
@@ -350,7 +345,7 @@ class SoftCardMachine:
         2.20's RWTS lives at different addresses and never reaches $BE11, so
         on a 2.20 disk this hook simply never fires.
         """
-        # Live RWTS state block (contract from docs/CPM223_RWTS.asm):
+        # Live RWTS state block (contract from the RWTS in CPMV223-44K/os/CPM_BootLoader.s, $0A00-$0FFF):
         #   $03E0       track
         #   $03E1       sector, CP/M-logical (physical via skew table $BF9E)
         #   $03E4       drive select (bit 0 = drive 1 present)

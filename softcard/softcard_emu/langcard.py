@@ -30,12 +30,13 @@ LC-detection probes to see honest ROM-vs-RAM semantics.
 
 6502 *instruction fetches* honor banking too: the CPU core fetches
 opcodes and pc-relative operand bytes through ``CPU6502.fetch_hook``,
-which the machine routes to ``LanguageCard.read`` for $D000-$FFFF (see
-machine._install_6502_hooks). This matters for the 60K system: its
-loader copies the relocated OS into LC RAM (bank 1 of $D000-$DFFF) and
-JSRs into it, so without banked fetches the CPU would read the flat
-plane (zeros) and execute BRKs. Monitor-ROM entry points are still
-serviced by PC hooks rather than executed from the ROM plane. Z-80
+which ``Bus.fetch6502`` routes to ``LanguageCard.read`` for $D000-$FFFF.
+This is how the 6502 executes the real monitor in place: in ROM-read
+mode (the power-on default) fetches of $D000-$FFFF return the ROM, so
+the SoftCard's console routines run the genuine COUT1/HOME/SAVE/RESTORE.
+It also matters for the 60K system: its loader copies the relocated OS
+into LC RAM (bank 1 of $D000-$DFFF) and JSRs into it, so without banked
+fetches the CPU would read the flat plane (zeros) and execute BRKs. Z-80
 accesses (data and fetch) all route through the read/write hooks and
 are likewise fully banked.
 """

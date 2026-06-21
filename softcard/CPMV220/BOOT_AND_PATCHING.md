@@ -14,9 +14,9 @@ filesystem (the 11 `.COM` + data files in `utilities/`).
 ## 1. Boot, in three stages
 
 1. **Disk II P6 boot ROM** reads track 0 sector 0 to `$0800` and jumps in.
-2. **6502 boot loader** (`os/CPM_BootLoader.s`, runs `$0800`) pulls in the
-   **RWTS** (`os/CPM_RWTS.s`) and **install fragments**
-   (`os/CPM_InstallFragments.s`), then runs `LOAD_CPM`, the staged-system read off
+2. **6502 boot loader** (`os/CPM_BootLoader.s`, runs `$0800`) contains the
+   **RWTS** (`$0A00-$0FFF`) and the **install image** (`$1200-$13FF`, run at
+   `$0200-$03FF`) inline, then runs `LOAD_CPM`, the staged-system read off
    tracks 0-2 that lands the Z-80 system into low memory:
 
    | staging offset | bytes | source (`os/`) | what it is |

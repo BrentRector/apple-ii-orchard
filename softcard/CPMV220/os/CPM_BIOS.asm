@@ -13,6 +13,7 @@
 ; that boot-time setup is documented in ../BOOT_AND_PATCHING.md, not baked in.
 
     DEVICE NOSLOT64K
+    INCLUDE "apple_softcard.inc"   ; Apple/SoftCard external names (single source of truth)
 
 ; -- External symbols --
 WBOOT_VEC            EQU $0000               ; Warm-boot vector â JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
@@ -74,21 +75,21 @@ SECTRAN:
         DEFB    $BA,$DE,$93,$DA,$CA,$DF,$7A,$DF,$00,$00,$00,$00,$00,$00,$00,$00 ; $DA7B
         DEFB    $BA,$DE,$93,$DA,$D6,$DF,$8A,$DF,$20,$00,$03,$07,$00,$7F,$00,$2F ; $DA8B
         DEFB    $00,$C0,$00,$0C,$00,$03,$00                      ; $DA9B
-; [DOC S&HD 2-26/2-27] Cold-boot per-device init loop over the Card Type Table. NOTE: $F3B8 is
+; [DOC S&HD 2-26/2-27] Cold-boot per-device init loop over the Card Type Table. NOTE: DSKCNT is
 ;       the Disk Count Byte (number of disk controllers x2); the Card Type Table (SLTTYP in the
-;       manual) starts at $F3B9, entry = $F3B8+S for slot S. The loop walks $F3B8+DE (DE=7..1 ->
-;       $F3BF..$F3B9), reading each slot's detected card type and dispatching on it, re-claiming the
+;       manual) starts at SLTTYP, entry = DSKCNT+S for slot S. The loop walks DSKCNT+DE (DE=7..1 ->
+;       $F3BF..SLTTYP), reading each slot's detected card type and dispatching on it, re-claiming the
 ;       shared $C800 expansion-ROM window for card classes that need their firmware. (This is NOT
 ;       the IOBYTE table -- IOBYTE is a single byte at $0003.)
 SUB_DAA2:
         LD DE,$0007                      ; $DAA2  11 07 00
-; [DOC S&HD 2-26] Loop body: reads the slot's Card Type Table value at $F3B8+DE. Card type 3
+; [DOC S&HD 2-26] Loop body: reads the slot's Card Type Table value at DSKCNT+DE. Card type 3
 ;       (Apple Communications / CCS 7710A serial) runs its init (SUB_DD60) and stamps the entry;
 ;       card type 4 (Apple High-Speed Serial / Videx Videoterm / M&R Sup-R-Term) takes the
 ;       decremented branch below that reclaims the $C800
 ;       firmware window.
 SUB_DAA2_1:
-        LD HL,$F3B8                      ; $DAA5  21 B8 F3
+        LD HL,DSKCNT                      ; $DAA5  21 B8 F3
         ADD HL,DE                        ; $DAA8  19
         LD A,(HL)                        ; $DAA9  7E
         SUB $03                          ; $DAAA  D6 03
@@ -116,7 +117,7 @@ SUB_DAA2_3:
 ;       rebuilds the page-zero vectors before returning to the command processor.
 SUB_DAA2_4:
         LD SP,DEFAULT_DMA                ; $DACC  31 80 00
-        LD A,($E051)                     ; $DACF  3A 51 E0
+        LD A,(TXTSET)                     ; $DACF  3A 51 E0
         LD HL,$0E00                      ; $DAD2  21 00 0E
         CALL $DFE8                       ; $DAD5  CD E8 DF
         CALL SUB_DAA2                    ; $DAD8  CD A2 DA
@@ -802,7 +803,7 @@ SUB_DD8E_5:
         AND $7F                          ; $DE16  E6 7F
         LD C,A                           ; $DE18  4F
         PUSH BC                          ; $DE19  C5
-        LD A,($F3A2)                     ; $DE1A  3A A2 F3
+        LD A,(HFLDIN)                     ; $DE1A  3A A2 F3
         LD B,$07                         ; $DE1D  06 07
         CALL SUB_DBDD                    ; $DE1F  CD DD DB
         POP BC                           ; $DE22  C1
@@ -812,18 +813,18 @@ SUB_DD8E_5:
         LD A,$02                         ; $DE28  3E 02
         LD (L_DEA3),A                    ; $DE2A  32 A3 DE
 ; [DOC S&HD 2-18] Console-output dispatch tail: clears a status byte, then loads HL from one of the
-;       two I/O Vector Table Console Output cells -- $F388 (Console Output vector #2) if the mode
-;       flag at L_DEA2 is 0, else $F386 (Console Output vector #1) -- and falls into the JP (HL).
+;       two I/O Vector Table Console Output cells -- CONOUT2_VEC (Console Output vector #2) if the mode
+;       flag at L_DEA2 is 0, else CONOUT1_VEC (Console Output vector #1) -- and falls into the JP (HL).
 ;       Vector #1 serves TTY:/CRT:; vector #2 serves UC1:, selected per the IOBYTE CONSOLE field.
 SUB_DD8E_6:
         XOR A                            ; $DE2D  AF
         LD (L_DEA4),A                    ; $DE2E  32 A4 DE
         LD A,(L_DEA2)                    ; $DE31  3A A2 DE
         OR A                             ; $DE34  B7
-        LD HL,($F388)                    ; $DE35  2A 88 F3
+        LD HL,(CONOUT2_VEC)                    ; $DE35  2A 88 F3
         JR Z,SUB_DD8E_7                  ; $DE38  28 03
-        LD HL,($F386)                    ; $DE3A  2A 86 F3
-; [DOC S&HD 2-18] JP (HL) into the selected Console Output vector ($F386 #1 or $F388 #2) resolved
+        LD HL,(CONOUT1_VEC)                    ; $DE3A  2A 86 F3
+; [DOC S&HD 2-18] JP (HL) into the selected Console Output vector (CONOUT1_VEC #1 or CONOUT2_VEC #2) resolved
 ;       above -- the user-patchable I/O Vector Table cell that carries console output to the device.
 SUB_DD8E_7:
         JP (HL)                          ; $DE3D  E9
@@ -845,14 +846,14 @@ L_DEA4:
         DEFB    $AF,$6F,$67,$22                                  ; $DEA4
 ; [AI] BOOT BIOS entry (cold start), reached via the jump-table JP at $DA00. NOTE: the live cold-boot
 ;       body is built in RAM at boot (see ../BOOT_AND_PATCHING.md), so the on-disk bytes here may be
-;       generator padding rather than the running routine. [DOC S&HD 2-24/2-25] $F045 is not a generic
+;       generator padding rather than the running routine. [DOC S&HD 2-24/2-25] RPC_ACC is not a generic
 ;       "hardware pointer": it is the 6502 A-register pass cell ($45) of the Z-80->6502 RPC mechanism
 ;       (cells $45=A, $46=Y, $47=X, $48=P, $49=6502 SP-on-exit).
 SUB_DD8E_8:
         INC H                            ; $DEA8  24
         RET P                            ; $DEA9  F0
 SUB_DD8E_9:
-        LD ($F045),A                     ; $DEAA  32 45 F0
+        LD (RPC_ACC),A                     ; $DEAA  32 45 F0
 SUB_DD8E_10:
         LD HL,$FBC1                      ; $DEAD  21 C1 FB
         RET                              ; $DEB0  C9

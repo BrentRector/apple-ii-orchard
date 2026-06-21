@@ -6,6 +6,7 @@
 ; Range:  $0100-$0EFF  (3584 bytes)
 
     DEVICE NOSLOT64K
+    INCLUDE "apple_softcard.inc"   ; Apple/SoftCard external names (single source of truth)
 
 ; -- External symbols --
 WBOOT_VEC            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
@@ -107,7 +108,7 @@ TPA_START_27:
 TPA_START_28:
         CALL NEXT_TAIL_CHAR              ; $017E  CD 4C 04
         OR A                             ; $0181  B7
-        JR Z,TPA_START_33                ; $0182  28 2D
+        JR Z,BEGIN_COPY_PASS                ; $0182  28 2D
         CP $2F                           ; $0184  FE 2F
         JP NZ,ERR_COMMAND                ; $0186  C2 71 04
 ; [AI] Decodes one option switch after a '/': 'S'=system-copy, 'D'=double-side/extra, 'F'=format,
@@ -139,7 +140,7 @@ TPA_START_32:
         JR TPA_START_28                  ; $01AF  18 CD
 ; [AI] Begin a copy pass: clears the run-state flag, computes the number of tracks/buffers to copy
 ;       from the TPA size at $0007, and adjusts it down when verify mode needs a compare buffer.
-TPA_START_33:
+BEGIN_COPY_PASS:
         XOR A                            ; $01B1  AF
         LD (CHECK_SOURCE_SYSTEM_12),A    ; $01B2  32 26 05
         LD A,($0007)                     ; $01B5  3A 07 00
@@ -225,7 +226,7 @@ TPA_START_42:
         LD L,B                           ; $0246  68
         LD H,C                           ; $0247  61
         PUSH DE                          ; $0248  D5
-        LD ($F3E0),HL                    ; $0249  22 E0 F3
+        LD (DSK_TRACK),HL                    ; $0249  22 E0 F3
         LD HL,(CHECK_SOURCE_SYSTEM_2)    ; $024C  2A 1C 05
         LD A,L                           ; $024F  7D
         CP H                             ; $0250  BC
@@ -266,7 +267,7 @@ TPA_START_47:
         LD DE,CHECK_SOURCE_SYSTEM_25     ; $0283  11 62 06
         CALL PRINT_CRLF_STRING           ; $0286  CD 34 04
         LD HL,CHECK_SOURCE_SYSTEM_43     ; $0289  21 00 08
-        LD ($F3E8),HL                    ; $028C  22 E8 F3
+        LD (DSK_BUFFER),HL                    ; $028C  22 E8 F3
 ; [AI] Reads a Y/N answer to the repeat prompt, looping until the user presses 'N' (exit) or 'Y'
 ;       (restart).
 TPA_START_48:
@@ -288,21 +289,21 @@ TPA_START_49:
         CALL PRINT_WAIT_RETURN           ; $02A9  CD DC 04
 TPA_START_50:
         JP WBOOT_VEC                     ; $02AC  C3 00 00
-; [AI] User answered Yes: re-arm the system flag and jump back to L_01B1 to run another copy pass.
+; [AI] User answered Yes: re-arm the system flag and jump back to BEGIN_COPY_PASS to run another copy pass.
 TPA_START_51:
         CALL PRINT_CHAR                  ; $02AF  CD 46 04
         CALL PRINT_CRLF                  ; $02B2  CD 3F 04
         CALL PRINT_CRLF                  ; $02B5  CD 3F 04
         LD A,(CHECK_SOURCE_SYSTEM_8)     ; $02B8  3A 22 05
         LD (CHECK_SOURCE_SYSTEM_7),A     ; $02BB  32 21 05
-        JP TPA_START_33                  ; $02BE  C3 B1 01
+        JP BEGIN_COPY_PASS                  ; $02BE  C3 B1 01
 ; [AI] Copies one batch of B tracks: optionally opens/creates the destination CPM.SYS file (system
 ;       mode), reads the source tracks into TPA RAM via the 6502, writes them out, and verifies on
 ;       /V.
 COPY_TRACK_BATCH:
         LD A,B                           ; $02C1  78
         LD (CHECK_SOURCE_SYSTEM_5),A     ; $02C2  32 1F 05
-        LD HL,($F3E0)                    ; $02C5  2A E0 F3
+        LD HL,(DSK_TRACK)                    ; $02C5  2A E0 F3
         LD (CHECK_SOURCE_SYSTEM_14),HL   ; $02C8  22 2A 05
         LD A,(CHECK_SOURCE_SYSTEM_7)     ; $02CB  3A 21 05
         OR A                             ; $02CE  B7
@@ -322,7 +323,7 @@ COPY_TRACK_BATCH:
         INC A                            ; $02EE  3C
         JP Z,ERR_SYSTEM_NOT_FOUND        ; $02EF  CA C3 03
         LD HL,(CHECK_SOURCE_SYSTEM_14)   ; $02F2  2A 2A 05
-        LD ($F3E0),HL                    ; $02F5  22 E0 F3
+        LD (DSK_TRACK),HL                    ; $02F5  22 E0 F3
 COPY_TRACK_BATCH_1:
         LD A,(CHECK_SOURCE_SYSTEM_2)     ; $02F8  3A 1C 05
         LD C,$01                         ; $02FB  0E 01
@@ -337,7 +338,7 @@ BATCH_READ_WRITE:
         CALL Z,INIT_FORMAT_DEST          ; $030A  CC 53 03
         LD HL,(CHECK_SOURCE_SYSTEM_14)   ; $030D  2A 2A 05
 COPY_TRACK_BATCH_3:
-        LD ($F3E0),HL                    ; $0310  22 E0 F3
+        LD (DSK_TRACK),HL                    ; $0310  22 E0 F3
         LD A,(CHECK_SOURCE_SYSTEM_3)     ; $0313  3A 1D 05
         LD C,$02                         ; $0316  0E 02
         CALL RW_DISK_SIDE                ; $0318  CD A2 04
@@ -346,7 +347,7 @@ COPY_TRACK_BATCH_3:
         RET Z                            ; $031F  C8
 COPY_TRACK_BATCH_4:
         LD HL,(CHECK_SOURCE_SYSTEM_14)   ; $0320  2A 2A 05
-        LD ($F3E0),HL                    ; $0323  22 E0 F3
+        LD (DSK_TRACK),HL                    ; $0323  22 E0 F3
         LD HL,(CHECK_SOURCE_SYSTEM_13)   ; $0326  2A 28 05
 COPY_TRACK_BATCH_5:
         PUSH HL                          ; $0329  E5
@@ -492,11 +493,11 @@ SET_SYSTEM_FILENAME:
         LDIR                             ; $0414  ED B0
         RET                              ; $0416  C9
 ; [AI] Invokes the relocated 6502 disk routine via the SoftCard handoff (SOFTCARD_HANDOFF) and
-;       inspects its returned status byte at $F3EA, branching to a Disk-I/O or write-protect error
+;       inspects its returned status byte at DSK_STATUS, branching to a Disk-I/O or write-protect error
 ;       if nonzero.
 CALL_6502_DISK:
         CALL SOFTCARD_HANDOFF            ; $0417  CD 2C 04
-        LD A,($F3EA)                     ; $041A  3A EA F3
+        LD A,(DSK_STATUS)                     ; $041A  3A EA F3
         OR A                             ; $041D  B7
         RET Z                            ; $041E  C8
         LD DE,CHECK_SOURCE_SYSTEM_27     ; $041F  11 C6 06
@@ -508,8 +509,8 @@ CALL_6502_DISK_1:
 ; [AI] Performs the actual Z-80-to-6502 control transfer: stores the 6502 entry address and the
 ;       command byte into the SoftCard handoff block so the 6502 side executes the disk operation.
 SOFTCARD_HANDOFF:
-        LD ($F3D0),HL                    ; $042C  22 D0 F3
-        LD HL,($F3DE)                    ; $042F  2A DE F3
+        LD (A_VEC),HL                    ; $042C  22 D0 F3
+        LD HL,(Z_CPU)                    ; $042F  2A DE F3
         LD (HL),A                        ; $0432  77
         RET                              ; $0433  C9
 ; [AI] Emits a CR/LF then prints the $-terminated string at DE via BDOS function 9.
@@ -581,7 +582,7 @@ PARSE_DRIVE_SPEC_2:
         CALL NEXT_TAIL_CHAR              ; $0477  CD 4C 04
         CP $3A                           ; $047A  FE 3A
         JR NZ,ERR_COMMAND                ; $047C  20 F3
-        LD A,($F3B8)                     ; $047E  3A B8 F3
+        LD A,(DSKCNT)                     ; $047E  3A B8 F3
         DEC A                            ; $0481  3D
         CP C                             ; $0482  B9
         LD A,C                           ; $0483  79
@@ -592,12 +593,12 @@ PRINT_ERR_RESTART:
         CALL PRINT_CRLF_STRING           ; $0488  CD 34 04
         JP TPA_START_8                   ; $048B  C3 14 01
 ; [AI] Translates a logical drive number into the 6502 disk parameters (slot/drive select and head-
-;       stepping value) stored in the SoftCard handoff block at $F3E4/$F3E6.
+;       stepping value) stored in the SoftCard handoff block at DSK_DRIVE/DSK_SLOT.
 DRIVE_TO_6502_PARAMS:
         LD E,A                           ; $048E  5F
         INC A                            ; $048F  3C
         AND $01                          ; $0490  E6 01
-        LD ($F3E4),A                     ; $0492  32 E4 F3
+        LD (DSK_DRIVE),A                     ; $0492  32 E4 F3
         LD A,E                           ; $0495  7B
         AND $0E                          ; $0496  E6 0E
         ADD A,A                          ; $0498  87
@@ -605,7 +606,7 @@ DRIVE_TO_6502_PARAMS:
         ADD A,A                          ; $049A  87
         SUB $61                          ; $049B  D6 61
         CPL                              ; $049D  2F
-        LD ($F3E6),A                     ; $049E  32 E6 F3
+        LD (DSK_SLOT),A                     ; $049E  32 E6 F3
         RET                              ; $04A1  C9
 ; [AI] Reads or writes a whole disk side starting at TPA buffer $2400: sets the operation code in C
 ;       and falls into the per-track transfer loop.
@@ -617,7 +618,7 @@ RW_DISK_SIDE:
 TRACK_TRANSFER_LOOP:
         CALL DRIVE_TO_6502_PARAMS        ; $04A5  CD 8E 04
         LD A,C                           ; $04A8  79
-        LD ($F3EB),A                     ; $04A9  32 EB F3
+        LD (DSK_COMMAND),A                     ; $04A9  32 EB F3
         LD A,(CHECK_SOURCE_SYSTEM_5)     ; $04AC  3A 1F 05
         LD B,A                           ; $04AF  47
 ; [AI] Body of the track-transfer loop: hands one track's parameters to the 6502 routine, then
@@ -626,10 +627,10 @@ TRACK_TRANSFER_LOOP:
 TRACK_XFER_BODY:
         PUSH BC                          ; $04B0  C5
         PUSH HL                          ; $04B1  E5
-        LD ($F3E8),HL                    ; $04B2  22 E8 F3
+        LD (DSK_BUFFER),HL                    ; $04B2  22 E8 F3
         LD HL,CHECK_SOURCE_SYSTEM_44     ; $04B5  21 03 0E
         CALL CALL_6502_DISK              ; $04B8  CD 17 04
-        LD HL,($F3E0)                    ; $04BB  2A E0 F3
+        LD HL,(DSK_TRACK)                    ; $04BB  2A E0 F3
         INC H                            ; $04BE  24
         LD A,H                           ; $04BF  7C
         SUB $10                          ; $04C0  D6 10
@@ -637,7 +638,7 @@ TRACK_XFER_BODY:
         LD H,A                           ; $04C4  67
         INC L                            ; $04C5  2C
 TRACK_TRANSFER_LOOP_2:
-        LD ($F3E0),HL                    ; $04C6  22 E0 F3
+        LD (DSK_TRACK),HL                    ; $04C6  22 E0 F3
         POP HL                           ; $04C9  E1
         INC H                            ; $04CA  24
         LD A,H                           ; $04CB  7C
@@ -689,12 +690,12 @@ CHECK_SOURCE_SYSTEM:
 CHECK_SOURCE_SYSTEM_1:
         CALL DRIVE_TO_6502_PARAMS        ; $0504  CD 8E 04
         LD HL,$2300                      ; $0507  21 00 23
-        LD ($F3E8),HL                    ; $050A  22 E8 F3
+        LD (DSK_BUFFER),HL                    ; $050A  22 E8 F3
         LD A,$01                         ; $050D  3E 01
-        LD ($F3EB),A                     ; $050F  32 EB F3
+        LD (DSK_COMMAND),A                     ; $050F  32 EB F3
         LD HL,CHECK_SOURCE_SYSTEM_44     ; $0512  21 03 0E
         CALL SOFTCARD_HANDOFF            ; $0515  CD 2C 04
-        LD A,($F3EA)                     ; $0518  3A EA F3
+        LD A,(DSK_STATUS)                     ; $0518  3A EA F3
         RET                              ; $051B  C9
 CHECK_SOURCE_SYSTEM_2:
         DEFB    $00                                              ; $051C
@@ -723,224 +724,102 @@ CHECK_SOURCE_SYSTEM_13:
 CHECK_SOURCE_SYSTEM_14:
         DEFS    34, $00    ; $052A  fill
 CHECK_SOURCE_SYSTEM_15:
-        DEFB    $0A,$0D,$0A,$20,$20,$20,$20,$20,$20,$20,$53,$6F,$66,$74,$63,$61 ; $054C
-        DEFB    "rd CP/M"    ; $055C  string
+        DEFB    $0A,$0D,$0A,"       Softcard CP/M"    ; $054C  LF/CR/LF + banner line 1
         DEFB    $0D    ; $0563  terminator
-        DEFB    $0A,$31,$36,$20,$53,$65,$63,$74,$6F,$72,$20,$44,$69,$73,$6B,$20 ; $0564
-        DEFB    "Copy Program"    ; $0574  string
+        DEFB    $0A,"16 Sector Disk Copy Program"    ; $0564  LF + banner line 2
         DEFB    $0D    ; $0580  terminator
-        DEFB    $0A,$20,$20,$20,$20,$28,$43,$29,$20,$31,$39,$38,$32,$20,$4D,$69 ; $0581
-        DEFB    "crosoft"    ; $0591  string
+        DEFB    $0A,"    (C) 1982 Microsoft"    ; $0581  LF + banner line 3
         DEFB    $0D    ; $0598  terminator
         DEFB    $0A,$0D,$0A,$24                                  ; $0599
 CHECK_SOURCE_SYSTEM_16:
-        DEFB    $43,$6F,$6D,$6D,$61,$6E,$64,$20,$65,$72,$72,$6F,$72,$24 ; $059D
+        DEFB    "Command error",$24                              ; $059D  string
 CHECK_SOURCE_SYSTEM_17:
         DEFB    $0A,$0D,$0A                                      ; $05AB
 CHECK_SOURCE_SYSTEM_18:
-        DEFB    $43,$6F,$70,$79,$69,$6E,$67,$2E,$2E,$2E,$20,$20,$20,$08,$08,$08 ; $05AE
-        DEFB    $24                                              ; $05BE
+        DEFB    "Copying...   ",$08,$08,$08                      ; $05AE  string + 3 backspaces
+        DEFB    $24                                              ; $05BE  terminator
 CHECK_SOURCE_SYSTEM_19:
-        DEFB    $0A,$0D,$0A,$44,$69,$73,$6B,$20,$73,$70,$61,$63,$65,$20,$61,$6C ; $05BF
-        DEFB    $72,$65,$61,$64,$79,$20,$69,$6E,$20,$75,$73,$65,$24 ; $05CF
+        DEFB    $0A,$0D,$0A,"Disk space already in use",$24      ; $05BF  string
 CHECK_SOURCE_SYSTEM_20:
-        DEFB    $0A,$0D,$0A,$4E,$6F,$74,$20,$65,$6E,$6F,$75,$67,$68,$20,$64,$69 ; $05DC
-        DEFB    $72,$65,$63,$74,$6F,$72,$79,$20,$73,$70,$61,$63,$65,$24 ; $05EC
+        DEFB    $0A,$0D,$0A,"Not enough directory space",$24     ; $05DC  string
 CHECK_SOURCE_SYSTEM_21:
-        DEFB    $0A,$0D,$0A,$53,$79,$73,$74,$65,$6D,$20,$6E,$6F,$74,$20,$66,$6F ; $05FA
-        DEFB    $75,$6E,$64,$20,$6F,$6E,$20,$73,$6F,$75,$72,$63,$65,$20,$64,$69 ; $060A
-        DEFB    $73,$6B,$24                                      ; $061A
+        DEFB    $0A,$0D,$0A,"System not found on source disk",$24 ; $05FA  string
 CHECK_SOURCE_SYSTEM_22:
-        DEFB    $0A,$0D,$0A,$44,$69,$73,$6B,$20,$57,$72,$69,$74,$65,$20,$50,$72 ; $061D
-        DEFB    $6F,$74,$65,$63,$74,$65,$64,$24                  ; $062D
+        DEFB    $0A,$0D,$0A,"Disk Write Protected",$24           ; $061D  string
 CHECK_SOURCE_SYSTEM_23:
-        DEFB    $0A,$0D,$0A,$44,$69,$73,$6B,$20,$56,$65,$72,$69,$66,$79,$20,$65 ; $0635
-        DEFB    $72,$72,$6F,$72,$24                              ; $0645
+        DEFB    $0A,$0D,$0A,"Disk Verify error",$24              ; $0635  string
 CHECK_SOURCE_SYSTEM_24:
-        DEFB    $0A,$0D,$0A,$4F,$70,$65,$72,$61,$74,$69,$6F,$6E,$20,$63,$6F,$6D ; $064A
-        DEFB    $70,$6C,$65,$74,$65,$64,$2E,$24                  ; $065A
+        DEFB    $0A,$0D,$0A,"Operation completed.",$24           ; $064A  string
 CHECK_SOURCE_SYSTEM_25:
-        DEFB    $0A,$0D,$0A,$44,$6F,$20,$79,$6F,$75,$20,$77,$69,$73,$68,$20,$74 ; $0662
-        DEFB    "o repeat this operation? "    ; $0672  string
-        DEFB    $00    ; $068B  terminator
+        DEFB    $0A,$0D,$0A,"Do you wish to repeat this operation? " ; $0662  string
+        DEFB    $00                                              ; $068B  terminator
         DEFB    $24                                              ; $068C
 CHECK_SOURCE_SYSTEM_26:
-        DEFB    $0A,$0D,$0A,$49,$6E,$73,$65,$72,$74,$20,$43,$50,$2F,$4D,$20,$53 ; $068D
-        DEFB    "ystem disk into drive A:"    ; $069D  string
-        DEFB    $0D    ; $06B5  terminator
-        DEFB    $0A,$50,$72,$65,$73,$73,$20,$52,$45,$54,$55,$52,$4E,$20,$00,$24 ; $06B6
+        DEFB    $0A,$0D,$0A,"Insert CP/M System disk into drive A:" ; $068D  string
+        DEFB    $0D                                              ; $06B5  CR
+        DEFB    $0A,"Press RETURN ",$00,$24                      ; $06B6  string
 CHECK_SOURCE_SYSTEM_27:
-        DEFB    $0A,$0D,$0A,$44,$69,$73,$6B,$20,$49,$2F,$4F,$20,$65,$72,$72,$6F ; $06C6
-        DEFB    $72,$24                                          ; $06D6
+        DEFB    $0A,$0D,$0A,"Disk I/O error",$24                 ; $06C6  string
 CHECK_SOURCE_SYSTEM_28:
-        DEFB    $49,$6E,$76,$61,$6C,$69,$64,$20,$64,$72,$69,$76,$65,$24 ; $06D8
+        DEFB    "Invalid drive",$24                              ; $06D8  string
 CHECK_SOURCE_SYSTEM_29:
-        DEFB    $49,$6E,$73,$65,$72,$74,$20,$64,$69,$73,$6B,$20,$74,$6F,$20,$62 ; $06E6
-        DEFB    $65,$20,$66,$6F,$72,$6D,$61,$74,$74,$65,$64,$20,$69,$6E,$20,$64 ; $06F6
-        DEFB    $72,$69,$76,$65,$20                              ; $0706
+        DEFB    "Insert disk to be formatted in drive "          ; $06E6  string (drive letter patched into _30 at runtime)
 CHECK_SOURCE_SYSTEM_30:
-        DEFB    $5A,$3A,$24                                      ; $070B
+        DEFB    "Z:",$24                                         ; $070B  string ('Z' = drive-letter placeholder patched at runtime)
 CHECK_SOURCE_SYSTEM_31:
-        DEFB    $49,$6E,$73,$65,$72,$74,$20,$64,$69,$73,$6B,$20,$69,$6E,$74,$6F ; $070E
-        DEFB    $20,$64,$72,$69,$76,$65,$20                      ; $071E
+        DEFB    "Insert disk into drive "                        ; $070E  string (drive letter patched into _32 at runtime)
 CHECK_SOURCE_SYSTEM_32:
-        DEFB    $5A,$3A,$24                                      ; $0725
+        DEFB    "Z:",$24                                         ; $0725  string ('Z' = drive-letter placeholder patched at runtime)
 CHECK_SOURCE_SYSTEM_33:
-        DEFB    $49,$6E,$73,$65,$72,$74,$20                      ; $0728
+        DEFB    "Insert "                                        ; $0728  string
 CHECK_SOURCE_SYSTEM_34:
-        DEFB    $53,$4F,$55,$52,$43,$45,$20,$20,$20,$20,$20,$20,$64,$69,$73,$6B ; $072F
-        DEFB    $20,$69,$6E,$74,$6F,$20,$64,$72,$69,$76,$65,$20  ; $073F
+        DEFB    "SOURCE      disk into drive "                    ; $072F  string ('SOURCE'/'DESTINATION' template patched at runtime)
 CHECK_SOURCE_SYSTEM_35:
-        DEFB    $5A,$3A,$0D,$0A,$49,$6E,$73,$65,$72,$74,$20,$44,$45,$53,$54,$49 ; $074B
-        DEFB    $4E,$41,$54,$49,$4F,$4E,$20,$64,$69,$73,$6B,$20,$69,$6E,$74,$6F ; $075B
-        DEFB    $20,$64,$72,$69,$76,$65,$20                      ; $076B
+        DEFB    "Z:",$0D,$0A,"Insert DESTINATION disk into drive " ; $074B  string ('Z' = drive-letter placeholder patched at runtime)
 CHECK_SOURCE_SYSTEM_36:
-        DEFB    $5A,$3A,$0D,$0A,$24                              ; $0772
+        DEFB    "Z:",$0D,$0A,$24                                 ; $0772  string ('Z' = drive-letter placeholder patched at runtime)
 CHECK_SOURCE_SYSTEM_37:
-        DEFB    $0A,$50,$72,$65,$73,$73,$20,$52,$45,$54,$55,$52,$4E,$20,$74,$6F ; $0777
-        DEFB    " begin "    ; $0787  string
-        DEFB    $00    ; $078E  terminator
+        DEFB    $0A,"Press RETURN to begin "                     ; $0777  string
+        DEFB    $00                                              ; $078E  terminator
         DEFB    $24                                              ; $078F
 CHECK_SOURCE_SYSTEM_38:
-        DEFB    $0A,$0D,$0A,$49,$6E,$73,$65,$72,$74,$20          ; $0790
+        DEFB    $0A,$0D,$0A,"Insert "                            ; $0790  string
 CHECK_SOURCE_SYSTEM_39:
         DEFB    "SOURCE      disk and press RETURN "    ; $079A  string
         DEFB    $00    ; $07BC  terminator
         DEFB    $24                                              ; $07BD
 CHECK_SOURCE_SYSTEM_40:
-        DEFB    $0A,$49,$6E,$73,$65,$72,$74,$20,$44,$45,$53,$54,$49,$4E,$41,$54 ; $07BE
-        DEFB    "ION disk and press RETURN "    ; $07CE  string
-        DEFB    $00    ; $07E8  terminator
-        DEFB    $24,$0A,$0D,$0A                                  ; $07E9
+        DEFB    $0A,"Insert DESTINATION disk and press RETURN "  ; $07BE  string
+        DEFB    $00                                              ; $07E8  terminator
+        DEFB    $24,$0A,$0D,$0A                                  ; $07E9  terminator + CRLF
 CHECK_SOURCE_SYSTEM_41:
         DEFB    "Formatting..."    ; $07ED  string
         DEFB    $00    ; $07FA  terminator
         DEFB    $24                                              ; $07FB
 CHECK_SOURCE_SYSTEM_42:
-        DEFB    $43,$50,$2F,$4D                                  ; $07FC
+        DEFB    "CP/M"                                           ; $07FC  string (FCB filename template 'CP/M System', copied by SET_SYSTEM_FILENAME)
 CHECK_SOURCE_SYSTEM_43:
         DEFB    " System"    ; $0800  string
         DEFB    $00    ; $0807  terminator
         DEFS    248, $00    ; $0808  fill
-        DEFB    $4C,$00,$1C,$38,$86,$27,$8E,$78,$06,$BD,$8D,$C0,$BD,$8E,$C0,$30 ; $0900
-        DEFB    $7C,$AD,$00,$20,$85,$26,$A9,$FF,$9D,$8F,$C0,$1D,$8C,$C0,$48,$68 ; $0910
-        DEFB    $EA,$A0,$04,$48,$68,$20,$92,$19,$88,$D0,$F8,$A9,$D5,$20,$91,$19 ; $0920
-        DEFB    $A9,$AA,$20,$91,$19,$A9,$AD,$20,$91,$19,$98,$A0,$56 ; $0930
-        DEFW    ERR_PRINT_RESTART        ; $093D
-        DEFB    $B9,$00,$20,$59,$FF,$1F,$AA,$BD,$00,$1B,$A6,$27,$9D,$8D,$C0,$BD ; $093F
-        DEFB    $8C,$C0,$88,$D0,$EB,$A5,$26,$EA,$59,$00,$1F,$AA,$BD,$00,$1B,$AE ; $094F
-        DEFB    $78,$06,$9D,$8D,$C0,$BD,$8C,$C0,$B9,$00,$1F,$C8,$D0,$EA,$AA,$BD ; $095F
-        DEFB    $00,$1B,$A6,$27,$20,$94,$19,$A9,$DE,$20,$91,$19,$A9,$AA,$20,$91 ; $096F
-        DEFB    $19,$A9,$EB,$20,$91,$19,$A9,$FF,$20,$91,$19,$BD,$8E,$C0,$BD,$8C ; $097F
-        DEFB    $C0,$60,$18,$48,$68,$9D,$8D,$C0,$1D,$8C,$C0,$60,$A0,$20,$88,$F0 ; $098F
-        DEFB    $61,$BD,$8C,$C0,$10,$FB,$49,$D5,$D0,$F4,$EA,$BD,$8C,$C0,$10,$FB ; $099F
-        DEFB    $C9,$AA,$D0,$F2,$A0,$56,$BD,$8C,$C0,$10,$FB,$C9,$AD,$D0,$E7,$A9 ; $09AF
-        DEFB    $00,$88,$84,$26,$BC,$8C,$C0,$10,$FB,$59,$00,$1B,$A4,$26,$99,$00 ; $09BF
-        DEFB    $22,$D0,$EE,$84,$26,$BC,$8C,$C0,$10,$FB,$59,$00,$1B,$A4,$26,$99 ; $09CF
-        DEFB    $00,$21,$C8,$D0,$EE,$BC,$8C,$C0,$10,$FB,$D9,$00,$1B,$D0,$13,$BD ; $09DF
-        DEFB    $8C,$C0,$10,$FB,$C9,$DE,$D0,$0A,$EA,$BD,$8C,$C0,$10,$FB,$C9,$AA ; $09EF
-        DEFB    $F0,$5C,$38,$60,$A0,$FC,$84,$26,$C8              ; $09FF
-        DEFW    TRACK_TRANSFER_LOOP_3    ; $0A08
-        DEFB    $E6,$26,$F0,$F3,$BD,$8C,$C0,$10,$FB,$C9,$D5,$D0,$F0,$EA,$BD,$8C ; $0A0A
-        DEFB    $C0,$10,$FB,$C9,$AA,$D0,$F2,$A0,$03,$BD,$8C,$C0,$10,$FB,$C9,$96 ; $0A1A
-        DEFB    $D0,$E7,$A9,$00,$85,$27,$BD,$8C,$C0,$10,$FB,$2A,$85,$26,$BD,$8C ; $0A2A
-        DEFB    $C0,$10,$FB,$25,$26,$99,$2C,$00,$45,$27,$88,$10,$E7,$A8,$D0,$B7 ; $0A3A
-        DEFB    $BD,$8C,$C0,$10,$FB,$C9,$DE,$D0,$AE,$EA,$BD,$8C,$C0,$10,$FB,$C9 ; $0A4A
-        DEFB    $AA,$D0,$A4,$18,$60,$86,$2B,$85,$2A,$CD,$78,$04,$F0,$53,$A9,$00 ; $0A5A
-        DEFB    $85,$26,$AD,$78,$04,$85,$27,$38,$E5,$2A,$F0,$33,$B0,$07,$49,$FF ; $0A6A
-        DEFB    $EE,$78,$04,$90,$05,$69,$FE,$CE,$78,$04,$C5,$26,$90,$02,$A5,$26 ; $0A7A
-        DEFB    $C9,$0C,$B0,$01,$A8,$38,$20,$AD,$1A,$B9,$D1,$1A,$20,$BC,$1A,$A5 ; $0A8A
-        DEFB    $27,$18,$20,$B0,$1A,$B9,$DD,$1A,$20,$BC,$1A,$E6,$26,$D0,$C3,$20 ; $0A9A
-        DEFB    $BC,$1A,$18,$AD,$78,$04                          ; $0AAA
-        DEFW    COPY_TRACK_BATCH_5       ; $0AB0
-        DEFW    CHECK_SOURCE_SYSTEM_14   ; $0AB2
-        DEFB    $2B,$AA,$BD,$80,$C0,$A6,$2B,$60,$A2,$11,$CA,$D0,$FD,$E6,$46,$D0 ; $0AB4
-        DEFB    $06,$E6,$47,$D0,$02,$C6,$47,$38,$E9,$01,$D0,$EC,$60,$01,$30,$28 ; $0AC4
-        DEFB    $24,$20,$1E,$1D,$1C,$1C,$1C,$1C,$1C,$70,$2C,$26,$22,$1F,$1E,$1D ; $0AD4
-        DEFB    $1C,$1C,$1C,$1C,$1C,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00 ; $0AE4
-        DEFS    12, $00    ; $0AF4  fill
-        DEFB    $96,$97,$9A,$9B,$9D,$9E,$9F,$A6,$A7,$AB,$AC,$AD,$AE,$AF,$B2,$B3 ; $0B00
-        DEFB    $B4,$B5,$B6,$B7,$B9,$BA,$BB,$BC,$BD,$BE,$BF,$CB,$CD,$CE,$CF,$D3 ; $0B10
-        DEFB    $D6,$D7,$D9,$DA,$DB,$DC,$DD,$DE,$DF,$E5,$E6,$E7,$E9,$EA,$EB,$EC ; $0B20
-        DEFB    $ED,$EE,$EF,$F2,$F3,$F4,$F5,$F6,$F7,$F9,$FA,$FB,$FC,$FD,$FE,$FF ; $0B30
-        DEFS    86, $00    ; $0B40  fill
-        DEFW    TPA_START                ; $0B96
-        DEFB    $98,$99,$02,$03,$9C                              ; $0B98
-        DEFW    CHECK_SOURCE_SYSTEM_1    ; $0B9D
-        DEFB    $06,$A0,$A1,$A2,$A3,$A4,$A5,$07,$08,$A8,$A9,$AA,$09,$0A,$0B,$0C ; $0B9F
-        DEFB    $0D,$B0,$B1,$0E,$0F,$10,$11,$12,$13,$B8,$14,$15,$16,$17,$18,$19 ; $0BAF
-        DEFB    $1A,$C0,$C1,$C2,$C3,$C4,$C5,$C6,$C7,$C8,$C9,$CA,$1B,$CC,$1C,$1D ; $0BBF
-        DEFB    $1E,$D0,$D1,$D2,$1F,$D4,$D5,$20,$21,$D8,$22,$23,$24,$25,$26,$27 ; $0BCF
-        DEFB    $28,$E0,$E1,$E2,$E3,$E4,$29,$2A,$2B,$E8,$2C,$2D,$2E,$2F,$30,$31 ; $0BDF
-        DEFB    $32,$F0,$F1,$33,$34,$35,$36,$37,$38,$F8,$39,$3A,$3B,$3C,$3D,$3E ; $0BEF
-        DEFB    $3F,$08,$78,$20,$07,$1C,$28,$60,$A0,$02,$8C,$F8,$06,$A0,$04,$8C ; $0BFF
-        DEFW    READ_CONSOLE_CHAR_1      ; $0C0F
-        DEFB    $AD                                              ; $0C11
-        DEFW    OPEN_SYSTEM_FCB_1        ; $0C12
-        DEFB    $AA,$CD,$E7,$03,$F0,$1D,$8A,$48,$AD,$E7,$03,$AA,$68,$48,$8D,$E7 ; $0C14
-        DEFB    $03,$BD,$8E,$C0,$A0,$08,$BD,$8C,$C0,$DD,$8C,$C0,$D0,$F6,$88,$D0 ; $0C24
-        DEFB    $F8,$68,$AA,$BD,$8E,$C0,$BD,$8C,$C0,$A0,$08,$BD,$8C,$C0,$48,$68 ; $0C34
-        DEFB    $8E,$F8,$05,$DD,$8C,$C0                          ; $0C44
-        DEFW    ERR_PRINT_RESTART        ; $0C4A
-        DEFB    $88,$D0,$F0,$08,$BD,$89,$C0,$A9,$EF,$85,$46,$A9,$D8,$85,$47,$AD ; $0C4C
-        DEFB    $E4,$03,$CD,$E5,$03,$F0,$07,$8D,$E5,$03,$28,$A0  ; $0C5C
-        DEFW    CHECK_SOURCE_SYSTEM_43   ; $0C68
-        DEFB    $6A,$90,$05,$BD,$8A,$C0,$B0,$03,$BD,$8B,$C0,$66,$35,$28,$08,$D0 ; $0C6A
-        DEFB    $08,$A0,$07,$20,$BC,$1A,$88,$D0,$FA,$AE,$F8,$05,$28,$D0,$0D,$A0 ; $0C7A
-        DEFB    $12,$88,$D0,$FD,$E6,$46,$D0,$F7,$E6,$47,$D0,$F3,$4C,$DA,$1C,$48 ; $0C8A
-        DEFB    $20,$BA,$1C,$B9,$78,$04,$24,$35,$30,$03,$B9      ; $0C9A
-        DEFW    READ_CONSOLE_CHAR_1      ; $0CA5
-        DEFB    $8D,$78,$04,$68,$24,$35,$30,$05,$99              ; $0CA7
-        DEFW    READ_CONSOLE_CHAR_1      ; $0CB0
-        DEFW    COPY_TRACK_BATCH_3       ; $0CB2
-        DEFB    $99,$78,$04,$4C,$5F,$1A,$8A,$4A,$4A,$4A,$4A,$A8,$60,$48,$AD,$E4 ; $0CB4
-        DEFB    $03,$6A,$66,$35,$20,$BA,$1C,$68,$0A,$24,$35,$30,$05,$99 ; $0CC4
-        DEFW    READ_CONSOLE_CHAR_1      ; $0CD2
-        DEFW    COPY_TRACK_BATCH_3       ; $0CD4
-        DEFB    $99,$78,$04,$60,$A9,$CD,$85,$2F,$A9,$AA,$85,$50,$A0,$00,$A9,$39 ; $0CD6
-        DEFB    $99,$00,$1F,$88,$D0,$FA,$A0,$56,$A9,$2A,$99,$FF,$1F,$88,$D0,$FA ; $0CE6
-        DEFB    $84,$41,$A9,$50,$20,$C1,$1C,$A9,$26,$85,$51,$A5,$41,$0A,$20,$99 ; $0CF6
-        DEFB    $1C,$20,$3E,$1D,$A9,$40,$B0,$23,$A9,$30,$8D,$78,$05,$38,$CE,$78 ; $0D06
-        DEFB    $05,$F0,$F1                                      ; $0D16
-        DEFW    COPY_TRACK_BATCH_4       ; $0D19
-        DEFB    $1A,$B0,$F5,$A5,$2D,$D0,$F1,$20,$9B,$19,$B0,$EC,$E6,$41,$A5,$41 ; $0D1B
-        DEFB    $C9,$23,$90,$D2,$A9,$00,$8D                      ; $0D2B
-        DEFW    OPEN_SYSTEM_FCB_2        ; $0D32
-        DEFB    $BD,$88,$C0,$60,$68,$68,$A9,$10,$D0,$F3,$A9,$00,$85,$52,$A0,$80 ; $0D34
-        DEFB    $2C,$A4,$51,$20,$D4,$1D,$B0,$EC                  ; $0D44
-        DEFW    COPY_TRACK_BATCH_4       ; $0D4C
-        DEFB    $19,$B0,$62,$E6,$52,$A5,$52,$C9,$10,$90,$EC,$A0,$0F,$84,$52,$A9 ; $0D4E
-        DEFB    $30,$8D,$78,$05,$99,$57,$1E,$88,$10,$FA,$A4,$51,$20,$D2,$1D,$20 ; $0D5E
-        DEFB    $D2,$1D,$48,$68,$88,$D0,$F5                      ; $0D6E
-        DEFW    COPY_TRACK_BATCH_4       ; $0D75
-        DEFB    $1A,$B0,$23,$A5,$2D,$F0,$15,$A9,$10,$C5,$51,$A5,$51,$E9,$01,$85 ; $0D77
-        DEFB    $51,$C9,$05,$B0,$11,$38,$60                      ; $0D87
-        DEFW    COPY_TRACK_BATCH_4       ; $0D8E
-        DEFB    $1A,$B0,$05,$20,$9B,$19,$90,$1C,$CE,$78,$05,$D0,$F1 ; $0D90
-        DEFW    COPY_TRACK_BATCH_4       ; $0D9D
-        DEFB    $1A,$B0,$0B,$A5,$2D,$C9,$0F,$D0,$05,$20,$9B,$19,$90,$91,$CE,$78 ; $0D9F
-        DEFB    $05,$D0,$EB,$38,$60,$A4,$2D,$B9,$57,$1E,$30,$DD,$A9,$FF,$99,$57 ; $0DAF
-        DEFB    $1E,$C6,$52,$10,$CA,$A5,$41,$D0,$0A,$A5,$51,$C9,$10,$90,$E5,$C6 ; $0DBF
-        DEFB    $51,$C6,$51,$18,$60,$38,$BD,$8D,$C0,$BD,$8E,$C0,$30,$58,$A9,$FF ; $0DCF
-        DEFB    $9D,$8F,$C0,$DD,$8C,$C0,$48,$68,$EA,$EA,$48,$68,$20,$92,$19,$88 ; $0DDF
-        DEFB    $D0,$F8,$A9,$D5,$20,$91,$19,$A9,$AA,$20,$91,$19,$A9,$96,$20,$91 ; $0DEF
-        DEFB    $19,$A5,$2F,$20                                  ; $0DFF
-CHECK_SOURCE_SYSTEM_44:
-        DEFB    $3C,$1E,$A5,$41,$20,$3C,$1E,$A5,$52,$20,$3C,$1E,$A5,$2F,$45,$41 ; $0E03
-        DEFB    $45,$52,$48,$4A,$05,$50,$9D,$8D,$C0,$BD,$8C,$C0,$68,$09,$AA,$20 ; $0E13
-        DEFB    $4C,$1E,$A9,$DE,$20,$91,$19,$A9,$AA,$20,$91,$19,$A9,$EB,$20,$91 ; $0E23
-        DEFB    $19,$18,$BD,$8E,$C0,$BD,$8C,$C0,$60,$48,$4A,$05,$50,$9D,$8D,$C0 ; $0E33
-        DEFB    $DD,$8C,$C0,$68,$EA,$EA,$EA,$09,$AA,$EA,$18,$48,$68,$9D,$8D,$C0 ; $0E43
-        DEFB    $1D,$8C,$C0,$60,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00,$00 ; $0E53
-        DEFB    $00,$00,$00,$00,$EA,$EA,$48,$68,$20,$92,$19,$88,$D0,$F8,$A9,$D5 ; $0E63
-        DEFB    $20,$91,$19,$A9,$AA,$20,$91,$19,$A9,$96,$20,$91,$19,$7C,$9A,$EB ; $0E73
-        DEFB    $C9,$FE,$0D,$C8,$FE,$2C,$C8,$FE,$20,$C9,$D6,$30,$FE,$0A,$D8,$C6 ; $0E83
-        DEFB    $F9,$FE,$10,$D8,$C3,$DF,$0B,$EB,$5E,$23,$56,$23,$EB,$C9,$EB,$21 ; $0E93
-        DEFB    $00,$00,$CD,$8D,$0C,$29,$29,$29,$29,$B5,$6F,$CD,$11,$0C,$CD,$84 ; $0EA3
-        DEFB    $0C,$C2,$A5,$0C,$EB,$C9,$73,$23,$72,$23,$E5,$21,$AA,$0F,$34,$E1 ; $0EB3
-        DEFB    $C9,$CD,$11,$0C,$21,$AA,$0F,$36,$00,$23,$FE,$0D,$CA,$09,$0D,$FE ; $0EC3
-        DEFB    $2C,$C2,$E2,$0C,$3E,$80,$32,$AA,$0F,$11,$00,$00,$C3,$E5,$0C,$CD ; $0ED3
-        DEFB    $A1,$0C,$CD,$B9,$0C,$FE,$0D,$CA,$09,$0D,$CD,$11,$0C,$CD,$A1,$0C ; $0EE3
-        DEFB    $CD,$B9,$0C,$FE,$0D,$CA,$09,$0D,$CD,$11,$0C,$CD,$A1 ; $0EF3
+; -- embedded 6502 region $0900-$0E7F: COPY's GCR Disk II driver --
+; Genuine 6502 machine code (COPY runs on the Z-80; the SoftCard runs THIS on
+; the 6502). Disassembled as real 6502 in COPY_6502.s (ca65) and INCBIN'd here
+; byte-for-byte. The block is RELOCATED +$1000 to run at $1900-$1E7F (its
+; internal self-refs are $19xx-$1Exx). The Z-80 hands the 6502 a run-address via
+; A_VEC: $1900 (format track), $1E03 (read/write track = CHECK_SOURCE_SYSTEM_44),
+; $1E67 (write-prep). See COPY_6502.s for the full routine map + data tables.
+COPY_6502:
+        INCBIN  "COPY_6502.bin"          ; $0900-$0E7F  (1408 bytes of 6502)
+CHECK_SOURCE_SYSTEM_44 EQU COPY_6502 + $0503 ; $0E03  read/write-track 6502 entry (Z-80 passes this load addr; runs at $1E03)
+; -- trailing Z-80 bytes $0E80-$0EFF (unrelated to the 6502 region) --
+        DEFB    $7C,$9A,$EB,$C9,$FE,$0D,$C8,$FE,$2C,$C8,$FE,$20,$C9,$D6,$30,$FE ; $0E80
+        DEFB    $0A,$D8,$C6,$F9,$FE,$10,$D8,$C3,$DF,$0B,$EB,$5E,$23,$56,$23,$EB ; $0E90
+        DEFB    $C9,$EB,$21,$00,$00,$CD,$8D,$0C,$29,$29,$29,$29,$B5,$6F,$CD,$11 ; $0EA0
+        DEFB    $0C,$CD,$84,$0C,$C2,$A5,$0C,$EB,$C9,$73,$23,$72,$23,$E5,$21,$AA ; $0EB0
+        DEFB    $0F,$34,$E1,$C9,$CD,$11,$0C,$21,$AA,$0F,$36,$00,$23,$FE,$0D,$CA ; $0EC0
+        DEFB    $09,$0D,$FE,$2C,$C2,$E2,$0C,$3E,$80,$32,$AA,$0F,$11,$00,$00,$C3 ; $0ED0
+        DEFB    $E5,$0C,$CD,$A1,$0C,$CD,$B9,$0C,$FE,$0D,$CA,$09,$0D,$CD,$11,$0C ; $0EE0
+        DEFB    $CD,$A1,$0C,$CD,$B9,$0C,$FE,$0D,$CA,$09,$0D,$CD,$11,$0C,$CD,$A1 ; $0EF0
 
     SAVEBIN "COPY.bin", $0100, $0E00

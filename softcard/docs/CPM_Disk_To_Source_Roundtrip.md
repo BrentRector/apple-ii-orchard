@@ -42,7 +42,7 @@ now split into three annotated sources that tile it exactly:
 
 | Staging bytes | Source | What it is |
 |---|---|---|
-| `$0000-$16FF` (5888 B) | `CPM223_SystemImage.asm` | CCP + BDOS |
+| `$0000-$16FF` (5888 B) | `CPM_CCP.asm` + `CPM_BDOS.asm` | CCP + BDOS (two module files; CCP INCLUDEs BDOS) |
 | `$1700-$18FF` (512 B)  | `CPM223_DiskCallbacks.asm` | Z-80 -> 6502 disk thunks (2.23 only) |
 | `$1900-$1CFF` (1024 B) | `CPM223_BIOS_Disk.asm` | the **pristine on-disk BIOS image** @ `$FA00` |
 

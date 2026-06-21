@@ -51,18 +51,27 @@ class OsRegion:
     length: int        # bytes of live code/data
     bin_name: str      # source binary in cpm-investigation/
     symbols: tuple[str, ...]   # symbol-table filenames under shared/symbols/
+    offset: int = 0    # byte offset into bin_name where this region's bytes start
+                       # (lets two regions -- e.g. CCP + BDOS -- share one staging bin)
 
 
 # Recognized-variant region tables. Load addresses mirror chunk_map.py (the same
 # values the byte-identical gold sources assemble at).
 _REGIONS = {
     "softcard_cpm_2_23": [
+        # BootLoader ($0800-$13FF) is the single decode of the Apple-side OS: it
+        # already contains the RWTS ($0A00-$0FFF) and the install image
+        # ($1200-$13FF, run at $0200-$03FF), so there are no separate RWTS /
+        # InstallFragments regions (they were byte-identical duplicates).
         OsRegion("BootLoader", "6502", 0x0800, 0x0C00, "loader_223.bin", ("apple2.json",)),
-        OsRegion("RWTS", "6502", 0x0A00, 0x0600, "rwts_223.bin", ("apple2.json",)),
-        OsRegion("InstallFragments", "6502", 0x0200, 0x0200, "installfragments_223.bin", ("apple2.json",)),
         OsRegion("DiskCallbacks", "z80", 0x1A00, 0x0200, "diskcallbacks_223.bin",
                  ("cpm_2_2.json", "cpm_2_23_bios.json")),
-        OsRegion("SystemImage", "z80", 0x8000, 0x1700, "sysimg_223.bin", ("cpm_2_2.json",)),
+        # The system image is two independent modules. The $8000 staging bin holds
+        # the CCP first ($8000-$8CFF) then the BDOS ($8D00 staged, runs $9C00), so
+        # the BDOS region is the same bin sliced at offset $0D00 and decoded at $9C00.
+        OsRegion("CCP", "z80", 0x8000, 0x0D00, "sysimg_223.bin", ("cpm_2_2.json",)),
+        OsRegion("BDOS", "z80", 0x9C00, 0x0A00, "sysimg_223.bin", ("cpm_2_2.json",),
+                 offset=0x0D00),
         # The AS-SHIPPED pristine on-disk BIOS ($FA00-$FDFF, 1024 B) -- what the
         # disk holds. (The patched $0548 runtime form lives only in bios_223.bin,
         # used by version_delta's cold-boot trace; see CPMV223-44K/BOOT_AND_PATCHING.md.)
@@ -70,9 +79,9 @@ _REGIONS = {
                  ("cpm_2_2.json", "cpm_2_23_bios.json")),
     ],
     "softcard_cpm_2_20": [
+        # BootLoader ($0800-$13FF) already contains the RWTS + install image, so no
+        # separate RWTS / InstallFragments regions (byte-identical duplicates).
         OsRegion("BootLoader", "6502", 0x0800, 0x0C00, "loader_220.bin", ("apple2.json",)),
-        OsRegion("RWTS", "6502", 0x0A00, 0x0600, "rwts_220.bin", ("apple2.json",)),
-        OsRegion("InstallFragments", "6502", 0x0200, 0x0200, "installfragments_220.bin", ("apple2.json",)),
         OsRegion("SystemImage", "z80", 0x8000, 0x1700, "sysimg_220.bin", ("cpm_2_2.json",)),
         # AS-SHIPPED pristine on-disk BIOS ($DA00-$DEFF, 1280 B); the patched $0800
         # runtime form lives only in bios_220.bin (version_delta cold-boot trace).
@@ -137,10 +146,17 @@ def _disasm_region(region: OsRegion, out_base: Path) -> OsRegionResult:
     if not bin_path.exists():
         return OsRegionResult(region.name, region.cpu, region.org, None, False,
                               f"missing {region.bin_name}")
-    raw = bin_path.read_bytes()[:region.length]
+    raw = bin_path.read_bytes()[region.offset:region.offset + region.length]
     entries = _jump_table_entries(raw, region.org, region.cpu)
 
-    argv = [str(bin_path), "--org", f"${region.org:04X}",
+    # The disassemblers read from the start of their input file; when this region
+    # is a slice of a shared staging bin (offset > 0), feed them a sliced temp bin.
+    if region.offset:
+        in_path = out_base.parent / f"{region.name}_in.bin"
+        in_path.write_bytes(raw)
+    else:
+        in_path = bin_path
+    argv = [str(in_path), "--org", f"${region.org:04X}",
             "--length", f"${region.length:04X}", "--output", str(out_base)]
     for e in entries:
         argv += ["--entry", f"${e:04X}"]

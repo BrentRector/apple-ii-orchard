@@ -5,7 +5,7 @@
 ; [AI] DOWNLOAD.COM -- CP/M 2.2 serial download utility for the Microsoft SoftCard.
 ; [AI] Creates the file named on the command line, then drives a simple serial
 ; [AI] transfer protocol over the SoftCard communications port (memory-mapped at
-; [AI] $E0AE = status, $E0AF = data, $E000 = host control byte) to pull the file's
+; [AI] $E0AE = status, $E0AF = data, KEYBD = host control byte) to pull the file's
 ; [AI] contents down from a host in 128-byte records and write them to disk.
 ; [AI]
 ; [AI] Protocol (sender = remote host, receiver = this program):
@@ -15,7 +15,7 @@
 ; [AI]   4. Per record: receive 128 data bytes + running XOR checksum byte.
 ; [AI]        checksum OK  -> echo '.', write the record (BDOS 21), send 'G' (ACK).
 ; [AI]        checksum bad -> send 'B' (NAK) + 'B', request a resend.
-; [AI]   5. Host signals end-of-transfer by raising $E000 = $83; close the file
+; [AI]   5. Host signals end-of-transfer by raising KEYBD = $83; close the file
 ; [AI]      (BDOS 16) and print "DOWNLOAD Complete".
 ; [AI]
 ; [AI] The block from $0201 to the end is a relocatable code+data overlay (its
@@ -24,6 +24,7 @@
 ; [AI] byte-for-byte but not disassembled into instructions below.
 
     DEVICE NOSLOT64K
+    INCLUDE "apple_softcard.inc"   ; Apple/SoftCard external names (single source of truth)
 
 ; -- External symbols --
 WBOOT_VEC            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
@@ -34,8 +35,6 @@ DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS
 ; [AI] -- SoftCard communications-port registers (memory-mapped on the Z-80 side) --
 SIO_STATUS           EQU $E0AE               ; [AI] serial status: bit0 = RX byte available, bit1 = TX holding-reg empty
 SIO_DATA             EQU $E0AF               ; [AI] serial data register: read = RX byte, write = TX byte
-HOST_CTRL            EQU $E000               ; [AI] host control/command byte; value $83 means "transfer finished"
-DOWNLOAD_FLAG        EQU $E010               ; [AI] scratch flag set when the end-of-transfer ($83) condition is seen
 
     ORG $0100
 
@@ -118,9 +117,9 @@ RECORD_GOOD:
         CALL SEND_BYTE                   ; $0179  CD 93 01   [AI] tell host to send the next record
         JP RECV_RECORD                   ; $017C  C3 47 01   [AI] receive the next record
 
-; [AI] ----- End of transfer (host raised $E000=$83): close the file -----
+; [AI] ----- End of transfer (host raised KEYBD=$83): close the file -----
 TRANSFER_DONE:
-        LD (DOWNLOAD_FLAG),A             ; $017F  32 10 E0   [AI] mark transfer complete
+        LD (KEYSTB),A             ; $017F  32 10 E0   [AI] mark transfer complete
         LD DE,DEFAULT_FCB                ; $0182  11 5C 00
         LD C,$10                         ; $0185  0E 10      [AI] BDOS fn 16 = close file
         CALL BDOS_VEC                    ; $0187  CD 05 00   [AI] flush directory / close the destination file
@@ -142,12 +141,12 @@ SEND_BYTE:
         RET                              ; $019F  C9
 
 ; [AI] RECV_BYTE: poll SIO for an RX byte. If a byte arrives, return it in A.
-; [AI] While waiting, watch HOST_CTRL ($E000): value $83 ends the transfer.
+; [AI] While waiting, watch KEYBD (KEYBD): value $83 ends the transfer.
 RECV_BYTE:
         LD A,(SIO_STATUS)                ; $01A0  3A AE E0
         RRA                              ; $01A3  1F         [AI] bit0 -> carry: RX byte available?
         JP C,RECV_BYTE_READY             ; $01A4  DA B2 01   [AI] yes -> fetch it
-        LD A,(HOST_CTRL)                 ; $01A7  3A 00 E0   [AI] no byte: check the host control byte
+        LD A,(KEYBD)                 ; $01A7  3A 00 E0   [AI] no byte: check the host control byte
         CP $83                           ; $01AA  FE 83      [AI] $83 = host says "transfer finished"
         JP Z,TRANSFER_DONE               ; $01AC  CA 7F 01   [AI] end of transfer -> close file
         JP RECV_BYTE                     ; $01AF  C3 A0 01   [AI] otherwise keep polling

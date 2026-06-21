@@ -35,9 +35,7 @@ CPMV220/
 
 | File | CPU | Load | What it is |
 |------|-----|------|------------|
-| `CPM_BootLoader.s` | 6502 | `$0800` | Stage-2 boot loader, install-copy logic, the `LOAD_CPM` staging read |
-| `CPM_RWTS.s` | 6502 | `$0A00` | Read/Write Track-Sector engine (GCR 6-and-2 codec) |
-| `CPM_InstallFragments.s` | 6502 | `$0200` | Fragments the stage-2 loader copies into place |
+| `CPM_BootLoader.s` | 6502 | `$0800` | Stage-2 boot loader (`$0800-$13FF`): install-copy logic, the `LOAD_CPM` staging read, the RWTS (`$0A00-$0FFF`, GCR 6-and-2 codec), and the install image (`$1200-$13FF`, run at `$0200-$03FF`) -- the single canonical decode of the Apple-side OS |
 | `CPM_SystemImage.asm` | Z-80 | `$8000` | the staged **CCP + BDOS** image `LOAD_CPM` reads |
 | `CPM_BIOS.asm` | Z-80 | `$DA00` | the **as-shipped** pristine on-disk BIOS (`$DA00-$DEFF`); jump table + console/disk/IOBYTE primitives |
 

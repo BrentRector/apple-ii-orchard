@@ -35,8 +35,13 @@
 ;                 here - never executed from $1200, only after the copy).
 ;
 ;  Manual anchors (SoftCard CP/M 2.20, (C)1980 Microsoft): config block at
-;  $0200-$03FF (Z-80 0F200H-0F3FFH); Card Type Table SLTTYP=0F3B9H (slot S at
-;  0F3B8H+S); A$VEC=0F3D0H; Z$CPU=0F3DEH; 6502 mode-switch routine at $03C0.
+;  $0200-$03FF (Z-80 0F200H-0F3FFH) [DOC S&HD 2-6/2-12 ; facts sec.2.2/3];
+;  disk drivers+buffers $800-$FFF, screen $400-$7FF [DOC S&HD 2-6 ; facts sec.2.2];
+;  Card Type Table SLTTYP=0F3B9H, slot S at 0F3B8H+S [DOC S&HD 2-26/2-27 ; facts
+;  sec.3.6]; disk-count byte 0F3B8H [DOC S&HD 2-27 ; facts sec.3.7]; A$VEC=0F3D0H
+;  [DOC S&HD 2-25 ; facts sec.4.2]; Z$CPU=0F3DEH [DOC S&HD 2-24/2-25 ; facts
+;  sec.4.3]; 6502 mode-switch routine at $03C0, RESET/NMI/BRK vectors point here
+;  [DOC S&HD 2-25 ; facts sec.2.4/4.4].
 ; ============================================================================
 
 .setcpu "6502"
@@ -52,14 +57,58 @@
 ; --- zero-page / soft-switch / Monitor symbols used below --------------------
 SECTCNT         = $27           ; BOOT0 sector counter (also $27 RWTS scratch)
 PTRL            = $3E           ; BOOT0 indirect-JMP / RWTS buffer pointer low
+                                ; (STAGE-2's slot scan reuses $3E as the
+                                ;  SoftCard-found flag -- see $105B/$1063)
 PTRH            = $3F           ; BOOT0 indirect-JMP / RWTS buffer pointer high
 
-MON_SETKBD      = $FB2F         ; (used at $1015) Apple Monitor
-MON_INIT        = $FE93         ; (used at $1018) Apple Monitor
-MON_SETVID      = $FE89         ; (used at $101B) Apple Monitor
-MON_PRBYTE      = $FF2D         ; (used at $0FD5) Apple Monitor error path
-MON_RESET       = $FF65         ; (used at $1033/$10E4) Monitor RESET entry
-MON_COUT        = $FDED         ; (used at $102D/$10DE) Monitor char out
+; --- Apple II Autostart Monitor ROM entry points ($F800-$FFFF) ---------------
+;  Canonical names per the Apple II Reference Manual / Monitor ROM disassembly;
+;  single source of truth is shared/symbols/apple2.json. Now that the SoftCard
+;  runs the genuine ROM these are the real routines, so the code below calls
+;  them by name. "[used]" marks the entries this file references; the rest are
+;  the standard callable entry points, kept here as the canonical table.
+;  (Earlier this block carried ad-hoc, partly WRONG names -- e.g. $FB2F was
+;  labelled MON_SETKBD, but $FB2F is TEXT and SETKBD is $FE89.)
+; -- character / line output --
+COUT            = $FDED         ; output A via (CSW); default -> COUT1            [used]
+COUT1           = $FDF0         ; screen-only character output (default CSW target)
+CROUT           = $FD8E         ; output a carriage return via COUT
+PRBYTE          = $FDDA         ; print A as two hex digits
+PRHEX           = $FDE3         ; print A's low nibble as one hex digit
+; -- keyboard / line input --
+RDKEY           = $FD0C         ; read a key via (KSW); default -> KEYIN
+KEYIN           = $FD1B         ; default keyboard input (spin on KBD, clear strobe)
+GETLN           = $FD6A         ; read a line into IN ($0200); returns X = length
+; -- screen control --
+TEXT            = $FB2F         ; set text mode + reset window to full screen     [used]
+TEXT2           = $FB39         ; reset text window only
+TABV            = $FB40         ; set cursor row (A), recompute BASL/BASH
+BASCALC         = $FB5B         ; compute text base (BASL/BASH) from A = row
+VIDOUT          = $FB78         ; plot A at cursor (no scroll / control handling)
+VTAB            = $FC22         ; set BASL/BASH from CV
+CLREOP          = $FC42         ; clear from cursor to end of page
+HOME            = $FC58         ; clear text window, home cursor
+SCROLL          = $FC70         ; scroll text window up one line
+CLREOL          = $FC9C         ; clear from cursor to end of line
+WAIT            = $FCA8         ; delay loop, duration from A
+BELL            = $FBE4         ; sound the bell
+; -- video/keyboard hooks + inverse flag --
+SETINV          = $FE80         ; INVFLG = $3F  (COUT prints inverse)
+SETNORM         = $FE84         ; INVFLG = $FF  (COUT prints normal)
+SETKBD          = $FE89         ; reset KSW to KEYIN (keyboard input)             [used]
+SETVID          = $FE93         ; reset CSW to COUT1 (screen output)              [used]
+; -- register save/restore (the 6502<->Z-80 RPC handoff rides through these) --
+;  The $45-$49 save area = the RPC register-pass cells: $45 A, $46 Y, $47 X,
+;  $48 P, $49 = 6502 SP on exit [DOC S&HD 2-24/2-25 ; facts sec.4.1].
+RESTORE         = $FF3F         ; A,X,Y,P <- save area $45-$48                    [used: $03C0]
+SAVE            = $FF4A         ; A,X,Y,P,S -> save area $45-$49                   [used: $03C0]
+; -- monitor / misc --
+PRERR           = $FF2D         ; print "ERR" + bell                             [used]
+IORTS           = $FF58         ; a bare RTS in the Apple Monitor ROM; the RPC
+                                ; interrupt handler uses it as a no-op 6502 call
+                                ; target [DOC S&HD 2-25 ; facts sec.4.5]
+MONZ            = $FF65         ; monitor cold entry (reset stack, '*', GETLN)    [used]
+MONITOR         = $FF69         ; monitor warm entry
 
 .org $0800
 
@@ -107,6 +156,10 @@ SECTAB:
 
 ; ----------------------------------------------------------------------------
 ;  Sign-on banner, high-bit Apple ASCII, terminated by the $FF fill below.
+;  The "(C) 1980 MICROSOFT" copyright matches the manual's cold-boot sign-on
+;  line; the full three-line "APPLE II CP/M / 44K vers. 2.2X / (C) 1980
+;  MICROSOFT" banner is emitted later by the BIOS, not from this boot sector.
+;  [DOC Vol1 1-8 ; facts sec.8.6]
 ; ----------------------------------------------------------------------------
 BANNER:
         ASCHI   " COPYRIGHT (C) 1980 MICROSOFT - NK "   ; $083D-$085F
@@ -745,6 +798,9 @@ SKEWTAB:
         .byte   $01, $03, $05, $07, $09, $0B, $0D, $0F  ; $0FA5
 
 ; RWTS_TOP: read the 16-sector CP/M system off track 0 into memory.
+;  The shipped CP/M disk is 16-sector (DOS 3.3 / Pascal / Language Card format);
+;  it will not boot a drive set up for 13-sector and vice versa
+;  [DOC Vol1 1-8 ; facts sec.8.8].
 RWTS_TOP:
         LDA #$A4                         ; $0FAD  buffer high = $A4
         STA $03E9                        ; $0FAF
@@ -755,7 +811,10 @@ RWTS_TOP:
         STY $03E4                        ; $0FBB  track = 1
         STY $03EB                        ; $0FBE
         LDA #$60                         ; $0FC1
-        STA $03E6                        ; $0FC3  slot 6 (=$60)
+        STA $03E6                        ; $0FC3  slot 6 (=$60): the disk
+                                         ;        controller for drives A:/B:
+                                         ;        must be in slot 6 [DOC S&HD
+                                         ;        1-3/1-4 ; facts sec.8.9]
         LDA #$0B                         ; $0FC6
         STA $03E1                        ; $0FC8  starting logical sector
         LDA #$1C                         ; $0FCB  sectors-to-read count
@@ -765,7 +824,7 @@ RWTS_TOP_LP:
         SEI                              ; $0FCF
         JSR RWTS_RW                      ; $0FD0  read one sector
         BCC RWTS_TOP_OK                  ; $0FD3
-        JSR MON_PRBYTE                   ; $0FD5  error -> print/bell, retry
+        JSR PRERR                        ; $0FD5  read error -> "ERR" + bell, retry
         PLP                              ; $0FD8
         PLA                              ; $0FD9
         JMP RWTS_TOP                     ; $0FDA
@@ -793,9 +852,16 @@ RWTS_TOP_OK:
 
 ; ============================================================================
 ;  STAGE-2 loader  ($1000..$1188)
-;  $1000..$100D is OVERWRITTEN at runtime by the 14-byte overlay copied from
-;  RWTS_OVL (below), turning it into a sector-read trampoline; the bytes shown
-;  here are the as-shipped initialization stub that runs first.
+;  These are STAGE-2's own instructions; the 6502 runs them once, here, at boot
+;  start. Be aware that the RAM at $1000..$100D is then REWRITTEN twice, so over
+;  the boot it holds three unrelated pieces of code in turn -- one tenant at a
+;  time, never together:
+;    1. these STAGE-2 startup instructions       -- run by the 6502 (now)
+;    2. SOFTCARD_PROBE_OVL (copied in just below) -- run by the Z-80 during the
+;       slot scan (the SoftCard maps the Z-80 reset address $0000 to Apple $1000)
+;    3. JMP $AA00 (planted after the system loads) -- run by the Z-80 to enter BIOS
+;  The 6502 only ever runs tenant 1; the Z-80 only ever runs tenants 2 and 3.
+;  No bytes here are ever executed by both CPUs, or as both 6502 and Z-80.
 ; ============================================================================
 
 STAGE2:
@@ -807,27 +873,30 @@ STAGE2:
         LDA #$00                         ; $100D
         STA $0478,Y                      ; $100F  zero current-track tables
         STA $04F8,Y                      ; $1012
-        JSR MON_SETKBD                   ; $1015  $FB2F
-        JSR MON_INIT                     ; $1018  $FE93
-        JSR MON_SETVID                   ; $101B  $FE89
+        JSR TEXT                         ; $1015  text mode + full-screen window
+        JSR SETVID                       ; $1018  CSW -> COUT1 (screen output)
+        JSR SETKBD                       ; $101B  KSW -> KEYIN (keyboard input)
         PLA                              ; $101E
         LDX #$FF                         ; $101F
         TXS                              ; $1021  reset stack
-        CMP #$06                         ; $1022  booted from slot 6?
+        CMP #$06                         ; $1022  booted from slot 6? -- the
+                                         ;        slot-6 disk controller is the
+                                         ;        required A:/B: boot device
+                                         ;        [DOC Vol1 1-3/1-4 ; facts sec.8.9]
         BEQ S2_OK                        ; $1024
         LDY #$00                         ; $1026
 S2_ERR1:
         LDA MSG_SLOT6,Y                  ; $1028  "MUST BOOT FROM SLOT SIX"
         BEQ S2_ERR1_END                  ; $102B
-        JSR MON_COUT                     ; $102D
+        JSR COUT                         ; $102D  print error message char
         INY                              ; $1030
         BNE S2_ERR1                      ; $1031
 S2_ERR1_END:
-        JMP MON_RESET                    ; $1033
+        JMP MONZ                         ; $1033  drop to the monitor
 S2_OK:
-        LDY #$0E                         ; $1036  install RWTS read trampoline
+        LDY #$0E                         ; $1036  install Z-80 SoftCard-probe overlay
 S2_INSTOVL:
-        LDA RWTS_OVL,Y                   ; $1038  -> $1000..$100D
+        LDA SOFTCARD_PROBE_OVL,Y         ; $1038  copy +1..+14 -> $1000..$100D
         STA $0FFF,Y                      ; $103B
         DEY                              ; $103E
         BNE S2_INSTOVL                   ; $103F
@@ -842,16 +911,21 @@ S2_COPYCFG2:
         STA $02FF,Y                      ; $104F  $12FF..$13F0 -> $02FF..$03F0
         DEY                              ; $1052
         BNE S2_COPYCFG2                  ; $1053
-        STY $03B8                        ; $1055  disk-count byte = 0
+        STY $03B8                        ; $1055  disk-count byte = 0 (Z-80
+                                         ;        0F3B8H; = #controllers x2)
+                                         ;        [DOC S&HD 2-27 ; facts sec.3.7]
         STY $3C                          ; $1058  scan pointer low = 0
         DEY                              ; $105A
-        STY $3E                          ; $105B
+        STY $3E                          ; $105B  $3E = $FF: the SoftCard-found
+                                         ;        flag (cleared to 0 by a slot's
+                                         ;        probe handshake, INC'd to 1 once
+                                         ;        found -- see $107F / $10C4)
         LDY #$C7                         ; $105D  scan slots $C7..$C1
 S2_SLOTSCAN:
-        JSR SCAN_PROBE                   ; $105F  point $3C/$3D at $Cn00
+        JSR SCAN_PROBE                   ; $105F  WRITE $Cn00 to probe for SoftCard
         NOP                              ; $1062
-        LDA $3E                          ; $1063
-        BEQ S2_SOFTCARD                  ; $1065  $3E=0 -> SoftCard candidate
+        LDA $3E                          ; $1063  the probe's handshake clears $3E
+        BEQ S2_SOFTCARD                  ; $1065  $3E=0 -> SoftCard found in this slot
         JSR SUM_ROM                      ; $1067  checksum the card ROM
         STA $40                          ; $106A
         STX $41                          ; $106C
@@ -868,10 +942,14 @@ S2_SOFTCARD:
         STY $03C8                        ; $1081
         LDA #$00                         ; $1084
         STA $03C7                        ; $1086
-        STA $03DE                        ; $1089  Z$CPU low byte = 0
+        STA $03DE                        ; $1089  Z$CPU low byte = 0 -- the
+                                         ;        SoftCard-location cell at Z-80
+                                         ;        0F3DEH: low byte 0, high byte
+                                         ;        of form 0ENH (N = SoftCard slot)
+                                         ;        [DOC S&HD 2-24/2-25 ; facts sec.4.3]
         TYA                              ; $108C
         CLC                              ; $108D
-        ADC #$20                         ; $108E  form $En high byte
+        ADC #$20                         ; $108E  form $En high byte ($Cn + $20)
         STA $03DF                        ; $1090  Z$CPU high byte = $En
 S2_HASROM:
         LDX #$00                         ; $1093  card type = unknown/none
@@ -893,16 +971,27 @@ S2_SIGNEXT:
 S2_SIGMATCH:
         INX                              ; $10AE
         CPX #$02                         ; $10AF  type 2 = Disk II controller?
+                                         ;        (Card Type Table value 2 =
+                                         ;        Apple Disk II Controller)
+                                         ;        [DOC S&HD 2-26/2-27 ; facts sec.3.6]
         BNE S2_STORETYPE                 ; $10B1
-        INC $03B8                        ; $10B3  bump disk-count byte
+        INC $03B8                        ; $10B3  bump disk-count byte (one per
+                                         ;        controller) [DOC S&HD 2-27 ;
+                                         ;        facts sec.3.7]
 S2_STORETYPE:
         LDY $3D                          ; $10B6  slot # ($Cn high byte)
         TXA                              ; $10B8
-        STA $02F8,Y                      ; $10B9  card-type table $02F8+slot
+        STA $02F8,Y                      ; $10B9  Card Type Table entry, install
+                                         ;        offset $02F8+slot -> runtime
+                                         ;        SLTTYP 0F3B9H, slot S at
+                                         ;        0F3B8H+S [DOC S&HD 2-26/2-27 ;
+                                         ;        facts sec.3.6]
         DEY                              ; $10BC
         CPY #$C0                         ; $10BD  done all 7 slots?
         BNE S2_SLOTSCAN                  ; $10BF
-        ASL $03B8                        ; $10C1  disk count *2 (controllers*2)
+        ASL $03B8                        ; $10C1  disk count *2: the Disk Count
+                                         ;        Byte = #controllers x2 [DOC
+                                         ;        S&HD 2-27 ; facts sec.3.7]
         LDA $3E                          ; $10C4
         CMP #$01                         ; $10C6  SoftCard found?
         BEQ S2_GOTSOFTCARD               ; $10C8
@@ -916,11 +1005,11 @@ S2_STORETYPE:
 S2_ERR2:
         LDA MSG_NOCARD,Y                 ; $10D9  "CAN'T FIND Z80 SOFTCARD"
         BEQ S2_ERR2_END                  ; $10DC
-        JSR MON_COUT                     ; $10DE
+        JSR COUT                         ; $10DE  print message char
         INY                              ; $10E1
         BNE S2_ERR2                      ; $10E2
 S2_ERR2_END:
-        JMP MON_RESET                    ; $10E4
+        JMP MONZ                         ; $10E4  drop to the monitor
 S2_GOTSOFTCARD:
         LDY #$10                         ; $10E7  copy RWTS param block
 S2_COPYPARM:
@@ -937,14 +1026,21 @@ S2_COPYPARM:
         JSR RWTS_TOP                     ; $1101  read the CP/M system image
         LDA #$16                         ; $1104  patch sector count in RWTS
         STA $0FCC                        ; $1106
-        LDY #$06                         ; $1109  install 6502 reset vectors
+        LDY #$06                         ; $1109  install 6502 reset vectors --
+                                         ;        RESET/NMI/BREAK at $FFFA-$FFFF
+                                         ;        all point at the mode-switch
+                                         ;        routine $03C0 [DOC S&HD 2-25 ;
+                                         ;        facts sec.2.4/4.4]
 S2_VECCOPY:
         LDA VEC_IMG-1,Y                  ; $110B  reads $1125..$112A -> $FFFA..
         STA $FFF9,Y                      ; $110E
         DEY                              ; $1111
         BNE S2_VECCOPY                   ; $1112
         JMP $03D2                        ; $1114  enter mode-switch ($03C0 rtn
-                                         ;        at STA $C081) -> hand to Z-80
+                                         ;        at STA $C081) -> hand to Z-80.
+                                         ;        $03C0 = the 6502->Z-80 mode-
+                                         ;        switch routine [DOC S&HD 2-25 ;
+                                         ;        facts sec.2.4/4.4]
 
 ; SUM_ROM: 16-bit checksum of a peripheral-card ROM at ($3C).
 SUM_ROM:
@@ -961,7 +1057,9 @@ SUM_ROM:
         BNE @lp                          ; $1122
         RTS                              ; $1124
 
-; 6502 reset/NMI/IRQ vector image installed at $FFF9..$FFFF (point at $03C0).
+; 6502 reset/NMI/IRQ vector image installed at $FFF9..$FFFF (point at $03C0):
+; the three 6502 hardware vectors (NMI/RESET/IRQ-BRK) all target the $03C0
+; 6502->Z-80 mode-switch routine [DOC S&HD 2-6, 2-25 ; facts sec.2.4/4.4].
 VEC_IMG:
         .byte   $C0, $03, $C0, $03, $C0, $03            ; $1125
 
@@ -979,11 +1077,35 @@ MSG_SLOT6:
         .byte   $8D                                     ; $1165
         .byte   $8D, $8D                                ; $1166
 
-; RWTS_OVL: 14-byte sector-read trampoline copied to $1000..$100D at install.
-; (First byte $00 doubles as the $00 terminator of MSG_SLOT6.)
-RWTS_OVL:
-        .byte   $00, $AF, $32, $3E, $F0, $6F, $3A       ; $1168
-        .byte   $3D, $F0, $C6, $20, $67, $77, $18       ; $116F
+; SOFTCARD_PROBE_OVL: the slot-probe handshake. A leading $00 (the MSG_SLOT6
+; terminator, data) followed by 13 bytes of Z-80 code. During the slot scan the
+; boot copies those 13 bytes to RAM at $1000..$100C, over STAGE-2's startup
+; instructions (which the 6502 has already finished with -- see STAGE2). From then
+; on they run on the Z-80, never the 6502: the SoftCard maps the Z-80 reset address
+; ($0000) to Apple $1000, so a slot-probe write (SCAN_PROBE) switches to the Z-80
+; and lands it here, where it flags "found" and bounces back to the 6502. The 13
+; Z-80 bytes are assembled from CPM_BootLoader_ProbeOvl.asm and INCBIN'd; the JR's
+; offset byte is the following SIG_BYTE5[0]=$F2 (so SAVEBIN stops at the opcode).
+SOFTCARD_PROBE_OVL:
+        .byte   $00                     ; $1168  MSG_SLOT6 terminator (data)
+;   >>> CPM_BootLoader_ProbeOvl.asm -- verbatim listing of the INCBIN'd source (regen: inject_incbin_listing) >>>
+;
+; FOUND   EQU $F03E        ; the 6502's $3E "SoftCard found" flag (Z-80 view of $003E)
+; PROBED  EQU $F03D        ; the probed slot's $Cn high byte, set by the 6502 ($003D)
+;
+;     ORG $1000
+;
+; PROBE_OVL:
+;     XOR A                ; A = 0
+;     LD (FOUND),A         ; $3E = 0 -> "SoftCard found in the probed slot"
+;     LD L,A               ; HL low = 0
+;     LD A,(PROBED)        ; A = probed slot $Cn
+;     ADD A,$20            ; $Cn -> $En (the slot's Z-80 I/O page)
+;     LD H,A               ; HL = $En00
+;     LD (HL),A            ; touch $En00 -> Apple $Cn00 -> switch back to the 6502
+;     JR PROBE_OVL         ; loop ($18; offset byte $F2 supplied by host SIG_BYTE5[0])
+;   <<< end listing <<<
+        .incbin "CPM_BootLoader_ProbeOvl.bin"   ; $1169-$1175  (Z-80; JR offset = SIG_BYTE5[0])
 
 ; Card-signature compare tables (bytes $Cn05 / $Cn07 for known card types).
 SIG_BYTE5:
@@ -991,11 +1113,20 @@ SIG_BYTE5:
 SIG_BYTE7:
         .byte   $48, $3C, $38, $18, $48, $FF            ; $117A
 
-; SCAN_PROBE: set ($3C/$3D) and self-mod store to the slot's $Cn00 ROM page.
+; SCAN_PROBE: probe slot $Cn for the SoftCard. Points ($3C/$3D) at $Cn00 and
+; self-mods the STA operand so it WRITES $Cn00. That write IS the probe: on the
+; SoftCard's slot it toggles the CPU (the card has no ROM -- any access to its
+; slot page switches), the Z-80 runs the SOFTCARD_PROBE_OVL handshake at $1000 and clears
+; the $3E "found" flag before bouncing back, so the caller's LDA $3E reads 0.
+; Ordinary ROM cards / empty slots ignore the write, leaving $3E unchanged.
 SCAN_PROBE:
         STY $3D                          ; $1180  high byte = $Cn
         STY SCAN_PROBE+7                 ; $1182  patch high byte of STA operand
-        STA $C000                        ; $1185  store to $Cn00 (operand patched)
+        STA $C000                        ; $1185  WRITE $Cn00 -- the SoftCard probe.
+                                         ;        A WRITE (not a read) to the
+                                         ;        slot-dependent control area
+                                         ;        $CN00 switches CPUs [DOC S&HD
+                                         ;        2-24/2-31 ; facts sec.2.5]
         RTS                              ; $1188
 
         .res    119, $FF                 ; $1189  fill
@@ -1004,10 +1135,13 @@ SCAN_PROBE:
 ;  INSTALL IMAGE  ($1200..$13FF)  -  copied to $0200..$03FF at install time.
 ;  This is the I/O Configuration Block / mode-switch / Z-80 init image.  It is
 ;  DATA in this 6502 boot image: nothing here is executed at $1200.  After the
-;  copy it becomes, at $0200..$03FF:
+;  copy it becomes, at $0200..$03FF (the I/O Configuration Block, Z-80
+;  0F200H-0F3FFH [DOC S&HD 2-6/2-12 ; facts sec.2.2/3]):
 ;    $034A..  Z-80 console / SoftCard lower-case-driver init code
 ;    $03C0..  the 6502 -> Z-80 CPU mode-switch routine (runs after the copy)
-;    $03D0..  A$VEC (6502-call vector), $03DE Z$CPU (SoftCard location)
+;             [DOC S&HD 2-25 ; facts sec.2.4/4.4]
+;    $03D0..  A$VEC (6502-call vector) [DOC S&HD 2-25 ; facts sec.4.2],
+;             $03DE Z$CPU (SoftCard location) [DOC S&HD 2-24/2-25 ; facts sec.4.3]
 ;    $03EF..  RWTS parameter cells
 ;  $1200..$1349 is $00 fill (the low config-block page is built at runtime).
 ; ============================================================================
@@ -1016,19 +1150,91 @@ INSTALL_IMG:
         .res    255, $00                 ; $1200  $00 fill ($0200 page)
         .res    75, $00                  ; $12FF  $00 fill ($0300..$0349)
 
-; --- $134A..$137B : Z-80 console / SoftCard init (Z-80 code; DATA here) ------
-;  reads SLTTYP+2 (Card Type Table slot-3 entry, Z-80 0F3BBH), tests for an
-;  80-column card, sets up A$VEC ($03D0)/Z$CPU ($03DE), MOV M,A; RET.
-        .byte   $3A, $BB, $F3, $FE, $03, $C2, $0C, $AB  ; $134A
-        .byte   $3A, $BE, $E0, $1F, $9F, $C9, $CD, $12  ; $1352
-        .byte   $AB, $E6, $7F, $C9, $3A, $BB, $F3, $FE  ; $135A
-        .byte   $03, $C2, $3E, $AC, $3A, $BE, $E0, $E6  ; $1362
-        .byte   $02, $28, $F9, $79, $32, $45, $F0, $21  ; $136A
-        .byte   $7C, $03, $22, $D0, $F3, $2A, $DE, $F3  ; $1372
-        .byte   $77, $C9                                ; $137A
+; --- $134A..$137B : Z-80 console driver for a slot-3 serial (type-3) card -----
+;  These 50 bytes are Z-80 code, not 6502 -- assembled by the Z-80 assembler from
+;  CPM_BootLoader_ConInit.asm (ORG'd at its $F34A run address) and INCBIN'd here.
+;  Stored at this offset in the boot image, copied to Apple $034A at install,
+;  executed by the Z-80 at $F34A. The exact source listing follows so this file
+;  is self-documenting; CPM_BootLoader_ConInit.asm is authoritative.
+;  Structures the driver touches (manual-documented): SLTTYP3 0F3BBH = the
+;  Card Type Table entry for slot 3, =3 for a serial card [DOC S&HD 2-26/2-27 ;
+;  facts sec.3.6]; A_ACC 0F045H = the 6502 A-register RPC pass cell, A_VEC
+;  0F3D0H = 6502 sub-call address, Z_CPU 0F3DEH = SoftCard location (a store
+;  there flips CPUs) [DOC S&HD 2-24/2-25 ; facts sec.4.1/4.2/4.3].
+;   >>> CPM_BootLoader_ConInit.asm -- verbatim listing of the INCBIN'd source (regen: inject_incbin_listing) >>>
+;     INCLUDE "apple_softcard.inc"   ; Apple/SoftCard external names (single source of truth)
+;
+; SLOT3IO EQU $E0BE        ; slot-3 device status register (Apple $C0BE)
+;
+;     ORG $F34A
+;
+; CON_STATUS:                     ; $F34A  console status
+;     LD A,(SLTTYP3)              ; slot-3 card type
+;     CP $03                      ; a type-3 (serial) card?
+;     JP NZ,$AB0C                 ; no -> BIOS console status
+;     LD A,(SLOT3IO)              ; serial status register
+;     RRA                         ; bit0 (char ready) -> carry
+;     SBC A,A                     ; A = $FF if ready else $00
+;     RET
+; CON_INPUT:                      ; $F358  console input
+;     CALL $AB12                  ; fetch raw key via BIOS
+;     AND $7F                     ; strip high bit
+;     RET
+; CON_OUTPUT:                     ; $F35E  console output (char in C)
+;     LD A,(SLTTYP3)              ; slot-3 card type
+;     CP $03                      ; a type-3 (serial) card?
+;     JP NZ,$AC3E                 ; no -> BIOS console output
+; OUT_WAIT:                       ; $F366
+;     LD A,(SLOT3IO)              ; serial status register
+;     AND $02                     ; Tx-ready bit set?
+;     JR Z,OUT_WAIT               ; spin until ready
+;     LD A,C                      ; char to send
+;     LD (RPC_ACC),A                ; hand it to the 6502 (A-reg cell)
+;     LD HL,$037C                 ; 6502 sub: STA $C0BF ; RTS
+;     LD (A_VEC),HL               ; A$VEC := $037C
+;     LD HL,(Z_CPU)               ; HL := $En00
+;     LD (HL),A                   ; touch $En00 -> RPC runs the 6502
+;     RET
+;   <<< end listing <<<
+        .incbin "CPM_BootLoader_ConInit.bin"   ; $134A..$137B  (Z-80; byte-identical)
 
-; --- $137C..$13BF : config-block jump/redirect cells + driver data -----------
-        .byte   $8D, $BF, $C0, $60                      ; $137C
+; --- $137C..$137F : RPC_SERIAL_OUT -- 6502 routine called by the Z-80 console driver ---
+; [AI] The Z-80 ConInit output path sets A$VEC=$037C then switches to the 6502, which runs
+;      this (image copy at $137C, run address $037C): push the queued character to the slot-3
+;      serial data register and return to the RPC loop. Real 6502 code, not config data.
+RPC_SERIAL_OUT:
+        STA $C0BF                       ; $137C  (run $037C) char -> slot-3 serial data reg
+        RTS                             ; $137F
+; --- $1380..$13BF : I/O Vector Table + screen-function / keyboard config -----------
+;  This window is part of the I/O Configuration Block; at install offset $1380 it
+;  copies to runtime $0380 = Z-80 0F380H.
+;
+;  $1380..$1395 (runtime $0380..$0394 = 0F380H..0F394H): the I/O Vector Table --
+;  eleven two-byte little-endian primitive character-I/O vectors, each the address
+;  the BIOS CONST/CONIN/CONOUT/READER/PUNCH/LIST routine JMPs through. In order:
+;  #1 Console Status, #2/#3 Console Input, #4/#5 Console Output, #6/#7 Reader Input,
+;  #8/#9 Punch Output, #10/#11 List Output. Here they point at this disk's console
+;  handlers ($F34A CON_STATUS, $F358 CON_INPUT, $AB12, $F35E CON_OUTPUT, $AC3E) and
+;  at the BIOS reader/punch/list stubs ($AD45, $AD3F, $AD2B, $AD20)
+;  [DOC S&HD 2-18/2-19 ; facts sec.3.2].
+;
+;  $1396/$1397 (runtime $0396/$0397 = 0F396H/0F397H): the software screen-function
+;  header -- SXYOFF (cursor XY coordinate offset; high bit selects X/Y transmit
+;  order) then SFLDIN (lead-in character, 0 = none) [DOC S&HD 2-14 ; facts sec.3.3].
+;  $1398.. (runtime $0398.. = SSFTAB 0F398H): the Software Screen Function table,
+;  nine one-byte entries (Clear Screen, Clear-to-EOP, Clear-to-EOL, Set Normal,
+;  Set Inverse, Home, Address Cursor, Cursor Up, Cursor Forward; 0 = unimplemented)
+;  followed by the parallel Hardware Screen Function table (offset/lead-in at
+;  0F3A1H/0F3A2H, fns at 0F3A3H..0F3AAH) [DOC S&HD 2-14/2-15 ; facts sec.3.4].
+;  $13AC.. (runtime $03AC = 0F3ACH): Keyboard Character Redefinition Table -- up to
+;  six {from,to} ASCII pairs (both high bits clear), end marked by a high-bit-set
+;  byte [DOC S&HD 2-17 ; facts sec.3.5].
+;  $13B8/$13B9.. (runtime $03B8/$03B9): install-time placeholder for the Disk Count
+;  Byte (0F3B8H, #controllers x2) [DOC S&HD 2-27 ; facts sec.3.7] and the Card Type
+;  Table (SLTTYP 0F3B9H, slot S at 0F3B8H+S) [DOC S&HD 2-26/2-27 ; facts sec.3.6];
+;  CAVEAT: these two are rebuilt by the runtime slot scan (S2_SLOTSCAN above writes
+;  the disk-count to $03B8 and per-slot types to $03B9+), so the bytes shipped here
+;  are overwritten before use.
         .byte   $4A, $F3, $58, $F3, $12, $AB, $5E, $F3  ; $1380
         .byte   $3E, $AC, $45, $AD, $45, $AD, $3F, $AD  ; $1388
         .byte   $3F, $AD, $2B, $AD, $2B, $AD, $20, $1B  ; $1390
@@ -1038,26 +1244,34 @@ INSTALL_IMG:
         .byte   $02, $5C, $15, $09, $FF, $FF, $FF, $FF  ; $13B0
         .byte   $02, $03, $00, $04, $01, $00, $02, $00  ; $13B8
 
-; --- $13C0..$13DA : 6502 -> Z-80 CPU mode-switch routine (runs at $03C0) ------
-;  Shown as bytes (it is the install-image copy, never executed from $13C0):
-;    AD 83 C0   LDA $C083    ; read/enable LC bank
-;    AD 83 C0   LDA $C083
-;    8D 00 C7   STA $C700    ; write to slot-7 $Cn00 control area (hardcoded);
-;                            ; this $C700 access is the one implicated in the
-;                            ; corrected 2.20 $C800-window hang mechanism
-;    AD 81 C0   LDA $C081
-;    20 3F FF   JSR $FF3F    ; Monitor SETNORM
-;    20 10 10   JSR $1010    ; (patched RWTS entry)
-;    8D 81 C0   STA $C081
-;    20 4A FF   JSR $FF4A    ; Monitor INIT
-;    4C C0 03   JMP $03C0    ; loop / hand bus to Z-80
-        .byte   $AD, $83, $C0, $AD, $83, $C0, $8D, $00  ; $13C0
-        .byte   $C7, $AD, $81, $C0, $20, $3F, $FF, $20  ; $13C8
-        .byte   $10, $10, $8D, $81, $C0, $20, $4A, $FF  ; $13D0
-        .byte   $4C, $C0, $03                           ; $13D8
+; --- $13C0..$13DA : the 6502-side RPC service loop, copied to $03C0 -----------
+;  The heart of the cooperative two-CPU protocol. The Z-80 is master; when it
+;  needs the 6502 it switches here (the 6502 resumes at $03C9), runs one
+;  requested routine, and hands the bus back. The register handoff rides through
+;  the monitor's RESTORE/SAVE save area ($45-$49) -- the RPC register-pass cells:
+;  $45 A, $46 Y, $47 X, $48 P, $49 = 6502 SP on exit [DOC S&HD 2-24/2-25 ;
+;  facts sec.4.1]. Written as real 6502 below:
+;  it runs at $03C0 but is assembled here in the install image and copied there;
+;  every operand is absolute, so the bytes are identical at either address (and
+;  the JMP target is the literal runtime $03C0, not this image copy). The
+;  STA $C700 is the slot-7 access implicated in the corrected 2.20 $C800-window
+;  hang mechanism (see CPM_SoftCard_RealMap_Findings.md).
+        LDA $C083                       ; $03C0  LC: read RAM bank2, write-enable
+        LDA $C083                       ; $03C3   (two reads arm the LC write latch)
+        STA $C700                       ; $03C6  WRITE to the slot-7 page ($CN00)
+                                        ;        switches CPUs -> to the Z-80
+                                        ;        [DOC S&HD 2-24/2-31 ; facts sec.2.5]
+        LDA $C081                       ; $03C9  (resume here) LC: read ROM
+        JSR RESTORE                     ; $03CC  A,X,Y,P <- $45-$48 (Z-80's call params)
+        JSR $1010                       ; $03CF  dispatch the requested 6502 RPC routine
+        STA $C081                       ; $03D2  LC: read ROM
+        JSR SAVE                        ; $03D5  A,X,Y,P,S -> $45-$49 (results for Z-80)
+        JMP $03C0                       ; $03D8  loop -> hand the bus back to the Z-80
 
 ; --- $13DB..$13EE : RPC / config cells (-> $03DB..$03EE) ----------------------
-;  $03D0 A$VEC, $03DE Z$CPU live in this window; here as initialized data.
+;  $03D0 A$VEC (6502 sub-call address, low-high) [DOC S&HD 2-25 ; facts sec.4.2]
+;  and $03DE Z$CPU (SoftCard location) [DOC S&HD 2-24/2-25 ; facts sec.4.3] live
+;  in this window; here as initialized data.
         .byte   $00, $00                                ; $13DB
         .byte   $20, $00, $E7, $00, $0A, $00, $CD, $01  ; $13DD
         .byte   $01, $60, $60, $00, $03, $00, $02, $00  ; $13E5

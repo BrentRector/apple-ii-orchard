@@ -1,10 +1,21 @@
 # SoftCard CP/M — Source-Completion Gap Analysis + "Guided Tour" Article Plan
 
-Working plan (created 2026-06-18). Two parts: (1) what it takes to get each
-SoftCard CP/M build to a **100%-decompiled, fully-documented, byte-identical
-round-trip**; (2) the wiseowl.com project + article series that reads the
-finished source. Order of work: **2.20-44K → 2.23-44K utilities → 56K/60K
-cleanup → articles.**
+Working plan (created 2026-06-18; **substantially updated 2026-06-20**). Two parts:
+(1) what it takes to get each SoftCard CP/M build to a **100%-decompiled,
+fully-documented, byte-identical round-trip**; (2) the wiseowl.com project + article
+series that reads the finished source. Original order of work: **2.20-44K → 2.23-44K
+utilities → 56K/60K cleanup → articles.**
+
+**>>> CURRENT STATE (2026-06-20):** both **44K trees** (`CPMV220-44K` + `CPMV223-44K`)
+are now at the full standard — every OS file and every utility (except the two BASICs)
+is byte-identical, has **0 machine labels** (semantically named), strings-as-literals,
+and `[DOC]` manual citations. All work is on branch
+**`softcard-bootloaders-to-standard`** (not yet merged to main); gate **215 passed**
+(`source shared/toolchain/env.sh && python -m pytest softcard/ shared/`). The
+**immediate next task is the BASICs, starting with GBASIC 2.20-44K (superset-first)** —
+full recipe in memory `project_gbasic_2_20_44k_re_kickoff` +
+`project_gbasic_vs_mbasic_relationship`. After that: 56K/60K trees to the same
+standard, the CPM56→os/ fold, then the article series.
 
 Definition of "100% operational" (per Brent, 2026-06-18): the pipeline must
 (1) fully decompile the bytes present on the disk image, (2) fully comment and
@@ -14,32 +25,77 @@ free space) is carried verbatim — that is faithful, not a gap.
 
 ---
 
-## Part 1 — Pipeline completion gap analysis
+## Part 1 — Pipeline completion: per-build status
 
-### 2.23-44K — ~95% done
-- **Decompile:** done. 7 OS sources + 19 `.COM` to source.
-- **Reassemble:** done. Full-disk reconstruct **byte-identical**; **82.9%** of 143,360 bytes from re-assembled source. The carried **17.1% (24,576 B)** is genuine non-code data: `CONFIGIO.BAS`, `DUMP.ASM`, directory, free space.
-- **Document:** OS manual-reconciled (`[DOC]` tags); `.COM` are decompiled + **AI-commented only**.
-- **REMAINING:** (b) manual-reconcile the 19 `.COM` comments (SoftCard tools — APDOS/COPY/CONFIGIO/DOWNLOAD — against the Software Utilities manual; stock DR tools against the CP/M Reference); add a short note accounting for the carried data files.
+The "full standard" (per Brent) for a source file: **(1)** every byte decoded to real
+instructions where it is code (embedded other-CPU code disassembled with the right tool
+and `INCBIN`'d, relocated bodies decoded at their run address via `DISP`), **(2)**
+strings as string literals (high-bit Apple text via ca65 `.charmap`), **(3)** zero
+machine labels — semantically named (`<ROUTINE>_<N>` internals, inline `cover+offset`
+for mid-instruction refs), **(4)** `[DOC <manual> <page>]` citations where the manuals
+document a structure (never on `[RE]`/version-delta material), **(5)** reassembles
+**byte-identical**. Genuine non-code data (`.BAS`/`.ASM` text, directory, free space)
+carried verbatim is faithful, not a gap.
 
-### 2.20-44K — the ORIGINAL build (corrected 2026-06-18 per Brent)
-- **The 44K disk is the as-shipped ORIGINAL, not a derivative.** Every memory layout (44K / 56K / 60K) is the **SAME OS source recompiled at config-specific base addresses**. `CPM56.COM` / `CPM60.COM` overlay the original 44K system tracks **in place** to produce the 56K / 60K disks (each carries that same source assembled at its config's bases). So **2.20-44K is canonical/primary; 56K and 60K derive FROM it** via CPM56/CPM60, not the other way round.
-- **Base addresses:** 44K = BIOS `$AA00` / BDOS `$9C00` / CCP `$9400` (original); 56K = `$DA00` / `$CC00` / `$C400` (LC bank 2); 60K = relocated + both LC banks.
-- **The LC configs add code, not only addresses.** 56K/60K **conditionally compile in Language-Card bank-switching** routines (BIOS disk handlers move into LC banks, with bank-switch entry/exit thunks — e.g. the FED2/FEE0-style bank-1<->bank-2 thunks the 2.23 reference describes). So the 44K is the smallest, base build (no LC code), and the 44K<->56K delta = relocation **plus** these extra LC blocks. The shared source is therefore parameterized two ways: **base addresses + Language-Card `IFDEF` blocks**, exactly the conditional pattern `CPM60.asm` already uses (`IFNDEF CPM60_LINK` guards).
-- **2.20-vs-2.20B parameterizes cleanly too (confirmed by the 42-byte breakdown).** It splits into: the **CP/M serial** (per-copy fingerprint, not a version trait — already a reconstruct parameter); the **banner string** `2.20` vs `2.20B`; and just **two tiny functional changes** (2.20B turns a `CALL $AF64` into `LD A,($AF64)`, and adds a ~9-byte `CALL $AB3B / XOR A / STA $9407 / RET` routine where 2.20 has banner text). The rest are **`CALL`/`JP` target shifts that follow automatically** once those blocks are placed — i.e. "shift existing 2.20 code a bit" is right; the assembler recomputes the labels.
-- **=> THREE parameterization axes:** **sub-version** (2.20/2.20B: banner + 2 conditional blocks), **memory config** (44K/56K/60K: base addresses + LC `IFDEF` blocks), and **serial** (per-copy). All six 2.20-family disks (2.20/2.20B x 44K/56K/60K) fall out of one source.
-- The repo's existing `CPMV220/os` is the **2.20B-56K** assembly of this source. Build 2.20-44K by **assembling the OS source at the 44K (original) bases** -> byte-identical, the same way `CPM60.asm` already builds from one master via DISP/MODULE/INCBIN relocating Z-80 modules to run addresses. The end state is ONE parameterized 2.20 OS source spanning the 2.20-family targets (the shared-source-tree vision).
-- **Disk contents (19 files):** APDOS, ASM, CONFIGIO.BAS, COPY, CPM56, DDT, DOWNLOAD, DUMP(.ASM/.COM), ED, FORMAT, GBASIC, LOAD, MBASIC, PIP, RW13, STAT, SUBMIT, XSUB.
-- **BUILD STEPS (per Brent's methodology — 44K baseline FIRST):**
-  1. **Per-`.COM` byte-identity sweep** — DONE: 12/17 reuse, 5 new (CPM56, DDT, SUBMIT, GBASIC, MBASIC).
-  2. **Generate the 2.20-44K OS source as the BASELINE.** Decompile the 44K disk at the 44K bases (`$AA00`/`$9C00`/`$9400`), get it reassembling **byte-identical**, and **comment** it. The 44K has no LC code, so it is the clean/minimal baseline. Needs a config-aware `'220-44k'` chunk_map (`decompile-os` currently mislabels the BIOS `$DA00`).
-  3. **Sliding-window diff the 56K source against the 44K baseline.** Matched sections (after the address shift) = shared code; the **unmatched 56K sections ARE the Language-Card blocks** -> they fall out naturally. Wrap them in `IF LANGCARD` conditionals.
-  4. **Fold in the sub-version + serial parameters** (banner + the 2 tiny 2.20B blocks; per-copy serial) so all six 2.20-family disks (2.20/2.20B x 44K/56K/60K) reconstruct byte-identical, each with a regression test.
-  5. **Comment / manual-reconcile** OS (`[DOC]`) + utilities.
+### 2.20-44K (`CPMV220-44K`) — DONE to the full standard (2026-06-20)
+The **canonical/base** tree. OS: `CPM_BootLoader.s` (6502) + `CPM_CCP.asm` +
+`CPM_BDOS.asm` + `CPM_BIOS.asm` + `CPM_RPC6502.s` (the embedded 6502 RPC block, ca65,
+INCBIN'd; **generated by `cpm_pipeline/gen_rpc6502.py`** and listing-injected into
+CPM_CCP.asm — edit the generator + re-run `inject_incbin_listing`, not the `.s`).
+Utilities: **the base tree owns the 9 byte-identical-across-disks utilities** (APDOS,
+ASM, DOWNLOAD, DUMP, ED, LOAD, PIP, STAT, XSUB) plus the 2.20-specific ones (CPM56, DDT,
+SUBMIT) and the **3 added 2026-06-20** (COPY, FORMAT, RW13 — each embeds a 6502 disk
+engine extracted to `<NAME>_6502.s`). All byte-identical, 0 machine labels, strings as
+literals, `[DOC]`-cited. **NOT done:** the two BASICs (GBASIC = next; MBASIC after) and
+the CPM56.asm relocated 56K body (fold-destined — see below).
 
-### Sequencing
-- Under the corrected model, **44K is primary; 56K/60K are CPM56/CPM60 overlays** of it (the same source at higher bases). The repo's existing `CPMV220` (2.20B-56K, byte-identical) is the 56K assembly — so once the OS source is base-parameterized, 56K falls out of the same tree.
-- **60K** already proves the pattern: `CPMV223-60K` builds from the `CPM60.asm` master with relocation. The end state is one base-parameterized OS source per sub-version with 44K/56K/60K targets.
+### 2.23-44K (`CPMV223-44K`) — DONE to the full standard (2026-06-20)
+OS: `CPM_BootLoader.s` + `CPM_CCP.asm` (INCLUDEs `CPM_BDOS.asm`) + `CPM_BDOS.asm` +
+`CPM_BIOS.asm` + `CPM_DiskCallbacks.asm` + `CPM_RPC6502.s`, plus the boot-loader
+fragment sources (`*_ProbeOvl.asm` / `*_DiskXlate.asm`) INCBIN'd with verbatim listings.
+The system image is **two independent modules** (CCP + BDOS), never a combined
+`SystemImage`. Utilities: the tree carries only the deltas from the base
+(AUTORUN/BOOT/CAT/COPY/DDT/MFT/PATCH/SUBMIT + the BASICs); all byte-identical, named,
+cited. Full-disk reconstruct byte-identical. **NOT done:** the two BASICs.
+
+### 56K (`CPMV220` = 2.20B-56K) — NOT yet at the full standard
+The repo's `CPMV220/` tree is the 2.20B-56K assembly. Its OS still has a combined
+`CPM_SystemImage.asm` (split pending) and was not put through the 2026-06-19/20
+code-as-bytes / naming / `[DOC]` passes (those were 44K-only). Its utilities include the
+2.20B-56K COPY/FORMAT/RW13 (the structural reference used to decompile the 2.20-44K
+ones). Eventually subsumed by the fold (below).
+
+### 60K (`CPMV223-60K`) — NOT yet at the full standard
+Builds `CPM60.COM` byte-exact from one master `CPM60.asm` (DISP/MODULE/INCBIN relocating
+Z-80 modules to run addresses — the proven relocation pattern). Keeps its own
+`CPM_RWTS.s` / `CPM_InstallFragments.s` (a distinct 1469-B form `build_cpm60` consumes —
+NOT duplicates of the boot loader). Not yet held to the naming/`[DOC]` standard.
+
+### The BASICs — GBASIC (next) then MBASIC
+Both are **Microsoft BASIC-80 Rev 5.2**; **MBASIC is the graphics-OFF build of the same
+engine** (proof: its `"Graphics statement not implemented"` string at $0705 that GBASIC
+drops). GBASIC is the superset → **decompile GBASIC 2.20-44K FIRST** (covers 100% of
+both). It self-relocates to `$3000` (`LDDR` copy-up) so the interpreter body is decoded
+via `DISP $3000`; the existing `CPMV223-44K/utilities/GBASIC.asm` already does this and
+is the structural template (but unenriched: ~3233 machine labels). 2.20 vs 2.23 GBASIC
+differ by 56 bytes (console/memory patches, not graphics). **Full recipe + binary facts:
+memory `project_gbasic_2_20_44k_re_kickoff`; relationship/evidence:
+`project_gbasic_vs_mbasic_relationship`.**
+
+### The remaining work, in order
+1. **GBASIC 2.20-44K** to the full standard (superset-first), owned in the base tree.
+2. **MBASIC 2.20-44K** — derive as the graphics-OFF subset of GBASIC.
+3. **56K (`CPMV220`) + 60K (`CPMV223-60K`)** trees to the full standard (split the 56K
+   `CPM_SystemImage`; run the naming/`[DOC]` passes).
+4. **The CPM56→os/ fold (the one-`CPMV220`-tree model)** — see the locked design in the
+   Status log (2026-06-18). `CPMV220/` becomes the sole v2.20 source tree; `CPM56.asm`
+   builds `CPM56.COM` by INCLUDE-ing the same `os/` sources ORG'd to 56K run addresses +
+   DISP'd to the .COM file offsets; sub-version via `IF REV_B`. Empirically the 44K↔56K
+   config delta is **pure +$3000 relocation, NOT Language-Card code blocks** (an earlier
+   premise, corrected — see Status log 2026-06-18). The remaining work there is making
+   `os/` fully address-relocatable (literals→labels).
+5. **The "Guided Tour" article series** (Part 2) — the 44K source is now final, so the
+   articles can begin once the BASICs land.
 
 ---
 
@@ -61,11 +117,27 @@ free space) is carried verbatim — that is faithful, not a gap.
 7. **RWTS** — the 6-and-2 GCR codec and the `$C800` Firmware-Card setup (external 2.23 reference corroboration).
 8. **Rebuilding the disk byte-for-byte** (capstone) — the reconstruct pipeline + round-trip discipline as proof the tour is true.
 
-**Dependency:** finish the 2.20-44K + 2.23-44K source to 100% **first**, so the source being toured is final.
+**Dependency:** finish the 2.20-44K + 2.23-44K source to 100% **first**, so the source
+being toured is final. **As of 2026-06-20 that is met for everything except the two
+BASICs** — the OS + all non-BASIC utilities in both 44K trees are at the full standard.
+The articles can begin once GBASIC/MBASIC land (a graphics article would draw on GBASIC).
 
 ---
 
 ## Status log
+- **2026-06-20: ALL FOUR PHASES DONE for both 44K trees (CPMV220-44K + CPMV223-44K)**
+  on branch `softcard-bootloaders-to-standard` (not yet merged); gate **215 passed**
+  (`source shared/toolchain/env.sh && python -m pytest softcard/ shared/`). Phase 1
+  code-as-bytes (all live code decoded; embedded-6502 disk engines -> `<NAME>_6502.s`
+  INCBIN; relocated transient bodies via DISP; over-classified dead/stale regions
+  re-audited; strings -> literals incl. high-bit via ca65 `.charmap`). Phase 2
+  semantic naming (0 machine labels across OS + utilities; adversarial-verify caught
+  real errors). Phase 3 [DOC] citations (new `[DOC Vol1]` tag; guardrail: never [DOC]
+  a [RE]/version-delta). Phase 4 the missing 2.20-44K COPY/FORMAT/RW13. EXEMPT: the
+  two BASICs. DEFERRED: CPM56.asm body (fold-destined), 56K/60K trees (44K-only so far).
+  **CHOSEN NEXT (Brent): decompile GBASIC 2.20-44K, superset-first -> see memory
+  `project_gbasic_2_20_44k_re_kickoff` (full recipe: DISP $3000 relocation, the
+  existing CPMV223-44K/GBASIC.asm is the template) + `project_gbasic_vs_mbasic_relationship`.**
 - 2026-06-18: plan created; starting (a) 2.20-44K build.
 - 2026-06-18 (a) progress:
   - **Step 1 (.COM sweep) DONE:** of 17 `.COM`, **12 are byte-identical to existing decompiles** (reuse: APDOS, ASM, COPY, DOWNLOAD, DUMP, ED, FORMAT, LOAD, PIP, RW13, STAT, XSUB) and **5 are new** (decompile: CPM56, DDT, SUBMIT, GBASIC, MBASIC). 2 data files carried (CONFIGIO.BAS, DUMP.ASM).

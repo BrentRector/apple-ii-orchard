@@ -433,15 +433,34 @@ def foreign_include_text(mem, org, length, fr, *, symbols=None, seeds=(),
     return "\n".join(lines) + "\n"
 
 
-def assemble_z80(src_with_placeholder: str) -> bytes:
+def assemble_z80(src_with_placeholder: str, *, incbin_deps=(), include_files=()) -> bytes:
     """Assemble source produced by `disasm_z80_region` (or similar) back to bytes.
 
     Substitutes a temp path for `{out_bin}`, runs sjasmplus, and returns the
     emitted binary (empty bytes if assembly failed). Used for round-trip checks.
+
+    `incbin_deps` lets a Z-80 source INCBIN a separately-assembled 6502 block
+    (the cross-CPU INCBIN pattern: a utility carries an embedded 6502 payload as
+    its own ca65 source, sub-assembled and INCBIN'd back so each CPU's code is
+    real source in its own assembler). Each entry is ``(bin_name, ca65_src_path,
+    defines)``: the ca65 source (with its sibling ``.cfg``) is assembled into the
+    temp dir as ``bin_name`` BEFORE sjasmplus runs, and sjasmplus runs with
+    ``cwd`` = the temp dir so the Z-80 source's ``INCBIN "bin_name"`` resolves.
+
+    `include_files` stages shared text includes the source pulls in with
+    ``INCLUDE "name"`` (e.g. the common ``apple_softcard.inc`` EQU file). Each
+    entry is ``(name, src_path)``: the file is copied verbatim into the temp dir
+    as ``name`` so the bare-name INCLUDE resolves against ``cwd``.
     """
     with tempfile.TemporaryDirectory() as tds:
         td = Path(tds)
         out_bin = td / "out.bin"
+        for bin_name, src_path, defines in incbin_deps:
+            from .assemble import _build_incbin_dep
+            _build_incbin_dep(Path(src_path), td / bin_name, tuple(defines))
+        for inc_name, inc_path in include_files:
+            (td / inc_name).write_text(Path(inc_path).read_text(encoding="latin-1"),
+                                       encoding="latin-1")
         asm = td / "region.asm"
         asm.write_text(src_with_placeholder.replace("{out_bin}", out_bin.as_posix()),
                        encoding="utf-8")

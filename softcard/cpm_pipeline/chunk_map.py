@@ -8,8 +8,10 @@ physical (track, sector) position on the disk." The binary is one of:
     sources emit.
 Both variants are now fully sourced: every boot/OS sector maps to an
 assembled `docs/CPM*.asm` source (no pre-extracted `.bin` remains in the
-map). The CCP+BDOS+BIOS LOAD_CPM staging area is split across
-`CPM*_SystemImage`, `CPM*_DiskCallbacks` (2.23), and `CPM*_BIOS_Disk`
+map). The CCP+BDOS+BIOS LOAD_CPM staging area is split across the system image
+(`CPM223_44K_System` = CPM_CCP.asm INCLUDEing CPM_BDOS.asm, the two
+independent modules; the 2.20-56K tree still uses the legacy combined
+`CPM220_SystemImage`), `CPM*_DiskCallbacks` (2.23), and `CPM*_BIOS_Disk`
 (the pristine on-disk BIOS image). A future phase (Stage 2 of the
 roadmap) will derive these maps automatically from boot-loader tracing
 instead of hand-listing them.
@@ -32,6 +34,8 @@ INVEST = REPO_ROOT / "cpm-investigation"
 OS223_44K = REPO_ROOT / "CPMV223-44K" / "os"   # canonical 2.23 OS source tree (disk build reads here)
 OS220 = REPO_ROOT / "CPMV220" / "os"           # canonical 2.20B-56K OS source tree
 OS220_44K = REPO_ROOT / "CPMV220-44K" / "os"   # canonical 2.20-44K OS source tree (clean-room decompile)
+INCLUDE_DIR = REPO_ROOT / "include"            # shared single-source-of-truth EQU includes
+SOFTCARD_INC = INCLUDE_DIR / "apple_softcard.inc"   # Apple/SoftCard external-address names
 
 
 @dataclass(frozen=True)
@@ -61,24 +65,41 @@ SOURCES_223: dict[str, ChunkSource | Path] = {
     "CPM223_BootLoader": ChunkSource(
         asm_path=OS223_44K / "CPM_BootLoader.s",
         cpu="6502", org=0x0800, size=0x0C00,
+        # Two embedded Z-80 blocks -- the slot-probe handshake ($11B1, run at
+        # $1000) and the disk-translate routine ($0C39, run at $BC39) -- each real
+        # Z-80 source, sub-assembled by sjasmplus and INCBIN'd (CPM_RPC6502
+        # pattern, CPUs swapped).
+        incbin_deps=(
+            ("CPM_BootLoader_ProbeOvl.bin",
+             OS223_44K / "CPM_BootLoader_ProbeOvl.asm", ()),
+            ("CPM_BootLoader_DiskXlate.bin",
+             OS223_44K / "CPM_BootLoader_DiskXlate.asm", ()),
+        ),
     ),
-    "CPM223_RWTS": ChunkSource(
-        asm_path=OS223_44K / "CPM_RWTS.s",
-        cpu="6502", org=0x0A00, size=0x0600,
-    ),
-    "CPM223_InstallFragments": ChunkSource(
-        asm_path=OS223_44K / "CPM_InstallFragments.s",
-        cpu="6502", org=0x0200, size=0x0200,
-    ),
+    # NOTE: there is no separate CPM223_RWTS / CPM223_InstallFragments source.
+    # CPM_BootLoader.s ($0800-$13FF) is the single canonical decode and already
+    # contains the RWTS ($0A00-$0FFF) and the install image ($1200-$13FF, run at
+    # $0200-$03FF); the former standalone files were byte-identical duplicates the
+    # build never placed, so they were removed.
     "CPM223_DiskCallbacks": ChunkSource(
         asm_path=OS223_44K / "CPM_DiskCallbacks.asm",
         cpu="z80", org=0x1A00, size=0x0200,
         expected_bin_name="build/CPM223_DiskCallbacks.bin",
+        include_files=(SOFTCARD_INC,),
     ),
-    "CPM223_SystemImage": ChunkSource(
-        asm_path=OS223_44K / "CPM_SystemImage.asm",
+    # The CP/M system image is TWO independent modules -- the CCP and the BDOS --
+    # each its own source file. CPM_CCP.asm carries the CCP (staged $8000-$8CFF) and
+    # assembles the full $8000 staging image by INCLUDEing CPM_BDOS.asm (staged
+    # $8D00, runs $9C00) under DISP $9C00, so the two compile as ONE unit and
+    # reassemble byte-identical. (Mirrors the CPMV220-44K CPM_CCP+CPM_BDOS split.)
+    "CPM223_44K_System": ChunkSource(
+        asm_path=OS223_44K / "CPM_CCP.asm",
         cpu="z80", org=0x8000, size=0x1700,
-        expected_bin_name="build/CPM223_SystemImage.bin",
+        expected_bin_name="build/CPM223_44K_System.bin",
+        # CCP embeds a 6502 RPC block ($9401-$94FF), INCBIN'd from its ca65 source
+        # (the CPM_RPC6502 pattern; mirrors CPM220_44K_System).
+        incbin_deps=(("CPM_RPC6502.bin", OS223_44K / "CPM_RPC6502.s", ()),),
+        include_files=(OS223_44K / "CPM_BDOS.asm",),
     ),
     # The as-shipped pristine on-disk BIOS ($FA00-$FDFF) -- exactly what LOAD_CPM
     # reads off the system tracks. The cold-boot self-modifications and the
@@ -88,6 +109,7 @@ SOURCES_223: dict[str, ChunkSource | Path] = {
         asm_path=OS223_44K / "CPM_BIOS.asm",
         cpu="z80", org=0xFA00, size=0x0400,
         expected_bin_name="build/CPM223_BIOS_Disk.bin",
+        include_files=(SOFTCARD_INC,),
     ),
 }
 
@@ -140,13 +162,13 @@ def _build_chunks_223():
 
     # Each 256-byte staging sector now comes from an assembled annotated
     # source rather than the pre-extracted staging_223.bin:
-    #   offset $0000-$16FF (sectors 0-22)  -> CPM223_SystemImage   (CCP + BDOS)
+    #   offset $0000-$16FF (sectors 0-22)  -> CPM223_44K_System  (CCP + INCLUDEd BDOS)
     #   offset $1700-$18FF (sectors 23-24) -> CPM223_DiskCallbacks
     #   offset $1900-$1CFF (sectors 25-28) -> CPM223_BIOS_Disk     (pristine BIOS @ $FA00)
     for i, (track, phys) in enumerate(staging_sectors):
         off = i * 0x100
         if off < 0x1700:
-            src, base = "CPM223_SystemImage", 0x0000
+            src, base = "CPM223_44K_System", 0x0000
         elif off < 0x1900:
             src, base = "CPM223_DiskCallbacks", 0x1700
         else:
@@ -168,15 +190,19 @@ SOURCES_220: dict[str, ChunkSource | Path] = {
     "CPM220_BootLoader": ChunkSource(
         asm_path=OS220 / "CPM_BootLoader.s",
         cpu="6502", org=0x0800, size=0x0C00,
+        # Two embedded Z-80 blocks -- slot-probe handshake ($1169) and slot-3
+        # console driver ($134A) -- each real Z-80 source, sub-assembled by
+        # sjasmplus and INCBIN'd (CPM_RPC6502 pattern, CPUs swapped).
+        incbin_deps=(
+            ("CPM_BootLoader_ProbeOvl.bin",
+             OS220 / "CPM_BootLoader_ProbeOvl.asm", ()),
+            ("CPM_BootLoader_ConInit.bin",
+             OS220 / "CPM_BootLoader_ConInit.asm", ()),
+        ),
     ),
-    "CPM220_RWTS": ChunkSource(
-        asm_path=OS220 / "CPM_RWTS.s",
-        cpu="6502", org=0x0A00, size=0x0600,
-    ),
-    "CPM220_InstallFragments": ChunkSource(
-        asm_path=OS220 / "CPM_InstallFragments.s",
-        cpu="6502", org=0x0200, size=0x0200,
-    ),
+    # (No separate CPM220_RWTS / CPM220_InstallFragments: CPM_BootLoader.s is the
+    # single canonical decode of $0800-$13FF, which already includes both regions;
+    # the standalone files were byte-identical duplicates the build never placed.)
     "CPM220_SystemImage": ChunkSource(
         asm_path=OS220 / "CPM_SystemImage.asm",
         cpu="z80", org=0x8000, size=0x1700,
@@ -189,6 +215,7 @@ SOURCES_220: dict[str, ChunkSource | Path] = {
         asm_path=OS220 / "CPM_BIOS.asm",
         cpu="z80", org=0xDA00, size=0x0500,
         expected_bin_name="build/CPM220_BIOS_Disk.bin",
+        include_files=(SOFTCARD_INC,),
     ),
 }
 
@@ -254,6 +281,16 @@ SOURCES_220_44K: dict[str, ChunkSource | Path] = {
     "CPM220_44K_BootLoader": ChunkSource(
         asm_path=OS220_44K / "CPM_BootLoader.s",
         cpu="6502", org=0x0800, size=0x0C00,
+        # The boot image embeds two Z-80 blocks -- the slot-probe handshake
+        # ($1169) and the console driver ($134A); each is real Z-80 source,
+        # sub-assembled by sjasmplus and INCBIN'd at its offset (the CPM_RPC6502
+        # pattern with the CPUs swapped).
+        incbin_deps=(
+            ("CPM_BootLoader_ProbeOvl.bin",
+             OS220_44K / "CPM_BootLoader_ProbeOvl.asm", ()),
+            ("CPM_BootLoader_ConInit.bin",
+             OS220_44K / "CPM_BootLoader_ConInit.asm", ()),
+        ),
     ),
     # The former combined SystemImage is split into two OS component FILES, CCP
     # and BDOS (boundary = BDOS base $9C00), that COMPILE TOGETHER: CPM_CCP.asm
@@ -276,6 +313,7 @@ SOURCES_220_44K: dict[str, ChunkSource | Path] = {
         asm_path=OS220_44K / "CPM_BIOS.asm",
         cpu="z80", org=0xAA00, size=0x0500,
         expected_bin_name="build/CPM220_44K_BIOS_Disk.bin",
+        include_files=(SOFTCARD_INC,),
     ),
 }
 

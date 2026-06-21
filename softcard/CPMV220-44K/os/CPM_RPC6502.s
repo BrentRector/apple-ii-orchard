@@ -5,13 +5,36 @@
 ; them on the 6502 via the CPU switch; from the Z-80 they are opaque data, so
 ; the Z-80 SystemImage INCBINs the assembled binary of THIS file and references
 ; the entry points below as L_9400 + offset (which relocate with ORG).
+; [DOC S&HD 2-24/2-25 ; facts sec.4] CPU switch / 6502-subroutine-call (RPC)
+; mechanism: the Z-80 loads parameter cells, stores the 6502 target at A$VEC
+; (0F3D0H) and writes the SoftCard location Z$CPU (0F3DEH) -> 6502 runs the code,
+; results read back from the same cells. (How a given Z-80 CALL site SELECTS this
+; particular 6502 service remains the OPEN QUESTION below -- [RE], not manual.)
 ;
 ; The block is position-independent (all internal refs are fixed low Apple
 ; addresses: I/O-config cells $03E0-$03EB, the slot-ROM page $C088,X, monitor
 ; $FF2D, RWTS helpers $0A25/$0B00/$0BC6/$0BDE/$0E10/$0F3E/$0F5A/$0F7D/$0FAD; all
-; branches relative). The SAME bytes serve 44K and 56K -- EXCEPT one byte:
+; branches relative). The $03E0-$03EB working cells sit inside the I/O
+; Configuration Block region [DOC S&HD 2-6 ; facts sec.2.2/3] (6502 $200-$3FF =
+; Z-80 0F200H-0F3FFH); they are this disk-service's own scratch cells, NOT the
+; manual's named config-block structures. This whole block is a warm-boot/RWTS
+; disk service; the "Apple disk drivers and disk buffers" concept it implements
+; is the documented 6502 $800-$FFF region [DOC S&HD 2-6 ; facts sec.2.2] (Z-80
+; 0F800H-0FFFFH) -- though the citation is weak here: this block's OWN sector
+; buffers ($0478/$04F8) are screen-page-adjacent, not in $800-$FFF, and the RWTS
+; entry points it calls ($0A25/$0B00/...) are not individually enumerated in the
+; manual. The SAME bytes serve 44K and 56K -- EXCEPT one byte:
 ;   $94AE = high byte of the warm-boot disk-load buffer ($A400 44K / $E400 56K),
 ;           emitted as #>$A400 / #>$E400 under CFG_56K.
+;           44K $A400 IS a documented boundary: the start of the "44K CP/M"
+;           region $A400-$BFFF [DOC S&HD 2-6 ; facts sec.2.2] (the CP/M system
+;           base, just above free-RAM top $A3FF -- NOT itself the free-RAM top).
+;           56K $E400 is [RE], taken from the as-shipped 2.20B-56K image: it is
+;           NOT in the manual's sec.2.2 56K layout (which is all $D000-$FFFF).
+;           It corresponds to the documented 56K CCP base C400H
+;           [DOC S&HD 3-41/3-42 ; facts sec.2.3] only AFTER the Z-80<->6502
+;           address-translation table [DOC S&HD 2-6/2-32 ; facts sec.2.1] maps
+;           Z-80 0C400H -> 6502 $E400 (that derivation is [RE], not a 2-6 read).
 ;
 ; What it does (warm-boot / RPC disk service, by routine):
 ;   $9400  decrement retry counter, restore A/flags, JMP $0F3E (RWTS entry)
@@ -37,6 +60,8 @@
 ; ============================================================================
 .setcpu "6502"
 .segment "CODE"
+
+PRERR           = $FF2D         ; Apple II Monitor: print "ERR" + bell
 
 .org $9400
 
@@ -135,6 +160,9 @@ SECTOR_MOVE_5:
         RTS                          ; $949C  60
 SECTOR_XLATE_TABLE:
         .byte   $00, $02, $04, $06, $08, $0A, $0C, $0E, $01, $03, $05, $07, $09, $0B, $0D, $0F ; $949D
+; Warm-boot reload: re-reads CP/M (CCP+BDOS) from the boot disk into the system
+; image, which is why only ~5K of CP/M's 7K stays resident during a transient.
+; [DOC Vol1 1-19 ; facts sec.8.7]
 WBOOT_LOAD:
         .ifdef CFG_56K
             lda     #>$E400          ; $94AD  warm-boot load buffer hi (56K)
@@ -150,8 +178,8 @@ WBOOT_LOAD_1:
 WBOOT_LOAD_2:
         STY $03E4                    ; $94BB  8C E4 03
         STY $03EB                    ; $94BE  8C EB 03
-        LDA #$60                     ; $94C1  A9 60
-        STA $03E6                    ; $94C3  8D E6 03
+        LDA #$60                     ; $94C1  A9 60   slot 6 (6<<4): the boot disk
+        STA $03E6                    ; $94C3  8D E6 03  controller, drives A:/B:, MUST be present [DOC Vol1 1-3/1-4 ; facts sec.8.9]
         LDA #$0B                     ; $94C6  A9 0B
         STA $03E1                    ; $94C8  8D E1 03
         LDA #$1C                     ; $94CB  A9 1C
@@ -162,7 +190,7 @@ WBOOT_READ_SECTOR:
 WBOOT_READ_SECTOR_1:
         JSR $0E10                    ; $94D0  20 10 0E
         BCC WBOOT_NEXT_SECTOR        ; $94D3  90 08
-        JSR $FF2D                    ; $94D5  20 2D FF
+        JSR PRERR                    ; $94D5  20 2D FF
         PLP                          ; $94D8  28
         PLA                          ; $94D9  68
 WBOOT_ERR_MONITOR:

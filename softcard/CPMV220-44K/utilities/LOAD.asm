@@ -19,57 +19,48 @@ DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS
     ORG $0100
 
 ; [AI] The $0100 program entry point. The opening JP jumps over the embedded copyright/message
-;       string block to the real startup code at L_0240.
+;       string block to the real startup code at MAIN.
 TPA_START:
         JP MAIN                    ; $0100  C3 40 02
-        DEFB    $20,$43,$4F,$50,$59,$52,$49,$47,$48,$54,$20,$28,$43,$29,$20,$31 ; $0103
-        DEFB    $39,$37,$38,$2C,$20,$44,$49,$47,$49,$54,$41,$4C,$20,$52,$45,$53 ; $0113
-        DEFB    $45,$41,$52,$43,$48,$20                          ; $0123
+        DEFB    " COPYRIGHT (C) 1978, DIGITAL RESEARCH " ; $0103
 TPA_START_1:
-        DEFB    $45,$52,$52,$4F,$52,$3A,$20,$24                  ; $0129
+        DEFB    "ERROR: $"                       ; $0129
 TPA_START_2:
-        DEFB    $2C,$20,$4C,$4F,$41,$44,$20,$41,$44,$44,$52,$45,$53,$53,$20,$24 ; $0131
+        DEFB    ", LOAD ADDRESS $"               ; $0131
 TPA_START_3:
-        DEFB    $44,$49,$53,$4B,$20,$52,$45,$41,$44,$24          ; $0141
+        DEFB    "DISK READ$"                     ; $0141
 TPA_START_4:
-        DEFB    $49,$4E,$56,$45,$52,$54,$45,$44,$20,$4C,$4F,$41,$44,$20,$41,$44 ; $014B
-        DEFB    $44,$52,$45,$53,$53,$24                          ; $015B
+        DEFB    "INVERTED LOAD ADDRESS$"         ; $014B
 TPA_START_5:
-        DEFB    $44,$49,$53,$4B,$20,$57,$52,$49,$54,$45,$24      ; $0161
+        DEFB    "DISK WRITE$"                    ; $0161
 TPA_START_6:
-        DEFB    $4C,$4F,$41,$44,$20,$20,$41,$44,$44,$52,$45,$53,$53,$20,$24 ; $016C
+        DEFB    "LOAD  ADDRESS $"               ; $016C
 TPA_START_7:
-        DEFB    $45,$52,$52,$4F,$52,$20,$41,$44,$44,$52,$45,$53,$53,$20,$24 ; $017B
+        DEFB    "ERROR ADDRESS $"               ; $017B
 TPA_START_8:
-        DEFB    $42,$59,$54,$45,$53,$20,$52,$45,$41,$44,$3A,$24  ; $018A
+        DEFB    "BYTES READ:$"                   ; $018A
 TPA_START_9:
-        DEFB    $49,$4E,$56,$41,$4C,$49,$44,$20,$48,$45,$58,$20,$44,$49,$47,$49 ; $0196
-        DEFB    $54,$24                                          ; $01A6
+        DEFB    "INVALID HEX DIGIT$"             ; $0196
 TPA_START_10:
-        DEFB    $43,$48,$45,$43,$4B,$20,$53,$55,$4D,$20,$45,$52,$52,$4F,$52,$20 ; $01A8
-        DEFB    $24                                              ; $01B8
+        DEFB    "CHECK SUM ERROR $"              ; $01A8
 TPA_START_11:
-        DEFB    $46,$49,$52,$53,$54,$20,$41,$44,$44,$52,$45,$53,$53,$20,$24 ; $01B9
+        DEFB    "FIRST ADDRESS $"               ; $01B9
 TPA_START_12:
-        DEFB    $4C,$41,$53,$54,$20,$20,$41,$44,$44,$52,$45,$53,$53,$20,$24 ; $01C8
+        DEFB    "LAST  ADDRESS $"               ; $01C8
 TPA_START_13:
-        DEFB    $42,$59,$54,$45,$53,$20,$52,$45,$41,$44,$20,$20,$20,$20,$24 ; $01D7
+        DEFB    "BYTES READ    $"               ; $01D7
 TPA_START_14:
-        DEFB    $52,$45,$43,$4F,$52,$44,$53,$20,$57,$52,$49,$54,$54,$45,$4E,$20 ; $01E6
-        DEFB    $24                                              ; $01F6
+        DEFB    "RECORDS WRITTEN $"              ; $01E6
 TPA_START_15:
-        DEFB    $48,$45,$58,$00                                  ; $01F7
+        DEFB    "HEX",$00                        ; $01F7
 TPA_START_16:
-        DEFB    $43,$41,$4E,$4E,$4F,$54,$20,$4F,$50,$45,$4E,$20,$53,$4F,$55,$52 ; $01FB
-        DEFB    $43,$45,$24                                      ; $020B
+        DEFB    "CANNOT OPEN SOURCE$"            ; $01FB
 TPA_START_17:
-        DEFB    $43,$4F,$4D                                      ; $020E
+        DEFB    "COM"                            ; $020E  default output extension (no $ terminator)
 TPA_START_18:
-        DEFB    $4E,$4F,$20,$4D,$4F,$52,$45,$20,$44,$49,$52,$45,$43,$54,$4F,$52 ; $0211
-        DEFB    $59,$20,$53,$50,$41,$43,$45,$24                  ; $0221
+        DEFB    "NO MORE DIRECTORY SPACE$"       ; $0211
 TPA_START_19:
-        DEFB    $43,$41,$4E,$4E,$4F,$54,$20,$43,$4C,$4F,$53,$45,$20,$46,$49,$4C ; $0229
-        DEFB    $45,$24                                          ; $0239
+        DEFB    "CANNOT CLOSE FILE$"             ; $0229
 ; [AI] Restores the saved CCP stack pointer from $07E7 and returns, so the program can exit cleanly
 ;       back to the console command processor instead of warm-booting.
 RESTORE_CCP_STACK:
@@ -173,7 +164,7 @@ RESTORE_CCP_STACK_40:
         CALL RESTORE_CCP_STACK                    ; $02CC  CD 3B 02
         RET                              ; $02CF  C9
 ; [AI] Console output of a single character: stashes the byte then invokes BDOS function 2 (console
-;       out) via SUB_0766. The primitive used by all the higher-level print routines.
+;       out) via BDOS_CALL. The primitive used by all the higher-level print routines.
 CONOUT:
         LD HL,$0C0D                      ; $02D0  21 0D 0C
         LD (HL),C                        ; $02D3  71
@@ -213,7 +204,7 @@ PRINT_HEX_NIBBLE_1:
 PRINT_HEX_NIBBLE_2:
         RET                              ; $030F  C9
 ; [AI] Prints one byte as two hex digits by isolating and emitting the high nibble then the low
-;       nibble via SUB_02EB.
+;       nibble via PRINT_HEX_NIBBLE.
 PRINT_HEX_BYTE:
         LD HL,$0C0F                      ; $0310  21 0F 0C
         LD (HL),C                        ; $0313  71
@@ -231,7 +222,7 @@ PRINT_HEX_BYTE:
         CALL PRINT_HEX_NIBBLE                    ; $0327  CD EB 02
         RET                              ; $032A  C9
 ; [AI] Prints a 16-bit value (passed in BC) as four hex digits, high byte then low byte, using
-;       SUB_0310. Used to show addresses.
+;       PRINT_HEX_BYTE. Used to show addresses.
 PRINT_HEX_WORD:
         LD HL,$0C11                      ; $032B  21 11 0C
         LD (HL),B                        ; $032E  70
@@ -247,7 +238,7 @@ PRINT_HEX_WORD:
         CALL PRINT_HEX_BYTE                    ; $033E  CD 10 03
         RET                              ; $0341  C9
 ; [AI] Prints the '$'-terminated message whose address is in BC by calling BDOS function 9 (print
-;       string) through SUB_0766.
+;       string) through BDOS_CALL.
 PRINT_STRING:
         LD HL,$0C13                      ; $0342  21 13 0C
         LD (HL),B                        ; $0345  70
@@ -328,11 +319,27 @@ BDOS_CLOSE_FILE:
         CALL BDOS_CALL_RET                    ; $03A9  CD 69 07
         LD ($0C1A),A                     ; $03AC  32 1A 0C
         RET                              ; $03AF  C9
-        DEFB    $21,$20,$0C,$70,$2B,$71,$2A,$1F,$0C,$EB,$0E,$11,$CD ; $03B0
-        DEFW    BDOS_CALL_RET                 ; $03BD
-        DEFB    $32,$1A,$0C,$C9,$11,$00,$00,$0E,$12,$CD          ; $03BF
-        DEFW    BDOS_CALL_RET                 ; $03C9
-        DEFB    $32,$1A,$0C,$C9                                  ; $03CB
+; [AI] BDOS function 17 (search for first) on the FCB in BC; status code saved at $0C1A. Standard
+;       BDOS wrapper, present in the stock LOAD.COM but not reached by any call in this program.
+BDOS_SEARCH_FIRST:
+        LD HL,$0C20                      ; $03B0  21 20 0C
+        LD (HL),B                        ; $03B3  70
+        DEC HL                           ; $03B4  2B
+        LD (HL),C                        ; $03B5  71
+        LD HL,($0C1F)                    ; $03B6  2A 1F 0C
+        EX DE,HL                         ; $03B9  EB
+        LD C,$11                         ; $03BA  0E 11
+        CALL BDOS_CALL_RET                    ; $03BC  CD 69 07
+        LD ($0C1A),A                     ; $03BF  32 1A 0C
+        RET                              ; $03C2  C9
+; [AI] BDOS function 18 (search for next) with DE=0; status code saved at $0C1A. Standard BDOS
+;       wrapper, present in the stock LOAD.COM but not reached by any call in this program.
+BDOS_SEARCH_NEXT:
+        LD DE,WBOOT_VEC                  ; $03C3  11 00 00
+        LD C,$12                         ; $03C6  0E 12
+        CALL BDOS_CALL_RET                    ; $03C8  CD 69 07
+        LD ($0C1A),A                     ; $03CB  32 1A 0C
+        RET                              ; $03CE  C9
 ; [AI] BDOS function 19 (delete file) on the FCB in BC, used to remove any pre-existing output .COM
 ;       file before creating a new one.
 BDOS_DELETE_FILE:
@@ -407,9 +414,18 @@ BDOS_MAKE_FILE_8:
         LD ($0C1A),A                     ; $040E  32 1A 0C
 BDOS_MAKE_FILE_9:
         RET                              ; $0411  C9
-        DEFB    $21,$2A,$0C,$70,$2B,$71,$2A,$29,$0C,$EB,$0E,$17,$CD ; $0412
-        DEFW    BDOS_CALL                 ; $041F
-        DEFB    $C9                                              ; $0421
+; [AI] BDOS function 23 (rename file) on the FCB in BC. Standard BDOS wrapper, present in the
+;       stock LOAD.COM but not reached by any call in this program.
+BDOS_RENAME_FILE:
+        LD HL,$0C2A                      ; $0412  21 2A 0C
+        LD (HL),B                        ; $0415  70
+        DEC HL                           ; $0416  2B
+        LD (HL),C                        ; $0417  71
+        LD HL,($0C29)                    ; $0418  2A 29 0C
+        EX DE,HL                         ; $041B  EB
+        LD C,$17                         ; $041C  0E 17
+        CALL BDOS_CALL                    ; $041E  CD 66 07
+        RET                              ; $0421  C9
 ; [AI] Block-copy (memmove) helper: copies E bytes from the source address in BC to the destination
 ;       popped from the caller's stack, used to relocate message bytes and fill the record buffer.
 BLOCK_COPY:
@@ -879,7 +895,7 @@ GET_HEX_DIGIT_2:
         ADD A,$0A                        ; $072B  C6 0A
         RET                              ; $072D  C9
 ; [AI] Reads two source characters and combines them (high nibble shifted left 4, OR low nibble)
-;       into one assembled byte value via SUB_06FC.
+;       into one assembled byte value via GET_HEX_DIGIT.
 GET_HEX_BYTE:
         CALL GET_HEX_DIGIT                    ; $072E  CD FC 06
         ADD A,A                          ; $0731  87
@@ -916,7 +932,9 @@ CALC_LOAD_ADDR:
         LD A,($0D44)                     ; $075C  3A 44 0D
         CALL OR_BYTE_INTO_WORD                    ; $075F  CD 7F 07
         RET                              ; $0762  C9
-        DEFB    $C3,$00,$00                                      ; $0763
+; [AI] Lone JP to the warm-boot vector ($0000), sitting between CALC_LOAD_ADDR and the BDOS
+;       trampolines; not reached by any call/jump in this program (orphan/dead instruction).
+        JP WBOOT_VEC                     ; $0763  C3 00 00
 ; [AI] BDOS call trampoline (JP $0005); routines load the function number in C and the parameter in
 ;       DE then jump here to reach the BDOS.
 BDOS_CALL:
@@ -925,8 +943,12 @@ BDOS_CALL:
 ;       routines that need the directory/status code returned in A.
 BDOS_CALL_RET:
         JP BDOS_VEC                      ; $0769  C3 05 00
-        DEFW    LOAD_HEX_FILE_25              ; $076C
-        DEFB    $00,$C9,$C9,$C9                                  ; $076E
+; [AI] A third BDOS-call trampoline (CALL $0005 then RET), followed by two spare RET bytes; an
+;       unreferenced helper in the stock LOAD.COM (no call/jump in this program reaches it).
+        CALL BDOS_VEC                    ; $076C  CD 05 00
+        RET                              ; $076F  C9
+        RET                              ; $0770  C9
+        RET                              ; $0771  C9
 ; [AI] Indexes a 16-bit table by the value in A: forms a word pointer and adds the addressed table
 ;       entry to HL, a small lookup/add helper used in address computation.
 TABLE_INDEX_ADD:
@@ -954,7 +976,12 @@ OR_BYTE_INTO_WORD:
         OR H                             ; $0786  B4
         LD H,A                           ; $0787  67
         RET                              ; $0788  C9
-        DEFB    $5E,$23,$56,$EB                                  ; $0789
+; [AI] Load the 16-bit word at (HL) into HL (via DE): LD E,(HL)/INC HL/LD D,(HL)/EX DE,HL. An
+;       unreferenced helper fragment that falls through into SHIFT_LEFT_HL; no call/jump reaches it.
+        LD E,(HL)                        ; $0789  5E
+        INC HL                           ; $078A  23
+        LD D,(HL)                        ; $078B  56
+        EX DE,HL                         ; $078C  EB
 ; [AI] Left-shifts HL by C bit positions (repeated ADD HL,HL), i.e. multiplies HL by a power of
 ;       two; used in scaling the record's address fields.
 SHIFT_LEFT_HL:
@@ -962,7 +989,10 @@ SHIFT_LEFT_HL:
         DEC C                            ; $078E  0D
         JP NZ,SHIFT_LEFT_HL                   ; $078F  C2 8D 07
         RET                              ; $0792  C9
-        DEFB    $5F,$16,$00                                      ; $0793
+; [AI] Widen A into DE (LD E,A / LD D,$00) ahead of SUB16_DE_MINUS_HL; unreferenced prologue
+;       fragment that falls through into the subtraction below (no call/jump reaches it).
+        LD E,A                           ; $0793  5F
+        LD D,$00                         ; $0794  16 00
 ; [AI] 16-bit subtraction HL = DE - HL, leaving the borrow in the carry flag so the caller can
 ;       compare two addresses.
 SUB16_DE_MINUS_HL:
@@ -1009,7 +1039,10 @@ SUB16_MEM_MINUS_A:
         SBC A,H                          ; $07B2  9C
         LD H,A                           ; $07B3  67
         RET                              ; $07B4  C9
-        DEFB    $5F,$16,$00                                      ; $07B5
+; [AI] Widen A into DE (LD E,A / LD D,$00) ahead of SUB16_DE_MINUS_MEM; unreferenced prologue
+;       fragment that falls through into the subtraction below (no call/jump reaches it).
+        LD E,A                           ; $07B5  5F
+        LD D,$00                         ; $07B6  16 00
 ; [AI] 16-bit subtraction of the word at (HL) from DE, returning the result in HL with carry set,
 ;       used to test whether the current address has crossed a record/page boundary.
 SUB16_DE_MINUS_MEM:

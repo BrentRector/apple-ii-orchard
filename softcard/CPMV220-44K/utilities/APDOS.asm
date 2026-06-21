@@ -6,6 +6,7 @@
 ; Range:  $0100-$077F  (1664 bytes)
 
     DEVICE NOSLOT64K
+    INCLUDE "apple_softcard.inc"   ; Apple/SoftCard external names (single source of truth)
 
 ; -- External symbols --
 WBOOT_VEC            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
@@ -20,10 +21,10 @@ DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS
 
     ORG $0100
 
-; [AI] $0100 transient entry point. Captures the SoftCard's saved Apple-side memory pointer ($F3DE)
+; [AI] $0100 transient entry point. Captures the SoftCard's saved Apple-side memory pointer (Z_CPU)
 ;       and computes a usable-memory limit from the BIOS base ($0007) before parsing the command.
 TPA_START:
-        LD HL,($F3DE)                    ; $0100  2A DE F3
+        LD HL,(Z_CPU)                    ; $0100  2A DE F3
 TPA_START_1:
         LD (READ_APPLE_SECTOR_3+1),HL    ; $0103  22 AB 04
 TPA_START_2:
@@ -295,14 +296,14 @@ CONSOLE_STATUS_18:
         LD DE,CONOUT_CHAR_44             ; $02DD  11 08 07
 CONSOLE_STATUS_19:
         JP TPA_START_8                   ; $02E0  C3 16 01
-; [AI] Loads the SoftCard's Apple-side I/O parameter block ($F3E0/$F3E8) to point at the 2KB Apple
+; [AI] Loads the SoftCard's Apple-side I/O parameter block (DSK_TRACK/DSK_BUFFER) to point at the 2KB Apple
 ;       DOS sector staging buffer at $0800 and selects the message for the source (Apple) disk
 ;       prompt.
 SETUP_SRC_READ:
         LD HL,$0800                      ; $02E3  21 00 08
-        LD ($F3E8),HL                    ; $02E6  22 E8 F3
+        LD (DSK_BUFFER),HL                    ; $02E6  22 E8 F3
         LD A,$01                         ; $02E9  3E 01
-        LD ($F3E0),A                     ; $02EB  32 E0 F3
+        LD (DSK_TRACK),A                     ; $02EB  32 E0 F3
         DEC A                            ; $02EE  3D
         LD ($006A),A                     ; $02EF  32 6A 00
         LD A,(CONOUT_CHAR_19)            ; $02F2  3A 14 05
@@ -410,7 +411,7 @@ WRITE_CPM_RECORDS_3:
         JP CLOSE_OUTPUT_FILE_2           ; $039F  C3 12 03
 ; [AI] Parses an optional drive-letter prefix ('X:') from the command, converting the letter to a
 ;       0-based drive number and validating it against the number of logical drives reported at
-;       $F3B8.
+;       DSKCNT.
 PARSE_DRIVE_PREFIX:
         INC HL                           ; $03A2  23
         LD A,(HL)                        ; $03A3  7E
@@ -421,7 +422,7 @@ PARSE_DRIVE_PREFIX:
         SUB $41                          ; $03AB  D6 41
         INC HL                           ; $03AD  23
         LD C,A                           ; $03AE  4F
-        LD A,($F3B8)                     ; $03AF  3A B8 F3
+        LD A,(DSKCNT)                     ; $03AF  3A B8 F3
         DEC A                            ; $03B2  3D
         CP C                             ; $03B3  B9
         JR C,ERR_INVALID_DRIVE           ; $03B4  38 25
@@ -448,7 +449,17 @@ CALL_SOFTCARD_BIOS:
         LD L,$1B                         ; $03CA  2E 1B
         JP (HL)                          ; $03CC  E9
 CALL_SOFTCARD_BIOS_1:
-        DEFB    $7D,$B4,$28,$0A,$11,$0A,$00,$19,$7E,$23,$66,$6F,$56,$C9 ; $03CD
+        LD A,L                           ; $03CD  7D
+        OR H                             ; $03CE  B4
+        JR Z,ERR_INVALID_DRIVE           ; $03CF  28 0A
+        LD DE,$000A                      ; $03D1  11 0A 00
+        ADD HL,DE                        ; $03D4  19
+        LD A,(HL)                        ; $03D5  7E
+        INC HL                           ; $03D6  23
+        LD H,(HL)                        ; $03D7  66
+        LD L,A                           ; $03D8  6F
+        LD D,(HL)                        ; $03D9  56
+        RET                              ; $03DA  C9
 ; [AI] Invalid-drive error path: prints the 'Invalid Drive' message and restarts the command loop.
 ERR_INVALID_DRIVE:
         LD DE,CONOUT_CHAR_42             ; $03DB  11 E4 06
@@ -522,13 +533,13 @@ NEXT_CATALOG_ENTRY_1:
         LD (CONOUT_CHAR_15),BC           ; $0454  ED 43 0F 05
         RET                              ; $0458  C9
 ; [AI] Translates the parsed logical drive number ($0511) into the SoftCard's Apple-side slot/drive
-;       selector bytes ($F3E4 slot-flag and $F3E6 drive code) for the next sector read.
+;       selector bytes (DSK_DRIVE slot-flag and DSK_SLOT drive code) for the next sector read.
 SELECT_SRC_DRIVE:
         LD A,(CONOUT_CHAR_16)            ; $0459  3A 11 05
         LD C,A                           ; $045C  4F
         AND $01                          ; $045D  E6 01
         INC A                            ; $045F  3C
-        LD ($F3E4),A                     ; $0460  32 E4 F3
+        LD (DSK_DRIVE),A                     ; $0460  32 E4 F3
         LD A,C                           ; $0463  79
         AND $0E                          ; $0464  E6 0E
         ADD A,A                          ; $0466  87
@@ -536,7 +547,7 @@ SELECT_SRC_DRIVE:
         ADD A,A                          ; $0468  87
         CPL                              ; $0469  2F
         ADD A,$61                        ; $046A  C6 61
-        LD ($F3E6),A                     ; $046C  32 E6 F3
+        LD (DSK_SLOT),A                     ; $046C  32 E6 F3
         RET                              ; $046F  C9
 ; [AI] Stamps the destination FCB's drive field ($005C) from the parsed output-drive number ($0512)
 ;       so the CP/M file is created on the requested drive.
@@ -545,24 +556,24 @@ SET_DEST_FCB_DRIVE:
         INC A                            ; $0473  3C
         LD (DEFAULT_FCB),A               ; $0474  32 5C 00
         RET                              ; $0477  C9
-; [AI] Points the Apple-side DMA parameter ($F3E8) at the $1822 staging area, used when reading the
+; [AI] Points the Apple-side DMA parameter (DSK_BUFFER) at the $1822 staging area, used when reading the
 ;       directory-continuation sector.
 SET_DMA_DIRCONT:
         LD DE,$1822                      ; $0478  11 22 18
-        LD ($F3E8),DE                    ; $047B  ED 53 E8 F3
+        LD (DSK_BUFFER),DE                    ; $047B  ED 53 E8 F3
         JR READ_APPLE_SECTOR_1           ; $047F  18 11
-; [AI] Points the Apple-side DMA parameter ($F3E8) at the current file's track/sector-list buffer
+; [AI] Points the Apple-side DMA parameter (DSK_BUFFER) at the current file's track/sector-list buffer
 ;       (address held in $0516) before reading data sectors.
 SET_DMA_TSLIST:
         LD DE,(CONOUT_CHAR_21)           ; $0481  ED 5B 16 05
-        LD ($F3E8),DE                    ; $0485  ED 53 E8 F3
+        LD (DSK_BUFFER),DE                    ; $0485  ED 53 E8 F3
         JR READ_APPLE_SECTOR_1           ; $0489  18 07
 ; [AI] Issues an Apple DOS sector read through the 6502 side: sets the DMA target to $1722,
 ;       programs the track/sector from HL via the skew table at $0552, arms the parameter block, and
 ;       signals the request.
 READ_APPLE_SECTOR:
         LD DE,$1722                      ; $048B  11 22 17
-        LD ($F3E8),DE                    ; $048E  ED 53 E8 F3
+        LD (DSK_BUFFER),DE                    ; $048E  ED 53 E8 F3
 READ_APPLE_SECTOR_1:
         LD A,L                           ; $0492  7D
 READ_APPLE_SECTOR_2:
@@ -572,14 +583,14 @@ READ_APPLE_SECTOR_2:
         ADD HL,DE                        ; $0499  19
         LD H,(HL)                        ; $049A  66
         LD L,A                           ; $049B  6F
-        LD ($F3E0),HL                    ; $049C  22 E0 F3
+        LD (DSK_TRACK),HL                    ; $049C  22 E0 F3
         LD A,$01                         ; $049F  3E 01
-        LD ($F3EB),A                     ; $04A1  32 EB F3
+        LD (DSK_COMMAND),A                     ; $04A1  32 EB F3
         LD HL,$0E03                      ; $04A4  21 03 0E
-        LD ($F3D0),HL                    ; $04A7  22 D0 F3
+        LD (A_VEC),HL                    ; $04A7  22 D0 F3
 READ_APPLE_SECTOR_3:
         LD (WBOOT_VEC),A                 ; $04AA  32 00 00
-        LD A,($F3EA)                     ; $04AD  3A EA F3
+        LD A,(DSK_STATUS)                     ; $04AD  3A EA F3
         OR A                             ; $04B0  B7
         RET Z                            ; $04B1  C8
         LD DE,CONOUT_CHAR_41             ; $04B2  11 D5 06
@@ -590,7 +601,7 @@ READ_APPLE_SECTOR_3:
 PRINT_SPACE:
         LD A,$20                         ; $04BB  3E 20
         JR CONOUT_CHAR                   ; $04BD  18 3D
-; [AI] Prints a blank line by emitting two CR/LF pairs via SUB_04C2.
+; [AI] Prints a blank line by emitting two CR/LF pairs via PRINT_CRLF.
 PRINT_BLANK_LINE:
         CALL PRINT_CRLF                  ; $04BF  CD C2 04
 ; [AI] Outputs a CR/LF pair to the console; the standard newline primitive for APDOS's text output.
@@ -716,62 +727,52 @@ CONOUT_CHAR_28:
 CONOUT_CHAR_29:
         DEFB    $49,$41,$42,$54                                  ; $058A
 CONOUT_CHAR_30:
-        DEFB    $09,$20,$20,$20,$41,$50,$50,$4C,$45,$20,$5D,$5B,$20,$43,$50,$2F ; $058E
-        DEFB    $4D,$0D,$0A,$41,$70,$70,$6C,$65,$20,$44,$4F,$53,$20,$74,$6F,$20 ; $059E
-        DEFB    "CP/M file transfer program"    ; $05AE  string
-        DEFB    $0D    ; $05C8  terminator
-        DEFB    $0A,$09,$28,$43,$29,$20,$31,$39,$38,$30,$20,$4D,$69,$63,$72,$6F ; $05C9
-        DEFB    $73,$6F,$66,$74,$24                              ; $05D9
+        DEFB    $09,"   APPLE ][ CP/M",$0D,$0A      ; $058E
+        DEFB    "Apple DOS to CP/M file transfer program",$0D ; $059E
+        DEFB    $0A,$09,"(C) 1980 Microsoft$"       ; $05C9
 CONOUT_CHAR_31:
-        DEFB    $43,$6F,$6D,$6D,$61,$6E,$64,$20,$45,$72,$72,$6F,$72,$24 ; $05DE
+        DEFB    "Command Error$"                    ; $05DE
 CONOUT_CHAR_32:
-        DEFB    $0D,$0A,$0D,$0A,$49,$6E,$73,$65,$72,$74,$20,$41,$70,$70,$6C,$65 ; $05EC
-        DEFB    $20,$44,$4F,$53,$20,$64,$69,$73,$6B,$20,$61,$6E,$64,$20,$68,$69 ; $05FC
-        DEFB    $74,$20,$52,$45,$54,$55,$52,$4E,$20,$24          ; $060C
+        DEFB    $0D,$0A,$0D,$0A,"Insert Apple DOS disk and hit RETURN $" ; $05EC
 CONOUT_CHAR_33:
-        DEFB    $0D,$0A,$49,$6E,$73,$65,$72,$74,$20,$43,$50,$2F,$4D,$20,$64,$69 ; $0616
-        DEFB    $73,$6B,$20,$61,$6E,$64,$20,$68,$69,$74,$20,$52,$45,$54,$55,$52 ; $0626
-        DEFB    $4E,$20,$24                                      ; $0636
+        DEFB    $0D,$0A,"Insert CP/M disk and hit RETURN $" ; $0616
 CONOUT_CHAR_34:
-        DEFB    $49,$6E,$73,$65,$72,$74,$20,$41,$70,$70,$6C,$65,$20,$44,$4F,$53 ; $0639
-        DEFB    $20,$64,$69,$73,$6B,$20,$69,$6E,$20,$64,$72,$69,$76,$65,$20 ; $0649
+        DEFB    "Insert Apple DOS disk in drive "   ; $0639
 CONOUT_CHAR_35:
-        DEFB    $5A,$3A,$0D,$0A,$49,$6E,$73,$65,$72,$74,$20,$43,$50,$2F,$4D,$20 ; $0658
-        DEFB    $64,$69,$73,$6B,$20,$69,$6E,$20,$64,$72,$69,$76,$65,$20 ; $0668
+        DEFB    "Z:",$0D,$0A,"Insert CP/M disk in drive " ; $0658
 CONOUT_CHAR_36:
-        DEFB    $51,$3A,$0D,$0A,$48,$69,$74,$20,$52,$45,$54,$55,$52,$4E,$20,$74 ; $0676
-        DEFB    $6F,$20,$62,$65,$67,$69,$6E,$20,$24              ; $0686
+        DEFB    "Q:",$0D,$0A,"Hit RETURN to begin $" ; $0676
 CONOUT_CHAR_37:
-        DEFB    $54,$72,$61,$6E,$73,$66,$65,$72,$20,$63,$6F,$6D,$70,$6C,$65,$74 ; $068F
-        DEFB    $65,$24                                          ; $069F
+        DEFB    "Transfer complete$"                ; $068F
 CONOUT_CHAR_38:
-        DEFB    $54,$65,$78,$74,$20,$61,$6E,$64,$20,$42,$69,$6E,$61,$72,$79,$20 ; $06A1
-        DEFB    $66,$69,$6C,$65,$73,$20,$6F,$6E,$6C,$79,$24      ; $06B1
+        DEFB    "Text and Binary files only$"       ; $06A1
 CONOUT_CHAR_39:
-        DEFB    $44,$69,$72,$65,$63,$74,$6F,$72,$79,$20,$66,$75,$6C,$6C,$24 ; $06BC
+        DEFB    "Directory full$"                   ; $06BC
 CONOUT_CHAR_40:
-        DEFB    $44,$69,$73,$6B,$20,$66,$75,$6C,$6C,$24          ; $06CB
+        DEFB    "Disk full$"                        ; $06CB
 CONOUT_CHAR_41:
-        DEFB    $44,$69,$73,$6B,$20,$49,$2F,$4F,$20,$45,$72,$72,$6F,$72,$24 ; $06D5
+        DEFB    "Disk I/O Error$"                   ; $06D5
 CONOUT_CHAR_42:
-        DEFB    $49,$6E,$76,$61,$6C,$69,$64,$20,$44,$72,$69,$76,$65,$24 ; $06E4
+        DEFB    "Invalid Drive$"                    ; $06E4
 CONOUT_CHAR_43:
-        DEFB    $4E,$6F,$74,$20,$61,$6E,$20,$41,$70,$70,$6C,$65,$20,$44,$4F,$53 ; $06F2
-        DEFB    $20,$64,$69,$73,$6B,$24                          ; $0702
+        DEFB    "Not an Apple DOS disk$"            ; $06F2
 CONOUT_CHAR_44:
-        DEFB    $46,$69,$6C,$65,$20,$6E,$6F,$74,$20,$66,$6F,$75,$6E,$64,$24 ; $0708
+        DEFB    "File not found$"                   ; $0708
 CONOUT_CHAR_45:
-        DEFB    $57,$6F,$72,$6B,$69,$6E,$67,$2E,$2E,$2E,$24      ; $0717
+        DEFB    "Working...$"                       ; $0717
+; [AI] $0722-$077F: at RUNTIME these are binary data cells -- CONOUT_CHAR_46/47/48 are
+;       read as a byte index base / catalog-link word / DOS-version byte after the Apple
+;       sector reads overwrite them. In the FILE IMAGE, however, the bytes here are LIVE
+;       ASCII message text: a second copy of the "...Binary files only$Directory full$
+;       Disk full$Disk I/O Error$Invalid Drive$Not an Apple D[OS disk]" run that the
+;       linker laid down (the message-pool tail, $24 = '$' = the BDOS print terminator).
+;       The label boundaries fall mid-word ($0722, $0723, $0749 are the addresses the code
+;       indexes), so the text is split there but kept as string literals, not raw hex.
 CONOUT_CHAR_46:
-        DEFB    $65                                              ; $0722
+        DEFB    "e"                                              ; $0722
 CONOUT_CHAR_47:
-        DEFB    $78,$74,$20,$61,$6E,$64,$20,$42,$69,$6E,$61,$72,$79,$20,$66,$69 ; $0723
-        DEFB    $6C,$65,$73,$20,$6F,$6E,$6C,$79,$24,$44,$69,$72,$65,$63,$74,$6F ; $0733
-        DEFB    $72,$79,$20,$66,$75,$6C                          ; $0743
+        DEFB    "xt and Binary files only$Directory ful" ; $0723
 CONOUT_CHAR_48:
-        DEFB    $6C,$24,$44,$69,$73,$6B,$20,$66,$75,$6C,$6C,$24,$44,$69,$73,$6B ; $0749
-        DEFB    $20,$49,$2F,$4F,$20,$45,$72,$72,$6F,$72,$24,$49,$6E,$76,$61,$6C ; $0759
-        DEFB    $69,$64,$20,$44,$72,$69,$76,$65,$24,$4E,$6F,$74,$20,$61,$6E,$20 ; $0769
-        DEFB    $41,$70,$70,$6C,$65,$20,$44                      ; $0779
+        DEFB    "l$Disk full$Disk I/O Error$Invalid Drive$Not an Apple D" ; $0749
 
     SAVEBIN "APDOS.bin", $0100, $0680

@@ -31,27 +31,29 @@ system. These sources reassemble to exactly those bytes; the disk build
 
 | File | CPU | Load | What it is |
 |------|-----|------|------------|
-| `CPM_BootLoader.s` | 6502 | `$0800` | Stage-2 boot loader, install-copy logic, the `LOAD_CPM` staging read |
-| `CPM_RWTS.s` | 6502 | `$0A00` | Read/Write Track-Sector engine (GCR 6-and-2 codec) |
-| `CPM_InstallFragments.s` | 6502 | `$0200` | Fragments the stage-2 loader copies into place |
+| `CPM_BootLoader.s` | 6502 | `$0800` | Stage-2 boot loader (`$0800-$13FF`): install-copy logic, the `LOAD_CPM` staging read, the RWTS (`$0A00-$0FFF`, GCR 6-and-2 codec), and the install image (`$1200-$13FF`, run at `$0200-$03FF`). The single canonical decode of the Apple-side OS |
 | `CPM_DiskCallbacks.asm` | Z-80 | `$1A00` | Z-80 thunks bridging BDOS/BIOS disk requests to the 6502 RWTS |
-| `CPM_SystemImage.asm` | Z-80 | `$8000` | The staged **CCP + BDOS** image `LOAD_CPM` reads (runs at `$9300`/`$9C00`) |
+| `CPM_CCP.asm` | Z-80 | `$8000` | The CCP module; also assembles the staged **CCP + BDOS** image `LOAD_CPM` reads, by INCLUDEing `CPM_BDOS.asm` (runs at `$9300`/`$9C00`) |
+| `CPM_BDOS.asm` | Z-80 | `$9C00` | The 2.23 BDOS module (builds standalone; INCLUDEd by `CPM_CCP.asm` under `DISP $9C00`) |
 | `CPM_BIOS.asm` | Z-80 | `$FA00` | The **as-shipped** pristine on-disk BIOS (`$FA00-$FDFF`); jump table + console/disk/IOBYTE primitives |
-| `CPM_BDOS.asm` | Z-80 | `$9C00` | The 2.23 BDOS on its own (a semantic view of the BDOS half of `CPM_SystemImage`) |
 
 6502 regions are ca65 `.s` + a `.cfg` linker config; Z-80 regions are sjasmplus
-`.asm`. The standalone CCP lives in the shared [`../src/os/CPM_CCP.asm`](../src/os/CPM_CCP.asm)
-(one source builds the 44K and 60K CCP). The BIOS is the bytes on disk; the
+`.asm`. The CP/M system image is **two independent module files** — `CPM_CCP.asm`
+(the CCP) and `CPM_BDOS.asm` (the BDOS); the CCP INCLUDEs the BDOS so the two
+compile as one staged image and reassemble byte-identical. The BIOS is the bytes on disk; the
 running BIOS additionally builds a `$FE00-$FF47` device/console tail in RAM (the
 Videx/Pascal path) — see [`BOOT_AND_PATCHING.md`](BOOT_AND_PATCHING.md).
 
 ## `utilities/` — the filesystem programs
 
-19 of the 20 `.COM` programs in the disk's filesystem are here as annotated
-`.asm` that reassemble byte-identical, with `bin/` holding the assembled output:
+[`../CPMV220-44K`](../CPMV220-44K) is the **base** source tree, so the 9 `.COM`
+that are byte-identical across the 44K releases live there (one source for all),
+not here: `APDOS ASM DOWNLOAD DUMP ED LOAD PIP STAT XSUB`.
 
-`APDOS ASM AUTORUN BOOT CAT COPY DDT DOWNLOAD DUMP ED GBASIC LOAD MBASIC MFT
-PATCH PIP STAT SUBMIT XSUB`
+The 10 whose bytes differ from 2.20-44K or are 2.23-only are here as annotated
+`.asm` that reassemble byte-identical (with `bin/` holding the assembled output):
+
+`AUTORUN BOOT CAT COPY DDT GBASIC MBASIC MFT PATCH SUBMIT`
 
 The 20th, `CPM60.COM`, is built from the 60K master
 [`../CPMV223-60K/CPM60.asm`](../CPMV223-60K/CPM60.asm).

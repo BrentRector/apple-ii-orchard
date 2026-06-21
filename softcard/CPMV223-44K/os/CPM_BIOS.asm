@@ -20,6 +20,7 @@
 ; documented in ../BOOT_AND_PATCHING.md, deliberately not baked into this source.
 
     DEVICE NOSLOT64K
+    INCLUDE "apple_softcard.inc"   ; Apple/SoftCard external names (single source of truth)
 
 ; -- External symbols --
 WBOOT_VEC            EQU $0000               ; Warm-boot vector â JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
@@ -28,7 +29,6 @@ BDOS_VEC             EQU $0005               ; BDOS call vector â JP BDOS_E
 DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS cold-init / DRV_ALLRESET (fn 13) set the DMA address here and WBOOT re-issues SETDMA($0080); sector/record I/O moves 128 bytes through it. At program load this same buffer doubles as the command tail: the first byte ($0080) holds the tail length (0-127) and the characters follow at $0081 (CMDLINE).
 BDOS_ENTRY_223       EQU $9C06               ; BDOS entry point -- planted at $0005-$0007 as JP $9C06
 BDOS_SENTINEL        EQU $9C08               ; First-boot vs warm-boot detect (initialized to $9C; $FB7F-$FB85 checks)
-SLOT_INFO_BASE       EQU $F3B8               ; [DOC S&HD 2-26/2-27] $F3B8 is the Disk Count Byte (number of disk controller cards x2); the Card Type Table (SLTTYP) proper starts at $F3B9, with slot S's detected card-type byte at $F3B8+S (S=1..7). The cold-boot scan reads each slot's entry via $F3B8+E, E=1..7.
 HOME_IMPL            EQU $FE6C               ; HOME implementation (jump-table entry 8 target)
 SETTRK_IMPL          EQU $FE77               ; SETTRK implementation (jump-table entry 10 target)
 INIT_KEYBOARD        EQU $FE81               ; [DOC S&HD 2-26/2-27] Slot init for Card Type Table value 3 (Apple Communications Interface / CCS 7710A serial). The INIT_KEYBOARD label is a code-only guess; the manual's type-3 device is the serial card.
@@ -88,19 +88,19 @@ SECTRAN:
         DEFB    $E4,$FE,$73,$FA,$D0,$FF,$9A,$FF,$20,$00,$03,$07,$00,$8B,$00,$2F ; $FA6B
         DEFB    $00,$C0,$00,$0C,$00,$03,$00                      ; $FA7B
 ; [DOC S&HD 2-26/2-27] Cold-boot per-device init loop over the Card Type Table. Sets the slot
-;       counter DE=7 and walks $F3B8+DE (DE=7..1 -> $F3BF..$F3B9), reading each slot's detected
+;       counter DE=7 and walks DSKCNT+DE (DE=7..1 -> $F3BF..SLTTYP), reading each slot's detected
 ;       card-type byte and dispatching on it (re-claiming the shared $C800 expansion-ROM window for
-;       card classes that need their firmware). NOTE: $F3B8 is the Disk Count Byte; the Card Type
-;       Table (SLTTYP) starts at $F3B9, entry = $F3B8+S for slot S. (This is NOT the IOBYTE table --
+;       card classes that need their firmware). NOTE: DSKCNT is the Disk Count Byte; the Card Type
+;       Table (SLTTYP) starts at SLTTYP, entry = DSKCNT+S for slot S. (This is NOT the IOBYTE table --
 ;       IOBYTE is a single byte at $0003.)
 SLOT_SCAN:
         LD DE,$0007                      ; $FA82  11 07 00
-; [DOC S&HD 2-26] Loop body: reads the slot's Card Type Table value at $F3B8+DE and dispatches.
+; [DOC S&HD 2-26] Loop body: reads the slot's Card Type Table value at DSKCNT+DE and dispatches.
 ;       Card type 3 (Apple Communications Interface / CCS 7710A serial) runs its init and stamps the
 ;       entry; the SUB $03 / DEC A chain below then peels off card type 4, etc. (The label
 ;       INIT_KEYBOARD is the disassembler's guess; the manual's type-3 device is the serial card.)
 SLOT_SCAN_1:
-        LD HL,SLOT_INFO_BASE             ; $FA85  21 B8 F3
+        LD HL,DSKCNT             ; $FA85  21 B8 F3
         ADD HL,DE                        ; $FA88  19
         LD A,(HL)                        ; $FA89  7E
         SUB $03                          ; $FA8A  D6 03
@@ -138,15 +138,24 @@ SLOT_SCAN_4:
         DEC E                            ; $FAAD  1D
         JR NZ,SLOT_SCAN_1                ; $FAAE  20 D5
         RET                              ; $FAB0  C9
-        DEFB    $21,$00,$E0,$7B,$B4,$67,$C9                      ; $FAB1
+; [AI] Slot-page address helper: forms HL = ($E0 OR E) << 8 (L=0) from the slot/index in E. With E in
+;       1..7 this yields $E100..$E700 -- the Z-80-side shadow (KEYBD window) of the Apple slot-I/O /
+;       $Cn00 expansion pages ($C100..$C700). Returns the page base of slot E for a subsequent
+;       firmware access. (Pristine on-disk code, reached via a runtime-planted vector in low RAM.)
+SLOT_PAGE_ADDR:
+        LD HL,KEYBD                      ; $FAB1  21 00 E0   ; KEYBD window = Z-80 view of Apple I/O
+        LD A,E                           ; $FAB4  7B         ; slot/index
+        OR H                             ; $FAB5  B4         ; A = E | $E0
+        LD H,A                           ; $FAB6  67         ; HL = (E|$E0)<<8  -> slot E page base
+        RET                              ; $FAB7  C9
 ; [AI] WBOOT proper: resets the stack to the TPA, re-establishes the 6502-side console via RPC,
 ;       rescans slots, then either cold-starts or hands control to the resident CCP. [DOC S&HD
-;       2-24/2-25] the warm-boot tail stores into A$VEC ($F3D0, the 6502-subroutine call address,
-;       low-high) and reads Z$CPU ($F3DE, the SoftCard location cell) -- the two cells of the
+;       2-24/2-25] the warm-boot tail stores into A$VEC (A_VEC, the 6502-subroutine call address,
+;       low-high) and reads Z$CPU (Z_CPU, the SoftCard location cell) -- the two cells of the
 ;       Z-80->6502 RPC mechanism used to hand control back to the 6502.
 WBOOT_IMPL:
         LD SP,DEFAULT_DMA                ; $FAB8  31 80 00
-        LD A,($E051)                     ; $FABB  3A 51 E0
+        LD A,(TXTSET)                     ; $FABB  3A 51 E0
         LD HL,$0E00                      ; $FABE  21 00 0E
         CALL RPC_DISPATCH                ; $FAC1  CD 45 FB
         CALL SLOT_SCAN                   ; $FAC4  CD 82 FA
@@ -154,8 +163,8 @@ WBOOT_IMPL:
         CP $9C                           ; $FACA  FE 9C
         JR Z,COLD_START_INIT             ; $FACC  28 11
         LD HL,$FF59                      ; $FACE  21 59 FF
-        LD ($F3D0),HL                    ; $FAD1  22 D0 F3
-        LD HL,($F3DE)                    ; $FAD4  2A DE F3
+        LD (A_VEC),HL                    ; $FAD1  22 D0 F3
+        LD HL,(Z_CPU)                    ; $FAD4  2A DE F3
         LD A,$77                         ; $FAD7  3E 77
         LD ($000B),A                     ; $FAD9  32 0B 00
         JP $000B                         ; $FADC  C3 0B 00
@@ -194,7 +203,7 @@ COLD_START_INIT:
         NOP                              ; $FB0F  00
 ; [AI] CONST (jump-table entry 3): console-status primitive, implemented as an RST trap to the 6502
 ;       side which reports whether a key is ready. [DOC S&HD 2-18] standard contract: returns A=$FF
-;       if a console character is ready, A=$00 otherwise (the Console Status vector is $F380; status
+;       if a console character is ready, A=$00 otherwise (the Console Status vector is CONST_VEC; status
 ;       always routes through #1 regardless of the IOBYTE CONSOLE field).
 CONST_IMPL:
         RST $30                          ; $FB10  F7
@@ -209,14 +218,14 @@ CONST_IMPL:
         RST $30                          ; $FB19  F7
 ; [AI] CONIN (jump-table entry 4): blocking console-input primitive that traps to the 6502 keyboard
 ;       handler and returns the key in A. [DOC S&HD 2-18] standard contract: reads a character from
-;       the console into A with the high-order bit clear (the Console Input vectors are $F382 #1 /
-;       $F384 #2, selected per the IOBYTE CONSOLE field by CONIN_VECTOR below).
+;       the console into A with the high-order bit clear (the Console Input vectors are CONIN1_VEC #1 /
+;       CONIN2_VEC #2, selected per the IOBYTE CONSOLE field by CONIN_VECTOR below).
 CONIN_IMPL:
         NOP                              ; $FB1A  00
         NOP                              ; $FB1B  00
         RST $30                          ; $FB1C  F7
         RST $30                          ; $FB1D  F7
-        NOP                              ; $FB1E  00
+        NOP                              ; PREAD  00
         NOP                              ; $FB1F  00
         RST $38                          ; $FB20  FF
         RST $38                          ; $FB21  FF
@@ -233,7 +242,7 @@ CONIN_IMPL:
         RST $38                          ; $FB2C  FF
         RST $38                          ; $FB2D  FF
         NOP                              ; $FB2E  00
-        NOP                              ; $FB2F  00
+        NOP                              ; TEXT_ROM  00
         RST $38                          ; $FB30  FF
 CONIN_IMPL_1:
         RST $38                          ; $FB31  FF
@@ -270,7 +279,7 @@ RPC_DISPATCH:
         RST $38                          ; $FB4C  FF
 ; [AI] CONOUT (jump-table entry 5): console-output primitive that traps to the 6502 to emit the
 ;       character in C to the current console device. [DOC S&HD 2-18/2-19] standard contract: sends
-;       the ASCII character in C to the console (Console Output vectors $F386 #1 / $F388 #2). During
+;       the ASCII character in C to the console (Console Output vectors CONOUT1_VEC #1 / CONOUT2_VEC #2). During
 ;       output the B register carries the screen-function number (1..9) while a screen function is
 ;       emitted, and B=0 during normal character output.
 CONOUT_IMPL:
@@ -312,7 +321,7 @@ CONOUT_IMPL_1:
         NOP                              ; $FB6F  00
 ; [AI] LIST (jump-table entry 6): list/printer output primitive routed to the 6502 side via the RST
 ;       trap. [DOC S&HD 2-18/2-19] standard contract: sends the character in C to the line printer
-;       (LST:) device (List Output vectors $F392 #1 / $F394 #2).
+;       (LST:) device (List Output vectors LIST1_VEC #1 / LIST2_VEC #2).
 LIST_IMPL:
         RST $30                          ; $FB70  F7
         RST $30                          ; $FB71  F7
@@ -331,8 +340,8 @@ LIST_IMPL:
         NOP                              ; $FB7E  00
 ; [AI] PUNCH (jump-table entry 7): paper-tape punch output stub trapping to the 6502; effectively a
 ;       no-op output device on this hardware. [DOC S&HD 2-18/2-19] standard contract: sends the
-;       character in C to the "paper tape punch" (PUN:) device (Punch Output vectors $F38E #1 /
-;       $F390 #2).
+;       character in C to the "paper tape punch" (PUN:) device (Punch Output vectors PUN1_VEC #1 /
+;       PUN2_VEC #2).
 PUNCH_IMPL:
         NOP                              ; $FB7F  00
         RST $38                          ; $FB80  FF
@@ -354,8 +363,8 @@ PUNCH_IMPL:
         RST $38                          ; $FB90  FF
 ; [AI] READER (jump-table entry 8): paper-tape reader input stub trapping to the 6502; returns a
 ;       placeholder on systems without the device. [DOC S&HD 2-18/2-19] standard contract: reads a
-;       character from the "paper tape reader" (RDR:) device into A (Reader Input vectors $F38A #1 /
-;       $F38C #2); the manual notes a missing PTR: card returns $1A (EOF).
+;       character from the "paper tape reader" (RDR:) device into A (Reader Input vectors RDR1_VEC #1 /
+;       RDR2_VEC #2); the manual notes a missing PTR: card returns $1A (EOF).
 READER_IMPL:
         RST $38                          ; $FB91  FF
         NOP                              ; $FB92  00
@@ -496,57 +505,227 @@ SETDMA_IMPL:
         LD A,(CDISK)                     ; $FC09  3A 04 00
         LD C,A                           ; $FC0C  4F
         JP $9300                         ; $FC0D  C3 00 93
-        DEFB    $2A,$80,$F3,$E9,$3A,$00,$E0,$17,$9F,$C9,$CD      ; $FC10
-        DEFW    CONOUT_IMPL_1            ; $FC1B
-        DEFB    $E6,$7F,$21,$AB,$F3,$06,$06,$4F,$23,$7E,$23,$B7,$FA ; $FC1D
-        DEFW    CONIN_IMPL_1             ; $FC2A
-        DEFB    $B9,$7E,$C8,$10,$F4,$79,$C9,$11,$03,$00,$C3      ; $FC2C
-        DEFW    CONIN_IMPL_2             ; $FC37
-        DEFB    $3A,$00,$E0,$17                                  ; $FC39
-        DEFW    SECTRAN                  ; $FC3D
-        DEFB    $32,$10,$E0,$3F,$1F,$C9,$22,$D0,$F3,$32,$00,$00,$C9,$4F,$3A,$03 ; $FC3F
-        DEFB    $00,$E6,$03,$FE,$02,$20,$4B                      ; $FC4F
-; [DOC S&HD 2-18/2-19] CORRECTION: the disassembler's label/name are misleading. This region holds
-;       TWO I/O Vector Table dispatchers. First (LD HL,($F392); JP (HL)) is the LIST OUTPUT path
-;       through List Output #1 ($F392). It is immediately followed by the CONSOLE INPUT dispatcher:
-;       it reads IOBYTE ($0003), masks the CONSOLE field (AND $03), and jumps via Console Input #1
-;       ($F382, serving TTY:/CRT:) or Console Input #2 ($F384, serving UC1:). Console OUTPUT
-;       (#1 $F386 / #2 $F388) is handled in the off-disk resident tail, not here.
-CONOUT_VECTOR:
-        DEFB    $2A,$92,$F3,$E9,$3A,$03,$00,$E6,$03,$FE,$02,$2A,$84,$F3,$28,$06 ; $FC56
-        DEFB    $30,$07,$2A,$82,$F3,$E9                          ; $FC66
-; [DOC S&HD 2-18/2-19] CORRECTION: not a console-input dispatcher. First (LD HL,($F38A); JP (HL))
-;       is the READER INPUT path through Reader Input #1 ($F38A). It is followed by the LIST output
-;       selector (IOBYTE LIST field, bits 6-7; UL1: via List Output #2 $F394) and the PUNCH output
-;       selector (IOBYTE PUNCH field, bits 4-5; Punch Output #1 $F38E / #2 $F390). $F38A is Reader
-;       Input #1, NOT a console-input cell.
-CONIN_VECTOR:
-        DEFB    $2A,$8A,$F3,$E9,$3A,$03,$00,$E6,$C0,$FE,$80,$38,$27,$28,$DB,$2A ; $FC6C
-        DEFB    $94,$F3,$E9,$3A,$03,$00,$E6,$30,$FE,$10,$38,$18,$2A,$8E,$F3,$28 ; $FC7C
-        DEFB    $E2,$2A,$90,$F3,$E9,$3A,$03,$00,$E6,$0C,$FE,$08,$38,$CE ; $FC8C
-; [DOC S&HD 2-18/2-19] CORRECTION: not a console-status dispatcher. This is the READER INPUT #2 tail
-;       of the IOBYTE READER-field selector above: it jumps via Reader Input #2 ($F38C, serving
-;       UR1:/UR2:). $F38C is Reader Input #2, NOT a status cell -- the Console Status vector is $F380.
+; [DOC S&HD 3.2/2-17] CONSOLE STATUS dispatch -- the vectored body of the CONST primitive. It loads
+;       the Console Status vector cell (CONST_VEC, I/O Vector Table entry #1) and jumps through it. Status
+;       is NEVER IOBYTE-demuxed: it always routes through Console Status #1 regardless of the IOBYTE
+;       CONSOLE field (contrast the CONIN/CONOUT/READER/LIST/PUNCH demuxers below). CONST_VEC = I/O Vector
+;       Table entry 1 (Console Status: returns A=$FF if a char is ready, $00 otherwise).
 CONST_VECTOR:
-        DEFB    $28,$D0,$2A,$8C,$F3,$E9,$37,$9F,$21,$A2          ; $FC9A
-; [AI] Low-level disk wait/issue routine: spins on the 6502 status cell until ready, then latches
-;       the track byte and dispatches the sector read or write.
-DISK_WAIT_XFER:
-        DEFB    $F3,$6E,$2C,$CA,$A4,$FC,$21,$CB,$FE,$77,$CB,$B9,$23,$7E,$B7,$CA ; $FCA4
-        DEFB    $56,$FC,$35,$3A,$96,$F3,$21,$D4,$FE,$28,$0C,$B7,$F2 ; $FCB4
-        DEFW    DISK_XLAT_POS_SECTOR     ; $FCC1
-        DEFB    $2B,$E6,$7F,$5F,$79,$93,$77,$C9,$B7,$FA          ; $FCC3
-        DEFW    DISK_XLAT_NEG_SECTOR     ; $FCCD
-        DEFB    $2B,$CD                                          ; $FCCF
-        DEFW    DISK_RPC_PUSH_ADDR       ; $FCD1
-        DEFB    $2A,$D3,$FE,$3A,$A1,$F3,$B7,$F2                  ; $FCD3
-        DEFW    DISK_XLAT_SECTOR_HI      ; $FCDB
-        DEFB    $E6,$7F,$5D,$6C,$63                              ; $FCDD
-; [AI] Computes the two-byte 6502-side sector address from the running offset and dispatches both
-;       halves to the disk engine via SUB_FCA4.
+        LD HL,(CONST_VEC)                    ; $FC10  2A 80 F3   ; Console Status vector #1
+        JP (HL)                          ; $FC13  E9
+; [DOC S&HD 3.2] Apple-keyboard ready test. Reads KEYBD (KEYBD); the strobe (bit 7) is set when a key
+;       is waiting. RLA shifts bit 7 into carry, then SBC A,A expands carry to A=$FF (key ready) or
+;       A=$00 (none) -- the Console Status #1 contract value. (KEYBD EQU KEYBD per the S&HD EQU list.)
+KBD_READY:
+        LD A,(KEYBD)                     ; $FC14  3A 00 E0   ; KEYBD: Apple keyboard data/strobe
+        RLA                              ; $FC17  17         ; key-ready strobe (bit 7) -> carry
+        SBC A,A                          ; $FC18  9F         ; carry -> A=$FF (ready) / $00 (none)
+        RET                              ; $FC19  C9
+; [DOC S&HD 3.6/2-17] Keyboard Character Redefinition Table lookup. Fetches a raw key (via the 6502
+;       primitive at $FB5A in the CONOUT_IMPL_1 RST group), masks to 7 bits, then scans the
+;       redefinition table at $F3AC (KEYBD redef table; B=6 max entries, each {orig,new}, terminated
+;       by a byte with the high bit set). On a match the substituted character is returned in A;
+;       otherwise the original key.
+KBD_REDEF_XLAT:
+        CALL CONOUT_IMPL_1              ; $FC1A  CD 5A FB   ; get raw key from 6502 side ($FB5A)
+        AND $7F                          ; $FC1D  E6 7F      ; strip high bit
+        LD HL,$F3AB                      ; $FC1F  21 AB F3   ; (table-1); first INC HL -> $F3AC
+        LD B,$06                         ; $FC22  06 06      ; up to 6 redefinitions
+        LD C,A                           ; $FC24  4F         ; key under test
+KBD_REDEF_SCAN:
+        INC HL                           ; $FC25  23
+        LD A,(HL)                        ; $FC26  7E         ; original-key byte
+        INC HL                           ; $FC27  23
+        OR A                             ; $FC28  B7
+        JP M,CONIN_IMPL_1                ; $FC29  FA 31 FB   ; high bit set => end of table -> CONIN handler
+        CP C                             ; $FC2C  B9
+        LD A,(HL)                        ; $FC2D  7E         ; replacement byte
+        RET Z                            ; $FC2E  C8         ; matched -> return substitute
+        DJNZ KBD_REDEF_SCAN              ; $FC2F  10 F4
+        LD A,C                           ; $FC31  79         ; no match -> original key
+        RET                              ; $FC32  C9
+; [AI] Helper: loads DE=3 (the IOBYTE address / a count) and tail-jumps into the CONIN_IMPL_2 RST
+;       group; reached by the keyboard path above.
+KBD_XLAT_TAIL:
+        LD DE,$0003                      ; $FC33  11 03 00
+        JP CONIN_IMPL_2                  ; $FC36  C3 39 FB
+; [DOC S&HD 3.2] Spin-wait for an Apple keypress: polls KEYBD (KEYBD) until the strobe (bit 7) is set
+;       (RLA -> carry; loop while no-carry). Used by the blocking console-input path.
+KBD_WAIT:
+        LD A,(KEYBD)                     ; $FC39  3A 00 E0   ; KEYBD
+        RLA                              ; $FC3C  17         ; strobe (bit 7) -> carry
+        JR NC,KBD_WAIT                   ; $FC3D  30 FA      ; loop until a key is ready
+; [DOC S&HD 3.2] Clear the Apple keyboard strobe: a write to KBDSTRB (KEYSTB) acknowledges the keypress
+;       so the next KEYBD read is fresh; CCF/RRA then folds the prior carry back into A. (KBDSTRB lives
+;       in the $C010 soft-switch range as seen from the Z-80's shadow at KEYSTB.)
+KBD_STROBE_CLR:
+        LD (KEYSTB),A                     ; $FC3F  32 10 E0   ; KBDSTRB: clear keyboard strobe
+        CCF                              ; $FC42  3F
+        RRA                              ; $FC43  1F
+        RET                              ; $FC44  C9
+; [DOC S&HD 2-24/2-25] Set the 6502 subroutine-call address: stores HL into A$VEC (A_VEC, the Z-80->
+;       6502 RPC call-address cell, low-high) and A into $0000. Used to arm a 6502-side call before
+;       triggering the RPC trap.
+SET_AVEC:
+        LD (A_VEC),HL                    ; $FC45  22 D0 F3   ; A$VEC = 6502 call address
+        LD ($0000),A                     ; $FC48  32 00 00
+        RET                              ; $FC4B  C9
+; [DOC S&HD 7.6/2-18] CONSOLE OUTPUT IOBYTE demux (CONOUT body). Reads IOBYTE ($0003), masks the
+;       CONSOLE field (bits 0-1). When CONSOLE=2 (BAT:) console output is redirected to the LIST
+;       device, so it falls through to the List Output #1 dispatch ($FC56); otherwise it branches to
+;       the A=$00/$FF tail ($FCA1). The TTY:/CRT:/UC1: Console Output #1/#2 selection (CONOUT1_VEC/CONOUT2_VEC)
+;       happens in the off-disk resident tail ($FEAC: LD HL,(CONOUT2_VEC)/(CONOUT1_VEC)/JP (HL)), not here.
+CONOUT_VECTOR:
+        LD C,A                           ; $FC4C  4F         ; save char
+        LD A,($0003)                     ; $FC4D  3A 03 00   ; IOBYTE
+        AND $03                          ; $FC50  E6 03      ; CONSOLE field (bits 0-1)
+        CP $02                           ; $FC52  FE 02      ; ==2 => BAT: (output to LST:)
+        JR NZ,IO_FLAG_FALSE              ; $FC54  20 4B
+; [DOC S&HD 3.2/7.6] LIST OUTPUT #1 dispatch. Loads List Output vector #1 (LIST1_VEC, I/O Vector Table
+;       entry 10) and jumps through it. Reached two ways: by the CONOUT demux above when CONSOLE=BAT
+;       (output redirected to LST:), and by the LIST IOBYTE demux below for LPT:.
+LIST_VECTOR:
+        LD HL,(LIST1_VEC)                    ; $FC56  2A 92 F3   ; List Output vector #1
+        JP (HL)                          ; $FC59  E9
+; [DOC S&HD 7.6/2-18] CONSOLE INPUT IOBYTE demux (CONIN body). Reads IOBYTE ($0003), masks the
+;       CONSOLE field (bits 0-1): ==2 (BAT:) reads from the paper-tape reader so it falls into the
+;       Reader Input #1 dispatch (RDR1_VEC); >2 (UC1:) uses Console Input #2 (CONIN2_VEC); else (TTY:/CRT:)
+;       Console Input #1 (CONIN1_VEC). HL is preloaded with CONIN2_VEC then the two JR branches pick the cell.
+CONIN_VECTOR:
+        LD A,($0003)                     ; $FC5A  3A 03 00   ; IOBYTE
+        AND $03                          ; $FC5D  E6 03      ; CONSOLE field (bits 0-1)
+        CP $02                           ; $FC5F  FE 02
+        LD HL,(CONIN2_VEC)                    ; $FC61  2A 84 F3   ; Console Input #2 (UC1:)
+        JR Z,READER_VECTOR               ; $FC64  28 06      ; ==2 BAT: -> Reader Input #1
+        JR NC,DISPATCH_HL                ; $FC66  30 07      ; >2 UC1: -> Console Input #2 (HL set)
+CONIN_VIA_1:
+        LD HL,(CONIN1_VEC)                    ; $FC68  2A 82 F3   ; <2 TTY:/CRT: -> Console Input #1
+        JP (HL)                          ; $FC6B  E9
+; [DOC S&HD 3.2/7.6] READER INPUT #1 dispatch (Reader Input vector #1, RDR1_VEC, I/O Vector Table entry
+;       6, serving PTR:). Reached from the CONIN demux (BAT: console-in routes to the reader) and from
+;       the READER IOBYTE demux below.
+READER_VECTOR:
+        LD HL,(RDR1_VEC)                    ; $FC6C  2A 8A F3   ; Reader Input vector #1
+DISPATCH_HL:
+        JP (HL)                          ; $FC6F  E9
+; [DOC S&HD 7.6/2-18] LIST OUTPUT IOBYTE demux. Masks the IOBYTE LIST field (bits 6-7): 0/1 (TTY:/CRT:)
+;       falls to the A=$00/$FF tail; ==2 (LPT:) routes to List Output #1 ($FC56); ==3 (UL1:) uses
+;       List Output #2 (LIST2_VEC).
+LIST_DEMUX:
+        LD A,($0003)                     ; $FC70  3A 03 00   ; IOBYTE
+        AND $C0                          ; $FC73  E6 C0      ; LIST field (bits 6-7)
+        CP $80                           ; $FC75  FE 80
+        JR C,IO_FLAG_TRUE                ; $FC77  38 27      ; <2 TTY:/CRT: tail
+        JR Z,LIST_VECTOR                 ; $FC79  28 DB      ; ==2 LPT: -> List Output #1
+        LD HL,(LIST2_VEC)                    ; $FC7B  2A 94 F3   ; ==3 UL1: -> List Output #2
+        JP (HL)                          ; $FC7E  E9
+; [DOC S&HD 7.6/2-18] PUNCH OUTPUT IOBYTE demux. Masks the IOBYTE PUNCH field (bits 4-5): 0 (TTY:)
+;       falls to the tail; ==1 (PTP:) routes to Punch Output #1 (PUN1_VEC); >=2 (UP1:/UP2:) uses Punch
+;       Output #2 (PUN2_VEC).
+PUNCH_DEMUX:
+        LD A,($0003)                     ; $FC7F  3A 03 00   ; IOBYTE
+        AND $30                          ; $FC82  E6 30      ; PUNCH field (bits 4-5)
+        CP $10                           ; $FC84  FE 10
+        JR C,IO_FLAG_TRUE                ; $FC86  38 18      ; ==0 TTY: tail
+        LD HL,(PUN1_VEC)                    ; $FC88  2A 8E F3   ; Punch Output #1 (PTP:)
+        JR Z,DISPATCH_HL                 ; $FC8B  28 E2      ; ==1 -> JP (HL) via Punch Output #1
+        LD HL,(PUN2_VEC)                    ; $FC8D  2A 90 F3   ; >=2 UP1:/UP2: -> Punch Output #2
+        JP (HL)                          ; $FC90  E9
+; [DOC S&HD 7.6/2-18] READER INPUT IOBYTE demux. Masks the IOBYTE READER field (bits 2-3): 0/1
+;       (TTY:/CRT:) routes to Console Input #1 ($FC68); ==2 (PTR:) routes to Reader Input #1 ($FC6C);
+;       ==3 (UR2:) uses Reader Input #2 (RDR2_VEC).
+READER_DEMUX:
+        LD A,($0003)                     ; $FC91  3A 03 00   ; IOBYTE
+        AND $0C                          ; $FC94  E6 0C      ; READER field (bits 2-3)
+        CP $08                           ; $FC96  FE 08
+        JR C,CONIN_VIA_1                 ; $FC98  38 CE      ; <2 TTY:/CRT: -> Console Input #1
+        JR Z,READER_VECTOR               ; $FC9A  28 D0      ; ==2 PTR: -> Reader Input #1
+        LD HL,(RDR2_VEC)                    ; $FC9C  2A 8C F3   ; ==3 UR2: -> Reader Input #2
+        JP (HL)                          ; $FC9F  E9
+; [AI] I/O-demux flag tails. IO_FLAG_TRUE sets carry; IO_FLAG_FALSE (entered with carry already clear
+;       from a preceding CP) leaves it clear; SBC A,A then expands carry to A=$FF or $00. These fall
+;       THROUGH (no RET) into the device-dispatch header at $FCA2.
+; IMPORTANT -- overlapping-instruction idiom: the $21,$A2 below is the opcode+low byte of LD HL,HFLDIN;
+;       its HIGH operand byte is the $F3 at $FCA4, which is ALSO a legitimate alternate entry point
+;       (executed there as DI). $FCA4 is reached by this routine's own self-CALLs and by the resident
+;       READ/WRITE tail ($FE6E: JP C,$FCA4). It is kept as DEFB because a linear assembler cannot place
+;       both the operand byte and the DI at the same address.
+IO_FLAG_TRUE:
+        SCF                              ; $FCA0  37
+IO_FLAG_FALSE:
+        SBC A,A                          ; $FCA1  9F
+        DEFB    $21,$A2                                          ; $FCA2  LD HL,HFLDIN  ($F3 high byte = $FCA4 below)
+; [DOC S&HD 3.2] Device-dispatch / disk sector wait+transfer engine. Fall-through header (at $FCA2)
+;       does LD HL,HFLDIN / LD L,(HL) / INC L, indirecting through the hardware lead-in/handshake cell;
+;       the $FCA4 (DI) alternate entry expects HL preset by the caller. The body waits on the 6502
+;       status cell until ready, latches the track/sector parameters into the resident RWTS IOB
+;       ($FECB/$FED2/$FED3/$FED4/$FEE1), applies the signed skew/offset, and dispatches the read or
+;       write via the RPC helpers. Called from the resident READ/WRITE tail ($FE6E: JP C,$FCA4) and
+;       recursively by SECTOR_ADDR_XFER below.
+DISK_SECTOR_XFER:
+        DI                               ; $FCA4  F3         ; (also the $F3 operand of LD HL,HFLDIN above)
+        LD L,(HL)                        ; $FCA5  6E
+        INC L                            ; $FCA6  2C
+        JP Z,DISK_SECTOR_XFER            ; $FCA7  CA A4 FC   ; cell==$FF (not ready) -> spin
+        LD HL,$FECB                      ; $FCAA  21 CB FE   ; resident RWTS IOB cell
+        LD (HL),A                        ; $FCAD  77
+        RES 7,C                          ; $FCAE  CB B9
+        INC HL                           ; $FCB0  23
+        LD A,(HL)                        ; $FCB1  7E
+        OR A                             ; $FCB2  B7
+        JP Z,LIST_VECTOR                 ; $FCB3  CA 56 FC
+        DEC (HL)                         ; $FCB6  35
+        LD A,(SXYOFF)                     ; $FCB7  3A 96 F3   ; cursor-XY offset / skew sign cell
+        LD HL,$FED4                      ; $FCBA  21 D4 FE   ; resident RWTS IOB cell
+        JR Z,DISK_XLAT_SECTOR            ; $FCBD  28 0C
+        OR A                             ; $FCBF  B7
+        JP P,DISK_XLAT_POS_SECTOR        ; $FCC0  F2 C6 FB   ; positive skew
+        DEC HL                           ; $FCC3  2B
+        AND $7F                          ; $FCC4  E6 7F
+        LD E,A                           ; $FCC6  5F
+        LD A,C                           ; $FCC7  79
+        SUB E                            ; $FCC8  93
+        LD (HL),A                        ; $FCC9  77
+        RET                              ; $FCCA  C9
+DISK_XLAT_SECTOR:
+        OR A                             ; $FCCB  B7
+        JP M,DISK_XLAT_NEG_SECTOR        ; $FCCC  FA D0 FB   ; negative (extended) case
+        DEC HL                           ; $FCCF  2B
+        CALL DISK_RPC_PUSH_ADDR          ; $FCD0  CD C4 FB
+        LD HL,($FED3)                    ; $FCD3  2A D3 FE   ; resident RWTS IOB cell
+        LD A,(HXYOFF)                     ; $FCD6  3A A1 F3   ; hardware cursor-XY offset / skew cell
+        OR A                             ; $FCD9  B7
+        JP P,DISK_XLAT_SECTOR_HI         ; $FCDA  F2 E2 FB   ; positive: build hi component
+        AND $7F                          ; $FCDD  E6 7F
+        LD E,L                           ; $FCDF  5D
+        LD L,H                           ; $FCE0  6C
+        LD H,E                           ; $FCE1  63
+; [DOC S&HD 3.2] Builds the two-byte 6502-side sector address from the running offset (skew applied
+;       above) and dispatches BOTH halves to the disk engine through DISK_SECTOR_XFER (entered at the
+;       $FCA4 alternate entry): first half with B=$07, second with B=$0A as the RPC command codes.
 SECTOR_ADDR_XFER:
-        DEFB    $5F,$84,$4F,$7B,$85,$F5,$06,$07,$CD,$A4,$FC,$F1,$06,$0A,$4F,$C3 ; $FCE2
-        DEFB    $A4,$FC,$79,$32,$D2,$FE,$C9,$ED,$43,$E1,$FE,$C9,$00 ; $FCF2  "$|y2R~ImCa~I"
+        LD E,A                           ; $FCE2  5F
+        ADD A,H                          ; $FCE3  84
+        LD C,A                           ; $FCE4  4F
+        LD A,E                           ; $FCE5  7B
+        ADD A,L                          ; $FCE6  85
+        PUSH AF                          ; $FCE7  F5
+        LD B,$07                         ; $FCE8  06 07      ; RPC command: address lo
+        CALL DISK_SECTOR_XFER            ; $FCEA  CD A4 FC
+        POP AF                           ; $FCED  F1
+        LD B,$0A                         ; $FCEE  06 0A      ; RPC command: address hi
+        LD C,A                           ; $FCF0  4F
+        JP DISK_SECTOR_XFER              ; $FCF1  C3 A4 FC
+; [AI] SETSEC body: stores the requested sector (C) into the resident RWTS IOB sector cell ($FED2).
+SET_SECTOR:
+        LD A,C                           ; $FCF4  79
+        LD ($FED2),A                     ; $FCF5  32 D2 FE
+        RET                              ; $FCF8  C9
+; [AI] SETDMA body: stores the requested DMA address (BC) into the resident RWTS IOB DMA cell ($FEE1).
+SET_DMA_ADDR:
+        LD ($FEE1),BC                    ; $FCF9  ED 43 E1 FE
+        RET                              ; $FCFD  C9
+        DEFB    $00                                              ; $FCFE
         DEFB    $00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00 ; $FCFF
         DEFB    $00,$F7,$F7,$00,$00,$F7,$F7,$00,$00,$F7,$F7,$00,$00,$F7,$F7,$10 ; $FD0F
         DEFB    $00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00,$00,$FF,$FF,$00 ; $FD1F

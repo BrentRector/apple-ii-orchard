@@ -5,7 +5,7 @@
 ; [AI] BOOT.COM -- CP/M 2.2 SoftCard "reboot from floppy" helper.
 ; [AI] Prints "PRESS RETURN TO BOOT", waits for a keypress, then hands the
 ; [AI]   Apple II Disk II slot-6 boot-ROM entry ($C600) and the typed key to
-; [AI]   the SoftCard's 6502-side communication area ($F3D0/$F3DE) so the host
+; [AI]   the SoftCard's 6502-side communication area (A_VEC/Z_CPU) so the host
 ; [AI]   6502 cold-boots from the floppy. There is no RET: control leaves the
 ; [AI]   Z-80 program once the 6502 takes over.
 ; [AI]
@@ -16,13 +16,12 @@
 ; [AI]   load address and simply falls through the NOP field into the real code.
 
     DEVICE NOSLOT64K
+    INCLUDE "apple_softcard.inc"   ; Apple/SoftCard external names (single source of truth)
 
 ; -- External symbols --
 BDOS_VEC             EQU $0005               ; BDOS call vector — JP BDOS_ENTRY. Programs use CALL $0005 to invoke BDOS. Word at $0006 is also the top-of-TPA marker.
 
 ; [AI] -- SoftCard host (6502-side) communication cells in high RAM --
-SOFTCARD_BOOTVEC     EQU $F3D0               ; [AI] 6502 boot-address cell; we poke $C600 (Disk II slot 6 entry) here
-SOFTCARD_CMDPTR      EQU $F3DE               ; [AI] pointer cell; word here -> byte the 6502 watches as a command/flag
 APPLE_DISKII_SLOT6   EQU $C600               ; [AI] Apple II Disk II controller boot ROM entry, slot 6 ($Cn00, n=6)
 
     ORG $0100
@@ -552,8 +551,8 @@ REBOOT_MAIN:
         LD C,$01                         ; $0208  0E 01       ; [AI] BDOS fn 1 = console input (wait for one key, echo); A = char
         CALL BDOS_VEC                    ; $020A  CD 05 00    ; [AI] block until the user presses a key (RETURN); key returned in A
         LD HL,APPLE_DISKII_SLOT6         ; $020D  21 00 C6    ; [AI] HL = $C600, Disk II slot-6 boot ROM entry
-        LD (SOFTCARD_BOOTVEC),HL         ; $0210  22 D0 F3    ; [AI] publish the 6502 boot vector ($C600) to the host comm cell
-        LD HL,(SOFTCARD_CMDPTR)          ; $0213  2A DE F3    ; [AI] HL = pointer the 6502 watches (from $F3DE)
+        LD (A_VEC),HL         ; $0210  22 D0 F3    ; [AI] publish the 6502 boot vector ($C600) to the host comm cell
+        LD HL,(Z_CPU)          ; $0213  2A DE F3    ; [AI] HL = pointer the 6502 watches (from Z_CPU)
         LD (HL),A                        ; $0216  77          ; [AI] store the typed key there -> signals the 6502 to take over and boot
 ; [AI] No RET: the 6502 side now resets/boots from the floppy via $C600.
 

@@ -22,8 +22,9 @@
 ;                jump table points at here ($AB08/$AB43/$AB50/...) are written
 ;                into this window at boot (runtime-generated handlers); they are
 ;                NOT present on disk.  Emitted as fill.
-;   $AC00-$ACFF  Code: console-/list-/punch-/reader-dispatch (IOBYTE demux) and
-;                the console-output screen-function processor.
+;   $AC00-$ACFF  Code: CONOUT/CONIN/LIST/PUNCH/READER IOBYTE demuxers, the
+;                device-dispatch flag tails, and the disk sector parameter
+;                builder (merged with a software screen-function lead-in branch).
 ;   $AD00-$ADFF  $E5 trap-fill (256 bytes) -- more runtime-generated handlers.
 ;   $AE00-$AEA7  Code: screen-function lookup/emit, cursor address handling,
 ;                plus a small block of BIOS RAM variables ($AEA2..$AEA7).
@@ -39,35 +40,15 @@
 
     DEVICE NOSLOT64K
 
-; ---- I/O Vector Table (config block) -- [DOC sec 3.2] --------------------
-CONST_VEC   EQU $F380        ; Console status vector
-CONIN1_VEC  EQU $F382        ; Console input vector #1 (TTY:/CRT:)
-CONIN2_VEC  EQU $F384        ; Console input vector #2 (UC1:)
-CONOUT1_VEC EQU $F386        ; Console output vector #1
-CONOUT2_VEC EQU $F388        ; Console output vector #2
-RDR1_VEC    EQU $F38A        ; Reader input vector #1
-RDR2_VEC    EQU $F38C        ; Reader input vector #2
-PUN1_VEC    EQU $F38E        ; Punch output vector #1
-PUN2_VEC    EQU $F390        ; Punch output vector #2
-LIST1_VEC   EQU $F392        ; List output vector #1
-LIST2_VEC   EQU $F394        ; List output vector #2
-; ---- Screen-function header/tables -- [DOC sec 3.3/3.4] ------------------
-SXYOFF      EQU $F396        ; Software cursor XY coordinate offset
-SFLDIN      EQU $F397        ; Software function lead-in char
-HXYOFF      EQU $F3A1        ; Hardware cursor XY coordinate offset
-HFLDIN      EQU $F3A2        ; Hardware function lead-in char
-; ---- Disk count / card type table -- [DOC sec 3.6/3.7] ------------------
-DSKCNT      EQU $F3B8        ; Disk count byte; Card Type Table indexes from here
-SLTTYP      EQU $F3B9        ; Card Type Table base (entry for slot S at DSKCNT+S)
-; ---- 6502 RPC mechanism -- [DOC sec 4] ----------------------------------
-A_ACC       EQU $F045        ; 6502 A-register pass cell ($45)
-A_XREG      EQU $F047        ; 6502 X-register pass cell ($47)
-A_VEC       EQU $F3D0        ; address of 6502 subroutine to call (low-high)
-KEYBD       EQU $E000        ; Apple keyboard (Z-80 view of 6502 $C000)
-KEYSTB      EQU $E010        ; keyboard clear-strobe (KEYBD+$10)
+; Apple / SoftCard external addresses -- the I/O Vector Table ($F380-$F394), the
+; screen-function cells (SXYOFF/SFLDIN/HXYOFF/HFLDIN), the Card Type Table
+; (DSKCNT/SLTTYP), the 6502 RPC cells (A_VEC, RPC_ACC, RPC_YREG) and the keyboard
+; (KEYBD/KEYSTB) -- all come from the shared single-source-of-truth include
+; (manual-cited / apple2.json). See softcard/include/apple_softcard.inc.
+    INCLUDE "apple_softcard.inc"
 ; ---- CP/M low memory -----------------------------------------------------
-BDOS_ENTRY  EQU $9C06        ; BDOS entry (44K: FBASE $9C00 + 6) -- [DOC sec 2.3]
-CCP_ENTRY   EQU $9400        ; CCP entry (44K: CBASE) -- [DOC sec 2.3]
+BDOS_ENTRY  EQU $9C06        ; BDOS entry (44K: FBASE $9C00 + 6) -- [DOC CPMREF 3-41/3-42 ; facts sec.2.3]
+CCP_ENTRY   EQU $9400        ; CCP entry (44K: CBASE) -- [DOC CPMREF 3-41/3-42 ; facts sec.2.3]
 
     ORG $AA00
 
@@ -81,19 +62,19 @@ BIOS_BASE:
         JP      COLD_BOOT                ; $AA00  0  BOOT   (cold start)
 JMPTAB:
         JP      WBOOT                    ; $AA03  1  WBOOT  (warm start)
-        JP      L_AB08                   ; $AA06  2  CONST  (runtime handler)
-        JP      L_AB50                   ; $AA09  3  CONIN
-        JP      L_AB43                   ; $AA0C  4  CONOUT
-        JP      L_AB66                   ; $AA0F  5  LIST
-        JP      L_AB75                   ; $AA12  6  PUNCH
-        JP      L_AB87                   ; $AA15  7  READER
-        JP      L_AD4B                   ; $AA18  8  HOME
-        JP      L_AD6D                   ; $AA1B  9  SELDSK
-        JP      L_AD56                   ; $AA1E 10  SETTRK
-        JP      L_AD89                   ; $AA21 11  SETSEC
+        JP      CONST_IMPL               ; $AA06  2  CONST  (runtime handler)
+        JP      CONIN_IMPL               ; $AA09  3  CONIN
+        JP      CONOUT_IMPL              ; $AA0C  4  CONOUT
+        JP      LIST_IMPL                ; $AA0F  5  LIST
+        JP      PUNCH_IMPL               ; $AA12  6  PUNCH
+        JP      READER_IMPL              ; $AA15  7  READER
+        JP      HOME_IMPL                ; $AA18  8  HOME
+        JP      SELDSK_IMPL              ; $AA1B  9  SELDSK
+        JP      SETTRK_IMPL              ; $AA1E 10  SETTRK
+        JP      SETSEC_IMPL              ; $AA21 11  SETSEC
         JP      SETDMA                   ; $AA24 12  SETDMA
-        JP      L_AD93                   ; $AA27 13  READ
-        JP      L_ADA3                   ; $AA2A 14  WRITE
+        JP      READ_IMPL                ; $AA27 13  READ
+        JP      WRITE_IMPL               ; $AA2A 14  WRITE
 
 ; ============================================================================
 ; DEVICE-DRIVER DESCRIPTOR TABLE + SCREEN PARAMETER BLOCK  ($AA2D-$AAA1)
@@ -125,30 +106,35 @@ SCRN_PARM:
         DEFB    $00,$03,$07,$00,$7F,$00,$2F,$00,$C0,$00,$0C,$00,$03,$00 ; $AA94
 
 ; ============================================================================
-; CARD-TYPE (SLOT) SCAN  ($AAA2)  -- [DOC sec 3.6]
+; CARD-TYPE (SLOT) SCAN  ($AAA2)  -- [DOC S&HD 2-26/2-27 ; facts sec.3.6]
 ; Walk the Card Type Table for slots 7..1 (DSKCNT+S).  When an entry == 3
 ; (Apple Comms / CCS serial), initialise that slot's serial driver and rewrite
 ; the table entry to 3 then $15.  When the (post-SUB) value hits the device-4
 ; case (Videx / high-speed serial / Sup-R-Term), claim the $C800 expansion-ROM
-; window via SUB_AB3B.  DE = slot index counter (7 down to 1).
+; window via RPC_DISPATCH.  DE = slot index counter (7 down to 1).
+; [DOC S&HD 2-26/2-27] the Card Type Table is at $F3B9 (= SLTTYP), one byte per
+; slot, entry for slot S at $F3B8+S; value 3 = Apple Comms / CCS 7710A serial,
+; value 4 = Apple Hi-Speed Serial / Videx Videoterm / M&R Sup-R-Term / Silentype
+; (an 80-column external terminal when in slot 3).  The device-6 (Pascal-1.1)
+; probe that 2.23 adds is absent here -- that delta is [RE], not manual-backed.
 ; ============================================================================
 CARDTYPE_SCAN:
         LD DE,$0007                      ; $AAA2  scan slots 7..1
 SCAN_LOOP:
-        LD HL,DSKCNT                     ; $AAA5  HL = Card Type Table base ($F3B8)
-        ADD HL,DE                        ; $AAA8  -> entry for slot E
+        LD HL,DSKCNT                     ; $AAA5  HL = Card Type Table base ($F3B8) [DOC S&HD 2-27]
+        ADD HL,DE                        ; $AAA8  -> entry for slot E ($F3B8+S) [DOC S&HD 2-26]
         LD A,(HL)                        ; $AAA9  A = card type for this slot
-        SUB $03                          ; $AAAA  ==3 ? (Apple Comms / CCS serial)
+        SUB $03                          ; $AAAA  ==3 ? (Apple Comms / CCS serial) [DOC S&HD 2-26]
         JR NZ,SCAN_NOT3                  ; $AAAC
-        CALL L_AD60                      ; $AAAE  (runtime) init serial driver
+        CALL SERIAL_INIT                      ; $AAAE  (runtime) init serial driver
         LD (HL),$03                      ; $AAB1
         LD (HL),$15                      ; $AAB3
 SCAN_NOT3:
-        DEC A                            ; $AAB5  was value 4 ? (Videx / hi-speed)
+        DEC A                            ; $AAB5  was value 4 ? (Videx / hi-speed) [DOC S&HD 2-26/2-27]
         JR NZ,SCAN_NEXT                  ; $AAB6
         CALL SF_INIT_TAIL+1              ; $AAB8  ($ACEE) screen-fn lead-in init
         LD HL,$C800                      ; $AABB  expansion-ROM window
-        CALL SUB_AB3B                    ; $AABE  (runtime) claim $C800 window
+        CALL RPC_DISPATCH                    ; $AABE  (runtime) claim $C800 window
 SCAN_NEXT:
         DEC E                            ; $AAC1  next slot
         JR NZ,SCAN_LOOP                  ; $AAC2
@@ -171,93 +157,118 @@ SLOT_TO_EN:
 ; clears two BIOS flags, and lays down the page-zero jump vectors:
 ;   $0000 = JMP WBOOT-table ($AA03),  $0005 = JMP BDOS_ENTRY ($9C06).
 ; Then resets the default DMA (BC=$0080) and warm-starts the console.
+; [DOC CPMREF 3-44] page-zero restart layout: $0000 holds a JMP to the BIOS
+; warm-boot entry; $0005 holds a JMP to FBASE (the BDOS primary entry point at
+; BOOT+0005H), and the address word at $0006/$0007 = FBASE = top of usable RAM.
+; [DOC CPMREF 3-46 ; facts sec.7.4] the default DMA buffer is $0080, reset to
+; $0080 on cold start, warm start, and disk reset.
+; [DOC CPMREF 3-47/3-48 ; facts sec.7.5] $0080 is also the base of the default
+; 128-byte command-tail buffer (byte $0080 = char count, then the tail); the
+; page-zero region below it ($005C default FCB, $006C second FCB) is reserved, so
+; SP=$0080 sets the Z-80 stack at the top of that reserved page-zero/buffer area,
+; just below the TPA at $0100.
 ; ============================================================================
 WBOOT:
-        LD SP,$0080                      ; $AACC  Z-80 stack just below TPA
+        LD SP,$0080                      ; $AACC  Z-80 stack at default-DMA/command-tail base ($0080), below TPA [DOC CPMREF 3-47/3-48 ; facts sec.7.5]
         LD A,(KEYBD+$51)                 ; $AACF  $E051 (Apple text/lo-res switch)
         LD HL,$0E00                      ; $AAD2
-        CALL SUB_AB3B                    ; $AAD5  (runtime) setup
+        CALL RPC_DISPATCH                    ; $AAD5  (runtime) setup
         CALL CARDTYPE_SCAN               ; $AAD8  rescan slot card types
         XOR A                            ; $AADB
         LD (CURMODE),A                   ; $AADC  $AEB4 = 0 (skip-idiom selector)
         LD (FLAG_AEAF),A                 ; $AADF  $AEAF = 0
         LD A,$C3                         ; $AAE2  opcode JP
-        LD ($0000),A                     ; $AAE4  $0000 = JP ...
+        LD ($0000),A                     ; $AAE4  $0000 = JP ... [DOC CPMREF 3-44] warm-boot vector
         LD HL,JMPTAB                     ; $AAE7    ... ($AA03) BIOS warm-entry
         LD ($0001),HL                    ; $AAEA
-        LD ($0005),A                     ; $AAED  $0005 = JP ...
+        LD ($0005),A                     ; $AAED  $0005 = JP ... [DOC CPMREF 3-44] BDOS entry (BOOT+5)
         LD HL,BDOS_ENTRY                 ; $AAF0    ... BDOS ($9C06)
-        LD ($0006),HL                    ; $AAF3
-        LD BC,$0080                      ; $AAF6  default DMA = $0080
+        LD ($0006),HL                    ; $AAF3  $0006/7 = FBASE ptr (top of usable RAM) [DOC CPMREF 3-44]
+        LD BC,$0080                      ; $AAF6  default DMA = $0080 [DOC CPMREF 3-46 ; facts sec.7.4]
         CALL SETDMA                      ; $AAF9  ($AD8E) set DMA address
         LD A,$01                         ; $AAFC
         LD ($E5B2),A                     ; $AAFE  init runtime-handler RAM cell
 ; --- $AB01..$ABFF : $E5 trap-fill (runtime-generated console/disk handlers) ---
         DEFB    $E5,$E5,$E5,$E5,$E5,$E5,$E5                      ; $AB01
-L_AB08:
+CONST_IMPL:
         DEFS    31, $E5    ; $AB08  fill  (CONST handler, generated at boot)
-L_AB27:
+CONIN_IMPL_1:
         DEFB    $E5,$E5                                          ; $AB27
-SUB_AB29:
+CONIN_RAW:
         DEFB    $E5,$E5,$E5,$E5,$E5,$E5                          ; $AB29
-L_AB2F:
+LIST_EMIT:
         DEFS    12, $E5    ; $AB2F  fill
-SUB_AB3B:
+RPC_DISPATCH:
         DEFS    8, $E5    ; $AB3B  fill
-L_AB43:
+CONOUT_IMPL:
         DEFS    13, $E5    ; $AB43  fill  (CONOUT handler)
-L_AB50:
+CONIN_IMPL:
         DEFS    22, $E5    ; $AB50  fill  (CONIN handler)
-L_AB66:
+LIST_IMPL:
         DEFS    15, $E5    ; $AB66  fill  (LIST handler)
-L_AB75:
+PUNCH_IMPL:
         DEFS    18, $E5    ; $AB75  fill  (PUNCH handler)
-L_AB87:
+READER_IMPL:
         DEFS    42, $E5    ; $AB87  fill  (READER handler)
-SUB_ABB1:
-        DEFB    $E5,$E5                                          ; $ABB1
-L_ABB3:
-        DEFS    10, $E5    ; $ABB3  fill
-L_ABBD:
-        DEFS    18, $E5    ; $ABBD  fill
-L_ABCF:
-        DEFS    14, $E5    ; $ABCF  fill
-SUB_ABDD:
+DISK_RPC_PUSH_ADDR:
+        DEFB    $E5,$E5                                          ; $ABB1  (runtime) push sector-addr param
+DISK_XLAT_POS_SECTOR:
+        DEFS    10, $E5    ; $ABB3  fill  (runtime) positive-skew continuation
+DISK_XLAT_NEG_SECTOR:
+        DEFS    18, $E5    ; $ABBD  fill  (runtime) negative-skew (extended) case
+DISK_XLAT_SECTOR_HI:
+        DEFS    14, $E5    ; $ABCF  fill  (runtime) hi-component build
+SF_EMIT_LEADIN:
         DEFS    35, $E5    ; $ABDD  fill
 
 ; ============================================================================
 ; CONSOLE STATUS / WARM-START TAIL  ($AC00)
+; The warm-start tail loads C with the current disk/user byte ($0004) and jumps
+; into the CCP transient at its entry ($9400).  [DOC CPMREF 3-44 ; facts sec.7.3]
+; the CCP is the transient command processor launched after (re)load; on entry it
+; sets its own 8-level stack with the warm-boot return pushed.  C carries the
+; current drive/user so the CCP restores the A> prompt drive on warm start.
 ; ============================================================================
 WBOOT_TAIL:
         SBC A,B                          ; $AC00  98
         LD A,($0004)                     ; $AC01  current disk/user byte
         LD C,A                           ; $AC04
-        JP CCP_ENTRY                     ; $AC05  enter the CCP ($9400)
+        JP CCP_ENTRY                     ; $AC05  enter the CCP transient ($9400) [DOC CPMREF 3-44 ; facts sec.7.3]
 
-; ---- CONST inner: call the console-status vector --------------------------
+; ---- CONST inner: call the console-status vector -- [DOC S&HD 2-18] --------
+; Jumps through Console Status vector #1 ($F380, I/O Vector Table entry 1); per
+; the documented contract that routine returns $FF in A if a char is ready, else
+; $00.  [DOC S&HD 2-18/2-19 ; facts sec.3.2]
 CONST_DISP:
-        LD HL,(CONST_VEC)                ; $AC08  $F380
+        LD HL,(CONST_VEC)                ; $AC08  $F380 Console Status vector
         JP (HL)                          ; $AC0B
 
-; ---- Default console status: poll Apple keyboard --------------------------
+; ---- Default console status: poll Apple keyboard -- [DOC S&HD 2-18] --------
+; The default Console Status body (target of $F380): reads the Apple keyboard
+; ($E000, KEYBD), tests the key-ready strobe (bit 7), and returns A=$FF/$00 per
+; the Console Status contract.
 CONST_KBD:
         LD A,(KEYBD)                     ; $AC0C  read keyboard ($E000)
         RLA                              ; $AC0F  key-ready bit (b7) -> carry
         SBC A,A                          ; $AC10  A = $FF if ready else $00
         RET                              ; $AC11
 
-; ---- Keyboard-redefinition lookup ($F3AB table, max 6 pairs) -- [DOC 3.5] --
+; ---- Keyboard-redefinition lookup -- [DOC S&HD 2-17 ; facts sec.3.5] -------
+; Keyboard Character Redefinition Table at $F3AC (here scanned as base-1 $F3AB),
+; up to six 2-byte entries {ASCII-to-redefine, desired-ASCII}, both high bits
+; clear; a byte with the high bit set terminates a short table.  Applies to
+; TTY:/CRT: input only.
 KBD_REDEF:
-        CALL SUB_AB29                    ; $AC12  (runtime) get raw key in A
-        LD HL,$F3AB                      ; $AC15  redefinition table - 1
-        LD B,$06                         ; $AC18  up to 6 entries
+        CALL CONIN_RAW                    ; $AC12  (runtime) get raw key in A
+        LD HL,$F3AB                      ; $AC15  redefinition table - 1 ($F3AC base) [DOC S&HD 2-17]
+        LD B,$06                         ; $AC18  up to 6 entries [DOC S&HD 2-17]
         LD C,A                           ; $AC1A  C = key to match
 KBD_REDEF_LP:
         INC HL                           ; $AC1B
-        LD A,(HL)                        ; $AC1C  ASCII to redefine
+        LD A,(HL)                        ; $AC1C  ASCII to redefine [DOC S&HD 2-17]
         INC HL                           ; $AC1D
         OR A                             ; $AC1E
-        JP M,L_AB27                      ; $AC1F  high bit set = end of table
+        JP M,CONIN_IMPL_1                      ; $AC1F  high bit set = end of table [DOC S&HD 2-17]
         CP C                             ; $AC22
 KBD_REDEF_HIT:
         LD A,(HL)                        ; $AC23  matched -> replacement ASCII
@@ -270,7 +281,7 @@ KBD_REDEF_HIT:
 LIST_ENTRY:
         LD DE,$0003                      ; $AC29
 LIST_ENTRY_JP:
-        JP L_AB2F                        ; $AC2C  (runtime) list handler
+        JP LIST_EMIT                        ; $AC2C  (runtime) list handler
                                          ; (LIST_ENTRY_JP+1 = $AC2D is a re-entry
                                          ;  used by the screen-fn emit at $ACD7)
 
@@ -284,36 +295,45 @@ SERIAL_TX:
         RRA                              ; $AC39
         RET                              ; $AC3A
 
-; ---- Store a 6502-call vector (A_VEC) and trigger -- [DOC sec 4.2] ---------
+; ---- Store a 6502-call vector (A_VEC) and trigger -- [DOC S&HD 2-25 ; facts sec.4.2]
+; A$VEC ($F3D0) holds the address of the 6502 subroutine to call, stored low-high;
+; the subsequent write through the SoftCard location (Z$CPU) executes it.
 SET_AVEC:
-        LD (A_VEC),HL                    ; $AC3B  $F3D0 = 6502 sub address
+        LD (A_VEC),HL                    ; $AC3B  $F3D0 = 6502 sub address (low-high) [DOC S&HD 2-25]
         LD ($0000),A                     ; $AC3E
         RET                              ; $AC41
 
 ; ============================================================================
-; LIST OUTPUT DISPATCH  ($AC42/$AC44)  -- IOBYTE demux  [DOC sec 7.6]
-; Reads IOBYTE ($0003), masks the LIST field, and jumps through the appropriate
-; List Output vector.  $AC44 is the documented entry (from $AE41); $AC42 sets C
-; first.
+; CONSOLE OUTPUT IOBYTE demux (CONOUT body)  ($AC42/$AC44)  -- [DOC sec 7.6]
+; This is the CONOUT body (byte-identical to CPMV223-44K CONOUT_VECTOR $FC4C),
+; NOT a LIST dispatch.  Saves the output char (LD C,A), reads IOBYTE ($0003),
+; masks the CONSOLE field (AND $03), and on CONSOLE=2 (BAT:) routes console
+; output to the List device by falling into List Output #1 ($AC4C) -- the
+; standard CP/M behaviour of redirecting console output to LST: under BAT:.
+; Otherwise it branches to the device-dispatch flag tail at $AC97.  $AC44 is the
+; documented entry (from $AE41); $AC42 sets C first.  [DOC S&HD 7.6/2-18]
 ; ============================================================================
-LIST_SETC:
-        LD C,A                           ; $AC42
-LIST_DISP:
+CONOUT_VECTOR:
+        LD C,A                           ; $AC42  save output char
+CONOUT_DISP:
         LD A,($0003)                     ; $AC43  IOBYTE
-        AND $03                          ; $AC46
-        CP $02                           ; $AC48
-        JR NZ,SF_PROC2                   ; $AC4A
+        AND $03                          ; $AC46  CONSOLE field (bits 0-1)
+        CP $02                           ; $AC48  ==2 => BAT: (output to LST:)
+        JR NZ,IO_FLAG_FALSE              ; $AC4A
 LIST_VEC1:
-        LD HL,(LIST1_VEC)                ; $AC4C  $F392
+        LD HL,(LIST1_VEC)                ; $AC4C  $F392  List Output #1
         JP (HL)                          ; $AC4F
 
 ; ============================================================================
-; CONSOLE INPUT DISPATCH  ($AC50)  -- IOBYTE CONSOLE field (bits 0-1)
+; CONSOLE INPUT IOBYTE demux  ($AC50)  -- [DOC S&HD 7.6/2-18]
+; Reads IOBYTE ($0003) and masks the CONSOLE field (bits 0-1): TTY:/CRT: (0/1)
+; route via Console Input #1 ($F382); UC1: (3) via Console Input #2 ($F384);
+; BAT: (2) takes input from the reader, via Reader Input #1 ($F38A).
 ; ============================================================================
 CONIN_DISP:
-        LD A,($0003)                     ; $AC50  IOBYTE
-        AND $03                          ; $AC53
-        CP $02                           ; $AC55
+        LD A,($0003)                     ; $AC50  IOBYTE [DOC S&HD 2-18]
+        AND $03                          ; $AC53  CONSOLE field (bits 0-1) [DOC S&HD 2-18]
+        CP $02                           ; $AC55  ==2 => BAT: (reader) [DOC S&HD 2-18]
         LD HL,(CONIN2_VEC)               ; $AC57  $F384 (UC1:)
         JR Z,CONIN_V2                    ; $AC5A
         JR NC,CONIN_V2B                  ; $AC5C
@@ -326,67 +346,91 @@ CONIN_V2B:
         JP (HL)                          ; $AC65
 
 ; ============================================================================
-; READER/LIST high-bits DISPATCH  ($AC66)  -- IOBYTE upper field
+; LIST OUTPUT IOBYTE demux  ($AC66)  -- [DOC sec 7.6]
+; Masks the IOBYTE LIST field (bits 6-7): 0/1 (TTY:/CRT:) falls to the device-
+; dispatch flag tail; ==2 (LPT:) routes to List Output #1 ($AC4C); ==3 (UL1:)
+; uses List Output #2 ($F394).  Matches CPMV223-44K LIST_DEMUX ($FC70).
+; $AC6B (the CP $80 alternate entry, reached by CURSOR_PUT at $AE4B) is
+; LIST_DEMUX_1.  [DOC S&HD 7.6/2-18]
 ; ============================================================================
-RDR_DISP:
+LIST_DEMUX:
         LD A,($0003)                     ; $AC66  IOBYTE
         AND $C0                          ; $AC69  LIST field (bits 6-7)
-SF_PROC_ENTRY:
+LIST_DEMUX_1:
         CP $80                           ; $AC6B
-        JR C,SF_PROC                     ; $AC6D
-        JR Z,LIST_VEC1                   ; $AC6F  ($AC4C)
-        LD HL,(LIST2_VEC)                ; $AC71  $F394
+        JR C,IO_FLAG_TRUE                ; $AC6D  <2 TTY:/CRT: tail
+        JR Z,LIST_VEC1                   ; $AC6F  ==2 LPT: -> List Output #1 ($AC4C)
+        LD HL,(LIST2_VEC)                ; $AC71  $F394  ==3 UL1: -> List Output #2
         JP (HL)                          ; $AC74
 
 ; ============================================================================
-; PUNCH OUTPUT DISPATCH  ($AC75)  -- IOBYTE PUNCH field (bits 4-5)
+; PUNCH OUTPUT IOBYTE demux  ($AC75)  -- [DOC S&HD 7.6/2-18]
+; Masks the IOBYTE PUNCH field (bits 4-5): 0 (TTY:) falls to the device-dispatch
+; flag tail; ==1 (PTP:) -> Punch Output #1 ($F38E); >=2 (UP1:/UP2:) -> Punch
+; Output #2 ($F390).  Matches CPMV223-44K PUNCH_DEMUX ($FC7F).
 ; ============================================================================
 PUN_DISP:
-        LD A,($0003)                     ; $AC75  IOBYTE
-        AND $30                          ; $AC78
+        LD A,($0003)                     ; $AC75  IOBYTE [DOC S&HD 2-18]
+        AND $30                          ; $AC78  PUNCH field (bits 4-5) [DOC S&HD 2-18]
         CP $10                           ; $AC7A
-        JR C,SF_PROC                     ; $AC7C
+        JR C,IO_FLAG_TRUE                ; $AC7C  ==0 TTY: tail
         LD HL,(PUN1_VEC)                 ; $AC7E  $F38E
         JR NZ,CONIN_V2B                  ; $AC81
         LD HL,(PUN2_VEC)                 ; $AC83  $F390
         JP (HL)                          ; $AC86
 
 ; ============================================================================
-; READER-field DISPATCH ($AC87)  -- IOBYTE READER field (bits 2-3) -> vectors
+; READER INPUT IOBYTE demux  ($AC87)  -- [DOC sec 7.6]
+; Masks the IOBYTE READER field (bits 2-3): <2 (TTY:/CRT:) routes to Console
+; Input #1 ($AC5E); ==2 (PTR:) routes to Reader Input #1 ($AC62); ==3 (UR2:)
+; uses Reader Input #2 ($F38C).  Matches CPMV223-44K READER_DEMUX ($FC91).
 ; ============================================================================
-RDR2_DISP:
+READER_DEMUX:
         LD A,($0003)                     ; $AC87  IOBYTE
-        AND $0C                          ; $AC8A
+        AND $0C                          ; $AC8A  READER field (bits 2-3)
         CP $04                           ; $AC8C
-        JR C,CONIN_V1                    ; $AC8E  ($AC5E)
-        JR Z,CONIN_V2                    ; $AC90
-        LD HL,(RDR2_VEC)                 ; $AC92  $F38C
+        JR C,CONIN_V1                    ; $AC8E  <2 TTY:/CRT: -> Console Input #1 ($AC5E)
+        JR Z,CONIN_V2                    ; $AC90  ==2 PTR: -> Reader Input #1
+        LD HL,(RDR2_VEC)                 ; $AC92  $F38C  ==3 UR2: -> Reader Input #2
         JP (HL)                          ; $AC95
 
 ; ============================================================================
-; CONSOLE-OUTPUT SCREEN-FUNCTION PROCESSOR  ($AC96)  -- [DOC sec 3.4]
-; Matches the outgoing character against the software screen-function table and
-; either emits a hardware sequence or treats it as a normal character.  Uses the
-; BIOS state variables at $AEA2 (B-register screen-fn signal) and $AEA4 (pending
-; lead-in / multi-byte state).
+; DEVICE-DISPATCH FLAG TAILS + DISK SECTOR PARAMETER BUILDER  ($AC96)
+; ----------------------------------------------------------------------------
+; $AC96/$AC97 are the device-dispatch flag tails (byte-identical to the
+; CPMV223-44K IO_FLAG_TRUE/IO_FLAG_FALSE at $FCA0/$FCA1): the LIST/PUNCH demuxes
+; above branch here for the TTY:/CRT: case.  IO_FLAG_TRUE sets carry; entering at
+; IO_FLAG_FALSE (carry already clear from a preceding CP) leaves it clear; SBC A,A
+; then expands carry to A=$FF or $00.
+;
+; Execution then falls into the disk sector wait+transfer parameter builder.
+; This spine matches CPMV223-44K DISK_SECTOR_XFER/SECTOR_ADDR_XFER ($FCA4..) with
+; the resident RWTS IOB target relocated from $FExx down to the BIOS-RAM cells at
+; $AExx ($AEA2/$AEA3/$AEAA/$AEAB): it reads the signed skew sign from $F396, builds
+; the two-byte 6502-side sector address, and pushes both halves to the disk engine
+; with the RPC command codes LD B,$07 (address lo) and LD B,$0A (address hi).
+; [DOC S&HD 3.2]  ($F396 is the skew-sign cell on this disk path, NOT a cursor XY
+; offset.)  Unlike the 2.23 spine, the 2.20 image MERGES a software screen-function
+; lead-in/table branch in at $ACE0 (SF_NORMAL, reached by the JR Z below); that tail
+; falls through into the SF table search at $AE00.
 ; ============================================================================
-SF_PROC:
+IO_FLAG_TRUE:
         SCF                              ; $AC96
-SF_PROC2:
+IO_FLAG_FALSE:
         SBC A,A                          ; $AC97
-        LD HL,SF_SIGNAL                  ; $AC98  $AEA2
+        LD HL,SF_SIGNAL                  ; $AC98  $AEA2  (disk-path: relocated RWTS IOB cell)
         LD (HL),A                        ; $AC9B
         RES 7,C                          ; $AC9C
         INC HL                           ; $AC9E  -> $AEA3
         LD A,(HL)                        ; $AC9F
         OR A                             ; $ACA0
-        JR Z,SF_NORMAL                   ; $ACA1
+        JR Z,SF_NORMAL                   ; $ACA1  (2.20 merge: screen-fn lead-in branch)
         DEC (HL)                         ; $ACA3
-        LD A,(SXYOFF)                    ; $ACA4  $F396 cursor XY offset
-        LD HL,$AEAB                      ; $ACA7
-        JR Z,SF_XY                       ; $ACAA
+        LD A,(SXYOFF)                    ; $ACA4  $F396 signed skew sign cell
+        LD HL,$AEAB                      ; $ACA7  relocated RWTS IOB sector cell
+        JR Z,DISK_XLAT_SECTOR            ; $ACAA
         OR A                             ; $ACAC
-        JP P,L_ABB3                      ; $ACAD  (runtime)
+        JP P,DISK_XLAT_POS_SECTOR        ; $ACAD  ($ABB3, runtime) positive skew
         DEC HL                           ; $ACB0
         AND $7F                          ; $ACB1
         LD E,A                           ; $ACB3
@@ -394,17 +438,17 @@ SF_PROC2:
         SUB E                            ; $ACB5
         LD (HL),A                        ; $ACB6
         RET                              ; $ACB7
-SF_XY:
+DISK_XLAT_SECTOR:
         OR A                             ; $ACB8
-        JP M,L_ABBD                      ; $ACB9  (runtime)
+        JP M,DISK_XLAT_NEG_SECTOR        ; $ACB9  ($ABBD, runtime) negative case
         DEC HL                           ; $ACBC
-        CALL SUB_ABB1                    ; $ACBD  (runtime)
-        LD HL,(CURSOR_XY)                ; $ACC0  $AEAA cursor X/Y word
-        LD A,(HXYOFF)                    ; $ACC3  $F3A1 hardware XY offset
+        CALL DISK_RPC_PUSH_ADDR          ; $ACBD  ($ABB1, runtime)
+        LD HL,(CURSOR_XY)                ; $ACC0  $AEAA  (disk-path: relocated sector-address word)
+        LD A,(HXYOFF)                    ; $ACC3  $F3A1 hardware skew/offset cell
         OR A                             ; $ACC6
-        JP P,L_ABCF                      ; $ACC7  (runtime)
+        JP P,DISK_XLAT_SECTOR_HI         ; $ACC7  ($ABCF, runtime) build hi component
         AND $7F                          ; $ACCA
-        LD E,L                           ; $ACCC  swap X/Y order
+        LD E,L                           ; $ACCC  swap lo/hi order
         LD L,H                           ; $ACCD
         LD H,E                           ; $ACCE
         LD E,A                           ; $ACCF
@@ -413,12 +457,19 @@ SF_XY:
         LD A,E                           ; $ACD2
         ADD A,L                          ; $ACD3
         PUSH AF                          ; $ACD4
-        LD B,$07                         ; $ACD5
-        CALL LIST_ENTRY_JP+1             ; $ACD7  ($AC2D) emit via output vector
+        LD B,$07                         ; $ACD5  RPC command: address lo
+        CALL LIST_ENTRY_JP+1             ; $ACD7  ($AC2D) dispatch lo half to disk engine
         POP AF                           ; $ACDA
-        LD B,$0A                         ; $ACDB
+        LD B,$0A                         ; $ACDB  RPC command: address hi
         LD C,A                           ; $ACDD
-        JR L_AD2D                        ; $ACDE  (runtime) emit
+        JR DISK_SECTOR_XFER              ; $ACDE  ($AD2D, runtime) dispatch hi half
+; ----------------------------------------------------------------------------
+; SCREEN-FUNCTION LEAD-IN / MATCH  ($ACE0)  -- [DOC S&HD 2-14/2-15 ; facts sec.3.4]
+; Console-output screen-function path.  If no lead-in is pending, fetch the
+; software lead-in char (SFLDIN, $F397; zero = no lead-in) and, when it matches
+; the incoming char C, arm lead-in state; otherwise printable chars fall through
+; to emit and control chars enter the screen-function table search (at SF_TABLE).
+; ----------------------------------------------------------------------------
 SF_NORMAL:
         LD B,A                           ; $ACE0
         LD HL,SF_STATE                   ; $ACE1  $AEA4
@@ -426,8 +477,8 @@ SF_NORMAL:
         LD E,A                           ; $ACE5
         OR A                             ; $ACE6
         JR NZ,SF_TABLE                   ; $ACE7
-        LD A,(SFLDIN)                    ; $ACE9  $F397 software lead-in
-        OR A                             ; $ACEC
+        LD A,(SFLDIN)                    ; $ACE9  $F397 software lead-in char [DOC S&HD 2-14]
+        OR A                             ; $ACEC  zero => no lead-in [DOC S&HD 2-14]
 SF_INIT_TAIL:
         JR Z,SF_NOLEAD                   ; $ACED
         CP C                             ; $ACEF
@@ -437,40 +488,44 @@ SF_INIT_TAIL:
 SF_NOLEAD:
         LD A,$1F                         ; $ACF5
         CP C                             ; $ACF7
-        JR C,L_AD2D                      ; $ACF8  printable -> emit
+        JR C,DISK_SECTOR_XFER               ; $ACF8  ($AD2D) printable -> transfer/emit engine
 SF_TABLE:
-        LD HL,$F3A0                      ; $ACFA  hardware screen-fn table - 1
-        LD B,$09                         ; $ACFD  9 functions
+        LD HL,$F3A0                      ; $ACFA  hardware screen-fn table base-1 ($F3A1 hdr/$F3A3 fn1) [DOC S&HD 2-14/2-15]
+        LD B,$09                         ; $ACFD  9 screen functions [DOC S&HD 2-15]
         LD A,(HL)                        ; $ACFF
 ; --- $AD00..$ADFF : $E5 trap-fill (runtime-generated disk/console handlers) ---
         DEFS    45, $E5    ; $AD00  fill
-L_AD2D:
-        DEFS    30, $E5    ; $AD2D  fill  (character-emit handler)
-L_AD4B:
+DISK_SECTOR_XFER:
+        DEFS    30, $E5    ; $AD2D  fill  (runtime) disk sector wait+transfer/emit engine
+HOME_IMPL:
         DEFS    11, $E5    ; $AD4B  fill  (HOME handler)
-L_AD56:
+SETTRK_IMPL:
         DEFB    $E5,$E5,$E5,$E5,$E5                              ; $AD56  (SETTRK)
-SUB_AD5B:
+RPC_CALL_6502:
         DEFB    $E5,$E5,$E5,$E5,$E5                              ; $AD5B
-L_AD60:
+SERIAL_INIT:
         DEFS    13, $E5    ; $AD60  fill
-L_AD6D:
+SELDSK_IMPL:
         DEFS    28, $E5    ; $AD6D  fill  (SELDSK handler)
-L_AD89:
+SETSEC_IMPL:
         DEFB    $E5,$E5,$E5,$E5,$E5                              ; $AD89  (SETSEC)
 SETDMA:
         DEFB    $E5,$E5,$E5,$E5,$E5                              ; $AD8E  fill (SETDMA)
-L_AD93:
+READ_IMPL:
         DEFS    16, $E5    ; $AD93  fill  (READ handler)
-L_ADA3:
+WRITE_IMPL:
         DEFS    92, $E5    ; $ADA3  fill  (WRITE handler + more)
-L_ADFF:
+SF_LK_STEP:
         DEFB    $E5                                              ; $ADFF
 
 ; ============================================================================
 ; SCREEN-FUNCTION TABLE LOOKUP  ($AE00) -- continuation of the SF processor.
 ; Searches the 9-entry hardware screen-function table for a match; on the
 ; "Address Cursor" function (#7) sets the multi-byte coordinate state.
+; [DOC S&HD 2-14/2-15 ; facts sec.3.3/3.4] the nine screen functions are
+; Clear Screen / Clear-to-EOP / Clear-to-EOL / Set Normal / Set Inverse / Home
+; Cursor / Address Cursor (#7) / Cursor Up / Cursor Forward; function #7 is the
+; one that then transmits the X/Y coordinates (offset cell $F3A1, lead-in $F3A2).
 ; ============================================================================
 SF_LOOKUP:
         OR A                             ; $AE00
@@ -480,7 +535,7 @@ SF_LOOKUP:
         JR Z,SF_LK_HIT                   ; $AE05
 SF_LK_SKIP:
         DEC HL                           ; $AE07
-        DJNZ L_ADFF                      ; $AE08
+        DJNZ SF_LK_STEP                      ; $AE08
         JR SF_LK_DONE                    ; $AE0A
 SF_LK_HIT:
         LD DE,$000B                      ; $AE0C  index into table row
@@ -488,34 +543,34 @@ SF_LK_HIT:
         LD A,(HL)                        ; $AE10
         OR A                             ; $AE11
         LD C,A                           ; $AE12
-        JP P,KBD_REDEF_HIT               ; $AE13  ($AC23)
-        AND $7F                          ; $AE16
+        JP P,KBD_REDEF_HIT               ; $AE13  high bit clear => no lead-in [DOC S&HD 2-14]
+        AND $7F                          ; $AE16  high bit set => emit lead-in first [DOC S&HD 2-14]
         LD C,A                           ; $AE18
         PUSH BC                          ; $AE19
-        LD A,(HFLDIN)                    ; $AE1A  $F3A2 hardware lead-in
+        LD A,(HFLDIN)                    ; $AE1A  $F3A2 hardware lead-in char [DOC S&HD 2-14]
         LD B,$07                         ; $AE1D
-        CALL SUB_ABDD                    ; $AE1F  (runtime) emit lead-in
+        CALL SF_EMIT_LEADIN                    ; $AE1F  (runtime) emit lead-in
         POP BC                           ; $AE22
         LD A,B                           ; $AE23
-        CP $07                           ; $AE24
+        CP $07                           ; $AE24  function 7 = Address Cursor ? [DOC S&HD 2-15/2-19]
         JR NZ,SF_LK_DONE                 ; $AE26
-        LD A,$02                         ; $AE28  function 7 -> expect 2 coords
+        LD A,$02                         ; $AE28  fn7 -> transmit 2 coords (X/Y) next [DOC S&HD 2-19]
         LD (SF_STATE2),A                 ; $AE2A  $AEA3
 SF_LK_DONE:
         XOR A                            ; $AE2D
         LD (SF_STATE),A                  ; $AE2E  $AEA4 = 0
-        LD A,(SF_SIGNAL)                 ; $AE31  $AEA2
+        LD A,(SF_SIGNAL)                 ; $AE31  $AEA2  (B-reg screen-fn signal) [DOC S&HD 2-19]
         OR A                             ; $AE34
-        LD HL,(CONOUT2_VEC)              ; $AE35  $F388
+        LD HL,(CONOUT2_VEC)              ; $AE35  $F388  Console Output #2 [DOC S&HD 2-18]
         JR Z,SF_EMIT                     ; $AE38
-        LD HL,(CONOUT1_VEC)              ; $AE3A  $F386
+        LD HL,(CONOUT1_VEC)              ; $AE3A  $F386  Console Output #1 [DOC S&HD 2-18]
 SF_EMIT:
         JP (HL)                          ; $AE3D  emit char via console-out vector
 
-; ---- LIST-field re-entry: DE=3 then list dispatch ($AC44) ------------------
+; ---- Re-entry: DE=3 then re-enter the CONOUT IOBYTE demux at $AC44 ----------
 LIST_REENTRY:
         LD DE,$0003                      ; $AE3E
-        JP LIST_DISP+1                   ; $AE41  ($AC44)
+        JP CONOUT_DISP+1                 ; $AE41  ($AC44)
 
 ; ============================================================================
 ; CURSOR-ADDRESS / WRAP HANDLER  ($AE44)
@@ -526,7 +581,7 @@ CURSOR_PUT:
         LD HL,(CUR_PTR)                  ; $AE44  $AEA5 screen cell pointer
         LD A,(CUR_COL)                   ; $AE47  $AEA7
         LD (HL),A                        ; $AE4A
-        CALL SF_PROC_ENTRY               ; $AE4B  ($AC6B)
+        CALL LIST_DEMUX_1                ; $AE4B  ($AC6B)
         LD HL,($F028)                    ; $AE4E  screen base
         LD A,($F024)                     ; $AE51  column
         LD E,A                           ; $AE54
@@ -554,7 +609,7 @@ SF_DISPATCH:
         LD A,B                           ; $AE6B
         OR A                             ; $AE6C
         JR Z,CHAR_OUT                    ; $AE6D
-        LD HL,SUB_AB3B                   ; $AE6F  (runtime) return address
+        LD HL,RPC_DISPATCH                   ; $AE6F  (runtime) return address
         PUSH HL                          ; $AE72
         LD HL,$ACD4                      ; $AE73  selector base
         ADD A,L                          ; $AE76
@@ -575,7 +630,7 @@ CHAR_OUT_HI:
         LD HL,$F3DD                      ; $AE8A  config flag
         XOR (HL)                         ; $AE8D
 CHAR_POKE:
-        LD (A_ACC),A                     ; $AE8E  $F045 = char for 6502
+        LD (RPC_ACC),A                     ; $AE8E  $F045 = char for 6502
         LD HL,$FDF0                      ; $AE91  Apple Monitor COUT1
         JR $AF0F                         ; $AE94  -> 6502 RPC trampoline (off-image)
 
@@ -615,7 +670,7 @@ COLD_BOOT:
         INC H                            ; $AEA8
         RET P                            ; $AEA9
 CURSOR_XY:                               ; $AEAA  cursor X/Y word (overlaps code)
-        LD (A_ACC),A                     ; $AEAA  $F045
+        LD (RPC_ACC),A                     ; $AEAA  $F045
         LD HL,$FBC1                      ; $AEAD  Apple Monitor routine
         RET                              ; $AEB0
 
@@ -666,7 +721,7 @@ SF_XLAT:
 ; advance L, and store C.  [AI]
 ; ============================================================================
 WAIT_POKE:
-        CALL L_AD60                      ; $AEDF
+        CALL SERIAL_INIT                      ; $AEDF
 WAIT_POKE_LP:
         LD A,(HL)                        ; $AEE2
         AND $02                          ; $AEE3
@@ -676,17 +731,19 @@ WAIT_POKE_LP:
         RET                              ; $AEE9
 
 ; ============================================================================
-; 6502 SUBROUTINE-CALL SETUP  ($AEEA)  -- [DOC sec 4]
-; Loads the 6502 A ($F045) and X ($F047) pass cells, runs the (runtime) call
-; helper, reads an input column ($EFFF / 6502 $C7FF view), and converts.
+; 6502 SUBROUTINE-CALL SETUP  ($AEEA)  -- [DOC S&HD 2-24/2-25 ; facts sec.4.1]
+; Loads the 6502 A ($F045) and X ($F047) RPC register-pass cells, runs the
+; (runtime) call helper, reads an input column ($EFFF / 6502 $C7FF view), and
+; converts.  Per the RPC parameter-cell map, $F045/6502-$45 is the A pass area
+; and $F047/6502-$47 is the X pass area ($F046 is Y -- Y before X).
 ; The final $32 opcode (LD (nn),A) continues in the next BIOS chunk.
 ; ============================================================================
 RPC_SETUP:
         LD A,C                           ; $AEEA
-        LD (A_ACC),A                     ; $AEEB  $F045 = 6502 A
-        CALL SUB_AD5B                    ; $AEEE  (runtime) 6502 call
+        LD (RPC_ACC),A                     ; $AEEB  $F045 = 6502 A pass cell [DOC S&HD 2-24/2-25]
+        CALL RPC_CALL_6502                    ; $AEEE  (runtime) 6502 call
         LD ($F6F8),A                     ; $AEF1
-        LD (A_XREG),A                    ; $AEF4  $F047 = 6502 X
+        LD (RPC_YREG),A                  ; $AEF4  $F047 = 6502 Y pass cell (S&HD table mislabels Y/X) [DOC S&HD 2-24/2-25]
         LD A,($EFFF)                     ; $AEF7
         CALL SLOT_TO_EN                  ; $AEFA  ($AAC5)
         SUB $20                          ; $AEFD
