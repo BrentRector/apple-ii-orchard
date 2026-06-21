@@ -31,7 +31,7 @@ L_010D:
         JP WBOOT_VEC                     ; $010D  C3 00 00
 L_0110:
         CALL SUB_02F9                    ; $0110  CD F9 02
-        LD (DSK_DIR),A                     ; $0113  32 E4 F3
+        LD (DSK_DRIVE),A                     ; $0113  32 E4 F3
         DEC C                            ; $0116  0D
         LD A,C                           ; $0117  79
         AND $0E                          ; $0118  E6 0E
@@ -41,7 +41,7 @@ L_011A:
         ADD A,A                          ; $011C  87
         CPL                              ; $011D  2F
         ADD A,$61                        ; $011E  C6 61
-        LD (DSK_UNIT),A                     ; $0120  32 E6 F3
+        LD (DSK_SLOT),A                     ; $0120  32 E6 F3
         LD A,C                           ; $0123  79
         ADD A,$41                        ; $0124  C6 41
         LD (L_021D),A                    ; $0126  32 1D 02
@@ -49,9 +49,9 @@ L_011A:
         CALL SUB_01A6                    ; $012C  CD A6 01
         CALL SUB_019A                    ; $012F  CD 9A 01
         LD A,$02                         ; $0132  3E 02
-        LD (DSK_CMD),A                     ; $0134  32 EB F3
+        LD (DSK_COMMAND),A                     ; $0134  32 EB F3
         LD A,$13                         ; $0137  3E 13
-        LD (DSK_PARM9),A                     ; $0139  32 E9 F3
+        LD (DSK_BUFFER_HI),A                     ; $0139  32 E9 F3
         LD HL,WBOOT_VEC                  ; $013C  21 00 00
         LD B,$27                         ; $013F  06 27
 L_0141:
@@ -71,7 +71,7 @@ L_015E:
         CALL SUB_01A6                    ; $015E  CD A6 01
         JP L_017D                        ; $0161  C3 7D 01
 L_0164:
-        LD HL,DSK_PARM9                      ; $0164  21 E9 F3
+        LD HL,DSK_BUFFER_HI                      ; $0164  21 E9 F3
         INC (HL)                         ; $0167  34
         POP HL                           ; $0168  E1
         INC H                            ; $0169  24

@@ -19,11 +19,11 @@
 ; [AI] SoftCard shared-memory cells used (all in the Apple ][ CP/M BIOS data page):
 ; [AI]   Z_CPU -> word: saved across runs (carries the parse pointer / "Z:=Z:" patch)
 ; [AI]   DSK_TRACK -> word: current track counter for the copy loop
-; [AI]   DSK_DIR -> read/write direction flag latched by SET_RW_PARAMS
-; [AI]   DSK_UNIT -> drive-select / unit value latched by SET_RW_PARAMS
+; [AI]   DSK_DRIVE -> read/write direction flag latched by SET_RW_PARAMS
+; [AI]   DSK_SLOT -> drive-select / unit value latched by SET_RW_PARAMS
 ; [AI]   DSK_BUFFER -> word: buffer/track-size parameter handed to the 6502 ($0800)
 ; [AI]   DSK_STATUS -> last 6502 status/result byte (0 = OK, $10 = write-protected, else I/O err)
-; [AI]   DSK_CMD -> command code passed to the 6502 (1 = read MASTER, 2 = write SLAVE)
+; [AI]   DSK_COMMAND -> command code passed to the 6502 (1 = read MASTER, 2 = write SLAVE)
 ; [AI]   DSKCNT -> number of logical drives configured (for ":" drive-letter validation)
 ; [AI]   A_VEC -> word constant ($14AE) re-armed before each 6502 dispatch
 ; [AI]   $F000 -> doorbell: writing the track byte here triggers the 6502 routine
@@ -234,12 +234,12 @@ COPY_DIR_WRITE_2:
         LD A,(DST_DRIVE)                 ; $022E  3A DF 02   ; [AI] destination drive number  (entry $0230 = +2)
 SET_RW_PARAMS:
 ; [AI] Latch the per-operation parameters for the 6502 copier, then ring the doorbell.
-; [AI]   A  = drive number   -> decoded into DSK_DIR (direction) and DSK_UNIT (unit/select)
-; [AI]   C  = command byte    -> DSK_CMD
+; [AI]   A  = drive number   -> decoded into DSK_DRIVE (direction) and DSK_SLOT (unit/select)
+; [AI]   C  = command byte    -> DSK_COMMAND
 ; [AI]   B  = track byte (from caller) -> $F000 doorbell that launches the 6502 routine
-        CALL DECODE_DRIVE                ; $0231  CD 89 02   ; [AI] derive DSK_DIR / DSK_UNIT from drive A
+        CALL DECODE_DRIVE                ; $0231  CD 89 02   ; [AI] derive DSK_DRIVE / DSK_SLOT from drive A
         LD A,C                           ; $0234  79
-        LD (DSK_CMD),A                     ; $0235  32 EB F3   ; [AI] store command code for 6502
+        LD (DSK_COMMAND),A                     ; $0235  32 EB F3   ; [AI] store command code for 6502
         LD A,B                           ; $0238  78
         LD ($F000),A                     ; $0239  32 00 F0   ; [AI] DOORBELL: poke track byte -> runs the 6502 copier
         JP CHECK_6502_STATUS             ; $023C  C3 9D 02   ; [AI] inspect result, report errors
@@ -316,14 +316,14 @@ PRINT_ERR_RESTART:
 SUB_0268_6:
         JP PROMPT_INPUT                  ; $0286  C3 1E 01   ; [AI] re-prompt for a fresh command line
 
-; [AI] Decode drive number in A into the 6502's direction (DSK_DIR) and unit/select
-; [AI] (DSK_UNIT) parameters. DSK_DIR = (A+1)&1 (odd/even drive -> read/write side);
-; [AI] DSK_UNIT = ~((A&$0E)*8 - $61) selects the physical unit.
+; [AI] Decode drive number in A into the 6502's direction (DSK_DRIVE) and unit/select
+; [AI] (DSK_SLOT) parameters. DSK_DRIVE = (A+1)&1 (odd/even drive -> read/write side);
+; [AI] DSK_SLOT = ~((A&$0E)*8 - $61) selects the physical unit.
 DECODE_DRIVE:
         LD E,A                           ; $0289  5F
         INC A                            ; $028A  3C
         AND $01                          ; $028B  E6 01
-        LD (DSK_DIR),A                     ; $028D  32 E4 F3   ; [AI] direction/side flag for the 6502
+        LD (DSK_DRIVE),A                     ; $028D  32 E4 F3   ; [AI] direction/side flag for the 6502
         LD A,E                           ; $0290  7B
         AND $0E                          ; $0291  E6 0E      ; [AI] isolate unit bits
         ADD A,A                          ; $0293  87
@@ -331,7 +331,7 @@ DECODE_DRIVE:
         ADD A,A                          ; $0295  87         ; [AI] *8
         SUB $61                          ; $0296  D6 61
         CPL                              ; $0298  2F
-        LD (DSK_UNIT),A                     ; $0299  32 E6 F3   ; [AI] unit-select value for the 6502
+        LD (DSK_SLOT),A                     ; $0299  32 E6 F3   ; [AI] unit-select value for the 6502
         RET                              ; $029C  C9
 
 ; [AI] Examine the status byte returned by the 6502 copier and report disk errors.
@@ -450,7 +450,7 @@ MSG_INSERT_SLAVE2:
 ; [AI] $4C JMP, $60 RTS, $D0/$10/$90 branches). This is the raw track read/write
 ; [AI] routine the SoftCard hands to the Apple's 6502 when the Z-80 pokes $F000. It
 ; [AI] consumes the $F3xx parameters set up above (track in DSK_TRACK/$F000, command in
-; [AI] DSK_CMD, direction in DSK_DIR, unit in DSK_UNIT) and writes its result to DSK_STATUS.
+; [AI] DSK_COMMAND, direction in DSK_DRIVE, unit in DSK_SLOT) and writes its result to DSK_STATUS.
 ; [AI] The two DEFW entries below are 6502 byte pairs the Z-80 disassembler happened
 ; [AI] to resolve as code addresses; they are preserved verbatim as data.
         DEFB    $45,$54,$55,$52,$4E,$20,$24,$A2,$15,$8E,$E9,$03,$20,$03,$0E,$AD ; $04A7 ; [AI] "ETURN $" then 6502 code begins

@@ -533,13 +533,13 @@ NEXT_CATALOG_ENTRY_1:
         LD (CONOUT_CHAR_15),BC           ; $0454  ED 43 0F 05
         RET                              ; $0458  C9
 ; [AI] Translates the parsed logical drive number ($0511) into the SoftCard's Apple-side slot/drive
-;       selector bytes (DSK_DIR slot-flag and DSK_UNIT drive code) for the next sector read.
+;       selector bytes (DSK_DRIVE slot-flag and DSK_SLOT drive code) for the next sector read.
 SELECT_SRC_DRIVE:
         LD A,(CONOUT_CHAR_16)            ; $0459  3A 11 05
         LD C,A                           ; $045C  4F
         AND $01                          ; $045D  E6 01
         INC A                            ; $045F  3C
-        LD (DSK_DIR),A                     ; $0460  32 E4 F3
+        LD (DSK_DRIVE),A                     ; $0460  32 E4 F3
         LD A,C                           ; $0463  79
         AND $0E                          ; $0464  E6 0E
         ADD A,A                          ; $0466  87
@@ -547,7 +547,7 @@ SELECT_SRC_DRIVE:
         ADD A,A                          ; $0468  87
         CPL                              ; $0469  2F
         ADD A,$61                        ; $046A  C6 61
-        LD (DSK_UNIT),A                     ; $046C  32 E6 F3
+        LD (DSK_SLOT),A                     ; $046C  32 E6 F3
         RET                              ; $046F  C9
 ; [AI] Stamps the destination FCB's drive field ($005C) from the parsed output-drive number ($0512)
 ;       so the CP/M file is created on the requested drive.
@@ -585,7 +585,7 @@ READ_APPLE_SECTOR_2:
         LD L,A                           ; $049B  6F
         LD (DSK_TRACK),HL                    ; $049C  22 E0 F3
         LD A,$01                         ; $049F  3E 01
-        LD (DSK_CMD),A                     ; $04A1  32 EB F3
+        LD (DSK_COMMAND),A                     ; $04A1  32 EB F3
         LD HL,$0E03                      ; $04A4  21 03 0E
         LD (A_VEC),HL                    ; $04A7  22 D0 F3
 READ_APPLE_SECTOR_3:

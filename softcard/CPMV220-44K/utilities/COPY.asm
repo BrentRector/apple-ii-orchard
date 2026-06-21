@@ -30,11 +30,11 @@
 ; [AI]   A_VEC -> A$VEC 6502-call vector [DOC S&HD 2-25; facts sec.4.2]; re-armed with
 ; [AI]            $14AE (the run-address of the embedded 6502 driver) before dispatch.
 ; [AI]   DSK_TRACK -> word: current track counter for the copy loop [RE]
-; [AI]   DSK_DIR -> read/write direction flag latched by DECODE_DRIVE [RE]
-; [AI]   DSK_UNIT -> drive-select / unit value latched by DECODE_DRIVE [RE]
+; [AI]   DSK_DRIVE -> read/write direction flag latched by DECODE_DRIVE [RE]
+; [AI]   DSK_SLOT -> drive-select / unit value latched by DECODE_DRIVE [RE]
 ; [AI]   DSK_BUFFER -> word: buffer/track-size parameter handed to the 6502 ($0800) [RE]
 ; [AI]   DSK_STATUS -> last 6502 status/result byte (0 = OK, $10 = write-protected) [RE]
-; [AI]   DSK_CMD -> command code passed to the 6502 (1 = read MASTER, 2 = write SLAVE) [RE]
+; [AI]   DSK_COMMAND -> command code passed to the 6502 (1 = read MASTER, 2 = write SLAVE) [RE]
 ; [AI]   DSKCNT -> Disk Count Byte = configured drives [DOC S&HD 2-27; facts sec.3.7],
 ; [AI]            used to range-check the "X:" drive letter.
 ; [AI]   $F000 -> 6502 zero-page $00 (Z-80 $F000 = 6502 ZP $0000 [facts sec.2.1]): the
@@ -247,13 +247,13 @@ COPY_DIR_WRITE_2:
         LD A,(DST_DRIVE)                 ; $022E  3A DF 02   ; [AI] destination drive number  (entry $0230 = +2)
 ; [AI] Latch the per-operation parameters for the 6502 copier, then fall into the
 ; [AI] dispatch (CHECK_6502_STATUS arms A$VEC and does the CPU-switch write at $02A3).
-; [AI]   A = drive number -> DECODE_DRIVE writes DSK_DIR (direction) and DSK_UNIT (unit)
-; [AI]   C = command byte -> DSK_CMD
+; [AI]   A = drive number -> DECODE_DRIVE writes DSK_DRIVE (direction) and DSK_SLOT (unit)
+; [AI]   C = command byte -> DSK_COMMAND
 ; [AI]   B = track-count -> $F000 (6502 ZP $00), the loop counter COPY_6502 decrements
 SET_RW_PARAMS:
-        CALL DECODE_DRIVE                ; $0231  CD 89 02   ; [AI] derive DSK_DIR / DSK_UNIT from drive A
+        CALL DECODE_DRIVE                ; $0231  CD 89 02   ; [AI] derive DSK_DRIVE / DSK_SLOT from drive A
         LD A,C                           ; $0234  79
-        LD (DSK_CMD),A                     ; $0235  32 EB F3   ; [AI] store command code for the 6502 driver
+        LD (DSK_COMMAND),A                     ; $0235  32 EB F3   ; [AI] store command code for the 6502 driver
         LD A,B                           ; $0238  78
         LD ($F000),A                     ; $0239  32 00 F0   ; [AI] load the 6502 track-count loop counter (Z-80 $F000 = 6502 ZP $00, DEC $00 per call in COPY_6502)
         JP CHECK_6502_STATUS             ; $023C  C3 9D 02   ; [AI] arm A$VEC, do the CPU-switch write (dispatch), inspect result
@@ -326,14 +326,14 @@ PRINT_ERR_RESTART:
         CALL PRINT_STRING                ; $0283  CD 45 02   ; [AI] show the error message
 PRINT_ERR_RESTART_1:
         JP PROMPT_INPUT                  ; $0286  C3 1E 01   ; [AI] re-prompt for a fresh command line
-; [AI] Decode drive number in A into the embedded 6502 driver's direction (DSK_DIR) and
-; [AI] unit/select (DSK_UNIT) parameters. DSK_DIR = (A+1)&1 (odd/even drive); DSK_UNIT =
+; [AI] Decode drive number in A into the embedded 6502 driver's direction (DSK_DRIVE) and
+; [AI] unit/select (DSK_SLOT) parameters. DSK_DRIVE = (A+1)&1 (odd/even drive); DSK_SLOT =
 ; [AI] ~((A&$0E)*8 - $61) selects the physical unit. [RE] -- not a manual config cell.
 DECODE_DRIVE:
         LD E,A                           ; $0289  5F
         INC A                            ; $028A  3C
         AND $01                          ; $028B  E6 01
-        LD (DSK_DIR),A                     ; $028D  32 E4 F3   ; [AI] direction/side flag for the 6502 driver
+        LD (DSK_DRIVE),A                     ; $028D  32 E4 F3   ; [AI] direction/side flag for the 6502 driver
         LD A,E                           ; $0290  7B
         AND $0E                          ; $0291  E6 0E      ; [AI] isolate unit bits
         ADD A,A                          ; $0293  87
@@ -341,7 +341,7 @@ DECODE_DRIVE:
         ADD A,A                          ; $0295  87         ; [AI] *8
         SUB $61                          ; $0296  D6 61
         CPL                              ; $0298  2F
-        LD (DSK_UNIT),A                     ; $0299  32 E6 F3   ; [AI] unit-select value for the 6502 driver
+        LD (DSK_SLOT),A                     ; $0299  32 E6 F3   ; [AI] unit-select value for the 6502 driver
         RET                              ; $029C  C9
 ; [AI] Arm the A$VEC 6502-call vector with the embedded driver's run-address $14AE
 ; [AI] [DOC S&HD 2-25; facts sec.4.2], then DISPATCH to the 6502 and examine the status

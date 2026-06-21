@@ -22,12 +22,12 @@
 ; [AI]
 ; [AI] SoftCard 6502 interface ($F3xx shared block, written by Z-80, read by 6502):
 ; [AI]   Z_CPU/$F3DF  caller-saved 6502 stack ptr image (MAIN saves it at entry)
-; [AI]   DSK_TRACK/$F3E1  6502 buffer/dest address for the current RWTS request
-; [AI]   DSK_DIR        Apple drive number (1 or 2)
-; [AI]   DSK_UNIT        Apple slot*16 base ($60 = slot 6) for the RWTS call
-; [AI]   DSK_BUFFER/DSK_PARM9  Z-80 buffer address the 6502 reads from / writes to
+; [AI]   DSK_TRACK/DSK_SECTOR  6502 buffer/dest address for the current RWTS request
+; [AI]   DSK_DRIVE        Apple drive number (1 or 2)
+; [AI]   DSK_SLOT        Apple slot*16 base ($60 = slot 6) for the RWTS call
+; [AI]   DSK_BUFFER/DSK_BUFFER_HI  Z-80 buffer address the 6502 reads from / writes to
 ; [AI]   DSK_STATUS        6502 -> Z-80 status return (nonzero = disk I/O error)
-; [AI]   DSK_CMD        command/go flag handed to the 6502
+; [AI]   DSK_COMMAND        command/go flag handed to the 6502
 ; [AI]   A_VEC        RWTS command word ($0E03 = read sector via DOS RWTS)
 ; [AI] CALL_6502 (SUB_03C3) reaches the 6502 by JP'ing through the page pointed to
 ; [AI] by the word at $0001 (the BIOS WBOOT page) with L forced to $1B.
@@ -476,7 +476,7 @@ BAD_DRIVE:
 ; [AI] first catalog sector, choose the matching sector-skew table by what came
 ; [AI] back, then read the first directory data via APPLE_RWTS and validate it.
 READ_APPLE_DIR:
-        CALL SET_DRIVE_SLOT              ; $03E4  CD 59 04  ; [AI] compute DSK_DIR drive + DSK_UNIT slot base
+        CALL SET_DRIVE_SLOT              ; $03E4  CD 59 04  ; [AI] compute DSK_DRIVE drive + DSK_SLOT slot base
         CALL CALL_6502                   ; $03E7  CD C3 03  ; [AI] 6502: locate the disk / read VTOC
         PUSH DE                          ; $03EA  D5
         LD C,$00                         ; $03EB  0E 00
@@ -540,14 +540,14 @@ NEXT_DIR_HAVE:
         INC HL                           ; $0453  23        ; [AI] HL -> the 30-byte filename field
         LD (DIR_FILE_TS),BC              ; $0454  ED 43 0F 05 ; [AI] save this file's first track/sector(=T/S list)
         RET                              ; $0458  C9
-; [AI] SET_DRIVE_SLOT: derive the 6502 RWTS drive number (DSK_DIR = 1 or 2) and the
-; [AI] slot base byte (DSK_UNIT) from the selected Apple drive (APPLE_DRIVE).
+; [AI] SET_DRIVE_SLOT: derive the 6502 RWTS drive number (DSK_DRIVE = 1 or 2) and the
+; [AI] slot base byte (DSK_SLOT) from the selected Apple drive (APPLE_DRIVE).
 SET_DRIVE_SLOT:
         LD A,(APPLE_DRIVE)               ; $0459  3A 11 05
         LD C,A                           ; $045C  4F
         AND $01                          ; $045D  E6 01     ; [AI] low bit -> drive 1/2 within the slot
         INC A                            ; $045F  3C
-        LD (DSK_DIR),A                     ; $0460  32 E4 F3  ; [AI] 6502 drive number (1 or 2)
+        LD (DSK_DRIVE),A                     ; $0460  32 E4 F3  ; [AI] 6502 drive number (1 or 2)
         LD A,C                           ; $0463  79
         AND $0E                          ; $0464  E6 0E     ; [AI] remaining bits select the slot
         ADD A,A                          ; $0466  87
@@ -555,7 +555,7 @@ SET_DRIVE_SLOT:
         ADD A,A                          ; $0468  87        ; [AI] *8 -> half-slot stride
         CPL                              ; $0469  2F
         ADD A,$61                        ; $046A  C6 61     ; [AI] form the $Cn-style slot I/O base byte
-        LD (DSK_UNIT),A                     ; $046C  32 E6 F3  ; [AI] 6502 slot base
+        LD (DSK_SLOT),A                     ; $046C  32 E6 F3  ; [AI] 6502 slot base
         RET                              ; $046F  C9
 ; [AI] SET_FCB_DRIVE: copy the CP/M-target drive (APPLE_DRIVE_2) into the FCB.
 SET_FCB_DRIVE:
@@ -591,7 +591,7 @@ RWTS_SKEW_PTR:
         LD L,A                           ; $049B  6F        ; [AI] L = track
         LD (DSK_TRACK),HL                    ; $049C  22 E0 F3  ; [AI] hand track/sector to the 6502
         LD A,$01                         ; $049F  3E 01
-        LD (DSK_CMD),A                     ; $04A1  32 EB F3  ; [AI] set the 6502 go/command flag
+        LD (DSK_COMMAND),A                     ; $04A1  32 EB F3  ; [AI] set the 6502 go/command flag
         LD HL,$0E03                      ; $04A4  21 03 0E  ; [AI] RWTS command word ($0E03 = read)
         LD (A_VEC),HL                    ; $04A7  22 D0 F3
 APPLE_RWTS_GO:

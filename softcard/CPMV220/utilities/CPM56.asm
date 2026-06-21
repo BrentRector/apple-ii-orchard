@@ -25,10 +25,10 @@
 ; [AI]   (Z_CPU)= address of the SoftCard BIOS "write-trap" dispatch cell;
 ; [AI]            storing A there hands control to the 6502 and runs the op.
 ; [AI]   DSK_TRACK  = source address (page-aligned) the 6502 reads the image from
-; [AI]   DSK_DIR  = selected Disk II drive number (1 or 2 within the slot)
-; [AI]   DSK_UNIT  = slot/drive select nibble for the controller
-; [AI]   DSK_PARM9  = current track/sector index being written
-; [AI]   DSK_CMD  = sectors-per-op / pass count
+; [AI]   DSK_DRIVE  = selected Disk II drive number (1 or 2 within the slot)
+; [AI]   DSK_SLOT  = slot/drive select nibble for the controller
+; [AI]   DSK_BUFFER_HI  = current track/sector index being written
+; [AI]   DSK_COMMAND  = sectors-per-op / pass count
 ; [AI]   DSK_STATUS  = result status returned by the 6502 (0=ok, $10=write
 ; [AI]            protected, other=disk I/O error)
 ; [AI]
@@ -63,7 +63,7 @@ MAIN_REBOOT:
         JP WBOOT_VEC                     ; $010D  C3 00 00   ; [AI] warm boot back to CCP
 DO_UPDATE:
         CALL MAP_DRIVE                   ; $0110  CD F9 02   ; [AI] C = drive code, A = Disk II drive# (1/2)
-        LD (DSK_DIR),A                     ; $0113  32 E4 F3   ; [AI] tell SoftCard BIOS which drive# to use
+        LD (DSK_DRIVE),A                     ; $0113  32 E4 F3   ; [AI] tell SoftCard BIOS which drive# to use
         DEC C                            ; $0116  0D
         LD A,C                           ; $0117  79
         AND $0E                          ; $0118  E6 0E      ; [AI] isolate slot bits of the drive code
@@ -73,7 +73,7 @@ MAIN_CALC_SLOT:
         ADD A,A                          ; $011C  87         ; [AI] *8: shift slot into the controller-select position
         CPL                              ; $011D  2F
         ADD A,$61                        ; $011E  C6 61       ; [AI] form the slot/drive select nibble...
-        LD (DSK_UNIT),A                     ; $0120  32 E6 F3   ; [AI] ...and store it in the SoftCard select cell
+        LD (DSK_SLOT),A                     ; $0120  32 E6 F3   ; [AI] ...and store it in the SoftCard select cell
         LD A,C                           ; $0123  79
         ADD A,$41                        ; $0124  C6 41       ; [AI] drive index -> ASCII drive letter ('A'+index)
         LD (MSG_DRIVE_LETTER),A          ; $0126  32 1D 02   ; [AI] patch the letter into the "...drive Z:" prompt
@@ -81,9 +81,9 @@ MAIN_CALC_SLOT:
         CALL PRINT_STR                   ; $012C  CD A6 01   ; [AI] banner + "Insert 16 sector disk... Hit RETURN to begin"
         CALL WAIT_KEY                    ; $012F  CD 9A 01   ; [AI] wait for the user to press a key (RETURN)
         LD A,$02                         ; $0132  3E 02
-        LD (DSK_CMD),A                     ; $0134  32 EB F3   ; [AI] sectors-per-op / pass count = 2
+        LD (DSK_COMMAND),A                     ; $0134  32 EB F3   ; [AI] sectors-per-op / pass count = 2
         LD A,$13                         ; $0137  3E 13
-        LD (DSK_PARM9),A                     ; $0139  32 E9 F3   ; [AI] starting track/sector index = $13
+        LD (DSK_BUFFER_HI),A                     ; $0139  32 E9 F3   ; [AI] starting track/sector index = $13
         LD HL,WBOOT_VEC                  ; $013C  21 00 00   ; [AI] HL = $0000 = first source page of the system image
         LD B,$27                         ; $013F  06 27       ; [AI] B = $27 (39) blocks to write
 WRITE_LOOP:
@@ -103,7 +103,7 @@ PRINT_DISK_ERR:
         CALL PRINT_STR                   ; $015E  CD A6 01   ; [AI] print the disk error message
         JP EPILOGUE                      ; $0161  C3 7D 01   ; [AI] abort to the reboot prompt
 WRITE_OK:
-        LD HL,DSK_PARM9                      ; $0164  21 E9 F3
+        LD HL,DSK_BUFFER_HI                      ; $0164  21 E9 F3
         INC (HL)                         ; $0167  34         ; [AI] advance to the next track/sector index
         POP HL                           ; $0168  E1
         INC H                            ; $0169  24         ; [AI] source += $0100 (next page)

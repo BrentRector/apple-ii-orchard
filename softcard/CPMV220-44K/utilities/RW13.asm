@@ -51,7 +51,7 @@ INSTALL_13SEC:
         LD A,($FE0A)                     ; $0113  3A 0A FE  ; [AI] BIOS flag: current sector mode of selected drive
         CP $0E                           ; $0116  FE 0E     ; [AI] already 13-sector? ($0E sentinel) -> skip re-patch
         JR Z,INSTALL_DONE_MSG            ; $0118  28 18
-        LD HL,(DSK_SAVEVEC)                    ; $011A  2A EE F3  ; [AI] HL = saved BIOS sector-handler vector
+        LD HL,($F3EE)                    ; $011A  2A EE F3  ; [AI] HL = saved BIOS sector-handler vector
         LD ($FE09),HL                    ; $011D  22 09 FE  ; [AI] stash original 16-sector handler for later restore
         LD C,$00                         ; $0120  0E 00     ; [AI] select BIOS jump-table slot 0 (read entry)
         CALL BIOS_JMPTAB_ENTRY           ; $0122  CD 37 01  ; [AI] HL -> operand bytes of that BIOS jump-table entry

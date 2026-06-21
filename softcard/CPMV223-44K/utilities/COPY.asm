@@ -593,12 +593,12 @@ PRINT_ERR_RESTART:
         CALL PRINT_CRLF_STRING           ; $0488  CD 34 04
         JP TPA_START_8                   ; $048B  C3 14 01
 ; [AI] Translates a logical drive number into the 6502 disk parameters (slot/drive select and head-
-;       stepping value) stored in the SoftCard handoff block at DSK_DIR/DSK_UNIT.
+;       stepping value) stored in the SoftCard handoff block at DSK_DRIVE/DSK_SLOT.
 DRIVE_TO_6502_PARAMS:
         LD E,A                           ; $048E  5F
         INC A                            ; $048F  3C
         AND $01                          ; $0490  E6 01
-        LD (DSK_DIR),A                     ; $0492  32 E4 F3
+        LD (DSK_DRIVE),A                     ; $0492  32 E4 F3
         LD A,E                           ; $0495  7B
         AND $0E                          ; $0496  E6 0E
         ADD A,A                          ; $0498  87
@@ -606,7 +606,7 @@ DRIVE_TO_6502_PARAMS:
         ADD A,A                          ; $049A  87
         SUB $61                          ; $049B  D6 61
         CPL                              ; $049D  2F
-        LD (DSK_UNIT),A                     ; $049E  32 E6 F3
+        LD (DSK_SLOT),A                     ; $049E  32 E6 F3
         RET                              ; $04A1  C9
 ; [AI] Reads or writes a whole disk side starting at TPA buffer $2400: sets the operation code in C
 ;       and falls into the per-track transfer loop.
@@ -618,7 +618,7 @@ RW_DISK_SIDE:
 TRACK_TRANSFER_LOOP:
         CALL DRIVE_TO_6502_PARAMS        ; $04A5  CD 8E 04
         LD A,C                           ; $04A8  79
-        LD (DSK_CMD),A                     ; $04A9  32 EB F3
+        LD (DSK_COMMAND),A                     ; $04A9  32 EB F3
         LD A,(CHECK_SOURCE_SYSTEM_5)     ; $04AC  3A 1F 05
         LD B,A                           ; $04AF  47
 ; [AI] Body of the track-transfer loop: hands one track's parameters to the 6502 routine, then
@@ -692,7 +692,7 @@ CHECK_SOURCE_SYSTEM_1:
         LD HL,$2300                      ; $0507  21 00 23
         LD (DSK_BUFFER),HL                    ; $050A  22 E8 F3
         LD A,$01                         ; $050D  3E 01
-        LD (DSK_CMD),A                     ; $050F  32 EB F3
+        LD (DSK_COMMAND),A                     ; $050F  32 EB F3
         LD HL,CHECK_SOURCE_SYSTEM_44     ; $0512  21 03 0E
         CALL SOFTCARD_HANDOFF            ; $0515  CD 2C 04
         LD A,(DSK_STATUS)                     ; $0518  3A EA F3

@@ -66,19 +66,22 @@ RPC_STATUS  EQU $F048      ; 6502 P/status (Apple $48 STATUS)
 RPC_SP      EQU $F049      ; 6502 stack pointer on return (Apple $49 SPNT)
 RPC_ENTER_Z80 EQU $F3C0    ; 6502->Z-80 mode-switch routine; 6502 RESET/NMI/BRK vectors [DOC S&HD 2-25]
 
-; ---- SoftCard 6502 disk-driver interface ($F3E0-$F3EE) [RE] ----------------------
-; The transient disk utilities (COPY/FORMAT/RW13/APDOS/CPM56) stage parameters for the
-; SoftCard's 6502 disk driver in these config-block cells, arm A_VEC, then trigger the
-; call via Z_CPU.  Names/semantics are reverse-engineered from those utilities (not
-; manual-documented), so they carry [RE] at their definitions and use sites.
-DSK_TRACK   EQU $F3E0      ; [RE] current track index (word)
-DSK_DIR     EQU $F3E4      ; [RE] read/write direction / slot flag (set by DECODE_DRIVE)
-DSK_UNIT    EQU $F3E6      ; [RE] drive-select / unit value (set by DECODE_DRIVE)
-DSK_BUFFER  EQU $F3E8      ; [RE] DMA buffer / track-size parameter to the 6502 (word)
-DSK_PARM9   EQU $F3E9      ; [RE] secondary disk-driver parameter cell ($F3E9)
-DSK_STATUS  EQU $F3EA      ; [RE] 6502 result/status byte (0 = OK, $10 = write-protected)
-DSK_CMD     EQU $F3EB      ; [RE] command code for the 6502 disk driver
-DSK_SAVEVEC EQU $F3EE      ; [RE] saved BIOS sector-handler vector
+; ---- SoftCard 6502 RWTS interface -- CALLER param block ($F3E0-$F3EB) [RE] --------
+; The caller (any program doing raw disk I/O: COPY/FORMAT/RW13/APDOS/CPM56/the 60K
+; installer) fills these cells, arms A_VEC with the 6502 RWTS entry, then triggers via
+; Z_CPU.  Confirmed from the setup code (e.g. CPM56's $09AD loop) AND the 6502 driver's
+; consumption; roles are stable across drivers.  See softcard/docs/CPM_SoftCard_RWTS_IOB.md.
+DSK_TRACK   EQU $F3E0      ; [RE] track number
+DSK_SECTOR  EQU $F3E1      ; [RE] logical sector (-> physical via the interleave table)
+DSK_DRIVE   EQU $F3E4      ; [RE] drive / unit (1 or 2)
+DSK_SLOT    EQU $F3E6      ; [RE] disk-controller slot, as slot# << 4 (e.g. $60 = slot 6)
+DSK_BUFFER  EQU $F3E8      ; [RE] DMA buffer pointer, low byte (16-bit; high = DSK_BUFFER_HI)
+DSK_BUFFER_HI EQU $F3E9    ; [RE] DMA buffer pointer, high byte (advanced per sector)
+DSK_STATUS  EQU $F3EA      ; [RE] result/status (0 = OK, $10 = write-protected)
+DSK_COMMAND EQU $F3EB      ; [RE] command (1 = read; else write/format)
+; ($F3E2/$E3 = driver-internal PHYSICAL track + scratch; $F3E5/$E7 = driver-internal
+; current-drive / current-slot latches -- NOT caller params, so not named here.
+; $F3EE/$F3EF = RW13's saved BIOS sector-handler vector, RW13-local.)
 
 ; ---- Apple soft switches (Z-80 $E0xx = Apple $C0xx) [apple2.json] ----------------
 KEYBD       EQU $E000      ; Apple $C000 -- keyboard data (bit 7 = strobe) [DOC S&HD 2-23]
