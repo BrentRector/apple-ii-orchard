@@ -17,6 +17,7 @@ import re
 
 # (base, end_exclusive, name, is_defw_pointer_table)
 TABLES = [
+    (0x0100, 0x0108, "COM_ENTRY", False),          # .COM entry JP + signature/init bytes
     (0x0108, 0x01B2, "STMT_DISPATCH_TBL", True),
     (0x01B2, 0x021E, "FUNC_DISPATCH_TBL", True),
     (0x04ED, 0x04F9, "FRMEVL_PREC_TBL", False),    # 12 precedence BYTES (any offset ok)

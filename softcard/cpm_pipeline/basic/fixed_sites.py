@@ -26,6 +26,33 @@ _HEX = re.compile(r'\$([0-9A-Fa-f]{4})')
 _LOAD_OPS = {0x06, 0x0E, 0x16, 0x1E, 0x26, 0x2E, 0x3E}
 
 
+def mid_string_constant_sites(mem, code, str_lo, str_hi, lo, hi, str_mem=None):
+    """Instruction addresses in [lo, hi) whose 16-bit operand lands MID-string in the
+    error-message region [str_lo, str_hi) -- the byte before it is not a $00 string
+    terminator. A genuine error-string reference points to a string START (just past a
+    $00); a mid-string value is a coincidental constant used by FP / PRINT USING code,
+    so keep it literal (don't mistake it for an error message).
+
+    Instructions are decoded from `mem`; the string terminator is read from `str_mem`
+    (default `mem`) -- needed because GBASIC's body image does not contain the low
+    region, so the string bytes must come from the header image instead."""
+    from disasm_z80.opcodes import decode_at
+    str_mem = mem if str_mem is None else str_mem
+    sites = set()
+    for a in code:
+        if not (lo <= a < hi):
+            continue
+        try:
+            ins = decode_at(mem, a)
+        except (IndexError, KeyError):
+            continue
+        for m in _HEX.finditer(ins.mnemonic):
+            v = int(m.group(1), 16)
+            if str_lo <= v < str_hi and str_mem[v - 1] != 0:
+                sites.add(a)
+    return sites
+
+
 def cover_idiom_sites(mem, code, lo, hi):
     """Return the set of `LD BC,$xxNN` cover-idiom instruction addresses in [lo, hi)
     (NN a register-load opcode, NOT followed by PUSH BC). Their operand is a coded

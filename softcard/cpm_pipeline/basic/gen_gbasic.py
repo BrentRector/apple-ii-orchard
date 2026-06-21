@@ -25,7 +25,10 @@ from cpm_pipeline import reference_data as rd
 from cpm_pipeline.basic._paths import asm_path, overlay_path, seeds_path, load_token_names
 from cpm_pipeline.basic import reswords, lowtables
 from cpm_pipeline.basic.recover import recover_code
-from cpm_pipeline.basic.fixed_sites import fixed_operand_sites, cover_idiom_sites
+from cpm_pipeline.basic.fixed_sites import (fixed_operand_sites, cover_idiom_sites,
+                                            mid_string_constant_sites)
+
+STRING_LO, STRING_HI = 0x0522, 0x081F          # error-message string region
 
 from disasm_z80.walker import Walker
 from disasm_z80.formatter import SjasmFormatter
@@ -169,6 +172,11 @@ def main():
     body_mem[RUN:RUN + body_len] = body
     bwalk = Walker(body_mem, start=RUN, end=RUN + body_len)
     bwalk.inline_byte_calls = dict(INLINE_BYTE_CALLS)
+    # FP power-of-ten fraction-digit constant table (FP_POW10_FRAC_TABLE, loaded by
+    # LD DE at $5B14): MBF constant bytes, NOT code. Pin as data so the walker does not
+    # decode it as bogus instructions / DEFW pointers (which minted a stray L_5C05 label).
+    FP_POW10_TBL = (0x5BE8, 0x5C2E)
+    bwalk.add_data_region(*FP_POW10_TBL)
     # Register the body origin + every indirectly-reached entry point as a call TARGET
     # BEFORE any pass names labels: these are routine HEADS, so they must mint SUB_xxxx
     # head labels (not L_xxxx branch labels the localizer would fold into the preceding
@@ -193,7 +201,7 @@ def main():
     # or fragmented by false pointer-cell classification). Such blobs are NOT data -- the
     # address operands inside them are frozen DEFB bytes that would not relocate. Run
     # BEFORE pointer-table detection so the recovered code is not mis-read as pointers.
-    recover_code(bwalk, body_mem, RUN, RUN + body_len)
+    recover_code(bwalk, body_mem, RUN, RUN + body_len, protected=[FP_POW10_TBL])
     label_inrange_operands(bwalk, body_mem, RUN, body_len)   # label the recovered code's
                                                              # operands so they relocate
     body_ptrs = scan_pointer_words(bwalk, body_mem, RUN, body_len) | body_dispatch
@@ -268,7 +276,9 @@ def main():
     # literal, so a coincidental body label isn't substituted and wrongly relocated.
     fixed, _ = fixed_operand_sites()
     keep_literal = (fixed | cover_idiom_sites(body_mem, bwalk.code, RUN, RUN + body_len)
-                    | lowtables.literal_sites(body_mem, bwalk.code, RUN, RUN + body_len))
+                    | lowtables.literal_sites(body_mem, bwalk.code, RUN, RUN + body_len)
+                    | mid_string_constant_sites(body_mem, bwalk.code, STRING_LO, STRING_HI,
+                                                 RUN, RUN + body_len, str_mem=hdr_mem))
     body_fmt = SjasmFormatter(body_mem, bwalk, origin=RUN, length=body_len,
                               source_name="GBASIC", pointer_words=body_ptrs,
                               relocatable=False, inline_token_names=TOKENS,

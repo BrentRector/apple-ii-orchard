@@ -11,7 +11,8 @@ from cpm_pipeline import reference_data as rd
 from cpm_pipeline.basic._paths import asm_path, overlay_path, seeds_path, load_token_names
 from cpm_pipeline.basic import reswords, lowtables
 from cpm_pipeline.basic.recover import recover_code
-from cpm_pipeline.basic.fixed_sites import fixed_operand_sites, cover_idiom_sites
+from cpm_pipeline.basic.fixed_sites import (fixed_operand_sites, cover_idiom_sites,
+                                            mid_string_constant_sites)
 from disasm_z80.walker import Walker
 from disasm_z80.formatter import SjasmFormatter
 from cpm_pipeline.region_disasm import (seed_leading_jp_vector,
@@ -113,7 +114,8 @@ def main():
 
     _, fixed = fixed_operand_sites()          # fixed operands -> keep literal (see gen_gbasic)
     keep_literal = (fixed | cover_idiom_sites(mem, w.code, LOAD, end)      # coded-constant covers
-                    | lowtables.literal_sites(mem, w.code, LOAD, end))     # + mid-pointer constants
+                    | lowtables.literal_sites(mem, w.code, LOAD, end)      # mid-pointer constants
+                    | mid_string_constant_sites(mem, w.code, 0x0522, 0x081F, LOAD, end))
     fmt = SjasmFormatter(mem, w, origin=LOAD, length=len(com),
                          source_name="MBASIC", pointer_words=ptrs, relocatable=False,
                          inline_token_names=load_token_names(), keep_literal=keep_literal)
