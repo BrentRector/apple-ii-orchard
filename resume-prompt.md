@@ -1,6 +1,72 @@
 # Resume Prompt — Microsoft SoftCard CP/M Investigation
 
-## CURRENT STATE — 2026-06-20 (NEWEST: 44K source-completion plan DONE; NEXT = GBASIC 2.20-44K decompile)
+## CURRENT STATE — 2026-06-20 (NEWEST: GBASIC + MBASIC FULLY RE'd, shared name includes, RWTS IOB; MERGED to `main` via PR #4)
+
+**Everything below is now on `main`** (branch `softcard-bootloaders-to-standard` merged via
+PR #4 = github.com/BrentRector/apple-ii-orchard/pull/4). Canonical gate **217 passed**
+(`source shared/toolchain/env.sh && python -m pytest softcard/ shared/`). Everything is
+byte-identical to the original disk images.
+
+**GBASIC 2.20-44K — DONE, 0 machine labels** (`softcard/CPMV220-44K/utilities/GBASIC.asm`).
+Clean-slate decode of GBASIC.COM (25600 B). It self-relocates: entry `JP $1000`; a `$1000`
+stub LDDRs the interpreter body from file `$100E-$6490` UP to run `$3000-$8482`, then
+`JP $81D3`. So the body is decoded at run `$3000` and folded to the .COM file offset via
+`DISP $3000 ... ENT`. Enriched in stages (dispatch handlers → engine region fan-out → finish
+pass), each adversarially verified; MS BASIC-80 RAM canon named (TXTTAB/VARTAB/MEMSIZ/FRETOP/
+SAVTXT/...). Recipe + binary facts: **[[project_gbasic_2_20_44k_re_kickoff]]**.
+
+**MBASIC 2.20-44K — DONE, 0 machine labels** (`.../utilities/MBASIC.asm`). The graphics-OFF
+twin (same MS BASIC-80 Rev 5.2 engine; graphics tokens dispatch to a "Graphics statement not
+implemented" stub). It does NOT relocate — it runs IN PLACE at `$0100` (entry `JP $5E51`
+cold start), so it's a single `ORG $0100` region (no DISP). Because GBASIC is assembled for
+`$3000` and MBASIC for `$0100`, the shared code is byte-different in every absolute operand
+(~18% exact overlap) — so names were transferred by **structural correspondence**, not byte
+matching: a LOCKSTEP walk of both programs from corresponding entries (cold start + every
+dispatch handler + fall-through) maps `GBASIC_addr -> MBASIC_addr` for code targets AND
+data/RAM cells, so identical routines get identical names. See [[project_gbasic_vs_mbasic_relationship]].
+
+**Shared name includes = the SINGLE SOURCE OF TRUTH** (Brent's rule: conform every file TO
+the include, never the reverse). `softcard/include/apple_softcard.inc` (Apple/SoftCard
+hardware externals: I/O config block, A_VEC/Z_CPU RPC cells + the 6502 register-pass area,
+soft switches, zero-page graphics cells, Apple-ROM entry points; grounded in the manuals
+`[DOC S&HD]` + `shared/symbols/apple2.json`) and `softcard/include/cpm22.inc` (CP/M 2.2 ABI:
+base page, BDOS fn numbers, FCB offsets). INCLUDEd across CPMV220-44K + CPMV223-44K +
+CPMV220(56K) + the BASICs. Build/test plumbing stages includes for all 3 Z-80 paths (utility
+roundtrip, OS chunk `ChunkSource.include_files`, INCBIN-fragment auto-staging). After editing
+an INCBIN'd fragment, re-run `python -m cpm_pipeline.inject_incbin_listing`. Standing rule +
+the apple2.json/ROM-entry-point dimension: **[[feedback_use_softcard_docs_for_config_blocks]]**.
+
+**SoftCard RWTS interface — nailed + documented** (`softcard/docs/CPM_SoftCard_RWTS_IOB.md`):
+caller block `$F3E0`=track / `$F3E1`=sector / `$F3E4`=drive / `$F3E6`=slot(<<4) / `$F3E8/$E9`=
+DMA buffer ptr / `$F3EA`=status / `$F3EB`=command; `$F3E2/$E3/$E5/$E7` are driver-internal
+physical-track/current-drive/current-slot latches (the logical-caller-vs-physical-driver split
+is what made the cells first look inconsistent). Sector interleave: SoftCard CP/M uses the
+Pascal/ProDOS 2:1 order (`00 02 04 06 08 0A 0C 0E 01 ...`), NOT DOS 3.3; RW13 also handles
+13-sector DOS 3.2 (a physically distinct format).
+
+**BASIC PIPELINE / where the tooling lives.** The `.asm` files ARE the committed source of
+truth (pinned byte-identical by `test_utilities_roundtrip`, like every other utility). The
+build SCAFFOLDING — `gen_gbasic_220.py`, `gen_mbasic_220.py`, `apply_naming.py`,
+`map_gbasic_to_mbasic.py`, and the `overlay_combined.json` / `overlay_mbasic.json` — lived in
+`E:/tmp/` (scratch; may be gone in a new session). The COMMITTED provenance is
+`GBASIC.seeds.json` + `GBASIC.overlay.json` and `MBASIC.seeds.json` + `MBASIC.overlay.json`
+(the coverage seeds + the address-keyed naming overlays). To resume the BASIC work you can
+edit the `.asm` by hand (it's the source of truth) or rebuild the scaffolding from these
+companions + the memory recipe.
+
+**REMAINING (next sessions):** (1) 2.20<->2.23 BASIC patch consolidation (the BASICs differ
+~50-56 bytes, console/memory patches, NOT graphics); (2) finish include propagation —
+CPMV223-60K + `src` build wiring (the 60K modules INCLUDE into one `CPM60.asm` master under an
+`IFNDEF CPM60_LINK` guard, so the master needs a global include + `build_cpm60`/
+`test_shared_ccp` staging), the `CPM60_installer` disk path (its `$F3Ex` usage differs — RE it
+before conforming), `cpm22.inc` across the utilities (BDOS fn numbers — per-`LD C,n` care), and
+a separate 6502-side include for the `.s` files ($C0xx/$00xx native); (3) the 56K/60K trees to
+the full standard, the CPM56->os/ fold, then the wiseowl "Guided Tour" article series. Plan:
+`softcard/docs/CPM_Source_Completion_and_Tour_Plan.md`, [[project_softcard_source_completion_and_tour]].
+
+---
+
+## CURRENT STATE — 2026-06-20 (44K source-completion plan DONE; GBASIC 2.20-44K decompile — superseded by the section above)
 
 **>>> IMMEDIATE NEXT TASK: reverse-engineer / decompile GBASIC.COM from the 2.20-44K
 disk to the full standard, byte-identical, SUPERSET-FIRST.** Full recipe + binary
