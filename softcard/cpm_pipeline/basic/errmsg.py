@@ -1,8 +1,9 @@
 """Decode and structure the Microsoft BASIC-80 (SoftCard 2.20) error-message table.
 
 The table at $0522+ is a contiguous list of $00-terminated message strings. The ERROR
-handler (ERROR_DISPATCH / RAISE_ERROR, low-RAM $0D89) is entered with the error code in
-the E register; the message printer reaches a message by scanning E entries forward from
+handler (RAISE_ERROR, in low RAM -- $0D89 in GBASIC, $0DAC in MBASIC) is entered with the
+error code in the E register; the message printer reaches a message by scanning E entries
+forward from
 ERROR_MESSAGE_TABLE. So the messages are NOT individually code-referenced -- only the few
 that a runtime trap loads directly by pointer (Overflow, Division by zero) are. Therefore:
 
@@ -55,7 +56,7 @@ def decode(com, lo=TABLE_LO):
     ERR_<name> code constant (the E-register value), msg_label the ERRMSG_<name> string
     label.
 
-    RAISE_ERROR / ERROR_DISPATCH ($0D89) is entered with the error code in E; the printer
+    RAISE_ERROR is entered with the error code in E; the printer
     scans from ERROR_MESSAGE_TABLE-1 ($0521) past (E-1) $00 terminators, so code E selects
     the E-th message: BASIC errors are codes 1..N (= index+1). But the scan REMAPS the disk
     errors (CP $32 / SUB $12): the "FIELD overflow" message onward uses codes 50..70, so
@@ -102,7 +103,7 @@ def emit_table_lines(com, labeled=()):
     ERR_<name>=<code>. Messages whose start address is in `labeled` (loaded directly by a
     runtime trap) also get their ERRMSG_<name> string label."""
     labeled = set(labeled)
-    L = ["; -- Error-message table. RAISE_ERROR ($0D89) is entered with the error code in E.",
+    L = ["; -- Error-message table. RAISE_ERROR is entered with the error code in E.",
          ";    The base ERROR_MESSAGE_TABLE ($0521) is a $00 = the empty message 0; the printer",
          ";    scans E terminators forward from it, so code E selects the E-th message (err 1 =",
          ";    'NEXT without FOR'). BASIC errors are codes 1..N; the disk errors (FIELD overflow",
@@ -189,7 +190,7 @@ def gen_include(com, lo=TABLE_LO):
     out = [
         "; msbasic_errors.inc -- Microsoft BASIC-80 (SoftCard CP/M 2.20) ERROR CODES.",
         "; GENERATED from the error-message table (cpm_pipeline.basic.errmsg). The error",
-        "; code is the value loaded into E before JP RAISE_ERROR / ERROR_DISPATCH ($0D89);",
+        "; code is the value loaded into E before JP RAISE_ERROR (the error dispatcher);",
         "; the printer scans E messages forward from ERROR_MESSAGE_TABLE. EQUs are",
         "; zero-width, so INCLUDEing this is byte-identical.",
         "",

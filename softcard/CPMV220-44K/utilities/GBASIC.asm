@@ -47,8 +47,8 @@ STMT_DISPATCH_TBL:
         DEFW    STMT_DEF                 ; $0132
         DEFW    STMT_POKE                ; $0134
         DEFW    STMT_CONT                ; $0136
-        DEFW    ERROR_SYNTAX             ; $0138
-        DEFW    ERROR_SYNTAX             ; $013A
+        DEFW    RAISE_SYNTAX_ERROR       ; $0138
+        DEFW    RAISE_SYNTAX_ERROR       ; $013A
         DEFW    STMT_LPRINT              ; $013C
         DEFW    STMT_LLIST               ; $013E
         DEFW    STMT_WIDTH               ; $0140
@@ -412,7 +412,7 @@ OPERATOR_ROUTINE_TBL:
         DEFW    IMUL                     ; $051B
         DEFW    IDIV                     ; $051D
         DEFW    INT16_COMP               ; $051F
-; -- Error-message table. RAISE_ERROR ($0D89) is entered with the error code in E.
+; -- Error-message table. RAISE_ERROR is entered with the error code in E.
 ;    The base ERROR_MESSAGE_TABLE ($0521) is a $00 = the empty message 0; the printer
 ;    scans E terminators forward from it, so code E selects the E-th message (err 1 =
 ;    'NEXT without FOR'). BASIC errors are codes 1..N; the disk errors (FIELD overflow
@@ -637,8 +637,8 @@ CONT_CMD:
         JR NZ,RAISE_ERROR                ; $0D3C  20 4B
 CONT_CMD_1:
         JP RESUME_AT_DIRECT              ; $0D3E  C3 69 69
-; Named-error entry stubs: each loads an error code into E (LD E,n via the $1E opcode of the next LD BC) then falls through to RAISE_ERROR at $0D89. Overlapping table of error vectors.
-ERR_CODED_ENTRY:
+; Named-error entry stubs: each loads an error code into E (LD E,ERR_* via the $1E opcode of the next LD BC) then falls through to RAISE_ERROR. Overlapping table of error vectors -- code JPs to a specific entry to raise that error.
+RAISE_DISK_FULL:
         LD E,ERR_DISK_FULL               ; $0D41  raise error 61
         DEFB    $01                      ; $0D43  LD BC opcode = skip the next LD E
 RAISE_DISK_I_O_ERROR:
@@ -681,8 +681,8 @@ RAISE_FILE_ALREADY_EXISTS:
 CONT_RESUME_RESTORE:
         LD HL,(DATA_LINE_TXTPTR)         ; $0D69  2A 50 0B
         LD (SAVTXT),HL                   ; $0D6C  22 44 08
-; Syntax-error entry: LD E,$02 then fall through the coded-error table into RAISE_ERROR ($0D89). Common target of statement parsers (JP $0D6F).
-ERROR_SYNTAX:
+; Syntax-error entry: LD E,ERR_SYNTAX_ERROR then fall through the coded-error table into RAISE_ERROR. Common target of statement parsers (JP RAISE_SYNTAX_ERROR).
+RAISE_SYNTAX_ERROR:
         LD E,ERR_SYNTAX_ERROR            ; $0D6F  raise error 2
         DEFB    $01                      ; $0D71  LD BC opcode = skip the next LD E
 RAISE_DIVISION_BY_ZERO:
@@ -1011,13 +1011,13 @@ SCAN_LINE_RANGE:
         CP $2C                           ; $0F6F  FE 2C
         JR Z,SCAN_LINE_RANGE_1           ; $0F71  28 05
         CP TOK_MINUS                     ; $0F73  FE F3
-        JP NZ,ERROR_SYNTAX               ; $0F75  C2 6F 0D
+        JP NZ,RAISE_SYNTAX_ERROR         ; $0F75  C2 6F 0D
 SCAN_LINE_RANGE_1:
         CALL CHRGET                      ; $0F78  CD C9 33
 SCAN_LINE_RANGE_2:
         LD DE,$FFFA                      ; $0F7B  11 FA FF
         CALL NZ,LINGET_DOT               ; $0F7E  C4 D5 34
-        JP NZ,ERROR_SYNTAX               ; $0F81  C2 6F 0D
+        JP NZ,RAISE_SYNTAX_ERROR         ; $0F81  C2 6F 0D
 SCAN_LINE_RANGE_3:
         EX DE,HL                         ; $0F84  EB
         POP DE                           ; $0F85  D1
@@ -1486,7 +1486,7 @@ CRUNCH_37:
 ; [RE] Load A=':' ($3A) then fall into CRUNCH_EMIT: emit a statement-separator colon into the crunch buffer (used around tokens like ELSE/REM that imply a colon).
 CRUNCH_EMIT_COLON:
         LD A,$3A                         ; $3232  3E 3A
-; [RE] CRUNCH output-byte helper: store A to the crunch buffer at (DE), advance DE, decrement remaining count BC; on buffer exhaustion raise error E=$17 (line/buffer overflow) via the $0D89 error dispatcher.
+; [RE] CRUNCH output-byte helper: store A to the crunch buffer at (DE), advance DE, decrement remaining count BC; on buffer exhaustion raise error E=$17 (line/buffer overflow) via the RAISE_ERROR dispatcher.
 CRUNCH_EMIT:
         LD (DE),A                        ; $3234  12
         INC DE                           ; $3235  13
@@ -1655,7 +1655,7 @@ STMT_FOR_5:
         PUSH BC                          ; $3344  C5
         DEC HL                           ; $3345  2B
         CALL CHRGET                      ; $3346  CD C9 33
-        JP NZ,ERROR_SYNTAX               ; $3349  C2 6F 0D
+        JP NZ,RAISE_SYNTAX_ERROR         ; $3349  C2 6F 0D
         CALL BLOCK_SCAN_FORNEXT          ; $334C  CD B6 44
         CALL CHRGET                      ; $334F  CD C9 33
         PUSH HL                          ; $3352  E5
@@ -1688,7 +1688,7 @@ STMT_FOR_8:
         CP $3A                           ; $337C  FE 3A
         JR Z,NEWSTT_NEXTLINE_2           ; $337E  28 29
         OR A                             ; $3380  B7
-        JP NZ,ERROR_SYNTAX               ; $3381  C2 6F 0D
+        JP NZ,RAISE_SYNTAX_ERROR         ; $3381  C2 6F 0D
         INC HL                           ; $3384  23
 ; [RE] NEWSTT per-line entry: read the line link; if end-of-program go to the ready loop, else load the next line's text pointer into SAVTXT, and if the TRON trace flag ($0CAB) is set print [linenum] before resuming the statement executor.
 NEWSTT_NEXTLINE:
@@ -1875,7 +1875,7 @@ STMT_DEFSTR_3:
         LD BC,$081E                      ; $348C  01 1E 08
 STMT_DEFSTR_4:
         CALL IS_LETTER                   ; $348F  CD 40 6A
-        LD BC,ERROR_SYNTAX               ; $3492  01 6F 0D
+        LD BC,RAISE_SYNTAX_ERROR         ; $3492  01 6F 0D
         PUSH BC                          ; $3495  C5
         RET C                            ; $3496  D8
         SUB $41                          ; $3497  D6 41
@@ -1913,7 +1913,7 @@ STMT_DEFSTR_6:
 ; [RE] CHRGET then GETINT-positive: advances the text pointer, evaluates an expr to a signed 16-bit int (via SUB_34CC); used where a leading char must be skipped first (e.g. WIDTH/coord parsers at $60DD/$60F5/$7F41/$7F7F)
 GETINT_CHRGET_POS:
         CALL CHRGET                      ; $34C9  CD C9 33
-; [RE] GETINT requiring a non-negative result: CALL GETINT; RET P if the high byte (D) is sign-positive (0..$7FFF), else fall into SUB_34CC_1 which loads E=$05 and JP $0D89 -> 'Illegal function call' (FC). Widely used by graphics/coord and array parsers
+; [RE] GETINT requiring a non-negative result: CALL GETINT; RET P if the high byte (D) is sign-positive (0..$7FFF), else fall into SUB_34CC_1 which loads E=$05 and JP RAISE_ERROR -> 'Illegal function call' (FC). Widely used by graphics/coord and array parsers
 GETINT_POSITIVE:
         CALL GETINT                      ; $34CC  CD 88 40
         RET P                            ; $34CF  F0
@@ -2270,7 +2270,7 @@ SCAN_LINE_RANGE_RESUME:
         EX DE,HL                         ; $36E7  EB
         JR Z,SCAN_LINE_RANGE_RESUME_1    ; $36E8  28 06
         CALL LINGET                      ; $36EA  CD E0 34
-        JP NZ,ERROR_SYNTAX               ; $36ED  C2 6F 0D
+        JP NZ,RAISE_SYNTAX_ERROR         ; $36ED  C2 6F 0D
 SCAN_LINE_RANGE_RESUME_1:
         EX DE,HL                         ; $36F0  EB
 SCAN_LINE_RANGE_RESUME_2:
@@ -2547,7 +2547,7 @@ STMT_LINE_1:
         INC HL                           ; $38CA  23
         LD A,(HL)                        ; $38CB  7E
         OR A                             ; $38CC  B7
-        JP Z,ERROR_SYNTAX                ; $38CD  CA 6F 0D
+        JP Z,RAISE_SYNTAX_ERROR          ; $38CD  CA 6F 0D
         CP $22                           ; $38D0  FE 22
         JR NZ,STMT_LINE_1                ; $38D2  20 F6
         JP INPUT_PROMPT_8                ; $38D4  C3 62 39
@@ -2640,7 +2640,7 @@ INPUT_PROMPT_7:
         INC B                            ; $3961  04
 INPUT_PROMPT_8:
         CALL CHRGET                      ; $3962  CD C9 33
-        JP Z,ERROR_SYNTAX                ; $3965  CA 6F 0D
+        JP Z,RAISE_SYNTAX_ERROR          ; $3965  CA 6F 0D
         CP $22                           ; $3968  FE 22
         JP Z,STMT_LINE_1                 ; $396A  CA CA 38
         CP $28                           ; $396D  FE 28
@@ -2652,7 +2652,7 @@ INPUT_PROMPT_9:
         CALL CHRGET                      ; $3977  CD C9 33
         JR Z,INPUT_PROMPT_10             ; $397A  28 05
         CP $2C                           ; $397C  FE 2C
-        JP NZ,ERROR_SYNTAX               ; $397E  C2 6F 0D
+        JP NZ,RAISE_SYNTAX_ERROR         ; $397E  C2 6F 0D
 INPUT_PROMPT_10:
         EX (SP),HL                       ; $3981  E3
         LD A,(HL)                        ; $3982  7E
@@ -2914,7 +2914,7 @@ FRMEVL_OPLOOP_8:
         XOR D                            ; $3B10  AA
         CP D                             ; $3B11  BA
         LD D,A                           ; $3B12  57
-        JP C,ERROR_SYNTAX                ; $3B13  DA 6F 0D
+        JP C,RAISE_SYNTAX_ERROR          ; $3B13  DA 6F 0D
         LD ($0B4A),HL                    ; $3B16  22 4A 0B
         CALL CHRGET                      ; $3B19  CD C9 33
         JR FRMEVL_OPLOOP_8               ; $3B1C  18 E5
@@ -3221,7 +3221,7 @@ SCAN_AMP_RADIX_CONST_5:
         EX DE,HL                         ; $3D1A  EB
         JR NC,SCAN_AMP_RADIX_CONST_6     ; $3D1B  30 19
         CP $38                           ; $3D1D  FE 38
-        JP NC,ERROR_SYNTAX               ; $3D1F  D2 6F 0D
+        JP NC,RAISE_SYNTAX_ERROR         ; $3D1F  D2 6F 0D
         LD BC,RAISE_OVERFLOW             ; $3D22  01 81 0D
         PUSH BC                          ; $3D25  C5
         ADD HL,HL                        ; $3D26  29
@@ -3662,7 +3662,7 @@ STMT_DEF_8:
         CALL EVAL_EXPR_AFTER_SYNCHR      ; $3FBB  CD 6A 3A
         DEC HL                           ; $3FBE  2B
         CALL CHRGET                      ; $3FBF  CD C9 33
-        JP NZ,ERROR_SYNTAX               ; $3FC2  C2 6F 0D
+        JP NZ,RAISE_SYNTAX_ERROR         ; $3FC2  C2 6F 0D
         CALL FRMEVL_TEST_TYPE            ; $3FC5  CD C8 3D
         JR NZ,STMT_DEF_9                 ; $3FC8  20 11
         LD DE,$0B45                      ; $3FCA  11 45 0B
@@ -3719,7 +3719,7 @@ BLOCK_COPY_DE_HL:
         OR C                             ; $4014  B1
         JR NZ,FRMEVL_APPLY_OP_1          ; $4015  20 F7
         RET                              ; $4017  C9
-; [RE] Variable-space overflow guard: if the free-space-remaining counter ($0844) has wrapped to 0, raise 'Out of memory' (E=$0C) via $0D89. Called before allocating variable/array storage.
+; [RE] Variable-space overflow guard: if the free-space-remaining counter ($0844) has wrapped to 0, raise 'Out of memory' (E=$0C) via RAISE_ERROR. Called before allocating variable/array storage.
 CHECK_MEM_TOP:
         PUSH HL                          ; $4018  E5
         LD HL,(SAVTXT)                   ; $4019  2A 44 08
@@ -3741,11 +3741,11 @@ GETVAR_NAME:
         JP PTRGET_2                      ; $4031  C3 3A 5F
 GETVAR_NAME_1:
         CP $7E                           ; $4034  FE 7E
-        JP NZ,ERROR_SYNTAX               ; $4036  C2 6F 0D
+        JP NZ,RAISE_SYNTAX_ERROR         ; $4036  C2 6F 0D
         INC HL                           ; $4039  23
         LD A,(HL)                        ; $403A  7E
         CP $83                           ; $403B  FE 83
-        JP NZ,ERROR_SYNTAX               ; $403D  C2 6F 0D
+        JP NZ,RAISE_SYNTAX_ERROR         ; $403D  C2 6F 0D
         INC HL                           ; $4040  23
         JP STMT_MID_ASSIGN               ; $4041  C3 63 6F
         DEFB    $C3,$6F,$0D              ; $4044
@@ -4232,7 +4232,7 @@ STMT_RENUM_1:
         DEFB    ','                      ; $4304  2C  inline char arg consumed by the preceding CALL
         PUSH DE                          ; $4305  D5
         CALL LINGET                      ; $4306  CD E0 34
-        JP NZ,ERROR_SYNTAX               ; $4309  C2 6F 0D
+        JP NZ,RAISE_SYNTAX_ERROR         ; $4309  C2 6F 0D
         LD A,D                           ; $430C  7A
         OR E                             ; $430D  B3
         JP Z,ERROR_FC                    ; $430E  CA D0 34
@@ -4456,9 +4456,9 @@ STMT_OPTION:
         POP HL                           ; $4438  E1
         LD A,(HL)                        ; $4439  7E
         SUB $30                          ; $443A  D6 30
-        JP C,ERROR_SYNTAX                ; $443C  DA 6F 0D
+        JP C,RAISE_SYNTAX_ERROR          ; $443C  DA 6F 0D
         CP $02                           ; $443F  FE 02
-        JP NC,ERROR_SYNTAX               ; $4441  D2 6F 0D
+        JP NC,RAISE_SYNTAX_ERROR         ; $4441  D2 6F 0D
         LD ($0C73),A                     ; $4444  32 73 0C
         INC A                            ; $4447  3C
         LD ($0C74),A                     ; $4448  32 74 0C
@@ -5704,7 +5704,7 @@ GFX_STMT_HPLOT_2:
         RET                              ; $4B79  C9
 GFX_STMT_HPLOT_3:
         LD E,$1F                         ; $4B7A  1E 1F
-; [RE] Overlapping error-vector entry (LD E,n via the $1E of the next LD BC). +1 entry $4B7D = LD E,$39 then falls through the $01-prefixed LD BC stubs to the shared tail $4B88 (BDOS fn 14 select-disk reset, JP RAISE_ERROR $0D89). LD BC,$391E is the harmless fall-through cover. $4B7D stored into the BIOS-relative vector table at cold-start $821F.
+; [RE] Overlapping error-vector entry (LD E,n via the $1E of the next LD BC). +1 entry $4B7D = LD E,$39 then falls through the $01-prefixed LD BC stubs to the shared tail $4B88 (BDOS fn 14 select-disk reset, JP RAISE_ERROR RAISE_ERROR). LD BC,$391E is the harmless fall-through cover. $4B7D stored into the BIOS-relative vector table at cold-start $821F.
 GFX_STMT_HPLOT_4:
         LD BC,$391E                      ; $4B7C  01 1E 39
 ; [RE] Overlapping error-vector entry: +1 entry $4B80 = LD E,$44 then falls through to the shared BDOS-reset/RAISE_ERROR tail at $4B88. LD BC,$441E is the harmless fall-through cover. $4B80 stored into the BIOS-relative vector table at cold-start $822D.
@@ -9187,7 +9187,7 @@ PTRGET_1:
         LD C,(HL)                        ; $5F39  4E
 PTRGET_2:
         CALL IS_LETTER                   ; $5F3A  CD 40 6A
-        JP C,ERROR_SYNTAX                ; $5F3D  DA 6F 0D
+        JP C,RAISE_SYNTAX_ERROR          ; $5F3D  DA 6F 0D
         XOR A                            ; $5F40  AF
         LD B,A                           ; $5F41  47
         LD ($0871),A                     ; $5F42  32 71 08
@@ -9226,7 +9226,7 @@ PTRGET_6:
         JR Z,PTRGET_5                    ; $5F77  28 E8
         LD A,B                           ; $5F79  78
         CP $27                           ; $5F7A  FE 27
-        JP NC,ERROR_SYNTAX               ; $5F7C  D2 6F 0D
+        JP NC,RAISE_SYNTAX_ERROR         ; $5F7C  D2 6F 0D
         POP BC                           ; $5F7F  C1
         LD ($0871),A                     ; $5F80  32 71 08
         LD A,(HL)                        ; $5F83  7E
@@ -9500,7 +9500,7 @@ PTRGET_SEARCH_21:
         CP $29                           ; $6116  FE 29
         JR Z,PTRGET_SEARCH_22            ; $6118  28 05
         CP $5D                           ; $611A  FE 5D
-        JP NZ,ERROR_SYNTAX               ; $611C  C2 6F 0D
+        JP NZ,RAISE_SYNTAX_ERROR         ; $611C  C2 6F 0D
 PTRGET_SEARCH_22:
         CALL CHRGET                      ; $611F  CD C9 33
         LD (FRMEVL_TXTPTR_TEMP),HL       ; $6122  22 69 0B
@@ -10310,7 +10310,7 @@ PRINT_LIST_ENTRY_23:
         CP $3B                           ; $6586  FE 3B
         JR Z,PRINT_LIST_ENTRY_24         ; $6588  28 05
         CP $2C                           ; $658A  FE 2C
-        JP NZ,ERROR_SYNTAX               ; $658C  C2 6F 0D
+        JP NZ,RAISE_SYNTAX_ERROR         ; $658C  C2 6F 0D
 PRINT_LIST_ENTRY_24:
         CALL CHRGET                      ; $658F  CD C9 33
 PRINT_LIST_ENTRY_25:
@@ -10769,7 +10769,7 @@ STR_COPY_DOWN_NOCHK_1:
         DEC BC                           ; $681D  0B
         DEC HL                           ; $681E  2B
         JR STR_COPY_DOWN_NOCHK_1         ; $681F  18 F6
-; [RE] GETSTK/stack-room check: verify BC*2 bytes are available between SP and the top-of-storage pointer ($0B23); on failure fall through to SUB_6821_1 which raises 'Out of memory' (error E=$07) via the $0D89 dispatcher.
+; [RE] GETSTK/stack-room check: verify BC*2 bytes are available between SP and the top-of-storage pointer ($0B23); on failure fall through to SUB_6821_1 which raises 'Out of memory' (error E=$07) via the RAISE_ERROR dispatcher.
 CHECK_STACK_ROOM:
         PUSH HL                          ; $6821  E5
         LD HL,(MEMSIZ)                   ; $6822  2A 23 0B
@@ -10794,7 +10794,7 @@ CHECK_STACK_ROOM_1:
 CHECK_STACK_ROOM_2:
         LD DE,$0007                      ; $683E  11 07 00
         JP RAISE_ERROR                   ; $6841  C3 89 0D
-; [RE] String free/space guard: if the requested string allocation would collide with the variable space, trigger garbage collection (SUB_6C82) and retry; if still no room raise 'Out of string space' (E=$07/$0E) via $0D89.
+; [RE] String free/space guard: if the requested string allocation would collide with the variable space, trigger garbage collection (SUB_6C82) and retry; if still no room raise 'Out of string space' (E=$07/$0E) via RAISE_ERROR.
 GC_CHECK_AND_COLLECT:
         CALL CMP_STR_VS_VARTOP           ; $6844  CD 57 68
         RET NC                           ; $6847  D0
@@ -10958,7 +10958,7 @@ SYNCHR:
         RET NC                           ; $6930  D0
         JP CHRGOT_1                      ; $6931  C3 CE 33
 SYNCHR_1:
-        JP ERROR_SYNTAX                  ; $6934  C3 6F 0D
+        JP RAISE_SYNTAX_ERROR            ; $6934  C3 6F 0D
 ; [RE] RESTORE statement handler (token $8C): resets the DATA read pointer (optionally to a line number).
 STMT_RESTORE:
         EX DE,HL                         ; $6937  EB
@@ -11182,7 +11182,7 @@ STMT_CLEAR_2:
         CALL GETINT_POSITIVE             ; $6A84  CD CC 34
         DEC HL                           ; $6A87  2B
         CALL CHRGET                      ; $6A88  CD C9 33
-        JP NZ,ERROR_SYNTAX               ; $6A8B  C2 6F 0D
+        JP NZ,RAISE_SYNTAX_ERROR         ; $6A8B  C2 6F 0D
 STMT_CLEAR_3:
         EX (SP),HL                       ; $6A8E  E3
         PUSH HL                          ; $6A8F  E5
@@ -11475,7 +11475,7 @@ SCAN_STR_BODY_4:
         EX DE,HL                         ; $6C15  EB
         LD A,C                           ; $6C16  79
         CALL STORE_STR_DESC              ; $6C17  CD DF 6B
-; [RE] Place a string descriptor into the rotating string-temporary table (pointer $0B25, base $0B48): records type=string ($0B14=3), stores the descriptor and advances the temp pointer; on overflow raises 'String formula too complex' (E=$10 via $0D89). Widely used to stage string FRMEVL results.
+; [RE] Place a string descriptor into the rotating string-temporary table (pointer $0B25, base $0B48): records type=string ($0B14=3), stores the descriptor and advances the temp pointer; on overflow raises 'String formula too complex' (E=$10 via RAISE_ERROR). Widely used to stage string FRMEVL results.
 PUT_STR_TEMP:
         LD DE,$0B45                      ; $6C1A  11 45 0B
 ; [RE] Two entries to the string-temp store. PUT_STR_TEMP (fall-through, and JP from $6E82) enters $6C1D LD A,$D5 (A dead) so no DE is pushed and the later POP HL ($6C36) takes the return address. CALL PUT_STR_TEMP_1+1 (from $3FD8, DEF-string) enters +1 so the D5 byte runs as PUSH DE, making that POP HL retrieve the descriptor pointer instead.
@@ -12510,7 +12510,7 @@ STMT_WHILE_1:
         JR STMT_WEND_1                   ; $71BD  18 24
 ; [RE] WEND statement handler (token $B0): test the WHILE condition and loop or fall through.
 STMT_WEND:
-        JP NZ,ERROR_SYNTAX               ; $71BF  C2 6F 0D
+        JP NZ,RAISE_SYNTAX_ERROR         ; $71BF  C2 6F 0D
         EX DE,HL                         ; $71C2  EB
         CALL WHILE_FIND_FRAME            ; $71C3  CD 02 72
         JP NZ,WEND_NO_WHILE_ERR          ; $71C6  C2 2A 72
@@ -12580,7 +12580,7 @@ WHILE_FIND_FRAME_3:
         RET Z                            ; $7226  C8
         ADD HL,BC                        ; $7227  09
         JR WHILE_FIND_FRAME_1            ; $7228  18 DC
-; [RE] WEND without matching WHILE: raise coded error $1E ('WEND without WHILE') via the error dispatcher at $0D89.
+; [RE] WEND without matching WHILE: raise coded error $1E ('WEND without WHILE') via the error dispatcher at RAISE_ERROR.
 WEND_NO_WHILE_ERR:
         LD DE,$001E                      ; $722A  11 1E 00
         JP RAISE_ERROR                   ; $722D  C3 89 0D
@@ -12719,7 +12719,7 @@ STMT_CHAIN_2:
         CALL SYNCHR                      ; $7313  CD 25 69
         DEFB    ','                      ; $7316  2C  inline char arg consumed by the preceding CALL
         CP E                             ; $7317  BB
-        JP NZ,ERROR_SYNTAX               ; $7318  C2 6F 0D
+        JP NZ,RAISE_SYNTAX_ERROR         ; $7318  C2 6F 0D
         OR A                             ; $731B  B7
 STMT_CHAIN_3:
         PUSH AF                          ; $731C  F5
@@ -13471,7 +13471,7 @@ OPEN_NAMED_FILE_1:
         DEFB    ','                      ; $7794  2C  inline char arg consumed by the preceding CALL
         CALL SYNCHR                      ; $7795  CD 25 69
         DEFB    'R'                      ; $7798  52  inline char arg consumed by the preceding CALL
-        JP NZ,ERROR_SYNTAX               ; $7799  C2 6F 0D
+        JP NZ,RAISE_SYNTAX_ERROR         ; $7799  C2 6F 0D
         POP AF                           ; $779C  F1
 OPEN_NAMED_FILE_2:
         XOR A                            ; $779D  AF
@@ -13549,7 +13549,7 @@ STMT_MERGE:
         CALL CHRGET                      ; $782E  CD C9 33
         JR Z,STMT_MERGE_1                ; $7831  28 06
         CALL LOAD_FINISH_CLOSE_CUR       ; $7833  CD 1A 78
-        JP ERROR_SYNTAX                  ; $7836  C3 6F 0D
+        JP RAISE_SYNTAX_ERROR            ; $7836  C3 6F 0D
 STMT_MERGE_1:
         XOR A                            ; $7839  AF
         LD ($084A),A                     ; $783A  32 4A 08
@@ -13972,7 +13972,7 @@ FILE_FLUSH_RECORD_CK:
         LD C,$10                         ; $7AA4  0E 10
         INC DE                           ; $7AA6  13
         CALL $0005                       ; $7AA7  CD 05 00
-        JP ERR_CODED_ENTRY               ; $7AAA  C3 41 0D
+        JP RAISE_DISK_FULL               ; $7AAA  C3 41 0D
 FILE_FLUSH_RECORD_CK_1:
         INC A                            ; $7AAD  3C
         JP Z,RAISE_TOO_MANY_FILES        ; $7AAE  CA 62 0D
@@ -14819,7 +14819,7 @@ GET_PUT_RECORD_CORE_1:
         CALL Z,GETINT_CHRGET_POS         ; $7F7F  CC C9 34
         DEC HL                           ; $7F82  2B
         CALL CHRGET                      ; $7F83  CD C9 33
-        JP NZ,ERROR_SYNTAX               ; $7F86  C2 6F 0D
+        JP NZ,RAISE_SYNTAX_ERROR         ; $7F86  C2 6F 0D
         EX (SP),HL                       ; $7F89  E3
         LD A,E                           ; $7F8A  7B
         OR D                             ; $7F8B  B2
@@ -15425,7 +15425,7 @@ COLD_SET_WIDTH_5:
         PUSH AF                          ; $8306  F5
         JP Z,COLD_SET_WIDTH_6            ; $8307  CA 0F 83
         CP $46                           ; $830A  FE 46
-        JP NZ,ERROR_SYNTAX               ; $830C  C2 6F 0D
+        JP NZ,RAISE_SYNTAX_ERROR         ; $830C  C2 6F 0D
 COLD_SET_WIDTH_6:
         CALL CHRGET                      ; $830F  CD C9 33
         CALL SYNCHR                      ; $8312  CD 25 69
