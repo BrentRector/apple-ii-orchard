@@ -2592,6 +2592,7 @@ CRUNCH_RESWORD_TAIL_8:
         RET Z                            ; $1131  C8
         POP AF                           ; $1132  F1
         XOR A                            ; $1133  AF
+; [RE] Flag-skip into the JP-NZ operand. The CP nn / RET Z ladder above pushes CRUNCH_16+1 ($1135) as its return (LD BC,CRUNCH_16+1 / PUSH BC at $1104/$1107). A token MATCH returns into the operand of the cover, executing LD A,$01 then LD ($0B39),A (flag=1). NO match falls through POP AF / XOR A (A=0, Z set) -> the cover JP NZ,$013E is reached but NOT taken -> same LD ($0B39),A (flag=0). The C2 opcode byte of JP NZ is the one-byte cover both entrants step over; $0B39 records whether the prior token was a statement/clause introducer (CRUNCH mode flag, read at CRUNCH_19). VERIFIED: base_addr is real control flow (cover executed on fall-through), MBASIC twin byte-identical.
 SUB_1128_1:
         JP NZ,STMT_DISPATCH_TBL+54       ; $1134  C2 3E 01
 SUB_1128_2:
@@ -2964,6 +2965,7 @@ STMT_FOR_7:
         INC SP                           ; $1385  33
 STMT_FOR_8:
         PUSH HL                          ; $1386  E5
+; [RE] SMC console-status poll. CALL $0000 at $1387 is a placeholder; its operand ($1388-$1389 = STMT_FOR_8+1) is patched once at COLD_START. LD (STMT_FOR_8+1),HL at $5E77 stores HL = the BIOS CONST routine address (walked from the WBOOT vector at $0001 + offset 4) into the operand, the same address also stored to INKEY_SCAN_2+1 and RPC_CONST_POLL_1+1. Each NEWSTT statement then runs CALL CONST; POP HL; OR A; CALL NZ,INKEY_SCAN to poll for a pending key (Ctrl-C / break / pause). The on-disk $0000 is never executed. VERIFIED: operand really written ($5E77), patched CALL really executed per-statement (STMT_FOR_7 PUSH HL falls into it), MBASIC twin byte-identical.
 STMT_FOR_9:
         CALL $0000                       ; $1387  CD 00 00
         POP HL                           ; $138A  E1
@@ -3148,6 +3150,7 @@ CHRGOT_CONST_VALUE_3:
 ; [RE] DEFSTR statement handler (token $A9): declare a default-string letter range. DEFINT/DEFSNG/DEFDBL ($AA-$AC) enter a few bytes later with a different type code.
 STMT_DEFSTR:
         LD E,$03                         ; $149F  1E 03
+; [RE] Dual-entry type-code skip. DEFSTR (token $A9) enters at STMT_DEFSTR ($149F, LD E,$03); the $01 (LD BC,nn) opcodes act as 2-byte skips over each following LD E,nn. DEFINT (token $AA) is dispatched to STMT_DEFSTR_1+1 ($14A2), which decodes 1E 02 as LD E,$02 (type code 2). All four entries converge at STMT_DEFSTR_4 ($14AA). The DEFW is written +1 so it relocates.
 STMT_DEFSTR_1:
         LD BC,$021E                      ; $14A1  01 1E 02
 STMT_DEFSTR_2:
@@ -3343,7 +3346,8 @@ STMT_RETURN_1:
         LD HL,STMT_FOR_8                 ; $15C9  21 86 13
         EX (SP),HL                       ; $15CC  E3
         LD A,$E1                         ; $15CD  3E E1
-; [RE] DATA statement handler (token $84): no-op at run time (scanned/skipped). COMMON (token $B3) also dispatches to this same entry.
+; [RE] DATA statement handler (token $84): no-op at run time (scanned/skipped). COMMON (token $B3) also dispatches to this same entry. Dual-entry skip idiom: the $01 (LD BC,nn) opcode doubles as a 2-byte skip. Entered here, the full LD BC,$0E5D executes; entered at STMT_DATA+2 ($15D1, called from ERROR_PRINT_SETUP) the embedded bytes start LD C,$00 ($0E $00) instead. Two paths share these bytes; the literal CALL $15D1 is written STMT_DATA+2 so it relocates.
+; [RE] DATA/COMMON statement scanner with a dual-entry terminator skip. Entered at STMT_DATA ($15CF): LD BC,$0E5D loads C=':' so the scan stops at a colon (DATA item separator) -- token $84/$B3. Entered at STMT_DATA+2 ($15D1): the $01 opcode is sidestepped, 0E 00 decodes as LD C,$00 so B ends $00 and the scan runs to end-of-line only (REM-class, and the generic skip used by $0E17/$1570). The CALL/DEFW targets are written +2 so they relocate.
 STMT_DATA:
         LD BC,STOP_BREAK_1+2             ; $15CF  01 3A 0E
         NOP                              ; $15D2  00
@@ -5998,10 +6002,11 @@ SUB_25EA_1:
         XOR A                            ; $25FC  AF
         LD (SUB_2803_2),A                ; $25FD  32 14 28
         JR STMT_HOME                     ; $2600  18 BF
-; [RE] 6502 remote-procedure-call dispatcher. HL = Apple monitor-ROM target address; stores it at A$VEC ($F3D0) then writes the trigger cell whose operand was self-modified at cold start to Z$CPU ($F3DE) (the 'LD ($0000),A' at $45EA is patched to 'LD ($F3DE),A' by the init at $8243). Storing to Z$CPU hands control to the 6502, which runs the Apple monitor routine and returns. This is the bridge graphics uses to reach the Apple ROM (TEXT/HOME/PREAD/etc.).
+; [RE] 6502 remote-procedure-call dispatcher. HL = Apple monitor-ROM target address; stores it at A$VEC ($F3D0) then writes the trigger cell whose operand was self-modified at cold start to Z$CPU ($F3DE) (the 'LD ($0000),A' at $2605 is patched to 'LD ($F3DE),A' by the init at $5EC1). Storing to Z$CPU hands control to the 6502, which runs the Apple monitor routine and returns. This is the bridge graphics uses to reach the Apple ROM (TEXT/HOME/PREAD/etc.).
 RPC_CALL:
         LD (A_VEC),HL                    ; $2602  22 D0 F3
-; [RE] Self-modified store. Assembled as LD ($0000),A; cold-start init ($8240-$8245) reads Z$CPU ($F3DE) and patches this operand so it becomes LD (Z$CPU),A -- the write that actually triggers the 6502 to service the call queued at A$VEC.
+; [RE] Self-modified store. Assembled as LD ($0000),A; cold-start init ($5EBE-$5EC3) reads Z$CPU ($F3DE) and patches this operand so it becomes LD (Z$CPU),A -- the write that actually triggers the 6502 to service the call queued at A$VEC.
+; [RE] SMC operand patch (not a flag-skip). $2605 = LD ($0000),A; cold-start init at $5EC1 loads (Z$CPU)=$F3DE ($5EBE) and writes it into the operand at $2606, making the instruction LD ($F3DE),A. RPC_CALL runs the patched store to trigger the 6502 to service the routine queued at A$VEC ($F3D0). Both write AND later execute confirmed; MBASIC patches the same cell.
 RPC_TRIGGER_STORE:
         LD ($0000),A                     ; $2605  32 00 00
         RET                              ; $2608  C9
@@ -6683,10 +6688,12 @@ FMUL_2:
         LD A,C                           ; $29BD  79
         JR NC,FMUL_5                     ; $29BE  30 08
         PUSH DE                          ; $29C0  D5
+; [RE] SMC operand cell: LD DE,nnnn at $29C1 is patched by FMUL setup ($299E LD (FMUL_3+1),HL) to the multiplicand mantissa low word; the shift-and-add loop then accumulates it via ADD HL,DE ($29C4). FMUL_3+1 is the immediate field, not a code entry.
 FMUL_3:
         LD DE,$0000                      ; $29C1  11 00 00
         ADD HL,DE                        ; $29C4  19
         POP DE                           ; $29C5  D1
+; [RE] SMC operand cell: the immediate of ADC A,nn at $29C6 is patched by FMUL prologue ($299A LD (FMUL_4+1),A) to the multiplicand high byte; folded into the running product high byte each loop pass. FMUL_4+1 is the immediate, not a code entry.
 FMUL_4:
         ADC A,$00                        ; $29C6  CE 00
 FMUL_5:
@@ -6728,7 +6735,7 @@ FDIV_BY_TEN:
 FDIV_BY_TEN_1:
         POP BC                           ; $29F1  C1
         POP DE                           ; $29F2  D1
-; [RE] MBF floating-point divide: divisor self-modified into the subtract trio ($4D9D/$4DA1/$4DA5), restoring long division of the FAC mantissa, result normalized via FADD_NORMALIZE.
+; [RE] MBF floating-point divide: divisor self-modified into the subtract trio ($2A1B/$2A1F/$2A23), restoring long division of the FAC mantissa, result normalized via FADD_NORMALIZE.
 FDIV:
         CALL FP_SIGN                     ; $29F3  CD C5 2A
         JP Z,FIN_EXP_DIGIT_12            ; $29F6  CA DC 32
@@ -6756,17 +6763,21 @@ FDIV_1:
         PUSH HL                          ; $2A18  E5
         PUSH BC                          ; $2A19  C5
         LD A,L                           ; $2A1A  7D
+; [RE] SMC operand cell: the SUB nn immediate at $2A1B is patched by FDIV setup ($2A0C LD (FDIV_2+1),A) to divisor mantissa byte 0; the restoring-division loop subtracts it from the remainder low byte. FDIV_2+1 is the immediate, not a code entry.
 FDIV_2:
         SUB $00                          ; $2A1B  D6 00
         LD L,A                           ; $2A1D  6F
         LD A,H                           ; $2A1E  7C
+; [RE] SMC operand cell: the SBC A,nn immediate at $2A1F is patched by FDIV setup ($2A07 LD (FDIV_3+1),A) to divisor mantissa byte 1; subtracted-with-borrow from the remainder middle byte. FDIV_3+1 is the immediate, not a code entry.
 FDIV_3:
         SBC A,$00                        ; $2A1F  DE 00
         LD H,A                           ; $2A21  67
         LD A,B                           ; $2A22  78
+; [RE] SMC operand cell: the SBC A,nn immediate at $2A23 is patched by FDIV setup ($2A02 LD (FDIV_4+1),A) to divisor mantissa byte 2; subtracted-with-borrow from the remainder high byte. FDIV_4+1 is the immediate, not a code entry.
 FDIV_4:
         SBC A,$00                        ; $2A23  DE 00
         LD B,A                           ; $2A25  47
+; [RE] SMC scratch cell: the LD A,nn immediate at $2A26 is the running quotient/borrow byte. Init 0 at $2A15; rewritten $2A2D/$2A64; read back LD A,(FDIV_5+1) at $2A3E/$2A60 to assemble the result. The byte is both the executed immediate and a self-modified scratch; FDIV_5+1 is not a code entry.
 FDIV_5:
         LD A,$00                         ; $2A26  3E 00
         SBC A,$00                        ; $2A28  DE 00
@@ -8024,6 +8035,7 @@ DDIV_2:
         LD A,$8E                         ; $30C4  3E 8E
         CALL DP_SUB_CONST_8E             ; $30C6  CD 52 2F
         XOR A                            ; $30C9  AF
+; [RE] DDIV digit-loop overlap (VERIFIED). DA 12 04 = JP C,$0412 only on the carry-CLEAR fall-through ($30C9 XOR A guarantees carry clear, so the JP is a never-taken 2-byte skip of its own operand). The carry-SET branch (JR C,DDIV_2+1 at $30C2) enters at +1 and runs 12 04 = LD (DE),A / INC B: store the reduced remainder, count one decimal digit. Both paths land at $30CD. MBASIC DDIV_3 byte-identical.
 DDIV_3:
         JP C,KWGRP_R+5                   ; $30CA  DA 12 04
         LD A,(CHAIN_BREAK_FLAG_10)       ; $30CD  3A D6 0C
@@ -8081,6 +8093,7 @@ DP_MUL10:
 FIN:
         CALL FP_SET_ZERO                 ; $311E  CD 87 28
         CALL SET_TYPE_DOUBLE             ; $3121  CD AB 2C
+; [RE] FIN flag-skip (VERIFIED). F6 AF = OR $AF on FIN's top entry can never give zero, so Z stays clear and the later CALL Z,FP_STORE_FAC_INT ($3137) is skipped (parse from FAC=0). The five +1 entrants run the operand AF = XOR A, setting Z so FP_STORE_FAC_INT pre-seeds the FAC integer first. Z is carried across PUSH AF/POP AF ($312A/$3130). The OR operand $AF is exactly the XOR A opcode. MBASIC FIN_1 byte-identical.
 FIN_1:
         OR $AF                           ; $3124  F6 AF
         LD BC,BLOCK_SCAN_FORNEXT_10      ; $3126  01 4C 25
@@ -8328,6 +8341,7 @@ FIN_EXP_DIGIT:
         ADD A,(HL)                       ; $329D  86
         SUB $30                          ; $329E  D6 30
         LD E,A                           ; $32A0  5F
+; [RE] FIN exponent-overflow flag-skip (VERIFIED). On the accumulate path (E<10) FA 1E 7F = JP M,$5B9C never triggers (E*10+digit stays positive, <100) and just skips its operand to reach JP FIN_8. The E>=10 branch (JR NC,FIN_DONE_3+1 at $3297) enters at +1 to run 1E 7F = LD E,$7F, saturating the exponent so the literal overflows. Both converge at $32A4. MBASIC FIN_EXP_DIGIT_1 byte-identical.
 FIN_EXP_DIGIT_1:
         JP M,$7F1E                       ; $32A1  FA 1E 7F
         JP FIN_8                         ; $32A4  C3 A2 31
@@ -8822,6 +8836,7 @@ FOUT_EXPONENT_12:
         CALL CHRGET                      ; $359C  CD E4 13
         JR NC,FOUT_EXPONENT_14           ; $359F  30 0B
         DEC HL                           ; $35A1  2B
+; [RE] FOUT trailing-zero strip-loop overlap (VERIFIED). 01 2B 77 = LD BC,$53A9 runs once on first entry; the JR Z self-loop (28 FB at $35A6) re-enters at +1, skipping the 01 opcode (BC kept) and re-executing 2B 77 = DEC HL / LD (HL),A as the loop body. The LD BC operand bytes double as the strip-and-overwrite step. MBASIC FOUT_EXPONENT_13 byte-identical.
 FOUT_EXPONENT_13:
         LD BC,$772B                      ; $35A2  01 2B 77
         POP AF                           ; $35A5  F1
@@ -8938,6 +8953,7 @@ FOUT_EXPONENT_26:
 FOUT_EXPONENT_27:
         JP Z,FOUT_EXPONENT_28+1          ; $3654  CA 5A 36
         LD E,$10                         ; $3657  1E 10
+; [RE] FOUT field-select flag-skip (VERIFIED, reached_cover refined). The NZ entry (JP C,FOUT_EXPONENT_25 at $35B5 reaching $3654 with Z clear, then $3657 LD E,$10) runs 01 1E 06 = LD BC,$061E; the Z entry (JP Z,FOUT_EXPONENT_26+1 at $3654) enters at +1 and runs 1E 06 = LD E,$06, skipping the LD BC opcode. So E becomes $10 (16) vs $06 (6). Both converge at $365C CALL FP_SIGN. Note: the local $3653 XOR A always forces the +1 path; the cover is exercised only via the external $35B5 NZ entry. MBASIC FOUT_EXPONENT_29 byte-identical.
 FOUT_EXPONENT_28:
         LD BC,$061E                      ; $3659  01 1E 06
         CALL FP_SIGN                     ; $365C  CD C5 2A
@@ -9411,6 +9427,7 @@ POW10_INT_TABLE:
 POW10_INT_TABLE_1:
         LD BC,$AF00                      ; $38BA  01 00 AF
         LD B,A                           ; $38BD  47
+; [RE] HEX$/OCT$ base-selector flag-skip (VERIFIED). Octal entry ($38BC) does XOR A / LD B,A (B=0) then C2 06 01 = JP NZ,$0106, never taken (Z set), skipping its operand so B stays 0. Hex callers (JP/CALL HEX_OCT_OUT_1+1 at $221D/$4832) enter at +1 and run 06 01 = LD B,$01 (B=1). DEC B/INC B at $38CC then picks C=$06 octal groups vs C=$04 hex nibbles. Converge at $38C1 PUSH BC. MBASIC twin (POW10_INT_TABLE region) byte-identical.
 POW10_INT_TABLE_2:
         JP NZ,COM_ENTRY_1                ; $38BE  C2 06 01
         PUSH BC                          ; $38C1  C5
@@ -9605,6 +9622,7 @@ POLY_EVAL:
         LD A,(HL)                        ; $39E6  7E
         INC HL                           ; $39E7  23
         CALL FP_STORE_REGS_LD            ; $39E8  CD 25 2B
+; [RE] VERIFIED flag-skip. POLY_EVAL_1 ($39EB) opcode-eating dual entry. First pass (fall-through from FP_STORE_REGS_LD CALL at $39E8) executes LD B,$F1 (06 F1); the $06 opcode swallows the $F1, so the first iteration pops only BC,DE. The Horner loop re-enters via JR POLY_EVAL_1+1 ($39EC), running $F1 as POP AF to discard the per-iteration PUSH AF ($39F3) before popping BC,DE. B=$F1 is dead (overwritten by POP BC at $39ED). Cover is genuinely executed on fall-through; MBASIC twin byte-identical.
 POLY_EVAL_1:
         LD B,$F1                         ; $39EB  06 F1
         POP BC                           ; $39ED  C1
@@ -9872,6 +9890,7 @@ FN_TAN_4:
 PTRGET:
         LD BC,FN_TAN_4                   ; $3BAE  01 A5 3B
         PUSH BC                          ; $3BB1  C5
+; [RE] VERIFIED flag-skip (count corrected to 22 CALL +1 sites, not 23). PTRGET_1 ($3BB2) opcode-eating flag select. Fall-through from the PTRGET head -- reached via the DIM statement dispatch DEFW PTRGET at $0112 -- runs OR $AF (F6 swallows the AF), leaving A nonzero so $0B36 gets the 'array/create' context; the 22 CALL PTRGET_1+1 ($3BB3) callers run that AF as XOR A, zeroing A and $0B36. Both reach LD ($0B36),A at $3BB4. Cover genuinely executed (DIM path); MBASIC twin matches (22 sites).
 PTRGET_1:
         OR $AF                           ; $3BB2  F6 AF
         LD (SUB_0B2A_4),A                ; $3BB4  32 36 0B
@@ -10198,9 +10217,11 @@ SUB_3D4E_5:
         LD (SUB_0B2A_4),HL               ; $3DA4  22 36 0B
         LD E,$00                         ; $3DA7  1E 00
         PUSH DE                          ; $3DA9  D5
+; [RE] VERIFIED flag-skip. PTRGET_SEARCH_23 ($3DAA) opcode-eating entry. Fall-through (from PTRGET_SEARCH_22 PUSH DE at $3DA9) executes LD DE,$F5E5; the $11 opcode swallows E5 F5 so the first pass skips PUSH HL/PUSH AF and loads a dead DE. The two +1 entrants ($3DAB, JP Z at $3C36 / CALL at $5007) run E5 F5 as PUSH HL / PUSH AF to save caller state. Both reach LD HL,($0B94) at $3DAD. Cover genuinely executed; MBASIC twin ($1D69, still machine-labeled) byte-identical.
 SUB_3D4E_6:
         LD DE,$F5E5                      ; $3DAA  11 E5 F5
         LD HL,(VARTAB_1)                 ; $3DAD  2A 94 0B
+; [RE] VERIFIED flag-skip. PTRGET_SEARCH_24 ($3DB0) opcode-eating loop advance. Fall-through (from $3DAD) runs LD A,$19 (3E swallows 19); the first array-table pass skips ADD HL,DE because HL is already at the table head. The loop re-enters via JR NZ,PTRGET_SEARCH_24+1 ($3DB1) at $3DD7, running 19 as ADD HL,DE to step to the next entry. A=$19 is dead (clobbered at $3DBE). Both reach EX DE,HL / CMP_HL_DE at $3DB2. Cover genuinely executed; MBASIC twin ($1D69) byte-identical (20 D8).
 SUB_3D4E_7:
         LD A,$19                         ; $3DB0  3E 19
         EX DE,HL                         ; $3DB2  EB
@@ -10337,6 +10358,7 @@ SUB_3D4E_20:
         LD C,A                           ; $3E6A  4F
         LD A,(HL)                        ; $3E6B  7E
         INC HL                           ; $3E6C  23
+; [RE] VERIFIED flag-skip. PTRGET_SEARCH_36 ($3E6D) opcode-eating dimension loop. Fall-through (from PTRGET_SEARCH_35) runs LD D,$E1 (16 swallows E1); the first array dimension skips POP HL because HL is already valid. The loop re-enters via JR NZ,PTRGET_SEARCH_36+1 ($3E6E) at $3E83, running E1 as POP HL to restore the per-dimension HL save (EX (SP),HL/PUSH AF at $3E73/$3E74). D=$E1 is dead (clobbered at $3E71). Both reach LD E,(HL) at $3E6F. Cover genuinely executed; MBASIC twin ($1D69) byte-identical (20 E9).
 SUB_3D4E_21:
         LD D,$E1                         ; $3E6D  16 E1
         LD E,(HL)                        ; $3E6F  5E
@@ -10879,6 +10901,7 @@ PRINT_USING_10:
         JR NZ,PRINT_USING_12             ; $4165  20 07
         DEC B                            ; $4167  05
         INC E                            ; $4168  1C
+; [RE] VERIFIED flag-skip. PRINT_LIST_ENTRY_13 ($4169) opcode-eating field seed. Fall-through (numeric-digit path via $4167 DEC B / $4168 INC E) runs CP $AF (FE swallows AF), a flags-only compare leaving the digit char in A before ADD A,$10. The floating-currency '$$' entry JR Z,PRINT_LIST_ENTRY_13+1 ($416A) at $4154 runs AF as XOR A, so ADD A,$10 starts from $10. Both reach ADD A,$10 / INC HL at $416B. Cover genuinely executed; MBASIC twin (PRINT_USING_11) byte-identical (28 14).
 PRINT_USING_11:
         CP $AF                           ; $4169  FE AF
         ADD A,$10                        ; $416B  C6 10
@@ -10944,6 +10967,7 @@ PRINT_USING_16:
         LD B,A                           ; $41B9  47
         INC D                            ; $41BA  14
         INC HL                           ; $41BB  23
+; [RE] VERIFIED flag-skip (with nuance). PRINT_LIST_ENTRY_19+1 ($41BD) is a RET landing pad, not a JP target. The '^^^^' field parser pushes $41BD ($41A1/$41A4) and saves HL into DE ($41A5); the RET NZ/RET C chain returns to $41BD to run EX DE,HL / POP DE and unwind. The cover at $41BC (CA EB D1) is a genuine, executed JP Z,$D1EB whose Z comes from INC D ($41BA) and whose $D1EB target is unreachable BIOS-region junk, so it is effectively never taken -- the CA opcode hides the EB D1 (EX DE,HL/POP DE) on the fall-through. Both reach PRINT_LIST_ENTRY_20 ($41BF). MBASIC twin (PRINT_USING_17) byte-identical.
 PRINT_USING_17:
         JP Z,$D1EB                       ; $41BC  CA EB D1
 PRINT_USING_18:
@@ -11047,6 +11071,7 @@ PRINT_USING_29:
         JR PRINT_USING_32                ; $424B  18 04
 PRINT_USING_30:
         LD C,$01                         ; $424D  0E 01
+; [RE] VERIFIED flag-skip. PRINT_LIST_ENTRY_34 ($424F) opcode-eating stack rebalance. Fall-through (numeric/sign field, from PRINT_LIST_ENTRY_33 $424D) runs LD A,$F1 (3E swallows F1) so no POP; A=$F1 is dead. The '\' string-field entry JP Z,PRINT_LIST_ENTRY_34+1 ($4250) at $410A runs F1 as POP AF to drop the PUSH the scanner left. (PRINT_LIST_ENTRY_32 at $4249 JRs straight to _35 at $4251, bypassing the cover.) Both reach DEC B / CALL PRINT_USING_PUT_SIGN at $4251. Cover genuinely executed on fall-through; MBASIC twin (PRINT_USING_31) byte-identical.
 PRINT_USING_31:
         LD A,$F1                         ; $424F  3E F1
 PRINT_USING_32:
@@ -11153,6 +11178,7 @@ OUTDO_DEVICE:
         PUSH DE                          ; $42EC  D5
         PUSH HL                          ; $42ED  E5
         LD C,A                           ; $42EE  4F
+; [RE] VERIFIED smc. OUTDO_DEVICE_1+1 ($42F0) is the SMC operand of CALL $0000 ($42EF), reached by fall-through from OUTDO_DEVICE ($42EA). COLD_START LD (OUTDO_DEVICE_1+1),HL at $5E95 patches it to the live CP/M BIOS CONOUT entry (walked from $0001 through the BIOS jump table). The CD 00 00 is a placeholder; +1 is the patch slot, written never jumped-to, and the patched CALL executes on every console output. MBASIC twin patches at $3B13.
 OUTDO_DEVICE_1:
         CALL $0000                       ; $42EF  CD 00 00
         POP HL                           ; $42F2  E1
@@ -11253,6 +11279,7 @@ OUTDO_DEVICE2:
         PUSH DE                          ; $4384  D5
         PUSH HL                          ; $4385  E5
         LD C,A                           ; $4386  4F
+; [RE] VERIFIED smc. OUTDO_DEVICE2_1+1 ($4388) is the SMC operand of CALL $0000 ($4387), reached by fall-through from OUTDO_DEVICE2 ($4382). COLD_START LD (OUTDO_DEVICE2_1+1),HL at $5E8B patches it to the live CP/M BIOS list/raw-output entry (from the BIOS jump-table walk). +1 is the patch slot, not a code entry; the patched CALL executes at runtime. MBASIC twin patches at $3B09.
 OUTDO_DEVICE2_1:
         CALL $0000                       ; $4387  CD 00 00
         POP HL                           ; $438A  E1
@@ -11316,6 +11343,7 @@ CONIN:
         PUSH BC                          ; $43DA  C5
         PUSH DE                          ; $43DB  D5
         PUSH HL                          ; $43DC  E5
+; [RE] VERIFIED smc. CONIN_1+1 ($43DE) is the SMC operand of CALL $0000 ($43DD), reached by fall-through from CONIN ($43DA). COLD_START LD (CONIN_1+1),HL at $5E81 patches it to the live CP/M BIOS CONIN entry (from the BIOS jump-table walk). +1 is the patch slot; the patched CALL executes on every console read. MBASIC twin patches at $3AFF.
 CONIN_1:
         CALL $0000                       ; $43DD  CD 00 00
         POP HL                           ; $43E0  E1
@@ -11376,6 +11404,7 @@ RPC_CONST_POLL:
         PUSH BC                          ; $442C  C5
         PUSH DE                          ; $442D  D5
         PUSH HL                          ; $442E  E5
+; [RE] VERIFIED smc. RPC_CONST_POLL_1+1 ($4430) is the SMC operand of CALL $0000 ($442F), reached by fall-through from RPC_CONST_POLL ($442C). COLD_START LD (RPC_CONST_POLL_1+1),HL at $5E74 patches it to the live CP/M BIOS CONST entry (BIOS base+4, the same HL written to INKEY_SCAN_2+1 at $5E71). +1 is the patch slot; the patched CALL executes when polling console status. MBASIC twin patches at $3AF2.
 RPC_CONST_POLL_1:
         CALL $0000                       ; $442F  CD 00 00
         POP HL                           ; $4432  E1
@@ -11398,6 +11427,7 @@ INKEY_SCAN_2:
         PUSH HL                          ; $444D  E5
         CALL GET_PENDING_KEY             ; $444E  CD 72 44
         JR NZ,INKEY_SCAN_4               ; $4451  20 09
+; [RE] VERIFIED smc. INKEY_SCAN_2+1 ($4454) is the SMC operand of CALL $0000 ($4453), reached by fall-through from INKEY_SCAN_1 ($444A) on the no-pending-key path. COLD_START LD (INKEY_SCAN_2+1),HL at $5E71 patches it to the live CP/M BIOS CONST entry for INKEY$ polling (BIOS base+4, same HL also written to RPC_CONST_POLL_1+1 at $5E74). +1 is the patch slot; the patched CALL executes when polling for a key. MBASIC twin uses the same COLD_START BIOS-table walk.
 INKEY_SCAN_3:
         CALL $0000                       ; $4453  CD 00 00
         OR A                             ; $4456  B7
@@ -11668,6 +11698,7 @@ STMT_END_1:
         LD (OLDTXT),HL                   ; $45DA  22 7F 0B
         LD HL,MEMSIZ_2                   ; $45DD  21 4A 0B
         LD (MEMSIZ_1),HL                 ; $45E0  22 48 0B
+; [RE] Dual entry. Fall-through (END/stop tail from STMT_END_1) runs LD HL,$FFF6 whose value is dead (RESUME_AT_DIRECT at $45E7 reloads HL from SAVTXT); its only job is to eat the F6 FF bytes so A is preserved. The three JP C,STMT_END_2+1 sites (after INLIN returns carry = input aborted) enter +1 so F6 FF runs as OR $FF, flagging the break in A=$FF. Both merge at $45E6 POP BC.
 STMT_END_2:
         LD HL,$FFF6                      ; $45E3  21 F6 FF
         POP BC                           ; $45E6  C1
@@ -13070,7 +13101,7 @@ INPUT_PROMPT_SEP_1:
         RET NZ                           ; $4DB5  C0
         LD (DETOKENIZE_SPACE_FLAG),A     ; $4DB6  32 B6 0C
         JP CHRGET                        ; $4DB9  C3 E4 13
-; [RE] snapshot the current print column ($0B11) into the Tab-expansion base cell (self-modified operand at $719D) so Tab stops align to where the prompt left the cursor.
+; [RE] snapshot the current print column ($0B34) into the Tab-expansion base cell (self-modified operand at $4E1B) so Tab stops align to where the prompt left the cursor.
 INLIN_SAVE_COLUMN:
         LD A,(SUB_0B2A_2)                ; $4DBC  3A 34 0B
         LD (INLIN_ERASE_N_COLS_2),A      ; $4DBF  32 1B 4E
@@ -13928,8 +13959,10 @@ FCB_BUFFER_PTR_1:
 ; [RE] LOF() handler (function token $30): length-of-file in records (LD A,$02 selects the file-info op).
 FN_LOF:
         LD A,$02                         ; $52DF  3E 02
+; [RE] LOF op-selector flag-skip. 01 here is the LD BC,nn skip-prefix, not a real load: falling through FN_LOF ($52DF LD A,$02) the 01 swallows 3E 04, so A stays $02. FUNC_DISPATCH_TBL $0214 (FN_LOF_1+1, $52E2) instead runs 3E 04 = LD A,$04. Converge at $52E7 PUSH AF -> CALL FRMEVL_APPLY_OP.
 FN_LOF_1:
         LD BC,$043E                      ; $52E1  01 3E 04
+; [RE] LOF op-selector flag-skip, arm 3. 01 = LD BC,nn skip-prefix swallowing 3E 08; entrants from FN_LOF/FN_LOF_1+1 keep their A. FUNC_DISPATCH_TBL $0216 (FN_LOF_2+1, $52E5) runs 3E 08 = LD A,$08. Converge at $52E7 PUSH AF.
 FN_LOF_2:
         LD BC,$083E                      ; $52E4  01 3E 08
         PUSH AF                          ; $52E7  F5
@@ -13942,8 +13975,10 @@ FN_LOF_2:
 ; [RE] CVI() function handler (FUNC_DISPATCH_TBL slot $0204; CVS/CVD enter at +offset with widths 2/4/8): free the argument string temp (FRETMP), check it is wide enough (else FC), reinterpret its bytes as a numeric and load the FAC.
 FN_CVI:
         LD A,$01                         ; $52F8  3E 01
+; [RE] CVI/CVS/CVD width-selector flag-skip. 01 = LD BC,nn skip-prefix swallowing 3E 03; FN_CVI ($52F8 LD A,$01) keeps A=$01. FUNC_DISPATCH_TBL $0206 (FN_CVI_1+1, $52FB) runs 3E 03 = LD A,$03. Converge at $5300 PUSH AF; A is the min-string-length checked at $5305 CP (HL).
 FN_CVI_1:
         LD BC,$033E                      ; $52FA  01 3E 03
+; [RE] CVD width-selector flag-skip, arm 3. 01 = LD BC,nn skip-prefix swallowing 3E 07; entrants from FN_CVI/FN_CVI_1+1 keep their A. FUNC_DISPATCH_TBL $0208 (FN_CVI_2+1, $52FE) runs 3E 07 = LD A,$07. Converge at $5300 PUSH AF.
 FN_CVI_2:
         LD BC,$073E                      ; $52FD  01 3E 07
 FN_CVI_3:
@@ -14109,6 +14144,7 @@ OPEN_FILE_FOR_LOAD_D1:
 OPEN_NAMED_FILE:
         XOR A                            ; $53F9  AF
         JP STMT_OPEN_2                   ; $53FA  C3 B3 59
+; [RE] LOAD/RUN entry flag-skip. JP NZ,OPEN_NAMED_FILE_1 ($153D/$5E49) reaches $53FD OR $AF -> A nonzero (run after load). STMT_DISPATCH_TBL $0180 (OPEN_NAMED_FILE_1+1, $53FE) runs the swallowed AF = XOR A -> A=0 (plain LOAD). Converge at $53FF PUSH AF.
 OPEN_NAMED_FILE_1:
         OR $AF                           ; $53FD  F6 AF
         PUSH AF                          ; $53FF  F5
@@ -14128,6 +14164,7 @@ OPEN_NAMED_FILE_2:
 OPEN_NAMED_FILE_3:
         XOR A                            ; $541B  AF
         LD (FILTAB_4),A                  ; $541C  32 93 08
+; [RE] OPEN open-mode flag-skip. Fall-through reaches $541F OR $F1 -> A nonzero. JR Z,OPEN_NAMED_FILE_3+1 ($540D) enters $5420 = the swallowed F1 = POP AF, restoring the saved flag. Converge at $5421 LD ($086D),A.
 OPEN_NAMED_FILE_4:
         OR $F1                           ; $541F  F6 F1
         LD (TXTTAB_2),A                  ; $5421  32 6D 08
@@ -14366,7 +14403,8 @@ STMT_FIELD_1:
         LD (HL),D                        ; $55B7  72
         POP HL                           ; $55B8  E1
         JR STMT_FIELD_1                  ; $55B9  18 C0
-; [RE] RSET statement handler (token $C3): right-justify a string into a FIELD buffer variable. LSET (token $C2) enters at $793E with the justify flag cleared.
+; [RE] RSET statement handler (token $C3): right-justify a string into a FIELD buffer variable. LSET (token $C2) enters at $55BC with the justify flag cleared.
+; [RE] LSET/RSET justify flag-skip via carry. RSET (dispatch $018C) enters $55BB OR $37 -> CF cleared. LSET (dispatch $018A, STMT_RSET+1 $55BC) runs the swallowed 37 = SCF -> CF set. Both PUSH AF at $55BD; downstream reads carry for pad direction.
 STMT_RSET:
         OR $37                           ; $55BB  F6 37
         PUSH AF                          ; $55BD  F5
@@ -15203,6 +15241,7 @@ STMT_SYSTEM:
         RET NZ                           ; $5A64  C0
         CALL CLOSE_ALL_FILES             ; $5A65  CD 4F 55
         CALL STMT_TEXT                   ; $5A68  CD D9 25
+; [RE] SMC: SYSTEM-exit JP target. Image holds JP $0000 at $5A6B; COLD_START ($5E5F LD HL,($0001) -> $5E62 LD (STMT_SYSTEM_WBOOT+1),HL) writes the CP/M BIOS WBOOT vector into the C3 operand. Running SYSTEM (reached from $0E3B or fall-through) then JP <WBOOT> to leave BASIC.
 STMT_SYSTEM_1:
         JP $0000                         ; $5A6B  C3 00 00
 ; [RE] RESET statement handler (token $C5): close all files / reset the disk system.
@@ -15438,7 +15477,8 @@ FILE_NUM_TO_FCB_2_2:
         POP HL                           ; $5BDC  E1
         POP DE                           ; $5BDD  D1
         RET                              ; $5BDE  C9
-; [RE] PUT statement handler (token $BB): write a random-file record. GET (token $BA) enters one byte later at $7F62.
+; [RE] PUT statement handler (token $BB): write a random-file record. GET (token $BA) enters one byte later at $5BE0.
+; [RE] GET/PUT direction flag-skip. PUT (dispatch $017C) enters $5BDF OR $AF -> A nonzero (write). GET (dispatch $017A, STMT_PUT+1 $5BE0) runs the swallowed AF = XOR A -> A=0 (read). Stored at $5BE1 ($5E3A), read later to select read vs write.
 STMT_PUT:
         OR $AF                           ; $5BDF  F6 AF
         LD (ILLEGAL_DIRECT_CHECK_4),A    ; $5BE1  32 3A 5E
@@ -15630,7 +15670,8 @@ STMT_PUT_14:
         LD E,C                           ; $5CF0  59
         POP BC                           ; $5CF1  C1
         JR STMT_PUT_13                   ; $5CF2  18 CD
-; [RE] Random-file PUT inner helper: walk the FIELD descriptor chain (FCB+$AB pointer pair), advance the write cursor (SUB_81AC_1), and on buffer-full dispatch the record write (SUB_7B22_3 at $7B5D). Entered at $8077 (skip the OR $AF flag-set) for the no-flag variant.
+; [RE] Random-file PUT inner helper: walk the FIELD descriptor chain (FCB+$AB pointer pair), advance the write cursor (ILLEGAL_DIRECT_CHECK_1), and on buffer-full dispatch the record write (PUTC_FILE_3 at $57DB). Entered at $5CF5 (skip the OR $AF flag-set) for the no-flag variant.
+; [RE] FIELD record-write flag-skip. CALL FIELD_WRITE_RECORD ($5CBE) hits $5CF4 OR $AF -> A nonzero. CALL FIELD_WRITE_RECORD+1 ($5CA7/$5CDA) runs the swallowed AF = XOR A -> A=0. Stored at $5CF6 ($086F), tested at $5D13 to gate the record-write dispatch.
 FIELD_WRITE_RECORD:
         OR $AF                           ; $5CF4  F6 AF
         LD (TXTTAB_4),A                  ; $5CF6  32 6F 08
@@ -15993,7 +16034,8 @@ SUB_5EBE_1:
         DEC A                            ; $5EFF  3D
         JR Z,COLD_SET_WIDTH+1            ; $5F00  28 03
         LD A,$28                         ; $5F02  3E 28
-; [RE] Select terminal line width during cold start: reads the configured console type ($F3BB) and sets the line-width work cell (SUB_4B20_12, $4B97) to 40 ($28) or the wide default, then initializes the file-control / disk-parameter pointers ($4063).
+; [RE] Select terminal line width during cold start: reads the configured console type ($F3BB) and sets the line-width work cell (GFX_READ_COORD_PAIR_12, $2815) to 40 ($28) or the wide default, then initializes the file-control / disk-parameter pointers (WIDTH_SET_CONSOLE).
+; [RE] 40/80 line-width flag-skip. Default console falls through $5F02 LD A,$28 (40), and 01 at $5F04 swallows 3E 50 so A stays $28. JR Z,COLD_SET_WIDTH+1 ($5EFD/$5F00, console type 3/4) enters $5F05 = LD A,$50 (80). Converge at $5F07 store of the width cell.
 COLD_SET_WIDTH:
         LD BC,$503E                      ; $5F04  01 3E 50
         LD (SUB_2803_3),A                ; $5F07  32 15 28
