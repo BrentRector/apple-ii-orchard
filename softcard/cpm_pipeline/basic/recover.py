@@ -48,8 +48,15 @@ def _clean_end(mem, a, hi, maxn=512, minn=2):
     return None
 
 
-def recover_code(walker, mem, lo, hi, max_iter=200):
-    """Linearly recover fall-through code missed in [lo, hi). Returns bytes added."""
+def recover_code(walker, mem, lo, hi, max_iter=200, protected=()):
+    """Linearly recover fall-through code missed in [lo, hi). Returns bytes added.
+
+    `protected` is a list of (start, end) ranges that are GENUINE data the caller has
+    pinned (dispatch tables, the keyword table) -- recovery never enters or crosses
+    them, even though it otherwise overrides (heuristic) data-regions."""
+    def _blocked(a, b):
+        return any(p0 < b and a < p1 for p0, p1 in protected)
+
     added = 0
     for _ in range(max_iter):
         changed = False
@@ -78,6 +85,8 @@ def recover_code(walker, mem, lo, hi, max_iter=200):
             if (nxt < hi and nxt not in walker.code
                     and nxt not in getattr(walker, "inline_data", {})):
                 end = _clean_end(mem, nxt, hi)
+                if end is not None and _blocked(nxt, end):
+                    end = None
                 if end is not None:
                     for x in range(nxt, end):
                         walker.code.add(x)

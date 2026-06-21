@@ -72,8 +72,14 @@ def main():
     # leaves them as data (the header walker only traces the entry); MBASIC's single
     # whole-file walker otherwise wandered in and decoded the keyword strings as
     # bogus code (LD B,C / ADC A,$DE / ...). Pin the table as data so it stays DEFB.
-    w.add_data_region(0x021E, 0x04ED)   # per-letter index + name table + operator
-                                        # sub-table = pure data (see reswords)
+    # The whole low-table region is DATA: statement dispatch $0108 (x85), function
+    # dispatch $01B2 (x54), reswords index/name/operator $021E-$04EC, operator-precedence
+    # $04ED (12 bytes), operator-routine cluster $04F9 (x20). MBASIC's single walker
+    # otherwise decodes it as bogus code. Pin it as data BEFORE tracing.
+    DISPATCH_TABLES = {0x0108: 85, 0x01B2: 54, 0x04F9: 20}
+    dispatch_ptrs = {b + 2 * i for b, n in DISPATCH_TABLES.items() for i in range(n)}
+    LOW_TABLES = (0x0108, 0x0522)
+    w.add_data_region(*LOW_TABLES)
     entry_pts = {LOAD, COLD} | dispatch | (mapped & set(range(LOAD, end)))
     for s in entry_pts:
         w.call_targets.add(s)
@@ -87,9 +93,9 @@ def main():
     maximize_coverage(w, mem, cpu="z80", decoder=z80_decoder(mem),
         scan_dispatch=z80_dispatch_scanner(mem, LOAD, end),
         harvest_refs=z80_ref_harvester(mem, LOAD, end))
-    recover_code(w, mem, LOAD, end)   # recover code mis-rendered as data (see gen_gbasic)
+    recover_code(w, mem, LOAD, end, protected=[LOW_TABLES])   # don't re-decode the tables
     label_inrange_operands(w, mem, LOAD, len(com))   # label recovered code's operands
-    ptrs = scan_pointer_words(w, mem, LOAD, len(com)) | disp
+    ptrs = scan_pointer_words(w, mem, LOAD, len(com)) | disp | dispatch_ptrs
     for s in entry_pts:
         w.add_label(s)
     w.add_label(reswords.INDEX_ADDR)   # split the data run at the reserved-word table

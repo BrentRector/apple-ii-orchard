@@ -13,161 +13,112 @@
 ; CP/M .COM entry point at $0100: JP COLD_START ($5E51). MBASIC runs in place (no relocation), so this is the only fixed CP/M load address. Replaces SUB_0100. [RE]
 COM_ENTRY:
         JP COLD_START                    ; $0100  C3 51 5E
+        DEFW    FN_LPOS                  ; $0103
+        DEFB    $55                      ; $0105
 COM_ENTRY_1:
-        CALL P,STMT_CLOSE_DISPATCH       ; $0103  F4 2B 55
-COM_ENTRY_2:
         INC L                            ; $0106  2C
-COM_ENTRY_3:
+COM_ENTRY_2:
         NOP                              ; $0107  00
-COM_ENTRY_4:
-        CALL NC,$AA45                    ; $0108  D4 45 AA
-        LD (DE),A                        ; $010B  12
-        LD D,B                           ; $010C  50
-        LD B,A                           ; $010D  47
-        RST $08                          ; $010E  CF
-        DEC D                            ; $010F  15
-        INC DE                           ; $0110  13
-        ADD HL,DE                        ; $0111  19
-        XOR (HL)                         ; $0112  AE
-        DEC SP                           ; $0113  3B
-COM_ENTRY_5:
-        JP NC,$F619                      ; $0114  D2 19 F6
-        DEC D                            ; $0117  15
-        LD H,B                           ; $0118  60
-        DEC D                            ; $0119  15
-        INC (HL)                         ; $011A  34
-        DEC D                            ; $011B  15
-        RRA                              ; $011C  1F
-        RLA                              ; $011D  17
-COM_ENTRY_6:
-        OR L                             ; $011E  B5
-        LD B,L                           ; $011F  45
-        LD C,B                           ; $0120  48
-        DEC D                            ; $0121  15
-        OR H                             ; $0122  B4
-        DEC D                            ; $0123  15
-        POP DE                           ; $0124  D1
-        DEC D                            ; $0125  15
-        RST $08                          ; $0126  CF
-        LD B,L                           ; $0127  45
-        LD H,L                           ; $0128  65
-        RLA                              ; $0129  17
-        ADD A,$46                        ; $012A  C6 46
-        ADD A,$20                        ; $012C  C6 20
-        CALL P,BLOCK_COPY_BC_3+2         ; $012E  F4 44 5D
-        LD D,$A1                         ; $0131  16 A1
-        LD E,$CC                         ; $0133  1E CC
-        LD (STMT_CONT),HL                ; $0135  22 29 46
-        SUB D                            ; $0138  92
-        DEC C                            ; $0139  0D
-        SUB D                            ; $013A  92
-COM_ENTRY_7:
-        DEC C                            ; $013B  0D
-        LD E,L                           ; $013C  5D
-        RLA                              ; $013D  17
-COM_ENTRY_8:
-        POP BC                           ; $013E  C1
-COM_ENTRY_9:
-        JR NZ,COM_ENTRY_10               ; $013F  20 62
-        JR NZ,COM_ENTRY_5                ; $0141  20 D1
-        DEC D                            ; $0143  15
-        DEC A                            ; $0144  3D
-        LD B,(HL)                        ; $0145  46
-        LD A,$46                         ; $0146  3E 46
-        LD B,E                           ; $0148  43
-        LD B,(HL)                        ; $0149  46
-        ADD A,C                          ; $014A  81
-        LD B,(HL)                        ; $014B  46
-        RET PE                           ; $014C  E8
-        LD A,$E1                         ; $014D  3E E1
-        LD D,$A7                         ; $014F  16 A7
-        LD D,$8A                         ; $0151  16 8A
-        LD (SCAN_LINE_RANGE_RESUME),HL   ; $0153  22 EC 16
-        LD (STMT_DEFSTR),IY              ; $0156  FD 22 9F 14
-        AND D                            ; $015A  A2
-        INC D                            ; $015B  14
-        AND L                            ; $015C  A5
-        INC D                            ; $015D  14
-        XOR B                            ; $015E  A8
-        INC D                            ; $015F  14
-        AND (HL)                         ; $0160  A6
-        JR $00F9                         ; $0161  18 96
-        DEC D                            ; $0163  15
-        INC E                            ; $0164  1C
-        LD C,(HL)                        ; $0165  4E
-        DEC A                            ; $0166  3D
-        LD C,(HL)                        ; $0167  4E
-        XOR (HL)                         ; $0168  AE
-        LD C,(HL)                        ; $0169  4E
-        LD B,$52                         ; $016A  06 52
-        RST $08                          ; $016C  CF
-        DEC D                            ; $016D  15
-        SCF                              ; $016E  37
-        LD C,A                           ; $016F  4F
-        LD L,$24                         ; $0170  2E 24
-        LD A,B                           ; $0172  78
-        INC H                            ; $0173  24
-        LD H,H                           ; $0174  64
-        LD E,D                           ; $0175  5A
-        LD (HL),C                        ; $0176  71
-        LD E,C                           ; $0177  59
-        LD E,C                           ; $0178  59
-        LD D,L                           ; $0179  55
-        RET PO                           ; $017A  E0
-        LD E,E                           ; $017B  5B
-        RST $18                          ; $017C  DF
-        LD E,E                           ; $017D  5B
-        INC E                            ; $017E  1C
-        LD D,L                           ; $017F  55
-        CP $53                           ; $0180  FE 53
-        AND A                            ; $0182  A7
-        LD D,H                           ; $0183  54
-        OR C                             ; $0184  B1
-        LD E,D                           ; $0185  5A
-        LD E,$59                         ; $0186  1E 59
-        ADD A,A                          ; $0188  87
-        LD E,D                           ; $0189  5A
-        CP H                             ; $018A  BC
-        LD D,L                           ; $018B  55
-        CP E                             ; $018C  BB
-        LD D,L                           ; $018D  55
-        RET PO                           ; $018E  E0
-        LD D,H                           ; $018F  54
-        LD L,(HL)                        ; $0190  6E
-        LD E,D                           ; $0191  5A
-        EXX                              ; $0192  D9
-        DEC H                            ; $0193  25
-        JP STMT_FILES_PRINT_NAME         ; $0194  C3 25 5B
-        DEFB    $25                      ; $0197
+L_0108:
+        DEFW    STMT_END                 ; $0108
+        DEFW    STMT_FOR                 ; $010A
+        DEFW    STMT_NEXT                ; $010C
+        DEFW    STMT_DATA                ; $010E
+        DEFW    STMT_INPUT               ; $0110
+        DEFW    PTRGET                   ; $0112
+        DEFW    STMT_READ                ; $0114
+        DEFW    STMT_LET                 ; $0116
+        DEFW    STMT_GOTO                ; $0118
+        DEFW    STMT_RUN                 ; $011A
+        DEFW    STMT_IF                  ; $011C
+L_011E:
+        DEFW    STMT_RESTORE             ; $011E
+        DEFW    STMT_GOSUB               ; $0120
+        DEFW    STMT_RETURN              ; $0122
+        DEFW    STMT_DATA+2              ; $0124
+        DEFW    STMT_STOP                ; $0126
+        DEFW    STMT_PRINT               ; $0128
+        DEFW    STMT_CLEAR               ; $012A
+        DEFW    STMT_LIST                ; $012C
+        DEFW    STMT_NEW                 ; $012E
+        DEFW    STMT_ON                  ; $0130
+        DEFW    STMT_DEF                 ; $0132
+        DEFW    STMT_POKE                ; $0134
+        DEFW    STMT_CONT                ; $0136
+        DEFW    ERROR_SYNTAX             ; $0138
+        DEFB    $92                      ; $013A
+L_013B:
+        DEFB    $0D                      ; $013B
+        DEFW    STMT_LPRINT              ; $013C
+L_013E:
+        DEFW    STMT_LLIST               ; $013E
+L_0140:
+        DEFW    STMT_WIDTH               ; $0140
+        DEFW    STMT_DATA+2              ; $0142
+        DEFW    STMT_TRACE               ; $0144
+        DEFW    STMT_TRACE+1             ; $0146
+        DEFW    STMT_SWAP                ; $0148
+        DEFW    STMT_ERASE               ; $014A
+        DEFW    STMT_EDIT                ; $014C
+        DEFW    STMT_ERROR               ; $014E
+        DEFW    STMT_RESUME              ; $0150
+        DEFW    STMT_DELETE              ; $0152
+        DEFW    SCAN_LINE_RANGE_RESUME   ; $0154
+        DEFW    STMT_RENUM               ; $0156
+        DEFW    STMT_DEFSTR              ; $0158
+        DEFW    $14A2                    ; $015A
+        DEFW    $14A5                    ; $015C
+        DEFW    $14A8                    ; $015E
+        DEFW    STMT_LINE                ; $0160
+        DEFW    STMT_POP                 ; $0162
+        DEFW    STMT_WHILE               ; $0164
+        DEFW    STMT_WEND                ; $0166
+        DEFW    STMT_CALL                ; $0168
+        DEFW    STMT_WRITE               ; $016A
+        DEFW    STMT_DATA                ; $016C
+        DEFW    STMT_CHAIN               ; $016E
+        DEFW    STMT_OPTION              ; $0170
+        DEFW    STMT_RANDOMIZE           ; $0172
+        DEFW    STMT_SYSTEM              ; $0174
+        DEFW    STMT_OPEN                ; $0176
+        DEFW    STMT_FIELD               ; $0178
+        DEFW    $5BE0                    ; $017A
+        DEFW    STMT_PUT                 ; $017C
+        DEFW    STMT_CLOSE               ; $017E
+        DEFW    $53FE                    ; $0180
+        DEFW    STMT_MERGE               ; $0182
+        DEFW    STMT_FILES               ; $0184
+        DEFW    STMT_NAME                ; $0186
+        DEFW    STMT_KILL                ; $0188
+        DEFW    $55BC                    ; $018A
+        DEFW    STMT_RSET                ; $018C
+        DEFW    STMT_SAVE                ; $018E
+        DEFW    STMT_RESET               ; $0190
+        DEFW    STMT_TEXT                ; $0192
+        DEFW    GFX_STMT_HOME            ; $0194
+        DEFW    GFX_STMT_VTAB            ; $0196
         DEFW    GFX_STMT_HTAB            ; $0198
-        DEFB    $CE,$25,$D1              ; $019A
-        DEFW    FILE_FCB_SCRATCH         ; $019D
-        DEFW    FIELD_WRITE_RECORD_RET   ; $019F
-        DEFB    $26,$93                  ; $01A1
-COM_ENTRY_10:
-        LD H,$AA                         ; $01A3  26 AA
-        LD H,$E1                         ; $01A5  26 E1
-        LD H,$0F                         ; $01A7  26 0F
-        JR Z,COM_ENTRY_12+2              ; $01A9  28 0F
-        JR Z,COM_ENTRY_13                ; $01AB  28 0F
-        JR Z,COM_ENTRY_14                ; $01AD  28 11
-        DAA                              ; $01AF  27
-        DEC A                            ; $01B0  3D
-        DAA                              ; $01B1  27
-COM_ENTRY_11:
-        OUT ($4A),A                      ; $01B2  D3 4A
-        INC BC                           ; $01B4  03
-        LD C,E                           ; $01B5  4B
-        INC C                            ; $01B6  0C
-        LD C,E                           ; $01B7  4B
-COM_ENTRY_12:
-        CALL M,$F82A                     ; $01B8  FC 2A F8
-        INC L                            ; $01BB  2C
-COM_ENTRY_13:
-        RST $20                          ; $01BC  E7
-        LD HL,(FN_ABS)                   ; $01BD  2A 0B 39
-COM_ENTRY_14:
-        JR COM_ENTRY_15                  ; $01C0  18 3A
+        DEFW    $25CE                    ; $019A
+        DEFW    $25D1                    ; $019C
+        DEFW    GFX_STMT_GR              ; $019E
+        DEFW    GFX_STMT_COLOR           ; $01A0
+        DEFW    GFX_STMT_HLIN            ; $01A2
+        DEFW    GFX_STMT_VLIN            ; $01A4
+        DEFW    GFX_STMT_PLOT            ; $01A6
+        DEFW    ERR_SELECT_DEFAULT_DISK_1+1  ; $01A8
+        DEFW    ERR_SELECT_DEFAULT_DISK_1+1  ; $01AA
+        DEFW    ERR_SELECT_DEFAULT_DISK_1+1  ; $01AC
+        DEFW    GFX_STMT_BEEP            ; $01AE
+        DEFW    STMT_WAIT                ; $01B0
+L_01B2:
+        DEFW    STR_SUBSTR_ALLOC_COPY    ; $01B2
+        DEFW    FN_LEFT_STR              ; $01B4
+        DEFW    FN_RIGHT_STR             ; $01B6
+        DEFW    FN_MID_STR               ; $01B8
+        DEFW    FN_SGN                   ; $01BA
+        DEFW    FN_INT                   ; $01BC
+        DEFW    FN_ABS                   ; $01BE
+        DEFW    FN_SQR                   ; $01C0
         DEFW    FN_RND                   ; $01C2
         DEFW    FN_SIN                   ; $01C4
         DEFW    FN_LOG                   ; $01C6
@@ -190,39 +141,31 @@ COM_ENTRY_14:
         DEFW    FN_CINT                  ; $01E8
         DEFW    FN_CSNG                  ; $01EA
         DEFW    FN_CDBL                  ; $01EC
-        DEFS    14, $00                  ; $01EE  fill
-COM_ENTRY_15:
-        NOP                              ; $01FC  00
-        NOP                              ; $01FD  00
-        NOP                              ; $01FE  00
-        NOP                              ; $01FF  00
-COM_ENTRY_16:
-        NOP                              ; $0200  00
-        NOP                              ; $0201  00
-        NOP                              ; $0202  00
-        NOP                              ; $0203  00
-        RET M                            ; $0204  F8
-        LD D,D                           ; $0205  52
-        EI                               ; $0206  FB
-        LD D,D                           ; $0207  52
-        CP $52                           ; $0208  FE 52
-        NOP                              ; $020A  00
-        NOP                              ; $020B  00
-        RET Z                            ; $020C  C8
-        LD D,(HL)                        ; $020D  56
-        LD A,C                           ; $020E  79
-        LD D,A                           ; $020F  57
-        SUB B                            ; $0210  90
-        LD D,A                           ; $0211  57
-        RST $18                          ; $0212  DF
-        LD D,D                           ; $0213  52
-        JP PO,$E552                      ; $0214  E2 52 E5
-        LD D,D                           ; $0217  52
-        RLCA                             ; $0218  07
-        DAA                              ; $0219  27
-        LD E,(HL)                        ; $021A  5E
-        DAA                              ; $021B  27
-        DEFB $ED,$26  ; invalid ED prefix  ; $021C  ED 26
+        DEFW    $0000                    ; $01EE
+        DEFW    $0000                    ; $01F0
+        DEFW    $0000                    ; $01F2
+        DEFW    $0000                    ; $01F4
+        DEFW    $0000                    ; $01F6
+        DEFW    $0000                    ; $01F8
+        DEFW    $0000                    ; $01FA
+        DEFW    $0000                    ; $01FC
+        DEFW    $0000                    ; $01FE
+L_0200:
+        DEFW    $0000                    ; $0200
+        DEFW    $0000                    ; $0202
+        DEFW    FN_LOF_1                 ; $0204
+        DEFW    $52FB                    ; $0206
+        DEFW    $52FE                    ; $0208
+        DEFW    $0000                    ; $020A
+        DEFW    $56C8                    ; $020C
+        DEFW    FN_LOC_VALUE             ; $020E
+        DEFW    FN_LOF_VALUE             ; $0210
+        DEFW    FN_LOF                   ; $0212
+        DEFW    $52E2                    ; $0214
+        DEFW    $52E5                    ; $0216
+        DEFW    GFX_FN_MKD_STR           ; $0218
+        DEFW    GFX_FN_VPOS              ; $021A
+        DEFW    GFX_FN_PDL               ; $021C
 ; -- reserved-word table reference aliases (fixed low-region addresses) --
 L_021E               EQU $021E
 L_0251               EQU $0251
@@ -460,14 +403,10 @@ RESWORD_OPS:                             ; $04D8  operator (char,token) pairs
         DEFB    '<'+$80,TOK_LT               ; '<'
         DEFB    $00                          ; end operators
 L_04ED:
-        DEFB    $79,$79,$7C,$7C          ; $04ED
-        DEFW    CHAIN_MARK_VAR_8         ; $04F1
-        DEFB    $46                      ; $04F3
-        DEFW    FIN_ACCUM_DIGIT_1+1      ; $04F4
-        DEFB    $28,$7A,$7B              ; $04F6
+        DEFB    $79,$79,$7C,$7C,$7F,$50,$46,$3C,$32,$28,$7A,$7B  ; $04ED
 L_04F9:
         DEFW    FN_CSNG                  ; $04F9
-        DEFB    $00,$00                  ; $04FB
+        DEFW    $0000                    ; $04FB
         DEFW    FN_LPOS                  ; $04FD
         DEFW    FP_INT_CHECK             ; $04FF
         DEFW    FN_CINT                  ; $0501
@@ -486,14 +425,14 @@ L_050D:
 L_0517:
         DEFW    IADD                     ; $0517
         DEFW    INT_SIGNEXT_SUB          ; $0519
-        DEFW    IADD_2                   ; $051B
+        DEFW    $2DC1                    ; $051B
         DEFB    $02                      ; $051D
 L_051E:
         DEFB    $1C                      ; $051E
         DEFW    INT16_COMP               ; $051F
 L_0521:
-        DEFW    INLIN_REDISPLAY_LINE_6   ; $0521
-        DEFB    "EXT without FOR"        ; $0523  string
+        DEFB    $00                      ; $0521
+        DEFB    "NEXT without FOR"       ; $0522  string
         DEFB    $00                      ; $0532  terminator
         DEFB    "Syntax error"           ; $0533  string
         DEFB    $00                      ; $053F  terminator
@@ -2546,7 +2485,7 @@ ERROR_SYNTAX:
 ERROR_SYNTAX_1:
         LD BC,BUF_3                      ; $0D94  01 1E 0B
 ERROR_SYNTAX_2:
-        LD BC,COM_ENTRY_6                ; $0D97  01 1E 01
+        LD BC,L_011E                     ; $0D97  01 1E 01
 ERROR_SYNTAX_3:
         LD BC,FILE_FCB_SCRATCH_1         ; $0D9A  01 1E 0A
 ERROR_SYNTAX_4:
@@ -2974,7 +2913,7 @@ CRUNCH:
         XOR A                            ; $101B  AF
         LD (TERM_POS_WORK_7),A           ; $101C  32 39 0B
         LD (TERM_POS_WORK_6),A           ; $101F  32 38 0B
-        LD BC,COM_ENTRY_7                ; $1022  01 3B 01
+        LD BC,L_013B                     ; $1022  01 3B 01
         LD DE,FILTAB_18+1                ; $1025  11 F2 08
 CRUNCH_1:
         LD A,(HL)                        ; $1028  7E
@@ -3147,7 +3086,7 @@ CRUNCH_SPECIAL_TOKEN_CHK:
         POP AF                           ; $1132  F1
         XOR A                            ; $1133  AF
 CRUNCH_SPECIAL_TOKEN_CHK_1:
-        JP NZ,COM_ENTRY_8                ; $1134  C2 3E 01
+        JP NZ,L_013E                     ; $1134  C2 3E 01
 CRUNCH_SPECIAL_TOKEN_CHK_2:
         LD (TERM_POS_WORK_7),A           ; $1137  32 39 0B
         POP AF                           ; $113A  F1
@@ -3309,7 +3248,7 @@ CRUNCH_SPECIAL_TOKEN_CHK_21:
         CALL CRUNCH_EMIT                 ; $1235  CD 4F 12
         JR CRUNCH_SPECIAL_TOKEN_CHK_19   ; $1238  18 EE
 CRUNCH_SPECIAL_TOKEN_CHK_22:
-        LD HL,COM_ENTRY_9+1              ; $123A  21 40 01
+        LD HL,L_0140                     ; $123A  21 40 01
         LD A,L                           ; $123D  7D
         SUB C                            ; $123E  91
         LD C,A                           ; $123F  4F
@@ -3571,7 +3510,7 @@ NEWSTT_DISPATCH:
         EX DE,HL                         ; $13DA  EB
 ; [RE] LD HL,$0108 / ADD HL,BC / LD C,(HL)/INC HL/LD B,(HL): fetches the statement handler address from the DEFW dispatch table (base $0108, index = (token-$81)*2).
 STMT_TABLE_INDEX:
-        LD HL,COM_ENTRY_4                ; $13DB  21 08 01
+        LD HL,L_0108                     ; $13DB  21 08 01
         ADD HL,BC                        ; $13DE  09
         LD C,(HL)                        ; $13DF  4E
         INC HL                           ; $13E0  23
@@ -5136,7 +5075,7 @@ SCAN_AMP_RADIX_CONST_10:
         LD A,$01                         ; $1DA4  3E 01
         LD (CHAIN_BREAK_FLAG_13),A       ; $1DA6  32 D9 0C
 SCAN_AMP_RADIX_CONST_11:
-        LD BC,COM_ENTRY_11               ; $1DA9  01 B2 01
+        LD BC,L_01B2                     ; $1DA9  01 B2 01
 ; [RE] Indexed vector dispatch: ADD HL,BC then load the 16-bit target from (HL) and JP (HL). Shared by the operator-function table ($04F9) and other token-dispatch sites.
 DISPATCH_VECTOR_HLBC:
         ADD HL,BC                        ; $1DAC  09
@@ -8056,7 +7995,6 @@ IADD_1:
         EX DE,HL                         ; $2DBA  EB
         CALL FLOAT_FROM_INT              ; $2DBB  CD 71 2E
         JP FIN_DONE_1                    ; $2DBE  C3 8F 32
-IADD_2:
         LD A,H                           ; $2DC1  7C
         OR L                             ; $2DC2  B5
         JP Z,FP_STORE_FAC_INT            ; $2DC3  CA 55 2C
@@ -8068,18 +8006,18 @@ IADD_2:
         LD C,L                           ; $2DCD  4D
         LD HL,$0000                      ; $2DCE  21 00 00
         LD A,$10                         ; $2DD1  3E 10
-IADD_3:
+IADD_2:
         ADD HL,HL                        ; $2DD3  29
         JR C,IMULDIV_FINISH_2+1          ; $2DD4  38 1F
         EX DE,HL                         ; $2DD6  EB
         ADD HL,HL                        ; $2DD7  29
         EX DE,HL                         ; $2DD8  EB
-        JR NC,IADD_4                     ; $2DD9  30 04
+        JR NC,IADD_3                     ; $2DD9  30 04
         ADD HL,BC                        ; $2DDB  09
         JP C,IMULDIV_FINISH_2+1          ; $2DDC  DA F5 2D
-IADD_4:
+IADD_3:
         DEC A                            ; $2DDF  3D
-        JR NZ,IADD_3                     ; $2DE0  20 F1
+        JR NZ,IADD_2                     ; $2DE0  20 F1
         POP BC                           ; $2DE2  C1
         POP DE                           ; $2DE3  D1
 ; [RE] Tail of integer multiply/divide: test product sign, on overflow promote operands to float and dispatch to FMUL ($4D12) / FADD-store paths; otherwise store signed integer result via INT_NEG/FP_STORE_FAC_INT.
@@ -10017,7 +9955,7 @@ POW10_INT_TABLE_1:
         LD BC,$AF00                      ; $38BA  01 00 AF
         LD B,A                           ; $38BD  47
 POW10_INT_TABLE_2:
-        JP NZ,COM_ENTRY_2                ; $38BE  C2 06 01
+        JP NZ,COM_ENTRY_1                ; $38BE  C2 06 01
         PUSH BC                          ; $38C1  C5
         CALL GETADR                      ; $38C2  CD E1 22
         POP BC                           ; $38C5  C1
@@ -13744,7 +13682,7 @@ INLIN_REDISPLAY_LINE_1:
         RET                              ; $4DD8  C9
 INLIN_REDISPLAY_LINE_2:
         CP $09                           ; $4DD9  FE 09
-        JR NZ,INLIN_REDISPLAY_LINE_7     ; $4DDB  20 27
+        JR NZ,INLIN_REDISPLAY_LINE_6     ; $4DDB  20 27
         PUSH HL                          ; $4DDD  E5
         PUSH BC                          ; $4DDE  C5
         PUSH DE                          ; $4DDF  D5
@@ -13770,12 +13708,11 @@ INLIN_REDISPLAY_LINE_5:
         CPL                              ; $4DFA  2F
         ADD A,$09                        ; $4DFB  C6 09
         CALL INLIN_ERASE_N_COLS          ; $4DFD  CD 06 4E
-INLIN_REDISPLAY_LINE_6:
         POP DE                           ; $4E00  D1
         POP BC                           ; $4E01  C1
         POP HL                           ; $4E02  E1
         RET                              ; $4E03  C9
-INLIN_REDISPLAY_LINE_7:
+INLIN_REDISPLAY_LINE_6:
         LD A,$01                         ; $4E04  3E 01
 ; [RE] erase A character cells on the console by emitting BS/space/BS B times (visual rubout of B columns).
 INLIN_ERASE_N_COLS:
@@ -14174,7 +14111,6 @@ CHAIN_MARK_VAR_6:
         LD HL,(VARTAB)                   ; $5079  2A 92 0B
 CHAIN_MARK_VAR_7:
         CALL CMP_HL_DE                   ; $507C  CD 9D 45
-CHAIN_MARK_VAR_8:
         JR Z,CHAIN_SCAN_ARRAYS           ; $507F  28 40
         PUSH HL                          ; $5081  E5
         LD C,(HL)                        ; $5082  4E
@@ -14915,8 +14851,6 @@ STMT_CLOSE_1:
         PUSH AF                          ; $5526  F5
         LD DE,CLOSE_ALL_LOOP_NEXT        ; $5527  11 2D 55
         PUSH DE                          ; $552A  D5
-; CLOSE-statement dispatch trampoline: PUSH BC/RET to jump to the per-file close handler (FILE_CLOSE_ONE) with the close-all loop continuation already stacked. Was SUB_552B. [RE]
-STMT_CLOSE_DISPATCH:
         PUSH BC                          ; $552B  C5
         RET                              ; $552C  C9
 ; [RE] CLOSE-all loop trampoline (executable bytes shown as DEFB): POP regs, decrement file index, loop to close next file, else POP HL/RET.
@@ -16566,7 +16500,7 @@ COLD_START:
         LD HL,($0001)                    ; $5E5F  2A 01 00
         LD (STMT_SYSTEM_1+1),HL          ; $5E62  22 6C 5A
         LD A,H                           ; $5E65  7C
-        LD (COM_ENTRY_3),A               ; $5E66  32 07 01
+        LD (COM_ENTRY_2),A               ; $5E66  32 07 01
         LD BC,$0004                      ; $5E69  01 04 00
         ADD HL,BC                        ; $5E6C  09
         LD E,(HL)                        ; $5E6D  5E
@@ -16825,7 +16759,7 @@ COLD_SET_WIDTH_16:
         LD A,H                           ; $6021  7C
         CP $02                           ; $6022  FE 02
         JR C,COLD_SET_WIDTH_17           ; $6024  38 03
-        LD HL,COM_ENTRY_16               ; $6026  21 00 02
+        LD HL,L_0200                     ; $6026  21 00 02
 COLD_SET_WIDTH_17:
         LD A,E                           ; $6029  7B
         SUB L                            ; $602A  95

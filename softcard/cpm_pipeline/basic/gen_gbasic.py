@@ -129,9 +129,22 @@ def main():
     hwalk.add_label(reswords.INDEX_ADDR)   # split the data run at the reserved-word
                                            # table so it can be spliced out cleanly
     hwalk.name_labels()
+    # The interpreter's dispatch tables (statement $0108 x85, function $01B2 x54,
+    # operator cluster $04F9 x20) are DEFW pointer tables read by computed jumps; render
+    # them as DEFW <label> so the (body-relocated) targets relocate, not frozen DEFB.
+    DISPATCH_TABLES = {0x0108: 85, 0x01B2: 54, 0x04F9: 20}
+    dispatch_ptrs = {base + 2 * i for base, n in DISPATCH_TABLES.items() for i in range(n)}
+    # Harvest the handler addresses the dispatch tables point at, so the body walker
+    # labels them (a table-only-reached handler is otherwise left as a DEFW literal).
+    dispatch_targets = set()
+    for base, n in DISPATCH_TABLES.items():
+        for i in range(n):
+            t = com[base - LOAD + 2 * i] | (com[base - LOAD + 2 * i + 1] << 8)
+            if RUN <= t < RUN + (len(com) - (RELOC_SRC_START - LOAD)):
+                dispatch_targets.add(t)
     hdr_fmt = SjasmFormatter(hdr_mem, hwalk, origin=LOAD, length=hdr_len,
                              source_name="GBASIC", relocatable=False,
-                             inline_token_names=TOKENS)
+                             inline_token_names=TOKENS, pointer_words=dispatch_ptrs)
     hdr_fmt._harvest_data_labels()
     hdr_fmt._prepare_overlap_labels()
     hdr_lines, _, _ = hdr_fmt._emit_body()
@@ -164,7 +177,7 @@ def main():
     # BEFORE any pass names labels: these are routine HEADS, so they must mint SUB_xxxx
     # head labels (not L_xxxx branch labels the localizer would fold into the preceding
     # routine -- e.g. STMT_END at $6956 was mislabelled SUB_6937_4, a local of RESTORE).
-    entry_points = (({RUN, BODY_ENTRY} | dispatch_seeds | hdr_body_seeds)
+    entry_points = (({RUN, BODY_ENTRY} | dispatch_seeds | hdr_body_seeds | dispatch_targets)
                     & set(range(RUN, RUN + body_len)))
     for s in entry_points:
         bwalk.call_targets.add(s)
@@ -232,6 +245,25 @@ def main():
     hdr_labels = {a: n for a, n in hwalk.labels.items() if n}
     hdr_lines = _xregion(hdr_lines, body_labels, RUN, RUN + body_len)
     body_lines = _xregion(body_lines, hdr_labels, LOAD, LOAD + hdr_len)
+
+    # Resolve the dispatch-table DEFW pointers into the body through the BODY formatter's
+    # symbol resolver, which also handles mid-instruction targets as cover+offset (e.g.
+    # REM/ELSE dispatch to STMT_DATA+2, the $01 skip idiom) -- a plain label dict can't.
+    def _resolve_dispatch_defw(lns):
+        out = []
+        for ln in lns:
+            code, sep, rest = ln.partition(';')
+            if code.lstrip().startswith("DEFW"):
+                def rep(m):
+                    v = int(m.group(1), 16)
+                    if RUN <= v < RUN + body_len:
+                        return body_fmt._sym(v) or m.group(0)
+                    return m.group(0)
+                code = _re.sub(r'\$([0-9A-Fa-f]{4})', rep, code)
+            out.append(code + sep + rest)
+        return out
+
+    hdr_lines = _resolve_dispatch_defw(hdr_lines)
 
     # strip the formatters' own `ORG $xxxx` lines (we frame them ourselves)
     def strip_org(lines):
