@@ -443,13 +443,21 @@ ERR_SAVTXT:
         DEFB    $00,$00                  ; $0B60
 ; [RE] Saved program line of the last error (MS BASIC ERRLIN): ERROR_DISPATCH records the offending line ($0D9B) for ERR/ERL reporting; LINGET '.' shortcut substitutes it as the current line number ($34D9).
 ERRLIN:
-        DEFB    $00,$00,$00,$00,$00,$00  ; $0B62
+        DEFB    $00,$00                  ; $0B62
+L_0B64:
+        DEFB    $00,$00                  ; $0B64
+L_0B66:
+        DEFB    $00,$00                  ; $0B66
 ; [RE] ON-ERROR trap-active flag (MS BASIC ONEFLG): nonzero while inside an error handler; gates ON-ERROR dispatch ($3663), RESUME ($368C), and blocks CONT ('Can't continue' at $0D2E); cleared by CLEAR ($68BE).
 ONEFLG:
         DEFB    $00                      ; $0B68
 ; [RE] FRMEVL operand text-pointer scratch (general TEMP): the precedence loop saves/reloads the current (HL) here ($3A85/$3A88) across operator recursion. The same cell is reused by FOUT to record the decimal-point buffer position during numeric formatting.
 FRMEVL_TXTPTR_TEMP:
-        DEFB    $00,$00,$00,$00,$00,$00  ; $0B69
+        DEFB    $00,$00                  ; $0B69
+L_0B6B:
+        DEFB    $00,$00                  ; $0B6B
+L_0B6D:
+        DEFB    $00,$00                  ; $0B6D
 ; [RE] Start of variable + free space (MS BASIC VARTAB/STREND-grow pointer): base of the simple-variable table walked by PTRGET/CHAIN; the string-relocation copy grows the pool here; CLEAR re-points it just above program text. ,P-protected DECODE ends at $0B6F.
 VARTAB:
         DEFS    138, $00                 ; $0B6F  fill
@@ -597,23 +605,59 @@ ERROR_PRINT_SETUP:
         JP SUB_68F4                      ; $0DA4  C3 F4 68
 ; Packed table of 2-letter error mnemonics (NF/SN/RG/OD/FC/OV/OM/UL/BS/DD/...) indexed by error code, printed by ERROR_PRINT_MSG.
 ERROR_REPORT_BODY:
-        DEFB    $C1,$7B,$4B,$32,$35      ; $0DA7  "A{K25"
-        DEFB    $08,$2A,$5C,$0B,$22,$64,$0B,$EB,$2A,$60,$0B,$7C,$A5,$3C,$28,$07  ; $0DAC
-        DEFB    $22,$6B,$0B,$EB,$22,$6D,$0B,$2A,$66,$0B,$7C,$B5,$EB,$21,$68,$0B  ; $0DBC
-        DEFB    $28,$08,$A6,$20,$05,$35,$EB,$C3,$85,$33,$AF,$77,$59,$32,$3F,$08  ; $0DCC
-        DEFB    $CD,$7B,$67,$21,$21,$05,$7B,$FE,$47,$30,$08,$FE,$32,$30,$06,$FE  ; $0DDC
-        DEFB    $20,$38,$05              ; $0DEC
-ERROR_PRINT_SETUP_1:
+        POP BC                           ; $0DA7  C1
+        LD A,E                           ; $0DA8  7B
+        LD C,E                           ; $0DA9  4B
+        LD (ERRFLG),A                    ; $0DAA  32 35 08
+        LD HL,(OLDTXT)                   ; $0DAD  2A 5C 0B
+        LD (L_0B64),HL                   ; $0DB0  22 64 0B
+        EX DE,HL                         ; $0DB3  EB
+        LD HL,(ERR_SAVTXT)               ; $0DB4  2A 60 0B
+        LD A,H                           ; $0DB7  7C
+        AND L                            ; $0DB8  A5
+        INC A                            ; $0DB9  3C
+        JR Z,ERROR_REPORT_BODY_1         ; $0DBA  28 07
+        LD (L_0B6B),HL                   ; $0DBC  22 6B 0B
+        EX DE,HL                         ; $0DBF  EB
+        LD (L_0B6D),HL                   ; $0DC0  22 6D 0B
+ERROR_REPORT_BODY_1:
+        LD HL,(L_0B66)                   ; $0DC3  2A 66 0B
+        LD A,H                           ; $0DC6  7C
+        OR L                             ; $0DC7  B5
+        EX DE,HL                         ; $0DC8  EB
+        LD HL,ONEFLG                     ; $0DC9  21 68 0B
+        JR Z,ERROR_REPORT_BODY_2         ; $0DCC  28 08
+        AND (HL)                         ; $0DCE  A6
+        JR NZ,ERROR_REPORT_BODY_2        ; $0DCF  20 05
+        DEC (HL)                         ; $0DD1  35
+        EX DE,HL                         ; $0DD2  EB
+        JP SUB_3385                      ; $0DD3  C3 85 33
+ERROR_REPORT_BODY_2:
+        XOR A                            ; $0DD6  AF
+        LD (HL),A                        ; $0DD7  77
+        LD E,C                           ; $0DD8  59
+        LD (CTRL_O_SUPPRESS),A           ; $0DD9  32 3F 08
+        CALL PRINT_CRLF_IF_COL           ; $0DDC  CD 7B 67
+        LD HL,MSG_DIRECT_EMPTY           ; $0DDF  21 21 05
+        LD A,E                           ; $0DE2  7B
+        CP $47                           ; $0DE3  FE 47
+        JR NC,ERROR_REPORT_BODY_3        ; $0DE5  30 08
+        CP $32                           ; $0DE7  FE 32
+        JR NC,ERROR_REPORT_BODY_4        ; $0DE9  30 06
+        CP $20                           ; $0DEB  FE 20
+        JR C,ERROR_REPORT_BODY_5         ; $0DED  38 05
+ERROR_REPORT_BODY_3:
         LD A,$27                         ; $0DEF  3E 27
+ERROR_REPORT_BODY_4:
         SUB $12                          ; $0DF1  D6 12
         LD E,A                           ; $0DF3  5F
-ERROR_PRINT_SETUP_2:
+ERROR_REPORT_BODY_5:
         CALL STMT_DATA+2                 ; $0DF4  CD B6 35
         INC HL                           ; $0DF7  23
         DEC E                            ; $0DF8  1D
-        JR NZ,ERROR_PRINT_SETUP_2        ; $0DF9  20 F9
+        JR NZ,ERROR_REPORT_BODY_5        ; $0DF9  20 F9
         PUSH HL                          ; $0DFB  E5
-ERROR_PRINT_SETUP_3:
+ERROR_REPORT_BODY_6:
         LD HL,(ERR_SAVTXT)               ; $0DFC  2A 60 0B
         EX (SP),HL                       ; $0DFF  E3
 ; [RE] After error message: if current line is direct (text begins '?'), point at the canned direct-mode message ($0521); else print ' in <line>' and drop to READY.
@@ -623,7 +667,7 @@ ERROR_RESUME_FROM_DIRECT:
         JR NZ,STOP_BREAK                 ; $0E03  20 06
         POP HL                           ; $0E05  E1
         LD HL,MSG_DIRECT_EMPTY           ; $0E06  21 21 05
-        JR ERROR_PRINT_SETUP_1           ; $0E09  18 E4
+        JR ERROR_REPORT_BODY_3           ; $0E09  18 E4
 ; [RE] STOP/Ctrl-C break: print 'Break' message ($6C40 STROUT), compute/print the current line number, then fall into the READY prompt and NEWSTT main loop.
 STOP_BREAK:
         CALL STROUT                      ; $0E0B  CD 40 6C

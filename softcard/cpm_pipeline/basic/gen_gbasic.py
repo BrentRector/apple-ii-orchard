@@ -83,6 +83,16 @@ def main():
             t = body[i + 1] | (body[i + 2] << 8)
             if 0x0C00 <= t < 0x1000:
                 lowram_seeds.add(t)
+    # Low-RAM continuation routines loaded as an address (LD BC,nnnn, opcode $01) by
+    # other low-RAM code and entered via a computed jump (e.g. ERROR_REPORT_BODY at
+    # $0DA7, set up by LD BC,$0DA7 then JP $68F4 which LD SP,HL + RETs to it). The
+    # CALL/JP harvest can't see these, so they were left as DEFB; seed them as code.
+    for a in range(0x0C00, RELOC_SRC_START - 2):
+        i = a - LOAD
+        if com[i] == 0x01:                      # LD BC,nnnn
+            t = com[i + 1] | (com[i + 2] << 8)
+            if 0x0C00 <= t < 0x1000:
+                lowram_seeds.add(t)
     # The reverse: header low-RAM code ($0C00-$100D) that JP/CALLs INTO the relocated
     # body. Harvest those body targets so the body walker mints a label there -- the
     # header references them, and cross-region substitution needs a label to resolve to.
