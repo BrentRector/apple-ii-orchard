@@ -25,6 +25,7 @@ from cpm_pipeline import reference_data as rd
 from cpm_pipeline.basic._paths import asm_path, overlay_path, seeds_path, load_token_names
 from cpm_pipeline.basic import reswords
 from cpm_pipeline.basic.recover import recover_code
+from cpm_pipeline.basic.fixed_sites import fixed_operand_sites
 
 from disasm_z80.walker import Walker
 from disasm_z80.formatter import SjasmFormatter
@@ -212,9 +213,13 @@ def main():
     # relocatable=False (the utility norm): label real control-flow/data targets but
     # leave in-range IMMEDIATE constants (e.g. LD BC,$3028 = graphics coords 48,40) as
     # literals instead of mislabelling them as the routine that happens to sit there.
+    # Keep fixed operands (identical in both builds -> RAM/stack address or constant)
+    # literal, so a coincidental body label isn't substituted and wrongly relocated.
+    keep_literal, _ = fixed_operand_sites()
     body_fmt = SjasmFormatter(body_mem, bwalk, origin=RUN, length=body_len,
                               source_name="GBASIC", pointer_words=body_ptrs,
-                              relocatable=False, inline_token_names=TOKENS)
+                              relocatable=False, inline_token_names=TOKENS,
+                              keep_literal=keep_literal)
     body_fmt._harvest_data_labels()
     body_fmt._prepare_overlap_labels()
     body_lines, _, _ = body_fmt._emit_body()

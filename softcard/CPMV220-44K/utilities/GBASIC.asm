@@ -1645,7 +1645,7 @@ STMT_FOR_3:
         POP HL                           ; $3320  E1
         PUSH BC                          ; $3321  C5
         PUSH DE                          ; $3322  D5
-        LD BC,FCB_LOAD_POSPTR+1          ; $3323  01 00 81
+        LD BC,$8100                      ; $3323  01 00 81
         LD D,C                           ; $3326  51
         LD E,D                           ; $3327  5A
         LD A,(HL)                        ; $3328  7E
@@ -2957,7 +2957,7 @@ FRMEVL_ARITHOP:
         RET NC                           ; $3B39  D0
         PUSH BC                          ; $3B3A  C5
         PUSH DE                          ; $3B3B  D5
-        LD DE,EDIT_BUF_SHIFT_4+2         ; $3B3C  11 04 64
+        LD DE,$6404                      ; $3B3C  11 04 64
         LD HL,FRMEVL_SCAN_UNARY_1        ; $3B3F  21 A7 3D
         PUSH HL                          ; $3B42  E5
         CALL FRMEVL_TEST_TYPE            ; $3B43  CD C8 3D
@@ -4543,13 +4543,13 @@ MSG_RANDOMIZE_PROMPT:
         JR NZ,BLOCK_SCAN_FORNEXT_5       ; $449D  20 28
         DEC L                            ; $449F  2D
         INC SP                           ; $44A0  33
-        LD (STMT_LET_7+2),A              ; $44A1  32 37 36
+        LD ($3637),A                     ; $44A1  32 37 36
         JR C,BLOCK_SCAN_FORNEXT_7+1      ; $44A4  38 2D
         EX AF,AF'                        ; $44A6  08
         JR NZ,BLOCK_SCAN_FORNEXT_13      ; $44A7  20 74
         LD L,A                           ; $44A9  6F
         JR NZ,BLOCK_SCAN_FORNEXT_8       ; $44AA  20 33
-        LD (STMT_LET_7+2),A              ; $44AC  32 37 36
+        LD ($3637),A                     ; $44AC  32 37 36
         SCF                              ; $44AF  37
         ADD HL,HL                        ; $44B0  29
         NOP                              ; $44B1  00
@@ -4883,7 +4883,7 @@ GFX_STMT_HLIN:
         RET                              ; $468E  C9
 ; [RE] VLIN statement body (mirror of GFX_STMT_HLIN): parse coords, store Y0/Y1->$F045/$F047 and X->$F02D, then fall to the low-res draw RPC ($F828) via SUB_46C6_1.
 GFX_STMT_VLIN:
-        LD BC,CRUNCH_2                   ; $468F  01 28 30
+        LD BC,$3028                      ; $468F  01 28 30
         CALL GFX_PARSE_LINE_COORDS       ; $4692  CD 57 46
         LD (RPC_YREG),A                  ; $4695  32 47 F0
         LD A,E                           ; $4698  7B
@@ -6047,8 +6047,8 @@ FN_SIN:
         OR A                             ; $4CCF  B7
         JP PE,SUB_34D0                   ; $4CD0  EA D0 34
         CALL FN_SIN_REDUCE               ; $4CD3  CD DF 4C
-        LD BC,SUB_7F6C_13+1              ; $4CD6  01 31 80
-        LD DE,WHILE_FIND_FRAME_3         ; $4CD9  11 18 72
+        LD BC,$8031                      ; $4CD6  01 31 80
+        LD DE,$7218                      ; $4CD9  11 18 72
         JP FMUL                          ; $4CDC  C3 12 4D
 ; [RE] SIN range reduction / polynomial preprocessor: folds the argument into the principal interval before the Chebyshev poly (CALL $5D65 poly eval); helper for FN_SIN.
 FN_SIN_REDUCE:
@@ -6784,7 +6784,7 @@ FIX_SCALE_2:
         DEC B                            ; $50B0  05
         JR NZ,FIX_SCALE_2                ; $50B1  20 FB
         OR A                             ; $50B3  B7
-        LD HL,SUB_7F6C_10+2              ; $50B4  21 00 80
+        LD HL,$8000                      ; $50B4  21 00 80
         JP NZ,FIX_SCALE_3                ; $50B7  C2 C0 50
         CALL FP_STORE_FAC_INT            ; $50BA  CD D7 4F
         JP FN_CSNG                       ; $50BD  C3 1A 50
@@ -8244,7 +8244,7 @@ FOUT_EXPONENT_11:
         JR NC,FOUT_EXPONENT_13           ; $5921  30 0B
         DEC HL                           ; $5923  2B
 FOUT_EXPONENT_12:
-        LD BC,SUB_767A_15                ; $5924  01 2B 77
+        LD BC,$772B                      ; $5924  01 2B 77
         POP AF                           ; $5927  F1
         JR Z,FOUT_EXPONENT_12+1          ; $5928  28 FB
         POP BC                           ; $592A  C1
@@ -8448,7 +8448,7 @@ FOUT_SCALE10_3:
         CALL FRMEVL_TEST_TYPE            ; $5A62  CD C8 3D
         JP PE,FOUT_SCALE10_4             ; $5A65  EA 73 5A
         LD BC,$9143                      ; $5A68  01 43 91
-        LD DE,FIX_TO_INT+1               ; $5A6B  11 F9 4F
+        LD DE,$4FF9                      ; $5A6B  11 F9 4F
         CALL FCOMP                       ; $5A6E  CD 03 4F
         JR FOUT_SCALE10_5                ; $5A71  18 06
 FOUT_SCALE10_4:
@@ -8713,7 +8713,7 @@ FOUT_DIGITS_INT_4:
         POP HL                           ; $5BC8  E1
         RST $38                          ; $5BC9  FF
         SBC A,A                          ; $5BCA  9F
-        LD SP,PTRGET_9                   ; $5BCB  31 A9 5F
+        LD SP,$5FA9                      ; $5BCB  31 A9 5F
         LD H,E                           ; $5BCE  63
         OR D                             ; $5BCF  B2
 FOUT_DIGITS_INT_5:
@@ -8901,7 +8901,7 @@ FN_ABS_4:
         CALL FMUL                        ; $5CE5  CD 12 4D
 ; [RE] LOG() handler (function token $0A): natural logarithm (MBF).
 FN_LOG:
-        LD BC,PROG_UNSCRAMBLE+2          ; $5CE8  01 38 81
+        LD BC,$8138                      ; $5CE8  01 38 81
         LD DE,$AA3B                      ; $5CEB  11 3B AA
         CALL FMUL                        ; $5CEE  CD 12 4D
         LD A,($0CB4)                     ; $5CF1  3A B4 0C
@@ -8935,7 +8935,7 @@ FN_LOG_2:
 FN_LOG_3:
         JP FIN_DONE_9                    ; $5D2C  C3 4C 56
 FN_LOG_4:
-        LD BC,FCB_LOAD_POSPTR+1          ; $5D2F  01 00 81
+        LD BC,$8100                      ; $5D2F  01 00 81
         LD DE,$0000                      ; $5D32  11 00 00
         CALL FP_STORE_FAC                ; $5D35  CD AA 4E
         RET                              ; $5D38  C9
@@ -9113,7 +9113,7 @@ FN_RND:
         LD A,($0CB4)                     ; $5E3A  3A B4 0C
         CP $77                           ; $5E3D  FE 77
         RET C                            ; $5E3F  D8
-        LD BC,STMT_KILL_1                ; $5E40  01 22 7E
+        LD BC,$7E22                      ; $5E40  01 22 7E
         LD DE,$F983                      ; $5E43  11 83 F9
         CALL FMUL                        ; $5E46  CD 12 4D
         CALL FAC_PUSH                    ; $5E49  CD 9A 4E
@@ -9121,19 +9121,19 @@ FN_RND:
         POP BC                           ; $5E4F  C1
         POP DE                           ; $5E50  D1
         CALL FSUB                        ; $5E51  CD A3 4B
-        LD BC,FILE_READ_RECORDS_1+2      ; $5E54  01 00 7F
+        LD BC,$7F00                      ; $5E54  01 00 7F
         LD DE,$0000                      ; $5E57  11 00 00
         CALL FCOMP                       ; $5E5A  CD 03 4F
         JP M,FN_RND_1                    ; $5E5D  FA 84 5E
-        LD BC,SUB_7F6C_1+1               ; $5E60  01 80 7F
+        LD BC,$7F80                      ; $5E60  01 80 7F
         LD DE,$0000                      ; $5E63  11 00 00
         CALL FADD_ALIGN                  ; $5E66  CD A6 4B
-        LD BC,FIELD_WRITE_RECORD_1+2     ; $5E69  01 80 80
+        LD BC,$8080                      ; $5E69  01 80 80
         LD DE,$0000                      ; $5E6C  11 00 00
         CALL FADD_ALIGN                  ; $5E6F  CD A6 4B
         CALL FP_SIGN                     ; $5E72  CD 47 4E
         CALL P,FP_NEG                    ; $5E75  F4 76 4E
-        LD BC,FILE_READ_RECORDS_1+2      ; $5E78  01 00 7F
+        LD BC,$7F00                      ; $5E78  01 00 7F
         LD DE,$0000                      ; $5E7B  11 00 00
         CALL FADD_ALIGN                  ; $5E7E  CD A6 4B
         CALL FP_NEG                      ; $5E81  CD 76 4E
@@ -9207,7 +9207,7 @@ FN_TAN:
         LD A,($0CB4)                     ; $5EE5  3A B4 0C
         CP $81                           ; $5EE8  FE 81
         JR C,FN_TAN_1                    ; $5EEA  38 0C
-        LD BC,FCB_LOAD_POSPTR+1          ; $5EEC  01 00 81
+        LD BC,$8100                      ; $5EEC  01 00 81
         LD D,C                           ; $5EEF  51
         LD E,C                           ; $5EF0  59
         CALL FDIV                        ; $5EF1  CD 75 4D
@@ -9232,7 +9232,7 @@ FN_TAN_2:
         CPL                              ; $5F0D  2F
         LD A,H                           ; $5F0E  7C
         LD (HL),H                        ; $5F0F  74
-        LD SP,STMT_OPEN_6+1              ; $5F10  31 9A 7D
+        LD SP,$7D9A                      ; $5F10  31 9A 7D
         ADD A,H                          ; $5F13  84
         DEC A                            ; $5F14  3D
         LD E,D                           ; $5F15  5A
@@ -15408,7 +15408,7 @@ INIT_SCREEN_WIDTH:
         LD A,$28                         ; $8284  3E 28
 ; [RE] Select terminal line width during cold start: reads the configured console type ($F3BB) and sets the line-width work cell (SUB_4B20_12, $4B97) to 40 ($28) or the wide default, then initializes the file-control / disk-parameter pointers (SUB_4063).
 COLD_SET_WIDTH:
-        LD BC,FP_SHIFT_MANTISSA_1        ; $8286  01 3E 50
+        LD BC,$503E                      ; $8286  01 3E 50
         LD (GFX_STMT_HPLOT_9),A          ; $8289  32 97 4B
         CALL WIDTH_SET_CONSOLE           ; $828C  CD 63 40
         LD HL,$0080                      ; $828F  21 80 00
@@ -15737,7 +15737,7 @@ SIGNON_TEXT_4:
         LD (HL),H                        ; $8471  74
         LD H,L                           ; $8472  65
         LD H,H                           ; $8473  64
-        LD A,(CRUNCH_37+1)               ; $8474  3A 20 32
+        LD A,($3220)                     ; $8474  3A 20 32
         LD (HL),$2D                      ; $8477  36 2D
         LD B,C                           ; $8479  41
         LD (HL),L                        ; $847A  75

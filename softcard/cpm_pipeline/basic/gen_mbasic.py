@@ -11,6 +11,7 @@ from cpm_pipeline import reference_data as rd
 from cpm_pipeline.basic._paths import asm_path, overlay_path, seeds_path, load_token_names
 from cpm_pipeline.basic import reswords
 from cpm_pipeline.basic.recover import recover_code
+from cpm_pipeline.basic.fixed_sites import fixed_operand_sites
 from disasm_z80.walker import Walker
 from disasm_z80.formatter import SjasmFormatter
 from cpm_pipeline.region_disasm import (seed_leading_jp_vector,
@@ -110,9 +111,10 @@ def main():
     w.add_label(reswords.INDEX_ADDR)   # split the data run at the reserved-word table
     w.name_labels()
 
+    _, keep_literal = fixed_operand_sites()   # fixed operands -> keep literal (see gen_gbasic)
     fmt = SjasmFormatter(mem, w, origin=LOAD, length=len(com),
                          source_name="MBASIC", pointer_words=ptrs, relocatable=False,
-                         inline_token_names=load_token_names())
+                         inline_token_names=load_token_names(), keep_literal=keep_literal)
     fmt._harvest_data_labels()
     fmt._prepare_overlap_labels()
     body, _, _ = fmt._emit_body()

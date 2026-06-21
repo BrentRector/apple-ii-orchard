@@ -6320,13 +6320,13 @@ MSG_RANDOMIZE_PROMPT:
         JR NZ,BLOCK_SCAN_FORNEXT_5       ; $24B8  20 28
         DEC L                            ; $24BA  2D
         INC SP                           ; $24BB  33
-        LD (FOUT_EXPONENT_24),A          ; $24BC  32 37 36
+        LD ($3637),A                     ; $24BC  32 37 36
         JR C,BLOCK_SCAN_FORNEXT_7+1      ; $24BF  38 2D
         EX AF,AF'                        ; $24C1  08
         JR NZ,BLOCK_SCAN_FORNEXT_13      ; $24C2  20 74
         LD L,A                           ; $24C4  6F
         JR NZ,BLOCK_SCAN_FORNEXT_8       ; $24C5  20 33
-        LD (FOUT_EXPONENT_24),A          ; $24C7  32 37 36
+        LD ($3637),A                     ; $24C7  32 37 36
         SCF                              ; $24CA  37
         ADD HL,HL                        ; $24CB  29
         NOP                              ; $24CC  00
@@ -6651,7 +6651,7 @@ GFX_STMT_HLIN:
         RET                              ; $26A9  C9
 ; [RE] VLIN statement body (mirror of GFX_STMT_HLIN): parse coords, store Y0/Y1->$F045/$F047 and X->$F02D, then fall to the low-res draw RPC ($F828) via SUB_46C6_1.
 GFX_STMT_VLIN:
-        LD BC,FIN_DSCALE_DIV10_2+2       ; $26AA  01 28 30
+        LD BC,$3028                      ; $26AA  01 28 30
         CALL GFX_PARSE_LINE_COORDS       ; $26AD  CD 72 26
         LD (RPC_YREG),A                  ; $26B0  32 47 F0
         LD A,E                           ; $26B3  7B
@@ -9575,7 +9575,7 @@ FOUT_SCALE10_3:
         CALL FRMEVL_TEST_TYPE            ; $36E0  CD E3 1D
         JP PE,FOUT_SCALE10_4             ; $36E3  EA F1 36
         LD BC,$9143                      ; $36E6  01 43 91
-        LD DE,STMT_CHAIN_11+1            ; $36E9  11 F9 4F
+        LD DE,$4FF9                      ; $36E9  11 F9 4F
         CALL FCOMP                       ; $36EC  CD 81 2B
         JR FOUT_SCALE10_5                ; $36EF  18 06
 FOUT_SCALE10_4:
@@ -9844,7 +9844,7 @@ FOUT_DIGITS_INT_5:
         POP HL                           ; $3846  E1
         RST $38                          ; $3847  FF
         SBC A,A                          ; $3848  9F
-        LD SP,COLD_SET_WIDTH_6+1         ; $3849  31 A9 5F
+        LD SP,$5FA9                      ; $3849  31 A9 5F
         LD H,E                           ; $384C  63
         OR D                             ; $384D  B2
 FOUT_DIGITS_INT_6:
@@ -16603,7 +16603,7 @@ INIT_SCREEN_WIDTH:
         LD A,$28                         ; $5F02  3E 28
 ; [RE] Select terminal line width during cold start: reads the configured console type ($F3BB) and sets the line-width work cell (SUB_4B20_12, $4B97) to 40 ($28) or the wide default, then initializes the file-control / disk-parameter pointers (SUB_4063).
 COLD_SET_WIDTH:
-        LD BC,CHAIN_MARK_VAR             ; $5F04  01 3E 50
+        LD BC,$503E                      ; $5F04  01 3E 50
         LD (ERR_SELECT_DEFAULT_DISK_3),A ; $5F07  32 15 28
         CALL WIDTH_SET_CONSOLE           ; $5F0A  CD 7E 20
         LD HL,$0080                      ; $5F0D  21 80 00
@@ -16933,7 +16933,7 @@ SIGNON_TEXT_5:
         LD (HL),H                        ; $60EF  74
         LD H,L                           ; $60F0  65
         LD H,H                           ; $60F1  64
-        LD A,(FIN_DIV10_2)               ; $60F2  3A 20 32
+        LD A,($3220)                     ; $60F2  3A 20 32
         LD (HL),$2D                      ; $60F5  36 2D
         LD B,C                           ; $60F7  41
         LD (HL),L                        ; $60F8  75

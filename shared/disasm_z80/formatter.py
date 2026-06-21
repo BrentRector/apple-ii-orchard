@@ -60,7 +60,8 @@ class SjasmFormatter:
 
     def __init__(self, mem, walker, symbols=None, *,
                  origin=None, length=None, source_name="", pointer_words=None,
-                 relocatable=False, foreign_regions=None, inline_token_names=None):
+                 relocatable=False, foreign_regions=None, inline_token_names=None,
+                 keep_literal=None):
         self.mem = mem
         self.walker = walker
         self.symbols = symbols
@@ -89,6 +90,10 @@ class SjasmFormatter:
         # the keyword tokens SYNCHR matches): render `DEFB TOK_TO` instead of hex.
         # The name must be defined by an INCLUDE the assembled source pulls in.
         self.inline_token_names = inline_token_names or {}
+        # Instruction addresses whose operand must stay a LITERAL (a fixed RAM/stack
+        # address or a constant -- identical in both builds -- that coincidentally
+        # equals a body label; labelling it would wrongly relocate it).
+        self.keep_literal = keep_literal or set()
         # Mid-instruction reference state (populated by _prepare_overlap_labels):
         #   _overlap_covers[addr] = (cover, offset)  anonymous -> inline cover+offset
         #   _overlap_named[addr]  = (name, cover, offset)  named -> equate, keep name
@@ -518,6 +523,9 @@ class SjasmFormatter:
         instr = decode_at(self.mem, addr)
         mnem = instr.mnemonic
         refs = set()
+        if addr in self.keep_literal:           # fixed operand -> emit verbatim (literal)
+            raw = " ".join(f"{b:02X}" for b in instr.raw)
+            return f"        {mnem:<32} ; ${addr:04X}  {raw}", refs
         # Substitute labels into JP/CALL/JR/DJNZ targets.
         if instr.target is not None:
             label = self._sym(instr.target)
