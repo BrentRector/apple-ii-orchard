@@ -80,7 +80,16 @@ def main():
     dispatch_ptrs = {b + 2 * i for b, n in DISPATCH_TABLES.items() for i in range(n)}
     LOW_TABLES = (0x0108, 0x0522)
     w.add_data_region(*LOW_TABLES)
-    entry_pts = {LOAD, COLD} | dispatch | (mapped & set(range(LOAD, end)))
+    # Seed the handler addresses the dispatch tables point at, read at the correct
+    # even-aligned table positions (the range `harvest` above starts at the odd $0103 and
+    # samples the statement table misaligned, missing some targets -> DEFW literals).
+    dispatch_targets = set()
+    for b, n in DISPATCH_TABLES.items():
+        for i in range(n):
+            t = com[b - LOAD + 2 * i] | (com[b - LOAD + 2 * i + 1] << 8)
+            if LOAD <= t < end:
+                dispatch_targets.add(t)
+    entry_pts = {LOAD, COLD} | dispatch | dispatch_targets | (mapped & set(range(LOAD, end)))
     for s in entry_pts:
         w.call_targets.add(s)
     w.trace(LOAD)
