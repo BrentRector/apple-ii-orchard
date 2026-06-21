@@ -24,6 +24,7 @@ from cpm_pipeline.filesystem import read_disk, extract_file
 from cpm_pipeline import reference_data as rd
 from cpm_pipeline.basic._paths import asm_path, overlay_path, seeds_path, load_token_names
 from cpm_pipeline.basic import reswords
+from cpm_pipeline.basic.recover import recover_code
 
 from disasm_z80.walker import Walker
 from disasm_z80.formatter import SjasmFormatter
@@ -179,6 +180,13 @@ def main():
         scan_dispatch=z80_dispatch_scanner(body_mem, RUN, RUN + body_len),
         harvest_refs=z80_ref_harvester(body_mem, RUN, RUN + body_len),
     )
+    # Recover code the walker missed (reached via computed jumps / pushed continuations,
+    # or fragmented by false pointer-cell classification). Such blobs are NOT data -- the
+    # address operands inside them are frozen DEFB bytes that would not relocate. Run
+    # BEFORE pointer-table detection so the recovered code is not mis-read as pointers.
+    recover_code(bwalk, body_mem, RUN, RUN + body_len)
+    label_inrange_operands(bwalk, body_mem, RUN, body_len)   # label the recovered code's
+                                                             # operands so they relocate
     body_ptrs = scan_pointer_words(bwalk, body_mem, RUN, body_len) | body_dispatch
     # Ensure each entry point has a label (call_targets were registered up front so
     # name_labels mints SUB_xxxx heads for them).

@@ -10,6 +10,7 @@ from cpm_pipeline.filesystem import read_disk, extract_file
 from cpm_pipeline import reference_data as rd
 from cpm_pipeline.basic._paths import asm_path, overlay_path, seeds_path, load_token_names
 from cpm_pipeline.basic import reswords
+from cpm_pipeline.basic.recover import recover_code
 from disasm_z80.walker import Walker
 from disasm_z80.formatter import SjasmFormatter
 from cpm_pipeline.region_disasm import (seed_leading_jp_vector,
@@ -86,6 +87,8 @@ def main():
     maximize_coverage(w, mem, cpu="z80", decoder=z80_decoder(mem),
         scan_dispatch=z80_dispatch_scanner(mem, LOAD, end),
         harvest_refs=z80_ref_harvester(mem, LOAD, end))
+    recover_code(w, mem, LOAD, end)   # recover code mis-rendered as data (see gen_gbasic)
+    label_inrange_operands(w, mem, LOAD, len(com))   # label recovered code's operands
     ptrs = scan_pointer_words(w, mem, LOAD, len(com)) | disp
     for s in entry_pts:
         w.add_label(s)
