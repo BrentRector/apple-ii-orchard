@@ -289,6 +289,7 @@ def main():
     stub_old = errstub.stub_old_labels(hdr_lines, com)          # capture old stub labels first
     hdr_lines = errstub.splice_stubs_into(hdr_lines, com)       # coded-error stubs -> RAISE_* / LD E,ERR_*
     hdr_lines = errstub.apply_reference_renames(hdr_lines, com, stub_old)
+    hdr_lines = errstub.apply_direct_raise_renames(hdr_lines, com)  # LD E,$nn;JP RAISE_ERROR -> LD E,ERR_*
 
     # Inject the header's low-region labels into the body walker's label set so the body
     # formatter renders body->low references as that label (relocatable), not a literal.
@@ -323,6 +324,7 @@ def main():
     body_lines = lowtables.apply(body_lines)   # dispatch/operator table refs -> base+offset
     body_lines = errmsg.apply_reference_renames(body_lines, com)   # error-message refs -> ERRMSG_*
     body_lines = errstub.apply_reference_renames(body_lines, com, stub_old)  # error-raise refs -> RAISE_*
+    body_lines = errstub.apply_direct_raise_renames(body_lines, com)  # LD E,$nn;JP RAISE_ERROR -> LD E,ERR_*
 
     # Cross-region relocatability: header ($0100-$100D) and body ($3000+) are decoded
     # by SEPARATE walkers, so each region's control-flow operands into the OTHER region

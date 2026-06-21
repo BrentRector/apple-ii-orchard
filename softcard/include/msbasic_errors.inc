@@ -1,6 +1,6 @@
 ; msbasic_errors.inc -- Microsoft BASIC-80 (SoftCard CP/M 2.20) ERROR CODES.
 ; GENERATED from the error-message table (cpm_pipeline.basic.errmsg). The error
-; code is the value loaded into E before JP RAISE_ERROR / ERROR_DISPATCH ($0D89);
+; code is the value loaded into E before JP RAISE_ERROR (the error dispatcher);
 ; the printer scans E messages forward from ERROR_MESSAGE_TABLE. EQUs are
 ; zero-width, so INCLUDEing this is byte-identical.
 
@@ -56,4 +56,3 @@ ERR_TOO_MANY_FILES             EQU 67  ; Too many files
 ERR_DISK_READ_ONLY             EQU 68  ; Disk Read Only
 ERR_DRIVE_SELECT_ERROR         EQU 69  ; Drive select error
 ERR_FILE_READ_ONLY             EQU 70  ; File Read Only
-

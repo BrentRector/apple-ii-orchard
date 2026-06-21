@@ -134,6 +134,7 @@ def main():
     stub_old = errstub.stub_old_labels(body, com)     # capture old stub labels first
     body = errstub.splice_stubs_into(body, com)       # coded-error stubs -> RAISE_* / LD E,ERR_*
     body = errstub.apply_reference_renames(body, com, stub_old)
+    body = errstub.apply_direct_raise_renames(body, com)   # LD E,$nn;JP RAISE_ERROR -> LD E,ERR_*
 
     out = []
     out.append("; MBASIC.COM -- Microsoft BASIC-80 Rev 5.2 interpreter (graphics OFF), SoftCard CP/M 2.20 (44K).")

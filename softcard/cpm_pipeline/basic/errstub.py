@@ -161,6 +161,81 @@ def _stub_target(code, addr, byts):
     return None
 
 
+def dispatcher_addr(com):
+    """Address of RAISE_ERROR. The last coded-error run falls straight through into it, so
+    the dispatcher is the byte immediately after that run's final LD E entry."""
+    runs = decode_stubs(com)
+    return runs[-1][-1][0] + 2 if runs else None
+
+
+def _code_err_names(com):
+    """{error_code: ERR_<name>} from the error-message table equates."""
+    from cpm_pipeline.basic import errmsg
+    return {code: en for en, code, _m in errmsg.error_equates(com)}
+
+
+def _jump_target(addr, byts):
+    """Target of a JP/JP cc/JR/JR cc/DJNZ from its raw bytes (None if not such a jump)."""
+    if not byts:
+        return None
+    op = byts[0]
+    if (op == 0xC3 or op in (0xC2, 0xCA, 0xD2, 0xDA, 0xE2, 0xEA, 0xF2, 0xFA)) and len(byts) >= 3:
+        return byts[1] | (byts[2] << 8)                     # JP / JP cc,nn
+    if (op == 0x18 or op in (0x20, 0x28, 0x30, 0x38, 0x10)) and len(byts) >= 2:
+        d = byts[1] - 256 if byts[1] >= 128 else byts[1]    # JR / JR cc,e / DJNZ
+        return (addr + 2 + d) & 0xFFFF
+    return None
+
+
+def _line_addr_bytes_target(ln):
+    """(run-address, byte-count, jump-target|None) parsed from a line's `; $addr  HH HH`
+    byte comment; (None, 0, None) for a line with no byte comment (label/section/structured
+    line)."""
+    m = _CMT.search(ln)
+    if not m:
+        return (None, 0, None)
+    addr = int(m.group(1), 16)
+    byts = [int(x, 16) for x in m.group(2).split()]
+    return (addr, len(byts), _jump_target(addr, byts))
+
+
+# A direct raise loads the error code into E and jumps to RAISE_ERROR. Two idioms:
+#   LD E,$nn       (1E nn)        -- E = code
+#   LD DE,$00nn    (11 nn 00)     -- E = code, D = 0 (16-bit value IS the code, high byte 0)
+# so the literal operand always equals the error code and names the ERR_* equate.
+_LDE_LIT = re.compile(r"^(\s*LD\s+(?:E|DE),)(\$[0-9A-Fa-f]{2,4})\b")
+
+
+def apply_direct_raise_renames(lines, com):
+    """Rewrite a DIRECT raise site `LD E,$nn` / `LD DE,$00nn` -> `LD (D)E,ERR_<name>`: an LD
+    whose very next instruction (at addr + its length) is a JP/JR (conditional or not) to
+    RAISE_ERROR. The literal value is the error code, so it names the ERR_* equate
+    (byte-identical: the equate resolves to the same value). This is the non-table sibling of
+    the coded-error stubs (e.g. ERROR_FC: LD E,$05; JP RAISE_ERROR -> LD E,
+    ERR_ILLEGAL_FUNCTION_CALL; STMT_CONT: LD DE,$0011 -> LD DE,ERR_CANT_CONTINUE)."""
+    disp = dispatcher_addr(com)
+    if disp is None:
+        return list(lines)
+    names = _code_err_names(com)
+    out = list(lines)
+    info = [_line_addr_bytes_target(ln) for ln in out]
+    for i, ln in enumerate(out):
+        m = _LDE_LIT.match(ln.partition(";")[0])
+        if not m:
+            continue
+        val = int(m.group(2).lstrip("$"), 16)
+        a, nb, _ = info[i]
+        if a is None or val > 0xFF or val not in names:       # high byte must be 0 (E = code)
+            continue
+        j = i + 1
+        while j < len(out) and info[j][0] is None:            # skip comment/label lines
+            j += 1
+        if j < len(out) and info[j][0] == a + nb and info[j][2] == disp:
+            head, sep, rest = ln.partition(";")
+            out[i] = head.replace(m.group(2), names[val], 1) + sep + rest
+    return out
+
+
 def apply_reference_renames(lines, com, old_labels=None):
     """Rewrite every reference to a stub entry to its RAISE_<name> label, whatever form the
     operand currently has (a literal $addr, an old machine label, or a local+offset like

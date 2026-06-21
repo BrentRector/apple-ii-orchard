@@ -547,7 +547,7 @@ RESUME_TXTPTR:
 ; [RE] ON ERROR GOTO handler pointer (MS BASIC ONELIN): set by ON ERROR ($365E); the error reporter ($0DC3) traps to it when nonzero, else prints the error. Zero = no active handler.
 ON_ERROR_LINE:
         DEFB    $00,$00                  ; $0B66
-; [RE] ON-ERROR trap-active flag (MS BASIC ONEFLG): nonzero while inside an error handler; gates ON-ERROR dispatch ($3663), RESUME ($368C), and blocks CONT ('Can't continue' at $0D2E); cleared by CLEAR ($68BE).
+; [RE] ON-ERROR trap-active flag (MS BASIC ONEFLG): nonzero while inside an error handler. Gates ON-ERROR dispatch and RESUME, and is tested by PROGRAM_END so a handler that runs off the end of the program raises 'No RESUME' (ERR_NO_RESUME); cleared by CLEAR.
 ONEFLG:
         DEFB    $00                      ; $0B68
 ; [RE] FRMEVL operand text-pointer scratch (general TEMP): the precedence loop saves/reloads the current (HL) here ($3A85/$3A88) across operator recursion. The same cell is reused by FOUT to record the decimal-point buffer position during numeric formatting.
@@ -624,18 +624,18 @@ STKFRAME_SCAN_4:
         ADD HL,BC                        ; $0D25  09
         JR STKFRAME_SCAN                 ; $0D26  18 D9
         DEFB    $01,$22,$0E,$C3,$A1,$0D  ; $0D28
-; [RE] CONT command: if saved resume ptr $0844 is -1 (no CONTinue context) or trace flag $0B68 set, raise error E=$13 ('Can't continue'); else JP $6969 to resume.
-CONT_CMD:
+; [RE] PROGRAM_END: reached from NEWSTT (JP Z) when a line link is $0000 -- execution ran off the end of the program. If SAVTXT is $FFFF (direct mode), fall through to the ready/Ok-prompt return; otherwise, if an error handler is active (ONEFLG set) it ran off the end without RESUME, so raise 'No RESUME' (ERR_NO_RESUME). The CONT command and its 'Can't continue' error live in STMT_CONT, not here.
+PROGRAM_END:
         LD HL,(SAVTXT)                   ; $0D2E  2A 44 08
         LD A,H                           ; $0D31  7C
         AND L                            ; $0D32  A5
         INC A                            ; $0D33  3C
-        JR Z,CONT_CMD_1                  ; $0D34  28 08
+        JR Z,PROGRAM_END_1               ; $0D34  28 08
         LD A,(ONEFLG)                    ; $0D36  3A 68 0B
         OR A                             ; $0D39  B7
-        LD E,$13                         ; $0D3A  1E 13
+        LD E,ERR_NO_RESUME               ; $0D3A  1E 13
         JR NZ,RAISE_ERROR                ; $0D3C  20 4B
-CONT_CMD_1:
+PROGRAM_END_1:
         JP RESUME_AT_DIRECT              ; $0D3E  C3 69 69
 ; Named-error entry stubs: each loads an error code into E (LD E,ERR_* via the $1E opcode of the next LD BC) then falls through to RAISE_ERROR. Overlapping table of error vectors -- code JPs to a specific entry to raise that error.
 RAISE_DISK_FULL:
@@ -1495,7 +1495,7 @@ CRUNCH_EMIT:
         OR B                             ; $3238  B0
         RET NZ                           ; $3239  C0
 CRUNCH_EMIT_1:
-        LD E,$17                         ; $323A  1E 17
+        LD E,ERR_LINE_BUFFER_OVERFLOW    ; $323A  1E 17
         JP RAISE_ERROR                   ; $323C  C3 89 0D
 CRUNCH_EMIT_2:
         POP HL                           ; $323F  E1
@@ -1695,7 +1695,7 @@ NEWSTT_NEXTLINE:
         LD A,(HL)                        ; $3385  7E
         INC HL                           ; $3386  23
         OR (HL)                          ; $3387  B6
-        JP Z,CONT_CMD                    ; $3388  CA 2E 0D
+        JP Z,PROGRAM_END                 ; $3388  CA 2E 0D
         INC HL                           ; $338B  23
         LD E,(HL)                        ; $338C  5E
         INC HL                           ; $338D  23
@@ -1919,7 +1919,7 @@ GETINT_POSITIVE:
         RET P                            ; $34CF  F0
 ; [RE] 'Illegal function call' (FC, error $05) trap: LD E,$05; JP RAISE_ERROR. Common target of the range/argument guards throughout the interpreter.
 ERROR_FC:
-        LD E,$05                         ; $34D0  1E 05
+        LD E,ERR_ILLEGAL_FUNCTION_CALL   ; $34D0  1E 05
         JP RAISE_ERROR                   ; $34D2  C3 89 0D
 ; [RE] LINGET entry handling the '.' shortcut: if current char is '.' ($2E) substitute the current line number from $0B62 and CHRGET past it; otherwise fall into LINGET to parse an explicit decimal line number into DE.
 LINGET_DOT:
@@ -2031,7 +2031,7 @@ STMT_GOTO_1:
         RET                              ; $3575  C9
 ; [RE] 'Undefined line number' (error $08) trap: LD E,$08; JP RAISE_ERROR. Reached when FNDLIN cannot locate a target line (GOTO/GOSUB/ON/RESUME).
 ERROR_UL:
-        LD E,$08                         ; $3576  1E 08
+        LD E,ERR_UNDEFINED_LINE_NUMBER   ; $3576  1E 08
         JP RAISE_ERROR                   ; $3578  C3 89 0D
 ; [RE] POP statement handler (token $AE): discard the top GOSUB return frame.
 STMT_POP:
@@ -2057,7 +2057,7 @@ STMT_RETURN:
         LD (SAVSTK),HL                   ; $35A0  22 5E 0B
         CP $8D                           ; $35A3  FE 8D
 STMT_RETURN_1:
-        LD E,$03                         ; $35A5  1E 03
+        LD E,ERR_RETURN_WITHOUT_GOSUB    ; $35A5  1E 03
         JP NZ,RAISE_ERROR                ; $35A7  C2 89 0D
         POP HL                           ; $35AA  E1
         LD (SAVTXT),HL                   ; $35AB  22 44 08
@@ -2783,7 +2783,7 @@ STMT_READ_11:
         LD A,(HL)                        ; $3A4F  7E
         INC HL                           ; $3A50  23
         OR (HL)                          ; $3A51  B6
-        LD E,$04                         ; $3A52  1E 04
+        LD E,ERR_OUT_OF_DATA             ; $3A52  1E 04
         JP Z,RAISE_ERROR                 ; $3A54  CA 89 0D
         INC HL                           ; $3A57  23
         LD E,(HL)                        ; $3A58  5E
@@ -3728,7 +3728,7 @@ CHECK_MEM_TOP:
         OR L                             ; $401E  B5
         POP HL                           ; $401F  E1
         RET NZ                           ; $4020  C0
-        LD E,$0C                         ; $4021  1E 0C
+        LD E,ERR_ILLEGAL_DIRECT          ; $4021  1E 0C
         JP RAISE_ERROR                   ; $4023  C3 89 0D
 ; [RE] Fetch and validate a variable-name token after SYNCHR: requires an alphabetic first char (JP PO on letter test), records the name in $0B52, then resolves it via PTRGET (SUB_5F30_2).
 GETVAR_NAME:
@@ -9555,7 +9555,7 @@ PTRGET_SEARCH_27:
         SUB (HL)                         ; $6168  96
         JP Z,PTRGET_SEARCH_35            ; $6169  CA EB 61
 PTRGET_SEARCH_28:
-        LD DE,$0009                      ; $616C  11 09 00
+        LD DE,ERR_SUBSCRIPT_OUT_OF_RANGE ; $616C  11 09 00
         JP RAISE_ERROR                   ; $616F  C3 89 0D
 PTRGET_SEARCH_29:
         INC HL                           ; $6172  23
@@ -10792,7 +10792,7 @@ CHECK_STACK_ROOM_1:
         DEC HL                           ; $683A  2B
         LD (SAVSTK),HL                   ; $683B  22 5E 0B
 CHECK_STACK_ROOM_2:
-        LD DE,$0007                      ; $683E  11 07 00
+        LD DE,ERR_OUT_OF_MEMORY          ; $683E  11 07 00
         JP RAISE_ERROR                   ; $6841  C3 89 0D
 ; [RE] String free/space guard: if the requested string allocation would collide with the variable space, trigger garbage collection (SUB_6C82) and retry; if still no room raise 'Out of string space' (E=$07/$0E) via RAISE_ERROR.
 GC_CHECK_AND_COLLECT:
@@ -11044,7 +11044,7 @@ STMT_CONT:
         LD HL,(CONT_TXTPTR)              ; $69AB  2A 6D 0B
         LD A,H                           ; $69AE  7C
         OR L                             ; $69AF  B5
-        LD DE,$0011                      ; $69B0  11 11 00
+        LD DE,ERR_CANT_CONTINUE          ; $69B0  11 11 00
         JP Z,RAISE_ERROR                 ; $69B3  CA 89 0D
         EX DE,HL                         ; $69B6  EB
         LD HL,(SAVED_ERR_TXTPTR)         ; $69B7  2A 6B 0B
@@ -11492,7 +11492,7 @@ PUT_STR_TEMP_1:
         POP HL                           ; $6C36  E1
         LD A,(HL)                        ; $6C37  7E
         RET NZ                           ; $6C38  C0
-        LD DE,$0010                      ; $6C39  11 10 00
+        LD DE,ERR_STRING_FORMULA_TOO_COMPLEX  ; $6C39  11 10 00
         JP RAISE_ERROR                   ; $6C3C  C3 89 0D
 PUT_STR_TEMP_2:
         INC HL                           ; $6C3F  23
@@ -11542,7 +11542,7 @@ GETSPA_2:
         RET                              ; $6C74  C9
 GETSPA_3:
         POP AF                           ; $6C75  F1
-        LD DE,$000E                      ; $6C76  11 0E 00
+        LD DE,ERR_OUT_OF_STRING_SPACE    ; $6C76  11 0E 00
         JP Z,RAISE_ERROR                 ; $6C79  CA 89 0D
         CP A                             ; $6C7C  BF
         PUSH AF                          ; $6C7D  F5
@@ -11730,7 +11730,7 @@ STR_CONCAT:
         LD HL,($0CB1)                    ; $6D7F  2A B1 0C
         PUSH HL                          ; $6D82  E5
         ADD A,(HL)                       ; $6D83  86
-        LD DE,$000F                      ; $6D84  11 0F 00
+        LD DE,ERR_STRING_TOO_LONG        ; $6D84  11 0F 00
         JP C,RAISE_ERROR                 ; $6D87  DA 89 0D
         CALL ALLOC_STR_A                 ; $6D8A  CD DC 6B
         POP DE                           ; $6D8D  D1
@@ -12582,7 +12582,7 @@ WHILE_FIND_FRAME_3:
         JR WHILE_FIND_FRAME_1            ; $7228  18 DC
 ; [RE] WEND without matching WHILE: raise coded error $1E ('WEND without WHILE') via the error dispatcher at RAISE_ERROR.
 WEND_NO_WHILE_ERR:
-        LD DE,$001E                      ; $722A  11 1E 00
+        LD DE,ERR_WEND_WITHOUT_WHILE     ; $722A  11 1E 00
         JP RAISE_ERROR                   ; $722D  C3 89 0D
 ; [RE] CALL statement handler (token $B1): call an external machine-code routine.
 STMT_CALL:
@@ -13569,7 +13569,7 @@ DIRECT_STMT_EXEC:
         LD HL,(PTRFIL)                   ; $7853  2A 40 08
         LD A,H                           ; $7856  7C
         OR L                             ; $7857  B5
-        LD DE,$0042                      ; $7858  11 42 00
+        LD DE,ERR_DIRECT_STATEMENT_IN_FILE  ; $7858  11 42 00
         JP NZ,RAISE_ERROR                ; $785B  C2 89 0D
         POP HL                           ; $785E  E1
         JP NEWSTT_NEXTLINE_2             ; $785F  C3 A9 33
