@@ -9,9 +9,9 @@ from pathlib import Path
 from cpm_pipeline.filesystem import read_disk, extract_file
 from cpm_pipeline import reference_data as rd
 from cpm_pipeline.basic._paths import asm_path, overlay_path, seeds_path, load_token_names
-from cpm_pipeline.basic import reswords
+from cpm_pipeline.basic import reswords, lowtables
 from cpm_pipeline.basic.recover import recover_code
-from cpm_pipeline.basic.fixed_sites import fixed_operand_sites
+from cpm_pipeline.basic.fixed_sites import fixed_operand_sites, cover_idiom_sites
 from disasm_z80.walker import Walker
 from disasm_z80.formatter import SjasmFormatter
 from cpm_pipeline.region_disasm import (seed_leading_jp_vector,
@@ -111,15 +111,22 @@ def main():
     w.add_label(reswords.INDEX_ADDR)   # split the data run at the reserved-word table
     w.name_labels()
 
-    _, keep_literal = fixed_operand_sites()   # fixed operands -> keep literal (see gen_gbasic)
+    _, fixed = fixed_operand_sites()          # fixed operands -> keep literal (see gen_gbasic)
+    keep_literal = (fixed | cover_idiom_sites(mem, w.code, LOAD, end)      # coded-constant covers
+                    | lowtables.literal_sites(mem, w.code, LOAD, end))     # + mid-pointer constants
     fmt = SjasmFormatter(mem, w, origin=LOAD, length=len(com),
                          source_name="MBASIC", pointer_words=ptrs, relocatable=False,
                          inline_token_names=load_token_names(), keep_literal=keep_literal)
     fmt._harvest_data_labels()
     fmt._prepare_overlap_labels()
     body, _, _ = fmt._emit_body()
-    # Decompose the reserved-word / token table ($021E-$04EC) into structured form.
+    # Decompose the reserved-word / token table ($021E-$04EC) into structured form,
+    # then rewrite every code reference INTO that table (a machine label minted at a
+    # table-interior address) to its structured label+offset -- the table is
+    # relocatable image data, so references resolve to labels, not frozen literals.
     body = reswords.splice_table_into(body, com)
+    body = reswords.apply_reference_renames(body, com)
+    body = lowtables.apply(body)               # dispatch/operator table refs -> base+offset
 
     out = []
     out.append("; MBASIC.COM -- Microsoft BASIC-80 Rev 5.2 interpreter (graphics OFF), SoftCard CP/M 2.20 (44K).")
@@ -138,6 +145,8 @@ def main():
     out.extend(body)
     out.append("")
     out.append('    SAVEBIN "MBASIC.bin", $0100, $%04X' % len(com))
+    from cpm_pipeline.basic.postpass import drop_orphan_labels
+    out = drop_orphan_labels(out)              # strip stranded harvest labels
     asm_path("MBASIC").write_text("\n".join(out) + "\n", encoding="latin-1")
     print("wrote MBASIC.asm", len(out), "lines; dispatch seeds:", len(dispatch))
 

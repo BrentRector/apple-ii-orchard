@@ -23,9 +23,9 @@ from pathlib import Path
 from cpm_pipeline.filesystem import read_disk, extract_file
 from cpm_pipeline import reference_data as rd
 from cpm_pipeline.basic._paths import asm_path, overlay_path, seeds_path, load_token_names
-from cpm_pipeline.basic import reswords
+from cpm_pipeline.basic import reswords, lowtables
 from cpm_pipeline.basic.recover import recover_code
-from cpm_pipeline.basic.fixed_sites import fixed_operand_sites
+from cpm_pipeline.basic.fixed_sites import fixed_operand_sites, cover_idiom_sites
 
 from disasm_z80.walker import Walker
 from disasm_z80.formatter import SjasmFormatter
@@ -115,6 +115,8 @@ def main():
     # Render the high-bit SYNCHR inline bytes (keyword tokens) as their EQU names.
     TOKENS = load_token_names()
 
+    from disasm_z80.opcodes import decode_at
+
     hdr_mem = bytearray(0x10000)
     hdr_mem[LOAD:LOAD + hdr_len] = com[:hdr_len]
     hwalk = Walker(hdr_mem, start=LOAD, end=LOAD + hdr_len)
@@ -129,7 +131,9 @@ def main():
         hwalk.add_label(s)
     hwalk.add_label(reswords.INDEX_ADDR)   # split the data run at the reserved-word
                                            # table so it can be spliced out cleanly
-    hwalk.name_labels()
+    # NOTE: hwalk.name_labels()/emit are DEFERRED to after the body walker, so the
+    # body's references INTO the low region can mint header labels (see harvest below).
+
     # The interpreter's dispatch tables (statement $0108 x85, function $01B2 x54,
     # operator cluster $04F9 x20) are DEFW pointer tables read by computed jumps; render
     # them as DEFW <label> so the (body-relocated) targets relocate, not frozen DEFB.
@@ -143,15 +147,6 @@ def main():
             t = com[base - LOAD + 2 * i] | (com[base - LOAD + 2 * i + 1] << 8)
             if RUN <= t < RUN + (len(com) - (RELOC_SRC_START - LOAD)):
                 dispatch_targets.add(t)
-    hdr_fmt = SjasmFormatter(hdr_mem, hwalk, origin=LOAD, length=hdr_len,
-                             source_name="GBASIC", relocatable=False,
-                             inline_token_names=TOKENS, pointer_words=dispatch_ptrs)
-    hdr_fmt._harvest_data_labels()
-    hdr_fmt._prepare_overlap_labels()
-    hdr_lines, _, _ = hdr_fmt._emit_body()
-    # Decompose the reserved-word / token table ($021E-$04EC) into its structured
-    # form (index -> DEFW group labels, name entries + TOK_ tokens, operator pairs).
-    hdr_lines = reswords.splice_table_into(hdr_lines, com)
 
     # ---- BODY: its own image+walker at run $3000 ----------------------------
     # Statement/function handlers are reached only through the dispatch ADDRESS
@@ -210,12 +205,70 @@ def main():
     # dead .COM padding) so the $1000 relocator's bounds derive from it, not literals.
     bwalk.add_label(0x8483)
     bwalk.name_labels()
+
+    # The body ($3000+) references INTO the low-region TABLES ($0103-$083F): the
+    # statement/function dispatch tables, the reserved-word table, the operator tables
+    # and the error-message strings. That image data is conceptually relocatable (it only
+    # keeps the same address in both builds because the loader does not relocate it), so
+    # each reference must be a LABEL, not a frozen literal. The header and body are decoded
+    # by SEPARATE walkers, so harvest every body operand that targets the table region and
+    # mint a HEADER label there; the body reference then resolves to that label. (The RAM
+    # WORKSPACE above $0840 -- SAVTXT, KBUF, the FAC, the flag cells -- is named where it
+    # is referenced, not blanket-labeled here.)
+    import re as _reh
+    # $0103-$081E: statement/function dispatch, reserved-word table, operator tables,
+    # and the error-message strings (all read-only image data). $081F+ is the $D034
+    # vector table and then the RAM workspace (SAVTXT/FAC/flags) -- named where used,
+    # not blanket-labeled here.
+    TABLE_LO, TABLE_HI = 0x0103, 0x081F
+    cover_lo = cover_idiom_sites(body_mem, bwalk.code, RUN, RUN + body_len)
+    for a in sorted(bwalk.code):
+        if a in cover_lo:                       # a coded-constant cover -> not an address
+            continue
+        try:
+            ins = decode_at(body_mem, a)
+        except (IndexError, KeyError):
+            continue
+        for m in _reh.finditer(r"\$([0-9A-Fa-f]{4})", ins.mnemonic):
+            v = int(m.group(1), 16)
+            # mid-DEFW-pointer addresses are constants (labeling would split a
+            # relocatable dispatch pointer), so don't mint a label for them.
+            if TABLE_LO <= v < TABLE_HI and not lowtables.is_mid_pointer(v):
+                hwalk.add_label(v)
+
+    # ---- finalize HEADER now that body->low references are known -------------
+    hwalk.name_labels()
+    hdr_fmt = SjasmFormatter(hdr_mem, hwalk, origin=LOAD, length=hdr_len,
+                             source_name="GBASIC", relocatable=False,
+                             inline_token_names=TOKENS, pointer_words=dispatch_ptrs,
+                             keep_literal=(cover_idiom_sites(hdr_mem, hwalk.code, LOAD, LOAD + hdr_len)
+                                           | lowtables.literal_sites(hdr_mem, hwalk.code, LOAD, LOAD + hdr_len)))
+    hdr_fmt._harvest_data_labels()
+    hdr_fmt._prepare_overlap_labels()
+    hdr_lines, _, _ = hdr_fmt._emit_body()
+    # Decompose the reserved-word / token table ($021E-$04EC) into its structured form,
+    # then rewrite references INTO it (machine labels minted at table-interior addresses)
+    # to the structured label+offset.
+    hdr_lines = reswords.splice_table_into(hdr_lines, com)
+    hdr_lines = reswords.apply_reference_renames(hdr_lines, com)
+    hdr_lines = lowtables.apply(hdr_lines)     # name dispatch/operator table bases+entries
+
+    # Inject the header's low-region labels into the body walker's label set so the body
+    # formatter renders body->low references as that label (relocatable), not a literal.
+    # (Out of the body's $3000+ range, so no body label DEFINITION is emitted; the header
+    # owns the definition.) The machine names rename consistently in both via apply_naming.
+    for a, n in hwalk.labels.items():
+        if n and a < RELOC_SRC_START and a not in bwalk.labels:
+            bwalk.labels[a] = n
+
     # relocatable=False (the utility norm): label real control-flow/data targets but
     # leave in-range IMMEDIATE constants (e.g. LD BC,$3028 = graphics coords 48,40) as
     # literals instead of mislabelling them as the routine that happens to sit there.
     # Keep fixed operands (identical in both builds -> RAM/stack address or constant)
     # literal, so a coincidental body label isn't substituted and wrongly relocated.
-    keep_literal, _ = fixed_operand_sites()
+    fixed, _ = fixed_operand_sites()
+    keep_literal = (fixed | cover_idiom_sites(body_mem, bwalk.code, RUN, RUN + body_len)
+                    | lowtables.literal_sites(body_mem, bwalk.code, RUN, RUN + body_len))
     body_fmt = SjasmFormatter(body_mem, bwalk, origin=RUN, length=body_len,
                               source_name="GBASIC", pointer_words=body_ptrs,
                               relocatable=False, inline_token_names=TOKENS,
@@ -223,6 +276,12 @@ def main():
     body_fmt._harvest_data_labels()
     body_fmt._prepare_overlap_labels()
     body_lines, _, _ = body_fmt._emit_body()
+    # Body references INTO the reserved-word table (injected as machine labels L_xxxx
+    # from the header) must use the structured label (RESWORD_INDEX / KWGRP_x+n /
+    # RESWORD_OPS) the table actually defines -- the L_xxxx defs were dropped by the
+    # splice, so an unrewritten reference would dangle to $0000.
+    body_lines = reswords.apply_reference_renames(body_lines, com)
+    body_lines = lowtables.apply(body_lines)   # dispatch/operator table refs -> base+offset
 
     # Cross-region relocatability: header ($0100-$100D) and body ($3000+) are decoded
     # by SEPARATE walkers, so each region's control-flow operands into the OTHER region
@@ -309,6 +368,8 @@ def main():
     out.append("    ENT")
     out.append("")
     out.append('    SAVEBIN "GBASIC.bin", $0100, $6400')
+    from cpm_pipeline.basic.postpass import drop_orphan_labels
+    out = drop_orphan_labels(out)              # strip stranded harvest labels
     dest = asm_path("GBASIC")
     dest.write_text("\n".join(out) + "\n", encoding="latin-1")
     print("wrote", dest, len(out), "lines")

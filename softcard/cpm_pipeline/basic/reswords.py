@@ -150,17 +150,58 @@ def emit_table_lines(com):
     return L
 
 
+def structured_labels(com):
+    """{addr: structured-label-name} for the table's own labels: RESWORD_INDEX
+    ($021E), each KWGRP_<letter> group start, RESWORD_OPS ($04D8)."""
+    _, groups, _ = decode(com)
+    out = {INDEX_ADDR: "RESWORD_INDEX", OPS_ADDR: "RESWORD_OPS"}
+    for i, (_letter, start, _entries) in enumerate(groups):
+        out[start] = f"KWGRP_{chr(65 + i)}"
+    return out
+
+
+def reference_renames(com, start=INDEX_ADDR, end=TABLE_END):
+    """{f'L_{addr:04X}': 'KWGRP_x[+n]' / 'RESWORD_INDEX[+n]' / 'RESWORD_OPS[+n]'}
+    for every address in the table region.  A code reference INTO the reserved-word
+    table (a machine label L_xxxx minted at a table-interior address -- the table is
+    relocatable image data, so the reference must be a label) is rewritten to the
+    structured label it points into, plus a byte offset.  Applied to ALL emitted
+    lines so both the header and body references resolve, in both BASICs."""
+    struct = structured_labels(com)
+    out = {}
+    for a in range(start, end):
+        encl = max(s for s in struct if s <= a)
+        out[f"L_{a:04X}"] = struct[encl] if encl == a else f"{struct[encl]}+{a - encl}"
+    return out
+
+
+def apply_reference_renames(lines, com, start=INDEX_ADDR, end=TABLE_END):
+    """Rewrite every machine-label reference into the reserved-word table (L_xxxx,
+    minted at a table-interior address) to its structured label+offset, in the code
+    part of each line only (never the `; $XXXX` byte-comment). Byte-identical."""
+    import re
+    ren = reference_renames(com, start, end)
+    if not ren:
+        return list(lines)
+    pat = re.compile(r'\b(' + '|'.join(re.escape(k) for k in
+                     sorted(ren, key=len, reverse=True)) + r')\b')
+    out = []
+    for ln in lines:
+        code, sep, rest = ln.partition(';')
+        out.append(pat.sub(lambda m: ren[m.group(1)], code) + sep + rest)
+    return out
+
+
 def splice_table_into(lines, com, start=INDEX_ADDR, end=TABLE_END):
     """Replace the formatter's DEFB lines covering [start, end) with the structured
     reserved-word table. The caller must have split the data run at `start` (e.g.
     `walker.add_label(start)`) so no line straddles the boundary.
 
-    A single-walker decode (MBASIC) labels every code-referenced table address
-    (L_04D8, L_021E, ...); removing the data drops those label definitions. So any
-    label that sat on a removed line is re-emitted as an `EQU $addr` alias -- the
-    table lives in the fixed low region (same address in both builds), so the
-    reference resolving to a literal is byte-identical and fold-safe. A split-walker
-    decode (GBASIC) references the table with literals, so there are no aliases."""
+    Labels that sat on a removed (in-range) line are simply DROPPED here: the
+    reserved-word table is relocatable image data, so every code reference into it
+    must resolve to a structured label -- the caller applies `reference_renames`
+    (L_xxxx -> KWGRP_x+n / RESWORD_INDEX+n / RESWORD_OPS+n) over all emitted lines,
+    so no EQU alias to a frozen literal is needed (or wanted)."""
     import re
     new = emit_table_lines(com)
 
@@ -170,24 +211,8 @@ def splice_table_into(lines, com, start=INDEX_ADDR, end=TABLE_END):
 
     is_label = re.compile(r'^([A-Za-z_]\w*):\s*$')
 
-    # pass 1: collect labels sitting on a removed (in-range) line -> EQU aliases
-    aliases = []
-    pend = []
-    for ln in lines:
-        m = is_label.match(ln)
-        a = addr(ln)
-        if m and a is None:
-            pend.append(m.group(1)); continue
-        if a is not None and start <= a < end:
-            aliases += [(lab, a) for lab in pend]
-        pend = []
-    block = list(new)
-    if aliases:
-        eqs = ["; -- reserved-word table reference aliases (fixed low-region addresses) --"]
-        eqs += [f"{lab:<20} EQU ${a:04X}" for lab, a in aliases]
-        block = eqs + [""] + block
-
-    # pass 2: splice the block in place of the [start, end) lines
+    # splice the structured block in place of the [start, end) lines; in-range label
+    # definitions are dropped (references are rewritten to structured labels instead).
     out = []
     done = False
     pend = []
@@ -197,9 +222,9 @@ def splice_table_into(lines, com, start=INDEX_ADDR, end=TABLE_END):
         if m and a is None:
             pend.append(ln); continue
         if a is not None and start <= a < end:
-            pend = []                          # labels handled as aliases above
+            pend = []                          # drop in-range label defs
             if not done:
-                out.extend(block); done = True
+                out.extend(new); done = True
             continue
         out.extend(pend); pend = []
         out.append(ln)

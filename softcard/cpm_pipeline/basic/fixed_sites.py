@@ -18,6 +18,28 @@ from pathlib import Path
 
 _HEX = re.compile(r'\$([0-9A-Fa-f]{4})')
 
+# Register-load immediate opcodes (LD r,n). When one of these is the LOW byte of an
+# `LD BC,$xxNN` operand, the instruction is a coded-constant COVER: a computed jump
+# enters at its middle byte (the $NN) so `LD r,$xx` loads a type/error code -- the
+# operand $xxNN is NOT an address (the high byte is the code), so it must stay a
+# literal, never be mislabeled as the table/string its value happens to point at.
+_LOAD_OPS = {0x06, 0x0E, 0x16, 0x1E, 0x26, 0x2E, 0x3E}
+
+
+def cover_idiom_sites(mem, code, lo, hi):
+    """Return the set of `LD BC,$xxNN` cover-idiom instruction addresses in [lo, hi)
+    (NN a register-load opcode, NOT followed by PUSH BC). Their operand is a coded
+    constant (high byte = value, low byte = the mid-instruction LD r,n entry), so the
+    formatter must keep it literal. A genuine computed call (`LD BC,addr; PUSH BC`)
+    is excluded -- there BC really is an address."""
+    sites = set()
+    for a in code:
+        if not (lo <= a < hi) or mem[a] != 0x01:        # LD BC,nn
+            continue
+        if mem[a + 1] in _LOAD_OPS and mem[a + 3] != 0xC5:   # not PUSH BC
+            sites.add(a)
+    return sites
+
 
 def _gmap(g, m, gmem, mmem):
     anchors = [(0x81D3, 0x5E51)]
