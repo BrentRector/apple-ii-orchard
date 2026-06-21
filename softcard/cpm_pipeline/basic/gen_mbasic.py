@@ -65,6 +65,12 @@ def main():
     # it; declare it as an inline-byte call so that byte is data (a char constant),
     # not a mis-decoded opcode that cascades. Address resolved from the overlay.
     w.inline_byte_calls = {synchr_addr(OVERLAY): 1}
+    # The reserved-word NAME table ($0252-$04D7, last char high-bit set) + the
+    # operator sub-table ($04D8-$04EC, char/token pairs) are pure DATA. GBASIC
+    # leaves them as data (the header walker only traces the entry); MBASIC's single
+    # whole-file walker otherwise wandered in and decoded the keyword strings as
+    # bogus code (LD B,C / ADC A,$DE / ...). Pin the table as data so it stays DEFB.
+    w.add_data_region(0x0252, 0x04ED)
     entry_pts = {LOAD, COLD} | dispatch | (mapped & set(range(LOAD, end)))
     for s in entry_pts:
         w.call_targets.add(s)
