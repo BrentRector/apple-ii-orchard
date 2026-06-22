@@ -120,6 +120,7 @@ def _addr(ln):
 # so every reference resolves to a REAL relocatable label instead of a `<cover>+1` literal --
 # exactly how the error stubs name RAISE_* rather than `<cover>+1`. Byte-identical.
 _LDRN_LINE = re.compile(r'^(\s*)LD ([ABCDEHL]),\$([0-9A-Fa-f]{2})\b')
+_SELFMOD_CALL_LINE = re.compile(r'^(\s*)(CALL|JP)\s+\$0000\b')   # self-modified dynamic-call vector
 _LABEL_ONLY = re.compile(r'^[A-Za-z_]\w*:\s*$')
 
 
@@ -165,6 +166,24 @@ def find_ld_cover_overlaps(lines, com, referenced, load=0x0100):
             out.append(f"{ename}:")
             out.append(f"{ind}{ei.mnemonic:<32} ; ${entry:04X}  {com[entry - load]:02X}  the LD "
                        f"operand byte, entered here as an opcode (coded overlap)")
+            rewrites[f"${entry:04X}"] = ename
+            continue
+        mc = _SELFMOD_CALL_LINE.match(ln)
+        if mc and a is not None and (a + 1) in referenced:
+            # Self-modified dynamic call: CALL/JP $0000 whose 2-byte target word is patched at
+            # runtime (LD (entry),HL). The operand word is a DATA cell, so split into the opcode
+            # cover + a clean-labeled DEFW so the patcher's `(entry)` operand relocates. Byte-id.
+            entry = a + 1
+            ename = f"L_{entry:04X}"
+            ind = mc.group(1)
+            if pend is not None:
+                out.append(pend)
+                pend = None
+            out.append(f"{ind}DEFB    ${com[a - load]:02X}{'':<22} ; ${a:04X}  {mc.group(2)} opcode -- "
+                       f"dynamic-call target self-modified at runtime (patched via LD (next),HL)")
+            out.append(f"{ename}:")
+            out.append(f"{ind}DEFW    $0000{'':<26} ; ${entry:04X}  the patched {mc.group(2)} target "
+                       f"(init $0000)")
             rewrites[f"${entry:04X}"] = ename
             continue
         if pend is not None:

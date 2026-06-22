@@ -114,6 +114,29 @@ _PATCHES = [
      '        DEFB    "Graphics statement not implemented",$00  ; MBASIC $0705  ERR_GRAPHICS_STATEMENT_NOT_IMPLEMENTED = 32 (graphics-OFF marker; absent in GBASIC)\n'
      '    ENDIF\n'
      '        DEFB    "FIELD overflow",$00     ; $0705  ERR_FIELD_OVERFLOW = 50'),
+    # 10) ERROR_REPORT_BODY message-index clamp. The same code-32 graphics-message slot that
+    #     shifts the low image (patch 9) also shifts the disk-error message-index boundaries by
+    #     one, so three immediates differ between builds. They are not contiguous (a JR C and two
+    #     labels sit between them), so each immediate is conditionalised on its own. Anchored on
+    #     the unique byte-address comments; the surrounding labels/branches stay shared.
+    ("        CP $20                           ; $0DEB  FE 20",
+     "    IFDEF GBASIC\n"
+     "        CP $20                           ; $0DEB  FE 20  (printable-range upper bound)\n"
+     "    ELSE\n"
+     "        CP $21                           ;        MBASIC: +1, the code-32 graphics slot\n"
+     "    ENDIF"),
+    ("        LD A,$27                         ; $0DEF  3E 27",
+     "    IFDEF GBASIC\n"
+     "        LD A,$27                         ; $0DEF  3E 27  (clamp index for codes >= $20)\n"
+     "    ELSE\n"
+     "        LD A,$26                         ;        MBASIC: -1 (one more printable slot)\n"
+     "    ENDIF"),
+    ("        SUB $12                          ; $0DF1  D6 12",
+     "    IFDEF GBASIC\n"
+     "        SUB $12                          ; $0DF1  D6 12  (disk-code -> message-index bias)\n"
+     "    ELSE\n"
+     "        SUB $11                          ;        MBASIC: -1, the code-32 graphics slot\n"
+     "    ENDIF"),
 ]
 
 

@@ -200,6 +200,10 @@ def main():
     AUDIT_DATA = [
         (0x38B7, 0x38CA),   # "?Redo from start\r\n\0" (the INPUT 'Redo from start' prompt)
         (0x448B, 0x44B2),   # "Random number seed (-32768- to 32767)\0" (RANDOMIZE prompt)
+        (0x4709, 0x4722),   # STMT_BEEP inline 6502 RPC block (AD 30 C0 = LDA $C030 speaker-click...
+                            #   ...JSR $FF57...$60 RTS): opaque 6502 bytes from the Z80 view, byte-
+                            #   identical in both .COMs; the disassembler mis-typed 3 words as DEFW
+                            #   Z80 pointers (CRUNCH_9/GFX_PARSE_TWO_BYTES/PTRGET_SEARCH_18).
         (0x47DA, 0x47E6),   # graphics state/variable block (HPLOT coordinate save cells)
         (0x4A81, 0x4A91),   # Apple hi-res color/pixel-pattern WORD table
         (0x5E0B, 0x5E34),   # RND-seed init + FP scratch data; the fold audit showed both decoders
