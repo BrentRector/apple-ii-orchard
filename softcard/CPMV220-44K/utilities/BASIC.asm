@@ -2984,7 +2984,7 @@ CHRGOT_11:
 ;   In:        CONST_TOKEN ($0B19) = the constant-form token the scanner last saw ($0B-$1F, excluding $10/$1E); CONST_VALUE ($0B1B)/CONST_VALUE_HI ($0B1D) = the staged value bytes (or, for token $0D, a -1-biased pointer to the located BASLINE node); CONST_VALTYP ($0B1A) = the value width (VT_INT/VT_SNG/VT_DBL), consumed only on the binary-copy path.
 ;   Out:       FAC ($0CB1) holds the constant; VALTYP ($0B14) set to its type; character scan resumed at CHRGOT_3 (which reloads CONST_TEXT_RESUME, the text pointer just past the constant).
 ;   Clobbers:  A, HL, DE, VALTYP, FAC cells.
-;   Algorithm: Branch on CONST_TOKEN. Tokens $0D/$0E denote a line number that must become a float: float the 16-bit value through INT_TO_SNG (CHRGOT_CONST_VALUE_1). Token $0E carries the line number directly in CONST_VALUE; token $0D carries the runtime-resolved line-link cache pointer, so the line number is fetched from the located node's BASLINE.LINENUM. All other tokens ($0B octal, $0C hex, $0F/$11-$1A/$1C int, $1D single, $1F double) already hold the value in final binary form and go to CHRGOT_CONST_VALUE_2 to copy the FAC bytes by width. Called by FRMEVL_EVAL_OPERAND ($3BF6, via 'JP C,CHRGOT_CONST_VALUE' at $3C07) to evaluate an in-expression constant, and by the LIST detokenizer (IS_ALNUM_CHAR_1, 'CALL CHRGOT_CONST_VALUE' at $41F3) to recover a constant's value for printing.
+;   Algorithm: Branch on CONST_TOKEN. Tokens $0D/$0E denote a line number that must become a float: float the 16-bit value through INT_TO_SNG (CHRGOT_CONST_VALUE_1). Token $0E carries the line number directly in CONST_VALUE; token $0D carries the runtime-resolved line-link cache pointer, so the line number is fetched from the located node's BASLINE.LINENUM. All other tokens ($0B octal, $0C hex, $0F/$11-$1A/$1C int, $1D single, $1F double) already hold the value in final binary form and go to CHRGOT_CONST_VALUE_2 to copy the FAC bytes by width. Called by FRMEVL_EVAL_OPERAND ($3BF6, via 'JP C,CHRGOT_CONST_VALUE' at $3C07) to evaluate an in-expression constant, and by the LIST detokenizer (CONST_FMT_BEGIN, 'CALL CHRGOT_CONST_VALUE' at $41F3) to recover a constant's value for printing.
 ; ----------------------------------------------------------------------
 CHRGOT_CONST_VALUE:
         ; select the materialize path by the staged constant-form token
@@ -5608,34 +5608,69 @@ CONINT:
         CALL CHRGET
         LD A,E
         RET
-; [RE] LLIST statement handler (token $9C): LIST directed to the line printer (sets printer flag then joins LIST).
+; ----------------------------------------------------------------------
+; STMT_LLIST -- LLIST statement handler (keyword token $9C): list program to the printer.
+;   In:        HL -> program text just past the LLIST token (an optional line range may follow). Top of stack = the statement dispatcher's return address.
+;   Out:       Falls straight into STMT_LIST; never returns here.
+;   Clobbers:  A, PRTFLG.
+;   Algorithm: Sets PRTFLG=1 so OUTCHR routes every emitted character to the printer device, then drops into the shared LIST engine (STMT_LIST). LLIST and LIST are the same code; only the output-channel flag differs.
+; ----------------------------------------------------------------------
 STMT_LLIST:
+        ; select printer output: OUTCHR sends listing characters to the printer when PRTFLG is nonzero
         LD A,$01
         LD (PRTFLG),A
-; [RE] LIST statement handler (token $93): detokenizes program lines to the console (uses the reserved-word table walk at $4178).
+; ----------------------------------------------------------------------
+; STMT_LIST -- LIST statement handler (keyword token $93): detokenize and print program lines.
+;   In:        HL -> text after the LIST token; an optional 'start[-end]' line range may follow. Top of stack = statement-dispatcher return address. PRTFLG/PTRFIL select the output channel (console / printer / open file).
+;   Out:       Does not return to the caller: when the listed range is exhausted it jumps to the READY prompt (NEWSTT_READY / READY_POP_FRAME).
+;   Clobbers:  AF, BC, DE, HL, SAVTXT, ERRLIN; stack rebalanced.
+;   Algorithm: Discards the dispatcher's return address (LIST ends at the prompt, not back at NEWSTT), parses the optional line range with SCAN_LINE_RANGE -- which leaves BC pointing at the first BASLINE node at/after the start line (via FNDLIN) and pushes the end-bound line number. Re-pushes that node pointer, then rejects listing a protected program (ILLEGAL_DIRECT_CHECK raises ERROR_FC when the load-protect flag is set). Also reached by SAVE ",A" (ASCII save) via JP STMT_LIST with file #0 open in PTRFIL, so the same engine writes the detokenized program as text to the file.
+; ----------------------------------------------------------------------
 STMT_LIST:
+        ; discard the dispatcher's return address: LIST (and ASCII SAVE) exit at the READY prompt, never back to the dispatcher (BC is reloaded by SCAN_LINE_RANGE below)
         POP BC
+        ; parse optional 'start[-end]'; returns BC -> first BASLINE node at/after 'start' and pushes the 'end' line number
         CALL SCAN_LINE_RANGE
         PUSH BC
+        ; refuse to list a load-protected program: ILLEGAL_DIRECT_CHECK raises ERROR_FC ('Illegal function call') when the protect flag (L_0C99) is nonzero
         CALL ILLEGAL_DIRECT_CHECK
-STMT_LIST_1:
+; ----------------------------------------------------------------------
+; STMT_LIST_1 -- LIST main loop head: fetch the next program line node and test for end-of-program.
+;   In:        On the stack (top..): current BASLINE node pointer, then the end-bound line number. (First arrival: pushed by STMT_LIST; later arrivals: re-looped from STMT_LIST_3 with the next-node pointer on top.)
+;   Out:       HL -> the node's BASLINE.LINENUM field (node+2), DE = end-bound line number, BC = this node's BASLINE.LINK (pointer to the next node). Falls into STMT_LIST_2. On a $0000 link (past the last line) jumps to NEWSTT_READY.
+;   Clobbers:  AF, BC, DE, HL, SAVTXT.
+;   Algorithm: Stores SAVTXT=$FFFF (the direct-mode sentinel; [RE] this is the standard MS BASIC-80 marker so a CONT after a LIST is rejected), pops the saved node pointer and end-bound, then reads the node's forward link (BASLINE.LINK). A null link ends the program -> return to the READY prompt. Otherwise tests PTRFIL to set Z (Z set when PTRFIL==0, i.e. console / no file open) so STMT_LIST_2 polls the console for a Ctrl-C/Ctrl-S break only when output is the console.
+; ----------------------------------------------------------------------
+STMT_LIST_NEXT_NODE:
+        ; [RE] mark direct mode: SAVTXT=$FFFF, the MS BASIC sentinel so a CONT after a LIST is refused (the routine only writes the cell here; the CONT effect is downstream)
         LD HL,$FFFF
         LD (SAVTXT),HL
         POP HL
         POP DE
+        ; read this node's BASLINE.LINK (pointer to the next line); HL then advances to the BASLINE.LINENUM field
         LD C,(HL)
         INC HL
         LD B,(HL)
         INC HL
         LD A,B
         OR C
+        ; null forward link = end of program: listing complete, return to the READY prompt
         JP Z,NEWSTT_READY
         PUSH HL
+        ; console vs file: Z set here (PTRFIL==0) gates the break-poll below, so ASCII SAVE-to-file (PTRFIL!=0) skips it
         LD HL,(PTRFIL)
         LD A,H
         OR L
         POP HL
-STMT_LIST_2:
+; ----------------------------------------------------------------------
+; STMT_LIST_2 -- emit one program line: range-test, print the line number, then prepare to detokenize.
+;   In:        HL -> the current node's BASLINE.LINENUM field (node+2), BC = next-node link, DE = end-bound line number, Z = console-output flag (from the PTRFIL test in STMT_LIST_1).
+;   Out:       Falls into STMT_LIST_3 with HL -> the line's token bytes. When the line number exceeds the end bound, jumps to READY_POP_FRAME (listing done).
+;   Clobbers:  AF, BC, DE, HL, ERRLIN; stack used for scratch.
+;   Algorithm: When listing to the console it first polls for a pending Ctrl-S pause / Ctrl-C break (RPC_CONST_POLL). It reads the node's BASLINE.LINENUM and compares it against the end bound (CMP_HL_DE computes end - linenum; carry => linenum past the end); once past the end, listing stops. Otherwise it records the line number in ERRLIN (so a break is reported against this line), prints it with FOUT, then peeks the first body byte: a leading TAB character ($09) suppresses the usual separating space, otherwise a space is emitted between the number and the line body.
+; ----------------------------------------------------------------------
+STMT_LIST_EMIT_LINE:
+        ; console only: poll the console for a Ctrl-C break / Ctrl-S pause between lines (skipped when output is a file)
         CALL Z,RPC_CONST_POLL
         PUSH BC
         LD C,(HL)
@@ -5645,32 +5680,55 @@ STMT_LIST_2:
         PUSH BC
         EX (SP),HL
         EX DE,HL
+        ; compare this line's number (DE) against the end bound (HL); carry set when the line number is past the end
         CALL CMP_HL_DE
         POP BC
+        ; line number is beyond the requested end: listing finished, return to READY
         JP C,READY_POP_FRAME
         EX (SP),HL
         PUSH HL
         PUSH BC
         EX DE,HL
+        ; remember the line being listed so a Ctrl-C break reports the correct line number
         LD (ERRLIN),HL
+        ; print the line number (FOUT stores HL into the FAC as an integer, then formats it to ASCII on the output channel)
         CALL FOUT
         POP HL
         LD A,(HL)
+        ; if the line body starts with a literal TAB character ($09), skip the separating space so column alignment is preserved
         CP $09
-        JR Z,STMT_LIST_3
+        JR Z,STMT_LIST_BODY
         LD A,$20
         CALL OUTCHR
-STMT_LIST_3:
+; ----------------------------------------------------------------------
+; STMT_LIST_3 -- detokenize the current line into BUF, print it, and advance to the next line.
+;   In:        HL -> the current line's crunched token bytes; output channel selected by PRTFLG/PTRFIL. Stack holds (top..) the next-node pointer then the end-bound line number.
+;   Out:       Loops back to STMT_LIST_1 for the next line (the next-node pointer and end-bound were preserved on the stack).
+;   Clobbers:  AF, BC, DE, HL, BUF.
+;   Algorithm: Calls DETOKENIZE_LINE to expand the crunched tokens back into ASCII in the line buffer BUF ($0A0E), writes that $00-terminated text with PRINT_ZSTRING, emits a CRLF, then re-enters the loop to list the following line.
+; ----------------------------------------------------------------------
+STMT_LIST_BODY:
+        ; expand the crunched tokens of this line into ASCII text in BUF
         CALL DETOKENIZE_LINE
         LD HL,BUF
+        ; write the detokenized line (the $00-terminated text in BUF) to the output channel
         CALL PRINT_ZSTRING
         CALL CRLF
-        JR STMT_LIST_1
-; [RE] Print a $00-terminated message byte-by-byte through OUTCHR_LF_EXPAND (console out); used by LIST to emit the post-line trailer text at $0A0E.
+        ; advance to the next program line (its pointer is still on the stack)
+        JR STMT_LIST_NEXT_NODE
+; ----------------------------------------------------------------------
+; PRINT_ZSTRING -- write a $00-terminated string to the selected output channel.
+;   In:        HL -> a NUL-terminated byte string (e.g. the detokenized line in BUF). PRTFLG/PTRFIL select console / printer / file.
+;   Out:       HL -> the terminating $00; the string has been emitted. (Empty string returns immediately.)
+;   Clobbers:  AF, HL; OUTCHR may also clobber BC/DE on the file/printer output path.
+;   Algorithm: Loops over the bytes at HL, sending each through OUTCHR_LF_EXPAND (which routes to the active channel and turns a bare LF into CR+LF), stopping at the $00 terminator. General string writer shared by LIST/LLIST/ASCII-SAVE line output and by the line editor (EDIT redisplay, Ctrl-R retype).
+; ----------------------------------------------------------------------
 PRINT_ZSTRING:
         LD A,(HL)
         OR A
+        ; stop at the $00 terminator (also returns immediately on an empty string)
         RET Z
+        ; emit one character on the active channel, expanding a lone LF to CR+LF
         CALL OUTCHR_LF_EXPAND
         INC HL
         JR PRINT_ZSTRING
@@ -5678,254 +5736,575 @@ PRINT_ZSTRING:
 ; ======================================================================
 ; LIST / DETOKENIZER (uncrunch token -> ASCII)
 ; ======================================================================
-; [RE] LIST de-tokenizer: expand a crunched line back to ASCII into a buffer (BC=dest, D=remaining length). Copies literal bytes, and for reserved-word tokens (>= $0B) looks the keyword name up (IS_ALNUM_CHAR) and copies its spelling. Used by LIST and by the sign-on/error formatting. $0C93 tracks inter-token spacing.
+; ----------------------------------------------------------------------
+; DETOKENIZE_LINE -- expand one crunched BASIC line back to ASCII text in BUF (the LIST de-tokenizer).
+;   In:        HL -> the crunched line body (the bytes after the line's LINK+line-number header). The stream is: printable literal bytes ($20-$7F), control literals ($01-$0A), embedded-constant tokens ($0B-$1F = token byte followed by an inline binary value in the stream), reserved-word tokens ($80-$FF, high bit set), and a $00 line terminator.
+;   Out:       BUF ($0A0E) holds the NUL-terminated ASCII spelling of the line; HL advanced to the line's $00 terminator. Returns when the $00 byte is reached or the output-length guard (D) is exhausted.
+;   Clobbers:  A,BC,D,E,HL; output cursor BC walks across BUF; the inter-token spacing state cell L_0C93 is reset to 0.
+;   Algorithm: Set the output cursor BC=BUF, the remaining-length guard D=$FF, clear the spacing-state flag L_0C93, then run ILLEGAL_DIRECT_CHECK. [RE] That guard raises 'Illegal function call' (ERROR_FC) when L_0C99 (LOAD_PROTECT_FLAG, set to $FE when a $FE-protected program was LOADed) is NONZERO -- i.e. it refuses to LIST a protection-loaded program. ILLEGAL_DIRECT_CHECK is a benign subroutine call here (it preserves AF/HL/BC/DE and returns), not the warm-start fall-through that shares its area. Then fall into the per-byte main loop at DETOKENIZE_LINE_2.
+; ----------------------------------------------------------------------
 DETOKENIZE_LINE:
+        ; BC = output cursor into the LIST text buffer (BUF $0A0E)
         LD BC,BUF
+        ; D = remaining-length guard; DEC D / RET Z later stops a runaway expansion
         LD D,$FF
         XOR A
+        ; clear the inter-token spacing state (no pending word boundary)
         LD (L_0C93),A
+        ; [RE] refuse to LIST a protection-loaded program (L_0C99 nonzero -> ERROR_FC)
         CALL ILLEGAL_DIRECT_CHECK
         JR DETOKENIZE_LINE_2
+; ----------------------------------------------------------------------
+; DETOKENIZE_LINE_1 -- advance to the next source byte after emitting one output byte, then re-enter the main loop.
+;   In:        BC = output cursor (just-written byte), HL -> source byte just consumed, D = remaining-length guard.
+;   Out:       BC and HL each incremented; D decremented; on D reaching zero RET (output guard exhausted); otherwise falls into DETOKENIZE_LINE_2 for the next source byte.
+;   Clobbers:  BC,HL,D,flags.
+;   Algorithm: Per-iteration step: bump the output cursor and source pointer, decrement the length guard, and abort the whole expansion if the guard reached zero.
+; ----------------------------------------------------------------------
 DETOKENIZE_LINE_1:
         INC BC
         INC HL
         DEC D
+        ; abort if the output-length guard is exhausted
         RET Z
+; ----------------------------------------------------------------------
+; DETOKENIZE_LINE_2 -- main-loop head: fetch the next crunched byte and classify it as line-end, control literal, embedded constant, or reserved-word/printable.
+;   In:        HL -> next crunched byte, BC = output cursor, D = length guard, L_0C93 = spacing state.
+;   Out:       Dispatches by value: $00 stores the NUL terminator and RETs (line done); $01-$0A control literals go to DETOKENIZE_LINE_3; $0B-$1F embedded-constant tokens (saved in E) go to DETOKENIZE_LINE_4; $20-$FF fall through to DETOKENIZE_LINE_3 (which splits high-bit reserved-word tokens from printable literals).
+;   Clobbers:  A,E,flags; provisionally writes (BC).
+;   Algorithm: Read (HL) and OR A to test for $00, then store it to (BC) BEFORE the RET Z so the $00 terminator lands in BUF for free. CP $0B routes $01-$0A to _3; CP $20 (with E preloaded = byte) routes $0B-$1F to _4; $20-$FF falls into _3.
+; ----------------------------------------------------------------------
 DETOKENIZE_LINE_2:
         LD A,(HL)
         OR A
+        ; stage the byte into BUF before the terminator test (drops the $00 terminator for free)
         LD (BC),A
+        ; $00 ends the crunched line -> BUF is now NUL-terminated, done
         RET Z
         CP $0B
+        ; control literals $01-$0A -> classify/emit via _3
         JR C,DETOKENIZE_LINE_3
         CP $20
         LD E,A
+        ; embedded-constant tokens $0B-$1F (E=token) -> space-aware constant path
         JR C,DETOKENIZE_LINE_4
+; ----------------------------------------------------------------------
+; DETOKENIZE_LINE_3 -- classify a control literal ($01-$0A) or a >= $20 byte into reserved-word token, identifier/'.'/number-start, or plain punctuation.
+;   In:        A = current byte ($01-$0A control, or $20-$FF), HL -> that byte, BC/D/L_0C93 as in the loop.
+;   Out:       High-bit bytes ($80-$FF, reserved-word tokens) jump to DETOKENIZE_LINE_8 (keyword expander). '.' ($2E) and alphanumeric characters take the spacing-aware path DETOKENIZE_LINE_4 with E=byte. All other bytes set A=0 and fall to DETOKENIZE_LINE_6, which commits spacing-state 0 (no separating space) before emitting.
+;   Clobbers:  A,E,flags.
+;   Algorithm: OR A then JP M routes high-bit reserved-word tokens to the table-driven expander. For the rest, reload E=byte and treat '.' and any letter/digit (IS_ALNUM_CHAR returns NC) as a word-forming character that wants inter-token spacing; everything else (operators, separators, quotes, control chars) is non-spacing (A=0) and emitted directly.
+; ----------------------------------------------------------------------
 DETOKENIZE_LINE_3:
         OR A
+        ; high bit set: reserved-word token -> expand its spelling from the keyword table (_8)
         JP M,DETOKENIZE_LINE_8
         LD E,A
+        ; [RE] '.' can begin a numeric literal -> treat as a spacing-relevant word char
         CP $2E
         JR Z,DETOKENIZE_LINE_4
+        ; letters/digits return NC (word-forming) -> spacing path; other bytes return C
         CALL IS_ALNUM_CHAR
         JP NC,DETOKENIZE_LINE_4
+        ; non-word byte: spacing state := 0 (no word boundary), emit via _6
         XOR A
         JR DETOKENIZE_LINE_6
+; ----------------------------------------------------------------------
+; DETOKENIZE_LINE_4 -- emit the optional separating space before a word-forming item (identifier char, '.', digit, or embedded constant).
+;   In:        E = the byte/token to emit next, L_0C93 = spacing state (0 = none pending, $01 = previous emission was a literal word/number, $FF = previous emission was a reserved word), BC/D = output cursor and guard.
+;   Out:       If the previous emission was a reserved word (state $FF), a single space is written to BUF first (and the guard decremented, RET on exhaustion). Then falls into DETOKENIZE_LINE_5, which sets the state to $01 (this emission is a literal word) and proceeds to store the byte.
+;   Clobbers:  A,BC,D,flags; may write one space to (BC).
+;   Algorithm: Inter-token spacing state machine, literal side. A separating space is inserted only at a keyword->word boundary. State 0 (fresh / after punctuation) and state $01 (after another literal word) need no space; INC A turns ONLY the $FF case to zero, so only 'just emitted a reserved word' inserts a space (so 'GOTO100' lists as 'GOTO 100', 'PRINTX' as 'PRINT X').
+; ----------------------------------------------------------------------
 DETOKENIZE_LINE_4:
         LD A,(L_0C93)
         OR A
+        ; spacing state 0: nothing pending, no space needed
         JR Z,DETOKENIZE_LINE_5
+        ; INC A makes only state $FF (after a keyword) become zero -> select the space case
         INC A
+        ; state $01 (after a literal word): adjacent words, no space
         JR NZ,DETOKENIZE_LINE_5
+        ; keyword->word boundary: insert one separating space
         LD A,$20
         LD (BC),A
         INC BC
         DEC D
+        ; stop if emitting the space exhausted the output guard
         RET Z
+; ----------------------------------------------------------------------
+; DETOKENIZE_LINE_5 -- mark the spacing state as 'just emitted a literal word/number' ahead of storing this byte.
+;   In:        (entered after the leading-space decision) E = byte to emit.
+;   Out:       A = $01; falls into DETOKENIZE_LINE_6, which commits the state and dispatches the byte for output.
+;   Clobbers:  A.
+;   Algorithm: Set the spacing-state value to $01 (literal-word side) so that, if the NEXT item is a reserved word, the keyword path will insert a separating space.
+; ----------------------------------------------------------------------
 DETOKENIZE_LINE_5:
         LD A,$01
+; ----------------------------------------------------------------------
+; DETOKENIZE_LINE_6 -- commit the new spacing state, then route the byte in E to a literal store or to the embedded-constant formatter.
+;   In:        A = new spacing-state value (0 from the non-word path in _3, $01 from _5), E = byte/token to emit.
+;   Out:       L_0C93 updated. Control bytes $01-$0A and printable $20-$FF are stored as-is via DETOKENIZE_LINE_7. Embedded-constant tokens $0B-$1F hand off to IS_ALNUM_CHAR_1, the numeric/line-number constant formatter, which renders the inline binary value back to ASCII (and advances HL past it).
+;   Clobbers:  A,flags.
+;   Algorithm: Write the pending spacing state, reload the byte from E, and split on value: a control ($01-$0A) or printable ($20-$FF) literal is emitted verbatim via _7; a $0B-$1F constant token is not a literal char but a marker for an inline binary numeric value, so it is dispatched to the constant formatter.
+; ----------------------------------------------------------------------
 DETOKENIZE_LINE_6:
+        ; commit the inter-token spacing state for the next iteration
         LD (L_0C93),A
         LD A,E
         CP $0B
+        ; $01-$0A control byte: store as a literal
         JR C,DETOKENIZE_LINE_7
         CP $20
-        JP C,IS_ALNUM_CHAR_1
+        ; $0B-$1F: embedded numeric/line-number constant -> reformat its inline binary value to ASCII
+        JP C,CONST_FMT_BEGIN
+; ----------------------------------------------------------------------
+; DETOKENIZE_LINE_7 -- store one literal byte to BUF and loop.
+;   In:        A = literal byte to emit (a $20-$FF printable, or a $01-$0A control), BC = output cursor.
+;   Out:       The byte is written at (BC); control returns to DETOKENIZE_LINE_1 to advance both pointers and continue.
+;   Clobbers:  writes (BC); the pointer/guard advance happens in DETOKENIZE_LINE_1.
+;   Algorithm: Plain copy of a non-token source byte into the output buffer.
+; ----------------------------------------------------------------------
 DETOKENIZE_LINE_7:
+        ; copy the literal byte into BUF
         LD (BC),A
         JR DETOKENIZE_LINE_1
+; ----------------------------------------------------------------------
+; DETOKENIZE_LINE_8 -- normalize a high-bit reserved-word/function token to its 1-byte code
+;   In:        A = the program byte just fetched, with bit 7 set (a token); reached via the caller's `JP M,DETOKENIZE_LINE_8` for ANY token byte (not specifically $FF). HL -> that token byte in the crunched line. BC = output cursor, D = remaining output length.
+;   Out:       A = the resolved 1-byte token code. For a one-byte keyword token A is just the byte itself. For the two-byte function form ($FF escape + code) A = (next byte) AND $7F, i.e. the small function-token code (e.g. SIN=$09, CHR$=$15). HL advanced one byte past the $FF prefix only when the prefix was consumed.
+;   Clobbers:  A, HL.
+;   Algorithm: `INC A` sets Z iff A was $FF, the single escape prefix MS BASIC uses for the small function tokens (those are stored as $FF followed by (code | $80)). Then reload A from (HL). If A was not the prefix (NZ), A now holds the one-byte token; continue. If it was the prefix (Z), step HL to the second byte, read it, and mask with $7F to recover the true (small) function-token code. There is NO $FE prefix. Falls through to _9.
+; ----------------------------------------------------------------------
 DETOKENIZE_LINE_8:
+        ; is this the $FF two-byte-function escape prefix? (sets Z iff A==$FF)
         INC A
         LD A,(HL)
+        ; one-byte keyword token: A=(HL) already holds it, no escape prefix
         JR NZ,DETOKENIZE_LINE_9
+        ; $FF prefix: the real (small) function-token code is in the next byte
         INC HL
         LD A,(HL)
+        ; strip the high bit to recover the true function-token code (e.g. $09=SIN)
         AND $7F
+; ----------------------------------------------------------------------
+; DETOKENIZE_LINE_9 -- advance past the token byte and undo the cruncher's ':'+REM wrapper for the apostrophe comment
+;   In:        A = resolved token code (from _8); HL -> the token byte in the crunched line; BC = output cursor; D = remaining output length.
+;   Out:       HL advanced one byte past the token. For the apostrophe-comment token ($EA = TOK_REM_QUOTE): BC moved back 4 and D incremented 4 (overwriting the ':REM' already emitted). For all other tokens BC/D unchanged. A preserved.
+;   Algorithm: Step HL past the consumed token. The cruncher stores a `'` source comment as three crunched bytes ':' + $8F (the REM token, TOK_REM) + $EA, followed by the comment text (verified in CRUNCH_STORE_FLAG_AND_EMIT). De-tokenizing the leading ':' and $8F has already written the 4 ASCII chars ':REM' to the output; to LIST a bare `'` instead, rewind the output cursor by 4 (DEC BC x4) and return 4 units of remaining length (INC D x4), then let the keyword lookup that follows emit the $EA spelling (a single `'`). Falls through to _10.
+; ----------------------------------------------------------------------
 DETOKENIZE_LINE_9:
         INC HL
+        ; apostrophe-comment token? (cruncher emitted it as ':' + REM-token $8F + $EA)
         CP $EA
         JR NZ,DETOKENIZE_LINE_10
+        ; back up over the 4 chars ':REM' already written, so the comment LISTs as a bare apostrophe
         DEC BC
         DEC BC
         DEC BC
         DEC BC
+        ; give back those 4 units of remaining output length
         INC D
         INC D
         INC D
         INC D
+; ----------------------------------------------------------------------
+; DETOKENIZE_LINE_10 -- suppress ELSE's stored leading ':', then set up the reserved-word name-table walk
+;   In:        A = resolved token code; HL -> next crunched byte; BC = output cursor; D = remaining output length.
+;   Out:       HL/BC/DE pushed (restored in _14). HL = RESWORD_INDEX+51 (last byte of the 52-byte index, so _12's first INC HL lands on KWGRP_A's first spelling byte). B = target token to find. C = $40 (per-group letter accumulator, bumped to $41='A' by _11 before the first group).
+;   Clobbers:  A (via the conditional CALL only), B, C, HL; pushes HL/BC/DE.
+;   Algorithm: ELSE is stored crunched as ':' + $9E; the ':' has already been emitted as a literal, so on the ELSE token CALL DEC_BC backs the output cursor over that ':' so ELSE LISTs without its leading colon. Then save the live state and prime the walk: RESWORD_INDEX is a 26-entry (52-byte) word array of per-letter group pointers, so RESWORD_INDEX+51 is its final byte and the walk's first INC HL (_12) steps onto KWGRP_A's first byte. C=$40 is the implied-leading-letter accumulator that _11 bumps once per group ($41='A' ... $5A='Z', then $5B for the operator group RESWORD_OPS that follows KWGRP_Z). Falls through to _11.
+; ----------------------------------------------------------------------
 DETOKENIZE_LINE_10:
         CP TOK_ELSE
+        ; ELSE: back the output cursor over the stored leading ':' so ELSE lists without it
         CALL Z,DEC_BC
+        ; save program ptr / output cursor / length across the table walk (restored in _14)
         PUSH HL
         PUSH BC
         PUSH DE
+        ; last byte of the 26-word index: _12's first INC HL lands on KWGRP_A
         LD HL,RESWORD_INDEX+51
         LD B,A
+        ; implied-leading-letter accumulator: _11 bumps it to 'A'=$41 then once per group
         LD C,$40
+; ----------------------------------------------------------------------
+; DETOKENIZE_LINE_11 -- advance to the next keyword group (bump the implied-leading-letter accumulator)
+;   In:        C = current group-letter accumulator; reached from _10 setup (C=$40) or from _13 when a $00 group terminator was hit.
+;   Out:       C incremented = ASCII letter of the next group ('A'=$41 ... 'Z'=$5A, then $5B for the operator group RESWORD_OPS after KWGRP_Z).
+;   Clobbers:  C.
+;   Algorithm: Each KWGRP_* block ends with a $00 byte (KWGRP_Y/KWGRP_Z are bare $00). Crossing one means the following entries belong to the next letter group, so increment C. After KWGRP_Z's $00 the walk continues into RESWORD_OPS with C=$5B (the operator group has no implied leading letter). Falls through to _12.
+; ----------------------------------------------------------------------
 DETOKENIZE_LINE_11:
+        ; crossed a $00 group terminator: advance the implied leading letter (A,B,C,... then $5B=operators)
         INC C
+; ----------------------------------------------------------------------
+; DETOKENIZE_LINE_12 -- position at the start of the next keyword entry and snapshot it
+;   In:        HL -> the byte just before this entry's first spelling char (the previous $00 terminator on group entry, or the token byte of the previous non-matching entry).
+;   Out:       HL -> first spelling char of the current entry; DE = a copy of HL (saved entry-start, used by _13's EX DE,HL after the token byte is read).
+;   Clobbers:  HL, D, E.
+;   Algorithm: INC HL onto this entry's first spelling char, then snapshot the pointer into DE (LD D,H / LD E,L) so _13 can EX back to the entry start once the trailing token byte is compared. Falls through to _13.
+; ----------------------------------------------------------------------
 DETOKENIZE_LINE_12:
         INC HL
+        ; remember this entry's spelling start so _13 can return to it after reading its token byte
         LD D,H
         LD E,L
+; ----------------------------------------------------------------------
+; DETOKENIZE_LINE_13 -- scan one keyword entry's tail spelling and test its token against the target
+;   In:        HL -> current spelling byte; DE = start of this entry (from _12); B = target token; C = group-letter accumulator.
+;   Out:       On match: HL = entry's spelling start (after EX DE,HL); A = matched token; Z flag set iff the matched token is USR ($E1, via JR Z) or FN ($E2, via the trailing CP TOK_FN), else Z clear -- this discriminator survives to _14. Falls into _14. On a $00 group end -> _11 (next group). On a non-matching entry -> _12 (next entry).
+;   Clobbers:  A, HL.
+;   Algorithm: Read the spelling byte; $00 = group ended with no match -> _11. Otherwise INC HL and, while the byte has bit 7 clear (JP P), keep consuming spelling chars; the high-bit-set byte is the last spelling char and the very next byte is the entry's token code. Compare it to B (the resolved target): mismatch -> _12. On match, EX DE,HL restores HL to the saved entry start (for the _15.._19 emit), then CP $E1 / CP TOK_FN classifies the matched token specifically as USR or FN (the only two single-byte tokens that need the no-trailing-space treatment), leaving the Z discriminator for _14. Note SIN/CHR$/etc. carry small function codes, not $E1/$E2, so they are treated as ordinary keywords.
+; ----------------------------------------------------------------------
 DETOKENIZE_LINE_13:
         LD A,(HL)
         OR A
+        ; $00: this letter group ended with no match -> advance to the next group
         JR Z,DETOKENIZE_LINE_11
         INC HL
+        ; bit 7 clear -> ordinary spelling char; scan on to the high-bit-set final char
         JP P,DETOKENIZE_LINE_13
         LD A,(HL)
+        ; the byte after the last spelling char is this entry's token: is it the target?
         CP B
+        ; wrong keyword: try the next entry
         JR NZ,DETOKENIZE_LINE_12
+        ; matched: point HL back at this entry's spelling for the emit stage
         EX DE,HL
+        ; classify USR ($E1) / FN ($E2): only these set the no-trailing-space flag in _14
         CP $E1
         JR Z,DETOKENIZE_LINE_14
         CP TOK_FN
+; ----------------------------------------------------------------------
+; DETOKENIZE_LINE_14 -- finish the match: recover the implied leading letter, set the next-token spacing flag, pick the emit path
+;   In:        C = group-letter accumulator (ASCII leading letter of the matched group, or $5B for operators); HL = matched entry's spelling start; Z flag = USR/FN discriminator from _13. Saved BC(out cursor)/DE(length) on the stack from _10.
+;   Out:       DE/BC restored to the output cursor and remaining length; E = the implied leading letter (= C). USR/FN path (Z set in _13): stores L_0C93 = $00 (so the FOLLOWING token, e.g. '(' or the FN name, gets no preceding space) and continues at _17. Ordinary-keyword path (NZ): continues at _15, which for non-operator groups stores L_0C93 = $FF (so the NEXT token is preceded by a space). In BOTH paths the leading-space decision for THIS token is made at _17 from the OLD L_0C93 value.
+;   Clobbers:  A, E; restores DE, BC; updates L_0C93.
+;   Algorithm: Move the group letter into A and E (E carries the first character the table omits, since group membership encodes it). Restore the saved output cursor/length. JR NZ,_15 routes ordinary keywords to the _15/_16 logic. For USR/FN (fall-through), `LD A,(L_0C93) / OR A` reads the OLD spacing flag and sets Z (this Z is NOT discarded -- LD A,$00 / LD (L_0C93),A / JR _17 leave flags untouched, so _17's `JR Z,_18` uses it to decide the leading space). Then store L_0C93 = $00 as the new flag (no space before the next token) and jump to _17. So USR/FN suppress the space AFTER themselves, not before.
+; ----------------------------------------------------------------------
 DETOKENIZE_LINE_14:
+        ; the implied leading letter (the table stores only the tail) -> goes into E for the emit stage
         LD A,C
         POP DE
         POP BC
         LD E,A
+        ; ordinary keyword -> _15/_16; fall through only for USR/FN
         JR NZ,DETOKENIZE_LINE_15
+        ; read the OLD spacing flag: its Z survives to _17 to decide this token's leading space
         LD A,(L_0C93)
         OR A
+        ; USR/FN: new flag $00 so the FOLLOWING token (e.g. '(' or FN name) abuts with no space
         LD A,$00
         LD (L_0C93),A
         JR DETOKENIZE_LINE_17
+; ----------------------------------------------------------------------
+; DETOKENIZE_LINE_15 -- keyword emit: pick leading-space behaviour for a non-USR/non-FN token
+;   In:        A = E = the group/sequence code C of the matched reserved word. C = $41..$5A is the keyword's implied first letter 'A'..'Z'; C = $5B means the entry lives in the post-Z operator group RESWORD_OPS (i.e. '+ - * / ^ \ '' > = <'). HL -> first stored char of the matched word in the name table. BC -> next free BUF byte. D = remaining BUF length. L_0C93 = current inter-token spacing state.
+;   Out:        For operator entries (C=$5B): L_0C93 := $00 and control jumps to DETOKENIZE_LINE_19 to copy the operator's own char from the table (no implied leading letter, no separating space before OR after). Otherwise falls through to DETOKENIZE_LINE_16 for ordinary keywords.
+;   Clobbers:  A, L_0C93.
+;   Algorithm: Reached only when the token was NOT USR/FN (JR NZ from DETOKENIZE_LINE_14). Compare the sequence code C to $5B: the operator sub-table RESWORD_OPS sits one $00-separator past the (empty) KWGRP_Z group, so the group counter reaches $5B for every operator entry, uniquely flagging 'this is an operator, not a lettered keyword'. Operators store their full character in the table and need no implied leading letter or separating space, so reset the spacing state to $00 and branch straight into the character-copy loop. Any other C is a real A..Z keyword group and continues to the general leading-space logic.
+; ----------------------------------------------------------------------
 DETOKENIZE_LINE_15:
+        ; operator group? (C=$5B is the single sequence code shared by all RESWORD_OPS entries, one $00 past the empty Z group)
         CP $5B
         JR NZ,DETOKENIZE_LINE_16
+        ; operator: clear the inter-token spacing state (no surrounding space, no implied leading letter) and copy the operator char verbatim
         XOR A
         LD (L_0C93),A
         JR DETOKENIZE_LINE_19
+; ----------------------------------------------------------------------
+; DETOKENIZE_LINE_16 -- keyword emit: latch 'keyword just emitted' spacing state for an ordinary A..Z keyword
+;   In:        L_0C93 = inter-token spacing state from the previously emitted item ($00 = none pending, $01 = last item was an alphanumeric literal, $FF = last item was a keyword). E = group letter / sequence code C, BC -> BUF, D = remaining length.
+;   Out:        Z flag set iff the OLD spacing state was $00 (consumed by DETOKENIZE_LINE_17 to decide whether to prepend a space). L_0C93 := $FF (record that a keyword is now the trailing item).
+;   Clobbers:  A, L_0C93, flags.
+;   Algorithm: Capture the previous spacing state into the Z flag (OR A), then unconditionally set the new state to $FF meaning 'a keyword was just emitted, so the next token/identifier must be space-separated'. Falls into DETOKENIZE_LINE_17, which prepends a space when the old state was non-zero.
+; ----------------------------------------------------------------------
 DETOKENIZE_LINE_16:
+        ; remember whether a space is pending (Z := old spacing state was $00) before overwriting it
         LD A,(L_0C93)
         OR A
+        ; mark the trailing item as a keyword so the NEXT emitted token gets a separating space
         LD A,$FF
         LD (L_0C93),A
+; ----------------------------------------------------------------------
+; DETOKENIZE_LINE_17 -- keyword emit: conditionally prepend one separating space before the keyword spelling
+;   In:        Z flag = 'no leading space needed' (set when the prior spacing state was $00). Reached from DETOKENIZE_LINE_16 (ordinary keyword) and from the USR/FN tail of DETOKENIZE_LINE_14 (which set L_0C93 := $00 and jumped here); the operator path does NOT pass through here (it goes DETOKENIZE_LINE_15 -> DETOKENIZE_LINE_19). BC -> next free BUF byte, D = remaining BUF length.
+;   Out:        If a space is emitted, BUF gets ' ', BC advances, D decrements; on D underflow to 0 the whole detokenize aborts via GETSPA_2 (shared POP AF / RET exit that also discards the saved source pointer still on the stack). Falls into DETOKENIZE_LINE_18 to emit the keyword's implied leading letter.
+;   Clobbers:  A, BC, D, BUF, flags.
+;   Algorithm: If the incoming Z flag says no separator is pending, skip directly to copying the keyword. Otherwise write a single ASCII space into the output buffer, advance the write pointer, and decrement the remaining-length counter; if that hits zero the buffer is full and the routine bails out through GETSPA_2 (full abort of DETOKENIZE_LINE).
+; ----------------------------------------------------------------------
 DETOKENIZE_LINE_17:
+        ; no space pending: go straight to emitting the keyword's spelling
         JR Z,DETOKENIZE_LINE_18
         LD A,$20
         LD (BC),A
         INC BC
+        ; buffer-full check: on underflow abort the whole detokenize via GETSPA_2 (its POP AF discards the saved source pointer and returns)
         DEC D
         JP Z,GETSPA_2
+; ----------------------------------------------------------------------
+; DETOKENIZE_LINE_18 -- keyword emit: output the keyword's implied first letter (the group letter)
+;   In:        E = the group sequence code C ($41..$5A = the ASCII first letter 'A'..'Z' of the keyword's group). HL -> first stored tail char of the matched keyword in the name table.
+;   Out:        A = E (the leading letter); control falls into DETOKENIZE_LINE_20, which masks/stores it and then (since bit7 of E is clear for $41..$5A) loops to DETOKENIZE_LINE_19 to append the stored tail.
+;   Clobbers:  A.
+;   Algorithm: The reserved-word name table stores only the characters AFTER the group letter (e.g. 'AND' is stored as 'ND'+terminator+token under group 'A'). The matcher reconstructed that first letter as the sequence code C (init $40, INC per $00 group boundary) while walking the $00-separated groups; emit it here as the first output character. Every keyword in the table has at least one stored tail char, so DETOKENIZE_LINE_19/20 always run afterwards to append it (the shortest entries are 2-letter: FN/IF/ON/GR, one tail char each).
+; ----------------------------------------------------------------------
 DETOKENIZE_LINE_18:
+        ; emit the keyword's implied first letter (group code C = 'A'..'Z'); the name table holds only the tail characters
         LD A,E
         JR DETOKENIZE_LINE_20
+; ----------------------------------------------------------------------
+; DETOKENIZE_LINE_19 -- keyword emit: fetch the next stored tail character of the keyword spelling
+;   In:        HL -> next character of the reserved-word name in the table (high bit set on the FINAL character as the terminator). For operator entries, HL -> the (single) stored operator char.
+;   Out:        A = E = the raw table byte (still carrying its bit7 terminator flag); HL advanced past it. Falls into DETOKENIZE_LINE_20 to mask, store and test for end.
+;   Clobbers:  A, E, HL.
+;   Algorithm: Read one spelling character from the name table and advance HL. Keep the UNMASKED byte in E so DETOKENIZE_LINE_20 can re-test bit7 after masking to detect the last character of the keyword. This is the per-character loop body; control returns here from DETOKENIZE_LINE_20 until the high-bit-terminated final char is reached.
+; ----------------------------------------------------------------------
 DETOKENIZE_LINE_19:
+        ; read the next keyword spelling char from the name table (bit7 set marks the final char)
         LD A,(HL)
         INC HL
+        ; stash the UNMASKED byte in E so the loop can re-detect the bit7 terminator after masking
         LD E,A
+; ----------------------------------------------------------------------
+; DETOKENIZE_LINE_20 -- keyword emit: store one spelling char, then loop or finish the keyword
+;   In:        A = char to emit (bit7 = terminator flag still present for table chars; for the leading group letter from DETOKENIZE_LINE_18 bit7 is clear). E = the unmasked source byte (its bit7 = 'this was the last char'; for the leading-letter entry E = C = $41..$5A, bit7 clear). BC -> next free BUF byte. D = remaining BUF length.
+;   Out:        Masked char written to BUF, BC advanced, D decremented. If more chars remain (bit7 of E clear) loops to DETOKENIZE_LINE_19. On the last char, falls through to the SPC(/TAB( trailing-space-suppression check and DETOKENIZE_LINE_21. On D underflow, aborts via GETSPA_2.
+;   Clobbers:  A, BC, D, BUF, flags.
+;   Algorithm: Mask off bit7 (AND $7F) so the high-bit terminator never reaches the output, store the printable char, advance the write pointer and decrement the remaining length (buffer-full -> GETSPA_2 full abort). Then OR the stored char with E: since the stored char has bit7 cleared, the sign of the result is bit7 of E, i.e. 'was this the terminating char'. If not (JP P), loop back to fetch the next char; if it was the last char, fall into the post-keyword handling (DETOKENIZE_LINE_21).
+;   Note:      For the terminating char, (masked char) OR E == E exactly, so the CP $A8 below tests whether the keyword's final UNMASKED char was $A8. $A8 = '('+$80 is the stored terminator of the function-call keywords SPC( and TAB( (table entries 'P','C','('+$80 and 'A','B','('+$80). [RE] Matching it resets the spacing state to $00 so no space is inserted before the argument that follows '('. The byte value $A8 also coincides with TOK_RENUM=$A8, but here $A8 is the '(' terminator CHARACTER, not the RENUM token.
+; ----------------------------------------------------------------------
 DETOKENIZE_LINE_20:
+        ; strip the bit7 keyword terminator before writing the printable character to BUF
         AND $7F
         LD (BC),A
         INC BC
+        ; buffer-full check: abort the whole detokenize via GETSPA_2 on underflow
         DEC D
         JP Z,GETSPA_2
+        ; test bit7 of the original byte (in E): clear => more spelling chars, set => this was the keyword's last char
         OR E
         JP P,DETOKENIZE_LINE_19
+        ; [RE] keyword ended in '(' ($A8 = '('+$80, i.e. SPC( or TAB()? if so, suppress the trailing space so the argument follows immediately
         CP $A8
         JR NZ,DETOKENIZE_LINE_21
         XOR A
         LD (L_0C93),A
+; ----------------------------------------------------------------------
+; DETOKENIZE_LINE_21 -- keyword emit: re-enter the main detokenize loop after a reserved word
+;   In:        Top of stack = the source pointer HL pushed at DETOKENIZE_LINE_10 before the keyword lookup; HL was already advanced past the (1- or 2-byte) token at DETOKENIZE_LINE_8/_9 before that PUSH, so the saved copy is the correct resume position. (For SPC(/TAB( the preceding step already reset the spacing state to $00.)
+;   Out:        HL restored to the next source byte; control returns to DETOKENIZE_LINE_2 to process it.
+;   Clobbers:  HL.
+;   Algorithm: Pop the saved source pointer (already past the token that was just spelled out) and jump back to the top of the main copy/detokenize loop for the next program byte. This is the normal return path of the reserved-word branch of DETOKENIZE_LINE.
+; ----------------------------------------------------------------------
 DETOKENIZE_LINE_21:
+        ; restore the source pointer saved before the keyword lookup (already advanced past the token) and resume the main loop
         POP HL
         JP DETOKENIZE_LINE_2
-; [RE] LIST detokenizer helper: classify the next program byte - returns NC for an alpha/keyword char, C (with CCF) for ASCII digit 0-9, controlling whether DETOKENIZE_LINE treats it as a reserved-word token or literal.
+; ----------------------------------------------------------------------
+; IS_ALNUM_CHAR -- test whether a character is alphanumeric (letter A-Z or ASCII digit 0-9)
+;   In:        A = the character to test.
+;   Out:       Carry CLEAR (NC) if A is a letter A-Z ($41-$5A) OR an ASCII digit '0'-'9' ($30-$39); carry SET (C) for every other byte. A preserved.
+;   Clobbers:  flags only.
+;   Algorithm: CALL IS_LETTER_A returns NC for A-Z (RETs immediately). Otherwise CP $30/RET C returns C for anything below '0'; CP $3A then CCF maps '0'-'9' (which are < $3A) to NC and ':'+ to C. Net: NC iff A is a letter OR a decimal digit. Callers read NC as 'this char continues an identifier/number' and C as 'word/identifier boundary'. CORRECTION: the peer header claimed 'carry SET if A is a digit' and that the routine distinguishes letters from digits -- both letters and digits return NC; this is an is-alphanumeric test. Used by BOTH the CRUNCH tokenizer ($30BA, to refuse tokenizing a reserved word when the next source char is still alphanumeric so ANDY stays a variable not AND+Y) and the LIST detokenizer ($4131).
+; ----------------------------------------------------------------------
 IS_ALNUM_CHAR:
+        ; letters A-Z return NC here -> alphanumeric
         CALL IS_LETTER_A
         RET NC
+        ; below '0': not a digit either, return carry set (non-alphanumeric)
         CP $30
         RET C
         CP $3A
+        ; map '0'-'9' to NC (alphanumeric); ':' and above to C
         CCF
         RET
-IS_ALNUM_CHAR_1:
+; ----------------------------------------------------------------------
+; CONST_FMT_BEGIN -- format an embedded numeric-constant token ($0B/$0C/$0E/$0F/$11-$1A/$1C/$1D/$1F) back to ASCII for LIST
+;   In:        HL -> the constant token byte in the crunched line (detokenizer has not advanced HL yet); E = the token byte; BC -> write position in the detokenize output buffer BUF; D = bytes remaining in BUF.
+;   Out:       Via the pushed return CONST_FMT_PREFIX, falls into the prefix/suffix/digit-copy path. The value is rendered NUL-terminated into the renderer scratch buffer (FOUT->$0CC3, HEX_OCT_OUT->$0CC2) with HL left pointing at it; the CONST_* cells are re-staged; BC/DE saved at entry are restored by CONST_FMT_PREFIX.
+;   Clobbers:  A, HL, BC, DE (saved/restored in CONST_FMT_PREFIX), the CONST_* staging cells, the FAC, the $0CC2/$0CC3 scratch buffer.
+;   Algorithm: DEC HL then CALL CHRGET (= INC HL + CHRGOT) re-positions HL onto the token and re-runs CHRGOT's constant decode, re-staging CONST_TOKEN/CONST_VALUE/CONST_VALTYP/CONST_TEXT_RESUME and returning the token byte in A. Save DE,BC,AF; CALL CHRGOT_CONST_VALUE materializes the staged value into the FAC; POP AF recovers the token. Push CONST_FMT_PREFIX as the renderer's return address, then dispatch on the token: $0B -> HEX_OCT_OUT (octal, base flag B=0), $0C -> HEX_OCT_OUT_1+1 (hex, base flag B=1), anything else -> FOUT_2 (decimal/exponential). Both renderers read the value from the FAC (HEX_OCT_OUT via CALL GETADR, FOUT via LD HL,(FAC)).
+; ----------------------------------------------------------------------
+CONST_FMT_BEGIN:
+        ; reposition so the following CHRGET (INC HL + CHRGOT) re-reads and decodes the constant token at HL
         DEC HL
         CALL CHRGET
         PUSH DE
         PUSH BC
         PUSH AF
+        ; materialize the staged constant into the FAC (the value source the renderer reads)
         CALL CHRGOT_CONST_VALUE
         POP AF
-        LD BC,IS_ALNUM_CHAR_2
+        ; push the renderer's return address: it comes back to emit the '&H'/'&O' prefix and copy the digits
+        LD BC,CONST_FMT_PREFIX
         PUSH BC
+        ; token $0B (&O octal): render via HEX_OCT_OUT with the octal base flag (B=0)
         CP $0B
         JP Z,HEX_OCT_OUT
+        ; token $0C (&H hex): enter HEX_OCT_OUT at +1 to load the hex base flag (B=1)
         CP $0C
         JP Z,HEX_OCT_OUT_1+1
+        ; [RE] loads HL from CONST_VALUE, but FOUT_2's first act (FOUT_SET_FORMAT) does LD HL,$0CC3 overwriting HL, and FOUT renders from the FAC -- this load has no observed effect; purpose UNKNOWN (likely vestigial)
         LD HL,(CONST_VALUE)
+        ; non-&H/&O constant: render the FAC as decimal/exponential ASCII
         JP FOUT_2
-IS_ALNUM_CHAR_2:
+; ----------------------------------------------------------------------
+; CONST_FMT_PREFIX -- restore the BUF cursor and emit the '&O'/'&H' base prefix for octal/hex constants
+;   In:        Stack holds the BC (BUF write ptr) and DE (D = BUF bytes left) saved by CONST_FMT_BEGIN; CONST_TOKEN = the constant token; HL -> the rendered ASCII text.
+;   Out:       For $0B/$0C the two-char prefix '&O'/'&H' is written into BUF (BC advanced, D decremented), RET Z early if BUF fills, then falls into CONST_FMT_TYPE_SUFFIX (_4). For every other token it skips the prefix and falls into _4. HL preserved.
+;   Clobbers:  A, E, BC, D, flags; writes up to 2 bytes to BUF.
+;   Algorithm: POP BC, POP DE restore the BUF cursor. Load CONST_TOKEN. Preload E='O' ($4F); if token==$0B branch to CONST_FMT_EMIT_PREFIX. Else load E='H' ($48); if token!=$0C skip the prefix (JR NZ to CONST_FMT_TYPE_SUFFIX). Otherwise fall into CONST_FMT_EMIT_PREFIX, which writes '&' then E.
+; ----------------------------------------------------------------------
+CONST_FMT_PREFIX:
+        ; restore the BUF write pointer and remaining-length saved before the value was rendered
         POP BC
         POP DE
+        ; select the base prefix from the constant token ($0B=&O, $0C=&H, anything else = no prefix)
         LD A,(CONST_TOKEN)
+        ; default base letter 'O' (octal) in E
         LD E,$4F
         CP $0B
-        JR Z,IS_ALNUM_CHAR_3
+        JR Z,CONST_FMT_EMIT_PREFIX
         CP $0C
+        ; hex case: base letter 'H'
         LD E,$48
-        JR NZ,IS_ALNUM_CHAR_4
-IS_ALNUM_CHAR_3:
+        ; not &H/&O: no base prefix, go straight to the type-suffix selection
+        JR NZ,CONST_FMT_TYPE_SUFFIX
+; ----------------------------------------------------------------------
+; CONST_FMT_EMIT_PREFIX -- write the literal '&' and the selected base letter ('O' or 'H') into BUF
+;   In:        E = base letter ('O'=$4F or 'H'=$48); BC -> BUF write position; D = bytes remaining in BUF.
+;   Out:       '&' then E stored into BUF; BC advanced by 2, D decremented by 2. RET (Z) early if BUF fills after either store. Falls into CONST_FMT_TYPE_SUFFIX.
+;   Clobbers:  A, BC, D, flags; writes up to 2 bytes to BUF.
+;   Algorithm: Store '&' ($26) to (BC), INC BC, DEC D, RET Z if buffer full. Store E (the base letter), INC BC, DEC D, RET Z if full. Then fall through to choose the numeric type suffix.
+; ----------------------------------------------------------------------
+CONST_FMT_EMIT_PREFIX:
+        ; emit the radix sigil '&' that precedes 'O'/'H'
         LD A,$26
         LD (BC),A
         INC BC
         DEC D
         RET Z
+        ; emit the base letter ('O' for octal, 'H' for hex)
         LD A,E
         LD (BC),A
         INC BC
         DEC D
         RET Z
-IS_ALNUM_CHAR_4:
+; ----------------------------------------------------------------------
+; CONST_FMT_TYPE_SUFFIX -- choose the trailing numeric type-suffix character from the constant's value type
+;   In:        CONST_VALTYP = the constant's value width/type (VT_INT=2, VT_SNG=4, VT_DBL=8); HL -> the rendered ASCII text.
+;   Out:       E = the suffix byte: $00 (none) for VT_INT (and anything < 4), '!' ($21) for VT_SNG, '#' ($23) for VT_DBL (anything > 4). Falls into CONST_FMT_SKIP_SPACE (_5).
+;   Clobbers:  A, E, flags.
+;   Algorithm: Load CONST_VALTYP and CP $04. If C (< 4, integer) set E=$00 (no suffix). If Z (== 4, single) set E='!' ($21). Else (> 4, double) set E='#' ($23). E is carried through the digit-copy loop and emitted at the end unless suppressed because the printed form already shows a '.'/'D'/'E'.
+; ----------------------------------------------------------------------
+CONST_FMT_TYPE_SUFFIX:
+        ; pick the BASIC type-suffix from the constant's value type
         LD A,(CONST_VALTYP)
         CP $04
+        ; integer constant (VALTYP<4): no type-suffix character
         LD E,$00
-        JR C,IS_ALNUM_CHAR_5
+        JR C,CONST_FMT_SKIP_SPACE
+        ; single-precision (VALTYP=4): suffix '!'
         LD E,$21
-        JR Z,IS_ALNUM_CHAR_5
+        JR Z,CONST_FMT_SKIP_SPACE
+        ; double-precision (VALTYP>4): suffix '#'
         LD E,$23
-IS_ALNUM_CHAR_5:
+; ----------------------------------------------------------------------
+; CONST_FMT_SKIP_SPACE -- skip FOUT's leading sign-placeholder space in the rendered text
+;   In:        HL -> first byte of the rendered numeric ASCII (FOUT emits a leading ' ' placeholder for a non-negative value); E = pending type-suffix.
+;   Out:       If the first char is a space ($20), HL is advanced past it; otherwise HL unchanged. Falls into the digit-copy loop CONST_FMT_COPY (_6).
+;   Clobbers:  A, HL (conditionally), flags.
+;   Algorithm: LD A,(HL); CP $20; CALL Z,FP_LOAD_DONE (FP_LOAD_DONE = INC HL; RET) to step over FOUT's leading sign space so the copy starts at the first digit. HEX/OCT output has no leading space, so this is a no-op on that path.
+; ----------------------------------------------------------------------
+CONST_FMT_SKIP_SPACE:
         LD A,(HL)
+        ; FOUT prefixes a non-negative number with a leading space placeholder; drop it before copying
         CP $20
+        ; FP_LOAD_DONE = INC HL/RET: advance past the leading space
         CALL Z,FP_LOAD_DONE
-IS_ALNUM_CHAR_6:
+; ----------------------------------------------------------------------
+; CONST_FMT_COPY -- copy the rendered numeric ASCII into BUF, suppressing the type-suffix when the printed form already shows a '.'/'D'/'E'
+;   In:        HL -> next char of the rendered text (NUL-terminated); BC -> BUF write position; D = bytes left in BUF; E = pending type-suffix ($00/'!'/'#'); CONST_VALTYP = value type.
+;   Out:       Loops until the NUL terminator, copying each char to BUF (BC++/D--), RET Z if BUF fills; on the terminator jumps to CONST_FMT_EMIT_SUFFIX (_9). E is zeroed (via CONST_FMT_CLEAR_SUFFIX, _8) for single/double values once the appropriate '.'/'D'/'E' has been copied.
+;   Clobbers:  A, BC, D, E (via _8), HL, flags; writes to BUF.
+;   Algorithm: LD A,(HL); INC HL; if $00 go to CONST_FMT_EMIT_SUFFIX. Store it to BUF, INC BC, DEC D, RET Z on overflow. LD A,(CONST_VALTYP); CP $04: if C (integer, < 4) loop straight back (no suffix logic). CORRECTION: the following JR NZ keys on THIS CP $04 result (single vs double), NOT on the LD A,(BC) -- a Z80 load sets no flags. The re-read DEC BC/LD A,(BC)/INC BC only restores A (clobbered by LD A,(CONST_VALTYP)) to the char just stored so the CP $2E/$44/$45 tests work. JR NZ,CONST_FMT_SUFFIX_TEST takes the DOUBLE path (VALTYP>4): test only 'D'/'E'. The Z (single, VALTYP=4) fall-through tests CP $2E ('.') first -> if '.' clear the suffix, else fall into CONST_FMT_SUFFIX_TEST. Net: single suppresses the suffix on '.', 'D', or 'E'; double suppresses only on 'D' or 'E'.
+; ----------------------------------------------------------------------
+CONST_FMT_COPY:
         LD A,(HL)
         INC HL
         OR A
-        JR Z,IS_ALNUM_CHAR_9
+        ; NUL terminator: digits done, go append the type-suffix
+        JR Z,CONST_FMT_EMIT_SUFFIX
         LD (BC),A
         INC BC
         DEC D
         RET Z
+        ; integer values carry no suffix (CP $04/JR C below skips the test); also splits single (Z) vs double (NZ) for the test that follows
         LD A,(CONST_VALTYP)
         CP $04
-        JR C,IS_ALNUM_CHAR_6
+        JR C,CONST_FMT_COPY
         DEC BC
+        ; re-read the just-stored char to RESTORE A (clobbered by LD A,(CONST_VALTYP)) for the CP $2E/$44/$45 tests; this load does NOT set the flags used by the next JR NZ
         LD A,(BC)
         INC BC
-        JR NZ,IS_ALNUM_CHAR_7
+        JR NZ,CONST_FMT_SUFFIX_TEST
         CP $2E
-        JR Z,IS_ALNUM_CHAR_8
-IS_ALNUM_CHAR_7:
+        JR Z,CONST_FMT_CLEAR_SUFFIX
+; ----------------------------------------------------------------------
+; CONST_FMT_SUFFIX_TEST -- test a copied char for an exponent marker ('D'/'E') and drop the type-suffix if found
+;   In:        A = the character just copied into BUF; E = pending type-suffix. Reached on the double-precision path (JR NZ from CONST_FMT_COPY) or as the single-precision fall-through after the '.' test missed.
+;   Out:       If A is 'D' ($44) or 'E' ($45), fall/branch to CONST_FMT_CLEAR_SUFFIX to zero E; otherwise (JR NZ) loop back to CONST_FMT_COPY for the next char.
+;   Clobbers:  flags.
+;   Algorithm: CP $44 ('D', double-precision exponent letter) -> if equal go clear the suffix. CP $45 ('E', single-precision exponent letter) -> if not equal continue the copy loop; if equal fall into CONST_FMT_CLEAR_SUFFIX. A number shown in exponential form already implies its type, so the '!'/'#' suffix is suppressed.
+; ----------------------------------------------------------------------
+CONST_FMT_SUFFIX_TEST:
+        ; 'D' = double-precision exponent marker -> type already shown, drop the suffix
         CP $44
-        JR Z,IS_ALNUM_CHAR_8
+        JR Z,CONST_FMT_CLEAR_SUFFIX
+        ; 'E' = single-precision exponent marker -> drop the suffix; any other char keeps copying
         CP $45
-        JR NZ,IS_ALNUM_CHAR_6
-IS_ALNUM_CHAR_8:
+        JR NZ,CONST_FMT_COPY
+; ----------------------------------------------------------------------
+; CONST_FMT_CLEAR_SUFFIX -- suppress the trailing type-suffix because the printed text already shows a decimal point/exponent
+;   In:        Reached when a '.', 'D', or 'E' was just copied (single), or a 'D'/'E' (double).
+;   Out:       E = $00 (no suffix). Re-enters the copy loop CONST_FMT_COPY to finish the remaining characters.
+;   Clobbers:  E, flags.
+;   Algorithm: LD E,$00 to cancel the pending '!'/'#'; JR back to CONST_FMT_COPY. A number rendered with a fractional point or an E/D exponent is unambiguously typed, so the redundant suffix is omitted.
+; ----------------------------------------------------------------------
+CONST_FMT_CLEAR_SUFFIX:
+        ; cancel the pending type-suffix: the printed form already shows the type
         LD E,$00
-        JR IS_ALNUM_CHAR_6
-IS_ALNUM_CHAR_9:
+        JR CONST_FMT_COPY
+; ----------------------------------------------------------------------
+; CONST_FMT_EMIT_SUFFIX -- append the surviving type-suffix character to BUF, if any
+;   In:        E = the type-suffix ($00=none, '!'=$21 single, '#'=$23 double) after suppression; BC -> BUF write position; D = bytes left.
+;   Out:       If E != 0, the suffix is written into BUF (BC++/D--), RET Z if BUF fills. Falls into CONST_FMT_RESUME (_10).
+;   Clobbers:  A, BC, D, flags; writes up to 1 byte to BUF.
+;   Algorithm: LD A,E; OR A; if zero (no suffix or suppressed) skip to CONST_FMT_RESUME. Otherwise store E into BUF, INC BC, DEC D, RET Z on overflow, then fall into CONST_FMT_RESUME.
+; ----------------------------------------------------------------------
+CONST_FMT_EMIT_SUFFIX:
+        ; append the type-suffix '!'/'#' if it survived the decimal/exponent suppression
         LD A,E
         OR A
-        JR Z,IS_ALNUM_CHAR_10
+        ; no suffix to emit (integer, or already suppressed)
+        JR Z,CONST_FMT_RESUME
         LD (BC),A
         INC BC
         DEC D
         RET Z
-IS_ALNUM_CHAR_10:
+; ----------------------------------------------------------------------
+; CONST_FMT_RESUME -- restore the source pointer past the consumed constant and resume detokenizing
+;   In:        CONST_TEXT_RESUME = the crunched-line pointer just past the embedded constant (saved when the constant was decoded).
+;   Out:       HL reloaded from CONST_TEXT_RESUME; control jumps to DETOKENIZE_LINE_2 to continue expanding the rest of the line.
+;   Clobbers:  HL.
+;   Algorithm: LD HL,(CONST_TEXT_RESUME) to skip over the whole multi-byte embedded constant in one step, then JP DETOKENIZE_LINE_2 to process the next byte of the crunched line.
+; ----------------------------------------------------------------------
+CONST_FMT_RESUME:
+        ; advance source past the whole embedded constant (token + value bytes) in one step
         LD HL,(CONST_TEXT_RESUME)
+        ; rejoin the detokenize loop for the next byte of the line
         JP DETOKENIZE_LINE_2
 ; [RE] DELETE statement handler (token $A6): delete a range of program lines (CALL $0F61 parses the range).
 STMT_DELETE:
