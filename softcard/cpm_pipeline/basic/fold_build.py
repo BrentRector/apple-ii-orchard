@@ -24,7 +24,7 @@ from cpm_pipeline.filesystem import read_disk, extract_file
 from cpm_pipeline import reference_data as rd
 
 BASIC_ASM = asm_path("GBASIC").with_name("BASIC.asm")
-INCLUDES = ("apple_softcard.inc", "msbasic_tokens.inc", "msbasic_errors.inc")
+INCLUDES = ("apple_softcard.inc", "msbasic_tokens.inc", "msbasic_errors.inc", "msbasic_fcb.inc")
 
 
 def assemble(mode):

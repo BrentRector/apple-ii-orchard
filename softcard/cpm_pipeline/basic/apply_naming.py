@@ -118,6 +118,8 @@ TOKEN_INCLUDE_NAME = "msbasic_tokens.inc"   # MS BASIC keyword-token EQUs (BASIC
 TOKEN_INCLUDE_PATH = INCLUDE_DIR / TOKEN_INCLUDE_NAME
 ERROR_INCLUDE_NAME = "msbasic_errors.inc"   # MS BASIC error-code EQUs (ERR_*)
 ERROR_INCLUDE_PATH = INCLUDE_DIR / ERROR_INCLUDE_NAME
+FCB_INCLUDE_NAME = "msbasic_fcb.inc"        # MS BASIC file-control-block STRUCT (FCB.<field> offsets)
+FCB_INCLUDE_PATH = INCLUDE_DIR / FCB_INCLUDE_NAME
 
 
 def load_external_symbols():
@@ -198,6 +200,7 @@ def apply(base_text, renames, label_comments, sections, inline, ext_syms=None,
             out.append(f'    INCLUDE "{INCLUDE_NAME}"   ; canonical Apple/SoftCard external names')
             out.append(f'    INCLUDE "{TOKEN_INCLUDE_NAME}"   ; MS BASIC keyword-token names')
             out.append(f'    INCLUDE "{ERROR_INCLUDE_NAME}"   ; MS BASIC error-code names (ERR_*)')
+            out.append(f'    INCLUDE "{FCB_INCLUDE_NAME}"   ; MS BASIC file-control-block STRUCT')
             continue
         m = LABEL_DEF_RE.match(line)
         if m and (m.group(1) in renames or m.group(1) in label_comments
@@ -242,7 +245,8 @@ def verify_byte_identical(text):
     src = re.sub(r'SAVEBIN\s+"[^"]+"', 'SAVEBIN "{out_bin}"', text)
     inc = [(nm, pth) for nm, pth in ((INCLUDE_NAME, INCLUDE_PATH),
                                      (TOKEN_INCLUDE_NAME, TOKEN_INCLUDE_PATH),
-                                     (ERROR_INCLUDE_NAME, ERROR_INCLUDE_PATH))
+                                     (ERROR_INCLUDE_NAME, ERROR_INCLUDE_PATH),
+                                     (FCB_INCLUDE_NAME, FCB_INCLUDE_PATH))
            if pth.exists()]
     built = assemble_z80(src, include_files=inc)
     genuine = bytes(extract_file(read_disk(Path(rd.DISK_2_20_44K_SYSTEM)), COM_NAME))

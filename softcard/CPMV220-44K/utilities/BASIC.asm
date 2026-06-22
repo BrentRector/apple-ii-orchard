@@ -20,6 +20,7 @@
     INCLUDE "apple_softcard.inc"   ; canonical Apple/SoftCard external names
     INCLUDE "msbasic_tokens.inc"   ; MS BASIC keyword-token names
     INCLUDE "msbasic_errors.inc"   ; MS BASIC error-code names (ERR_*)
+    INCLUDE "msbasic_fcb.inc"   ; MS BASIC file-control-block STRUCT
 
     ORG $0100
 
@@ -13431,10 +13432,10 @@ FCB_MODE_BYTE:
 ; [RE] Return DE = pointer to the file's data buffer inside its FCB: offset $29 for sequential, $B2 for random (per mode byte).
 FCB_BUFFER_PTR:
         CALL FCB_MODE_BYTE               ; $7651  CD 3B 76
-        LD HL,$0029                      ; $7654  21 29 00
+        LD HL,FCB.SEQ_BUF                ; $7654  21 29 00
         CP $03                           ; $7657  FE 03
         JR NZ,FCB_BUFFER_PTR_1           ; $7659  20 03
-        LD HL,$00B2                      ; $765B  21 B2 00
+        LD HL,FCB.RND_BUF                ; $765B  21 B2 00
 FCB_BUFFER_PTR_1:
         ADD HL,BC                        ; $765E  09
         EX DE,HL                         ; $765F  EB
@@ -13583,7 +13584,7 @@ FN_CVI_15:
         JR Z,FN_CVI_17                   ; $7741  28 08
 FN_CVI_16:
         LD HL,(OUTPUT_REDIRECTED)        ; $7743  2A 40 08
-        LD BC,$0028                      ; $7746  01 28 00
+        LD BC,FCB.BUF_REM                ; $7746  01 28 00
         ADD HL,BC                        ; $7749  09
         INC (HL)                         ; $774A  34
 FN_CVI_17:
@@ -13728,7 +13729,7 @@ STMT_MERGE_1:
         JP Z,RAISE_BAD_FILE_MODE         ; $7844  CA 47 0D
 STMT_MERGE_2:
         LD HL,(OUTPUT_REDIRECTED)        ; $7847  2A 40 08
-        LD BC,$0028                      ; $784A  01 28 00
+        LD BC,FCB.BUF_REM                ; $784A  01 28 00
         ADD HL,BC                        ; $784D  09
         INC (HL)                         ; $784E  34
         JP DIRECT_LINE_DISPATCH          ; $784F  C3 3E 0E
@@ -13832,7 +13833,7 @@ STMT_FIELD:
         SUB $03                          ; $78E1  D6 03
         JP NZ,RAISE_BAD_FILE_MODE        ; $78E3  C2 47 0D
         EX DE,HL                         ; $78E6  EB
-        LD HL,$00A9                      ; $78E7  21 A9 00
+        LD HL,FCB.FLD_BUF_PTR            ; $78E7  21 A9 00
         ADD HL,BC                        ; $78EA  09
         LD A,(HL)                        ; $78EB  7E
         INC HL                           ; $78EC  23
@@ -13843,7 +13844,7 @@ STMT_FIELD:
         LD (ILLEGAL_DIRECT_CHECK_1),HL   ; $78F5  22 B6 81
         LD A,H                           ; $78F8  7C
         EX DE,HL                         ; $78F9  EB
-        LD DE,$00B2                      ; $78FA  11 B2 00
+        LD DE,FCB.RND_BUF                ; $78FA  11 B2 00
 STMT_FIELD_1:
         EX DE,HL                         ; $78FD  EB
         ADD HL,BC                        ; $78FE  09
@@ -14083,7 +14084,7 @@ FN_EOF:
         CP $02                           ; $7A50  FE 02
         JP Z,RAISE_BAD_FILE_MODE         ; $7A52  CA 47 0D
 FN_EOF_1:
-        LD HL,$0027                      ; $7A55  21 27 00
+        LD HL,FCB.BUF_CNT                ; $7A55  21 27 00
         ADD HL,BC                        ; $7A58  09
         LD A,(HL)                        ; $7A59  7E
         OR A                             ; $7A5A  B7
@@ -14121,7 +14122,7 @@ FILE_FLUSH_RECORD:
         INC DE                           ; $7A83  13
 ; [RE] Write-sequential error check: BDOS Write-Sequential = $15 (function code held at $08CD).
 FILE_FLUSH_RECORD_CK:
-        LD HL,$0027                      ; $7A84  21 27 00
+        LD HL,FCB.BUF_CNT                ; $7A84  21 27 00
         ADD HL,BC                        ; $7A87  09
         PUSH BC                          ; $7A88  C5
         XOR A                            ; $7A89  AF
@@ -14146,7 +14147,7 @@ FILE_FLUSH_RECORD_CK_1:
         INC A                            ; $7AAD  3C
         JP Z,RAISE_TOO_MANY_FILES        ; $7AAE  CA 62 0D
         POP BC                           ; $7AB1  C1
-        LD HL,$0025                      ; $7AB2  21 25 00
+        LD HL,FCB.SEQ_RECNO              ; $7AB2  21 25 00
         ADD HL,BC                        ; $7AB5  09
         LD E,(HL)                        ; $7AB6  5E
         INC HL                           ; $7AB7  23
@@ -14183,7 +14184,7 @@ FILE_CLOSE_ONE_1:
         LD A,$1A                         ; $7ADB  3E 1A
         JR PUTC_FILE_1                   ; $7ADD  18 54
 FILE_CLOSE_ONE_2:
-        LD HL,$0027                      ; $7ADF  21 27 00
+        LD HL,FCB.BUF_CNT                ; $7ADF  21 27 00
         ADD HL,BC                        ; $7AE2  09
         LD A,(HL)                        ; $7AE3  7E
         OR A                             ; $7AE4  B7
@@ -14208,9 +14209,9 @@ FN_LOC_VALUE:
         CALL FILE_NUM_TO_FCB_NZ          ; $7AFB  CD 37 76
         JP Z,RAISE_BAD_FILE_NUMBER       ; $7AFE  CA 4D 0D
         CP $03                           ; $7B01  FE 03
-        LD HL,$0026                      ; $7B03  21 26 00
+        LD HL,FCB.SEQ_RECNO+1            ; $7B03  21 26 00
         JR NZ,FN_LOC_VALUE_1             ; $7B06  20 03
-        LD HL,$00AE                      ; $7B08  21 AE 00
+        LD HL,FCB.RND_RECNO+1            ; $7B08  21 AE 00
 FN_LOC_VALUE_1:
         ADD HL,BC                        ; $7B0B  09
         LD A,(HL)                        ; $7B0C  7E
@@ -14221,7 +14222,7 @@ FN_LOC_VALUE_1:
 FN_LOF_VALUE:
         CALL FILE_NUM_TO_FCB_NZ          ; $7B12  CD 37 76
         JP Z,RAISE_BAD_FILE_NUMBER       ; $7B15  CA 4D 0D
-        LD HL,$0010                      ; $7B18  21 10 00
+        LD HL,FCB.CPM_RC                 ; $7B18  21 10 00
         ADD HL,BC                        ; $7B1B  09
         LD A,(HL)                        ; $7B1C  7E
         JP FP_LOAD_INT_TO_FAC            ; $7B1D  C3 32 3E
@@ -14245,7 +14246,7 @@ PUTC_FILE_1:
         LD B,H                           ; $7B35  44
         LD C,L                           ; $7B36  4D
         PUSH AF                          ; $7B37  F5
-        LD DE,$0027                      ; $7B38  11 27 00
+        LD DE,FCB.BUF_CNT                ; $7B38  11 27 00
         ADD HL,DE                        ; $7B3B  19
         LD A,(HL)                        ; $7B3C  7E
         CP $80                           ; $7B3D  FE 80
@@ -14289,7 +14290,7 @@ PUTC_FILE_3:
         LD B,H                           ; $7B6A  44
         LD C,L                           ; $7B6B  4D
         PUSH HL                          ; $7B6C  E5
-        LD HL,$0022                      ; $7B6D  21 22 00
+        LD HL,FCB.CPM_R0R1R2             ; $7B6D  21 22 00
         ADD HL,BC                        ; $7B70  09
         LD (HL),E                        ; $7B71  73
         INC HL                           ; $7B72  23
@@ -14323,7 +14324,7 @@ GETC_FILE_1:
         LD A,(HL)                        ; $7B97  7E
         CP $03                           ; $7B98  FE 03
         JP Z,BLOCK_COPY_BC_4             ; $7B9A  CA E5 80
-        LD BC,$0028                      ; $7B9D  01 28 00
+        LD BC,FCB.BUF_REM                ; $7B9D  01 28 00
         ADD HL,BC                        ; $7BA0  09
         LD A,(HL)                        ; $7BA1  7E
         OR A                             ; $7BA2  B7
@@ -14362,7 +14363,7 @@ FILE_READ_RECORD_FCB:
         LD D,H                           ; $7BC5  54
         LD E,L                           ; $7BC6  5D
         INC DE                           ; $7BC7  13
-        LD BC,$0025                      ; $7BC8  01 25 00
+        LD BC,FCB.SEQ_RECNO              ; $7BC8  01 25 00
         ADD HL,BC                        ; $7BCB  09
         LD C,(HL)                        ; $7BCC  4E
         INC HL                           ; $7BCD  23
@@ -14423,7 +14424,7 @@ GETC_FILE_EOF:
         PUSH BC                          ; $7C14  C5
         PUSH HL                          ; $7C15  E5
         LD HL,(OUTPUT_REDIRECTED)        ; $7C16  2A 40 08
-        LD BC,$0027                      ; $7C19  01 27 00
+        LD BC,FCB.BUF_CNT                ; $7C19  01 27 00
         ADD HL,BC                        ; $7C1C  09
         LD (HL),$00                      ; $7C1D  36 00
         INC HL                           ; $7C1F  23
@@ -14688,7 +14689,7 @@ STMT_OPEN_7:
         POP AF                           ; $7DB6  F1
         LD (DE),A                        ; $7DB7  12
         PUSH DE                          ; $7DB8  D5
-        LD HL,$0025                      ; $7DB9  21 25 00
+        LD HL,FCB.SEQ_RECNO              ; $7DB9  21 25 00
         ADD HL,DE                        ; $7DBC  19
         XOR A                            ; $7DBD  AF
         LD (HL),A                        ; $7DBE  77
@@ -14708,7 +14709,7 @@ STMT_OPEN_7:
         LD HL,(L_0B54)                   ; $7DD4  2A 54 0B
         RET                              ; $7DD7  C9
 STMT_OPEN_8:
-        LD BC,$0029                      ; $7DD8  01 29 00
+        LD BC,FCB.SEQ_BUF                ; $7DD8  01 29 00
         ADD HL,BC                        ; $7DDB  09
         LD C,$80                         ; $7DDC  0E 80
 STMT_OPEN_9:
@@ -14900,7 +14901,7 @@ FILE_READ_RECORDS_1:
         CALL COPY_128_BLOCK              ; $7EFE  CD 8A 7B
         DEC DE                           ; $7F01  1B
         POP HL                           ; $7F02  E1
-        LD BC,$0021                      ; $7F03  01 21 00
+        LD BC,FCB.CPM_CR                 ; $7F03  01 21 00
         ADD HL,BC                        ; $7F06  09
         INC (HL)                         ; $7F07  34
 FILE_READ_RECORDS_2:
@@ -14946,7 +14947,7 @@ FILE_NUM_TO_FCB_2_1:
         LD HL,(L_0C97)                   ; $7F46  2A 97 0C
         CALL CMP_HL_DE                   ; $7F49  CD 1F 69
         JP C,ERROR_FC                    ; $7F4C  DA D0 34
-        LD HL,$00A9                      ; $7F4F  21 A9 00
+        LD HL,FCB.FLD_BUF_PTR            ; $7F4F  21 A9 00
         ADD HL,BC                        ; $7F52  09
         LD (HL),E                        ; $7F53  73
         INC HL                           ; $7F54  23
@@ -14974,7 +14975,7 @@ GET_PUT_RECORD_CORE:
         JP NZ,RAISE_BAD_FILE_MODE        ; $7F6E  C2 47 0D
         PUSH BC                          ; $7F71  C5
         PUSH HL                          ; $7F72  E5
-        LD HL,$00AD                      ; $7F73  21 AD 00
+        LD HL,FCB.RND_RECNO              ; $7F73  21 AD 00
         ADD HL,BC                        ; $7F76  09
         LD E,(HL)                        ; $7F77  5E
         INC HL                           ; $7F78  23
@@ -15001,13 +15002,13 @@ GET_PUT_RECORD_CORE_1:
         POP BC                           ; $7F95  C1
         PUSH HL                          ; $7F96  E5
         PUSH BC                          ; $7F97  C5
-        LD HL,$00B0                      ; $7F98  21 B0 00
+        LD HL,FCB.FLD_POS_PTR            ; $7F98  21 B0 00
         ADD HL,BC                        ; $7F9B  09
         XOR A                            ; $7F9C  AF
         LD (HL),A                        ; $7F9D  77
         INC HL                           ; $7F9E  23
         LD (HL),A                        ; $7F9F  77
-        LD HL,$00A9                      ; $7FA0  21 A9 00
+        LD HL,FCB.FLD_BUF_PTR            ; $7FA0  21 A9 00
         ADD HL,BC                        ; $7FA3  09
         LD A,(HL)                        ; $7FA4  7E
         INC HL                           ; $7FA5  23
@@ -15075,11 +15076,11 @@ GET_PUT_RECORD_CORE_9:
         POP HL                           ; $7FF4  E1
         POP BC                           ; $7FF5  C1
         PUSH HL                          ; $7FF6  E5
-        LD HL,$00B2                      ; $7FF7  21 B2 00
+        LD HL,FCB.RND_BUF                ; $7FF7  21 B2 00
         ADD HL,BC                        ; $7FFA  09
         LD (ILLEGAL_DIRECT_CHECK_2),HL   ; $7FFB  22 B8 81
 GET_PUT_RECORD_CORE_10:
-        LD HL,$0029                      ; $7FFE  21 29 00
+        LD HL,FCB.SEQ_BUF                ; $7FFE  21 29 00
         ADD HL,BC                        ; $8001  09
         ADD HL,DE                        ; $8002  19
         LD (ILLEGAL_DIRECT_CHECK_3),HL   ; $8003  22 BA 81
@@ -15168,7 +15169,7 @@ FIELD_WRITE_RECORD:
 FIELD_WRITE_RECORD_1:
         LD HL,(ILLEGAL_DIRECT_CHECK_1)   ; $807E  2A B6 81
         EX DE,HL                         ; $8081  EB
-        LD HL,$00AB                      ; $8082  21 AB 00
+        LD HL,FCB.FLD_DESC_PTR           ; $8082  21 AB 00
         ADD HL,BC                        ; $8085  09
         PUSH HL                          ; $8086  E5
         LD A,(HL)                        ; $8087  7E
@@ -15190,7 +15191,7 @@ FIELD_WRITE_RECORD_2:
         PUSH HL                          ; $809E  E5
         PUSH BC                          ; $809F  C5
         PUSH HL                          ; $80A0  E5
-        LD HL,$0026                      ; $80A1  21 26 00
+        LD HL,FCB.SEQ_RECNO+1            ; $80A1  21 26 00
         ADD HL,BC                        ; $80A4  09
         JP PUTC_FILE_3                   ; $80A5  C3 5D 7B
 FIELD_WRITE_RECORD_3:
@@ -15222,13 +15223,13 @@ BLOCK_COPY_BC_2:
         CALL FILE_BUF_REMAIN_BC          ; $80BE  CD 12 81
         JP Z,RAISE_FIELD_OVERFLOW        ; $80C1  CA 5F 0D
         CALL FCB_STORE_POSPTR            ; $80C4  CD 07 81
-        LD HL,$00B1                      ; $80C7  21 B1 00
+        LD HL,FCB.FLD_POS_PTR+1          ; $80C7  21 B1 00
         ADD HL,BC                        ; $80CA  09
         ADD HL,DE                        ; $80CB  19
         POP AF                           ; $80CC  F1
         LD (HL),A                        ; $80CD  77
         PUSH AF                          ; $80CE  F5
-        LD HL,$0028                      ; $80CF  21 28 00
+        LD HL,FCB.BUF_REM                ; $80CF  21 28 00
         ADD HL,BC                        ; $80D2  09
         LD D,(HL)                        ; $80D3  56
         LD (HL),$00                      ; $80D4  36 00
@@ -15249,7 +15250,7 @@ BLOCK_COPY_BC_4:
         CALL FILE_BUF_REMAIN             ; $80E6  CD 10 81
         JP Z,RAISE_FIELD_OVERFLOW        ; $80E9  CA 5F 0D
         CALL FCB_STORE_POSPTR            ; $80EC  CD 07 81
-        LD HL,$00B1                      ; $80EF  21 B1 00
+        LD HL,FCB.FLD_POS_PTR+1          ; $80EF  21 B1 00
         ADD HL,BC                        ; $80F2  09
         ADD HL,DE                        ; $80F3  19
         LD A,(HL)                        ; $80F4  7E
@@ -15260,11 +15261,11 @@ BLOCK_COPY_BC_4:
         RET                              ; $80F9  C9
 ; [RE] Load the FIELD buffer base pointer pair (FCB+$A9) into DE.
 FCB_LOAD_BUFPTR:
-        LD HL,$00A9                      ; $80FA  21 A9 00
+        LD HL,FCB.FLD_BUF_PTR            ; $80FA  21 A9 00
         JR FCB_LOAD_POSPTR_1             ; $80FD  18 03
 ; [RE] Load the FIELD current-position pointer pair (FCB+$B0) into DE.
 FCB_LOAD_POSPTR:
-        LD HL,$00B0                      ; $80FF  21 B0 00
+        LD HL,FCB.FLD_POS_PTR            ; $80FF  21 B0 00
 FCB_LOAD_POSPTR_1:
         ADD HL,BC                        ; $8102  09
         LD E,(HL)                        ; $8103  5E
@@ -15274,7 +15275,7 @@ FCB_LOAD_POSPTR_1:
 ; [RE] Advance (INC DE) and store the FIELD current-position pointer (FCB+$B0).
 FCB_STORE_POSPTR:
         INC DE                           ; $8107  13
-        LD HL,$00B0                      ; $8108  21 B0 00
+        LD HL,FCB.FLD_POS_PTR            ; $8108  21 B0 00
         ADD HL,BC                        ; $810B  09
         LD (HL),E                        ; $810C  73
         INC HL                           ; $810D  23
@@ -15662,7 +15663,7 @@ COLD_SET_WIDTH_14:
         ADD HL,BC                        ; $8378  09
         PUSH HL                          ; $8379  E5
         LD HL,(L_0C97)                   ; $837A  2A 97 0C
-        LD BC,$00B2                      ; $837D  01 B2 00
+        LD BC,FCB.RND_BUF                ; $837D  01 B2 00
         ADD HL,BC                        ; $8380  09
         LD B,H                           ; $8381  44
         LD C,L                           ; $8382  4D

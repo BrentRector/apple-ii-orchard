@@ -1500,6 +1500,150 @@
     "1006": [
       "$5483",
       "INTERP_COPY_END-INTERP_RUN_START"
+    ],
+    "7654": [
+      "$0029",
+      "FCB.SEQ_BUF"
+    ],
+    "765B": [
+      "$00B2",
+      "FCB.RND_BUF"
+    ],
+    "7746": [
+      "$0028",
+      "FCB.BUF_REM"
+    ],
+    "784A": [
+      "$0028",
+      "FCB.BUF_REM"
+    ],
+    "78E7": [
+      "$00A9",
+      "FCB.FLD_BUF_PTR"
+    ],
+    "78FA": [
+      "$00B2",
+      "FCB.RND_BUF"
+    ],
+    "7A55": [
+      "$0027",
+      "FCB.BUF_CNT"
+    ],
+    "7A84": [
+      "$0027",
+      "FCB.BUF_CNT"
+    ],
+    "7AB2": [
+      "$0025",
+      "FCB.SEQ_RECNO"
+    ],
+    "7ADF": [
+      "$0027",
+      "FCB.BUF_CNT"
+    ],
+    "7B03": [
+      "$0026",
+      "FCB.SEQ_RECNO+1"
+    ],
+    "7B08": [
+      "$00AE",
+      "FCB.RND_RECNO+1"
+    ],
+    "7B18": [
+      "$0010",
+      "FCB.CPM_RC"
+    ],
+    "7B38": [
+      "$0027",
+      "FCB.BUF_CNT"
+    ],
+    "7B6D": [
+      "$0022",
+      "FCB.CPM_R0R1R2"
+    ],
+    "7B9D": [
+      "$0028",
+      "FCB.BUF_REM"
+    ],
+    "7BC8": [
+      "$0025",
+      "FCB.SEQ_RECNO"
+    ],
+    "7C19": [
+      "$0027",
+      "FCB.BUF_CNT"
+    ],
+    "7DB9": [
+      "$0025",
+      "FCB.SEQ_RECNO"
+    ],
+    "7DD8": [
+      "$0029",
+      "FCB.SEQ_BUF"
+    ],
+    "7F03": [
+      "$0021",
+      "FCB.CPM_CR"
+    ],
+    "7F4F": [
+      "$00A9",
+      "FCB.FLD_BUF_PTR"
+    ],
+    "7F73": [
+      "$00AD",
+      "FCB.RND_RECNO"
+    ],
+    "7F98": [
+      "$00B0",
+      "FCB.FLD_POS_PTR"
+    ],
+    "7FA0": [
+      "$00A9",
+      "FCB.FLD_BUF_PTR"
+    ],
+    "7FF7": [
+      "$00B2",
+      "FCB.RND_BUF"
+    ],
+    "7FFE": [
+      "$0029",
+      "FCB.SEQ_BUF"
+    ],
+    "80A1": [
+      "$0026",
+      "FCB.SEQ_RECNO+1"
+    ],
+    "80C7": [
+      "$00B1",
+      "FCB.FLD_POS_PTR+1"
+    ],
+    "80CF": [
+      "$0028",
+      "FCB.BUF_REM"
+    ],
+    "80EF": [
+      "$00B1",
+      "FCB.FLD_POS_PTR+1"
+    ],
+    "80FA": [
+      "$00A9",
+      "FCB.FLD_BUF_PTR"
+    ],
+    "80FF": [
+      "$00B0",
+      "FCB.FLD_POS_PTR"
+    ],
+    "8082": [
+      "$00AB",
+      "FCB.FLD_DESC_PTR"
+    ],
+    "8108": [
+      "$00B0",
+      "FCB.FLD_POS_PTR"
+    ],
+    "837D": [
+      "$00B2",
+      "FCB.RND_BUF"
     ]
   },
   "inline_comments": {}
