@@ -14248,7 +14248,7 @@ FN_LOC_VALUE_1:
 FN_LOF_VALUE:
         CALL FILE_NUM_TO_FCB_NZ
         JP Z,RAISE_BAD_FILE_NUMBER
-        LD HL,FCB.CPM_RC
+        LD HL,FCB.CPM.RC
         ADD HL,BC
         LD A,(HL)
         JP FP_LOAD_INT_TO_FAC
@@ -14316,7 +14316,7 @@ PUTC_FILE_3:
         LD B,H
         LD C,L
         PUSH HL
-        LD HL,FCB.CPM_R0R1R2
+        LD HL,FCB.CPM.R0
         ADD HL,BC
         LD (HL),E
         INC HL
@@ -14889,7 +14889,7 @@ BDOS_FILE_CALL:
         POP BC
         POP DE
         PUSH AF
-        LD HL,FCB.CPM_CR
+        LD HL,FCB.CPM.CR
         ADD HL,DE
         INC (HL)
         JR NZ,BDOS_FILE_CALL_1
@@ -14927,7 +14927,7 @@ FILE_READ_RECORDS_1:
         CALL COPY_128_BLOCK
         DEC DE
         POP HL
-        LD BC,FCB.CPM_CR
+        LD BC,FCB.CPM.CR
         ADD HL,BC
         INC (HL)
 FILE_READ_RECORDS_2:

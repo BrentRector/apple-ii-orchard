@@ -14198,7 +14198,7 @@ FN_LOC_VALUE_1:
 FN_LOF_VALUE:
         CALL FILE_NUM_TO_FCB_NZ          ; $7B12  CD 37 76
         JP Z,RAISE_BAD_FILE_NUMBER       ; $7B15  CA 4D 0D
-        LD HL,FCB.CPM_RC                 ; $7B18  21 10 00
+        LD HL,FCB.CPM.RC                 ; $7B18  21 10 00
         ADD HL,BC                        ; $7B1B  09
         LD A,(HL)                        ; $7B1C  7E
         JP FP_LOAD_INT_TO_FAC            ; $7B1D  C3 32 3E
@@ -14266,7 +14266,7 @@ PUTC_FILE_3:
         LD B,H                           ; $7B6A  44
         LD C,L                           ; $7B6B  4D
         PUSH HL                          ; $7B6C  E5
-        LD HL,FCB.CPM_R0R1R2             ; $7B6D  21 22 00
+        LD HL,FCB.CPM.R0             ; $7B6D  21 22 00
         ADD HL,BC                        ; $7B70  09
         LD (HL),E                        ; $7B71  73
         INC HL                           ; $7B72  23
@@ -14839,7 +14839,7 @@ BDOS_FILE_CALL:
         POP BC                           ; $7ECC  C1
         POP DE                           ; $7ECD  D1
         PUSH AF                          ; $7ECE  F5
-        LD HL,FCB.CPM_CR                 ; $7ECF  21 21 00
+        LD HL,FCB.CPM.CR                 ; $7ECF  21 21 00
         ADD HL,DE                        ; $7ED2  19
         INC (HL)                         ; $7ED3  34
         JR NZ,BDOS_FILE_CALL_1           ; $7ED4  20 06
@@ -14877,7 +14877,7 @@ FILE_READ_RECORDS_1:
         CALL COPY_128_BLOCK              ; $7EFE  CD 8A 7B
         DEC DE                           ; $7F01  1B
         POP HL                           ; $7F02  E1
-        LD BC,FCB.CPM_CR                 ; $7F03  01 21 00
+        LD BC,FCB.CPM.CR                 ; $7F03  01 21 00
         ADD HL,BC                        ; $7F06  09
         INC (HL)                         ; $7F07  34
 FILE_READ_RECORDS_2:
