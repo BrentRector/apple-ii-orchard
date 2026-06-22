@@ -28,7 +28,9 @@
     ELSE
         JP COLD_START                    ; $0100  (MBASIC: runs in place, jump straight to cold start)
     ENDIF
-        DEFB    $76,$4F,$D7,$4F,$00      ; $0103  "vOWO"
+        DEFW    FN_LPOS                  ; $0103
+        DEFW    FP_STORE_FAC_INT         ; $0105
+        DEFB    "\0"                     ; $0107
 ; [RE] CRUNCH keyword-detect flag-skip (NOT a dispatch-table ref). $30E9 LD BC,CRUNCH_16+1 / PUSH BC arms $311A (LD A,$01) as the return for the CP nn / RET Z chain (sets A=1 on a separator-implying token). Fall-through: $3118 XOR A (Z) makes $3119 C2 3E 01 (JP NZ,$013E) a dead branch into $311C LD ($0B16),A with A=0. The cover IS executed; $013E merely coincides with STMT_DISPATCH_TBL+54 (STMT_LLIST) and is never used as a pointer.
 STMT_DISPATCH_TBL:
         DEFW    STMT_END                 ; $0108
@@ -496,9 +498,17 @@ ERRMSG_DIVISION_BY_ZERO:
         DEFB    "Drive select error",$00 ; $07FD  ERR_DRIVE_SELECT_ERROR = 69
         DEFB    "File Read Only",$00     ; $0810  ERR_FILE_READ_ONLY = 70
 L_081F:
-        DEFB    $D0                      ; $081F
-        DEFB    $34,$D0,$34,$D0,$34,$D0,$34,$D0,$34,$D0,$34,$D0,$34,$D0,$34,$D0  ; $0820  "4P4P4P4P4P4P4P4P"
-        DEFB    $34,$D0,$34,$01          ; $0830
+        DEFW    ERROR_FC                 ; $081F
+        DEFW    ERROR_FC                 ; $0821
+        DEFW    ERROR_FC                 ; $0823
+        DEFW    ERROR_FC                 ; $0825
+        DEFW    ERROR_FC                 ; $0827
+        DEFW    ERROR_FC                 ; $0829
+        DEFW    ERROR_FC                 ; $082B
+        DEFW    ERROR_FC                 ; $082D
+        DEFW    ERROR_FC                 ; $082F
+        DEFW    ERROR_FC                 ; $0831
+        DEFB    $01                      ; $0833
 L_0834:
         DEFB    "\0"                     ; $0834
 ; [RE] Active-error/RESUME state flag (MS BASIC ERRFLG): ON-ERROR loads it as the in-effect error code E ($3669); RESUME stores INC'd value ($3695); cold-start zeroes it ($826E). Same byte reused as the LIST/EDIT mode flag by the EDIT line resolver ($625D).
@@ -705,7 +715,7 @@ L_0B95:
         DEFS    78, $00                  ; $0B95  fill
         DEFS    22, $00                  ; $0BE3  fill
 L_0BF9:
-        DEFB    $91,$0B                  ; $0BF9
+        DEFW    L_0B91                   ; $0BF9
 L_0BFB:
         DEFB    "\0\0"                   ; $0BFB
 L_0BFD:
@@ -4027,7 +4037,7 @@ GETVAR_NAME_1:
         JP NZ,RAISE_SYNTAX_ERROR         ; $403D  C2 6F 0D
         INC HL                           ; $4040  23
         JP STMT_MID_ASSIGN               ; $4041  C3 63 6F
-        DEFB    $C3,$6F,$0D              ; $4044
+        JP RAISE_SYNTAX_ERROR            ; $4044  C3 6F 0D
 ; [RE] WIDTH statement handler (token $9D): set console/printer output line width (CP $9B tests for LPRINT form).
 STMT_WIDTH:
         CP $9B                           ; $4047  FE 9B

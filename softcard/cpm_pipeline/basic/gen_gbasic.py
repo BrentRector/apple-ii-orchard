@@ -164,6 +164,15 @@ def main():
     # them as DEFW <label> so the (body-relocated) targets relocate, not frozen DEFB.
     DISPATCH_TABLES = {0x0108: 85, 0x01B2: 54, 0x04F9: 20}
     dispatch_ptrs = {base + 2 * i for base, n in DISPATCH_TABLES.items() for i in range(n)}
+    # Header DATA cells that are POINTERS into the body/low image but lie OUTSIDE the three
+    # dispatch tables, so the table harvest misses them and they were left as frozen DEFB (a
+    # literal that would not relocate in the MBASIC fold): the function-entry pair at
+    # $0103/$0105 (-> FN_LPOS $4F76 + the $4FD7 re-entry), the 10-entry FCERR vector table at
+    # $081F (all -> the illegal-function-call raise $34D0), and the workspace pointer at $0BF9
+    # (-> L_0B91). Render them as DEFW <label> so they relocate; the body targets are resolved
+    # by the dispatch-DEFW pass (body_fmt._sym), the $0B91 one by the header formatter. The two
+    # body targets no other path labels ($34D0, $4FD7) are seeded in GBASIC.seeds.json.
+    dispatch_ptrs |= {0x0103, 0x0105, 0x0BF9} | {0x081F + 2 * i for i in range(10)}
     # Harvest the handler addresses the dispatch tables point at, so the body walker
     # labels them (a table-only-reached handler is otherwise left as a DEFW literal).
     dispatch_targets = set()
@@ -318,6 +327,14 @@ def main():
 
     # ---- finalize HEADER now that body->low references are known -------------
     hwalk.name_labels()
+    # The FCERR vector table ($081F, 10 x DEFW $34D0, declared a pointer table above) is at an
+    # ODD base, so its pointer HIGH bytes are $0820, $0822, ... A coincidental low-RAM/body
+    # constant minted $0820 and $0830 (the 16-byte-aligned ones) as orphan labels, and
+    # classify_data refuses to carve a DEFW that would swallow a labeled high byte -- so those
+    # two of the ten pointers stayed frozen DEFB. Drop the mid-pointer high-byte labels (they
+    # are interior to the DEFW table, never a reference target) so all ten carve as DEFW ERROR_FC.
+    for _i in range(10):
+        hwalk.labels.pop(0x081F + 2 * _i + 1, None)
     hdr_fmt = SjasmFormatter(hdr_mem, hwalk, origin=LOAD, length=hdr_len,
                              source_name="GBASIC", relocatable=False,
                              inline_token_names=TOKENS, pointer_words=dispatch_ptrs,
