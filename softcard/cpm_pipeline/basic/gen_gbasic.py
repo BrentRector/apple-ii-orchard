@@ -186,16 +186,13 @@ def main():
         (0x47DA, 0x47E6),   # graphics state/variable block (HPLOT coordinate save cells)
         (0x4A81, 0x4A91),   # Apple hi-res color/pixel-pattern WORD table
         (0x5EA2, 0x5EC7),   # FN_RND MBF floating-point constant pool
-        # NOTE: the SIGNON banner ($841D-$8481) is ALSO data-as-code here (decoded as bogus
-        # SUB_842F_*/SUB_848D_* code; MBASIC's twin IS pinned, see gen_mbasic). Pinning it
-        # here breaks the build for a DIFFERENT, precise reason: with the banner as data, the
-        # trailing region is no longer reached as code, so $8483 (INTERP_COPY_END, the LDDR
-        # copy boundary the $1000 relocator references via INTERP_COPY_END-1 etc.) lands in an
-        # unreached DEFS fill. The formatter does not emit a label at a fill-run start, so
-        # INTERP_COPY_END is never defined and the relocator operands resolve to $0000. Fix
-        # belongs in the formatter (emit referenced labels at data-run/fill starts), then this
-        # pin can be enabled. (MBASIC has no relocator, which is why its pin is clean.)
+        (0x841D, 0x8482),   # SIGNON_BANNER: "BASIC-80 Rev. 5.2 [Apple CP/M Version] ..." string
     ]
+    # NOTE: pinning the banner used to break the build -- with it as data the trailing region
+    # is unreached, so $8483 (INTERP_COPY_END, the LDDR copy boundary) is only referenced by
+    # the $1000 relocator (via a literal operand apply_naming rewrites to INTERP_COPY_END-1),
+    # which drop_orphan_labels couldn't see, so it stranded the L_8483 def. Fixed by the
+    # `keep=` protection on the drop_orphan_labels call below.
     for lo, hi in AUDIT_DATA:
         bwalk.add_data_region(lo, hi)
     # Register the body origin + every indirectly-reached entry point as a call TARGET
@@ -425,7 +422,12 @@ def main():
     out.append("")
     out.append('    SAVEBIN "GBASIC.bin", $0100, $6400')
     from cpm_pipeline.basic.postpass import drop_orphan_labels
-    out = drop_orphan_labels(out)              # strip stranded harvest labels
+    # Protect the LDDR copy-boundary label ($8483 -> INTERP_COPY_END): the $1000 relocator
+    # references it, but only via a literal operand that apply_naming later rewrites to
+    # `INTERP_COPY_END-1`, so it looks orphaned here and would strand (it only survived by
+    # coincidence when $8483's neighbourhood was decoded as code with stray refs).
+    keep = {n for n in (bwalk.labels.get(0x8483),) if n}
+    out = drop_orphan_labels(out, keep=keep)   # strip stranded harvest labels
     dest = asm_path("GBASIC")
     dest.write_text("\n".join(out) + "\n", encoding="latin-1")
     print("wrote", dest, len(out), "lines")
