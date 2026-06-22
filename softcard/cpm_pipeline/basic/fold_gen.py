@@ -72,10 +72,11 @@ _PATCHES = [
      "        LD E,ERR_GRAPHICS_STATEMENT_NOT_IMPLEMENTED  ; HGR/HPLOT/HCOLOR raise (MBASIC has no hi-res)\n"
      "    ENDIF\n"
      "        JP RAISE_ERROR                   ; $4B93  C3 89 0D"),
-    # 6) The trailing region (INTERP_COPY_END .. INTERP_RUN_TOP, incl. L_84C8) stays in BOTH
-    #    builds so L_84C8 -- the cold-start stack base, referenced by COLD_START -- is DEFINED
-    #    in both and RELOCATES: it is INTERP_COPY_END+69, i.e. $84C8 in GBASIC and $6146 in
-    #    MBASIC (offset $2382, the post-graphics body delta). The fill bytes here sit past
+    # 6) The trailing region (INTERP_COPY_END .. INTERP_RUN_TOP, incl. COLD_STACK_BASE) stays in
+    #    BOTH builds so COLD_STACK_BASE ($84C8) -- the cold-start stack base (LD SP at $81D6), also
+    #    the $00 link-null before program text so TXTTAB=COLD_STACK_BASE+1 -- is DEFINED in both and
+    #    RELOCATES: it is INTERP_COPY_END+69, i.e. $84C8 in GBASIC and $6146 in MBASIC (offset
+    #    $2382, the post-graphics body delta). The fill bytes here sit past
     #    MBASIC's SAVEBIN ($6000) so they are not written; only ENT is GBASIC-only (MBASIC has
     #    no DISP to close).
     ("INTERP_RUN_TOP:\n    ENT\n",

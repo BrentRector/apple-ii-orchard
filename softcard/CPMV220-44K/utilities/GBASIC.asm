@@ -524,14 +524,15 @@ CTRL_O_SUPPRESS:
 ; [RE] Output-redirected flag: when nonzero the LIST/output auto-page (more) pause is skipped.
 OUTPUT_REDIRECTED:
         DEFB    "\0\0"                   ; $0840
-L_0842:
+; [RE] Top-of-stack-room / stack-limit pointer (MS BASIC STKTOP family); cold start sets it = COLD_STACK_BASE ($81DB). The image default is a relocatable placeholder, overwritten before use.
+TOP_OF_STACK_ROOM:
         DEFW    INTERP_RUN_TOP+$3A       ; $0842
 ; [RE] Saved current text/statement pointer (MS BASIC SAVTXT): the running program pointer loaded into HL to execute; set to $FFFF in direct mode; CONT checks ==$FFFF for 'no continue'. Default $FFFE. Loaded/saved across CONT/RESUME and the storage-overflow guard.
 SAVTXT:
         DEFB    $FE,$FF                  ; $0844
-; Start of BASIC program text (MS BASIC TXTTAB): base of the linked line list, scanned by FNDLIN/relink/RUN/CLEAR. Default $84C9. The ,P-protected DECODE runs $0846..$0B6F.
+; [RE] TXTTAB: start-of-BASIC-program-text pointer (base of the linked line list; scanned by FNDLIN/relink/RUN/CLEAR). Cold-start default = COLD_STACK_BASE+1, i.e. one byte past the $00 link-null sentinel at the cold-start stack base; reset when a program is loaded.
 TXTTAB:
-        DEFW    L_84C8+1                 ; $0846
+        DEFW    COLD_STACK_BASE+1        ; $0846
 L_0848:
         DEFB    $77,$05                  ; $0848
 L_084A:
@@ -10910,7 +10911,7 @@ CHECK_STACK_ROOM:
         POP HL                           ; $6834  E1
         RET C                            ; $6835  D8
 CHECK_STACK_ROOM_1:
-        LD HL,(L_0842)                   ; $6836  2A 42 08
+        LD HL,(TOP_OF_STACK_ROOM)        ; $6836  2A 42 08
         DEC HL                           ; $6839  2B
         DEC HL                           ; $683A  2B
         LD (SAVSTK),HL                   ; $683B  22 5E 0B
@@ -11026,7 +11027,7 @@ CLEAR_RESET_STORAGE_3:
         OR A                             ; $68E5  B7
         CALL Z,CLOSE_ALL_FILES           ; $68E6  CC D1 78
         POP BC                           ; $68E9  C1
-        LD HL,(L_0842)                   ; $68EA  2A 42 08
+        LD HL,(TOP_OF_STACK_ROOM)        ; $68EA  2A 42 08
         DEC HL                           ; $68ED  2B
         DEC HL                           ; $68EE  2B
         LD (SAVSTK),HL                   ; $68EF  22 5E 0B
@@ -11281,7 +11282,7 @@ STMT_CLEAR_1:
         DEFB    ','                      ; $6A5C  2C  inline char arg consumed by the preceding CALL
         JP Z,CLEAR_RESET_STORAGE         ; $6A5D  CA 91 68
         EX DE,HL                         ; $6A60  EB
-        LD HL,(L_0842)                   ; $6A61  2A 42 08
+        LD HL,(TOP_OF_STACK_ROOM)        ; $6A61  2A 42 08
         EX DE,HL                         ; $6A64  EB
         CP $2C                           ; $6A65  FE 2C
         JR Z,STMT_CLEAR_2                ; $6A67  28 0E
@@ -11323,12 +11324,12 @@ STMT_CLEAR_3:
         EX DE,HL                         ; $6AAE  EB
         LD (MEMSIZ),HL                   ; $6AAF  22 23 0B
         POP HL                           ; $6AB2  E1
-        LD (L_0842),HL                   ; $6AB3  22 42 08
+        LD (TOP_OF_STACK_ROOM),HL        ; $6AB3  22 42 08
         POP HL                           ; $6AB6  E1
         JP CLEAR_RESET_STORAGE           ; $6AB7  C3 91 68
 STMT_CLEAR_4:
         PUSH HL                          ; $6ABA  E5
-        LD HL,(L_0842)                   ; $6ABB  2A 42 08
+        LD HL,(TOP_OF_STACK_ROOM)        ; $6ABB  2A 42 08
         EX DE,HL                         ; $6ABE  EB
         LD HL,(MEMSIZ)                   ; $6ABF  2A 23 0B
         LD A,E                           ; $6AC2  7B
@@ -15381,11 +15382,11 @@ SUB_81C6_1:
         NOP                              ; $81D2  00
 ; [RE] Interpreter cold-start entry (the $1000 relocator JPs here after copying the body up to $3000). Initializes the runtime: BDOS handshake, RAM-top, the BASIC work cells, the RPC trigger patch (see $8240), and the console width from the SoftCard card config (see $827A).
 COLD_START:
-        LD HL,L_84C8                     ; $81D3  21 C8 84
+        LD HL,COLD_STACK_BASE            ; $81D3  21 C8 84
         LD SP,HL                         ; $81D6  F9
         XOR A                            ; $81D7  AF
         LD (L_0C99),A                    ; $81D8  32 99 0C
-        LD (L_0842),HL                   ; $81DB  22 42 08
+        LD (TOP_OF_STACK_ROOM),HL        ; $81DB  22 42 08
         LD (SAVSTK),HL                   ; $81DE  22 5E 0B
         LD HL,($0001)                    ; $81E1  2A 01 00
         LD (STMT_SYSTEM_WBOOT+1),HL      ; $81E4  22 EE 7D
@@ -15656,7 +15657,7 @@ COLD_SET_WIDTH_16:
         JP C,CHECK_STACK_ROOM_1          ; $83B1  DA 36 68
         LD (MEMSIZ),HL                   ; $83B4  22 23 0B
         EX DE,HL                         ; $83B7  EB
-        LD (L_0842),HL                   ; $83B8  22 42 08
+        LD (TOP_OF_STACK_ROOM),HL        ; $83B8  22 42 08
         LD (FRETOP),HL                   ; $83BB  22 48 0B
         LD SP,HL                         ; $83BE  F9
         LD (SAVSTK),HL                   ; $83BF  22 5E 0B
@@ -15703,7 +15704,8 @@ SIGNON_BANNER_HEADER:
 ; [RE] Top of the relocated interpreter (LDDR copy boundary): the $1000 relocator copies INTERP_RUN_START..INTERP_COPY_END-1 ($3000-$8482) up from the load image. $8483-$84F1 is dead .COM padding (not copied).
 INTERP_COPY_END:
         DEFS    69, $00                  ; $8483  fill
-L_84C8:
+; [RE] Cold-start stack base: cold start does LD SP,COLD_STACK_BASE ($81D6) and seeds the stack-room pointer (TOP_OF_STACK_ROOM $0842) and SAVSTK from it, then resizes the work-area from CP/M memory top ($0001). The byte here is $00 (head of the 42-byte zero fill) and doubles as the link-null sentinel before program text, so TXTTAB = COLD_STACK_BASE+1.
+COLD_STACK_BASE:
         DEFS    42, $00                  ; $84C8  fill
 INTERP_RUN_TOP:
     ENT

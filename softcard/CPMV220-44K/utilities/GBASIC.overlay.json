@@ -629,7 +629,9 @@
     "083C": "PAGE_LENGTH",
     "083D": "WIDTH_FILE",
     "47E6": "GFX_FN_HCOLOR",
-    "47EF": "GFX_FN_HSCRN"
+    "47EF": "GFX_FN_HSCRN",
+    "84C8": "COLD_STACK_BASE",
+    "0842": "TOP_OF_STACK_ROOM"
   },
   "label_comments": {
     "4709": "[RE] Embedded 6502 BEEP tone-loop, run by GFX_STMT_BEEP via the Z80->6502 RPC. From the 6502's view this lives at $4709+$1000=$5709 (the SoftCard maps a Z80 address X to 6502 address X+$1000), which is the value GFX_STMT_BEEP loads into HL (= A_VEC, the 6502 subroutine address) before triggering the RPC. 6502 listing: LDY #$00 / LDA $C030 (toggle speaker) / DEY / BNE +4 / DEC $45 (duration, =RPC_ACC) / BEQ done / JSR $FF57 (Monitor WAIT, delay) / DEX / BNE loop / LDX $46 (pitch, =RPC_XREG) / loop / RTS. Reads zp $45/$46 = the duration/pitch cells GFX_STMT_BEEP staged. Opaque DEFB from the Z80 view; the +$1000 in the operand expression is the documented SoftCard CPU-view offset, not a relocation artifact.",
@@ -1171,7 +1173,7 @@
     "083F": "Ctrl-O output-suppress toggle: nonzero discards console output. Cleared at READY/cold-start, toggled by CONIN on Ctrl-O ($0F) and cleared on Ctrl-C. (Already commented in file.)",
     "0840": "[RE] Output-redirected flag: when nonzero the LIST/output auto-page (more) pause is skipped.",
     "0844": "[RE] Saved current text/statement pointer (MS BASIC SAVTXT): the running program pointer loaded into HL to execute; set to $FFFF in direct mode; CONT checks ==$FFFF for 'no continue'. Default $FFFE. Loaded/saved across CONT/RESUME and the storage-overflow guard.",
-    "0846": "Start of BASIC program text (MS BASIC TXTTAB): base of the linked line list, scanned by FNDLIN/relink/RUN/CLEAR. Default $84C9. The ,P-protected DECODE runs $0846..$0B6F.",
+    "0846": "[RE] TXTTAB: start-of-BASIC-program-text pointer (base of the linked line list; scanned by FNDLIN/relink/RUN/CLEAR). Cold-start default = COLD_STACK_BASE+1, i.e. one byte past the $00 link-null sentinel at the cold-start stack base; reset when a program is loaded.",
     "084E": "[RE] Seed pointer for slot 0 of the file/FOR-slot pointer array at $0850: cold-start loads it with the warm-start re-entry MAIN_LOOP_ENTRY_1 ($81D1) and the CHAIN/OPEN reinit copies $084E into $0850/$0840 after CLEAR_VARS. Effectively the default first-slot/command pointer.",
     "0850": "[RE] File/FOR-slot pointer array (MS BASIC FILTAB), indexed by max-open-files ($0870); each entry points at an FCB base. Slot 0 doubles as the deferred start-up command pointer consulted at the Ok/main-loop entry ($81D1). 126-byte region.",
     "08CF": "[RE] CRUNCH tokenizer line work buffer (MS BASIC KBUF): 318-byte zero-init RAM area; CRUNCH loads DE=$08CF as the destination where the crunched/tokenized line is built (and the LIST de-tokenizer reuses it). NOT the reserved-word name table (those strings live at $025E-$04D7; $04D8 is the operator sub-table).",
@@ -1332,7 +1334,9 @@
     "083C": "[RE] Lines-per-page for the LIST/output auto-page pause; compared against the printed-line counter ($0B12).",
     "083D": "[RE] Per-file output line width (set by WIDTH #file,width).",
     "47E6": "[RE] HCOLOR() function handler (token $D3): hi-res color read; reached via the special-case FUNCTION dispatch JP Z at $3C85. MBASIC (graphics-OFF) routes this to RAISE_GRAPHICS_STATEMENT_NOT_IMPLEMENTED.",
-    "47EF": "[RE] HSCRN() function handler (token $ED): hi-res screen-point read; reached via the special-case FUNCTION dispatch JP Z at $3C8F. MBASIC routes it to the not-implemented stub."
+    "47EF": "[RE] HSCRN() function handler (token $ED): hi-res screen-point read; reached via the special-case FUNCTION dispatch JP Z at $3C8F. MBASIC routes it to the not-implemented stub.",
+    "84C8": "[RE] Cold-start stack base: cold start does LD SP,COLD_STACK_BASE ($81D6) and seeds the stack-room pointer (TOP_OF_STACK_ROOM $0842) and SAVSTK from it, then resizes the work-area from CP/M memory top ($0001). The byte here is $00 (head of the 42-byte zero fill) and doubles as the link-null sentinel before program text, so TXTTAB = COLD_STACK_BASE+1.",
+    "0842": "[RE] Top-of-stack-room / stack-limit pointer (MS BASIC STKTOP family); cold start sets it = COLD_STACK_BASE ($81DB). The image default is a relocatable placeholder, overwritten before use."
   },
   "sections": {
     "1000": "SELF-RELOCATOR (runs at load address $1000)",
