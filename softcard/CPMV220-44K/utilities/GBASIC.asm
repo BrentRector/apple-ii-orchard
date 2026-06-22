@@ -492,12 +492,14 @@ L_081F:
         DEFW    ERROR_FC                 ; $082F
         DEFW    ERROR_FC                 ; $0831
         DEFB    $01                      ; $0833
-L_0834:
+; [RE] Pending-key cell: a console char captured by the Ctrl-C/Ctrl-S/INKEY$ poll (CONIN / keyboard scan); read by INKEY$, cleared on INLIN restart.
+PENDING_KEY:
         DEFB    "\0"                     ; $0834
 ; [RE] Active-error/RESUME state flag (MS BASIC ERRFLG): ON-ERROR loads it as the in-effect error code E ($3669); RESUME stores INC'd value ($3695); cold-start zeroes it ($826E). Same byte reused as the LIST/EDIT mode flag by the EDIT line resolver ($625D).
 ERRFLG:
         DEFB    "\0\0"                   ; $0835
-L_0837:
+; [RE] Current output column for the active device, tracked by OUTCHR (TAB stops, CR/backspace). LPOS() returns it; PRINT zone logic consults it.
+OUTPUT_COLUMN:
         DEFB    $01                      ; $0837
 L_0838:
         DEFB    "\0"                     ; $0838
@@ -505,19 +507,22 @@ L_0839:
         DEFB    "p"                      ; $0839
 L_083A:
         DEFB    $84                      ; $083A
-L_083B:
+; [RE] Terminal/output line width in columns; set by WIDTH, used by PRINT comma-zones and the FILES directory column layout.
+PRINT_WIDTH:
         DEFB    "P"                      ; $083B
-L_083C:
+; [RE] Lines-per-page for the LIST/output auto-page pause; compared against the printed-line counter ($0B12).
+PAGE_LENGTH:
         DEFB    $18                      ; $083C
-L_083D:
+; [RE] Per-file output line width (set by WIDTH #file,width).
+WIDTH_FILE:
         DEFB    "8"                      ; $083D
 L_083E:
         DEFB    "\0"                     ; $083E
 ; Ctrl-O output-suppress toggle: nonzero discards console output. Cleared at READY/cold-start, toggled by CONIN on Ctrl-O ($0F) and cleared on Ctrl-C. (Already commented in file.)
 CTRL_O_SUPPRESS:
         DEFB    "\0"                     ; $083F
-; Active-file FCB pointer (MS BASIC PTRFIL): 0 = console; set to a file's FCB during PRINT#/INPUT#/file I/O, reset to 0 at end of a console PRINT. Default $0000.
-PTRFIL:
+; [RE] Output-redirected flag: when nonzero the LIST/output auto-page (more) pause is skipped.
+OUTPUT_REDIRECTED:
         DEFB    "\0\0"                   ; $0840
 L_0842:
         DEFW    INTERP_RUN_TOP+$3A       ; $0842
@@ -813,10 +818,11 @@ L_0CED:
         DEFB    " in "                   ; $0CED
 L_0CF1:
         DEFB    "\0"                     ; $0CF1
-; Data: 'Break' message + CRLF used by the STOP/Ctrl-C path ($0E0B). $0CED ' in ' suffix, $0CF7 'Break'.
-MSG_BREAK:
+; [RE] The 'Ok' ready-prompt string (Ok CR LF NUL), printed by the READY loop / direct-mode return.
+MSG_OK:
         DEFB    "Ok\r\n\0"               ; $0CF2
-L_0CF7:
+; [RE] The 'Break' message string, printed by STOP / Ctrl-C ('Break' [+ ' in <line>']).
+MSG_BREAK:
         DEFB    "Break"                  ; $0CF7  string
         DEFB    $00                      ; $0CFC  terminator
 ; [RE] Entry to FOR/GOSUB stack-frame fixup: HL = SP+4, fall into STKFRAME_SCAN to walk the runtime stack.
@@ -1052,7 +1058,7 @@ NEWSTT_READY:
         LD (CTRL_O_SUPPRESS),A           ; $0E27  32 3F 08
         CALL LOAD_FINISH_CLOSE_CUR       ; $0E2A  CD 1A 78
         CALL PRINT_CRLF_IF_COL           ; $0E2D  CD 7B 67
-        LD HL,MSG_BREAK                  ; $0E30  21 F2 0C
+        LD HL,MSG_OK                     ; $0E30  21 F2 0C
 NEWSTT_READY_1:
         DEFB    $CD                      ; $0E33  CALL opcode -- target word self-modified at runtime (patched via LD (next),HL)
 ; [RE] Self-modified operand word of the CALL at $0E33 in the prompt/message print path (LD HL,<msg> / CALL through here). The cold sign-on patches it ONCE to STROUT ($6C40), via LD HL,STROUT / LD (STROUT_CALL_VECTOR),HL at $83E8 -- byte-scan confirms a SINGLE writer in both builds and it is never re-pointed, so after init the call is effectively CALL STROUT, not a runtime-varying dispatch. The indirection is NOT an address-resolution workaround: low-RAM JPs into the relocated body directly elsewhere (e.g. JP RESET_RUN_STATE = $68F4 at $0DA4). Why the original used a patchable cell here rather than a direct CALL is not determinable from the bytes. Init $0000.
@@ -1203,13 +1209,13 @@ SUB_0EB7_4:
         LD (HL),$00                      ; $0F1C  36 00
 SUB_0EB7_5:
         LD (FILTAB),HL                   ; $0F1E  22 50 08
-        LD HL,(PTRFIL)                   ; $0F21  2A 40 08
+        LD HL,(OUTPUT_REDIRECTED)        ; $0F21  2A 40 08
         LD (FRMEVL_TXTPTR_TEMP),HL       ; $0F24  22 69 0B
         CALL CLEAR_RESET_DATAPTR         ; $0F27  CD 8D 68
         LD HL,(FILTAB_SLOT0_SEED)        ; $0F2A  2A 4E 08
         LD (FILTAB),HL                   ; $0F2D  22 50 08
         LD HL,(FRMEVL_TXTPTR_TEMP)       ; $0F30  2A 69 0B
-        LD (PTRFIL),HL                   ; $0F33  22 40 08
+        LD (OUTPUT_REDIRECTED),HL        ; $0F33  22 40 08
         JP DIRECT_LINE_DISPATCH          ; $0F36  C3 3E 0E
 ; [RE] Relink program lines from program start ($0846): rebuild each line's forward-link word so the chain is contiguous after an insert/delete.
 CHEAD:
@@ -2603,7 +2609,7 @@ STMT_PRINT_2:
         LD HL,(L_0CB1)                   ; $3784  2A B1 0C
         INC (HL)                         ; $3787  34
 STMT_PRINT_3:
-        LD HL,(PTRFIL)                   ; $3788  2A 40 08
+        LD HL,(OUTPUT_REDIRECTED)        ; $3788  2A 40 08
         LD A,H                           ; $378B  7C
         OR L                             ; $378C  B5
         JR NZ,STMT_PRINT_6               ; $378D  20 35
@@ -2615,7 +2621,7 @@ STMT_PRINT_3:
         LD B,A                           ; $379B  47
         INC A                            ; $379C  3C
         JP Z,STMT_PRINT_6                ; $379D  CA C4 37
-        LD A,(L_0837)                    ; $37A0  3A 37 08
+        LD A,(OUTPUT_COLUMN)             ; $37A0  3A 37 08
         OR A                             ; $37A3  B7
         JP Z,STMT_PRINT_6                ; $37A4  CA C4 37
         ADD A,(HL)                       ; $37A7  86
@@ -2624,7 +2630,7 @@ STMT_PRINT_3:
         CP B                             ; $37AB  B8
         JR STMT_PRINT_5                  ; $37AC  18 13
 STMT_PRINT_4:
-        LD A,(L_083B)                    ; $37AE  3A 3B 08
+        LD A,(PRINT_WIDTH)               ; $37AE  3A 3B 08
         LD B,A                           ; $37B1  47
         INC A                            ; $37B2  3C
         JR Z,STMT_PRINT_6                ; $37B3  28 0F
@@ -2643,7 +2649,7 @@ STMT_PRINT_6:
         POP HL                           ; $37C7  E1
         JP STMT_PRINT_1                  ; $37C8  C3 4F 37
 STMT_PRINT_7:
-        LD HL,(PTRFIL)                   ; $37CB  2A 40 08
+        LD HL,(OUTPUT_REDIRECTED)        ; $37CB  2A 40 08
         LD A,H                           ; $37CE  7C
         OR L                             ; $37CF  B5
         LD BC,$0028                      ; $37D0  01 28 00
@@ -2656,12 +2662,12 @@ STMT_PRINT_7:
         LD A,(L_0839)                    ; $37DD  3A 39 08
         LD B,A                           ; $37E0  47
         INC A                            ; $37E1  3C
-        LD A,(L_0837)                    ; $37E2  3A 37 08
+        LD A,(OUTPUT_COLUMN)             ; $37E2  3A 37 08
         JR Z,STMT_PRINT_10               ; $37E5  28 16
         CP B                             ; $37E7  B8
         JP STMT_PRINT_9                  ; $37E8  C3 F7 37
 STMT_PRINT_8:
-        LD A,(L_083D)                    ; $37EB  3A 3D 08
+        LD A,(WIDTH_FILE)                ; $37EB  3A 3D 08
         LD B,A                           ; $37EE  47
         LD A,(L_0B11)                    ; $37EF  3A 11 0B
         CP $FF                           ; $37F2  FE FF
@@ -2691,7 +2697,7 @@ STMT_PRINT_12:
         LD DE,$0000                      ; $3818  11 00 00
 STMT_PRINT_13:
         PUSH HL                          ; $381B  E5
-        LD HL,(PTRFIL)                   ; $381C  2A 40 08
+        LD HL,(OUTPUT_REDIRECTED)        ; $381C  2A 40 08
         LD A,H                           ; $381F  7C
         OR L                             ; $3820  B5
         JR NZ,STMT_PRINT_15              ; $3821  20 16
@@ -2699,7 +2705,7 @@ STMT_PRINT_13:
         OR A                             ; $3826  B7
         LD A,(L_083A)                    ; $3827  3A 3A 08
         JR NZ,STMT_PRINT_14              ; $382A  20 03
-        LD A,(L_083B)                    ; $382C  3A 3B 08
+        LD A,(PRINT_WIDTH)               ; $382C  3A 3B 08
 STMT_PRINT_14:
         LD L,A                           ; $382F  6F
         INC A                            ; $3830  3C
@@ -2716,7 +2722,7 @@ STMT_PRINT_15:
         SUB $E3                          ; $3840  D6 E3
         PUSH HL                          ; $3842  E5
         JR Z,STMT_PRINT_17               ; $3843  28 1B
-        LD HL,(PTRFIL)                   ; $3845  2A 40 08
+        LD HL,(OUTPUT_REDIRECTED)        ; $3845  2A 40 08
         LD A,H                           ; $3848  7C
         OR L                             ; $3849  B5
         LD BC,$0028                      ; $384A  01 28 00
@@ -2726,7 +2732,7 @@ STMT_PRINT_15:
         LD A,(L_0838)                    ; $3851  3A 38 08
         OR A                             ; $3854  B7
         JP Z,STMT_PRINT_16               ; $3855  CA 5D 38
-        LD A,(L_0837)                    ; $3858  3A 37 08
+        LD A,(OUTPUT_COLUMN)             ; $3858  3A 37 08
         JR STMT_PRINT_17                 ; $385B  18 03
 STMT_PRINT_16:
         LD A,(L_0B11)                    ; $385D  3A 11 0B
@@ -2758,7 +2764,7 @@ PRINT_RESET_STATE:
         PUSH HL                          ; $3883  E5
         LD H,A                           ; $3884  67
         LD L,A                           ; $3885  6F
-        LD (PTRFIL),HL                   ; $3886  22 40 08
+        LD (OUTPUT_REDIRECTED),HL        ; $3886  22 40 08
         POP HL                           ; $3889  E1
         RET                              ; $388A  C9
 ; [RE] LINE statement handler (token $AD): LINE INPUT (read a whole console line into a string).
@@ -2958,7 +2964,7 @@ STMT_READ_4:
         OR $AF                           ; $39D8  F6 AF
         LD (L_0C69),A                    ; $39DA  32 69 0C
         EX DE,HL                         ; $39DD  EB
-        LD HL,(PTRFIL)                   ; $39DE  2A 40 08
+        LD HL,(OUTPUT_REDIRECTED)        ; $39DE  2A 40 08
         LD A,H                           ; $39E1  7C
         OR L                             ; $39E2  B5
         EX DE,HL                         ; $39E3  EB
@@ -3671,7 +3677,7 @@ FP_INT_SUB_TO_FAC:
         JP INT_TO_SNG                    ; $3E26  C3 EE 51
 ; [RE] LPOS(x) handler (function token $1A): current line-printer column (($0837)) into the FAC.
 FN_LPOS:
-        LD A,(L_0837)                    ; $3E29  3A 37 08
+        LD A,(OUTPUT_COLUMN)             ; $3E29  3A 37 08
         JR FN_POS_1                      ; $3E2C  18 03
 ; [RE] POS(x) handler (function token $10): current console output column (($0B11)+1) into the FAC; shares the integer-load tail with FP_LOAD_INT_TO_FAC.
 FN_POS:
@@ -4016,17 +4022,17 @@ STMT_WIDTH_1:
         CALL GETBYT                      ; $4060  CD 97 40
 ; [RE] WIDTH continuation: parse 'WIDTH #file,width' branch - stores file-width to $083B/$083D, then handles optional ',pos' second field.
 WIDTH_SET_CONSOLE:
-        LD (L_083B),A                    ; $4063  32 3B 08
+        LD (PRINT_WIDTH),A               ; $4063  32 3B 08
         LD E,A                           ; $4066  5F
         CALL WIDTH_CLAMP_COLUMN          ; $4067  CD 7B 40
-        LD (L_083D),A                    ; $406A  32 3D 08
+        LD (WIDTH_FILE),A                ; $406A  32 3D 08
         LD A,(HL)                        ; $406D  7E
         CP $2C                           ; $406E  FE 2C
         RET NZ                           ; $4070  C0
 WIDTH_SET_CONSOLE_1:
         CALL CHRGET                      ; $4071  CD C9 33
         CALL GETBYT                      ; $4074  CD 97 40
-        LD (L_083C),A                    ; $4077  32 3C 08
+        LD (PAGE_LENGTH),A               ; $4077  32 3C 08
         RET                              ; $407A  C9
 ; [RE] WIDTH helper: fold the requested column count into the valid 1..n range by repeated SUB $0E, then bias by E (original value); returns the clamped width byte.
 WIDTH_CLAMP_COLUMN:
@@ -4089,7 +4095,7 @@ STMT_LIST_1:
         OR C                             ; $40C0  B1
         JP Z,NEWSTT_READY                ; $40C1  CA 23 0E
         PUSH HL                          ; $40C4  E5
-        LD HL,(PTRFIL)                   ; $40C5  2A 40 08
+        LD HL,(OUTPUT_REDIRECTED)        ; $40C5  2A 40 08
         LD A,H                           ; $40C8  7C
         OR L                             ; $40C9  B5
         POP HL                           ; $40CA  E1
@@ -4403,7 +4409,7 @@ STMT_DELETE:
         CALL CMP_HL_DE                   ; $4283  CD 1F 69
 STMT_DELETE_1:
         JP NC,ERROR_FC                   ; $4286  D2 D0 34
-        LD HL,MSG_BREAK                  ; $4289  21 F2 0C
+        LD HL,MSG_OK                     ; $4289  21 F2 0C
         CALL STROUT                      ; $428C  CD 40 6C
         POP BC                           ; $428F  C1
         LD HL,SUB_0EB7_4                 ; $4290  21 15 0F
@@ -4854,7 +4860,7 @@ GFX_CLR_REVERSE_FLAG:
 GFX_STMT_VTAB:
         CALL GFX_GET_BYTE_ARG            ; $4540  CD 8E 45
         PUSH HL                          ; $4543  E5
-        LD HL,L_083C                     ; $4544  21 3C 08
+        LD HL,PAGE_LENGTH                ; $4544  21 3C 08
 GFX_STMT_VTAB_1:
         SUB (HL)                         ; $4547  96
         JP P,GFX_STMT_VTAB_1             ; $4548  F2 47 45
@@ -4914,7 +4920,7 @@ GFX_GET_BYTE_ARG:
 GFX_STMT_HTAB:
         CALL GFX_GET_BYTE_ARG            ; $4597  CD 8E 45
         PUSH HL                          ; $459A  E5
-        LD HL,L_083B                     ; $459B  21 3B 08
+        LD HL,PRINT_WIDTH                ; $459B  21 3B 08
 GFX_STMT_HTAB_1:
         SUB (HL)                         ; $459E  96
         JP P,GFX_STMT_HTAB_1             ; $459F  F2 9E 45
@@ -4945,7 +4951,7 @@ STMT_TEXT:
         PUSH HL                          ; $45BE  E5
         LD HL,TEXT_ROM                   ; $45BF  21 2F FB
         CALL RPC_CALL                    ; $45C2  CD E7 45
-        LD A,(L_083C)                    ; $45C5  3A 3C 08
+        LD A,(PAGE_LENGTH)               ; $45C5  3A 3C 08
         DEC A                            ; $45C8  3D
         LD H,A                           ; $45C9  67
         LD L,$00                         ; $45CA  2E 00
@@ -10524,7 +10530,7 @@ PRINT_USING_PUT_SIGN:
 OUTCHR:
         PUSH AF                          ; $6613  F5
         PUSH HL                          ; $6614  E5
-        LD HL,(PTRFIL)                   ; $6615  2A 40 08
+        LD HL,(OUTPUT_REDIRECTED)        ; $6615  2A 40 08
         LD A,H                           ; $6618  7C
         OR L                             ; $6619  B5
         JP NZ,FN_LOF_VALUE_1             ; $661A  C2 20 7B
@@ -10536,9 +10542,9 @@ OUTCHR:
         PUSH AF                          ; $6626  F5
         CP $08                           ; $6627  FE 08
         JR NZ,OUTCHR_1                   ; $6629  20 0A
-        LD A,(L_0837)                    ; $662B  3A 37 08
+        LD A,(OUTPUT_COLUMN)             ; $662B  3A 37 08
         DEC A                            ; $662E  3D
-        LD (L_0837),A                    ; $662F  32 37 08
+        LD (OUTPUT_COLUMN),A             ; $662F  32 37 08
         POP AF                           ; $6632  F1
         JR OUTDO_DEVICE                  ; $6633  18 37
 OUTCHR_1:
@@ -10547,7 +10553,7 @@ OUTCHR_1:
 OUTCHR_2:
         LD A,$20                         ; $6639  3E 20
         CALL OUTCHR                      ; $663B  CD 13 66
-        LD A,(L_0837)                    ; $663E  3A 37 08
+        LD A,(OUTPUT_COLUMN)             ; $663E  3A 37 08
         AND $07                          ; $6641  E6 07
         JR NZ,OUTCHR_2                   ; $6643  20 F4
         POP AF                           ; $6645  F1
@@ -10560,7 +10566,7 @@ OUTCHR_3:
         JR C,OUTCHR_6                    ; $664D  38 1C
         LD A,(L_083A)                    ; $664F  3A 3A 08
         INC A                            ; $6652  3C
-        LD A,(L_0837)                    ; $6653  3A 37 08
+        LD A,(OUTPUT_COLUMN)             ; $6653  3A 37 08
         JR Z,OUTCHR_4                    ; $6656  28 0B
         PUSH HL                          ; $6658  E5
         LD HL,L_083A                     ; $6659  21 3A 08
@@ -10573,7 +10579,7 @@ OUTCHR_4:
         JR Z,OUTCHR_6                    ; $6665  28 04
         INC A                            ; $6667  3C
 OUTCHR_5:
-        LD (L_0837),A                    ; $6668  32 37 08
+        LD (OUTPUT_COLUMN),A             ; $6668  32 37 08
 OUTCHR_6:
         POP AF                           ; $666B  F1
 ; [RE] Low-level BIOS console-out vector wrapper: char in A, saves BC/DE/HL, copies to C, CALLs the runtime-patched $0000 cell (CP/M BIOS CONOUT, installed by cold start at OUTDO_DEVICE_1+1 / $8217). The device-output primitive that OUTCHR ($6613) and OUTDO_WIDTH ($6682) route through.
@@ -10595,7 +10601,7 @@ OUTDO_DEVICE_1:
 OUTDO_RESET_COL:
         XOR A                            ; $6679  AF
         LD (L_0838),A                    ; $667A  32 38 08
-        LD A,(L_0837)                    ; $667D  3A 37 08
+        LD A,(OUTPUT_COLUMN)             ; $667D  3A 37 08
         OR A                             ; $6680  B7
         RET Z                            ; $6681  C8
 ; [RE] High-level char-out with line-width/auto-CR logic: enforces the terminal width, expands TAB, handles backspace against the column counter ($0B11), and issues CRLF when the print column reaches the width. Wraps the OUTCHR primitive (OUTDO_DEVICE2).
@@ -10605,7 +10611,7 @@ OUTDO_WIDTH:
         LD A,$0A                         ; $6687  3E 0A
         CALL OUTDO_DEVICE                ; $6689  CD 6C 66
         XOR A                            ; $668C  AF
-        LD (L_0837),A                    ; $668D  32 37 08
+        LD (OUTPUT_COLUMN),A             ; $668D  32 37 08
         RET                              ; $6690  C9
 OUTDO_WIDTH_1:
         LD A,(CTRL_O_SUPPRESS)           ; $6691  3A 3F 08
@@ -10629,7 +10635,7 @@ OUTDO_WIDTH_2:
         JR Z,OUTDO_WIDTH_6               ; $66B2  28 1F
         DEC A                            ; $66B4  3D
         LD (L_0B12),A                    ; $66B5  32 12 0B
-        LD A,(L_083B)                    ; $66B8  3A 3B 08
+        LD A,(PRINT_WIDTH)               ; $66B8  3A 3B 08
 OUTDO_WIDTH_3:
         DEC A                            ; $66BB  3D
         LD (L_0B11),A                    ; $66BC  32 11 0B
@@ -10657,7 +10663,7 @@ OUTDO_WIDTH_8:
         CALL OUTDO_DEVICE2               ; $66DC  CD 04 67
         CP $20                           ; $66DF  FE 20
         JR C,OUTDO_WIDTH_9               ; $66E1  38 1E
-        LD A,(L_083B)                    ; $66E3  3A 3B 08
+        LD A,(PRINT_WIDTH)               ; $66E3  3A 3B 08
         INC A                            ; $66E6  3C
         JR Z,OUTDO_WIDTH_9               ; $66E7  28 18
         DEC A                            ; $66E9  3D
@@ -10696,7 +10702,7 @@ LIST_NEWLINE_COUNT:
         CALL RESET_PRINT_STATE           ; $6711  CD 92 67
 ; [RE] Increments the printed-line counter ($0B12) up to the page limit ($083C); clamps at the limit and returns A=0. Drives the auto-page / line-width newline logic in OUTDO_WIDTH.
 LINE_COUNT_INC:
-        LD A,(L_083C)                    ; $6714  3A 3C 08
+        LD A,(PAGE_LENGTH)               ; $6714  3A 3C 08
         LD B,A                           ; $6717  47
         LD A,(L_0B12)                    ; $6718  3A 12 0B
         INC A                            ; $671B  3C
@@ -10709,7 +10715,7 @@ LINE_COUNT_INC_1:
 ; [RE] Auto-page 'more' handler on the LIST/output path: skips when output is redirected ($0840 nonzero), tests pending key (GETC_FILE_EOF), runs the input poll (LOAD_FINISH_CLOSE_CUR) and Ctrl-C/break check ($0CA0), and on a full page pushes STMT_FOR_7 and prints the pause prompt string at $0CF2 via STROUT before resuming.
 INCHR:
         PUSH HL                          ; $6724  E5
-        LD HL,(PTRFIL)                   ; $6725  2A 40 08
+        LD HL,(OUTPUT_REDIRECTED)        ; $6725  2A 40 08
         LD A,H                           ; $6728  7C
         OR L                             ; $6729  B5
         JR Z,INCHR_1                     ; $672A  28 2F
@@ -10733,7 +10739,7 @@ INCHR:
         EX (SP),HL                       ; $674D  E3
         PUSH BC                          ; $674E  C5
         PUSH DE                          ; $674F  D5
-        LD HL,MSG_BREAK                  ; $6750  21 F2 0C
+        LD HL,MSG_OK                     ; $6750  21 F2 0C
         CALL STROUT                      ; $6753  CD 40 6C
         POP DE                           ; $6756  D1
         POP BC                           ; $6757  C1
@@ -10783,7 +10789,7 @@ CRLF:
 ; [RE] Clear pending auto-line / print-column state ($0837 column, $0838, $0B11) after a newline; consulted via $0840 line-input-in-progress guard.
 RESET_PRINT_STATE:
         PUSH HL                          ; $6792  E5
-        LD HL,(PTRFIL)                   ; $6793  2A 40 08
+        LD HL,(OUTPUT_REDIRECTED)        ; $6793  2A 40 08
         LD A,H                           ; $6796  7C
         OR L                             ; $6797  B5
         POP HL                           ; $6798  E1
@@ -10795,7 +10801,7 @@ RESET_PRINT_STATE_1:
         OR A                             ; $67A0  B7
         JR Z,RESET_PRINT_STATE_2         ; $67A1  28 05
         XOR A                            ; $67A3  AF
-        LD (L_0837),A                    ; $67A4  32 37 08
+        LD (OUTPUT_COLUMN),A             ; $67A4  32 37 08
         RET                              ; $67A7  C9
 RESET_PRINT_STATE_2:
         XOR A                            ; $67A8  AF
@@ -10820,7 +10826,7 @@ INKEY_SCAN:
         CALL CONIN                       ; $67B9  CD 5C 67
         CP $13                           ; $67BC  FE 13
         CALL Z,CONIN                     ; $67BE  CC 5C 67
-        LD (L_0834),A                    ; $67C1  32 34 08
+        LD (PENDING_KEY),A               ; $67C1  32 34 08
         CP $03                           ; $67C4  FE 03
         CALL Z,ECHO_CTRL_CHAR            ; $67C6  CC 92 69
         JP STMT_STOP                     ; $67C9  C3 51 69
@@ -10850,12 +10856,12 @@ INKEY_SCAN_4:
         RET                              ; $67F3  C9
 ; [RE] Fetch and clear the pending-key cell ($0834) set by INKEY_SCAN; returns Z if no key pending, else the key in A with the cell zeroed.
 GET_PENDING_KEY:
-        LD A,(L_0834)                    ; $67F4  3A 34 08
+        LD A,(PENDING_KEY)               ; $67F4  3A 34 08
         OR A                             ; $67F7  B7
         RET Z                            ; $67F8  C8
         PUSH AF                          ; $67F9  F5
         XOR A                            ; $67FA  AF
-        LD (L_0834),A                    ; $67FB  32 34 08
+        LD (PENDING_KEY),A               ; $67FB  32 34 08
         POP AF                           ; $67FE  F1
         RET                              ; $67FF  C9
 ; [RE] Print a char via OUTCHR ($6613); if it was LF ($0A) also emit CR ($0D) and reset print state. Newline-expanding console write.
@@ -11133,7 +11139,7 @@ RESUME_AT_DIRECT_1:
         CALL OUTDO_RESET_COL             ; $6980  CD 79 66
         CALL PRINT_CRLF_IF_COL           ; $6983  CD 7B 67
         POP AF                           ; $6986  F1
-        LD HL,L_0CF7                     ; $6987  21 F7 0C
+        LD HL,MSG_BREAK                  ; $6987  21 F7 0C
         JP NZ,ERROR_RESUME_FROM_DIRECT   ; $698A  C2 00 0E
         JP READY_POP_FRAME               ; $698D  C3 22 0E
 ; [RE] Entry with A=$0F: echo a Ctrl-O as '^O'; falls into ECHO_CTRL_CHAR to print '^' + (ctrl+$40) then CRLF.
@@ -12359,7 +12365,7 @@ INLIN_PUT_AND_RESET:
 ; [RE] INLIN restart-current-line entry: clear the pending-control flag ($0834) and the quote/literal flag ($0C93), then fall into INLIN to re-read the console input line (Ctrl-U line-kill / LF).
 INLIN_RESET_LINE:
         XOR A                            ; $7023  AF
-        LD (L_0834),A                    ; $7024  32 34 08
+        LD (PENDING_KEY),A               ; $7024  32 34 08
         XOR A                            ; $7027  AF
         LD (L_0C93),A                    ; $7028  32 93 0C
 ; MS BASIC-80 INLIN: console line-input editor main loop. Reads keys, echoes printable characters into the line buffer at $0A0E, and handles control keys (CR, BS/Ctrl-H, Ctrl-U, Ctrl-R, Ctrl-X, Tab, LF, DEL) building an edited line; returns it with CY=Ctrl-C abort.
@@ -12477,7 +12483,7 @@ INLIN_STORE_CHAR:
         INC A                            ; $70E4  3C
         JR NZ,INLIN_APPEND_ECHO          ; $70E5  20 18
         PUSH HL                          ; $70E7  E5
-        LD HL,(PTRFIL)                   ; $70E8  2A 40 08
+        LD HL,(OUTPUT_REDIRECTED)        ; $70E8  2A 40 08
         LD A,H                           ; $70EB  7C
         OR L                             ; $70EC  B5
         POP HL                           ; $70ED  E1
@@ -13289,7 +13295,7 @@ STMT_WRITE_5:
         JR STMT_WRITE_3                  ; $75DE  18 D7
 STMT_WRITE_6:
         PUSH HL                          ; $75E0  E5
-        LD HL,(PTRFIL)                   ; $75E1  2A 40 08
+        LD HL,(OUTPUT_REDIRECTED)        ; $75E1  2A 40 08
         LD A,H                           ; $75E4  7C
         OR L                             ; $75E5  B5
         JR Z,STMT_WRITE_8                ; $75E6  28 1E
@@ -13339,7 +13345,7 @@ STORE_CUR_FCB_PTR:
         EX DE,HL                         ; $7623  EB
         LD H,B                           ; $7624  60
         LD L,C                           ; $7625  69
-        LD (PTRFIL),HL                   ; $7626  22 40 08
+        LD (OUTPUT_REDIRECTED),HL        ; $7626  22 40 08
         EX DE,HL                         ; $7629  EB
         RET                              ; $762A  C9
 ; [RE] CHRGET past optional '#', FRMEVL the file-number expr, range-check vs max open files ($0870); index file table at $0850 to BC=FCB base, return mode byte in A ('File not OPEN' if 0).
@@ -13526,7 +13532,7 @@ FN_CVI_15:
         CP $0A                           ; $773F  FE 0A
         JR Z,FN_CVI_17                   ; $7741  28 08
 FN_CVI_16:
-        LD HL,(PTRFIL)                   ; $7743  2A 40 08
+        LD HL,(OUTPUT_REDIRECTED)        ; $7743  2A 40 08
         LD BC,$0028                      ; $7746  01 28 00
         ADD HL,BC                        ; $7749  09
         INC (HL)                         ; $774A  34
@@ -13602,7 +13608,7 @@ OPEN_NAMED_FILE_3:
         LD (L_0870),A                    ; $77B4  32 70 08
         LD HL,(FILTAB_SLOT0_SEED)        ; $77B7  2A 4E 08
         LD (FILTAB),HL                   ; $77BA  22 50 08
-        LD (PTRFIL),HL                   ; $77BD  22 40 08
+        LD (OUTPUT_REDIRECTED),HL        ; $77BD  22 40 08
         LD HL,(SAVTXT)                   ; $77C0  2A 44 08
         INC HL                           ; $77C3  23
         LD A,H                           ; $77C4  7C
@@ -13671,7 +13677,7 @@ STMT_MERGE_1:
         INC A                            ; $7843  3C
         JP Z,RAISE_BAD_FILE_MODE         ; $7844  CA 47 0D
 STMT_MERGE_2:
-        LD HL,(PTRFIL)                   ; $7847  2A 40 08
+        LD HL,(OUTPUT_REDIRECTED)        ; $7847  2A 40 08
         LD BC,$0028                      ; $784A  01 28 00
         ADD HL,BC                        ; $784D  09
         INC (HL)                         ; $784E  34
@@ -13679,7 +13685,7 @@ STMT_MERGE_2:
 ; [RE] Direct/immediate-mode statement entry: after CRUNCH tokenizes a console line with no line number, reject it if a file is active (PTRFIL != 0 -> error $42 'Direct statement in file') else execute it via the NEWSTT direct-statement path.
 DIRECT_STMT_EXEC:
         PUSH HL                          ; $7852  E5
-        LD HL,(PTRFIL)                   ; $7853  2A 40 08
+        LD HL,(OUTPUT_REDIRECTED)        ; $7853  2A 40 08
         LD A,H                           ; $7856  7C
         OR L                             ; $7857  B5
         LD DE,ERR_DIRECT_STATEMENT_IN_FILE  ; $7858  11 42 00
@@ -14176,7 +14182,7 @@ FN_LOF_VALUE_1:
 PUTC_FILE:
         PUSH HL                          ; $7B22  E5
         PUSH AF                          ; $7B23  F5
-        LD HL,(PTRFIL)                   ; $7B24  2A 40 08
+        LD HL,(OUTPUT_REDIRECTED)        ; $7B24  2A 40 08
         LD A,(HL)                        ; $7B27  7E
         CP $01                           ; $7B28  FE 01
         JP Z,STMT_ERASE_3                ; $7B2A  CA 3D 6A
@@ -14263,7 +14269,7 @@ GETC_FILE:
         PUSH BC                          ; $7B92  C5
         PUSH HL                          ; $7B93  E5
 GETC_FILE_1:
-        LD HL,(PTRFIL)                   ; $7B94  2A 40 08
+        LD HL,(OUTPUT_REDIRECTED)        ; $7B94  2A 40 08
         LD A,(HL)                        ; $7B97  7E
         CP $03                           ; $7B98  FE 03
         JP Z,BLOCK_COPY_BC_4             ; $7B9A  CA E5 80
@@ -14299,7 +14305,7 @@ GETC_FILE_3:
         RET                              ; $7BC0  C9
 ; [RE] Read the next sequential record from the current file into its FCB buffer (entry that loads $0840 first).
 FILE_READ_RECORD:
-        LD HL,(PTRFIL)                   ; $7BC1  2A 40 08
+        LD HL,(OUTPUT_REDIRECTED)        ; $7BC1  2A 40 08
 ; [RE] Bump the FCB record number and BDOS Read-Sequential into the buffer; sets the buffer-status byte (0=data, $80=EOF).
 FILE_READ_RECORD_FCB:
         PUSH DE                          ; $7BC4  D5
@@ -14366,7 +14372,7 @@ GETC_FILE_EOF:
         RET NZ                           ; $7C13  C0
         PUSH BC                          ; $7C14  C5
         PUSH HL                          ; $7C15  E5
-        LD HL,(PTRFIL)                   ; $7C16  2A 40 08
+        LD HL,(OUTPUT_REDIRECTED)        ; $7C16  2A 40 08
         LD BC,$0027                      ; $7C19  01 27 00
         ADD HL,BC                        ; $7C1C  09
         LD (HL),$00                      ; $7C1D  36 00
@@ -14581,7 +14587,7 @@ STMT_OPEN_3:
         POP HL                           ; $7D66  E1
         LD A,D                           ; $7D67  7A
         PUSH AF                          ; $7D68  F5
-        LD (PTRFIL),HL                   ; $7D69  22 40 08
+        LD (OUTPUT_REDIRECTED),HL        ; $7D69  22 40 08
         PUSH HL                          ; $7D6C  E5
         INC HL                           ; $7D6D  23
         LD DE,L_08AA                     ; $7D6E  11 AA 08
@@ -14770,7 +14776,7 @@ STMT_FILES_5:
         LD A,(L_0B11)                    ; $7E96  3A 11 0B
         ADD A,$0F                        ; $7E99  C6 0F
         LD D,A                           ; $7E9B  57
-        LD A,(L_083B)                    ; $7E9C  3A 3B 08
+        LD A,(PRINT_WIDTH)               ; $7E9C  3A 3B 08
         CP D                             ; $7E9F  BA
         JR C,STMT_FILES_6                ; $7EA0  38 08
         LD A,$20                         ; $7EA2  3E 20
@@ -14836,7 +14842,7 @@ BDOS_FILE_CALL_2:
 FILE_READ_RECORDS:
         EX DE,HL                         ; $7EF2  EB
         CALL STRING_SPACE_ROOM_CHECK     ; $7EF3  CD 25 7F
-        LD HL,(PTRFIL)                   ; $7EF6  2A 40 08
+        LD HL,(OUTPUT_REDIRECTED)        ; $7EF6  2A 40 08
         PUSH HL                          ; $7EF9  E5
         LD BC,$002A                      ; $7EFA  01 2A 00
         ADD HL,BC                        ; $7EFD  09
@@ -14852,7 +14858,7 @@ FILE_READ_RECORDS_2:
         PUSH DE                          ; $7F0B  D5
         LD C,$1A                         ; $7F0C  0E 1A
         CALL $0005                       ; $7F0E  CD 05 00
-        LD HL,(PTRFIL)                   ; $7F11  2A 40 08
+        LD HL,(OUTPUT_REDIRECTED)        ; $7F11  2A 40 08
         INC HL                           ; $7F14  23
         EX DE,HL                         ; $7F15  EB
         LD C,$14                         ; $7F16  0E 14
@@ -15460,7 +15466,7 @@ SUB_8240_1:
         LD (CHAIN_PRESERVE_FLAG),A       ; $826B  32 9A 0C
         LD (ERRFLG),A                    ; $826E  32 35 08
         LD HL,$0000                      ; $8271  21 00 00
-        LD (L_0837),HL                   ; $8274  22 37 08
+        LD (OUTPUT_COLUMN),HL            ; $8274  22 37 08
         LD (COLOR),A                     ; $8277  32 30 F0
         LD A,(SLTTYP3)                   ; $827A  3A BB F3
         SUB $03                          ; $827D  D6 03
