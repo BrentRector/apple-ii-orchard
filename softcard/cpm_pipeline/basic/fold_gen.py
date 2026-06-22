@@ -89,18 +89,18 @@ _PATCHES = [
      "    ENDIF"),
     # 8a) hi-res FUNCTION dispatch ($D3): GBASIC -> the hi-res handler (in the graphics
     #     block); MBASIC -> the not-impl stub (verified: MBASIC $1CA0 = JP Z,$280F).
-    ("        JP Z,SUB_47C6_2                  ; $3C85  CA E6 47",
+    ("        JP Z,GFX_FN_HCOLOR               ; $3C85  CA E6 47",
      "    IFDEF GBASIC\n"
-     "        JP Z,SUB_47C6_2                  ; $3C85  CA E6 47  (GBASIC: hi-res fn handler)\n"
+     "        JP Z,GFX_FN_HCOLOR               ; $3C85  CA E6 47  (GBASIC: HCOLOR() fn handler)\n"
      "    ELSE\n"
-     "        JP Z,RAISE_GRAPHICS_STATEMENT_NOT_IMPLEMENTED  ; $3C85->$280F  hi-res fn -> not-impl (MBASIC)\n"
+     "        JP Z,RAISE_GRAPHICS_STATEMENT_NOT_IMPLEMENTED  ; $3C85->$280F  HCOLOR() fn -> not-impl (MBASIC)\n"
      "    ENDIF"),
     # 8b) hi-res FUNCTION dispatch ($ED): same divergence (MBASIC $1CAA = JP Z,$280F).
-    ("        JP Z,SUB_47C6_3                  ; $3C8F  CA EF 47",
+    ("        JP Z,GFX_FN_HSCRN                ; $3C8F  CA EF 47",
      "    IFDEF GBASIC\n"
-     "        JP Z,SUB_47C6_3                  ; $3C8F  CA EF 47  (GBASIC: hi-res fn handler)\n"
+     "        JP Z,GFX_FN_HSCRN                ; $3C8F  CA EF 47  (GBASIC: HSCRN() fn handler)\n"
      "    ELSE\n"
-     "        JP Z,RAISE_GRAPHICS_STATEMENT_NOT_IMPLEMENTED  ; $3C8F->$280F  hi-res fn -> not-impl (MBASIC)\n"
+     "        JP Z,RAISE_GRAPHICS_STATEMENT_NOT_IMPLEMENTED  ; $3C8F->$280F  HSCRN() fn -> not-impl (MBASIC)\n"
      "    ENDIF"),
     # 9) THE structural root cause (the documented "+$23 low-RAM shift"): MBASIC's
     #     error-message table carries code 32 = "Graphics statement not implemented" -- the

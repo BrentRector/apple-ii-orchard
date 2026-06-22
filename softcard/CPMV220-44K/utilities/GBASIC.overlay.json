@@ -627,7 +627,9 @@
     "0837": "OUTPUT_COLUMN",
     "083B": "PRINT_WIDTH",
     "083C": "PAGE_LENGTH",
-    "083D": "WIDTH_FILE"
+    "083D": "WIDTH_FILE",
+    "47E6": "GFX_FN_HCOLOR",
+    "47EF": "GFX_FN_HSCRN"
   },
   "label_comments": {
     "4709": "[RE] Embedded 6502 BEEP tone-loop, run by GFX_STMT_BEEP via the Z80->6502 RPC. From the 6502's view this lives at $4709+$1000=$5709 (the SoftCard maps a Z80 address X to 6502 address X+$1000), which is the value GFX_STMT_BEEP loads into HL (= A_VEC, the 6502 subroutine address) before triggering the RPC. 6502 listing: LDY #$00 / LDA $C030 (toggle speaker) / DEY / BNE +4 / DEC $45 (duration, =RPC_ACC) / BEQ done / JSR $FF57 (Monitor WAIT, delay) / DEX / BNE loop / LDX $46 (pitch, =RPC_XREG) / loop / RTS. Reads zp $45/$46 = the duration/pitch cells GFX_STMT_BEEP staged. Opaque DEFB from the Z80 view; the +$1000 in the operand expression is the documented SoftCard CPU-view offset, not a relocation artifact.",
@@ -1328,7 +1330,9 @@
     "0837": "[RE] Current output column for the active device, tracked by OUTCHR (TAB stops, CR/backspace). LPOS() returns it; PRINT zone logic consults it.",
     "083B": "[RE] Terminal/output line width in columns; set by WIDTH, used by PRINT comma-zones and the FILES directory column layout.",
     "083C": "[RE] Lines-per-page for the LIST/output auto-page pause; compared against the printed-line counter ($0B12).",
-    "083D": "[RE] Per-file output line width (set by WIDTH #file,width)."
+    "083D": "[RE] Per-file output line width (set by WIDTH #file,width).",
+    "47E6": "[RE] HCOLOR() function handler (token $D3): hi-res color read; reached via the special-case FUNCTION dispatch JP Z at $3C85. MBASIC (graphics-OFF) routes this to RAISE_GRAPHICS_STATEMENT_NOT_IMPLEMENTED.",
+    "47EF": "[RE] HSCRN() function handler (token $ED): hi-res screen-point read; reached via the special-case FUNCTION dispatch JP Z at $3C8F. MBASIC routes it to the not-implemented stub."
   },
   "sections": {
     "1000": "SELF-RELOCATOR (runs at load address $1000)",

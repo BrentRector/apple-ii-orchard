@@ -3412,17 +3412,17 @@ FRMEVL_EVAL_OPERAND_5:
         JP Z,GFX_FN_VPOS_3               ; $3C80  CA 78 47
         CP $D3                           ; $3C83  FE D3
     IFDEF GBASIC
-        JP Z,SUB_47C6_2                  ; $3C85  CA E6 47  (GBASIC: hi-res fn handler)
+        JP Z,GFX_FN_HCOLOR               ; $3C85  CA E6 47  (GBASIC: HCOLOR() fn handler)
     ELSE
-        JP Z,RAISE_GRAPHICS_STATEMENT_NOT_IMPLEMENTED  ; $3C85->$280F  hi-res fn -> not-impl (MBASIC)
+        JP Z,RAISE_GRAPHICS_STATEMENT_NOT_IMPLEMENTED  ; $3C85->$280F  HCOLOR() fn -> not-impl (MBASIC)
     ENDIF
         CP $EC                           ; $3C88  FE EC
         JP Z,GFX_FN_VPOS_2               ; $3C8A  CA 5D 47
         CP $ED                           ; $3C8D  FE ED
     IFDEF GBASIC
-        JP Z,SUB_47C6_3                  ; $3C8F  CA EF 47  (GBASIC: hi-res fn handler)
+        JP Z,GFX_FN_HSCRN                ; $3C8F  CA EF 47  (GBASIC: HSCRN() fn handler)
     ELSE
-        JP Z,RAISE_GRAPHICS_STATEMENT_NOT_IMPLEMENTED  ; $3C8F->$280F  hi-res fn -> not-impl (MBASIC)
+        JP Z,RAISE_GRAPHICS_STATEMENT_NOT_IMPLEMENTED  ; $3C8F->$280F  HSCRN() fn -> not-impl (MBASIC)
     ENDIF
         CP $EE                           ; $3C92  FE EE
         JP Z,INKEY_SCAN_1                ; $3C94  CA CC 67
@@ -5345,11 +5345,13 @@ GFX_X_COORD:
 ; [RE] Current hi-res Y/row coordinate, stored by GFX_XY_TO_HIRES_ADDR ($497D); read/updated by GFX_DRAW_LINE to compute the vertical delta for Bresenham stepping.
 GFX_Y_COORD:
         DEFB    "\0"                     ; $47E5
-SUB_47C6_2:
+; [RE] HCOLOR() function handler (token $D3): hi-res color read; reached via the special-case FUNCTION dispatch JP Z at $3C85. MBASIC (graphics-OFF) routes this to RAISE_GRAPHICS_STATEMENT_NOT_IMPLEMENTED.
+GFX_FN_HCOLOR:
         CALL CHRGET                      ; $47E6  CD C9 33
         LD A,(GFX_COLOR_INDEX)           ; $47E9  3A DA 47
         JP GFX_FN_MKD_STR_1              ; $47EC  C3 F0 46
-SUB_47C6_3:
+; [RE] HSCRN() function handler (token $ED): hi-res screen-point read; reached via the special-case FUNCTION dispatch JP Z at $3C8F. MBASIC routes it to the not-implemented stub.
+GFX_FN_HSCRN:
         CALL CHRGET                      ; $47EF  CD C9 33
         CALL SYNCHR                      ; $47F2  CD 25 69
         DEFB    '('                      ; $47F5  28  inline char arg consumed by the preceding CALL
