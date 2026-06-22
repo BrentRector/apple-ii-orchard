@@ -107,9 +107,15 @@ STMT_DISPATCH_TBL:
         DEFW    GFX_STMT_HLIN            ; $01A2
         DEFW    GFX_STMT_VLIN            ; $01A4
         DEFW    GFX_STMT_PLOT            ; $01A6
+    IFDEF GBASIC
         DEFW    GFX_STMT_HGR             ; $01A8
         DEFW    GFX_STMT_HPLOT           ; $01AA
         DEFW    GFX_STMT_HCOLOR          ; $01AC
+    ELSE
+        DEFW    RAISE_GRAPHICS_STATEMENT_NOT_IMPLEMENTED  ; $01A8  HGR   -> not-implemented stub
+        DEFW    RAISE_GRAPHICS_STATEMENT_NOT_IMPLEMENTED  ; $01AA  HPLOT -> not-implemented stub
+        DEFW    RAISE_GRAPHICS_STATEMENT_NOT_IMPLEMENTED  ; $01AC  HCOLOR-> not-implemented stub
+    ENDIF
         DEFW    GFX_STMT_BEEP            ; $01AE
         DEFW    STMT_WAIT                ; $01B0
 FUNC_DISPATCH_TBL:
@@ -5740,6 +5746,11 @@ DISK_RESELECT_AND_RAISE:
         LD E,A                           ; $4B8E  5F
         CALL $0005                       ; $4B8F  CD 05 00
         POP DE                           ; $4B92  D1
+    IFNDEF GBASIC
+        DEFB    $01                      ;        LD BC opcode = skip the LD E on the reselect fall-through
+RAISE_GRAPHICS_STATEMENT_NOT_IMPLEMENTED:
+        LD E,ERR_GRAPHICS_STATEMENT_NOT_IMPLEMENTED  ; HGR/HPLOT/HCOLOR raise (MBASIC has no hi-res)
+    ENDIF
         JP RAISE_ERROR                   ; $4B93  C3 89 0D
 GFX_STMT_HPLOT_8:
         NOP                              ; $4B96  00
