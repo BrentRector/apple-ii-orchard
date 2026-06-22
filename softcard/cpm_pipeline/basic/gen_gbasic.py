@@ -466,6 +466,25 @@ def main():
 
     hdr_lines = _resolve_dispatch_defw(hdr_lines)
 
+    # Two header pointer DEFAULTS target the trailing region / just above the run-top, where
+    # there is no clean in-image byte to label so the pointer_words path leaves them frozen:
+    # TXTTAB ($0846 = $84C9, the program-text base one past the $84C8 link-null = L_84C8+1) and
+    # the $0842 cell ($852C, $3A above INTERP_RUN_TOP -- free RAM above the interpreter). Both
+    # relocate by the post-graphics body delta ($2382) to MBASIC $6147 / $61AA, so emit them
+    # relative to the trailing-region anchors (kept in BOTH builds) instead of freezing them.
+    _TRAILING_PTRS = {"$0842": "INTERP_RUN_TOP+$3A", "$0846": "L_84C8+1"}
+
+    def _resolve_trailing_ptrs(lns):
+        out = []
+        for ln in lns:
+            c, _s, r = ln.partition(";")
+            key = next((a for a in _TRAILING_PTRS if r.strip().startswith(a)
+                        and c.lstrip().startswith("DEFB")), None)
+            out.append(f"        DEFW    {_TRAILING_PTRS[key]:<24} ;{r}" if key else ln)
+        return out
+
+    hdr_lines = _resolve_trailing_ptrs(hdr_lines)
+
     # strip the formatters' own `ORG $xxxx` lines (we frame them ourselves)
     def strip_org(lines):
         out = list(lines)

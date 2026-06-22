@@ -537,13 +537,13 @@ CTRL_O_SUPPRESS:
 PTRFIL:
         DEFB    "\0\0"                   ; $0840
 L_0842:
-        DEFB    $2C,$85                  ; $0842
+        DEFW    INTERP_RUN_TOP+$3A       ; $0842
 ; [RE] Saved current text/statement pointer (MS BASIC SAVTXT): the running program pointer loaded into HL to execute; set to $FFFF in direct mode; CONT checks ==$FFFF for 'no continue'. Default $FFFE. Loaded/saved across CONT/RESUME and the storage-overflow guard.
 SAVTXT:
         DEFB    $FE,$FF                  ; $0844
 ; Start of BASIC program text (MS BASIC TXTTAB): base of the linked line list, scanned by FNDLIN/relink/RUN/CLEAR. Default $84C9. The ,P-protected DECODE runs $0846..$0B6F.
 TXTTAB:
-        DEFB    $C9,$84                  ; $0846
+        DEFW    L_84C8+1                 ; $0846
 L_0848:
         DEFB    $77,$05                  ; $0848
 L_084A:
