@@ -102,7 +102,7 @@ STMT_DISPATCH_TBL:
         DEFW    STMT_PUT+1
         DEFW    STMT_PUT
         DEFW    STMT_CLOSE
-        DEFW    OPEN_NAMED_FILE_1+1
+        DEFW    LOAD_PROGRAM+1
         DEFW    STMT_MERGE
         DEFW    STMT_FILES
         DEFW    STMT_NAME
@@ -182,9 +182,9 @@ FUNC_DISPATCH_TBL:
         DEFW    FN_EOF
         DEFW    FN_LOC_VALUE
         DEFW    FN_LOF_VALUE
-        DEFW    FN_LOF
-        DEFW    FN_LOF_1+1
-        DEFW    FN_LOF_2+1
+        DEFW    FN_MKI_STR
+        DEFW    FN_MKS_STR+1
+        DEFW    FN_MKD_STR+1
         DEFW    GFX_FN_MKD_STR
         DEFW    GFX_FN_VPOS
         DEFW    GFX_FN_PDL
@@ -548,7 +548,7 @@ L_083E:
 ; Ctrl-O output-suppress toggle: nonzero discards console output. Cleared at READY/cold-start, toggled by CONIN on Ctrl-O ($0F) and cleared on Ctrl-C. (Already commented in file.)
 CTRL_O_SUPPRESS:
         DEFB    "\0"
-; [RE] PTRFIL: 16-bit pointer to the current file's FCB (MS BASIC PTRFIL). 0 = console/keyboard; nonzero = the FCB base of the file currently selected by a #file expression. Set by STORE_CUR_FCB_PTR ($7623-$7629, = the FCB pointer that FILE_NUM_TO_FCB resolved) for PRINT#/INPUT#/WRITE#/GET/PUT; cleared to 0 by the PRINT/INPUT epilogue ($3886) and CHAIN/OPEN reinit ($0F33). Read as a pointer (LD HL,(PTRFIL); LD A,H; OR L) by OUTCHR ($6615) and the per-PRINT-item path ($3788) to route a char to the file (FN_LOF_VALUE_1) instead of the console, and by INCHR ($6725) to read the next char from the file (GETC_FILE_EOF) instead of the keyboard. OBSERVED: every one of the 28 accesses is a 16-bit word move, never a bit/mask test, so this is a pointer, not a boolean redirect flag.
+; [RE] PTRFIL: 16-bit pointer to the current file's FCB (MS BASIC PTRFIL). 0 = console/keyboard; nonzero = the FCB base of the file currently selected by a #file expression. Set by STORE_CUR_FCB_PTR ($7623-$7629, = the FCB pointer that FILE_NUM_TO_FCB resolved) for PRINT#/INPUT#/WRITE#/GET/PUT; cleared to 0 by the PRINT/INPUT epilogue ($3886) and CHAIN/OPEN reinit ($0F33). Read as a pointer (LD HL,(PTRFIL); LD A,H; OR L) by OUTCHR ($6615) and the per-PRINT-item path ($3788) to route a char to the file (PUTC_FILE_RESUME) instead of the console, and by INCHR ($6725) to read the next char from the file (GETC_FILE_EOF) instead of the keyboard. OBSERVED: every one of the 28 accesses is a 16-bit word move, never a bit/mask test, so this is a pointer, not a boolean redirect flag.
 PTRFIL:
         DEFB    "\0\0"
 ; [RE] Top-of-stack-room / stack-limit pointer (MS BASIC STKTOP family); cold start sets it = COLD_STACK_BASE ($81DB). The image default is a relocatable placeholder, overwritten before use.
@@ -566,7 +566,7 @@ L_084A:
         DEFB    "\0"
 L_084B:
         DEFB    "\0"
-L_084C:
+FIELD_WRITE_FLAG:
         DEFB    "\0\0"
 ; [RE] Seed pointer for slot 0 of the file/FOR-slot pointer array at $0850: cold-start loads it with the warm-start re-entry MAIN_LOOP_ENTRY_1 ($81D1) and the CHAIN/OPEN reinit copies $084E into $0850/$0840 after CLEAR_VARS. Effectively the default first-slot/command pointer.
 FILTAB_SLOT0_SEED:
@@ -574,7 +574,7 @@ FILTAB_SLOT0_SEED:
 ; [RE] File/FOR-slot pointer array (MS BASIC FILTAB), indexed by max-open-files ($0870); each entry points at an FCB base. Slot 0 doubles as the deferred start-up command pointer consulted at the Ok/main-loop entry ($81D1). 126-byte region.
 FILTAB:
         DEFS    32, $00                  ; fill
-L_0870:
+MAX_FILE_NUM:
         DEFB    "\0"
 L_0871:
         DEFB    "\0"
@@ -582,21 +582,21 @@ L_0872:
         DEFS    38, $00                  ; fill
 L_0898:
         DEFB    "\0\0"
-L_089A:
+RENAME_FCB:
         DEFS    16, $00                  ; fill
-L_08AA:
+SCRATCH_FCB:
         DEFB    "\0"
-L_08AB:
+SCRATCH_FCB_NAME:
         DEFS    8, $00                   ; fill
-L_08B3:
+SCRATCH_FCB_TYPE:
         DEFB    "\0\0\0"
-L_08B6:
+SCRATCH_FCB_EX:
         DEFS    21, $00                  ; fill
 L_08CB:
         DEFB    "\0"
-L_08CC:
+BDOS_FN_RECREAD:
         DEFB    "\0"
-L_08CD:
+BDOS_FN_RECWRITE:
         DEFB    "\0"
 L_08CE:
         DEFB    ":"
@@ -674,7 +674,7 @@ L_0B52:
         DEFB    "\0"
 L_0B53:
         DEFB    "\0"
-L_0B54:
+OPEN_RESUME_TEXT_PTR:
         DEFB    "\0\0"
 L_0B56:
         DEFB    "\0"
@@ -785,7 +785,7 @@ L_0C94:
         DEFB    "\0"
 L_0C95:
         DEFB    "\0\0"
-L_0C97:
+FIELD_BUF_ADDR_LIMIT:
         DEFB    "\0\0"
 L_0C99:
         DEFB    "\0"
@@ -1103,7 +1103,7 @@ NEWSTT_READY:
         CALL OUTDO_RESET_COL
         XOR A
         LD (CTRL_O_SUPPRESS),A
-        CALL LOAD_FINISH_CLOSE_CUR
+        CALL LOAD_CLEANUP_RESET
         CALL PRINT_CRLF_IF_COL
         LD HL,MSG_OK
 NEWSTT_READY_1:
@@ -1858,7 +1858,7 @@ STMT_FOR:
         DEFB    TOK_EQ                   ; inline keyword-token arg consumed by the preceding CALL
         PUSH DE
         EX DE,HL
-        LD (L_0B54),HL
+        LD (OPEN_RESUME_TEXT_PTR),HL
         EX DE,HL
         LD A,(L_0B14)
         PUSH AF
@@ -1963,7 +1963,7 @@ STMT_FOR_5:
         PUSH HL
         LD HL,(L_0C71)
         LD (SAVTXT),HL
-        LD HL,(L_0B54)
+        LD HL,(OPEN_RESUME_TEXT_PTR)
         EX (SP),HL
         LD B,$82
         PUSH BC
@@ -2279,7 +2279,7 @@ STMT_RUN:
         CP $0E
         JR Z,STMT_RUN_1
         CP $0D
-        JP NZ,OPEN_NAMED_FILE_1
+        JP NZ,LOAD_PROGRAM
 STMT_RUN_1:
         CALL CLEAR_RESET_STORAGE
         LD BC,STMT_FOR_7
@@ -2336,7 +2336,7 @@ ERROR_UL:
         JP RAISE_ERROR
 ; [RE] POP statement handler (token $AE): discard the top GOSUB return frame.
 STMT_POP:
-        LD (L_0B54),HL
+        LD (OPEN_RESUME_TEXT_PTR),HL
         LD D,$FF
         CALL STKFRAME_SCAN_INIT
         LD SP,HL
@@ -2347,7 +2347,7 @@ STMT_POP:
         ADD HL,SP
         LD (SAVSTK),HL
         LD SP,HL
-        LD HL,(L_0B54)
+        LD HL,(OPEN_RESUME_TEXT_PTR)
         JP STMT_FOR_7
 ; [RE] RETURN statement handler (token $8E): pops the GOSUB return frame and resumes.
 STMT_RETURN:
@@ -2404,7 +2404,7 @@ STMT_LET:
         CALL SYNCHR
         DEFB    TOK_EQ                   ; inline keyword-token arg consumed by the preceding CALL
         EX DE,HL
-        LD (L_0B54),HL
+        LD (OPEN_RESUME_TEXT_PTR),HL
         EX DE,HL
         PUSH DE
         LD A,(L_0B14)
@@ -2821,7 +2821,7 @@ STMT_LINE:
         CALL SYNCHR
         DEFB    TOK_INPUT                ; inline keyword-token arg consumed by the preceding CALL
         CP $23
-        JP Z,FN_CVI_4
+        JP Z,LINE_INPUT_FILE
         CALL INPUT_PROMPT_SEP
         CALL INPUT_PROMPT
         CALL PTRGET_1+1
@@ -3017,7 +3017,7 @@ STMT_READ_4:
         LD A,H
         OR L
         EX DE,HL
-        JP NZ,FN_CVI_3
+        JP NZ,INPUT_FILE_SCAN
         CALL FRMEVL_TEST_TYPE
         PUSH AF
         JR NZ,STMT_READ_8
@@ -3447,7 +3447,7 @@ FRMEVL_EVAL_OPERAND_5:
         CP $E7
         JP Z,FN_STRING_STR
         CP TOK_INPUT
-        JP Z,FIELD_PAD_SPACES_4
+        JP Z,FN_INPUT_DOLLAR
         CP TOK_FN
         JP Z,STMT_DEF_2
 ; [RE] Evaluate a parenthesised expression / get a 16-bit integer argument: calls FRMEVL then converts the FAC to an integer in DE (ADD HL,HL). Used by functions and subscript evaluation.
@@ -5979,31 +5979,76 @@ GFX_STMT_HPLOT_2:
         EXX
         RET
     ENDIF
-; -- Disk-error raise vectors. The disk/RWTS error path enters one of these (the
-;    entries are also stored in the cold-start vector table); each sets E and falls
-;    through the shared tail (DISK_RESELECT_AND_RAISE) which reselects the default
-;    drive (BDOS fn 14) then JP RAISE_ERROR. Same overlap-skip idiom as the low-RAM
-;    coded-error stubs; labelled DISK_RAISE_* so codes shared with the low-RAM run
-;    don't collide.
+; ----------------------------------------------------------------------
+; DISK_RAISE_RESET_ERROR -- raise BASIC error 31 "Reset error" (head of the disk-error raise vector chain).
+;   In:        (none)
+;   Out:       falls into the shared tail with E = ERR_RESET_ERROR; never returns (jumps to RAISE_ERROR).
+;   Clobbers:  E (then DISK_RESELECT_AND_RAISE clobbers A,C,DE and issues a BDOS call).
+;   Algorithm: Set E to the disk-reset error code, then fall through the overlap-skip chain (the trailing
+;              DEFB $01 = LD BC opcode swallows the next routine's LD E,n) into DISK_RESELECT_AND_RAISE.
+;              These vectors are also stored in the cold-start vector table so the disk/RWTS error path can
+;              jump to one directly.
+; ----------------------------------------------------------------------
 DISK_RAISE_RESET_ERROR:
         LD E,ERR_RESET_ERROR             ; raise error 31
         DEFB    $01                      ; LD BC opcode = skip the next LD E
+; ----------------------------------------------------------------------
+; DISK_RAISE_DISK_I_O_ERROR -- raise BASIC error 57 "Disk I/O error".
+;   In:        (none)
+;   Out:       falls into the shared tail with E = ERR_DISK_I_O_ERROR; never returns.
+;   Clobbers:  E (and the shared tail's clobbers).
+;   Algorithm: Set E to the disk-I/O error code; the trailing DEFB $01 swallows the next LD E so control
+;              reaches DISK_RESELECT_AND_RAISE, which reselects the default drive and raises the error.
+; ----------------------------------------------------------------------
 DISK_RAISE_DISK_I_O_ERROR:
         LD E,ERR_DISK_I_O_ERROR          ; raise error 57
         DEFB    $01                      ; LD BC opcode = skip the next LD E
+; ----------------------------------------------------------------------
+; DISK_RAISE_DISK_READ_ONLY -- raise BASIC error 68 "Disk Read Only".
+;   In:        (none)
+;   Out:       falls into the shared tail with E = ERR_DISK_READ_ONLY; never returns.
+;   Clobbers:  E (and the shared tail's clobbers).
+;   Algorithm: Load the read-only-disk error code into E and fall through (DEFB $01 skip-idiom) to
+;              DISK_RESELECT_AND_RAISE.
+; ----------------------------------------------------------------------
 DISK_RAISE_DISK_READ_ONLY:
         LD E,ERR_DISK_READ_ONLY          ; raise error 68
         DEFB    $01                      ; LD BC opcode = skip the next LD E
+; ----------------------------------------------------------------------
+; DISK_RAISE_DRIVE_SELECT_ERROR -- raise BASIC error 69 "Drive select error".
+;   In:        (none)
+;   Out:       falls into the shared tail with E = ERR_DRIVE_SELECT_ERROR; never returns.
+;   Clobbers:  E (and the shared tail's clobbers).
+;   Algorithm: Load the drive-select error code into E and fall through (DEFB $01 skip-idiom) to
+;              DISK_RESELECT_AND_RAISE.
+; ----------------------------------------------------------------------
 DISK_RAISE_DRIVE_SELECT_ERROR:
         LD E,ERR_DRIVE_SELECT_ERROR      ; raise error 69
         DEFB    $01                      ; LD BC opcode = skip the next LD E
+; ----------------------------------------------------------------------
+; DISK_RAISE_FILE_READ_ONLY -- raise BASIC error 70 "File Read Only" (last vector before the shared tail).
+;   In:        (none)
+;   Out:       falls straight into the shared tail with E = ERR_FILE_READ_ONLY; never returns.
+;   Clobbers:  E (and the shared tail's clobbers).
+;   Algorithm: Load the file-read-only error code into E; with no skip idiom it simply falls into
+;              DISK_RESELECT_AND_RAISE.
+; ----------------------------------------------------------------------
 DISK_RAISE_FILE_READ_ONLY:
         LD E,ERR_FILE_READ_ONLY          ; raise error 70
-; [RE] Shared disk-error exit: save the code (E), issue BDOS Select-Disk (C=$0E) on
-;    the CP/M current-drive byte ($0004) to reselect the default drive, then raise.
-; Update existing comment phrasing to name the symbol: '...issue BDOS Select-Disk (C=DRV_SET) on the CP/M current-drive byte ($0004)...'
+; ----------------------------------------------------------------------
+; DISK_RESELECT_AND_RAISE -- shared tail of the disk-error vectors: reselect the recorded default drive, then raise.
+;   In:        E = BASIC error code (set by one of the DISK_RAISE_* vectors above).
+;   Out:       never returns; jumps to RAISE_ERROR with E = the error code.
+;   Clobbers:  A, C, DE around the BDOS call; E is preserved across it (saved/restored via the stack).
+;   Algorithm: After a disk fault the BDOS may have left a non-default drive selected; save the error code,
+;              issue BDOS Select-Disk (C=DRV_SET) with E = the CP/M current-drive byte at $0004 to re-log
+;              the recorded default drive, restore the code, then JP RAISE_ERROR. In the GBASIC build it
+;              falls straight to the JP; in MBASIC an IFNDEF island injects the hi-res "Graphics statement
+;              not implemented" raise (error 32) sharing this same JP RAISE_ERROR exit.
+; ----------------------------------------------------------------------
 DISK_RESELECT_AND_RAISE:
         PUSH DE
+        ; reselect the recorded default drive (E = CP/M current-drive byte at $0004) to undo any drive the failed BDOS op left logged
         LD C,DRV_SET
         LD A,($0004)
         LD E,A
@@ -10608,7 +10653,7 @@ OUTCHR:
         LD HL,(PTRFIL)
         LD A,H
         OR L
-        JP NZ,FN_LOF_VALUE_1
+        JP NZ,PUTC_FILE_RESUME
         POP HL
         LD A,(PRTFLG)
         OR A
@@ -10787,7 +10832,7 @@ LINE_COUNT_INC:
 LINE_COUNT_INC_1:
         XOR A
         RET
-; [RE] INCHR / auto-page 'more' handler on the LIST/INPUT path: if a file is the current channel (PTRFIL $0840 nonzero) read the next byte from that file via GETC_FILE_EOF and return it; otherwise (console) tests the pending key, runs the input poll (LOAD_FINISH_CLOSE_CUR) and the Ctrl-C/break check ($0CA0), and on a full page pushes STMT_FOR_7 and prints the pause prompt string at $0CF2 via STROUT before resuming.
+; [RE] INCHR / auto-page 'more' handler on the LIST/INPUT path: if a file is the current channel (PTRFIL $0840 nonzero) read the next byte from that file via GETC_FILE_EOF and return it; otherwise (console) tests the pending key, runs the input poll (LOAD_CLEANUP_RESET) and the Ctrl-C/break check ($0CA0), and on a full page pushes STMT_FOR_7 and prints the pause prompt string at $0CF2 via STROUT before resuming.
 INCHR:
         PUSH HL
         LD HL,(PTRFIL)
@@ -10799,7 +10844,7 @@ INCHR:
         PUSH BC
         PUSH DE
         PUSH HL
-        CALL LOAD_FINISH_CLOSE_CUR
+        CALL LOAD_CLEANUP_RESET
         POP HL
         POP DE
         POP BC
@@ -11019,7 +11064,7 @@ CMP_STR_VS_VARTOP:
 ; ======================================================================
 ; [RE] RUN/CLEAR setup: zero the array of work-pointers indexed by $0870 (file/FOR slots) starting at $0850, then fall through to clear variables. Entry from the warm-start path ($81BD).
 RUN_CLEAR:
-        LD A,(L_0870)
+        LD A,(MAX_FILE_NUM)
         LD B,A
         LD HL,FILTAB
         XOR A
@@ -11054,7 +11099,7 @@ CLEAR_RESET_DATAPTR:
         DEC HL
 ; [RE] Core CLEAR/NEW/RUN storage re-initialization: rebuilds the variable, array, FOR/file-slot, DATA and string-heap pointers, clears the math accumulator slots, resets stack and graphics state; common tail of NEW/CLEAR/RUN.
 CLEAR_RESET_STORAGE:
-        LD (L_0B54),HL
+        LD (OPEN_RESUME_TEXT_PTR),HL
         LD A,(CHAIN_PRESERVE_FLAG)
         OR A
         JR NZ,CLEAR_RESET_STORAGE_2
@@ -11125,7 +11170,7 @@ RESET_RUN_STATE:
         PUSH HL
         PUSH BC
 RESET_RUN_STATE_1:
-        LD HL,(L_0B54)
+        LD HL,(OPEN_RESUME_TEXT_PTR)
         RET
 ; MS BASIC 16-bit compare: A=H-D then (if equal) A=L-E, setting Z when HL==DE and carry per HL<DE. The pervasive pointer-compare primitive (68 call sites).
 CMP_HL_DE:
@@ -11434,7 +11479,7 @@ STMT_NEXT_1:
 NEXT_LOOP_BODY:
         LD (L_0C6A),HL
         CALL NZ,PTRGET_1+1
-        LD (L_0B54),HL
+        LD (OPEN_RESUME_TEXT_PTR),HL
         CALL STKFRAME_SCAN_INIT
         JP NZ,RAISE_NEXT_WITHOUT_FOR
         LD SP,HL
@@ -11530,7 +11575,7 @@ NEXT_LOOP_BODY_5:
 NEXT_LOOP_BODY_6:
         LD SP,HL
         LD (SAVSTK),HL
-        LD HL,(L_0B54)
+        LD HL,(OPEN_RESUME_TEXT_PTR)
         LD A,(HL)
         CP $2C
         JP NZ,STMT_FOR_7
@@ -12809,7 +12854,7 @@ STMT_CALL:
         LD C,$20
         DEC HL
         CALL CHRGET
-        LD (L_0B54),HL
+        LD (OPEN_RESUME_TEXT_PTR),HL
         JR Z,STMT_CALL_3
         CALL SYNCHR
         DEFB    '('                      ; inline char arg consumed by the preceding CALL
@@ -12834,7 +12879,7 @@ STMT_CALL_1:
 STMT_CALL_2:
         CALL SYNCHR
         DEFB    ')'                      ; inline char arg consumed by the preceding CALL
-        LD (L_0B54),HL
+        LD (OPEN_RESUME_TEXT_PTR),HL
         LD A,$21
         SUB C
         POP HL
@@ -12864,7 +12909,7 @@ STMT_CALL_3:
 STMT_CALL_4:
         LD HL,(SAVSTK)
         LD SP,HL
-        LD HL,(L_0B54)
+        LD HL,(OPEN_RESUME_TEXT_PTR)
         JP STMT_FOR_7
 ; [RE] CHAIN statement handler (token $B4): load and run another program, optionally preserving variables.
 STMT_CHAIN:
@@ -12880,7 +12925,7 @@ STMT_CHAIN:
 STMT_CHAIN_1:
         DEC HL
         CALL CHRGET
-        CALL OPEN_FILE_FOR_LOAD_D1
+        CALL LOAD_OPEN_INPUT
         PUSH HL
         LD HL,$0000
         LD (L_0CA1),HL
@@ -13274,9 +13319,9 @@ CHAIN_MOVE_STRING_VAR_2:
         LD A,(CHAIN_PRESERVE_FLAG)
         OR A
         JP NZ,STMT_MERGE_1
-        LD A,(L_0870)
+        LD A,(MAX_FILE_NUM)
         LD (L_084B),A
-        JP OPEN_NAMED_FILE_2
+        JP LOAD_PROGRAM_2
 CHAIN_MOVE_STRING_VAR_3:
         XOR A
         LD (CHAIN_BREAK_FLAG),A
@@ -13318,26 +13363,53 @@ CHAIN_MOVE_STRING_VAR_4:
         JP STMT_FOR_7
         DEFB    $C3
         DEFW    STMT_DATA
-; [RE] WRITE statement handler (token $B2): PRINT a comma-separated, quoted list to console/file.
+; ----------------------------------------------------------------------
+; STMT_WRITE -- WRITE# / WRITE statement handler (token).
+;   In:        HL -> source text after WRITE; C preset $02 (sequential-output mode required).
+;   Out:       Each expression in the list emitted to the selected channel (file via PTRFIL, else
+;              console) as a comma-separated, quoted-string record terminated by CRLF.
+;   Clobbers:  AF, BC, DE, HL; PRTFLG and PTRFIL reset to console at exit.
+;   Algorithm: Parse optional '#file,' prefix (PARSE_FILENUM_HASH with required mode=output), then
+;              loop over the value list: evaluate each item (FRMEVL_NOPAREN); a string is emitted
+;              wrapped in double-quotes, a number is formatted (FOUT) with its leading sign-space
+;              stripped; items are separated by emitting ','. WRITE writes the value list with the
+;              quoting/comma conventions that INPUT# can read back. The list ends at end-of-line or
+;              a separator; then fall into STMT_WRITE_6.
+; ----------------------------------------------------------------------
 STMT_WRITE:
         LD C,$02
+        ; parse optional '#file,' prefix; C=$02 requires the file be open for sequential output
         CALL PARSE_FILENUM_HASH
         DEC HL
         CALL CHRGET
         JR Z,STMT_WRITE_6
+; ----------------------------------------------------------------------
+; STMT_WRITE_1 -- WRITE# numeric-item branch / list-loop top.
+;   In:        HL -> next text item; current channel = PTRFIL.
+;   Out:       The numeric value formatted (FOUT) and emitted with its leading blank trimmed.
+;   Clobbers:  AF, DE, HL.
+;   Algorithm: Evaluate the item; if string type, divert to STMT_WRITE_5 (quoted emit). Otherwise
+;              FOUT_2 builds the number's text and SCAN_STR_LITERAL forms a string descriptor for it;
+;              the FAC word at $0CB1 then points at that descriptor. The code reads the body pointer,
+;              and if the first byte is FOUT's leading-sign space ($20) it shortens the descriptor by
+;              one so WRITE emits no leading blank, then STRPRT outputs it.
+; ----------------------------------------------------------------------
 STMT_WRITE_1:
         CALL FRMEVL_NOPAREN
         PUSH HL
+        ; string operand (Z) -> quote-and-emit path; numeric (NZ) -> format-and-emit
         CALL FRMEVL_TEST_TYPE
         JR Z,STMT_WRITE_5
         CALL FOUT_2
         CALL SCAN_STR_LITERAL
+        ; [RE] FAC word at $0CB1 -> the FOUT result string descriptor (length byte then body pointer)
         LD HL,(L_0CB1)
         INC HL
         LD E,(HL)
         INC HL
         LD D,(HL)
         LD A,(DE)
+        ; strip FOUT's leading sign-space so WRITE has no padding before the number
         CP $20
         JR NZ,STMT_WRITE_2
         INC DE
@@ -13346,8 +13418,24 @@ STMT_WRITE_1:
         LD (HL),E
         DEC HL
         DEC (HL)
+; ----------------------------------------------------------------------
+; STMT_WRITE_2 -- WRITE# emit formatted numeric text.
+;   In:        FAC word $0CB1 points at the (possibly de-padded) number-text descriptor.
+;   Out:       Text sent to the current channel via STRPRT.
+;   Clobbers:  AF, DE, HL.
+;   Algorithm: STRPRT the formatted number, then fall into the separator handler STMT_WRITE_3.
+; ----------------------------------------------------------------------
 STMT_WRITE_2:
         CALL STRPRT
+; ----------------------------------------------------------------------
+; STMT_WRITE_3 -- WRITE# inter-item separator / list continuation.
+;   In:        Saved text pointer on stack; HL invalid until POP.
+;   Out:       On ',' or ';' continues the list emitting a comma; at end-of-line finishes (STMT_WRITE_6).
+;   Clobbers:  AF, HL.
+;   Algorithm: Restore the text pointer, CHRGET the next token; end-of-line -> STMT_WRITE_6. A ';'
+;              behaves like ',' (STMT_WRITE_4); a ',' is required otherwise (SYNCHR ','). WRITE always
+;              separates output items with a comma regardless of the source ';'/',' separator.
+; ----------------------------------------------------------------------
 STMT_WRITE_3:
         POP HL
         DEC HL
@@ -13355,14 +13443,31 @@ STMT_WRITE_3:
         JR Z,STMT_WRITE_6
         CP $3B
         JR Z,STMT_WRITE_4
+        ; require a ',' or ';' between list items (syntax error otherwise)
         CALL SYNCHR
         DEFB    ','                      ; inline char arg consumed by the preceding CALL
         DEC HL
+; ----------------------------------------------------------------------
+; STMT_WRITE_4 -- WRITE# emit the ',' item separator and loop.
+;   In:        HL -> next item text.
+;   Out:       ',' sent to the current channel; control returns to STMT_WRITE_1 for the next value.
+;   Clobbers:  AF.
+;   Algorithm: CHRGET past the separator, OUTCHR a ',' to the channel, jump back to the list top.
+; ----------------------------------------------------------------------
 STMT_WRITE_4:
         CALL CHRGET
         LD A,$2C
         CALL OUTCHR
         JR STMT_WRITE_1
+; ----------------------------------------------------------------------
+; STMT_WRITE_5 -- WRITE# string-item branch: emit a quoted string.
+;   In:        FAC/temp descriptor holds the string operand.
+;   Out:       '"' + string body + '"' sent to the current channel.
+;   Clobbers:  AF.
+;   Algorithm: OUTCHR an opening double-quote, STRPRT the string body, OUTCHR a closing double-quote,
+;              then rejoin the separator handler (STMT_WRITE_3). The surrounding quotes are what let
+;              INPUT# re-read a string containing commas/leading spaces verbatim.
+; ----------------------------------------------------------------------
 STMT_WRITE_5:
         LD A,$22
         CALL OUTCHR
@@ -13370,6 +13475,18 @@ STMT_WRITE_5:
         LD A,$22
         CALL OUTCHR
         JR STMT_WRITE_3
+; ----------------------------------------------------------------------
+; STMT_WRITE_6 -- WRITE# end-of-record: terminate and (random files) pad the record.
+;   In:        PTRFIL = current-file FCB base (or 0 for console).
+;   Out:       For a RANDOM-mode file the remaining bytes of the 128-byte FIELD record are space-filled;
+;              then a CRLF is written and PRINT state is reset.
+;   Clobbers:  AF, BC, DE, HL.
+;   Algorithm: If PTRFIL is nonzero and FCB.MODE (offset $00) == FCB_MODE_RANDOM ($03), compute how
+;              many bytes remain free in the field record (FILE_BUF_REMAIN returns the FIELD position
+;              vs buffer base; subtract, then add -2 (LD DE,$FFFE / ADD HL) to reserve the trailing
+;              CRLF). If room remains (no carry) fall into STMT_WRITE_7 to blank-fill so the fixed-
+;              length random record is fully written; otherwise skip to the CRLF terminator.
+; ----------------------------------------------------------------------
 STMT_WRITE_6:
         PUSH HL
         LD HL,(PTRFIL)
@@ -13377,8 +13494,10 @@ STMT_WRITE_6:
         OR L
         JR Z,STMT_WRITE_8
         LD A,(HL)
+        ; only RANDOM-mode files (FCB.MODE==3) get their fixed-length record space-padded
         CP $03
         JR NZ,STMT_WRITE_8
+        ; DE = FIELD current-position ptr, HL = buffer base ptr; the WRITE code then computes bytes still free
         CALL FILE_BUF_REMAIN
         LD A,L
         SUB E
@@ -13386,9 +13505,18 @@ STMT_WRITE_6:
         LD A,H
         SBC A,D
         LD H,A
+        ; add -2: reserve 2 bytes for the terminating CRLF before padding
         LD DE,$FFFE
         ADD HL,DE
         JR NC,STMT_WRITE_8
+; ----------------------------------------------------------------------
+; STMT_WRITE_7 -- WRITE# random-record space-pad loop.
+;   In:        HL = count of pad bytes to emit (>0).
+;   Out:       HL spaces written to the current channel.
+;   Clobbers:  AF, HL.
+;   Algorithm: OUTCHR a space and decrement HL until zero, filling the remainder of the fixed-length
+;              random record so the on-disk record is exactly one CP/M record long.
+; ----------------------------------------------------------------------
 STMT_WRITE_7:
         LD A,$20
         CALL OUTCHR
@@ -13396,28 +13524,70 @@ STMT_WRITE_7:
         LD A,H
         OR L
         JR NZ,STMT_WRITE_7
+; ----------------------------------------------------------------------
+; STMT_WRITE_8 -- WRITE# record terminator / PRINT-state reset epilogue.
+;   In:        Saved text pointer on stack.
+;   Out:       CRLF written to the channel; PRTFLG and PTRFIL reset to console.
+;   Clobbers:  AF, HL.
+;   Algorithm: Restore HL, emit CRLF (CRLF), then tail-jump PRINT_RESET_STATE which clears the printer
+;              selector PRTFLG ($0838) and the current-file pointer PTRFIL ($0840) back to console.
+; ----------------------------------------------------------------------
 STMT_WRITE_8:
         POP HL
         CALL CRLF
         JP PRINT_RESET_STATE
-; [RE] Entry for routines needing a default file# of 1: sets C=1 then falls into PARSE_FILENUM_HASH.
+; ----------------------------------------------------------------------
+; GET_FILENUM_PREFIX_C1 -- enter PARSE_FILENUM_HASH with default/required mode = sequential input ($01).
+;   In:        A = current source char; HL -> source text.
+;   Out:       Falls into PARSE_FILENUM_HASH with C=$01.
+;   Clobbers:  C.
+;   Algorithm: Set C=FCB_MODE_SEQ_IN as the required access mode, then fall through. Used by the read
+;              side (INPUT#/LINE INPUT#) where the file must be open for input.
+; ----------------------------------------------------------------------
 GET_FILENUM_PREFIX_C1:
         LD C,$01
-; [RE] If next char is '#', skip it and parse the file-number expr via FILE_NUM_TO_FCB; else return with file# defaulted (C). Used by PRINT#/INPUT#/WRITE#/GET/PUT.
+; ----------------------------------------------------------------------
+; PARSE_FILENUM_HASH -- parse an optional leading '#file,' channel prefix and select that file.
+;   In:        A = current char; HL -> source text; C = required access mode (1=input, 2=output).
+;   Out:       If '#' present: file resolved, PTRFIL set to its FCB, and a following ',' consumed; if
+;              absent, returns immediately leaving the default channel.
+;   Clobbers:  AF, BC, DE, HL.
+;   Algorithm: If the next char is not '#' ($23), return (no file prefix). Otherwise FILE_NUM_TO_FCB
+;              evaluates the file-number expression and returns the FCB mode byte in A; the required
+;              mode C is recovered into E (POP DE) and compared (CP E): a mismatch is allowed only when
+;              the actual mode is RANDOM ($03), else raise 'Bad file mode'. Require the trailing ','
+;              (SYNCHR) and fall into STORE_CUR_FCB_PTR to record the selection.
+; ----------------------------------------------------------------------
 PARSE_FILENUM_HASH:
         CP $23
         RET NZ
         PUSH BC
+        ; evaluate the file-number expression -> BC=FCB base, A=mode byte
         CALL FILE_NUM_TO_FCB
         POP DE
         CP E
         JR Z,PARSE_FILENUM_HASH_1
+        ; a mode mismatch is tolerated only when the file is actually RANDOM; otherwise the open mode is wrong
         CP FCB_MODE_RANDOM
         JP NZ,RAISE_BAD_FILE_MODE
+; ----------------------------------------------------------------------
+; PARSE_FILENUM_HASH_1 -- consume the ',' after a valid '#file' prefix, then record the channel.
+;   In:        BC = resolved FCB base; HL -> char after the file-number expression.
+;   Out:       ',' consumed (syntax error if absent); falls into STORE_CUR_FCB_PTR.
+;   Clobbers:  AF, DE, HL.
+;   Algorithm: SYNCHR a comma separating the file number from the I/O list, then store PTRFIL.
+; ----------------------------------------------------------------------
 PARSE_FILENUM_HASH_1:
         CALL SYNCHR
         DEFB    ','                      ; inline char arg consumed by the preceding CALL
-; [RE] Set current-file FCB pointer (PTRFIL $0840) = BC (the resolved file number); HL preserved.
+; ----------------------------------------------------------------------
+; STORE_CUR_FCB_PTR -- set the current-file pointer PTRFIL ($0840) = BC (the resolved FCB base).
+;   In:        BC = FCB base of the selected file (0 selects console).
+;   Out:       PTRFIL := BC; HL preserved (swapped out and back).
+;   Clobbers:  DE.
+;   Algorithm: Move BC into HL, store to PTRFIL, restore HL. After this the PRINT/INPUT char routers
+;              (OUTCHR/GETC) route I/O to this file instead of the console until PTRFIL is recleared.
+; ----------------------------------------------------------------------
 STORE_CUR_FCB_PTR:
         EX DE,HL
         LD H,B
@@ -13425,75 +13595,186 @@ STORE_CUR_FCB_PTR:
         LD (PTRFIL),HL
         EX DE,HL
         RET
-; [RE] CHRGET past optional '#', FRMEVL the file-number expr, range-check vs max open files ($0870); index file table at $0850 to BC=FCB base, return mode byte in A ('File not OPEN' if 0).
+; ----------------------------------------------------------------------
+; FILE_NUM_TO_FCB -- evaluate a file-number expression and resolve it to its FCB base + mode byte.
+;   In:        HL -> source text positioned just before the file number (possibly a leading '#').
+;   Out:       BC = FCB base for that file; A = FCB mode byte (FCB_MODE_*), flags from OR A;
+;              HL advanced past the expression.
+;   Clobbers:  AF, BC, DE, HL.
+;   Algorithm: CHRGET, skip an optional '#', FRMEVL the numeric file-number expression, then fall
+;              through to coerce it to an integer and index FILTAB. The resolved FCB's mode byte is
+;              returned so callers can verify the file is open and in the right mode.
+; ----------------------------------------------------------------------
 FILE_NUM_TO_FCB:
         DEC HL
         CALL CHRGET
         CP $23
+        ; skip the '#' if present before evaluating the file number
         CALL Z,CHRGET
         CALL FRMEVL_NOPAREN
-; [RE] FILE_NUM_TO_FCB wrapper that sets Z per the FCB mode byte (caller checks open/closed).
+; ----------------------------------------------------------------------
+; FILE_NUM_TO_FCB_NZ -- coerce the evaluated file-number to an integer, then resolve to FCB+mode.
+;   In:        FAC holds the file-number value.
+;   Out:       BC = FCB base; A = mode byte with flags set (Z => file not open).
+;   Clobbers:  AF, BC, DE, HL.
+;   Algorithm: CONINT converts the FAC to a 0..255 integer file number, then falls into
+;              FILE_NUM_TO_FCB_A. Callers test Z to detect a closed file.
+; ----------------------------------------------------------------------
 FILE_NUM_TO_FCB_NZ:
         CALL CONINT
-; [RE] Resolve file# then return the FCB mode byte (file-open type) in A via the table lookup at 763B.
+; ----------------------------------------------------------------------
+; FILE_NUM_TO_FCB_A -- given an integer file number in A, resolve FILTAB to the FCB base + mode.
+;   In:        A = file number (0..max).
+;   Out:       E = file number; BC = FCB base; A = mode byte (Z if 0/closed).
+;   Clobbers:  AF, BC, DE, HL.
+;   Algorithm: Move A into E and fall into FCB_MODE_BYTE, the shared FILTAB index/lookup.
+; ----------------------------------------------------------------------
 FILE_NUM_TO_FCB_A:
         LD E,A
-; [RE] Given file# in E, index file-table $0850 to BC=FCB, load mode byte A=(FCB[0]); OR A sets flags.
+; ----------------------------------------------------------------------
+; FCB_MODE_BYTE -- index FILTAB by file number E to get the FCB base (BC) and its mode byte (A).
+;   In:        E = file number; MAX_FILE_NUM ($0870) = highest valid file number (max open files).
+;   Out:       BC = FILTAB[E] (FCB base); A = FCB.MODE with flags (Z => closed); HL preserved.
+;   Clobbers:  AF, BC, DE.
+;   Algorithm: Range-check E against MAX_FILE_NUM (RAISE_BAD_FILE_NUMBER if E exceeds it). FILTAB
+;              ($0850) is a packed array of 2-byte little-endian FCB pointers; index by 2*E to fetch
+;              BC, then read the FCB's first byte (FCB.MODE) and OR it so Z indicates a closed slot.
+; ----------------------------------------------------------------------
 FCB_MODE_BYTE:
-        LD A,(L_0870)
+        LD A,(MAX_FILE_NUM)
         CP E
         JP C,RAISE_BAD_FILE_NUMBER
         LD D,$00
         PUSH HL
+        ; FILTAB[file#] is a 2-byte little-endian pointer to that file's FCB; index by 2*E
         LD HL,FILTAB
         ADD HL,DE
         ADD HL,DE
         LD C,(HL)
         INC HL
         LD B,(HL)
+        ; FCB.MODE: 0=closed, 1=seq-in, 2=seq-out, 3=random
         LD A,(BC)
         OR A
         POP HL
         RET
-; [RE] Return DE = pointer to the file's data buffer inside its FCB: offset $29 for sequential, $B2 for random (per mode byte).
+; ----------------------------------------------------------------------
+; FCB_BUFFER_PTR -- return DE = pointer to the file's data buffer within its FCB, per access mode.
+;   In:        E = file number.
+;   Out:       DE -> FCB.SEQ_BUF (offset $29) for sequential files, or FCB.RND_BUF ($B2) for random;
+;              BC = FCB base; A = mode byte.
+;   Clobbers:  AF, BC, DE, HL.
+;   Algorithm: FCB_MODE_BYTE resolves the FCB and mode. Default the buffer offset to FCB.SEQ_BUF; if
+;              the mode is RANDOM ($03) use FCB.RND_BUF (the FIELD window) instead, then add the FCB
+;              base to form the absolute buffer pointer in DE.
+; ----------------------------------------------------------------------
 FCB_BUFFER_PTR:
         CALL FCB_MODE_BYTE
         LD HL,FCB.SEQ_BUF
         CP FCB_MODE_RANDOM
         JR NZ,FCB_BUFFER_PTR_1
         LD HL,FCB.RND_BUF
+; ----------------------------------------------------------------------
+; FCB_BUFFER_PTR_1 -- finalize FCB_BUFFER_PTR: add the FCB base and return the pointer in DE.
+;   In:        HL = chosen buffer field offset ($29 or $B2); BC = FCB base.
+;   Out:       DE = HL + BC (absolute buffer address).
+;   Clobbers:  HL, DE.
+;   Algorithm: ADD HL,BC; EX DE,HL.
+; ----------------------------------------------------------------------
 FCB_BUFFER_PTR_1:
         ADD HL,BC
         EX DE,HL
         RET
-; [RE] LOF() handler (function token $30): length-of-file in records (LD A,$02 selects the file-info op).
-FN_LOF:
+; ----------------------------------------------------------------------
+; FN_MKI_STR -- MKI$() function (token TOK_MKIS $31): pack a numeric into a 2-byte INT string.
+;   In:        Numeric argument already in the FAC (entered via FUNC_DISPATCH_TBL slot $0212).
+;   Out:       Returns a 2-byte string whose bytes are the integer image of the argument.
+;   Clobbers:  AF, BC, DE, HL.
+;   Algorithm: [RE] MISLABEL CORRECTED -- this is MKI$, not LOF(); the real LOF() is FN_LOF_VALUE.
+;              FUNC_DISPATCH_TBL slot index = token-1, so $0212/$0214/$0216 = tokens $31/$32/$33 =
+;              MKI$/MKS$/MKD$, and the body BUILDS and returns a STRING. A=$02 selects the result
+;              width; FRMEVL_APPLY_OP(A&7) coerces the FAC to the matching numeric type via
+;              OPERATOR_ROUTINE_TBL (A&7=2 -> FN_CINT). ALLOC_STR_A allocates A bytes of string heap
+;              (the heap body pointer lands in DSCTMP.PTR $0B46), FP_ARG_SETUP2 copies the FAC bytes
+;              (source FAC $0CB1/$0CAD) into that heap buffer (HL = $0B46 contents = destination),
+;              and STR_FN_RETURN_CHAR_1 pushes the result onto the string-temp stack. The leading 01
+;              byte at FN_LOF_1 is the LD BC,nn skip-prefix idiom (preserve).
+; ----------------------------------------------------------------------
+FN_MKI_STR:
         LD A,$02
-; [RE] LOF op-selector flag-skip. 01 here is the LD BC,nn skip-prefix, not a real load: falling through FN_LOF ($7661 LD A,$02) the 01 swallows 3E 04, so A stays $02. FUNC_DISPATCH_TBL $0214 (FN_LOF_1+1, $7664) instead runs 3E 04 = LD A,$04. Converge at $7669 PUSH AF -> CALL FRMEVL_APPLY_OP.
-FN_LOF_1:
+; ----------------------------------------------------------------------
+; FN_MKS_STR -- MKS$() function (token TOK_MKSS $32): pack a numeric into a 4-byte SNG string.
+;   In:        Entered at FN_MKS_STR+1 ($0214) with A preset $04; numeric arg in the FAC.
+;   Out:       Returns a 4-byte string holding the single-precision image of the argument.
+;   Clobbers:  AF, BC, DE, HL.
+;   Algorithm: [RE] MISLABEL CORRECTED -- MKS$, not part of LOF. Same path as FN_MKI_STR with width
+;              A=$04 so FRMEVL_APPLY_OP(A&7=4) coerces to SNG (-> FN_CSNG) and a 4-byte string is built.
+;              The 01 prefix here is the LD BC,nn skip idiom swallowing the 'LD A,$04' on the fall-
+;              through path (already documented; preserve).
+; ----------------------------------------------------------------------
+FN_MKS_STR:
         LD BC,$043E
-; [RE] LOF op-selector flag-skip, arm 3. 01 = LD BC,nn skip-prefix swallowing 3E 08; entrants from FN_LOF/FN_LOF_1+1 keep their A. FUNC_DISPATCH_TBL $0216 (FN_LOF_2+1, $7667) runs 3E 08 = LD A,$08. Converge at $7669 PUSH AF.
-FN_LOF_2:
+; ----------------------------------------------------------------------
+; FN_MKD_STR -- MKD$() function (token TOK_MKDS $33): pack a numeric into an 8-byte DBL string.
+;   In:        Entered at FN_MKD_STR+1 ($0216) with A preset $08; numeric arg in the FAC.
+;   Out:       Returns an 8-byte string holding the double-precision image of the argument.
+;   Clobbers:  AF, BC, DE, HL.
+;   Algorithm: [RE] MISLABEL CORRECTED -- MKD$, the convergence point of the MKI$/MKS$/MKD$ trio.
+;              A=$08 -> FRMEVL_APPLY_OP(A&7=0) coerces to DBL (-> FN_CDBL); ALLOC_STR_A(8) reserves the
+;              string (body ptr -> DSCTMP.PTR $0B46), FP_ARG_SETUP2 copies the 8 FAC bytes (from the
+;              FAC, $0CB1/$0CAD) into the heap buffer at HL=$0B46 contents, and STR_FN_RETURN_CHAR_1
+;              returns it as a string temp. The 01 prefix is again the LD BC,nn skip idiom.
+; ----------------------------------------------------------------------
+FN_MKD_STR:
         LD BC,$083E
         PUSH AF
+        ; coerce the FAC to the result numeric type (A&7 indexes OPERATOR_ROUTINE_TBL -> CINT/CSNG/CDBL) before extracting its bytes
         CALL FRMEVL_APPLY_OP
         POP AF
+        ; allocate A (2/4/8) bytes of string heap for the packed value; the heap body pointer lands in DSCTMP.PTR ($0B46)
         CALL ALLOC_STR_A
         LD HL,(L_0B46)
         CALL FP_ARG_SETUP2
         JP STR_FN_RETURN_CHAR_1
-; [RE] CVI() function handler (FUNC_DISPATCH_TBL slot $0204; CVS/CVD enter at +offset with widths 2/4/8): free the argument string temp (FRETMP), check it is wide enough (else FC), reinterpret its bytes as a numeric and load the FAC.
+; ----------------------------------------------------------------------
+; FN_CVI -- CVI() function (token TOK_CVI $2A): reinterpret a >=2-byte string's bytes as an integer.
+;   In:        String argument's descriptor reached via FUNC_DISPATCH_TBL slot $0204; A preset $01.
+;   Out:       FAC = the numeric value formed from the first 2 bytes of the string; VALTYP=INT ($02).
+;   Clobbers:  AF, BC, DE, HL.
+;   Algorithm: A holds (min length - 1): $01 for CVI. FRETMP frees/locates the argument string temp;
+;              the descriptor's length must EXCEED A (CP (HL) then JP NC,ERROR_FC: error if A >= len),
+;              else 'Illegal function call'. Then INC A -> A=2 is written to VALTYP ($0B14) so the value
+;              is typed INT, the string's body pointer is loaded into HL, and FP_ARG_SETUP1 moves those
+;              bytes into the FAC. CVI is the inverse of MKI$. The 01 byte before LD BC at FN_CVI_1 is
+;              the LD BC,nn skip-prefix idiom (preserve).
+; ----------------------------------------------------------------------
 FN_CVI:
         LD A,$01
-; [RE] CVI/CVS/CVD width-selector flag-skip. 01 = LD BC,nn skip-prefix swallowing 3E 03; FN_CVI ($767A LD A,$01) keeps A=$01. FUNC_DISPATCH_TBL $0206 (FN_CVI_1+1, $767D) runs 3E 03 = LD A,$03. Converge at $7682 PUSH AF; A is the min-string-length checked at $7687 CP (HL).
+; ----------------------------------------------------------------------
+; FN_CVS -- CVS() function (token TOK_CVS $2B): reinterpret a >=4-byte string as a single.
+;   In:        Entered at FN_CVS+1 ($0206) with A preset $03 (min length-1 = 3).
+;   Out:       FAC = single-precision value from the string's first 4 bytes; VALTYP=SNG ($04).
+;   Clobbers:  AF, BC, DE, HL.
+;   Algorithm: Same body as FN_CVI with width selector $03; INC A -> 4 stored to VALTYP. Inverse of
+;              MKS$. The 01 prefix is the LD BC,nn skip idiom over the fall-through 'LD A,$03'.
+; ----------------------------------------------------------------------
 FN_CVI_1:
         LD BC,$033E
-; [RE] CVD width-selector flag-skip, arm 3. 01 = LD BC,nn skip-prefix swallowing 3E 07; entrants from FN_CVI/FN_CVI_1+1 keep their A. FUNC_DISPATCH_TBL $0208 (FN_CVI_2+1, $7680) runs 3E 07 = LD A,$07. Converge at $7682 PUSH AF.
+; ----------------------------------------------------------------------
+; FN_CVD -- CVD() function (token TOK_CVD $2C): reinterpret a >=8-byte string as a double.
+;   In:        Entered at FN_CVD+1 ($0208) with A preset $07 (min length-1 = 7).
+;   Out:       FAC = double-precision value from the string's first 8 bytes; VALTYP=DBL ($08).
+;   Clobbers:  AF, BC, DE, HL.
+;   Algorithm: Convergence body for CVI/CVS/CVD. After the length check, INC A types VALTYP, and
+;              FP_ARG_SETUP1 loads the bytes into the FAC. Inverse of MKD$.
+; ----------------------------------------------------------------------
 FN_CVI_2:
         LD BC,$073E
         PUSH AF
+        ; release/locate the argument string temp; HL -> its descriptor (length byte then body ptr)
         CALL FRETMP
         POP AF
+        ; string length must EXCEED A (need >=2/4/8 bytes); too short -> Illegal function call
         CP (HL)
         JP NC,ERROR_FC
         INC A
@@ -13502,131 +13783,298 @@ FN_CVI_2:
         INC HL
         LD H,(HL)
         LD L,C
+        ; set VALTYP to the result type (INT=2 / SNG=4 / DBL=8) so the FAC is read with the right width
         LD (L_0B14),A
         JP FP_ARG_SETUP1
-FN_CVI_3:
+; ----------------------------------------------------------------------
+; INPUT_FILE_SCAN -- INPUT#/READ# value scanner: parse one numeric/string field from the current file.
+;   In:        HL -> the variable being assigned; PTRFIL = current-file FCB (nonzero; the file branch
+;              of STMT_READ_4 does JP NZ,here when PTRFIL!=0).
+;   Out:       One field parsed from the file stream and assigned; HL advanced.
+;   Clobbers:  AF, BC, DE, HL.
+;   Algorithm: [RE] This is the file-INPUT scanner, NOT part of CVI -- it sits next to it in file order.
+;              FRMEVL_TEST_TYPE sets Z=string/NZ=numeric. Sets BC=STMT_READ_7 (the value-assign
+;              finisher) and DE=$2C20 (D=',' E=' '). On NZ (NUMERIC field) it jumps to the scan loop
+;              with those delimiters, so a numeric field ends on a comma OR a space. On Z (STRING
+;              field) it first does LD E,D (E=','), so a string field's two terminators are both ','
+;              -- it ends only at a comma, letting embedded spaces be kept. Joins the common scan loop
+;              at INPUT_FILE_SCAN_5.
+; ----------------------------------------------------------------------
+INPUT_FILE_SCAN:
         CALL FRMEVL_TEST_TYPE
         LD BC,STMT_READ_7
+        ; D=',' E=' ': the NUMERIC-field delimiter pair (ends on comma or space). The string path below does LD E,D so a string field ends only on a comma
         LD DE,$2C20
-        JR NZ,FN_CVI_5
+        JR NZ,INPUT_FILE_SCAN_5
         LD E,D
-        JR FN_CVI_5
-FN_CVI_4:
+        JR INPUT_FILE_SCAN_5
+; ----------------------------------------------------------------------
+; LINE_INPUT_FILE -- LINE INPUT# entry: read a whole line (to CR) from the file into a string var.
+;   In:        HL -> '#file' text (a '#' was just detected by STMT_LINE, which JP Z,here).
+;   Out:       The destination string variable receives the rest of the line up to CR; PTRFIL selected.
+;   Clobbers:  AF, BC, DE, HL.
+;   Algorithm: [RE] LINE INPUT# path, not CVI. GET_FILENUM_PREFIX_C1 parses '#file,' requiring input
+;              mode and sets PTRFIL. PTRGET locates the target string variable; FP_INT_CHECK validates
+;              it. Pushes the PRINT_RESET_STATE epilogue and the variable pointer, then sets the scan to
+;              'read until CR with no delimiter trimming' (BC=STMT_DATA_4 finisher; D=E=0 = no comma/
+;              space delimiter) before joining the scan loop -- so the whole remaining line is captured.
+; ----------------------------------------------------------------------
+LINE_INPUT_FILE:
+        ; parse '#file,' (file must be open for input) and select it via PTRFIL
         CALL GET_FILENUM_PREFIX_C1
         CALL PTRGET_1+1
         CALL FP_INT_CHECK
         LD BC,PRINT_RESET_STATE
         PUSH BC
         PUSH DE
+        ; use the LINE-INPUT finisher; D=E=0 means no delimiter so the whole line to CR is read
         LD BC,STMT_DATA_4
         XOR A
         LD D,A
         LD E,A
-FN_CVI_5:
+; ----------------------------------------------------------------------
+; INPUT_FILE_SCAN_5 -- common entry to the INPUT#/LINE-INPUT# field scan loop.
+;   In:        A/BC/HL set by the INPUT_FILE_SCAN or LINE_INPUT_FILE setup; D/E = delimiter config.
+;   Out:       Saves scan context (AF,BC,HL) and falls into the leading-space skipper.
+;   Clobbers:  stack.
+;   Algorithm: Push the type/finisher/var context, then fall into INPUT_FILE_SCAN_6 to begin reading
+;              characters from the file via GETC_FILE_EOF.
+; ----------------------------------------------------------------------
+INPUT_FILE_SCAN_5:
         PUSH AF
         PUSH BC
         PUSH HL
-FN_CVI_6:
+; ----------------------------------------------------------------------
+; INPUT_FILE_SCAN_6 -- skip leading spaces before a field.
+;   In:        D = leading-blank flag (nonzero when blanks should be skipped).
+;   Out:       A = first non-space char; carry from GETC_FILE_EOF signals premature EOF.
+;   Clobbers:  AF.
+;   Algorithm: GETC_FILE_EOF reads the next file byte; carry -> 'Input past end' error. Loops while the
+;              char is a space ($20) and D!=0 (leading blanks are eaten).
+; ----------------------------------------------------------------------
+INPUT_FILE_SCAN_6:
+        ; read next byte from the current file; carry => EOF -> Input past end
         CALL GETC_FILE_EOF
         JP C,RAISE_INPUT_PAST_END
         CP $20
-        JR NZ,FN_CVI_7
+        JR NZ,INPUT_FILE_SCAN_7
         INC D
         DEC D
-        JR NZ,FN_CVI_6
-FN_CVI_7:
+        JR NZ,INPUT_FILE_SCAN_6
+; ----------------------------------------------------------------------
+; INPUT_FILE_SCAN_7 -- detect a leading quote to start a quoted-string field.
+;   In:        A = first significant char of the field; E = the field's primary delimiter.
+;   Out:       If a '"' opens a (comma-delimited) string field, arms the quote terminator in D/E and
+;              reads the next char; otherwise falls into the unquoted accumulation path.
+;   Clobbers:  AF, BC, DE.
+;   Algorithm: If A=='"' and E==',' (a string field), arm a quoted string: set D=E=quote so only a
+;              closing '"' terminates the body, and GETC_FILE_EOF the first body char (EOF -> finish at
+;              INPUT_FILE_FINISH). Else continue to the byte-accumulation loop.
+; ----------------------------------------------------------------------
+INPUT_FILE_SCAN_7:
+        ; a leading quote opens a quoted string field (commas/spaces become literal until the closing quote)
         CP $22
-        JR NZ,FN_CVI_8
+        JR NZ,INPUT_FILE_SCAN_8
         LD B,A
         LD A,E
         CP $2C
         LD A,B
-        JR NZ,FN_CVI_8
+        JR NZ,INPUT_FILE_SCAN_8
         LD D,B
         LD E,B
         CALL GETC_FILE_EOF
-        JR C,FN_CVI_12
-FN_CVI_8:
+        JR C,INPUT_FILE_FINISH
+; ----------------------------------------------------------------------
+; INPUT_FILE_SCAN_8 -- initialize the field accumulation buffer.
+;   In:        A = current char to begin storing.
+;   Out:       HL = BUF (console input buffer reused as the field staging area); B=$FF max-count guard.
+;   Clobbers:  HL, B.
+;   Algorithm: Point HL at BUF and set B=$FF (the field-length limit counter used by INPUT_BUF_STORE),
+;              then fall into the per-character accumulation loop.
+; ----------------------------------------------------------------------
+INPUT_FILE_SCAN_8:
+        ; stage the field in BUF; B=$FF caps the field length (INPUT_BUF_STORE counts down)
         LD HL,BUF
         LD B,$FF
-FN_CVI_9:
+; ----------------------------------------------------------------------
+; INPUT_FILE_SCAN_9 -- per-character field accumulation loop with CR/LF record handling.
+;   In:        A = current char; D/E = active terminators; HL -> BUF write cursor; B = remaining room.
+;   Out:       Characters stored to BUF until a terminator/EOF; control transfers to the finish path.
+;   Clobbers:  AF, BC, HL.
+;   Algorithm: [RE] Inside a quoted field (D=='"') jump straight to the store/terminator test. A CR
+;              ($0D) goes to the CR/LF separator handler (INPUT_FILE_CR). A bare LF ($0A) not preceded
+;              by CR is stored into the field unless the field is comma-delimited (E==','), then the
+;              next byte is read and a following CR is examined. Other chars fall to the store-or-stop
+;              test (INPUT_FILE_SCAN_10).
+; ----------------------------------------------------------------------
+INPUT_FILE_SCAN_9:
         LD C,A
         LD A,D
         CP $22
         LD A,C
-        JR Z,FN_CVI_10
+        JR Z,INPUT_FILE_SCAN_10
         CP $0D
         PUSH HL
-        JR Z,FN_CVI_15
+        JR Z,INPUT_FILE_CR
         POP HL
         CP $0A
-        JR NZ,FN_CVI_10
+        JR NZ,INPUT_FILE_SCAN_10
         LD C,A
         LD A,E
         CP $2C
         LD A,C
+        ; [RE] store this bare LF into the field unless the field is comma-delimited (E==',')
         CALL NZ,INPUT_BUF_STORE
         CALL GETC_FILE_EOF
-        JR C,FN_CVI_12
+        JR C,INPUT_FILE_FINISH
         CP $0D
-        JR NZ,FN_CVI_10
+        JR NZ,INPUT_FILE_SCAN_10
         LD A,E
         CP $20
-        JR Z,FN_CVI_11
+        JR Z,INPUT_FILE_SCAN_11
         CP $2C
         LD A,$0D
-        JR Z,FN_CVI_11
-FN_CVI_10:
+        JR Z,INPUT_FILE_SCAN_11
+; ----------------------------------------------------------------------
+; INPUT_FILE_SCAN_10 -- terminator test then store-or-stop for the accumulation loop.
+;   In:        A = current char; D/E = the active terminator characters.
+;   Out:       On a terminator (NUL/D/E) branches to finish; otherwise stores the char and continues.
+;   Clobbers:  AF, HL.
+;   Algorithm: A NUL ends the field; if the char equals the D or E delimiter, finish (INPUT_FILE_FINISH);
+;              else INPUT_BUF_STORE it and fall into INPUT_FILE_SCAN_11 to fetch the next char.
+; ----------------------------------------------------------------------
+INPUT_FILE_SCAN_10:
         OR A
-        JR Z,FN_CVI_11
+        JR Z,INPUT_FILE_SCAN_11
         CP D
-        JR Z,FN_CVI_12
+        JR Z,INPUT_FILE_FINISH
         CP E
-        JR Z,FN_CVI_12
+        JR Z,INPUT_FILE_FINISH
         CALL INPUT_BUF_STORE
-FN_CVI_11:
+; ----------------------------------------------------------------------
+; INPUT_FILE_SCAN_11 -- fetch the next field character and continue the loop.
+;   In:        HL -> BUF cursor.
+;   Out:       A = next file byte; loops back to INPUT_FILE_SCAN_9 unless EOF.
+;   Clobbers:  AF.
+;   Algorithm: GETC_FILE_EOF; on carry (EOF) fall into the finish path, else continue scanning.
+; ----------------------------------------------------------------------
+INPUT_FILE_SCAN_11:
         CALL GETC_FILE_EOF
-        JR NC,FN_CVI_9
-FN_CVI_12:
+        JR NC,INPUT_FILE_SCAN_9
+; ----------------------------------------------------------------------
+; INPUT_FILE_FINISH -- field terminated: consume a trailing delimiter, then convert/assign.
+;   In:        A = terminator char; saved scan context on stack.
+;   Out:       Cursor positioned past the field's trailing delimiter(s); falls into the converter.
+;   Clobbers:  AF, BC, HL.
+;   Algorithm: If the field ended on a closing quote ('"') or a space, skip following whitespace via
+;              INPUT_FILE_SKIPWS so the next field starts clean; otherwise go straight to the value
+;              finalizer (INPUT_FILE_CONVERT).
+; ----------------------------------------------------------------------
+INPUT_FILE_FINISH:
         PUSH HL
         CP $22
-        JR Z,FN_CVI_13
+        JR Z,INPUT_FILE_SKIPWS
         CP $20
-        JR NZ,FN_CVI_17
-FN_CVI_13:
+        JR NZ,INPUT_FILE_CONVERT
+; ----------------------------------------------------------------------
+; INPUT_FILE_SKIPWS -- skip the inter-field delimiter run (spaces, one comma, optional CRLF).
+;   In:        Current file position just after a field body.
+;   Out:       File positioned at the start of the next field or at EOF.
+;   Clobbers:  AF.
+;   Algorithm: GETC_FILE_EOF and fall into INPUT_FILE_SKIPWS_14 to test the byte.
+; ----------------------------------------------------------------------
+INPUT_FILE_SKIPWS:
         CALL GETC_FILE_EOF
-FN_CVI_14:
-        JR C,FN_CVI_17
+; ----------------------------------------------------------------------
+; INPUT_FILE_SKIPWS_14 -- classify the delimiter byte while skipping inter-field whitespace.
+;   In:        A = candidate byte (carry => EOF).
+;   Out:       Loops on spaces; stops on ',' (consumes it) or CR; otherwise treats as field start.
+;   Clobbers:  AF.
+;   Algorithm: EOF -> finish. Space ($20) loops (INPUT_FILE_SKIPWS). Comma ($2C) is the field
+;              separator -> done (INPUT_FILE_CONVERT). CR ($0D) starts the CRLF handling at
+;              INPUT_FILE_CR; any other byte is the next field and is handled at INPUT_FILE_PUSHBACK
+;              (re-presents it by bumping the in-buffer counter).
+; ----------------------------------------------------------------------
+INPUT_FILE_SKIPWS_14:
+        JR C,INPUT_FILE_CONVERT
         CP $20
-        JR Z,FN_CVI_13
+        JR Z,INPUT_FILE_SKIPWS
         CP $2C
-        JP Z,FN_CVI_17
+        JP Z,INPUT_FILE_CONVERT
         CP $0D
-        JR NZ,FN_CVI_16
-FN_CVI_15:
+        JR NZ,INPUT_FILE_PUSHBACK
+; ----------------------------------------------------------------------
+; INPUT_FILE_CR -- handle a CR field separator and swallow a following LF.
+;   In:        A = CR; current file position after the CR.
+;   Out:       A trailing LF (if present) is consumed; control reaches the value converter.
+;   Clobbers:  AF.
+;   Algorithm: GETC_FILE_EOF the byte after CR; if it is LF ($0A) consume it (CRLF pair) and finish at
+;              INPUT_FILE_CONVERT; EOF here also finishes; a non-LF byte falls into INPUT_FILE_PUSHBACK
+;              to be re-presented.
+; ----------------------------------------------------------------------
+INPUT_FILE_CR:
         CALL GETC_FILE_EOF
-        JR C,FN_CVI_17
+        JR C,INPUT_FILE_CONVERT
         CP $0A
-        JR Z,FN_CVI_17
-FN_CVI_16:
+        JR Z,INPUT_FILE_CONVERT
+; ----------------------------------------------------------------------
+; INPUT_FILE_PUSHBACK -- non-delimiter look-ahead byte: re-present it on the next read.
+;   In:        PTRFIL = current-file FCB; a non-delimiter byte was read past the field.
+;   Out:       FCB.BUF_REM (offset $28) incremented so the over-read byte is re-presented next read.
+;   Clobbers:  AF, BC, HL.
+;   Algorithm: [RE] BUF_REM is the count of still-unread bytes in the FCB record (GETC_FILE decrements
+;              it on each read). One byte was consumed past the field; INC (HL) on PTRFIL+FCB.BUF_REM
+;              increases the remaining count by one so the next GETC_FILE re-reads that byte. This is
+;              the scanner's one-character look-ahead pushback.
+; ----------------------------------------------------------------------
+INPUT_FILE_PUSHBACK:
         LD HL,(PTRFIL)
         LD BC,FCB.BUF_REM
         ADD HL,BC
+        ; [RE] increment FCB.BUF_REM (remaining-bytes count) so the next read re-presents the look-ahead byte
         INC (HL)
-FN_CVI_17:
+; ----------------------------------------------------------------------
+; INPUT_FILE_CONVERT -- terminate the staged field text and dispatch numeric vs string conversion.
+;   In:        HL -> end of the field text in BUF; E = delimiter mode (space => numeric path).
+;   Out:       Falls into the NUL-terminate + convert step.
+;   Clobbers:  HL.
+;   Algorithm: Restore the BUF write cursor and fall into INPUT_FILE_CONVERT_18 to NUL-terminate and
+;              convert.
+; ----------------------------------------------------------------------
+INPUT_FILE_CONVERT:
         POP HL
-FN_CVI_18:
+; ----------------------------------------------------------------------
+; INPUT_FILE_CONVERT_18 -- NUL-terminate the field and convert it to a string or numeric value.
+;   In:        HL -> field end in BUF; E = delimiter mode; B/D scan state.
+;   Out:       The variable identified by the saved pointer is assigned the parsed value.
+;   Clobbers:  AF, BC, DE, HL.
+;   Algorithm: Write a terminating NUL after the field text. If E indicates a numeric field (E==space,
+;              so E-$20==0) jump to INPUT_FILE_CONVERT_NUM to run the numeric reader. Otherwise treat
+;              the field as a string: SCAN_STR_BODY measures it and builds a string descriptor from BUF,
+;              which the caller's READ/INPUT assignment consumes.
+; ----------------------------------------------------------------------
+INPUT_FILE_CONVERT_18:
         LD (HL),$00
         LD HL,L_0A0D
         LD A,E
+        ; E==space ($20) marks a numeric field -> numeric reader; otherwise build a string from BUF
         SUB $20
-        JR Z,FN_CVI_19
+        JR Z,INPUT_FILE_CONVERT_NUM
         LD B,D
         LD D,$00
         CALL SCAN_STR_BODY
         POP HL
         RET
-FN_CVI_19:
+; ----------------------------------------------------------------------
+; INPUT_FILE_CONVERT_NUM -- numeric-field path: parse the staged digits into the FAC.
+;   In:        HL -> the field text in BUF (NUL-terminated).
+;   Out:       FAC = parsed number (integer-form via FIN_1+1, else general via FIN).
+;   Clobbers:  AF, BC, DE, HL.
+;   Algorithm: Test the value type, then run the number reader: the carry from CHRGET's first-char
+;              classification selects FIN_1+1 (integer form) vs FIN (general numeric). The parsed value
+;              becomes the field assigned to the INPUT#/READ target.
+; ----------------------------------------------------------------------
+INPUT_FILE_CONVERT_NUM:
         CALL FRMEVL_TEST_TYPE
         PUSH AF
         CALL CHRGET
@@ -13637,7 +14085,16 @@ FN_CVI_19:
         CALL NC,FIN
         POP HL
         RET
-; [RE] INPUT#/LINE INPUT# helper: store char A into input buffer (HL++), decrement field count B; on underflow pop caller and bail.
+; ----------------------------------------------------------------------
+; INPUT_BUF_STORE -- store one field byte into the staging buffer with an overflow guard.
+;   In:        A = byte to store; HL = BUF write cursor; B = remaining room counter.
+;   Out:       Byte stored, HL advanced, B decremented; on B underflow the caller's return is popped
+;              and the field is force-finished.
+;   Clobbers:  AF, BC, HL.
+;   Algorithm: A NUL is dropped (RET Z). Otherwise store (HL)<-A, INC HL, DEC B; while B>0 return to
+;              the loop. If B hits 0 the field overran its limit, so POP the caller and jump to
+;              INPUT_FILE_CONVERT_18 to terminate and convert what was collected.
+; ----------------------------------------------------------------------
 INPUT_BUF_STORE:
         OR A
         RET Z
@@ -13645,36 +14102,48 @@ INPUT_BUF_STORE:
         INC HL
         DEC B
         RET NZ
+        ; field hit the length limit: discard the loop's return and force-finish the field
         POP BC
-        JR FN_CVI_18
-; [RE] LOAD entry: D=1 (open-for-input mode) then fall into the file-open core.
-OPEN_FILE_FOR_LOAD_D1:
+        JR INPUT_FILE_CONVERT_18
+; ----------------------------------------------------------------------
+; LOAD_OPEN_INPUT -- LOAD/MERGE entry: set D=1 (FCB_MODE_SEQ_IN), fall into LOAD_OPEN_CHANNEL0 to open the program file on channel #0 for sequential input.
+; ----------------------------------------------------------------------
+LOAD_OPEN_INPUT:
         LD D,$01
-; [RE] LOAD/SAVE file-open stub: select channel #0 (XOR A) and enter the OPEN core with the access mode in D.
-OPEN_NAMED_FILE:
+; ----------------------------------------------------------------------
+; LOAD_OPEN_CHANNEL0 -- XOR A selects file #0, JP STMT_OPEN_2 with the mode in D. File #0 is the reserved program-image channel.
+; ----------------------------------------------------------------------
+LOAD_OPEN_CHANNEL0:
         XOR A
         JP STMT_OPEN_2
-; [RE] LOAD/RUN entry flag-skip. JP NZ,OPEN_NAMED_FILE_1 ($3522/$81CB) reaches $777F OR $AF -> A nonzero (run after load). STMT_DISPATCH_TBL $0180 (OPEN_NAMED_FILE_1+1, $7780) runs the swallowed AF = XOR A -> A=0 (plain LOAD). Converge at $7781 PUSH AF.
-OPEN_NAMED_FILE_1:
+; ----------------------------------------------------------------------
+; LOAD_PROGRAM -- LOAD/RUN handler: flag-skip ($AF=opcode of XOR A; +1 entry = plain LOAD) sets the run disposition, PUSH AF, open file #0, save MAX_FILE_NUM to L_084B, parse ,R; no ,R -> LOAD_PROGRAM_3+1 (POP AF), ,R -> LOAD_PROGRAM_2.
+; ----------------------------------------------------------------------
+LOAD_PROGRAM:
         OR $AF
         PUSH AF
-        CALL OPEN_FILE_FOR_LOAD_D1
-        LD A,(L_0870)
+        CALL LOAD_OPEN_INPUT
+        LD A,(MAX_FILE_NUM)
         LD (L_084B),A
         DEC HL
         CALL CHRGET
-        JR Z,OPEN_NAMED_FILE_3+1
+        JR Z,LOAD_PROGRAM_3+1
         CALL SYNCHR
         DEFB    ','                      ; inline char arg consumed by the preceding CALL
         CALL SYNCHR
         DEFB    'R'                      ; inline char arg consumed by the preceding CALL
         JP NZ,RAISE_SYNTAX_ERROR
         POP AF
-OPEN_NAMED_FILE_2:
+; ----------------------------------------------------------------------
+; LOAD_PROGRAM_2 -- the ,R-PRESENT arm: XOR A; LD (MAX_FILE_NUM),A zeroes L_0870 (MAX_FILE_NUM, NOT the run flag); OR $F1 in LOAD_PROGRAM_3 then sets the run flag. The no-,R path skips this routine.
+; ----------------------------------------------------------------------
+LOAD_PROGRAM_2:
         XOR A
-        LD (L_0870),A
-; [RE] OPEN open-mode flag-skip. Fall-through reaches $77A1 OR $F1 -> A nonzero. JR Z,OPEN_NAMED_FILE_3+1 ($778F) enters $77A2 = the swallowed F1 = POP AF, restoring the saved flag. Converge at $77A3 LD ($084A),A.
-OPEN_NAMED_FILE_3:
+        LD (MAX_FILE_NUM),A
+; ----------------------------------------------------------------------
+; LOAD_PROGRAM_3 -- store RUN_AFTER_LOAD_FLAG (entered at +1=POP AF on no-,R), FILTAB:=$0080, CLEAR_VARS, restore MAX_FILE_NUM, reload FILTAB[0]/PTRFIL from FILTAB_SLOT0_SEED ([RE] file #0 FCB base $81D1). [RE] SAVTXT guard fires only when SAVTXT==$FFFE, setting $FFFF; intent UNKNOWN.
+; ----------------------------------------------------------------------
+LOAD_PROGRAM_3:
         OR $F1
         LD (L_084A),A
         LD HL,$0080
@@ -13682,7 +14151,7 @@ OPEN_NAMED_FILE_3:
         LD (FILTAB),HL
         CALL CLEAR_VARS
         LD A,(L_084B)
-        LD (L_0870),A
+        LD (MAX_FILE_NUM),A
         LD HL,(FILTAB_SLOT0_SEED)
         LD (FILTAB),HL
         LD (PTRFIL),HL
@@ -13691,19 +14160,28 @@ OPEN_NAMED_FILE_3:
         LD A,H
         AND L
         INC A
-        JR NZ,OPEN_NAMED_FILE_4
+        JR NZ,LOAD_PROGRAM_4
         LD (SAVTXT),HL
-OPEN_NAMED_FILE_4:
+; ----------------------------------------------------------------------
+; LOAD_PROGRAM_4 -- GETC_FILE_EOF the lead byte: empty -> DIRECT_LINE_DISPATCH; $FE -> set LOAD_PROTECT_FLAG (L_0C99) then read; else LOAD_PROGRAM_5.
+; ----------------------------------------------------------------------
+LOAD_PROGRAM_4:
         CALL GETC_FILE_EOF
         JP C,DIRECT_LINE_DISPATCH
         CP $FE
-        JR NZ,OPEN_NAMED_FILE_5
+        JR NZ,LOAD_PROGRAM_5
         LD (L_0C99),A
-        JR OPEN_NAMED_FILE_6
-OPEN_NAMED_FILE_5:
+        JR LOAD_PROGRAM_6
+; ----------------------------------------------------------------------
+; LOAD_PROGRAM_5 -- INC A; $FF -> binary (fall through); else JP STMT_MERGE_2 (ASCII source).
+; ----------------------------------------------------------------------
+LOAD_PROGRAM_5:
         INC A
         JP NZ,STMT_MERGE_2
-OPEN_NAMED_FILE_6:
+; ----------------------------------------------------------------------
+; LOAD_PROGRAM_6 -- FILE_READ_RECORDS reads to TXTTAB, returns end into VARTAB; PROG_SCRAMBLE if protected; CHEAD relinks; save/restore MAX_FILE_NUM around CLEAR_RESET_DATAPTR; then CHAIN -> string-move, RUN_AFTER_LOAD_FLAG clear -> READY, else JP STMT_FOR_7.
+; ----------------------------------------------------------------------
+LOAD_PROGRAM_6:
         LD HL,(TXTTAB)
         CALL FILE_READ_RECORDS
         LD (VARTAB),HL
@@ -13714,13 +14192,13 @@ OPEN_NAMED_FILE_6:
         INC HL
         INC HL
         LD (VARTAB),HL
-        LD HL,L_0870
+        LD HL,MAX_FILE_NUM
         LD A,(HL)
         LD (L_084B),A
         LD (HL),$00
         CALL CLEAR_RESET_DATAPTR
         LD A,(L_084B)
-        LD (L_0870),A
+        LD (MAX_FILE_NUM),A
         LD A,(CHAIN_BREAK_FLAG)
         OR A
         JP NZ,CHAIN_MOVE_STRING_VAR_3
@@ -13728,24 +14206,33 @@ OPEN_NAMED_FILE_6:
         OR A
         JP Z,NEWSTT_READY
         JP STMT_FOR_7
-; [RE] After LOAD/RUN: close all open files (via CLOSE-all) and re-init variable space (CLEAR_VARS).
-LOAD_FINISH_CLOSE_CUR:
+; ----------------------------------------------------------------------
+; LOAD_CLEANUP_RESET -- PRINT_RESET_STATE clears PRTFLG/PTRFIL (leaves A=0); FILE_CLOSE_ONE with A=0 closes FILE #0; JP RESET_RUN_STATE_1 reloads HL from L_0B54. Tail of SAVE and the MERGE error path.
+; ----------------------------------------------------------------------
+LOAD_CLEANUP_RESET:
         CALL PRINT_RESET_STATE
         CALL FILE_CLOSE_ONE
         JP RESET_RUN_STATE_1
-; [RE] RUN with no filename: CLEAR_VARS then jump into the program-run / stack-reset path.
-RUN_CLEAR_AND_GO:
+; ----------------------------------------------------------------------
+; RUN_NO_FILENAME -- CLEAR_VARS then JP CHECK_STACK_ROOM_1; STRING_SPACE_ROOM_CHECK jumps here on string overflow.
+; ----------------------------------------------------------------------
+RUN_NO_FILENAME:
         CALL CLEAR_VARS
         JP CHECK_STACK_ROOM_1
-; [RE] MERGE statement handler (token $BE): merge an ASCII program file into the current program.
+; ----------------------------------------------------------------------
+; STMT_MERGE -- POP BC discards the dispatcher return (MERGE jumps into the line dispatcher), open file #0 for input, require end-of-statement. Text-only; shares the LOAD-ASCII path.
+; ----------------------------------------------------------------------
 STMT_MERGE:
         POP BC
-        CALL OPEN_FILE_FOR_LOAD_D1
+        CALL LOAD_OPEN_INPUT
         DEC HL
         CALL CHRGET
         JR Z,STMT_MERGE_1
-        CALL LOAD_FINISH_CLOSE_CUR
+        CALL LOAD_CLEANUP_RESET
         JP RAISE_SYNTAX_ERROR
+; ----------------------------------------------------------------------
+; STMT_MERGE_1 -- zero RUN_AFTER_LOAD_FLAG (MERGE never auto-runs), GETC_FILE_EOF: empty -> DIRECT_LINE_DISPATCH; $FF binary -> RAISE_BAD_FILE_MODE.
+; ----------------------------------------------------------------------
 STMT_MERGE_1:
         XOR A
         LD (L_084A),A
@@ -13753,13 +14240,18 @@ STMT_MERGE_1:
         JP C,DIRECT_LINE_DISPATCH
         INC A
         JP Z,RAISE_BAD_FILE_MODE
+; ----------------------------------------------------------------------
+; STMT_MERGE_2 -- via PTRFIL INC FCB.BUF_REM (remaining-bytes counter, offset $28) so the next GETC re-delivers the consumed byte (ungetc; index = BUF_CNT-BUF_REM), JP DIRECT_LINE_DISPATCH. Shared LOAD-ASCII/MERGE reader.
+; ----------------------------------------------------------------------
 STMT_MERGE_2:
         LD HL,(PTRFIL)
         LD BC,FCB.BUF_REM
         ADD HL,BC
         INC (HL)
         JP DIRECT_LINE_DISPATCH
-; [RE] Direct/immediate-mode statement entry: after CRUNCH tokenizes a console line with no line number, reject it if a file is active (PTRFIL != 0 -> error $42 'Direct statement in file') else execute it via the NEWSTT direct-statement path.
+; ----------------------------------------------------------------------
+; DIRECT_STMT_EXEC -- PTRFIL != 0 -> RAISE_ERROR ERR_DIRECT_STATEMENT_IN_FILE; else restore HL and JP NEWSTT_NEXTLINE_2.
+; ----------------------------------------------------------------------
 DIRECT_STMT_EXEC:
         PUSH HL
         LD HL,(PTRFIL)
@@ -13769,45 +14261,60 @@ DIRECT_STMT_EXEC:
         JP NZ,RAISE_ERROR
         POP HL
         JP NEWSTT_NEXTLINE_2
-; [RE] SAVE statement handler (token $C4): save the program to disk (tokenized or ASCII).
+; ----------------------------------------------------------------------
+; STMT_SAVE -- D=mode 2, open file #0; no suffix -> STMT_SAVE_1 ($FF); ,P -> protected writer (FILE_BUF_REMAIN_BC_1, mislabeled); ,A -> JP STMT_LIST (ASCII).
+; ----------------------------------------------------------------------
 STMT_SAVE:
         LD D,$02
-        CALL OPEN_NAMED_FILE
+        CALL LOAD_OPEN_CHANNEL0
         DEC HL
         CALL CHRGET
         JR Z,STMT_SAVE_1
         CALL SYNCHR
         DEFB    ','                      ; inline char arg consumed by the preceding CALL
         CP $50
-        JP Z,FILE_BUF_REMAIN_BC_1
+        JP Z,SAVE_PROTECTED_PROGRAM
         CALL SYNCHR
         DEFB    'A'                      ; inline char arg consumed by the preceding CALL
         JP STMT_LIST
+; ----------------------------------------------------------------------
+; STMT_SAVE_1 -- RENUM_PATCH_LINEREFS (L_0B56=0) VALIDATES GOTO/GOSUB/THEN line refs ('Undefined line'; NOT a relink); ILLEGAL_DIRECT_CHECK tests LOAD_PROTECT_FLAG (L_0C99) -> ERROR_FC if a protected program is plain-SAVEd; A=$FF, fall into SAVE_WRITE_PROGRAM.
+; ----------------------------------------------------------------------
 STMT_SAVE_1:
         CALL RENUM_PATCH_LINEREFS
         CALL ILLEGAL_DIRECT_CHECK
         LD A,$FF
-; [RE] SAVE core: write the tokenized program image (line links + text) byte-by-byte to the open output file via PUTC_FILE (PUTC_FILE), terminating at end-of-program.
+; ----------------------------------------------------------------------
+; SAVE_WRITE_PROGRAM -- PUTC_FILE the lead byte in A, DE=VARTAB (end), HL=TXTTAB (start), fall into the copy loop. Shared by tokenized ($FF) and protected ($FE) SAVE.
+; ----------------------------------------------------------------------
 SAVE_WRITE_PROGRAM:
         CALL PUTC_FILE
         LD HL,(VARTAB)
         EX DE,HL
         LD HL,(TXTTAB)
+; ----------------------------------------------------------------------
+; SAVE_WRITE_PROGRAM_1 -- CMP_HL_DE; equal -> JP LOAD_CLEANUP_RESET (close); else read (HL), advance, preserve DE across PUTC_FILE, write, loop.
+; ----------------------------------------------------------------------
 SAVE_WRITE_PROGRAM_1:
         CALL CMP_HL_DE
-        JP Z,LOAD_FINISH_CLOSE_CUR
+        JP Z,LOAD_CLEANUP_RESET
         LD A,(HL)
         INC HL
         PUSH DE
         CALL PUTC_FILE
         POP DE
         JR SAVE_WRITE_PROGRAM_1
-; [RE] CLOSE statement handler (token $BC): close one or all open file channels.
+; ----------------------------------------------------------------------
+; STMT_CLOSE -- BC=FILE_CLOSE_ONE; dispatcher Z: NZ -> JR STMT_CLOSE_4 (#n list); Z(no args) -> A=MAX_FILE_NUM seeds the count-down close-all loop. Also the A=0 entry from CLOSE_ALL_FILES; LD A,(L_0870) does not change Z.
+; ----------------------------------------------------------------------
 STMT_CLOSE:
         LD BC,FILE_CLOSE_ONE
-        LD A,(L_0870)
+        LD A,(MAX_FILE_NUM)
         JR NZ,STMT_CLOSE_4
         PUSH HL
+; ----------------------------------------------------------------------
+; STMT_CLOSE_1 -- PUSH BC, PUSH AF, stage CLOSE_ALL_LOOP_NEXT as the return, PUSH/RET to FILE_CLOSE_ONE so closing file #A loops back.
+; ----------------------------------------------------------------------
 STMT_CLOSE_1:
         PUSH BC
         PUSH AF
@@ -13815,7 +14322,9 @@ STMT_CLOSE_1:
         PUSH DE
         PUSH BC
         RET
-; [RE] CLOSE-all loop trampoline (executable bytes shown as DEFB): POP regs, decrement file index, loop to close next file, else POP HL/RET.
+; ----------------------------------------------------------------------
+; CLOSE_ALL_LOOP_NEXT -- close-all loop tail (executable PUSH/RET target): POP index (AF)+BC, DEC A; JP P -> STMT_CLOSE_1, else POP HL/RET. CODE, not data.
+; ----------------------------------------------------------------------
 CLOSE_ALL_LOOP_NEXT:
         POP AF
         POP BC
@@ -13823,7 +14332,9 @@ CLOSE_ALL_LOOP_NEXT:
         JP P,STMT_CLOSE_1
         POP HL
         RET
-; [RE] CLOSE continuation trampoline (executable DEFB): after closing one file, restore BC and check for ',' to close the next listed file number.
+; ----------------------------------------------------------------------
+; CLOSE_ONE_THEN_COMMA -- POP BC+text pointer; (HL) != ',' -> RET; on ',' CHRGET past it, fall into STMT_CLOSE_4. PUSH/RET return target, not data.
+; ----------------------------------------------------------------------
 CLOSE_ONE_THEN_COMMA:
         POP BC
         POP HL
@@ -13831,6 +14342,9 @@ CLOSE_ONE_THEN_COMMA:
         CP $2C
         RET NZ
         CALL CHRGET
+; ----------------------------------------------------------------------
+; STMT_CLOSE_4 -- skip optional '#', GETBYT the file number, swap onto the stack, stage CLOSE_ONE_THEN_COMMA as the return, JP (HL) to FILE_CLOSE_ONE; the comma list continues.
+; ----------------------------------------------------------------------
 STMT_CLOSE_4:
         PUSH BC
         LD A,(HL)
@@ -13842,7 +14356,9 @@ STMT_CLOSE_4:
         LD DE,CLOSE_ONE_THEN_COMMA
         PUSH DE
         JP (HL)
-; [RE] Close every open file (A=0 -> CLOSE-all path of STMT_CLOSE); preserves BC/DE. Used by RUN/NEW/SYSTEM/RESET.
+; ----------------------------------------------------------------------
+; CLOSE_ALL_FILES -- save BC/DE, XOR A, CALL STMT_CLOSE (closes files MAX_FILE_NUM..0), restore BC/DE, return A=0. Invoked by NEW/CLEAR/RUN, SYSTEM, RESET.
+; ----------------------------------------------------------------------
 CLOSE_ALL_FILES:
         PUSH DE
         PUSH BC
@@ -13852,11 +14368,18 @@ CLOSE_ALL_FILES:
         POP DE
         XOR A
         RET
-; [RE] FIELD statement handler (token $B9): define random-file buffer field variables.
+; ----------------------------------------------------------------------
+; STMT_FIELD -- FIELD statement (token $B9): bind FIELD string variables to fixed-width windows inside a random file's record buffer.
+;   In:        HL = BASIC text cursor just past FIELD; the file/record-buffer FCB is resolved from the '#n' that follows (FILE_NUM_TO_FCB -> BC = FCB base, A = mode byte).
+;   Out:       Each named string variable's 3-byte descriptor is rewritten so its body pointer aims at the next slice of FCB.RND_BUF; RET at the comma-less end of the field list.
+;   Clobbers:  A,BC,DE,HL; scratch word L_0C93 (the record length, used here as the field-overflow limit) and RND_SECTOR_NUM (running field offset accumulator).
+;   Algorithm: Require a mode-3 (random) FCB else 'Bad file mode'. Read the record length from FCB.FLD_BUF_PTR and save it to L_0C93 as the overflow limit; seed the running field offset (RND_SECTOR_NUM) to 0. Then loop (STMT_FIELD_1): each entry is 'width AS strvar' -- read the byte width, PTRGET the string variable, bump the running offset by the width, and if it exceeds the record length raise 'FIELD overflow'; otherwise overwrite the variable's descriptor with {len=width, ptr=RND_BUF + previous_offset} so the variable maps onto that window. Continue while the next char is ','. [RE] FCB.FLD_BUF_PTR is read here as a length/count, not a pointer, despite the include's 'buffer base pointer' name.
+; ----------------------------------------------------------------------
 STMT_FIELD:
         CALL FILE_NUM_TO_FCB
         JP Z,RAISE_BAD_FILE_NUMBER
         SUB $03
+        ; FIELD requires a random (mode 3) file
         JP NZ,RAISE_BAD_FILE_MODE
         EX DE,HL
         LD HL,FCB.FLD_BUF_PTR
@@ -13865,28 +14388,41 @@ STMT_FIELD:
         INC HL
         LD H,(HL)
         LD L,A
+        ; remember the record length as the field-overflow limit
         LD (L_0C93),HL
         LD HL,$0000
-        LD (ILLEGAL_DIRECT_CHECK_1),HL
+        ; running byte offset of the next field within the buffer = 0
+        LD (RND_SECTOR_NUM),HL
         LD A,H
         EX DE,HL
+        ; fields are mapped into the random data buffer (the FIELD window)
         LD DE,FCB.RND_BUF
+; ----------------------------------------------------------------------
+; STMT_FIELD_1 -- FIELD field-list loop body: consume one 'width AS variable' clause and map the variable onto the next buffer slice.
+;   In:        BC = FCB base, DE/HL carry the running RND_BUF window pointer and text cursor; loop entry after each field.
+;   Out:       On ',' processes the next field then re-enters; on any other char RET (end of FIELD list).
+;   Clobbers:  A,BC,DE,HL; updates RND_SECTOR_NUM (cumulative offset) and the target variable's descriptor.
+;   Algorithm: If the next text char is not ',' the field list is done -> RET. Otherwise parse the leading byte width (GETBYT_CHRGET), require the 'AS' keyword (SYNCHR 'A','S'), PTRGET the destination string variable, integer-type-check it (FP_INT_CHECK), add the width to the cumulative offset (RND_SECTOR_NUM), range-check the new offset against the record length (L_0C93) raising 'FIELD overflow' on excess, then write the variable's descriptor = {len=width, ptr=RND_BUF+old_offset}.
+; ----------------------------------------------------------------------
 STMT_FIELD_1:
         EX DE,HL
         ADD HL,BC
         LD B,A
         EX DE,HL
         LD A,(HL)
+        ; ',' separates fields; anything else ends the FIELD list
         CP $2C
         RET NZ
         PUSH DE
         PUSH BC
+        ; parse this field's byte width
         CALL GETBYT_CHRGET
         PUSH AF
         CALL SYNCHR
         DEFB    'A'                      ; inline char arg consumed by the preceding CALL
         CALL SYNCHR
         DEFB    'S'                      ; inline char arg consumed by the preceding CALL
+        ; locate the destination string variable's descriptor
         CALL PTRGET_1+1
         CALL FP_INT_CHECK
         POP AF
@@ -13895,17 +14431,19 @@ STMT_FIELD_1:
         LD C,A
         PUSH DE
         PUSH HL
-        LD HL,(ILLEGAL_DIRECT_CHECK_1)
+        LD HL,(RND_SECTOR_NUM)
         LD B,$00
         ADD HL,BC
-        LD (ILLEGAL_DIRECT_CHECK_1),HL
+        LD (RND_SECTOR_NUM),HL
         EX DE,HL
         LD HL,(L_0C93)
         CALL CMP_HL_DE
+        ; fields would overrun the record buffer
         JP C,RAISE_FIELD_OVERFLOW
         POP HL
         POP DE
         EX DE,HL
+        ; rewrite the variable as a fixed-width window onto the buffer: len=width, ptr=RND_BUF+offset
         LD (HL),C
         INC HL
         LD (HL),E
@@ -13913,19 +14451,27 @@ STMT_FIELD_1:
         LD (HL),D
         POP HL
         JR STMT_FIELD_1
-; [RE] RSET statement handler (token $C3): right-justify a string into a FIELD buffer variable. LSET (token $C2) enters at $793E with the justify flag cleared.
-; [RE] LSET/RSET justify flag-skip via carry. RSET (dispatch $018C) enters $793D OR $37 -> CF cleared. LSET (dispatch $018A, STMT_RSET+1 $793E) runs the swallowed 37 = SCF -> CF set. Both PUSH AF at $793F; downstream reads carry for pad direction.
+; ----------------------------------------------------------------------
+; STMT_RSET -- RSET statement (token $C3): right-justify a string value into a FIELD buffer variable. LSET (token $C2) enters at STMT_RSET+1 with the swallowed SCF giving the opposite carry.
+;   In:        HL = text cursor past RSET/LSET; statement form is 'fieldvar = expr$'. The OR $37 (RSET) vs swallowed $37=SCF (LSET) flag-skip sets carry to distinguish the two; the carry is saved via PUSH AF and read later for pad direction.
+;   Out:       The FIELD variable's window is overwritten with the source string, left-justified (LSET) or right-justified (RSET) and space-padded to the field width; RET.
+;   Clobbers:  A,BC,DE,HL and the string temporaries/heap.
+;   Algorithm: PTRGET the destination FIELD string variable and integer-type-check it; FRMEVL the right-hand string expression (EVAL_EXPR_AFTER_SYNCHR); FRETMP to resolve/free the source string temp leaving HL at its {len, ptr} descriptor. If the source length is 0 branch to STMT_RSET_5 (nothing to copy). [RE] Otherwise, if the source body lives in the movable dynamic string area (DE >= VARTAB and STREND+len > FRETOP) copy it to a fresh string temporary first (FIELD_PAD_SPACES_2 path) so the field move is stable; sources in program text are used directly (STMT_RSET_2). Then compute copy count = min(srclen, fieldwidth); for RSET pre-pad the leading bytes with spaces (NC path), copy the bytes, and for LSET trailing-pad with spaces (STMT_RSET_6).
+; ----------------------------------------------------------------------
 STMT_RSET:
         OR $37
         PUSH AF
+        ; locate the destination FIELD variable (its descriptor = field width + buffer pointer)
         CALL PTRGET_1+1
         CALL FP_INT_CHECK
         PUSH DE
+        ; evaluate the right-hand '= expr$' source string
         CALL EVAL_EXPR_AFTER_SYNCHR
         POP BC
         EX (SP),HL
         PUSH HL
         PUSH BC
+        ; resolve/free the source string temp; HL -> its {len, ptr} descriptor
         CALL FRETMP
         LD B,(HL)
         EX (SP),HL
@@ -13939,6 +14485,7 @@ STMT_RSET:
         INC HL
         LD D,(HL)
         OR A
+        ; empty source string -> skip the copy, just pad the field
         JP Z,STMT_RSET_5
         LD HL,(TXTTAB)
         CALL CMP_HL_DE
@@ -13953,10 +14500,19 @@ STMT_RSET:
         EX DE,HL
         LD HL,(FRETOP)
         CALL CMP_HL_DE
+        ; [RE] source lives in movable string space -> stage it to a fresh temp first
         JP C,FIELD_PAD_SPACES_2
+; ----------------------------------------------------------------------
+; STMT_RSET_1 -- LSET/RSET: allocate fresh string space for a movable source, copy it in, and rejoin the justify path.
+;   In:        Saved source length and descriptor pointers on the stack from STMT_RSET / FIELD_PAD_SPACES_2.
+;   Out:       The source string is materialised in newly allocated heap space whose descriptor pointer is patched in; falls into STMT_RSET_2 to perform the justified copy.
+;   Clobbers:  A,BC,DE,HL; allocates string heap via GETSPA.
+;   Algorithm: GETSPA(C) reserves field-width bytes of string space, FRETMP retires the temporary source descriptor, the new heap pointer is written back into the source descriptor, and control falls through to the descriptor-unpack + copy in STMT_RSET_2.
+; ----------------------------------------------------------------------
 STMT_RSET_1:
         POP AF
         LD A,C
+        ; reserve fresh string space the field copy can safely move into
         CALL GETSPA
         POP HL
         POP BC
@@ -13974,6 +14530,13 @@ STMT_RSET_1:
         INC HL
         LD (HL),D
         PUSH AF
+; ----------------------------------------------------------------------
+; STMT_RSET_2 -- LSET/RSET justify core: unpack both descriptors and clamp the copy count.
+;   In:        Stacked descriptor pointers for destination (FIELD var) and source string; the saved LSET/RSET carry flag is on the stack.
+;   Out:       HL = source body ptr, DE = destination (FIELD-window) body ptr, B = copy count = min(srclen, fieldwidth); falls into STMT_RSET_3.
+;   Clobbers:  A,BC,DE,HL.
+;   Algorithm: Pop and unpack the two descriptors (each {len/width, ptr}); arrange source ptr in HL and field-window ptr in DE; compare source length (C) with field width (B) and set B = min(srclen, width) as the number of bytes to copy. Fall through to compute the pad count and dispatch the justified move. [RE] The exact register that holds width vs source-length through the stack juggling is not separately verified; the net effect (B = clamped copy count) is.
+; ----------------------------------------------------------------------
 STMT_RSET_2:
         POP AF
         POP HL
@@ -13991,15 +14554,32 @@ STMT_RSET_2:
         EX DE,HL
         POP DE
         LD A,C
+        ; clamp the copy count to the field width
         CP B
         JR NC,STMT_RSET_3
         LD B,A
+; ----------------------------------------------------------------------
+; STMT_RSET_3 -- compute pad count and perform the RSET right-justify pre-pad.
+;   In:        B = bytes-to-copy; the saved LSET/RSET carry flag selects justification.
+;   Out:       C = pad count = fieldwidth - copylen; for RSET (NC) the leading C bytes of the field are space-filled; then the byte copy proceeds in STMT_RSET_4.
+;   Clobbers:  A,BC,DE.
+;   Algorithm: pad = fieldwidth - copylen -> C; restore the saved justify flag; on the RSET branch (CALL NC,FIELD_PAD_SPACES) blank that many leading bytes so the data lands flush-right; INC B to prime the copy loop counter; then enter the copy loop.
+; ----------------------------------------------------------------------
 STMT_RSET_3:
+        ; pad count = field width - bytes to copy
         SUB B
         LD C,A
         POP AF
+        ; RSET: blank the leading bytes so the data is right-justified
         CALL NC,FIELD_PAD_SPACES
         INC B
+; ----------------------------------------------------------------------
+; STMT_RSET_4 -- byte-copy loop: move B bytes from source (HL) into the FIELD window (DE).
+;   In:        B = byte count (pre-incremented), HL = source ptr, DE = destination ptr.
+;   Out:       B bytes copied; on B reaching 0 branch to STMT_RSET_6 to apply any LSET trailing pad.
+;   Clobbers:  A,B,DE,HL.
+;   Algorithm: DEC B and test; copy (HL)->(DE), INC both, repeat until B reaches 0.
+; ----------------------------------------------------------------------
 STMT_RSET_4:
         DEC B
         JR Z,STMT_RSET_6
@@ -14008,26 +14588,62 @@ STMT_RSET_4:
         INC HL
         INC DE
         JP STMT_RSET_4
+; ----------------------------------------------------------------------
+; STMT_RSET_5 -- LSET/RSET empty-source path: discard the staged work frames when the source string has zero length.
+;   In:        Reached from STMT_RSET when the source string length is 0 (the OR A / JP Z test).
+;   Out:       Five staged work words are dropped; falls into STMT_RSET_6, which space-fills the whole field on the LSET (carry) path.
+;   Clobbers:  BC, SP (frame cleanup).
+;   Algorithm: Five POP BC instructions unwind the descriptor/length/flag frames pushed by STMT_RSET, then fall through to the common exit where an empty source means the field is fully padded.
+; ----------------------------------------------------------------------
 STMT_RSET_5:
+        ; drop the five staged work words (empty source, nothing to copy)
         POP BC
         POP BC
         POP BC
         POP BC
         POP BC
+; ----------------------------------------------------------------------
+; STMT_RSET_6 -- LSET/RSET common exit: apply the LSET trailing pad and return.
+;   In:        Carry (the saved justify flag) set for LSET, with C = remaining pad count and DE = current field position.
+;   Out:       For LSET the unused tail of the field is space-filled; the saved text cursor is restored to HL; RET.
+;   Clobbers:  A,C,DE,HL.
+;   Algorithm: On carry (LSET) call FIELD_PAD_SPACES to blank the trailing bytes after the copied data; POP HL restores the caller's text cursor; RET.
+; ----------------------------------------------------------------------
 STMT_RSET_6:
+        ; LSET: blank the trailing bytes so the data is left-justified
         CALL C,FIELD_PAD_SPACES
         POP HL
         RET
-; [RE] LSET/RSET helper: pad the field buffer (DE) with C spaces; used to blank/justify the fixed-width field.
+; ----------------------------------------------------------------------
+; FIELD_PAD_SPACES -- fill C bytes at (DE) with ASCII spaces; the LSET/RSET field-blanking primitive.
+;   In:        C = byte count, DE = destination pointer.
+;   Out:       C bytes set to $20 (space); DE advanced past them; RET when the count reaches 0.
+;   Clobbers:  A,C,DE.
+;   Algorithm: Load A=$20, INC C, then store-decrement in the FIELD_PAD_SPACES_1 loop until the count is exhausted.
+; ----------------------------------------------------------------------
 FIELD_PAD_SPACES:
         LD A,$20
         INC C
+; ----------------------------------------------------------------------
+; FIELD_PAD_SPACES_1 -- inner loop of FIELD_PAD_SPACES: store A (space) at (DE)++ while decrementing C.
+;   In:        A = $20, C = remaining count, DE = destination.
+;   Out:       RET when C reaches 0.
+;   Clobbers:  C,DE.
+;   Algorithm: DEC C; RET Z; store A at (DE); INC DE; repeat.
+; ----------------------------------------------------------------------
 FIELD_PAD_SPACES_1:
         DEC C
         RET Z
         LD (DE),A
         INC DE
         JR FIELD_PAD_SPACES_1
+; ----------------------------------------------------------------------
+; FIELD_PAD_SPACES_2 -- RSET/LSET movable-source handler: when the source string body lives in the dynamic string area, copy it to a string temporary before the field move.
+;   In:        Stacked descriptor/flag frames from STMT_RSET; B = source length.
+;   Out:       The source body is staged into a fresh temporary descriptor (when the type discriminator requires it); rejoins via FIELD_PAD_SPACES_3 -> STMT_RSET_1.
+;   Clobbers:  A,BC,DE,HL; may allocate via ALLOC_STR_A and stage via PUT_STR_TEMP.
+;   Algorithm: Pop the saved flags/pointers; [RE] if a non-zero discriminator is set, ALLOC_STR_A(B) reserves space and PUT_STR_TEMP records the temporary; then re-push the working frames and fall into FIELD_PAD_SPACES_3.
+; ----------------------------------------------------------------------
 FIELD_PAD_SPACES_2:
         POP AF
         POP HL
@@ -14037,33 +14653,59 @@ FIELD_PAD_SPACES_2:
         JR NZ,FIELD_PAD_SPACES_3
         PUSH BC
         LD A,B
+        ; copy the movable source to a fresh string temporary so the field move is stable
         CALL ALLOC_STR_A
         CALL PUT_STR_TEMP
         POP BC
+; ----------------------------------------------------------------------
+; FIELD_PAD_SPACES_3 -- re-stack the working frames and jump back into the RSET allocate/copy path.
+;   In:        Working pointers in HL/BC and saved flags around the stack from FIELD_PAD_SPACES_2.
+;   Out:       Re-pushes the frames and JP STMT_RSET_1 to finish the justified store.
+;   Clobbers:  HL,BC, stack.
+;   Algorithm: EX (SP),HL / PUSH BC / PUSH HL / PUSH AF to rebuild the expected frame layout, then JP STMT_RSET_1.
+; ----------------------------------------------------------------------
 FIELD_PAD_SPACES_3:
         EX (SP),HL
         PUSH BC
         PUSH HL
         PUSH AF
         JP STMT_RSET_1
-FIELD_PAD_SPACES_4:
+; ----------------------------------------------------------------------
+; FN_INPUT_DOLLAR -- INPUT$() function handler (FRMEVL function dispatch on TOK_INPUT at $3450): read exactly N characters from the console or an open file into a string.
+;   In:        HL = text cursor at 'INPUT$' call; syntax INPUT$(count [,#filenum]).
+;   Out:       FAC holds a string descriptor for the N collected characters (staged via PUT_STR_TEMP); on Ctrl-C from the console it aborts to direct mode.
+;   Clobbers:  A,BC,DE,HL; allocates string space; sets the current file via PTRFIL when a file source is given.
+;   Algorithm: CHRGET, then require '$' and '(' (SYNCHR), GETBYT the character count. If a ',' follows, CHRGET past it, FILE_NUM_TO_FCB the file number (reject mode 2 = sequential-output as 'Bad file mode'), set it current (STORE_CUR_FCB_PTR) and select the file source (XOR A => Z); else select the console source. Require ')'. Reject count 0 ('Illegal function call'). ALLOC_STR_A reserves count bytes, then FN_INPUT_DOLLAR_2 fills them from either the file (GETC_FILE_EOF) or the pending-key/CONIN console read.
+; ----------------------------------------------------------------------
+FN_INPUT_DOLLAR:
         CALL CHRGET
         CALL SYNCHR
         DEFB    '$'                      ; inline char arg consumed by the preceding CALL
         CALL SYNCHR
         DEFB    '('                      ; inline char arg consumed by the preceding CALL
+        ; parse the character count
         CALL GETBYT
         PUSH DE
         LD A,(HL)
+        ; ',' introduces an optional '#filenum' source
         CP $2C
-        JR NZ,FIELD_PAD_SPACES_5
+        JR NZ,FN_INPUT_DOLLAR_1
         CALL CHRGET
         CALL FILE_NUM_TO_FCB
         CP $02
+        ; INPUT$ cannot read from a mode-2 sequential-output file
         JP Z,RAISE_BAD_FILE_MODE
+        ; make this file the current input source
         CALL STORE_CUR_FCB_PTR
         XOR A
-FIELD_PAD_SPACES_5:
+; ----------------------------------------------------------------------
+; FN_INPUT_DOLLAR_1 -- INPUT$ source-selected join point: require the closing ')' and validate the count.
+;   In:        A/flags hold the console-vs-file source selector (Z = file); the count is staged on the stack.
+;   Out:       Falls through to the allocate-and-read body; raises 'Illegal function call' if the count is 0.
+;   Clobbers:  A,HL, stack.
+;   Algorithm: SYNCHR ')', recover the count into L, reject 0 (ERROR_FC), then ALLOC_STR_A the result string and continue into the read loop.
+; ----------------------------------------------------------------------
+FN_INPUT_DOLLAR_1:
         PUSH AF
         CALL SYNCHR
         DEFB    ')'                      ; inline char arg consumed by the preceding CALL
@@ -14072,44 +14714,110 @@ FIELD_PAD_SPACES_5:
         PUSH AF
         LD A,L
         OR A
+        ; INPUT$(0) is illegal
         JP Z,ERROR_FC
         PUSH HL
+        ; reserve count bytes for the result string
         CALL ALLOC_STR_A
         EX DE,HL
         POP BC
-FIELD_PAD_SPACES_6:
+; ----------------------------------------------------------------------
+; FN_INPUT_DOLLAR_2 -- INPUT$ character-collection loop: gather one character per iteration from the selected source.
+;   In:        HL = next byte slot in the allocated string, C = remaining count, the source selector saved on the stack (Z = file).
+;   Out:       Loops to FN_INPUT_DOLLAR_4 to store each char; on the file source jumps to FN_INPUT_DOLLAR_6.
+;   Clobbers:  A,HL,C.
+;   Algorithm: Restore the source flag; if file-source (Z) go to FN_INPUT_DOLLAR_6 (GETC_FILE_EOF). Otherwise read the console: take a pending typed-ahead key if any (GET_PENDING_KEY), else CONIN.
+; ----------------------------------------------------------------------
+FN_INPUT_DOLLAR_2:
         POP AF
         PUSH AF
-        JR Z,FIELD_PAD_SPACES_10
+        ; file source: read the next file byte instead of the console
+        JR Z,FN_INPUT_DOLLAR_6
+        ; consume a typed-ahead key if one is pending
         CALL GET_PENDING_KEY
-        JR NZ,FIELD_PAD_SPACES_7
+        JR NZ,FN_INPUT_DOLLAR_3
+        ; otherwise read a raw character from the console
         CALL CONIN
-FIELD_PAD_SPACES_7:
+; ----------------------------------------------------------------------
+; FN_INPUT_DOLLAR_3 -- INPUT$ Ctrl-C test before storing a console character.
+;   In:        A = freshly read console character.
+;   Out:       On Ctrl-C ($03) abort to direct mode (FN_INPUT_DOLLAR_5); else fall into FN_INPUT_DOLLAR_4 to store the byte.
+;   Clobbers:  none beyond the branch.
+;   Algorithm: CP $03; JP Z to the break path; otherwise continue to store the byte.
+; ----------------------------------------------------------------------
+FN_INPUT_DOLLAR_3:
         CP $03
-        JP Z,FIELD_PAD_SPACES_9
-FIELD_PAD_SPACES_8:
+        JP Z,FN_INPUT_DOLLAR_5
+; ----------------------------------------------------------------------
+; FN_INPUT_DOLLAR_4 -- INPUT$ store-and-count: write the character and finish when the count reaches 0.
+;   In:        A = character, HL = destination slot, C = remaining count.
+;   Out:       When all characters are collected, resets print state (PRINT_RESET_STATE) and stages the string via PUT_STR_TEMP (the function result).
+;   Clobbers:  A,HL,C.
+;   Algorithm: Store A at (HL), INC HL, DEC C; loop back to FN_INPUT_DOLLAR_2 while C != 0; when done, PRINT_RESET_STATE then JP PUT_STR_TEMP to return the descriptor.
+; ----------------------------------------------------------------------
+FN_INPUT_DOLLAR_4:
         LD (HL),A
         INC HL
         DEC C
-        JR NZ,FIELD_PAD_SPACES_6
+        JR NZ,FN_INPUT_DOLLAR_2
         POP AF
         CALL PRINT_RESET_STATE
+        ; all characters collected -> return the string value
         JP PUT_STR_TEMP
-FIELD_PAD_SPACES_9:
+; ----------------------------------------------------------------------
+; FN_INPUT_DOLLAR_5 -- INPUT$ console Ctrl-C abort: drop to direct-command mode.
+;   In:        Ctrl-C detected during a console INPUT$.
+;   Out:       Stack reset to SAVSTK; control transferred to the direct-mode resume point (never returns).
+;   Clobbers:  SP,HL.
+;   Algorithm: Reload SP from SAVSTK to discard the pending expression frames, then JP RESUME_AT_DIRECT.
+; ----------------------------------------------------------------------
+FN_INPUT_DOLLAR_5:
         LD HL,(SAVSTK)
         LD SP,HL
         JP RESUME_AT_DIRECT
-FIELD_PAD_SPACES_10:
+; ----------------------------------------------------------------------
+; FN_INPUT_DOLLAR_6 -- INPUT$ file-source character read: fetch one byte from the open file, trapping EOF.
+;   In:        The current file (PTRFIL) is the input source; HL/C are the collection cursor/count.
+;   Out:       A = next file byte; on EOF raises 'Input past end' (error 62); otherwise rejoins FN_INPUT_DOLLAR_4 to store the byte.
+;   Clobbers:  A (and whatever GETC_FILE_EOF touches).
+;   Algorithm: CALL GETC_FILE_EOF; on carry (EOF) JP RAISE_INPUT_PAST_END; else JP FN_INPUT_DOLLAR_4 to store the byte.
+; ----------------------------------------------------------------------
+FN_INPUT_DOLLAR_6:
+        ; read the next byte from the file source
         CALL GETC_FILE_EOF
+        ; ran off the end of the file
         JP C,RAISE_INPUT_PAST_END
-        JP FIELD_PAD_SPACES_8
-; [RE] EOF() function handler (FUNC_DISPATCH_TBL slot $020C): resolve the file number to its FCB and return the end-of-file boolean.
+        JP FN_INPUT_DOLLAR_4
+; ----------------------------------------------------------------------
+; FN_EOF -- EOF() function (token TOK_EOF $2E): test whether the file's input stream is at end.
+;   In:        File-number expression in source (FUNC_DISPATCH_TBL slot $020C).
+;   Out:       FAC = -1 (true) at end-of-file, 0 (false) otherwise.
+;   Clobbers:  AF, BC, DE, HL.
+;   Algorithm: Resolve the file number to its FCB; 'Bad file number' if closed, 'Bad file mode' if the
+;              file is open for output (mode $02). Then fall into FN_EOF_1 to inspect the read buffer.
+; ----------------------------------------------------------------------
 FN_EOF:
         CALL FILE_NUM_TO_FCB_NZ
         JP Z,RAISE_BAD_FILE_NUMBER
+        ; EOF is meaningless on a sequential-output file -> Bad file mode
         CP $02
         JP Z,RAISE_BAD_FILE_MODE
+; ----------------------------------------------------------------------
+; FN_EOF_1 -- EOF core: determine end-of-file by examining/refilling the file buffer.
+;   In:        BC = FCB base.
+;   Out:       Result truth value computed and tail-jumped to INT16_TO_FP (A entering FN_EOF_3:
+;              $00 => not-EOF, otherwise => EOF).
+;   Clobbers:  AF, BC, DE, HL.
+;   Algorithm: Read FCB.BUF_CNT (offset $27, record fill level). If 0 the buffer is empty => EOF
+;              (FN_EOF_3 with A=0). [RE] Otherwise, if the file is RANDOM (FCB.MODE $03) it jumps to
+;              FN_EOF_3 carrying A=$03, which maps to NOT-EOF (false) -- EOF on a buffered random file
+;              reports false here. Else check FCB.BUF_REM (offset $28): if bytes remain, go to FN_EOF_2
+;              to look for a Ctrl-Z; if the buffer is exhausted (BUF_REM 0) but the status byte allows,
+;              read the next record (FILE_READ_RECORD_FCB) and retry. This look-ahead lets sequential
+;              EOF report true exactly when only the $1A marker / nothing remains.
+; ----------------------------------------------------------------------
 FN_EOF_1:
+        ; FCB.BUF_CNT ($27): how many bytes the current record holds; 0 => buffer empty => EOF
         LD HL,FCB.BUF_CNT
         ADD HL,BC
         LD A,(HL)
@@ -14125,9 +14833,19 @@ FN_EOF_1:
         PUSH BC
         LD H,B
         LD L,C
+        ; buffer drained: read the next sequential record into the FCB buffer and re-test
         CALL FILE_READ_RECORD_FCB
         POP BC
         JR FN_EOF_1
+; ----------------------------------------------------------------------
+; FN_EOF_2 -- EOF: test for the Ctrl-Z ($1A) text end-of-file marker at the buffer's next byte.
+;   In:        HL at FCB.BUF_REM ($28); FCB buffer holds the current record.
+;   Out:       A = 0 if the next unread byte is the $1A EOF mark, nonzero otherwise.
+;   Clobbers:  AF, BC, HL.
+;   Algorithm: Compute the position of the next unread byte within the 128-byte record as
+;              ($80 - BUF_REM), index into SEQ_BUF, load that byte and SUB $1A so a $1A (Ctrl-Z, CP/M
+;              text EOF) yields zero. Fall into FN_EOF_3 to turn the test into the BASIC truth value.
+; ----------------------------------------------------------------------
 FN_EOF_2:
         LD A,$80
         SUB (HL)
@@ -14136,43 +14854,99 @@ FN_EOF_2:
         ADD HL,BC
         INC HL
         LD A,(HL)
+        ; $1A = Ctrl-Z, the CP/M soft end-of-file marker for text files
         SUB $1A
+; ----------------------------------------------------------------------
+; FN_EOF_3 -- EOF: convert the at-end test into a BASIC boolean and return it as a number.
+;   In:        A = 0 when at end-of-file, nonzero otherwise (from the buffer/marker tests above).
+;   Out:       FAC = -1 (true) or 0 (false) via INT16_TO_FP.
+;   Clobbers:  AF, HL.
+;   Algorithm: SUB $01 / SBC A,A maps A==0 -> $FF (true) and A!=0 -> $00 (false), then INT16_TO_FP
+;              sign-extends A into a 16-bit integer FAC (the BASIC TRUE/FALSE convention).
+; ----------------------------------------------------------------------
 FN_EOF_3:
         SUB $01
         SBC A,A
         JP INT16_TO_FP
-; [RE] Flush the current record via BDOS Write-Sequential ($15) (read-seq = $14); function code from $08CD.
+; ----------------------------------------------------------------------
+; FILE_FLUSH_RECORD -- flush the current output record to disk, then advance the record number
+;   In:        BC = FCB base of the open output file
+;   Out:       FCB.SEQ_RECNO incremented; record written via BDOS
+;   Clobbers:  A, DE, HL, flags
+;   Algorithm: Sets DE = &FCB.CPM (BC+1) for the BDOS call, then falls into
+;              FILE_FLUSH_RECORD_CK which clears BUF_CNT, points the CP/M DMA at the
+;              record buffer, issues the BDOS record-write (function code held in
+;              BDOS_FN_RECWRITE -- random-write $22 on CP/M 2.x / sequential-write
+;              $15 on 1.x, selected at cold start), maps the result to a BASIC error,
+;              and bumps SEQ_RECNO.
+; ----------------------------------------------------------------------
 FILE_FLUSH_RECORD:
         LD D,B
         LD E,C
+        ; DE = &FCB.CPM (FCB base + 1) -- the pointer every BDOS file call expects
         INC DE
-; [RE] Write-sequential error check: BDOS Write-Sequential = $15 (function code held at $08CD).
+; ----------------------------------------------------------------------
+; FILE_FLUSH_RECORD_CK -- write one 128-byte record to disk and translate the BDOS result
+;   In:        BC = FCB base; DE = &FCB.CPM (BC+1)
+;   Out:       record written; on the disk-full code the file is closed and DISK FULL is raised
+;   Clobbers:  A, HL, BC/DE (BC popped back in the success tail), flags
+;   Algorithm: Zeroes FCB.BUF_CNT (record now empty), sets the CP/M DMA to the
+;              record buffer, then issues the record write through BDOS_FILE_CALL
+;              using the cold-start-selected function code BDOS_FN_RECWRITE. Decodes
+;              BDOS_FILE_CALL's (already-partially-translated) return: $FF -> too many
+;              files; $01 -> disk I/O error; $02 -> zero the MODE byte, BDOS-close the
+;              FCB, and raise DISK FULL; any other value -> the success tail
+;              FILE_FLUSH_RECORD_CK_1.
+;   [RE] Several BDOS result codes are pre-mapped inside BDOS_FILE_CALL on the 2.x
+;   random-write path, so the $FF/$01/$02 split here is this routine's view of the
+;   already-translated code, not the raw BDOS return.
+; ----------------------------------------------------------------------
 FILE_FLUSH_RECORD_CK:
         LD HL,FCB.BUF_CNT
         ADD HL,BC
         PUSH BC
+        ; disk full: zero the MODE byte (FCB base) so the slot reads as closed
         XOR A
+        ; reset BUF_CNT = 0: the record buffer is now considered empty
         LD (HL),A
+        ; aim the CP/M DMA at this file's 128-byte record buffer before the write
         CALL BDOS_SET_DMA_FCB
-        LD A,(L_08CD)
+        ; load the write function code chosen at startup (random-write on 2.x, seq-write on 1.x)
+        LD A,(BDOS_FN_RECWRITE)
         CALL BDOS_FILE_CALL
+        ; [RE] $FF -> too many open files
         CP $FF
         JP Z,RAISE_TOO_MANY_FILES
         DEC A
+        ; translated code $01 = disk I/O error
         JP Z,RAISE_DISK_I_O_ERROR
         DEC A
         JP NZ,FILE_FLUSH_RECORD_CK_1
         POP DE
         XOR A
         LD (DE),A
+        ; BDOS Close-File on the FCB before raising DISK FULL
         LD C,F_CLOSE
         INC DE
         CALL BDOS
         JP RAISE_DISK_FULL
+; ----------------------------------------------------------------------
+; FILE_FLUSH_RECORD_CK_1 -- success tail of the record write: bump the sequential record number
+;   In:        A = (translated) BDOS result, already known to be neither $FF/$01/$02; BC = FCB base (on stack, popped here)
+;   Out:       FCB.SEQ_RECNO incremented by 1
+;   Clobbers:  A, BC, DE, HL, flags
+;   Algorithm: Loads the 16-bit SEQ_RECNO from the FCB, increments it, and stores it
+;              back so the next write targets the following record.
+;   [RE] The leading INC A / JP Z,RAISE_TOO_MANY_FILES is a redundant guard: the
+;   only path here is the JP NZ for result != $02, and result $01 (which INC A would
+;   catch) was already diverted to RAISE_DISK_I_O_ERROR upstream, so it never fires
+;   under the current decode (likely a vestige of generic BDOS-result handling).
+; ----------------------------------------------------------------------
 FILE_FLUSH_RECORD_CK_1:
         INC A
         JP Z,RAISE_TOO_MANY_FILES
         POP BC
+        ; advance the 16-bit sequential record counter for the next write
         LD HL,FCB.SEQ_RECNO
         ADD HL,BC
         LD E,(HL)
@@ -14183,8 +14957,22 @@ FILE_FLUSH_RECORD_CK_1:
         DEC HL
         LD (HL),E
         RET
-; [RE] Close a single open file: write trailing Ctrl-Z/EOF + flush partial record if dirty, BDOS Close-File ($10), then zero the FCB slot.
+; ----------------------------------------------------------------------
+; FILE_CLOSE_ONE -- close one open file: pad/flush, BDOS close, and clear the FCB slot
+;   In:        E = file number (from the caller via FILE_NUM_TO_FCB_A, which also sets BC = FCB base)
+;   Out:       file closed on disk; the FCB header ($29 bytes) zeroed (MODE back to closed)
+;   Clobbers:  A, BC, DE, HL, flags
+;   Algorithm: Resolves the file number to its FCB; if already closed (MODE=0) jumps
+;              straight to the slot-clear. For a sequential-output file (MODE=2) it
+;              appends a trailing Ctrl-Z/EOF byte (via the PUTC_FILE_1 path) and
+;              flushes the final partial record, then issues BDOS F_CLOSE, and finally
+;              zeroes the FCB header so the slot reads as closed.
+;   [RE] When MODE=2 AND the file number is 0 (the program / LOAD-SAVE channel) it
+;   first zeroes the MODE byte before padding -- exact reason for the file#0
+;   special-case is UNKNOWN.
+; ----------------------------------------------------------------------
 FILE_CLOSE_ONE:
+        ; resolve file number -> BC=FCB base, A=MODE byte; Z if the slot is already closed
         CALL FILE_NUM_TO_FCB_A
         JR Z,FILE_CLOSE_ONE_4
         LD L,E
@@ -14194,6 +14982,7 @@ FILE_CLOSE_ONE:
         LD E,C
         INC DE
         PUSH DE
+        ; only sequential-output files (MODE=2) need the Ctrl-Z pad and final-record flush
         CP $02
         JR NZ,FILE_CLOSE_ONE_3
         INC L
@@ -14201,71 +14990,191 @@ FILE_CLOSE_ONE:
         JR NZ,FILE_CLOSE_ONE_1
         XOR A
         LD (BC),A
+; ----------------------------------------------------------------------
+; FILE_CLOSE_ONE_1 -- emit the trailing Ctrl-Z EOF marker into the output buffer
+;   In:        BC = FCB base of the sequential-output file
+;   Out:       Ctrl-Z ($1A) appended to the buffer (record flushed first if it filled)
+;   Clobbers:  A, BC, DE, HL, flags; returns into FILE_CLOSE_ONE_2
+;   Algorithm: Pushes the return address FILE_CLOSE_ONE_2 twice (PUTC_FILE_1's tail
+;              does POP HL/RET, so the first copy satisfies its saved-HL POP and the
+;              second is the actual return), sets HL = FCB base, A = $1A, and jumps
+;              into PUTC_FILE_1 to append the EOF byte through the buffered-write path.
+; ----------------------------------------------------------------------
 FILE_CLOSE_ONE_1:
         LD HL,FILE_CLOSE_ONE_2
         PUSH HL
         PUSH HL
         LD H,B
         LD L,C
+        ; A = Ctrl-Z (CP/M text EOF); append it via the buffered PUTC path
         LD A,$1A
         JR PUTC_FILE_1
+; ----------------------------------------------------------------------
+; FILE_CLOSE_ONE_2 -- after EOF byte: flush the final partial record if non-empty
+;   In:        BC = FCB base
+;   Out:       any buffered bytes written to disk
+;   Clobbers:  A, HL, DE, flags; falls into FILE_CLOSE_ONE_3
+;   Algorithm: Reads FCB.BUF_CNT; if non-zero (a partly-filled record remains) calls
+;              FILE_FLUSH_RECORD_CK to write it, then falls through to the BDOS close.
+; ----------------------------------------------------------------------
 FILE_CLOSE_ONE_2:
         LD HL,FCB.BUF_CNT
         ADD HL,BC
         LD A,(HL)
         OR A
+        ; flush the last partial record only if it holds data
         CALL NZ,FILE_FLUSH_RECORD_CK
+; ----------------------------------------------------------------------
+; FILE_CLOSE_ONE_3 -- issue BDOS Close-File on the FCB
+;   In:        FCB+1 (&FCB.CPM) saved on the stack; FCB base also on the stack
+;   Out:       file directory entry committed by the BDOS; BC = FCB base recovered
+;   Clobbers:  A, BC, DE, HL, flags; falls into FILE_CLOSE_ONE_4
+;   Algorithm: Pops DE = &FCB.CPM, sets the DMA via BDOS_SET_DMA_FCB (carried over;
+;              F_CLOSE itself does not use the DMA), then calls BDOS F_CLOSE ($10) to
+;              commit the directory entry, and pops BC = FCB base for the slot-clear.
+; ----------------------------------------------------------------------
 FILE_CLOSE_ONE_3:
         POP DE
         CALL BDOS_SET_DMA_FCB
+        ; BDOS Close-File: commit the directory entry to disk
         LD C,F_CLOSE
         CALL BDOS
         POP BC
+; ----------------------------------------------------------------------
+; FILE_CLOSE_ONE_4 -- prepare to wipe the FCB header
+;   In:        BC = FCB base
+;   Out:       D = $29 (byte count to clear), A = 0
+;   Clobbers:  A, D; falls into FILE_CLOSE_ONE_5
+;   Algorithm: Loads the clear length D = $29 (offsets $00..$28: MODE + 36-byte CP/M
+;              FCB + SEQ_RECNO + BUF_CNT + BUF_REM, i.e. everything before SEQ_BUF) and
+;              A = 0 fill byte.
+; ----------------------------------------------------------------------
 FILE_CLOSE_ONE_4:
+        ; $29 bytes = the FCB header (MODE + CP/M FCB + SEQ_RECNO + BUF_CNT/BUF_REM), i.e. through the byte before SEQ_BUF ($29)
         LD D,$29
         XOR A
+; ----------------------------------------------------------------------
+; FILE_CLOSE_ONE_5 -- zero-fill loop that clears the FCB header
+;   In:        BC = FCB base; D = byte count; A = 0
+;   Out:       D bytes from FCB base cleared to 0 (MODE=0 -> slot reads as closed)
+;   Clobbers:  BC (advanced), D (to 0), flags
+;   Algorithm: Stores A=0 into (BC), increments BC, decrements D, loops until D=0,
+;              then returns.
+; ----------------------------------------------------------------------
 FILE_CLOSE_ONE_5:
         LD (BC),A
         INC BC
         DEC D
         JR NZ,FILE_CLOSE_ONE_5
         RET
-; [RE] LOC() function body: return current record/position number from the FCB (random offset $AE vs sequential $26).
+; ----------------------------------------------------------------------
+; FN_LOC_VALUE -- LOC() function (token TOK_LOC $2F): current record/position number of a file.
+;   In:        File-number expression in source (FUNC_DISPATCH_TBL slot $020E).
+;   Out:       FAC = the file's current 16-bit record number.
+;   Clobbers:  AF, BC, DE, HL.
+;   Algorithm: Resolve the file number to its FCB ('Bad file number' if closed). Select the record-
+;              number field by mode: random (mode $03) uses FCB.RND_RECNO ($AD), sequential uses
+;              FCB.SEQ_RECNO ($25). It points HL at the field's HIGH byte (+1) and falls into
+;              FN_LOC_VALUE_1, which assembles the FULL 16-bit value into the FAC (not just the high
+;              byte).
+; ----------------------------------------------------------------------
 FN_LOC_VALUE:
         CALL FILE_NUM_TO_FCB_NZ
         JP Z,RAISE_BAD_FILE_NUMBER
+        ; random files report RND_RECNO ($AD); sequential files report SEQ_RECNO ($25)
         CP $03
         LD HL,FCB.SEQ_RECNO+1
         JR NZ,FN_LOC_VALUE_1
         LD HL,FCB.RND_RECNO+1
+; ----------------------------------------------------------------------
+; FN_LOC_VALUE_1 -- LOC() tail: load the selected 16-bit record number into the FAC.
+;   In:        HL = FCB-relative high-byte address of the chosen record-number field; BC = FCB base.
+;   Out:       FAC = the 16-bit record number (loaded via FP_LOAD_INT_TO_FAC_1).
+;   Clobbers:  AF, HL.
+;   Algorithm: ADD HL,BC to make it absolute, read the high byte (A) then DEC HL and read the low byte
+;              (L), so HL=record number; FP_LOAD_INT_TO_FAC_1 (LD H,A) stores it as an integer in the FAC.
+; ----------------------------------------------------------------------
 FN_LOC_VALUE_1:
         ADD HL,BC
         LD A,(HL)
         DEC HL
         LD L,(HL)
         JP FP_LOAD_INT_TO_FAC_1
-; [RE] LOF()/file-size helper: read a length byte from the FCB ($10 field) and return it as a numeric value.
+; ----------------------------------------------------------------------
+; FN_LOF_VALUE -- LOF() function (token TOK_LOF $30): length of the open file, in CP/M records.
+;   In:        File-number expression in source (FUNC_DISPATCH_TBL slot $0210).
+;   Out:       FAC = the record count from the FCB's current extent (0..128).
+;   Clobbers:  AF, BC, DE, HL.
+;   Algorithm: [RE] This is the REAL LOF(); the similarly named FN_LOF/_1/_2 above are actually MKI$/
+;              MKS$/MKD$. Resolve the file number to its FCB ('Bad file number' if closed), read the
+;              single byte FCB.CPM.RC (offset $0F, record count in the current extent) and return it as
+;              a number via FP_LOAD_INT_TO_FAC (8-bit, high byte 0). [RE] this reports the size of the
+;              current extent, not necessarily the whole multi-extent file -- consistent with CP/M's RC
+;              field semantics.
+; ----------------------------------------------------------------------
 FN_LOF_VALUE:
         CALL FILE_NUM_TO_FCB_NZ
         JP Z,RAISE_BAD_FILE_NUMBER
+        ; FCB.CPM.RC ($0F): record count in the current extent = file length in 128-byte records
         LD HL,FCB.CPM.RC
         ADD HL,BC
         LD A,(HL)
         JP FP_LOAD_INT_TO_FAC
-FN_LOF_VALUE_1:
+; ----------------------------------------------------------------------
+; PUTC_FILE_RESUME -- restore caller context and fall into the file-byte writer.
+;   In:        Two saved words on the stack: AF (the char) and HL, pushed by OUTCHR before it
+;              jumped here (OUTCHR does JP NZ,here when PTRFIL!=0).
+;   Out:       Restores HL and AF, then falls into PUTC_FILE to emit the byte to the current file.
+;   Clobbers:  AF, HL.
+;   Algorithm: [RE] Despite the FN_LOF_VALUE_1 name this is part of the file-output character path, not
+;              LOF. OUTCHR (PUSH AF/PUSH HL, then detects PTRFIL!=0) jumps here; this POPs HL and AF so
+;              PUTC_FILE can buffer the byte and flush full records. Naming-only mismatch (it shares
+;              the address region with the LOF code).
+; ----------------------------------------------------------------------
+PUTC_FILE_RESUME:
         POP HL
         POP AF
-; [RE] Write one byte (A) to the open sequential file buffer; when the 128-byte record fills, flush it via FILE_FLUSH_RECORD and advance the record number.
+; ----------------------------------------------------------------------
+; PUTC_FILE -- write one byte to the open file, dispatching on file mode
+;   In:        A = byte to write; PTRFIL ($0840) = current file's FCB base
+;   Out:       byte routed to the sequential buffer, or to the random/FIELD-store path
+;   Clobbers:  A, HL, flags (the saved A/HL are popped per path)
+;   Algorithm: Pushes HL and A, reads the current file's MODE byte. MODE=1 (seq
+;              input) -> STMT_ERASE_3, which simply pops the saved A/HL and RETs to the
+;              caller (the byte is discarded -- this is NOT an error raise). MODE=3
+;              (random) -> BLOCK_COPY_BC_2, the FIELD-buffer store path. Otherwise (seq
+;              output, MODE=2) it pops A and falls into PUTC_FILE_1 to append the byte.
+;   [RE] Writing to a MODE=1 (input) file is silently a no-op here; if BASIC reports
+;   a 'bad file mode' it must do so elsewhere -- UNKNOWN whether any error surfaces.
+; ----------------------------------------------------------------------
 PUTC_FILE:
         PUSH HL
         PUSH AF
+        ; HL = current file's FCB base; (HL) = its MODE byte
         LD HL,(PTRFIL)
         LD A,(HL)
         CP $01
+        ; MODE=1 (sequential input): pop saved A/HL and return to caller -- the byte is discarded
         JP Z,STMT_ERASE_3
         CP $03
-        JP Z,BLOCK_COPY_BC_2
+        ; MODE=3 (random): divert to the FIELD-buffer store path
+        JP Z,PUTC_FILE_RANDOM
         POP AF
+; ----------------------------------------------------------------------
+; PUTC_FILE_1 -- append one byte to the sequential output record buffer
+;   In:        A = byte; HL = FCB base; (an extra saved HL is on the stack per the caller contract)
+;   Out:       byte stored into SEQ_BUF at the current fill offset; record flushed first if it was full
+;   Clobbers:  A, BC, DE, HL, flags (the byte and a saved HL are consumed)
+;   Algorithm: If FCB.BUF_CNT == $80 the 128-byte record is full, so it calls
+;              FILE_FLUSH_RECORD to write it and reset the count; then it increments
+;              BUF_CNT to claim the next slot and computes BC = new BUF_CNT. It also
+;              maintains FCB.BUF_REM ($28) as a per-file output column counter: a CR
+;              byte ($0D) resets it to 0, otherwise it adds 1 for a printable byte
+;              (>= $20). Finally it stores the byte into the buffer via PUTC_FILE_2.
+;   [RE] BUF_REM ($28) is dual-use: a per-file print-column counter on the write
+;   path (here) and the remaining-bytes/EOF status on the read path. Its exact role
+;   in PRINT# TAB/comma-zone alignment is inferred, not verified.
+; ----------------------------------------------------------------------
 PUTC_FILE_1:
         PUSH DE
         PUSH BC
@@ -14275,10 +15184,13 @@ PUTC_FILE_1:
         LD DE,FCB.BUF_CNT
         ADD HL,DE
         LD A,(HL)
+        ; BUF_CNT == 128: the record is full, flush it before adding more
         CP $80
         PUSH HL
+        ; write the full record and reset the fill count
         CALL Z,FILE_FLUSH_RECORD
         POP HL
+        ; claim the next buffer slot: BUF_CNT++
         INC (HL)
         LD C,(HL)
         LD B,$00
@@ -14286,6 +15198,7 @@ PUTC_FILE_1:
         POP AF
         PUSH AF
         LD D,(HL)
+        ; [RE] CR resets the per-file output column counter (FCB.BUF_REM); other printable bytes increment it
         CP $0D
         LD (HL),B
         JR Z,PUTC_FILE_2
@@ -14293,7 +15206,16 @@ PUTC_FILE_1:
         LD A,D
         ADC A,B
         LD (HL),A
+; ----------------------------------------------------------------------
+; PUTC_FILE_2 -- store the byte at the computed buffer offset and restore state
+;   In:        HL = FCB+$28 (one before SEQ_BUF); BC = new BUF_CNT; saved A/BC/DE/HL on stack
+;   Out:       byte written into SEQ_BUF at the just-claimed slot
+;   Clobbers:  HL; restores A, BC, DE, HL from the stack
+;   Algorithm: Adds BC (new BUF_CNT) to HL so HL = FCB+$28+BUF_CNT = &SEQ_BUF[BUF_CNT-1],
+;              pops the saved byte and registers, writes the byte, and returns.
+; ----------------------------------------------------------------------
 PUTC_FILE_2:
+        ; HL = FCB+$28 + BUF_CNT -> the SEQ_BUF slot for this byte
         ADD HL,BC
         POP AF
         POP BC
@@ -14301,6 +15223,22 @@ PUTC_FILE_2:
         LD (HL),A
         POP HL
         RET
+; ----------------------------------------------------------------------
+; PUTC_FILE_3 -- random GET/PUT: position the CP/M record from SEQ_RECNO, then read or flush
+;   In:        HL = &FCB.SEQ_RECNO+1; DE = record number; FCB base reachable via the stacked caller frame
+;   Out:       SEQ_RECNO and FCB.CPM.R0/R1/R2 set from the (decremented) record number; record read or flushed
+;   Clobbers:  A, BC, DE, HL, flags
+;   Algorithm: Decrements the 16-bit record number (DE), stores it back into
+;              SEQ_RECNO, and marks the buffer full by writing $80 into both BUF_CNT
+;              and BUF_REM. Recovers BC = FCB base and copies the record number into
+;              the CP/M random-record fields R0 (low), R1 (high), R2=0 so a random
+;              BDOS call addresses that record. Then on FIELD_WRITE_FLAG (L_084C): if
+;              clear (GET / read-modify) it refills the record via FILE_READ_RECORD_FCB;
+;              if set (PUT) it falls to PUTC_FILE_4 to flush via FILE_FLUSH_RECORD and
+;              reset the print state.
+;   [RE] This is the bridge that lets random GET/PUT reuse the sequential buffer
+;   engine: it positions by record number through R0/R1/R2.
+; ----------------------------------------------------------------------
 PUTC_FILE_3:
         DEC DE
         DEC HL
@@ -14308,6 +15246,7 @@ PUTC_FILE_3:
         INC HL
         LD (HL),D
         INC HL
+        ; mark the buffer full: BUF_CNT = BUF_REM = $80 before positioning the record
         LD (HL),$80
         INC HL
         LD (HL),$80
@@ -14316,6 +15255,7 @@ PUTC_FILE_3:
         LD B,H
         LD C,L
         PUSH HL
+        ; copy the BASIC record number into the CP/M random-record fields R0/R1, R2=0
         LD HL,FCB.CPM.R0
         ADD HL,BC
         LD (HL),E
@@ -14324,9 +15264,11 @@ PUTC_FILE_3:
         INC HL
         LD (HL),$00
         POP HL
-        LD A,(L_084C)
+        ; FIELD write-flag: 0 = GET/read-modify (refill record), nonzero = PUT (flush record)
+        LD A,(FIELD_WRITE_FLAG)
         OR A
         JR NZ,PUTC_FILE_4
+        ; GET / read-before-write: load the existing record into the buffer
         CALL FILE_READ_RECORD_FCB
         POP HL
         RET
@@ -14334,26 +15276,55 @@ PUTC_FILE_4:
         CALL FILE_FLUSH_RECORD
         POP HL
         JP PRINT_RESET_STATE
-; [RE] LDIR copy of a 128-byte (one CP/M record) block; BC preserved.
+; ----------------------------------------------------------------------
+; COPY_128_BLOCK -- copy one 128-byte CP/M record (LDIR), preserving BC
+;   In:        HL = source, DE = destination
+;   Out:       128 bytes copied HL->DE; HL/DE advanced past the block
+;   Clobbers:  HL, DE, flags (BC saved and restored)
+;   Algorithm: Saves BC, sets BC = $80, LDIRs 128 bytes, restores BC, returns.
+; ----------------------------------------------------------------------
 COPY_128_BLOCK:
         PUSH BC
         LD BC,$0080
         LDIR
         POP BC
         RET
-; [RE] Read next byte from the open sequential input file buffer; when the buffer is exhausted, refill it with the next record (sets carry/Ctrl-Z at EOF).
+; ----------------------------------------------------------------------
+; GETC_FILE -- read the next byte from the open input file, refilling the buffer at end of record
+;   In:        PTRFIL ($0840) = current file's FCB base
+;   Out:       A = next byte, NC; at EOF A = Ctrl-Z ($1A) with carry set
+;   Clobbers:  A, flags (BC/HL saved and restored)
+;   Algorithm: For a random file (MODE=3) it diverts to the FIELD-read path
+;              (BLOCK_COPY_BC_4). Otherwise it checks FCB.BUF_REM (remaining-byte
+;              count): if bytes remain it returns the next one from SEQ_BUF (index =
+;              BUF_CNT - decremented BUF_REM) and decrements the count; if the record
+;              is exhausted (BUF_REM=0) it falls into GETC_FILE_2 to refill or signal
+;              EOF.
+; ----------------------------------------------------------------------
 GETC_FILE:
         PUSH BC
         PUSH HL
+; ----------------------------------------------------------------------
+; GETC_FILE_1 -- re-entry point after a successful refill (re-read mode and remaining count)
+;   In:        PTRFIL = FCB base
+;   Out:       same as GETC_FILE (A = next byte / EOF)
+;   Clobbers:  A, BC, HL, flags
+;   Algorithm: Identical to the GETC_FILE body but without re-pushing BC/HL; reached
+;              after FILE_READ_RECORD loads a fresh record so the next byte can be
+;              returned.
+; ----------------------------------------------------------------------
 GETC_FILE_1:
         LD HL,(PTRFIL)
         LD A,(HL)
         CP $03
-        JP Z,BLOCK_COPY_BC_4
+        ; MODE=3 (random): read from the FIELD buffer instead
+        JP Z,GETC_FILE_RANDOM
+        ; FCB.BUF_REM = bytes still available in the current record
         LD BC,FCB.BUF_REM
         ADD HL,BC
         LD A,(HL)
         OR A
+        ; no bytes left in this record -> refill or hit EOF
         JR Z,GETC_FILE_2
         DEC HL
         LD A,(HL)
@@ -14367,23 +15338,63 @@ GETC_FILE_1:
         POP HL
         POP BC
         RET
+; ----------------------------------------------------------------------
+; GETC_FILE_2 -- record exhausted: refill from disk or report EOF
+;   In:        HL = FCB+$28 (BUF_REM); PTRFIL = FCB base
+;   Out:       on more data: loops back to GETC_FILE_1; on EOF: falls into GETC_FILE_3
+;   Clobbers:  A, BC, DE, HL, flags
+;   Algorithm: Reads the EOF status byte FCB.BUF_CNT (the 0/$80 marker set by the
+;              last read): if it is $00 (EOF latched) it signals end-of-file; otherwise
+;              it calls FILE_READ_RECORD to fetch the next record and, if that returned
+;              data (NZ), loops back to deliver the first byte.
+; ----------------------------------------------------------------------
 GETC_FILE_2:
         DEC HL
         LD A,(HL)
         OR A
         JR Z,GETC_FILE_3
+        ; fetch the next 128-byte record from disk into the buffer
         CALL FILE_READ_RECORD
         JR NZ,GETC_FILE_1
+; ----------------------------------------------------------------------
+; GETC_FILE_3 -- end-of-file return: carry set, A = Ctrl-Z
+;   In:        (none)
+;   Out:       CY=1, A = $1A (Ctrl-Z); BC/HL restored
+;   Clobbers:  A, flags
+;   Algorithm: Sets carry as the EOF flag, restores HL/BC, loads A = Ctrl-Z, returns.
+; ----------------------------------------------------------------------
 GETC_FILE_3:
         SCF
         POP HL
         POP BC
+        ; return Ctrl-Z as the EOF sentinel byte
         LD A,$1A
         RET
-; [RE] Read the next sequential record from the current file into its FCB buffer (entry that loads the current-file pointer PTRFIL $0840 first).
+; ----------------------------------------------------------------------
+; FILE_READ_RECORD -- read the next record of the CURRENT file (loads PTRFIL first)
+;   In:        PTRFIL ($0840) = current file's FCB base
+;   Out:       next record loaded into SEQ_BUF; status bytes set (see FILE_READ_RECORD_FCB)
+;   Clobbers:  A, BC, DE, HL, flags (DE saved/restored inside the FCB entry)
+;   Algorithm: Loads HL = current FCB base from PTRFIL and falls into
+;              FILE_READ_RECORD_FCB to do the actual BDOS read.
+; ----------------------------------------------------------------------
 FILE_READ_RECORD:
         LD HL,(PTRFIL)
-; [RE] Bump the FCB record number and BDOS Read-Sequential into the buffer; sets the buffer-status byte (0=data, $80=EOF).
+; ----------------------------------------------------------------------
+; FILE_READ_RECORD_FCB -- read one record into SEQ_BUF and set the data/EOF status
+;   In:        HL = FCB base
+;   Out:       record read into SEQ_BUF ($29); FCB.BUF_CNT and FCB.BUF_REM both set to
+;              $80 if data was read, $00 at EOF; A = that status; OR A sets Z on EOF
+;   Clobbers:  A, BC, DE, HL, flags
+;   Algorithm: Sets DE = FCB+1 (&FCB.CPM) for the DMA/BDOS calls, increments the
+;              16-bit SEQ_RECNO, advances HL to BUF_REM ($28), zeroes it and LDIR-clears
+;              the following 127 bytes (BUF_REM + SEQ_BUF[0..126]) so a short record
+;              reads as zeros, points the DMA at SEQ_BUF, and issues the BDOS record
+;              read using the cold-start-selected function code BDOS_FN_RECREAD
+;              (random-read $21 on 2.x / sequential-read $14 on 1.x). A nonzero BDOS
+;              return (no data / EOF) yields status $00; a zero return (data) yields
+;              $80; the status is stored into BUF_CNT and BUF_REM and Z is set on EOF.
+; ----------------------------------------------------------------------
 FILE_READ_RECORD_FCB:
         PUSH DE
         LD D,H
@@ -14394,6 +15405,7 @@ FILE_READ_RECORD_FCB:
         LD C,(HL)
         INC HL
         LD B,(HL)
+        ; advance the 16-bit sequential record number before the read
         INC BC
         DEC HL
         LD (HL),C
@@ -14402,6 +15414,7 @@ FILE_READ_RECORD_FCB:
         INC HL
         INC HL
         PUSH HL
+        ; pre-clear BUF_REM + SEQ_BUF[0..126] to 0 so a short/partial record reads as zeros
         LD BC,$007F
         LD (HL),$00
         PUSH DE
@@ -14410,13 +15423,24 @@ FILE_READ_RECORD_FCB:
         INC DE
         LDIR
         POP DE
+        ; aim the CP/M DMA at SEQ_BUF for the read
         CALL BDOS_SET_DMA_FCB
-        LD A,(L_08CC)
+        ; load the read function code chosen at startup (random-read on 2.x, seq-read on 1.x)
+        LD A,(BDOS_FN_RECREAD)
         CALL BDOS_FILE_CALL
         OR A
         LD A,$00
         JR NZ,FILE_READ_RECORD_FCB_1
+        ; data was read: mark the buffer status as 'data present' ($80)
         LD A,$80
+; ----------------------------------------------------------------------
+; FILE_READ_RECORD_FCB_1 -- store the buffer status into BUF_CNT/BUF_REM and set Z on EOF
+;   In:        A = status ($00 EOF / $80 data); HL = FCB+$28 (BUF_REM)
+;   Out:       status written into FCB.BUF_REM ($28) and FCB.BUF_CNT ($27); OR A sets Z when A=0 (EOF)
+;   Clobbers:  A, HL, DE, flags
+;   Algorithm: Writes A into BUF_REM ($28) then BUF_CNT ($27), does OR A so the
+;              caller's branch tests EOF, restores DE, returns.
+; ----------------------------------------------------------------------
 FILE_READ_RECORD_FCB_1:
         POP HL
         LD (HL),A
@@ -14425,7 +15449,19 @@ FILE_READ_RECORD_FCB_1:
         OR A
         POP DE
         RET
-; [RE] Point CP/M DMA at this file's 128-byte buffer (FCB+$28) via BDOS Set-DMA ($1A) before a read/write.
+; ----------------------------------------------------------------------
+; BDOS_SET_DMA_FCB -- point the CP/M DMA at this file's 128-byte record buffer (SEQ_BUF)
+;   In:        DE = &FCB.CPM (FCB base + 1) -- as passed by every caller in this cluster
+;   Out:       CP/M DMA address set to &FCB.SEQ_BUF (= DE + $28 = FCB base + $29)
+;   Clobbers:  none (BC/DE/HL saved and restored)
+;   Algorithm: Computes HL = DE + $28, moves it into DE, and calls BDOS F_DMAOFF
+;              ($1A) Set-DMA so the next read/write transfers into this file's record
+;              buffer.
+;   [RE] The added offset is $28 (the FCB.BUF_REM field offset), but because callers
+;   pass DE = FCB base + 1 (&FCB.CPM), the resulting DMA address is FCB base + $29 =
+;   SEQ_BUF exactly. The 128-byte DMA window is SEQ_BUF[0..127]; it does NOT include
+;   the BUF_CNT/BUF_REM status bytes that sit ahead of SEQ_BUF.
+; ----------------------------------------------------------------------
 BDOS_SET_DMA_FCB:
         PUSH BC
         PUSH DE
@@ -14433,16 +15469,28 @@ BDOS_SET_DMA_FCB:
         LD HL,FCB.BUF_REM
         ADD HL,DE
         EX DE,HL
+        ; BDOS Set-DMA: route the next disk transfer into this file's SEQ_BUF
         LD C,F_DMAOFF
         CALL BDOS
         POP HL
         POP DE
         POP BC
         RET
-; [RE] GETC_FILE wrapper that detects Ctrl-Z ($1A) as end-of-file: marks the FCB EOF fields and returns carry on EOF.
+; ----------------------------------------------------------------------
+; GETC_FILE_EOF -- GETC_FILE wrapper that treats Ctrl-Z as a hard EOF and latches it in the FCB
+;   In:        PTRFIL = current file's FCB base
+;   Out:       A = byte, NC on data; on EOF (real or Ctrl-Z) CY=1 and FCB.BUF_CNT/
+;              BUF_REM are zeroed so subsequent reads stay at EOF
+;   Clobbers:  A, flags (BC/HL saved and restored)
+;   Algorithm: Calls GETC_FILE; if it already returned carry (EOF) returns as-is. The
+;              SCF/CCF pair clears carry so a non-Ctrl-Z byte returns with CY=0. If the
+;              byte is Ctrl-Z ($1A) it zeroes BUF_CNT and BUF_REM (sticky EOF) and sets
+;              carry.
+; ----------------------------------------------------------------------
 GETC_FILE_EOF:
         CALL GETC_FILE
         RET C
+        ; Ctrl-Z = CP/M text EOF marker: treat it as hard end-of-file
         CP $1A
         SCF
         CCF
@@ -14452,6 +15500,7 @@ GETC_FILE_EOF:
         LD HL,(PTRFIL)
         LD BC,FCB.BUF_CNT
         ADD HL,BC
+        ; latch EOF: zero BUF_CNT then BUF_REM so further reads keep returning EOF
         LD (HL),$00
         INC HL
         LD (HL),$00
@@ -14459,13 +15508,27 @@ GETC_FILE_EOF:
         POP HL
         POP BC
         RET
-; [RE] FRMEVL a string filename, then parse drive/name/ext into the scratch CP/M FCB at $08AA (uppercased, space-padded fields).
+; ----------------------------------------------------------------------
+; PARSE_FILENAME_TO_FCB -- evaluate a string filename and parse "d:NAME.EXT" into the scratch CP/M FCB.
+;   In:        HL = BASIC text pointer at the filename expression.
+;   Out:       SCRATCH_FCB ($08AA) = a freshly built CP/M FCB: DR byte = drive (0=default, 1.. = A:..),
+;              8-byte name + 3-byte type space-padded; SCRATCH_FCB_EX ($08B6, the EX byte) zeroed. HL = text
+;              pointer past the consumed expression. Returned CY = an extension separator ('.') was seen.
+;   Clobbers:  A, BC, DE, HL; writes SCRATCH_FCB.. through the EX byte.
+;   Algorithm: FRMEVL the expression, FRETMP-free the result string, reject an empty string (Bad file name).
+;              Point HL at the string body via its descriptor; if a 2nd char is ':' treat the 1st as a drive
+;              letter -> DR = (letter-$40); range-check 0..26 (0=default). Then copy up to 8 name chars; on
+;              '.' pad the name field with spaces and switch to the 3-char type; finally FCB_PAD_FIELD pads
+;              any short field. Raises Bad file name on empty/over-length fields.
+; ----------------------------------------------------------------------
 PARSE_FILENAME_TO_FCB:
+        ; evaluate the filename string expression
         CALL FRMEVL_NOPAREN
         PUSH HL
         CALL FRETMP
         LD A,(HL)
         OR A
+        ; empty filename string -> Bad file name
         JP Z,RAISE_BAD_FILE_NAME
         PUSH AF
         INC HL
@@ -14480,32 +15543,74 @@ PARSE_FILENAME_TO_FCB:
         INC HL
         LD A,(HL)
         DEC E
+        ; second char is ':' ? then the first char is a drive letter (d:)
         CP $3A
         JR Z,PARSE_FILENAME_TO_FCB_2
         DEC HL
         INC E
+; ----------------------------------------------------------------------
+; PARSE_FILENAME_TO_FCB_1 -- no-drive-prefix entry: default the drive and rewind to the name start.
+;   In:        HL points one past the (rejected) drive area; E = remaining char count.
+;   Out:       C = '@' ($40) so the drive byte computes to 0 (default drive); HL/E rewound to the name.
+;   Clobbers:  C, E, HL.
+;   Algorithm: Back HL/E up and seed C with '@' so the shared (C-$40) drive computation yields the
+;              default-drive code 0; falls into the common validation at PARSE_FILENAME_TO_FCB_2.
+; ----------------------------------------------------------------------
 PARSE_FILENAME_TO_FCB_1:
         DEC HL
         INC E
+        ; no drive prefix: seed C='@' ($40) so (C-$40)=0 selects the default drive
         LD C,$40
+; ----------------------------------------------------------------------
+; PARSE_FILENAME_TO_FCB_2 -- validate drive code and store FCB.CPM.DR, then begin the name copy.
+;   In:        C = drive char ('@'+n), E = remaining filename length, HL -> first name char.
+;   Out:       SCRATCH_FCB.DR set; BC -> SCRATCH_FCB_NAME; D = $0B field width counter (8 name + 3 type).
+;   Clobbers:  A, BC, D.
+;   Algorithm: Reject an empty remaining name (Bad file name); compute drive = C-$40, range-check it
+;              (carry, i.e. C<'@', or >=27 -> Bad file name; 0=default); store it as the FCB drive byte; set
+;              D=$0B and fall into the per-character copy loop.
+; ----------------------------------------------------------------------
 PARSE_FILENAME_TO_FCB_2:
         DEC E
         JP Z,RAISE_BAD_FILE_NAME
         LD A,C
+        ; convert drive letter to CP/M drive number (A:->1 ..); range-check 0..26, 0 = default
         SUB $40
         JP C,RAISE_BAD_FILE_NAME
         CP $1B
         JP NC,RAISE_BAD_FILE_NAME
-        LD BC,L_08AA
+        ; store the drive byte as FCB.CPM.DR, then advance BC to the 11-byte name+type area
+        LD BC,SCRATCH_FCB
         LD (BC),A
         INC BC
         LD D,$0B
+; ----------------------------------------------------------------------
+; PARSE_FILENAME_TO_FCB_3 -- advance past the '.' separator and continue copying into the type field.
+;   In:        HL -> the '.' just matched; BC -> the type field; D = remaining field width; AF saved on stack.
+;   Out:       HL advanced past '.'; loop continues into the 3-char type field.
+;   Clobbers:  HL.
+;   Algorithm: Skip the dot and re-enter the copy loop (the SCF/PUSH AF in the caller records that the
+;              extension separator was seen, surfacing as the returned CY).
+; ----------------------------------------------------------------------
 PARSE_FILENAME_TO_FCB_3:
         INC HL
+; ----------------------------------------------------------------------
+; PARSE_FILENAME_TO_FCB_4 -- per-character copy loop body: emit one name/type byte to the FCB.
+;   In:        HL -> source char, E = input chars left (signed), BC -> FCB dest, D = field bytes left.
+;   Out:       on input exhausted (E goes negative) jumps to FCB_PAD_FIELD_1 to space-fill the rest;
+;              on '.' calls FCB_PAD_FIELD then PARSE_FILENAME_TO_FCB_3 to switch to the type field.
+;   Clobbers:  A, BC, D, E, HL.
+;   Algorithm: Decrement the input counter; if no more input, pad the field; if the char is '.', finish the
+;              current field (pad to width) and move to the type field; otherwise store the char and loop
+;              until the 11-byte name+type area (D) is full. (Characters are stored verbatim; no upper-case
+;              fold here -- only the OPEN mode letter is upper-cased.)
+; ----------------------------------------------------------------------
 PARSE_FILENAME_TO_FCB_4:
         DEC E
+        ; input exhausted -> space-pad the remaining FCB field bytes
         JP M,FCB_PAD_FIELD_1
         LD A,(HL)
+        ; '.' starts the extension: pad the name field then switch to the type field
         CP $2E
         JR NZ,PARSE_FILENAME_TO_FCB_5
         CALL FCB_PAD_FIELD
@@ -14513,24 +15618,53 @@ PARSE_FILENAME_TO_FCB_4:
         SCF
         PUSH AF
         JR PARSE_FILENAME_TO_FCB_3
+; ----------------------------------------------------------------------
+; PARSE_FILENAME_TO_FCB_5 -- store one ordinary filename character into the FCB and advance.
+;   In:        A = char to store, BC -> FCB dest, HL -> source, D = field bytes left.
+;   Out:       char written; BC,HL advanced; D decremented; loops back to PARSE_FILENAME_TO_FCB_4 until full.
+;   Clobbers:  BC, D, HL.
+;   Algorithm: Write the byte to the FCB, bump both pointers, and decrement the field-width counter D;
+;              when D reaches 0 (all 11 bytes placed) fall into PARSE_FILENAME_TO_FCB_6 to finish.
+; ----------------------------------------------------------------------
 PARSE_FILENAME_TO_FCB_5:
         LD (BC),A
         INC BC
         INC HL
         DEC D
         JR NZ,PARSE_FILENAME_TO_FCB_4
+; ----------------------------------------------------------------------
+; PARSE_FILENAME_TO_FCB_6 -- finish parsing: clear the FCB extent byte and restore the caller's state.
+;   In:        SCRATCH_FCB name/type fully built; AF (carry=ext-seen) and HL saved on stack.
+;   Out:       SCRATCH_FCB_EX ($08B6, EX byte) = 0; HL restored to the post-filename text pointer; CY from
+;              the popped AF = extension-separator-seen; RET.
+;   Clobbers:  A.
+;   Algorithm: Zero the current-extent byte (so a fresh OPEN starts at extent 0), pop the saved AF (whose
+;              carry flag tells the caller whether a '.' extension was present) and the saved text pointer,
+;              and return.
+; ----------------------------------------------------------------------
 PARSE_FILENAME_TO_FCB_6:
         XOR A
-        LD (L_08B6),A
+        ; clear the FCB current-extent (EX) byte for a fresh open
+        LD (SCRATCH_FCB_EX),A
         POP AF
         POP HL
         RET
-; [RE] Pad the remaining name/extension field bytes of the FCB with spaces ($20) to the fixed width.
+; ----------------------------------------------------------------------
+; FCB_PAD_FIELD -- space-pad the rest of the current FCB field when a separator/end is hit early.
+;   In:        D = bytes remaining in the 11-byte name+type window; BC -> next FCB dest byte.
+;   Out:       writes ' ' ($20) until D hits the field boundary; returns when the field is full.
+;   Clobbers:  A, BC, D.
+;   Algorithm: Validate position (D==$0B means a leading '.' with empty name, or D<3 means an over-long
+;              name -> Bad file name); if exactly at the type boundary (D==3) return; otherwise pad with
+;              spaces toward the next field boundary. Used to right-pad the name to 8 chars before the type.
+; ----------------------------------------------------------------------
 FCB_PAD_FIELD:
         LD A,D
         CP $0B
+        ; field counter still full ($0B) -> a leading '.' / empty name -> Bad file name
         JP Z,RAISE_BAD_FILE_NAME
         CP $03
+        ; fewer than 3 bytes left means the name over-ran the 8-char field -> Bad file name
         JP C,RAISE_BAD_FILE_NAME
         RET Z
         LD A,$20
@@ -14538,10 +15672,25 @@ FCB_PAD_FIELD:
         INC BC
         DEC D
         JR FCB_PAD_FIELD
+; ----------------------------------------------------------------------
+; FCB_PAD_FIELD_1 -- end-of-input entry: if any field bytes remain, space-fill them, else finish.
+;   In:        D = FCB field bytes left (0 means exactly filled).
+;   Out:       branches to PARSE_FILENAME_TO_FCB_6 when nothing remains; else falls into the pad loop.
+;   Clobbers:  sets Z via INC D / DEC D (D otherwise unchanged).
+;   Algorithm: Test D for zero without disturbing it; if the name+type area is already full go finish,
+;              otherwise fall into FCB_PAD_FIELD_2 to space-fill the remainder.
+; ----------------------------------------------------------------------
 FCB_PAD_FIELD_1:
         INC D
         DEC D
         JR Z,PARSE_FILENAME_TO_FCB_6
+; ----------------------------------------------------------------------
+; FCB_PAD_FIELD_2 -- fill the remaining D FCB name/type bytes with spaces.
+;   In:        D = bytes to fill, BC -> next FCB dest byte.
+;   Out:       D bytes set to ' ' ($20); jumps to PARSE_FILENAME_TO_FCB_6 to finish.
+;   Clobbers:  A, BC, D.
+;   Algorithm: Store ' ' and advance until D is exhausted, then complete the parse (zero EX, restore HL).
+; ----------------------------------------------------------------------
 FCB_PAD_FIELD_2:
         LD A,$20
         LD (BC),A
@@ -14549,21 +15698,45 @@ FCB_PAD_FIELD_2:
         DEC D
         JR NZ,FCB_PAD_FIELD_2
         JR PARSE_FILENAME_TO_FCB_6
-; [RE] NAME statement handler (token $C0): rename a disk file (NAME old AS new).
+; ----------------------------------------------------------------------
+; STMT_NAME -- NAME statement: rename a disk file (NAME "old" AS "new").
+;   In:        HL = BASIC text pointer after the NAME token.
+;   Out:       file renamed on disk; HL = text pointer past the statement. Raises File not found,
+;              File already exists, or 'FC' on a drive mismatch.
+;   Clobbers:  A, BC, DE, HL; uses SCRATCH_FCB ($08AA) and the rename block at $089A.
+;   Algorithm: Parse the old filename into SCRATCH_FCB; set the BDOS DMA back to the default $0080 buffer;
+;              OPEN the old file (FF -> File not found). Copy its 12-byte FCB (drive+name+type) into the
+;              low half of the rename block at $089A. Then SYNCHR the 'AS' keyword and parse the new name
+;              into SCRATCH_FCB. Require the same drive byte (else FC), and verify the new name does NOT
+;              already exist via F_OPEN (success -> File already exists). Finally BDOS F_RENAME with DE
+;              pointing at the rename block (old FCB at +0, new drive+name at +16).
+; ----------------------------------------------------------------------
 STMT_NAME:
         CALL PARSE_FILENAME_TO_FCB
         PUSH HL
+        ; restore the BDOS DMA to the standard $0080 buffer before the directory ops
         LD DE,$0080
         LD C,F_DMAOFF
         CALL BDOS
-        LD DE,L_08AA
+        LD DE,SCRATCH_FCB
+        ; open the old file to confirm it exists (and resolves its directory entry)
         LD C,F_OPEN
         CALL BDOS
+        ; BDOS $FF (not found) + 1 = 0 -> File not found
         INC A
         JP Z,RAISE_FILE_NOT_FOUND
-        LD HL,L_089A
-        LD DE,L_08AA
+        ; copy the resolved old FCB (12 bytes: drive+8 name+3 type) into the low half of the F_RENAME block
+        LD HL,RENAME_FCB
+        LD DE,SCRATCH_FCB
         LD B,$0C
+; ----------------------------------------------------------------------
+; STMT_NAME_1 -- copy loop: move the 12-byte resolved old FCB into the rename block.
+;   In:        DE -> SCRATCH_FCB, HL -> RENAME_FCB, B = 12.
+;   Out:       12 bytes (DR+name+type) copied; HL/DE advanced past them.
+;   Clobbers:  A, B, DE, HL.
+;   Algorithm: Byte copy of the just-opened old FCB into the rename block's first half so F_RENAME can
+;              pair it with the new drive+name written into the second half.
+; ----------------------------------------------------------------------
 STMT_NAME_1:
         LD A,(DE)
         LD (HL),A
@@ -14571,28 +15744,51 @@ STMT_NAME_1:
         INC DE
         DJNZ STMT_NAME_1
         POP HL
+        ; require the literal 'AS' between the two filenames
         CALL SYNCHR
         DEFB    'A'                      ; inline char arg consumed by the preceding CALL
         CALL SYNCHR
         DEFB    'S'                      ; inline char arg consumed by the preceding CALL
         CALL PARSE_FILENAME_TO_FCB
         PUSH HL
-        LD A,(L_08AA)
-        LD HL,L_089A
+        LD A,(SCRATCH_FCB)
+        LD HL,RENAME_FCB
+        ; old and new must name the same drive (compare scratch DR vs saved DR) else FC
         CP (HL)
         JP NZ,ERROR_FC
-        LD DE,L_08AA
+        LD DE,SCRATCH_FCB
         LD C,F_OPEN
         CALL BDOS
         INC A
+        ; new name already opens -> target exists -> File already exists
         JP NZ,RAISE_FILE_ALREADY_EXISTS
+        ; BDOS rename: DE -> 32-byte block holding old FCB (+0) and new drive+name (+16)
         LD C,F_RENAME
-        LD DE,L_089A
+        LD DE,RENAME_FCB
         CALL BDOS
         POP HL
         RET
-; [RE] OPEN statement handler (token $B8): open a disk file on a channel.
+; ----------------------------------------------------------------------
+; STMT_OPEN -- OPEN statement: OPEN mode$, [#] filenum, name$  -- open a disk file on a channel.
+;   In:        HL = BASIC text pointer after the OPEN token.
+;   Out:       the file's per-file FCB entry initialised (MODE set, CP/M FCB built, buffers cleared) and
+;              registered in FILTAB; for sequential input it pre-reads the first record. HL = text past the
+;              statement. Raises Bad file mode / Bad file number / File already open / File not found /
+;              Too many files.
+;   Clobbers:  A, BC, DE, HL; SCRATCH_FCB; the chosen FCB entry; PTRFIL; OPEN_RESUME_TEXT_PTR.
+;   Algorithm: Push PRINT_RESET_STATE as a return so PRINT state is reset on exit. FRMEVL the mode string;
+;              its first letter (upper-cased via AND $DF) selects FCB_MODE_SEQ_OUT('O'), FCB_MODE_SEQ_IN('I')
+;              or FCB_MODE_RANDOM('R') (else Bad file mode). SYNCHR ',', optional '#', GETBYT the file number
+;              (0 -> Bad file number), SYNCHR ','. Verify the slot is free (FILE_NUM_TO_FCB_A returns the
+;              slot mode in A; nonzero -> File already open). Parse the filename into SCRATCH_FCB. Copy
+;              SCRATCH_FCB into the entry's CP/M-FCB slot, zero EX and CR, set DMA, then: for output
+;              DELETE+MAKE (handle extents/Too many files), for input/random OPEN (auto-MAKE on $03
+;              not-found from the RAM trampoline). Stamp MODE, and for sequential-input pre-read the first
+;              record; for random zero-fill the buffer. (NOTE: FILE_NUM_TO_FCB_A, not FILE_NUM_TO_FCB_2,
+;              resolves the entry pointer BC.)
+; ----------------------------------------------------------------------
 STMT_OPEN:
+        ; arrange to reset PRINT state when OPEN returns (pushed as the return address)
         LD BC,PRINT_RESET_STATE
         PUSH BC
         CALL FRMEVL_NOPAREN
@@ -14606,6 +15802,7 @@ STMT_OPEN:
         INC HL
         LD B,(HL)
         LD A,(BC)
+        ; upper-case the mode letter so 'o'/'i'/'r' match 'O'/'I'/'R'
         AND $DF
         LD D,FCB_MODE_SEQ_OUT
         CP $4F
@@ -14616,11 +15813,20 @@ STMT_OPEN:
         LD D,FCB_MODE_RANDOM
         CP $52
         JP NZ,RAISE_BAD_FILE_MODE
+; ----------------------------------------------------------------------
+; STMT_OPEN_1 -- OPEN mode resolved: parse the file-number argument.
+;   In:        D = selected FCB mode; HL -> text pointer at the comma after the mode.
+;   Out:       A/E = file number (1..); D still = mode; raises Bad file number on 0.
+;   Clobbers:  A, E, HL.
+;   Algorithm: SYNCHR the ',', skip an optional '#', GETBYT the channel number, SYNCHR the next ','; a
+;              zero channel raises Bad file number. Mode is carried on the stack across the parse.
+; ----------------------------------------------------------------------
 STMT_OPEN_1:
         POP HL
         CALL SYNCHR
         DEFB    ','                      ; inline char arg consumed by the preceding CALL
         PUSH DE
+        ; optional '#' before the file number -- skip it if present
         CP $23
         CALL Z,CHRGET
         CALL GETBYT
@@ -14630,14 +15836,29 @@ STMT_OPEN_1:
         OR A
         JP Z,RAISE_BAD_FILE_NUMBER
         POP DE
+; ----------------------------------------------------------------------
+; STMT_OPEN_2 -- check the channel is free, parse the filename, and (random) read the FIELD argument.
+;   In:        A = file number, D = mode.
+;   Out:       BC = base of the resolved per-file FCB entry; OPEN_RESUME_TEXT_PTR = the post-args BASIC
+;              text pointer; AF restored from the parse (CY = extension-was-typed).
+;   Clobbers:  A, BC, DE, HL.
+;   Algorithm: FILE_NUM_TO_FCB_A resolves the entry (BC) and returns its mode -> if already open, File
+;              already open. Parse the filename into SCRATCH_FCB. Then FILE_NUM_TO_FCB_2 (A = mode) parses
+;              the optional FIELD record/buffer argument for a RANDOM file and returns HL = the continuation
+;              text pointer, saved to OPEN_RESUME_TEXT_PTR. [RE] If no extension was typed (NC) and E==0 and
+;              the type field is blank, default the filetype to 'BAS'.
+; ----------------------------------------------------------------------
 STMT_OPEN_2:
         LD E,A
         PUSH DE
+        ; resolve the slot's FCB entry (BC) and return its mode in A; nonzero means it is already open
         CALL FILE_NUM_TO_FCB_A
+        ; slot already has an open file -> File already open
         JP NZ,RAISE_FILE_ALREADY_OPEN
         POP DE
         PUSH BC
         PUSH DE
+        ; parse the name$ into the scratch CP/M FCB
         CALL PARSE_FILENAME_TO_FCB
         POP DE
         POP BC
@@ -14646,12 +15867,13 @@ STMT_OPEN_2:
         LD A,D
         CALL FILE_NUM_TO_FCB_2
         POP AF
-        LD (L_0B54),HL
+        LD (OPEN_RESUME_TEXT_PTR),HL
         JR C,STMT_OPEN_3
         LD A,E
         OR A
         JP NZ,STMT_OPEN_3
-        LD HL,L_08B3
+        ; no extension typed: default the filetype to 'BAS'
+        LD HL,SCRATCH_FCB_TYPE
         LD A,(HL)
         CP $20
         JR NZ,STMT_OPEN_3
@@ -14660,15 +15882,36 @@ STMT_OPEN_2:
         LD (HL),$41
         INC HL
         LD (HL),$53
+; ----------------------------------------------------------------------
+; STMT_OPEN_3 -- copy the scratch FCB into the channel's entry and clear its open-state bytes.
+;   In:        D = mode; entry pointer on the stack (-> HL); SCRATCH_FCB holds the parsed name.
+;   Out:       PTRFIL = entry base; entry's CP/M FCB filled from SCRATCH_FCB with EX ($0C) and CR ($20)
+;              zeroed; DE -> the entry's CP/M FCB (entry+1) for the upcoming BDOS calls; mode saved on stack.
+;   Clobbers:  A, C, DE, HL.
+;   Algorithm: Set PTRFIL to this entry; copy the 12-byte drive+name+type from SCRATCH_FCB into entry+1
+;              (=FCB.CPM), then store 0 at the EX byte ($0C) and, $14 further on, at the CR byte ($20, the
+;              current-record cursor) so the file opens at extent 0 / record 0. DE is left at the CP/M FCB
+;              for OPEN/MAKE/DELETE.
+; ----------------------------------------------------------------------
 STMT_OPEN_3:
         POP HL
         LD A,D
         PUSH AF
+        ; make this entry the current file (PTRFIL) for the rest of OPEN
         LD (PTRFIL),HL
         PUSH HL
         INC HL
-        LD DE,L_08AA
+        LD DE,SCRATCH_FCB
         LD C,$0C
+; ----------------------------------------------------------------------
+; STMT_OPEN_4 -- copy loop: move the 12-byte parsed FCB (drive+name+type) into the channel entry.
+;   In:        DE -> SCRATCH_FCB, HL -> entry's CP/M FCB, C = 12.
+;   Out:       12 bytes copied; HL left just past the type; then the EX byte ($0C) and the CR byte ($20)
+;              are zeroed.
+;   Clobbers:  A, C, DE, HL.
+;   Algorithm: Byte-copy drive+name+type, then clear the EX byte ($0C) and (after a +$14 step) the CR byte
+;              ($20) so the file opens at extent 0 / record 0.
+; ----------------------------------------------------------------------
 STMT_OPEN_4:
         LD A,(DE)
         LD (HL),A
@@ -14694,25 +15937,55 @@ STMT_OPEN_4:
         LD C,F_DELETE
         CALL BDOS
         POP DE
+; ----------------------------------------------------------------------
+; STMT_OPEN_5 -- create the output file (BDOS F_MAKE), failing with Too many files if the directory is full.
+;   In:        DE -> the channel's CP/M FCB.
+;   Out:       file created; on BDOS $FF (no directory room) raises Too many files; else continues at
+;              STMT_OPEN_7.
+;   Clobbers:  A, C.
+;   Algorithm: BDOS F_MAKE; ($FF+1)==0 means the directory is full -> Too many files.
+; ----------------------------------------------------------------------
 STMT_OPEN_5:
         LD C,F_MAKE
         CALL BDOS
+        ; BDOS $FF (directory full) + 1 = 0 -> Too many files
         INC A
         JP Z,RAISE_TOO_MANY_FILES
         JR STMT_OPEN_7
+; ----------------------------------------------------------------------
+; STMT_OPEN_6 -- open an existing file for input/random; auto-create on a missing extent.
+;   In:        DE -> the channel's CP/M FCB.
+;   Out:       file open; on not-found, may advance the extent and retry MAKE, or raise File not found.
+;   Clobbers:  A, C, DE.
+;   Algorithm: BDOS F_OPEN; success -> STMT_OPEN_7. On failure call the RAM dispatch trampoline (extended
+;              error class); class $03 means the requested extent doesn't exist -> bump the extent byte and
+;              go MAKE it (STMT_OPEN_5); any other class -> File not found.
+; ----------------------------------------------------------------------
 STMT_OPEN_6:
         LD C,F_OPEN
         CALL BDOS
         INC A
         JR NZ,STMT_OPEN_7
+        ; consult the extended-error path; A=$03 means the extent is missing (create it) rather than a hard not-found
         CALL RAM_DISPATCH_TRAMPOLINE
         CP $03
         JP NZ,RAISE_FILE_NOT_FOUND
         INC DE
         JR STMT_OPEN_5
+; ----------------------------------------------------------------------
+; STMT_OPEN_7 -- finalise the open: stamp the file mode and clear the sequential record/position cells.
+;   In:        entry pointer and mode saved on the stack.
+;   Out:       entry MODE byte set; FCB.SEQ_RECNO and the following 3 bytes zeroed; A = mode.
+;   Clobbers:  A, DE, HL.
+;   Algorithm: Write the mode to the entry's MODE byte, then zero the 4-byte sequential bookkeeping block
+;              at FCB.SEQ_RECNO (record number word + buffer count/status). Dispatch on mode: random ->
+;              STMT_OPEN_8 (clear the record buffer); sequential-input -> pre-read first record then return
+;              the resume text pointer; sequential-output -> just reset run state.
+; ----------------------------------------------------------------------
 STMT_OPEN_7:
         POP DE
         POP AF
+        ; stamp the channel's MODE byte (1/2/3) marking it open
         LD (DE),A
         PUSH DE
         LD HL,FCB.SEQ_RECNO
@@ -14731,35 +16004,81 @@ STMT_OPEN_7:
         JP Z,STMT_OPEN_8
         CP FCB_MODE_SEQ_IN
         JP NZ,RESET_RUN_STATE_1
+        ; sequential input: pre-read the first 128-byte record into the buffer
         CALL FILE_READ_RECORD
-        LD HL,(L_0B54)
+        LD HL,(OPEN_RESUME_TEXT_PTR)
         RET
+; ----------------------------------------------------------------------
+; STMT_OPEN_8 -- random-mode open tail: zero the 128-byte record buffer (SEQ_BUF), then finish.
+;   In:        HL -> the channel entry (MODE byte).
+;   Out:       the 128-byte FCB.SEQ_BUF region cleared to 0 (stores B, which = 0 here); then resets run
+;              state and returns the resume text pointer.
+;   Clobbers:  A, BC, HL.
+;   Algorithm: Point at FCB.SEQ_BUF (entry+$29) and store B (=0, the high byte of the LD BC,$0029 just
+;              executed) across 128 bytes to clear the record buffer, then JP RESET_RUN_STATE_1 which
+;              returns OPEN_RESUME_TEXT_PTR in HL.
+; ----------------------------------------------------------------------
 STMT_OPEN_8:
+        ; point at the 128-byte record buffer (offset $29) to clear for the freshly opened random file
         LD BC,FCB.SEQ_BUF
         ADD HL,BC
         LD C,$80
+; ----------------------------------------------------------------------
+; STMT_OPEN_9 -- buffer-clear loop for the random open: zero 128 buffer bytes.
+;   In:        HL -> buffer, C = 128, B = 0.
+;   Out:       128 bytes set to 0; jumps to RESET_RUN_STATE_1.
+;   Clobbers:  C, HL.
+;   Algorithm: Store B (0) and advance until C exhausts the 128-byte record.
+; ----------------------------------------------------------------------
 STMT_OPEN_9:
         LD (HL),B
         INC HL
         DEC C
         JR NZ,STMT_OPEN_9
         JP RESET_RUN_STATE_1
-; [RE] SYSTEM statement handler (token $B7): exit GBASIC back to CP/M (shares the RET NZ pattern of the simple stubs).
+; ----------------------------------------------------------------------
+; STMT_SYSTEM -- SYSTEM statement: close all files and exit BASIC back to CP/M.
+;   In:        Z flag from the statement-end check (RET NZ if extra text follows).
+;   Out:       does not return to BASIC; closes files, restores the text screen, then warm-boots CP/M.
+;   Clobbers:  all.
+;   Algorithm: Refuse trailing garbage (RET NZ), CLOSE_ALL_FILES, switch the Apple to text mode
+;              (STMT_TEXT), then fall into STMT_SYSTEM_WBOOT which jumps to the CP/M WBOOT vector.
+; ----------------------------------------------------------------------
 STMT_SYSTEM:
         RET NZ
+        ; flush and close every open file before leaving BASIC
         CALL CLOSE_ALL_FILES
         CALL STMT_TEXT
-; [RE] SMC: SYSTEM-exit JP target. Image holds JP $0000 at $7DED; COLD_START ($81E1 LD HL,($0001) -> $81E4 LD (STMT_SYSTEM_WBOOT+1),HL) writes the CP/M BIOS WBOOT vector into the C3 operand. Running SYSTEM (reached from $0E18 or fall-through) then JP <WBOOT> to leave BASIC.
+; ----------------------------------------------------------------------
+; STMT_SYSTEM_WBOOT -- self-modified jump to the CP/M warm-boot (WBOOT) vector; leaves BASIC.
+;   In:        (none) -- the JP operand was patched at cold start.
+;   Out:       transfers control to CP/M's WBOOT; never returns.
+;   Clobbers:  n/a.
+;   Algorithm: The image holds JP $0000 here; COLD_START reads the BIOS WBOOT vector from base-page
+;              $0001..$0002 and writes it into this JP's operand, so running SYSTEM jumps to the live
+;              warm-boot entry. (Self-modifying code; comment preserved.)
+; ----------------------------------------------------------------------
 STMT_SYSTEM_WBOOT:
         JP $0000
-; [RE] RESET statement handler (token $C5): close all files / reset the disk system.
+; ----------------------------------------------------------------------
+; STMT_RESET -- RESET statement: close all files and re-log the disk system, preserving the current drive.
+;   In:        Z flag from the statement-end check (RET NZ if extra text follows).
+;   Out:       all files closed, BDOS disk system reset, the previously-current drive reselected; HL preserved.
+;   Clobbers:  A, C, E (HL saved/restored).
+;   Algorithm: CLOSE_ALL_FILES, read the current drive (BDOS DRV_GET), reset the whole disk system
+;              (BDOS DRV_ALLRESET, which logs out all drives and re-reads directories), then reselect the
+;              saved drive (BDOS DRV_SET) so the user's default is unchanged.
+; ----------------------------------------------------------------------
 STMT_RESET:
         RET NZ
         PUSH HL
+        ; close every open file before resetting the disk system
         CALL CLOSE_ALL_FILES
+        ; remember the current drive so it can be reselected after the reset
         LD C,DRV_GET
         CALL BDOS
         PUSH AF
+        ; BDOS reset disk system: log out all drives and force directory re-read
         LD C,DRV_ALLRESET
         CALL BDOS
         POP AF
@@ -14768,61 +16087,112 @@ STMT_RESET:
         CALL BDOS
         POP HL
         RET
-; [RE] KILL statement: parse filename into the default FCB ($0080/$08AA) then BDOS delete-file (C=$13); '?' from BDOS -> error $0D4A. Reached via dispatch DEFW STMT_KILL at $7A58.
+; ----------------------------------------------------------------------
+; STMT_KILL -- KILL statement: delete a disk file by name.
+;   In:        HL = BASIC text pointer after the KILL token.
+;   Out:       the named file deleted from disk; HL past the statement. Raises File not found if absent.
+;   Clobbers:  A, BC, DE, HL; uses SCRATCH_FCB.
+;   Algorithm: Parse the filename into SCRATCH_FCB; restore BDOS DMA to $0080; OPEN the file to confirm
+;              it exists (and so an open directory entry is closed first). If found, CLOSE it then
+;              BDOS F_DELETE; if not found, raise File not found.
+; ----------------------------------------------------------------------
 STMT_KILL:
         CALL PARSE_FILENAME_TO_FCB
         PUSH HL
         LD DE,$0080
         LD C,F_DMAOFF
         CALL BDOS
-        LD DE,L_08AA
+        LD DE,SCRATCH_FCB
         PUSH DE
+        ; open to confirm the file exists before deleting (FF -> not found)
         LD C,F_OPEN
         CALL BDOS
         INC A
         POP DE
         PUSH DE
         PUSH AF
+; ----------------------------------------------------------------------
+; STMT_KILL_1 -- KILL tail: close the just-opened file (if present), then delete it.
+;   In:        Z flag = file-not-found indicator; DE -> SCRATCH_FCB; A (saved) = open+1 result.
+;   Out:       file closed and deleted, or File not found raised.
+;   Clobbers:  A, C, DE, HL.
+;   Algorithm: If the OPEN succeeded (NZ), BDOS F_CLOSE the directory entry; if it failed (Z) raise File
+;              not found; then BDOS F_DELETE to remove the file.
+; ----------------------------------------------------------------------
 STMT_KILL_1:
+        ; close the entry the confirming OPEN left open (only if it was found)
         LD C,F_CLOSE
         CALL NZ,BDOS
         POP AF
         POP DE
         JP Z,RAISE_FILE_NOT_FOUND
+        ; BDOS delete the file
         LD C,F_DELETE
         CALL BDOS
         POP HL
         RET
-; [RE] FILES statement: directory listing. Optional filespec parsed into FCB ($08AA), '*' expanded to '?' (FCB_WILD_IF_STAR), BDOS set-DMA ($1A) + search-first ($11)/search-next ($12); prints each 11-char name with '.' between name and extension via OUTCHR, columns from print-col ($083B).
+; ----------------------------------------------------------------------
+; STMT_FILES -- FILES statement: list directory entries matching an optional filespec.
+;   In:        Z flag = 'no argument' indicator; HL = text pointer (filespec expression if present).
+;   Out:       prints matching 11-char filenames (NAME.EXT) in columns to the console; HL past statement.
+;              Raises File not found if nothing matches.
+;   Clobbers:  A, BC, DE, HL; SCRATCH_FCB.
+;   Algorithm: With no argument, build an all-'?' wildcard FCB ('????????.???'); with an argument parse it
+;              into SCRATCH_FCB. Turn any leading '*' in the name (8) or type (3) field into all-'?'
+;              (FCB_WILD_IF_STAR). Set DMA to $0080, BDOS Search-First; loop Search-Next, printing each
+;              directory entry's 11 name bytes via OUTCHR with a '.' inserted before a non-blank extension,
+;              wrapping columns using the print width and current column.
+; ----------------------------------------------------------------------
 STMT_FILES:
         JR NZ,STMT_FILES_1
         PUSH HL
-        LD HL,L_08AA
+        LD HL,SCRATCH_FCB
         LD (HL),$00
         INC HL
         LD C,$0B
+        ; no filespec: fill the 11-byte name+type with '?' to match every file
         CALL FCB_WILD_EXPAND
         POP HL
+; ----------------------------------------------------------------------
+; STMT_FILES_1 -- prepare the search FCB: expand leading '*' wildcards and issue Search-First.
+;   In:        SCRATCH_FCB holds the parsed/wildcard filespec.
+;   Out:       BDOS Search-First done; A = directory index (0..3) of the first match, or File not found.
+;   Clobbers:  A, BC, DE, HL.
+;   Algorithm: Zero the EX byte; if the name field starts with '*' fill 8 chars with '?'; if the type field
+;              starts with '*' fill 3 chars with '?'. Set DMA to $0080 and BDOS F_SFIRST; $FF -> File not
+;              found.
+; ----------------------------------------------------------------------
 STMT_FILES_1:
+        ; a filespec was supplied: parse it into the scratch FCB
         CALL NZ,PARSE_FILENAME_TO_FCB
         XOR A
-        LD (L_08B6),A
+        LD (SCRATCH_FCB_EX),A
         PUSH HL
-        LD HL,L_08AB
+        LD HL,SCRATCH_FCB_NAME
         LD C,$08
         CALL FCB_WILD_IF_STAR
-        LD HL,L_08B3
+        LD HL,SCRATCH_FCB_TYPE
         LD C,$03
         CALL FCB_WILD_IF_STAR
         LD DE,$0080
         LD C,F_DMAOFF
         CALL BDOS
-        LD DE,L_08AA
+        LD DE,SCRATCH_FCB
+        ; BDOS search-first: A returns the matched entry's index (0..3) within the $0080 buffer
         LD C,F_SFIRST
         CALL BDOS
         CP $FF
         JP Z,RAISE_FILE_NOT_FOUND
+; ----------------------------------------------------------------------
+; STMT_FILES_2 -- locate the matched directory entry in the DMA buffer and start printing its name.
+;   In:        A = BDOS search return (low 2 bits select which of the 4 entries in the $0080 buffer).
+;   Out:       HL -> the entry's 11-byte filename; C = 11 (byte counter) for the print loop.
+;   Clobbers:  A, BC, HL.
+;   Algorithm: Each directory record holds 4 entries of 32 bytes; A&3 picks one, *32 (five ADD A,A) gives
+;              its offset, +$0081 skips the per-entry user-code byte to the 11-char name; set C=11 and print.
+; ----------------------------------------------------------------------
 STMT_FILES_2:
+        ; BDOS returns the entry index; the buffer holds 4 directory entries of 32 bytes each
         AND $03
         ADD A,A
         ADD A,A
@@ -14831,64 +16201,130 @@ STMT_FILES_2:
         ADD A,A
         LD C,A
         LD B,$00
+        ; $0080+1 skips the entry's drive/user byte to its 11-char name+type
         LD HL,$0081
         ADD HL,BC
         LD C,$0B
+; ----------------------------------------------------------------------
+; STMT_FILES_3 -- print-name loop: emit each filename char, inserting '.' before a non-blank extension.
+;   In:        HL -> next name byte, C = bytes left (counts 11..1).
+;   Out:       characters written via OUTCHR; '.' printed between name and a non-blank type.
+;   Clobbers:  A, HL.
+;   Algorithm: Output the current char; when 8 name chars have been printed (C==4, i.e. 3 type bytes left)
+;              and the next (type) byte is non-blank, output '.' first; loop until all 11 chars are shown.
+; ----------------------------------------------------------------------
 STMT_FILES_3:
         LD A,(HL)
         INC HL
         CALL OUTCHR
         LD A,C
+        ; after the 8-char name (3 type bytes remain) decide whether to print the '.' separator
         CP $04
         JR NZ,STMT_FILES_5
         LD A,(HL)
         CP $20
         JR Z,STMT_FILES_4
         LD A,$2E
+; ----------------------------------------------------------------------
+; STMT_FILES_4 -- emit the chosen name/extension boundary byte.
+;   In:        A = '.' ($2E, when the extension is non-blank) or the actual type byte (when ext is blank).
+;   Out:       one char written via OUTCHR.
+;   Clobbers:  A.
+;   Algorithm: Output the separator (or the falls-through type byte), then continue the 11-char print loop.
+; ----------------------------------------------------------------------
 STMT_FILES_4:
         CALL OUTCHR
+; ----------------------------------------------------------------------
+; STMT_FILES_5 -- name-loop counter and end-of-name column handling.
+;   In:        C = remaining name bytes; PRINT_WIDTH and the current print column ($0B11) for layout.
+;   Out:       loops back while bytes remain; at end, prints two spaces to tab to the next column, or sets
+;              CY to wrap to a new line.
+;   Clobbers:  A, D.
+;   Algorithm: Decrement C and loop until the 11-char name is printed; then compute (column+$0F) and
+;              compare PRINT_WIDTH to it -- if PRINT_WIDTH < column+$0F the next column would overflow (CY
+;              set) so skip the spaces and let STMT_FILES_6 CRLF; otherwise print two spaces to tab over.
+; ----------------------------------------------------------------------
 STMT_FILES_5:
         DEC C
         JR NZ,STMT_FILES_3
         LD A,(L_0B11)
         ADD A,$0F
         LD D,A
+        ; decide whether the next column fits on the current line
         LD A,(PRINT_WIDTH)
         CP D
         JR C,STMT_FILES_6
         LD A,$20
         CALL OUTCHR
         CALL OUTCHR
+; ----------------------------------------------------------------------
+; STMT_FILES_6 -- advance to the next matching entry (Search-Next) or finish the listing.
+;   In:        CY from the column test (set -> wrap line); SCRATCH_FCB still holds the search pattern.
+;   Out:       prints a CRLF if wrapping, BDOS Search-Next; loops to STMT_FILES_2 on a match, else RET.
+;   Clobbers:  A, C, DE.
+;   Algorithm: Optionally CRLF (CALL C,CRLF), then BDOS F_SNEXT; A=$FF ends the listing (restore HL and
+;              return), any other value loops back to print the next name.
+; ----------------------------------------------------------------------
 STMT_FILES_6:
         CALL C,CRLF
-        LD DE,L_08AA
+        LD DE,SCRATCH_FCB
+        ; BDOS search-next: fetch the next matching directory entry, $FF ends the listing
         LD C,F_SNEXT
         CALL BDOS
         CP $FF
         JR NZ,STMT_FILES_2
         POP HL
         RET
-; [RE] If FCB byte is '*' fall into FCB_WILD_EXPAND, else return: handles the leading-'*' wildcard in a FILES/KILL filespec.
+; ----------------------------------------------------------------------
+; FCB_WILD_IF_STAR -- if an FCB name/type field begins with '*', expand it to all-'?' wildcards.
+;   In:        HL -> start of the field; C = field width (8 for name, 3 for type).
+;   Out:       if (HL)=='*', the C bytes are set to '?'; otherwise the field is unchanged. RET.
+;   Clobbers:  A (and, when expanding, C, HL via the fall-through).
+;   Algorithm: Test the first byte; if not '*' return immediately, else fall into FCB_WILD_EXPAND to fill
+;              the field with '?' so BDOS directory search matches any name/extension.
+; ----------------------------------------------------------------------
 FCB_WILD_IF_STAR:
         LD A,(HL)
         CP $2A
         RET NZ
-; [RE] Fill C FCB name/ext bytes with '?' ($3F) to turn a '*' wildcard into an all-match field for BDOS directory search.
+; ----------------------------------------------------------------------
+; FCB_WILD_EXPAND -- fill C FCB field bytes with '?' ($3F) (a match-anything wildcard for BDOS search).
+;   In:        HL -> field, C = byte count.
+;   Out:       C bytes set to '?'; HL advanced past them; RET.
+;   Clobbers:  C, HL.
+;   Algorithm: Store '?' across C bytes. Used to build the default all-files pattern and to expand a
+;              leading '*' wildcard.
+; ----------------------------------------------------------------------
 FCB_WILD_EXPAND:
         LD (HL),$3F
         INC HL
         DEC C
         JR NZ,FCB_WILD_EXPAND
         RET
-; [RE] BDOS file-op wrapper: issue BDOS function (A->C) with DE=FCB, then bump the random-record/overflow counter at FCB+$21..$23; map BDOS A-result to BASIC code (0=ok/RET Z, 5=dir-full err $0D62, else 1/2). Used by OPEN/CLOSE/random GET-PUT.
+; ----------------------------------------------------------------------
+; BDOS_FILE_CALL -- shared BDOS file-op wrapper: issue the call, advance the random record number, map result.
+;   In:        A = BDOS function number, DE = FCB pointer (= &FCB.CPM, i.e. entry+1).
+;   Out:       For read-random (C==$22 on return) returns a mapped BASIC status in A and flags: 0/Z on
+;              success, 1 on 'reading unwritten data' ($03), else 2; dir-full ($05) -> Too many files. For
+;              other functions returns the raw BDOS A.
+;   Clobbers:  A, BC, HL; increments the 3-byte random record number R0/R1/R2 of the FCB.
+;   Algorithm: Call BDOS with C=A, DE=FCB; on return increment the 24-bit random record number with carry
+;              -- the operand FCB.CPM.CR assembles to $21 and is added to DE (=entry+1), so the first byte
+;              touched is R0 (CPMFCB offset $21), then R1 ($22), then R2 ($23); CR ($20) is NOT touched here.
+;              If the function was read-random ($22), translate the BDOS error code into BASIC's small codes;
+;              otherwise pass the BDOS result through unchanged. [RE] The R0/R1/R2 bump advances the random
+;              record cursor so a subsequent random op addresses the following record.
+; ----------------------------------------------------------------------
 BDOS_FILE_CALL:
         PUSH DE
         LD C,A
         PUSH BC
+        ; perform the requested BDOS file operation (C=function, DE=FCB)
         CALL BDOS
         POP BC
         POP DE
         PUSH AF
+        ; advance the 24-bit random record number R0/R1/R2 with carry (operand $21 added to DE=entry+1 lands on R0); next random op reads the following record
         LD HL,FCB.CPM.CR
         ADD HL,DE
         INC (HL)
@@ -14898,31 +16334,68 @@ BDOS_FILE_CALL:
         JR NZ,BDOS_FILE_CALL_1
         INC HL
         INC (HL)
+; ----------------------------------------------------------------------
+; BDOS_FILE_CALL_1 -- result-mapping arm for a read-random BDOS call.
+;   In:        C = the BDOS function that was called; BDOS A-result saved on the stack.
+;   Out:       A = mapped BASIC status (0 ok, 1 for code 3, 2 otherwise); errors jumped out above.
+;   Clobbers:  A.
+;   Algorithm: If the function was read-random ($22): success -> RET Z; code 5 -> Too many files;
+;              code 3 (reading unwritten data) -> A=1 RET; any other -> A=2 RET. Non-random calls fall
+;              to BDOS_FILE_CALL_2 which returns the raw result.
+; ----------------------------------------------------------------------
 BDOS_FILE_CALL_1:
         LD A,C
+        ; only read-random ($22) results get translated to BASIC codes; others pass through
         CP $22
         JR NZ,BDOS_FILE_CALL_2
         POP AF
         OR A
         RET Z
         CP $05
+        ; BDOS code 5 (no directory space) -> Too many files
         JP Z,RAISE_TOO_MANY_FILES
         CP $03
         LD A,$01
         RET Z
         INC A
         RET
+; ----------------------------------------------------------------------
+; BDOS_FILE_CALL_2 -- pass-through arm: return the raw BDOS result for non-read-random functions.
+;   In:        BDOS A-result saved on the stack.
+;   Out:       A = original BDOS result; RET.
+;   Clobbers:  A.
+;   Algorithm: Pop the saved BDOS A and return it unmodified.
+; ----------------------------------------------------------------------
 BDOS_FILE_CALL_2:
         POP AF
         RET
-; [RE] Sequential file read into the data buffer: set DMA via FCB cursor, loop BDOS read-sequential ($14) of 128-byte records (STRING_SPACE_ROOM_CHECK sets FCB ptr), copying each record into the user buffer until DE count exhausted.
+; ----------------------------------------------------------------------
+; FILE_READ_RECORDS -- read DE bytes of a file as whole 128-byte sequential records into the data buffer.
+;   In:        HL/DE describe the transfer: on entry EX DE,HL makes DE = byte/record count; PTRFIL = file.
+;   Out:       successive 128-byte records read via BDOS into the file's buffer and copied out until the
+;              count is exhausted.
+;   Clobbers:  A, BC, DE, HL.
+;   Algorithm: Check string space (STRING_SPACE_ROOM_CHECK); then loop: copy the current 128-byte record
+;              out of FCB.SEQ_BUF, decrement the remaining count, bump the FCB current-record byte CR, set
+;              DMA and BDOS F_READ the next record, until DE reaches zero.
+; ----------------------------------------------------------------------
 FILE_READ_RECORDS:
         EX DE,HL
+        ; ensure free string space remains before buffering more file data
         CALL STRING_SPACE_ROOM_CHECK
         LD HL,(PTRFIL)
         PUSH HL
         LD BC,FCB.SEQ_BUF+1
         ADD HL,BC
+; ----------------------------------------------------------------------
+; FILE_READ_RECORDS_1 -- per-record body: copy one buffered record out and advance the file record cursor.
+;   In:        HL -> file entry base (from PTRFIL, on stack), DE = records/bytes remaining.
+;   Out:       128 bytes copied; DE decremented; FCB current-record (CR, offset $20) incremented.
+;   Clobbers:  A, BC, DE, HL.
+;   Algorithm: COPY_128_BLOCK out of the file buffer, decrement the count, then add the FCB.CPM.CR offset
+;              ($21) to the entry base HL (=entry+$21 = CR at CPMFCB $20) and INC it so the next BDOS read
+;              fetches the following record.
+; ----------------------------------------------------------------------
 FILE_READ_RECORDS_1:
         CALL COPY_128_BLOCK
         DEC DE
@@ -14930,6 +16403,14 @@ FILE_READ_RECORDS_1:
         LD BC,FCB.CPM.CR
         ADD HL,BC
         INC (HL)
+; ----------------------------------------------------------------------
+; FILE_READ_RECORDS_2 -- fetch the next 128-byte record from disk via BDOS read-sequential.
+;   In:        DE = remaining count; PTRFIL = file entry.
+;   Out:       one record read into the file's buffer at PTRFIL+1; A = BDOS status.
+;   Clobbers:  A, BC, DE, HL.
+;   Algorithm: Room-check string space, set DMA to the default buffer, point DE at the file buffer
+;              (PTRFIL+1), BDOS F_READ, and fall into the count test.
+; ----------------------------------------------------------------------
 FILE_READ_RECORDS_2:
         CALL STRING_SPACE_ROOM_CHECK
         PUSH DE
@@ -14938,26 +16419,56 @@ FILE_READ_RECORDS_2:
         LD HL,(PTRFIL)
         INC HL
         EX DE,HL
+        ; BDOS read-sequential one 128-byte record into the file buffer
         LD C,F_READ
         CALL BDOS
         OR A
         POP DE
+; ----------------------------------------------------------------------
+; FILE_READ_RECORDS_3 -- loop test: stop on a short/last record, else fetch another.
+;   In:        A = BDOS read status (NZ at EOF/short), DE = remaining count.
+;   Out:       returns when the read hit end-of-file; otherwise loops to read the next record.
+;   Clobbers:  DE, HL.
+;   Algorithm: Advance the destination by 128 ($0080); if the last BDOS read returned non-zero (no more
+;              data) RET, else swap and loop back to FILE_READ_RECORDS_2.
+; ----------------------------------------------------------------------
 FILE_READ_RECORDS_3:
         LD HL,$0080
         ADD HL,DE
         RET NZ
         EX DE,HL
         JR FILE_READ_RECORDS_2
-; [RE] Sequential file read into the data buffer: copy from FCB.SEQ_BUF+1 into the user buffer, loop BDOS read-sequential ($14) of 128-byte records, calling STRING_SPACE_ROOM_CHECK ($7F25, a FRETOP room check -- it does NOT set an FCB ptr) before each transfer, until the DE byte count is exhausted.
+; ----------------------------------------------------------------------
+; STRING_SPACE_ROOM_CHECK -- guard that enough free string space remains before buffering more data.
+;   In:        FRETOP = top of free string area; DE = the pointer about to be used.
+;   Out:       RET if (FRETOP - $D6) >= DE (room ok); otherwise jumps to RUN_CLEAR_AND_GO (Out of string
+;              space cleanup).
+;   Clobbers:  A, BC, HL.
+;   Algorithm: Compute FRETOP minus a $D6-byte safety margin (LD BC,$FF2A; ADD HL,BC) and compare to DE;
+;              carry-clear (enough room) returns, else divert to the string-space exhaustion handler.
+; ----------------------------------------------------------------------
 STRING_SPACE_ROOM_CHECK:
         LD HL,(FRETOP)
         LD BC,$FF2A
         ADD HL,BC
         CALL CMP_HL_DE
         RET NC
-        JP RUN_CLEAR_AND_GO
-; [RE] Range-check the file number against the open-file table limit ($0C97) via DCOMPR.
+        JP RUN_NO_FILENAME
+; ----------------------------------------------------------------------
+; FILE_NUM_TO_FCB_2 -- for a RANDOM file, parse the optional FIELD record/buffer argument and seed its cursors.
+;   In:        A = the file MODE (CP $03 tests FCB_MODE_RANDOM); BC -> the file's FCB entry; HL = text pointer.
+;   Out:       For a non-random file: returns immediately, HL unchanged (= continuation text pointer). For
+;              random: FCB.FLD_BUF_PTR (+$A9) = the FIELD buffer pointer (DE; default $0080 or the parsed
+;              value), the following 7 FIELD descriptor/position bytes zeroed, and HL = the post-argument
+;              text pointer. FC if the pointer exceeds FIELD_BUF_ADDR_LIMIT.
+;   Clobbers:  A, DE, HL.
+;   Algorithm: If A != FCB_MODE_RANDOM ($03) RET NZ (sequential files take no FIELD arg). Otherwise step
+;              back, CHRGET; if the next token is a number parse it (GETINT_CHRGET_POS) as the FIELD buffer
+;              address, else default DE=$0080; verify DE <= FIELD_BUF_ADDR_LIMIT (else FC), store it as the
+;              FIELD buffer pointer in the FCB, and zero the following 7 FIELD descriptor/position cells.
+; ----------------------------------------------------------------------
 FILE_NUM_TO_FCB_2:
+        ; only a RANDOM-mode file (mode 3) reads the optional FIELD record/buffer argument; others return at once
         CP $03
         RET NZ
         DEC HL
@@ -14968,11 +16479,21 @@ FILE_NUM_TO_FCB_2:
         PUSH BC
         CALL GETINT_CHRGET_POS
         POP BC
+; ----------------------------------------------------------------------
+; FILE_NUM_TO_FCB_2_1 -- common tail: validate the FIELD pointer and store it into the FCB.
+;   In:        DE = FIELD buffer pointer (parsed or default $0080); BC -> FCB entry.
+;   Out:       FCB.FLD_BUF_PTR set; following 7 FIELD bytes zeroed; HL/DE restored. FC on overflow.
+;   Clobbers:  A, HL.
+;   Algorithm: Compare FIELD_BUF_ADDR_LIMIT to DE (carry, i.e. limit<DE -> FC), write DE into
+;              FCB.FLD_BUF_PTR, then fall into the zero-fill of the FIELD descriptor/position cursors.
+; ----------------------------------------------------------------------
 FILE_NUM_TO_FCB_2_1:
         PUSH HL
-        LD HL,(L_0C97)
+        ; [RE] range-check the FIELD buffer pointer against the configured buffer-address limit
+        LD HL,(FIELD_BUF_ADDR_LIMIT)
         CALL CMP_HL_DE
         JP C,ERROR_FC
+        ; store the FIELD buffer base pointer into the FCB
         LD HL,FCB.FLD_BUF_PTR
         ADD HL,BC
         LD (HL),E
@@ -14980,6 +16501,13 @@ FILE_NUM_TO_FCB_2_1:
         LD (HL),D
         XOR A
         LD E,$07
+; ----------------------------------------------------------------------
+; FILE_NUM_TO_FCB_2_2 -- zero the FIELD descriptor/position cursor bytes after the buffer pointer.
+;   In:        HL -> just past FCB.FLD_BUF_PTR, E = 7 (count), A = 0.
+;   Out:       7 bytes (FIELD descriptor + record number + position pointers) cleared.
+;   Clobbers:  E, HL.
+;   Algorithm: Store 0 across the 7 FIELD bookkeeping bytes so a fresh FIELD/GET/PUT starts clean.
+; ----------------------------------------------------------------------
 FILE_NUM_TO_FCB_2_2:
         INC HL
         LD (HL),A
@@ -14988,16 +16516,29 @@ FILE_NUM_TO_FCB_2_2:
         POP HL
         POP DE
         RET
-; [RE] PUT statement handler (token $BB): write a random-file record. GET (token $BA) enters one byte later at $7F62.
-; [RE] GET/PUT direction flag-skip. PUT (dispatch $017C) enters $7F61 OR $AF -> A nonzero (write). GET (dispatch $017A, STMT_PUT+1 $7F62) runs the swallowed AF = XOR A -> A=0 (read). Stored at $7F63 ($81BC), read later to select read vs write.
+; ----------------------------------------------------------------------
+; STMT_PUT -- PUT statement (token $BB): write a random-file record. GET (token $BA) enters one byte later at STMT_PUT+1.
+;   In:        HL = text cursor; syntax PUT[#]filenum[,recordnum]. PUT runs OR $AF (A != 0 = write, NZ); GET runs the swallowed $AF = XOR A (A = 0 = read, Z).
+;   Out:       The direction byte is latched in RND_GET_PUT_DIR; FILE_NUM_TO_FCB resolves the channel; falls into GET_PUT_RECORD_CORE which performs the transfer.
+;   Clobbers:  A,BC,DE,HL.
+;   Algorithm: Latch A (the direction) into RND_GET_PUT_DIR. The GET entry (Z) calls EVAL_CHANNEL_OR_ITEM (which parses the '#' channel); the PUT entry (NZ) skips that call. Then FILE_NUM_TO_FCB and fall into the shared record core. [RE] The exact reason only the GET entry calls EVAL_CHANNEL_OR_ITEM (the OR $AF/XOR A Z flag, not a 'channel already parsed' flag) is not fully explained by these bytes.
+; ----------------------------------------------------------------------
 STMT_PUT:
         OR $AF
-        LD (ILLEGAL_DIRECT_CHECK_4),A
+        ; latch transfer direction: PUT=write (nonzero), GET=read (zero)
+        LD (RND_GET_PUT_DIR),A
         CALL Z,EVAL_CHANNEL_OR_ITEM
         CALL FILE_NUM_TO_FCB
-; [RE] GET/PUT random-file record core (shared by STMT_GET/STMT_PUT and PRINT#-to-random): require a mode-3 (random) FCB else 'Bad file mode', parse the optional record#, compute the record byte offset (record# x128) and read/write the 128-byte FIELD record.
+; ----------------------------------------------------------------------
+; GET_PUT_RECORD_CORE -- shared GET/PUT random-record engine: validate the file, resolve the record number, map it to a CP/M sector + offset, and read or write the FIELD window record.
+;   In:        BC = FCB base, A = FCB mode byte, HL = text cursor; RND_GET_PUT_DIR already latched (0=GET/read, nonzero=PUT/write).
+;   Out:       The requested record is transferred between the file's sector buffer (FCB.SEQ_BUF) and the FIELD window (FCB.RND_BUF); FCB.RND_RECNO updated to the record used; RET.
+;   Clobbers:  A,BC,DE,HL; scratch words RND_SECTOR_NUM, RND_FIELD_PTR, RND_SECTOR_PTR.
+;   Algorithm: Require mode 3 (random) else 'Bad file mode'. Default record = FCB.RND_RECNO+1; if a ',' follows parse an explicit record number (GETINT_CHRGET_POS), requiring end-of-statement after it. Reject record 0 ('Bad record number'); store the 1-based record back to FCB.RND_RECNO; convert to 0-based (DEC DE). Zero FCB.FLD_POS_PTR. [RE] Multiply the record length (FCB.FLD_BUF_PTR, read as a count) by (record-1) as a 16x16->32-bit product (GET_PUT_RECORD_CORE_2..8), splitting the byte offset into RND_SECTOR_NUM = offset/128 (the CP/M sector index) and DE = offset mod 128 (within-sector position). When the length equals 128 a shortcut sets DE=0 and skips the multiply (GET_PUT_RECORD_CORE_9). Then loop (GET_PUT_RECORD_CORE_10): set the FIELD pointer (RND_BUF base) and the sector pointer (SEQ_BUF + within-sector offset), copy min(bytes-left, 128-position) bytes between them in the latched direction, calling FIELD_WRITE_RECORD to flush/read each sector, until the whole record is transferred.
+; ----------------------------------------------------------------------
 GET_PUT_RECORD_CORE:
         CP $03
+        ; GET/PUT require a random (mode 3) file
         JP NZ,RAISE_BAD_FILE_MODE
         PUSH BC
         PUSH HL
@@ -15006,18 +16547,29 @@ GET_PUT_RECORD_CORE:
         LD E,(HL)
         INC HL
         LD D,(HL)
+        ; default record = last record used + 1
         INC DE
         EX (SP),HL
         LD A,(HL)
         CP $2C
+; ----------------------------------------------------------------------
+; GET_PUT_RECORD_CORE_1 -- parse the optional explicit record number and validate the statement tail.
+;   In:        A = current text char (',' if a record number is present), HL = text cursor, DE = default record.
+;   Out:       DE = chosen record number; HL repositioned; 'Syntax error' if extra tokens follow.
+;   Clobbers:  A,DE,HL.
+;   Algorithm: If the char is ',' call GETINT_CHRGET_POS to read the record number into DE; then CHRGET must reach end-of-statement (else 'Syntax error').
+; ----------------------------------------------------------------------
 GET_PUT_RECORD_CORE_1:
+        ; ',' present -> read the explicit record number
         CALL Z,GETINT_CHRGET_POS
         DEC HL
         CALL CHRGET
+        ; nothing else may follow the record number
         JP NZ,RAISE_SYNTAX_ERROR
         EX (SP),HL
         LD A,E
         OR D
+        ; record numbers are 1-based; 0 is invalid
         JP Z,RAISE_BAD_RECORD_NUMBER
         DEC HL
         LD (HL),E
@@ -15049,13 +16601,28 @@ GET_PUT_RECORD_CORE_1:
         JR NZ,GET_PUT_RECORD_CORE_2
         LD DE,$0000
         JR GET_PUT_RECORD_CORE_9
+; ----------------------------------------------------------------------
+; GET_PUT_RECORD_CORE_2 -- record-offset multiply setup: prime a 32-bit shift-add product of the record length by the record index.
+;   In:        DE = record length (from FCB.FLD_BUF_PTR), HL = (record-1) the 0-based record index.
+;   Out:       BC = length (multiplicand), DE = record index (multiplier), HL=0 (product low) and a 0 word pushed (product high), A = 16 (iteration count); falls into the shift-add loop.
+;   Clobbers:  A,BC,DE,HL, stack.
+;   Algorithm: Copy the length into BC, set A=16, swap the index into DE, clear the low product word (HL) and push a zero high word -- a classic 16x16->32 binary multiply seed.
+; ----------------------------------------------------------------------
 GET_PUT_RECORD_CORE_2:
         LD B,D
         LD C,E
+        ; 16-bit multiply: 16 shift-add iterations
         LD A,$10
         EX DE,HL
         LD HL,$0000
         PUSH HL
+; ----------------------------------------------------------------------
+; GET_PUT_RECORD_CORE_3 -- multiply loop top: shift the 32-bit partial product left by one bit.
+;   In:        HL = product low word, stack top = product high word.
+;   Out:       Product shifted left 1 bit (carry threaded low->high); continues into the multiplier-bit test.
+;   Clobbers:  HL, stack.
+;   Algorithm: ADD HL,HL on the low word, propagate carry into the high word on the stack (the +INC HL form when carry is set).
+; ----------------------------------------------------------------------
 GET_PUT_RECORD_CORE_3:
         ADD HL,HL
         EX (SP),HL
@@ -15063,24 +16630,54 @@ GET_PUT_RECORD_CORE_3:
         ADD HL,HL
         INC HL
         JR GET_PUT_RECORD_CORE_5
+; ----------------------------------------------------------------------
+; GET_PUT_RECORD_CORE_4 -- multiply loop: high-word shift, no carry-in case.
+;   In:        Product high word in HL (just exchanged off the stack).
+;   Out:       High word shifted left without the +1 carry bit; falls into the merge.
+;   Clobbers:  HL.
+;   Algorithm: ADD HL,HL only (carry-clear branch of the partial-product shift).
+; ----------------------------------------------------------------------
 GET_PUT_RECORD_CORE_4:
         ADD HL,HL
+; ----------------------------------------------------------------------
+; GET_PUT_RECORD_CORE_5 -- multiply loop: shift the multiplier and conditionally add the multiplicand.
+;   In:        Stack/HL hold the partial product; DE = multiplier, BC = multiplicand (record length).
+;   Out:       If the multiplier's top bit was set, the multiplicand is added into the 32-bit product (with carry into the high word).
+;   Clobbers:  A,DE,HL, stack.
+;   Algorithm: Shift the multiplier (DE) left one bit; on a 1 bit add BC to the product low word and propagate carry into the high word; otherwise skip the add (GET_PUT_RECORD_CORE_7).
+; ----------------------------------------------------------------------
 GET_PUT_RECORD_CORE_5:
         EX (SP),HL
         EX DE,HL
         ADD HL,HL
         EX DE,HL
         JR NC,GET_PUT_RECORD_CORE_7
+        ; multiplier bit set -> add the record length into the product
         ADD HL,BC
         EX (SP),HL
         JR NC,GET_PUT_RECORD_CORE_6
         INC HL
+; ----------------------------------------------------------------------
+; GET_PUT_RECORD_CORE_6 -- multiply loop: carry the add into the product high word.
+;   In:        Carry out of the low-word add; product high word on stack.
+;   Out:       High word incremented when the add carried; rejoins the loop counter step.
+;   Clobbers:  HL, stack.
+;   Algorithm: EX (SP),HL to bring the high word into HL where the preceding INC HL applied the carry, then continue.
+; ----------------------------------------------------------------------
 GET_PUT_RECORD_CORE_6:
         EX (SP),HL
+; ----------------------------------------------------------------------
+; GET_PUT_RECORD_CORE_7 -- multiply loop counter and extraction of the within-sector offset.
+;   In:        A = remaining iteration count; on loop end HL/stack hold the 32-bit product = record_index * record_length.
+;   Out:       On loop end: DE = product & $7F (byte offset within a 128-byte sector); continues to derive the sector number.
+;   Clobbers:  A,DE,HL.
+;   Algorithm: DEC A and re-loop while non-zero. When done, mask the low product byte to 7 bits (offset mod 128) into DE and fall through to compute the sector index = offset / 128.
+; ----------------------------------------------------------------------
 GET_PUT_RECORD_CORE_7:
         DEC A
         JR NZ,GET_PUT_RECORD_CORE_3
         LD A,L
+        ; byte position within the 128-byte sector = offset mod 128
         AND $7F
         LD E,A
         LD D,$00
@@ -15093,23 +16690,48 @@ GET_PUT_RECORD_CORE_7:
         RLA
         JR NC,GET_PUT_RECORD_CORE_8
         INC HL
+; ----------------------------------------------------------------------
+; GET_PUT_RECORD_CORE_8 -- finish the sector-number derivation and overflow-check it.
+;   In:        HL holds the realigned product bytes; B = the product's top byte.
+;   Out:       HL = CP/M sector index (byte offset / 128); 'Illegal function call' if it overflows; falls into GET_PUT_RECORD_CORE_9.
+;   Clobbers:  A,HL.
+;   Algorithm: Realign the product bytes and shift right by 7 (byte-swap + ADD HL,HL + RLA carry-in) to obtain offset/128 in HL; if the carry out of ADD HL,HL or any remaining high byte (B) is non-zero the record is past the addressable limit -> FC error.
+; ----------------------------------------------------------------------
 GET_PUT_RECORD_CORE_8:
         LD A,B
         OR A
+        ; record offset exceeds the addressable sector range
         JP NZ,ERROR_FC
+; ----------------------------------------------------------------------
+; GET_PUT_RECORD_CORE_9 -- latch the sector index and set up the FIELD-window pointer.
+;   In:        HL = CP/M sector index for the record start, DE = within-sector byte offset; BC restored to the FCB base.
+;   Out:       RND_SECTOR_NUM = sector index; RND_FIELD_PTR = FCB.RND_BUF base; falls into the per-sector transfer loop.
+;   Clobbers:  HL, scratch words.
+;   Algorithm: Store HL to RND_SECTOR_NUM, recover the FCB base, and record the FIELD-window pointer (RND_BUF) in RND_FIELD_PTR.
+; ----------------------------------------------------------------------
 GET_PUT_RECORD_CORE_9:
-        LD (ILLEGAL_DIRECT_CHECK_1),HL
+        ; RND_SECTOR_NUM = CP/M sector index of the field start
+        LD (RND_SECTOR_NUM),HL
         POP HL
         POP BC
         PUSH HL
         LD HL,FCB.RND_BUF
         ADD HL,BC
-        LD (ILLEGAL_DIRECT_CHECK_2),HL
+        ; RND_FIELD_PTR = FIELD window base (RND_BUF)
+        LD (RND_FIELD_PTR),HL
+; ----------------------------------------------------------------------
+; GET_PUT_RECORD_CORE_10 -- per-sector transfer loop top: point at the within-sector position and size this chunk.
+;   In:        BC = FCB base, DE = within-sector byte offset, RND_FIELD_PTR set; the stack holds the field bytes still to transfer.
+;   Out:       RND_SECTOR_PTR = FCB.SEQ_BUF + offset; HL = min(bytes-remaining, 128 - offset) = this iteration's byte count; dispatches the read or write path.
+;   Clobbers:  A,DE,HL, scratch RND_SECTOR_PTR.
+;   Algorithm: Compute the sector-buffer pointer (SEQ_BUF + within-sector offset) into RND_SECTOR_PTR; chunk = 128 - offset, clamped to the remaining field bytes; branch on RND_GET_PUT_DIR (GET -> GET_PUT_RECORD_CORE_15 read path; PUT -> the write path).
+; ----------------------------------------------------------------------
 GET_PUT_RECORD_CORE_10:
         LD HL,FCB.SEQ_BUF
         ADD HL,BC
         ADD HL,DE
-        LD (ILLEGAL_DIRECT_CHECK_3),HL
+        ; RND_SECTOR_PTR = sector buffer (SEQ_BUF) + within-sector offset
+        LD (RND_SECTOR_PTR),HL
         POP HL
         PUSH HL
         LD HL,$0080
@@ -15125,8 +16747,15 @@ GET_PUT_RECORD_CORE_10:
         JR C,GET_PUT_RECORD_CORE_11
         LD H,D
         LD L,E
+; ----------------------------------------------------------------------
+; GET_PUT_RECORD_CORE_11 -- PUT path: on a full-sector chunk, read the existing sector first, then size the copy.
+;   In:        HL = this chunk's byte count, BC = FCB base.
+;   Out:       If the chunk fills a whole 128-byte sector, the sector is first read in (FIELD_WRITE_RECORD+1); HL preserved as the chunk size.
+;   Clobbers:  A,DE,HL, stack.
+;   Algorithm: Read RND_GET_PUT_DIR; on the write path compare the chunk size with $0080 and, when it is a full sector, CALL FIELD_WRITE_RECORD+1 to load the existing sector before overwriting part of it.
+; ----------------------------------------------------------------------
 GET_PUT_RECORD_CORE_11:
-        LD A,(ILLEGAL_DIRECT_CHECK_4)
+        LD A,(RND_GET_PUT_DIR)
         OR A
         JR Z,GET_PUT_RECORD_CORE_15
         LD DE,$0080
@@ -15135,20 +16764,43 @@ GET_PUT_RECORD_CORE_11:
         PUSH HL
         CALL FIELD_WRITE_RECORD+1
         POP HL
+; ----------------------------------------------------------------------
+; GET_PUT_RECORD_CORE_12 -- PUT path: set up the copy length for this sector chunk.
+;   In:        HL = chunk byte count, BC = FCB base.
+;   Out:       BC = chunk byte count for BLOCK_COPY_BC; FCB base saved on the stack; falls into the copy+flush step.
+;   Clobbers:  BC, stack.
+;   Algorithm: Save the FCB base, move the chunk count into BC for the block copier.
+; ----------------------------------------------------------------------
 GET_PUT_RECORD_CORE_12:
         PUSH BC
         LD B,H
         LD C,L
+; ----------------------------------------------------------------------
+; GET_PUT_RECORD_CORE_13 -- PUT path: copy FIELD-window bytes into the sector buffer and flush the sector.
+;   In:        RND_SECTOR_PTR = dest (in the sector buffer), RND_FIELD_PTR = source (FIELD window), BC = chunk count.
+;   Out:       Chunk copied; RND_FIELD_PTR advanced; FIELD_WRITE_RECORD invoked to write the sector when the boundary is crossed; falls into the loop-bottom bookkeeping.
+;   Clobbers:  A,BC,DE,HL, scratch RND_FIELD_PTR.
+;   Algorithm: Set DE=RND_SECTOR_PTR, HL=RND_FIELD_PTR, BLOCK_COPY_BC the chunk (field -> sector), store the advanced FIELD pointer back to RND_FIELD_PTR, restore BC=FCB base, then CALL FIELD_WRITE_RECORD to commit the sector.
+; ----------------------------------------------------------------------
 GET_PUT_RECORD_CORE_13:
-        LD HL,(ILLEGAL_DIRECT_CHECK_3)
+        LD HL,(RND_SECTOR_PTR)
         EX DE,HL
-        LD HL,(ILLEGAL_DIRECT_CHECK_2)
+        LD HL,(RND_FIELD_PTR)
+        ; copy the FIELD-window bytes into the sector buffer
         CALL BLOCK_COPY_BC
-        LD (ILLEGAL_DIRECT_CHECK_2),HL
+        LD (RND_FIELD_PTR),HL
         LD D,B
         LD E,C
         POP BC
+        ; advance the cursor and flush the sector when the boundary is reached
         CALL FIELD_WRITE_RECORD
+; ----------------------------------------------------------------------
+; GET_PUT_RECORD_CORE_14 -- per-sector loop bottom: subtract this chunk, advance the sector, and continue or finish.
+;   In:        Stack top = field bytes remaining, DE = bytes transferred this chunk, RND_SECTOR_NUM = current sector.
+;   Out:       Remaining count reduced; RND_SECTOR_NUM incremented; loops to GET_PUT_RECORD_CORE_10 while bytes remain, else cleans up the stack and RET.
+;   Clobbers:  A,DE,HL, scratch RND_SECTOR_NUM.
+;   Algorithm: remaining -= transferred; reset the within-sector offset (DE=0) for the next full sector; INC RND_SECTOR_NUM; re-loop if remaining != 0, otherwise pop the work frames and return.
+; ----------------------------------------------------------------------
 GET_PUT_RECORD_CORE_14:
         POP HL
         LD A,L
@@ -15160,40 +16812,64 @@ GET_PUT_RECORD_CORE_14:
         OR L
         LD DE,$0000
         PUSH HL
-        LD HL,(ILLEGAL_DIRECT_CHECK_1)
+        LD HL,(RND_SECTOR_NUM)
+        ; advance to the next CP/M sector
         INC HL
-        LD (ILLEGAL_DIRECT_CHECK_1),HL
+        LD (RND_SECTOR_NUM),HL
+        ; more field bytes -> transfer the next sector
         JR NZ,GET_PUT_RECORD_CORE_10
         POP HL
         POP HL
         RET
+; ----------------------------------------------------------------------
+; GET_PUT_RECORD_CORE_15 -- GET path: read the sector then copy its bytes into the FIELD window.
+;   In:        HL = chunk byte count, BC = FCB base, RND_SECTOR_PTR = source (sector buffer), RND_FIELD_PTR = dest (FIELD window).
+;   Out:       The disk sector is loaded (FIELD_WRITE_RECORD+1 read/no-flush entry), the chunk copied into the FIELD window, RND_FIELD_PTR advanced; rejoins the loop bottom.
+;   Clobbers:  A,BC,DE,HL, scratch RND_FIELD_PTR.
+;   Algorithm: CALL FIELD_WRITE_RECORD+1 to read the sector into the buffer, BLOCK_COPY_BC the chunk from RND_SECTOR_PTR -> RND_FIELD_PTR, store the advanced destination back to RND_FIELD_PTR (via EX DE,HL), and JR to GET_PUT_RECORD_CORE_14.
+; ----------------------------------------------------------------------
 GET_PUT_RECORD_CORE_15:
         PUSH HL
+        ; GET: load the disk sector into the buffer (no-flush entry)
         CALL FIELD_WRITE_RECORD+1
         POP HL
         PUSH BC
         LD B,H
         LD C,L
-        LD HL,(ILLEGAL_DIRECT_CHECK_2)
+        LD HL,(RND_FIELD_PTR)
         EX DE,HL
-        LD HL,(ILLEGAL_DIRECT_CHECK_3)
+        LD HL,(RND_SECTOR_PTR)
+        ; copy the sector bytes into the FIELD window
         CALL BLOCK_COPY_BC
         EX DE,HL
-        LD (ILLEGAL_DIRECT_CHECK_2),HL
+        LD (RND_FIELD_PTR),HL
         LD D,B
         LD E,C
         POP BC
         JR GET_PUT_RECORD_CORE_14
-; [RE] Random-file PUT inner helper: walk the FIELD descriptor chain (FCB+$AB pointer pair), advance the write cursor (ILLEGAL_DIRECT_CHECK_1), and on buffer-full dispatch the record write (PUTC_FILE_3 at $7B5D). Entered at $8077 (skip the OR $AF flag-set) for the no-flag variant.
-; [RE] FIELD record-write flag-skip. CALL FIELD_WRITE_RECORD ($8040) hits $8076 OR $AF -> A nonzero. CALL FIELD_WRITE_RECORD+1 ($8029/$805C) runs the swallowed AF = XOR A -> A=0. Stored at $8078 ($084C), tested at $8095 to gate the record-write dispatch.
+; ----------------------------------------------------------------------
+; FIELD_WRITE_RECORD -- random-record sector-commit helper: advance the running sector cursor and, when it crosses the tracked boundary (or the flush flag forces it), dispatch the CP/M record read/write via PUTC_FILE_3. Entered at +1 (skip the OR $AF) for the read/no-flush variant.
+;   In:        BC = FCB base; the running cursor lives in RND_SECTOR_NUM; full entry runs OR $AF (flush/write), entry+1 runs the swallowed XOR A (no-flush/read).
+;   Out:       RND_WRITE_FLAG latched; FCB.FLD_DESC_PTR updated to the new cursor; on a boundary crossing (or with the flush flag set) PUTC_FILE_3 performs the record I/O; registers restored; RET.
+;   Clobbers:  A,BC,DE,HL (PUSH/POP-saved around the body).
+;   Algorithm: Latch the direction into RND_WRITE_FLAG. Save registers, then in FIELD_WRITE_RECORD_1 advance the cursor: read RND_SECTOR_NUM, compare (RND_SECTOR_NUM+1) against FCB.FLD_DESC_PTR, store the incremented cursor back into FCB.FLD_DESC_PTR. [RE] If they differ (boundary reached) OR the flush flag is set, dispatch the record I/O through PUTC_FILE_3 (passing FCB.SEQ_RECNO+1) which itself selects read vs write from RND_WRITE_FLAG; otherwise just return.
+; ----------------------------------------------------------------------
 FIELD_WRITE_RECORD:
         OR $AF
-        LD (L_084C),A
+        ; latch direction: full entry = write/flush, +1 entry = read/no-flush
+        LD (FIELD_WRITE_FLAG),A
         PUSH BC
         PUSH DE
         PUSH HL
+; ----------------------------------------------------------------------
+; FIELD_WRITE_RECORD_1 -- cursor-advance + boundary test inside FIELD_WRITE_RECORD.
+;   In:        BC = FCB base; RND_SECTOR_NUM = current cursor; FCB.FLD_DESC_PTR = the previously-stored cursor/boundary.
+;   Out:       FCB.FLD_DESC_PTR updated to (RND_SECTOR_NUM+1); the compare result and flush flag decide whether to commit the record.
+;   Clobbers:  A,DE,HL.
+;   Algorithm: DE = RND_SECTOR_NUM; read FCB.FLD_DESC_PTR into HL; INC DE; compare; write the incremented cursor (DE) back into FCB.FLD_DESC_PTR. If the compare matched (no crossing) and the flush flag (RND_WRITE_FLAG) is clear, skip the I/O (FIELD_WRITE_RECORD_3); otherwise dispatch the record I/O.
+; ----------------------------------------------------------------------
 FIELD_WRITE_RECORD_1:
-        LD HL,(ILLEGAL_DIRECT_CHECK_1)
+        LD HL,(RND_SECTOR_NUM)
         EX DE,HL
         LD HL,FCB.FLD_DESC_PTR
         ADD HL,BC
@@ -15209,9 +16885,17 @@ FIELD_WRITE_RECORD_1:
         INC HL
         LD (HL),D
         JR NZ,FIELD_WRITE_RECORD_2
-        LD A,(L_084C)
+        ; no crossing; only commit if the flush flag is set
+        LD A,(FIELD_WRITE_FLAG)
         OR A
         JR Z,FIELD_WRITE_RECORD_3
+; ----------------------------------------------------------------------
+; FIELD_WRITE_RECORD_2 -- commit one random-file record via the sequential record handler.
+;   In:        BC = FCB base; the random record number is taken from FCB.SEQ_RECNO+1.
+;   Out:       The sector buffer is read or written by PUTC_FILE_3 (direction from RND_WRITE_FLAG); returns to FIELD_WRITE_RECORD_3.
+;   Clobbers:  A,BC,DE,HL.
+;   Algorithm: Stage FIELD_WRITE_RECORD_3 as the return point and the FCB base on the stack, point HL at FCB.SEQ_RECNO+1, and JP PUTC_FILE_3 to perform the record I/O.
+; ----------------------------------------------------------------------
 FIELD_WRITE_RECORD_2:
         LD HL,FIELD_WRITE_RECORD_3
         PUSH HL
@@ -15219,15 +16903,36 @@ FIELD_WRITE_RECORD_2:
         PUSH HL
         LD HL,FCB.SEQ_RECNO+1
         ADD HL,BC
+        ; read or write the sector for this record number (PUTC_FILE_3 picks the direction)
         JP PUTC_FILE_3
+; ----------------------------------------------------------------------
+; FIELD_WRITE_RECORD_3 -- FIELD_WRITE_RECORD epilogue: restore registers and return.
+;   In:        Saved HL/DE/BC on the stack from the routine entry.
+;   Out:       Registers restored; RET.
+;   Clobbers:  none (restores).
+;   Algorithm: POP HL/DE/BC; RET.
+; ----------------------------------------------------------------------
 FIELD_WRITE_RECORD_3:
         POP HL
         POP DE
         POP BC
         RET
-; [RE] Copy BC bytes (HL)->(DE) for FIELD/GET/PUT record buffering; preserves BC.
+; ----------------------------------------------------------------------
+; BLOCK_COPY_BC -- copy BC bytes from (HL) to (DE) for FIELD/GET/PUT record buffering; preserves BC.
+;   In:        HL = source, DE = destination, BC = byte count.
+;   Out:       BC bytes copied; HL and DE advanced past the block; BC restored to its original value; RET.
+;   Clobbers:  A,DE,HL (BC preserved via PUSH/POP).
+;   Algorithm: Save BC, then a byte-at-a-time LD (HL)->(DE)/INC/DEC-BC loop until BC reaches 0, then restore BC. (Byte loop rather than LDIR because BC must survive the call.)
+; ----------------------------------------------------------------------
 BLOCK_COPY_BC:
         PUSH BC
+; ----------------------------------------------------------------------
+; BLOCK_COPY_BC_1 -- BLOCK_COPY_BC inner copy loop.
+;   In:        HL = source, DE = dest, BC = remaining count.
+;   Out:       Loops until BC=0.
+;   Clobbers:  A,BC,DE,HL.
+;   Algorithm: A=(HL); (DE)=A; INC HL; INC DE; DEC BC; repeat while B|C nonzero.
+; ----------------------------------------------------------------------
 BLOCK_COPY_BC_1:
         LD A,(HL)
         LD (DE),A
@@ -15239,15 +16944,25 @@ BLOCK_COPY_BC_1:
         JR NZ,BLOCK_COPY_BC_1
         POP BC
         RET
-BLOCK_COPY_BC_2:
+; ----------------------------------------------------------------------
+; PUTC_FILE_RANDOM -- random-mode byte-output entry from PUTC_FILE: place one character into the current random FIELD position, tracking the field cursor and print column.
+;   In:        On stack: the caller's saved return/registers and the byte to output; HL = FCB base via PTRFIL; the file is mode 3.
+;   Out:       The character is stored at FCB.FLD_POS_PTR+1 within the FIELD window, the position cursor advanced (FCB_STORE_POSPTR), and the output column (FCB.BUF_REM) updated; on a full buffer raises 'FIELD overflow'.
+;   Clobbers:  A,BC,DE,HL (restores the caller's saved registers).
+;   Algorithm: Reorder the stacked frame; compute remaining FIELD space (FILE_BUF_REMAIN_BC); if exhausted raise 'FIELD overflow'. Advance and store the position pointer (FCB_STORE_POSPTR), write the byte at FCB.FLD_POS_PTR+1+offset, and maintain FCB.BUF_REM: reset to 0 on CR, else increment by 1 when the char is printable (the ADD A,$E0 / ADC carry idiom, matching PUTC_FILE).
+; ----------------------------------------------------------------------
+PUTC_FILE_RANDOM:
         POP AF
         PUSH DE
         PUSH BC
         PUSH AF
         LD B,H
         LD C,L
+        ; how many bytes of FIELD space remain
         CALL FILE_BUF_REMAIN_BC
+        ; no room left in the FIELD buffer
         JP Z,RAISE_FIELD_OVERFLOW
+        ; advance and save the FIELD write position
         CALL FCB_STORE_POSPTR
         LD HL,FCB.FLD_POS_PTR+1
         ADD HL,BC
@@ -15259,22 +16974,40 @@ BLOCK_COPY_BC_2:
         ADD HL,BC
         LD D,(HL)
         LD (HL),$00
+        ; CR resets the print column; printable chars bump it
         CP $0D
-        JR Z,BLOCK_COPY_BC_3
+        JR Z,PUTC_FILE_RANDOM_1
         ADD A,$E0
         LD A,D
         ADC A,$00
         LD (HL),A
-BLOCK_COPY_BC_3:
+; ----------------------------------------------------------------------
+; PUTC_FILE_RANDOM_1 -- PUTC_FILE_RANDOM epilogue: restore registers and return.
+;   In:        Saved AF/BC/DE/HL on the stack.
+;   Out:       Caller's registers restored; RET.
+;   Clobbers:  none (restores).
+;   Algorithm: POP AF/BC/DE/HL; RET.
+; ----------------------------------------------------------------------
+PUTC_FILE_RANDOM_1:
         POP AF
         POP BC
         POP DE
         POP HL
         RET
-BLOCK_COPY_BC_4:
+; ----------------------------------------------------------------------
+; GETC_FILE_RANDOM -- random-mode byte-input entry from GETC_FILE: fetch one character from the current random FIELD position.
+;   In:        DE saved on entry; HL = FCB base via PTRFIL; the file is mode 3.
+;   Out:       A = the byte at the current FIELD position; the position cursor advanced; on an exhausted buffer raises 'FIELD overflow'; flags reflect the byte (OR A); RET.
+;   Clobbers:  A,BC,DE,HL (restores the caller's saved DE/HL/BC).
+;   Algorithm: Compute remaining FIELD bytes (FILE_BUF_REMAIN); if none raise 'FIELD overflow'; advance/store the position pointer (FCB_STORE_POSPTR); read the byte at FCB.FLD_POS_PTR+1+offset and OR A to set flags; restore registers and RET.
+; ----------------------------------------------------------------------
+GETC_FILE_RANDOM:
         PUSH DE
+        ; how many bytes of FIELD data remain to read
         CALL FILE_BUF_REMAIN
+        ; FIELD buffer exhausted
         JP Z,RAISE_FIELD_OVERFLOW
+        ; advance and save the FIELD read position
         CALL FCB_STORE_POSPTR
         LD HL,FCB.FLD_POS_PTR+1
         ADD HL,BC
@@ -15285,20 +17018,45 @@ BLOCK_COPY_BC_4:
         POP HL
         POP BC
         RET
-; [RE] Load the FIELD buffer base pointer pair (FCB+$A9) into DE.
+; ----------------------------------------------------------------------
+; FCB_LOAD_BUFPTR -- load the word at FCB.FLD_BUF_PTR (offset $A9) into DE.
+;   In:        BC = FCB base.
+;   Out:       DE = the 16-bit value at FCB.FLD_BUF_PTR.
+;   Clobbers:  HL,DE.
+;   Algorithm: Point HL at FCB.FLD_BUF_PTR and fall into FCB_LOAD_POSPTR_1 to read the little-endian word into DE. [RE] This field holds the record length (a count), not an address, despite the include's 'buffer base pointer' name.
+; ----------------------------------------------------------------------
 FCB_LOAD_BUFPTR:
         LD HL,FCB.FLD_BUF_PTR
         JR FCB_LOAD_POSPTR_1
-; [RE] Load the FIELD current-position pointer pair (FCB+$B0) into DE.
+; ----------------------------------------------------------------------
+; FCB_LOAD_POSPTR -- load the word at FCB.FLD_POS_PTR (offset $B0) into DE: the random read/write position index within the FIELD window.
+;   In:        BC = FCB base.
+;   Out:       DE = the 16-bit value at FCB.FLD_POS_PTR (a within-record byte index, used as FCB_base+$B1+pos for the data byte).
+;   Clobbers:  HL,DE.
+;   Algorithm: Point HL at FCB.FLD_POS_PTR and fall into FCB_LOAD_POSPTR_1.
+; ----------------------------------------------------------------------
 FCB_LOAD_POSPTR:
         LD HL,FCB.FLD_POS_PTR
+; ----------------------------------------------------------------------
+; FCB_LOAD_POSPTR_1 -- shared little-endian word loader: DE = word at FCB_base + (HL offset).
+;   In:        BC = FCB base, HL = field offset within the FCB.
+;   Out:       DE = the 16-bit value stored at that FCB field.
+;   Clobbers:  HL,DE.
+;   Algorithm: HL += BC; E = (HL); INC HL; D = (HL); RET.
+; ----------------------------------------------------------------------
 FCB_LOAD_POSPTR_1:
         ADD HL,BC
         LD E,(HL)
         INC HL
         LD D,(HL)
         RET
-; [RE] Advance (INC DE) and store the FIELD current-position pointer (FCB+$B0).
+; ----------------------------------------------------------------------
+; FCB_STORE_POSPTR -- advance (INC DE) and store the FIELD current-position index (FCB.FLD_POS_PTR, offset $B0).
+;   In:        BC = FCB base, DE = the position value to store after incrementing.
+;   Out:       FCB.FLD_POS_PTR = DE+1; DE incremented.
+;   Clobbers:  HL.
+;   Algorithm: INC DE; point HL at FCB.FLD_POS_PTR; write E then D (little-endian); RET.
+; ----------------------------------------------------------------------
 FCB_STORE_POSPTR:
         INC DE
         LD HL,FCB.FLD_POS_PTR
@@ -15307,37 +17065,81 @@ FCB_STORE_POSPTR:
         INC HL
         LD (HL),D
         RET
-; [RE] Set BC=FCB then compute remaining bytes in the FIELD buffer: position ptr (FCB+$B0) vs buffer base (FCB+$A9); Z when buffer exhausted (EOF/refill needed).
+; ----------------------------------------------------------------------
+; FILE_BUF_REMAIN -- set BC = FCB base (from HL) then test whether the FIELD buffer position has reached the record length.
+;   In:        HL = FCB base.
+;   Out:       Z set when the FIELD position index equals the record length (buffer used up); compare result in flags.
+;   Clobbers:  A,BC,DE,HL.
+;   Algorithm: Copy HL into BC, then fall into FILE_BUF_REMAIN_BC to compare the position index (FCB.FLD_POS_PTR) against the record length (FCB.FLD_BUF_PTR).
+; ----------------------------------------------------------------------
 FILE_BUF_REMAIN:
         LD B,H
         LD C,L
-; [RE] Remaining-bytes-in-buffer test with BC already = FCB base (FCB+$B0 position vs FCB+$A9 base); returns Z if empty.
+; ----------------------------------------------------------------------
+; FILE_BUF_REMAIN_BC -- FIELD position-vs-length test with BC already = FCB base.
+;   In:        BC = FCB base.
+;   Out:       Flags from comparing FCB.FLD_POS_PTR vs FCB.FLD_BUF_PTR; Z when the position index has reached the record length (buffer full/exhausted).
+;   Clobbers:  A,DE,HL.
+;   Algorithm: Load the position index (FCB_LOAD_POSPTR) and the record length (FCB_LOAD_BUFPTR), arrange them in HL/DE, and CMP_HL_DE to set the zero/carry result the random-I/O entries use to detect FIELD overflow/exhaustion.
+; ----------------------------------------------------------------------
 FILE_BUF_REMAIN_BC:
         CALL FCB_LOAD_POSPTR
         PUSH DE
         CALL FCB_LOAD_BUFPTR
         EX DE,HL
         POP DE
+        ; position index vs record length -> Z when the FIELD buffer is full/used up
         CALL CMP_HL_DE
         RET
-FILE_BUF_REMAIN_BC_1:
+; ----------------------------------------------------------------------
+; SAVE_PROTECTED_PROGRAM -- SAVE ... ,P entry: write the current program to disk in obfuscated ('protected') form.
+;   In:        HL = text cursor after the ',P' option; the program occupies the text area; the output file is already open (STMT_SAVE opened it with D=2).
+;   Out:       The program is transformed in place, written via SAVE_WRITE_PROGRAM with the $FE 'protected' file tag, then transformed back to its plain in-memory form; JP RESET_RUN_STATE_1.
+;   Clobbers:  A,BC,DE,HL and program memory (the two transforms are reversible in place).
+;   Algorithm: CHRGET past the option, save the cursor (L_0B54), fix up line references (RENUM_PATCH_LINEREFS), CALL PROG_UNSCRAMBLE, SAVE_WRITE_PROGRAM with A=$FE (protected file type), CALL PROG_SCRAMBLE, then JP RESET_RUN_STATE_1. [RE] The code calls PROG_UNSCRAMBLE *before* the write and PROG_SCRAMBLE *after*; the encode/decode roles of those two routines are labeled elsewhere and not re-verified here -- the order of calls (UNSCRAMBLE, write, SCRAMBLE) is what is observed.
+;   Note: This is NOT part of the random-file FIELD cluster -- it is the protected-SAVE path reached by JP Z,FILE_BUF_REMAIN_BC_1 from STMT_SAVE (CP $50 = 'P'), physically adjacent to FILE_BUF_REMAIN_BC and mis-chained as its _1 local.
+; ----------------------------------------------------------------------
+SAVE_PROTECTED_PROGRAM:
         CALL CHRGET
-        LD (L_0B54),HL
+        LD (OPEN_RESUME_TEXT_PTR),HL
         CALL RENUM_PATCH_LINEREFS
+        ; transform the in-memory program before writing the protected copy
         CALL PROG_UNSCRAMBLE
         LD A,$FE
+        ; write the program with the $FE protected-file tag
         CALL SAVE_WRITE_PROGRAM
+        ; transform the in-memory program back to its plain running form
         CALL PROG_SCRAMBLE
         JP RESET_RUN_STATE_1
-; [RE] MS BASIC-80 protected-program DECODE: XOR each program byte ($0846..$0B6F) against two rotating key tables (period 13 from FN_TAN_2, period 11 from FN_RND_5) plus rotating additive constants -- the 'saved with ,P' obfuscation reversal.
+; ----------------------------------------------------------------------
+; PROG_UNSCRAMBLE -- decode a protected (SAVE ",P") program image in place to runnable tokens.
+;   In:        TXTTAB = program start, VARTAB = program end; the program bytes are encoded.
+;   Out:       the program text from TXTTAB..VARTAB decoded in place; RET when the end is reached.
+;   Clobbers:  A, BC, DE, HL.
+;   Algorithm: MS BASIC-80 protected-program cipher. Two rotating key indices B (starts 13, cycles 13) and
+;              C (starts 11, cycles 11) walk independently; B indexes the SIN coefficient table and C indexes
+;              the ATN coefficient table. For each program byte: b = ((byte - B) XOR atn_key[C]); then
+;              b = (b XOR sin_key[B]) + C; store b; then C decrements (wrapping 0->reload 11) and B
+;              decrements (wrapping 0->reload 13). The FP polynomial coefficient tables double as cipher
+;              keys -- their raw bytes, not their FP value, matter here. PROG_SCRAMBLE is the exact inverse.
+; ----------------------------------------------------------------------
 PROG_UNSCRAMBLE:
         LD BC,$0D0B
         LD HL,(TXTTAB)
         EX DE,HL
+; ----------------------------------------------------------------------
+; PROG_UNSCRAMBLE_1 -- decode-loop body: test for program end, then decode one byte with the dual key.
+;   In:        DE -> current program byte, B/C = the two rotating key indices.
+;   Out:       RET when DE == VARTAB (whole program decoded); else one byte decoded and DE advanced.
+;   Clobbers:  A, HL (and updates the byte at DE).
+;   Algorithm: Compare DE to VARTAB (end); if equal return; otherwise apply (byte-B) XOR atn[C], then
+;              XOR sin[B], then +C, and store; fall into the key-index update.
+; ----------------------------------------------------------------------
 PROG_UNSCRAMBLE_1:
         LD HL,(VARTAB)
         CALL CMP_HL_DE
         RET Z
+        ; first key stream: index the ATN coefficient bytes by C
         LD HL,FP_POLY_ATN_COEFFS
         LD A,L
         ADD A,C
@@ -15349,6 +17151,7 @@ PROG_UNSCRAMBLE_1:
         SUB B
         XOR (HL)
         PUSH AF
+        ; second key stream: index the SIN coefficient bytes by B
         LD HL,FP_POLY_SIN_COEFFS
         LD A,L
         ADD A,B
@@ -15359,25 +17162,52 @@ PROG_UNSCRAMBLE_1:
         POP AF
         XOR (HL)
         ADD A,C
+        ; store the decoded program byte back in place
         LD (DE),A
         INC DE
         DEC C
         JR NZ,PROG_UNSCRAMBLE_2
         LD C,$0B
+; ----------------------------------------------------------------------
+; PROG_UNSCRAMBLE_2 -- advance the dual key indices (B cycles 13, C cycles 11) for the next byte.
+;   In:        B, C = key indices.
+;   Out:       C decremented (reloaded to 11 at 0), B decremented (reloaded to 13 at 0); loops to decode next.
+;   Clobbers:  B, C.
+;   Algorithm: Step both rotating counters with wrap-around so the two key streams cycle at periods 11 and
+;              13, then re-enter the decode loop.
+; ----------------------------------------------------------------------
 PROG_UNSCRAMBLE_2:
         DEC B
         JR NZ,PROG_UNSCRAMBLE_1
         LD B,$0D
         JR PROG_UNSCRAMBLE_1
-; [RE] MS BASIC-80 protected-program ENCODE: inverse of PROG_UNSCRAMBLE, re-applies the dual rotating-key XOR over the program area so the in-memory image stays protected.
+; ----------------------------------------------------------------------
+; PROG_SCRAMBLE -- re-encode the in-memory program for protected (SAVE ",P") storage; inverse of UNSCRAMBLE.
+;   In:        TXTTAB = program start, VARTAB = program end; program is in plain token form.
+;   Out:       the program text encoded in place; RET at the end.
+;   Clobbers:  A, BC, DE, HL.
+;   Algorithm: Exact inverse of PROG_UNSCRAMBLE using the same two key streams in mirrored order: for each
+;              byte, b = ((byte - C) XOR sin_key[B]); then b = (b XOR atn_key[C]) + B; store; then step C
+;              (cycle 11) and B (cycle 13). Produces the encoded image written by a protected SAVE so a LIST
+;              cannot reveal it.
+; ----------------------------------------------------------------------
 PROG_SCRAMBLE:
         LD BC,$0D0B
         LD HL,(TXTTAB)
         EX DE,HL
+; ----------------------------------------------------------------------
+; PROG_SCRAMBLE_1 -- encode-loop body: end test then encode one byte with the dual key.
+;   In:        DE -> current program byte, B/C = rotating key indices.
+;   Out:       RET at VARTAB; else one byte encoded, DE advanced.
+;   Clobbers:  A, HL (and the byte at DE).
+;   Algorithm: Compare DE to VARTAB; if at end return; else (byte-C) XOR sin[B], XOR atn[C], +B, store;
+;              fall into the key-index update.
+; ----------------------------------------------------------------------
 PROG_SCRAMBLE_1:
         LD HL,(VARTAB)
         CALL CMP_HL_DE
         RET Z
+        ; first key stream (encode swaps the two): index SIN coefficient bytes by B
         LD HL,FP_POLY_SIN_COEFFS
         LD A,L
         ADD A,B
@@ -15389,6 +17219,7 @@ PROG_SCRAMBLE_1:
         SUB C
         XOR (HL)
         PUSH AF
+        ; second key stream: index ATN coefficient bytes by C
         LD HL,FP_POLY_ATN_COEFFS
         LD A,L
         ADD A,C
@@ -15404,6 +17235,14 @@ PROG_SCRAMBLE_1:
         DEC C
         JR NZ,PROG_SCRAMBLE_2
         LD C,$0B
+; ----------------------------------------------------------------------
+; PROG_SCRAMBLE_2 -- advance the dual key indices for the encoder (C cycles 11, B cycles 13).
+;   In:        B, C = key indices.
+;   Out:       C stepped (reload 11), B stepped via DJNZ (reload 13); loops to encode the next byte.
+;   Clobbers:  B, C.
+;   Algorithm: Step both rotating counters with wrap-around (mirroring PROG_UNSCRAMBLE_2) so encode and
+;              decode use identical key cycles.
+; ----------------------------------------------------------------------
 PROG_SCRAMBLE_2:
         DJNZ PROG_SCRAMBLE_1
         LD B,$0D
@@ -15425,16 +17264,16 @@ ILLEGAL_DIRECT_CHECK:
         JP NZ,ERROR_FC
         POP AF
         RET
-ILLEGAL_DIRECT_CHECK_1:
+RND_SECTOR_NUM:
         NOP
         NOP
-ILLEGAL_DIRECT_CHECK_2:
+RND_FIELD_PTR:
         NOP
         NOP
-ILLEGAL_DIRECT_CHECK_3:
+RND_SECTOR_PTR:
         NOP
         NOP
-ILLEGAL_DIRECT_CHECK_4:
+RND_GET_PUT_DIR:
         NOP
 
 ; ======================================================================
@@ -15449,7 +17288,7 @@ WARM_START:
         LD HL,(COLD_SET_WIDTH_11)
         LD A,(HL)
         OR A
-        JP NZ,OPEN_NAMED_FILE_1
+        JP NZ,LOAD_PROGRAM
         JP NEWSTT_READY
 SUB_81C6_1:
         NOP
@@ -15533,7 +17372,7 @@ COLD_START:
         JP Z,SUB_8240_1
         LD HL,$2221
 SUB_8240_1:
-        LD (L_08CC),HL
+        LD (BDOS_FN_RECREAD),HL
         LD HL,$FFFE
         LD (SAVTXT),HL
         XOR A
@@ -15558,7 +17397,7 @@ COLD_SET_WIDTH:
         LD (GFX_STMT_HPLOT_9),A
         CALL WIDTH_SET_CONSOLE
         LD HL,$0080
-        LD (L_0C97),HL
+        LD (FIELD_BUF_ADDR_LIMIT),HL
         LD HL,TEMPST
         LD (TEMPPT),HL
         LD HL,L_0B91
@@ -15566,7 +17405,7 @@ COLD_SET_WIDTH:
         LD HL,($0006)
         LD (MEMSIZ),HL
         LD A,$03
-        LD (L_0870),A
+        LD (MAX_FILE_NUM),A
         LD HL,COLD_SET_WIDTH_10
         LD (COLD_SET_WIDTH_11),HL
         LD A,(COLD_SET_WIDTH_12)
@@ -15634,7 +17473,7 @@ COLD_SET_WIDTH_6:
         LD A,E
         CP $10
         JP NC,ERROR_FC
-        LD (L_0870),A
+        LD (MAX_FILE_NUM),A
         JR COLD_SET_WIDTH_8
 COLD_SET_WIDTH_7:
         EX DE,HL
@@ -15653,7 +17492,7 @@ COLD_SET_WIDTH_9:
         DEFB    ':'                      ; inline char arg consumed by the preceding CALL
         CALL LINGET_OR_AMP
         EX DE,HL
-        LD (L_0C97),HL
+        LD (FIELD_BUF_ADDR_LIMIT),HL
         EX DE,HL
         JR COLD_SET_WIDTH_8
 COLD_SET_WIDTH_10:
@@ -15672,11 +17511,11 @@ COLD_SET_WIDTH_13:
         LD (MEMSIZ),HL
         DEC HL
         PUSH HL
-        LD A,(L_0870)
+        LD A,(MAX_FILE_NUM)
         LD HL,SUB_81C6_1
         LD (FILTAB_SLOT0_SEED),HL
         LD DE,FILTAB
-        LD (L_0870),A
+        LD (MAX_FILE_NUM),A
         INC A
         LD BC,FCB.FLD_BUF_PTR
 COLD_SET_WIDTH_14:
@@ -15688,7 +17527,7 @@ COLD_SET_WIDTH_14:
         EX DE,HL
         ADD HL,BC
         PUSH HL
-        LD HL,(L_0C97)
+        LD HL,(FIELD_BUF_ADDR_LIMIT)
         LD BC,FCB.RND_BUF
         ADD HL,BC
         LD B,H
