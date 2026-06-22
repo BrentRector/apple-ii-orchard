@@ -5205,7 +5205,12 @@ GFX_STMT_BEEP:
         INC A                            ; $46FE  3C
         LD (RPC_XREG),A                  ; $46FF  32 46 F0
         PUSH HL                          ; $4702  E5
-        LD HL,FIN_DONE_27                ; $4703  21 09 57
+    IFDEF GBASIC
+        LD HL,FIN_DONE_27                ; $4703  21 09 57  (GBASIC: RPC plot continuation)
+    ELSE
+        LD HL,FIN_DONE_27+$039D          ; MBASIC dead graphics-RPC operand -> $3724 (relocated
+                                         ;   pre-graphics: +$039D = the dropped graphics-block size)
+    ENDIF
         JP GFX_STMT_PLOT_1               ; $4706  C3 CD 46
         DEFB    $A0,$00,$AD,$30,$C0,$88,$D0,$04,$C6,$45,$F0,$0C,$20,$57,$FF,$CA  ; $4709
         DEFB    $D0,$F3,$A6,$46,$D0,$EC,$F0,$EA,$60  ; $4719

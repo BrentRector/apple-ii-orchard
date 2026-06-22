@@ -102,19 +102,20 @@ def test_utility_source_is_byte_identical(tree, name, disk):
         f"(does NOT round-trip byte-identical to {name}.COM on its disk)")
 
 
-def test_fold_build_gbasic_byte_identical():
-    """The GBASIC/MBASIC fold master (BASIC.asm) must still reassemble GBASIC.COM
-    byte-identically when the GBASIC symbol is defined. (MBASIC mode is WIP; once it also
-    reproduces MBASIC.COM this asserts both.)"""
+@pytest.mark.parametrize("mode,com", [("GBASIC", "GBASIC.COM"), ("MBASIC", "MBASIC.COM")])
+def test_fold_build_byte_identical(mode, com):
+    """The GBASIC/MBASIC one-conditional-source fold master (BASIC.asm) reassembles BOTH
+    .COMs byte-identically: with the GBASIC symbol defined -> GBASIC.COM (self-relocating,
+    graphics-ON), without it -> MBASIC.COM (in place, graphics-OFF). One source, two builds."""
     if not (HAS_SJASM and present(DISK_2_20_44K_SYSTEM)):
         pytest.skip("sjasmplus or 44K system disk missing")
     if not (REPO / "CPMV220-44K" / "utilities" / "BASIC.asm").exists():
         pytest.skip("BASIC.asm fold master not present")
     from cpm_pipeline.basic import fold_build
-    out, log = fold_build.assemble("GBASIC")
-    assert out, f"BASIC.asm (GBASIC) failed to assemble:\n{log[-800:]}"
-    assert out == fold_build.reference("GBASIC.COM"), (
-        "BASIC.asm with GBASIC defined does not reassemble GBASIC.COM byte-identically")
+    out, log = fold_build.assemble(mode)
+    assert out, f"BASIC.asm ({mode}) failed to assemble:\n{log[-800:]}"
+    assert out == fold_build.reference(com), (
+        f"BASIC.asm in {mode} mode does not reassemble {com} byte-identically")
 
 
 @_skip(DISK_2_23_44K_SYSTEM)
