@@ -956,13 +956,13 @@ RAISE_ERROR:
         INC A                            ; $0D98  3C
         JR Z,ERROR_PRINT_SETUP           ; $0D99  28 03
         LD (ERRLIN),HL                   ; $0D9B  22 62 0B
-; [RE] Build/print the error text: emit '?', look up the 2-char error mnemonic, append ' Error', and optionally ' in <line>'; falls into the direct-mode READY path.
+; [RE] ERROR_PRINT_SETUP: stages BC=ERROR_REPORT_BODY and HL=(SAVSTK), then JP RESET_RUN_STATE. Prints nothing itself; there is no '?'+mnemonic+' Error' assembly here (BASIC-80 uses full-word error messages).
 ERROR_PRINT_SETUP:
         LD BC,ERROR_REPORT_BODY          ; $0D9E  01 A7 0D
 ERROR_PRINT_SETUP_1:
         LD HL,(SAVSTK)                   ; $0DA1  2A 5E 0B
         JP RESET_RUN_STATE               ; $0DA4  C3 F4 68
-; Packed table of 2-letter error mnemonics (NF/SN/RG/OD/FC/OV/OM/UL/BS/DD/...) indexed by error code, printed by ERROR_PRINT_MSG.
+; [RE] ERROR_REPORT_BODY: the error-print body, reached via RESET_RUN_STATE's RET. Indexes ERROR_MESSAGE_TABLE by the clamped/remapped error code and prints the full-word message string. There is NO packed 2-letter-mnemonic table and no ERROR_PRINT_MSG routine (those belong to the smaller 4K/8K BASIC; this is BASIC-80).
 ERROR_REPORT_BODY:
         POP BC                           ; $0DA7  C1
         LD A,E                           ; $0DA8  7B
@@ -7105,7 +7105,7 @@ IMULDIV_FLOAT_FALLBACK:
         CALL INT_TO_SINGLE_HL            ; $518F  CD 0E 50
         POP DE                           ; $5192  D1
         JP FP_NEG                        ; $5193  C3 76 4E
-; 16-bit integer MULTIPLY via shift-and-add: $11 iterations adding BC into the running product in HL, with carry/overflow detection (Overflow error vector $0D72 on zero-operand guard). MS BASIC-80 integer multiply.
+; [RE] INT_DIV_KERNEL: signed 16-bit DIVIDE (JP Z,RAISE_DIVISION_BY_ZERO on a zero divisor, then a 17-iteration restoring shift-subtract). Earlier mislabeled as multiply.
 INT_DIV_KERNEL:
         LD A,H                           ; $5196  7C
         OR L                             ; $5197  B5
@@ -11958,7 +11958,7 @@ STR_FN_RETURN_CHAR:
 STR_FN_RETURN_CHAR_1:
         POP BC                           ; $6E0F  C1
         JP PUT_STR_TEMP                  ; $6E10  C3 1A 6C
-; [RE] MID$() function body (token $E7): parse '(' source$ ',' start [ ',' len ] ')', then drop into the LEFT$/RIGHT$/MID$ common copy path.
+; [RE] STRING$() body (token $E7): parse (count, char-or-string$) then pad-fill the new string via STR_FILL_ALLOC. NOT MID$ -- MID$ is FN_MID_STR $6582, token $03.
 FN_STRING_STR:
         CALL CHRGET                      ; $6E13  CD C9 33
         CALL SYNCHR                      ; $6E16  CD 25 69
@@ -11976,7 +11976,7 @@ FN_STRING_STR:
         JR Z,FN_STRING_FROM_STR          ; $6E2E  28 05
         CALL CONINT                      ; $6E30  CD 9A 40
         JR STR_FN_RETURN_CHAR_4          ; $6E33  18 03
-; [RE] MID$ branch when no explicit length given: derive the run length from the source string descriptor (FN_VAL_BODY).
+; [RE] STRING$ branch when the fill argument is a string: use its first byte as the pad character (FN_VAL_BODY), then STR_FILL_ALLOC.
 FN_STRING_FROM_STR:
         CALL FN_VAL_BODY                 ; $6E35  CD F9 6D
 STR_FN_RETURN_CHAR_4:
