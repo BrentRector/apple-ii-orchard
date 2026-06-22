@@ -3997,60 +3997,157 @@ EVAL_EXPR_AFTER_SYNCHR:
 ; ======================================================================
 ; EXPRESSION EVALUATOR (FRMEVL) + operator-precedence loop
 ; ======================================================================
-; MS BASIC-80 FRMEVL: evaluate a complete expression (numeric or string) at (HL) into the FAC ($0CB1). $3A71 calls SYNCHR-context entry; $3A76/$3A78 is the precedence-driven operator loop: fetch an operand (EVAL, FRMEVL_EVAL_OPERAND), then while the next token is a binary operator of high enough precedence, recurse and apply. Relational/arithmetic operator tokens >= $EF are handled here; precedence table at $04ED, operator-function dispatch table at $0517/$0503.
+; ----------------------------------------------------------------------
+; FRMEVL -- evaluate a parenthesized expression: require '(', evaluate to FAC.
+;   In:        HL -> text pointer, positioned just before a '(' token.
+;   Out:       FAC ($0CB1) = expression value; VALTYP ($0B14) = its type; HL past the expression.
+;   Clobbers:  A, BC, DE, HL, FAC; consumes one stack frame via the operator loop.
+;   Algorithm: SYNCHR-assert the next non-blank token is '(' (the inline DEFB '(' is the char
+;              argument the preceding CALL SYNCHR consumes; raises Syntax error if absent), then
+;              fall through to FRMEVL_NOPAREN to evaluate the sub-expression. SYNCHR-context entry
+;              used where a leading parenthesis is mandatory.
+; ----------------------------------------------------------------------
 FRMEVL:
         CALL SYNCHR
         DEFB    '('                      ; inline char arg consumed by the preceding CALL
-; [RE] Bare expression-evaluator entry (no leading '(' required): DEC HL to back up, then fall into the FRMEVL operator-precedence loop with D=0. The general 'evaluate expression at (HL) into FAC' call used throughout the parsers (60+ sites).
+; ----------------------------------------------------------------------
+; FRMEVL_NOPAREN -- bare expression-evaluator entry (no leading '(' required).
+;   In:        HL -> text pointer at the first operand token.
+;   Out:       FAC = expression value; VALTYP set; HL advanced past the expression.
+;   Clobbers:  A, BC, DE, HL, FAC.
+;   Algorithm: DEC HL so the CHRGET inside FRMEVL_EVAL_OPERAND re-reads the current token (the
+;              caller has typically already advanced past it), then fall into FRMEVL_LOWPREC. This
+;              is the general 'evaluate the expression at (HL) into FAC' entry used by ~60 callers.
+; ----------------------------------------------------------------------
 FRMEVL_NOPAREN:
         DEC HL
-; [RE] FRMEVL body entry with D=$00 (lowest operator precedence); falls into the precedence loop. Canonical MS BASIC-80 FRMEVL after the SYNCHR-context check.
+; ----------------------------------------------------------------------
+; FRMEVL_LOWPREC -- start an expression at the lowest operator precedence.
+;   In:        HL -> one before the first operand token.
+;   Out:       falls into the precedence loop with the pending-operator precedence D = 0.
+;   Clobbers:  D (set to 0).
+;   Algorithm: Seed the pending-operator precedence D = $00 (lower than every entry in
+;              FRMEVL_PREC_TBL) so the first binary operator encountered always binds, then enter
+;              FRMEVL_OPLOOP. Recursive entries instead arrive with D = the precedence of the
+;              operator currently being applied (set in the OPLOOP_9/_10/ARITHOP apply arms).
+; ----------------------------------------------------------------------
 FRMEVL_LOWPREC:
         LD D,$00
-; [RE] FRMEVL operator-precedence loop: save pending-operator precedence (D), check stack, fetch one operand (FRMEVL_EVAL_OPERAND); then while the next token at (HL) is a binary operator (>= $EF) of precedence > pending, recurse here and apply. Relational vs arithmetic vs string-concat dispatch follows.
+; ----------------------------------------------------------------------
+; FRMEVL_OPLOOP -- operator-precedence loop: parse one operand, then bind operators.
+;   In:        D = pending-operator precedence (0 at top level, the operator's prec on recursion);
+;              HL -> one before the next operand token.
+;   Out:       FAC = value of the sub-expression bound at precedence > D; HL past it. Returns to
+;              caller when the next operator's precedence <= D (or the token is not an operator).
+;   Clobbers:  A, BC, DE, HL, FAC; L_0CB6.
+;   Algorithm: PUSH DE to save the pending precedence D, verify stack headroom (CHECK_STACK_ROOM
+;              with C=1 = two bytes of headroom), then evaluate one operand (factor) into the FAC
+;              via FRMEVL_EVAL_OPERAND and clear the floating-point sign flag L_0CB6. Then loop:
+;              read the next token; if below the relational band ('>'=$EF) return; if a relational
+;              token dispatch to FRMEVL_RELOP to gather a comparison mask, else map
+;              +/-/*//^/AND/OR/XOR/EQV/IMP/MOD/\ to its precedence in FRMEVL_PREC_TBL. While that
+;              precedence > D, push the left operand and recurse to evaluate the right operand at
+;              the operator's precedence, then apply the operator.
+; ----------------------------------------------------------------------
 FRMEVL_OPLOOP:
         PUSH DE
+        ; request two bytes of Z-80 stack headroom (CHECK_STACK_ROOM reserves 2*C) before recursing
         LD C,$01
         CALL CHECK_STACK_ROOM
+        ; evaluate the next operand/factor into the FAC
         CALL FRMEVL_EVAL_OPERAND
+        ; [RE] clear the FP sign flag L_0CB6 (set later by the '^'/numeric-input paths) before scanning operators
         XOR A
         LD (L_0CB6),A
+; ----------------------------------------------------------------------
+; FRMEVL_OPLOOP_1 -- record the current text position as the operator scan point.
+;   In:        HL -> the just-evaluated operand's trailing token (the candidate operator).
+;   Out:       FRMEVL_TXTPTR_TEMP ($0B69) = HL; falls into FRMEVL_OPLOOP_2.
+;   Clobbers:  (FRMEVL_TXTPTR_TEMP).
+;   Algorithm: Stash HL so the loop can reload it after a recursive operand evaluation has moved
+;              HL on. Re-entered here after the relational-mask collector / recursion returns.
+; ----------------------------------------------------------------------
 FRMEVL_OPLOOP_1:
         LD (FRMEVL_TXTPTR_TEMP),HL
+; ----------------------------------------------------------------------
+; FRMEVL_OPLOOP_2 -- classify the next token as terminator / relational / binary operator.
+;   In:        FRMEVL_TXTPTR_TEMP = saved text pointer; top of stack = the pushed pending-precedence
+;              frame (DE), popped into BC so B = pending precedence.
+;   Out:       returns to caller if the token ends the (sub)expression; else dispatches to the
+;              relational collector, the string-concat path, or the precedence test (OPLOOP_3).
+;   Clobbers:  A, BC, DE, HL, (L_0B4A).
+;   Algorithm: Reload HL from FRMEVL_TXTPTR_TEMP; POP BC so B = pending precedence. Read the
+;              operator token A and store its address in L_0B4A. If A < '>' ($EF) it is not an
+;              operator -> RET. If A < '+' ($F2) it is a relational ('>','=','<') -> FRMEVL_RELOP.
+;              Otherwise E = A-'+' is the binary-operator index (0='+',1='-',2='*',3='/',4='^',
+;              5=AND,6=OR,7=XOR,8=EQV,9=IMP,10=MOD,11='\'). Special-case '+' (E=0): if the current
+;              FAC value is a string (VALTYP=$03) divert to STR_CONCAT instead of numeric add.
+; ----------------------------------------------------------------------
 FRMEVL_OPLOOP_2:
         LD HL,(FRMEVL_TXTPTR_TEMP)
+        ; recover the pushed pending-precedence frame; B = pending-operator precedence for the test below
         POP BC
         LD A,(HL)
+        ; remember the address of this operator token (reloaded by FRMEVL_OPLOOP_6 when applying)
         LD (L_0B4A),HL
+        ; token below the relational band ($EF) is not a binary operator -> end of (sub)expression
         CP TOK_GT
         RET C
         CP TOK_PLUS
+        ; '>','=','<' (tokens $EF-$F1) -> gather the relational comparison mask
         JP C,FRMEVL_RELOP
+        ; E = binary-operator index (0='+',1='-',2='*',3='/',4='^',5=AND,...,10=MOD,11='\')
         SUB TOK_PLUS
         LD E,A
         JR NZ,FRMEVL_OPLOOP_3
         LD A,(VALTYP)
         CP VT_STR
         LD A,E
+        ; '+' (index 0) applied to a string operand is concatenation, not numeric add
         JP Z,STR_CONCAT
+; ----------------------------------------------------------------------
+; FRMEVL_OPLOOP_3 -- precedence test and recursion setup for a non-relational binary operator.
+;   In:        E = operator index (token-'+', 0..11); A still = that index; B = pending precedence;
+;              HL = (reloaded) operator address via L_0B4A in the apply arms.
+;   Out:       if the operator binds, recurses into FRMEVL_OPLOOP for the right operand; else RET.
+;              D = new operator precedence; the chosen apply arm is queued on the stack.
+;   Clobbers:  A, BC, DE, HL.
+;   Algorithm: Reject indices >= 12 ('CP $0C / RET NC') -> not a valid binary operator. Index
+;              FRMEVL_PREC_TBL ($79,$79,$7C,$7C,$7F,$50,$46,$3C,$32,$28,$7A,$7B) by E to fetch this
+;              operator's precedence into D. If pending precedence B >= D ('CP D / RET NC') the
+;              operator does not bind here (left-associative cutoff) -> RET to apply it at an outer
+;              level. Otherwise push the pending-precedence frame, push the return address
+;              FRMEVL_OPLOOP_2 (so control resumes scanning the next operator), and select the apply
+;              arm by precedence value: $7F selects '^' -> power arm FRMEVL_OPLOOP_9; < $51 are the
+;              logical ops AND($50)/OR($46)/XOR($3C)/EQV($32)/IMP($28) -> integer-coerce arm
+;              FRMEVL_OPLOOP_10; $7A/$7B fold to $7A under AND $FE (MOD=$7A, '\'=$7B) -> the same
+;              integer-coerce arm; the rest ($79 '+'/'-', $7C '*'/'/') fall to the float arm OPLOOP_4.
+; ----------------------------------------------------------------------
 FRMEVL_OPLOOP_3:
+        ; operator index >= 12 is not a binary operator -> done
         CP $0C
         RET NC
         LD HL,FRMEVL_PREC_TBL
         LD D,$00
         ADD HL,DE
         LD A,B
+        ; D = this operator's precedence from FRMEVL_PREC_TBL
         LD D,(HL)
+        ; if pending precedence >= new precedence the operator binds outward -> RET to apply it later
         CP D
         RET NC
         PUSH BC
+        ; after the right operand is evaluated, resume scanning operators here
         LD BC,FRMEVL_OPLOOP_2
         PUSH BC
         LD A,D
+        ; precedence $7F selects '^' (exponentiation) -> power arm
         CP $7F
         JP Z,FRMEVL_OPLOOP_9
         CP $51
+        ; precedence < $51 are the logical ops (AND/OR/XOR/EQV/IMP) -> integer-coerce arm
         JP C,FRMEVL_OPLOOP_10
+        ; fold $7A (MOD) and $7B ('\') to $7A so both route to the integer-coerce arm
         AND $FE
         CP $7A
         JP Z,FRMEVL_OPLOOP_10
@@ -4092,81 +4189,215 @@ FRMEVL_OPLOOP_6:
         PUSH BC
         LD HL,(L_0B4A)
         JP FRMEVL_OPLOOP
-; [RE] Relational-operator collector: tokens $EF-$F1 (=,<,>) accumulate a 3-bit relation mask in D (RLA/XOR), advancing past consecutive relation tokens via CHRGET; falls to FRMEVL_ARITHOP when a non-relation operator is seen.
+; ----------------------------------------------------------------------
+; FRMEVL_RELOP -- begin gathering a relational comparison from one or more of '>','=','<'.
+;   In:        A = first relational token ('>','=','<'); HL -> that token; B = pending precedence.
+;   Out:       D = accumulated 3-bit relation mask; falls into the per-token collector loop.
+;   Clobbers:  D.
+;   Algorithm: Initialize the relation mask D = 0, then fall into FRMEVL_OPLOOP_8 which folds each
+;              consecutive relational token into the mask. BASIC allows the three relational tokens
+;              combined ('<=','=<','><','<>', etc.); the mask encodes which of greater/equal/less
+;              were requested so the comparison kernel can test the right combination.
+; ----------------------------------------------------------------------
 FRMEVL_RELOP:
         LD D,$00
+; ----------------------------------------------------------------------
+; FRMEVL_OPLOOP_8 -- fold consecutive relational tokens into a 3-bit comparison mask.
+;   In:        A = current token; D = mask so far; HL -> current token.
+;   Out:       on a non-relational token, falls to FRMEVL_ARITHOP carrying D = the relation mask;
+;              HL advanced past the run.
+;   Clobbers:  A, D, HL, (L_0B4A); calls CHRGET.
+;   Algorithm: Compute A = token-'>' giving 0='>',1='=',2='<'; carry (token < '>') or A >= 3 ends
+;              the run (-> FRMEVL_ARITHOP). Convert to a single bit (CP $01 / RLA: '>'->1,'='->2,
+;              '<'->4) and XOR it into mask D. XOR-ing a bit already set (e.g. '>>') clears it, so
+;              the new mask < old D; CP D then sets carry -> RAISE_SYNTAX_ERROR. Save the pointer
+;              in L_0B4A, CHRGET past the token, and loop. Completed mask uses the MS BASIC code
+;              1='>', 2='=', 4='<', combined for '>=','<=','<>','='.
+; ----------------------------------------------------------------------
 FRMEVL_OPLOOP_8:
+        ; A = 0/1/2 for '>'/'='/'<'; out of range (or below '>') ends the relational run
         SUB TOK_GT
         JP C,FRMEVL_ARITHOP
         CP $03
         JP NC,FRMEVL_ARITHOP
         CP $01
+        ; turn the token into its single relation bit (1='>',2='=',4='<')
         RLA
+        ; merge the bit into the accumulated comparison mask
         XOR D
         CP D
         LD D,A
+        ; the same relational symbol appeared twice (e.g. '>>') -> syntax error
         JP C,RAISE_SYNTAX_ERROR
         LD (L_0B4A),HL
+        ; consume this relational token and look at the next one
         CALL CHRGET
         JR FRMEVL_OPLOOP_8
+; ----------------------------------------------------------------------
+; FRMEVL_OPLOOP_9 -- power-operator ('^') apply arm: set up x^y.
+;   In:        FAC = left operand x; the OPLOOP_2 return address and pending-precedence frame are
+;              already pushed by FRMEVL_OPLOOP_3.
+;   Out:       queues the power kernel FN_SQR_1 as the apply routine and recurses (via OPLOOP_6)
+;              to evaluate the exponent y at precedence $7F.
+;   Clobbers:  A, BC, DE, HL, FAC; pushes the coerced left operand.
+;   Algorithm: Coerce the base to single precision (FN_CSNG) and push it (FAC_PUSH) so the kernel
+;              can recover it after y is evaluated. Set BC = FN_SQR_1 (the single-precision power
+;              kernel; it begins with FN_CSNG, sets the L_0CB6 sign flag, and [RE] computes x^y
+;              via exp(y*log x)) and D = $7F as the recursion precedence, then join FRMEVL_OPLOOP_6
+;              to push the apply routine and recurse for the exponent.
+; ----------------------------------------------------------------------
 FRMEVL_OPLOOP_9:
+        ; force the base to single precision ('^' is computed in single precision)
         CALL FN_CSNG
+        ; save the base so the power kernel can recover it after the exponent is evaluated
         CALL FAC_PUSH
+        ; [RE] FN_SQR_1 is the x^y power kernel, applied once the exponent is in the FAC
         LD BC,FN_SQR_1
         LD D,$7F
         JR FRMEVL_OPLOOP_6
+; ----------------------------------------------------------------------
+; FRMEVL_OPLOOP_10 -- integer-operator apply arm ('\','MOD', and the logical ops).
+;   In:        FAC = left operand; the OPLOOP_2 return / pending-precedence frame already pushed.
+;   Out:       queues FRMEVL_INT_OP_HANDLER as the apply routine and recurses (via OPLOOP_6) for
+;              the right operand.
+;   Clobbers:  A, BC, DE, HL, FAC; pushes the coerced left operand (HL).
+;   Algorithm: Coerce the left operand to a 16-bit integer (FN_CINT, with DE saved/restored across
+;              the call) and push it (PUSH HL) so the handler can recover it. Set BC =
+;              FRMEVL_INT_OP_HANDLER (which re-coerces the right operand to integer, pops both, and
+;              dispatches by precedence code: $7A=MOD, $7B='\', else AND/OR/XOR/etc. via the
+;              integer operator band), then join FRMEVL_OPLOOP_6 to recurse for the right operand.
+;              '\', MOD and the bitwise/logical operators all require integer operands, hence the
+;              coercion here.
+; ----------------------------------------------------------------------
 FRMEVL_OPLOOP_10:
         PUSH DE
+        ; force the left operand to a 16-bit integer (integer/logical operators require integers)
         CALL FN_CINT
         POP DE
         PUSH HL
+        ; queue the integer apply handler that dispatches MOD/'\'/AND/OR/XOR by precedence code
         LD BC,FRMEVL_INT_OP_HANDLER
         JR FRMEVL_OPLOOP_6
-; [RE] Arithmetic/string binary-operator apply: if pending precedence (B) < new operator precedence ($64 guard) push the FAC operand and recurse; sets up the operator-result combine via FRMEVL_OPCOMBINE.
+; ----------------------------------------------------------------------
+; FRMEVL_ARITHOP -- relational binary-operator apply guard and frame setup.
+;   In:        D = relation mask (from FRMEVL_RELOP/_OPLOOP_8); B = pending precedence;
+;              FAC = left operand; HL -> the token after the relational run.
+;   Out:       if the relational operator binds, pushes the operand frame and recurses for the
+;              right operand at precedence $64 with the relational-result handler queued; else RET.
+;   Clobbers:  A, BC, DE, HL; pushes operand/return frames.
+;   Algorithm: Relational operators have pseudo-precedence $64 (100); if pending precedence B >=
+;              $64 the relational does not bind here -> RET to apply it outward. Otherwise push B
+;              and the relation mask D, set DE = $6404 (D=$64 = recursion precedence for the right
+;              operand; E=$04 = the operator code that, doubled, selects the compare slot in each
+;              type's operator band: DCOMP_REL/FCOMP/INT16_COMP). Queue FRMEVL_SCAN_UNARY_1 ([RE]
+;              the relational-result finalizer: it combines the compare result with the relation
+;              mask to yield -1/0 into the FAC) as the post-recursion return, then test the left
+;              operand's type via FRMEVL_TEST_TYPE. If numeric (NZ), take the compare path through
+;              FRMEVL_OPLOOP_4; if string (Z), push the string descriptor (LD HL,(FAC)) and queue
+;              the string-compare handler ([RE] NEXT_LOOP_BODY_7, a mislabel) before joining
+;              FRMEVL_OPLOOP_6 to recurse for the right side.
+; ----------------------------------------------------------------------
 FRMEVL_ARITHOP:
         LD A,B
+        ; relational pseudo-precedence is $64; if a higher op is pending the comparison binds outward
         CP $64
         RET NC
         PUSH BC
         PUSH DE
+        ; D=$64 = recursion precedence for the right operand; E=$04 = compare-slot index within the operator band
         LD DE,$6404
-        LD HL,FRMEVL_SCAN_UNARY_1
+        LD HL,FRMEVL_RELOP_RESULT
         PUSH HL
+        ; classify the left operand: numeric (NZ) -> compare path, string (Z) -> string compare
         CALL FRMEVL_TEST_TYPE
+        ; numeric left operand: take the numeric comparison path
         JP NZ,FRMEVL_OPLOOP_4
+        ; string left operand: load/push its descriptor for the string-comparison handler
         LD HL,(FAC)
         PUSH HL
         LD BC,NEXT_LOOP_BODY_7
         JR FRMEVL_OPLOOP_6
-; [RE] Operator-result combine: after the right operand is evaluated, recover operator code/type ($0B15/$0B14), coerce both operands to a common numeric type (CINT/CSNG paths) or take the string path ($08), then dispatch to the arithmetic operator routine via the $0517 (numeric) / $0503 (relational) vector tables.
+; ----------------------------------------------------------------------
+; FRMEVL_OPCOMBINE -- combine a binary operator with its two evaluated operands
+;   In:        Right operand in the FAC, its type in VALTYP ($0B14: 2=int,4=single,8=double,3=string).
+;              Stack (top first): a frame BC where C = operator routine index and B = the LEFT operand's VALTYP,
+;              pushed earlier by FRMEVL_OPLOOP_4/5; below it the LEFT operand's mantissa bytes (2/4/8 by its type).
+;              [RE] C = (operator token - TOK_PLUS): 0=add,1=sub,2=mul,3=div; the compare slot (band entry 5) is
+;              supplied via the relational path, and power '^' is handled earlier and never reaches here.
+;   Out:       Tail-jumps (JP (HL) or PUSH/RET) to the selected OPERATOR_ROUTINE_TBL handler. The handler leaves
+;              the result in the FAC with VALTYP set; control does not return here.
+;   Clobbers:  A,B,C,D,E,H,L,F, the FAC and its extension cells, CRUNCH_LITERAL_MODE, the operand stack frame.
+;   Algorithm: Pop the frame: save C (operator index) into CRUNCH_LITERAL_MODE (reused as the operator scratch),
+;              leaving B = left operand type. Compare the right type (VALTYP) with the left type B. If equal,
+;              branch to the matching dispatch band (int/single/double). If they differ, fall into FRMEVL_OPC_
+;              PROMOTE to widen the narrower operand (int<single<double; string is a TYPE MISMATCH). Once both
+;              share a type, index that band of OPERATOR_ROUTINE_TBL by 2*operator-index and dispatch.
+; ----------------------------------------------------------------------
 FRMEVL_OPCOMBINE:
         POP BC
         LD A,C
+        ; Stash the operator routine index (C) in the scratch byte; the band-dispatch tail reads it back to pick the add/sub/mul/div/compare handler within the chosen type band.
         LD (CRUNCH_LITERAL_MODE),A
         LD A,(VALTYP)
+        ; Compare the right operand's type (VALTYP) against the left operand's type B.
         CP B
-        JR NZ,FRMEVL_OPLOOP_13
+        ; Types differ: go promote the narrower operand to the wider common type.
+        JR NZ,FRMEVL_OPC_PROMOTE
         CP VT_INT
-        JR Z,FRMEVL_OPLOOP_14
+        ; Both integer: dispatch through the integer operator band.
+        JR Z,FRMEVL_OPC_DISPATCH_INT
         CP VT_SNG
-        JP Z,FRMEVL_OP_POP_FRAME
-        JR NC,FRMEVL_OPLOOP_16
-FRMEVL_OPLOOP_13:
+        ; Both single: pop the single-precision left operand and dispatch the single band.
+        JP Z,FRMEVL_OPC_DISPATCH_SNG
+        ; Both double ($08): stage the double operands and dispatch the double band.
+        JR NC,FRMEVL_OPC_DBL_SETUP
+; ----------------------------------------------------------------------
+; FRMEVL_OPC_PROMOTE (was FRMEVL_OPLOOP_13) -- coerce two differently-typed operands to a common numeric type
+;   In:        A = right operand type (VALTYP), B = left operand type; operands as for FRMEVL_OPCOMBINE.
+;   Out:       Branches to the path that widens the narrower operand to the wider of the two types, then into
+;              that type's dispatch band.
+;   Clobbers:  A,D,F (D = right operand type held for the comparisons).
+;   Algorithm: Decide the common type by descending width. If the LEFT is double ($08) widen the right/FAC
+;              operand to double (FRMEVL_OPC_WIDEN_RIGHT_DBL); if the RIGHT is double widen the left (FRMEVL_OPC_
+;              WIDEN_LEFT_DBL). Else if the LEFT is single ($04) widen the right/FAC operand to single (FRMEVL_
+;              OPC_WIDEN_RIGHT_SNG). A string right operand ($03) is rejected as TYPE MISMATCH. Otherwise (right
+;              single, left integer) widen the left integer to single (FRMEVL_OPC_WIDEN_LEFT_SNG).
+; ----------------------------------------------------------------------
+FRMEVL_OPC_PROMOTE:
+        ; Keep the right operand's type in D; A is reused to test the left type B.
         LD D,A
         LD A,B
         CP $08
-        JR Z,FRMEVL_OPLOOP_15
+        ; Left operand is double: widen the right/FAC operand to double.
+        JR Z,FRMEVL_OPC_WIDEN_RIGHT_DBL
         LD A,D
         CP $08
-        JR Z,FRMEVL_OPLOOP_20
+        ; Right operand is double: widen the left operand to double.
+        JR Z,FRMEVL_OPC_WIDEN_LEFT_DBL
         LD A,B
         CP $04
-        JR Z,FRMEVL_OP_COERCE_INT
+        ; Left operand is single: widen the right/FAC operand to single.
+        JR Z,FRMEVL_OPC_WIDEN_RIGHT_SNG
         LD A,D
         CP $03
+        ; Right operand is a string: arithmetic on a string is a Type mismatch error.
         JP Z,RAISE_TYPE_MISMATCH
-        JR NC,FRMEVL_OP_COERCE_INT_3
-FRMEVL_OPLOOP_14:
+        ; Right is single and left is integer: widen the left integer operand to single.
+        JR NC,FRMEVL_OPC_WIDEN_LEFT_SNG
+; ----------------------------------------------------------------------
+; FRMEVL_OPC_DISPATCH_INT (was FRMEVL_OPLOOP_14) -- dispatch a two-integer operation through the integer band
+;   In:        Both operands integer. C holds the operator routine index from the popped frame; B is zeroed here.
+;              The left integer operand is on the stack; the right integer operand is in the FAC.
+;   Out:       PUSH/RET tail-jumps to the integer operator handler (IADD/INT_SIGNEXT_SUB/IMUL/IDIV/INT16_COMP)
+;              with DE = left operand (popped) and HL = right operand (from FAC).
+;   Clobbers:  A,B,C,D,E,H,L,F.
+;   Algorithm: Form HL = OPERATOR_ROUTINE_TBL+OP_BAND_INT ($0517) + 2*index by zeroing B and adding BC twice,
+;              load the 16-bit handler address from that DEFW slot into BC, pop the left operand into DE and load
+;              the right operand from the FAC into HL, then PUSH handler / RET. (The integer band has its OWN
+;              PUSH/RET dispatcher here, distinct from the single/double band dispatcher.)
+; ----------------------------------------------------------------------
+FRMEVL_OPC_DISPATCH_INT:
+        ; Index the integer operator band ($0517: IADD,INT_SIGNEXT_SUB,IMUL,IDIV,INT16_COMP) by 2*operator-index (ADD HL,BC twice with B zeroed).
         LD HL,OPERATOR_ROUTINE_TBL+OP_BAND_INT
         LD B,$00
         ADD HL,BC
@@ -4174,79 +4405,233 @@ FRMEVL_OPLOOP_14:
         LD C,(HL)
         INC HL
         LD B,(HL)
+        ; Recover the left integer operand into DE; the right integer operand is read from the FAC into HL.
         POP DE
         LD HL,(FAC)
+        ; PUSH handler address / RET = computed jump into the integer operator routine.
         PUSH BC
         RET
-FRMEVL_OPLOOP_15:
+; ----------------------------------------------------------------------
+; FRMEVL_OPC_WIDEN_RIGHT_DBL (was FRMEVL_OPLOOP_15) -- widen the right operand to double, then take the double path
+;   In:        Right operand in the FAC (narrower numeric type); the left operand is already double on the stack.
+;   Out:       Falls into FRMEVL_OPC_DBL_SETUP with the FAC holding a double-precision right operand.
+;   Clobbers:  A,B,C,D,E,H,L,F, the FAC.
+;   Algorithm: CALL FN_CDBL converts the FAC in place to double precision, then falls through into the
+;              double-operand setup.
+; ----------------------------------------------------------------------
+FRMEVL_OPC_WIDEN_RIGHT_DBL:
+        ; Promote the right operand (in the FAC) up to double precision.
         CALL FN_CDBL
-FRMEVL_OPLOOP_16:
+; ----------------------------------------------------------------------
+; FRMEVL_OPC_DBL_SETUP (was FRMEVL_OPLOOP_16) -- stage the right double operand and the left operand's low words
+;   In:        Right operand is double in the FAC; the left double operand's mantissa bytes are on the stack
+;              (low extension words on top). Operator index already saved in CRUNCH_LITERAL_MODE.
+;   Out:       Falls into FRMEVL_OPC_DBL_LOADFAC with the right operand moved to the secondary FP temp ($0CBA)
+;              and the FAC's two low double extension words ($0CAF/$0CB0 then $0CAD/$0CAE) loaded from the LEFT
+;              operand's low words.
+;   Clobbers:  A,B,C,D,E,H,L,F, the FAC, the secondary FP temp ($0CBA), $0CAD-$0CB0.
+;   Algorithm: FP_ARG_TO_TEMP2 copies the right (FAC) double into the secondary operand temp. Then pop the LEFT
+;              operand's two low extension words off the stack into the FAC extension cells $0CAF and $0CAD (the
+;              low 4 bytes of the 8-byte double FAC), and fall through to load the left operand's high
+;              mantissa/sign and dispatch the double band.
+; ----------------------------------------------------------------------
+FRMEVL_OPC_DBL_SETUP:
+        ; Move the right double operand from the FAC into the secondary FP operand temp ($0CBA).
         CALL FP_ARG_TO_TEMP2
         POP HL
+        ; Pop the left double operand's two low extension words into the FAC's low double bytes ($0CAF/$0CB0 then $0CAD/$0CAE).
         LD (L_0CAF),HL
         POP HL
         LD (L_0CAD),HL
-FRMEVL_OPLOOP_17:
+; ----------------------------------------------------------------------
+; FRMEVL_OPC_DBL_LOADFAC (was FRMEVL_OPLOOP_17) -- load the left double operand's high mantissa into the FAC
+;   In:        Stack holds the left double operand's remaining high mantissa bytes; the FAC low extension words
+;              were already loaded by FRMEVL_OPC_DBL_SETUP (or this is entered from the left-was-single path).
+;   Out:       Falls into FRMEVL_OPC_DISPATCH_DBL with the full left operand assembled in the FAC.
+;   Clobbers:  B,C,D,E,H,L,F, the FAC.
+;   Algorithm: POP BC / POP DE recover the left operand's high mantissa/sign bytes and FP_STORE_FAC writes DE
+;              into the FAC mantissa-low ($0CB1) and BC into FACHI ($0CB3), completing the LEFT double operand
+;              in the FAC.
+; ----------------------------------------------------------------------
+FRMEVL_OPC_DBL_LOADFAC:
+        ; Recover the left operand's high mantissa/sign bytes (BC,DE) from the stack.
         POP BC
         POP DE
+        ; Write DE->FAC mantissa-low and BC->FACHI, completing the left operand in the FAC.
         CALL FP_STORE_FAC
-FRMEVL_OPLOOP_18:
+; ----------------------------------------------------------------------
+; FRMEVL_OPC_DISPATCH_DBL (was FRMEVL_OPLOOP_18) -- dispatch a two-double operation through the double band
+;   In:        Left double operand in the FAC, right double operand in the secondary FP temp ($0CBA); the
+;              operator index lives in CRUNCH_LITERAL_MODE.
+;   Out:       JP (HL) to the double operator handler (DADD/DP_NEGATE_SIGN/DMUL/DDIV/DCOMP_REL).
+;   Clobbers:  A,H,L,F (then the handler).
+;   Algorithm: CALL FN_CDBL guarantees the FAC is double, then load HL = OPERATOR_ROUTINE_TBL+OP_BAND_DBL ($0503)
+;              and fall into the shared band dispatcher FRMEVL_OPC_BAND_DISPATCH.
+; ----------------------------------------------------------------------
+FRMEVL_OPC_DISPATCH_DBL:
+        ; Ensure the FAC (left operand) is double precision before the double handler runs.
         CALL FN_CDBL
+        ; Select the double operator band ($0503: DADD,DP_NEGATE_SIGN,DMUL,DDIV,DCOMP_REL).
         LD HL,OPERATOR_ROUTINE_TBL+OP_BAND_DBL
-FRMEVL_OPLOOP_19:
+; ----------------------------------------------------------------------
+; FRMEVL_OPC_BAND_DISPATCH (was FRMEVL_OPLOOP_19) -- index a band of OPERATOR_ROUTINE_TBL and jump to the handler
+;   In:        HL = the chosen band base (OP_BAND_SNG/DBL entry of OPERATOR_ROUTINE_TBL); CRUNCH_LITERAL_MODE =
+;              operator routine index. Operands already staged in the FAC and the secondary temp.
+;   Out:       JP (HL) into the selected DEFW handler; never returns here.
+;   Clobbers:  A,H,L,F.
+;   Algorithm: Reload the operator index, RLCA to get 2*index, add it to HL (8-bit add into L with carry
+;              propagated into H via the ADD A,L / LD L,A / ADC A,H / SUB L / LD H,A idiom), then load the
+;              16-bit handler address from that DEFW slot into HL and JP (HL). Shared by the single and double
+;              bands (the integer band uses its own PUSH/RET dispatcher in FRMEVL_OPC_DISPATCH_INT).
+; ----------------------------------------------------------------------
+FRMEVL_OPC_BAND_DISPATCH:
+        ; Reload the operator routine index (saved by FRMEVL_OPCOMBINE).
         LD A,(CRUNCH_LITERAL_MODE)
+        ; Double it to a byte offset into the band (each entry is a 2-byte DEFW).
         RLCA
+        ; Add the offset to the band base HL; the ADC A,H / SUB L sequence propagates the carry into H.
         ADD A,L
         LD L,A
         ADC A,H
         SUB L
         LD H,A
+        ; Load the 16-bit handler address from the DEFW slot, then JP (HL).
         LD A,(HL)
         INC HL
         LD H,(HL)
         LD L,A
         JP (HL)
-FRMEVL_OPLOOP_20:
+; ----------------------------------------------------------------------
+; FRMEVL_OPC_WIDEN_LEFT_DBL (was FRMEVL_OPLOOP_20) -- widen the left operand to double when only the right is double
+;   In:        Right operand is double in the FAC; left operand (narrower: int or single) is on the stack with
+;              its type byte. B = left VALTYP, C = operator index on entry (but see below).
+;   Out:       Joins the double dispatch path: if the left was single, into FRMEVL_OPC_DBL_LOADFAC (reusing the
+;              staged right operand); otherwise loads the left integer into the FAC and falls into FRMEVL_OPC_
+;              DISPATCH_DBL (whose FN_CDBL widens it to double).
+;   Clobbers:  A,B,C,D,E,H,L,F, the FAC, VALTYP, the secondary FP temp.
+;   Algorithm: Stash the right double operand into the secondary temp (FP_ARG_TO_TEMP2). PUSH BC / POP AF
+;              recovers the LEFT operand's type byte (old B) into A and sets VALTYP from it (the operator index
+;              in old C is dropped into F here -- it survives only because OPCOMBINE already saved it in CRUNCH_
+;              LITERAL_MODE). If the left was already single ($04) the staged operand suffices, so branch to the
+;              high-mantissa load; otherwise the left is a 16-bit integer -- load it into the FAC and fall through,
+;              where FN_CDBL widens it to double.
+; ----------------------------------------------------------------------
+FRMEVL_OPC_WIDEN_LEFT_DBL:
         PUSH BC
+        ; Stash the right double operand into the secondary FP temp before rebuilding the left operand in the FAC.
         CALL FP_ARG_TO_TEMP2
+        ; Recover the left operand's type byte (pushed as B) into A and set it as the current VALTYP; the operator index (old C) is discarded here, having already been saved in CRUNCH_LITERAL_MODE.
         POP AF
         LD (VALTYP),A
         CP VT_SNG
-        JR Z,FRMEVL_OPLOOP_17
+        ; Left was already single: its mantissa words are still staged, so join the high-mantissa load.
+        JR Z,FRMEVL_OPC_DBL_LOADFAC
         POP HL
+        ; Left was a 16-bit integer: load it into the FAC and fall into the double dispatch (FN_CDBL widens it).
         LD (FAC),HL
-        JR FRMEVL_OPLOOP_18
-; [RE] FRMEVL operator-apply coercion (mis-split as DEFB, real code reached from FRMEVL_OPCOMBINE $3B76 when operand-type B==$04): CALL FN_CINT to force the operand to integer, then fall into FRMEVL_OP_POP_FRAME
-FRMEVL_OP_COERCE_INT:
+        JR FRMEVL_OPC_DISPATCH_DBL
+; ----------------------------------------------------------------------
+; FRMEVL_OPC_WIDEN_RIGHT_SNG (was FRMEVL_OP_COERCE_INT) -- widen the right operand to single, then dispatch single
+;   In:        Right operand in the FAC (narrower than single: integer); the left single operand is on the stack.
+;              Reached from the promotion tree when the LEFT operand is single ($04).
+;   Out:       Falls into FRMEVL_OPC_DISPATCH_SNG (pops the left single operand and dispatches the single band).
+;   Clobbers:  A,B,C,D,E,H,L,F, the FAC.
+;   Algorithm: CALL FN_CSNG promotes the FAC (right operand) up to single precision, then falls through to the
+;              single-precision dispatch tail.
+;   Note:      The prior label/comment ('coerce to INT', CALL FN_CINT) was WRONG -- the bytes at $3BC9 are
+;              CD EE 4F = CALL FN_CSNG ($4FEE), the single-precision conversion. This is the single-widen path.
+; ----------------------------------------------------------------------
+FRMEVL_OPC_WIDEN_RIGHT_SNG:
+        ; Promote the right operand (in the FAC) up to single precision to match the single left operand.
         CALL FN_CSNG
-; [RE] FRMEVL operator-apply (mis-split DEFB code, target of JP Z at $3B63 for string type): POP BC / POP DE to recover the operator/operand frame, then fall into FRMEVL_OP_DISPATCH_REL
-FRMEVL_OP_POP_FRAME:
+; ----------------------------------------------------------------------
+; FRMEVL_OPC_DISPATCH_SNG (was FRMEVL_OP_POP_FRAME) -- recover the left single operand and dispatch the single band
+;   In:        Left single operand pushed on the stack as two register pairs; right single operand in the FAC.
+;              Entered directly from FRMEVL_OPCOMBINE when BOTH operands are single, or by fall-through after the
+;              right operand was widened to single.
+;   Out:       Falls into FRMEVL_OPC_SNG_BAND, which selects the single band and dispatches.
+;   Clobbers:  B,C,D,E.
+;   Algorithm: POP BC / POP DE recover the left single operand into BC,DE (the FP register operand the single
+;              handlers expect alongside the FAC), then fall through to load the single band base.
+; ----------------------------------------------------------------------
+FRMEVL_OPC_DISPATCH_SNG:
+        ; Recover the left single operand into BC/DE (the register operand the single-precision handlers take alongside the FAC).
         POP BC
         POP DE
-; [RE] FRMEVL operator-apply tail (mis-split DEFB code): LD HL,$050D (relational/string-op handler vector base) then JR back into the operator-result combine loop at ~$3BA9 to dispatch the pending operator
-FRMEVL_OP_DISPATCH_REL:
+; ----------------------------------------------------------------------
+; FRMEVL_OPC_SNG_BAND (was FRMEVL_OP_DISPATCH_REL) -- select the single-precision operator band and dispatch
+;   In:        Both operands staged for a single-precision op (left in BC/DE, right in the FAC); operator index
+;              in CRUNCH_LITERAL_MODE.
+;   Out:       Branches into FRMEVL_OPC_BAND_DISPATCH, which JP (HL)s to FADD_ALIGN/FSUB/FMUL/FDIV/FCOMP.
+;   Clobbers:  H,L.
+;   Algorithm: Load HL = OPERATOR_ROUTINE_TBL+OP_BAND_SNG ($050D, the single-precision band) and jump to the
+;              shared band dispatcher.
+;   Note:      Prior comment ('relational/string handler vector $050D') was WRONG. $050D = OP_BAND_SNG, the
+;              single-precision arithmetic band (FADD_ALIGN,FSUB,FMUL,FDIV,FCOMP); the relational op is just the
+;              compare slot (FCOMP) within it, not a separate string vector.
+; ----------------------------------------------------------------------
+FRMEVL_OPC_SNG_BAND:
+        ; Select the single-precision operator band ($050D: FADD_ALIGN,FSUB,FMUL,FDIV,FCOMP).
         LD HL,OPERATOR_ROUTINE_TBL+OP_BAND_SNG
-        JR FRMEVL_OPLOOP_19
-FRMEVL_OP_COERCE_INT_3:
+        JR FRMEVL_OPC_BAND_DISPATCH
+; ----------------------------------------------------------------------
+; FRMEVL_OPC_WIDEN_LEFT_SNG (was FRMEVL_OP_COERCE_INT_3) -- widen the integer left operand to single, dispatch single
+;   In:        Right operand is single in the FAC; left operand is a 16-bit integer pushed on the stack. Reached
+;              when the right is single and the left is integer.
+;   Out:       Branches to FRMEVL_OPC_SNG_BAND for single-precision dispatch, with the widened LEFT operand in
+;              registers (E,D,C,B from FP_LOAD_FAC) and the original RIGHT operand restored in the FAC.
+;   Clobbers:  A,B,C,D,E,H,L,F, the FAC, FACHI.
+;   Algorithm: POP the integer left operand into HL, FAC_PUSH saves the current single FAC (the RIGHT operand)
+;              on the stack, INT_TO_SINGLE_HL converts the integer to single in the FAC, FP_LOAD_FAC loads that
+;              widened LEFT single into the E,D,C,B registers, then POP/POP restore the saved RIGHT operand back
+;              into FACHI ($0CB3) and FAC ($0CB1), and JR to the single-band dispatch.
+;   Note:      Mislabeled '..._INT': this is an integer->SINGLE widen of the LEFT operand, not an integer coerce.
+; ----------------------------------------------------------------------
+FRMEVL_OPC_WIDEN_LEFT_SNG:
+        ; Recover the integer left operand from the stack.
         POP HL
+        ; Save the single right operand (currently in the FAC) on the stack while the left integer is converted.
         CALL FAC_PUSH
+        ; Convert the 16-bit integer left operand in HL to single precision in the FAC.
         CALL INT_TO_SINGLE_HL
         CALL FP_LOAD_FAC
         POP HL
+        ; Restore the saved single right operand back into the FAC (FACHI then FAC); the widened left operand stays in the E,D,C,B registers loaded by FP_LOAD_FAC.
         LD (FACHI),HL
         POP HL
         LD (FAC),HL
-        JR FRMEVL_OP_DISPATCH_REL
-; [RE] Integer-division operator handler (OPERATOR_ROUTINE_TBL integer-divide slot $051D): promote both integer operands to single precision and tail-call FDIV -- MS BASIC '/' always yields a float.
+        JR FRMEVL_OPC_SNG_BAND
+; ----------------------------------------------------------------------
+; IDIV -- integer-band slot for '/' division: promote both integer operands to single and divide as floats
+;   In:        DE = left integer operand, HL = right integer operand, as set by the integer dispatcher FRMEVL_
+;              OPC_DISPATCH_INT (POP DE = left, LD HL,(FAC) = right). Reached only as the integer band's divide
+;              slot ($051D).
+;   Out:       Tail-jumps to FDIV_BY_TEN_1 (the FDIV pop-and-divide entry); the result is a single-precision
+;              float in the FAC. VALTYP is set to single by the conversion path.
+;   Clobbers:  A,B,C,D,E,H,L,F, the FAC.
+;   Algorithm: '/' in MS BASIC always yields a float even on two integers. PUSH HL saves the right operand;
+;              EX DE,HL moves the LEFT operand into HL and INT_TO_SINGLE_HL converts the LEFT operand to single
+;              in the FAC; FAC_PUSH then pushes that LEFT single (the dividend). POP HL restores the RIGHT
+;              operand and a second INT_TO_SINGLE_HL converts the RIGHT operand to single in the FAC (the
+;              divisor). JP FDIV_BY_TEN_1 pops the pushed dividend into BC/DE and FDIV computes popped/FAC =
+;              left/right -> single-precision quotient.
+;   Note:      The two INT_TO_SINGLE_HL calls convert the LEFT operand first (then the RIGHT), opposite to a
+;              prior gloss; after EX DE,HL the first call operates on the LEFT operand.
+; ----------------------------------------------------------------------
 IDIV:
         PUSH HL
         EX DE,HL
+        ; Convert the LEFT integer operand (moved into HL by EX DE,HL) to single precision in the FAC -- this is the dividend.
         CALL INT_TO_SINGLE_HL
         POP HL
+        ; Push the LEFT single (dividend) aside; HL is then restored to the RIGHT operand for conversion to the divisor.
         CALL FAC_PUSH
         CALL INT_TO_SINGLE_HL
+        ; FAC now holds the RIGHT single (divisor); the FDIV pop entry recovers the pushed dividend and computes left/right -> single quotient.
         JP FDIV_BY_TEN_1
-; [RE] EVAL: fetch one operand/factor for FRMEVL. Parses a numeric constant (-> $5F35 number scan), a parenthesized sub-expression, a string literal ($22), a variable reference, unary NOT ($E2)/minus, the FN call token ($E1), and the built-in function tokens (SCRN $CD/$EC/$ED, COLOR $D3, USR $E9, etc.) by dispatching to their FN_ handlers.
+; ----------------------------------------------------------------------
+; EVAL fetch one operand. [FIX] $FF=extended-function-token escape -> FUNC_DISPATCH_TBL, NOT radix; ampersand $26=radix path.
+; ----------------------------------------------------------------------
 FRMEVL_EVAL_OPERAND:
         CALL CHRGET
         JP Z,RAISE_MISSING_OPERAND
@@ -4256,7 +4641,7 @@ FRMEVL_EVAL_OPERAND:
         CP $20
         JP C,CHRGOT_CONST_VALUE
         INC A
-        JP Z,SCAN_AMP_RADIX_CONST_7
+        JP Z,FRMEVL_FUNC_TOKEN
         DEC A
         CP TOK_PLUS
         JR Z,FRMEVL_EVAL_OPERAND
@@ -4265,7 +4650,7 @@ FRMEVL_EVAL_OPERAND:
         CP $22
         JP Z,SCAN_STR_QUOTE
         CP TOK_NOT
-        JP Z,FRMEVL_SCAN_UNARY_2
+        JP Z,FRMEVL_NOT
         CP $26
         JP Z,SCAN_AMP_RADIX_CONST
         CP $E6
@@ -4276,6 +4661,9 @@ FRMEVL_EVAL_OPERAND:
         CALL FP_LOAD_INT_TO_FAC
         POP HL
         RET
+; ----------------------------------------------------------------------
+; ERL floats ERR_SAVTXT($0B60). [FIX/UNKNOWN] $0B60 is a saved TEXT POINTER, NOT the line number (that is ERRLIN $0B62).
+; ----------------------------------------------------------------------
 FRMEVL_EVAL_OPERAND_1:
         CP $E5
         JR NZ,FRMEVL_EVAL_OPERAND_2
@@ -4285,6 +4673,9 @@ FRMEVL_EVAL_OPERAND_1:
         CALL INT_TO_SNG
         POP HL
         RET
+; ----------------------------------------------------------------------
+; VARPTR head: SYNCHR '('; '#'($23)->#n via FCB_BUFFER_PTR then _4; else var->_3 (PTRGET).
+; ----------------------------------------------------------------------
 FRMEVL_EVAL_OPERAND_2:
         CP $EB
         JR NZ,FRMEVL_EVAL_OPERAND_5
@@ -4298,8 +4689,14 @@ FRMEVL_EVAL_OPERAND_2:
         CALL FCB_BUFFER_PTR
         POP HL
         JP FRMEVL_EVAL_OPERAND_4
+; ----------------------------------------------------------------------
+; VARPTR(var): PTRGET (PTRGET_1+1, XOR A=scalar-ref/non-DIM, not no-create) returns the data addr in DE.
+; ----------------------------------------------------------------------
 FRMEVL_EVAL_OPERAND_3:
         CALL PTRGET_1+1
+; ----------------------------------------------------------------------
+; VARPTR tail: SYNCHR ')'; 0 addr->ERROR_FC; else FP_STORE_FAC_INT stores the address as an integer FAC.
+; ----------------------------------------------------------------------
 FRMEVL_EVAL_OPERAND_4:
         CALL SYNCHR
         DEFB    ')'                      ; inline char arg consumed by the preceding CALL
@@ -4311,6 +4708,9 @@ FRMEVL_EVAL_OPERAND_4:
         CALL FP_STORE_FAC_INT
         POP HL
         RET
+; ----------------------------------------------------------------------
+; fn tokens: USR INSTR COLOR$CD(plot-color not SCRN) HCOLOR SCRN HSCRN INKEY$ STRING$ INPUT$ FN; none->FRMEVL_PAREN.
+; ----------------------------------------------------------------------
 FRMEVL_EVAL_OPERAND_5:
         CP $E1
         JP Z,FP_LOAD_INT_TO_FAC_2
@@ -4340,23 +4740,37 @@ FRMEVL_EVAL_OPERAND_5:
         JP Z,FN_INPUT_DOLLAR
         CP TOK_FN
         JP Z,STMT_DEF_2
-; [RE] Evaluate a parenthesised expression / get a 16-bit integer argument: calls FRMEVL then converts the FAC to an integer in DE (ADD HL,HL). Used by functions and subscript evaluation.
+; ----------------------------------------------------------------------
+; paren subexpr: FRMEVL + SYNCHR ')'. Pre-existing 'ADD HL,HL FAC->integer' source comment is WRONG.
+; ----------------------------------------------------------------------
 FRMEVL_PAREN:
         CALL FRMEVL
         CALL SYNCHR
         DEFB    ')'                      ; inline char arg consumed by the preceding CALL
         RET
+; ----------------------------------------------------------------------
+; unary minus: D=$7D, FRMEVL_OPLOOP, reload FRMEVL_TXTPTR_TEMP($0B69), FP_NEGATE_CHECKED; exit via _2.
+; ----------------------------------------------------------------------
 FRMEVL_PAREN_1:
         LD D,$7D
         CALL FRMEVL_OPLOOP
         LD HL,(FRMEVL_TXTPTR_TEMP)
         PUSH HL
         CALL FP_NEGATE_CHECKED
+; ----------------------------------------------------------------------
+; common exit: POP HL; RET. Shared by _1 and the extended-function dispatch path.
+; ----------------------------------------------------------------------
 FRMEVL_PAREN_2:
         POP HL
         RET
+; ----------------------------------------------------------------------
+; variable-ref: PTRGET (PTRGET_1+1, XOR A) returns the data addr in DE and writes VALTYP; falls into _4.
+; ----------------------------------------------------------------------
 FRMEVL_PAREN_3:
         CALL PTRGET_1+1
+; ----------------------------------------------------------------------
+; load var into FAC: store addr into FAC($0CB1); FRMEVL_TEST_TYPE Z=string keeps the ptr, NZ=FP_ARG_SETUP1 copies the value.
+; ----------------------------------------------------------------------
 FRMEVL_PAREN_4:
         PUSH HL
         EX DE,HL
@@ -4392,19 +4806,36 @@ TOUPPER_A:
         ; In a-z: clear bit 5 ($20) to fold lowercase to uppercase.
         AND $5F
         RET
-; [RE] Two-way operand guard: if the current char is '&' ($26) fall into the &H/&O radix-constant scanner, else JP LINGET to parse a decimal line number.
+; ----------------------------------------------------------------------
+; LINGET_OR_AMP -- dispatch on '&': scan a radix literal, else parse a decimal line number
+;   In:        A = current source character (already fetched by the caller); HL -> that char in the BASIC text
+;   Out:       Falls through to SCAN_AMP_RADIX_CONST when A=='&' ($26); otherwise tail-jumps to LINGET (decimal line-number parser). Result delivered by whichever path runs.
+;   Clobbers:  F (the CP); otherwise per the path taken.
+;   Algorithm: One-byte guard. If the lookahead char is '&' ($26) drop into the &H/&O radix-constant scanner; any other char means the operand is a plain decimal line number, so JP LINGET. Lets line-number contexts (GOTO/GOSUB target lists) also accept an &H/&O constant.
+; ----------------------------------------------------------------------
 LINGET_OR_AMP:
+        ; '&' introduces an &H/&O radix literal; anything else is a decimal line number.
         CP $26
         JP NZ,LINGET
-; [RE] '&' radix-literal scanner (FRMEVL reaches it at $3C24 on token $26): parses &H<hex> (ADD HL,HL x4 + nibble) and &O<octal> (ADD HL,HL x3 + digit) into HL, stores as an integer in the FAC via FP_STORE_FAC_INT; Overflow (E=$06,$0D81) on too many digits, Syntax ($0D6F) on a bad octal digit
+; ----------------------------------------------------------------------
+; SCAN_AMP_RADIX_CONST -- parse an &H<hex> or &O<octal> integer literal into the FAC
+;   In:        HL -> the '&' in the source text (CHRGET advances past it). Reached from FRMEVL_EVAL_OPERAND ($3C24) on token $26 and by fall-through from LINGET_OR_AMP.
+;   Out:       16-bit value stored in the FAC as a VT_INT integer (via FP_STORE_FAC_INT); HL advanced past the literal. RET to caller.
+;   Clobbers:  A, BC, DE, HL, F. The running accumulator lives in DE BETWEEN digit iterations and is swapped into HL (EX DE,HL) for each shift-and-add.
+;   Algorithm: CHRGET the radix letter and upcase it. 'O' selects the octal path (SCAN_AMP_RADIX_CONST_5); 'H' selects the hex path (digit-count guard B=5, loop _1.._3). Any other letter defaults to octal with the radix char un-consumed (DEC HL at _4, so it is re-read as the first digit). Hex accumulates value = value*16 + nibble (ADD HL,HL x4) up to 4 hex digits; octal accumulates value*8 + digit (ADD HL,HL x3). Overflow past the field width raises Overflow; an octal digit >= '8' raises Syntax error. The value is converted to a FAC integer at _6.
+; ----------------------------------------------------------------------
 SCAN_AMP_RADIX_CONST:
+        ; DE = running accumulator (zero); the value lives in DE between digits and is swapped into HL for each shift-and-add.
         LD DE,$0000
         CALL CHRGET
         CALL TOUPPER_A
+        ; 'O' -> octal scanner.
         CP $4F
         JR Z,SCAN_AMP_RADIX_CONST_5
+        ; 'H' -> hex scanner; any other letter defaults to octal with the char pushed back (DEC HL at _4).
         CP $48
         JR NZ,SCAN_AMP_RADIX_CONST_4
+        ; Hex digit-count guard: at most 4 nibbles fit in 16 bits, so a 5th decrements B to zero -> Overflow.
         LD B,$05
 SCAN_AMP_RADIX_CONST_1:
         INC HL
@@ -4435,12 +4866,21 @@ SCAN_AMP_RADIX_CONST_3:
         JR SCAN_AMP_RADIX_CONST_1
 SCAN_AMP_RADIX_CONST_4:
         DEC HL
+; ----------------------------------------------------------------------
+; SCAN_AMP_RADIX_CONST_5 -- octal-literal accumulation loop (value = value*8 + digit)
+;   In:        DE = running 16-bit accumulator; HL -> next source char (radix char already positioned).
+;   Out:       On a non-digit char: leaves the assembled value in HL (via EX DE,HL) and branches to _6 to store it. Otherwise loops.
+;   Clobbers:  A, BC, DE, HL, F.
+;   Algorithm: CHRGET the next char; EX DE,HL (value into HL); CHRGET returned carry-clear iff the char is not an ASCII digit, which ends the literal (JR NC to _6). A digit >= '8' is illegal octal -> Syntax error. Otherwise shift the value in HL left by 3 (ADD HL,HL x3) with carry-out checked after each shift (RET C -> the pushed RAISE_OVERFLOW), then add digit-'0' (in C) and EX DE,HL back before looping.
+; ----------------------------------------------------------------------
 SCAN_AMP_RADIX_CONST_5:
         CALL CHRGET
         EX DE,HL
         JR NC,SCAN_AMP_RADIX_CONST_6
+        ; Digit '8' or '9' is not a valid octal digit -> Syntax error.
         CP $38
         JP NC,RAISE_SYNTAX_ERROR
+        ; Arm RAISE_OVERFLOW as the return target so the three RET C shift-overflow checks raise Overflow with no explicit branch each.
         LD BC,RAISE_OVERFLOW
         PUSH BC
         ADD HL,HL
@@ -4456,31 +4896,59 @@ SCAN_AMP_RADIX_CONST_5:
         ADD HL,BC
         EX DE,HL
         JR SCAN_AMP_RADIX_CONST_5
+; ----------------------------------------------------------------------
+; SCAN_AMP_RADIX_CONST_6 -- store the scanned radix value into the FAC and return
+;   In:        HL = the assembled 16-bit value (every path EX DE,HL's the accumulator into HL before branching here); DE = the saved source text pointer (first char past the literal).
+;   Out:       FAC holds the value as a VT_INT integer; HL = source pointer past the literal (restored from DE). RET.
+;   Clobbers:  A, DE, HL, F.
+;   Algorithm: CALL FP_STORE_FAC_INT first -- it does LD (FAC),HL, so HL must already hold the value -- then EX DE,HL swaps the saved text pointer (in DE) back into HL for the caller, and RET. NOTE: the EX DE,HL is AFTER the store (to recover the text pointer), not before it; the value is never in DE here.
+; ----------------------------------------------------------------------
 SCAN_AMP_RADIX_CONST_6:
         CALL FP_STORE_FAC_INT
         EX DE,HL
         RET
-SCAN_AMP_RADIX_CONST_7:
+; ----------------------------------------------------------------------
+; FRMEVL_FUNC_TOKEN -- FRMEVL handler for an extended function token (the $FF escape); NOT part of the &H/&O scanner
+;   In:        Entered from FRMEVL_EVAL_OPERAND at $3C0A when the current source char is $FF (the function-escape token): the code does INC A (A=$FF -> $00), JP Z,_7. So on entry A=$00 (the INC A result, immediately overwritten); HL -> the $FF byte.
+;   Out:       Tail-dispatches to the function's handler via the FUNC_DISPATCH_TBL vector (jumps, does not return here). For RND with no '(' it diverts to the RND-no-argument entry ($5D89).
+;   Clobbers:  A, BC, HL, F (and FAC/stack via the argument evaluation in the sub-paths).
+;   Algorithm: Step past the $FF escape (INC HL; LD A,(HL)) to read the function sub-token and form index = sub-token - $81. Special-case index 7 (= FUNC_DISPATCH_TBL slot 7 = RND): peek the next char via CHRGET; if it is not '(' this is RND with no argument so JP to the RND-no-arg path; if '(' force A=index 7 and continue. Fall into FRMEVL_FUNC_TOKEN_1 to dispatch.
+;   [RE] The $FF-then-byte scheme is the MS BASIC-80 extended-function token path. UNKNOWN: the full sub-token -> table-slot mapping is fixed by the tokenizer; only the RND index (7) is special-cased in code here.
+; ----------------------------------------------------------------------
+FRMEVL_FUNC_TOKEN:
+        ; Step past the $FF function-escape byte to the function sub-token.
         INC HL
         LD A,(HL)
+        ; Function sub-tokens start at $81; subtract to get the 0-based FUNC_DISPATCH_TBL index.
         SUB $81
+        ; Index 7 is RND, the only function allowing the no-argument form RND with no parens.
         CP $07
-        JR NZ,SCAN_AMP_RADIX_CONST_8
+        JR NZ,FRMEVL_FUNC_TOKEN_1
         PUSH HL
         CALL CHRGET
         CP $28
         POP HL
+        ; [RE] RND with no '(': divert to the RND-no-argument entry ($5D89), which CHRGETs, loads a default arg, and calls FN_RND -- POLY_EVAL_2 is a mislabel of that entry.
         JP NZ,POLY_EVAL_2
         LD A,$07
-SCAN_AMP_RADIX_CONST_8:
+; ----------------------------------------------------------------------
+; FRMEVL_FUNC_TOKEN_1 -- build the dispatch index and evaluate the function argument list
+;   In:        A = function table index (0-based; 7 forced for RND-with-parens); HL -> the function token.
+;   Out:       For the multi-argument string functions (raw indices 0,1,2) both arguments are evaluated and staged on the stack, then JR to the dispatch tail (_11) with HL=doubled index; otherwise control passes to FRMEVL_FUNC_ARG_PAREN for the single-(arg) form.
+;   Clobbers:  A, BC, DE, HL, F, FAC, stack.
+;   Algorithm: Double the index into a byte offset (RLCA) and save it (PUSH BC, B=0). CHRGET past the function token. If the doubled index (in C) < $05 (raw index 0,1,2) evaluate the first argument with FRMEVL, require ',' via SYNCHR, integer-check it (FP_INT_CHECK), juggle it onto the stack, GETBYT the second argument, recover the doubled index into HL via EX (SP),HL, and JR to _11. Doubled index >= $05 (raw index >= 3) takes the single-(arg) path at FRMEVL_FUNC_ARG_PAREN.
+; ----------------------------------------------------------------------
+FRMEVL_FUNC_TOKEN_1:
         LD B,$00
+        ; Double the index to a 2-byte (DEFW) offset into FUNC_DISPATCH_TBL.
         RLCA
         LD C,A
         PUSH BC
         CALL CHRGET
         LD A,C
+        ; Doubled index < 5 (raw 0,1,2) = multi-argument string functions (STR_SUBSTR/LEFT$/RIGHT$); otherwise a single parenthesised argument.
         CP $05
-        JP NC,SCAN_AMP_RADIX_CONST_9
+        JP NC,FRMEVL_FUNC_ARG_PAREN
         CALL FRMEVL
         CALL SYNCHR
         DEFB    ','                      ; inline char arg consumed by the preceding CALL
@@ -4493,58 +4961,120 @@ SCAN_AMP_RADIX_CONST_8:
         CALL GETBYT
         EX DE,HL
         EX (SP),HL
-        JR SCAN_AMP_RADIX_CONST_11
-SCAN_AMP_RADIX_CONST_9:
+        JR FRMEVL_FUNC_DISPATCH
+; ----------------------------------------------------------------------
+; FRMEVL_FUNC_ARG_PAREN -- evaluate a single parenthesised function argument
+;   In:        Doubled dispatch index on the stack; HL -> '(' of the argument; entered when the doubled index >= $05.
+;   Out:       Argument value left in the FAC (promoted to single precision when the index falls in the math band); falls into FRMEVL_FUNC_ARG_PROMOTE then the dispatch tail.
+;   Clobbers:  A, DE, HL, F, FAC, stack.
+;   Algorithm: FRMEVL_PAREN evaluates the (expr) and consumes the ')'. Recover the doubled index (EX (SP),HL) and inspect L (= index*2): if L < $0C skip coercion; if $0C <= L < $1B call FN_CSNG to coerce the argument to single precision. [RE] That $0C..$1B band is doubled raw indices 6-13 = SQR/RND/SIN/LOG/EXP/COS/TAN/ATN -- the transcendental functions whose handlers want a single-precision float argument (enumerated from FUNC_DISPATCH_TBL).
+; ----------------------------------------------------------------------
+FRMEVL_FUNC_ARG_PAREN:
+        ; Evaluate the parenthesised argument expression and consume the closing ')'.
         CALL FRMEVL_PAREN
         EX (SP),HL
         LD A,L
         CP $0C
-        JR C,SCAN_AMP_RADIX_CONST_10
+        JR C,FRMEVL_FUNC_ARG_PROMOTE
         CP $1B
         PUSH HL
+        ; [RE] Coerce the argument to single precision for the transcendental functions (raw indices 6-13: SQR/RND/SIN/LOG/EXP/COS/TAN/ATN).
         CALL C,FN_CSNG
         POP HL
-SCAN_AMP_RADIX_CONST_10:
+; ----------------------------------------------------------------------
+; FRMEVL_FUNC_ARG_PROMOTE -- arm the function return and mark function-eval in progress
+;   In:        Doubled dispatch index on the stack (with the saved text pointer below it); argument staged in the FAC.
+;   Out:       FRMEVL_PAREN_2 (POP HL; RET) pushed as the handler's return; L_0CB6 set to 1; falls into FRMEVL_FUNC_DISPATCH.
+;   Clobbers:  A, DE, F.
+;   Algorithm: Push FRMEVL_PAREN_2 so the function handler, when it RETs, pops the saved text pointer and returns through it. Set L_0CB6 = 1. [RE] L_0CB6 here is the FRMEVL function-evaluation-in-progress flag (cleared to 0 by XOR A; LD (L_0CB6),A at FRMEVL_OPLOOP $3A82). DUAL-USE CAVEAT: GFX_CLR_REVERSE_FLAG ($4539) treats the same cell $0CB6 as a screen reverse/INVERSE flag; the two uses are NOT reconciled, so the label is left unrenamed.
+; ----------------------------------------------------------------------
+FRMEVL_FUNC_ARG_PROMOTE:
+        ; Arm FRMEVL_PAREN_2 (POP HL; RET) as the function handler's return path; its POP HL recovers the saved text pointer.
         LD DE,FRMEVL_PAREN_2
         PUSH DE
         LD A,$01
+        ; [RE] Flag that a function argument is being evaluated (cleared at FRMEVL_OPLOOP $3A82). NOTE $0CB6 is also used as a screen-INVERSE flag elsewhere -- dual-use, unreconciled.
         LD (L_0CB6),A
-SCAN_AMP_RADIX_CONST_11:
+; ----------------------------------------------------------------------
+; FRMEVL_FUNC_DISPATCH -- jump to the selected function handler via FUNC_DISPATCH_TBL
+;   In:        HL = the 2-byte (DEFW) index offset for the function (= raw index * 2, recovered from the stack by the argument paths); arguments staged in the FAC/stack.
+;   Out:       Tail-jumps to the function's handler (via DISPATCH_VECTOR_HLBC). Does not return here.
+;   Clobbers:  BC, HL (then per the target handler).
+;   Algorithm: Load BC = FUNC_DISPATCH_TBL base and fall into DISPATCH_VECTOR_HLBC, which forms base + (index*2), loads the 16-bit handler address from that DEFW slot, and JP (HL). Because the index is already doubled, DISPATCH_VECTOR_HLBC's ADD HL,BC here just adds the pre-doubled offset to the base.
+; ----------------------------------------------------------------------
+FRMEVL_FUNC_DISPATCH:
+        ; BC = function vector-table base; the doubled index offset is already in HL.
         LD BC,FUNC_DISPATCH_TBL
-; [RE] Indexed vector dispatch: ADD HL,BC then load the 16-bit target from (HL) and JP (HL). Shared by the operator-function table ($04F9) and other token-dispatch sites.
+; ----------------------------------------------------------------------
+; DISPATCH_VECTOR_HLBC -- indexed vector dispatch: jump through a DEFW table slot
+;   In:        HL and BC such that HL+BC = the address of a 2-byte DEFW vector slot.
+;   Out:       Jumps to the 16-bit address stored at (HL+BC). Never returns here (control leaves via JP (HL)); a caller wanting a return either pushes one first or CALLs this routine.
+;   Clobbers:  HL, C (C reused to hold the target's low byte).
+;   Algorithm: ADD HL,BC to address the slot, read the little-endian target word (C=low byte, then H=high byte), set L=C so HL=target, JP (HL). Two callers split base/offset differently: FRMEVL_FUNC_DISPATCH passes BC=FUNC_DISPATCH_TBL base and HL=index*2 (pre-doubled); FRMEVL_APPLY_OP ($3FFF) passes HL=OPERATOR_ROUTINE_TBL+rawindex and BC=rawindex, so its ADD HL,BC adds rawindex a second time, effectively doubling the raw index. Either way HL+BC must equal the slot address.
+; ----------------------------------------------------------------------
 DISPATCH_VECTOR_HLBC:
+        ; Form the address of the DEFW vector slot (HL+BC).
         ADD HL,BC
         LD C,(HL)
         INC HL
         LD H,(HL)
         LD L,C
+        ; Jump to the handler address read from the slot.
         JP (HL)
-; [RE] Pre-scan a leading unary operator token: recognises NOT ($F3), unary minus ($2D)/$F2 and unary plus ($2B), toggling D; backs up (HL) one char when none match. Used when fetching a factor/operand.
-FRMEVL_SCAN_UNARY:
+; ----------------------------------------------------------------------
+; FIN_EXP_SIGN_SCAN -- consume an optional leading sign while scanning a number's exponent
+;   In:        A = current char (the char after the 'E'/'D' exponent marker in a numeric literal); D = exponent-sign accumulator (FIN_7 pre-loads it); HL -> that char.
+;   Out:       RET with D toggled per the sign: '-' (raw $2D or token TOK_MINUS $F3) leaves D decremented (sign flipped); '+' (raw $2B or token TOK_PLUS $F2) leaves D unchanged (the DEC/INC cancel). Neither sign -> DEC HL backs the pointer up so the caller re-reads the char as the first exponent digit, then RET. Z is set when a sign matched (incidental: the caller FIN_8 re-reads via CHRGET and does not consume this Z).
+;   Clobbers:  D, HL, F.
+;   Algorithm: Pre-decrement D, then test the two minus encodings (TOK_MINUS $F3, ASCII '-' $2D) -- a match RETs with the toggle applied. For plus, INC D undoes the pre-decrement before testing '+' ($2B) and TOK_PLUS ($F2). No match -> DEC HL (push the char back) and RET. [RE] Sole caller is the FIN number scanner's exponent handler (FIN_7 $551A, reached on 'D'/'d'/'E'); FIN_8 ($552A) does INC D / JR NZ then negates the exponent E when D wrapped to 0 -- so D's value here is the exponent sign. This is an exponent-sign scan, NOT a general unary-operator factor prescan.
+; ----------------------------------------------------------------------
+FIN_EXP_SIGN_SCAN:
+        ; Tentatively flip the exponent-sign accumulator; undone below for the '+' / no-sign cases.
         DEC D
         CP TOK_MINUS
         RET Z
         CP $2D
         RET Z
+        ; Cancel the tentative flip for the '+' / no-sign cases.
         INC D
         CP $2B
         RET Z
         CP TOK_PLUS
         RET Z
+        ; No sign present: back up so the caller re-reads this char as the first exponent digit.
         DEC HL
         RET
-FRMEVL_SCAN_UNARY_1:
+; ----------------------------------------------------------------------
+; FRMEVL_RELOP_RESULT -- turn a comparison's flags + relation mask into a BASIC truth value
+;   In:        A = ordering result of the just-applied numeric comparison (sign of left-right, one of $FF/$00/$01); the requested relation mask is on the stack (it was accumulated in D by FRMEVL_RELOP and pushed via PUSH DE in FRMEVL_ARITHOP, so POP BC recovers it into B).
+;   Out:       FAC = 0 (false) or -1 (true) as a VT_INT integer (via INT16_TO_FP); continues into FRMEVL_OPLOOP_2 via the shared tail _3.
+;   Clobbers:  A, BC, HL, F, FAC.
+;   Algorithm: This routine is pushed as a RETURN ADDRESS by FRMEVL_ARITHOP ($3B3F LD HL,this; PUSH HL) so the comparison kernel RETs into it. INC A then ADC A,A maps the ordering code into a small index; POP BC recovers the relation mask into B; AND B tests whether the requested relation holds; ADD $FF then SBC A,A folds non-zero -> $FF (true,-1) and zero -> $00 (false), which INT16_TO_FP stores as a 16-bit integer in the FAC. [RE] The exact bit assignment of the INC A;ADC A,A index is the canonical MS BASIC relational fold; the precise {LT,EQ,GT} bit positions were not pinned and are not load-bearing here.
+; ----------------------------------------------------------------------
+FRMEVL_RELOP_RESULT:
         INC A
         ADC A,A
+        ; Recover the requested relation mask into B (accumulated in D by FRMEVL_RELOP, pushed via PUSH DE).
         POP BC
+        ; Keep only the bit matching the actual ordering: non-zero iff the requested relation holds.
         AND B
         ADD A,$FF
+        ; Fold to BASIC truth: -1 (true) when the relation held, 0 (false) otherwise.
         SBC A,A
         CALL INT16_TO_FP
-        JR FRMEVL_SCAN_UNARY_3
-FRMEVL_SCAN_UNARY_2:
+        JR FRMEVL_RESULT_DONE
+; ----------------------------------------------------------------------
+; FRMEVL_NOT -- evaluate the NOT operator (bitwise one's-complement of an integer)
+;   In:        HL -> source just past the NOT token; entered from FRMEVL_EVAL_OPERAND ($3C1F) on token TOK_NOT ($E4).
+;   Out:       FAC = NOT(operand) as a VT_INT integer; continues into the operator loop via the shared tail _3 (JP FRMEVL_OPLOOP_2).
+;   Clobbers:  A, BC, D, HL, F, FAC.
+;   Algorithm: Set D = $5A (the binding precedence passed to FRMEVL_OPLOOP) and CALL FRMEVL_OPLOOP to evaluate the operand at that precedence. FN_CINT coerces it to a 16-bit integer in HL, both bytes are CPL'd (one's complement), the result is stored to the FAC (LD (FAC),HL; type stays integer from FN_CINT), POP BC discards the saved precedence frame, then fall into _3 -> JP FRMEVL_OPLOOP_2 to resume operator scanning. [RE] $5A read as NOT's operator precedence (the D byte FRMEVL_OPLOOP saves as 'pending-operator precedence').
+; ----------------------------------------------------------------------
+FRMEVL_NOT:
+        ; [RE] D = NOT's binding precedence; FRMEVL_OPLOOP evaluates the operand bound at this level.
         LD D,$5A
         CALL FRMEVL_OPLOOP
+        ; NOT operates on integers: coerce the operand to a 16-bit int before complementing.
         CALL FN_CINT
         LD A,L
         CPL
@@ -4554,26 +5084,50 @@ FRMEVL_SCAN_UNARY_2:
         LD H,A
         LD (FAC),HL
         POP BC
-FRMEVL_SCAN_UNARY_3:
+; ----------------------------------------------------------------------
+; FRMEVL_RESULT_DONE -- shared tail that resumes the operator loop after a NOT or relational result
+;   In:        Result already in the FAC; pending-operator frame restored.
+;   Out:       Jumps to FRMEVL_OPLOOP_2 to continue evaluating any following binary operators.
+;   Clobbers:  (none of its own).
+;   Algorithm: Single JP FRMEVL_OPLOOP_2 -- shared continuation reached BOTH from FRMEVL_NOT (fall-through) AND from FRMEVL_RELOP_RESULT (JR _3).
+; ----------------------------------------------------------------------
+FRMEVL_RESULT_DONE:
         JP FRMEVL_OPLOOP_2
-; [RE] VALTYP discriminator (canonical MS BASIC type test). Read the value-type byte $0B14 (VALTYP = storage width in bytes: 2=int, 3=string, 4=single, 8=double). CP $08 splits double (>=8 -> NC) from the rest; SUB $03 then makes Z when VALTYP=3 => returns Z iff STRING, sign(M) when integer (2-3=$FF), and SCF on the <8 path so callers can branch numeric-vs-string. Consumed by FN_CSNG/FN_CDBL/FN_CINT (M=int, Z=string).
+; ----------------------------------------------------------------------
+; FRMEVL_TEST_TYPE -- classify the current value's type from VALTYP and return it in the flags
+;   In:        VALTYP ($0B14) = storage width of the FAC value (VT_INT=2, VT_STR=3, VT_SNG=4, VT_DBL=8).
+;   Out:       Flags encode the type (verified byte-for-byte): Z set <=> string (VALTYP==3); carry set <=> VALTYP < 8 (i.e. NOT double, because the >=8 path's OR A clears carry and there is no SCF there); sign M set <=> integer (VALTYP==2, since 2-3=$FF). A = VALTYP-3.
+;   Clobbers:  A, F.
+;   Algorithm: Load VALTYP and CP $08 to split double (>= 8) from the rest. On the < 8 path: SUB $03 (int->$FF/M, string->$00/Z, single->$01/P), OR A to set S/Z, then SCF (carry SET unconditionally). On the >= 8 (double) path: the same SUB $03; OR A, but NO SCF, so OR A leaves carry CLEAR. Callers (FN_CSNG/FN_CDBL/FN_CINT, CRUNCH type split, PRINT type split) branch on Z for string and on carry for double-vs-rest.
+; ----------------------------------------------------------------------
 FRMEVL_TEST_TYPE:
         LD A,(VALTYP)
+        ; Split double precision (VALTYP>=8) from int/string/single.
         CP $08
         JR NC,FRMEVL_TEST_TYPE_1
         SUB $03
         OR A
         SCF
         RET
+; ----------------------------------------------------------------------
+; FRMEVL_TEST_TYPE_1 -- double-precision tail of the VALTYP type test (carry left clear)
+;   In:        A = VALTYP, reached (via JR NC) with VALTYP >= 8 (double).
+;   Out:       A = VALTYP-3 (=5 for VT_DBL); Z clear, sign positive, carry CLEAR -- the cleared carry signals 'this value is double precision'. RET.
+;   Clobbers:  A, F.
+;   Algorithm: SUB $03; OR A; RET. Identical arithmetic to the main path but WITHOUT the SCF, so OR A leaves carry clear and the double case is distinguished purely by carry-clear. Not an independent entry point (only the internal JR NC reaches it).
+; ----------------------------------------------------------------------
 FRMEVL_TEST_TYPE_1:
         SUB $03
         OR A
         RET
-; [RE] Integer-operands binary-operator handler (mis-split as DEFB, real code; set up by FRMEVL_OPLOOP_13 at $3B31 LD BC,$3DD8): pops operator token in A and the two integer operands (DE,HL), branches per token to integer add/sub/AND/OR/XOR/relational kernels, leaving the integer result in the FAC
+; ----------------------------------------------------------------------
+; FRMEVL_INT_OP_HANDLER -- integer binary-op kernel. In: B=dispatch; FAC=right operand; LEFT on stack. PUSH BC; FN_CINT->HL; POP AF->dispatch; POP DE->LEFT.
+; ----------------------------------------------------------------------
 FRMEVL_INT_OP_HANDLER:
         PUSH BC
         CALL FN_CINT
         POP AF
+        ; DE = left operand (pushed before recursing on the right operand)
         POP DE
         CP $7A
         JP Z,INT_DIV_ROUND
@@ -4582,34 +5136,43 @@ FRMEVL_INT_OP_HANDLER:
         LD BC,FP_LOAD_INT_TO_FAC_1
         PUSH BC
         CP $46
-        JR NZ,FRMEVL_TEST_TYPE_3
+        JR NZ,INT_OP_AND
         LD A,E
         OR L
         LD L,A
         LD A,H
         OR D
         RET
-FRMEVL_TEST_TYPE_3:
+; ----------------------------------------------------------------------
+; INT_OP_AND -- AND arm (50): L=E&L,A=H&D. MIS-NAMED.
+; ----------------------------------------------------------------------
+INT_OP_AND:
         CP $50
-        JR NZ,FRMEVL_TEST_TYPE_4
+        JR NZ,INT_OP_XOR
         LD A,E
         AND L
         LD L,A
         LD A,H
         AND D
         RET
-FRMEVL_TEST_TYPE_4:
+; ----------------------------------------------------------------------
+; INT_OP_XOR -- XOR arm (3C): L=E^L,A=H^D. MIS-NAMED.
+; ----------------------------------------------------------------------
+INT_OP_XOR:
         CP $3C
-        JR NZ,FRMEVL_TEST_TYPE_5
+        JR NZ,INT_OP_EQV
         LD A,E
         XOR L
         LD L,A
         LD A,H
         XOR D
         RET
-FRMEVL_TEST_TYPE_5:
+; ----------------------------------------------------------------------
+; INT_OP_EQV -- EQV arm (32): NOT(a XOR b). MIS-NAMED.
+; ----------------------------------------------------------------------
+INT_OP_EQV:
         CP $32
-        JR NZ,FRMEVL_TEST_TYPE_6
+        JR NZ,INT_OP_IMP
         LD A,E
         XOR L
         CPL
@@ -4618,7 +5181,10 @@ FRMEVL_TEST_TYPE_5:
         XOR D
         CPL
         RET
-FRMEVL_TEST_TYPE_6:
+; ----------------------------------------------------------------------
+; INT_OP_IMP -- IMP arm (28): (NOT a) OR b. MIS-NAMED.
+; ----------------------------------------------------------------------
+INT_OP_IMP:
         LD A,L
         CPL
         AND E
@@ -4629,7 +5195,9 @@ FRMEVL_TEST_TYPE_6:
         AND D
         CPL
         RET
-; [RE] 16-bit integer subtract (HL := HL - DE) then store the integer result into the FAC via FP_STORE (INT_TO_SNG).
+; ----------------------------------------------------------------------
+; FP_INT_SUB_TO_FAC -- subtract HL-DE then INT_TO_SNG. STANDALONE; caller FN_FRE (line 13375).
+; ----------------------------------------------------------------------
 FP_INT_SUB_TO_FAC:
         LD A,L
         SUB E
@@ -4915,7 +5483,9 @@ STMT_DEF_9:
         LD (L_0C64),A
         POP HL
         POP AF
-; [RE] Apply a binary operator: mask the operator code (AND $07), index the operator-routine vector table at $04F9, and jump via DISPATCH_VECTOR_HLBC, preserving HL across the call.
+; ----------------------------------------------------------------------
+; FRMEVL_APPLY_OP -- coerce FAC via OPERATOR_ROUTINE_TBL[A&7]; HL preserved.
+; ----------------------------------------------------------------------
 FRMEVL_APPLY_OP:
         PUSH HL
         AND $07
@@ -4926,7 +5496,10 @@ FRMEVL_APPLY_OP:
         CALL DISPATCH_VECTOR_HLBC
         POP HL
         RET
-FRMEVL_APPLY_OP_1:
+; ----------------------------------------------------------------------
+; BLOCK_COPY_DE_HL_LOOP -- loop body of BLOCK_COPY_DE_HL. MIS-NAMED.
+; ----------------------------------------------------------------------
+BLOCK_COPY_DE_HL_LOOP:
         LD A,(DE)
         LD (HL),A
         INC HL
@@ -4936,7 +5509,7 @@ FRMEVL_APPLY_OP_1:
 BLOCK_COPY_DE_HL:
         LD A,B
         OR C
-        JR NZ,FRMEVL_APPLY_OP_1
+        JR NZ,BLOCK_COPY_DE_HL_LOOP
         RET
 ; [RE] Variable-space overflow guard: if the free-space-remaining counter ($0844) has wrapped to 0, raise 'Out of memory' (E=$0C) via RAISE_ERROR. Called before allocating variable/array storage.
 CHECK_MEM_TOP:
@@ -8753,7 +9326,7 @@ FIN_7:
         OR A
         CALL FIN_TYPE_FIXUP
         CALL CHRGET
-        CALL FRMEVL_SCAN_UNARY
+        CALL FIN_EXP_SIGN_SCAN
 FIN_8:
         CALL CHRGET
         JP C,FIN_EXP_DIGIT
