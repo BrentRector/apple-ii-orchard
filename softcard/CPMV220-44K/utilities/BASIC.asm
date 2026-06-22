@@ -28,7 +28,7 @@
     ELSE
         JP COLD_START                    ; $0100  (MBASIC: runs in place, jump straight to cold start)
     ENDIF
-        DEFW    FN_LPOS                  ; $0103
+        DEFW    FN_CINT                  ; $0103
         DEFW    FP_STORE_FAC_INT         ; $0105
         DEFB    "\0"                     ; $0107
 ; [RE] CRUNCH keyword-detect flag-skip (NOT a dispatch-table ref). $30E9 LD BC,CRUNCH_16+1 / PUSH BC arms $311A (LD A,$01) as the return for the CP nn / RET Z chain (sets A=1 on a separator-implying token). Fall-through: $3118 XOR A (Z) makes $3119 C2 3E 01 (JP NZ,$013E) a dead branch into $311C LD ($0B16),A with A=0. The cover IS executed; $013E merely coincides with STMT_DISPATCH_TBL+54 (STMT_LLIST) and is never used as a pointer.
@@ -131,30 +131,30 @@ FUNC_DISPATCH_TBL:
         DEFW    FN_MID_STR               ; $01B8
         DEFW    FN_SGN                   ; $01BA
         DEFW    FN_INT                   ; $01BC
-        DEFW    FN_ABS                   ; $01BE
-        DEFW    FN_SQR                   ; $01C0
-        DEFW    FN_RND                   ; $01C2
-        DEFW    FN_SIN                   ; $01C4
-        DEFW    FN_LOG                   ; $01C6
-        DEFW    FN_EXP                   ; $01C8
-        DEFW    FN_COS                   ; $01CA
-        DEFW    FN_TAN                   ; $01CC
-        DEFW    FN_ATN                   ; $01CE
-        DEFW    FP_LOAD_COL_TO_FAC       ; $01D0
-        DEFW    FN_POS                   ; $01D2
-        DEFW    STR_FN_FINALIZE          ; $01D4
-        DEFW    STR_VAL_NULTERM          ; $01D6
-        DEFW    FN_VAL                   ; $01D8
-        DEFW    FN_ASC                   ; $01DA
-        DEFW    FN_CHR_STR               ; $01DC
-        DEFW    FN_PEEK                  ; $01DE
-        DEFW    FN_SPACE_STR             ; $01E0
-        DEFW    FN_OCT_STR               ; $01E2
-        DEFW    FN_HEX_STR               ; $01E4
-        DEFW    FN_LPOS                  ; $01E6
-        DEFW    FN_CINT                  ; $01E8
-        DEFW    FN_CSNG                  ; $01EA
-        DEFW    FN_CDBL                  ; $01EC
+        DEFW    FN_SQR                   ; $01BE
+        DEFW    FN_RND                   ; $01C0
+        DEFW    FN_SIN                   ; $01C2
+        DEFW    FN_LOG                   ; $01C4
+        DEFW    FN_EXP                   ; $01C6
+        DEFW    FN_COS                   ; $01C8
+        DEFW    FN_TAN                   ; $01CA
+        DEFW    FN_ATN                   ; $01CC
+        DEFW    FN_FRE                   ; $01CE
+        DEFW    FN_POS                   ; $01D0
+        DEFW    FN_LEN                   ; $01D2
+        DEFW    FN_STR                   ; $01D4
+        DEFW    FN_VAL                   ; $01D6
+        DEFW    FN_ASC                   ; $01D8
+        DEFW    FN_CHR                   ; $01DA
+        DEFW    FN_PEEK                  ; $01DC
+        DEFW    FN_SPACE                 ; $01DE
+        DEFW    FN_OCT_STR               ; $01E0
+        DEFW    FN_HEX_STR               ; $01E2
+        DEFW    FN_LPOS                  ; $01E4
+        DEFW    FN_CINT                  ; $01E6
+        DEFW    FN_CSNG                  ; $01E8
+        DEFW    FN_CDBL                  ; $01EA
+        DEFW    FN_FIX                   ; $01EC
         DEFW    $0000                    ; $01EE
         DEFW    $0000                    ; $01F0
         DEFW    $0000                    ; $01F2
@@ -408,11 +408,11 @@ FRMEVL_PREC_TBL:
         DEFB    $79,$79,$7C,$7C,$7F,$50,$46,$3C,$32,$28,$7A,$7B  ; $04ED
 ; [RE] Error-message table base. LD HL,$0521 (OPERATOR_ROUTINE_TBL+40 = the $00 before 'NEXT without FOR' at $0522); ERROR_REPORT_BODY_5 walks E NUL-terminated strings (CALL STMT_DATA+2 / INC HL / DEC E) to reach message #E for printing. $0521 is the string-table leading terminator, a real data base, not an operator-routine entry. / [RE] Integer-operator dispatch base. LD HL,OPERATOR_ROUTINE_TBL+30 ($0517 = IADD entry); LD B,$00 / ADD HL,BC twice (HL += 2*opcode), then LD C,(HL)/INC HL/LD B,(HL)/PUSH BC/RET jumps to IADD/INT_SIGNEXT_SUB/IMUL/IDIV/INT16_COMP. Genuine DEFW table-index dispatch. / [RE] Double-precision operator dispatch base. LD HL,OPERATOR_ROUTINE_TBL+10 ($0503 = DADD entry); A=($0B15), RLCA (2*op), 8-bit add into HL, then LD A,(HL)/INC HL/LD H,(HL)/LD L,A/JP (HL) jumps to DADD/DP_NEGATE_SIGN/DMUL/DDIV/DCOMP_REL. Genuine DEFW table-index dispatch.
 OPERATOR_ROUTINE_TBL:
-        DEFW    FN_CSNG                  ; $04F9
+        DEFW    FN_CDBL                  ; $04F9
         DEFW    $0000                    ; $04FB
-        DEFW    FN_LPOS                  ; $04FD
+        DEFW    FN_CINT                  ; $04FD
         DEFW    FP_INT_CHECK             ; $04FF
-        DEFW    FN_CINT                  ; $0501
+        DEFW    FN_CSNG                  ; $0501
         DEFW    DADD                     ; $0503
         DEFW    DP_NEGATE_SIGN           ; $0505
         DEFW    DMUL                     ; $0507
@@ -1892,7 +1892,7 @@ STMT_FOR_2:
         POP AF                           ; $3300  F1
         PUSH HL                          ; $3301  E5
         JP P,STMT_FOR_3                  ; $3302  F2 1A 33
-        CALL FN_LPOS                     ; $3305  CD 76 4F
+        CALL FN_CINT                     ; $3305  CD 76 4F
         EX (SP),HL                       ; $3308  E3
         LD DE,$0001                      ; $3309  11 01 00
         LD A,(HL)                        ; $330C  7E
@@ -1904,7 +1904,7 @@ STMT_FOR_2:
         CALL FP_MANT_SIGN                ; $3315  CD 94 4E
         JR STMT_FOR_4                    ; $3318  18 22
 STMT_FOR_3:
-        CALL FN_CINT                     ; $331A  CD EE 4F
+        CALL FN_CSNG                     ; $331A  CD EE 4F
         CALL FP_LOAD_FAC                 ; $331D  CD B5 4E
         POP HL                           ; $3320  E1
         PUSH BC                          ; $3321  C5
@@ -1918,7 +1918,7 @@ STMT_FOR_3:
         JR NZ,STMT_FOR_5                 ; $332D  20 0E
         CALL FRMEVL_LOWPREC              ; $332F  CD 76 3A
         PUSH HL                          ; $3332  E5
-        CALL FN_CINT                     ; $3333  CD EE 4F
+        CALL FN_CSNG                     ; $3333  CD EE 4F
         CALL FP_LOAD_FAC                 ; $3336  CD B5 4E
         CALL FP_SIGN                     ; $3339  CD 47 4E
 STMT_FOR_4:
@@ -3196,14 +3196,14 @@ FRMEVL_OPLOOP_8:
         CALL CHRGET                      ; $3B19  CD C9 33
         JR FRMEVL_OPLOOP_8               ; $3B1C  18 E5
 FRMEVL_OPLOOP_9:
-        CALL FN_CINT                     ; $3B1E  CD EE 4F
+        CALL FN_CSNG                     ; $3B1E  CD EE 4F
         CALL FAC_PUSH                    ; $3B21  CD 9A 4E
-        LD BC,FN_ABS_1                   ; $3B24  01 98 5C
+        LD BC,FN_SQR_1                   ; $3B24  01 98 5C
         LD D,$7F                         ; $3B27  16 7F
         JR FRMEVL_OPLOOP_6               ; $3B29  18 CF
 FRMEVL_OPLOOP_10:
         PUSH DE                          ; $3B2B  D5
-        CALL FN_LPOS                     ; $3B2C  CD 76 4F
+        CALL FN_CINT                     ; $3B2C  CD 76 4F
         POP DE                           ; $3B2F  D1
         PUSH HL                          ; $3B30  E5
         LD BC,FRMEVL_INT_OP_HANDLER      ; $3B31  01 D8 3D
@@ -3265,7 +3265,7 @@ FRMEVL_OPLOOP_14:
         PUSH BC                          ; $3B8E  C5
         RET                              ; $3B8F  C9
 FRMEVL_OPLOOP_15:
-        CALL FN_CSNG                     ; $3B90  CD 1A 50
+        CALL FN_CDBL                     ; $3B90  CD 1A 50
 FRMEVL_OPLOOP_16:
         CALL FP_ARG_TO_TEMP2             ; $3B93  CD F1 4E
         POP HL                           ; $3B96  E1
@@ -3277,7 +3277,7 @@ FRMEVL_OPLOOP_17:
         POP DE                           ; $3B9F  D1
         CALL FP_STORE_FAC                ; $3BA0  CD AA 4E
 FRMEVL_OPLOOP_18:
-        CALL FN_CSNG                     ; $3BA3  CD 1A 50
+        CALL FN_CDBL                     ; $3BA3  CD 1A 50
         LD HL,OPERATOR_ROUTINE_TBL+10    ; $3BA6  21 03 05
 FRMEVL_OPLOOP_19:
         LD A,(L_0B15)                    ; $3BA9  3A 15 0B
@@ -3304,7 +3304,7 @@ FRMEVL_OPLOOP_20:
         JR FRMEVL_OPLOOP_18              ; $3BC7  18 DA
 ; [RE] FRMEVL operator-apply coercion (mis-split as DEFB, real code reached from FRMEVL_OPCOMBINE $3B76 when operand-type B==$04): CALL FN_CINT to force the operand to integer, then fall into FRMEVL_OP_POP_FRAME
 FRMEVL_OP_COERCE_INT:
-        CALL FN_CINT                     ; $3BC9  CD EE 4F
+        CALL FN_CSNG                     ; $3BC9  CD EE 4F
 ; [RE] FRMEVL operator-apply (mis-split DEFB code, target of JP Z at $3B63 for string type): POP BC / POP DE to recover the operator/operand frame, then fall into FRMEVL_OP_DISPATCH_REL
 FRMEVL_OP_POP_FRAME:
         POP BC                           ; $3BCC  C1
@@ -3572,7 +3572,7 @@ SCAN_AMP_RADIX_CONST_9:
         JR C,SCAN_AMP_RADIX_CONST_10     ; $3D7C  38 07
         CP $1B                           ; $3D7E  FE 1B
         PUSH HL                          ; $3D80  E5
-        CALL C,FN_CINT                   ; $3D81  DC EE 4F
+        CALL C,FN_CSNG                   ; $3D81  DC EE 4F
         POP HL                           ; $3D84  E1
 SCAN_AMP_RADIX_CONST_10:
         LD DE,FRMEVL_PAREN_2             ; $3D85  11 BA 3C
@@ -3615,7 +3615,7 @@ FRMEVL_SCAN_UNARY_1:
 FRMEVL_SCAN_UNARY_2:
         LD D,$5A                         ; $3DB3  16 5A
         CALL FRMEVL_OPLOOP               ; $3DB5  CD 78 3A
-        CALL FN_LPOS                     ; $3DB8  CD 76 4F
+        CALL FN_CINT                     ; $3DB8  CD 76 4F
         LD A,L                           ; $3DBB  7D
         CPL                              ; $3DBC  2F
         LD L,A                           ; $3DBD  6F
@@ -3642,7 +3642,7 @@ FRMEVL_TEST_TYPE_1:
 ; [RE] Integer-operands binary-operator handler (mis-split as DEFB, real code; set up by FRMEVL_OPLOOP_13 at $3B31 LD BC,$3DD8): pops operator token in A and the two integer operands (DE,HL), branches per token to integer add/sub/AND/OR/XOR/relational kernels, leaving the integer result in the FAC
 FRMEVL_INT_OP_HANDLER:
         PUSH BC                          ; $3DD8  C5
-        CALL FN_LPOS                     ; $3DD9  CD 76 4F
+        CALL FN_CINT                     ; $3DD9  CD 76 4F
         POP AF                           ; $3DDC  F1
         POP DE                           ; $3DDD  D1
         CP $7A                           ; $3DDE  FE 7A
@@ -3708,14 +3708,14 @@ FP_INT_SUB_TO_FAC:
         SBC A,D                          ; $3E24  9A
         LD H,A                           ; $3E25  67
         JP INT_TO_SNG                    ; $3E26  C3 EE 51
-; [RE] HEX$() handler (function token $19): hexadecimal-string conversion.
-FN_HEX_STR:
+; [RE] LPOS(x) handler (function token $1A): current line-printer column (($0837)) into the FAC.
+FN_LPOS:
         LD A,(L_0837)                    ; $3E29  3A 37 08
-        JR FP_LOAD_COL_TO_FAC_1          ; $3E2C  18 03
-; [RE] Load print-column counter ($0B11)+1 as an integer into the FAC (entry for POS-style functions); shares the tail with FP_LOAD_INT_TO_FAC.
-FP_LOAD_COL_TO_FAC:
+        JR FN_POS_1                      ; $3E2C  18 03
+; [RE] POS(x) handler (function token $10): current console output column (($0B11)+1) into the FAC; shares the integer-load tail with FP_LOAD_INT_TO_FAC.
+FN_POS:
         LD A,(L_0B11)                    ; $3E2E  3A 11 0B
-FP_LOAD_COL_TO_FAC_1:
+FN_POS_1:
         INC A                            ; $3E31  3C
 ; [RE] Store the 8-bit value in A (zero-extended to HL) as an integer into the FAC via FP_STORE_FAC_INT.
 FP_LOAD_INT_TO_FAC:
@@ -4085,7 +4085,7 @@ GETINT:
 ; [RE] Convert current numeric value (FAC) to a 16-bit integer in DE via FN_LPOS; A=high byte, OR A sets Z if value fits in one byte (used by GETBYT/POKE/PEEK).
 FRC_INT_DE:
         PUSH HL                          ; $408B  E5
-        CALL FN_LPOS                     ; $408C  CD 76 4F
+        CALL FN_CINT                     ; $408C  CD 76 4F
         EX DE,HL                         ; $408F  EB
         POP HL                           ; $4090  E1
         LD A,D                           ; $4091  7A
@@ -4462,8 +4462,8 @@ BLOCK_MOVE_TO_VARTAB_1:
         LD L,C                           ; $42A2  69
         LD (VARTAB),HL                   ; $42A3  22 6F 0B
         RET                              ; $42A6  C9
-; [RE] CHR$() handler (function token $15): one-character string from a code.
-FN_CHR_STR:
+; [RE] PEEK(addr) handler (function token $16): read one memory byte at addr into the FAC.
+FN_PEEK:
         CALL GETADR                      ; $42A7  CD C6 42
         CALL DIRECT_MODE_GUARD           ; $42AA  CD A3 81
         LD A,(HL)                        ; $42AD  7E
@@ -4483,7 +4483,7 @@ STMT_POKE:
         RET                              ; $42C5  C9
 ; [RE] MS BASIC GETADR: evaluate FAC and convert to an unsigned 16-bit address in BC/$9180-bias form (for POKE/PEEK); rejects out-of-range via FADD_ALIGN. Pushes FN_LPOS as the integer-fetch continuation.
 GETADR:
-        LD BC,FN_LPOS                    ; $42C6  01 76 4F
+        LD BC,FN_CINT                    ; $42C6  01 76 4F
         PUSH BC                          ; $42C9  C5
         CALL FRMEVL_TEST_TYPE            ; $42CA  CD C8 3D
         RET M                            ; $42CD  F8
@@ -4770,7 +4770,7 @@ STMT_RANDOMIZE:
         JR Z,STMT_RANDOMIZE_1            ; $445D  28 09
         CALL FRMEVL_NOPAREN              ; $445F  CD 75 3A
         PUSH HL                          ; $4462  E5
-        CALL FN_LPOS                     ; $4463  CD 76 4F
+        CALL FN_CINT                     ; $4463  CD 76 4F
         JR STMT_RANDOMIZE_3              ; $4466  18 1B
 STMT_RANDOMIZE_1:
         PUSH HL                          ; $4468  E5
@@ -4787,7 +4787,7 @@ STMT_RANDOMIZE_2:
         LD A,(HL)                        ; $447C  7E
         OR A                             ; $447D  B7
         JR NZ,STMT_RANDOMIZE_2           ; $447E  20 E9
-        CALL FN_LPOS                     ; $4480  CD 76 4F
+        CALL FN_CINT                     ; $4480  CD 76 4F
 STMT_RANDOMIZE_3:
         LD (RNDX_SEED_WORD),HL           ; $4483  22 25 5E
         CALL POLY_EVAL_SQR               ; $4486  CD 8C 5D
@@ -6298,8 +6298,8 @@ MANT_SHIFT_BITS_4:
         INC B                            ; $4CC9  04
         DEC (HL)                         ; $4CCA  35
         LD A,A                           ; $4CCB  7F
-; [RE] SIN() handler (function token $09): sine (MBF; shares the poly evaluator $47C5).
-FN_SIN:
+; [RE] LOG(x) handler (function token $0A): natural logarithm (MBF math package).
+FN_LOG:
         CALL FP_SIGN                     ; $4CCC  CD 47 4E
         OR A                             ; $4CCF  B7
         JP PE,ERROR_FC                   ; $4CD0  EA D0 34
@@ -6842,22 +6842,22 @@ DCOMP_REL:
         CALL DCOMP_BODY                  ; $4F6F  CD 46 4F
         JP NZ,FP_SIGN_1+1                ; $4F72  C2 50 4E
         RET                              ; $4F75  C9
-; [RE] LPOS() handler (function token $1A): current line-printer column (CALL $3DC8 = type-check helper). Also used as the integer-coerce entry.
-FN_LPOS:
+; [RE] CINT(x) handler (function token $1B): coerce the FAC to a signed 16-bit integer with rounding (adds FP_CONST_HALF then truncates). Also the universal FAC->int16 entry (FRCINT) reused by GETINT/GETBYT/GETADR.
+FN_CINT:
         CALL FRMEVL_TEST_TYPE            ; $4F76  CD C8 3D
         LD HL,(L_0CB1)                   ; $4F79  2A B1 0C
         RET M                            ; $4F7C  F8
         JP Z,RAISE_TYPE_MISMATCH         ; $4F7D  CA 87 0D
-        JP PO,FN_LPOS_1                  ; $4F80  E2 95 4F
+        JP PO,FN_CINT_1                  ; $4F80  E2 95 4F
         CALL FP_ARG_TO_TEMP2             ; $4F83  CD F1 4E
         LD HL,FP_CONST_HALF_DBL          ; $4F86  21 D8 5B
         CALL FP_ARG_SETUP1               ; $4F89  CD EC 4E
         CALL DADD                        ; $4F8C  CD 10 52
         CALL FIX_TO_INT                  ; $4F8F  CD F8 4F
-        JP FN_LPOS_2                     ; $4F92  C3 98 4F
-FN_LPOS_1:
+        JP FN_CINT_2                     ; $4F92  C3 98 4F
+FN_CINT_1:
         CALL FADD_LOAD_CONST             ; $4F95  CD 98 4B
-FN_LPOS_2:
+FN_CINT_2:
         LD A,(L_0CB3)                    ; $4F98  3A B3 0C
         OR A                             ; $4F9B  B7
         PUSH AF                          ; $4F9C  F5
@@ -6869,24 +6869,24 @@ FN_LPOS_2:
         CALL FP_SHIFT_MANTISSA           ; $4FAA  CD 3C 50
         LD A,(L_0CB4)                    ; $4FAD  3A B4 0C
         OR A                             ; $4FB0  B7
-        JP NZ,FN_LPOS_3                  ; $4FB1  C2 B9 4F
+        JP NZ,FN_CINT_3                  ; $4FB1  C2 B9 4F
         POP AF                           ; $4FB4  F1
         EX DE,HL                         ; $4FB5  EB
-        JP FN_LPOS_4                     ; $4FB6  C3 BE 4F
-FN_LPOS_3:
+        JP FN_CINT_4                     ; $4FB6  C3 BE 4F
+FN_CINT_3:
         POP AF                           ; $4FB9  F1
         EX DE,HL                         ; $4FBA  EB
-        JP P,FN_LPOS_5                   ; $4FBB  F2 C4 4F
-FN_LPOS_4:
+        JP P,FN_CINT_5                   ; $4FBB  F2 C4 4F
+FN_CINT_4:
         LD A,H                           ; $4FBE  7C
         CPL                              ; $4FBF  2F
         LD H,A                           ; $4FC0  67
         LD A,L                           ; $4FC1  7D
         CPL                              ; $4FC2  2F
         LD L,A                           ; $4FC3  6F
-FN_LPOS_5:
+FN_CINT_5:
         JP FP_STORE_FAC_INT              ; $4FC4  C3 D7 4F
-FN_LPOS_6:
+FN_CINT_6:
         LD HL,RAISE_OVERFLOW             ; $4FC7  21 81 0D
         PUSH HL                          ; $4FCA  E5
 ; [RE] Convert FAC to a 16-bit integer in HL: error if exponent>=$90 (out of range), else shift the mantissa down (FP_SHIFT_MANTISSA).
@@ -6916,8 +6916,8 @@ FP_TO_INT_RANGE:
         LD H,C                           ; $4FEA  61
         LD L,D                           ; $4FEB  6A
         JR FP_TO_INT_1                   ; $4FEC  18 E8
-; [RE] CINT() handler (function token $1B): coerce to integer.
-FN_CINT:
+; [RE] CSNG(x) handler (function token $1C): coerce the FAC to single precision.
+FN_CSNG:
         CALL FRMEVL_TEST_TYPE            ; $4FEE  CD C8 3D
         RET PO                           ; $4FF1  E0
         JP M,INT_TO_SINGLE               ; $4FF2  FA 0B 50
@@ -6944,8 +6944,8 @@ INT_TO_SINGLE_HL:
         LD E,$00                         ; $5013  1E 00
         LD B,$90                         ; $5015  06 90
         JP FLOAT_A_1                     ; $5017  C3 5B 4E
-; [RE] CSNG() handler (function token $1C): coerce to single precision.
-FN_CSNG:
+; [RE] CDBL(x) handler (function token $1D): coerce the FAC to double precision.
+FN_CDBL:
         CALL FRMEVL_TEST_TYPE            ; $501A  CD C8 3D
         RET NC                           ; $501D  D0
         JP Z,RAISE_TYPE_MISMATCH         ; $501E  CA 87 0D
@@ -6962,7 +6962,7 @@ SET_TYPE_DOUBLE:
 SET_TYPE_DOUBLE_1:
         LD BC,$043E                      ; $502F  01 3E 04
         JP SET_TYPE_SINGLE_1             ; $5032  C3 DC 4F
-; [RE] Type-check requiring a numeric value; error ($0D87) if string/zero -- gatekeeper for an INT-class operation.
+; [RE] Type-check requiring a numeric value; error ($0D87) if string/zero ??" gatekeeper for an INT-class operation.
 FP_INT_CHECK:
         CALL FRMEVL_TEST_TYPE            ; $5035  CD C8 3D
         RET Z                            ; $5038  C8
@@ -7003,8 +7003,8 @@ DEC_DE_WITH_BORROW:
 DEC_BC:
         DEC BC                           ; $5065  0B
         RET                              ; $5066  C9
-; [RE] CDBL() handler (function token $1D): coerce to double precision.
-FN_CDBL:
+; [RE] FIX(x) handler (function token $1E): truncate toward zero to an integer-valued float.
+FN_FIX:
         CALL FRMEVL_TEST_TYPE            ; $5067  CD C8 3D
         RET M                            ; $506A  F8
         CALL FP_SIGN                     ; $506B  CD 47 4E
@@ -7055,7 +7055,7 @@ FIX_SCALE_2:
         LD HL,$8000                      ; $50B4  21 00 80
         JP NZ,FIX_SCALE_3                ; $50B7  C2 C0 50
         CALL FP_STORE_FAC_INT            ; $50BA  CD D7 4F
-        JP FN_CSNG                       ; $50BD  C3 1A 50
+        JP FN_CDBL                       ; $50BD  C3 1A 50
 FIX_SCALE_3:
         LD A,C                           ; $50C0  79
 FIX_SCALE_4:
@@ -7881,7 +7881,7 @@ FIN_12:
         PUSH HL                          ; $5560  E5
         LD HL,FMUL_7                     ; $5561  21 63 4D
         PUSH HL                          ; $5564  E5
-        LD HL,FN_LPOS                    ; $5565  21 76 4F
+        LD HL,FN_CINT                    ; $5565  21 76 4F
         PUSH HL                          ; $5568  E5
         PUSH AF                          ; $5569  F5
         JR FIN_9                         ; $556A  18 C4
@@ -7897,9 +7897,9 @@ FIN_TYPE_FIXUP:
         PUSH DE                          ; $5576  D5
         PUSH BC                          ; $5577  C5
         PUSH AF                          ; $5578  F5
-        CALL Z,FN_CINT                   ; $5579  CC EE 4F
+        CALL Z,FN_CSNG                   ; $5579  CC EE 4F
         POP AF                           ; $557C  F1
-        CALL NZ,FN_CSNG                  ; $557D  C4 1A 50
+        CALL NZ,FN_CDBL                  ; $557D  C4 1A 50
         POP BC                           ; $5580  C1
         POP DE                           ; $5581  D1
         POP HL                           ; $5582  E1
@@ -9086,15 +9086,15 @@ FAC_NEGATE_VIA:
         LD HL,FP_NEG                     ; $5C88  21 76 4E
         EX (SP),HL                       ; $5C8B  E3
         JP (HL)                          ; $5C8C  E9
-; [RE] ABS() handler (function token $06): absolute value (MBF).
-FN_ABS:
+; [RE] SQR(x) handler (function token $07): square root (MBF).
+FN_SQR:
         CALL FAC_PUSH                    ; $5C8D  CD 9A 4E
         LD HL,FP_CONST_HALF_SNG          ; $5C90  21 DC 5B
         CALL FP_STORE_REGS_LD            ; $5C93  CD A7 4E
-        JR FN_ABS_2                      ; $5C96  18 03
-FN_ABS_1:
-        CALL FN_CINT                     ; $5C98  CD EE 4F
-FN_ABS_2:
+        JR FN_SQR_2                      ; $5C96  18 03
+FN_SQR_1:
+        CALL FN_CSNG                     ; $5C98  CD EE 4F
+FN_SQR_2:
         POP BC                           ; $5C9B  C1
         POP DE                           ; $5C9C  D1
         LD HL,GFX_CLR_REVERSE_FLAG       ; $5C9D  21 39 45
@@ -9103,11 +9103,11 @@ FN_ABS_2:
         LD (L_0CB6),A                    ; $5CA3  32 B6 0C
         CALL FP_SIGN                     ; $5CA6  CD 47 4E
         LD A,B                           ; $5CA9  78
-        JR Z,FN_LOG                      ; $5CAA  28 3C
-        JP P,FN_ABS_3                    ; $5CAC  F2 B3 5C
+        JR Z,FN_EXP                      ; $5CAA  28 3C
+        JP P,FN_SQR_3                    ; $5CAC  F2 B3 5C
         OR A                             ; $5CAF  B7
         JP Z,FIN_DONE_18                 ; $5CB0  CA 84 56
-FN_ABS_3:
+FN_SQR_3:
         OR A                             ; $5CB3  B7
         JP Z,FP_SET_ZERO_1               ; $5CB4  CA 0A 4C
         PUSH DE                          ; $5CB7  D5
@@ -9115,7 +9115,7 @@ FN_ABS_3:
         LD A,C                           ; $5CB9  79
         OR $7F                           ; $5CBA  F6 7F
         CALL FP_LOAD_FAC                 ; $5CBC  CD B5 4E
-        JP P,FN_ABS_4                    ; $5CBF  F2 D0 5C
+        JP P,FN_SQR_4                    ; $5CBF  F2 D0 5C
         PUSH DE                          ; $5CC2  D5
         PUSH BC                          ; $5CC3  C5
         CALL FIX_SCALE                   ; $5CC4  CD 86 50
@@ -9126,7 +9126,7 @@ FN_ABS_3:
         POP HL                           ; $5CCD  E1
         LD A,H                           ; $5CCE  7C
         RRA                              ; $5CCF  1F
-FN_ABS_4:
+FN_SQR_4:
         POP HL                           ; $5CD0  E1
         LD (L_0CB3),HL                   ; $5CD1  22 B3 0C
         POP HL                           ; $5CD4  E1
@@ -9135,51 +9135,51 @@ FN_ABS_4:
         CALL Z,FP_NEG                    ; $5CDB  CC 76 4E
         PUSH DE                          ; $5CDE  D5
         PUSH BC                          ; $5CDF  C5
-        CALL FN_SIN                      ; $5CE0  CD CC 4C
+        CALL FN_LOG                      ; $5CE0  CD CC 4C
         POP BC                           ; $5CE3  C1
         POP DE                           ; $5CE4  D1
         CALL FMUL                        ; $5CE5  CD 12 4D
-; [RE] LOG() handler (function token $0A): natural logarithm (MBF).
-FN_LOG:
+; [RE] EXP(x) handler (function token $0B): e raised to x (MBF).
+FN_EXP:
         LD BC,$8138                      ; $5CE8  01 38 81
         LD DE,$AA3B                      ; $5CEB  11 3B AA
         CALL FMUL                        ; $5CEE  CD 12 4D
         LD A,(L_0CB4)                    ; $5CF1  3A B4 0C
         CP $88                           ; $5CF4  FE 88
-        JP NC,FN_LOG_1                   ; $5CF6  D2 1D 5D
+        JP NC,FN_EXP_1                   ; $5CF6  D2 1D 5D
         CP $68                           ; $5CF9  FE 68
-        JP C,FN_LOG_4                    ; $5CFB  DA 2F 5D
+        JP C,FN_EXP_4                    ; $5CFB  DA 2F 5D
         CALL FAC_PUSH                    ; $5CFE  CD 9A 4E
         CALL FIX_SCALE                   ; $5D01  CD 86 50
         ADD A,$81                        ; $5D04  C6 81
         POP BC                           ; $5D06  C1
         POP DE                           ; $5D07  D1
-        JP Z,FN_LOG_2                    ; $5D08  CA 20 5D
+        JP Z,FN_EXP_2                    ; $5D08  CA 20 5D
         PUSH AF                          ; $5D0B  F5
         CALL FSUB                        ; $5D0C  CD A3 4B
-        LD HL,FN_LOG_5                   ; $5D0F  21 39 5D
+        LD HL,FN_EXP_5                   ; $5D0F  21 39 5D
         CALL POLY_EVAL                   ; $5D12  CD 65 5D
         POP BC                           ; $5D15  C1
         LD DE,$0000                      ; $5D16  11 00 00
         LD C,D                           ; $5D19  4A
         JP FMUL                          ; $5D1A  C3 12 4D
-FN_LOG_1:
+FN_EXP_1:
         CALL FAC_PUSH                    ; $5D1D  CD 9A 4E
-FN_LOG_2:
+FN_EXP_2:
         LD A,(L_0CB3)                    ; $5D20  3A B3 0C
         OR A                             ; $5D23  B7
-        JP P,FN_LOG_3                    ; $5D24  F2 2C 5D
+        JP P,FN_EXP_3                    ; $5D24  F2 2C 5D
         POP AF                           ; $5D27  F1
         POP AF                           ; $5D28  F1
         JP FP_SET_ZERO                   ; $5D29  C3 09 4C
-FN_LOG_3:
+FN_EXP_3:
         JP FIN_DONE_9                    ; $5D2C  C3 4C 56
-FN_LOG_4:
+FN_EXP_4:
         LD BC,$8100                      ; $5D2F  01 00 81
         LD DE,$0000                      ; $5D32  11 00 00
         CALL FP_STORE_FAC                ; $5D35  CD AA 4E
         RET                              ; $5D38  C9
-FN_LOG_5:
+FN_EXP_5:
         RLCA                             ; $5D39  07
         LD A,H                           ; $5D3A  7C
         ADC A,B                          ; $5D3B  88
@@ -9197,7 +9197,7 @@ FN_LOG_5:
         LD A,(DE)                        ; $5D4A  1A
         CP $75                           ; $5D4B  FE 75
         LD A,(HL)                        ; $5D4D  7E
-        JR FN_SQR_1                      ; $5D4E  18 72
+        JR FN_RND_1                      ; $5D4E  18 72
         LD SP,$0080                      ; $5D50  31 80 00
         NOP                              ; $5D53  00
         NOP                              ; $5D54  00
@@ -9247,17 +9247,17 @@ POLY_EVAL_SQR:
         PUSH HL                          ; $5D8C  E5
         LD HL,MANT_SHIFT_BITS_2          ; $5D8D  21 A6 4C
         CALL FP_STORE_REGS_LD            ; $5D90  CD A7 4E
-        CALL FN_SQR                      ; $5D93  CD 9A 5D
+        CALL FN_RND                      ; $5D93  CD 9A 5D
         POP HL                           ; $5D96  E1
         JP SET_TYPE_DOUBLE_1+1           ; $5D97  C3 30 50
-; [RE] SQR() handler (function token $07): square root (MBF math package).
-FN_SQR:
+; [RE] RND(x) handler (function token $08): pseudo-random number; updates/reads the RND seed (RNDX_SEED).
+FN_RND:
         CALL FP_SIGN                     ; $5D9A  CD 47 4E
-        LD HL,FN_SQR_7                   ; $5D9D  21 03 5E
-        JP M,FN_SQR_4                    ; $5DA0  FA FA 5D
+        LD HL,FN_RND_7                   ; $5D9D  21 03 5E
+        JP M,FN_RND_4                    ; $5DA0  FA FA 5D
         LD HL,RNDX_SEED                  ; $5DA3  21 24 5E
         CALL FP_STORE_REGS_LD            ; $5DA6  CD A7 4E
-        LD HL,FN_SQR_7                   ; $5DA9  21 03 5E
+        LD HL,FN_RND_7                   ; $5DA9  21 03 5E
         RET Z                            ; $5DAC  C8
         ADD A,(HL)                       ; $5DAD  86
         AND $07                          ; $5DAE  E6 07
@@ -9270,21 +9270,21 @@ FN_SQR:
         ADD HL,BC                        ; $5DB7  09
         CALL FP_LOAD_MEM                 ; $5DB8  CD B8 4E
         CALL FMUL                        ; $5DBB  CD 12 4D
-        LD A,(FN_SQR_6)                  ; $5DBE  3A 02 5E
+        LD A,(FN_RND_6)                  ; $5DBE  3A 02 5E
         INC A                            ; $5DC1  3C
-FN_SQR_1:
+FN_RND_1:
         AND $03                          ; $5DC2  E6 03
         LD B,$00                         ; $5DC4  06 00
         CP $01                           ; $5DC6  FE 01
         ADC A,B                          ; $5DC8  88
-        LD (FN_SQR_6),A                  ; $5DC9  32 02 5E
+        LD (FN_RND_6),A                  ; $5DC9  32 02 5E
         LD HL,RNDX_SEED                  ; $5DCC  21 24 5E
         ADD A,A                          ; $5DCF  87
         ADD A,A                          ; $5DD0  87
         LD C,A                           ; $5DD1  4F
         ADD HL,BC                        ; $5DD2  09
         CALL FADD_FROM_MEM               ; $5DD3  CD 9B 4B
-FN_SQR_2:
+FN_RND_2:
         CALL FP_LOAD_FAC                 ; $5DD6  CD B5 4E
         LD A,E                           ; $5DD9  7B
         LD E,C                           ; $5DDA  59
@@ -9294,31 +9294,31 @@ FN_SQR_2:
         DEC HL                           ; $5DE0  2B
         LD B,(HL)                        ; $5DE1  46
         LD (HL),$80                      ; $5DE2  36 80
-        LD HL,FN_SQR_5                   ; $5DE4  21 01 5E
+        LD HL,FN_RND_5                   ; $5DE4  21 01 5E
         INC (HL)                         ; $5DE7  34
         LD A,(HL)                        ; $5DE8  7E
         SUB $AB                          ; $5DE9  D6 AB
-        JR NZ,FN_SQR_3                   ; $5DEB  20 04
+        JR NZ,FN_RND_3                   ; $5DEB  20 04
         LD (HL),A                        ; $5DED  77
         INC C                            ; $5DEE  0C
         DEC D                            ; $5DEF  15
         INC E                            ; $5DF0  1C
-FN_SQR_3:
+FN_RND_3:
         CALL FADD                        ; $5DF1  CD F6 4B
         LD HL,RNDX_SEED                  ; $5DF4  21 24 5E
         JP FP_MOVE_TO_FAC                ; $5DF7  C3 C1 4E
-FN_SQR_4:
+FN_RND_4:
         LD (HL),A                        ; $5DFA  77
         DEC HL                           ; $5DFB  2B
         LD (HL),A                        ; $5DFC  77
         DEC HL                           ; $5DFD  2B
         LD (HL),A                        ; $5DFE  77
-        JR FN_SQR_2                      ; $5DFF  18 D5
-FN_SQR_5:
+        JR FN_RND_2                      ; $5DFF  18 D5
+FN_RND_5:
         NOP                              ; $5E01  00
-FN_SQR_6:
+FN_RND_6:
         NOP                              ; $5E02  00
-FN_SQR_7:
+FN_RND_7:
         NOP                              ; $5E03  00
         DEC (HL)                         ; $5E04  35
         LD C,D                           ; $5E05  4A
@@ -9333,12 +9333,12 @@ RNDX_SEED:
 ; [RE] RND seed mantissa word (upper 3 bytes of the RNDX state at $5E25-$5E27): RANDOMIZE stores the new seed here via STMT_RANDOMIZE_3 ($4483 LD ($5E25),HL)
 RNDX_SEED_WORD:
         DEFB    $C7,$4F,$80,$68,$B1,$46,$68,$99,$E9,$92,$69,$10,$D1,$75,$68  ; $5E25
-; [RE] EXP() handler (function token $0B): exponential e^x (MBF).
-FN_EXP:
+; [RE] COS(x) handler (function token $0C): cosine; adds a quarter period and falls into the SIN path.
+FN_COS:
         LD HL,FP_CONST_EXP_LOG2E         ; $5E34  21 AA 5E
         CALL FADD_FROM_MEM               ; $5E37  CD 9B 4B
-; [RE] RND() handler (function token $08): pseudo-random number (reads the seed at $0CB4).
-FN_RND:
+; [RE] SIN(x) handler (function token $09): sine (MBF; range-reduced then series).
+FN_SIN:
         LD A,(L_0CB4)                    ; $5E3A  3A B4 0C
         CP $77                           ; $5E3D  FE 77
         RET C                            ; $5E3F  D8
@@ -9353,7 +9353,7 @@ FN_RND:
         LD BC,$7F00                      ; $5E54  01 00 7F
         LD DE,$0000                      ; $5E57  11 00 00
         CALL FCOMP                       ; $5E5A  CD 03 4F
-        JP M,FN_RND_1                    ; $5E5D  FA 84 5E
+        JP M,FN_SIN_1                    ; $5E5D  FA 84 5E
         LD BC,$7F80                      ; $5E60  01 80 7F
         LD DE,$0000                      ; $5E63  11 00 00
         CALL FADD_ALIGN                  ; $5E66  CD A6 4B
@@ -9366,14 +9366,14 @@ FN_RND:
         LD DE,$0000                      ; $5E7B  11 00 00
         CALL FADD_ALIGN                  ; $5E7E  CD A6 4B
         CALL FP_NEG                      ; $5E81  CD 76 4E
-FN_RND_1:
+FN_SIN_1:
         LD A,(L_0CB3)                    ; $5E84  3A B3 0C
         OR A                             ; $5E87  B7
         PUSH AF                          ; $5E88  F5
-        JP P,FN_RND_2                    ; $5E89  F2 91 5E
+        JP P,FN_SIN_2                    ; $5E89  F2 91 5E
         XOR $80                          ; $5E8C  EE 80
         LD (L_0CB3),A                    ; $5E8E  32 B3 0C
-FN_RND_2:
+FN_SIN_2:
         LD HL,FP_POLY_SIN_COEFFS         ; $5E91  21 B2 5E
         CALL POLY_EVAL_ODD               ; $5E94  CD 56 5D
         POP AF                           ; $5E97  F1
@@ -9390,37 +9390,37 @@ FP_CONST_EXP_LOG2E:
 FP_POLY_SIN_COEFFS:
         DEFB    $05,$FB,$D7,$1E,$86,$65,$26,$99,$87,$58,$34,$23,$87,$E1,$5D,$A5  ; $5EB2
         DEFB    $86,$DB,$0F,$49,$83      ; $5EC2
-; [RE] COS() handler (function token $0C): cosine (MBF).
-FN_COS:
+; [RE] TAN(x) handler (function token $0D): tangent (SIN/COS).
+FN_TAN:
         CALL FAC_PUSH                    ; $5EC7  CD 9A 4E
-        CALL FN_RND                      ; $5ECA  CD 3A 5E
+        CALL FN_SIN                      ; $5ECA  CD 3A 5E
         POP BC                           ; $5ECD  C1
         POP HL                           ; $5ECE  E1
         CALL FAC_PUSH                    ; $5ECF  CD 9A 4E
         EX DE,HL                         ; $5ED2  EB
         CALL FP_STORE_FAC                ; $5ED3  CD AA 4E
-        CALL FN_EXP                      ; $5ED6  CD 34 5E
+        CALL FN_COS                      ; $5ED6  CD 34 5E
         JP FDIV_BY_TEN_1                 ; $5ED9  C3 73 4D
-; [RE] TAN() handler (function token $0D): tangent (MBF; shares poly evaluator $47C5).
-FN_TAN:
+; [RE] ATN(x) handler (function token $0E): arctangent (MBF).
+FN_ATN:
         CALL FP_SIGN                     ; $5EDC  CD 47 4E
         CALL M,FAC_NEGATE_VIA            ; $5EDF  FC 88 5C
         CALL M,FP_NEG                    ; $5EE2  FC 76 4E
         LD A,(L_0CB4)                    ; $5EE5  3A B4 0C
         CP $81                           ; $5EE8  FE 81
-        JR C,FN_TAN_1                    ; $5EEA  38 0C
+        JR C,FN_ATN_1                    ; $5EEA  38 0C
         LD BC,$8100                      ; $5EEC  01 00 81
         LD D,C                           ; $5EEF  51
         LD E,C                           ; $5EF0  59
         CALL FDIV                        ; $5EF1  CD 75 4D
         LD HL,FADD_FROM_MEM_1            ; $5EF4  21 A0 4B
         PUSH HL                          ; $5EF7  E5
-FN_TAN_1:
-        LD HL,FN_TAN_2                   ; $5EF8  21 02 5F
+FN_ATN_1:
+        LD HL,FN_ATN_2                   ; $5EF8  21 02 5F
         CALL POLY_EVAL_ODD               ; $5EFB  CD 56 5D
         LD HL,FP_CONST_EXP_LOG2E         ; $5EFE  21 AA 5E
         RET                              ; $5F01  C9
-FN_TAN_2:
+FN_ATN_2:
         ADD HL,BC                        ; $5F02  09
         LD C,D                           ; $5F03  4A
         RST $10                          ; $5F04  D7
@@ -9453,7 +9453,7 @@ FN_TAN_2:
         NOP                              ; $5F24  00
         NOP                              ; $5F25  00
         ADD A,C                          ; $5F26  81
-FN_TAN_3:
+FN_ATN_3:
         DEC HL                           ; $5F27  2B
         CALL CHRGET                      ; $5F28  CD C9 33
         RET Z                            ; $5F2B  C8
@@ -9461,7 +9461,7 @@ FN_TAN_3:
         DEFB    ','                      ; $5F2F  2C  inline char arg consumed by the preceding CALL
 ; [RE] PTRGET front-end: scan a variable name at the BASIC text pointer (HL). Accumulates the leading alpha + following alphanumerics (high-bit set) into the VARNAM buffer $0871, honouring type-suffix chars %/$/!/# to set VALTYP $0B14 (and the default-type table at $0B36), then falls into the table search at PTRGET_SEARCH ($5FC9). Called by LET ($5F35) and FRMEVL operand fetch. PTRGET_1 ($5F34, OR $AF) is a dual-entry skip idiom: the $F6 (OR n) opcode consumes the next byte ($AF), so falling in from PUSH BC leaves A non-zero; entering at PTRGET_1+1 ($5F35) via CALL runs that $AF byte as XOR A, zeroing A. Both reach LD ($0B13),A at $5F36 with the entry-selected flag. Every CALL $5F35 is written PTRGET_1+1 so it relocates.
 PTRGET:
-        LD BC,FN_TAN_3                   ; $5F30  01 27 5F
+        LD BC,FN_ATN_3                   ; $5F30  01 27 5F
         PUSH BC                          ; $5F33  C5
 ; [RE] VERIFIED flag-skip (count corrected to 22 CALL +1 sites, not 23). PTRGET_1 ($5F34) opcode-eating flag select. Fall-through from the PTRGET head -- reached via the DIM statement dispatch DEFW PTRGET at $0112 -- runs OR $AF (F6 swallows the AF), leaving A nonzero so $0B13 gets the 'array/create' context; the 22 CALL PTRGET_1+1 ($5F35) callers run that AF as XOR A, zeroing A and $0B13. Both reach LD ($0B13),A at $5F36. Cover genuinely executed (DIM path); MBASIC twin matches (22 sites).
 PTRGET_1:
@@ -11156,7 +11156,7 @@ CLEAR_RESET_STORAGE_2:
         LD DE,POLY_EVAL_2                ; $68AB  11 85 5D
         LD HL,RNDX_SEED                  ; $68AE  21 24 5E
         CALL FP_MOVE4                    ; $68B1  CD C4 4E
-        LD HL,FN_SQR_5                   ; $68B4  21 01 5E
+        LD HL,FN_RND_5                   ; $68B4  21 01 5E
         XOR A                            ; $68B7  AF
         LD (HL),A                        ; $68B8  77
         INC HL                           ; $68B9  23
@@ -11659,18 +11659,18 @@ NEXT_LOOP_BODY_8:
         JR Z,NEXT_LOOP_BODY_8            ; $6BA9  28 ED
         CCF                              ; $6BAB  3F
         JP FP_SIGN_3                     ; $6BAC  C3 52 4E
-; [RE] SPACE$() handler (function token $17): string of n spaces.
-FN_SPACE_STR:
-        CALL HEX_OCT_OUT                 ; $6BAF  CD 3E 5C
-        JR STR_FN_FINALIZE_1             ; $6BB2  18 08
-; [RE] OCT$() handler (function token $18): octal-string conversion.
+; [RE] OCT$(x) handler (function token $18): format x as octal-digit text (shared STR_FN_FINALIZE_1 tail).
 FN_OCT_STR:
+        CALL HEX_OCT_OUT                 ; $6BAF  CD 3E 5C
+        JR FN_STR_1                      ; $6BB2  18 08
+; [RE] HEX$(x) handler (function token $19): format x as hex-digit text (shared STR_FN_FINALIZE_1 tail).
+FN_HEX_STR:
         CALL HEX_OCT_OUT_1+1             ; $6BB4  CD 41 5C
-        JR STR_FN_FINALIZE_1             ; $6BB7  18 03
-; [RE] Finalize a string-returning function result: scan the formed string (SCAN_STR_LITERAL), build its descriptor and stage it as the string temporary returned through STR_FN_RETURN_CHAR.
-STR_FN_FINALIZE:
+        JR FN_STR_1                      ; $6BB7  18 03
+; [RE] STR$(x) handler (function token $12): format a number as its ASCII text (FOUT) and return a string temporary. The finalize tail (STR_FN_FINALIZE_1) is shared by OCT$/HEX$/SPACE$.
+FN_STR:
         CALL FOUT_2                      ; $6BB9  CD 22 57
-STR_FN_FINALIZE_1:
+FN_STR_1:
         CALL SCAN_STR_LITERAL            ; $6BBC  CD EA 6B
         CALL FRESTR                      ; $6BBF  CD BC 6D
         LD BC,STR_FN_RETURN_CHAR_1       ; $6BC2  01 0F 6E
@@ -12087,8 +12087,8 @@ FREE_TOP_TEMP_DESCR:
         RET NZ                           ; $6DE4  C0
         LD (L_0B25),HL                   ; $6DE5  22 25 0B
         RET                              ; $6DE8  C9
-; [RE] POS() handler (function token $10): current console column (LD BC,$3E32 = return-integer helper).
-FN_POS:
+; [RE] LEN(a$) handler (function token $11): length of a string (its descriptor count byte) into the FAC.
+FN_LEN:
         LD BC,FP_LOAD_INT_TO_FAC         ; $6DE9  01 32 3E
         PUSH BC                          ; $6DEC  C5
 ; [RE] evaluate the pending string argument to a descriptor (via FRETMP), returning the descriptor's length in A and address in HL; Z set if the string is empty.
@@ -12099,8 +12099,8 @@ GET_STR_DESCR_PTR:
         LD A,(HL)                        ; $6DF2  7E
         OR A                             ; $6DF3  B7
         RET                              ; $6DF4  C9
-; [RE] VAL() handler (function token $13): numeric value of a string (FIN).
-FN_VAL:
+; [RE] ASC(a$) handler (function token $14): character code of the string FIRST byte into the FAC (FC error if the string is empty).
+FN_ASC:
         LD BC,FP_LOAD_INT_TO_FAC         ; $6DF5  01 32 3E
         PUSH BC                          ; $6DF8  C5
 ; [RE] VAL() body: fetch the string descriptor, error if empty, then load the string's text pointer (DE) and first byte (A) for numeric parsing (FIN).
@@ -12113,8 +12113,8 @@ FN_VAL_BODY:
         LD D,(HL)                        ; $6E02  56
         LD A,(DE)                        ; $6E03  1A
         RET                              ; $6E04  C9
-; [RE] ASC() handler (function token $14): character code of a string's first byte.
-FN_ASC:
+; [RE] CHR$(n) handler (function token $15): allocate a 1-byte string holding character n; returned as a string temporary.
+FN_CHR:
         CALL ALLOC_STR_1                 ; $6E05  CD DA 6B
         CALL CONINT                      ; $6E08  CD 9A 40
 ; [RE] string-function epilogue: store result char (E) into the string work buffer at ($0B46) and return through PUT_STR_TEMP (FRMEVL string-temp fixup).
@@ -12148,8 +12148,8 @@ FN_STRING_FROM_STR:
 STR_FN_RETURN_CHAR_4:
         POP DE                           ; $6E38  D1
         CALL STR_FILL_ALLOC              ; $6E39  CD 41 6E
-; [RE] PEEK() handler (function token $16): read a memory byte (CALL $409A evaluates the address).
-FN_PEEK:
+; [RE] SPACE$(n) handler (function token $17): build a string of n blanks via the shared string-fill allocator.
+FN_SPACE:
         CALL CONINT                      ; $6E3C  CD 9A 40
         LD A,$20                         ; $6E3F  3E 20
 ; [RE] STRING$/SPACE$ build helper: allocate B bytes of string space, fill with the pad char in A, returning the new descriptor; entry from the function epilogue at STR_FN_RETURN_CHAR.
@@ -12246,8 +12246,8 @@ FN_RIGHT_STR:
         RET C                            ; $6EAC  D8
         LD B,E                           ; $6EAD  43
         RET                              ; $6EAE  C9
-; [RE] string-function helper (reached via the function dispatch table): fetch the string descriptor, index to byte E within it, read/replace that byte and re-tokenise (used by a single-char string accessor).
-STR_VAL_NULTERM:
+; [RE] VAL(a$) handler (function token $13): numeric value of a string (parsed via FIN); NUL-terminates the source then converts.
+FN_VAL:
         CALL GET_STR_DESCR_PTR           ; $6EAF  CD ED 6D
         JP Z,FP_LOAD_INT_TO_FAC          ; $6EB2  CA 32 3E
         LD E,A                           ; $6EB5  5F
@@ -12494,13 +12494,13 @@ PARSE_OPT_LEN_ARG_1:
         CALL SYNCHR                      ; $6FEE  CD 25 69
         DEFB    ')'                      ; $6FF1  29  inline char arg consumed by the preceding CALL
         RET                              ; $6FF2  C9
-; [RE] ATN() handler (function token $0E): arctangent (MBF).
-FN_ATN:
+; [RE] FRE() handler (function token $0F): free memory. A string arg triggers FRESTR+GARBAG (garbage collect); returns FRETOP minus the top of the variable/array area as the free byte count.
+FN_FRE:
         CALL FRMEVL_TEST_TYPE            ; $6FF3  CD C8 3D
-        JP NZ,FN_ATN_1                   ; $6FF6  C2 FF 6F
+        JP NZ,FN_FRE_1                   ; $6FF6  C2 FF 6F
         CALL FRESTR                      ; $6FF9  CD BC 6D
         CALL GARBAG                      ; $6FFC  CD 82 6C
-FN_ATN_1:
+FN_FRE_1:
         LD HL,(L_0B73)                   ; $6FFF  2A 73 0B
         EX DE,HL                         ; $7002  EB
         LD HL,(FRETOP)                   ; $7003  2A 48 0B
@@ -12878,7 +12878,7 @@ STMT_CALL:
         EX DE,HL                         ; $7241  EB
         CALL FRMEVL_TEST_TYPE            ; $7242  CD C8 3D
         CALL FP_ARG_SETUP1               ; $7245  CD EC 4E
-        CALL FN_LPOS                     ; $7248  CD 76 4F
+        CALL FN_CINT                     ; $7248  CD 76 4F
         LD (L_0C93),HL                   ; $724B  22 93 0C
         POP AF                           ; $724E  F1
         JP Z,GFX_FN_VPOS_4               ; $724F  CA 83 47
@@ -15422,7 +15422,7 @@ PROG_UNSCRAMBLE_1:
         LD HL,(VARTAB)                   ; $813D  2A 6F 0B
         CALL CMP_HL_DE                   ; $8140  CD 1F 69
         RET Z                            ; $8143  C8
-        LD HL,FN_TAN_2                   ; $8144  21 02 5F
+        LD HL,FN_ATN_2                   ; $8144  21 02 5F
         LD A,L                           ; $8147  7D
         ADD A,C                          ; $8148  81
         LD L,A                           ; $8149  6F
@@ -15473,7 +15473,7 @@ PROG_SCRAMBLE_1:
         SUB C                            ; $8186  91
         XOR (HL)                         ; $8187  AE
         PUSH AF                          ; $8188  F5
-        LD HL,FN_TAN_2                   ; $8189  21 02 5F
+        LD HL,FN_ATN_2                   ; $8189  21 02 5F
         LD A,L                           ; $818C  7D
         ADD A,C                          ; $818D  81
         LD L,A                           ; $818E  6F
