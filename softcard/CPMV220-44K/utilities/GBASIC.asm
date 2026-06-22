@@ -23,7 +23,7 @@
     INCLUDE "msbasic_var.inc"   ; MS BASIC variable/array storage STRUCTs
     INCLUDE "cpm22.inc"   ; CP/M 2.2 BDOS ABI (BDOS + F_*/DRV_*)
 
-    ORG $0100
+    ORG TPA                          ; CP/M transient program area = $0100 (cpm22.inc)
 
         JP RELOCATE_AND_RUN              ; $0100  C3 00 10
         DEFW    FN_CINT                  ; $0103
