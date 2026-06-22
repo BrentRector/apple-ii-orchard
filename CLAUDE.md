@@ -95,11 +95,16 @@ Write-ups publish to **wiseowl.com** (Astro v6, Cloudflare Pages) at
 
 ## Current focus
 
-**The 2.20-44K + 2.23-44K source trees AND both BASICs are now at the full standard,
-merged to `main` (PR #4, branch `softcard-bootloaders-to-standard`).** Gate **217 passed**.
-Read `resume-prompt.md` (top section) for the full handoff; the deep recipe lives in memory
-(`project_gbasic_2_20_44k_re_kickoff`, `project_gbasic_vs_mbasic_relationship`,
-`feedback_use_softcard_docs_for_config_blocks`).
+**LIVE (2026-06-21, on `main`, gate 224): the GBASIC/MBASIC one-conditional-source FOLD.**
+Both BASICs' error subsystem is fully RE'd and the whole `basic-synchr-decode-fix` branch is
+merged (`a2eab60`). Now folding GBASIC + MBASIC into ONE master: **`BASIC.asm` is GENERATED**
+by `cpm_pipeline.basic.fold_gen` (GBASIC.asm + 7 `IFDEF GBASIC` patches), and
+`cpm_pipeline.basic.fold_build` assembles either build + byte-diffs the .COM. **GBASIC mode is
+byte-identical; MBASIC mode has 4 islands left** (SUB_47C6_2/_3 SCRN/PDL dispatch ->
+not-impl stub, GFX_HIRES_BYTE_ADDR cold-start cell, L_84C8 mislabel-into-padding -> keep_literal).
+Brent's insight: the fold build IS a relocation/decode audit (it already caught + fixed the
+sign-on banner decoded as bogus code in both). Read `resume-prompt.md` (top) + memory
+`project_basic_gbasic_mbasic_fold` for the full handoff and the resume steps.
 
 What got done (2026-06-20): **GBASIC 2.20-44K** fully RE'd (0 machine labels, byte-identical;
 self-relocates to `$3000`, decoded via `DISP $3000`). **MBASIC 2.20-44K** fully RE'd (0
@@ -116,9 +121,12 @@ byte-identical by `test_utilities_roundtrip`); the build scaffolding (`gen_gbasi
 in `E:/tmp/` (scratch, may be gone) -- the committed `GBASIC/MBASIC.seeds.json` +
 `.overlay.json` are the provenance.
 
-REMAINING (next sessions): 2.20<->2.23 BASIC patch consolidation; finish include propagation
-(CPMV223-60K + `src` build wiring, the `CPM60_installer` disk path, `cpm22.inc` across the
-utilities, a 6502-side include for the `.s` files); then the 56K/60K trees to the same
+REMAINING — fold first: close the 4 MBASIC islands (run `python -m cpm_pipeline.basic.fold_build`
+to see them) so BASIC.asm reproduces BOTH .COMs byte-identical, then retire the generated
+GBASIC.asm/MBASIC.asm (MBASIC's GBASIC-contaminated comments retire with them — DON'T fix them
+piecemeal). THEN the older queue: 2.20<->2.23 BASIC patch consolidation; finish include
+propagation (CPMV223-60K + `src` build wiring, the `CPM60_installer` disk path, `cpm22.inc`
+across the utilities, a 6502-side include for the `.s` files); the 56K/60K trees to the same
 standard, the CPM56->os/ fold, and the wiseowl "Guided Tour" article series. Plan:
 `softcard/docs/CPM_Source_Completion_and_Tour_Plan.md`, `project_softcard_source_completion_and_tour`.
 

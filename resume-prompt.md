@@ -1,11 +1,101 @@
 # Resume Prompt — Microsoft SoftCard CP/M Investigation
 
-## CURRENT STATE — 2026-06-20 (NEWEST: GBASIC + MBASIC FULLY RE'd, shared name includes, RWTS IOB; MERGED to `main` via PR #4)
+## CURRENT STATE — 2026-06-21 (NEWEST: ERROR SUBSYSTEM fully RE'd + MERGED; the GBASIC/MBASIC FOLD is underway — generated master builds GBASIC byte-identical, 4 MBASIC islands left)
 
-**Everything below is now on `main`** (branch `softcard-bootloaders-to-standard` merged via
-PR #4 = github.com/BrentRector/apple-ii-orchard/pull/4). Canonical gate **217 passed**
-(`source shared/toolchain/env.sh && python -m pytest softcard/ shared/`). Everything is
-byte-identical to the original disk images.
+**Branch: `main`, working tree clean.** The `basic-synchr-decode-fix` feature branch was
+merged via a `--no-ff` merge (`a2eab60`); everything since is committed directly on `main`.
+Gate: **224 passed** (`source shared/toolchain/env.sh && python -m pytest softcard/ shared/`).
+Both BASICs reassemble byte-identical to their disk `.COM`s. Newest commit: `1acd0be`.
+
+### >> THE LIVE WORK: the GBASIC/MBASIC one-conditional-source FOLD
+
+The big remaining goal ([[project_gbasic_vs_mbasic_relationship]]) is now UNDERWAY and proven
+feasible: because both interpreters are fully relocatable (0 BARE machine-label heads, every
+reference a label), the shared ~95% is the SAME labeled source assembled at two ORGs. Brent's
+two insights drove it: (a) feasibility comes from relocatability; (b) **the build doubles as a
+relocation/decode AUDIT** — any non-graphics byte mismatch is a decode bug the byte-identical
+gate was structurally blind to. Insight (b) has already paid off three times (see islands).
+
+- **`BASIC.asm` is GENERATED, never hand-edited** — `cpm_pipeline.basic.fold_gen` applies 7
+  `IFDEF GBASIC` conditional patches to the CURRENT `GBASIC.asm` (label-anchored; each patch
+  asserts its anchor occurs exactly once, so any future GBASIC.asm drift fails LOUDLY instead
+  of silently producing a wrong master). Lesson learned the hard way: a hand-copied BASIC.asm
+  drifts the instant GBASIC.asm is fixed (the banner fix rippled through preceding label refs
+  AND changed the trailing fill render), and a piecemeal sync broke the build.
+- **Harness** `cpm_pipeline.basic.fold_build`: `assemble("GBASIC"|"MBASIC")` (prepends `DEFINE
+  GBASIC` or not) + byte-diff vs the `.COM`. **Regen order:** `python -m cpm_pipeline.basic.
+  gen_gbasic` -> `apply_naming --base CPMV220-44K/utilities/GBASIC.asm --com GBASIC.COM
+  CPMV220-44K/utilities/GBASIC.overlay.json --write` -> `python -m cpm_pipeline.basic.fold_gen`
+  -> `python -m cpm_pipeline.basic.fold_build`.
+- **State:** `fold_build` => GBASIC mode **BYTE-IDENTICAL (25600B)**; MBASIC mode = **4
+  undefined-label errors** (down from 16). The 7 patches done: entry vector (JP relocator vs JP
+  COLD_START), the `$1000` relocator + `DISP $3000` wrapper (GBASIC self-relocates the body to
+  `$3000`; MBASIC runs flat in place), the hi-res graphics handler block (`$47DA-$4B79`), the 3
+  hi-res statement dispatch slots (`$01A8-$01AC`: GFX_STMT_HGR/HPLOT/HCOLOR vs the
+  RAISE_GRAPHICS_STATEMENT_NOT_IMPLEMENTED stub), the stub itself (a `DEFB $01` cover +
+  `LD E,32`/raise wedged into the disk-reselect tail, IFNDEF GBASIC), the trailing padding +
+  ENT, the SAVEBIN size (`$6400` vs `$6000`). NOTE: GR/COLOR/HLIN/VLIN/PLOT statements stay
+  shared (MBASIC keeps low-res); only the HI-RES three are stubbed.
+
+**THE 4 REMAINING ISLANDS** (resume here — each is a small, well-understood patch):
+1. **SUB_47C6_2 / SUB_47C6_3** (`$47E6`/`$47EF`) — the SCRN/PDL **function**-dispatch targets
+   (the `CP $D3 / JP Z,SUB_47C6_2` and `CP $ED / JP Z,SUB_47C6_3` chain near `$3C85`/`$3C8F`).
+   They map to MBASIC's `$280F` = the SAME not-impl stub, so add an `IFDEF GBASIC / ELSE
+   JP Z,RAISE_GRAPHICS_STATEMENT_NOT_IMPLEMENTED` patch to `fold_gen` (mirror the statement-slot
+   patch). VERIFY first against MBASIC.asm what those tokens dispatch to.
+2. **GFX_HIRES_BYTE_ADDR** — a cold-start RAM-init table entry (`DEFW` at `$5E11`) pointing at a
+   graphics cell inside the wrapped block; needs a conditional table entry (check what MBASIC's
+   cold-start table carries there).
+3. **L_84C8** — the audit catching one more: a coincidental constant the harvest mislabeled as
+   a code address INTO the dead trailing padding. The body references `$84C8` as a LABEL; make
+   it a literal (a `keep_literal` in `gen_gbasic`, same family as the `AUDIT_BOGUS_VALUES` set —
+   this ALSO cleans the committed GBASIC.asm). Then MBASIC mode (padding excluded) won't dangle.
+4. (the 4th error is the second SUB_47C6, folded into #1).
+
+After the 4 islands the byte-diff should collapse to 0 (or to isolated 2-byte relocation bugs =
+frozen literals = more audit finds). Then BASIC.asm reproduces BOTH `.COM`s byte-identical, the
+generated `GBASIC.asm`/`MBASIC.asm` can RETIRE, and MBASIC's GBASIC-contaminated comments go
+with them (Brent's goal: shared code keeps GBASIC's correct, label-based comments). Excluded
+from the round-trip test (`test_fold_build_gbasic_byte_identical` covers the GBASIC milestone).
+
+### Error subsystem — fully RE'd in BOTH twins (merged; recipe [[project_basic_synchr_decode_and_tokens]])
+
+New modules `cpm_pipeline/basic/{errmsg,errstub}.py`. Message table -> `ERROR_MESSAGE_TABLE`
+base + clean `DEFB` strings + the GENERATED `softcard/include/msbasic_errors.inc` (ERR_* EQUs,
+now generated from **MBASIC.COM** = the code superset: it alone carries code 32 =
+ERR_GRAPHICS_STATEMENT_NOT_IMPLEMENTED). Codes 1-31 then disk 50-70 (printer does CP $32/SUB
+$12). Overlap-skip stub runs -> `RAISE_<name>: LD E,ERR_<name>` / `DEFB $01`; the non-table
+`LD E,$nn` AND `LD DE,$00nn` raise sites -> `LD (D)E,ERR_<name>`; the single-entry `LD BC,$nn1E`
+cover stub (graphics-not-impl) -> `RAISE_GRAPHICS_STATEMENT_NOT_IMPLEMENTED` (errstub.
+apply_cover_raise_stubs — Brent caught this gap from a `SUB_2803_1+1` ref). Dispatcher unified
+**RAISE_ERROR** across both twins. Disk-error VECTOR run -> `DISK_RAISE_<name>` + tail
+`DISK_RESELECT_AND_RAISE`. A surfaced mis-decode: `CONT_CMD` ($0D2E) is really **PROGRAM_END**
+(NEWSTT end-of-program; raises No RESUME=19, not Can't continue=17; real CONT is STMT_CONT).
+
+### Other this-session work (all merged/committed, byte-identical, gate 224)
+
+- **MBASIC data-as-code AUDIT propagation** (`1f3f26f`): the Redo/Randomize/FN_RND-FP-pool
+  regions pinned as data in `gen_mbasic` (the GBASIC-only AUDIT fixes mirrored to the twin).
+- **Sign-on banner pinned as data in BOTH** (`c3d6181` MBASIC, `4888f12` GBASIC) — the fold
+  audit's payoff: "BASIC-80 Rev. 5.2 ... Copyright (C) 1980 by Microsoft ..." was decoded as
+  bogus code (`$0D $0A` as `DEC C`/`LD A,(BC)`). GBASIC's pin needed the **`drop_orphan_labels`
+  `keep=` fix**: the `$8483` LDDR-boundary label (INTERP_COPY_END) is referenced by the
+  relocator only via a literal operand that apply_naming rewrites later, so it looked orphaned
+  and was stranded (it had only survived by coincidence on the bogus banner's stray refs).
+- **comment_sub** (`bfebfea`, `apply_naming`): keeps `[RE]` prose in sync with the naming pass
+  (renames machine-label refs in comments to their semantic names; literalizes danglers to
+  `$xxxx`) — 57/67 dead refs -> 0. Drops the stale "(executable, rendered as DEFB)" phrasing.
+- **Dual-behavior comment transfer to MBASIC** (`ad28cfd`): the GBASIC audit's 46 proven
+  flag-skip/SMC/cover comments transferred via the lockstep map with a byte-match gate + full
+  GBASIC->MBASIC address translation. (Largely MOOT under the fold plan — shared code will
+  inherit GBASIC's comments — but harmless; MBASIC.asm retires with the fold.)
+
+---
+
+## Earlier handoff — 2026-06-20 (GBASIC + MBASIC FULLY RE'd, shared name includes, RWTS IOB; MERGED to `main` via PR #4)
+
+**Everything below was on `main` as of 2026-06-20** (branch `softcard-bootloaders-to-standard`
+merged via PR #4); the 2026-06-21 work above builds on it. Gate then **217 passed**.
 
 **GBASIC 2.20-44K — DONE, 0 machine labels** (`softcard/CPMV220-44K/utilities/GBASIC.asm`).
 Clean-slate decode of GBASIC.COM (25600 B). It self-relocates: entry `JP $1000`; a `$1000`
