@@ -975,6 +975,7 @@ FILTAB_18:
         NOP                              ; $0A0A  00
         NOP                              ; $0A0B  00
         NOP                              ; $0A0C  00
+SUB_0925_1:
         NOP                              ; $0A0D  00
         NOP                              ; $0A0E  00
         NOP                              ; $0A0F  00
@@ -992,7 +993,7 @@ FILTAB_18:
         NOP                              ; $0A1B  00
         NOP                              ; $0A1C  00
         NOP                              ; $0A1D  00
-SUB_0925_1:
+SUB_0925_2:
         NOP                              ; $0A1E  00
         NOP                              ; $0A1F  00
         NOP                              ; $0A20  00
@@ -1011,7 +1012,7 @@ SUB_0925_1:
         NOP                              ; $0A2D  00
         NOP                              ; $0A2E  00
         NOP                              ; $0A2F  00
-SUB_0925_2:
+SUB_0925_3:
         INC L                            ; $0A30  2C
 ; Console line-input buffer (MS BASIC BUF): INLIN reads/echoes the edited input line here; Ctrl-U/Ctrl-R reset the pointer to $0A0E. Buffer body continues through $0A1E.
 BUF:
@@ -3852,7 +3853,7 @@ MSG_REDO_FROM_START_4:
 MSG_REDO_FROM_START_5:
         CALL GET_FILENUM_PREFIX_C1       ; $1909  CD 8B 52
         PUSH HL                          ; $190C  E5
-        LD HL,SUB_0925_2                 ; $190D  21 30 0A
+        LD HL,SUB_0925_3                 ; $190D  21 30 0A
         JP INPUT_PARSE_VALUES_6          ; $1910  C3 CE 19
 ; [RE] INPUT statement handler (token $85): prompt + read console line, parse values into the variable list.
 STMT_INPUT:
@@ -6199,8 +6200,7 @@ GFX_STMT_BEEP:
         DEFW    FILE_FLUSH_RECORD_CK_1   ; $2730
         DEFB    $FF,$CA,$D0,$F3          ; $2732
         DEFW    STMT_ERASE_3             ; $2736
-        DEFB    $D0,$EC,$F0              ; $2738
-        DEFW    SUB_60AD_5               ; $273B
+        DEFB    $D0,$EC,$F0,$EA,$60      ; $2738
 ; [RE] WAIT statement handler (token $D5): poll an I/O port until (in AND mask) XOR xor is non-zero.
 STMT_WAIT:
         CALL GETINT                      ; $273D  CD A3 20
@@ -8254,7 +8254,6 @@ FIN_DIV10:
         POP AF                           ; $321C  F1
 FIN_DIV10_1:
         CALL PE,FIN_DSCALE_DIV10         ; $321D  EC 06 30
-FIN_DIV10_2:
         POP AF                           ; $3220  F1
         POP HL                           ; $3221  E1
         POP DE                           ; $3222  D1
@@ -10790,7 +10789,7 @@ EDIT_BUF_SHIFT_9:
         AND E                            ; $40BF  A3
         INC A                            ; $40C0  3C
 EDIT_BUF_SHIFT_10:
-        LD HL,SUB_0925_2                 ; $40C1  21 30 0A
+        LD HL,SUB_0925_3                 ; $40C1  21 30 0A
         RET Z                            ; $40C4  C8
         SCF                              ; $40C5  37
         PUSH AF                          ; $40C6  F5
@@ -11370,7 +11369,7 @@ PRINT_CRLF_IF_COL:
         JP CRLF                          ; $43FE  C3 06 44
 PRINT_CRLF_IF_COL_1:
         LD (HL),$00                      ; $4401  36 00
-        LD HL,SUB_0925_2                 ; $4403  21 30 0A
+        LD HL,SUB_0925_3                 ; $4403  21 30 0A
 ; [RE] Output CR ($0D) + LF ($0A) to the console (via OUTCHR), then clear pending auto-line state. The print-newline routine; used by the sign-on and after each Ok prompt.
 CRLF:
         LD A,$0D                         ; $4406  3E 0D
@@ -13089,7 +13088,7 @@ INLIN_CR_FINISH:
         JP Z,PRINT_CRLF_IF_COL_1         ; $4DA3  CA 01 44
         XOR A                            ; $4DA6  AF
         LD (HL),A                        ; $4DA7  77
-        LD HL,SUB_0925_2                 ; $4DA8  21 30 0A
+        LD HL,SUB_0925_3                 ; $4DA8  21 30 0A
         RET                              ; $4DAB  C9
 ; [RE] INPUT/LINE-INPUT prompt-separator: clear the auto-prompt flag ($0C93); if the next char is ';' set the flag (suppress the trailing '?') and CHRGET past it.
 INPUT_PROMPT_SEP:
@@ -13300,7 +13299,7 @@ STMT_CALL:
         DEC HL                           ; $4EDE  2B
         CALL CHRGET                      ; $4EDF  CD E4 13
         LD (DATA_LINE_TXTPTR_3),HL       ; $4EE2  22 77 0B
-        JR Z,STMT_CALL_3                 ; $4EE5  28 3B
+        JR Z,STMT_CALL_4                 ; $4EE5  28 3B
         CALL SYNCHR                      ; $4EE7  CD A3 45
         DEFB    '('                      ; $4EEA  28  inline char arg consumed by the preceding CALL
 STMT_CALL_1:
@@ -13325,17 +13324,18 @@ STMT_CALL_2:
         CALL SYNCHR                      ; $4F03  CD A3 45
         DEFB    ')'                      ; $4F06  29  inline char arg consumed by the preceding CALL
         LD (DATA_LINE_TXTPTR_3),HL       ; $4F07  22 77 0B
+STMT_CALL_3:
         LD A,$21                         ; $4F0A  3E 21
         SUB C                            ; $4F0C  91
         POP HL                           ; $4F0D  E1
         DEC A                            ; $4F0E  3D
-        JR Z,STMT_CALL_3                 ; $4F0F  28 11
+        JR Z,STMT_CALL_4                 ; $4F0F  28 11
         POP DE                           ; $4F11  D1
         DEC A                            ; $4F12  3D
-        JR Z,STMT_CALL_3                 ; $4F13  28 0D
+        JR Z,STMT_CALL_4                 ; $4F13  28 0D
         POP BC                           ; $4F15  C1
         DEC A                            ; $4F16  3D
-        JR Z,STMT_CALL_3                 ; $4F17  28 09
+        JR Z,STMT_CALL_4                 ; $4F17  28 09
         PUSH BC                          ; $4F19  C5
         PUSH HL                          ; $4F1A  E5
         LD HL,$0002                      ; $4F1B  21 02 00
@@ -13343,15 +13343,15 @@ STMT_CALL_2:
         LD B,H                           ; $4F1F  44
         LD C,L                           ; $4F20  4D
         POP HL                           ; $4F21  E1
-STMT_CALL_3:
+STMT_CALL_4:
         PUSH HL                          ; $4F22  E5
-        LD HL,STMT_CALL_4                ; $4F23  21 2D 4F
+        LD HL,STMT_CALL_5                ; $4F23  21 2D 4F
         EX (SP),HL                       ; $4F26  E3
         PUSH HL                          ; $4F27  E5
         LD HL,(DETOKENIZE_SPACE_FLAG)    ; $4F28  2A B6 0C
         EX (SP),HL                       ; $4F2B  E3
         RET                              ; $4F2C  C9
-STMT_CALL_4:
+STMT_CALL_5:
         LD HL,(SAVSTK)                   ; $4F2D  2A 81 0B
         LD SP,HL                         ; $4F30  F9
         LD HL,(DATA_LINE_TXTPTR_3)       ; $4F31  2A 77 0B
@@ -14108,7 +14108,7 @@ FN_CVI_17:
         POP HL                           ; $53C9  E1
 FN_CVI_18:
         LD (HL),$00                      ; $53CA  36 00
-        LD HL,SUB_0925_2                 ; $53CC  21 30 0A
+        LD HL,SUB_0925_3                 ; $53CC  21 30 0A
         LD A,E                           ; $53CF  7B
         SUB $20                          ; $53D0  D6 20
         JR Z,FN_CVI_19                   ; $53D2  28 08
@@ -16245,36 +16245,19 @@ COLD_SET_WIDTH_17:
         LD HL,STKFRAME_SCAN_3            ; $606C  21 4B 0D
         LD (COM_ENTRY+1),HL              ; $606F  22 01 01
         JP WARM_START                    ; $6072  C3 3B 5E
-        DEC C                            ; $6075  0D
-        LD A,(BC)                        ; $6076  0A
-        LD A,(BC)                        ; $6077  0A
-        LD C,A                           ; $6078  4F
-        LD (HL),A                        ; $6079  77
-        LD L,(HL)                        ; $607A  6E
-        LD H,L                           ; $607B  65
-        LD H,H                           ; $607C  64
-        JR NZ,SUB_60AD_4                 ; $607D  20 62
-        LD A,C                           ; $607F  79
-        JR NZ,SUB_60AD_1                 ; $6080  20 4D
-        LD L,C                           ; $6082  69
-        LD H,E                           ; $6083  63
-        LD (HL),D                        ; $6084  72
-        LD L,A                           ; $6085  6F
-        LD (HL),E                        ; $6086  73
-        LD L,A                           ; $6087  6F
-        LD H,(HL)                        ; $6088  66
-        LD (HL),H                        ; $6089  74
-        DEC C                            ; $608A  0D
-        LD A,(BC)                        ; $608B  0A
-        NOP                              ; $608C  00
+        DEFW    SUB_0925_1               ; $6075
+        DEFW    STMT_CALL_3              ; $6077
+        DEFB    "wned by Microsoft"      ; $6079  string
+        DEFB    $0D                      ; $608A  terminator
+        DEFB    $0A,$00                  ; $608B
 ; Data string ' Bytes free'+CRLF -- free-memory suffix printed after the byte count in the cold sign-on banner (loaded at $83DF, emitted via STROUT)
 MSG_BYTES_FREE:
-        JR NZ,SUB_60AD_2                 ; $608D  20 42
+        JR NZ,L_60D1                     ; $608D  20 42
         LD A,C                           ; $608F  79
         LD (HL),H                        ; $6090  74
         LD H,L                           ; $6091  65
         LD (HL),E                        ; $6092  73
-        JR NZ,SUB_60AD_6                 ; $6093  20 66
+        JR NZ,L_60FB                     ; $6093  20 66
         LD (HL),D                        ; $6095  72
         LD H,L                           ; $6096  65
         LD H,L                           ; $6097  65
@@ -16283,99 +16266,23 @@ MSG_BYTES_FREE:
         NOP                              ; $609A  00
 ; Data string: leading sign-on banner text (CRLF CRLF CRLF then 'BASIC-80 ...'), printed first by COLD_SIGNON ($83D5 LD HL,$841D / STROUT) ahead of the free-bytes count
 SIGNON_BANNER_HEADER:
-        DEC C                            ; $609B  0D
-        LD A,(BC)                        ; $609C  0A
-        DEC C                            ; $609D  0D
-        LD A,(BC)                        ; $609E  0A
-        DEC C                            ; $609F  0D
-        LD A,(BC)                        ; $60A0  0A
-        LD B,D                           ; $60A1  42
-        LD B,C                           ; $60A2  41
-        LD D,E                           ; $60A3  53
-        LD C,C                           ; $60A4  49
-        LD B,E                           ; $60A5  43
-        DEC L                            ; $60A6  2D
-        JR C,SUB_60AD_3                  ; $60A7  38 30
-        JR NZ,SUB_60AD_7                 ; $60A9  20 52
-        LD H,L                           ; $60AB  65
-        HALT                             ; $60AC  76
-        LD L,$20                         ; $60AD  2E 20
-        DEC (HL)                         ; $60AF  35
-        LD L,$32                         ; $60B0  2E 32
-        DEC C                            ; $60B2  0D
-        LD A,(BC)                        ; $60B3  0A
-        LD E,E                           ; $60B4  5B
-        LD B,C                           ; $60B5  41
-        LD (HL),B                        ; $60B6  70
-        LD (HL),B                        ; $60B7  70
-        LD L,H                           ; $60B8  6C
-        LD H,L                           ; $60B9  65
-        JR NZ,SUB_60AD_8                 ; $60BA  20 43
-        LD D,B                           ; $60BC  50
-        CPL                              ; $60BD  2F
-        LD C,L                           ; $60BE  4D
-        JR NZ,$6117                      ; $60BF  20 56
-        LD H,L                           ; $60C1  65
-        LD (HL),D                        ; $60C2  72
-        LD (HL),E                        ; $60C3  73
-        LD L,C                           ; $60C4  69
-        LD L,A                           ; $60C5  6F
-        LD L,(HL)                        ; $60C6  6E
-        LD E,L                           ; $60C7  5D
-        DEC C                            ; $60C8  0D
-        LD A,(BC)                        ; $60C9  0A
-        LD B,E                           ; $60CA  43
-        LD L,A                           ; $60CB  6F
-        LD (HL),B                        ; $60CC  70
-        LD A,C                           ; $60CD  79
-        LD (HL),D                        ; $60CE  72
-SUB_60AD_1:
-        LD L,C                           ; $60CF  69
-        LD H,A                           ; $60D0  67
-SUB_60AD_2:
-        LD L,B                           ; $60D1  68
-        LD (HL),H                        ; $60D2  74
-        JR NZ,SUB_60AD_7                 ; $60D3  20 28
-        LD B,E                           ; $60D5  43
-        ADD HL,HL                        ; $60D6  29
-        JR NZ,$610A                      ; $60D7  20 31
-SUB_60AD_3:
-        ADD HL,SP                        ; $60D9  39
-        JR C,$610C                       ; $60DA  38 30
-        JR NZ,$6140                      ; $60DC  20 62
-        LD A,C                           ; $60DE  79
-        JR NZ,$612E                      ; $60DF  20 4D
-SUB_60AD_4:
-        LD L,C                           ; $60E1  69
-        LD H,E                           ; $60E2  63
-        LD (HL),D                        ; $60E3  72
-        LD L,A                           ; $60E4  6F
-        LD (HL),E                        ; $60E5  73
-        LD L,A                           ; $60E6  6F
-        LD H,(HL)                        ; $60E7  66
-        LD (HL),H                        ; $60E8  74
-        DEC C                            ; $60E9  0D
-SUB_60AD_5:
-        LD A,(BC)                        ; $60EA  0A
-        LD B,E                           ; $60EB  43
-        LD (HL),D                        ; $60EC  72
-        LD H,L                           ; $60ED  65
-        LD H,C                           ; $60EE  61
-        LD (HL),H                        ; $60EF  74
-        LD H,L                           ; $60F0  65
-        LD H,H                           ; $60F1  64
-        LD A,($3220)                     ; $60F2  3A 20 32
-        LD (HL),$2D                      ; $60F5  36 2D
-        LD B,C                           ; $60F7  41
-        LD (HL),L                        ; $60F8  75
-        LD H,A                           ; $60F9  67
-        DEC L                            ; $60FA  2D
-SUB_60AD_6:
-        JR C,$612D                       ; $60FB  38 30
-SUB_60AD_7:
-        DEC C                            ; $60FD  0D
-        LD A,(BC)                        ; $60FE  0A
-SUB_60AD_8:
-        NOP                              ; $60FF  00
+        DEFW    SUB_0925_1               ; $609B
+        DEFW    SUB_0925_1               ; $609D
+        DEFW    SUB_0925_1               ; $609F
+        DEFW    $4142                    ; $60A1
+        DEFB    $53,$49,$43,$2D,$38,$30,$20,$52,$65,$76  ; $60A3
+        DEFB    ". 5.2"                  ; $60AD  string
+        DEFB    $0D                      ; $60B2  terminator
+        DEFB    $0A                      ; $60B3
+        DEFB    "[Apple CP/M Version]"   ; $60B4  string
+        DEFB    $0D                      ; $60C8  terminator
+        DEFB    $0A,$43,$6F,$70,$79,$72,$69,$67  ; $60C9
+L_60D1:
+        DEFB    "ht (C) 1980 by Microsoft"  ; $60D1  string
+        DEFB    $0D                      ; $60E9  terminator
+        DEFB    $0A,$43,$72,$65,$61,$74,$65,$64,$3A,$20,$32,$36,$2D,$41,$75,$67  ; $60EA
+        DEFB    $2D                      ; $60FA
+L_60FB:
+        DEFB    $38,$30,$0D,$0A,$00      ; $60FB
 
     SAVEBIN "MBASIC.bin", $0100, $6000

@@ -90,6 +90,7 @@ def main():
         (0x18D2, 0x18E5),   # "?Redo from start\r\n\0" (the INPUT 'Redo from start' prompt)
         (0x24A6, 0x24CD),   # "Random number seed (-32768- to 32767)\0" (RANDOMIZE prompt)
         (0x3B20, 0x3B45),   # FN_RND MBF floating-point constant pool
+        (0x609B, 0x6100),   # SIGNON_BANNER: "BASIC-80 Rev. 5.2 [Apple CP/M Version] ..." string
     ]
     for lo, hi in AUDIT_DATA:
         w.add_data_region(lo, hi)

@@ -186,6 +186,9 @@ def main():
         (0x47DA, 0x47E6),   # graphics state/variable block (HPLOT coordinate save cells)
         (0x4A81, 0x4A91),   # Apple hi-res color/pixel-pattern WORD table
         (0x5EA2, 0x5EC7),   # FN_RND MBF floating-point constant pool
+        # NOTE: the SIGNON banner ($841D-$8481) is ALSO data-as-code here (decoded as bogus
+        # SUB_842F_*/SUB_848D_* code), but pinning it perturbs the split header/body harvest
+        # (breaks the reswords table at $0254). Deferred -- needs the harvest decoupled first.
     ]
     for lo, hi in AUDIT_DATA:
         bwalk.add_data_region(lo, hi)
