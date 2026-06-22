@@ -94,3 +94,54 @@ def test_symbol_overrides_default_naming():
     w.add_label(0x0005)
     w.name_labels(symbols=syms)
     assert w.labels[0x0005] == "BDOS_VEC"
+
+
+def test_inline_byte_call_marks_operand_as_data():
+    # CALL $0110 ; <inline byte '('> ; DEC HL ; RET   at $0100 ; RET at $0110.
+    # $0110 is declared an inline-byte routine (like Microsoft BASIC's SYNCHR),
+    # so the byte after the CALL is its operand, not the next instruction.
+    m = _mem(
+        (0x0100, b"\xCD\x10\x01\x28\x2B\xC9"),  # CALL $0110 / DB $28 / DEC HL / RET
+        (0x0110, b"\xC9"),                       # the inline-byte routine: RET
+    )
+    w = Walker(m, start=0x0100, end=0x0111)
+    w.inline_byte_calls = {0x0110: 1}
+    w.trace(0x0100)
+    # the inline operand byte is data, recorded for char rendering, not code
+    assert 0x0103 not in w.code
+    assert w.inline_data.get(0x0103) is True
+    assert w.in_data_region(0x0103)
+    # decoding resumes PAST the inline byte: $0104 (DEC HL) + $0105 (RET) are code
+    assert 0x0104 in w.code and 0x0105 in w.code
+
+
+def test_without_inline_byte_call_the_operand_cascades():
+    # Same bytes, but WITHOUT the inline-byte declaration: $0103 ($28) decodes as
+    # JR Z and swallows the real $0104 ($2B) -- the cascade the feature prevents.
+    m = _mem(
+        (0x0100, b"\xCD\x10\x01\x28\x2B\xC9"),
+        (0x0110, b"\xC9"),
+    )
+    w = Walker(m, start=0x0100, end=0x0111)
+    w.trace(0x0100)
+    # without the hint the inline byte $0103 ($28) is decoded as a JR Z opcode
+    # (code), not data -- and it gets no inline_data record.
+    assert 0x0103 in w.code
+    assert 0x0103 not in w.inline_data
+
+
+def test_formatter_renders_inline_byte_as_char():
+    from disasm_z80.formatter import SjasmFormatter
+    m = _mem(
+        (0x0100, b"\xCD\x10\x01\x28\x2B\xC9"),
+        (0x0110, b"\xC9"),
+    )
+    w = Walker(m, start=0x0100, end=0x0111)
+    w.inline_byte_calls = {0x0110: 1}
+    w.trace(0x0100)
+    w.add_label(0x0100)
+    w.add_label(0x0110)
+    w.name_labels()
+    src = SjasmFormatter(m, w, origin=0x0100, length=0x11).emit_source()
+    assert "DEFB    '('" in src   # the $28 inline byte rendered as a char constant
+    assert "DEC HL" in src        # the real instruction after it survived the decode

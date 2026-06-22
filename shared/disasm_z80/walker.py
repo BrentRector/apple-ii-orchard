@@ -24,6 +24,13 @@ class Walker:
         self.call_targets = set()   # CALL destinations -> SUB_xxxx vs L_xxxx
         self.data_regions = []
         self.entry_points = []
+        # Inline-byte calls: target addr -> count of inline DATA bytes that
+        # follow a CALL to it. Some routines (e.g. Microsoft BASIC's SYNCHR)
+        # read the byte(s) immediately after the CALL as an operand and return
+        # PAST them, so those bytes are data, not the next instruction. The
+        # trace marks them as a data region and resumes decoding after them.
+        self.inline_byte_calls = {}
+        self.inline_data = {}       # addr -> True for such inline operand bytes
 
     def add_data_region(self, start, end_exclusive):
         self.data_regions.append((start, end_exclusive))
@@ -86,6 +93,20 @@ class Walker:
             if cf == ControlFlow.HALT:
                 return
             # NEXT, JUMP_CC, CALL, CALL_CC, RET_CC -> fall through
+
+            # An (unconditional) CALL to an inline-byte routine consumes N data
+            # bytes that sit after the CALL; the routine returns past them. Mark
+            # them as data so they are never decoded as code, and resume after
+            # them (this prevents the cascade where the inline byte is read as an
+            # opcode and swallows the real following instruction).
+            if cf == ControlFlow.CALL and target in self.inline_byte_calls:
+                n = self.inline_byte_calls[target]
+                nxt = addr + instr.size
+                self.add_data_region(nxt, nxt + n)
+                for i in range(n):
+                    self.inline_data[nxt + i] = True
+                addr = nxt + n
+                continue
 
             addr += instr.size
 

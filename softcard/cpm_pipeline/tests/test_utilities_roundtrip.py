@@ -77,11 +77,15 @@ def _assemble(asm_path: Path) -> bytes:
                         include_files=_include_deps(asm_path))
 
 
-# (tree, name, disk) for every utility .asm in each 44K tree, vs that tree's disk
+# (tree, name, disk) for every utility .asm in each 44K tree, vs that tree's disk.
+# BASIC.asm is excluded: it is the dual-mode GBASIC/MBASIC fold master (one source, two
+# builds via the GBASIC define), checked separately in test_fold_build, not against a single
+# BASIC.COM.
 _CASES = [
     (tree, p.stem, disk)
     for tree, disk in TREE_DISK.items()
     for p in sorted((REPO / tree / "utilities").glob("*.asm"))
+    if p.stem != "BASIC"
 ]
 
 
@@ -96,6 +100,22 @@ def test_utility_source_is_byte_identical(tree, name, disk):
     assert built == com, (
         f"{tree}/{name}.asm rebuilt {len(built)} bytes, expected {len(com)} "
         f"(does NOT round-trip byte-identical to {name}.COM on its disk)")
+
+
+@pytest.mark.parametrize("mode,com", [("GBASIC", "GBASIC.COM"), ("MBASIC", "MBASIC.COM")])
+def test_fold_build_byte_identical(mode, com):
+    """The GBASIC/MBASIC one-conditional-source fold master (BASIC.asm) reassembles BOTH
+    .COMs byte-identically: with the GBASIC symbol defined -> GBASIC.COM (self-relocating,
+    graphics-ON), without it -> MBASIC.COM (in place, graphics-OFF). One source, two builds."""
+    if not (HAS_SJASM and present(DISK_2_20_44K_SYSTEM)):
+        pytest.skip("sjasmplus or 44K system disk missing")
+    if not (REPO / "CPMV220-44K" / "utilities" / "BASIC.asm").exists():
+        pytest.skip("BASIC.asm fold master not present")
+    from cpm_pipeline.basic import fold_build
+    out, log = fold_build.assemble(mode)
+    assert out, f"BASIC.asm ({mode}) failed to assemble:\n{log[-800:]}"
+    assert out == fold_build.reference(com), (
+        f"BASIC.asm in {mode} mode does not reassemble {com} byte-identically")
 
 
 @_skip(DISK_2_23_44K_SYSTEM)
