@@ -5166,8 +5166,10 @@ GFX_STMT_BEEP:
         INC A                            ; $46FE  3C
         LD (RPC_XREG),A                  ; $46FF  32 46 F0
         PUSH HL                          ; $4702  E5
-        LD HL,FIN_DONE_27                ; $4703  21 09 57
+        LD HL,BEEP_6502_PAYLOAD+$1000    ; $4703  21 09 57
         JP GFX_STMT_PLOT_1               ; $4706  C3 CD 46
+; [RE] Embedded 6502 BEEP tone-loop, run by GFX_STMT_BEEP via the Z80->6502 RPC. From the 6502's view this lives at $4709+$1000=$5709 (the SoftCard maps a Z80 address X to 6502 address X+$1000), which is the value GFX_STMT_BEEP loads into HL (= A_VEC, the 6502 subroutine address) before triggering the RPC. 6502 listing: LDY #$00 / LDA $C030 (toggle speaker) / DEY / BNE +4 / DEC $45 (duration, =RPC_ACC) / BEQ done / JSR $FF57 (Monitor WAIT, delay) / DEX / BNE loop / LDX $46 (pitch, =RPC_XREG) / loop / RTS. Reads zp $45/$46 = the duration/pitch cells GFX_STMT_BEEP staged. Opaque DEFB from the Z80 view; the +$1000 in the operand expression is the documented SoftCard CPU-view offset, not a relocation artifact.
+BEEP_6502_PAYLOAD:
         DEFB    $A0,$00,$AD,$30,$C0,$88,$D0,$04,$C6,$45,$F0,$0C,$20,$57,$FF,$CA  ; $4709
         DEFB    $D0,$F3,$A6,$46,$D0,$EC,$F0,$EA,$60  ; $4719
 ; [RE] WAIT statement handler (token $D5): poll an I/O port until (in AND mask) XOR xor is non-zero.
@@ -8015,9 +8017,9 @@ FIN_DONE_15:
         PUSH HL                          ; $5662  E5
         PUSH DE                          ; $5663  D5
         LD HL,L_0CAD                     ; $5664  21 AD 0C
-        LD DE,FIN_DONE_26                ; $5667  11 07 57
+        LD DE,L_5707                     ; $5667  11 07 57
         CALL FP_MOVE4                    ; $566A  CD C4 4E
-        LD A,(FIN_DONE_26)               ; $566D  3A 07 57
+        LD A,(L_5707)                    ; $566D  3A 07 57
         LD (L_0CAF),A                    ; $5670  32 AF 0C
         CALL FRMEVL_TEST_TYPE            ; $5673  CD C8 3D
         JP PO,FIN_DONE_16                ; $5676  E2 7F 56
@@ -8060,15 +8062,15 @@ FIN_DONE_20:
 FIN_DONE_21:
         POP AF                           ; $56BC  F1
         LD HL,L_0CB1                     ; $56BD  21 B1 0C
-        LD DE,FIN_DONE_25                ; $56C0  11 03 57
+        LD DE,L_5703                     ; $56C0  11 03 57
         JP NC,FIN_DONE_22                ; $56C3  D2 C9 56
-        LD DE,FIN_DONE_26                ; $56C6  11 07 57
+        LD DE,L_5707                     ; $56C6  11 07 57
 FIN_DONE_22:
         CALL FP_MOVE4                    ; $56C9  CD C4 4E
         CALL FRMEVL_TEST_TYPE            ; $56CC  CD C8 3D
         JP PO,FIN_DONE_23                ; $56CF  E2 DB 56
         LD HL,L_0CAD                     ; $56D2  21 AD 0C
-        LD DE,FIN_DONE_26                ; $56D5  11 07 57
+        LD DE,L_5707                     ; $56D5  11 07 57
         CALL FP_MOVE4                    ; $56D8  CD C4 4E
 FIN_DONE_23:
         LD HL,(ON_ERROR_LINE)            ; $56DB  2A 66 0B
@@ -8090,17 +8092,10 @@ FIN_DONE_24:
         POP BC                           ; $5700  C1
         POP HL                           ; $5701  E1
         RET                              ; $5702  C9
-FIN_DONE_25:
-        RST $38                          ; $5703  FF
-        RST $38                          ; $5704  FF
-        LD A,A                           ; $5705  7F
-        RST $38                          ; $5706  FF
-FIN_DONE_26:
-        RST $38                          ; $5707  FF
-        RST $38                          ; $5708  FF
-FIN_DONE_27:
-        RST $38                          ; $5709  FF
-        RST $38                          ; $570A  FF
+L_5703:
+        DEFB    $FF,$FF,$7F,$FF          ; $5703
+L_5707:
+        DEFB    $FF,$FF,$FF,$FF          ; $5707
 ; [RE] Print the FOUT-formatted ASCII number string from buffer $0CED via STROUT ($6C40), preserving HL; the console-output wrapper used after FOUT builds the digit string.
 FOUT_PRINT:
         PUSH HL                          ; $570B  E5

@@ -224,6 +224,12 @@ def main():
                             #   read its constant words as DEFW pointers (GBASIC: GFX_HIRES_BYTE_ADDR
                             #   from the bytes $DD $47; MBASIC: NEXT_LOOP_BODY_5) -- identical bytes in
                             #   both .COMs, so it is data, not a relocatable address (RNDX_SEED $5E24)
+        (0x5703, 0x570B),   # FOUT FP-constant tail (FF FF 7F FF FF FF FF FF) after FIN_DONE's last
+                            #   RET at $5702 and before FOUT_PRINT at $570B. These are floating-point
+                            #   constant bytes; decoding them as code minted bogus RST $38 / LD A,A
+                            #   instructions and a spurious FIN_DONE_25/_26/_27 local chain. The BEEP
+                            #   RPC operand merely points at $5709 (=$4709+$1000) by coincidence; pin
+                            #   as data so no spurious label here absorbs that reference. (audit wf_1d8bb8cd-31b)
         (0x5EA2, 0x5EC7),   # FN_RND MBF floating-point constant pool
         (0x841D, 0x8482),   # SIGNON_BANNER: "BASIC-80 Rev. 5.2 [Apple CP/M Version] ..." string
     ]
@@ -278,6 +284,11 @@ def main():
     # Label the LDDR copy boundary ($8483, top of the real interpreter; $8483-$84F1 is
     # dead .COM padding) so the $1000 relocator's bounds derive from it, not literals.
     bwalk.add_label(0x8483)
+    # Label the embedded 6502 BEEP tone-loop ($4709, pinned as AUDIT_DATA above). The BEEP
+    # handler's LD HL operand is its 6502-CPU-VIEW address ($4709 + $1000, the SoftCard Z80->
+    # 6502 address-space offset); labelling the payload lets that operand be a relocatable
+    # `<label>+$1000` expression instead of a frozen literal / a spurious FOUT-padding label.
+    bwalk.add_label(0x4709)
     bwalk.name_labels()
 
     # The body ($3000+) references INTO the low-region TABLES ($0103-$083F): the
@@ -383,6 +394,11 @@ def main():
                               # DEFB and do not relocate as a DEFW pointer in the MBASIC fold.
                               data_spans=[(0x841D, 0x8482)])
     body_fmt._harvest_data_labels()
+    # $5709 is NOT a real Z80 reference target: it is only the 6502-CPU-VIEW of the BEEP
+    # payload ($4709+$1000), and that operand is re-pointed at BEEP_6502_PAYLOAD above. Drop
+    # the false reference so the FOUT FP-constant data run is not split by an orphan L_5709
+    # label on the padding (the harvest re-adds it from the raw LD HL operand byte).
+    bwalk.labels.pop(0x5709, None)
     body_fmt._prepare_overlap_labels()
     body_lines, _, _ = body_fmt._emit_body()
     # Body references INTO the reserved-word table (injected as machine labels L_xxxx
@@ -398,6 +414,27 @@ def main():
     body_lines = errstub.splice_disk_vectors_into(body_lines, com, disk_run)
     body_lines = errstub.apply_disk_vector_renames(body_lines, com, disk_run)  # vector-table refs -> DISK_RAISE_*
     body_lines = errstub.apply_cover_raise_stubs(body_lines, com)   # single-entry cover stub -> RAISE_*
+
+    # BEEP RPC operand ($4703): the GFX_STMT_BEEP handler loads the 6502-CPU-VIEW address of
+    # its embedded 6502 tone-loop payload at $4709 -- the SoftCard maps a Z80 address X to 6502
+    # address X+$1000, so the operand is payload+$1000 (= $5709 GBASIC, = $3724 MBASIC). The
+    # auto-labeler had stranded a spurious FIN_DONE_27 label on the FOUT $FF padding at $5709
+    # (which merely coincides with $4709+$1000) and the operand was frozen to it -- the +$1000
+    # form lost. Re-point the operand at the real payload label as a `<payload>+$1000`
+    # relocatable expression so it lands correctly in BOTH builds with NO conditional; the now-
+    # unreferenced FIN_DONE_27 label then orphans away (drop_orphan_labels). [[feedback: image
+    # refs are relocatable labels; +$1000 is the documented Z80->6502 view offset.]]
+    _beep_payload = bwalk.labels.get(0x4709)
+    if _beep_payload:
+        _bp = []
+        for _ln in body_lines:
+            _c, _sc, _r = _ln.partition(";")
+            if _r.strip().startswith("$4703") and "LD HL," in _c:
+                _ind = _c[:len(_c) - len(_c.lstrip())]
+                _bp.append(f"{_ind}{('LD HL,' + _beep_payload + '+$1000'):<33};{_r}")
+            else:
+                _bp.append(_ln)
+        body_lines = _bp
 
     # Coded LD-r,$NN cover overlaps (same idiom as the error DEFB $01 covers): split into
     # `DEFB $<op>` + a clean-labeled entry so every reference to the operand-byte entry resolves

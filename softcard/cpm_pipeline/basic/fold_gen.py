@@ -137,21 +137,11 @@ _PATCHES = [
      "    ELSE\n"
      "        SUB $11                          ;        MBASIC: -1, the code-32 graphics slot\n"
      "    ENDIF"),
-    # 11) Graphics-plot RPC continuation operand ($4703). This code (set RPC_XREG, push HL, load
-    #     a continuation, JP GFX_STMT_PLOT_1 -> RPC_CALL) is graphics-plot RPC and is DEAD in
-    #     MBASIC (HPLOT/PLOT are stubbed to RAISE_GRAPHICS_STATEMENT_NOT_IMPLEMENTED). GBASIC loads
-    #     FIN_DONE_27 ($5709). MBASIC.COM loads $3724 -- FIN_DONE_27 relocated by the PRE-graphics
-    #     delta ($1FE5): Microsoft's MBASIC build relocated this unreachable operand WITHOUT removing
-    #     the $039D-byte graphics block, so it lands $039D above the real (post-graphics) FIN_DONE_27
-    #     at $3387. A genuine value divergence (dead-code build artifact, not a live relocatable
-    #     target), so a conditional; the ELSE arm rebuilds $3724 = FIN_DONE_27 + the graphics-block size.
-    ("        LD HL,FIN_DONE_27                ; $4703  21 09 57",
-     "    IFDEF GBASIC\n"
-     "        LD HL,FIN_DONE_27                ; $4703  21 09 57  (GBASIC: RPC plot continuation)\n"
-     "    ELSE\n"
-     "        LD HL,FIN_DONE_27+$039D          ; MBASIC dead graphics-RPC operand -> $3724 (relocated\n"
-     "                                         ;   pre-graphics: +$039D = the dropped graphics-block size)\n"
-     "    ENDIF"),
+    # (The former patch 11 -- an IFDEF island for the $4703 BEEP operand with a +$039D fudge --
+    #  was REMOVED. The audit (workflow wf_1d8bb8cd-31b) showed $5709 is not FIN_DONE_27 but the
+    #  6502-CPU-view ($4709+$1000) of the embedded BEEP tone-loop; gen_gbasic now emits the single
+    #  relocatable line `LD HL,BEEP_6502_PAYLOAD+$1000` that is correct in BOTH builds, so no
+    #  conditional is needed here.)
 ]
 
 
