@@ -3540,7 +3540,7 @@ SCAN_AMP_RADIX_CONST_7:
         CALL CHRGET                      ; $3D44  CD C9 33
         CP $28                           ; $3D47  FE 28
         POP HL                           ; $3D49  E1
-        JP NZ,POLY_EVAL_3                ; $3D4A  C2 89 5D
+        JP NZ,POLY_EVAL_2                ; $3D4A  C2 89 5D
         LD A,$07                         ; $3D4D  3E 07
 SCAN_AMP_RADIX_CONST_8:
         LD B,$00                         ; $3D4F  06 00
@@ -4629,7 +4629,7 @@ RENUM_PATCH_LINEREFS_3:
         LD A,(L_0B56)                    ; $438A  3A 56 0B
         OR A                             ; $438D  B7
         LD A,C                           ; $438E  79
-        JR Z,RENUM_PATCH_LINEREFS_9      ; $438F  28 57
+        JR Z,RENUM_PATCH_LINEREFS_8      ; $438F  28 57
         CP $A4                           ; $4391  FE A4
         JR NZ,RENUM_PATCH_LINEREFS_4     ; $4393  20 18
         CALL CHRGET                      ; $4395  CD C9 33
@@ -4654,7 +4654,7 @@ RENUM_PATCH_LINEREFS_5:
         CALL FNDLIN                      ; $43B6  CD 88 0F
         DEC BC                           ; $43B9  0B
         LD A,$0D                         ; $43BA  3E 0D
-        JR C,RENUM_PATCH_LINEREFS_10     ; $43BC  38 3D
+        JR C,RENUM_PATCH_LINEREFS_9      ; $43BC  38 3D
         CALL PRINT_CRLF_IF_COL           ; $43BE  CD 7B 67
         LD HL,MSG_UNDEFINED_LINE         ; $43C1  21 D8 43
         PUSH DE                          ; $43C4  D5
@@ -4674,21 +4674,9 @@ RENUM_PATCH_LINEREFS_7:
         JR RENUM_PATCH_LINEREFS_2        ; $43D6  18 AB
 ; Data string 'Undefined line ' (+NUL) printed by the RENUM/line-reference checker (loaded at $43C1, emitted via STROUT) before the offending line number
 MSG_UNDEFINED_LINE:
-        LD D,L                           ; $43D8  55
-        LD L,(HL)                        ; $43D9  6E
-        LD H,H                           ; $43DA  64
-        LD H,L                           ; $43DB  65
-        LD H,(HL)                        ; $43DC  66
-        LD L,C                           ; $43DD  69
-        LD L,(HL)                        ; $43DE  6E
-        LD H,L                           ; $43DF  65
-        LD H,H                           ; $43E0  64
-        JR NZ,STROUT_NOFLAGS             ; $43E1  20 6C
-        LD L,C                           ; $43E3  69
-        LD L,(HL)                        ; $43E4  6E
-        LD H,L                           ; $43E5  65
-        JR NZ,RENUM_PATCH_LINEREFS_9     ; $43E6  20 00
-RENUM_PATCH_LINEREFS_9:
+        DEFB    "Undefined line "        ; $43D8  string
+        DEFB    $00                      ; $43E7  terminator
+RENUM_PATCH_LINEREFS_8:
         CP $0D                           ; $43E8  FE 0D
         JP NZ,RENUM_PATCH_LINEREFS_2     ; $43EA  C2 83 43
         PUSH DE                          ; $43ED  D5
@@ -4702,7 +4690,7 @@ RENUM_PATCH_LINEREFS_9:
         INC HL                           ; $43F7  23
         LD B,(HL)                        ; $43F8  46
         LD A,$0E                         ; $43F9  3E 0E
-RENUM_PATCH_LINEREFS_10:
+RENUM_PATCH_LINEREFS_9:
         LD HL,RENUM_PATCH_LINEREFS_6     ; $43FB  21 D3 43
         PUSH HL                          ; $43FE  E5
         LD HL,(L_0B17)                   ; $43FF  2A 17 0B
@@ -5862,37 +5850,11 @@ GFX_SELECT_COLOR_MASK_3:
         RET                              ; $4AB6  C9
 ; [RE] Hi-res color bit-pattern table A (odd/violet-green palette masks $83,$86,$8C,$98,$B0,$E0,$C0,...) selected by GFX_SELECT_COLOR_MASK for the plot/line writer.
 GFX_HIRES_COLOR_MASK_TABLE_A:
-        ADD A,E                          ; $4AB7  83
-        ADD A,(HL)                       ; $4AB8  86
-        ADC A,H                          ; $4AB9  8C
-        SBC A,B                          ; $4ABA  98
-        OR B                             ; $4ABB  B0
-        RET PO                           ; $4ABC  E0
-        RET NZ                           ; $4ABD  C0
-        ADD A,B                          ; $4ABE  80
-        ADD A,B                          ; $4ABF  80
-        ADD A,B                          ; $4AC0  80
-        ADD A,B                          ; $4AC1  80
-        ADD A,B                          ; $4AC2  80
-        ADD A,B                          ; $4AC3  80
-        ADD A,C                          ; $4AC4  81
+        DEFB    $83,$86,$8C,$98,$B0,$E0,$C0,$80,$80,$80,$80,$80,$80,$81  ; $4AB7
 ; [RE] Hi-res color bit-pattern table B (even/blue-orange palette masks ...,$84,$88,$90,$A0,$C0, then $80 fill) selected by GFX_SELECT_COLOR_MASK; default table set at routine entry.
 GFX_HIRES_COLOR_MASK_TABLE_B:
-        ADD A,C                          ; $4AC5  81
-        ADD A,D                          ; $4AC6  82
-        ADD A,H                          ; $4AC7  84
-        ADC A,B                          ; $4AC8  88
-        SUB B                            ; $4AC9  90
-        AND B                            ; $4ACA  A0
-        RET NZ                           ; $4ACB  C0
-        ADD A,B                          ; $4ACC  80
-        ADD A,B                          ; $4ACD  80
-        ADD A,B                          ; $4ACE  80
-        ADD A,B                          ; $4ACF  80
-        ADD A,B                          ; $4AD0  80
-        ADD A,B                          ; $4AD1  80
-        ADD A,B                          ; $4AD2  80
-        ADD A,B                          ; $4AD3  80
+        DEFB    $81,$82,$84,$88,$90,$A0,$C0  ; $4AC5
+        DEFS    8, $80                   ; $4ACC  fill
 ; [RE] HGR statement handler (token $D1): Apple graphics superset -- enter hi-res graphics mode (loads mode byte then 6502 RPC).
 GFX_STMT_HGR:
         LD A,$00                         ; $4AD4  3E 00
@@ -6263,41 +6225,14 @@ MANT_SHIFT_BITS_1:
         RRA                              ; $4CA2  1F
         LD B,A                           ; $4CA3  47
         JR MANT_SHIFT_BYTES_4            ; $4CA4  18 EF
-MANT_SHIFT_BITS_2:
-        NOP                              ; $4CA6  00
-        NOP                              ; $4CA7  00
-        NOP                              ; $4CA8  00
-        ADD A,C                          ; $4CA9  81
-MANT_SHIFT_BITS_3:
-        INC B                            ; $4CAA  04
-        SBC A,D                          ; $4CAB  9A
-        RST $30                          ; $4CAC  F7
-        ADD HL,DE                        ; $4CAD  19
-        ADD A,E                          ; $4CAE  83
-        INC H                            ; $4CAF  24
-        LD H,E                           ; $4CB0  63
-        LD B,E                           ; $4CB1  43
-        ADD A,E                          ; $4CB2  83
-        LD (HL),L                        ; $4CB3  75
-        CALL $848D                       ; $4CB4  CD 8D 84
-        XOR C                            ; $4CB7  A9
-        LD A,A                           ; $4CB8  7F
-        ADD A,E                          ; $4CB9  83
-        ADD A,D                          ; $4CBA  82
-MANT_SHIFT_BITS_4:
-        INC B                            ; $4CBB  04
-        NOP                              ; $4CBC  00
-        NOP                              ; $4CBD  00
-        NOP                              ; $4CBE  00
-        ADD A,C                          ; $4CBF  81
-        JP PO,$4DB0                      ; $4CC0  E2 B0 4D
-        ADD A,E                          ; $4CC3  83
-        LD A,(BC)                        ; $4CC4  0A
-        LD (HL),D                        ; $4CC5  72
-        LD DE,$F483                      ; $4CC6  11 83 F4
-        INC B                            ; $4CC9  04
-        DEC (HL)                         ; $4CCA  35
-        LD A,A                           ; $4CCB  7F
+L_4CA6:
+        DEFB    $00,$00,$00,$81          ; $4CA6
+L_4CAA:
+        DEFB    $04,$9A,$F7,$19,$83,$24,$63,$43,$83,$75,$CD,$8D,$84,$A9,$7F,$83  ; $4CAA
+        DEFB    $82                      ; $4CBA
+L_4CBB:
+        DEFB    $04,$00,$00,$00,$81,$E2,$B0,$4D,$83,$0A,$72,$11,$83,$F4,$04,$35  ; $4CBB
+        DEFB    $7F                      ; $4CCB
 ; [RE] LOG(x) handler (function token $0A): natural logarithm (MBF math package).
 FN_LOG:
         CALL FP_SIGN                     ; $4CCC  CD 47 4E
@@ -6315,14 +6250,14 @@ FN_SIN_REDUCE:
         XOR B                            ; $4CE7  A8
         PUSH AF                          ; $4CE8  F5
         CALL FAC_PUSH                    ; $4CE9  CD 9A 4E
-        LD HL,MANT_SHIFT_BITS_3          ; $4CEC  21 AA 4C
+        LD HL,L_4CAA                     ; $4CEC  21 AA 4C
         CALL POLY_EVAL                   ; $4CEF  CD 65 5D
         POP BC                           ; $4CF2  C1
         POP HL                           ; $4CF3  E1
         CALL FAC_PUSH                    ; $4CF4  CD 9A 4E
         EX DE,HL                         ; $4CF7  EB
         CALL FP_STORE_FAC                ; $4CF8  CD AA 4E
-        LD HL,MANT_SHIFT_BITS_4          ; $4CFB  21 BB 4C
+        LD HL,L_4CBB                     ; $4CFB  21 BB 4C
         CALL POLY_EVAL                   ; $4CFE  CD 65 5D
         POP BC                           ; $4D01  C1
         POP DE                           ; $4D02  D1
@@ -6464,20 +6399,19 @@ FDIV_5:
         LD A,$00                         ; $4DA8  3E 00
         SBC A,$00                        ; $4DAA  DE 00
         CCF                              ; $4DAC  3F
-        JR NC,FDIV_7+1                   ; $4DAD  30 07
-FDIV_6:
+        JR NC,FDIV_6+1                   ; $4DAD  30 07
         LD (FDIV_5+1),A                  ; $4DAF  32 A9 4D
         POP AF                           ; $4DB2  F1
         POP AF                           ; $4DB3  F1
         SCF                              ; $4DB4  37
 ; [RE] Flag-skip dual tail: $4DB5 JP NC,$E1C1 -- on the success branch JR NC,FDIV_7+1 ($4DAD) lands at $4DB6 and runs the operand bytes C1 E1 as POP BC; POP HL to discard the FDIV_1 loop saves. On fall-through SCF ($4DB4) leaves carry set so the JP NC is not taken (the POPs were already done as POP AF/POP AF). Both paths converge at $4DB8.
-FDIV_7:
+FDIV_6:
         JP NC,$E1C1                      ; $4DB5  D2 C1 E1
         LD A,C                           ; $4DB8  79
         INC A                            ; $4DB9  3C
         DEC A                            ; $4DBA  3D
         RRA                              ; $4DBB  1F
-        JP P,FDIV_9                      ; $4DBC  F2 D4 4D
+        JP P,FDIV_8                      ; $4DBC  F2 D4 4D
         RLA                              ; $4DBF  17
         LD A,(FDIV_5+1)                  ; $4DC0  3A A9 4D
         RRA                              ; $4DC3  1F
@@ -6486,13 +6420,13 @@ FDIV_7:
         LD A,B                           ; $4DC7  78
         OR H                             ; $4DC8  B4
         OR L                             ; $4DC9  B5
-        JP Z,FDIV_8                      ; $4DCA  CA CF 4D
+        JP Z,FDIV_7                      ; $4DCA  CA CF 4D
         LD A,$20                         ; $4DCD  3E 20
-FDIV_8:
+FDIV_7:
         POP HL                           ; $4DCF  E1
         OR H                             ; $4DD0  B4
         JP FP_SET_ZERO_8                 ; $4DD1  C3 39 4C
-FDIV_9:
+FDIV_8:
         RLA                              ; $4DD4  17
         LD A,E                           ; $4DD5  7B
         RLA                              ; $4DD6  17
@@ -9157,7 +9091,7 @@ FN_EXP:
         JP Z,FN_EXP_2                    ; $5D08  CA 20 5D
         PUSH AF                          ; $5D0B  F5
         CALL FSUB                        ; $5D0C  CD A3 4B
-        LD HL,FN_EXP_5                   ; $5D0F  21 39 5D
+        LD HL,L_5D39                     ; $5D0F  21 39 5D
         CALL POLY_EVAL                   ; $5D12  CD 65 5D
         POP BC                           ; $5D15  C1
         LD DE,$0000                      ; $5D16  11 00 00
@@ -9179,29 +9113,9 @@ FN_EXP_4:
         LD DE,$0000                      ; $5D32  11 00 00
         CALL FP_STORE_FAC                ; $5D35  CD AA 4E
         RET                              ; $5D38  C9
-FN_EXP_5:
-        RLCA                             ; $5D39  07
-        LD A,H                           ; $5D3A  7C
-        ADC A,B                          ; $5D3B  88
-        LD E,C                           ; $5D3C  59
-        LD (HL),H                        ; $5D3D  74
-        RET PO                           ; $5D3E  E0
-        SUB A                            ; $5D3F  97
-        LD H,$77                         ; $5D40  26 77
-        CALL NZ,$1E1D                    ; $5D42  C4 1D 1E
-        LD A,D                           ; $5D45  7A
-        LD E,(HL)                        ; $5D46  5E
-        LD D,B                           ; $5D47  50
-        LD H,E                           ; $5D48  63
-        LD A,H                           ; $5D49  7C
-        LD A,(DE)                        ; $5D4A  1A
-        CP $75                           ; $5D4B  FE 75
-        LD A,(HL)                        ; $5D4D  7E
-        JR FN_RND_1                      ; $5D4E  18 72
-        LD SP,$0080                      ; $5D50  31 80 00
-        NOP                              ; $5D53  00
-        NOP                              ; $5D54  00
-        ADD A,C                          ; $5D55  81
+L_5D39:
+        DEFB    $07,$7C,$88,$59,$74,$E0,$97,$26,$77,$C4,$1D,$1E,$7A,$5E,$50,$63  ; $5D39
+        DEFB    $7C,$1A,$FE,$75,$7E,$18,$72,$31,$80,$00,$00,$00,$81  ; $5D49
 ; [RE] Odd-power polynomial evaluator: forms x*P(x^2) for the series approximations (SIN/ATN/TAN), squaring the argument then calling the Horner evaluator POLY_EVAL.
 POLY_EVAL_ODD:
         CALL FAC_PUSH                    ; $5D56  CD 9A 4E
@@ -9235,17 +9149,14 @@ POLY_EVAL_1:
         CALL FADD_ALIGN                  ; $5D7F  CD A6 4B
         POP HL                           ; $5D82  E1
         JR POLY_EVAL_1+1                 ; $5D83  18 E9
+L_5D85:
+        DEFB    $52,$C7,$4F,$80          ; $5D85
 POLY_EVAL_2:
-        LD D,D                           ; $5D85  52
-        RST $00                          ; $5D86  C7
-        LD C,A                           ; $5D87  4F
-        ADD A,B                          ; $5D88  80
-POLY_EVAL_3:
         CALL CHRGET                      ; $5D89  CD C9 33
 ; [RE] Evaluate a polynomial in sqrt(x): pushes the argument, runs FN_SQR, then evaluates the series via POLY_EVAL (used by the ATN/LOG support path called at $4486).
 POLY_EVAL_SQR:
         PUSH HL                          ; $5D8C  E5
-        LD HL,MANT_SHIFT_BITS_2          ; $5D8D  21 A6 4C
+        LD HL,L_4CA6                     ; $5D8D  21 A6 4C
         CALL FP_STORE_REGS_LD            ; $5D90  CD A7 4E
         CALL FN_RND                      ; $5D93  CD 9A 5D
         POP HL                           ; $5D96  E1
@@ -9253,11 +9164,11 @@ POLY_EVAL_SQR:
 ; [RE] RND(x) handler (function token $08): pseudo-random number; updates/reads the RND seed (RNDX_SEED).
 FN_RND:
         CALL FP_SIGN                     ; $5D9A  CD 47 4E
-        LD HL,FN_RND_7                   ; $5D9D  21 03 5E
-        JP M,FN_RND_4                    ; $5DA0  FA FA 5D
+        LD HL,FN_RND_6                   ; $5D9D  21 03 5E
+        JP M,FN_RND_3                    ; $5DA0  FA FA 5D
         LD HL,RNDX_SEED                  ; $5DA3  21 24 5E
         CALL FP_STORE_REGS_LD            ; $5DA6  CD A7 4E
-        LD HL,FN_RND_7                   ; $5DA9  21 03 5E
+        LD HL,FN_RND_6                   ; $5DA9  21 03 5E
         RET Z                            ; $5DAC  C8
         ADD A,(HL)                       ; $5DAD  86
         AND $07                          ; $5DAE  E6 07
@@ -9270,21 +9181,20 @@ FN_RND:
         ADD HL,BC                        ; $5DB7  09
         CALL FP_LOAD_MEM                 ; $5DB8  CD B8 4E
         CALL FMUL                        ; $5DBB  CD 12 4D
-        LD A,(FN_RND_6)                  ; $5DBE  3A 02 5E
+        LD A,(FN_RND_5)                  ; $5DBE  3A 02 5E
         INC A                            ; $5DC1  3C
-FN_RND_1:
         AND $03                          ; $5DC2  E6 03
         LD B,$00                         ; $5DC4  06 00
         CP $01                           ; $5DC6  FE 01
         ADC A,B                          ; $5DC8  88
-        LD (FN_RND_6),A                  ; $5DC9  32 02 5E
+        LD (FN_RND_5),A                  ; $5DC9  32 02 5E
         LD HL,RNDX_SEED                  ; $5DCC  21 24 5E
         ADD A,A                          ; $5DCF  87
         ADD A,A                          ; $5DD0  87
         LD C,A                           ; $5DD1  4F
         ADD HL,BC                        ; $5DD2  09
         CALL FADD_FROM_MEM               ; $5DD3  CD 9B 4B
-FN_RND_2:
+FN_RND_1:
         CALL FP_LOAD_FAC                 ; $5DD6  CD B5 4E
         LD A,E                           ; $5DD9  7B
         LD E,C                           ; $5DDA  59
@@ -9294,31 +9204,31 @@ FN_RND_2:
         DEC HL                           ; $5DE0  2B
         LD B,(HL)                        ; $5DE1  46
         LD (HL),$80                      ; $5DE2  36 80
-        LD HL,FN_RND_5                   ; $5DE4  21 01 5E
+        LD HL,FN_RND_4                   ; $5DE4  21 01 5E
         INC (HL)                         ; $5DE7  34
         LD A,(HL)                        ; $5DE8  7E
         SUB $AB                          ; $5DE9  D6 AB
-        JR NZ,FN_RND_3                   ; $5DEB  20 04
+        JR NZ,FN_RND_2                   ; $5DEB  20 04
         LD (HL),A                        ; $5DED  77
         INC C                            ; $5DEE  0C
         DEC D                            ; $5DEF  15
         INC E                            ; $5DF0  1C
-FN_RND_3:
+FN_RND_2:
         CALL FADD                        ; $5DF1  CD F6 4B
         LD HL,RNDX_SEED                  ; $5DF4  21 24 5E
         JP FP_MOVE_TO_FAC                ; $5DF7  C3 C1 4E
-FN_RND_4:
+FN_RND_3:
         LD (HL),A                        ; $5DFA  77
         DEC HL                           ; $5DFB  2B
         LD (HL),A                        ; $5DFC  77
         DEC HL                           ; $5DFD  2B
         LD (HL),A                        ; $5DFE  77
-        JR FN_RND_2                      ; $5DFF  18 D5
-FN_RND_5:
+        JR FN_RND_1                      ; $5DFF  18 D5
+FN_RND_4:
         NOP                              ; $5E01  00
-FN_RND_6:
+FN_RND_5:
         NOP                              ; $5E02  00
-FN_RND_7:
+FN_RND_6:
         NOP                              ; $5E03  00
         DEC (HL)                         ; $5E04  35
         LD C,D                           ; $5E05  4A
@@ -9416,52 +9326,23 @@ FN_ATN:
         LD HL,FADD_FROM_MEM_1            ; $5EF4  21 A0 4B
         PUSH HL                          ; $5EF7  E5
 FN_ATN_1:
-        LD HL,FN_ATN_2                   ; $5EF8  21 02 5F
+        LD HL,L_5F02                     ; $5EF8  21 02 5F
         CALL POLY_EVAL_ODD               ; $5EFB  CD 56 5D
         LD HL,FP_CONST_EXP_LOG2E         ; $5EFE  21 AA 5E
         RET                              ; $5F01  C9
-FN_ATN_2:
-        ADD HL,BC                        ; $5F02  09
-        LD C,D                           ; $5F03  4A
-        RST $10                          ; $5F04  D7
-        DEC SP                           ; $5F05  3B
-        LD A,B                           ; $5F06  78
-        LD (BC),A                        ; $5F07  02
-        LD L,(HL)                        ; $5F08  6E
-        ADD A,H                          ; $5F09  84
-        LD A,E                           ; $5F0A  7B
-        CP $C1                           ; $5F0B  FE C1
-        CPL                              ; $5F0D  2F
-        LD A,H                           ; $5F0E  7C
-        LD (HL),H                        ; $5F0F  74
-        LD SP,$7D9A                      ; $5F10  31 9A 7D
-        ADD A,H                          ; $5F13  84
-        DEC A                            ; $5F14  3D
-        LD E,D                           ; $5F15  5A
-        LD A,L                           ; $5F16  7D
-        RET Z                            ; $5F17  C8
-        LD A,A                           ; $5F18  7F
-        SUB C                            ; $5F19  91
-        LD A,(HL)                        ; $5F1A  7E
-        CALL PO,$4CBB                    ; $5F1B  E4 BB 4C
-        LD A,(HL)                        ; $5F1E  7E
-        LD L,H                           ; $5F1F  6C
-        XOR D                            ; $5F20  AA
-        XOR D                            ; $5F21  AA
-        LD A,A                           ; $5F22  7F
-        NOP                              ; $5F23  00
-        NOP                              ; $5F24  00
-        NOP                              ; $5F25  00
-        ADD A,C                          ; $5F26  81
-FN_ATN_3:
-        DEC HL                           ; $5F27  2B
-        CALL CHRGET                      ; $5F28  CD C9 33
-        RET Z                            ; $5F2B  C8
-        CALL SYNCHR                      ; $5F2C  CD 25 69
-        DEFB    ','                      ; $5F2F  2C  inline char arg consumed by the preceding CALL
+L_5F02:
+        DEFB    $09,$4A,$D7,$3B,$78,$02,$6E,$84,$7B,$FE,$C1,$2F,$7C,$74,$31,$9A  ; $5F02
+        DEFB    $7D,$84,$3D,$5A,$7D,$C8,$7F,$91,$7E,$E4,$BB,$4C,$7E,$6C,$AA,$AA  ; $5F12
+        DEFB    $7F,$00,$00,$00,$81      ; $5F22
+L_5F27:
+        DEFB    $2B,$CD                  ; $5F27
+        DEFW    CHRGET                   ; $5F29
+        DEFB    $C8,$CD                  ; $5F2B
+        DEFW    SYNCHR                   ; $5F2D
+        DEFB    ","                      ; $5F2F
 ; [RE] PTRGET front-end: scan a variable name at the BASIC text pointer (HL). Accumulates the leading alpha + following alphanumerics (high-bit set) into the VARNAM buffer $0871, honouring type-suffix chars %/$/!/# to set VALTYP $0B14 (and the default-type table at $0B36), then falls into the table search at PTRGET_SEARCH ($5FC9). Called by LET ($5F35) and FRMEVL operand fetch. PTRGET_1 ($5F34, OR $AF) is a dual-entry skip idiom: the $F6 (OR n) opcode consumes the next byte ($AF), so falling in from PUSH BC leaves A non-zero; entering at PTRGET_1+1 ($5F35) via CALL runs that $AF byte as XOR A, zeroing A. Both reach LD ($0B13),A at $5F36 with the entry-selected flag. Every CALL $5F35 is written PTRGET_1+1 so it relocates.
 PTRGET:
-        LD BC,FN_ATN_3                   ; $5F30  01 27 5F
+        LD BC,L_5F27                     ; $5F30  01 27 5F
         PUSH BC                          ; $5F33  C5
 ; [RE] VERIFIED flag-skip (count corrected to 22 CALL +1 sites, not 23). PTRGET_1 ($5F34) opcode-eating flag select. Fall-through from the PTRGET head -- reached via the DIM statement dispatch DEFW PTRGET at $0112 -- runs OR $AF (F6 swallows the AF), leaving A nonzero so $0B13 gets the 'array/create' context; the 22 CALL PTRGET_1+1 ($5F35) callers run that AF as XOR A, zeroing A and $0B13. Both reach LD ($0B13),A at $5F36. Cover genuinely executed (DIM path); MBASIC twin matches (22 sites).
 PTRGET_1:
@@ -11153,10 +11034,10 @@ CLEAR_RESET_STORAGE_1:
         INC HL                           ; $68A8  23
         DJNZ CLEAR_RESET_STORAGE_1       ; $68A9  10 FB
 CLEAR_RESET_STORAGE_2:
-        LD DE,POLY_EVAL_2                ; $68AB  11 85 5D
+        LD DE,L_5D85                     ; $68AB  11 85 5D
         LD HL,RNDX_SEED                  ; $68AE  21 24 5E
         CALL FP_MOVE4                    ; $68B1  CD C4 4E
-        LD HL,FN_RND_5                   ; $68B4  21 01 5E
+        LD HL,FN_RND_4                   ; $68B4  21 01 5E
         XOR A                            ; $68B7  AF
         LD (HL),A                        ; $68B8  77
         INC HL                           ; $68B9  23
@@ -14772,29 +14653,28 @@ STMT_OPEN_4:
         PUSH AF                          ; $7D8A  F5
         PUSH HL                          ; $7D8B  E5
         CP $02                           ; $7D8C  FE 02
-        JR NZ,STMT_OPEN_7                ; $7D8E  20 12
+        JR NZ,STMT_OPEN_6                ; $7D8E  20 12
         PUSH DE                          ; $7D90  D5
         LD C,$13                         ; $7D91  0E 13
         CALL $0005                       ; $7D93  CD 05 00
         POP DE                           ; $7D96  D1
 STMT_OPEN_5:
         LD C,$16                         ; $7D97  0E 16
-STMT_OPEN_6:
         CALL $0005                       ; $7D99  CD 05 00
         INC A                            ; $7D9C  3C
         JP Z,RAISE_TOO_MANY_FILES        ; $7D9D  CA 62 0D
-        JR STMT_OPEN_8                   ; $7DA0  18 13
-STMT_OPEN_7:
+        JR STMT_OPEN_7                   ; $7DA0  18 13
+STMT_OPEN_6:
         LD C,$0F                         ; $7DA2  0E 0F
         CALL $0005                       ; $7DA4  CD 05 00
         INC A                            ; $7DA7  3C
-        JR NZ,STMT_OPEN_8                ; $7DA8  20 0B
+        JR NZ,STMT_OPEN_7                ; $7DA8  20 0B
         CALL RAM_DISPATCH_TRAMPOLINE     ; $7DAA  CD 75 0C
         CP $03                           ; $7DAD  FE 03
         JP NZ,RAISE_FILE_NOT_FOUND       ; $7DAF  C2 4A 0D
         INC DE                           ; $7DB2  13
         JR STMT_OPEN_5                   ; $7DB3  18 E2
-STMT_OPEN_8:
+STMT_OPEN_7:
         POP DE                           ; $7DB5  D1
         POP AF                           ; $7DB6  F1
         LD (DE),A                        ; $7DB7  12
@@ -14812,21 +14692,21 @@ STMT_OPEN_8:
         POP HL                           ; $7DC5  E1
         LD A,(HL)                        ; $7DC6  7E
         CP $03                           ; $7DC7  FE 03
-        JP Z,STMT_OPEN_9                 ; $7DC9  CA D8 7D
+        JP Z,STMT_OPEN_8                 ; $7DC9  CA D8 7D
         CP $01                           ; $7DCC  FE 01
         JP NZ,RESET_RUN_STATE_1          ; $7DCE  C2 1B 69
         CALL FILE_READ_RECORD            ; $7DD1  CD C1 7B
         LD HL,(L_0B54)                   ; $7DD4  2A 54 0B
         RET                              ; $7DD7  C9
-STMT_OPEN_9:
+STMT_OPEN_8:
         LD BC,$0029                      ; $7DD8  01 29 00
         ADD HL,BC                        ; $7DDB  09
         LD C,$80                         ; $7DDC  0E 80
-STMT_OPEN_10:
+STMT_OPEN_9:
         LD (HL),B                        ; $7DDE  70
         INC HL                           ; $7DDF  23
         DEC C                            ; $7DE0  0D
-        JR NZ,STMT_OPEN_10               ; $7DE1  20 FB
+        JR NZ,STMT_OPEN_9                ; $7DE1  20 FB
         JP RESET_RUN_STATE_1             ; $7DE3  C3 1B 69
 ; [RE] SYSTEM statement handler (token $B7): exit GBASIC back to CP/M (shares the RET NZ pattern of the simple stubs).
 STMT_SYSTEM:
@@ -15422,7 +15302,7 @@ PROG_UNSCRAMBLE_1:
         LD HL,(VARTAB)                   ; $813D  2A 6F 0B
         CALL CMP_HL_DE                   ; $8140  CD 1F 69
         RET Z                            ; $8143  C8
-        LD HL,FN_ATN_2                   ; $8144  21 02 5F
+        LD HL,L_5F02                     ; $8144  21 02 5F
         LD A,L                           ; $8147  7D
         ADD A,C                          ; $8148  81
         LD L,A                           ; $8149  6F
@@ -15473,7 +15353,7 @@ PROG_SCRAMBLE_1:
         SUB C                            ; $8186  91
         XOR (HL)                         ; $8187  AE
         PUSH AF                          ; $8188  F5
-        LD HL,FN_ATN_2                   ; $8189  21 02 5F
+        LD HL,L_5F02                     ; $8189  21 02 5F
         LD A,L                           ; $818C  7D
         ADD A,C                          ; $818D  81
         LD L,A                           ; $818E  6F
@@ -15861,8 +15741,7 @@ SIGNON_BANNER_HEADER:
         DEFB    "\0"                     ; $8482
 ; [RE] Top of the relocated interpreter (LDDR copy boundary): the $1000 relocator copies INTERP_RUN_START..INTERP_COPY_END-1 ($3000-$8482) up from the load image. $8483-$84F1 is dead .COM padding (not copied).
 INTERP_COPY_END:
-        DEFS    10, $00                  ; $8483  fill
-        DEFS    59, $00                  ; $848D  fill
+        DEFS    69, $00                  ; $8483  fill
 L_84C8:
         DEFS    42, $00                  ; $84C8  fill
 INTERP_RUN_TOP:

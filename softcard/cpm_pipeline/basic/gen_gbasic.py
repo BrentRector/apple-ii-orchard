@@ -220,6 +220,9 @@ def main():
                             #   Z80 pointers (CRUNCH_9/GFX_PARSE_TWO_BYTES/PTRGET_SEARCH_18).
         (0x47DA, 0x47E6),   # graphics state/variable block (HPLOT coordinate save cells)
         (0x4A81, 0x4A91),   # Apple hi-res color/pixel-pattern WORD table
+        # NOTE: $5E05-$5E0A is the FN_SQR MBF coeff table (data) but pinning it re-classifies the
+        # adjacent $5E03-$5E04 DEFW (LINGET_TOKLINE_2) and freezes that relocatable pointer, breaking
+        # the MBASIC fold -- deferred with the FOUT doubles until those interleaved pointers are modeled.
         (0x5E0B, 0x5E34),   # RND-seed init + FP scratch data; the fold audit showed both decoders
                             #   read its constant words as DEFW pointers (GBASIC: GFX_HIRES_BYTE_ADDR
                             #   from the bytes $DD $47; MBASIC: NEXT_LOOP_BODY_5) -- identical bytes in
@@ -232,6 +235,18 @@ def main():
                             #   as data so no spurious label here absorbs that reference. (audit wf_1d8bb8cd-31b)
         (0x5EA2, 0x5EC7),   # FN_RND MBF floating-point constant pool
         (0x841D, 0x8482),   # SIGNON_BANNER: "BASIC-80 Rev. 5.2 [Apple CP/M Version] ..." string
+        # --- whole-file audit (wf_d0dd96c9-14c): FP-constant / string / table DATA that was being
+        #     mis-decoded as CODE (bogus instructions reached ONLY by data-pointer loads, never
+        #     CALL/JP/JR; preceding code ends RET/JR). Pin as data; byte-identical. ---
+        (0x43D8, 0x43E8),   # "Undefined line",$00 message (STROUT'd via LD HL,$43C1 = MSG_UNDEFINED_LINE)
+        (0x4AB7, 0x4AD4),   # two hi-res color-mask tables (SMC-indexed; GFX_HIRES_COLOR_MASK_TABLE_A/_B)
+        (0x4CA6, 0x4CCC),   # SIN constant 1.0 + two count-prefixed POLY_EVAL coeff tables (before FN_LOG)
+        # NOTE: the FOUT doubles at $5BC0-$5BD7 are data too, but pinning them re-classified the
+        # adjacent $5BD8-$5BDF FP cell so a coincidental DEFW (GET_PUT_RECORD_CORE_10+2) froze and
+        # broke the MBASIC fold -- deferred until that cell's relocatable word is understood.
+        (0x5D39, 0x5D56),   # MBF coefficient table feeding a LOG-class poly evaluator (count-prefixed)
+        (0x5F02, 0x5F27),   # MBF coefficient table feeding a TAN-class poly evaluator (count-prefixed)
+        (0x5D85, 0x5D89),   # RND default-seed MBF constant (FP_MOVE4 copies it to RNDX_SEED)
     ]
     # NOTE: pinning the banner used to break the build -- with it as data the trailing region
     # is unreached, so $8483 (INTERP_COPY_END, the LDDR copy boundary) is only referenced by
