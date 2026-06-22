@@ -180,7 +180,7 @@ def find_ld_cover_overlaps(lines, com, referenced, load=0x0100):
                 out.append(pend)
                 pend = None
             out.append(f"{ind}DEFB    ${com[a - load]:02X}{'':<22} ; ${a:04X}  {mc.group(2)} opcode -- "
-                       f"dynamic-call target self-modified at runtime (patched via LD (next),HL)")
+                       f"target word self-modified at runtime (patched via LD (next),HL)")
             out.append(f"{ename}:")
             out.append(f"{ind}DEFW    $0000{'':<26} ; ${entry:04X}  the patched {mc.group(2)} target "
                        f"(init $0000)")

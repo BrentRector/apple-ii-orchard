@@ -1042,9 +1042,9 @@ NEWSTT_READY:
         CALL PRINT_CRLF_IF_COL           ; $0E2D  CD 7B 67
         LD HL,MSG_BREAK                  ; $0E30  21 F2 0C
 NEWSTT_READY_1:
-        DEFB    $CD                      ; $0E33  CALL opcode -- dynamic-call target self-modified at runtime (patched via LD (next),HL)
-; [RE] Self-modified dynamic-call target word: CALL $0000 at the preceding DEFB $CD cover calls through here; the cold sign-on installs the destination via LD HL,<routine> / LD (DYNAMIC_CALL_VECTOR),HL (e.g. STROUT at $83E5). Operand word patched at runtime, init $0000.
-DYNAMIC_CALL_VECTOR:
+        DEFB    $CD                      ; $0E33  CALL opcode -- target word self-modified at runtime (patched via LD (next),HL)
+; [RE] Self-modified operand word of the CALL at $0E33 in the prompt/message print path (LD HL,<msg> / CALL through here). The cold sign-on patches it ONCE to STROUT ($6C40), via LD HL,STROUT / LD (STROUT_CALL_VECTOR),HL at $83E8 -- byte-scan confirms a SINGLE writer in both builds and it is never re-pointed, so after init the call is effectively CALL STROUT, not a runtime-varying dispatch. The indirection is NOT an address-resolution workaround: low-RAM JPs into the relocated body directly elsewhere (e.g. JP RESET_RUN_STATE = $68F4 at $0DA4). Why the original used a patchable cell here rather than a direct CALL is not determinable from the bytes. Init $0000.
+STROUT_CALL_VECTOR:
         DEFW    $0000                    ; $0E34  the patched CALL target (init $0000)
         LD A,(ERRFLG)                    ; $0E36  3A 35 08
 NEWSTT_READY_2:
@@ -15781,7 +15781,7 @@ COLD_SET_WIDTH_16:
         LD HL,MSG_BYTES_FREE             ; $83DF  21 0F 84
         CALL STROUT                      ; $83E2  CD 40 6C
         LD HL,STROUT                     ; $83E5  21 40 6C
-        LD (DYNAMIC_CALL_VECTOR),HL      ; $83E8  22 34 0E
+        LD (STROUT_CALL_VECTOR),HL       ; $83E8  22 34 0E
         CALL CRLF                        ; $83EB  CD 88 67
         LD HL,L_0D28                     ; $83EE  21 28 0D
         LD ($0101),HL                    ; $83F1  22 01 01
