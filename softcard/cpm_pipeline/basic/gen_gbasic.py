@@ -187,8 +187,14 @@ def main():
         (0x4A81, 0x4A91),   # Apple hi-res color/pixel-pattern WORD table
         (0x5EA2, 0x5EC7),   # FN_RND MBF floating-point constant pool
         # NOTE: the SIGNON banner ($841D-$8481) is ALSO data-as-code here (decoded as bogus
-        # SUB_842F_*/SUB_848D_* code), but pinning it perturbs the split header/body harvest
-        # (breaks the reswords table at $0254). Deferred -- needs the harvest decoupled first.
+        # SUB_842F_*/SUB_848D_* code; MBASIC's twin IS pinned, see gen_mbasic). Pinning it
+        # here breaks the build for a DIFFERENT, precise reason: with the banner as data, the
+        # trailing region is no longer reached as code, so $8483 (INTERP_COPY_END, the LDDR
+        # copy boundary the $1000 relocator references via INTERP_COPY_END-1 etc.) lands in an
+        # unreached DEFS fill. The formatter does not emit a label at a fill-run start, so
+        # INTERP_COPY_END is never defined and the relocator operands resolve to $0000. Fix
+        # belongs in the formatter (emit referenced labels at data-run/fill starts), then this
+        # pin can be enabled. (MBASIC has no relocator, which is why its pin is clean.)
     ]
     for lo, hi in AUDIT_DATA:
         bwalk.add_data_region(lo, hi)
