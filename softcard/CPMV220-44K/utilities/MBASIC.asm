@@ -102,9 +102,9 @@ STMT_DISPATCH_TBL:
         DEFW    GFX_STMT_HLIN            ; $01A2
         DEFW    GFX_STMT_VLIN            ; $01A4
         DEFW    GFX_STMT_PLOT            ; $01A6
-        DEFW    SUB_2803_1+1             ; $01A8
-        DEFW    SUB_2803_1+1             ; $01AA
-        DEFW    SUB_2803_1+1             ; $01AC
+        DEFW    RAISE_GRAPHICS_STATEMENT_NOT_IMPLEMENTED  ; $01A8
+        DEFW    RAISE_GRAPHICS_STATEMENT_NOT_IMPLEMENTED  ; $01AA
+        DEFW    RAISE_GRAPHICS_STATEMENT_NOT_IMPLEMENTED  ; $01AC
         DEFW    GFX_STMT_BEEP            ; $01AE
         DEFW    STMT_WAIT                ; $01B0
 FUNC_DISPATCH_TBL:
@@ -4406,11 +4406,11 @@ FRMEVL_EVAL_OPERAND_7:
         CP $CD                           ; $1C99  FE CD
         JP Z,GFX_FN_VPOS_3               ; $1C9B  CA 93 27
         CP $D3                           ; $1C9E  FE D3
-        JP Z,SUB_2803_1+1                ; $1CA0  CA 0F 28
+        JP Z,RAISE_GRAPHICS_STATEMENT_NOT_IMPLEMENTED  ; $1CA0  CA 0F 28
         CP $EC                           ; $1CA3  FE EC
         JP Z,GFX_FN_VPOS_2               ; $1CA5  CA 78 27
         CP $ED                           ; $1CA8  FE ED
-        JP Z,SUB_2803_1+1                ; $1CAA  CA 0F 28
+        JP Z,RAISE_GRAPHICS_STATEMENT_NOT_IMPLEMENTED  ; $1CAA  CA 0F 28
         CP $EE                           ; $1CAD  FE EE
         JP Z,INKEY_SCAN_2                ; $1CAF  CA 4A 44
         CP $E7                           ; $1CB2  FE E7
@@ -6344,8 +6344,9 @@ DISK_RESELECT_AND_RAISE:
         LD E,A                           ; $2809  5F
         CALL $0005                       ; $280A  CD 05 00
         POP DE                           ; $280D  D1
-SUB_2803_1:
-        LD BC,$201E                      ; $280E  01 1E 20
+        DEFB    $01                      ; $280E  LD BC opcode = skip the LD E when fallen into
+RAISE_GRAPHICS_STATEMENT_NOT_IMPLEMENTED:
+        LD E,ERR_GRAPHICS_STATEMENT_NOT_IMPLEMENTED  ; $280F  raise error 32
         JP RAISE_ERROR                   ; $2811  C3 AC 0D
 SUB_2803_2:
         NOP                              ; $2814  00

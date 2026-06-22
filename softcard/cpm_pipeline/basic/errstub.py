@@ -373,3 +373,62 @@ def apply_disk_vector_renames(lines, com, run):
                  for a, c in run}
     span = [(run[0][0], run[-1][0] + 2)]
     return apply_reference_renames(lines, com, addrnames=addrnames, run_spans=span)
+
+
+# A SINGLE-entry coded-error stub wears a `LD BC,$nn1E` cover (bytes 01 1E nn): the $01 is an
+# LD BC opcode that swallows the LD E when the routine is FALLEN INTO, while a dispatch DEFW
+# targets the +1 (the LD E,$nn) to raise that error. decode_stubs only finds multi-entry runs,
+# so a lone cover like this (e.g. the 'Graphics statement not implemented' raise wedged into
+# the disk-reselect tail) is left as `LD BC,$nn1E` + a `<label>+1` reference.
+_LDBC_COVER = re.compile(r"^(\s*)LD BC,\$([0-9A-Fa-f]{2})1E\b")
+
+
+def apply_cover_raise_stubs(lines, com):
+    """Decompose every single-entry `LD BC,$nn1E` cover that sits immediately before a JP/JR
+    to RAISE_ERROR (with nn a valid error code) into `DEFB $01` + `RAISE_<name>: LD E,
+    ERR_<name>`, and rewrite the `<cover>+1` references that target it to RAISE_<name>.
+    Byte-identical (01 1E nn either way)."""
+    disp = dispatcher_addr(com)
+    if disp is None:
+        return list(lines)
+    names = _code_err_names(com)
+    info = [_line_addr_bytes_target(ln) for ln in lines]
+    labdef = re.compile(r"^([A-Za-z_]\w*):\s*$")
+    out, plus1, pend, pend_line = [], {}, None, None
+    for i, ln in enumerate(lines):
+        lm = labdef.match(ln)
+        if lm:
+            if pend_line is not None:
+                out.append(pend_line)                          # flush a prior buffered label
+            pend, pend_line = lm.group(1), ln
+            continue
+        m = _LDBC_COVER.match(ln.partition(";")[0])
+        if m and info[i][0] is not None and int(m.group(2), 16) in names:
+            a = info[i][0]
+            j = i + 1
+            while j < len(lines) and info[j][0] is None:
+                j += 1
+            if j < len(lines) and info[j][2] == disp:          # next instr jumps to RAISE_ERROR
+                code = int(m.group(2), 16); err = names[code]
+                raise_name = "RAISE_" + err[len("ERR_"):]
+                indent = m.group(1)
+                out.append(f"{indent}DEFB    {'$01':<26} ; ${a:04X}  LD BC opcode = skip the LD E "
+                           f"when fallen into")
+                out.append(f"{raise_name}:")
+                out.append(f"{indent}LD E,{err:<26} ; ${a+1:04X}  raise error {code}")
+                if pend:                                       # a dispatch DEFW targets <label>+1;
+                    plus1[pend] = raise_name                   # drop that now-orphan cover label
+                pend, pend_line = None, None
+                continue
+        if pend_line is not None:
+            out.append(pend_line); pend_line = None            # label belongs to ordinary code
+        if ln.strip() and not ln.lstrip().startswith(";"):
+            pend = None
+        out.append(ln)
+    if pend_line is not None:
+        out.append(pend_line)
+    if plus1:                                                  # rewrite `<cover>+1` -> RAISE_<name>
+        pat = re.compile(r"\b(" + "|".join(re.escape(k) for k in plus1) + r")\+1\b")
+        out = [pat.sub(lambda mm: plus1[mm.group(1)], c) + s + r
+               for c, s, r in (ln.partition(";") for ln in out)]
+    return out

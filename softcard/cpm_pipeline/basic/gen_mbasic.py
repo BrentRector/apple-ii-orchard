@@ -149,6 +149,7 @@ def main():
     disk_run = errstub.disk_vector_run(body)               # disk-error vectors (in-place body)
     body = errstub.splice_disk_vectors_into(body, com, disk_run)
     body = errstub.apply_disk_vector_renames(body, com, disk_run)  # vector-table refs -> DISK_RAISE_*
+    body = errstub.apply_cover_raise_stubs(body, com)   # single-entry LD BC,$nn1E cover stub -> RAISE_*
 
     out = []
     out.append("; MBASIC.COM -- Microsoft BASIC-80 Rev 5.2 interpreter (graphics OFF), SoftCard CP/M 2.20 (44K).")

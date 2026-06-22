@@ -328,6 +328,7 @@ def main():
     disk_run = errstub.disk_vector_run(body_lines)             # disk-error vectors (relocated body)
     body_lines = errstub.splice_disk_vectors_into(body_lines, com, disk_run)
     body_lines = errstub.apply_disk_vector_renames(body_lines, com, disk_run)  # vector-table refs -> DISK_RAISE_*
+    body_lines = errstub.apply_cover_raise_stubs(body_lines, com)   # single-entry cover stub -> RAISE_*
 
     # Cross-region relocatability: header ($0100-$100D) and body ($3000+) are decoded
     # by SEPARATE walkers, so each region's control-flow operands into the OTHER region
