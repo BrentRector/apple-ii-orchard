@@ -631,15 +631,15 @@ CRUNCH_LITERAL_MODE:
 ; [RE] CRUNCH_LINENUM_MODE: CRUNCH line-number-introducer flag (whole-byte boolean, no mask). Set to 1 when the token just crunched is a keyword that is followed by a line number (GOTO/GOSUB/THEN/ELSE/RUN/LIST/RESTORE/etc.; armed via CRUNCH_STORE_FLAG_AND_EMIT $311C) and after ':' ($3204); cleared at CRUNCH entry ($3001) and $30D3. Tested at CRUNCH_18 ($314B, OR A / JR Z): when set, a following digit run is emitted as a line-number constant (token $0E + 2-byte line number via LINGET, $315C) instead of being parsed as an ordinary numeric literal (FIN at $3179).
 CRUNCH_LINENUM_MODE:
         DEFB    "\0"
-L_0B17:
+CONST_TEXT_RESUME:
         DEFB    "\0\0"
-L_0B19:
+CONST_TOKEN:
         DEFB    "\0"
-L_0B1A:
+CONST_VALTYP:
         DEFB    "\0"
-L_0B1B:
+CONST_VALUE:
         DEFB    "\0\0"
-L_0B1D:
+CONST_VALUE_HI:
         DEFB    "\0"
         DEFB    "\0\0\0\0\0"
 ; Top-of-storage / highest usable RAM pointer (MS BASIC MEMSIZ): cold-start sets it below the stack; GETSTK checks SP vs MEMSIZ; the string heap top ($0B48) seeds from it. Read by GARBAG.
@@ -816,9 +816,9 @@ L_0CAF:
         DEFB    "\0"
 L_0CB0:
         DEFB    "\0"
-L_0CB1:
+FAC:
         DEFB    "\0\0"
-L_0CB3:
+FACHI:
         DEFB    "\0"
 L_0CB4:
         DEFB    "\0"
@@ -1950,7 +1950,7 @@ CRUNCH_21:
 ; ----------------------------------------------------------------------
 ; CRUNCH_22 -- parse a numeric literal with FIN and emit it as the smallest MS-BASIC packed numeric token.
 ;   In:        HL -> first char of the numeric literal; DE = crunch write-cursor, BC = remaining count (live registers restored at CRUNCH_18; CRUNCH_22 re-PUSHes them around the FIN call).
-;   Out:       The constant is parsed into the FAC (VALTYP = L_0B14 ($0B14); 16-bit int in L_0CB1 ($0CB1)); the correctly-sized token is emitted: $11-$1A for integers 0-9, $0F+byte for 10-255, $1C+word for 16-bit ints, or via CRUNCH_23 for single/double; control returns to CRUNCH_1.
+;   Out:       The constant is parsed into the FAC (VALTYP = L_0B14 ($0B14); 16-bit int in FAC ($0CB1)); the correctly-sized token is emitted: $11-$1A for integers 0-9, $0F+byte for 10-255, $1C+word for 16-bit ints, or via CRUNCH_23 for single/double; control returns to CRUNCH_1.
 ;   Clobbers:  A, HL, DE, BC, FAC cells.
 ;   Algorithm: PUSH dest/count, CALL FIN_1+1 (the FIN numeric scanner entered at its +1 byte so the XOR-A flag-skip pre-seeds the FAC integer), trim trailing blanks, restore dest/count, PUSH the post-number source pointer. If VALTYP is integer ($02): read the 16-bit value from $0CB1; when the high byte is zero, values 0-9 emit as the compact $11-$1A tokens (ADD A,$11 -> CRUNCH_21) and 10-255 as the $0F 1-byte-int token + the byte (pre-staged HL then CRUNCH_20); when the high byte is nonzero the full 16-bit value goes to CRUNCH_23 (with A reloaded to $02). Non-integer (single/double) literals always go to CRUNCH_23.
 ; ----------------------------------------------------------------------
@@ -1968,7 +1968,7 @@ CRUNCH_22:
         ; integer literal? non-integers (single/double) emit via CRUNCH_23
         CP VT_INT
         JR NZ,CRUNCH_23
-        LD HL,(L_0CB1)
+        LD HL,(FAC)
         LD A,H
         ; test the value's high byte: nonzero -> needs the full 2-byte integer token ($1C)
         OR A
@@ -1998,7 +1998,7 @@ CRUNCH_23:
         ; form the wide-constant token: $1C=2-byte int, $1D=single, $1F=double
         ADD A,$1B
         CALL CRUNCH_EMIT
-        LD HL,L_0CB1
+        LD HL,FAC
         ; carry SET if VALTYP<8 (int/single -> use $0CB1), CLEAR if VALTYP>=8 (double -> use $0CAD)
         CALL FRMEVL_TEST_TYPE
         JR C,CRUNCH_24
@@ -2766,103 +2766,240 @@ NEWSTT_DISPATCH:
 ; ======================================================================
 ; CHARACTER FETCH (CHRGET / CHRGOT) + reserved-word fold
 ; ======================================================================
-; MS BASIC CHRGET: INC HL then fetch the next program/text char at (HL) into A, skipping spaces, returning C set if it is a digit (0-9) and Z set at end-of-line ($00)/end-of-statement. Expands the embedded constant-token forms ($0B-$1E line-number/constant tokens, $1C/$1E etc.) into their literal values. Entry CHRGET_1 ($33CA) = CHRGOT (re-fetch current char without advancing).
+; ----------------------------------------------------------------------
+; CHRGET -- advance the BASIC text pointer one byte, then fall into CHRGOT to fetch/classify it.
+;   In:        HL -> current byte in the crunched program/text line.
+;   Out:       HL incremented to the next byte, then (via CHRGOT) A = next significant char; C set iff A is an ASCII digit '0'-'9'; Z set at end-of-line/statement ($00); embedded constant tokens are expanded (see CHRGOT).
+;   Clobbers:  A, HL, flags (plus the CHRGOT constant-staging cells on a constant token).
+;   Algorithm: INC HL to step over the just-consumed byte, then drop straight into CHRGOT so a single fall-through path does the fetch, space-skipping, digit test and embedded-constant decode. The workhorse 'get next char' primitive called pervasively by the tokenizer, statement executor and expression evaluator.
+; ----------------------------------------------------------------------
 CHRGET:
+        ; advance past the byte just consumed, then fall into CHRGOT to fetch the next one
         INC HL
-; CHRGOT: re-fetch the current text char at (HL) into A without advancing (CHRGET minus the leading INC HL); sets C if digit, Z at end-of-line/statement; expands embedded constant tokens $0B-$1E.
+; ----------------------------------------------------------------------
+; CHRGOT -- re-fetch the CURRENT text char at (HL) into A without advancing, skipping spaces and expanding embedded constant tokens.
+;   In:        HL -> current byte in the crunched program/text line.
+;   Out:       A = next significant char (spaces skipped); C set iff A is an ASCII digit '0'-'9'; Z set at end-of-line/statement ($00). If (HL) is an embedded numeric-constant token ($0B-$1F) the staged constant is decoded into the CHRGOT_CONST_* cells, A returns the token byte (carry clear), and HL is loaded with the CHRGOT_11 continuation address.
+;   Clobbers:  A, flags; on a constant token also HL and the CHRGOT_CONST_* staging cells.
+;   Algorithm: Load (HL). Fast-path: if the char is >= ':' ($3A) RET NC -- carry is CLEAR there, which correctly reports 'not a digit' for keywords/operators/letters. Otherwise enter CHRGOT_1 to handle spaces, the $00 terminator, the digit range and the $0B-$1F embedded-constant tokens. CHRGET enters here after its INC HL; callers needing the current char without advancing call CHRGOT directly.
+; ----------------------------------------------------------------------
 CHRGOT:
+        ; fetch the current text character
         LD A,(HL)
+        ; fast exit for anything >= ':' (keywords, operators, letters): RET NC leaves carry clear = 'not a digit'
         CP $3A
         RET NC
+; ----------------------------------------------------------------------
+; CHRGOT_1 -- classify a char below ':' : skip spaces, detect end-of-line, split digits from the embedded constant tokens.
+;   In:        A = char (< $3A) from CHRGOT; HL -> that char.
+;   Out:       Spaces are skipped (loops back through CHRGET). $00 returns Z. Chars $21-$39 fall to the digit classifier CHRGOT_10 (C set iff digit). Tokens $01-$0A go to CHRGOT_9. Token $1E re-returns the prior decoded token byte. Other $0B-$1D (and $1F) tokens are decoded by CHRGOT_2..CHRGOT_8.
+;   Clobbers:  A, flags; HL on the space-skip and constant-decode paths.
+;   Algorithm: If char == ' ' ($20) loop to CHRGET to swallow the blank. If char > ' ' (so $21-$39) it is printable below ':' -> CHRGOT_10 digit test. Otherwise it is a control byte/token (< $20): OR A returns Z on the $00 terminator; CP $0B sends the very low control bytes ($01-$0A) to CHRGOT_9; the special $1E token re-loads and returns the previously decoded token byte from CHRGOT_CONST_TOKEN; all remaining tokens ($0B-$1D and $1F) fall to CHRGOT_2.
+; ----------------------------------------------------------------------
 CHRGOT_1:
         CP $20
+        ; skip a literal space: loop back to CHRGET to fetch the following char
         JR Z,CHRGET
+        ; printable char in $21-$39: go classify it as digit vs non-digit
         JR NC,CHRGOT_10
         OR A
+        ; $00 = end of line / end of statement: return with Z set
         RET Z
         CP $0B
+        ; control bytes $01-$0A (below the constant-token range): handle in CHRGOT_9
         JR C,CHRGOT_9
+        ; $1E = 're-emit the last decoded constant token byte'
         CP $1E
         JR NZ,CHRGOT_2
-        LD A,(L_0B19)
+        ; return the token byte that was stashed when this constant was first decoded
+        LD A,(CONST_TOKEN)
         OR A
         RET
+; ----------------------------------------------------------------------
+; CHRGOT_2 -- handle the $10 'resume at saved pointer' marker, else dispatch a fresh constant token to CHRGOT_4.
+;   In:        A = embedded token ($0B-$1D or $1F, already excluding $1E); HL -> that token byte.
+;   Out:       For $10, jump to CHRGOT_3 to reload the saved post-constant text pointer and re-scan. For any other token, fall into CHRGOT_4 to decode and stage the constant.
+;   Clobbers:  A, HL, flags.
+;   Algorithm: CP $10: if the token is $10 (the marker meaning 'the real next char lives at the saved continuation pointer'), branch to CHRGOT_3 which reloads CHRGOT_CONST_TXTPTR and loops back into CHRGOT; otherwise this is a genuine constant token to expand, so fall through to CHRGOT_4.
+; ----------------------------------------------------------------------
 CHRGOT_2:
+        ; $10 = 'resume scan at the saved text pointer' marker
         CP $10
         JR NZ,CHRGOT_4
+; ----------------------------------------------------------------------
+; CHRGOT_3 -- reload the saved post-constant text pointer and re-enter the scanner.
+;   In:        CHRGOT_CONST_TXTPTR = text pointer just past a previously decoded embedded constant.
+;   Out:       HL = that saved pointer; control falls into CHRGOT to fetch the next char from there.
+;   Clobbers:  HL (and whatever CHRGOT clobbers).
+;   Algorithm: After a constant has been expanded and consumed, scanning must continue at the byte following the constant. CHRGOT_3 loads HL from CHRGOT_CONST_TXTPTR and jumps to CHRGOT to resume. Reached from the $10 marker (CHRGOT_2) and as the common return target of all CHRGOT_CONST_VALUE paths after they materialize the value into the FAC.
+; ----------------------------------------------------------------------
 CHRGOT_3:
-        LD HL,(L_0B17)
+        ; restore the scan position to just past the decoded constant
+        LD HL,(CONST_TEXT_RESUME)
         JR CHRGOT
+; ----------------------------------------------------------------------
+; CHRGOT_4 -- decode one embedded numeric-constant token, staging its value/type/text-pointer for the caller.
+;   In:        A = token byte ($0B-$1D or $1F, not $10/$1E); HL -> the token byte (CHRGOT_4 immediately INC HLs past it); the token is also pushed (PUSH AF).
+;   Out:       The decoded constant is staged: CHRGOT_CONST_TOKEN = token, CHRGOT_CONST_VALUE_CELL = value word (or FP bytes), CHRGOT_CONST_VALTYP = width/valtyp, CHRGOT_CONST_TXTPTR = text pointer past the constant; HL = CHRGOT_11; A = token (POPped), carry CLEAR; RET to caller.
+;   Clobbers:  A, HL, flags, the CHRGOT_CONST_* cells (CHRGOT_8 also touches but restores DE/BC).
+;   Algorithm: PUSH the token (AF) and INC HL past it. Stash the token in CHRGOT_CONST_TOKEN. Classify by range arithmetic (verified by exhaustive simulation): SUB $1C -> NC selects the wide forms $1C/$1D/$1F (CHRGOT_8). Else SUB $F5 -> NC selects the compact single-byte integer tokens, decoded value left in A (CHRGOT_5; $11..$1A -> 0..9, $1B -> 10). Else CP $FE detects the $0F token (1-byte int 10-255): read the value byte from (HL), INC HL, fall into CHRGOT_5. All remaining values ($0B-$0E) take CHRGOT_7 to read a 2-byte word.
+; ----------------------------------------------------------------------
 CHRGOT_4:
+        ; preserve the token byte (and flags) to hand back to the caller after staging
         PUSH AF
         INC HL
-        LD (L_0B19),A
+        ; record which constant token this is, for the FAC-materialize step and the LIST/GOTO/IF discriminators
+        LD (CONST_TOKEN),A
+        ; tokens >= $1C ($1C 2-byte int, $1D single, $1F double) are the wide multi-byte forms -> CHRGOT_8
         SUB $1C
         JR NC,CHRGOT_8
+        ; after the SUB $1C, NC here selects the compact integer tokens $11-$1B mapping to value 0-10 in A -> CHRGOT_5
         SUB $F5
         JR NC,CHRGOT_5
+        ; the $0F token (1-byte int 10-255): the value byte follows inline in the text
         CP $FE
         JR NZ,CHRGOT_7
+        ; fetch the inline 1-byte integer value
         LD A,(HL)
         INC HL
+; ----------------------------------------------------------------------
+; CHRGOT_5 -- stage a 1-byte integer constant value held in A (entry for the compact / $0F int tokens).
+;   In:        A = the 8-bit integer value (0-255); HL -> the byte just past the constant in the text.
+;   Out:       CHRGOT_CONST_TXTPTR = HL (post-constant pointer); H cleared to $00, then falls into CHRGOT_6 to set L=value and mark VALTYP=integer.
+;   Clobbers:  H, CHRGOT_CONST_TXTPTR.
+;   Algorithm: Save the continuation text pointer, zero the high byte (H=$00) so the byte in A becomes the low half of a 16-bit integer, and fall into CHRGOT_6 which sets L=A and records the value/type. Common tail for the $11-$1B compact integers and the $0F one-byte integer.
+; ----------------------------------------------------------------------
 CHRGOT_5:
-        LD (L_0B17),HL
+        ; save where scanning resumes after this constant
+        LD (CONST_TEXT_RESUME),HL
+        ; zero-extend the 8-bit value to 16 bits (low byte set in CHRGOT_6)
         LD H,$00
+; ----------------------------------------------------------------------
+; CHRGOT_6 -- finalize a 16-bit integer constant: store the value, mark VALTYP=integer, return the token to the caller.
+;   In:        H = high byte (already set), A = low byte; the original token is on the stack (PUSHed at CHRGOT_4).
+;   Out:       CHRGOT_CONST_VALUE_CELL = HL (the 16-bit value); CHRGOT_CONST_VALTYP = $02 (VT_INT); HL = CHRGOT_11; A = token (POPped), carry CLEAR; RET to caller.
+;   Clobbers:  A, L, HL, flags, CHRGOT_CONST_VALUE_CELL, CHRGOT_CONST_VALTYP.
+;   Algorithm: Set L = A to complete the 16-bit value in HL, store it in CHRGOT_CONST_VALUE_CELL, and record VALTYP=2 (integer) in CHRGOT_CONST_VALTYP. Load HL=CHRGOT_11, POP the token back into A, OR A to clear carry (caller sees 'not a digit'), and RET. Shared tail for all integer-valued embedded tokens decoded as compact / 2-byte ints. UNKNOWN: the HL=CHRGOT_11 handoff is not consumed by the current callers (FRMEVL and LIST jump to CHRGOT_CONST_VALUE directly), so its original purpose is unclear.
+; ----------------------------------------------------------------------
 CHRGOT_6:
+        ; combine low byte (A) with high byte (H) to form the 16-bit value
         LD L,A
-        LD (L_0B1B),HL
+        LD (CONST_VALUE),HL
+        ; mark the staged constant as integer (VT_INT, 2-byte width)
         LD A,$02
-        LD (L_0B1A),A
+        LD (CONST_VALTYP),A
+        ; load the CHRGOT_11 continuation address (handoff unused by current callers)
         LD HL,CHRGOT_11
         POP AF
+        ; clear carry so the caller does not mistake the token for a digit; A = the token byte
         OR A
         RET
+; ----------------------------------------------------------------------
+; CHRGOT_7 -- decode a 2-byte embedded constant ($0B-$0E) into a 16-bit integer value.
+;   In:        HL -> the first of the two value bytes (CHRGOT_4 already advanced past the token); token in CHRGOT_CONST_TOKEN.
+;   Out:       CHRGOT_CONST_TXTPTR = pointer just past the 2-byte value; A = low byte, H = high byte; falls into CHRGOT_6 to store the value and mark VALTYP=integer.
+;   Clobbers:  A, H, HL, CHRGOT_CONST_TXTPTR.
+;   Algorithm: Read the low byte into A; INC HL twice to position just past the 2-byte field and save that as CHRGOT_CONST_TXTPTR; DEC HL back to the high byte and load it into H. Falling into CHRGOT_6 (LD L,A) assembles HL = the little-endian 16-bit word and stages it as an integer. Path for the four 2-byte tokens: $0B = &O OCTAL radix constant, $0C = &H HEX radix constant, $0D = cached resolved line-pointer, $0E = 2-byte line-number constant.
+; ----------------------------------------------------------------------
 CHRGOT_7:
+        ; read the low byte of the 16-bit operand
         LD A,(HL)
         INC HL
         INC HL
-        LD (L_0B17),HL
+        ; HL now points just past both value bytes: save the resume position
+        LD (CONST_TEXT_RESUME),HL
         DEC HL
+        ; read the high byte; CHRGOT_6 supplies the low byte to complete HL
         LD H,(HL)
         JR CHRGOT_6
+; ----------------------------------------------------------------------
+; CHRGOT_8 -- decode a wide multi-byte numeric constant ($1C 2-byte int / $1D single / $1F double) by block-copying its bytes into the staging cell.
+;   In:        A = token-$1C (0 for $1C, 1 for $1D, 3 for $1F); HL -> the first value byte; original token on the stack; DE/BC live (saved and restored here).
+;   Out:       CHRGOT_CONST_VALTYP = width in bytes (2 for $1C, 4 for $1D, 8 for $1F); the value bytes copied to CHRGOT_CONST_VALUE_CELL; CHRGOT_CONST_TXTPTR = pointer past the value; HL = CHRGOT_11; A = token (POPped), carry CLEAR; RET. DE and BC are restored (POPped) before return.
+;   Clobbers:  A, HL, flags, CHRGOT_CONST_* cells. DE/BC preserved (saved/restored).
+;   Algorithm: INC A then RLCA converts the index 0/1/3 into a byte width 2/4/8 and stores it in CHRGOT_CONST_VALTYP. PUSH DE/BC, LD DE,CHRGOT_CONST_VALUE_CELL then EX DE,HL so DE=text source / HL=staging dest, LD B=width, CALL FP_MOVE_LOOP to copy width bytes text->staging. EX DE,HL leaves HL at the byte past the constant; save it to CHRGOT_CONST_TXTPTR, POP BC/DE, POP the token, load HL=CHRGOT_11, clear carry and RET. (Widths 2/4/8 verified by simulation of INC A;RLCA over indices 0/1/3.)
+; ----------------------------------------------------------------------
 CHRGOT_8:
+        ; convert the wide-token index 0/1/3 into the byte width 2/4/8 (INC then RLCA = 2*(index+1))
         INC A
         RLCA
-        LD (L_0B1A),A
+        ; record the constant's width / value-type for the FAC-materialize step
+        LD (CONST_VALTYP),A
         PUSH DE
         PUSH BC
-        LD DE,L_0B1B
+        ; destination = the constant staging cell; EX DE,HL then makes DE=text source, HL=dest
+        LD DE,CONST_VALUE
         EX DE,HL
         LD B,A
+        ; block-copy the constant's raw value bytes from the text into the staging cell
         CALL FP_MOVE_LOOP
         EX DE,HL
         POP BC
         POP DE
-        LD (L_0B17),HL
+        ; save the resume position just past the multi-byte constant
+        LD (CONST_TEXT_RESUME),HL
         POP AF
+        ; load the CHRGOT_11 continuation address (handoff unused by current callers)
         LD HL,CHRGOT_11
         OR A
         RET
+; ----------------------------------------------------------------------
+; CHRGOT_9 -- handle the low control bytes ($01-$0A): skip $09/$0A, else fall into the digit classifier.
+;   In:        A = control byte (< $0B); HL -> that byte.
+;   Out:       For A >= $09 ($09/$0A) loop back to CHRGET to skip it. For A < $09, fall into CHRGOT_10 which returns NC (not a digit) with Z reflecting A.
+;   Clobbers:  A, flags; HL on the skip path.
+;   Algorithm: CP $09: if the byte is $09 or $0A, JP CHRGET to fetch the next char (these two low controls are skipped like spaces -- [RE] their precise original role is unconfirmed); otherwise ($01-$08) drop into CHRGOT_10 to run it through the digit/zero classifier (which reports not-a-digit).
+; ----------------------------------------------------------------------
 CHRGOT_9:
+        ; $09/$0A are skipped like spaces ([RE] exact original meaning unconfirmed)
         CP $09
         JP NC,CHRGET
+; ----------------------------------------------------------------------
+; CHRGOT_10 -- the shared digit classifier: set carry iff the char in A is an ASCII digit, set Z iff A is zero.
+;   In:        A = char known to be < $3A (':'), reached for $21-$39 from CHRGOT_1 or for low controls via CHRGOT_9.
+;   Out:       Carry SET iff A is an ASCII digit '0'-'9' ($30-$39); carry CLEAR otherwise; Z set iff A == 0; A unchanged.
+;   Clobbers:  flags only (A preserved by the INC A/DEC A pair).
+;   Algorithm: CP $30 sets carry when A < '0'; CCF inverts it so carry is set when A >= '0'. Because the entry guarantees A < ':' , 'A >= $30' is exactly the digit range $30-$39, so carry now means 'is a digit'. INC A then DEC A restores A while re-deriving Z (Z iff A==0) without disturbing carry. This is the carry=digit contract every CHRGET/CHRGOT caller relies on.
+; ----------------------------------------------------------------------
 CHRGOT_10:
+        ; compare against '0'; combined with the <':' entry this isolates the digit range
         CP $30
+        ; invert so carry SET == 'char is a digit 0-9'
         CCF
+        ; INC/DEC pair restores A and sets Z iff A==0, leaving carry intact
         INC A
         DEC A
         RET
+; ----------------------------------------------------------------------
+; CHRGOT_11 / CHRGOT_CONST_VALUE -- materialize the staged embedded constant into the floating-point accumulator (FAC) and resume scanning.
+;   In:        The CHRGOT_CONST_* cells hold the decoded constant (CHRGOT_CONST_TOKEN, CHRGOT_CONST_VALTYP, CHRGOT_CONST_VALUE_CELL/_HI).
+;   Out:       The constant is loaded into the FAC (and VALTYP set for the wide forms); control resumes at CHRGOT_3 (reload CHRGOT_CONST_TXTPTR and re-scan).
+;   Clobbers:  A, DE, HL, FAC, VALTYP.
+;   Algorithm: Read CHRGOT_CONST_TOKEN. Tokens $0D and $0E take the INT_TO_SNG path: $0D (the cached resolved line-pointer) DEREFERENCES the cached pointer in CHRGOT_CONST_VALUE_CELL (INC HL x3 then load the 2-byte line number) before INT_TO_SNG; $0E uses the staged 16-bit line number directly. All other tokens ($0B,$0C and >= $0F) go to CHRGOT_CONST_VALUE_2, which copies CHRGOT_CONST_VALTYP into the global VALTYP and either moves the single bytes into the FAC cells $0CB1/$0CB3 (VALTYP != 8) or runs the typed double move via FP_ARG_SETUP1 (VALTYP == 8). Then JP CHRGOT_3 to continue scanning. This is the consumer half that FRMEVL_EVAL_OPERAND (CP $20 / JP C,CHRGOT_CONST_VALUE) and the LIST emitter reach directly. UNKNOWN: the leading LD E,$10 at CHRGOT_11 is not consumed before E is reloaded (vestigial), and the HL=CHRGOT_11 handoff from the decode is never used by the current callers.
+; ----------------------------------------------------------------------
 CHRGOT_11:
         LD E,$10
-; [RE] CHRGOT constant-token tail: for the embedded numeric-constant tokens ($0B-$1E) decoded by CHRGOT, materialise the literal value into FAC ($0CB1/$0CB3) and value-type ($0B14), then resume the char scan at CHRGOT_3 ($33E7).
+; ----------------------------------------------------------------------
+; CHRGOT_CONST_VALUE -- materialize a scanner-staged embedded numeric-constant token into the FAC.
+;   In:        CONST_TOKEN ($0B19) = the constant-form token the scanner last saw ($0B-$1F, excluding $10/$1E); CONST_VALUE ($0B1B)/CONST_VALUE_HI ($0B1D) = the staged value bytes (or, for token $0D, a -1-biased pointer to the located BASLINE node); CONST_VALTYP ($0B1A) = the value width (VT_INT/VT_SNG/VT_DBL), consumed only on the binary-copy path.
+;   Out:       FAC ($0CB1) holds the constant; VALTYP ($0B14) set to its type; character scan resumed at CHRGOT_3 (which reloads CONST_TEXT_RESUME, the text pointer just past the constant).
+;   Clobbers:  A, HL, DE, VALTYP, FAC cells.
+;   Algorithm: Branch on CONST_TOKEN. Tokens $0D/$0E denote a line number that must become a float: float the 16-bit value through INT_TO_SNG (CHRGOT_CONST_VALUE_1). Token $0E carries the line number directly in CONST_VALUE; token $0D carries the runtime-resolved line-link cache pointer, so the line number is fetched from the located node's BASLINE.LINENUM. All other tokens ($0B octal, $0C hex, $0F/$11-$1A/$1C int, $1D single, $1F double) already hold the value in final binary form and go to CHRGOT_CONST_VALUE_2 to copy the FAC bytes by width. Called by FRMEVL_EVAL_OPERAND ($3BF6, via 'JP C,CHRGOT_CONST_VALUE' at $3C07) to evaluate an in-expression constant, and by the LIST detokenizer (IS_ALNUM_CHAR_1, 'CALL CHRGOT_CONST_VALUE' at $41F3) to recover a constant's value for printing.
+; ----------------------------------------------------------------------
 CHRGOT_CONST_VALUE:
-        LD A,(L_0B19)
+        ; select the materialize path by the staged constant-form token
+        LD A,(CONST_TOKEN)
         CP $0F
+        ; tokens >= $0F ($0F/$11-$1A int, $1C int, $1D single, $1F double): value is already in final binary form -> copy it into the FAC
         JR NC,CHRGOT_CONST_VALUE_2
         CP $0D
+        ; tokens < $0D ($0B octal &O, $0C hex &H): a 2-byte integer literal -> also copy it into the FAC; only $0D/$0E fall through
         JR C,CHRGOT_CONST_VALUE_2
-        LD HL,(L_0B1B)
+        ; $0D/$0E line-number form: load the staged value (for $0E the line number itself; for $0D the runtime-cached, -1-biased pointer to the located line node)
+        LD HL,(CONST_VALUE)
+        ; token $0E (NZ from the CP $0D): line number is already in HL, go float it directly
         JR NZ,CHRGOT_CONST_VALUE_1
+        ; token $0D (cached line-link, pointer = node_base - 1): step +3 to reach BASLINE.LINENUM (struct offset +2 after undoing the -1 bias) and read the line number into HL
         INC HL
         INC HL
         INC HL
@@ -2870,21 +3007,49 @@ CHRGOT_CONST_VALUE:
         INC HL
         LD D,(HL)
         EX DE,HL
+; ----------------------------------------------------------------------
+; CHRGOT_CONST_VALUE_1 -- float a 16-bit line number into the FAC as single precision, then resume scanning.
+;   In:        HL = the 16-bit line number to materialize (from token $0E directly, or token $0D via the BASLINE.LINENUM fetch).
+;   Out:       FAC holds the value as a single-precision float; VALTYP set to VT_SNG ($04) by INT_TO_SNG; control returns to the char scanner at CHRGOT_3.
+;   Clobbers:  A, HL, DE, FAC cells, VALTYP.
+;   Algorithm: Call INT_TO_SNG to convert the signed 16-bit integer in HL to a single-precision FAC value (INT_TO_SNG sets VALTYP=VT_SNG via SET_TYPE_DOUBLE_1+1 = LD A,$04), then JP CHRGOT_3 to reload the post-constant text pointer and continue the scan. Line numbers appearing in an expression are always promoted to a float here.
+; ----------------------------------------------------------------------
 CHRGOT_CONST_VALUE_1:
+        ; promote the line number to a single-precision float in the FAC (line numbers are evaluated as floats; INT_TO_SNG sets VALTYP=VT_SNG)
         CALL INT_TO_SNG
+        ; resume the character scan just past the consumed constant
         JP CHRGOT_3
+; ----------------------------------------------------------------------
+; CHRGOT_CONST_VALUE_2 -- copy an already-binary integer/single constant from the staging cells into the FAC, then resume scanning.
+;   In:        CONST_VALTYP ($0B1A) = the value width (VT_INT=2 for $0B/$0C/$0F/$11-$1A/$1C, VT_SNG=4 for $1D, VT_DBL=8 for $1F); CONST_VALUE ($0B1B)/CONST_VALUE_HI ($0B1D) = the staged value bytes.
+;   Out:       VALTYP ($0B14) set from CONST_VALTYP; for int/single the value words are stored into FAC ($0CB1) and FAC+2 ($0CB3); double precision is diverted to CHRGOT_CONST_VALUE_3; control returns to the scanner at CHRGOT_3.
+;   Clobbers:  A, HL, VALTYP, FAC cells.
+;   Algorithm: Set VALTYP from the staged width. If the width is VT_DBL, hand off to CHRGOT_CONST_VALUE_3 (the 8-byte path). Otherwise copy the staged value as two 16-bit words: CONST_VALUE -> FAC and CONST_VALUE_HI -> FAC+2. This covers both the 2-byte integer (where the upper word written to FAC+2 is stale/irrelevant, since VALTYP=int) and the 4-byte single (where FAC+2 receives the sign byte + exponent). Then JP CHRGOT_3 to continue the scan.
+; ----------------------------------------------------------------------
 CHRGOT_CONST_VALUE_2:
-        LD A,(L_0B1A)
+        ; publish the constant's value type (width) into VALTYP for the evaluator
+        LD A,(CONST_VALTYP)
         LD (VALTYP),A
         CP VT_DBL
+        ; double precision (VALTYP=VT_DBL) needs the full 8-byte move -> divert to the FP_ARG_SETUP1 path
         JR Z,CHRGOT_CONST_VALUE_3
-        LD HL,(L_0B1B)
-        LD (L_0CB1),HL
-        LD HL,(L_0B1D)
-        LD (L_0CB3),HL
+        ; copy the staged value into the FAC: low word to FAC, high word to FAC+2 (handles both 2-byte int and 4-byte single)
+        LD HL,(CONST_VALUE)
+        LD (FAC),HL
+        LD HL,(CONST_VALUE_HI)
+        LD (FACHI),HL
         JP CHRGOT_3
+; ----------------------------------------------------------------------
+; CHRGOT_CONST_VALUE_3 -- materialize a staged double-precision constant into the FAC, then resume scanning.
+;   In:        CONST_VALUE ($0B1B) = the base of the 8-byte double-precision value staged by the scanner; VALTYP already set to VT_DBL by CHRGOT_CONST_VALUE_2.
+;   Out:       FAC double field populated from the staged bytes via FP_ARG_SETUP1; control returns to the scanner at CHRGOT_3.
+;   Clobbers:  A, HL, DE, BC, FAC cells.
+;   Algorithm: Point HL at CONST_VALUE (the move SOURCE) and call FP_ARG_SETUP1, the standard FP operand-setup helper that type-checks (FRMEVL_TEST_TYPE picks the FAC double field $0CAD for VALTYP>=8) and returns into the typed move routine (FP_MOVE4_1) to copy the staged operand into the FAC's working field. Then JP CHRGOT_3 to continue scanning past the constant. This is the 8-byte counterpart of the 2/4-byte copy in CHRGOT_CONST_VALUE_2.
+; ----------------------------------------------------------------------
 CHRGOT_CONST_VALUE_3:
-        LD HL,L_0B1B
+        ; point at the staged 8-byte double value as the FP move source
+        LD HL,CONST_VALUE
+        ; type-checked, width-driven move of the double-precision operand into the FAC double field
         CALL FP_ARG_SETUP1
         JP CHRGOT_3
 ; [RE] DEFSTR statement handler (token $A9): declare a default-string letter range. DEFINT/DEFSNG/DEFDBL ($AA-$AC) enter a few bytes later with a different type code.
@@ -2967,7 +3132,7 @@ LINGET_NEXT:
 ; [RE] LINGET digit-accumulation loop: read ASCII digits, DE = DE*10 + digit (via the *10 sequence and $1998 overflow guard at CMP_HL_DE) until a non-digit; returns the parsed line number in DE.
 LINGET_TOKLINE:
         EX DE,HL
-        LD HL,(L_0B1B)
+        LD HL,(CONST_VALUE)
         EX DE,HL
         JP Z,CHRGET
         DEC HL
@@ -3030,13 +3195,13 @@ STMT_GOSUB_1:
 STMT_GOTO:
         CALL LINGET
 STMT_GOTO_1:
-        LD A,(L_0B19)
+        LD A,(CONST_TOKEN)
         CP $0D
         EX DE,HL
         RET Z
         EX DE,HL
         PUSH HL
-        LD HL,(L_0B17)
+        LD HL,(CONST_TEXT_RESUME)
         EX (SP),HL
         CALL STMT_DATA+2
         INC HL
@@ -3148,7 +3313,7 @@ STMT_LET_2:
 STMT_LET_3:
         LD A,(VALTYP)
 STMT_LET_4:
-        LD DE,L_0CB1
+        LD DE,FAC
         CP $05
         JR C,STMT_LET_5
         LD DE,L_0CAD
@@ -3156,7 +3321,7 @@ STMT_LET_5:
         PUSH HL
         CP VT_STR
         JR NZ,STMT_LET_8
-        LD HL,(L_0CB1)
+        LD HL,(FAC)
         PUSH HL
         INC HL
         LD E,(HL)
@@ -3332,7 +3497,7 @@ STMT_IF_2:
         JP Z,STMT_GOTO
         CP $0D
         JP NZ,NEWSTT_DISPATCH
-        LD HL,(L_0B1B)
+        LD HL,(CONST_VALUE)
         RET
 STMT_IF_3:
         LD D,$01
@@ -3380,14 +3545,14 @@ STMT_PRINT_2:
         CALL FOUT_2
         CALL SCAN_STR_LITERAL
         LD (HL),$20
-        LD HL,(L_0CB1)
+        LD HL,(FAC)
         INC (HL)
 STMT_PRINT_3:
         LD HL,(PTRFIL)
         LD A,H
         OR L
         JR NZ,STMT_PRINT_6
-        LD HL,(L_0CB1)
+        LD HL,(FAC)
         LD A,(PRTFLG)
         OR A
         JR Z,STMT_PRINT_4
@@ -3890,7 +4055,7 @@ FRMEVL_OPLOOP_3:
         CP $7A
         JP Z,FRMEVL_OPLOOP_10
 FRMEVL_OPLOOP_4:
-        LD HL,L_0CB1
+        LD HL,FAC
         LD A,(VALTYP)
         SUB VT_STR
         JP Z,RAISE_TYPE_MISMATCH
@@ -3969,7 +4134,7 @@ FRMEVL_ARITHOP:
         PUSH HL
         CALL FRMEVL_TEST_TYPE
         JP NZ,FRMEVL_OPLOOP_4
-        LD HL,(L_0CB1)
+        LD HL,(FAC)
         PUSH HL
         LD BC,NEXT_LOOP_BODY_7
         JR FRMEVL_OPLOOP_6
@@ -4010,7 +4175,7 @@ FRMEVL_OPLOOP_14:
         INC HL
         LD B,(HL)
         POP DE
-        LD HL,(L_0CB1)
+        LD HL,(FAC)
         PUSH BC
         RET
 FRMEVL_OPLOOP_15:
@@ -4049,7 +4214,7 @@ FRMEVL_OPLOOP_20:
         CP VT_SNG
         JR Z,FRMEVL_OPLOOP_17
         POP HL
-        LD (L_0CB1),HL
+        LD (FAC),HL
         JR FRMEVL_OPLOOP_18
 ; [RE] FRMEVL operator-apply coercion (mis-split as DEFB, real code reached from FRMEVL_OPCOMBINE $3B76 when operand-type B==$04): CALL FN_CINT to force the operand to integer, then fall into FRMEVL_OP_POP_FRAME
 FRMEVL_OP_COERCE_INT:
@@ -4068,9 +4233,9 @@ FRMEVL_OP_COERCE_INT_3:
         CALL INT_TO_SINGLE_HL
         CALL FP_LOAD_FAC
         POP HL
-        LD (L_0CB3),HL
+        LD (FACHI),HL
         POP HL
-        LD (L_0CB1),HL
+        LD (FAC),HL
         JR FRMEVL_OP_DISPATCH_REL
 ; [RE] Integer-division operator handler (OPERATOR_ROUTINE_TBL integer-divide slot $051D): promote both integer operands to single precision and tail-call FDIV -- MS BASIC '/' always yields a float.
 IDIV:
@@ -4195,20 +4360,36 @@ FRMEVL_PAREN_3:
 FRMEVL_PAREN_4:
         PUSH HL
         EX DE,HL
-        LD (L_0CB1),HL
+        LD (FAC),HL
         CALL FRMEVL_TEST_TYPE
         CALL NZ,FP_ARG_SETUP1
         POP HL
         RET
-; [RE] Read char at (HL) and fold ASCII lowercase a-z ($61-$7A) to uppercase (AND $5F); leaves other chars unchanged. CRUNCH's case-insensitive keyword matcher uses this. TOUPPER_A ($3CCD) is the same fold applied to the char already in A.
+; ----------------------------------------------------------------------
+; CHRGET_UPCASE -- read the current tokenizer char and fold it to upper case
+;   In:        HL -> current character in the BASIC text/console line buffer
+;   Out:       A = (HL) with ASCII lowercase a-z folded to uppercase; all other bytes unchanged. HL is NOT advanced (peek, not consume). [RE] Carry is left in a defined state by TOUPPER_A's compares (set if A < 'a', else clear) but is an INCIDENTAL side effect -- no caller consumes it; every caller either uses A or recomputes flags (e.g. via IS_LETTER_A / its own CP).
+;   Clobbers:  A, F. HL preserved.
+;   Algorithm: Load A from (HL) -- the CURRENT char, with NO INC HL, so it differs from the true CHRGET ($33C9, first byte INC HL) which advances first (and which also skips spaces / expands constant tokens; CHRGET_UPCASE does neither). Fall straight into TOUPPER_A to upcase a-z. [RE] Used by CRUNCH's case-insensitive keyword/identifier scan so 'print' and 'PRINT' tokenize identically.
+; ----------------------------------------------------------------------
 CHRGET_UPCASE:
+        ; Peek the CURRENT char (no INC HL -- unlike the real CHRGET, this does not advance the text pointer), then fall into TOUPPER_A to fold it.
         LD A,(HL)
-; Fold the char already in A from ASCII lowercase a-z ($61-$7A) to uppercase (AND $5F); other chars unchanged. Entry to CHRGET_UPCASE that skips the LD A,(HL); used by CRUNCH keyword matching and the &H/&O scanner
+; ----------------------------------------------------------------------
+; TOUPPER_A -- fold the ASCII letter already in A to upper case
+;   In:        A = candidate character (entry used when the caller already holds the char, skipping CHRGET_UPCASE's LD A,(HL))
+;   Out:       A = uppercase if input was 'a'-'z' ($61-$7A), otherwise A unchanged. [RE] Carry is defined but incidental (set when A < 'a' via the early RET C; clear on the A >= '{' passthrough and on the folded a-z path since AND $5F resets carry) -- no caller relies on it.
+;   Clobbers:  A, F
+;   Algorithm: Range-guard then mask. CP $61/RET C passes through anything below 'a'. CP $7B/RET NC passes through anything at or above '{' ($7B), i.e. above 'z'. The remaining a-z range is folded with AND $5F, which clears bit 5 ($20) to map lowercase to uppercase. Digits, punctuation, control codes, and already-uppercase letters are returned untouched. [RE] Direct callers (non-exhaustive): the &H/&O radix-literal scanner (SCAN_AMP_RADIX_CONST and SCAN_AMP_RADIX_CONST_1), the '&' marker chooser (CRUNCH_AMP_HEX_OCT), and the EDIT-mode keystroke handler (STMT_EDIT).
+; ----------------------------------------------------------------------
 TOUPPER_A:
+        ; Below 'a' ($61): not lowercase, return char unchanged.
         CP $61
         RET C
+        ; At or above '{' ($7B), i.e. past 'z': not lowercase, return char unchanged.
         CP $7B
         RET NC
+        ; In a-z: clear bit 5 ($20) to fold lowercase to uppercase.
         AND $5F
         RET
 ; [RE] Two-way operand guard: if the current char is '&' ($26) fall into the &H/&O radix-constant scanner, else JP LINGET to parse a decimal line number.
@@ -4305,7 +4486,7 @@ SCAN_AMP_RADIX_CONST_8:
         DEFB    ','                      ; inline char arg consumed by the preceding CALL
         CALL FP_INT_CHECK
         EX DE,HL
-        LD HL,(L_0CB1)
+        LD HL,(FAC)
         EX (SP),HL
         PUSH HL
         EX DE,HL
@@ -4371,7 +4552,7 @@ FRMEVL_SCAN_UNARY_2:
         LD A,H
         CPL
         LD H,A
-        LD (L_0CB1),HL
+        LD (FAC),HL
         POP BC
 FRMEVL_SCAN_UNARY_3:
         JP FRMEVL_OPLOOP_2
@@ -4490,7 +4671,7 @@ FP_LOAD_INT_TO_FAC_2:
         CALL Z,FRESTR
         POP AF
         EX DE,HL
-        LD HL,L_0CB1
+        LD HL,FAC
         RET
 ; [RE] Compute the address of a USR(n) dispatch vector: base $081F + (digit index*2 from $0B1B if a numeric suffix follows the USR token), returned in DE. Used by DEF USR / USR-call setup.
 USRVEC_ADDR:
@@ -4501,7 +4682,7 @@ USRVEC_ADDR:
         CP $11
         JR C,USRVEC_ADDR_1
         CALL CHRGET
-        LD A,(L_0B1B)
+        LD A,(CONST_VALUE)
         OR A
         RLA
         LD C,A
@@ -4704,7 +4885,7 @@ STMT_DEF_8:
         CALL FRMEVL_TEST_TYPE
         JR NZ,STMT_DEF_9
         LD DE,DSCTMP
-        LD HL,(L_0CB1)
+        LD HL,(FAC)
         CALL CMP_HL_DE
         JR C,STMT_DEF_9
         CALL STR_BUILD_FROM_DESC
@@ -5101,12 +5282,12 @@ IS_ALNUM_CHAR_1:
         JP Z,HEX_OCT_OUT
         CP $0C
         JP Z,HEX_OCT_OUT_1+1
-        LD HL,(L_0B1B)
+        LD HL,(CONST_VALUE)
         JP FOUT_2
 IS_ALNUM_CHAR_2:
         POP BC
         POP DE
-        LD A,(L_0B19)
+        LD A,(CONST_TOKEN)
         LD E,$4F
         CP $0B
         JR Z,IS_ALNUM_CHAR_3
@@ -5125,7 +5306,7 @@ IS_ALNUM_CHAR_3:
         DEC D
         RET Z
 IS_ALNUM_CHAR_4:
-        LD A,(L_0B1A)
+        LD A,(CONST_VALTYP)
         CP $04
         LD E,$00
         JR C,IS_ALNUM_CHAR_5
@@ -5145,7 +5326,7 @@ IS_ALNUM_CHAR_6:
         INC BC
         DEC D
         RET Z
-        LD A,(L_0B1A)
+        LD A,(CONST_VALTYP)
         CP $04
         JR C,IS_ALNUM_CHAR_6
         DEC BC
@@ -5171,7 +5352,7 @@ IS_ALNUM_CHAR_9:
         DEC D
         RET Z
 IS_ALNUM_CHAR_10:
-        LD HL,(L_0B17)
+        LD HL,(CONST_TEXT_RESUME)
         JP DETOKENIZE_LINE_2
 ; [RE] DELETE statement handler (token $A6): delete a range of program lines (CALL $0F61 parses the range).
 STMT_DELETE:
@@ -5239,7 +5420,7 @@ GETADR:
         LD A,(L_0CB4)
         CP $90
         RET NZ
-        LD A,(L_0CB3)
+        LD A,(FACHI)
         OR A
         RET M
         LD BC,$9180
@@ -5442,7 +5623,7 @@ RENUM_PATCH_LINEREFS_8:
 RENUM_PATCH_LINEREFS_9:
         LD HL,RENUM_PATCH_LINEREFS_6
         PUSH HL
-        LD HL,(L_0B17)
+        LD HL,(CONST_TEXT_RESUME)
 ; [RE] Write the 3-byte encoded line-number token (marker A, line# in BC) backward into the program text just before the pointer in $0B17.
 RENUM_STORE_LINEREF:
         PUSH HL
@@ -6829,7 +7010,7 @@ FADD_ALIGN_1:
         CALL MANT_SHIFT_BYTES
         LD A,H
         OR A
-        LD HL,L_0CB1
+        LD HL,FAC
         JP P,FADD_ALIGN_2
         CALL MANT_ADD
         JP NC,FP_SET_ZERO_7
@@ -7089,7 +7270,7 @@ FMUL:
         LD HL,FMUL_1
         PUSH HL
         PUSH HL
-        LD HL,L_0CB1
+        LD HL,FAC
 FMUL_1:
         LD A,(HL)
         INC HL
@@ -7318,7 +7499,7 @@ FP_SIGN:
         LD A,(L_0CB4)
         OR A
         RET Z
-        LD A,(L_0CB3)
+        LD A,(FACHI)
 ; [RE] Flag-skip shared sign tail: $4E4F CP $2F is the FP_SIGN body; FCOMP/DCOMP reuse the tail by entering at FP_SIGN_1+1 ($4E50) where the $2F operand byte runs as CPL, then the shared RLA/SBC A,A ($4E51-$4E55) collapses A to -1/0/+1. The full entry tests the sign byte; the +1 entry complements a precomputed difference.
 FP_SIGN_1:
         CP $2F
@@ -7353,7 +7534,7 @@ FP_NEGATE_CHECKED:
         JP Z,RAISE_TYPE_MISMATCH
 ; [RE] Negate FAC: flip the high (sign) bit of the FAC sign byte at $0CB3.
 FP_NEG:
-        LD HL,L_0CB3
+        LD HL,FACHI
         LD A,(HL)
         XOR $80
         LD (HL),A
@@ -7373,7 +7554,7 @@ FP_TEST_SIGN:
         CALL FRMEVL_TEST_TYPE
         JP Z,RAISE_TYPE_MISMATCH
         JP P,FP_SIGN
-        LD HL,(L_0CB1)
+        LD HL,(FAC)
 ; [RE] Test FAC integer mantissa ($0CB1) for zero and return its sign via the SIGN tail.
 FP_MANT_SIGN:
         LD A,H
@@ -7384,10 +7565,10 @@ FP_MANT_SIGN:
 ; [RE] PUSHF: push the FAC mantissa ($0CB1) and sign/low-exp ($0CB3) onto the stack while preserving the caller return address (EX (SP),HL).
 FAC_PUSH:
         EX DE,HL
-        LD HL,(L_0CB1)
+        LD HL,(FAC)
         EX (SP),HL
         PUSH HL
-        LD HL,(L_0CB3)
+        LD HL,(FACHI)
         EX (SP),HL
         PUSH HL
         EX DE,HL
@@ -7398,15 +7579,15 @@ FP_STORE_REGS_LD:
 ; [RE] MOVFR: store DE (mantissa low) and B,C (sign/high) into the FAC cells $0CB1/$0CB3.
 FP_STORE_FAC:
         EX DE,HL
-        LD (L_0CB1),HL
+        LD (FAC),HL
         LD H,B
         LD L,C
-        LD (L_0CB3),HL
+        LD (FACHI),HL
         EX DE,HL
         RET
 ; [RE] MOVRF: load the FAC ($0CB1) 4-byte mantissa into E,D,C,B.
 FP_LOAD_FAC:
-        LD HL,L_0CB1
+        LD HL,FAC
 ; [RE] Load 4 FP mantissa bytes from (HL) into E,D,C,B (advancing HL).
 FP_LOAD_MEM:
         LD E,(HL)
@@ -7424,7 +7605,7 @@ FP_LOAD_DONE:
         RET
 ; [RE] MOVE: copy 4 bytes from (DE) into the FAC at $0CB1.
 FP_MOVE_TO_FAC:
-        LD DE,L_0CB1
+        LD DE,FAC
 ; [RE] Block-copy 4 bytes (DE)->(HL); generic FP move primitive.
 FP_MOVE4:
         LD B,$04
@@ -7445,7 +7626,7 @@ FP_MOVE_LOOP:
         RET
 ; [RE] Set the hidden mantissa MSB and extract the sign: force bit7 of $0CB3 high byte, save sign, return rounding bit in A.
 FP_UNPACK_MSB:
-        LD HL,L_0CB3
+        LD HL,FACHI
         LD A,(HL)
         RLCA
         SCF
@@ -7479,7 +7660,7 @@ FP_ARG_SETUP2:
         LD DE,FP_MOVE_TYPED
 FP_ARG_SETUP2_1:
         PUSH DE
-        LD DE,L_0CB1
+        LD DE,FAC
         CALL FRMEVL_TEST_TYPE
         RET C
         LD DE,L_0CAD
@@ -7494,7 +7675,7 @@ FCOMP:
         CALL FP_SIGN
         LD A,C
         RET Z
-        LD HL,L_0CB3
+        LD HL,FACHI
         XOR (HL)
         LD A,C
         RET M
@@ -7553,7 +7734,7 @@ DCOMP_BODY:
         LD A,(DE)
         LD C,A
         RET Z
-        LD HL,L_0CB3
+        LD HL,FACHI
         XOR (HL)
         LD A,C
         RET M
@@ -7578,7 +7759,7 @@ DCOMP_REL:
 ; [RE] CINT(x) handler (function token $1B): coerce the FAC to a signed 16-bit integer with rounding (adds FP_CONST_HALF then truncates). Also the universal FAC->int16 entry (FRCINT) reused by GETINT/GETBYT/GETADR.
 FN_CINT:
         CALL FRMEVL_TEST_TYPE
-        LD HL,(L_0CB1)
+        LD HL,(FAC)
         RET M
         JP Z,RAISE_TYPE_MISMATCH
         JP PO,FN_CINT_1
@@ -7591,11 +7772,11 @@ FN_CINT:
 FN_CINT_1:
         CALL FADD_LOAD_CONST
 FN_CINT_2:
-        LD A,(L_0CB3)
+        LD A,(FACHI)
         OR A
         PUSH AF
         AND $7F
-        LD (L_0CB3),A
+        LD (FACHI),A
         LD A,(L_0CB4)
         CP $90
         JP NC,RAISE_OVERFLOW
@@ -7633,7 +7814,7 @@ FP_TO_INT_1:
         POP DE
 ; [RE] FP_STORE_FAC_INT: store the 16-bit integer in HL into the FAC low cells ($0CB1) and fall into SET_TYPE_INTEGER, setting VALTYP $0B14 = $02 (=VT_INT, integer, 2-byte width). The integer-into-FAC primitive used throughout the evaluator (MOVFR for the integer case).
 FP_STORE_FAC_INT:
-        LD (L_0CB1),HL
+        LD (FAC),HL
 ; [RE] SET_TYPE_INTEGER: set VALTYP $0B14 = $02 (=VT_INT, integer). Tail of FP_STORE_FAC_INT and the integer-result stores (e.g. INT_DIV_ROUND $5203).
 SET_TYPE_INTEGER:
         LD A,$02
@@ -7668,7 +7849,7 @@ FIX_TO_INT:
         JP FP_SET_ZERO_7
 ; [RE] Convert the signed 16-bit FAC integer ($0CB1) to single precision: build exponent $90 and normalize via FADD_ALIGN.
 INT_TO_SINGLE:
-        LD HL,(L_0CB1)
+        LD HL,(FAC)
 ; [RE] INT_TO_SINGLE entry with the integer already in HL: set type, form exponent $90, normalize.
 INT_TO_SINGLE_HL:
         CALL SET_TYPE_DOUBLE_1+1
@@ -7757,7 +7938,7 @@ FIX_SCALE:
         LD HL,L_0CB4
         LD A,(HL)
         CP $98
-        LD A,(L_0CB1)
+        LD A,(FAC)
         RET NC
         LD A,(HL)
         CALL FP_SHIFT_MANTISSA
@@ -7808,9 +7989,9 @@ FIX_DENORM:
         DEC HL
         LD (HL),C
         CALL M,DBL_EXT_DEC
-        LD A,(L_0CB3)
+        LD A,(FACHI)
         LD C,A
-        LD HL,L_0CB3
+        LD HL,FACHI
         LD A,$B8
         SUB B
         CALL DP_SHIFT_RIGHT_N
@@ -8022,7 +8203,7 @@ INT_NEG_STORE:
         JP FP_STORE_FAC_INT
 ; [RE] Negate the integer FAC: load HL from $0CB1, negate via INT_NEG, return NZ unless result is the $8000 sentinel (then fall into INT_TO_SNG to promote).
 INT_NEGATE_FAC:
-        LD HL,(L_0CB1)
+        LD HL,(FAC)
         CALL INT_NEG_STORE
         LD A,H
         XOR $80
@@ -8127,7 +8308,7 @@ DADD_4:
         XOR A
 DADD_5:
         LD B,A
-        LD A,(L_0CB3)
+        LD A,(FACHI)
         OR A
         JR NZ,DADD_8
         LD HL,L_0CAC
@@ -8273,7 +8454,7 @@ DP_SHIFT_RIGHT_LOOP_5:
         JR DP_SHIFT_RIGHT_LOOP_3
 ; [RE] Right-shift the double mantissa by 1 starting at $0CB3 (sets D=$01), used between partial products in the double multiply.
 DP_SHIFT_RIGHT_FROM_CB3:
-        LD HL,L_0CB3
+        LD HL,FACHI
         LD D,$01
         JR DP_SHIFT_RIGHT_LOOP_4
 ; [RE] Shift the 8-byte double mantissa left by one bit (chained RLA across 8 bytes from [HL]); partial-product accumulation step for double multiply.
@@ -8322,7 +8503,7 @@ DMUL_3:
         JR NZ,DMUL_1
         JP DADD_4
 DMUL_4:
-        LD HL,L_0CB3
+        LD HL,FACHI
         CALL DP_SHIFT_RIGHT_LOOP
         JR DMUL_3
 ; [RE] Double-precision MBF constant (8-byte mantissa $CD CC CC CC CC CC 4C exp $7D ~= 0.1) used as the divide-by-ten reciprocal seed by DDIV/the decimal scaler. [RE] MBF double-precision constant 0.1 (CD CC CC CC CC CC 4C 7D). Loaded by the double-precision code (LD DE,DP_CONST_TENTH at $5390). The repeating $CC is 0.1's mantissa.
@@ -8342,11 +8523,11 @@ FIN_DSCALE_DIV10:
         CALL FP_MOVE_TYPED
         JP DMUL
 FIN_DSCALE_DIV10_1:
-        LD A,(L_0CB3)
+        LD A,(FACHI)
         OR A
         JP P,FIN_DSCALE_DIV10_2
         AND $7F
-        LD (L_0CB3),A
+        LD (FACHI),A
         LD HL,FP_NEG
         PUSH HL
 FIN_DSCALE_DIV10_2:
@@ -8449,7 +8630,7 @@ DDIV_1:
 ; [RE] DDIV digit-loop overlap (VERIFIED). DA 12 04 = JP C,$0412 only on the carry-CLEAR fall-through ($544B XOR A guarantees carry clear, so the JP is a never-taken 2-byte skip of its own operand). The carry-SET branch (JR C,DDIV_2+1 at $5444) enters at +1 and runs 12 04 = LD (DE),A / INC B: store the reduced remainder, count one decimal digit. Both paths land at $544F. MBASIC DDIV_3 byte-identical.
 DDIV_2:
         JP C,$0412
-        LD A,(L_0CB3)
+        LD A,(FACHI)
         INC A
         DEC A
         RRA
@@ -8681,7 +8862,7 @@ FIN_ACCUM_DIGIT:
         PUSH AF
         CALL FRMEVL_TEST_TYPE
         JP P,FIN_DIV10_5
-        LD HL,(L_0CB1)
+        LD HL,(FAC)
         LD DE,$0CCD
         CALL CMP_HL_DE
         JR NC,FIN_DIV10_4
@@ -8697,7 +8878,7 @@ FIN_ACCUM_DIGIT:
         LD A,H
         OR A
         JP M,FIN_DIV10_3
-        LD (L_0CB1),HL
+        LD (FAC),HL
 FIN_DIV10_2:
         POP HL
         POP BC
@@ -8759,7 +8940,7 @@ FIN_DONE_4:
         POP AF
 FIN_DONE_5:
         PUSH HL
-        LD HL,L_0CB3
+        LD HL,FACHI
         CALL FRMEVL_TEST_TYPE
         JP PO,FIN_DONE_6
         LD A,(L_0CC0)
@@ -8779,7 +8960,7 @@ FIN_DONE_9:
         POP AF
         POP AF
 FIN_DONE_10:
-        LD A,(L_0CB3)
+        LD A,(FACHI)
         RLA
         JP FIN_DONE_19
 FIN_DONE_11:
@@ -8803,7 +8984,7 @@ FIN_DONE_15:
         LD (L_0CAF),A
         CALL FRMEVL_TEST_TYPE
         JP PO,FIN_DONE_16
-        LD A,(L_0CB3)
+        LD A,(FACHI)
         JP FIN_DONE_17
 FIN_DONE_16:
         LD A,(L_0CC0)
@@ -8841,7 +9022,7 @@ FIN_DONE_20:
         CALL STROUT_PUTC
 FIN_DONE_21:
         POP AF
-        LD HL,L_0CB1
+        LD HL,FAC
         LD DE,L_5703
         JP NC,FIN_DONE_22
         LD DE,L_5707
@@ -9673,7 +9854,7 @@ FOUT_DIGITS_INT_1:
         INC HL
         EX (SP),HL
         EX DE,HL
-        LD HL,(L_0CB1)
+        LD HL,(FAC)
         LD B,$2F
 FOUT_DIGITS_INT_2:
         INC B
@@ -9685,7 +9866,7 @@ FOUT_DIGITS_INT_2:
         LD H,A
         JR NC,FOUT_DIGITS_INT_2
         ADD HL,DE
-        LD (L_0CB1),HL
+        LD (FAC),HL
         POP DE
         POP HL
         LD (HL),B
@@ -9861,9 +10042,9 @@ FN_SQR_3:
         RRA
 FN_SQR_4:
         POP HL
-        LD (L_0CB3),HL
+        LD (FACHI),HL
         POP HL
-        LD (L_0CB1),HL
+        LD (FAC),HL
         CALL C,FAC_NEGATE_VIA
         CALL Z,FP_NEG
         PUSH DE
@@ -9899,7 +10080,7 @@ FN_EXP:
 FN_EXP_1:
         CALL FAC_PUSH
 FN_EXP_2:
-        LD A,(L_0CB3)
+        LD A,(FACHI)
         OR A
         JP P,FN_EXP_3
         POP AF
@@ -10077,20 +10258,20 @@ FN_SIN:
         CALL FADD_ALIGN
         CALL FP_NEG
 FN_SIN_1:
-        LD A,(L_0CB3)
+        LD A,(FACHI)
         OR A
         PUSH AF
         JP P,FN_SIN_2
         XOR $80
-        LD (L_0CB3),A
+        LD (FACHI),A
 FN_SIN_2:
         LD HL,FP_POLY_SIN_COEFFS
         CALL POLY_EVAL_ODD
         POP AF
         RET P
-        LD A,(L_0CB3)
+        LD A,(FACHI)
         XOR $80
-        LD (L_0CB3),A
+        LD (FACHI),A
         RET
         DEFB    $00,$00,$00,$00,$83,$F9,$22,$7E
 ; [RE] MBF constant pair for the transcendental code: log2(e)=1.442695 followed by 0.5. FN_EXP loads it ($5E34) to scale x by log2(e); FN_TAN returns with HL pointing here ($5EFE).
@@ -10385,11 +10566,11 @@ PTRGET_SEARCH_12:
         LD (L_0CB4),A
         LD H,A
         LD L,A
-        LD (L_0CB1),HL
+        LD (FAC),HL
         CALL FRMEVL_TEST_TYPE
         JR NZ,PTRGET_SEARCH_13
         LD HL,L_0CF1
-        LD (L_0CB1),HL
+        LD (FAC),HL
 PTRGET_SEARCH_13:
         POP HL
         RET
@@ -11066,7 +11247,7 @@ PRINT_USING:
         CALL SYNCHR
         DEFB    ';'                      ; inline char arg consumed by the preceding CALL
         EX DE,HL
-        LD HL,(L_0CB1)
+        LD HL,(FAC)
         JR PRINT_LIST_ENTRY_4
 PRINT_LIST_ENTRY_3:
         LD A,(L_0B53)
@@ -11342,13 +11523,13 @@ PRINT_LIST_ENTRY_34:
         POP BC
         PUSH BC
         PUSH HL
-        LD HL,(L_0CB1)
+        LD HL,(FAC)
         LD B,C
         LD C,$00
         PUSH BC
         CALL STR_SUBSTR_ALLOC_COPY_2+1
         CALL STRPRT
-        LD HL,(L_0CB1)
+        LD HL,(FAC)
         POP AF
         INC A
         JP Z,PRINT_LIST_ENTRY_23
@@ -11694,7 +11875,7 @@ INKEY_SCAN_3:
         CALL STR_FN_RETURN_CHAR
 INKEY_SCAN_4:
         LD HL,L_0CF1
-        LD (L_0CB1),HL
+        LD (FAC),HL
         LD A,VT_STR
         LD (VALTYP),A
         POP HL
@@ -12447,7 +12628,7 @@ PUT_STR_TEMP:
 PUT_STR_TEMP_1:
         LD A,$D5
         LD HL,(TEMPPT)
-        LD (L_0CB1),HL
+        LD (FAC),HL
         LD A,VT_STR
         LD (VALTYP),A
         CALL FP_MOVE_TYPED
@@ -12687,14 +12868,14 @@ GARBAG_FIX_STR_PTR_1:
 STR_CONCAT:
         PUSH BC
         PUSH HL
-        LD HL,(L_0CB1)
+        LD HL,(FAC)
         EX (SP),HL
         CALL FRMEVL_EVAL_OPERAND
         EX (SP),HL
         CALL FP_INT_CHECK
         LD A,(HL)
         PUSH HL
-        LD HL,(L_0CB1)
+        LD HL,(FAC)
         PUSH HL
         ADD A,(HL)
         LD DE,ERR_STRING_TOO_LONG
@@ -12739,7 +12920,7 @@ FRETMP:
         CALL FP_INT_CHECK
 ; MS BASIC-80 FRESTR: free the string whose descriptor pointer is in FAC ($0CB1); loads the descriptor then frees its data via FRESTR1 (FRESTR1).
 FRESTR:
-        LD HL,(L_0CB1)
+        LD HL,(FAC)
 ; MS BASIC-80 FRESTR entry with descriptor address already in HL: EX DE,HL then free.
 FRESTR_DE:
         EX DE,HL
@@ -12989,7 +13170,7 @@ POP_LEN_TO_B_2:
         CALL SYNCHR
         DEFB    ','                      ; inline char arg consumed by the preceding CALL
         PUSH HL
-        LD HL,(L_0CB1)
+        LD HL,(FAC)
         EX (SP),HL
         CALL FRMEVL_NOPAREN
         CALL SYNCHR
@@ -14128,7 +14309,7 @@ STMT_WRITE_1:
         CALL FOUT_2
         CALL SCAN_STR_LITERAL
         ; [RE] FAC word at $0CB1 -> the FOUT result string descriptor (length byte then body pointer)
-        LD HL,(L_0CB1)
+        LD HL,(FAC)
         INC HL
         LD E,(HL)
         INC HL
