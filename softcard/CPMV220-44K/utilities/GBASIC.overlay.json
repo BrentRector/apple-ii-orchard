@@ -806,12 +806,12 @@
     "0EA6": "[RE] Execute a tokenized direct-mode statement: CHRGET-prime and call the statement dispatcher; on a bare line number fall to edit/insert.",
     "0EB7": "[RE] Insert/replace a program line: delete any existing same-numbered line, make room by moving text up ($6811 GETSTK), splice the crunched line in, then relink.",
     "0F19": "[RE] After an edit: reset DATA ptr, rechain program-line link pointers (CHEAD path), run the variable/CLEAR reset ($688D), then re-enter NEWSTT.",
-    "0F39": "[RE] Relink program lines from program start ($0846): rebuild each line's forward-link word so the chain is contiguous after an insert/delete.",
+    "0F39": "[RE] CHEAD: relink the BASLINE program-line list from TXTTAB ($0846). Walk each node to its $00 token terminator and rewrite its BASLINE.LINK (the forward-link word) to address the next node, so the singly-linked chain stays contiguous after an insert/delete; stops at the $0000 link (end of program). See msbasic_line.inc.",
     "0F3D": "[RE] CHEAD scan loop: for each line walk to its terminating $00, fold embedded tokens, and write the next-line link pointer; stop at the program's double-zero end marker.",
     "0F61": "[RE] Parse an optional 'start[-end]' line-number range (LIST/DELETE): get first line# ($34D5), accept ',' / '-' ($F3) separator, get second; syntax-error to $0D6F on malformed input.",
     "0F86": "[RE] FNDLIN entry that takes the line number already in DE (via the stack) before searching the program.",
-    "0F88": "Find a program line by number: scan the linked line list from program start ($0846), comparing each line number against the target; returns C set/clear and BC=prior link for the insert point.",
-    "0F8B": "FNDLIN inner loop: follow each line's forward link, load its line number, FNDLIN-compare vs target; return when found or when the number passes the target.",
+    "0F88": "FNDLIN: find a program line by number -- walk the singly-linked BASLINE list from TXTTAB ($0846) via each node's BASLINE.LINK, comparing BASLINE.LINENUM against the target; returns C set/clear and BC = the prior node (the insert point). A $0000 BASLINE.LINK ends the search (past end of program). See msbasic_line.inc.",
+    "0F8B": "FNDLIN inner loop: follow each node's BASLINE.LINK, load its BASLINE.LINENUM, FNDLIN-compare vs target; return when found or when the number passes the target.",
     "0FA7": "[RE] Evaluate a PRINT/INPUT-style item with optional '#'(file/channel $23) prefix: CHRGOT, FRMEVL the operand ($3A75), branch on numeric vs string ($3DC8), and stage it into the string/var area ($0B6F).",
     "307C": "[RE] CRUNCH continuation reached via LD BC,L_307C/PUSH BC/RET: finishes tokenizing the reserved word that SUB_6A41 matched, emitting its token byte via CRUNCH_EMIT and looping back to CRUNCH_1.",
     "3232": "[RE] Load A=':' ($3A) then fall into CRUNCH_EMIT: emit a statement-separator colon into the crunch buffer (used around tokens like ELSE/REM that imply a colon).",
@@ -1173,7 +1173,7 @@
     "083F": "Ctrl-O output-suppress toggle: nonzero discards console output. Cleared at READY/cold-start, toggled by CONIN on Ctrl-O ($0F) and cleared on Ctrl-C. (Already commented in file.)",
     "0840": "[RE] Output-redirected flag: when nonzero the LIST/output auto-page (more) pause is skipped.",
     "0844": "[RE] Saved current text/statement pointer (MS BASIC SAVTXT): the running program pointer loaded into HL to execute; set to $FFFF in direct mode; CONT checks ==$FFFF for 'no continue'. Default $FFFE. Loaded/saved across CONT/RESUME and the storage-overflow guard.",
-    "0846": "[RE] TXTTAB: start-of-BASIC-program-text pointer (base of the linked line list; scanned by FNDLIN/relink/RUN/CLEAR). Cold-start default = COLD_STACK_BASE+1, i.e. one byte past the $00 link-null sentinel at the cold-start stack base; reset when a program is loaded.",
+    "0846": "[RE] TXTTAB: start-of-BASIC-program-text pointer = head of the singly-linked list of BASLINE program-line nodes (see msbasic_line.inc); walked forward by FNDLIN/CHEAD-relink/RUN/CLEAR. Cold-start default = COLD_STACK_BASE+1, i.e. one byte past the $00 link-null sentinel at the cold-start stack base; reset when a program is loaded.",
     "084E": "[RE] Seed pointer for slot 0 of the file/FOR-slot pointer array at $0850: cold-start loads it with the warm-start re-entry MAIN_LOOP_ENTRY_1 ($81D1) and the CHAIN/OPEN reinit copies $084E into $0850/$0840 after CLEAR_VARS. Effectively the default first-slot/command pointer.",
     "0850": "[RE] File/FOR-slot pointer array (MS BASIC FILTAB), indexed by max-open-files ($0870); each entry points at an FCB base. Slot 0 doubles as the deferred start-up command pointer consulted at the Ok/main-loop entry ($81D1). 126-byte region.",
     "08CF": "[RE] CRUNCH tokenizer line work buffer (MS BASIC KBUF): 318-byte zero-init RAM area; CRUNCH loads DE=$08CF as the destination where the crunched/tokenized line is built (and the LIST de-tokenizer reuses it). NOT the reserved-word name table (those strings live at $025E-$04D7; $04D8 is the operator sub-table).",
@@ -1646,5 +1646,14 @@
       "FCB.RND_BUF"
     ]
   },
-  "inline_comments": {}
+  "inline_comments": {
+    "0F8D": "read BASLINE.LINK low byte (BC = this node, the prospective insert point)",
+    "0F8F": "OR BASLINE.LINK high byte: a $0000 link = end of program -> return",
+    "0F92": "advance past BASLINE.LINK to BASLINE.LINENUM (+2)",
+    "0F94": "read BASLINE.LINENUM (low here, high at $0F96) to compare vs target",
+    "0F3F": "read BASLINE.LINK low (OR its high byte next: a $0000 link = end of program)",
+    "0F5C": "write the rebuilt BASLINE.LINK (forward link to the next node)",
+    "0EFB": "store a BASLINE.LINK placeholder here; CHEAD ($0F39) rebuilds the real forward link",
+    "0F01": "write BASLINE.LINENUM (the two INC HL at $0EFF/$0F00 skipped past BASLINE.LINK)"
+  }
 }

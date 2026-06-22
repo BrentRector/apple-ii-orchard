@@ -21,6 +21,7 @@
     INCLUDE "msbasic_tokens.inc"   ; MS BASIC keyword-token names
     INCLUDE "msbasic_errors.inc"   ; MS BASIC error-code names (ERR_*)
     INCLUDE "msbasic_fcb.inc"   ; MS BASIC file-control-block STRUCT
+    INCLUDE "msbasic_line.inc"   ; MS BASIC program-line record STRUCT (BASLINE)
 
     ORG $0100
 
@@ -548,7 +549,7 @@ TOP_OF_STACK_ROOM:
 ; [RE] Saved current text/statement pointer (MS BASIC SAVTXT): the running program pointer loaded into HL to execute; set to $FFFF in direct mode; CONT checks ==$FFFF for 'no continue'. Default $FFFE. Loaded/saved across CONT/RESUME and the storage-overflow guard.
 SAVTXT:
         DEFB    $FE,$FF                  ; $0844
-; [RE] TXTTAB: start-of-BASIC-program-text pointer (base of the linked line list; scanned by FNDLIN/relink/RUN/CLEAR). Cold-start default = COLD_STACK_BASE+1, i.e. one byte past the $00 link-null sentinel at the cold-start stack base; reset when a program is loaded.
+; [RE] TXTTAB: start-of-BASIC-program-text pointer = head of the singly-linked list of BASLINE program-line nodes (see msbasic_line.inc); walked forward by FNDLIN/CHEAD-relink/RUN/CLEAR. Cold-start default = COLD_STACK_BASE+1, i.e. one byte past the $00 link-null sentinel at the cold-start stack base; reset when a program is loaded.
 TXTTAB:
         DEFW    COLD_STACK_BASE+1        ; $0846
 L_0848:
@@ -1209,13 +1210,13 @@ SUB_0EB7_2:
         POP HL                           ; $0EF6  E1
         LD (VARTAB),HL                   ; $0EF7  22 6F 0B
         EX DE,HL                         ; $0EFA  EB
-        LD (HL),H                        ; $0EFB  74
+        LD (HL),H                        ; $0EFB  74   <- store a BASLINE.LINK placeholder here; CHEAD ($0F39) rebuilds the real forward link
         POP BC                           ; $0EFC  C1
         POP DE                           ; $0EFD  D1
         PUSH HL                          ; $0EFE  E5
         INC HL                           ; $0EFF  23
         INC HL                           ; $0F00  23
-        LD (HL),E                        ; $0F01  73
+        LD (HL),E                        ; $0F01  73   <- write BASLINE.LINENUM (the two INC HL at $0EFF/$0F00 skipped past BASLINE.LINK)
         INC HL                           ; $0F02  23
         LD (HL),D                        ; $0F03  72
         INC HL                           ; $0F04  23
@@ -1248,7 +1249,7 @@ SUB_0EB7_5:
         LD HL,(FRMEVL_TXTPTR_TEMP)       ; $0F30  2A 69 0B
         LD (OUTPUT_REDIRECTED),HL        ; $0F33  22 40 08
         JP DIRECT_LINE_DISPATCH          ; $0F36  C3 3E 0E
-; [RE] Relink program lines from program start ($0846): rebuild each line's forward-link word so the chain is contiguous after an insert/delete.
+; [RE] CHEAD: relink the BASLINE program-line list from TXTTAB ($0846). Walk each node to its $00 token terminator and rewrite its BASLINE.LINK (the forward-link word) to address the next node, so the singly-linked chain stays contiguous after an insert/delete; stops at the $0000 link (end of program). See msbasic_line.inc.
 CHEAD:
         LD HL,(TXTTAB)                   ; $0F39  2A 46 08
         EX DE,HL                         ; $0F3C  EB
@@ -1256,7 +1257,7 @@ CHEAD:
 CHEAD_LOOP:
         LD H,D                           ; $0F3D  62
         LD L,E                           ; $0F3E  6B
-        LD A,(HL)                        ; $0F3F  7E
+        LD A,(HL)                        ; $0F3F  7E   <- read BASLINE.LINK low (OR its high byte next: a $0000 link = end of program)
         INC HL                           ; $0F40  23
         OR (HL)                          ; $0F41  B6
         RET Z                            ; $0F42  C8
@@ -1278,7 +1279,7 @@ CHEAD_LOOP_2:
 CHEAD_LOOP_3:
         INC HL                           ; $0F5A  23
         EX DE,HL                         ; $0F5B  EB
-        LD (HL),E                        ; $0F5C  73
+        LD (HL),E                        ; $0F5C  73   <- write the rebuilt BASLINE.LINK (forward link to the next node)
         INC HL                           ; $0F5D  23
         LD (HL),D                        ; $0F5E  72
         JR CHEAD_LOOP                    ; $0F5F  18 DC
@@ -1309,21 +1310,21 @@ SCAN_LINE_RANGE_3:
 FNDLIN_FROM_TEXT:
         EX (SP),HL                       ; $0F86  E3
         PUSH HL                          ; $0F87  E5
-; Find a program line by number: scan the linked line list from program start ($0846), comparing each line number against the target; returns C set/clear and BC=prior link for the insert point.
+; FNDLIN: find a program line by number -- walk the singly-linked BASLINE list from TXTTAB ($0846) via each node's BASLINE.LINK, comparing BASLINE.LINENUM against the target; returns C set/clear and BC = the prior node (the insert point). A $0000 BASLINE.LINK ends the search (past end of program). See msbasic_line.inc.
 FNDLIN:
         LD HL,(TXTTAB)                   ; $0F88  2A 46 08
-; FNDLIN inner loop: follow each line's forward link, load its line number, FNDLIN-compare vs target; return when found or when the number passes the target.
+; FNDLIN inner loop: follow each node's BASLINE.LINK, load its BASLINE.LINENUM, FNDLIN-compare vs target; return when found or when the number passes the target.
 FNDLIN_LOOP:
         LD B,H                           ; $0F8B  44
         LD C,L                           ; $0F8C  4D
-        LD A,(HL)                        ; $0F8D  7E
+        LD A,(HL)                        ; $0F8D  7E   <- read BASLINE.LINK low byte (BC = this node, the prospective insert point)
         INC HL                           ; $0F8E  23
-        OR (HL)                          ; $0F8F  B6
+        OR (HL)                          ; $0F8F  B6   <- OR BASLINE.LINK high byte: a $0000 link = end of program -> return
         DEC HL                           ; $0F90  2B
         RET Z                            ; $0F91  C8
-        INC HL                           ; $0F92  23
+        INC HL                           ; $0F92  23   <- advance past BASLINE.LINK to BASLINE.LINENUM (+2)
         INC HL                           ; $0F93  23
-        LD A,(HL)                        ; $0F94  7E
+        LD A,(HL)                        ; $0F94  7E   <- read BASLINE.LINENUM (low here, high at $0F96) to compare vs target
         INC HL                           ; $0F95  23
         LD H,(HL)                        ; $0F96  66
         LD L,A                           ; $0F97  6F
