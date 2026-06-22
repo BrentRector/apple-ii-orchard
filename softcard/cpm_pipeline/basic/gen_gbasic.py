@@ -115,6 +115,11 @@ def main():
             t = com[i + 1] | (com[i + 2] << 8)
             if 0x0C00 <= t < 0x1000:
                 lowram_seeds.add(t)
+    # STKFRAME tail at $0D28 (MBASIC's STKFRAME_SCAN_3): the cold sign-on enters it via a
+    # body LD HL,$0D28 ($83EE) then a computed JP (HL) -- a jump the CALL/JP/LD-BC harvest
+    # can't see, so it was left as DEFB filler. It is real code (LD BC,READY_POP_FRAME /
+    # JP <SAVSTK restore>); seed it so its two operands relocate as labels in the fold.
+    lowram_seeds.add(0x0D28)
     # The reverse: header low-RAM code ($0C00-$100D) that JP/CALLs INTO the relocated
     # body. Harvest those body targets so the body walker mints a label there -- the
     # header references them, and cross-region substitution needs a label to resolve to.

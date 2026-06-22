@@ -847,8 +847,9 @@ STKFRAME_SCAN_5:
         RET Z                            ; $0D24  C8
         ADD HL,BC                        ; $0D25  09
         JR STKFRAME_SCAN                 ; $0D26  18 D9
-L_0D28:
-        DEFB    $01,$22,$0E,$C3,$A1,$0D  ; $0D28
+SUB_0D28:
+        LD BC,ERROR_RESUME_FROM_DIRECT_3+1  ; $0D28  01 22 0E
+        JP ERROR_PRINT_SETUP_1           ; $0D2B  C3 A1 0D
 ; [RE] PROGRAM_END: reached from NEWSTT (JP Z) when a line link is $0000 -- execution ran off the end of the program. If SAVTXT is $FFFF (direct mode), fall through to the ready/Ok-prompt return; otherwise, if an error handler is active (ONEFLG set) it ran off the end without RESUME, so raise 'No RESUME' (ERR_NO_RESUME). The CONT command and its 'Can't continue' error live in STMT_CONT, not here.
 PROGRAM_END:
         LD HL,(SAVTXT)                   ; $0D2E  2A 44 08
@@ -948,6 +949,7 @@ RAISE_ERROR:
 ; [RE] Build/print the error text: emit '?', look up the 2-char error mnemonic, append ' Error', and optionally ' in <line>'; falls into the direct-mode READY path.
 ERROR_PRINT_SETUP:
         LD BC,ERROR_REPORT_BODY          ; $0D9E  01 A7 0D
+ERROR_PRINT_SETUP_1:
         LD HL,(SAVSTK)                   ; $0DA1  2A 5E 0B
         JP RESET_RUN_STATE               ; $0DA4  C3 F4 68
 ; Packed table of 2-letter error mnemonics (NF/SN/RG/OD/FC/OV/OM/UL/BS/DD/...) indexed by error code, printed by ERROR_PRINT_MSG.
@@ -3201,14 +3203,14 @@ FRMEVL_OPLOOP_13:
         JR Z,FRMEVL_OPLOOP_15            ; $3B6C  28 22
         LD A,D                           ; $3B6E  7A
         CP $08                           ; $3B6F  FE 08
-        JR Z,FRMEVL_OPLOOP_18            ; $3B71  28 44
+        JR Z,FRMEVL_OPLOOP_20            ; $3B71  28 44
         LD A,B                           ; $3B73  78
         CP $04                           ; $3B74  FE 04
         JR Z,FRMEVL_OP_COERCE_INT        ; $3B76  28 51
         LD A,D                           ; $3B78  7A
         CP $03                           ; $3B79  FE 03
         JP Z,RAISE_TYPE_MISMATCH         ; $3B7B  CA 87 0D
-        JR NC,FRMEVL_OPLOOP_19           ; $3B7E  30 53
+        JR NC,FRMEVL_OP_COERCE_INT_3     ; $3B7E  30 53
 FRMEVL_OPLOOP_14:
         LD HL,OPERATOR_ROUTINE_TBL+30    ; $3B80  21 17 05
         LD B,$00                         ; $3B83  06 00
@@ -3233,8 +3235,10 @@ FRMEVL_OPLOOP_17:
         POP BC                           ; $3B9E  C1
         POP DE                           ; $3B9F  D1
         CALL FP_STORE_FAC                ; $3BA0  CD AA 4E
+FRMEVL_OPLOOP_18:
         CALL FN_CSNG                     ; $3BA3  CD 1A 50
         LD HL,OPERATOR_ROUTINE_TBL+10    ; $3BA6  21 03 05
+FRMEVL_OPLOOP_19:
         LD A,(L_0B15)                    ; $3BA9  3A 15 0B
         RLCA                             ; $3BAC  07
         ADD A,L                          ; $3BAD  85
@@ -3247,7 +3251,7 @@ FRMEVL_OPLOOP_17:
         LD H,(HL)                        ; $3BB4  66
         LD L,A                           ; $3BB5  6F
         JP (HL)                          ; $3BB6  E9
-FRMEVL_OPLOOP_18:
+FRMEVL_OPLOOP_20:
         PUSH BC                          ; $3BB7  C5
         CALL FP_ARG_TO_TEMP2             ; $3BB8  CD F1 4E
         POP AF                           ; $3BBB  F1
@@ -3256,17 +3260,19 @@ FRMEVL_OPLOOP_18:
         JR Z,FRMEVL_OPLOOP_17            ; $3BC1  28 DB
         POP HL                           ; $3BC3  E1
         LD (L_0CB1),HL                   ; $3BC4  22 B1 0C
-        DEFB    $18,$DA                  ; $3BC7
+        JR FRMEVL_OPLOOP_18              ; $3BC7  18 DA
 ; [RE] FRMEVL operator-apply coercion (mis-split as DEFB, real code reached from FRMEVL_OPCOMBINE $3B76 when operand-type B==$04): CALL FN_CINT to force the operand to integer, then fall into FRMEVL_OP_POP_FRAME
 FRMEVL_OP_COERCE_INT:
-        DEFB    $CD,$EE,$4F              ; $3BC9
+        CALL FN_CINT                     ; $3BC9  CD EE 4F
 ; [RE] FRMEVL operator-apply (mis-split DEFB code, target of JP Z at $3B63 for string type): POP BC / POP DE to recover the operator/operand frame, then fall into FRMEVL_OP_DISPATCH_REL
 FRMEVL_OP_POP_FRAME:
-        DEFB    $C1,$D1                  ; $3BCC
+        POP BC                           ; $3BCC  C1
+        POP DE                           ; $3BCD  D1
 ; [RE] FRMEVL operator-apply tail (mis-split DEFB code): LD HL,$050D (relational/string-op handler vector base) then JR back into the operator-result combine loop at ~$3BA9 to dispatch the pending operator
 FRMEVL_OP_DISPATCH_REL:
-        DEFB    $21,$0D,$05,$18,$D6      ; $3BCE
-FRMEVL_OPLOOP_19:
+        LD HL,OPERATOR_ROUTINE_TBL+20    ; $3BCE  21 0D 05
+        JR FRMEVL_OPLOOP_19              ; $3BD1  18 D6
+FRMEVL_OP_COERCE_INT_3:
         POP HL                           ; $3BD3  E1
         CALL FAC_PUSH                    ; $3BD4  CD 9A 4E
         CALL INT_TO_SINGLE_HL            ; $3BD7  CD 0E 50
@@ -15783,7 +15789,7 @@ COLD_SET_WIDTH_16:
         LD HL,STROUT                     ; $83E5  21 40 6C
         LD (STROUT_CALL_VECTOR),HL       ; $83E8  22 34 0E
         CALL CRLF                        ; $83EB  CD 88 67
-        LD HL,L_0D28                     ; $83EE  21 28 0D
+        LD HL,SUB_0D28                   ; $83EE  21 28 0D
         LD ($0101),HL                    ; $83F1  22 01 01
         JP WARM_START                    ; $83F4  C3 BD 81
         DEFB    "\r\n\n"                 ; $83F7
