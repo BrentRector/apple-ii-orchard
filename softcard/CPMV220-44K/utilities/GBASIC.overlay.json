@@ -618,7 +618,8 @@
     "L_5EAA": "FP_CONST_EXP_LOG2E",
     "L_5EB2": "FP_POLY_SIN_COEFFS",
     "L_38CA": "INPUT_SKIP_QUOTED",
-    "L_38D7": "INPUT_REDO"
+    "L_38D7": "INPUT_REDO",
+    "0E22": "READY_POP_FRAME"
   },
   "label_comments": {
     "1000": "[RE] Entry stub (reached by JP from $0100). LDDR block-copies the interpreter body from its on-disk position UP to run address $3000-$8482, then JP $81D3 to cold-start it. HL=$6490 (src end), DE=$8482 (dst end), BC=$5483 (count).",
@@ -923,7 +924,7 @@
     "500E": "[RE] INT_TO_SINGLE entry with the integer already in HL: set type, form exponent $90, normalize.",
     "5024": "[RE] Clear the FAC double-precision extension cells ($0CAD/$0CAF) when widening to single.",
     "502D": "[RE] Set value type for a single (BC=$043E length/exp pair) and store type byte; entry used when promoting an integer to FP.",
-    "5035": "[RE] Type-check requiring a numeric value; error ($0D87) if string/zero \u2014 gatekeeper for an INT-class operation.",
+    "5035": "[RE] Type-check requiring a numeric value; error ($0D87) if string/zero — gatekeeper for an INT-class operation.",
     "5060": "[RE] Decrement DE and, on borrow (DE wrapped to $FFFF), fall through to also decrement BC; multi-byte counter for the shift loop.",
     "5065": "[RE] Decrement BC (low half of the shift/round counter) and return.",
     "5086": "[RE] FIX/round scaling: if exponent>=$98 already integral; else shift mantissa down to the integer position and re-round via FADD_COMBINE.",
@@ -1310,7 +1311,8 @@
     "7DED": "[RE] SMC: SYSTEM-exit JP target. Image holds JP $0000 at $7DED; COLD_START ($81E1 LD HL,($0001) -> $81E4 LD (STMT_SYSTEM_WBOOT+1),HL) writes the CP/M BIOS WBOOT vector into the C3 operand. Running SYSTEM (reached from $0E18 or fall-through) then JP <WBOOT> to leave BASIC.",
     "ERRMSG_OVERFLOW": "[RE] Error message string \"Overflow\" (error $06): loaded by the error reporter; the overflow trap also sets the current-message pointer ($0848) to it.",
     "ERRMSG_DIVISION_BY_ZERO": "[RE] Error message string \"Division by zero\" (error $0B): the FP divide-by-zero path stores this pointer into the current-error-message cell ($0848).",
-    "ERROR_MESSAGE_TABLE": "[RE] Error-message table base AND the direct-mode empty message: the $00 here is error message 0 (the scan base) and is also printed by ERROR_RESUME_FROM_DIRECT as the empty '?<>' direct-mode error text."
+    "ERROR_MESSAGE_TABLE": "[RE] Error-message table base AND the direct-mode empty message: the $00 here is error message 0 (the scan base) and is also printed by ERROR_RESUME_FROM_DIRECT as the empty '?<>' direct-mode error text.",
+    "0E22": "[RE] POP one return frame off the stack, then fall into the prompt/READY loop (NEWSTT_READY). Entered mid-instruction as the $C1 (POP BC) operand byte of the LD A,$C1 cover at the preceding label; the cover's fall-through instead loads A=$C1 (default prompt char)."
   },
   "sections": {
     "1000": "SELF-RELOCATOR (runs at load address $1000)",

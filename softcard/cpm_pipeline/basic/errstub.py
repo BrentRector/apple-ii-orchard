@@ -112,6 +112,70 @@ def _addr(ln):
     return int(m.group(1), 16) if m else None
 
 
+# --- Generalized cover-overlap idiom (same family as the `DEFB $01` error covers) ----------
+# An `LD r,$NN` whose operand byte $NN is itself a computed-jump TARGET (a label sits at the
+# operand byte position, addr+1) is a coded overlap: the fall-through runs `LD r,$NN`, but a
+# jump to addr+1 runs $NN as an opcode (e.g. LD A,$C1 at $0E21 whose $C1 = POP BC is entered
+# at $0E22). Split it into an explicit `DEFB $<op>` cover + a clean-labeled instruction for $NN,
+# so every reference resolves to a REAL relocatable label instead of a `<cover>+1` literal --
+# exactly how the error stubs name RAISE_* rather than `<cover>+1`. Byte-identical.
+_LDRN_LINE = re.compile(r'^(\s*)LD ([ABCDEHL]),\$([0-9A-Fa-f]{2})\b')
+_LABEL_ONLY = re.compile(r'^[A-Za-z_]\w*:\s*$')
+
+
+def code_operand_addrs(all_lines):
+    """Set of 4-hex addresses that appear as operands of CODE instructions (not DEFB/DEFW/DEFS
+    data). Used to detect that an `LD r,$NN`'s operand byte is itself an entry point."""
+    refs = set()
+    for ln in all_lines:
+        code = ln.partition(';')[0]
+        if code.strip().startswith(("DEFB", "DEFW", "DEFS", "DEFM")):
+            continue
+        for m in re.finditer(r'\$([0-9A-Fa-f]{4})', code):
+            refs.add(int(m.group(1), 16))
+    return refs
+
+
+def find_ld_cover_overlaps(lines, com, referenced, load=0x0100):
+    """Split LD-r,$NN cover overlaps in `lines`: where the operand byte (at addr+1) is itself
+    REFERENCED as a code operand (in `referenced`), a jump there runs $NN as an opcode. Returns
+    (new_lines, {"$<entry>": entry_label}) so the caller rewrites literal refs to the entry."""
+    from disasm_z80.opcodes import decode_at
+    img = bytearray(0x10000)
+    img[load:load + len(com)] = com
+    out, rewrites, pend = [], {}, None
+    for ln in lines:
+        if _LABEL_ONLY.match(ln.strip()):
+            if pend is not None:
+                out.append(pend)
+            pend = ln
+            continue
+        m = _LDRN_LINE.match(ln)
+        a = _addr(ln)
+        if m and a is not None and (a + 1) in referenced:
+            entry = a + 1
+            ename = f"L_{entry:04X}"
+            ei = decode_at(img, entry)
+            ind = m.group(1)
+            if pend is not None:                              # base label stays on the DEFB cover
+                out.append(pend)
+                pend = None
+            out.append(f"{ind}DEFB    ${com[a - load]:02X}{'':<22} ; ${a:04X}  LD {m.group(2)},# "
+                       f"cover -- the fall-through loads {m.group(2)}=${m.group(3)} from the next byte")
+            out.append(f"{ename}:")
+            out.append(f"{ind}{ei.mnemonic:<32} ; ${entry:04X}  {com[entry - load]:02X}  the LD "
+                       f"operand byte, entered here as an opcode (coded overlap)")
+            rewrites[f"${entry:04X}"] = ename
+            continue
+        if pend is not None:
+            out.append(pend)
+            pend = None
+        out.append(ln)
+    if pend is not None:
+        out.append(pend)
+    return out, rewrites
+
+
 def splice_stubs_into(lines, com):
     """Replace the formatter's cover-idiom lines covering each stub run with the
     structured RAISE_<name> / LD E,ERR_<name> / DEFB $01 form. A bare label is dropped

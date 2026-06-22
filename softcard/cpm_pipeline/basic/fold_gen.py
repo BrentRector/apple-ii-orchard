@@ -72,12 +72,14 @@ _PATCHES = [
      "        LD E,ERR_GRAPHICS_STATEMENT_NOT_IMPLEMENTED  ; HGR/HPLOT/HCOLOR raise (MBASIC has no hi-res)\n"
      "    ENDIF\n"
      "        JP RAISE_ERROR                   ; $4B93  C3 89 0D"),
-    # 6a) open the trailing-padding wrapper (label-anchored: the fill render differs run to run)
-    ("INTERP_COPY_END:\n",
-     "INTERP_COPY_END:\n    IFDEF GBASIC\n"),
-    # 6b) close it after ENT (GBASIC ends the DISP; MBASIC has neither padding nor DISP)
+    # 6) The trailing region (INTERP_COPY_END .. INTERP_RUN_TOP, incl. L_84C8) stays in BOTH
+    #    builds so L_84C8 -- the cold-start stack base, referenced by COLD_START -- is DEFINED
+    #    in both and RELOCATES: it is INTERP_COPY_END+69, i.e. $84C8 in GBASIC and $6146 in
+    #    MBASIC (offset $2382, the post-graphics body delta). The fill bytes here sit past
+    #    MBASIC's SAVEBIN ($6000) so they are not written; only ENT is GBASIC-only (MBASIC has
+    #    no DISP to close).
     ("INTERP_RUN_TOP:\n    ENT\n",
-     "INTERP_RUN_TOP:\n    ENT\n    ENDIF\n"),
+     "INTERP_RUN_TOP:\n    IFDEF GBASIC\n    ENT\n    ENDIF\n"),
     # 7) output size
     ('    SAVEBIN "GBASIC.bin", $0100, $6400',
      "    IFDEF GBASIC\n"
@@ -85,6 +87,33 @@ _PATCHES = [
      "    ELSE\n"
      '    SAVEBIN "MBASIC.bin", $0100, $6000\n'
      "    ENDIF"),
+    # 8a) hi-res FUNCTION dispatch ($D3): GBASIC -> the hi-res handler (in the graphics
+    #     block); MBASIC -> the not-impl stub (verified: MBASIC $1CA0 = JP Z,$280F).
+    ("        JP Z,SUB_47C6_2                  ; $3C85  CA E6 47",
+     "    IFDEF GBASIC\n"
+     "        JP Z,SUB_47C6_2                  ; $3C85  CA E6 47  (GBASIC: hi-res fn handler)\n"
+     "    ELSE\n"
+     "        JP Z,RAISE_GRAPHICS_STATEMENT_NOT_IMPLEMENTED  ; $3C85->$280F  hi-res fn -> not-impl (MBASIC)\n"
+     "    ENDIF"),
+    # 8b) hi-res FUNCTION dispatch ($ED): same divergence (MBASIC $1CAA = JP Z,$280F).
+    ("        JP Z,SUB_47C6_3                  ; $3C8F  CA EF 47",
+     "    IFDEF GBASIC\n"
+     "        JP Z,SUB_47C6_3                  ; $3C8F  CA EF 47  (GBASIC: hi-res fn handler)\n"
+     "    ELSE\n"
+     "        JP Z,RAISE_GRAPHICS_STATEMENT_NOT_IMPLEMENTED  ; $3C8F->$280F  hi-res fn -> not-impl (MBASIC)\n"
+     "    ENDIF"),
+    # 9) THE structural root cause (the documented "+$23 low-RAM shift"): MBASIC's
+    #     error-message table carries code 32 = "Graphics statement not implemented" -- the
+    #     graphics-OFF marker GBASIC drops. Those 35 ($23) bytes shift the whole image after
+    #     run $0704 up by $23 in MBASIC; without them the MBASIC body lands $23 low and every
+    #     body/RAM reference diverges. Insert it IFNDEF GBASIC, between codes 31 and 50.
+    ('        DEFB    "Reset error",$00        ; $06F9  ERR_RESET_ERROR = 31\n'
+     '        DEFB    "FIELD overflow",$00     ; $0705  ERR_FIELD_OVERFLOW = 50',
+     '        DEFB    "Reset error",$00        ; $06F9  ERR_RESET_ERROR = 31\n'
+     '    IFNDEF GBASIC\n'
+     '        DEFB    "Graphics statement not implemented",$00  ; MBASIC $0705  ERR_GRAPHICS_STATEMENT_NOT_IMPLEMENTED = 32 (graphics-OFF marker; absent in GBASIC)\n'
+     '    ENDIF\n'
+     '        DEFB    "FIELD overflow",$00     ; $0705  ERR_FIELD_OVERFLOW = 50'),
 ]
 
 

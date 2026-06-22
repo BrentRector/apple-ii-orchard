@@ -61,7 +61,7 @@ class SjasmFormatter:
     def __init__(self, mem, walker, symbols=None, *,
                  origin=None, length=None, source_name="", pointer_words=None,
                  relocatable=False, foreign_regions=None, inline_token_names=None,
-                 keep_literal=None):
+                 keep_literal=None, data_spans=None):
         self.mem = mem
         self.walker = walker
         self.symbols = symbols
@@ -86,6 +86,12 @@ class SjasmFormatter:
         # Addresses to emit as a 2-byte `DEFW <label>` pointer (resolved static
         # pointers / dispatch entries), so they relocate with ORG.
         self.pointer_words = pointer_words or set()
+        # Spans pinned as opaque raw data: emit as DEFB bytes with NO string/table/pointer
+        # auto-detection (unlike foreign_regions, these are NOT INCBIN'd -- they stay inline).
+        # Used for pinned data whose bytes coincidentally resolve to labels (e.g. the sign-on
+        # banner's CR/LF bytes $0D $0A = $0A0D), which would otherwise render as a DEFW pointer
+        # and wrongly relocate in the fold.
+        self._data_spans = list(data_spans or [])
         # Optional {byte_value: name} map for high-bit inline operand bytes (e.g.
         # the keyword tokens SYNCHR matches): render `DEFB TOK_TO` instead of hex.
         # The name must be defined by an INCLUDE the assembled source pulls in.
@@ -357,7 +363,7 @@ class SjasmFormatter:
             cpu="z80",
             body_start=self.origin, body_end=body_end,
             pointer_words=self.pointer_words,
-            fixed_mixed=self._foreign_spans,
+            fixed_mixed=self._foreign_spans + self._data_spans,
         )
         runs_by_addr = {r.addr: r for r in runs}
         addr = self.origin
@@ -434,7 +440,13 @@ class SjasmFormatter:
             lines, refs = self._render_pointer_table(run)
             return (lines, refs)
 
-        # MIXED
+        # MIXED: pinned opaque data. Render as a readable escaped DEFB string when every
+        # byte is printable/escapable (e.g. the sign-on banner, text with embedded CR/LF);
+        # fall back to hex DEFB otherwise. sjasmplus assembles \r \n \t \0 to the exact
+        # bytes (verified), so this is byte-identical.
+        esc = self._render_escaped_string(run.raw, run.addr)
+        if esc is not None:
+            return (esc, set())
         return (self._emit_defb_bytes(run.raw, run.addr), set())
 
     # Assemblers cap a single DEFB/DC at 128 values; chunk long runs so the
@@ -451,6 +463,38 @@ class SjasmFormatter:
             tag = f"  {comment}" if (comment and i == 0) else ""
             lines.append(f"        DEFB    {bytes_str:<48} ; ${addr + i:04X}{tag}")
         return lines or [f"        DEFB    $00 ; ${addr:04X}"]
+
+    # sjasmplus double-quoted-string escapes (verified to assemble to the exact bytes).
+    _STRING_ESCAPES = {0x0D: r"\r", 0x0A: r"\n", 0x09: r"\t", 0x00: r"\0",
+                       0x22: r'\"', 0x5C: "\\\\"}
+
+    def _escape_str(self, raw):
+        """Render raw bytes as the body of a sjasmplus double-quoted string, using escapes
+        for CR/LF/TAB/NUL/quote/backslash. Returns None if any byte is neither printable
+        ASCII nor a supported escape, so the caller falls back to hex DEFB."""
+        out = []
+        for b in raw:
+            if b in self._STRING_ESCAPES:
+                out.append(self._STRING_ESCAPES[b])
+            elif 0x20 <= b <= 0x7E:
+                out.append(chr(b))
+            else:
+                return None
+        return "".join(out)
+
+    def _render_escaped_string(self, raw, addr, comment=""):
+        """Emit raw text bytes as quoted DEFB string line(s) with escapes, or None if the
+        bytes are not all printable/escapable. Chunked by source byte (a byte boundary is
+        always a safe split: escapes are per-byte)."""
+        if self._escape_str(raw) is None:
+            return None
+        lines = []
+        n = self._STRING_PER_LINE
+        for i in range(0, len(raw), n):
+            piece = self._escape_str(raw[i:i + n])
+            tag = f"  {comment}" if (comment and i == 0) else ""
+            lines.append(f'        DEFB    "{piece}"    ; ${addr + i:04X}{tag}')
+        return lines
 
     def _fmt_inline_char(self, addr):
         """Render an inline operand byte (consumed by the preceding CALL, e.g.

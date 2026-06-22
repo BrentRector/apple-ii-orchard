@@ -53,17 +53,28 @@ def mid_string_constant_sites(mem, code, str_lo, str_hi, lo, hi, str_mem=None):
     return sites
 
 
-def cover_idiom_sites(mem, code, lo, hi):
+def cover_idiom_sites(mem, code, lo, hi, labels=None):
     """Return the set of `LD BC,$xxNN` cover-idiom instruction addresses in [lo, hi)
     (NN a register-load opcode, NOT followed by PUSH BC). Their operand is a coded
     constant (high byte = value, low byte = the mid-instruction LD r,n entry), so the
     formatter must keep it literal. A genuine computed call (`LD BC,addr; PUSH BC`)
-    is excluded -- there BC really is an address."""
+    is excluded -- there BC really is an address.
+
+    The cover only exists if a computed jump actually ENTERS mid-instruction, i.e. the
+    operand low byte (a+1) is a real jump TARGET -- hence a label. (Merely being in
+    `code` is too weak: coverage/recovery may have decoded the operand byte without it
+    being a target.) Without that, the `LD BC,$xxNN` is an ordinary address load whose
+    low byte coincides with a register-load opcode (e.g. `LD BC,BUF`, BUF=$0A0E, low byte
+    $0E); freezing it would wrongly fail to relocate in the fold. So require (a+1) to be a
+    label when `labels` is supplied (else fall back to the in-code test). A genuine
+    same-in-both cover constant stays protected by fixed_operand_sites."""
+    entries = labels if labels is not None else code
     sites = set()
     for a in code:
         if not (lo <= a < hi) or mem[a] != 0x01:        # LD BC,nn
             continue
-        if mem[a + 1] in _LOAD_OPS and mem[a + 3] != 0xC5:   # not PUSH BC
+        if (mem[a + 1] in _LOAD_OPS and mem[a + 3] != 0xC5   # not PUSH BC
+                and (a + 1) in entries):                     # a computed jump TARGETS the mid-byte
             sites.add(a)
     return sites
 
@@ -82,7 +93,12 @@ def _gmap(g, m, gmem, mmem):
 
 def fixed_operand_sites():
     """Return (gbasic_sites, mbasic_sites): sets of instruction run-addresses whose
-    in-body operand is the same in both builds (fixed -> keep literal).
+    in-IMAGE operand is the same in both builds (fixed -> keep literal).
+
+    Covers the whole image ($0820 workspace/low-RAM up through the body), not just the
+    relocated body: a low-RAM cell or routine that lands at the SAME address in both builds
+    (a dead-RAM zero-fill autolabel, or a coincidentally-aligned routine) must stay a literal,
+    else the fold's +$23 error-string shift over-relocates it in the MBASIC build.
 
     Control-flow operands count too: if a JP/CALL target is IDENTICAL in both builds it
     does not relocate with the body, so a literal emits correct bytes for both and a
@@ -102,7 +118,7 @@ def fixed_operand_sites():
         if _HEX.sub('#', gi.mnemonic) != _HEX.sub('#', mi.mnemonic):
             continue
         for vg, vm in zip(_HEX.findall(gi.mnemonic), _HEX.findall(mi.mnemonic)):
-            if 0x3000 <= int(vg, 16) < 0x8500 and vg == vm:
+            if 0x0820 <= int(vg, 16) < 0x8500 and vg == vm:
                 gsites.add(ga)
                 msites.add(ma)
     return gsites, msites

@@ -39,10 +39,9 @@ from cpm_pipeline.region_disasm import (
 from disasm_z80.symbols import SymbolTable
 
 # ---- geometry ---------------------------------------------------------------
-LOAD = 0x0100                 # .COM load address
-RELOC_SRC_START = 0x100E      # first body byte in the file image
-RUN = 0x3000                  # body run address (LDDR destination start)
-BODY_ENTRY = 0x81D3           # JP target after LDDR
+LOAD = 0x0100                 # CP/M TPA base -- the platform .COM load address (not image-relative)
+# RUN / RELOC_SRC_START / BODY_ENTRY are NOT hardcoded: they are derived from the binary's own
+# relocator in main() (its LDDR operands encode the body extents and the cold-start entry).
 OVERLAY = overlay_path("GBASIC")
 
 
@@ -61,6 +60,24 @@ def synchr_addr(overlay_path):
 def main():
     com = bytes(extract_file(read_disk(Path(rd.DISK_2_20_44K_SYSTEM)), "GBASIC.COM"))
     assert len(com) == 25600, len(com)
+
+    # ---- relocation geometry: DERIVED from the binary's own relocator, never hardcoded -------
+    # The entry JP ($0100) targets the relocator, whose LDDR setup encodes the body's file/run
+    # extents and the cold-start entry. The .asm writes the very same values as label-differences
+    # (LD HL,INTERP_LOAD_START+(INTERP_COPY_END-INTERP_RUN_START)-1 / LD DE,INTERP_COPY_END-1 /
+    # LD BC,INTERP_COPY_END-INTERP_RUN_START / JP COLD_START), so deriving them keeps every
+    # image address a label, not a literal.
+    reloc = com[1] | (com[2] << 8)              # entry JP ($0100) target = relocator address
+    def _reloc_word(opcode, off):
+        i = reloc - LOAD + off
+        assert com[i] == opcode, f"relocator +{off}: {com[i]:#04x} != {opcode:#04x}"
+        return com[i + 1] | (com[i + 2] << 8)
+    src_end = _reloc_word(0x21, 0)              # LD HL,src_end  (LDDR source top, descending)
+    dst_end = _reloc_word(0x11, 3)              # LD DE,dst_end  (LDDR destination top)
+    count   = _reloc_word(0x01, 6)              # LD BC,count    (= INTERP_COPY_END-INTERP_RUN_START)
+    BODY_ENTRY = _reloc_word(0xC3, 11)          # JP COLD_START  (the LDDR at +9 is 2 bytes)
+    RELOC_SRC_START = src_end - count + 1       # first body byte in the file image (INTERP_LOAD_START)
+    RUN = dst_end - count + 1                   # body run address (LDDR destination start, $3000)
 
     hdr_len = RELOC_SRC_START - LOAD            # $0F0E bytes ($0100-$100D)
     body = com[hdr_len:]                        # file $100E.. to EOF
@@ -185,6 +202,10 @@ def main():
         (0x448B, 0x44B2),   # "Random number seed (-32768- to 32767)\0" (RANDOMIZE prompt)
         (0x47DA, 0x47E6),   # graphics state/variable block (HPLOT coordinate save cells)
         (0x4A81, 0x4A91),   # Apple hi-res color/pixel-pattern WORD table
+        (0x5E0B, 0x5E34),   # RND-seed init + FP scratch data; the fold audit showed both decoders
+                            #   read its constant words as DEFW pointers (GBASIC: GFX_HIRES_BYTE_ADDR
+                            #   from the bytes $DD $47; MBASIC: NEXT_LOOP_BODY_5) -- identical bytes in
+                            #   both .COMs, so it is data, not a relocatable address (RNDX_SEED $5E24)
         (0x5EA2, 0x5EC7),   # FN_RND MBF floating-point constant pool
         (0x841D, 0x8482),   # SIGNON_BANNER: "BASIC-80 Rev. 5.2 [Apple CP/M Version] ..." string
     ]
@@ -228,6 +249,10 @@ def main():
     label_inrange_operands(bwalk, body_mem, RUN, body_len)   # label the recovered code's
                                                              # operands so they relocate
     body_ptrs = scan_pointer_words(bwalk, body_mem, RUN, body_len) | body_dispatch
+    # Pinned data regions (AUDIT_DATA -- e.g. the sign-on banner's leading CR/LF bytes) must NOT
+    # render as DEFW pointer-words: a coincidental data word like $0A0D ($0D $0A = CR LF) would
+    # resolve to a dead-RAM label (L_0A0D) and over-relocate +$23 in the MBASIC fold. Keep them DEFB.
+    body_ptrs = {p for p in body_ptrs if not any(lo <= p < hi for lo, hi in AUDIT_DATA)}
     # Ensure each entry point has a label (call_targets were registered up front so
     # name_labels mints SUB_xxxx heads for them).
     for s in entry_points:
@@ -247,17 +272,25 @@ def main():
     # WORKSPACE above $0840 -- SAVTXT, KBUF, the FAC, the flag cells -- is named where it
     # is referenced, not blanket-labeled here.)
     import re as _reh
-    # $0103-$081E: statement/function dispatch, reserved-word table, operator tables,
-    # and the error-message strings (all read-only image data). $081F+ is the $D034
-    # vector table and then the RAM workspace (SAVTXT/FAC/flags) -- named where used,
-    # not blanket-labeled here.
-    TABLE_LO, TABLE_HI = 0x0103, 0x081F
+    # The whole shared header/low-RAM image -- the dispatch/reserved-word/operator tables and
+    # error strings ($0103-$081E), the $D034 vector table, the RAM workspace (SAVTXT/FAC/flag
+    # cells) and the in-place low-RAM engine code ($081F-$0FF7) -- is IMAGE data: a body operand
+    # pointing into it must become a relocatable LABEL, not a frozen literal. The GBASIC/MBASIC
+    # fold assembles this same source at two layouts (MBASIC's error table carries the extra
+    # code-32 'Graphics statement not implemented' string, shifting everything past $0704 up by
+    # $23), so a frozen literal here is wrong for MBASIC. We therefore mint header labels across
+    # the whole header image -- from past the 3-byte entry JP up to RELOC_SRC_START, the body-image
+    # boundary (INTERP_LOAD_START). The GBASIC-only relocator falls inside that span but is never
+    # referenced by body code (GBASIC's copy of that low-RAM code lives below it), and a genuine
+    # same-in-both constant is kept literal by the body formatter's keep_literal
+    # (fixed_operand_sites), so neither is mislabeled.
+    TABLE_LO, TABLE_HI = LOAD + 3, RELOC_SRC_START
     # Values the mid-construct audit proved are CONSTANTS or inert never-taken-branch
     # operands that only coincidentally land in the table region (a CRUNCH/cold-start
     # arithmetic constant, the operand of a dead JP-NZ/JP-C cover, a write-once scratch
     # cell). Do NOT mint a label for them; they must render as plain literals.
     AUDIT_BOGUS_VALUES = {0x0106, 0x0107, 0x013E, 0x0140, 0x0200, 0x0300, 0x0412}
-    cover_lo = cover_idiom_sites(body_mem, bwalk.code, RUN, RUN + body_len)
+    cover_lo = cover_idiom_sites(body_mem, bwalk.code, RUN, RUN + body_len, labels=bwalk.labels)
     for a in sorted(bwalk.code):
         if a in cover_lo:                       # a coded-constant cover -> not an address
             continue
@@ -279,7 +312,7 @@ def main():
     hdr_fmt = SjasmFormatter(hdr_mem, hwalk, origin=LOAD, length=hdr_len,
                              source_name="GBASIC", relocatable=False,
                              inline_token_names=TOKENS, pointer_words=dispatch_ptrs,
-                             keep_literal=(cover_idiom_sites(hdr_mem, hwalk.code, LOAD, LOAD + hdr_len)
+                             keep_literal=(cover_idiom_sites(hdr_mem, hwalk.code, LOAD, LOAD + hdr_len, labels=hwalk.labels)
                                            | lowtables.literal_sites(hdr_mem, hwalk.code, LOAD, LOAD + hdr_len)))
     hdr_fmt._harvest_data_labels()
     hdr_fmt._prepare_overlap_labels()
@@ -311,14 +344,18 @@ def main():
     # Keep fixed operands (identical in both builds -> RAM/stack address or constant)
     # literal, so a coincidental body label isn't substituted and wrongly relocated.
     fixed, _ = fixed_operand_sites()
-    keep_literal = (fixed | cover_idiom_sites(body_mem, bwalk.code, RUN, RUN + body_len)
+    keep_literal = (fixed | cover_idiom_sites(body_mem, bwalk.code, RUN, RUN + body_len, labels=bwalk.labels)
                     | lowtables.literal_sites(body_mem, bwalk.code, RUN, RUN + body_len)
                     | mid_string_constant_sites(body_mem, bwalk.code, STRING_LO, STRING_HI,
                                                  RUN, RUN + body_len, str_mem=hdr_mem))
     body_fmt = SjasmFormatter(body_mem, bwalk, origin=RUN, length=body_len,
                               source_name="GBASIC", pointer_words=body_ptrs,
                               relocatable=False, inline_token_names=TOKENS,
-                              keep_literal=keep_literal)
+                              keep_literal=keep_literal,
+                              # the sign-on banner's leading CR/LF bytes ($0D $0A = $0A0D)
+                              # coincide with the L_0A0D cell label; pin it opaque so they stay
+                              # DEFB and do not relocate as a DEFW pointer in the MBASIC fold.
+                              data_spans=[(0x841D, 0x8482)])
     body_fmt._harvest_data_labels()
     body_fmt._prepare_overlap_labels()
     body_lines, _, _ = body_fmt._emit_body()
@@ -336,6 +373,24 @@ def main():
     body_lines = errstub.apply_disk_vector_renames(body_lines, com, disk_run)  # vector-table refs -> DISK_RAISE_*
     body_lines = errstub.apply_cover_raise_stubs(body_lines, com)   # single-entry cover stub -> RAISE_*
 
+    # Coded LD-r,$NN cover overlaps (same idiom as the error DEFB $01 covers): split into
+    # `DEFB $<op>` + a clean-labeled entry so every reference to the operand-byte entry resolves
+    # to a real relocatable label, not a `<cover>+1` literal. Run BEFORE the cross-region pass so
+    # the body's literal `$<entry>` refs are rewritten to the entry label here.
+    _referenced = errstub.code_operand_addrs(hdr_lines + body_lines)
+    hdr_lines, _cover_rw = errstub.find_ld_cover_overlaps(hdr_lines, com, _referenced)
+    if _cover_rw:
+        def _apply_cover_rw(lns):
+            res = []
+            for ln in lns:
+                c, s, r = ln.partition(';')
+                for old, new in _cover_rw.items():
+                    c = c.replace(old, new)
+                res.append(c + s + r)
+            return res
+        hdr_lines = _apply_cover_rw(hdr_lines)
+        body_lines = _apply_cover_rw(body_lines)
+
     # Cross-region relocatability: header ($0100-$100D) and body ($3000+) are decoded
     # by SEPARATE walkers, so each region's control-flow operands into the OTHER region
     # were emitted as literals. Substitute them with the other walker's label so every
@@ -345,23 +400,26 @@ def main():
     import re as _re
     _CF = _re.compile(r'\s*(JP|CALL|JR|DJNZ)\b')
 
-    def _xregion(lns, labels, lo, hi):
+    def _xregion(lns, resolve, lo, hi):
         out = []
         for ln in lns:
             code, sep, rest = ln.partition(';')
             if _CF.match(code):
                 code = _re.sub(
                     r'\$([0-9A-Fa-f]{4})',
-                    lambda m: labels.get(int(m.group(1), 16), m.group(0))
+                    lambda m: (resolve(int(m.group(1), 16)) or m.group(0))
                     if lo <= int(m.group(1), 16) <= hi else m.group(0),
                     code)
             out.append(code + sep + rest)
         return out
 
-    body_labels = {a: n for a, n in bwalk.labels.items() if n}
-    hdr_labels = {a: n for a, n in hwalk.labels.items() if n}
-    hdr_lines = _xregion(hdr_lines, body_labels, RUN, RUN + body_len)
-    body_lines = _xregion(body_lines, hdr_labels, LOAD, LOAD + hdr_len)
+    # Resolve through the OTHER region's formatter ._sym (not a plain label dict) so a
+    # cross-region control-flow target that lands MID-INSTRUCTION (a cover/overlap, e.g.
+    # ERROR_RESUME_FROM_DIRECT_3+1 = the $C1 operand byte of LD A,$C1 at $0E21, entered as
+    # POP BC) renders as cover+offset and relocates -- a dict keyed on label heads cannot
+    # express the +offset. Clean-label and no-label cases resolve identically to before.
+    hdr_lines = _xregion(hdr_lines, body_fmt._sym, RUN, RUN + body_len)
+    body_lines = _xregion(body_lines, hdr_fmt._sym, LOAD, LOAD + hdr_len)
 
     # Resolve the dispatch-table DEFW pointers into the body through the BODY formatter's
     # symbol resolver, which also handles mid-instruction targets as cover+offset (e.g.
