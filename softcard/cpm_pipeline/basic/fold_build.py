@@ -29,8 +29,14 @@ INCLUDES = ("apple_softcard.inc", "msbasic_tokens.inc", "msbasic_errors.inc", "m
             "cpm22.inc")
 
 
-def assemble(mode):
-    """Assemble BASIC.asm as 'GBASIC' or 'MBASIC'. Returns (bytes, sjasmplus_log)."""
+def assemble(mode, lst_path=None):
+    """Assemble BASIC.asm as 'GBASIC' or 'MBASIC'. Returns (bytes, sjasmplus_log).
+
+    If lst_path is given, sjasmplus also writes a listing (address + machine code +
+    source per line) there. The per-build listing is the reference for line addresses
+    now that the master source no longer carries inline `; $XXXX <bytes>` comments --
+    and it is per-build-accurate (GBASIC body relocates to $3000, MBASIC runs flat at
+    $0100), which a single inline comment could not be."""
     src = BASIC_ASM.read_text(encoding="latin-1")
     if mode == "GBASIC":
         src = "    DEFINE GBASIC\n" + src
@@ -42,8 +48,10 @@ def assemble(mode):
             (td / n).write_text((INCLUDE_DIR / n).read_text(encoding="latin-1"),
                                 encoding="latin-1")
         (td / "a.asm").write_text(src.replace("{out_bin}", out.as_posix()), encoding="utf-8")
-        r = subprocess.run(["sjasmplus", str(td / "a.asm")],
-                           capture_output=True, text=True, cwd=str(td))
+        cmd = ["sjasmplus", str(td / "a.asm")]
+        if lst_path is not None:
+            cmd.append(f"--lst={Path(lst_path).resolve()}")
+        r = subprocess.run(cmd, capture_output=True, text=True, cwd=str(td))
         return (out.read_bytes() if out.exists() else b""), r.stdout + r.stderr
 
 
@@ -70,7 +78,8 @@ def diff_regions(a, b):
 
 def report():
     for mode, com in (("GBASIC", "GBASIC.COM"), ("MBASIC", "MBASIC.COM")):
-        out, log = assemble(mode)
+        lst = BASIC_ASM.with_name(f"{mode}.lst")
+        out, log = assemble(mode, lst_path=lst)
         ref = reference(com)
         errs = [l for l in log.splitlines() if "error:" in l.lower()]
         if errs:
@@ -83,6 +92,8 @@ def report():
             continue
         ok = out == ref
         print(f"{mode}: {len(out)}B (ref {len(ref)}B)  {'BYTE-IDENTICAL' if ok else 'DIFFERS'}")
+        if lst.exists():
+            print(f"    listing -> {lst.name} ({lst.stat().st_size} B)")
         if not ok:
             regs = diff_regions(out, ref)
             print(f"  {len(regs)} divergence regions; first 8:")

@@ -23,6 +23,22 @@ python -m cpm_pipeline.basic.fold_build      # reports both modes BYTE-IDENTICAL
 (mojibake) bytes -- the byte gate ignores comments, so this is the guardrail that
 direct editing otherwise loses (`apply_naming` used to sanitize comments automatically).
 
+## Line addresses: the per-build listings
+
+`BASIC.asm` no longer carries per-line `; $XXXX <bytes>` comments. They were redundant
+with -- and less accurate than -- the assembler listing: a single inline address can
+only be right for one build, but the GBASIC body relocates to `$3000` while MBASIC runs
+flat at `$0100`. `fold_build` emits a per-build listing (address + machine code + source
+per line) on every run:
+
+```
+python -m cpm_pipeline.basic.fold_build   # writes GBASIC.lst + MBASIC.lst next to BASIC.asm
+```
+
+`GBASIC.lst` / `MBASIC.lst` are the address reference; they are build artifacts
+(git-ignored, regenerated). Semantic comments and inline notes were preserved in the
+source; only the machine-generated address/byte tokens were removed.
+
 ## How `BASIC.asm` was originally derived (provenance-only)
 
 The pipeline below DECODED the `.COM` bytes into relocatable source and FOLDED the two

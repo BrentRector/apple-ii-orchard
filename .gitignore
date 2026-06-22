@@ -34,6 +34,11 @@ emu_*.bin
 **/CPM_BootLoader_*.bin
 **/CPM_RPC6502.bin
 
+# BASIC fold listings: GBASIC.lst / MBASIC.lst are the per-build address+machine-code
+# reference, emitted by `python -m cpm_pipeline.basic.fold_build` (the master BASIC.asm
+# no longer carries inline `; $XXXX <bytes>` comments). Regenerated, not tracked.
+**/utilities/*.lst
+
 # IDE / editor
 .vscode/
 .idea/
