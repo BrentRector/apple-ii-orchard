@@ -18,6 +18,10 @@
     INCLUDE "msbasic_errors.inc"   ; MS BASIC error-code names (ERR_*)
     INCLUDE "msbasic_fcb.inc"   ; MS BASIC file-control-block STRUCT
     INCLUDE "msbasic_line.inc"   ; MS BASIC program-line record STRUCT (BASLINE)
+    INCLUDE "msbasic_valtyp.inc"   ; MS BASIC VALTYP value-type EQUs (VT_*) + operator bands
+    INCLUDE "msbasic_strdesc.inc"   ; MS BASIC string-descriptor STRUCT (STRDESC)
+    INCLUDE "msbasic_var.inc"   ; MS BASIC variable/array storage STRUCTs
+    INCLUDE "cpm22.inc"   ; CP/M 2.2 BDOS ABI (BDOS + F_*/DRV_*)
 
     ORG $0100
 
@@ -503,7 +507,8 @@ ERRFLG:
 ; [RE] Current output column for the active device, tracked by OUTCHR (TAB stops, CR/backspace). LPOS() returns it; PRINT zone logic consults it.
 OUTPUT_COLUMN:
         DEFB    $01                      ; $0837
-L_0838:
+; [RE] PRTFLG (printer-output selector, whole-byte boolean -- no mask). Set to $01 by LPRINT ($3744) and LLIST ($40A8); cleared to 0 by the PRINT epilogue ($3880), OUTDO_RESET_COL ($667A), RESET_PRINT_STATE ($679D), and Ctrl-C ($6997). Read by OUTCHR ($661E, OR A / JP Z): nonzero routes the character through the printer-device path (with printer-specific backspace at $6627) instead of the console. UNKNOWN/CONFLICT: some in-file prose ($667A, $6997) describes this cell as an 'output-suppress' flag; that does not match the LPRINT/LLIST set sites (which mean 'direct output to printer'). Treat the 'suppress' wording as a probable mislabel pending a dedicated audit; do not assume a suppress semantic.
+PRTFLG:
         DEFB    "\0"                     ; $0838
 L_0839:
         DEFB    "p"                      ; $0839
@@ -523,8 +528,8 @@ L_083E:
 ; Ctrl-O output-suppress toggle: nonzero discards console output. Cleared at READY/cold-start, toggled by CONIN on Ctrl-O ($0F) and cleared on Ctrl-C. (Already commented in file.)
 CTRL_O_SUPPRESS:
         DEFB    "\0"                     ; $083F
-; [RE] Output-redirected flag: when nonzero the LIST/output auto-page (more) pause is skipped.
-OUTPUT_REDIRECTED:
+; [RE] PTRFIL: 16-bit pointer to the current file's FCB (MS BASIC PTRFIL). 0 = console/keyboard; nonzero = the FCB base of the file currently selected by a #file expression. Set by STORE_CUR_FCB_PTR ($7623-$7629, = the FCB pointer that FILE_NUM_TO_FCB resolved) for PRINT#/INPUT#/WRITE#/GET/PUT; cleared to 0 by the PRINT/INPUT epilogue ($3886) and CHAIN/OPEN reinit ($0F33). Read as a pointer (LD HL,(PTRFIL); LD A,H; OR L) by OUTCHR ($6615) and the per-PRINT-item path ($3788) to route a char to the file (FN_LOF_VALUE_1) instead of the console, and by INCHR ($6725) to read the next char from the file (GETC_FILE_EOF) instead of the keyboard. OBSERVED: every one of the 28 accesses is a 16-bit word move, never a bit/mask test, so this is a pointer, not a boolean redirect flag.
+PTRFIL:
         DEFB    "\0\0"                   ; $0840
 ; [RE] Top-of-stack-room / stack-limit pointer (MS BASIC STKTOP family); cold start sets it = COLD_STACK_BASE ($81DB). The image default is a relocatable placeholder, overwritten before use.
 TOP_OF_STACK_ROOM:
@@ -600,9 +605,11 @@ L_0B13:
         DEFB    "\0"                     ; $0B13
 L_0B14:
         DEFB    "\0"                     ; $0B14
-L_0B15:
+; [RE] CRUNCH_LITERAL_MODE: CRUNCH literal-passthrough flag (whole-byte boolean, no mask). Cleared at CRUNCH entry ($3004); set to 1 at $3201 right after emitting a ':' statement-separator or a DATA-class token; tested at CRUNCH_1 ($301C, OR A / JP NZ) -- when set, the current source character is copied through verbatim instead of being reserved-word-matched. TEMPORALLY REUSED (not concurrent) by FRMEVL as the binary-operator scratch: FRMEVL_OPCOMBINE writes the operator code here ($3B54) and the operator-dispatch index reads it ($3BA9). Same byte, different tenant at a different phase.
+CRUNCH_LITERAL_MODE:
         DEFB    "\0"                     ; $0B15
-L_0B16:
+; [RE] CRUNCH_LINENUM_MODE: CRUNCH line-number-introducer flag (whole-byte boolean, no mask). Set to 1 when the token just crunched is a keyword that is followed by a line number (GOTO/GOSUB/THEN/ELSE/RUN/LIST/RESTORE/etc.; armed via CRUNCH_16 $311C) and after ':' ($3204); cleared at CRUNCH entry ($3001) and $30D3. Tested at CRUNCH_18 ($314B, OR A / JR Z): when set, a following digit run is emitted as a line-number constant (token $0E + 2-byte line number via LINGET, $315C) instead of being parsed as an ordinary numeric literal (FIN at $3179).
+CRUNCH_LINENUM_MODE:
         DEFB    "\0"                     ; $0B16
 L_0B17:
         DEFB    "\0\0"                   ; $0B17
@@ -618,13 +625,16 @@ L_0B1D:
 ; Top-of-storage / highest usable RAM pointer (MS BASIC MEMSIZ): cold-start sets it below the stack; GETSTK checks SP vs MEMSIZ; the string heap top ($0B48) seeds from it. Read by GARBAG.
 MEMSIZ:
         DEFB    "\0\0"                   ; $0B23
-L_0B25:
+TEMPPT:
         DEFB    "\0\0"                   ; $0B25
-L_0B27:
+; [RE] TEMPST: base of the temporary string-descriptor stack -- a small array of STRDESC records (msbasic_strdesc.inc, 3 bytes each) holding intermediate string FRMEVL results. TEMPPT ($0B25) is the live top-of-stack pointer; PUT_STR_TEMP pushes here, FREE_TOP_TEMP_DESCR pops. Overflowing this region raises 'String formula too complex'. The DEFS reservation spans the descriptor slots (followed by DSCTMP at $0B45).
+TEMPST:
         DEFS    15, $00                  ; $0B27  fill
+; [RE] NOT a data object: $0B36 is the bias base used to index DEFTYPE_TBL ($0B77) by a variable's raw ASCII first-letter code. PTRGET ($5FA6) loads HL = DEFTYPE_TBL-$41 (= $0B36) then ADD HL,(letter&$7F) so $0B36+$41('A')=$0B77 ... $0B36+$5A('Z')=$0B90. The 15-byte DEFS here ($0B36-$0B44) is unrelated workspace/padding; the per-letter default-type cells physically live at DEFTYPE_TBL ($0B77).
 L_0B36:
         DEFS    15, $00                  ; $0B36  fill
-L_0B45:
+; [RE] DSCTMP: the one-entry working string descriptor (STRDESC, msbasic_strdesc.inc) -- STORE_STR_DESC writes the freshly-built len/pointer here ($6BDF LD HL,DSCTMP then STR_DESC_STORE), and PUT_STR_TEMP ($6C1A) copies it from here onto the temp-descriptor stack (TEMPPT/TEMPST). DSCTMP.LEN=$0B45, DSCTMP.PTR=$0B46 (the existing $0B46 word).
+DSCTMP:
         DEFB    "\0"                     ; $0B45
 L_0B46:
         DEFB    "\0\0"                   ; $0B46
@@ -687,16 +697,17 @@ SAVED_ERR_TXTPTR:
 ; [RE] CONT resume text pointer (copy of OLDTXT): STOP/END save it ($6979), the error reporter saves it ($0DC0), and CONT ($69AB) reloads it to resume the stopped program.
 CONT_TXTPTR:
         DEFB    "\0\0"                   ; $0B6D
-; [RE] Start of variable + free space (MS BASIC VARTAB/STREND-grow pointer): base of the simple-variable table walked by PTRGET/CHAIN; the string-relocation copy grows the pool here; CLEAR re-points it just above program text. ,P-protected DECODE ends at $0B6F.
+; [RE] VARTAB: base of the SIMPLE-VARIABLE table (SIMPLEVAR records, see msbasic_var.inc). Table runs VARTAB($0B6F)..ARYTAB($0B71); the array table follows ARYTAB..STREND($0B73). Walked by PTRGET ($5FC9) and GARBAG ($6CAD); CLEAR re-points all three just above program text ($68D9). Each SIMPLEVAR = {valtyp byte; 2 name bytes; namextlen byte; namext[]; value[valtyp]} reached by computed stride (NAMEXTLEN+VALTYP+1), never base+offset.
 VARTAB:
         DEFB    "\0\0"                   ; $0B6F
-L_0B71:
+ARYTAB:
         DEFB    "\0\0"                   ; $0B71
-L_0B73:
+STREND:
         DEFB    "\0\0"                   ; $0B73
 L_0B75:
         DEFB    "\0\0"                   ; $0B75
-L_0B77:
+; [RE] DEFTYPE_TBL: the 26-byte per-letter default value-type array (one VALTYP byte per variable initial letter A..Z; MS BASIC DEFTBL). Written by the DEF* statement handler (STMT_DEFSTR $34B4: stores the requested type code E across the letter range) and reset to the default ($04) for all 26 letters by CLEAR/RUN ($68A3). PTRGET reads the default type for a variable's first letter via the bias-base addressing at $5FA6 (base $0B36 + ASCII-letter-code lands here: $0B36+$41='A'->$0B77 ... $0B36+$5A='Z'->$0B90). NOTE the default fill value is $04; the exact VALTYP code->precision mapping is not asserted here (the file's own type-code notes are inconsistent) -- see UNKNOWNS.
+DEFTYPE_TBL:
         DEFS    26, $00                  ; $0B77  fill
 L_0B91:
         DEFB    "\0\0"                   ; $0B91
@@ -774,7 +785,8 @@ L_0CA1:
         DEFB    "\0\0"                   ; $0CA1
 L_0CA3:
         DEFS    8, $00                   ; $0CA3  fill
-L_0CAB:
+; [RE] TRCFLG: MS BASIC execution-trace flag (whole-byte boolean). TRON sets it $AF, TROFF / program start sets it $00 (STMT_TRACE $69BF, via the AF/XOR-A dual-entry skip). NEWSTT reads it each line ($3393, OR A / JR Z) and, when nonzero, prints '[<linenum>]' before executing the line. No bitmask -- any nonzero value means trace on.
+TRCFLG:
         DEFB    "\0"                     ; $0CAB
 L_0CAC:
         DEFB    "\0"                     ; $0CAC
@@ -1212,13 +1224,13 @@ SUB_0EB7_4:
         LD (HL),$00                      ; $0F1C  36 00
 SUB_0EB7_5:
         LD (FILTAB),HL                   ; $0F1E  22 50 08
-        LD HL,(OUTPUT_REDIRECTED)        ; $0F21  2A 40 08
+        LD HL,(PTRFIL)                   ; $0F21  2A 40 08
         LD (FRMEVL_TXTPTR_TEMP),HL       ; $0F24  22 69 0B
         CALL CLEAR_RESET_DATAPTR         ; $0F27  CD 8D 68
         LD HL,(FILTAB_SLOT0_SEED)        ; $0F2A  2A 4E 08
         LD (FILTAB),HL                   ; $0F2D  22 50 08
         LD HL,(FRMEVL_TXTPTR_TEMP)       ; $0F30  2A 69 0B
-        LD (OUTPUT_REDIRECTED),HL        ; $0F33  22 40 08
+        LD (PTRFIL),HL                   ; $0F33  22 40 08
         JP DIRECT_LINE_DISPATCH          ; $0F36  C3 3E 0E
 ; [RE] CHEAD: relink the BASLINE program-line list from TXTTAB ($0846). Walk each node to its $00 token terminator and rewrite its BASLINE.LINK (the forward-link word) to address the next node, so the singly-linked chain stays contiguous after an insert/delete; stops at the $0000 link (end of program). See msbasic_line.inc.
 CHEAD:
@@ -1386,8 +1398,8 @@ INTERP_RUN_START:
 ; MS BASIC-80 CRUNCH: tokenizes an input line. Scans the source text, folds reserved words to single-byte tokens via the reserved-word name table (DE=$08CF/$04D8 reserved-word pointers), passes through string literals ($22) and REM/DATA text verbatim, and emits the crunched line. Handles the GOTO/GOSUB ('GO TO'/'GO SUB') two-word forms. $0B15/$0B16 are CRUNCH mode flags.
 CRUNCH:
         XOR A                            ; $3000  AF
-        LD (L_0B16),A                    ; $3001  32 16 0B
-        LD (L_0B15),A                    ; $3004  32 15 0B
+        LD (CRUNCH_LINENUM_MODE),A       ; $3001  32 16 0B
+        LD (CRUNCH_LITERAL_MODE),A       ; $3004  32 15 0B
         LD BC,$013B                      ; $3007  01 3B 01
         LD DE,KBUF                       ; $300A  11 CF 08
 CRUNCH_1:
@@ -1398,7 +1410,7 @@ CRUNCH_1:
         JP Z,CRUNCH_30                   ; $3015  CA F1 31
         OR A                             ; $3018  B7
         JP Z,CRUNCH_36                   ; $3019  CA 1F 32
-        LD A,(L_0B15)                    ; $301C  3A 15 0B
+        LD A,(CRUNCH_LITERAL_MODE)       ; $301C  3A 15 0B
         OR A                             ; $301F  B7
         LD A,(HL)                        ; $3020  7E
         JP NZ,CRUNCH_30                  ; $3021  C2 F1 31
@@ -1510,7 +1522,7 @@ CRUNCH_10:
         LD A,$FF                         ; $30CD  3E FF
         CALL CRUNCH_EMIT                 ; $30CF  CD 34 32
         XOR A                            ; $30D2  AF
-        LD (L_0B16),A                    ; $30D3  32 16 0B
+        LD (CRUNCH_LINENUM_MODE),A       ; $30D3  32 16 0B
         POP AF                           ; $30D6  F1
         CALL CRUNCH_EMIT                 ; $30D7  CD 34 32
         JP CRUNCH_1                      ; $30DA  C3 0D 30
@@ -1563,7 +1575,7 @@ CRUNCH_14:
 CRUNCH_15:
         JP NZ,$013E                      ; $3119  C2 3E 01
 CRUNCH_16:
-        LD (L_0B16),A                    ; $311C  32 16 0B
+        LD (CRUNCH_LINENUM_MODE),A       ; $311C  32 16 0B
         POP AF                           ; $311F  F1
         POP BC                           ; $3120  C1
         POP DE                           ; $3121  D1
@@ -1589,7 +1601,7 @@ CRUNCH_17:
         CP $30                           ; $3146  FE 30
         JP C,CRUNCH_26                   ; $3148  DA BF 31
 CRUNCH_18:
-        LD A,(L_0B16)                    ; $314B  3A 16 0B
+        LD A,(CRUNCH_LINENUM_MODE)       ; $314B  3A 16 0B
         OR A                             ; $314E  B7
         LD A,(HL)                        ; $314F  7E
         POP BC                           ; $3150  C1
@@ -1624,7 +1636,7 @@ CRUNCH_22:
         POP DE                           ; $3180  D1
         PUSH HL                          ; $3181  E5
         LD A,(L_0B14)                    ; $3182  3A 14 0B
-        CP $02                           ; $3185  FE 02
+        CP VT_INT                        ; $3185  FE 02
         JR NZ,CRUNCH_23                  ; $3187  20 15
         LD HL,(L_0CB1)                   ; $3189  2A B1 0C
         LD A,H                           ; $318C  7C
@@ -1700,8 +1712,8 @@ CRUNCH_30:
         JR NZ,CRUNCH_32                  ; $31FD  20 08
         LD A,$01                         ; $31FF  3E 01
 CRUNCH_31:
-        LD (L_0B15),A                    ; $3201  32 15 0B
-        LD (L_0B16),A                    ; $3204  32 16 0B
+        LD (CRUNCH_LITERAL_MODE),A       ; $3201  32 15 0B
+        LD (CRUNCH_LINENUM_MODE),A       ; $3204  32 16 0B
 CRUNCH_32:
         SUB $55                          ; $3207  D6 55
         JP NZ,CRUNCH_1                   ; $3209  C2 0D 30
@@ -1756,7 +1768,7 @@ CRUNCH_EMIT_2:
         POP HL                           ; $323F  E1
         DEC HL                           ; $3240  2B
         DEC A                            ; $3241  3D
-        LD (L_0B16),A                    ; $3242  32 16 0B
+        LD (CRUNCH_LINENUM_MODE),A       ; $3242  32 16 0B
         POP BC                           ; $3245  C1
         POP DE                           ; $3246  D1
         CALL CHRGET_UPCASE               ; $3247  CD CC 3C
@@ -1785,7 +1797,7 @@ CRUNCH_EMIT_5:
         LD A,$20                         ; $3272  3E 20
 CRUNCH_EMIT_6:
         PUSH AF                          ; $3274  F5
-        LD A,(L_0B16)                    ; $3275  3A 16 0B
+        LD A,(CRUNCH_LINENUM_MODE)       ; $3275  3A 16 0B
         INC A                            ; $3278  3C
         JR Z,CRUNCH_EMIT_7               ; $3279  28 01
         DEC A                            ; $327B  3D
@@ -1957,7 +1969,7 @@ NEWSTT_NEXTLINE:
         LD D,(HL)                        ; $338E  56
         EX DE,HL                         ; $338F  EB
         LD (SAVTXT),HL                   ; $3390  22 44 08
-        LD A,(L_0CAB)                    ; $3393  3A AB 0C
+        LD A,(TRCFLG)                    ; $3393  3A AB 0C
         OR A                             ; $3396  B7
         JR Z,NEWSTT_NEXTLINE_1           ; $3397  28 0F
         PUSH DE                          ; $3399  D5
@@ -2105,7 +2117,7 @@ CHRGOT_CONST_VALUE_1:
 CHRGOT_CONST_VALUE_2:
         LD A,(L_0B1A)                    ; $3462  3A 1A 0B
         LD (L_0B14),A                    ; $3465  32 14 0B
-        CP $08                           ; $3468  FE 08
+        CP VT_DBL                        ; $3468  FE 08
         JR Z,CHRGOT_CONST_VALUE_3        ; $346A  28 0F
         LD HL,(L_0B1B)                   ; $346C  2A 1B 0B
         LD (L_0CB1),HL                   ; $346F  22 B1 0C
@@ -2151,7 +2163,7 @@ STMT_DEFSTR_5:
         RET C                            ; $34B1  D8
         INC A                            ; $34B2  3C
         EX (SP),HL                       ; $34B3  E3
-        LD HL,L_0B77                     ; $34B4  21 77 0B
+        LD HL,DEFTYPE_TBL                ; $34B4  21 77 0B
         LD B,$00                         ; $34B7  06 00
         ADD HL,BC                        ; $34B9  09
 STMT_DEFSTR_6:
@@ -2383,7 +2395,7 @@ STMT_LET_4:
         LD DE,L_0CAD                     ; $3606  11 AD 0C
 STMT_LET_5:
         PUSH HL                          ; $3609  E5
-        CP $03                           ; $360A  FE 03
+        CP VT_STR                        ; $360A  FE 03
         JR NZ,STMT_LET_8                 ; $360C  20 2E
         LD HL,(L_0CB1)                   ; $360E  2A B1 0C
         PUSH HL                          ; $3611  E5
@@ -2394,11 +2406,11 @@ STMT_LET_5:
         LD HL,(TXTTAB)                   ; $3616  2A 46 08
         CALL CMP_HL_DE                   ; $3619  CD 1F 69
         JR NC,STMT_LET_6+1               ; $361C  30 12
-        LD HL,(L_0B73)                   ; $361E  2A 73 0B
+        LD HL,(STREND)                   ; $361E  2A 73 0B
         CALL CMP_HL_DE                   ; $3621  CD 1F 69
         POP DE                           ; $3624  D1
         JR NC,STMT_LET_7                 ; $3625  30 11
-        LD HL,L_0B45                     ; $3627  21 45 0B
+        LD HL,DSCTMP                     ; $3627  21 45 0B
         CALL CMP_HL_DE                   ; $362A  CD 1F 69
         JR NC,STMT_LET_7                 ; $362D  30 09
 ; [RE] Stack-balancing entry skip. STMT_LET_6 ($362F) is entered by fall-through and runs LD A,$D1 (A=flag for FREE_TOP_TEMP_DESCR). The first range compare jumps JR NC,STMT_LET_6+1 ($3630), where the $D1 immediate decodes as POP DE, discarding the pointer PUSHed at $3611 (the POP DE at $3624 was skipped on that branch) before the shared CALL FREE_TOP_TEMP_DESCR. (MBASIC labels the same site STMT_LET_7+1.)
@@ -2578,7 +2590,7 @@ STMT_IF_4:
 ; [RE] LPRINT statement handler (token $9B): PRINT directed to the line printer; falls into the shared PRINT engine.
 STMT_LPRINT:
         LD A,$01                         ; $3742  3E 01
-        LD (L_0838),A                    ; $3744  32 38 08
+        LD (PRTFLG),A                    ; $3744  32 38 08
         JP STMT_PRINT_1                  ; $3747  C3 4F 37
 ; PRINT statement engine (shared by PRINT/LPRINT/PRINT#): walk the print list emitting expressions, honour ',' tab zones and ';' (no-space), TAB($E8)/SPC($DF)/USING($E3) functions, and emit CRLF unless suppressed; column tracking via $0837/$0B11.
 STMT_PRINT:
@@ -2612,12 +2624,12 @@ STMT_PRINT_2:
         LD HL,(L_0CB1)                   ; $3784  2A B1 0C
         INC (HL)                         ; $3787  34
 STMT_PRINT_3:
-        LD HL,(OUTPUT_REDIRECTED)        ; $3788  2A 40 08
+        LD HL,(PTRFIL)                   ; $3788  2A 40 08
         LD A,H                           ; $378B  7C
         OR L                             ; $378C  B5
         JR NZ,STMT_PRINT_6               ; $378D  20 35
         LD HL,(L_0CB1)                   ; $378F  2A B1 0C
-        LD A,(L_0838)                    ; $3792  3A 38 08
+        LD A,(PRTFLG)                    ; $3792  3A 38 08
         OR A                             ; $3795  B7
         JR Z,STMT_PRINT_4                ; $3796  28 16
         LD A,(L_083A)                    ; $3798  3A 3A 08
@@ -2652,14 +2664,14 @@ STMT_PRINT_6:
         POP HL                           ; $37C7  E1
         JP STMT_PRINT_1                  ; $37C8  C3 4F 37
 STMT_PRINT_7:
-        LD HL,(OUTPUT_REDIRECTED)        ; $37CB  2A 40 08
+        LD HL,(PTRFIL)                   ; $37CB  2A 40 08
         LD A,H                           ; $37CE  7C
         OR L                             ; $37CF  B5
-        LD BC,$0028                      ; $37D0  01 28 00
+        LD BC,FCB.BUF_REM                ; $37D0  01 28 00
         ADD HL,BC                        ; $37D3  09
         LD A,(HL)                        ; $37D4  7E
         JR NZ,STMT_PRINT_10              ; $37D5  20 26
-        LD A,(L_0838)                    ; $37D7  3A 38 08
+        LD A,(PRTFLG)                    ; $37D7  3A 38 08
         OR A                             ; $37DA  B7
         JR Z,STMT_PRINT_8                ; $37DB  28 0E
         LD A,(L_0839)                    ; $37DD  3A 39 08
@@ -2700,11 +2712,11 @@ STMT_PRINT_12:
         LD DE,$0000                      ; $3818  11 00 00
 STMT_PRINT_13:
         PUSH HL                          ; $381B  E5
-        LD HL,(OUTPUT_REDIRECTED)        ; $381C  2A 40 08
+        LD HL,(PTRFIL)                   ; $381C  2A 40 08
         LD A,H                           ; $381F  7C
         OR L                             ; $3820  B5
         JR NZ,STMT_PRINT_15              ; $3821  20 16
-        LD A,(L_0838)                    ; $3823  3A 38 08
+        LD A,(PRTFLG)                    ; $3823  3A 38 08
         OR A                             ; $3826  B7
         LD A,(L_083A)                    ; $3827  3A 3A 08
         JR NZ,STMT_PRINT_14              ; $382A  20 03
@@ -2725,14 +2737,14 @@ STMT_PRINT_15:
         SUB $E3                          ; $3840  D6 E3
         PUSH HL                          ; $3842  E5
         JR Z,STMT_PRINT_17               ; $3843  28 1B
-        LD HL,(OUTPUT_REDIRECTED)        ; $3845  2A 40 08
+        LD HL,(PTRFIL)                   ; $3845  2A 40 08
         LD A,H                           ; $3848  7C
         OR L                             ; $3849  B5
-        LD BC,$0028                      ; $384A  01 28 00
+        LD BC,FCB.BUF_REM                ; $384A  01 28 00
         ADD HL,BC                        ; $384D  09
         LD A,(HL)                        ; $384E  7E
         JR NZ,STMT_PRINT_17              ; $384F  20 0F
-        LD A,(L_0838)                    ; $3851  3A 38 08
+        LD A,(PRTFLG)                    ; $3851  3A 38 08
         OR A                             ; $3854  B7
         JP Z,STMT_PRINT_16               ; $3855  CA 5D 38
         LD A,(OUTPUT_COLUMN)             ; $3858  3A 37 08
@@ -2762,12 +2774,12 @@ STMT_PRINT_20:
         JP STMT_PRINT_2                  ; $387C  C3 56 37
 ; [RE] PRINT epilogue/reset: clear the LPRINT-direction flag $0838 and the file/device pointer $0840 back to console defaults at the end of a PRINT statement.
 PRINT_RESET_STATE:
-        XOR A                            ; $387F  AF
-        LD (L_0838),A                    ; $3880  32 38 08
+        XOR A                            ; $387F  AF   <- [RE] PRINT epilogue/reset: clear the printer-output selector PRTFLG ($0838) and the current-file pointer PTRFIL ($0840) back to console defaults (0) at the end of a PRINT statement.
+        LD (PRTFLG),A                    ; $3880  32 38 08
         PUSH HL                          ; $3883  E5
         LD H,A                           ; $3884  67
         LD L,A                           ; $3885  6F
-        LD (OUTPUT_REDIRECTED),HL        ; $3886  22 40 08
+        LD (PTRFIL),HL                   ; $3886  22 40 08
         POP HL                           ; $3889  E1
         RET                              ; $388A  C9
 ; [RE] LINE statement handler (token $AD): LINE INPUT (read a whole console line into a string).
@@ -2967,7 +2979,7 @@ STMT_READ_4:
         OR $AF                           ; $39D8  F6 AF
         LD (L_0C69),A                    ; $39DA  32 69 0C
         EX DE,HL                         ; $39DD  EB
-        LD HL,(OUTPUT_REDIRECTED)        ; $39DE  2A 40 08
+        LD HL,(PTRFIL)                   ; $39DE  2A 40 08
         LD A,H                           ; $39E1  7C
         OR L                             ; $39E2  B5
         EX DE,HL                         ; $39E3  EB
@@ -3094,7 +3106,7 @@ FRMEVL_OPLOOP_2:
         LD E,A                           ; $3A9A  5F
         JR NZ,FRMEVL_OPLOOP_3            ; $3A9B  20 09
         LD A,(L_0B14)                    ; $3A9D  3A 14 0B
-        CP $03                           ; $3AA0  FE 03
+        CP VT_STR                        ; $3AA0  FE 03
         LD A,E                           ; $3AA2  7B
         JP Z,STR_CONCAT                  ; $3AA3  CA 70 6D
 FRMEVL_OPLOOP_3:
@@ -3121,7 +3133,7 @@ FRMEVL_OPLOOP_3:
 FRMEVL_OPLOOP_4:
         LD HL,L_0CB1                     ; $3ACA  21 B1 0C
         LD A,(L_0B14)                    ; $3ACD  3A 14 0B
-        SUB $03                          ; $3AD0  D6 03
+        SUB VT_STR                       ; $3AD0  D6 03
         JP Z,RAISE_TYPE_MISMATCH         ; $3AD2  CA 87 0D
         OR A                             ; $3AD5  B7
         LD C,(HL)                        ; $3AD6  4E
@@ -3206,13 +3218,13 @@ FRMEVL_ARITHOP:
 FRMEVL_OPCOMBINE:
         POP BC                           ; $3B52  C1
         LD A,C                           ; $3B53  79
-        LD (L_0B15),A                    ; $3B54  32 15 0B
+        LD (CRUNCH_LITERAL_MODE),A       ; $3B54  32 15 0B
         LD A,(L_0B14)                    ; $3B57  3A 14 0B
         CP B                             ; $3B5A  B8
         JR NZ,FRMEVL_OPLOOP_13           ; $3B5B  20 0B
-        CP $02                           ; $3B5D  FE 02
+        CP VT_INT                        ; $3B5D  FE 02
         JR Z,FRMEVL_OPLOOP_14            ; $3B5F  28 1F
-        CP $04                           ; $3B61  FE 04
+        CP VT_SNG                        ; $3B61  FE 04
         JP Z,FRMEVL_OP_POP_FRAME         ; $3B63  CA CC 3B
         JR NC,FRMEVL_OPLOOP_16           ; $3B66  30 2B
 FRMEVL_OPLOOP_13:
@@ -3231,7 +3243,7 @@ FRMEVL_OPLOOP_13:
         JP Z,RAISE_TYPE_MISMATCH         ; $3B7B  CA 87 0D
         JR NC,FRMEVL_OP_COERCE_INT_3     ; $3B7E  30 53
 FRMEVL_OPLOOP_14:
-        LD HL,OPERATOR_ROUTINE_TBL+30    ; $3B80  21 17 05
+        LD HL,OPERATOR_ROUTINE_TBL+OP_BAND_INT  ; $3B80  21 17 05
         LD B,$00                         ; $3B83  06 00
         ADD HL,BC                        ; $3B85  09
         ADD HL,BC                        ; $3B86  09
@@ -3256,9 +3268,9 @@ FRMEVL_OPLOOP_17:
         CALL FP_STORE_FAC                ; $3BA0  CD AA 4E
 FRMEVL_OPLOOP_18:
         CALL FN_CDBL                     ; $3BA3  CD 1A 50
-        LD HL,OPERATOR_ROUTINE_TBL+10    ; $3BA6  21 03 05
+        LD HL,OPERATOR_ROUTINE_TBL+OP_BAND_DBL  ; $3BA6  21 03 05
 FRMEVL_OPLOOP_19:
-        LD A,(L_0B15)                    ; $3BA9  3A 15 0B
+        LD A,(CRUNCH_LITERAL_MODE)       ; $3BA9  3A 15 0B
         RLCA                             ; $3BAC  07
         ADD A,L                          ; $3BAD  85
         LD L,A                           ; $3BAE  6F
@@ -3275,7 +3287,7 @@ FRMEVL_OPLOOP_20:
         CALL FP_ARG_TO_TEMP2             ; $3BB8  CD F1 4E
         POP AF                           ; $3BBB  F1
         LD (L_0B14),A                    ; $3BBC  32 14 0B
-        CP $04                           ; $3BBF  FE 04
+        CP VT_SNG                        ; $3BBF  FE 04
         JR Z,FRMEVL_OPLOOP_17            ; $3BC1  28 DB
         POP HL                           ; $3BC3  E1
         LD (L_0CB1),HL                   ; $3BC4  22 B1 0C
@@ -3289,7 +3301,7 @@ FRMEVL_OP_POP_FRAME:
         POP DE                           ; $3BCD  D1
 ; [RE] FRMEVL operator-apply tail (mis-split DEFB code): LD HL,$050D (relational/string-op handler vector base) then JR back into the operator-result combine loop at ~$3BA9 to dispatch the pending operator
 FRMEVL_OP_DISPATCH_REL:
-        LD HL,OPERATOR_ROUTINE_TBL+20    ; $3BCE  21 0D 05
+        LD HL,OPERATOR_ROUTINE_TBL+OP_BAND_SNG  ; $3BCE  21 0D 05
         JR FRMEVL_OPLOOP_19              ; $3BD1  18 D6
 FRMEVL_OP_COERCE_INT_3:
         POP HL                           ; $3BD3  E1
@@ -3596,7 +3608,7 @@ FRMEVL_SCAN_UNARY_2:
         POP BC                           ; $3DC4  C1
 FRMEVL_SCAN_UNARY_3:
         JP FRMEVL_OPLOOP_2               ; $3DC5  C3 88 3A
-; [RE] Classify the FAC value type from $0B14 (2=sng,3=dbl,4=str,8=int): returns Z when string and sets carry/flags so callers can branch numeric-vs-string. Canonical MS BASIC type-test helper.
+; [RE] VALTYP discriminator (canonical MS BASIC type test). Read the value-type byte $0B14 (VALTYP = storage width in bytes: 2=int, 3=string, 4=single, 8=double). CP $08 splits double (>=8 -> NC) from the rest; SUB $03 then makes Z when VALTYP=3 => returns Z iff STRING, sign(M) when integer (2-3=$FF), and SCF on the <8 path so callers can branch numeric-vs-string. Consumed by FN_CSNG/FN_CDBL/FN_CINT (M=int, Z=string).
 FRMEVL_TEST_TYPE:
         LD A,(L_0B14)                    ; $3DC8  3A 14 0B
         CP $08                           ; $3DCB  FE 08
@@ -3924,7 +3936,7 @@ STMT_DEF_8:
         JP NZ,RAISE_SYNTAX_ERROR         ; $3FC2  C2 6F 0D
         CALL FRMEVL_TEST_TYPE            ; $3FC5  CD C8 3D
         JR NZ,STMT_DEF_9                 ; $3FC8  20 11
-        LD DE,L_0B45                     ; $3FCA  11 45 0B
+        LD DE,DSCTMP                     ; $3FCA  11 45 0B
         LD HL,(L_0CB1)                   ; $3FCD  2A B1 0C
         CALL CMP_HL_DE                   ; $3FD0  CD 1F 69
         JR C,STMT_DEF_9                  ; $3FD3  38 06
@@ -4078,7 +4090,7 @@ CONINT:
 ; [RE] LLIST statement handler (token $9C): LIST directed to the line printer (sets printer flag then joins LIST).
 STMT_LLIST:
         LD A,$01                         ; $40A6  3E 01
-        LD (L_0838),A                    ; $40A8  32 38 08
+        LD (PRTFLG),A                    ; $40A8  32 38 08
 ; [RE] LIST statement handler (token $93): detokenizes program lines to the console (uses the reserved-word table walk at $4178).
 STMT_LIST:
         POP BC                           ; $40AB  C1
@@ -4098,7 +4110,7 @@ STMT_LIST_1:
         OR C                             ; $40C0  B1
         JP Z,NEWSTT_READY                ; $40C1  CA 23 0E
         PUSH HL                          ; $40C4  E5
-        LD HL,(OUTPUT_REDIRECTED)        ; $40C5  2A 40 08
+        LD HL,(PTRFIL)                   ; $40C5  2A 40 08
         LD A,H                           ; $40C8  7C
         OR L                             ; $40C9  B5
         POP HL                           ; $40CA  E1
@@ -4695,9 +4707,9 @@ STMT_OPTION:
         OR A                             ; $4426  B7
         JP NZ,RAISE_DUPLICATE_DEFINITION ; $4427  C2 78 0D
         PUSH HL                          ; $442A  E5
-        LD HL,(L_0B71)                   ; $442B  2A 71 0B
+        LD HL,(ARYTAB)                   ; $442B  2A 71 0B
         EX DE,HL                         ; $442E  EB
-        LD HL,(L_0B73)                   ; $442F  2A 73 0B
+        LD HL,(STREND)                   ; $442F  2A 73 0B
         CALL CMP_HL_DE                   ; $4432  CD 1F 69
         JP NZ,RAISE_DUPLICATE_DEFINITION ; $4435  C2 78 0D
         POP HL                           ; $4438  E1
@@ -5944,12 +5956,13 @@ DISK_RAISE_FILE_READ_ONLY:
         LD E,ERR_FILE_READ_ONLY          ; $4B86  raise error 70
 ; [RE] Shared disk-error exit: save the code (E), issue BDOS Select-Disk (C=$0E) on
 ;    the CP/M current-drive byte ($0004) to reselect the default drive, then raise.
+; Update existing comment phrasing to name the symbol: '...issue BDOS Select-Disk (C=DRV_SET) on the CP/M current-drive byte ($0004)...'
 DISK_RESELECT_AND_RAISE:
         PUSH DE                          ; $4B88  D5
-        LD C,$0E                         ; $4B89  0E 0E
+        LD C,DRV_SET                     ; $4B89  0E 0E
         LD A,($0004)                     ; $4B8B  3A 04 00
         LD E,A                           ; $4B8E  5F
-        CALL $0005                       ; $4B8F  CD 05 00
+        CALL BDOS                        ; $4B8F  CD 05 00
         POP DE                           ; $4B92  D1
         JP RAISE_ERROR                   ; $4B93  C3 89 0D
 GFX_STMT_HPLOT_8:
@@ -6191,10 +6204,12 @@ MANT_SHIFT_BITS_1:
         JR MANT_SHIFT_BYTES_4            ; $4CA4  18 EF
 L_4CA6:
         DEFB    $00,$00,$00,$81          ; $4CA6
-L_4CAA:
+; [RE] LOG() numerator coefficient pool: MBF (4-byte single) polynomial, layout { count byte; N x 4-byte MBF coefficient } with count=$04 -> 4 coefficients ($4CAB-$4CBA). Evaluated by POLY_EVAL (Horner) from the LOG mantissa-reduction routine at $4CDF ($4CEC/$4CEF). Paired with FP_POLY_LOG_DEN; the two are FDIV'd ($4D03) to form the rational approximation of ln over the reduced interval.
+FP_POLY_LOG_NUM:
         DEFB    $04,$9A,$F7,$19,$83,$24,$63,$43,$83,$75,$CD,$8D,$84,$A9,$7F,$83  ; $4CAA
         DEFB    $82                      ; $4CBA
-L_4CBB:
+; [RE] LOG() denominator coefficient pool: MBF polynomial { count byte; N x 4-byte MBF } with count=$04 -> 4 coefficients ($4CBC-$4CCB). Evaluated by POLY_EVAL from $4CFB/$4CFE; the result divides the FP_POLY_LOG_NUM result (FDIV at $4D03) to yield ln of the range-reduced mantissa.
+FP_POLY_LOG_DEN:
         DEFB    $04,$00,$00,$00,$81,$E2,$B0,$4D,$83,$0A,$72,$11,$83,$F4,$04,$35  ; $4CBB
         DEFB    $7F                      ; $4CCB
 ; [RE] LOG(x) handler (function token $0A): natural logarithm (MBF math package).
@@ -6214,14 +6229,14 @@ FN_SIN_REDUCE:
         XOR B                            ; $4CE7  A8
         PUSH AF                          ; $4CE8  F5
         CALL FAC_PUSH                    ; $4CE9  CD 9A 4E
-        LD HL,L_4CAA                     ; $4CEC  21 AA 4C
+        LD HL,FP_POLY_LOG_NUM            ; $4CEC  21 AA 4C
         CALL POLY_EVAL                   ; $4CEF  CD 65 5D
         POP BC                           ; $4CF2  C1
         POP HL                           ; $4CF3  E1
         CALL FAC_PUSH                    ; $4CF4  CD 9A 4E
         EX DE,HL                         ; $4CF7  EB
         CALL FP_STORE_FAC                ; $4CF8  CD AA 4E
-        LD HL,L_4CBB                     ; $4CFB  21 BB 4C
+        LD HL,FP_POLY_LOG_DEN            ; $4CFB  21 BB 4C
         CALL POLY_EVAL                   ; $4CFE  CD 65 5D
         POP BC                           ; $4D01  C1
         POP DE                           ; $4D02  D1
@@ -6596,7 +6611,7 @@ FP_MOVE4:
         JR FP_MOVE_LOOP                  ; $4EC6  18 05
 FP_MOVE4_1:
         EX DE,HL                         ; $4EC8  EB
-; [RE] Block-copy (DE)->(HL) of length = current value type ($0B14: 2/3/4/8 bytes); type-aware FP/string move.
+; [RE] Typed block-copy (DE)->(HL): length B = VALTYP ($0B14), which IS the value's storage WIDTH in bytes (2=int,3=string-descriptor,4=single,8=double). DJNZ-copies exactly VALTYP bytes. This site is the direct proof that VALTYP encodes byte width.
 FP_MOVE_TYPED:
         LD A,(L_0B14)                    ; $4EC9  3A 14 0B
         LD B,A                           ; $4ECC  47
@@ -6796,13 +6811,13 @@ FP_TO_INT:
         EX DE,HL                         ; $4FD5  EB
 FP_TO_INT_1:
         POP DE                           ; $4FD6  D1
-; [RE] Store HL into the FAC low cells ($0CB1) and set the value-type to $02 (single) in $0B14 (SET_TYPE_SINGLE). The MOVFR/integer-into-FAC primitive used throughout the evaluator.
+; [RE] FP_STORE_FAC_INT: store the 16-bit integer in HL into the FAC low cells ($0CB1) and fall into SET_TYPE_INTEGER, setting VALTYP $0B14 = $02 (=VT_INT, integer, 2-byte width). The integer-into-FAC primitive used throughout the evaluator (MOVFR for the integer case).
 FP_STORE_FAC_INT:
         LD (L_0CB1),HL                   ; $4FD7  22 B1 0C
-; [RE] Set the current value-type byte $0B14 to $02 (single precision).
-SET_TYPE_SINGLE:
+; [RE] SET_TYPE_INTEGER: set VALTYP $0B14 = $02 (=VT_INT, integer). Tail of FP_STORE_FAC_INT and the integer-result stores (e.g. INT_DIV_ROUND $5203).
+SET_TYPE_INTEGER:
         LD A,$02                         ; $4FDA  3E 02
-SET_TYPE_SINGLE_1:
+SET_TYPE_INTEGER_1:
         LD (L_0B14),A                    ; $4FDC  32 14 0B
         RET                              ; $4FDF  C9
 ; [RE] Range-check helper for FP->int: compare FAC against the $8000 boundary (FCOMP) and finalize the integer result.
@@ -6853,13 +6868,13 @@ FP_CLEAR_EXT:
         LD HL,$0000                      ; $5024  21 00 00
         LD (L_0CAD),HL                   ; $5027  22 AD 0C
         LD (L_0CAF),HL                   ; $502A  22 AF 0C
-; [RE] Set value type for a single (BC=$043E length/exp pair) and store type byte; entry used when promoting an integer to FP.
+; [RE] SET_TYPE_DOUBLE: set VALTYP $0B14 = $08 (=VT_DBL, double). LD A,$08 then the LD BC,$043E at $502F acts as a 3E-04 cover so the +1 entry ($5030) sets single ($04) instead. Used to seed the numeric-literal accumulator as double (FIN $54A3) and clear-extend to double (FP_CLEAR_EXT fall-through).
 SET_TYPE_DOUBLE:
         LD A,$08                         ; $502D  3E 08
-; [RE] Flag-skip type select: SET_TYPE_DOUBLE ($502D) loads A=$08 then $502F LD BC,$043E swallows the 3E 04 bytes (junk BC), so the double path keeps A=$08. Callers entering SET_TYPE_DOUBLE_1+1 ($5030) run LD A,$04 instead. Both JP SET_TYPE_SINGLE_1 ($4FDC) -> LD ($0B14),A: VALTYP $08=double vs $04=single (MS BASIC-80 2/3/4/8 VALTYP scheme).
+; [RE] Flag-skip type select. SET_TYPE_DOUBLE ($502D) loads A=$08 then $502F LD BC,$043E swallows the 3E 04 bytes (BC scratch), so the double entry keeps A=$08. Callers entering at SET_TYPE_DOUBLE_1+1 ($5030) instead execute those bytes as LD A,$04. Both JP SET_TYPE_INTEGER_1 ($4FDC) -> LD ($0B14),A: VALTYP $08=VT_DBL (double) vs $04=VT_SNG (single). VALTYP = storage width in bytes (int=2,string=3,single=4,double=8).
 SET_TYPE_DOUBLE_1:
         LD BC,$043E                      ; $502F  01 3E 04
-        JP SET_TYPE_SINGLE_1             ; $5032  C3 DC 4F
+        JP SET_TYPE_INTEGER_1            ; $5032  C3 DC 4F
 ; [RE] Type-check requiring a numeric value; error ($0D87) if string/zero ??" gatekeeper for an INT-class operation.
 FP_INT_CHECK:
         CALL FRMEVL_TEST_TYPE            ; $5035  CD C8 3D
@@ -7202,7 +7217,7 @@ INT_TO_SNG:
 FLOAT_FROM_INT:
         LD B,$98                         ; $51F3  06 98
         JP FLOAT_A_1                     ; $51F5  C3 5B 4E
-; 16-bit integer DIVIDE: multiply-by-reciprocal then RRA-shift the quotient (D:E) into H:L with rounding, store via SET_TYPE_SINGLE and INT_ABS_STORE. MS BASIC-80 integer divide.
+; 16-bit integer DIVIDE: multiply-by-reciprocal then RRA-shift the quotient (D:E) into H:L with rounding, store via SET_TYPE_INTEGER and INT_ABS_STORE. MS BASIC-80 integer divide.
 INT_DIV_ROUND:
         PUSH DE                          ; $51F8  D5
         CALL INT_DIV_KERNEL              ; $51F9  CD 96 51
@@ -7213,7 +7228,7 @@ INT_DIV_ROUND:
         LD A,E                           ; $5200  7B
         RRA                              ; $5201  1F
         LD L,A                           ; $5202  6F
-        CALL SET_TYPE_SINGLE             ; $5203  CD DA 4F
+        CALL SET_TYPE_INTEGER            ; $5203  CD DA 4F
         POP AF                           ; $5206  F1
         JR INT_ABS_STORE_1               ; $5207  18 CC
 ; [RE] Flip the sign byte of the double-precision operand at $0CC0 (XOR $80), then fall into DADD (double-precision add) to perform a double subtract.
@@ -7716,7 +7731,7 @@ FIN_4:
         POP HL                           ; $54F4  E1
         JR Z,FIN_5                       ; $54F5  28 0B
         LD A,(L_0B14)                    ; $54F7  3A 14 0B
-        CP $08                           ; $54FA  FE 08
+        CP VT_DBL                        ; $54FA  FE 08
         JR Z,FIN_7                       ; $54FC  28 1C
         LD A,$00                         ; $54FE  3E 00
         JR FIN_7                         ; $5500  18 18
@@ -8090,7 +8105,7 @@ FOUT_BODY_2:
         LD A,(L_0B14)                    ; $5746  3A 14 0B
         JP C,FOUT_EXPONENT_5             ; $5749  DA C2 58
         JP Z,FOUT_EXPONENT_3             ; $574C  CA BA 58
-        CP $04                           ; $574F  FE 04
+        CP VT_SNG                        ; $574F  FE 04
         JP NC,FOUT_DOUBLE_FMT            ; $5751  D2 AA 57
         LD BC,$0000                      ; $5754  01 00 00
         CALL FOUT_DIGITS_INT             ; $5757  CD 8B 5B
@@ -9055,7 +9070,7 @@ FN_EXP:
         JP Z,FN_EXP_2                    ; $5D08  CA 20 5D
         PUSH AF                          ; $5D0B  F5
         CALL FSUB                        ; $5D0C  CD A3 4B
-        LD HL,L_5D39                     ; $5D0F  21 39 5D
+        LD HL,FP_POLY_EXP_COEFFS         ; $5D0F  21 39 5D
         CALL POLY_EVAL                   ; $5D12  CD 65 5D
         POP BC                           ; $5D15  C1
         LD DE,$0000                      ; $5D16  11 00 00
@@ -9077,7 +9092,8 @@ FN_EXP_4:
         LD DE,$0000                      ; $5D32  11 00 00
         CALL FP_STORE_FAC                ; $5D35  CD AA 4E
         RET                              ; $5D38  C9
-L_5D39:
+; [RE] EXP() coefficient pool: MBF polynomial { count byte; N x 4-byte MBF } with count=$07 -> 7 coefficients ($5D3A-$5D55). Evaluated by POLY_EVAL (Horner) from FN_EXP ($5D0F/$5D12) to approximate 2^f for the fractional part f after FN_EXP scales x by log2(e) and splits off the integer exponent (FIX_SCALE).
+FP_POLY_EXP_COEFFS:
         DEFB    $07,$7C,$88,$59,$74,$E0,$97,$26,$77,$C4,$1D,$1E,$7A,$5E,$50,$63  ; $5D39
         DEFB    $7C,$1A,$FE,$75,$7E,$18,$72,$31,$80,$00,$00,$00,$81  ; $5D49
 ; [RE] Odd-power polynomial evaluator: forms x*P(x^2) for the series approximations (SIN/ATN/TAN), squaring the argument then calling the Horner evaluator POLY_EVAL.
@@ -9260,7 +9276,7 @@ FN_SIN_2:
 ; [RE] MBF constant pair for the transcendental code: log2(e)=1.442695 followed by 0.5. FN_EXP loads it ($5E34) to scale x by log2(e); FN_TAN returns with HL pointing here ($5EFE).
 FP_CONST_EXP_LOG2E:
         DEFB    $DB,$0F,$49,$81,$00,$00,$00,$7F  ; $5EAA
-; [RE] MBF polynomial coefficient table (count byte then five 4-byte coefficients) for the SIN/COS series, evaluated by POLY_EVAL_ODD from FN_RND_2 ($5E91). Also doubled as a rotating XOR key table by the protected-program scramble ($8152/$817B).
+; [RE] SIN/COS coefficient pool (FP_POLY_SIN_COEFFS): MBF polynomial { count byte; N x 4-byte MBF } with count=$05 -> 5 coefficients ($5EB3-$5EC6, 20 bytes). Evaluated as x*P(x^2) by POLY_EVAL_ODD from FN_SIN ($5E91; the call site label FN_RND_2 is a code-overlap artifact, not RND). DUAL USE: reused as a rotating XOR key table by the protected-program scramble (PROG_UNSCRAMBLE $8152, PROG_SCRAMBLE $817B), indexed mod-11 by the C counter -- name KEPT to preserve both identities.
 FP_POLY_SIN_COEFFS:
         DEFB    $05,$FB,$D7,$1E,$86,$65,$26,$99,$87,$58,$34,$23,$87,$E1,$5D,$A5  ; $5EB2
         DEFB    $86,$DB,$0F,$49,$83      ; $5EC2
@@ -9290,11 +9306,12 @@ FN_ATN:
         LD HL,FADD_FROM_MEM_1            ; $5EF4  21 A0 4B
         PUSH HL                          ; $5EF7  E5
 FN_ATN_1:
-        LD HL,L_5F02                     ; $5EF8  21 02 5F
+        LD HL,FP_POLY_ATN_COEFFS         ; $5EF8  21 02 5F
         CALL POLY_EVAL_ODD               ; $5EFB  CD 56 5D
         LD HL,FP_CONST_EXP_LOG2E         ; $5EFE  21 AA 5E
         RET                              ; $5F01  C9
-L_5F02:
+; [RE] ATN() coefficient pool: MBF polynomial { count byte; N x 4-byte MBF } with count=$09 -> 9 coefficients ($5F03-$5F26, 36 bytes). Evaluated as x*P(x^2) by POLY_EVAL_ODD from FN_ATN ($5EF8/$5EFB) (the odd-power series for arctangent). DUAL USE: the protected-program scrambler reuses these raw bytes as a rotating XOR key (PROG_UNSCRAMBLE $8144, PROG_SCRAMBLE $8189), indexed mod-13 by the B counter -- the byte values, not their FP value, are what matter there.
+FP_POLY_ATN_COEFFS:
         DEFB    $09,$4A,$D7,$3B,$78,$02,$6E,$84,$7B,$FE,$C1,$2F,$7C,$74,$31,$9A  ; $5F02
         DEFB    $7D,$84,$3D,$5A,$7D,$C8,$7F,$91,$7E,$E4,$BB,$4C,$7E,$6C,$AA,$AA  ; $5F12
         DEFB    $7F,$00,$00,$00,$81      ; $5F22
@@ -9382,7 +9399,7 @@ PTRGET_8:
         LD E,A                           ; $5FA2  5F
         LD D,$00                         ; $5FA3  16 00
         PUSH HL                          ; $5FA5  E5
-        LD HL,L_0B36                     ; $5FA6  21 36 0B
+        LD HL,DEFTYPE_TBL-$41            ; $5FA6  21 36 0B
 PTRGET_9:
         ADD HL,DE                        ; $5FA9  19
         LD D,(HL)                        ; $5FAA  56
@@ -9416,6 +9433,7 @@ PTRGET_SEARCH:
         LD (L_0C62),HL                   ; $5FDE  22 62 0C
         EX DE,HL                         ; $5FE1  EB
         JR PTRGET_SEARCH_5               ; $5FE2  18 1B
+; [RE] SIMPLE-VARIABLE table scan (SIMPLEVAR walk). DE walks VARTAB..ARYTAB. Per entry: read SV_VALTYP into L ($5FE4), compare SV_NAME0 to C ($5FE9) and live VALTYP $0B14 to L ($5FEC) and SV_NAME1 to B ($5FF3). On a 2-char hit -> PTRGET_SEARCH_10 (checks SV_NAMEXTLEN/long-name match). On miss, fall through to the computed-stride advance: next = cur + (SV_NAMEXTLEN + SV_VALTYP + 1). Sequential walk -- no base+offset access. See msbasic_var.inc.
 PTRGET_SEARCH_1:
         LD A,(DE)                        ; $5FE4  1A
         LD L,A                           ; $5FE5  6F
@@ -9433,10 +9451,10 @@ PTRGET_SEARCH_1:
 PTRGET_SEARCH_2:
         INC DE                           ; $5FF7  13
 PTRGET_SEARCH_3:
-        LD A,(DE)                        ; $5FF8  1A
+        LD A,(DE)                        ; $5FF8  1A   <- SV_NAMEXTLEN: A = extra-name-char count for stride
 PTRGET_SEARCH_4:
         LD H,$00                         ; $5FF9  26 00
-        ADD A,L                          ; $5FFB  85
+        ADD A,L                          ; $5FFB  85   <- + SV_VALTYP (L still holds the type/width read at $5FE5); INC A; ADD HL,DE = next entry
         INC A                            ; $5FFC  3C
         LD L,A                           ; $5FFD  6F
         ADD HL,DE                        ; $5FFE  19
@@ -9454,7 +9472,7 @@ PTRGET_SEARCH_5:
         XOR A                            ; $6013  AF
         LD (L_0C61),A                    ; $6014  32 61 0C
 PTRGET_SEARCH_6:
-        LD HL,(L_0B71)                   ; $6017  2A 71 0B
+        LD HL,(ARYTAB)                   ; $6017  2A 71 0B
         LD (L_0C62),HL                   ; $601A  22 62 0C
         LD HL,(VARTAB)                   ; $601D  2A 6F 0B
         JR PTRGET_SEARCH_5               ; $6020  18 DD
@@ -9495,17 +9513,17 @@ PTRGET_SEARCH_8:
         INC BC                           ; $605C  03
         INC BC                           ; $605D  03
         INC BC                           ; $605E  03
-        LD HL,(L_0B73)                   ; $605F  2A 73 0B
+        LD HL,(STREND)                   ; $605F  2A 73 0B
         PUSH HL                          ; $6062  E5
         ADD HL,BC                        ; $6063  09
         POP BC                           ; $6064  C1
         PUSH HL                          ; $6065  E5
         CALL STR_COPY_DOWN               ; $6066  CD 11 68
         POP HL                           ; $6069  E1
-        LD (L_0B73),HL                   ; $606A  22 73 0B
+        LD (STREND),HL                   ; $606A  22 73 0B
         LD H,B                           ; $606D  60
         LD L,C                           ; $606E  69
-        LD (L_0B71),HL                   ; $606F  22 71 0B
+        LD (ARYTAB),HL                   ; $606F  22 71 0B
 PTRGET_SEARCH_9:
         DEC HL                           ; $6072  2B
         LD (HL),$00                      ; $6073  36 00
@@ -9523,6 +9541,7 @@ PTRGET_SEARCH_9:
         INC DE                           ; $6085  13
         POP HL                           ; $6086  E1
         RET                              ; $6087  C9
+; [RE] SIMPLE-VARIABLE long-name confirm: a 2-char header matched; now compare SV_NAMEXTLEN (offset $03, $608D) to the scanned name's extra-length ($0871). If both 0 -> exact short-name hit, return DE -> value ($6095 INC DE). Else VARNAM_COMPARE the namext bytes; on mismatch resume the stride walk (PTRGET_SEARCH_4).
 PTRGET_SEARCH_10:
         INC DE                           ; $6088  13
         LD A,(L_0871)                    ; $6089  3A 71 08
@@ -9638,12 +9657,12 @@ PTRGET_SEARCH_21:
 ; [RE] VERIFIED flag-skip. PTRGET_SEARCH_23 ($612C) opcode-eating entry. Fall-through (from PTRGET_SEARCH_22 PUSH DE at $612B) executes LD DE,$F5E5; the $11 opcode swallows E5 F5 so the first pass skips PUSH HL/PUSH AF and loads a dead DE. The two +1 entrants ($612D, JP Z at $5FB8 / CALL at $7389) run E5 F5 as PUSH HL / PUSH AF to save caller state. Both reach LD HL,($0B71) at $612F. Cover genuinely executed; MBASIC twin (SUB_3D4E_6, still machine-labeled) byte-identical.
 PTRGET_SEARCH_22:
         LD DE,$F5E5                      ; $612C  11 E5 F5
-        LD HL,(L_0B71)                   ; $612F  2A 71 0B
-; [RE] VERIFIED flag-skip. PTRGET_SEARCH_24 ($6132) opcode-eating loop advance. Fall-through (from $612F) runs LD A,$19 (3E swallows 19); the first array-table pass skips ADD HL,DE because HL is already at the table head. The loop re-enters via JR NZ,PTRGET_SEARCH_24+1 ($6133) at $6159, running 19 as ADD HL,DE to step to the next entry. A=$19 is dead (clobbered at $6140). Both reach EX DE,HL / CMP_HL_DE at $6134. Cover genuinely executed; MBASIC twin (SUB_3D4E_7) byte-identical (20 D8).
+        LD HL,(ARYTAB)                   ; $612F  2A 71 0B
+; [RE] VERIFIED flag-skip. PTRGET_SEARCH_24 ($6132) opcode-eating loop advance. Fall-through (from $612F) runs LD A,$19 (3E swallows 19); the first array-table pass skips ADD HL,DE because HL is already at the table head. The loop re-enters via JR NZ,PTRGET_SEARCH_24+1 ($6133) at $6159, running 19 as ADD HL,DE to step to the next ARRAYVAR by the stored AV_BLKLEN stride (DE loaded at $6155-$6158). A=$19 is dead (clobbered at $6140). Both reach EX DE,HL / CMP_HL_DE at $6134. Cover genuinely executed; MBASIC twin (SUB_3D4E_7) byte-identical (20 D8). ARRAY-TABLE scan: compares AV_NAME0/$0B14/AV_NAME1 to C/$0B14/B ($6142/$6148/$614C); see msbasic_var.inc.
 PTRGET_SEARCH_23:
         LD A,$19                         ; $6132  3E 19
         EX DE,HL                         ; $6134  EB
-        LD HL,(L_0B73)                   ; $6135  2A 73 0B
+        LD HL,(STREND)                   ; $6135  2A 73 0B
         EX DE,HL                         ; $6138  EB
         CALL CMP_HL_DE                   ; $6139  CD 1F 69
         JR Z,PTRGET_SEARCH_29            ; $613C  28 45
@@ -9661,13 +9680,14 @@ PTRGET_SEARCH_23:
         JR Z,PTRGET_SEARCH_28            ; $614D  28 23
 PTRGET_SEARCH_24:
         INC HL                           ; $614F  23
+; [RE] ARRAYVAR advance to next descriptor: at the AV_NAMEXTLEN byte ($6150 LD E,(HL); INC E) skip the variable name extension, then PTRGET_SEARCH_26 ($6155) loads AV_BLKLEN (the stored inter-entry stride word) into DE; the loop top adds it (flag-skip ADD HL,DE at $6132/$6159) to reach the next ARRAYVAR. Stored-stride sequential walk -- no base+offset.
 PTRGET_SEARCH_25:
         LD E,(HL)                        ; $6150  5E
         INC E                            ; $6151  1C
         LD D,$00                         ; $6152  16 00
         ADD HL,DE                        ; $6154  19
 PTRGET_SEARCH_26:
-        LD E,(HL)                        ; $6155  5E
+        LD E,(HL)                        ; $6155  5E   <- AV_BLKLEN word -> DE = stride to next array descriptor
         INC HL                           ; $6156  23
         LD D,(HL)                        ; $6157  56
         INC HL                           ; $6158  23
@@ -9747,7 +9767,7 @@ PTRGET_SEARCH_32:
         ADD HL,DE                        ; $61C6  19
         JP C,CHECK_STACK_ROOM_1          ; $61C7  DA 36 68
         CALL GC_CHECK_AND_COLLECT        ; $61CA  CD 44 68
-        LD (L_0B73),HL                   ; $61CD  22 73 0B
+        LD (STREND),HL                   ; $61CD  22 73 0B
 PTRGET_SEARCH_33:
         DEC HL                           ; $61D0  2B
         LD (HL),$00                      ; $61D1  36 00
@@ -9777,7 +9797,7 @@ PTRGET_SEARCH_34:
 ; [RE] VERIFIED flag-skip. PTRGET_SEARCH_36 ($61EF) opcode-eating dimension loop. Fall-through (from PTRGET_SEARCH_35) runs LD D,$E1 (16 swallows E1); the first array dimension skips POP HL because HL is already valid. The loop re-enters via JR NZ,PTRGET_SEARCH_36+1 ($61F0) at $6205, running E1 as POP HL to restore the per-dimension HL save (EX (SP),HL/PUSH AF at $61F5/$61F6). D=$E1 is dead (clobbered at $61F3). Both reach LD E,(HL) at $61F1. Cover genuinely executed; MBASIC twin (SUB_3D4E_21) byte-identical (20 E9).
 PTRGET_SEARCH_35:
         LD D,$E1                         ; $61EF  16 E1
-        LD E,(HL)                        ; $61F1  5E
+        LD E,(HL)                        ; $61F1  5E   <- AV_DIMSIZE[i] word (high dim first) -> DE for the index/offset accumulate
         INC HL                           ; $61F2  23
         LD D,(HL)                        ; $61F3  56
         INC HL                           ; $61F4  23
@@ -10535,12 +10555,12 @@ PRINT_USING_PUT_SIGN:
 OUTCHR:
         PUSH AF                          ; $6613  F5
         PUSH HL                          ; $6614  E5
-        LD HL,(OUTPUT_REDIRECTED)        ; $6615  2A 40 08
+        LD HL,(PTRFIL)                   ; $6615  2A 40 08
         LD A,H                           ; $6618  7C
         OR L                             ; $6619  B5
         JP NZ,FN_LOF_VALUE_1             ; $661A  C2 20 7B
         POP HL                           ; $661D  E1
-        LD A,(L_0838)                    ; $661E  3A 38 08
+        LD A,(PRTFLG)                    ; $661E  3A 38 08
         OR A                             ; $6621  B7
         JP Z,OUTDO_WIDTH_1               ; $6622  CA 91 66
         POP AF                           ; $6625  F1
@@ -10605,7 +10625,7 @@ OUTDO_DEVICE_1:
 ; [RE] Clears the output-suppress flag ($0838) and, if the print column ($0837) is nonzero, falls through to OUTDO_WIDTH to emit CRLF and reset the column. The 'return to start of line' helper before fresh output.
 OUTDO_RESET_COL:
         XOR A                            ; $6679  AF
-        LD (L_0838),A                    ; $667A  32 38 08
+        LD (PRTFLG),A                    ; $667A  32 38 08
         LD A,(OUTPUT_COLUMN)             ; $667D  3A 37 08
         OR A                             ; $6680  B7
         RET Z                            ; $6681  C8
@@ -10717,10 +10737,10 @@ LINE_COUNT_INC:
 LINE_COUNT_INC_1:
         XOR A                            ; $6722  AF
         RET                              ; $6723  C9
-; [RE] Auto-page 'more' handler on the LIST/output path: skips when output is redirected ($0840 nonzero), tests pending key (GETC_FILE_EOF), runs the input poll (LOAD_FINISH_CLOSE_CUR) and Ctrl-C/break check ($0CA0), and on a full page pushes STMT_FOR_7 and prints the pause prompt string at $0CF2 via STROUT before resuming.
+; [RE] INCHR / auto-page 'more' handler on the LIST/INPUT path: if a file is the current channel (PTRFIL $0840 nonzero) read the next byte from that file via GETC_FILE_EOF and return it; otherwise (console) tests the pending key, runs the input poll (LOAD_FINISH_CLOSE_CUR) and the Ctrl-C/break check ($0CA0), and on a full page pushes STMT_FOR_7 and prints the pause prompt string at $0CF2 via STROUT before resuming.
 INCHR:
         PUSH HL                          ; $6724  E5
-        LD HL,(OUTPUT_REDIRECTED)        ; $6725  2A 40 08
+        LD HL,(PTRFIL)                   ; $6725  2A 40 08
         LD A,H                           ; $6728  7C
         OR L                             ; $6729  B5
         JR Z,INCHR_1                     ; $672A  28 2F
@@ -10791,10 +10811,10 @@ CRLF:
         CALL OUTCHR                      ; $678A  CD 13 66
         LD A,$0A                         ; $678D  3E 0A
         CALL OUTCHR                      ; $678F  CD 13 66
-; [RE] Clear pending auto-line / print-column state ($0837 column, $0838, $0B11) after a newline; consulted via $0840 line-input-in-progress guard.
+; [RE] RESET_PRINT_STATE: clear pending auto-line / print-column state ($0837 column, PRTFLG $0838, $0B11) after a newline. (The cell consulted here is PTRFIL $0840, the current-file pointer, not a 'line-input-in-progress' flag.)
 RESET_PRINT_STATE:
         PUSH HL                          ; $6792  E5
-        LD HL,(OUTPUT_REDIRECTED)        ; $6793  2A 40 08
+        LD HL,(PTRFIL)                   ; $6793  2A 40 08
         LD A,H                           ; $6796  7C
         OR L                             ; $6797  B5
         POP HL                           ; $6798  E1
@@ -10802,7 +10822,7 @@ RESET_PRINT_STATE:
         XOR A                            ; $679B  AF
         RET                              ; $679C  C9
 RESET_PRINT_STATE_1:
-        LD A,(L_0838)                    ; $679D  3A 38 08
+        LD A,(PRTFLG)                    ; $679D  3A 38 08
         OR A                             ; $67A0  B7
         JR Z,RESET_PRINT_STATE_2         ; $67A1  28 05
         XOR A                            ; $67A3  AF
@@ -10855,7 +10875,7 @@ INKEY_SCAN_3:
 INKEY_SCAN_4:
         LD HL,L_0CF1                     ; $67E7  21 F1 0C
         LD (L_0CB1),HL                   ; $67EA  22 B1 0C
-        LD A,$03                         ; $67ED  3E 03
+        LD A,VT_STR                      ; $67ED  3E 03
         LD (L_0B14),A                    ; $67EF  32 14 0B
         POP HL                           ; $67F2  E1
         RET                              ; $67F3  C9
@@ -10992,7 +11012,7 @@ CLEAR_RESET_STORAGE:
         LD (L_0C74),A                    ; $689B  32 74 0C
         LD (L_0C73),A                    ; $689E  32 73 0C
         LD B,$1A                         ; $68A1  06 1A
-        LD HL,L_0B77                     ; $68A3  21 77 0B
+        LD HL,DEFTYPE_TBL                ; $68A3  21 77 0B
 CLEAR_RESET_STORAGE_1:
         LD (HL),$04                      ; $68A6  36 04
         INC HL                           ; $68A8  23
@@ -11023,8 +11043,8 @@ CLEAR_RESET_STORAGE_3:
         XOR A                            ; $68D5  AF
         CALL STMT_RESTORE                ; $68D6  CD 37 69
         LD HL,(VARTAB)                   ; $68D9  2A 6F 0B
-        LD (L_0B71),HL                   ; $68DC  22 71 0B
-        LD (L_0B73),HL                   ; $68DF  22 73 0B
+        LD (ARYTAB),HL                   ; $68DC  22 71 0B
+        LD (STREND),HL                   ; $68DF  22 73 0B
         LD A,(CHAIN_PRESERVE_FLAG)       ; $68E2  3A 9A 0C
         OR A                             ; $68E5  B7
         CALL Z,CLOSE_ALL_FILES           ; $68E6  CC D1 78
@@ -11038,8 +11058,8 @@ CLEAR_RESET_STORAGE_3:
 ; [RE] Stack-reset / run-state init trampoline (RUN/LOAD/file-error unwind): LD SP,HL restores the stack, reinits the stack guard ($0B25), clears reverse-video + output column, and zeroes the run-time work cells. The +offset entry just reloads the text pointer from $0B54.
 RESET_RUN_STATE:
         LD SP,HL                         ; $68F4  F9
-        LD HL,L_0B27                     ; $68F5  21 27 0B
-        LD (L_0B25),HL                   ; $68F8  22 25 0B
+        LD HL,TEMPST                     ; $68F5  21 27 0B
+        LD (TEMPPT),HL                   ; $68F8  22 25 0B
         CALL GFX_CLR_REVERSE_FLAG        ; $68FB  CD 39 45
         CALL OUTDO_RESET_COL             ; $68FE  CD 79 66
         CALL PRINT_RESET_STATE           ; $6901  CD 7F 38
@@ -11120,8 +11140,8 @@ STMT_END:
         POP AF                           ; $695B  F1
 STMT_END_1:
         LD (OLDTXT),HL                   ; $695C  22 5C 0B
-        LD HL,L_0B27                     ; $695F  21 27 0B
-        LD (L_0B25),HL                   ; $6962  22 25 0B
+        LD HL,TEMPST                     ; $695F  21 27 0B
+        LD (TEMPPT),HL                   ; $6962  22 25 0B
 ; [RE] Dual entry. Fall-through (END/stop tail from STMT_END_1) runs LD HL,$FFF6 whose value is dead (RESUME_AT_DIRECT at $6969 reloads HL from SAVTXT); its only job is to eat the F6 FF bytes so A is preserved. The three JP C,STMT_END_2+1 sites (after INLIN returns carry = input aborted) enter +1 so F6 FF runs as OR $FF, flagging the break in A=$FF. Both merge at $6968 POP BC.
 STMT_END_2:
         LD HL,$FFF6                      ; $6965  21 F6 FF
@@ -11155,7 +11175,7 @@ ECHO_CTRL_CHAR:
         PUSH AF                          ; $6992  F5
         SUB $03                          ; $6993  D6 03
         JR NZ,ECHO_CTRL_CHAR_1           ; $6995  20 06
-        LD (L_0838),A                    ; $6997  32 38 08
+        LD (PRTFLG),A                    ; $6997  32 38 08
         LD (CTRL_O_SUPPRESS),A           ; $699A  32 3F 08
 ECHO_CTRL_CHAR_1:
         LD A,$5E                         ; $699D  3E 5E
@@ -11180,7 +11200,7 @@ STMT_CONT:
 ; [RE] TRON/TROFF share one tail. TRON (DEFW at $0144) enters $69BF and runs LD A,$AF (trace ON); TROFF (DEFW at $0146) and program-start (CALL from $687A) enter +1 so the AF byte runs as XOR A (trace OFF). Both fall into LD ($0CAB),A; RET, storing $AF or 0 into the trace flag read at $3393.
 STMT_TRACE:
         LD A,$AF                         ; $69BF  3E AF
-        LD (L_0CAB),A                    ; $69C1  32 AB 0C
+        LD (TRCFLG),A                    ; $69C1  32 AB 0C
         RET                              ; $69C4  C9
 ; [RE] SWAP statement handler (token $A1): exchange the values of two variables.
 STMT_SWAP:
@@ -11189,7 +11209,7 @@ STMT_SWAP:
         PUSH HL                          ; $69C9  E5
         LD HL,L_0CA3                     ; $69CA  21 A3 0C
         CALL FP_MOVE_TYPED               ; $69CD  CD C9 4E
-        LD HL,(L_0B71)                   ; $69D0  2A 71 0B
+        LD HL,(ARYTAB)                   ; $69D0  2A 71 0B
         EX (SP),HL                       ; $69D3  E3
         CALL FRMEVL_TEST_TYPE            ; $69D4  CD C8 3D
         PUSH AF                          ; $69D7  F5
@@ -11203,7 +11223,7 @@ STMT_SWAP:
         EX (SP),HL                       ; $69E7  E3
         EX DE,HL                         ; $69E8  EB
         PUSH HL                          ; $69E9  E5
-        LD HL,(L_0B71)                   ; $69EA  2A 71 0B
+        LD HL,(ARYTAB)                   ; $69EA  2A 71 0B
         CALL CMP_HL_DE                   ; $69ED  CD 1F 69
         JP NZ,ERROR_FC                   ; $69F0  C2 D0 34
         POP DE                           ; $69F3  D1
@@ -11216,7 +11236,7 @@ STMT_SWAP:
         CALL FP_MOVE_TYPED               ; $69FE  CD C9 4E
         POP HL                           ; $6A01  E1
         RET                              ; $6A02  C9
-; [RE] ERASE statement handler (token $A2): delete a dimensioned array, freeing its storage.
+; [RE] ERASE statement handler (token $A2): delete a dimensioned array, freeing its ARRAYVAR storage. PTRGET returns BC -> the array DATA; ERASE reconstructs the descriptor BASE by reverse sequential stepping: DEC BC x3 over {ndims, blklen-word} ($6A14), then walk the packed name backward while the high bit is set ($6A17 LD A,(BC)/DEC BC/JP M), then DEC BC x2 over {name0/name1, valtyp}. ADD HL,DE (HL=data, DE=AV_BLKLEN) gives the array end, then the block above slides down ($6A24-$6A30) and STREND is lowered. No base+offset; the descriptor base is found by walking, not a fixed offset.
 STMT_ERASE:
         LD A,$01                         ; $6A03  3E 01
         LD (L_0B52),A                    ; $6A05  32 52 0B
@@ -11238,7 +11258,7 @@ STMT_ERASE_1:
         DEC BC                           ; $6A1E  0B
         ADD HL,DE                        ; $6A1F  19
         EX DE,HL                         ; $6A20  EB
-        LD HL,(L_0B73)                   ; $6A21  2A 73 0B
+        LD HL,(STREND)                   ; $6A21  2A 73 0B
 STMT_ERASE_2:
         CALL CMP_HL_DE                   ; $6A24  CD 1F 69
         LD A,(DE)                        ; $6A27  1A
@@ -11249,7 +11269,7 @@ STMT_ERASE_2:
         DEC BC                           ; $6A2D  0B
         LD H,B                           ; $6A2E  60
         LD L,C                           ; $6A2F  69
-        LD (L_0B73),HL                   ; $6A30  22 73 0B
+        LD (STREND),HL                   ; $6A30  22 73 0B
         POP HL                           ; $6A33  E1
         LD A,(HL)                        ; $6A34  7E
         CP $2C                           ; $6A35  FE 2C
@@ -11430,7 +11450,7 @@ NEXT_LOOP_BODY_2:
 NEXT_LOOP_BODY_3:
         CALL IADD                        ; $6B45  CD 23 51
         LD A,(L_0B14)                    ; $6B48  3A 14 0B
-        CP $04                           ; $6B4B  FE 04
+        CP VT_SNG                        ; $6B4B  FE 04
         JP Z,RAISE_OVERFLOW              ; $6B4D  CA 81 0D
 NEXT_LOOP_BODY_4:
         EX DE,HL                         ; $6B50  EB
@@ -11520,7 +11540,7 @@ FN_STR_1:
         CALL FRESTR                      ; $6BBF  CD BC 6D
         LD BC,STR_FN_RETURN_CHAR_1       ; $6BC2  01 0F 6E
         PUSH BC                          ; $6BC5  C5
-; [RE] Build/allocate a string body from a descriptor: for the byte at (HL) call GETSPA to reserve space, copy via BLOCK_COPY_BC_TO_DE, returning the new descriptor; used by string concatenation/formatting.
+; [RE] STR_BUILD_FROM_DESC: given (HL) -> a source STRDESC (msbasic_strdesc.inc), read STRDESC.LEN ($6BC6), GETSPA that many heap bytes, then read STRDESC.PTR (LD C,(HL)$6BCD / LD B,(HL)$6BCF) and copy LEN bytes (BLOCK_COPY_BC_TO_DE) into the new heap block, recording the result via STORE_STR_DESC. Materialises a string value's bytes into freshly owned heap space; used by string concatenation/formatting and CHAIN string preservation.
 STR_BUILD_FROM_DESC:
         LD A,(HL)                        ; $6BC6  7E
         INC HL                           ; $6BC7  23
@@ -11544,8 +11564,8 @@ ALLOC_STR_A:
         CALL GETSPA                      ; $6BDC  CD 58 6C
 ; [RE] Store a string descriptor (length A, body pointer DE) into the temporary descriptor cell $0B45..$0B47 and return HL pointing at it.
 STORE_STR_DESC:
-        LD HL,L_0B45                     ; $6BDF  21 45 0B
-; [RE] Store a 3-byte string descriptor at (HL): length=A, data pointer=DE (low E, high D); preserves HL. Used right after GETSPA allocates string space.
+        LD HL,DSCTMP                     ; $6BDF  21 45 0B
+; [RE] STR_DESC_STORE: write a STRDESC (see msbasic_strdesc.inc) at (HL) -- STRDESC.LEN=A, STRDESC.PTR=DE (low E at +1, high D at +2); preserves HL. The universal 3-byte string-value-descriptor writer (length byte then heap/text pointer word); used right after GETSPA reserves string space and by SCAN_STR_BODY when measuring a literal.
 STR_DESC_STORE:
         PUSH HL                          ; $6BE2  E5
         LD (HL),A                        ; $6BE3  77
@@ -11602,18 +11622,18 @@ SCAN_STR_BODY_4:
         CALL STORE_STR_DESC              ; $6C17  CD DF 6B
 ; [RE] Place a string descriptor into the rotating string-temporary table (pointer $0B25, base $0B48): records type=string ($0B14=3), stores the descriptor and advances the temp pointer; on overflow raises 'String formula too complex' (E=$10 via RAISE_ERROR). Widely used to stage string FRMEVL results.
 PUT_STR_TEMP:
-        LD DE,L_0B45                     ; $6C1A  11 45 0B
+        LD DE,DSCTMP                     ; $6C1A  11 45 0B
 ; [RE] Two entries to the string-temp store. PUT_STR_TEMP (fall-through, and JP from $6E82) enters $6C1D LD A,$D5 (A dead) so no DE is pushed and the later POP HL ($6C36) takes the return address. CALL PUT_STR_TEMP_1+1 (from $3FD8, DEF-string) enters +1 so the D5 byte runs as PUSH DE, making that POP HL retrieve the descriptor pointer instead.
 PUT_STR_TEMP_1:
         LD A,$D5                         ; $6C1D  3E D5
-        LD HL,(L_0B25)                   ; $6C1F  2A 25 0B
+        LD HL,(TEMPPT)                   ; $6C1F  2A 25 0B
         LD (L_0CB1),HL                   ; $6C22  22 B1 0C
-        LD A,$03                         ; $6C25  3E 03
+        LD A,VT_STR                      ; $6C25  3E 03
         LD (L_0B14),A                    ; $6C27  32 14 0B
         CALL FP_MOVE_TYPED               ; $6C2A  CD C9 4E
         LD DE,FRETOP                     ; $6C2D  11 48 0B
         CALL CMP_HL_DE                   ; $6C30  CD 1F 69
-        LD (L_0B25),HL                   ; $6C33  22 25 0B
+        LD (TEMPPT),HL                   ; $6C33  22 25 0B
         POP HL                           ; $6C36  E1
         LD A,(HL)                        ; $6C37  7E
         RET NZ                           ; $6C38  C0
@@ -11628,7 +11648,7 @@ PUT_STR_TEMP_2:
 ; [RE] STROUT/print-message: print the NUL-terminated string at (HL) (or counted string) to the console one char at a time via OUTCHR ($6613), translating CR. Used for the sign-on banner and error messages.
 STROUT:
         CALL SCAN_STR_LITERAL            ; $6C40  CD EA 6B
-; [RE] Print a string VALUE: free the temp descriptor (FRESTR), load its address->BC and length->D (FP_LOAD_MEM3), then output D bytes via OUTCHR, resetting print state on CR. Entry past STROUT's literal scan; used by PRINT/LPRINT/INPUT-prompt ($37C4/$3927/$65EF/$75B4/$75D6)
+; [RE] STRPRT: print a string VALUE. FRESTR frees/locates the value's STRDESC (msbasic_strdesc.inc), then the generic 3-byte loader FP_LOAD_MEM3 ($6C46) reads the descriptor as D=STRDESC.LEN, C=STRDESC.PTR.lo, B=STRDESC.PTR.hi; STRPRT_1 then outputs LEN (D) bytes from (BC) via OUTCHR, resetting print state on CR. Entry past STROUT's literal scan; used by PRINT/LPRINT/INPUT-prompt ($37C4/$3927/$65EF/$75B4/$75D6).
 STRPRT:
         CALL FRESTR                      ; $6C43  CD BC 6D
         CALL FP_LOAD_MEM3                ; $6C46  CD BA 4E
@@ -11649,7 +11669,7 @@ GETSPA:
 GETSPA_1:
         LD C,$F1                         ; $6C59  0E F1
         PUSH AF                          ; $6C5B  F5
-        LD HL,(L_0B73)                   ; $6C5C  2A 73 0B
+        LD HL,(STREND)                   ; $6C5C  2A 73 0B
         EX DE,HL                         ; $6C5F  EB
         LD HL,(FRETOP)                   ; $6C60  2A 48 0B
         CPL                              ; $6C63  2F
@@ -11680,21 +11700,22 @@ GARBAG_1:
         LD (FRETOP),HL                   ; $6C85  22 48 0B
         LD HL,$0000                      ; $6C88  21 00 00
         PUSH HL                          ; $6C8B  E5
-        LD HL,(L_0B73)                   ; $6C8C  2A 73 0B
+        LD HL,(STREND)                   ; $6C8C  2A 73 0B
         PUSH HL                          ; $6C8F  E5
-        LD HL,L_0B27                     ; $6C90  21 27 0B
+        LD HL,TEMPST                     ; $6C90  21 27 0B
 GARBAG_2:
         EX DE,HL                         ; $6C93  EB
-        LD HL,(L_0B25)                   ; $6C94  2A 25 0B
+        LD HL,(TEMPPT)                   ; $6C94  2A 25 0B
         EX DE,HL                         ; $6C97  EB
         CALL CMP_HL_DE                   ; $6C98  CD 1F 69
         LD BC,GARBAG_2                   ; $6C9B  01 93 6C
         JP NZ,GARBAG_9                   ; $6C9E  C2 27 6D
         LD HL,L_0BF9                     ; $6CA1  21 F9 0B
         LD (L_0C65),HL                   ; $6CA4  22 65 0C
-        LD HL,(L_0B71)                   ; $6CA7  2A 71 0B
+        LD HL,(ARYTAB)                   ; $6CA7  2A 71 0B
         LD (L_0C62),HL                   ; $6CAA  22 62 0C
         LD HL,(VARTAB)                   ; $6CAD  2A 6F 0B
+; [RE] GC simple-variable walk over SIMPLEVAR records (VARTAB..ARYTAB, cmp to $0C62). Per entry: SV_VALTYP ($6CBA), skip 3-byte header ($6CBB-BD), VARTAB_SKIP_ENTRY consumes SV_NAMEXTLEN+namext ($6CBF) leaving HL at value; if VALTYP==3 (string) fix its descriptor (GARBAG_FIX_STR_PTR $6CC7) else add SV_VALTYP to step past the value ($6CCB-CE). Sequential walk.
 GARBAG_3:
         EX DE,HL                         ; $6CB0  EB
         LD HL,(L_0C62)                   ; $6CB1  2A 62 0C
@@ -11725,7 +11746,7 @@ GARBAG_5:
         LD L,A                           ; $6CD7  6F
         OR H                             ; $6CD8  B4
         EX DE,HL                         ; $6CD9  EB
-        LD HL,(L_0B71)                   ; $6CDA  2A 71 0B
+        LD HL,(ARYTAB)                   ; $6CDA  2A 71 0B
         JR Z,GARBAG_7                    ; $6CDD  28 13
         EX DE,HL                         ; $6CDF  EB
         LD (L_0C65),HL                   ; $6CE0  22 65 0C
@@ -11742,9 +11763,10 @@ GARBAG_5:
         JR GARBAG_3                      ; $6CEF  18 BF
 GARBAG_6:
         POP BC                           ; $6CF1  C1
+; [RE] GC array-table walk over ARRAYVAR records (ARYTAB..STREND, cmp to $0B73). Per entry: read AV_VALTYP ($6CFD), skip the 3-byte header ($6D00-01 + the type byte already consumed) and the name via VARTAB_SKIP_ENTRY ($6D02), load AV_BLKLEN ($6D05-08) to find the next descriptor; only VALTYP==3 (string) arrays have their element descriptors scanned (loop GARBAG_8 $6D1A using AV_NDIMS at $6D14 to size the element block). Sequential, stored-stride.
 GARBAG_7:
         EX DE,HL                         ; $6CF2  EB
-        LD HL,(L_0B73)                   ; $6CF3  2A 73 0B
+        LD HL,(STREND)                   ; $6CF3  2A 73 0B
         EX DE,HL                         ; $6CF6  EB
         CALL CMP_HL_DE                   ; $6CF7  CD 1F 69
         JP Z,GARBAG_FIX_STR_PTR_1        ; $6CFA  CA 4C 6D
@@ -11922,7 +11944,7 @@ FRESTR1_1:
         RET                              ; $6DD8  C9
 ; [RE] pop the most-recently-pushed temporary string descriptor off the temp-descriptor stack ($0B25): if HL matches, retract the temp pointer by one descriptor and clear Z.
 FREE_TOP_TEMP_DESCR:
-        LD HL,(L_0B25)                   ; $6DD9  2A 25 0B
+        LD HL,(TEMPPT)                   ; $6DD9  2A 25 0B
         DEC HL                           ; $6DDC  2B
         LD B,(HL)                        ; $6DDD  46
         DEC HL                           ; $6DDE  2B
@@ -11930,7 +11952,7 @@ FREE_TOP_TEMP_DESCR:
         DEC HL                           ; $6DE0  2B
         CALL CMP_HL_DE                   ; $6DE1  CD 1F 69
         RET NZ                           ; $6DE4  C0
-        LD (L_0B25),HL                   ; $6DE5  22 25 0B
+        LD (TEMPPT),HL                   ; $6DE5  22 25 0B
         RET                              ; $6DE8  C9
 ; [RE] LEN(a$) handler (function token $11): length of a string (its descriptor count byte) into the FAC.
 FN_LEN:
@@ -11948,7 +11970,7 @@ GET_STR_DESCR_PTR:
 FN_ASC:
         LD BC,FP_LOAD_INT_TO_FAC         ; $6DF5  01 32 3E
         PUSH BC                          ; $6DF8  C5
-; [RE] VAL() body: fetch the string descriptor, error if empty, then load the string's text pointer (DE) and first byte (A) for numeric parsing (FIN).
+; [RE] FN_VAL_BODY: fetch the argument's STRDESC (msbasic_strdesc.inc) via GET_STR_DESCR_PTR (HL -> descriptor, A=STRDESC.LEN), FC error if empty, then read STRDESC.PTR into DE (INC HL/LD E,(HL)$6E00/INC HL/LD D,(HL)$6E02) and LD A,(DE) to fetch the first character for numeric parsing (FIN).
 FN_VAL_BODY:
         CALL GET_STR_DESCR_PTR           ; $6DF9  CD ED 6D
         JP Z,ERROR_FC                    ; $6DFC  CA D0 34
@@ -12247,7 +12269,7 @@ STMT_MID_ASSIGN:
         LD E,(HL)                        ; $6F71  5E
         INC HL                           ; $6F72  23
         LD D,(HL)                        ; $6F73  56
-        LD HL,(L_0B73)                   ; $6F74  2A 73 0B
+        LD HL,(STREND)                   ; $6F74  2A 73 0B
         CALL CMP_HL_DE                   ; $6F77  CD 1F 69
         JR C,POP_LEN_TO_B_9              ; $6F7A  38 12
         LD HL,(TXTTAB)                   ; $6F7C  2A 46 08
@@ -12346,7 +12368,7 @@ FN_FRE:
         CALL FRESTR                      ; $6FF9  CD BC 6D
         CALL GARBAG                      ; $6FFC  CD 82 6C
 FN_FRE_1:
-        LD HL,(L_0B73)                   ; $6FFF  2A 73 0B
+        LD HL,(STREND)                   ; $6FFF  2A 73 0B
         EX DE,HL                         ; $7002  EB
         LD HL,(FRETOP)                   ; $7003  2A 48 0B
         JP FP_INT_SUB_TO_FAC             ; $7006  C3 20 3E
@@ -12488,7 +12510,7 @@ INLIN_STORE_CHAR:
         INC A                            ; $70E4  3C
         JR NZ,INLIN_APPEND_ECHO          ; $70E5  20 18
         PUSH HL                          ; $70E7  E5
-        LD HL,(OUTPUT_REDIRECTED)        ; $70E8  2A 40 08
+        LD HL,(PTRFIL)                   ; $70E8  2A 40 08
         LD A,H                           ; $70EB  7C
         OR L                             ; $70EC  B5
         POP HL                           ; $70ED  E1
@@ -12987,7 +13009,7 @@ CHAIN_MARK_VAR_5:
         DEFB    ','                      ; $73F3  2C  inline char arg consumed by the preceding CALL
         JP STMT_CHAIN_10                 ; $73F4  C3 79 73
 CHAIN_MARK_VAR_6:
-        LD HL,(L_0B71)                   ; $73F7  2A 71 0B
+        LD HL,(ARYTAB)                   ; $73F7  2A 71 0B
         EX DE,HL                         ; $73FA  EB
         LD HL,(VARTAB)                   ; $73FB  2A 6F 0B
 CHAIN_MARK_VAR_7:
@@ -13011,16 +13033,16 @@ CHAIN_MARK_VAR_7:
         JP M,CHAIN_MARK_VAR_7            ; $7416  FA FE 73
         PUSH BC                          ; $7419  C5
         CALL CHAIN_COPY_VAR_BLOCK        ; $741A  CD 28 74
-        LD HL,(L_0B71)                   ; $741D  2A 71 0B
+        LD HL,(ARYTAB)                   ; $741D  2A 71 0B
         ADD HL,DE                        ; $7420  19
-        LD (L_0B71),HL                   ; $7421  22 71 0B
+        LD (ARYTAB),HL                   ; $7421  22 71 0B
         EX DE,HL                         ; $7424  EB
         POP HL                           ; $7425  E1
         JR CHAIN_MARK_VAR_7              ; $7426  18 D6
 ; [RE] CHAIN preserve pass: relocate kept simple/array variables, copying their bytes up out of the way (via CMP_HL_DE compare and block move) and adjusting the variable/array area pointers ($0B71/$0B73) so they survive the new program load.
 CHAIN_COPY_VAR_BLOCK:
         EX DE,HL                         ; $7428  EB
-        LD HL,(L_0B73)                   ; $7429  2A 73 0B
+        LD HL,(STREND)                   ; $7429  2A 73 0B
 CHAIN_COPY_VAR_BLOCK_1:
         CALL CMP_HL_DE                   ; $742C  CD 1F 69
         LD A,(DE)                        ; $742F  1A
@@ -13038,11 +13060,11 @@ CHAIN_COPY_VAR_BLOCK_1:
         DEC BC                           ; $743C  0B
         LD H,B                           ; $743D  60
         LD L,C                           ; $743E  69
-        LD (L_0B73),HL                   ; $743F  22 73 0B
+        LD (STREND),HL                   ; $743F  22 73 0B
         RET                              ; $7442  C9
 ; [RE] CHAIN preserve pass over arrays: walk the array table, temporarily clearing each entry's preserve bit, summing sizes (VARTAB_SKIP_ENTRY) and relocating the kept ones.
 CHAIN_SCAN_ARRAYS:
-        LD HL,(L_0B73)                   ; $7443  2A 73 0B
+        LD HL,(STREND)                   ; $7443  2A 73 0B
         EX DE,HL                         ; $7446  EB
 CHAIN_COPY_VAR_BLOCK_3:
         CALL CMP_HL_DE                   ; $7447  CD 1F 69
@@ -13075,7 +13097,7 @@ CHAIN_SCAN_STRINGS:
         LD HL,(VARTAB)                   ; $746B  2A 6F 0B
 CHAIN_COPY_VAR_BLOCK_5:
         EX DE,HL                         ; $746E  EB
-        LD HL,(L_0B71)                   ; $746F  2A 71 0B
+        LD HL,(ARYTAB)                   ; $746F  2A 71 0B
         EX DE,HL                         ; $7472  EB
         CALL CMP_HL_DE                   ; $7473  CD 1F 69
         JR Z,CHAIN_COPY_VAR_BLOCK_8      ; $7476  28 18
@@ -13099,7 +13121,7 @@ CHAIN_COPY_VAR_BLOCK_7:
         POP BC                           ; $748F  C1
 CHAIN_COPY_VAR_BLOCK_8:
         EX DE,HL                         ; $7490  EB
-        LD HL,(L_0B73)                   ; $7491  2A 73 0B
+        LD HL,(STREND)                   ; $7491  2A 73 0B
         EX DE,HL                         ; $7494  EB
         CALL CMP_HL_DE                   ; $7495  CD 1F 69
         JR Z,CHAIN_COMPACT_STRINGS       ; $7498  28 55
@@ -13167,12 +13189,12 @@ CHAIN_MOVE_STRING_VAR:
 ; [RE] CHAIN string-space compaction: garbage-collect, then slide the preserved string heap (between $0B6F/$0B71/$0B73) to its new base, recording the move delta for descriptor fixups.
 CHAIN_COMPACT_STRINGS:
         CALL GARBAG                      ; $74EF  CD 82 6C
-        LD HL,(L_0B73)                   ; $74F2  2A 73 0B
+        LD HL,(STREND)                   ; $74F2  2A 73 0B
         LD B,H                           ; $74F5  44
         LD C,L                           ; $74F6  4D
         LD HL,(VARTAB)                   ; $74F7  2A 6F 0B
         EX DE,HL                         ; $74FA  EB
-        LD HL,(L_0B71)                   ; $74FB  2A 71 0B
+        LD HL,(ARYTAB)                   ; $74FB  2A 71 0B
         LD A,L                           ; $74FE  7D
         SUB E                            ; $74FF  93
         LD L,A                           ; $7500  6F
@@ -13214,7 +13236,7 @@ CHAIN_MOVE_STRING_VAR_3:
         LD C,L                           ; $754A  4D
         LD HL,(L_0C65)                   ; $754B  2A 65 0C
         ADD HL,BC                        ; $754E  09
-        LD (L_0B71),HL                   ; $754F  22 71 0B
+        LD (ARYTAB),HL                   ; $754F  22 71 0B
         LD HL,(FRETOP)                   ; $7552  2A 48 0B
         INC HL                           ; $7555  23
         EX DE,HL                         ; $7556  EB
@@ -13230,7 +13252,7 @@ CHAIN_MOVE_STRING_VAR_4:
         DEC BC                           ; $7566  0B
         LD H,B                           ; $7567  60
         LD L,C                           ; $7568  69
-        LD (L_0B73),HL                   ; $7569  22 73 0B
+        LD (STREND),HL                   ; $7569  22 73 0B
         LD HL,(L_0CA1)                   ; $756C  2A A1 0C
         LD A,H                           ; $756F  7C
         OR L                             ; $7570  B5
@@ -13300,7 +13322,7 @@ STMT_WRITE_5:
         JR STMT_WRITE_3                  ; $75DE  18 D7
 STMT_WRITE_6:
         PUSH HL                          ; $75E0  E5
-        LD HL,(OUTPUT_REDIRECTED)        ; $75E1  2A 40 08
+        LD HL,(PTRFIL)                   ; $75E1  2A 40 08
         LD A,H                           ; $75E4  7C
         OR L                             ; $75E5  B5
         JR Z,STMT_WRITE_8                ; $75E6  28 1E
@@ -13340,7 +13362,7 @@ PARSE_FILENUM_HASH:
         POP DE                           ; $7616  D1
         CP E                             ; $7617  BB
         JR Z,PARSE_FILENUM_HASH_1        ; $7618  28 05
-        CP $03                           ; $761A  FE 03
+        CP FCB_MODE_RANDOM               ; $761A  FE 03
         JP NZ,RAISE_BAD_FILE_MODE        ; $761C  C2 47 0D
 PARSE_FILENUM_HASH_1:
         CALL SYNCHR                      ; $761F  CD 25 69
@@ -13350,7 +13372,7 @@ STORE_CUR_FCB_PTR:
         EX DE,HL                         ; $7623  EB
         LD H,B                           ; $7624  60
         LD L,C                           ; $7625  69
-        LD (OUTPUT_REDIRECTED),HL        ; $7626  22 40 08
+        LD (PTRFIL),HL                   ; $7626  22 40 08
         EX DE,HL                         ; $7629  EB
         RET                              ; $762A  C9
 ; [RE] CHRGET past optional '#', FRMEVL the file-number expr, range-check vs max open files ($0870); index file table at $0850 to BC=FCB base, return mode byte in A ('File not OPEN' if 0).
@@ -13387,7 +13409,7 @@ FCB_MODE_BYTE:
 FCB_BUFFER_PTR:
         CALL FCB_MODE_BYTE               ; $7651  CD 3B 76
         LD HL,FCB.SEQ_BUF                ; $7654  21 29 00
-        CP $03                           ; $7657  FE 03
+        CP FCB_MODE_RANDOM               ; $7657  FE 03
         JR NZ,FCB_BUFFER_PTR_1           ; $7659  20 03
         LD HL,FCB.RND_BUF                ; $765B  21 B2 00
 FCB_BUFFER_PTR_1:
@@ -13537,7 +13559,7 @@ FN_CVI_15:
         CP $0A                           ; $773F  FE 0A
         JR Z,FN_CVI_17                   ; $7741  28 08
 FN_CVI_16:
-        LD HL,(OUTPUT_REDIRECTED)        ; $7743  2A 40 08
+        LD HL,(PTRFIL)                   ; $7743  2A 40 08
         LD BC,FCB.BUF_REM                ; $7746  01 28 00
         ADD HL,BC                        ; $7749  09
         INC (HL)                         ; $774A  34
@@ -13613,7 +13635,7 @@ OPEN_NAMED_FILE_3:
         LD (L_0870),A                    ; $77B4  32 70 08
         LD HL,(FILTAB_SLOT0_SEED)        ; $77B7  2A 4E 08
         LD (FILTAB),HL                   ; $77BA  22 50 08
-        LD (OUTPUT_REDIRECTED),HL        ; $77BD  22 40 08
+        LD (PTRFIL),HL                   ; $77BD  22 40 08
         LD HL,(SAVTXT)                   ; $77C0  2A 44 08
         INC HL                           ; $77C3  23
         LD A,H                           ; $77C4  7C
@@ -13682,7 +13704,7 @@ STMT_MERGE_1:
         INC A                            ; $7843  3C
         JP Z,RAISE_BAD_FILE_MODE         ; $7844  CA 47 0D
 STMT_MERGE_2:
-        LD HL,(OUTPUT_REDIRECTED)        ; $7847  2A 40 08
+        LD HL,(PTRFIL)                   ; $7847  2A 40 08
         LD BC,FCB.BUF_REM                ; $784A  01 28 00
         ADD HL,BC                        ; $784D  09
         INC (HL)                         ; $784E  34
@@ -13690,7 +13712,7 @@ STMT_MERGE_2:
 ; [RE] Direct/immediate-mode statement entry: after CRUNCH tokenizes a console line with no line number, reject it if a file is active (PTRFIL != 0 -> error $42 'Direct statement in file') else execute it via the NEWSTT direct-statement path.
 DIRECT_STMT_EXEC:
         PUSH HL                          ; $7852  E5
-        LD HL,(OUTPUT_REDIRECTED)        ; $7853  2A 40 08
+        LD HL,(PTRFIL)                   ; $7853  2A 40 08
         LD A,H                           ; $7856  7C
         OR L                             ; $7857  B5
         LD DE,ERR_DIRECT_STATEMENT_IN_FILE  ; $7858  11 42 00
@@ -13876,7 +13898,7 @@ STMT_RSET:
         JR C,STMT_RSET_2                 ; $796E  38 28
         LD E,C                           ; $7970  59
         LD D,$00                         ; $7971  16 00
-        LD HL,(L_0B73)                   ; $7973  2A 73 0B
+        LD HL,(STREND)                   ; $7973  2A 73 0B
         ADD HL,DE                        ; $7976  19
         EX DE,HL                         ; $7977  EB
         LD HL,(FRETOP)                   ; $7978  2A 48 0B
@@ -14093,9 +14115,9 @@ FILE_FLUSH_RECORD_CK:
         POP DE                           ; $7AA1  D1
         XOR A                            ; $7AA2  AF
         LD (DE),A                        ; $7AA3  12
-        LD C,$10                         ; $7AA4  0E 10
+        LD C,F_CLOSE                     ; $7AA4  0E 10
         INC DE                           ; $7AA6  13
-        CALL $0005                       ; $7AA7  CD 05 00
+        CALL BDOS                        ; $7AA7  CD 05 00
         JP RAISE_DISK_FULL               ; $7AAA  C3 41 0D
 FILE_FLUSH_RECORD_CK_1:
         INC A                            ; $7AAD  3C
@@ -14146,8 +14168,8 @@ FILE_CLOSE_ONE_2:
 FILE_CLOSE_ONE_3:
         POP DE                           ; $7AE8  D1
         CALL BDOS_SET_DMA_FCB            ; $7AE9  CD FA 7B
-        LD C,$10                         ; $7AEC  0E 10
-        CALL $0005                       ; $7AEE  CD 05 00
+        LD C,F_CLOSE                     ; $7AEC  0E 10
+        CALL BDOS                        ; $7AEE  CD 05 00
         POP BC                           ; $7AF1  C1
 FILE_CLOSE_ONE_4:
         LD D,$29                         ; $7AF2  16 29
@@ -14187,7 +14209,7 @@ FN_LOF_VALUE_1:
 PUTC_FILE:
         PUSH HL                          ; $7B22  E5
         PUSH AF                          ; $7B23  F5
-        LD HL,(OUTPUT_REDIRECTED)        ; $7B24  2A 40 08
+        LD HL,(PTRFIL)                   ; $7B24  2A 40 08
         LD A,(HL)                        ; $7B27  7E
         CP $01                           ; $7B28  FE 01
         JP Z,STMT_ERASE_3                ; $7B2A  CA 3D 6A
@@ -14274,7 +14296,7 @@ GETC_FILE:
         PUSH BC                          ; $7B92  C5
         PUSH HL                          ; $7B93  E5
 GETC_FILE_1:
-        LD HL,(OUTPUT_REDIRECTED)        ; $7B94  2A 40 08
+        LD HL,(PTRFIL)                   ; $7B94  2A 40 08
         LD A,(HL)                        ; $7B97  7E
         CP $03                           ; $7B98  FE 03
         JP Z,BLOCK_COPY_BC_4             ; $7B9A  CA E5 80
@@ -14308,9 +14330,9 @@ GETC_FILE_3:
         POP BC                           ; $7BBD  C1
         LD A,$1A                         ; $7BBE  3E 1A
         RET                              ; $7BC0  C9
-; [RE] Read the next sequential record from the current file into its FCB buffer (entry that loads $0840 first).
+; [RE] Read the next sequential record from the current file into its FCB buffer (entry that loads the current-file pointer PTRFIL $0840 first).
 FILE_READ_RECORD:
-        LD HL,(OUTPUT_REDIRECTED)        ; $7BC1  2A 40 08
+        LD HL,(PTRFIL)                   ; $7BC1  2A 40 08
 ; [RE] Bump the FCB record number and BDOS Read-Sequential into the buffer; sets the buffer-status byte (0=data, $80=EOF).
 FILE_READ_RECORD_FCB:
         PUSH DE                          ; $7BC4  D5
@@ -14358,11 +14380,11 @@ BDOS_SET_DMA_FCB:
         PUSH BC                          ; $7BFA  C5
         PUSH DE                          ; $7BFB  D5
         PUSH HL                          ; $7BFC  E5
-        LD HL,$0028                      ; $7BFD  21 28 00
+        LD HL,FCB.BUF_REM                ; $7BFD  21 28 00
         ADD HL,DE                        ; $7C00  19
         EX DE,HL                         ; $7C01  EB
-        LD C,$1A                         ; $7C02  0E 1A
-        CALL $0005                       ; $7C04  CD 05 00
+        LD C,F_DMAOFF                    ; $7C02  0E 1A
+        CALL BDOS                        ; $7C04  CD 05 00
         POP HL                           ; $7C07  E1
         POP DE                           ; $7C08  D1
         POP BC                           ; $7C09  C1
@@ -14377,7 +14399,7 @@ GETC_FILE_EOF:
         RET NZ                           ; $7C13  C0
         PUSH BC                          ; $7C14  C5
         PUSH HL                          ; $7C15  E5
-        LD HL,(OUTPUT_REDIRECTED)        ; $7C16  2A 40 08
+        LD HL,(PTRFIL)                   ; $7C16  2A 40 08
         LD BC,FCB.BUF_CNT                ; $7C19  01 27 00
         ADD HL,BC                        ; $7C1C  09
         LD (HL),$00                      ; $7C1D  36 00
@@ -14482,11 +14504,11 @@ STMT_NAME:
         CALL PARSE_FILENAME_TO_FCB       ; $7CA0  CD 26 7C
         PUSH HL                          ; $7CA3  E5
         LD DE,$0080                      ; $7CA4  11 80 00
-        LD C,$1A                         ; $7CA7  0E 1A
-        CALL $0005                       ; $7CA9  CD 05 00
+        LD C,F_DMAOFF                    ; $7CA7  0E 1A
+        CALL BDOS                        ; $7CA9  CD 05 00
         LD DE,L_08AA                     ; $7CAC  11 AA 08
-        LD C,$0F                         ; $7CAF  0E 0F
-        CALL $0005                       ; $7CB1  CD 05 00
+        LD C,F_OPEN                      ; $7CAF  0E 0F
+        CALL BDOS                        ; $7CB1  CD 05 00
         INC A                            ; $7CB4  3C
         JP Z,RAISE_FILE_NOT_FOUND        ; $7CB5  CA 4A 0D
         LD HL,L_089A                     ; $7CB8  21 9A 08
@@ -14510,13 +14532,13 @@ STMT_NAME_1:
         CP (HL)                          ; $7CD9  BE
         JP NZ,ERROR_FC                   ; $7CDA  C2 D0 34
         LD DE,L_08AA                     ; $7CDD  11 AA 08
-        LD C,$0F                         ; $7CE0  0E 0F
-        CALL $0005                       ; $7CE2  CD 05 00
+        LD C,F_OPEN                      ; $7CE0  0E 0F
+        CALL BDOS                        ; $7CE2  CD 05 00
         INC A                            ; $7CE5  3C
         JP NZ,RAISE_FILE_ALREADY_EXISTS  ; $7CE6  C2 65 0D
-        LD C,$17                         ; $7CE9  0E 17
+        LD C,F_RENAME                    ; $7CE9  0E 17
         LD DE,L_089A                     ; $7CEB  11 9A 08
-        CALL $0005                       ; $7CEE  CD 05 00
+        CALL BDOS                        ; $7CEE  CD 05 00
         POP HL                           ; $7CF1  E1
         RET                              ; $7CF2  C9
 ; [RE] OPEN statement handler (token $B8): open a disk file on a channel.
@@ -14535,13 +14557,13 @@ STMT_OPEN:
         LD B,(HL)                        ; $7D06  46
         LD A,(BC)                        ; $7D07  0A
         AND $DF                          ; $7D08  E6 DF
-        LD D,$02                         ; $7D0A  16 02
+        LD D,FCB_MODE_SEQ_OUT            ; $7D0A  16 02
         CP $4F                           ; $7D0C  FE 4F
         JR Z,STMT_OPEN_1                 ; $7D0E  28 0D
-        LD D,$01                         ; $7D10  16 01
+        LD D,FCB_MODE_SEQ_IN             ; $7D10  16 01
         CP $49                           ; $7D12  FE 49
         JR Z,STMT_OPEN_1                 ; $7D14  28 07
-        LD D,$03                         ; $7D16  16 03
+        LD D,FCB_MODE_RANDOM             ; $7D16  16 03
         CP $52                           ; $7D18  FE 52
         JP NZ,RAISE_BAD_FILE_MODE        ; $7D1A  C2 47 0D
 STMT_OPEN_1:
@@ -14592,7 +14614,7 @@ STMT_OPEN_3:
         POP HL                           ; $7D66  E1
         LD A,D                           ; $7D67  7A
         PUSH AF                          ; $7D68  F5
-        LD (OUTPUT_REDIRECTED),HL        ; $7D69  22 40 08
+        LD (PTRFIL),HL                   ; $7D69  22 40 08
         PUSH HL                          ; $7D6C  E5
         INC HL                           ; $7D6D  23
         LD DE,L_08AA                     ; $7D6E  11 AA 08
@@ -14616,21 +14638,21 @@ STMT_OPEN_4:
         POP AF                           ; $7D89  F1
         PUSH AF                          ; $7D8A  F5
         PUSH HL                          ; $7D8B  E5
-        CP $02                           ; $7D8C  FE 02
+        CP FCB_MODE_SEQ_OUT              ; $7D8C  FE 02
         JR NZ,STMT_OPEN_6                ; $7D8E  20 12
         PUSH DE                          ; $7D90  D5
-        LD C,$13                         ; $7D91  0E 13
-        CALL $0005                       ; $7D93  CD 05 00
+        LD C,F_DELETE                    ; $7D91  0E 13
+        CALL BDOS                        ; $7D93  CD 05 00
         POP DE                           ; $7D96  D1
 STMT_OPEN_5:
-        LD C,$16                         ; $7D97  0E 16
-        CALL $0005                       ; $7D99  CD 05 00
+        LD C,F_MAKE                      ; $7D97  0E 16
+        CALL BDOS                        ; $7D99  CD 05 00
         INC A                            ; $7D9C  3C
         JP Z,RAISE_TOO_MANY_FILES        ; $7D9D  CA 62 0D
         JR STMT_OPEN_7                   ; $7DA0  18 13
 STMT_OPEN_6:
-        LD C,$0F                         ; $7DA2  0E 0F
-        CALL $0005                       ; $7DA4  CD 05 00
+        LD C,F_OPEN                      ; $7DA2  0E 0F
+        CALL BDOS                        ; $7DA4  CD 05 00
         INC A                            ; $7DA7  3C
         JR NZ,STMT_OPEN_7                ; $7DA8  20 0B
         CALL RAM_DISPATCH_TRAMPOLINE     ; $7DAA  CD 75 0C
@@ -14655,9 +14677,9 @@ STMT_OPEN_7:
         LD (HL),A                        ; $7DC4  77
         POP HL                           ; $7DC5  E1
         LD A,(HL)                        ; $7DC6  7E
-        CP $03                           ; $7DC7  FE 03
+        CP FCB_MODE_RANDOM               ; $7DC7  FE 03
         JP Z,STMT_OPEN_8                 ; $7DC9  CA D8 7D
-        CP $01                           ; $7DCC  FE 01
+        CP FCB_MODE_SEQ_IN               ; $7DCC  FE 01
         JP NZ,RESET_RUN_STATE_1          ; $7DCE  C2 1B 69
         CALL FILE_READ_RECORD            ; $7DD1  CD C1 7B
         LD HL,(L_0B54)                   ; $7DD4  2A 54 0B
@@ -14685,15 +14707,15 @@ STMT_RESET:
         RET NZ                           ; $7DF0  C0
         PUSH HL                          ; $7DF1  E5
         CALL CLOSE_ALL_FILES             ; $7DF2  CD D1 78
-        LD C,$19                         ; $7DF5  0E 19
-        CALL $0005                       ; $7DF7  CD 05 00
+        LD C,DRV_GET                     ; $7DF5  0E 19
+        CALL BDOS                        ; $7DF7  CD 05 00
         PUSH AF                          ; $7DFA  F5
-        LD C,$0D                         ; $7DFB  0E 0D
-        CALL $0005                       ; $7DFD  CD 05 00
+        LD C,DRV_ALLRESET                ; $7DFB  0E 0D
+        CALL BDOS                        ; $7DFD  CD 05 00
         POP AF                           ; $7E00  F1
         LD E,A                           ; $7E01  5F
-        LD C,$0E                         ; $7E02  0E 0E
-        CALL $0005                       ; $7E04  CD 05 00
+        LD C,DRV_SET                     ; $7E02  0E 0E
+        CALL BDOS                        ; $7E04  CD 05 00
         POP HL                           ; $7E07  E1
         RET                              ; $7E08  C9
 ; [RE] KILL statement: parse filename into the default FCB ($0080/$08AA) then BDOS delete-file (C=$13); '?' from BDOS -> error $0D4A. Reached via dispatch DEFW STMT_KILL at $7A58.
@@ -14701,24 +14723,24 @@ STMT_KILL:
         CALL PARSE_FILENAME_TO_FCB       ; $7E09  CD 26 7C
         PUSH HL                          ; $7E0C  E5
         LD DE,$0080                      ; $7E0D  11 80 00
-        LD C,$1A                         ; $7E10  0E 1A
-        CALL $0005                       ; $7E12  CD 05 00
+        LD C,F_DMAOFF                    ; $7E10  0E 1A
+        CALL BDOS                        ; $7E12  CD 05 00
         LD DE,L_08AA                     ; $7E15  11 AA 08
         PUSH DE                          ; $7E18  D5
-        LD C,$0F                         ; $7E19  0E 0F
-        CALL $0005                       ; $7E1B  CD 05 00
+        LD C,F_OPEN                      ; $7E19  0E 0F
+        CALL BDOS                        ; $7E1B  CD 05 00
         INC A                            ; $7E1E  3C
         POP DE                           ; $7E1F  D1
         PUSH DE                          ; $7E20  D5
         PUSH AF                          ; $7E21  F5
 STMT_KILL_1:
-        LD C,$10                         ; $7E22  0E 10
-        CALL NZ,$0005                    ; $7E24  C4 05 00
+        LD C,F_CLOSE                     ; $7E22  0E 10
+        CALL NZ,BDOS                     ; $7E24  C4 05 00
         POP AF                           ; $7E27  F1
         POP DE                           ; $7E28  D1
         JP Z,RAISE_FILE_NOT_FOUND        ; $7E29  CA 4A 0D
-        LD C,$13                         ; $7E2C  0E 13
-        CALL $0005                       ; $7E2E  CD 05 00
+        LD C,F_DELETE                    ; $7E2C  0E 13
+        CALL BDOS                        ; $7E2E  CD 05 00
         POP HL                           ; $7E31  E1
         RET                              ; $7E32  C9
 ; [RE] FILES statement: directory listing. Optional filespec parsed into FCB ($08AA), '*' expanded to '?' (FCB_WILD_IF_STAR), BDOS set-DMA ($1A) + search-first ($11)/search-next ($12); prints each 11-char name with '.' between name and extension via OUTCHR, columns from print-col ($083B).
@@ -14743,11 +14765,11 @@ STMT_FILES_1:
         LD C,$03                         ; $7E55  0E 03
         CALL FCB_WILD_IF_STAR            ; $7E57  CD BB 7E
         LD DE,$0080                      ; $7E5A  11 80 00
-        LD C,$1A                         ; $7E5D  0E 1A
-        CALL $0005                       ; $7E5F  CD 05 00
+        LD C,F_DMAOFF                    ; $7E5D  0E 1A
+        CALL BDOS                        ; $7E5F  CD 05 00
         LD DE,L_08AA                     ; $7E62  11 AA 08
-        LD C,$11                         ; $7E65  0E 11
-        CALL $0005                       ; $7E67  CD 05 00
+        LD C,F_SFIRST                    ; $7E65  0E 11
+        CALL BDOS                        ; $7E67  CD 05 00
         CP $FF                           ; $7E6A  FE FF
         JP Z,RAISE_FILE_NOT_FOUND        ; $7E6C  CA 4A 0D
 STMT_FILES_2:
@@ -14790,8 +14812,8 @@ STMT_FILES_5:
 STMT_FILES_6:
         CALL C,CRLF                      ; $7EAA  DC 88 67
         LD DE,L_08AA                     ; $7EAD  11 AA 08
-        LD C,$12                         ; $7EB0  0E 12
-        CALL $0005                       ; $7EB2  CD 05 00
+        LD C,F_SNEXT                     ; $7EB0  0E 12
+        CALL BDOS                        ; $7EB2  CD 05 00
         CP $FF                           ; $7EB5  FE FF
         JR NZ,STMT_FILES_2               ; $7EB7  20 B6
         POP HL                           ; $7EB9  E1
@@ -14813,11 +14835,11 @@ BDOS_FILE_CALL:
         PUSH DE                          ; $7EC6  D5
         LD C,A                           ; $7EC7  4F
         PUSH BC                          ; $7EC8  C5
-        CALL $0005                       ; $7EC9  CD 05 00
+        CALL BDOS                        ; $7EC9  CD 05 00
         POP BC                           ; $7ECC  C1
         POP DE                           ; $7ECD  D1
         PUSH AF                          ; $7ECE  F5
-        LD HL,$0021                      ; $7ECF  21 21 00
+        LD HL,FCB.CPM_CR                 ; $7ECF  21 21 00
         ADD HL,DE                        ; $7ED2  19
         INC (HL)                         ; $7ED3  34
         JR NZ,BDOS_FILE_CALL_1           ; $7ED4  20 06
@@ -14847,9 +14869,9 @@ BDOS_FILE_CALL_2:
 FILE_READ_RECORDS:
         EX DE,HL                         ; $7EF2  EB
         CALL STRING_SPACE_ROOM_CHECK     ; $7EF3  CD 25 7F
-        LD HL,(OUTPUT_REDIRECTED)        ; $7EF6  2A 40 08
+        LD HL,(PTRFIL)                   ; $7EF6  2A 40 08
         PUSH HL                          ; $7EF9  E5
-        LD BC,$002A                      ; $7EFA  01 2A 00
+        LD BC,FCB.SEQ_BUF+1              ; $7EFA  01 2A 00
         ADD HL,BC                        ; $7EFD  09
 FILE_READ_RECORDS_1:
         CALL COPY_128_BLOCK              ; $7EFE  CD 8A 7B
@@ -14861,13 +14883,13 @@ FILE_READ_RECORDS_1:
 FILE_READ_RECORDS_2:
         CALL STRING_SPACE_ROOM_CHECK     ; $7F08  CD 25 7F
         PUSH DE                          ; $7F0B  D5
-        LD C,$1A                         ; $7F0C  0E 1A
-        CALL $0005                       ; $7F0E  CD 05 00
-        LD HL,(OUTPUT_REDIRECTED)        ; $7F11  2A 40 08
+        LD C,F_DMAOFF                    ; $7F0C  0E 1A
+        CALL BDOS                        ; $7F0E  CD 05 00
+        LD HL,(PTRFIL)                   ; $7F11  2A 40 08
         INC HL                           ; $7F14  23
         EX DE,HL                         ; $7F15  EB
-        LD C,$14                         ; $7F16  0E 14
-        CALL $0005                       ; $7F18  CD 05 00
+        LD C,F_READ                      ; $7F16  0E 14
+        CALL BDOS                        ; $7F18  CD 05 00
         OR A                             ; $7F1B  B7
         POP DE                           ; $7F1C  D1
 FILE_READ_RECORDS_3:
@@ -14876,7 +14898,7 @@ FILE_READ_RECORDS_3:
         RET NZ                           ; $7F21  C0
         EX DE,HL                         ; $7F22  EB
         JR FILE_READ_RECORDS_2           ; $7F23  18 E3
-; [RE] Compute the FCB working pointer (current file-table entry $0B48 - $2A*1 reverse offset) and verify stack room (CMP_HL_DE/LOAD_FINISH_CLOSE_CUR); used before each BDOS sequential transfer.
+; [RE] Sequential file read into the data buffer: copy from FCB.SEQ_BUF+1 into the user buffer, loop BDOS read-sequential ($14) of 128-byte records, calling STRING_SPACE_ROOM_CHECK ($7F25, a FRETOP room check -- it does NOT set an FCB ptr) before each transfer, until the DE byte count is exhausted.
 STRING_SPACE_ROOM_CHECK:
         LD HL,(FRETOP)                   ; $7F25  2A 48 0B
         LD BC,$FF2A                      ; $7F28  01 2A FF
@@ -15266,7 +15288,7 @@ PROG_UNSCRAMBLE_1:
         LD HL,(VARTAB)                   ; $813D  2A 6F 0B
         CALL CMP_HL_DE                   ; $8140  CD 1F 69
         RET Z                            ; $8143  C8
-        LD HL,L_5F02                     ; $8144  21 02 5F
+        LD HL,FP_POLY_ATN_COEFFS         ; $8144  21 02 5F
         LD A,L                           ; $8147  7D
         ADD A,C                          ; $8148  81
         LD L,A                           ; $8149  6F
@@ -15317,7 +15339,7 @@ PROG_SCRAMBLE_1:
         SUB C                            ; $8186  91
         XOR (HL)                         ; $8187  AE
         PUSH AF                          ; $8188  F5
-        LD HL,L_5F02                     ; $8189  21 02 5F
+        LD HL,FP_POLY_ATN_COEFFS         ; $8189  21 02 5F
         LD A,L                           ; $818C  7D
         ADD A,C                          ; $818D  81
         LD L,A                           ; $818E  6F
@@ -15453,8 +15475,8 @@ COLD_START:
         LD ($0001),HL                    ; $823D  22 01 00
         LD HL,(Z_CPU)                    ; $8240  2A DE F3
         LD (RPC_TRIGGER_STORE+1),HL      ; $8243  22 EB 45
-        LD C,$0C                         ; $8246  0E 0C
-        CALL $0005                       ; $8248  CD 05 00
+        LD C,S_BDOSVER                   ; $8246  0E 0C
+        CALL BDOS                        ; $8248  CD 05 00
         LD (L_08CB),A                    ; $824B  32 CB 08
         OR A                             ; $824E  B7
         LD HL,$1514                      ; $824F  21 14 15
@@ -15487,8 +15509,8 @@ COLD_SET_WIDTH:
         CALL WIDTH_SET_CONSOLE           ; $828C  CD 63 40
         LD HL,$0080                      ; $828F  21 80 00
         LD (L_0C97),HL                   ; $8292  22 97 0C
-        LD HL,L_0B27                     ; $8295  21 27 0B
-        LD (L_0B25),HL                   ; $8298  22 25 0B
+        LD HL,TEMPST                     ; $8295  21 27 0B
+        LD (TEMPPT),HL                   ; $8298  22 25 0B
         LD HL,L_0B91                     ; $829B  21 91 0B
         LD (L_0BF9),HL                   ; $829E  22 F9 0B
         LD HL,($0006)                    ; $82A1  2A 06 00
@@ -15606,7 +15628,7 @@ COLD_SET_WIDTH_13:
         LD DE,FILTAB                     ; $8368  11 50 08
         LD (L_0870),A                    ; $836B  32 70 08
         INC A                            ; $836E  3C
-        LD BC,$00A9                      ; $836F  01 A9 00
+        LD BC,FCB.FLD_BUF_PTR            ; $836F  01 A9 00
 COLD_SET_WIDTH_14:
         EX DE,HL                         ; $8372  EB
         LD (HL),E                        ; $8373  73

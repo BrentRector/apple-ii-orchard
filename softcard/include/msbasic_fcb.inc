@@ -34,3 +34,12 @@ PAD_AF        BYTE          ; $AF  unused/padding between RND_RECNO and FLD_POS_
 FLD_POS_PTR   WORD          ; $B0  FIELD current-position (write/read cursor) pointer
 RND_BUF       BLOCK 128     ; $B2  random data buffer (FIELD window)
     ENDS                    ; sizeof(FCB) = $132 (user file entry); file #0 uses only $00..$A8
+
+; FCB.MODE values (file open-mode; FCB[0]). Set by STMT_OPEN from the mode letter
+; (I/O/R); read by the sequential-vs-random data-path dispatch to route GET/PUT/print.
+; Distinct from VALTYP (msbasic_valtyp.inc) which also uses 2/3/8 -- these are file
+; modes, not variable types. Pure numeric EQUs (build-independent, byte-safe).
+FCB_MODE_CLOSED   EQU 0   ; file slot not open
+FCB_MODE_SEQ_IN   EQU 1   ; OPEN "I" -- sequential input
+FCB_MODE_SEQ_OUT  EQU 2   ; OPEN "O" -- sequential output
+FCB_MODE_RANDOM   EQU 3   ; OPEN "R" -- random access (FIELD/GET/PUT)

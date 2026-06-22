@@ -293,7 +293,7 @@
     "4F46": "DCOMP_BODY",
     "4F46_2": "DCOMP_NE",
     "4FCB": "FP_TO_INT",
-    "4FDA": "SET_TYPE_SINGLE",
+    "4FDA": "SET_TYPE_INTEGER",
     "4FE0": "FP_TO_INT_RANGE",
     "4FF8": "FIX_TO_INT",
     "500B": "INT_TO_SINGLE",
@@ -534,7 +534,7 @@
     "061E": "MSG_STRING_TOO_LONG_TAIL",
     "0835": "ERRFLG",
     "083F": "CTRL_O_SUPPRESS",
-    "0840": "OUTPUT_REDIRECTED",
+    "0840": "PTRFIL",
     "0844": "SAVTXT",
     "0846": "TXTTAB",
     "084E": "FILTAB_SLOT0_SEED",
@@ -631,7 +631,21 @@
     "47E6": "GFX_FN_HCOLOR",
     "47EF": "GFX_FN_HSCRN",
     "84C8": "COLD_STACK_BASE",
-    "0842": "TOP_OF_STACK_ROOM"
+    "0842": "TOP_OF_STACK_ROOM",
+    "0CAB": "TRCFLG",
+    "0B15": "CRUNCH_LITERAL_MODE",
+    "0B16": "CRUNCH_LINENUM_MODE",
+    "0838": "PRTFLG",
+    "0B77": "DEFTYPE_TBL",
+    "0B25": "TEMPPT",
+    "0B27": "TEMPST",
+    "0B45": "DSCTMP",
+    "4CAA": "FP_POLY_LOG_NUM",
+    "4CBB": "FP_POLY_LOG_DEN",
+    "5D39": "FP_POLY_EXP_COEFFS",
+    "5F02": "FP_POLY_ATN_COEFFS",
+    "0B71": "ARYTAB",
+    "0B73": "STREND"
   },
   "label_comments": {
     "4709": "[RE] Embedded 6502 BEEP tone-loop, run by GFX_STMT_BEEP via the Z80->6502 RPC. From the 6502's view this lives at $4709+$1000=$5709 (the SoftCard maps a Z80 address X to 6502 address X+$1000), which is the value GFX_STMT_BEEP loads into HL (= A_VEC, the 6502 subroutine address) before triggering the RPC. 6502 listing: LDY #$00 / LDA $C030 (toggle speaker) / DEY / BNE +4 / DEC $45 (duration, =RPC_ACC) / BEQ done / JSR $FF57 (Monitor WAIT, delay) / DEX / BNE loop / LDX $46 (pitch, =RPC_XREG) / loop / RTS. Reads zp $45/$46 = the duration/pitch cells GFX_STMT_BEEP staged. Opaque DEFB from the Z80 view; the +$1000 in the operand expression is the documented SoftCard CPU-view offset, not a relocation artifact.",
@@ -648,7 +662,7 @@
     "4D12": "[RE] MS BASIC-80 floating-point multiply (FMULT): multiply the argument FP value by the FAC (mantissa at $0CB1, exponent $0CB4) using the shift-and-add mantissa loop, producing the product in the FAC.",
     "4BF6": "[RE] FP add/normalize core (FADDT path): align exponents, add/subtract mantissas, and renormalize the result in the FAC ($0CB1/$0CB4). SUB_4C09 ($4C09) is the normalize/round tail that writes the final exponent to $0CB4.",
     "4F76": "[RE] CINT(x) handler (function token $1B): coerce the FAC to a signed 16-bit integer with rounding (adds FP_CONST_HALF then truncates). Also the universal FAC->int16 entry (FRCINT) reused by GETINT/GETBYT/GETADR.",
-    "4FD7": "[RE] Store HL into the FAC low cells ($0CB1) and set the value-type to $02 (single) in $0B14 (SUB_4FDA). The MOVFR/integer-into-FAC primitive used throughout the evaluator.",
+    "4FD7": "[RE] FP_STORE_FAC_INT: store the 16-bit integer in HL into the FAC low cells ($0CB1) and fall into SET_TYPE_INTEGER, setting VALTYP $0B14 = $02 (=VT_INT, integer, 2-byte width). The integer-into-FAC primitive used throughout the evaluator (MOVFR for the integer case).",
     "503C": "[RE] FP mantissa right-shift / denormalize-align helper: shifts the FAC mantissa (B,C,D,E build the 4-byte mantissa) right by the exponent difference so two FP values can be added; common to FADD/FP_INT.",
     "5713": "MS BASIC-80 FOUT: convert the FP value in the FAC ($0CB1) to a printable decimal ASCII string (sign $2B/$2D, digits, decimal point, E-exponent). Used by PRINT, STR$, and the sign-on free-bytes report. Value type read from $0B14.",
     "6925": "MS BASIC SYNCHR: verify the current char at (HL) equals the literal byte placed inline immediately after the CALL; if it matches, advance past it and CHRGET the next char; on mismatch JP to Syntax Error ($0D6F). The pervasive 'expect this token' primitive.",
@@ -727,7 +741,7 @@
     "69BF": "[RE] TRACE statement handler (token $9F): enable execution trace (TRON-equivalent); sets the trace flag.\n[RE] TRON/TROFF share one tail. TRON (DEFW at $0144) enters $69BF and runs LD A,$AF (trace ON); TROFF (DEFW at $0146) and program-start (CALL from $687A) enter +1 so the AF byte runs as XOR A (trace OFF). Both fall into LD ($0CAB),A; RET, storing $AF or 0 into the trace flag read at $3393.",
     "69C0": "[RE] NOTRACE statement handler (token $A0): disable execution trace (XOR A then store the trace flag).",
     "69C5": "[RE] SWAP statement handler (token $A1): exchange the values of two variables.",
-    "6A03": "[RE] ERASE statement handler (token $A2): delete a dimensioned array, freeing its storage.",
+    "6A03": "[RE] ERASE statement handler (token $A2): delete a dimensioned array, freeing its ARRAYVAR storage. PTRGET returns BC -> the array DATA; ERASE reconstructs the descriptor BASE by reverse sequential stepping: DEC BC x3 over {ndims, blklen-word} ($6A14), then walk the packed name backward while the high bit is set ($6A17 LD A,(BC)/DEC BC/JP M), then DEC BC x2 over {name0/name1, valtyp}. ADD HL,DE (HL=data, DE=AV_BLKLEN) gives the array end, then the block above slides down ($6A24-$6A30) and STREND is lowered. No base+offset; the descriptor base is found by walking, not a fixed offset.",
     "626A": "[RE] EDIT statement handler (token $A3): enter the line editor for a program line.",
     "36C6": "[RE] ERROR statement handler (token $A4): force the given error code through the ERROR handler.",
     "368C": "[RE] RESUME statement handler (token $A5): return from an ON ERROR handler (RESUME/RESUME NEXT/RESUME line).",
@@ -838,7 +852,7 @@
     "3B52": "[RE] Operator-result combine: after the right operand is evaluated, recover operator code/type ($0B15/$0B14), coerce both operands to a common numeric type (CINT/CSNG paths) or take the string path ($08), then dispatch to the arithmetic operator routine via the $0517 (numeric) / $0503 (relational) vector tables.",
     "3D91": "[RE] Indexed vector dispatch: ADD HL,BC then load the 16-bit target from (HL) and JP (HL). Shared by the operator-function table ($04F9) and other token-dispatch sites.",
     "3D97": "[RE] Pre-scan a leading unary operator token: recognises NOT ($F3), unary minus ($2D)/$F2 and unary plus ($2B), toggling D; backs up (HL) one char when none match. Used when fetching a factor/operand.",
-    "3DC8": "[RE] Classify the FAC value type from $0B14 (2=sng,3=dbl,4=str,8=int): returns Z when string and sets carry/flags so callers can branch numeric-vs-string. Canonical MS BASIC type-test helper.",
+    "3DC8": "[RE] VALTYP discriminator (canonical MS BASIC type test). Read the value-type byte $0B14 (VALTYP = storage width in bytes: 2=int, 3=string, 4=single, 8=double). CP $08 splits double (>=8 -> NC) from the rest; SUB $03 then makes Z when VALTYP=3 => returns Z iff STRING, sign(M) when integer (2-3=$FF), and SCF on the <8 path so callers can branch numeric-vs-string. Consumed by FN_CSNG/FN_CDBL/FN_CINT (M=int, Z=string).",
     "3E20": "[RE] 16-bit integer subtract (HL := HL - DE) then store the integer result into the FAC via FP_STORE (SUB_51EE).",
     "3E2E": "[RE] POS(x) handler (function token $10): current console output column (($0B11)+1) into the FAC; shares the integer-load tail with FP_LOAD_INT_TO_FAC.",
     "3E32": "[RE] Store the 8-bit value in A (zero-extended to HL) as an integer into the FAC via FP_STORE_FAC_INT.",
@@ -916,7 +930,7 @@
     "4EBF": "[RE] Tail of the (HL)->regs loaders: final INC HL and RET.",
     "4EC1": "[RE] MOVE: copy 4 bytes from (DE) into the FAC at $0CB1.",
     "4EC4": "[RE] Block-copy 4 bytes (DE)->(HL); generic FP move primitive.",
-    "4EC9": "[RE] Block-copy (DE)->(HL) of length = current value type ($0B14: 2/3/4/8 bytes); type-aware FP/string move.",
+    "4EC9": "[RE] Typed block-copy (DE)->(HL): length B = VALTYP ($0B14), which IS the value's storage WIDTH in bytes (2=int,3=string-descriptor,4=single,8=double). DJNZ-copies exactly VALTYP bytes. This site is the direct proof that VALTYP encodes byte width.",
     "4ECD": "[RE] Byte-copy loop body for the FP block moves (DJNZ over B bytes).",
     "4ED4": "[RE] Set the hidden mantissa MSB and extract the sign: force bit7 of $0CB3 high byte, save sign, return rounding bit in A.",
     "4EE9": "[RE] Load second operand from temp ($0CBA) and set up the typed-move target (SUB_4EC4_1) before a compare/op.",
@@ -930,14 +944,14 @@
     "4F46": "[RE] Body of the FP operand compare: byte-by-byte mantissa comparison ($0CC1 down) yielding the ordering result.",
     "4F46_2": "[RE] Not-equal wrapper around DCOMP: returns via the relational result selector if operands differ.",
     "4FCB": "[RE] Convert FAC to a 16-bit integer in HL: error if exponent>=$90 (out of range), else shift the mantissa down (FP_SHIFT_MANTISSA).",
-    "4FDA": "[RE] Set the current value-type byte $0B14 to $02 (single precision).",
+    "4FDA": "[RE] SET_TYPE_INTEGER: set VALTYP $0B14 = $02 (=VT_INT, integer). Tail of FP_STORE_FAC_INT and the integer-result stores (e.g. INT_DIV_ROUND $5203).",
     "4FE0": "[RE] Range-check helper for FP->int: compare FAC against the $8000 boundary (FCOMP) and finalize the integer result.",
     "4FF8": "[RE] CINT body: load FAC, round/scale to an integer, set the high byte and store back via FADD_NORMALIZE.",
     "500B": "[RE] Convert the signed 16-bit FAC integer ($0CB1) to single precision: build exponent $90 and normalize via FADD_ALIGN.",
     "500E": "[RE] INT_TO_SINGLE entry with the integer already in HL: set type, form exponent $90, normalize.",
     "5024": "[RE] Clear the FAC double-precision extension cells ($0CAD/$0CAF) when widening to single.",
-    "502D": "[RE] Set value type for a single (BC=$043E length/exp pair) and store type byte; entry used when promoting an integer to FP.",
-    "5035": "[RE] Type-check requiring a numeric value; error ($0D87) if string/zero \u00e2\u20ac\u201d gatekeeper for an INT-class operation.",
+    "502D": "[RE] SET_TYPE_DOUBLE: set VALTYP $0B14 = $08 (=VT_DBL, double). LD A,$08 then the LD BC,$043E at $502F acts as a 3E-04 cover so the +1 entry ($5030) sets single ($04) instead. Used to seed the numeric-literal accumulator as double (FIN $54A3) and clear-extend to double (FP_CLEAR_EXT fall-through).",
+    "5035": "[RE] Type-check requiring a numeric value; error ($0D87) if string/zero â€” gatekeeper for an INT-class operation.",
     "5060": "[RE] Decrement DE and, on borrow (DE wrapped to $FFFF), fall through to also decrement BC; multi-byte counter for the shift loop.",
     "5065": "[RE] Decrement BC (low half of the shift/round counter) and return.",
     "5086": "[RE] FIX/round scaling: if exponent>=$98 already integral; else shift mantissa down to the integer position and re-round via FADD_COMBINE.",
@@ -1029,9 +1043,9 @@
     "6704": "[RE] Second BIOS console-out vector wrapper (raw byte emit): char in A->C, saves regs, CALLs the runtime-patched $0000 cell (separate CP/M BIOS output entry installed by cold start at SUB_6704_1+1 / $820D). Used by OUTDO_WIDTH for the actual character emission distinct from OUTDO_DEVICE.",
     "6711": "[RE] Force end-of-line bookkeeping: calls SUB_6792 to clear column state, then falls into LINE_COUNT_INC to bump the printed-line counter / page check ($0B12 vs $083C).",
     "6714": "[RE] Increments the printed-line counter ($0B12) up to the page limit ($083C); clamps at the limit and returns A=0. Drives the auto-page / line-width newline logic in OUTDO_WIDTH.",
-    "6724": "[RE] Auto-page 'more' handler on the LIST/output path: skips when output is redirected ($0840 nonzero), tests pending key (SUB_7C0B), runs the input poll (SUB_781A) and Ctrl-C/break check ($0CA0), and on a full page pushes STMT_FOR_7 and prints the pause prompt string at $0CF2 via STROUT before resuming.",
+    "6724": "[RE] INCHR / auto-page 'more' handler on the LIST/INPUT path: if a file is the current channel (PTRFIL $0840 nonzero) read the next byte from that file via GETC_FILE_EOF and return it; otherwise (console) tests the pending key, runs the input poll (LOAD_FINISH_CLOSE_CUR) and the Ctrl-C/break check ($0CA0), and on a full page pushes STMT_FOR_7 and prints the pause prompt string at $0CF2 via STROUT before resuming.",
     "677B": "[RE] If the auto-print column flag ($0B11) is nonzero, emit CR/LF (CRLF $6788); else return. Ensures output starts on a fresh line.",
-    "6792": "[RE] Clear pending auto-line / print-column state ($0837 column, $0838, $0B11) after a newline; consulted via $0840 line-input-in-progress guard.",
+    "6792": "[RE] RESET_PRINT_STATE: clear pending auto-line / print-column state ($0837 column, PRTFLG $0838, $0B11) after a newline. (The cell consulted here is PTRFIL $0840, the current-file pointer, not a 'line-input-in-progress' flag.)",
     "67F4": "[RE] Fetch and clear the pending-key cell ($0834) set by INKEY_SCAN; returns Z if no key pending, else the key in A with the cell zeroed.",
     "6800": "[RE] Print a char via OUTCHR ($6613); if it was LF ($0A) also emit CR ($0D) and reset print state. Newline-expanding console write.",
     "6811": "[RE] After GC_CHECK_AND_COLLECT, copy a string of BC bytes downward from (HL) to (BC dest), comparing via HL/DE-compare; the string-move primitive used by string assignment.",
@@ -1047,7 +1061,7 @@
     "6ACB": "[RE] 16-bit subtract: DE = HL - DE (LD A,L/SUB E / LD A,H/SBC D), used by CLEAR to size the protected memory region.",
     "6ADC": "[RE] Core of the NEXT statement: locate the matching FOR frame on the stack ($0CFD search), apply the STEP, compare against the limit, and either re-enter the loop (STMT_FOR_6) or fall through to loop exit; also handles 'NEXT var,var'.",
     "6BB9": "[RE] STR$(x) handler (function token $12): format a number as its ASCII text (FOUT) and return a string temporary. The finalize tail (STR_FN_FINALIZE_1) is shared by OCT$/HEX$/SPACE$.",
-    "6BC6": "[RE] Build/allocate a string body from a descriptor: for the byte at (HL) call GETSPA to reserve space, copy via SUB_6DB0, returning the new descriptor; used by string concatenation/formatting.",
+    "6BC6": "[RE] STR_BUILD_FROM_DESC: given (HL) -> a source STRDESC (msbasic_strdesc.inc), read STRDESC.LEN ($6BC6), GETSPA that many heap bytes, then read STRDESC.PTR (LD C,(HL)$6BCD / LD B,(HL)$6BCF) and copy LEN bytes (BLOCK_COPY_BC_TO_DE) into the new heap block, recording the result via STORE_STR_DESC. Materialises a string value's bytes into freshly owned heap space; used by string concatenation/formatting and CHAIN string preservation.",
     "6BDA": "[RE] Allocate a 1-byte string (A=1) then build its descriptor; convenience entry into the descriptor builder for single-char string results (e.g. CHR$, INKEY$).",
     "6BDC": "[RE] Allocate an A-byte string via GETSPA, then fall into STORE_STR_DESC to record length/pointer.",
     "6BDF": "[RE] Store a string descriptor (length A, body pointer DE) into the temporary descriptor cell $0B45..$0B47 and return HL pointing at it.",
@@ -1066,7 +1080,7 @@
     "6DC0": "MS BASIC-80 FRESTR1: if the descriptor points at the topmost string-heap allocation, hand its bytes back by advancing the top-of-free-string pointer ($0B48); otherwise leave the heap unchanged.",
     "6DD9": "[RE] pop the most-recently-pushed temporary string descriptor off the temp-descriptor stack ($0B25): if HL matches, retract the temp pointer by one descriptor and clear Z.",
     "6DED": "[RE] evaluate the pending string argument to a descriptor (via FRETMP), returning the descriptor's length in A and address in HL; Z set if the string is empty.",
-    "6DF9": "[RE] VAL() body: fetch the string descriptor, error if empty, then load the string's text pointer (DE) and first byte (A) for numeric parsing (FIN).",
+    "6DF9": "[RE] FN_VAL_BODY: fetch the argument's STRDESC (msbasic_strdesc.inc) via GET_STR_DESCR_PTR (HL -> descriptor, A=STRDESC.LEN), FC error if empty, then read STRDESC.PTR into DE (INC HL/LD E,(HL)$6E00/INC HL/LD D,(HL)$6E02) and LD A,(DE) to fetch the first character for numeric parsing (FIN).",
     "6E0B": "[RE] string-function epilogue: store result char (E) into the string work buffer at ($0B46) and return through SUB_6C1A (FRMEVL string-temp fixup).",
     "6E13": "[RE] STRING$() body (token $E7): parse (count, char-or-string$) then pad-fill the new string via STR_FILL_ALLOC. NOT MID$ -- MID$ is FN_MID_STR $6582, token $03.",
     "6E35": "[RE] STRING$ branch when the fill argument is a string: use its first byte as the pad character (FN_VAL_BODY), then STR_FILL_ALLOC.",
@@ -1134,7 +1148,7 @@
     "7B22": "[RE] Write one byte (A) to the open sequential file buffer; when the 128-byte record fills, flush it via FILE_FLUSH_RECORD and advance the record number.",
     "7B8A": "[RE] LDIR copy of a 128-byte (one CP/M record) block; BC preserved.",
     "7B92": "[RE] Read next byte from the open sequential input file buffer; when the buffer is exhausted, refill it with the next record (sets carry/Ctrl-Z at EOF).",
-    "7BC1": "[RE] Read the next sequential record from the current file into its FCB buffer (entry that loads $0840 first).",
+    "7BC1": "[RE] Read the next sequential record from the current file into its FCB buffer (entry that loads the current-file pointer PTRFIL $0840 first).",
     "7BC4": "[RE] Bump the FCB record number and BDOS Read-Sequential into the buffer; sets the buffer-status byte (0=data, $80=EOF).",
     "7BFA": "[RE] Point CP/M DMA at this file's 128-byte buffer (FCB+$28) via BDOS Set-DMA ($1A) before a read/write.",
     "7C0B": "[RE] GETC_FILE wrapper that detects Ctrl-Z ($1A) as end-of-file: marks the FCB EOF fields and returns carry on EOF.",
@@ -1146,7 +1160,7 @@
     "7EBF": "[RE] Fill C FCB name/ext bytes with '?' ($3F) to turn a '*' wildcard into an all-match field for BDOS directory search.",
     "7EC6": "[RE] BDOS file-op wrapper: issue BDOS function (A->C) with DE=FCB, then bump the random-record/overflow counter at FCB+$21..$23; map BDOS A-result to BASIC code (0=ok/RET Z, 5=dir-full err $0D62, else 1/2). Used by OPEN/CLOSE/random GET-PUT.",
     "7EF2": "[RE] Sequential file read into the data buffer: set DMA via FCB cursor, loop BDOS read-sequential ($14) of 128-byte records (SUB_7F25 sets FCB ptr), copying each record into the user buffer until DE count exhausted.",
-    "7F25": "[RE] Compute the FCB working pointer (current file-table entry $0B48 - $2A*1 reverse offset) and verify stack room (SUB_691F/SUB_781A); used before each BDOS sequential transfer.",
+    "7F25": "[RE] Sequential file read into the data buffer: copy from FCB.SEQ_BUF+1 into the user buffer, loop BDOS read-sequential ($14) of 128-byte records, calling STRING_SPACE_ROOM_CHECK ($7F25, a FRETOP room check -- it does NOT set an FCB ptr) before each transfer, until the DE byte count is exhausted.",
     "7F33": "[RE] Range-check the file number against the open-file table limit ($0C97) via DCOMPR.",
     "8076": "[RE] Random-file PUT inner helper: walk the FIELD descriptor chain (FCB+$AB pointer pair), advance the write cursor (SUB_81AC_1), and on buffer-full dispatch the record write (SUB_7B22_3 at $7B5D). Entered at $8077 (skip the OR $AF flag-set) for the no-flag variant.\n[RE] FIELD record-write flag-skip. CALL FIELD_WRITE_RECORD ($8040) hits $8076 OR $AF -> A nonzero. CALL FIELD_WRITE_RECORD+1 ($8029/$805C) runs the swallowed AF = XOR A -> A=0. Stored at $8078 ($084C), tested at $8095 to gate the record-write dispatch.",
     "80AC": "[RE] Copy BC bytes (HL)->(DE) for FIELD/GET/PUT record buffering; preserves BC.",
@@ -1171,7 +1185,7 @@
     "061E": "[RE] Not a work cell: interior of the 'String too long' error string ($0612 'String too l', $061E 'ong'+NUL). The only reference, LD BC,$061E in FOUT ($59DB), is a numeric scaling constant whose value coincides with this address, plus the LD BC coded-error fall-through at $0D80.",
     "0835": "[RE] Active-error/RESUME state flag (MS BASIC ERRFLG): ON-ERROR loads it as the in-effect error code E ($3669); RESUME stores INC'd value ($3695); cold-start zeroes it ($826E). Same byte reused as the LIST/EDIT mode flag by the EDIT line resolver ($625D).",
     "083F": "Ctrl-O output-suppress toggle: nonzero discards console output. Cleared at READY/cold-start, toggled by CONIN on Ctrl-O ($0F) and cleared on Ctrl-C. (Already commented in file.)",
-    "0840": "[RE] Output-redirected flag: when nonzero the LIST/output auto-page (more) pause is skipped.",
+    "0840": "[RE] PTRFIL: 16-bit pointer to the current file's FCB (MS BASIC PTRFIL). 0 = console/keyboard; nonzero = the FCB base of the file currently selected by a #file expression. Set by STORE_CUR_FCB_PTR ($7623-$7629, = the FCB pointer that FILE_NUM_TO_FCB resolved) for PRINT#/INPUT#/WRITE#/GET/PUT; cleared to 0 by the PRINT/INPUT epilogue ($3886) and CHAIN/OPEN reinit ($0F33). Read as a pointer (LD HL,(PTRFIL); LD A,H; OR L) by OUTCHR ($6615) and the per-PRINT-item path ($3788) to route a char to the file (FN_LOF_VALUE_1) instead of the console, and by INCHR ($6725) to read the next char from the file (GETC_FILE_EOF) instead of the keyboard. OBSERVED: every one of the 28 accesses is a 16-bit word move, never a bit/mask test, so this is a pointer, not a boolean redirect flag.",
     "0844": "[RE] Saved current text/statement pointer (MS BASIC SAVTXT): the running program pointer loaded into HL to execute; set to $FFFF in direct mode; CONT checks ==$FFFF for 'no continue'. Default $FFFE. Loaded/saved across CONT/RESUME and the storage-overflow guard.",
     "0846": "[RE] TXTTAB: start-of-BASIC-program-text pointer = head of the singly-linked list of BASLINE program-line nodes (see msbasic_line.inc); walked forward by FNDLIN/CHEAD-relink/RUN/CLEAR. Cold-start default = COLD_STACK_BASE+1, i.e. one byte past the $00 link-null sentinel at the cold-start stack base; reset when a program is loaded.",
     "084E": "[RE] Seed pointer for slot 0 of the file/FOR-slot pointer array at $0850: cold-start loads it with the warm-start re-entry MAIN_LOOP_ENTRY_1 ($81D1) and the CHAIN/OPEN reinit copies $084E into $0850/$0840 after CLEAR_VARS. Effectively the default first-slot/command pointer.",
@@ -1192,7 +1206,7 @@
     "0B62": "[RE] Saved program line of the last error (MS BASIC ERRLIN): RAISE_ERROR records the offending line ($0D9B) for ERR/ERL reporting; LINGET '.' shortcut substitutes it as the current line number ($34D9).",
     "0B68": "[RE] ON-ERROR trap-active flag (MS BASIC ONEFLG): nonzero while inside an error handler. Gates ON-ERROR dispatch and RESUME, and is tested by PROGRAM_END so a handler that runs off the end of the program raises 'No RESUME' (ERR_NO_RESUME); cleared by CLEAR.",
     "0B69": "[RE] FRMEVL operand text-pointer scratch (general TEMP): the precedence loop saves/reloads the current (HL) here ($3A85/$3A88) across operator recursion. The same cell is reused by FOUT to record the decimal-point buffer position during numeric formatting.",
-    "0B6F": "[RE] Start of variable + free space (MS BASIC VARTAB/STREND-grow pointer): base of the simple-variable table walked by PTRGET/CHAIN; the string-relocation copy grows the pool here; CLEAR re-points it just above program text. ,P-protected DECODE ends at $0B6F.",
+    "0B6F": "[RE] VARTAB: base of the SIMPLE-VARIABLE table (SIMPLEVAR records, see msbasic_var.inc). Table runs VARTAB($0B6F)..ARYTAB($0B71); the array table follows ARYTAB..STREND($0B73). Walked by PTRGET ($5FC9) and GARBAG ($6CAD); CLEAR re-points all three just above program text ($68D9). Each SIMPLEVAR = {valtyp byte; 2 name bytes; namextlen byte; namext[]; value[valtyp]} reached by computed stride (NAMEXTLEN+VALTYP+1), never base+offset.",
     "0C9A": "[RE] CHAIN/ON-ERROR 'preserve variables' flag: CHAIN-with-ALL and CHAIN set it ($72BA/$72C7) so the CLEAR storage reset skips clearing variable space ($6894 test); RAISE_ERROR clears it ($0D90); cold-start zeroes it.",
     "0CA0": "[RE] CHAIN-in-progress / break-pause flag: set to 1 during CHAIN string-var move ($752C) so the CLEAR reset preserves the string heap ($68CC test); also the Ctrl-C/list-pause flag polled by the auto-page LIST 'more' handler ($673B). Cleared by RAISE_ERROR and cold-start.",
     "34C9": "[RE] CHRGET then GETINT-positive: advances the text pointer, evaluates an expr to a signed 16-bit int (via SUB_34CC); used where a leading char must be skipped first (e.g. WIDTH/coord parsers at $60DD/$60F5/$7F41/$7F7F)",
@@ -1215,7 +1229,7 @@
     "5C34": "[RE] Little-endian integer power-of-ten table 10000/1000/100/10/1 ($10 27 / E8 03 / 64 00 / 0A 00 / 01 00) used by FOUT_DIGITS_INT ($5B8C): each integer decimal digit produced by repeated subtraction from the FAC mantissa",
     "5E24": "[RE] RND seed (RNDX) work cell, low byte of the 4-byte running random state at $5E24-$5E27. CLEAR/RUN re-initializes it from a default constant ($68AE FP_MOVE4 from $5D85); FN_RND multiplies/updates it; also reused as FP scratch by FN_SQR ($5DA3/$5DCC/$5DF4)",
     "5E25": "[RE] RND seed mantissa word (upper 3 bytes of the RNDX state at $5E25-$5E27): RANDOMIZE stores the new seed here via STMT_RANDOMIZE_3 ($4483 LD ($5E25),HL)",
-    "6C43": "[RE] Print a string VALUE: free the temp descriptor (FRESTR), load its address->BC and length->D (FP_LOAD_MEM3), then output D bytes via OUTCHR, resetting print state on CR. Entry past STROUT's literal scan; used by PRINT/LPRINT/INPUT-prompt ($37C4/$3927/$65EF/$75B4/$75D6)",
+    "6C43": "[RE] STRPRT: print a string VALUE. FRESTR frees/locates the value's STRDESC (msbasic_strdesc.inc), then the generic 3-byte loader FP_LOAD_MEM3 ($6C46) reads the descriptor as D=STRDESC.LEN, C=STRDESC.PTR.lo, B=STRDESC.PTR.hi; STRPRT_1 then outputs LEN (D) bytes from (BC) via OUTCHR, resetting print state on CR. Entry past STROUT's literal scan; used by PRINT/LPRINT/INPUT-prompt ($37C4/$3927/$65EF/$75B4/$75D6).",
     "840F": "Data string ' Bytes free'+CRLF -- free-memory suffix printed after the byte count in the cold sign-on banner (loaded at $83DF, emitted via STROUT)",
     "841D": "Data string: leading sign-on banner text (CRLF CRLF CRLF then 'BASIC-80 ...'), printed first by COLD_SIGNON ($83D5 LD HL,$841D / STROUT) ahead of the free-bytes count",
     "848D": "[RE] NOT a routine -- disassembler artifact. The only ref ($4CB4 'CALL $848D') is the byte pair CD 8D 84 inside the SIN/COS MBF polynomial coefficient table (between the POLY_EVAL pointers $4CAA/$4CBB used by FN_SIN_REDUCE), misread as a CALL. Its target $848D lands in the trailing zero-fill BSS past the image. Should be folded into the SIN coefficient DEFB data",
@@ -1287,7 +1301,7 @@
     "4DB5": "[RE] Flag-skip dual tail: $4DB5 JP NC,$E1C1 -- on the success branch JR NC,FDIV_7+1 ($4DAD) lands at $4DB6 and runs the operand bytes C1 E1 as POP BC; POP HL to discard the FDIV_1 loop saves. On fall-through SCF ($4DB4) leaves carry set so the JP NC is not taken (the POPs were already done as POP AF/POP AF). Both paths converge at $4DB8.",
     "4DFB": "[RE] Flag-skip sign-combine: $4DFB LD L,$AF is a dead load whose $AF immediate doubles as XOR A. DDIV enters via MULDIV_SIGN ($4DF9, A=$FF preserved) so the sign-byte XOR is complemented; DMUL enters at +1 ($4DFC) running XOR A (A=0) for a straight sign XOR. Both fall into LD HL,$0CC0 and XOR the $0CC0/$0CC1 operand signs.",
     "4E4F": "[RE] Flag-skip shared sign tail: $4E4F CP $2F is the FP_SIGN body; FCOMP/DCOMP reuse the tail by entering at FP_SIGN_1+1 ($4E50) where the $2F operand byte runs as CPL, then the shared RLA/SBC A,A ($4E51-$4E55) collapses A to -1/0/+1. The full entry tests the sign byte; the +1 entry complements a precomputed difference.",
-    "502F": "[RE] Flag-skip type select: SET_TYPE_DOUBLE ($502D) loads A=$08 then $502F LD BC,$043E swallows the 3E 04 bytes (junk BC), so the double path keeps A=$08. Callers entering SET_TYPE_DOUBLE_1+1 ($5030) run LD A,$04 instead. Both JP SET_TYPE_SINGLE_1 ($4FDC) -> LD ($0B14),A: VALTYP $08=double vs $04=single (MS BASIC-80 2/3/4/8 VALTYP scheme).",
+    "502F": "[RE] Flag-skip type select. SET_TYPE_DOUBLE ($502D) loads A=$08 then $502F LD BC,$043E swallows the 3E 04 bytes (BC scratch), so the double entry keeps A=$08. Callers entering at SET_TYPE_DOUBLE_1+1 ($5030) instead execute those bytes as LD A,$04. Both JP SET_TYPE_INTEGER_1 ($4FDC) -> LD ($0B14),A: VALTYP $08=VT_DBL (double) vs $04=VT_SNG (single). VALTYP = storage width in bytes (int=2,string=3,single=4,double=8).",
     "5176": "[RE] Flag-skip stack cleanup: $5176 LD BC,$E1C1 -- the C1 E1 operand bytes double as POP BC; POP HL. On integer-mul overflow, JR/JP C,IMUL_5+1 ($5156/$515E) enters $5177 to pop the pre-loop saves (PUSH BC $514D, PUSH HL $5148); the IMUL_4 fall-through reaches $5176 with the stack already balanced and skips them via the junk LD BC. Both converge at $5179.",
     "51B5": "[RE] Flag-skip stack balance: $51B5 LD A,$E1 -- the $E1 immediate doubles as POP HL. After ADD HL,BC: no-carry takes JR NC,INT_DIV_KERNEL_2+1 ($51B1) to $51B6 = POP HL (restore the pre-add HL); the carry path consumed that saved HL via POP AF/SCF ($51B3-$51B4) and must skip the POP, so the junk LD A,$E1 swallows the E1. Each path pops the single $51AF push; both fall into $51B7 LD A,E.",
     "544C": "[RE] DDIV digit-loop overlap (VERIFIED). DA 12 04 = JP C,$0412 only on the carry-CLEAR fall-through ($544B XOR A guarantees carry clear, so the JP is a never-taken 2-byte skip of its own operand). The carry-SET branch (JR C,DDIV_2+1 at $5444) enters at +1 and runs 12 04 = LD (DE),A / INC B: store the reduced remainder, count one decimal digit. Both paths land at $544F. MBASIC DDIV_3 byte-identical.",
@@ -1299,7 +1313,7 @@
     "5D6D": "[RE] VERIFIED flag-skip. POLY_EVAL_1 ($5D6D) opcode-eating dual entry. First pass (fall-through from FP_STORE_REGS_LD CALL at $5D6A) executes LD B,$F1 (06 F1); the $06 opcode swallows the $F1, so the first iteration pops only BC,DE. The Horner loop re-enters via JR POLY_EVAL_1+1 ($5D6E), running $F1 as POP AF to discard the per-iteration PUSH AF ($5D75) before popping BC,DE. B=$F1 is dead (overwritten by POP BC at $5D6F). Cover is genuinely executed on fall-through; MBASIC twin byte-identical.",
     "5F34": "[RE] VERIFIED flag-skip (count corrected to 22 CALL +1 sites, not 23). PTRGET_1 ($5F34) opcode-eating flag select. Fall-through from the PTRGET head -- reached via the DIM statement dispatch DEFW PTRGET at $0112 -- runs OR $AF (F6 swallows the AF), leaving A nonzero so $0B13 gets the 'array/create' context; the 22 CALL PTRGET_1+1 ($5F35) callers run that AF as XOR A, zeroing A and $0B13. Both reach LD ($0B13),A at $5F36. Cover genuinely executed (DIM path); MBASIC twin matches (22 sites).",
     "612C": "[RE] VERIFIED flag-skip. PTRGET_SEARCH_23 ($612C) opcode-eating entry. Fall-through (from PTRGET_SEARCH_22 PUSH DE at $612B) executes LD DE,$F5E5; the $11 opcode swallows E5 F5 so the first pass skips PUSH HL/PUSH AF and loads a dead DE. The two +1 entrants ($612D, JP Z at $5FB8 / CALL at $7389) run E5 F5 as PUSH HL / PUSH AF to save caller state. Both reach LD HL,($0B71) at $612F. Cover genuinely executed; MBASIC twin (SUB_3D4E_6, still machine-labeled) byte-identical.",
-    "6132": "[RE] VERIFIED flag-skip. PTRGET_SEARCH_24 ($6132) opcode-eating loop advance. Fall-through (from $612F) runs LD A,$19 (3E swallows 19); the first array-table pass skips ADD HL,DE because HL is already at the table head. The loop re-enters via JR NZ,PTRGET_SEARCH_24+1 ($6133) at $6159, running 19 as ADD HL,DE to step to the next entry. A=$19 is dead (clobbered at $6140). Both reach EX DE,HL / CMP_HL_DE at $6134. Cover genuinely executed; MBASIC twin (SUB_3D4E_7) byte-identical (20 D8).",
+    "6132": "[RE] VERIFIED flag-skip. PTRGET_SEARCH_24 ($6132) opcode-eating loop advance. Fall-through (from $612F) runs LD A,$19 (3E swallows 19); the first array-table pass skips ADD HL,DE because HL is already at the table head. The loop re-enters via JR NZ,PTRGET_SEARCH_24+1 ($6133) at $6159, running 19 as ADD HL,DE to step to the next ARRAYVAR by the stored AV_BLKLEN stride (DE loaded at $6155-$6158). A=$19 is dead (clobbered at $6140). Both reach EX DE,HL / CMP_HL_DE at $6134. Cover genuinely executed; MBASIC twin (SUB_3D4E_7) byte-identical (20 D8). ARRAY-TABLE scan: compares AV_NAME0/$0B14/AV_NAME1 to C/$0B14/B ($6142/$6148/$614C); see msbasic_var.inc.",
     "61EF": "[RE] VERIFIED flag-skip. PTRGET_SEARCH_36 ($61EF) opcode-eating dimension loop. Fall-through (from PTRGET_SEARCH_35) runs LD D,$E1 (16 swallows E1); the first array dimension skips POP HL because HL is already valid. The loop re-enters via JR NZ,PTRGET_SEARCH_36+1 ($61F0) at $6205, running E1 as POP HL to restore the per-dimension HL save (EX (SP),HL/PUSH AF at $61F5/$61F6). D=$E1 is dead (clobbered at $61F3). Both reach LD E,(HL) at $61F1. Cover genuinely executed; MBASIC twin (SUB_3D4E_21) byte-identical (20 E9).",
     "64EB": "[RE] VERIFIED flag-skip. PRINT_LIST_ENTRY_13 ($64EB) opcode-eating field seed. Fall-through (numeric-digit path via $64E9 DEC B / $64EA INC E) runs CP $AF (FE swallows AF), a flags-only compare leaving the digit char in A before ADD A,$10. The floating-currency '$$' entry JR Z,PRINT_LIST_ENTRY_13+1 ($64EC) at $64D6 runs AF as XOR A, so ADD A,$10 starts from $10. Both reach ADD A,$10 / INC HL at $64ED. Cover genuinely executed; MBASIC twin (PRINT_USING_11) byte-identical (28 14).",
     "653E": "[RE] VERIFIED flag-skip (with nuance). PRINT_LIST_ENTRY_19+1 ($653F) is a RET landing pad, not a JP target. The '^^^^' field parser pushes $653F ($6523/$6526) and saves HL into DE ($6527); the RET NZ/RET C chain returns to $653F to run EX DE,HL / POP DE and unwind. The cover at $653E (CA EB D1) is a genuine, executed JP Z,$D1EB whose Z comes from INC D ($653C) and whose $D1EB target is unreachable BIOS-region junk, so it is effectively never taken -- the CA opcode hides the EB D1 (EX DE,HL/POP DE) on the fall-through. Both reach PRINT_LIST_ENTRY_20 ($6541). MBASIC twin (PRINT_USING_17) byte-identical.",
@@ -1336,7 +1350,27 @@
     "47E6": "[RE] HCOLOR() function handler (token $D3): hi-res color read; reached via the special-case FUNCTION dispatch JP Z at $3C85. MBASIC (graphics-OFF) routes this to RAISE_GRAPHICS_STATEMENT_NOT_IMPLEMENTED.",
     "47EF": "[RE] HSCRN() function handler (token $ED): hi-res screen-point read; reached via the special-case FUNCTION dispatch JP Z at $3C8F. MBASIC routes it to the not-implemented stub.",
     "84C8": "[RE] Cold-start stack base: cold start does LD SP,COLD_STACK_BASE ($81D6) and seeds the stack-room pointer (TOP_OF_STACK_ROOM $0842) and SAVSTK from it, then resizes the work-area from CP/M memory top ($0001). The byte here is $00 (head of the 42-byte zero fill) and doubles as the link-null sentinel before program text, so TXTTAB = COLD_STACK_BASE+1.",
-    "0842": "[RE] Top-of-stack-room / stack-limit pointer (MS BASIC STKTOP family); cold start sets it = COLD_STACK_BASE ($81DB). The image default is a relocatable placeholder, overwritten before use."
+    "0842": "[RE] Top-of-stack-room / stack-limit pointer (MS BASIC STKTOP family); cold start sets it = COLD_STACK_BASE ($81DB). The image default is a relocatable placeholder, overwritten before use.",
+    "0CAB": "[RE] TRCFLG: MS BASIC execution-trace flag (whole-byte boolean). TRON sets it $AF, TROFF / program start sets it $00 (STMT_TRACE $69BF, via the AF/XOR-A dual-entry skip). NEWSTT reads it each line ($3393, OR A / JR Z) and, when nonzero, prints '[<linenum>]' before executing the line. No bitmask -- any nonzero value means trace on.",
+    "0B15": "[RE] CRUNCH_LITERAL_MODE: CRUNCH literal-passthrough flag (whole-byte boolean, no mask). Cleared at CRUNCH entry ($3004); set to 1 at $3201 right after emitting a ':' statement-separator or a DATA-class token; tested at CRUNCH_1 ($301C, OR A / JP NZ) -- when set, the current source character is copied through verbatim instead of being reserved-word-matched. TEMPORALLY REUSED (not concurrent) by FRMEVL as the binary-operator scratch: FRMEVL_OPCOMBINE writes the operator code here ($3B54) and the operator-dispatch index reads it ($3BA9). Same byte, different tenant at a different phase.",
+    "0B16": "[RE] CRUNCH_LINENUM_MODE: CRUNCH line-number-introducer flag (whole-byte boolean, no mask). Set to 1 when the token just crunched is a keyword that is followed by a line number (GOTO/GOSUB/THEN/ELSE/RUN/LIST/RESTORE/etc.; armed via CRUNCH_16 $311C) and after ':' ($3204); cleared at CRUNCH entry ($3001) and $30D3. Tested at CRUNCH_18 ($314B, OR A / JR Z): when set, a following digit run is emitted as a line-number constant (token $0E + 2-byte line number via LINGET, $315C) instead of being parsed as an ordinary numeric literal (FIN at $3179).",
+    "0838": "[RE] PRTFLG (printer-output selector, whole-byte boolean -- no mask). Set to $01 by LPRINT ($3744) and LLIST ($40A8); cleared to 0 by the PRINT epilogue ($3880), OUTDO_RESET_COL ($667A), RESET_PRINT_STATE ($679D), and Ctrl-C ($6997). Read by OUTCHR ($661E, OR A / JP Z): nonzero routes the character through the printer-device path (with printer-specific backspace at $6627) instead of the console. UNKNOWN/CONFLICT: some in-file prose ($667A, $6997) describes this cell as an 'output-suppress' flag; that does not match the LPRINT/LLIST set sites (which mean 'direct output to printer'). Treat the 'suppress' wording as a probable mislabel pending a dedicated audit; do not assume a suppress semantic.",
+    "0B77": "[RE] DEFTYPE_TBL: the 26-byte per-letter default value-type array (one VALTYP byte per variable initial letter A..Z; MS BASIC DEFTBL). Written by the DEF* statement handler (STMT_DEFSTR $34B4: stores the requested type code E across the letter range) and reset to the default ($04) for all 26 letters by CLEAR/RUN ($68A3). PTRGET reads the default type for a variable's first letter via the bias-base addressing at $5FA6 (base $0B36 + ASCII-letter-code lands here: $0B36+$41='A'->$0B77 ... $0B36+$5A='Z'->$0B90). NOTE the default fill value is $04; the exact VALTYP code->precision mapping is not asserted here (the file's own type-code notes are inconsistent) -- see UNKNOWNS.",
+    "0B36": "[RE] NOT a data object: $0B36 is the bias base used to index DEFTYPE_TBL ($0B77) by a variable's raw ASCII first-letter code. PTRGET ($5FA6) loads HL = DEFTYPE_TBL-$41 (= $0B36) then ADD HL,(letter&$7F) so $0B36+$41('A')=$0B77 ... $0B36+$5A('Z')=$0B90. The 15-byte DEFS here ($0B36-$0B44) is unrelated workspace/padding; the per-letter default-type cells physically live at DEFTYPE_TBL ($0B77).",
+    "4B88": "Update existing comment phrasing to name the symbol: '...issue BDOS Select-Disk (C=DRV_SET) on the CP/M current-drive byte ($0004)...'",
+    "6BE2": "[RE] STR_DESC_STORE: write a STRDESC (see msbasic_strdesc.inc) at (HL) -- STRDESC.LEN=A, STRDESC.PTR=DE (low E at +1, high D at +2); preserves HL. The universal 3-byte string-value-descriptor writer (length byte then heap/text pointer word); used right after GETSPA reserves string space and by SCAN_STR_BODY when measuring a literal.",
+    "0B27": "[RE] TEMPST: base of the temporary string-descriptor stack -- a small array of STRDESC records (msbasic_strdesc.inc, 3 bytes each) holding intermediate string FRMEVL results. TEMPPT ($0B25) is the live top-of-stack pointer; PUT_STR_TEMP pushes here, FREE_TOP_TEMP_DESCR pops. Overflowing this region raises 'String formula too complex'. The DEFS reservation spans the descriptor slots (followed by DSCTMP at $0B45).",
+    "0B45": "[RE] DSCTMP: the one-entry working string descriptor (STRDESC, msbasic_strdesc.inc) -- STORE_STR_DESC writes the freshly-built len/pointer here ($6BDF LD HL,DSCTMP then STR_DESC_STORE), and PUT_STR_TEMP ($6C1A) copies it from here onto the temp-descriptor stack (TEMPPT/TEMPST). DSCTMP.LEN=$0B45, DSCTMP.PTR=$0B46 (the existing L_0B46 word).",
+    "4CAA": "[RE] LOG() numerator coefficient pool: MBF (4-byte single) polynomial, layout { count byte; N x 4-byte MBF coefficient } with count=$04 -> 4 coefficients ($4CAB-$4CBA). Evaluated by POLY_EVAL (Horner) from the LOG mantissa-reduction routine at $4CDF ($4CEC/$4CEF). Paired with FP_POLY_LOG_DEN; the two are FDIV'd ($4D03) to form the rational approximation of ln over the reduced interval.",
+    "4CBB": "[RE] LOG() denominator coefficient pool: MBF polynomial { count byte; N x 4-byte MBF } with count=$04 -> 4 coefficients ($4CBC-$4CCB). Evaluated by POLY_EVAL from $4CFB/$4CFE; the result divides the FP_POLY_LOG_NUM result (FDIV at $4D03) to yield ln of the range-reduced mantissa.",
+    "5D39": "[RE] EXP() coefficient pool: MBF polynomial { count byte; N x 4-byte MBF } with count=$07 -> 7 coefficients ($5D3A-$5D55). Evaluated by POLY_EVAL (Horner) from FN_EXP ($5D0F/$5D12) to approximate 2^f for the fractional part f after FN_EXP scales x by log2(e) and splits off the integer exponent (FIX_SCALE).",
+    "5F02": "[RE] ATN() coefficient pool: MBF polynomial { count byte; N x 4-byte MBF } with count=$09 -> 9 coefficients ($5F03-$5F26, 36 bytes). Evaluated as x*P(x^2) by POLY_EVAL_ODD from FN_ATN ($5EF8/$5EFB) (the odd-power series for arctangent). DUAL USE: the protected-program scrambler reuses these raw bytes as a rotating XOR key (PROG_UNSCRAMBLE $8144, PROG_SCRAMBLE $8189), indexed mod-13 by the B counter -- the byte values, not their FP value, are what matter there.",
+    "5EB2": "[RE] SIN/COS coefficient pool (FP_POLY_SIN_COEFFS): MBF polynomial { count byte; N x 4-byte MBF } with count=$05 -> 5 coefficients ($5EB3-$5EC6, 20 bytes). Evaluated as x*P(x^2) by POLY_EVAL_ODD from FN_SIN ($5E91; the call site label FN_RND_2 is a code-overlap artifact, not RND). DUAL USE: reused as a rotating XOR key table by the protected-program scramble (PROG_UNSCRAMBLE $8152, PROG_SCRAMBLE $817B), indexed mod-11 by the C counter -- name KEPT to preserve both identities.",
+    "5FE4": "[RE] SIMPLE-VARIABLE table scan (SIMPLEVAR walk). DE walks VARTAB..ARYTAB. Per entry: read SV_VALTYP into L ($5FE4), compare SV_NAME0 to C ($5FE9) and live VALTYP $0B14 to L ($5FEC) and SV_NAME1 to B ($5FF3). On a 2-char hit -> PTRGET_SEARCH_10 (checks SV_NAMEXTLEN/long-name match). On miss, fall through to the computed-stride advance: next = cur + (SV_NAMEXTLEN + SV_VALTYP + 1). Sequential walk -- no base+offset access. See msbasic_var.inc.",
+    "6088": "[RE] SIMPLE-VARIABLE long-name confirm: a 2-char header matched; now compare SV_NAMEXTLEN (offset $03, $608D) to the scanned name's extra-length ($0871). If both 0 -> exact short-name hit, return DE -> value ($6095 INC DE). Else VARNAM_COMPARE the namext bytes; on mismatch resume the stride walk (PTRGET_SEARCH_4).",
+    "6CB0": "[RE] GC simple-variable walk over SIMPLEVAR records (VARTAB..ARYTAB, cmp to $0C62). Per entry: SV_VALTYP ($6CBA), skip 3-byte header ($6CBB-BD), VARTAB_SKIP_ENTRY consumes SV_NAMEXTLEN+namext ($6CBF) leaving HL at value; if VALTYP==3 (string) fix its descriptor (GARBAG_FIX_STR_PTR $6CC7) else add SV_VALTYP to step past the value ($6CCB-CE). Sequential walk.",
+    "6150": "[RE] ARRAYVAR advance to next descriptor: at the AV_NAMEXTLEN byte ($6150 LD E,(HL); INC E) skip the variable name extension, then PTRGET_SEARCH_26 ($6155) loads AV_BLKLEN (the stored inter-entry stride word) into DE; the loop top adds it (flag-skip ADD HL,DE at $6132/$6159) to reach the next ARRAYVAR. Stored-stride sequential walk -- no base+offset.",
+    "6CF2": "[RE] GC array-table walk over ARRAYVAR records (ARYTAB..STREND, cmp to $0B73). Per entry: read AV_VALTYP ($6CFD), skip the 3-byte header ($6D00-01 + the type byte already consumed) and the name via VARTAB_SKIP_ENTRY ($6D02), load AV_BLKLEN ($6D05-08) to find the next descriptor; only VALTYP==3 (string) arrays have their element descriptors scanned (loop GARBAG_8 $6D1A using AV_NDIMS at $6D14 to size the element block). Sequential, stored-stride."
   },
   "sections": {
     "1000": "SELF-RELOCATOR (runs at load address $1000)",
@@ -1644,6 +1678,326 @@
     "837D": [
       "$00B2",
       "FCB.RND_BUF"
+    ],
+    "3185": [
+      "$02",
+      "VT_INT"
+    ],
+    "3468": [
+      "$08",
+      "VT_DBL"
+    ],
+    "3AA0": [
+      "$03",
+      "VT_STR"
+    ],
+    "3AD0": [
+      "$03",
+      "VT_STR"
+    ],
+    "3B5D": [
+      "$02",
+      "VT_INT"
+    ],
+    "3B61": [
+      "$04",
+      "VT_SNG"
+    ],
+    "3BBF": [
+      "$04",
+      "VT_SNG"
+    ],
+    "360A": [
+      "$03",
+      "VT_STR"
+    ],
+    "54FA": [
+      "$08",
+      "VT_DBL"
+    ],
+    "574F": [
+      "$04",
+      "VT_SNG"
+    ],
+    "6B4B": [
+      "$04",
+      "VT_SNG"
+    ],
+    "67ED": [
+      "$03",
+      "VT_STR"
+    ],
+    "6C25": [
+      "$03",
+      "VT_STR"
+    ],
+    "4B8F": [
+      "$0005",
+      "BDOS"
+    ],
+    "4B89": [
+      "$0E",
+      "DRV_SET"
+    ],
+    "7AA7": [
+      "$0005",
+      "BDOS"
+    ],
+    "7AA4": [
+      "$10",
+      "F_CLOSE"
+    ],
+    "7AEE": [
+      "$0005",
+      "BDOS"
+    ],
+    "7AEC": [
+      "$10",
+      "F_CLOSE"
+    ],
+    "7C04": [
+      "$0005",
+      "BDOS"
+    ],
+    "7C02": [
+      "$1A",
+      "F_DMAOFF"
+    ],
+    "7CA9": [
+      "$0005",
+      "BDOS"
+    ],
+    "7CA7": [
+      "$1A",
+      "F_DMAOFF"
+    ],
+    "7CB1": [
+      "$0005",
+      "BDOS"
+    ],
+    "7CAF": [
+      "$0F",
+      "F_OPEN"
+    ],
+    "7CE2": [
+      "$0005",
+      "BDOS"
+    ],
+    "7CE0": [
+      "$0F",
+      "F_OPEN"
+    ],
+    "7CEE": [
+      "$0005",
+      "BDOS"
+    ],
+    "7D93": [
+      "$0005",
+      "BDOS"
+    ],
+    "7D91": [
+      "$13",
+      "F_DELETE"
+    ],
+    "7D99": [
+      "$0005",
+      "BDOS"
+    ],
+    "7D97": [
+      "$16",
+      "F_MAKE"
+    ],
+    "7DA4": [
+      "$0005",
+      "BDOS"
+    ],
+    "7DA2": [
+      "$0F",
+      "F_OPEN"
+    ],
+    "7DF7": [
+      "$0005",
+      "BDOS"
+    ],
+    "7DF5": [
+      "$19",
+      "DRV_GET"
+    ],
+    "7DFD": [
+      "$0005",
+      "BDOS"
+    ],
+    "7DFB": [
+      "$0D",
+      "DRV_ALLRESET"
+    ],
+    "7E04": [
+      "$0005",
+      "BDOS"
+    ],
+    "7E02": [
+      "$0E",
+      "DRV_SET"
+    ],
+    "7E12": [
+      "$0005",
+      "BDOS"
+    ],
+    "7E10": [
+      "$1A",
+      "F_DMAOFF"
+    ],
+    "7E1B": [
+      "$0005",
+      "BDOS"
+    ],
+    "7E19": [
+      "$0F",
+      "F_OPEN"
+    ],
+    "7E24": [
+      "$0005",
+      "BDOS"
+    ],
+    "7E22": [
+      "$10",
+      "F_CLOSE"
+    ],
+    "7E2E": [
+      "$0005",
+      "BDOS"
+    ],
+    "7E2C": [
+      "$13",
+      "F_DELETE"
+    ],
+    "7E5F": [
+      "$0005",
+      "BDOS"
+    ],
+    "7E5D": [
+      "$1A",
+      "F_DMAOFF"
+    ],
+    "7E67": [
+      "$0005",
+      "BDOS"
+    ],
+    "7E65": [
+      "$11",
+      "F_SFIRST"
+    ],
+    "7EB2": [
+      "$0005",
+      "BDOS"
+    ],
+    "7EB0": [
+      "$12",
+      "F_SNEXT"
+    ],
+    "7EC9": [
+      "$0005",
+      "BDOS"
+    ],
+    "7F0E": [
+      "$0005",
+      "BDOS"
+    ],
+    "7F0C": [
+      "$1A",
+      "F_DMAOFF"
+    ],
+    "7F18": [
+      "$0005",
+      "BDOS"
+    ],
+    "7F16": [
+      "$14",
+      "F_READ"
+    ],
+    "8248": [
+      "$0005",
+      "BDOS"
+    ],
+    "8246": [
+      "$0C",
+      "S_BDOSVER"
+    ],
+    "37D0": [
+      "$0028",
+      "FCB.BUF_REM"
+    ],
+    "384A": [
+      "$0028",
+      "FCB.BUF_REM"
+    ],
+    "7BFD": [
+      "$0028",
+      "FCB.BUF_REM"
+    ],
+    "7ECF": [
+      "$0021",
+      "FCB.CPM_CR"
+    ],
+    "7EFA": [
+      "$002A",
+      "FCB.SEQ_BUF+1"
+    ],
+    "7D0A": [
+      "$02",
+      "FCB_MODE_SEQ_OUT"
+    ],
+    "7D10": [
+      "$01",
+      "FCB_MODE_SEQ_IN"
+    ],
+    "7D16": [
+      "$03",
+      "FCB_MODE_RANDOM"
+    ],
+    "7D8C": [
+      "$02",
+      "FCB_MODE_SEQ_OUT"
+    ],
+    "7DC7": [
+      "$03",
+      "FCB_MODE_RANDOM"
+    ],
+    "7DCC": [
+      "$01",
+      "FCB_MODE_SEQ_IN"
+    ],
+    "7657": [
+      "$03",
+      "FCB_MODE_RANDOM"
+    ],
+    "761A": [
+      "$03",
+      "FCB_MODE_RANDOM"
+    ],
+    "836F": [
+      "$00A9",
+      "FCB.FLD_BUF_PTR"
+    ],
+    "3B80": [
+      "OPERATOR_ROUTINE_TBL+30",
+      "OPERATOR_ROUTINE_TBL+OP_BAND_INT"
+    ],
+    "3BA6": [
+      "OPERATOR_ROUTINE_TBL+10",
+      "OPERATOR_ROUTINE_TBL+OP_BAND_DBL"
+    ],
+    "3BCE": [
+      "OPERATOR_ROUTINE_TBL+20",
+      "OPERATOR_ROUTINE_TBL+OP_BAND_SNG"
+    ],
+    "7CE9": [
+      "$17",
+      "F_RENAME"
+    ],
+    "5FA6": [
+      "L_0B36",
+      "DEFTYPE_TBL-$41"
     ]
   },
   "inline_comments": {
@@ -1654,6 +2008,11 @@
     "0F3F": "read BASLINE.LINK low (OR its high byte next: a $0000 link = end of program)",
     "0F5C": "write the rebuilt BASLINE.LINK (forward link to the next node)",
     "0EFB": "store a BASLINE.LINK placeholder here; CHEAD ($0F39) rebuilds the real forward link",
-    "0F01": "write BASLINE.LINENUM (the two INC HL at $0EFF/$0F00 skipped past BASLINE.LINK)"
+    "0F01": "write BASLINE.LINENUM (the two INC HL at $0EFF/$0F00 skipped past BASLINE.LINK)",
+    "387F": "[RE] PRINT epilogue/reset: clear the printer-output selector PRTFLG ($0838) and the current-file pointer PTRFIL ($0840) back to console defaults (0) at the end of a PRINT statement.",
+    "5FF8": "SV_NAMEXTLEN: A = extra-name-char count for stride",
+    "5FFB": "+ SV_VALTYP (L still holds the type/width read at $5FE5); INC A; ADD HL,DE = next entry",
+    "6155": "AV_BLKLEN word -> DE = stride to next array descriptor",
+    "61F1": "AV_DIMSIZE[i] word (high dim first) -> DE for the index/offset accumulate"
   }
 }

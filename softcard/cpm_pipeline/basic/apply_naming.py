@@ -122,6 +122,14 @@ FCB_INCLUDE_NAME = "msbasic_fcb.inc"        # MS BASIC file-control-block STRUCT
 FCB_INCLUDE_PATH = INCLUDE_DIR / FCB_INCLUDE_NAME
 LINE_INCLUDE_NAME = "msbasic_line.inc"      # MS BASIC program-line record STRUCT (BASLINE.<field> offsets)
 LINE_INCLUDE_PATH = INCLUDE_DIR / LINE_INCLUDE_NAME
+VALTYP_INCLUDE_NAME = "msbasic_valtyp.inc"  # MS BASIC VALTYP value-type EQUs (VT_*) + operator-band offsets
+VALTYP_INCLUDE_PATH = INCLUDE_DIR / VALTYP_INCLUDE_NAME
+STRDESC_INCLUDE_NAME = "msbasic_strdesc.inc"  # MS BASIC string-descriptor STRUCT (STRDESC.<field>)
+STRDESC_INCLUDE_PATH = INCLUDE_DIR / STRDESC_INCLUDE_NAME
+VAR_INCLUDE_NAME = "msbasic_var.inc"        # MS BASIC simple-variable / array storage STRUCTs
+VAR_INCLUDE_PATH = INCLUDE_DIR / VAR_INCLUDE_NAME
+CPM_INCLUDE_NAME = "cpm22.inc"              # CP/M 2.2 BDOS ABI (BDOS entry + F_*/DRV_* function numbers)
+CPM_INCLUDE_PATH = INCLUDE_DIR / CPM_INCLUDE_NAME
 
 
 def load_external_symbols():
@@ -204,6 +212,10 @@ def apply(base_text, renames, label_comments, sections, inline, ext_syms=None,
             out.append(f'    INCLUDE "{ERROR_INCLUDE_NAME}"   ; MS BASIC error-code names (ERR_*)')
             out.append(f'    INCLUDE "{FCB_INCLUDE_NAME}"   ; MS BASIC file-control-block STRUCT')
             out.append(f'    INCLUDE "{LINE_INCLUDE_NAME}"   ; MS BASIC program-line record STRUCT (BASLINE)')
+            out.append(f'    INCLUDE "{VALTYP_INCLUDE_NAME}"   ; MS BASIC VALTYP value-type EQUs (VT_*) + operator bands')
+            out.append(f'    INCLUDE "{STRDESC_INCLUDE_NAME}"   ; MS BASIC string-descriptor STRUCT (STRDESC)')
+            out.append(f'    INCLUDE "{VAR_INCLUDE_NAME}"   ; MS BASIC variable/array storage STRUCTs')
+            out.append(f'    INCLUDE "{CPM_INCLUDE_NAME}"   ; CP/M 2.2 BDOS ABI (BDOS + F_*/DRV_*)')
             continue
         m = LABEL_DEF_RE.match(line)
         if m and (m.group(1) in renames or m.group(1) in label_comments
@@ -250,7 +262,11 @@ def verify_byte_identical(text):
                                      (TOKEN_INCLUDE_NAME, TOKEN_INCLUDE_PATH),
                                      (ERROR_INCLUDE_NAME, ERROR_INCLUDE_PATH),
                                      (FCB_INCLUDE_NAME, FCB_INCLUDE_PATH),
-                                     (LINE_INCLUDE_NAME, LINE_INCLUDE_PATH))
+                                     (LINE_INCLUDE_NAME, LINE_INCLUDE_PATH),
+                                     (VALTYP_INCLUDE_NAME, VALTYP_INCLUDE_PATH),
+                                     (STRDESC_INCLUDE_NAME, STRDESC_INCLUDE_PATH),
+                                     (VAR_INCLUDE_NAME, VAR_INCLUDE_PATH),
+                                     (CPM_INCLUDE_NAME, CPM_INCLUDE_PATH))
            if pth.exists()]
     built = assemble_z80(src, include_files=inc)
     genuine = bytes(extract_file(read_disk(Path(rd.DISK_2_20_44K_SYSTEM)), COM_NAME))
