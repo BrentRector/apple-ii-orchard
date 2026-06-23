@@ -661,7 +661,7 @@ L_0B46:
 ; [RE] Top-of-free-string-space pointer (MS BASIC FRETOP): the string heap allocates downward from here; GETSPA decrements it, FRESTR1 hands back the topmost string, GARBAG slides live strings up to it. Seeded from MEMSIZ at cold-start/CLEAR.
 FRETOP:
         DEFB    "\0\0"
-L_0B4A:
+PRUSING_FORMAT_FLAGS:
         DEFB    "\0\0"
 GC_ARRAY_ELEM_END:
         DEFB    "\0\0"
@@ -709,7 +709,7 @@ ON_ERROR_LINE:
 ONEFLG:
         DEFB    "\0"
 ; [RE] FRMEVL operand text-pointer scratch (general TEMP): the precedence loop saves/reloads the current (HL) here ($3A85/$3A88) across operator recursion. The same cell is reused by FOUT to record the decimal-point buffer position during numeric formatting.
-FRMEVL_TXTPTR_TEMP:
+FOUT_DP_POSITION:
         DEFB    "\0\0"
 ; [RE] Saved error/statement text pointer (copy of ERR_SAVTXT when valid), stashed by the error reporter ($0DBC) and reloaded by CONT ($69B7).
 SAVED_ERR_TXTPTR:
@@ -1092,7 +1092,7 @@ STOP_BREAK:
         AND L
         INC A
 ERROR_RESUME_FROM_DIRECT_2:
-        CALL NZ,FOUT_PRINT
+        CALL NZ,PRINT_IN_LINENO
 ERROR_RESUME_FROM_DIRECT_3:
         DEFB    $3E                      ; LD A,# cover -- the fall-through loads A=$C1 from the next byte
 ; [RE] POP one return frame off the stack, then fall into the prompt/READY loop (NEWSTT_READY). Entered mid-instruction as the $C1 (POP BC) operand byte of the LD A,$C1 cover at the preceding label; the cover's fall-through instead loads A=$C1 (default prompt char).
@@ -1257,11 +1257,11 @@ SUB_0EB7_4:
 SUB_0EB7_5:
         LD (FILTAB),HL
         LD HL,(PTRFIL)
-        LD (FRMEVL_TXTPTR_TEMP),HL
+        LD (FOUT_DP_POSITION),HL
         CALL CLEAR_RESET_DATAPTR
         LD HL,(FILTAB_SLOT0_SEED)
         LD (FILTAB),HL
-        LD HL,(FRMEVL_TXTPTR_TEMP)
+        LD HL,(FOUT_DP_POSITION)
         LD (PTRFIL),HL
         JP DIRECT_LINE_DISPATCH
 ; [RE] CHEAD: relink the BASLINE program-line list from TXTTAB ($0846). Walk each node to its $00 token terminator and rewrite its BASLINE.LINK (the forward-link word) to address the next node, so the singly-linked chain stays contiguous after an insert/delete; stops at the $0000 link (end of program). See msbasic_line.inc.
@@ -4062,34 +4062,34 @@ FRMEVL_OPLOOP:
 ; ----------------------------------------------------------------------
 ; FRMEVL_OPLOOP_1 -- record the current text position as the operator scan point.
 ;   In:        HL -> the just-evaluated operand's trailing token (the candidate operator).
-;   Out:       FRMEVL_TXTPTR_TEMP ($0B69) = HL; falls into FRMEVL_OPLOOP_2.
-;   Clobbers:  (FRMEVL_TXTPTR_TEMP).
+;   Out:       FOUT_DP_POSITION ($0B69) = HL; falls into FRMEVL_OPLOOP_2.
+;   Clobbers:  (FOUT_DP_POSITION).
 ;   Algorithm: Stash HL so the loop can reload it after a recursive operand evaluation has moved
 ;              HL on. Re-entered here after the relational-mask collector / recursion returns.
 ; ----------------------------------------------------------------------
 FRMEVL_OPLOOP_1:
-        LD (FRMEVL_TXTPTR_TEMP),HL
+        LD (FOUT_DP_POSITION),HL
 ; ----------------------------------------------------------------------
 ; FRMEVL_OPLOOP_2 -- classify the next token as terminator / relational / binary operator.
-;   In:        FRMEVL_TXTPTR_TEMP = saved text pointer; top of stack = the pushed pending-precedence
+;   In:        FOUT_DP_POSITION = saved text pointer; top of stack = the pushed pending-precedence
 ;              frame (DE), popped into BC so B = pending precedence.
 ;   Out:       returns to caller if the token ends the (sub)expression; else dispatches to the
 ;              relational collector, the string-concat path, or the precedence test (OPLOOP_3).
-;   Clobbers:  A, BC, DE, HL, (L_0B4A).
-;   Algorithm: Reload HL from FRMEVL_TXTPTR_TEMP; POP BC so B = pending precedence. Read the
-;              operator token A and store its address in L_0B4A. If A < '>' ($EF) it is not an
+;   Clobbers:  A, BC, DE, HL, (PRUSING_FORMAT_FLAGS).
+;   Algorithm: Reload HL from FOUT_DP_POSITION; POP BC so B = pending precedence. Read the
+;              operator token A and store its address in PRUSING_FORMAT_FLAGS. If A < '>' ($EF) it is not an
 ;              operator -> RET. If A < '+' ($F2) it is a relational ('>','=','<') -> FRMEVL_RELOP.
 ;              Otherwise E = A-'+' is the binary-operator index (0='+',1='-',2='*',3='/',4='^',
 ;              5=AND,6=OR,7=XOR,8=EQV,9=IMP,10=MOD,11='\'). Special-case '+' (E=0): if the current
 ;              FAC value is a string (VALTYP=$03) divert to STR_CONCAT instead of numeric add.
 ; ----------------------------------------------------------------------
 FRMEVL_OPLOOP_2:
-        LD HL,(FRMEVL_TXTPTR_TEMP)
+        LD HL,(FOUT_DP_POSITION)
         ; recover the pushed pending-precedence frame; B = pending-operator precedence for the test below
         POP BC
         LD A,(HL)
         ; remember the address of this operator token (reloaded by FRMEVL_OPLOOP_6 when applying)
-        LD (L_0B4A),HL
+        LD (PRUSING_FORMAT_FLAGS),HL
         ; token below the relational band ($EF) is not a binary operator -> end of (sub)expression
         CP TOK_GT
         RET C
@@ -4108,7 +4108,7 @@ FRMEVL_OPLOOP_2:
 ; ----------------------------------------------------------------------
 ; FRMEVL_OPLOOP_3 -- precedence test and recursion setup for a non-relational binary operator.
 ;   In:        E = operator index (token-'+', 0..11); A still = that index; B = pending precedence;
-;              HL = (reloaded) operator address via L_0B4A in the apply arms.
+;              HL = (reloaded) operator address via PRUSING_FORMAT_FLAGS in the apply arms.
 ;   Out:       if the operator binds, recurses into FRMEVL_OPLOOP for the right operand; else RET.
 ;              D = new operator precedence; the chosen apply arm is queued on the stack.
 ;   Clobbers:  A, BC, DE, HL.
@@ -4187,7 +4187,7 @@ FRMEVL_OPLOOP_5:
         LD BC,FRMEVL_OPCOMBINE
 FRMEVL_OPLOOP_6:
         PUSH BC
-        LD HL,(L_0B4A)
+        LD HL,(PRUSING_FORMAT_FLAGS)
         JP FRMEVL_OPLOOP
 ; ----------------------------------------------------------------------
 ; FRMEVL_RELOP -- begin gathering a relational comparison from one or more of '>','=','<'.
@@ -4206,12 +4206,12 @@ FRMEVL_RELOP:
 ;   In:        A = current token; D = mask so far; HL -> current token.
 ;   Out:       on a non-relational token, falls to FRMEVL_ARITHOP carrying D = the relation mask;
 ;              HL advanced past the run.
-;   Clobbers:  A, D, HL, (L_0B4A); calls CHRGET.
+;   Clobbers:  A, D, HL, (PRUSING_FORMAT_FLAGS); calls CHRGET.
 ;   Algorithm: Compute A = token-'>' giving 0='>',1='=',2='<'; carry (token < '>') or A >= 3 ends
 ;              the run (-> FRMEVL_ARITHOP). Convert to a single bit (CP $01 / RLA: '>'->1,'='->2,
 ;              '<'->4) and XOR it into mask D. XOR-ing a bit already set (e.g. '>>') clears it, so
 ;              the new mask < old D; CP D then sets carry -> RAISE_SYNTAX_ERROR. Save the pointer
-;              in L_0B4A, CHRGET past the token, and loop. Completed mask uses the MS BASIC code
+;              in PRUSING_FORMAT_FLAGS, CHRGET past the token, and loop. Completed mask uses the MS BASIC code
 ;              1='>', 2='=', 4='<', combined for '>=','<=','<>','='.
 ; ----------------------------------------------------------------------
 FRMEVL_OPLOOP_8:
@@ -4229,7 +4229,7 @@ FRMEVL_OPLOOP_8:
         LD D,A
         ; the same relational symbol appeared twice (e.g. '>>') -> syntax error
         JP C,RAISE_SYNTAX_ERROR
-        LD (L_0B4A),HL
+        LD (PRUSING_FORMAT_FLAGS),HL
         ; consume this relational token and look at the next one
         CALL CHRGET
         JR FRMEVL_OPLOOP_8
@@ -4749,12 +4749,12 @@ FRMEVL_PAREN:
         DEFB    ')'                      ; inline char arg consumed by the preceding CALL
         RET
 ; ----------------------------------------------------------------------
-; unary minus: D=$7D, FRMEVL_OPLOOP, reload FRMEVL_TXTPTR_TEMP($0B69), FP_NEGATE_CHECKED; exit via _2.
+; unary minus: D=$7D, FRMEVL_OPLOOP, reload FOUT_DP_POSITION($0B69), FP_NEGATE_CHECKED; exit via _2.
 ; ----------------------------------------------------------------------
 FRMEVL_PAREN_1:
         LD D,$7D
         CALL FRMEVL_OPLOOP
-        LD HL,(FRMEVL_TXTPTR_TEMP)
+        LD HL,(FOUT_DP_POSITION)
         PUSH HL
         CALL FP_NEGATE_CHECKED
 ; ----------------------------------------------------------------------
@@ -5300,7 +5300,7 @@ STMT_DEF_2:
         LD A,(VALTYP)
         OR A
         PUSH AF
-        LD (FRMEVL_TXTPTR_TEMP),HL
+        LD (FOUT_DP_POSITION),HL
         EX DE,HL
         LD A,(HL)
         INC HL
@@ -5312,9 +5312,9 @@ STMT_DEF_2:
         CP $28
         JP NZ,STMT_DEF_8+1
         CALL CHRGET
-        LD (L_0B4A),HL
+        LD (PRUSING_FORMAT_FLAGS),HL
         EX DE,HL
-        LD HL,(FRMEVL_TXTPTR_TEMP)
+        LD HL,(FOUT_DP_POSITION)
         CALL SYNCHR
         DEFB    '('                      ; inline char arg consumed by the preceding CALL
         XOR A
@@ -5331,9 +5331,9 @@ STMT_DEF_3:
         PUSH AF
         PUSH DE
         CALL FRMEVL_NOPAREN
-        LD (FRMEVL_TXTPTR_TEMP),HL
+        LD (FOUT_DP_POSITION),HL
         POP HL
-        LD (L_0B4A),HL
+        LD (PRUSING_FORMAT_FLAGS),HL
         POP AF
         CALL FRMEVL_APPLY_OP
         LD C,$04
@@ -5344,14 +5344,14 @@ STMT_DEF_3:
         CALL FP_ARG_SETUP2
         LD A,(VALTYP)
         PUSH AF
-        LD HL,(FRMEVL_TXTPTR_TEMP)
+        LD HL,(FOUT_DP_POSITION)
         LD A,(HL)
         CP $29
         JR Z,STMT_DEF_5
         CALL SYNCHR
         DEFB    ','                      ; inline char arg consumed by the preceding CALL
         PUSH HL
-        LD HL,(L_0B4A)
+        LD HL,(PRUSING_FORMAT_FLAGS)
         CALL SYNCHR
         DEFB    ','                      ; inline char arg consumed by the preceding CALL
         JR STMT_DEF_3
@@ -5400,16 +5400,16 @@ STMT_DEF_6:
         PUSH BC
         JP STMT_LET_3
 STMT_DEF_7:
-        LD HL,(FRMEVL_TXTPTR_TEMP)
+        LD HL,(FOUT_DP_POSITION)
         CALL CHRGET
         PUSH HL
-        LD HL,(L_0B4A)
+        LD HL,(PRUSING_FORMAT_FLAGS)
         CALL SYNCHR
         DEFB    ')'                      ; inline char arg consumed by the preceding CALL
 ; [RE] PUSH-skip cover. 3E D5 = LD A,$D5: the fall-through (parenthesized DEF FN arglist done, from STMT_DEF_7 $3F6E CALL SYNCHR/$3F71 DEFB ')') absorbs the D5 and skips a PUSH DE. JP NZ,STMT_DEF_8+1 at $3EC4 (no-paren function ref, when $3EC2 CP $28 fails) lands on the bare D5 = PUSH DE to save the text pointer; both then fall into LD ($0B4A),HL at $3F74. Independently verified; confirmed against MBASIC label shift.
 STMT_DEF_8:
         LD A,$D5
-        LD (L_0B4A),HL
+        LD (PRUSING_FORMAT_FLAGS),HL
         LD A,(DEFFN_FRAME_SIZE)
         ADD A,$04
         PUSH AF
@@ -5445,7 +5445,7 @@ STMT_DEF_8:
         LD A,H
         OR L
         LD (DEFFN_ACTIVE_FLAG),A
-        LD HL,(L_0B4A)
+        LD HL,(PRUSING_FORMAT_FLAGS)
         CALL EVAL_EXPR_AFTER_SYNCHR
         DEC HL
         CALL CHRGET
@@ -6687,7 +6687,7 @@ RENUM_PATCH_LINEREFS_5:
         POP HL
         PUSH HL
         PUSH BC
-        CALL FOUT_PRINT
+        CALL PRINT_IN_LINENO
 RENUM_PATCH_LINEREFS_6:
         POP HL
 RENUM_PATCH_LINEREFS_7:
@@ -9028,7 +9028,7 @@ FADD_ALIGN_GO:
         ; mantissa add carried out: bump the exponent ($0CB4) and shift the mantissa right one bit to renormalize
         INC (HL)
         ; exponent wrapped to 0 => magnitude overflow: jump to the shared FP error-finalize path
-        JP Z,FIN_DONE_12
+        JP Z,OVERR_SIGN_FROM_FPFLAG_CPL
         LD L,$01
         CALL MANT_SHIFT_BITS
         JR FP_PACK_ROUND
@@ -9178,11 +9178,11 @@ FP_PACK_STORE:
 ; FADD_ROUND_CARRY -- propagate a round-up (+1 ULP) carry through the mantissa and exponent.
 ;   In:        Mantissa bytes in E(low),D(mid),C(high); HL -> exponent cell $0CB4.
 ;   Out:       Mantissa incremented by one ULP with the carry rippled; on a full mantissa carry the exponent
-;              is bumped and the mantissa MSB reseeded to $80. Exponent overflow exits via FIN_DONE_11.
+;              is bumped and the mantissa MSB reseeded to $80. Exponent overflow exits via OVERR_POP1.
 ;   Clobbers:  E,D,C and (HL); flags. (A is NOT touched.)
 ;   Algorithm: INC E; if it wrapped, INC D; if that wrapped, INC C; if that wrapped too the whole mantissa
 ;              rolled over, so set C=$80 (the new normalized MSB) and INC the exponent (HL). If the exponent
-;              then wraps to 0 the magnitude overflowed -> JP FIN_DONE_11 (the shared FP error-finalize path,
+;              then wraps to 0 the magnitude overflowed -> JP OVERR_POP1 (the shared FP error-finalize path,
 ;              which reports Overflow here).
 ; ----------------------------------------------------------------------
 FADD_ROUND_CARRY:
@@ -9198,7 +9198,7 @@ FADD_ROUND_CARRY:
         INC (HL)
         RET NZ
         ; exponent wrapped past max: overflow -> shared FP error-finalize (reports Overflow)
-        JP FIN_DONE_11
+        JP OVERR_POP1
 ; ----------------------------------------------------------------------
 ; MANT_ADD -- add an aligned 3-byte mantissa from (HL) into the working mantissa registers.
 ;   In:        HL -> 3 consecutive mantissa bytes (low..high); working mantissa in E(low),D(mid),C(high).
@@ -9526,8 +9526,8 @@ FDIV_POP_ARGS:
 ;   In:        Dividend in B=biased exponent, C=mantissa high (bit7=sign), D=mantissa mid, E=mantissa low.
 ;              FAC holds the divisor.  Reached from the operator band (DEFW FDIV, line 433) and from
 ;              FDIV_POP_ARGS / IDIV.
-;   Out:       FAC = dividend / divisor, normalized.  On a zero DIVISOR (FAC=0) jumps to FIN_DONE_14, which
-;              reaches FIN_DONE_18 -> the Division-by-zero error (confirmed: FIN_DONE_18 loads
+;   Out:       FAC = dividend / divisor, normalized.  On a zero DIVISOR (FAC=0) jumps to DIV0_SIGN_FROM_C, which
+;              reaches DIV0_SET_MSG -> the Division-by-zero error (confirmed: DIV0_SET_MSG loads
 ;              ERRMSG_DIVISION_BY_ZERO).  A zero dividend underflows to a zero result via FP_SET_ZERO.
 ;   Clobbers:  A,B,C,D,E,H,L,F, the FAC, the FDIV subtract trio (FDIV_2/3/4 +1) and the quotient scratch
 ;              FDIV_5+1.
@@ -9541,8 +9541,8 @@ FDIV_POP_ARGS:
 ; ----------------------------------------------------------------------
 FDIV:
         CALL FP_SIGN
-        ; A zero divisor (FAC=0, FP_SIGN returns Z) raises Division by zero (FIN_DONE_14 -> FIN_DONE_18 loads ERRMSG_DIVISION_BY_ZERO).
-        JP Z,FIN_DONE_14
+        ; A zero divisor (FAC=0, FP_SIGN returns Z) raises Division by zero (DIV0_SIGN_FROM_C -> DIV0_SET_MSG loads ERRMSG_DIVISION_BY_ZERO).
+        JP Z,DIV0_SIGN_FROM_C
         ; L=$FF makes EXP_ADD SUBTRACT the divisor exponent (it one's-complements it before adding); the next two INC (HL) restore the divide bias.
         LD L,$FF
         CALL EXP_ADD
@@ -9740,10 +9740,10 @@ DEC_HL_RET:
 ;              interior labels reached from EXP_ADD: DEC_HL_RET_2 (from JP P, with one stacked frame to discard)
 ;              and DEC_HL_RET_3 (from JR Z when the operand exponent is 0).
 ;   Out:       After discarding the saved frame: a positive sign test -> JP FP_SET_ZERO (FAC := 0, underflow);
-;              otherwise JP FIN_DONE_5 ([RE] the Overflow error path).
+;              otherwise JP OVERR_SIGN_FROM_ARGS ([RE] the Overflow error path).
 ;   Clobbers:  A,H,L,F, the discarded stack frame.
 ;   Algorithm: At DEC_HL_RET_2/DEC_HL_RET_3, pop the saved return/exponent frame and, on a positive sign, clear
-;              the FAC to zero (underflow), else fall into FIN_DONE_5.  [RE] The unreached EXP_OVUN_TEST prefix
+;              the FAC to zero (underflow), else fall into OVERR_SIGN_FROM_ARGS.  [RE] The unreached EXP_OVUN_TEST prefix
 ;              (FP_SIGN; CPL; POP HL) looks like a legacy 're-test and complement the sign' entry inherited from
 ;              the MS BASIC-80 overflow handler; its role in this image is UNKNOWN because nothing reaches it.
 ; ----------------------------------------------------------------------
@@ -9758,12 +9758,12 @@ DEC_HL_RET_3:
         POP HL
         ; [RE] Underflow branch of the over/underflow fork: a positive sign here clears the FAC to zero.
         JP P,FP_SET_ZERO
-        ; [RE] Otherwise fall into FIN_DONE_5 (the over/underflow error path).
-        JP FIN_DONE_5
+        ; [RE] Otherwise fall into OVERR_SIGN_FROM_ARGS (the over/underflow error path).
+        JP OVERR_SIGN_FROM_ARGS
 ; ----------------------------------------------------------------------
 ; FP_SCALE2 -- multiply the FAC by ten (single precision): FAC = FAC * 10.
 ;   In:        FAC holds the value (mantissa $0CB1/$0CB2, sign+high $0CB3, exponent $0CB4).
-;   Out:       FAC = FAC * 10, normalized.  RET unchanged if FAC=0.  On exponent overflow -> FIN_DONE_10
+;   Out:       FAC = FAC * 10, normalized.  RET unchanged if FAC=0.  On exponent overflow -> OVERR_SIGN_FROM_FAC
 ;              ([RE] the Overflow error path).
 ;   Clobbers:  A,B,C,D,E,H,L,F, the FAC.
 ;   Algorithm: Load the value into the operand registers (FP_LOAD_FAC: B=exp, C/D/E=mantissa).  Add 2 to the
@@ -9779,7 +9779,7 @@ FP_SCALE2:
         RET Z
         ; Bump the operand-copy exponent by 2 (multiply the copy by 4); a carry here is an exponent overflow -> Overflow error.
         ADD A,$02
-        JP C,FIN_DONE_10
+        JP C,OVERR_SIGN_FROM_FAC
         LD B,A
         ; Add value*4 (the operand copy) to the original FAC (value) -> value*5 in the FAC.
         CALL FADD_ALIGN
@@ -9787,7 +9787,7 @@ FP_SCALE2:
         ; Increment the FAC exponent: doubles value*5 to value*10 (a zero result -> Overflow error).
         INC (HL)
         RET NZ
-        JP FIN_DONE_10
+        JP OVERR_SIGN_FROM_FAC
 ; ----------------------------------------------------------------------
 ; FP_SIGN -- return the sign of the FAC as A = -1 / 0 / +1, with flags to match.
 ;   In:        FAC exponent at $0CB4, sign byte (high mantissa) at $0CB3 (FACHI), bit7 = sign.
@@ -10805,9 +10805,9 @@ INT_SIGNEXT_SUB:
 ; ----------------------------------------------------------------------
 ; IADD -- 16-bit signed integer ADD operator (HL + DE); the '+' arm of the integer arithmetic dispatch band.
 ;   In:        HL = one operand, DE = the other (both int16). For the subtract entry IADD_1, A already holds the right operand's sign extension (loaded into B).
-;   Out:       FAC = HL + DE as a signed integer (VALTYP=VT_INT) when it fits; on signed overflow both operands are promoted to single precision and the add finishes in floating point (via FIN_DONE_1), leaving a single-precision FAC.
+;   Out:       FAC = HL + DE as a signed integer (VALTYP=VT_INT) when it fits; on signed overflow both operands are promoted to single precision and the add finishes in floating point (via FIN_FLOAT_RETURN), leaving a single-precision FAC.
 ;   Clobbers:  A, HL, DE, BC, F.
-;   Algorithm: Sign-extend both operands into a 17th bit (LD A,H/RLA/SBC A,A gives 0 or $FF), add the low 16 bits (ADD HL,DE) and the sign bits (ADC A,B). Detect signed overflow by comparing the carry-out sign with the result's top bit (RRCA / XOR H): if they agree (JP P) the 16-bit result is valid -> store via FP_TO_INT_1. If they disagree, overflow occurred: float the right operand (EX DE,HL / INT_TO_SINGLE_HL), recover and float the left operand (FLOAT_FROM_INT), and continue through the floating-point add at FIN_DONE_1.
+;   Algorithm: Sign-extend both operands into a 17th bit (LD A,H/RLA/SBC A,A gives 0 or $FF), add the low 16 bits (ADD HL,DE) and the sign bits (ADC A,B). Detect signed overflow by comparing the carry-out sign with the result's top bit (RRCA / XOR H): if they agree (JP P) the 16-bit result is valid -> store via FP_TO_INT_1. If they disagree, overflow occurred: float the right operand (EX DE,HL / INT_TO_SINGLE_HL), recover and float the left operand (FLOAT_FROM_INT), and continue through the floating-point add at FIN_FLOAT_RETURN.
 ; ----------------------------------------------------------------------
 IADD:
         LD A,H
@@ -10835,7 +10835,7 @@ IADD_1:
         EX DE,HL
         ; overflow: float the left operand; both operands are now single precision and the add finishes in floating point
         CALL FLOAT_FROM_INT
-        JP FIN_DONE_1
+        JP FIN_FLOAT_RETURN
 ; ----------------------------------------------------------------------
 ; IMUL -- 16-bit signed integer MULTIPLY operator; the '*' arm of the integer arithmetic dispatch band.
 ;   In:        HL and DE = the two int16 factors. INT_SETSIGN_NEG captures the combined result sign and makes the factors non-negative.
@@ -11173,7 +11173,7 @@ DADD_ALIGNED:
         JP NC,DADD_ROUND_AND_SIGN
         EX DE,HL
         INC (HL)
-        JP Z,FIN_DONE_12
+        JP Z,OVERR_SIGN_FROM_FPFLAG_CPL
         CALL DP_SHIFT_RIGHT_FROM_CB3
         JP DADD_ROUND_AND_SIGN
 DADD_LIKE_SIGNS:
@@ -11236,7 +11236,7 @@ DADD_ROUND_AND_SIGN_A:
 ; ----------------------------------------------------------------------
 ; DP_ROUND_CARRY -- round the double mantissa up by 1 with carry propagation.
 ;   In:        FAC 7-byte mantissa at $0CAD..$0CB3, exponent at $0CB4; called (CALL M,...) when the guard byte $0CAC has bit7 set (round-up needed).
-;   Out:       Mantissa incremented; on a full 7-byte carry the MSB is forced to $80 and the exponent is bumped (overflow -> FIN_DONE_12).
+;   Out:       Mantissa incremented; on a full 7-byte carry the MSB is forced to $80 and the exponent is bumped (overflow -> OVERR_SIGN_FROM_FPFLAG_CPL).
 ;   Clobbers:  A,B,H,L; FAC mantissa and possibly exponent.
 ;   Algorithm: INC the lowest mantissa byte ($0CAD); while a byte wraps to 0, carry into the next higher byte for up to 7 bytes. If the carry runs off the top, the value rounded up to 1.0: HL now points at the exponent ($0CB4), so INC it (Z => overflow), then set FACHI ($0CB3) MSB to $80 (the renormalized hidden bit).
 ; ----------------------------------------------------------------------
@@ -11252,7 +11252,7 @@ DP_ROUND_CARRY_PROPAGATE:
         JR NZ,DP_ROUND_CARRY_PROPAGATE
         ; carry ran past the whole mantissa: HL is now the exponent, bump it (Z => exponent overflow => error)
         INC (HL)
-        JP Z,FIN_DONE_12
+        JP Z,OVERR_SIGN_FROM_FPFLAG_CPL
         DEC HL
         ; the 1.0 carry renormalizes the mantissa MSB to $80 (hidden leading bit)
         LD (HL),$80
@@ -11608,15 +11608,15 @@ DP_POP_OPERAND_LOOP:
 ; ----------------------------------------------------------------------
 ; DDIV -- double-precision DIVIDE (MBF, restoring division).
 ;   In:        FAC double at $0CAC..$0CB4 (dividend), ARG double at $0CBA..$0CC1 (divisor).
-;   Out:       FAC = FAC / ARG, normalized/rounded; FAC=0 on dividend zero; divide-by-zero -> FIN_DONE_15, overflow -> FIN_DONE_12.
+;   Out:       FAC = FAC / ARG, normalized/rounded; FAC=0 on dividend zero; divide-by-zero -> DIV0_SIGN_DOUBLE, overflow -> OVERR_SIGN_FROM_FPFLAG_CPL.
 ;   Clobbers:  A,B,C,D,E,H,L; FAC, the $0CDD remainder block and $0CE3/$0CE4 temps.
-;   Algorithm: If the divisor exponent ($0CC1) is 0, jump to the divide-by-zero handler (FIN_DONE_15). If the dividend exponent ($0CB4) is 0, the quotient is 0. Combine signs and form the quotient exponent (MULDIV_SIGN, A=$FF complement path), then INC the exponent twice to set the quotient scale (Z => overflow -> FIN_DONE_12). Seed the remainder block $0CDD..$0CE3 with the dividend mantissa (DP_COPY_TEMP); the quotient builds in the FAC mantissa $0CAD (cleared to 0). Restoring division: each step trial-subtracts the divisor (DP_SUB_CONST_8E with $9E; SBC/CCF turns the borrow into a fit/no-fit test), and on no-fit adds it back ($8E); a 1/0 quotient bit is recorded, then the QUOTIENT ($0CAD, 7 bytes via DP_SHIFT_LEFT_LOOP) and the REMAINDER ($0CDD, 8 bytes via DP_SHIFT_LEFT_8) are shifted left, looping over the bit counter B and the exponent at $0CB4 until the quotient is filled; exponent underflow yields zero.
+;   Algorithm: If the divisor exponent ($0CC1) is 0, jump to the divide-by-zero handler (DIV0_SIGN_DOUBLE). If the dividend exponent ($0CB4) is 0, the quotient is 0. Combine signs and form the quotient exponent (MULDIV_SIGN, A=$FF complement path), then INC the exponent twice to set the quotient scale (Z => overflow -> OVERR_SIGN_FROM_FPFLAG_CPL). Seed the remainder block $0CDD..$0CE3 with the dividend mantissa (DP_COPY_TEMP); the quotient builds in the FAC mantissa $0CAD (cleared to 0). Restoring division: each step trial-subtracts the divisor (DP_SUB_CONST_8E with $9E; SBC/CCF turns the borrow into a fit/no-fit test), and on no-fit adds it back ($8E); a 1/0 quotient bit is recorded, then the QUOTIENT ($0CAD, 7 bytes via DP_SHIFT_LEFT_LOOP) and the REMAINDER ($0CDD, 8 bytes via DP_SHIFT_LEFT_8) are shifted left, looping over the bit counter B and the exponent at $0CB4 until the quotient is filled; exponent underflow yields zero.
 ; ----------------------------------------------------------------------
 DDIV:
         LD A,(L_0CC1)
         OR A
         ; divisor exponent 0 => division by zero
-        JP Z,FIN_DONE_15
+        JP Z,DIV0_SIGN_DOUBLE
         LD A,(FAC_EXP)
         OR A
         ; dividend exponent 0 => quotient is zero
@@ -11625,7 +11625,7 @@ DDIV:
         CALL MULDIV_SIGN
         INC (HL)
         INC (HL)
-        JP Z,FIN_DONE_12
+        JP Z,OVERR_SIGN_FROM_FPFLAG_CPL
         ; seed the remainder block ($0CDD..$0CE3) with the dividend mantissa
         CALL DP_COPY_TEMP
         LD HL,L_0CE4
@@ -11696,7 +11696,7 @@ DP_COPY_TEMP_LOOP:
 ; ----------------------------------------------------------------------
 ; DP_MUL10 -- multiply the FAC double by ten (decimal input/output scaler).
 ;   In:        FAC double at $0CAC..$0CB4.
-;   Out:       FAC = FAC * 10, full double precision; exponent overflow -> FIN_DONE_12; FAC unchanged if its exponent was 0.
+;   Out:       FAC = FAC * 10, full double precision; exponent overflow -> OVERR_SIGN_FROM_FPFLAG_CPL; FAC unchanged if its exponent was 0.
 ;   Clobbers:  A,D,E,H,L; FAC, ARG temp ($0CBA).
 ;   Algorithm: Copy FAC into the ARG temp (FP_ARG_TO_TEMP2 -> FP_MOVE_TYPED copies $0CAD..$0CB4 to $0CBA..$0CC1, leaving HL at the FAC exponent $0CB4). x*10 = (x*4 + x)*2: ADD A,$02 bumps the FAC exponent by 2 (FAC = x*4; carry => overflow), DADD adds the saved original (ARG = x) giving x*4 + x = x*5, then INC the FAC exponent ($0CB4) once to double it to x*10. Returns FAC unchanged if its exponent was 0.
 ; ----------------------------------------------------------------------
@@ -11710,7 +11710,7 @@ DP_MUL10:
         RET Z
         ; bump the FAC exponent by 2 binary steps (FAC = x*4); carry => overflow
         ADD A,$02
-        JP C,FIN_DONE_12
+        JP C,OVERR_SIGN_FROM_FPFLAG_CPL
         LD (HL),A
         PUSH HL
         ; FAC(x*4) + ARG(original x) = x*5
@@ -11719,47 +11719,132 @@ DP_MUL10:
         ; final FAC-exponent bump doubles the sum: (x*5)*2 = x*10
         INC (HL)
         RET NZ
-        JP FIN_DONE_12
-; FIN: parse an ASCII numeric literal into the FAC. Handles leading sign, decimal point, E/D exponent markers, and type suffixes (%=int, !=sng, #=dbl, $=str); accumulates digits with integer->single->double promotion. MS BASIC-80 string-to-number.
+        JP OVERR_SIGN_FROM_FPFLAG_CPL
+; ----------------------------------------------------------------------
+; FIN -- parse an ASCII numeric literal into the FAC (string-to-number).
+;   In:        HL -> first character of the numeric text (TXTPTR-style scan cursor).
+;              A on entry distinguishes the two entry styles: the FIN top entry leaves A such
+;              that FIN_1's 'OR $AF' can never be zero (Z stays clear -> parse a fresh value
+;              from FAC=0); the five +1 entrants enter one byte later so the F6 AF cover byte
+;              executes as 'XOR A' (Z set), pre-seeding an integer value into the FAC. [RE]
+;   Out:       FAC = the parsed number with VALTYP set to the literal's type (int/sng/dbl);
+;              HL advanced past the consumed literal. Returns to the caller via the tail FIN_1
+;              pushes (FIN_RETURN_COPY_FLAG), with the parsed value already in the FAC.
+;   Clobbers:  A,B,C,D,E,H,L,F; FAC; VALTYP; the eval-state flag at $0CB6/$0CB7.
+;   Algorithm: Clear the FAC to exact zero (FP_SET_ZERO) and default the working type to
+;              double (SET_TYPE_DOUBLE) so digit accumulation has full precision, then fall
+;              into FIN_1 which sets up the return tail, optional FAC pre-seed, sign skip,
+;              and the main digit/decimal/exponent scan.
+; ----------------------------------------------------------------------
 FIN:
+        ; start with FAC = exact zero (clears exponent so digit accumulation builds up from 0)
         CALL FP_SET_ZERO
+        ; accumulate at double precision (VALTYP=8); a trailing type suffix (%/!/#) narrows it later
         CALL SET_TYPE_DOUBLE
-; [RE] FIN flag-skip (VERIFIED). F6 AF = OR $AF on FIN's top entry can never give zero, so Z stays clear and the later CALL Z,FP_STORE_FAC_INT ($54B9) is skipped (parse from FAC=0). The five +1 entrants run the operand AF = XOR A, setting Z so FP_STORE_FAC_INT pre-seeds the FAC integer first. Z is carried across PUSH AF/POP AF ($54AC/$54B2). The OR operand $AF is exactly the XOR A opcode. MBASIC FIN_1 byte-identical.
+; ----------------------------------------------------------------------
+; FIN_1 -- FIN setup: install the return tail, optionally pre-seed the FAC, skip a leading
+;          sign, and dispatch on the first significant character.
+;   In:        HL -> first character; FAC = 0, VALTYP = double (from FIN). A's Z flag selects
+;              whether to pre-seed an integer into the FAC (see FIN entry note).
+;   Out:       Eval-state flag $0CB6 = 1 (the return tail later snapshots it to $0CB7). On '&'
+;              radix prefix, jumps to SCAN_AMP_RADIX_CONST. A leading '-' or '+' is consumed
+;              (the entry flags are PUSHed via PUSH AF before the comparisons, carrying the
+;              '-'/'+' decision down to FIN_10's CALL Z,FP_NEGATE_CHECKED). Control falls into
+;              the FIN_2 scan loop.
+;   Clobbers:  A,B,C,D,E,H,L,F; $0CB6.
+;   Algorithm: Push FIN_RETURN_COPY_FLAG as the eventual RET target. Set $0CB6=1 while
+;              preserving the entry Z flag across PUSH AF/POP AF. Load BC=$00FF (B=0, C=$FF)
+;              and zero HL (the running-integer accumulator and the B/C digit-bookkeeping
+;              seeds; C=$FF makes integer-part digits add 0 to the fractional counter B),
+;              and when entered with Z set call FP_STORE_FAC_INT to seed FAC=0 as an integer.
+;              Read the first char: '&' (=$26) -> radix constant; '-' (=$2D) -> remember sign
+;              via PUSH AF then FIN_2; '+' (=$2B) -> FIN_2 with no negate; otherwise back up HL
+;              one char so FIN_2's CHRGET re-reads it as the first digit.
+; ----------------------------------------------------------------------
 FIN_1:
+        ; [RE] dual-entry cover byte (F6 AF): at the FIN top entry this is 'OR $AF' which can never be zero (Z stays clear -> skip the FAC pre-seed); the +1 entrants enter one byte later so AF executes as 'XOR A' (Z set) and the FAC is pre-seeded as an integer below
         OR $AF
         LD BC,FIN_EPILOGUE_SNAPSHOT_EVAL_FLAG
         PUSH BC
         PUSH AF
+        ; mark numeric-parse / eval in progress in $0CB6 (flag preserved across the PUSH AF/POP AF that bracket the entry Z)
         LD A,$01
         LD (L_0CB6),A
         POP AF
         EX DE,HL
+        ; seed the digit bookkeeping: B=0 (fractional-digit count), C=$FF (decimal-point-not-seen sentinel; with C=$FF integer-part digits add 0 to B); HL=0 is the running-integer accumulator
         LD BC,$00FF
         LD H,B
         LD L,B
+        ; +1 entrants only (Z set): pre-seed FAC = 0 as an integer before scanning
         CALL Z,FP_STORE_FAC_INT
         EX DE,HL
         LD A,(HL)
+        ; '&' radix prefix (&H hex / &O octal): hand off to the radix-constant scanner
         CP $26
         JP Z,SCAN_AMP_RADIX_CONST
+        ; leading '-': remember it (PUSH AF leaves Z set) so FIN_10 negates the result
         CP $2D
         PUSH AF
         JP Z,FIN_2
+        ; leading '+': consume it, no negate
         CP $2B
         JR Z,FIN_2
+        ; no sign char: back up so FIN_2 re-reads this character as the first digit
         DEC HL
+; ----------------------------------------------------------------------
+; FIN_2 -- main mantissa-scan dispatch: read one character and route it to digit, decimal
+;          point, exponent-marker, or type-suffix handling.
+;   In:        HL -> next character to classify; B = fractional-digit count; C = decimal-point
+;              sentinel; FAC = running value.
+;   Out:       Dispatches: carry from CHRGET (a digit) -> FIN_ACCUM_DIGIT; '.' -> FIN_11;
+;              'e'/'E' -> FIN_3; anything else -> FIN_6 (type-suffix / terminator / 'd'/'D').
+;              FIN_3 is entered with Z set iff the char was 'e' (via the JR Z) or 'E' (via the
+;              fall-through CP $45 leaving Z).
+;   Clobbers:  A,H,L,F (plus whatever the dispatched target uses).
+;   Algorithm: CHRGET advances HL, skips spaces, expands constant tokens, and returns carry
+;              set iff the char is an ASCII digit. On a digit, accumulate it. CP '.' ($2E)
+;              detects the decimal point. CP 'e' ($65) / 'E' ($45) detect the 'E' exponent
+;              marker; the CP $45 sits immediately before FIN_3 so the Z from either compare
+;              carries into FIN_3's branch.
+; ----------------------------------------------------------------------
 FIN_2:
+        ; fetch next char (CHRGET advances HL); carry set => it is an ASCII digit '0'..'9'
         CALL CHRGET
+        ; digit: fold it into the running integer/float value
         JP C,FIN_ACCUM_DIGIT
+        ; '.' decimal point: switch to fractional-digit counting (FIN_11)
         CP $2E
         JP Z,FIN_11
+        ; 'e'/'E' candidate exponent marker -> FIN_3 to disambiguate from the ELSE/EQV keywords
         CP $65
         JR Z,FIN_3
         CP $45
+; ----------------------------------------------------------------------
+; FIN_3 -- decide whether an 'e'/'E' is an exponent marker or the start of a keyword, by
+;          peeking the following character.
+;   In:        Z set iff the char in A was 'e'/'E'; HL -> the char after it.
+;   Out:       If the char was NOT 'e'/'E', NZ -> FIN_6 (re-classify as a suffix/terminator).
+;              If it was 'e'/'E', peek the next char: if it is 'l'/'L' ($6C/$4C) or 'q'/'Q'
+;              ($71/$51) [RE: the second letters of the keywords ELSE and EQV, both of which
+;              begin with 'E'] take the FIN_5 path so the number TERMINATES before the 'E'.
+;              Otherwise FIN_4 decides the result type and parses the exponent field.
+;   Clobbers:  A,H,L,F.
+;   Algorithm: JP NZ,FIN_6 when not an 'E'. Otherwise PUSH HL (save the cursor just past 'E'),
+;              CHRGET the next char, and CP it against $6C/$4C ('l'/'L') and $71/$51 ('q'/'Q');
+;              a match (Z) enters FIN_4 -> FIN_5. [RE] These four letters are not numeric
+;              grammar: they distinguish exponent 'E' from the reserved words ELSE (E+LSE) and
+;              EQV (E+QV); the file's reserved-word table stores 'LSE'+TOK_ELSE and 'QV'+TOK_EQV
+;              after a leading 'E'. The exact intent of the peek is INFERRED from those keyword
+;              spellings and from FIN_5's effect (it ends the number at the 'E').
+; ----------------------------------------------------------------------
 FIN_3:
+        ; not an 'E' after all: re-classify the char as a type suffix / terminator
         JP NZ,FIN_6
+        ; save cursor (just past 'E'); peek the next char to tell exponent 'E' from the keywords ELSE/EQV
         PUSH HL
         CALL CHRGET
+        ; [RE] 'l'/'L' (or 'q'/'Q' below) after 'E' => the keyword ELSE/EQV, not an exponent: end the number before 'E'
         CP $6C
         JR Z,FIN_4
         CP $4C
@@ -11767,338 +11852,1042 @@ FIN_3:
         CP $71
         JR Z,FIN_4
         CP $51
+; ----------------------------------------------------------------------
+; FIN_4 -- exponent vs keyword resolution; on the exponent path choose the result type and
+;          set A to the FIN_7 type-fixup selector.
+;   In:        Z set iff the peeked char was one of l/L/q/Q (the ELSE/EQV case); HL was saved
+;              by FIN_3.
+;   Out:       HL restored to the char after the 'E'. If l/L/q/Q matched (Z) -> FIN_5 (the
+;              keyword case: end the number). Otherwise this is a real exponent: A is set to
+;              the FIN_7 selector -- 0 if VALTYP is not already double (force single), or kept
+;              at VT_DBL ($08) if VALTYP==VT_DBL (stay double). Falls into FIN_7.
+;   Clobbers:  A,H,L,F.
+;   Algorithm: POP HL to undo FIN_3's peek. JR Z,FIN_5 on the keyword case. Else load VALTYP;
+;              if it already equals VT_DBL keep double and JR FIN_7; otherwise LD A,$00 selects
+;              single and falls to FIN_7.
+; ----------------------------------------------------------------------
 FIN_4:
+        ; restore the cursor (the peeked char was only for the exponent-vs-keyword test)
         POP HL
         JR Z,FIN_5
+        ; real 'E' exponent: keep double only if the value is already double, else force single
         LD A,(VALTYP)
         CP VT_DBL
         JR Z,FIN_7
+        ; selector 0 => FIN_TYPE_FIXUP coerces the value to single precision
         LD A,$00
         JR FIN_7
+; ----------------------------------------------------------------------
+; FIN_5 -- keyword case (E followed by l/L/q/Q): re-read the letter and re-dispatch so the
+;          number ends before the 'E'.
+;   In:        HL -> the letter after 'E' (restored by FIN_4); reached only when l/L/q/Q
+;              matched in FIN_3.
+;   Out:       A = that letter; falls into FIN_6. In FIN_6 none of the suffix/exponent compares
+;              match l/L/q/Q, so FIN_6's JR NZ,FIN_9 fires and the number is finalized with the
+;              'E' (and the keyword) left unconsumed for the statement scanner.
+;   Clobbers:  A.
+;   Algorithm: LD A,(HL) reloads the letter and falls through to the FIN_6 terminator
+;              classifier, which treats it as a non-suffix terminator. [RE] This is the
+;              ELSE/EQV disambiguation tail, NOT a double-exponent ('d') marker path.
+; ----------------------------------------------------------------------
 FIN_5:
+        ; [RE] reload the letter after 'E' (ELSE/EQV case); FIN_6 will treat it as a terminator and end the number before 'E'
         LD A,(HL)
+; ----------------------------------------------------------------------
+; FIN_6 -- classify a non-digit terminator: dispatch the type-suffix characters and the
+;          'd'/'D' double-exponent marker.
+;   In:        A = the candidate character; HL -> just past it.
+;   Out:       '%' ($25) -> FIN_12 (integer suffix); '#' ($23) -> FIN_13 (double suffix);
+;              '!' ($21) -> FIN_14 (single suffix); 'd'/'D' ($64/$44) -> FIN_7 (double exponent);
+;              any other char -> FIN_9 (no suffix: finalize with the accumulated scale).
+;   Clobbers:  A,F.
+;   Algorithm: A cascade of CP/JP-Z comparisons against the type-suffix punctuation and the
+;              two double-exponent letter forms. The 'd'/'D' case shares FIN_7 with the 'e'/'E'
+;              exponent path because both introduce a decimal exponent field; for 'd'/'D' the
+;              char in A is itself nonzero, so FIN_7's OR A leaves NZ and FIN_TYPE_FIXUP coerces
+;              the literal to double.
+; ----------------------------------------------------------------------
 FIN_6:
+        ; '%' integer type suffix
         CP $25
         JP Z,FIN_12
+        ; '#' double type suffix
         CP $23
         JP Z,FIN_13
+        ; '!' single type suffix
         CP $21
         JP Z,FIN_14
+        ; 'd'/'D' double-precision exponent marker: parse it like 'e'/'E' (FIN_7), forcing double
         CP $64
         JR Z,FIN_7
         CP $44
+        ; no suffix or exponent: finalize the value with the scale accumulated so far
         JR NZ,FIN_9
+; ----------------------------------------------------------------------
+; FIN_7 -- exponent-field handler: fix the literal's type, then scan the signed decimal
+;          exponent (the digits after e/E/d/D).
+;   In:        A = type selector with its Z flag: Z (A=0) => force single, NZ => force/keep
+;              double (A is VT_DBL from FIN_4 or the 'd'/'D' char from FIN_6); HL -> first char
+;              of the exponent field; D = exponent-sign accumulator.
+;   Out:       Value coerced to single or double (FIN_TYPE_FIXUP); the exponent sign consumed
+;              (FIN_EXP_SIGN_SCAN decrements D for '-'); falls into FIN_8 to read the exponent
+;              digits.
+;   Clobbers:  A,B,C,D,E,H,L,F; FAC; VALTYP.
+;   Algorithm: OR A sets Z from the selector (Z => single in FIN_TYPE_FIXUP). Coerce the type,
+;              CHRGET past the marker, then FIN_EXP_SIGN_SCAN reads an optional '+'/'-' exponent
+;              sign (it pre-DECs D and re-INCs it for '+'/none, so D ends decremented only for
+;              '-') and backs up HL if no sign so FIN_8 re-reads the char as the first exponent
+;              digit.
+; ----------------------------------------------------------------------
 FIN_7:
+        ; set Z from the selector: Z => coerce to single, NZ => coerce to double
         OR A
         CALL FIN_TYPE_FIXUP
+        ; step past the e/E/d/D marker to the exponent field
         CALL CHRGET
+        ; consume the optional exponent sign (decrements D for '-')
         CALL FIN_EXP_SIGN_SCAN
+; ----------------------------------------------------------------------
+; FIN_8 -- accumulate the explicit decimal-exponent digits, then apply the exponent's sign.
+;   In:        HL -> exponent digits; D = exponent-sign accumulator (decremented to $FF for
+;              '-', else $00); E = exponent magnitude built by FIN_EXP_DIGIT.
+;   Out:       E = signed explicit exponent (negated if D indicated '-'); HL past the digits.
+;              Falls into FIN_9 to combine with the fractional-digit count.
+;   Clobbers:  A,D,E,H,L,F.
+;   Algorithm: Loop: CHRGET; while carry (a digit) accumulate via FIN_EXP_DIGIT (E=E*10+digit,
+;              range-guarded). On the first non-digit, INC D: if D was $FF ('-' seen) it wraps
+;              to $00 (Z) and the code falls through to negate E (XOR A; SUB E; LD E,A);
+;              otherwise (NZ) jump to FIN_9 with E left positive.
+; ----------------------------------------------------------------------
 FIN_8:
+        ; read next exponent char; carry => another exponent digit
         CALL CHRGET
+        ; accumulate the digit into the exponent magnitude E
         JP C,FIN_EXP_DIGIT
+        ; end of exponent digits: D was $FF iff a '-' was seen, so wrapping to 0 (Z) marks a negative exponent
         INC D
         JR NZ,FIN_9
+        ; negative exponent: E = -E
         XOR A
         SUB E
         LD E,A
+; ----------------------------------------------------------------------
+; FIN_9 -- compute the net decimal scale and hand off to the power-of-ten scaler.
+;   In:        E = explicit decimal exponent (from FIN_8, 0 if none); B = count of fractional
+;              digits seen after the decimal point; HL -> next char; FAC = running value.
+;   Out:       E = E - B (the net power-of-ten to apply); the scan cursor saved on the stack;
+;              falls into FIN_10.
+;   Clobbers:  A,E,H,L,F.
+;   Algorithm: PUSH HL to preserve the cursor across the scaling loop, then LD A,E; SUB B;
+;              LD E,A folds the fractional-digit count into the exponent: each digit after the
+;              '.' was accumulated as if integral, so the value must be divided by an extra
+;              power of ten per fractional digit; net scale = explicit exponent E minus B.
+; ----------------------------------------------------------------------
 FIN_9:
+        ; preserve the scan cursor across the power-of-ten scaling loop
         PUSH HL
+        ; net decimal scale = explicit exponent E minus the fractional-digit count B
         LD A,E
         SUB B
         LD E,A
+; ----------------------------------------------------------------------
+; FIN_10 -- apply the net power-of-ten scale, then finalize (sign + type) and return the
+;           parsed number.
+;   In:        E = signed decimal scale; FAC = unscaled magnitude; the saved leading-sign flag
+;              is on the stack (Z => the literal had a leading '-'); VALTYP = the literal's type.
+;   Out:       FAC = the fully scaled, signed value. For a value that ended up single-precision,
+;              a final integer-range/boundary check runs (FP_TO_INT_RANGE, with FMUL_7 pushed as
+;              the overflow hook). RET to FIN's caller (via the FIN_RETURN_COPY_FLAG tail).
+;   Clobbers:  A,B,C,D,E,H,L,F; FAC; VALTYP.
+;   Algorithm: Loop multiplying by ten while E>0 (CALL P,FIN_MUL10) or dividing while E<0
+;              (CALL M,FIN_DIV10), each helper stepping E toward 0; JR NZ loops until E==0.
+;              Restore HL, recover the leading-sign flag, and CALL Z,FP_NEGATE_CHECKED to apply
+;              a '-'. FRMEVL_TEST_TYPE then RET PE -- which returns for int, double, AND string
+;              (every type whose VALTYP-3 byte has even parity); only the SINGLE case (parity
+;              odd, PO) falls through. [RE] On that single leg, push FMUL_7 (overflow hook) and
+;              CALL FP_TO_INT_RANGE, which catches the exact +-32768 boundary (storing -32768 as
+;              int16) and otherwise lets the overflow hook fire; the precise reason a value lands
+;              here as single rather than already typed is INFERRED (it is the integer-mantissa
+;              promotion edge from FIN_ACCUM_DIGIT), not fully traced.
+; ----------------------------------------------------------------------
 FIN_10:
+        ; E>0: multiply the value by ten and decrement E
         CALL P,FIN_MUL10
+        ; E<0: divide the value by ten and increment E
         CALL M,FIN_DIV10
         JR NZ,FIN_10
         POP HL
         POP AF
         PUSH HL
+        ; apply the remembered leading '-' sign (Z was set when FIN_1 saw the minus)
         CALL Z,FP_NEGATE_CHECKED
         POP HL
         CALL FRMEVL_TEST_TYPE
+        ; [RE] return for int/double/string (VALTYP-3 has even parity); only single (PO) falls through
         RET PE
         PUSH HL
         LD HL,FMUL_7
         PUSH HL
+        ; [RE] single leg only: +-32768 integer-range/boundary check (FMUL_7 = overflow hook pushed above)
         CALL FP_TO_INT_RANGE
         RET
+; ----------------------------------------------------------------------
+; FIN_11 -- decimal-point handler: mark the point seen so later digits count as fractional,
+;           and promote a still-integer value to single precision so the fraction can be held.
+;   In:        HL -> char after the '.'; C = decimal-point sentinel ($FF until the first point);
+;              B = fractional-digit count; VALTYP = current type.
+;   Out:       A second '.' (C already incremented past $FF) ends the number -> FIN_9. Otherwise
+;              the value is coerced to single if it was integer/single-and-not-double
+;              (FIN_TYPE_FIXUP via the carry leg), and scanning resumes at FIN_2; subsequent
+;              digits now increment B (because C has become $00).
+;   Clobbers:  A,C,F (plus the type-fixup clobbers); VALTYP.
+;   Algorithm: FRMEVL_TEST_TYPE sets carry iff VALTYP<8 (not double) and is used both to gate
+;              the fixup and (its earlier effect) to keep parity flags. INC C advances the
+;              decimal-point sentinel: first '.' takes C $FF->$00 (Z, NOT taken by JR NZ),
+;              a second '.' takes C $00->$01 (NZ -> JR NZ,FIN_9 ends the number). CALL C,
+;              FIN_TYPE_FIXUP (carry => not double) coerces an integer/single accumulator to
+;              single, then JP FIN_2 continues the scan with the point now recorded so each
+;              following digit bumps B.
+; ----------------------------------------------------------------------
 FIN_11:
         CALL FRMEVL_TEST_TYPE
+        ; advance the decimal-point sentinel: first '.' takes C $FF->$00 (continue); a second '.' (NZ) ends the number. After this, fractional digits increment B in FIN_ACCUM_DIGIT
         INC C
         JR NZ,FIN_9
+        ; carry (value not yet double) => coerce an integer/single accumulator to single so the fraction can be held
         CALL C,FIN_TYPE_FIXUP
+        ; resume scanning; subsequent digits are now counted as fractional (B)
         JP FIN_2
+; ----------------------------------------------------------------------
+; FIN_12 -- '%' integer-suffix handler: arrange to coerce the final value to a 16-bit integer.
+;   In:        HL -> the '%'; the leading-sign flag is on the stack.
+;   Out:       Consumes the suffix; rebuilds the stack so the finalize path runs FN_CINT (force
+;              to integer) first and the FMUL_7 overflow hook second, then re-pushes the sign
+;              flag and joins FIN_9.
+;   Clobbers:  A,H,L,F; stack.
+;   Algorithm: CHRGET past the '%'. POP AF recovers the leading-sign flag; build the return
+;              chain on the stack: PUSH HL (cursor), PUSH FMUL_7 (overflow hook, runs last),
+;              PUSH FN_CINT (force-integer, runs first because pushed last), then re-PUSH AF
+;              (sign). JR FIN_9 to scale and finalize; on the way out the stacked FN_CINT
+;              narrows the value to int16 and FMUL_7 guards overflow.
+; ----------------------------------------------------------------------
 FIN_12:
+        ; consume the '%' suffix
         CALL CHRGET
+        ; recover the leading-sign flag so it can be re-stacked above the coercion chain
         POP AF
         PUSH HL
         LD HL,FMUL_7
         PUSH HL
+        ; stack the force-to-integer routine to run first as the literal is finalized
         LD HL,FN_CINT
         PUSH HL
         PUSH AF
         JR FIN_9
+; ----------------------------------------------------------------------
+; FIN_13 -- '#' double-suffix handler: coerce the literal to double precision.
+;   In:        A = the '#' char ($23, nonzero); HL -> the '#'.
+;   Out:       OR A clears Z (A nonzero) so the shared FIN_14 tail runs FIN_TYPE_FIXUP's double
+;              leg (FN_CDBL); suffix consumed; joins FIN_9 to finalize.
+;   Clobbers:  A,F (plus FIN_14/FIN_TYPE_FIXUP clobbers); VALTYP.
+;   Algorithm: OR A forces NZ and falls straight into FIN_14, which runs the type fixup (NZ =>
+;              double), consumes the suffix char, and rejoins FIN_9.
+; ----------------------------------------------------------------------
 FIN_13:
+        ; force NZ (A='#' is nonzero) so the shared FIN_14 fixup coerces to double precision
         OR A
+; ----------------------------------------------------------------------
+; FIN_14 -- '!' single-suffix handler (and the shared tail for '#'): coerce the type per the
+;           Z flag, consume the suffix, and finalize.
+;   In:        Z flag selects the coercion: Z => single (FN_CSNG), NZ => double (FN_CDBL).
+;              Reached directly for '!' (Z set, because the FIN_6 'CP $21' that matched leaves
+;              Z) or fallen into from FIN_13 (NZ, double). HL -> the suffix char.
+;   Out:       Value coerced to single or double; suffix consumed; joins FIN_9 to scale and
+;              return.
+;   Clobbers:  A,B,C,D,E,H,L,F; VALTYP.
+;   Algorithm: CALL FIN_TYPE_FIXUP (Z=>single, NZ=>double), CHRGET past the suffix, JR FIN_9.
+; ----------------------------------------------------------------------
 FIN_14:
+        ; coerce to single (Z, the '!' case) or double (NZ, fallen in from '#')
         CALL FIN_TYPE_FIXUP
+        ; consume the type-suffix character
         CALL CHRGET
         JR FIN_9
-; [RE] FIN coercion: force the parsed value to integer (FN_CINT) when Z, else to single (FN_CSNG) when NZ, preserving all registers.
+; ----------------------------------------------------------------------
+; FIN_TYPE_FIXUP -- coerce the FAC's numeric type during parsing, preserving all registers.
+;   In:        Z flag selects the target type: Z set => single (FN_CSNG); Z clear => double
+;              (FN_CDBL). FAC = current value; VALTYP = current type.
+;   Out:       FAC re-typed to single or double; VALTYP updated. A,B,C,D,E,H,L all restored to
+;              their entry values (the scan state survives the coercion).
+;   Clobbers:  Nothing visible (every register saved/restored); FAC and VALTYP change.
+;   Algorithm: PUSH HL/DE/BC/AF to protect the scanner's register state, then CALL Z,FN_CSNG
+;              (single) or, after re-reading the saved flags (POP AF), CALL NZ,FN_CDBL (double).
+;              POP BC/DE/HL restores everything and RET. NOTE: the existing one-line file
+;              comment above this label wrongly says 'FN_CINT when Z, else FN_CSNG when NZ' --
+;              the code is FN_CSNG (Z) / FN_CDBL (NZ); the comment should be corrected.
+; ----------------------------------------------------------------------
 FIN_TYPE_FIXUP:
         PUSH HL
         PUSH DE
         PUSH BC
         PUSH AF
+        ; Z => coerce the running value to single precision
         CALL Z,FN_CSNG
         POP AF
+        ; NZ => coerce the running value to double precision
         CALL NZ,FN_CDBL
         POP BC
         POP DE
         POP HL
         RET
-; [RE] FIN accumulate digit *10: RET if count zero, else multiply the running value by ten using the single-precision (FP_SCALE2) or double-precision (DP_MUL10 $5488) path per type parity; returns A decremented.
+; ----------------------------------------------------------------------
+; FIN_MUL10 -- multiply the running FAC value by ten, count permitting (FIN scaling step).
+;   In:        A = signed scale count (number of *10 steps still owed, >= 0 here); FAC = partially-parsed
+;              number; VALTYP selects single vs double.  Flags reflect A on entry (caller's CALL P, so
+;              A >= 0 including A == 0).
+;   Out:       FAC *= 10 (one step); A decremented by one (DEC_A_RET tail) so the caller re-tests its sign.
+;              RET immediately with A unchanged when A == 0 (Z on entry).
+;   Clobbers:  A, B, C, D, E, H, L, F, FAC, ARG temp ($0CBA) on the double path.
+;   Algorithm: Guard: if the count reached zero (Z) return without scaling.  Otherwise fall into
+;              FIN_MUL10_DO to do exactly one *10 (single- or double-precision per VALTYP parity), then
+;              DEC A so the FIN scaling loop converges toward zero.
+; ----------------------------------------------------------------------
 FIN_MUL10:
+        ; no scaling owed: count exhausted, return the value as-is
         RET Z
-; [RE] Body of FIN_MUL10 (entry past the RET Z guard): performs the *10 multiply by single- or double-precision path.
+; ----------------------------------------------------------------------
+; FIN_MUL10_DO -- perform exactly one FAC *= 10, dispatched by precision (no count guard).
+;   In:        FAC = current value; VALTYP selects the path; A = caller's scale count (preserved across).
+;   Out:       FAC = FAC * 10 (single via FP_SCALE2, or double via DP_MUL10); A restored unchanged on
+;              return, then the shared DEC_A_RET tail decrements it.  Also reached directly by the FOUT
+;              output formatter (CALL FIN_MUL10_DO at $5A7D) to scale a value for printing.
+;   Clobbers:  B, C, D, E, H, L, F, FAC, ARG temp ($0CBA) on the double path; A preserved across the multiply.
+;   Algorithm: Save A (the count).  Type-test the FAC: FRMEVL_TEST_TYPE returns parity ODD (PO) for
+;              single precision and parity EVEN (PE) for double precision (the parity of VALTYP-3).
+;              Dispatch CALL PO,FP_SCALE2 for single or CALL PE,DP_MUL10 for double -- both compute
+;              value*10 = (value*4 + value)*2 in their own width.  Restore A and fall into DEC_A_RET.
+; ----------------------------------------------------------------------
 FIN_MUL10_DO:
         PUSH AF
+        ; classify the FAC: parity ODD => single precision, parity EVEN => double precision
         CALL FRMEVL_TEST_TYPE
         PUSH AF
+        ; single-precision *10 (PO = VALTYP single)
         CALL PO,FP_SCALE2
         POP AF
+        ; double-precision *10 (PE = VALTYP double)
         CALL PE,DP_MUL10
         POP AF
-; [RE] Shared 'DEC A; RET' counter helper: decrements the digit/exponent count in A. Tail of FIN_MUL10 and called conditionally by the FOUT exponent formatter ($5986)
+; ----------------------------------------------------------------------
+; DEC_A_RET -- shared 'decrement the count in A and return' tail.
+;   In:        A = a digit/exponent/scale counter.
+;   Out:       A = A - 1, with S/Z flags reflecting the result; RET.
+;   Clobbers:  A, F.
+;   Algorithm: One DEC A then RET.  Used as the tail of FIN_MUL10_DO (each *10 step burns one owed
+;              scale count) and called conditionally by the FOUT exponent formatter (CALL NZ,DEC_A_RET
+;              at $5986 and $59EB) to step its decimal-exponent counter; the sign of the result drives
+;              the caller's mul-vs-div decision.
+; ----------------------------------------------------------------------
 DEC_A_RET:
         DEC A
         RET
-; [RE] FIN fractional scale-down: divide the running value by ten via the single-precision (FDIV_BY_TEN) or double-precision (DDIV $5388) path per type parity; returns A incremented to track the decimal exponent.
+; ----------------------------------------------------------------------
+; FIN_DIV10 -- divide the running FAC value by ten, counting one step (FIN fractional/scale-down step).
+;   In:        A = signed scale count (negative here, owing /10 steps); FAC = current value; VALTYP
+;              selects single vs double.  Reached via the caller's CALL M (count negative).
+;   Out:       FAC /= 10 (one step); A incremented by one (toward zero) so the FIN loop converges.
+;              Also called by the FOUT formatter (CALL M,FIN_DIV10 at $5990/$59FC and $5A84) to bring
+;              an out-of-range magnitude back into the printable window.
+;   Clobbers:  A, B, C, D, E, H, L, F, FAC, ARG/temp cells.  DE, HL saved and restored.
+;   Algorithm: Save DE/HL/A.  Type-test the FAC: parity ODD (PO) => single, parity EVEN (PE) => double.
+;              Dispatch CALL PO,FDIV_BY_TEN (single FAC/10.0) or CALL PE,FIN_DSCALE_DIV10 (double /10
+;              via the 0.1 multiply for small magnitudes / iterative refinement for large).  Restore
+;              A/HL/DE and INC A to record that one /10 step was performed (decimal-exponent bookkeeping).
+; ----------------------------------------------------------------------
 FIN_DIV10:
         PUSH DE
         PUSH HL
         PUSH AF
+        ; classify the FAC: parity ODD => single precision, parity EVEN => double precision
         CALL FRMEVL_TEST_TYPE
         PUSH AF
+        ; single-precision /10 (PO = VALTYP single)
         CALL PO,FDIV_BY_TEN
         POP AF
+        ; double-precision /10 (PE = VALTYP double)
         CALL PE,FIN_DSCALE_DIV10
         POP AF
         POP HL
         POP DE
+        ; one /10 step done: step the scale count toward zero
         INC A
         RET
-; [RE] FIN integer-accumulate a decimal digit into $0CB1 (HL = HL*10 + digit) while the value still fits 16 bits; on overflow it promotes to single/double (constant $9474/$2400) and continues in float.
+; ----------------------------------------------------------------------
+; FIN_ACCUM_DIGIT -- accumulate one ASCII decimal digit into the running number (the FIN main digit path).
+;   In:        HL -> the current digit char in the source text (its value is '0'..'9'); carry SET (caller
+;              reached here via JP C, the CHRGET 'is a digit' flag).  B = digits-since-decimal-point
+;              counter, C = fractional-place flag/counter ($FF before a '.', 0 after it), set by FIN_1
+;              /FIN_11.  FAC ($0CB1) holds the running integer mantissa while the value still fits 16 bits;
+;              VALTYP tracks int/single/double as the value is promoted.
+;   Out:       The digit is folded in: while integer, FAC = FAC*10 + digit (16-bit); on 16-bit overflow
+;              the value is promoted to single, and if it then reaches 2,000,000 to double, continuing
+;              the multiply-accumulate in float.  B is bumped by one per fractional digit (so FIN can
+;              later scale by 10^-fracdigits).  Control returns to FIN_2 (via FIN_DIGIT_DONE) for the next char.
+;   Clobbers:  A, B, C, D, E, H, L, F, FAC, ARG/temp cells.  DE/BC/HL are pushed and unwound at FIN_DIGIT_DONE.
+;   Algorithm: First advance the place counter: B = B + C + carry, where carry is the (always-set here)
+;              'is a digit' flag.  Before the decimal point C = $FF so B + $FF + 1 leaves B unchanged;
+;              after the point C = 0 so each digit increments B (counting fractional places).  Save BC/HL,
+;              fetch the digit and SUB $30 to its 0..9 value, and stash it.  Type-test the FAC: if already
+;              floating (sign positive) jump to FIN_FLOAT_ACCUM_DIGIT to accumulate in float.  Otherwise
+;              (still integer) load the 16-bit accumulator from FAC; if it is >= 3277 ($0CCD = ceil(32768
+;              /10), so *10 would overflow 16 bits) bail to FIN_PROMOTE_TO_SINGLE.  Else compute
+;              HL = HL*10 (HL+HL,+HL,+DE=x5,+HL=x10) + digit; if the high bit is now set (>= 32768, signed
+;              overflow) promote via FIN_DIGIT_OVF_TO_FLOAT, otherwise store HL back to FAC and loop to FIN_2.
+; ----------------------------------------------------------------------
 FIN_ACCUM_DIGIT:
         PUSH DE
+        ; advance the place counter: B = B + C + carry (carry is always set here, so no-op before the decimal point where C=$FF, +1 per fractional digit after it where C=0)
         LD A,B
         ADC A,C
         LD B,A
         PUSH BC
         PUSH HL
+        ; fetch the ASCII digit at the text pointer
         LD A,(HL)
+        ; convert ASCII '0'..'9' to its numeric value 0..9
         SUB $30
         PUSH AF
         CALL FRMEVL_TEST_TYPE
-        JP P,FIN_DIV10_5
+        ; value already promoted to float (sign positive) -> accumulate this digit in floating point
+        JP P,FIN_FLOAT_ACCUM_DIGIT
+        ; still integer: load the 16-bit running accumulator
         LD HL,(FAC)
+        ; threshold 3277 = ceil(32768/10): at or above this, *10 would overflow the signed 16-bit accumulator
         LD DE,$0CCD
         CALL CMP_HL_DE
-        JR NC,FIN_DIV10_4
+        ; accumulator too large to multiply by 10 in 16 bits (FAC >= 3277) -> promote to single precision
+        JR NC,FIN_PROMOTE_TO_SINGLE
         LD D,H
         LD E,L
+        ; HL = HL*10: double, double, +original (=x5), double again
         ADD HL,HL
         ADD HL,HL
         ADD HL,DE
         ADD HL,HL
         POP AF
         LD C,A
+        ; add the new digit (C = digit) into HL*10
         ADD HL,BC
         LD A,H
         OR A
-        JP M,FIN_DIV10_3
+        ; result went negative (>= 32768): overflowed signed 16-bit range -> promote, re-adding the digit in float
+        JP M,FIN_DIGIT_OVF_TO_FLOAT
+        ; still fits: store the updated 16-bit integer accumulator
         LD (FAC),HL
-FIN_DIV10_2:
+; ----------------------------------------------------------------------
+; FIN_DIGIT_DONE (was FIN_DIGIT_DONE) -- common epilogue of the FIN digit-accumulate: unwind and fetch next char.
+;   In:        Stack holds the saved HL (text pointer), BC (place/digit counters) and DE pushed by
+;              FIN_ACCUM_DIGIT; FAC holds the updated running value.
+;   Out:       HL/BC/DE restored; control transfers to FIN_2 to scan and classify the next source
+;              character (another digit, a '.', an exponent marker, a type suffix, or end).
+;   Clobbers:  H, L, B, C, D, E (restored from the stack), F.
+;   Algorithm: POP HL, POP BC, POP DE to balance the three pushes made at FIN_ACCUM_DIGIT entry, then
+;              JP FIN_2.  Reached from the integer-stored path, the overflow-promote path, and both the
+;              single- and double-precision float-accumulate paths -- the single shared exit of one digit.
+; ----------------------------------------------------------------------
+FIN_DIGIT_DONE:
         POP HL
         POP BC
         POP DE
+        ; digit folded in: go scan and classify the next source character
         JP FIN_2
-FIN_DIV10_3:
+; ----------------------------------------------------------------------
+; FIN_DIGIT_OVF_TO_FLOAT (was FIN_DIGIT_OVF_TO_FLOAT) -- 16-bit integer accumulate overflowed; re-stage the digit and promote.
+;   In:        C = the current digit value (0..9); the integer HL*10+digit overflowed signed 16 bits.
+;              The original digit push was already consumed (POPped) by the integer-add path.
+;   Out:       The digit is re-pushed (so the float path can re-add it), then falls into
+;              FIN_PROMOTE_TO_SINGLE to widen the accumulator to single precision.
+;   Clobbers:  A, F; pushes the digit on the stack.
+;   Algorithm: Recover the digit into A (LD A,C), PUSH AF to re-stage it for the float accumulate (the
+;              earlier POP AF that consumed it happened at the ADD HL,BC step), then fall through into
+;              FIN_PROMOTE_TO_SINGLE.  This is the path taken when the 16-bit product itself overflows
+;              (as opposed to the pre-test catching it via the 3277 threshold).
+; ----------------------------------------------------------------------
+FIN_DIGIT_OVF_TO_FLOAT:
+        ; re-stage the just-added digit so the float path can add it again after promotion
         LD A,C
         PUSH AF
-FIN_DIV10_4:
+; ----------------------------------------------------------------------
+; FIN_PROMOTE_TO_SINGLE (was FIN_PROMOTE_TO_SINGLE) -- widen the integer accumulator to single precision, arm the crossover test.
+;   In:        FAC ($0CB1) = the 16-bit integer accumulator; the digit (0..9) is on the stack.
+;   Out:       FAC = single-precision float of the integer; VALTYP = VT_SNG; carry SET (SCF) to signal
+;              the float-accumulate path to run the 2,000,000 single->double crossover check.
+;   Clobbers:  A, B, C, D, E, H, L, F, FAC.
+;   Algorithm: CALL INT_TO_SINGLE floats the 16-bit FAC into single precision, then SCF sets the flag
+;              that FIN_FLOAT_ACCUM_DIGIT reads to mean 'this value just left integer territory -- check
+;              whether it must go double'.  Falls straight into FIN_FLOAT_ACCUM_DIGIT.
+; ----------------------------------------------------------------------
+FIN_PROMOTE_TO_SINGLE:
+        ; widen the 16-bit integer accumulator to single precision
         CALL INT_TO_SINGLE
+        ; carry := 1 to request the single->double crossover test in the float path
         SCF
-FIN_DIV10_5:
-        JR NC,FIN_DIV10_7
+; ----------------------------------------------------------------------
+; FIN_FLOAT_ACCUM_DIGIT (was FIN_FLOAT_ACCUM_DIGIT) -- floating-point digit-accumulate dispatcher (single vs double).
+;   In:        FAC = running value in float form; the digit (0..9) is on the stack; carry distinguishes
+;              the source: carry CLEAR means already double (entered from FIN_ACCUM_DIGIT's JP P with a
+;              double FAC), carry SET means single (just promoted via SCF, or staying single).
+;   Out:       FAC = FAC*10 + digit, computed in single or double precision; control reaches
+;              FIN_DIGIT_DONE to unwind and fetch the next char.
+;   Clobbers:  A, B, C, D, E, H, L, F, FAC, ARG/temp cells.
+;   Algorithm: If carry is clear (already double) jump to FIN_DOUBLE_ACCUM_DIGIT.  Otherwise (single)
+;              compare the FAC against the constant 2,000,000 ($9474/$2400 in MBF single = the ~7-digit
+;              precision limit) via FCOMP.  FCOMP returns sign POSITIVE when FAC >= operand, so
+;              JP P,FIN_WIDEN_TO_DOUBLE is taken when FAC >= 2,000,000: the value has exhausted single's
+;              ~7-digit precision, so widen to double and accumulate there.  If FAC < 2,000,000 (fall
+;              through) stay single: FP_SCALE2 does FAC*=10, then POP the digit and FIN_FINALIZE pushes
+;              value*10, floats the digit and FADD_ALIGNs them (FAC = value*10 + digit), then loop to
+;              FIN_DIGIT_DONE.
+;   [RE]:      The 2,000,000 threshold encodes MS BASIC-80's single-precision crossover: once the integer
+;              part reaches ~7 significant digits, further digits are accumulated in double precision to
+;              preserve them.  Constant value verified by MBF decode of $94/$74/$24/$00 = 2000000.0.
+;              [CORRECTED] The comparison direction was reversed in the peer spec: widen-to-double is the
+;              FAC>=2,000,000 case, stay-single is the FAC<2,000,000 case (FCOMP positive == FAC>=operand,
+;              cross-checked against FOUT_SCALE10's ~199999.89 normalization bound).
+; ----------------------------------------------------------------------
+FIN_FLOAT_ACCUM_DIGIT:
+        ; already double (carry clear): skip the crossover test, accumulate in double
+        JR NC,FIN_DOUBLE_ACCUM_DIGIT
+        ; single->double crossover constant: MBF single 2,000,000 (the ~7-digit single-precision limit)
         LD BC,$9474
         LD DE,$2400
+        ; compare the running single FAC against 2,000,000 (FCOMP returns positive when FAC >= operand)
         CALL FCOMP
-        JP P,FIN_DIV10_6
+        ; FAC >= 2,000,000: single's ~7-digit precision is exhausted -> widen to double and accumulate there
+        JP P,FIN_WIDEN_TO_DOUBLE
+        ; FAC < 2,000,000: still fits single precision, multiply the running value by 10
         CALL FP_SCALE2
         POP AF
-        CALL FIN_DONE
-        JR FIN_DIV10_2
-FIN_DIV10_6:
+        ; add the digit: push value*10, float the digit, FADD_ALIGN them into FAC (reuses FIN_FINALIZE's scale-and-add tail)
+        CALL FIN_FINALIZE
+        JR FIN_DIGIT_DONE
+; ----------------------------------------------------------------------
+; FIN_WIDEN_TO_DOUBLE (was FIN_WIDEN_TO_DOUBLE) -- promote the single FAC to double precision, then accumulate.
+;   In:        FAC = single-precision running value that has reached/exceeded 2,000,000; the digit is on the stack.
+;   Out:       FAC widened to double (zero mantissa extension, VALTYP = VT_DBL); falls into
+;              FIN_DOUBLE_ACCUM_DIGIT to compute FAC*10 + digit in double precision.
+;   Clobbers:  A, H, L, F, FAC, VALTYP.
+;   Algorithm: CALL FP_CLEAR_EXT zeroes the double-precision low mantissa cells (the bytes the single
+;              form did not use) and marks the value double, then fall through to the double accumulate.
+;              Reached when FCOMP found FAC >= 2,000,000 (single precision exhausted).
+; ----------------------------------------------------------------------
+FIN_WIDEN_TO_DOUBLE:
+        ; widen single -> double: zero the extension mantissa bytes and mark VALTYP double
         CALL FP_CLEAR_EXT
-FIN_DIV10_7:
+; ----------------------------------------------------------------------
+; FIN_DOUBLE_ACCUM_DIGIT (was FIN_DOUBLE_ACCUM_DIGIT) -- accumulate one digit into the FAC in double precision.
+;   In:        FAC = double-precision running value; the digit (0..9) is on the stack.
+;   Out:       FAC = FAC*10 + digit (full double precision); JR FIN_DIGIT_DONE to unwind and fetch the
+;              next source char.
+;   Clobbers:  A, B, C, D, E, H, L, F, FAC, ARG temp ($0CBA).
+;   Algorithm: DP_MUL10 computes FAC *= 10 in double.  FP_ARG_TO_TEMP2 copies that value*10 into the ARG
+;              temp ($0CBA).  POP the pending digit, FLOAT_A floats it into the FAC (single), FP_CLEAR_EXT
+;              widens that digit to double, then DADD adds ARG (value*10) to FAC (the digit) giving FAC =
+;              value*10 + digit.  Loop to FIN_DIGIT_DONE.
+; ----------------------------------------------------------------------
+FIN_DOUBLE_ACCUM_DIGIT:
+        ; value *= 10 in double precision
         CALL DP_MUL10
+        ; stash value*10 in the ARG temp ($0CBA) so it survives loading the digit into the FAC
         CALL FP_ARG_TO_TEMP2
         POP AF
+        ; float the pending digit into the FAC
         CALL FLOAT_A
+        ; widen the digit to double precision before the add
         CALL FP_CLEAR_EXT
+        ; FAC = ARG(value*10) + FAC(digit): the double-precision accumulate
         CALL DADD
-        JR FIN_DIV10_2
-; [RE] FIN finalize: store the completed FAC (FAC_PUSH / FLOAT_A), unwind the saved registers and dispatch through FADD_ALIGN to return the converted number to the expression evaluator.
-FIN_DONE:
+        JR FIN_DIGIT_DONE
+; ----------------------------------------------------------------------
+; FIN_FINALIZE -- finalize a freshly parsed numeric literal and complete it via the FP add path
+;   In:        FAC holds the value built by the FIN ASCII->float scanner. Two register words
+;              saved by the FIN digit-accumulate path (FIN_ACCUM_DIGIT) sit on the stack; they
+;              are the second addend (ARG) for the floating-point add, NOT an evaluator frame.
+;   Out:       FAC re-floated/normalized, then control transfers into FADD_ALIGN (via
+;              FIN_FLOAT_RETURN), which adds ARG and RETs to the FIN caller with the result.
+;   Clobbers:  A, BC, DE, HL, FAC; pops the two saved register words as the FADD ARG.
+;   Algorithm: FAC_PUSH saves the running FAC, FLOAT_A re-floats/normalizes the accumulated
+;              value, then fall into FIN_FLOAT_RETURN which loads ARG from the two stacked words
+;              and jumps into FADD_ALIGN.
+;   [RE] The exact identity of the two stacked words is inferred from the FIN_ACCUM_DIGIT
+;        PUSH sequence and FADD_ALIGN's B/C/D/E ARG convention, not directly observed here.
+; ----------------------------------------------------------------------
+FIN_FINALIZE:
+        ; save the in-progress FAC, then re-float/normalize the completed value
         CALL FAC_PUSH
         CALL FLOAT_A
-FIN_DONE_1:
+; ----------------------------------------------------------------------
+; FIN_FLOAT_RETURN -- load the FADD ARG operand from the stack and finish via the FP add path
+;   In:        FAC = the running accumulator. The top two stack words hold the second operand
+;              for the add (consumed as ARG: B=exponent, C=MSB|sign, D=mid, E=LSB -- the
+;              FADD_ALIGN convention).
+;   Out:       Jumps to FADD_ALIGN, which adds ARG into FAC and RETs to the FIN caller; control
+;              does not return here.
+;   Clobbers:  BC, DE (loaded as the ARG operand), plus whatever FADD_ALIGN touches.
+;   Algorithm: POP BC / POP DE load the second addend into the FADD_ALIGN B/C/D/E ARG registers,
+;              then JP FADD_ALIGN performs the floating-point add. Shared entry: the integer-add
+;              overflow path also jumps here after promoting both operands to single precision,
+;              so the add finishes in floating point.
+;   [RE] That the two popped words are the FADD ARG (rather than a saved evaluator/precedence
+;        frame) is inferred from FADD_ALIGN's documented B/C/D/E input convention; not a return
+;        frame unwind.
+; ----------------------------------------------------------------------
+FIN_FLOAT_RETURN:
         POP BC
         POP DE
         JP FADD_ALIGN
-; [RE] FIN exponent-field digit accumulate: E*10+digit into E with range guard (<10), used while reading the E/D exponent of a numeric literal; errors via $0D81 path on overflow.
+; ----------------------------------------------------------------------
+; FIN_EXP_DIGIT -- accumulate one digit of the E/D exponent field of a numeric literal
+;   In:        E = exponent accumulated so far; (HL) -> the current ASCII digit '0'-'9'.
+;   Out:       E = E*10 + digit on the in-range path. If E was already >= 10 the JR enters
+;              FIN_EXP_SATURATE+1, whose LD E,$7F clamps E to $7F (forcing downstream overflow);
+;              both paths continue to JP FIN_8 to read the next exponent character.
+;   Clobbers:  A, E.
+;   Algorithm: Guard E < 10 (CP $0A / JR NC). On the in-range path compute E*10 (LD A,E; RLCA
+;              twice = *4; ADD A,E = *5; RLCA = *10), add the ASCII digit, subtract '0', store
+;              to E. On the >= 10 path enter the +1 cover at FIN_EXP_SATURATE to saturate E.
+; ----------------------------------------------------------------------
 FIN_EXP_DIGIT:
         LD A,E
         CP $0A
-        JR NC,FIN_DONE_3+1
+        ; exponent already >= 10: enter the +1 cover to saturate E to $7F (literal will overflow)
+        JR NC,FIN_EXP_SATURATE+1
+        ; compute E*10: RLCA twice (=*4), ADD A,E (=*5), RLCA (=*10)
         RLCA
         RLCA
         ADD A,E
         RLCA
+        ; fold in the ASCII digit, then SUB '0' to get its numeric value
         ADD A,(HL)
         SUB $30
         LD E,A
-; [RE] FIN exponent-overflow flag-skip (VERIFIED). On the accumulate path (E<10) FA 1E 7F = JP M,$7F1E never triggers (E*10+digit stays positive, <100) and just skips its operand to reach JP FIN_8. The E>=10 branch (JR NC,FIN_DONE_3+1 at $5619) enters at +1 to run 1E 7F = LD E,$7F, saturating the exponent so the literal overflows. Both converge at $5626. MBASIC FIN_EXP_DIGIT_1 byte-identical.
-FIN_DONE_3:
+; ----------------------------------------------------------------------
+; FIN_EXP_SATURATE -- exponent-overflow cover; continue scanning the exponent field
+;   In:        Entered aligned ($5623) on the normal accumulate path; entered +1 ($5624) from
+;              FIN_EXP_DIGIT's range guard to saturate E.
+;   Out:       Falls into JP FIN_8 to read the next exponent character.
+;   Clobbers:  none on the aligned path (the JP M is never taken); E=$7F on the +1 path.
+;   Algorithm: The 3-byte JP M,$7F1E (FA 1E 7F) is a coded overlap. On the accumulate path the
+;              sign is always positive (E*10+digit stays < 100) so the JP M is not taken and the
+;              1E 7F operand bytes are skipped to reach JP FIN_8. On the +1 entry those bytes
+;              execute as LD E,$7F, clamping the exponent so the literal overflows. Both converge
+;              at JP FIN_8.
+;   [RE] VERIFIED: the existing inline note documents this flag-skip; MBASIC twin byte-identical.
+; ----------------------------------------------------------------------
+FIN_EXP_SATURATE:
         JP M,$7F1E
         JP FIN_8
-FIN_DONE_4:
+; ----------------------------------------------------------------------
+; OVERR_SIGN_POSITIVE -- overflow-finalize entry that forces a POSITIVE saturated result
+;   In:        an overflow has been detected by an FP operation.
+;   Out:       Enters FP_ERROR_FINALIZE with carry clear (positive sign selected).
+;   Clobbers:  flags (carry cleared).
+;   Algorithm: OR A clears carry so FP_ERROR_FINALIZE picks +MBF max, then JP FP_ERROR_FINALIZE.
+;   [RE] UNREFERENCED in this build (no incoming jump found) -- a vestigial OVERR entry retained
+;        from MS BASIC-80. The byte immediately after the JP (a POP AF) is also UNREACHED in this
+;        image; in stock MS BASIC the OVERR entries chain by fall-through, but here this entry
+;        jumps away, so that POP AF is dead. UNKNOWN whether any +1 cover was intended.
+; ----------------------------------------------------------------------
+OVERR_SIGN_POSITIVE:
+        ; clear carry -> saturated overflow result will be positive (+max)
         OR A
-        JP FIN_DONE_19
+        JP FP_ERROR_FINALIZE
         POP AF
-FIN_DONE_5:
+; ----------------------------------------------------------------------
+; OVERR_SIGN_FROM_ARGS -- overflow-finalize that signs the result from the two operand signs
+;   In:        Reached from the MUL/DIV exponent-combine over/underflow path (JP OVERR_SIGN_FROM_ARGS in
+;              the EXP_OVUN_TEST region). FACHI ($0CB3) holds one operand sign; the other sign
+;              comes from C (single) or the L_0CC0 cell (double), chosen by VALTYP.
+;   Out:       Carry = XOR of the two operand sign bits (the product/quotient sign); enters
+;              FP_ERROR_FINALIZE which stores the correspondingly-signed MBF max.
+;   Clobbers:  A, HL, flags.
+;   Algorithm: PUSH HL; HL=FACHI; FRMEVL_TEST_TYPE sets parity. JP PO (single) -> OVERR_SIGN_FROM_C
+;              takes the second sign from C; otherwise (double) LD A,(L_0CC0). Then XOR (HL)
+;              merges the two sign bytes, RLA shifts the combined sign bit into carry, POP HL,
+;              JP FP_ERROR_FINALIZE.
+;   [RE] The PUSH HL at entry is balanced by the POP HL after the XOR. The single-vs-double
+;        discriminator is the PARITY of (VALTYP-3) returned by FRMEVL_TEST_TYPE: parity-odd (PO)
+;        => single, parity-even (PE, e.g. VT_DBL) => the L_0CC0 path.
+; ----------------------------------------------------------------------
+OVERR_SIGN_FROM_ARGS:
         PUSH HL
         LD HL,FACHI
+        ; [RE] FRMEVL_TEST_TYPE sets parity from VALTYP-3: PO=single (use C), PE=double (use L_0CC0)
         CALL FRMEVL_TEST_TYPE
-        JP PO,FIN_DONE_6
+        JP PO,OVERR_SIGN_FROM_C
         LD A,(L_0CC0)
-        JP FIN_DONE_7
-FIN_DONE_6:
+        JP OVERR_SIGN_COMBINE
+; ----------------------------------------------------------------------
+; OVERR_SIGN_FROM_C -- single-precision branch: use register C as the second operand's sign byte
+;   In:        C = the second operand sign byte (the parity-odd / single-precision case).
+;   Out:       A = C; falls into the shared XOR/RLA sign-combine (OVERR_SIGN_COMBINE).
+;   Clobbers:  A.
+;   Algorithm: LD A,C then fall through into OVERR_SIGN_COMBINE (XOR (HL)/RLA/POP HL tail).
+; ----------------------------------------------------------------------
+OVERR_SIGN_FROM_C:
         LD A,C
-FIN_DONE_7:
+; ----------------------------------------------------------------------
+; OVERR_SIGN_COMBINE -- XOR the two operand sign bytes and place the result sign into carry
+;   In:        A = one operand sign byte; (HL) = FACHI ($0CB3), the other operand's sign byte.
+;   Out:       Carry = combined result sign bit; HL restored; control -> FP_ERROR_FINALIZE.
+;   Clobbers:  A, flags (HL popped/restored).
+;   Algorithm: XOR (HL) merges the sign bits, RLA shifts bit 7 into carry, POP HL restores the
+;              caller's HL, then JP FP_ERROR_FINALIZE.
+; ----------------------------------------------------------------------
+OVERR_SIGN_COMBINE:
         XOR (HL)
         RLA
         POP HL
-        JP FIN_DONE_19
-FIN_DONE_8:
+        JP FP_ERROR_FINALIZE
+; ----------------------------------------------------------------------
+; OVERR_SIGN_FROM_FPFLAG -- overflow-finalize entry that takes the sign from FP_SIGN_FLAG
+;   In:        FP_SIGN_FLAG ($0CB5) holds the intended result sign in bit 7.
+;   Out:       Enters the RLA sign-into-carry tail (FP_ERROR_SIGN_RLA, =FP_ERROR_SIGN_RLA) -> FP_ERROR_FINALIZE.
+;   Clobbers:  A, flags.
+;   Algorithm: LD A,(FP_SIGN_FLAG); JP FP_ERROR_SIGN_RLA (RLA then finalize).
+;   [RE] UNREFERENCED in this build -- vestigial OVERR entry. The byte after the JP (a POP AF) is
+;        likewise UNREACHED here; UNKNOWN whether a +1 cover was intended (no caller observed).
+; ----------------------------------------------------------------------
+OVERR_SIGN_FROM_FPFLAG:
         LD A,(FP_SIGN_FLAG)
-        JP FIN_DONE_13
+        JP FP_ERROR_SIGN_RLA
         POP AF
-FIN_DONE_9:
+; ----------------------------------------------------------------------
+; OVERR_POP2 -- overflow-finalize that discards two stacked words first (EXP overflow)
+;   In:        Reached from FN_EXP_3 (JP OVERR_POP2) on EXP() overflow (FACHI positive). Two
+;              words pushed by the EXP evaluation chain sit above the caller frame; FACHI
+;              ($0CB3) carries the result sign.
+;   Out:       Stack trimmed by two words; falls into OVERR_SIGN_FROM_FAC, which reads the FACHI
+;              sign and finalizes.
+;   Clobbers:  flags, stack (two words dropped).
+;   Algorithm: POP AF twice to abandon the in-flight EXP call chain (mirrors the symmetric POP
+;              AF/POP AF underflow branch in FN_EXP), then fall into OVERR_SIGN_FROM_FAC.
+;   [RE] The exact identity of the two discarded words is inferred from FN_EXP's matching push/
+;        pop pattern, not directly observed here.
+; ----------------------------------------------------------------------
+OVERR_POP2:
+        ; discard two stacked words from the aborted EXP chain before finalizing
         POP AF
         POP AF
-FIN_DONE_10:
+; ----------------------------------------------------------------------
+; OVERR_SIGN_FROM_FAC -- overflow-finalize that signs the result from the FAC sign byte
+;   In:        FACHI ($0CB3) bit 7 = the result sign. Reached from FP_SCALE2 (single-precision
+;              *10) exponent overflow, and via OVERR_POP2 (EXP overflow).
+;   Out:       Carry = FACHI bit 7; enters FP_ERROR_FINALIZE.
+;   Clobbers:  A, flags.
+;   Algorithm: LD A,(FACHI); RLA shifts the sign bit into carry; JP FP_ERROR_FINALIZE so the
+;              stored MBF max takes the FAC's sign.
+; ----------------------------------------------------------------------
+OVERR_SIGN_FROM_FAC:
         LD A,(FACHI)
         RLA
-        JP FIN_DONE_19
-FIN_DONE_11:
+        JP FP_ERROR_FINALIZE
+; ----------------------------------------------------------------------
+; OVERR_POP1 -- overflow-finalize that discards one stacked word, then signs from FP_SIGN_FLAG (CPL)
+;   In:        Reached from FADD_ROUND_CARRY (JP OVERR_POP1) when a round-up (+1 ULP) carries
+;              out of the mantissa and bumps the exponent past max. One word above the caller
+;              frame; FP_SIGN_FLAG ($0CB5) holds the un-complemented sign.
+;   Out:       Stack trimmed by one word; result sign = complement of FP_SIGN_FLAG; -> FP_ERROR_FINALIZE.
+;   Clobbers:  A, flags, one stack word.
+;   Algorithm: POP AF drops the stacked word, then fall into OVERR_SIGN_FROM_FPFLAG_CPL which
+;              loads FP_SIGN_FLAG, CPLs it and RLAs the inverted sign bit into carry.
+;   [RE] The identity of the discarded word is inferred, not directly observed.
+; ----------------------------------------------------------------------
+OVERR_POP1:
+        ; drop one stacked word from the aborted round-carry path before finalizing
         POP AF
-FIN_DONE_12:
+; ----------------------------------------------------------------------
+; OVERR_SIGN_FROM_FPFLAG_CPL -- overflow-finalize, sign = complement of FP_SIGN_FLAG
+;   In:        FP_SIGN_FLAG ($0CB5) holds the un-complemented sign. Reached from several exponent-
+;              overflow sites: the single-precision add front-end (FADD_ALIGN_GO), double add
+;              (DADD_ALIGNED), double round-carry (DP_ROUND_CARRY_PROPAGATE), double divide (DDIV)
+;              and double *10 (DP_MUL10).
+;   Out:       Carry = NOT FP_SIGN_FLAG bit 7; enters FP_ERROR_FINALIZE.
+;   Clobbers:  A, flags.
+;   Algorithm: LD A,(FP_SIGN_FLAG); CPL inverts it; fall into FP_ERROR_SIGN_RLA (RLA puts the
+;              inverted sign bit into carry) then JP FP_ERROR_FINALIZE.
+;   [RE] Caller list compiled from the JP OVERR_SIGN_FROM_FPFLAG_CPL sites; it spans BOTH single- and double-
+;        precision overflow paths, not double-only.
+; ----------------------------------------------------------------------
+OVERR_SIGN_FROM_FPFLAG_CPL:
         LD A,(FP_SIGN_FLAG)
         CPL
-FIN_DONE_13:
+; ----------------------------------------------------------------------
+; FP_ERROR_SIGN_RLA -- shift the computed sign bit (A bit 7) into carry, then finalize
+;   In:        A = sign byte (bit 7 is the intended result sign).
+;   Out:       Carry = A bit 7; control -> FP_ERROR_FINALIZE.
+;   Clobbers:  A, flags.
+;   Algorithm: RLA moves bit 7 into carry; JP FP_ERROR_FINALIZE selects +/- MBF max accordingly.
+; ----------------------------------------------------------------------
+FP_ERROR_SIGN_RLA:
         RLA
-        JP FIN_DONE_19
-FIN_DONE_14:
+        JP FP_ERROR_FINALIZE
+; ----------------------------------------------------------------------
+; DIV0_SIGN_FROM_C -- division-by-zero finalize, dividend sign in C
+;   In:        C = dividend sign byte. Reached from FDIV (JP Z,DIV0_SIGN_FROM_C) when the divisor
+;              (FAC) is zero.
+;   Out:       A = C (sign); jumps to DIV0_SET_MSG (DIV0_SET_MSG) which RLAs the sign into carry,
+;              selects the 'Division by zero' message and enters FP_ERROR_FINALIZE.
+;   Clobbers:  A.
+;   Algorithm: LD A,C; JP DIV0_SET_MSG (DIV0_SET_MSG).
+; ----------------------------------------------------------------------
+DIV0_SIGN_FROM_C:
         LD A,C
-        JP FIN_DONE_18
-FIN_DONE_15:
+        JP DIV0_SET_MSG
+; ----------------------------------------------------------------------
+; DIV0_SIGN_DOUBLE -- division-by-zero finalize for DDIV; stage magnitude, take the dividend sign
+;   In:        Reached from DDIV (JP Z,DIV0_SIGN_DOUBLE) when the divisor exponent is 0. FAC_DBL/FAC
+;              hold the dividend; VALTYP selects double vs single.
+;   Out:       The all-ones constant (MBF_MAX_NEG) is copied over FAC_DBL ($0CAD..$0CB0); A = dividend
+;              sign byte; control falls into DIV0_RESTORE_REGS -> DIV0_SET_MSG.
+;   Clobbers:  A, DE, HL (PUSHed/POPped), FAC_DBL, L_0CAF.
+;   Algorithm: PUSH HL/DE; FP_MOVE4 copies MBF_MAX_NEG ($FF,$FF,$FF,$FF) into FAC_DBL; re-store its
+;              first byte to L_0CAF (this write is redundant given the move already filled $0CAF;
+;              [RE] its purpose is UNKNOWN). FRMEVL_TEST_TYPE then picks the sign source: FACHI
+;              on the parity-even (double) branch, L_0CC0 (DIV0_SIGN_NONDOUBLE) on parity-odd; POP DE/HL;
+;              fall into DIV0_SET_MSG.
+;   [RE] The FP_MOVE4 stages an all-ones magnitude before the sign decision; exactly why it
+;        pre-fills FAC_DBL here (vs. relying on FP_ERROR_FINALIZE's own store) is UNKNOWN.
+; ----------------------------------------------------------------------
+DIV0_SIGN_DOUBLE:
         PUSH HL
         PUSH DE
         LD HL,FAC_DBL
-        LD DE,L_5707
+        LD DE,MBF_MAX_NEG
+        ; [RE] stage the all-ones constant (MBF_MAX_NEG) over the double mantissa before the sign decision
         CALL FP_MOVE4
-        LD A,(L_5707)
+        LD A,(MBF_MAX_NEG)
         LD (L_0CAF),A
+        ; [RE] parity from VALTYP-3: PE=double -> dividend sign from FACHI; PO -> from L_0CC0
         CALL FRMEVL_TEST_TYPE
-        JP PO,FIN_DONE_16
+        JP PO,DIV0_SIGN_NONDOUBLE
         LD A,(FACHI)
-        JP FIN_DONE_17
-FIN_DONE_16:
+        JP DIV0_RESTORE_REGS
+; ----------------------------------------------------------------------
+; DIV0_SIGN_NONDOUBLE -- single-precision branch: dividend sign comes from the L_0CC0 cell
+;   In:        L_0CC0 ($0CC0) holds the dividend sign byte (the parity-odd / single case).
+;   Out:       A = sign byte; falls into DIV0_RESTORE_REGS (POP DE/POP HL) then DIV0_SET_MSG.
+;   Clobbers:  A.
+;   Algorithm: LD A,(L_0CC0); fall into the shared register-restore + DIV0_SET_MSG tail.
+; ----------------------------------------------------------------------
+DIV0_SIGN_NONDOUBLE:
         LD A,(L_0CC0)
-FIN_DONE_17:
+; ----------------------------------------------------------------------
+; DIV0_RESTORE_REGS -- restore DE/HL saved by DIV0_SIGN_DOUBLE, then fall into DIV0_SET_MSG
+;   In:        A = dividend sign byte; saved DE/HL on the stack.
+;   Out:       DE, HL restored; control falls into DIV0_SET_MSG.
+;   Clobbers:  DE, HL (restored).
+;   Algorithm: POP DE / POP HL then drop into DIV0_SET_MSG.
+; ----------------------------------------------------------------------
+DIV0_RESTORE_REGS:
         POP DE
         POP HL
-FIN_DONE_18:
+; ----------------------------------------------------------------------
+; DIV0_SET_MSG -- select the 'Division by zero' message, then enter the common error finalize
+;   In:        A = sign byte (bit 7 = result sign). Reached by DIV0_SIGN_* and by the power
+;              operator (JP Z,DIV0_SET_MSG in POWER_OP_APPLY/FN_SQR) for 0^(negative).
+;   Out:       Carry = result sign; the current-error-message pointer L_0848 = ERRMSG_
+;              DIVISION_BY_ZERO; falls into FP_ERROR_FINALIZE.
+;   Clobbers:  A, HL, flags, L_0848.
+;   Algorithm: RLA moves the sign bit into carry; LD HL,ERRMSG_DIVISION_BY_ZERO; store it to the
+;              current-error-message cell L_0848; fall into FP_ERROR_FINALIZE.
+;   [RE] L_0848 is the live error-message pointer (cold-init = ERRMSG_OVERFLOW, $0577). Overflow
+;        entries leave it at that default; the divide entries override it here.
+; ----------------------------------------------------------------------
+DIV0_SET_MSG:
         RLA
+        ; divide-by-zero, not overflow: point the current-message cell L_0848 at 'Division by zero'
         LD HL,ERRMSG_DIVISION_BY_ZERO
         LD (L_0848),HL
-FIN_DONE_19:
+; ----------------------------------------------------------------------
+; FP_ERROR_FINALIZE -- common overflow / divide-by-zero finalize: store signed max, trap or warn
+;   In:        Carry = result sign (clear = +, set = -); L_0848 -> the current error message
+;              ('Overflow' by default, 'Division by zero' if set by DIV0_SET_MSG); VALTYP
+;              selects single vs double; ON_ERROR_LINE = active ON ERROR handler (0 = none).
+;   Out:       FAC = signed MBF max magnitude (MBF_MAX_SINGLE for +, MBF_MAX_NEG for -; FAC_DBL extended for
+;              double). If a handler is armed, jumps to RAISE_OVERFLOW / RAISE_DIVISION_BY_ZERO.
+;              Otherwise prints the message and RETs with the saturated FAC (MS BASIC overflow
+;              is a non-fatal warning).
+;   Clobbers:  A, BC, DE, HL, FAC; restores BC/DE/HL it saves; updates L_0CB6.
+;   Algorithm: Save regs and the sign (PUSH AF twice). If ON_ERROR_LINE != 0, skip straight to
+;              the store step (FP_ERROR_STORE_SAT). Otherwise check the L_0CB6 print guard: print on 0;
+;              on 1 bump it to 2 and print; on 2 skip (avoids re-printing on re-entry). After the
+;              optional print, recover the sign and FP_MOVE4 the matching MBF max into the FAC
+;              (and FAC_DBL if double). Finally, if a handler is armed normalize L_0848 and RAISE
+;              the matching error; else reset L_0848 to 'Overflow', restore regs and RET.
+;   [RE] L_0CB6 is a dual-use cell (elsewhere the FRMEVL function-eval-in-progress flag, and at
+;        $4539 a screen INVERSE flag -- see the unreconciled DUAL-USE CAVEAT in the source). Its
+;        use here as a one-shot error-print guard is [RE] inference. L_0848 is the live error-
+;        message pointer cell (cold-init ERRMSG_OVERFLOW).
+; ----------------------------------------------------------------------
+FP_ERROR_FINALIZE:
         PUSH HL
         PUSH BC
         PUSH DE
+        ; stash the result sign (carry) across the message-print decision
         PUSH AF
         PUSH AF
+        ; is an ON ERROR handler armed? if so, skip the message print and go store+raise (trap)
         LD HL,(ON_ERROR_LINE)
         LD A,H
         OR L
-        JP NZ,FIN_DONE_21
+        JP NZ,FP_ERROR_STORE_SAT
+        ; [RE] print guard: print on 0 or 1 (bumping 1->2), suppress on 2, to avoid a repeat print on re-entry
         LD A,(L_0CB6)
         OR A
-        JP Z,FIN_DONE_20
+        JP Z,FP_ERROR_PRINT_MSG
         CP $01
-        JP NZ,FIN_DONE_21
+        JP NZ,FP_ERROR_STORE_SAT
         LD A,$02
         LD (L_0CB6),A
-FIN_DONE_20:
+; ----------------------------------------------------------------------
+; FP_ERROR_PRINT_MSG -- print the current FP error message ('Overflow'/'Division by zero') + CRLF
+;   In:        L_0848 -> the NUL-terminated message string.
+;   Out:       Message written to the console followed by CR/LF; CURSOR_POS updated.
+;   Clobbers:  A, HL (and whatever STROUT_NOFLAGS/STROUT_PUTC touch).
+;   Algorithm: Load the message pointer from L_0848, STROUT_NOFLAGS it, store the returned column
+;              to CURSOR_POS, then emit CR ($0D) and LF ($0A). The non-fatal warning path: print
+;              the message and continue with the saturated value.
+; ----------------------------------------------------------------------
+FP_ERROR_PRINT_MSG:
         LD HL,(L_0848)
         CALL STROUT_NOFLAGS
         LD (CURSOR_POS),A
+        ; terminate the warning line with CR then LF
         LD A,$0D
         CALL STROUT_PUTC
         LD A,$0A
         CALL STROUT_PUTC
-FIN_DONE_21:
+; ----------------------------------------------------------------------
+; FP_ERROR_STORE_SAT -- store the signed MBF max-magnitude constant into the FAC
+;   In:        Carry (saved on stack, recovered by POP AF) = result sign: clear -> +max, set ->
+;              -max; VALTYP selects single vs double.
+;   Out:       FAC = the saturated MBF max (positive or negative); for double, FAC_DBL is also
+;              filled with the all-ones constant (continued in FP_ERROR_STORE_SAT_MOVE).
+;   Clobbers:  A, DE, HL, FAC.
+;   Algorithm: POP AF recovers the sign. LD HL,FAC. Choose DE = MBF_MAX_SINGLE on NC (positive, top
+;              mantissa byte $7F) or MBF_MAX_NEG on C (negative, $FF), then fall into FP_ERROR_STORE_
+;              SAT_MOVE which FP_MOVE4s the 4-byte constant into the FAC.
+;   [RE] The MBF max has all-ones mantissa low bytes and exponent $FF; the top mantissa byte
+;        ($7F vs $FF) carries the sign bit, giving +max vs -max.
+; ----------------------------------------------------------------------
+FP_ERROR_STORE_SAT:
         POP AF
         LD HL,FAC
-        LD DE,L_5703
-        JP NC,FIN_DONE_22
-        LD DE,L_5707
-FIN_DONE_22:
+        LD DE,MBF_MAX_SINGLE
+        ; positive (NC) -> +max constant MBF_MAX_SINGLE ($7F top byte); negative -> -max constant MBF_MAX_NEG ($FF top byte)
+        JP NC,FP_ERROR_STORE_SAT_MOVE
+        LD DE,MBF_MAX_NEG
+; ----------------------------------------------------------------------
+; FP_ERROR_STORE_SAT_MOVE -- copy the selected MBF max into the FAC (and extend FAC_DBL if double)
+;   In:        HL -> FAC; DE -> the chosen MBF max constant (MBF_MAX_SINGLE or MBF_MAX_NEG); VALTYP.
+;   Out:       FAC = the saturated max; for double, FAC_DBL also filled with the all-ones
+;              constant MBF_MAX_NEG.
+;   Clobbers:  A, DE, HL, FAC, FAC_DBL.
+;   Algorithm: FP_MOVE4 copies the 4-byte constant into the FAC. FRMEVL_TEST_TYPE; if parity-even
+;              (double) FP_MOVE4 MBF_MAX_NEG into FAC_DBL to fill the extra mantissa bytes; then fall
+;              into FP_ERROR_DISPATCH.
+;   [RE] The double branch is selected by the PARITY of (VALTYP-3) from FRMEVL_TEST_TYPE (PO ->
+;        single, skip the extend), not by carry.
+; ----------------------------------------------------------------------
+FP_ERROR_STORE_SAT_MOVE:
         CALL FP_MOVE4
         CALL FRMEVL_TEST_TYPE
-        JP PO,FIN_DONE_23
+        JP PO,FP_ERROR_DISPATCH
         LD HL,FAC_DBL
-        LD DE,L_5707
+        LD DE,MBF_MAX_NEG
         CALL FP_MOVE4
-FIN_DONE_23:
+; ----------------------------------------------------------------------
+; FP_ERROR_DISPATCH -- route to the ON ERROR trap, or fall through to the warning return
+;   In:        ON_ERROR_LINE (0 = no handler); L_0848 -> the current message; FAC = saturated value.
+;   Out:       Handler armed -> normalize L_0848 to ERRMSG_OVERFLOW and JP RAISE_OVERFLOW (if the
+;              current message was Overflow) or RAISE_DIVISION_BY_ZERO. No handler -> FP_ERROR_RETURN.
+;   Clobbers:  A, DE, HL, L_0848.
+;   Algorithm: If ON_ERROR_LINE is zero, JP FP_ERROR_RETURN. Otherwise CMP_HL_DE compares the
+;              current message pointer (L_0848) against ERRMSG_OVERFLOW, force L_0848 to
+;              ERRMSG_OVERFLOW, then JP Z,RAISE_OVERFLOW (was Overflow) else JP RAISE_DIVISION_BY_
+;              ZERO, so the trap fires with the correct ERR code.
+; ----------------------------------------------------------------------
+FP_ERROR_DISPATCH:
+        ; handler armed? if not, just return the saturated value (warning already printed)
         LD HL,(ON_ERROR_LINE)
         LD A,H
         OR L
-        JP Z,FIN_DONE_24
+        JP Z,FP_ERROR_RETURN
         LD HL,(L_0848)
         LD DE,ERRMSG_OVERFLOW
         CALL CMP_HL_DE
         LD HL,ERRMSG_OVERFLOW
         LD (L_0848),HL
+        ; raise to the ON ERROR trap: Overflow if the message pointer was Overflow, else Division by zero
         JP Z,RAISE_OVERFLOW
         JP RAISE_DIVISION_BY_ZERO
-FIN_DONE_24:
+; ----------------------------------------------------------------------
+; FP_ERROR_RETURN -- untrapped exit: reset the message cell and return with the saturated FAC
+;   In:        FAC = signed MBF max; saved DE/BC/HL on the stack; the saved sign word on top
+;              (discarded by POP AF).
+;   Out:       L_0848 reset to ERRMSG_OVERFLOW (the default); DE/BC/HL restored; RET to the
+;              caller with the saturated value (execution continues after the non-fatal warning).
+;   Clobbers:  A, HL, L_0848 (restored regs otherwise).
+;   Algorithm: POP AF discards the saved sign, reset L_0848 to ERRMSG_OVERFLOW for the next
+;              fault, POP DE/BC/HL, RET.
+; ----------------------------------------------------------------------
+FP_ERROR_RETURN:
         POP AF
+        ; reset the error-message cell L_0848 to its 'Overflow' default for the next fault
         LD HL,ERRMSG_OVERFLOW
         LD (L_0848),HL
         POP DE
         POP BC
         POP HL
         RET
-L_5703:
+; ----------------------------------------------------------------------
+; MBF_MAX_SINGLE -- the largest POSITIVE Microsoft Binary Format value (approx +1.7E38)
+;   Bytes: $FF,$FF,$7F,$FF = mantissa low $FF, mid $FF, high $7F (bit 7 clear => positive),
+;          exponent $FF (maximum).
+;   Use:   FP_ERROR_STORE_SAT_MOVE FP_MOVE4s this into the FAC on a POSITIVE overflow / divide-
+;          by-zero so the result saturates to the signed maximum rather than wrapping.
+; ----------------------------------------------------------------------
+MBF_MAX_SINGLE:
         DEFB    $FF,$FF,$7F,$FF
-L_5707:
+; ----------------------------------------------------------------------
+; MBF_MAX_NEG -- all-ones MBF constant: the NEGATIVE single max, also the double-mantissa fill
+;   Bytes: $FF,$FF,$FF,$FF.
+;   Use:   FP_ERROR_STORE_SAT copies this into the FAC on a NEGATIVE overflow (high mantissa byte
+;          $FF => sign bit set, giving approx -1.7E38). For double-precision results it is also
+;          FP_MOVE4'd into FAC_DBL to fill the extra mantissa bytes with $FF, and DIV0_SIGN_DOUBLE
+;          pre-stages it as the saturated magnitude over FAC_DBL.
+;   [RE] This is a 4-byte all-ones pattern, NOT a distinct 8-byte double-precision constant.
+; ----------------------------------------------------------------------
+MBF_MAX_NEG:
         DEFB    $FF,$FF,$FF,$FF
-; [RE] Print the FOUT-formatted ASCII number string from buffer $0CED via STROUT ($6C40), preserving HL; the console-output wrapper used after FOUT builds the digit string.
-FOUT_PRINT:
+; ----------------------------------------------------------------------
+; PRINT_IN_LINENO -- print ' in <linenumber>' (MS BASIC INPRT); prints ' in ' then prints HL
+;   In:        HL = the line number to print (unsigned 16-bit).
+;   Out:       Console shows ' in ' followed by the decimal line number. HL is preserved across
+;              the ' in ' print, then consumed by FOUT. Does NOT return here -- it falls into FOUT.
+;   Clobbers:  A, BC, DE, HL, and the FOUT scratch buffer at $0CC3.
+;   Algorithm: PUSH HL (save the line number); LD HL,L_0CED and STROUT the literal ' in ' text;
+;              POP HL to restore the line number; then FALL THROUGH into FOUT (no RET). FOUT
+;              converts HL to a decimal ASCII string in the $0CC3 buffer and, via the
+;              PUT_STR_TEMP_2 return it pushes, prints it. Used by the STOP/Break and error line
+;              reporters and the RENUM 'Undefined line' message.
+;   [RE] L_0CED is the ' in ' separator string ($0CED, DEFB " in "), distinct from the FOUT
+;        digit buffer at $0CC3.
+; ----------------------------------------------------------------------
+PRINT_IN_LINENO:
         PUSH HL
+        ; print the ' in ' separator; the line number in HL is printed next by the fall-through into FOUT
         LD HL,L_0CED
         CALL STROUT
         POP HL
@@ -12106,70 +12895,142 @@ FOUT_PRINT:
 ; ======================================================================
 ; NUMBER <-> ASCII (FOUT formatter)
 ; ======================================================================
-; MS BASIC-80 FOUT: convert the FP value in the FAC ($0CB1) to a printable decimal ASCII string (sign $2B/$2D, digits, decimal point, E-exponent). Used by PRINT, STR$, and the sign-on free-bytes report. Value type read from $0B14.
+; ----------------------------------------------------------------------
+; FOUT -- integer fast-path number-to-ASCII: format the 16-bit value in HL and chain into the string-printer.
+;   In:        HL = signed 16-bit value to format (e.g. the sign-on free-bytes count / integer STR$/PRINT).
+;   Out:       HL -> NUL-terminated ASCII decimal string in the $0CC3 output buffer; control then enters the pushed PUT_STR_TEMP_2/STROUT continuation, which prints that string from (HL).
+;   Clobbers:  A, BC, DE, HL, flags; FAC ($0CB1), VALTYP ($0B14), output buffer at $0CC3.
+;   Algorithm: Pushes PUT_STR_TEMP_2 as the return target (so the formatted string is printed on RET), stores HL into the FAC as a VT_INT integer (FP_STORE_FAC_INT sets VALTYP=$02), and with A=0 (no PRINT USING flags) seeds the buffer head to a space (FOUT_SET_FORMAT, returns HL=$0CC3). It then jumps straight to FOUT_BODY_2, bypassing the FOUT_BODY/FOUT_BODY_1 sign-handling block. [RE] OR (HL) ORs A with the just-written space ($20): this clears carry and sets NZ, so at FOUT_BODY_2 neither the carry (PRINT USING E-field) test nor the zero-value early-out fires and the plain integer digit path is taken. The free-byte caller passes a non-negative count, so no '-'/'+' sign step is needed.
+; ----------------------------------------------------------------------
 FOUT:
+        ; return into the string-print continuation (STROUT) once the number is formatted
         LD BC,PUT_STR_TEMP_2
         PUSH BC
+        ; install the caller's 16-bit value into the FAC as an integer (VALTYP := VT_INT)
         CALL FP_STORE_FAC_INT
         XOR A
+        ; A=0: no PRINT USING flags; seed the buffer head ($0CC3) with a space, HL -> head
         CALL FOUT_SET_FORMAT
+        ; [RE] OR with the head space: clear carry + set NZ so FOUT_BODY_2 takes the plain integer path (no E-field, not the zero early-out)
         OR (HL)
+        ; non-negative integer: skip the FOUT_BODY sign-handling block, go straight to digit emission
         JP FOUT_BODY_2
-; [RE] MS BASIC-80 FOUT: convert FAC (mantissa $0CB1 / exp $0CB4 / type $0B14) to a decimal/exponential ASCII string in the $0CC3 buffer, A=0 -> no format flags. Returns HL -> string. Used by STR$/PRINT/LIST.
+; ----------------------------------------------------------------------
+; FOUT_2 -- ordinary FOUT entry: format the FAC value with NO PRINT USING flags.
+;   In:        FAC ($0CB1 mantissa) = value; VALTYP ($0B14) = its type (int/single/double).
+;   Out:       HL -> NUL-terminated ASCII string in the $0CC3 buffer (set by the FOUT_EXPONENT_4 / FOUT_EXPONENT_3 tail). RET to caller (no continuation is pushed, unlike FOUT).
+;   Clobbers:  A, BC, DE, HL, flags, output buffer, scratch FP cells.
+;   Algorithm: Loads A=0 (no format byte) and falls into FOUT_BODY, which does sign handling and then type dispatch. This is the plain PRINT/STR$/LIST entry point; the value's type (VALTYP) and the zero/sign of the FAC drive which digit generator runs.
+; ----------------------------------------------------------------------
 FOUT_2:
+        ; no PRINT USING format flags for a plain PRINT/STR$ conversion
         XOR A
-; [RE] FOUT with PRINT USING format flags in A (stored to $0B4A via FOUT_SET_FORMAT); handles sign placement then dispatches by value type.
+; ----------------------------------------------------------------------
+; FOUT_BODY -- FOUT with PRINT USING format flags: store the flags, place the sign placeholder, then sign-test and dispatch.
+;   In:        A = PRINT USING format byte (bit3=$08 force leading '+'; bit7 selects the PRINT USING exponential-field path; bit2/$04 sign-already-placed, bit4/$10 floating '$', bit5/$20 asterisk-fill consumed later by PRUSING_FIELD). FAC = value; VALTYP = type.
+;   Out:       Format byte saved at $0B4A; buffer head seeded; optional '+' written; falls into FOUT_BODY_1 (sign test).
+;   Clobbers:  A, HL, flags, $0B4A, buffer head ($0CC3).
+;   Algorithm: FOUT_SET_FORMAT stores A at $0B4A and seeds the buffer head with a space (HL -> head). If the 'force +' flag (bit3/$08) is set, overwrite the head with '+'. Then fall into FOUT_BODY_1, which tests the FAC sign. [RE] the bit meanings beyond bit3 are inferred from the masks used here and in FOUT_BODY_2/PRUSING_FIELD.
+; ----------------------------------------------------------------------
 FOUT_BODY:
+        ; store the format byte at $0B4A and seed the buffer head with a space
         CALL FOUT_SET_FORMAT
+        ; [RE] PRINT USING 'force leading +' flag (bit3)?
         AND $08
         JR Z,FOUT_BODY_1
+        ; yes: place a '+' as the sign placeholder
         LD (HL),$2B
+; ----------------------------------------------------------------------
+; FOUT_BODY_1 -- sign test: detect a negative FAC, write '-', and negate the FAC to its magnitude.
+;   In:        HL -> buffer head (sign slot); FAC = value; VALTYP = type.
+;   Out:       If FAC < 0: head := '-' and FAC := |FAC| (FP_NEGATE_CHECKED), and A forced NZ. If FAC >= 0: head unchanged. Either way falls into FOUT_BODY_2.
+;   Clobbers:  A, BC, DE, HL, flags, FAC.
+;   Algorithm: FP_TEST_SIGN clobbers HL (the integer path does LD HL,(FAC)), so EX DE,HL stashes the buffer pointer in DE across the call and restores it afterward. FP_TEST_SIGN returns A = -1/0/+1 (Z set when the value is zero -- that Z is what FOUT_BODY_2's zero early-out later relies on). On a non-negative result (JP P) jump to FOUT_BODY_2. On negative, store '-', negate the FAC to its magnitude, then OR H (H=$0C) forces A NZ so FOUT_BODY_2 does NOT take the zero early-out.
+; ----------------------------------------------------------------------
 FOUT_BODY_1:
         EX DE,HL
+        ; type-aware sign of the FAC: A = -1/0/+1, Z set iff the value is zero
         CALL FP_TEST_SIGN
         EX DE,HL
+        ; non-negative (incl. zero): keep the space/'+' placeholder and continue
         JP P,FOUT_BODY_2
+        ; negative: overwrite the placeholder with '-'
         LD (HL),$2D
         PUSH BC
         PUSH HL
+        ; fold to the magnitude so the rest of FOUT formats |value|
         CALL FP_NEGATE_CHECKED
         POP HL
         POP BC
+        ; H=$0C, so A becomes non-zero: forces NZ so FOUT_BODY_2 skips the zero early-out
         OR H
+; ----------------------------------------------------------------------
+; FOUT_BODY_2 -- lay down the leading '0', then dispatch on the carried flags and VALTYP to the right digit path.
+;   In:        HL -> sign slot; format byte at $0B4A; VALTYP ($0B14) = type; FAC = non-negative magnitude. Carry/Z flags are CARRIED IN from the entry (FOUT: OR(HL) -> NC/NZ; FOUT_BODY_1: FP_TEST_SIGN -> Z iff value==0).
+;   Out:       Buffer head+1 := '0' (the always-present leading digit). Branches (does not return here) to one of: PRUSING_NUMFIELD (PRINT USING E-field), FOUT_EXPONENT_3 (value is zero -> just NUL-terminate the bare '0'), FOUT_DOUBLE_FMT (any float, single or double), or FOUT_DIGITS_INT+PRUSING_FIELD (integer).
+;   Clobbers:  A, BC, DE, HL, flags.
+;   Algorithm: INC HL past the sign and store '0' as the guaranteed first digit. Load the format byte into D, RLA to shift its bit7 into carry, then load A=VALTYP (which does NOT disturb carry/Z). Dispatch: (1) carry set (format bit7) -> PRUSING_NUMFIELD, the PRINT USING exponential-field path; (2) Z set (the value-is-zero flag carried from FP_TEST_SIGN) -> FOUT_EXPONENT_3, which NUL-terminates the lone '0'; (3) CP VT_SNG, JP NC -> VALTYP>=4 (single OR double float) goes to FOUT_DOUBLE_FMT; (4) otherwise (VALTYP<4, i.e. integer) seed BC=0, run FOUT_DIGITS_INT, fall into PRUSING_FIELD.
+; ----------------------------------------------------------------------
 FOUT_BODY_2:
         INC HL
+        ; always emit a leading '0' digit slot (so e.g. .5 prints as 0.5, and a zero value prints as 0)
         LD (HL),$30
-        LD A,(L_0B4A)
+        LD A,(PRUSING_FORMAT_FLAGS)
         LD D,A
+        ; shift format bit7 into carry: PRINT USING exponential field selected?
         RLA
         LD A,(VALTYP)
-        JP C,FOUT_EXPONENT_5
+        ; format bit7: PRINT USING exponential-field path
+        JP C,PRUSING_NUMFIELD
+        ; value is zero (Z carried from FP_TEST_SIGN): terminate the lone '0' and return
         JP Z,FOUT_EXPONENT_3
+        ; VALTYP < single -> integer path; >= single (single OR double) -> float path
         CP VT_SNG
+        ; single or double float: route to the floating-point formatter
         JP NC,FOUT_DOUBLE_FMT
         LD BC,$0000
+        ; integer value: emit its decimal digits, then fall into PRUSING_FIELD
         CALL FOUT_DIGITS_INT
-; [RE] PRINT USING numeric-field scanner: walks the format-image field at $0CC3 ('#', '.', ',', '$', '*', '+', 'E/D' exponent), records width/flags, and rewrites fill characters (space/'*'/'$').
+; ----------------------------------------------------------------------
+; PRUSING_FIELD -- PRINT USING numeric-field finisher: choose the fill character and prepend any '$'/'*'/sign in front of the laid-out digits.
+;   In:        Output buffer at $0CC3 holds the formatted digit string (the sign slot at $0CC3, digits after). Format byte at $0B4A (bit2=$04 sign-already-placed, bit4=$10 floating '$', bit5=$20 asterisk-fill).
+;   Out:       The fill character (space / '*' / '$') and an optional sign char are spliced in front of the number in the buffer. RET. [RE] B carries the chosen lead/sign char into PRUSING_FIELD_4.
+;   Clobbers:  A, B, C, E, HL, flags.
+;   Algorithm: Read the current head byte ($0CC3) into B (the sign placeholder set earlier) and default fill C=' '. Copy the format byte into E. If asterisk-fill (bit5) is set, set C='*'; if the head was already a non-space sign char and the sign-placed flag (bit2) is not set, also force the lead char B='*'. Then PRUSING_FIELD_1 writes the fill char and walks the digit string in the buffer via CHRGET to splice the '$'/sign. [RE] the exact PRINT USING bit assignments are inferred from these masks.
+; ----------------------------------------------------------------------
 PRUSING_FIELD:
         LD HL,L_0CC3
         LD B,(HL)
+        ; default field fill character is a space
         LD C,$20
-        LD A,(L_0B4A)
+        LD A,(PRUSING_FORMAT_FLAGS)
         LD E,A
+        ; [RE] asterisk-fill ('**') field requested (bit5)?
         AND $20
         JR Z,PRUSING_FIELD_1
         LD A,B
         CP C
+        ; asterisk-fill: switch the fill character to '*'
         LD C,$2A
         JR NZ,PRUSING_FIELD_1
         LD A,E
         AND $04
         JP NZ,PRUSING_FIELD_1
         LD B,C
+; ----------------------------------------------------------------------
+; PRUSING_FIELD_1 -- write the fill char, then walk the formatted digit string for '.', 'E', 'D', '0', ','.
+;   In:        HL -> current buffer byte; C = fill char; E = format flags.
+;   Out:       Fill char stored; at end-of-string / 'E' / 'D' / '.' diverts to PRUSING_FIELD_2 (force a leading '0'); '0' or ',' loops here; any other char falls into PRUSING_FIELD_3.
+;   Clobbers:  A, HL, flags.
+;   Algorithm: Store C at (HL). CALL CHRGET advances HL through the OUTPUT buffer ($0CC3+) and re-fetches the next char (Z set at the $00 end-of-string terminator). On Z, 'E'/'D' or '.' -> PRUSING_FIELD_2; on '0' or ',' -> loop (still writing fill in the leading region); otherwise -> PRUSING_FIELD_3. NOTE: CHRGET here walks the formatted number in the buffer, not the program's format image.
+; ----------------------------------------------------------------------
 PRUSING_FIELD_1:
+        ; lay down the fill character at this buffer position
         LD (HL),C
+        ; advance through the formatted digit string in the buffer; Z at the NUL terminator
         CALL CHRGET
         JR Z,PRUSING_FIELD_2
+        ; 'E' exponent marker reached -> force the leading zero
         CP $45
         JR Z,PRUSING_FIELD_2
         CP $44
@@ -12178,104 +13039,218 @@ PRUSING_FIELD_1:
         JR Z,PRUSING_FIELD_1
         CP $2C
         JR Z,PRUSING_FIELD_1
+        ; '.' decimal point reached -> force the leading zero
         CP $2E
         JR NZ,PRUSING_FIELD_3
+; ----------------------------------------------------------------------
+; PRUSING_FIELD_2 -- force a leading '0' when the number starts with '.', 'E' or 'D' (or is empty).
+;   In:        HL just past the position that triggered it.
+;   Out:       The byte before HL set to '0'; falls into PRUSING_FIELD_3.
+;   Clobbers:  HL.
+;   Algorithm: DEC HL and store '0', guaranteeing a digit precedes a bare decimal point or exponent (so '.##' prints '0.xx').
+; ----------------------------------------------------------------------
 PRUSING_FIELD_2:
         DEC HL
+        ; ensure a '0' sits before a leading '.'/'E'/'D'
         LD (HL),$30
+; ----------------------------------------------------------------------
+; PRUSING_FIELD_3 -- splice a floating '$' in front of the number when the field requested it.
+;   In:        E = format flags (bit4=$10 floating dollar); HL -> head of the digit region.
+;   Out:       If bit4 set, '$' written just before the digits (HL backed up one); falls into PRUSING_FIELD_4.
+;   Clobbers:  A, HL, flags.
+;   Algorithm: Test the floating-dollar flag; if set, DEC HL and store '$' ($24) so the currency sign abuts the first significant digit. [RE] bit4 = floating-'$' inferred from the AND $10 mask.
+; ----------------------------------------------------------------------
 PRUSING_FIELD_3:
         LD A,E
+        ; [RE] floating-dollar ('$$') field (bit4)?
         AND $10
         JR Z,PRUSING_FIELD_4
         DEC HL
+        ; splice a '$' immediately before the number
         LD (HL),$24
+; ----------------------------------------------------------------------
+; PRUSING_FIELD_4 -- splice the saved lead/sign character unless a sign was already placed.
+;   In:        E = format flags (bit2=$04 sign already emitted); B = the saved lead/sign char; HL -> front of the field.
+;   Out:       If bit2 clear, B stored just before the number (HL backed up); RET either way.
+;   Clobbers:  A, HL, flags.
+;   Algorithm: If the 'sign already emitted' flag (bit2) is set, RET with nothing to add. Otherwise DEC HL and store B (the lead/sign char chosen in PRUSING_FIELD). [RE] bit2 = sign-already-placed inferred from the AND $04 mask (used here and in PRUSING_FIELD).
+; ----------------------------------------------------------------------
 PRUSING_FIELD_4:
         LD A,E
+        ; [RE] was the sign already written by an earlier step (bit2)?
         AND $04
+        ; sign already in place: nothing to splice
         RET NZ
         DEC HL
+        ; place the saved lead/sign character in front of the number
         LD (HL),B
         RET
-; [RE] Store the PRINT USING format byte (A) to $0B4A and reset the output buffer head ($0CC3) to a leading space.
+; ----------------------------------------------------------------------
+; FOUT_SET_FORMAT -- store the PRINT USING format byte and reset the FOUT output buffer head.
+;   In:        A = format flags byte (0 for plain PRINT/STR$).
+;   Out:       $0B4A := A; ($0CC3) := ' ' (space, the leading sign slot); HL = $0CC3. RET.
+;   Clobbers:  HL.
+;   Algorithm: Save A into the format-flags cell ($0B4A), point HL at the output buffer ($0CC3), write a leading space (default sign placeholder), and return with HL at the buffer head for the caller to build the number.
+; ----------------------------------------------------------------------
 FOUT_SET_FORMAT:
-        LD (L_0B4A),A
+        LD (PRUSING_FORMAT_FLAGS),A
         LD HL,L_0CC3
+        ; seed the buffer head with a space (default sign placeholder)
         LD (HL),$20
         RET
-; [RE] FIN core (ASCII -> floating): scans the digit/decimal/exponent text, counts integer+fraction digits, parses the E/D exponent ($CB8 = exp-overflow flag), and converts via the decimal-accumulate path (CALLs FOUT_DIGITS_* / power-of-ten scaling). Returns the value in FAC.
+; ----------------------------------------------------------------------
+; FOUT_DOUBLE_FMT -- floating-point FOUT driver (single AND double): format the FAC float, then pick E vs D notation and the digit count.
+;   In:        VALTYP ($0B14) >= VT_SNG (=4): single OR double. FAC ($0CB1) plus the double-extension cells FAC_DBL ($0CAD) and $0CAF hold the value; HL -> output buffer head; format byte at $0B4A.
+;   Out:       Output buffer holds the formatted float; the saved FAC/extension cells are restored on the way out (FOUT_SET_FORMAT_5 / PRUSING_ESET_RESTORE tails); RET to FOUT's caller with HL -> string.
+;   Clobbers:  A, BC, DE, HL, flags, FAC + extension cells, $0CB8 (force-E flag).
+;   Algorithm: Saves the live FAC (FAC_PUSH) and the two double-extension words ($0CAD, $0CAF), clears the force-E flag $0CB8, and calls FOUT_CORE to round/scale and lay down the decimal digit string. FOUT_CORE itself is parameterized by precision (it does CP $05 on VALTYP), so this one path serves both single and double. It then scans the produced string via FOUT_SET_FORMAT_2/_4 -- first for 'E' (B=$45) then for 'D' (B=$44) -- counting significant digits in C to decide whether E/D scientific notation is needed (FOUT_SET_FORMAT_6). [RE-CORRECTION] this is FOUT OUTPUT formatting, NOT the FIN ASCII->float input parser: it calls FOUT_CORE and writes the output buffer; no text input is scanned. The pre-existing [RE] 'FIN core' comment is stale/wrong.
+; ----------------------------------------------------------------------
 FOUT_DOUBLE_FMT:
+        ; save the live FAC value across the float formatting
         CALL FAC_PUSH
         EX DE,HL
+        ; preserve the double-precision low-mantissa extension word ($0CAD)
         LD HL,(FAC_DBL)
         PUSH HL
+        ; preserve the second double-extension word ($0CAF)
         LD HL,(L_0CAF)
         PUSH HL
         EX DE,HL
         PUSH AF
         XOR A
+        ; clear the force-E-notation flag ($0CB8) before formatting
         LD (L_0CB8),A
         POP AF
         PUSH AF
+        ; round, scale, and emit the decimal digit string (precision per VALTYP)
         CALL FOUT_CORE
+        ; first pass: scan the produced string for an 'E' exponent
         LD B,$45
         LD C,$00
+; ----------------------------------------------------------------------
+; FOUT_SET_FORMAT_2 -- begin a scan of the formatted string for exponent letter B, with the digit counter reset.
+;   In:        HL -> start of the digit string; B = exponent letter to find ('E'=$45 or 'D'=$44); C = digit counter (already 0 here).
+;   Out:       Saves HL (string start), loads the first char, falls into FOUT_SET_FORMAT_3.
+;   Clobbers:  A, HL, flags.
+;   Algorithm: PUSH HL to remember the string start for the possible second pass, load (HL), and enter the per-character loop FOUT_SET_FORMAT_3.
+; ----------------------------------------------------------------------
 FOUT_SET_FORMAT_2:
+        ; remember the string start in case the second ('D') pass is needed
         PUSH HL
         LD A,(HL)
+; ----------------------------------------------------------------------
+; FOUT_SET_FORMAT_3 -- per-character loop: count digits and stop at the exponent letter.
+;   In:        A = current char; HL -> current char; B = exponent letter sought; C = running digit count.
+;   Out:       On finding letter B -> FOUT_SET_FORMAT_6 (parse its exponent digits); otherwise falls into FOUT_SET_FORMAT_4 to advance.
+;   Clobbers:  A, C, HL, flags.
+;   Algorithm: Compare A to B (target 'E'/'D'); equal -> FOUT_SET_FORMAT_6. Otherwise, if the char is an ASCII digit ('0'..'9') bump the digit count C; then fall into FOUT_SET_FORMAT_4.
+; ----------------------------------------------------------------------
 FOUT_SET_FORMAT_3:
+        ; reached the exponent letter being searched for?
         CP B
         JP Z,FOUT_SET_FORMAT_6
+        ; char above '9' -> not a digit
         CP $3A
         JP NC,FOUT_SET_FORMAT_4
+        ; char below '0' -> not a digit
         CP $30
         JP C,FOUT_SET_FORMAT_4
+        ; count this digit
         INC C
+; ----------------------------------------------------------------------
+; FOUT_SET_FORMAT_4 -- advance to the next char; at end of string, switch the search from 'E' to 'D' once.
+;   In:        HL -> current char; B = exponent letter currently sought.
+;   Out:       Not NUL: loop to FOUT_SET_FORMAT_3 on the next char. At NUL: if B was 'E' ($45) reset B='D' ($44), C=0, restart from the saved start (FOUT_SET_FORMAT_2); if B was already 'D', fall into FOUT_SET_FORMAT_5 (string had no exponent).
+;   Clobbers:  A, B, C, HL, flags.
+;   Algorithm: INC HL, load next byte; non-zero continues the loop. At the NUL terminator, compare the just-used letter to 'D' ($44): if it differs (was 'E') swap in 'D', pop back to the saved string start, zero the count, and rescan; if it was already 'D', the string truly has no exponent and control falls through to FOUT_SET_FORMAT_5.
+; ----------------------------------------------------------------------
 FOUT_SET_FORMAT_4:
         INC HL
         LD A,(HL)
+        ; end of the formatted string?
         OR A
         JP NZ,FOUT_SET_FORMAT_3
+        ; prepare to retry the scan looking for 'D'
         LD A,$44
         CP B
         LD B,A
         POP HL
         LD C,$00
+        ; first pass was 'E': rescan from the saved start looking for 'D'
         JP NZ,FOUT_SET_FORMAT_2
+; ----------------------------------------------------------------------
+; FOUT_SET_FORMAT_5 -- exit tail: restore the saved double-extension words and registers, then return.
+;   In:        Stack holds (top->bottom) the saved AF, then the two double-extension words, then the FAC_PUSH words (FACHI, FAC).
+;   Out:       FAC_DBL ($0CAD) and $0CAF restored; BC/DE restored from the FAC_PUSH; RET to FOUT's caller.
+;   Clobbers:  A, BC, DE, HL, flags, FAC extension cells.
+;   Algorithm: POP AF (discard the pushed AF), POP BC/POP DE to recover the two preserved extension words, EX DE,HL to land each in HL before storing them back to FAC_DBL ($0CAD) and $0CAF, then POP BC/POP DE to consume the FAC_PUSH words, and RET. This is the common landing point for 'no exponent needed' and 'exponent within precision' outcomes.
+; ----------------------------------------------------------------------
 FOUT_SET_FORMAT_5:
         POP AF
         POP BC
         POP DE
         EX DE,HL
+        ; restore the saved double-precision low-extension word ($0CAD)
         LD (FAC_DBL),HL
         LD H,B
         LD L,C
+        ; restore the saved second double-extension word ($0CAF)
         LD (L_0CAF),HL
         EX DE,HL
         POP BC
         POP DE
         RET
+; ----------------------------------------------------------------------
+; FOUT_SET_FORMAT_6 -- parse the signed exponent following the 'E'/'D' letter and decide whether scientific notation is forced.
+;   In:        HL -> the matched 'E'/'D' letter; B = the letter; C = the significant-digit count from the scan.
+;   Out:       On a leading '+' or on magnitude overflow (>=16) -> PRUSING_FIELD_ABORT (accept as-is, no force-E). On end of the exponent digits, compares digit-count+exponent against the precision window ($09 for 'E', $12 for 'D' via PRUSING_EXP_FITS_CHECK): in-range -> FOUT_SET_FORMAT_5 (accept); out-of-range -> PRUSING_ESET_EXP_OVF, which sets the $0CB8 force-E flag ($80). [RE] no error is raised here -- $0CB8 is a formatting flag, not a RAISE.
+;   Clobbers:  A, B, C, H, HL, flags.
+;   Algorithm: PUSH BC, zero the accumulator B, INC past the letter, and walk the exponent text (FOUT_SET_FORMAT_7) decimal-accumulating B = B*10 + digit. A leading '+' diverts to PRUSING_FIELD_ABORT; '-' to the FOUT_SET_FORMAT_8 negative branch. At the end the magnitude window (C significant digits + exponent) is checked against $09 ('E') or $12 ('D') to choose plain decimal vs forced E/D notation.
+; ----------------------------------------------------------------------
 FOUT_SET_FORMAT_6:
         PUSH BC
+        ; accumulate the exponent magnitude here
         LD B,$00
+        ; step past the 'E'/'D' letter to its exponent digits
         INC HL
         LD A,(HL)
+; ----------------------------------------------------------------------
+; FOUT_SET_FORMAT_7 -- exponent-digit accumulator: B := B*10 + digit, honoring a leading sign.
+;   In:        A = current exponent char; HL -> it; B = running magnitude; C scratch.
+;   Out:       On '+' -> PRUSING_FIELD_ABORT (accept, no force-E); on '-' -> FOUT_SET_FORMAT_8 (skip the sign, keep accumulating); a digit updates B; if B reaches $10 (>=16) -> PRUSING_FIELD_ABORT.
+;   Clobbers:  A, B, C, flags.
+;   Algorithm: Branch on '+' / '-'. For a digit: C = char-'0'; A = B; ADD A,A / ADD A,A / ADD A,B / ADD A,A computes B*10 (i.e. ((B*4)+B)*2), then ADD A,C adds the new digit; store back to B. If B has reached $10 the exponent is too large -> PRUSING_FIELD_ABORT.
+; ----------------------------------------------------------------------
 FOUT_SET_FORMAT_7:
+        ; '+' exponent sign -> accept without forcing E-notation
         CP $2B
-        JP Z,SUB_5822_3
+        JP Z,PRUSING_FIELD_ABORT
+        ; '-' exponent sign -> negative-exponent branch
         CP $2D
         JP Z,FOUT_SET_FORMAT_8
+        ; ASCII digit -> its numeric value
         SUB $30
         LD C,A
         LD A,B
         ADD A,A
+        ; compute B*10 ( ((B*4)+B)*2 ) before adding the new digit
         ADD A,A
         ADD A,B
         ADD A,A
         ADD A,C
         LD B,A
+        ; exponent magnitude overflow (>=16)?
         CP $10
-        JP NC,SUB_5822_3
+        JP NC,PRUSING_FIELD_ABORT
+; ----------------------------------------------------------------------
+; FOUT_SET_FORMAT_8 -- continuation after a sign char: advance to the next exponent digit, then finalize the precision check.
+;   In:        HL -> char just consumed; B = accumulated magnitude.
+;   Out:       If the next char is non-NUL, loops to FOUT_SET_FORMAT_7. At NUL: H := B (the magnitude), and the precision check runs -- 'E' here ($09 window), 'D' via PRUSING_EXP_FITS_CHECK ($12 window) -- choosing accept (FOUT_SET_FORMAT_5) vs force-E (PRUSING_ESET_EXP_OVF).
+;   Clobbers:  A, B, C, H, HL, flags.
+;   Algorithm: INC HL, load the next char; non-zero loops back to accumulate. At end, move the magnitude into H and restore the letter into B. For 'E' ($45): A = C + H (digit count + exponent), CP $09 -- if >= the limit accept (FOUT_SET_FORMAT_5), else PRUSING_ESET_EXP_OVF sets the $0CB8 force-E flag. For 'D' the check is in PRUSING_EXP_FITS_CHECK against $12.
+; ----------------------------------------------------------------------
 FOUT_SET_FORMAT_8:
+        ; advance to the next exponent character
         INC HL
         LD A,(HL)
         OR A
@@ -12283,43 +13258,86 @@ FOUT_SET_FORMAT_8:
         LD H,B
         POP BC
         LD A,B
+        ; 'E' (single-precision exponent) -> use the $09 digit-window limit
         CP $45
-        JP NZ,SUB_5822_2
+        JP NZ,PRUSING_EXP_FITS_CHECK
         LD A,C
         ADD A,H
+        ; does digit-count + exponent reach single precision's window limit?
         CP $09
         POP HL
         JP NC,FOUT_SET_FORMAT_5
-SUB_5822_1:
+; ----------------------------------------------------------------------
+; PRUSING_ESET_EXP_OVF -- force the PRINT USING numeric field into E (scientific) notation
+;   In:        Reached from the '^^^^' / 'E' exponent-format scanner: from FOUT_SET_FORMAT_8 when an 'E' format image was found but its computed width is small (C + H < 9), or jumped from PRUSING_EXP_FITS_CHECK
+;   Out:       Sets the E-notation force flag L_0CB8 = $80 (FOUT_CORE later branches on this cell's sign), then JP PRUSING_ESET_RESTORE which restores the saved FAC/format frame and re-enters the digit core
+;   Clobbers:  A; writes (L_0CB8)
+;   Algorithm: Store $80 into L_0CB8 so the FOUT digit core formats this value in scientific notation, then transfer to PRUSING_ESET_RESTORE.
+; ----------------------------------------------------------------------
+PRUSING_ESET_EXP_OVF:
+        ; set the E-notation force flag (L_0CB8=$80) the FOUT core reads
         LD A,$80
         LD (L_0CB8),A
-        JP SUB_5822_4
-SUB_5822_2:
+        JP PRUSING_ESET_RESTORE
+; ----------------------------------------------------------------------
+; PRUSING_EXP_FITS_CHECK -- non-'E' image: decide fixed vs forced E-notation by total field width
+;   In:        Entered (JP NZ) from FOUT_SET_FORMAT_8 when the trailing format char was NOT 'E' ($45). H = accumulated exponent-field digit value parsed by the scanner; C = fraction-digit count
+;   Out:       If H + C >= $12 (18) the field is wide -> POP HL and JP FOUT_SET_FORMAT_5 (commit fixed format); otherwise JP PRUSING_ESET_EXP_OVF to force E-notation
+;   Clobbers:  A; pops HL
+;   Algorithm: A = H + C; CP $12; if no borrow (>=18) restore the buffer pointer and finish via the fixed-format exit, else fall back to the E-notation force path. [RE] H/C exact provenance inferred from the FOUT_SET_FORMAT_8 scanner (H=accumulated field value, C=fraction count).
+; ----------------------------------------------------------------------
+PRUSING_EXP_FITS_CHECK:
         LD A,H
+        ; A = field digit-value (H) + fraction count (C)
         ADD A,C
         CP $12
         POP HL
+        ; width >= 18: commit fixed format and restore the saved frame
         JP NC,FOUT_SET_FORMAT_5
-        JP SUB_5822_1
-SUB_5822_3:
+        JP PRUSING_ESET_EXP_OVF
+; ----------------------------------------------------------------------
+; PRUSING_FIELD_ABORT -- abandon the exponent-field parse and revert to fixed format
+;   In:        Entered from FOUT_SET_FORMAT_7 on a literal '+' in the exponent image, or from FOUT_SET_FORMAT_7/_8 when the accumulated field value overflows (CP $10, carry clear). Two work words are on the stack from the in-progress scan
+;   Out:       Discards the two saved stack words and JP FOUT_SET_FORMAT_5 to format in ordinary fixed notation
+;   Clobbers:  BC, HL (both popped and discarded)
+;   Algorithm: POP BC / POP HL to unwind the partial scan frame, then jump to the fixed-format exit.
+; ----------------------------------------------------------------------
+PRUSING_FIELD_ABORT:
+        ; discard the in-progress field scan frame and revert to fixed formatting
         POP BC
         POP HL
         JP FOUT_SET_FORMAT_5
-SUB_5822_4:
+; ----------------------------------------------------------------------
+; PRUSING_ESET_RESTORE -- restore the saved FAC/format frame and fall into FOUT_CORE
+;   In:        Stack holds the frame pushed by FOUT_DOUBLE_FMT before the format scan: the rounding/format byte A, then BC, then DE (the saved FAC_DBL low word and the L_0CAF (B,C) pair), then the FAC working-copy BC/DE. L_0CB8 already $80 (from PRUSING_ESET_EXP_OVF)
+;   Out:       Restores FAC_DBL and L_0CAF, reloads the live FAC via FP_STORE_FAC, INC HL, and falls into FOUT_CORE (which now sees L_0CB8=$80 and emits E-notation). A on entry to FOUT_CORE = the popped VALTYP/format byte
+;   Clobbers:  A, BC, DE, HL, (FAC_DBL), (L_0CAF), FAC
+;   Algorithm: POP the format/rounding byte (A); POP BC/DE and write the low double-FAC word to FAC_DBL and the (B,C) pair to L_0CAF; POP the FAC working copy; CALL FP_STORE_FAC to reload the FAC; INC HL; fall through to FOUT_CORE. This restore path mirrors FOUT_SET_FORMAT_5 byte-for-byte except it continues into the digit core instead of RET.
+; ----------------------------------------------------------------------
+PRUSING_ESET_RESTORE:
         POP AF
         POP BC
         POP DE
         EX DE,HL
+        ; restore the low word of the saved double-precision FAC
         LD (FAC_DBL),HL
         LD H,B
         LD L,C
+        ; restore the saved (sign/MSB, exponent-or-fraction) FAC pair
         LD (L_0CAF),HL
         EX DE,HL
         POP BC
         POP DE
+        ; reload the live FAC, then fall into the digit core
         CALL FP_STORE_FAC
         INC HL
-; [RE] FOUT decimal core: rounds the FAC to N significant digits, computes the base-10 exponent, generates the digit string and trims trailing zeros; decides fixed vs E-notation.
+; ----------------------------------------------------------------------
+; FOUT_CORE -- normalize FAC, generate the rounded decimal digit string, trim trailing zeros
+;   In:        FAC holds the (sign-stripped, non-negative) value; A = VALTYP (4 = single, 8 = double); HL -> output buffer just past the sign/leading-digit slot; L_0CB8 = E-notation force flag (sign bit set => scientific). Only caller is FOUT_DOUBLE_FMT (also reached via PRUSING_ESET_RESTORE fall-through)
+;   Out:       Decimal digit string written at HL; HL backed to the last significant digit; A = residual count whose Z result selects the fixed tail (FOUT_EXPONENT_4) vs the E-notation tail (FOUT_EXPONENT); B = integer-digit count on the fixed path
+;   Clobbers:  A, B, C, D, HL, FAC, FP temporaries used by FOUT_SCALE10/FOUT_DIGITS_FRAC
+;   Algorithm: Derive the rounding precision D from VALTYP: CP $05 / SBC A,$00 / RLA / LD D,A / INC D gives D = 7 (single) or 17 (double). CALL FOUT_SCALE10 to scale FAC into digit-gen range and return the base-10 exponent in A. Read L_0CB8: if its sign bit is clear take FOUT_CORE_1 (value may print fixed); if set fall to FOUT_CORE_2 (force scientific digit layout). FOUT_CORE_1/_2 set B = integer-digit count, then FOUT_CORE_3 emits the leading '.'/zero run (FOUT_LEADING_FRAC) and the digits (FOUT_DIGITS_FRAC). FOUT_CORE_4 strips trailing '0's and a dangling '.'.
+; ----------------------------------------------------------------------
 FOUT_CORE:
         CP $05
         PUSH HL
@@ -12327,46 +13345,90 @@ FOUT_CORE:
         RLA
         LD D,A
         INC D
+        ; scale FAC into digit-generation range; A returns the base-10 exponent
         CALL FOUT_SCALE10
         LD BC,$0300
         PUSH AF
+        ; [RE] branch on the E-notation force flag: scientific vs fixed digit layout
         LD A,(L_0CB8)
         OR A
         JP P,FOUT_CORE_1
         POP AF
         ADD A,D
         JP FOUT_CORE_2
+; ----------------------------------------------------------------------
+; FOUT_CORE_1 -- fixed-notation branch: check the exponent fits the precision
+;   In:        A = base-10 exponent (restored by POP AF); D = rounding precision (7 or 17); entered when L_0CB8 is non-negative (value not forced scientific)
+;   Out:       Falls into FOUT_CORE_2 (set integer-digit count) when the exponent fits, or jumps to FOUT_CORE_3 (no integer digits / scientific layout) otherwise
+;   Clobbers:  A, D, flags
+;   Algorithm: A += D (exponent plus precision). If negative (pure fraction) go to FOUT_CORE_3. Otherwise INC D and CP D: if A >= D the magnitude does not fit the precision -> FOUT_CORE_3; else fall through to FOUT_CORE_2.
+; ----------------------------------------------------------------------
 FOUT_CORE_1:
         POP AF
         ADD A,D
+        ; exponent negative: no integer digits, go straight to the fraction/leading-zero path
         JP M,FOUT_CORE_3
         INC D
         CP D
+        ; magnitude beyond the precision window: use the scientific digit layout
         JR NC,FOUT_CORE_3
+; ----------------------------------------------------------------------
+; FOUT_CORE_2 -- record the integer-digit count for fixed-point output
+;   In:        A = (exponent + precision) for the fixed case
+;   Out:       B = number of digits left of the decimal point (A+1); A reset to $02; falls into FOUT_CORE_3
+;   Clobbers:  A, B
+;   Algorithm: INC A; LD B,A captures the integer-digit count; LD A,$02 seeds the FOUT_CORE_3 SUB $02 to 0 so the leading-fraction setup is neutral on this path. Fall into FOUT_CORE_3.
+; ----------------------------------------------------------------------
 FOUT_CORE_2:
         INC A
+        ; B = digit count to the left of the decimal point
         LD B,A
         LD A,$02
+; ----------------------------------------------------------------------
+; FOUT_CORE_3 -- emit the leading '.'/zero prefix, then generate the digit string
+;   In:        A from the FOUT_CORE_1/_2 branches; B = integer-digit count (or scientific budget); HL recovered by POP HL -> buffer
+;   Out:       Leading decimal point and pure-fraction zero run written via FOUT_LEADING_FRAC; digits generated via FOUT_DIGITS_FRAC; A (saved on the stack) carries the residual count into FOUT_CORE_4
+;   Clobbers:  A, HL, FAC temporaries
+;   Algorithm: SUB $02 adjusts the count; POP HL restores the buffer pointer; PUSH AF saves the count. CALL FOUT_LEADING_FRAC lays down '.' and leading '0's for |x|<1 (returns Z when it emitted the point). Store a '0' guard; if Z, FP_LOAD_DONE (INC HL) steps past it. CALL FOUT_DIGITS_FRAC emits the significant digits; fall into FOUT_CORE_4.
+; ----------------------------------------------------------------------
 FOUT_CORE_3:
         SUB $02
         POP HL
         PUSH AF
+        ; emit '.' and the leading zeros for a sub-1 magnitude (records the point position)
         CALL FOUT_LEADING_FRAC
         LD (HL),$30
         CALL Z,FP_LOAD_DONE
+        ; generate the significant decimal digits into the buffer
         CALL FOUT_DIGITS_FRAC
+; ----------------------------------------------------------------------
+; FOUT_CORE_4 -- strip trailing zeros (and a dangling '.') from the digit string
+;   In:        HL -> one past the last digit; buffer holds the generated digits; A (saved earlier) = residual count selecting the fixed vs E tail
+;   Out:       HL backed over trailing '0's and re-advanced past the last real digit; a trailing '.' is dropped; Z result jumps to FOUT_EXPONENT_4 (fixed tail) else falls into FOUT_EXPONENT (append E suffix)
+;   Clobbers:  A, HL, flags
+;   Algorithm: Loop DEC HL while (HL)=='0'. CP $2E: if the surviving last char is NOT '.', CALL FP_LOAD_DONE (= INC HL) to re-include that last real digit; if it IS '.', leave HL on it so it is dropped. POP AF; on Z take the fixed tail (FOUT_EXPONENT_4), else fall into FOUT_EXPONENT.
+; ----------------------------------------------------------------------
 FOUT_CORE_4:
         DEC HL
         LD A,(HL)
+        ; trim trailing '0' digits the rounding produced
         CP $30
         JR Z,FOUT_CORE_4
         CP $2E
         CALL NZ,FP_LOAD_DONE
         POP AF
+        ; fixed notation: NUL-terminate; otherwise fall through to append the E/D exponent
         JR Z,FOUT_EXPONENT_4
-; [RE] Append the exponent suffix (E/D, sign, two decimal digits) to the formatted number and NUL-terminate; also the PRINT USING field-assembly path that interleaves the digit string with the format image (commas, '$', '*', '+'/'-').
+; ----------------------------------------------------------------------
+; FOUT_EXPONENT -- append the E/D scientific exponent field and NUL-terminate
+;   In:        HL -> end of the digit string; A = signed decimal exponent to emit; FAC value type read by FRMEVL_TEST_TYPE (single vs double selects 'E' vs 'D')
+;   Out:       Writes '<E|D><sign><tens><ones>' then a $00 terminator; on return DE -> string end and HL -> buffer head L_0CC3
+;   Clobbers:  A, B, HL, DE
+;   Algorithm: FRMEVL_TEST_TYPE returns carry SET for single, CLEAR for double; LD A,$22 / ADC A,A yields $45 ('E', single) or $44 ('D', double). Write the letter, then '+' or '-' (CPL/INC A negates A for a negative exponent). FOUT_EXPONENT_2 converts |exponent| to two ASCII digits via repeated SUB $0A; FOUT_EXPONENT_3/_4 INC HL, write the $00 terminator, set DE=end, HL=L_0CC3, RET.
+; ----------------------------------------------------------------------
 FOUT_EXPONENT:
         PUSH AF
+        ; value type sets carry: single -> 'E' ($45), double -> 'D' ($44)
         CALL FRMEVL_TEST_TYPE
         LD A,$22
         ADC A,A
@@ -12375,76 +13437,167 @@ FOUT_EXPONENT:
         POP AF
         LD (HL),$2B
         JP P,FOUT_EXPONENT_1
+        ; negative exponent: write '-' then take its magnitude (CPL/INC A)
         LD (HL),$2D
         CPL
         INC A
+; ----------------------------------------------------------------------
+; FOUT_EXPONENT_1 -- non-negative-exponent entry (sign already '+')
+;   In:        A = exponent magnitude (>= 0); HL -> the '+' byte already written
+;   Out:       Seeds B = $2F ('0'-1) for the tens counter and falls into FOUT_EXPONENT_2
+;   Clobbers:  B
+;   Algorithm: LD B,$2F primes the ASCII tens digit so FOUT_EXPONENT_2's INC B produces '0','1',... per ten subtracted.
+; ----------------------------------------------------------------------
 FOUT_EXPONENT_1:
         LD B,$2F
+; ----------------------------------------------------------------------
+; FOUT_EXPONENT_2 -- convert the exponent magnitude to two ASCII decimal digits
+;   In:        A = exponent magnitude; B = $2F ('0'-1) tens accumulator; HL -> after the sign byte
+;   Out:       Tens digit (B) and ones digit (A+$3A) written; HL advanced past both
+;   Clobbers:  A, B, HL
+;   Algorithm: Loop SUB $0A / INC B until A goes negative (B='0'+tens). ADD A,$3A converts the negative remainder to the ones ASCII digit. INC HL / store B; INC HL / store the ones digit; fall into FOUT_EXPONENT_3.
+; ----------------------------------------------------------------------
 FOUT_EXPONENT_2:
         INC B
+        ; count tens into B; the underflow remainder becomes the ones digit
         SUB $0A
         JR NC,FOUT_EXPONENT_2
+        ; convert the underflow remainder to the ASCII ones digit (B holds the tens digit)
         ADD A,$3A
         INC HL
         LD (HL),B
         INC HL
         LD (HL),A
+; ----------------------------------------------------------------------
+; FOUT_EXPONENT_3 -- advance past the last digit before terminating
+;   In:        HL -> last digit written
+;   Out:       HL incremented to the terminator slot; falls into FOUT_EXPONENT_4
+;   Clobbers:  HL
+;   Algorithm: INC HL, then fall into FOUT_EXPONENT_4. Also reached directly from FOUT_BODY_2 for the zero/empty case.
+; ----------------------------------------------------------------------
 FOUT_EXPONENT_3:
         INC HL
+; ----------------------------------------------------------------------
+; FOUT_EXPONENT_4 -- NUL-terminate the formatted string and return the buffer pointer
+;   In:        HL -> the terminator slot just past the formatted number
+;   Out:       Writes $00; DE := old HL (string end); HL := L_0CC3 (buffer head); RET
+;   Clobbers:  HL, DE
+;   Algorithm: Store the $00 terminator, EX DE,HL so DE marks the end, LD HL,L_0CC3 and RET. Shared fixed-notation exit (also taken via FOUT_CORE_4's Z path).
+; ----------------------------------------------------------------------
 FOUT_EXPONENT_4:
+        ; NUL-terminate; DE = string end, HL = buffer head on return
         LD (HL),$00
         EX DE,HL
         LD HL,L_0CC3
         RET
-FOUT_EXPONENT_5:
+; ----------------------------------------------------------------------
+; PRUSING_NUMFIELD -- PRINT USING numeric-field formatter dispatch (integer / float / E-image)
+;   In:        A = VALTYP; D = PRINT USING format-flag byte (copied from PRUSING_FORMAT_FLAGS in FOUT_BODY_2); HL -> output buffer; FAC holds the value. Reached (JP C) from FOUT_BODY_2 when format-flag bit7 marks an active USING field
+;   Out:       Dispatches: FOUT_CHOOSE_NOTATION (float field, VALTYP >= VT_SNG), FOUT_INT_TO_FLOAT_FIELD (integer rendered via the E-image path, format bit0 set), or the inline integer fixed field; ultimately joins PRUSING_OVERLAY
+;   Clobbers:  A, B, C, D, E, HL, FAC temporaries
+;   Algorithm: INC HL; PUSH BC. CP $04 tests VALTYP (still in A). LD A,D loads the format flags. JP NC,FOUT_CHOOSE_NOTATION when VALTYP >= 4 (single/double). Else RRA the flags: carry (bit0 set) -> FOUT_INT_TO_FLOAT_FIELD (integer via E-image). Else plain integer fixed field: LD BC,$0603 (group/sep seeds), PRUSING_COMMA_FLAG, pad leading zeros for width D-5 (FOUT_EMIT_ZEROS), FOUT_DIGITS_INT, fall into PRUSING_NUMFIELD_TRAIL.
+; ----------------------------------------------------------------------
+PRUSING_NUMFIELD:
         INC HL
         PUSH BC
         CP $04
         LD A,D
-        JP NC,FOUT_EXPONENT_14
+        ; single/double value: take the float fixed-vs-E placement chain
+        JP NC,FOUT_CHOOSE_NOTATION
         RRA
-        JP C,FOUT_EXPONENT_24
+        ; integer with an E-format image: widen to single and render via the E path
+        JP C,FOUT_INT_TO_FLOAT_FIELD
         LD BC,$0603
         CALL PRUSING_COMMA_FLAG
         POP DE
         LD A,D
         SUB $05
         CALL P,FOUT_EMIT_ZEROS
+        ; emit the integer digits into the fixed field
         CALL FOUT_DIGITS_INT
-FOUT_EXPONENT_6:
+; ----------------------------------------------------------------------
+; PRUSING_NUMFIELD_TRAIL -- finish the integer portion of a PRINT USING field
+;   In:        E = remaining fractional-position count; A = trailing-zero count; HL -> buffer after the integer digits
+;   Out:       Backs HL up one when there is no fraction (E==0), pads the requested trailing zeros, falls into PRUSING_OVERLAY to overlay the image
+;   Clobbers:  A, HL
+;   Algorithm: LD A,E / OR A: if E==0 CALL Z,DEC_HL_RET to drop the trailing slot. DEC A; CALL P,FOUT_EMIT_ZEROS pads that many '0' digits; fall into PRUSING_OVERLAY.
+; ----------------------------------------------------------------------
+PRUSING_NUMFIELD_TRAIL:
         LD A,E
         OR A
+        ; no fractional digits: drop the unused trailing slot
         CALL Z,DEC_HL_RET
         DEC A
         CALL P,FOUT_EMIT_ZEROS
-FOUT_EXPONENT_7:
+; ----------------------------------------------------------------------
+; PRUSING_OVERLAY -- overlay the digits onto the PRINT USING format image, then rescan trailing chars
+;   In:        HL -> end of the generated digit string; B = trailing field character (e.g. trailing sign); the format image is at L_0CC2/L_0CC3
+;   Out:       PRUSING_FIELD rewrites fill/sign/'$'/'*' over the buffer; if it signalled a trailing char (NZ), B is stored and HL advanced; control NUL-terminates and continues into the PRUSING_OVERLAY_TERM/_9/_10 image rescan
+;   Clobbers:  A, B, HL
+;   Algorithm: PUSH HL; CALL PRUSING_FIELD (Z => no trailing char). POP HL; on NZ LD (HL),B / INC HL. Fall into PRUSING_OVERLAY_TERM.
+; ----------------------------------------------------------------------
+PRUSING_OVERLAY:
         PUSH HL
+        ; rewrite the buffer per the format image (fill chars, '$', '*', sign)
         CALL PRUSING_FIELD
         POP HL
-        JR Z,FOUT_EXPONENT_8
+        JR Z,PRUSING_OVERLAY_TERM
         LD (HL),B
         INC HL
-FOUT_EXPONENT_8:
+; ----------------------------------------------------------------------
+; PRUSING_OVERLAY_TERM -- terminate the field and start the trailing-image rescan
+;   In:        HL -> just past the field text
+;   Out:       Writes $00; sets HL = L_0CC2 (image base) and falls into PRUSING_IMAGE_SCAN_NEXT
+;   Clobbers:  HL
+;   Algorithm: LD (HL),$00; LD HL,L_0CC2; fall into the PRUSING_IMAGE_SCAN_NEXT/_10 scan.
+; ----------------------------------------------------------------------
+PRUSING_OVERLAY_TERM:
         LD (HL),$00
         LD HL,L_0CC2
-FOUT_EXPONENT_9:
+; ----------------------------------------------------------------------
+; PRUSING_IMAGE_SCAN_NEXT -- advance to the next format-image character
+;   In:        HL -> current image position
+;   Out:       HL incremented; falls into PRUSING_IMAGE_SCAN
+;   Clobbers:  HL
+;   Algorithm: INC HL; fall into PRUSING_IMAGE_SCAN. Loop-advance target for skippable image chars (space, '*').
+; ----------------------------------------------------------------------
+PRUSING_IMAGE_SCAN_NEXT:
         INC HL
-FOUT_EXPONENT_10:
-        LD A,(FRMEVL_TXTPTR_TEMP)
+; ----------------------------------------------------------------------
+; PRUSING_IMAGE_SCAN -- scan trailing format-image chars, skipping space/'*' fill
+;   In:        HL -> format-image byte; FOUT_DP_POSITION ($0B69) holds the recorded image-length reference; D = format-flag context
+;   Out:       RET when the image is consumed; skips ' ' ($20) and '*' ($2A); on a meaningful char DEC HL, PUSH HL and enter PRUSING_TRAIL_SCAN
+;   Clobbers:  A, HL
+;   Algorithm: A = (FOUT_DP_POSITION low byte) - L - D; RET Z when zero. LD A,(HL): if ' ' or '*' loop to PRUSING_IMAGE_SCAN_NEXT. Otherwise DEC HL / PUSH HL and enter PRUSING_TRAIL_SCAN. [RE] the SUB L / SUB D form a remaining-length computation against the recorded image reference.
+; ----------------------------------------------------------------------
+PRUSING_IMAGE_SCAN:
+        LD A,(FOUT_DP_POSITION)
         SUB L
         SUB D
+        ; trailing image fully consumed: done
         RET Z
         LD A,(HL)
         CP $20
-        JR Z,FOUT_EXPONENT_9
+        ; skip a space fill character
+        JR Z,PRUSING_IMAGE_SCAN_NEXT
         CP $2A
-        JR Z,FOUT_EXPONENT_9
+        ; skip a '*' fill character
+        JR Z,PRUSING_IMAGE_SCAN_NEXT
         DEC HL
         PUSH HL
-FOUT_EXPONENT_11:
+; ----------------------------------------------------------------------
+; PRUSING_TRAIL_SCAN -- CHRGET-driven scan over trailing sign/'$' image characters
+;   In:        HL -> trailing image position; the digit field is already laid down
+;   Out:       Skips runs of '-','+','$' image chars via a CHRGET self-loop; on any other char drops the loop frame and dispatches to PRUSING_FIELD_OVERFLOW (overflow-marker handling), with a side path that strips a leading '0'
+;   Clobbers:  A, BC, HL (uses a self-referential return address)
+;   Algorithm: PUSH AF; push PRUSING_TRAIL_SCAN as the return address; CALL CHRGET (advances HL, fetches next image char). If '-','+', or '$' RET -> re-enters PRUSING_TRAIL_SCAN (skip-and-continue). Otherwise POP the loop return; if the char is '0' run the leading-zero handling (INC HL / CHRGET / into PRUSING_STRIP_OVERLAP overlap strip-loop), else JP-fall to PRUSING_FIELD_OVERFLOW. [RE] the exact emit of the skipped sign/'$' chars happens via PRUSING_FIELD's earlier overlay, not here; this scan only walks past them.
+; ----------------------------------------------------------------------
+PRUSING_TRAIL_SCAN:
         PUSH AF
-        LD BC,FOUT_EXPONENT_11
+        ; push this label as the return address: CHRGET re-enters here to walk the next trailing char
+        LD BC,PRUSING_TRAIL_SCAN
         PUSH BC
+        ; advance HL and fetch the next format-image character
         CALL CHRGET
         CP $2D
         RET Z
@@ -12454,52 +13607,101 @@ FOUT_EXPONENT_11:
         RET Z
         POP BC
         CP $30
-        JR NZ,FOUT_EXPONENT_13
+        JR NZ,PRUSING_FIELD_OVERFLOW
         INC HL
         CALL CHRGET
-        JR NC,FOUT_EXPONENT_13
+        JR NC,PRUSING_FIELD_OVERFLOW
         DEC HL
-; [RE] FOUT trailing-zero strip-loop overlap (VERIFIED). 01 2B 77 = LD BC,$772B runs once on first entry; the JR Z self-loop (28 FB at $5928) re-enters at +1, skipping the 01 opcode (BC kept) and re-executing 2B 77 = DEC HL / LD (HL),A as the loop body. The LD BC operand bytes double as the strip-and-overwrite step. MBASIC FOUT_EXPONENT_13 byte-identical.
-FOUT_EXPONENT_12:
+; ----------------------------------------------------------------------
+; PRUSING_STRIP_OVERLAP -- trailing-zero strip step encoded in the LD BC operand (overlap idiom)
+;   In:        HL -> buffer position; reached from PRUSING_TRAIL_SCAN's leading-'0' handling; the JR Z self-loop drives the strip
+;   Out:       Repeatedly DEC HL / LD (HL),A while Z holds, then POP BC restores the loop frame and JP PRUSING_IMAGE_SCAN to continue the image scan
+;   Clobbers:  BC (first pass only), A, HL
+;   Algorithm: VERIFIED overlap (bytes 01 2B 77): on first entry they assemble/execute as LD BC,$772B; the JR Z self-loop re-enters at +1, skipping the 01 opcode (BC preserved) and re-running 2B 77 = DEC HL / LD (HL),A as the strip-and-overwrite body. When Z clears, POP BC then JP PRUSING_IMAGE_SCAN.
+; ----------------------------------------------------------------------
+PRUSING_STRIP_OVERLAP:
         LD BC,$772B
         POP AF
-        JR Z,FOUT_EXPONENT_12+1
+        JR Z,PRUSING_STRIP_OVERLAP+1
         POP BC
-        JP FOUT_EXPONENT_10
-FOUT_EXPONENT_13:
+        JP PRUSING_IMAGE_SCAN
+; ----------------------------------------------------------------------
+; PRUSING_FIELD_OVERFLOW -- prepend the '%' field-overflow marker
+;   In:        Stack top -> the start of the formatted field (pushed in PRUSING_IMAGE_SCAN); Z flag may drive a brief self-loop
+;   Out:       Writes '%' ($25) at the field start to flag that the value overflowed the field width; RET
+;   Clobbers:  A, HL
+;   Algorithm: POP AF; the JR Z self-loop spins while Z holds; POP HL recovers the field-start pointer; LD (HL),$25 writes the standard BASIC PRINT USING overflow marker; RET.
+; ----------------------------------------------------------------------
+PRUSING_FIELD_OVERFLOW:
         POP AF
-        JR Z,FOUT_EXPONENT_13
+        JR Z,PRUSING_FIELD_OVERFLOW
         POP HL
+        ; value too wide: prepend the '%' field-overflow marker
         LD (HL),$25
         RET
-FOUT_EXPONENT_14:
+; ----------------------------------------------------------------------
+; FOUT_CHOOSE_NOTATION -- choose fixed vs E-notation for a float field (the fixed-vs-scientific decision)
+;   In:        A = D = format-flag byte; FAC holds the non-negative single/double value; the live single/double discriminator is the Z flag from the earlier CP $04 (VALTYP vs 4) in PRUSING_NUMFIELD (RRA does not touch Z). Reached from PRUSING_NUMFIELD when VALTYP >= VT_SNG
+;   Out:       carry (format bit0) -> FOUT_EFIELD_DIGITS_SEL (E-image integer/single path); Z (VALTYP==4, SINGLE) -> FOUT_CHOOSE_NOTATION_SGL; else (VALTYP==8, DOUBLE) compare against FP_CONST_ENOTATION_THRESHOLD via DCOMP, set D=$10 (16-digit double budget) and on M go to FOUT_PLACE_FIXED (fixed), else fall into FOUT_EMIT_SCIENTIFIC (E-notation)
+;   Clobbers:  A, D, DE, HL, FP temporaries
+;   Algorithm: PUSH HL; RRA the format flags into carry. JP C,FOUT_EFIELD_DIGITS_SEL. JR Z,FOUT_CHOOSE_NOTATION_SGL -- Z is still the CP $04 result, so this is the SINGLE branch (VALTYP==4). The fall-through is the DOUBLE branch: LD DE,FP_CONST_ENOTATION_THRESHOLD / CALL DCOMP (double-precision compare) / LD D,$10; JP M,FOUT_PLACE_FIXED when FAC < threshold (fixed), else continue into FOUT_EMIT_SCIENTIFIC (scientific).
+; ----------------------------------------------------------------------
+FOUT_CHOOSE_NOTATION:
         PUSH HL
         RRA
-        JP C,FOUT_EXPONENT_25
-        JR Z,FOUT_EXPONENT_16
+        JP C,FOUT_EFIELD_DIGITS_SEL
+        ; VALTYP==4 (Z from the CP $04): single-precision magnitude test
+        JR Z,FOUT_CHOOSE_NOTATION_SGL
+        ; double path: compare magnitude against the fixed-vs-E crossover constant (DCOMP)
         LD DE,FP_CONST_ENOTATION_THRESHOLD
         CALL DCOMP
         LD D,$10
-        JP M,FOUT_EXPONENT_17
-FOUT_EXPONENT_15:
+        ; below threshold: format in fixed (positional) notation
+        JP M,FOUT_PLACE_FIXED
+; ----------------------------------------------------------------------
+; FOUT_EMIT_SCIENTIFIC -- format in E-notation and prepend the field marker
+;   In:        FAC holds the value; HL/BC restored from the stack hold the buffer/field state
+;   Out:       Recursively formats the value via FOUT_2, then DEC HL and writes '%' ($25) before RET
+;   Clobbers:  A, BC, HL
+;   Algorithm: POP HL / POP BC restore state; CALL FOUT_2 to produce the digit string; DEC HL / LD (HL),$25 prepends the field/overflow marker; RET. Reached when the magnitude exceeds the fixed-notation threshold (both single and double arms join here).
+; ----------------------------------------------------------------------
+FOUT_EMIT_SCIENTIFIC:
         POP HL
         POP BC
+        ; recursively format the value, then prepend the field marker
         CALL FOUT_2
         DEC HL
         LD (HL),$25
         RET
-FOUT_EXPONENT_16:
+; ----------------------------------------------------------------------
+; FOUT_CHOOSE_NOTATION_SGL -- single-precision magnitude test for fixed vs E-notation
+;   In:        FAC holds the SINGLE value; entered (JR Z from FOUT_CHOOSE_NOTATION) when VALTYP==4
+;   Out:       If FAC >= the single crossover constant ($0EB6,$1BCA) use E-notation (FOUT_EMIT_SCIENTIFIC); else LD D,$06 (6-digit single budget) and fall into FOUT_PLACE_FIXED (fixed)
+;   Clobbers:  A, BC, DE, D, FP temporaries
+;   Algorithm: LD BC,$B60E / LD DE,$1BCA load the single comparison constant; CALL FCOMP (single-precision register compare). JP P,FOUT_EMIT_SCIENTIFIC when FAC >= constant (scientific). Otherwise LD D,$06 and fall into FOUT_PLACE_FIXED.
+; ----------------------------------------------------------------------
+FOUT_CHOOSE_NOTATION_SGL:
         LD BC,$B60E
         LD DE,$1BCA
         CALL FCOMP
-        JP P,FOUT_EXPONENT_15
+        ; single magnitude at/above the crossover: use E-notation
+        JP P,FOUT_EMIT_SCIENTIFIC
         LD D,$06
-FOUT_EXPONENT_17:
+; ----------------------------------------------------------------------
+; FOUT_PLACE_FIXED -- normalize and place digits/decimal point for fixed-notation output
+;   In:        D = digit budget ($06 single / $10 double); FAC holds the value; HL/BC restored hold buffer/field state
+;   Out:       Generates the fixed-notation digit string with the decimal point placed; emits leading zeros, integer digits, the point and fractional digits; rejoins PRUSING_NUMFIELD_TRAIL
+;   Clobbers:  A, B, C, D, E, HL, FAC temporaries
+;   Algorithm: CALL FP_SIGN to test for zero (NZ => nonzero); CALL NZ,FOUT_SCALE10 to renormalize and return the base-10 exponent in A (FP_SIGN itself returns only a -1/0/+1 sign code, NOT the exponent). POP HL/BC. If the exponent is negative (M) -> FOUT_PLACE_FIXED_FRAC (pure fraction). Else E=A; compute the leading-zero pad B-D-E, emit it (FOUT_EMIT_ZEROS), set group counters (PRUSING_DIGIT_COUNT), generate digits (FOUT_DIGITS_FRAC), emit trailing-zero/separator fill, POP DE, JP PRUSING_NUMFIELD_TRAIL.
+; ----------------------------------------------------------------------
+FOUT_PLACE_FIXED:
         CALL FP_SIGN
+        ; nonzero: renormalize FAC to digit-gen range; A returns the base-10 exponent
         CALL NZ,FOUT_SCALE10
         POP HL
         POP BC
-        JP M,FOUT_EXPONENT_18
+        ; negative exponent: value is a pure fraction, handle leading zeros below
+        JP M,FOUT_PLACE_FIXED_FRAC
         PUSH BC
         LD E,A
         LD A,B
@@ -12507,27 +13709,51 @@ FOUT_EXPONENT_17:
         SUB E
         CALL P,FOUT_EMIT_ZEROS
         CALL PRUSING_DIGIT_COUNT
+        ; emit the significant digits across the decimal point
         CALL FOUT_DIGITS_FRAC
         OR E
         CALL NZ,FOUT_EMIT_ZERO_LOOP
         OR E
         CALL NZ,FOUT_DIGIT_SEP
         POP DE
-        JP FOUT_EXPONENT_6
-FOUT_EXPONENT_18:
+        JP PRUSING_NUMFIELD_TRAIL
+; ----------------------------------------------------------------------
+; FOUT_PLACE_FIXED_FRAC -- fixed-notation placement for a pure fraction (|x| < 1)
+;   In:        A = (negative) base-10 exponent; C = integer-position count; FAC holds the value
+;   Out:       Computes the post-point leading-zero adjustment and the digit budget; falls into FOUT_PLACE_FRAC_SCALE/_20 to scale and emit
+;   Clobbers:  A, C, D, E, flags
+;   Algorithm: E=A (save exponent); LD A,C / OR A: if C!=0 CALL NZ,DEC_A_RET (adjust for the integer-position digit). ADD A,E. If still negative JP M,FOUT_PLACE_FRAC_SCALE, else XOR A (clamp the leading-zero count to zero) and fall into FOUT_PLACE_FRAC_SCALE's continuation.
+; ----------------------------------------------------------------------
+FOUT_PLACE_FIXED_FRAC:
         LD E,A
         LD A,C
         OR A
         CALL NZ,DEC_A_RET
         ADD A,E
-        JP M,FOUT_EXPONENT_19
+        ; still negative after adjust: a real leading-zero run is needed
+        JP M,FOUT_PLACE_FRAC_SCALE
         XOR A
-FOUT_EXPONENT_19:
+; ----------------------------------------------------------------------
+; FOUT_PLACE_FRAC_SCALE -- scale the fraction up and compute its leading-zero count
+;   In:        A = adjusted (negative) exponent; BC/AF saved across the divide loop
+;   Out:       FAC scaled by powers of ten (via the FOUT_DIV10_LOOP FIN_DIV10 loop); E = leading-zero count; dispatches to FOUT_PLACE_FRAC_DEEP (deep fraction) or continues fixed placement
+;   Clobbers:  A, B, C, D, E, FAC temporaries
+;   Algorithm: PUSH BC / PUSH AF, then enter the FOUT_DIV10_LOOP loop. After it, POP BC; E = E - B (digits consumed); POP BC; LD E,A; ADD A,D; LD A,B. If negative (M) -> FOUT_PLACE_FRAC_DEEP (more leading zeros). Else SUB D / SUB E, pad leading zeros (FOUT_EMIT_ZEROS), set group counts (PRUSING_DIGIT_COUNT), JR FOUT_FRAC_DIGITS_TAIL.
+; ----------------------------------------------------------------------
+FOUT_PLACE_FRAC_SCALE:
         PUSH BC
         PUSH AF
-FOUT_EXPONENT_20:
+; ----------------------------------------------------------------------
+; FOUT_DIV10_LOOP -- divide FAC by 10 while the working exponent is negative
+;   In:        A = signed scale counter (negative => keep dividing); FAC holds the value
+;   Out:       FAC divided down until A >= 0; control returns to FOUT_PLACE_FRAC_SCALE's continuation
+;   Clobbers:  A, FAC temporaries
+;   Algorithm: CALL M,FIN_DIV10 (divide FAC by ten, A incremented, only while A negative); JP M loop back until A non-negative.
+; ----------------------------------------------------------------------
+FOUT_DIV10_LOOP:
+        ; scale FAC down by 10 while the working exponent is still negative
         CALL M,FIN_DIV10
-        JP M,FOUT_EXPONENT_20
+        JP M,FOUT_DIV10_LOOP
         POP BC
         LD A,E
         SUB B
@@ -12535,16 +13761,24 @@ FOUT_EXPONENT_20:
         LD E,A
         ADD A,D
         LD A,B
-        JP M,FOUT_EXPONENT_21
+        JP M,FOUT_PLACE_FRAC_DEEP
         SUB D
         SUB E
         CALL P,FOUT_EMIT_ZEROS
         PUSH BC
         CALL PRUSING_DIGIT_COUNT
-        JR FOUT_EXPONENT_22
-FOUT_EXPONENT_21:
+        JR FOUT_FRAC_DIGITS_TAIL
+; ----------------------------------------------------------------------
+; FOUT_PLACE_FRAC_DEEP -- emit decimal point and leading zeros for a small fraction
+;   In:        C = integer-position count; D/E = computed digit/zero counts; HL -> buffer
+;   Out:       Writes leading zeros, the decimal point (FOUT_DECIMAL_POINT) and the post-point zero run, seeds the group counters, falls into FOUT_FRAC_DIGITS_TAIL
+;   Clobbers:  A, B, C, D, E, HL
+;   Algorithm: CALL FOUT_EMIT_ZEROS (integer-side zeros); LD A,C / FOUT_DECIMAL_POINT writes '.' and records its position; LD C,A. XOR A / SUB D / SUB E gives the post-point zero run; FOUT_EMIT_ZEROS pads it. PUSH BC; LD B,A / LD C,A seed the digit counters; fall into FOUT_FRAC_DIGITS_TAIL.
+; ----------------------------------------------------------------------
+FOUT_PLACE_FRAC_DEEP:
         CALL FOUT_EMIT_ZEROS
         LD A,C
+        ; write the decimal point and record its buffer position
         CALL FOUT_DECIMAL_POINT
         LD C,A
         XOR A
@@ -12554,32 +13788,69 @@ FOUT_EXPONENT_21:
         PUSH BC
         LD B,A
         LD C,A
-FOUT_EXPONENT_22:
+; ----------------------------------------------------------------------
+; FOUT_FRAC_DIGITS_TAIL -- generate fractional digits and patch the trailing-zero pointer
+;   In:        B/C = digit counters; FAC holds the fraction; HL -> buffer at the first fractional digit
+;   Out:       Fractional digits written via FOUT_DIGITS_FRAC; if no significant digits remain HL is reset to the recorded decimal-point position; falls into FOUT_FIXED_TRAIL
+;   Clobbers:  A, B, C, HL, FAC temporaries
+;   Algorithm: CALL FOUT_DIGITS_FRAC; POP BC; OR C: if zero (no digit budget left) LD HL,(FOUT_DP_POSITION) to back up to the recorded decimal-point spot. Fall into FOUT_FIXED_TRAIL.
+; ----------------------------------------------------------------------
+FOUT_FRAC_DIGITS_TAIL:
         CALL FOUT_DIGITS_FRAC
         POP BC
         OR C
-        JR NZ,FOUT_EXPONENT_23
-        LD HL,(FRMEVL_TXTPTR_TEMP)
-FOUT_EXPONENT_23:
+        JR NZ,FOUT_FIXED_TRAIL
+        ; no significant digits left: rewind to the recorded decimal-point position
+        LD HL,(FOUT_DP_POSITION)
+; ----------------------------------------------------------------------
+; FOUT_FIXED_TRAIL -- pad trailing zeros and rejoin the field-finish path
+;   In:        A = residual count; E = trailing-zero requirement; B = field digit count
+;   Out:       Emits the remaining trailing '0' fill, sets D=B and JP PRUSING_OVERLAY to overlay the image
+;   Clobbers:  A, D, HL
+;   Algorithm: ADD A,E; DEC A; CALL P,FOUT_EMIT_ZEROS pads that many zeros. LD D,B carries the digit count, then JP PRUSING_OVERLAY.
+; ----------------------------------------------------------------------
+FOUT_FIXED_TRAIL:
         ADD A,E
         DEC A
         CALL P,FOUT_EMIT_ZEROS
         LD D,B
-        JP FOUT_EXPONENT_7
-FOUT_EXPONENT_24:
+        JP PRUSING_OVERLAY
+; ----------------------------------------------------------------------
+; FOUT_INT_TO_FLOAT_FIELD -- widen an integer to single before the E-image path
+;   In:        FAC holds a 16-bit integer (VALTYP integer, USING field with an E image); HL/DE saved
+;   Out:       Converts the integer to single (INT_TO_SINGLE) and falls into FOUT_EFIELD_DIGITS_SEL with A=0 (Z) so the +1 entry is forced
+;   Clobbers:  A, DE, HL, FAC
+;   Algorithm: PUSH HL / PUSH DE; CALL INT_TO_SINGLE to widen the integer FAC to single; POP DE; XOR A (sets Z, the +1 budget-select entry); fall into FOUT_EFIELD_DIGITS_SEL.
+; ----------------------------------------------------------------------
+FOUT_INT_TO_FLOAT_FIELD:
         PUSH HL
         PUSH DE
+        ; widen the integer to single so the float E-field path can format it
         CALL INT_TO_SINGLE
         POP DE
         XOR A
-FOUT_EXPONENT_25:
-        JP Z,FOUT_EXPONENT_26+1
+; ----------------------------------------------------------------------
+; FOUT_EFIELD_DIGITS_SEL -- select the E-field digit budget (overlap-flag idiom)
+;   In:        Z flag selects the entry: from FOUT_INT_TO_FLOAT_FIELD (XOR A => Z) or the external NZ entry (JP C from FOUT_CHOOSE_NOTATION); FAC holds the single value
+;   Out:       E = E-field digit budget (16 on the NZ path, 6 on the Z/+1 path); both converge at FP_SIGN in FOUT_EFIELD_BUILD
+;   Clobbers:  E (BC on the NZ path)
+;   Algorithm: VERIFIED flag-skip overlap: the NZ entry runs LD E,$10 then 01 1E 06 = LD BC,$061E (E stays $10); the Z entry (JP Z,FOUT_EFIELD_BUILD+1) enters at +1, skipping the LD BC opcode and running 1E 06 = LD E,$06. Both fall into FP_SIGN at FOUT_EFIELD_BUILD. Note the local FOUT_INT_TO_FLOAT_FIELD XOR A always forces the +1 path; the LD E,$10 cover is exercised only via the external NZ entry.
+; ----------------------------------------------------------------------
+FOUT_EFIELD_DIGITS_SEL:
+        JP Z,FOUT_EFIELD_BUILD+1
         LD E,$10
-; [RE] FOUT field-select flag-skip (VERIFIED, reached_cover refined). The NZ entry (JP C,FOUT_EXPONENT_25 at $5937 reaching $59D6 with Z clear, then $59D9 LD E,$10) runs 01 1E 06 = LD BC,$061E; the Z entry (JP Z,FOUT_EXPONENT_26+1 at $59D6) enters at +1 and runs 1E 06 = LD E,$06, skipping the LD BC opcode. So E becomes $10 (16) vs $06 (6). Both converge at $59DE CALL FP_SIGN. Note: the local $59D5 XOR A always forces the +1 path; the cover is exercised only via the external $5937 NZ entry. MBASIC FOUT_EXPONENT_29 byte-identical.
-FOUT_EXPONENT_26:
+; ----------------------------------------------------------------------
+; FOUT_EFIELD_BUILD -- generate the E-notation mantissa digits and compute the exponent
+;   In:        E = digit budget (from FOUT_EFIELD_DIGITS_SEL); FAC holds the single value; D = format flags; HL/BC restored hold buffer/field state
+;   Out:       FAC renormalized; mantissa digits laid down (FOUT_DIGITS_FRAC) with a decimal point; the residual exponent carried toward FOUT_EFIELD_EXP_VALUE/_30 which append the E suffix
+;   Clobbers:  A, B, C, D, E, HL, FAC temporaries
+;   Algorithm: CALL FP_SIGN (zero test only); SCF; CALL NZ,FOUT_SCALE10 to renormalize and return the base-10 exponent in A. POP HL/BC. Compute the integer/fraction split: CALL NZ,DEC_A_RET when C!=0, ADD A,B. Then LD A,D / AND $04 / CP $01 / SBC A,A / LD D,A folds in format-flag bit2 (a sign/leading-digit adjustment, NOT an E-field flag) to 0 or -1; ADD A,C / SUB E. Run the FIN_DIV10 normalization loop (FOUT_EFIELD_DIV10_LOOP). FOUT_EFIELD_COUNT builds B = digit count, C=0, generates digits (FOUT_DIGITS_FRAC), emits zero/point fill (FOUT_EMIT_ZEROS_DP / FOUT_DIGIT_SEP), then proceeds to FOUT_EFIELD_EXP_VALUE/_30.
+; ----------------------------------------------------------------------
+FOUT_EFIELD_BUILD:
         LD BC,$061E
         CALL FP_SIGN
         SCF
+        ; nonzero: renormalize FAC to digit-gen range; A returns the base-10 exponent
         CALL NZ,FOUT_SCALE10
         POP HL
         POP BC
@@ -12591,6 +13862,7 @@ FOUT_EXPONENT_26:
         ADD A,B
         LD C,A
         LD A,D
+        ; [RE] fold in format-flag bit2 (a sign/leading-digit adjustment) -> D = 0 or -1
         AND $04
         CP $01
         SBC A,A
@@ -12600,16 +13872,31 @@ FOUT_EXPONENT_26:
         SUB E
         PUSH AF
         PUSH BC
-FOUT_EXPONENT_27:
+; ----------------------------------------------------------------------
+; FOUT_EFIELD_DIV10_LOOP -- divide-by-ten normalization for the E-field exponent
+;   In:        A = signed exponent counter (negative => keep dividing); FAC holds the value; AF/BC saved
+;   Out:       FAC scaled until A >= 0; saved counts recovered for the digit-count computation
+;   Clobbers:  A, FAC temporaries
+;   Algorithm: CALL M,FIN_DIV10 while A negative; JP M loop until non-negative; then POP BC / POP AF to recover the field counts for FOUT_EFIELD_COUNT.
+; ----------------------------------------------------------------------
+FOUT_EFIELD_DIV10_LOOP:
+        ; scale FAC down by 10 until the working exponent is non-negative
         CALL M,FIN_DIV10
-        JP M,FOUT_EXPONENT_27
+        JP M,FOUT_EFIELD_DIV10_LOOP
         POP BC
         POP AF
         PUSH BC
         PUSH AF
-        JP M,FOUT_EXPONENT_28
+        JP M,FOUT_EFIELD_COUNT
         XOR A
-FOUT_EXPONENT_28:
+; ----------------------------------------------------------------------
+; FOUT_EFIELD_COUNT -- finalize the E-field mantissa digit count and emit the digits
+;   In:        B = field width; D = format/leading-digit adjustment; A = normalized exponent
+;   Out:       B = mantissa digit count (C=0); digits generated (FOUT_DIGITS_FRAC); zero/point fill emitted; A carries the residual exponent toward FOUT_EFIELD_EXP_VALUE
+;   Clobbers:  A, B, C, HL, FAC temporaries
+;   Algorithm: (PUSH AF/JP M/XOR A above clamp A). CPL / INC A negate; ADD A,B; INC A; ADD A,D combine into B = mantissa digit count; LD C,$00. CALL FOUT_DIGITS_FRAC. POP AF / CALL P,FOUT_EMIT_ZEROS_DP pads zeros with the point; CALL FOUT_DIGIT_SEP. POP BC / POP AF; JP NZ,FOUT_EFIELD_EXP_VALUE; otherwise CALL DEC_HL_RET, and if the last char is NOT '.' CALL NZ,FP_LOAD_DONE (= INC HL) to re-include it (dropping the '.' only when present), record HL at FOUT_DP_POSITION.
+; ----------------------------------------------------------------------
+FOUT_EFIELD_COUNT:
         CPL
         INC A
         ADD A,B
@@ -12617,197 +13904,468 @@ FOUT_EXPONENT_28:
         ADD A,D
         LD B,A
         LD C,$00
+        ; emit the E-notation mantissa digits at the computed width
         CALL FOUT_DIGITS_FRAC
         POP AF
         CALL P,FOUT_EMIT_ZEROS_DP
         CALL FOUT_DIGIT_SEP
         POP BC
         POP AF
-        JP NZ,FOUT_EXPONENT_29
+        JP NZ,FOUT_EFIELD_EXP_VALUE
         CALL DEC_HL_RET
         LD A,(HL)
         CP $2E
+        ; last char is not '.': INC HL to re-include the final digit (the '.' is dropped only when present)
         CALL NZ,FP_LOAD_DONE
-        LD (FRMEVL_TXTPTR_TEMP),HL
-FOUT_EXPONENT_29:
+        LD (FOUT_DP_POSITION),HL
+; ----------------------------------------------------------------------
+; FOUT_EFIELD_EXP_VALUE -- compute the signed E-exponent value to append
+;   In:        carry (popped AF) selects whether to adjust; A = running exponent; E = digit budget; B/D = field/adjustment counts
+;   Out:       A = the signed decimal exponent to emit; falls into FOUT_EFIELD_APPEND
+;   Clobbers:  A, flags
+;   Algorithm: POP AF; JR C skips the adjust. Otherwise A = A + E - B - D to fold the digit-budget and field widths into the final exponent. Fall into FOUT_EFIELD_APPEND.
+; ----------------------------------------------------------------------
+FOUT_EFIELD_EXP_VALUE:
         POP AF
-        JR C,FOUT_EXPONENT_30
+        JR C,FOUT_EFIELD_APPEND
         ADD A,E
         SUB B
         SUB D
-FOUT_EXPONENT_30:
+; ----------------------------------------------------------------------
+; FOUT_EFIELD_APPEND -- append the E/D suffix and overlay the format image
+;   In:        A = signed exponent; HL -> end of the mantissa digits; BC = field state
+;   Out:       Exponent suffix written by FOUT_EXPONENT (E/D + sign + two digits + NUL); control joins PRUSING_OVERLAY (PRUSING_OVERLAY)
+;   Clobbers:  A, B, DE, HL
+;   Algorithm: PUSH BC; CALL FOUT_EXPONENT to write the suffix and terminate; EX DE,HL / POP DE restore the buffer/field pointers; JP PRUSING_OVERLAY to overlay the format image over the assembled E-notation string.
+; ----------------------------------------------------------------------
+FOUT_EFIELD_APPEND:
         PUSH BC
+        ; write the 'E'/'D' exponent suffix and terminator
         CALL FOUT_EXPONENT
         EX DE,HL
         POP DE
-        JP FOUT_EXPONENT_7
-; [RE] Scale FAC into the [1,10) digit-generation range by repeated multiply/divide by powers of ten (tables at $5BC0/$5BC8/$5BD0), tracking the decimal exponent in the saved counter.
+        JP PRUSING_OVERLAY
+; ----------------------------------------------------------------------
+; FOUT_SCALE10 -- normalize |FAC| into the digit-generation range and return the decimal exponent
+;   In:        FAC holds the value being formatted (MBF single or double per VALTYP=$0B14).
+;   Out:       A = decimal scale exponent (net power-of-ten count) leaving the rescaled FAC in the digit window: [1e15,1e16) for doubles, [1e5,1e6) for singles. FAC rescaled; flags per OR A (Z if zero); original DE restored.
+;   Clobbers:  A, BC, DE, HL, FAC and all FP scratch; the running exponent counter rides in A on the stack across the loop.
+;   Algorithm: Push a running decimal-exponent counter (init 0 via XOR A). If double, FOUT_SCALE10_1 coarsely multiplies by FP_DBL_1E10 (=1e10), subtracting 10 from the counter per pass, WHILE FAC_EXPONENT < $91 (~2^16): a fast up-scale of tiny doubles. Then FOUT_SCALE10_STEP divides by 10 WHILE FAC >= the upper bound (FP_DBL_1E16 / ~1e6 single). Then FOUT_SCALE10_3 multiplies by 10 (FIN_MUL10_DO, which decrements the counter) WHILE FAC < the lower bound (FP_DBL_1E15 / ~1e5 single), exiting once reached. Pop the final exponent into A.
+; ----------------------------------------------------------------------
 FOUT_SCALE10:
         PUSH DE
+        ; seed the running decimal-exponent counter (kept on the stack across the whole scale)
         XOR A
         PUSH AF
+        ; double? (A=VALTYP-3 has even parity PE for VT_DBL) -> run the coarse 1e10 up-scale; single (PO) skips to the fine step
         CALL FRMEVL_TEST_TYPE
         JP PO,FOUT_SCALE10_2
+; ----------------------------------------------------------------------
+; FOUT_SCALE10_1 -- coarse up-scale loop for tiny doubles (multiply by 1e10 until the binary exponent reaches $91)
+;   In:        FAC = double value; top of stack = the running decimal-exponent counter.
+;   Out:       loops while FAC_EXPONENT < $91; on reaching $91 branches to FOUT_SCALE10_2; FAC multiplied up, counter decremented by 10 per pass.
+;   Clobbers:  A, DE, HL, FAC, FP scratch, stacked counter.
+;   Algorithm: Read FAC_EXPONENT; if >= $91 the magnitude is large enough, jump to FOUT_SCALE10_2. Otherwise stage FP_DBL_1E10 (FP_MOVE_TYPED into ARG2_TEMP), DMUL the FAC by it, pop/adjust the counter by -10, push it back, repeat.
+; ----------------------------------------------------------------------
 FOUT_SCALE10_1:
         LD A,(FAC_EXP)
         CP $91
         JP NC,FOUT_SCALE10_2
-        LD DE,FOUT_DIGITS_INT_3
+        ; coarse multiply the FAC by 1e10 and credit -10 to the exponent counter
+        LD DE,FP_DBL_1E10
         LD HL,ARG2_TEMP
         CALL FP_MOVE_TYPED
         CALL DMUL
         POP AF
+        ; each *1e10 multiply lowers the decimal exponent by 10
         SUB $0A
         PUSH AF
         JR FOUT_SCALE10_1
+; ----------------------------------------------------------------------
+; FOUT_SCALE10_2 -- entry to the fine normalize: run the divide-down step, then the multiply-up loop
+;   In:        FAC scaled by the coarse loop (or untouched if single / already large); stacked exponent counter live.
+;   Out:       calls FOUT_SCALE10_STEP (fine divide-down) then falls into FOUT_SCALE10_3 (fine multiply-up).
+;   Clobbers:  per FOUT_SCALE10_STEP.
+;   Algorithm: One call to FOUT_SCALE10_STEP (divide by 10 while FAC >= the upper bound), then control proceeds to FOUT_SCALE10_3 to multiply up while FAC < the lower bound, converging into the digit window.
+; ----------------------------------------------------------------------
 FOUT_SCALE10_2:
         CALL FOUT_SCALE10_STEP
+; ----------------------------------------------------------------------
+; FOUT_SCALE10_3 -- fine MULTIPLY-UP loop: multiply by 10 while |FAC| is below the lower digit-range bound
+;   In:        FAC partially scaled; stacked decimal-exponent counter live.
+;   Out:       on FAC reaching/passing the lower bound, exits to FOUT_SCALE10_7 (returns exponent); otherwise loops.
+;   Clobbers:  A, BC, DE, HL, FAC, FP scratch, stacked counter.
+;   Algorithm: Pick the comparator by precision parity: double uses DCOMP against FP_DBL_1E15 (~1e15); single uses FCOMP against $9143/$4FF9 (= 99999.95 ~1e5). FCOMP/DCOMP return A = ordering ($00 equal, $01 FAC>bound, $FF FAC<bound). JP P (A>=0, FAC at/above the lower bound) -> done (FOUT_SCALE10_7). Otherwise (A=$FF) multiply by 10 (FIN_MUL10_DO decrements the counter) and loop.
+; ----------------------------------------------------------------------
 FOUT_SCALE10_3:
+        ; multiply-up loop: compare |FAC| against the LOWER digit-range bound for this precision
         CALL FRMEVL_TEST_TYPE
         JP PE,FOUT_SCALE10_4
+        ; single-precision LOWER bound (~99999.95 ~ 1e5) packed in the immediates: B=$91 exponent, C=$43 sign/MSB
         LD BC,$9143
+        ; low mantissa bytes ($4F,$F9) of that single-precision bound for FCOMP
         LD DE,$4FF9
         CALL FCOMP
         JR FOUT_SCALE10_5
+; ----------------------------------------------------------------------
+; FOUT_SCALE10_4 -- double-precision arm of the multiply-up lower-bound comparison
+;   In:        FAC = double value; FP_DBL_1E15 is the 8-byte lower bound.
+;   Out:       A = ordering of (FAC vs bound) from DCOMP ($00/$01/$FF); merges with the single arm at FOUT_SCALE10_5.
+;   Clobbers:  A, B, C, D, E, H, L, F (DCOMP).
+;   Algorithm: Load DE = FP_DBL_1E15 and call DCOMP, which stages the constant into ARG2_TEMP and compares it against the FAC, returning the ordering code in A.
+; ----------------------------------------------------------------------
 FOUT_SCALE10_4:
-        LD DE,FOUT_DIGITS_INT_4
+        LD DE,FP_DBL_1E15
         CALL DCOMP
+; ----------------------------------------------------------------------
+; FOUT_SCALE10_5 -- act on the multiply-up comparison: exit if at/above bound, else multiply by 10
+;   In:        A = ordering of (FAC vs lower bound) from FCOMP/DCOMP; stacked exponent counter live.
+;   Out:       JP P (A>=0, FAC at/above the lower bound) -> FOUT_SCALE10_7 (exit); otherwise multiplies up and loops to FOUT_SCALE10_3.
+;   Clobbers:  A, FAC, FP scratch, stacked counter.
+;   Algorithm: If the compare is non-negative (FAC reached the bound) exit to FOUT_SCALE10_7. Otherwise pop the counter, multiply the FAC by 10 (FIN_MUL10_DO decrements the counter), push it back and re-enter FOUT_SCALE10_3 to re-test.
+; ----------------------------------------------------------------------
 FOUT_SCALE10_5:
+        ; FAC has reached/passed the lower bound (compare code >= 0) -> done scaling, return the exponent
         JP P,FOUT_SCALE10_7
         POP AF
+        ; still below the lower bound: multiply by 10 (decrements the exponent counter) and re-test
         CALL FIN_MUL10_DO
         PUSH AF
         JR FOUT_SCALE10_3
+; ----------------------------------------------------------------------
+; FOUT_SCALE10_6 -- one fine divide-by-10 then re-run the divide-down step
+;   In:        FAC too large; stacked exponent counter live; reached from FOUT_SCALE10_STEP_2 when FAC >= the upper bound.
+;   Out:       FAC divided by 10, counter incremented; re-checks via FOUT_SCALE10_STEP, then falls to FOUT_SCALE10_7.
+;   Clobbers:  A, FAC, FP scratch, stacked counter.
+;   Algorithm: Pop the counter, FIN_DIV10 the FAC (FIN_DIV10 increments A to track the decimal exponent), push the counter back, and call FOUT_SCALE10_STEP again to re-test whether FAC is now below the upper bound before exiting.
+; ----------------------------------------------------------------------
 FOUT_SCALE10_6:
         POP AF
         CALL FIN_DIV10
         PUSH AF
         CALL FOUT_SCALE10_STEP
+; ----------------------------------------------------------------------
+; FOUT_SCALE10_7 -- scale-loop exit: return the accumulated decimal exponent
+;   In:        top of stack = the running decimal-exponent counter; original DE saved beneath it.
+;   Out:       A = final decimal exponent; flags per OR A (Z if zero); DE restored; RET.
+;   Clobbers:  A, F, DE.
+;   Algorithm: Pop the counter into A, OR A to set Z/sign for the caller (FOUT_CORE combines it via ADD A,D into the digit layout), restore the saved DE, and return.
+; ----------------------------------------------------------------------
 FOUT_SCALE10_7:
         POP AF
         OR A
         POP DE
         RET
-; [RE] One power-of-ten comparison/normalize step for FOUT_SCALE10: compares FAC against 10 / 1e-? bounds and multiplies or divides as needed.
+; ----------------------------------------------------------------------
+; FOUT_SCALE10_STEP -- fine DIVIDE-DOWN step: divide the FAC by 10 while it is at/above the upper digit-range bound
+;   In:        FAC = value being normalized; the caller's pushed return address doubles as the 'in-range' continuation (computed-return idiom).
+;   Out:       If FAC is at/above the upper bound, diverts to FOUT_SCALE10_6 to divide by 10 (then re-runs this step); otherwise JP (HL) returns to the caller's pushed address. Bound differs by precision.
+;   Clobbers:  A, B, C, D, E, H, L, FP scratch.
+;   Algorithm: By precision parity, compare FAC against the UPPER bound: double via DCOMP against FP_DBL_1E16 (=1e16), single via FCOMP against $9474/$23F8 (= 999999.5 ~1e6). FCOMP/DCOMP return A = ordering ($00/$01/$FF). POP HL recovers the caller's return address. JP P (A>=0, FAC at/above the upper bound) -> FOUT_SCALE10_6 (divide by 10, then this step runs again); otherwise JP (HL) returns in range. A divide-while-too-large loop with the comparison shared across precisions.
+; ----------------------------------------------------------------------
 FOUT_SCALE10_STEP:
+        ; select the comparator: double (PE) vs single (PO) upper-bound constant
         CALL FRMEVL_TEST_TYPE
         JP PE,FOUT_SCALE10_STEP_1
         LD BC,$9474
         LD DE,$23F8
         CALL FCOMP
         JR FOUT_SCALE10_STEP_2
+; ----------------------------------------------------------------------
+; FOUT_SCALE10_STEP_1 -- double-precision arm of the divide-down upper-bound compare
+;   In:        FAC = double value; FP_DBL_1E16 = 8-byte upper bound.
+;   Out:       A = ordering of (FAC vs bound) from DCOMP; merges at FOUT_SCALE10_STEP_2.
+;   Clobbers:  A, B, C, D, E, H, L, FP scratch.
+;   Algorithm: Load DE = FP_DBL_1E16 and DCOMP it against the FAC.
+; ----------------------------------------------------------------------
 FOUT_SCALE10_STEP_1:
-        LD DE,FOUT_DIGITS_INT_5
+        LD DE,FP_DBL_1E16
         CALL DCOMP
+; ----------------------------------------------------------------------
+; FOUT_SCALE10_STEP_2 -- act on the divide-down comparison via the computed return
+;   In:        A = ordering of (FAC vs upper bound); top of stack = caller's return address.
+;   Out:       divide-and-recheck (FOUT_SCALE10_6) if FAC at/above the bound, else return to the caller.
+;   Clobbers:  A, HL, F.
+;   Algorithm: POP HL = caller return address. If A>=0 (JP P, FAC at/above the upper bound) divert to FOUT_SCALE10_6 (divide by 10, then this step runs again); otherwise JP (HL) to the caller's saved continuation.
+; ----------------------------------------------------------------------
 FOUT_SCALE10_STEP_2:
+        ; recover the caller's pushed return address; it becomes the in-range continuation (JP (HL))
         POP HL
+        ; FAC still at/above the upper bound (compare code >= 0) -> divide by 10 and re-check
         JP P,FOUT_SCALE10_6
+        ; FAC now below the bound: return in range via the caller's pushed address
         JP (HL)
-; [RE] Emit A leading/trailing '0' digits into the output buffer (HL), decrementing A to zero.
+; ----------------------------------------------------------------------
+; FOUT_EMIT_ZEROS -- write A ASCII '0' bytes into the output buffer at HL
+;   In:        A = count of zeros to emit; HL = output buffer cursor.
+;   Out:       A = 0; HL advanced past the emitted zeros.
+;   Clobbers:  A, HL, F.
+;   Algorithm: OR A to set flags, then fall into the loop: while A != 0, DEC A, store '0' ($30) at (HL), INC HL. Plain zero padding with no decimal-point/comma interleaving.
+; ----------------------------------------------------------------------
 FOUT_EMIT_ZEROS:
         OR A
+; ----------------------------------------------------------------------
+; FOUT_EMIT_ZEROS_1 -- zero-fill loop body (count already flag-tested)
+;   In:        A = remaining count (flags reflect A); HL = buffer cursor.
+;   Out:       on A==0 returns; otherwise stores one '0' and tail-loops.
+;   Clobbers:  A, HL, F.
+;   Algorithm: RET Z when exhausted; else DEC A, LD (HL),'0', INC HL, JR back. Entry used when the caller has already set flags on the count.
+; ----------------------------------------------------------------------
 FOUT_EMIT_ZEROS_1:
         RET Z
         DEC A
         LD (HL),$30
         INC HL
         JR FOUT_EMIT_ZEROS_1
-; [RE] Emit A '0' digits, inserting the decimal point / comma separators via FOUT_DIGIT_SEP as the digit position requires (PRINT USING fractional fill).
+; ----------------------------------------------------------------------
+; FOUT_EMIT_ZEROS_DP -- emit A '0' digits while interleaving decimal-point/comma separators (PRINT USING fill)
+;   In:        A = number of zero digits to emit; Z flag distinguishes entry mode (NZ = one digit pending now); HL = cursor; B = integer digits remaining before the point, C = comma countdown (FOUT_DIGIT_SEP state).
+;   Out:       A = 0; HL advanced; separators inserted as digit positions are crossed.
+;   Clobbers:  A, BC, HL, ($0B69 decimal-point position), F.
+;   Algorithm: Unlike FOUT_EMIT_ZEROS, each zero is preceded by a FOUT_DIGIT_SEP call so the decimal point (when B reaches 0) and thousands commas (every 3 digits when grouping is on) drop in at the right spots. On the NZ entry it stores the first zero immediately (jump into FOUT_EMIT_ZERO_LOOP) before testing for a separator; on the Z entry it returns when exhausted, else calls FOUT_DIGIT_SEP then stores a zero. This is the PRINT USING positional zero fill.
+; ----------------------------------------------------------------------
 FOUT_EMIT_ZEROS_DP:
+        ; a digit is already pending on this entry: store it before testing for a separator
         JR NZ,FOUT_EMIT_ZERO_LOOP
+; ----------------------------------------------------------------------
+; FOUT_EMIT_ZEROS_DP_1 -- separator-aware zero-fill loop head
+;   In:        A = remaining zeros (flags reflect A); HL cursor; B/C separator state.
+;   Out:       returns when A==0; otherwise inserts a separator then a zero and loops.
+;   Clobbers:  A, BC, HL, ($0B69 decimal-point position), F.
+;   Algorithm: RET Z when done; else CALL FOUT_DIGIT_SEP to drop a decimal point/comma if this position warrants one, then fall into FOUT_EMIT_ZERO_LOOP to store the '0'.
+; ----------------------------------------------------------------------
 FOUT_EMIT_ZEROS_DP_1:
         RET Z
         CALL FOUT_DIGIT_SEP
-; [RE] Inner loop: store a '0' digit, advance, decrement count (shared tail of FOUT_EMIT_ZEROS_DP).
+; ----------------------------------------------------------------------
+; FOUT_EMIT_ZERO_LOOP -- store one '0' digit, advance, decrement, continue the separator-aware fill
+;   In:        A = remaining count; HL = cursor.
+;   Out:       one '0' stored; HL incremented; A decremented; loops to FOUT_EMIT_ZEROS_DP_1.
+;   Clobbers:  A, HL, F.
+;   Algorithm: LD (HL),'0'; INC HL; DEC A; JR FOUT_EMIT_ZEROS_DP_1. Shared tail used both as the first-digit shortcut and the per-iteration store of the separator-aware fill.
+; ----------------------------------------------------------------------
 FOUT_EMIT_ZERO_LOOP:
         LD (HL),$30
         INC HL
         DEC A
         JR FOUT_EMIT_ZEROS_DP_1
-; [RE] Compute the comma-group digit counter (C) and total digit width (B) for a PRINT USING numeric field from the integer/fraction digit counts in D/E.
+; ----------------------------------------------------------------------
+; PRUSING_DIGIT_COUNT -- compute total digit width B and initial comma countdown C from the integer/fraction digit counts
+;   In:        D = integer-part digit count, E = fraction-part digit count (PRINT USING numeric field).
+;   Out:       B = E+D+1 (total digit width); C = countdown to the first thousands group; falls into PRUSING_COMMA_FLAG which may zero C.
+;   Clobbers:  A, B, C, F.
+;   Algorithm: A = E + D + 1 -> B. Then INC A (=E+D+2) and SUB $03 repeatedly until it underflows (carry), leaving A = (E+D+2) mod 3 biased negative; ADD $05 biases it into the FOUT_DIGIT_SEP comma-countdown range and stores it in C so the first comma lands on the correct 3-digit boundary. Falls into PRUSING_COMMA_FLAG, which clears C when grouping is off.
+; ----------------------------------------------------------------------
 PRUSING_DIGIT_COUNT:
+        ; total digit width B = fraction digits (E) + integer digits (D) + 1
         LD A,E
         ADD A,D
         INC A
         LD B,A
         INC A
+; ----------------------------------------------------------------------
+; PRUSING_DIGIT_COUNT_1 -- mod-3 reduction loop for the comma countdown
+;   In:        A = digit-position seed (E+D+2).
+;   Out:       A reduced by repeated -3 until it underflows (carry set), ready for the +5 bias.
+;   Clobbers:  A, F.
+;   Algorithm: SUB $03; JR NC back while still non-negative. Computes (E+D+2) mod 3 by repeated subtraction.
+; ----------------------------------------------------------------------
 PRUSING_DIGIT_COUNT_1:
+        ; reduce the digit position mod 3 to find the offset to the first thousands comma
         SUB $03
         JR NC,PRUSING_DIGIT_COUNT_1
+        ; bias the remainder into the FOUT_DIGIT_SEP comma-countdown range
         ADD A,$05
         LD C,A
-; [RE] Test the PRINT USING comma-grouping flag (bit 6 of format byte $0B4A); returns with C set/cleared to enable thousands separators.
+; ----------------------------------------------------------------------
+; PRUSING_COMMA_FLAG -- gate thousands-comma grouping from the PRINT USING format flags
+;   In:        $0B4A (PRINT USING format byte) bit 6 = comma-grouping requested; C = the seeded comma countdown from PRUSING_DIGIT_COUNT.
+;   Out:       bit 6 set -> returns (NZ) with C unchanged (grouping on); clear -> C := 0 (grouping off) and RET.
+;   Clobbers:  A, C, F.
+;   Algorithm: Read the format-flag byte ($0B4A), AND $40 to isolate the comma flag; RET NZ leaves the countdown live; otherwise LD C,A (=0) disables comma insertion in FOUT_DIGIT_SEP, then RET. Reachable both as its own entry and as the tail of PRUSING_DIGIT_COUNT.
+; ----------------------------------------------------------------------
 PRUSING_COMMA_FLAG:
-        LD A,(L_0B4A)
+        LD A,(PRUSING_FORMAT_FLAGS)
+        ; isolate the comma-grouping request (bit 6 of the PRINT USING format byte)
         AND $40
         RET NZ
+        ; grouping off: zero the comma countdown so FOUT_DIGIT_SEP never emits a comma
         LD C,A
         RET
-; [RE] Emit the decimal point plus leading-zero run for a pure-fraction value (|x|<1): records the decimal-point position at $0B69 and fills '0' digits.
+; ----------------------------------------------------------------------
+; FOUT_LEADING_FRAC -- lay the '.' and leading fraction zeros for a magnitude < 1
+;   In:        B = integer-digit count (the leading-fraction-zero path is taken when B-1 < 0, i.e. B <= 0, meaning no integer digits); HL = buffer cursor.
+;   Out:       for a pure fraction: decimal point written and its buffer position recorded at $0B69, then |B| '0' digits written, HL advanced, C := 0; RET. If integer digits remain (B-1 >= 0) it diverts to FOUT_DIGIT_SEP_1 (the normal separator path).
+;   Clobbers:  A, B, C, HL, ($0B69 decimal-point position), F.
+;   Algorithm: DEC B; if still non-negative (JP P) there are integer digits -> jump to FOUT_DIGIT_SEP_1 (no leading '0.'). Otherwise this is a pure fraction (|x|<1): record HL as the decimal-point position ($0B69), write '.', then FOUT_LEADING_FRAC_1 writes '0' and INC B until B counts up to 0. Finally INC HL past the run and set C := B (=0).
+; ----------------------------------------------------------------------
 FOUT_LEADING_FRAC:
+        ; any integer digits? if B-1 stays non-negative this is not a pure fraction -> normal separator path
         DEC B
         JP P,FOUT_DIGIT_SEP_1
-        LD (FRMEVL_TXTPTR_TEMP),HL
+        ; pure fraction (|x|<1): record where the decimal point goes ($0B69) and emit '.'
+        LD (FOUT_DP_POSITION),HL
         LD (HL),$2E
+; ----------------------------------------------------------------------
+; FOUT_LEADING_FRAC_1 -- leading-fraction-zero fill loop
+;   In:        B = remaining (negative) leading-zero count; HL = cursor at the '.'.
+;   Out:       writes '0's until B counts up to 0; HL advanced; falls out to set C := B.
+;   Clobbers:  B, HL, F.
+;   Algorithm: INC HL; LD (HL),'0'; INC B; JP NZ back. Emits |B| zeros after the decimal point.
+; ----------------------------------------------------------------------
 FOUT_LEADING_FRAC_1:
         INC HL
+        ; fill one leading fraction zero per missing place until the first significant digit
         LD (HL),$30
         INC B
         JP NZ,FOUT_LEADING_FRAC_1
         INC HL
         LD C,B
         RET
-; [RE] Per-digit separator emitter: drops the decimal point ('.', records pos at $0B69) when the integer digits are exhausted, or a comma every 3 digits when grouping is enabled.
+; ----------------------------------------------------------------------
+; FOUT_DIGIT_SEP -- per-digit separator hook: drop the decimal point at the integer/fraction boundary, or a comma every 3 digits
+;   In:        B = integer digits remaining before the decimal point; C = comma countdown (or 0 if grouping off); HL = buffer cursor.
+;   Out:       when B reaches 0 the decimal point is written ($0B69 recorded, comma counter reseeded from B); otherwise when C decrements to 0 a comma is written and C reseeded to 3; HL advanced past any emitted separator.
+;   Clobbers:  A, B, C, HL, ($0B69 decimal-point position), F.
+;   Algorithm: DEC B (consume one integer-digit position). If B is now zero the decimal point is due -> FOUT_DECIMAL_POINT. Otherwise fall to FOUT_DECIMAL_POINT_1 for the comma-group countdown. Called once per emitted digit by the integer/fraction digit generators and the zero-fill helpers so separators interleave correctly.
+; ----------------------------------------------------------------------
 FOUT_DIGIT_SEP:
+        ; consume one integer-digit position; B hitting 0 means the decimal point is due here
         DEC B
+; ----------------------------------------------------------------------
+; FOUT_DIGIT_SEP_1 -- separator dispatch on the (already-decremented) digit position
+;   In:        B (already decremented) = integer digits left, Z set if at the decimal-point boundary; C = comma countdown; HL = cursor.
+;   Out:       decimal point (Z) or comma-group handling (NZ).
+;   Clobbers:  A, BC, HL, ($0B69 decimal-point position), F.
+;   Algorithm: JR NZ to FOUT_DECIMAL_POINT_1 (comma countdown) when integer digits remain; otherwise fall through to FOUT_DECIMAL_POINT to emit '.'. Reached directly from FOUT_LEADING_FRAC when B was decremented without a fresh entry through FOUT_DIGIT_SEP.
+; ----------------------------------------------------------------------
 FOUT_DIGIT_SEP_1:
         JR NZ,FOUT_DECIMAL_POINT_1
-; [RE] Emit the decimal point '.', record its buffer position at $0B69, and (when grouping) reseed the comma counter to 3.
+; ----------------------------------------------------------------------
+; FOUT_DECIMAL_POINT -- write the decimal point, record its position, reseed the comma counter
+;   In:        HL = output buffer cursor; B = the (now-exhausted) integer-digit counter, reused to reseed C.
+;   Out:       '.' stored at (HL); $0B69 := HL (for the later trailing-zero strip); HL incremented; C := B; RET.
+;   Clobbers:  HL, C, ($0B69 decimal-point position).
+;   Algorithm: LD (HL),'.'; save HL to $0B69; INC HL; C := B. Marks the integer/fraction boundary and tells the trailing-zero trimmer where the point is.
+; ----------------------------------------------------------------------
 FOUT_DECIMAL_POINT:
         LD (HL),$2E
-        LD (FRMEVL_TXTPTR_TEMP),HL
+        ; remember the decimal-point address ($0B69) so trailing fraction zeros can be stripped later
+        LD (FOUT_DP_POSITION),HL
         INC HL
         LD C,B
         RET
+; ----------------------------------------------------------------------
+; FOUT_DECIMAL_POINT_1 -- thousands-comma countdown: emit ',' every third integer digit when grouping is on
+;   In:        C = comma countdown; HL = cursor.
+;   Out:       if C decrements to non-zero, returns (no separator); if it reaches 0, writes ',', advances HL, and reseeds C := 3.
+;   Clobbers:  C, HL, F.
+;   Algorithm: DEC C; RET NZ while the group is not yet full. When C hits 0 a three-digit group just completed: LD (HL),',' ; INC HL ; C := 3 to start the next group; RET. With grouping disabled C was seeded 0 by PRUSING_COMMA_FLAG so DEC C makes it $FF (NZ) and no comma is ever emitted.
+; ----------------------------------------------------------------------
 FOUT_DECIMAL_POINT_1:
         DEC C
         RET NZ
+        ; a 3-digit group completed: emit the thousands comma and start a fresh group
         LD (HL),$2C
         INC HL
         LD C,$03
         RET
-; [RE] Generate fractional decimal digits: repeatedly multiply the FAC fraction by 10 (via the BCD constant tables $5BD8/$5BE8/$5C2E) and emit each integer digit through FOUT_DIGIT_SEP.
+; ----------------------------------------------------------------------
+; FOUT_DIGITS_FRAC -- generate the fractional decimal digits of FAC into the output buffer
+;   In:        FAC holds the (already range-scaled) value whose fraction is to be emitted;
+;              HL = next free byte in the FOUT scratch buffer; B = digit-position counter,
+;              C = comma-group counter (both threaded through FOUT_DIGIT_SEP); VALTYP selects
+;              the path (see Algorithm).
+;   Out:       fractional ASCII digits ('0'..'9') stored at (HL), HL advanced past them;
+;              decimal point and grouping commas inserted by FOUT_DIGIT_SEP; FAC consumed.
+;   Clobbers:  A,B,C,D,E,H,L, FAC, FAC_DBL, the FP work cells, flags.
+;   Algorithm: Digit extraction is by repeated SUBTRACTION of power-of-ten constants, NOT by
+;              multiply-by-10 (the stale pre-label comment that says 'multiply by 10' is wrong).
+;              [RE] Path select via FRMEVL_TEST_TYPE then JP PO: FRMEVL_TEST_TYPE computes
+;              parity of (VALTYP-3), and PO (single precision, VALTYP=4) goes to
+;              FOUT_DIGITS_FRAC_3; the fallthrough (double VALTYP=8, AND integer VALTYP=2, which
+;              is parity-even) takes the high-precision path -- so the PO branch is SINGLE only,
+;              not 'single/integer'. DOUBLE/fallthrough path: round by ADDing 0.5 (DADD of the
+;              8-byte FP_CONST_HALF_DBL) then FIX_DENORM to integer-align the 8-byte mantissa,
+;              and run 10 digit passes (A=$0A) over FP_POW10_FRAC_TABLE in FOUT_DIGITS_FRAC_1 --
+;              each pass trial-subtracts one scaled-ten constant until borrow, counting the
+;              subtractions as the digit. SINGLE path (FOUT_DIGITS_FRAC_3) adds 0.5 and
+;              integer-aligns, then both paths converge at FOUT_DIGITS_FRAC_4 / the low-precision
+;              3-byte loop.
+; ----------------------------------------------------------------------
 FOUT_DIGITS_FRAC:
         PUSH DE
+        ; [RE] classify VALTYP: the following JP PO branches single precision (VALTYP=4) to the low-precision setup; double AND integer (parity-even) fall through to the high-precision path
         CALL FRMEVL_TEST_TYPE
         JP PO,FOUT_DIGITS_FRAC_3
         PUSH BC
         PUSH HL
         CALL FP_ARG_TO_TEMP2
+        ; round-to-nearest: DADD double-precision 0.5 before integer-aligning so the last emitted digit rounds correctly
         LD HL,FP_CONST_HALF_DBL
         CALL FP_ARG_SETUP1
         CALL DADD
         XOR A
+        ; right-align the 8-byte mantissa to an integer scale so digits can be peeled off the fraction by subtraction
         CALL FIX_DENORM
         POP HL
         POP BC
+        ; point DE at the descending power-of-ten constant table; A=$0A = 10 digit passes
         LD DE,FP_POW10_FRAC_TABLE
         LD A,$0A
+; ----------------------------------------------------------------------
+; FOUT_DIGITS_FRAC_1 -- double-precision fractional digit loop (one decimal digit per pass)
+;   In:        A = remaining digit count (starts at 10 = $0A); DE -> current entry in
+;              FP_POW10_FRAC_TABLE; FAC_DBL holds the integer-aligned remaining fraction;
+;              HL = buffer write pointer; B/C threaded for FOUT_DIGIT_SEP.
+;   Out:       one ASCII digit appended per pass; FAC_DBL reduced by digit*power-of-ten;
+;              repeats until A reaches 0, then transfers the reduced double accumulator down
+;              into the single-precision FAC and joins FOUT_DIGITS_FRAC_4.
+;   Clobbers:  A,B,C,D,E,H,L, FAC, FAC_DBL, flags.
+;   Algorithm: Emit any pending '.'/',' via FOUT_DIGIT_SEP, save state, seed B='0'-1, then call
+;              FOUT_DIGITS_FRAC_2 which trial-subtracts the current power-of-ten constant
+;              repeatedly (counting in B = ASCII digit) until it underflows, adds the last
+;              over-subtraction back, writes the digit byte, advances the buffer, and DEC A loops.
+;              When all 10 digits are done, FP_STORE_REGS_LD COPIES FAC_DBL's low 4 bytes into
+;              the single-precision FAC (it loads from FAC_DBL and stores to FAC), then control
+;              falls to FOUT_DIGITS_FRAC_4 for the low-precision tail.
+; ----------------------------------------------------------------------
 FOUT_DIGITS_FRAC_1:
+        ; emit the decimal point or a grouping comma if this digit position calls for one
         CALL FOUT_DIGIT_SEP
         PUSH BC
         PUSH AF
         PUSH HL
         PUSH DE
+        ; seed the digit accumulator at '0'-1 ($2F); each successful subtraction below INCs it toward the ASCII digit
         LD B,$2F
+; ----------------------------------------------------------------------
+; FOUT_DIGITS_FRAC_2 -- inner trial-subtract loop: count how many times one power-of-ten fits
+;   In:        B = ASCII digit accumulator (preset '0'-1); top of stack = pointer to the current
+;              FP_POW10_FRAC_TABLE constant (7-byte double); FAC_DBL = the running fraction.
+;   Out:       B incremented once per successful subtraction (= the decimal digit); the constant
+;              is subtracted from FAC_DBL that many times, then added back once to undo the
+;              over-subtraction that broke the loop; DE left pointing past the constant.
+;   Clobbers:  A,B,D,E,H,L, FAC_DBL, flags.
+;   Algorithm: Each pass re-loads HL from the saved constant pointer (POP HL/PUSH HL) and calls
+;              DP_ADD_BLOCK with A=$9E -- DP_ADD_BLOCK SELF-MODIFIES its 'ADC A,(HL)' opcode to
+;              the operand byte in A, so $9E patches it to SBC A,(HL): a borrowing subtract of the
+;              7-byte double constant from FAC_DBL; while no borrow (NC) INC B and repeat. On
+;              borrow, call DP_ADD_BLOCK once with A=$8E (restores 'ADC A,(HL)') to add the
+;              constant back, restoring the non-negative remainder before the next, smaller
+;              power-of-ten. EX DE,HL then leaves DE past the consumed constant.
+; ----------------------------------------------------------------------
 FOUT_DIGITS_FRAC_2:
         INC B
         POP HL
         PUSH HL
+        ; A=$9E self-modifies DP_ADD_BLOCK's ADC A,(HL) into SBC A,(HL): trial-subtract this power-of-ten from FAC_DBL
         LD A,$9E
         CALL DP_ADD_BLOCK
+        ; no borrow means the constant still fit: count this digit (INC B) and subtract again
         JR NC,FOUT_DIGITS_FRAC_2
         POP HL
+        ; A=$8E restores DP_ADD_BLOCK to ADC A,(HL): add the constant once to undo the final over-subtraction
         LD A,$8E
         CALL DP_ADD_BLOCK
         EX DE,HL
@@ -12823,30 +14381,94 @@ FOUT_DIGITS_FRAC_2:
         LD HL,FAC_DBL
         CALL FP_STORE_REGS_LD
         JR FOUT_DIGITS_FRAC_4
+; ----------------------------------------------------------------------
+; FOUT_DIGITS_FRAC_3 -- single-precision fraction setup (the PO / VALTYP=4 path)
+;   In:        FAC = single-precision value (entered when FRMEVL_TEST_TYPE yields PO, VALTYP=4);
+;              B/C/HL threaded as in FOUT_DIGITS_FRAC.
+;   Out:       FAC = (FAC + 0.5) integer-aligned and re-stored, ready for the shared low-precision
+;              subtraction loop; falls into FOUT_DIGITS_FRAC_4.
+;   Clobbers:  A,B,C,D,E,H,L, FAC, flags.
+;   Algorithm: FADD_LOAD_CONST ADDS single-precision 0.5 to the FAC (it is an FADD of the in-image
+;              constant FP_CONST_HALF_SNG, not merely a load) as the round-to-nearest bias. Then
+;              FP_SHIFT_MANTISSA with A=$01 integer-aligns the single-precision mantissa (the
+;              single-precision analog of the double path's FIX_DENORM; the count byte and its
+;              internal round-on-carry are handled inside FP_SHIFT_MANTISSA), and FP_STORE_FAC
+;              commits the aligned value before joining the shared fraction tail.
+; ----------------------------------------------------------------------
 FOUT_DIGITS_FRAC_3:
         PUSH BC
         PUSH HL
+        ; add single-precision 0.5 to the FAC (FADD of FP_CONST_HALF_SNG) as the round-to-nearest bias for the single path
         CALL FADD_LOAD_CONST
         LD A,$01
+        ; integer-align the single-precision mantissa (A=$01 selects the alignment count; the single-precision analog of FIX_DENORM), then commit to the FAC
         CALL FP_SHIFT_MANTISSA
         CALL FP_STORE_FAC
+; ----------------------------------------------------------------------
+; FOUT_DIGITS_FRAC_4 -- common entry to the low-precision (3-byte) fraction loop
+;   In:        FAC holds the integer-aligned fraction (single FAC, set by either path); the saved
+;              buffer pointer (HL) and counters (BC) are on the stack.
+;   Out:       falls into FOUT_DIGITS_FRAC_5 with A=0 (the CCF/carry seed) and
+;              DE -> FP_POW10_FRAC_TABLE2.
+;   Clobbers:  A,D,E; restores B,C,HL from stack.
+;   Algorithm: Pop the saved buffer pointer (HL) and counters (BC), clear A (this also clears
+;              carry, the seed for the CCF toggle in _5), and point DE at the compact 3-byte
+;              power-of-ten table used by the low-precision loop.
+; ----------------------------------------------------------------------
 FOUT_DIGITS_FRAC_4:
         POP HL
         POP BC
         XOR A
+        ; select the compact 3-byte power-of-ten table for the low-precision fraction loop
         LD DE,FP_POW10_FRAC_TABLE2
+; ----------------------------------------------------------------------
+; FOUT_DIGITS_FRAC_5 -- low-precision fractional digit loop (2 digits, 3-byte mantissa)
+;   In:        DE -> current FP_POW10_FRAC_TABLE2 constant (3-byte little-endian); FAC = the
+;              remaining fraction; HL = buffer pointer; B/C threaded for FOUT_DIGIT_SEP; carry
+;              seeded clear, toggled each pass by CCF.
+;   Out:       one ASCII digit appended per pass; FAC reduced; runs EXACTLY 2 passes (one per
+;              FP_POW10_FRAC_TABLE2 entry), driven by the CCF toggle: CCF sets carry on pass 1
+;              (JR C loops back) and clears it on pass 2 (JR NC exits). On exit it advances DE
+;              (INC DE/INC DE) and jumps to FOUT_DIGITS_INT_1 with A=$04.
+;   Clobbers:  A,B,C,D,E,H,L, FAC, flags.
+;   Algorithm: Emit pending '.'/',' (FOUT_DIGIT_SEP -- it preserves carry), reload the FAC's low
+;              3 mantissa bytes into E,D,C via FP_LOAD_FAC, and call FOUT_DIGITS_FRAC_6 to
+;              trial-subtract the 3-byte constant until borrow (digit counted in B), which adds
+;              it back once (MANT_ADD) and re-stores the FAC, then store the digit. The PUSH
+;              AF/POP AF carries the CCF-toggled flag across the loop body so JR C alternates;
+;              it therefore produces exactly 2 fraction digits before handing off to the
+;              integer-digit body (A=$04 = 4 more positions, from POW10_INT_TABLE).
+; ----------------------------------------------------------------------
 FOUT_DIGITS_FRAC_5:
+        ; toggle the carry (seeded clear): set on the first pass so JR C loops back, cleared on the second so JR NC exits -- this loop runs exactly 2 passes
         CCF
         CALL FOUT_DIGIT_SEP
         PUSH BC
         PUSH AF
         PUSH HL
         PUSH DE
+        ; reload the working fraction's low 3 mantissa bytes into E,D,C for the subtraction
         CALL FP_LOAD_FAC
         POP HL
         LD B,$2F
+; ----------------------------------------------------------------------
+; FOUT_DIGITS_FRAC_6 -- inner 3-byte trial-subtract loop for the low-precision fraction path
+;   In:        E,D,C = working fraction (low,mid,high) from FP_LOAD_FAC; HL -> the 3-byte
+;              little-endian power-of-ten constant in FP_POW10_FRAC_TABLE2; B = ASCII digit
+;              accumulator (preset '0'-1).
+;   Out:       B = decimal digit (count of successful subtractions); E,D,C reduced by
+;              digit*constant; on the final borrow, the constant is added back once (MANT_ADD) so
+;              the remainder is non-negative; the result is re-stored to the FAC (FP_STORE_FAC).
+;   Clobbers:  A,B,C,D,E,H,L, flags.
+;   Algorithm: Borrowing 24-bit subtract of (HL),(HL+1),(HL+2) from E,D,C, with HL rewound by
+;              DEC HL/DEC HL after each trial so it re-aims at the constant's low byte; INC B and
+;              repeat while no borrow. On borrow, MANT_ADD reads the 3 constant bytes back into
+;              E,D,C (advancing HL past them), INC HL, and FP_STORE_FAC commits the reduced
+;              fraction.
+; ----------------------------------------------------------------------
 FOUT_DIGITS_FRAC_6:
         INC B
+        ; 24-bit borrowing subtract of the power-of-ten constant from the working fraction (E/D/C)
         LD A,E
         SUB (HL)
         LD E,A
@@ -12860,9 +14482,12 @@ FOUT_DIGITS_FRAC_6:
         LD C,A
         DEC HL
         DEC HL
+        ; no borrow: the constant fit, so count the digit (INC B) and subtract again
         JR NC,FOUT_DIGITS_FRAC_6
+        ; add the constant back once to undo the over-subtraction that produced the borrow
         CALL MANT_ADD
         INC HL
+        ; write the reduced fraction back to the FAC for the next (smaller) power-of-ten
         CALL FP_STORE_FAC
         EX DE,HL
         POP HL
@@ -12875,12 +14500,41 @@ FOUT_DIGITS_FRAC_6:
         INC DE
         LD A,$04
         JR FOUT_DIGITS_INT_1
-; [RE] Generate integer decimal digits by repeated subtraction of the power-of-ten table at $5C34 (10000/1000/100/10/1) from the FAC mantissa $0CB1, emitting each via FOUT_DIGIT_SEP.
+; ----------------------------------------------------------------------
+; FOUT_DIGITS_INT -- generate the integer decimal digits of FAC into the output buffer
+;   In:        FAC ($0CB1) = the 16-bit unsigned integer part to print; HL = buffer write
+;              pointer; B/C threaded for FOUT_DIGIT_SEP (digit position / comma group).
+;   Out:       5 ASCII digits (10000s..1s, leading positions handled by the caller's
+;              zero-suppression) appended at (HL); HL advanced; a final NUL written; (FAC)
+;              reduced (0 for a whole integer); DE restored, RET.
+;   Clobbers:  A,B,C,D,E,H,L, FAC, flags.
+;   Algorithm: Classic divide-by-repeated-subtraction. DE -> POW10_INT_TABLE (10000,1000,100,
+;              10,1 little-endian), A=$05 digit passes. Each pass (FOUT_DIGITS_INT_1) trial-
+;              subtracts the current power of ten from (FAC) until borrow, counting the quotient
+;              digit in B, adds the power back once, stores the digit, and moves to the next
+;              entry. After 5 digits it emits a final separator and NUL-terminates.
+; ----------------------------------------------------------------------
 FOUT_DIGITS_INT:
         PUSH DE
+        ; point DE at the 10000/1000/100/10/1 little-endian table; A=$05 = 5 integer digit positions
         LD DE,POW10_INT_TABLE
         LD A,$05
+; ----------------------------------------------------------------------
+; FOUT_DIGITS_INT_1 -- one integer-digit pass (also the join target from the fraction loop)
+;   In:        A = remaining digit count; DE -> current 16-bit power-of-ten in POW10_INT_TABLE;
+;              (FAC) = remaining integer; HL = buffer pointer; B/C threaded for FOUT_DIGIT_SEP.
+;              (Entered from FOUT_DIGITS_FRAC_5 with A=$04 and DE one entry into the table.)
+;   Out:       one ASCII digit appended; (FAC) reduced by digit*power-of-ten; DE advanced to the
+;              next table entry; loops (JR NZ) until A=0, then writes the trailing NUL and RETs.
+;   Clobbers:  A,B,C,D,E,H,L, FAC, flags.
+;   Algorithm: Emit pending '.'/',' (FOUT_DIGIT_SEP), fetch the current 16-bit power-of-ten into
+;              the subtrahend (DE via the EX (SP),HL juggle), run FOUT_DIGITS_INT_2 to count
+;              subtractions into B (the digit), add the power back once (ADD HL,DE) to restore
+;              the non-negative remainder, store it to (FAC), write the digit byte, advance, and
+;              DEC A loop.
+; ----------------------------------------------------------------------
 FOUT_DIGITS_INT_1:
+        ; emit the decimal point or grouping comma when this digit position requires it
         CALL FOUT_DIGIT_SEP
         PUSH BC
         PUSH AF
@@ -12893,16 +14547,31 @@ FOUT_DIGITS_INT_1:
         INC HL
         EX (SP),HL
         EX DE,HL
+        ; load the 16-bit remaining integer from the FAC for this digit's subtraction loop
         LD HL,(FAC)
         LD B,$2F
+; ----------------------------------------------------------------------
+; FOUT_DIGITS_INT_2 -- inner 16-bit trial-subtract loop counting one integer digit
+;   In:        HL = remaining integer; DE = current 16-bit power-of-ten subtrahend; B = ASCII
+;              digit accumulator (preset '0'-1).
+;   Out:       B = decimal digit (subtraction count); HL = remainder after the borrowing
+;              subtraction that broke the loop (over-subtracted by one power, restored by the
+;              caller's ADD HL,DE).
+;   Clobbers:  A,B,H,L, flags.
+;   Algorithm: 16-bit subtract HL = HL - DE (LD A,L/SUB E/LD L,A; LD A,H/SBC A,D/LD H,A); while
+;              no borrow (NC) INC B and repeat. The single over-subtraction at exit is undone by
+;              the caller adding DE back.
+; ----------------------------------------------------------------------
 FOUT_DIGITS_INT_2:
         INC B
+        ; 16-bit subtract of the power-of-ten from the remaining integer
         LD A,L
         SUB E
         LD L,A
         LD A,H
         SBC A,D
         LD H,A
+        ; still non-negative: count this digit (INC B) and subtract the same power again
         JR NC,FOUT_DIGITS_INT_2
         ADD HL,DE
         LD (FAC),HL
@@ -12918,7 +14587,21 @@ FOUT_DIGITS_INT_2:
         LD (HL),A
         POP DE
         RET
-FOUT_DIGITS_INT_3:
+; ----------------------------------------------------------------------
+; FP_DBL_1E10 -- [RE] MBF double-precision power-of-ten scaling constant (DATA, not code)
+;              8-byte little-endian MBF double, bytes 00 00 00 00 F9 02 15 A2 (high byte $A2).
+;   In:        n/a (data). Loaded as a DE operand pointer at FOUT_SCALE10 ($5A4D), copied via
+;              FP_MOVE_TYPED into ARG2_TEMP, then multiplied into the FAC by DMUL.
+;   Out:       n/a.
+;   Clobbers:  n/a.
+;   Algorithm: [RE] Large power-of-ten multiplier used by FOUT_SCALE10 to pull a very small value
+;              up into the [1,10) digit-generation range; the caller subtracts $0A from the
+;              tracked decimal exponent per multiply (so this is on the order of 1e10). Exact
+;              decimal magnitude UNKNOWN from these bytes alone. The current NOP/LD SP,HL/AND D
+;              disassembly is a data-as-code artifact: the 8 bytes are an FP constant consumed
+;              only as a DMUL operand.
+; ----------------------------------------------------------------------
+FP_DBL_1E10:
         NOP
         NOP
         NOP
@@ -12927,33 +14610,93 @@ FOUT_DIGITS_INT_3:
         LD (BC),A
         DEC D
         AND D
-FOUT_DIGITS_INT_4:
+; ----------------------------------------------------------------------
+; FP_DBL_1E15 -- [RE] MBF double-precision comparison-bound constant (DATA, not code)
+;              8-byte little-endian MBF double, bytes E1 FF 9F 31 A9 5F 63 B2 (high byte $B2).
+;   In:        n/a (data). Loaded as a DE operand pointer at FOUT_SCALE10_4 ($5A73) and compared
+;              against the FAC by DCOMP (which copies 8 bytes via FP_MOVE_TYPED for a double).
+;   Out:       n/a.
+;   Clobbers:  n/a.
+;   Algorithm: [RE] An upper bound in the FOUT range-scaling logic (DCOMP decides whether the
+;              value still needs another multiply/divide-by-ten step). Exact decimal magnitude
+;              UNKNOWN. Disassembled as code here only as a data-as-code artifact; the bytes are
+;              a DCOMP FP operand.
+; ----------------------------------------------------------------------
+FP_DBL_1E15:
         POP HL
         RST $38
         SBC A,A
         LD SP,$5FA9
         LD H,E
         OR D
-FOUT_DIGITS_INT_5:
+; ----------------------------------------------------------------------
+; FP_DBL_1E16 -- [RE] MBF double-precision comparison-bound constant (DATA, not code)
+;              8-byte little-endian MBF double, bytes FE FF 03 BF C9 1B 0E B6 (high byte $B6).
+;   In:        n/a (data). Loaded as a DE operand pointer at FOUT_SCALE10_STEP_1 ($5AA0) and
+;              compared against the FAC by DCOMP.
+;   Out:       n/a.
+;   Clobbers:  n/a.
+;   Algorithm: [RE] The bound used by FOUT_SCALE10_STEP when normalizing the FAC into the
+;              digit-generation window. Exact decimal magnitude UNKNOWN. Disassembled as code
+;              only as a data-as-code artifact; the bytes are a DCOMP FP operand. NOTE the last
+;              two bytes ($0E,$B6) abut FP_CONST_HALF_DBL and are part of THIS constant, not the
+;              next label.
+; ----------------------------------------------------------------------
+FP_DBL_1E16:
         CP $FF
         INC BC
         CP A
         RET
         DEC DE
         LD C,$B6
-; [RE] Double-precision 0.5 rounding-bias FP constant: DADD'd to the value before FIX in FN_LPOS ($4F86) and in the fractional-digit generator ($5B05) to round-to-nearest [RE] MBF double-precision constant 0.5.
+; ----------------------------------------------------------------------
+; FP_CONST_HALF_DBL -- MBF double-precision constant 0.5 (rounding bias)
+;              8-byte MBF double 0.5 = 00 00 00 00 00 00 00 80. NOTE the label as laid out covers
+;              only the first 4 bytes ($5BD8..$5BDB = 00 00 00 00); the trailing 4 bytes overlap
+;              FP_CONST_HALF_SNG ($5BDC = 00 00 00 80), which is itself the high half / single
+;              0.5. The 8-byte double read starting here is therefore the concatenation of both.
+;   In:        n/a (data). HL points here at FN_LPOS ($4F86) and in FOUT_DIGITS_FRAC ($5B05).
+;   Out:       n/a.
+;   Clobbers:  n/a.
+;   Algorithm: DADD'd to a value before FIX_DENORM/integer-alignment so the truncation that
+;              follows performs round-to-nearest on the last printed (or fixed) digit. The
+;              overlap with FP_CONST_HALF_SNG is a deliberate space optimization: single 0.5 is
+;              the top 4 bytes of double 0.5.
+; ----------------------------------------------------------------------
 FP_CONST_HALF_DBL:
         NOP
         NOP
         NOP
         NOP
-; [RE] Single-precision 0.5 rounding constant loaded by FADD_LOAD_CONST/FADDT ($4B98, $5C90): added to the FAC during single-precision round-before-truncate in FOUT/FIX [RE] MBF single-precision constant 0.5.
+; ----------------------------------------------------------------------
+; FP_CONST_HALF_SNG -- MBF single-precision constant 0.5 (rounding bias)
+;              4-byte MBF single 00 00 00 80, value +0.5. Also forms the high 4 bytes of the
+;              overlapping FP_CONST_HALF_DBL (see that label).
+;   In:        n/a (data). Loaded by FADD_LOAD_CONST/FADDT ($4B98) -- which ADDs it to the FAC --
+;              and at FN_SQR ($5C90, as the 0.5 exponent for SQR = x^0.5) and in the
+;              single-precision FOUT round path.
+;   Out:       n/a.
+;   Clobbers:  n/a.
+;   Algorithm: FADD'd to the FAC for round-before-truncate in single-precision FOUT/FIX, and
+;              reused as the literal exponent 0.5 by the square-root handler.
+; ----------------------------------------------------------------------
 FP_CONST_HALF_SNG:
         NOP
         NOP
         NOP
         ADD A,B
-; [RE] FP magnitude threshold constant compared via DCOMP in the FOUT exponent path ($593C): the value above which numeric output switches to E (scientific) notation
+; ----------------------------------------------------------------------
+; FP_CONST_ENOTATION_THRESHOLD -- [RE] MBF double FP magnitude threshold for switching to E notation
+;              8-byte MBF double, bytes 00 00 04 BF C9 1B 0E B6 (high byte $B6).
+;   In:        n/a (data). Loaded as the DE comparison operand at FOUT_CHOOSE_NOTATION ($593C) and
+;              compared against the FAC by DCOMP.
+;   Out:       n/a.
+;   Clobbers:  n/a.
+;   Algorithm: [RE] The magnitude at which numeric output switches between fixed and E
+;              (scientific) notation in the FOUT exponent path (the JP M after DCOMP selects the
+;              branch). Exact decimal value UNKNOWN from these bytes alone; the role is confirmed
+;              by the DCOMP at the exponent-decision site.
+; ----------------------------------------------------------------------
 FP_CONST_ENOTATION_THRESHOLD:
         NOP
         NOP
@@ -12961,75 +14704,221 @@ FP_CONST_ENOTATION_THRESHOLD:
         CP A
         RET
         DEFB    $1B,$0E,$B6
-; [RE] Double-precision power-of-ten (negative-exponent) table used by FOUT_DIGITS_FRAC ($5B14): each fractional decimal digit extracted by repeated subtraction of these scaled-ten constants from the FAC fraction
+; ----------------------------------------------------------------------
+; FP_POW10_FRAC_TABLE -- MBF double-precision power-of-ten constant table (DATA)
+;              10 descending entries of 7-byte double constants (the high-precision scaled tens),
+;              70 bytes spanning $5BE8..$5C2D (10 = the A=$0A pass count in FOUT_DIGITS_FRAC_1;
+;              70/7 = 10 entries).
+;   In:        n/a (data). DE points here at FOUT_DIGITS_FRAC ($5B14); each entry consumed by
+;              FOUT_DIGITS_FRAC_2 via DP_ADD_BLOCK (7-byte block).
+;   Out:       n/a.
+;   Clobbers:  n/a.
+;   Algorithm: One fractional decimal digit is produced per entry by repeated borrowing
+;              subtraction of that scaled-ten constant from the integer-aligned FAC_DBL fraction
+;              (count of subtractions = the digit). Entries descend so successive digits are less
+;              significant.
+; ----------------------------------------------------------------------
 FP_POW10_FRAC_TABLE:
         DEFB    $00,$80,$C6,$A4,$7E,$8D,$03,$00,$40,$7A,$10,$F3,$5A,$00,$00,$A0
         DEFB    $72,$4E,$18,$09,$00,$00,$10,$A5,$D4,$E8,$00,$00,$00,$E8,$76,$48
         DEFB    $17,$00,$00,$00,$E4,$0B,$54,$02,$00,$00,$00,$CA,$9A,$3B,$00,$00
         DEFB    $00,$00,$E1,$F5,$05,$00,$00,$00,$80,$96,$98,$00,$00,$00,$00,$40
         DEFB    $42,$0F,$00,$00,$00,$00
-; [RE] Second double-precision power-of-ten constant block for fractional-digit generation (loaded as DE at $5B55 in the FOUT fraction loop), companion to the $5BE8 table
+; ----------------------------------------------------------------------
+; FP_POW10_FRAC_TABLE2 -- compact 3-byte power-of-ten constants for the low-precision fraction loop
+;              6 bytes: A0 86 01 / 10 27 00 = the little-endian 24-bit values 100000 and 10000
+;              (2 entries, matching the 2-pass FOUT_DIGITS_FRAC_5 loop).
+;   In:        n/a (data). DE points here at FOUT_DIGITS_FRAC_4 ($5B55); each 3-byte constant is
+;              consumed by the 24-bit subtract in FOUT_DIGITS_FRAC_6.
+;   Out:       n/a.
+;   Clobbers:  n/a.
+;   Algorithm: Companion to FP_POW10_FRAC_TABLE for the single-precision (low-precision) path:
+;              the 2-pass loop peels 2 fraction digits by subtracting these 24-bit scaled tens
+;              from the FAC's low 3 mantissa bytes, then the code continues into the integer-digit
+;              body for 4 more positions from POW10_INT_TABLE.
+; ----------------------------------------------------------------------
 FP_POW10_FRAC_TABLE2:
         DEFB    $A0,$86,$01,$10,$27,$00
-; [RE] Little-endian integer power-of-ten table 10000/1000/100/10/1 ($10 27 / E8 03 / 64 00 / 0A 00 / 01 00) used by FOUT_DIGITS_INT ($5B8C): each integer decimal digit produced by repeated subtraction from the FAC mantissa
+; ----------------------------------------------------------------------
+; POW10_INT_TABLE -- little-endian 16-bit power-of-ten table for integer-digit generation (DATA)
+;              10 bytes: 10 27 / E8 03 / 64 00 / 0A 00 / 01 00 = 10000, 1000, 100, 10, 1.
+;   In:        n/a (data). DE points here at FOUT_DIGITS_INT ($5B8C, 5 entries from the start);
+;              also entered one element in (DE=$5C36) from the fraction tail for 4 entries.
+;              Each 16-bit entry is the subtrahend for one integer digit in FOUT_DIGITS_INT_2.
+;   Out:       n/a.
+;   Clobbers:  n/a.
+;   Algorithm: Drives the 5-digit divide-by-repeated-subtraction that converts a 16-bit integer
+;              part to ASCII (and is reused for the trailing 4 digits of the single-precision
+;              fraction).
+; ----------------------------------------------------------------------
 POW10_INT_TABLE:
         DEFB    $10,$27,$E8,$03,$64,$00,$0A,$00,$01,$00
-; [RE] HEX$/OCT$ and LIST &H/&O converter: turns the 16-bit integer in HL into a hex (4 nibbles) or octal (6 groups) ASCII string at $0CC2; B selects base (0=octal width, hex entry at $5C41). Dispatched from the LIST detokenizer ($41FD/$4202).
+; ----------------------------------------------------------------------
+; HEX_OCT_OUT -- HEX$()/OCT$() and LIST &H/&O integer-to-ASCII converter
+;   In:        FAC holds the value to render (GETADR fetches the 16-bit integer into HL). Entry
+;              at HEX_OCT_OUT selects octal (base flag B=0); callers enter at HEX_OCT_OUT_1+1
+;              ($5C41) to select hex (B=1) -- see HEX_OCT_OUT_1.
+;   Out:       NUL-terminated ASCII string at L_0CC2 ($0CC2), with no leading zeros; HL left
+;              pointing at the string start (the pushed buffer pointer popped at HEX_OCT_OUT_8)
+;              on RET.
+;   Clobbers:  A,B,C,D,E,H,L, the $0CC2 scratch buffer, flags.
+;   Algorithm: XOR A / LD B,A zero B (octal), then fall into HEX_OCT_OUT_1. GETADR materializes
+;              the 16-bit value; DE = the $0CC2 buffer (pushed for the final POP HL); C is set to
+;              the group count (6 octal groups / 4 hex nibbles) by the DEC B/INC B base test.
+;              Then shift groups of bits (3 octal / 4 hex) out of HL into A, convert each to an
+;              ASCII digit, suppressing leading zeros, NUL-terminating at the end.
+; ----------------------------------------------------------------------
 HEX_OCT_OUT:
+        ; octal entry: clear A and B=0 so the base-selector test below picks the octal width
         XOR A
         LD B,A
-; [RE] HEX$/OCT$ base-selector flag-skip (VERIFIED). Octal entry ($5C3E) does XOR A / LD B,A (B=0) then C2 06 01 = JP NZ,$0106, never taken (Z set), skipping its operand so B stays 0. Hex callers (JP/CALL HEX_OCT_OUT_1+1 at $4202/$6BB4) enter at +1 and run 06 01 = LD B,$01 (B=1). DEC B/INC B at $5C4E then picks C=$06 octal groups vs C=$04 hex nibbles. Converge at $5C43 PUSH BC. MBASIC twin (POW10_INT_TABLE region) byte-identical.
+; ----------------------------------------------------------------------
+; HEX_OCT_OUT_1 -- base-selector flag-skip plus the buffer/width setup shared by hex and octal
+;   In:        B = 0 on octal entry (from HEX_OCT_OUT); hex callers JP/CALL HEX_OCT_OUT_1+1 so
+;              the LD B,$01 (06 01) embedded in this JP's operand runs instead, setting B=1.
+;              FAC holds the value.
+;   Out:       HL = 16-bit value (GETADR); DE = $0CC2 buffer (also pushed as the eventual return
+;              HL); C = group/nibble count; first buffer byte zeroed; control to
+;              HEX_OCT_OUT_4 (octal's short first group) or falls into HEX_OCT_OUT_2 (hex).
+;   Clobbers:  A,B,C,D,E,H,L, flags.
+;   Algorithm: The 3-byte JP NZ,$0106 is a self-overlapping flag trick: octal (Z set on entry,
+;              B=0) does not take the jump and skips its operand harmlessly; hex re-enters
+;              mid-instruction at +1 so the operand bytes 06 01 execute as LD B,$01. GETADR
+;              fetches the integer; the buffer pointer is staged in DE and pushed; DEC B/INC B
+;              sets Z iff B=0 (octal) to pick C=6 groups (then JR Z to _4 for the short top group)
+;              vs C=4 nibbles.
+; ----------------------------------------------------------------------
 HEX_OCT_OUT_1:
         JP NZ,$0106
         PUSH BC
+        ; evaluate the FAC into a 16-bit unsigned integer in HL (the value to render)
         CALL GETADR
         POP BC
+        ; DE = output scratch buffer $0CC2; pushed so the final POP HL returns the string start
         LD DE,L_0CC2
         PUSH DE
         XOR A
         LD (DE),A
+        ; test the base flag: Z (B==0) selects octal (C=6 three-bit groups); NZ selects hex (C=4 nibbles)
         DEC B
         INC B
         LD C,$06
         JR Z,HEX_OCT_OUT_4
         LD C,$04
+; ----------------------------------------------------------------------
+; HEX_OCT_OUT_2 -- start of a hex nibble group: shift the first bit of a 4-bit digit out of HL
+;   In:        HL = value being rendered; A accumulates the current digit's bits; C = remaining
+;              group count.
+;   Out:       falls into HEX_OCT_OUT_3 to shift the remaining bits of this group.
+;   Clobbers:  A,H,L, flags.
+;   Algorithm: ADD HL,HL / ADC A,A shifts the high bit of HL into A. This is the hex (4-bit)
+;              group entry: _2 contributes 1 bit, _3 two bits, _4 one bit = 4. Octal groups enter
+;              at _3 (3 bits: _3 two + _4 one) or, for the short top group, at _4 (1 bit).
+; ----------------------------------------------------------------------
 HEX_OCT_OUT_2:
+        ; shift the next value bit out of HL into A (first bit of a hex nibble)
         ADD HL,HL
         ADC A,A
+; ----------------------------------------------------------------------
+; HEX_OCT_OUT_3 -- shift two more bits into the current digit (group body)
+;   In:        HL = value; A = partial digit; C = group count.
+;   Out:       falls into HEX_OCT_OUT_4 for the final bit of the group.
+;   Clobbers:  A,H,L, flags.
+;   Algorithm: Two ADD HL,HL / ADC A,A pairs shift two further value bits into A. Octal groups
+;              (3 bits) re-enter here from HEX_OCT_OUT_7's loop (then _4 = 3 bits total); hex
+;              groups (4 bits) flow through from HEX_OCT_OUT_2.
+; ----------------------------------------------------------------------
 HEX_OCT_OUT_3:
         ADD HL,HL
         ADC A,A
         ADD HL,HL
         ADC A,A
+; ----------------------------------------------------------------------
+; HEX_OCT_OUT_4 -- finish a digit group and resolve the leading-zero suppression
+;   In:        HL = value; A = assembled group value so far; DE = current buffer position;
+;              C = remaining group count; (DE) holds the prior emitted byte (0 until a digit
+;              has been emitted).
+;   Out:       the group value either flows to HEX_OCT_OUT_5 to be formatted/stored, or (a
+;              suppressed leading zero) jumps to HEX_OCT_OUT_7 to advance without storing.
+;   Clobbers:  A,H,L, flags.
+;   Algorithm: Shift the final bit of the group into A (ADD HL,HL/ADC A,A). If A is nonzero it
+;              is a real digit -> _5. If A is zero but this is the LAST group (C==1) the zero is
+;              still emitted (so a lone/final zero prints). Otherwise a zero is a leading zero:
+;              read (DE); if it is still 0 (nothing emitted yet) skip to _7, else fall through
+;              with A=0 to emit the zero.
+; ----------------------------------------------------------------------
 HEX_OCT_OUT_4:
         ADD HL,HL
         ADC A,A
+        ; nonzero group value: it is a real digit, go format it
         OR A
         JP NZ,HEX_OCT_OUT_5
         LD A,C
         DEC A
         JP Z,HEX_OCT_OUT_5
+        ; zero digit and not the last group: (DE) is the last emitted byte (0 = none yet) -> keep suppressing leading zeros
         LD A,(DE)
         OR A
         JP Z,HEX_OCT_OUT_7
         XOR A
+; ----------------------------------------------------------------------
+; HEX_OCT_OUT_5 -- convert a 0..15 group value to its ASCII digit character
+;   In:        A = group value (0..7 octal, 0..15 hex).
+;   Out:       A = ASCII character ('0'..'9','A'..'F'); falls into HEX_OCT_OUT_6 to store.
+;   Clobbers:  A, flags.
+;   Algorithm: A += '0'; if the result exceeds '9' (CP $3A, no carry) add 7 to skip the
+;              ':'..'@' gap so 10..15 map to 'A'..'F'.
+; ----------------------------------------------------------------------
 HEX_OCT_OUT_5:
         ADD A,$30
         CP $3A
         JP C,HEX_OCT_OUT_6
+        ; value 10..15: add 7 to jump the ASCII gap from '9' up to 'A'..'F'
         ADD A,$07
+; ----------------------------------------------------------------------
+; HEX_OCT_OUT_6 -- store the digit character and seed the 'something emitted' marker forward
+;   In:        A = ASCII digit (nonzero); DE = buffer write position.
+;   Out:       digit stored at (DE), DE advanced, and the SAME digit byte written one position
+;              forward; falls into HEX_OCT_OUT_7.
+;   Clobbers:  D,E.
+;   Algorithm: LD (DE),A; INC DE; LD (DE),A. The forward copy of the (nonzero) digit makes the
+;              next group's leading-zero test at HEX_OCT_OUT_4 (LD A,(DE)/OR A) see a non-zero
+;              byte, i.e. 'a digit has been emitted', so later zeros are no longer suppressed. It
+;              is NOT a NUL terminator -- the real NUL is written later at HEX_OCT_OUT_8.
+; ----------------------------------------------------------------------
 HEX_OCT_OUT_6:
         LD (DE),A
         INC DE
         LD (DE),A
+; ----------------------------------------------------------------------
+; HEX_OCT_OUT_7 -- advance to the next group; loop or finish
+;   In:        C = remaining group count; B = base flag (0 octal / 1 hex).
+;   Out:       clears A (fresh digit accumulator); if groups remain, loops back to
+;              HEX_OCT_OUT_3 (octal, 3-bit) or HEX_OCT_OUT_2 (hex, 4-bit); else falls into
+;              HEX_OCT_OUT_8 to terminate.
+;   Clobbers:  A,C, flags.
+;   Algorithm: XOR A resets the per-digit accumulator; DEC C tests for the last group; the
+;              DEC B/INC B re-reads the base flag to pick the correct group width on re-entry.
+; ----------------------------------------------------------------------
 HEX_OCT_OUT_7:
         XOR A
+        ; one group consumed; if none remain, jump to the NUL-terminate tail
         DEC C
         JR Z,HEX_OCT_OUT_8
+        ; re-test the base flag to re-enter the 3-bit (octal) or 4-bit (hex) group loop
         DEC B
         INC B
         JP Z,HEX_OCT_OUT_3
         JP HEX_OCT_OUT_2
+; ----------------------------------------------------------------------
+; HEX_OCT_OUT_8 -- NUL-terminate the rendered string and return its start
+;   In:        DE = position just past the last digit; A = 0 (from the XOR A in _7); the buffer
+;              start ($0CC2) was pushed at setup.
+;   Out:       (DE) = 0 (string terminator); HL = buffer start; RET.
+;   Clobbers:  H,L.
+;   Algorithm: Store the NUL (A=0), POP HL (the saved $0CC2 pointer) so the caller receives the
+;              string start, and return.
+; ----------------------------------------------------------------------
 HEX_OCT_OUT_8:
         LD (DE),A
         POP HL
@@ -13088,7 +14977,7 @@ FN_SQR_2:
         JR Z,FN_EXP
         JP P,FN_SQR_3
         OR A
-        JP Z,FIN_DONE_18
+        JP Z,DIV0_SET_MSG
 FN_SQR_3:
         OR A
         ; base == 0 (positive-exponent path): result is 0
@@ -13129,12 +15018,12 @@ FN_SQR_4:
 ; ----------------------------------------------------------------------
 ; FN_EXP -- EXP(x) e^x handler (token $0B); also the back half of the x^y power kernel
 ;   In:        FAC holds x (the exponent); reached as a function or by FN_SQR after exp*LOG(base)
-;   Out:       FAC = e^x; underflow returns 0, overflow raises via FIN_DONE_9
+;   Out:       FAC = e^x; underflow returns 0, overflow raises via OVERR_POP2
 ;   Clobbers:  FAC, FP work stack, A/BC/DE/HL, FAC_EXP
 ;   Algorithm: e^x = 2^(x*log2 e). Multiply x by log2(e) (operand B=$81, C/D/E=$38,$AA,$3B =
 ;              MBF 1.442695) so the problem becomes 2^v. Magnitude guards on the scaled exponent
 ;              FAC_EXP: >= $88 -> the large-magnitude path FN_EXP_1, which then splits by the
-;              FACHI sign (positive -> FIN_DONE_9 overflow, negative -> FP_SET_ZERO underflow=0);
+;              FACHI sign (positive -> OVERR_POP2 overflow, negative -> FP_SET_ZERO underflow=0);
 ;              < $68 -> v ~ 0, return MBF 1.0 (FN_EXP_4). Otherwise split v into integer part i
 ;              and fraction f (FIX_SCALE), bias i as an MBF exponent (ADD $81), approximate 2^f
 ;              with FP_POLY_EXP_COEFFS (POLY_EVAL), then re-apply the integer scale by FMUL with
@@ -13181,7 +15070,7 @@ FN_EXP_2:
         ; underflow: e^x rounds to 0
         JP FP_SET_ZERO
 FN_EXP_3:
-        JP FIN_DONE_9
+        JP OVERR_POP2
 FN_EXP_4:
         ; tiny argument: return exactly 1.0 (MBF exp=$81, mantissa 0)
         LD BC,$8100
@@ -13736,7 +15625,7 @@ PTRGET_10:
 ; ----------------------------------------------------------------------
 ; PTRGET_SEARCH -- find or create a simple variable / array element; return the address of its value (MS BASIC-80 PTRGET).
 ;   In:        C = packed name char 1 (high bit set); B = packed name char 2; VARNAM_EXTLEN ($0871) = scanned-name extra-length byte, $0872.. = extra name chars; VALTYP ($0B14) = required value type/width (VT_INT/STR/SNG/DBL); HL -> BASIC text just past the name (a '(' or '[' here selects the array path). PTRGET_CREATE_FLAG ($0B13) = create/allocate context (nonzero on the DIM/array-head path, zero for ordinary references). FN_ARG_ACTIVE ($0C64) nonzero => a DEF FN body is currently being evaluated, so its saved formal-argument block is searched first.
-;   Out:       On a hit, DE -> the variable's value bytes (SIMPLEVAR value field or the addressed ARRAYVAR element) and HL is restored to the saved text pointer (array path leaves HL = the text pointer just past the close paren, reloaded from FRMEVL_TXTPTR_TEMP). On a not-found reference from a read-only caller (one of four recognised return addresses), DE is left zero and FAC is set to a dummy numeric zero or, if VALTYP is string, the canonical empty-string descriptor. The DIM-only array path returns with carry set and no element address. [RE] The exact create/no-create return convention beyond these cases is not separately audited here.
+;   Out:       On a hit, DE -> the variable's value bytes (SIMPLEVAR value field or the addressed ARRAYVAR element) and HL is restored to the saved text pointer (array path leaves HL = the text pointer just past the close paren, reloaded from FOUT_DP_POSITION). On a not-found reference from a read-only caller (one of four recognised return addresses), DE is left zero and FAC is set to a dummy numeric zero or, if VALTYP is string, the canonical empty-string descriptor. The DIM-only array path returns with carry set and no element address. [RE] The exact create/no-create return convention beyond these cases is not separately audited here.
 ;   Clobbers:  A, BC, DE, HL, F; mutates VARTAB/ARYTAB/STREND and slides the array+string region when a new entry is allocated; uses scan-state cells $0C61/$0C62/$0C63 and the DEF-FN arg-block pointers $0B93/$0B95; writes FAC/VALTYP on the dummy-value path.
 ;   Algorithm: Linear-scan the SIMPLE-VARIABLE table VARTAB..ARYTAB (optionally the DEF FN formal-argument block first) for an entry whose stored type and 2-byte packed name match; each entry is variable-length so the walk advances by a computed stride (SV_NAMEXTLEN + SV_VALTYP + 1). On a 2-char header match, confirm any long-name tail with VARNAM_COMPARE. On a hit return the value address. On a miss from a writable context, grow the table: STR_COPY_DOWN slides the array+string region up to open a 3-byte gap, bump ARYTAB, write {valtyp,name0,name1}, copy the name tail with VARNAM_STORE, zero the value, and return it; on a miss from a read-only caller return a shared dummy value instead. A '(' / '[' after the name diverts to the array path: evaluate the comma-separated subscripts onto the stack (counting dimensions in D), scan the ARRAY table ARYTAB..STREND by each descriptor's stored block-length stride for the name, and either index the existing array (row-major offset accumulated by ARRAY_INDEX_MUL16, each dimension range-checked against the stored AV_DIMSIZE, out-of-range -> error 9) or, if absent and PTRGET_CREATE_FLAG is set, allocate a fresh ARRAYVAR (data size = product(dimsizes)*elemwidth + headers), zero it, and store its dim list. DIM of an existing array raises 'Redimensioned array'. OPTION BASE (ARRAY_BASE_BIAS, $0C73, value 0 or 1) governs the lower-bound and default dimension size.
 ; ----------------------------------------------------------------------
@@ -13985,7 +15874,7 @@ PTRGET_SEARCH_20:
         JP NZ,RAISE_SYNTAX_ERROR
 PTRGET_SEARCH_21:
         CALL CHRGET
-        LD (FRMEVL_TXTPTR_TEMP),HL
+        LD (FOUT_DP_POSITION),HL
         POP HL
         LD (PTRGET_CREATE_FLAG),HL
         LD E,$00
@@ -14071,7 +15960,7 @@ PTRGET_SEARCH_29:
         CALL CHECK_STACK_ROOM
         INC HL
         INC HL
-        LD (L_0B4A),HL
+        LD (PRUSING_FORMAT_FLAGS),HL
         LD (HL),C
         INC HL
         LD A,(PTRGET_CREATE_FLAG)
@@ -14115,7 +16004,7 @@ PTRGET_SEARCH_33:
         JR NZ,PTRGET_SEARCH_33
         INC BC
         LD D,A
-        LD HL,(L_0B4A)
+        LD HL,(PRUSING_FORMAT_FLAGS)
         LD E,(HL)
         EX DE,HL
         ADD HL,HL
@@ -14173,7 +16062,7 @@ PTRGET_SEARCH_37:
         EX DE,HL
 PTRGET_SEARCH_38:
         ; Restore the text pointer to just past the closing paren and return the element address in DE
-        LD HL,(FRMEVL_TXTPTR_TEMP)
+        LD HL,(FOUT_DP_POSITION)
         RET
 PTRGET_SEARCH_39:
         ; DIM-only path: array just created, no element to return -- signal 'no value' (carry set) and restore the text pointer
@@ -17881,7 +19770,7 @@ CHAIN_COPY_VAR_BLOCK_8:
         ADD HL,BC
         CP $03
         JR NZ,CHAIN_COPY_VAR_BLOCK_7
-        LD (L_0B4A),HL
+        LD (PRUSING_FORMAT_FLAGS),HL
         POP HL
         LD C,(HL)
         LD B,$00
@@ -17890,7 +19779,7 @@ CHAIN_COPY_VAR_BLOCK_8:
         INC HL
 CHAIN_COPY_VAR_BLOCK_9:
         EX DE,HL
-        LD HL,(L_0B4A)
+        LD HL,(PRUSING_FORMAT_FLAGS)
         EX DE,HL
         CALL CMP_HL_DE
         JR Z,CHAIN_COPY_VAR_BLOCK_8
