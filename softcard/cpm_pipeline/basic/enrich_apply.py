@@ -119,7 +119,8 @@ def apply_spec(text, spec):
         hdr = r.get("header") or []
         if hdr:
             b = _preceding_comment_block(lines, idx)
-            edits.append((b, idx, _framed_header(hdr)))   # supersede old comment block
+            # _rn the header text too, so prose that names a renamed label tracks the rename
+            edits.append((b, idx, _framed_header([_rn(h) for h in hdr])))
             rep["headers"] += 1
         for bc in r.get("body_comments", []) or []:
             anchor = _rn((bc.get("anchor") or "").strip())   # normalize to post-rename names
@@ -130,7 +131,7 @@ def apply_spec(text, spec):
                     n += 1
                     if n == occ:
                         indent = lines[k][:len(lines[k]) - len(lines[k].lstrip())]
-                        edits.append((k, k, [indent + "; " + bc["comment"]]))
+                        edits.append((k, k, [indent + "; " + _rn(bc["comment"])]))
                         rep["body"] += 1
                         placed = True
                         break

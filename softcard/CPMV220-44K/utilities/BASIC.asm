@@ -1432,7 +1432,7 @@ INTERP_RUN_START:
 ; ----------------------------------------------------------------------
 ; CRUNCH -- tokenize one source line of BASIC text into the crunch buffer.
 ;   In:        HL -> source text (raw input line), NUL-terminated.
-;   Out:       crunched/tokenized line built at KBUF; reserved words folded to single-byte tokens, string/REM/DATA text and digits passed through. Exits through CRUNCH_36 (end-of-line) which sets A=0, appends three trailing NUL bytes, and recomputes BC = bytes-emitted for the caller; DE then points at the last of those NUL slots.
+;   Out:       crunched/tokenized line built at KBUF; reserved words folded to single-byte tokens, string/REM/DATA text and digits passed through. Exits through CRUNCH_FINALIZE_LINE (end-of-line) which sets A=0, appends three trailing NUL bytes, and recomputes BC = bytes-emitted for the caller; DE then points at the last of those NUL slots.
 ;   Clobbers:  AF, BC, DE, HL; CRUNCH_LINENUM_MODE, CRUNCH_LITERAL_MODE; the crunch buffer at KBUF.
 ;   Algorithm: Reset both crunch-mode flags (line-number-introducer and literal-passthrough), set the output byte budget BC=$013B (315) and aim the output pointer DE at KBUF. Then fall into the per-character scan loop (CRUNCH_SCAN): classify each source char as quote / blank / end-of-line / (when not in literal mode) a candidate reserved word, and dispatch; reserved words are folded to tokens, '?' shorthand to PRINT.
 ; ----------------------------------------------------------------------
@@ -1446,25 +1446,25 @@ CRUNCH:
         ; Aim the output pointer at the crunch/tokenize work buffer; the tokenized line is built forward from here.
         LD DE,KBUF
 ; ----------------------------------------------------------------------
-; CRUNCH_SCAN (was CRUNCH_1) -- per-character scan/dispatch at the top of the crunch loop.
+; CRUNCH_SCAN (was CRUNCH_SCAN) -- per-character scan/dispatch at the top of the crunch loop.
 ;   In:        HL -> current source char; DE -> next output slot; BC = remaining output budget; CRUNCH_LITERAL_MODE = passthrough flag.
 ;   Out:       branches to the handler for the current char class; on a reserved-word candidate, falls into CRUNCH_RESWORD_BEGIN with A = TOK_PRINT preloaded and Z set iff the char is '?'.
 ;   Clobbers:  AF.
-;   Algorithm: Read (HL); dispatch: '"' -> string-literal copy (CRUNCH_34); ' ' -> verbatim blank (CRUNCH_30); NUL -> end-of-line finish (CRUNCH_36). Otherwise, if literal-passthrough mode is set, copy the char verbatim (CRUNCH_30); else compare the char to '?' then preload A=TOK_PRINT (the CP's Z flag survives the LD; Z => emit PRINT) before entering the reserved-word fold.
+;   Algorithm: Read (HL); dispatch: '"' -> string-literal copy (CRUNCH_COPY_QUOTED); ' ' -> verbatim blank (CRUNCH_PASS_CHAR); NUL -> end-of-line finish (CRUNCH_FINALIZE_LINE). Otherwise, if literal-passthrough mode is set, copy the char verbatim (CRUNCH_PASS_CHAR); else compare the char to '?' then preload A=TOK_PRINT (the CP's Z flag survives the LD; Z => emit PRINT) before entering the reserved-word fold.
 ; ----------------------------------------------------------------------
 CRUNCH_SCAN:
         ; Fetch the current source character (HL walks the raw input line).
         LD A,(HL)
-        ; A double-quote opens a string literal: copy it through verbatim (CRUNCH_34).
+        ; A double-quote opens a string literal: copy it through verbatim (CRUNCH_COPY_QUOTED).
         CP $22
         JP Z,CRUNCH_COPY_QUOTED
-        ; A blank is copied through unchanged (CRUNCH_30).
+        ; A blank is copied through unchanged (CRUNCH_PASS_CHAR).
         CP $20
         JP Z,CRUNCH_PASS_CHAR
-        ; NUL marks end of the source line: finish the crunched line (CRUNCH_36).
+        ; NUL marks end of the source line: finish the crunched line (CRUNCH_FINALIZE_LINE).
         OR A
         JP Z,CRUNCH_FINALIZE_LINE
-        ; In literal-passthrough mode (inside REM/DATA text) emit the raw char verbatim (CRUNCH_30) instead of attempting a reserved-word match.
+        ; In literal-passthrough mode (inside REM/DATA text) emit the raw char verbatim (CRUNCH_PASS_CHAR) instead of attempting a reserved-word match.
         LD A,(CRUNCH_LITERAL_MODE)
         OR A
         LD A,(HL)
@@ -1473,9 +1473,9 @@ CRUNCH_SCAN:
         CP $3F
         LD A,$91
 ; ----------------------------------------------------------------------
-; CRUNCH_RESWORD_BEGIN (was CRUNCH_2) -- start the reserved-word fold for the current candidate.
+; CRUNCH_RESWORD_BEGIN (was CRUNCH_RESWORD_BEGIN) -- start the reserved-word fold for the current candidate.
 ;   In:        HL -> first char of candidate word; DE/BC = output pointer/budget; A = TOK_PRINT and Z set iff the char was '?'.
-;   Out:       If '?' : emits PRINT (jumps CRUNCH_14 with A=TOK_PRINT). If NOT a letter (operator/punctuation/digit) : CRUNCH_17. If a letter : either runs the 'GO TO'/'GO SUB' two-word recognizer or arms CRUNCH_RESWORD_TAIL (via LD BC,CRUNCH_RESWORD_TAIL / PUSH BC / RET) to look the word up in the keyword name table.
+;   Out:       If '?' : emits PRINT (jumps CRUNCH_CLASSIFY_TOKEN with A=TOK_PRINT). If NOT a letter (operator/punctuation/digit) : CRUNCH_17. If a letter : either runs the 'GO TO'/'GO SUB' two-word recognizer or arms CRUNCH_RESWORD_TAIL (via LD BC,CRUNCH_RESWORD_TAIL / PUSH BC / RET) to look the word up in the keyword name table.
 ;   Clobbers:  AF, BC, DE, HL (saved copies of DE/BC pushed for the matcher to restore).
 ;   Algorithm: Save the output pointer/budget (PUSH DE / PUSH BC). If the char was '?', emit PRINT. Else upcase the current char and test it with IS_LETTER_A. If it is NOT a letter A-Z, hand it to CRUNCH_17 (operators/punctuation/digits). If it IS a letter, push HL and arm CRUNCH_RESWORD_TAIL as the continuation (LD BC,CRUNCH_RESWORD_TAIL / PUSH BC); then test for a leading 'G' to enter the 'GO TO'/'GO SUB' two-word recognizer; any non-'G' letter RETs into CRUNCH_RESWORD_TAIL for the ordinary keyword lookup.
 ; ----------------------------------------------------------------------
@@ -1510,11 +1510,11 @@ CRUNCH_RESWORD_BEGIN:
         RET NZ
         INC HL
 ; ----------------------------------------------------------------------
-; CRUNCH_GOTO_SUB_SCAN (was CRUNCH_3) -- recognize 'GO TO' / 'GO SUB' after a confirmed leading "GO ".
+; CRUNCH_GOTO_SUB_SCAN (was CRUNCH_GOTO_SUB_SCAN) -- recognize 'GO TO' / 'GO SUB' after a confirmed leading "GO ".
 ;   In:        HL -> first char after "GO " (the mandatory single blank already consumed in CRUNCH_RESWORD_BEGIN).
-;   Out:       On "GO SUB" -> CRUNCH_4 (GOSUB tail). On "GO TO" -> A=TOK_GOTO, then CRUNCH_5. On anything else: RET NZ, returning into CRUNCH_RESWORD_TAIL to try an ordinary keyword.
+;   Out:       On "GO SUB" -> CRUNCH_GOSUB_TAIL (GOSUB tail). On "GO TO" -> A=TOK_GOTO, then CRUNCH_GOTO_SUB_COMMIT. On anything else: RET NZ, returning into CRUNCH_RESWORD_TAIL to try an ordinary keyword.
 ;   Clobbers:  AF, HL.
-;   Algorithm: Skip any further run of blanks after the first "GO " blank. On 'S' branch to the GOSUB recognizer (CRUNCH_4). On 'T' continue the GOTO recognizer: read the next char (expect 'O'), preload TOK_GOTO (preserving the compare's Z), and join CRUNCH_5 which commits only if the 'O' matched. Any other char aborts the special case (RET NZ).
+;   Algorithm: Skip any further run of blanks after the first "GO " blank. On 'S' branch to the GOSUB recognizer (CRUNCH_GOSUB_TAIL). On 'T' continue the GOTO recognizer: read the next char (expect 'O'), preload TOK_GOTO (preserving the compare's Z), and join CRUNCH_GOTO_SUB_COMMIT which commits only if the 'O' matched. Any other char aborts the special case (RET NZ).
 ; ----------------------------------------------------------------------
 CRUNCH_GOTO_SUB_SCAN:
         CALL CHRGET_UPCASE
@@ -1522,7 +1522,7 @@ CRUNCH_GOTO_SUB_SCAN:
         CP $20
         ; Allow extra blanks between "GO" and "TO"/"SUB" beyond the first mandatory one (keep skipping spaces).
         JR Z,CRUNCH_GOTO_SUB_SCAN
-        ; 'S' -> the "GO SUB" recognizer (CRUNCH_4).
+        ; 'S' -> the "GO SUB" recognizer (CRUNCH_GOSUB_TAIL).
         CP $53
         JR Z,CRUNCH_GOSUB_TAIL
         ; 'T' -> the "GO TO" recognizer; any other character aborts the two-word special case (RET NZ).
@@ -1530,15 +1530,15 @@ CRUNCH_GOTO_SUB_SCAN:
         RET NZ
         CALL CHRGET_UPCASE
         CP $4F
-        ; Preload the GOTO token (does not disturb the preceding CP $4F flags); CRUNCH_5 commits it only if that 'O' matched (Z set).
+        ; Preload the GOTO token (does not disturb the preceding CP $4F flags); CRUNCH_GOTO_SUB_COMMIT commits it only if that 'O' matched (Z set).
         LD A,TOK_GOTO
         JR CRUNCH_GOTO_SUB_COMMIT
 ; ----------------------------------------------------------------------
-; CRUNCH_GOSUB_TAIL (was CRUNCH_4) -- match the 'UB' tail of 'GO SUB' and stage the GOSUB token.
+; CRUNCH_GOSUB_TAIL (was CRUNCH_GOSUB_TAIL) -- match the 'UB' tail of 'GO SUB' and stage the GOSUB token.
 ;   In:        HL -> char after the 'S' of "GO S...".
-;   Out:       If "...UB" matches: A=TOK_GOSUB and falls into CRUNCH_5 (commit). Otherwise RET NZ (abandon the special case, fall back to ordinary keyword lookup).
+;   Out:       If "...UB" matches: A=TOK_GOSUB and falls into CRUNCH_GOTO_SUB_COMMIT (commit). Otherwise RET NZ (abandon the special case, fall back to ordinary keyword lookup).
 ;   Clobbers:  AF, HL.
-;   Algorithm: Require 'U' (RET NZ on mismatch) then 'B' after "GO S"; load TOK_GOSUB ($8D) without disturbing the 'B' compare's flags and fall through to CRUNCH_5, which commits only when that final 'B' compared equal.
+;   Algorithm: Require 'U' (RET NZ on mismatch) then 'B' after "GO S"; load TOK_GOSUB ($8D) without disturbing the 'B' compare's flags and fall through to CRUNCH_GOTO_SUB_COMMIT, which commits only when that final 'B' compared equal.
 ; ----------------------------------------------------------------------
 CRUNCH_GOSUB_TAIL:
         CALL CHRGET_UPCASE
@@ -1547,16 +1547,16 @@ CRUNCH_GOSUB_TAIL:
         RET NZ
         INC HL
         CALL CHRGET_UPCASE
-        ; Require the final 'B' of "SUB"; CRUNCH_5 commits GOSUB only if this compares equal.
+        ; Require the final 'B' of "SUB"; CRUNCH_GOTO_SUB_COMMIT commits GOSUB only if this compares equal.
         CP $42
-        ; Stage the GOSUB token (TOK_GOSUB=$8D) for CRUNCH_5; the LD leaves the preceding 'B' compare's Z flag intact.
+        ; Stage the GOSUB token (TOK_GOSUB=$8D) for CRUNCH_GOTO_SUB_COMMIT; the LD leaves the preceding 'B' compare's Z flag intact.
         LD A,$8D
 ; ----------------------------------------------------------------------
-; CRUNCH_GOTO_SUB_COMMIT (was CRUNCH_5) -- commit the recognized GOTO/GOSUB token, discarding the keyword-lookup continuation.
+; CRUNCH_GOTO_SUB_COMMIT (was CRUNCH_GOTO_SUB_COMMIT) -- commit the recognized GOTO/GOSUB token, discarding the keyword-lookup continuation.
 ;   In:        A = TOK_GOTO or TOK_GOSUB; Z set iff the final keyword char matched; the stack holds (top-down) the armed CRUNCH_RESWORD_TAIL return address, then the saved HL (PUSH HL in CRUNCH_RESWORD_BEGIN), then the saved budget BC and output pointer DE.
-;   Out:       On match: pops the two staged stack words (the CRUNCH_RESWORD_TAIL return address and the saved HL) and jumps to CRUNCH_14 to emit the token (leaving the saved BC/DE on the stack for CRUNCH_16 to restore). On mismatch: RET NZ, returning into CRUNCH_RESWORD_TAIL to fall back to the ordinary keyword table lookup.
+;   Out:       On match: pops the two staged stack words (the CRUNCH_RESWORD_TAIL return address and the saved HL) and jumps to CRUNCH_CLASSIFY_TOKEN to emit the token (leaving the saved BC/DE on the stack for CRUNCH_STORE_FLAG_AND_EMIT to restore). On mismatch: RET NZ, returning into CRUNCH_RESWORD_TAIL to fall back to the ordinary keyword table lookup.
 ;   Clobbers:  AF, BC (two stack pops).
-;   Algorithm: If the trailing char did not match (NZ), bail out via RET into the keyword-lookup continuation. Otherwise drop the CRUNCH_RESWORD_TAIL return word and the saved-HL word from the stack (the two-word form is fully matched, no table lookup needed) and emit the token through CRUNCH_14.
+;   Algorithm: If the trailing char did not match (NZ), bail out via RET into the keyword-lookup continuation. Otherwise drop the CRUNCH_RESWORD_TAIL return word and the saved-HL word from the stack (the two-word form is fully matched, no table lookup needed) and emit the token through CRUNCH_CLASSIFY_TOKEN.
 ; ----------------------------------------------------------------------
 CRUNCH_GOTO_SUB_COMMIT:
         ; Trailing char mismatched: return into CRUNCH_RESWORD_TAIL to retry as an ordinary keyword.
@@ -1564,12 +1564,12 @@ CRUNCH_GOTO_SUB_COMMIT:
         ; Two-word form fully matched: discard the armed CRUNCH_RESWORD_TAIL return address and the saved HL (no table lookup needed); the second POP BC drops the second of these.
         POP BC
         POP BC
-        ; Emit the recognized GOTO/GOSUB token (A); CRUNCH_14 matches it in its keyword list and marks it a line-number-introducing keyword.
+        ; Emit the recognized GOTO/GOSUB token (A); CRUNCH_CLASSIFY_TOKEN matches it in its keyword list and marks it a line-number-introducing keyword.
         JP CRUNCH_CLASSIFY_TOKEN
 ; ----------------------------------------------------------------------
 ; CRUNCH_RESWORD_TAIL -- look the candidate word up in the keyword name table, indexed by its first letter.
 ;   In:        Reached by RET through the armed LD BC,CRUNCH_RESWORD_TAIL / PUSH BC continuation. Stack top holds the saved HL (HL -> first letter of the candidate, pushed in CRUNCH_RESWORD_BEGIN); the output pointer/budget were saved earlier (PUSH DE / PUSH BC).
-;   Out:       DE -> the keyword name-table group for the candidate's first letter; HL -> the second char of the candidate (first letter consumed). Falls into the per-keyword comparison loop (CRUNCH_7/CRUNCH_8).
+;   Out:       DE -> the keyword name-table group for the candidate's first letter; HL -> the second char of the candidate (first letter consumed). Falls into the per-keyword comparison loop (CRUNCH_RESWORD_TRY_ENTRY/CRUNCH_RESWORD_CMP_LOOP).
 ;   Clobbers:  AF, BC, DE, HL.
 ;   Algorithm: Recover HL (saved candidate pointer), read+upcase its first letter (CHRGET_UPCASE does not advance HL), re-save HL, then index RESWORD_INDEX by (letter-'A')*2 to fetch the 16-bit group pointer for that letter into DE. Restore HL and INC past the first letter (which the group implies, so name entries store only the tail), then drop into the per-keyword comparison loop.
 ; ----------------------------------------------------------------------
@@ -1599,11 +1599,11 @@ CRUNCH_RESWORD_TAIL:
 ;   In:        HL = source text pointer at the 2nd character of the candidate word (the first
 ;              letter already selected the keyword group via RESWORD_INDEX). DE = pointer into the
 ;              current keyword group (KWGRP_x), positioned at the first stored character of the next
-;              candidate name. Stack carries the CRUNCH_2-saved DE (output cursor) and BC (count).
-;   Out:       Falls through to CRUNCH_8 with HL (source pointer) saved on the stack.
+;              candidate name. Stack carries the CRUNCH_RESWORD_BEGIN-saved DE (output cursor) and BC (count).
+;   Out:       Falls through to CRUNCH_RESWORD_CMP_LOOP with HL (source pointer) saved on the stack.
 ;   Clobbers:  none here; pushes HL.
 ;   Algorithm: Re-entered once per candidate name in the letter's group (looped back from
-;              CRUNCH_12). Pushes the source pointer so that on a mismatch (CRUNCH_11) it can be
+;              CRUNCH_RESWORD_NEXT_ENTRY). Pushes the source pointer so that on a mismatch (CRUNCH_RESWORD_MISMATCH) it can be
 ;              restored to the word start before trying the next candidate.
 ; ----------------------------------------------------------------------
 CRUNCH_RESWORD_TRY_ENTRY:
@@ -1616,8 +1616,8 @@ CRUNCH_RESWORD_TRY_ENTRY:
 ;              bit set as terminator; the byte AFTER the terminated name is the token value; a $00
 ;              byte ends the letter group.
 ;   Out:       Full name matched: falls through with C = last matched source char and DE -> the
-;              token byte, into the follow-char acceptance checks below. Char mismatch: JR CRUNCH_11
-;              (try next candidate). Group exhausted ($00 end marker): JP CRUNCH_EMIT_2 (not a
+;              token byte, into the follow-char acceptance checks below. Char mismatch: JR CRUNCH_RESWORD_MISMATCH
+;              (try next candidate). Group exhausted ($00 end marker): JP CRUNCH_COPY_IDENT (not a
 ;              keyword; emit verbatim).
 ;   Clobbers:  A, C, HL, DE.
 ;   Algorithm: Character loop. Reads one uppercased source char (saved in C), reads the table name
@@ -1663,31 +1663,31 @@ CRUNCH_RESWORD_CMP_LOOP:
 ;              keyword's own last char C was not '(' and its token byte was not $E1 (USR) / $E2 (FN).
 ;              Carry from IS_ALNUM_CHAR reports whether the NEXT source char continues an identifier;
 ;              the '.' branch ($2E) jumps in directly with NC (CP-equal clears carry).
-;   Out:       Next source char is alphanumeric or '.' (NC): JP CRUNCH_EMIT_2 with A=0 -> emit the
+;   Out:       Next source char is alphanumeric or '.' (NC): JP CRUNCH_COPY_IDENT with A=0 -> emit the
 ;              word as an identifier, not the keyword. Next char ends the word (C set): fall into
-;              CRUNCH_10 to accept the token.
+;              CRUNCH_RESWORD_EMIT_TOKEN to accept the token.
 ;   Clobbers:  A.
-;   Algorithm: Pre-loads A=0 (so CRUNCH_EMIT_2's DEC A stores the $FF 'no line-number' sentinel) and
+;   Algorithm: Pre-loads A=0 (so CRUNCH_COPY_IDENT's DEC A stores the $FF 'no line-number' sentinel) and
 ;              takes the verbatim-emit exit when the matched keyword is actually the start of a
 ;              longer variable name (e.g. 'ANDY' must not tokenize as AND followed by 'Y').
 ; ----------------------------------------------------------------------
 CRUNCH_RESWORD_REJECT_PREFIX:
-        ; seed A=0 so the verbatim-emit path (CRUNCH_EMIT_2 DEC A) records the $FF no-line-number sentinel
+        ; seed A=0 so the verbatim-emit path (CRUNCH_COPY_IDENT DEC A) records the $FF no-line-number sentinel
         LD A,$00
         ; the word continues with another alnum/'.' char, so it is an identifier, not this keyword: emit it as text
         JP NC,CRUNCH_COPY_IDENT
 ; ----------------------------------------------------------------------
 ; CRUNCH_RESWORD_EMIT_TOKEN -- a keyword was confirmed; emit its token byte(s)
 ;   In:        DE -> the matched name's token byte. HL -> source char just past the keyword (the
-;              advanced compare-loop pointer). Stack top = the CRUNCH_7-saved word-start HL
+;              advanced compare-loop pointer). Stack top = the CRUNCH_RESWORD_TRY_ENTRY-saved word-start HL
 ;              (discarded here).
-;   Out:       Ordinary token (byte >= $80, sign bit set) case: JP M,CRUNCH_13 (back up HL then
-;              classify/emit via CRUNCH_13/14). Extended token (byte < $80) case: pops the
-;              CRUNCH_2-saved cursor/count, emits $FF then (token|$80), clears CRUNCH_LINENUM_MODE,
-;              and loops to CRUNCH_1.
+;   Out:       Ordinary token (byte >= $80, sign bit set) case: JP M,CRUNCH_RESWORD_FIXUP_HL (back up HL then
+;              classify/emit via CRUNCH_RESWORD_FIXUP_HL/14). Extended token (byte < $80) case: pops the
+;              CRUNCH_RESWORD_BEGIN-saved cursor/count, emits $FF then (token|$80), clears CRUNCH_LINENUM_MODE,
+;              and loops to CRUNCH_SCAN.
 ;   Clobbers:  A, BC, DE, HL, the crunch output cursor.
 ;   Algorithm: Discards the saved word-start pointer (keeps the advanced HL). Reads the token byte:
-;              if its high bit is set it is a normal one-byte token -> CRUNCH_13/CRUNCH_14. If
+;              if its high bit is set it is a normal one-byte token -> CRUNCH_RESWORD_FIXUP_HL/CRUNCH_CLASSIFY_TOKEN. If
 ;              positive (< $80) it is an extended/secondary token: pops the saved cursor/count, emits
 ;              the $FF escape prefix, then emits the token with bit7 forced on, and resumes scanning.
 ; ----------------------------------------------------------------------
@@ -1713,9 +1713,9 @@ CRUNCH_RESWORD_EMIT_TOKEN:
         JP CRUNCH_SCAN
 ; ----------------------------------------------------------------------
 ; CRUNCH_RESWORD_MISMATCH -- restore the source pointer after a character mismatch
-;   In:        Stack top = the CRUNCH_7-saved word-start HL. DE -> somewhere mid-name in the failed
+;   In:        Stack top = the CRUNCH_RESWORD_TRY_ENTRY-saved word-start HL. DE -> somewhere mid-name in the failed
 ;              candidate.
-;   Out:       HL rewound to the word start; falls into CRUNCH_12 to skip past the rest of the
+;   Out:       HL rewound to the word start; falls into CRUNCH_RESWORD_NEXT_ENTRY to skip past the rest of the
 ;              failed candidate's bytes.
 ;   Clobbers:  HL.
 ;   Algorithm: Pops the saved source pointer so the next candidate is compared from the same word
@@ -1727,11 +1727,11 @@ CRUNCH_RESWORD_MISMATCH:
 ; ----------------------------------------------------------------------
 ; CRUNCH_RESWORD_NEXT_ENTRY -- advance DE to the next keyword entry in the group
 ;   In:        DE -> mid-name in the failed candidate.
-;   Out:       DE -> first character of the next candidate name; jumps to CRUNCH_7 to retry.
+;   Out:       DE -> first character of the next candidate name; jumps to CRUNCH_RESWORD_TRY_ENTRY to retry.
 ;   Clobbers:  A, DE.
 ;   Algorithm: Skips remaining name bytes (high bit clear) until it consumes the high-bit terminator
 ;              char, then skips the one token byte, leaving DE on the next entry. If that entry is
-;              actually the trailing $00 group-end marker, CRUNCH_8's AND-$7F test catches it next
+;              actually the trailing $00 group-end marker, CRUNCH_RESWORD_CMP_LOOP's AND-$7F test catches it next
 ;              pass, not here.
 ; ----------------------------------------------------------------------
 CRUNCH_RESWORD_NEXT_ENTRY:
@@ -1747,28 +1747,28 @@ CRUNCH_RESWORD_NEXT_ENTRY:
 ; CRUNCH_RESWORD_FIXUP_HL -- back up HL by one before token classification
 ;   In:        A = matched token byte (>= $80). HL = source char just past the keyword (left by the
 ;              compare loop's per-char INC HL).
-;   Out:       HL decremented to point AT the keyword's last character; falls into CRUNCH_14.
+;   Out:       HL decremented to point AT the keyword's last character; falls into CRUNCH_CLASSIFY_TOKEN.
 ;   Clobbers:  HL.
 ;   Algorithm: Backs HL up one so it sits on the keyword's final char; the generic emit path
-;              (CRUNCH_30) does a matching INC HL to step past it before writing the token. The
-;              non-table entrants into CRUNCH_14 ('?'->PRINT and GO TO/GO SUB) bypass this DEC HL
+;              (CRUNCH_PASS_CHAR) does a matching INC HL to step past it before writing the token. The
+;              non-table entrants into CRUNCH_CLASSIFY_TOKEN ('?'->PRINT and GO TO/GO SUB) bypass this DEC HL
 ;              because their HL is already correctly positioned.
 ; ----------------------------------------------------------------------
 CRUNCH_RESWORD_FIXUP_HL:
-        ; rewind onto the keyword's last char (the name-compare loop overshot by one; CRUNCH_30 will re-advance)
+        ; rewind onto the keyword's last char (the name-compare loop overshot by one; CRUNCH_PASS_CHAR will re-advance)
         DEC HL
 ; ----------------------------------------------------------------------
 ; CRUNCH_CLASSIFY_TOKEN -- classify the just-matched token and set the line-number-mode flag
-;   In:        A = token byte about to be emitted (>= $80). Entered from CRUNCH_13 for table matches,
+;   In:        A = token byte about to be emitted (>= $80). Entered from CRUNCH_RESWORD_FIXUP_HL for table matches,
 ;              and directly from the '?'->PRINT shortcut (A=$91) and the GO TO/GO SUB folder
-;              (A=GOTO/GOSUB). Stack below the entry holds the CRUNCH_2-saved BC (count) and DE
+;              (A=GOTO/GOSUB). Stack below the entry holds the CRUNCH_RESWORD_BEGIN-saved BC (count) and DE
 ;              (output cursor).
-;   Out:       Via the cover idiom at CRUNCH_15/CRUNCH_16: A=1 (token introduces a line number) or
-;              A=0 (not) is written to CRUNCH_LINENUM_MODE, then CRUNCH_16 handles the ELSE/apostrophe
+;   Out:       Via the cover idiom at CRUNCH_LINENUM_FLAG_COVER/CRUNCH_STORE_FLAG_AND_EMIT: A=1 (token introduces a line number) or
+;              A=0 (not) is written to CRUNCH_LINENUM_MODE, then CRUNCH_STORE_FLAG_AND_EMIT handles the ELSE/apostrophe
 ;              special cases and finishes emitting.
-;   Clobbers:  A, BC; pushes the token (PUSH AF) for CRUNCH_16.
-;   Algorithm: Saves the token, then pushes CRUNCH_15+1 ($311A) as a fake return so that each
-;              'CP nn / RET Z' in the ladder that MATCHES returns INTO the operand of the CRUNCH_15
+;   Clobbers:  A, BC; pushes the token (PUSH AF) for CRUNCH_STORE_FLAG_AND_EMIT.
+;   Algorithm: Saves the token, then pushes CRUNCH_LINENUM_FLAG_COVER+1 ($311A) as a fake return so that each
+;              'CP nn / RET Z' in the ladder that MATCHES returns INTO the operand of the CRUNCH_LINENUM_FLAG_COVER
 ;              JP-NZ cover, executing its LD A,$01 (flag=1) and skipping the C2 jump opcode. The 14
 ;              listed values decode to RESTORE($8C), AUTO($A7), RENUM($A8), DELETE($A6), EDIT($A3),
 ;              RESUME($A5), ERL($E5), ELSE, RUN($8A), LIST($93), LLIST($9C), GOTO, THEN, GOSUB($8D)
@@ -1776,9 +1776,9 @@ CRUNCH_RESWORD_FIXUP_HL:
 ;              address) / XOR A -> flag=0.
 ; ----------------------------------------------------------------------
 CRUNCH_CLASSIFY_TOKEN:
-        ; stash the token byte; CRUNCH_16 re-reads it for the ELSE / apostrophe-REM cases and the final emit
+        ; stash the token byte; CRUNCH_STORE_FLAG_AND_EMIT re-reads it for the ELSE / apostrophe-REM cases and the final emit
         PUSH AF
-        ; fake return ($311A): a matching RET Z below lands on the LD A,$01 operand of CRUNCH_15's JP-NZ (flag=1), past the C2 jump opcode
+        ; fake return ($311A): a matching RET Z below lands on the LD A,$01 operand of CRUNCH_LINENUM_FLAG_COVER's JP-NZ (flag=1), past the C2 jump opcode
         LD BC,CRUNCH_LINENUM_FLAG_COVER+1
         PUSH BC
         ; test the token against the line-number-introducer set (RESTORE/AUTO/RENUM/DELETE/EDIT/RESUME/ERL/ELSE/RUN/LIST/LLIST/GOTO/THEN/GOSUB)
@@ -1811,14 +1811,14 @@ CRUNCH_CLASSIFY_TOKEN:
         CP $8D
         RET Z
         POP AF
-        ; no line-number keyword matched: clear A so CRUNCH_16 records flag=0
+        ; no line-number keyword matched: clear A so CRUNCH_STORE_FLAG_AND_EMIT records flag=0
         XOR A
 ; ----------------------------------------------------------------------
 ; CRUNCH_LINENUM_FLAG_COVER -- one-byte cover whose JP-NZ operand doubles as 'flag := 1'
-;   In:        Two entry forms. A matching RET Z from CRUNCH_14 returns to CRUNCH_15+1 ($311A),
+;   In:        Two entry forms. A matching RET Z from CRUNCH_CLASSIFY_TOKEN returns to CRUNCH_LINENUM_FLAG_COVER+1 ($311A),
 ;              executing the operand bytes 3E 01 ('LD A,$01'). The no-match fall-through arrives at
-;              CRUNCH_15 ($3119) itself with A=0 and Z set.
-;   Out:       Reaches CRUNCH_16 with A = 1 (line-number keyword) or A = 0 (other). The JP NZ is
+;              CRUNCH_LINENUM_FLAG_COVER ($3119) itself with A=0 and Z set.
+;   Out:       Reaches CRUNCH_STORE_FLAG_AND_EMIT with A = 1 (line-number keyword) or A = 0 (other). The JP NZ is
 ;              never taken (Z is set on the fall-through entrant).
 ;   Clobbers:  A (on the matched path only).
 ;   Algorithm: Data-as-cover idiom. The C2 opcode of 'JP NZ,$013E' is the single byte the matched
@@ -1831,17 +1831,17 @@ CRUNCH_LINENUM_FLAG_COVER:
 ; ----------------------------------------------------------------------
 ; CRUNCH_STORE_FLAG_AND_EMIT -- store the line-number flag, handle ELSE / apostrophe-REM, emit the token
 ;   In:        A = line-number flag (0 or 1) from the cover. Stack: token byte (PUSH AF in
-;              CRUNCH_14), then the CRUNCH_2-saved BC (count) and DE (output cursor).
+;              CRUNCH_CLASSIFY_TOKEN), then the CRUNCH_RESWORD_BEGIN-saved BC (count) and DE (output cursor).
 ;   Out:       CRUNCH_LINENUM_MODE updated. ELSE ($9E) gets a leading ':' emitted. The apostrophe
 ;              remark token ($EA, TOK_REM_QUOTE) is rewritten to ':' + the REM token ($8F) and
-;              continues into the verbatim remark-text copier (CRUNCH_35). All other tokens jump to
-;              CRUNCH_28 to emit normally.
+;              continues into the verbatim remark-text copier (CRUNCH_EMIT_AND_LOOP). All other tokens jump to
+;              CRUNCH_AMP_HEX_OCT to emit normally.
 ;   Clobbers:  A, BC, DE; manipulates the crunch output cursor.
 ;   Algorithm: Writes the flag, restores the token and output state (count/cursor), then special-
 ;              cases two tokens: ELSE (a statement separator, so prefix a colon) and the apostrophe
 ;              form of REM ($EA) which is emitted as ':' + the $8F REM token followed by the rest of
 ;              the line copied literally. Everything else is routed to the generic single-token
-;              emitter at CRUNCH_28.
+;              emitter at CRUNCH_AMP_HEX_OCT.
 ; ----------------------------------------------------------------------
 CRUNCH_STORE_FLAG_AND_EMIT:
         ; record whether the next digits form a line number (set for GOTO/THEN/ELSE/RUN/LIST/RESTORE/... )
@@ -1859,7 +1859,7 @@ CRUNCH_STORE_FLAG_AND_EMIT:
         JP NZ,CRUNCH_AMP_HEX_OCT
         PUSH AF
         CALL CRUNCH_EMIT_COLON
-        ; apostrophe (') remark: after the ':' emit the canonical REM token ($8F), then copy the remark text verbatim via CRUNCH_35
+        ; apostrophe (') remark: after the ':' emit the canonical REM token ($8F), then copy the remark text verbatim via CRUNCH_EMIT_AND_LOOP
         LD A,TOK_REM
         CALL CRUNCH_EMIT
         POP AF
@@ -1867,7 +1867,7 @@ CRUNCH_STORE_FLAG_AND_EMIT:
         JP CRUNCH_EMIT_AND_LOOP
 ; ----------------------------------------------------------------------
 ; CRUNCH_17 -- decide whether the current source character begins a number/line-number that CRUNCH must convert to a packed numeric token.
-;   In:        HL -> current source character in the input line; reached from CRUNCH_2 via JP C,CRUNCH_17 (IS_LETTER_A returned carry = NOT a letter). The DE(crunch-dest)/BC(remaining) pair is on the stack (DE PUSHed first, BC on top) from CRUNCH_2.
+;   In:        HL -> current source character in the input line; reached from CRUNCH_RESWORD_BEGIN via JP C,CRUNCH_17 (IS_LETTER_A returned carry = NOT a letter). The DE(crunch-dest)/BC(remaining) pair is on the stack (DE PUSHed first, BC on top) from CRUNCH_RESWORD_BEGIN.
 ;   Out:       Falls into CRUNCH_18 if the char is a numeric-constant lead ('.', or a digit '0'-'9'); jumps to CRUNCH_26 (operator/punctuation reserved-word rescan) otherwise.
 ;   Clobbers:  A.
 ;   Algorithm: Re-load (HL) into A and classify: a leading '.' is accepted as a possible decimal point (JR Z,CRUNCH_18); bytes >= ':' ($3A) and bytes < '0' ($30) are not digits, so route to CRUNCH_26 which retries the char against the operator name-table (catches +-*/^=<>'\ that IS_LETTER_A rejected); '0'-'9' fall through to CRUNCH_18.
@@ -1885,10 +1885,10 @@ CRUNCH_17:
         JP C,CRUNCH_26
 ; ----------------------------------------------------------------------
 ; CRUNCH_18 -- tokenize a numeric constant or a line-number reference at (HL).
-;   In:        HL -> first character of the number; CRUNCH_LINENUM_MODE ($0B16) holds the line-number-introducer flag (set to $01 when the preceding crunched token was GOTO/GOSUB/THEN/RUN/LIST/RESTORE/etc., $00 otherwise -- the only values written by CRUNCH_16/CRUNCH_30 in normal operation); DE(dest)/BC(count) on the stack from CRUNCH_2.
-;   Out:       Restores BC(count)/DE(dest) from the stack, then either: emits a line-number-reference token ($0E + 2-byte line number) when the flag is positive nonzero, or hands an ordinary numeric literal to CRUNCH_22 when the flag is zero. A stray '.' in line-number mode escapes to CRUNCH_30 (copy the char verbatim).
+;   In:        HL -> first character of the number; CRUNCH_LINENUM_MODE ($0B16) holds the line-number-introducer flag (set to $01 when the preceding crunched token was GOTO/GOSUB/THEN/RUN/LIST/RESTORE/etc., $00 otherwise -- the only values written by CRUNCH_STORE_FLAG_AND_EMIT/CRUNCH_PASS_CHAR in normal operation); DE(dest)/BC(count) on the stack from CRUNCH_RESWORD_BEGIN.
+;   Out:       Restores BC(count)/DE(dest) from the stack, then either: emits a line-number-reference token ($0E + 2-byte line number) when the flag is positive nonzero, or hands an ordinary numeric literal to CRUNCH_22 when the flag is zero. A stray '.' in line-number mode escapes to CRUNCH_PASS_CHAR (copy the char verbatim).
 ;   Clobbers:  A, DE, BC, HL.
-;   Algorithm: OR A on CRUNCH_LINENUM_MODE sets flags that survive the LD A,(HL)/POP BC/POP DE that follow. If zero -> ordinary numeric literal (JR Z,CRUNCH_22, FIN parse + packed token). If positive nonzero (line-number mode) and the char is not '.' -> emit token $0E, CALL LINGET to read the decimal line number into DE, trim trailing blanks, and fall into CRUNCH_19/20/21 to emit the 2-byte line number. [RE] A JP M,CRUNCH_30 also guards the sign-bit-set case (flag value $80-$FF), but the documented flag writers only ever store $00/$01, so this passthrough branch is not exercised by those paths; UNKNOWN which writer (if any) leaves the flag negative.
+;   Algorithm: OR A on CRUNCH_LINENUM_MODE sets flags that survive the LD A,(HL)/POP BC/POP DE that follow. If zero -> ordinary numeric literal (JR Z,CRUNCH_22, FIN parse + packed token). If positive nonzero (line-number mode) and the char is not '.' -> emit token $0E, CALL LINGET to read the decimal line number into DE, trim trailing blanks, and fall into CRUNCH_19/20/21 to emit the 2-byte line number. [RE] A JP M,CRUNCH_PASS_CHAR also guards the sign-bit-set case (flag value $80-$FF), but the documented flag writers only ever store $00/$01, so this passthrough branch is not exercised by those paths; UNKNOWN which writer (if any) leaves the flag negative.
 ; ----------------------------------------------------------------------
 CRUNCH_18:
         ; is the preceding keyword one that introduces a target line number?
@@ -1912,8 +1912,8 @@ CRUNCH_18:
         CALL CRUNCH_SKIP_BLANKS_BACK
 ; ----------------------------------------------------------------------
 ; CRUNCH_19 -- emit a 2-byte little-endian constant (line number or &-radix value) into the crunch buffer.
-;   In:        DE = the 16-bit value to emit; HL -> source text continuation (just past the number); top of stack = the crunch write-cursor saved by the caller (CRUNCH_18's PUSH DE at $3161, or CRUNCH_29's PUSH DE at $31E8).
-;   Out:       Falls into CRUNCH_20/CRUNCH_21 which emit the value's low then high byte and resume the main scan at CRUNCH_1.
+;   In:        DE = the 16-bit value to emit; HL -> source text continuation (just past the number); top of stack = the crunch write-cursor saved by the caller (CRUNCH_18's PUSH DE at $3161, or CRUNCH_AMP_EMIT_AND_SCAN's PUSH DE at $31E8).
+;   Out:       Falls into CRUNCH_20/CRUNCH_21 which emit the value's low then high byte and resume the main scan at CRUNCH_SCAN.
 ;   Clobbers:  HL, DE, A.
 ;   Algorithm: EX (SP),HL swaps the live source pointer onto the stack and brings the saved crunch write-cursor into HL; EX DE,HL then puts the 16-bit value into HL and the write-cursor into DE. Net result entering CRUNCH_20: HL = value, DE = write-cursor, stack top = post-number source pointer (which CRUNCH_21 POPs back).
 ; ----------------------------------------------------------------------
@@ -1937,9 +1937,9 @@ CRUNCH_20:
 ; ----------------------------------------------------------------------
 ; CRUNCH_21 -- emit the high (second) byte of a 2-byte numeric token payload and return to the main scan.
 ;   In:        A = the byte to emit; the post-number source pointer is on top of stack; DE/BC = crunch cursor/count.
-;   Out:       Byte emitted; HL reloaded with the saved source pointer; control rejoins the tokenizer loop at CRUNCH_1.
+;   Out:       Byte emitted; HL reloaded with the saved source pointer; control rejoins the tokenizer loop at CRUNCH_SCAN.
 ;   Clobbers:  HL, DE, BC, A.
-;   Algorithm: POP the saved source pointer back into HL, emit A (the high byte / second payload byte), then JP CRUNCH_1 to continue tokenizing. Also reached from CRUNCH_22's small-integer path with A = value+$11 (the single-byte embedded constants $11-$1A for digits 0-9).
+;   Algorithm: POP the saved source pointer back into HL, emit A (the high byte / second payload byte), then JP CRUNCH_SCAN to continue tokenizing. Also reached from CRUNCH_22's small-integer path with A = value+$11 (the single-byte embedded constants $11-$1A for digits 0-9).
 ; ----------------------------------------------------------------------
 CRUNCH_21:
         ; restore the source pointer to just past the number
@@ -1950,7 +1950,7 @@ CRUNCH_21:
 ; ----------------------------------------------------------------------
 ; CRUNCH_22 -- parse a numeric literal with FIN and emit it as the smallest MS-BASIC packed numeric token.
 ;   In:        HL -> first char of the numeric literal; DE = crunch write-cursor, BC = remaining count (live registers restored at CRUNCH_18; CRUNCH_22 re-PUSHes them around the FIN call).
-;   Out:       The constant is parsed into the FAC (VALTYP = L_0B14 ($0B14); 16-bit int in FAC ($0CB1)); the correctly-sized token is emitted: $11-$1A for integers 0-9, $0F+byte for 10-255, $1C+word for 16-bit ints, or via CRUNCH_23 for single/double; control returns to CRUNCH_1.
+;   Out:       The constant is parsed into the FAC (VALTYP = VALTYP ($0B14); 16-bit int in FAC ($0CB1)); the correctly-sized token is emitted: $11-$1A for integers 0-9, $0F+byte for 10-255, $1C+word for 16-bit ints, or via CRUNCH_23 for single/double; control returns to CRUNCH_SCAN.
 ;   Clobbers:  A, HL, DE, BC, FAC cells.
 ;   Algorithm: PUSH dest/count, CALL FIN_1+1 (the FIN numeric scanner entered at its +1 byte so the XOR-A flag-skip pre-seeds the FAC integer), trim trailing blanks, restore dest/count, PUSH the post-number source pointer. If VALTYP is integer ($02): read the 16-bit value from $0CB1; when the high byte is zero, values 0-9 emit as the compact $11-$1A tokens (ADD A,$11 -> CRUNCH_21) and 10-255 as the $0F 1-byte-int token + the byte (pre-staged HL then CRUNCH_20); when the high byte is nonzero the full 16-bit value goes to CRUNCH_23 (with A reloaded to $02). Non-integer (single/double) literals always go to CRUNCH_23.
 ; ----------------------------------------------------------------------
@@ -1987,7 +1987,7 @@ CRUNCH_22:
 ; ----------------------------------------------------------------------
 ; CRUNCH_23 -- emit a wide numeric constant token ($1C 2-byte int / $1D single / $1F double) followed by its raw FAC bytes.
 ;   In:        A = the width code to encode: $02 (2-byte int), $04 (single) or $08 (double); the FAC holds the value (int/single at $0CB1, double field at $0CAD); the post-number source pointer is on the stack.
-;   Out:       The type token and exactly VALTYP value-bytes are copied into the crunch buffer; control returns to CRUNCH_1 via CRUNCH_24/CRUNCH_25.
+;   Out:       The type token and exactly VALTYP value-bytes are copied into the crunch buffer; control returns to CRUNCH_SCAN via CRUNCH_24/CRUNCH_25.
 ;   Clobbers:  A, HL, DE, BC.
 ;   Algorithm: PUSH A (the width, so the FRMEVL_TEST_TYPE call below can clobber it). RRCA halves the width ($02->$01, $04->$02, $08->$04) and ADD $1B yields the token $1C (2-byte int), $1D (single) or $1F (double); emit it. Select the FAC source: set HL=$0CB1, then FRMEVL_TEST_TYPE returns carry SET for VALTYP < $08 (int/single) and CLEAR for VALTYP >= $08 (double); on carry (int/single) JR C,CRUNCH_24 keeps HL=$0CB1, otherwise LD HL,$0CAD selects the wider double field. CRUNCH_24 then POPs the width back into A for the copy loop.
 ; ----------------------------------------------------------------------
@@ -2016,9 +2016,9 @@ CRUNCH_24:
 ; ----------------------------------------------------------------------
 ; CRUNCH_25 -- copy A raw value-bytes from the FAC into the crunch buffer (the wide-constant payload loop).
 ;   In:        A = number of bytes to copy (VALTYP width: 2 int / 4 single / 8 double); HL -> FAC source field; DE/BC = crunch cursor/count; the post-number source pointer is on the stack.
-;   Out:       A bytes emitted via CRUNCH_EMIT; HL (source text) restored; control returns to CRUNCH_1.
+;   Out:       A bytes emitted via CRUNCH_EMIT; HL (source text) restored; control returns to CRUNCH_SCAN.
 ;   Clobbers:  A, HL, DE, BC.
-;   Algorithm: Loop: PUSH the remaining count, load (HL) and emit it via CRUNCH_EMIT, POP the count, INC HL, DEC A, repeat while nonzero. When done, POP the saved source-text pointer into HL and JP CRUNCH_1 to continue tokenizing.
+;   Algorithm: Loop: PUSH the remaining count, load (HL) and emit it via CRUNCH_EMIT, POP the count, INC HL, DEC A, repeat while nonzero. When done, POP the saved source-text pointer into HL and JP CRUNCH_SCAN to continue tokenizing.
 ; ----------------------------------------------------------------------
 CRUNCH_25:
         PUSH AF
@@ -2036,7 +2036,7 @@ CRUNCH_25:
 ; ----------------------------------------------------------------------
 ; CRUNCH_26 -- match the current character against the operator/punctuation reserved-word table (the non-letter keyword scan).
 ;   In:        HL -> current source character; reached from CRUNCH_17 for characters that are neither letters nor digits.
-;   Out:       On a match, emits the operator token (CRUNCH_EMIT_6 with A = the token); on no match (table terminator), passes the character through as-is (CRUNCH_EMIT_5).
+;   Out:       On a match, emits the operator token (CRUNCH_EMIT_OP with A = the token); on no match (table terminator), passes the character through as-is (CRUNCH_NORMALIZE_CTRL).
 ;   Clobbers:  A, DE.
 ;   Algorithm: Load DE with KWGRP_Z ($04D7), the $00 Z-group terminator that sits immediately before the operator (char,token) table RESWORD_OPS ($04D8); CRUNCH_27's leading INC DE advances DE onto the first operator entry. This gives non-letter chars (+ - * / ^ = < > backslash quote-rem) a chance to tokenize as operators before being copied through verbatim.
 ; ----------------------------------------------------------------------
@@ -2046,9 +2046,9 @@ CRUNCH_26:
 ; ----------------------------------------------------------------------
 ; CRUNCH_27 -- inner scan of the operator name-table, comparing each entry's char to (HL).
 ;   In:        DE -> the byte just before a (char+$80, token) operator entry; HL -> the source character to match.
-;   Out:       On the table terminator ($00) -> CRUNCH_EMIT_5 (pass the char through); on a char match -> CRUNCH_EMIT_6 with A = the entry's token byte.
+;   Out:       On the table terminator ($00) -> CRUNCH_NORMALIZE_CTRL (pass the char through); on a char match -> CRUNCH_EMIT_OP with A = the entry's token byte.
 ;   Clobbers:  A, DE.
-;   Algorithm: INC DE to the entry's char byte; read it and AND $7F to drop the always-set high bit (the marker that flags a name char) -- if the result is $00 the byte was the table terminator, so no operator matched and the char is copied verbatim. Otherwise INC DE to the token byte, CP (HL) the masked char against the source char, then LD A,(token) (does not disturb the CP flags) so a hit leaves the token in A; loop on mismatch, fall through to CRUNCH_EMIT_6 on a match.
+;   Algorithm: INC DE to the entry's char byte; read it and AND $7F to drop the always-set high bit (the marker that flags a name char) -- if the result is $00 the byte was the table terminator, so no operator matched and the char is copied verbatim. Otherwise INC DE to the token byte, CP (HL) the masked char against the source char, then LD A,(token) (does not disturb the CP flags) so a hit leaves the token in A; loop on mismatch, fall through to CRUNCH_EMIT_OP on a match.
 ;   Note:      This walks the operator sub-table RESWORD_OPS (anchored just past KWGRP_Z), the same (char+$80, token) layout used by the per-letter keyword groups.
 ; ----------------------------------------------------------------------
 CRUNCH_27:
@@ -2067,15 +2067,15 @@ CRUNCH_27:
         JP CRUNCH_EMIT_OP
 ; ----------------------------------------------------------------------
 ; CRUNCH_AMP_HEX_OCT -- post-keyword char/token emit router: special-case an '&' (&H hex / &O octal radix literal), otherwise emit the byte verbatim.
-;   In:        A = the byte routed in through CRUNCH_16 from CRUNCH_EMIT_6 -- either an operator token (operator-match path) or a normalized source char (non-operator CRUNCH_EMIT_5 path); HL -> the source char. DE/BC are LIVE (already POPped from the stack by CRUNCH_16), DE = output cursor, BC = remaining count. Reached only from CRUNCH_16 when A is neither ELSE nor $EA (TOK_REM_QUOTE).
-;   Out:       if A != '&' ($26), branches to CRUNCH_30 to emit the byte (char or token). If '&', emits the radix marker token ($0B octal / $0C hex), scans and converts the radix digits, and rejoins the numeric-literal emit path at CRUNCH_19.
+;   In:        A = the byte routed in through CRUNCH_STORE_FLAG_AND_EMIT from CRUNCH_EMIT_OP -- either an operator token (operator-match path) or a normalized source char (non-operator CRUNCH_NORMALIZE_CTRL path); HL -> the source char. DE/BC are LIVE (already POPped from the stack by CRUNCH_STORE_FLAG_AND_EMIT), DE = output cursor, BC = remaining count. Reached only from CRUNCH_STORE_FLAG_AND_EMIT when A is neither ELSE nor $EA (TOK_REM_QUOTE).
+;   Out:       if A != '&' ($26), branches to CRUNCH_PASS_CHAR to emit the byte (char or token). If '&', emits the radix marker token ($0B octal / $0C hex), scans and converts the radix digits, and rejoins the numeric-literal emit path at CRUNCH_19.
 ;   Clobbers:  A, HL (advanced past the digits by SCAN_AMP_RADIX_CONST in the '&' case), DE/BC (saved/restored across the scan).
-;   Algorithm: Test for '&' ($26). On '&', peek the next char (CHRGET), upper-case it (TOUPPER_A), and choose the marker: $0C if 'H' (hex), else $0B (octal). Fall into CRUNCH_29 to emit the marker and parse the constant. Note '&' is NOT in RESWORD_OPS, so it arrives here as a normalized char via CRUNCH_EMIT_5.
+;   Algorithm: Test for '&' ($26). On '&', peek the next char (CHRGET), upper-case it (TOUPPER_A), and choose the marker: $0C if 'H' (hex), else $0B (octal). Fall into CRUNCH_AMP_EMIT_AND_SCAN to emit the marker and parse the constant. Note '&' is NOT in RESWORD_OPS, so it arrives here as a normalized char via CRUNCH_NORMALIZE_CTRL.
 ; ----------------------------------------------------------------------
 CRUNCH_AMP_HEX_OCT:
         ; is this byte an '&' radix-constant prefix (&H hex / &O octal)?
         CP $26
-        ; not '&': branch to CRUNCH_30 to emit the byte (ordinary char or operator token)
+        ; not '&': branch to CRUNCH_PASS_CHAR to emit the byte (ordinary char or operator token)
         JR NZ,CRUNCH_PASS_CHAR
         PUSH HL
         ; peek the char after '&' to distinguish &H from &O
@@ -2108,10 +2108,10 @@ CRUNCH_AMP_EMIT_AND_SCAN:
         JP CRUNCH_19
 ; ----------------------------------------------------------------------
 ; CRUNCH_PASS_CHAR -- emit the byte in A (an ordinary char, a space, or an operator/radix token) to the output buffer and update the literal/line-number mode flags it triggers.
-;   In:        A = the byte to emit; HL -> that char in the source line; DE = output cursor, BC = remaining count (live working values; reached from CRUNCH_1, CRUNCH_18, CRUNCH_28, or CRUNCH_33).
-;   Out:       byte written to (DE) with DE advanced / BC decremented (CRUNCH_EMIT); CRUNCH_LITERAL_MODE and CRUNCH_LINENUM_MODE updated for ':' and the DATA token; control returns to CRUNCH_1 for the next char, EXCEPT when the byte is the REM token ($8F = TOK_REM), which falls into the verbatim copy loop (CRUNCH_33) to copy the rest of the line.
+;   In:        A = the byte to emit; HL -> that char in the source line; DE = output cursor, BC = remaining count (live working values; reached from CRUNCH_SCAN, CRUNCH_18, CRUNCH_AMP_HEX_OCT, or CRUNCH_VERBATIM_LOOP).
+;   Out:       byte written to (DE) with DE advanced / BC decremented (CRUNCH_EMIT); CRUNCH_LITERAL_MODE and CRUNCH_LINENUM_MODE updated for ':' and the DATA token; control returns to CRUNCH_SCAN for the next char, EXCEPT when the byte is the REM token ($8F = TOK_REM), which falls into the verbatim copy loop (CRUNCH_VERBATIM_LOOP) to copy the rest of the line.
 ;   Clobbers:  A, HL (INC'd past the char), DE/BC (advanced by emit).
-;   Algorithm: INC HL past the char, copy A to the output via CRUNCH_EMIT (AF preserved across the call by PUSH/POP). Then classify by subtracting code points: SUB $3A == 0 means ':' (statement separator) -> arm both modes with A=$00; CP $4A (testing char == $3A+$4A = $84 = TOK_DATA) means DATA -> set A=$01 and arm both modes (DATA text is copied raw). Finally at CRUNCH_32 the residual (char-$3A) SUB $55 == 0 means char == $8F = TOK_REM -> enter the verbatim copy-to-end-of-line loop (CRUNCH_33); any other byte loops back to CRUNCH_1.
+;   Algorithm: INC HL past the char, copy A to the output via CRUNCH_EMIT (AF preserved across the call by PUSH/POP). Then classify by subtracting code points: SUB $3A == 0 means ':' (statement separator) -> arm both modes with A=$00; CP $4A (testing char == $3A+$4A = $84 = TOK_DATA) means DATA -> set A=$01 and arm both modes (DATA text is copied raw). Finally at CRUNCH_CHECK_REM_TEXT the residual (char-$3A) SUB $55 == 0 means char == $8F = TOK_REM -> enter the verbatim copy-to-end-of-line loop (CRUNCH_VERBATIM_LOOP); any other byte loops back to CRUNCH_SCAN.
 ; ----------------------------------------------------------------------
 CRUNCH_PASS_CHAR:
         ; consume this source char
@@ -2132,7 +2132,7 @@ CRUNCH_PASS_CHAR:
 ; CRUNCH_SET_LITERAL_MODE -- arm both CRUNCH mode flags so following text is passed through and a following number is treated as a line number.
 ;   In:        A = flag value ($00 from the ':' / SUB $3A == 0 path, $01 from the DATA token).
 ;   Out:       CRUNCH_LITERAL_MODE ($0B15) and CRUNCH_LINENUM_MODE ($0B16) both set to A.
-;   Clobbers:  (memory only) the two mode cells; A unchanged, then falls into CRUNCH_32.
+;   Clobbers:  (memory only) the two mode cells; A unchanged, then falls into CRUNCH_CHECK_REM_TEXT.
 ;   Algorithm: Store A into both mode flags, then fall into CRUNCH_CHECK_REM_TEXT. For ':' A is already $00; the DATA path enters with A=$01.
 ; ----------------------------------------------------------------------
 CRUNCH_SET_LITERAL_MODE:
@@ -2143,7 +2143,7 @@ CRUNCH_SET_LITERAL_MODE:
 ; ----------------------------------------------------------------------
 ; CRUNCH_CHECK_REM_TEXT -- decide whether the just-emitted byte is the REM token (and thus starts verbatim REM text), else resume the main loop.
 ;   In:        A = the char's residual after the SUB $3A classification in CRUNCH_PASS_CHAR (so A = char - $3A on the fall-through path, or $00/$01 from the ':' / DATA paths).
-;   Out:       SUB $55; if non-zero, jumps to CRUNCH_1 (continue normal crunching); if zero (the byte was $8F = TOK_REM), PUSH AF (saving A=$00, the REM verbatim-loop's stop byte) and fall into CRUNCH_33 to copy the rest of the line raw.
+;   Out:       SUB $55; if non-zero, jumps to CRUNCH_SCAN (continue normal crunching); if zero (the byte was $8F = TOK_REM), PUSH AF (saving A=$00, the REM verbatim-loop's stop byte) and fall into CRUNCH_VERBATIM_LOOP to copy the rest of the line raw.
 ;   Clobbers:  A.
 ;   Algorithm: SUB $55. A non-zero result returns to the main per-char loop. A zero result (char == $8F = TOK_REM) identifies REM, so push the now-zero AF as the verbatim loop's saved stop byte ($00) and drop into the raw copy loop.
 ; ----------------------------------------------------------------------
@@ -2155,10 +2155,10 @@ CRUNCH_CHECK_REM_TEXT:
         PUSH AF
 ; ----------------------------------------------------------------------
 ; CRUNCH_VERBATIM_LOOP -- copy source characters to the output unchanged until end-of-line, or until a saved stop/delimiter byte is hit.
-;   In:        HL -> next source char; DE = output cursor, BC = remaining count; top of stack holds the saved stop byte ($00 for the REM/apostrophe-comment paths, the closing quote $22 for the string-literal path, $EA for the apostrophe-REM path), re-pushed each iteration by CRUNCH_34.
-;   Out:       on $00 (end of line) -> CRUNCH_36 to finalize; on a char equal to the saved stop byte -> CRUNCH_30 to emit that delimiter and resume normal crunching; otherwise the char is emitted and the loop repeats.
-;   Clobbers:  A, HL, DE/BC (advanced by CRUNCH_35 emit), and the top stack slot via EX (SP),HL.
-;   Algorithm: LD A,(HL); OR A tests for the $00 line terminator (and leaves A=char). The EX (SP),HL / LD A,H / POP HL idiom swaps the saved stop byte off the stack: HL = saved AF (H = the stop byte), then A = H = stop byte, then POP HL restores the source pointer; the source char's Z-flag from OR A survives. If the char was $00, finalize (CRUNCH_36). If the char equals the stop byte, emit it via CRUNCH_30 (ending the run). Otherwise fall into CRUNCH_34/CRUNCH_35 to emit it and loop.
+;   In:        HL -> next source char; DE = output cursor, BC = remaining count; top of stack holds the saved stop byte ($00 for the REM/apostrophe-comment paths, the closing quote $22 for the string-literal path, $EA for the apostrophe-REM path), re-pushed each iteration by CRUNCH_COPY_QUOTED.
+;   Out:       on $00 (end of line) -> CRUNCH_FINALIZE_LINE to finalize; on a char equal to the saved stop byte -> CRUNCH_PASS_CHAR to emit that delimiter and resume normal crunching; otherwise the char is emitted and the loop repeats.
+;   Clobbers:  A, HL, DE/BC (advanced by CRUNCH_EMIT_AND_LOOP emit), and the top stack slot via EX (SP),HL.
+;   Algorithm: LD A,(HL); OR A tests for the $00 line terminator (and leaves A=char). The EX (SP),HL / LD A,H / POP HL idiom swaps the saved stop byte off the stack: HL = saved AF (H = the stop byte), then A = H = stop byte, then POP HL restores the source pointer; the source char's Z-flag from OR A survives. If the char was $00, finalize (CRUNCH_FINALIZE_LINE). If the char equals the stop byte, emit it via CRUNCH_PASS_CHAR (ending the run). Otherwise fall into CRUNCH_COPY_QUOTED/CRUNCH_EMIT_AND_LOOP to emit it and loop.
 ; ----------------------------------------------------------------------
 CRUNCH_VERBATIM_LOOP:
         ; fetch the next source char of the literal/REM run
@@ -2173,14 +2173,14 @@ CRUNCH_VERBATIM_LOOP:
         JR Z,CRUNCH_FINALIZE_LINE
         ; did we reach the stop byte (e.g. the matching quote)?
         CP (HL)
-        ; stop byte reached: emit it via CRUNCH_30 and leave the verbatim run
+        ; stop byte reached: emit it via CRUNCH_PASS_CHAR and leave the verbatim run
         JR Z,CRUNCH_PASS_CHAR
 ; ----------------------------------------------------------------------
 ; CRUNCH_COPY_QUOTED -- string-literal entry AND per-iteration delimiter re-push for the verbatim loop.
-;   In:        as a CRUNCH_1 entry: (HL)=='"' with A = the quote ($22) and HL -> the opening quote; DE/BC live. As the loop continuation from CRUNCH_33: A = the saved stop byte (from LD A,H) and HL -> the source char to emit.
-;   Out:       PUSH AF re-saves the stop/delimiter byte for the next iteration; A reloaded from (HL) (the char to emit); falls into CRUNCH_35 to write it and loop in CRUNCH_VERBATIM_LOOP until the stop byte or end-of-line.
+;   In:        as a CRUNCH_SCAN entry: (HL)=='"' with A = the quote ($22) and HL -> the opening quote; DE/BC live. As the loop continuation from CRUNCH_VERBATIM_LOOP: A = the saved stop byte (from LD A,H) and HL -> the source char to emit.
+;   Out:       PUSH AF re-saves the stop/delimiter byte for the next iteration; A reloaded from (HL) (the char to emit); falls into CRUNCH_EMIT_AND_LOOP to write it and loop in CRUNCH_VERBATIM_LOOP until the stop byte or end-of-line.
 ;   Clobbers:  A, HL, DE/BC.
-;   Algorithm: PUSH AF saves the delimiter (the quote $22 on string entry, or the same stop byte each loop iteration); LD A,(HL) loads the source char to emit. Fall into CRUNCH_35. On the CRUNCH_1 quote entry this copies the opening quote first and uses $22 as the closing delimiter.
+;   Algorithm: PUSH AF saves the delimiter (the quote $22 on string entry, or the same stop byte each loop iteration); LD A,(HL) loads the source char to emit. Fall into CRUNCH_EMIT_AND_LOOP. On the CRUNCH_SCAN quote entry this copies the opening quote first and uses $22 as the closing delimiter.
 ; ----------------------------------------------------------------------
 CRUNCH_COPY_QUOTED:
         ; save the current stop/delimiter byte (the quote $22 on entry) for the next loop iteration
@@ -2192,7 +2192,7 @@ CRUNCH_COPY_QUOTED:
 ;   In:        A = char/byte to write; HL -> the source char (advanced here); DE/BC live.
 ;   Out:       byte written via CRUNCH_EMIT, HL advanced past it, loops back to CRUNCH_VERBATIM_LOOP.
 ;   Clobbers:  A, HL, DE/BC.
-;   Algorithm: INC HL to consume the source char, copy A to the output through CRUNCH_EMIT, then JR back to CRUNCH_VERBATIM_LOOP for the next char. Also reached from CRUNCH_16's $EA (TOK_REM_QUOTE, apostrophe-comment) handler, which has just emitted ':' + REM and re-pushed $EA as the loop stop byte.
+;   Algorithm: INC HL to consume the source char, copy A to the output through CRUNCH_EMIT, then JR back to CRUNCH_VERBATIM_LOOP for the next char. Also reached from CRUNCH_STORE_FLAG_AND_EMIT's $EA (TOK_REM_QUOTE, apostrophe-comment) handler, which has just emitted ':' + REM and re-pushed $EA as the loop stop byte.
 ; ----------------------------------------------------------------------
 CRUNCH_EMIT_AND_LOOP:
         ; consume this source char
@@ -2231,7 +2231,7 @@ CRUNCH_FINALIZE_LINE:
 ;   In:        DE = next free byte of the crunch output buffer (KBUF/$0140-sized window); BC = bytes of buffer space remaining
 ;   Out:       ':' ($3A) appended; DE advanced by 1; BC decremented by 1 (does not return on buffer exhaustion -- falls into the overflow tail of CRUNCH_EMIT)
 ;   Clobbers:  A (loaded with $3A), then whatever CRUNCH_EMIT clobbers (A,DE,BC,(DE))
-;   Algorithm: Load A=':' and fall straight into CRUNCH_EMIT. Called only from CRUNCH_16 to synthesize the implicit ':' inserted before an ELSE clause (CP TOK_ELSE / CALL Z) and the ':' that prefixes the apostrophe-comment token $EA before its emitted REM ($EA -> :REM), so the runtime sees a real statement boundary.
+;   Algorithm: Load A=':' and fall straight into CRUNCH_EMIT. Called only from CRUNCH_STORE_FLAG_AND_EMIT to synthesize the implicit ':' inserted before an ELSE clause (CP TOK_ELSE / CALL Z) and the ':' that prefixes the apostrophe-comment token $EA before its emitted REM ($EA -> :REM), so the runtime sees a real statement boundary.
 ; ----------------------------------------------------------------------
 CRUNCH_EMIT_COLON:
         LD A,$3A
@@ -2262,10 +2262,10 @@ CRUNCH_EMIT_OVERFLOW:
         JP RAISE_ERROR
 ; ----------------------------------------------------------------------
 ; CRUNCH_COPY_IDENT -- begin copying a non-keyword word (variable/identifier) to the output verbatim
-;   In:        On stack (top-down): saved word-start text pointer (pushed at CRUNCH_7), then saved BC (remaining output space) and DE (output ptr) pushed at the top of the per-token loop (CRUNCH_2); A = 0 (both entries set A=0 -- via AND $7F yielding Z at $3098, or explicit LD A,$00 at $30BF)
+;   In:        On stack (top-down): saved word-start text pointer (pushed at CRUNCH_RESWORD_TRY_ENTRY), then saved BC (remaining output space) and DE (output ptr) pushed at the top of the per-token loop (CRUNCH_RESWORD_BEGIN); A = 0 (both entries set A=0 -- via AND $7F yielding Z at $3098, or explicit LD A,$00 at $30BF)
 ;   Out:       Falls into CRUNCH_COPY_IDENT_LOOP with HL at the word's first character, BC/DE restored, A = that first character, and CRUNCH_LINENUM_MODE = $FF (the "just-emitted-an-identifier" sentinel)
 ;   Clobbers:  A, HL, BC, DE, CRUNCH_LINENUM_MODE
-;   Algorithm: Reached when the reserved-word matcher found the word matches NO keyword (the name table ran out at CRUNCH_8, or a non-abbreviated word ran past with no match). POP the saved word-start pointer; [RE] DEC HL backs it up one so the first letter is re-read (the saved pointer had been advanced past the first char during matching). DEC A turns the incoming A=0 into $FF and stores it into CRUNCH_LINENUM_MODE to record that an identifier was just emitted (so a following digit run is NOT taken as a target line number). Restore the output cursor (BC,DE); prime A with the first character via CHRGET_UPCASE (which reads (HL), does not advance); fall into the copy loop.
+;   Algorithm: Reached when the reserved-word matcher found the word matches NO keyword (the name table ran out at CRUNCH_RESWORD_CMP_LOOP, or a non-abbreviated word ran past with no match). POP the saved word-start pointer; [RE] DEC HL backs it up one so the first letter is re-read (the saved pointer had been advanced past the first char during matching). DEC A turns the incoming A=0 into $FF and stores it into CRUNCH_LINENUM_MODE to record that an identifier was just emitted (so a following digit run is NOT taken as a target line number). Restore the output cursor (BC,DE); prime A with the first character via CHRGET_UPCASE (which reads (HL), does not advance); fall into the copy loop.
 ; ----------------------------------------------------------------------
 CRUNCH_COPY_IDENT:
         ; word matched no keyword: recover the saved pointer to the word's start
@@ -2280,7 +2280,7 @@ CRUNCH_COPY_IDENT:
 ; ----------------------------------------------------------------------
 ; CRUNCH_COPY_IDENT_LOOP -- copy an identifier (letters, digits, '.') to the output verbatim
 ;   In:        A = current character to emit; HL -> that character in the source text; DE/BC = crunch output cursor/room
-;   Out:       Each accepted character appended via CRUNCH_EMIT and HL advanced; on the first character outside {A-Z, 0-9, '.'} it exits to CRUNCH_COPY_IDENT_DONE (-> CRUNCH_1) with HL at that terminating character
+;   Out:       Each accepted character appended via CRUNCH_EMIT and HL advanced; on the first character outside {A-Z, 0-9, '.'} it exits to CRUNCH_COPY_IDENT_DONE (-> CRUNCH_SCAN) with HL at that terminating character
 ;   Clobbers:  A, HL, DE, BC, flags
 ;   Algorithm: Loop: emit A; INC HL and fetch+upcase the next char (CHRGET_UPCASE). IS_LETTER_A returns carry CLEAR for a letter A-Z and SET for a non-letter, so JR NC loops on letters. Otherwise the char is accepted only if it is a digit ($30-$39, after rejecting >= ':' first) or a literal '.' ($2E), both legal in BASIC variable names, and the loop continues on those; any other byte (space, ':', operator, end) terminates the name.
 ; ----------------------------------------------------------------------
@@ -2304,9 +2304,9 @@ CRUNCH_COPY_IDENT_LOOP:
 ; ----------------------------------------------------------------------
 ; CRUNCH_COPY_IDENT_DONE -- identifier fully copied; resume the main tokenizer scan
 ;   In:        HL -> the first character that is not part of the identifier
-;   Out:       Jumps to CRUNCH_1 to tokenize from that character
+;   Out:       Jumps to CRUNCH_SCAN to tokenize from that character
 ;   Clobbers:  (none beyond the jump)
-;   Algorithm: Single JP CRUNCH_1. Common exit for the identifier-copy loop, reached when the next source character is outside {A-Z, 0-9, '.'}.
+;   Algorithm: Single JP CRUNCH_SCAN. Common exit for the identifier-copy loop, reached when the next source character is outside {A-Z, 0-9, '.'}.
 ; ----------------------------------------------------------------------
 CRUNCH_COPY_IDENT_DONE:
         JP CRUNCH_SCAN
@@ -2331,12 +2331,12 @@ CRUNCH_NORMALIZE_CTRL:
 ; ----------------------------------------------------------------------
 ; CRUNCH_EMIT_OP -- finalize a single-character operator/punctuation byte and rejoin the matched-token epilogue
 ;   In:        A = byte to emit -- the operator TOKEN byte loaded from the RESWORD_OPS table by CRUNCH_27 on a match, or a normalized punctuation/control char from CRUNCH_NORMALIZE_CTRL
-;   Out:       Pushes A (byte to emit), recomputes the line-number-mode flag into A, then JP CRUNCH_16 where the byte is popped and emitted by the shared token epilogue
-;   Clobbers:  A, stack (one PUSH AF consumed by CRUNCH_16's POP AF), flags
-;   Algorithm: Save the byte to emit (PUSH AF). Read CRUNCH_LINENUM_MODE: INC A maps the $FF "identifier-just-emitted" sentinel to 0 (Z set -> JR Z skips the following DEC A, committing 0), while any other value (0 normal, 1 line-number-keyword) is restored by the DEC A. Carry the resulting flag in A into CRUNCH_16, which stores it back to CRUNCH_LINENUM_MODE and emits the saved byte. This funnels single-char operators through the same ELSE/REM-colon-aware epilogue used by reserved-word tokens.
+;   Out:       Pushes A (byte to emit), recomputes the line-number-mode flag into A, then JP CRUNCH_STORE_FLAG_AND_EMIT where the byte is popped and emitted by the shared token epilogue
+;   Clobbers:  A, stack (one PUSH AF consumed by CRUNCH_STORE_FLAG_AND_EMIT's POP AF), flags
+;   Algorithm: Save the byte to emit (PUSH AF). Read CRUNCH_LINENUM_MODE: INC A maps the $FF "identifier-just-emitted" sentinel to 0 (Z set -> JR Z skips the following DEC A, committing 0), while any other value (0 normal, 1 line-number-keyword) is restored by the DEC A. Carry the resulting flag in A into CRUNCH_STORE_FLAG_AND_EMIT, which stores it back to CRUNCH_LINENUM_MODE and emits the saved byte. This funnels single-char operators through the same ELSE/REM-colon-aware epilogue used by reserved-word tokens.
 ; ----------------------------------------------------------------------
 CRUNCH_EMIT_OP:
-        ; stash the byte to emit; CRUNCH_16 will POP and write it
+        ; stash the byte to emit; CRUNCH_STORE_FLAG_AND_EMIT will POP and write it
         PUSH AF
         LD A,(CRUNCH_LINENUM_MODE)
         ; if line-number-mode held the $FF identifier sentinel, INC->0 (Z) clears it and skips the DEC that restores 0/1 values
@@ -2346,9 +2346,9 @@ CRUNCH_EMIT_OP:
 ; ----------------------------------------------------------------------
 ; CRUNCH_EMIT_OP_1 -- shared tail of CRUNCH_EMIT_OP: jump into the matched-token epilogue with the flag already in A
 ;   In:        A = line-number-mode flag value to commit; byte to emit on the stack
-;   Out:       Jumps to CRUNCH_16 (stores A to CRUNCH_LINENUM_MODE, pops and emits the stacked byte, handles ELSE/REM colon insertion)
+;   Out:       Jumps to CRUNCH_STORE_FLAG_AND_EMIT (stores A to CRUNCH_LINENUM_MODE, pops and emits the stacked byte, handles ELSE/REM colon insertion)
 ;   Clobbers:  (none beyond the jump)
-;   Algorithm: Single JP CRUNCH_16, reached both by the JR Z that skips DEC A (when the $FF sentinel was just folded to 0) and by fall-through after DEC A.
+;   Algorithm: Single JP CRUNCH_STORE_FLAG_AND_EMIT, reached both by the JR Z that skips DEC A (when the $FF sentinel was just folded to 0) and by fall-through after DEC A.
 ; ----------------------------------------------------------------------
 CRUNCH_EMIT_OP_1:
         JP CRUNCH_STORE_FLAG_AND_EMIT
@@ -2378,13 +2378,13 @@ CRUNCH_SKIP_BLANKS_BACK:
 ;   Out:       Falls through to the FOR-frame reuse scan (STMT_FOR_1). On completion a FOR
 ;              frame is pushed on the runtime stack and control enters the NEXT body for the
 ;              zero-trip test.
-;   Clobbers:  AF,BC,DE,HL,SP,FAC; PTRGET_SUBSCRIPT_FLAG, OPEN_RESUME_TEXT_PTR, L_0C6D, L_0B4E, VALTYP.
+;   Clobbers:  AF,BC,DE,HL,SP,FAC; PTRGET_SUBSCRIPT_FLAG, OPEN_RESUME_TEXT_PTR, FOR_NEXT_VALUE_TEMP, L_0B4E, VALTYP.
 ;   Algorithm: Parse 'FOR var = init'. Force scalar-variable context (PTRGET_SUBSCRIPT_FLAG=$64 so
 ;              PTRGET rejects an array element), PTRGET the index variable -> its address in DE.
 ;              SYNCHR the '=' token. Save the index-variable address (via OPEN_RESUME_TEXT_PTR).
 ;              [RE] Evaluate the initial expression (FRMEVL_NOPAREN) into the FAC, coerce it to
 ;              the index variable's type (FRMEVL_APPLY_OP dispatched by the saved VALTYP), and copy
-;              the coerced FAC into the scratch numeric cell L_0C6D. [RE] Then CALL STMT_DATA to
+;              the coerced FAC into the scratch numeric cell FOR_NEXT_VALUE_TEMP. [RE] Then CALL STMT_DATA to
 ;              scan forward over the rest of the FOR statement and record the resulting text
 ;              pointer in L_0B4E (used as this loop's frame-match key). HL=SP+2 prepares the
 ;              runtime-stack walk in STMT_FOR_1. UNKNOWN: the precise field-by-field frame layout
@@ -2413,7 +2413,7 @@ STMT_FOR:
         PUSH HL
         ; [RE] Coerce the FAC to the index variable's type: the saved VALTYP (AND $07) indexes the type-conversion entries of OPERATOR_ROUTINE_TBL (CINT/CSNG/CDBL).
         CALL FRMEVL_APPLY_OP
-        ; [RE] Copy the coerced FAC into the scratch numeric cell L_0C6D (FP_MOVE_TO_FAC copies FAC->here); reused later by NEXT, not a write into the variable itself.
+        ; [RE] Copy the coerced FAC into the scratch numeric cell FOR_NEXT_VALUE_TEMP (FP_MOVE_TO_FAC copies FAC->here); reused later by NEXT, not a write into the variable itself.
         LD HL,FOR_NEXT_VALUE_TEMP
         CALL FP_MOVE_TO_FAC
         POP HL
@@ -4289,7 +4289,7 @@ FRMEVL_OPLOOP_10:
 ;              $64 the relational does not bind here -> RET to apply it outward. Otherwise push B
 ;              and the relation mask D, set DE = $6404 (D=$64 = recursion precedence for the right
 ;              operand; E=$04 = the operator code that, doubled, selects the compare slot in each
-;              type's operator band: DCOMP_REL/FCOMP/INT16_COMP). Queue FRMEVL_SCAN_UNARY_1 ([RE]
+;              type's operator band: DCOMP_REL/FCOMP/INT16_COMP). Queue FRMEVL_RELOP_RESULT ([RE]
 ;              the relational-result finalizer: it combines the compare result with the relation
 ;              mask to yield -1/0 into the FAC) as the post-recursion return, then test the left
 ;              operand's type via FRMEVL_TEST_TYPE. If numeric (NZ), take the compare path through
@@ -4352,7 +4352,7 @@ FRMEVL_OPCOMBINE:
         ; Both double ($08): stage the double operands and dispatch the double band.
         JR NC,FRMEVL_OPC_DBL_SETUP
 ; ----------------------------------------------------------------------
-; FRMEVL_OPC_PROMOTE (was FRMEVL_OPLOOP_13) -- coerce two differently-typed operands to a common numeric type
+; FRMEVL_OPC_PROMOTE (was FRMEVL_OPC_PROMOTE) -- coerce two differently-typed operands to a common numeric type
 ;   In:        A = right operand type (VALTYP), B = left operand type; operands as for FRMEVL_OPCOMBINE.
 ;   Out:       Branches to the path that widens the narrower operand to the wider of the two types, then into
 ;              that type's dispatch band.
@@ -4385,7 +4385,7 @@ FRMEVL_OPC_PROMOTE:
         ; Right is single and left is integer: widen the left integer operand to single.
         JR NC,FRMEVL_OPC_WIDEN_LEFT_SNG
 ; ----------------------------------------------------------------------
-; FRMEVL_OPC_DISPATCH_INT (was FRMEVL_OPLOOP_14) -- dispatch a two-integer operation through the integer band
+; FRMEVL_OPC_DISPATCH_INT (was FRMEVL_OPC_DISPATCH_INT) -- dispatch a two-integer operation through the integer band
 ;   In:        Both operands integer. C holds the operator routine index from the popped frame; B is zeroed here.
 ;              The left integer operand is on the stack; the right integer operand is in the FAC.
 ;   Out:       PUSH/RET tail-jumps to the integer operator handler (IADD/INT_SIGNEXT_SUB/IMUL/IDIV/INT16_COMP)
@@ -4412,7 +4412,7 @@ FRMEVL_OPC_DISPATCH_INT:
         PUSH BC
         RET
 ; ----------------------------------------------------------------------
-; FRMEVL_OPC_WIDEN_RIGHT_DBL (was FRMEVL_OPLOOP_15) -- widen the right operand to double, then take the double path
+; FRMEVL_OPC_WIDEN_RIGHT_DBL (was FRMEVL_OPC_WIDEN_RIGHT_DBL) -- widen the right operand to double, then take the double path
 ;   In:        Right operand in the FAC (narrower numeric type); the left operand is already double on the stack.
 ;   Out:       Falls into FRMEVL_OPC_DBL_SETUP with the FAC holding a double-precision right operand.
 ;   Clobbers:  A,B,C,D,E,H,L,F, the FAC.
@@ -4423,7 +4423,7 @@ FRMEVL_OPC_WIDEN_RIGHT_DBL:
         ; Promote the right operand (in the FAC) up to double precision.
         CALL FN_CDBL
 ; ----------------------------------------------------------------------
-; FRMEVL_OPC_DBL_SETUP (was FRMEVL_OPLOOP_16) -- stage the right double operand and the left operand's low words
+; FRMEVL_OPC_DBL_SETUP (was FRMEVL_OPC_DBL_SETUP) -- stage the right double operand and the left operand's low words
 ;   In:        Right operand is double in the FAC; the left double operand's mantissa bytes are on the stack
 ;              (low extension words on top). Operator index already saved in CRUNCH_LITERAL_MODE.
 ;   Out:       Falls into FRMEVL_OPC_DBL_LOADFAC with the right operand moved to the secondary FP temp ($0CBA)
@@ -4444,7 +4444,7 @@ FRMEVL_OPC_DBL_SETUP:
         POP HL
         LD (FAC_DBL),HL
 ; ----------------------------------------------------------------------
-; FRMEVL_OPC_DBL_LOADFAC (was FRMEVL_OPLOOP_17) -- load the left double operand's high mantissa into the FAC
+; FRMEVL_OPC_DBL_LOADFAC (was FRMEVL_OPC_DBL_LOADFAC) -- load the left double operand's high mantissa into the FAC
 ;   In:        Stack holds the left double operand's remaining high mantissa bytes; the FAC low extension words
 ;              were already loaded by FRMEVL_OPC_DBL_SETUP (or this is entered from the left-was-single path).
 ;   Out:       Falls into FRMEVL_OPC_DISPATCH_DBL with the full left operand assembled in the FAC.
@@ -4460,7 +4460,7 @@ FRMEVL_OPC_DBL_LOADFAC:
         ; Write DE->FAC mantissa-low and BC->FACHI, completing the left operand in the FAC.
         CALL FP_STORE_FAC
 ; ----------------------------------------------------------------------
-; FRMEVL_OPC_DISPATCH_DBL (was FRMEVL_OPLOOP_18) -- dispatch a two-double operation through the double band
+; FRMEVL_OPC_DISPATCH_DBL (was FRMEVL_OPC_DISPATCH_DBL) -- dispatch a two-double operation through the double band
 ;   In:        Left double operand in the FAC, right double operand in the secondary FP temp ($0CBA); the
 ;              operator index lives in CRUNCH_LITERAL_MODE.
 ;   Out:       JP (HL) to the double operator handler (DADD/DP_NEGATE_SIGN/DMUL/DDIV/DCOMP_REL).
@@ -4474,7 +4474,7 @@ FRMEVL_OPC_DISPATCH_DBL:
         ; Select the double operator band ($0503: DADD,DP_NEGATE_SIGN,DMUL,DDIV,DCOMP_REL).
         LD HL,OPERATOR_ROUTINE_TBL+OP_BAND_DBL
 ; ----------------------------------------------------------------------
-; FRMEVL_OPC_BAND_DISPATCH (was FRMEVL_OPLOOP_19) -- index a band of OPERATOR_ROUTINE_TBL and jump to the handler
+; FRMEVL_OPC_BAND_DISPATCH (was FRMEVL_OPC_BAND_DISPATCH) -- index a band of OPERATOR_ROUTINE_TBL and jump to the handler
 ;   In:        HL = the chosen band base (OP_BAND_SNG/DBL entry of OPERATOR_ROUTINE_TBL); CRUNCH_LITERAL_MODE =
 ;              operator routine index. Operands already staged in the FAC and the secondary temp.
 ;   Out:       JP (HL) into the selected DEFW handler; never returns here.
@@ -4502,7 +4502,7 @@ FRMEVL_OPC_BAND_DISPATCH:
         LD L,A
         JP (HL)
 ; ----------------------------------------------------------------------
-; FRMEVL_OPC_WIDEN_LEFT_DBL (was FRMEVL_OPLOOP_20) -- widen the left operand to double when only the right is double
+; FRMEVL_OPC_WIDEN_LEFT_DBL (was FRMEVL_OPC_WIDEN_LEFT_DBL) -- widen the left operand to double when only the right is double
 ;   In:        Right operand is double in the FAC; left operand (narrower: int or single) is on the stack with
 ;              its type byte. B = left VALTYP, C = operator index on entry (but see below).
 ;   Out:       Joins the double dispatch path: if the left was single, into FRMEVL_OPC_DBL_LOADFAC (reusing the
@@ -4531,7 +4531,7 @@ FRMEVL_OPC_WIDEN_LEFT_DBL:
         LD (FAC),HL
         JR FRMEVL_OPC_DISPATCH_DBL
 ; ----------------------------------------------------------------------
-; FRMEVL_OPC_WIDEN_RIGHT_SNG (was FRMEVL_OP_COERCE_INT) -- widen the right operand to single, then dispatch single
+; FRMEVL_OPC_WIDEN_RIGHT_SNG (was FRMEVL_OPC_WIDEN_RIGHT_SNG) -- widen the right operand to single, then dispatch single
 ;   In:        Right operand in the FAC (narrower than single: integer); the left single operand is on the stack.
 ;              Reached from the promotion tree when the LEFT operand is single ($04).
 ;   Out:       Falls into FRMEVL_OPC_DISPATCH_SNG (pops the left single operand and dispatches the single band).
@@ -4545,7 +4545,7 @@ FRMEVL_OPC_WIDEN_RIGHT_SNG:
         ; Promote the right operand (in the FAC) up to single precision to match the single left operand.
         CALL FN_CSNG
 ; ----------------------------------------------------------------------
-; FRMEVL_OPC_DISPATCH_SNG (was FRMEVL_OP_POP_FRAME) -- recover the left single operand and dispatch the single band
+; FRMEVL_OPC_DISPATCH_SNG (was FRMEVL_OPC_DISPATCH_SNG) -- recover the left single operand and dispatch the single band
 ;   In:        Left single operand pushed on the stack as two register pairs; right single operand in the FAC.
 ;              Entered directly from FRMEVL_OPCOMBINE when BOTH operands are single, or by fall-through after the
 ;              right operand was widened to single.
@@ -4559,7 +4559,7 @@ FRMEVL_OPC_DISPATCH_SNG:
         POP BC
         POP DE
 ; ----------------------------------------------------------------------
-; FRMEVL_OPC_SNG_BAND (was FRMEVL_OP_DISPATCH_REL) -- select the single-precision operator band and dispatch
+; FRMEVL_OPC_SNG_BAND (was FRMEVL_OPC_SNG_BAND) -- select the single-precision operator band and dispatch
 ;   In:        Both operands staged for a single-precision op (left in BC/DE, right in the FAC); operator index
 ;              in CRUNCH_LITERAL_MODE.
 ;   Out:       Branches into FRMEVL_OPC_BAND_DISPATCH, which JP (HL)s to FADD_ALIGN/FSUB/FMUL/FDIV/FCOMP.
@@ -4575,7 +4575,7 @@ FRMEVL_OPC_SNG_BAND:
         LD HL,OPERATOR_ROUTINE_TBL+OP_BAND_SNG
         JR FRMEVL_OPC_BAND_DISPATCH
 ; ----------------------------------------------------------------------
-; FRMEVL_OPC_WIDEN_LEFT_SNG (was FRMEVL_OP_COERCE_INT_3) -- widen the integer left operand to single, dispatch single
+; FRMEVL_OPC_WIDEN_LEFT_SNG (was FRMEVL_OPC_WIDEN_LEFT_SNG) -- widen the integer left operand to single, dispatch single
 ;   In:        Right operand is single in the FAC; left operand is a 16-bit integer pushed on the stack. Reached
 ;              when the right is single and the left is integer.
 ;   Out:       Branches to FRMEVL_OPC_SNG_BAND for single-precision dispatch, with the widened LEFT operand in
@@ -5635,11 +5635,11 @@ STMT_LIST:
         ; refuse to list a load-protected program: ILLEGAL_DIRECT_CHECK raises ERROR_FC ('Illegal function call') when the protect flag (L_0C99) is nonzero
         CALL ILLEGAL_DIRECT_CHECK
 ; ----------------------------------------------------------------------
-; STMT_LIST_1 -- LIST main loop head: fetch the next program line node and test for end-of-program.
-;   In:        On the stack (top..): current BASLINE node pointer, then the end-bound line number. (First arrival: pushed by STMT_LIST; later arrivals: re-looped from STMT_LIST_3 with the next-node pointer on top.)
-;   Out:       HL -> the node's BASLINE.LINENUM field (node+2), DE = end-bound line number, BC = this node's BASLINE.LINK (pointer to the next node). Falls into STMT_LIST_2. On a $0000 link (past the last line) jumps to NEWSTT_READY.
+; STMT_LIST_NEXT_NODE -- LIST main loop head: fetch the next program line node and test for end-of-program.
+;   In:        On the stack (top..): current BASLINE node pointer, then the end-bound line number. (First arrival: pushed by STMT_LIST; later arrivals: re-looped from STMT_LIST_BODY with the next-node pointer on top.)
+;   Out:       HL -> the node's BASLINE.LINENUM field (node+2), DE = end-bound line number, BC = this node's BASLINE.LINK (pointer to the next node). Falls into STMT_LIST_EMIT_LINE. On a $0000 link (past the last line) jumps to NEWSTT_READY.
 ;   Clobbers:  AF, BC, DE, HL, SAVTXT.
-;   Algorithm: Stores SAVTXT=$FFFF (the direct-mode sentinel; [RE] this is the standard MS BASIC-80 marker so a CONT after a LIST is rejected), pops the saved node pointer and end-bound, then reads the node's forward link (BASLINE.LINK). A null link ends the program -> return to the READY prompt. Otherwise tests PTRFIL to set Z (Z set when PTRFIL==0, i.e. console / no file open) so STMT_LIST_2 polls the console for a Ctrl-C/Ctrl-S break only when output is the console.
+;   Algorithm: Stores SAVTXT=$FFFF (the direct-mode sentinel; [RE] this is the standard MS BASIC-80 marker so a CONT after a LIST is rejected), pops the saved node pointer and end-bound, then reads the node's forward link (BASLINE.LINK). A null link ends the program -> return to the READY prompt. Otherwise tests PTRFIL to set Z (Z set when PTRFIL==0, i.e. console / no file open) so STMT_LIST_EMIT_LINE polls the console for a Ctrl-C/Ctrl-S break only when output is the console.
 ; ----------------------------------------------------------------------
 STMT_LIST_NEXT_NODE:
         ; [RE] mark direct mode: SAVTXT=$FFFF, the MS BASIC sentinel so a CONT after a LIST is refused (the routine only writes the cell here; the CONT effect is downstream)
@@ -5663,9 +5663,9 @@ STMT_LIST_NEXT_NODE:
         OR L
         POP HL
 ; ----------------------------------------------------------------------
-; STMT_LIST_2 -- emit one program line: range-test, print the line number, then prepare to detokenize.
-;   In:        HL -> the current node's BASLINE.LINENUM field (node+2), BC = next-node link, DE = end-bound line number, Z = console-output flag (from the PTRFIL test in STMT_LIST_1).
-;   Out:       Falls into STMT_LIST_3 with HL -> the line's token bytes. When the line number exceeds the end bound, jumps to READY_POP_FRAME (listing done).
+; STMT_LIST_EMIT_LINE -- emit one program line: range-test, print the line number, then prepare to detokenize.
+;   In:        HL -> the current node's BASLINE.LINENUM field (node+2), BC = next-node link, DE = end-bound line number, Z = console-output flag (from the PTRFIL test in STMT_LIST_NEXT_NODE).
+;   Out:       Falls into STMT_LIST_BODY with HL -> the line's token bytes. When the line number exceeds the end bound, jumps to READY_POP_FRAME (listing done).
 ;   Clobbers:  AF, BC, DE, HL, ERRLIN; stack used for scratch.
 ;   Algorithm: When listing to the console it first polls for a pending Ctrl-S pause / Ctrl-C break (RPC_CONST_POLL). It reads the node's BASLINE.LINENUM and compares it against the end bound (CMP_HL_DE computes end - linenum; carry => linenum past the end); once past the end, listing stops. Otherwise it records the line number in ERRLIN (so a break is reported against this line), prints it with FOUT, then peeks the first body byte: a leading TAB character ($09) suppresses the usual separating space, otherwise a space is emitted between the number and the line body.
 ; ----------------------------------------------------------------------
@@ -5701,9 +5701,9 @@ STMT_LIST_EMIT_LINE:
         LD A,$20
         CALL OUTCHR
 ; ----------------------------------------------------------------------
-; STMT_LIST_3 -- detokenize the current line into BUF, print it, and advance to the next line.
+; STMT_LIST_BODY -- detokenize the current line into BUF, print it, and advance to the next line.
 ;   In:        HL -> the current line's crunched token bytes; output channel selected by PRTFLG/PTRFIL. Stack holds (top..) the next-node pointer then the end-bound line number.
-;   Out:       Loops back to STMT_LIST_1 for the next line (the next-node pointer and end-bound were preserved on the stack).
+;   Out:       Loops back to STMT_LIST_NEXT_NODE for the next line (the next-node pointer and end-bound were preserved on the stack).
 ;   Clobbers:  AF, BC, DE, HL, BUF.
 ;   Algorithm: Calls DETOKENIZE_LINE to expand the crunched tokens back into ASCII in the line buffer BUF ($0A0E), writes that $00-terminated text with PRINT_ZSTRING, emits a CRLF, then re-enters the loop to list the following line.
 ; ----------------------------------------------------------------------
@@ -5844,7 +5844,7 @@ DETOKENIZE_LINE_5:
 ; ----------------------------------------------------------------------
 ; DETOKENIZE_LINE_6 -- commit the new spacing state, then route the byte in E to a literal store or to the embedded-constant formatter.
 ;   In:        A = new spacing-state value (0 from the non-word path in _3, $01 from _5), E = byte/token to emit.
-;   Out:       L_0C93 updated. Control bytes $01-$0A and printable $20-$FF are stored as-is via DETOKENIZE_LINE_7. Embedded-constant tokens $0B-$1F hand off to IS_ALNUM_CHAR_1, the numeric/line-number constant formatter, which renders the inline binary value back to ASCII (and advances HL past it).
+;   Out:       L_0C93 updated. Control bytes $01-$0A and printable $20-$FF are stored as-is via DETOKENIZE_LINE_7. Embedded-constant tokens $0B-$1F hand off to CONST_FMT_BEGIN, the numeric/line-number constant formatter, which renders the inline binary value back to ASCII (and advances HL past it).
 ;   Clobbers:  A,flags.
 ;   Algorithm: Write the pending spacing state, reload the byte from E, and split on value: a control ($01-$0A) or printable ($20-$FF) literal is emitted verbatim via _7; a $0B-$1F constant token is not a literal char but a marker for an inline binary numeric value, so it is dispatched to the constant formatter.
 ; ----------------------------------------------------------------------
@@ -6765,7 +6765,7 @@ BLOCK_SCAN_FORNEXT_11:
 ; GRAPHICS + TEXT-SCREEN STATEMENTS and the 6502 RPC PATH (SoftCard superset)  ---  Apple soft-switches reached as $E0xx (Z-80 $E000-$EFFF == Apple $C000-$CFFF); Apple monitor-ROM calls reached by the 6502 RPC (A$VEC=$F3D0, Z$CPU=$F3DE, SLTTYP+2=$F3BB).  Handlers $45xx-$4Bxx; dispatch table $0194-$01B0.
 ; ======================================================================
 ; ----------------------------------------------------------------------
-; CLEAR_EVAL_FLAG_0CB6 -- (was GFX_CLR_REVERSE_FLAG) zero the $0CB6 floating-point / numeric-eval state flag.
+; CLEAR_EVAL_FLAG_0CB6 -- (was CLEAR_EVAL_FLAG_0CB6) zero the $0CB6 floating-point / numeric-eval state flag.
 ;   In:        (none)
 ;   Out:       byte at $0CB6 = 0; A and flags preserved (PUSH AF / POP AF bracket the write)
 ;   Clobbers:  nothing visible to the caller
@@ -6937,7 +6937,7 @@ GFX_STMT_HTAB_1:
         ; store the wrapped column in the cursor-column cell, then fall into CURSOR_REPOSITION to move the terminal cursor
         LD (CURSOR_POS),A
 ; ----------------------------------------------------------------------
-; CURSOR_REPOSITION -- (was STMT_HOME) shared 'reposition the terminal cursor' tail: JR into GFX_STMT_VTAB_2.
+; CURSOR_REPOSITION -- (was CURSOR_REPOSITION) shared 'reposition the terminal cursor' tail: JR into GFX_STMT_VTAB_2.
 ;   In:        $0B11/$0B12 (CURSOR_COL/CURSOR_ROW) already set to the desired (col,row); the caller
 ;              has a matching PUSH HL outstanding (HTAB's PUSH HL, or the TEXT handler's PUSH HL)
 ;   Out:       jumps to GFX_STMT_VTAB_2 (CALL SCREEN_POS_FROM_TABLE; POP HL; RET): emits the
@@ -6946,7 +6946,7 @@ GFX_STMT_HTAB_1:
 ;   Algorithm: A 2-byte 'JR GFX_STMT_VTAB_2' thunk. It is NOT the HOME statement dispatch target
 ;              (that is GFX_STMT_HOME at the next address, $45A8). It is reached two ways: (1) by
 ;              FALL-THROUGH from GFX_STMT_HTAB after HTAB stores the column -- this is HTAB's
-;              normal completion, so HTAB DOES reposition; and (2) by an explicit 'JR STMT_HOME'
+;              normal completion, so HTAB DOES reposition; and (2) by an explicit 'JR CURSOR_REPOSITION'
 ;              from the tail of the TEXT statement handler after it resets the cursor cells and
 ;              exits graphics mode. Either way it re-emits the cursor position once.
 ; ----------------------------------------------------------------------
@@ -6960,7 +6960,7 @@ CURSOR_REPOSITION:
 ;              to the terminal; HL preserved
 ;   Clobbers:  A, BC, DE, E (E=1 selects fn1); HL saved/restored
 ;   Algorithm: Zero the 16-bit cursor word ($0B11=col, $0B12=row) so the BASIC notion of the
-;              cursor is home, set E=1, then fall through GFX_STMT_HOME_1/_2 (whose LD BC,$051E /
+;              cursor is home, set E=1, then fall through STMT_INVERSE/_2 (whose LD BC,$051E /
 ;              LD BC,$041E cover bytes clobber BC but leave E=1 on this path) into the shared
 ;              tail PUSH HL / CALL SCREEN_POS_EMIT / POP HL / RET, which sends the terminal's
 ;              Clear-Screen sequence. Net effect: clear the text screen and home the cursor.
@@ -6975,7 +6975,7 @@ GFX_STMT_HOME:
         LD E,$01
 ; ----------------------------------------------------------------------
 ; STMT_INVERSE -- (entered at +1) INVERSE statement handler (token $CA, dispatch slot $019A).
-;   In:        HL -> BASIC text (no operand); reached via DEFW GFX_STMT_HOME_1+1 = $019A -> $45B3
+;   In:        HL -> BASIC text (no operand); reached via DEFW STMT_INVERSE+1 = $019A -> $45B3
 ;   Out:       screen-function #5 (Set Inverse / high-light text mode) emitted to the terminal;
 ;              HL preserved
 ;   Clobbers:  A, D, E (=5); HL saved/restored
@@ -6989,7 +6989,7 @@ STMT_INVERSE:
         LD BC,$051E
 ; ----------------------------------------------------------------------
 ; STMT_NORMAL -- (entered at +1) NORMAL statement handler (token $CB, dispatch slot $019C).
-;   In:        HL -> BASIC text (no operand); reached via DEFW GFX_STMT_HOME_2+1 = $019C -> $45B6
+;   In:        HL -> BASIC text (no operand); reached via DEFW STMT_NORMAL+1 = $019C -> $45B6
 ;   Out:       screen-function #4 (Set Normal / low-light text mode) emitted to the terminal;
 ;              HL preserved
 ;   Clobbers:  A, D, E (=4); HL saved/restored
@@ -7010,7 +7010,7 @@ STMT_NORMAL:
 ; STMT_TEXT -- TEXT statement (token $C6): leave Apple graphics and return the console to the text screen.
 ;   In:        HL = BASIC text pointer (past the TEXT token). GFX_MODE_ACTIVE_FLAG nonzero iff a graphics
 ;              mode is currently active. PAGE_LENGTH = current text screen height in rows (default $18=24).
-;   Out:       Returns to the caller (via the STMT_HOME -> GFX_STMT_VTAB_2 tail, which ends in RET) with HL
+;   Out:       Returns to the caller (via the CURSOR_REPOSITION -> GFX_STMT_VTAB_2 tail, which ends in RET) with HL
 ;              preserved. On the way the Apple is switched to text/page-1, the BASIC cursor is homed to the
 ;              bottom-left, and -- if graphics had been active -- the screen is cleared via the Apple HOME ROM.
 ;   Clobbers:  A,F, CURSOR_POS, GFX_MODE_ACTIVE_FLAG; HL preserved across the body via PUSH/POP.
@@ -7018,7 +7018,7 @@ STMT_NORMAL:
 ;              cursor cell CURSOR_POS to row=(PAGE_LENGTH-1), col=0 (bottom-left). Read the TXTSET and
 ;              TXTPAGE1 soft switches (the read toggles the switch) to force text display on page 1. If a
 ;              graphics mode was active (flag != 0) also RPC the Apple HOME ROM to clear the text window.
-;              Clear the graphics-active flag and fall into STMT_HOME, whose RET tail returns to the caller.
+;              Clear the graphics-active flag and fall into CURSOR_REPOSITION, whose RET tail returns to the caller.
 ;              [RE] Reused by STMT_SYSTEM (CALL STMT_TEXT) to restore the text screen before warm-booting CP/M,
 ;              which depends on this routine returning normally.
 ; ----------------------------------------------------------------------
@@ -7043,7 +7043,7 @@ STMT_TEXT:
         LD HL,HOME_ROM
         CALL RPC_CALL
 STMT_TEXT_DONE:
-        ; back in text mode: clear the graphics-active flag and fall into STMT_HOME (whose RET returns to the caller)
+        ; back in text mode: clear the graphics-active flag and fall into CURSOR_REPOSITION (whose RET returns to the caller)
         XOR A
         LD (GFX_MODE_ACTIVE_FLAG),A
         JR CURSOR_REPOSITION
@@ -7362,7 +7362,7 @@ GFX_STMT_PLOT_1:
 ;   In:        HL -> text at the argument expression; the argument already parenthesized by the function dispatcher
 ;   Out:       FAC = -1 if button n is pressed, 0 if not (returned as a 16-bit integer); HL advanced; on n > 2, Illegal-function-call
 ;   Clobbers:  A, D, E, HL (restored), FAC
-;   Algorithm: CONINT evaluates the argument to a 0..255 byte (E=value, A=E; CONINT itself raises FC if it does not fit in a byte, leaving D=0). Requires n in 0..2 (CP $03 / JR NC -> FC). The following LD A,D / OR A / JR NZ is a redundant high-byte guard -- CONINT has already forced D to 0, so it can never fire. Then indexes the Apple pushbutton soft-switches at BUTN0 ($E061=Apple $C061) by n and reads the switch; bit 7 = pressed. RLA rotates that bit into carry and SBC A,A turns it into $FF (pressed) or $00 (released), then falls into GFX_STORE_SIGNED_BYTE_FAC to return it as a 16-bit integer. NOTE [RE]: despite the Applesoft name PDL(), this reads the BUTNn PUSHBUTTON soft-switches (a boolean -1/0), not the analog paddle position; the analog read (PREAD $FB1E) is in the adjacent routine currently labeled GFX_FN_VPOS.
+;   Algorithm: CONINT evaluates the argument to a 0..255 byte (E=value, A=E; CONINT itself raises FC if it does not fit in a byte, leaving D=0). Requires n in 0..2 (CP $03 / JR NC -> FC). The following LD A,D / OR A / JR NZ is a redundant high-byte guard -- CONINT has already forced D to 0, so it can never fire. Then indexes the Apple pushbutton soft-switches at BUTN0 ($E061=Apple $C061) by n and reads the switch; bit 7 = pressed. RLA rotates that bit into carry and SBC A,A turns it into $FF (pressed) or $00 (released), then falls into GFX_STORE_SIGNED_BYTE_FAC to return it as a 16-bit integer. NOTE [RE]: despite the Applesoft name PDL(), this reads the BUTNn PUSHBUTTON soft-switches (a boolean -1/0), not the analog paddle position; the analog read (PREAD $FB1E) is in the adjacent routine currently labeled FN_PDL.
 ; ----------------------------------------------------------------------
 GFX_FN_PDL:
         ; evaluate the button number into a 0..255 byte (E=value, A=E; D forced to 0)
@@ -7401,10 +7401,10 @@ GFX_STORE_SIGNED_BYTE_FAC:
 ; FUNC_DISPATCH_TBL is based at $01B2, slot address = base + 2*(token-1), so this slot
 ; $0218 = token $34 = VPOS (msbasic_tokens.inc); the real MKD$ is FN_MKD_STR at slot
 ; $0216 = token $33.  Vertical analogue of FN_POS, which reads the horizontal column
-; cell L_0B11.
-;   In:        L_0B12 = current screen row / printed-line counter (set by GFX_STMT_VTAB,
+; cell CURSOR_POS.
+;   In:        CURSOR_ROW = current screen row / printed-line counter (set by GFX_STMT_VTAB,
 ;              advanced by LINE_COUNT_INC / OUTDO_WIDTH).  HL -> BASIC text pointer.
-;   Out:       FAC = (L_0B12)+1 as a zero-extended 16-bit integer (VALTYP := VT_INT, set by
+;   Out:       FAC = (CURSOR_ROW)+1 as a zero-extended 16-bit integer (VALTYP := VT_INT, set by
 ;              FP_STORE_FAC_INT); HL preserved.
 ;   Clobbers:  A, L, H, flags.
 ;   Algorithm: A := (row counter)+1, then fall into the shared 'push text ptr / load byte
@@ -7502,10 +7502,10 @@ STMT_WAIT_POLL_LOOP:
 ;              paddle/timer count in 6502 Y = RPC_YREG, then load that byte into the FAC as
 ;              an integer.
 ;
-; NOTE: the labels GFX_FN_VPOS_2..\_9 below are NOT part of PDL -- they are independent
+; NOTE: the labels FN_SCRN..\_9 below are NOT part of PDL -- they are independent
 ; function/statement bodies that merely share the _N numbering: _1 = shared range-error
 ; tail; _2 = SCRN() fn; _3 = COLOR-read fn; _4..\_9 = the argument list + 6502-invoke tail
-; of STMT_CALL (entered via JP Z,GFX_FN_VPOS_4 at asm line 14704).  See their renames.
+; of STMT_CALL (entered via JP Z,STMT_CALL_INVOKE_6502 at asm line 14704).  See their renames.
 ; ----------------------------------------------------------------------
 FN_PDL:
         CALL CONINT
@@ -8709,7 +8709,7 @@ RAISE_GRAPHICS_STATEMENT_NOT_IMPLEMENTED:
     ENDIF
         JP RAISE_ERROR
 ; ----------------------------------------------------------------------
-; GFX_STMT_HPLOT_8 -- one-byte graphics-mode/text-screen state flag (NOT executable code; disassembles incidentally as NOP $00).
+; GFX_MODE_ACTIVE_FLAG -- one-byte graphics-mode/text-screen state flag (NOT executable code; disassembles incidentally as NOP $00).
 ;   In:        Written by the GR statement (set to $FF at $4637) and read/cleared in a TEXT/HOME screen-restore path (read at $45D5, cleared to 0 at $45E2). It is a flag, not an HPLOT entry point.
 ;   Out:       Holds a graphics-active flag that the text/HOME path tests to decide whether to issue the 6502 HOME RPC before returning to text.
 ;   Clobbers:  (data cell).
@@ -8781,7 +8781,7 @@ FSUB:
 ; FADD_ALIGN -- exponent alignment front-end of single-precision add (the FADDT core).
 ;   In:        ARG in B(exp),C(MSB|sign),D(mid),E(LSB); FAC at $0CB1/$0CB3, exponent at $0CB4.
 ;   Out:       Either an early store/return (one operand zero), or both mantissas aligned and the path
-;              continued into the add (MANT_ADD) or subtract-borrow (FADD_ALIGN_2 -> FADD_COMBINE/FADD).
+;              continued into the add (MANT_ADD) or subtract-borrow (FADD_SUB_BORROW -> FADD_COMBINE/FADD).
 ;   Clobbers:  A,B,C,D,E,H,L, FAC cells, $0CB5, the alignment stack frame.
 ;   Algorithm: 1) If ARG exponent (B)=0, ARG is zero -> return (FAC unchanged). 2) If FAC exponent
 ;              ($0CB4)=0, FAC is zero -> store ARG into FAC and return. 3) Compute exp diff (FACexp-ARGexp);
@@ -8857,7 +8857,7 @@ FADD_SUB_BORROW:
         LD C,A
 ; ----------------------------------------------------------------------
 ; FADD_COMBINE -- opposite-sign mantissa combine entry: conditionally two's-complement, then normalize.
-;   In:        Working mantissa difference in C(high),D,E,B from FADD_ALIGN_2's SBC chain, with CARRY set
+;   In:        Working mantissa difference in C(high),D,E,B from FADD_SUB_BORROW's SBC chain, with CARRY set
 ;              when the subtraction underflowed (result magnitude is negative); FAC exponent $0CB4, sign $0CB5.
 ;   Out:       Falls into FADD to byte-left-justify, then FP_SET_ZERO to bit-normalize, adjust the exponent,
 ;              round, and store the result.
@@ -8877,7 +8877,7 @@ FADD_COMBINE:
 ;              (negative) shift count in A in multiples of 8; falls into FP_SET_ZERO for bit-normalize/round/
 ;              store. On full cancellation it falls through to FP_SET_ZERO's exact-zero store.
 ;   Clobbers:  A,B,C,D,E,H,L.
-;   Algorithm: Each iteration: if the high byte (C) is non-zero, stop (JR NZ,FP_SET_ZERO_5). Otherwise slide
+;   Algorithm: Each iteration: if the high byte (C) is non-zero, stop (JR NZ,FP_NORM_TEST_MSB). Otherwise slide
 ;              the mantissa one whole byte toward the high end (C<-D<-H<-L, new low=0), subtract 8 from the
 ;              shift count, and repeat until a non-zero high byte appears or the count reaches $E0 (-32, all
 ;              four bytes cancelled, value exactly 0).
@@ -8903,7 +8903,7 @@ FADD_LJUST_BYTE:
         ; keep sliding bytes left until a non-zero high byte or full ($E0 = all 4 bytes) cancellation
         JR NZ,FADD_LJUST_BYTE
 ; ----------------------------------------------------------------------
-; FP_SET_ZERO -- two roles: (a) the exact-zero store (FP_SET_ZERO/_1) and (b) the MBF bit-normalize / exponent-fixup / round / pack tail (entered at FP_SET_ZERO_2/_5/_7).
+; FP_SET_ZERO -- two roles: (a) the exact-zero store (FP_SET_ZERO/_1) and (b) the MBF bit-normalize / exponent-fixup / round / pack tail (entered at FP_NORM_BITLOOP/_5/_7).
 ;   In:        (a) entered to write a zero result. (b) entered with the byte-justified mantissa in H,L,D,C and
 ;              B = running bit-shift count from FADD; FAC exponent $0CB4; sign in $0CB5.
 ;   Out:       (a) FP_SET_ZERO writes exponent 0 and returns (result 0.0). (b) the normalized result is rounded,
@@ -8911,7 +8911,7 @@ FADD_LJUST_BYTE:
 ;              clear. Returns through FP_STORE_FAC.
 ;   Clobbers:  A,B,C,D,E,H,L, FAC cells.
 ;   Algorithm: FP_SET_ZERO/_1 just store A (=0) into the exponent $0CB4 and RET (the exact-zero path). The
-;              normalize tail bit-shifts the mantissa left until its top bit is set (FP_SET_ZERO_2/_4 loop, with
+;              normalize tail bit-shifts the mantissa left until its top bit is set (FP_NORM_BITLOOP/_4 loop, with
 ;              the _3 fast path when only the low byte holds bits), then adds the accumulated shift count to the
 ;              exponent at $0CB4 (a no-carry or zero result = underflow -> store 0). Finally it rounds on the
 ;              round bit (CALL M,FADD_ROUND_CARRY), folds the sign held in $0CB5 into the mantissa MSB (C), and
@@ -9064,13 +9064,13 @@ FCOMPL:
 ;              B used as the shifted-out guard byte (initialized to 0). H is preserved across this call (it
 ;              carries the caller's sign-agreement bit).
 ;   Out:       Mantissa shifted right by A bits; the residual (sub-8) bit shift is finished by the inline
-;              MANT_SHIFT_BITS / MANT_SHIFT_BYTES_4 loop.
+;              MANT_SHIFT_BITS / MANT_SHIFT_BIT_STEP loop.
 ;   Clobbers:  A,B,C,D,E,L, flags. (H preserved.)
 ;   Algorithm: While >= 8 bits remain, slide each mantissa byte down one position (C->D->E->B, new C=0),
 ;              subtracting 8 per whole byte. The leftover bit count (carried negative) is biased by +$09 to
 ;              form L = a 1-based bit-loop counter, then the residual 0..7-bit shift is finished by the bit
 ;              loop below. [RE] A fast path handles the case where the upper bytes are already zero, shifting
-;              only C (see MANT_SHIFT_BYTES_3); the precise low/high role of C in that branch is inferred from
+;              only C (see MANT_SHIFT_C_ONLY); the precise low/high role of C in that branch is inferred from
 ;              the opcode sequence.
 ; ----------------------------------------------------------------------
 MANT_SHIFT_BYTES:
@@ -9149,7 +9149,7 @@ FP_POLY_LOG_DEN:
 ;   Clobbers:  FAC, all FP scratch, A/BC/DE/HL
 ;   Algorithm: Reject x<=0: FP_SIGN returns $FF/$00/$01, then OR A + JP PE,ERROR_FC traps the
 ;              even-parity values $FF (negative) and $00 (zero) -> Illegal function call. Call
-;              LOG_MANTISSA_POLY (formerly FN_SIN_REDUCE) to split x = m*2^e and return a rational
+;              LOG_MANTISSA_POLY (formerly LOG_MANTISSA_POLY) to split x = m*2^e and return a rational
 ;              approximation r = ln(reduced mantissa) + e in the FAC. Finally multiply by the
 ;              constant ln(2) (operand B=$80 exp, C/D/E = $31,$72,$18 = MBF 0.6931472) so the
 ;              e-in-units-of-2 result becomes a true natural log: ln(x) = r * ln(2).
@@ -9166,7 +9166,7 @@ FN_LOG:
         LD DE,$7218
         JP FMUL
 ; ----------------------------------------------------------------------
-; LOG_MANTISSA_POLY -- LOG range reduction + rational approximation of ln (LOG helper, was FN_SIN_REDUCE)
+; LOG_MANTISSA_POLY -- LOG range reduction + rational approximation of ln (LOG helper, was LOG_MANTISSA_POLY)
 ;   In:        FAC holds x>0 (already sign-checked by FN_LOG)
 ;   Out:       FAC = ln(reduced mantissa) + e, where e is the binary exponent (caller FN_LOG scales by ln 2)
 ;   Clobbers:  FAC, FP work stack, A/BC/DE/HL, L_0CB4
@@ -9315,8 +9315,8 @@ FMUL_8:
 ;   Out:       FAC = FAC / 10, normalized.
 ;   Clobbers:  A,B,C,D,E,H,L,F, the FAC, FDIV's self-modified cells, and the stack (one FP value pushed/popped).
 ;   Algorithm: Push the dividend (FAC_PUSH), point HL at the constant +10.0 (DP_CONST_2) and load it into the
-;              FAC as the divisor (FP_STORE_REGS_LD), then enter FDIV at FDIV_BY_TEN_1, which pops the saved
-;              dividend into B/C/D/E and computes dividend/divisor = old_FAC/10.  FDIV_BY_TEN_1 is the generic
+;              FAC as the divisor (FP_STORE_REGS_LD), then enter FDIV at FDIV_POP_ARGS, which pops the saved
+;              dividend into B/C/D/E and computes dividend/divisor = old_FAC/10.  FDIV_POP_ARGS is the generic
 ;              'pop the stacked dividend and divide by the current FAC' entry, also reused by IDIV (line 4631).
 ; ----------------------------------------------------------------------
 FDIV_BY_TEN:
@@ -9326,14 +9326,14 @@ FDIV_BY_TEN:
         LD HL,DP_CONST_2
         CALL FP_STORE_REGS_LD
 FDIV_POP_ARGS:
-        ; FDIV_BY_TEN_1: recover the stacked dividend into B(exp)/C(high)/D(mid)/E(low), then fall into FDIV to compute dividend/FAC.
+        ; FDIV_POP_ARGS: recover the stacked dividend into B(exp)/C(high)/D(mid)/E(low), then fall into FDIV to compute dividend/FAC.
         POP BC
         POP DE
 ; ----------------------------------------------------------------------
 ; FDIV -- single-precision MBF divide: FAC = operand / FAC (the '/' single-precision operator handler).
 ;   In:        Dividend in B=biased exponent, C=mantissa high (bit7=sign), D=mantissa mid, E=mantissa low.
 ;              FAC holds the divisor.  Reached from the operator band (DEFW FDIV, line 433) and from
-;              FDIV_BY_TEN_1 / IDIV.
+;              FDIV_POP_ARGS / IDIV.
 ;   Out:       FAC = dividend / divisor, normalized.  On a zero DIVISOR (FAC=0) jumps to FIN_DONE_14, which
 ;              reaches FIN_DONE_18 -> the Division-by-zero error (confirmed: FIN_DONE_18 loads
 ;              ERRMSG_DIVISION_BY_ZERO).  A zero dividend underflows to a zero result via FP_SET_ZERO.
@@ -10041,19 +10041,19 @@ INT16_COMP:
         JP NZ,FP_SIGN_3
         RET
 ; ----------------------------------------------------------------------
-; DCOMP -- comparison entry that first marshals the second operand into the temp at L_0CBA, then falls into DCOMP_BODY.
+; DCOMP -- comparison entry that first marshals the second operand into the temp at ARG2_TEMP, then falls into DCOMP_BODY.
 ;   In:        FAC = first operand. VALTYP ($0B14) = the second operand's type (its storage width in bytes); the second operand sits where FP_MOVE_TYPED's source DE points (set up by the caller).
 ;   Out:       Falls into DCOMP_BODY, which returns the ordering of FAC vs the temp operand.
 ;   Clobbers:  A, B, C, D, E, H, L, F.
-;   Algorithm: Copy the second operand into the comparison temp at L_0CBA using FP_MOVE_TYPED -- a DJNZ copy of VALTYP bytes (the direct proof that VALTYP is the byte width). Then drop into DCOMP_BODY. NOTE: FP_MOVE_TYPED's source/destination are whatever DE/HL hold on entry; DCOMP only sets HL=L_0CBA, so the source operand must have been positioned by the caller. [RE] Whether DCOMP is reached as a live entry (vs DCOMP_BODY directly) was not pinned from the dispatch tables here.
+;   Algorithm: Copy the second operand into the comparison temp at ARG2_TEMP using FP_MOVE_TYPED -- a DJNZ copy of VALTYP bytes (the direct proof that VALTYP is the byte width). Then drop into DCOMP_BODY. NOTE: FP_MOVE_TYPED's source/destination are whatever DE/HL hold on entry; DCOMP only sets HL=ARG2_TEMP, so the source operand must have been positioned by the caller. [RE] Whether DCOMP is reached as a live entry (vs DCOMP_BODY directly) was not pinned from the dispatch tables here.
 ; ----------------------------------------------------------------------
 DCOMP:
         ; destination = the 8-byte comparison temp (ARG); FP_MOVE_TYPED copies VALTYP bytes into it
         LD HL,ARG2_TEMP
         CALL FP_MOVE_TYPED
 ; ----------------------------------------------------------------------
-; DCOMP_BODY -- core compare of FAC against the temp operand staged at L_0CBA: returns the ordering of (FAC vs temp).
-;   In:        FAC = first operand (FACHI sign in bit7, L_0CB4 exponent). Temp operand pre-staged at L_0CBA: its exponent at L_0CC1, packed sign/MSB at L_0CC0, the rest descending below.
+; DCOMP_BODY -- core compare of FAC against the temp operand staged at ARG2_TEMP: returns the ordering of (FAC vs temp).
+;   In:        FAC = first operand (FACHI sign in bit7, L_0CB4 exponent). Temp operand pre-staged at ARG2_TEMP: its exponent at L_0CC1, packed sign/MSB at L_0CC0, the rest descending below.
 ;   Out:       A = ordering code on the clean path ($00 equal, $01/$FF otherwise via the FP_SIGN tail). On a mantissa-byte difference it jumps to FCOMP_1 (shared with the single comparator) to fold the borrow+sign. [RE] As in FCOMP, the signs-differ early-out (RET M) returns the raw temp sign byte C, not a normalized code.
 ;   Clobbers:  A, B, C, D, E, H, L, F.
 ;   Algorithm: Same shape as FCOMP but operands are in MEMORY and the loop walks 8 bytes. If the temp exponent (L_0CC1) is 0 the temp is zero => answer SGN(FAC). Otherwise arm the FP_SIGN tail and call FP_SIGN; load C = temp sign byte (L_0CC0). If FAC==0 (Z) return A=C. If signs differ (FACHI XOR C, bit7 set) return A=C raw (RET M). With equal signs, set B=8 and compare descending from the high cells: HL starts at FACHI+1 ($0CB4) and DE at L_0CC1, BOTH decrementing each iteration (LD A,(DE) / SUB (HL) / DEC DE / DEC HL). The first differing byte jumps to FCOMP_1. A full 8-byte match drops the armed FP_SIGN return (POP BC) and RETs equal (A==0).
@@ -10097,7 +10097,7 @@ DCOMP_BODY_1:
         RET
 ; ----------------------------------------------------------------------
 ; DCOMP_REL -- double-precision relational comparator (operator-table double-compare slot, $050B): run DCOMP_BODY and normalize the result to the relational code.
-;   In:        FAC = first operand; the second operand pre-staged in the temp at L_0CBA by the caller. Reached from the double-operand operator dispatch.
+;   In:        FAC = first operand; the second operand pre-staged in the temp at ARG2_TEMP by the caller. Reached from the double-operand operator dispatch.
 ;   Out:       A = $00 if equal (returns immediately), else the normalized ordering from the FP_SIGN tail (FP_SIGN_1+1). Consumed by FRMEVL_RELOP_RESULT.
 ;   Clobbers:  A, B, C, D, E, H, L, F.
 ;   Algorithm: CALL DCOMP_BODY; if it returned zero (Z, operands equal) RET with A=0. Otherwise JP FP_SIGN_1+1 to normalize the raw result into the canonical ordering code. This is the double-precision analog of how FCOMP_1 finalizes FCOMP.
@@ -10249,8 +10249,8 @@ FN_CSNG:
 ;   In:        FAC = a double-precision value (exponent L_0CB4, mantissa bytes from L_0CB0 up through FACHI).
 ;   Out:       FAC re-normalized as single precision; VALTYP set to VT_SNG (=4) via the SET_TYPE_DOUBLE_1+1 sub-entry.
 ;   Clobbers:  A, B, C, D, E, H, L, F.
-;   Algorithm: Load the FAC mantissa into registers (FP_LOAD_FAC) and set VALTYP=single (CALL SET_TYPE_DOUBLE_1+1: the +1 entry runs 'LD A,$04'). If the loaded high byte B is zero the value is already in range -> RET. Otherwise unpack the hidden MSB and sign (FP_UNPACK_MSB), fetch the extension/round byte from L_0CB0 into B, and JP FP_SET_ZERO_7 to apply rounding and re-store the normalized single.
-;   [RE]:      The inline label 'CINT body' on this routine is a MISNOMER -- it is the double->single round/normalize helper, not part of CINT's integer extraction. UNKNOWN: the exact rounding policy of the FP_SET_ZERO_7 tail (round-to-nearest vs truncate) is not re-derived here.
+;   Algorithm: Load the FAC mantissa into registers (FP_LOAD_FAC) and set VALTYP=single (CALL SET_TYPE_DOUBLE_1+1: the +1 entry runs 'LD A,$04'). If the loaded high byte B is zero the value is already in range -> RET. Otherwise unpack the hidden MSB and sign (FP_UNPACK_MSB), fetch the extension/round byte from L_0CB0 into B, and JP FP_PACK_ROUND to apply rounding and re-store the normalized single.
+;   [RE]:      The inline label 'CINT body' on this routine is a MISNOMER -- it is the double->single round/normalize helper, not part of CINT's integer extraction. UNKNOWN: the exact rounding policy of the FP_PACK_ROUND tail (round-to-nearest vs truncate) is not re-derived here.
 ; ----------------------------------------------------------------------
 FIX_TO_INT:
         CALL FP_LOAD_FAC
@@ -10310,9 +10310,9 @@ FN_CDBL:
 ; ----------------------------------------------------------------------
 ; FP_CLEAR_EXT -- zero the double-precision low/extension mantissa cells, then mark the FAC double-typed.
 ;   In:        FAC = a single-precision value occupying the high mantissa bytes.
-;   Out:       Extension cells at L_0CAD ($0CAD..$0CAE) and L_0CAF ($0CAF) cleared to zero; falls into SET_TYPE_DOUBLE so VALTYP = VT_DBL (=8).
+;   Out:       Extension cells at FAC_DBL ($0CAD..$0CAE) and L_0CAF ($0CAF) cleared to zero; falls into SET_TYPE_DOUBLE so VALTYP = VT_DBL (=8).
 ;   Clobbers:  A, H, L, F.
-;   Algorithm: LD HL,$0000 then store it to (L_0CAD) and (L_0CAF) -- zeroing the low mantissa bytes used only by double precision (giving the widened value a zero fractional extension) -- then fall through to SET_TYPE_DOUBLE.
+;   Algorithm: LD HL,$0000 then store it to (FAC_DBL) and (L_0CAF) -- zeroing the low mantissa bytes used only by double precision (giving the widened value a zero fractional extension) -- then fall through to SET_TYPE_DOUBLE.
 ; ----------------------------------------------------------------------
 FP_CLEAR_EXT:
         LD HL,$0000
@@ -10340,12 +10340,12 @@ SET_TYPE_DOUBLE_1:
         LD BC,$043E
         JP SET_TYPE_INTEGER_1
 ; ----------------------------------------------------------------------
-; FP_INT_CHECK -- assert that the current FAC value is a STRING; raise 'Type mismatch' for any numeric type. (CONFIRMED at both call sites: LINE INPUT into a string var, and the first arg of LEFT$/RIGHT$/MID$.)
+; REQUIRE_STRING -- assert that the current FAC value is a STRING; raise 'Type mismatch' for any numeric type. (CONFIRMED at both call sites: LINE INPUT into a string var, and the first arg of LEFT$/RIGHT$/MID$.)
 ;   In:        FAC value with VALTYP ($0B14) set.
 ;   Out:       RET (with Z set) when the value is a string (VALTYP==3). Raises 'Type mismatch' (JP RAISE_TYPE_MISMATCH) for every numeric type (int/single/double).
 ;   Clobbers:  A, F.
 ;   Algorithm: CALL FRMEVL_TEST_TYPE (which sets Z iff VALTYP==3, i.e. string, since A=VALTYP-3); RET Z. Any non-string falls through to JP RAISE_TYPE_MISMATCH. This is a 'string required here' guard.
-;   [RE]:      The routine NAME 'FP_INT_CHECK' and the prior inline comment ('Type-check requiring a numeric value') are BOTH wrong/inverted -- the routine demands a STRING and rejects numbers. A rename to REQUIRE_STRING (or ASSERT_STRING_OPERAND) would reflect the verified behavior.
+;   [RE]:      The routine NAME 'REQUIRE_STRING' and the prior inline comment ('Type-check requiring a numeric value') are BOTH wrong/inverted -- the routine demands a STRING and rejects numbers. A rename to REQUIRE_STRING (or ASSERT_STRING_OPERAND) would reflect the verified behavior.
 ; ----------------------------------------------------------------------
 REQUIRE_STRING:
         CALL FRMEVL_TEST_TYPE
@@ -10436,7 +10436,7 @@ FN_FIX:
         ; re-apply the negative sign to floor(|x|), yielding trunc(x)
         JP FP_NEGATE_CHECKED
 ; ----------------------------------------------------------------------
-; FN_INT_FLOOR (file label FN_SGN -- MISLABELED; this is the BASIC INT() handler) -- floor the FAC toward minus infinity, yielding an integer-valued float.
+; FN_INT_FLOOR (file label FN_INT_FLOOR -- MISLABELED; this is the BASIC INT() handler) -- floor the FAC toward minus infinity, yielding an integer-valued float.
 ;   In:        FAC holds a numeric value; VALTYP selects the path. Reached via FUNC_DISPATCH_TBL slot $01BA for the INT token, and called twice by FN_FIX as its magnitude-floor worker.
 ;   Out:       FAC = floor(value) as a float of the same type. VALTYP=VT_INT returns unchanged; single/double have their fractional bits dropped and are re-normalized.
 ;   Clobbers:  A, HL, DE, BC, F.
@@ -10508,10 +10508,10 @@ FIX_SCALE_4:
         RET NC
 ; ----------------------------------------------------------------------
 ; FIX_DENORM -- denormalize a DOUBLE-precision FAC to the integer position; the double-precision floor/round helper used by FOUT.
-;   In:        FAC = double value (8-byte mantissa $0CAC..$0CB3, exponent $0CB4); A on entry = a borrow/round flag (saved by PUSH AF) controlling the trailing DADD_4 fixup.
-;   Out:       FAC = value aligned so the integer part sits at exponent $B8; guard cell $0CAC cleared. Returns via RET NC, or JP DADD_4 to finish renormalizing when a carry/borrow is pending.
+;   In:        FAC = double value (8-byte mantissa $0CAC..$0CB3, exponent $0CB4); A on entry = a borrow/round flag (saved by PUSH AF) controlling the trailing DADD_NORMALIZE fixup.
+;   Out:       FAC = value aligned so the integer part sits at exponent $B8; guard cell $0CAC cleared. Returns via RET NC, or JP DADD_NORMALIZE to finish renormalizing when a carry/borrow is pending.
 ;   Clobbers:  A, HL, BC, DE, F.
-;   Algorithm: Load the FAC mantissa, set the hidden MSB and capture the sign (FP_UNPACK_MSB), force the working exponent to $B8, and if the value is negative pre-borrow the low extension bytes (DBL_EXT_DEC). Compute the shift count $B8 - exponent and right-align the 8-byte mantissa with DP_SHIFT_RIGHT_N, applying DP_ROUND_CARRY when the saved sign demands rounding. Clear the low guard byte $0CAC; on a pending carry tail-call DADD_4 to renormalize. Called by FOUT ($5B0F) when formatting a double for printing (after adding 0.5 for round-to-nearest).
+;   Algorithm: Load the FAC mantissa, set the hidden MSB and capture the sign (FP_UNPACK_MSB), force the working exponent to $B8, and if the value is negative pre-borrow the low extension bytes (DBL_EXT_DEC). Compute the shift count $B8 - exponent and right-align the 8-byte mantissa with DP_SHIFT_RIGHT_N, applying DP_ROUND_CARRY when the saved sign demands rounding. Clear the low guard byte $0CAC; on a pending carry tail-call DADD_NORMALIZE to renormalize. Called by FOUT ($5B0F) when formatting a double for printing (after adding 0.5 for round-to-nearest).
 ; ----------------------------------------------------------------------
 FIX_DENORM:
         PUSH AF
@@ -10915,7 +10915,7 @@ DP_NEGATE_SIGN:
 ;   In:        FAC double at $0CAC..$0CB4 (guard $0CAC, 7-byte mantissa $0CAD..$0CB3 LSB-first, MSB/sign $0CB3=FACHI, exponent $0CB4). ARG double at $0CBA..$0CC1 (7-byte mantissa $0CBA..$0CC0, MSB/sign $0CC0, exponent $0CC1).
 ;   Out:       FAC = FAC + ARG, normalized and rounded; result sign folded into FACHI bit7.
 ;   Clobbers:  A,B,C,D,E,H,L; FAC mantissa/exponent, $0CB5/$0CB9 scratch, guard $0CAC.
-;   Algorithm: (1) If ARG exponent=0 return FAC unchanged; if FAC exponent=0 copy ARG into FAC (FP_ARG_TO_TEMP1) and return. (2) diff = FACexp - ARGexp; if FAC is the smaller (carry) negate the difference and swap the two 8-byte operands so the larger magnitude sits in FAC. (3) If the alignment shift >= $39 (57) the smaller operand is negligible -> return the larger unchanged. (4) FP_UNPACK_MSB restores the hidden mantissa MSBs and returns in B the XOR of the two sign bits (bit7=0 => like signs, bit7=1 => unlike signs). Right-shift (denormalize) the ARG mantissa by the exponent difference (DP_SHIFT_RIGHT_N) to align radix points. (5) LIKE signs (B positive, DADD_3): straight magnitude add of the aligned mantissas (DP_ADD_BLOCK_INIT with $9E); if the high byte came out negative, two's-complement it (DP_NEG_MANTISSA). UNLIKE signs (B negative, fall-through): subtract by adding (DP_ADD_CONST_8E with $8E); on carry-out renormalize right and bump the exponent. (6) Left-normalize: byte-at-a-time while FACHI=0 (DADD_5/DADD_6 shifting up 8 bits per step), then bit-at-a-time (DADD_7/DADD_8 via DP_SHIFT_LEFT_8) until FACHI bit7 is set or the result underflows to zero (FP_SET_ZERO). (7) Round on the guard byte (DP_ROUND_CARRY) and merge the final sign into FACHI.
+;   Algorithm: (1) If ARG exponent=0 return FAC unchanged; if FAC exponent=0 copy ARG into FAC (FP_ARG_TO_TEMP1) and return. (2) diff = FACexp - ARGexp; if FAC is the smaller (carry) negate the difference and swap the two 8-byte operands so the larger magnitude sits in FAC. (3) If the alignment shift >= $39 (57) the smaller operand is negligible -> return the larger unchanged. (4) FP_UNPACK_MSB restores the hidden mantissa MSBs and returns in B the XOR of the two sign bits (bit7=0 => like signs, bit7=1 => unlike signs). Right-shift (denormalize) the ARG mantissa by the exponent difference (DP_SHIFT_RIGHT_N) to align radix points. (5) LIKE signs (B positive, DADD_LIKE_SIGNS): straight magnitude add of the aligned mantissas (DP_ADD_BLOCK_INIT with $9E); if the high byte came out negative, two's-complement it (DP_NEG_MANTISSA). UNLIKE signs (B negative, fall-through): subtract by adding (DP_ADD_CONST_8E with $8E); on carry-out renormalize right and bump the exponent. (6) Left-normalize: byte-at-a-time while FACHI=0 (DADD_NORMALIZE_BYTE_LOOP/DADD_SHIFT_UP_BYTE shifting up 8 bits per step), then bit-at-a-time (DADD_NORMALIZE_BIT_LOOP/DADD_NORMALIZE_CHECK_MSB via DP_SHIFT_LEFT_8) until FACHI bit7 is set or the result underflows to zero (FP_SET_ZERO). (7) Round on the guard byte (DP_ROUND_CARRY) and merge the final sign into FACHI.
 ; ----------------------------------------------------------------------
 DADD:
         LD HL,L_0CC1
@@ -10974,7 +10974,7 @@ DADD_ALIGNED:
         LD (L_0CAC),A
         LD A,B
         OR A
-        ; B = XOR of the two sign bits: positive => like signs (add, DADD_3); negative => unlike signs (subtract, fall through)
+        ; B = XOR of the two sign bits: positive => like signs (add, DADD_LIKE_SIGNS); negative => unlike signs (subtract, fall through)
         JP P,DADD_LIKE_SIGNS
         ; unlike signs: subtract by adding the aligned mantissa ($8E); on carry-out renormalize right and bump the exponent
         CALL DP_ADD_CONST_8E
@@ -11070,7 +11070,7 @@ DP_ROUND_CARRY_PROPAGATE:
 ;   In:        A = constant byte supplied by the caller (DDIV passes $9E then $8E); source mantissa at $0CBA; destination = divide remainder block $0CDD.
 ;   Out:       7-byte chained ADC of [$0CBA] into [$0CDD]; carry out of the high byte in CY.
 ;   Clobbers:  A,C,D,E,H,L; the $0CDD remainder block.
-;   Algorithm: Point the shared multi-byte adder at source=$0CBA / dest=$0CDD and jump into DP_ADD_BLOCK_1, which patches A as the operand of the first ADC and runs the 7-byte chained add-with-carry. NOTE: despite the '_SUB'/'_8E' label this is an ADD primitive whose constant varies; DDIV uses it as the trial-subtract/restore step of restoring division (the [RE] sub vs add semantics of the $9E/$8E markers are not fully pinned -- see UNKNOWN).
+;   Algorithm: Point the shared multi-byte adder at source=$0CBA / dest=$0CDD and jump into DP_ADD_BLOCK_SETUP, which patches A as the operand of the first ADC and runs the 7-byte chained add-with-carry. NOTE: despite the '_SUB'/'_8E' label this is an ADD primitive whose constant varies; DDIV uses it as the trial-subtract/restore step of restoring division (the [RE] sub vs add semantics of the $9E/$8E markers are not fully pinned -- see UNKNOWN).
 ; ----------------------------------------------------------------------
 DP_SUB_CONST_8E:
         ; destination = divide remainder block $0CDD (not the FAC mantissa)
@@ -11091,7 +11091,7 @@ DP_ADD_CONST_8E:
 ;   In:        A = first-ADC operand byte (constant patched into the loop, e.g. $9E/$8E); ARG mantissa source at $0CBA.
 ;   Out:       Falls into DP_ADD_BLOCK to ADC the 7-byte ARG mantissa into the FAC mantissa [$0CAD]; carry out in CY.
 ;   Clobbers:  A,C,D,E,H,L; FAC mantissa.
-;   Algorithm: Point HL at the ARG mantissa $0CBA, then fall into DP_ADD_BLOCK (which sets dest=$0CAD and runs the chained ADC). Split from DP_ADD_CONST_8E so DADD_3 can enter with its own already-loaded constant ($9E) in A.
+;   Algorithm: Point HL at the ARG mantissa $0CBA, then fall into DP_ADD_BLOCK (which sets dest=$0CAD and runs the chained ADC). Split from DP_ADD_CONST_8E so DADD_LIKE_SIGNS can enter with its own already-loaded constant ($9E) in A.
 ; ----------------------------------------------------------------------
 DP_ADD_BLOCK_INIT:
         LD HL,ARG2_TEMP
@@ -11100,7 +11100,7 @@ DP_ADD_BLOCK_INIT:
 ;   In:        HL = source mantissa pointer (LSB-first); A = byte patched into the first ADC; dest fixed at $0CAD (FAC mantissa) on this entry.
 ;   Out:       [DE..DE+6] += [HL..HL+6], carry chained low->high; final carry-out in CY.
 ;   Clobbers:  A,C,D,E,H,L.
-;   Algorithm: Self-modifying loop: store A into the 'ADC A,(HL)' slot at DP_ADD_BLOCK_3 (so the first iteration's added operand is the caller-supplied constant), XOR A to clear carry, then for 7 bytes do A=[DE]; A=ADC patched-operand; [DE]=A; advance both pointers. The patched first operand lets callers inject a constant marker byte ahead of the genuine ARG bytes.
+;   Algorithm: Self-modifying loop: store A into the 'ADC A,(HL)' slot at DP_ADD_BLOCK_PATCHED_ADC (so the first iteration's added operand is the caller-supplied constant), XOR A to clear carry, then for 7 bytes do A=[DE]; A=ADC patched-operand; [DE]=A; advance both pointers. The patched first operand lets callers inject a constant marker byte ahead of the genuine ARG bytes.
 ; ----------------------------------------------------------------------
 DP_ADD_BLOCK:
         LD DE,FAC_DBL
@@ -11212,7 +11212,7 @@ DP_SHIFT_RIGHT_FROM_CB3:
 ;   In:        HL = pointer to the mantissa LSB; CY = bit rotated into the LSB.
 ;   Out:       8 bytes at [HL] shifted left 1 bit, low->high; bit out of the top in CY.
 ;   Clobbers:  A,C,H,L.
-;   Algorithm: For C bytes (8 here), RLA each from the LSB upward so carry chains the shifted-out bit into the next byte. The '_8' is the BYTE count, not the bit count -- this is a 1-bit shift. Used by DADD's left-normalize and (entered at DP_SHIFT_LEFT_8_1 with C preset to 7) by DDIV to shift the remainder and quotient.
+;   Algorithm: For C bytes (8 here), RLA each from the LSB upward so carry chains the shifted-out bit into the next byte. The '_8' is the BYTE count, not the bit count -- this is a 1-bit shift. Used by DADD's left-normalize and (entered at DP_SHIFT_LEFT_LOOP with C preset to 7) by DDIV to shift the remainder and quotient.
 ; ----------------------------------------------------------------------
 DP_SHIFT_LEFT_8:
         LD C,$08
@@ -11229,7 +11229,7 @@ DP_SHIFT_LEFT_LOOP:
 ;   In:        FAC double at $0CAC..$0CB4 (multiplier), ARG double at $0CBA..$0CC1 (multiplicand).
 ;   Out:       FAC = FAC * ARG, normalized/rounded; FAC=0 if either operand is zero.
 ;   Clobbers:  A,B,C,D,E,H,L; FAC, ARG, the $0CE3 temp.
-;   Algorithm: If FAC=0 return; if ARG exponent=0 set FAC=0. Combine the operand signs and add exponents (MULDIV_SIGN_1+1, the +1 entry doing a plain sign XOR). Stash the multiplier mantissa into the $0CE3 temp and zero the FAC mantissa (DP_COPY_TEMP) to form the accumulator. Classic shift-add: for each of the 7 multiplier mantissa bytes (skipping all-zero bytes via DMUL_4) process 8 bits LSB-first (RRA the bit out); if set, add the multiplicand mantissa into the accumulator (DP_ADD_CONST_8E), then shift the accumulator right 1 (DP_SHIFT_RIGHT_FROM_CB3) so each successive bit's partial product weighs one place lower. Finish through DADD_4 (normalize+round).
+;   Algorithm: If FAC=0 return; if ARG exponent=0 set FAC=0. Combine the operand signs and add exponents (MULDIV_SIGN_1+1, the +1 entry doing a plain sign XOR). Stash the multiplier mantissa into the $0CE3 temp and zero the FAC mantissa (DP_COPY_TEMP) to form the accumulator. Classic shift-add: for each of the 7 multiplier mantissa bytes (skipping all-zero bytes via DMUL_SKIP_ZERO_BYTE) process 8 bits LSB-first (RRA the bit out); if set, add the multiplicand mantissa into the accumulator (DP_ADD_CONST_8E), then shift the accumulator right 1 (DP_SHIFT_RIGHT_FROM_CB3) so each successive bit's partial product weighs one place lower. Finish through DADD_NORMALIZE (normalize+round).
 ; ----------------------------------------------------------------------
 DMUL:
         CALL FP_SIGN
@@ -11418,7 +11418,7 @@ DP_POP_OPERAND_LOOP:
 ;   In:        FAC double at $0CAC..$0CB4 (dividend), ARG double at $0CBA..$0CC1 (divisor).
 ;   Out:       FAC = FAC / ARG, normalized/rounded; FAC=0 on dividend zero; divide-by-zero -> FIN_DONE_15, overflow -> FIN_DONE_12.
 ;   Clobbers:  A,B,C,D,E,H,L; FAC, the $0CDD remainder block and $0CE3/$0CE4 temps.
-;   Algorithm: If the divisor exponent ($0CC1) is 0, jump to the divide-by-zero handler (FIN_DONE_15). If the dividend exponent ($0CB4) is 0, the quotient is 0. Combine signs and form the quotient exponent (MULDIV_SIGN, A=$FF complement path), then INC the exponent twice to set the quotient scale (Z => overflow -> FIN_DONE_12). Seed the remainder block $0CDD..$0CE3 with the dividend mantissa (DP_COPY_TEMP); the quotient builds in the FAC mantissa $0CAD (cleared to 0). Restoring division: each step trial-subtracts the divisor (DP_SUB_CONST_8E with $9E; SBC/CCF turns the borrow into a fit/no-fit test), and on no-fit adds it back ($8E); a 1/0 quotient bit is recorded, then the QUOTIENT ($0CAD, 7 bytes via DP_SHIFT_LEFT_8_1) and the REMAINDER ($0CDD, 8 bytes via DP_SHIFT_LEFT_8) are shifted left, looping over the bit counter B and the exponent at $0CB4 until the quotient is filled; exponent underflow yields zero.
+;   Algorithm: If the divisor exponent ($0CC1) is 0, jump to the divide-by-zero handler (FIN_DONE_15). If the dividend exponent ($0CB4) is 0, the quotient is 0. Combine signs and form the quotient exponent (MULDIV_SIGN, A=$FF complement path), then INC the exponent twice to set the quotient scale (Z => overflow -> FIN_DONE_12). Seed the remainder block $0CDD..$0CE3 with the dividend mantissa (DP_COPY_TEMP); the quotient builds in the FAC mantissa $0CAD (cleared to 0). Restoring division: each step trial-subtracts the divisor (DP_SUB_CONST_8E with $9E; SBC/CCF turns the borrow into a fit/no-fit test), and on no-fit adds it back ($8E); a 1/0 quotient bit is recorded, then the QUOTIENT ($0CAD, 7 bytes via DP_SHIFT_LEFT_LOOP) and the REMAINDER ($0CDD, 8 bytes via DP_SHIFT_LEFT_8) are shifted left, looping over the bit counter B and the exponent at $0CB4 until the quotient is filled; exponent underflow yields zero.
 ; ----------------------------------------------------------------------
 DDIV:
         LD A,(L_0CC1)
@@ -13069,7 +13069,7 @@ L_5D85:
 POLY_EVAL_2:
         CALL CHRGET
 ; ----------------------------------------------------------------------
-; POLY_EVAL_SQR -- (mislabeled) RND reseed helper: advance/reseed the RND generator with a fixed argument
+; RND_SEED_RESET -- (mislabeled) RND reseed helper: advance/reseed the RND generator with a fixed argument
 ;   In:        HL preserved across the call; reached from STMT_RANDOMIZE (the RANDOMIZE statement,
 ;              which first stores the user seed into RNDX_SEED_WORD) and from the RND-with-no-
 ;              argument entry POLY_EVAL_2 ($5D89, which CHRGETs then falls through here)
@@ -17638,7 +17638,7 @@ FCB_BUFFER_PTR_1:
 ;              (the heap body pointer lands in DSCTMP.PTR $0B46), FP_ARG_SETUP2 copies the FAC bytes
 ;              (source FAC $0CB1/$0CAD) into that heap buffer (HL = $0B46 contents = destination),
 ;              and STR_FN_RETURN_CHAR_1 pushes the result onto the string-temp stack. The leading 01
-;              byte at FN_LOF_1 is the LD BC,nn skip-prefix idiom (preserve).
+;              byte at FN_MKS_STR is the LD BC,nn skip-prefix idiom (preserve).
 ; ----------------------------------------------------------------------
 FN_MKI_STR:
         LD A,$02
@@ -18075,7 +18075,7 @@ LOAD_PROGRAM:
         JP NZ,RAISE_SYNTAX_ERROR
         POP AF
 ; ----------------------------------------------------------------------
-; LOAD_PROGRAM_2 -- the ,R-PRESENT arm: XOR A; LD (MAX_FILE_NUM),A zeroes L_0870 (MAX_FILE_NUM, NOT the run flag); OR $F1 in LOAD_PROGRAM_3 then sets the run flag. The no-,R path skips this routine.
+; LOAD_PROGRAM_2 -- the ,R-PRESENT arm: XOR A; LD (MAX_FILE_NUM),A zeroes MAX_FILE_NUM (MAX_FILE_NUM, NOT the run flag); OR $F1 in LOAD_PROGRAM_3 then sets the run flag. The no-,R path skips this routine.
 ; ----------------------------------------------------------------------
 LOAD_PROGRAM_2:
         XOR A
@@ -18147,7 +18147,7 @@ LOAD_PROGRAM_6:
         JP Z,NEWSTT_READY
         JP STMT_FOR_7
 ; ----------------------------------------------------------------------
-; LOAD_CLEANUP_RESET -- PRINT_RESET_STATE clears PRTFLG/PTRFIL (leaves A=0); FILE_CLOSE_ONE with A=0 closes FILE #0; JP RESET_RUN_STATE_1 reloads HL from L_0B54. Tail of SAVE and the MERGE error path.
+; LOAD_CLEANUP_RESET -- PRINT_RESET_STATE clears PRTFLG/PTRFIL (leaves A=0); FILE_CLOSE_ONE with A=0 closes FILE #0; JP RESET_RUN_STATE_1 reloads HL from OPEN_RESUME_TEXT_PTR. Tail of SAVE and the MERGE error path.
 ; ----------------------------------------------------------------------
 LOAD_CLEANUP_RESET:
         CALL PRINT_RESET_STATE
@@ -18202,7 +18202,7 @@ DIRECT_STMT_EXEC:
         POP HL
         JP NEWSTT_NEXTLINE_2
 ; ----------------------------------------------------------------------
-; STMT_SAVE -- D=mode 2, open file #0; no suffix -> STMT_SAVE_1 ($FF); ,P -> protected writer (FILE_BUF_REMAIN_BC_1, mislabeled); ,A -> JP STMT_LIST (ASCII).
+; STMT_SAVE -- D=mode 2, open file #0; no suffix -> STMT_SAVE_1 ($FF); ,P -> protected writer (SAVE_PROTECTED_PROGRAM, mislabeled); ,A -> JP STMT_LIST (ASCII).
 ; ----------------------------------------------------------------------
 STMT_SAVE:
         LD D,$02
@@ -18245,7 +18245,7 @@ SAVE_WRITE_PROGRAM_1:
         POP DE
         JR SAVE_WRITE_PROGRAM_1
 ; ----------------------------------------------------------------------
-; STMT_CLOSE -- BC=FILE_CLOSE_ONE; dispatcher Z: NZ -> JR STMT_CLOSE_4 (#n list); Z(no args) -> A=MAX_FILE_NUM seeds the count-down close-all loop. Also the A=0 entry from CLOSE_ALL_FILES; LD A,(L_0870) does not change Z.
+; STMT_CLOSE -- BC=FILE_CLOSE_ONE; dispatcher Z: NZ -> JR STMT_CLOSE_4 (#n list); Z(no args) -> A=MAX_FILE_NUM seeds the count-down close-all loop. Also the A=0 entry from CLOSE_ALL_FILES; LD A,(MAX_FILE_NUM) does not change Z.
 ; ----------------------------------------------------------------------
 STMT_CLOSE:
         LD BC,FILE_CLOSE_ONE
@@ -19045,7 +19045,7 @@ FN_LOC_VALUE_1:
 ;   In:        File-number expression in source (FUNC_DISPATCH_TBL slot $0210).
 ;   Out:       FAC = the record count from the FCB's current extent (0..128).
 ;   Clobbers:  AF, BC, DE, HL.
-;   Algorithm: [RE] This is the REAL LOF(); the similarly named FN_LOF/_1/_2 above are actually MKI$/
+;   Algorithm: [RE] This is the REAL LOF(); the similarly named FN_MKI_STR/_1/_2 above are actually MKI$/
 ;              MKS$/MKD$. Resolve the file number to its FCB ('Bad file number' if closed), read the
 ;              single byte FCB.CPM.RC (offset $0F, record count in the current extent) and return it as
 ;              a number via FP_LOAD_INT_TO_FAC (8-bit, high byte 0). [RE] this reports the size of the
@@ -19066,7 +19066,7 @@ FN_LOF_VALUE:
 ;              jumped here (OUTCHR does JP NZ,here when PTRFIL!=0).
 ;   Out:       Restores HL and AF, then falls into PUTC_FILE to emit the byte to the current file.
 ;   Clobbers:  AF, HL.
-;   Algorithm: [RE] Despite the FN_LOF_VALUE_1 name this is part of the file-output character path, not
+;   Algorithm: [RE] Despite the PUTC_FILE_RESUME name this is part of the file-output character path, not
 ;              LOF. OUTCHR (PUSH AF/PUSH HL, then detects PTRFIL!=0) jumps here; this POPs HL and AF so
 ;              PUTC_FILE can buffer the byte and flush full records. Naming-only mismatch (it shares
 ;              the address region with the LOF code).
@@ -19082,7 +19082,7 @@ PUTC_FILE_RESUME:
 ;   Algorithm: Pushes HL and A, reads the current file's MODE byte. MODE=1 (seq
 ;              input) -> STMT_ERASE_3, which simply pops the saved A/HL and RETs to the
 ;              caller (the byte is discarded -- this is NOT an error raise). MODE=3
-;              (random) -> BLOCK_COPY_BC_2, the FIELD-buffer store path. Otherwise (seq
+;              (random) -> PUTC_FILE_RANDOM, the FIELD-buffer store path. Otherwise (seq
 ;              output, MODE=2) it pops A and falls into PUTC_FILE_1 to append the byte.
 ;   [RE] Writing to a MODE=1 (input) file is silently a no-op here; if BASIC reports
 ;   a 'bad file mode' it must do so elsewhere -- UNKNOWN whether any error surfaces.
@@ -19172,7 +19172,7 @@ PUTC_FILE_2:
 ;              SEQ_RECNO, and marks the buffer full by writing $80 into both BUF_CNT
 ;              and BUF_REM. Recovers BC = FCB base and copies the record number into
 ;              the CP/M random-record fields R0 (low), R1 (high), R2=0 so a random
-;              BDOS call addresses that record. Then on FIELD_WRITE_FLAG (L_084C): if
+;              BDOS call addresses that record. Then on FIELD_WRITE_FLAG (FIELD_WRITE_FLAG): if
 ;              clear (GET / read-modify) it refills the record via FILE_READ_RECORD_FCB;
 ;              if set (PUT) it falls to PUTC_FILE_4 to flush via FILE_FLUSH_RECORD and
 ;              reset the print state.
@@ -19235,7 +19235,7 @@ COPY_128_BLOCK:
 ;   Out:       A = next byte, NC; at EOF A = Ctrl-Z ($1A) with carry set
 ;   Clobbers:  A, flags (BC/HL saved and restored)
 ;   Algorithm: For a random file (MODE=3) it diverts to the FIELD-read path
-;              (BLOCK_COPY_BC_4). Otherwise it checks FCB.BUF_REM (remaining-byte
+;              (GETC_FILE_RANDOM). Otherwise it checks FCB.BUF_REM (remaining-byte
 ;              count): if bytes remain it returns the next one from SEQ_BUF (index =
 ;              BUF_CNT - decremented BUF_REM) and decrements the count; if the record
 ;              is exhausted (BUF_REM=0) it falls into GETC_FILE_2 to refill or signal
@@ -20381,7 +20381,7 @@ FILE_READ_RECORDS_3:
 ; ----------------------------------------------------------------------
 ; STRING_SPACE_ROOM_CHECK -- guard that enough free string space remains before buffering more data.
 ;   In:        FRETOP = top of free string area; DE = the pointer about to be used.
-;   Out:       RET if (FRETOP - $D6) >= DE (room ok); otherwise jumps to RUN_CLEAR_AND_GO (Out of string
+;   Out:       RET if (FRETOP - $D6) >= DE (room ok); otherwise jumps to RUN_NO_FILENAME (Out of string
 ;              space cleanup).
 ;   Clobbers:  A, BC, HL.
 ;   Algorithm: Compute FRETOP minus a $D6-byte safety margin (LD BC,$FF2A; ADD HL,BC) and compare to DE;
@@ -21036,8 +21036,8 @@ FILE_BUF_REMAIN_BC:
 ;   In:        HL = text cursor after the ',P' option; the program occupies the text area; the output file is already open (STMT_SAVE opened it with D=2).
 ;   Out:       The program is transformed in place, written via SAVE_WRITE_PROGRAM with the $FE 'protected' file tag, then transformed back to its plain in-memory form; JP RESET_RUN_STATE_1.
 ;   Clobbers:  A,BC,DE,HL and program memory (the two transforms are reversible in place).
-;   Algorithm: CHRGET past the option, save the cursor (L_0B54), fix up line references (RENUM_PATCH_LINEREFS), CALL PROG_UNSCRAMBLE, SAVE_WRITE_PROGRAM with A=$FE (protected file type), CALL PROG_SCRAMBLE, then JP RESET_RUN_STATE_1. [RE] The code calls PROG_UNSCRAMBLE *before* the write and PROG_SCRAMBLE *after*; the encode/decode roles of those two routines are labeled elsewhere and not re-verified here -- the order of calls (UNSCRAMBLE, write, SCRAMBLE) is what is observed.
-;   Note: This is NOT part of the random-file FIELD cluster -- it is the protected-SAVE path reached by JP Z,FILE_BUF_REMAIN_BC_1 from STMT_SAVE (CP $50 = 'P'), physically adjacent to FILE_BUF_REMAIN_BC and mis-chained as its _1 local.
+;   Algorithm: CHRGET past the option, save the cursor (OPEN_RESUME_TEXT_PTR), fix up line references (RENUM_PATCH_LINEREFS), CALL PROG_UNSCRAMBLE, SAVE_WRITE_PROGRAM with A=$FE (protected file type), CALL PROG_SCRAMBLE, then JP RESET_RUN_STATE_1. [RE] The code calls PROG_UNSCRAMBLE *before* the write and PROG_SCRAMBLE *after*; the encode/decode roles of those two routines are labeled elsewhere and not re-verified here -- the order of calls (UNSCRAMBLE, write, SCRAMBLE) is what is observed.
+;   Note: This is NOT part of the random-file FIELD cluster -- it is the protected-SAVE path reached by JP Z,SAVE_PROTECTED_PROGRAM from STMT_SAVE (CP $50 = 'P'), physically adjacent to FILE_BUF_REMAIN_BC and mis-chained as its _1 local.
 ; ----------------------------------------------------------------------
 SAVE_PROTECTED_PROGRAM:
         CALL CHRGET
