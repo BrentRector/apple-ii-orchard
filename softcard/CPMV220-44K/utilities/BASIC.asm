@@ -1446,7 +1446,7 @@ CRUNCH:
         ; Aim the output pointer at the crunch/tokenize work buffer; the tokenized line is built forward from here.
         LD DE,KBUF
 ; ----------------------------------------------------------------------
-; CRUNCH_SCAN (was CRUNCH_SCAN) -- per-character scan/dispatch at the top of the crunch loop.
+; CRUNCH_SCAN -- per-character scan/dispatch at the top of the crunch loop.
 ;   In:        HL -> current source char; DE -> next output slot; BC = remaining output budget; CRUNCH_LITERAL_MODE = passthrough flag.
 ;   Out:       branches to the handler for the current char class; on a reserved-word candidate, falls into CRUNCH_RESWORD_BEGIN with A = TOK_PRINT preloaded and Z set iff the char is '?'.
 ;   Clobbers:  AF.
@@ -1473,7 +1473,7 @@ CRUNCH_SCAN:
         CP $3F
         LD A,$91
 ; ----------------------------------------------------------------------
-; CRUNCH_RESWORD_BEGIN (was CRUNCH_RESWORD_BEGIN) -- start the reserved-word fold for the current candidate.
+; CRUNCH_RESWORD_BEGIN -- start the reserved-word fold for the current candidate.
 ;   In:        HL -> first char of candidate word; DE/BC = output pointer/budget; A = TOK_PRINT and Z set iff the char was '?'.
 ;   Out:       If '?' : emits PRINT (jumps CRUNCH_CLASSIFY_TOKEN with A=TOK_PRINT). If NOT a letter (operator/punctuation/digit) : CRUNCH_17. If a letter : either runs the 'GO TO'/'GO SUB' two-word recognizer or arms CRUNCH_RESWORD_TAIL (via LD BC,CRUNCH_RESWORD_TAIL / PUSH BC / RET) to look the word up in the keyword name table.
 ;   Clobbers:  AF, BC, DE, HL (saved copies of DE/BC pushed for the matcher to restore).
@@ -1510,7 +1510,7 @@ CRUNCH_RESWORD_BEGIN:
         RET NZ
         INC HL
 ; ----------------------------------------------------------------------
-; CRUNCH_GOTO_SUB_SCAN (was CRUNCH_GOTO_SUB_SCAN) -- recognize 'GO TO' / 'GO SUB' after a confirmed leading "GO ".
+; CRUNCH_GOTO_SUB_SCAN -- recognize 'GO TO' / 'GO SUB' after a confirmed leading "GO ".
 ;   In:        HL -> first char after "GO " (the mandatory single blank already consumed in CRUNCH_RESWORD_BEGIN).
 ;   Out:       On "GO SUB" -> CRUNCH_GOSUB_TAIL (GOSUB tail). On "GO TO" -> A=TOK_GOTO, then CRUNCH_GOTO_SUB_COMMIT. On anything else: RET NZ, returning into CRUNCH_RESWORD_TAIL to try an ordinary keyword.
 ;   Clobbers:  AF, HL.
@@ -1534,7 +1534,7 @@ CRUNCH_GOTO_SUB_SCAN:
         LD A,TOK_GOTO
         JR CRUNCH_GOTO_SUB_COMMIT
 ; ----------------------------------------------------------------------
-; CRUNCH_GOSUB_TAIL (was CRUNCH_GOSUB_TAIL) -- match the 'UB' tail of 'GO SUB' and stage the GOSUB token.
+; CRUNCH_GOSUB_TAIL -- match the 'UB' tail of 'GO SUB' and stage the GOSUB token.
 ;   In:        HL -> char after the 'S' of "GO S...".
 ;   Out:       If "...UB" matches: A=TOK_GOSUB and falls into CRUNCH_GOTO_SUB_COMMIT (commit). Otherwise RET NZ (abandon the special case, fall back to ordinary keyword lookup).
 ;   Clobbers:  AF, HL.
@@ -1552,7 +1552,7 @@ CRUNCH_GOSUB_TAIL:
         ; Stage the GOSUB token (TOK_GOSUB=$8D) for CRUNCH_GOTO_SUB_COMMIT; the LD leaves the preceding 'B' compare's Z flag intact.
         LD A,$8D
 ; ----------------------------------------------------------------------
-; CRUNCH_GOTO_SUB_COMMIT (was CRUNCH_GOTO_SUB_COMMIT) -- commit the recognized GOTO/GOSUB token, discarding the keyword-lookup continuation.
+; CRUNCH_GOTO_SUB_COMMIT -- commit the recognized GOTO/GOSUB token, discarding the keyword-lookup continuation.
 ;   In:        A = TOK_GOTO or TOK_GOSUB; Z set iff the final keyword char matched; the stack holds (top-down) the armed CRUNCH_RESWORD_TAIL return address, then the saved HL (PUSH HL in CRUNCH_RESWORD_BEGIN), then the saved budget BC and output pointer DE.
 ;   Out:       On match: pops the two staged stack words (the CRUNCH_RESWORD_TAIL return address and the saved HL) and jumps to CRUNCH_CLASSIFY_TOKEN to emit the token (leaving the saved BC/DE on the stack for CRUNCH_STORE_FLAG_AND_EMIT to restore). On mismatch: RET NZ, returning into CRUNCH_RESWORD_TAIL to fall back to the ordinary keyword table lookup.
 ;   Clobbers:  AF, BC (two stack pops).
@@ -4352,7 +4352,7 @@ FRMEVL_OPCOMBINE:
         ; Both double ($08): stage the double operands and dispatch the double band.
         JR NC,FRMEVL_OPC_DBL_SETUP
 ; ----------------------------------------------------------------------
-; FRMEVL_OPC_PROMOTE (was FRMEVL_OPC_PROMOTE) -- coerce two differently-typed operands to a common numeric type
+; FRMEVL_OPC_PROMOTE -- coerce two differently-typed operands to a common numeric type
 ;   In:        A = right operand type (VALTYP), B = left operand type; operands as for FRMEVL_OPCOMBINE.
 ;   Out:       Branches to the path that widens the narrower operand to the wider of the two types, then into
 ;              that type's dispatch band.
@@ -4385,7 +4385,7 @@ FRMEVL_OPC_PROMOTE:
         ; Right is single and left is integer: widen the left integer operand to single.
         JR NC,FRMEVL_OPC_WIDEN_LEFT_SNG
 ; ----------------------------------------------------------------------
-; FRMEVL_OPC_DISPATCH_INT (was FRMEVL_OPC_DISPATCH_INT) -- dispatch a two-integer operation through the integer band
+; FRMEVL_OPC_DISPATCH_INT -- dispatch a two-integer operation through the integer band
 ;   In:        Both operands integer. C holds the operator routine index from the popped frame; B is zeroed here.
 ;              The left integer operand is on the stack; the right integer operand is in the FAC.
 ;   Out:       PUSH/RET tail-jumps to the integer operator handler (IADD/INT_SIGNEXT_SUB/IMUL/IDIV/INT16_COMP)
@@ -4412,7 +4412,7 @@ FRMEVL_OPC_DISPATCH_INT:
         PUSH BC
         RET
 ; ----------------------------------------------------------------------
-; FRMEVL_OPC_WIDEN_RIGHT_DBL (was FRMEVL_OPC_WIDEN_RIGHT_DBL) -- widen the right operand to double, then take the double path
+; FRMEVL_OPC_WIDEN_RIGHT_DBL -- widen the right operand to double, then take the double path
 ;   In:        Right operand in the FAC (narrower numeric type); the left operand is already double on the stack.
 ;   Out:       Falls into FRMEVL_OPC_DBL_SETUP with the FAC holding a double-precision right operand.
 ;   Clobbers:  A,B,C,D,E,H,L,F, the FAC.
@@ -4423,7 +4423,7 @@ FRMEVL_OPC_WIDEN_RIGHT_DBL:
         ; Promote the right operand (in the FAC) up to double precision.
         CALL FN_CDBL
 ; ----------------------------------------------------------------------
-; FRMEVL_OPC_DBL_SETUP (was FRMEVL_OPC_DBL_SETUP) -- stage the right double operand and the left operand's low words
+; FRMEVL_OPC_DBL_SETUP -- stage the right double operand and the left operand's low words
 ;   In:        Right operand is double in the FAC; the left double operand's mantissa bytes are on the stack
 ;              (low extension words on top). Operator index already saved in CRUNCH_LITERAL_MODE.
 ;   Out:       Falls into FRMEVL_OPC_DBL_LOADFAC with the right operand moved to the secondary FP temp ($0CBA)
@@ -4444,7 +4444,7 @@ FRMEVL_OPC_DBL_SETUP:
         POP HL
         LD (FAC_DBL),HL
 ; ----------------------------------------------------------------------
-; FRMEVL_OPC_DBL_LOADFAC (was FRMEVL_OPC_DBL_LOADFAC) -- load the left double operand's high mantissa into the FAC
+; FRMEVL_OPC_DBL_LOADFAC -- load the left double operand's high mantissa into the FAC
 ;   In:        Stack holds the left double operand's remaining high mantissa bytes; the FAC low extension words
 ;              were already loaded by FRMEVL_OPC_DBL_SETUP (or this is entered from the left-was-single path).
 ;   Out:       Falls into FRMEVL_OPC_DISPATCH_DBL with the full left operand assembled in the FAC.
@@ -4460,7 +4460,7 @@ FRMEVL_OPC_DBL_LOADFAC:
         ; Write DE->FAC mantissa-low and BC->FACHI, completing the left operand in the FAC.
         CALL FP_STORE_FAC
 ; ----------------------------------------------------------------------
-; FRMEVL_OPC_DISPATCH_DBL (was FRMEVL_OPC_DISPATCH_DBL) -- dispatch a two-double operation through the double band
+; FRMEVL_OPC_DISPATCH_DBL -- dispatch a two-double operation through the double band
 ;   In:        Left double operand in the FAC, right double operand in the secondary FP temp ($0CBA); the
 ;              operator index lives in CRUNCH_LITERAL_MODE.
 ;   Out:       JP (HL) to the double operator handler (DADD/DP_NEGATE_SIGN/DMUL/DDIV/DCOMP_REL).
@@ -4474,7 +4474,7 @@ FRMEVL_OPC_DISPATCH_DBL:
         ; Select the double operator band ($0503: DADD,DP_NEGATE_SIGN,DMUL,DDIV,DCOMP_REL).
         LD HL,OPERATOR_ROUTINE_TBL+OP_BAND_DBL
 ; ----------------------------------------------------------------------
-; FRMEVL_OPC_BAND_DISPATCH (was FRMEVL_OPC_BAND_DISPATCH) -- index a band of OPERATOR_ROUTINE_TBL and jump to the handler
+; FRMEVL_OPC_BAND_DISPATCH -- index a band of OPERATOR_ROUTINE_TBL and jump to the handler
 ;   In:        HL = the chosen band base (OP_BAND_SNG/DBL entry of OPERATOR_ROUTINE_TBL); CRUNCH_LITERAL_MODE =
 ;              operator routine index. Operands already staged in the FAC and the secondary temp.
 ;   Out:       JP (HL) into the selected DEFW handler; never returns here.
@@ -4502,7 +4502,7 @@ FRMEVL_OPC_BAND_DISPATCH:
         LD L,A
         JP (HL)
 ; ----------------------------------------------------------------------
-; FRMEVL_OPC_WIDEN_LEFT_DBL (was FRMEVL_OPC_WIDEN_LEFT_DBL) -- widen the left operand to double when only the right is double
+; FRMEVL_OPC_WIDEN_LEFT_DBL -- widen the left operand to double when only the right is double
 ;   In:        Right operand is double in the FAC; left operand (narrower: int or single) is on the stack with
 ;              its type byte. B = left VALTYP, C = operator index on entry (but see below).
 ;   Out:       Joins the double dispatch path: if the left was single, into FRMEVL_OPC_DBL_LOADFAC (reusing the
@@ -4531,7 +4531,7 @@ FRMEVL_OPC_WIDEN_LEFT_DBL:
         LD (FAC),HL
         JR FRMEVL_OPC_DISPATCH_DBL
 ; ----------------------------------------------------------------------
-; FRMEVL_OPC_WIDEN_RIGHT_SNG (was FRMEVL_OPC_WIDEN_RIGHT_SNG) -- widen the right operand to single, then dispatch single
+; FRMEVL_OPC_WIDEN_RIGHT_SNG -- widen the right operand to single, then dispatch single
 ;   In:        Right operand in the FAC (narrower than single: integer); the left single operand is on the stack.
 ;              Reached from the promotion tree when the LEFT operand is single ($04).
 ;   Out:       Falls into FRMEVL_OPC_DISPATCH_SNG (pops the left single operand and dispatches the single band).
@@ -4545,7 +4545,7 @@ FRMEVL_OPC_WIDEN_RIGHT_SNG:
         ; Promote the right operand (in the FAC) up to single precision to match the single left operand.
         CALL FN_CSNG
 ; ----------------------------------------------------------------------
-; FRMEVL_OPC_DISPATCH_SNG (was FRMEVL_OPC_DISPATCH_SNG) -- recover the left single operand and dispatch the single band
+; FRMEVL_OPC_DISPATCH_SNG -- recover the left single operand and dispatch the single band
 ;   In:        Left single operand pushed on the stack as two register pairs; right single operand in the FAC.
 ;              Entered directly from FRMEVL_OPCOMBINE when BOTH operands are single, or by fall-through after the
 ;              right operand was widened to single.
@@ -4559,7 +4559,7 @@ FRMEVL_OPC_DISPATCH_SNG:
         POP BC
         POP DE
 ; ----------------------------------------------------------------------
-; FRMEVL_OPC_SNG_BAND (was FRMEVL_OPC_SNG_BAND) -- select the single-precision operator band and dispatch
+; FRMEVL_OPC_SNG_BAND -- select the single-precision operator band and dispatch
 ;   In:        Both operands staged for a single-precision op (left in BC/DE, right in the FAC); operator index
 ;              in CRUNCH_LITERAL_MODE.
 ;   Out:       Branches into FRMEVL_OPC_BAND_DISPATCH, which JP (HL)s to FADD_ALIGN/FSUB/FMUL/FDIV/FCOMP.
@@ -4575,7 +4575,7 @@ FRMEVL_OPC_SNG_BAND:
         LD HL,OPERATOR_ROUTINE_TBL+OP_BAND_SNG
         JR FRMEVL_OPC_BAND_DISPATCH
 ; ----------------------------------------------------------------------
-; FRMEVL_OPC_WIDEN_LEFT_SNG (was FRMEVL_OPC_WIDEN_LEFT_SNG) -- widen the integer left operand to single, dispatch single
+; FRMEVL_OPC_WIDEN_LEFT_SNG -- widen the integer left operand to single, dispatch single
 ;   In:        Right operand is single in the FAC; left operand is a 16-bit integer pushed on the stack. Reached
 ;              when the right is single and the left is integer.
 ;   Out:       Branches to FRMEVL_OPC_SNG_BAND for single-precision dispatch, with the widened LEFT operand in
@@ -6957,7 +6957,7 @@ FIN_EPILOGUE_SNAPSHOT_EVAL_FLAG:
 ; GRAPHICS + TEXT-SCREEN STATEMENTS and the 6502 RPC PATH (SoftCard superset)  ---  Apple soft-switches reached as $E0xx (Z-80 $E000-$EFFF == Apple $C000-$CFFF); Apple monitor-ROM calls reached by the 6502 RPC (A$VEC=$F3D0, Z$CPU=$F3DE, SLTTYP+2=$F3BB).  Handlers $45xx-$4Bxx; dispatch table $0194-$01B0.
 ; ======================================================================
 ; ----------------------------------------------------------------------
-; CLEAR_EVAL_FLAG_0CB6 -- (was CLEAR_EVAL_FLAG_0CB6) zero the $0CB6 floating-point / numeric-eval state flag.
+; CLEAR_EVAL_FLAG_0CB6 -- zero the $0CB6 floating-point / numeric-eval state flag.
 ;   In:        (none)
 ;   Out:       byte at $0CB6 = 0; A and flags preserved (PUSH AF / POP AF bracket the write)
 ;   Clobbers:  nothing visible to the caller
@@ -7129,7 +7129,7 @@ GFX_STMT_HTAB_1:
         ; store the wrapped column in the cursor-column cell, then fall into CURSOR_REPOSITION to move the terminal cursor
         LD (CURSOR_POS),A
 ; ----------------------------------------------------------------------
-; CURSOR_REPOSITION -- (was CURSOR_REPOSITION) shared 'reposition the terminal cursor' tail: JR into GFX_STMT_VTAB_2.
+; CURSOR_REPOSITION -- shared 'reposition the terminal cursor' tail: JR into GFX_STMT_VTAB_2.
 ;   In:        $0B11/$0B12 (CURSOR_COL/CURSOR_ROW) already set to the desired (col,row); the caller
 ;              has a matching PUSH HL outstanding (HTAB's PUSH HL, or the TEXT handler's PUSH HL)
 ;   Out:       jumps to GFX_STMT_VTAB_2 (CALL SCREEN_POS_FROM_TABLE; POP HL; RET): emits the
@@ -12285,7 +12285,7 @@ FIN_ACCUM_DIGIT:
         ; still fits: store the updated 16-bit integer accumulator
         LD (FAC),HL
 ; ----------------------------------------------------------------------
-; FIN_DIGIT_DONE (was FIN_DIGIT_DONE) -- common epilogue of the FIN digit-accumulate: unwind and fetch next char.
+; FIN_DIGIT_DONE -- common epilogue of the FIN digit-accumulate: unwind and fetch next char.
 ;   In:        Stack holds the saved HL (text pointer), BC (place/digit counters) and DE pushed by
 ;              FIN_ACCUM_DIGIT; FAC holds the updated running value.
 ;   Out:       HL/BC/DE restored; control transfers to FIN_2 to scan and classify the next source
@@ -12302,7 +12302,7 @@ FIN_DIGIT_DONE:
         ; digit folded in: go scan and classify the next source character
         JP FIN_2
 ; ----------------------------------------------------------------------
-; FIN_DIGIT_OVF_TO_FLOAT (was FIN_DIGIT_OVF_TO_FLOAT) -- 16-bit integer accumulate overflowed; re-stage the digit and promote.
+; FIN_DIGIT_OVF_TO_FLOAT -- 16-bit integer accumulate overflowed; re-stage the digit and promote.
 ;   In:        C = the current digit value (0..9); the integer HL*10+digit overflowed signed 16 bits.
 ;              The original digit push was already consumed (POPped) by the integer-add path.
 ;   Out:       The digit is re-pushed (so the float path can re-add it), then falls into
@@ -12318,7 +12318,7 @@ FIN_DIGIT_OVF_TO_FLOAT:
         LD A,C
         PUSH AF
 ; ----------------------------------------------------------------------
-; FIN_PROMOTE_TO_SINGLE (was FIN_PROMOTE_TO_SINGLE) -- widen the integer accumulator to single precision, arm the crossover test.
+; FIN_PROMOTE_TO_SINGLE -- widen the integer accumulator to single precision, arm the crossover test.
 ;   In:        FAC ($0CB1) = the 16-bit integer accumulator; the digit (0..9) is on the stack.
 ;   Out:       FAC = single-precision float of the integer; VALTYP = VT_SNG; carry SET (SCF) to signal
 ;              the float-accumulate path to run the 2,000,000 single->double crossover check.
@@ -12333,7 +12333,7 @@ FIN_PROMOTE_TO_SINGLE:
         ; carry := 1 to request the single->double crossover test in the float path
         SCF
 ; ----------------------------------------------------------------------
-; FIN_FLOAT_ACCUM_DIGIT (was FIN_FLOAT_ACCUM_DIGIT) -- floating-point digit-accumulate dispatcher (single vs double).
+; FIN_FLOAT_ACCUM_DIGIT -- floating-point digit-accumulate dispatcher (single vs double).
 ;   In:        FAC = running value in float form; the digit (0..9) is on the stack; carry distinguishes
 ;              the source: carry CLEAR means already double (entered from FIN_ACCUM_DIGIT's JP P with a
 ;              double FAC), carry SET means single (just promoted via SCF, or staying single).
@@ -12372,7 +12372,7 @@ FIN_FLOAT_ACCUM_DIGIT:
         CALL FIN_FINALIZE
         JR FIN_DIGIT_DONE
 ; ----------------------------------------------------------------------
-; FIN_WIDEN_TO_DOUBLE (was FIN_WIDEN_TO_DOUBLE) -- promote the single FAC to double precision, then accumulate.
+; FIN_WIDEN_TO_DOUBLE -- promote the single FAC to double precision, then accumulate.
 ;   In:        FAC = single-precision running value that has reached/exceeded 2,000,000; the digit is on the stack.
 ;   Out:       FAC widened to double (zero mantissa extension, VALTYP = VT_DBL); falls into
 ;              FIN_DOUBLE_ACCUM_DIGIT to compute FAC*10 + digit in double precision.
@@ -12385,7 +12385,7 @@ FIN_WIDEN_TO_DOUBLE:
         ; widen single -> double: zero the extension mantissa bytes and mark VALTYP double
         CALL FP_CLEAR_EXT
 ; ----------------------------------------------------------------------
-; FIN_DOUBLE_ACCUM_DIGIT (was FIN_DOUBLE_ACCUM_DIGIT) -- accumulate one digit into the FAC in double precision.
+; FIN_DOUBLE_ACCUM_DIGIT -- accumulate one digit into the FAC in double precision.
 ;   In:        FAC = double-precision running value; the digit (0..9) is on the stack.
 ;   Out:       FAC = FAC*10 + digit (full double precision); JR FIN_DIGIT_DONE to unwind and fetch the
 ;              next source char.

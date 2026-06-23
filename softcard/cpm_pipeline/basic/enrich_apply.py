@@ -30,6 +30,12 @@ from cpm_pipeline.basic._paths import asm_path
 MASTER = asm_path("GBASIC").with_name("BASIC.asm")
 LABEL_RE = re.compile(r'^([A-Za-z_]\w*):')
 BANNER_RE = re.compile(r'^\s*;\s*=+')
+def _strip_was(s):
+    """Drop the redundant rename annotation "(was NAME)" left after the comment text
+    is renamed (the agent's "(was OLD)" becomes "(was NEW)" == the name itself).
+    Handles "NAME (was NAME)", "NAME -- ... (was NAME)", and adjacent "X (was X)"."""
+    s = re.sub(r'^(\s*(?:;\s*)?)([A-Za-z_]\w*)(.*?) \(was \2\)', r'\1\2\3', s)
+    return re.sub(r'([A-Za-z_]\w*) \(was \1\)', r'\1', s)
 RULE = "; " + "-" * 70
 
 
@@ -119,8 +125,8 @@ def apply_spec(text, spec):
         hdr = r.get("header") or []
         if hdr:
             b = _preceding_comment_block(lines, idx)
-            # _rn the header text too, so prose that names a renamed label tracks the rename
-            edits.append((b, idx, _framed_header([_rn(h) for h in hdr])))
+            # _rn the header text too (so prose tracks renames), then drop redundant "(was NAME)"
+            edits.append((b, idx, _framed_header([_strip_was(_rn(h)) for h in hdr])))
             rep["headers"] += 1
         for bc in r.get("body_comments", []) or []:
             anchor = _rn((bc.get("anchor") or "").strip())   # normalize to post-rename names
@@ -131,7 +137,7 @@ def apply_spec(text, spec):
                     n += 1
                     if n == occ:
                         indent = lines[k][:len(lines[k]) - len(lines[k].lstrip())]
-                        edits.append((k, k, [indent + "; " + _rn(bc["comment"])]))
+                        edits.append((k, k, [indent + "; " + _strip_was(_rn(bc["comment"]))]))
                         rep["body"] += 1
                         placed = True
                         break
