@@ -91,7 +91,7 @@ def _preceding_comment_block(lines, idx):
 
 def apply_spec(text, spec):
     routines = [r for r in spec.get("routines", []) if r.get("label")]
-    rep = {"headers": 0, "body": 0, "operands": 0, "renames": 0, "unmatched": [], "collisions": []}
+    rep = {"headers": 0, "body": 0, "operands": 0, "labels": 0, "renames": 0, "unmatched": [], "collisions": []}
 
     # 1) collect + apply RENAMES first, so that header/body anchors -- which the agents
     #    write with the FINAL (post-rename) names -- match the text we then scan.
@@ -188,6 +188,24 @@ def apply_spec(text, spec):
             if not done:
                 rep["unmatched"].append(("operand", r["label"], anc, occ))
 
+    # relocation labels: define a label at an address-anchored line so that frozen
+    # in-image hex operands can be rewritten to a label (full relocatability). The label
+    # emits no bytes; the byte-identical gate proves the label resolves to the same addr.
+    for lbl in spec.get("labels", []) or []:
+        anc = _rn((lbl.get("anchor") or "").strip())
+        occ, name = lbl.get("occ", 1), lbl.get("name")
+        n, placed = 0, False
+        for k in range(len(lines)):
+            if anc and code_norm(lines[k]) == anc:
+                n += 1
+                if n == occ:
+                    edits.append((k, k, [name + ":"]))   # insert "NAME:" before the line
+                    rep["labels"] += 1
+                    placed = True
+                    break
+        if not placed:
+            rep["unmatched"].append(("label", name, anc, occ))
+
     for start, end, repl in sorted(edits, key=lambda e: -e[0]):
         lines[start:end] = repl
     return "\n".join(lines), rep
@@ -196,22 +214,34 @@ def apply_spec(text, spec):
 def main():
     args = sys.argv[1:]
     write = "--write" in args
-    paths = [a for a in args if not a.startswith("--")]
-    if not paths:
-        print("usage: enrich_apply.py SPEC.json [--write]")
+    target = MASTER                       # default: the BASIC.asm master
+    rest = []
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a == "--target":
+            target = Path(args[i + 1]); i += 2; continue
+        if a.startswith("--target="):
+            target = Path(a.split("=", 1)[1]); i += 1; continue
+        if not a.startswith("--"):
+            rest.append(a)
+        i += 1
+    if not rest:
+        print("usage: enrich_apply.py SPEC.json [--target PATH] [--write]")
         return
-    spec = json.loads(Path(paths[0]).read_text(encoding="utf-8"))
-    text = MASTER.read_text(encoding="latin-1")
+    spec = json.loads(Path(rest[0]).read_text(encoding="utf-8"))
+    text = target.read_text(encoding="latin-1")
     out, rep = apply_spec(text, spec)
     print(f"headers={rep['headers']} body={rep['body']} operands={rep['operands']} "
-          f"renames={rep['renames']} unmatched={len(rep['unmatched'])} collisions={len(rep['collisions'])}")
+          f"labels={rep['labels']} renames={rep['renames']} unmatched={len(rep['unmatched'])} "
+          f"collisions={len(rep['collisions'])}")
     if rep["unmatched"]:
         print("  UNMATCHED:", rep["unmatched"][:25])
     if rep["collisions"]:
         print("  COLLISIONS (new name already a label):", rep["collisions"][:25])
     if write:
-        MASTER.write_text(out, encoding="latin-1")
-        print("WROTE", MASTER)
+        target.write_text(out, encoding="latin-1")
+        print("WROTE", target)
     else:
         print("(dry run; pass --write to apply)")
 
