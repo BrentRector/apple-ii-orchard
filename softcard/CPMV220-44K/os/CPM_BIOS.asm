@@ -349,6 +349,28 @@ WBOOT:
         LD ($E5B2),A                     ; init runtime-handler RAM cell
 ; --- $AB01..$ABFF : $E5 trap-fill (runtime-generated console/disk handlers) ---
         DEFB    $E5,$E5,$E5,$E5,$E5,$E5,$E5
+; ----------------------------------------------------------------------
+; CONST_IMPL .. SF_EMIT_LEADIN -- the $AB01-$ABFF runtime-generated handler window (TRAP-FILL).
+;   Layout:    On disk these bytes are all $E5 (the Z-80 PUSH HL / RST $28-trap pattern), a
+;              single contiguous fill region; the labels here (CONST_IMPL, CONIN_IMPL,
+;              CONOUT_IMPL, LIST_IMPL, PUNCH_IMPL, READER_IMPL, RPC_DISPATCH, LIST_EMIT,
+;              CONIN_RAW, the DISK_XLAT_* / DISK_RPC_PUSH_ADDR / SF_EMIT_LEADIN entries) name
+;              the slots the boot code OVERWRITES with real instructions.
+;   TEMPORAL-TENANT SEQUENCE (TECH 15): the SAME addresses hold two tenants in ORDER, never
+;              simultaneously, and ALWAYS as Z-80 (never as 6502):
+;                tenant 1 (on disk / pre-boot): $E5 fill -- the Z-80 trap pattern, inert.
+;                tenant 2 (after COLD_BOOT/WBOOT): the live console/disk PRIMITIVES, written
+;                  into this window by the Z-80 boot code and executed by the Z-80. The BIOS
+;                  jump table at $AA00 points its CONST/CONIN/CONOUT/LIST/PUNCH/READER/disk
+;                  slots HERE precisely because the bodies are runtime-generated, not on disk.
+;              These bytes are NOT shared with the 6502 and are NOT self-modified in place;
+;              they are filled once at boot. Emitted as $E5 fill so the image reassembles
+;              byte-identical.
+;   In/Out/Clobbers: n/a on disk (fill). The generated tenant defines its own contract.
+;   [RE]: the per-slot lengths/names are inferred from the jump-table targets and the callers
+;              in this image; the generator code that writes them lives off this $500-byte
+;              image (cold/warm-boot path).
+; ----------------------------------------------------------------------
 CONST_IMPL:
         DEFS    31, $E5                  ; fill  (CONST handler, generated at boot)
 CONIN_IMPL_1:
@@ -720,7 +742,7 @@ LIST_VEC1:
 ; ----------------------------------------------------------------------
 CONIN_DISP:
         ; ; load the CP/M IOBYTE from $0003
-        LD A,($0003)                     ; IOBYTE [DOC S&HD 2-18]
+        LD A,(IOBYTE_ADDR)                     ; IOBYTE [DOC S&HD 2-18]
         ; ; isolate the CONSOLE field (bits 0-1): 0=TTY: 1=CRT: 2=BAT: 3=UC1:
         AND $03                          ; CONSOLE field (bits 0-1) [DOC S&HD 2-18]
         ; ; classify the field: <2 = direct console, ==2 = BAT:(reader), >2 (==3) = UC1:
@@ -792,7 +814,7 @@ CONIN_V2B:
 ; ----------------------------------------------------------------------
 LIST_DEMUX:
         ; ; load the CP/M IOBYTE from $0003
-        LD A,($0003)                     ; IOBYTE
+        LD A,(IOBYTE_ADDR)                     ; IOBYTE
         ; ; keep only the LIST field (bits 6-7): 0=TTY: 1=CRT: 2=LPT: 3=UL1:
         AND $C0                          ; LIST field (bits 6-7)
 ; ----------------------------------------------------------------------
@@ -823,8 +845,8 @@ LIST_DEMUX_1:
 ; ============================================================================
 ; PUNCH OUTPUT IOBYTE demux  ($AC75)  -- [DOC S&HD 7.6/2-18]
 ; Masks the IOBYTE PUNCH field (bits 4-5): 0 (TTY:) falls to the device-dispatch
-; flag tail; ==1 (PTP:) -> Punch Output #1 ($F38E); >=2 (UP1:/UP2:) -> Punch
-; Output #2 ($F390).  Matches CPMV223-44K PUNCH_DEMUX ($FC7F).
+; flag tail; ==1 (PTP:) -> Punch Output #2 ($F390); >=2 (UP1:/UP2:) -> Punch
+; Output #1 ($F38E).  Matches CPMV223-44K PUNCH_DEMUX ($FC7F).
 ; ============================================================================
 ; ----------------------------------------------------------------------
 ; PUN_DISP -- BIOS PUNCH entry: IOBYTE PUNCH-field demux for punch output
@@ -838,14 +860,12 @@ LIST_DEMUX_1:
 ;   OBSERVED (verified against the assembled bytes): the equal case ($10) falls past the
 ;              JR NZ and lands on LD HL,(PUN2_VEC) -> JP (HL); the not-equal (>1) case takes
 ;              JR NZ,CONIN_V2B with PUN1_VEC still in HL. So value 1 selects PUN2 and values
-;              >=2 select PUN1.
-;   CORRECTION: the existing file HEADER COMMENT (lines ~369-371: "==1 (PTP:) -> Punch
-;              Output #1 ($F38E); >=2 -> Punch Output #2 ($F390)") has these two mappings
-;              REVERSED and must be fixed by the applier to match the bytes documented here.
+;              >=2 select PUN1. (The region banner above was REVERSED on this point and has been
+;              corrected to match these bytes.)
 ; ----------------------------------------------------------------------
 PUN_DISP:
         ; ; load the CP/M IOBYTE from $0003
-        LD A,($0003)                     ; IOBYTE [DOC S&HD 2-18]
+        LD A,(IOBYTE_ADDR)                     ; IOBYTE [DOC S&HD 2-18]
         ; ; keep only the PUNCH field (bits 4-5): 0=TTY: 1=PTP: 2=UP1: 3=UP2:
         AND $30                          ; PUNCH field (bits 4-5) [DOC S&HD 2-18]
         ; ; classify: ==0 (TTY:) below, ==$10 (PTP:) equal, >$10 (UP1:/UP2:) above
@@ -881,7 +901,7 @@ PUN_DISP:
 ; ----------------------------------------------------------------------
 READER_DEMUX:
         ; ; load the CP/M IOBYTE from $0003
-        LD A,($0003)                     ; IOBYTE
+        LD A,(IOBYTE_ADDR)                     ; IOBYTE
         ; ; keep only the READER field (bits 2-3): 0=TTY: 1=PTR: 2=UR1: 3=UR2: (value x4)
         AND $0C                          ; READER field (bits 2-3)
         ; ; split on field value 1 ($04): below=TTY:, equal=PTR:, above=UR1:/UR2:
@@ -1481,6 +1501,12 @@ SF_DISPATCH:
         LD L,A
         ; ; index SF_SELECTOR_TBL by the screen-fn number to fetch a low byte (high byte stays $AC)
         ; [RE]: see header, on-disk bytes here overlap code
+        ; DISPATCH CLASSIFICATION (TECH 17): this is STATIC-INDEXED dispatch -- the index is the
+        ; screen-function number in B and the table base is the in-image SF_SELECTOR_TBL ($ACD4);
+        ; contrast the I/O-vector routines (CONST_DISP/CONIN_V1/LIST_VEC1/SF_EMIT) which are
+        ; RUNTIME-POINTER dispatch (JP (HL) through a cell repatchable by CONFIGIO). [RE]/UNKNOWN
+        ; per the header: the on-disk bytes at SF_SELECTOR_TBL overlap emit code, so the resolved
+        ; targets are the runtime-generated form, not statically decodable here.
         LD L,(HL)
         JP (HL)
 ; ----------------------------------------------------------------------
