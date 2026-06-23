@@ -5842,14 +5842,36 @@ FP_INT_SUB_TO_FAC:
         SBC A,D
         LD H,A
         JP INT_TO_SNG
-; [RE] LPOS(x) handler (function token $1A): current line-printer column (($0837)) into the FAC.
+; ----------------------------------------------------------------------
+; FN_LPOS -- BASIC function LPOS(x): report the line-printer's current print column (1-based).
+;   In:        OUTPUT_COLUMN ($0837) = internal 0-based column of the next char on the LIST/printer device (tracked by OUTCHR). The (x) argument is parsed and evaluated by the function-call setup but its value is discarded here. [RE] x is a dummy printer/device number.
+;   Out:       FAC ($0CB1) = OUTPUT_COLUMN + 1 stored as a VT_INT integer (high byte 0); VALTYP ($0B14) = VT_INT (=2). Set by the shared FN_POS_1 / FP_STORE_FAC_INT tail.
+;   Clobbers:  A, H, L, F; memory FAC and VALTYP (written by the shared tail).
+;   Algorithm: Load the printer column byte into A, then JR into the shared FN_POS_1 tail (bypassing the console-column load). FN_POS_1 does INC A and stores A zero-extended as an integer in the FAC. Because it joins FN_POS_1 it gets the SAME +1 as POS, so LPOS returns column+1, not the raw cell. [RE] internal column is 0-based (the PRINT-zone code treats cell==0 as line-start); +1 makes it the 1-based value BASIC reports.
+; ----------------------------------------------------------------------
 FN_LPOS:
         LD A,(OUTPUT_COLUMN)
+        ; join the shared +1-and-store tail, skipping the console-column load (LPOS gets the same +1 as POS)
         JR FN_POS_1
-; [RE] POS(x) handler (function token $10): current console output column (($0B11)+1) into the FAC; shares the integer-load tail with FP_LOAD_INT_TO_FAC.
+; ----------------------------------------------------------------------
+; FN_POS -- BASIC function POS(x): report the console's current cursor (output) column (1-based).
+;   In:        CURSOR_POS ($0B11) = internal 0-based column of the next char on the console/CRT. The (x) argument is parsed/evaluated by the call setup but its value is discarded. [RE] x is a dummy.
+;   Out:       FAC ($0CB1) = CURSOR_POS + 1 stored as a VT_INT integer; VALTYP ($0B14) = VT_INT (=2). Set by the shared tail.
+;   Clobbers:  A, H, L, F; memory FAC and VALTYP (written by the shared tail).
+;   Algorithm: Load the console cursor column into A and fall straight into FN_POS_1, which does INC A and stores the byte zero-extended as an integer in the FAC. Differs from FN_LPOS only in which column cell it reads. [RE] internal column is 0-based; +1 yields the 1-based reported value.
+; ----------------------------------------------------------------------
 FN_POS:
+        ; read the console cursor column, then fall into the shared +1-and-store tail
         LD A,(CURSOR_POS)
+; ----------------------------------------------------------------------
+; FN_POS_1 -- shared tail for LPOS/POS: convert the 0-based column in A to the 1-based result and store it in the FAC as an integer.
+;   In:        A = internal 0-based column byte (from OUTPUT_COLUMN via FN_LPOS's JR, or CURSOR_POS via FN_POS's fall-through).
+;   Out:       FAC ($0CB1) = (A+1) zero-extended to 16 bits as a VT_INT integer; VALTYP ($0B14) = VT_INT (=2). Returns via the FP_STORE_FAC_INT RET to the function-return path.
+;   Clobbers:  A, H, L, F; memory FAC and VALTYP.
+;   Algorithm: INC A turns the internal 0-based column into the 1-based column BASIC reports, then falls into FP_LOAD_INT_TO_FAC (LD L,A ; XOR A ; LD H,A => HL = A with high byte 0) and tail-jumps to FP_STORE_FAC_INT, which writes HL to the FAC and sets VALTYP=VT_INT. [RE] column values are < 256 so the zeroed high byte is always correct.
+; ----------------------------------------------------------------------
 FN_POS_1:
+        ; convert the internal 0-based column to the 1-based column BASIC reports, then fall into FP_LOAD_INT_TO_FAC to store it as an integer
         INC A
 ; [RE] Store the 8-bit value in A (zero-extended to HL) as an integer into the FAC via FP_STORE_FAC_INT.
 FP_LOAD_INT_TO_FAC:
@@ -7224,11 +7246,35 @@ BLOCK_MOVE_TO_VARTAB_1:
         LD L,C
         LD (VARTAB),HL
         RET
-; [RE] PEEK(addr) handler (function token $16): read one memory byte at addr into the FAC.
+; ----------------------------------------------------------------------
+; FN_PEEK -- PEEK(addr) function handler (function token $16, TOK_PEEK): return the byte stored at a machine address.
+;   In:        FAC holds the parenthesised numeric argument, already evaluated by the function-call
+;              dispatcher (FRMEVL_FUNC_* path) before this handler is entered; the argument is NOT
+;              pre-coerced (PEEK's dispatch index is above the single-precision-coercion band, so GETADR
+;              does the typing). HL = program-text cursor positioned just past the closing ')'. SAVTXT
+;              ($0844) = current statement pointer (== $FFFF in direct mode). LOAD_PROTECT_FLAG ($0C99)
+;              nonzero iff a load-protected program (LOADed from a $FE-prefixed file) is resident.
+;   Out:       FAC := the unsigned byte read from memory (0..255), stored as a 16-bit integer (high byte 0,
+;              VALTYP = VT_INT). May raise 'Illegal function call' (ERR_FC) via the direct-mode guard, or
+;              Type mismatch / Overflow via GETADR's FN_CINT continuation.
+;   Clobbers:  A, BC, DE, HL, flags, the FAC.
+;   Algorithm: GETADR coerces the FAC argument to an unsigned 16-bit address (0..65535) returned in HL.
+;              DIRECT_MODE_GUARD applies the PEEK/POKE protection check: it returns immediately while a
+;              program is running (SAVTXT != $FFFF), but in direct mode (SAVTXT == $FFFF) it falls into
+;              ILLEGAL_DIRECT_CHECK, which raises ERR_FC only when LOAD_PROTECT_FLAG is nonzero -- i.e. PEEK
+;              from the keyboard is refused when a load-protected program is resident. [RE] the intent is
+;              to stop dumping a protected program's bytes via direct-mode PEEK. The byte at the address
+;              is then fetched (LD A,(HL)) and tail-jumped into FP_LOAD_INT_TO_FAC, which zero-extends A
+;              into HL (H=0) and stores it as a VT_INT in the FAC.
+; ----------------------------------------------------------------------
 FN_PEEK:
+        ; coerce the parenthesised argument (already in the FAC) to an unsigned 16-bit address in HL
         CALL GETADR
+        ; PEEK/POKE protection check: a no-op while a program runs; in direct mode it FC-errors only if a load-protected program is resident
         CALL DIRECT_MODE_GUARD
+        ; read the byte at the target address
         LD A,(HL)
+        ; return the byte (zero-extended, high byte 0) as a VT_INT in the FAC
         JP FP_LOAD_INT_TO_FAC
 ; ----------------------------------------------------------------------
 ; STMT_POKE -- POKE statement handler (keyword token $97): store a byte to an arbitrary memory address.
@@ -8671,22 +8717,53 @@ FN_RANGE_ERR:
         ; PREAD returns the paddle/timer count in 6502 Y
         LD A,(RPC_YREG)
         JP FP_LOAD_INT_TO_FAC
+; ----------------------------------------------------------------------
+; FN_SCRN -- SCRN(x,y) function (token $EC): read the colour of one LOW-RES screen cell
+;   In:        HL -> program text positioned at the SCRN token; the '(x,y)' argument list follows.
+;   Out:       FAC = the lo-res colour 0..15 at cell (x,y), as a zero-extended 16-bit integer (VALTYP := VT_INT); HL advanced past the ')'.
+;   Clobbers:  A, E, flags, the 6502 RPC cells RPC_ACC/RPC_YREG. HL is advanced past ')' (its value is saved across the RPC and the FAC load, then restored to that position by the tail).
+;   Algorithm: CHRGET past the token, require '(', then GFX_PARSE_PLOT_COORD parses+range-checks the
+;              coordinate pair (x<40 columns -> RPC_YREG/6502 Y, y<48 rows -> RPC_ACC/6502 A); require ')'.
+;              RPC-call the Apple ROM SCRN routine (SCRN_ROM=$F871, reads lo-res pixel (Y,A)->A) over the
+;              Z80->6502 bridge. Read the result colour byte from RPC_ACC (the 6502 A-result is returned
+;              through that register cell per the RPC contract [RE/DOC]) and load it into the FAC as an
+;              integer via the shared FAC_LOAD_BYTE_POP_TXT tail (which POPs the HL pushed here).
+; ----------------------------------------------------------------------
 FN_SCRN:
+        ; skip the SCRN token and fetch the first argument character
         CALL CHRGET
         CALL SYNCHR
         DEFB    '('                      ; inline char arg consumed by the preceding CALL
+        ; parse and range-check (x,y); stages row->RPC_ACC (6502 A), column->RPC_YREG (6502 Y)
         CALL GFX_PARSE_PLOT_COORD
         CALL SYNCHR
         DEFB    ')'                      ; inline char arg consumed by the preceding CALL
         PUSH HL
+        ; read the cell colour on the 6502: RPC-call the Apple lo-res SCRN ROM (reads pixel (Y,A)->A)
         LD HL,SCRN_ROM
         CALL RPC_CALL
+        ; [RE] read the result colour 0..15 back from RPC_ACC (SCRN returns it in 6502 A, passed through this cell)
         LD A,(RPC_ACC)
+        ; return the colour as a 16-bit integer in the FAC and restore the text pointer (POPs the HL pushed above)
         JP FAC_LOAD_BYTE_POP_TXT
+; ----------------------------------------------------------------------
+; FN_COLOR_READ -- COLOR used as a function (token $CD in operand position): return the current LOW-RES draw colour
+;   In:        HL -> program text at the COLOR token; (COLOR) = the current lo-res colour cell ($F030, the 0..15 colour replicated in both nibbles by GFX_SET_LORES_COLOR).
+;   Out:       FAC = current draw colour 0..15, as a zero-extended 16-bit integer (VALTYP := VT_INT); HL advanced one character (by CHRGET).
+;   Clobbers:  A, flags. HL advanced one char; the text-pointer value is saved/restored by the tail (FP_LOAD_INT_TO_FAC uses H,L internally but the tail's PUSH/POP restores them).
+;   Algorithm: CHRGET past the token, read the COLOR cell, mask off the high nibble (AND $0F) to
+;              recover the single 0..15 colour value (the cell stores it in both nibbles for the lo-res
+;              plot primitives), and load it into the FAC as an integer via FAC_LOAD_BYTE_PUSH_TXT
+;              (which pushes HL, zero-extends the byte via FP_LOAD_INT_TO_FAC, then restores HL).
+; ----------------------------------------------------------------------
 FN_COLOR_READ:
+        ; skip the COLOR token (no argument list: this is COLOR read as a value)
         CALL CHRGET
+        ; read the current lo-res colour cell (the 0..15 colour is replicated in both nibbles)
         LD A,(COLOR)
+        ; keep one nibble -> the colour value 0..15
         AND $0F
+        ; return the colour as a 16-bit integer in the FAC (tail saves/restores the text pointer)
         JP FAC_LOAD_BYTE_PUSH_TXT
 ; ----------------------------------------------------------------------
 ; STMT_CALL_INVOKE_6502 -- SoftCard CALL %addr(a,x,y): stage the 6502 A/X/Y registers from the argument list.
