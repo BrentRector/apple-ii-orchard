@@ -50,6 +50,7 @@
 BDOS_ENTRY  EQU $9C06        ; BDOS entry (44K: FBASE $9C00 + 6) -- [DOC CPMREF 3-41/3-42 ; facts sec.2.3]
 CCP_ENTRY   EQU $9400        ; CCP entry (44K: CBASE) -- [DOC CPMREF 3-41/3-42 ; facts sec.2.3]
 
+        INCLUDE "cpm22.inc"
     ORG $AA00
 
 ; ============================================================================
@@ -380,47 +381,128 @@ SF_EMIT_LEADIN:
 ; current drive/user so the CCP restores the A> prompt drive on warm start.
 ; ============================================================================
 ; ----------------------------------------------------------------------
-; C=0004 then JP CCP_ENTRY. AC00 98 RE-UNKNOWN
+; WBOOT_TAIL -- warm-start tail: hand the CCP the current drive/user and re-enter it.
+;   In:        Reached by the runtime warm-boot reload sequence (generated into the $AB01-$ABFF $E5
+;              trap-fill) after WBOOT has relaid page zero, set the stack, rescanned card types and
+;              reset the default DMA. CP/M base page $0004 (CDISK_ADDR) holds the current drive (low
+;              nibble) / user (high nibble).
+;   Out:       C = current drive/user byte; control transferred to the CCP transient at CCP_ENTRY
+;              ($9400), which restores the A> prompt drive on warm start. Does not return.
+;   Clobbers:  A, C (then the CCP owns the machine).
+;   Algorithm: Load the persisted current-drive/user byte into C and JP into the CCP entry point, so
+;              the freshly (re)loaded command processor comes up on the same drive the user last
+;              selected. [DOC CPMREF 3-44 ; facts sec.7.3]
+;   OBSERVED/[RE]: the static byte at $AC00 disassembles as SBC A,B ($98) but is NOT an executed
+;   instruction. It is the residual HIGH operand byte of the warm-boot store that the runtime
+;   warm-boot handler BUILDS INTO the $E5 trap-fill region; on disk the bytes at $ABFE/$ABFF are $E5
+;   fill (not a store) and $AC00 is $98, so statically $AC00 is a mid-instruction artifact and the
+;   real tail entry is LD A,($0004) at $AC01. The byte-identical CPMV223-44K twin shows the
+;   corresponding store as LD ($974E),A at $FC06 (so the 2.20 target is a $98xx/$97xx BIOS-RAM
+;   cell); the exact target and the $98 value are UNKNOWN from this image. (Note: this is distinct
+;   from the build's actual on-disk WBOOT store LD ($E5B2),A at $AAFE, which precedes the
+;   trap-fill.)
 ; ----------------------------------------------------------------------
 WBOOT_TAIL:
         SBC A,B                          ; $AC00  98
-        LD A,($0004)                     ; $AC01  current disk/user byte
+        ; load the persisted current drive (low nibble) / user (high nibble) byte so the CCP can
+        ; restore the prompt drive on warm start [DOC CPMREF 3-44]
+        LD A,(CDISK_ADDR)                     ; $AC01  current disk/user byte
         LD C,A                           ; $AC04
+        ; re-enter the (re)loaded CCP transient with C = current drive/user [DOC CPMREF 3-44 ; facts
+        ; sec.7.3]
         JP CCP_ENTRY                     ; $AC05  enter the CCP transient ($9400) [DOC CPMREF 3-44 ; facts sec.7.3]
 
 ; ----------------------------------------------------------------------
-; JP through CONST_VEC F380, default CONST_KBD
+; CONST_DISP -- CONST body: dispatch console-status through the Console Status vector.
+;   In:        I/O Vector Table cell CONST_VEC ($F380) holds the active Console Status #1 handler
+;              address (low-high). [DOC S&HD 2-16..2-18]
+;   Out:       Tail-jumps (JP (HL)) into that handler, which returns A=$FF if a console character is
+;              ready else A=$00. Does not return here.
+;   Clobbers:  HL (then the dispatched handler defines A and flags).
+;   Algorithm: Indirectly load the Console Status #1 handler from the I/O Vector Table and jump to
+;              it. Console STATUS is never IOBYTE-demuxed (verified: this body reads no IOBYTE) --
+;              it always routes through Console Status #1. The default target is CONST_KBD (the
+;              Apple key-ready test); CONFIGIO can repatch CONST_VEC to another card's status
+;              routine. [DOC S&HD 2-16..2-18]
 ; ----------------------------------------------------------------------
 CONST_DISP:
+        ; fetch the active Console Status #1 handler from the I/O Vector Table (default = CONST_KBD)
+        ; [DOC S&HD 2-16]
         LD HL,(CONST_VEC)                ; $AC08  $F380 Console Status vector
+        ; tail-jump into the console-status handler; it returns A=$FF (ready) / $00 (none)
         JP (HL)                          ; $AC0B
 
 ; ----------------------------------------------------------------------
-; KEYBD RLA-SBC to FF-00, no strobe clear
+; CONST_KBD -- default Console Status #1 handler: Apple keyboard ready test.
+;   In:        KEYBD ($E000), the Apple keyboard data/strobe soft switch; bit 7 set = a key is
+;              waiting. [DOC S&HD 2-23]
+;   Out:       A = $FF if a key is ready, $00 if not (the CP/M Console Status contract value). Does
+;              NOT clear the strobe (a non-destructive peek).
+;   Clobbers:  A, flags.
+;   Algorithm: Read the keyboard latch, rotate bit 7 (key-ready strobe) into carry (RLA), then SBC
+;              A,A to smear carry across the whole byte: carry=1 -> A=$FF, carry=0 -> A=$00. This is
+;              the routine CONST_VEC points at by default. [DOC S&HD 2-23]
 ; ----------------------------------------------------------------------
 CONST_KBD:
+        ; read the Apple keyboard latch (bit 7 = a key is waiting); a non-destructive peek that
+        ; leaves the strobe intact [DOC S&HD 2-23]
         LD A,(KEYBD)                     ; $AC0C  read keyboard ($E000)
+        ; shift the key-ready bit (b7) into carry
         RLA                              ; $AC0F  key-ready bit (b7) -> carry
+        ; expand carry across the byte: A=$FF if a key is ready, $00 otherwise (the Console Status
+        ; contract value)
         SBC A,A                          ; $AC10  A = $FF if ready else $00
         RET                              ; $AC11
 
 ; ----------------------------------------------------------------------
-; redef table F3AC. 2.23 masks 7F, 2.20 OMITS
+; KBD_REDEF -- read a console key and apply the Keyboard Character Redefinition Table.
+;   In:        Calls the runtime CONIN_RAW primitive for the raw keystroke. Keyboard Character
+;              Redefinition Table at $F3AC (config block): up to six 2-byte entries {original ASCII,
+;              replacement ASCII}, terminated early by a byte with the high bit set. [DOC S&HD 2-17]
+;   Out:       A = the redefined ASCII if the key matched a table entry, else the original key.
+;              Applies to the console-input path. [DOC S&HD 2-17]
+;   Clobbers:  A, B, C, HL, flags.
+;   Algorithm: Fetch the raw key, set HL to the table base minus one ($F3AB) so the loop's leading
+;              INC HL lands on the first entry, set B=6 (max entries) and stash the key in C; then
+;              scan {orig,new} pairs in KBD_REDEF_LP. NOTE: unlike CPMV223-44K (which does AND $7F
+;              here), this 2.20 build does NOT mask the raw key before scanning -- verified against
+;              the sibling.
 ; ----------------------------------------------------------------------
 KBD_REDEF:
+        ; get one raw keystroke from the runtime console-input primitive
         CALL CONIN_RAW                    ; $AC12  (runtime) get raw key in A
+        ; point at the Keyboard Character Redefinition Table base minus 1 ($F3AC-1); the loop's
+        ; leading INC HL advances to the first {orig,new} entry [DOC S&HD 2-17]
         LD HL,$F3AB                      ; $AC15  redefinition table - 1 ($F3AC base) [DOC S&HD 2-17]
+        ; scan at most six redefinition entries [DOC S&HD 2-17]
         LD B,$06                         ; $AC18  up to 6 entries [DOC S&HD 2-17]
+        ; hold the key under test in C for the per-entry compare
         LD C,A                           ; $AC1A  C = key to match
 ; ----------------------------------------------------------------------
-; term to CONIN_IMPL_1, match KBD_REDEF_HIT
+; KBD_REDEF_LP -- per-entry scan of the Keyboard Character Redefinition Table.
+;   In:        HL -> one byte before the current entry (from the previous iteration); B = entries
+;              remaining; C = key under test. [DOC S&HD 2-17]
+;   Out:       On a high-bit terminator: jumps to the runtime CONIN handler (CONIN_IMPL_1) with no
+;              substitution. On a match: falls into KBD_REDEF_HIT which returns the replacement
+;              byte. On a miss: continues via the DJNZ in KBD_REDEF_HIT.
+;   Clobbers:  A, HL, flags (B walked by the trailing DJNZ).
+;   Algorithm: Advance HL to the entry's original-ASCII byte, load it, advance HL to the replacement
+;              byte, and test the original: high bit set marks the early end of the table -> hand
+;              off to the CONIN handler; otherwise compare the original against the key in C and
+;              fall into the shared match tail (KBD_REDEF_HIT). [DOC S&HD 2-17]
 ; ----------------------------------------------------------------------
 KBD_REDEF_LP:
         INC HL                           ; $AC1B
+        ; read this entry's original-ASCII byte (the key it would redefine) [DOC S&HD 2-17]
         LD A,(HL)                        ; $AC1C  ASCII to redefine [DOC S&HD 2-17]
         INC HL                           ; $AC1D
+        ; test the high bit: set => early end-of-table terminator [DOC S&HD 2-17]
         OR A                             ; $AC1E
+        ; end of table reached with no match -> deliver the key unchanged via the runtime CONIN
+        ; handler [DOC S&HD 2-17]
         JP M,CONIN_IMPL_1                      ; $AC1F  high bit set = end of table [DOC S&HD 2-17]
+        ; compare this entry's original against the key under test; equal sets Z for the
+        ; KBD_REDEF_HIT match tail
         CP C                             ; $AC22
 ; ----------------------------------------------------------------------
 ; KBD_REDEF_HIT -- shared 'load (HL), return-if-zero' tail used by two callers.
@@ -446,35 +528,90 @@ KBD_REDEF_HIT:
         RET                              ; $AC28
 
 ; ----------------------------------------------------------------------
-; DE=3 UNKNOWN then LIST_ENTRY_JP
+; LIST_ENTRY -- preload DE then enter the runtime list/console tail.
+;   In:        none required by this stub (the source of control is a runtime-generated handler in
+;              the $AB.. fill and is not traced in this static image).
+;   Out:       DE = $0003; falls into LIST_ENTRY_JP which JP's to the runtime LIST_EMIT handler.
+;   Clobbers:  DE.
+;   Algorithm: Load the constant $0003 into DE and tail into LIST_ENTRY_JP. UNKNOWN: the meaning of
+;              $0003 is not resolvable from this image -- it could be the CP/M IOBYTE base-page
+;              address ($0003) or a literal small-integer parameter (3). The CPMV223-44K twin loads
+;              the same $0003 (there before JP CONIN_IMPL_2), and passing the IOBYTE *address* in DE
+;              to an emit handler does not fit the usual CP/M pattern, so a count is at least as
+;              plausible; not rewritten to a symbol to avoid asserting an unconfirmed meaning. [RE]
 ; ----------------------------------------------------------------------
 LIST_ENTRY:
+        ; load the constant 3 for the runtime list/console tail; whether this is the IOBYTE address
+        ; $0003 or a small-integer parameter is UNKNOWN [RE]
         LD DE,$0003                      ; $AC29
 ; ----------------------------------------------------------------------
-; JP LIST_EMIT. disk CALLs +1 (AC2D), KEEP label, effect UNKNOWN
+; LIST_ENTRY_JP -- tail-jump into the runtime-generated list-emit handler.
+;   In:        DE as set by the caller (LIST_ENTRY loads $0003).
+;   Out:       JP to LIST_EMIT, the console/list emit primitive generated into the $AB.. RAM fill at
+;              boot (not present on disk). Does not return.
+;   Clobbers:  whatever LIST_EMIT touches.
+;   Algorithm: A single JP into the runtime list handler. NOTE: LIST_ENTRY_JP+1 ($AC2D) is a
+;              deliberate mid-instruction re-entry, reached by CALL LIST_ENTRY_JP+1 at $ACD7 in the
+;              screen-fn emit path (verified); the precise effect of entering the JP one byte in is
+;              UNKNOWN, and the label is kept so the +1 reference stays anchored and relocatable.
+;              [RE]
 ; ----------------------------------------------------------------------
 LIST_ENTRY_JP:
+        ; tail-jump into the runtime-generated list/console emit handler (LIST_ENTRY_JP+1 is a
+        ; separate mid-instruction re-entry from the screen-fn emit at $ACD7) [RE]
         JP LIST_EMIT                        ; $AC2C  (runtime) list handler
                                          ; (LIST_ENTRY_JP+1 = $AC2D is a re-entry
                                          ;  used by the screen-fn emit at $ACD7)
 
 ; ----------------------------------------------------------------------
-; KBD_WAIT_STROBE. wait key, clear strobe E010, NOT serial
+; KBD_WAIT_STROBE -- block until an Apple key is pressed, then clear the strobe.
+;   In:        KEYBD ($E000) keyboard data/strobe (bit 7 set = key waiting); KEYSTB ($E010)
+;              clear-strobe soft switch. [DOC S&HD 2-23]
+;   Out:       Returns once a key has arrived, with the keyboard strobe acknowledged so the next
+;              KEYBD read is fresh. A holds the post-rotate keyboard byte (high bit refolded by
+;              CCF/RRA).
+;   Clobbers:  A, flags.
+;   Algorithm: Spin reading KEYBD and rotating bit 7 into carry until carry is set (a key is ready);
+;              then write KEYSTB to clear the strobe (acknowledge the keypress), and CCF/RRA to
+;              refold A's high bit after the wait loop's rotates. This is the Apple-keyboard
+;              blocking wait, not the serial-input path. [DOC S&HD 2-23]
 ; ----------------------------------------------------------------------
 KBD_WAIT_STROBE:
+        ; poll the Apple keyboard latch (bit 7 = key ready) [DOC S&HD 2-23]
         LD A,(KEYBD)                     ; $AC2F  $E000 status
         RLA                              ; $AC32
+        ; spin until a key is ready (bit 7 -> carry set)
         JR NC,KBD_WAIT_STROBE                  ; $AC33  spin until ready
+        ; acknowledge the keypress by clearing the keyboard strobe so the next read is fresh [DOC
+        ; S&HD 2-23]
         LD (KEYSTB),A                    ; $AC35  $E010 strobe / data
+        ; refold A's high bit (undo the wait-loop rotates) via CCF/RRA
         CCF                              ; $AC38
         RRA                              ; $AC39
         RET                              ; $AC3A
 
 ; ----------------------------------------------------------------------
-; HL to A_VEC F3D0, arms only, 0000-write UNKNOWN
+; SET_AVEC -- arm the SoftCard 6502 RPC call-address cell.
+;   In:        HL = address of the 6502 subroutine to call (low-high), per the documented
+;              arm-then-trigger protocol [DOC S&HD 2-24/2-25; apple_softcard.inc A_VEC]. (No
+;              in-module caller; the HL contract is the documented A_VEC convention, not OBSERVED
+;              here.) A = the byte stored to $0000 (source not traced in this cluster).
+;   Out:       A_VEC ($F3D0) = HL (the 6502 target for the next RPC); CP/M base page $0000 also
+;              written with A (purpose UNKNOWN). Does NOT trigger the call -- a later write to Z_CPU
+;              ($F3DE) actually runs the 6502.
+;   Clobbers:  A_VEC, page-zero $0000.
+;   Algorithm: Store HL into A_VEC so the next SoftCard RPC trap dispatches to that 6502 routine
+;              (set A_VEC, then trigger via Z_CPU). [DOC S&HD 2-24/2-25] OBSERVED: it also writes A
+;              into base-page $0000; the source of A and the reason for touching $0000 here are
+;              UNKNOWN (the byte-identical CPMV223-44K twin makes the same store and is equally
+;              silent). [RE]
 ; ----------------------------------------------------------------------
 SET_AVEC:
+        ; store the 6502 subroutine address (low-high) into A_VEC so the next RPC trap (write to
+        ; Z_CPU) calls it; this arms only, it does not trigger [DOC S&HD 2-25]
         LD (A_VEC),HL                    ; $AC3B  $F3D0 = 6502 sub address (low-high) [DOC S&HD 2-25]
+        ; OBSERVED: also write A into CP/M base-page $0000; the source of A and the purpose of this
+        ;           store are UNKNOWN [RE]
         LD ($0000),A                     ; $AC3E
         RET                              ; $AC41
 
@@ -767,109 +904,292 @@ READER_DEMUX:
 ; falls through into the SF table search at $AE00.
 ; ============================================================================
 ; ----------------------------------------------------------------------
-; IO_FLAG_TRUE -- flag tail: assert TRUE (FF) for the screen-fn output-vector signal
+; IO_FLAG_TRUE -- enter the screen-function output engine asserting the B-register signal = TRUE.
+;   In:        C = character being output; entered by the LIST/PUNCH IOBYTE demuxes on the
+;              TTY:/CRT: case (JR C,IO_FLAG_TRUE from LIST_DEMUX_1 $AC6D / PUN_DISP $AC7C, both
+;              reached with carry already set by the preceding CP).
+;   Out:       carry set, then falls straight into IO_FLAG_FALSE so SBC A,A yields A=$FF.
+;   Clobbers:  carry flag (then whatever IO_FLAG_FALSE touches).
+;   Algorithm: SCF forces carry, then drops into the shared SBC A,A so the screen-fn signal
+;              byte SF_SIGNAL becomes $FF (non-zero) for this character. [DOC S&HD page 2-19:
+;              the B-register screen-fn signal is non-zero while emitting a screen function or
+;              the Address-Cursor X/Y coordinates, zero during ordinary character output.]
 ; ----------------------------------------------------------------------
 IO_FLAG_TRUE:
+        ; ; set carry so the shared SBC A,A below builds the TRUE ($FF) screen-fn signal byte
         SCF                              ; $AC96
 ; ----------------------------------------------------------------------
-; IO_FLAG_FALSE -- signal tail; SF_STATE2 zero -> SF_NORMAL else accumulate one cursor-coord byte,
-; count 0 -> DISK_XLAT_SECTOR
-; Note: [RE] SXYOFF (F396) is the SOFTWARE cursor-XY offset, NOT a disk skew; real RWTS IOB is
-;       F3E0-F3EB
+; IO_FLAG_FALSE -- screen-function output dispatcher: latch the B-signal, then either recognise a
+;                  new screen function or accumulate the next Address-Cursor coordinate byte.
+;   In:        C = character to output; carry = the screen-fn B-signal; SF_STATE2 ($AEA3) =
+;              coordinate-byte countdown (2 after Address-Cursor fired, else 0); SXYOFF ($F396) =
+;              software cursor-address XY coordinate offset.
+;   Out:       SF_SIGNAL ($AEA2) = $FF/$00 (from SBC A,A on the carry); char high bit cleared
+;              (RES 7,C). When no coordinate transfer is in progress, branches to SF_NORMAL
+;              (ordinary char / screen-fn lead-in recognition). While capturing coordinates it
+;              decrements SF_STATE2 and, after the SECOND byte, tail-jumps to CURSOR_XMIT_PAIR to
+;              transmit the finished X/Y pair; on the FIRST byte it applies the software offset and
+;              stores one coordinate (at CURSOR_XY $AEAA), then RETs.
+;   Clobbers:  A, E, HL, flags; memory SF_SIGNAL, SF_STATE2, CURSOR_XY.
+;   Algorithm: expand the carry signal to A ($FF/$00) and store it as SF_SIGNAL; strip the char's
+;              high bit. If SF_STATE2==0 there is no Address-Cursor sequence underway -> SF_NORMAL.
+;              Otherwise decrement the countdown and read the SOFTWARE coordinate offset SXYOFF;
+;              if the countdown reached 0 (this was the last/second byte) hand off to
+;              CURSOR_XMIT_PAIR.
+;              For the first byte, test the SXYOFF sign (high bit = transmit order, low 7 bits =
+;              offset): positive -> DISK_XLAT_POS_SECTOR (runtime continuation); negative -> mask
+;              to 0-127 and store C minus the offset as this coordinate byte. This is the resident
+;              form of the manual's GOTOXY/cursor-address sequence. [DOC S&HD pages 2-14/2-16]
+;   [RE]:      carry on entry is NOT always set/clear in a fixed way -- IO_FLAG_TRUE arrives with
+;              carry SET; entry from CONOUT_DISP's JR NZ ($AC4A) inherits the CP $02 result, so
+;              carry is SET for CONSOLE=TTY:/CRT: (IOBYTE 0/1) and CLEAR for UC1: (3). SF_SIGNAL
+;              ($FF vs $00) follows that. The 0-vs-nonzero meaning is the screen-fn signal per
+;              [DOC S&HD page 2-19].
 ; ----------------------------------------------------------------------
 IO_FLAG_FALSE:
+        ; ; expand the carry signal into A: $FF (screen-fn / coord output) or $00 (normal char) ->
+        ; stored as SF_SIGNAL
         SBC A,A                          ; $AC97
         LD HL,SF_SIGNAL                  ; $AC98  $AEA2  (disk-path: relocated RWTS IOB cell)
+        ; ; latch the screen-fn B-register signal byte (SF_SIGNAL) for SF_LK_DONE's console-out
+        ; vector pick
         LD (HL),A                        ; $AC9B
+        ; ; clear the char's Apple high bit so comparisons/coords use the 7-bit value
         RES 7,C                          ; $AC9C
         INC HL                           ; $AC9E  -> $AEA3
+        ; ; read SF_STATE2, the Address-Cursor coordinate-byte countdown (2 after fn7 fired, else 0)
         LD A,(HL)                        ; $AC9F
         OR A                             ; $ACA0
+        ; ; no coordinate transfer in progress -> ordinary char / screen-fn recognition (SF_NORMAL)
         JR Z,SF_NORMAL                   ; $ACA1  (2.20 merge: screen-fn lead-in branch)
+        ; ; consume one coordinate byte; Z now set when this was the SECOND (final) coordinate
         DEC (HL)                         ; $ACA3
         ; ; [RE] read SXYOFF cursor-XY offset; sets no flags, so the next JR Z tests DEC
         ; (HL)/SF_STATE2
+        ; ; read the SOFTWARE cursor-address XY coordinate offset (0-127; high bit = X-first vs
+        ; Y-first order) [DOC S&HD page 2-14]
         LD A,(SXYOFF)                    ; $ACA4  $F396 signed skew sign cell
         LD HL,CURSOR_XY+1                      ; $ACA7  relocated RWTS IOB sector cell
-        JR Z,DISK_XLAT_SECTOR            ; $ACAA
+        ; ; both coordinate bytes now captured -> transmit the finished X/Y pair (CURSOR_XMIT_PAIR)
+        JR Z,CURSOR_XMIT_PAIR            ; $ACAA
+        ; ; first coordinate byte: test the SXYOFF sign (high bit selects transmit order / negative
+        ; branch)
         OR A                             ; $ACAC
+        ; ; positive software offset -> runtime continuation that stores this coordinate with the
+        ; positive-offset path
         JP P,DISK_XLAT_POS_SECTOR        ; $ACAD  ($ABB3, runtime) positive skew
         DEC HL                           ; $ACB0
+        ; ; mask off the order bit to recover the 0-127 coordinate offset
         AND $7F                          ; $ACB1
         LD E,A                           ; $ACB3
         LD A,C                           ; $ACB4
+        ; ; this coordinate = char value C minus the offset; store it as one byte of the X/Y pair
+        ; (CURSOR_XY $AEAA)
         SUB E                            ; $ACB5
         LD (HL),A                        ; $ACB6
         RET                              ; $ACB7
 ; ----------------------------------------------------------------------
-; DISK_XLAT_SECTOR -- finalize cursor X/Y pair (SF_STATE2==0); applies SXYOFF then HXYOFF (F3A1);
-; emits low (B=07) and high (B=0A) halves
-; Note: [RE] HXYOFF is the hardware cursor-XY offset, not a disk skew
+; CURSOR_XMIT_PAIR -- finish an Address-Cursor (GOTOXY) sequence: apply the software then hardware
+;                     coordinate offset, build the X/Y pair, and transmit both bytes.
+;   In:        A = the SOFTWARE offset SXYOFF (carried in from IO_FLAG_FALSE's LD A,(SXYOFF));
+;              HL -> CURSOR_XY+1 ($AEAB); the two captured coordinate bytes live at CURSOR_XY
+;              ($AEAA, X low) and CURSOR_XY+1 ($AEAB, Y high) from the IO_FLAG_FALSE accumulation
+;              path; HXYOFF ($F3A1) = hardware cursor-address XY coordinate offset (0-127; high
+;              bit = X/Y transmit order).
+;   Out:       the two coordinate bytes are transmitted, the first with B=$07 and the second with
+;              B=$0A (the screen-fn signal/command markers), through the runtime emit engine
+;              (LIST_ENTRY_JP+1 / DISK_SECTOR_XFER).
+;   Clobbers:  A, C, E, HL, flags.
+;   Algorithm: resident form of the manual's GOTOXY tail [DOC S&HD page 2-16]. FIRST test the
+;              SOFTWARE offset sign (the SXYOFF value still in A): negative -> DISK_XLAT_NEG_SECTOR
+;              (runtime, extended/reverse case). Positive -> DEC HL to point at CURSOR_XY, CALL the
+;              runtime sector/coord prep (DISK_RPC_PUSH_ADDR), then LD HL,(CURSOR_XY) to load both
+;              coordinate bytes (L=X, H=Y). NOW read the HARDWARE offset HXYOFF and test ITS sign:
+;              positive -> DISK_XLAT_SECTOR_HI (runtime) builds the hi component directly; negative
+;              -> mask to 0-127, SWAP H and L (reverse the X/Y transmit order, mirroring the manual
+;              NORVS step), then add the offset to each coordinate (LD E,A/ADD A,H -> C, LD A,E/
+;              ADD A,L -> A). Fall into the emit tail to transmit low then high.
+;   [RE]:      B=$07 / B=$0A are OBSERVED as the first/second coordinate emit markers; their exact
+;              numeric meaning to the runtime emit handler (off this $500-byte image) is inferred
+;              from the manual's 'B non-zero during Address-Cursor X/Y output' note [DOC S&HD page
+;              2-19], not statically proven here. The routine reads BOTH offsets (software sign at
+;              the top, hardware sign before the swap/add), so it is the hardware-translation form,
+;              not a pure single-offset GOTOXY copy.
 ; ----------------------------------------------------------------------
-DISK_XLAT_SECTOR:
+CURSOR_XMIT_PAIR:
+        ; ; test the SOFTWARE offset sign (SXYOFF still in A; negative -> the runtime
+        ; reverse/extended case)
         OR A                             ; $ACB8
         JP M,DISK_XLAT_NEG_SECTOR        ; $ACB9  ($ABBD, runtime) negative case
         DEC HL                           ; $ACBC
         CALL DISK_RPC_PUSH_ADDR          ; $ACBD  ($ABB1, runtime)
         LD HL,(CURSOR_XY)                ; $ACC0  $AEAA  (disk-path: relocated sector-address word)
         ; ; [RE] read the hardware cursor-XY coordinate offset HXYOFF ($F3A1)
+        ; ; read the HARDWARE cursor-address XY coordinate offset (0-127; high bit selects transmit
+        ; order) [DOC S&HD page 2-14]
         LD A,(HXYOFF)                    ; $ACC3  $F3A1 hardware skew/offset cell
         OR A                             ; $ACC6
+        ; ; hardware offset positive -> runtime continuation that builds the high coordinate
+        ; component
         JP P,DISK_XLAT_SECTOR_HI         ; $ACC7  ($ABCF, runtime) build hi component
         AND $7F                          ; $ACCA
+        ; ; hardware offset negative: swap H<->L to reverse the X-first / Y-first coordinate
+        ; transmit order (manual NORVS)
         LD E,L                           ; $ACCC  swap lo/hi order
         LD L,H                           ; $ACCD
         LD H,E                           ; $ACCE
         LD E,A                           ; $ACCF
+        ; ; add the hardware offset to the first coordinate (mirrors the manual GOTOXY 'ADD H' step)
         ADD A,H                          ; $ACD0
         LD C,A                           ; $ACD1
         LD A,E                           ; $ACD2
+        ; ; add the hardware offset to the second coordinate (mirrors the manual GOTOXY 'ADD L'
+        ; step)
         ADD A,L                          ; $ACD3
+; ----------------------------------------------------------------------
+; SF_SELECTOR_TBL -- DUAL USE. (a) As executed in line, the cursor-coordinate emit tail: transmit
+;                    the assembled X/Y pair, low byte then high byte. (b) As referenced by
+;                    SF_DISPATCH ($AE73), a putative low-byte selector-table base -- but those
+;                    indexed reads land MID-INSTRUCTION inside this emit code, so the on-disk bytes
+;                    do NOT form a clean handler table; the live dispatch form is generated into RAM
+;                    [RE]/UNKNOWN per the $AE73 header. The label is kept (SF_DISPATCH references
+;                    it).
+;   In (emit path): A = low (first) coordinate byte (from CURSOR_XMIT_PAIR's ADD A,L); the high
+;                    coordinate is recovered after the low byte is sent.
+;   Out:       both coordinate bytes are emitted through the runtime console-out engine: the first
+;              with B=$07, the second with B=$0A (the screen-fn signal/command markers). Does not
+;              return here (JR DISK_SECTOR_XFER tail-emits the second byte).
+;   Clobbers:  A, B, C, flags; stack (PUSH/POP AF).
+;   Algorithm: save the low coordinate (PUSH AF), set B=$07 and CALL the runtime emit handler
+;              (LIST_ENTRY_JP+1 = $AC2D) to send it; restore it (POP AF), set B=$0A, move it into
+;              C, and JR into the runtime emit handler (DISK_SECTOR_XFER) to send the second byte.
+;   [RE]:      B=$07/$0A are OBSERVED coordinate-emit markers (first/second); the runtime handler
+;              that consumes them is off this image. The label name SF_SELECTOR_TBL is retained
+;              unchanged because SF_DISPATCH ($AE73) reads SF_SELECTOR_TBL+B; renaming would require
+;              rewriting that reference too, and the table interpretation is itself UNKNOWN.
+; ----------------------------------------------------------------------
 SF_SELECTOR_TBL:
+        ; ; save the low coordinate byte while we transmit it
         PUSH AF                          ; $ACD4
+        ; ; B = screen-fn signal/marker for the FIRST (low) coordinate byte
         LD B,$07                         ; $ACD5  RPC command: address lo
+        ; ; emit the first (low) coordinate byte through the runtime console-out engine ($AC2D)
         CALL LIST_ENTRY_JP+1             ; $ACD7  ($AC2D) dispatch lo half to disk engine
         POP AF                           ; $ACDA
+        ; ; B = screen-fn signal/marker for the SECOND (high) coordinate byte
         LD B,$0A                         ; $ACDB  RPC command: address hi
         LD C,A                           ; $ACDD
+        ; ; tail-emit the second (high) coordinate byte via the runtime console-out engine
         JR DISK_SECTOR_XFER              ; $ACDE  ($AD2D, runtime) dispatch hi half
 ; ----------------------------------------------------------------------
-; SF_NORMAL -- screen-fn path: SF_STATE!=0 jump SF_TABLE; else fetch SFLDIN (F397) and fall into
-; SF_INIT_TAIL
+; SF_NORMAL -- ordinary character output / screen-function recognition entry (no coordinate xfer).
+;   In:        C = character being output (high bit already cleared); A = the SF_SIGNAL value just
+;              stored; SF_STATE ($AEA4) = lead-in/multi-byte latch ($80 once a lead-in char has
+;              been seen, else 0); SFLDIN ($F397) = software function lead-in character (0 = none).
+;   Out:       if a screen-function sequence is already in progress (SF_STATE != 0) jumps to
+;              SF_TABLE to look the char up; otherwise loads the software lead-in char and falls
+;              into SF_INIT_TAIL to test whether this char arms a lead-in.
+;   Clobbers:  A, B, E, HL, flags.
+;   Algorithm: save A into B (the screen-fn signal travels in B per [DOC S&HD page 2-19]); read
+;              SF_STATE into E (it becomes the XOR discriminator used later by SF_LOOKUP). If
+;              SF_STATE is non-zero a screen-fn sequence is underway -> SF_TABLE. If zero, read the
+;              software lead-in char SFLDIN and OR it to set flags, then fall into SF_INIT_TAIL.
+;   [DOC S&HD page 2-14]: SFLDIN is the software function lead-in character; zero means no lead-in.
 ; ----------------------------------------------------------------------
 SF_NORMAL:
+        ; ; carry the screen-fn signal in B (B non-zero => screen function / coord output) [DOC S&HD
+        ; page 2-19]
         LD B,A                           ; $ACE0
         LD HL,SF_STATE                   ; $ACE1  $AEA4
+        ; ; read SF_STATE: the lead-in / multi-byte recognition latch ($80 = lead-in armed, 0 =
+        ; idle)
         LD A,(HL)                        ; $ACE4
+        ; ; keep SF_STATE in E as the XOR discriminator SF_LOOKUP folds into each table compare
         LD E,A                           ; $ACE5
         OR A                             ; $ACE6
+        ; ; a screen-function sequence is already in progress -> search the function table
+        ; (SF_TABLE)
         JR NZ,SF_TABLE                   ; $ACE7
+        ; ; read the SOFTWARE function lead-in character (0 = no lead-in configured) [DOC S&HD page
+        ; 2-14]
         LD A,(SFLDIN)                    ; $ACE9  $F397 software lead-in char [DOC S&HD 2-14]
         OR A                             ; $ACEC  zero => no lead-in [DOC S&HD 2-14]
 ; ----------------------------------------------------------------------
-; SF_INIT_TAIL -- arm lead-in: match stores 80 into SF_STATE (AEA4) and RET; else SF_NOLEAD
+; SF_INIT_TAIL -- test the incoming char against the software lead-in and arm the lead-in latch.
+;   In:        A = software lead-in char SFLDIN (flags set by the preceding OR A in SF_NORMAL);
+;              C = incoming char; HL -> SF_STATE ($AEA4).
+;   Out:       if this char IS the configured lead-in, sets SF_STATE = $80 (lead-in armed) and
+;              RETs (the next char will be interpreted via the function table); otherwise falls
+;              into SF_NOLEAD to handle it as an ordinary / single-control char.
+;   Clobbers:  flags; memory SF_STATE on a match.
+;   Algorithm: if SFLDIN is zero (no lead-in) -> SF_NOLEAD. Otherwise compare it to the incoming
+;              char C; mismatch -> SF_NOLEAD; match -> store $80 into SF_STATE so the NEXT output
+;              char is recognised as the lead-in's second byte, and RET (the lead-in itself is
+;              swallowed, not emitted).
+;   Note:      the entry point SF_INIT_TAIL+1 ($ACEE) is also CALLed at $AAB8 (a mid-instruction
+;              cover entry, a separate use of these bytes). [RE]
+;   [DOC S&HD page 2-14]: a single-char-plus-lead-in is one of the two supported screen-fn forms.
 ; ----------------------------------------------------------------------
 SF_INIT_TAIL:
+        ; ; SFLDIN == 0 means no lead-in configured -> treat the char as ordinary/control
+        ; (SF_NOLEAD)
         JR Z,SF_NOLEAD                   ; $ACED
+        ; ; does the incoming char match the configured lead-in character?
         CP C                             ; $ACEF
+        ; ; not the lead-in -> handle as an ordinary/control char
         JR NZ,SF_NOLEAD                  ; $ACF0
+        ; ; lead-in matched: arm SF_STATE=$80 so the NEXT char is looked up in the screen-fn table;
+        ; swallow this one
         LD (HL),$80                      ; $ACF2
         RET                              ; $ACF4
 ; ----------------------------------------------------------------------
-; SF_NOLEAD -- ordinary char: above 1F printable -> console emit engine (DISK_SECTOR_XFER); control
-; -> SF_TABLE
+; SF_NOLEAD -- no lead-in pending: route printable chars to the emit engine, control chars to the
+;              screen-function table search.
+;   In:        C = incoming char (high bit cleared).
+;   Out:       printable chars (> $1F) tail-jump to the runtime console-out emit engine
+;              (DISK_SECTOR_XFER, $AD2D); control chars ($00-$1F) fall into SF_TABLE to be matched
+;              as single-control-character screen functions.
+;   Clobbers:  A, flags.
+;   Algorithm: load $1F and CP C; if $1F < C (carry set, i.e. C is a printable char $20+) emit it
+;              directly; otherwise (a control character $00-$1F) fall through into SF_TABLE to test
+;              it against the screen-function table.
+;   [DOC S&HD page 2-14]: the single-control-character form is the other supported screen-fn form.
 ; ----------------------------------------------------------------------
 SF_NOLEAD:
+        ; ; threshold: chars above $1F are printable, $00-$1F are control chars eligible as screen
+        ; functions
         LD A,$1F                         ; $ACF5
         CP C                             ; $ACF7
+        ; ; printable char ($20+) -> emit it directly through the runtime console-out engine
         JR C,DISK_SECTOR_XFER               ; $ACF8  ($AD2D) printable -> transfer/emit engine
 ; ----------------------------------------------------------------------
-; SF_TABLE -- screen-fn table search; HL one byte below the hardware table (F3A0; entries F3A3),
-; count 9; F3A0 hardware, left literal
+; SF_TABLE -- begin the screen-function table search for a control/lead-in char.
+;   In:        C = char to match; E = SF_STATE discriminator (from SF_NORMAL).
+;   Out:       HL = $F3A0 (one past the top of the SOFTWARE function table); B = 9 (function
+;              count); A = the first table byte; falls into the runtime search loop (SF_LOOKUP
+;              body re-entered via the generated SF_LK_STEP, which steps DOWNWARD with DEC HL).
+;   Clobbers:  A, B, HL.
+;   Algorithm: point HL at $F3A0 and load the function count (9) into B, then read the first entry
+;              into A to prime the SF_LOOKUP compare. The recognition table is the SOFTWARE Screen
+;              Function Table ($F398=fn1 .. $F39F=fn8/9): the SF_LK_SKIP loop walks DOWNWARD (DEC
+;              HL, on-disk at $AE07), scanning the 9 software entries; on a hit SF_LK_HIT adds $0B
+;              (11) to reach the parallel HARDWARE descriptor (the documented 11-byte gap between
+;              the software and hardware tables). The XOR-E / CP-C match logic lives in SF_LOOKUP
+;              ($AE00) and the runtime SF_LK_STEP loop head.
+;   [DOC S&HD pages 2-14/2-15]: nine screen functions; recognition uses the SOFTWARE table (so the
+;              routines work on the plain Apple 40-col screen). $F3A0 is a $F3xx hardware-config-
+;              block address, left literal.
+;   [RE]:      the exact walk start/length is inferred from the on-disk LD HL,$F3A0 / LD B,$09 /
+;              DEC HL; the loop head SF_LK_STEP is generated into the $AD/$E5-fill window.
 ; ----------------------------------------------------------------------
 SF_TABLE:
+        ; ; HL = top of the SOFTWARE screen-fn table ($F398-$F39F); the loop DECs HL through the 9
+        ; software entries [DOC S&HD pages 2-14/2-15]
         LD HL,$F3A0                      ; $ACFA  hardware screen-fn table base-1 ($F3A1 hdr/$F3A3 fn1) [DOC S&HD 2-14/2-15]
+        ; ; nine supported screen functions to scan [DOC S&HD page 2-15]
         LD B,$09                         ; $ACFD  9 screen functions [DOC S&HD 2-15]
+        ; ; prime the search with the first table entry; the SF_LOOKUP loop does XOR E / CP C per
+        ; entry
         LD A,(HL)                        ; $ACFF
 ; --- $AD00..$ADFF : $E5 trap-fill (runtime-generated disk/console handlers) ---
         DEFS    45, $E5    ; $AD00  fill
