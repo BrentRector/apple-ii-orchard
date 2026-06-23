@@ -1470,12 +1470,21 @@ EVAL_CHANNEL_OR_ITEM_3:
 ; ======================================================================
 ; SELF-RELOCATOR (runs at load address $1000)
 ; ======================================================================
-; [RE] Entry stub (reached by JP from $0100). LDDR block-copies the interpreter body from its on-disk position UP to run address $3000-$8482, then JP $81D3 to cold-start it. HL=$6490 (src end), DE=$8482 (dst end), BC=$5483 (count).
+; ----------------------------------------------------------------------
+; RELOCATE_AND_RUN -- GBASIC startup stub: lift the interpreter body up to its run address, then cold-start it.
+;   In:        Reached by JP from the CP/M entry point at $0100 (TPA, GBASIC build only). The whole .COM image is loaded contiguously from $0100, so the interpreter body sits as a packed blob at its on-disk load position INTERP_LOAD_START ($100E) and must be moved before it can run at its assembled address.
+;   Out:       The interpreter body (run-addresses $3000..$8482, $5483 = 21635 bytes) is copied from the load image to its assembled run location, then control transfers via JP to COLD_START ($81D3). This routine never returns.
+;   Clobbers:  HL, DE, BC (all consumed by LDDR), F (LDDR clears P/V), and destination memory $3000..$8482. The stub bytes ($1000..$100D) are not touched by the copy (both source $100E..$6490 and destination $3000..$8482 lie above it). [RE] The $1000 region is reused later as the base of the hi-res page buffer (see GFX page-clear code that bases on RELOCATE_AND_RUN); inference from the layout.
+;   Algorithm: One descending block copy. GBASIC is assembled with the body DISPlaced to run at $3000 while it is loaded at $100E, so the loader cannot place it; this stub relocates it at startup. It loads HL = source end $6490 (= INTERP_LOAD_START + count - 1), DE = destination end $8482 (= INTERP_COPY_END - 1), BC = count $5483 (= INTERP_COPY_END - INTERP_RUN_START), then LDDR copies BC bytes high-to-low. High-to-low is REQUIRED, not incidental: source $100E..$6490 and destination $3000..$8482 overlap in $3000..$6490 with the destination ABOVE the source, so copying downward from the top avoids overwriting source bytes before they are read. Then JP COLD_START to initialize the now-relocated interpreter.
+; ----------------------------------------------------------------------
 RELOCATE_AND_RUN:
+        ; Source pointer = last byte of the body in the load image ($6490); LDDR copies top-down so HL/DE start at the high ends.
         LD HL,INTERP_LOAD_START+(INTERP_COPY_END-INTERP_RUN_START)-1
         LD DE,INTERP_COPY_END-1
         LD BC,INTERP_COPY_END-INTERP_RUN_START
+        ; Block-copy the body from the load image up to run location $3000-$8482; descending direction is required because source and destination overlap with the destination above the source.
         LDDR
+        ; Hand off to the relocated interpreter's cold-start entry ($81D3); the stub does not run again.
         JP COLD_START
 
 INTERP_LOAD_START:           ; physical $100E -- interpreter's first .COM byte (LDDR source)
