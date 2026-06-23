@@ -215,9 +215,7 @@ the new device code `$06` lives further into the boot loader and in
 the Z-80 BIOS's CONOUT/BOOT routines, and would presumably know how
 to drive a Videx Videoterm specifically: program the 6845 CRTC at
 `$C0B0/$C0B1`, write characters into the `$CC00-$CDFF` VRAM window,
-manage the `$CFFF` ROM-release switch, etc. Documenting that path
-is a follow-up — the present finding is sufficient to explain why
-2.20 fails to boot on a Videx system.
+manage the `$CFFF` ROM-release switch, etc. Documenting that path is a follow-up. NOTE (2026-06-11 overturn): the detection delta is the smaller half of the fix; the real boot-failure cause is that the SoftCard's own $C700 CPU-switch access destroys the $C800 expansion-ROM window ownership, which 2.23 re-claims on the 6502 side after the bus flip (see CPM_SoftCard_RealMap_Findings.md). on a Videx system.
 
 ## Reproduction
 

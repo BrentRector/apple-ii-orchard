@@ -10,6 +10,13 @@ delta documented in [`CPM_Videx_Difference.md`](./CPM_Videx_Difference.md);
 where this document calls out 2.20-only or 2.23-only behavior, it does so
 explicitly.
 
+> **CORRECTION (2026-06-11):** This document's original "SoftCard Memory Mapping" model — a
+> single bit-12 XOR (`apple = z80 XOR $1000`) — was OVERTURNED. The real Z-80↔Apple translation
+> is corrected in that section below; the authoritative reference is
+> [`CPM_SoftCard_RealMap_Findings.md`](./CPM_SoftCard_RealMap_Findings.md). Any Z-80 address this
+> doc derives by XOR-ing an Apple `$0xxx` address (e.g. "$1300") should be read as Apple `$0xxx`
+> = Z-80 `$Fxxx`.
+
 ## Architecture in One Diagram
 
 ```
@@ -55,8 +62,8 @@ Stage 2 has six tasks before it can boot the Z-80:
    from `$11B0` to `$0FFF`, copy 256 bytes from `$1200` to `$0200`, and
    copy 241 bytes from `$1300` to `$0300`. The bytes copied to `$0200`
    and `$0300` are mostly Z-80 code that will execute after the SoftCard
-   handoff (because the SoftCard maps Apple `$0xxx` to Z-80 `$1xxx` after
-   its address-line XOR — see "SoftCard Memory Mapping" below).
+   handoff (because the SoftCard maps Apple `$0xxx` into the Z-80's high
+   region — Apple `$0xxx` = Z-80 `$Fxxx` — see "SoftCard Memory Mapping" below).
 
 4. **Scan the Apple slots.** Walk slots 7 → 1, page each slot's expansion
    ROM in, and check `$Cn05`/`$Cn07` against a small fixed signature
@@ -76,29 +83,29 @@ Stage 2 has six tasks before it can boot the Z-80:
    into the just-installed code at `$0200`/`$0300` (mapped to Z-80
    `$1200`/`$1300`).
 
-## SoftCard Memory Mapping (Critical Background)
+## SoftCard Memory Mapping (CORRECTED 2026-06-11 — the bit-12-XOR model below was WRONG)
 
-The Microsoft Z-80 SoftCard maps Z-80 addresses to Apple ][ addresses
-with a single XOR on bit 12 (i.e., `apple_addr = z80_addr XOR $1000`).
-This swap exists because the Z-80 needs RAM at `$0000-$00FF` (its restart
-vectors and zero page), but the Apple ][ has its 6502 zero page there
-already. The XOR puts Apple page 1 (just RAM) at Z-80 page 0 instead.
+> **SUPERSEDED.** This section originally described the SoftCard's Z-80↔Apple address
+> translation as a single XOR on bit 12 (`apple = z80 XOR $1000`). That model was OVERTURNED.
+> The real translation (authoritative:
+> [`CPM_SoftCard_RealMap_Findings.md`](./CPM_SoftCard_RealMap_Findings.md)), for the high Z-80
+> region where CP/M's zero page / BIOS live, is:
+>
+> | Z-80 address | Apple ][ address |
+> |--------------|------------------|
+> | `$F000-$FFFF` | `$0000-$0FFF`   |
+> | `$B000-$DFFF` | `$D000-$FFFF`   |
+> | `$E000-$EFFF` | Apple I/O (`$C000-$CFFF` soft switches / slot ROMs) |
+>
+> So the install code this loader copies to Apple `$0200`/`$0300` is seen by the Z-80 at
+> `$F200`/`$F300`, NOT `$1300` — e.g. the warm-boot / mode-switch routine at Apple `$03C0` is
+> Z-80 `$F3C0` (RPC_ENTER_Z80). The BIOS true bases are `$DA00` (2.20) / `$FA00` (2.23). Any
+> Z-80 address this document derives by XOR-ing an Apple `$0xxx` address is an artifact of the
+> old model; read it as Apple `$0xxx` = Z-80 `$Fxxx`.
 
-In practice:
-
-| Apple ][ address | Z-80 address |
-|------------------|--------------|
-| `$0000-$0FFF`    | `$1000-$1FFF` |
-| `$1000-$1FFF`    | `$0000-$0FFF` |
-| `$2000-$FFFF`    | `$2000-$FFFF` (no swap) |
-
-So when the loader copies bytes from `$1300` to `$0300` (Apple addresses),
-the Z-80 sees those bytes at Z-80 `$1300`. Code at Apple `$0344` is Z-80
-code that executes from Z-80 `$1344`. Conversely, the loader's own 6502
-code at Apple `$1000` would be Z-80 `$0000` — which is Z-80 zero page,
-not where Z-80 looks for code. That's intentional: the 6502 finishes its
-work and writes the actual Z-80 entry point into Z-80 reset vectors
-before flipping the SoftCard switch.
+The Z-80 needs RAM at `$0000-$00FF` (its restart vectors and zero page); the SoftCard supplies
+it from Apple RAM, which is why the 6502 stages the Z-80's low code into Apple low memory and
+plants the Z-80 reset vector with the real BIOS entry before flipping the bus.
 
 ## Walking Through the Code
 
@@ -245,7 +252,8 @@ only then flips the SoftCard switch.
 
 **CP/M 2.20 verified**: at the equivalent address (`$10F2-$10FE` in
 2.20's loader image), 2.20 plants `$C3 $00 $DA` = Z-80 `JP $DA00` —
-exactly consistent with its BIOS load address at `$DACC`. The
+exactly consistent with its BIOS cold-boot base at `$DA00` (the earlier
+`$DACC` figure was a bit-12-XOR-era interleave artifact). The
 structural pattern (load-immediate-then-store, three pairs) is
 byte-identical between versions; only the high byte of the JP target
 differs (`$FA` in 2.23, `$DA` in 2.20). This independently confirms

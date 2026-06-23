@@ -46,11 +46,11 @@ Python packages live inside the trees but import by **bare name**; a repo-root
 ```bash
 source shared/toolchain/env.sh   # no install; also puts ca65/ld65/sjasmplus on PATH (+ packages on PYTHONPATH)
 # or: pip install -e .
-python -m pytest softcard/ shared/   # the CP/M gate: 217 passed with env.sh active (2026-06-20)
+python -m pytest softcard/ shared/   # the CP/M gate: 226 passed with env.sh active (2026-06-22)
 python -m pytest                      # whole repo incl. apple-ii (larger total; fewer + skips without the toolchain)
 ```
 The canonical CP/M byte-identical gate is `source shared/toolchain/env.sh && python -m pytest softcard/ shared/`
-(**217 passed** as of 2026-06-20, after GBASIC + MBASIC). Note: WITHOUT sourcing env.sh, sjasmplus/ca65 are off PATH and the byte-identical
+(**226 passed** as of 2026-06-22, after the BASIC C-level RE + fold). Note: WITHOUT sourcing env.sh, sjasmplus/ca65 are off PATH and the byte-identical
 round-trip cases **SKIP** (they do not fail) — always source env.sh and confirm new cases show PASSED, not SKIPPED.
 
 The `CPM*.asm` build sources resolve assembler paths with `cwd=softcard/`. The
@@ -95,39 +95,38 @@ Write-ups publish to **wiseowl.com** (Astro v6, Cloudflare Pages) at
 
 ## Current focus
 
-**LIVE (2026-06-21, on `main`, gate 224): the GBASIC/MBASIC one-conditional-source FOLD.**
-Both BASICs' error subsystem is fully RE'd and the whole `basic-synchr-decode-fix` branch is
-merged (`a2eab60`). Now folding GBASIC + MBASIC into ONE master: **`BASIC.asm` is GENERATED**
-by `cpm_pipeline.basic.fold_gen` (GBASIC.asm + 7 `IFDEF GBASIC` patches), and
-`cpm_pipeline.basic.fold_build` assembles either build + byte-diffs the .COM. **GBASIC mode is
-byte-identical; MBASIC mode has 4 islands left** (SUB_47C6_2/_3 SCRN/PDL dispatch ->
-not-impl stub, GFX_HIRES_BYTE_ADDR cold-start cell, L_84C8 mislabel-into-padding -> keep_literal).
-Brent's insight: the fold build IS a relocation/decode audit (it already caught + fixed the
-sign-on banner decoded as bogus code in both). Read `resume-prompt.md` (top) + memory
-`project_basic_gbasic_mbasic_fold` for the full handoff and the resume steps.
+**LIVE (2026-06-22, on `main`, gate 226): the BASIC interpreter is RE'd to C-level and the
+GBASIC/MBASIC FOLD is DONE — merged to `main` (merge `b398441`, pushed).** ONE editable master
+**`CPMV220-44K/utilities/BASIC.asm`** assembles byte-identical to BOTH GBASIC.COM (`DEFINE
+GBASIC`, body self-relocates to `$3000`, 25600 B) and MBASIC.COM (no define, flat at `$0100`,
+24576 B). All **14 subsystems** carry C-level function headers (Purpose/In/Out/Clobbers/
+Algorithm) + high-level body comments; only **3 genuine `IFDEF GBASIC` islands** remain.
+Enrichment was applied byte-safely by **`cpm_pipeline.basic.enrich_apply`** (insert +
+global-rename + length-preserving operand-rewrite only — the fold byte-gate is the proof),
+driven by a per-subsystem **map -> enrich -> ADVERSARIAL verify** workflow that caught real
+mis-decodes (FN_LOF->MKI$, FN_CVI->INPUT# scan, STKFRAME_SCAN->FNDFOR, VALTYP legend inverted,
+&O/&H swap). BASIC.asm is the editable MASTER (the gen_gbasic/apply_naming/fold_gen pipeline is
+provenance-only; `fold_gen` needs `--write-master`); per-build addresses live in git-ignored
+`GBASIC.lst`/`MBASIC.lst` (`fold_build --lst`); `GBASIC.asm`/`MBASIC.asm` are byte-pinned
+reference views whose annotations now lag. Also landed: canonical `STRUCT CPMFCB` + the
+type-model includes, `ORG TPA` across all 4 trees, character literals, 100-col comment wrapping.
+GOAL = total semantic understanding; byte-identical is the floor
+(`feedback_semantic_understanding_is_the_goal`). Read `resume-prompt.md` (top) + memory
+`project_basic_gbasic_mbasic_fold` for the full handoff.
 
-What got done (2026-06-20): **GBASIC 2.20-44K** fully RE'd (0 machine labels, byte-identical;
-self-relocates to `$3000`, decoded via `DISP $3000`). **MBASIC 2.20-44K** fully RE'd (0
-machine labels) -- it runs IN PLACE at `$0100` (graphics-OFF twin), so names were transferred
-from GBASIC by a LOCKSTEP structural map (same routine -> same name). Two shared name
-includes -- **`softcard/include/apple_softcard.inc`** (Apple/SoftCard hardware externals,
-manual + `shared/symbols/apple2.json` cited) and **`softcard/include/cpm22.inc`** (CP/M 2.2
-ABI) -- now INCLUDEd across the trees (the include is the SINGLE SOURCE OF TRUTH; conform
-files to it). The SoftCard RWTS IOB + sector skew nailed in `softcard/docs/CPM_SoftCard_RWTS_IOB.md`.
-
-NOTE on the BASIC pipeline: the `.asm` files are the committed source of truth (pinned
-byte-identical by `test_utilities_roundtrip`); the build scaffolding (`gen_gbasic_220.py`,
-`gen_mbasic_220.py`, `apply_naming.py`, `map_gbasic_to_mbasic.py`, the `overlay_*.json`) lived
-in `E:/tmp/` (scratch, may be gone) -- the committed `GBASIC/MBASIC.seeds.json` +
-`.overlay.json` are the provenance.
-
-REMAINING — fold first: close the 4 MBASIC islands (run `python -m cpm_pipeline.basic.fold_build`
-to see them) so BASIC.asm reproduces BOTH .COMs byte-identical, then retire the generated
-GBASIC.asm/MBASIC.asm (MBASIC's GBASIC-contaminated comments retire with them — DON'T fix them
-piecemeal). THEN the older queue: 2.20<->2.23 BASIC patch consolidation; finish include
-propagation (CPMV223-60K + `src` build wiring, the `CPM60_installer` disk path, `cpm22.inc`
-across the utilities, a 6502-side include for the `.s` files); the 56K/60K trees to the same
-standard, the CPM56->os/ fold, and the wiseowl "Guided Tour" article series. Plan:
+**NEXT (live track): the CP/M-constant rename across the utilities** (Brent's sequencing: BASIC
+enrichment first, now done). Across the ~30 utility `.asm` files now carrying `cpm22.inc`:
+`CALL $0005` -> `CALL BDOS`, `LD C,$nn` -> `F_*`/`DRV_*`, `$0080` -> `TBUFF`, `$005C` -> `TFCB`.
+CAUTION: 3 files (STAT/CPMV220, DDT/CPMV220-44K, DDT/CPMV223-44K) keep a local `TPA EQU` to
+dodge a BDOS-symbol collision, and the 60K build (CPM60.asm/CPM60_installer.asm) keeps it too
+(no shared includes staged — adding cpm22.inc there broke `build_cpm60`). Suggested: a per-file
+byte-safe rewrite applier, base tree CPMV220-44K first. The two shared includes remain the
+SINGLE SOURCE OF TRUTH (conform files to them): `softcard/include/apple_softcard.inc` (Apple/
+SoftCard hardware externals) + `softcard/include/cpm22.inc` (CP/M 2.2 ABI). THEN the held
+low-confidence BASIC items; retire standalone MBASIC.asm; the older queue: 2.20<->2.23 BASIC
+patch consolidation; finish include propagation (CPMV223-60K + `src` build wiring, the
+`CPM60_installer` disk path, a 6502-side include for the `.s` files); the 56K/60K trees to the
+same standard, the CPM56->os/ fold, and the wiseowl "Guided Tour" article series. Plan:
 `softcard/docs/CPM_Source_Completion_and_Tour_Plan.md`, `project_softcard_source_completion_and_tour`.
 
 Background (the longer-running asset): the **canonical SoftCard / Apple CP/M archive**

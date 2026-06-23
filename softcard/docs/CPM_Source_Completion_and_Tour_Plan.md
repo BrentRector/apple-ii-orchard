@@ -7,15 +7,14 @@ series that reads the finished source. Original order of work: **2.20-44K → 2.
 utilities → 56K/60K cleanup → articles.**
 
 **>>> CURRENT STATE (2026-06-20):** both **44K trees** (`CPMV220-44K` + `CPMV223-44K`)
-are now at the full standard — every OS file and every utility (except the two BASICs)
+are now at the full standard — every OS file and every utility (including both BASICs, now folded into one BASIC.asm)
 is byte-identical, has **0 machine labels** (semantically named), strings-as-literals,
-and `[DOC]` manual citations. All work is on branch
-**`softcard-bootloaders-to-standard`** (not yet merged to main); gate **215 passed**
+and `[DOC]` manual citations. All 44K-tree work, plus the GBASIC/MBASIC fold, is now merged to main; gate **226 passed**
 (`source shared/toolchain/env.sh && python -m pytest softcard/ shared/`). The
-**immediate next task is the BASICs, starting with GBASIC 2.20-44K (superset-first)** —
-full recipe in memory `project_gbasic_2_20_44k_re_kickoff` +
-`project_gbasic_vs_mbasic_relationship`. After that: 56K/60K trees to the same
-standard, the CPM56→os/ fold, then the article series.
+**live next task is the CP/M-constant rename across the cpm22.inc-carrying utilities** (the
+BASICs are DONE — RE'd to C-level and folded into one master BASIC.asm; see memory
+`project_basic_gbasic_mbasic_fold`). After that: 56K/60K trees to the same standard, the
+CPM56→os/ fold, then the article series.
 
 Definition of "100% operational" (per Brent, 2026-06-18): the pipeline must
 (1) fully decompile the bytes present on the disk image, (2) fully comment and
@@ -46,8 +45,7 @@ Utilities: **the base tree owns the 9 byte-identical-across-disks utilities** (A
 ASM, DOWNLOAD, DUMP, ED, LOAD, PIP, STAT, XSUB) plus the 2.20-specific ones (CPM56, DDT,
 SUBMIT) and the **3 added 2026-06-20** (COPY, FORMAT, RW13 — each embeds a 6502 disk
 engine extracted to `<NAME>_6502.s`). All byte-identical, 0 machine labels, strings as
-literals, `[DOC]`-cited. **NOT done:** the two BASICs (GBASIC = next; MBASIC after) and
-the CPM56.asm relocated 56K body (fold-destined — see below).
+literals, `[DOC]`-cited. **NOT done:** the CPM56.asm relocated 56K body (fold-destined — see below). The two BASICs are now DONE (folded into BASIC.asm). (fold-destined — see below).
 
 ### 2.23-44K (`CPMV223-44K`) — DONE to the full standard (2026-06-20)
 OS: `CPM_BootLoader.s` + `CPM_CCP.asm` (INCLUDEs `CPM_BDOS.asm`) + `CPM_BDOS.asm` +
@@ -56,7 +54,7 @@ fragment sources (`*_ProbeOvl.asm` / `*_DiskXlate.asm`) INCBIN'd with verbatim l
 The system image is **two independent modules** (CCP + BDOS), never a combined
 `SystemImage`. Utilities: the tree carries only the deltas from the base
 (AUTORUN/BOOT/CAT/COPY/DDT/MFT/PATCH/SUBMIT + the BASICs); all byte-identical, named,
-cited. Full-disk reconstruct byte-identical. **NOT done:** the two BASICs.
+cited. Full-disk reconstruct byte-identical. The two BASICs are now DONE (folded into BASIC.asm).
 
 ### 56K (`CPMV220` = 2.20B-56K) — NOT yet at the full standard
 The repo's `CPMV220/` tree is the 2.20B-56K assembly. Its OS still has a combined
@@ -71,7 +69,10 @@ Z-80 modules to run addresses — the proven relocation pattern). Keeps its own
 `CPM_RWTS.s` / `CPM_InstallFragments.s` (a distinct 1469-B form `build_cpm60` consumes —
 NOT duplicates of the boot loader). Not yet held to the naming/`[DOC]` standard.
 
-### The BASICs — GBASIC (next) then MBASIC
+### The BASICs — DONE (GBASIC + MBASIC RE'd to C-level, folded into one BASIC.asm)
+**DONE + merged to main** (see memory `project_basic_gbasic_mbasic_fold`): the plan below was
+followed and then superseded by the fold — one master `BASIC.asm` builds both `.COM`s
+byte-identical and the whole interpreter is RE'd to C-level. Background:
 Both are **Microsoft BASIC-80 Rev 5.2**; **MBASIC is the graphics-OFF build of the same
 engine** (proof: its `"Graphics statement not implemented"` string at $0705 that GBASIC
 drops). GBASIC is the superset → **decompile GBASIC 2.20-44K FIRST** (covers 100% of
@@ -83,8 +84,8 @@ memory `project_gbasic_2_20_44k_re_kickoff`; relationship/evidence:
 `project_gbasic_vs_mbasic_relationship`.**
 
 ### The remaining work, in order
-1. **GBASIC 2.20-44K** to the full standard (superset-first), owned in the base tree.
-2. **MBASIC 2.20-44K** — derive as the graphics-OFF subset of GBASIC.
+1. ~~**GBASIC 2.20-44K** to the full standard (superset-first)~~ — DONE (RE'd to C-level, folded into `BASIC.asm`).
+2. ~~**MBASIC 2.20-44K** — the graphics-OFF subset of GBASIC~~ — DONE (folded into `BASIC.asm`). **Live next: the CP/M-constant rename across the `cpm22.inc`-carrying utilities.**
 3. **56K (`CPMV220`) + 60K (`CPMV223-60K`)** trees to the full standard (split the 56K
    `CPM_SystemImage`; run the naming/`[DOC]` passes).
 4. **The CPM56→os/ fold (the one-`CPMV220`-tree model)** — see the locked design in the
@@ -135,9 +136,10 @@ The articles can begin once GBASIC/MBASIC land (a graphics article would draw on
   real errors). Phase 3 [DOC] citations (new `[DOC Vol1]` tag; guardrail: never [DOC]
   a [RE]/version-delta). Phase 4 the missing 2.20-44K COPY/FORMAT/RW13. EXEMPT: the
   two BASICs. DEFERRED: CPM56.asm body (fold-destined), 56K/60K trees (44K-only so far).
-  **CHOSEN NEXT (Brent): decompile GBASIC 2.20-44K, superset-first -> see memory
-  `project_gbasic_2_20_44k_re_kickoff` (full recipe: DISP $3000 relocation, the
-  existing CPMV223-44K/GBASIC.asm is the template) + `project_gbasic_vs_mbasic_relationship`.**
+  **CHOSEN NEXT (Brent, 2026-06-18) — LATER DONE: GBASIC + MBASIC 2.20-44K were decompiled,
+  RE'd to C-level, and folded into one master BASIC.asm (see memory
+  `project_basic_gbasic_mbasic_fold`).** (Original recipe: `project_gbasic_2_20_44k_re_kickoff`,
+  DISP $3000 relocation; relationship: `project_gbasic_vs_mbasic_relationship`.)
 - 2026-06-18: plan created; starting (a) 2.20-44K build.
 - 2026-06-18 (a) progress:
   - **Step 1 (.COM sweep) DONE:** of 17 `.COM`, **12 are byte-identical to existing decompiles** (reuse: APDOS, ASM, COPY, DOWNLOAD, DUMP, ED, FORMAT, LOAD, PIP, RW13, STAT, XSUB) and **5 are new** (decompile: CPM56, DDT, SUBMIT, GBASIC, MBASIC). 2 data files carried (CONFIGIO.BAS, DUMP.ASM).

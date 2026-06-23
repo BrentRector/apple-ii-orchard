@@ -1,94 +1,85 @@
 # Resume Prompt — Microsoft SoftCard CP/M Investigation
 
-## CURRENT STATE — 2026-06-21 (NEWEST: ERROR SUBSYSTEM fully RE'd + MERGED; the GBASIC/MBASIC FOLD is underway — generated master builds GBASIC byte-identical, 4 MBASIC islands left)
+## CURRENT STATE — 2026-06-22 (BASIC interpreter RE'd to C-level + the GBASIC/MBASIC FOLD — DONE and MERGED to `main`)
 
-**Branch: `main`, working tree clean.** The `basic-synchr-decode-fix` feature branch was
-merged via a `--no-ff` merge (`a2eab60`); everything since is committed directly on `main`.
-Gate: **224 passed** (`source shared/toolchain/env.sh && python -m pytest softcard/ shared/`).
-Both BASICs reassemble byte-identical to their disk `.COM`s. Newest commit: `1acd0be`.
+**Branch: `main`, working tree clean, pushed to origin. Merge `b398441`** (`--no-ff`, 23
+commits; the local feature branch `basic-semantic-enrichment` was deleted after merge).
+Gate: **226 passed** (`cd /e/Orchard && source shared/toolchain/env.sh && python -m pytest
+softcard/ shared/`). Both BASICs reassemble byte-identical to their disk `.COM`s.
 
-### >> THE LIVE WORK: the GBASIC/MBASIC one-conditional-source FOLD
+### What just landed: the BASIC track is COMPLETE
 
-The big remaining goal ([[project_gbasic_vs_mbasic_relationship]]) is now UNDERWAY and proven
-feasible: because both interpreters are fully relocatable (0 BARE machine-label heads, every
-reference a label), the shared ~95% is the SAME labeled source assembled at two ORGs. Brent's
-two insights drove it: (a) feasibility comes from relocatability; (b) **the build doubles as a
-relocation/decode AUDIT** — any non-graphics byte mismatch is a decode bug the byte-identical
-gate was structurally blind to. Insight (b) has already paid off three times (see islands).
+1. **The GBASIC/MBASIC one-conditional-source FOLD is DONE.** ONE editable master
+   `CPMV220-44K/utilities/BASIC.asm` assembles byte-identical to BOTH GBASIC.COM (with
+   `DEFINE GBASIC`, self-relocates its body to `$3000`, 25600 B) and MBASIC.COM (no define,
+   runs flat at `$0100`, 24576 B). Residuals were driven 16 -> 0; almost all were MISSED
+   LABELS (relocatable in-image refs), NOT islands — only **3 genuine `IFDEF GBASIC` islands**
+   remain (the hi-res statement+function dispatch slots, the ERROR_REPORT message-index clamp,
+   and the `$271F` graphics-plot operand). `+$1000` = the reusable SoftCard CPU-view encoding
+   for an in-image 6502 RPC payload (BEEP). Feasibility came from full relocatability (every
+   ref a label); Brent's audit insight (any non-graphics byte mismatch = a decode bug the
+   byte-identical gate is blind to) drove the closures.
+2. **The whole interpreter is enriched to C-level** — all **14 subsystems** carry framed
+   function headers (Purpose / In / Out / Clobbers / Algorithm) + high-level body comments,
+   and hundreds of machine labels were given semantic names. Subsystems: file-I/O, CRUNCH
+   tokenizer, CHRGET, FRMEVL, LIST/detokenizer, graphics/RPC, FP-math (MBF), FOUT/FIN,
+   var-mgmt + core helpers, console I/O, statement-dispatch, function-dispatch, self-relocator,
+   cold/warm-start. GOAL = total semantic understanding; byte-identical is the FLOOR
+   ([[feedback_semantic_understanding_is_the_goal]]).
+3. **BASIC.asm is the editable MASTER** (promoted; the gen_gbasic/apply_naming/fold_gen pipeline
+   is now PROVENANCE-ONLY — `fold_gen` refuses to overwrite the master without `--write-master`).
+   Per-build addresses live in git-ignored listings `GBASIC.lst`/`MBASIC.lst` (`fold_build
+   --lst`); the inline `; $XXXX <bytes>` comments were stripped from the master.
+   `CPMV220-44K/utilities/PROVENANCE.md` documents the model. `GBASIC.asm`/`MBASIC.asm` are
+   reference views — `test_utility_source_is_byte_identical` pins only their bytes; their
+   annotations now LAG the master, and standalone MBASIC.asm is slated to retire.
+4. Also in the branch: canonical **`STRUCT CPMFCB`** (standard DRI FCB field names) + the
+   type-model includes (`include/msbasic_{line,strdesc,var,valtyp,fcb}.inc`); **`ORG TPA`**
+   (the named transient-program-area constant) across ALL 4 trees' utilities; **character
+   literals** for character comparisons (`CP '"'`, `CP ' '`, `SUB 'A'`); all enrichment comments
+   **wrapped to 100 columns**.
 
-- **`BASIC.asm` is GENERATED, never hand-edited** — `cpm_pipeline.basic.fold_gen` applies 7
-  `IFDEF GBASIC` conditional patches to the CURRENT `GBASIC.asm` (label-anchored; each patch
-  asserts its anchor occurs exactly once, so any future GBASIC.asm drift fails LOUDLY instead
-  of silently producing a wrong master). Lesson learned the hard way: a hand-copied BASIC.asm
-  drifts the instant GBASIC.asm is fixed (the banner fix rippled through preceding label refs
-  AND changed the trailing fill render), and a piecemeal sync broke the build.
-- **Harness** `cpm_pipeline.basic.fold_build`: `assemble("GBASIC"|"MBASIC")` (prepends `DEFINE
-  GBASIC` or not) + byte-diff vs the `.COM`. **Regen order:** `python -m cpm_pipeline.basic.
-  gen_gbasic` -> `apply_naming --base CPMV220-44K/utilities/GBASIC.asm --com GBASIC.COM
-  CPMV220-44K/utilities/GBASIC.overlay.json --write` -> `python -m cpm_pipeline.basic.fold_gen`
-  -> `python -m cpm_pipeline.basic.fold_build`.
-- **State:** `fold_build` => GBASIC mode **BYTE-IDENTICAL (25600B)**; MBASIC mode = **4
-  undefined-label errors** (down from 16). The 7 patches done: entry vector (JP relocator vs JP
-  COLD_START), the `$1000` relocator + `DISP $3000` wrapper (GBASIC self-relocates the body to
-  `$3000`; MBASIC runs flat in place), the hi-res graphics handler block (`$47DA-$4B79`), the 3
-  hi-res statement dispatch slots (`$01A8-$01AC`: GFX_STMT_HGR/HPLOT/HCOLOR vs the
-  RAISE_GRAPHICS_STATEMENT_NOT_IMPLEMENTED stub), the stub itself (a `DEFB $01` cover +
-  `LD E,32`/raise wedged into the disk-reselect tail, IFNDEF GBASIC), the trailing padding +
-  ENT, the SAVEBIN size (`$6400` vs `$6000`). NOTE: GR/COLOR/HLIN/VLIN/PLOT statements stay
-  shared (MBASIC keeps low-res); only the HI-RES three are stubbed.
+### THE APPLIER + WORKFLOW (how the enrichment was applied byte-safely)
 
-**THE 4 REMAINING ISLANDS** (resume here — each is a small, well-understood patch):
-1. **SUB_47C6_2 / SUB_47C6_3** (`$47E6`/`$47EF`) — the SCRN/PDL **function**-dispatch targets
-   (the `CP $D3 / JP Z,SUB_47C6_2` and `CP $ED / JP Z,SUB_47C6_3` chain near `$3C85`/`$3C8F`).
-   They map to MBASIC's `$280F` = the SAME not-impl stub, so add an `IFDEF GBASIC / ELSE
-   JP Z,RAISE_GRAPHICS_STATEMENT_NOT_IMPLEMENTED` patch to `fold_gen` (mirror the statement-slot
-   patch). VERIFY first against MBASIC.asm what those tokens dispatch to.
-2. **GFX_HIRES_BYTE_ADDR** — a cold-start RAM-init table entry (`DEFW` at `$5E11`) pointing at a
-   graphics cell inside the wrapped block; needs a conditional table entry (check what MBASIC's
-   cold-start table carries there).
-3. **L_84C8** — the audit catching one more: a coincidental constant the harvest mislabeled as
-   a code address INTO the dead trailing padding. The body references `$84C8` as a LABEL; make
-   it a literal (a `keep_literal` in `gen_gbasic`, same family as the `AUDIT_BOGUS_VALUES` set —
-   this ALSO cleans the committed GBASIC.asm). Then MBASIC mode (padding excluded) won't dangle.
-4. (the 4th error is the second SUB_47C6, folded into #1).
+`cpm_pipeline/basic/enrich_apply.py` takes a spec JSON `{routines:[{label, header[],
+body_comments[], renames[], operand_rewrites[]}]}` and edits BASIC.asm by INSERT + global
+RENAME + length-preserving operand-rewrite ONLY — it never moves a code byte, so the fold
+byte-gate is the proof. Key mechanics: renames apply FIRST/globally (`\b(old)(_\d+)?\b` with
+`_N` local drag) so header/body anchors written with FINAL names match; `body_end` bounds the
+anchor search to the routine's ACTUAL extent (next non-continuation label) so a same-byte
+operand rewrite can't leak into a neighbour; `_strip_was` drops redundant "(was NAME)"; `_wrap`
+aligns comments to 100 cols. The per-subsystem WORKFLOW (one script per subsystem under the
+session `workflows/scripts/`): **map** the subsystem into 4-7 clusters -> **enrich** each
+cluster (header + body comments + renames) -> **ADVERSARIAL verify** each (skeptical re-check
+vs the bytes) -> merge specs -> `enrich_apply --write` -> fold byte-gate + full pytest ->
+commit. Adversarial verify caught real mis-decodes: FN_LOF->MKI$/MKS$/MKD$, FN_CVI->INPUT#
+scanner, FN_INT->FN_ABS, STKFRAME_SCAN->FNDFOR ($82=FOR not GOSUB), OUTDO_DEVICE/_2 BIOS-vector
+swap, `$0CB6` = FP-eval flag not screen-reverse, VALTYP legend inverted, &O/&H octal/hex reversed.
 
-After the 4 islands the byte-diff should collapse to 0 (or to isolated 2-byte relocation bugs =
-frozen literals = more audit finds). Then BASIC.asm reproduces BOTH `.COM`s byte-identical, the
-generated `GBASIC.asm`/`MBASIC.asm` can RETIRE, and MBASIC's GBASIC-contaminated comments go
-with them (Brent's goal: shared code keeps GBASIC's correct, label-based comments). Excluded
-from the round-trip test (`test_fold_build_gbasic_byte_identical` covers the GBASIC milestone).
+### >> THE LIVE NEXT TRACK: CP/M-constant rename across the utilities
 
-### Error subsystem — fully RE'd in BOTH twins (merged; recipe [[project_basic_synchr_decode_and_tokens]])
+Brent's sequencing was "finish BASIC enrichment first," then this. Across the ~30 utility
+`.asm` files that now carry `cpm22.inc`: rename `CALL $0005` -> `CALL BDOS`, `LD C,$nn` BDOS
+selectors -> `F_*`/`DRV_*`, `$0080` -> `TBUFF`, `$005C` -> `TFCB`, etc. CAUTION: 3 files keep
+a LOCAL `TPA EQU $0100` to dodge a BDOS-symbol collision (STAT/CPMV220, DDT/CPMV220-44K,
+DDT/CPMV223-44K), and the 60K build (CPM60.asm + CPM60_installer.asm) keeps `TPA EQU $0100`
+too because `build_cpm60` does NOT stage the shared includes (adding cpm22.inc there broke the
+build — reverted). Suggested approach: a per-file byte-safe rewrite applier (same discipline
+as `enrich_apply`), base tree CPMV220-44K first, then extend to CPMV223-44K / CPMV220 /
+CPMV223-60K. After that: the held low-confidence BASIC items (VALTYP `$620D`, FCB `$7D7C`/`$7F28`
+page-wrap, `$0838` PRTFLG), retire the standalone MBASIC.asm, then the older queue below.
+
+### Earlier-landed: Error subsystem — fully RE'd in BOTH twins (merge `a2eab60`; [[project_basic_synchr_decode_and_tokens]])
 
 New modules `cpm_pipeline/basic/{errmsg,errstub}.py`. Message table -> `ERROR_MESSAGE_TABLE`
 base + clean `DEFB` strings + the GENERATED `softcard/include/msbasic_errors.inc` (ERR_* EQUs,
-now generated from **MBASIC.COM** = the code superset: it alone carries code 32 =
+generated from **MBASIC.COM** = the code superset: it alone carries code 32 =
 ERR_GRAPHICS_STATEMENT_NOT_IMPLEMENTED). Codes 1-31 then disk 50-70 (printer does CP $32/SUB
-$12). Overlap-skip stub runs -> `RAISE_<name>: LD E,ERR_<name>` / `DEFB $01`; the non-table
-`LD E,$nn` AND `LD DE,$00nn` raise sites -> `LD (D)E,ERR_<name>`; the single-entry `LD BC,$nn1E`
-cover stub (graphics-not-impl) -> `RAISE_GRAPHICS_STATEMENT_NOT_IMPLEMENTED` (errstub.
-apply_cover_raise_stubs — Brent caught this gap from a `SUB_2803_1+1` ref). Dispatcher unified
+$12). Overlap-skip stub runs -> `RAISE_<name>: LD E,ERR_<name>` / `DEFB $01`; non-table
+`LD E,$nn` AND `LD DE,$00nn` raise sites -> `LD (D)E,ERR_<name>`. Dispatcher unified
 **RAISE_ERROR** across both twins. Disk-error VECTOR run -> `DISK_RAISE_<name>` + tail
 `DISK_RESELECT_AND_RAISE`. A surfaced mis-decode: `CONT_CMD` ($0D2E) is really **PROGRAM_END**
 (NEWSTT end-of-program; raises No RESUME=19, not Can't continue=17; real CONT is STMT_CONT).
-
-### Other this-session work (all merged/committed, byte-identical, gate 224)
-
-- **MBASIC data-as-code AUDIT propagation** (`1f3f26f`): the Redo/Randomize/FN_RND-FP-pool
-  regions pinned as data in `gen_mbasic` (the GBASIC-only AUDIT fixes mirrored to the twin).
-- **Sign-on banner pinned as data in BOTH** (`c3d6181` MBASIC, `4888f12` GBASIC) — the fold
-  audit's payoff: "BASIC-80 Rev. 5.2 ... Copyright (C) 1980 by Microsoft ..." was decoded as
-  bogus code (`$0D $0A` as `DEC C`/`LD A,(BC)`). GBASIC's pin needed the **`drop_orphan_labels`
-  `keep=` fix**: the `$8483` LDDR-boundary label (INTERP_COPY_END) is referenced by the
-  relocator only via a literal operand that apply_naming rewrites later, so it looked orphaned
-  and was stranded (it had only survived by coincidence on the bogus banner's stray refs).
-- **comment_sub** (`bfebfea`, `apply_naming`): keeps `[RE]` prose in sync with the naming pass
-  (renames machine-label refs in comments to their semantic names; literalizes danglers to
-  `$xxxx`) — 57/67 dead refs -> 0. Drops the stale "(executable, rendered as DEFB)" phrasing.
-- **Dual-behavior comment transfer to MBASIC** (`ad28cfd`): the GBASIC audit's 46 proven
-  flag-skip/SMC/cover comments transferred via the lockstep map with a byte-match gate + full
-  GBASIC->MBASIC address translation. (Largely MOOT under the fold plan — shared code will
-  inherit GBASIC's comments — but harmless; MBASIC.asm retires with the fold.)
 
 ---
 
@@ -400,7 +391,10 @@ Version testing isolated the boundary: **2.20 and 2.20B fail; 2.23 works**.
 
 ## What's Now Understood (the architecture)
 
-End-to-end, with empirical emulator confirmation of the central question.
+End-to-end. NOTE: the byte-level boot facts below are accurate, but the FAILURE-CAUSE narrative
+(the `$E5`/`PUSH HL`/`$DFBE` device-4 hang in items 10/12 and the section that follows) was
+OVERTURNED 2026-06-11 — the real cause is the `$C800` expansion-ROM window-ownership loss (see the
+overturn banner above + `softcard/docs/CPM_SoftCard_RealMap_Findings.md`).
 
 ### The 6502 boot stage (Parts 1-4)
 
@@ -421,18 +415,27 @@ End-to-end, with empirical emulator confirmation of the central question.
 12. **Cold-boot generator** populates the runtime-generated pages with per-device handler code (Part 6). For device code 4 (Pascal 1.0 generic), it generates a handler that dispatches to `$DFBE` (in 2.20) — but `$DFBE` is in a generator-padding page filled with `$E5`. For device code 6 (Pascal 1.1), 2.23 dispatches to `$FDB0` — which is a one-byte `RET` stub.
 13. **Cooperative-CPU disk I/O model**: Z-80 BIOS routines write parameters into BIOS state area, call into Z-80 disk callbacks at `$1A00`, signal 6502 via `$E000`/`$E010` flag pair (polling loop at Z-80 `$1E36-$1E44`). SoftCard switches CPUs. 6502 reads same state, runs original RWTS at `$BA00-$BFFF`, deposits sector data, signals completion. SoftCard switches back. (Part 8.)
 
-### The 2.20 hang failure mode (Parts 8 + 12, Stage-3 emulator confirmation)
+### The 2.20 boot failure — CORRECTED (see the 2026-06-11 overturn banner above + `softcard/docs/CPM_SoftCard_RealMap_Findings.md`)
 
-Empirically: when 2.20 first issues a CONOUT for a Videx slot, BDOS jumps via the BIOS jump table to a CONOUT routine. CONOUT looks up the per-slot device code (`$04` for the Videx because 2.20 didn't run the Pascal 1.1 check). Device 4 dispatches via the cold-boot-generator-built handler to `$DFBE`. `$DFBE` is in a generator-padding page that contains nothing but `$E5` bytes (CP/M deleted-file marker, also Z-80 `PUSH HL`). The Z-80 starts executing `PUSH HL` instructions, each pushing 2 bytes onto the stack. With the stack initialized at `$0080`, after 64 PUSH instructions SP is at `$0000`; the 65th wraps SP to `$FFFE` and starts overwriting BIOS code in the high-memory area. The system corrupts itself and hangs.
-
-2.23 detects the Videx as Pascal 1.1, assigns device code `$06`, and the cold-boot generator routes it through `$FDB0` which is a single-byte `RET` (`$C9`). CONOUT returns cleanly. Whatever real Videx-driving code lives elsewhere gets installed via a separate runtime path (the runtime-generation phase populates real handler code into the trap-marker pages before any actual I/O happens).
+**The old "device-4 → `$DFBE` → `$E5`/`PUSH HL` → SP-wrap" hang ("Case B") was OVERTURNED** — it
+was an artifact of the wrong bit-12-XOR memory model. The real failure is a SHARED-WINDOW
+ownership fault. 2.20 drives the Videx through Pascal-1.0 FIXED entries inside the `$C800-$CFFF`
+expansion-ROM window and performs its `$CFFF`-deselect / `$C300`-select ownership dance on the
+**Z-80 side**, then flips the bus via a `$C700` access — but `$C700` is another slot's page, so
+the flip RELEASES the window claim. Every subsequent console RPC enters the window UNOWNED →
+floating bus on real hardware → blank screen / dead boot. 2.23 redoes the deselect/select dance on
+the **6502 side AFTER** the flip, so the window stays owned. The boot-time detection delta (2.23's
+extra `$Cn0B` Pascal-1.1 probe tagging the Videx device 6) is real but is the SMALLER half of the
+fix, not the boot-failure cause. The physical-card release trigger remains OPEN; the demonstrated
+kill is the A2FPGA mechanism (the differential: 38M window faults + 0 screen chars for 2.20 vs 0
+faults + working DIR for 2.23).
 
 ### Pascal 1.0 vs 1.1 calling-convention precision (Part 1)
 
 - **Pascal 1.0**: ID bytes ARE the entry points. `$Cn05 = $38` is `SEC`; `$Cn07 = $18` is `CLC`. `JSR $Cn05` does input (carry set), `JSR $Cn07` does output (carry clear).
 - **Pascal 1.1**: 4-byte vector table at `$Cn0D-$Cn10` (INIT, READ, WRITE, STATUS). Caller reads offsets, JSRs to `$Cn00 + offset`, MUST call INIT before READ/WRITE/STATUS.
 - Pascal 1.1 cards declare BOTH ID sets but only implement the 1.1 calling convention.
-- 2.20 sees a Videx → Pascal 1.0 ID match → naive `JSR $Cn07` → hangs (per Case B above).
+- 2.20 sees a Videx → Pascal 1.0 ID match → drives it through the FIXED `$C800`-window entries (the boot failure is the window-ownership loss above, NOT a `$Cn07` hang — "Case B" was overturned).
 - 2.23 reads `$Cn0B` → Pascal 1.1 → routes through 1.1 vector table → works.
 
 ---
@@ -732,23 +735,25 @@ None block the headline result.
 
 **Per-device state slots** (in runtime-generated regions): `$FECB` track, `$FED2` sector, `$FED4` DMA, `$FECD` cold-boot state byte.
 
-**2.20 BIOS at `$DACC-$E2FF`** uses the same 256-byte interleave with `$E5` filler in generator pages. BOOT vector `$DEA8`, real code resumes at `$DECC`. Device-4 dispatch target `$DFBE` is in a `$E5`-filled generator page — that's the v2.20 hang trigger.
+**2.20 BIOS at `$DACC-$E2FF`** uses the same 256-byte interleave with `$E5` filler in generator pages. BOOT vector `$DEA8`, real code resumes at `$DECC`. (The old "device-4 → `$DFBE` `$E5`-page = hang trigger" reading was a bit-12-XOR-map artifact and is SUPERSEDED — the real boot fault is the `$C800` window-ownership loss; see the overturn banner.)
 
-### SoftCard memory mapping (bit-12 XOR for low addresses only)
+### SoftCard memory mapping (CORRECTED 2026-06-11 — the bit-12-XOR model was WRONG)
 
-- Z-80 `$0000-$0FFF` ↔ Apple `$1000-$1FFF`
-- Z-80 `$1000-$1FFF` ↔ Apple `$0000-$0FFF`
-- Z-80 `$2000-$FFFF` ↔ Apple `$2000-$FFFF` (no swap)
+The real Z-80 ↔ Apple address translation (replaces the old bit-12-XOR model):
+- Z-80 `$F000-$FFFF` = Apple `$0000-$0FFF`
+- Z-80 `$B000-$DFFF` = Apple `$D000-$FFFF`
+- Z-80 `$E000-$EFFF` = Apple I/O (`$C000-$CFFF` soft switches / slot ROMs)
+- elsewhere: 1:1. BIOS true bases `$FA00` (2.23) / `$DA00` (2.20). See `softcard/docs/CPM_SoftCard_RealMap_Findings.md`.
 
 ### Key 2.20 vs 2.23 differences
 
 - **Slot scanner**: 2.23 has 11 extra bytes for the Pascal 1.1 check; produces device code `$06` for Videx instead of `$04`
-- **Cold-boot generator dispatch**: device 4 → `$DFBE` (`$E5` fill = `PUSH HL` spam, hangs); device 6 → `$FDB0` (`RET` stub, returns cleanly)
+- **Cold-boot generator dispatch**: device 4 (Pascal 1.0) vs device 6 (Pascal 1.1, via 2.23's `$Cn0B` tag) take different runtime dispatch paths; the device-6 → `$FDB0` `RET`-stub is a real byte fact, but the 2.20 boot failure is the `$C800` window-ownership loss, NOT a device-4 `PUSH HL` hang (overturned)
 - BIOS load address: 2.20 at `$DACC`, 2.23 at `$FAB8` (8 KB shift)
 - BIOS jump table in staging: 2.20 at offset `$1700`, 2.23 at `$1900`
 - BIOS first 1 KB final position in newdisk: 2.20 at start (`$0A00`), 2.23 at end (`$0C00`)
 - Boot banner string: present in 2.23, absent in 2.20
-- Generator-page filler pattern: 2.20 uses `$E5` (executes as `PUSH HL` if reached); 2.23 uses `FF FF 00 00 / F7 F7 00 00` (executes as RST traps — safety upgrade against this exact bug class)
+- Generator-page filler pattern: 2.20 uses `$E5`; 2.23 uses `FF FF 00 00 / F7 F7 00 00` (RST-trap bytes). This filler-hardening byte delta is real, but it is NOT the boot-failure cause (the "PUSH HL bug class" framing was overturned)
 
 ### CPU switch mechanism
 

@@ -424,8 +424,9 @@ verification at every step.
 
 ## Status
 
-**Roadmap committed; no code yet.** Next concrete action is Phase 1
-(Stage 7 — `.dsk` reconstruction) when work resumes. The first
-deliverable will be a tool that takes the existing 11 manually-
-annotated `.asm` sources and rebuilds CPMV220Disk1.po and CPMV223-44K.DSK
-byte-identical to the originals.
+**REALIZED.** This roadmap is DONE — `cpm_pipeline` is fully built (the detect / trace /
+trace-z80 / handoff / diff / build / generate verbs, plus reconstruct / version_delta /
+regenerate / the BASIC fold tooling). Both target disks reconstruct byte-identical from the
+annotated sources, and the work has since gone well beyond this plan (per-release source trees for
+all four CP/M builds, the whole-system emulator, and the GBASIC/MBASIC fold). This file is kept as
+the historical roadmap.
