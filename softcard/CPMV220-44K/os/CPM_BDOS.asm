@@ -211,8 +211,8 @@ CCP_TAIL_LOADRET:
         JP NZ,CCP_TAIL_6+1
         ; [RE] call into the CCP (run $9866 is itself a CALL RPC6502_E0D0) -- refresh/reset the
         ; console via the 6502 RPC gateway
-        CALL $9866
-        CALL $965E
+        CALL CMD_EXEC
+        CALL RPC_DISPATCH
         LD HL,CCP_TAIL_16+2
         PUSH HL
         LD A,(HL)
@@ -229,10 +229,10 @@ CCP_TAIL_LOADRET:
         LD DE,TFCB
         LD HL,CCP_TAIL_14+1
         LD B,$21
-        CALL $9842
+        CALL CCP_NEWLINE_AND_FILEOP
         ; point at the CCP command-line buffer and skip a leading NUL/space before entering the
         ; directory search
-        LD HL,$9408
+        LD HL,CMDTAIL_SCRATCH
         LD A,(HL)
         OR A
         JP Z,CCP_TAIL_3+1
@@ -2718,7 +2718,7 @@ DISK_DEBLOCK_1:
         NOP
         NOP
         ; Point at the host sector buffer ($9400, the deblock staging area).
-        LD HL,$9400
+        LD HL,RPC6502_BLOCK
         PUSH AF
 ; ----------------------------------------------------------------------
 ; DISK_DEBLOCK_2 -- mask a byte to 7 bits and store it during deblock.

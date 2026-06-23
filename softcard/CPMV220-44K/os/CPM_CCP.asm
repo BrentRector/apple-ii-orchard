@@ -984,7 +984,7 @@ CCP_MAIN_LOOP_1:
 CMD_DISPATCH_TBL:
         DEFB    $98,$1F,$99,$5D,$99      ; [AI/RE] CCP-internal address table, reached via CALL CMD_DISPATCH_TBL (CD C2 95) from $980F and $9897 -- NOT the JP (HL) built-in dispatcher at $95C0 (that one indexes base $97C1). A per-implementation table, not a manual structure.
 CMD_DISPATCH_TBL_2:
-        DEFW    $99AD
+        DEFW    RECORD_SCAN_STEP_1
         DEFW    CMD_EXEC_42
         DEFW    CMD_EXEC_48
         DEFW    CMD_EXEC_49
@@ -1415,7 +1415,7 @@ DIR_CMD:
 ; ----------------------------------------------------------------------
 DIR_CMD_1:
         CP $20
-        JP NZ,$988F
+        JP NZ,TYPE_EOF_CHECK
         LD B,$0B
         LD (HL),$3F
         INC HL
@@ -1581,6 +1581,7 @@ CMD_EXEC_1:
         LD HL,$0080
         CALL RPC_DISPATCH_SETUP
         LD A,(HL)
+TYPE_EOF_CHECK:
         CP $1A
         JP Z,CMD_EXEC_63+1
         CALL RPC6502_E08C
@@ -1652,7 +1653,7 @@ CMD_EXEC_11:
 CMD_EXEC_12:
         PUSH BC
 CMD_EXEC_13:
-        LD A,($9F42)
+        LD A,(FCB_USER_SCRATCH)
 CMD_EXEC_14:
         LD C,A
         LD HL,$0001
@@ -1672,7 +1673,7 @@ CMD_EXEC_15:
 ; ----------------------------------------------------------------------
 DRIVE_BIT_TEST:
         LD HL,(BDOS_VAR_PAGE_7_p8_STG)
-        LD A,($9F42)
+        LD A,(FCB_USER_SCRATCH)
         LD C,A
         CALL BDOS_CON_41_p12_STG
         LD A,L
@@ -1907,6 +1908,7 @@ RECORD_SCAN_STEP:
         ; BDOS record-state helper (cross-module BDOS, kept) -- the target name may itself be
         ; mislabeled; role here is record bookkeeping [RE]
         CALL BDOS_GET_IOBYTE_FN_p10_STG
+RECORD_SCAN_STEP_1:
         LD HL,(BDOS_VAR_PAGE_7_p24_STG)
         EX DE,HL
         LD HL,(BDOS_VAR_PAGE_9_p8_STG)
@@ -2393,7 +2395,7 @@ CMD_EXEC_50:
 ;   Re-entry:  CMD_EXEC_69 ($9BFE) JPs back here to load the next $$$.SUB-chained command.
 ; ----------------------------------------------------------------------
 CMD_EXEC_51:
-        LD HL,$9B83
+        LD HL,CMD_EXEC_62_RECLEN
         ; build/open the load setup from CCP_LOAD_FCB_SRC (enters the CCP_NEWLINE_AND_FILEOP path
         ; via the +1 cover at $9840)
         CALL DIR_EMIT_NAME_CHAR_8+1
@@ -2701,6 +2703,7 @@ CMD_EXEC_62:
         ; ; B := 0 to clear the block-number high byte before the split cover at $9B85. NOTE: this
         ; byte ($9B83) is ALSO the in-image pointer target CMD_EXEC_62_RECLEN of the foreign LD
         ; HL,$9B83 at $9AD2 (dual code/data; a scratch buffer).
+CMD_EXEC_62_RECLEN:
         LD B,$00
 ; ----------------------------------------------------------------------
 ; CMD_EXEC_63 -- shared dir-helper re-entry (cover-split): the real entry reached by 9 `JP
