@@ -13,7 +13,8 @@ BDOS_VEC             EQU $0005               ; BDOS call vector — JP BDOS_ENTR
 ; -- Mid-instruction references (shown inline as cover+offset) --
 ;   $01BC -> TPA_START_20+1       shared instruction tail: $01BC is reachable code inside the instruction at $01BB
 
-    ORG $0100
+    INCLUDE "cpm22.inc"                  ; CP/M 2.2 ABI (provides TPA = $0100)
+    ORG TPA
 
 ; [AI] The $0100 transient program entry point where CP/M loads and jumps into XSUB.COM. The
 ;       leading LD BC,$01BC stashes the end-of-image address used later to size the relocation copy.

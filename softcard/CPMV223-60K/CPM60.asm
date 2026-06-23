@@ -40,7 +40,8 @@
     DEFINE CPM60_LINK            ; tell each INCLUDEd module: master owns DEVICE/ORG/SAVEBIN
 
 ; --- installer driver: runs in place at $0100 (no relocation) -------------
-    ORG $0100
+TPA     EQU $0100                        ; CP/M transient program area (local; 60K build does not stage shared includes)
+    ORG TPA
     MODULE inst
     INCLUDE "CPM60_installer.asm"
     ENDMODULE

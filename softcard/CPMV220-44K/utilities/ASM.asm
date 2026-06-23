@@ -14,7 +14,8 @@ RST1_VEC             EQU $0008               ; Z-80 RST 1 ($08) restart vector â
 DEFAULT_FCB          EQU $005C               ; Default File Control Block â€” populated by CCP from command-line argument 1. Standard 36-byte FCB structure (drive + filename + extents + record number).
 DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS cold-init / DRV_ALLRESET (fn 13) set the DMA address here and WBOOT re-issues SETDMA($0080); sector/record I/O moves 128 bytes through it. At program load this same buffer doubles as the command tail: the first byte ($0080) holds the tail length (0-127) and the characters follow at $0081 (CMDLINE).
 
-    ORG $0100
+    INCLUDE "cpm22.inc"                  ; CP/M 2.2 ABI (provides TPA = $0100)
+    ORG TPA
 
 ; [AI] COM entry point at $0100: sets the stack, saves the top-of-TPA address from $0006, and jumps
 ;       to the real start, the standard CP/M transient prologue.

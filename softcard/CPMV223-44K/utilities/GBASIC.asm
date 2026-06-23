@@ -33,7 +33,8 @@ INTERP_RELOC_LEN     EQU INTERP_RUN_TOP - INTERP_RUN_START          ; LDDR byte 
 INTERP_LOAD_END      EQU INTERP_LOAD_START + INTERP_RELOC_LEN - 1   ; last copied byte, .COM load addr (now $6490)
 INTERP_RUN_END       EQU INTERP_RUN_TOP - 1                         ; last copied byte, run addr       (now $8482)
 
-    ORG $0100
+    INCLUDE "cpm22.inc"                  ; CP/M 2.2 ABI (provides TPA = $0100)
+    ORG TPA
 
 ; [AI] CP/M transient entry point at $0100, where the CCP loads and runs GBASIC.COM. It immediately
 ;       jumps to the real startup at L_1000; the bytes that follow are the interpreter's reserved-

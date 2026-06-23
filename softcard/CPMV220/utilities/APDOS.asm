@@ -47,7 +47,8 @@ DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS
 ;   $0494 -> RWTS_SKEW_PTR+1       z80 skip idiom: enters the operand of $11 at $0493
 ;   $04AB -> APPLE_RWTS_GO+1       shared instruction tail: $04AB is reachable code inside the instruction at $04AA
 
-    ORG $0100
+    INCLUDE "cpm22.inc"                  ; CP/M 2.2 ABI (provides TPA = $0100)
+    ORG TPA
 
 ; [AI] ===== MAIN: entry, prompt for command line, parse and dispatch =====
 MAIN:

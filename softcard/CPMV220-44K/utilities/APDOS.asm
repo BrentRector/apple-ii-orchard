@@ -19,7 +19,8 @@ DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS
 ;   $0494 -> READ_APPLE_SECTOR_2+1 z80 skip idiom: enters the operand of $11 at $0493
 ;   $04AB -> READ_APPLE_SECTOR_3+1 shared instruction tail: $04AB is reachable code inside the instruction at $04AA
 
-    ORG $0100
+    INCLUDE "cpm22.inc"                  ; CP/M 2.2 ABI (provides TPA = $0100)
+    ORG TPA
 
 ; [AI] $0100 transient entry point. Captures the SoftCard's saved Apple-side memory pointer (Z_CPU)
 ;       and computes a usable-memory limit from the BIOS base ($0007) before parsing the command.

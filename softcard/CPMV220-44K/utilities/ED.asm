@@ -19,7 +19,8 @@ DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS
 ; -- Mid-instruction references (shown inline as cover+offset) --
 ;   $0400 -> INSERT_PROC_CHAR_119+1      shared instruction tail: $0400 is reachable code inside the instruction at $03FF
 
-    ORG $0100
+    INCLUDE "cpm22.inc"                  ; CP/M 2.2 ABI (provides TPA = $0100)
+    ORG TPA
 
 ; [AI] Standard CP/M .COM load address $0100; jumps over the embedded message pool to the real
 ;       startup code.

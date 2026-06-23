@@ -15,7 +15,8 @@ DEFAULT_FCB          EQU $005C               ; Default File Control Block — po
 ;    so this staging EQU ($0E03) is what those FILE-address references resolve to.
 L_0E03               EQU $0E03               ; [AI] staging addr of the body's CCP-warm slot ($0E03 = run $C403 after copy-up)
 
-    ORG $0100
+    INCLUDE "cpm22.inc"                  ; CP/M 2.2 ABI (provides TPA = $0100)
+    ORG TPA
 
 L_0100:
         LD A,(DEFAULT_FCB)               ; $0100  3A 5C 00

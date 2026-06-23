@@ -10,7 +10,8 @@ BDOS_VEC             EQU $0005               ; BDOS call vector — JP BDOS_ENTR
 DDT_IMG_BASE         EQU $0200               ; [AI] resident image base = .COM load addr of the relocatable body
 DDT_IMG_LEN          EQU $1010               ; [AI] image byte count copied to high RAM (the loader's LD BC value)
 
-    ORG $0100
+TPA     EQU $0100                        ; CP/M transient program area (local; file has its own BDOS label)
+    ORG TPA
 
 ; [AI] DDT loads as a $0100-based .COM whose entry stub (this $0100-$01A8 region)
 ; copies a position-independent debugger image up to the top of the TPA and

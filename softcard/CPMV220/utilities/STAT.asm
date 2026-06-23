@@ -17,7 +17,8 @@ DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS
 ; -- Mid-instruction references (shown inline as cover+offset) --
 ;   $102E -> DO_FILE_STATUS_21+1        shared instruction tail: $102E is reachable code inside the instruction at $102D
 
-    ORG $0100
+TPA     EQU $0100                        ; CP/M transient program area (local; file has its own BDOS label)
+    ORG TPA
 
 ; [AI] ============================================================
 ; [AI] CP/M 2.2 STAT.COM  (Digital Research, 1979) -- 6144 bytes.

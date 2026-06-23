@@ -24,7 +24,8 @@ CMDLINE              EQU $0081               ; Command-line tail characters (upp
 ;   $0430 -> BIOS_DISK_DISPATCH_4+1         z80 skip idiom: enters the operand of $21 at $042F
 ;   $0433 -> BIOS_DISK_DISPATCH_5+1         z80 skip idiom: enters the operand of $21 at $0432
 
-    ORG $0100
+    INCLUDE "cpm22.inc"                  ; CP/M 2.2 ABI (provides TPA = $0100)
+    ORG TPA
 
 ; [AI] Program entry at $0100. Sets the stack just below the work area and begins by saving the
 ;       command-tail length to decide command-line vs. interactive operation.

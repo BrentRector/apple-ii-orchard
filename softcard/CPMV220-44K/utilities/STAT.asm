@@ -21,7 +21,8 @@ DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS
 ;   (none) -- the earlier $102E -> FILE_STATUS_MAIN_21+1 entry was a phantom from a DEFW data match at
 ;            $131F that has since been decoded back into its real instruction (LD L,$10); $102E is not code.
 
-    ORG $0100
+    INCLUDE "cpm22.inc"                  ; CP/M 2.2 ABI (provides TPA = $0100)
+    ORG TPA
 
 ; [AI] The $0100 program entry point; jumps over the embedded copyright/message data block to the
 ;       real startup code.
