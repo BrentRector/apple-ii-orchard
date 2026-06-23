@@ -21,6 +21,13 @@ PROBED  EQU $F03D        ; the probed slot's $Cn high byte, set by the 6502 ($00
 
     ORG $1000
 
+; ----------------------------------------------------------------------------
+; PROBE_OVL -- slot-probe handshake. Installed over $1000..$100C; during the slot
+;   scan a probe write lands the Z-80 here. Clear the $3E "SoftCard found" flag,
+;   then touch the probed slot's Z-80 I/O page ($En00 = $Cn + $20) to switch back
+;   to the 6502, and loop (the JR offset byte is the host's SIG_BYTE5[0]).
+;   In: $3D = probed slot $Cn (set by the 6502).  Clobbers: A, HL.
+; ----------------------------------------------------------------------------
 PROBE_OVL:
     XOR A                ; A = 0
     LD (FOUND),A         ; $3E = 0 -> "SoftCard found in the probed slot"
@@ -31,4 +38,4 @@ PROBE_OVL:
     LD (HL),A            ; touch $En00 -> Apple $Cn00 -> switch back to the 6502
     JR PROBE_OVL         ; loop ($18; offset byte $F2 supplied by host SIG_BYTE5[0])
 
-    SAVEBIN "{out_bin}", $1000, 13      ; $1000..$100C (JR opcode included, operand not)
+    SAVEBIN "{out_bin}", $1000, 13       ; 13 bytes (JR opcode included, its operand byte is not)

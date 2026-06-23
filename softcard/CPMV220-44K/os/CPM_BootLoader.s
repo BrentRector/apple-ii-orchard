@@ -1095,6 +1095,13 @@ SOFTCARD_PROBE_OVL:
 ;
 ;     ORG $1000
 ;
+; ; ----------------------------------------------------------------------------
+; ; PROBE_OVL -- slot-probe handshake. Installed over $1000..$100C; during the slot
+; ;   scan a probe write lands the Z-80 here. Clear the $3E "SoftCard found" flag,
+; ;   then touch the probed slot's Z-80 I/O page ($En00 = $Cn + $20) to switch back
+; ;   to the 6502, and loop (the JR offset byte is the host's SIG_BYTE5[0]).
+; ;   In: $3D = probed slot $Cn (set by the 6502).  Clobbers: A, HL.
+; ; ----------------------------------------------------------------------------
 ; PROBE_OVL:
 ;     XOR A                ; A = 0
 ;     LD (FOUND),A         ; $3E = 0 -> "SoftCard found in the probed slot"
@@ -1168,7 +1175,13 @@ INSTALL_IMG:
 ;
 ;     ORG $F34A
 ;
-; CON_STATUS:                     ; $F34A  console status
+; ; ----------------------------------------------------------------------------
+; ; CON_STATUS -- console input status. A type-3 (serial) slot-3 card: return $FF
+; ;   if a character is ready, else $00. Any other card type defers to the BIOS
+; ;   console-status entry.
+; ;   Out: A = $FF (char ready) / $00 (not).  Clobbers: A, flags.
+; ; ----------------------------------------------------------------------------
+; CON_STATUS:                     ; console status
 ;     LD A,(SLTTYP3)              ; slot-3 card type
 ;     CP $03                      ; a type-3 (serial) card?
 ;     JP NZ,$AB0C                 ; no -> BIOS console status
@@ -1176,15 +1189,28 @@ INSTALL_IMG:
 ;     RRA                         ; bit0 (char ready) -> carry
 ;     SBC A,A                     ; A = $FF if ready else $00
 ;     RET
-; CON_INPUT:                      ; $F358  console input
+;
+; ; ----------------------------------------------------------------------------
+; ; CON_INPUT -- console input. Fetch a raw key via the BIOS and strip the high bit.
+; ;   Out: A = 7-bit ASCII char.  Clobbers: A, flags.
+; ; ----------------------------------------------------------------------------
+; CON_INPUT:                      ; console input
 ;     CALL $AB12                  ; fetch raw key via BIOS
 ;     AND $7F                     ; strip high bit
 ;     RET
-; CON_OUTPUT:                     ; $F35E  console output (char in C)
+;
+; ; ----------------------------------------------------------------------------
+; ; CON_OUTPUT -- console output (char in C). A type-3 serial card: spin until the
+; ;   Tx register is ready (OUT_WAIT), then RPC the char to the 6502 -- A$VEC points
+; ;   at the "STA $C0BF ; RTS" stub ($037C), fired by touching Z$CPU. Any other card
+; ;   type defers to the BIOS console-output entry.
+; ;   In: C = char.  Clobbers: A, HL, flags.
+; ; ----------------------------------------------------------------------------
+; CON_OUTPUT:                     ; console output (char in C)
 ;     LD A,(SLTTYP3)              ; slot-3 card type
 ;     CP $03                      ; a type-3 (serial) card?
 ;     JP NZ,$AC3E                 ; no -> BIOS console output
-; OUT_WAIT:                       ; $F366
+; OUT_WAIT:                       ; spin until the serial Tx register is ready
 ;     LD A,(SLOT3IO)              ; serial status register
 ;     AND $02                     ; Tx-ready bit set?
 ;     JR Z,OUT_WAIT               ; spin until ready

@@ -20,7 +20,13 @@ SLOT3IO EQU $E0BE        ; slot-3 device status register (Apple $C0BE)
 
     ORG $F34A
 
-CON_STATUS:                     ; $F34A  console status
+; ----------------------------------------------------------------------------
+; CON_STATUS -- console input status. A type-3 (serial) slot-3 card: return $FF
+;   if a character is ready, else $00. Any other card type defers to the BIOS
+;   console-status entry.
+;   Out: A = $FF (char ready) / $00 (not).  Clobbers: A, flags.
+; ----------------------------------------------------------------------------
+CON_STATUS:                     ; console status
     LD A,(SLTTYP3)              ; slot-3 card type
     CP $03                      ; a type-3 (serial) card?
     JP NZ,$AB0C                 ; no -> BIOS console status
@@ -28,15 +34,28 @@ CON_STATUS:                     ; $F34A  console status
     RRA                         ; bit0 (char ready) -> carry
     SBC A,A                     ; A = $FF if ready else $00
     RET
-CON_INPUT:                      ; $F358  console input
+
+; ----------------------------------------------------------------------------
+; CON_INPUT -- console input. Fetch a raw key via the BIOS and strip the high bit.
+;   Out: A = 7-bit ASCII char.  Clobbers: A, flags.
+; ----------------------------------------------------------------------------
+CON_INPUT:                      ; console input
     CALL $AB12                  ; fetch raw key via BIOS
     AND $7F                     ; strip high bit
     RET
-CON_OUTPUT:                     ; $F35E  console output (char in C)
+
+; ----------------------------------------------------------------------------
+; CON_OUTPUT -- console output (char in C). A type-3 serial card: spin until the
+;   Tx register is ready (OUT_WAIT), then RPC the char to the 6502 -- A$VEC points
+;   at the "STA $C0BF ; RTS" stub ($037C), fired by touching Z$CPU. Any other card
+;   type defers to the BIOS console-output entry.
+;   In: C = char.  Clobbers: A, HL, flags.
+; ----------------------------------------------------------------------------
+CON_OUTPUT:                     ; console output (char in C)
     LD A,(SLTTYP3)              ; slot-3 card type
     CP $03                      ; a type-3 (serial) card?
     JP NZ,$AC3E                 ; no -> BIOS console output
-OUT_WAIT:                       ; $F366
+OUT_WAIT:                       ; spin until the serial Tx register is ready
     LD A,(SLOT3IO)              ; serial status register
     AND $02                     ; Tx-ready bit set?
     JR Z,OUT_WAIT               ; spin until ready
@@ -48,4 +67,4 @@ OUT_WAIT:                       ; $F366
     LD (HL),A                   ; touch $En00 -> RPC runs the 6502
     RET
 
-    SAVEBIN "{out_bin}", $F34A, $32     ; 50 bytes, $F34A..$F37B
+    SAVEBIN "{out_bin}", $F34A, $32     ; 50 bytes (Z-80 view of the boot image's $034A block)
