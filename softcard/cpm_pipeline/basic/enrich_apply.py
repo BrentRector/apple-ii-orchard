@@ -140,18 +140,19 @@ def apply_spec(text, spec):
     spec_label_names = {rmap(r["label"]) for r in routines}
 
     def body_end(idx, label):
-        """End of a routine's body for anchor search: the next label that starts a
-        DIFFERENT routine (not this label or its NAME_n continuation) or a banner.
-        Uses ALL labels (not just enriched ones) so operand rewrites can't leak into a
-        neighbouring routine where the same instruction text recurs."""
+        """End of a routine's body for anchor search: the next label that begins a
+        DIFFERENT routine PRESENT IN THE SPEC (a real boundary), or a section banner.
+        Semantic mid-routine sub-labels (RD_RETRY, RA_NEXT, ... -- not just NAME_n
+        continuations) are NOT spec routines, so they are correctly treated as part of
+        this routine's body regardless of their name. This bounds the search to the
+        routine's actual extent (matching how occ indices were counted) without leaking
+        into the next enriched routine where the same instruction text might recur."""
         for j in range(idx + 1, len(lines)):
             if BANNER_RE.match(lines[j]):
                 return j
             m = LABEL_RE.match(lines[j])
-            if m:
-                ll = m.group(1)
-                if ll != label and not ll.startswith(label + "_"):
-                    return j
+            if m and m.group(1) != label and m.group(1) in spec_label_names:
+                return j
         return len(lines)
 
     edits = []          # (start, end, replacement_lines) -- replace lines[start:end]
