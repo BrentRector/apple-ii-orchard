@@ -270,7 +270,7 @@ SCAN_NEXT:
 ; ----------------------------------------------------------------------
 SLOT_TO_EN:
         ; $E000 I/O-page base (low byte $00, high byte $E0)
-        LD HL,KEYBD                      ; $E000 base
+        LD HL,KEYBD                      ; base
         LD A,E
         ; merge slot number into the high byte -> $EN; HL becomes $EN00 (Apple $CN00 slot I/O page)
         OR H
@@ -319,7 +319,7 @@ WBOOT:
         ; CPMREF 3-47/3-48]
         LD SP,$0080                      ; Z-80 stack at default-DMA/command-tail base ($0080), below TPA [DOC CPMREF 3-47/3-48 ; facts sec.7.5]
         ; force the Apple into text mode (read the TXTSET soft switch)
-        LD A,(TXTSET)                    ; $E051 (Apple text/lo-res switch)
+        LD A,(TXTSET)                    ; (Apple text/lo-res switch)
         LD HL,$0E00
         ; 6502 RPC: set up the $0E00 area
         CALL RPC_DISPATCH                ; (runtime) setup
@@ -327,19 +327,19 @@ WBOOT:
         CALL CARDTYPE_SCAN               ; rescan slot card types
         ; clear the screen-function selector flags (CURMODE=$AEB4, FLAG_AEAF=$AEAF)
         XOR A
-        LD (CURMODE),A                   ; $AEB4 = 0 (skip-idiom selector)
-        LD (FLAG_AEAF),A                 ; $AEAF = 0
+        LD (CURMODE),A                   ; = 0 (skip-idiom selector)
+        LD (FLAG_AEAF),A                 ; = 0
         ; lay down the page-zero warm-boot/BDOS JP vectors (opcode $C3 = JP)
         LD A,$C3                         ; opcode JP
         ; $0000 = JP JMPTAB ($AA03) -- the CP/M warm-boot vector [DOC CPMREF 3-44]
-        LD ($0000),A                     ; $0000 = JP ... [DOC CPMREF 3-44] warm-boot vector
+        LD ($0000),A                     ; = JP ... [DOC CPMREF 3-44] warm-boot vector
         LD HL,JMPTAB                     ; ... ($AA03) BIOS warm-entry
         LD ($0001),HL
         ; $0005 = JP BDOS_ENTRY ($9C06); $0006/7 = BDOS-entry pointer (programs read it as
         ; top-of-TPA) [DOC CPMREF 3-44]
-        LD ($0005),A                     ; $0005 = JP ... [DOC CPMREF 3-44] BDOS entry (BOOT+5)
+        LD ($0005),A                     ; = JP ... [DOC CPMREF 3-44] BDOS entry (BOOT+5)
         LD HL,BDOS_ENTRY                 ; ... BDOS ($9C06)
-        LD ($0006),HL                    ; $0006/7 = FBASE ptr (top of usable RAM) [DOC CPMREF 3-44]
+        LD ($0006),HL                    ; /7 = FBASE ptr (top of usable RAM) [DOC CPMREF 3-44]
         ; reset the default DMA buffer to $0080 [DOC CPMREF 3-46]
         LD BC,$0080                      ; default DMA = $0080 [DOC CPMREF 3-46 ; facts sec.7.4]
         CALL SETDMA                      ; ($AD8E) set DMA address
@@ -458,7 +458,7 @@ WBOOT_TAIL:
 CONST_DISP:
         ; fetch the active Console Status #1 handler from the I/O Vector Table (default = CONST_KBD)
         ; [DOC S&HD 2-16]
-        LD HL,(CONST_VEC)                ; $F380 Console Status vector
+        LD HL,(CONST_VEC)                ; Console Status vector
         ; tail-jump into the console-status handler; it returns A=$FF (ready) / $00 (none)
         JP (HL)
 
@@ -608,13 +608,13 @@ LIST_ENTRY_JP_MID:
 ; ----------------------------------------------------------------------
 KBD_WAIT_STROBE:
         ; poll the Apple keyboard latch (bit 7 = key ready) [DOC S&HD 2-23]
-        LD A,(KEYBD)                     ; $E000 status
+        LD A,(KEYBD)                     ; status
         RLA
         ; spin until a key is ready (bit 7 -> carry set)
         JR NC,KBD_WAIT_STROBE            ; spin until ready
         ; acknowledge the keypress by clearing the keyboard strobe so the next read is fresh [DOC
         ; S&HD 2-23]
-        LD (KEYSTB),A                    ; $E010 strobe / data
+        LD (KEYSTB),A                    ; strobe / data
         ; refold A's high bit (undo the wait-loop rotates) via CCF/RRA
         CCF
         RRA
@@ -639,7 +639,7 @@ KBD_WAIT_STROBE:
 SET_AVEC:
         ; store the 6502 subroutine address (low-high) into A_VEC so the next RPC trap (write to
         ; Z_CPU) calls it; this arms only, it does not trigger [DOC S&HD 2-25]
-        LD (A_VEC),HL                    ; $F3D0 = 6502 sub address (low-high) [DOC S&HD 2-25]
+        LD (A_VEC),HL                    ; = 6502 sub address (low-high) [DOC S&HD 2-25]
         ; OBSERVED: also write A into CP/M base-page $0000; the source of A and the purpose of this
         ;           store are UNKNOWN [RE]
         LD ($0000),A
@@ -719,7 +719,7 @@ CONOUT_REDISPATCH:
 ; ----------------------------------------------------------------------
 LIST_VEC1:
         ; ; fetch the List Output #1 (LPT:) handler address from the I/O Vector Table
-        LD HL,(LIST1_VEC)                ; $F392  List Output #1
+        LD HL,(LIST1_VEC)                ; List Output #1
         ; ; tail-jump into the selected LIST handler
         JP (HL)
 
@@ -748,7 +748,7 @@ CONIN_DISP:
         ; ; classify the field: <2 = direct console, ==2 = BAT:(reader), >2 (==3) = UC1:
         CP $02                           ; ==2 => BAT: (reader) [DOC S&HD 2-18]
         ; ; speculatively preload Console Input #2 ($F384) for the UC1: (field==3) case
-        LD HL,(CONIN2_VEC)               ; $F384 (UC1:)
+        LD HL,(CONIN2_VEC)               ; (UC1:)
         ; ; CONSOLE==2 (BAT:) -> take input from the reader (Reader Input #1)
         JR Z,CONIN_V2
         ; ; CONSOLE==3 (UC1:) -> jump through the preloaded Console Input #2
@@ -764,7 +764,7 @@ CONIN_DISP:
 ; ----------------------------------------------------------------------
 CONIN_V1:
         ; ; fetch the Console Input #1 (TTY:/CRT:) handler address
-        LD HL,(CONIN1_VEC)               ; $F382 (TTY:/CRT:)
+        LD HL,(CONIN1_VEC)               ; (TTY:/CRT:)
         ; ; tail-jump into the console-input handler
         JP (HL)
 ; ----------------------------------------------------------------------
@@ -779,7 +779,7 @@ CONIN_V1:
 CONIN_V2:
         ; ; fetch the Reader Input #1 ($F38A) handler address (BAT: maps console input to the
         ; reader)
-        LD HL,(RDR1_VEC)                 ; $F38A (BAT: -> reader)
+        LD HL,(RDR1_VEC)                 ; (BAT: -> reader)
 ; ----------------------------------------------------------------------
 ; CONIN_V2B -- shared tail: jump through whatever input handler is in HL
 ;   In:        HL = selected input handler address (Console Input #2, Reader Input #1, or a Punch
@@ -838,7 +838,7 @@ LIST_DEMUX_1:
         ; ; LIST==2 (LPT:) -> jump through List Output #1
         JR Z,LIST_VEC1                   ; ==2 LPT: -> List Output #1 ($AC4C)
         ; ; LIST==3 (UL1:) -> fetch List Output #2 ($F394) handler
-        LD HL,(LIST2_VEC)                ; $F394  ==3 UL1: -> List Output #2
+        LD HL,(LIST2_VEC)                ; ==3 UL1: -> List Output #2
         ; ; tail-jump into List Output #2
         JP (HL)
 
@@ -873,11 +873,11 @@ PUN_DISP:
         ; ; PUNCH==0 (TTY:) -> device-dispatch flag tail
         JR C,IO_FLAG_TRUE                ; ==0 TTY: tail
         ; ; preload Punch Output #1 ($F38E) for the >1 (UP1:/UP2:) case
-        LD HL,(PUN1_VEC)                 ; $F38E
+        LD HL,(PUN1_VEC)
         ; ; PUNCH>1 (UP1:/UP2:) -> jump through Punch Output #1 via the shared JP (HL) tail
         JR NZ,CONIN_V2B
         ; ; PUNCH==1 (PTP:) falls through here -> Punch Output #2 ($F390)
-        LD HL,(PUN2_VEC)                 ; $F390
+        LD HL,(PUN2_VEC)
         ; ; tail-jump into Punch Output #2
         JP (HL)
 
@@ -911,7 +911,7 @@ READER_DEMUX:
         ; ; READER==1 (PTR:) -> route to Reader Input #1
         JR Z,CONIN_V2                    ; ==2 PTR: -> Reader Input #1
         ; ; READER 2/3 (UR1:/UR2:) -> fetch Reader Input #2 ($F38C) handler
-        LD HL,(RDR2_VEC)                 ; $F38C  ==3 UR2: -> Reader Input #2
+        LD HL,(RDR2_VEC)                 ; ==3 UR2: -> Reader Input #2
         ; ; tail-jump into Reader Input #2
         JP (HL)
 
@@ -982,7 +982,7 @@ IO_FLAG_FALSE:
         ; ; expand the carry signal into A: $FF (screen-fn / coord output) or $00 (normal char) ->
         ; stored as SF_SIGNAL
         SBC A,A
-        LD HL,SF_SIGNAL                  ; $AEA2  (disk-path: relocated RWTS IOB cell)
+        LD HL,SF_SIGNAL                  ; (disk-path: relocated RWTS IOB cell)
         ; ; latch the screen-fn B-register signal byte (SF_SIGNAL) for SF_LK_DONE's console-out
         ; vector pick
         LD (HL),A
@@ -1000,7 +1000,7 @@ IO_FLAG_FALSE:
         ; (HL)/SF_STATE2
         ; ; read the SOFTWARE cursor-address XY coordinate offset (0-127; high bit = X-first vs
         ; Y-first order) [DOC S&HD page 2-14]
-        LD A,(SXYOFF)                    ; $F396 signed skew sign cell
+        LD A,(SXYOFF)                    ; signed skew sign cell
         LD HL,CURSOR_Y                   ; relocated RWTS IOB sector cell
         ; ; both coordinate bytes now captured -> transmit the finished X/Y pair (CURSOR_XMIT_PAIR)
         JR Z,CURSOR_XMIT_PAIR
@@ -1055,11 +1055,11 @@ CURSOR_XMIT_PAIR:
         JP M,DISK_XLAT_NEG_SECTOR        ; ($ABBD, runtime) negative case
         DEC HL
         CALL DISK_RPC_PUSH_ADDR          ; ($ABB1, runtime)
-        LD HL,(CURSOR_XY)                ; $AEAA  (disk-path: relocated sector-address word)
+        LD HL,(CURSOR_XY)                ; (disk-path: relocated sector-address word)
         ; ; [RE] read the hardware cursor-XY coordinate offset HXYOFF ($F3A1)
         ; ; read the HARDWARE cursor-address XY coordinate offset (0-127; high bit selects transmit
         ; order) [DOC S&HD page 2-14]
-        LD A,(HXYOFF)                    ; $F3A1 hardware skew/offset cell
+        LD A,(HXYOFF)                    ; hardware skew/offset cell
         OR A
         ; ; hardware offset positive -> runtime continuation that builds the high coordinate
         ; component
@@ -1132,7 +1132,7 @@ SF_NORMAL:
         ; ; carry the screen-fn signal in B (B non-zero => screen function / coord output) [DOC S&HD
         ; page 2-19]
         LD B,A
-        LD HL,SF_STATE                   ; $AEA4
+        LD HL,SF_STATE
         ; ; read SF_STATE: the lead-in / multi-byte recognition latch ($80 = lead-in armed, 0 =
         ; idle)
         LD A,(HL)
@@ -1144,7 +1144,7 @@ SF_NORMAL:
         JR NZ,SF_TABLE
         ; ; read the SOFTWARE function lead-in character (0 = no lead-in configured) [DOC S&HD page
         ; 2-14]
-        LD A,(SFLDIN)                    ; $F397 software lead-in char [DOC S&HD 2-14]
+        LD A,(SFLDIN)                    ; software lead-in char [DOC S&HD 2-14]
         OR A                             ; zero => no lead-in [DOC S&HD 2-14]
 ; ----------------------------------------------------------------------
 ; SF_INIT_TAIL -- test the incoming char against the software lead-in and arm the lead-in latch.
@@ -1339,7 +1339,7 @@ SF_LK_HIT:
         LD C,A
         PUSH BC
         ; ; emit the hardware function lead-in character ($F3A2) first
-        LD A,(HFLDIN)                    ; $F3A2 hardware lead-in char [DOC S&HD 2-14]
+        LD A,(HFLDIN)                    ; hardware lead-in char [DOC S&HD 2-14]
         LD B,$07
         CALL SF_EMIT_LEADIN              ; (runtime) emit lead-in
         POP BC
@@ -1350,7 +1350,7 @@ SF_LK_HIT:
         ; ; fn7: arm coord-count state SF_STATE2 = 2 so the next two output chars are taken as X/Y
         ; coordinates [DOC S&HD 2-19]
         LD A,$02                         ; fn7 -> transmit 2 coords (X/Y) next [DOC S&HD 2-19]
-        LD (SF_STATE2),A                 ; $AEA3
+        LD (SF_STATE2),A
 ; ----------------------------------------------------------------------
 ; SF_LK_DONE -- finish screen-function processing: clear the lead-in/multi-byte state, then emit the
 ; char through the Console Output vector selected by SF_SIGNAL.
@@ -1367,16 +1367,16 @@ SF_LK_HIT:
 SF_LK_DONE:
         ; ; clear the lead-in / multi-byte state latch (SF_STATE)
         XOR A
-        LD (SF_STATE),A                  ; $AEA4 = 0
+        LD (SF_STATE),A                  ; = 0
         ; ; read the screen-fn signal: 0 = normal char, non-zero = screen-fn / coord output [DOC
         ; S&HD 2-19] [RE]
-        LD A,(SF_SIGNAL)                 ; $AEA2  (B-reg screen-fn signal) [DOC S&HD 2-19]
+        LD A,(SF_SIGNAL)                 ; (B-reg screen-fn signal) [DOC S&HD 2-19]
         OR A
         ; ; signal 0 -> emit via Console Output #2 ($F388) [DOC S&HD 2-18]
-        LD HL,(CONOUT2_VEC)              ; $F388  Console Output #2 [DOC S&HD 2-18]
+        LD HL,(CONOUT2_VEC)              ; Console Output #2 [DOC S&HD 2-18]
         JR Z,SF_EMIT
         ; ; signal non-zero -> emit via Console Output #1 ($F386) [DOC S&HD 2-18]
-        LD HL,(CONOUT1_VEC)              ; $F386  Console Output #1 [DOC S&HD 2-18]
+        LD HL,(CONOUT1_VEC)              ; Console Output #1 [DOC S&HD 2-18]
 ; ----------------------------------------------------------------------
 ; SF_EMIT -- tail-emit: jump through the Console Output vector chosen by SF_LK_DONE.
 ;   In:        HL = the selected Console Output vector contents (#1 $F386 or #2 $F388); C = char to
@@ -1427,8 +1427,8 @@ LIST_REENTRY:
 ;              UNKNOWN.
 ; ----------------------------------------------------------------------
 CURSOR_PUT:
-        LD HL,(CUR_PTR)                  ; $AEA5 screen cell pointer
-        LD A,(CUR_COL)                   ; $AEA7
+        LD HL,(CUR_PTR)                  ; screen cell pointer
+        LD A,(CUR_COL)
         ; ; restore the saved character to the previous cursor cell (remove the old highlight)
         LD (HL),A
         ; ; UNKNOWN: reuses the LIST_DEMUX_1 fragment ($AC6B); its effect within the cursor path is
@@ -1441,9 +1441,9 @@ CURSOR_PUT:
         LD D,$F0
         ADD HL,DE
         ; ; remember the new cell pointer and cache its current contents in CUR_COL
-        LD (CUR_PTR),HL                  ; $AEA5
+        LD (CUR_PTR),HL
         LD A,(HL)
-        LD (CUR_COL),A                   ; $AEA7
+        LD (CUR_COL),A
         ; ; cell in the high-video range (>=$E0)? fold it (XOR $20) before applying the cursor
         CP $E0
         JR C,CUR_NOFLIP
@@ -1562,7 +1562,7 @@ CHAR_OUT_HI:
 ; ----------------------------------------------------------------------
 CHAR_POKE:
         ; ; pass the display byte to the 6502 in the A-register RPC cell ($F045) [DOC S&HD 2-24]
-        LD (RPC_ACC),A                   ; $F045 = char for 6502
+        LD (RPC_ACC),A                   ; = char for 6502
         LD HL,$FDF0                      ; Apple Monitor COUT1
         ; ; tail to the 6502 RPC trampoline (off-image, next BIOS chunk) to run Apple Monitor COUT1
         ; ($FDF0)
@@ -1744,7 +1744,7 @@ PTRSEL_58:
 ; ----------------------------------------------------------------------
 CURSOR_CLAMP:
         ; ; load the saved cursor coordinate word (L = column/X, H = row/Y)
-        LD HL,(CURSOR_XY)                ; $AEAA
+        LD HL,(CURSOR_XY)
         LD A,L                           ; X
         ; ; X past the 40-column right edge? clamp to column 0 if so
         CP $28                           ; >= 40 ?
@@ -1873,11 +1873,11 @@ WAIT_POKE_LP:
 RPC_SETUP:
         ; ; the 6502 A-register argument for this RPC
         LD A,C
-        LD (RPC_ACC),A                   ; $F045 = 6502 A pass cell [DOC S&HD 2-24/2-25]
+        LD (RPC_ACC),A                   ; = 6502 A pass cell [DOC S&HD 2-24/2-25]
         ; ; (runtime-generated) fire the SoftCard 6502 RPC with A staged
         CALL RPC_CALL_6502               ; (runtime) 6502 call
         LD ($F6F8),A
-        LD (RPC_YREG),A                  ; $F047 = 6502 Y pass cell (S&HD table mislabels Y/X) [DOC S&HD 2-24/2-25]
+        LD (RPC_YREG),A                  ; = 6502 Y pass cell (S&HD table mislabels Y/X) [DOC S&HD 2-24/2-25]
         ; ; read Apple $CFFF: deselect ALL slot expansion ROMs (value discarded; SLOT_TO_EN reloads
         ; A from E)
         LD A,($EFFF)

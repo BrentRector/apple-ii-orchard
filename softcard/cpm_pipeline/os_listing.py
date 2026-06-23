@@ -42,15 +42,32 @@ def _strip_comment(comment: str):
     return (mb.group(1) if mb else rest).strip()
 
 
+def _comment_index(line: str) -> int:
+    """Index of the comment ';' that is NOT inside a '...' or "..." literal, or -1. A bare
+    `line.partition(";")` would split a char literal such as `CP ';'` at the quoted semicolon
+    and mis-read the trailing listing comment, leaving it unstripped."""
+    quote = None
+    for i, ch in enumerate(line):
+        if quote:
+            if ch == quote:
+                quote = None
+        elif ch in ("'", '"'):
+            quote = ch
+        elif ch == ";":
+            return i
+    return -1
+
+
 def strip_listing_comments(text: str, comment_col: int = 41) -> tuple[str, int]:
     """Return (stripped_text, n_lines_changed). Byte-identical when reassembled (comments
     never affect emitted bytes); the .lst carries the addresses instead."""
     out, changed = [], 0
     for line in text.split("\n"):
-        if ";" not in line:
+        ci = _comment_index(line)
+        if ci < 0:                            # no real comment (none, or only a quoted ';')
             out.append(line)
             continue
-        code, _, comment = line.partition(";")
+        code, comment = line[:ci], line[ci + 1:]
         if not code.strip():                  # full-line comment -> documentation, keep
             out.append(line)
             continue

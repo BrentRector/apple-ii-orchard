@@ -245,7 +245,7 @@ SCAN_DELIM:
         RET Z
         CP ':'
         RET Z
-        CP ';'                           ; $9345  FE 3B
+        CP ';'
         RET Z
         CP '<'
         RET Z
@@ -303,7 +303,7 @@ SKIP_ONE_BLANK:
 BUILD_FCB:
         ; [RE] point HL at the CCP-local File Control Block build buffer ($9BCD); byte 0 = FCB.DR,
         ; bytes 1-8 the name (CPMFCB.F), bytes 9-11 the type/extension (CPMFCB.T)
-        LD HL,$9BCD
+        LD HL,CCP_FCB
         ; [RE] hand off to the 6502 via the SoftCard CPU switch (target $9659 is in the un-extracted
         ; 6502 RPC region); exact service UNKNOWN as Z-80
         CALL RPC_DISPATCH_SETUP
@@ -312,7 +312,7 @@ BUILD_FCB:
         PUSH HL
         ; A=0, about to clear the $9BF0 drive-seen flag (no explicit drive yet)
         XOR A
-        LD ($9BF0),A
+        LD (CCP_FCB+35),A
         ; [RE] load the live command-line scan cursor (PARSE_PTR, a cell inside the 6502 RPC block)
         ; for the byte fetches below
         LD HL,(PARSE_PTR)
@@ -374,7 +374,7 @@ BUILD_FCB_NAME:
         LD A,B
         ; [RE] remember the parsed drive in the $9BF0 flag cell (non-zero => an explicit drive was
         ; given)
-        LD ($9BF0),A
+        LD (CCP_FCB+35),A
         ; [RE] store the drive code into FCB.DR (byte 0 of the $9BCD buffer)
         LD (HL),B
         INC DE
@@ -811,30 +811,38 @@ CCP_CMD_NAMES:
         ; ; CCP built-in command keywords, 4 space-padded bytes each: 'DIR ' 'ERA ' 'TYPE' 'SAVE'
         ; 'REN ' 'USER' [DOC CPMREF 3-6]. FLAG: `CALL $9515` (x2) targets the 'R' of 'ERA' inside
         ; this string -- data-as-code anomaly, unresolved
+        ; DUAL CODE/DATA: this 24-byte keyword table is ALSO entered as code -- `CALL
+        ; CCP_CMD_NAMES+5` (x2) runs the table-interior bytes as a short register-setup prefix that
+        ; falls through (past CCP_CMD_NAMES_END `CP L`) into SEARCH_BUILTIN. This is the documented
+        ; name-table-as-code idiom (the 2.23 twin's CMD_NAME_TBL+offset cover refs); the +5 entry
+        ; now relocates with the table. [RE]
         DEFB    "DIR ERA TYPESAVEREN USER" ; CCP built-in command name table: DIR ERA TYPE SAVE REN USER (4 bytes each) [DOC CPMREF 3-6 ; facts sec.7.8] the six CCP built-in commands (ERA DIR REN SAVE TYPE USER)
 CCP_CMD_NAMES_END:
         CP L
 ; ----------------------------------------------------------------------
-; SEARCH_BUILTIN -- UNKNOWN purpose: a routine called from CMD_EXEC ($9ABB) after a parsed numeric
-; value is stored; sets up a pointer (HL=$9710) and counter (C=0) and runs a compare loop
-;   In:        on the $9ABB path, ($9BCE)/CMD_EXEC_69 hold a parsed value (the caller did `DEC A; LD
-;              (CMD_EXEC_69),A` before calling); the compare loop reads bytes via DE/HL
-;   Out:       on the early `CP $06 / RET NC` path, returns when C reaches 6 (C is 0 on first entry,
-;              so this never fires immediately); otherwise drops into the SEARCH_BUILTIN_1 compare
-;              loop and returns A from there
-;   Clobbers:  A, B, C, D, DE, HL, flags
+; SEARCH_BUILTIN -- UNKNOWN purpose: a routine called from CMD_EXEC ($9ABB) after a parsed
+; numeric value is stored; sets up a pointer (HL=$9710) and counter (C=0) and runs a
+; compare loop.
+;   In:        on the $9ABB path, (CCP_FCB+1)/CMD_EXEC_69 hold a parsed value (the caller did
+;              `DEC A; LD (CMD_EXEC_69),A` before calling); the compare loop reads bytes via
+;              DE/HL.
+;   Out:       on the early `CP $06 / RET NC` path, returns when C reaches 6 (C is 0 on first
+;              entry, so this never fires immediately); otherwise drops into the
+;              SEARCH_BUILTIN_1 compare loop and returns A from there.
+;   Clobbers:  A, B, C, D, DE, HL, flags.
 ;   Algorithm: UNKNOWN. OBSERVED: `LD D,$00 / NOP / LD D,$DF` (D ends $DF; the first load is
-;              redundant -- a dead/patched-over artifact, UNKNOWN), then `LD HL,$9710 / LD C,$00`,
-;              then `LD A,C / CP $06 / RET NC` (a 0..5 index/limit guard), then fall into the
-;              compare loop. The earlier enrichment's claim that this walks CCP_CMD_NAMES and
-;              returns a built-in dispatch index is UNSUPPORTED: HL is loaded with $9710 (a pointer
-;              INTO the $9700 numeric-parser code), NOT CCP_CMD_NAMES ($9510), and (HL) is compared
-;              from there. Treat the 'name matcher' reading as REJECTED until the $9700 region is
-;              decoded.
-;   Dispatch:  UNKNOWN (not demonstrably a name-table walk).
-;   FLAG: `LD HL,$9710` is an in-image pointer that must relocate but lands MID-INSTRUCTION at $970F
-;         (operand of `SUB $30`) -- needs a cover-split at $970F in the $9700 cluster; left literal
-;         here.
+;              redundant -- a dead/patched-over artifact, UNKNOWN), then `LD HL,$9710 / LD
+;              C,$00`, then `LD A,C / CP $06 / RET NC` (a 0..5 index/limit guard), then fall
+;              into the compare loop. The 'walks CCP_CMD_NAMES and returns a built-in index'
+;              reading is UNSUPPORTED: HL is loaded with $9710, a byte INTO the $9700
+;              numeric-parser code (FCB_DIGIT_ACCUM_STEP), NOT CCP_CMD_NAMES ($9510).
+;   $9710 KEPT LITERAL (decode-audit task #7 verdict): $9710 = +1 into `SUB '0'` at $970F
+;   (FCB_DIGIT_ACCUM_STEP body), mid-instruction in an UNRELATED routine. Relocatizing it as
+;   `FCB_DIGIT_ACCUM_STEP+offset` would assert a relationship I cannot verify (the 2.23 twin's
+;   analogous compare pointer is `CCP_GET_FCB_DRIVE_3+1`, +1 into `AND $E0`, a DIFFERENT
+;   relative cell -- so the structural cross-ref does NOT confirm the target). With this
+;   routine's purpose itself UNVERIFIED, forcing a label here would paper over a probable
+;   mis-decode. UNKNOWN -- left literal pending a full decode of the $9700 cluster.
 ; ----------------------------------------------------------------------
 SEARCH_BUILTIN:
         LD D,$00
@@ -842,6 +850,8 @@ SEARCH_BUILTIN:
         LD D,$DF
         ; ; FLAG: in-image pointer set to $9710 (into the $9700 parser code, NOT CCP_CMD_NAMES);
         ; lands mid-instruction, relocation pending a split at $970F
+        ; $9710 = +1 into `SUB '0'` at $970F (FCB_DIGIT_ACCUM_STEP); mid-instruction in an unrelated
+        ; routine -- KEPT LITERAL (decode UNVERIFIED, see header). [UNKNOWN]
         LD HL,$9710
         ; ; index/counter C = 0
         LD C,$00
@@ -869,7 +879,7 @@ SEARCH_BUILTIN:
 ;         needed -- FLAG).
 ; ----------------------------------------------------------------------
 SEARCH_BUILTIN_1:
-        LD DE,$9BCE
+        LD DE,CCP_FCB+1
         ; ; compare a 4-byte field
         LD B,$04
         LD A,(DE)
@@ -917,7 +927,7 @@ SEARCH_BUILTIN_2:
 CCP_MAIN_LOOP:
         XOR A
         LD (SUBMIT_FLAG),A
-        LD SP,$9BAB
+        LD SP,CCP_FCB-34
         PUSH BC
         LD A,C
         RRA
@@ -928,11 +938,11 @@ CCP_MAIN_LOOP:
         LD E,A
         ; [UNKNOWN] $9515 lands inside the CCP_CMD_NAMES string ($9510-$9527) -- a CALL-into-data
         ; idiom unresolved by static decode
-        CALL $9515
+        CALL CCP_CMD_NAMES+5
         ; [RE] per-user login/select inferred from call-site; 6502 service at offset $0B8
         ; UNIDENTIFIED -- the block is disk-only, selection mechanism is the file's open question
         CALL RPC6502_E0B8
-        LD ($9BAB),A
+        LD (CCP_FCB-34),A
         POP BC
         LD A,C
         AND $0F
@@ -944,7 +954,7 @@ CCP_MAIN_LOOP:
         LD A,(SUBMIT_FLAG)
         OR A
         JP NZ,DIR_CMD_2
-        LD SP,$9BAB
+        LD SP,CCP_FCB-34
         ; [RE] CRLF inferred from call-site; 6502 service at offset $098 UNIDENTIFIED
         CALL RPC6502_E098
         CALL GET_CUR_DRIVE
@@ -965,7 +975,7 @@ CCP_MAIN_LOOP:
         LD (CMD_EXEC_69),A
         CALL RPC_DISPATCH
         CALL NZ,RST_TABLE_9609
-        LD A,($9BF0)
+        LD A,(CCP_FCB+35)
 CCP_MAIN_LOOP_1:
         OR A
         JP NZ,CMD_EXEC_49
@@ -1001,7 +1011,10 @@ RPC_CALL_HL:
 ; not MSG_READ_ERROR head $95DF), mid-instruction -- left literal, FLAGGED for a cover-split there.
 ; ----------------------------------------------------------------------
 RPC_CALL_HL_1:
-        LD BC,$97DF
+        ; 6502-VIEW print pointer to MSG_READ_ERROR: $97DF = MSG_READ_ERROR ($95DF) + $0200 (the
+        ; Z-80<->6502 image-view offset for the $95xx page). Now relocatizes with the string label.
+        ; [RE]
+        LD BC,MSG_READ_ERROR+$0200
 RPC_CALL_HL_2:
         JP RPC6502_E0A7
 ; ----------------------------------------------------------------------
@@ -1031,7 +1044,9 @@ MSG_READ_ERROR:
 ; not MSG_NO_FILE head $95F0), mid-instruction -- left literal, FLAGGED for a cover-split.
 ; ----------------------------------------------------------------------
 RPC_CALL_HL_3:
-        LD BC,$97F0
+        ; 6502-VIEW print pointer to MSG_NO_FILE: $97F0 = MSG_NO_FILE ($95F0) + $0200. Now
+        ; relocatizes with the string label. [RE]
+        LD BC,MSG_NO_FILE+$0200
         JP RPC6502_E0A7
 ; ----------------------------------------------------------------------
 ; MSG_NO_FILE -- CP/M "NO FILE" message text (NUL-terminated literal).
@@ -1089,7 +1104,7 @@ CHECK_DRIVE_ERR_1:
 CHECK_DRIVE_ERR_2:
         ; ; read the CCP BDOS-result/error flag ($9BF0: 0 = ok, nonzero = error code; CCP RAM
         ; workspace)
-        LD A,($9BF0)
+        LD A,(CCP_FCB+35)
         ; ; set Z iff no error; FLAG: from the next line on the bytes are the embedded 6502 restart
         ; block ($9600 AD 81 C0 = LDA $C081) mis-decoded as Z-80 -- do not trust as Z-80 code
         OR A
@@ -1098,7 +1113,7 @@ CHECK_DRIVE_ERR_2:
         ; 6502 program (which starts at $9600) and is referenced by nothing.
         ; Mirrors the DEFB $01,$0B filler before the $9400 INCBIN.
         DEFB    $C2
-RPC_RESTART_BLOCK:                       ; $9600 embedded 6502 cold-restart/RPC service --
+RPC_RESTART_BLOCK:                       ; embedded 6502 cold-restart/RPC service --
 ;          ; 6502 code (NOT Z-80), run on the 6502 via the SoftCard CPU switch.
 ;          ; Assembled from CPM_RPC6502_Restart.s (ca65, authoritative) and INCBIN'd
 ;          ; here byte-identical. Its exact source listing follows so this file is
@@ -1281,7 +1296,7 @@ RPC_DISPATCH_24      EQU RPC_RESTART_BLOCK + $0F0
 RPC_DISPATCH_25      EQU RPC_RESTART_BLOCK + $0F2
 FCB_DIGIT_ACCUM:
         SUB (HL)
-        LD HL,$9BCE
+        LD HL,CCP_FCB+1
         LD BC,$000B
         LD A,(HL)
 ; ----------------------------------------------------------------------
@@ -1377,8 +1392,8 @@ TBUFF_INDEX_FETCH_2:
 ; ----------------------------------------------------------------------
 RESOLVE_DRIVE_PREFIX:
         XOR A
-        LD ($9BCD),A
-        LD A,($9BF0)
+        LD (CCP_FCB),A
+        LD A,(CCP_FCB+35)
         OR A
         RET Z
         DEC A
@@ -1391,7 +1406,7 @@ RESOLVE_DRIVE_PREFIX:
 ; A,($9BF0)/OR A/RET Z; DEC A; CP (CMD_EXEC_69)/RET Z; else LD A,(CMD_EXEC_69)/JP RPC6502_E0BD.
 ; ----------------------------------------------------------------------
 RESOLVE_DRIVE_PREFIX_2:
-        LD A,($9BF0)
+        LD A,(CCP_FCB+35)
         OR A
         RET Z
         DEC A
@@ -1407,8 +1422,8 @@ DIR_CMD:
         CALL RPC_DISPATCH
         ; [RE] CCP print-newline ($9854==2.23 CCP_PRINT_NEWLINE, 6x; garbage Z-80 only b/c
         ; embedded-6502 region; +2 into MSG_ALL_YN mis-split; frozen pending audit). NOT UNKNOWN
-        CALL $9854
-        LD HL,$9BCE
+        CALL MSG_ALL_YN+2
+        LD HL,CCP_FCB+1
         LD A,(HL)
 ; ----------------------------------------------------------------------
 ; blank test; $9782 also a live JR NZ entry, GENUINE overlap NOT split
@@ -1427,7 +1442,7 @@ DIR_CMD_1:
         CALL Z,DIR_EMIT_NAME_CHAR_1+2
 DIR_CMD_2:
         JP Z,CMD_EXEC_15
-        LD A,($9BEE)
+        LD A,(CCP_FCB+33)
         RRCA
         RRCA
         RRCA
@@ -1518,7 +1533,7 @@ ERA_CMD:
         JP NZ,CMD_EXEC_18
         ; [RE] 'ALL (Y/N)?' prompt interior-offset form ($9952=$9852+$100; like READ ERROR/NO FILE
         ; +$200), not breakage; RPC decode UNKNOWN, left literal
-        LD BC,$9952
+        LD BC,MSG_ALL_YN+$0100
         CALL RPC6502_E0A7
         CALL SEARCH_BUILTIN_1+2
         LD HL,SUBMIT_FLAG
@@ -1537,8 +1552,8 @@ DIR_EMIT_NAME_CHAR_8:
 ; a 16-byte copy then CALLs $9842(=newline) clobbering it -- separate load/exec mis-decode
 ; ----------------------------------------------------------------------
 CCP_NEWLINE_AND_FILEOP:
-        CALL $9854
-        LD DE,$9BCD
+        CALL MSG_ALL_YN+2
+        LD DE,CCP_FCB
         CALL RPC6502_E0EF
 ; ----------------------------------------------------------------------
 ; ->CCP_CONOUT_A console-output/flush tail (==CPMV223 CONOUT_A $96EC, 3x); console OUTPUT not input
@@ -1548,18 +1563,26 @@ CCP_CONOUT_A:
         CALL Z,DIR_EMIT_NAME_CHAR_1+2
         JP CMD_EXEC_63+1
 ; ----------------------------------------------------------------------
-; [FLAG code/data MIS-SPLIT] only copy of text; $9852 referenced by NOTHING, $9854(+2) is the live
-; 6x CALL = print-newline routine; MUST audit, CALL $9854 frozen
+; MSG_ALL_YN -- the ERA 'ALL (Y/N)?' confirmation prompt ($00-terminated literal at $9852).
+;   In:        not entered as code (a string literal). Printed by ERA when the erase FCB is
+;              all-wildcard: the head is addressed as MSG_ALL_YN+$0100 (the 6502-VIEW print
+;              pointer; `LD BC,MSG_ALL_YN+$0100` at ERA_CMD).
+;   CODE/DATA OVERLAY (decode-audit task #7, CORRECTED): the prior note 'referenced by NOTHING'
+;   is FALSE -- the string head IS referenced via the +$0100 6502-view pointer above. AND the
+;   print-newline RPC entry physically aliases this string's interior at +2: `CALL MSG_ALL_YN+2`
+;   (x6) is the CCP print-newline routine (the 2.23 twin's CCP_PRINT_NEWLINE at $96F5, reached
+;   at the SAME six call sites). It is invoked through the 6502 CPU-switch print RPC, so its
+;   Z-80 bytes are NOT executed as Z-80 (decoding $9854 as Z-80 = garbage); they deliberately
+;   coincide with the 'L (Y/N)?' interior. Both the string and the +2 newline entry are real;
+;   both now relocate as MSG_ALL_YN-relative expressions. No mis-decode -- a deliberate overlay.
 ; ----------------------------------------------------------------------
 MSG_ALL_YN:
-        ; [FLAG] $9852 referenced by nothing; $9854(+2) is the live CALL/print-newline entry --
-        ; code/data split UNVERIFIED, audit required
         DEFB    "ALL (Y/N)?"             ; ERA confirm prompt
         DEFB    $00                      ; terminator
 PRINT_STR_AT:
         CALL RPC_DISPATCH
         JP NZ,RST_TABLE_9609
-        CALL $9854
+        CALL MSG_ALL_YN+2
 CMD_EXEC:
         CALL RPC6502_E0D0
         JP Z,RECORD_SCAN_STEP+2
@@ -1600,15 +1623,15 @@ CMD_EXEC_4:
         PUSH AF
         CALL RPC_DISPATCH
         JP NZ,RST_TABLE_9609
-        CALL $9854
-        LD DE,$9BCD
+        CALL MSG_ALL_YN+2
+        LD DE,CCP_FCB
         PUSH DE
         CALL RPC6502_E0EF
         POP DE
         CALL FCB_WILDCARD_CMP_C
         JP Z,EXTENT_INDEX_TEST_TAIL
         XOR A
-        LD ($9BED),A
+        LD (CCP_FCB+32),A
 CMD_EXEC_5:
         POP AF
         LD L,A
@@ -1626,14 +1649,14 @@ CMD_EXEC_7:
         ADD HL,DE
         PUSH HL
         CALL RPC_CALL_HL
-        LD DE,$9BCD
+        LD DE,CCP_FCB
         CALL FCB_WILDCARD_TEST+1
         POP DE
         POP HL
         JP NZ,EXTENT_INDEX_TEST_TAIL
         JP DIR_RECORD_READ
 CMD_EXEC_8:
-        LD DE,$9BCD
+        LD DE,CCP_FCB
         CALL RPC6502_E0DA
 CMD_EXEC_9:
         INC A
@@ -1709,12 +1732,17 @@ FCB_RO_FLAG_TEST:
         ; carry
         RLA
         RET NC
-        LD HL,$9C0F
+        ; HL := &BDOS_ERR_VECTORS+6, the class-3 (file R/O) reporter vector WORD in the BDOS image
+        ; header (run $9C0F = $9C09+6); passed to the error-report dispatch at CONOUT_PUTC_STG+2. A
+        ; clean in-image DATA pointer (DEFW boundary). [RE]
+        LD HL,BDOS_ERR_VECTORS+6
         JP CONOUT_PUTC_STG+2
 CMD_EXEC_20:
         CALL BDOS_SAVED_SP_p13_STG+2
         RET Z
-        LD HL,$9C0D
+        ; HL := &BDOS_ERR_VECTORS+4, the class-2 (R/O changed disk) reporter vector WORD (run $9C0D
+        ; = $9C09+4). A clean in-image DATA pointer (DEFW boundary). [RE]
+        LD HL,BDOS_ERR_VECTORS+4
         JP CONOUT_PUTC_STG+2
 ; ----------------------------------------------------------------------
 ; FCB_BUF_PTR_ADD_OFFSET -- form a byte pointer into the BDOS disk buffer: HL = bufptr + offset.
@@ -2129,18 +2157,18 @@ CMD_EXEC_42:
         CALL RPC_DISPATCH
         ; malformed/empty name -> the CCP error/redo path
         JP NZ,RST_TABLE_9609
-        LD A,($9BF0)
+        LD A,(CCP_FCB+35)
         ; save the parsed drive prefix across the directory search
         PUSH AF
-        ; [FLAG] documented computed/position-form entry overlapping the MSG_ALL_YN string interior
-        ; ($9854); assigned to cluster-8, left a literal CALL here
-        CALL $9854
+        ; print-newline RPC entry: aliases the MSG_ALL_YN string interior at +2 -- the CCP
+        ; print-newline routine, reached via the 6502 print RPC (see the MSG_ALL_YN header). [RE]
+        CALL MSG_ALL_YN+2
         ; [RE] 6502-RPC directory search for the NEW name; NZ => already present (per CALL context;
         ; exact RPC function UNKNOWN)
         CALL RPC6502_E0E9
         ; new name already on disk -> FILE EXISTS error
         JP NZ,CMD_EXEC_47
-        LD HL,$9BCD
+        LD HL,CCP_FCB
         LD DE,CMD_EXEC_68+2
         LD B,$10
         ; copy the 16-byte name+type into the rename-target FCB (CCP_FCB1+16, the TFCB2 slot)
@@ -2181,7 +2209,7 @@ CMD_EXEC_43:
         ; recover the new name's drive prefix into B
         POP AF
         LD B,A
-        LD HL,$9BF0
+        LD HL,CCP_FCB+35
         ; command-drive cell ($9BF0): 0 = take the new name's drive
         LD A,(HL)
         OR A
@@ -2210,12 +2238,12 @@ CMD_EXEC_44:
         LD (HL),B
         XOR A
         ; clear CCP_FCB1.DR so the search runs on the default drive
-        LD ($9BCD),A
+        LD (CCP_FCB),A
         ; [RE] 6502-RPC directory search for the OLD name; Z => not present (per CALL context)
         CALL RPC6502_E0E9
         ; OLD file missing -> NO FILE
         JP Z,CMD_EXEC_45
-        LD DE,$9BCD
+        LD DE,CCP_FCB
         ; [RE] perform/confirm the rename with DE -> CCP_FCB1 (old+new FCB); exact RPC path UNKNOWN
         CALL TEST_B_NZ
         JP CMD_EXEC_63+1
@@ -2292,14 +2320,14 @@ CMD_EXEC_48:
         JP NC,RST_TABLE_9609
         LD E,A
         ; fetch the entry's first filename character
-        LD A,($9BCE)
+        LD A,(CCP_FCB+1)
         CP ' '
         ; blank leading char => empty entry, skip the listing
         JP Z,RST_TABLE_9609
-        ; [FLAG] enters the CCP_CMD_NAMES string interior ($9515) -- file's documented
-        ; computed/position form; needs a coordinated cover-split to mint a clean entry label, left
-        ; a flagged literal (UNKNOWN, not invented)
-        CALL $9515
+        ; table-interior code entry: CCP_CMD_NAMES+5 runs the keyword-table bytes as a short
+        ; register-setup prefix that falls into SEARCH_BUILTIN -- the documented name-table-as-code
+        ; idiom, verified vs the 2.23 twin (see the CCP_CMD_NAMES note). [RE]
+        CALL CCP_CMD_NAMES+5
         JP CMD_EXEC_64
 ; ----------------------------------------------------------------------
 ; CMD_EXEC_49 -- the explicit drive-change / USER-number path of the command loop.
@@ -2320,18 +2348,17 @@ CMD_EXEC_48:
 ;              LD C,H/LD B,L/NOP falling into CHECK_DRIVE_ERR_1; left a flagged literal.
 ; ----------------------------------------------------------------------
 CMD_EXEC_49:
-        ; [FLAG] enters the MSG_NO_FILE string tail ($95F5 = NO FILE+5); file's documented
-        ; computed/position-form entry -- the bytes there decode as LD C,H/LD B,L/NOP then fall into
-        ; CHECK_DRIVE_ERR_1 ($95F8). Left a flagged literal pending a coordinated MSG_NO_FILE
-        ; cover-split
-        CALL $95F5
+        ; code entry into the MSG_NO_FILE string tail (MSG_NO_FILE+5): the bytes there decode as
+        ; LD C,H/LD B,L/NOP then fall into CHECK_DRIVE_ERR_1 -- the file's documented
+        ; computed/position-form entry idiom; now relocatized with the string label. [RE]
+        CALL MSG_NO_FILE+5
         ; is the parsed FCB filename empty? (a bare "X:" drive change)
-        LD A,($9BCE)
+        LD A,(CCP_FCB+1)
         CP $20
         ; a real filename was typed -> the transient .COM loader
         JP NZ,CMD_EXEC_50
         ; command-line drive prefix ($9BF0): 0 = no drive given, nothing to change
-        LD A,($9BF0)
+        LD A,(CCP_FCB+35)
         OR A
         JP Z,CMD_EXEC_64
         ; convert the 1-based command drive to a 0-based drive number
@@ -2365,9 +2392,9 @@ CMD_EXEC_50:
         ; an explicit extension was typed -> reject (only the implied .COM is loadable)
         JP NZ,RST_TABLE_9609
         PUSH DE
-        ; [FLAG] documented computed/position-form entry overlapping the MSG_ALL_YN string interior
-        ; ($9854); assigned to cluster-8, left a literal CALL here
-        CALL $9854
+        ; print-newline RPC entry: aliases the MSG_ALL_YN string interior at +2 -- the CCP
+        ; print-newline routine, reached via the 6502 print RPC (see the MSG_ALL_YN header). [RE]
+        CALL MSG_ALL_YN+2
         POP DE
 ; ----------------------------------------------------------------------
 ; CMD_EXEC_51 -- open the .COM file and load it into the TPA, with an overflow guard.
@@ -2409,7 +2436,7 @@ CMD_EXEC_51:
         EX DE,HL
         ; [RE] hand off to the 6502 side (set DMA / drive the load); side effects UNKNOWN from Z-80
         CALL RPC_CALL_HL
-        LD DE,$9BCD
+        LD DE,CCP_FCB
         ; [RE] 6502-RPC load/read step; on NZ the load completed -> store the result
         CALL RPC6502_E0F9
         ; load done (NZ) -> CMD_EXEC_52 stores the captured address and returns
@@ -2833,6 +2860,14 @@ CMD_EXEC_66:
         ; ; seed a 3-byte record header (write $03 then $00 through the (*$A9B3) pointer)
         LD (HL),$03
         INC HL
+CCP_FCB:
+        ; CCP_FCB ($9BCD): DUAL CODE/DATA. Tenant 1 (HERE, code) -- the CMD_EXEC_66 zero-fill `LD
+        ; (HL),$00` store-THROUGH-HL (this byte just happens to sit here). Tenant 2 (data, when the
+        ; CCP parses a command) -- the command-FCB build buffer base = FCB.DR; +1 = name byte 0, +32
+        ; = FCB.CR, +33 = FCB.R0, +35 = the drive-seen flag (2.23 twin: CCP_FCB / CCP_FCB_NAME /
+        ; CCP_FCB_DRIVE at the same offsets). The two tenants never coexist -- the buffer is reused
+        ; after the submit-scan code runs. CCP_FCB-34 ($9BAB) is a SEPARATE cell: the CCP
+        ; private-stack base. [RE]
         LD (HL),$00
         ; ; BDOS: read the directory record that begins the SUBMIT-chain scan ($A1FE)
         CALL READ_CON_BUF_EDIT_STG
@@ -2882,7 +2917,7 @@ CMD_EXEC_68:
         JP Z,FCB_CMP_DIR_ENTRY_5_STG+1
         ; ; load the current user/drive byte (BDOS_DEFAULT_FCB+2 = $9F41; OBSERVED in the BDOS as
         ; the user-number/select cell)
-        LD A,($9F41)
+        LD A,(BDOS_DEFAULT_FCB+2)
         CP (HL)
         ; ; entry belongs to a different user: stop the scan ($A2F6)
         JP NZ,BDOS_DCIO_SETIOBYTE_p3_STG
