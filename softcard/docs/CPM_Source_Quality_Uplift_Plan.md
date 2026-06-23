@@ -14,7 +14,9 @@ become **totally relocatable using labels** (every absolute in-image operand a l
 ONLY AFTER both are done do we evaluate whether a single conditionally-compiled 44K
 source per module (`IF REV_B`) makes sense; see Section 9 (the structural evaluation
 says it is feasible and same-order, but the go/no-go is the per-module residual count,
-which the relocatable uplifts produce as a by-product). Companion to
+which the relocatable uplifts produce as a by-product). The full set of BASIC RE "lift" techniques
+the uplift must apply (and the gap-closure folded into the workflow) is the checklist of record in
+`CPM_Lift_Techniques_From_BASIC.md`. Companion to
 `CPM_Source_Completion_and_Tour_Plan.md` (this is the quality tier above that doc's
 "full standard").
 
