@@ -576,11 +576,11 @@ FILTAB:
         DEFS    32, $00                  ; fill
 MAX_FILE_NUM:
         DEFB    "\0"
-L_0871:
+VARNAM_EXTLEN:
         DEFB    "\0"
-L_0872:
+VARNAM_EXTCHARS:
         DEFS    38, $00                  ; fill
-L_0898:
+ARRAY_SUBSCRIPT_SAVE:
         DEFB    "\0\0"
 RENAME_FCB:
         DEFS    16, $00                  ; fill
@@ -621,7 +621,7 @@ CURSOR_POS:
         DEFB    "\0"
 CURSOR_ROW:
         DEFB    "\0"
-L_0B13:
+PTRGET_CREATE_FLAG:
         DEFB    "\0"
 VALTYP:
         DEFB    "\0"
@@ -663,7 +663,7 @@ FRETOP:
         DEFB    "\0\0"
 L_0B4A:
         DEFB    "\0\0"
-L_0B4C:
+GC_ARRAY_ELEM_END:
         DEFB    "\0\0"
 L_0B4E:
         DEFB    "\0\0"
@@ -676,7 +676,7 @@ L_0B53:
         DEFB    "\0"
 OPEN_RESUME_TEXT_PTR:
         DEFB    "\0\0"
-L_0B56:
+RENUM_PENDING_FLAG:
         DEFB    "\0"
 ; [RE] AUTO line-numbering mode flag: AUTO sets it nonzero ($36F9) with start/increment in $0B58/$0B5A; the READY/line dispatcher checks it to auto-generate the next line-number prompt and clears it on completion/overflow; CLEAR_VARS zeroes it.
 AUTFLG:
@@ -729,32 +729,32 @@ L_0B75:
 ; [RE] DEFTYPE_TBL: the 26-byte per-letter default value-type array (one VALTYP byte per variable initial letter A..Z; MS BASIC DEFTBL). Written by the DEF* statement handler (STMT_DEFSTR $34B4: stores the requested type code E across the letter range) and reset to the default ($04) for all 26 letters by CLEAR/RUN ($68A3). PTRGET reads the default type for a variable's first letter via the bias-base addressing at $5FA6 (base $0B36 + ASCII-letter-code lands here: $0B36+$41='A'->$0B77 ... $0B36+$5A='Z'->$0B90). NOTE the default fill value is $04; the exact VALTYP code->precision mapping is not asserted here (the file's own type-code notes are inconsistent) -- see UNKNOWNS.
 DEFTYPE_TBL:
         DEFS    26, $00                  ; fill
-L_0B91:
+DEFFN_FRAME_PTR:
         DEFB    "\0\0"
-L_0B93:
+DEFFN_FRAME_SIZE:
         DEFB    "\0\0"
-L_0B95:
+FN_ARG_BLOCK:
         DEFS    78, $00                  ; fill
         DEFS    22, $00                  ; fill
-L_0BF9:
-        DEFW    L_0B91
+FN_FRAME_LIST_HEAD:
+        DEFW    DEFFN_FRAME_PTR
 L_0BFB:
         DEFB    "\0\0"
 L_0BFD:
         DEFS    38, $00                  ; fill
         DEFB    "\0\0\0\0\0"
         DEFS    57, $00                  ; fill
-L_0C61:
+FN_ARG_SCAN_PHASE:
         DEFB    "\0"
-L_0C62:
+GC_SCAN_LIMIT:
         DEFB    "\0"
-L_0C63:
+VARSCAN_LIMIT_HI:
         DEFB    "\0"
-L_0C64:
+DEFFN_ACTIVE_FLAG:
         DEFB    "\0"
-L_0C65:
+GC_FRAME_CURSOR:
         DEFB    "\0\0"
-L_0C67:
+DEFFN_DEPTH:
         DEFB    "\0\0"
 L_0C69:
         DEFB    "\0"
@@ -766,9 +766,9 @@ FOR_NEXT_VALUE_TEMP:
         DEFB    "\0\0\0\0"
 L_0C71:
         DEFB    "\0\0"
-L_0C73:
+OPTION_BASE_VALUE:
         DEFB    "\0"
-L_0C74:
+OPTION_BASE_SET_FLAG:
         DEFB    "\0"
 ; [RE] In-RAM call trampoline: POP return addr into HL, restore AF/DE off the stack, JP (HL). Re-enters caller with saved A/flags and DE.
 RAM_DISPATCH_TRAMPOLINE:
@@ -787,7 +787,7 @@ L_0C95:
         DEFB    "\0\0"
 FIELD_BUF_ADDR_LIMIT:
         DEFB    "\0\0"
-L_0C99:
+LOAD_PROTECT_FLAG:
         DEFB    "\0"
 ; [RE] CHAIN/ON-ERROR 'preserve variables' flag: CHAIN-with-ALL and CHAIN set it ($72BA/$72C7) so the CLEAR storage reset skips clearing variable space ($6894 test); RAISE_ERROR clears it ($0D90); cold-start zeroes it.
 CHAIN_PRESERVE_FLAG:
@@ -820,7 +820,7 @@ FAC:
         DEFB    "\0\0"
 FACHI:
         DEFB    "\0"
-L_0CB4:
+FAC_EXP:
         DEFB    "\0"
 FP_SIGN_FLAG:
         DEFB    "\0"
@@ -851,7 +851,7 @@ L_0CE4:
         DEFS    9, $00                   ; fill
 L_0CED:
         DEFB    " in "
-L_0CF1:
+EMPTY_STRING_DESC:
         DEFB    "\0"
 ; [RE] The 'Ok' ready-prompt string (Ok CR LF NUL), printed by the READY loop / direct-mode return.
 MSG_OK:
@@ -3214,7 +3214,7 @@ STMT_GOTO_1:
         JR NC,ERROR_UL
         DEC BC
         LD A,$0D
-        LD (L_0B56),A
+        LD (RENUM_PENDING_FLAG),A
         POP HL
         CALL RENUM_STORE_LINEREF
         LD H,B
@@ -5277,7 +5277,7 @@ STMT_DEF:
         CP $E1
         JR Z,USRVEC_ADDR_2
         CALL GETVAR_NAME
-        CALL CHECK_MEM_TOP
+        CALL DEF_FN_REQUIRE_PROGRAM
         EX DE,HL
         LD (HL),E
         INC HL
@@ -5410,7 +5410,7 @@ STMT_DEF_7:
 STMT_DEF_8:
         LD A,$D5
         LD (L_0B4A),HL
-        LD A,(L_0B93)
+        LD A,(DEFFN_FRAME_SIZE)
         ADD A,$04
         PUSH AF
         RRCA
@@ -5425,26 +5425,26 @@ STMT_DEF_8:
         ADD HL,SP
         LD SP,HL
         PUSH HL
-        LD DE,L_0B91
+        LD DE,DEFFN_FRAME_PTR
         CALL BLOCK_COPY_DE_HL
         POP HL
-        LD (L_0B91),HL
+        LD (DEFFN_FRAME_PTR),HL
         LD HL,(L_0BFB)
-        LD (L_0B93),HL
+        LD (DEFFN_FRAME_SIZE),HL
         LD B,H
         LD C,L
-        LD HL,L_0B95
+        LD HL,FN_ARG_BLOCK
         LD DE,L_0BFD
         CALL BLOCK_COPY_DE_HL
         LD H,A
         LD L,A
         LD (L_0BFB),HL
-        LD HL,(L_0C67)
+        LD HL,(DEFFN_DEPTH)
         INC HL
-        LD (L_0C67),HL
+        LD (DEFFN_DEPTH),HL
         LD A,H
         OR L
-        LD (L_0C64),A
+        LD (DEFFN_ACTIVE_FLAG),A
         LD HL,(L_0B4A)
         CALL EVAL_EXPR_AFTER_SYNCHR
         DEC HL
@@ -5459,7 +5459,7 @@ STMT_DEF_8:
         CALL STR_BUILD_FROM_DESC
         CALL PUT_STR_TEMP_1+1
 STMT_DEF_9:
-        LD HL,(L_0B91)
+        LD HL,(DEFFN_FRAME_PTR)
         LD D,H
         LD E,L
         INC HL
@@ -5471,16 +5471,16 @@ STMT_DEF_9:
         INC BC
         INC BC
         INC BC
-        LD HL,L_0B91
+        LD HL,DEFFN_FRAME_PTR
         CALL BLOCK_COPY_DE_HL
         EX DE,HL
         LD SP,HL
-        LD HL,(L_0C67)
+        LD HL,(DEFFN_DEPTH)
         DEC HL
-        LD (L_0C67),HL
+        LD (DEFFN_DEPTH),HL
         LD A,H
         OR L
-        LD (L_0C64),A
+        LD (DEFFN_ACTIVE_FLAG),A
         POP HL
         POP AF
 ; ----------------------------------------------------------------------
@@ -5497,29 +5497,55 @@ FRMEVL_APPLY_OP:
         POP HL
         RET
 ; ----------------------------------------------------------------------
-; BLOCK_COPY_DE_HL_LOOP -- loop body of BLOCK_COPY_DE_HL. MIS-NAMED.
+; BLOCK_COPY_DE_HL_1 -- loop body of BLOCK_COPY_DE_HL. MIS-NAMED.
 ; ----------------------------------------------------------------------
-BLOCK_COPY_DE_HL_LOOP:
+BLOCK_COPY_DE_HL_1:
+        ; copy one source byte to the destination, then advance both pointers
         LD A,(DE)
         LD (HL),A
         INC HL
         INC DE
         DEC BC
-; [RE] Copy BC bytes from (DE) to (HL), ascending (LDI-style hand loop). General memory-move helper used by DEF FN parameter save/restore and variable-table shuffling.
+; ----------------------------------------------------------------------
+; BLOCK_COPY_DE_HL -- ascending block copy of BC bytes from (DE) to (HL).
+;   In:        DE = source pointer, HL = destination pointer, BC = byte count.
+;   Out:       DE = source+count, HL = dest+count, BC = 0, Z set.
+;   Clobbers:  A, BC, DE, HL, flags.
+;   Algorithm: Count-test entry point: if BC == 0 return at once; otherwise run a byte-at-a-time
+;              ascending copy (LD A,(DE)/LD (HL),A/INC HL/INC DE/DEC BC) looping while BC != 0. A
+;              hand loop rather than LDIR so that the surviving DE/HL act as end pointers for the
+;              caller. [RE] Callers are the DEF FN handler (STMT_DEF_*), which uses it to save and
+;              restore the function-argument frame at $0B91/$0B95/$0BFD.
+; ----------------------------------------------------------------------
 BLOCK_COPY_DE_HL:
+        ; loop guard: stop as soon as the remaining count BC reaches zero
         LD A,B
         OR C
-        JR NZ,BLOCK_COPY_DE_HL_LOOP
+        JR NZ,BLOCK_COPY_DE_HL_1
         RET
-; [RE] Variable-space overflow guard: if the free-space-remaining counter ($0844) has wrapped to 0, raise 'Out of memory' (E=$0C) via RAISE_ERROR. Called before allocating variable/array storage.
-CHECK_MEM_TOP:
+; ----------------------------------------------------------------------
+; DEF_FN_REQUIRE_PROGRAM -- reject DEF FN / DEF USR issued in direct (immediate) mode.
+;   In:        SAVTXT ($0844) = saved program text pointer; equals $FFFF while a direct-mode line runs.
+;   Out:       Returns (HL unchanged) when executing a stored program (SAVTXT != $FFFF).
+;              When SAVTXT == $FFFF, does not return: jumps to RAISE_ERROR with E = ERR_ILLEGAL_DIRECT (12).
+;   Clobbers:  A, flags (HL is pushed and popped, so preserved).
+;   Algorithm: Read SAVTXT, INC it and OR H|L to test SAVTXT == $FFFF -- the sentinel BASIC writes
+;              while running a direct-mode (keyboard) line. If set, the statement is being typed at
+;              the prompt rather than run from a program, which DEF FN/DEF USR forbid, so raise
+;              'Illegal direct'. Otherwise return and let STMT_DEF store the function/USR pointer.
+;              [RE] This matches the classic MS BASIC-80 'DEF illegal in direct mode' guard; sole caller is STMT_DEF.
+; ----------------------------------------------------------------------
+DEF_FN_REQUIRE_PROGRAM:
         PUSH HL
+        ; [RE] SAVTXT == $FFFF means a direct-mode (keyboard) line is running, not a stored program; INC then OR H|L tests for that sentinel
         LD HL,(SAVTXT)
         INC HL
         LD A,H
         OR L
         POP HL
+        ; running inside a program: DEF is allowed, return to STMT_DEF
         RET NZ
+        ; direct mode: DEF FN/DEF USR not permitted here, raise 'Illegal direct'
         LD E,ERR_ILLEGAL_DIRECT
         JP RAISE_ERROR
 ; [RE] Fetch and validate a variable-name token after SYNCHR: requires an alphabetic first char (JP PO on letter test), records the name in $0B52, then resolves it via PTRGET (PTRGET_2).
@@ -5579,31 +5605,103 @@ WIDTH_CLAMP_COLUMN:
         INC A
         ADD A,E
         RET
-; [RE] MS BASIC GETINT entry: advance the text pointer (CHRGET) then evaluate a numeric expression and return it as a 16-bit integer (falls into GETINT).
+; ----------------------------------------------------------------------
+; GETINT_CHRGET -- skip one text char, then evaluate the next expression as a signed 16-bit integer.
+;   In:        HL -> a leading character in the program text that is to be discarded (a separator the
+;              caller already matched, e.g. '(' or ','); the CHRGET/text cursor follows HL.
+;   Out:       DE = signed 16-bit value of the expression; A = high byte (= D); Z set when the value fits in
+;              one unsigned byte (high byte 0); HL advanced past the expression. (Falls into GETINT.)
+;   Clobbers:  A, BC, DE, HL, flags, the FAC (whole floating-point evaluator state).
+;   Algorithm: The GETINT entry used when one text character must be eaten first. CHRGET advances the text
+;              pointer one position and fetches the following token, then control falls into GETINT to
+;              evaluate the operand. Used by statement parsers that have just consumed a delimiter.
+; ----------------------------------------------------------------------
 GETINT_CHRGET:
+        ; eat the leading separator char, then drop into GETINT to evaluate the operand
         CALL CHRGET
-; [RE] MS BASIC GETINT: evaluate expression at the text pointer (FRMEVL), convert FAC to signed 16-bit (FN_LPOS) into DE; flags set from high byte.
+; ----------------------------------------------------------------------
+; GETINT -- evaluate the expression at the text pointer and return it as a signed 16-bit integer.
+;   In:        HL -> first character/token of a numeric expression in the program text.
+;   Out:       DE = signed 16-bit value (-32768..32767); A = high byte (= D); Z set when the value fits in
+;              a single unsigned byte (high byte 0); HL advanced past the expression.
+;   Clobbers:  A, BC, DE, HL, flags, the FAC.
+;   Algorithm: Run the full expression evaluator (FRMEVL_NOPAREN backs HL up one and parses at lowest
+;              precedence) to leave the result in the FAC, then fall into FRC_INT_DE, which narrows the FAC
+;              to a signed 16-bit integer in DE. The general signed-integer operand reader behind POKE/PEEK
+;              addresses, array bounds, coordinate parsers, etc.
+; ----------------------------------------------------------------------
 GETINT:
+        ; evaluate the numeric expression into the FAC, then narrow it in FRC_INT_DE
         CALL FRMEVL_NOPAREN
-; [RE] Convert current numeric value (FAC) to a 16-bit integer in DE via FN_LPOS; A=high byte, OR A sets Z if value fits in one byte (used by GETBYT/POKE/PEEK).
+; ----------------------------------------------------------------------
+; FRC_INT_DE -- coerce the current FAC value to a signed 16-bit integer in DE; flag byte-fit.
+;   In:        FAC holds an evaluated numeric value (any type); VALTYP ($0B14) describes it.
+;   Out:       DE = signed 16-bit integer form of the value; A = D (high byte); flags from OR A, so Z is set
+;              iff the high byte is 0 (the value fits in an unsigned byte). HL is preserved.
+;   Clobbers:  A, BC, DE, flags. HL saved and restored. The FAC is overwritten by the conversion.
+;   Algorithm: Save HL, call FN_CINT (the FAC -> signed-16-bit converter: rounds singles/doubles by adding
+;              0.5, range-checks the exponent at $0CB4, and raises Type mismatch on a string / Overflow when
+;              magnitude >= 2^16). FN_CINT returns the integer in HL, so EX DE,HL moves it to DE; restore HL,
+;              then test the high byte (LD A,D / OR A) to report byte-fit in Z. This is the shared narrowing
+;              tail for GETINT and the byte reader GETBYT/CONINT.
+;   NOTE [RE]: the stale single-line comment above this label names the converter 'FN_LPOS' -- that is wrong.
+;              FN_LPOS ($3E29) is the LPOS(x) printer-column function handler; the routine the CODE actually
+;              CALLs here is FN_CINT ($4F76). (The code is correct; only the comment text is stale.)
+; ----------------------------------------------------------------------
 FRC_INT_DE:
         PUSH HL
+        ; FAC -> signed 16-bit integer in HL (rounds and range-checks; raises Type mismatch / Overflow)
         CALL FN_CINT
         EX DE,HL
         POP HL
+        ; test the high byte: Z on return means the value fits in a single unsigned byte
         LD A,D
         OR A
         RET
-; [RE] MS BASIC GETBYT entry: advance the text pointer (CHRGET) then fall into GETBYT (0..255 byte evaluator).
+; ----------------------------------------------------------------------
+; GETBYT_CHRGET -- skip one text char, then evaluate the next expression as a 0..255 byte.
+;   In:        HL -> a leading character to discard (a delimiter the caller already matched); the CHRGET
+;              text cursor follows HL.
+;   Out:       A = E = the byte value (0..255); D = 0; HL re-positioned on the operand-terminating char.
+;              Raises 'Illegal function call' (ERROR_FC) if the value does not fit in a byte.
+;   Clobbers:  A, BC, DE, HL, flags, the FAC.
+;   Algorithm: The GETBYT entry that must eat one text character first: CHRGET advances past the delimiter,
+;              then falls into GETBYT. Used by parsers that have just consumed a separator before a byte arg.
+; ----------------------------------------------------------------------
 GETBYT_CHRGET:
         CALL CHRGET
-; [RE] MS BASIC GETBYT: evaluate expression (FRMEVL) then fall into CONINT to range-check it as a 0..255 byte in A/E.
+; ----------------------------------------------------------------------
+; GETBYT -- evaluate the expression at the text pointer and return it as a 0..255 byte.
+;   In:        HL -> first character/token of a numeric expression in the program text.
+;   Out:       A = E = byte value (0..255); D = 0; HL re-positioned on the operand-terminating char. Range
+;              error raises 'Illegal function call' (ERROR_FC).
+;   Clobbers:  A, BC, DE, HL, flags, the FAC.
+;   Algorithm: Run the expression evaluator (FRMEVL_NOPAREN) to leave the value in the FAC, then fall into
+;              CONINT, which narrows to an integer (FRC_INT_DE) and enforces the 0..255 range. The general
+;              byte-operand reader used by POKE data, WIDTH, color/coordinate bytes, port masks, etc.
+; ----------------------------------------------------------------------
 GETBYT:
         CALL FRMEVL_NOPAREN
-; [RE] MS BASIC CONINT: require the integer to fit in one byte - convert via FRC_INT_DE and 'Illegal function call' (GETINT_POSITIVE_1) if the high byte is non-zero; returns the byte in A and E.
+; ----------------------------------------------------------------------
+; CONINT -- narrow the current FAC value to a single byte (0..255), raising FC on overflow.
+;   In:        FAC holds an evaluated numeric value; the text cursor is just past the expression.
+;   Out:       A = E = byte value (0..255); D = 0 (FRC_INT_DE confirmed the high byte is 0). HL has been
+;              stepped back one and re-CHRGOT'd (net HL unchanged), so it sits on the operand-terminating
+;              char with CHRGOT's classification flags refreshed. The final LD A,E sets A = the byte value
+;              (the token transiently loaded by the CHRGET re-read is overwritten).
+;   Clobbers:  A, BC, DE, HL, flags, the FAC.
+;   Algorithm: Call FRC_INT_DE to coerce the FAC to a 16-bit integer in DE and set Z iff it fits in a byte;
+;              if NZ (high byte nonzero, i.e. value < 0 or > 255) jump to ERROR_FC ('Illegal function call').
+;              Otherwise DEC HL then CHRGET (= INC HL + CHRGOT) re-reads the current char so CHRGOT state is
+;              valid for the caller, then return the byte in A (= E).
+;   NOTE [RE]: the stale comment above this label routes the FC branch via 'GETINT_POSITIVE_1'; the actual
+;              target of the JP NZ in the code is ERROR_FC (an equivalent FC raise, but a different label).
+; ----------------------------------------------------------------------
 CONINT:
         CALL FRC_INT_DE
+        ; value does not fit in a byte (high byte nonzero) -> Illegal function call
         JP NZ,ERROR_FC
+        ; back up one then CHRGET to re-read the current char (refresh CHRGOT state; net HL unchanged)
         DEC HL
         CALL CHRGET
         LD A,E
@@ -5632,7 +5730,7 @@ STMT_LIST:
         ; parse optional 'start[-end]'; returns BC -> first BASLINE node at/after 'start' and pushes the 'end' line number
         CALL SCAN_LINE_RANGE
         PUSH BC
-        ; refuse to list a load-protected program: ILLEGAL_DIRECT_CHECK raises ERROR_FC ('Illegal function call') when the protect flag (L_0C99) is nonzero
+        ; refuse to list a load-protected program: ILLEGAL_DIRECT_CHECK raises ERROR_FC ('Illegal function call') when the protect flag (LOAD_PROTECT_FLAG) is nonzero
         CALL ILLEGAL_DIRECT_CHECK
 ; ----------------------------------------------------------------------
 ; STMT_LIST_NEXT_NODE -- LIST main loop head: fetch the next program line node and test for end-of-program.
@@ -5741,7 +5839,7 @@ PRINT_ZSTRING:
 ;   In:        HL -> the crunched line body (the bytes after the line's LINK+line-number header). The stream is: printable literal bytes ($20-$7F), control literals ($01-$0A), embedded-constant tokens ($0B-$1F = token byte followed by an inline binary value in the stream), reserved-word tokens ($80-$FF, high bit set), and a $00 line terminator.
 ;   Out:       BUF ($0A0E) holds the NUL-terminated ASCII spelling of the line; HL advanced to the line's $00 terminator. Returns when the $00 byte is reached or the output-length guard (D) is exhausted.
 ;   Clobbers:  A,BC,D,E,HL; output cursor BC walks across BUF; the inter-token spacing state cell L_0C93 is reset to 0.
-;   Algorithm: Set the output cursor BC=BUF, the remaining-length guard D=$FF, clear the spacing-state flag L_0C93, then run ILLEGAL_DIRECT_CHECK. [RE] That guard raises 'Illegal function call' (ERROR_FC) when L_0C99 (LOAD_PROTECT_FLAG, set to $FE when a $FE-protected program was LOADed) is NONZERO -- i.e. it refuses to LIST a protection-loaded program. ILLEGAL_DIRECT_CHECK is a benign subroutine call here (it preserves AF/HL/BC/DE and returns), not the warm-start fall-through that shares its area. Then fall into the per-byte main loop at DETOKENIZE_LINE_2.
+;   Algorithm: Set the output cursor BC=BUF, the remaining-length guard D=$FF, clear the spacing-state flag L_0C93, then run ILLEGAL_DIRECT_CHECK. [RE] That guard raises 'Illegal function call' (ERROR_FC) when LOAD_PROTECT_FLAG (LOAD_PROTECT_FLAG, set to $FE when a $FE-protected program was LOADed) is NONZERO -- i.e. it refuses to LIST a protection-loaded program. ILLEGAL_DIRECT_CHECK is a benign subroutine call here (it preserves AF/HL/BC/DE and returns), not the warm-start fall-through that shares its area. Then fall into the per-byte main loop at DETOKENIZE_LINE_2.
 ; ----------------------------------------------------------------------
 DETOKENIZE_LINE:
         ; BC = output cursor into the LIST text buffer (BUF $0A0E)
@@ -5751,7 +5849,7 @@ DETOKENIZE_LINE:
         XOR A
         ; clear the inter-token spacing state (no pending word boundary)
         LD (L_0C93),A
-        ; [RE] refuse to LIST a protection-loaded program (L_0C99 nonzero -> ERROR_FC)
+        ; [RE] refuse to LIST a protection-loaded program (LOAD_PROTECT_FLAG nonzero -> ERROR_FC)
         CALL ILLEGAL_DIRECT_CHECK
         JR DETOKENIZE_LINE_2
 ; ----------------------------------------------------------------------
@@ -6329,17 +6427,31 @@ STMT_DELETE_1:
         POP BC
         LD HL,SUB_0EB7_4
         EX (SP),HL
-; [RE] Copy a string from (DE) into the string pool growing at $0B6F, byte-by-byte via CMP_HL_DE until done; updates the $0B6F string-area pointer. Used by DELETE/edit to relocate text.
+; ----------------------------------------------------------------------
+; BLOCK_MOVE_TO_VARTAB -- copy a byte run from (HL) to (BC) until the source reaches VARTAB, then republish VARTAB.
+;   In:        HL = source start, BC = destination start. VARTAB = exclusive source-end sentinel.
+;   Out:       (BC..) holds the copied bytes; VARTAB := the ending destination pointer (BC after the copy).
+;   Clobbers:  A, BC, DE, HL, flags.
+;   Algorithm: EX DE,HL moves the source pointer into DE, then HL is loaded with VARTAB to serve as the
+;              stop sentinel. Copy bytes (DE)->(BC) ascending, advancing both, until the source pointer DE
+;              equals VARTAB (CMP_HL_DE returns Z). Finally store the ending destination pointer (B,C) back
+;              into VARTAB. [RE] Used by the DELETE / line-edit and CHAIN paths to relocate the program/text
+;              run and re-anchor the variable-table base behind it. NOTE: source is supplied in HL on entry
+;              (the routine's own EX DE,HL moves it into DE); BC is the destination.
+; ----------------------------------------------------------------------
 BLOCK_MOVE_TO_VARTAB:
         EX DE,HL
+        ; use the variable-table base as the exclusive end-of-source sentinel
         LD HL,(VARTAB)
 BLOCK_MOVE_TO_VARTAB_1:
+        ; copy one byte from the source run into the destination
         LD A,(DE)
         LD (BC),A
         INC BC
         INC DE
         CALL CMP_HL_DE
         JR NZ,BLOCK_MOVE_TO_VARTAB_1
+        ; publish the ending destination pointer (B,C) as the new VARTAB
         LD H,B
         LD L,C
         LD (VARTAB),HL
@@ -6363,18 +6475,46 @@ STMT_POKE:
         POP DE
         LD (DE),A
         RET
-; [RE] MS BASIC GETADR: evaluate FAC and convert to an unsigned 16-bit address in BC/$9180-bias form (for POKE/PEEK); rejects out-of-range via FADD_ALIGN. Pushes FN_LPOS as the integer-fetch continuation.
+; ----------------------------------------------------------------------
+; GETADR -- coerce the already-evaluated FAC value to an UNSIGNED 16-bit machine address (0..65535).
+;   In:        FAC holds a numeric value already evaluated by the CALLER (callers do FRMEVL_NOPAREN before
+;              CALL GETADR; function handlers like FN_PEEK arrive with the parenthesised arg already in the
+;              FAC). VALTYP describes the value; HL is the text cursor past the expression.
+;   Out:       HL = unsigned 16-bit address (0..65535). NOTE the result is in HL, not DE: GETADR pre-pushes
+;              FN_CINT, whose tail (FP_STORE_FAC_INT) leaves the 16-bit integer in HL, and every caller
+;              (FN_PEEK / STMT_POKE / STMT_CLEAR / STMT_CHAIN / HEX$/OCT$) reads HL. Type mismatch / Overflow
+;              may be raised by the pushed FN_CINT continuation.
+;   Clobbers:  A, BC, DE, HL, flags, the FAC.
+;   Algorithm: GETADR does NOT itself evaluate an expression -- it only re-types the value already in the
+;              FAC. Pre-push FN_CINT as a continuation so any early RET routes into the normal FAC->int16
+;              extractor. FRMEVL_TEST_TYPE classifies the FAC's VALTYP (it does NOT evaluate text): RET M
+;              when the value is already integer (VALTYP==2) -> straight into FN_CINT. Otherwise, only when
+;              the FP exponent byte ($0CB4) is exactly $90 -- magnitude in [2^15,2^16), the positive range
+;              signed FN_CINT would Overflow on -- and the value is positive (FACHI sign bit clear, RET M
+;              else), load -65536.0 as ARG (BC=$9180: B=$91 exponent, C=$80 = sign-bit-set + 1.0 mantissa
+;              MSB; DE=0) and JP FADD_ALIGN to add it. Adding -2^16 maps the value into [-32768,0), whose
+;              signed-int16 two's-complement bit pattern equals the desired unsigned address; the pushed
+;              FN_CINT then extracts those 16 bits. Values < 2^15 fall through the early RETs into FN_CINT
+;              unchanged. The $9180 immediate is the single-precision FP encoding of -65536.0 (C bit7 = sign
+;              in this MBF format), NOT a memory address.
+;   UNKNOWN:   the exact FADD_ALIGN/FN_CINT bit interplay that recovers the unsigned result is inferred from
+;              the -2^16 (two's-complement-wrap) idiom, not traced bit-for-bit here.
+; ----------------------------------------------------------------------
 GETADR:
+        ; pre-push the FAC->int16 extractor as the return continuation for every early RET below
         LD BC,FN_CINT
         PUSH BC
+        ; classify the FAC's type from VALTYP (does NOT evaluate); RET M when already integer -> FN_CINT
         CALL FRMEVL_TEST_TYPE
         RET M
-        LD A,(L_0CB4)
+        LD A,(FAC_EXP)
         CP $90
         RET NZ
+        ; reject negative values: only a positive magnitude reaches the unsigned-extract path (RET M otherwise)
         LD A,(FACHI)
         OR A
         RET M
+        ; load -65536.0 as ARG and add it: maps [2^15,2^16) to [-32768,0) so FN_CINT's bits = the unsigned address
         LD BC,$9180
         LD DE,$0000
         JP FADD_ALIGN
@@ -6489,7 +6629,7 @@ STMT_RENUM_8:
 ; [RE] RENUM pass 2: walk every program line, find line-number references after GOTO/GOSUB/THEN tokens ($A4/$0E markers), translate each old line number to its new value (LINGET_TOKLINE lookup) and rewrite the 3-byte encoded line-number token in place; reports 'Undefined line' for missing targets.
 RENUM_PATCH_LINEREFS:
         XOR A
-        LD (L_0B56),A
+        LD (RENUM_PENDING_FLAG),A
         LD HL,(TXTTAB)
         DEC HL
 RENUM_PATCH_LINEREFS_1:
@@ -6508,7 +6648,7 @@ RENUM_PATCH_LINEREFS_3:
         OR A
         JR Z,RENUM_PATCH_LINEREFS_1
         LD C,A
-        LD A,(L_0B56)
+        LD A,(RENUM_PENDING_FLAG)
         OR A
         LD A,C
         JR Z,RENUM_PATCH_LINEREFS_8
@@ -6589,7 +6729,7 @@ RENUM_STORE_LINEREF:
         RET
 ; [RE] If the renumber-pending flag $0B56 is set, run the line-reference fix-up pass (RENUM_PATCH_LINEREFS); otherwise return. Called after DELETE edits the program.
 RENUM_FIXUP_IF_PENDING:
-        LD A,(L_0B56)
+        LD A,(RENUM_PENDING_FLAG)
         OR A
         RET Z
         JP RENUM_PATCH_LINEREFS
@@ -6603,7 +6743,7 @@ STMT_OPTION:
         DEFB    'S'                      ; inline char arg consumed by the preceding CALL
         CALL SYNCHR
         DEFB    'E'                      ; inline char arg consumed by the preceding CALL
-        LD A,(L_0C74)
+        LD A,(OPTION_BASE_SET_FLAG)
         OR A
         JP NZ,RAISE_DUPLICATE_DEFINITION
         PUSH HL
@@ -6618,9 +6758,9 @@ STMT_OPTION:
         JP C,RAISE_SYNTAX_ERROR
         CP $02
         JP NC,RAISE_SYNTAX_ERROR
-        LD (L_0C73),A
+        LD (OPTION_BASE_VALUE),A
         INC A
-        LD (L_0C74),A
+        LD (OPTION_BASE_SET_FLAG),A
         CALL CHRGET
         RET
 ; [RE] Print a $00-terminated string at (HL) through STROUT_PUTC_SAVE, preserving registers; loops to end of string.
@@ -6669,68 +6809,117 @@ MSG_RANDOMIZE_PROMPT:
         DEFB    $08
         DEFB    " to 32767)"             ; string
         DEFB    $00                      ; terminator
-; [RE] Enter the structured-block program scanner with delimiter set for WHILE/WEND (C=$1D); used to balance nested block-statement keywords while searching forward through program text.
+; ----------------------------------------------------------------------
+; BLOCK_SCAN_WHILE -- enter the structured-block scanner configured for WHILE/WEND.
+;   In:        HL -> crunched program text just after the WHILE token (the loop condition);
+;              SAVTXT holds the current source-line pointer.
+;   Out:       Same contract as BLOCK_SCAN_FORNEXT: returns with HL at the matching WEND ($B0)
+;              at nesting depth 0 and L_0C71 = the start of that line, or raises WHILE without
+;              WEND (err 29) at the end of the program.
+;   Clobbers:  AF, BC, DE, HL (see BLOCK_SCAN_FORNEXT).
+;   Algorithm: Set the mode/error byte C = $1D (= ERR_WHILE_WITHOUT_WEND, 29) and fall into the
+;              shared scanner, which uses C both to select the WHILE=$AF / WEND=$B0 token pair
+;              to balance and to name the error if the program text runs out first.
+; ----------------------------------------------------------------------
 BLOCK_SCAN_WHILE:
         LD C,$1D
-        JR BLOCK_SCAN_FORNEXT_1
-; [RE] Structured-block program scanner (FOR/NEXT default, C=$1A): walk crunched program text counting nesting of the matching open/close keyword tokens (e.g. FOR vs NEXT, $82/$83), tracking the current line pointer in $0C71; returns when the balancing close at depth 0 is found.
+        JR BLOCK_SCAN_INIT
+; ----------------------------------------------------------------------
+; BLOCK_SCAN_FORNEXT -- forward-scan crunched program text for the block-closing keyword that
+; matches an opening FOR/WHILE, balancing nested blocks; entered here for FOR/NEXT.
+;   In:        HL -> crunched program text just after the opening keyword (the part already
+;              parsed by STMT_FOR / STMT_WHILE). SAVTXT = pointer to the current source line
+;              (read once at entry into L_0C71).
+;   Out:       On success: returns with HL pointing at the matching close keyword (NEXT $83 /
+;              WEND $B0) found at nesting depth 0, and L_0C71 = the start (link field) of the
+;              line that holds it, so the caller can adopt L_0C71 as SAVTXT. On failure
+;              (program text exhausted before a match): LD E,C / JP Z,RAISE_ERROR raises the
+;              missing-terminator error and does not return.
+;   Clobbers:  AF, BC, DE, HL; updates L_0C71; temporarily repoints SAVTXT during the
+;              NEXT-variable PTRGET sub-scan (restored before each iteration).
+;   Mode byte: The entry point you CALL selects C, which is BOTH the open/close token pair to
+;              balance AND the error code raised on run-off: BLOCK_SCAN_FORNEXT sets C=$1A
+;              (FOR $82 / NEXT $83; err 26 FOR without NEXT); BLOCK_SCAN_WHILE sets C=$1D
+;              (WHILE $AF / WEND $B0; err 29 WHILE without WEND). C is thus an internal input to
+;              the shared body (BLOCK_SCAN_INIT), not a caller-supplied register.
+;   Algorithm: B = nesting depth. Walk statement by statement: CHRGET to the next statement
+;              separator (end-of-line $00, ELSE $9E, or THEN $DE); on end-of-line, follow the
+;              2-byte line LINK to the next line (a 0000 link raises the run-off error) and
+;              record the new line start in L_0C71. At each statement head inspect the leading
+;              token: an opening keyword (FOR/WHILE) increments depth; a closing keyword
+;              (NEXT/WEND) decrements it and returns once depth reaches 0. A NEXT that closes an
+;              inner FOR may carry a variable list, so when depth is still nonzero the routine
+;              PTRGETs the loop variable(s) (temporarily using L_0C71 as SAVTXT) and, on a
+;              comma, loops to consume the next variable before resuming the scan.
+; ----------------------------------------------------------------------
 BLOCK_SCAN_FORNEXT:
+        ; FOR/NEXT mode: C=$1A both selects the FOR $82 / NEXT $83 token pair and doubles as ERR_FOR_WITHOUT_NEXT (26) if the program text runs out.
         LD C,$1A
-BLOCK_SCAN_FORNEXT_1:
+BLOCK_SCAN_INIT:
         LD B,$00
         EX DE,HL
+        ; Snapshot the current source-line start into L_0C71; it is re-updated each time the scan follows a line link.
         LD HL,(SAVTXT)
         LD (L_0C71),HL
         EX DE,HL
-BLOCK_SCAN_FORNEXT_2:
+BLOCK_SCAN_PUSH_DEPTH:
+        ; Entering a nested block of the same kind (FOR/WHILE): deepen the nesting count.
         INC B
-BLOCK_SCAN_FORNEXT_3:
+BLOCK_SCAN_NEXT_CHAR:
         DEC HL
-BLOCK_SCAN_FORNEXT_4:
+BLOCK_SCAN_TO_SEP:
         CALL CHRGET
-        JR Z,BLOCK_SCAN_FORNEXT_5
+        JR Z,BLOCK_SCAN_AT_SEP
+        ; Statement separators inside a line: ELSE and THEN start a new sub-statement to inspect, like end-of-line.
         CP TOK_ELSE
-        JR Z,BLOCK_SCAN_FORNEXT_6
+        JR Z,BLOCK_SCAN_AT_STMT_HEAD
         CP TOK_THEN
-        JR NZ,BLOCK_SCAN_FORNEXT_4
-BLOCK_SCAN_FORNEXT_5:
+        JR NZ,BLOCK_SCAN_TO_SEP
+BLOCK_SCAN_AT_SEP:
         OR A
-        JR NZ,BLOCK_SCAN_FORNEXT_6
+        JR NZ,BLOCK_SCAN_AT_STMT_HEAD
+        ; End of line reached: follow the 2-byte line LINK; a 0000 link means the program ended with no match -> raise the (FOR/WHILE)-without-(NEXT/WEND) error.
         INC HL
         LD A,(HL)
         INC HL
         OR (HL)
+        ; Run off the end of the program: E = C = the mode's missing-terminator error code, then RAISE_ERROR.
         LD E,C
         JP Z,RAISE_ERROR
         INC HL
+        ; Adopt the linked line as the new scan position; its start is recorded in L_0C71 just below.
         LD E,(HL)
         INC HL
         LD D,(HL)
         EX DE,HL
         LD (L_0C71),HL
         EX DE,HL
-BLOCK_SCAN_FORNEXT_6:
+BLOCK_SCAN_AT_STMT_HEAD:
         CALL CHRGET
+        ; Branch on mode: C=$1A takes the FOR/NEXT ($82/$83) token tests, otherwise the WHILE/WEND ($AF/$B0) tests.
         LD A,C
         CP $1A
         LD A,(HL)
-        JR Z,BLOCK_SCAN_FORNEXT_7
+        JR Z,BLOCK_SCAN_FORNEXT_TOKEN
         CP $AF
-        JR Z,BLOCK_SCAN_FORNEXT_2
+        JR Z,BLOCK_SCAN_PUSH_DEPTH
         CP $B0
-        JR NZ,BLOCK_SCAN_FORNEXT_3
-        DJNZ BLOCK_SCAN_FORNEXT_3
+        JR NZ,BLOCK_SCAN_NEXT_CHAR
+        ; WEND seen: DEC B drops one nesting level; if depth is now 0 this is the matching WEND -> fall through to RET, else keep scanning.
+        DJNZ BLOCK_SCAN_NEXT_CHAR
         RET
-BLOCK_SCAN_FORNEXT_7:
+BLOCK_SCAN_FORNEXT_TOKEN:
+        ; FOR opens a nested loop -> deepen; NEXT ($83) closes one -> fall into the close-depth handler.
         CP $82
-        JR Z,BLOCK_SCAN_FORNEXT_2
+        JR Z,BLOCK_SCAN_PUSH_DEPTH
         CP $83
-        JR NZ,BLOCK_SCAN_FORNEXT_3
-BLOCK_SCAN_FORNEXT_8:
+        JR NZ,BLOCK_SCAN_NEXT_CHAR
+BLOCK_SCAN_CLOSE_DEPTH:
+        ; NEXT closes a level: if it balances to 0 this is our matching NEXT -> RET; otherwise it closes an inner FOR and may list variables.
         DEC B
         RET Z
         CALL CHRGET
-        JR Z,BLOCK_SCAN_FORNEXT_5
+        JR Z,BLOCK_SCAN_AT_SEP
         EX DE,HL
         LD HL,(SAVTXT)
         PUSH HL
@@ -6738,24 +6927,27 @@ BLOCK_SCAN_FORNEXT_8:
         LD (SAVTXT),HL
         EX DE,HL
         PUSH BC
+        ; Resolve the inner NEXT's loop variable (SAVTXT temporarily points at this line) so a variable list is skipped over correctly.
         CALL PTRGET_1+1
         POP BC
         DEC HL
         CALL CHRGET
-BLOCK_SCAN_FORNEXT_9:
-        LD DE,BLOCK_SCAN_FORNEXT_5
-        JR Z,BLOCK_SCAN_FORNEXT_10
+BLOCK_SCAN_NEXTVAR_TAIL:
+        LD DE,BLOCK_SCAN_AT_SEP
+        JR Z,BLOCK_SCAN_NEXTVAR_RESUME
+        ; After a NEXT variable, a non-end char must be ',': SYNCHR ',' validates it, then the routine loops to read the next variable.
         CALL SYNCHR
         DEFB    ','                      ; inline char arg consumed by the preceding CALL
         DEC HL
-        LD DE,BLOCK_SCAN_FORNEXT_8
-BLOCK_SCAN_FORNEXT_10:
+        LD DE,BLOCK_SCAN_CLOSE_DEPTH
+BLOCK_SCAN_NEXTVAR_RESUME:
+        ; Restore SAVTXT and tail-jump (via the pushed DE continuation) back into the main scan.
         EX (SP),HL
         LD (SAVTXT),HL
         POP HL
         PUSH DE
         RET
-BLOCK_SCAN_FORNEXT_11:
+FIN_EPILOGUE_SNAPSHOT_EVAL_FLAG:
         PUSH AF
         LD A,(L_0CB6)
         LD (L_0CB7),A
@@ -8796,7 +8988,7 @@ FADD_ALIGN:
         OR A
         ; ARG exponent 0 means ARG is zero: FAC is already the sum, return
         RET Z
-        LD A,(L_0CB4)
+        LD A,(FAC_EXP)
         OR A
         ; FAC exponent 0 means FAC is zero: result is just ARG, store ARG into FAC and return
         JP Z,FP_STORE_FAC
@@ -8921,7 +9113,7 @@ FP_SET_ZERO:
         XOR A
 FP_SET_ZERO_EXP:
         ; write the exponent byte (A=0 here stores an exact zero result)
-        LD (L_0CB4),A
+        LD (FAC_EXP),A
         RET
 FP_NORM_BITLOOP:
         LD A,H
@@ -8958,7 +9150,7 @@ FP_NORM_ADJ_EXP:
         OR A
         ; no exponent change needed: go straight to round-and-pack
         JR Z,FP_PACK_ROUND
-        LD HL,L_0CB4
+        LD HL,FAC_EXP
         ; adjust the exponent by the accumulated normalize shift count
         ADD A,(HL)
         LD (HL),A
@@ -8969,7 +9161,7 @@ FP_NORM_ADJ_EXP:
 FP_PACK_ROUND:
         LD A,B
 FP_PACK_STORE:
-        LD HL,L_0CB4
+        LD HL,FAC_EXP
         OR A
         ; round bit set: propagate the round-up carry through the mantissa and exponent
         CALL M,FADD_ROUND_CARRY
@@ -9144,7 +9336,7 @@ FP_POLY_LOG_DEN:
         DEFB    $7F
 ; ----------------------------------------------------------------------
 ; FN_LOG -- LOG(x) natural-logarithm function handler (BASIC token $0A)
-;   In:        FAC holds x (MBF single); L_0CB4 = FAC exponent, FACHI = high mantissa byte + sign
+;   In:        FAC holds x (MBF single); FAC_EXP = FAC exponent, FACHI = high mantissa byte + sign
 ;   Out:       FAC = ln(x); returns through FMUL
 ;   Clobbers:  FAC, all FP scratch, A/BC/DE/HL
 ;   Algorithm: Reject x<=0: FP_SIGN returns $FF/$00/$01, then OR A + JP PE,ERROR_FC traps the
@@ -9169,8 +9361,8 @@ FN_LOG:
 ; LOG_MANTISSA_POLY -- LOG range reduction + rational approximation of ln (LOG helper, was LOG_MANTISSA_POLY)
 ;   In:        FAC holds x>0 (already sign-checked by FN_LOG)
 ;   Out:       FAC = ln(reduced mantissa) + e, where e is the binary exponent (caller FN_LOG scales by ln 2)
-;   Clobbers:  FAC, FP work stack, A/BC/DE/HL, L_0CB4
-;   Algorithm: Read the FAC mantissa (FP_LOAD_FAC), force the exponent cell L_0CB4 to $80 so the
+;   Clobbers:  FAC, FP work stack, A/BC/DE/HL, FAC_EXP
+;   Algorithm: Read the FAC mantissa (FP_LOAD_FAC), force the exponent cell FAC_EXP to $80 so the
 ;              value is reduced to a pure mantissa m in [0.5,1), and stash the original exponent
 ;              relationship in A via XOR B (saved on the stack). Evaluate two polynomials in m:
 ;              FP_POLY_LOG_NUM and FP_POLY_LOG_DEN (each Horner via POLY_EVAL), then FDIV them to
@@ -9181,7 +9373,7 @@ LOG_MANTISSA_POLY:
         CALL FP_LOAD_FAC
         ; force exponent = $80: reduce x to its pure mantissa m in [0.5,1) so the polynomial sees a small in-range argument
         LD A,$80
-        LD (L_0CB4),A
+        LD (FAC_EXP),A
         ; stash the original binary exponent (relative to the forced $80) so it can be added back after taking ln of the mantissa
         XOR B
         PUSH AF
@@ -9449,7 +9641,7 @@ FDIV_8:
         OR E
         JR NZ,FDIV_1
         PUSH HL
-        LD HL,L_0CB4
+        LD HL,FAC_EXP
         ; Decrement the FAC exponent once per normalizing left-shift; reaching zero yields a zero result (JP FP_SET_ZERO).
         DEC (HL)
         POP HL
@@ -9509,7 +9701,7 @@ EXP_ADD:
         ; A zero operand exponent means the operand is zero -> route to the zero-result path.
         JR Z,DEC_HL_RET_3
         LD A,L
-        LD HL,L_0CB4
+        LD HL,FAC_EXP
         ; Bring in the FAC exponent: with L=$00 it passes through unchanged; with L=$FF it is one's-complemented (the following ADD A,B then yields op_exp-FAC_exp-1 for divide).
         XOR (HL)
         ADD A,B
@@ -9591,7 +9783,7 @@ FP_SCALE2:
         LD B,A
         ; Add value*4 (the operand copy) to the original FAC (value) -> value*5 in the FAC.
         CALL FADD_ALIGN
-        LD HL,L_0CB4
+        LD HL,FAC_EXP
         ; Increment the FAC exponent: doubles value*5 to value*10 (a zero result -> Overflow error).
         INC (HL)
         RET NZ
@@ -9610,7 +9802,7 @@ FP_SCALE2:
 ;              entering with a precomputed compare result instead of the raw sign byte.
 ; ----------------------------------------------------------------------
 FP_SIGN:
-        LD A,(L_0CB4)
+        LD A,(FAC_EXP)
         OR A
         ; Exponent zero means the FAC value is exactly zero -> return A=0.
         RET Z
@@ -9646,7 +9838,7 @@ FLOAT_A:
 ;   Algorithm: Write the exponent B to $0CB4, stash the source value in C, write $0CB5 (the FP result-sign working cell) = $80 (provisional positive sign), zero B, then RLA to shift the source's sign bit into carry. JP FADD_COMBINE: when carry indicates negative it CALLs FCOMPL (which two's-complements the mantissa and flips $0CB5) before normalizing. [RE] the precise mantissa register packing into FADD is not fully traced.
 ; ----------------------------------------------------------------------
 FLOAT_A_1:
-        LD HL,L_0CB4
+        LD HL,FAC_EXP
         LD C,A
         LD (HL),B
         LD B,$00
@@ -9957,7 +10149,7 @@ FP_ARG_SETUP2_1:
         RET
 ; ----------------------------------------------------------------------
 ; FCOMP -- single-precision floating-point compare: FAC against the register operand in B/C/D/E.
-;   In:        FAC = first operand (FAC=$0CB1 mantissa-low, FACHI=$0CB3 mantissa-MSB+sign in bit7, L_0CB4=$0CB4 biased exponent). B = second operand's exponent; C = its packed sign/MSB byte (bit7=sign); D,E = its low mantissa bytes (a 4-byte single laid out in registers).
+;   In:        FAC = first operand (FAC=$0CB1 mantissa-low, FACHI=$0CB3 mantissa-MSB+sign in bit7, FAC_EXP=$0CB4 biased exponent). B = second operand's exponent; C = its packed sign/MSB byte (bit7=sign); D,E = its low mantissa bytes (a 4-byte single laid out in registers).
 ;   Out:       A = ordering of (FAC vs operand). On the normal mantissa-compare path A is the clean relational code $00 (equal) / $01 (FAC>operand) / $FF (FAC<operand) produced via the FP_SIGN tail and the FCOMP_1 fold. [RE] BUT the signs-differ early-out (RET M) returns the RAW operand sign byte C, not a normalized $FF/$01 -- only its bit7 (sign) is meaningful; the relational finalizer (FRMEVL_RELOP_RESULT) consumes that bit. So 'clean -1/0/+1' holds only on the equal-sign path.
 ;   Clobbers:  A, HL, F (B,C,D,E preserved as the operand).
 ;   Algorithm: If the operand exponent B==0 the operand is zero, so the answer is SGN(FAC) (JP FP_SIGN). Otherwise arm the FP_SIGN tail (PUSH FP_SIGN_1+1) and call FP_SIGN; if FAC==0 (Z) return A=C (the operand's sign byte). If the two signs differ (FACHI XOR C has bit7 set) return A=C raw (RET M) -- the sign byte alone decides the order. With equal signs, compare the four mantissa bytes high-to-low (FP_MANT_EQ); on a difference FCOMP_1 folds the borrow bit (RRA) with the sign (XOR C) into the final code. [RE] FP_SIGN_2/_3 collapse a sign byte to $FF(neg)/$01(pos); the exact direction of the signs-differ result was not hand-verified beyond 'bit7 of C decides'.
@@ -10053,7 +10245,7 @@ DCOMP:
         CALL FP_MOVE_TYPED
 ; ----------------------------------------------------------------------
 ; DCOMP_BODY -- core compare of FAC against the temp operand staged at ARG2_TEMP: returns the ordering of (FAC vs temp).
-;   In:        FAC = first operand (FACHI sign in bit7, L_0CB4 exponent). Temp operand pre-staged at ARG2_TEMP: its exponent at L_0CC1, packed sign/MSB at L_0CC0, the rest descending below.
+;   In:        FAC = first operand (FACHI sign in bit7, FAC_EXP exponent). Temp operand pre-staged at ARG2_TEMP: its exponent at L_0CC1, packed sign/MSB at L_0CC0, the rest descending below.
 ;   Out:       A = ordering code on the clean path ($00 equal, $01/$FF otherwise via the FP_SIGN tail). On a mantissa-byte difference it jumps to FCOMP_1 (shared with the single comparator) to fold the borrow+sign. [RE] As in FCOMP, the signs-differ early-out (RET M) returns the raw temp sign byte C, not a normalized code.
 ;   Clobbers:  A, B, C, D, E, H, L, F.
 ;   Algorithm: Same shape as FCOMP but operands are in MEMORY and the loop walks 8 bytes. If the temp exponent (L_0CC1) is 0 the temp is zero => answer SGN(FAC). Otherwise arm the FP_SIGN tail and call FP_SIGN; load C = temp sign byte (L_0CC0). If FAC==0 (Z) return A=C. If signs differ (FACHI XOR C, bit7 set) return A=C raw (RET M). With equal signs, set B=8 and compare descending from the high cells: HL starts at FACHI+1 ($0CB4) and DE at L_0CC1, BOTH decrementing each iteration (LD A,(DE) / SUB (HL) / DEC DE / DEC HL). The first differing byte jumps to FCOMP_1. A full 8-byte match drops the armed FP_SIGN return (POP BC) and RETs equal (A==0).
@@ -10142,13 +10334,13 @@ FN_CINT_2:
         ; clear FACHI bit7: work on |x| from here on
         AND $7F
         LD (FACHI),A
-        LD A,(L_0CB4)
+        LD A,(FAC_EXP)
         CP $90
         ; exponent >= $90 (magnitude >= 2^16): cannot fit a 16-bit integer
         JP NC,RAISE_OVERFLOW
         ; shift the aligned mantissa down to a raw 16-bit integer magnitude
         CALL FP_SHIFT_MANTISSA
-        LD A,(L_0CB4)
+        LD A,(FAC_EXP)
         OR A
         JP NZ,FN_CINT_3
         POP AF
@@ -10173,14 +10365,14 @@ FN_CINT_6:
         PUSH HL
 ; ----------------------------------------------------------------------
 ; FP_TO_INT -- convert the (positive-magnitude) FAC float to a 16-bit integer in HL, with an overflow guard, then store and tag it integer.
-;   In:        FAC = a positive/pre-magnituded float; exponent at L_0CB4.
+;   In:        FAC = a positive/pre-magnituded float; exponent at FAC_EXP.
 ;   Out:       16-bit integer stored into the FAC (via FP_TO_INT_1 -> FP_STORE_FAC_INT) with VALTYP=VT_INT. If the exponent is >= $90 control diverts to FP_TO_INT_RANGE for the boundary/overflow check.
 ;   Clobbers:  A, B, C, D, E, H, L, F.
 ;   Algorithm: If exponent >= $90 the integer needs 16+ bits, so JR to FP_TO_INT_RANGE. Otherwise FP_SHIFT_MANTISSA shifts the mantissa down into a raw 16-bit magnitude, EX DE,HL moves it to HL, and FP_TO_INT_1 pops the saved hook (POP DE) and stores via FP_STORE_FAC_INT.
 ;   Note:      FN_CINT_6 (the byte just before FP_TO_INT) does LD HL,RAISE_OVERFLOW / PUSH HL before falling in, so when FP_TO_INT_RANGE returns NZ (out of range) the popped/return path lands on the overflow handler.
 ; ----------------------------------------------------------------------
 FP_TO_INT:
-        LD A,(L_0CB4)
+        LD A,(FAC_EXP)
         CP $90
         ; exponent >= $90: handle the 16-bit boundary / overflow separately
         JR NC,FP_TO_INT_RANGE
@@ -10246,7 +10438,7 @@ FN_CSNG:
         JP Z,RAISE_TYPE_MISMATCH
 ; ----------------------------------------------------------------------
 ; FIX_TO_INT -- narrow a double to single precision: round the double mantissa and re-normalize as a single (the double->single step shared by CSNG's double case and CINT's double path).
-;   In:        FAC = a double-precision value (exponent L_0CB4, mantissa bytes from L_0CB0 up through FACHI).
+;   In:        FAC = a double-precision value (exponent FAC_EXP, mantissa bytes from L_0CB0 up through FACHI).
 ;   Out:       FAC re-normalized as single precision; VALTYP set to VT_SNG (=4) via the SET_TYPE_DOUBLE_1+1 sub-entry.
 ;   Clobbers:  A, B, C, D, E, H, L, F.
 ;   Algorithm: Load the FAC mantissa into registers (FP_LOAD_FAC) and set VALTYP=single (CALL SET_TYPE_DOUBLE_1+1: the +1 entry runs 'LD A,$04'). If the loaded high byte B is zero the value is already in range -> RET. Otherwise unpack the hidden MSB and sign (FP_UNPACK_MSB), fetch the extension/round byte from L_0CB0 into B, and JP FP_PACK_ROUND to apply rounding and re-store the normalized single.
@@ -10355,7 +10547,7 @@ REQUIRE_STRING:
         JP RAISE_TYPE_MISMATCH
 ; ----------------------------------------------------------------------
 ; FP_SHIFT_MANTISSA -- load the FAC mantissa and shift it right by a bit count derived from A, producing a right-aligned magnitude with rounding (used to extract the integer part for FP->int and to align an addend in FADD).
-;   In:        A = the shift seed (also copied into B,C and then D,E). FAC = the value whose mantissa is shifted (exponent at L_0CB4). HL = a caller pointer (saved/restored).
+;   In:        A = the shift seed (also copied into B,C and then D,E). FAC = the value whose mantissa is shifted (exponent at FAC_EXP). HL = a caller pointer (saved/restored).
 ;   Out:       The mantissa right-shifted with rounding applied; on a negative value the result is two's-complemented (FCOMPL). The shifted magnitude is left in the working registers (the FP->int callers then EX DE,HL to get HL). HL restored on exit.
 ;   Clobbers:  A, B, C, D, E, H, L, F.
 ;   Algorithm: Seed B=C=A (entry) then D=E=A; if A==0 there is nothing to shift -> RET. Save HL, load the FAC mantissa (FP_LOAD_FAC) and unpack the hidden MSB + sign (FP_UNPACK_MSB, returning the sign-fold in A); XOR (HL) to fold in the sign and stash it in H. If negative (M) adjust the counter with DEC_DE_WITH_BORROW. Compute the shift distance ($98 - B) and shift the mantissa right that many places (MANT_SHIFT_BYTES). RLA tests the bit shifted out: on carry round up (FADD_ROUND_CARRY); set B=0; then if a final carry remains two's-complement the result (FCOMPL). Restore HL and RET.
@@ -10460,7 +10652,7 @@ FN_INT_FLOOR:
 ;   Algorithm: If exponent >= $98 the value has no fractional bits -> return (A loaded from FAC low). Otherwise shift the mantissa right by the exponent via FP_SHIFT_MANTISSA so the fraction falls off, force the exponent to $98, then fold the shifted-out rounding bit back (LD A,C / RLA / FADD_COMBINE) to renormalize. Also reached directly by the transcendental functions (EXP at $5D01, the SIN/COS path at $5E4C, and the SQR-area helper at $5CC4) to extract the integer part of a scaled argument.
 ; ----------------------------------------------------------------------
 FIX_SCALE:
-        LD HL,L_0CB4
+        LD HL,FAC_EXP
         LD A,(HL)
         ; exponent >= $98 means no fractional bits remain: already an integral float
         CP $98
@@ -10480,7 +10672,7 @@ FIX_SCALE:
         POP AF
         RET
 FIX_SCALE_1:
-        LD HL,L_0CB4
+        LD HL,FAC_EXP
         LD A,(HL)
         CP $90
         JR NZ,FIX_SCALE_4
@@ -10926,7 +11118,7 @@ DADD:
         LD B,A
         DEC HL
         LD C,(HL)
-        LD DE,L_0CB4
+        LD DE,FAC_EXP
         LD A,(DE)
         OR A
         ; FAC exponent 0 => FAC is zero => result is just ARG; copy ARG into FAC and return
@@ -11022,7 +11214,7 @@ DADD_NORMALIZE_CHECK_MSB:
         LD A,B
         OR A
         JR Z,DADD_ROUND_AND_SIGN
-        LD HL,L_0CB4
+        LD HL,FAC_EXP
         ADD A,(HL)
         LD (HL),A
         ; exponent underflowed below the bias => too small to represent => zero
@@ -11292,7 +11484,7 @@ DP_CONST_2:
 ;   Algorithm: For small magnitudes (exponent < $41) just multiply FAC by the precomputed 0.1 constant (DMUL) and return -- this is x/10 directly. For larger values it computes x/10 by an iterative exponent-shifted self-add series: if FAC is negative, strip the sign and defer a closing FP_NEG (PUSH HL). Seed with a couple of DP_DEC_EXP + DADD steps, then iterate 15 times (LD A,$0F): each pass drops the ARG exponent by 4 (DP_DEC_EXP_BY4 ~ one decimal place), saves the operand across an inner DADD (DP_PUSH_OPERAND/DADD/DP_POP_OPERAND) to add the next correction term, and a final 3x DP_DEC_EXP trims the exponent. [RE] The series structure is observed; the exact convergence method and why exactly 15 passes (and the precise meaning of the seed/trim DP_DEC_EXP steps) is UNKNOWN -- it is some correction/series expansion of 1/10, not proven to be Newton reciprocal iteration.
 ; ----------------------------------------------------------------------
 FIN_DSCALE_DIV10:
-        LD A,(L_0CB4)
+        LD A,(FAC_EXP)
         CP $41
         ; exponent >= $41: use the iterative refinement instead of the single 0.1 multiply
         JP NC,FIN_DSCALE_DIV10_REFINE
@@ -11346,7 +11538,7 @@ FIN_DSCALE_DIV10_ITER:
 ;   Algorithm: DEC the exponent byte; a zero result means the magnitude scaled below representable range, so set the whole FAC to zero. Used by the /10 scaler to track the exponent across its shifts.
 ; ----------------------------------------------------------------------
 DP_DEC_EXP:
-        LD HL,L_0CB4
+        LD HL,FAC_EXP
         DEC (HL)
         RET NZ
         ; exponent underflowed to 0 => result is zero
@@ -11425,7 +11617,7 @@ DDIV:
         OR A
         ; divisor exponent 0 => division by zero
         JP Z,FIN_DONE_15
-        LD A,(L_0CB4)
+        LD A,(FAC_EXP)
         OR A
         ; dividend exponent 0 => quotient is zero
         JP Z,FP_SET_ZERO
@@ -11471,7 +11663,7 @@ DDIV_RECORD_DIGIT:
         OR A
         ; more bits remain in this quotient byte (bit counter B not yet zero)
         JR NZ,DDIV_DIGIT_LOOP
-        LD HL,L_0CB4
+        LD HL,FAC_EXP
         DEC (HL)
         ; exponent still positive: keep producing quotient digits
         JR NZ,DDIV_DIGIT_LOOP
@@ -11535,7 +11727,7 @@ FIN:
 ; [RE] FIN flag-skip (VERIFIED). F6 AF = OR $AF on FIN's top entry can never give zero, so Z stays clear and the later CALL Z,FP_STORE_FAC_INT ($54B9) is skipped (parse from FAC=0). The five +1 entrants run the operand AF = XOR A, setting Z so FP_STORE_FAC_INT pre-seeds the FAC integer first. Z is carried across PUSH AF/POP AF ($54AC/$54B2). The OR operand $AF is exactly the XOR A opcode. MBASIC FIN_1 byte-identical.
 FIN_1:
         OR $AF
-        LD BC,BLOCK_SCAN_FORNEXT_11
+        LD BC,FIN_EPILOGUE_SNAPSHOT_EVAL_FLAG
         PUSH BC
         PUSH AF
         LD A,$01
@@ -12457,7 +12649,7 @@ FOUT_SCALE10:
         CALL FRMEVL_TEST_TYPE
         JP PO,FOUT_SCALE10_2
 FOUT_SCALE10_1:
-        LD A,(L_0CB4)
+        LD A,(FAC_EXP)
         CP $91
         JP NC,FOUT_SCALE10_2
         LD DE,FOUT_DIGITS_INT_3
@@ -12938,10 +13130,10 @@ FN_SQR_4:
 ; FN_EXP -- EXP(x) e^x handler (token $0B); also the back half of the x^y power kernel
 ;   In:        FAC holds x (the exponent); reached as a function or by FN_SQR after exp*LOG(base)
 ;   Out:       FAC = e^x; underflow returns 0, overflow raises via FIN_DONE_9
-;   Clobbers:  FAC, FP work stack, A/BC/DE/HL, L_0CB4
+;   Clobbers:  FAC, FP work stack, A/BC/DE/HL, FAC_EXP
 ;   Algorithm: e^x = 2^(x*log2 e). Multiply x by log2(e) (operand B=$81, C/D/E=$38,$AA,$3B =
 ;              MBF 1.442695) so the problem becomes 2^v. Magnitude guards on the scaled exponent
-;              L_0CB4: >= $88 -> the large-magnitude path FN_EXP_1, which then splits by the
+;              FAC_EXP: >= $88 -> the large-magnitude path FN_EXP_1, which then splits by the
 ;              FACHI sign (positive -> FIN_DONE_9 overflow, negative -> FP_SET_ZERO underflow=0);
 ;              < $68 -> v ~ 0, return MBF 1.0 (FN_EXP_4). Otherwise split v into integer part i
 ;              and fraction f (FIX_SCALE), bias i as an MBF exponent (ADD $81), approximate 2^f
@@ -12953,7 +13145,7 @@ FN_EXP:
         LD BC,$8138
         LD DE,$AA3B
         CALL FMUL
-        LD A,(L_0CB4)
+        LD A,(FAC_EXP)
         ; magnitude guard: scaled exponent too large -> large-magnitude path (overflow if positive, underflow->0 if negative)
         CP $88
         JP NC,FN_EXP_1
@@ -13064,7 +13256,7 @@ POLY_EVAL_1:
         POP HL
         ; loop back through the cover byte (runs $F1 as POP AF) for the next coefficient
         JR POLY_EVAL_1+1
-L_5D85:
+RND_SEED_DEFAULT:
         DEFB    $52,$C7,$4F,$80
 POLY_EVAL_2:
         CALL CHRGET
@@ -13213,10 +13405,10 @@ FN_COS:
         CALL FADD_FROM_MEM
 ; ----------------------------------------------------------------------
 ; FN_SIN -- SIN(x) sine handler (token $09); also the shared tail of COS and TAN
-;   In:        FAC = x (radians); L_0CB4 = FAC exponent
+;   In:        FAC = x (radians); FAC_EXP = FAC exponent
 ;   Out:       FAC = sin(x)
 ;   Clobbers:  FAC, FP work stack, A/BC/DE/HL, FACHI
-;   Algorithm: Small-angle fast path: if the exponent L_0CB4 < $77 (|x| ~< 2^-8) return x
+;   Algorithm: Small-angle fast path: if the exponent FAC_EXP < $77 (|x| ~< 2^-8) return x
 ;              unchanged. Else range-reduce: multiply by 1/(2*pi) (operand B=$7E,C/D/E=$22,$F9,$83
 ;              = 0.15915) so a full period is 1.0, take the fractional part (FIX_SCALE + FSUB) to
 ;              land in [0,1). Fold that fraction into the first quadrant via the compares against
@@ -13226,7 +13418,7 @@ FN_COS:
 ;              matches the original quadrant. [RE] the exact quadrant arithmetic is inferred.
 ; ----------------------------------------------------------------------
 FN_SIN:
-        LD A,(L_0CB4)
+        LD A,(FAC_EXP)
         CP $77
         ; small-angle shortcut: for tiny |x| (exponent < $77), sin(x) ~= x, return the argument unchanged
         RET C
@@ -13311,10 +13503,10 @@ FN_TAN:
 ; FN_ATN -- ATN(x) arctangent handler (token $0E)
 ;   In:        FAC = x
 ;   Out:       FAC = atan(x) in radians, range (-pi/2, pi/2)
-;   Clobbers:  FAC, FP work stack, A/BC/DE/HL, L_0CB4
+;   Clobbers:  FAC, FP work stack, A/BC/DE/HL, FAC_EXP
 ;   Algorithm: Reduce to a non-negative argument <= 1 via two identities. atan(-x) = -atan(x):
 ;              for x<0, queue a final negate (FAC_NEGATE_VIA) and take |x| (FP_NEG). atan(x) =
-;              pi/2 - atan(1/x) for |x|>=1: if the exponent L_0CB4 >= $81, FDIV 1/x (operand 1.0)
+;              pi/2 - atan(1/x) for |x|>=1: if the exponent FAC_EXP >= $81, FDIV 1/x (operand 1.0)
 ;              and queue FADD_FROM_MEM_1, which on return loads (HL) and SUBTRACTS the series
 ;              result from it (FADD_FROM_MEM_1 = load then FSUB = operand - FAC). Then evaluate
 ;              the odd arctangent series x*P(x^2) over FP_POLY_ATN_COEFFS (POLY_EVAL_ODD) and set
@@ -13326,7 +13518,7 @@ FN_ATN:
         CALL M,FAC_NEGATE_VIA
         ; work with |x| from here on
         CALL M,FP_NEG
-        LD A,(L_0CB4)
+        LD A,(FAC_EXP)
         ; if exponent >= $81 (|x| >= 1) use atan(x) = pi/2 - atan(1/x) to keep the series argument small
         CP $81
         JR C,FN_ATN_1
@@ -13356,21 +13548,43 @@ L_5F27:
         DEFB    $C8,$CD
         DEFW    SYNCHR
         DEFB    ","
-; [RE] PTRGET front-end: scan a variable name at the BASIC text pointer (HL). Accumulates the leading alpha + following alphanumerics (high-bit set) into the VARNAM buffer $0871, honouring type-suffix chars %/$/!/# to set VALTYP $0B14 (and the default-type table at $0B36), then falls into the table search at PTRGET_SEARCH ($5FC9). Called by LET ($5F35) and FRMEVL operand fetch. PTRGET_1 ($5F34, OR $AF) is a dual-entry skip idiom: the $F6 (OR n) opcode consumes the next byte ($AF), so falling in from PUSH BC leaves A non-zero; entering at PTRGET_1+1 ($5F35) via CALL runs that $AF byte as XOR A, zeroing A. Both reach LD ($0B13),A at $5F36 with the entry-selected flag. Every CALL $5F35 is written PTRGET_1+1 so it relocates.
+; ----------------------------------------------------------------------
+; PTRGET -- variable-reference front-end: parse a variable name at the BASIC text pointer, resolve its value type, then locate or create its storage.
+;   In:        HL -> BASIC text just before the variable name (first letter fetched via LD C,(HL)). PTRGET_SUBSCRIPT_FLAG ($0B52), preset by the caller, selects scalar-only vs array-or-scalar resolution. Entry mode sets the create context: falling in from the PTRGET head (the DIM dispatch DEFW PTRGET at $0112) runs OR $AF, leaving PTRGET_CREATE_FLAG ($0B13) nonzero ('DIM / array-create' context); the 22 CALL PTRGET_1+1 callers run the same byte as XOR A, zeroing it.
+;   Out:       DE -> the variable's value storage (located or newly created). VALTYP ($0B14) = resolved type (2=int/3=str/4=sng/8=dbl). The search key is held in C (name char 0), B (name char 1), VALTYP, and VARNAM ($0871 length + $0872+ ext chars). HL advanced past the name and any type suffix.
+;   Clobbers:  AF,BC,DE,HL, VALTYP, PTRGET_CREATE_FLAG, VARNAM, plus the table-walk state in PTRGET_SEARCH which it falls into. Consumes PTRGET_SUBSCRIPT_FLAG.
+;   Algorithm: Push the L_5F27 continuation tail (rewind+CHRGET+optional SYNCHR ',') as the return address, then set the create-context flag from the entry point (PTRGET_1). Require the first character to be a letter (else SYNTAX ERROR) and keep it in C. Scan following alphanumerics (plus '.') high-bit-set into the VARNAM extension buffer, capping the name length at $27 ext chars. Apply an explicit type suffix if present -- '%' int, '$' string, '!' single, '#' double -- otherwise look up the default type for the first letter in DEFTYPE_TBL. Store the result in VALTYP, CHRGET past the name, and fall into PTRGET_SEARCH to find/allocate the variable (array path if a '(' or '[' follows and the subscript flag permits). [RE] PTRGET_CREATE_FLAG is NOT a search-key field; it is read only in the array path to raise Duplicate Definition under DIM.
+; ----------------------------------------------------------------------
 PTRGET:
+        ; Push the shared post-PTRGET continuation tail (rewind text ptr, re-CHRGET, optionally accept the trailing ',') as the return address so every exit funnels through it.
         LD BC,L_5F27
         PUSH BC
-; [RE] VERIFIED flag-skip (count corrected to 22 CALL +1 sites, not 23). PTRGET_1 ($5F34) opcode-eating flag select. Fall-through from the PTRGET head -- reached via the DIM statement dispatch DEFW PTRGET at $0112 -- runs OR $AF (F6 swallows the AF), leaving A nonzero so $0B13 gets the 'array/create' context; the 22 CALL PTRGET_1+1 ($5F35) callers run that AF as XOR A, zeroing A and $0B13. Both reach LD ($0B13),A at $5F36. Cover genuinely executed (DIM path); MBASIC twin matches (22 sites).
+; ----------------------------------------------------------------------
+; PTRGET_1 -- dual-entry create-context selector (opcode-eating flag skip).
+;   In:        Reached two ways. (1) Fall-through from the PTRGET head: the OR $AF executes and leaves A nonzero (the DIM dispatch path). (2) CALL PTRGET_1+1 from the 22 reference callers: the $AF byte is then executed as XOR A, zeroing A.
+;   Out:       PTRGET_CREATE_FLAG ($0B13) = A (nonzero = DIM/array-create context, zero = plain reference). C = (HL) = the name's first character. Falls into PTRGET_2.
+;   Clobbers:  A, C, flags, PTRGET_CREATE_FLAG.
+;   Algorithm: Store the entry-selected A into PTRGET_CREATE_FLAG, load the first name char into C, and continue into the name scanner. The $F6 (OR n) opcode at PTRGET_1 swallows the following $AF, so falling in runs 'OR $AF' (A stays nonzero) while entering at +1 runs 'XOR A' (A becomes zero) -- one byte serves as both the flag value and its create-context discriminator. [RE] The flag's only observed effect is the array Duplicate-Definition check in PTRGET_SEARCH; it does not gate scalar creation.
+; ----------------------------------------------------------------------
 PTRGET_1:
         OR $AF
-        LD (L_0B13),A
+        LD (PTRGET_CREATE_FLAG),A
         LD C,(HL)
+; ----------------------------------------------------------------------
+; PTRGET_2 -- name-scan head: validate the first letter and seed the scan state.
+;   In:        HL -> first character of the variable name; C = that character.
+;   Out:       On a valid letter: VARNAM length byte ($0871) cleared to 0, B=0, HL advanced one char, A = the next (second) character; control branches on that char to classify the rest of the name. A non-letter first char raises SYNTAX ERROR.
+;   Clobbers:  A, B, HL, flags, VARNAM[0].
+;   Algorithm: Require an alphabetic first character (IS_LETTER -> carry on non-letter -> SYNTAX ERROR). Clear the name-extension length and the extension-byte counter (B), step past the first letter, fetch the second character, and classify it: below '.' ($2E) -> end of name (PTRGET_7, suffix/type); '.' itself or a digit '0'-'9' -> accumulate (PTRGET_4); a gap char ('/' or any char >= ':') falls to PTRGET_3 for an explicit letter re-test (a letter accumulates, anything else ends the name).
+; ----------------------------------------------------------------------
 PTRGET_2:
+        ; A variable name must start with a letter; reject anything else (SYNTAX ERROR).
         CALL IS_LETTER
         JP C,RAISE_SYNTAX_ERROR
         XOR A
         LD B,A
-        LD (L_0871),A
+        ; Clear the name-extension length (no extra chars accumulated yet).
+        LD (VARNAM_EXTLEN),A
         INC HL
         LD A,(HL)
         CP $2E
@@ -13380,15 +13594,38 @@ PTRGET_2:
         JR NC,PTRGET_3
         CP $30
         JR NC,PTRGET_4
+; ----------------------------------------------------------------------
+; PTRGET_3 -- classify a non-digit, non-'.' next character as letter-or-terminator.
+;   In:        A = the candidate character (reached when it is not below '.', not '.', and not a digit -- i.e. '/' or any char >= ':').
+;   Out:       If A is a letter, fall into PTRGET_4 to accumulate it; otherwise the name has ended -> PTRGET_7 (suffix/type resolution).
+;   Clobbers:  A unchanged in value, flags.
+;   Algorithm: Re-run the letter test (IS_LETTER_A on the char already in A). Carry set => not a letter => end the name (PTRGET_7). Carry clear => a letter => fall into the accumulation entry PTRGET_4.
+; ----------------------------------------------------------------------
 PTRGET_3:
         CALL IS_LETTER_A
         JR C,PTRGET_7
+; ----------------------------------------------------------------------
+; PTRGET_4 -- begin accumulating the name-extension characters (chars 3..N).
+;   In:        A = an accepted name character (letter or digit) to be the first stored extension byte; HL -> just past it in the text; C = first name char.
+;   Out:       BC pushed (C = first name char, B = second name char just placed by LD B,A); B reset to $FF as the extension counter (pre-incremented to 0 on the first store); DE -> VARNAM extension cell ($0871). Falls into the PTRGET_5 store loop.
+;   Clobbers:  B, DE, flags; pushes BC.
+;   Algorithm: Record the second name char in B and stash BC (the two packed name chars) on the stack, initialise the extension-length counter B to $FF so the first INC B yields 0, point DE at VARNAM, and drop into the per-char store loop. [RE] Note DE points at the $0871 length cell; the first store overwrites it, then the loop walks into $0872+ -- the final length is rewritten into $0871 by PTRGET_6.
+; ----------------------------------------------------------------------
 PTRGET_4:
         LD B,A
         PUSH BC
+        ; Seed the extension-length counter so the first stored char makes it 0.
         LD B,$FF
-        LD DE,L_0871
+        LD DE,VARNAM_EXTLEN
+; ----------------------------------------------------------------------
+; PTRGET_5 -- name-extension store loop: append one identifier char and fetch the next.
+;   In:        A = the character to store; DE -> next VARNAM slot; B = chars stored so far; HL -> current text position.
+;   Out:       A stored (high bit set) at (DE); DE and HL advanced; B incremented; A = the next text character, classified to either loop again (digit) or exit to PTRGET_6 (>= ':').
+;   Clobbers:  A, B, DE, HL, flags, VARNAM[].
+;   Algorithm: Mark the char with bit 7 (the name buffer stores high-bit-set ASCII), write it, bump the count and both pointers, then read the next text char. A digit ('0'..'9') loops immediately; anything >= ':' goes to PTRGET_6 for the letter/'.' re-test.
+; ----------------------------------------------------------------------
 PTRGET_5:
+        ; Store identifier chars with bit 7 set (the name buffer's high-bit convention).
         OR $80
         INC B
         LD (DE),A
@@ -13399,22 +13636,40 @@ PTRGET_5:
         JR NC,PTRGET_6
         CP $30
         JR NC,PTRGET_5
+; ----------------------------------------------------------------------
+; PTRGET_6 -- continuation test + name-length cap, then close the name scan.
+;   In:        A = the next text character (>= ':'); B = extension chars stored so far; HL -> that char; the packed name BC is on the stack.
+;   Out:       If the char still belongs to the name (a letter, or '.') loop back to PTRGET_5. Otherwise: enforce the $27 ext-char limit (SYNTAX ERROR if >= $27), restore BC, write the final extension length into VARNAM[0], reload the terminating char into A, and fall into PTRGET_7.
+;   Clobbers:  A, BC (restored), flags, VARNAM[0].
+;   Algorithm: A letter (IS_LETTER_A -> no carry) or a '.' continues the name (back to PTRGET_5). On a true terminator, load B and CP $27 -- JP NC raises SYNTAX ERROR when the extension count reaches/exceeds $27. POP the two packed name chars back into BC, write the accumulated extension length (A=B) into VARNAM[0], reload the terminating char, and proceed to type-suffix resolution.
+; ----------------------------------------------------------------------
 PTRGET_6:
         CALL IS_LETTER_A
         JR NC,PTRGET_5
         CP $2E
         JR Z,PTRGET_5
         LD A,B
+        ; Cap the identifier length at $27 name-extension chars; >= $27 is a SYNTAX ERROR.
         CP $27
         JP NC,RAISE_SYNTAX_ERROR
         POP BC
-        LD (L_0871),A
+        ; Record the final name-extension length into VARNAM[0].
+        LD (VARNAM_EXTLEN),A
         LD A,(HL)
+; ----------------------------------------------------------------------
+; PTRGET_7 -- explicit type-suffix resolution (%, $, !, #).
+;   In:        A = the character terminating the name; HL -> that char.
+;   Out:       If A is a type-suffix char, D = the matching VALTYP (%=2 int, $=3 str, !=4 sng, #=8 dbl) and RET returns to the PTRGET_10 address pushed here, so the suffix decides the type and is consumed by PTRGET_10's CHRGET. If A is not a suffix (or is >= '&'), drop the queued PTRGET_10 return and fall into PTRGET_8 for the per-letter default type.
+;   Clobbers:  A unchanged, D, flags; pushes then conditionally pops the PTRGET_10 return address.
+;   Algorithm: Chars >= '&' ($26) cannot be a suffix -> PTRGET_8. Otherwise push PTRGET_10 as a return target, LD D,$02, then test A against '%','$','!','#'; the first match leaves D at the corresponding VALTYP (INC D after '%' and after '$'; LD D,$08 before '#') and RETs (landing at PTRGET_10). No match falls through to POP AF (discarding the PTRGET_10 return) and PTRGET_8 for the default-type lookup.
+; ----------------------------------------------------------------------
 PTRGET_7:
         CP $26
         JR NC,PTRGET_8
+        ; Queue PTRGET_10 as the return so a matched suffix lands directly on the VALTYP-store with D=type.
         LD DE,PTRGET_10
         PUSH DE
+        ; Start the suffix type at integer (2); INC D below advances it for '$' (3) and '!' (4); '#' is forced to 8 (double).
         LD D,$02
         CP $25
         RET Z
@@ -13428,22 +13683,47 @@ PTRGET_7:
         CP $23
         RET Z
         POP AF
+; ----------------------------------------------------------------------
+; PTRGET_8 -- per-letter default-type setup (no explicit suffix present).
+;   In:        C = the name's first character (plain ASCII from text); HL -> the char following the name (the PTRGET_10 return having been discarded in PTRGET_7).
+;   Out:       DE = (first-letter code & $7F) as a 16-bit index; HL pushed (saved across the table lookup). Falls into PTRGET_9.
+;   Clobbers:  A, DE, flags; pushes HL.
+;   Algorithm: Mask the first letter to 7 bits to get its ASCII code ($41..$5A for A..Z), zero-extend to DE as a table index, save the text pointer, and continue into the DEFTYPE_TBL lookup. [RE] C is loaded raw from text so bit 7 is normally already clear; the AND $7F is defensive.
+; ----------------------------------------------------------------------
 PTRGET_8:
         LD A,C
+        ; Mask to 7 bits to get the plain ASCII code of the name's first letter (the DEFTYPE_TBL index).
         AND $7F
         LD E,A
         LD D,$00
         PUSH HL
         LD HL,DEFTYPE_TBL-$41
+; ----------------------------------------------------------------------
+; PTRGET_9 -- DEFTYPE_TBL lookup: read the default value-type for the name's first letter.
+;   In:        HL = DEFTYPE_TBL-$41 (= $0B36); DE = the first letter's ASCII code ($41..$5A); the text pointer is on the stack.
+;   Out:       D = the default VALTYP for that letter (the byte from DEFTYPE_TBL); HL restored to the saved text pointer and decremented by one. Falls into PTRGET_10.
+;   Clobbers:  D, HL, flags.
+;   Algorithm: ADD HL,DE turns the bias base $0B36 into &DEFTYPE_TBL[letter] (so 'A'($41) lands on $0B77 ... 'Z'($5A) on $0B90), load that default-type byte into D, restore the text pointer (POP HL) and DEC HL so the shared PTRGET_10 join's CHRGET re-reads the terminating char (it was not consumed on this path).
+; ----------------------------------------------------------------------
 PTRGET_9:
+        ; Index the per-letter default-type table: base $0B36 + first-letter ASCII code -> DEFTYPE_TBL[letter] ($0B77 for 'A').
         ADD HL,DE
         LD D,(HL)
         POP HL
         DEC HL
+; ----------------------------------------------------------------------
+; PTRGET_10 -- commit VALTYP and hand off to the variable table search.
+;   In:        D = the resolved value type (explicit suffix via PTRGET_7, or the DEFTYPE_TBL default via PTRGET_9). HL -> one before the terminating char (default path, after PTRGET_9's DEC HL) or at the suffix char (suffix path). PTRGET_SUBSCRIPT_FLAG ($0B52) selects the resolution mode.
+;   Out:       VALTYP ($0B14) = D. HL advanced past the name/suffix via CHRGET. Then dispatches on the flag: flag==1 -> PTRGET_SEARCH_22+1 (array-table entry); flag>=2 (sign positive after DEC) -> PTRGET_SEARCH (plain table search); flag==0 -> inspect the current char and divert to PTRGET_SEARCH_14 if it is '(' ($28) or '[' ($5B), else continue scalar.
+;   Clobbers:  A, HL, flags, VALTYP.
+;   Algorithm: Store D into VALTYP, CHRGET past the name/suffix, then LD A,(PTRGET_SUBSCRIPT_FLAG)/DEC A and branch: Z (flag was 1) takes the dedicated array entry PTRGET_SEARCH_22+1; positive sign (flag was >=2) continues to the plain table search; otherwise (flag was 0, A=$FF) read the current char, SUB $28 ('(' -> 0 -> array) and SUB a further $33 ('[' = $5B -> 0 -> array), diverting matches to PTRGET_SEARCH_14 and otherwise falling into the scalar search.
+; ----------------------------------------------------------------------
 PTRGET_10:
         LD A,D
+        ; Publish the resolved value type for the table search and the eventual fetch/assign.
         LD (VALTYP),A
         CALL CHRGET
+        ; Branch on the caller's resolution mode: flag 1 -> array-table entry; flag >=2 -> plain scalar search; flag 0 -> array path only if a '(' / '[' subscript follows.
         LD A,(PTRGET_SUBSCRIPT_FLAG)
         DEC A
         JP Z,PTRGET_SEARCH_22+1
@@ -13453,23 +13733,32 @@ PTRGET_10:
         JP Z,PTRGET_SEARCH_14
         SUB $33
         JP Z,PTRGET_SEARCH_14
-; [RE] PTRGET search/allocate core: walk the simple-variable table ($0B6F..$0B71) for the packed name in C/$0B14/$0871; on a hit return its address, on a miss create a new entry (allocate via STR/var-space grow, STR_COPY_DOWN/VARNAM_STORE). Detects '(' to branch to the array path (subscript eval + array search/alloc, $612C loop) honouring DIM and OPTION BASE.
+; ----------------------------------------------------------------------
+; PTRGET_SEARCH -- find or create a simple variable / array element; return the address of its value (MS BASIC-80 PTRGET).
+;   In:        C = packed name char 1 (high bit set); B = packed name char 2; VARNAM_EXTLEN ($0871) = scanned-name extra-length byte, $0872.. = extra name chars; VALTYP ($0B14) = required value type/width (VT_INT/STR/SNG/DBL); HL -> BASIC text just past the name (a '(' or '[' here selects the array path). PTRGET_CREATE_FLAG ($0B13) = create/allocate context (nonzero on the DIM/array-head path, zero for ordinary references). FN_ARG_ACTIVE ($0C64) nonzero => a DEF FN body is currently being evaluated, so its saved formal-argument block is searched first.
+;   Out:       On a hit, DE -> the variable's value bytes (SIMPLEVAR value field or the addressed ARRAYVAR element) and HL is restored to the saved text pointer (array path leaves HL = the text pointer just past the close paren, reloaded from FRMEVL_TXTPTR_TEMP). On a not-found reference from a read-only caller (one of four recognised return addresses), DE is left zero and FAC is set to a dummy numeric zero or, if VALTYP is string, the canonical empty-string descriptor. The DIM-only array path returns with carry set and no element address. [RE] The exact create/no-create return convention beyond these cases is not separately audited here.
+;   Clobbers:  A, BC, DE, HL, F; mutates VARTAB/ARYTAB/STREND and slides the array+string region when a new entry is allocated; uses scan-state cells $0C61/$0C62/$0C63 and the DEF-FN arg-block pointers $0B93/$0B95; writes FAC/VALTYP on the dummy-value path.
+;   Algorithm: Linear-scan the SIMPLE-VARIABLE table VARTAB..ARYTAB (optionally the DEF FN formal-argument block first) for an entry whose stored type and 2-byte packed name match; each entry is variable-length so the walk advances by a computed stride (SV_NAMEXTLEN + SV_VALTYP + 1). On a 2-char header match, confirm any long-name tail with VARNAM_COMPARE. On a hit return the value address. On a miss from a writable context, grow the table: STR_COPY_DOWN slides the array+string region up to open a 3-byte gap, bump ARYTAB, write {valtyp,name0,name1}, copy the name tail with VARNAM_STORE, zero the value, and return it; on a miss from a read-only caller return a shared dummy value instead. A '(' / '[' after the name diverts to the array path: evaluate the comma-separated subscripts onto the stack (counting dimensions in D), scan the ARRAY table ARYTAB..STREND by each descriptor's stored block-length stride for the name, and either index the existing array (row-major offset accumulated by ARRAY_INDEX_MUL16, each dimension range-checked against the stored AV_DIMSIZE, out-of-range -> error 9) or, if absent and PTRGET_CREATE_FLAG is set, allocate a fresh ARRAYVAR (data size = product(dimsizes)*elemwidth + headers), zero it, and store its dim list. DIM of an existing array raises 'Redimensioned array'. OPTION BASE (ARRAY_BASE_BIAS, $0C73, value 0 or 1) governs the lower-bound and default dimension size.
+; ----------------------------------------------------------------------
 PTRGET_SEARCH:
         XOR A
         LD (PTRGET_SUBSCRIPT_FLAG),A
         PUSH HL
-        LD A,(L_0C64)
+        ; If a DEF FN is being evaluated, search the function's formal-argument variable block before the global table
+        LD A,(DEFFN_ACTIVE_FLAG)
         OR A
-        LD (L_0C61),A
+        LD (FN_ARG_SCAN_PHASE),A
         JR Z,PTRGET_SEARCH_6
-        LD HL,(L_0B93)
-        LD DE,L_0B95
+        ; Compute the FN-argument block end ($0B95 + its length) as the scan limit, then start the scan at the block base $0B95 so a formal parameter shadows any global of the same name
+        LD HL,(DEFFN_FRAME_SIZE)
+        LD DE,FN_ARG_BLOCK
         ADD HL,DE
-        LD (L_0C62),HL
+        LD (GC_SCAN_LIMIT),HL
         EX DE,HL
         JR PTRGET_SEARCH_5
 ; [RE] SIMPLE-VARIABLE table scan (SIMPLEVAR walk). DE walks VARTAB..ARYTAB. Per entry: read SV_VALTYP into L ($5FE4), compare SV_NAME0 to C ($5FE9) and live VALTYP $0B14 to L ($5FEC) and SV_NAME1 to B ($5FF3). On a 2-char hit -> PTRGET_SEARCH_10 (checks SV_NAMEXTLEN/long-name match). On miss, fall through to the computed-stride advance: next = cur + (SV_NAMEXTLEN + SV_VALTYP + 1). Sequential walk -- no base+offset access. See msbasic_var.inc.
 PTRGET_SEARCH_1:
+        ; Simple-variable scan: read SV_VALTYP, then match SV_NAME0 to C, the live VALTYP, and SV_NAME1 to B
         LD A,(DE)
         LD L,A
         INC DE
@@ -13495,20 +13784,22 @@ PTRGET_SEARCH_4:
         ADD HL,DE
 PTRGET_SEARCH_5:
         EX DE,HL
-        LD A,(L_0C62)
+        ; Reached the table limit? If still scanning the FN-arg block, switch to the main VARTAB pass; otherwise the variable does not exist
+        LD A,(GC_SCAN_LIMIT)
         CP E
         JP NZ,PTRGET_SEARCH_1
-        LD A,(L_0C63)
+        LD A,(VARSCAN_LIMIT_HI)
         CP D
         JR NZ,PTRGET_SEARCH_1
-        LD A,(L_0C61)
+        LD A,(FN_ARG_SCAN_PHASE)
         OR A
         JR Z,PTRGET_SEARCH_8
         XOR A
-        LD (L_0C61),A
+        LD (FN_ARG_SCAN_PHASE),A
 PTRGET_SEARCH_6:
+        ; Set up the main pass: scan VARTAB up to ARYTAB (the end of the simple-variable table)
         LD HL,(ARYTAB)
-        LD (L_0C62),HL
+        LD (GC_SCAN_LIMIT),HL
         LD HL,(VARTAB)
         JR PTRGET_SEARCH_5
 PTRGET_SEARCH_7:
@@ -13521,6 +13812,7 @@ PTRGET_SEARCH_8:
         POP HL
         EX (SP),HL
         PUSH DE
+        ; Variable not found: if the caller is one of the read-only reference contexts (these return addresses), hand back a shared dummy value instead of allocating a new variable
         LD DE,FRMEVL_EVAL_OPERAND_4
         CALL CMP_HL_DE
         JR Z,PTRGET_SEARCH_7
@@ -13539,7 +13831,7 @@ PTRGET_SEARCH_8:
         PUSH BC
         LD A,(VALTYP)
         LD B,A
-        LD A,(L_0871)
+        LD A,(VARNAM_EXTLEN)
         ADD A,B
         INC A
         LD C,A
@@ -13553,6 +13845,7 @@ PTRGET_SEARCH_8:
         ADD HL,BC
         POP BC
         PUSH HL
+        ; Allocate a new SIMPLEVAR: slide the array+string region up by 3 bytes to open a gap, then bump ARYTAB
         CALL STR_COPY_DOWN
         POP HL
         LD (STREND),HL
@@ -13571,6 +13864,7 @@ PTRGET_SEARCH_9:
         LD (HL),E
         INC HL
         LD (HL),D
+        ; Copy the new entry's name tail (the type and 2-char packed name were just written inline above)
         CALL VARNAM_STORE
         EX DE,HL
         INC DE
@@ -13578,8 +13872,9 @@ PTRGET_SEARCH_9:
         RET
 ; [RE] SIMPLE-VARIABLE long-name confirm: a 2-char header matched; now compare SV_NAMEXTLEN (offset $03, $608D) to the scanned name's extra-length ($0871). If both 0 -> exact short-name hit, return DE -> value ($6095 INC DE). Else VARNAM_COMPARE the namext bytes; on mismatch resume the stride walk (PTRGET_SEARCH_4).
 PTRGET_SEARCH_10:
+        ; Short-name (<=2 char) hit: SV_NAMEXTLEN is 0, so the value follows immediately -- return its address
         INC DE
-        LD A,(L_0871)
+        LD A,(VARNAM_EXTLEN)
         LD H,A
         LD A,(DE)
         CP H
@@ -13591,32 +13886,35 @@ PTRGET_SEARCH_10:
         RET
 PTRGET_SEARCH_11:
         EX DE,HL
+        ; Long-name confirm: compare the name-extension tail; on mismatch resume the stride walk
         CALL VARNAM_COMPARE
         EX DE,HL
         JP NZ,PTRGET_SEARCH_4
         POP HL
         RET
 PTRGET_SEARCH_12:
-        LD (L_0CB4),A
+        ; Read-only reference not found: build a dummy result -- clear FAC to numeric zero, or set FAC to the empty-string descriptor if the required type is string
+        LD (FAC_EXP),A
         LD H,A
         LD L,A
         LD (FAC),HL
         CALL FRMEVL_TEST_TYPE
         JR NZ,PTRGET_SEARCH_13
-        LD HL,L_0CF1
+        LD HL,EMPTY_STRING_DESC
         LD (FAC),HL
 PTRGET_SEARCH_13:
         POP HL
         RET
 PTRGET_SEARCH_14:
         PUSH HL
-        LD HL,(L_0B13)
+        ; Array path: stash the create/allocate flag (with VALTYP) and begin evaluating the comma-separated subscript list
+        LD HL,(PTRGET_CREATE_FLAG)
         EX (SP),HL
         LD D,A
 PTRGET_SEARCH_15:
         PUSH DE
         PUSH BC
-        LD DE,L_0871
+        LD DE,VARNAM_EXTLEN
         LD A,(DE)
         OR A
         JR Z,PTRGET_SEARCH_18
@@ -13624,6 +13922,7 @@ PTRGET_SEARCH_15:
         ADD A,$02
         RRA
         LD C,A
+        ; Ensure stack room, then re-push the already-evaluated subscripts so this dimension's index can be evaluated on top
         CALL CHECK_STACK_ROOM
         LD A,C
 PTRGET_SEARCH_16:
@@ -13635,12 +13934,13 @@ PTRGET_SEARCH_16:
         DEC A
         JR NZ,PTRGET_SEARCH_16
         PUSH HL
-        LD A,(L_0871)
+        LD A,(VARNAM_EXTLEN)
         PUSH AF
         EX DE,HL
+        ; Evaluate one subscript expression to a non-negative 16-bit integer (0..32767)
         CALL GETINT_CHRGET_POS
         POP AF
-        LD (L_0898),HL
+        LD (ARRAY_SUBSCRIPT_SAVE),HL
         POP HL
         ADD A,$02
         RRA
@@ -13652,14 +13952,14 @@ PTRGET_SEARCH_17:
         LD (HL),C
         DEC A
         JR NZ,PTRGET_SEARCH_17
-        LD HL,(L_0898)
+        LD HL,(ARRAY_SUBSCRIPT_SAVE)
         JR PTRGET_SEARCH_19
 PTRGET_SEARCH_18:
         CALL GETINT_CHRGET_POS
         XOR A
-        LD (L_0871),A
+        LD (VARNAM_EXTLEN),A
 PTRGET_SEARCH_19:
-        LD A,(L_0C73)
+        LD A,(OPTION_BASE_VALUE)
         OR A
         JR Z,PTRGET_SEARCH_20
         LD A,D
@@ -13676,6 +13976,7 @@ PTRGET_SEARCH_20:
         INC A
         LD D,A
         LD A,(HL)
+        ; ',' means another dimension follows; ')' or ']' closes the subscript list
         CP $2C
         JP Z,PTRGET_SEARCH_15
         CP $29
@@ -13686,11 +13987,12 @@ PTRGET_SEARCH_21:
         CALL CHRGET
         LD (FRMEVL_TXTPTR_TEMP),HL
         POP HL
-        LD (L_0B13),HL
+        LD (PTRGET_CREATE_FLAG),HL
         LD E,$00
         PUSH DE
 ; [RE] VERIFIED flag-skip. PTRGET_SEARCH_23 ($612C) opcode-eating entry. Fall-through (from PTRGET_SEARCH_22 PUSH DE at $612B) executes LD DE,$F5E5; the $11 opcode swallows E5 F5 so the first pass skips PUSH HL/PUSH AF and loads a dead DE. The two +1 entrants ($612D, JP Z at $5FB8 / CALL at $7389) run E5 F5 as PUSH HL / PUSH AF to save caller state. Both reach LD HL,($0B71) at $612F. Cover genuinely executed; MBASIC twin (SUB_3D4E_6, still machine-labeled) byte-identical.
 PTRGET_SEARCH_22:
+        ; Scan the ARRAY table (ARYTAB..STREND) for a matching name, stepping by each descriptor's stored block length
         LD DE,$F5E5
         LD HL,(ARYTAB)
 ; [RE] VERIFIED flag-skip. PTRGET_SEARCH_24 ($6132) opcode-eating loop advance. Fall-through (from $612F) runs LD A,$19 (3E swallows 19); the first array-table pass skips ADD HL,DE because HL is already at the table head. The loop re-enters via JR NZ,PTRGET_SEARCH_24+1 ($6133) at $6159, running 19 as ADD HL,DE to step to the next ARRAYVAR by the stored AV_BLKLEN stride (DE loaded at $6155-$6158). A=$19 is dead (clobbered at $6140). Both reach EX DE,HL / CMP_HL_DE at $6134. Cover genuinely executed; MBASIC twin (SUB_3D4E_7) byte-identical (20 D8). ARRAY-TABLE scan: compares AV_NAME0/$0B14/AV_NAME1 to C/$0B14/B ($6142/$6148/$614C); see msbasic_var.inc.
@@ -13727,8 +14029,9 @@ PTRGET_SEARCH_26:
         LD D,(HL)
         INC HL
         JR NZ,PTRGET_SEARCH_23+1
-        LD A,(L_0B13)
+        LD A,(PTRGET_CREATE_FLAG)
         OR A
+        ; Name absent: if this is a DIM (create flag set) fall through to allocate; an explicit DIM of an existing array is a Redimensioned-array error
         JP NZ,RAISE_DUPLICATE_DEFINITION
         POP AF
         LD B,H
@@ -13741,7 +14044,7 @@ PTRGET_SEARCH_27:
         JP RAISE_ERROR
 PTRGET_SEARCH_28:
         INC HL
-        LD A,(L_0871)
+        LD A,(VARNAM_EXTLEN)
         CP (HL)
         JR NZ,PTRGET_SEARCH_25
         INC HL
@@ -13751,6 +14054,7 @@ PTRGET_SEARCH_28:
         CALL VARNAM_COMPARE
         JR PTRGET_SEARCH_26
 PTRGET_SEARCH_29:
+        ; Allocate a new ARRAYVAR: store element type and name, reserve blklen/ndims, then size the data area from the subscripts
         LD A,(VALTYP)
         LD (HL),A
         INC HL
@@ -13770,13 +14074,13 @@ PTRGET_SEARCH_29:
         LD (L_0B4A),HL
         LD (HL),C
         INC HL
-        LD A,(L_0B13)
+        LD A,(PTRGET_CREATE_FLAG)
         RLA
         LD A,C
 PTRGET_SEARCH_30:
         JR C,PTRGET_SEARCH_31
         PUSH AF
-        LD A,(L_0C73)
+        LD A,(OPTION_BASE_VALUE)
         XOR $0B
         LD C,A
         LD B,$00
@@ -13800,7 +14104,8 @@ PTRGET_SEARCH_32:
         LD C,E
         EX DE,HL
         ADD HL,DE
-        JP C,CHECK_STACK_ROOM_1
+        JP C,STACK_OVERFLOW_RAISE
+        ; Reserve product(dims)*elemsize bytes above the array (collecting garbage / trapping overflow), then zero-fill the new array
         CALL GC_CHECK_AND_COLLECT
         LD (STREND),HL
 PTRGET_SEARCH_33:
@@ -13825,6 +14130,7 @@ PTRGET_SEARCH_33:
         POP AF
         JR C,PTRGET_SEARCH_38
 PTRGET_SEARCH_34:
+        ; Index an existing array: walk the stored DIMSIZE list high-dim-first, accumulating offset = offset*dimsize + index, range-checked per dimension
         LD B,A
         LD C,A
         LD A,(HL)
@@ -13861,22 +14167,38 @@ PTRGET_SEARCH_36:
         JP PO,PTRGET_SEARCH_37
         ADD HL,BC
 PTRGET_SEARCH_37:
+        ; Scale the final flat index by the element width and add the array's data base to form the element address
         POP BC
         ADD HL,BC
         EX DE,HL
 PTRGET_SEARCH_38:
+        ; Restore the text pointer to just past the closing paren and return the element address in DE
         LD HL,(FRMEVL_TXTPTR_TEMP)
         RET
 PTRGET_SEARCH_39:
+        ; DIM-only path: array just created, no element to return -- signal 'no value' (carry set) and restore the text pointer
         SCF
         SBC A,A
         POP HL
         RET
-; [RE] Advance HL past one variable/array-table entry: load length byte at (HL), then add it to HL (falls into VARTAB_ADD_LEN). Used while scanning the array table during PTRGET and by the array-walk in DIM/index code ($6CBF, $740E...).
+; ----------------------------------------------------------------------
+; VARTAB_SKIP_ENTRY -- advance HL past one length-prefixed name run in a table entry.
+;   In:        HL -> a length byte that prefixes a run of bytes (a variable-name tail in a SIMPLEVAR/ARRAYVAR entry).
+;   Out:       HL -> the first byte after that run (length byte + that many bytes consumed).
+;   Clobbers:  A, F (BC preserved by the VARTAB_ADD_LEN tail).
+;   Algorithm: Read the length byte at (HL), step HL past it, then fall into VARTAB_ADD_LEN to add the length to HL. Used while linearly scanning the variable/array tables (PTRGET, GARBAG, ERASE, CHAIN) to jump over an entry's name extension.
+; ----------------------------------------------------------------------
 VARTAB_SKIP_ENTRY:
+        ; Take the entry's name-tail length byte and skip past it, then add that many bytes to HL
         LD A,(HL)
         INC HL
-; [RE] HL += A (zero-extended) preserving BC: B:=0, C:=A, ADD HL,BC. Entry point used to step over a table entry whose length is already in A.
+; ----------------------------------------------------------------------
+; VARTAB_ADD_LEN -- HL += A (zero-extended), preserving BC.
+;   In:        A = byte count to add; HL = pointer.
+;   Out:       HL = HL + A.
+;   Clobbers:  F only (BC saved/restored).
+;   Algorithm: Push BC, load BC = 0:A, ADD HL,BC, pop BC. Separate entry point used when the skip length is already in A (avoids re-reading it). Used to step over name tails during the variable/array table scans.
+; ----------------------------------------------------------------------
 VARTAB_ADD_LEN:
         PUSH BC
         LD B,$00
@@ -13884,12 +14206,19 @@ VARTAB_ADD_LEN:
         ADD HL,BC
         POP BC
         RET
-; [RE] Copy the scanned variable name from the VARNAM buffer $0871 (length-prefixed) into the new variable-table entry at (HL), advancing HL. Used by PTRGET_SEARCH when creating a fresh entry.
+; ----------------------------------------------------------------------
+; VARNAM_STORE -- copy the scanned name's extra characters into a freshly created table entry.
+;   In:        HL -> the byte just before where the name tail should be written (the loop pre-increments HL); VARNAM_EXTLEN ($0871) holds the extra-char count, with the count byte at $0871 followed by the chars at $0872.. .
+;   Out:       HL advanced past the stored name tail; the entry's NAMEXTLEN byte and the extra chars are written from the $0871 buffer.
+;   Clobbers:  none visible to the caller (A, BC, DE saved/restored); memory at (HL).. written.
+;   Algorithm: Copy NAMEXTLEN+1 bytes (the count byte plus that many name chars) from the $0871 buffer to (HL), pre-incrementing HL before each store. AF/BC/DE are preserved so the caller's allocation state survives. Called by PTRGET_SEARCH right after the type and 2-char name have been written inline, to lay down the name extension of a new SIMPLEVAR or ARRAYVAR.
+; ----------------------------------------------------------------------
 VARNAM_STORE:
         PUSH BC
         PUSH DE
         PUSH AF
-        LD DE,L_0871
+        ; Copy the scanned name extension (count byte + extra chars) into the new entry, advancing HL
+        LD DE,VARNAM_EXTLEN
         LD A,(DE)
         LD B,A
         INC B
@@ -13904,11 +14233,18 @@ VARNAM_STORE_1:
         POP DE
         POP BC
         RET
-; [RE] Compare the variable name held at (HL) in a table entry against the scanned name in buffer $0872, length A. Returns Z on full match; on mismatch advances HL past the rest of the name (via VARTAB_ADD_LEN) and returns NZ. Drives the linear scan in PTRGET_SEARCH.
+; ----------------------------------------------------------------------
+; VARNAM_COMPARE -- compare a table entry's long-name tail against the scanned name.
+;   In:        HL -> the byte before the entry's name-tail bytes (the loop pre-increments HL); A = number of name chars to compare; the scanned chars live at $0872.. .
+;   Out:       Z set and HL just past the matched tail on a full match; NZ on mismatch, with HL advanced past the rest of the entry's tail (so the caller can continue the stride walk).
+;   Clobbers:  A, F (BC, DE saved/restored).
+;   Algorithm: Compare up to A bytes of (HL) against the scanned buffer at $0872. On the first difference, skip the remaining unmatched bytes of the entry (VARTAB_ADD_LEN with the leftover count) and return NZ; if all A bytes match, return Z. Drives the long-name confirmation step of the linear table scan in PTRGET_SEARCH.
+; ----------------------------------------------------------------------
 VARNAM_COMPARE:
         PUSH DE
         PUSH BC
-        LD DE,L_0872
+        ; Compare the entry's name chars against the scanned name; on the first mismatch skip the rest of the entry's name and return NZ
+        LD DE,VARNAM_EXTCHARS
         LD B,A
         INC HL
         INC B
@@ -13920,6 +14256,7 @@ VARNAM_COMPARE_1:
         INC HL
         INC DE
         JR Z,VARNAM_COMPARE_1
+        ; Mismatch: advance HL over the unmatched remainder so the caller's stride walk stays aligned, then return not-equal
         LD A,B
         DEC A
         CALL NZ,VARTAB_ADD_LEN
@@ -14908,7 +15245,7 @@ INKEY_SCAN_3:
         LD E,A
         CALL STR_FN_RETURN_CHAR
 INKEY_SCAN_4:
-        LD HL,L_0CF1
+        LD HL,EMPTY_STRING_DESC
         LD (FAC),HL
         LD A,VT_STR
         LD (VALTYP),A
@@ -14934,67 +15271,166 @@ OUTCHR_LF_EXPAND:
         CALL RESET_PRINT_STATE
         LD A,$0A
         RET
-; [RE] After GC_CHECK_AND_COLLECT, copy a string of BC bytes downward from (HL) to (BC dest), comparing via HL/DE-compare; the string-move primitive used by string assignment.
+; ----------------------------------------------------------------------
+; STR_COPY_DOWN -- garbage-collect if needed, then block-move a region via STR_COPY_DOWN_NOCHK.
+;   In:        HL = destination pointer (write side), BC = source pointer (read side),
+;              DE = source low-bound sentinel (the move stops when the read pointer reaches DE).
+;   Out:       Region copied; on return HL = DE (= read pointer at sentinel), BC = matching write
+;              pointer, A = the final (sentinel) byte, Z set.
+;   Clobbers:  A, BC, DE, HL, flags.
+;   Algorithm: First call GC_CHECK_AND_COLLECT, which may run GARBAG to compact the string heap if this
+;              allocation would otherwise collide with variable space (it preserves HL/BC/DE across the
+;              collection). Then fall into STR_COPY_DOWN_NOCHK to do the byte move. [RE] This is the MS
+;              BASIC block-shift primitive that opens a gap by copying a run from a lower block up to a
+;              higher block, processing top-down to avoid overlap loss; used by program-line insert (VARTAB
+;              shuffle, $0EFx) and PTRGET variable/array allocation (STREND grow).
+; ----------------------------------------------------------------------
 STR_COPY_DOWN:
+        ; guard the candidate address in HL against FRETOP (GC / 'Out of memory' if it would collide), then fall through to the unguarded copy
+        ; compact the string heap first if this move would otherwise overrun variable space
         CALL GC_CHECK_AND_COLLECT
-; [RE] String copy loop without the prior heap check: move bytes from (HL) to (BC) decrementing both until HL==DE (CMP_HL_DE compare). Tail of STR_COPY_DOWN.
+; ----------------------------------------------------------------------
+; STR_COPY_DOWN_NOCHK -- top-down byte block move with no prior heap check.
+;   In:        HL = destination pointer (write side), BC = source pointer (read side),
+;              DE = low-bound sentinel compared against the read pointer.
+;   Out:       Bytes copied from the source block to the destination block, both pointers walked down
+;              to DE. On return: read pointer = DE, A = the final (sentinel) byte, Z set.
+;   Clobbers:  A, BC, DE, HL, flags.
+;   Algorithm: PUSH BC / EX (SP),HL / POP BC swaps HL and BC so that after the swap HL is the READ pointer
+;              (the caller's BC) and BC is the WRITE pointer (the caller's HL); DE is compared against the
+;              read side. Each pass: compare read pointer (HL) vs DE; read one byte (HL) and write it (BC);
+;              if the sentinel was reached (Z) return having just written that final byte; otherwise
+;              decrement BOTH pointers and repeat. [RE] In the allocation callers the destination (caller
+;              HL) is the HIGHER address and the source (caller BC) the lower, so the block is shifted UP
+;              toward higher addresses; processing top-to-bottom (both pointers decrement) avoids overlap
+;              corruption. (The routine is generic; some callers, e.g. GC string-free, pass a lower HL.)
+; ----------------------------------------------------------------------
 STR_COPY_DOWN_NOCHK:
+        ; exchange HL and BC via the stack so the loop reads from (HL) and writes to (BC)
+        ; swap HL and BC: after the swap HL is the read pointer (old BC), BC is the write pointer (old HL)
         PUSH BC
         EX (SP),HL
         POP BC
 STR_COPY_DOWN_NOCHK_1:
+        ; test the read pointer (HL) against the bottom limit DE (Z when HL==DE, the last byte to move)
+        ; compare the read pointer (HL) against the DE low bound (compare only; the byte copy follows)
         CALL CMP_HL_DE
         LD A,(HL)
+        ; store this byte to the destination; the DE boundary byte is copied before the RET Z fires
         LD (BC),A
+        ; sentinel reached: the final byte was just written, so return
         RET Z
+        ; step both pointers down one byte and continue the descending move
+        ; step both pointers down by one and continue the top-down move
         DEC BC
         DEC HL
         JR STR_COPY_DOWN_NOCHK_1
-; [RE] GETSTK/stack-room check: verify BC*2 bytes are available between SP and the top-of-storage pointer ($0B23); on failure fall through to CHECK_STACK_ROOM_1 which raises 'Out of memory' (error E=$07) via the RAISE_ERROR dispatcher.
+; ----------------------------------------------------------------------
+; CHECK_STACK_ROOM -- ensure 2*C + 58 bytes of Z-80 stack remain above MEMSIZ before recursing.
+;   In:        C = number of 2-byte slots the caller is about to consume (B is forced to 0, so only C matters).
+;              SP = current stack pointer. MEMSIZ ($0B23) = top-of-usable-storage pointer (variables/string
+;              heap grow upward toward it).
+;   Out:       Returns (HL preserved, BC unchanged) when there is room: SP - (2*C + 58) >= MEMSIZ.
+;              On shortfall it does not return: sets SAVSTK = STKTOP-2 (TOP_OF_STACK_ROOM-2) and jumps
+;              to RAISE_ERROR with DE = ERR_OUT_OF_MEMORY (7).
+;   Clobbers:  A, flags (HL saved/restored around the test; BC preserved).
+;   Algorithm: Compute HL = SP - (MEMSIZ + 2*C + 58) using a fixed 58-byte ($3A) margin folded as the
+;              16-bit constant $FFC6 = -58 (LD A,$C6 / SUB L ; LD A,$FF / SBC A,H). An early borrow from
+;              SBC A,H (MEMSIZ+2*C exceeding $FFC6) fails immediately via JR C. Otherwise ADD HL,SP:
+;              carry means SP lies far enough above MEMSIZ, so the stack can grow safely and it returns.
+;              No carry means the descending stack would crash into ascending variable/string storage,
+;              so fall into the out-of-memory path.
+; ----------------------------------------------------------------------
 CHECK_STACK_ROOM:
         PUSH HL
+        ; start from the storage-top limit (lowest address the stack may reach)
+        ; [RE] start from the top-of-storage limit MEMSIZ; the stack must stay above this
         LD HL,(MEMSIZ)
         LD B,$00
+        ; add the request twice (the second ADD HL,BC): HL = MEMSIZ + 2*C, C counting 2-byte stack slots
+        ; begin adding the caller's slot count: two ADD HL,BC add 2*C (B forced to 0 above)
         ADD HL,BC
         ADD HL,BC
+        ; form $FFC6 - HL = -(MEMSIZ + 2*C + 58), folding in the 58-byte fixed margin
+        ; [RE] fold in a fixed 58-byte ($3A) headroom margin via $FFC6 = -58: builds HL = -(MEMSIZ + 2*C + 58)
         LD A,$C6
         SUB L
         LD L,A
         LD A,$FF
         SBC A,H
-        JR C,CHECK_STACK_ROOM_1
+        ; MEMSIZ+2*C already past $FFC6 (address wrap) -> out of memory
+        JR C,STACK_OVERFLOW_RAISE
         LD H,A
+        ; add the live stack pointer; carry set => SP is high enough, room exists
+        ; HL = SP - (MEMSIZ + 2*C + 58); carry set iff the stack has the requested room
         ADD HL,SP
         POP HL
+        ; enough headroom: return to caller (HL already restored)
         RET C
-CHECK_STACK_ROOM_1:
+STACK_OVERFLOW_RAISE:
+        ; no room: rewind the stack mark (TOP_OF_STACK_ROOM - 2) and save it to SAVSTK for error recovery
         LD HL,(TOP_OF_STACK_ROOM)
         DEC HL
         DEC HL
         LD (SAVSTK),HL
-CHECK_STACK_ROOM_2:
+OUT_OF_MEMORY_RAISE:
         LD DE,ERR_OUT_OF_MEMORY
         JP RAISE_ERROR
-; [RE] String free/space guard: if the requested string allocation would collide with the variable space, trigger garbage collection (GARBAG) and retry; if still no room raise 'Out of string space' (E=$07/$0E) via RAISE_ERROR.
+; ----------------------------------------------------------------------
+; GC_CHECK_AND_COLLECT -- guarantee a pending string-heap allocation fits, compacting if needed.
+;   In:        HL = candidate string-heap address the allocation would occupy.
+;              FRETOP ($0B48) = bottom of free string space (heap fills downward to here).
+;   Out:       Returns with carry clear when HL does not collide with the heap floor (room exists).
+;              HL/DE/BC are preserved across the optional collection.
+;              If still no room after garbage collection, does not return: raises Out of memory (7)
+;              via RAISE_OUT_OF_MEMORY (the RAISE_OUT_OF_MEMORY tail).
+;   Clobbers:  A, flags (HL, DE, BC preserved around GARBAG).
+;   Algorithm: Compare HL against FRETOP (CMP_STR_VS_VARTOP). If no collision (NC) return. Otherwise
+;              save the caller's registers, run GARBAG to compact live strings and reclaim space,
+;              restore registers, and re-test. If room now exists return; if not, JR into
+;              RAISE_OUT_OF_MEMORY (error 7). [RE] NOTE: the raised error is Out of memory (7), NOT
+;              'Out of string space' (14); the dedicated Out-of-string-space allocator is GETSPA ($6C58).
+; ----------------------------------------------------------------------
 GC_CHECK_AND_COLLECT:
+        ; would the candidate address collide with FRETOP? if not (NC), return
+        ; would this allocation collide with the string-heap floor (FRETOP)?
         CALL CMP_STR_VS_VARTOP
+        ; no collision: enough free string space, return
         RET NC
         PUSH BC
         PUSH DE
         PUSH HL
+        ; collision: compact live strings once (HL/DE/BC preserved across the collect)
+        ; heap full: compact live strings to reclaim space (caller's HL/DE/BC saved across it)
         CALL GARBAG
         POP HL
         POP DE
         POP BC
+        ; re-test after GC; if it still collides, fall through to the out-of-memory raise
+        ; re-test after compaction
         CALL CMP_STR_VS_VARTOP
         RET NC
-        JR CHECK_STACK_ROOM_2
-; [RE] Compare a candidate string-heap address (HL) against the string/var-space top pointer ($0B48) via the 16-bit compare; returns carry if the allocation would collide. Used by GC_CHECK_AND_COLLECT.
+        JR OUT_OF_MEMORY_RAISE
+; ----------------------------------------------------------------------
+; CMP_STR_VS_VARTOP -- test whether a string-heap address sits at/below the free-space floor.
+;   In:        HL = candidate string-heap address to test. FRETOP ($0B48) = bottom of free string space.
+;   Out:       Carry set iff FRETOP < HL (candidate lies above the floor => collision / no room);
+;              carry clear iff FRETOP >= HL (room available). HL and DE are preserved (restored).
+;   Clobbers:  A, flags (HL/DE round-tripped via EX DE,HL and PUSH/POP DE).
+;   Algorithm: Swap the candidate into DE, load FRETOP into HL, and run CMP_HL_DE (FRETOP - candidate).
+;              Its carry is the collision flag. Swap back so HL again holds the candidate, restore DE.
+;              [RE] Despite the prior name 'VARTOP', the cell compared is FRETOP ($0B48), the top-of-free-
+;              string-space pointer.
+; ----------------------------------------------------------------------
 CMP_STR_VS_VARTOP:
         PUSH DE
         EX DE,HL
+        ; load FRETOP, then CMP_HL_DE computes FRETOP - candidate; carry => candidate is above FRETOP (collision)
+        ; compare the free-space floor FRETOP against the candidate (now in DE)
         LD HL,(FRETOP)
+        ; carry := FRETOP < candidate, i.e. the allocation would overrun the heap floor
         CALL CMP_HL_DE
+        ; restore HL = candidate address for the caller (compare result left in the flags)
         EX DE,HL
         POP DE
         RET
@@ -15002,50 +15438,93 @@ CMP_STR_VS_VARTOP:
 ; ======================================================================
 ; PROGRAM / VARIABLE MANAGEMENT (CLEAR, NEW, GC)
 ; ======================================================================
-; [RE] RUN/CLEAR setup: zero the array of work-pointers indexed by $0870 (file/FOR slots) starting at $0850, then fall through to clear variables. Entry from the warm-start path ($81BD).
+; ----------------------------------------------------------------------
+; RUN_CLEAR -- mark every file slot closed, BDOS-close all files, then fall into the full variable clear (RUN/NEW warm-start tail)
+;   In:        MAX_FILE_NUM = highest open-file index; FILTAB = packed array of (MAX_FILE_NUM+1) 2-byte little-endian FCB-base pointers (each FCB's byte 0 is FCB.MODE).
+;   Out:       Every slot's FCB.MODE byte set to 0 (FCB_MODE_CLOSED), all files BDOS-closed, A=0 (Z set); control falls through STMT_NEW's RET NZ guard into CLEAR_VARS to erase variables.
+;   Clobbers:  AF, BC, DE, HL.
+;   Algorithm: Walk FILTAB once (B = MAX_FILE_NUM+1 slots): for each slot read its 2-byte FCB-base pointer into DE and store A=0 at (DE) = FCB.MODE, marking that slot closed. Then CLOSE_ALL_FILES performs the actual BDOS close of any still-open file. XOR A leaves A=0/Z set so the RET NZ in STMT_NEW falls through into the variable clear. Entered from WARM_START (CALL at $81BD) as the file-teardown half of RUN/NEW.
+; ----------------------------------------------------------------------
 RUN_CLEAR:
+        ; loop over all (MAX_FILE_NUM+1) FILTAB slots
         LD A,(MAX_FILE_NUM)
         LD B,A
         LD HL,FILTAB
+        ; A=0/Z set so STMT_NEW's RET NZ guard falls through into the variable clear
         XOR A
         INC B
-RUN_CLEAR_1:
+RUN_CLEAR_SLOT_LOOP:
         LD E,(HL)
         INC HL
         LD D,(HL)
         INC HL
+        ; mark this slot closed: store 0 into FCB.MODE (DE = the FCB base this FILTAB entry points at)
         LD (DE),A
-        DJNZ RUN_CLEAR_1
+        DJNZ RUN_CLEAR_SLOT_LOOP
+        ; BDOS-close any file still physically open
         CALL CLOSE_ALL_FILES
         XOR A
-; [RE] NEW statement handler (token $94): erases the current program and variables.
+; ----------------------------------------------------------------------
+; STMT_NEW -- NEW statement handler (token $94): erase the current program and all variables
+;   In:        Z flag set by the statement parser when the char after the NEW token is end-of-statement (bare NEW); NZ if trailing text follows.
+;   Out:       On a bare NEW, falls into CLEAR_VARS which writes the empty-program terminator and resets every storage pointer; on trailing text RET NZ returns immediately (caller flags the syntax error).
+;   Clobbers:  none on the RET NZ path; on fall-through, see CLEAR_VARS.
+;   Algorithm: NEW takes no operand, so reject any trailing character with RET NZ, else fall straight into CLEAR_VARS. RUN_CLEAR also reaches this point with A=0 (Z set) so RUN's file teardown continues through the same RET NZ guard into the variable clear.
+; ----------------------------------------------------------------------
 STMT_NEW:
+        ; NEW takes no argument: any non-end-of-statement char is a syntax error, so bail (caller reports it)
         RET NZ
-; [RE] CLEARC: reset the variable, array and string-heap pointers ($0B57/$0B56/$0B6F, top-of-string), clearing all variables. The NEW/CLEAR/RUN re-initialization of the dynamic storage map.
+; ----------------------------------------------------------------------
+; CLEAR_VARS -- (CLEARC) wipe the program and all variables: turn trace off, write the empty-program link, and re-base VARTAB just above program text
+;   In:        TXTTAB = start of program text in RAM.
+;   Out:       TRCFLG cleared (trace off); LOAD_PROTECT_FLAG, AUTFLG and RENUM_PENDING_FLAG cleared; the two link bytes at TXTTAB set to 0 (empty / end-of-program link); VARTAB = TXTTAB+2. Falls into CLEAR_RESET_DATAPTR.
+;   Clobbers:  AF, HL.
+;   Algorithm: CALL STMT_TRACE+1: the $AF byte of 'LD A,$AF' decodes as XOR A at the +1 entry, so this runs XOR A; LD (TRCFLG),A; RET -- turning trace OFF and returning A=0 in one shot. Reuse that A=0 to clear LOAD_PROTECT_FLAG, AUTFLG and RENUM_PENDING_FLAG and to write the two zero link bytes at TXTTAB (the null BASLINE.LINK of an empty program). Set VARTAB = TXTTAB+2 so the simple-variable table starts right after the now-empty program, then fall into the storage-pointer rebuild.
+; ----------------------------------------------------------------------
 CLEAR_VARS:
         LD HL,(TXTTAB)
+        ; TROFF entry: the +1 lands on the $AF byte (decodes as XOR A), turning trace off and returning A=0, reused as the zero source below
         CALL STMT_TRACE+1
-        LD (L_0C99),A
+        ; clear LOAD_PROTECT_FLAG (a protection-loaded program is no longer present)
+        LD (LOAD_PROTECT_FLAG),A
         LD (AUTFLG),A
-        LD (L_0B56),A
+        LD (RENUM_PENDING_FLAG),A
+        ; write the empty-program terminator: a null forward link (two zero bytes) at the start of program text
         LD (HL),A
         INC HL
         LD (HL),A
         INC HL
+        ; place the simple-variable table immediately after the program text (TXTTAB+2)
         LD (VARTAB),HL
-; [RE] CLEAR/RUN reinit: load program start ($0846), step back, fall into the storage-map reset that re-points the variable/array/string base pointers ($0B54 etc.).
+; ----------------------------------------------------------------------
+; CLEAR_RESET_DATAPTR -- entry that seeds the storage reset with HL = TXTTAB-1 (program start minus one)
+;   In:        TXTTAB = start of program text.
+;   Out:       HL = TXTTAB-1; falls into CLEAR_RESET_STORAGE which stores it as the restart text pointer.
+;   Clobbers:  HL.
+;   Algorithm: Load program start and step back one byte so CHRGET's pre-increment will land on the first program byte. The common entry used by CLEAR and by RUN (and by LOAD's CHAIN path) to (re)establish the run cursor before the storage rebuild; CLEAR_VARS reaches it by fall-through after wiping the program.
+; ----------------------------------------------------------------------
 CLEAR_RESET_DATAPTR:
         LD HL,(TXTTAB)
+        ; back up one byte so CHRGET's pre-increment lands on the first program byte
         DEC HL
-; [RE] Core CLEAR/NEW/RUN storage re-initialization: rebuilds the variable, array, FOR/file-slot, DATA and string-heap pointers, clears the math accumulator slots, resets stack and graphics state; common tail of NEW/CLEAR/RUN.
+; ----------------------------------------------------------------------
+; CLEAR_RESET_STORAGE -- core CLEAR/NEW/RUN storage-map rebuild: reset DATA/variable/array/string pointers, DEFTYPE, RND seed and trap state, then reset the stack
+;   In:        HL = restart text pointer (TXTTAB-1 from the entries above); VARTAB already re-based; CHAIN_PRESERVE_FLAG / CHAIN_BREAK_FLAG select the CHAIN preserve paths; MEMSIZ = top of usable RAM; TOP_OF_STACK_ROOM = stack base.
+;   Out:       DATA pointer reset (STMT_RESTORE); ARYTAB=STREND=VARTAB (no arrays, no variables); unless CHAIN keeps variables, OPTION BASE state cleared and DEFTYPE_TBL all set to $04 (VT_SNG); RNDX_SEED reseeded from the default constant and the 3 RND counter cells zeroed; ONEFLG/ON_ERROR_LINE/CONT_TXTPTR cleared; FRETOP=MEMSIZ unless CHAIN preserves the heap; SAVSTK=TOP_OF_STACK_ROOM-2; SP reset to TOP_OF_STACK_ROOM (in RESET_RUN_STATE), into which this falls with HL=TOP_OF_STACK_ROOM.
+;   Clobbers:  AF, BC, DE, HL, SP.
+;   Algorithm: Save HL as the restart cursor (OPEN_RESUME_TEXT_PTR). Unless CHAIN_PRESERVE_FLAG is set (CHAIN keeping variables): clear the OPTION BASE value+set-flag and fill all 26 DEFTYPE_TBL letters with VT_SNG ($04, default single). Always: copy the 4-byte default RND seed (RND_SEED_DEFAULT) into RNDX_SEED and zero the three RND counter cells (wrap/const-index/mult-index); clear ONEFLG (error trap inactive), ON_ERROR_LINE and CONT_TXTPTR. Set FRETOP=MEMSIZ unless CHAIN_BREAK_FLAG preserves the heap. Reset the DATA read pointer (STMT_RESTORE). Collapse arrays/strings: ARYTAB=STREND=VARTAB. Unless CHAIN preserves variables, CLOSE_ALL_FILES. Discard the caller's return address (POP BC); set SAVSTK=TOP_OF_STACK_ROOM-2 but leave HL=TOP_OF_STACK_ROOM, then fall into RESET_RUN_STATE which does LD SP,HL (so SP := TOP_OF_STACK_ROOM).
+; ----------------------------------------------------------------------
 CLEAR_RESET_STORAGE:
+        ; remember the restart cursor (TXTTAB-1); RESET_RUN_STATE_1 hands it back to the main loop
         LD (OPEN_RESUME_TEXT_PTR),HL
+        ; CHAIN keeping variables? then skip the OPTION-BASE and DEFTYPE reset below
         LD A,(CHAIN_PRESERVE_FLAG)
         OR A
         JR NZ,CLEAR_RESET_STORAGE_2
         XOR A
-        LD (L_0C74),A
-        LD (L_0C73),A
+        LD (OPTION_BASE_SET_FLAG),A
+        LD (OPTION_BASE_VALUE),A
+        ; set all 26 letters' default type to single precision (DEFTYPE_TBL[0..25] := VT_SNG=$04)
         LD B,$1A
         LD HL,DEFTYPE_TBL
 CLEAR_RESET_STORAGE_1:
@@ -15053,9 +15532,11 @@ CLEAR_RESET_STORAGE_1:
         INC HL
         DJNZ CLEAR_RESET_STORAGE_1
 CLEAR_RESET_STORAGE_2:
-        LD DE,L_5D85
+        ; re-seed RND: copy the 4-byte default seed constant into RNDX_SEED
+        LD DE,RND_SEED_DEFAULT
         LD HL,RNDX_SEED
         CALL FP_MOVE4
+        ; zero the three RND counter cells (wrap counter, const index, mult index)
         LD HL,RND_WRAP_COUNTER
         XOR A
         LD (HL),A
@@ -15064,11 +15545,13 @@ CLEAR_RESET_STORAGE_2:
         INC HL
         LD (HL),A
         XOR A
+        ; clear the error-trap-active flag and the ON ERROR line / CONT resume pointer
         LD (ONEFLG),A
         LD L,A
         LD H,A
         LD (ON_ERROR_LINE),HL
         LD (CONT_TXTPTR),HL
+        ; string-heap top := top of RAM, unless CHAIN is preserving the heap (CHAIN_BREAK_FLAG)
         LD HL,(MEMSIZ)
         LD A,(CHAIN_BREAK_FLAG)
         OR A
@@ -15076,68 +15559,119 @@ CLEAR_RESET_STORAGE_2:
         LD (FRETOP),HL
 CLEAR_RESET_STORAGE_3:
         XOR A
+        ; reset the DATA read pointer to the start of the program (RESTORE with no line)
         CALL STMT_RESTORE
+        ; collapse arrays and strings: ARYTAB=STREND=VARTAB (empty variable/array space)
         LD HL,(VARTAB)
         LD (ARYTAB),HL
         LD (STREND),HL
         LD A,(CHAIN_PRESERVE_FLAG)
         OR A
+        ; close all files unless CHAIN is preserving variables across the chained program
         CALL Z,CLOSE_ALL_FILES
+        ; discard the caller's return address; the stack is about to be reset wholesale
         POP BC
+        ; rebuild the stack: SAVSTK := stack base - 2, then fall in with HL = stack base (RESET_RUN_STATE does LD SP,HL)
         LD HL,(TOP_OF_STACK_ROOM)
         DEC HL
         DEC HL
         LD (SAVSTK),HL
         INC HL
         INC HL
-; [RE] Stack-reset / run-state init trampoline (RUN/LOAD/file-error unwind): LD SP,HL restores the stack, reinits the stack guard ($0B25), clears reverse-video + output column, and zeroes the run-time work cells. The +offset entry just reloads the text pointer from $0B54.
+; ----------------------------------------------------------------------
+; RESET_RUN_STATE -- stack-reset / run-state init trampoline: install SP, empty the temp-string stack, clear DEF FN + print/eval run state, return the restart cursor
+;   In:        HL = new stack top (TOP_OF_STACK_ROOM when reached from CLEAR_RESET_STORAGE; (SAVSTK) when entered from the error/print/unwind paths, e.g. ERROR_PRINT_SETUP). OPEN_RESUME_TEXT_PTR holds the text pointer to resume at.
+;   Out:       SP reloaded; TEMPPT=TEMPST (temp-string descriptor stack empty); L_0CB6 cleared; a pending partial output line flushed; PRTFLG/PTRFIL reset (PRINT device back to console); the DEF FN runtime cells (DEFFN_DEPTH, DEFFN_ACTIVE_FLAG, DEFFN_FRAME_PTR, DEFFN_FRAME_SIZE, the current-arg cell L_0BFB) and PTRGET_SUBSCRIPT_FLAG zeroed; HL := OPEN_RESUME_TEXT_PTR; RET.
+;   Clobbers:  AF, BC, DE, HL, SP.
+;   Algorithm: LD SP,HL installs the stack. Point TEMPPT at TEMPST so the temporary-string-descriptor stack is empty. Clear L_0CB6 via CLEAR_EVAL_FLAG_0CB6 ([RE] this cell is dual-use -- an FRMEVL function-eval-in-progress flag AND a screen reverse/INVERSE flag, NOT reconciled in the source, so its exact meaning here is UNKNOWN). Call OUTDO_RESET_COL (clears PRTFLG and, if the output column is nonzero, flushes the pending line with a CRLF) and PRINT_RESET_STATE (clears PRTFLG and PTRFIL back to the console). Zero the DEF FN runtime cells: frame pointer DEFFN_FRAME_PTR, frame size DEFFN_FRAME_SIZE, depth counter DEFFN_DEPTH and its boolean shadow DEFFN_ACTIVE_FLAG, the current-arg cell L_0BFB, and PTRGET_SUBSCRIPT_FLAG. PUSH HL/BC (saved-state slots consumed by the resumed code), then fall into RESET_RUN_STATE_1 which loads HL=OPEN_RESUME_TEXT_PTR and returns. RESET_RUN_STATE_1 is a heavily shared tail (error print, SAVE, MERGE error, GET/PUT buffer-clear, protect-SAVE) that just reloads the restart cursor and returns.
+; ----------------------------------------------------------------------
 RESET_RUN_STATE:
+        ; install the reset stack pointer (caller passed the new top in HL)
         LD SP,HL
+        ; empty the temporary string-descriptor stack: TEMPPT := base
         LD HL,TEMPST
         LD (TEMPPT),HL
         CALL CLEAR_EVAL_FLAG_0CB6
+        ; clear PRTFLG and flush any partial output line (CRLF if the column is nonzero); the next CALL resets the PRINT device to the console
         CALL OUTDO_RESET_COL
         CALL PRINT_RESET_STATE
         XOR A
         LD H,A
         LD L,A
-        LD (L_0B93),HL
-        LD (L_0C64),A
+        ; zero the DEF FN runtime cells (frame pointer/size, depth, current arg) and the subscript-context flag
+        LD (DEFFN_FRAME_SIZE),HL
+        LD (DEFFN_ACTIVE_FLAG),A
         LD (L_0BFB),HL
-        LD (L_0C67),HL
-        LD (L_0B91),HL
+        LD (DEFFN_DEPTH),HL
+        LD (DEFFN_FRAME_PTR),HL
         LD (PTRGET_SUBSCRIPT_FLAG),A
         PUSH HL
         PUSH BC
 RESET_RUN_STATE_1:
         LD HL,(OPEN_RESUME_TEXT_PTR)
         RET
-; MS BASIC 16-bit compare: A=H-D then (if equal) A=L-E, setting Z when HL==DE and carry per HL<DE. The pervasive pointer-compare primitive (68 call sites).
+; ----------------------------------------------------------------------
+; CMP_HL_DE -- unsigned 16-bit compare of HL against DE (MS BASIC's pervasive pointer compare).
+;   In:        HL, DE = the two 16-bit values to compare.
+;   Out:       Flags as if HL - DE: Z set iff HL==DE; carry set iff HL < DE (unsigned).
+;              A holds the high-byte difference (H-D), or the low-byte difference (L-E) when the highs match.
+;              HL and DE are unchanged.
+;   Clobbers:  A, flags only.
+;   Algorithm: A = H - D; if non-zero the result is settled by the high bytes and it returns (RET NZ).
+;              If the high bytes are equal, A = L - E sets the final Z/carry. Called from many sites
+;              (the .lst comment cites 68) to order pointers (text/variable/array/string-heap) without
+;              disturbing the operands.
+; ----------------------------------------------------------------------
 CMP_HL_DE:
         LD A,H
+        ; high bytes differ => result decided here (carry = HL<DE), return early
         SUB D
         RET NZ
         LD A,L
+        ; high bytes equal: low-byte difference sets the final Z/carry
         SUB E
         RET
 
 ; ======================================================================
 ; CORE HELPERS (SYNCHR, FNDLIN, stack/mem checks)
 ; ======================================================================
-; MS BASIC SYNCHR: verify the current char at (HL) equals the literal byte placed inline immediately after the CALL; if it matches, advance past it and CHRGET the next char; on mismatch JP to Syntax Error ($0D6F). The pervasive 'expect this token' primitive.
+; ----------------------------------------------------------------------
+; SYNCHR -- verify the current program char matches the literal byte inlined after the CALL, then advance like CHRGET.
+;   In:        HL -> current byte in the crunched program/text line. The expected character is
+;              stored as a one-byte literal (DEFB) immediately after the CALL SYNCHR, so the
+;              return address on the stack points AT that literal (CALL SYNCHR / DEFB <ch>).
+;   Out:       On match: HL advanced one byte PAST the matched char; A = next significant char,
+;              CHRGOT-classified (spaces skipped, C set iff digit, Z set at end-of-statement);
+;              the stacked return address is bumped past the inline literal so execution resumes
+;              after the DEFB. On mismatch: tail-jumps to RAISE_SYNTAX_ERROR (never returns).
+;   Clobbers:  A, HL, flags. The stacked return address is rewritten (+1) in place.
+;   Algorithm: Read the current text char (HL) into A, then EX (SP),HL to bring the inline
+;              expected byte (via the return address) into HL; CP (HL) compares A against it.
+;              On mismatch raise Syntax error. On match, INC HL steps the return address past
+;              the literal, EX (SP),HL writes it back and restores HL = text pointer, INC HL
+;              advances past the matched char, then re-classify the next char: RET NC directly
+;              if it is >= ':' ($3A, a keyword/operator/letter/token), otherwise fall into
+;              CHRGOT_1 to skip spaces / detect end-of-line. The engine-wide 'expect this exact
+;              token here' primitive used after keywords (comma, ')', '=', etc.).
+; ----------------------------------------------------------------------
 SYNCHR:
         LD A,(HL)
+        ; Reach the expected byte via the return address: top-of-stack now points at the inline DEFB after CALL SYNCHR.
         EX (SP),HL
         CP (HL)
-        JR NZ,SYNCHR_1
+        ; Text char does not match the expected literal -> Syntax error.
+        JR NZ,SYNCHR_MISMATCH
+        ; Step the saved return address past the inline literal so the caller resumes after the DEFB.
         INC HL
+        ; Restore HL = text pointer (and write the bumped return address back to the stack).
         EX (SP),HL
+        ; Advance past the matched char, then re-classify the next char like CHRGET (CHRGOT for < ':' ).
         INC HL
         LD A,(HL)
         CP $3A
         RET NC
         JP CHRGOT_1
-SYNCHR_1:
+SYNCHR_MISMATCH:
         JP RAISE_SYNTAX_ERROR
 ; [RE] RESTORE statement handler (token $8C): resets the DATA read pointer (optionally to a line number).
 STMT_RESTORE:
@@ -15271,28 +15805,41 @@ STMT_SWAP:
         CALL FP_MOVE_TYPED
         POP HL
         RET
-; [RE] ERASE statement handler (token $A2): delete a dimensioned array, freeing its ARRAYVAR storage. PTRGET returns BC -> the array DATA; ERASE reconstructs the descriptor BASE by reverse sequential stepping: DEC BC x3 over {ndims, blklen-word} ($6A14), then walk the packed name backward while the high bit is set ($6A17 LD A,(BC)/DEC BC/JP M), then DEC BC x2 over {name0/name1, valtyp}. ADD HL,DE (HL=data, DE=AV_BLKLEN) gives the array end, then the block above slides down ($6A24-$6A30) and STREND is lowered. No base+offset; the descriptor base is found by walking, not a fixed offset.
+; ----------------------------------------------------------------------
+; STMT_ERASE -- ERASE statement handler (token $A2): delete a dimensioned array and reclaim its block.
+;   In:        HL -> BASIC text at the array name to erase (after the ERASE token, or after a ',' for the 2nd..Nth name).
+;   Out:       The named array's ARRAYVAR record (descriptor header + dim list + data) removed; the array table above it slid down to close the hole; STREND lowered by the freed size. Loops on ',' for ERASE A,B,C. On the last name RETs to the statement executor (NEWSTT).
+;   Clobbers:  AF,BC,DE,HL; STREND; PTRGET_SUBSCRIPT_FLAG.
+;   Algorithm: Force array context (PTRGET_SUBSCRIPT_FLAG=1) and resolve the name through PTRGET_1+1. On the array path PTRGET returns BC -> the array's NDIMS byte (just past the descriptor's blklen word) and DE = AV_BLKLEN (the stored block length covering {ndims, dimsize[], data}). [RE] The descriptor BASE (the VALTYP byte) is recovered by stepping BC BACKWARD: 3 bytes over {ndims byte, blklen word}, then back through the variable-length packed name extension while each byte read has its high bit set (the name chars were stored with bit7 set; the NAMEXTLEN sentinel has bit7 clear and stops the walk), then 2 more over name1/name0 to land on the VALTYP byte. HL was set = BC (the NDIMS pointer) before the walk; HL = NDIMS_ptr + AV_BLKLEN = the next descriptor = this array's END. The bytes from END up to STREND are copied DOWN onto the descriptor base (closing the hole), and STREND is set to base + (STREND - END). If the next text char is ',', CHRGET past it and repeat; otherwise RET.
+; ----------------------------------------------------------------------
 STMT_ERASE:
+        ; Force array (subscripted) context so PTRGET resolves an existing array and returns its block pointer + block length.
         LD A,$01
         LD (PTRGET_SUBSCRIPT_FLAG),A
+        ; Resolve the array name on the array path: returns BC -> the NDIMS byte (just past the blklen word) and DE = AV_BLKLEN. [RE] The following JP NZ,ERROR_FC guards against a PTRGET failure return (Illegal function call).
         CALL PTRGET_1+1
         JP NZ,ERROR_FC
         PUSH HL
         LD (PTRGET_SUBSCRIPT_FLAG),A
+        ; Copy the returned block pointer (BC) into HL; BC is then walked backward to find the descriptor base while HL stays at the NDIMS byte.
         LD H,B
         LD L,C
+        ; Step BC back 3 bytes over the {NDIMS byte, blklen word} that precede the data area.
         DEC BC
         DEC BC
         DEC BC
 STMT_ERASE_1:
+        ; Walk backward through the packed name extension: name bytes carry bit7 set, so loop while the byte just read is negative; the bit7-clear NAMEXTLEN byte ends the walk.
         LD A,(BC)
         DEC BC
         OR A
         JP M,STMT_ERASE_1
         DEC BC
         DEC BC
+        ; HL (= pointer to NDIMS) + AV_BLKLEN = first byte past this array's block, i.e. the next descriptor / this array's END.
         ADD HL,DE
         EX DE,HL
+        ; Set up the slide: DE = array END (source), HL = STREND (top of the array table).
         LD HL,(STREND)
 STMT_ERASE_2:
         CALL CMP_HL_DE
@@ -15304,9 +15851,11 @@ STMT_ERASE_2:
         DEC BC
         LD H,B
         LD L,C
+        ; New top of the array table = base + (STREND - END); the freed block is now reclaimed.
         LD (STREND),HL
         POP HL
         LD A,(HL)
+        ; If the next char is ',', another array name follows (ERASE A,B): consume it and loop; otherwise the statement is done.
         CP $2C
         RET NZ
         CALL CHRGET
@@ -15315,36 +15864,61 @@ STMT_ERASE_3:
         POP AF
         POP HL
         RET
-; [RE] Test (HL): set carry if the char is a letter A-Z ($41-$5A); returns carry/no-carry to classify identifier start chars.
+; ----------------------------------------------------------------------
+; IS_LETTER -- test (HL): is the current source char an ASCII letter A-Z?
+;   In:        HL -> character to test.
+;   Out:       Carry CLEAR if (HL) is in $41..$5A (A-Z), Carry SET otherwise. A = (HL).
+;   Clobbers:  A, F.
+;   Algorithm: Load (HL) into A and fall into IS_LETTER_A. Used to validate the first character of a variable/identifier name. Callers treat carry-set as 'not a letter' (e.g. PTRGET_2: CALL IS_LETTER / JP C,RAISE_SYNTAX_ERROR).
+; ----------------------------------------------------------------------
 IS_LETTER:
         LD A,(HL)
-; [RE] Same letter test on the char already in A: carry if A in $41-$5A, else clear (CCF after the upper-bound test).
+; ----------------------------------------------------------------------
+; IS_LETTER_A -- is the char already in A a letter A-Z?
+;   In:        A = character to classify.
+;   Out:       Carry CLEAR if A is in $41..$5A (A-Z), Carry SET otherwise. A unchanged.
+;   Clobbers:  F.
+;   Algorithm: CP $41 returns carry (RET C) for anything below 'A' -> carry set = not a letter. Otherwise CP $5B sets carry for 'A'..'Z' (< '[') and clears it for '[' and up; CCF inverts that, so the FINAL carry is CLEAR for a letter and SET for a non-letter. (The file already documents this polarity at the CRUNCH name-scan: 'carry CLEAR for a letter A-Z and SET for a non-letter'.) Shared by PTRGET, DEFxxx, CRUNCH and the identifier tests.
+; ----------------------------------------------------------------------
 IS_LETTER_A:
         CP $41
         RET C
         CP $5B
         CCF
         RET
-; [RE] CLEAR statement handler (token $92): clears variables/strings and optionally sets memory/stack limits.
+; ----------------------------------------------------------------------
+; STMT_CLEAR -- CLEAR statement handler (token $92): clear all variables and optionally relocate the top-of-memory limits.
+;   In:        HL -> BASIC text after CLEAR; A = first char (Z if end-of-statement). Grammar accepted: CLEAR [n] [, [m]] [, ...].
+;   Out:       All variables/arrays/strings cleared (via CLEAR_RESET_STORAGE). If a memory argument is supplied, TOP_OF_STACK_ROOM and MEMSIZ are recomputed and committed; the string heap is re-seeded by the reset that follows.
+;   Clobbers:  AF,BC,DE,HL; MEMSIZ; TOP_OF_STACK_ROOM; plus everything CLEAR_RESET_STORAGE touches.
+;   Algorithm: Bare CLEAR (end of statement) jumps straight to CLEAR_RESET_STORAGE. [RE] The first numeric field n is parsed by GETINT_POSITIVE only to validate it as a non-negative integer -- its VALUE is then DISCARDED (lines $6A60-$6A64 overwrite HL=n with TOP_OF_STACK_ROOM). After the comma the code evaluates the memory argument m (FRMEVL_NOPAREN + GETADR, rejecting 0) into DE; if absent it defaults to the current TOP_OF_STACK_ROOM. [RE] STMT_CLEAR_4 (no explicit memory arg) derives DE = TOP_OF_STACK_ROOM - MEMSIZ, i.e. the current stack-room size, to be preserved. STMT_CLEAR_3 then validates and commits: it requires that current stack-room size (DE) be > $004E (78); the candidate new MEMSIZ = m - stack-room-size (SUB_HL_DE) must not borrow; and it must sit at least VARTAB+$14 above the variables. Any failure raises 'Out of memory' (STACK_OVERFLOW_RAISE). On success it stores MEMSIZ = m - stack-room-size and TOP_OF_STACK_ROOM = m, then falls into CLEAR_RESET_STORAGE. [RE] Cell roles: MEMSIZ is the top of the variable/string region and is set BELOW the stack; TOP_OF_STACK_ROOM (STKTOP) is the higher pointer set to the requested m. UNKNOWN: the precise meaning intended for a third comma-separated field (parsed by the second GETINT_POSITIVE) is not fully traced here.
+;   Note: the two 'CALL SYNCHR / DEFB ,' pairs use the inline-argument SYNCHR idiom -- SYNCHR consumes the ',' byte placed in-line after the CALL as its expected char.
+; ----------------------------------------------------------------------
 STMT_CLEAR:
+        ; Bare CLEAR with no arguments: just reset all variable/array/string storage and return.
         JP Z,CLEAR_RESET_STORAGE
         CP $2C
         JR Z,STMT_CLEAR_1
+        ; [RE] Parse the first numeric field as a non-negative integer; its value is validated but then discarded (HL is overwritten just below).
         CALL GETINT_POSITIVE
         DEC HL
         CALL CHRGET
         JP Z,CLEAR_RESET_STORAGE
 STMT_CLEAR_1:
+        ; Require a ',' before the memory argument (inline-arg SYNCHR: the DEFB ',' below is its expected char).
         CALL SYNCHR
         DEFB    ','                      ; inline char arg consumed by the preceding CALL
         JP Z,CLEAR_RESET_STORAGE
         EX DE,HL
+        ; Default the memory argument to the current TOP_OF_STACK_ROOM; an explicit 'm' overrides it below.
         LD HL,(TOP_OF_STACK_ROOM)
         EX DE,HL
         CP $2C
         JR Z,STMT_CLEAR_2
+        ; Evaluate the memory argument m (requested new top-of-stack-room address).
         CALL FRMEVL_NOPAREN
         PUSH HL
+        ; Convert m to a 16-bit address; reject 0 as an Illegal function call.
         CALL GETADR
         LD A,H
         OR L
@@ -15366,26 +15940,32 @@ STMT_CLEAR_2:
 STMT_CLEAR_3:
         EX (SP),HL
         PUSH HL
+        ; [RE] Compared against DE (the current stack-room size). Require that size to exceed $004E (78 bytes), else Out of memory.
         LD HL,$004E
         CALL CMP_HL_DE
-        JP NC,CHECK_STACK_ROOM_1
+        JP NC,STACK_OVERFLOW_RAISE
         POP HL
+        ; [RE] DE = m - stack-room-size = candidate new MEMSIZ; a borrow (carry) means m is too small -> Out of memory.
         CALL SUB_HL_DE
-        JP C,CHECK_STACK_ROOM_1
+        JP C,STACK_OVERFLOW_RAISE
         PUSH HL
+        ; Require the candidate MEMSIZ to sit at least VARTAB+$14 above the variables, leaving working headroom.
         LD HL,(VARTAB)
         LD BC,$0014
         ADD HL,BC
         CALL CMP_HL_DE
-        JP NC,CHECK_STACK_ROOM_1
+        JP NC,STACK_OVERFLOW_RAISE
         EX DE,HL
+        ; [RE] Commit MEMSIZ = m - stack-room-size (top of the variable/string region, below the stack); the string heap top is re-seeded from MEMSIZ by the reset that follows.
         LD (MEMSIZ),HL
         POP HL
+        ; [RE] Commit TOP_OF_STACK_ROOM = m (the requested high address), then fall into the full storage reset.
         LD (TOP_OF_STACK_ROOM),HL
         POP HL
         JP CLEAR_RESET_STORAGE
 STMT_CLEAR_4:
         PUSH HL
+        ; [RE] No explicit memory arg given: derive the stack-room size to preserve as TOP_OF_STACK_ROOM - MEMSIZ.
         LD HL,(TOP_OF_STACK_ROOM)
         EX DE,HL
         LD HL,(MEMSIZ)
@@ -15397,7 +15977,13 @@ STMT_CLEAR_4:
         LD D,A
         POP HL
         JR STMT_CLEAR_3
-; [RE] 16-bit subtract: DE = HL - DE (LD A,L/SUB E / LD A,H/SBC D), used by CLEAR to size the protected memory region.
+; ----------------------------------------------------------------------
+; SUB_HL_DE -- 16-bit subtract DE = HL - DE.
+;   In:        HL = minuend, DE = subtrahend.
+;   Out:       DE = HL - DE; carry = borrow out (set if HL < DE). HL unchanged.
+;   Clobbers:  A, DE, F.
+;   Algorithm: Byte-wise subtract low (LD A,L / SUB E -> E) then high with borrow (LD A,H / SBC A,D -> D). CLEAR uses it (and the resulting borrow) to size and range-check the memory region.
+; ----------------------------------------------------------------------
 SUB_HL_DE:
         LD A,L
         SUB E
@@ -15655,23 +16241,34 @@ SCAN_STR_BODY_4:
         EX DE,HL
         LD A,C
         CALL STORE_STR_DESC
-; [RE] Place a string descriptor into the rotating string-temporary table (pointer $0B25, base $0B48): records type=string ($0B14=3), stores the descriptor and advances the temp pointer; on overflow raises 'String formula too complex' (E=$10 via RAISE_ERROR). Widely used to stage string FRMEVL results.
+; ----------------------------------------------------------------------
+; PUT_STR_TEMP -- push the freshly-built string descriptor (DSCTMP) onto the fixed-size temporary-descriptor stack (TEMPST/TEMPPT).
+;   In:        DSCTMP ($0B45) holds the STRDESC to record (LEN at $0B45, PTR word at $0B46). TEMPPT ($0B25) = live top of the temp-descriptor stack. Entered fall-through (or JP from string-function epilogues) with no extra pointer on the stack; entered via CALL PUT_STR_TEMP_1+1 (DEF-FN string path, $3FD8) which runs the D5 byte as PUSH DE first (see body note).
+;   Out:       The 3-byte STRDESC is copied to the slot TEMPPT pointed at; TEMPPT advanced by VALTYP(=3); FAC ($0CB1) = the address of the slot just written (the staged temporary). VALTYP ($0B14) := VT_STR. Returns to the caller (fall-through path returns one stack level higher -- see body note) when room remained.
+;   Clobbers:  A, DE, HL, VALTYP, FAC, TEMPPT; flags (from CMP_HL_DE).
+;   Algorithm: Point DE at DSCTMP (source), mark the value as a string (VALTYP=VT_STR=3), capture the current TEMPPT into FAC as the destination slot, then FP_MOVE_TYPED copies VALTYP(=3) bytes DSCTMP->slot (DE=source, HL=dest), leaving HL = old TEMPPT + 3. Compare that new top against the FIXED address $0B48 -- the upper bound of the temp-descriptor-stack region (which is also the address of the FRETOP cell, used here only as a sentinel boundary, NOT its contents). Store the new top back as TEMPPT. The dual-entry D5 cover idiom (see body note) decides whether the trailing POP HL discards this routine's return address (fall-through) or recovers a caller-pushed pointer (DEF-FN path). RET NZ exits when the new top has not reached the boundary (Z flag carried from the CMP; the intervening LD A,(HL) does NOT set flags). If the new top equals $0B48 the fixed temp stack is full: raise 'String formula too complex' (ERR=16).
+; ----------------------------------------------------------------------
 PUT_STR_TEMP:
         LD DE,DSCTMP
 ; [RE] Two entries to the string-temp store. PUT_STR_TEMP (fall-through, and JP from $6E82) enters $6C1D LD A,$D5 (A dead) so no DE is pushed and the later POP HL ($6C36) takes the return address. CALL PUT_STR_TEMP_1+1 (from $3FD8, DEF-string) enters +1 so the D5 byte runs as PUSH DE, making that POP HL retrieve the descriptor pointer instead.
 PUT_STR_TEMP_1:
+        ; dual-entry cover byte: D5 = the opcode PUSH DE. Reached as LD A,$D5 (this label, A dead -- overwritten at LD A,VT_STR) the byte is swallowed and no DE is pushed, so the later POP HL discards this routine's own return address (the fall-through callers JP here and want the return to go one level up); reached one byte later (CALL PUT_STR_TEMP_1+1, DEF-FN string path) the D5 runs as PUSH DE so that POP HL instead recovers the caller's pushed pointer and the normal return address survives
         LD A,$D5
+        ; record the live top of the temp-descriptor stack as the destination slot for this descriptor
         LD HL,(TEMPPT)
         LD (FAC),HL
         LD A,VT_STR
         LD (VALTYP),A
+        ; copy VALTYP(=3) bytes of the STRDESC from DSCTMP (DE=source) up into the new slot (HL=dest); HL ends at old TEMPPT+3
         CALL FP_MOVE_TYPED
         LD DE,FRETOP
+        ; [RE] overflow test: compare the new temp-stack top against the FIXED boundary $0B48 (DE was loaded with the ADDRESS, not contents -- this is the end of the small fixed temp-descriptor region, ~11 STRDESC slots from TEMPST $0B27). Equal means the temp stack is full
         CALL CMP_HL_DE
         LD (TEMPPT),HL
         POP HL
         LD A,(HL)
         RET NZ
+        ; fixed temp-descriptor stack exhausted (too many nested string intermediates in one formula): raise 'String formula too complex' (ERR=16)
         LD DE,ERR_STRING_FORMULA_TOO_COMPLEX
         JP RAISE_ERROR
 PUT_STR_TEMP_2:
@@ -15697,23 +16294,33 @@ STRPRT_1:
         CALL Z,RESET_PRINT_STATE
         INC BC
         JR STRPRT_1
-; [RE] String-space allocator (GETSPA): reserve A bytes at the top of the string heap (top-of-string pointer $0B48, string area base $0B73), invoking garbage collection on exhaustion; raises 'Out of string space' (E=$0E).
+; ----------------------------------------------------------------------
+; GETSPA -- reserve A bytes at the top of the string heap, garbage-collecting and retrying once on exhaustion.
+;   In:        A = number of heap bytes requested. FRETOP ($0B48) = current top-of-free string space; STREND ($0B73) = top of the variable/array area (the floor the heap may not cross).
+;   Out:       On success: FRETOP lowered by A, DE = first byte of the newly reserved block (new FRETOP + 1), A restored to the saved request. On unrecoverable exhaustion (still no room after one GC): raises 'Out of string space' (ERR=14).
+;   Clobbers:  A (restored from the saved copy on the success path), BC, DE, HL, FRETOP; flags.
+;   Algorithm: Compute new = FRETOP - A as a two's-complement add: HL=FRETOP, B=$FF and C=~A (CPL of the request), then ADD HL,BC / INC HL gives HL = FRETOP - A. If that does NOT borrow below STREND, store it as the new FRETOP and hand back the block. If it does, GETSPA_3 forces Z (CP A), pushes the saved request+flags, pushes GETSPA_1+1 as GARBAG's return address, and falls into GARBAG to compact. GARBAG RETs into GETSPA_1+1, where the planted F1 byte runs as POP AF (popping the AF pushed in GETSPA_3, with Z still set), and the whole allocation is retried. On the retry, that preserved Z routes a second consecutive failure straight to the error (JP Z,RAISE_ERROR) instead of collecting again.
+; ----------------------------------------------------------------------
 GETSPA:
         OR A
 ; [RE] GC-retry tail. GETSPA falls into $6C59 LD C,$F1 (sentinel, C overwritten at $6C64) then PUSH AF and checks the heap. On exhaustion GETSPA_3 (after CP A) pushes GETSPA_1+1 ($6C5A) as GARBAG's return address; GARBAG RETs into +1 where the F1 byte runs as POP AF (undo the $6C7D saved-flags push) and the allocation is retried.
 GETSPA_1:
+        ; plant byte F1 = the opcode POP AF: on the GC retry GARBAG returns into GETSPA_1+1 (one byte past here) where this F1 executes as POP AF, popping the AF that GETSPA_3 pushed (CP A had set Z) so the allocation re-runs with Z preserved; on the first/normal entry the byte is the harmless LD C,$F1 (C is overwritten at LD C,A below)
         LD C,$F1
         PUSH AF
         LD HL,(STREND)
         EX DE,HL
+        ; compute the prospective new heap top = FRETOP - A using the two's-complement (B=$FF, C=~A) ADD HL,BC / INC HL idiom that follows
         LD HL,(FRETOP)
         CPL
         LD C,A
         LD B,$FF
         ADD HL,BC
         INC HL
+        ; heap-full test: would the new top borrow below STREND (the top of the variable/array area)?
         CALL CMP_HL_DE
         JR C,GETSPA_3
+        ; room exists: commit the lowered FRETOP, then hand back the block's first byte (new FRETOP + 1) in DE
         LD (FRETOP),HL
         INC HL
         EX DE,HL
@@ -15722,21 +16329,34 @@ GETSPA_2:
         RET
 GETSPA_3:
         POP AF
+        ; exhausted; the Z flag set on the retry pass routes the second consecutive failure straight to 'Out of string space' (ERR=14)
         LD DE,ERR_OUT_OF_STRING_SPACE
         JP Z,RAISE_ERROR
+        ; first failure: force Z so the post-GC retry can tell itself apart, then collect once
         CP A
         PUSH AF
+        ; push GETSPA_1+1 as GARBAG's return address so the collector returns into the retry (where the planted F1 = POP AF restores the saved request+Z before re-trying)
         LD BC,GETSPA_1+1
         PUSH BC
-; MS BASIC-80 GARBAG: garbage-collect / compact the string heap. Scans simple string variables, string arrays and string temporaries (pointers $0B23/$0B73/$0B27/$0B25) to find the highest still-referenced string and slide live strings up, reclaiming free space. Called by GETSPA when the heap is full.
+; ----------------------------------------------------------------------
+; GARBAG -- compact the string heap (MS BASIC-80 garbage collector): repeatedly find the live string with the HIGHEST start address still at or below the watermark and slide it up to FRETOP, lowering the watermark, until no live string remains below it.
+;   In:        MEMSIZ ($0B23) = highest usable RAM; the live-string sources -- the temporary-descriptor stack (TEMPST..TEMPPT), the simple-variable table (VARTAB..ARYTAB), the DEF-FN saved-frame chain (FN_FRAME_LIST_HEAD->...), and the array table (ARYTAB..STREND).
+;   Out:       FRETOP packed down so every live string sits contiguously just below the original MEMSIZ, with the now-vacated low end reclaimed as free space; descriptor PTR fields rewritten to the moved data. No registers returned meaningfully.
+;   Clobbers:  A, BC, DE, HL, FRETOP, the scratch cells GC_SCAN_LIMIT/GC_FRAME_CURSOR/GC_ARRAY_ELEM_END; uses the stack for the running candidate record.
+;   Algorithm: Set the watermark FRETOP=MEMSIZ and push a two-word candidate record (best-descriptor=0; best-PTR=STREND -- the lowest possible, so any live string beats it). Scan four sources -- temporaries, simple string variables, the DEF-FN saved-variable frames, and string arrays (with a per-element scan) -- handing every string descriptor to GARBAG_FIX_STR_PTR, which keeps the descriptor of the HIGHEST-addressed string still at-or-below FRETOP. After the scans, GARBAG_FIX_STR_PTR_1 slides that one string up against FRETOP, rewrites its descriptor, lowers FRETOP just below it, and JP GARBAG_1 to rescan. Exactly one string is relocated per full pass (strings pack from the top of memory downward), so the collector is O(n^2); it ends when a pass finds no live string below the watermark.
+; ----------------------------------------------------------------------
 GARBAG:
         LD HL,(MEMSIZ)
 GARBAG_1:
+        ; begin a pass: set the collection watermark FRETOP = MEMSIZ (top of usable RAM)
         LD (FRETOP),HL
+        ; push the running candidate record for the highest live string below the watermark: slot1 = best descriptor address (none yet = 0); slot2 = best string PTR (initialized to STREND, the lowest possible, so the first eligible string wins), pushed next
         LD HL,$0000
         PUSH HL
+        ; PHASE 3 -- scan the array table ARYTAB..STREND (string arrays get a per-element descriptor scan); when the walk reaches STREND every array is done, so finalize this pass via GARBAG_FIX_STR_PTR_1
         LD HL,(STREND)
         PUSH HL
+        ; PHASE 1 -- scan the temporary-descriptor stack TEMPST..TEMPPT (intermediate string results)
         LD HL,TEMPST
 GARBAG_2:
         EX DE,HL
@@ -15744,16 +16364,18 @@ GARBAG_2:
         EX DE,HL
         CALL CMP_HL_DE
         LD BC,GARBAG_2
+        ; for each temp slot still below TEMPPT, fix its descriptor against the candidate (GARBAG_9 pushes the loop-back label then falls into GARBAG_FIX_STR_PTR)
         JP NZ,GARBAG_9
-        LD HL,L_0BF9
-        LD (L_0C65),HL
+        LD HL,FN_FRAME_LIST_HEAD
+        LD (GC_FRAME_CURSOR),HL
         LD HL,(ARYTAB)
-        LD (L_0C62),HL
+        LD (GC_SCAN_LIMIT),HL
+        ; PHASE 2 -- prime the simple-variable walk: scan limit = ARYTAB, frame cursor seeded to FN_FRAME_LIST_HEAD; walk VARTAB upward fixing every string variable's descriptor, then follow the DEF-FN saved-frame chain
         LD HL,(VARTAB)
 ; [RE] GC simple-variable walk over SIMPLEVAR records (VARTAB..ARYTAB, cmp to $0C62). Per entry: SV_VALTYP ($6CBA), skip 3-byte header ($6CBB-BD), VARTAB_SKIP_ENTRY consumes SV_NAMEXTLEN+namext ($6CBF) leaving HL at value; if VALTYP==3 (string) fix its descriptor (GARBAG_FIX_STR_PTR $6CC7) else add SV_VALTYP to step past the value ($6CCB-CE). Sequential walk.
 GARBAG_3:
         EX DE,HL
-        LD HL,(L_0C62)
+        LD HL,(GC_SCAN_LIMIT)
         EX DE,HL
         CALL CMP_HL_DE
         JR Z,GARBAG_5
@@ -15774,7 +16396,8 @@ GARBAG_4:
         ADD HL,DE
         JR GARBAG_3
 GARBAG_5:
-        LD HL,(L_0C65)
+        ; after the simple vars, follow the DEF-FN saved-frame chain: load the frame cursor and dereference its link word; a null link ends the frame phase, otherwise scan that frame's saved SIMPLEVAR block (limit = block end) via GARBAG_3
+        LD HL,(GC_FRAME_CURSOR)
         LD A,(HL)
         INC HL
         LD H,(HL)
@@ -15784,7 +16407,7 @@ GARBAG_5:
         LD HL,(ARYTAB)
         JR Z,GARBAG_7
         EX DE,HL
-        LD (L_0C65),HL
+        LD (GC_FRAME_CURSOR),HL
         INC HL
         INC HL
         LD E,(HL)
@@ -15793,7 +16416,7 @@ GARBAG_5:
         INC HL
         EX DE,HL
         ADD HL,DE
-        LD (L_0C62),HL
+        LD (GC_SCAN_LIMIT),HL
         EX DE,HL
         JR GARBAG_3
 GARBAG_6:
@@ -15820,7 +16443,7 @@ GARBAG_7:
         ADD HL,BC
         CP $03
         JR NZ,GARBAG_6
-        LD (L_0B4C),HL
+        LD (GC_ARRAY_ELEM_END),HL
         POP HL
         LD C,(HL)
         LD B,$00
@@ -15829,15 +16452,22 @@ GARBAG_7:
         INC HL
 GARBAG_8:
         EX DE,HL
-        LD HL,(L_0B4C)
+        LD HL,(GC_ARRAY_ELEM_END)
         EX DE,HL
         CALL CMP_HL_DE
         JR Z,GARBAG_7
         LD BC,GARBAG_8
 GARBAG_9:
         PUSH BC
-; [RE] GARBAG helper: scan a string descriptor (length+ptr at HL) and, if the string lives below the current collection watermark ($0B48), record it as the new candidate highest free-able block; advances HL past the descriptor.
+; ----------------------------------------------------------------------
+; GARBAG_FIX_STR_PTR -- per-descriptor candidate test: if the string at (HL) is live, at or below the watermark, and HIGHER-addressed than the current best, make it the new compaction candidate.
+;   In:        HL -> a STRDESC (LEN byte then 2-byte data PTR). FRETOP = current watermark. On the stack: the caller's loop-continuation address (pushed by GARBAG_9) above the running candidate record (best-descriptor, best-PTR).
+;   Out:       HL advanced past the 3-byte descriptor. If this string is a better (higher-addressed, still <= FRETOP) candidate, the on-stack candidate record is overwritten with this descriptor's end-pointer and PTR. Returns to the loop-continuation either way.
+;   Clobbers:  A, BC, DE, HL; rewrites the two candidate stack slots when it wins.
+;   Algorithm: Read LEN (RET Z if zero -- empty string, ignore) and the data PTR into DE, stepping HL past all 3 bytes. Reject strings already above the watermark (FRETOP < PTR => already relocated this pass: RET C). Otherwise compare this PTR against the current best PTR held on the stack; if this one is NOT higher (best-PTR >= this-PTR) RET NC and keep the old candidate. If it is higher, drop the old candidate slots and re-push so the record now names THIS descriptor (its end-pointer and its PTR), then RET to the loop. Net effect across a full scan: the candidate ends up naming the live string with the LARGEST start address at or below FRETOP.
+; ----------------------------------------------------------------------
 GARBAG_FIX_STR_PTR:
+        ; read the descriptor: A=LEN, DE=data PTR, HL stepped past all 3 bytes
         XOR A
         OR (HL)
         INC HL
@@ -15845,22 +16475,26 @@ GARBAG_FIX_STR_PTR:
         INC HL
         LD D,(HL)
         INC HL
+        ; empty string (LEN==0): nothing in the heap to move, skip
         RET Z
         LD B,H
         LD C,L
         LD HL,(FRETOP)
+        ; is this string already above the watermark (FRETOP < its PTR)? then it was relocated earlier this pass -- skip via the RET C below
         CALL CMP_HL_DE
         LD H,B
         LD L,C
         RET C
         POP HL
         EX (SP),HL
+        ; compare this string's PTR against the current best candidate's PTR (held on the stack); keep the HIGHER-addressed one (the collector packs strings from the top down, one per pass)
         CALL CMP_HL_DE
         EX (SP),HL
         PUSH HL
         LD H,B
         LD L,C
         RET NC
+        ; this string wins (higher-addressed than the prior best): discard the old candidate slots and re-push so the record now names this descriptor's end-pointer and its data PTR, then RET to the scan loop
         POP BC
         POP AF
         POP AF
@@ -15868,11 +16502,20 @@ GARBAG_FIX_STR_PTR:
         PUSH DE
         PUSH BC
         RET
+; ----------------------------------------------------------------------
+; GARBAG_FIX_STR_PTR_1 -- end-of-pass mover: slide the chosen HIGHEST live string up against FRETOP, fix its descriptor, lower FRETOP, and rescan.
+;   In:        On the stack, the candidate record left by the scan: the best string's descriptor end-pointer (or 0 if none) and its data PTR. FRETOP = current watermark.
+;   Out:       If a candidate exists: its bytes are block-copied up so its last byte sits at FRETOP, the descriptor's PTR is rewritten to the new location, FRETOP is lowered to just below the moved data, and control JP GARBAG_1 to start another pass. If no candidate (descriptor end-pointer 0): the heap is fully compacted, so RET (ends GARBAG).
+;   Clobbers:  A, BC, DE, HL, FRETOP, the moved descriptor's PTR field.
+;   Algorithm: Pop the candidate (DE=PTR, HL=descriptor end-pointer); RET Z if zero (no live string left below the watermark -> done). Otherwise read the descriptor's PTR (BC) and LEN, compute the source's top byte (PTR+LEN-1) and start (PTR), and run a descending block move (STR_COPY_DOWN_NOCHK) that copies LEN bytes UP so the string ends at FRETOP. Write the new PTR back into the descriptor, set FRETOP to one below the moved block's new base, and JP GARBAG_1 to rescan for the next-highest string.
+; ----------------------------------------------------------------------
 GARBAG_FIX_STR_PTR_1:
+        ; retrieve the pass winner: DE = best string PTR, HL = end-pointer of its descriptor (0 if the scan found no live string below the watermark)
         POP DE
         POP HL
         LD A,L
         OR H
+        ; no candidate left below FRETOP: the heap is fully packed, garbage collection is complete
         RET Z
         DEC HL
         LD B,(HL)
@@ -15888,15 +16531,18 @@ GARBAG_FIX_STR_PTR_1:
         DEC HL
         LD B,H
         LD C,L
+        ; set up the descending block move: copy this string's bytes up so its last byte lands at FRETOP (source top in BC, source start in DE)
         LD HL,(FRETOP)
         CALL STR_COPY_DOWN_NOCHK
         POP HL
+        ; rewrite the string's descriptor PTR to its new (higher) address
         LD (HL),C
         INC HL
         LD (HL),B
         LD L,C
         LD H,B
         DEC HL
+        ; FRETOP now lowered to just below the freshly moved block; rescan from the top to relocate the next-highest live string (one per pass)
         JP GARBAG_1
 ; [RE] FRESTR/movestring helper: pull a string's descriptor (via FRMEVL_EVAL_OPERAND), free its data with FRESTR1, then copy the bytes into freshly-allocated string space (STR_COPY_DESCR_DATA block copies); returns through FRMEVL fixup.
 STR_CONCAT:
@@ -15938,28 +16584,70 @@ STR_COPY_DESCR_DATA:
         INC HL
         LD B,(HL)
         LD L,A
-; [RE] copy A (=L) bytes from (BC) to (DE), ascending; INC L / DEC L sets the counter, RET Z when done. Generic ascending memory move.
+; ----------------------------------------------------------------------
+; BLOCK_COPY_BC_TO_DE -- ascending copy of L bytes from (BC) to (DE).
+;   In:        L = byte count (0..255), BC = source pointer, DE = destination pointer.
+;   Out:       BC = source+count, DE = dest+count, L = 0, Z set, A = last byte copied (or unchanged if count 0).
+;   Clobbers:  A, L, BC, DE, flags.
+;   Algorithm: Use L as an 8-bit down-counter. The entry pre-increments L so the DEC L / RET Z test at
+;              the loop top exits cleanly, including the zero-length case (L=0 -> INC L=1 -> DEC L=0 -> RET Z).
+;              Each pass copies one byte (BC)->(DE) and advances both pointers. [RE] Both documented callers
+;              (STR_BUILD_FROM_DESC, STR_COPY_DESCR_DATA) set L from A (the string length) just before the
+;              call, so L == A there; the routine itself only reads L.
+; ----------------------------------------------------------------------
 BLOCK_COPY_BC_TO_DE:
         INC L
 BLOCK_COPY_BC_TO_DE_1:
+        ; count down; exit when all L bytes have been copied
         DEC L
         RET Z
+        ; copy one byte from source to destination, both ascending
         LD A,(BC)
         LD (DE),A
         INC BC
         INC DE
         JR BLOCK_COPY_BC_TO_DE_1
-; MS BASIC-80 FRETMP: free the most-recent temporary string descriptor (CALL FREFAC at $5035), then fall into FRESTR to reclaim its heap bytes if it was the topmost allocation.
+; ----------------------------------------------------------------------
+; FRETMP -- free the most-recent temporary string, validating it is a string first
+;   In:        FAC ($0CB1) holds a string VALUE pointer (a STRDESC address); VALTYP ($0B14) set by the prior FRMEVL.
+;   Out:       HL = the string's STRDESC address; if it was the topmost heap allocation, FRETOP ($0B48) is advanced past its bytes and the temp-descriptor stack (TEMPPT) is popped. Raises 'Type mismatch' if the value is not a string.
+;   Clobbers:  A, B, C, D, E, H, L, F.
+;   Algorithm: Assert the current value is a string (REQUIRE_STRING, which returns on a string VALTYP==3 and JPs to Type mismatch on any numeric), then fall straight into FRESTR to reclaim the temporary's heap space. The single-string-argument functions (LEN/ASC/VAL/CVx/RSET/file-name) call here to retire and locate their argument string in one step.
+; ----------------------------------------------------------------------
 FRETMP:
+        ; require a string argument (Type mismatch otherwise), then fall into FRESTR to free it
         CALL REQUIRE_STRING
-; MS BASIC-80 FRESTR: free the string whose descriptor pointer is in FAC ($0CB1); loads the descriptor then frees its data via FRESTR1 (FRESTR1).
+; ----------------------------------------------------------------------
+; FRESTR -- free the string whose STRDESC pointer is currently in the FAC
+;   In:        FAC ($0CB1) = address of the value's STRDESC (msbasic_strdesc.inc).
+;   Out:       HL = the STRDESC address; FRETOP advanced and the temp stack popped iff this was the topmost heap string (see FRESTR1).
+;   Clobbers:  A, B, C, D, E, H, L, F.
+;   Algorithm: Load the descriptor address from the FAC into HL and fall into FRESTR_DE, which EX DE,HL into the form FRESTR1's reclaim test expects. Used wherever a string value already lives in the FAC (PRINT/STRPRT, FRE string arg, assignment fixups).
+; ----------------------------------------------------------------------
 FRESTR:
+        ; take the string's descriptor address from the FAC, then free via the shared tail
         LD HL,(FAC)
-; MS BASIC-80 FRESTR entry with descriptor address already in HL: EX DE,HL then free.
+; ----------------------------------------------------------------------
+; FRESTR_DE -- FRESTR entry when the STRDESC address is already in HL
+;   In:        HL = address of the string's STRDESC.
+;   Out:       Same as FRESTR1 (heap reclaimed iff topmost allocation); HL = STRDESC address on return.
+;   Clobbers:  A, B, C, D, E, H, L, F.
+;   Algorithm: Swap the descriptor address into DE (where FREE_TOP_TEMP_DESCR's match test in FRESTR1 expects it) and fall into FRESTR1. This is the entry callers use when they already hold the descriptor pointer in HL and need not route through the FAC.
+; ----------------------------------------------------------------------
 FRESTR_DE:
+        ; move the descriptor address into DE for the topmost-allocation test below
         EX DE,HL
-; MS BASIC-80 FRESTR1: if the descriptor points at the topmost string-heap allocation, hand its bytes back by advancing the top-of-free-string pointer ($0B48); otherwise leave the heap unchanged.
+; ----------------------------------------------------------------------
+; FRESTR1 -- return a string's heap bytes only if it is the topmost (most recently allocated) string
+;   In:        DE = address of the string's STRDESC (LEN at +0, data PTR at +1,+2).
+;   Out:       HL = the STRDESC address. If the descriptor sits at the very top of the temp-descriptor stack AND its data lies at the bottom of allocated string space (FRETOP == data_ptr-1), FRETOP ($0B48) is bumped up by LEN, reclaiming the bytes in place; otherwise the heap is left untouched (those bytes become garbage GARBAG must later collect). When the descriptor is the top temp, TEMPPT is also popped (inside FREE_TOP_TEMP_DESCR).
+;   Clobbers:  A, B, C, D, E, H, L, F.
+;   Algorithm: Pop/test the temp-descriptor stack via FREE_TOP_TEMP_DESCR (returns BC = the top temp's stored data PTR, HL = TEMPPT-3 = the top temp's base, and Z iff DE == that base). EX DE,HL now puts the input descriptor address back in HL and TEMPPT-3 in DE. If DE was NOT the top temp (NZ) return immediately (HL = descriptor). Otherwise PUSH the matched base, set DE = data_ptr-1 (from BC), load C = STRDESC.LEN via (HL), and compare FRETOP against data_ptr-1: an exact match means this string sits immediately above FRETOP, so ADD its length to FRETOP. POP HL restores the descriptor address.
+;   Algorithm-note: [RE] on the reclaim path HL is POPped from the matched temp base (TEMPPT-3), which equals the input descriptor address precisely because FREE_TOP_TEMP_DESCR only matched when TEMPPT-3 == descriptor; so HL = STRDESC address on both exits.
+;   Algorithm-note: [RE] LD B,A after the equal compare relies on CMP_HL_DE leaving A = L-E = 0 on equality, so BC = (0,LEN) and ADD HL,BC advances FRETOP by exactly LEN.
+; ----------------------------------------------------------------------
 FRESTR1:
+        ; test/pop the temp-descriptor stack; returns BC = the top temp's data pointer, HL = its base, NZ if our descriptor was not the top temp
         CALL FREE_TOP_TEMP_DESCR
         EX DE,HL
         RET NZ
@@ -15968,6 +16656,7 @@ FRESTR1:
         LD E,C
         DEC DE
         LD C,(HL)
+        ; reclaim only if the string sits at the bottom of the heap: FRETOP must equal data_ptr-1
         LD HL,(FRETOP)
         CALL CMP_HL_DE
         JR NZ,FRESTR1_1
@@ -15977,8 +16666,15 @@ FRESTR1:
 FRESTR1_1:
         POP HL
         RET
-; [RE] pop the most-recently-pushed temporary string descriptor off the temp-descriptor stack ($0B25): if HL matches, retract the temp pointer by one descriptor and clear Z.
+; ----------------------------------------------------------------------
+; FREE_TOP_TEMP_DESCR -- pop the most-recent temporary string descriptor off the TEMPPT stack if it matches
+;   In:        DE = a candidate STRDESC address.
+;   Out:       BC = the top temp descriptor's stored data PTR (its PTR-word bytes, read high-then-low into B then C). HL = TEMPPT-3 (the top descriptor's base). A = (TEMPPT-3) - DE high/low difference (0 on match). If DE equals that base (the top temp), TEMPPT ($0B25) is retracted by one STRDESC (3 bytes) and Z is set; otherwise TEMPPT is unchanged and NZ is returned.
+;   Clobbers:  A, B, C, H, L, F. (D, E untouched.)
+;   Algorithm: Load TEMPPT (points just past the live top descriptor), DEC and read the descriptor's PTR high byte into B, DEC and read PTR low into C, DEC to land HL on the descriptor base (TEMPPT-3 = the LEN byte). Compare HL against DE (CMP_HL_DE): on mismatch return NZ leaving the stack intact; on match write HL back to TEMPPT, popping the descriptor. Callers (FRESTR1, and LET's stack balancing at STMT_LET) use this both to free a temp and to retrieve its data pointer.
+; ----------------------------------------------------------------------
 FREE_TOP_TEMP_DESCR:
+        ; walk back from the temp-stack top to read the descriptor's data pointer into BC and its base into HL
         LD HL,(TEMPPT)
         DEC HL
         LD B,(HL)
@@ -15987,6 +16683,7 @@ FREE_TOP_TEMP_DESCR:
         DEC HL
         CALL CMP_HL_DE
         RET NZ
+        ; DE was the top temp: pop it by retracting TEMPPT one descriptor (3 bytes)
         LD (TEMPPT),HL
         RET
 ; [RE] LEN(a$) handler (function token $11): length of a string (its descriptor count byte) into the FAC.
@@ -16396,13 +17093,22 @@ PARSE_OPT_LEN_ARG_1:
         CALL SYNCHR
         DEFB    ')'                      ; inline char arg consumed by the preceding CALL
         RET
-; [RE] FRE() handler (function token $0F): free memory. A string arg triggers FRESTR+GARBAG (garbage collect); returns FRETOP minus the top of the variable/array area as the free byte count.
+; ----------------------------------------------------------------------
+; FN_FRE -- FRE() function (token $0F): report free string-heap space, optionally forcing a GC first
+;   In:        FAC holds the evaluated argument; VALTYP ($0B14) set by FRMEVL. FRE(numeric) skips GC; FRE(string$) forces one.
+;   Out:       FAC = (FRETOP - STREND) as a single-precision number: the count of bytes free between STREND ($0B73, first free byte above the array table) and FRETOP ($0B48, bottom of allocated string space).
+;   Clobbers:  A, B, C, D, E, H, L, F.
+;   Algorithm: Classify the argument type (FRMEVL_TEST_TYPE sets Z iff string). A non-string (NZ) jumps straight to FN_FRE_1. A string argument (Z) falls through to free that string (FRESTR) and run a full garbage-collection pass (GARBAG) so the reported figure reflects truly reclaimable space. FN_FRE_1 then loads STREND into DE (via LD HL,(STREND)/EX DE,HL) and FRETOP into HL and tail-calls FP_INT_SUB_TO_FAC.
+;   Algorithm-note: FP_INT_SUB_TO_FAC computes HL-DE = FRETOP - STREND then INT_TO_SNG; the difference is the free gap because string space grows downward from FRETOP while variables/arrays grow upward to STREND.
+; ----------------------------------------------------------------------
 FN_FRE:
+        ; string argument forces a garbage-collection pass so the free count is accurate; numeric argument skips it
         CALL FRMEVL_TEST_TYPE
         JP NZ,FN_FRE_1
         CALL FRESTR
         CALL GARBAG
 FN_FRE_1:
+        ; free bytes = FRETOP (bottom of string heap) minus STREND (top of variable/array area)
         LD HL,(STREND)
         EX DE,HL
         LD HL,(FRETOP)
@@ -17236,7 +17942,7 @@ CHAIN_COMPACT_STRINGS:
         LD A,H
         SBC A,D
         LD H,A
-        LD (L_0C65),HL
+        LD (GC_FRAME_CURSOR),HL
         LD HL,(FRETOP)
         LD (L_0C95),HL
         CALL STR_COPY_DOWN_NOCHK
@@ -17269,7 +17975,7 @@ CHAIN_MOVE_STRING_VAR_3:
         LD HL,(VARTAB)
         LD B,H
         LD C,L
-        LD HL,(L_0C65)
+        LD HL,(GC_FRAME_CURSOR)
         ADD HL,BC
         LD (ARYTAB),HL
         LD HL,(FRETOP)
@@ -18103,14 +18809,14 @@ LOAD_PROGRAM_3:
         JR NZ,LOAD_PROGRAM_4
         LD (SAVTXT),HL
 ; ----------------------------------------------------------------------
-; LOAD_PROGRAM_4 -- GETC_FILE_EOF the lead byte: empty -> DIRECT_LINE_DISPATCH; $FE -> set LOAD_PROTECT_FLAG (L_0C99) then read; else LOAD_PROGRAM_5.
+; LOAD_PROGRAM_4 -- GETC_FILE_EOF the lead byte: empty -> DIRECT_LINE_DISPATCH; $FE -> set LOAD_PROTECT_FLAG (LOAD_PROTECT_FLAG) then read; else LOAD_PROGRAM_5.
 ; ----------------------------------------------------------------------
 LOAD_PROGRAM_4:
         CALL GETC_FILE_EOF
         JP C,DIRECT_LINE_DISPATCH
         CP $FE
         JR NZ,LOAD_PROGRAM_5
-        LD (L_0C99),A
+        LD (LOAD_PROTECT_FLAG),A
         JR LOAD_PROGRAM_6
 ; ----------------------------------------------------------------------
 ; LOAD_PROGRAM_5 -- INC A; $FF -> binary (fall through); else JP STMT_MERGE_2 (ASCII source).
@@ -18125,7 +18831,7 @@ LOAD_PROGRAM_6:
         LD HL,(TXTTAB)
         CALL FILE_READ_RECORDS
         LD (VARTAB),HL
-        LD A,(L_0C99)
+        LD A,(LOAD_PROTECT_FLAG)
         OR A
         CALL NZ,PROG_SCRAMBLE
         CALL CHEAD
@@ -18154,11 +18860,11 @@ LOAD_CLEANUP_RESET:
         CALL FILE_CLOSE_ONE
         JP RESET_RUN_STATE_1
 ; ----------------------------------------------------------------------
-; RUN_NO_FILENAME -- CLEAR_VARS then JP CHECK_STACK_ROOM_1; STRING_SPACE_ROOM_CHECK jumps here on string overflow.
+; RUN_NO_FILENAME -- CLEAR_VARS then JP STACK_OVERFLOW_RAISE; STRING_SPACE_ROOM_CHECK jumps here on string overflow.
 ; ----------------------------------------------------------------------
 RUN_NO_FILENAME:
         CALL CLEAR_VARS
-        JP CHECK_STACK_ROOM_1
+        JP STACK_OVERFLOW_RAISE
 ; ----------------------------------------------------------------------
 ; STMT_MERGE -- POP BC discards the dispatcher return (MERGE jumps into the line dispatcher), open file #0 for input, require end-of-statement. Text-only; shares the LOAD-ASCII path.
 ; ----------------------------------------------------------------------
@@ -18218,7 +18924,7 @@ STMT_SAVE:
         DEFB    'A'                      ; inline char arg consumed by the preceding CALL
         JP STMT_LIST
 ; ----------------------------------------------------------------------
-; STMT_SAVE_1 -- RENUM_PATCH_LINEREFS (L_0B56=0) VALIDATES GOTO/GOSUB/THEN line refs ('Undefined line'; NOT a relink); ILLEGAL_DIRECT_CHECK tests LOAD_PROTECT_FLAG (L_0C99) -> ERROR_FC if a protected program is plain-SAVEd; A=$FF, fall into SAVE_WRITE_PROGRAM.
+; STMT_SAVE_1 -- RENUM_PATCH_LINEREFS (RENUM_PENDING_FLAG=0) VALIDATES GOTO/GOSUB/THEN line refs ('Undefined line'; NOT a relink); ILLEGAL_DIRECT_CHECK tests LOAD_PROTECT_FLAG (LOAD_PROTECT_FLAG) -> ERROR_FC if a protected program is plain-SAVEd; A=$FF, fall into SAVE_WRITE_PROGRAM.
 ; ----------------------------------------------------------------------
 STMT_SAVE_1:
         CALL RENUM_PATCH_LINEREFS
@@ -21199,7 +21905,7 @@ DIRECT_MODE_GUARD:
 ; [RE] Illegal-direct guard: if the 'running a program' flag ($0C99) is clear -> $0D5C (Illegal direct), else RET preserving AF. Statements that need a stored line call here.
 ILLEGAL_DIRECT_CHECK:
         PUSH AF
-        LD A,(L_0C99)
+        LD A,(LOAD_PROTECT_FLAG)
         OR A
         JP NZ,ERROR_FC
         POP AF
@@ -21238,7 +21944,7 @@ COLD_START:
         LD HL,COLD_STACK_BASE
         LD SP,HL
         XOR A
-        LD (L_0C99),A
+        LD (LOAD_PROTECT_FLAG),A
         LD (TOP_OF_STACK_ROOM),HL
         LD (SAVSTK),HL
         LD HL,($0001)
@@ -21340,8 +22046,8 @@ COLD_SET_WIDTH:
         LD (FIELD_BUF_ADDR_LIMIT),HL
         LD HL,TEMPST
         LD (TEMPPT),HL
-        LD HL,L_0B91
-        LD (L_0BF9),HL
+        LD HL,DEFFN_FRAME_PTR
+        LD (FN_FRAME_LIST_HEAD),HL
         LD HL,($0006)
         LD (MEMSIZ),HL
         LD A,$03
@@ -21485,7 +22191,7 @@ COLD_SET_WIDTH_14:
         LD A,D
         SBC A,H
         LD H,A
-        JP C,CHECK_STACK_ROOM_1
+        JP C,STACK_OVERFLOW_RAISE
         LD B,$03
 COLD_SET_WIDTH_15:
         OR A
@@ -21507,7 +22213,7 @@ COLD_SET_WIDTH_16:
         LD A,D
         SBC A,H
         LD H,A
-        JP C,CHECK_STACK_ROOM_1
+        JP C,STACK_OVERFLOW_RAISE
         LD (MEMSIZ),HL
         EX DE,HL
         LD (TOP_OF_STACK_ROOM),HL
