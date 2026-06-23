@@ -101,9 +101,28 @@ body_end` fixed to end at the next SPEC routine; duplicate same-anchor operand_r
 repeated; mint a header's NEW label in the file by hand first; `labels[]` uses GLOBAL occ; keep
 planted-JMP/copy-destination/self-modified cells literal.
 
-**Remaining campaign (after the boot loader):** ~16 shared Z-80 utilities (PIP/ED/ASM/STAT/DDT/…) +
-their `_6502.s` payloads (disassemble the DEFB blobs; this phase absorbs the queued CP/M-constant
-rename) → then **2.23-44K** (clean-slate) → then the emulator-driven disk producer (capstone).
+**2.23-44K uplift — IN PROGRESS** (clean-slate from 2.23 bytes; the enriched 2.20 twin is a verify
+cross-reference, NEVER copied). `cpm_os_enrich.workflow.js` is now the FILE-WRITING Z-80 OS workflow
+(verify → `E:/tmp/os_spec_<i>.json`) + proactive synonym-fold STYLE.
+- **CPM_BIOS.asm — DONE** (58955e2): headers/body/renames + a card-descriptor split + cpm22.inc
+  folds (WBOOT_VEC→WBOOTV, CDISK→CDISK_ADDR, BDOS_VEC→BDOS, DEFAULT_DMA→TBUFF, $0003→IOBYTE_ADDR) +
+  INCLUDE cpm22.inc (registered in chunk_map). **Framing fixed: Z-80 $FA00 = Apple $0A00 LOW main
+  RAM, NO language card** ([[feedback_softcard_z80_high_addr_is_low_apple_ram]]); Videx+40col + the
+  2.23-only device-6/Pascal probe documented.
+- **CPM_BDOS.asm — DOCUMENTED; relocatability DEFERRED** (9d38c9d): byte-safe subset applied — 257
+  headers, 465 body, 75 renames, zero inline `; $addr`. Byte-identical. **CCP+BDOS = ONE compilation
+  unit** (CCP INCLUDEs BDOS) → shared base-page folds + includes belong at the **CCP unit head** and
+  must rename BOTH files; folding BDOS-alone deleted defs the CCP uses → build broke. DEFERRED to the
+  CCP pass: the ~16 **cover+offset EQU → clean-label splits** (mint labels + DELETE the EQU lines;
+  several collide in the dense $A4xx-$A5xx region), in-image operand→label rewrites, and the
+  cpm22/apple_softcard folds+includes (CCP-head placement, both-file rename).
+- **NEXT:** enrich **CPM_CCP.asm** as the unit head, carrying the deferred BDOS relocatability +
+  unit-wide folds (gate the combined CCP+BDOS chunk) → then the 2.23 6502 files (CPM_BootLoader.s /
+  CPM_RPC6502.s + the Z-80 fragments CPM_DiskCallbacks.asm / CPM_BootLoader_DiskXlate.asm / ProbeOvl).
+
+**Remaining campaign (after 2.23-44K OS):** ~16 shared Z-80 utilities (PIP/ED/ASM/STAT/DDT/…) +
+their `_6502.s` payloads (disassemble the DEFB blobs; absorbs the queued CP/M-constant rename) →
+then the emulator-driven disk producer (capstone).
 
 **Disk-image model (decided; `softcard/docs/CPM_Disk_Build_Plan.md`).** A "full" build = ONE flat
 143,360-byte raw sector image (35×16×256). CP/M 2.2 has NO CPM.SYS: tracks 0-2 = boot + CCP/BDOS

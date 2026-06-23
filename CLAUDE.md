@@ -131,13 +131,22 @@ via a 6502-aware multi-agent Workflow `cpm_bootloader_enrich.workflow.js` -- 12 
 per-cluster `E:/tmp/bl_spec_<i>.json` → Python merge → enrich_apply; adversarial verify caught real
 mis-decodes: BOOT0 `$27`/`CMP #$09`=dest PAGE not "sector 9", swapped 6-and-2 buffers, a
 PHTAB_ON2-vs-NIBBUF-$AA relocation base). Built ca65 `-l` listing support; generated-6502-source
-tests pin BYTES not text; `enrich_apply.body_end` fixed to end at the next SPEC routine. **NEXT:**
-the ~16 shared Z-80 utilities + their `_6502.s` payloads (this absorbs the queued
-**CP/M-constant rename** across the ~30 `cpm22.inc`-carrying utilities: `CALL $0005`→`CALL BDOS`,
-`LD C,$nn`→`F_*`/`DRV_*`, `$0080`→`TBUFF`, `$005C`→`TFCB`; CAUTION 3 files STAT/CPMV220 +
-DDT/CPMV220-44K + DDT/CPMV223-44K keep a local `TPA EQU` to dodge a BDOS collision, and the 60K
-build keeps it too — adding cpm22.inc there broke `build_cpm60`) → then the independent **2.23-44K**
-uplift → then the emulator-driven disk producer (capstone). The DONE BASIC track (one master
+tests pin BYTES not text; `enrich_apply.body_end` fixed to end at the next SPEC routine.
+
+**2.23-44K uplift LIVE** (clean-slate from 2.23 bytes; 2.20 twin = verify cross-ref, never copied;
+`cpm_os_enrich.workflow.js` now file-writing + proactive synonym-fold): **CPM_BIOS DONE** (58955e2;
+cpm22 folds + INCLUDE; `$FA00`=Apple `$0A00` LOW RAM, **NO LC** per
+`feedback_softcard_z80_high_addr_is_low_apple_ram`; Videx+40col + device-6/Pascal probe).
+**CPM_BDOS DOCUMENTED** (9d38c9d; 257 headers/465 body/75 renames byte-identical) — its
+relocatability (cover+offset EQU→clean-label splits) + the cpm22/apple_softcard folds are DEFERRED
+because **CCP+BDOS is ONE compilation unit**: shared folds/includes belong at the CCP head + must
+rename BOTH files (folding BDOS-alone broke the CCP). **NEXT: enrich CPM_CCP as the unit head**
+(carry the deferred BDOS folds/splits) → 2.23 6502 files → then the ~16 shared Z-80 utilities + their
+`_6502.s` payloads (absorbs the queued **CP/M-constant rename** across the ~30 `cpm22.inc`-carrying
+utilities: `CALL $0005`→`CALL BDOS`, `LD C,$nn`→`F_*`/`DRV_*`, `$0080`→`TBUFF`, `$005C`→`TFCB`;
+CAUTION 3 files STAT/CPMV220 + DDT/CPMV220-44K + DDT/CPMV223-44K keep a local `TPA EQU` to dodge a
+BDOS collision, and the 60K build keeps it too — adding cpm22.inc there broke `build_cpm60`) → then
+the emulator-driven disk producer (capstone). The DONE BASIC track (one master
 `BASIC.asm` byte-identical to both GBASIC/MBASIC, all 14 subsystems C-level, merged `b398441`)
 is the model — see `project_basic_gbasic_mbasic_fold`. Older queue still open: 2.20↔2.23 BASIC
 patch consolidation; the 56K/60K trees to the same standard, the CPM56→os/ fold, and the wiseowl
