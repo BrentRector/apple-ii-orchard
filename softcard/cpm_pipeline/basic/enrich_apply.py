@@ -43,11 +43,32 @@ def code_norm(line):
     return line.split(';', 1)[0].strip()
 
 
+def _wrap(line, width=160):
+    """Word-wrap an over-long comment line so it stays well under the assembler's
+    line-length cap (sjasmplus ~2048); continuation lines reuse the "; " prefix."""
+    if len(line) <= width:
+        return [line]
+    m = re.match(r'^(\s*;\s*)(.*)$', line)
+    if not m:
+        return [line]
+    head, text = m.group(1), m.group(2)
+    out, cur = [], head
+    for w in text.split(" "):
+        cand = cur + ("" if cur == head else " ") + w
+        if len(cand) > width and cur != head:
+            out.append(cur)
+            cur = head + w
+        else:
+            cur = cand
+    out.append(cur)
+    return out
+
+
 def _framed_header(hdr_lines):
     out = [RULE]
     for h in hdr_lines:
         h = h.rstrip()
-        out.append(("; " + h) if h else ";")
+        out.extend(_wrap("; " + h) if h else [";"])
     out.append(RULE)
     return out
 
@@ -137,7 +158,7 @@ def apply_spec(text, spec):
                     n += 1
                     if n == occ:
                         indent = lines[k][:len(lines[k]) - len(lines[k].lstrip())]
-                        edits.append((k, k, [indent + "; " + _strip_was(_rn(bc["comment"]))]))
+                        edits.append((k, k, _wrap(indent + "; " + _strip_was(_rn(bc["comment"])))))
                         rep["body"] += 1
                         placed = True
                         break

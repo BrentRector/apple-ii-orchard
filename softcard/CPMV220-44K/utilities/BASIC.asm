@@ -860,24 +860,59 @@ MSG_OK:
 MSG_BREAK:
         DEFB    "Break"                  ; string
         DEFB    $00                      ; terminator
-; [RE] Entry to FOR/GOSUB stack-frame fixup: HL = SP+4, fall into STKFRAME_SCAN to walk the runtime stack.
-STKFRAME_SCAN_INIT:
+; ----------------------------------------------------------------------
+; FNDFOR_FROM_SP -- seed the FOR-frame search at the current runtime stack top, then fall into FNDFOR.
+;   In:        DE = the loop-variable address to match: 0 (set by bare NEXT and by FOR's first pass) = match the innermost open FOR frame; a nonzero address
+;   (named NEXT <var>, from PTRGET) must equal the frame's stored loop-variable pointer. RETURN/POP set D=$FF (E left as-is) so DE is nonzero; for them the
+;   scanner just stops at the first non-FOR frame and the DE compare is effectively unused (the first non-$82/$AF marker ends the walk before any compare). SP
+;   points at the live interpreter stack.
+;   Out:       Per FNDFOR. Found (Z): HL points just past the matched FOR frame's stored key word (= marker+3). Not found / a non-FOR frame reached (NZ): A =
+;   that frame's marker byte (RETURN/POP test A==$8D for a GOSUB frame). DE ends holding the comparison target.
+;   Clobbers:  AF,BC,HL.
+;   Algorithm: Compute HL = SP+4 (OBSERVED stride: steps past this CALL's return address plus one more word) and drop into FNDFOR to walk outward from there.
+;   [RE] The exact reason callers use SP+4 here vs SP+2 at STMT_FOR_1's direct FNDFOR entry is the per-caller stack layout; only the offset is OBSERVED.
+; ----------------------------------------------------------------------
+FNDFOR_FROM_SP:
+        ; Start the FOR-frame walk 4 bytes above SP (past this CALL's return address and one more stacked word).
         LD HL,$0004
+        ; HL := SP+4 = first candidate stack frame; fall into FNDFOR to scan.
         ADD HL,SP
-; [RE] Walk runtime stack frames: skip FOR frames (token $AF, +16/+6 bytes), find GOSUB markers ($82), compare each frame's text pointer vs HL via FNDLIN-cmp ($691F) to fix up frames after a program edit/delete.
-STKFRAME_SCAN:
+; ----------------------------------------------------------------------
+; FNDFOR -- walk the runtime stack for an open FOR-loop frame (marker $82) matching DE, skipping WHILE frames.
+;   In:        HL -> the first candidate stack frame (from FNDFOR_FROM_SP = SP+4, or from STMT_FOR_1 = SP+2). DE = the loop-variable address to match: 0 =
+;   accept the first/innermost FOR frame; a nonzero address (named NEXT <var>) must equal the frame's stored loop-variable pointer.
+;   Out:       Found (Z set): HL points just past the matched FOR frame's stored key word (marker+3) and the scan stops. Not found (NZ): the walk stops at the
+;   first frame whose marker is neither $AF (WHILE) nor $82 (FOR); A = that marker byte. RETURN/POP then test A==$8D (GOSUB frame); NEXT treats NZ as
+;   NEXT-without-FOR.
+;   Clobbers:  AF,BC,HL; DE is exchanged through and ends holding the comparison target.
+;   Algorithm: For each frame, read its leading marker byte (and advance HL past it). $AF is the WHILE-frame marker (TOK_WHILE): step +6 over that WHILE frame's
+;   body and rescan (a WHILE frame is the 1-byte marker plus 3 saved words pushed by STMT_WEND_1). $82 is a FOR-frame marker (TOK_FOR, stamped by STMT_FOR_5):
+;   read its stored loop-variable/key pointer; if DE==0 accept the first such frame, otherwise compare that pointer against DE (CMP_HL_DE). On a match return Z;
+;   on a mismatch advance one full FOR frame (+16) and continue. Any other marker ends the scan with RET NZ (A = that marker) -- this is how RETURN/POP reach
+;   the $8D GOSUB frame past intervening FOR/WHILE frames.
+;   [RE] This is the classic MS BASIC-80 FNDFOR (find an open FOR, skipping open WHILE blocks). The detailed FOR/WHILE frame field maps are only partially
+;   recovered (see unknowns).
+; ----------------------------------------------------------------------
+FNDFOR:
+        ; Read this frame's leading marker byte (advance HL past it).
         LD A,(HL)
         INC HL
+        ; $AF = WHILE-frame marker (TOK_WHILE): not a FOR frame, so step over it and rescan.
         CP $AF
-STKFRAME_SCAN_1:
-        JR NZ,STKFRAME_SCAN_3
+FNDFOR_1:
+        ; Not a WHILE frame -> test for a FOR-frame marker.
+        JR NZ,FNDFOR_3
         LD BC,$0006
+        ; Step +6 over the WHILE frame's 3 saved words, then loop to re-read the next marker.
         ADD HL,BC
-STKFRAME_SCAN_2:
-        JR STKFRAME_SCAN
-STKFRAME_SCAN_3:
+FNDFOR_2:
+        JR FNDFOR
+FNDFOR_3:
+        ; $82 = open FOR-frame marker (TOK_FOR); any other byte ends the walk.
         CP $82
+        ; First non-FOR, non-WHILE marker reached: return it in A (RETURN/POP look for $8D here).
         RET NZ
+        ; Read this FOR frame's stored loop-variable/key pointer into BC.
         LD C,(HL)
         INC HL
         LD B,(HL)
@@ -886,33 +921,68 @@ STKFRAME_SCAN_3:
         LD L,C
         LD H,B
         LD A,D
+        ; DE==0 (bare NEXT / FOR first pass) means 'match any FOR frame': set Z to accept this one without comparing.
         OR E
         EX DE,HL
-        JR Z,STKFRAME_SCAN_5
+        ; Match-any mode: take this frame directly.
+        JR Z,FNDFOR_5
         EX DE,HL
-STKFRAME_SCAN_4:
+FNDFOR_4:
+        ; Named NEXT <var>: compare this frame's loop-variable pointer against the requested DE.
         CALL CMP_HL_DE
-STKFRAME_SCAN_5:
+FNDFOR_5:
         LD BC,$0010
         POP HL
+        ; Matched (or match-any): stop with HL just past this frame's key word.
         RET Z
+        ; No match: step one whole FOR frame (+16) outward and keep scanning.
         ADD HL,BC
-        JR STKFRAME_SCAN
-SUB_0D28:
+        JR FNDFOR
+; ----------------------------------------------------------------------
+; WARM_OK_TRAMPOLINE -- warm re-entry that resets the interpreter and returns to the 'Ok' prompt.
+;   In:        Entered by the JP at the program's TPA entry ($0100->$0101, patched to here by the cold sign-on). No register inputs.
+;   Out:       Does not return: stages the continuation and joins the standard run-state reset, which RETs into READY_POP_FRAME (discard a stale stack word,
+;   then the 'Ok' READY loop).
+;   Clobbers:  BC, plus everything RESET_RUN_STATE clobbers (AF,HL,SP; and DE via its sub-CALLs).
+;   Algorithm: Load BC = READY_POP_FRAME (CONFIRMED: ERROR_RESUME_FROM_DIRECT_3+1 = $0E21+1 = $0E22 = READY_POP_FRAME, the +1 entry past the error-path DEFB $3E
+;   cover), then JP ERROR_PRINT_SETUP_1, which sets HL=(SAVSTK) and JP RESET_RUN_STATE. RESET_RUN_STATE resets the temp-string stack and run-state cells, then
+;   PUSH HL / PUSH BC and RET -- so it returns into BC = READY_POP_FRAME, whose POP BC discards the just-pushed HL word and falls into the 'Ok' loop. The
+;   classic BASIC-80 'restart returns you to Ready' warm entry installed at $0101.
+; ----------------------------------------------------------------------
+WARM_OK_TRAMPOLINE:
+        ; Set the post-reset continuation to READY_POP_FRAME (the 'Ok' entry); RESET_RUN_STATE will RET into it.
         LD BC,ERROR_RESUME_FROM_DIRECT_3+1
+        ; Reuse the error/return tail (HL:=SAVSTK, then RESET_RUN_STATE) to scrub the stack and drop to Ready.
         JP ERROR_PRINT_SETUP_1
-; [RE] PROGRAM_END: reached from NEWSTT (JP Z) when a line link is $0000 -- execution ran off the end of the program. If SAVTXT is $FFFF (direct mode), fall through to the ready/Ok-prompt return; otherwise, if an error handler is active (ONEFLG set) it ran off the end without RESUME, so raise 'No RESUME' (ERR_NO_RESUME). The CONT command and its 'Can't continue' error live in STMT_CONT, not here.
+; ----------------------------------------------------------------------
+; PROGRAM_END -- NEWSTT 'ran off the end of the program' arm: return to Ready, or raise 'No RESUME'.
+;   In:        Reached by JP Z from NEWSTT_NEXTLINE when the next-line link word is $0000 (no more program lines). SAVTXT distinguishes mode: $FFFF = a
+;   direct-mode line just finished; otherwise a stored program ran to its end. ONEFLG = ON-ERROR-handler-active flag.
+;   Out:       Direct mode (SAVTXT==$FFFF) or no active handler: JP RESUME_AT_DIRECT (return to the 'Ok' prompt). If an ON-ERROR handler was active (ONEFLG
+;   nonzero) when execution fell off the end with no RESUME: raise ERR_NO_RESUME (=19) via RAISE_ERROR.
+;   Clobbers:  AF,E,HL.
+;   Algorithm: Load SAVTXT; LD A,H / AND L / INC A gives A==0 exactly when SAVTXT==$FFFF (direct mode) -> JR Z to the ready return. Otherwise a real program
+;   ended: read ONEFLG; if a handler is still active, the program ran past its end inside an error trap with no RESUME, so set E=ERR_NO_RESUME and JR NZ to
+;   RAISE_ERROR. With no active handler, fall into the ready return.
+;   [RE] The CONT command and its 'Can't continue' (err 17) are NOT here -- they live in STMT_CONT. PROGRAM_END only raises 'No RESUME' (err 19).
+;   (ERR_NO_RESUME=19, ERR_CANT_CONTINUE=17 in msbasic_errors.inc.)
+; ----------------------------------------------------------------------
 PROGRAM_END:
+        ; Mode probe: SAVTXT==$FFFF means a direct-mode line just ended (not a stored program).
         LD HL,(SAVTXT)
         LD A,H
         AND L
+        ; (H AND L)+1 == 0 iff SAVTXT==$FFFF -> Z selects the plain ready return.
         INC A
         JR Z,PROGRAM_END_1
+        ; A real program ended: was an ON-ERROR handler still active? (falling off the end inside a trap = missing RESUME).
         LD A,(ONEFLG)
         OR A
+        ; Handler ran off the end with no RESUME -> raise 'No RESUME' (err 19).
         LD E,ERR_NO_RESUME
         JR NZ,RAISE_ERROR
 PROGRAM_END_1:
+        ; Normal end / direct mode: snapshot CONT/RESUME pointers and return to the 'Ok' prompt.
         JP RESUME_AT_DIRECT
 ; Named-error entry stubs: each loads an error code into E (LD E,ERR_* via the $1E opcode of the next LD BC) then falls through to RAISE_ERROR. Overlapping table of error vectors -- code JPs to a specific entry to raise that error.
 RAISE_DISK_FULL:
@@ -1096,46 +1166,48 @@ ERROR_RESUME_FROM_DIRECT_2:
 ERROR_RESUME_FROM_DIRECT_3:
         DEFB    $3E                      ; LD A,# cover -- the fall-through loads A=$C1 from the next byte
 ; ----------------------------------------------------------------------
-; READY_POP_FRAME -- discard one stacked word, then fall into the READY prompt loop.
-;   In:        SP -> a 2-byte word to be discarded (a stale return/expression frame left by an
-;              aborted statement, e.g. a LIST that ran to end-of-program via JP C,READY_POP_FRAME).
-;   Out:       Falls into NEWSTT_READY (never returns to a caller).
-;   Clobbers:  BC (loaded with the popped word), then everything NEWSTT_READY clobbers.
-;   Algorithm: POP BC throws away the top stack word so the interpreter restarts with a clean stack,
-;              then drops into the main READY loop. Reached via JP/JR from several tails (LIST done,
-;              error/quit paths). It is also entered one byte early as the $C1 operand of the
-;              'DEFB $3E' (LD A,#) cover at ERROR_RESUME_FROM_DIRECT_3: that cover's straight-line
-;              fall-through instead executes 'LD A,$C1' (coded overlap).
-;   [RE] The fall-through value A=$C1 is described elsewhere as a default prompt char; that role is
-;        not confirmed by these bytes -- treat the prompt-char reading as inference, not OBSERVED.
+; READY_POP_FRAME -- discard one stale stack word, then fall into the READY/'Ok' prompt loop.
+;   In:        SP -> a 2-byte word left over from an aborted statement or a reset path (e.g. a LIST that ran to end-of-program reaches here; the error/quit
+;   tails and WARM_OK_TRAMPOLINE land here, and RESET_RUN_STATE's own PUSH HL leaves exactly such a word). No register inputs.
+;   Out:       Does not return to a caller; falls into NEWSTT_READY (the main Ready loop).
+;   Clobbers:  BC (the popped word), then everything NEWSTT_READY clobbers.
+;   Algorithm: POP BC throws away the top-of-stack word so the interpreter restarts with a balanced stack, then drops into NEWSTT_READY to reset output state,
+;   print 'Ok', and read the next console line.
+;   [RE] This label ($0E22) is also reached one byte early as the $C1 operand of the 'DEFB $3E' (LD A,#) cover at ERROR_RESUME_FROM_DIRECT_3 ($0E21): on the
+;   straight-line fall-through the $C1 byte runs as the operand of LD A,$C1 instead of as the POP BC opcode (coded overlap). The 'A=$C1 is a default prompt
+;   char' reading stated elsewhere is inference, not confirmed by these bytes.
 ; ----------------------------------------------------------------------
 READY_POP_FRAME:
         ; Drop the stale top-of-stack word so the READY loop restarts with a balanced stack.
+        ; Drop the stale top-of-stack word so the READY loop restarts with a balanced stack (this $C1 byte also serves as the LD A,$C1 operand on the error-path
+        ; coded-overlap entry one byte earlier).
         POP BC                           ; the LD operand byte, entered here as an opcode (coded overlap)
 ; ----------------------------------------------------------------------
-; NEWSTT_READY -- main READY loop: reset output state, print 'Ok', then read/process a console line.
-;   In:        Entered after a statement error, a STOP/END, program completion, or a direct line.
-;   Out:       Does not return; falls into DIRECT_LINE_DISPATCH to classify the next console line
-;              (edit/insert a numbered line, or execute a direct statement).
+; NEWSTT_READY -- main direct-mode 'Ok' loop: reset output state, print 'Ok', read the next console line.
+;   In:        Entered after a statement error, STOP/END, program completion, a finished direct line, or via READY_POP_FRAME. No register inputs.
+;   Out:       Does not return; falls through NEWSTT_READY_1 (print 'Ok') and NEWSTT_READY_2 (ERRFLG tail) into DIRECT_LINE_DISPATCH to classify the next line
+;   (edit/insert a numbered line, or execute a direct statement).
 ;   Clobbers:  AF,BC,DE,HL,SP (full interpreter reset).
-;   Algorithm: Reset the output column (OUTDO_RESET_COL), clear the CTRL_O_SUPPRESS cell, run the
-;              load/file cleanup + run-state reset (LOAD_CLEANUP_RESET), emit a CRLF if mid-line
-;              (PRINT_CRLF_IF_COL), then print MSG_OK ('Ok',CR,LF) through the cold-patched STROUT
-;              call vector (NEWSTT_READY_1). Then re-read ERRFLG and, at NEWSTT_READY_2, if it is 2
-;              resume the line editor before falling into DIRECT_LINE_DISPATCH.
-;   [RE] CTRL_O_SUPPRESS is named for a Ctrl-O print-suppress flag; the file's own notes on the
-;        related PRTFLG cell flag a suppress-vs-printer-select ambiguity, so treat 'clears the
-;        Ctrl-O suppress flag' as inference for this cell's exact semantics.
+;   Algorithm: Reset the output column (OUTDO_RESET_COL), clear CTRL_O_SUPPRESS, run the file-close + run-state reset (LOAD_CLEANUP_RESET =
+;   PRINT_RESET_STATE/FILE_CLOSE_ONE/RESET_RUN_STATE_1), emit a CRLF if mid-line (PRINT_CRLF_IF_COL), then point HL at MSG_OK ('Ok',CR,LF) and print it through
+;   the cold-patched STROUT call vector at NEWSTT_READY_1. Then re-read ERRFLG; at NEWSTT_READY_2, if (ERRFLG-2)==0 CALL STMT_EDIT_LINENUM (re-enter the line
+;   editor) before falling into DIRECT_LINE_DISPATCH.
+;   [RE] CTRL_O_SUPPRESS is named for a Ctrl-O print-suppress flag; the file's own notes flag a suppress-vs-printer-select ambiguity on the related PRTFLG cell,
+;   so the exact semantics of clearing it here are inference, not OBSERVED.
 ; ----------------------------------------------------------------------
 NEWSTT_READY:
         ; Return the console to the start of a fresh line before prompting.
+        ; Return the console to column 0 before prompting.
         CALL OUTDO_RESET_COL
         XOR A
+        ; Clear the Ctrl-O output-suppress flag so the prompt is visible.
         LD (CTRL_O_SUPPRESS),A
         ; Close the open file, reset print state, and re-establish the run-state stack.
+        ; Close any open file and re-establish the run-state stack for direct mode.
         CALL LOAD_CLEANUP_RESET
         CALL PRINT_CRLF_IF_COL
         ; Point at the 'Ok' ready-prompt string for the print call below.
+        ; Point at the 'Ok' ready string for the STROUT-vector print below.
         LD HL,MSG_OK
 ; ----------------------------------------------------------------------
 ; NEWSTT_READY_1 -- print the message at HL through the cold-patched STROUT call vector.
@@ -1172,114 +1244,248 @@ NEWSTT_READY_2:
         SUB $02
         ; ERRFLG==2: re-enter the line editor before reading the next input line.
         CALL Z,STMT_EDIT_LINENUM
-; [RE] Process the input line: FOUT the leading line number, FNDLIN to locate it, CRUNCH-tokenize ($3000), then insert/replace/delete in the program or execute as a direct statement.
+; ----------------------------------------------------------------------
+; DIRECT_LINE_DISPATCH -- per-line front of the direct-mode loop: prompt, read, and (in AUTO mode) advance the auto line number.
+;   In:        AUTFLG (auto-mode flag, nonzero = AUTO active), AUTLIN (current/next auto line number), AUTINC (auto increment). Entered by fall-through from
+;   NEWSTT_READY each time the interpreter returns to the 'Ok' prompt, and re-entered by JP from the AUTO command (STMT_AUTO).
+;   Out:       SAVTXT := $FFFF (direct-mode sentinel; CONT and PROGRAM_END/ILLEGAL_DIRECT_CHECK test this). No-AUTO: branches to DIRECT_READ_NONAUTO
+;   (DIRECT_READ_NONAUTO) to read+number the line. AUTO: the line is read into BUF and either committed via DIRECT_AUTO_COMMIT_LINE (DIRECT_AUTO_COMMIT_LINE) or
+;   AUTO is cancelled (Ctrl-C -> NEWSTT_READY; line-number overflow -> commit with AUTO off).
+;   Clobbers:  AF, BC, DE, HL; AUTLIN, AUTFLG, SAVTXT; the console (prints the auto number + a status marker).
+;   Algorithm: Mark direct mode (SAVTXT=$FFFF). If AUTFLG==0 branch to the plain reader (DIRECT_READ_NONAUTO). In AUTO mode: FOUT-print AUTLIN as the
+;   line-number prompt, then FNDLIN-search the program for that number; print '*' if it already exists (carry set = found; this line will overwrite it) or ' '
+;   if new. Read the user's text into BUF (INLIN_RESET_LINE; carry set = Ctrl-C). Ctrl-C abort -> clear AUTFLG and JR back to NEWSTT_READY ('Ok'). Otherwise
+;   compute next = AUTLIN+AUTINC; if it carries (16-bit wrap) or CMP_HL_DE shows next >= $FFF9 (past the max legal line number $FFF8) clear AUTFLG so AUTO stops
+;   after this line; else store next in AUTLIN. Either way fall into DIRECT_AUTO_COMMIT_LINE to commit the typed line under the AUTLIN still held in DE.
+;   [RE] $FFF8 as the max legal BASIC line number is inferred from the $FFF9 reject bound, not asserted elsewhere here.
+; ----------------------------------------------------------------------
 DIRECT_LINE_DISPATCH:
+        ; Flag direct mode: SAVTXT=$FFFF tells CONT 'no continue' and is the sentinel ILLEGAL_DIRECT_CHECK / PROGRAM_END test for a keyboard line vs a stored
+        ; program.
         LD HL,$FFFF
         LD (SAVTXT),HL
+        ; Fork on AUTO mode: off -> read an ordinary (manually numbered) console line; on -> issue the next auto line-number prompt.
         LD A,(AUTFLG)
         OR A
-        JR Z,SUB_0E7B_2
+        JR Z,DIRECT_READ_NONAUTO
         LD HL,(AUTLIN)
         PUSH HL
+        ; Print the current auto line number (AUTLIN, in HL) to the console as the entry prompt; FOUT formats the 16-bit value and prints it.
         CALL FOUT
         POP DE
         PUSH DE
+        ; Does a program line with this number already exist? FNDLIN returns carry set = found.
         CALL FNDLIN
+        ; Marker printed after the number: '*' ($2A) if the line already exists (carry set), ' ' ($20) if it is new.
         LD A,$2A
         JR C,DIRECT_LINE_DISPATCH_1
         LD A,$20
 DIRECT_LINE_DISPATCH_1:
         CALL OUTCHR
+        ; Read the user's line text into BUF; carry set on return means Ctrl-C aborted the line.
         CALL INLIN_RESET_LINE
         POP DE
+        ; Line entered normally -> advance the auto counter; Ctrl-C (carry) falls through to cancel AUTO mode.
         JR NC,DIRECT_LINE_DISPATCH_3
         XOR A
         LD (AUTFLG),A
+        ; Ctrl-C during AUTO: AUTFLG already cleared above; return to the 'Ok' ready prompt without committing a line.
         JR NEWSTT_READY
 DIRECT_LINE_DISPATCH_2:
         XOR A
         LD (AUTFLG),A
-        JR SUB_0E7B_1
+        JR DIRECT_AUTO_COMMIT_LINE
 DIRECT_LINE_DISPATCH_3:
+        ; Compute the next auto line number = current AUTLIN (DE) + AUTINC.
         LD HL,(AUTINC)
         ADD HL,DE
+        ; 16-bit overflow on AUTLIN+AUTINC: stop AUTO after committing this line.
         JR C,DIRECT_LINE_DISPATCH_2
         PUSH DE
+        ; Reject next numbers >= $FFF9 (CMP_HL_DE: carry clear means HL >= DE); $FFF8 is treated as the highest legal line number.
         LD DE,$FFF9
         CALL CMP_HL_DE
         POP DE
+        ; Next number out of range -> commit this line but disable further auto-numbering.
         JR NC,DIRECT_LINE_DISPATCH_2
+        ; Stash the next auto number for the following prompt; DE still holds the CURRENT AUTLIN to file this line under, then fall into the commit path.
         LD (AUTLIN),HL
-SUB_0E7B_1:
+; ----------------------------------------------------------------------
+; DIRECT_AUTO_COMMIT_LINE -- AUTO-mode tail: commit (or skip) the line the user just typed under the current AUTLIN.
+;   In:        BUF = the text the user typed (without the auto number, which was only a screen prompt). DE = the auto line number to file the line under (the
+;   AUTLIN that was prompted; preserved in DE since the POP DE in DIRECT_LINE_DISPATCH). Entered by fall-through after LD (AUTLIN),HL, or by JR from
+;   DIRECT_LINE_DISPATCH_2 (overflow path, AUTFLG already cleared).
+;   Out:       Empty input -> re-enter DIRECT_LINE_DISPATCH to re-issue the same auto number. Non-empty input -> JP into PRINT_LIST_ENTRY's shared tail, which
+;   (with A nonzero so RET Z is not taken) sets carry, PUSHes AF (carry=numbered-line), points HL at BUF and enters DIRECT_EXEC_STMT to insert/replace/delete
+;   the line in the program.
+;   Clobbers:  AF, HL (then whatever DIRECT_EXEC_STMT clobbers).
+;   Algorithm: Test the first byte of BUF. If it is $00 the user pressed Enter on an empty line, so loop back to DIRECT_LINE_DISPATCH and re-prompt the same
+;   line number. Otherwise JP PRINT_LIST_ENTRY -- not to print or LIST, but to reuse its fall-through tail (LD HL,$0A0D / RET Z / SCF / PUSH AF / INC HL=>HL=BUF
+;   / JP DIRECT_EXEC_STMT). DIRECT_EXEC_STMT files the line using the carry (=has a number) and the number still in DE.
+;   [RE] The target label PRINT_LIST_ENTRY is named for the PRINT statement; here only its tail is reused as a shared store-numbered-line entry. This is a
+;   deliberate code-sharing jump, NOT a LIST or PRINT of the line. The OR A in this routine leaves the Z flag live across PRINT_LIST_ENTRY's LD HL (which does
+;   not touch flags), so the RET Z there correctly does NOT fire for non-empty input.
+; ----------------------------------------------------------------------
+DIRECT_AUTO_COMMIT_LINE:
+        ; Look at the first character the user typed for this auto-numbered line.
         LD A,(BUF)
         OR A
+        ; Empty line (just Enter): re-prompt the SAME auto number rather than filing a blank line.
         JR Z,DIRECT_LINE_DISPATCH
+        ; Non-empty: reuse PRINT_LIST_ENTRY's tail (SCF + HL=BUF -> DIRECT_EXEC_STMT) to file this line under AUTLIN (held in DE). Not a PRINT/LIST -- the Z
+        ; from OR A above keeps that routine's RET Z from firing.
         JP PRINT_LIST_ENTRY
-SUB_0E7B_2:
+; ----------------------------------------------------------------------
+; DIRECT_READ_NONAUTO -- no-AUTO line reader: read a console line, parse its leading line number, and fall into statement execution / line edit.
+;   In:        none (console input). Entered from DIRECT_LINE_DISPATCH when AUTFLG==0.
+;   Out:       Empty input or Ctrl-C abort -> back to DIRECT_LINE_DISPATCH (re-prompt). Otherwise: AF on the stack carries 'leading digit present' (from
+;   CHRGET), DE = the parsed line number, HL -> the statement text just past one separating blank; falls into DIRECT_EXEC_STMT which either runs the line as a
+;   direct statement (no number, carry clear) or inserts/replaces/deletes it as a program line (number present, carry set).
+;   Clobbers:  AF, DE, HL, flags (plus CRUNCH_SKIP_BLANKS_BACK / LINGET / FP_LOAD_DONE effects).
+;   Algorithm: INLIN_RESET_LINE reads the line; carry set (Ctrl-C) -> re-prompt. CHRGET fetches the first significant char (carry set iff it is a digit). INC
+;   A/DEC A re-derives Z from A alone (CHRGOT's fast-path RET NC does not leave a clean Z); A==$00 means an empty line -> re-prompt. Note INC A/DEC A leave the
+;   Z80 carry untouched, so PUSH AF still preserves CHRGET's digit-carry for DIRECT_EXEC_STMT's run-vs-store decision. LINGET parses any leading decimal line
+;   number into DE (its inner CHRGET skips spaces, so HL may be advanced past the digits). CRUNCH_SKIP_BLANKS_BACK then walks HL BACK to just after the last
+;   line-number digit; if the byte there is a blank, FP_LOAD_DONE (reused here purely as INC HL) skips that single separating blank so CRUNCH tokenizes from the
+;   keyword. Falls into DIRECT_EXEC_STMT.
+;   [RE] FP_LOAD_DONE is the (HL)->FP loaders' shared 'INC HL; RET' tail; here it is reused only for its INC HL to step past one separator blank, not to load a
+;   floating-point value.
+; ----------------------------------------------------------------------
+DIRECT_READ_NONAUTO:
+        ; Read one console line into BUF; carry set means Ctrl-C aborted -> re-prompt.
         CALL INLIN_RESET_LINE
         JR C,DIRECT_LINE_DISPATCH
+        ; Fetch the first significant character; carry is set iff it is a digit (i.e. the line is numbered).
         CALL CHRGET
+        ; Re-derive Z from A alone (CHRGOT's fast path leaves a stale Z): A==$00 means nothing was typed -> re-prompt. INC A/DEC A do not disturb the
+        ; digit-carry.
         INC A
         DEC A
         JR Z,DIRECT_LINE_DISPATCH
+        ; Preserve CHRGET's carry (digit-present = numbered program line) for DIRECT_EXEC_STMT's run-vs-store decision.
         PUSH AF
+        ; Parse any leading decimal line number into DE; HL advances past the digits (its CHRGET also skips embedded spaces).
         CALL LINGET
+        ; Back HL up over the space(s) LINGET's CHRGET skipped, leaving HL just after the last line-number digit.
         CALL CRUNCH_SKIP_BLANKS_BACK
         LD A,(HL)
         CP $20
+        ; If a blank separates the line number from the statement, skip exactly that one blank (FP_LOAD_DONE is reused here just as INC HL); CRUNCH absorbs any
+        ; remaining blanks.
         CALL Z,FP_LOAD_DONE
-; [RE] Execute a tokenized direct-mode statement: CHRGET-prime and call the statement dispatcher; on a bare line number fall to edit/insert.
+; ----------------------------------------------------------------------
+; DIRECT_EXEC_STMT -- tokenize the just-typed console line and either run it (direct statement) or edit it into the stored program (numbered line).
+;   In:        HL -> the input line's raw text (about to be re-tokenized by CRUNCH). DE = the line number LINGET already parsed from the line (0 / undefined if
+;   the line had no number). On the stack: AF = the digit-carry saved at the main-loop top ($0E99, from the CHRGET at $0E92) -- carry SET iff the first
+;   significant char was a digit, i.e. a line number is present.
+;   Out:       Direct (no line number, NC): JP DIRECT_STMT_EXEC to execute the crunched line in place. Numbered (carry): edits the BASLINE program list (insert
+;   / replace / delete) and returns to the Ok prompt via DIRECT_LINE_DISPATCH. OLDTXT := $08CE (KBUF-1, the start-of-crunched-line CHRGET pointer returned by
+;   CRUNCH) in BOTH cases.
+;   Clobbers:  AF, BC, DE, HL, the stack frame, the KBUF tokenize buffer, flags.
+;   Algorithm: PUSH DE to preserve the parsed line number, CRUNCH tokenizes the raw line into KBUF and returns HL = $08CE (KBUF-1, the ':'-guard line-minus-one
+;   pointer) and BC = bytes-emitted + 5 (the future stored-line length: 4-byte header + body + terminating NUL). POP DE restores the line number; POP AF
+;   restores the digit-carry; record HL in OLDTXT. NC (first char not a digit) => bare statement, JP DIRECT_STMT_EXEC. Otherwise a numbered program line: guard
+;   with ILLEGAL_DIRECT_CHECK (refuse to edit a load-protected program), CHRGET the first body byte and OR A so Z marks an empty body (number typed alone =
+;   delete), record the target number (DE) in ERRLIN, and FNDLIN it. Carry from FNDLIN = 'line exists' (replace/delete) and BC = the prior node / insert point;
+;   no-carry with an empty body = a delete of a non-existent line -> 'Undefined line number' (ERROR_UL). Fall through to LINE_EDIT_DELETE_OLD carrying on the
+;   stack: DE=line number, BC=stored-line length, AF=empty/delete flag; in registers BC=FNDLIN insert/prior-node pointer, carry=line-exists.
+; ----------------------------------------------------------------------
 DIRECT_EXEC_STMT:
         PUSH DE
+        ; tokenize the typed line into KBUF; returns HL=$08CE (KBUF-1, the CHRGET line-minus-one pointer) and BC = bytes-emitted+5 (the future stored-line
+        ; length)
         CALL CRUNCH
         POP DE
         POP AF
         LD (OLDTXT),HL
+        ; first char was not a digit: this is a direct command, execute it in place
         JP NC,DIRECT_STMT_EXEC
         PUSH DE
         PUSH BC
+        ; numbered line: refuse to edit a load-protected program (raises 'Illegal function call')
         CALL ILLEGAL_DIRECT_CHECK
         CALL CHRGET
+        ; first body byte after the line number: Z here means 'number typed alone' = a delete request (no replacement text)
         OR A
         PUSH AF
         EX DE,HL
+        ; record the target line number (DE) for any error reported while editing it
         LD (ERRLIN),HL
         EX DE,HL
+        ; locate the target line in the program: carry SET = it already exists (replace/delete), BC = the prior node / insert point
         CALL FNDLIN
-        JR C,SUB_0EB7_1
+        JR C,LINE_EDIT_DELETE_OLD
         POP AF
         PUSH AF
+        ; line not found AND empty body: deleting a line that does not exist -> 'Undefined line number'
         JP Z,ERROR_UL
         OR A
-SUB_0EB7_1:
+; ----------------------------------------------------------------------
+; LINE_EDIT_DELETE_OLD -- apply any deferred RENUM fixup, then delete the existing copy of the target line (if present) by compacting the program text over it.
+;   In:        Carry = 'target line already exists' (from FNDLIN). HL = the found node (when carry set). BC = FNDLIN's prior-node / insert-point pointer.
+;   Stacked: DE = line number, BC = stored-line length, AF = empty/delete flag (Z when the line body is empty).
+;   Out:       If the line existed, its bytes are excised and VARTAB re-anchored behind them (BLOCK_MOVE_TO_VARTAB). For a pure delete (empty body) jumps to
+;   LINE_EDIT_RELINK; otherwise falls into LINE_EDIT_INSERT_NEW. In the non-CHAIN insert/replace path, FRETOP is reset to MEMSIZ before LINE_EDIT_INSERT_NEW
+;   (unless CHAIN_BREAK_FLAG is preserving the string heap).
+;   Clobbers:  AF, BC, DE, HL, the stack frame, VARTAB, possibly FRETOP, flags.
+;   Algorithm: Save the FNDLIN result (BC,AF,HL) across RENUM_FIXUP_IF_PENDING (which patches GOTO/GOSUB/THEN line references queued by a prior RENUM). Recover
+;   HL=found node, AF=line-exists carry, BC=the FNDLIN insert/prior-node pointer (the compaction DESTINATION). CALL C,BLOCK_MOVE_TO_VARTAB copies the program
+;   text (from the found node, source in HL) down over the deleted line (dest in BC) up to VARTAB, then re-publishes VARTAB -- dropping the old line. Recover
+;   the empty/delete flag (POP AF): Z => pure delete, jump to LINE_EDIT_RELINK. Otherwise, unless CHAIN_BREAK_FLAG is preserving the heap, reset FRETOP :=
+;   MEMSIZ, and fall into LINE_EDIT_INSERT_NEW to splice in the new line. [RE] the exact BC=source-vs-dest pairing at the BLOCK_MOVE call follows FNDLIN's
+;   documented 'BC = prior node' output used as the move destination.
+; ----------------------------------------------------------------------
+LINE_EDIT_DELETE_OLD:
         PUSH BC
         PUSH AF
         PUSH HL
+        ; before touching the program, flush any line-reference patch a previous RENUM left pending
         CALL RENUM_FIXUP_IF_PENDING
         POP HL
         POP AF
         POP BC
         PUSH BC
+        ; line already exists: delete it by compacting the text above it down over its bytes, re-anchoring VARTAB
         CALL C,BLOCK_MOVE_TO_VARTAB
         POP DE
         POP AF
         PUSH DE
-        JR Z,SUB_0EB7_4
+        ; empty body (number typed alone): this was a delete, skip insertion and go straight to relink
+        JR Z,LINE_EDIT_RELINK
         POP DE
         LD A,(CHAIN_BREAK_FLAG)
         OR A
-        JR NZ,SUB_0EB7_2
+        JR NZ,LINE_EDIT_INSERT_NEW
+        ; not a CHAIN heap-preserve: drop the string-space top (FRETOP) back to MEMSIZ before growing the program
         LD HL,(MEMSIZ)
         LD (FRETOP),HL
-SUB_0EB7_2:
+; ----------------------------------------------------------------------
+; LINE_EDIT_INSERT_NEW -- open a gap in the program text at the insertion point and write the new line's BASLINE header (LINK placeholder + line number).
+;   In:        DE = the insertion-point pointer (the FNDLIN insert/prior node, recovered into DE before this routine). On the stack: the stored-line length,
+;   then the target line number. VARTAB = current end of program text. The crunched line bytes are in KBUF ($08CF).
+;   Out:       Program text shifted up by the new line's size; VARTAB advanced past it. At the new node: a BASLINE.LINK high-byte placeholder is stored (CHEAD
+;   rebuilds the real forward link), and BASLINE.LINENUM := E,D (the target line number). HL -> the first token slot of the new line; DE -> KBUF; BC = body-byte
+;   count to copy. Falls into LINE_EDIT_COPY_KBUF.
+;   Clobbers:  AF, BC, DE, HL, VARTAB, the program text region, flags.
+;   Algorithm: LD HL,(VARTAB); EX (SP),HL swaps the STORED-LINE-LENGTH word off the stack into HL while pushing old VARTAB onto the stack. POP BC = old VARTAB.
+;   PUSH HL (length); ADD HL,BC => HL = VARTAB_old + length = the new end of program; PUSH it. CALL STR_COPY_DOWN with HL=new-end (write side), BC=VARTAB_old
+;   (read side), DE=insert point (low-bound sentinel): it slides the run [insert-point .. VARTAB_old) upward by 'length', opening the hole. POP HL = new end;
+;   publish VARTAB := new end. EX DE,HL puts the insert-point start in HL; store a BASLINE.LINK high-byte placeholder, recover BC=length and DE=line number off
+;   the stack, skip the 2-byte link (INC HL twice), store BASLINE.LINENUM = E then D. Advance to the token area, point DE at KBUF, and DEC BC four times so BC =
+;   (bytes-emitted+5)-4 = bytes-emitted+1 (the 4-byte link+linenum header is written directly, not re-copied from KBUF; the copy will move the body plus its one
+;   terminating NUL).
+; ----------------------------------------------------------------------
+LINE_EDIT_INSERT_NEW:
         LD HL,(VARTAB)
         EX (SP),HL
         POP BC
         PUSH HL
         ADD HL,BC
         PUSH HL
+        ; slide the program text [insert-point..old VARTAB) upward by the new line's length to open the hole
         CALL STR_COPY_DOWN
         POP HL
+        ; re-publish the end-of-program / variable-table base past the newly inserted line
         LD (VARTAB),HL
         EX DE,HL
         LD (HL),H                        ; store a BASLINE.LINK placeholder here; CHEAD ($0F39) rebuilds the real forward link
@@ -1297,7 +1503,17 @@ SUB_0EB7_2:
         DEC BC
         DEC BC
         DEC BC
-SUB_0EB7_3:
+; ----------------------------------------------------------------------
+; LINE_EDIT_COPY_KBUF -- copy the crunched token bytes of the new line from KBUF into the gap just opened.
+;   In:        HL -> first free token slot in the new BASLINE node; DE -> KBUF ($08CF, start of the crunched body); BC = bytes-emitted+1 (the crunched body
+;   bytes plus one terminating NUL; the 4-byte link+linenum header is not included).
+;   Out:       BC bytes copied (KBUF -> node body); HL, DE advanced past them; BC = 0.
+;   Clobbers:  A, BC, DE, HL, flags.
+;   Algorithm: Straight ascending byte copy (DE)->(HL), decrementing BC each pass and looping until BC reaches zero (OR of B,C is zero). Falls into
+;   LINE_EDIT_RELINK.
+; ----------------------------------------------------------------------
+LINE_EDIT_COPY_KBUF:
+        ; copy the crunched line body (plus its terminating NUL) from KBUF into the new node, one byte per pass until BC is exhausted
         LD A,(DE)
         LD (HL),A
         INC HL
@@ -1305,17 +1521,48 @@ SUB_0EB7_3:
         DEC BC
         LD A,C
         OR B
-        JR NZ,SUB_0EB7_3
-SUB_0EB7_4:
+        JR NZ,LINE_EDIT_COPY_KBUF
+; ----------------------------------------------------------------------
+; LINE_EDIT_RELINK -- after an insert/replace/delete, rebuild the BASLINE forward-link chain and seed FILTAB[0], then continue into the file/DATA reset.
+;   In:        The program text is now correct but the BASLINE.LINK words are stale (placeholders/holes). One leftover stacked pointer (from the edit path) is
+;   discarded here.
+;   Out:       Every BASLINE.LINK rewritten to address the next node (CHEAD_LOOP); the byte at $0080 cleared; HL = $0080. Falls into LINE_EDIT_RESET_FILES.
+;   Clobbers:  A, BC, DE, HL, flags, the program's link words.
+;   Algorithm: POP DE discards the leftover stacked pointer. CALL CHEAD_LOOP walks the program from its current head, rewriting each line's forward-link to
+;   point at the following node so the singly-linked chain is contiguous again. Then LD HL,$0080 / LD (HL),0 clears the byte at $0080 and leaves HL=$0080 for
+;   the FILTAB[0] store in LINE_EDIT_RESET_FILES. [RE] This $0080 store+reload-from-seed is byte-for-byte the LOAD_PROGRAM_3 file-reset idiom; $0080 happens to
+;   be the CP/M default DMA address but here it is used as a transient FILTAB[0] placeholder, not provably a DMA-buffer reset. UNKNOWN: the precise significance
+;   of clearing the byte at $0080 vs simply re-seeding FILTAB[0].
+; ----------------------------------------------------------------------
+LINE_EDIT_RELINK:
         POP DE
+        ; rebuild every BASLINE.LINK so the program-line chain is contiguous again after the edit
         CALL CHEAD_LOOP
+        ; [RE] clear the byte at $0080 and load HL=$0080 as the transient FILTAB[0] placeholder (same idiom as LOAD_PROGRAM_3); exact purpose of the $0080 value
+        ; is uncertain
         LD HL,$0080
         LD (HL),$00
-SUB_0EB7_5:
+; ----------------------------------------------------------------------
+; LINE_EDIT_RESET_FILES -- reset the file/DATA subsystem after a program edit, then return to the Ok prompt.
+;   In:        HL = $0080 (the just-cleared cell). PTRFIL = current file pointer; FILTAB_SLOT0_SEED = the default slot-0 / start-up command pointer.
+;   Out:       FILTAB[0] is briefly set to $0080, then restored from FILTAB_SLOT0_SEED; PTRFIL is saved and restored around a storage/DATA reset;
+;   CLEAR_RESET_DATAPTR rebuilds the DATA pointer + storage map (and resets SP). Jumps to DIRECT_LINE_DISPATCH (back to the Ok prompt).
+;   Clobbers:  AF, BC, DE, HL, SP, FILTAB[0], PTRFIL, the DATA pointer and storage map, flags.
+;   Algorithm: Store HL ($0080) into FILTAB[0]. Stash the live PTRFIL in FOUT_DP_POSITION (a general scratch word) so CLEAR_RESET_DATAPTR can run without losing
+;   it; that call resets the DATA read pointer and storage map (an edited program invalidates any RUN state) and also reloads SP (so the line-edit's leftover
+;   stacked words are discarded). Then reload FILTAB[0] from FILTAB_SLOT0_SEED (file #0 FCB / deferred start-up command pointer), restore PTRFIL from the
+;   scratch word, and JP DIRECT_LINE_DISPATCH to prompt for the next line.
+;   UNKNOWN:   [RE] the brief FILTAB[0]:=$0080 followed by reload from FILTAB_SLOT0_SEED mirrors the LOAD_PROGRAM_3 idiom; the precise reason for the
+;   intermediate $0080 value (vs writing the seed directly) is not determinable from the bytes.
+; ----------------------------------------------------------------------
+LINE_EDIT_RESET_FILES:
         LD (FILTAB),HL
+        ; stash the live file pointer in scratch so the storage/DATA reset below (which also resets SP) does not lose it
         LD HL,(PTRFIL)
         LD (FOUT_DP_POSITION),HL
+        ; an edit invalidates RUN state: reset the DATA read pointer and storage map
         CALL CLEAR_RESET_DATAPTR
+        ; restore FILTAB slot 0 from its default seed (file #0 FCB / deferred-command pointer)
         LD HL,(FILTAB_SLOT0_SEED)
         LD (FILTAB),HL
         LD HL,(FOUT_DP_POSITION)
@@ -1471,20 +1718,29 @@ EVAL_CHANNEL_OR_ITEM_3:
 ; SELF-RELOCATOR (runs at load address $1000)
 ; ======================================================================
 ; ----------------------------------------------------------------------
-; RELOCATE_AND_RUN -- GBASIC startup stub: lift the interpreter body up to its run address, then cold-start it.
-;   In:        Reached by JP from the CP/M entry point at $0100 (TPA, GBASIC build only). The whole .COM image is loaded contiguously from $0100, so the interpreter body sits as a packed blob at its on-disk load position INTERP_LOAD_START ($100E) and must be moved before it can run at its assembled address.
-;   Out:       The interpreter body (run-addresses $3000..$8482, $5483 = 21635 bytes) is copied from the load image to its assembled run location, then control transfers via JP to COLD_START ($81D3). This routine never returns.
-;   Clobbers:  HL, DE, BC (all consumed by LDDR), F (LDDR clears P/V), and destination memory $3000..$8482. The stub bytes ($1000..$100D) are not touched by the copy (both source $100E..$6490 and destination $3000..$8482 lie above it). [RE] The $1000 region is reused later as the base of the hi-res page buffer (see GFX page-clear code that bases on RELOCATE_AND_RUN); inference from the layout.
-;   Algorithm: One descending block copy. GBASIC is assembled with the body DISPlaced to run at $3000 while it is loaded at $100E, so the loader cannot place it; this stub relocates it at startup. It loads HL = source end $6490 (= INTERP_LOAD_START + count - 1), DE = destination end $8482 (= INTERP_COPY_END - 1), BC = count $5483 (= INTERP_COPY_END - INTERP_RUN_START), then LDDR copies BC bytes high-to-low. High-to-low is REQUIRED, not incidental: source $100E..$6490 and destination $3000..$8482 overlap in $3000..$6490 with the destination ABOVE the source, so copying downward from the top avoids overwriting source bytes before they are read. Then JP COLD_START to initialize the now-relocated interpreter.
+; RELOCATE_AND_RUN -- GBASIC load-address self-relocator trampoline: block-copy the interpreter body up to its run address ($3000-$8482), then cold-start it.
+;   In:        Entered by JP from the .COM entry at $0100. The interpreter body sits in the load image starting at INTERP_LOAD_START ($100E) but is assembled
+;   (via DISP $3000) to run at INTERP_RUN_START ($3000). GBASIC-only (IFDEF GBASIC); MBASIC runs in place and JPs straight to COLD_START instead.
+;   Out:       Does not return. Body relocated to $3000..$8482, control transferred to COLD_START ($81D3).
+;   Clobbers:  HL, DE, BC, and the destination region $3000-$8482 (overwrites the load-image bytes there).
+;   Algorithm: Set up a descending LDDR block copy. HL = source end = INTERP_LOAD_START + (INTERP_COPY_END - INTERP_RUN_START) - 1 = $6490 (asm bytes 21 90 64);
+;   DE = destination end = INTERP_COPY_END - 1 = $8482 (11 82 84); BC = byte count = INTERP_COPY_END - INTERP_RUN_START = $8483 - $3000 = $5483 (01 83 54). LDDR
+;   copies high-to-low; the source range ($100E-$6490) lies below and overlaps the destination ($3000-$8482), so descending order is the overlap-safe direction.
+;   Then JP COLD_START (C3 D3 81) to initialize and run the relocated interpreter. The trailing .COM padding above the body ($8483+) is not copied.
 ; ----------------------------------------------------------------------
 RELOCATE_AND_RUN:
         ; Source pointer = last byte of the body in the load image ($6490); LDDR copies top-down so HL/DE start at the high ends.
+        ; Source pointer = last byte of the body in the load image ($6490); LDDR walks downward from here.
         LD HL,INTERP_LOAD_START+(INTERP_COPY_END-INTERP_RUN_START)-1
         LD DE,INTERP_COPY_END-1
+        ; Copy length = $5483 bytes (the whole interpreter body $3000..$8482).
         LD BC,INTERP_COPY_END-INTERP_RUN_START
         ; Block-copy the body from the load image up to run location $3000-$8482; descending direction is required because source and destination overlap with the destination above the source.
+        ; Descending block copy lifts the body from the $100E load image up to its $3000 run address; high-to-low order is overlap-safe since the source lies
+        ; below the overlapping destination.
         LDDR
         ; Hand off to the relocated interpreter's cold-start entry ($81D3); the stub does not run again.
+        ; Body now at its run address: enter cold start ($81D3) to initialize the runtime and sign on.
         JP COLD_START
 
 INTERP_LOAD_START:           ; physical $100E -- interpreter's first .COM byte (LDDR source)
@@ -2499,18 +2755,18 @@ STMT_FOR:
 ;   Out:       On a match, SP/SAVSTK are rewound to drop the stale frame (and the frames pushed
 ;              inside it); always continues into STMT_FOR_2 to push the new frame.
 ;   Clobbers:  AF,BC,DE,HL,SP,SAVSTK.
-;   Algorithm: [RE] Call STKFRAME_SCAN to find the next open FOR marker ($82) frame on the stack;
+;   Algorithm: [RE] Call FNDFOR to find the next open FOR marker ($82) frame on the stack;
 ;              if none (NZ) go push a fresh frame. Otherwise read that frame's stored key pointer
 ;              and compare it (CMP_HL_DE) to L_0B4E: mismatch -> keep scanning outward; match -> a
 ;              re-entered loop, so reset SP to that frame (discarding it and everything pushed
 ;              inside) before pushing anew. This prevents a GOTO back into a FOR from leaking
-;              stack frames. UNKNOWN: STKFRAME_SCAN and STMT_FOR_1 read two different frame fields
+;              stack frames. UNKNOWN: FNDFOR and STMT_FOR_1 read two different frame fields
 ;              (the marker-adjacent word vs a word near the 16-byte frame top); the exact field
 ;              each matches is not fully disambiguated statically.
 ; ----------------------------------------------------------------------
 STMT_FOR_1:
         ; Find the next open FOR frame on the runtime stack.
-        CALL STKFRAME_SCAN
+        CALL FNDFOR
         POP DE
         ; No more FOR frames found: this is a brand-new loop, go push its frame.
         JR NZ,STMT_FOR_2
@@ -2669,7 +2925,7 @@ STMT_FOR_5:
         ; [RE] Push the saved index-variable address into the frame.
         LD HL,(OPEN_RESUME_TEXT_PTR)
         EX (SP),HL
-        ; Tag the frame with the $82 FOR marker so STKFRAME_SCAN/NEXT recognize it.
+        ; Tag the frame with the $82 FOR marker so FNDFOR/NEXT recognize it.
         LD B,$82
         PUSH BC
         INC SP
@@ -3339,7 +3595,7 @@ STMT_RUN_1:
 ;              pointer and SAVTXT; PUSH the $8D marker byte (PUSH AF / INC SP keeps only the byte);
 ;              PUSH BC (the resume address). Finally JP STMT_GOTO_1 to locate the target line.
 ;   [RE] The frame's $8D marker is the byte that STMT_POP/STMT_RETURN later test with CP $8D; note
-;        STKFRAME_SCAN's own internal frame marker is $82, a different value (see those routines).
+;        FNDFOR's own internal frame marker is $82, a different value (see those routines).
 ; ----------------------------------------------------------------------
 STMT_GOSUB:
         ; Reserve stack room for the GOSUB return frame before pushing it.
@@ -3451,13 +3707,13 @@ ERROR_UL:
 ;              continues at the next statement (STMT_FOR_7). If none, falls into STMT_RETURN_1 which
 ;              raises 'RETURN without GOSUB'.
 ;   Clobbers:  AF,BC,DE,HL,SP.
-;   Algorithm: Save the current text pointer (OPEN_RESUME_TEXT_PTR). Set D=$FF, then STKFRAME_SCAN_INIT
+;   Algorithm: Save the current text pointer (OPEN_RESUME_TEXT_PTR). Set D=$FF, then FNDFOR_FROM_SP
 ;              walks the stack, skipping FOR ($AF) frames and returning A = the first non-FOR frame
 ;              marker; set SP/SAVSTK to that point. If that marker is $8D (CP $8D), drop the 4-byte
 ;              GOSUB frame (LD HL,$0004 / ADD HL,SP / set SP,SAVSTK), restore the text pointer, and
 ;              JP STMT_FOR_7 -- unlike RETURN it does NOT resume at the call site. If the marker is
 ;              not $8D, STMT_RETURN_1 raises the error.
-;   [RE] STKFRAME_SCAN returns at the FIRST non-FOR frame (its own RET NZ after CP $82); the line
+;   [RE] FNDFOR returns at the FIRST non-FOR frame (its own RET NZ after CP $82); the line
 ;        comparison inside the scanner is only exercised for its internal $82 marker, so for finding
 ;        a $8D GOSUB frame the D/E target value is not actually consulted. The purpose of D=$FF here
 ;        is UNKNOWN beyond 'DE nonzero'.
@@ -3466,7 +3722,7 @@ STMT_POP:
         ; Stash the text pointer; POP keeps executing the current statement's successors.
         LD (OPEN_RESUME_TEXT_PTR),HL
         LD D,$FF
-        CALL STKFRAME_SCAN_INIT
+        CALL FNDFOR_FROM_SP
         LD SP,HL
         LD (SAVSTK),HL
         ; Is the unwound frame a GOSUB frame ($8D)? If not, fall to the RETURN-without-GOSUB error.
@@ -3488,7 +3744,7 @@ STMT_POP:
 ;              the GOSUB. Raises 'RETURN without GOSUB' if no GOSUB frame is found.
 ;   Clobbers:  AF,BC,DE,HL,SP.
 ;   Algorithm: RET NZ rejects a trailing argument (a bare RETURN is expected here). Set D=$FF, then
-;              STKFRAME_SCAN_INIT walks the stack skipping FOR ($AF) frames and returns A = the first
+;              FNDFOR_FROM_SP walks the stack skipping FOR ($AF) frames and returns A = the first
 ;              non-FOR frame marker; set SP/SAVSTK there. CP $8D, then fall into STMT_RETURN_1.
 ;   [RE] Same caveat as STMT_POP: the scanner returns at the first non-FOR frame regardless of the
 ;        D/E target, so D=$FF's role is UNKNOWN beyond making DE nonzero.
@@ -3498,7 +3754,7 @@ STMT_RETURN:
         RET NZ
         ; Set D=$FF before the stack walk that finds the first non-FOR frame.
         LD D,$FF
-        CALL STKFRAME_SCAN_INIT
+        CALL FNDFOR_FROM_SP
         LD SP,HL
         LD (SAVSTK),HL
         CP $8D
@@ -7177,7 +7433,7 @@ CONST_FMT_RESUME:
 ; ----------------------------------------------------------------------
 ; STMT_DELETE -- DELETE statement handler (keyword token $A6): remove a range of program lines.
 ;   In:        HL -> the line-range arguments after DELETE; the program is the singly-linked BASLINE list from TXTTAB.
-;   Out:       On a valid non-empty range, 'Ok' is printed and the routine falls into BLOCK_MOVE_TO_VARTAB to excise the lines (text above the range moved down over them, VARTAB re-anchored), with SUB_0EB7_4 arranged as the post-delete relink/reset continuation. Raises 'Illegal function call' (via STMT_DELETE_1) if the range is empty or malformed.
+;   Out:       On a valid non-empty range, 'Ok' is printed and the routine falls into BLOCK_MOVE_TO_VARTAB to excise the lines (text above the range moved down over them, VARTAB re-anchored), with LINE_EDIT_RELINK arranged as the post-delete relink/reset continuation. Raises 'Illegal function call' (via STMT_DELETE_1) if the range is empty or malformed.
 ;   Clobbers:  A, BC, DE, HL, SP frame, flags.
 ;   Algorithm: SCAN_LINE_RANGE parses 'start[-end]', leaving the start link/insert point in BC and the end line number on the stack. RENUM_FIXUP_IF_PENDING applies any deferred RENUM line-reference patch first. FNDLIN locates the END line: if not found (NC) drop into STMT_DELETE_1's FC check; otherwise verify the found end line is at/after the start (CMP_HL_DE) and join STMT_DELETE_1.
 ;   UNKNOWN:   [RE] the exact stack choreography handing the start/end pointers between SCAN_LINE_RANGE, FNDLIN and BLOCK_MOVE_TO_VARTAB is inferred from the PUSH/POP/EX (SP) pattern, not single-stepped.
@@ -7204,9 +7460,9 @@ STMT_DELETE:
 ; ----------------------------------------------------------------------
 ; STMT_DELETE_1 -- DELETE validity gate and program-compaction setup (continuation of STMT_DELETE).
 ;   In:        Carry reflects the range validity check (NC = invalid/empty range); BC/stack hold the start insert point; the end-of-range pointer is staged.
-;   Out:       On an invalid range raises 'Illegal function call'. On a valid range prints 'Ok', arranges SUB_0EB7_4 as the post-delete continuation, and falls into BLOCK_MOVE_TO_VARTAB to delete the lines by compacting the program text.
+;   Out:       On an invalid range raises 'Illegal function call'. On a valid range prints 'Ok', arranges LINE_EDIT_RELINK as the post-delete continuation, and falls into BLOCK_MOVE_TO_VARTAB to delete the lines by compacting the program text.
 ;   Clobbers:  A, BC, DE, HL, SP frame, flags.
-;   Algorithm: JP NC,ERROR_FC rejects an empty/invalid range. Print MSG_OK ('Ok'). POP the start pointer into BC (destination of the compaction copy), load SUB_0EB7_4 and EX (SP),HL so it becomes the routine BLOCK_MOVE_TO_VARTAB returns to (re-link program and reset run state). Fall into BLOCK_MOVE_TO_VARTAB to move the surviving text down and re-anchor VARTAB.
+;   Algorithm: JP NC,ERROR_FC rejects an empty/invalid range. Print MSG_OK ('Ok'). POP the start pointer into BC (destination of the compaction copy), load LINE_EDIT_RELINK and EX (SP),HL so it becomes the routine BLOCK_MOVE_TO_VARTAB returns to (re-link program and reset run state). Fall into BLOCK_MOVE_TO_VARTAB to move the surviving text down and re-anchor VARTAB.
 ; ----------------------------------------------------------------------
 STMT_DELETE_1:
         ; empty or malformed line range -> Illegal function call
@@ -7215,7 +7471,7 @@ STMT_DELETE_1:
         CALL STROUT
         POP BC
         ; arrange the post-delete relink/reset to run after the program is compacted
-        LD HL,SUB_0EB7_4
+        LD HL,LINE_EDIT_RELINK
         EX (SP),HL
 ; ----------------------------------------------------------------------
 ; BLOCK_MOVE_TO_VARTAB -- copy a byte run from (HL) to (BC) until the source reaches VARTAB, then republish VARTAB.
@@ -19064,26 +19320,45 @@ STMT_END_1:
 STMT_END_2:
         LD HL,$FFF6
         POP BC
-; [RE] Return to direct/command mode after a statement or error: snapshot SAVTXT ($0844), save the RESUME/CONT pointers, clear the Ctrl-O suppress flag ($083F), reset the output column and emit a pending CRLF, then dispatch to the error-resume path or the 'Ok' ready prompt.
+; ----------------------------------------------------------------------
+; RESUME_AT_DIRECT -- shared 'return to command mode' tail: snapshot CONT/RESUME pointers, then drop to the prompt.
+;   In:        A = break/message selector inherited from the caller (0 = silent END / normal end; nonzero = STOP or input-abort 'Break'). HL on entry is dead
+;   (reloaded from SAVTXT). Reached from STMT_END_1/_2 (END/STOP tail and the input-abort +1 entry) and PROGRAM_END_1.
+;   Out:       Does not return: when SAVTXT != $FFFF it sets SAVED_ERR_TXTPTR := SAVTXT and CONT_TXTPTR := OLDTXT (so CONT can later resume), clears
+;   CTRL_O_SUPPRESS, resets the column and flushes a pending CRLF, then either prints 'Break' via ERROR_RESUME_FROM_DIRECT (selector nonzero) or jumps to
+;   READY_POP_FRAME for the plain 'Ok' prompt.
+;   Clobbers:  AF,BC,DE,HL.
+;   Algorithm: Load SAVTXT, PUSH it and PUSH AF (preserve the selector). LD A,L / AND H / INC A so Z means SAVTXT==$FFFF (direct mode, nothing resumable) ->
+;   skip the snapshot. Otherwise record the resume anchors: SAVED_ERR_TXTPTR := SAVTXT and CONT_TXTPTR := OLDTXT (the pair STMT_CONT later reads). Clear
+;   CTRL_O_SUPPRESS, reset the output column, flush a partial line, then POP AF: nonzero -> HL:=MSG_BREAK and JP ERROR_RESUME_FROM_DIRECT (print 'Break[ in
+;   <line>]'); zero -> JP READY_POP_FRAME (plain 'Ok').
+; ----------------------------------------------------------------------
 RESUME_AT_DIRECT:
+        ; Capture the running program pointer; $FFFF here means direct mode (no resumable line).
         LD HL,(SAVTXT)
         PUSH HL
         PUSH AF
         LD A,L
         AND H
         INC A
+        ; Direct mode (SAVTXT==$FFFF): skip saving CONT/RESUME anchors.
         JR Z,RESUME_AT_DIRECT_1
+        ; A program was running: SAVED_ERR_TXTPTR := SAVTXT (and CONT_TXTPTR := OLDTXT below) so CONT can resume at the stopped line.
         LD (SAVED_ERR_TXTPTR),HL
         LD HL,(OLDTXT)
         LD (CONT_TXTPTR),HL
 RESUME_AT_DIRECT_1:
         XOR A
+        ; Clear Ctrl-O suppression and tidy the output line before the prompt.
         LD (CTRL_O_SUPPRESS),A
         CALL OUTDO_RESET_COL
         CALL PRINT_CRLF_IF_COL
         POP AF
+        ; Restore the selector (POP AF): if nonzero this is a STOP/Ctrl-C, so print 'Break' instead of plain 'Ok'.
         LD HL,MSG_BREAK
+        ; Break path: print 'Break[ in <line>]' then fall to Ready.
         JP NZ,ERROR_RESUME_FROM_DIRECT
+        ; Silent end (A=0): straight to the 'Ok' prompt.
         JP READY_POP_FRAME
 ; ----------------------------------------------------------------------
 ; ECHO_CTRL_O -- echo a Ctrl-O as '^O' (caret notation); fixed-character entry into ECHO_CTRL_CHAR.
@@ -19421,7 +19696,7 @@ STMT_NEXT:
 ;   In:        Two distinct entry offsets, and the bare-vs-named entry flags preserved on the stack by STMT_NEXT. Entered AT STMT_NEXT_1 (from STMT_NEXT): the first opcode 'OR $AF' runs, forcing A nonzero. Entered AT STMT_NEXT_1+1 (JP from STMT_FOR_5, the FOR zero-trip setup): the $AF operand byte executes as 'XOR A', forcing A = 0. On entry the FOR frame for this loop is already on the stack.
 ;   Out:       NEXT_ENTRY_FLAG = A (nonzero = NEXT statement: apply STEP before the limit compare; zero = FOR first pass: skip STEP, just do the initial compare). AF restored to the bare-vs-named entry flags; DE := 0. Falls into the shared NEXT body (NEXT_LOOP_BODY).
 ;   Clobbers:  AF (restored), DE, NEXT_ENTRY_FLAG.
-;   Algorithm: Store A into NEXT_ENTRY_FLAG (the STEP-or-not selector read later at NEXT_LOOP_BODY_1 / NEXT_LOOP_BODY_2), POP AF to restore the bare-vs-named flags (which gate the loop-variable PTRGET in the body), and set DE=0. [RE] DE=0 is the 'match the innermost FOR frame' marker consumed by the stack scan (STKFRAME_SCAN tests LD A,D/OR E and skips the variable-address compare when DE=0); for a named NEXT the body's PTRGET will overwrite DE with the loop variable's address before the scan. This is the classic byte-overlap idiom: opcode $F6 (OR n) vs its operand $AF (XOR A) select the flag value purely by entry offset.
+;   Algorithm: Store A into NEXT_ENTRY_FLAG (the STEP-or-not selector read later at NEXT_LOOP_BODY_1 / NEXT_LOOP_BODY_2), POP AF to restore the bare-vs-named flags (which gate the loop-variable PTRGET in the body), and set DE=0. [RE] DE=0 is the 'match the innermost FOR frame' marker consumed by the stack scan (FNDFOR tests LD A,D/OR E and skips the variable-address compare when DE=0); for a named NEXT the body's PTRGET will overwrite DE with the loop variable's address before the scan. This is the classic byte-overlap idiom: opcode $F6 (OR n) vs its operand $AF (XOR A) select the flag value purely by entry offset.
 ; ----------------------------------------------------------------------
 STMT_NEXT_1:
         ; [RE] coded overlap: entered here (STMT_NEXT_1) A becomes nonzero (NEXT statement); the FOR first-pass entry +1 runs this $AF byte as XOR A (flag 0)
@@ -19436,7 +19711,7 @@ NEXT_LOOP_BODY:
         LD (L_0C6A),HL
         CALL NZ,PTRGET_1+1
         LD (OPEN_RESUME_TEXT_PTR),HL
-        CALL STKFRAME_SCAN_INIT
+        CALL FNDFOR_FROM_SP
         JP NZ,RAISE_NEXT_WITHOUT_FOR
         LD SP,HL
         PUSH DE
@@ -25961,11 +26236,24 @@ DIRECT_MODE_GUARD:
         POP HL
         INC A
         RET NZ
-; [RE] Illegal-direct guard: if the 'running a program' flag ($0C99) is clear -> $0D5C (Illegal direct), else RET preserving AF. Statements that need a stored line call here.
+; ----------------------------------------------------------------------
+; ILLEGAL_DIRECT_CHECK -- refuse an operation that would expose a load-protected program; otherwise a transparent no-op.
+;   In:        LOAD_PROTECT_FLAG ($0C99) = nonzero when the loaded program was saved with the $FE protection byte (set by the LOAD path). AF holds the caller's
+;   value to preserve.
+;   Out:       Returns with AF and all other registers unchanged when the program is not protected. When LOAD_PROTECT_FLAG is nonzero, does NOT return: jumps to
+;   ERROR_FC ('Illegal function call').
+;   Clobbers:  none on the normal path (AF saved and restored); on the no-return error path A is loaded.
+;   Algorithm: PUSH AF to preserve the caller's flags/accumulator, load LOAD_PROTECT_FLAG and OR A; if nonzero JP ERROR_FC (the pushed AF is abandoned with the
+;   rest of the frame as the error unwinds). If zero, POP AF and RET, leaving the caller's state intact. Called as a gate by line-edit, LIST, DELETE and plain
+;   SAVE so a protected program cannot be edited, listed, or re-saved in the clear. NOTE: the stale inline comment at $81AC that calls $0C99 a 'running a
+;   program' flag jumping to '$0D5C Illegal direct' is OUT OF DATE -- the code jumps to ERROR_FC and $0C99 is the load-protect flag.
+; ----------------------------------------------------------------------
 ILLEGAL_DIRECT_CHECK:
         PUSH AF
+        ; nonzero = a $FE load-protected program is loaded; such a program may not be edited / listed / re-saved in the clear
         LD A,(LOAD_PROTECT_FLAG)
         OR A
+        ; protected: raise 'Illegal function call' instead of returning
         JP NZ,ERROR_FC
         POP AF
         RET
@@ -25984,38 +26272,98 @@ RND_GET_PUT_DIR:
 ; ======================================================================
 ; COLD / WARM START + SIGN-ON
 ; ======================================================================
-; [RE] Warm-start (READY/Ok) re-entry: re-init the program-end sentinel ($0846), then enter the direct-mode main loop. ILLEGAL_DIRECT_CHECK_6 ($81C6) falls through to the immediate-statement executor at $0E23 if the start-up command pointer ($0850/$8350) is non-empty, else jumps to NEWSTT.
+; ----------------------------------------------------------------------
+; WARM_START -- post-sign-on warm-start entry: reset run state, stamp the program-end sentinel below the program text, then either auto-run a pending
+; command-tail program or drop into the direct-mode READY loop.
+;   In:        TXTTAB ($0846) holds the start-of-program-text address (cold-start default $84C9). STARTUP_CMD_PTR ($8350) -> the parsed CP/M command-tail /
+;   auto-run filename text (set by COLD_START's command-line parser; points at a $00 byte when no startup file was given). [RE] Reached by a single JP
+;   WARM_START at the tail of COLD_START's sign-on ($83F4); this is NOT the general return-to-direct-mode path (that is NEWSTT_READY).
+;   Out:       Does not return. If a startup filename is pending, tail-jumps into LOAD_PROGRAM with HL still aimed at that filename text (auto-LOAD/RUN).
+;   Otherwise tail-jumps to NEWSTT_READY (print 'Ok', read a console line).
+;   Clobbers:  AF, HL, plus everything RUN_CLEAR / LOAD_PROGRAM / NEWSTT_READY clobber. Writes a $00 link-null sentinel one byte below the program-text start
+;   address held in TXTTAB.
+;   Algorithm: Call RUN_CLEAR to close all files and clear the variable/runtime state (NEW-like teardown). Read the program-text start pointer from TXTTAB, DEC
+;   it, and store $00 there -- the link-null sentinel one byte below the (empty or about-to-be-loaded) program-line list. Load STARTUP_CMD_PTR and test the
+;   first byte it points at: non-zero means COLD_START parsed an auto-run filename from the CP/M command tail, so JP NZ,LOAD_PROGRAM with HL preserved (enters
+;   with HL -> the filename text, consumed via DEC HL/CHRGET); zero means nothing pending, so JP NEWSTT_READY into the direct-mode READY loop.
+; ----------------------------------------------------------------------
 WARM_START:
+        ; NEW-like teardown: mark all file slots closed, BDOS-close open files, and clear variables/runtime state before (re)entering READY.
         CALL RUN_CLEAR
+        ; Stamp the $00 link-null sentinel one byte below the start of program text (terminates the line-link list).
         LD HL,(TXTTAB)
         DEC HL
         LD (HL),$00
-        LD HL,(COLD_SET_WIDTH_11)
+        ; Fetch the startup-command pointer parsed by COLD_START; (HL) is the first char of any pending auto-run filename from the CP/M command tail (or $00 if
+        ; none).
+        LD HL,(STARTUP_CMD_PTR)
         LD A,(HL)
         OR A
+        ; Pending startup filename: auto-LOAD/RUN it (HL still points at the filename text, which LOAD_PROGRAM consumes via DEC HL/CHRGET).
         JP NZ,LOAD_PROGRAM
+        ; No startup file: enter the direct-mode READY loop (print 'Ok', read/tokenize a console line).
         JP NEWSTT_READY
-SUB_81C6_1:
+; ----------------------------------------------------------------------
+; FILE0_FCB_STUB -- two $00 bytes that act as the minimal FCB for file slot 0 (the console/keyboard pseudo-file).
+;   In:        (not executed) -- the relocator's JP COLD_START ($81D3) skips these two bytes.
+;   Out:       Its address ($81D1) is the value cold start writes into FILTAB_SLOT0_SEED ($084E); the CHAIN/OPEN/RUN reinit (LINE_EDIT_RESET_FILES,
+;   $0EB7-region) then copies that seed into FILTAB[0] and PTRFIL.
+;   Clobbers:  None (data, not a called routine).
+;   Algorithm: FILTAB[E] is a packed array of 2-byte FCB-base pointers; FCB_MODE_BYTE indexes it by file number and reads the FCB's first byte (FCB.MODE:
+;   0=closed, 1/2/3=open modes). File slot 0 is the console pseudo-file, which must always read as 'closed', so its FILTAB pointer is seeded to point at these
+;   two zero bytes -- making (FILTAB[0]).MODE = $00. The two bytes sit just before COLD_START only so the loader's JP lands past them; they are read as data (an
+;   FCB header), never executed. [RE] An older comment frames this as a 'deferred start-up command' pointer; the data-flow shows only an FCB-base role
+;   (FILTAB[0]/PTRFIL), so that framing is not supported.
+; ----------------------------------------------------------------------
+PTRFIL_NULL_CELL:
         NOP
         NOP
-; [RE] Interpreter cold-start entry (the $1000 relocator JPs here after copying the body up to $3000). Initializes the runtime: BDOS handshake, RAM-top, the BASIC work cells, the RPC trigger patch (see $8240), and the console width from the SoftCard card config (see $827A).
+; ----------------------------------------------------------------------
+; COLD_START -- interpreter cold-start initialiser: link to CP/M, self-patch the console/disk vectors, size RAM, print the sign-on, enter the direct-mode loop.
+;   In:        Entered (JP) from the $1000 relocator after the body is copied to $3000. CP/M base page valid: ($0001)=JP WBOOT operand = WBOOT entry address =
+;   BIOS_base+3; ($0006)=top-of-TPA word from CP/M; SLTTYP3 ($F3BB)=console card type; Z_CPU ($F3DE)=SoftCard CPU-switch trigger cell.
+;   Out:       Runtime fully initialised; never returns -- ends with JP WARM_START into the Ok/direct-mode main loop. Console banner + free-byte count printed
+;   to the screen.
+;   Clobbers:  Everything (AF,BC,DE,HL,SP) and a large set of work cells / self-modified CALL operands.
+;   Algorithm: (1) Set SP=COLD_STACK_BASE and seed TOP_OF_STACK_ROOM/SAVSTK from it; clear LOAD_PROTECT_FLAG. (2) Read the WBOOT entry address from ($0001) and
+;   patch the SYSTEM-command JP (STMT_SYSTEM_WBOOT+1) to it; also stash WBOOT's high byte at base-page $0107 ([RE] purpose UNKNOWN -- $0107 is written here and
+;   never read by BASIC). (3) Walk the CP/M BIOS jump table starting WBOOT+4 (= BIOS_base+7, the operand of the JP CONST), reading each handler address out of
+;   its JP operand in order CONST, CONIN, CONOUT, LIST and storing it into the matching self-modified CALL site: CONST -> INKEY_SCAN_2_1+1 / RPC_CONST_POLL_1+1
+;   / STMT_FOR_8+1, CONIN -> CONIN_1+1, CONOUT -> OUTDO_DEVICE2_1+1, LIST -> OUTDO_DEVICE_1+1. ([RE] CONOUT/LIST identification rests on the standard CP/M
+;   jump-table order; an older inline VERIFIED-smc comment mislabels these and is superseded by the framed OUTDO_DEVICE/OUTDO_WIDTH_1 headers.) (4) With HL now
+;   = BIOS_base+17 (just past LIST's operand), add $F1F8 (= -$0E08) and write the four BASIC disk-error entry points (DISK_RAISE_DISK_I_O_ERROR /
+;   _DRIVE_SELECT_ERROR / _DISK_READ_ONLY / _FILE_READ_ONLY) at that address, then overwrite the page-zero WBOOT vector ($0001) with DISK_RAISE_RESET_ERROR so
+;   the RWTS/warm-boot error path re-enters BASIC. ([RE] the four-vector landing cell is the disk/RWTS error region just below the BIOS; the exact region
+;   identity is inferred from the DISK_RAISE usage, not proven here.) (5) Patch the SoftCard RPC trigger store (RPC_TRIGGER_STORE+1) from Z_CPU. (6) Ask BDOS
+;   for its version (S_BDOSVER); store the version byte at L_08CB; the COLD_BDOSVER_MERGE merge selects the BDOS record-I/O function-code pair (CP/M 1.x =>
+;   $1514, CP/M 2.x => $2221) into BDOS_FN_RECREAD/BDOS_FN_RECWRITE. (7) Select console width from SLTTYP3 (40 default, 80 for card type 3/4) and fall into the
+;   width/work-cell + RAM-sizing init (COLD_SET_WIDTH cluster). (8) After RAM is sized (FRETOP = top of usable RAM, TXTTAB = program-text base): compute free
+;   bytes = FRETOP - TXTTAB - 2, HOME the screen (GFX_STMT_HOME), STROUT the SIGNON_BANNER_HEADER, FOUT the free-byte count, STROUT MSG_BYTES_FREE, patch
+;   STROUT_CALL_VECTOR -> STROUT, CALL CRLF, patch ($0101) -> WARM_OK_TRAMPOLINE, then JP WARM_START.
+; ----------------------------------------------------------------------
 COLD_START:
+        ; Establish the cold-start stack and seed the stack-room / saved-stack pointers from its base.
         LD HL,COLD_STACK_BASE
         LD SP,HL
         XOR A
         LD (LOAD_PROTECT_FLAG),A
         LD (TOP_OF_STACK_ROOM),HL
         LD (SAVSTK),HL
+        ; Read the CP/M WBOOT entry address from page zero (the JP WBOOT operand at $0001), then patch the SYSTEM command's JP to it. WBOOT = BIOS_base+3, so
+        ; this also anchors the BIOS jump-table walk below.
         LD HL,($0001)
         LD (STMT_SYSTEM_WBOOT+1),HL
         LD A,H
         LD ($0107),A
+        ; Advance to WBOOT+4 = BIOS_base+7 (the operand of the JP CONST entry), then walk the table pulling each handler address out of its JP operand: CONST
+        ; first, then CONIN, CONOUT, LIST.
         LD BC,$0004
         ADD HL,BC
         LD E,(HL)
         INC HL
         LD D,(HL)
         EX DE,HL
+        ; Install the live BIOS CONST address into the three console-status poll sites (self-modified CALLs).
         LD (INKEY_SCAN_2+1),HL
         LD (RPC_CONST_POLL_1+1),HL
         LD (STMT_FOR_8+1),HL
@@ -26026,6 +26374,7 @@ COLD_START:
         INC HL
         LD D,(HL)
         EX DE,HL
+        ; Install BIOS CONIN into the console-input CALL site.
         LD (CONIN_1+1),HL
         EX DE,HL
         INC HL
@@ -26034,6 +26383,8 @@ COLD_START:
         INC HL
         LD D,(HL)
         EX DE,HL
+        ; 3rd jump-table entry -> install BIOS CONOUT into the console-output emitter. ([RE] order-based: an older inline comment names this list/raw-output;
+        ; the framed OUTDO_WIDTH_1 header treats OUTDO_DEVICE2 as CONOUT.)
         LD (OUTDO_DEVICE2_1+1),HL
         EX DE,HL
         INC HL
@@ -26042,8 +26393,11 @@ COLD_START:
         INC HL
         LD D,(HL)
         EX DE,HL
+        ; 4th (last) jump-table entry -> install BIOS LIST into the printer-output emitter.
         LD (OUTDO_DEVICE_1+1),HL
         EX DE,HL
+        ; HL is now BIOS_base+17 (past LIST's operand); add $F1F8 (= -$0E08) to reach the disk/RWTS error-vector cell, then store BASIC's four disk-error entry
+        ; points there so the RWTS error path re-enters BASIC. ([RE] exact region inferred from the DISK_RAISE usage.)
         LD DE,$F1F8
         ADD HL,DE
         LD DE,DISK_RAISE_DISK_I_O_ERROR
@@ -26065,18 +26419,35 @@ COLD_START:
         LD (HL),E
         INC HL
         LD (HL),D
+        ; Hijack the page-zero WBOOT vector itself: a warm boot now raises BASIC's disk-reset error instead of returning to CP/M.
         LD HL,DISK_RAISE_RESET_ERROR
         LD ($0001),HL
+        ; Patch the SoftCard RPC trigger-store operand so an RPC write reaches the live CPU-switch cell.
         LD HL,(Z_CPU)
         LD (RPC_TRIGGER_STORE+1),HL
+        ; Query the BDOS version; the branch below picks the BDOS record-I/O function codes (CP/M 1.x vs 2.x) accordingly.
         LD C,S_BDOSVER
         CALL BDOS
         LD (L_08CB),A
         OR A
         LD HL,$1514
-        JP Z,SUB_8240_1
+        JP Z,COLD_BDOSVER_MERGE
         LD HL,$2221
-SUB_8240_1:
+; ----------------------------------------------------------------------
+; COLD_BDOSVER_MERGE -- join point of the BDOS-version test; commit the selected BDOS record-I/O function codes and continue work-cell init.
+;   In:        HL = the function-code word selected by the COLD_START version branch ($1514 if BDOS reported CP/M 1.x / version byte 0, else $2221 for CP/M
+;   2.x).
+;   Out:       BDOS_FN_RECREAD := L and BDOS_FN_RECWRITE := H (adjacent cells $08CC/$08CD); SAVTXT := $FFFE; the console/error/colour work cells cleared; falls
+;   into the width-selection code (reads SLTTYP3).
+;   Clobbers:  AF,HL (and the cleared work cells).
+;   Algorithm: Store the version-selected word so BDOS_FN_RECREAD/BDOS_FN_RECWRITE hold the record read/write BDOS function codes for this CP/M (2.x random read
+;   $21 / write $22; the 1.x word is $14/$15). Then zero/seed the direct-mode work cells: SAVTXT=$FFFE (direct-mode sentinel), CTRL_O_SUPPRESS / L_0B10 /
+;   CHAIN_BREAK_FLAG / CHAIN_PRESERVE_FLAG / ERRFLG = 0, OUTPUT_COLUMN=0, COLOR=0. Continues straight into console-width selection. This label is a control-flow
+;   merge inside COLD_START, not an independent routine.
+; ----------------------------------------------------------------------
+COLD_BDOSVER_MERGE:
+        ; Commit the version-selected BDOS record-I/O function codes (low->BDOS_FN_RECREAD, high->BDOS_FN_RECWRITE; $21/$22 random read/write on CP/M 2.x), then
+        ; clear the direct-mode work cells (SAVTXT sentinel, Ctrl-O/chain flags, error flag, output column, colour).
         LD (BDOS_FN_RECREAD),HL
         LD HL,$FFFE
         LD (SAVTXT),HL
@@ -26112,17 +26483,17 @@ COLD_SET_WIDTH:
         LD A,$03
         LD (MAX_FILE_NUM),A
         LD HL,COLD_SET_WIDTH_10
-        LD (COLD_SET_WIDTH_11),HL
+        LD (STARTUP_CMD_PTR),HL
         LD A,(COLD_SET_WIDTH_12)
         OR A
-        JP NZ,COLD_SET_WIDTH_13
+        JP NZ,WORKAREA_CARVE_FCBS
         INC A
         LD (COLD_SET_WIDTH_12),A
         LD HL,$0080
         LD A,(HL)
         OR A
-        LD (COLD_SET_WIDTH_11),HL
-        JP Z,COLD_SET_WIDTH_13
+        LD (STARTUP_CMD_PTR),HL
+        JP Z,WORKAREA_CARVE_FCBS
         LD B,(HL)
         INC HL
 COLD_SET_WIDTH_1:
@@ -26135,16 +26506,16 @@ COLD_SET_WIDTH_1:
         JP NZ,COLD_SET_WIDTH_1
         DEC HL
         LD (HL),$00
-        LD (COLD_SET_WIDTH_11),HL
+        LD (STARTUP_CMD_PTR),HL
         LD HL,$007F
         CALL CHRGET
         OR A
-        JP Z,COLD_SET_WIDTH_13
+        JP Z,WORKAREA_CARVE_FCBS
         CP $2F
         JR Z,COLD_SET_WIDTH_3
         DEC HL
         LD (HL),$22
-        LD (COLD_SET_WIDTH_11),HL
+        LD (STARTUP_CMD_PTR),HL
         INC HL
 COLD_SET_WIDTH_2:
         CP $2F
@@ -26152,7 +26523,7 @@ COLD_SET_WIDTH_2:
         CALL CHRGET
         OR A
         JR NZ,COLD_SET_WIDTH_2
-        JP COLD_SET_WIDTH_13
+        JP WORKAREA_CARVE_FCBS
 COLD_SET_WIDTH_3:
         LD (HL),$00
 COLD_SET_WIDTH_4:
@@ -26187,7 +26558,7 @@ COLD_SET_WIDTH_7:
 COLD_SET_WIDTH_8:
         DEC HL
         CALL CHRGET
-        JR Z,COLD_SET_WIDTH_13
+        JR Z,WORKAREA_CARVE_FCBS
         CALL SYNCHR
         DEFB    '/'                      ; inline char arg consumed by the preceding CALL
         JP COLD_SET_WIDTH_5
@@ -26202,12 +26573,20 @@ COLD_SET_WIDTH_9:
         JR COLD_SET_WIDTH_8
 COLD_SET_WIDTH_10:
         NOP
-COLD_SET_WIDTH_11:
+STARTUP_CMD_PTR:
         NOP
         NOP
 COLD_SET_WIDTH_12:
         NOP
-COLD_SET_WIDTH_13:
+; ----------------------------------------------------------------------
+; WORKAREA_CARVE_FCBS -- lay the FILTAB FCB-pointer array over the dead cold-start region.
+;   Out: MEMSIZ written back as MEMSIZ-1 (only ONE byte down); orig-top-minus-2 is PUSHed as the reserved top-of-RAM the later sizer consumes. FILTAB_SLOT0_SEED
+;   = 81D1; FCB bases written by FCB_ALLOC_LOOP.
+;   Algorithm: reload MEMSIZ, store MEMSIZ-1, PUSH MEMSIZ_orig-2. Seed FILTAB[0] and FILTAB_SLOT0_SEED with file-0 FCB base 81D1 (DATA, not a sub: file-0 FCB
+;   overlays spent cold-start code). Stride: file 0 = A9 bytes, user file = FIELD_BUF_ADDR_LIMIT+B2; count = MAX_FILE_NUM+1; fall into FCB_ALLOC_LOOP.
+;   UNKNOWN: the DEC HL before LD HL,(MEMSIZ) hits a dead HL (overwritten next) and PUSH HL/POP HL is a no-op; both vestigial.
+; ----------------------------------------------------------------------
+WORKAREA_CARVE_FCBS:
         DEC HL
         LD HL,(MEMSIZ)
         PUSH HL
@@ -26217,11 +26596,13 @@ COLD_SET_WIDTH_13:
         DEC HL
         PUSH HL
         LD A,(MAX_FILE_NUM)
-        LD HL,SUB_81C6_1
+        ; file 0 FCB base = 81D1; its FCB overlays the now-finished cold-start code
+        LD HL,PTRFIL_NULL_CELL
         LD (FILTAB_SLOT0_SEED),HL
         LD DE,FILTAB
         LD (MAX_FILE_NUM),A
         INC A
+        ; file 0 entry size = A9 bytes (MODE + CP/M FCB + seq buffer, no random window)
         LD BC,FCB.FLD_BUF_PTR
 COLD_SET_WIDTH_14:
         EX DE,HL
@@ -26263,9 +26644,17 @@ COLD_SET_WIDTH_15:
         DJNZ COLD_SET_WIDTH_15
         LD A,H
         CP $02
-        JR C,COLD_SET_WIDTH_16
+        JR C,STRSPACE_APPLY
         LD HL,$0200
-COLD_SET_WIDTH_16:
+; ----------------------------------------------------------------------
+; STRSPACE_APPLY -- subtract the string reserve and commit the stack/string layout.
+;   In: DE = saved top of RAM (MEMSIZ_orig-2); HL = string reserve (free/8, capped 0200).
+;   Out: MEMSIZ = DE-HL = bottom of the string area (below the heap). TOP_OF_STACK_ROOM, FRETOP, SP, SAVSTK are ALL set to the OLD top of RAM (DE =
+;   MEMSIZ_orig-2 = heap top / stack base), NOT new MEMSIZ. STACK_OVERFLOW_RAISE (Out of memory) on underflow.
+;   Algorithm: new_low = top - reserve; store as MEMSIZ. EX DE,HL puts the original top back in HL; point FRETOP, TOP_OF_STACK_ROOM, SP, SAVSTK there so the
+;   heap grows down from FRETOP toward MEMSIZ. CALL GC_CHECK_AND_COLLECT with HL = new MEMSIZ (heap floor) before sign-on.
+; ----------------------------------------------------------------------
+STRSPACE_APPLY:
         LD A,E
         SUB L
         LD L,A
@@ -26275,12 +26664,15 @@ COLD_SET_WIDTH_16:
         JP C,STACK_OVERFLOW_RAISE
         LD (MEMSIZ),HL
         EX DE,HL
+        ; FRETOP/stack sit at the original top of RAM; the string heap grows down from here toward MEMSIZ
         LD (TOP_OF_STACK_ROOM),HL
         LD (FRETOP),HL
+        ; relocate the Z80 stack to the original top of free RAM
         LD SP,HL
         LD (SAVSTK),HL
         LD HL,(TXTTAB)
         EX DE,HL
+        ; validate the new heap (floor = new MEMSIZ) before sign-on
         CALL GC_CHECK_AND_COLLECT
         LD A,L
         SUB E
@@ -26301,7 +26693,7 @@ COLD_SET_WIDTH_16:
         LD HL,STROUT
         LD (STROUT_CALL_VECTOR),HL
         CALL CRLF
-        LD HL,SUB_0D28
+        LD HL,WARM_OK_TRAMPOLINE
         LD ($0101),HL
         JP WARM_START
         DEFB    "\r\n\n"
