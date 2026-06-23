@@ -304,9 +304,14 @@ SOURCES_220_44K: dict[str, ChunkSource | Path] = {
         asm_path=OS220_44K / "CPM_CCP.asm",
         cpu="z80", org=0x9300, size=0x1700,
         expected_bin_name="build/CPM220_44K_System.bin",
-        # CCP embeds a 6502 RPC block ($9400-$9500), INCBIN'd from its ca65 source
+        # CCP embeds TWO 6502 blocks, each INCBIN'd from its ca65 source:
+        #   $9400-$9500 RPC disk service (CPM_RPC6502.s)
+        #   $9600-$9700 cold-restart/RPC service (CPM_RPC6502_Restart.s)
         # (44K config: no CFG_56K); CCP INCLUDEs the BDOS component source.
-        incbin_deps=(("CPM_RPC6502.bin", OS220_44K / "CPM_RPC6502.s", ()),),
+        incbin_deps=(
+            ("CPM_RPC6502.bin", OS220_44K / "CPM_RPC6502.s", ()),
+            ("CPM_RPC6502_Restart.bin", OS220_44K / "CPM_RPC6502_Restart.s", ()),
+        ),
         include_files=(OS220_44K / "CPM_BDOS.asm", CPM22_INC),
     ),
     # As-shipped pristine on-disk BIOS ($AA00-$AEFF) -- what LOAD_CPM reads.

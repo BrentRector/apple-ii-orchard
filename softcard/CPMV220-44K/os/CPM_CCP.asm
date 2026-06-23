@@ -12,6 +12,11 @@
 ;                it on the 6502 side via the CPU-switch RPC, so from the Z-80's
 ;                view it is DATA (decoding it as Z-80 is garbage). See the
 ;                CALL $94xx fan-in from the CCP -- those reference 6502 entries.
+;   $9600-$9700  SECOND embedded 6502 block -- cold-restart / RPC service
+;                (LC RAM enable, console init, slot/card-type scan, Z-80 BIOS
+;                handoff builder at $1000). Also 6502 machine code run via the
+;                CPU switch; INCBIN'd from CPM_RPC6502_Restart.s. The CALL/JP
+;                $96xx fan-in from the CCP references its Z-80-visible entries.
 ;   $9400-$9CFF  CCP -- command line parse, built-in table (DIR ERA TYPE SAVE
 ;                REN USER), 8-word dispatch table at $95C2, transient .COM
 ;                loader, $$$.SUB chaining ($$$ is a standard CP/M file type
@@ -52,14 +57,9 @@ BDOS_DISPATCH_PTR    EQU $9F43               ; runtime pointer cell used by the 
 ;   $9539 -> SEARCH_BUILTIN_1+2         z80 skip idiom: enters the operand of $11 at $9537
 ;   $95DD -> RPC_CALL_HL_2+1         shared instruction tail: $95DD is reachable code inside the instruction at $95DC
 ;   $95FD -> CHECK_DRIVE_ERR_2+2         shared instruction tail: $95FD is reachable code inside the instruction at $95FB
-;   $961E -> RST_TABLE_9609_3+1         shared instruction tail: $961E is reachable code inside the instruction at $961D
-;   $9660 -> RPC_DISPATCH_1+1         shared instruction tail: $9660 is reachable code inside the instruction at $965F
-;   $9690 -> RPC_DISPATCH_8+1         shared instruction tail: $9690 is reachable code inside the instruction at $968F
-;   $96A1 -> RPC_DISPATCH_11+2        z80 skip idiom: enters the operand of $11 at $969F
-;   $96A9 -> RPC_DISPATCH_13+1        z80 skip idiom: enters the operand of $11 at $96A8
-;   $96C8 -> RPC_DISPATCH_18+1        z80 skip idiom: enters the operand of $01 at $96C7
-;   $96DF -> RPC_DISPATCH_22+1        shared instruction tail: $96DF is reachable code inside the instruction at $96DE
-;   $96E9 -> RPC_DISPATCH_23+1        shared instruction tail: $96E9 is reachable code inside the instruction at $96E8
+;   (the $96xx mid-instruction refs from the prior Z-80 mis-decode of the
+;    embedded 6502 restart block are gone -- they are 6502-internal, now
+;    documented in CPM_RPC6502_Restart.s)
 ;   $973C -> FCB_FIELD_BLANKS_LOOP+1         shared instruction tail: $973C is reachable code inside the instruction at $973B
 ;   $9782 -> DIR_CMD_1+1        shared instruction tail: $9782 is reachable code inside the instruction at $9781
 ;   $97EA -> DIR_EMIT_NAME_CHAR_1+2         shared instruction tail: $97EA is reachable code inside the instruction at $97E8
@@ -1093,420 +1093,192 @@ CHECK_DRIVE_ERR_2:
         ; ; set Z iff no error; FLAG: from the next line on the bytes are the embedded 6502 restart
         ; block ($9600 AD 81 C0 = LDA $C081) mis-decoded as Z-80 -- do not trust as Z-80 code
         OR A
-        JP NZ,$81AD
-        RET NZ
-        XOR L
-        ADD A,C
-        RET NZ
-        JR NZ,RPC_DISPATCH_4
-        RRCA
-; ----------------------------------------------------------------------
-; RST_TABLE_9609 -- inside an EMBEDDED 6502 CODE BLOCK (NOT Z-80, NOT a data table).
-;   In:        Reached from the Z-80 CCP on a command error / cold restart (many
-;              JP/CALL RST_TABLE_9609 sites). The Z-80 parks (DI;HALT at $95D0/$95D1)
-;              and the SoftCard runs these bytes on the 6502 via the CPU switch.
-;   Out:       Re-enters the Z-80 BIOS by building a JP-to-$AA00 handoff at $1000 (see
-;              Algorithm caveat).
-;   Clobbers:  (6502 side) A,X,Y, zero-page $3C/$3D/$3E/$40/$41, slot-config cells
-;              $03B8/$03C7/$03C8/$03DE/$03DF/$03EF.., $1000.., the 6502 stack.
-;   Algorithm: OBSERVED 6502 payload ($9600 onward; INDEPENDENTLY re-disassembled here
-;              as fully coherent 6502 with ZERO illegal opcodes): LC RAM write-enable
-;              (LDA $C081 x2); drive motor off (STA $C088,X); clear sector cells
-;              $0478/$04F8; Apple monitor init JSR $FB2F(SETTXT)/$FE93(SETVID)/
-;              $FE89(SETKBD); reset 6502 stack (LDX #$FF/TXS); on CMP #$06 either print
-;              a $00-string via JSR $FDED(COUT) then JMP $FF65(MONZ), or take the full
-;              restart: copy loader blocks ($1168->$0FFF, $1200->$0200, $12FF->$02FF,
-;              $13EF->$03EF), run the SLOT/CARD-TYPE SCANNER (JSR $1180/$1117, CMP
-;              $40/$41) that PATCHES the SoftCard slot-config cells STA $03C7 / STY
-;              $03C8 / STA $03DE / STA $03DF (the slot bytes in
-;              CPM_SoftCard_RealMap_Findings.md), records card types at $02F8,Y, sets
-;              the Card-Type-Table base $03B8, then assembles the Z-80 BIOS handoff at
-;              $1000. [RE] CAVEAT: the peer's exact 'JP $AA00 (C3 00 AA) at $1000-$1002'
-;              is over-specific -- the captured stores are LDA #$C3/STA $1000, LDA
-;              #$00/STA $1001, LDA #$AA/STA ... but byte $9700 = $09 (not $10), so the
-;              literal third store decodes STA $0902 and the precise 6502/Z-80 boundary
-;              at $9700 is UNCERTAIN (genuine Z-80 resumes by $9709 'CP $20').
-;   FLAG:      This 6502 block is STILL sitting as raw Z-80 disassembly (these labels +
-;              garbage opcodes). PROPER FIX: extract to its own 6502 .s and INCBIN it
-;              back with a verbatim listing, exactly like CPM_RPC6502.s ($9400 block).
-;              The Z-80 CALL targets $9609/$9630/$964F/$9659/$965E land MID-6502-
-;              INSTRUCTION -- the same unsolved CPU-switch-selector question as the
-;              $9400 block. Not renamed/rewritten here to avoid inventing Z-80 semantics.
-; ----------------------------------------------------------------------
-RST_TABLE_9609:
-        LD C,B
-        SBC A,L
-        ADC A,B
-        RET NZ
-        XOR C
-        NOP
-; ----------------------------------------------------------------------
-; RST_TABLE_9609_1 -- interior address inside the embedded 6502 restart block.
-;   In/Out/Clobbers/Algorithm: UNKNOWN as Z-80. This label lands inside the 6502 code
-;              described at RST_TABLE_9609; it is not a Z-80 routine. Resolved only
-;              when the block is extracted to a 6502 .s (see the cluster FLAG).
-; ----------------------------------------------------------------------
-RST_TABLE_9609_1:
-        SBC A,C
-        LD A,B
-        INC B
-        SBC A,C
-        RET M
-        INC B
-        JR NZ,RST_TABLE_9630_1
-        EI
-        JR NZ,CCP_MAIN_LOOP_1
-        CP $20
-; ----------------------------------------------------------------------
-; RST_TABLE_9609_2 -- interior address inside the embedded 6502 restart block.
-;   In/Out/Clobbers/Algorithm: UNKNOWN as Z-80; part of the 6502 payload at
-;              RST_TABLE_9609. Not a Z-80 routine. See the cluster FLAG (extract to .s).
-; ----------------------------------------------------------------------
-RST_TABLE_9609_2:
-        ADC A,C
-; ----------------------------------------------------------------------
-; RST_TABLE_9609_3 -- interior address inside the embedded 6502 restart block.
-;   In/Out/Clobbers/Algorithm: UNKNOWN as Z-80; part of the 6502 payload at
-;              RST_TABLE_9609 (RST_TABLE_9609_3+1 = $961E is referenced as a shared
-;              tail -- another 6502-mid-instruction artifact). Not a Z-80 routine.
-;              See the cluster FLAG (extract to .s).
-; ----------------------------------------------------------------------
-RST_TABLE_9609_3:
-        CP $68
-        AND D
-        RST $38
-        SBC A,D
-; ----------------------------------------------------------------------
-; RST_TABLE_9609_4 -- interior address inside the embedded 6502 restart block.
-;   In/Out/Clobbers/Algorithm: UNKNOWN as Z-80; part of the 6502 payload at
-;              RST_TABLE_9609. Reached as a Z-80 JP target ($9312/$9316) into the
-;              6502 block -- a CPU-switch transfer, not a Z-80 entry.
-;              See the cluster FLAG (extract to .s).
-; ----------------------------------------------------------------------
-RST_TABLE_9609_4:
-        RET
-; ----------------------------------------------------------------------
-; RST_TABLE_9609_5 -- interior address inside the embedded 6502 restart block.
-;   In/Out/Clobbers/Algorithm: UNKNOWN as Z-80; part of the 6502 payload at
-;              RST_TABLE_9609. Not a Z-80 routine. See the cluster FLAG (extract to .s).
-; ----------------------------------------------------------------------
-RST_TABLE_9609_5:
-        LD B,$F0
-        DJNZ CMD_DISPATCH_TBL_2
-        NOP
-        CP C
-        LD C,D
-        LD DE,$06F0
-        JR NZ,RST_TABLE_9609_2
-        DEFB $FD  ; ignored IY prefix; inner: RET Z ; $962F  FD C8
-; ----------------------------------------------------------------------
-; RST_TABLE_9630 -- interior address inside the embedded 6502 restart block.
-;   In:        Reached from the Z-80 FCB parser via CALL RST_TABLE_9630 ($9398/$93AF/
-;              $93C8/$93DF) -- a SoftCard CPU-switch transfer into the 6502 code, NOT a
-;              Z-80 call. The Z-80 target $9630 lands mid-6502-instruction (decoded as
-;              Z-80 it is incoherent: RST $38, LD C,H/LD H,L).
-;   Out/Clobbers/Algorithm: UNKNOWN as Z-80; part of the 6502 payload at
-;              RST_TABLE_9609. Not a Z-80 routine. See the cluster FLAG (extract to .s);
-;              same unsolved selector question as the $9400 block.
-; ----------------------------------------------------------------------
-RST_TABLE_9630:
-        RET Z
-        RET NC
-        PUSH AF
-        LD C,H
-        LD H,L
-        RST $38
-        AND B
-        LD C,$B9
-        LD L,B
-        LD DE,$FF99
-        RRCA
-        ADC A,B
-        RET NC
-        RST $30
-        CP C
-        NOP
-        LD (DE),A
-        SBC A,C
-        NOP
-; ----------------------------------------------------------------------
-; RST_TABLE_9630_1 -- interior address inside the embedded 6502 restart block.
-;   In/Out/Clobbers/Algorithm: UNKNOWN as Z-80; part of the 6502 payload at
-;              RST_TABLE_9609. Not a Z-80 routine. See the cluster FLAG (extract to .s).
-; ----------------------------------------------------------------------
-RST_TABLE_9630_1:
-        LD (BC),A
-        ADC A,B
-        RET NC
-        RST $30
-        AND B
-        POP AF
-        CP C
-        RST $38
-        LD (DE),A
-; ----------------------------------------------------------------------
-; RST_TABLE_964F -- interior address inside the embedded 6502 restart block.
-;   In:        Reached from the Z-80 via CALL/JP RST_TABLE_964F ($9356/$9370/$9A32) --
-;              a SoftCard CPU-switch transfer into the 6502 code, NOT a Z-80 call;
-;              the Z-80 target $964F lands mid-6502-instruction.
-;   Out/Clobbers/Algorithm: UNKNOWN as Z-80; part of the 6502 payload at
-;              RST_TABLE_9609. Not a Z-80 routine. See the cluster FLAG (extract to .s).
-; ----------------------------------------------------------------------
-RST_TABLE_964F:
-        SBC A,C
-        RST $38
-        LD (BC),A
-        ADC A,B
-        RET NC
-        RST $30
-        ADC A,H
-        CP B
-        INC BC
-        ADD A,H
-; ----------------------------------------------------------------------
-; RPC_DISPATCH_SETUP -- interior address inside the embedded 6502 restart block.
-;   In:        Reached from the Z-80 via CALL RPC_DISPATCH_SETUP ($9363/$974F/$988B)
-;              and adjacent to RPC_DISPATCH ($965E) -- both are SoftCard CPU-switch
-;              transfers into the 6502 code. The Z-80 targets $9659 and $965E land
-;              MID-6502-INSTRUCTION (inside the 6502 'STY $3E' / 'LDY #$C7' / 'RST'
-;              stream), so they are NOT 6502 routine starts either.
-;   Out/Clobbers/Algorithm: UNKNOWN as Z-80; part of the 6502 payload at
-;              RST_TABLE_9609 (the slot-scan / cold-restart 6502 program). Not a Z-80
-;              routine; how a Z-80 transfer here selects the 6502 service is the
-;              documented OPEN QUESTION (shared with the $9400 block). See the cluster
-;              FLAG (extract to .s).
-; ----------------------------------------------------------------------
-RPC_DISPATCH_SETUP:
-        INC A
-        ADC A,B
-        ADD A,H
-        LD A,$A0
-; ----------------------------------------------------------------------
-; RPC_DISPATCH (965E) -- MIS-DECODED embedded-6502, not Z-80. Interior of a 6502 cold-boot routine
-; 9609-9700 (verified vs raw bytes: console init TEXT FB2F/SETVID FE93/SETKBD FE89, COUT loop to JMP
-; FF65, page copies 1200->0200 and 13EF->03EF, slot/card-type scan via JSR 1117/1180 vs
-; 1176,X/117A,X, writes 03B8 DSKCNT [DOC S&HD 2-27]/03C7/03C8/03DE/03DF + 02F8,Y, builds JMP AA00 at
-; 1000). 965E=C7 operand of LDY #C7 at 965D; loop-top 965F JSR 1180. PROOF labels are artifacts: six
-; BUILD_FCB targets land mid Z-80 instruction (9660/9690/96A9/96C8/96DF/96E9). Z-80 callers reach it
-; via CPU switch (UNKNOWN). FLAG INCBIN extraction; no byte changes, no rewrites.
-; ----------------------------------------------------------------------
-RPC_DISPATCH:
-        ; FLAG: NOT a Z-80 RST. 965E=C7 operand of 6502 LDY #C7 at 965D. Region 9609-9700 is
-        ;       embedded 6502 mis-decoded as Z-80; extract to .s + INCBIN.
-        RST $00
-RPC_DISPATCH_1:
-        JR NZ,$95E1
-        LD DE,$A5EA
-        LD A,$F0
-        JR RPC_DISPATCH_6
-; ----------------------------------------------------------------------
-; RPC_DISPATCH_2 (9668) -- MIS-DECODED 6502. 9667 JSR 1117/966A STA 40/966C STX 41/966E JSR
-; 1117/CPX#00/BEQ/CMP 40/BNE -- stable two-byte signature read. 9668=11 hi-byte of JSR 1117.
-; ----------------------------------------------------------------------
-RPC_DISPATCH_2:
-        RLA
-        ; FLAG: 6502. CORRECTION to peer: 9668 is the 11 hi-byte of JSR 1117 at 9667; STA 40 is at
-        ;       966A (85 40), NOT 9669. 4085 is not a Z-80 address.
-        LD DE,$4085
-        ADD A,(HL)
-        LD B,C
-        JR NZ,RPC_DISPATCH_5
-        LD DE,$00E0
-        RET P
-        LD E,$C5
-        LD B,B
-        RET NC
-RPC_DISPATCH_3:
-        LD A,(DE)
-        CALL PO,$F041
-        LD A,(DE)
-        RET NC
-        INC D
-        AND $3E
-        ADC A,H
-        RET Z
-        INC BC
-        XOR C
-RPC_DISPATCH_4:
-        NOP
-        ADC A,L
-RPC_DISPATCH_5:
-        RST $00
-RPC_DISPATCH_6:
-        INC BC
-RPC_DISPATCH_7:
-        ADC A,L
-        SBC A,$03
-        SBC A,B
-        JR RPC_DISPATCH_27
-RPC_DISPATCH_8:
-        JR NZ,RST_TABLE_9609_3+1
-        RST $18
-        INC BC
-        AND D
-        NOP
-        RET P
-RPC_DISPATCH_9:
-        RRA
-        AND D
-RPC_DISPATCH_10:
-        INC B
-        AND B
-        DEC B
-        OR C
-        INC A
-        DEFB $DD  ; ignored IX prefix; inner: HALT ; $969D  DD 76
-        HALT
-RPC_DISPATCH_11:
-        LD DE,$09D0
-        AND B
-RPC_DISPATCH_12:
-        RLCA
-        OR C
-        INC A
-        DEFB $DD  ; ignored IX prefix; inner: LD A,D ; $96A6  DD 7A
-        LD A,D
-RPC_DISPATCH_13:
-        LD DE,$03F0
-RPC_DISPATCH_14:
-        JP Z,$EBD0
-        RET PE
-; ----------------------------------------------------------------------
-; RPC_DISPATCH_15 (96AF) -- MIS-DECODED 6502. 96AF CPX#02/96B1 BNE 96B6/96B3 INC 03B8 (bump
-; DSKCNT/Card Type Table base [DOC S&HD 2-27]); 96B6 LDY 3D/TXA/STA 02F8,Y (per-slot
-; type)/DEY/CPY#C0/BNE 965F. Z-80 93B6 JP 96AF via CPU switch (UNKNOWN).
-; ----------------------------------------------------------------------
-RPC_DISPATCH_15:
-        ; FLAG: 6502. 96AF=CPX #02; match -> 96B3 INC 03B8 bumps DSKCNT [DOC S&HD 2-27]; STA 02F8,Y
-        ;       records per-slot type; loop CPY #C0/BNE 965F. Extract to .s + INCBIN like
-        ;       CPM_RPC6502.
-        RET PO
-        LD (BC),A
-        RET NC
-        INC BC
-        XOR $B8
-        INC BC
-        AND H
-        DEC A
-        ADC A,D
-; ----------------------------------------------------------------------
-; RPC_DISPATCH_16 -- [MIS-DECODED: EMBEDDED 6502] bogus Z-80 framing of 6502 bytes in the 6502
-; boot/console/probe overlay $9600-$96FF; UNKNOWN; fix=extract-to-.s+INCBIN; see summary.
-; ----------------------------------------------------------------------
-RPC_DISPATCH_16:
-        SBC A,C
-        RET M
-        LD (BC),A
-        ADC A,B
-        RET NZ
-        RET NZ
-        RET NC
-; ----------------------------------------------------------------------
-; RPC_DISPATCH_17 -- [MIS-DECODED: EMBEDDED 6502] 6502 overlay $9600-$96FF; UNKNOWN; see summary.
-; ----------------------------------------------------------------------
-RPC_DISPATCH_17:
-        SBC A,(HL)
-        LD C,$B8
-        INC BC
-        AND L
-        LD A,$C9
-; ----------------------------------------------------------------------
-; RPC_DISPATCH_18 -- [MIS-DECODED: EMBEDDED 6502] 6502 overlay; +1 cover $96C8 is a 6502
-; mid-instruction artifact; UNKNOWN; see summary.
-; ----------------------------------------------------------------------
-RPC_DISPATCH_18:
-        LD BC,$1DF0
-        ADD A,H
-        DEC A
-        XOR C
-; ----------------------------------------------------------------------
-; RPC_DISPATCH_19 -- [MIS-DECODED: EMBEDDED 6502] 6502 overlay $9600-$96FF; UNKNOWN; see summary.
-; ----------------------------------------------------------------------
-RPC_DISPATCH_19:
-        ADD A,L
-        ADD A,L
-        INC A
-        ADC A,L
-        ADD A,L
-        RET NZ
-        AND L
-        LD A,$F0
-        DJNZ RPC_DISPATCH_3
-        NOP
-; ----------------------------------------------------------------------
-; RPC_DISPATCH_20 -- [MIS-DECODED: EMBEDDED 6502] 6502 overlay; UNKNOWN; see summary.
-; ----------------------------------------------------------------------
-RPC_DISPATCH_20:
-        CP C
-        DEC HL
-; ----------------------------------------------------------------------
-; RPC_DISPATCH_21 -- [MIS-DECODED: EMBEDDED 6502] 6502 overlay (11 F0 06 = 6502 STA $03xx,Y
-; operands); UNKNOWN; see summary.
-; ----------------------------------------------------------------------
-RPC_DISPATCH_21:
-        LD DE,$06F0
-; ----------------------------------------------------------------------
-; RPC_DISPATCH_22 -- [MIS-DECODED: EMBEDDED 6502] 6502 overlay; +1 cover $96DF is a 6502
-; mid-instruction artifact; UNKNOWN; see summary.
-; ----------------------------------------------------------------------
-RPC_DISPATCH_22:
-        JR NZ,RPC_DISPATCH_19
-        DEFB $FD  ; ignored IY prefix; inner: RET Z ; $96E0  FD C8
-        RET Z
-        RET NC
-        PUSH AF
-        LD C,H
-        LD H,L
-        RST $38
-        AND B
-; ----------------------------------------------------------------------
-; RPC_DISPATCH_23 -- [MIS-DECODED: EMBEDDED 6502] 6502 overlay; +1 cover $96E9 is a 6502
-; mid-instruction artifact; UNKNOWN; see summary.
-; ----------------------------------------------------------------------
-RPC_DISPATCH_23:
-        DJNZ RPC_DISPATCH_12
-        RST $28
-        INC DE
-        SBC A,C
-        RST $28
-        INC BC
-        ADC A,B
-; ----------------------------------------------------------------------
-; RPC_DISPATCH_24 -- [MIS-DECODED: EMBEDDED 6502] 6502 overlay; UNKNOWN; see summary.
-; ----------------------------------------------------------------------
-RPC_DISPATCH_24:
-        RET NC
-        RST $30
-; ----------------------------------------------------------------------
-; RPC_DISPATCH_25 -- [MIS-DECODED: EMBEDDED 6502] 6502 overlay; UNKNOWN; see summary.
-; ----------------------------------------------------------------------
-RPC_DISPATCH_25:
-        XOR C
-        JP $008D
-; ----------------------------------------------------------------------
-; RPC_DISPATCH_26 -- [MIS-DECODED: EMBEDDED 6502] tail of the 6502 overlay; UNKNOWN; see summary.
-; ----------------------------------------------------------------------
-RPC_DISPATCH_26:
-        DJNZ RPC_DISPATCH_11+2
-; ----------------------------------------------------------------------
-; RPC_DISPATCH_27 -- [MIS-DECODED: EMBEDDED 6502] tail; LD BC,BDOS_VAR_PAGE_p9_STG at $96FA is a
-; 6502 artifact (the Z-80-launch builder); real Z-80 resumes at $9701; UNKNOWN.
-; ----------------------------------------------------------------------
-RPC_DISPATCH_27:
-        NOP
-        ADC A,L
-        LD BC,BDOS_VAR_PAGE_p9_STG
-        XOR D
-        ADC A,L
-        LD (BC),A
-        ADD HL,BC
-; ----------------------------------------------------------------------
-; FCB_DIGIT_ACCUM -- [RE] FCB-name-field decimal digit accumulator (role uncertain). In: from
-; FCB_WILDCARD_CMP_C $950A; $9701 lone SUB (HL) then LD HL,$9BCE, BC:=$000B. Out: B=value; error ->
-; $9609 in the 6502 region (UNKNOWN). Algorithm: coherent Z-80 (CP space, SUB '0', CP 10, B=B*10
-; carry-guarded). CAVEAT: reached from the FCB wildcard scanner (CP '?'); error target in the 6502
-; block.
-; ----------------------------------------------------------------------
+        ; $95FF: boundary filler byte before the embedded 6502 restart block.
+        ; Genuine Z-80 ends at OR A ($95FE); $95FF=$C2 is not part of the coherent
+        ; 6502 program (which starts at $9600) and is referenced by nothing.
+        ; Mirrors the DEFB $01,$0B filler before the $9400 INCBIN.
+        DEFB    $C2
+RPC_RESTART_BLOCK:                       ; $9600 embedded 6502 cold-restart/RPC service --
+;          ; 6502 code (NOT Z-80), run on the 6502 via the SoftCard CPU switch.
+;          ; Assembled from CPM_RPC6502_Restart.s (ca65, authoritative) and INCBIN'd
+;          ; here byte-identical. Its exact source listing follows so this file is
+;          ; self-documenting.
+;   >>> CPM_RPC6502_Restart.s -- verbatim listing of the INCBIN'd source (regen: inject_incbin_listing) >>>
+;
+; SETTXT  = $FB2F                 ; Apple II Monitor: select text mode
+; SETVID  = $FE93                 ; Apple II Monitor: reset output hook -> screen
+; SETKBD  = $FE89                 ; Apple II Monitor: reset input hook -> keyboard
+; COUT    = $FDED                 ; Apple II Monitor: output a character
+; MONZ    = $FF65                 ; Apple II Monitor: cold entry (Monitor prompt)
+;
+; .org $9600
+;
+; RPC_RESTART_9600:
+;         LDA $C081                    ; $9600  AD 81 C0
+;         LDA $C081                    ; $9603  AD 81 C0
+;         JSR $0F7D                    ; $9606  20 7D 0F
+;         PHA                          ; $9609  48
+;         STA $C088,X                  ; $960A  9D 88 C0
+;         LDA #$00                     ; $960D  A9 00
+;         STA $0478,Y                  ; $960F  99 78 04
+;         STA $04F8,Y                  ; $9612  99 F8 04
+;         JSR SETTXT                    ; $9615  20 2F FB
+;         JSR SETVID                    ; $9618  20 93 FE
+;         JSR SETKBD                    ; $961B  20 89 FE
+;         PLA                          ; $961E  68
+;         LDX #$FF                     ; $961F  A2 FF
+;         TXS                          ; $9621  9A
+;         CMP #$06                     ; $9622  C9 06
+;         BEQ COLD_RESTART             ; $9624  F0 10
+;         LDY #$00                     ; $9626  A0 00
+; SIGNON_COUT_LOOP:
+;         LDA $114A,Y                  ; $9628  B9 4A 11
+;         BEQ SIGNON_COUT_LOOP_1       ; $962B  F0 06
+;         JSR COUT                    ; $962D  20 ED FD
+;         INY                          ; $9630  C8
+;         BNE SIGNON_COUT_LOOP         ; $9631  D0 F5
+; SIGNON_COUT_LOOP_1:
+;         JMP MONZ                    ; $9633  4C 65 FF
+; COLD_RESTART:
+;         LDY #$0E                     ; $9636  A0 0E
+; COPY_1168_0FFF:
+;         LDA $1168,Y                  ; $9638  B9 68 11
+;         STA $0FFF,Y                  ; $963B  99 FF 0F
+;         DEY                          ; $963E  88
+;         BNE COPY_1168_0FFF           ; $963F  D0 F7
+; COPY_1200_0200:
+;         LDA $1200,Y                  ; $9641  B9 00 12
+;         STA $0200,Y                  ; $9644  99 00 02
+;         DEY                          ; $9647  88
+;         BNE COPY_1200_0200           ; $9648  D0 F7
+;         LDY #$F1                     ; $964A  A0 F1
+; COPY_12FF_02FF:
+;         LDA $12FF,Y                  ; $964C  B9 FF 12
+;         STA $02FF,Y                  ; $964F  99 FF 02
+;         DEY                          ; $9652  88
+;         BNE COPY_12FF_02FF           ; $9653  D0 F7
+;         STY $03B8                    ; $9655  8C B8 03
+;         STY $3C                      ; $9658  84 3C
+;         DEY                          ; $965A  88
+;         STY $3E                      ; $965B  84 3E
+;         LDY #$C7                     ; $965D  A0 C7
+; SLOT_SCAN_LOOP:
+;         JSR $1180                    ; $965F  20 80 11
+;         NOP                          ; $9662  EA
+;         LDA $3E                      ; $9663  A5 3E
+;         BEQ SLOT_SCAN_LOOP_1         ; $9665  F0 18
+;         JSR $1117                    ; $9667  20 17 11
+;         STA $40                      ; $966A  85 40
+;         STX $41                      ; $966C  86 41
+;         JSR $1117                    ; $966E  20 17 11
+;         CPX #$00                     ; $9671  E0 00
+;         BEQ SLOT_SCAN_LOOP_2         ; $9673  F0 1E
+;         CMP $40                      ; $9675  C5 40
+;         BNE SLOT_SCAN_LOOP_2         ; $9677  D0 1A
+;         CPX $41                      ; $9679  E4 41
+;         BEQ CARD_TYPE_MATCH          ; $967B  F0 1A
+;         BNE SLOT_SCAN_LOOP_2         ; $967D  D0 14
+; SLOT_SCAN_LOOP_1:
+;         INC $3E                      ; $967F  E6 3E
+;         STY $03C8                    ; $9681  8C C8 03
+;         LDA #$00                     ; $9684  A9 00
+;         STA $03C7                    ; $9686  8D C7 03
+;         STA $03DE                    ; $9689  8D DE 03
+;         TYA                          ; $968C  98
+;         CLC                          ; $968D  18
+;         ADC #$20                     ; $968E  69 20
+;         STA $03DF                    ; $9690  8D DF 03
+; SLOT_SCAN_LOOP_2:
+;         LDX #$00                     ; $9693  A2 00
+;         BEQ SLOT_TYPE_RECORD         ; $9695  F0 1F
+; CARD_TYPE_MATCH:
+;         LDX #$04                     ; $9697  A2 04
+; CARD_TYPE_MATCH_1:
+;         LDY #$05                     ; $9699  A0 05
+;         LDA ($3C),Y                  ; $969B  B1 3C
+;         CMP $1176,X                  ; $969D  DD 76 11
+;         BNE CARD_TYPE_MATCH_2        ; $96A0  D0 09
+;         LDY #$07                     ; $96A2  A0 07
+;         LDA ($3C),Y                  ; $96A4  B1 3C
+;         CMP $117A,X                  ; $96A6  DD 7A 11
+;         BEQ CARD_TYPE_MATCH_3        ; $96A9  F0 03
+; CARD_TYPE_MATCH_2:
+;         DEX                          ; $96AB  CA
+;         BNE CARD_TYPE_MATCH_1        ; $96AC  D0 EB
+; CARD_TYPE_MATCH_3:
+;         INX                          ; $96AE  E8
+;         CPX #$02                     ; $96AF  E0 02
+;         BNE SLOT_TYPE_RECORD         ; $96B1  D0 03
+;         INC $03B8                    ; $96B3  EE B8 03
+; SLOT_TYPE_RECORD:
+;         LDY $3D                      ; $96B6  A4 3D
+;         TXA                          ; $96B8  8A
+;         STA $02F8,Y                  ; $96B9  99 F8 02
+;         DEY                          ; $96BC  88
+;         CPY #$C0                     ; $96BD  C0 C0
+;         BNE SLOT_SCAN_LOOP           ; $96BF  D0 9E
+;         ASL $03B8                    ; $96C1  0E B8 03
+;         LDA $3E                      ; $96C4  A5 3E
+;         CMP #$01                     ; $96C6  C9 01
+;         BEQ BIOS_HANDOFF             ; $96C8  F0 1D
+;         STY $3D                      ; $96CA  84 3D
+;         LDA #$85                     ; $96CC  A9 85
+;         STA $3C                      ; $96CE  85 3C
+;         STA $C085                    ; $96D0  8D 85 C0
+;         LDA $3E                      ; $96D3  A5 3E
+;         BEQ BIOS_HANDOFF             ; $96D5  F0 10
+;         LDY #$00                     ; $96D7  A0 00
+; LC_COUT_LOOP:
+;         LDA $112B,Y                  ; $96D9  B9 2B 11
+;         BEQ LC_COUT_LOOP_1           ; $96DC  F0 06
+;         JSR COUT                    ; $96DE  20 ED FD
+;         INY                          ; $96E1  C8
+;         BNE LC_COUT_LOOP             ; $96E2  D0 F5
+; LC_COUT_LOOP_1:
+;         JMP MONZ                    ; $96E4  4C 65 FF
+; BIOS_HANDOFF:
+;         LDY #$10                     ; $96E7  A0 10
+; BIOS_HANDOFF_1:
+;         LDA $13EF,Y                  ; $96E9  B9 EF 13
+;         STA $03EF,Y                  ; $96EC  99 EF 03
+;         DEY                          ; $96EF  88
+;         BNE BIOS_HANDOFF_1           ; $96F0  D0 F7
+;         LDA #$C3                     ; $96F2  A9 C3
+;         STA $1000                    ; $96F4  8D 00 10
+;         LDA #$00                     ; $96F7  A9 00
+;         STA $1001                    ; $96F9  8D 01 10
+;         LDA #$AA                     ; $96FC  A9 AA
+;         STA $0902                    ; $96FE  8D 02 09
+;   <<< end listing <<<
+        INCBIN  "CPM_RPC6502_Restart.bin"
+; -- Z-80-visible entry points into the 6502 block, as offsets from
+;    RPC_RESTART_BLOCK (so they relocate with ORG). How a Z-80 CALL/JP into
+;    $96xx selects the 6502 service is the OPEN QUESTION; several targets land
+;    mid-6502-instruction. Names kept verbatim from the prior Z-80 mis-decode
+;    so the genuine-Z-80 call sites elsewhere in the file still resolve. --
+RST_TABLE_9609       EQU RPC_RESTART_BLOCK + $009
+RST_TABLE_9609_1     EQU RPC_RESTART_BLOCK + $00F
+RST_TABLE_9609_4     EQU RPC_RESTART_BLOCK + $022
+RST_TABLE_9630       EQU RPC_RESTART_BLOCK + $030
+RST_TABLE_964F       EQU RPC_RESTART_BLOCK + $04F
+RPC_DISPATCH_SETUP   EQU RPC_RESTART_BLOCK + $059
+RPC_DISPATCH         EQU RPC_RESTART_BLOCK + $05E
+RPC_DISPATCH_7       EQU RPC_RESTART_BLOCK + $089
+RPC_DISPATCH_8       EQU RPC_RESTART_BLOCK + $08F
+RPC_DISPATCH_9       EQU RPC_RESTART_BLOCK + $096
+RPC_DISPATCH_10      EQU RPC_RESTART_BLOCK + $098
+RPC_DISPATCH_13      EQU RPC_RESTART_BLOCK + $0A8
+RPC_DISPATCH_14      EQU RPC_RESTART_BLOCK + $0AB
+RPC_DISPATCH_15      EQU RPC_RESTART_BLOCK + $0AF
+RPC_DISPATCH_16      EQU RPC_RESTART_BLOCK + $0B9
+RPC_DISPATCH_17      EQU RPC_RESTART_BLOCK + $0C0
+RPC_DISPATCH_18      EQU RPC_RESTART_BLOCK + $0C7
+RPC_DISPATCH_20      EQU RPC_RESTART_BLOCK + $0D9
+RPC_DISPATCH_21      EQU RPC_RESTART_BLOCK + $0DB
+RPC_DISPATCH_22      EQU RPC_RESTART_BLOCK + $0DE
+RPC_DISPATCH_23      EQU RPC_RESTART_BLOCK + $0E8
+RPC_DISPATCH_24      EQU RPC_RESTART_BLOCK + $0F0
+RPC_DISPATCH_25      EQU RPC_RESTART_BLOCK + $0F2
 FCB_DIGIT_ACCUM:
         SUB (HL)
         LD HL,$9BCE
