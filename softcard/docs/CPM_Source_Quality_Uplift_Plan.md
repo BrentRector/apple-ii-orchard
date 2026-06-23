@@ -57,10 +57,14 @@ A CP/M source file is "BASIC.asm quality" when ALL of:
 3. **Adversarial-verify clean** -- a skeptical pass re-checked the In/Out/Algorithm
    and every dataflow/ABI/table claim against the actual bytes; any mis-decode
    (mislabeled BDOS fn, BIOS jump-table slot, IOB cell, RPC cell, DPB field) fixed.
-4. **Idiom polish** -- character comparisons as char literals; CP/M constants named
-   (`CALL BDOS`, `LD C,F_*`/`DRV_*`, `$0080`->`TBUFF`, `$005C`->`TFCB`); comments
-   wrapped to 100 cols; consistent section banners; "see"-pointers between related
-   routines.
+4. **Idiom polish + shared includes** -- character comparisons as char literals; CP/M
+   constants named (`CALL BDOS`, `LD C,F_*`/`DRV_*`, `$0080`->`TBUFF`, `$005C`->`TFCB`);
+   comments wrapped to 100 cols; consistent section banners; "see"-pointers between
+   related routines. **INCLUDE and USE the pertinent system includes (`cpm22.inc` /
+   `apple_softcard.inc` / the struct includes) for any external symbol -- NEVER a local
+   re-definition of what an include already provides (single source of truth). The
+   applier's `equ_to_include` folds a redundant local EQU into the include's symbol and
+   drops the local def.**
 5. **Type modeling applied** where it raises abstraction (see section 6).
 6. **Fully relocatable (label-based)** -- every absolute operand that points INTO the
    module's own image is a LABEL, not a frozen hex literal; the module assembles at its

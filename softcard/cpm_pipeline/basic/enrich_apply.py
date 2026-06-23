@@ -91,7 +91,8 @@ def _preceding_comment_block(lines, idx):
 
 def apply_spec(text, spec):
     routines = [r for r in spec.get("routines", []) if r.get("label")]
-    rep = {"headers": 0, "body": 0, "operands": 0, "labels": 0, "renames": 0, "unmatched": [], "collisions": []}
+    rep = {"headers": 0, "body": 0, "operands": 0, "labels": 0, "includes": 0, "equ_folded": 0,
+           "renames": 0, "unmatched": [], "collisions": []}
 
     # 1) collect + apply RENAMES first, so that header/body anchors -- which the agents
     #    write with the FINAL (post-rename) names -- match the text we then scan.
@@ -100,6 +101,19 @@ def apply_spec(text, spec):
         for rn in r.get("renames", []) or []:
             if rn.get("old") and rn.get("new"):
                 renames[rn["old"]] = rn["new"]
+    # use shared system includes instead of local re-definitions: fold each named local EQU
+    # into the include's symbol (rename refs local->include) and drop the local def line.
+    inc_files = list(spec.get("includes", []) or [])
+    del_equ = []
+    for e in spec.get("equ_to_include", []) or []:
+        ln, inn = e.get("local_name"), e.get("include_name")
+        if not (ln and inn):
+            continue
+        if ln != inn:
+            renames[ln] = inn
+        del_equ.append(inn)
+        if e.get("include_file"):
+            inc_files.append(e["include_file"])
     pre_labels = {m.group(1) for m in (LABEL_RE.match(l) for l in text.split("\n")) if m}
     for old, new in renames.items():
         if new in pre_labels and new not in renames:       # new name already a distinct label
@@ -206,6 +220,26 @@ def apply_spec(text, spec):
         if not placed:
             rep["unmatched"].append(("label", name, anc, occ))
 
+    # fold redundant local EQU defs into the include's symbol, and ensure the INCLUDEs are present
+    def _base(p):
+        return p.replace("\\", "/").rsplit("/", 1)[-1]
+    present_base = {_base(p) for p in re.findall(r'INCLUDE\s+"([^"]*)"', "\n".join(lines))}
+    for name in del_equ:                         # drop the (now-renamed) local EQU def line
+        for k in range(len(lines)):
+            if re.match(r'^\s*' + re.escape(name) + r'\s+EQU\b', lines[k]):
+                edits.append((k, k + 1, []))
+                rep["equ_folded"] += 1
+                break
+    to_add = [f for f in dict.fromkeys(inc_files) if _base(f) not in present_base]
+    if to_add:                                   # insert INCLUDEs before the first ORG (else after the header)
+        ins = next((k for k, l in enumerate(lines) if re.match(r'^\s*ORG\b', l)), None)
+        if ins is None:
+            ins = 0
+            while ins < len(lines) and (lines[ins].lstrip().startswith(";") or not lines[ins].strip()):
+                ins += 1
+        edits.append((ins, ins, ['        INCLUDE "%s"' % f for f in to_add]))
+        rep["includes"] += len(to_add)
+
     for start, end, repl in sorted(edits, key=lambda e: -e[0]):
         lines[start:end] = repl
     return "\n".join(lines), rep
@@ -233,7 +267,8 @@ def main():
     text = target.read_text(encoding="latin-1")
     out, rep = apply_spec(text, spec)
     print(f"headers={rep['headers']} body={rep['body']} operands={rep['operands']} "
-          f"labels={rep['labels']} renames={rep['renames']} unmatched={len(rep['unmatched'])} "
+          f"labels={rep['labels']} includes={rep['includes']} equ_folded={rep['equ_folded']} "
+          f"renames={rep['renames']} unmatched={len(rep['unmatched'])} "
           f"collisions={len(rep['collisions'])}")
     if rep["unmatched"]:
         print("  UNMATCHED:", rep["unmatched"][:25])
