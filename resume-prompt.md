@@ -77,7 +77,8 @@ specs → `enrich_apply --target <file> --write` → strip + regen `.lst` (`os_l
 - Don't force a relocatization onto an unverifiable decode — defer with UNKNOWN
   [[feedback_dont_overclassify_dead_or_data]]. The **5-hour usage limit RESETS** — pause, don't ration.
 
-**6502 OS phase — IN PROGRESS** (commits fb7a7e5 / c3e569a / 9797001). DONE: **CPM_RPC6502_Restart.s**
+**6502 OS phase — COMPLETE** (commits fb7a7e5 / c3e569a / 9797001 / **bcc7e6c**) → the WHOLE 2.20-44K
+OS is now at the bar. DONE: **CPM_RPC6502_Restart.s**
 ($9600 cold-restart/RPC), **CPM_RPC6502.s** ($9400 warm-boot/RWTS — the lone `BNE
 DRIVE_MOTOR_ON_1+1` cover idiom converted to `.byte $24` (BIT-zp) + `SEC` at clean label
 DRIVE_MOTOR_ON_SEC, CFG_56K $94AE variant kept), and the two embedded Z-80 fragments
@@ -88,9 +89,17 @@ absolute addresses); **generated-6502-source tests pin BYTES not text** (`test_r
 assemble `generate()` vs the on-disk block — the `.s` is the hand-enriched MASTER, `gen_*` is
 provenance-only); **6502 cover idiom = `.byte <opcode>` cover + real instr at own clean label**.
 After editing a host's INCBIN'd block, re-run `python -m cpm_pipeline.inject_incbin_listing`.
-**REMAINING (the big one): `CPM_BootLoader.s`** — 1284 lines, ~777 inline `; $addr`, 115 labels,
-0 C-level headers (strong top layout map already). Workflow-scale; 6502-aware STYLE; cite SoftCard
-docs for config-block cells; strip → `CPM_BootLoader.lst` via the ca65 path.
+**`CPM_BootLoader.s` — DONE** (bcc7e6c): the 1284-line boot loader, enriched via a 6502-aware
+multi-agent **Workflow** (`softcard/cpm_pipeline/workflows/cpm_bootloader_enrich.workflow.js`; map →
+enrich → adversarial-verify, 12 clusters / 25 agents; each verify agent wrote its cluster spec to
+`E:/tmp/bl_spec_<i>.json`, then merged with Python + `enrich_apply`). 76 headers, 259 body, 4 renames,
+6 in-image relocatizations, 1 minted label (RPC_SERVICE_LOOP @ $03C0), 3 6502 cover-idiom splits, 733
+addrs stripped. Adversarial verify caught real mis-decodes (BOOT0 `$27`/`CMP #$09`=dest PAGE not
+"sector 9"; swapped 6-and-2 buffers; PHTAB_ON2-vs-NIBBUF-$AA relocation base). **Apply gotchas** (see
+the memory for the full list): drop agent over-split thin sub-routines (loop locals); `enrich_apply.
+body_end` fixed to end at the next SPEC routine; duplicate same-anchor operand_rewrites use occ=1
+repeated; mint a header's NEW label in the file by hand first; `labels[]` uses GLOBAL occ; keep
+planted-JMP/copy-destination/self-modified cells literal.
 
 **Remaining campaign (after the boot loader):** ~16 shared Z-80 utilities (PIP/ED/ASM/STAT/DDT/…) +
 their `_6502.s` payloads (disassemble the DEFB blobs; this phase absorbs the queued CP/M-constant
