@@ -138,7 +138,7 @@ FUNC_DISPATCH_TBL:
         DEFW    FN_LEFT_STR
         DEFW    FN_RIGHT_STR
         DEFW    FN_MID_STR
-        DEFW    FN_SGN
+        DEFW    FN_INT_FLOOR
         DEFW    FN_INT
         DEFW    FN_SQR
         DEFW    FN_RND
@@ -420,7 +420,7 @@ OPERATOR_ROUTINE_TBL:
         DEFW    FN_CDBL
         DEFW    $0000
         DEFW    FN_CINT
-        DEFW    FP_INT_CHECK
+        DEFW    REQUIRE_STRING
         DEFW    FN_CSNG
         DEFW    DADD
         DEFW    DP_NEGATE_SIGN
@@ -810,7 +810,7 @@ TRCFLG:
         DEFB    "\0"
 L_0CAC:
         DEFB    "\0"
-L_0CAD:
+FAC_DBL:
         DEFB    "\0\0"
 L_0CAF:
         DEFB    "\0"
@@ -822,7 +822,7 @@ FACHI:
         DEFB    "\0"
 L_0CB4:
         DEFB    "\0"
-L_0CB5:
+FP_SIGN_FLAG:
         DEFB    "\0"
 L_0CB6:
         DEFB    "\0"
@@ -832,7 +832,7 @@ L_0CB8:
         DEFB    "\0"
 L_0CB9:
         DEFB    "\0"
-L_0CBA:
+ARG2_TEMP:
         DEFB    "\0\0\0\0\0\0"
 L_0CC0:
         DEFB    "\0"
@@ -2003,7 +2003,7 @@ CRUNCH_23:
         CALL FRMEVL_TEST_TYPE
         JR C,CRUNCH_24
         ; double precision: copy from the wider FAC field at $0CAD instead of $0CB1
-        LD HL,L_0CAD
+        LD HL,FAC_DBL
 ; ----------------------------------------------------------------------
 ; CRUNCH_24 -- recover the value-byte count after the FAC source pointer has been selected.
 ;   In:        The width code (VALTYP) PUSHed at CRUNCH_23 is on the stack; HL -> the chosen FAC source field.
@@ -3316,7 +3316,7 @@ STMT_LET_4:
         LD DE,FAC
         CP $05
         JR C,STMT_LET_5
-        LD DE,L_0CAD
+        LD DE,FAC_DBL
 STMT_LET_5:
         PUSH HL
         CP VT_STR
@@ -3715,7 +3715,7 @@ STMT_LINE:
         CALL INPUT_PROMPT_SEP
         CALL INPUT_PROMPT
         CALL PTRGET_1+1
-        CALL FP_INT_CHECK
+        CALL REQUIRE_STRING
         PUSH DE
         PUSH HL
         CALL INLIN
@@ -4169,7 +4169,7 @@ FRMEVL_OPLOOP_4:
         PUSH BC
         JP PO,FRMEVL_OPLOOP_5
         INC HL
-        LD HL,L_0CAD
+        LD HL,FAC_DBL
         LD C,(HL)
         INC HL
         LD B,(HL)
@@ -4237,11 +4237,11 @@ FRMEVL_OPLOOP_8:
 ; FRMEVL_OPLOOP_9 -- power-operator ('^') apply arm: set up x^y.
 ;   In:        FAC = left operand x; the OPLOOP_2 return address and pending-precedence frame are
 ;              already pushed by FRMEVL_OPLOOP_3.
-;   Out:       queues the power kernel FN_SQR_1 as the apply routine and recurses (via OPLOOP_6)
+;   Out:       queues the power kernel POWER_OP_APPLY as the apply routine and recurses (via OPLOOP_6)
 ;              to evaluate the exponent y at precedence $7F.
 ;   Clobbers:  A, BC, DE, HL, FAC; pushes the coerced left operand.
 ;   Algorithm: Coerce the base to single precision (FN_CSNG) and push it (FAC_PUSH) so the kernel
-;              can recover it after y is evaluated. Set BC = FN_SQR_1 (the single-precision power
+;              can recover it after y is evaluated. Set BC = POWER_OP_APPLY (the single-precision power
 ;              kernel; it begins with FN_CSNG, sets the L_0CB6 sign flag, and [RE] computes x^y
 ;              via exp(y*log x)) and D = $7F as the recursion precedence, then join FRMEVL_OPLOOP_6
 ;              to push the apply routine and recurse for the exponent.
@@ -4251,8 +4251,8 @@ FRMEVL_OPLOOP_9:
         CALL FN_CSNG
         ; save the base so the power kernel can recover it after the exponent is evaluated
         CALL FAC_PUSH
-        ; [RE] FN_SQR_1 is the x^y power kernel, applied once the exponent is in the FAC
-        LD BC,FN_SQR_1
+        ; [RE] POWER_OP_APPLY is the x^y power kernel, applied once the exponent is in the FAC
+        LD BC,POWER_OP_APPLY
         LD D,$7F
         JR FRMEVL_OPLOOP_6
 ; ----------------------------------------------------------------------
@@ -4442,7 +4442,7 @@ FRMEVL_OPC_DBL_SETUP:
         ; Pop the left double operand's two low extension words into the FAC's low double bytes ($0CAF/$0CB0 then $0CAD/$0CAE).
         LD (L_0CAF),HL
         POP HL
-        LD (L_0CAD),HL
+        LD (FAC_DBL),HL
 ; ----------------------------------------------------------------------
 ; FRMEVL_OPC_DBL_LOADFAC (was FRMEVL_OPLOOP_17) -- load the left double operand's high mantissa into the FAC
 ;   In:        Stack holds the left double operand's remaining high mantissa bytes; the FAC low extension words
@@ -4606,14 +4606,14 @@ FRMEVL_OPC_WIDEN_LEFT_SNG:
 ;   In:        DE = left integer operand, HL = right integer operand, as set by the integer dispatcher FRMEVL_
 ;              OPC_DISPATCH_INT (POP DE = left, LD HL,(FAC) = right). Reached only as the integer band's divide
 ;              slot ($051D).
-;   Out:       Tail-jumps to FDIV_BY_TEN_1 (the FDIV pop-and-divide entry); the result is a single-precision
+;   Out:       Tail-jumps to FDIV_POP_ARGS (the FDIV pop-and-divide entry); the result is a single-precision
 ;              float in the FAC. VALTYP is set to single by the conversion path.
 ;   Clobbers:  A,B,C,D,E,H,L,F, the FAC.
 ;   Algorithm: '/' in MS BASIC always yields a float even on two integers. PUSH HL saves the right operand;
 ;              EX DE,HL moves the LEFT operand into HL and INT_TO_SINGLE_HL converts the LEFT operand to single
 ;              in the FAC; FAC_PUSH then pushes that LEFT single (the dividend). POP HL restores the RIGHT
 ;              operand and a second INT_TO_SINGLE_HL converts the RIGHT operand to single in the FAC (the
-;              divisor). JP FDIV_BY_TEN_1 pops the pushed dividend into BC/DE and FDIV computes popped/FAC =
+;              divisor). JP FDIV_POP_ARGS pops the pushed dividend into BC/DE and FDIV computes popped/FAC =
 ;              left/right -> single-precision quotient.
 ;   Note:      The two INT_TO_SINGLE_HL calls convert the LEFT operand first (then the RIGHT), opposite to a
 ;              prior gloss; after EX DE,HL the first call operates on the LEFT operand.
@@ -4628,7 +4628,7 @@ IDIV:
         CALL FAC_PUSH
         CALL INT_TO_SINGLE_HL
         ; FAC now holds the RIGHT single (divisor); the FDIV pop entry recovers the pushed dividend and computes left/right -> single quotient.
-        JP FDIV_BY_TEN_1
+        JP FDIV_POP_ARGS
 ; ----------------------------------------------------------------------
 ; EVAL fetch one operand. [FIX] $FF=extended-function-token escape -> FUNC_DISPATCH_TBL, NOT radix; ampersand $26=radix path.
 ; ----------------------------------------------------------------------
@@ -4936,7 +4936,7 @@ FRMEVL_FUNC_TOKEN:
 ;   In:        A = function table index (0-based; 7 forced for RND-with-parens); HL -> the function token.
 ;   Out:       For the multi-argument string functions (raw indices 0,1,2) both arguments are evaluated and staged on the stack, then JR to the dispatch tail (_11) with HL=doubled index; otherwise control passes to FRMEVL_FUNC_ARG_PAREN for the single-(arg) form.
 ;   Clobbers:  A, BC, DE, HL, F, FAC, stack.
-;   Algorithm: Double the index into a byte offset (RLCA) and save it (PUSH BC, B=0). CHRGET past the function token. If the doubled index (in C) < $05 (raw index 0,1,2) evaluate the first argument with FRMEVL, require ',' via SYNCHR, integer-check it (FP_INT_CHECK), juggle it onto the stack, GETBYT the second argument, recover the doubled index into HL via EX (SP),HL, and JR to _11. Doubled index >= $05 (raw index >= 3) takes the single-(arg) path at FRMEVL_FUNC_ARG_PAREN.
+;   Algorithm: Double the index into a byte offset (RLCA) and save it (PUSH BC, B=0). CHRGET past the function token. If the doubled index (in C) < $05 (raw index 0,1,2) evaluate the first argument with FRMEVL, require ',' via SYNCHR, integer-check it (REQUIRE_STRING), juggle it onto the stack, GETBYT the second argument, recover the doubled index into HL via EX (SP),HL, and JR to _11. Doubled index >= $05 (raw index >= 3) takes the single-(arg) path at FRMEVL_FUNC_ARG_PAREN.
 ; ----------------------------------------------------------------------
 FRMEVL_FUNC_TOKEN_1:
         LD B,$00
@@ -4952,7 +4952,7 @@ FRMEVL_FUNC_TOKEN_1:
         CALL FRMEVL
         CALL SYNCHR
         DEFB    ','                      ; inline char arg consumed by the preceding CALL
-        CALL FP_INT_CHECK
+        CALL REQUIRE_STRING
         EX DE,HL
         LD HL,(FAC)
         EX (SP),HL
@@ -6660,7 +6660,7 @@ STMT_RANDOMIZE_2:
         CALL FN_CINT
 STMT_RANDOMIZE_3:
         LD (RNDX_SEED_WORD),HL
-        CALL POLY_EVAL_SQR
+        CALL RND_SEED_RESET
         POP HL
         RET
 ; Data string 'Random number seed (-32768- to 32767)' (with a $08 backspace splice) -- the interactive RANDOMIZE prompt emitted by STMT_RANDOMIZE via STROUT/QINLIN
@@ -8726,28 +8726,85 @@ GFX_MODE_ACTIVE_FLAG:
 ; ----------------------------------------------------------------------
 GFX_STMT_HPLOT_9:
         LD D,B
-; [RE] FADDT entry: load constant pointer ($5BDC) then fall into FADD-with-operand; adds the FP value at (HL) to FAC.
+; ----------------------------------------------------------------------
+; FADD_LOAD_CONST -- FADD the fixed in-image constant 0.5 to the FAC.
+;   In:        FAC ($0CB1 mantissa-low / $0CB3 FACHI sign+high / $0CB4 exponent) holds the running value.
+;   Out:       FAC = FAC + 0.5 (single precision), normalized and rounded.
+;   Clobbers:  A,B,C,D,E,H,L, FAC cells, $0CB5 (working sign byte used by the add path).
+;   Algorithm: Point HL at the 4-byte MBF constant FP_CONST_HALF_SNG (bytes 00 00 00 80 = +0.5),
+;              then fall into FADD_FROM_MEM so the generic memory-operand add does the work. Used to add
+;              the 0.5 round-to-nearest bias before truncation in the single-precision FOUT/FIX paths.
+; ----------------------------------------------------------------------
 FADD_LOAD_CONST:
         LD HL,FP_CONST_HALF_SNG
-; [RE] FADD with operand at (HL): load the addend mantissa/exp into regs (FP_LOAD_MEM) then align-and-add against FAC.
+; ----------------------------------------------------------------------
+; FADD_FROM_MEM -- FADD the single-precision MBF number at (HL) to the FAC.
+;   In:        HL -> 4-byte MBF operand [LSB, mid, MSB|sign, exponent]; FAC holds the accumulator.
+;   Out:       FAC = FAC + (HL). (Addition is commutative, so operand order does not matter here.)
+;   Clobbers:  A,B,C,D,E,H,L, FAC cells, $0CB5.
+;   Algorithm: Load the operand from memory into the argument registers via FP_LOAD_MEM (E=LSB, D=mid,
+;              C=MSB|sign, B=exponent), then JR to FADD_ALIGN to align exponents and add. Standard
+;              'add value at (HL)' entry.
+; ----------------------------------------------------------------------
 FADD_FROM_MEM:
+        ; load the 4-byte MBF addend at (HL) into E,D,C,B (E=LSB ... B=exponent)
         CALL FP_LOAD_MEM
         JR FADD_ALIGN
+; ----------------------------------------------------------------------
+; FADD_FROM_MEM_1 -- subtract the FAC FROM the single-precision MBF number at (HL): FAC = (HL) - FAC.
+;   In:        HL -> 4-byte MBF operand (the MINUEND); FAC holds the value to subtract (the subtrahend).
+;   Out:       FAC = (HL) - FAC.   [RE/OBSERVED] direction confirmed by the FN_ATN caller, which pushes
+;              FADD_FROM_MEM_1 with HL -> PI/2 to compute PI/2 - ATN(1/x).
+;   Clobbers:  A,B,C,D,E,H,L, FAC cells, $0CB3 (FP_NEG), $0CB5.
+;   Algorithm: Load the operand at (HL) into the argument registers (FP_LOAD_MEM) so it becomes ARG, then
+;              fall into FSUB, which negates the FAC and adds: ARG + (-FAC) = (HL) - FAC. The memory-operand
+;              twin of FADD_FROM_MEM.
+; ----------------------------------------------------------------------
 FADD_FROM_MEM_1:
+        ; load the 4-byte MBF minuend at (HL) into E,D,C,B; FSUB then computes (HL) - FAC
         CALL FP_LOAD_MEM
-; [RE] FADD entry when addend already supplied; loads FAC into HL-pair (FP_NEG negate path) then aligns exponents.
+; ----------------------------------------------------------------------
+; FSUB -- single-precision subtract: FAC = ARG - FAC (the register operand minus the FAC).
+;   In:        ARG in registers (B=exponent, C=MSB|sign, D=mid, E=LSB); FAC holds the value subtracted.
+;   Out:       FAC = ARG - FAC, normalized and rounded.
+;              [OBSERVED] In the single-precision operator band (FRMEVL_OPC_DISPATCH_SNG) the LEFT operand
+;              is loaded into the registers (BC/DE) and the RIGHT into the FAC, so for the '-' operator this
+;              slot yields LEFT - RIGHT = ARG - FAC, the correct result.
+;   Clobbers:  A,B,C,D,E,H,L, FAC cells, $0CB3 (FP_NEG flips the FACHI sign bit), $0CB5.
+;   Algorithm: FP_NEG flips bit7 of the FAC sign byte FACHI ($0CB3), then control falls into FADD_ALIGN to
+;              add ARG to the now-negated FAC: ARG + (-FAC) = ARG - FAC.
+; ----------------------------------------------------------------------
 FSUB:
+        ; negate the FAC (flip FACHI bit7) so the following add yields ARG - FAC
         CALL FP_NEG
-; [RE] FADD core: compare exponents of addend (B) and FAC ($0CB4); if FAC=0 just store addend; shift the smaller mantissa right to align, then add.
+; ----------------------------------------------------------------------
+; FADD_ALIGN -- exponent alignment front-end of single-precision add (the FADDT core).
+;   In:        ARG in B(exp),C(MSB|sign),D(mid),E(LSB); FAC at $0CB1/$0CB3, exponent at $0CB4.
+;   Out:       Either an early store/return (one operand zero), or both mantissas aligned and the path
+;              continued into the add (MANT_ADD) or subtract-borrow (FADD_ALIGN_2 -> FADD_COMBINE/FADD).
+;   Clobbers:  A,B,C,D,E,H,L, FAC cells, $0CB5, the alignment stack frame.
+;   Algorithm: 1) If ARG exponent (B)=0, ARG is zero -> return (FAC unchanged). 2) If FAC exponent
+;              ($0CB4)=0, FAC is zero -> store ARG into FAC and return. 3) Compute exp diff (FACexp-ARGexp);
+;              if FAC has the SMALLER exponent, swap so the larger-exponent operand sits in FAC (FAC_PUSH /
+;              FP_STORE_FAC of ARG, take |diff|). 4) If |diff| >= $19 (25) the smaller operand is negligible
+;              -> return the larger unchanged. 5) FP_UNPACK_MSB restores the FAC hidden MSB and returns the
+;              SIGN-AGREEMENT bit (bit7 set when signs match); right-shift the smaller mantissa by the diff
+;              (MANT_SHIFT_BYTES) to align, then ADD (same sign) or SUBTRACT-BORROW (different sign).
+; ----------------------------------------------------------------------
 FADD_ALIGN:
         LD A,B
         OR A
+        ; ARG exponent 0 means ARG is zero: FAC is already the sum, return
         RET Z
         LD A,(L_0CB4)
         OR A
+        ; FAC exponent 0 means FAC is zero: result is just ARG, store ARG into FAC and return
         JP Z,FP_STORE_FAC
+        ; exponent difference = FAC_exp - ARG_exp (no borrow => FAC is the larger operand)
         SUB B
-        JR NC,FADD_ALIGN_1
+        ; FAC has the larger (or equal) exponent: keep it as the accumulator and align ARG down to it
+        JR NC,FADD_ALIGN_GO
+        ; FAC was the smaller operand: form |diff| and swap ARG<->FAC so the larger sits in FAC
         CPL
         INC A
         EX DE,HL
@@ -8756,27 +8813,34 @@ FADD_ALIGN:
         CALL FP_STORE_FAC
         POP BC
         POP DE
-FADD_ALIGN_1:
+FADD_ALIGN_GO:
+        ; if the smaller operand is >=25 bits down it cannot affect the result: return the larger unchanged
         CP $19
         RET NC
         PUSH AF
+        ; restore the FAC's hidden mantissa MSB and return the sign-agreement bit (bit7 set = signs match)
         CALL FP_UNPACK_MSB
         LD H,A
         POP AF
+        ; right-shift the smaller mantissa by the exponent difference to align the binary points
         CALL MANT_SHIFT_BYTES
         LD A,H
         OR A
         LD HL,FAC
-        JP P,FADD_ALIGN_2
+        ; returned byte positive (bit7 clear) => operands have OPPOSITE signs: take the subtract/borrow path
+        JP P,FADD_SUB_BORROW
+        ; signs agree: add the two aligned 3-byte mantissas
         CALL MANT_ADD
-        JP NC,FP_SET_ZERO_7
+        JP NC,FP_PACK_ROUND
         INC HL
+        ; mantissa add carried out: bump the exponent ($0CB4) and shift the mantissa right one bit to renormalize
         INC (HL)
+        ; exponent wrapped to 0 => magnitude overflow: jump to the shared FP error-finalize path
         JP Z,FIN_DONE_12
         LD L,$01
         CALL MANT_SHIFT_BITS
-        JR FP_SET_ZERO_7
-FADD_ALIGN_2:
+        JR FP_PACK_ROUND
+FADD_SUB_BORROW:
         XOR A
         SUB B
         LD B,A
@@ -8791,48 +8855,91 @@ FADD_ALIGN_2:
         LD A,(HL)
         SBC A,C
         LD C,A
-; [RE] FADD mantissa combine: CALL C,FCOMPL (sign disagreement) then drop into FADD proper to add/subtract the aligned mantissas.
+; ----------------------------------------------------------------------
+; FADD_COMBINE -- opposite-sign mantissa combine entry: conditionally two's-complement, then normalize.
+;   In:        Working mantissa difference in C(high),D,E,B from FADD_ALIGN_2's SBC chain, with CARRY set
+;              when the subtraction underflowed (result magnitude is negative); FAC exponent $0CB4, sign $0CB5.
+;   Out:       Falls into FADD to byte-left-justify, then FP_SET_ZERO to bit-normalize, adjust the exponent,
+;              round, and store the result.
+;   Clobbers:  A,B,C,D,E,H,L, FAC cells, $0CB5.
+;   Algorithm: If the subtract produced a negative magnitude (CARRY set), FCOMPL two's-complements the
+;              working mantissa and flips the sign byte $0CB5; otherwise the magnitude is already positive.
+;              Then drop into FADD to renormalize. Also entered directly by FLOAT_A to normalize a freshly
+;              built integer-as-float.
+; ----------------------------------------------------------------------
 FADD_COMBINE:
+        ; subtract underflowed (negative magnitude): two's-complement the mantissa and flip the sign byte $0CB5
         CALL C,FCOMPL
-; [RE] FP add/normalize core (FADDT path): align exponents, add/subtract mantissas, and renormalize the result in the FAC ($0CB1/$0CB4). FP_SET_ZERO ($4C09) is the normalize/round tail that writes the final exponent to $0CB4.
+; ----------------------------------------------------------------------
+; FADD -- post-add byte-granular left-justify of the summed/subtracted mantissa before bit normalization.
+;   In:        Working mantissa spread across C(high),D,E,B after the combine; entered with A=0 (shift count).
+;   Out:       Mantissa shifted left by whole bytes until the high byte is non-zero, with the running
+;              (negative) shift count in A in multiples of 8; falls into FP_SET_ZERO for bit-normalize/round/
+;              store. On full cancellation it falls through to FP_SET_ZERO's exact-zero store.
+;   Clobbers:  A,B,C,D,E,H,L.
+;   Algorithm: Each iteration: if the high byte (C) is non-zero, stop (JR NZ,FP_SET_ZERO_5). Otherwise slide
+;              the mantissa one whole byte toward the high end (C<-D<-H<-L, new low=0), subtract 8 from the
+;              shift count, and repeat until a non-zero high byte appears or the count reaches $E0 (-32, all
+;              four bytes cancelled, value exactly 0).
+; ----------------------------------------------------------------------
 FADD:
         LD L,B
         LD H,E
         XOR A
-FADD_1:
+FADD_LJUST_BYTE:
         LD B,A
         LD A,C
         OR A
-        JR NZ,FP_SET_ZERO_5
+        ; high mantissa byte non-zero: stop byte-shifting and go to bit-granular normalization
+        JR NZ,FP_NORM_TEST_MSB
         LD C,D
         LD D,H
         LD H,L
         LD L,A
         LD A,B
+        ; shifted one whole byte left: subtract 8 from the running normalize shift count
         SUB $08
         CP $E0
-        JR NZ,FADD_1
-; [RE] MBF normalize/round tail: left-justify the summed mantissa (B=shift count), adjust the FAC exponent at $0CB4, round, store result back (JP FADD_STORE).
+        ; keep sliding bytes left until a non-zero high byte or full ($E0 = all 4 bytes) cancellation
+        JR NZ,FADD_LJUST_BYTE
+; ----------------------------------------------------------------------
+; FP_SET_ZERO -- two roles: (a) the exact-zero store (FP_SET_ZERO/_1) and (b) the MBF bit-normalize / exponent-fixup / round / pack tail (entered at FP_SET_ZERO_2/_5/_7).
+;   In:        (a) entered to write a zero result. (b) entered with the byte-justified mantissa in H,L,D,C and
+;              B = running bit-shift count from FADD; FAC exponent $0CB4; sign in $0CB5.
+;   Out:       (a) FP_SET_ZERO writes exponent 0 and returns (result 0.0). (b) the normalized result is rounded,
+;              the sign folded in, and stored via FP_STORE_FAC; underflow/zero also exits through the exponent
+;              clear. Returns through FP_STORE_FAC.
+;   Clobbers:  A,B,C,D,E,H,L, FAC cells.
+;   Algorithm: FP_SET_ZERO/_1 just store A (=0) into the exponent $0CB4 and RET (the exact-zero path). The
+;              normalize tail bit-shifts the mantissa left until its top bit is set (FP_SET_ZERO_2/_4 loop, with
+;              the _3 fast path when only the low byte holds bits), then adds the accumulated shift count to the
+;              exponent at $0CB4 (a no-carry or zero result = underflow -> store 0). Finally it rounds on the
+;              round bit (CALL M,FADD_ROUND_CARRY), folds the sign held in $0CB5 into the mantissa MSB (C), and
+;              JP FP_STORE_FAC.
+; ----------------------------------------------------------------------
 FP_SET_ZERO:
         XOR A
-FP_SET_ZERO_1:
+FP_SET_ZERO_EXP:
+        ; write the exponent byte (A=0 here stores an exact zero result)
         LD (L_0CB4),A
         RET
-FP_SET_ZERO_2:
+FP_NORM_BITLOOP:
         LD A,H
         OR L
         OR D
-        JR NZ,FP_SET_ZERO_4
+        ; upper mantissa bytes still hold bits: take the full multi-byte left-shift path
+        JR NZ,FP_NORM_SHIFT_LEFT
         LD A,C
-FP_SET_ZERO_3:
+FP_NORM_LOWBYTE:
         DEC B
         RLA
-        JR NC,FP_SET_ZERO_3
+        ; keep rotating the low byte left until its top bit is set (counting the shift in B)
+        JR NC,FP_NORM_LOWBYTE
         INC B
         RRA
         LD C,A
-        JR FP_SET_ZERO_6
-FP_SET_ZERO_4:
+        JR FP_NORM_ADJ_EXP
+FP_NORM_SHIFT_LEFT:
         DEC B
         ADD HL,HL
         LD A,D
@@ -8841,45 +8948,73 @@ FP_SET_ZERO_4:
         LD A,C
         ADC A,A
         LD C,A
-FP_SET_ZERO_5:
-        JP P,FP_SET_ZERO_2
-FP_SET_ZERO_6:
+FP_NORM_TEST_MSB:
+        ; top mantissa bit still clear: shift left another bit to normalize
+        JP P,FP_NORM_BITLOOP
+FP_NORM_ADJ_EXP:
         LD A,B
         LD E,H
         LD B,L
         OR A
-        JR Z,FP_SET_ZERO_7
+        ; no exponent change needed: go straight to round-and-pack
+        JR Z,FP_PACK_ROUND
         LD HL,L_0CB4
+        ; adjust the exponent by the accumulated normalize shift count
         ADD A,(HL)
         LD (HL),A
+        ; exponent underflowed below the minimum: result rounds to 0
         JR NC,FP_SET_ZERO
+        ; exponent reached 0: result is 0.0
         JP Z,FP_SET_ZERO
-FP_SET_ZERO_7:
+FP_PACK_ROUND:
         LD A,B
-FP_SET_ZERO_8:
+FP_PACK_STORE:
         LD HL,L_0CB4
         OR A
+        ; round bit set: propagate the round-up carry through the mantissa and exponent
         CALL M,FADD_ROUND_CARRY
         LD B,(HL)
         INC HL
         LD A,(HL)
+        ; extract bit7 of the working sign byte $0CB5 (the result's sign) ...
         AND $80
+        ; ... and fold it into the packed mantissa high byte (C) before storing
         XOR C
         LD C,A
         JP FP_STORE_FAC
-; [RE] Round/carry propagation: bump mantissa bytes E,D,C and exponent on a rounding carry; overflow to error if the exponent wraps.
+; ----------------------------------------------------------------------
+; FADD_ROUND_CARRY -- propagate a round-up (+1 ULP) carry through the mantissa and exponent.
+;   In:        Mantissa bytes in E(low),D(mid),C(high); HL -> exponent cell $0CB4.
+;   Out:       Mantissa incremented by one ULP with the carry rippled; on a full mantissa carry the exponent
+;              is bumped and the mantissa MSB reseeded to $80. Exponent overflow exits via FIN_DONE_11.
+;   Clobbers:  E,D,C and (HL); flags. (A is NOT touched.)
+;   Algorithm: INC E; if it wrapped, INC D; if that wrapped, INC C; if that wrapped too the whole mantissa
+;              rolled over, so set C=$80 (the new normalized MSB) and INC the exponent (HL). If the exponent
+;              then wraps to 0 the magnitude overflowed -> JP FIN_DONE_11 (the shared FP error-finalize path,
+;              which reports Overflow here).
+; ----------------------------------------------------------------------
 FADD_ROUND_CARRY:
+        ; add one ULP to the low mantissa byte; ripple the carry upward only as needed
         INC E
         RET NZ
         INC D
         RET NZ
         INC C
         RET NZ
+        ; mantissa fully carried out: reseed the MSB to $80 and bump the exponent
         LD C,$80
         INC (HL)
         RET NZ
+        ; exponent wrapped past max: overflow -> shared FP error-finalize (reports Overflow)
         JP FIN_DONE_11
-; [RE] 3-byte mantissa add: (HL..)+E,D,C with carry into the FAC mantissa registers.
+; ----------------------------------------------------------------------
+; MANT_ADD -- add an aligned 3-byte mantissa from (HL) into the working mantissa registers.
+;   In:        HL -> 3 consecutive mantissa bytes (low..high); working mantissa in E(low),D(mid),C(high).
+;   Out:       E,D,C = (HL bytes) + E,D,C with carry out in CY; HL ends pointing at the high (third) byte.
+;   Clobbers:  A,E,D,C,H,L, flags.
+;   Algorithm: Byte-serial add with carry: E += (HL); D += (HL+1) + CY; C += (HL+2) + CY. The final carry
+;              signals a mantissa overflow (the caller renormalizes by shifting right and bumping the exponent).
+; ----------------------------------------------------------------------
 MANT_ADD:
         LD A,(HL)
         ADD A,E
@@ -8893,14 +9028,24 @@ MANT_ADD:
         ADC A,C
         LD C,A
         RET
-; [RE] FCOMPL: two's-complement negate the working mantissa (B,E,D,C) and flip the sign byte at $0CB5; used when adding operands of opposite sign.
+; ----------------------------------------------------------------------
+; FCOMPL -- two's-complement negate the working mantissa and flip the result sign byte.
+;   In:        Working mantissa in B(low/guard),E,D,C(high); sign byte at $0CB5.
+;   Out:       B,E,D,C = -(B,E,D,C) (32-bit two's complement); $0CB5 = ~$0CB5 (sign flipped).
+;   Clobbers:  A,B,C,D,E,H,L, $0CB5, flags.
+;   Algorithm: CPL the sign byte at $0CB5, then negate the 4 mantissa bytes as 0 - mantissa via a borrow
+;              chain (A=0, L=0 carrier): B=0-B; E=0-E-borrow; D=0-D-borrow; C=0-C-borrow. Used by the
+;              opposite-sign add path (FADD_COMBINE) when the subtraction produced a negative magnitude.
+; ----------------------------------------------------------------------
 FCOMPL:
-        LD HL,L_0CB5
+        LD HL,FP_SIGN_FLAG
         LD A,(HL)
+        ; flip the working sign byte ($0CB5) to match the negated magnitude
         CPL
         LD (HL),A
         XOR A
         LD L,A
+        ; negate the 4-byte mantissa as 0 - mantissa, rippling the borrow through B,E,D,C
         SUB B
         LD B,A
         LD A,L
@@ -8913,42 +9058,70 @@ FCOMPL:
         SBC A,C
         LD C,A
         RET
-; [RE] Byte-granular mantissa right-shift: shift the 4-byte mantissa right whole bytes by (exponent diff)/8, then fall into the bit-shift remainder.
+; ----------------------------------------------------------------------
+; MANT_SHIFT_BYTES -- right-shift the 4-byte working mantissa by a bit count, whole bytes first.
+;   In:        A = right-shift amount in bits (the aligned exponent difference); mantissa in C(high),D,E with
+;              B used as the shifted-out guard byte (initialized to 0). H is preserved across this call (it
+;              carries the caller's sign-agreement bit).
+;   Out:       Mantissa shifted right by A bits; the residual (sub-8) bit shift is finished by the inline
+;              MANT_SHIFT_BITS / MANT_SHIFT_BYTES_4 loop.
+;   Clobbers:  A,B,C,D,E,L, flags. (H preserved.)
+;   Algorithm: While >= 8 bits remain, slide each mantissa byte down one position (C->D->E->B, new C=0),
+;              subtracting 8 per whole byte. The leftover bit count (carried negative) is biased by +$09 to
+;              form L = a 1-based bit-loop counter, then the residual 0..7-bit shift is finished by the bit
+;              loop below. [RE] A fast path handles the case where the upper bytes are already zero, shifting
+;              only C (see MANT_SHIFT_BYTES_3); the precise low/high role of C in that branch is inferred from
+;              the opcode sequence.
+; ----------------------------------------------------------------------
 MANT_SHIFT_BYTES:
         LD B,$00
-MANT_SHIFT_BYTES_1:
+MANT_SHIFT_BYTE_LOOP:
         SUB $08
-        JR C,MANT_SHIFT_BYTES_2
+        ; fewer than 8 bits left: stop the whole-byte cascade and handle the residual bits
+        JR C,MANT_SHIFT_RESIDUAL
         LD B,E
         LD E,D
         LD D,C
+        ; slide the mantissa down one whole byte (B<-E<-D<-C, new high byte = 0)
         LD C,$00
-        JR MANT_SHIFT_BYTES_1
-MANT_SHIFT_BYTES_2:
+        JR MANT_SHIFT_BYTE_LOOP
+MANT_SHIFT_RESIDUAL:
+        ; bias the leftover (negative) bit count by +9 to form a 1-based loop counter in L
         ADD A,$09
         LD L,A
         LD A,D
         OR E
         OR B
-        JR NZ,MANT_SHIFT_BYTES_4
+        ; other mantissa bytes still hold bits: take the full per-bit shift; else use the C-only fast path
+        JR NZ,MANT_SHIFT_BIT_STEP
         LD A,C
-MANT_SHIFT_BYTES_3:
+MANT_SHIFT_C_ONLY:
         DEC L
+        ; residual bit counter exhausted: alignment shift complete
         RET Z
         RRA
         LD C,A
-        JR NC,MANT_SHIFT_BYTES_3
-        JR MANT_SHIFT_BITS_1
-MANT_SHIFT_BYTES_4:
+        JR NC,MANT_SHIFT_C_ONLY
+        JR MANT_SHIFT_BITS_LOW3
+MANT_SHIFT_BIT_STEP:
         XOR A
         DEC L
         RET Z
         LD A,C
-; [RE] Bit-granular mantissa right-shift: rotate C,D,E,B right one bit per step to finish exponent alignment.
+; ----------------------------------------------------------------------
+; MANT_SHIFT_BITS -- right-shift the 4-byte mantissa by one bit (the residual bit-shift step).
+;   In:        Mantissa in C(high),D,E,B(low/guard); A holds C with the carry = the bit shifted in at the top.
+;   Out:       Mantissa rotated right one bit (C->D->E->B), then re-enters MANT_SHIFT_BIT_STEP to repeat.
+;   Clobbers:  A,B,C,D,E, flags.
+;   Algorithm: RRA the high byte C (already in A), store it, then propagate the shifted-out bit down through
+;              D, E, and the guard byte B via RRA on each (the carry chains the boundary bit). Loops back to
+;              MANT_SHIFT_BIT_STEP to decrement the bit counter L until the requested residual shift is done.
+; ----------------------------------------------------------------------
 MANT_SHIFT_BITS:
+        ; rotate the mantissa right one bit, chaining the boundary bit from C down through D,E,B
         RRA
         LD C,A
-MANT_SHIFT_BITS_1:
+MANT_SHIFT_BITS_LOW3:
         LD A,D
         RRA
         LD D,A
@@ -8958,7 +9131,7 @@ MANT_SHIFT_BITS_1:
         LD A,B
         RRA
         LD B,A
-        JR MANT_SHIFT_BYTES_4
+        JR MANT_SHIFT_BIT_STEP
 L_4CA6:
         DEFB    $00,$00,$00,$81
 ; [RE] LOG() numerator coefficient pool: MBF (4-byte single) polynomial, layout { count byte; N x 4-byte MBF coefficient } with count=$04 -> 4 coefficients ($4CAB-$4CBA). Evaluated by POLY_EVAL (Horner) from the LOG mantissa-reduction routine at $4CDF ($4CEC/$4CEF). Paired with FP_POLY_LOG_DEN; the two are FDIV'd ($4D03) to form the rational approximation of ln over the reduced interval.
@@ -8969,23 +9142,51 @@ FP_POLY_LOG_NUM:
 FP_POLY_LOG_DEN:
         DEFB    $04,$00,$00,$00,$81,$E2,$B0,$4D,$83,$0A,$72,$11,$83,$F4,$04,$35
         DEFB    $7F
-; [RE] LOG(x) handler (function token $0A): natural logarithm (MBF math package).
+; ----------------------------------------------------------------------
+; FN_LOG -- LOG(x) natural-logarithm function handler (BASIC token $0A)
+;   In:        FAC holds x (MBF single); L_0CB4 = FAC exponent, FACHI = high mantissa byte + sign
+;   Out:       FAC = ln(x); returns through FMUL
+;   Clobbers:  FAC, all FP scratch, A/BC/DE/HL
+;   Algorithm: Reject x<=0: FP_SIGN returns $FF/$00/$01, then OR A + JP PE,ERROR_FC traps the
+;              even-parity values $FF (negative) and $00 (zero) -> Illegal function call. Call
+;              LOG_MANTISSA_POLY (formerly FN_SIN_REDUCE) to split x = m*2^e and return a rational
+;              approximation r = ln(reduced mantissa) + e in the FAC. Finally multiply by the
+;              constant ln(2) (operand B=$80 exp, C/D/E = $31,$72,$18 = MBF 0.6931472) so the
+;              e-in-units-of-2 result becomes a true natural log: ln(x) = r * ln(2).
+; ----------------------------------------------------------------------
 FN_LOG:
         CALL FP_SIGN
         OR A
+        ; reject x <= 0: FP_SIGN returns $FF for negative / $00 for zero, both even-parity (PE) -> Illegal function call
         JP PE,ERROR_FC
-        CALL FN_SIN_REDUCE
+        ; split x = m*2^e and form ln(m)+e via the LOG rational polynomial (NUM/DEN), result in the FAC
+        CALL LOG_MANTISSA_POLY
+        ; scale by ln(2) = 0.6931472 (MBF exp=$80, mantissa $31,$72,$18): converts the base-2 reduction result into a natural log
         LD BC,$8031
         LD DE,$7218
         JP FMUL
-; [RE] SIN range reduction / polynomial preprocessor: folds the argument into the principal interval before the Chebyshev poly (CALL $5D65 poly eval); helper for FN_SIN.
-FN_SIN_REDUCE:
+; ----------------------------------------------------------------------
+; LOG_MANTISSA_POLY -- LOG range reduction + rational approximation of ln (LOG helper, was FN_SIN_REDUCE)
+;   In:        FAC holds x>0 (already sign-checked by FN_LOG)
+;   Out:       FAC = ln(reduced mantissa) + e, where e is the binary exponent (caller FN_LOG scales by ln 2)
+;   Clobbers:  FAC, FP work stack, A/BC/DE/HL, L_0CB4
+;   Algorithm: Read the FAC mantissa (FP_LOAD_FAC), force the exponent cell L_0CB4 to $80 so the
+;              value is reduced to a pure mantissa m in [0.5,1), and stash the original exponent
+;              relationship in A via XOR B (saved on the stack). Evaluate two polynomials in m:
+;              FP_POLY_LOG_NUM and FP_POLY_LOG_DEN (each Horner via POLY_EVAL), then FDIV them to
+;              get the rational approximation NUM(m)/DEN(m) ~= ln(m). Float the saved binary
+;              exponent e (FLOAT_A) and FADD it so FAC = ln(m) + e (e in units of powers of two).
+; ----------------------------------------------------------------------
+LOG_MANTISSA_POLY:
         CALL FP_LOAD_FAC
+        ; force exponent = $80: reduce x to its pure mantissa m in [0.5,1) so the polynomial sees a small in-range argument
         LD A,$80
         LD (L_0CB4),A
+        ; stash the original binary exponent (relative to the forced $80) so it can be added back after taking ln of the mantissa
         XOR B
         PUSH AF
         CALL FAC_PUSH
+        ; evaluate numerator polynomial NUM(m) of the rational approximation of ln(m)
         LD HL,FP_POLY_LOG_NUM
         CALL POLY_EVAL
         POP BC
@@ -8993,44 +9194,70 @@ FN_SIN_REDUCE:
         CALL FAC_PUSH
         EX DE,HL
         CALL FP_STORE_FAC
+        ; evaluate denominator polynomial DEN(m); NUM/DEN ~= ln(m)
         LD HL,FP_POLY_LOG_DEN
         CALL POLY_EVAL
         POP BC
         POP DE
+        ; rational approximation: ln(reduced mantissa) = NUM(m) / DEN(m)
         CALL FDIV
         POP AF
         CALL FAC_PUSH
+        ; float the saved binary exponent e
         CALL FLOAT_A
         POP BC
         POP DE
+        ; FAC = ln(m) + e (e in powers of two); FN_LOG then scales the whole thing by ln 2
         JP FADD_ALIGN
 
 ; ======================================================================
 ; FLOATING-POINT MATH PACKAGE (MBF) -- FAC at $0CB1/$0CB4
 ; ======================================================================
-; [RE] MS BASIC-80 floating-point multiply (FMULT): multiply the argument FP value by the FAC (mantissa at $0CB1, exponent $0CB4) using the shift-and-add mantissa loop, producing the product in the FAC.
+; ----------------------------------------------------------------------
+; FMUL -- single-precision MBF multiply: FAC = operand * FAC (the '*' single-precision operator handler).
+;   In:        Operand factor in registers B=biased exponent, C=mantissa high (bit7=sign), D=mantissa mid,
+;              E=mantissa low.  FAC ($0CB1/$0CB2 mantissa, $0CB3 sign+high, $0CB4 exponent) holds the other
+;              factor.  Reached from the single-precision operator band (DEFW FMUL, line 432).
+;   Out:       FAC = operand * FAC, normalized and rounded by the FADD continuation.  Returns early with the
+;              FAC unchanged (still zero) when the FAC factor is zero (RET Z after FP_SIGN).  [RE] when the
+;              OPERAND factor is zero EXP_ADD's B=0 test takes the zero/clear path instead.
+;   Clobbers:  A,B,C,D,E,H,L,F, the FAC, and the self-modified cells FMUL_3+1 / FMUL_4+1.
+;   Algorithm: If the FAC factor is zero the product is zero -> return.  EXP_ADD (L=$00) adds the two biased
+;              exponents (with over/underflow routing) and combines the signs.  The operand mantissa high byte
+;              (C) is patched into the inner ADC operand and its low word (DE) into the inner ADD operand, then
+;              the FAC mantissa is scanned low-to-high (FMUL_1): for each set bit the operand is shift-and-added
+;              into the running product (BC:HL), shifting right one place per step.  FADD (pushed as the
+;              continuation) normalizes and rounds the accumulated product back into the FAC.  Multiply is
+;              commutative, so which factor is 'scanned' vs 'added' is an implementation choice, not semantics.
+; ----------------------------------------------------------------------
 FMUL:
+        ; If the FAC factor is zero the product is zero -- return immediately (FP_SIGN sets Z when the FAC exponent is 0).
         CALL FP_SIGN
         RET Z
+        ; L=$00 tells EXP_ADD to ADD the FAC exponent (multiply); EXP_ADD also combines the result sign and routes over/underflow.
         LD L,$00
         CALL EXP_ADD
         LD A,C
+        ; Self-modify the inner loop: patch the operand mantissa high byte (C) into the ADC operand cell and (next two instrs) its low word (DE) into the ADD operand cell.
         LD (FMUL_4+1),A
         EX DE,HL
         LD (FMUL_3+1),HL
         LD BC,$0000
         LD D,B
         LD E,B
+        ; Push FADD as the return continuation so the shift-and-add loop falls into normalize/round when it finishes.
         LD HL,FADD
         PUSH HL
         LD HL,FMUL_1
         PUSH HL
         PUSH HL
+        ; Scan the FAC mantissa bytes low-to-high; each set bit drives one shift-and-add of the patched operand into the partial product.
         LD HL,FAC
 FMUL_1:
         LD A,(HL)
         INC HL
         OR A
+        ; [RE] A zero FAC mantissa byte contributes nothing -- skip its 8-bit inner loop (FMUL_8 shifts the partial product down one byte and returns).
         JR Z,FMUL_8
         PUSH HL
         EX DE,HL
@@ -9039,11 +9266,13 @@ FMUL_2:
         RRA
         LD D,A
         LD A,C
+        ; Add the operand into the running product only when this mantissa bit is set; otherwise just shift.
         JR NC,FMUL_5
         PUSH DE
 ; [RE] SMC operand cell: LD DE,nnnn at $4D43 is patched by FMUL setup ($4D20 LD (FMUL_3+1),HL) to the multiplicand mantissa low word; the shift-and-add loop then accumulates it via ADD HL,DE ($4D46). FMUL_3+1 is the immediate field, not a code entry.
 FMUL_3:
         LD DE,$0000
+        ; Accumulate the patched operand low word into the product low half (the high byte is folded in by the following ADC).
         ADD HL,DE
         POP DE
 ; [RE] SMC operand cell: the immediate of ADC A,nn at $4D48 is patched by FMUL prologue ($4D1C LD (FMUL_4+1),A) to the multiplicand high byte; folded into the running product high byte each loop pass. FMUL_4+1 is the immediate, not a code entry.
@@ -9080,24 +9309,56 @@ FMUL_8:
         LD D,C
         LD C,A
         RET
-; [RE] FDIV reciprocal-divide setup: pushes the divisor (FAC_PUSH) and constant DP_CONST_2, then falls into FDIV restoring-division.
+; ----------------------------------------------------------------------
+; FDIV_BY_TEN -- divide the FAC by ten (single precision): FAC = FAC / 10.0.
+;   In:        FAC holds the dividend (mantissa $0CB1/$0CB2, sign+high $0CB3, exponent $0CB4).
+;   Out:       FAC = FAC / 10, normalized.
+;   Clobbers:  A,B,C,D,E,H,L,F, the FAC, FDIV's self-modified cells, and the stack (one FP value pushed/popped).
+;   Algorithm: Push the dividend (FAC_PUSH), point HL at the constant +10.0 (DP_CONST_2) and load it into the
+;              FAC as the divisor (FP_STORE_REGS_LD), then enter FDIV at FDIV_BY_TEN_1, which pops the saved
+;              dividend into B/C/D/E and computes dividend/divisor = old_FAC/10.  FDIV_BY_TEN_1 is the generic
+;              'pop the stacked dividend and divide by the current FAC' entry, also reused by IDIV (line 4631).
+; ----------------------------------------------------------------------
 FDIV_BY_TEN:
+        ; Stack the dividend (current FAC); the FAC is about to be overwritten with the divisor.
         CALL FAC_PUSH
+        ; Point at the divisor constant +10.0 (MBF $00 $00 $20 $84); the following FP_STORE_REGS_LD loads it into the FAC.
         LD HL,DP_CONST_2
         CALL FP_STORE_REGS_LD
-FDIV_BY_TEN_1:
+FDIV_POP_ARGS:
+        ; FDIV_BY_TEN_1: recover the stacked dividend into B(exp)/C(high)/D(mid)/E(low), then fall into FDIV to compute dividend/FAC.
         POP BC
         POP DE
-; [RE] MBF floating-point divide: divisor self-modified into the subtract trio ($4D9D/$4DA1/$4DA5), restoring long division of the FAC mantissa, result normalized via FADD_NORMALIZE.
+; ----------------------------------------------------------------------
+; FDIV -- single-precision MBF divide: FAC = operand / FAC (the '/' single-precision operator handler).
+;   In:        Dividend in B=biased exponent, C=mantissa high (bit7=sign), D=mantissa mid, E=mantissa low.
+;              FAC holds the divisor.  Reached from the operator band (DEFW FDIV, line 433) and from
+;              FDIV_BY_TEN_1 / IDIV.
+;   Out:       FAC = dividend / divisor, normalized.  On a zero DIVISOR (FAC=0) jumps to FIN_DONE_14, which
+;              reaches FIN_DONE_18 -> the Division-by-zero error (confirmed: FIN_DONE_18 loads
+;              ERRMSG_DIVISION_BY_ZERO).  A zero dividend underflows to a zero result via FP_SET_ZERO.
+;   Clobbers:  A,B,C,D,E,H,L,F, the FAC, the FDIV subtract trio (FDIV_2/3/4 +1) and the quotient scratch
+;              FDIV_5+1.
+;   Algorithm: FP_SIGN(FAC) detects a zero divisor (-> error).  EXP_ADD with L=$FF forms the quotient exponent
+;              by SUBTRACTING the divisor exponent (one's-complement add); the two INC (HL) afterward correct
+;              the divide bias, and EXP_ADD combines the sign.  The divisor mantissa bytes are patched into the
+;              SUB/SBC trio, then a restoring long division shifts the remainder left and conditionally
+;              subtracts the divisor each iteration (FDIV_1 loop), assembling the quotient in the FDIV_5 scratch
+;              byte and B:HL; the result is normalized, falling to FP_SET_ZERO* / FP_SET_ZERO on exponent
+;              underflow.
+; ----------------------------------------------------------------------
 FDIV:
         CALL FP_SIGN
+        ; A zero divisor (FAC=0, FP_SIGN returns Z) raises Division by zero (FIN_DONE_14 -> FIN_DONE_18 loads ERRMSG_DIVISION_BY_ZERO).
         JP Z,FIN_DONE_14
+        ; L=$FF makes EXP_ADD SUBTRACT the divisor exponent (it one's-complements it before adding); the next two INC (HL) restore the divide bias.
         LD L,$FF
         CALL EXP_ADD
         INC (HL)
         INC (HL)
         DEC HL
         LD A,(HL)
+        ; Self-modify the restoring-divide inner loop: patch the divisor's three mantissa bytes into the SUB/SBC operand cells.
         LD (FDIV_4+1),A
         DEC HL
         LD A,(HL)
@@ -9113,6 +9374,7 @@ FDIV:
         LD E,A
         LD (FDIV_5+1),A
 FDIV_1:
+        ; FDIV_1: each iteration trial-subtracts the divisor from the remainder; PUSH preserves the remainder so a failed (non-fitting) subtract can be undone.
         PUSH HL
         PUSH BC
         LD A,L
@@ -9135,6 +9397,7 @@ FDIV_5:
         LD A,$00
         SBC A,$00
         CCF
+        ; [RE] Quotient-bit decision: if the divisor did not fit, restore the saved remainder; else commit the subtraction and record the quotient bit (FDIV_6+1 is the flag-skip POP-pair tail).
         JR NC,FDIV_6+1
         LD (FDIV_5+1),A
         POP AF
@@ -9161,8 +9424,9 @@ FDIV_6:
 FDIV_7:
         POP HL
         OR H
-        JP FP_SET_ZERO_8
+        JP FP_PACK_STORE
 FDIV_8:
+        ; FDIV_8: shift the remainder and accumulating quotient left one place for the next division step.
         RLA
         LD A,E
         RLA
@@ -9186,74 +9450,169 @@ FDIV_8:
         JR NZ,FDIV_1
         PUSH HL
         LD HL,L_0CB4
+        ; Decrement the FAC exponent once per normalizing left-shift; reaching zero yields a zero result (JP FP_SET_ZERO).
         DEC (HL)
         POP HL
         JR NZ,FDIV_1
         JP FP_SET_ZERO
-; [RE] MUL/DIV sign+exponent combine: XOR the two operand sign bytes ($0CC0/$0CC1) and add the biased exponents; produces the result sign/exponent for FMUL and FDIV.
+; ----------------------------------------------------------------------
+; MULDIV_SIGN -- combine the two operand SIGNS for a double-precision multiply/divide, then fall into EXP_ADD.
+;   In:        $0CC0 and $0CC1 hold the two operands' sign/high bytes (bit7 = sign).  Entry at MULDIV_SIGN
+;              (A=$FF, used by DDIV via CALL MULDIV_SIGN at line 10368) complements the XOR; entry at
+;              MULDIV_SIGN_1+1 (the $AF immediate of LD L,$AF runs as XOR A => A=0, used by DMUL via
+;              CALL MULDIV_SIGN_1+1 at line 10234) gives a straight sign XOR.
+;   Out:       B = combined result sign/high byte (sign in bit7); C = the first operand's sign byte ($0CC0,
+;              loaded in passing); L=$00; falls into EXP_ADD which combines the exponents.
+;   Clobbers:  A,B,C,H,L,F.
+;   Algorithm: Load the two saved operand sign bytes from $0CC0/$0CC1 and XOR them so the product/quotient is
+;              negative iff exactly one operand was negative; the DDIV entry pre-loads A=$FF so the XOR is
+;              complemented for its sign convention.  Set L:=$00, then drop into EXP_ADD.  [RE] This base is the
+;              double-precision DMUL/DDIV sign+exponent setup; FMUL/FDIV reach EXP_ADD directly with their own
+;              L selector, not through here.
+; ----------------------------------------------------------------------
 MULDIV_SIGN:
         LD A,$FF
 ; [RE] Flag-skip sign-combine: $4DFB LD L,$AF is a dead load whose $AF immediate doubles as XOR A. DDIV enters via MULDIV_SIGN ($4DF9, A=$FF preserved) so the sign-byte XOR is complemented; DMUL enters at +1 ($4DFC) running XOR A (A=0) for a straight sign XOR. Both fall into LD HL,$0CC0 and XOR the $0CC0/$0CC1 operand signs.
 MULDIV_SIGN_1:
         LD L,$AF
+        ; Read both operands' saved sign bytes ($0CC0, $0CC1) and XOR them: result is negative iff exactly one operand was negative.
         LD HL,L_0CC0
         LD C,(HL)
         INC HL
         XOR (HL)
         LD B,A
+        ; L=$00 selects the add-exponents path in EXP_ADD (this sign-combine entry is the DMUL/DDIV setup).
         LD L,$00
-; [RE] Add operand exponent (B) to FAC exponent at $0CB4 with overflow/underflow detection; jumps to over/underflow handlers; shared by FMUL/FDIV.
+; ----------------------------------------------------------------------
+; EXP_ADD -- combine biased exponents for MUL/DIV with over/underflow detection (shared by FMUL/FDIV and the
+;              MULDIV_SIGN fall-through).
+;   In:        B = operand biased exponent; L = direction selector ($00 = add the FAC exponent for multiply,
+;              $FF = one's-complement = subtract the FAC exponent for divide).  FAC exponent at $0CB4, sign/high
+;              at $0CB3.
+;   Out:       On success: HL -> FAC exponent $0CB4 (so FDIV's following two INC (HL) increment the exponent),
+;              the new biased exponent stored at $0CB4, and FP_UNPACK_MSB has set the hidden mantissa MSB and
+;              written the result sign/extension bytes; returns via the DEC_HL_RET fall-through.  On operand
+;              exponent 0 -> DEC_HL_RET_3 (zero/clear path).  On exponent over/underflow -> the DEC_HL_RET_2
+;              fork or FMUL_7.
+;   Clobbers:  A,B,H,L,F, $0CB3, $0CB4, $0CB5 (via FP_UNPACK_MSB).
+;   Algorithm: If B=0 the operand is zero -> bail to the zero path.  Compute A = (L XOR FAC_exp) + B: with L=$00
+;              this is FAC_exp + op_exp (multiply); with L=$FF the FAC_exp is one's-complemented first (~x =
+;              -x-1), so A = op_exp - FAC_exp - 1 (divide, later corrected by FDIV's two INC (HL)).  An RRA-then-
+;              XOR test detects whether the add overflowed the biased-exponent range; a non-wrapping result is
+;              routed to the over/underflow fork (DEC_HL_RET_2), otherwise the exponent is re-biased by +$80 and
+;              stored, and on a non-zero exponent FP_UNPACK_MSB restores the hidden MSB and applies the combined
+;              sign before the multiply/divide loop runs.
+; ----------------------------------------------------------------------
 EXP_ADD:
         LD A,B
         OR A
+        ; A zero operand exponent means the operand is zero -> route to the zero-result path.
         JR Z,DEC_HL_RET_3
         LD A,L
         LD HL,L_0CB4
+        ; Bring in the FAC exponent: with L=$00 it passes through unchanged; with L=$FF it is one's-complemented (the following ADD A,B then yields op_exp-FAC_exp-1 for divide).
         XOR (HL)
         ADD A,B
         LD B,A
         RRA
+        ; [RE] Over/underflow test: compares the sum's sign before vs after the carry to detect an exponent-range wrap.
         XOR B
         LD A,B
+        ; A non-wrapping result hands the over/underflow decision to the DEC_HL_RET_2 fork (zero-result vs Overflow error).
         JP P,DEC_HL_RET_2
+        ; Re-apply the exponent bias and store at $0CB4; a zero result here underflows -> abandon via FMUL_7 (pop and return).
         ADD A,$80
         LD (HL),A
         JP Z,FMUL_7
+        ; [RE] Restore the hidden mantissa MSB and apply the combined sign (FP_UNPACK_MSB also writes the $0CB5 extension byte); leaves HL at $0CB5 so the trailing LD (HL),A writes there before DEC_HL_RET backs HL to the exponent.
         CALL FP_UNPACK_MSB
         LD (HL),A
-; [RE] Exponent-result finalize: pop saved sign, branch to zero result (FADD clear) on underflow or overflow error on overflow.
+; ----------------------------------------------------------------------
+; DEC_HL_RET -- generic 'DEC HL; RET' pointer back-up helper (also EXP_ADD's success-path tail).
+;   In:        HL.  When reached as EXP_ADD's fall-through, HL = $0CB5 (left there by FP_UNPACK_MSB + the
+;              preceding LD (HL),A).
+;   Out:       HL decremented by 1; returns.  (From EXP_ADD this leaves HL = $0CB4, the FAC exponent cell, which
+;              is exactly what FDIV's two INC (HL) then increment.)
+;   Clobbers:  HL, F.
+;   Algorithm: One-instruction back-up of HL, then RET.  Reused as a standalone CALLed subroutine by the FOUT
+;              number formatter (lines 11134, 11344) to step a digit pointer back one byte.
+; ----------------------------------------------------------------------
 DEC_HL_RET:
         DEC HL
         RET
-; [RE] Over/underflow decision: re-test FAC sign (FP_SIGN), complement, and route to zero-result vs overflow-error.
+; ----------------------------------------------------------------------
+; EXP_OVUN_TEST -- [RE] over/underflow handler region for the MUL/DIV exponent combine.
+;   In:        UNKNOWN as a label entry: no JP/CALL targets EXP_OVUN_TEST ($4E23) anywhere in this build, and it
+;              is not a fall-through (the instruction above it is DEC_HL_RET's RET), so its CALL FP_SIGN / CPL /
+;              POP HL prefix is UNREACHED here.  The over/underflow region is actually entered ONLY at the two
+;              interior labels reached from EXP_ADD: DEC_HL_RET_2 (from JP P, with one stacked frame to discard)
+;              and DEC_HL_RET_3 (from JR Z when the operand exponent is 0).
+;   Out:       After discarding the saved frame: a positive sign test -> JP FP_SET_ZERO (FAC := 0, underflow);
+;              otherwise JP FIN_DONE_5 ([RE] the Overflow error path).
+;   Clobbers:  A,H,L,F, the discarded stack frame.
+;   Algorithm: At DEC_HL_RET_2/DEC_HL_RET_3, pop the saved return/exponent frame and, on a positive sign, clear
+;              the FAC to zero (underflow), else fall into FIN_DONE_5.  [RE] The unreached EXP_OVUN_TEST prefix
+;              (FP_SIGN; CPL; POP HL) looks like a legacy 're-test and complement the sign' entry inherited from
+;              the MS BASIC-80 overflow handler; its role in this image is UNKNOWN because nothing reaches it.
+; ----------------------------------------------------------------------
 EXP_OVUN_TEST:
         CALL FP_SIGN
+        ; [RE] Part of the UNREACHED EXP_OVUN_TEST prefix (no caller in this build); would complement the re-fetched FAC sign ahead of the underflow/overflow fork.
         CPL
         POP HL
 DEC_HL_RET_2:
         OR A
 DEC_HL_RET_3:
         POP HL
+        ; [RE] Underflow branch of the over/underflow fork: a positive sign here clears the FAC to zero.
         JP P,FP_SET_ZERO
+        ; [RE] Otherwise fall into FIN_DONE_5 (the over/underflow error path).
         JP FIN_DONE_5
-; [RE] Scale FAC by a small power of two: load FAC, add 2 to the exponent (x4), renormalize via FADD_ALIGN, bump $0CB4; used by SIN/EXP poly scaling.
+; ----------------------------------------------------------------------
+; FP_SCALE2 -- multiply the FAC by ten (single precision): FAC = FAC * 10.
+;   In:        FAC holds the value (mantissa $0CB1/$0CB2, sign+high $0CB3, exponent $0CB4).
+;   Out:       FAC = FAC * 10, normalized.  RET unchanged if FAC=0.  On exponent overflow -> FIN_DONE_10
+;              ([RE] the Overflow error path).
+;   Clobbers:  A,B,C,D,E,H,L,F, the FAC.
+;   Algorithm: Load the value into the operand registers (FP_LOAD_FAC: B=exp, C/D/E=mantissa).  Add 2 to the
+;              operand exponent (the copy *= 4); a carry there is an exponent overflow.  FADD_ALIGN adds that
+;              value*4 to the still-intact FAC (value), giving value*5; then INC the FAC exponent doubles it to
+;              value*10.  Used as the single-precision x10 decimal-scale step by the FIN number parser
+;              (FIN_MUL10 at line 10585 and the FIN digit path at line 10655).
+; ----------------------------------------------------------------------
 FP_SCALE2:
         CALL FP_LOAD_FAC
         LD A,B
         OR A
         RET Z
+        ; Bump the operand-copy exponent by 2 (multiply the copy by 4); a carry here is an exponent overflow -> Overflow error.
         ADD A,$02
         JP C,FIN_DONE_10
         LD B,A
+        ; Add value*4 (the operand copy) to the original FAC (value) -> value*5 in the FAC.
         CALL FADD_ALIGN
         LD HL,L_0CB4
+        ; Increment the FAC exponent: doubles value*5 to value*10 (a zero result -> Overflow error).
         INC (HL)
         RET NZ
         JP FIN_DONE_10
-; [RE] SIGN of FAC: returns A=0 if exponent($0CB4)=0, else A=$01 (positive) or $FF (negative) from the sign byte $0CB3.
+; ----------------------------------------------------------------------
+; FP_SIGN -- return the sign of the FAC as A = -1 / 0 / +1, with flags to match.
+;   In:        FAC exponent at $0CB4, sign byte (high mantissa) at $0CB3 (FACHI), bit7 = sign.
+;   Out:       A = $00 (and Z) if the FAC is zero (exponent 0); otherwise A = $01 (positive) or $FF (negative),
+;              with S/Z reflecting A.
+;   Clobbers:  A,F.
+;   Algorithm: If the exponent is zero the value is zero -> A=0, return.  Otherwise load the sign byte and run
+;              the shared RLA/SBC A,A tail (FP_SIGN_2/_3): RLA shifts the sign bit (bit7) into carry, SBC A,A
+;              spreads carry to $00/$FF, and INC A on the positive branch yields +1.  The leading CP $2F is a
+;              flag-skip cover whose operand byte ($2F) is executed as CPL when the routine is entered one byte
+;              in at FP_SIGN_1+1; FCOMP/DCOMP/INT16_COMP reuse the tail via FP_SIGN_1+1 / FP_SIGN_2 / FP_SIGN_3,
+;              entering with a precomputed compare result instead of the raw sign byte.
+; ----------------------------------------------------------------------
 FP_SIGN:
         LD A,(L_0CB4)
         OR A
+        ; Exponent zero means the FAC value is exactly zero -> return A=0.
         RET Z
         LD A,(FACHI)
 ; [RE] Flag-skip shared sign tail: $4E4F CP $2F is the FP_SIGN body; FCOMP/DCOMP reuse the tail by entering at FP_SIGN_1+1 ($4E50) where the $2F operand byte runs as CPL, then the shared RLA/SBC A,A ($4E51-$4E55) collapses A to -1/0/+1. The full entry tests the sign byte; the +1 entry complements a precomputed difference.
@@ -9262,66 +9621,127 @@ FP_SIGN_1:
 FP_SIGN_2:
         RLA
 FP_SIGN_3:
+        ; With the sign bit now in carry (from the preceding RLA), SBC A,A yields $FF (negative) or $00; INC A on the positive branch then makes +1.
         SBC A,A
         RET NZ
         INC A
         RET
-; [RE] Float the signed byte in A into the FAC: set exponent $88, clear low mantissa, set sign, normalize via FADD_COMBINE.
+; ----------------------------------------------------------------------
+; FLOAT_A -- float a signed 8-bit integer in A into the FAC (single precision).
+;   In:        A = signed byte to convert.
+;   Out:       FAC ($0CB1..$0CB4) holds A as a normalized single-precision float (via FADD_COMBINE).
+;   Clobbers:  A, B, C, D, E, H, L, flags, FAC cells, FP sign cell $0CB5.
+;   Algorithm: Preset binary exponent B=$88 (left-justifies an 8-bit integer under the $80 bias) and clear the low mantissa word (DE=0), then fall into FLOAT_A_1 which packs the byte and renormalizes. The companion entry FLOAT_FROM_INT enters FLOAT_A_1 with B=$98 to float a signed 16-bit value (INT_TO_SINGLE uses $90).
+; ----------------------------------------------------------------------
 FLOAT_A:
+        ; binary exponent for an 8-bit-wide integer (bias $80 + 8 bits)
         LD B,$88
+        ; clear the low 16 bits of the mantissa; the source byte enters via C
         LD DE,$0000
+; ----------------------------------------------------------------------
+; FLOAT_A_1 -- shared float-pack-and-normalize tail (used by FLOAT_A, FLOAT_FROM_INT, INT_TO_SINGLE).
+;   In:        A = signed source value (its sign bit selects the result sign); B = biased binary exponent ($88 for a byte, $98 for a 16-bit int, $90 from INT_TO_SINGLE); DE = low 16 mantissa bits to seed.
+;   Out:       Falls into FADD_COMBINE which folds in the sign and normalizes/stores the signed single-precision result in the FAC.
+;   Clobbers:  A, B, C, H, L, flags, exponent cell $0CB4, FP sign cell $0CB5.
+;   Algorithm: Write the exponent B to $0CB4, stash the source value in C, write $0CB5 (the FP result-sign working cell) = $80 (provisional positive sign), zero B, then RLA to shift the source's sign bit into carry. JP FADD_COMBINE: when carry indicates negative it CALLs FCOMPL (which two's-complements the mantissa and flips $0CB5) before normalizing. [RE] the precise mantissa register packing into FADD is not fully traced.
+; ----------------------------------------------------------------------
 FLOAT_A_1:
         LD HL,L_0CB4
         LD C,A
         LD (HL),B
         LD B,$00
         INC HL
+        ; seed $0CB5, the FP result-sign cell, with a provisional positive sign
         LD (HL),$80
+        ; shift the source sign bit into carry so FADD_COMBINE applies the sign (CALL C,FCOMPL)
         RLA
         JP FADD_COMBINE
 ; [RE] INT() handler (function token $05): floor to integer.
 FN_INT:
         CALL FP_TEST_SIGN
         RET P
-; [RE] Negate-FAC-and-continue: toggle the FAC sign (FP_NEG) then re-dispatch through the integer/type check ($3DC8) path.
+; ----------------------------------------------------------------------
+; FP_NEGATE_CHECKED -- unary-minus handler: negate the numeric value in the FAC, dispatching by type.
+;   In:        FAC = operand; VALTYP = its type.
+;   Out:       FAC = -operand. Integer operands go to INT_NEGATE_FAC (which also handles the $8000 overflow-to-single case); single/double operands have their sign bit flipped by FP_NEG. String operands raise Type-mismatch.
+;   Clobbers:  A, H, L, flags (and whatever INT_NEGATE_FAC touches on the integer path).
+;   Algorithm: FRMEVL_TEST_TYPE sets flags by VALTYP: sign M => integer (JP INT_NEGATE_FAC), Z => string (JP RAISE_TYPE_MISMATCH); otherwise (single or double) fall into FP_NEG to flip the floating-point sign bit.
+; ----------------------------------------------------------------------
 FP_NEGATE_CHECKED:
         CALL FRMEVL_TEST_TYPE
+        ; integer operand: negate via the integer path (handles the -32768 promotion)
         JP M,INT_NEGATE_FAC
         JP Z,RAISE_TYPE_MISMATCH
-; [RE] Negate FAC: flip the high (sign) bit of the FAC sign byte at $0CB3.
+; ----------------------------------------------------------------------
+; FP_NEG -- negate a floating-point FAC value in place (toggle its sign).
+;   In:        FACHI ($0CB3) = the high mantissa byte whose bit 7 is the sign.
+;   Out:       FACHI bit 7 inverted, i.e. FAC negated. A = the new $0CB3 byte.
+;   Clobbers:  A, H, L, flags.
+;   Algorithm: Read $0CB3, XOR $80 to flip the sign bit, store it back. Does not touch the exponent or low mantissa, so a true zero (exponent 0) is unaffected in magnitude.
+; ----------------------------------------------------------------------
 FP_NEG:
         LD HL,FACHI
         LD A,(HL)
+        ; flip the sign bit (bit 7) of the high mantissa byte
         XOR $80
         LD (HL),A
         RET
 ; [RE] MID$() handler (function token $03): substring extraction.
 FN_MID_STR:
         CALL FP_TEST_SIGN
-; [RE] Store signed 16-bit value in A (sign-extended into HL) into the FAC as an integer (JP FP_STORE_FAC_INT).
+; ----------------------------------------------------------------------
+; INT16_TO_FP -- store a signed 8-bit value (in A) into the FAC as a 16-bit BASIC integer.
+;   In:        A = signed byte.
+;   Out:       FAC = A sign-extended to 16 bits; VALTYP = VT_INT (set by FP_STORE_FAC_INT). Tail-calls FP_STORE_FAC_INT.
+;   Clobbers:  A, H, L, flags.
+;   Algorithm: Put A into L, then RLA/SBC A,A produces the sign-extension byte ($00 if A>=0, $FF if A<0) into H, forming the signed 16-bit value in HL. JP FP_STORE_FAC_INT writes HL to the FAC and marks it integer. [RE] the relational and EOF handlers (callers at 5064, 17532) use this to deliver boolean results (0 / -1) as integers.
+; ----------------------------------------------------------------------
 INT16_TO_FP:
         LD L,A
         RLA
+        ; form the sign-extension byte (00 or FF) from the carry left by RLA
         SBC A,A
         LD H,A
         JP FP_STORE_FAC_INT
-; [RE] Type/sign test for INT-class coercion: $3DC8 type-check, error on zero/string, return sign of mantissa for integer values.
+; ----------------------------------------------------------------------
+; FP_TEST_SIGN -- type-check the FAC for an INT-class operation and return its sign.
+;   In:        FAC = value; VALTYP = its type.
+;   Out:       String operand => JP RAISE_TYPE_MISMATCH (no return). Single/double => tail-call FP_SIGN returning A = 0 (zero), $01 (positive) or $FF (negative). Integer => load FAC into HL and fall into FP_MANT_SIGN to test the integer mantissa.
+;   Clobbers:  A, H, L, flags.
+;   Algorithm: FRMEVL_TEST_TYPE: Z => string error; sign P (single OR double, since both yield a positive A=VALTYP-3) => FP_SIGN on the float; otherwise (M, integer) load the 16-bit mantissa from FAC ($0CB1) and continue into FP_MANT_SIGN.
+; ----------------------------------------------------------------------
 FP_TEST_SIGN:
         CALL FRMEVL_TEST_TYPE
         JP Z,RAISE_TYPE_MISMATCH
+        ; single or double value: return its sign via the shared SIGN tail
         JP P,FP_SIGN
         LD HL,(FAC)
-; [RE] Test FAC integer mantissa ($0CB1) for zero and return its sign via the SIGN tail.
+; ----------------------------------------------------------------------
+; FP_MANT_SIGN -- sign of the 16-bit integer mantissa already loaded in HL.
+;   In:        HL = the FAC integer value (loaded by the FP_TEST_SIGN integer path).
+;   Out:       A = 0 with Z set if the value is zero; otherwise A = $01/$FF (positive/negative) via the shared FP_SIGN tail (entered at FP_SIGN_2).
+;   Clobbers:  A, flags.
+;   Algorithm: OR H with L to test for zero and RET Z. Otherwise load the high byte (its bit 7 is the sign) into A and JR FP_SIGN_2, where RLA/SBC A,A collapse A to the signed -1/0/+1 result.
+; ----------------------------------------------------------------------
 FP_MANT_SIGN:
         LD A,H
+        ; zero integer => sign 0; return immediately
         OR L
         RET Z
         LD A,H
+        ; reuse the SIGN tail to collapse the high byte to -1/+1
         JR FP_SIGN_2
-; [RE] PUSHF: push the FAC mantissa ($0CB1) and sign/low-exp ($0CB3) onto the stack while preserving the caller return address (EX (SP),HL).
+; ----------------------------------------------------------------------
+; FAC_PUSH -- PUSHF: save the FAC's working bytes onto the stack, preserving the caller's return address.
+;   In:        FAC ($0CB1 mantissa low word) and FACHI ($0CB3 sign/high byte) hold the value; the return address is on top of the stack.
+;   Out:       The two FAC words are pushed below the (still top-of-stack) return address; HL/DE restored to their entry values. RET to caller.
+;   Clobbers:  flags; stack grows by 4 bytes (HL and DE net unchanged).
+;   Algorithm: EX DE,HL saves the caller's HL in DE. Load FAC into HL, EX (SP),HL swaps it with the return address (return address now in HL), PUSH HL puts the return address back on top with the FAC word beneath it; repeat for FACHI. EX DE,HL restores HL. Net: the two FAC words are interleaved beneath the return address so a later POP can recover them.
+; ----------------------------------------------------------------------
 FAC_PUSH:
         EX DE,HL
         LD HL,(FAC)
+        ; swap the FAC word under the return address so RET still works
         EX (SP),HL
         PUSH HL
         LD HL,(FACHI)
@@ -9329,50 +9749,121 @@ FAC_PUSH:
         PUSH HL
         EX DE,HL
         RET
-; [RE] Load operand at (HL) into regs (FP_LOAD_MEM) then store DE/BC into the FAC; combined load-then-store helper.
+; ----------------------------------------------------------------------
+; FP_STORE_REGS_LD -- load a 4-byte FP operand from (HL) into registers, then store it into the FAC.
+;   In:        HL = address of a 4-byte FP value.
+;   Out:       FAC ($0CB1..$0CB4) = the value; HL advanced past the source.
+;   Clobbers:  B,C,D,E,H,L, flags, FAC cells.
+;   Algorithm: CALL FP_LOAD_MEM reads (HL..HL+3) into E,D,C,B (advancing HL), then fall into FP_STORE_FAC which writes DE -> $0CB1 and B,C -> $0CB3/$0CB4. A combined memory->FAC move; e.g. FDIV_BY_TEN ($9087) uses it to load the constant DP_CONST_2.
+; ----------------------------------------------------------------------
 FP_STORE_REGS_LD:
         CALL FP_LOAD_MEM
-; [RE] MOVFR: store DE (mantissa low) and B,C (sign/high) into the FAC cells $0CB1/$0CB3.
+; ----------------------------------------------------------------------
+; FP_STORE_FAC -- MOVFR [RE]: store a 4-byte FP value from registers into the FAC.
+;   In:        DE = mantissa low word; B = high mantissa/sign byte; C = exponent byte.
+;   Out:       FAC ($0CB1) = DE; $0CB3 = B (sign/high byte); $0CB4 = C (exponent); HL restored to the caller's entry HL; DE = (B in D, C in E) after the final EX.
+;   Clobbers:  H, L, flags; DE altered.
+;   Algorithm: EX DE,HL puts the mantissa low word in HL and stores it to $0CB1; build HL=B:C and store that word to $0CB3/$0CB4 (so $0CB3=B sign/high, $0CB4=C exponent). The final EX DE,HL restores the caller's HL (now leaving B:C in DE). The standard MS BASIC-80 register-to-FAC move.
+; ----------------------------------------------------------------------
 FP_STORE_FAC:
         EX DE,HL
+        ; store the mantissa low word into FAC ($0CB1)
         LD (FAC),HL
         LD H,B
         LD L,C
+        ; store sign/high byte (B) at $0CB3 and exponent byte (C) at $0CB4
         LD (FACHI),HL
         EX DE,HL
         RET
-; [RE] MOVRF: load the FAC ($0CB1) 4-byte mantissa into E,D,C,B.
+; ----------------------------------------------------------------------
+; FP_LOAD_FAC -- MOVRF [RE]: load the FAC's 4-byte FP value into registers E,D,C,B.
+;   In:        FAC ($0CB1).
+;   Out:       E,D,C,B = the four FP bytes ($0CB1,$0CB2,$0CB3,$0CB4); HL = FAC+4 ($0CB5).
+;   Clobbers:  B,C,D,E,H,L.
+;   Algorithm: Point HL at FAC and fall into FP_LOAD_MEM, the generic (HL)->E,D,C,B reader.
+; ----------------------------------------------------------------------
 FP_LOAD_FAC:
         LD HL,FAC
-; [RE] Load 4 FP mantissa bytes from (HL) into E,D,C,B (advancing HL).
+; ----------------------------------------------------------------------
+; FP_LOAD_MEM -- read a 4-byte FP value from (HL) into registers E,D,C,B, advancing HL.
+;   In:        HL = source address.
+;   Out:       E=(HL),D=(HL+1),C=(HL+2),B=(HL+3); HL = source+4.
+;   Clobbers:  B,C,D,E,H,L.
+;   Algorithm: Read the first byte into E, then fall into FP_LOAD_MEM3 to read the remaining three into D,C,B. The shared FP_LOAD_DONE tail does the final INC HL and RET.
+; ----------------------------------------------------------------------
 FP_LOAD_MEM:
         LD E,(HL)
         INC HL
-; [RE] Load 3 FP bytes from (HL) into D,C,B (entry past the first byte).
+; ----------------------------------------------------------------------
+; FP_LOAD_MEM3 -- read 3 FP bytes from (HL) into D,C,B (continuation entry past the first byte).
+;   In:        HL = address of the second of four FP bytes.
+;   Out:       D=(HL),C=(HL+1),B=(HL+2); HL = address+3 (via the FP_LOAD_DONE tail).
+;   Clobbers:  B,C,D,H,L.
+;   Algorithm: Sequential reads of D,C,B with INC HL between, then fall into FP_LOAD_DONE for the final INC HL and RET. Entered directly when the first byte was already loaded by the caller.
+; ----------------------------------------------------------------------
 FP_LOAD_MEM3:
         LD D,(HL)
         INC HL
         LD C,(HL)
         INC HL
         LD B,(HL)
-; [RE] Tail of the (HL)->regs loaders: final INC HL and RET.
+; ----------------------------------------------------------------------
+; FP_LOAD_DONE -- shared tail of the (HL)->register FP loaders: final pointer bump and return.
+;   In:        HL = pointer at the last byte just read.
+;   Out:       HL = past the 4-byte field; RET.
+;   Clobbers:  H, L.
+;   Algorithm: INC HL then RET, so every loader leaves HL one past the value it read.
+; ----------------------------------------------------------------------
 FP_LOAD_DONE:
         INC HL
         RET
-; [RE] MOVE: copy 4 bytes from (DE) into the FAC at $0CB1.
+; ----------------------------------------------------------------------
+; FP_MOVE_TO_FAC -- MOVE [RE]: copy a 4-byte FP value from (DE) into the FAC.
+;   In:        DE = source address of a 4-byte FP value.
+;   Out:       FAC ($0CB1..$0CB4) = the copied bytes; DE = source+4, HL = FAC+4.
+;   Clobbers:  A, B, D, E, H, L, flags.
+;   Algorithm: Set HL = FAC (the destination) and fall into FP_MOVE4, the fixed 4-byte (DE)->(HL) block copy.
+; ----------------------------------------------------------------------
 FP_MOVE_TO_FAC:
         LD DE,FAC
-; [RE] Block-copy 4 bytes (DE)->(HL); generic FP move primitive.
+; ----------------------------------------------------------------------
+; FP_MOVE4 -- copy a fixed 4 bytes from (DE) to (HL); the single-precision FP block move.
+;   In:        DE = source, HL = destination.
+;   Out:       4 bytes copied; DE and HL advanced by 4; B = 0.
+;   Clobbers:  A, B, D, E, H, L, flags.
+;   Algorithm: Load count B=4 and JR into FP_MOVE_LOOP. The separate entry FP_MOVE4_1 (below) first does EX DE,HL then falls into the VALTYP-sized move FP_MOVE_TYPED instead.
+; ----------------------------------------------------------------------
 FP_MOVE4:
         LD B,$04
         JR FP_MOVE_LOOP
+; ----------------------------------------------------------------------
+; FP_MOVE4_1 -- typed-operand move entry: swap DE<->HL then copy VALTYP bytes (DE)->(HL).
+;   In:        HL = source, DE = destination (the FP_ARG_SETUP1 convention).
+;   Out:       After the EX, DE = source and HL = destination; VALTYP bytes copied; B = 0.
+;   Clobbers:  A, B, D, E, H, L, flags.
+;   Algorithm: EX DE,HL converts the (HL=src, DE=dst) caller convention into the (DE=src, HL=dst) convention the copy loop expects, then falls into FP_MOVE_TYPED to move exactly VALTYP bytes. This is the continuation FP_ARG_SETUP1 queues for the double-operand case.
+; ----------------------------------------------------------------------
 FP_MOVE4_1:
+        ; swap to the (DE=source, HL=dest) convention the copy loop expects
         EX DE,HL
-; [RE] Typed block-copy (DE)->(HL): length B = VALTYP ($0B14), which IS the value's storage WIDTH in bytes (2=int,3=string-descriptor,4=single,8=double). DJNZ-copies exactly VALTYP bytes. This site is the direct proof that VALTYP encodes byte width.
+; ----------------------------------------------------------------------
+; FP_MOVE_TYPED -- copy VALTYP bytes from (DE) to (HL); the type-width FP/value block move.
+;   In:        DE = source, HL = destination; VALTYP ($0B14) = the value's storage width in bytes (2=int, 3=string descriptor, 4=single, 8=double).
+;   Out:       VALTYP bytes copied; DE,HL advanced by VALTYP; B = 0.
+;   Clobbers:  A, B, D, E, H, L, flags.
+;   Algorithm: Load B = VALTYP and fall into FP_MOVE_LOOP, a DJNZ byte copier. Because the loop count is exactly VALTYP, this site is direct evidence that VALTYP encodes the value's byte width.
+; ----------------------------------------------------------------------
 FP_MOVE_TYPED:
+        ; copy length = VALTYP, the value's storage width in bytes
         LD A,(VALTYP)
         LD B,A
-; [RE] Byte-copy loop body for the FP block moves (DJNZ over B bytes).
+; ----------------------------------------------------------------------
+; FP_MOVE_LOOP -- DJNZ byte-copy loop body shared by the FP block moves.
+;   In:        DE = source, HL = destination, B = byte count.
+;   Out:       B bytes copied; DE,HL advanced by B; B = 0; RET.
+;   Clobbers:  A, B, D, E, H, L, flags.
+;   Algorithm: LD A,(DE) / LD (HL),A / INC DE / INC HL / DJNZ. A plain forward memory copy.
+; ----------------------------------------------------------------------
 FP_MOVE_LOOP:
         LD A,(DE)
         LD (HL),A
@@ -9380,19 +9871,29 @@ FP_MOVE_LOOP:
         INC HL
         DJNZ FP_MOVE_LOOP
         RET
-; [RE] Set the hidden mantissa MSB and extract the sign: force bit7 of $0CB3 high byte, save sign, return rounding bit in A.
+; ----------------------------------------------------------------------
+; FP_UNPACK_MSB -- restore the hidden mantissa MSBs and combine the operand signs for a multiply/divide/add-align.
+;   In:        FACHI ($0CB3) = the FAC's packed sign/high mantissa byte; C = the operand's packed sign/high mantissa byte.
+;   Out:       $0CB3 bit 7 forced to 1 (FAC hidden MSB restored); $0CB5 (FP_SIGN_FLAG) = a sign-derived byte; C bit 7 forced to 1 (operand hidden MSB restored); A = the combined sign bit (FAC sign XOR operand sign). Callers: FADD_ALIGN ($8763, saves A in H across MANT_SHIFT_BYTES) and EXP_ADD/FMUL+FDIV ($9222, stores A back to $0CB5).
+;   Clobbers:  A, C, H, L, flags, $0CB3, $0CB5.
+;   Algorithm: For the FAC byte: RLCA rotates bit 7 (sign) into carry, SCF+RRA forces bit 7 = 1 (the implicit leading mantissa bit) and writes it back at $0CB3; CCF+RRA forms a sign-derived byte written to $0CB5. For C (the operand): RLCA/SCF/RRA likewise forces C bit 7 = 1; a trailing RRA/XOR (HL=$0CB5) combines the two signs into A. [RE] the exact rounding-vs-sign meaning of the returned A bit is inferred from the two call sites and the standard MBF multiply prologue, not traced bit-by-bit.
+; ----------------------------------------------------------------------
 FP_UNPACK_MSB:
         LD HL,FACHI
         LD A,(HL)
+        ; rotate the FAC sign bit out of bit 7 into carry
         RLCA
+        ; force the hidden mantissa MSB (bit 7 = 1) back into the FAC high byte
         SCF
         RRA
+        ; [RE] write the sign-derived byte into the FP sign cell ($0CB5)
         LD (HL),A
         CCF
         RRA
         INC HL
         INC HL
         LD (HL),A
+        ; now restore the operand's hidden MSB and combine its sign with the FAC sign
         LD A,C
         RLCA
         SCF
@@ -9401,47 +9902,100 @@ FP_UNPACK_MSB:
         RRA
         XOR (HL)
         RET
-; [RE] Load second operand from temp ($0CBA) and set up the typed-move target (FP_MOVE4_1) before a compare/op.
+; ----------------------------------------------------------------------
+; FP_ARG_TO_TEMP1 -- operand-setup wrapper that targets the secondary temp at $0CBA (swap-move variant).
+;   In:        FAC = current value; VALTYP = its type.
+;   Out:       Sets HL = ARG2_TEMP ($0CBA) as the move destination anchor, then falls into FP_ARG_SETUP1 to stage the typed move (FP_MOVE4_1 continuation).
+;   Clobbers:  A, D, E, H, L, flags (and the move performed on return).
+;   Algorithm: Load HL with the $0CBA temp pointer and continue into FP_ARG_SETUP1, which queues the FP_MOVE4_1 continuation and selects the source by VALTYP.
+; ----------------------------------------------------------------------
 FP_ARG_TO_TEMP1:
-        LD HL,L_0CBA
-; [RE] Operand setup: push the typed-move routine, type-check ($3DC8), and select the temp source ($0CAD or $0CB1) for the pending op.
+        LD HL,ARG2_TEMP
+; ----------------------------------------------------------------------
+; FP_ARG_SETUP1 -- prepare a typed FP operand move, selecting the swap-form copy (FP_MOVE4_1).
+;   In:        HL = the operand's destination anchor (e.g. ARG2_TEMP); FAC/VALTYP = the value being staged.
+;   Out:       Returns with FP_MOVE4_1 queued as the continuation and DE = source: FAC ($0CB1) for int/string/single (carry-set early return), or the double-FAC base $0CAD (FAC_DBL) for a double operand (VALTYP>=8).
+;   Clobbers:  A, D, E, flags; pushes one continuation address.
+;   Algorithm: Load DE = FP_MOVE4_1 (the swap-then-copy move) and JR into the shared FP_ARG_SETUP2_1 body, which pushes that continuation, runs FRMEVL_TEST_TYPE, returns DE=FAC on carry (VALTYP<8), else points DE at the double-FAC base $0CAD.
+; ----------------------------------------------------------------------
 FP_ARG_SETUP1:
         LD DE,FP_MOVE4_1
         JR FP_ARG_SETUP2_1
-; [RE] Load second operand from temp ($0CBA) and set up the type-driven move (FP_MOVE_TYPED) before a compare/op.
+; ----------------------------------------------------------------------
+; FP_ARG_TO_TEMP2 -- operand-setup wrapper that targets the secondary temp at $0CBA (typed-move variant).
+;   In:        FAC = current value; VALTYP = its type.
+;   Out:       Sets HL = ARG2_TEMP ($0CBA) and falls into FP_ARG_SETUP2, which queues the VALTYP-sized move (FP_MOVE_TYPED).
+;   Clobbers:  A, D, E, H, L, flags (and the staged move).
+;   Algorithm: Load HL with the $0CBA temp pointer and continue into FP_ARG_SETUP2 (the FP_MOVE_TYPED-selecting variant).
+; ----------------------------------------------------------------------
 FP_ARG_TO_TEMP2:
-        LD HL,L_0CBA
-; [RE] Operand setup variant selecting the typed-move (FP_MOVE_TYPED); type-check and pick temp source $0CAD/$0CB1.
+        LD HL,ARG2_TEMP
+; ----------------------------------------------------------------------
+; FP_ARG_SETUP2 -- prepare a typed FP operand move, selecting the VALTYP-sized copy (FP_MOVE_TYPED).
+;   In:        HL = the operand's destination anchor; FAC/VALTYP = the value being staged.
+;   Out:       Returns with FP_MOVE_TYPED queued as the continuation and DE = source: FAC ($0CB1) for int/string/single (carry-set return), or FAC_DBL ($0CAD) for a double operand.
+;   Clobbers:  A, D, E, flags; pushes one continuation address.
+;   Algorithm: Load DE = FP_MOVE_TYPED (the width-driven copy) and fall into FP_ARG_SETUP2_1: PUSH the move continuation, set DE = FAC, run FRMEVL_TEST_TYPE (RET C when VALTYP<8), else point DE at the double-FAC base $0CAD before returning into the queued move.
+; ----------------------------------------------------------------------
 FP_ARG_SETUP2:
         LD DE,FP_MOVE_TYPED
+; ----------------------------------------------------------------------
+; FP_ARG_SETUP2_1 -- shared body of the FP operand-setup helpers: push the move, classify by VALTYP, pick the source.
+;   In:        DE = the move routine to run on return (FP_MOVE4_1 or FP_MOVE_TYPED); HL = operand destination anchor; VALTYP = type.
+;   Out:       The move routine is PUSHed (so the final RET enters it); DE = source pointer = FAC ($0CB1) for int/string/single (carry set, early RET) or FAC_DBL ($0CAD) for a double (VALTYP>=8).
+;   Clobbers:  A, D, E, flags; pushes one address.
+;   Algorithm: PUSH DE (queue the move). Set DE = FAC as the default source. CALL FRMEVL_TEST_TYPE: it sets carry for VALTYP<8 (int/string/single) -> RET C leaving DE=FAC. Only when carry is clear (VALTYP>=8, double) does it set DE = FAC_DBL ($0CAD), the double-FAC base, and RET into the queued move. NOTE: the discriminator is double-vs-not-double (carry), NOT string-vs-non-string.
+; ----------------------------------------------------------------------
 FP_ARG_SETUP2_1:
+        ; queue the selected move routine; the final RET dispatches into it
         PUSH DE
         LD DE,FAC
         CALL FRMEVL_TEST_TYPE
         RET C
-        LD DE,L_0CAD
+        ; double operand (VALTYP>=8, carry clear): source the double-FAC base ($0CAD)
+        LD DE,FAC_DBL
         RET
-; [RE] Floating-point compare (FAC vs regs operand): returns A=0 equal, $01 / $FF for greater/less from sign+exponent+mantissa comparison.
+; ----------------------------------------------------------------------
+; FCOMP -- single-precision floating-point compare: FAC against the register operand in B/C/D/E.
+;   In:        FAC = first operand (FAC=$0CB1 mantissa-low, FACHI=$0CB3 mantissa-MSB+sign in bit7, L_0CB4=$0CB4 biased exponent). B = second operand's exponent; C = its packed sign/MSB byte (bit7=sign); D,E = its low mantissa bytes (a 4-byte single laid out in registers).
+;   Out:       A = ordering of (FAC vs operand). On the normal mantissa-compare path A is the clean relational code $00 (equal) / $01 (FAC>operand) / $FF (FAC<operand) produced via the FP_SIGN tail and the FCOMP_1 fold. [RE] BUT the signs-differ early-out (RET M) returns the RAW operand sign byte C, not a normalized $FF/$01 -- only its bit7 (sign) is meaningful; the relational finalizer (FRMEVL_RELOP_RESULT) consumes that bit. So 'clean -1/0/+1' holds only on the equal-sign path.
+;   Clobbers:  A, HL, F (B,C,D,E preserved as the operand).
+;   Algorithm: If the operand exponent B==0 the operand is zero, so the answer is SGN(FAC) (JP FP_SIGN). Otherwise arm the FP_SIGN tail (PUSH FP_SIGN_1+1) and call FP_SIGN; if FAC==0 (Z) return A=C (the operand's sign byte). If the two signs differ (FACHI XOR C has bit7 set) return A=C raw (RET M) -- the sign byte alone decides the order. With equal signs, compare the four mantissa bytes high-to-low (FP_MANT_EQ); on a difference FCOMP_1 folds the borrow bit (RRA) with the sign (XOR C) into the final code. [RE] FP_SIGN_2/_3 collapse a sign byte to $FF(neg)/$01(pos); the exact direction of the signs-differ result was not hand-verified beyond 'bit7 of C decides'.
+; ----------------------------------------------------------------------
 FCOMP:
         LD A,B
         OR A
+        ; operand exponent 0 => operand is zero; result is just SGN(FAC)
         JP Z,FP_SIGN
+        ; arm the FP_SIGN tail (entered at +1) to fold the pending result into the -1/0/+1 code
         LD HL,FP_SIGN_1+1
         PUSH HL
         CALL FP_SIGN
         LD A,C
+        ; FAC is zero => return A=C, the operand's sign byte (its bit7 gives the ordering)
         RET Z
         LD HL,FACHI
+        ; test bit7 of C XOR FACHI: do FAC and the operand have different signs?
         XOR (HL)
         LD A,C
+        ; opposite signs: return the raw operand sign byte C; its sign bit decides the order
         RET M
+        ; same sign: compare the 4 mantissa bytes high-to-low
         CALL FP_MANT_EQ
 FCOMP_1:
         RRA
         XOR C
         RET
-; [RE] Mantissa-equality test: compare the 4 mantissa bytes (B,C,D,E) against (HL..); on full match pops two return levels (equal).
+; ----------------------------------------------------------------------
+; FP_MANT_EQ -- compare the register operand's 4 mantissa bytes against a memory FP value, with a two-level-return early-out on full equality.
+;   In:        B,C,D,E = the register operand's mantissa bytes (B = MSB ... E = LSB). On entry HL points one byte BELOW the memory operand's mantissa MSB (FACHI-1 when called from FCOMP, since FACHI was loaded just before); the first INC HL steps onto the MSB.
+;   Out:       If all four bytes are equal: pops TWO return addresses and RETs, so control returns two levels up (past FCOMP's own caller) with A==0 / Z set -- the 'operands equal' fast path. If any byte differs: RETs to the caller (FCOMP) with NZ; on the first three bytes A/flags hold a CP result, on the LSB A holds the SUB (borrow) result for FCOMP_1 to fold.
+;   Clobbers:  A, HL, F.
+;   Algorithm: Walk MSB-first: INC HL then CP B; DEC HL/CP C; DEC HL/CP D; DEC HL/SUB E on the LSB. Note the pointer steps UP once to the MSB then DECREMENTS down through the bytes. The first non-equal byte RETs immediately (NZ). Only if every byte matched does it reach the double POP HL, unwinding two stack levels to signal exact equality.
+;   [RE]:      The MSB byte uses CP (compare only); the LSB uses SUB so A carries the borrow out to FCOMP_1. Whether the memory operand really is FACHI/FAC at the byte level depends on HL on entry; verified for the FCOMP call (HL=FACHI just loaded).
+; ----------------------------------------------------------------------
 FP_MANT_EQ:
+        ; step up to the mantissa MSB, then the compares walk back down byte by byte
         INC HL
         LD A,B
         CP (HL)
@@ -9456,86 +10010,143 @@ FP_MANT_EQ:
         RET NZ
         DEC HL
         LD A,E
+        ; lowest byte uses SUB (not CP) so A/borrow flow out to FCOMP_1 on a mismatch
         SUB (HL)
         RET NZ
+        ; all bytes equal: discard two return levels so the caller's caller sees 'equal'
         POP HL
         POP HL
         RET
-; [RE] 16-bit integer compare of D:E vs H:L returning the SIGN-style -1/0/+1 result via the FP_SIGN tail.
+; ----------------------------------------------------------------------
+; INT16_COMP -- signed 16-bit integer relational compare via the FP_SIGN tail, producing the standard -1/0/+1 ordering code.
+;   In:        D:E and H:L = the two signed 16-bit operands. Per the integer dispatch (FRMEVL_OPC_DISPATCH_INT) DE = left operand (popped from stack) and HL = right operand (from the FAC).
+;   Out:       A = $FF / $00 / $01 ordering code (via FP_SIGN_2/_3), consumed by FRMEVL_RELOP_RESULT as 'sign of (left - right)'. Exact equality returns directly (the SUB E leaves A=0, Z set).
+;   Clobbers:  A, F (D,E,H,L preserved).
+;   Algorithm: XOR the two high bytes (D^H) to test whether the signs differ; if they differ (M) the sign of one high byte alone decides the order via FP_SIGN_2 (A was reloaded with H). With matching signs, compare high bytes (CP D); on a difference FP_SIGN_3's SBC A,A turns the borrow into the ordering code. If highs are equal, compare low bytes (SUB E) the same way. Exact equality falls through to RET with A==0.
+;   [RE]:      FP_SIGN_2 maps bit7-set->$FF and bit7-clear->$01. The signs-differ branch feeds it A=H (the second/right operand's high byte); a hand-trace did not cleanly reconcile the resulting direction with 'sign of (left-right)', so the precise sign of THAT branch is left [RE]/unconfirmed (the relational mask bit assignment in FRMEVL_RELOP_RESULT was likewise not pinned). The high/low-byte compare branches do compute sign of (D:E - H:L).
+; ----------------------------------------------------------------------
 INT16_COMP:
         LD A,D
+        ; do the two integers have different signs? (tests bit7 of D^H)
         XOR H
         LD A,H
+        ; signs differ => one high byte's sign alone gives the ordering (A was reloaded with H)
         JP M,FP_SIGN_2
+        ; same sign: compare high bytes; a difference yields the ordering via the borrow
         CP D
         JP NZ,FP_SIGN_3
         LD A,L
+        ; high bytes equal: compare low bytes for the final ordering
         SUB E
         JP NZ,FP_SIGN_3
         RET
-; [RE] Compare two FP operands (one in temp $0CBA): sign+exponent then 8-byte mantissa compare; the relational-operator comparator.
+; ----------------------------------------------------------------------
+; DCOMP -- comparison entry that first marshals the second operand into the temp at L_0CBA, then falls into DCOMP_BODY.
+;   In:        FAC = first operand. VALTYP ($0B14) = the second operand's type (its storage width in bytes); the second operand sits where FP_MOVE_TYPED's source DE points (set up by the caller).
+;   Out:       Falls into DCOMP_BODY, which returns the ordering of FAC vs the temp operand.
+;   Clobbers:  A, B, C, D, E, H, L, F.
+;   Algorithm: Copy the second operand into the comparison temp at L_0CBA using FP_MOVE_TYPED -- a DJNZ copy of VALTYP bytes (the direct proof that VALTYP is the byte width). Then drop into DCOMP_BODY. NOTE: FP_MOVE_TYPED's source/destination are whatever DE/HL hold on entry; DCOMP only sets HL=L_0CBA, so the source operand must have been positioned by the caller. [RE] Whether DCOMP is reached as a live entry (vs DCOMP_BODY directly) was not pinned from the dispatch tables here.
+; ----------------------------------------------------------------------
 DCOMP:
-        LD HL,L_0CBA
+        ; destination = the 8-byte comparison temp (ARG); FP_MOVE_TYPED copies VALTYP bytes into it
+        LD HL,ARG2_TEMP
         CALL FP_MOVE_TYPED
-; [RE] Body of the FP operand compare: byte-by-byte mantissa comparison ($0CC1 down) yielding the ordering result.
+; ----------------------------------------------------------------------
+; DCOMP_BODY -- core compare of FAC against the temp operand staged at L_0CBA: returns the ordering of (FAC vs temp).
+;   In:        FAC = first operand (FACHI sign in bit7, L_0CB4 exponent). Temp operand pre-staged at L_0CBA: its exponent at L_0CC1, packed sign/MSB at L_0CC0, the rest descending below.
+;   Out:       A = ordering code on the clean path ($00 equal, $01/$FF otherwise via the FP_SIGN tail). On a mantissa-byte difference it jumps to FCOMP_1 (shared with the single comparator) to fold the borrow+sign. [RE] As in FCOMP, the signs-differ early-out (RET M) returns the raw temp sign byte C, not a normalized code.
+;   Clobbers:  A, B, C, D, E, H, L, F.
+;   Algorithm: Same shape as FCOMP but operands are in MEMORY and the loop walks 8 bytes. If the temp exponent (L_0CC1) is 0 the temp is zero => answer SGN(FAC). Otherwise arm the FP_SIGN tail and call FP_SIGN; load C = temp sign byte (L_0CC0). If FAC==0 (Z) return A=C. If signs differ (FACHI XOR C, bit7 set) return A=C raw (RET M). With equal signs, set B=8 and compare descending from the high cells: HL starts at FACHI+1 ($0CB4) and DE at L_0CC1, BOTH decrementing each iteration (LD A,(DE) / SUB (HL) / DEC DE / DEC HL). The first differing byte jumps to FCOMP_1. A full 8-byte match drops the armed FP_SIGN return (POP BC) and RETs equal (A==0).
+;   [RE]:      The prior spec said the loop walks 'HL from FACHI upward / DE from L_0CC0 downward' -- that is WRONG. The code does INC HL/INC DE once (to FACHI+1 / L_0CC1) and then BOTH pointers DECREMENT; the compare runs high cell (the exponent byte) down through the mantissa.
+; ----------------------------------------------------------------------
 DCOMP_BODY:
         LD DE,L_0CC1
         LD A,(DE)
         OR A
+        ; temp exponent 0 => temp operand is zero; result is SGN(FAC)
         JP Z,FP_SIGN
+        ; arm the FP_SIGN tail (entered at +1) for the final relational fold
         LD HL,FP_SIGN_1+1
         PUSH HL
         CALL FP_SIGN
         DEC DE
         LD A,(DE)
         LD C,A
+        ; FAC is zero => return A=C, the temp operand's sign byte
         RET Z
         LD HL,FACHI
+        ; test bit7 of C XOR FACHI: signs differ?
         XOR (HL)
         LD A,C
         RET M
         INC DE
         INC HL
+        ; same sign: compare 8 bytes, walking both pointers DOWN from the high (exponent) cell
         LD B,$08
 DCOMP_BODY_1:
         LD A,(DE)
         SUB (HL)
+        ; first differing byte: fold borrow+sign into the result (shared tail with FCOMP)
         JP NZ,FCOMP_1
         DEC DE
         DEC HL
         DEC B
         JR NZ,DCOMP_BODY_1
+        ; all 8 bytes equal: drop the armed FP_SIGN return and exit equal
         POP BC
         RET
-; [RE] Double-precision relational comparator (OPERATOR_ROUTINE_TBL double-compare slot $050B): CALL DCOMP_BODY then collapse the result to A=-1/0/+1 (FP_SIGN_1+1) -- the double analog of FCOMP.
+; ----------------------------------------------------------------------
+; DCOMP_REL -- double-precision relational comparator (operator-table double-compare slot, $050B): run DCOMP_BODY and normalize the result to the relational code.
+;   In:        FAC = first operand; the second operand pre-staged in the temp at L_0CBA by the caller. Reached from the double-operand operator dispatch.
+;   Out:       A = $00 if equal (returns immediately), else the normalized ordering from the FP_SIGN tail (FP_SIGN_1+1). Consumed by FRMEVL_RELOP_RESULT.
+;   Clobbers:  A, B, C, D, E, H, L, F.
+;   Algorithm: CALL DCOMP_BODY; if it returned zero (Z, operands equal) RET with A=0. Otherwise JP FP_SIGN_1+1 to normalize the raw result into the canonical ordering code. This is the double-precision analog of how FCOMP_1 finalizes FCOMP.
+; ----------------------------------------------------------------------
 DCOMP_REL:
         CALL DCOMP_BODY
+        ; nonzero difference => normalize to the relational ordering code via the FP_SIGN tail
         JP NZ,FP_SIGN_1+1
         RET
-; [RE] CINT(x) handler (function token $1B): coerce the FAC to a signed 16-bit integer with rounding (adds FP_CONST_HALF then truncates). Also the universal FAC->int16 entry (FRCINT) reused by GETINT/GETBYT/GETADR.
+; ----------------------------------------------------------------------
+; FN_CINT -- CINT(x): round x to the nearest signed 16-bit integer and store it in the FAC as an integer; also the universal FAC->int16 coercion entry (MS BASIC FRCINT) reused by GETINT/GETBYT/GETADR.
+;   In:        FAC holds the value; VALTYP ($0B14) gives its type. The integer form lands at FAC=$0CB1.
+;   Out:       FAC = the rounded 16-bit integer ($0CB1); VALTYP set to VT_INT (=2). Raises 'Overflow' if the exponent is >= $90 (magnitude >= 2^16); 'Type mismatch' on a string.
+;   Clobbers:  A, B, C, D, E, H, L, F.
+;   Algorithm: Type-check via FRMEVL_TEST_TYPE (loads HL=(FAC) regardless). If already integer (M) RET unchanged. If string (Z) raise Type mismatch. If single (PO) round at FN_CINT_1 by adding the single 0.5 constant (FADD_LOAD_CONST). If double (fall-through), stage the operand to temp (FP_ARG_TO_TEMP2), DADD the double 0.5 constant, then FIX_TO_INT (narrow double->single). FN_CINT_2 then takes |FAC|: save the FACHI sign (OR A; PUSH AF), clear bit7, range-check the exponent (CP $90; JP NC,RAISE_OVERFLOW), shift the mantissa down to a raw 16-bit magnitude (FP_SHIFT_MANTISSA), and if the original value was negative two's-complement the 16-bit result (CPL H, CPL L) before storing via FP_STORE_FAC_INT.
+;   [RE]:      The double path's FIX_TO_INT narrows double->SINGLE (not 'to int'); the actual int extraction is FN_CINT_2's magnitude shift. CINT accepts the full unsigned 16-bit magnitude range (< 2^16) and lets the result wrap when negative, so the $90 guard is 'exponent >= 2^16', not a strict signed-range check.
+; ----------------------------------------------------------------------
 FN_CINT:
         CALL FRMEVL_TEST_TYPE
         LD HL,(FAC)
+        ; already an integer: nothing to convert
         RET M
+        ; string value: not coercible to a number
         JP Z,RAISE_TYPE_MISMATCH
+        ; single precision: round by adding the single 0.5 constant
         JP PO,FN_CINT_1
         CALL FP_ARG_TO_TEMP2
+        ; double precision: point at the double 0.5 constant to add before narrowing
         LD HL,FP_CONST_HALF_DBL
         CALL FP_ARG_SETUP1
         CALL DADD
         CALL FIX_TO_INT
         JP FN_CINT_2
 FN_CINT_1:
+        ; single path: add 0.5 so the following shift rounds to nearest
         CALL FADD_LOAD_CONST
 FN_CINT_2:
         LD A,(FACHI)
         OR A
+        ; remember the sign of the value before taking its magnitude
         PUSH AF
+        ; clear FACHI bit7: work on |x| from here on
         AND $7F
         LD (FACHI),A
         LD A,(L_0CB4)
         CP $90
+        ; exponent >= $90 (magnitude >= 2^16): cannot fit a 16-bit integer
         JP NC,RAISE_OVERFLOW
+        ; shift the aligned mantissa down to a raw 16-bit integer magnitude
         CALL FP_SHIFT_MANTISSA
         LD A,(L_0CB4)
         OR A
@@ -9548,6 +10159,7 @@ FN_CINT_3:
         EX DE,HL
         JP P,FN_CINT_5
 FN_CINT_4:
+        ; value was negative: two's-complement the 16-bit magnitude back to a signed result
         LD A,H
         CPL
         LD H,A
@@ -9559,85 +10171,196 @@ FN_CINT_5:
 FN_CINT_6:
         LD HL,RAISE_OVERFLOW
         PUSH HL
-; [RE] Convert FAC to a 16-bit integer in HL: error if exponent>=$90 (out of range), else shift the mantissa down (FP_SHIFT_MANTISSA).
+; ----------------------------------------------------------------------
+; FP_TO_INT -- convert the (positive-magnitude) FAC float to a 16-bit integer in HL, with an overflow guard, then store and tag it integer.
+;   In:        FAC = a positive/pre-magnituded float; exponent at L_0CB4.
+;   Out:       16-bit integer stored into the FAC (via FP_TO_INT_1 -> FP_STORE_FAC_INT) with VALTYP=VT_INT. If the exponent is >= $90 control diverts to FP_TO_INT_RANGE for the boundary/overflow check.
+;   Clobbers:  A, B, C, D, E, H, L, F.
+;   Algorithm: If exponent >= $90 the integer needs 16+ bits, so JR to FP_TO_INT_RANGE. Otherwise FP_SHIFT_MANTISSA shifts the mantissa down into a raw 16-bit magnitude, EX DE,HL moves it to HL, and FP_TO_INT_1 pops the saved hook (POP DE) and stores via FP_STORE_FAC_INT.
+;   Note:      FN_CINT_6 (the byte just before FP_TO_INT) does LD HL,RAISE_OVERFLOW / PUSH HL before falling in, so when FP_TO_INT_RANGE returns NZ (out of range) the popped/return path lands on the overflow handler.
+; ----------------------------------------------------------------------
 FP_TO_INT:
         LD A,(L_0CB4)
         CP $90
+        ; exponent >= $90: handle the 16-bit boundary / overflow separately
         JR NC,FP_TO_INT_RANGE
+        ; in range: shift the mantissa down to a 16-bit integer magnitude
         CALL FP_SHIFT_MANTISSA
         EX DE,HL
 FP_TO_INT_1:
         POP DE
-; [RE] FP_STORE_FAC_INT: store the 16-bit integer in HL into the FAC low cells ($0CB1) and fall into SET_TYPE_INTEGER, setting VALTYP $0B14 = $02 (=VT_INT, integer, 2-byte width). The integer-into-FAC primitive used throughout the evaluator (MOVFR for the integer case).
+; ----------------------------------------------------------------------
+; FP_STORE_FAC_INT -- store a 16-bit integer into the FAC and mark the FAC integer-typed (MS BASIC MOVFR, integer case).
+;   In:        HL = the signed 16-bit integer to install.
+;   Out:       FAC ($0CB1) = HL; VALTYP ($0B14) = VT_INT (=2). RET.
+;   Clobbers:  A, F.
+;   Algorithm: LD (FAC),HL, then fall into SET_TYPE_INTEGER to tag the value. The integer-result store used throughout the evaluator whenever a routine produces a 16-bit integer in HL.
+; ----------------------------------------------------------------------
 FP_STORE_FAC_INT:
         LD (FAC),HL
-; [RE] SET_TYPE_INTEGER: set VALTYP $0B14 = $02 (=VT_INT, integer). Tail of FP_STORE_FAC_INT and the integer-result stores (e.g. INT_DIV_ROUND $5203).
+; ----------------------------------------------------------------------
+; SET_TYPE_INTEGER -- mark the current FAC value as integer-typed.
+;   In:        (none; sets a fixed type code).
+;   Out:       VALTYP ($0B14) = VT_INT (=2). RET.
+;   Clobbers:  A, F.
+;   Algorithm: LD A,$02 then fall into SET_TYPE_INTEGER_1, the shared 'LD (VALTYP),A; RET' tail reached by all the type-setters. Entered as a fall-through from FP_STORE_FAC_INT and directly by integer-producing operations.
+; ----------------------------------------------------------------------
 SET_TYPE_INTEGER:
         LD A,$02
 SET_TYPE_INTEGER_1:
         LD (VALTYP),A
         RET
-; [RE] Range-check helper for FP->int: compare FAC against the $8000 boundary (FCOMP) and finalize the integer result.
+; ----------------------------------------------------------------------
+; FP_TO_INT_RANGE -- boundary check for FP->int16 when the exponent is >= $90: succeed only for exactly the magnitude 32768 (yielding -32768).
+;   In:        FAC = the positive magnitude with exponent >= $90 (reached from FP_TO_INT).
+;   Out:       If FAC equals exactly 32768 produce the bit pattern $8000 and store it (via FP_TO_INT_1) as the integer -32768. Otherwise RET NZ, which (with the caller's pushed RAISE_OVERFLOW hook) drives the overflow error.
+;   Clobbers:  A, B, C, D, E, H, L, F.
+;   Algorithm: Build the constant 32768 in registers (LD BC,$9080 -> B=$90 exponent, C=$80 sign/MSB; LD DE,$0000 zero low mantissa) and FCOMP it against the FAC. A nonzero compare (RET NZ) means the magnitude differs from the boundary => overflow. On exact equality, form HL=$8000 (LD H,C=$80, LD L,D=$00) and JR FP_TO_INT_1 to store -32768.
+;   Note:      In Z80 'LD BC,$9080' puts $90 in B and $80 in C; exponent $90 with a leading-1 mantissa represents 2^15 = 32768, the only in-range magnitude at this exponent.
+; ----------------------------------------------------------------------
 FP_TO_INT_RANGE:
         LD BC,$9080
         LD DE,$0000
+        ; compare |FAC| against 32768, the only representable magnitude at exponent >= $90
         CALL FCOMP
+        ; magnitude differs from 32768 => not representable; return so the overflow hook fires
         RET NZ
+        ; exactly 32768: form HL=$8000 (= -32768) and store it
         LD H,C
         LD L,D
         JR FP_TO_INT_1
-; [RE] CSNG(x) handler (function token $1C): coerce the FAC to single precision.
+; ----------------------------------------------------------------------
+; FN_CSNG -- CSNG(x): coerce x to single precision in the FAC.
+;   In:        FAC = value; VALTYP gives its type.
+;   Out:       FAC holds x in single-precision form; VALTYP = VT_SNG (=4). Raises 'Type mismatch' on a string.
+;   Clobbers:  A, B, C, D, E, H, L, F.
+;   Algorithm: Type-check via FRMEVL_TEST_TYPE. If already single (PO) RET unchanged. If integer (M) widen via INT_TO_SINGLE. If string (Z) error. Otherwise (double, fall-through) drop into FIX_TO_INT -- the double->single round/normalize path -- which leaves VALTYP=single.
+; ----------------------------------------------------------------------
 FN_CSNG:
         CALL FRMEVL_TEST_TYPE
+        ; already single precision: nothing to do
         RET PO
+        ; integer: widen to single
         JP M,INT_TO_SINGLE
+        ; string: not a number
         JP Z,RAISE_TYPE_MISMATCH
-; [RE] CINT body: load FAC, round/scale to an integer, set the high byte and store back via FADD_NORMALIZE.
+; ----------------------------------------------------------------------
+; FIX_TO_INT -- narrow a double to single precision: round the double mantissa and re-normalize as a single (the double->single step shared by CSNG's double case and CINT's double path).
+;   In:        FAC = a double-precision value (exponent L_0CB4, mantissa bytes from L_0CB0 up through FACHI).
+;   Out:       FAC re-normalized as single precision; VALTYP set to VT_SNG (=4) via the SET_TYPE_DOUBLE_1+1 sub-entry.
+;   Clobbers:  A, B, C, D, E, H, L, F.
+;   Algorithm: Load the FAC mantissa into registers (FP_LOAD_FAC) and set VALTYP=single (CALL SET_TYPE_DOUBLE_1+1: the +1 entry runs 'LD A,$04'). If the loaded high byte B is zero the value is already in range -> RET. Otherwise unpack the hidden MSB and sign (FP_UNPACK_MSB), fetch the extension/round byte from L_0CB0 into B, and JP FP_SET_ZERO_7 to apply rounding and re-store the normalized single.
+;   [RE]:      The inline label 'CINT body' on this routine is a MISNOMER -- it is the double->single round/normalize helper, not part of CINT's integer extraction. UNKNOWN: the exact rounding policy of the FP_SET_ZERO_7 tail (round-to-nearest vs truncate) is not re-derived here.
+; ----------------------------------------------------------------------
 FIX_TO_INT:
         CALL FP_LOAD_FAC
+        ; tag the result single precision (the +1 entry runs LD A,$04 => VT_SNG)
         CALL SET_TYPE_DOUBLE_1+1
         LD A,B
         OR A
+        ; high mantissa byte zero => already fits single, no rounding needed
         RET Z
         CALL FP_UNPACK_MSB
+        ; fetch the low extension/round byte to round the narrowed mantissa
         LD HL,L_0CB0
         LD B,(HL)
-        JP FP_SET_ZERO_7
-; [RE] Convert the signed 16-bit FAC integer ($0CB1) to single precision: build exponent $90 and normalize via FADD_ALIGN.
+        JP FP_PACK_ROUND
+; ----------------------------------------------------------------------
+; INT_TO_SINGLE -- widen the signed 16-bit integer in the FAC to a single-precision float.
+;   In:        FAC integer cell ($0CB1) = the signed 16-bit value.
+;   Out:       FAC = the equivalent single-precision float; VALTYP = VT_SNG (=4).
+;   Clobbers:  A, B, C, D, E, H, L, F.
+;   Algorithm: Load the integer from (FAC) into HL, then fall into INT_TO_SINGLE_HL which sets the single type, seeds the trial exponent $90 and normalizes via FLOAT_A_1.
+; ----------------------------------------------------------------------
 INT_TO_SINGLE:
+        ; load the 16-bit integer from the FAC, then float it
         LD HL,(FAC)
-; [RE] INT_TO_SINGLE entry with the integer already in HL: set type, form exponent $90, normalize.
+; ----------------------------------------------------------------------
+; INT_TO_SINGLE_HL -- float a signed 16-bit integer already in HL into single precision in the FAC (entry shared by INT_TO_SINGLE and callers holding the integer in HL, e.g. IADD's overflow promotion).
+;   In:        HL = signed 16-bit integer.
+;   Out:       FAC = single-precision float of HL; VALTYP = VT_SNG (=4).
+;   Clobbers:  A, B, C, D, E, H, L, F.
+;   Algorithm: Set VALTYP=single (SET_TYPE_DOUBLE_1+1 = LD A,$04). Put the integer high byte in A and low byte in D, clear E, set the trial exponent B=$90 (treating the 16-bit integer as an unnormalized mantissa scaled by 2^16), then JP FLOAT_A_1 which packs the sign and normalizes into a proper single.
+;   [RE]:      Exponent $90 = bias for 2^16, so a 16-bit integer placed as the top mantissa bytes evaluates to its integer value; FLOAT_A_1 then left-justifies and adjusts the exponent down.
+; ----------------------------------------------------------------------
 INT_TO_SINGLE_HL:
         CALL SET_TYPE_DOUBLE_1+1
         LD A,H
         LD D,L
         LD E,$00
+        ; trial exponent for a 16-bit integer mantissa; FLOAT_A_1 normalizes it down
         LD B,$90
         JP FLOAT_A_1
-; [RE] CDBL(x) handler (function token $1D): coerce the FAC to double precision.
+; ----------------------------------------------------------------------
+; FN_CDBL -- CDBL(x): coerce x to double precision in the FAC.
+;   In:        FAC = value; VALTYP gives its type.
+;   Out:       FAC holds x in double-precision form; VALTYP = VT_DBL (=8). Raises 'Type mismatch' on a string.
+;   Clobbers:  A, B, C, D, E, H, L, F.
+;   Algorithm: Type-check via FRMEVL_TEST_TYPE. If already double (carry clear, RET NC) leave it. If string (Z) error. If integer (M) first widen to single (CALL M,INT_TO_SINGLE). Then fall into FP_CLEAR_EXT, which zeroes the double-precision extension mantissa bytes, and SET_TYPE_DOUBLE marks it double -- promoting the single's mantissa to the double layout by appending zero low bytes.
+;   [RE]:      Clobbers includes B,C,D,E because the integer branch runs INT_TO_SINGLE (the prior spec under-listed clobbers as A,H,L,F).
+; ----------------------------------------------------------------------
 FN_CDBL:
         CALL FRMEVL_TEST_TYPE
+        ; already double precision: done
         RET NC
+        ; string: not a number
         JP Z,RAISE_TYPE_MISMATCH
+        ; integer: widen to single first, then to double
         CALL M,INT_TO_SINGLE
-; [RE] Clear the FAC double-precision extension cells ($0CAD/$0CAF) when widening to single.
+; ----------------------------------------------------------------------
+; FP_CLEAR_EXT -- zero the double-precision low/extension mantissa cells, then mark the FAC double-typed.
+;   In:        FAC = a single-precision value occupying the high mantissa bytes.
+;   Out:       Extension cells at L_0CAD ($0CAD..$0CAE) and L_0CAF ($0CAF) cleared to zero; falls into SET_TYPE_DOUBLE so VALTYP = VT_DBL (=8).
+;   Clobbers:  A, H, L, F.
+;   Algorithm: LD HL,$0000 then store it to (L_0CAD) and (L_0CAF) -- zeroing the low mantissa bytes used only by double precision (giving the widened value a zero fractional extension) -- then fall through to SET_TYPE_DOUBLE.
+; ----------------------------------------------------------------------
 FP_CLEAR_EXT:
         LD HL,$0000
-        LD (L_0CAD),HL
+        ; zero the double-precision extension mantissa bytes the single form did not use
+        LD (FAC_DBL),HL
         LD (L_0CAF),HL
-; [RE] SET_TYPE_DOUBLE: set VALTYP $0B14 = $08 (=VT_DBL, double). LD A,$08 then the LD BC,$043E at $502F acts as a 3E-04 cover so the +1 entry ($5030) sets single ($04) instead. Used to seed the numeric-literal accumulator as double (FIN $54A3) and clear-extend to double (FP_CLEAR_EXT fall-through).
+; ----------------------------------------------------------------------
+; SET_TYPE_DOUBLE -- mark the current value double-typed (entry) / single-typed (the +1 sub-entry), via a flag-skip overlap with SET_TYPE_DOUBLE_1.
+;   In:        Entered at SET_TYPE_DOUBLE for double; entered at SET_TYPE_DOUBLE_1+1 ($5030) for single.
+;   Out:       VALTYP ($0B14) = VT_DBL (=8) via the double entry, or VT_SNG (=4) via the +1 entry. RET (after JP SET_TYPE_INTEGER_1).
+;   Clobbers:  A, F (and BC when the cover instruction at SET_TYPE_DOUBLE_1 actually executes).
+;   Algorithm: LD A,$08, then the following 'LD BC,$043E' (opcode 01 3E 04) swallows the 3E 04 bytes as its immediate, so the double entry keeps A=$08 and reaches JP SET_TYPE_INTEGER_1 to store 8. Callers needing single enter at SET_TYPE_DOUBLE_1+1, where those same 3E 04 bytes execute as 'LD A,$04', so the stored type is 4. Both paths converge on the shared LD (VALTYP),A. (VALTYP = storage width in bytes: int=2, string=3, single=4, double=8.)
+; ----------------------------------------------------------------------
 SET_TYPE_DOUBLE:
+        ; double entry: VALTYP=8 (the LD BC below hides the LD A,$04 that the single sub-entry uses)
         LD A,$08
-; [RE] Flag-skip type select. SET_TYPE_DOUBLE ($502D) loads A=$08 then $502F LD BC,$043E swallows the 3E 04 bytes (BC scratch), so the double entry keeps A=$08. Callers entering at SET_TYPE_DOUBLE_1+1 ($5030) instead execute those bytes as LD A,$04. Both JP SET_TYPE_INTEGER_1 ($4FDC) -> LD ($0B14),A: VALTYP $08=VT_DBL (double) vs $04=VT_SNG (single). VALTYP = storage width in bytes (int=2,string=3,single=4,double=8).
+; ----------------------------------------------------------------------
+; SET_TYPE_DOUBLE_1 -- the LD BC cover whose +1 sub-entry ($5030) is the single-precision type-setter (see SET_TYPE_DOUBLE).
+;   In:        Reached as a fall-through from SET_TYPE_DOUBLE (then BC is scratch), OR entered at +1 as 'LD A,$04' to select single.
+;   Out:       JP SET_TYPE_INTEGER_1 with A = the type code in flight ($08 via fall-through, $04 via the +1 entry); stores VALTYP.
+;   Clobbers:  BC (fall-through) or A (the +1 entry), F.
+;   Algorithm: The bytes 01 3E 04 are 'LD BC,$043E' at the label (consuming 3E 04 harmlessly) but 'LD A,$04' when entered at +1. Either way control reaches JP SET_TYPE_INTEGER_1 (the shared 'LD (VALTYP),A; RET').
+; ----------------------------------------------------------------------
 SET_TYPE_DOUBLE_1:
         LD BC,$043E
         JP SET_TYPE_INTEGER_1
-; [RE] Type-check requiring a numeric value; error ($0D87) if string/zero ??" gatekeeper for an INT-class operation.
-FP_INT_CHECK:
+; ----------------------------------------------------------------------
+; FP_INT_CHECK -- assert that the current FAC value is a STRING; raise 'Type mismatch' for any numeric type. (CONFIRMED at both call sites: LINE INPUT into a string var, and the first arg of LEFT$/RIGHT$/MID$.)
+;   In:        FAC value with VALTYP ($0B14) set.
+;   Out:       RET (with Z set) when the value is a string (VALTYP==3). Raises 'Type mismatch' (JP RAISE_TYPE_MISMATCH) for every numeric type (int/single/double).
+;   Clobbers:  A, F.
+;   Algorithm: CALL FRMEVL_TEST_TYPE (which sets Z iff VALTYP==3, i.e. string, since A=VALTYP-3); RET Z. Any non-string falls through to JP RAISE_TYPE_MISMATCH. This is a 'string required here' guard.
+;   [RE]:      The routine NAME 'FP_INT_CHECK' and the prior inline comment ('Type-check requiring a numeric value') are BOTH wrong/inverted -- the routine demands a STRING and rejects numbers. A rename to REQUIRE_STRING (or ASSERT_STRING_OPERAND) would reflect the verified behavior.
+; ----------------------------------------------------------------------
+REQUIRE_STRING:
         CALL FRMEVL_TEST_TYPE
+        ; string value (VALTYP=3 => Z): accepted, return
         RET Z
+        ; any numeric type: reject with Type mismatch
         JP RAISE_TYPE_MISMATCH
-; [RE] FP mantissa right-shift / denormalize-align helper: shifts the FAC mantissa (B,C,D,E build the 4-byte mantissa) right by the exponent difference so two FP values can be added; common to FADD/FP_INT.
+; ----------------------------------------------------------------------
+; FP_SHIFT_MANTISSA -- load the FAC mantissa and shift it right by a bit count derived from A, producing a right-aligned magnitude with rounding (used to extract the integer part for FP->int and to align an addend in FADD).
+;   In:        A = the shift seed (also copied into B,C and then D,E). FAC = the value whose mantissa is shifted (exponent at L_0CB4). HL = a caller pointer (saved/restored).
+;   Out:       The mantissa right-shifted with rounding applied; on a negative value the result is two's-complemented (FCOMPL). The shifted magnitude is left in the working registers (the FP->int callers then EX DE,HL to get HL). HL restored on exit.
+;   Clobbers:  A, B, C, D, E, H, L, F.
+;   Algorithm: Seed B=C=A (entry) then D=E=A; if A==0 there is nothing to shift -> RET. Save HL, load the FAC mantissa (FP_LOAD_FAC) and unpack the hidden MSB + sign (FP_UNPACK_MSB, returning the sign-fold in A); XOR (HL) to fold in the sign and stash it in H. If negative (M) adjust the counter with DEC_DE_WITH_BORROW. Compute the shift distance ($98 - B) and shift the mantissa right that many places (MANT_SHIFT_BYTES). RLA tests the bit shifted out: on carry round up (FADD_ROUND_CARRY); set B=0; then if a final carry remains two's-complement the result (FCOMPL). Restore HL and RET.
+;   [RE]:      UNKNOWN: the exact register pairing of the shifted output as consumed per caller (FN_CINT/FP_TO_INT vs FADD) was not re-derived; only the FP->int 'EX DE,HL then store' usage was followed here.
+; ----------------------------------------------------------------------
 FP_SHIFT_MANTISSA:
         LD B,A
         LD C,A
@@ -9645,64 +10368,114 @@ FP_SHIFT_MANTISSA_1:
         LD D,A
         LD E,A
         OR A
+        ; zero shift amount: mantissa already aligned, nothing to do
         RET Z
         PUSH HL
+        ; pull the FAC mantissa into registers to shift it
         CALL FP_LOAD_FAC
         CALL FP_UNPACK_MSB
         XOR (HL)
         LD H,A
+        ; negative value: adjust the shift counter with borrow for the two's-complement form
         CALL M,DEC_DE_WITH_BORROW
         LD A,$98
         SUB B
+        ; shift the mantissa right by ($98 - count) places to align it
         CALL MANT_SHIFT_BYTES
         LD A,H
         RLA
+        ; bit shifted out was set: round the result up
         CALL C,FADD_ROUND_CARRY
         LD B,$00
+        ; restore the negative sign by two's-complementing the shifted magnitude
         CALL C,FCOMPL
         POP HL
         RET
-; [RE] Decrement DE and, on borrow (DE wrapped to $FFFF), fall through to also decrement BC; multi-byte counter for the shift loop.
+; ----------------------------------------------------------------------
+; DEC_DE_WITH_BORROW -- decrement DE and, on the borrow boundary, fall THROUGH into DEC_BC (multi-byte counter decrement for the shift loop).
+;   In:        DE (and BC) = the shift/round counter.
+;   Out:       DE decremented. If DE did NOT wrap (D AND E != $FF) RET NZ. If DE just became $FFFF (D AND E == $FF, so INC A wraps to 0 / Z) it falls through into DEC_BC, also decrementing BC, then RETs.
+;   Clobbers:  A, D, E, F (and BC on the borrow path).
+;   Algorithm: DEC DE; LD A,D; AND E; INC A; RET NZ. The 'RET NZ' returns for the common case; only when both D and E are $FF (the borrow boundary) does control fall into DEC_BC. The prior spec's claim that it merely 'reports' the boundary understated this -- it ACTS on the borrow by falling into DEC_BC.
+;   [RE]:      The borrow detection (D AND E == $FF) only catches DE==$FFFF, i.e. DE wrapping from $0000; this is the post-DEC test.
+; ----------------------------------------------------------------------
 DEC_DE_WITH_BORROW:
         DEC DE
         LD A,D
         AND E
         INC A
         RET NZ
-; [RE] Decrement BC (low half of the shift/round counter) and return.
+; ----------------------------------------------------------------------
+; DEC_BC -- decrement BC and return (the high half of the shift/round counter; also the fall-through target of DEC_DE_WITH_BORROW's borrow path, and reached directly elsewhere, e.g. LIST's ELSE colon back-up).
+;   In:        BC = counter.
+;   Out:       BC decremented. RET.
+;   Clobbers:  BC.
+;   Algorithm: DEC BC; RET.
+; ----------------------------------------------------------------------
 DEC_BC:
         DEC BC
         RET
-; [RE] FIX(x) handler (function token $1E): truncate toward zero to an integer-valued float.
+; ----------------------------------------------------------------------
+; FN_FIX -- FIX(x) library function (function token $1E): truncate the FAC toward zero to an integer-valued float.
+;   In:        FAC holds the argument; VALTYP ($0B14) gives its type. Reached via FUNC_DISPATCH_TBL slot $01EC (= base $01B2 + 2*(TOK_FIX-1), TOK_FIX=$1E).
+;   Out:       FAC = trunc(x), same numeric type as the input (int returned unchanged; single/double floored toward zero).
+;   Clobbers:  A, HL, DE, BC, F (through the floor worker FN_INT_FLOOR, FP_SIGN, FP_NEG and FP_NEGATE_CHECKED).
+;   Algorithm: If VALTYP=VT_INT, return unchanged (RET M). Otherwise FIX(x)=sign(x)*floor(|x|): take FP_SIGN; for x>=0 call the floor worker FN_INT_FLOOR directly (for non-negative values floor == truncate-toward-zero); for x<0 negate the FAC (FP_NEG), floor |x| via FN_INT_FLOOR, then re-apply the sign through FP_NEGATE_CHECKED. This differs from INT() which floors toward minus infinity for all signs.
+; ----------------------------------------------------------------------
 FN_FIX:
         CALL FRMEVL_TEST_TYPE
+        ; VALTYP=VT_INT: FIX of an integer is itself, return unchanged
         RET M
+        ; branch on the sign of x: FIX(x)=sign(x)*floor(|x|), so handle x>=0 and x<0 separately
         CALL FP_SIGN
-        JP P,FN_SGN
+        ; x>=0: floor directly (for non-negative values floor == truncate toward zero)
+        JP P,FN_INT_FLOOR
+        ; x<0: work on |x| -- floor the magnitude, then restore the negative sign below
         CALL FP_NEG
-        CALL FN_SGN
+        CALL FN_INT_FLOOR
+        ; re-apply the negative sign to floor(|x|), yielding trunc(x)
         JP FP_NEGATE_CHECKED
-; [RE] SGN() handler (function token $04): sign of a number (-1/0/+1).
-FN_SGN:
+; ----------------------------------------------------------------------
+; FN_INT_FLOOR (file label FN_SGN -- MISLABELED; this is the BASIC INT() handler) -- floor the FAC toward minus infinity, yielding an integer-valued float.
+;   In:        FAC holds a numeric value; VALTYP selects the path. Reached via FUNC_DISPATCH_TBL slot $01BA for the INT token, and called twice by FN_FIX as its magnitude-floor worker.
+;   Out:       FAC = floor(value) as a float of the same type. VALTYP=VT_INT returns unchanged; single/double have their fractional bits dropped and are re-normalized.
+;   Clobbers:  A, HL, DE, BC, F.
+;   Algorithm: Type-dispatch on FRMEVL_TEST_TYPE. Integer (sign set) -> RET unchanged. Double (carry clear) -> FIX_SCALE_1 (the double-precision floor path). String (Z) -> Type mismatch. Single (the remaining case) -> CALL FP_TO_INT to align the mantissa, then continue into FIX_SCALE which drops the fraction (exponent forced to $98) and re-rounds via FADD_COMBINE. [RE] Whether the single case always reaches FIX_SCALE is uncertain: FP_TO_INT contains a POP DE (FP_TO_INT_1) that can consume the CALL's return address on the exponent<$90 sub-path, so 'CALL FP_TO_INT then fall into FIX_SCALE' is not fully confirmed for every single-precision input.
+; ----------------------------------------------------------------------
+FN_INT_FLOOR:
         CALL FRMEVL_TEST_TYPE
+        ; VALTYP=VT_INT: an integer is already integral, return unchanged
         RET M
+        ; double precision (carry clear from FRMEVL_TEST_TYPE): take the double-precision floor path
         JR NC,FIX_SCALE_1
+        ; string argument is not numeric: Type mismatch
         JP Z,RAISE_TYPE_MISMATCH
+        ; single: align the mantissa to the integer field before the fraction-dropping scale below
         CALL FP_TO_INT
-; [RE] FIX/round scaling: if exponent>=$98 already integral; else shift mantissa down to the integer position and re-round via FADD_COMBINE.
+; ----------------------------------------------------------------------
+; FIX_SCALE -- denormalize a single-precision FAC to the integer position and re-round; the floor mantissa-scaler.
+;   In:        FAC = single-precision value; $0CB4 = its binary exponent.
+;   Out:       FAC = value floored to integral, exponent forced to $98; A = FAC low byte ($0CB1). If the exponent is already >= $98 the value has no fraction and it returns unchanged.
+;   Clobbers:  A, HL, DE, BC, F.
+;   Algorithm: If exponent >= $98 the value has no fractional bits -> return (A loaded from FAC low). Otherwise shift the mantissa right by the exponent via FP_SHIFT_MANTISSA so the fraction falls off, force the exponent to $98, then fold the shifted-out rounding bit back (LD A,C / RLA / FADD_COMBINE) to renormalize. Also reached directly by the transcendental functions (EXP at $5D01, the SIN/COS path at $5E4C, and the SQR-area helper at $5CC4) to extract the integer part of a scaled argument.
+; ----------------------------------------------------------------------
 FIX_SCALE:
         LD HL,L_0CB4
         LD A,(HL)
+        ; exponent >= $98 means no fractional bits remain: already an integral float
         CP $98
         LD A,(FAC)
         RET NC
         LD A,(HL)
+        ; shift the mantissa down by the exponent so the fractional bits are discarded
         CALL FP_SHIFT_MANTISSA
+        ; pin the exponent to the integer-aligned scale after the shift
         LD (HL),$98
         LD A,E
         PUSH AF
         LD A,C
         RLA
+        ; fold the rounding/carry bit back in and renormalize the floored result
         CALL FADD_COMBINE
         POP AF
         RET
@@ -9733,47 +10506,72 @@ FIX_SCALE_4:
         RET Z
         CP $B8
         RET NC
-; [RE] Denormalize toward the integer point for FIX: set exponent $B8, align the mantissa (DP_SHIFT_RIGHT_N) and clear the guard cell $0CAC.
+; ----------------------------------------------------------------------
+; FIX_DENORM -- denormalize a DOUBLE-precision FAC to the integer position; the double-precision floor/round helper used by FOUT.
+;   In:        FAC = double value (8-byte mantissa $0CAC..$0CB3, exponent $0CB4); A on entry = a borrow/round flag (saved by PUSH AF) controlling the trailing DADD_4 fixup.
+;   Out:       FAC = value aligned so the integer part sits at exponent $B8; guard cell $0CAC cleared. Returns via RET NC, or JP DADD_4 to finish renormalizing when a carry/borrow is pending.
+;   Clobbers:  A, HL, BC, DE, F.
+;   Algorithm: Load the FAC mantissa, set the hidden MSB and capture the sign (FP_UNPACK_MSB), force the working exponent to $B8, and if the value is negative pre-borrow the low extension bytes (DBL_EXT_DEC). Compute the shift count $B8 - exponent and right-align the 8-byte mantissa with DP_SHIFT_RIGHT_N, applying DP_ROUND_CARRY when the saved sign demands rounding. Clear the low guard byte $0CAC; on a pending carry tail-call DADD_4 to renormalize. Called by FOUT ($5B0F) when formatting a double for printing (after adding 0.5 for round-to-nearest).
+; ----------------------------------------------------------------------
 FIX_DENORM:
         PUSH AF
         CALL FP_LOAD_FAC
         CALL FP_UNPACK_MSB
         XOR (HL)
         DEC HL
+        ; target the double integer-aligned scale (exponent $B8)
         LD (HL),$B8
         PUSH AF
         DEC HL
         LD (HL),C
+        ; negative value: pre-borrow the low extension bytes before the down-shift so two's-complement rounding is correct
         CALL M,DBL_EXT_DEC
         LD A,(FACHI)
         LD C,A
         LD HL,FACHI
         LD A,$B8
         SUB B
+        ; right-align the 8-byte mantissa by ($B8 - exponent) so the fraction is shifted out
         CALL DP_SHIFT_RIGHT_N
         POP AF
+        ; apply round-half (the saved sign/round flag) into the now-aligned mantissa
         CALL M,DP_ROUND_CARRY
         XOR A
+        ; clear the low guard byte after the shift
         LD (L_0CAC),A
         POP AF
         RET NC
-        JP DADD_4
-; [RE] Borrow-decrement the FAC double-precision extension bytes from $0CAD upward (propagating the borrow through the low mantissa).
+        JP DADD_NORMALIZE
+; ----------------------------------------------------------------------
+; DBL_EXT_DEC -- propagate a two's-complement borrow downward through the FAC double-precision extension bytes.
+;   In:        The FAC low extension bytes starting at $0CAD (the bytes below the visible mantissa).
+;   Out:       The extension decremented with borrow rippled up until a non-$00 byte absorbs it.
+;   Clobbers:  A, HL, F.
+;   Algorithm: Starting at $0CAD, decrement each byte; while a byte was $00 (so it wrapped to $FF and the borrow continues) advance to the next higher byte and repeat. Stop at the first byte that was non-zero. This is the low-end borrow of negating/rounding the double mantissa, used by FIX_DENORM for negative values.
+; ----------------------------------------------------------------------
 DBL_EXT_DEC:
-        LD HL,L_0CAD
+        LD HL,FAC_DBL
 DBL_EXT_DEC_1:
         LD A,(HL)
         DEC (HL)
         OR A
         INC HL
+        ; the byte was $00 (wrapped to $FF): borrow continues into the next higher extension byte
         JR Z,DBL_EXT_DEC_1
         RET
-; [RE] 16x16 unsigned multiply for array subscript/offset computation (callers in PTRGET array code $61BB/$61FD): HL_running*BC accumulated by 16-iteration shift-add into DE; on overflow JP PTRGET_SEARCH_27 -> 'Subscript out of range' (E=$09). Result in DE
+; ----------------------------------------------------------------------
+; ARRAY_INDEX_MUL16 -- unsigned 16x16->16 multiply for array subscript/offset math, with overflow trapped as 'Subscript out of range'.
+;   In:        DE = multiplier (the running index accumulator carried across dimensions); BC = multiplicand (the current dimension size). HL is NOT an operand -- it is saved and restored (callers in PTRGET hold a table pointer in HL across the call).
+;   Out:       DE = (DE * BC) mod 2^16. HL preserved. On any 16-bit overflow it does NOT return: JP PTRGET_SEARCH_27 to raise 'Subscript out of range' (error 9).
+;   Clobbers:  DE, A, F (HL saved/restored; BC unchanged).
+;   Algorithm: Save HL, zero the product in HL, then for 16 iterations shift the product left (ADD HL,HL), shift the multiplier DE left to test its top bit, and when that bit is set add the multiplicand BC into the product. Every shift and add is overflow-checked (JP C,PTRGET_SEARCH_27) because array offsets must fit in 16 bits. Short-circuits to product 0 if BC is zero. On exit EX DE,HL moves the product into DE and HL is restored. Used by PTRGET array code ($61BB/$61FD) to size and index multi-dimensional arrays.
+; ----------------------------------------------------------------------
 ARRAY_INDEX_MUL16:
         PUSH HL
         LD HL,$0000
         LD A,B
         OR C
+        ; multiplicand BC is zero: the product is zero, skip the multiply loop
         JR Z,ARRAY_INDEX_MUL16_3
         LD A,$10
 ARRAY_INDEX_MUL16_1:
@@ -9783,7 +10581,9 @@ ARRAY_INDEX_MUL16_1:
         ADD HL,HL
         EX DE,HL
         JR NC,ARRAY_INDEX_MUL16_2
+        ; current multiplier bit set: add the multiplicand BC into the running product
         ADD HL,BC
+        ; overflow past 16 bits: the subscript/offset is out of range (error 9)
         JP C,PTRGET_SEARCH_27
 ARRAY_INDEX_MUL16_2:
         DEC A
@@ -9792,17 +10592,31 @@ ARRAY_INDEX_MUL16_3:
         EX DE,HL
         POP HL
         RET
-; [RE] Sign-extend HL into B (LD A,H/RLA/SBC A,A), negate via INT_NEG ($51D9), then SBC the high parts; entry into the signed-integer combine path feeding IADD_1.
+; ----------------------------------------------------------------------
+; INT_SIGNEXT_SUB -- 16-bit signed integer SUBTRACT operator (DE - HL); the '-' arm of the integer arithmetic dispatch band.
+;   In:        DE = left operand, HL = right operand (both already coerced to int16 by FRMEVL_INT_OP_HANDLER).
+;   Out:       FAC = DE - HL as a signed integer (VALTYP=VT_INT), or promoted to single precision on overflow. Joins IADD's combine/overflow logic at IADD_1.
+;   Clobbers:  A, HL, BC, DE, F.
+;   Algorithm: Compute DE - HL == DE + (-HL) reusing the integer adder. Sign-extend HL into B (LD A,H/RLA/SBC A,A), negate HL via INT_NEG_STORE (leaves -HL in HL and stores it, and sets C=0), then form A = C - B with borrow (the sign extension of the negated right operand) and JR into IADD_1, which adds DE with full signed-overflow detection and float fallback.
+; ----------------------------------------------------------------------
 INT_SIGNEXT_SUB:
         LD A,H
         RLA
         SBC A,A
         LD B,A
+        ; negate the right operand so the subtract becomes DE + (-HL) and can reuse the integer adder
         CALL INT_NEG_STORE
         LD A,C
         SBC A,B
+        ; enter the shared add/overflow combine, passing the negated right operand's sign extension in B
         JR IADD_1
-; Integer ADD operator: sign-extend HL and DE, ADD HL,DE with carry into the sign byte, detect signed overflow (JP P to FP_RECOVER $4FD6); on overflow promote both operands to single via FLOAT_FROM_INT ($51F3) and re-add through FADD. MS BASIC-80 integer addition.
+; ----------------------------------------------------------------------
+; IADD -- 16-bit signed integer ADD operator (HL + DE); the '+' arm of the integer arithmetic dispatch band.
+;   In:        HL = one operand, DE = the other (both int16). For the subtract entry IADD_1, A already holds the right operand's sign extension (loaded into B).
+;   Out:       FAC = HL + DE as a signed integer (VALTYP=VT_INT) when it fits; on signed overflow both operands are promoted to single precision and the add finishes in floating point (via FIN_DONE_1), leaving a single-precision FAC.
+;   Clobbers:  A, HL, DE, BC, F.
+;   Algorithm: Sign-extend both operands into a 17th bit (LD A,H/RLA/SBC A,A gives 0 or $FF), add the low 16 bits (ADD HL,DE) and the sign bits (ADC A,B). Detect signed overflow by comparing the carry-out sign with the result's top bit (RRCA / XOR H): if they agree (JP P) the 16-bit result is valid -> store via FP_TO_INT_1. If they disagree, overflow occurred: float the right operand (EX DE,HL / INT_TO_SINGLE_HL), recover and float the left operand (FLOAT_FROM_INT), and continue through the floating-point add at FIN_DONE_1.
+; ----------------------------------------------------------------------
 IADD:
         LD A,H
         RLA
@@ -9813,10 +10627,12 @@ IADD_1:
         LD A,D
         RLA
         SBC A,A
+        ; add the two 16-bit operands; the following ADC folds in the sign-extension bits
         ADD HL,DE
         ADC A,B
         RRCA
         XOR H
+        ; no signed overflow (carry-out sign matches result sign): store the 16-bit integer result
         JP P,FP_TO_INT_1
         PUSH BC
         EX DE,HL
@@ -9825,15 +10641,24 @@ IADD_1:
         POP HL
         CALL FAC_PUSH
         EX DE,HL
+        ; overflow: float the left operand; both operands are now single precision and the add finishes in floating point
         CALL FLOAT_FROM_INT
         JP FIN_DONE_1
-; [RE] 16-bit signed integer multiply (OPERATOR_ROUTINE_TBL integer-multiply slot $051B): sign-normalize then a 16-iteration shift-and-add of BC into HL; on overflow promote both operands to single and re-enter FMUL.
+; ----------------------------------------------------------------------
+; IMUL -- 16-bit signed integer MULTIPLY operator; the '*' arm of the integer arithmetic dispatch band.
+;   In:        HL and DE = the two int16 factors. INT_SETSIGN_NEG captures the combined result sign and makes the factors non-negative.
+;   Out:       FAC = HL * DE as a signed integer (VALTYP=VT_INT) when it fits in 16 bits; on overflow both factors are promoted to single precision and the multiply is finished by the FP multiplier (FMUL).
+;   Clobbers:  A, HL, DE, BC, F.
+;   Algorithm: If HL is zero, the product is the integer 0 (JP FP_STORE_FAC_INT with HL=0). Otherwise sign-normalize via INT_SETSIGN_NEG (B = combined sign, operands made non-negative), move the multiplicand into BC, and run a 16-iteration shift-and-add accumulating the product into HL. Any carry out of the 16-bit product during the shift/add is an overflow and diverts to IMUL_5+1 (the float-promotion path, the +1 being a flag-skip cover-byte idiom). When the loop completes, IMULDIV_FINISH applies the sign and either stores the integer or promotes to single precision.
+; ----------------------------------------------------------------------
 IMUL:
         LD A,H
         OR L
+        ; HL factor is zero: product is integer 0 (HL already holds 0)
         JP Z,FP_STORE_FAC_INT
         PUSH HL
         PUSH DE
+        ; record the result sign and make both factors non-negative for an unsigned shift-add
         CALL INT_SETSIGN_NEG
         PUSH BC
         LD B,H
@@ -9842,11 +10667,13 @@ IMUL:
         LD A,$10
 IMUL_1:
         ADD HL,HL
+        ; product overflowed 16 bits: bail to the float-promotion path
         JR C,IMUL_5+1
         EX DE,HL
         ADD HL,HL
         EX DE,HL
         JR NC,IMUL_2
+        ; current multiplier bit set: add the multiplicand into the running product
         ADD HL,BC
         JP C,IMUL_5+1
 IMUL_2:
@@ -9854,13 +10681,21 @@ IMUL_2:
         JR NZ,IMUL_1
         POP BC
         POP DE
-; [RE] Tail of integer multiply/divide: test product sign, on overflow promote operands to float and dispatch to FMUL ($4D12) / FADD-store paths; otherwise store signed integer result via INT_NEG/FP_STORE_FAC_INT.
+; ----------------------------------------------------------------------
+; IMULDIV_FINISH -- shared tail of integer multiply and divide: apply the sign and store the result, promoting to single precision on overflow.
+;   In:        HL = the unsigned 16-bit result of the integer multiply or divide; B = the desired result sign (high bit); the partner value (DE for multiply, the remainder/quotient for divide) is on the stack.
+;   Out:       FAC = the signed integer result (VALTYP=VT_INT) when it fits, else the operands are floated and re-dispatched to FMUL / the FP store path.
+;   Clobbers:  A, HL, DE, BC, F.
+;   Algorithm: If the result high bit is clear (positive, fits as a non-negative int16) pop the partner value, take the sign in B and store via INT_ABS_STORE_1 (negating if the sign says so). If the high bit is set, test the magnitude: $8000 with a clear low byte is the exact INT_MIN boundary, handled by IMULDIV_FLOAT_FALLBACK; anything larger overflowed int16 and is promoted to single precision (IMUL_5/IMUL_6 -> FMUL).
+; ----------------------------------------------------------------------
 IMULDIV_FINISH:
         LD A,H
         OR A
+        ; top bit set: result may not fit a signed 16-bit int, test for the $8000 boundary vs true overflow
         JP M,IMUL_4
         POP DE
         LD A,B
+        ; fits: store the magnitude in HL applying the recorded sign (B)
         JP INT_ABS_STORE_1
 IMUL_4:
         XOR $80
@@ -9878,28 +10713,46 @@ IMUL_6:
         POP BC
         POP DE
         JP FMUL
-; [RE] Float fallback for integer mul/div overflow: if result negative store integer (FP_STORE_FAC_INT $4FD7), else convert and re-enter via INT_TO_SINGLE_HL and jump to FP_NEG (FAC load).
+; ----------------------------------------------------------------------
+; IMULDIV_FLOAT_FALLBACK -- handle the boundary case for signed integer mul/div whose magnitude is exactly $8000.
+;   In:        HL = $8000 (the magnitude landed on the int16 boundary); B = result sign; DE = partner operand; stack carries the saved registers from the operator.
+;   Out:       If the sign is negative, $8000 IS the valid representation of INT_MIN (-32768) -> store as integer (FP_STORE_FAC_INT). If positive, +32768 does not fit int16, so float HL (INT_TO_SINGLE_HL) and continue via FP_NEG.
+;   Clobbers:  A, HL, DE, BC, F.
+;   Algorithm: Inspect the sign byte B. Negative -> the two's-complement $8000 already encodes -32768 exactly, store it as the integer result. Positive -> +32768 overflows the signed range, so promote to single precision and finish in floating point.
+; ----------------------------------------------------------------------
 IMULDIV_FLOAT_FALLBACK:
         LD A,B
         OR A
         POP BC
+        ; negative sign: $8000 is exactly INT_MIN (-32768), store as an integer
         JP M,FP_STORE_FAC_INT
         PUSH DE
+        ; positive: +32768 won't fit int16, promote to single precision
         CALL INT_TO_SINGLE_HL
         POP DE
         JP FP_NEG
-; [RE] INT_DIV_KERNEL: signed 16-bit DIVIDE (JP Z,RAISE_DIVISION_BY_ZERO on a zero divisor, then a 17-iteration restoring shift-subtract). Earlier mislabeled as multiply.
+; ----------------------------------------------------------------------
+; INT_DIV_KERNEL -- signed 16-bit divide/remainder kernel (restoring shift-subtract); the MOD operator entry (opcode $7B) and the quotient source for INT_DIV_ROUND.
+;   In:        DE = dividend, HL = divisor (both int16, from FRMEVL_INT_OP_HANDLER).
+;   Out:       Produces both quotient and remainder; the sign-corrected result is stored to the FAC as an integer via IMULDIV_FINISH. [RE] The D:E pair at exit carries the value used by INT_DIV_ROUND to recover the quotient; the exact quotient-vs-remainder register assignment is inferred from the restoring-division structure, not independently confirmed by emulation.
+;   Clobbers:  A, HL, DE, BC, F.
+;   Algorithm: Trap a zero divisor (RAISE_DIVISION_BY_ZERO). Sign-normalize through INT_SETSIGN_NEG (B = combined sign; operands made non-negative), form -divisor in BC, and run a 17-iteration restoring division: each step trial-adds -divisor to the running remainder in HL, shifts the dividend/quotient pair (D:E) and remainder (H:L) left by one, and records the success bit as the next quotient bit. On exit (EX DE,HL) the sign is reapplied and the result stored (IMULDIV_FINISH).
+; ----------------------------------------------------------------------
 INT_DIV_KERNEL:
         LD A,H
         OR L
+        ; divisor (HL) is zero: Division by zero error
         JP Z,RAISE_DIVISION_BY_ZERO
+        ; record the result sign and make both operands non-negative for the unsigned division loop
         CALL INT_SETSIGN_NEG
         PUSH BC
         EX DE,HL
+        ; form -divisor in HL (then BC) so the inner loop subtracts by adding (ADD HL,BC)
         CALL INT_NEG_STORE
         LD B,H
         LD C,L
         LD HL,$0000
+        ; 17 iterations: 16 quotient bits plus the initial alignment step of the restoring divide
         LD A,$11
         PUSH AF
         OR A
@@ -9907,6 +10760,7 @@ INT_DIV_KERNEL:
 INT_DIV_KERNEL_1:
         PUSH AF
         PUSH HL
+        ; trial-subtract the divisor from the running remainder (BC holds -divisor)
         ADD HL,BC
         JR NC,INT_DIV_KERNEL_2+1
         POP AF
@@ -9933,72 +10787,141 @@ INT_DIV_KERNEL_3:
         EX DE,HL
         POP BC
         PUSH DE
+        ; reapply the sign and store the integer result (shared with the multiply tail)
         JP IMULDIV_FINISH
-; [RE] Combine signs of HL and DE into B, then take absolute value of HL via INT_ABS_STORE; sign-management prologue for signed integer multiply/divide.
+; ----------------------------------------------------------------------
+; INT_SETSIGN_NEG -- sign prologue for signed integer multiply/divide: capture the combined result sign and make HL non-negative.
+;   In:        HL and DE = the two signed operands.
+;   Out:       B = combined sign byte (high bit = XOR of the two operand signs); HL = |original HL| stored to the FAC; then EX DE,HL leaves the partner operand (original DE) in HL for the caller.
+;   Clobbers:  A, B, HL, DE, F.
+;   Algorithm: B = H XOR D captures whether the product/quotient is negative (top bit). Take |HL| via INT_ABS_STORE (stores the magnitude, negating if HL<0), then EX DE,HL so the partner operand is now in HL ready for its own abs/setup. The magnitude operands let the mul/div loops run unsigned; B reapplies the sign at the end.
+; ----------------------------------------------------------------------
 INT_SETSIGN_NEG:
         LD A,H
+        ; combined result sign = sign(HL) XOR sign(DE); top bit of B carries it
         XOR D
         LD B,A
+        ; replace HL with its magnitude so the arithmetic loop is unsigned
         CALL INT_ABS_STORE
         EX DE,HL
-; [RE] If HL is non-negative store it as a signed integer to the FAC (FP_STORE_FAC_INT $4FD7); otherwise fall through to INT_NEG to negate first.
+; ----------------------------------------------------------------------
+; INT_ABS_STORE -- store |HL| into the integer FAC: pass through if HL>=0, else negate first.
+;   In:        HL = signed 16-bit value. INT_ABS_STORE_1 is the entry when the sign test is already in A (mul/div pass the sign byte B in A there).
+;   Out:       FAC = signed integer result; VALTYP=VT_INT. For a non-negative value HL is stored as-is; for a negative one the two's-complement negation is stored.
+;   Clobbers:  A, HL, C, F.
+;   Algorithm: Test the high byte's sign (OR A). If non-negative, JP FP_STORE_FAC_INT to store HL unchanged. If negative, fall into INT_NEG_STORE to negate then store. Used both standalone (absolute store) and as the sign-reapply step of integer multiply/divide via the INT_ABS_STORE_1 entry.
+; ----------------------------------------------------------------------
 INT_ABS_STORE:
         LD A,H
 INT_ABS_STORE_1:
         OR A
+        ; non-negative: store the value directly as a signed integer
         JP P,FP_STORE_FAC_INT
-; [RE] Two's-complement negate the 16-bit integer in HL (0-L, 0-H with borrow) then store to the integer FAC via FP_STORE_FAC_INT ($4FD7).
+; ----------------------------------------------------------------------
+; INT_NEG_STORE -- two's-complement negate the 16-bit integer in HL, then store it to the integer FAC.
+;   In:        HL = signed 16-bit value to negate.
+;   Out:       HL = -HL (two's complement); C = 0; FAC = that value as an integer (VALTYP=VT_INT) via FP_STORE_FAC_INT.
+;   Clobbers:  A, HL, C, F.
+;   Algorithm: C := 0, then 0 - L into L and 0 - H with borrow into H (16-bit negate), and tail-store through FP_STORE_FAC_INT. Note $8000 negates to itself (the unrepresentable INT_MIN); callers (INT_NEGATE_FAC) check for that sentinel separately.
+; ----------------------------------------------------------------------
 INT_NEG_STORE:
         XOR A
         LD C,A
+        ; 16-bit two's-complement negate: 0-L low, then 0-H with borrow
         SUB L
         LD L,A
         LD A,C
         SBC A,H
         LD H,A
         JP FP_STORE_FAC_INT
-; [RE] Negate the integer FAC: load HL from $0CB1, negate via INT_NEG, return NZ unless result is the $8000 sentinel (then fall into INT_TO_SNG to promote).
+; ----------------------------------------------------------------------
+; INT_NEGATE_FAC -- unary negate of the integer FAC, promoting to single precision only at the INT_MIN boundary.
+;   In:        FAC ($0CB1) holds a 16-bit signed integer (VALTYP=VT_INT). Reached from FP_NEGATE_CHECKED for the integer case of unary minus.
+;   Out:       FAC = -value as an integer when representable (returns NZ). If value == $8000 (-32768), -(-32768) is not an int16, so it falls into INT_TO_SNG to return +32768 as a single.
+;   Clobbers:  A, HL, C, F.
+;   Algorithm: Load HL from the FAC, negate-and-store (INT_NEG_STORE). Detect the unrepresentable result: XOR $80 / OR L tests whether the negated high byte is $80 and low byte $00 (i.e. result == $8000). If not, return (RET NZ). If it is the boundary, drop into INT_TO_SNG to promote +32768 to single precision.
+; ----------------------------------------------------------------------
 INT_NEGATE_FAC:
         LD HL,(FAC)
         CALL INT_NEG_STORE
         LD A,H
+        ; test for the $8000 (INT_MIN) result: negating -32768 overflows int16
         XOR $80
         OR L
+        ; ordinary case: the negated integer is representable, done
         RET NZ
-; [RE] Promote integer FAC to single-precision: move to DE, set up via SET_TYPE_DOUBLE, clear A, fall into FLOAT_FROM_INT.
+; ----------------------------------------------------------------------
+; INT_TO_SNG -- promote the 16-bit signed integer currently in HL to a single-precision float in the FAC.
+;   In:        HL = signed 16-bit integer.
+;   Out:       FAC = HL as a single-precision MBF float; VALTYP set to VT_SNG ($04). Falls into FLOAT_FROM_INT.
+;   Clobbers:  A, B, DE, HL, F.
+;   Algorithm: Move HL into DE (the mantissa source for the float builder), set VALTYP=VT_SNG via SET_TYPE_DOUBLE_1+1 (the +1 entry runs the cover byte as LD A,$04, selecting single not double), clear A, and fall into FLOAT_FROM_INT to build the float with the integer-aligned exponent. Reached when an integer overflows its type (INT_NEGATE_FAC boundary, line-number-to-float, FN_FRE difference) and must become a float.
+; ----------------------------------------------------------------------
 INT_TO_SNG:
         EX DE,HL
+        ; set VALTYP=VT_SNG (the +1 entry runs the LD A,$04 cover byte, selecting single not double)
         CALL SET_TYPE_DOUBLE_1+1
         XOR A
-; Build a single-precision FAC from the signed integer in HL: load binary exponent $98 (2^24 bias) and enter the FP normalize/pack path at $4E5B. MS BASIC-80 float-from-integer.
+; ----------------------------------------------------------------------
+; FLOAT_FROM_INT -- build a single-precision MBF float in the FAC from a signed integer, with the integer-aligned exponent.
+;   In:        DE = the integer mantissa source; A = the additional low/rounding byte (0 from INT_TO_SNG); the magnitude already placed for normalization.
+;   Out:       FAC = the value as a single-precision float (normalized and packed by the FP path at FLOAT_A_1).
+;   Clobbers:  A, B, C, HL, DE, F.
+;   Algorithm: Load the binary exponent $98 (the integer-aligned scale) into B and jump into the shared float normalize/pack core FLOAT_A_1, which writes the exponent, sets the hidden mantissa bit, applies the sign, and renormalizes via FADD_COMBINE. This is the integer->single conversion's final stage; INT_TO_SNG sets the type and falls in here, and IADD's overflow path calls it directly.
+; ----------------------------------------------------------------------
 FLOAT_FROM_INT:
+        ; exponent $98 = the integer-aligned scale; the normalizer shifts down to the true magnitude
         LD B,$98
         JP FLOAT_A_1
-; 16-bit integer DIVIDE: multiply-by-reciprocal then RRA-shift the quotient (D:E) into H:L with rounding, store via SET_TYPE_INTEGER and INT_ABS_STORE. MS BASIC-80 integer divide.
+; ----------------------------------------------------------------------
+; INT_DIV_ROUND -- 16-bit signed integer DIVIDE operator ('\', opcode $7A): compute the quotient and store it as an integer.
+;   In:        DE = dividend, HL = divisor (int16, from FRMEVL_INT_OP_HANDLER).
+;   Out:       FAC = the signed integer quotient DE \ HL (VALTYP=VT_INT), with the correct sign applied.
+;   Clobbers:  A, HL, DE, BC, F.
+;   Algorithm: PUSH DE, run the shared divide kernel (INT_DIV_KERNEL) which performs the restoring division. [RE] On return the accumulated quotient is in the D:E pair; recover it by shifting D:E right one bit (XOR A/ADD A,D/RRA -> H; LD A,E/RRA -> L) to undo the kernel's trailing shift, mark the type integer (SET_TYPE_INTEGER), and store with sign through INT_ABS_STORE_1. The companion MOD operator enters INT_DIV_KERNEL directly to keep the remainder instead. The one-bit right-shift accounting is inferred from the kernel's 17-iteration restoring-division structure, not independently verified by emulation.
+; ----------------------------------------------------------------------
 INT_DIV_ROUND:
         PUSH DE
+        ; run the restoring division; [RE] the quotient accumulates in the D:E pair
         CALL INT_DIV_KERNEL
         XOR A
+        ; recover the quotient: shift D:E right one bit (RRA chain) to undo the kernel's trailing shift
         ADD A,D
         RRA
         LD H,A
         LD A,E
         RRA
         LD L,A
+        ; the '\' result is always an integer
         CALL SET_TYPE_INTEGER
         POP AF
+        ; store the quotient applying the sign recorded during division
         JR INT_ABS_STORE_1
-; [RE] Flip the sign byte of the double-precision operand at $0CC0 (XOR $80), then fall into DADD (double-precision add) to perform a double subtract.
+; ----------------------------------------------------------------------
+; DP_NEGATE_SIGN -- double-precision SUBTRACT entry: negate ARG, then fall into DADD.
+;   In:        ARG (8-byte MBF double) at $0CBA..$0CC1: mantissa $0CBA..$0CC0 (LSB-first), MSB/sign byte $0CC0 (sign in bit7), exponent $0CC1. FAC double at $0CAC..$0CB4.
+;   Out:       Falls into DADD => FAC = FAC - ARG.
+;   Clobbers:  A, HL, plus everything DADD clobbers; ARG sign byte $0CC0 toggled.
+;   Algorithm: XOR $80 the ARG mantissa MSB at $0CC0 to flip its sign bit, then fall straight into DADD. Because MBF stores the sign in bit7 of the high mantissa byte, toggling it turns the pending add into FAC + (-ARG) = FAC - ARG.
+; ----------------------------------------------------------------------
 DP_NEGATE_SIGN:
         LD HL,L_0CC0
         LD A,(HL)
+        ; flip the sign bit (bit7 of the ARG mantissa MSB) so DADD computes FAC - ARG
         XOR $80
         LD (HL),A
-; Double-precision (8-byte mantissa) ADD/SUBTRACT: align the operand exponent at $0CC1 against the accumulator exponent $0CB4, denormalize-shift, add/subtract the 8-byte mantissas at $0CAC vs $0CBA, renormalize. Core of MBF double-precision addition.
+; ----------------------------------------------------------------------
+; DADD -- double-precision ADD/SUBTRACT core (MBF 8-byte mantissa).
+;   In:        FAC double at $0CAC..$0CB4 (guard $0CAC, 7-byte mantissa $0CAD..$0CB3 LSB-first, MSB/sign $0CB3=FACHI, exponent $0CB4). ARG double at $0CBA..$0CC1 (7-byte mantissa $0CBA..$0CC0, MSB/sign $0CC0, exponent $0CC1).
+;   Out:       FAC = FAC + ARG, normalized and rounded; result sign folded into FACHI bit7.
+;   Clobbers:  A,B,C,D,E,H,L; FAC mantissa/exponent, $0CB5/$0CB9 scratch, guard $0CAC.
+;   Algorithm: (1) If ARG exponent=0 return FAC unchanged; if FAC exponent=0 copy ARG into FAC (FP_ARG_TO_TEMP1) and return. (2) diff = FACexp - ARGexp; if FAC is the smaller (carry) negate the difference and swap the two 8-byte operands so the larger magnitude sits in FAC. (3) If the alignment shift >= $39 (57) the smaller operand is negligible -> return the larger unchanged. (4) FP_UNPACK_MSB restores the hidden mantissa MSBs and returns in B the XOR of the two sign bits (bit7=0 => like signs, bit7=1 => unlike signs). Right-shift (denormalize) the ARG mantissa by the exponent difference (DP_SHIFT_RIGHT_N) to align radix points. (5) LIKE signs (B positive, DADD_3): straight magnitude add of the aligned mantissas (DP_ADD_BLOCK_INIT with $9E); if the high byte came out negative, two's-complement it (DP_NEG_MANTISSA). UNLIKE signs (B negative, fall-through): subtract by adding (DP_ADD_CONST_8E with $8E); on carry-out renormalize right and bump the exponent. (6) Left-normalize: byte-at-a-time while FACHI=0 (DADD_5/DADD_6 shifting up 8 bits per step), then bit-at-a-time (DADD_7/DADD_8 via DP_SHIFT_LEFT_8) until FACHI bit7 is set or the result underflows to zero (FP_SET_ZERO). (7) Round on the guard byte (DP_ROUND_CARRY) and merge the final sign into FACHI.
+; ----------------------------------------------------------------------
 DADD:
         LD HL,L_0CC1
         LD A,(HL)
         OR A
+        ; ARG exponent 0 => ARG is zero => FAC + 0 = FAC
         RET Z
         LD B,A
         DEC HL
@@ -10006,16 +10929,18 @@ DADD:
         LD DE,L_0CB4
         LD A,(DE)
         OR A
+        ; FAC exponent 0 => FAC is zero => result is just ARG; copy ARG into FAC and return
         JP Z,FP_ARG_TO_TEMP1
+        ; diff = FACexp - ARGexp; if it borrows (carry, FAC smaller) negate diff and swap operands below
         SUB B
-        JR NC,DADD_2
+        JR NC,DADD_ALIGNED
         CPL
         INC A
         PUSH AF
         LD C,$08
         INC HL
         PUSH HL
-DADD_1:
+DADD_SWAP_OPERANDS:
         LD A,(DE)
         LD B,(HL)
         LD (HL),A
@@ -10024,13 +10949,14 @@ DADD_1:
         DEC DE
         DEC HL
         DEC C
-        JR NZ,DADD_1
+        JR NZ,DADD_SWAP_OPERANDS
         POP HL
         LD B,(HL)
         DEC HL
         LD C,(HL)
         POP AF
-DADD_2:
+DADD_ALIGNED:
+        ; [RE] if the alignment shift >= $39 (57) the smaller operand falls off the 7-byte mantissa+guard; return the larger unchanged
         CP $39
         RET NC
         PUSH AF
@@ -10042,66 +10968,72 @@ DADD_2:
         LD (L_0CAC),A
         POP AF
         LD HL,L_0CC0
+        ; denormalize the (smaller) ARG mantissa right by the exponent difference to align radix points
         CALL DP_SHIFT_RIGHT_N
         LD A,(L_0CB9)
         LD (L_0CAC),A
         LD A,B
         OR A
-        JP P,DADD_3
+        ; B = XOR of the two sign bits: positive => like signs (add, DADD_3); negative => unlike signs (subtract, fall through)
+        JP P,DADD_LIKE_SIGNS
+        ; unlike signs: subtract by adding the aligned mantissa ($8E); on carry-out renormalize right and bump the exponent
         CALL DP_ADD_CONST_8E
-        JP NC,DADD_9
+        JP NC,DADD_ROUND_AND_SIGN
         EX DE,HL
         INC (HL)
         JP Z,FIN_DONE_12
         CALL DP_SHIFT_RIGHT_FROM_CB3
-        JP DADD_9
-DADD_3:
+        JP DADD_ROUND_AND_SIGN
+DADD_LIKE_SIGNS:
         LD A,$9E
         CALL DP_ADD_BLOCK_INIT
-        LD HL,L_0CB5
+        LD HL,FP_SIGN_FLAG
+        ; like-signs add left a negative high byte: two's-complement the mantissa and record the sign
         CALL C,DP_NEG_MANTISSA
-DADD_4:
+DADD_NORMALIZE:
         XOR A
-DADD_5:
+DADD_NORMALIZE_BYTE_LOOP:
         LD B,A
         LD A,(FACHI)
         OR A
-        JR NZ,DADD_8
+        JR NZ,DADD_NORMALIZE_CHECK_MSB
         LD HL,L_0CAC
         LD C,$08
-DADD_6:
+DADD_SHIFT_UP_BYTE:
         LD D,(HL)
         LD (HL),A
         LD A,D
         INC HL
         DEC C
-        JR NZ,DADD_6
+        JR NZ,DADD_SHIFT_UP_BYTE
         LD A,B
         SUB $08
         CP $C0
-        JR NZ,DADD_5
+        JR NZ,DADD_NORMALIZE_BYTE_LOOP
+        ; mantissa shifted entirely away during normalize => true zero
         JP FP_SET_ZERO
-DADD_7:
+DADD_NORMALIZE_BIT_LOOP:
         DEC B
         LD HL,L_0CAC
         CALL DP_SHIFT_LEFT_8
         OR A
-DADD_8:
-        JP P,DADD_7
+DADD_NORMALIZE_CHECK_MSB:
+        JP P,DADD_NORMALIZE_BIT_LOOP
         LD A,B
         OR A
-        JR Z,DADD_9
+        JR Z,DADD_ROUND_AND_SIGN
         LD HL,L_0CB4
         ADD A,(HL)
         LD (HL),A
+        ; exponent underflowed below the bias => too small to represent => zero
         JP NC,FP_SET_ZERO
         RET Z
-DADD_9:
+DADD_ROUND_AND_SIGN:
         LD A,(L_0CAC)
-DADD_10:
+DADD_ROUND_AND_SIGN_A:
         OR A
         CALL M,DP_ROUND_CARRY
-        LD HL,L_0CB5
+        LD HL,FP_SIGN_FLAG
         LD A,(HL)
         AND $80
         DEC HL
@@ -10109,159 +11041,242 @@ DADD_10:
         XOR (HL)
         LD (HL),A
         RET
-; [RE] Round-up / carry-propagate the 8-byte double mantissa (INC through $0CAD..; on full carry set MSB $80 and bump exponent), called when the high mantissa byte is negative after add.
+; ----------------------------------------------------------------------
+; DP_ROUND_CARRY -- round the double mantissa up by 1 with carry propagation.
+;   In:        FAC 7-byte mantissa at $0CAD..$0CB3, exponent at $0CB4; called (CALL M,...) when the guard byte $0CAC has bit7 set (round-up needed).
+;   Out:       Mantissa incremented; on a full 7-byte carry the MSB is forced to $80 and the exponent is bumped (overflow -> FIN_DONE_12).
+;   Clobbers:  A,B,H,L; FAC mantissa and possibly exponent.
+;   Algorithm: INC the lowest mantissa byte ($0CAD); while a byte wraps to 0, carry into the next higher byte for up to 7 bytes. If the carry runs off the top, the value rounded up to 1.0: HL now points at the exponent ($0CB4), so INC it (Z => overflow), then set FACHI ($0CB3) MSB to $80 (the renormalized hidden bit).
+; ----------------------------------------------------------------------
 DP_ROUND_CARRY:
-        LD HL,L_0CAD
+        LD HL,FAC_DBL
         LD B,$07
-DP_ROUND_CARRY_1:
+DP_ROUND_CARRY_PROPAGATE:
+        ; add 1 to the current mantissa byte; if it did not wrap (NZ) the round is complete
         INC (HL)
         RET NZ
         INC HL
         DEC B
-        JR NZ,DP_ROUND_CARRY_1
+        JR NZ,DP_ROUND_CARRY_PROPAGATE
+        ; carry ran past the whole mantissa: HL is now the exponent, bump it (Z => exponent overflow => error)
         INC (HL)
         JP Z,FIN_DONE_12
         DEC HL
+        ; the 1.0 carry renormalizes the mantissa MSB to $80 (hidden leading bit)
         LD (HL),$80
         RET
-; [RE] Subtract constant $8E from accumulator and add the 7-byte block $0CBA into $0CAD; thin wrapper that presets A and falls into the multi-byte add loop DP_ADD_BLOCK.
+; ----------------------------------------------------------------------
+; DP_SUB_CONST_8E -- divide step: chained ADC of the ARG mantissa ($0CBA) into the divide remainder block ($0CDD), first ADC operand patched from A.
+;   In:        A = constant byte supplied by the caller (DDIV passes $9E then $8E); source mantissa at $0CBA; destination = divide remainder block $0CDD.
+;   Out:       7-byte chained ADC of [$0CBA] into [$0CDD]; carry out of the high byte in CY.
+;   Clobbers:  A,C,D,E,H,L; the $0CDD remainder block.
+;   Algorithm: Point the shared multi-byte adder at source=$0CBA / dest=$0CDD and jump into DP_ADD_BLOCK_1, which patches A as the operand of the first ADC and runs the 7-byte chained add-with-carry. NOTE: despite the '_SUB'/'_8E' label this is an ADD primitive whose constant varies; DDIV uses it as the trial-subtract/restore step of restoring division (the [RE] sub vs add semantics of the $9E/$8E markers are not fully pinned -- see UNKNOWN).
+; ----------------------------------------------------------------------
 DP_SUB_CONST_8E:
+        ; destination = divide remainder block $0CDD (not the FAC mantissa)
         LD DE,L_0CDD
-        LD HL,L_0CBA
-        JP DP_ADD_BLOCK_1
-; [RE] Preset constant $8E (LD A,$8E) for the multi-byte mantissa add, then fall into DP_ADD_BLOCK; used by the double multiply/divide inner loop.
+        LD HL,ARG2_TEMP
+        JP DP_ADD_BLOCK_SETUP
+; ----------------------------------------------------------------------
+; DP_ADD_CONST_8E -- add the ARG mantissa ($0CBA) into the FAC mantissa, with the first ADC operand preset to $8E.
+;   In:        ARG mantissa at $0CBA; FAC mantissa at $0CAD.
+;   Out:       7-byte chained ADC of [$0CBA] into [$0CAD]; carry out in CY.
+;   Clobbers:  A,C,D,E,H,L; FAC mantissa.
+;   Algorithm: Preset A=$8E and fall into DP_ADD_BLOCK_INIT, which sets source=$0CBA / dest=$0CAD and runs the chained 7-byte ADC. ($8E is the byte patched into the first ADC slot; the [RE] meaning of that marker is not pinned.) Called by the DADD unlike-signs subtract path and by the DMUL inner conditional-add.
+; ----------------------------------------------------------------------
 DP_ADD_CONST_8E:
         LD A,$8E
-; [RE] Set up source $0CBA and dest $0CAD for a 7-byte chained ADC, store the constant operand byte into the loop, then run DP_ADD_BLOCK.
+; ----------------------------------------------------------------------
+; DP_ADD_BLOCK_INIT -- set the ARG source ($0CBA) then run the multi-byte add into FAC.
+;   In:        A = first-ADC operand byte (constant patched into the loop, e.g. $9E/$8E); ARG mantissa source at $0CBA.
+;   Out:       Falls into DP_ADD_BLOCK to ADC the 7-byte ARG mantissa into the FAC mantissa [$0CAD]; carry out in CY.
+;   Clobbers:  A,C,D,E,H,L; FAC mantissa.
+;   Algorithm: Point HL at the ARG mantissa $0CBA, then fall into DP_ADD_BLOCK (which sets dest=$0CAD and runs the chained ADC). Split from DP_ADD_CONST_8E so DADD_3 can enter with its own already-loaded constant ($9E) in A.
+; ----------------------------------------------------------------------
 DP_ADD_BLOCK_INIT:
-        LD HL,L_0CBA
-; [RE] 7-byte chained add-with-carry loop: ADC each byte of [HL]=$0CBA into [DE]=$0CAD, advancing both pointers. Multi-byte mantissa addition primitive for double-precision arithmetic.
+        LD HL,ARG2_TEMP
+; ----------------------------------------------------------------------
+; DP_ADD_BLOCK -- 7-byte chained add-with-carry primitive (mantissa add).
+;   In:        HL = source mantissa pointer (LSB-first); A = byte patched into the first ADC; dest fixed at $0CAD (FAC mantissa) on this entry.
+;   Out:       [DE..DE+6] += [HL..HL+6], carry chained low->high; final carry-out in CY.
+;   Clobbers:  A,C,D,E,H,L.
+;   Algorithm: Self-modifying loop: store A into the 'ADC A,(HL)' slot at DP_ADD_BLOCK_3 (so the first iteration's added operand is the caller-supplied constant), XOR A to clear carry, then for 7 bytes do A=[DE]; A=ADC patched-operand; [DE]=A; advance both pointers. The patched first operand lets callers inject a constant marker byte ahead of the genuine ARG bytes.
+; ----------------------------------------------------------------------
 DP_ADD_BLOCK:
-        LD DE,L_0CAD
-DP_ADD_BLOCK_1:
+        LD DE,FAC_DBL
+DP_ADD_BLOCK_SETUP:
         LD C,$07
-        LD (DP_ADD_BLOCK_3),A
+        ; self-modify: patch A as the added operand of the first ADC below
+        LD (DP_ADD_BLOCK_PATCHED_ADC),A
+        ; clear carry (and A) before the first add of the chain
         XOR A
-DP_ADD_BLOCK_2:
+DP_ADD_BLOCK_LOOP:
         LD A,(DE)
-DP_ADD_BLOCK_3:
+DP_ADD_BLOCK_PATCHED_ADC:
         ADC A,(HL)
         LD (DE),A
         INC DE
         INC HL
         DEC C
-        JR NZ,DP_ADD_BLOCK_2
+        JR NZ,DP_ADD_BLOCK_LOOP
         RET
-; [RE] Two's-complement negate the 8-byte double mantissa starting at $0CAC (CPL the guard byte, then chained 0-byte SBC across 8 bytes).
+; ----------------------------------------------------------------------
+; DP_NEG_MANTISSA -- two's-complement negate the 8-byte FAC mantissa (guard included).
+;   In:        HL = pointer to a sign-carrying scratch byte (CPL'd on entry, e.g. $0CB5); FAC mantissa+guard at $0CAC..$0CB3 (8 bytes).
+;   Out:       Mantissa replaced by 0 - mantissa across all 8 bytes; [HL] complemented.
+;   Clobbers:  A,B,C,H,L; [HL] and the 8 mantissa bytes.
+;   Algorithm: CPL the byte at HL (the saved sign scratch), then chained 0 - byte SBC from the guard $0CAC upward across 8 bytes (C preset to 0), two's-complementing the magnitude. Invoked by DADD's like-signs path when the add produced a negative high byte.
+; ----------------------------------------------------------------------
 DP_NEG_MANTISSA:
         LD A,(HL)
+        ; complement the saved sign scratch at [HL] to match the negated magnitude
         CPL
         LD (HL),A
         LD HL,L_0CAC
         LD B,$08
         XOR A
         LD C,A
-DP_NEG_MANTISSA_1:
+DP_NEG_MANTISSA_LOOP:
         LD A,C
+        ; 0 - byte with borrow: two's-complement the mantissa byte by byte
         SBC A,(HL)
         LD (HL),A
         INC HL
         DEC B
-        JR NZ,DP_NEG_MANTISSA_1
+        JR NZ,DP_NEG_MANTISSA_LOOP
         RET
-; [RE] Denormalize: shift the 8-byte double mantissa right by N bit-positions (in groups of 8 via byte moves, remainder by per-bit RRA) to align exponents before DADD.
+; ----------------------------------------------------------------------
+; DP_SHIFT_RIGHT_N -- denormalize: shift an 8-byte mantissa right by A bit positions.
+;   In:        A = shift count (bits); HL = pointer to the MSB of the block to shift (DADD calls it with HL=$0CC0, the ARG mantissa MSB); C = byte written into the MSB slot before shifting (the restored MSB value).
+;   Out:       The 8-byte window ending at [HL] (the ARG mantissa $0CC0 down to fill cell $0CB9 in the DADD call) shifted right A bits, vacated high bits zero-filled; bits past the bottom are lost (rounding handled by the caller).
+;   Clobbers:  A,C,D,E,H,L.
+;   Algorithm: Write C into the MSB slot [HL], then shift in two phases: whole-byte moves while count >= 8 (move the 8 bytes down one position per step), then the leftover (count mod 8) bits as per-bit RRA chains across the 8 bytes. Used to align the smaller operand before DADD. (The single-bit entry DP_SHIFT_RIGHT_FROM_CB3 jumps past the C-store directly into the bit phase.)
+; ----------------------------------------------------------------------
 DP_SHIFT_RIGHT_N:
+        ; write the restored MSB byte (C) into the top slot before shifting
         LD (HL),C
         PUSH HL
-DP_SHIFT_RIGHT_N_1:
+DP_SHIFT_RIGHT_COUNT_BYTES:
+        ; consume 8 bits per whole-byte shift; once the count goes negative do the leftover bits
         SUB $08
-        JR C,DP_SHIFT_RIGHT_LOOP_2
+        JR C,DP_SHIFT_RIGHT_BITS_SETUP
         POP HL
 ; [RE] Inner byte/bit right-shift loop for DP_SHIFT_RIGHT_N: moves whole bytes while the shift count exceeds 8, then performs the leftover bit shifts.
-DP_SHIFT_RIGHT_LOOP:
+DP_SHIFT_RIGHT_BYTE:
         PUSH HL
+        ; D=8 bytes to move, E=0 fill for the byte coming in at the top
         LD DE,$0800
-DP_SHIFT_RIGHT_LOOP_1:
+DP_SHIFT_RIGHT_BYTE_INNER:
         LD C,(HL)
         LD (HL),E
         LD E,C
         DEC HL
         DEC D
-        JR NZ,DP_SHIFT_RIGHT_LOOP_1
-        JR DP_SHIFT_RIGHT_N_1
-DP_SHIFT_RIGHT_LOOP_2:
+        JR NZ,DP_SHIFT_RIGHT_BYTE_INNER
+        JR DP_SHIFT_RIGHT_COUNT_BYTES
+DP_SHIFT_RIGHT_BITS_SETUP:
+        ; recover the leftover bit count (+8 to undo the last SUB, +1 for the pre-decrement) after the byte phase overshot
         ADD A,$09
         LD D,A
-DP_SHIFT_RIGHT_LOOP_3:
+DP_SHIFT_RIGHT_BIT:
         XOR A
         POP HL
         DEC D
         RET Z
-DP_SHIFT_RIGHT_LOOP_4:
+DP_SHIFT_RIGHT_BIT_PASS:
         PUSH HL
         LD E,$08
-DP_SHIFT_RIGHT_LOOP_5:
+DP_SHIFT_RIGHT_BIT_INNER:
         LD A,(HL)
+        ; rotate one bit down through the block, MSB toward LSB across 8 bytes
         RRA
         LD (HL),A
         DEC HL
         DEC E
-        JR NZ,DP_SHIFT_RIGHT_LOOP_5
-        JR DP_SHIFT_RIGHT_LOOP_3
-; [RE] Right-shift the double mantissa by 1 starting at $0CB3 (sets D=$01), used between partial products in the double multiply.
+        JR NZ,DP_SHIFT_RIGHT_BIT_INNER
+        JR DP_SHIFT_RIGHT_BIT
+; ----------------------------------------------------------------------
+; DP_SHIFT_RIGHT_FROM_CB3 -- shift the FAC mantissa right by exactly 1 bit.
+;   In:        FAC mantissa at $0CAC..$0CB3, MSB at FACHI=$0CB3.
+;   Out:       Mantissa shifted right 1 bit (single RRA chain from the MSB down).
+;   Clobbers:  A,D,E,H,L.
+;   Algorithm: Point HL at FACHI, set the bit-pass count D=1, and jump straight into DP_SHIFT_RIGHT's single-bit pass (skipping the C fill-store). Used between partial products in DMUL, and on the carry-out path in DADD, to halve the accumulator one place.
+; ----------------------------------------------------------------------
 DP_SHIFT_RIGHT_FROM_CB3:
         LD HL,FACHI
+        ; exactly one bit-shift pass
         LD D,$01
-        JR DP_SHIFT_RIGHT_LOOP_4
-; [RE] Shift the 8-byte double mantissa left by one bit (chained RLA across 8 bytes from [HL]); partial-product accumulation step for double multiply.
+        JR DP_SHIFT_RIGHT_BIT_PASS
+; ----------------------------------------------------------------------
+; DP_SHIFT_LEFT_8 -- shift an 8-byte mantissa left by 1 bit (chained RLA).
+;   In:        HL = pointer to the mantissa LSB; CY = bit rotated into the LSB.
+;   Out:       8 bytes at [HL] shifted left 1 bit, low->high; bit out of the top in CY.
+;   Clobbers:  A,C,H,L.
+;   Algorithm: For C bytes (8 here), RLA each from the LSB upward so carry chains the shifted-out bit into the next byte. The '_8' is the BYTE count, not the bit count -- this is a 1-bit shift. Used by DADD's left-normalize and (entered at DP_SHIFT_LEFT_8_1 with C preset to 7) by DDIV to shift the remainder and quotient.
+; ----------------------------------------------------------------------
 DP_SHIFT_LEFT_8:
         LD C,$08
-DP_SHIFT_LEFT_8_1:
+DP_SHIFT_LEFT_LOOP:
         LD A,(HL)
         RLA
         LD (HL),A
         INC HL
         DEC C
-        JR NZ,DP_SHIFT_LEFT_8_1
+        JR NZ,DP_SHIFT_LEFT_LOOP
         RET
-; Double-precision MULTIPLY: for each of 7 mantissa bytes / 8 bits, conditionally add (DP_ADD_CONST) the multiplicand and shift, accumulating the 8-byte product; guards against multiply-by-zero. MS BASIC-80 double multiply.
+; ----------------------------------------------------------------------
+; DMUL -- double-precision MULTIPLY (MBF, 8-byte mantissa).
+;   In:        FAC double at $0CAC..$0CB4 (multiplier), ARG double at $0CBA..$0CC1 (multiplicand).
+;   Out:       FAC = FAC * ARG, normalized/rounded; FAC=0 if either operand is zero.
+;   Clobbers:  A,B,C,D,E,H,L; FAC, ARG, the $0CE3 temp.
+;   Algorithm: If FAC=0 return; if ARG exponent=0 set FAC=0. Combine the operand signs and add exponents (MULDIV_SIGN_1+1, the +1 entry doing a plain sign XOR). Stash the multiplier mantissa into the $0CE3 temp and zero the FAC mantissa (DP_COPY_TEMP) to form the accumulator. Classic shift-add: for each of the 7 multiplier mantissa bytes (skipping all-zero bytes via DMUL_4) process 8 bits LSB-first (RRA the bit out); if set, add the multiplicand mantissa into the accumulator (DP_ADD_CONST_8E), then shift the accumulator right 1 (DP_SHIFT_RIGHT_FROM_CB3) so each successive bit's partial product weighs one place lower. Finish through DADD_4 (normalize+round).
+; ----------------------------------------------------------------------
 DMUL:
         CALL FP_SIGN
+        ; FAC is zero => product is zero
         RET Z
         LD A,(L_0CC1)
         OR A
+        ; ARG (multiplicand) exponent zero => product is zero
         JP Z,FP_SET_ZERO
+        ; +1 entry runs XOR A: plain sign XOR (no complement) then add the exponents
         CALL MULDIV_SIGN_1+1
+        ; stash the multiplier mantissa to the temp and clear the FAC mantissa to seed the accumulator
         CALL DP_COPY_TEMP
         LD (HL),C
         INC DE
         LD B,$07
-DMUL_1:
+DMUL_BYTE_LOOP:
         LD A,(DE)
         INC DE
         OR A
         PUSH DE
-        JR Z,DMUL_4
+        ; whole multiplier byte is zero: skip the 8 conditional adds, just shift one byte
+        JR Z,DMUL_SKIP_ZERO_BYTE
         LD C,$08
-DMUL_2:
+DMUL_BIT_LOOP:
         PUSH BC
+        ; shift out the next multiplier bit (LSB-first); carry set => add the multiplicand
         RRA
         LD B,A
+        ; bit set: add the multiplicand mantissa into the running product
         CALL C,DP_ADD_CONST_8E
+        ; shift the partial product right one place to weight the next bit
         CALL DP_SHIFT_RIGHT_FROM_CB3
         LD A,B
         POP BC
         DEC C
-        JR NZ,DMUL_2
-DMUL_3:
+        JR NZ,DMUL_BIT_LOOP
+DMUL_NEXT_BYTE:
         POP DE
         DEC B
-        JR NZ,DMUL_1
-        JP DADD_4
-DMUL_4:
+        JR NZ,DMUL_BYTE_LOOP
+        ; all partial products accumulated: normalize and round via the shared DADD normalize tail
+        JP DADD_NORMALIZE
+DMUL_SKIP_ZERO_BYTE:
         LD HL,FACHI
-        CALL DP_SHIFT_RIGHT_LOOP
-        JR DMUL_3
+        CALL DP_SHIFT_RIGHT_BYTE
+        JR DMUL_NEXT_BYTE
 ; [RE] Double-precision MBF constant (8-byte mantissa $CD CC CC CC CC CC 4C exp $7D ~= 0.1) used as the divide-by-ten reciprocal seed by DDIV/the decimal scaler. [RE] MBF double-precision constant 0.1 (CD CC CC CC CC CC 4C 7D). Loaded by the double-precision code (LD DE,DP_CONST_TENTH at $5390). The repeating $CC is 0.1's mantissa.
 DP_CONST_TENTH:
         DEFB    $CD,$CC,$CC,$CC,$CC,$CC,$4C,$7D,$00  ; "MLLLLLL}"
@@ -10269,171 +11284,247 @@ DP_CONST_TENTH:
 ; [RE] Small double-precision MBF constant ($00 $00 $20 $84) following DP_CONST_TENTH, used as a rounding/scaling constant by the double-precision path.
 DP_CONST_2:
         DEFB    $00,$00,$20,$84
-; Double-precision DIVIDE: handle exponent/sign, restoring-division by 15 iterations (DP_PUSH_OPERAND / DADD / DP_POP_OPERAND), building the quotient mantissa; promotes to single (FP_NEG) when exponent small. MS BASIC-80 double divide.
+; ----------------------------------------------------------------------
+; FIN_DSCALE_DIV10 -- decimal scaler: divide the FAC double by 10.
+;   In:        FAC double at $0CAC..$0CB4; ARG slot $0CBA used as scratch; constant DP_CONST_TENTH (~0.1, small path only).
+;   Out:       FAC = FAC / 10, full double precision.
+;   Clobbers:  A,B,C,D,E,H,L; FAC, ARG slot, stack.
+;   Algorithm: For small magnitudes (exponent < $41) just multiply FAC by the precomputed 0.1 constant (DMUL) and return -- this is x/10 directly. For larger values it computes x/10 by an iterative exponent-shifted self-add series: if FAC is negative, strip the sign and defer a closing FP_NEG (PUSH HL). Seed with a couple of DP_DEC_EXP + DADD steps, then iterate 15 times (LD A,$0F): each pass drops the ARG exponent by 4 (DP_DEC_EXP_BY4 ~ one decimal place), saves the operand across an inner DADD (DP_PUSH_OPERAND/DADD/DP_POP_OPERAND) to add the next correction term, and a final 3x DP_DEC_EXP trims the exponent. [RE] The series structure is observed; the exact convergence method and why exactly 15 passes (and the precise meaning of the seed/trim DP_DEC_EXP steps) is UNKNOWN -- it is some correction/series expansion of 1/10, not proven to be Newton reciprocal iteration.
+; ----------------------------------------------------------------------
 FIN_DSCALE_DIV10:
         LD A,(L_0CB4)
         CP $41
-        JP NC,FIN_DSCALE_DIV10_1
+        ; exponent >= $41: use the iterative refinement instead of the single 0.1 multiply
+        JP NC,FIN_DSCALE_DIV10_REFINE
         LD DE,DP_CONST_TENTH
-        LD HL,L_0CBA
+        LD HL,ARG2_TEMP
         CALL FP_MOVE_TYPED
+        ; small magnitude: x/10 == x * 0.1, multiply by the DP_CONST_TENTH constant
         JP DMUL
-FIN_DSCALE_DIV10_1:
+FIN_DSCALE_DIV10_REFINE:
         LD A,(FACHI)
         OR A
-        JP P,FIN_DSCALE_DIV10_2
+        JP P,FIN_DSCALE_DIV10_SEED
         AND $7F
         LD (FACHI),A
         LD HL,FP_NEG
+        ; negative input: defer a closing FP_NEG so the refinement works on the magnitude
         PUSH HL
-FIN_DSCALE_DIV10_2:
+FIN_DSCALE_DIV10_SEED:
         CALL DP_DEC_EXP
-        LD DE,L_0CAD
-        LD HL,L_0CBA
+        LD DE,FAC_DBL
+        LD HL,ARG2_TEMP
         CALL FP_MOVE_TYPED
         CALL DP_DEC_EXP
         CALL DADD
-        LD DE,L_0CAD
-        LD HL,L_0CBA
+        LD DE,FAC_DBL
+        LD HL,ARG2_TEMP
         CALL FP_MOVE_TYPED
+        ; 15 correction passes
         LD A,$0F
-FIN_DSCALE_DIV10_3:
+FIN_DSCALE_DIV10_ITER:
         PUSH AF
         CALL DP_DEC_EXP_BY4
+        ; preserve the operand across the inner DADD that adds this pass's correction term
         CALL DP_PUSH_OPERAND
         CALL DADD
         LD HL,L_0CC0
         CALL DP_POP_OPERAND
         POP AF
         DEC A
-        JP NZ,FIN_DSCALE_DIV10_3
+        ; loop until all 15 passes are done
+        JP NZ,FIN_DSCALE_DIV10_ITER
         CALL DP_DEC_EXP
         CALL DP_DEC_EXP
         CALL DP_DEC_EXP
         RET
-; [RE] Decrement the double-precision exponent at $0CB4; on underflow to zero jump to FP_ZERO ($4C09). Renormalization step for DMUL/DDIV.
+; ----------------------------------------------------------------------
+; DP_DEC_EXP -- decrement the FAC double exponent by 1.
+;   In:        FAC exponent at $0CB4.
+;   Out:       Exponent--; if it underflows to 0 the value is zero -> JP FP_SET_ZERO; otherwise returns NZ.
+;   Clobbers:  flags,H,L; $0CB4.
+;   Algorithm: DEC the exponent byte; a zero result means the magnitude scaled below representable range, so set the whole FAC to zero. Used by the /10 scaler to track the exponent across its shifts.
+; ----------------------------------------------------------------------
 DP_DEC_EXP:
         LD HL,L_0CB4
         DEC (HL)
         RET NZ
+        ; exponent underflowed to 0 => result is zero
         JP FP_SET_ZERO
-; [RE] Decrement the operand exponent byte $0CC1 by up to 4, returning early when it reaches zero; quad-loop counter for the divide reciprocal expansion.
+; ----------------------------------------------------------------------
+; DP_DEC_EXP_BY4 -- decrement the ARG exponent ($0CC1) by up to 4, stopping at 0.
+;   In:        ARG exponent at $0CC1.
+;   Out:       Exponent reduced by 4 (or fewer if it would pass 0); returns immediately when it reaches 0.
+;   Clobbers:  A,H,L; $0CC1.
+;   Algorithm: Up to four times, DEC the exponent and RET (Z) the moment it reaches 0; otherwise count A down and loop. The /10 refinement loop calls this each pass to drop the correction-term weight by 4 binary exponent steps (~one decimal place, since 2^4 ~ 10) [RE].
+; ----------------------------------------------------------------------
 DP_DEC_EXP_BY4:
         LD HL,L_0CC1
         LD A,$04
-DP_DEC_EXP_BY4_1:
+DP_DEC_EXP_BY4_LOOP:
+        ; drop the ARG exponent one step; stop early if it reaches zero
         DEC (HL)
         RET Z
         DEC A
-        JP NZ,DP_DEC_EXP_BY4_1
+        JP NZ,DP_DEC_EXP_BY4_LOOP
         RET
-; [RE] Push the 4 word-pairs of the 8-byte double operand at $0CBA onto the stack (saving the return address), preserving it across an inner DADD in DDIV.
+; ----------------------------------------------------------------------
+; DP_PUSH_OPERAND -- save the 8-byte ARG operand ($0CBA..$0CC1) onto the stack across an inner DADD.
+;   In:        ARG block at $0CBA (4 consecutive words); return address on top of stack.
+;   Out:       The 4 words pushed below the preserved return address; ARG unchanged in memory.
+;   Clobbers:  A,B,C,H,L (DE holds the return address).
+;   Algorithm: Pop the return address into DE, push the 4 words of the operand block low->high ($0CBA upward), then push DE back and RET. Paired with DP_POP_OPERAND so the /10 refinement can reuse the shared DADD on a correction term without clobbering its working operand.
+; ----------------------------------------------------------------------
 DP_PUSH_OPERAND:
+        ; lift the return address off so the pushed operand sits below it
         POP DE
         LD A,$04
-        LD HL,L_0CBA
-DP_PUSH_OPERAND_1:
+        LD HL,ARG2_TEMP
+DP_PUSH_OPERAND_LOOP:
         LD C,(HL)
         INC HL
         LD B,(HL)
         INC HL
         PUSH BC
         DEC A
-        JP NZ,DP_PUSH_OPERAND_1
+        JP NZ,DP_PUSH_OPERAND_LOOP
+        ; restore the return address on top before RET
         PUSH DE
         RET
-; [RE] Restore the 8-byte double operand into $0CC1..$0CBA from the stack (inverse of DP_PUSH_OPERAND).
+; ----------------------------------------------------------------------
+; DP_POP_OPERAND -- restore the 8-byte operand from the stack into $0CC1..$0CBA.
+;   In:        4 operand words on the stack (as pushed by DP_PUSH_OPERAND); return address above them.
+;   Out:       Operand block reloaded high->low ($0CC1 down to $0CBA); ARG restored.
+;   Clobbers:  A,B,C,H,L (DE holds the return address).
+;   Algorithm: Pop the return address into DE, pop the 4 words back into the block writing high->low (B->[HL], C->[HL-1], walking down from $0CC1), then push DE and RET. Exact inverse of DP_PUSH_OPERAND. (Callers may LD HL,... before the call, but the routine overwrites HL with $0CC1 immediately.)
+; ----------------------------------------------------------------------
 DP_POP_OPERAND:
         POP DE
         LD A,$04
         LD HL,L_0CC1
-DP_POP_OPERAND_1:
+DP_POP_OPERAND_LOOP:
+        ; pull each saved word and store high-byte then low-byte, walking down from $0CC1
         POP BC
         LD (HL),B
         DEC HL
         LD (HL),C
         DEC HL
         DEC A
-        JP NZ,DP_POP_OPERAND_1
+        JP NZ,DP_POP_OPERAND_LOOP
         PUSH DE
         RET
-; [RE] Double-precision FIX/INT and decimal-scale helper: validates exponents, copies FAC to temp via DP_COPY_TEMP ($5474), then repeatedly subtracts powers of ten ($9E/$8E constants) to extract integer digits.
+; ----------------------------------------------------------------------
+; DDIV -- double-precision DIVIDE (MBF, restoring division).
+;   In:        FAC double at $0CAC..$0CB4 (dividend), ARG double at $0CBA..$0CC1 (divisor).
+;   Out:       FAC = FAC / ARG, normalized/rounded; FAC=0 on dividend zero; divide-by-zero -> FIN_DONE_15, overflow -> FIN_DONE_12.
+;   Clobbers:  A,B,C,D,E,H,L; FAC, the $0CDD remainder block and $0CE3/$0CE4 temps.
+;   Algorithm: If the divisor exponent ($0CC1) is 0, jump to the divide-by-zero handler (FIN_DONE_15). If the dividend exponent ($0CB4) is 0, the quotient is 0. Combine signs and form the quotient exponent (MULDIV_SIGN, A=$FF complement path), then INC the exponent twice to set the quotient scale (Z => overflow -> FIN_DONE_12). Seed the remainder block $0CDD..$0CE3 with the dividend mantissa (DP_COPY_TEMP); the quotient builds in the FAC mantissa $0CAD (cleared to 0). Restoring division: each step trial-subtracts the divisor (DP_SUB_CONST_8E with $9E; SBC/CCF turns the borrow into a fit/no-fit test), and on no-fit adds it back ($8E); a 1/0 quotient bit is recorded, then the QUOTIENT ($0CAD, 7 bytes via DP_SHIFT_LEFT_8_1) and the REMAINDER ($0CDD, 8 bytes via DP_SHIFT_LEFT_8) are shifted left, looping over the bit counter B and the exponent at $0CB4 until the quotient is filled; exponent underflow yields zero.
+; ----------------------------------------------------------------------
 DDIV:
         LD A,(L_0CC1)
         OR A
+        ; divisor exponent 0 => division by zero
         JP Z,FIN_DONE_15
         LD A,(L_0CB4)
         OR A
+        ; dividend exponent 0 => quotient is zero
         JP Z,FP_SET_ZERO
+        ; combine signs (A=$FF complement => divide) and form the quotient exponent
         CALL MULDIV_SIGN
         INC (HL)
         INC (HL)
         JP Z,FIN_DONE_12
+        ; seed the remainder block ($0CDD..$0CE3) with the dividend mantissa
         CALL DP_COPY_TEMP
         LD HL,L_0CE4
         LD (HL),C
         LD B,C
-DDIV_1:
+DDIV_DIGIT_LOOP:
         LD A,$9E
+        ; trial-subtract the divisor from the remainder ($9E); SBC+CCF makes the borrow a fit/no-fit test
         CALL DP_SUB_CONST_8E
         LD A,(DE)
         SBC A,C
         CCF
-        JR C,DDIV_2+1
+        JR C,DDIV_RECORD_DIGIT+1
         LD A,$8E
+        ; divisor did not fit: add it back ($8E) to restore the remainder; quotient bit stays 0
         CALL DP_SUB_CONST_8E
         XOR A
-; [RE] DDIV digit-loop overlap (VERIFIED). DA 12 04 = JP C,$0412 only on the carry-CLEAR fall-through ($544B XOR A guarantees carry clear, so the JP is a never-taken 2-byte skip of its own operand). The carry-SET branch (JR C,DDIV_2+1 at $5444) enters at +1 and runs 12 04 = LD (DE),A / INC B: store the reduced remainder, count one decimal digit. Both paths land at $544F. MBASIC DDIV_3 byte-identical.
-DDIV_2:
+; [RE] DDIV digit-loop overlap (VERIFIED). DA 12 04 = JP C,$0412 only on the carry-CLEAR fall-through ($544B XOR A guarantees carry clear, so the JP is a never-taken 2-byte skip of its own operand). The carry-SET branch (JR C,DDIV_RECORD_DIGIT+1 at $5444) enters at +1 and runs 12 04 = LD (DE),A / INC B: store the reduced remainder, count one decimal digit. Both paths land at $544F. MBASIC DDIV_3 byte-identical.
+DDIV_RECORD_DIGIT:
         JP C,$0412
         LD A,(FACHI)
         INC A
         DEC A
         RRA
-        JP M,DADD_10
+        JP M,DADD_ROUND_AND_SIGN_A
         RLA
-        LD HL,L_0CAD
+        LD HL,FAC_DBL
         LD C,$07
-        CALL DP_SHIFT_LEFT_8_1
+        ; shift the QUOTIENT mantissa ($0CAD, 7 bytes) left one bit to make room for the next digit
+        CALL DP_SHIFT_LEFT_LOOP
         LD HL,L_0CDD
+        ; shift the REMAINDER ($0CDD, 8 bytes) left one bit for the next division step
         CALL DP_SHIFT_LEFT_8
         LD A,B
         OR A
-        JR NZ,DDIV_1
+        ; more bits remain in this quotient byte (bit counter B not yet zero)
+        JR NZ,DDIV_DIGIT_LOOP
         LD HL,L_0CB4
         DEC (HL)
-        JR NZ,DDIV_1
+        ; exponent still positive: keep producing quotient digits
+        JR NZ,DDIV_DIGIT_LOOP
+        ; exponent underflowed => quotient rounds to zero
         JP FP_SET_ZERO
-; [RE] Copy the 7-byte double mantissa down into temp buffer $0CE3 (and clear the source), saving the leading byte to $0CC0; scratch save used by DMUL/DDIV/DP_FIX.
+; ----------------------------------------------------------------------
+; DP_COPY_TEMP -- move the 7-byte FAC mantissa into the $0CE3 temp and zero the source.
+;   In:        HL = pointer just above the FAC mantissa MSB ($0CB4); C = leading byte to stash (the saved sign/MSB byte); FAC mantissa just below HL.
+;   Out:       7 mantissa bytes copied high->low into $0CE3..$0CDD; source FAC mantissa zeroed; leading byte saved to $0CC0.
+;   Clobbers:  A,B,C,D,E,H,L; $0CE3..$0CDD temp, FAC mantissa (cleared), $0CC0.
+;   Algorithm: Save the leading byte C into $0CC0, DEC HL to the mantissa MSB, then copy 7 bytes from the FAC mantissa down into the $0CE3 temp while writing 0 back into each source byte (BC=$0700 sets B=7 count and C=0 as the clear value). Used by DMUL (stash multiplier, clear accumulator) and DDIV (seed remainder, clear quotient).
+; ----------------------------------------------------------------------
 DP_COPY_TEMP:
         LD A,C
+        ; stash the leading mantissa byte (C) before the source is cleared
         LD (L_0CC0),A
         DEC HL
         LD DE,L_0CE3
         LD BC,$0700
-DP_COPY_TEMP_1:
+DP_COPY_TEMP_LOOP:
         LD A,(HL)
         LD (DE),A
+        ; clear each source byte (C=0) as it is copied out, leaving the accumulator at zero
         LD (HL),C
         DEC DE
         DEC HL
         DEC B
-        JR NZ,DP_COPY_TEMP_1
+        JR NZ,DP_COPY_TEMP_LOOP
         RET
-; [RE] Multiply the double accumulator by ten: bump the mantissa length, add the value to itself shifted (DADD), used by the decimal input/output scaler. Double-precision *10 step.
+; ----------------------------------------------------------------------
+; DP_MUL10 -- multiply the FAC double by ten (decimal input/output scaler).
+;   In:        FAC double at $0CAC..$0CB4.
+;   Out:       FAC = FAC * 10, full double precision; exponent overflow -> FIN_DONE_12; FAC unchanged if its exponent was 0.
+;   Clobbers:  A,D,E,H,L; FAC, ARG temp ($0CBA).
+;   Algorithm: Copy FAC into the ARG temp (FP_ARG_TO_TEMP2 -> FP_MOVE_TYPED copies $0CAD..$0CB4 to $0CBA..$0CC1, leaving HL at the FAC exponent $0CB4). x*10 = (x*4 + x)*2: ADD A,$02 bumps the FAC exponent by 2 (FAC = x*4; carry => overflow), DADD adds the saved original (ARG = x) giving x*4 + x = x*5, then INC the FAC exponent ($0CB4) once to double it to x*10. Returns FAC unchanged if its exponent was 0.
+; ----------------------------------------------------------------------
 DP_MUL10:
         CALL FP_ARG_TO_TEMP2
         EX DE,HL
         DEC HL
         LD A,(HL)
         OR A
+        ; FAC exponent 0 => 0*10 = 0, return unchanged
         RET Z
+        ; bump the FAC exponent by 2 binary steps (FAC = x*4); carry => overflow
         ADD A,$02
         JP C,FIN_DONE_12
         LD (HL),A
         PUSH HL
+        ; FAC(x*4) + ARG(original x) = x*5
         CALL DADD
         POP HL
+        ; final FAC-exponent bump doubles the sum: (x*5)*2 = x*10
         INC (HL)
         RET NZ
         JP FIN_DONE_12
@@ -10709,7 +11800,7 @@ FIN_DONE_7:
         POP HL
         JP FIN_DONE_19
 FIN_DONE_8:
-        LD A,(L_0CB5)
+        LD A,(FP_SIGN_FLAG)
         JP FIN_DONE_13
         POP AF
 FIN_DONE_9:
@@ -10722,7 +11813,7 @@ FIN_DONE_10:
 FIN_DONE_11:
         POP AF
 FIN_DONE_12:
-        LD A,(L_0CB5)
+        LD A,(FP_SIGN_FLAG)
         CPL
 FIN_DONE_13:
         RLA
@@ -10733,7 +11824,7 @@ FIN_DONE_14:
 FIN_DONE_15:
         PUSH HL
         PUSH DE
-        LD HL,L_0CAD
+        LD HL,FAC_DBL
         LD DE,L_5707
         CALL FP_MOVE4
         LD A,(L_5707)
@@ -10786,7 +11877,7 @@ FIN_DONE_22:
         CALL FP_MOVE4
         CALL FRMEVL_TEST_TYPE
         JP PO,FIN_DONE_23
-        LD HL,L_0CAD
+        LD HL,FAC_DBL
         LD DE,L_5707
         CALL FP_MOVE4
 FIN_DONE_23:
@@ -10923,7 +12014,7 @@ FOUT_SET_FORMAT:
 FOUT_DOUBLE_FMT:
         CALL FAC_PUSH
         EX DE,HL
-        LD HL,(L_0CAD)
+        LD HL,(FAC_DBL)
         PUSH HL
         LD HL,(L_0CAF)
         PUSH HL
@@ -10963,7 +12054,7 @@ FOUT_SET_FORMAT_5:
         POP BC
         POP DE
         EX DE,HL
-        LD (L_0CAD),HL
+        LD (FAC_DBL),HL
         LD H,B
         LD L,C
         LD (L_0CAF),HL
@@ -11027,7 +12118,7 @@ SUB_5822_4:
         POP BC
         POP DE
         EX DE,HL
-        LD (L_0CAD),HL
+        LD (FAC_DBL),HL
         LD H,B
         LD L,C
         LD (L_0CAF),HL
@@ -11370,7 +12461,7 @@ FOUT_SCALE10_1:
         CP $91
         JP NC,FOUT_SCALE10_2
         LD DE,FOUT_DIGITS_INT_3
-        LD HL,L_0CBA
+        LD HL,ARG2_TEMP
         CALL FP_MOVE_TYPED
         CALL DMUL
         POP AF
@@ -11537,7 +12628,7 @@ FOUT_DIGITS_FRAC_2:
         JR NZ,FOUT_DIGITS_FRAC_1
         PUSH BC
         PUSH HL
-        LD HL,L_0CAD
+        LD HL,FAC_DBL
         CALL FP_STORE_REGS_LD
         JR FOUT_DIGITS_FRAC_4
 FOUT_DIGITS_FRAC_3:
@@ -11751,35 +12842,65 @@ HEX_OCT_OUT_8:
         LD (DE),A
         POP HL
         RET
-; [RE] Helper that pushes the FAC-negate routine ($4E76) as a return address then JP (HL); used to conditionally negate the FAC in the transcendental handlers.
+; ----------------------------------------------------------------------
+; FAC_NEGATE_VIA -- tail-call trampoline that arranges FP_NEG to run as the caller's return
+;   In:        top of stack = the original caller's return address; FAC holds the value
+;   Out:       jumps into the routine whose address was on the stack, having spliced FP_NEG in
+;              below so that FP_NEG runs (negating the FAC) when that path eventually RETs
+;   Clobbers:  HL (and FAC sign once FP_NEG runs)
+;   Algorithm: Load HL = FP_NEG, EX (SP),HL to swap it with the saved return address (HL now
+;              holds that original return), then JP (HL) to continue there with FP_NEG left on
+;              the stack as the eventual return. Used as the conditional-negate hook in FN_SQR's
+;              power path and FN_ATN so a sign flip happens on the way back without an explicit
+;              CALL/RET pair.
+; ----------------------------------------------------------------------
 FAC_NEGATE_VIA:
         LD HL,FP_NEG
+        ; splice FP_NEG under the caller's return address: FP_NEG will run when this path eventually RETs
         EX (SP),HL
+        ; resume at the original return target, with the negate now pending below it on the stack
         JP (HL)
-; [RE] SQR(x) handler (function token $07): square root (MBF).
+; ----------------------------------------------------------------------
+; FN_SQR -- SQR(x) square-root handler (token $07); shares the x^y power kernel body
+;   In:        FAC holds x (the radicand)
+;   Out:       FAC = sqrt(x); RETs via the pushed CLEAR_EVAL_FLAG_0CB6 tail
+;   Clobbers:  FAC, FP work stack, A/BC/DE/HL, L_0CB6
+;   Algorithm: SQR is computed as x^0.5. Push x (FAC_PUSH), load the exponent operand 0.5
+;              (FP_CONST_HALF_SNG) into the FAC, and fall into the shared power body at FN_SQR_2.
+;              The power kernel computes base^exp = EXP(exp * LOG(base)) with special cases:
+;              exp==0 -> 1 (via the FN_EXP tail); base==0 (on the exp>0 path) -> 0; an integer/
+;              odd-integer exponent of a negative base is allowed and its sign tracked (FIX_SCALE
+;              /FCOMP decide integer-ness and parity, FAC_NEGATE_VIA/FP_NEG apply the final sign).
+;              LOG(|base|) -> *exp -> EXP gives the result. CLEAR_EVAL_FLAG_0CB6 is pushed as the
+;              common exit (zeroes the $0CB6 FP/numeric-eval state flag set to 1 below).
+; ----------------------------------------------------------------------
 FN_SQR:
         CALL FAC_PUSH
+        ; SQR(x) == x^0.5: load 0.5 as the exponent and reuse the power-operator body
         LD HL,FP_CONST_HALF_SNG
         CALL FP_STORE_REGS_LD
         JR FN_SQR_2
-FN_SQR_1:
+POWER_OP_APPLY:
         CALL FN_CSNG
 FN_SQR_2:
         POP BC
         POP DE
         LD HL,CLEAR_EVAL_FLAG_0CB6
         PUSH HL
+        ; set the $0CB6 FP/numeric-eval state flag; CLEAR_EVAL_FLAG_0CB6 (pushed as the exit) zeroes it on return
         LD A,$01
         LD (L_0CB6),A
         CALL FP_SIGN
         LD A,B
+        ; exponent == 0: base^0 = 1, jump to the EXP tail which yields 1.0
         JR Z,FN_EXP
         JP P,FN_SQR_3
         OR A
         JP Z,FIN_DONE_18
 FN_SQR_3:
         OR A
-        JP Z,FP_SET_ZERO_1
+        ; base == 0 (positive-exponent path): result is 0
+        JP Z,FP_SET_ZERO_EXP
         PUSH DE
         PUSH BC
         LD A,C
@@ -11788,6 +12909,7 @@ FN_SQR_3:
         JP P,FN_SQR_4
         PUSH DE
         PUSH BC
+        ; test whether the exponent is a whole number (needed to allow a negative base and to find odd/even parity for the sign)
         CALL FIX_SCALE
         POP BC
         POP DE
@@ -11801,37 +12923,60 @@ FN_SQR_4:
         LD (FACHI),HL
         POP HL
         LD (FAC),HL
+        ; negative base with an odd integer exponent: queue a final negate of the result
         CALL C,FAC_NEGATE_VIA
         CALL Z,FP_NEG
         PUSH DE
         PUSH BC
+        ; x^y via logarithms: compute LOG(|base|)
         CALL FN_LOG
         POP BC
         POP DE
+        ; multiply by the exponent: exp * LOG(base); the fall-through into FN_EXP exponentiates it
         CALL FMUL
-; [RE] EXP(x) handler (function token $0B): e raised to x (MBF).
+; ----------------------------------------------------------------------
+; FN_EXP -- EXP(x) e^x handler (token $0B); also the back half of the x^y power kernel
+;   In:        FAC holds x (the exponent); reached as a function or by FN_SQR after exp*LOG(base)
+;   Out:       FAC = e^x; underflow returns 0, overflow raises via FIN_DONE_9
+;   Clobbers:  FAC, FP work stack, A/BC/DE/HL, L_0CB4
+;   Algorithm: e^x = 2^(x*log2 e). Multiply x by log2(e) (operand B=$81, C/D/E=$38,$AA,$3B =
+;              MBF 1.442695) so the problem becomes 2^v. Magnitude guards on the scaled exponent
+;              L_0CB4: >= $88 -> the large-magnitude path FN_EXP_1, which then splits by the
+;              FACHI sign (positive -> FIN_DONE_9 overflow, negative -> FP_SET_ZERO underflow=0);
+;              < $68 -> v ~ 0, return MBF 1.0 (FN_EXP_4). Otherwise split v into integer part i
+;              and fraction f (FIX_SCALE), bias i as an MBF exponent (ADD $81), approximate 2^f
+;              with FP_POLY_EXP_COEFFS (POLY_EVAL), then re-apply the integer scale by FMUL with
+;              the operand exponent = i and zero mantissa (DE=0, C=0) to get 2^v = e^x.
+; ----------------------------------------------------------------------
 FN_EXP:
+        ; e^x = 2^(x * log2 e): scale x by log2(e) = 1.442695 (MBF exp=$81, mantissa $38,$AA,$3B) so the kernel works in base 2
         LD BC,$8138
         LD DE,$AA3B
         CALL FMUL
         LD A,(L_0CB4)
+        ; magnitude guard: scaled exponent too large -> large-magnitude path (overflow if positive, underflow->0 if negative)
         CP $88
         JP NC,FN_EXP_1
+        ; magnitude tiny -> e^x rounds to 1.0 (FN_EXP_4)
         CP $68
         JP C,FN_EXP_4
         CALL FAC_PUSH
+        ; split scaled v into integer part (the power of two) and fractional remainder f
         CALL FIX_SCALE
         ADD A,$81
         POP BC
         POP DE
         JP Z,FN_EXP_2
         PUSH AF
+        ; isolate the fraction f = v - int(v) for the polynomial
         CALL FSUB
+        ; approximate 2^f with the EXP coefficient polynomial
         LD HL,FP_POLY_EXP_COEFFS
         CALL POLY_EVAL
         POP BC
         LD DE,$0000
         LD C,D
+        ; re-apply the integer power of two: result = 2^f * 2^int = 2^v = e^x
         JP FMUL
 FN_EXP_1:
         CALL FAC_PUSH
@@ -11841,10 +12986,12 @@ FN_EXP_2:
         JP P,FN_EXP_3
         POP AF
         POP AF
+        ; underflow: e^x rounds to 0
         JP FP_SET_ZERO
 FN_EXP_3:
         JP FIN_DONE_9
 FN_EXP_4:
+        ; tiny argument: return exactly 1.0 (MBF exp=$81, mantissa 0)
         LD BC,$8100
         LD DE,$0000
         CALL FP_STORE_FAC
@@ -11853,20 +13000,47 @@ FN_EXP_4:
 FP_POLY_EXP_COEFFS:
         DEFB    $07,$7C,$88,$59,$74,$E0,$97,$26,$77,$C4,$1D,$1E,$7A,$5E,$50,$63
         DEFB    $7C,$1A,$FE,$75,$7E,$18,$72,$31,$80,$00,$00,$00,$81
-; [RE] Odd-power polynomial evaluator: forms x*P(x^2) for the series approximations (SIN/ATN/TAN), squaring the argument then calling the Horner evaluator POLY_EVAL.
+; ----------------------------------------------------------------------
+; POLY_EVAL_ODD -- evaluate x * P(x^2): odd-power series wrapper for SIN/TAN/ATN
+;   In:        FAC = x; HL -> coefficient table (count byte then MBF coefficients)
+;   Out:       FAC = x * P(x^2)
+;   Clobbers:  FAC, FP work stack, A/BC/DE/HL
+;   Algorithm: Push x (FAC_PUSH). Queue IMUL_6 ('POP BC/POP DE then JP FMUL') as the return so the
+;              final step multiplies the polynomial result by the saved x. Push the coefficient
+;              pointer, reload x (FP_LOAD_FAC), FMUL it by itself to form x^2 in the FAC, pop the
+;              coefficient pointer, and fall into POLY_EVAL to compute P(x^2) by Horner. On its
+;              return the queued IMUL_6 pops the saved x and FMULs, giving the odd series
+;              x*P(x^2). Used where the series has only odd powers.
+; ----------------------------------------------------------------------
 POLY_EVAL_ODD:
         CALL FAC_PUSH
+        ; queue the final 'multiply by x' step: IMUL_6 pops the saved argument and FMULs it after the polynomial returns
         LD DE,IMUL_6
         PUSH DE
         PUSH HL
         CALL FP_LOAD_FAC
+        ; square the argument: evaluate P in x^2 so an odd series becomes x*P(x^2)
         CALL FMUL
         POP HL
-; [RE] MS BASIC-80 polynomial (Horner) evaluator: HL -> coefficient table (count byte then MBF coefficients); repeatedly FMUL by the argument and FADD the next coefficient. Shared by LOG/EXP/SIN/COS/TAN/ATN.
+; ----------------------------------------------------------------------
+; POLY_EVAL -- Horner polynomial evaluator over an MBF coefficient pool (shared transcendental core)
+;   In:        FAC = argument t; HL -> table = { count byte N; N consecutive 4-byte MBF coefficients,
+;              highest-degree first }
+;   Out:       FAC = ((c0*t + c1)*t + c2)... = P(t)
+;   Clobbers:  FAC, FP work stack, A/BC/DE/HL
+;   Algorithm: Push t (FAC_PUSH). Read N (count), seed the FAC with the first/highest coefficient
+;              (FP_STORE_REGS_LD). Loop: FMUL the accumulator by t, then FADD the next coefficient
+;              loaded from the table (FP_LOAD_MEM + FADD_ALIGN), decrementing the count to zero.
+;              The dual-entry POLY_EVAL_1 cover idiom (the byte $F1 of LD B,$F1 also runs as POP
+;              AF when the loop re-enters at POLY_EVAL_1+1) discards the per-iteration PUSH AF and
+;              then pops the saved BC/DE each pass. Shared by LOG/EXP/SIN/COS/TAN/ATN.
+; ----------------------------------------------------------------------
 POLY_EVAL:
         CALL FAC_PUSH
+        ; read the coefficient count N (table is N, then N high-to-low MBF coefficients)
         LD A,(HL)
         INC HL
+        ; seed the Horner accumulator with the highest-degree coefficient
         CALL FP_STORE_REGS_LD
 ; [RE] VERIFIED flag-skip. POLY_EVAL_1 ($5D6D) opcode-eating dual entry. First pass (fall-through from FP_STORE_REGS_LD CALL at $5D6A) executes LD B,$F1 (06 F1); the $06 opcode swallows the $F1, so the first iteration pops only BC,DE. The Horner loop re-enters via JR POLY_EVAL_1+1 ($5D6E), running $F1 as POP AF to discard the per-iteration PUSH AF ($5D75) before popping BC,DE. B=$F1 is dead (overwritten by POP BC at $5D6F). Cover is genuinely executed on fall-through; MBASIC twin byte-identical.
 POLY_EVAL_1:
@@ -11879,35 +13053,74 @@ POLY_EVAL_1:
         PUSH BC
         PUSH AF
         PUSH HL
+        ; Horner step: accumulator *= argument t
         CALL FMUL
         POP HL
+        ; fetch the next coefficient from the table
         CALL FP_LOAD_MEM
         PUSH HL
+        ; Horner step: accumulator += next coefficient
         CALL FADD_ALIGN
         POP HL
+        ; loop back through the cover byte (runs $F1 as POP AF) for the next coefficient
         JR POLY_EVAL_1+1
 L_5D85:
         DEFB    $52,$C7,$4F,$80
 POLY_EVAL_2:
         CALL CHRGET
-; [RE] Evaluate a polynomial in sqrt(x): pushes the argument, runs FN_SQR, then evaluates the series via POLY_EVAL (used by the ATN/LOG support path called at $4486).
-POLY_EVAL_SQR:
+; ----------------------------------------------------------------------
+; POLY_EVAL_SQR -- (mislabeled) RND reseed helper: advance/reseed the RND generator with a fixed argument
+;   In:        HL preserved across the call; reached from STMT_RANDOMIZE (the RANDOMIZE statement,
+;              which first stores the user seed into RNDX_SEED_WORD) and from the RND-with-no-
+;              argument entry POLY_EVAL_2 ($5D89, which CHRGETs then falls through here)
+;   Out:       RND state advanced/reseeded; FAC numeric type set to single; HL restored
+;   Clobbers:  FAC, A/BC/DE; HL restored
+;   Algorithm: It does NOT evaluate a polynomial in sqrt(x) (the prior 'evaluate poly in sqrt(x)'
+;              description is unsupported by the bytes). OBSERVED: save HL, load the constant at
+;              L_4CA6 (MBF $00,$00,$00,$81 = 1.0) into the FAC registers (FP_STORE_REGS_LD), call
+;              FN_RND to fold the generator with that argument, restore HL, then JP into
+;              SET_TYPE_DOUBLE_1+1 which runs as LD A,$04 -> VALTYP = single. [RE] this is the RND
+;              reseed/advance shim invoked by RANDOMIZE and by RND with no parentheses.
+; ----------------------------------------------------------------------
+RND_SEED_RESET:
         PUSH HL
+        ; load the constant at L_4CA6 (MBF $00,$00,$00,$81 = 1.0) into the FAC registers as the RND argument
         LD HL,L_4CA6
         CALL FP_STORE_REGS_LD
+        ; fold that argument through the RND generator to advance/reseed the running random state
         CALL FN_RND
         POP HL
         JP SET_TYPE_DOUBLE_1+1
-; [RE] RND(x) handler (function token $08): pseudo-random number; updates/reads the RND seed (RNDX_SEED).
+; ----------------------------------------------------------------------
+; FN_RND -- RND(x) pseudo-random number generator (token $08)
+;   In:        FAC = x: x<0 reseeds the index/counter state from x; x==0 returns the last value;
+;              x>0 advances. State in RNDX_SEED (4-byte MBF) plus the three index/counter cells
+;              RND_WRAP_COUNTER/RND_CONST_INDEX/RND_MULT_INDEX
+;   Out:       FAC = next pseudo-random value; RNDX_SEED updated (FAC also holds the result)
+;   Clobbers:  FAC, A/BC/DE/HL, RNDX_SEED and the three index/counter cells
+;   Algorithm: [RE] MS BASIC-80-style linear-congruential-on-MBF RNG. FP_SIGN selects the path.
+;              For x<0 (FN_RND_3) the FAC sign byte is written into the THREE index/counter cells
+;              RND_MULT_INDEX/RND_CONST_INDEX/RND_WRAP_COUNTER (HL=RND_MULT_INDEX, two DEC HL) to
+;              make the index sequence deterministic, then fall into the fold. The advance loads
+;              the seed, multiplies it by a constant chosen via RND_MULT_INDEX (AND $07 -> one of
+;              8 multiplier slots), and FADDs an additive constant chosen via RND_CONST_INDEX
+;              (cycled 0..3, skipping value 1). The result's mantissa is perturbed (XOR $4F, top
+;              byte forced $80 to keep it in [0,1)); RND_WRAP_COUNTER counts mod $AB and on wrap
+;              perturbs the mantissa (INC C/DEC D/INC E) to lengthen the period. The new value is
+;              stored back to RNDX_SEED and returned in the FAC.
+; ----------------------------------------------------------------------
 FN_RND:
         CALL FP_SIGN
-        LD HL,FN_RND_6
+        LD HL,RND_MULT_INDEX
+        ; negative argument: deterministic reseed (FN_RND_3 overwrites the three index/counter cells RND_MULT_INDEX/RND_CONST_INDEX/RND_WRAP_COUNTER with the FAC sign byte), then fold
         JP M,FN_RND_3
         LD HL,RNDX_SEED
         CALL FP_STORE_REGS_LD
-        LD HL,FN_RND_6
+        LD HL,RND_MULT_INDEX
+        ; zero argument: return the previously generated value unchanged
         RET Z
         ADD A,(HL)
+        ; pick one of eight multiplier constants for this advance
         AND $07
         LD B,$00
         LD (HL),A
@@ -11917,19 +13130,22 @@ FN_RND:
         LD C,A
         ADD HL,BC
         CALL FP_LOAD_MEM
+        ; multiplicative step: seed *= selected multiplier constant
         CALL FMUL
-        LD A,(FN_RND_5)
+        LD A,(RND_CONST_INDEX)
         INC A
+        ; cycle the additive-constant index 0..3 (the CP $01/ADC skips slot 1)
         AND $03
         LD B,$00
         CP $01
         ADC A,B
-        LD (FN_RND_5),A
+        LD (RND_CONST_INDEX),A
         LD HL,RNDX_SEED
         ADD A,A
         ADD A,A
         LD C,A
         ADD HL,BC
+        ; additive step: += the selected additive constant
         CALL FADD_FROM_MEM
 FN_RND_1:
         CALL FP_LOAD_FAC
@@ -11941,9 +13157,10 @@ FN_RND_1:
         DEC HL
         LD B,(HL)
         LD (HL),$80
-        LD HL,FN_RND_4
+        LD HL,RND_WRAP_COUNTER
         INC (HL)
         LD A,(HL)
+        ; wrap counter reaches $AB: zero it and perturb the mantissa to extend the period
         SUB $AB
         JR NZ,FN_RND_2
         LD (HL),A
@@ -11953,6 +13170,7 @@ FN_RND_1:
 FN_RND_2:
         CALL FADD
         LD HL,RNDX_SEED
+        ; store the new value (FAC) back to RNDX_SEED; the FAC still holds it as the return value
         JP FP_MOVE_TO_FAC
 FN_RND_3:
         LD (HL),A
@@ -11961,11 +13179,11 @@ FN_RND_3:
         DEC HL
         LD (HL),A
         JR FN_RND_1
-FN_RND_4:
+RND_WRAP_COUNTER:
         NOP
-FN_RND_5:
+RND_CONST_INDEX:
         NOP
-FN_RND_6:
+RND_MULT_INDEX:
         NOP
         DEC (HL)
         LD C,D
@@ -11980,19 +13198,44 @@ RNDX_SEED:
 ; [RE] RND seed mantissa word (upper 3 bytes of the RNDX state at $5E25-$5E27): RANDOMIZE stores the new seed here via STMT_RANDOMIZE_3 ($4483 LD ($5E25),HL)
 RNDX_SEED_WORD:
         DEFB    $C7,$4F,$80,$68,$B1,$46,$68,$99,$E9,$92,$69,$10,$D1,$75,$68
-; [RE] COS(x) handler (function token $0C): cosine; adds a quarter period and falls into the SIN path.
+; ----------------------------------------------------------------------
+; FN_COS -- COS(x) cosine handler (token $0C)
+;   In:        FAC = x (radians)
+;   Out:       FAC = cos(x); falls into FN_SIN
+;   Clobbers:  FAC, A/BC/DE/HL
+;   Algorithm: cos(x) = sin(x + pi/2). Add the constant pi/2 (FP_CONST_HALFPI) to the FAC and
+;              fall straight into FN_SIN, which range-reduces the shifted angle and evaluates the
+;              sine series. No separate cosine polynomial exists.
+; ----------------------------------------------------------------------
 FN_COS:
-        LD HL,FP_CONST_EXP_LOG2E
+        ; cos(x) = sin(x + pi/2): add the quarter period (pi/2), then fall into the SIN path
+        LD HL,FP_CONST_HALFPI
         CALL FADD_FROM_MEM
-; [RE] SIN(x) handler (function token $09): sine (MBF; range-reduced then series).
+; ----------------------------------------------------------------------
+; FN_SIN -- SIN(x) sine handler (token $09); also the shared tail of COS and TAN
+;   In:        FAC = x (radians); L_0CB4 = FAC exponent
+;   Out:       FAC = sin(x)
+;   Clobbers:  FAC, FP work stack, A/BC/DE/HL, FACHI
+;   Algorithm: Small-angle fast path: if the exponent L_0CB4 < $77 (|x| ~< 2^-8) return x
+;              unchanged. Else range-reduce: multiply by 1/(2*pi) (operand B=$7E,C/D/E=$22,$F9,$83
+;              = 0.15915) so a full period is 1.0, take the fractional part (FIX_SCALE + FSUB) to
+;              land in [0,1). Fold that fraction into the first quadrant via the compares against
+;              $7F00 (=0.25) and the $7F80/$8080 (= -0.25/-0.5) FADDs with a conditional FP_NEG,
+;              recording the final sign in FACHI's top bit. Evaluate the odd sine series x*P(x^2)
+;              over FP_POLY_SIN_COEFFS (POLY_EVAL_ODD), then re-apply the saved sign so the result
+;              matches the original quadrant. [RE] the exact quadrant arithmetic is inferred.
+; ----------------------------------------------------------------------
 FN_SIN:
         LD A,(L_0CB4)
         CP $77
+        ; small-angle shortcut: for tiny |x| (exponent < $77), sin(x) ~= x, return the argument unchanged
         RET C
+        ; range-reduce: scale by 1/(2*pi) = 0.15915 so one full revolution becomes 1.0
         LD BC,$7E22
         LD DE,$F983
         CALL FMUL
         CALL FAC_PUSH
+        ; drop whole revolutions: keep only the fractional turn in [0,1)
         CALL FIX_SCALE
         POP BC
         POP DE
@@ -12000,6 +13243,7 @@ FN_SIN:
         LD BC,$7F00
         LD DE,$0000
         CALL FCOMP
+        ; [RE] fraction already in the lower range: skip the quadrant-folding adjustments
         JP M,FN_SIN_1
         LD BC,$7F80
         LD DE,$0000
@@ -12008,6 +13252,7 @@ FN_SIN:
         LD DE,$0000
         CALL FADD_ALIGN
         CALL FP_SIGN
+        ; [RE] conditionally reflect the angle to fold it toward the first quadrant
         CALL P,FP_NEG
         LD BC,$7F00
         LD DE,$0000
@@ -12021,51 +13266,84 @@ FN_SIN_1:
         XOR $80
         LD (FACHI),A
 FN_SIN_2:
+        ; evaluate the odd sine series x*P(x^2) on the folded angle
         LD HL,FP_POLY_SIN_COEFFS
         CALL POLY_EVAL_ODD
         POP AF
         RET P
         LD A,(FACHI)
+        ; re-apply the quadrant sign so the result matches the original argument
         XOR $80
         LD (FACHI),A
         RET
         DEFB    $00,$00,$00,$00,$83,$F9,$22,$7E
 ; [RE] MBF constant pair for the transcendental code: log2(e)=1.442695 followed by 0.5. FN_EXP loads it ($5E34) to scale x by log2(e); FN_TAN returns with HL pointing here ($5EFE).
-FP_CONST_EXP_LOG2E:
+FP_CONST_HALFPI:
         DEFB    $DB,$0F,$49,$81,$00,$00,$00,$7F
 ; [RE] SIN/COS coefficient pool (FP_POLY_SIN_COEFFS): MBF polynomial { count byte; N x 4-byte MBF } with count=$05 -> 5 coefficients ($5EB3-$5EC6, 20 bytes). Evaluated as x*P(x^2) by POLY_EVAL_ODD from FN_SIN ($5E91; the call site label FN_RND_2 is a code-overlap artifact, not RND). DUAL USE: reused as a rotating XOR key table by the protected-program scramble (PROG_UNSCRAMBLE $8152, PROG_SCRAMBLE $817B), indexed mod-11 by the C counter -- name KEPT to preserve both identities.
 FP_POLY_SIN_COEFFS:
         DEFB    $05,$FB,$D7,$1E,$86,$65,$26,$99,$87,$58,$34,$23,$87,$E1,$5D,$A5
         DEFB    $86,$DB,$0F,$49,$83
-; [RE] TAN(x) handler (function token $0D): tangent (SIN/COS).
+; ----------------------------------------------------------------------
+; FN_TAN -- TAN(x) tangent handler (token $0D)
+;   In:        FAC = x (radians)
+;   Out:       FAC = tan(x) = sin(x)/cos(x); returns via the divide tail
+;   Clobbers:  FAC, FP work stack, A/BC/DE/HL
+;   Algorithm: tan(x) = sin(x)/cos(x). Push x, compute FN_SIN(x) and stash it (FP_STORE_FAC),
+;              restore x and compute FN_COS(x). Finally JP FDIV_POP_ARGS, which pops the saved
+;              sine as the dividend operand and FDIVs by the FAC (cosine), since FDIV computes
+;              operand/FAC. No dedicated tangent polynomial.
+; ----------------------------------------------------------------------
 FN_TAN:
         CALL FAC_PUSH
+        ; tan(x) = sin(x)/cos(x): compute the numerator sin(x) and stash it
         CALL FN_SIN
         POP BC
         POP HL
         CALL FAC_PUSH
         EX DE,HL
         CALL FP_STORE_FAC
+        ; compute the denominator cos(x) (the saved x is reloaded into the FAC first)
         CALL FN_COS
-        JP FDIV_BY_TEN_1
-; [RE] ATN(x) handler (function token $0E): arctangent (MBF).
+        ; pop the saved sin as the operand and FDIV by cos (FDIV = operand/FAC) -> tan(x)
+        JP FDIV_POP_ARGS
+; ----------------------------------------------------------------------
+; FN_ATN -- ATN(x) arctangent handler (token $0E)
+;   In:        FAC = x
+;   Out:       FAC = atan(x) in radians, range (-pi/2, pi/2)
+;   Clobbers:  FAC, FP work stack, A/BC/DE/HL, L_0CB4
+;   Algorithm: Reduce to a non-negative argument <= 1 via two identities. atan(-x) = -atan(x):
+;              for x<0, queue a final negate (FAC_NEGATE_VIA) and take |x| (FP_NEG). atan(x) =
+;              pi/2 - atan(1/x) for |x|>=1: if the exponent L_0CB4 >= $81, FDIV 1/x (operand 1.0)
+;              and queue FADD_FROM_MEM_1, which on return loads (HL) and SUBTRACTS the series
+;              result from it (FADD_FROM_MEM_1 = load then FSUB = operand - FAC). Then evaluate
+;              the odd arctangent series x*P(x^2) over FP_POLY_ATN_COEFFS (POLY_EVAL_ODD) and set
+;              HL = FP_CONST_HALFPI (pi/2) so the queued subtract yields pi/2 - atan(1/x).
+; ----------------------------------------------------------------------
 FN_ATN:
         CALL FP_SIGN
+        ; atan(-x) = -atan(x): for negative x, queue a final result negate
         CALL M,FAC_NEGATE_VIA
+        ; work with |x| from here on
         CALL M,FP_NEG
         LD A,(L_0CB4)
+        ; if exponent >= $81 (|x| >= 1) use atan(x) = pi/2 - atan(1/x) to keep the series argument small
         CP $81
         JR C,FN_ATN_1
         LD BC,$8100
         LD D,C
         LD E,C
+        ; reciprocate: operand 1.0 / FAC -> argument becomes 1/x (in [0,1])
         CALL FDIV
+        ; queue the pi/2 minus correction: on return, load (HL) and subtract the series result from it (FSUB = operand - FAC)
         LD HL,FADD_FROM_MEM_1
         PUSH HL
 FN_ATN_1:
+        ; evaluate the odd arctangent series x*P(x^2)
         LD HL,FP_POLY_ATN_COEFFS
         CALL POLY_EVAL_ODD
-        LD HL,FP_CONST_EXP_LOG2E
+        ; point HL at pi/2 (FP_CONST_HALFPI) so the queued FADD_FROM_MEM_1 computes pi/2 - result
+        LD HL,FP_CONST_HALFPI
         RET
 ; [RE] ATN() coefficient pool: MBF polynomial { count byte; N x 4-byte MBF } with count=$09 -> 9 coefficients ($5F03-$5F26, 36 bytes). Evaluated as x*P(x^2) by POLY_EVAL_ODD from FN_ATN ($5EF8/$5EFB) (the odd-power series for arctangent). DUAL USE: the protected-program scrambler reuses these raw bytes as a rotating XOR key (PROG_UNSCRAMBLE $8144, PROG_SCRAMBLE $8189), indexed mod-13 by the B counter -- the byte values, not their FP value, are what matter there.
 FP_POLY_ATN_COEFFS:
@@ -12999,7 +14277,7 @@ PRINT_LIST_ENTRY_1:
 ; [RE] PRINT USING statement engine (reached from the PRINT dispatcher on token $E8 'USING'): evaluate the format string, then scan its field characters - '#' digit positions, '.' decimal point, ',' grouping, '+'/'-' sign, '$$' float-dollar, '**' asterisk-fill, '^^^^' exponential, '\ \' string field, '!' first-char, '&' variable string - formatting each argument (FOUT/FOUT_BODY for numbers, STROUT for strings) and looping over the value list.
 PRINT_USING:
         CALL FRMEVL_LOWPREC
-        CALL FP_INT_CHECK
+        CALL REQUIRE_STRING
         CALL SYNCHR
         DEFB    ';'                      ; inline char arg consumed by the preceding CALL
         EX DE,HL
@@ -13275,7 +14553,7 @@ PRINT_LIST_ENTRY_34:
         JR Z,PRINT_LIST_ENTRY_29
         PUSH BC
         CALL FRMEVL_NOPAREN
-        CALL FP_INT_CHECK
+        CALL REQUIRE_STRING
         POP BC
         PUSH BC
         PUSH HL
@@ -13778,7 +15056,7 @@ CLEAR_RESET_STORAGE_2:
         LD DE,L_5D85
         LD HL,RNDX_SEED
         CALL FP_MOVE4
-        LD HL,FN_RND_4
+        LD HL,RND_WRAP_COUNTER
         XOR A
         LD (HL),A
         INC HL
@@ -14628,7 +15906,7 @@ STR_CONCAT:
         EX (SP),HL
         CALL FRMEVL_EVAL_OPERAND
         EX (SP),HL
-        CALL FP_INT_CHECK
+        CALL REQUIRE_STRING
         LD A,(HL)
         PUSH HL
         LD HL,(FAC)
@@ -14673,7 +15951,7 @@ BLOCK_COPY_BC_TO_DE_1:
         JR BLOCK_COPY_BC_TO_DE_1
 ; MS BASIC-80 FRETMP: free the most-recent temporary string descriptor (CALL FREFAC at $5035), then fall into FRESTR to reclaim its heap bytes if it was the topmost allocation.
 FRETMP:
-        CALL FP_INT_CHECK
+        CALL REQUIRE_STRING
 ; MS BASIC-80 FRESTR: free the string whose descriptor pointer is in FAC ($0CB1); loads the descriptor then frees its data via FRESTR1 (FRESTR1).
 FRESTR:
         LD HL,(FAC)
@@ -14921,7 +16199,7 @@ FN_INSTR:
         CALL SYNCHR
         DEFB    ','                      ; inline char arg consumed by the preceding CALL
         CALL FRMEVL_NOPAREN
-        CALL FP_INT_CHECK
+        CALL REQUIRE_STRING
 POP_LEN_TO_B_2:
         CALL SYNCHR
         DEFB    ','                      ; inline char arg consumed by the preceding CALL
@@ -15018,7 +16296,7 @@ STMT_MID_ASSIGN:
         CALL SYNCHR
         DEFB    '('                      ; inline char arg consumed by the preceding CALL
         CALL PTRGET_1+1
-        CALL FP_INT_CHECK
+        CALL REQUIRE_STRING
         PUSH HL
         PUSH DE
         EX DE,HL
@@ -16476,7 +17754,7 @@ INPUT_FILE_SCAN:
 ;   Out:       The destination string variable receives the rest of the line up to CR; PTRFIL selected.
 ;   Clobbers:  AF, BC, DE, HL.
 ;   Algorithm: [RE] LINE INPUT# path, not CVI. GET_FILENUM_PREFIX_C1 parses '#file,' requiring input
-;              mode and sets PTRFIL. PTRGET locates the target string variable; FP_INT_CHECK validates
+;              mode and sets PTRFIL. PTRGET locates the target string variable; REQUIRE_STRING validates
 ;              it. Pushes the PRINT_RESET_STATE epilogue and the variable pointer, then sets the scan to
 ;              'read until CR with no delimiter trimming' (BC=STMT_DATA_4 finisher; D=E=0 = no comma/
 ;              space delimiter) before joining the scan loop -- so the whole remaining line is captured.
@@ -16485,7 +17763,7 @@ LINE_INPUT_FILE:
         ; parse '#file,' (file must be open for input) and select it via PTRFIL
         CALL GET_FILENUM_PREFIX_C1
         CALL PTRGET_1+1
-        CALL FP_INT_CHECK
+        CALL REQUIRE_STRING
         LD BC,PRINT_RESET_STATE
         PUSH BC
         PUSH DE
@@ -17064,7 +18342,7 @@ STMT_FIELD:
 ;   In:        BC = FCB base, DE/HL carry the running RND_BUF window pointer and text cursor; loop entry after each field.
 ;   Out:       On ',' processes the next field then re-enters; on any other char RET (end of FIELD list).
 ;   Clobbers:  A,BC,DE,HL; updates RND_SECTOR_NUM (cumulative offset) and the target variable's descriptor.
-;   Algorithm: If the next text char is not ',' the field list is done -> RET. Otherwise parse the leading byte width (GETBYT_CHRGET), require the 'AS' keyword (SYNCHR 'A','S'), PTRGET the destination string variable, integer-type-check it (FP_INT_CHECK), add the width to the cumulative offset (RND_SECTOR_NUM), range-check the new offset against the record length (L_0C93) raising 'FIELD overflow' on excess, then write the variable's descriptor = {len=width, ptr=RND_BUF+old_offset}.
+;   Algorithm: If the next text char is not ',' the field list is done -> RET. Otherwise parse the leading byte width (GETBYT_CHRGET), require the 'AS' keyword (SYNCHR 'A','S'), PTRGET the destination string variable, integer-type-check it (REQUIRE_STRING), add the width to the cumulative offset (RND_SECTOR_NUM), range-check the new offset against the record length (L_0C93) raising 'FIELD overflow' on excess, then write the variable's descriptor = {len=width, ptr=RND_BUF+old_offset}.
 ; ----------------------------------------------------------------------
 STMT_FIELD_1:
         EX DE,HL
@@ -17086,7 +18364,7 @@ STMT_FIELD_1:
         DEFB    'S'                      ; inline char arg consumed by the preceding CALL
         ; locate the destination string variable's descriptor
         CALL PTRGET_1+1
-        CALL FP_INT_CHECK
+        CALL REQUIRE_STRING
         POP AF
         POP BC
         EX (SP),HL
@@ -17125,7 +18403,7 @@ STMT_RSET:
         PUSH AF
         ; locate the destination FIELD variable (its descriptor = field width + buffer pointer)
         CALL PTRGET_1+1
-        CALL FP_INT_CHECK
+        CALL REQUIRE_STRING
         PUSH DE
         ; evaluate the right-hand '= expr$' source string
         CALL EVAL_EXPR_AFTER_SYNCHR
