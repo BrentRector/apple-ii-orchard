@@ -75,7 +75,7 @@ def assemble_chunk(source: ChunkSource, *, cwd: Path | None = None,
         raise AssemblyError(f"source not found: {source.asm_path}")
 
     if source.cpu == "6502":
-        return _assemble_6502(source, cwd=cwd)
+        return _assemble_6502(source, cwd=cwd, lst_path=lst_path)
     if source.cpu == "z80":
         return _assemble_z80(source, cwd=cwd, lst_path=lst_path)
     raise AssemblyError(f"unknown CPU {source.cpu!r} for {source.asm_path.name}")
@@ -108,8 +108,12 @@ def _build_z80_incbin_dep(src_path: Path, out_bin: Path, defines: tuple) -> None
         raise AssemblyError(f"sjasmplus failed for {src_path.name}:\n{r.stdout}{r.stderr}")
 
 
-def _assemble_6502(source: ChunkSource, *, cwd: Path | None) -> bytes:
-    """Run ca65 + ld65 against a 6502 source, return the binary bytes."""
+def _assemble_6502(source: ChunkSource, *, cwd: Path | None,
+                   lst_path: Path | None = None) -> bytes:
+    """Run ca65 + ld65 against a 6502 source, return the binary bytes. If `lst_path`
+    is given, also emit the ca65 listing (address + machine bytes + source per line)
+    there -- the .s source carries the absolute addresses via its `.org`, so the
+    listing matches the disk image."""
     if not shutil.which("ca65") or not shutil.which("ld65"):
         raise AssemblyError("ca65 and/or ld65 not on PATH (source shared/toolchain/env.sh)")
 
@@ -150,14 +154,20 @@ def _assemble_6502(source: ChunkSource, *, cwd: Path | None) -> bytes:
         # When the source INCBINs a sub-assembled block, run ca65 from tmp so the
         # relative `.incbin` path resolves there; otherwise from the repo root.
         ca_cwd = str(tmp) if source.incbin_deps else cwd
+        lst_tmp = obj.with_suffix(".lst")
+        ca_cmd = ["ca65", str(copied_asm), "-o", str(obj)]
+        if lst_path is not None:
+            ca_cmd += ["-l", str(lst_tmp)]
         ca65 = subprocess.run(
-            ["ca65", str(copied_asm), "-o", str(obj)],
-            capture_output=True, text=True, cwd=ca_cwd,
+            ca_cmd, capture_output=True, text=True, cwd=ca_cwd,
         )
         if ca65.returncode != 0:
             raise AssemblyError(
                 f"ca65 failed for {source.asm_path.name}:\n{ca65.stdout}{ca65.stderr}"
             )
+        if lst_path is not None and lst_tmp.exists():
+            Path(lst_path).write_text(lst_tmp.read_text(encoding="latin-1"),
+                                      encoding="latin-1")
         ld65 = subprocess.run(
             ["ld65", "-C", str(cfg), "-o", str(out_bin), str(obj)],
             capture_output=True, text=True,

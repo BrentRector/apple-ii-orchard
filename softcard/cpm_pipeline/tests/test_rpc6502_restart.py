@@ -5,8 +5,14 @@ The 2.20 CCP's $9600-$9700 block is decompiled to its own ca65 source and
 INCBIN'd by the Z-80 CCP image. These tests enforce:
   1. the committed CPM_RPC6502_Restart.s reassembles BYTE-IDENTICAL to the
      on-disk block, and
-  2. the gen_rpc6502_restart recipe reproduces the committed source verbatim
-     (regenerate-from-source fidelity).
+  2. the gen_rpc6502_restart recipe still ASSEMBLES to those same bytes
+     (regenerate-fidelity at the byte level).
+
+The committed .s is now the hand-enriched MASTER (C-level phase headers + body
+comments, inline addresses moved to CPM_RPC6502_Restart.lst), so the generator
+is PROVENANCE-ONLY -- it captured the initial mechanical decode. We therefore
+pin BYTES, not source text (the BASIC.asm precedent: byte-identical is the gate,
+the editable source carries the understanding).
 """
 import shutil
 import subprocess
@@ -35,10 +41,11 @@ def _block_bytes():
     return data[BLOCK_START - 0x9300:BLOCK_START - 0x9300 + BLOCK_LEN]
 
 
-def _assemble():
+def _assemble(text=None):
     with tempfile.TemporaryDirectory() as tds:
         td = Path(tds)
-        (td / "r.s").write_text(RPC_S.read_text(encoding="utf-8"), encoding="utf-8")
+        src = text if text is not None else RPC_S.read_text(encoding="utf-8")
+        (td / "r.s").write_text(src, encoding="utf-8")
         (td / "r.cfg").write_text(RPC_CFG.read_text(encoding="utf-8"), encoding="utf-8")
         cmd = ["ca65", str(td / "r.s"), "-o", str(td / "r.o")]
         if subprocess.run(cmd, capture_output=True, text=True).returncode:
@@ -56,9 +63,16 @@ def test_rpc6502_restart_byte_identical():
     assert _assemble() == block
 
 
-def test_gen_rpc6502_restart_reproduces_committed_source():
-    """The recipe regenerates the committed source verbatim (no drift)."""
+@pytest.mark.skipif(not HAS_CA65, reason="ca65/ld65 not on PATH")
+def test_gen_rpc6502_restart_reproduces_block_bytes():
+    """The recipe (provenance) still assembles to the on-disk block, and to the
+    same bytes as the committed hand-enriched master."""
     from cpm_pipeline.gen_rpc6502_restart import generate
     if not (REPO / "softcard" / "cpm-investigation" / "sysimg_220_44k.bin").exists():
         pytest.skip("sysimg_220_44k.bin missing")
-    assert generate() == RPC_S.read_text(encoding="utf-8")
+    block = _block_bytes()
+    if block is None:
+        pytest.skip("sysimg_220_44k.bin missing")
+    gen_bytes = _assemble(generate())
+    assert gen_bytes == block
+    assert gen_bytes == _assemble()   # generator output == committed master, byte-for-byte

@@ -86,12 +86,12 @@ def strip_listing_comments(text: str, comment_col: int = 41) -> tuple[str, int]:
 
 
 def emit_listing(source: ChunkSource, lst_path: Path) -> None:
-    """Assemble a Z-80 OS chunk and write its sjasmplus listing (address + machine bytes +
+    """Assemble an OS chunk and write its assembler listing (address + machine bytes +
     source per line) to `lst_path`. Reuses the reconstruct assembly path (`assemble_chunk`)
-    so every INCLUDE / INCBIN dep -- including the 6502 RPC block built with ca65 -- is staged
-    exactly as the byte-identical build does."""
-    if source.cpu != "z80":
-        raise AssemblyError(f"emit_listing supports z80 sources only (got {source.cpu})")
+    so every INCLUDE / INCBIN dep is staged exactly as the byte-identical build does --
+    sjasmplus `--lst` for Z-80, ca65 `-l` for 6502 (the .s `.org` gives absolute addresses)."""
+    if source.cpu not in ("z80", "6502"):
+        raise AssemblyError(f"emit_listing supports z80/6502 sources (got {source.cpu})")
     assemble_chunk(source, lst_path=Path(lst_path))
 
 
