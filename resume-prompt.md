@@ -77,11 +77,24 @@ specs → `enrich_apply --target <file> --write` → strip + regen `.lst` (`os_l
 - Don't force a relocatization onto an unverifiable decode — defer with UNKNOWN
   [[feedback_dont_overclassify_dead_or_data]]. The **5-hour usage limit RESETS** — pause, don't ration.
 
-**Remaining campaign (OS core DONE → next):** 6502 OS files (CPM_BootLoader.s / CPM_RPC6502.s /
-boot fragments — need a **6502-aware STYLE** variant) → ~16 shared Z-80 utilities (PIP/ED/ASM/
-STAT/DDT/…) + their `_6502.s` payloads (disassemble the DEFB blobs; this phase absorbs the queued
-CP/M-constant rename) → then **2.23-44K** (clean-slate) → then the emulator-driven disk producer
-(capstone).
+**6502 OS phase — IN PROGRESS** (commits fb7a7e5 / c3e569a / 9797001). DONE: **CPM_RPC6502_Restart.s**
+($9600 cold-restart/RPC), **CPM_RPC6502.s** ($9400 warm-boot/RWTS — the lone `BNE
+DRIVE_MOTOR_ON_1+1` cover idiom converted to `.byte $24` (BIT-zp) + `SEC` at clean label
+DRIVE_MOTOR_ON_SEC, CFG_56K $94AE variant kept), and the two embedded Z-80 fragments
+**CPM_BootLoader_ConInit.asm / CPM_BootLoader_ProbeOvl.asm**. Each: C-level headers + body
+comments, ZERO inline `; $addr` (→ `.lst`). New infra: **ca65 `-l` listing** in
+`assemble._assemble_6502` + `os_listing.emit_listing` now accepts 6502 (the `.s` `.org` gives
+absolute addresses); **generated-6502-source tests pin BYTES not text** (`test_rpc6502`/`_restart`
+assemble `generate()` vs the on-disk block — the `.s` is the hand-enriched MASTER, `gen_*` is
+provenance-only); **6502 cover idiom = `.byte <opcode>` cover + real instr at own clean label**.
+After editing a host's INCBIN'd block, re-run `python -m cpm_pipeline.inject_incbin_listing`.
+**REMAINING (the big one): `CPM_BootLoader.s`** — 1284 lines, ~777 inline `; $addr`, 115 labels,
+0 C-level headers (strong top layout map already). Workflow-scale; 6502-aware STYLE; cite SoftCard
+docs for config-block cells; strip → `CPM_BootLoader.lst` via the ca65 path.
+
+**Remaining campaign (after the boot loader):** ~16 shared Z-80 utilities (PIP/ED/ASM/STAT/DDT/…) +
+their `_6502.s` payloads (disassemble the DEFB blobs; this phase absorbs the queued CP/M-constant
+rename) → then **2.23-44K** (clean-slate) → then the emulator-driven disk producer (capstone).
 
 **Disk-image model (decided; `softcard/docs/CPM_Disk_Build_Plan.md`).** A "full" build = ONE flat
 143,360-byte raw sector image (35×16×256). CP/M 2.2 has NO CPM.SYS: tracks 0-2 = boot + CCP/BDOS

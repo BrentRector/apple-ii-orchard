@@ -124,8 +124,13 @@ label, NO label arithmetic.** Read `resume-prompt.md` (top) + memory
 `project_cpm_source_quality_uplift` for the full handoff; plan docs `CPM_Source_Quality_Uplift_Plan.md`
 / `CPM_Lift_Techniques_From_BASIC.md` (27-technique checklist) / `CPM_Disk_Build_Plan.md`.
 
-**NEXT (OS core DONE):** the 6502 OS files (CPM_BootLoader.s / CPM_RPC6502.s / boot fragments — need a
-6502-aware STYLE) → ~16 shared Z-80 utilities + their `_6502.s` payloads (this absorbs the queued
+**6502 OS phase IN PROGRESS** (fb7a7e5/c3e569a/9797001): CPM_RPC6502_Restart.s ($9600),
+CPM_RPC6502.s ($9400; cover idiom `BIT $38`→`.byte $24`+`SEC` at a clean label, no arithmetic), and
+the two embedded Z-80 boot fragments (ConInit/ProbeOvl) are DONE. Built ca65 `-l` listing support
+(`assemble._assemble_6502` + `os_listing.emit_listing` now 6502); generated-6502-source tests pin
+BYTES not text (gen=provenance-only). **NEXT: CPM_BootLoader.s** (1284 lines, ~777 inline `; $addr`,
+115 labels, 0 C-level headers — workflow-scale, 6502-aware STYLE, cite SoftCard docs for
+config-block cells) → ~16 shared Z-80 utilities + their `_6502.s` payloads (this absorbs the queued
 **CP/M-constant rename** across the ~30 `cpm22.inc`-carrying utilities: `CALL $0005`→`CALL BDOS`,
 `LD C,$nn`→`F_*`/`DRV_*`, `$0080`→`TBUFF`, `$005C`→`TFCB`; CAUTION 3 files STAT/CPMV220 +
 DDT/CPMV220-44K + DDT/CPMV223-44K keep a local `TPA EQU` to dodge a BDOS collision, and the 60K
