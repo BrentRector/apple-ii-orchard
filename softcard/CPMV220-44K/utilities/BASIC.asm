@@ -532,7 +532,7 @@ PRTFLG:
         DEFB    "\0"
 L_0839:
         DEFB    "p"
-L_083A:
+PRINTER_WIDTH:
         DEFB    $84
 ; [RE] Terminal/output line width in columns; set by WIDTH, used by PRINT comma-zones and the FILES directory column layout.
 PRINT_WIDTH:
@@ -543,7 +543,7 @@ PAGE_LENGTH:
 ; [RE] Per-file output line width (set by WIDTH #file,width).
 WIDTH_FILE:
         DEFB    "8"
-L_083E:
+DEL_ECHO_FLAG:
         DEFB    "\0"
 ; Ctrl-O output-suppress toggle: nonzero discards console output. Cleared at READY/cold-start, toggled by CONIN on Ctrl-O ($0F) and cleared on Ctrl-C. (Already commented in file.)
 CTRL_O_SUPPRESS:
@@ -562,7 +562,7 @@ TXTTAB:
         DEFW    COLD_STACK_BASE+1
 L_0848:
         DEFB    $77,$05
-L_084A:
+RUN_AFTER_LOAD_FLAG:
         DEFB    "\0"
 L_084B:
         DEFB    "\0"
@@ -609,7 +609,7 @@ KBUF:
         DEFS    52, $00                  ; fill
         DEFB    "\0"
         DEFS    14, $00                  ; fill
-L_0A0D:
+BUF_INPUT_RESET_PTR:
         DEFB    ","
 ; Console line-input buffer (MS BASIC BUF): INLIN reads/echoes the edited input line here; Ctrl-U/Ctrl-R reset the pointer to $0A0E. Buffer body continues through $0A1E.
 BUF:
@@ -2255,7 +2255,7 @@ CRUNCH_EMIT:
 ;   In:        (no register inputs of interest -- entered on output-buffer exhaustion, or jumped to directly from the line-input path)
 ;   Out:       Never returns; transfers to the error dispatcher RAISE_ERROR with E = ERR_LINE_BUFFER_OVERFLOW (23 = $17)
 ;   Clobbers:  E
-;   Algorithm: Load E = 23 (ERR_LINE_BUFFER_OVERFLOW) and JP RAISE_ERROR. Reached two ways: (1) fall-through from CRUNCH_EMIT when the crunched line would overrun the output buffer; (2) an explicit JP from INLIN_STORE_CHAR when a line being read FROM AN ACTIVE FILE (PTRFIL != 0) exceeds 255 characters -- [RE] note: the console/no-file case (PTRFIL == 0) does NOT reach here, it rings the bell at INLIN_15 instead. Either way the line is too long to tokenize.
+;   Algorithm: Load E = 23 (ERR_LINE_BUFFER_OVERFLOW) and JP RAISE_ERROR. Reached two ways: (1) fall-through from CRUNCH_EMIT when the crunched line would overrun the output buffer; (2) an explicit JP from INLIN_STORE_CHAR when a line being read FROM AN ACTIVE FILE (PTRFIL != 0) exceeds 255 characters -- [RE] note: the console/no-file case (PTRFIL == 0) does NOT reach here, it rings the bell at INLIN_ECHO_AND_TEST_LF instead. Either way the line is too long to tokenize.
 ; ----------------------------------------------------------------------
 CRUNCH_EMIT_OVERFLOW:
         LD E,ERR_LINE_BUFFER_OVERFLOW
@@ -3556,7 +3556,7 @@ STMT_PRINT_3:
         LD A,(PRTFLG)
         OR A
         JR Z,STMT_PRINT_4
-        LD A,(L_083A)
+        LD A,(PRINTER_WIDTH)
         LD B,A
         INC A
         JP Z,STMT_PRINT_6
@@ -3642,7 +3642,7 @@ STMT_PRINT_13:
         JR NZ,STMT_PRINT_15
         LD A,(PRTFLG)
         OR A
-        LD A,(L_083A)
+        LD A,(PRINTER_WIDTH)
         JR NZ,STMT_PRINT_14
         LD A,(PRINT_WIDTH)
 STMT_PRINT_14:
@@ -3759,7 +3759,7 @@ STMT_LINE_4:
 STMT_LINE_5:
         CALL GET_FILENUM_PREFIX_C1
         PUSH HL
-        LD HL,L_0A0D
+        LD HL,BUF_INPUT_RESET_PTR
         JP INPUT_PROMPT_12
 ; [RE] INPUT statement handler (token $85): prompt + read console line, parse values into the variable list.
 STMT_INPUT:
@@ -5573,7 +5573,7 @@ STMT_WIDTH:
         JR NZ,STMT_WIDTH_1
         CALL CHRGET
         CALL GETBYT
-        LD (L_083A),A
+        LD (PRINTER_WIDTH),A
         LD E,A
         CALL WIDTH_CLAMP_COLUMN
         LD (L_0839),A
@@ -6763,16 +6763,38 @@ STMT_OPTION:
         LD (OPTION_BASE_SET_FLAG),A
         CALL CHRGET
         RET
-; [RE] Print a $00-terminated string at (HL) through STROUT_PUTC_SAVE, preserving registers; loops to end of string.
+; ----------------------------------------------------------------------
+; STROUT_NOFLAGS -- print a $00-terminated string at (HL) to the console, character by character.
+;   In:        HL -> first byte of a NUL-terminated string.
+;   Out:       The whole string emitted through STROUT_PUTC -> OUTDO_WIDTH_1 (console engine); HL left at the
+;              terminating $00.
+;   Clobbers:  A, HL, flags (BC/DE preserved by the OUTDO_WIDTH_1/OUTDO_DEVICE2 path).
+;   Algorithm: Walk the string: fetch (HL); a $00 byte ends the loop with an immediate return; otherwise emit
+;              the character via STROUT_PUTC, advance HL, and repeat. A raw-channel string printer that leans on
+;              the OUTDO_WIDTH_1 console core (it makes no PRTFLG/file routing decision of its own).
+; ----------------------------------------------------------------------
 STROUT_NOFLAGS:
         LD A,(HL)
+        ; stop at the NUL terminator
         OR A
         RET Z
         CALL STROUT_PUTC
         INC HL
         JP STROUT_NOFLAGS
-; [RE] Emit one character (A) to the console via OUTDO (OUTDO_WIDTH_1) while preserving AF across the call.
+; ----------------------------------------------------------------------
+; STROUT_PUTC -- emit one character to the console output engine, preserving the character on the stack.
+;   In:        A = character to print.
+;   Out:       Character emitted via the console engine OUTDO_WIDTH_1; the pushed AF is recovered by that
+;              engine (its POP AF, which runs AFTER the Ctrl-O suppress test, or by GETSPA_2's POP AF on the
+;              suppress path).
+;   Clobbers:  Per OUTDO_WIDTH_1 (BC/DE saved/restored by it / OUTDO_DEVICE2).
+;   Algorithm: Pushes AF so the char survives, then tail-jumps into OUTDO_WIDTH_1; that engine first tests
+;              Ctrl-O suppression and only then pops AF as its working character. The single-character feeder
+;              used by STROUT_NOFLAGS. NOTE: OUTDO_WIDTH_1 does NOT begin with POP AF -- the pop is its 4th
+;              instruction (after LD A,(CTRL_O_SUPPRESS)/OR A/JP NZ,GETSPA_2).
+; ----------------------------------------------------------------------
 STROUT_PUTC:
+        ; stash the char; OUTDO_WIDTH_1 recovers it with its POP AF (after the Ctrl-O test), or GETSPA_2 pops it if suppressed
         PUSH AF
         JP OUTDO_WIDTH_1
 ; [RE] RANDOMIZE statement handler (token $B6): reseed the RND generator (prompts for a seed if none given).
@@ -16486,7 +16508,7 @@ EDIT_BUF_SHIFT_10:
         INC A
 ; [RE] PRINT / '?' entry (direct + statement dispatcher at $0E8A): with no argument print CRLF (HL=$0A0D=CR,LF), else run the PRINT-item / PRINT USING engine over the value list.
 PRINT_LIST_ENTRY:
-        LD HL,L_0A0D
+        LD HL,BUF_INPUT_RESET_PTR
         RET Z
         SCF
         PUSH AF
@@ -16812,20 +16834,41 @@ PRINT_USING_PUT_SIGN:
         CALL NZ,OUTCHR
         POP AF
         RET
-; [RE] OUTCHR: console character output with column tracking ($0837 cursor column), TAB ($09) expansion to 8-col stops, backspace ($08) and CR handling, then emits the byte through the BIOS console-out vector (OUTDO_DEVICE, CALL into the runtime-patched $0000 cell).
+; ----------------------------------------------------------------------
+; OUTCHR -- emit one character to the currently selected output channel, tracking the print column.
+;   In:        A = character to output. PTRFIL ($0840) = current file FCB pointer (0 = no file, i.e.
+;              console or printer). PRTFLG ($0838) selects printer (nonzero) vs console (0). OUTPUT_COLUMN
+;              ($0837) = active-device output column (here the printer column); PRINTER_WIDTH ($083A) =
+;              printer auto-CR width ($FF = unlimited).
+;   Out:       The character is sent to the file (PUTC_FILE_RESUME), the console (OUTDO_WIDTH_1), or the
+;              printer device (OUTDO_DEVICE). OUTPUT_COLUMN is advanced/reset for the printer path.
+;   Clobbers:  AF (A/HL/flags restored or consumed per path); OUTPUT_COLUMN updated.
+;   Algorithm: Three-way channel router. If a file is open it diverts to the file writer. With no file and
+;              PRTFLG clear it falls through to the console width engine (OUTDO_WIDTH_1). With PRTFLG set it
+;              runs the printer column logic itself: backspace decrements the column and emits via OUTDO_DEVICE;
+;              TAB ($09) recursively emits spaces to the next 8-column stop; CR ($0D) resets the column to 0;
+;              other control codes below CR pass through with no column change; printable characters bump the
+;              column and, when it reaches PRINTER_WIDTH, force a CRLF (OUTDO_WIDTH) first. The printer path
+;              then falls through into OUTDO_DEVICE to emit the byte. [RE] PRTFLG: the in-file data comment
+;              flags an unresolved suppress-vs-printer-redirect CONFLICT; the LPRINT/LLIST set sites and this
+;              routing favor printer-redirect, which is the reading used here.
+; ----------------------------------------------------------------------
 OUTCHR:
         PUSH AF
         PUSH HL
+        ; if a file is the current output channel, divert to the file writer instead of console/printer
         LD HL,(PTRFIL)
         LD A,H
         OR L
         JP NZ,PUTC_FILE_RESUME
         POP HL
+        ; no file: PRTFLG clear -> console (width engine); set -> handle the printer device below
         LD A,(PRTFLG)
         OR A
         JP Z,OUTDO_WIDTH_1
         POP AF
         PUSH AF
+        ; backspace on the printer: step the tracked column back one, then fall to OUTDO_DEVICE to emit it
         CP $08
         JR NZ,OUTCHR_1
         LD A,(OUTPUT_COLUMN)
@@ -16834,6 +16877,7 @@ OUTCHR:
         POP AF
         JR OUTDO_DEVICE
 OUTCHR_1:
+        ; TAB: recursively emit spaces until the printer column reaches the next 8-column stop
         CP $09
         JR NZ,OUTCHR_3
 OUTCHR_2:
@@ -16847,20 +16891,24 @@ OUTCHR_2:
 OUTCHR_3:
         POP AF
         PUSH AF
+        ; CR resets the column to 0 (A=char-$0D=0 stored); control chars below CR pass through with no column change
         SUB $0D
         JR Z,OUTCHR_5
         JR C,OUTCHR_6
-        LD A,(L_083A)
+        ; printable char: INC A here sets Z when PRINTER_WIDTH is $FF (unlimited), skipping the auto-CR width check
+        LD A,(PRINTER_WIDTH)
         INC A
         LD A,(OUTPUT_COLUMN)
         JR Z,OUTCHR_4
         PUSH HL
-        LD HL,L_083A
+        LD HL,PRINTER_WIDTH
+        ; at the configured printer width: force a CRLF (OUTDO_WIDTH zeroes the column) before this char and skip the re-count
         CP (HL)
         POP HL
         CALL Z,OUTDO_WIDTH
         JR Z,OUTCHR_6
 OUTCHR_4:
+        ; advance the printer column unless it is already pinned at $FF
         CP $FF
         JR Z,OUTCHR_6
         INC A
@@ -16868,12 +16916,26 @@ OUTCHR_5:
         LD (OUTPUT_COLUMN),A
 OUTCHR_6:
         POP AF
-; [RE] Low-level BIOS console-out vector wrapper: char in A, saves BC/DE/HL, copies to C, CALLs the runtime-patched $0000 cell (CP/M BIOS CONOUT, installed by cold start at OUTDO_DEVICE_1+1 / $8217). The device-output primitive that OUTCHR ($6613) and OUTDO_WIDTH ($6682) route through.
+; ----------------------------------------------------------------------
+; OUTDO_DEVICE -- low-level printer/LIST device emit through the cold-start-patched BIOS vector.
+;   In:        A = character to send to the device.
+;   Out:       Character handed to the patched BIOS output entry (in C); all registers preserved.
+;   Clobbers:  Nothing (AF/BC/DE/HL saved and restored).
+;   Algorithm: Saves all registers, copies the character to C (the CP/M BIOS device-output argument), and
+;              CALLs the self-modified $0000 cell. [RE] VERIFIED smc: cold start writes a live BIOS vector
+;              into OUTDO_DEVICE_1+1 ($8217; MBASIC twin $5E95), so CD 00 00 becomes CALL <entry> at runtime.
+;              [RE] The cold-start jump-table walk ($23842-) reads the BIOS vectors in order CONST, CONIN,
+;              CONOUT, LIST; OUTDO_DEVICE_1+1 is patched LAST of these four, so the entry installed here is
+;              the BIOS LIST (printer) vector -- NOT CONOUT (an existing in-file comment that says CONOUT is
+;              reversed). This matches usage: OUTCHR's printer path and OUTDO_WIDTH's CRLF route through here.
+;              (LIST/CONOUT identification rests on the standard CP/M jump-table order, hence [RE].)
+; ----------------------------------------------------------------------
 OUTDO_DEVICE:
         PUSH AF
         PUSH BC
         PUSH DE
         PUSH HL
+        ; CP/M BIOS takes the output byte in C; the CALL below was patched at cold start to the BIOS LIST (printer) entry
         LD C,A
 ; [RE] VERIFIED smc. OUTDO_DEVICE_1+1 ($6672) is the SMC operand of CALL $0000 ($6671), reached by fall-through from OUTDO_DEVICE ($666C). COLD_START LD (OUTDO_DEVICE_1+1),HL at $8217 patches it to the live CP/M BIOS CONOUT entry (walked from $0001 through the BIOS jump table). The CD 00 00 is a placeholder; +1 is the patch slot, written never jumped-to, and the patched CALL executes on every console output. MBASIC twin patches at $5E95.
 OUTDO_DEVICE_1:
@@ -16883,14 +16945,50 @@ OUTDO_DEVICE_1:
         POP BC
         POP AF
         RET
-; [RE] Clears the output-suppress flag ($0838) and, if the print column ($0837) is nonzero, falls through to OUTDO_WIDTH to emit CRLF and reset the column. The 'return to start of line' helper before fresh output.
+; ----------------------------------------------------------------------
+; OUTDO_RESET_COL -- clear the printer-redirect flag and, if mid-line, force a fresh line before new output.
+;   In:        PRTFLG ($0838) = current printer-redirect selector; OUTPUT_COLUMN ($0837) = active-device column.
+;   Out:       PRTFLG cleared to 0 (output back to console). If the column was 0 returns immediately;
+;              otherwise falls into OUTDO_WIDTH to emit CRLF and zero the column.
+;   Clobbers:  A, flags.
+;   Algorithm: Zeroes PRTFLG, then tests OUTPUT_COLUMN: a zero column means we are already at line start so
+;              return; a nonzero column drops through to OUTDO_WIDTH so the next output begins on a clean line.
+;              [RE] As with PRTFLG generally, the in-file CONFLICT note (suppress vs redirect) applies; the
+;              printer-redirect reading is used here.
+; ----------------------------------------------------------------------
 OUTDO_RESET_COL:
         XOR A
         LD (PRTFLG),A
+        ; if already at column 0 we are at line start; otherwise fall into OUTDO_WIDTH to start a fresh line
         LD A,(OUTPUT_COLUMN)
         OR A
         RET Z
-; [RE] High-level char-out with line-width/auto-CR logic: enforces the terminal width, expands TAB, handles backspace against the column counter ($0B11), and issues CRLF when the print column reaches the width. Wraps the OUTCHR primitive (OUTDO_DEVICE2).
+; ----------------------------------------------------------------------
+; OUTDO_WIDTH -- emit a CRLF on the printer/LIST device and reset its column counter.
+;   In:        (none; constants $0D/$0A).
+;   Out:       CR then LF sent via OUTDO_DEVICE (the BIOS LIST device); OUTPUT_COLUMN ($0837) zeroed.
+;   Clobbers:  A, flags.
+;   Algorithm: Calls OUTDO_DEVICE twice (CR, LF) and clears the column. Used by OUTCHR's printer path and
+;              OUTDO_RESET_COL to break the line. NOTE: this is a 4-instruction routine ending at its own RET;
+;              the local labels OUTDO_WIDTH_1..OUTDO_WIDTH_9 below are NOT continuations of it -- OUTDO_WIDTH_1
+;              is the separate console-output width engine that OUTCHR ($6622) and STROUT_PUTC jump into.
+;   --
+;   OUTDO_WIDTH_1 (console output engine) -- emit one char to the console honoring width, TAB, BS, and paging.
+;     In:      The char to emit was PUSHed by the caller (OUTCHR/STROUT_PUTC) and is recovered via POP AF AFTER
+;              the Ctrl-O test. CTRL_O_SUPPRESS ($083F), CURSOR_POS ($0B11) console column, PRINT_WIDTH
+;              ($083B) console width, CURSOR_ROW ($0B12) cursor row / page-line counter, GFX_STMT_HPLOT_9
+;              ($4B97) physical screen width (40 or 80, set at cold start).
+;     Out:     Char sent to the console via OUTDO_DEVICE2 (CONOUT) unless Ctrl-O suppression is active; CURSOR_POS
+;              advanced, CURSOR_ROW bumped, and an automatic CRLF/page-pause issued at the right-hand margin.
+;     Algorithm: If Ctrl-O output suppression is on, discard the char (JP NZ,GETSPA_2 -- its POP AF/RET balances
+;              the pushed AF). LF increments the page-line counter (CURSOR_ROW via LINE_COUNT_INC); BS decrements
+;              the console column, and when already at column 0 borrows from CURSOR_ROW (decrement row, set column
+;              = PRINT_WIDTH-1); TAB expands to the next 8-column stop. A printable char is emitted via
+;              OUTDO_DEVICE2 and the column advanced; when the incremented column equals PRINT_WIDTH (and width
+;              != $FF) it is at the margin -- if the terminal hardware-wraps at exactly that width
+;              (GFX_STMT_HPLOT_9 == PRINT_WIDTH) it only does the line bookkeeping (LIST_NEWLINE_COUNT),
+;              otherwise it forces a software CRLF.
+; ----------------------------------------------------------------------
 OUTDO_WIDTH:
         LD A,$0D
         CALL OUTDO_DEVICE
@@ -16900,12 +16998,14 @@ OUTDO_WIDTH:
         LD (OUTPUT_COLUMN),A
         RET
 OUTDO_WIDTH_1:
+        ; Ctrl-O active: silently discard this character (reuse GETSPA_2's POP AF/RET tail to balance the pushed AF)
         LD A,(CTRL_O_SUPPRESS)
         OR A
         JP NZ,GETSPA_2
         POP AF
         PUSH BC
         PUSH AF
+        ; a line feed bumps the cursor-row / page-line counter (LINE_COUNT_INC)
         CP $0A
         JR NZ,OUTDO_WIDTH_2
         CALL LINE_COUNT_INC
@@ -16921,6 +17021,7 @@ OUTDO_WIDTH_2:
         JR Z,OUTDO_WIDTH_6
         DEC A
         LD (CURSOR_ROW),A
+        ; track the column toward the right margin; INC A here treats width $FF as no auto-wrap
         LD A,(PRINT_WIDTH)
 OUTDO_WIDTH_3:
         DEC A
@@ -16928,6 +17029,7 @@ OUTDO_WIDTH_3:
         LD A,$08
         JR OUTDO_WIDTH_8
 OUTDO_WIDTH_4:
+        ; TAB: emit spaces up to the next 8-column stop
         CP $09
         JR NZ,OUTDO_WIDTH_7
 OUTDO_WIDTH_5:
@@ -16946,6 +17048,7 @@ OUTDO_WIDTH_7:
 OUTDO_WIDTH_8:
         POP AF
         PUSH AF
+        ; send the character to the console device (BIOS CONOUT)
         CALL OUTDO_DEVICE2
         CP $20
         JR C,OUTDO_WIDTH_9
@@ -16960,6 +17063,7 @@ OUTDO_WIDTH_8:
         LD (CURSOR_POS),A
         CP B
         JR NZ,OUTDO_WIDTH_9
+        ; at the margin: if the screen wraps in hardware (physical width == configured width) just bookkeep the line, else force a CRLF
         LD A,(GFX_STMT_HPLOT_9)
         CP B
         CALL Z,LIST_NEWLINE_COUNT
@@ -16968,12 +17072,26 @@ OUTDO_WIDTH_9:
         POP AF
         POP BC
         RET
-; [RE] Second BIOS console-out vector wrapper (raw byte emit): char in A->C, saves regs, CALLs the runtime-patched $0000 cell (separate CP/M BIOS output entry installed by cold start at OUTDO_DEVICE2_1+1 / $820D). Used by OUTDO_WIDTH for the actual character emission distinct from OUTDO_DEVICE.
+; ----------------------------------------------------------------------
+; OUTDO_DEVICE2 -- raw console-byte emit through a second cold-start-patched BIOS output vector.
+;   In:        A = character/byte to send.
+;   Out:       Byte handed to the patched BIOS console-output entry (in C); all registers preserved.
+;   Clobbers:  Nothing (AF/BC/DE/HL saved and restored).
+;   Algorithm: Mirror of OUTDO_DEVICE but for the console-output engine: copies the byte to C and CALLs its
+;              own self-modified $0000 cell. [RE] VERIFIED smc: cold start patches OUTDO_DEVICE2_1+1 ($820D;
+;              MBASIC twin $5E8B). [RE] In the cold-start jump-table walk (order CONST, CONIN, CONOUT, LIST)
+;              OUTDO_DEVICE2_1+1 is patched BEFORE OUTDO_DEVICE_1+1, so the entry installed here is BIOS
+;              CONOUT -- NOT the LIST/raw-output entry (the existing in-file comment is reversed). This is the
+;              actual character emitter for the console engine OUTDO_WIDTH_1, kept distinct from OUTDO_DEVICE
+;              (LIST) so the console and printer channels target different BIOS entries. (CONOUT/LIST
+;              identification rests on the standard CP/M jump-table order, hence [RE].)
+; ----------------------------------------------------------------------
 OUTDO_DEVICE2:
         PUSH AF
         PUSH BC
         PUSH DE
         PUSH HL
+        ; byte to the BIOS in C; the CALL below was patched at cold start to the BIOS CONOUT (console-output) entry
         LD C,A
 ; [RE] VERIFIED smc. OUTDO_DEVICE2_1+1 ($670A) is the SMC operand of CALL $0000 ($6709), reached by fall-through from OUTDO_DEVICE2 ($6704). COLD_START LD (OUTDO_DEVICE2_1+1),HL at $820D patches it to the live CP/M BIOS list/raw-output entry (from the BIOS jump-table walk). +1 is the patch slot, not a code entry; the patched CALL executes at runtime. MBASIC twin patches at $5E8B.
 OUTDO_DEVICE2_1:
@@ -16983,48 +17101,96 @@ OUTDO_DEVICE2_1:
         POP BC
         POP AF
         RET
-; [RE] Force end-of-line bookkeeping: calls RESET_PRINT_STATE to clear column state, then falls into LINE_COUNT_INC to bump the printed-line counter / page check ($0B12 vs $083C).
+; ----------------------------------------------------------------------
+; LIST_NEWLINE_COUNT -- finish the current line's column bookkeeping, then advance the page-line counter.
+;   In:        PTRFIL ($0840), PRTFLG ($0838) select which column cell RESET_PRINT_STATE clears.
+;   Out:       The active device's column cell zeroed (none if a file is open), then CURSOR_ROW ($0B12)
+;              page-line count incremented (clamped at PAGE_LENGTH) with A = 0.
+;   Clobbers:  A, B, flags.
+;   Algorithm: Calls RESET_PRINT_STATE to clear the column for the current channel (console CURSOR_POS or
+;              printer OUTPUT_COLUMN; nothing if a file is the channel), then falls into LINE_COUNT_INC to count
+;              the line just completed against the page length. Called from OUTDO_WIDTH_1 when a
+;              hardware-wrapping terminal reaches the margin.
+; ----------------------------------------------------------------------
 LIST_NEWLINE_COUNT:
         CALL RESET_PRINT_STATE
-; [RE] Increments the printed-line counter ($0B12) up to the page limit ($083C); clamps at the limit and returns A=0. Drives the auto-page / line-width newline logic in OUTDO_WIDTH.
+; ----------------------------------------------------------------------
+; LINE_COUNT_INC -- count one printed line against the page length, clamping at the bottom of the page.
+;   In:        PAGE_LENGTH ($083C) = lines per page; CURSOR_ROW ($0B12) = lines printed on the current page.
+;   Out:       CURSOR_ROW incremented unless CURSOR_ROW+1 would reach PAGE_LENGTH (then left unchanged at the
+;              limit). Always returns A = 0.
+;   Clobbers:  A, B, flags.
+;   Algorithm: Loads the page length into B, computes CURSOR_ROW+1, and stores it back only while still below
+;              B (JR NC skips the store when CURSOR_ROW+1 >= PAGE_LENGTH); at the page limit it leaves the
+;              counter pinned. Returns A = 0 in either case.
+; ----------------------------------------------------------------------
 LINE_COUNT_INC:
         LD A,(PAGE_LENGTH)
         LD B,A
         LD A,(CURSOR_ROW)
         INC A
+        ; store the bumped line count only while below the page length; pin it at the limit
         CP B
         JR NC,LINE_COUNT_INC_1
         LD (CURSOR_ROW),A
 LINE_COUNT_INC_1:
         XOR A
         RET
-; [RE] INCHR / auto-page 'more' handler on the LIST/INPUT path: if a file is the current channel (PTRFIL $0840 nonzero) read the next byte from that file via GETC_FILE_EOF and return it; otherwise (console) tests the pending key, runs the input poll (LOAD_CLEANUP_RESET) and the Ctrl-C/break check ($0CA0), and on a full page pushes STMT_FOR_7 and prints the pause prompt string at $0CF2 via STROUT before resuming.
+; ----------------------------------------------------------------------
+; INCHR -- read the next input character from the current channel (open file or console).
+;   In:        PTRFIL ($0840) = current-channel FCB pointer (0 = console). For the file case,
+;              the FCB selects the ASCII source being LOADed / MERGEd / CHAINed.
+;   Out:       A = next character (7-bit for the console path). Console path falls into and returns
+;              through CONIN. On file end-of-data this routine does NOT return a character; it either
+;              continues program execution or returns to direct mode (see Algorithm).
+;   Clobbers:  A, flags (BC/DE preserved across the file branch; HL is restored/popped on the console
+;              and file-success paths).
+;   Algorithm: If PTRFIL==0, fall through (via INCHR_1) into CONIN to read one key from the keyboard.
+;              Otherwise read the next byte of the open file with GETC_FILE_EOF: on success (NC) return
+;              it via FMUL_7 (a borrowed POP HL / RET tail). On end-of-file (CY) this is the end of a
+;              LOAD/MERGE/CHAIN text stream: run LOAD_CLEANUP_RESET (close file #0, restore console
+;              PRINT state and the resume text pointer); if a CHAIN is in progress (CHAIN_BREAK_FLAG)
+;              hand off to the CHAIN continuation (CHAIN_MOVE_STRING_VAR_3); else test
+;              RUN_AFTER_LOAD_FLAG -- if set (LOAD ",R") jump through CLEAR_RESET_DATAPTR to rebuild
+;              storage and start running the just-loaded program, otherwise print "Ok" (MSG_OK) and RET
+;              to direct mode.
+;   [RE] The PTRFIL==0 leg has no auto-page 'more' prompt; the only console behaviour here is the
+;   fall-through to CONIN. MSG_OK at $0CF2 is "Ok\r\n", the ready prompt, NOT a pause prompt (the older
+;   INCHR comment was wrong).
+; ----------------------------------------------------------------------
 INCHR:
         PUSH HL
+        ; select the input channel: PTRFIL==0 means console, nonzero is the open file's FCB
         LD HL,(PTRFIL)
         LD A,H
         OR L
         JR Z,INCHR_1
+        ; file channel: pull the next byte; carry set means end of the LOAD/MERGE/CHAIN text stream
         CALL GETC_FILE_EOF
         JP NC,FMUL_7
         PUSH BC
         PUSH DE
         PUSH HL
+        ; end of source file: close file #0, restore console PRINT state and the resume text pointer
         CALL LOAD_CLEANUP_RESET
         POP HL
         POP DE
         POP BC
+        ; if a CHAIN is mid-flight, divert to the CHAIN continuation instead of the normal post-load path
         LD A,(CHAIN_BREAK_FLAG)
         OR A
         JP NZ,CHAIN_MOVE_STRING_VAR_3
-        LD A,(L_084A)
+        ; LOAD ",R" auto-run? if so run the loaded program; otherwise fall to the "Ok" prompt
+        LD A,(RUN_AFTER_LOAD_FLAG)
         OR A
+        ; [RE] auto-run path: stage the per-statement executor before CLEAR_RESET_DATAPTR rebuilds storage and starts the loaded program
         LD HL,STMT_FOR_7
         EX (SP),HL
         JP NZ,CLEAR_RESET_DATAPTR
         EX (SP),HL
         PUSH BC
         PUSH DE
+        ; no auto-run: print "Ok" and return to direct mode
         LD HL,MSG_OK
         CALL STROUT
         POP DE
@@ -17034,7 +17200,20 @@ INCHR:
         RET
 INCHR_1:
         POP HL
-; [RE] CONIN: read one console character via the BIOS console-in vector (CALL into the runtime-patched $0000 cell), mask to 7 bits, and service the Ctrl-O ($0F) output-suppress toggle ($083F). The keyboard input primitive.
+; ----------------------------------------------------------------------
+; CONIN -- read one raw console character and service the Ctrl-O output-suppress toggle.
+;   In:        none (reads the keyboard through the CP/M BIOS console-in vector).
+;   Out:       A = character masked to 7 bits. If the key was Ctrl-O ($0F) the routine instead
+;              toggles CTRL_O_SUPPRESS ($083F) and returns A=0 (the Ctrl-O is swallowed, not delivered).
+;   Clobbers:  A, flags (BC/DE/HL saved and restored around the BIOS call).
+;   Algorithm: CALL the self-modified vector at CONIN_1+1 (patched by cold start to the live CP/M BIOS
+;              CONIN entry) to fetch a key, then AND $7F to drop the high bit. If it is not Ctrl-O,
+;              return it as-is. For Ctrl-O, toggle the screen-output suppress flag: if suppression was
+;              OFF, echo "^O" first (ECHO_CTRL_O, which returns A=0); then CPL/store so CTRL_O_SUPPRESS
+;              flips 0<->$FF; if the new state is OFF echo "^O" again before returning. Either way A=0.
+;              OUTDO_WIDTH_1 reads CTRL_O_SUPPRESS to discard console output while it is set.
+;   [RE] The keyboard input primitive shared by INKEY$, the line editor, and INCHR's console leg.
+; ----------------------------------------------------------------------
 CONIN:
         PUSH BC
         PUSH DE
@@ -17045,36 +17224,78 @@ CONIN_1:
         POP HL
         POP DE
         POP BC
+        ; strip the high bit so a parity/strobe bit cannot reach the interpreter
         AND $7F
+        ; Ctrl-O ($0F): handled locally as the output-suppress toggle, never delivered to the caller
         CP $0F
         RET NZ
         LD A,(CTRL_O_SUPPRESS)
         OR A
         CALL Z,ECHO_CTRL_O
+        ; flip the suppress flag (0<->$FF) and store the new state
         CPL
         LD (CTRL_O_SUPPRESS),A
         OR A
+        ; newly turned suppression OFF: echo "^O" so the user sees output resume, then return A=0
         JP Z,ECHO_CTRL_O
         XOR A
         RET
-; [RE] If the auto-print column flag ($0B11) is nonzero, emit CR/LF (CRLF $6788); else return. Ensures output starts on a fresh line.
+; ----------------------------------------------------------------------
+; PRINT_CRLF_IF_COL -- emit a newline only if the console cursor is not already at column 0.
+;   In:        CURSOR_POS ($0B11) = current console (CRT) output column.
+;   Out:       If CURSOR_POS!=0, a CR+LF is emitted (via CRLF) and the print state is reset; if it is
+;              already 0, returns immediately leaving the cursor where it is.
+;   Clobbers:  A, flags (and whatever CRLF clobbers when it is taken).
+;   Algorithm: Test the console column; on zero just RET (already at line start), otherwise JP CRLF to
+;              start a fresh line. Called before printing the READY/"Ok" prompt (NEWSTT_READY) and other
+;              messages so they do not run onto a partially printed line.
+;   [RE] PRINT_CRLF_IF_COL_1 is a SEPARATE entry (not part of the column test): it NUL-terminates the
+;   buffer at (HL), loads HL=BUF-1 (so a downstream INC HL lands on BUF[0]), then falls into CRLF. It is
+;   reached from PRINT_LIST_ENTRY_1 (end of a PRINT statement) and INLIN_CR_FINISH (CR end-of-line in the
+;   auto-quote redisplay mode) -- NOT from the Ctrl-U kill-line (that path is INLIN_RESET_LINE /
+;   INLIN_KILL_LINE).
+; ----------------------------------------------------------------------
 PRINT_CRLF_IF_COL:
+        ; at the start of a line already? if so do nothing
         LD A,(CURSOR_POS)
         OR A
         RET Z
         JP CRLF
 PRINT_CRLF_IF_COL_1:
         LD (HL),$00
-        LD HL,L_0A0D
-; [RE] Output CR ($0D) + LF ($0A) to the console (via OUTCHR), then clear pending auto-line state. The print-newline routine; used by the sign-on and after each Ok prompt.
+        LD HL,BUF_INPUT_RESET_PTR
+; ----------------------------------------------------------------------
+; CRLF -- write a carriage-return + line-feed to the console and reset the per-line print state.
+;   In:        none.
+;   Out:       CR ($0D) and LF ($0A) emitted through OUTCHR; the active device's column counter cleared
+;              by RESET_PRINT_STATE (fallen into; a no-op when output is going to a file).
+;   Clobbers:  A, flags (plus RESET_PRINT_STATE's effects on the active-device column cell).
+;   Algorithm: Emit $0D then $0A via OUTCHR (which routes to the active device and counts columns),
+;              then fall straight into RESET_PRINT_STATE to zero the active device's column counter.
+;   [RE] The print-newline routine used by the sign-on banner, the "Ok" prompt, and Ctrl-character echo.
+; ----------------------------------------------------------------------
 CRLF:
+        ; emit CR then LF, then fall into RESET_PRINT_STATE to clear the column counter
         LD A,$0D
         CALL OUTCHR
         LD A,$0A
         CALL OUTCHR
-; [RE] RESET_PRINT_STATE: clear pending auto-line / print-column state ($0837 column, PRTFLG $0838, $0B11) after a newline. (The cell consulted here is PTRFIL $0840, the current-file pointer, not a 'line-input-in-progress' flag.)
+; ----------------------------------------------------------------------
+; RESET_PRINT_STATE -- after a newline, zero the column counter of the currently active output device.
+;   In:        PTRFIL ($0840) selects file vs console/printer; PRTFLG ($0838) selects printer vs console.
+;   Out:       A=0. If output is going to a file (PTRFIL!=0) nothing is changed. Otherwise the column
+;              counter for the active device is set to 0: OUTPUT_COLUMN ($0837) when the printer is
+;              selected (PRTFLG!=0), else the console column CURSOR_POS ($0B11).
+;   Clobbers:  A, flags (HL preserved via PUSH/POP).
+;   Algorithm: Read PTRFIL; if a file channel is active there is no on-screen/printer column to reset, so
+;              return with A=0. For the console/printer case, branch on PRTFLG: printer -> clear the
+;              printer column OUTPUT_COLUMN; console -> clear the console column CURSOR_POS. Either way A=0.
+;   [RE] This routine does NOT modify PRTFLG (the older prose was imprecise) and touches only ONE of the
+;   two column cells (whichever device is active); RESET_PRINT_STATE_1/_2 are those two device arms.
+; ----------------------------------------------------------------------
 RESET_PRINT_STATE:
         PUSH HL
+        ; output to a file? then there is no device column to reset; just return
         LD HL,(PTRFIL)
         LD A,H
         OR L
@@ -17083,81 +17304,142 @@ RESET_PRINT_STATE:
         XOR A
         RET
 RESET_PRINT_STATE_1:
+        ; console vs printer: clear the column counter of whichever device is currently selected
         LD A,(PRTFLG)
         OR A
         JR Z,RESET_PRINT_STATE_2
         XOR A
+        ; printer path: reset the printer column (LPOS)
         LD (OUTPUT_COLUMN),A
         RET
 RESET_PRINT_STATE_2:
         XOR A
+        ; console path: reset the CRT column
         LD (CURSOR_POS),A
         XOR A
         RET
-; [RE] RPC stub: CALL the runtime-patched 6502-bridge vector at $0000 (cell filled by cold-start from the CP/M BIOS jump table) to poll console status; returns Z per result. One of several $0000 RPC call sites the cold-start patcher fixes up.
+; ----------------------------------------------------------------------
+; RPC_CONST_POLL -- poll the console for a pending key (BIOS CONST), preserving BC/DE/HL.
+;   In:        RPC_CONST_POLL_1+1 holds the BIOS CONST target address, self-modified at COLD_START (the address word read at [($0001)]+4 -- the operand of the BIOS CONST JMP -- stored here at $81F6).
+;   Out:       A = console status (0 = no key waiting; nonzero = a key is down); Z set iff no key. RET Z when nothing is pending; otherwise execution FALLS THROUGH into INKEY_SCAN to service the key.
+;   Clobbers:  A, flags. BC/DE/HL are saved and restored across the BIOS call.
+;   Algorithm: Save BC/DE/HL, invoke the cold-start-patched BIOS console-status routine (CONST) via the self-modified CALL at RPC_CONST_POLL_1, restore the registers, then OR A to set Z from the returned status byte. RET Z on no key. Used by LIST as the between-lines Ctrl-S/Ctrl-C check; when a key IS pending it deliberately falls straight into INKEY_SCAN.
+; ----------------------------------------------------------------------
 RPC_CONST_POLL:
         PUSH BC
         PUSH DE
         PUSH HL
 ; [RE] VERIFIED smc. RPC_CONST_POLL_1+1 ($67B2) is the SMC operand of CALL $0000 ($67B1), reached by fall-through from RPC_CONST_POLL ($67AE). COLD_START LD (RPC_CONST_POLL_1+1),HL at $81F6 patches it to the live CP/M BIOS CONST entry (BIOS base+4, the same HL written to INKEY_SCAN_2+1 at $81F3). +1 is the patch slot; the patched CALL executes when polling console status. MBASIC twin patches at $5E74.
 RPC_CONST_POLL_1:
+        ; ask the BIOS whether a console key is waiting (CONST); operand self-modified at COLD_START to the live BIOS CONST address
         CALL $0000
         POP HL
         POP DE
         POP BC
+        ; set Z from the status byte: zero (no key) returns; nonzero falls through into INKEY_SCAN to service it
         OR A
         RET Z
-; [RE] Keyboard scan / pending-char handler (INKEY$ / Ctrl-C-Ctrl-S poll): reads a console char (CONIN), processes the Ctrl-S ($13) pause and Ctrl-C ($03) break ($0834 pending-key cell), and returns it. INKEY_SCAN_1 ($67CC) is the INKEY$ function evaluator.
+; ----------------------------------------------------------------------
+; INKEY_SCAN -- consume a waiting console key: Ctrl-S pause, Ctrl-C break, else stash the key and return.
+;   In:        Entered (fall-through from RPC_CONST_POLL, or CALL NZ from STMT_FOR_8) when CONST reported a key pending.
+;   Out:       Non-Ctrl-C: the char is left in PENDING_KEY for a later INKEY$/line-input read, and the routine RETURNS to its caller (via the RET NZ at STMT_STOP). Ctrl-C: echoes '^C' and breaks the program (does not return).
+;   Clobbers:  A, flags (CONIN also saves/restores BC/DE/HL internally).
+;   Algorithm: Read one char with CONIN. If it is Ctrl-S ($13), do a SECOND, blocking CONIN -- the Ctrl-S keystroke paused output and this read holds until the user presses any resume key (the classic Ctrl-S screen pause). Store the resulting char in PENDING_KEY. Test for Ctrl-C ($03): if so, CALL ECHO_CTRL_CHAR (echo '^C' and clear the output flags). Then JP STMT_STOP UNCONDITIONALLY. STMT_STOP begins with RET NZ: the non-Ctrl-C path arrives with NZ (preserved from CP $03 through the skipped ECHO call) and simply returns; the Ctrl-C path arrives with Z (ECHO_CTRL_CHAR ends in JP CRLF, which returns A=0/Z) so STMT_STOP falls through to break the running program.
+; ----------------------------------------------------------------------
 INKEY_SCAN:
+        ; read the key that the CONST poll detected
         CALL CONIN
+        ; Ctrl-S = pause: do a second, blocking read that holds until the user presses any key to resume
         CP $13
         CALL Z,CONIN
+        ; park the keystroke so a later INKEY$ or line-input read can pick it up
         LD (PENDING_KEY),A
+        ; flag whether the key is Ctrl-C (selects break-vs-return at STMT_STOP below)
         CP $03
         CALL Z,ECHO_CTRL_CHAR
+        ; unconditional: STMT_STOP's leading RET NZ returns on the non-Ctrl-C path (NZ); the Ctrl-C path arrives Z (from ECHO_CTRL_CHAR/CRLF) and falls through to break
         JP STMT_STOP
+; ----------------------------------------------------------------------
+; INKEY_SCAN_1 -- INKEY$ function (token $EE): return a 1-character string for any waiting key, else "".
+;   In:        Reached by JP Z,INKEY_SCAN_1 from the FRMEVL function dispatcher; text pointer at the INKEY$ keyword; PENDING_KEY may hold a type-ahead char parked by INKEY_SCAN.
+;   Out:       A string value: FAC -> a length-1 STRDESC holding the key, or FAC -> EMPTY_STRING_DESC if no key; VALTYP = VT_STR. The pre-call text pointer is restored into HL. Returns to the function dispatcher's caller.
+;   Clobbers:  A, BC, DE, HL, flags; FAC, VALTYP; PENDING_KEY (cleared if it supplied the char).
+;   Algorithm: Step the text pointer past the keyword (CHRGET) and PUSH it. First try a type-ahead key from PENDING_KEY (GET_PENDING_KEY, NZ if one was present); if none, poll BIOS CONST (the cold-start-patched CALL at INKEY_SCAN_2) and read CONIN only if a key is now ready. Char-obtained path: build a 1-byte string (ALLOC_STR_1) and store the char into it (STR_FN_RETURN_CHAR), which tail-jumps through PUT_STR_TEMP -- that routine sets VALTYP=VT_STR and FAC = the temp descriptor, and its cover-idiom POP HL recovers the saved text pointer and returns one level up; this path NEVER reaches INKEY_SCAN_4. No-key path: JR Z to INKEY_SCAN_4, which points FAC at EMPTY_STRING_DESC, sets VALTYP=VT_STR, restores the text pointer (POP HL) and RETs.
+;   [RE] Non-blocking: INKEY$ never waits -- when CONST reports no key the result is the empty string.
+; ----------------------------------------------------------------------
 INKEY_SCAN_1:
+        ; step the interpreter text pointer past the INKEY$ keyword
         CALL CHRGET
         PUSH HL
+        ; prefer a type-ahead key already parked by the Ctrl-C/Ctrl-S scan
         CALL GET_PENDING_KEY
         JR NZ,INKEY_SCAN_3
 ; [RE] VERIFIED smc. INKEY_SCAN_2+1 ($67D6) is the SMC operand of CALL $0000 ($67D5), reached by fall-through from INKEY_SCAN_1 ($67CC) on the no-pending-key path. COLD_START LD (INKEY_SCAN_2+1),HL at $81F3 patches it to the live CP/M BIOS CONST entry for INKEY$ polling (BIOS base+4, same HL also written to RPC_CONST_POLL_1+1 at $81F6). +1 is the patch slot; the patched CALL executes when polling for a key. MBASIC twin uses the same COLD_START BIOS-table walk.
 INKEY_SCAN_2:
+        ; no type-ahead: ask BIOS CONST if a key is ready now (operand self-modified at COLD_START)
         CALL $0000
         OR A
+        ; nothing waiting: take the empty-string path (INKEY$ never blocks)
         JR Z,INKEY_SCAN_4
+        ; a key is ready: consume it
         CALL CONIN
 INKEY_SCAN_3:
         PUSH AF
+        ; build a length-1 string to hold the keystroke (result type/FAC are set later inside PUT_STR_TEMP, not at INKEY_SCAN_4)
         CALL ALLOC_STR_1
         POP AF
         LD E,A
         CALL STR_FN_RETURN_CHAR
 INKEY_SCAN_4:
+        ; no-key result: the empty string
         LD HL,EMPTY_STRING_DESC
         LD (FAC),HL
+        ; empty-string path: mark VALTYP as a string (the char path sets VALTYP in PUT_STR_TEMP instead)
         LD A,VT_STR
         LD (VALTYP),A
         POP HL
         RET
-; [RE] Fetch and clear the pending-key cell ($0834) set by INKEY_SCAN; returns Z if no key pending, else the key in A with the cell zeroed.
+; ----------------------------------------------------------------------
+; GET_PENDING_KEY -- read-and-clear the type-ahead key parked in PENDING_KEY by INKEY_SCAN.
+;   In:        PENDING_KEY ($0834) = a captured console char, or 0 if none.
+;   Out:       If PENDING_KEY was 0: A=0, Z set (no key), cell unchanged. Otherwise A = the key, NZ set, and PENDING_KEY zeroed (one-shot consume).
+;   Clobbers:  A, flags; PENDING_KEY (cleared on the key path).
+;   Algorithm: Load PENDING_KEY and OR A. On zero, RET Z immediately. Otherwise save the char, zero the cell so the same key cannot be delivered twice, restore the char into A and return NZ. Used by INKEY$ and by the line-input reader to drain a key parked by the Ctrl-C/Ctrl-S scan.
+; ----------------------------------------------------------------------
 GET_PENDING_KEY:
         LD A,(PENDING_KEY)
         OR A
+        ; no key parked: return Z with A=0
         RET Z
         PUSH AF
         XOR A
+        ; clear the cell so this key is consumed exactly once
         LD (PENDING_KEY),A
         POP AF
         RET
-; [RE] Print a char via OUTCHR ($6613); if it was LF ($0A) also emit CR ($0D) and reset print state. Newline-expanding console write.
+; ----------------------------------------------------------------------
+; OUTCHR_LF_EXPAND -- write one character to the active output channel; after a bare LF, append a CR.
+;   In:        A = character to print; output channel selected by PRTFLG/PTRFIL (handled inside OUTCHR).
+;   Out:       Character emitted. If it was LF ($0A): a CR ($0D) is emitted AFTER it, the active device's
+;              print state is reset (RESET_PRINT_STATE), and A is restored to $0A on return.
+;   Clobbers:  A, flags.
+;   Algorithm: Send the character through OUTCHR. If it was not LF, return. For LF, the LF has already
+;              been emitted, so emit a trailing CR so the device returns to column 0 (net effect: a stored
+;              bare LF advances the cursor to the start of the next line), reset the active column counter,
+;              and reload A=$0A so the caller still sees the LF it asked to print.
+;   [RE] The newline-normalizing console/file writer used by the detokenized-line output loop
+;   (PRINT_ZSTRING / LIST / ASCII-SAVE) and the EDIT/line-editor redisplay.
+; ----------------------------------------------------------------------
 OUTCHR_LF_EXPAND:
         CALL OUTCHR
+        ; only LF needs fixing up; any other character is already fully emitted
         CP $0A
         RET NZ
+        ; the LF was just emitted; append a CR so the cursor returns to column 0, then reset the column counter
         LD A,$0D
         CALL OUTCHR
         CALL RESET_PRINT_STATE
+        ; restore the original LF in A for the caller
         LD A,$0A
         RET
 ; ----------------------------------------------------------------------
@@ -17625,22 +17907,42 @@ RESUME_AT_DIRECT_1:
         LD HL,MSG_BREAK
         JP NZ,ERROR_RESUME_FROM_DIRECT
         JP READY_POP_FRAME
-; [RE] Entry with A=$0F: echo a Ctrl-O as '^O'; falls into ECHO_CTRL_CHAR to print '^' + (ctrl+$40) then CRLF.
+; ----------------------------------------------------------------------
+; ECHO_CTRL_O -- echo a Ctrl-O as '^O' (caret notation); fixed-character entry into ECHO_CTRL_CHAR.
+;   In:        none (the character is fixed at $0F).
+;   Out:       '^O' followed by CR/LF written to the console.
+;   Clobbers:  A, flags (plus whatever OUTCHR/CRLF clobber).
+;   Algorithm: Load A = $0F (Ctrl-O) and fall into ECHO_CTRL_CHAR. Because $0F-$03 != 0, the Ctrl-C-only flag clearing in ECHO_CTRL_CHAR is skipped for Ctrl-O. Called by CONIN when the Ctrl-O output-suppress toggle (CTRL_O_SUPPRESS) flips, echoing the '^O' acknowledgement on BOTH transitions (suppression turning on and turning off).
+; ----------------------------------------------------------------------
 ECHO_CTRL_O:
+        ; Ctrl-O character, then echo it via the shared caret-notation printer
         LD A,$0F
-; [RE] Echo a control character as caret notation: prints '^' ($5E) then the char+$40 via OUTCHR, then CRLF; on Ctrl-C ($03) also clears the pause/suppress flags ($0838/$083F).
+; ----------------------------------------------------------------------
+; ECHO_CTRL_CHAR -- echo a control character as caret notation ('^' + letter) + CR/LF; on Ctrl-C also reset output flags.
+;   In:        A = the control character (e.g. $03 Ctrl-C, $0F Ctrl-O, $15 Ctrl-U). Callers: INKEY_SCAN, INLIN (Ctrl-C/Ctrl-U), ECHO_CTRL_O.
+;   Out:       '^' then (A+$40, the printable letter) then CR/LF on the console. On Ctrl-C ONLY, PRTFLG ($0838) and CTRL_O_SUPPRESS ($083F) are also cleared to 0. Returns with A=0/Z (tail JP CRLF -> RESET_PRINT_STATE).
+;   Clobbers:  A, flags; on Ctrl-C also PRTFLG and CTRL_O_SUPPRESS (set to 0).
+;   Algorithm: Save the char. Compute A-$03: if the char is Ctrl-C the difference is 0, and that 0 is stored into both PRTFLG and CTRL_O_SUPPRESS to cancel printer-output routing and Ctrl-O output suppression so the following Break message reaches the screen (the SUB doubles as both the Ctrl-C test and the zero value). Then print '^' ($5E), restore and print the char biased by $40 (turning a control code into its caret letter), and emit CR/LF.
+;   [RE] The PRTFLG write here intersects the unresolved 'printer-select vs output-suppress' labelling conflict flagged at the PRTFLG cell definition (line 530). Storing 0 restores console output under either reading, so this is annotated rather than treated as settling the conflict.
+; ----------------------------------------------------------------------
 ECHO_CTRL_CHAR:
         PUSH AF
+        ; Ctrl-C test: the difference is 0 iff the char is Ctrl-C, and that 0 doubles as the value stored below
         SUB $03
         JR NZ,ECHO_CTRL_CHAR_1
+        ; Ctrl-C only: clear PRTFLG so output is no longer routed away from the console before the Break message
         LD (PRTFLG),A
+        ; Ctrl-C only: also cancel Ctrl-O output suppression
         LD (CTRL_O_SUPPRESS),A
 ECHO_CTRL_CHAR_1:
+        ; print the caret '^'
         LD A,$5E
         CALL OUTCHR
         POP AF
+        ; map the control code to its printable letter (Ctrl-C -> 'C') and echo it
         ADD A,$40
         CALL OUTCHR
+        ; finish the caret echo with a newline (returns A=0/Z)
         JP CRLF
 ; [RE] CONT statement handler (token $98): resume a stopped program from the saved text pointer ($0B6D).
 STMT_CONT:
@@ -18166,20 +18468,77 @@ PUT_STR_TEMP_2:
 ; ======================================================================
 ; CONSOLE / I-O (OUTCHR, CONIN, STROUT, RPC bridge)
 ; ======================================================================
-; [RE] STROUT/print-message: print the NUL-terminated string at (HL) (or counted string) to the console one char at a time via OUTCHR ($6613), translating CR. Used for the sign-on banner and error messages.
+; ----------------------------------------------------------------------
+; STROUT -- scan a pre-built, terminator-delimited string in memory and print it.
+;   In:        HL = address of the FIRST character of the string to print (NOT one
+;              byte before it; SCAN_STR_LITERAL's leading DEC HL only cancels its
+;              inner loop's leading INC HL). The callers that reach STROUT load HL
+;              with a direct pointer to NUL-terminated message data (e.g.
+;              LD HL,MSG_UNDEFINED_LINE) -- this is a memory string scan, not a
+;              CHRGET/CHRGTR scan of tokenized program text.
+;   Out:       The string is emitted to the active output channel (OUTCHR). On
+;              return D=0 and BC = string start + LEN (STRPRT's exit), since STROUT
+;              runs straight on into STRPRT's body after the literal scan.
+;   Clobbers:  A, B, C, D, E, H, L, flags; FAC, VALTYP, DSCTMP, TEMPPT, FRETOP,
+;              OUTPUT_COLUMN/CURSOR_POS (whatever SCAN_STR_LITERAL, FRESTR, OUTCHR
+;              and RESET_PRINT_STATE touch).
+;   Algorithm: Front end for printing an in-memory string literal. SCAN_STR_LITERAL
+;              measures the body up to its terminator -- which it FIXES internally to
+;              '"' ($22) via LD B,$22 / LD D,B, so a caller-supplied B is ignored and
+;              the NUL-terminated message strings actually terminate on $00 -- builds
+;              a 3-byte STRDESC in DSCTMP, stages it on the temp-descriptor stack
+;              (PUT_STR_TEMP sets VALTYP=VT_STR and FAC = the staged slot's address),
+;              then continues into STRPRT to emit that staged string VALUE. Used for
+;              the sign-on banner, error/'Break' messages, 'Undefined line ', the
+;              RANDOMIZE/INPUT prompts, and FOUT-formatted number text.
+;   [RE] note: STROUT is the historic 'print a memory string' entry; its quoted-
+;              literal scanner is shared with FRMEVL/PRINT, but the bytes printed via
+;              STROUT are pre-built message/number strings, not quoted constants read
+;              out of the program image.
+; ----------------------------------------------------------------------
 STROUT:
+        ; measure the in-memory string at (HL) (terminator fixed to '"'/NUL), build its STRDESC in DSCTMP, stage it as a temp with FAC = the slot address, then run on into STRPRT to emit it
         CALL SCAN_STR_LITERAL
-; [RE] STRPRT: print a string VALUE. FRESTR frees/locates the value's STRDESC (msbasic_strdesc.inc), then the generic 3-byte loader FP_LOAD_MEM3 ($6C46) reads the descriptor as D=STRDESC.LEN, C=STRDESC.PTR.lo, B=STRDESC.PTR.hi; STRPRT_1 then outputs LEN (D) bytes from (BC) via OUTCHR, resetting print state on CR. Entry past STROUT's literal scan; used by PRINT/LPRINT/INPUT-prompt ($37C4/$3927/$65EF/$75B4/$75D6).
+; ----------------------------------------------------------------------
+; STRPRT -- print the string VALUE whose descriptor address is in FAC.
+;   In:        FAC ($0CB1) = address of the value's STRDESC (msbasic_strdesc.inc:
+;              LEN byte at +0, little-endian data PTR at +1). Reached directly (not via
+;              STROUT) by PRINT/LPRINT, the INPUT echo and the WRITE/PRINT-USING string
+;              paths ($37C4/$3927/$65EF/$75B4/$75D6).
+;   Out:       LEN characters of the string are sent to the active output channel via
+;              OUTCHR; on return D=0 and BC = data pointer + LEN (one past the last
+;              byte emitted). If the descriptor was the topmost heap allocation, FRESTR
+;              has reclaimed its bytes (FRETOP raised). A zero-length string prints
+;              nothing.
+;   Clobbers:  A, B, C, D, E, H, L, flags; OUTPUT_COLUMN/CURSOR_POS via OUTCHR and the
+;              CR reset; FRETOP/TEMPPT via FRESTR.
+;   Algorithm: FRESTR loads HL=(FAC) -> the STRDESC address and frees the bytes iff it
+;              is the most-recent temp (returns HL = descriptor address either way).
+;              FP_LOAD_MEM3 reads the 3 descriptor bytes as D=STRDESC.LEN, C=PTR.lo,
+;              B=PTR.hi, so D is the remaining-byte count and BC is the live data
+;              pointer. STRPRT_1 emits D bytes from (BC) through OUTCHR; whenever the
+;              byte just emitted is CR ($0D) it calls RESET_PRINT_STATE to clear the
+;              print column / auto-line state. The leading INC D pairs with the loop's
+;              opening DEC D / RET Z so a LEN of 0 exits immediately.
+;   [RE] note: STRPRT does not itself read VALTYP; callers are responsible for the
+;              value already being a string descriptor.
+; ----------------------------------------------------------------------
 STRPRT:
+        ; resolve FAC -> HL = the value's STRDESC address (and reclaim its heap bytes if it is the topmost temporary string)
         CALL FRESTR
+        ; load the descriptor: D = STRDESC.LEN (byte count), BC = STRDESC.PTR (the character-data pointer to walk)
         CALL FP_LOAD_MEM3
+        ; pre-bias the count so the loop's opening DEC D / RET Z makes a zero-length string print nothing
         INC D
 STRPRT_1:
+        ; count down the remaining characters; return when all LEN bytes have been emitted
         DEC D
         RET Z
+        ; fetch the next character of the string body from the data pointer
         LD A,(BC)
         CALL OUTCHR
         CP $0D
+        ; an embedded carriage return ends a line, so clear the tracked print column / auto-line state
         CALL Z,RESET_PRINT_STATE
         INC BC
         JR STRPRT_1
@@ -19002,103 +19361,184 @@ FN_FRE_1:
         EX DE,HL
         LD HL,(FRETOP)
         JP FP_INT_SUB_TO_FAC
-; MS BASIC-80 QINLIN: print the '? ' input prompt then fall into the console line-input editor (INLIN). Called for INPUT and for the RANDOMIZE seed prompt.
+; ----------------------------------------------------------------------
+; QINLIN -- emit the '? ' INPUT prompt, then read a console line via INLIN.
+;   In:        none (output goes to the current console device).
+;   Out:       HL -> the returned input line (BUF_INPUT_RESET_PTR holds a ',' sentinel; line body at BUF=$0A0E, NUL-terminated); CY=1 if the user typed Ctrl-C (line aborted). Same return contract as INLIN.
+;   Clobbers:  A, BC, DE, HL, flags.
+;   Algorithm: Print '?' ($3F) then ' ' ($20) through OUTCHR, then JP INLIN_RESET_LINE, which clears the editor scratch cells and falls into INLIN to read and edit one console line. Used by the INPUT statement and the RANDOMIZE seed prompt.
+; ----------------------------------------------------------------------
 QINLIN:
         LD A,$3F
         CALL OUTCHR
         LD A,$20
         CALL OUTCHR
+        ; prompt drawn; reset the editor scratch cells and run the line editor (returns the edited line, or Ctrl-C carry, to our caller)
         JP INLIN_RESET_LINE
-; [RE] INLIN per-character fetch: read one console key (CONIN at $6724); Ctrl-A ($01) toggles into line-edit/redisplay, otherwise dispatch the character in the editor.
+; ----------------------------------------------------------------------
+; INLIN_GETCH -- fetch the next input char and route it; Ctrl-A leaves to EDIT-mode redisplay.
+;   In:        HL -> current append position in BUF; B = 1-based char count; DEL_ECHO_FLAG = rubout-echo state.
+;   Out:       on an ordinary char, tail-jumps to INLIN_DISPATCH (no return); on Ctrl-A ($01) NUL-terminates the line and jumps into the EDIT redisplay (INLIN_1 -> STMT_EDIT_4) which never returns here.
+;   Clobbers:  A, flags (plus whatever INCHR and the dispatch path touch).
+;   Algorithm: Read one char via INCHR (from the current file if PTRFIL!=0, else CONIN from the keyboard with the high bit masked off). If it is not Ctrl-A, dispatch it as an editing key. If it is Ctrl-A, write $00 at (HL) to terminate the buffer and divert to the full-screen line EDIT path.
+; ----------------------------------------------------------------------
 INLIN_GETCH:
         CALL INCHR
         CP $01
         JP NZ,INLIN_DISPATCH
+        ; Ctrl-A: NUL-terminate the line so far before handing it to the EDIT redisplay
         LD (HL),$00
         JR INLIN_1
-; [RE] store char then reset editor state: clear the pending-control and auto-quote flags ($0834/$0C93) at the start of a fresh input line.
+; ----------------------------------------------------------------------
+; INLIN_PUT_AND_RESET -- write the count byte (=0 here) as the terminator, then restart the input line.
+;   In:        HL -> first BUF byte; B = 0 (entered only from the empty-line rubout branch, where DEC B from B=1 made the count 0).
+;   Out:       falls into INLIN_RESET_LINE -> INLIN; does not return.
+;   Clobbers:  (HL) written; then the restart clears the editor scratch cells.
+;   Algorithm: Store B (=0) to (HL) to NUL-terminate the now-empty buffer, then fall through to clear the editor scratch cells and re-read the line from scratch. Entered when the user rubs out the only character on the line.
+; ----------------------------------------------------------------------
 INLIN_PUT_AND_RESET:
+        ; empty line was rubbed out: B is 0 here, so this writes the NUL terminator before restarting
         LD (HL),B
-; [RE] INLIN restart-current-line entry: clear the pending-control flag ($0834) and the quote/literal flag ($0C93), then fall into INLIN to re-read the console input line (Ctrl-U line-kill / LF).
+; ----------------------------------------------------------------------
+; INLIN_RESET_LINE -- clear the editor scratch cells, then (re)start reading the current input line.
+;   In:        none required.
+;   Out:       falls into INLIN; PENDING_KEY and the INLIN CR-suppress scratch cell L_0C93 are zeroed.
+;   Clobbers:  A.
+;   Algorithm: Zero PENDING_KEY (the INKEY$/break captured-key cell) and L_0C93 (a shared scratch cell whose INLIN role gates the CR-finish CRLF echo), then fall into INLIN. Reached from QINLIN, from Ctrl-U line-kill and a bare LF (restart the same line), and from the prompt setup -- the canonical 'begin a fresh console line' entry.
+; ----------------------------------------------------------------------
 INLIN_RESET_LINE:
         XOR A
+        ; drop any key the INKEY$/Ctrl-C poll had stashed in PENDING_KEY; this is a fresh line
         LD (PENDING_KEY),A
         XOR A
+        ; [RE] clear the INLIN CR-suppress scratch flag (L_0C93) so the next CR emits the normal CRLF; the cell is shared scratch (also detokenizer spacing / FIELD length), set nonzero only when an INPUT prompt ends in ';'
         LD (L_0C93),A
-; MS BASIC-80 INLIN: console line-input editor main loop. Reads keys, echoes printable characters into the line buffer at $0A0E, and handles control keys (CR, BS/Ctrl-H, Ctrl-U, Ctrl-R, Ctrl-X, Tab, LF, DEL) building an edited line; returns it with CY=Ctrl-C abort.
+; ----------------------------------------------------------------------
+; INLIN -- console line-input editor: read and edit one input line, return it to the caller.
+;   In:        none (console is the input device unless PTRFIL!=0 selects a file).
+;   Out:       HL -> the returned line: BUF_INPUT_RESET_PTR ($0A0D) holds a ',' sentinel and the line body at BUF=$0A0E is NUL-terminated; B = 1+length. CY=1 if the line was aborted with Ctrl-C (callers test JP C, and on CY=1 the HL value is don't-care).
+;   Clobbers:  A, BC, DE, HL, flags; PENDING_KEY / DEL_ECHO_FLAG / L_0C93 editor scratch cells.
+;   Algorithm: Snapshot the print column for Tab alignment (INLIN_SAVE_COLUMN), read the first key via INCHR. Ctrl-A ($01) at line start diverts to the full-screen EDIT redisplay (INLIN_1: CRLF, HL=$FFFF, STMT_EDIT_4) and never returns here. Otherwise drop into INLIN_6 to initialize the buffer (HL=BUF, B=1, DEL_ECHO_FLAG=0) and loop in the dispatcher echoing printable chars into BUF and acting on control keys until CR/Ctrl-C ends the line.
+; ----------------------------------------------------------------------
 INLIN:
+        ; remember where the prompt left the cursor so Tab stops in the edited line line up
         CALL INLIN_SAVE_COLUMN
         CALL INCHR
         CP $01
+        ; ordinary first key: set up the buffer and enter the edit loop
         JR NZ,INLIN_6
 INLIN_1:
         CALL CRLF
+        ; Ctrl-A at line start: HL=$FFFF flags the EDIT redisplay path (STMT_EDIT_4 tests for $FFFF and prints the '!' EDIT marker instead of a line number)
         LD HL,$FFFF
         JP STMT_EDIT_4
-; [RE] DEL/rubout handling: echo a backslash on first delete, then erase one character from the buffer, updating the echo state at $083E.
+; ----------------------------------------------------------------------
+; INLIN_DELETE_CHAR -- DEL/rubout ($7F): remove the last buffered char with backslash-echo feedback.
+;   In:        HL -> just past the last buffered char; B = 1+count; DEL_ECHO_FLAG = backslash-echo state (0 = first rubout of a run, nonzero = a '\\' is already shown).
+;   Out:       loops back via INLIN_GETCH for the next key; restarts the line (INLIN_PUT_AND_RESET) if it was already empty; or reinitializes (INLIN_KILL_LINE) if this rubout emptied it.
+;   Clobbers:  A, B, HL, flags; sets DEL_ECHO_FLAG = $5C.
+;   Algorithm: Load A=$5C ('\\') and set DEL_ECHO_FLAG=$5C unconditionally, then branch on the OLD flag value: on the first DEL of a run (was 0) echo the '\\' to open the visible-rubout bracket; on later DELs skip the echo. Then DEC B / DEC HL: if the line was already empty restart it, if this DEC emptied it reinitialize, otherwise re-echo the char just removed (LD A,(HL)) so the user sees it and wait for the next key.
+; ----------------------------------------------------------------------
 INLIN_DELETE_CHAR:
-        LD A,(L_083E)
+        ; sample the OLD backslash-echo flag (first rubout vs continuation); A is then overwritten with '\\' and the flag set unconditionally
+        LD A,(DEL_ECHO_FLAG)
         OR A
         LD A,$5C
-        LD (L_083E),A
+        LD (DEL_ECHO_FLAG),A
+        ; continuation rubout: backslash already shown, skip the open-bracket echo
         JR NZ,INLIN_3
         DEC B
+        ; line was already empty (B went 1->0): nothing to delete, restart it
         JR Z,INLIN_PUT_AND_RESET
+        ; first rubout: echo the opening '\\' (still in A) to bracket the removed chars
         CALL OUTCHR
         INC B
 INLIN_3:
         DEC B
         DEC HL
         JR Z,INLIN_KILL_LINE
+        ; re-echo the character being deleted so the visible rubout shows what was removed
         LD A,(HL)
         CALL OUTCHR
         JR INLIN_GETCH
-; [RE] continue rubout: emit the deleted character (in backslash-echo mode) and loop while more remain.
+; ----------------------------------------------------------------------
+; INLIN_ECHO_DELETED -- [UNKNOWN: unreachable dead bytes; intended function not determined].
+;   In:        (would be) HL -> char to erase, B = count, A = char to echo.
+;   Out:       (would) echo one char and loop to INLIN_GETCH while B != 0.
+;   Clobbers:  not executed; the bytes are DEC B / DEC HL / CALL OUTCHR / JR NZ,INLIN_GETCH.
+;   Algorithm: UNKNOWN. No instruction or data word references $705A and the preceding instruction (JR INLIN_GETCH at $7058) is unconditional, so these 5 bytes are unreachable. They resemble INLIN_3's erase-and-loop tail but are NOT a copy of it -- they lack the LD A,(HL) before OUTCHR (so they would echo whatever is in A, not the deleted char) and use JR NZ (loop) instead of JR (fall through). Kept verbatim for byte-identical reassembly; no caller invented.
+; ----------------------------------------------------------------------
 INLIN_ECHO_DELETED:
         DEC B
         DEC HL
         CALL OUTCHR
         JR NZ,INLIN_GETCH
-; [RE] Ctrl-U / line-kill finish: echo the trailing char, CRLF, reset the prompt buffer pointer ($0A0E) and start the line over.
+; ----------------------------------------------------------------------
+; INLIN_KILL_LINE -- finish a rubout-to-empty or a Ctrl-X cancel: echo a mark char, newline, reinit the buffer.
+;   In:        A = the char to echo. From the rubout-to-empty path (INLIN_3) A holds '\\' ($5C, the rubout-bracket char left in A by INLIN_DELETE_CHAR); from the Ctrl-X handler A holds '#' ($23).
+;   Out:       falls into INLIN_6 -> INLIN_DISPATCH with HL=BUF, B=1, DEL_ECHO_FLAG=0 (empty buffer, ready to retype); A is preserved across the flag clear (INLIN_6 PUSH AF/.../POP AF).
+;   Clobbers:  BC, HL, flags (A preserved).
+;   Algorithm: Echo the mark char (OUTCHR), emit CRLF to drop to a clean line, then fall into INLIN_6 which resets the buffer pointer to BUF, the count B to 1, and clears DEL_ECHO_FLAG. Reached from rubout-back-to-empty (INLIN_3) and from the Ctrl-X handler.
+; ----------------------------------------------------------------------
 INLIN_KILL_LINE:
         CALL OUTCHR
         CALL CRLF
 INLIN_6:
+        ; fresh empty line: point at the start of the input buffer
         LD HL,BUF
+        ; count back to 1 (1-based; B==1 means the buffer is empty)
         LD B,$01
         PUSH AF
         XOR A
-        LD (L_083E),A
+        ; clear DEL_ECHO_FLAG: no rubout run is open on a fresh line
+        LD (DEL_ECHO_FLAG),A
         POP AF
-; [RE] INLIN control-character dispatch: classify the input char (Bell $07, CR $0D, Tab $09, LF $0A, Ctrl-U $15, BS $08, Ctrl-X $18, Ctrl-R $12, < $20 ignore) and branch; printable chars fall through to the store path.
+; ----------------------------------------------------------------------
+; INLIN_DISPATCH -- classify one input char and act on it; printable chars fall through to storage.
+;   In:        A = the input char; HL -> append position; B = 1+count; DEL_ECHO_FLAG = rubout-echo state.
+;   Out:       branches per key: DEL -> INLIN_DELETE_CHAR; Ctrl-C -> sets CY and RETs (abort); CR -> INLIN_CR_FINISH; Tab/Bell -> store; LF -> restart-if-empty else store; Ctrl-U -> restart line; BS -> erase (or JP INLIN to restart if the line is empty); Ctrl-X -> cancel; Ctrl-R -> retype; other <$20 -> ignore (loop); printable -> INLIN_STORE_CHAR.
+;   Clobbers:  A, C, flags; may clear DEL_ECHO_FLAG and echo a closing '\\'.
+;   Algorithm: Stash the char in C. If it is DEL ($7F) rub out a char. Otherwise, if a backslash-echo rubout run is open, close it (echo '\\', clear DEL_ECHO_FLAG). Then compare C against the control set: $07 Bell and $09 Tab store literally; $03 Ctrl-C echoes '^C' and aborts with CY=1; $0D CR ends the line; $0A LF restarts an empty line else stores; $15 Ctrl-U echoes and restarts; $08 BS erases (or restarts if empty); $18 Ctrl-X cancels; $12 Ctrl-R retypes; any other char below $20 is ignored. Printable chars ($20+) fall into INLIN_STORE_CHAR.
+; ----------------------------------------------------------------------
 INLIN_DISPATCH:
+        ; keep the raw char in C; A is reused for comparisons and echoing
         LD C,A
         CP $7F
+        ; DEL ($7F): rub out the previous character
         JR Z,INLIN_DELETE_CHAR
-        LD A,(L_083E)
+        LD A,(DEL_ECHO_FLAG)
         OR A
         JR Z,INLIN_8
+        ; a rubout run was open: close the visible-rubout bracket with a '\\'
         LD A,$5C
         CALL OUTCHR
         XOR A
-        LD (L_083E),A
+        LD (DEL_ECHO_FLAG),A
 INLIN_8:
         LD A,C
         CP $07
+        ; Bell ($07): keep it in the line verbatim
         JR Z,INLIN_STORE_CHAR
         CP $03
+        ; Ctrl-C ($03): echo '^C' and clear the printer/Ctrl-O suppress flags; this also returns with Z set
         CALL Z,ECHO_CTRL_CHAR
+        ; set carry for the line-abort, then RET Z below fires ONLY for Ctrl-C (ECHO_CTRL_CHAR left Z set); on any other key Z is clear from CP $03 so this carry is harmlessly overwritten by the later compares
         SCF
         RET Z
         CP $0D
+        ; CR ($0D): line complete, terminate and return it
         JP Z,INLIN_CR_FINISH
         CP $09
+        ; Tab ($09): stored as-is; column expansion happens on echo
         JR Z,INLIN_STORE_CHAR
         CP $0A
+        ; not LF: continue classifying further control keys
         JR NZ,INLIN_9
         DEC B
+        ; LF on an empty line (B was 1): restart the line
         JP Z,INLIN_RESET_LINE
         INC B
+        ; LF with text already typed: store it (INLIN_STORE_CHAR then detects the stored LF and runs the multi-line continuation echo)
         JR INLIN_STORE_CHAR
 INLIN_9:
         CP $15
@@ -19110,134 +19550,217 @@ INLIN_9:
         JP Z,INLIN
         CALL INLIN_BACKSPACE
         JP INLIN_GETCH
-; [RE] Ctrl-X handling: discard the current line by echoing '#' and restarting the editor (jumps to the line-kill finish).
+; ----------------------------------------------------------------------
+; INLIN_CTRL_X -- editor dispatch arm: Ctrl-X (line cancel)
+;   In:        A = the control char being classified (already proven != BS/Ctrl-H by the preceding arm); B = 1-based char count, HL = next write slot in BUF, C = the same char
+;   Out:       on Ctrl-X, does not return -- loads '#' into A and jumps to INLIN_KILL_LINE (which echoes that '#', emits CRLF, resets the buffer pointer and restarts the line); on any other char, jumps to INLIN_CTRL_R to continue the dispatch chain
+;   Clobbers:  A (set to '#' = $23 on the cancel path)
+;   Algorithm: One arm of the INLIN control-char dispatch chain. If A != Ctrl-X ($18) defer to INLIN_CTRL_R. On Ctrl-X, load '#' ($23) into A and JP INLIN_KILL_LINE; that routine OUTCHRs the '#' as the visible abandon marker, then CRLFs and reprompts. [RE] '#' as the line-cancel echo is the MS-BASIC convention.
+; ----------------------------------------------------------------------
 INLIN_CTRL_X:
         CP $18
         JP NZ,INLIN_CTRL_R
+        ; Ctrl-X line-cancel: echo '#' as the abandon marker, then restart the input line
         LD A,$23
         JP INLIN_KILL_LINE
-; [RE] Ctrl-R / retype-line: terminate the buffer, CRLF, redisplay the line accumulated so far (PRINT_ZSTRING) from $0A0E, then resume editing.
+; ----------------------------------------------------------------------
+; INLIN_CTRL_R -- editor dispatch arm: Ctrl-R (retype / redisplay current line)
+;   In:        A = the control char being classified; B = 1-based char count, HL = next write slot just past the last stored char in BUF, C = the same char
+;   Out:       on Ctrl-R, redisplays the typed-so-far line and resumes the per-char loop at INLIN_GETCH with BC/DE/HL restored to their entry values; on any other char, falls through to INLIN_REJECT_LOW_CTRL (the < $20 ignore guard)
+;   Clobbers:  none visible to the caller (BC, DE, HL are pushed and popped); writes a temporary $00 into BUF at HL (overwritten by the next stored char)
+;   Algorithm: If A != Ctrl-R ($12) defer to INLIN_REJECT_LOW_CTRL. On Ctrl-R: push BC/DE/HL, write $00 at (HL) so the buffer prints as a $00-terminated string, CRLF, then PRINT_ZSTRING from BUF to re-echo a clean copy of what has been typed so far (useful after rubouts have littered the line). Restore BC/DE/HL and JP INLIN_GETCH so editing continues exactly where it left off.
+; ----------------------------------------------------------------------
 INLIN_CTRL_R:
         CP $12
-        JR NZ,INLIN_12
+        JR NZ,INLIN_REJECT_LOW_CTRL
         PUSH BC
         PUSH DE
         PUSH HL
+        ; $00-terminate the typed-so-far buffer in place so PRINT_ZSTRING stops at the right point
         LD (HL),$00
         CALL CRLF
         LD HL,BUF
+        ; re-echo a clean copy of the line accumulated so far from BUF
         CALL PRINT_ZSTRING
         POP HL
         POP DE
         POP BC
         JP INLIN_GETCH
-INLIN_12:
+INLIN_REJECT_LOW_CTRL:
+        ; any other char below space is an unhandled control code -- ignore it and fetch the next key
         CP $20
         JP C,INLIN_GETCH
-; [RE] store a printable character: guard against buffer overflow (255 chars -> Bell and reformat via $34E0/CRUNCH_EMIT), else append to the buffer, echo it, and detect end-of-line on LF.
+; ----------------------------------------------------------------------
+; INLIN_STORE_CHAR -- accept one character into the line, with full-buffer guard
+;   In:        B = 1-based count of chars already in the line ($01 = empty; the buffer is full when B has reached $FF, i.e. 254 chars stored), HL = next write slot in BUF, C = char to store, PTRFIL ($0840) = active input file pointer (0 = console)
+;   Out:       if room, falls into INLIN_APPEND_ECHO to store and echo C; if full and reading from the console (PTRFIL == 0), jumps to INLIN_ECHO_AND_TEST_LF with A = Bell ($07) to ring the bell WITHOUT storing; if full while reading from a file (PTRFIL != 0), does not return -- jumps to CRUNCH_EMIT_OVERFLOW (ERR_LINE_BUFFER_OVERFLOW = 23)
+;   Clobbers:  A; on the file-overflow path also HL/DE (LINGET, SAVTXT)
+;   Algorithm: Overflow test: copy B into A and INC A -- the result is zero (sets Z) only when B == $FF, i.e. the 254-char buffer is already full (B is NOT modified). Not full: append. Full: read PTRFIL; if it is 0 the line is console input, so set A = Bell ($07) and reuse the shared echo tail (INLIN_ECHO_AND_TEST_LF) to beep and keep waiting for CR/edits without growing the line; if PTRFIL is nonzero the line came from a file and cannot be truncated silently, so re-crunch the buffered line (LINGET reads its line number, EX DE,HL and store into SAVTXT) and raise the line-too-long error.
+; ----------------------------------------------------------------------
 INLIN_STORE_CHAR:
         LD A,B
+        ; buffer is full iff the count B == $FF: copy B into A and INC A sets Z only then (B itself is left unchanged)
         INC A
         JR NZ,INLIN_APPEND_ECHO
         PUSH HL
+        ; on overflow, decide the source: PTRFIL == 0 means console input, nonzero means an active input file
         LD HL,(PTRFIL)
         LD A,H
         OR L
         POP HL
+        ; console overflow: ring the Bell (do not store) and keep editing
         LD A,$07
-        JR Z,INLIN_15
+        JR Z,INLIN_ECHO_AND_TEST_LF
         LD HL,BUF
+        ; file overflow cannot be truncated: re-parse the buffered line and raise line-too-long
         CALL LINGET
         EX DE,HL
         LD (SAVTXT),HL
         JP CRUNCH_EMIT_OVERFLOW
-; [RE] append the accepted char C to the buffer, bump the count, echo it; on a literal newline reset the print column ($0B11) and wait for the continuation key.
+; ----------------------------------------------------------------------
+; INLIN_APPEND_ECHO -- store the accepted char, advance, echo, and detect a hard LF
+;   In:        C = char to store, HL = next write slot in BUF, B = 1-based char count
+;   Out:       stores C at (HL), HL++, B++; then (via the shared tail) echoes the char with OUTCHR; if the char was LF ($0A) zeroes CURSOR_POS, echoes CR, and drops into INLIN_WAIT_AFTER_LF; otherwise resumes the per-char loop at INLIN_GETCH
+;   Clobbers:  A, HL, B; CURSOR_POS ($0B11) on the LF path
+;   Algorithm: Append: copy C into the buffer, bump the write pointer and the count. The shared tail (INLIN_ECHO_AND_TEST_LF, also reached from the console-overflow Bell where nothing was stored) echoes A then computes A - $0A: nonzero -> ordinary char, loop for the next key; zero -> the user typed a literal line feed, so reset the echo column to 0 (LD (CURSOR_POS),A with A == 0), echo a CR to physically return the cursor, and fall into the after-LF poll. This lets a multi-line reply be typed with embedded LFs while keeping the column count correct.
+; ----------------------------------------------------------------------
 INLIN_APPEND_ECHO:
         LD A,C
+        ; append the accepted char to the line buffer and advance the pointer and count
         LD (HL),C
         INC HL
         INC B
-INLIN_15:
+INLIN_ECHO_AND_TEST_LF:
         CALL OUTCHR
+        ; was the echoed char a hard LF? (A becomes 0 iff char == $0A)
         SUB $0A
         JP NZ,INLIN_GETCH
+        ; literal LF typed: reset the echo column to 0 (A is 0 here), then echo a CR to return the cursor
         LD (CURSOR_POS),A
         LD A,$0D
         CALL OUTCHR
-; [RE] after echoing a hard LF, poll the console until a non-null key arrives; CR ends the line, anything else re-enters the dispatcher.
+; ----------------------------------------------------------------------
+; INLIN_WAIT_AFTER_LF -- pause after a hard LF until the next real key
+;   In:        (none) -- polls the console via INCHR
+;   Out:       on CR ($0D) resumes the per-char loop at INLIN_GETCH (the CR after a typed LF is swallowed, not treated as end-of-line); on any other non-null key re-enters the dispatcher at INLIN_DISPATCH to process it; $00 keys are ignored
+;   Clobbers:  A
+;   Algorithm: After the editor echoes a typed line feed, terminals commonly send a paired CR; this loop absorbs it. Read keys (INCHR), skipping NULs (OR A; JR Z back to self). A CR is consumed silently by looping back to fetch another key. Anything else is a genuine keystroke and is routed back through the full control-char dispatch (INLIN_DISPATCH) so it edits the line normally.
+; ----------------------------------------------------------------------
 INLIN_WAIT_AFTER_LF:
         CALL INCHR
+        ; spin until a non-null key arrives
         OR A
         JR Z,INLIN_WAIT_AFTER_LF
+        ; swallow a CR that pairs with the LF just typed; any other key is re-dispatched as normal input
         CP $0D
         JP Z,INLIN_GETCH
         JP INLIN_DISPATCH
-; [RE] CR / end-of-line: if in auto-quote ('?') redisplay mode return the editor's prefilled buffer ($0A0D); otherwise terminate the buffer and return the completed line.
+; ----------------------------------------------------------------------
+; INLIN_CR_FINISH -- Enter/CR pressed: terminate and return the edited line
+;   In:        HL = next write slot just past the last char in BUF, B = char count, L_0C93 ($0C93) = the INPUT-prompt newline-suppress flag (0 = emit the trailing newline, nonzero = suppress it; set by INPUT_PROMPT_SEP when the prompt string was followed by ';')
+;   Out:       Both paths $00-terminate the buffer and return HL = BUF_INPUT_RESET_PTR ($0A0D, the ',' byte one before BUF). They differ only in the trailing newline: flag clear -> tail-calls PRINT_CRLF_IF_COL_1 which $00-terminates, sets HL = BUF_INPUT_RESET_PTR, then UNCONDITIONALLY emits CR+LF and resets the print state; flag set -> $00-terminates, sets HL = BUF_INPUT_RESET_PTR, and returns WITHOUT emitting CR+LF.
+;   Clobbers:  A; writes the terminating $00 at (HL)
+;   Algorithm: [RE] Read L_0C93. If clear, ordinary line entry: defer to PRINT_CRLF_IF_COL_1 (terminate, point HL at the leading ',', echo the closing CRLF, reset print state). If set, the INPUT statement asked to suppress the auto-newline (';' separator), so terminate, point HL at the leading ',', and return immediately with no CRLF. UNKNOWN: whether any path additionally pre-seeds BUF with a default reply; what is OBSERVED is only the newline-suppress behaviour and that HL = $0A0D in both cases (the ',' acts as a leading field separator when the returned line is re-scanned). NOTE: PRINT_CRLF_IF_COL_1 is NOT the column-conditional CRLF (that is PRINT_CRLF_IF_COL, no _1 suffix); _1 always emits the newline.
+; ----------------------------------------------------------------------
 INLIN_CR_FINISH:
+        ; newline-suppress flag? (set by INPUT_PROMPT_SEP when the prompt string ended with ';')
         LD A,(L_0C93)
         OR A
         JP Z,PRINT_CRLF_IF_COL_1
         XOR A
         LD (HL),A
-        LD HL,L_0A0D
+        ; return HL at the ',' one byte before BUF, so the re-scan sees a leading field separator
+        LD HL,BUF_INPUT_RESET_PTR
         RET
-; [RE] INPUT/LINE-INPUT prompt-separator: clear the auto-prompt flag ($0C93); if the next char is ';' set the flag (suppress the trailing '?') and CHRGET past it.
+; ----------------------------------------------------------------------
+; INPUT_PROMPT_SEP -- INPUT/LINE-INPUT prompt separator: ';' after the prompt suppresses the auto newline
+;   In:        A = current source char from CHRGET (the char following the prompt-string literal in an INPUT statement)
+;   Out:       clears L_0C93 ($0C93) unconditionally; if A == ';' ($3B) re-stores A (= $3B, nonzero) into L_0C93 to set the flag and tail-jumps to CHRGET to advance past the ';'; if A != ';' returns with A preserved and the flag cleared
+;   Clobbers:  L_0C93; A is preserved across the unconditional clear (PUSH AF/POP AF)
+;   Algorithm: Parses the separator between an INPUT prompt string and its variable list. Default: clear L_0C93 (enable the normal trailing prompt/newline). If the char is ';' the BASIC convention is to suppress that trailing newline, so store the char ($3B, nonzero) into L_0C93 to set the flag and CHRGET past the ';'. A is saved around the unconditional clear so the CP $3B still sees the original char. [RE] L_0C93 is a shared scratch byte; here it carries the INPUT newline-suppress flag, later read by INLIN_CR_FINISH.
+; ----------------------------------------------------------------------
 INPUT_PROMPT_SEP:
         PUSH AF
+        ; default: clear the newline-suppress flag (normal trailing newline enabled)
         LD A,$00
         LD (L_0C93),A
         POP AF
+        ; ';' after the prompt string suppresses the newline -- set the flag (store the char) and skip the ';'
         CP $3B
         RET NZ
         LD (L_0C93),A
         JP CHRGET
-; [RE] snapshot the current print column ($0B11) into the Tab-expansion base cell (self-modified operand at $719D) so Tab stops align to where the prompt left the cursor.
+; ----------------------------------------------------------------------
+; INLIN_SAVE_COLUMN -- snapshot the prompt column as the Tab-stop origin for this input line
+;   In:        CURSOR_POS ($0B11) = current print column (where the prompt left the cursor)
+;   Out:       copies CURSOR_POS into the self-stored data cell at INLIN_TAB_BASE_COLUMN ($719D); returns
+;   Clobbers:  A, the byte at INLIN_TAB_BASE_COLUMN
+;   Algorithm: Called once at INLIN entry. The backspace-over-Tab logic counts buffer columns to find the previous tab stop, but column 0 of the buffer did not start at screen column 0 -- it started wherever the prompt ended. This stores that starting column into the cell INLIN_BACKSPACE_TAB_AT_BUFSTART reads to bias the count so Tab erasure backs up to the correct physical column. [RE] The destination ($719D) is a one-byte data cell (a $00/NOP) used purely as storage, not executed code.
+; ----------------------------------------------------------------------
 INLIN_SAVE_COLUMN:
         LD A,(CURSOR_POS)
-        LD (INLIN_ERASE_N_COLS_2),A
+        LD (INLIN_TAB_BASE_COLUMN),A
         RET
-; [RE] backspace/Ctrl-H handling: if erasing over a LF redisplay the line; if over a Tab recompute and back up the right number of columns to the previous tab stop; else erase one echoed character.
+; ----------------------------------------------------------------------
+; INLIN_BACKSPACE -- delete the last buffered char, undoing its on-screen echo correctly
+;   In:        HL = next write slot one past the last stored char in BUF, B = remaining 1-based char count (the caller has ALREADY decremented it for this deletion before calling), INLIN_TAB_BASE_COLUMN ($719D) = prompt start column
+;   Out:       backs the visual cursor over exactly one logical input char and leaves HL = the deleted char's slot (= entry HL - 1, the new next-write position); for a plain char erases one cell, for a Tab erases back to the previous 8-aligned tab stop, for a LF re-echoes the surviving line; BC and DE are preserved (HL is intentionally moved back one slot -- it is NOT preserved)
+;   Clobbers:  A internally; HL moved back one slot; BC/DE saved and restored on each sub-path
+;   Algorithm: DEC HL, then A = (HL) = the char being deleted. Three cases by char class:
+;     (1) LF ($0A): the deleted char ended a physical line, so there is no single cell to rub out. PUSH BC, DEC B; if the buffer is now empty (B == 0) just POP BC and return; otherwise re-echo the whole surviving buffer from BUF for B chars (INLIN_REDISPLAY_LINE) so the screen matches the shortened line, then POP BC and return. On this path HL ends at BUF+B (the new write slot).
+;     (2) Tab ($09): a Tab expanded to a variable number of spaces. PUSH HL/BC/DE, D = 0, scan backward (INLIN_BACKSPACE_TAB_SCAN) from the Tab counting intervening columns in D until the previous Tab/LF or buffer start; at buffer start fold in the saved prompt column (INLIN_BACKSPACE_TAB_AT_BUFSTART). Then erase 8 - (D mod 8) cells, computed via AND $07 / CPL / ADD $09 (INLIN_BACKSPACE_TAB_ERASE). POP DE/BC/HL.
+;     (3) any other char (INLIN_BACKSPACE_ONE_CHAR): A = 1 and erase exactly one cell via INLIN_ERASE_N_COLS.
+;   [RE] Tab stops are every 8 columns; INLIN_ERASE_N_COLS performs the physical BS/space/BS rubout.
+; ----------------------------------------------------------------------
 INLIN_BACKSPACE:
         DEC HL
         LD A,(HL)
+        ; deleting over a LF: no single cell to rub out, re-echo the surviving line instead
         CP $0A
-        JR NZ,INLIN_BACKSPACE_3
+        JR NZ,INLIN_BACKSPACE_NOT_LF
         PUSH BC
         DEC B
-        JR Z,INLIN_BACKSPACE_2
+        JR Z,INLIN_BACKSPACE_LF_DONE
+        ; re-echo the whole surviving buffer (B chars) so the screen matches the shortened line
         LD HL,BUF
-; [RE] re-echo the buffered line characters from HL for B bytes (used when backspacing past a newline).
+; ----------------------------------------------------------------------
+; INLIN_REDISPLAY_LINE -- re-echo B buffered chars starting at HL
+;   In:        HL = first char to echo (BUF on the LF-backspace path), B = count of chars to echo
+;   Out:       OUTCHRs each char to the console, HL advanced past them (HL = start + B), B = 0; falls through into INLIN_BACKSPACE_LF_DONE which pops BC and returns
+;   Clobbers:  A, HL, B
+;   Algorithm: DJNZ loop echoing the buffer contents to rebuild the visible line. Used by INLIN_BACKSPACE when the deleted char was a LF, where rubbing out single cells cannot work, so the surviving line is reprinted.
+; ----------------------------------------------------------------------
 INLIN_REDISPLAY_LINE:
         LD A,(HL)
         CALL OUTCHR
         INC HL
         DJNZ INLIN_REDISPLAY_LINE
-INLIN_BACKSPACE_2:
+INLIN_BACKSPACE_LF_DONE:
         POP BC
         RET
-INLIN_BACKSPACE_3:
+INLIN_BACKSPACE_NOT_LF:
         CP $09
-        JR NZ,INLIN_BACKSPACE_7
+        JR NZ,INLIN_BACKSPACE_ONE_CHAR
         PUSH HL
         PUSH BC
         PUSH DE
         LD D,$00
-INLIN_BACKSPACE_4:
+INLIN_BACKSPACE_TAB_SCAN:
         DEC HL
         LD A,(HL)
         CP $09
-        JR Z,INLIN_BACKSPACE_6
+        JR Z,INLIN_BACKSPACE_TAB_ERASE
         CP $0A
-        JR Z,INLIN_BACKSPACE_6
+        JR Z,INLIN_BACKSPACE_TAB_ERASE
         DEC B
-        JR Z,INLIN_BACKSPACE_5
+        JR Z,INLIN_BACKSPACE_TAB_AT_BUFSTART
         INC D
-        JR INLIN_BACKSPACE_4
-INLIN_BACKSPACE_5:
-        LD A,(INLIN_ERASE_N_COLS_2)
+        JR INLIN_BACKSPACE_TAB_SCAN
+INLIN_BACKSPACE_TAB_AT_BUFSTART:
+        LD A,(INLIN_TAB_BASE_COLUMN)
         ADD A,D
         LD D,A
-INLIN_BACKSPACE_6:
+INLIN_BACKSPACE_TAB_ERASE:
         LD A,D
         AND $07
         CPL
@@ -19247,23 +19770,31 @@ INLIN_BACKSPACE_6:
         POP BC
         POP HL
         RET
-INLIN_BACKSPACE_7:
+INLIN_BACKSPACE_ONE_CHAR:
         LD A,$01
-; [RE] erase A character cells on the console by emitting BS/space/BS B times (visual rubout of B columns).
+; ----------------------------------------------------------------------
+; INLIN_ERASE_N_COLS -- visually rub out A character cells
+;   In:        A = number of cells to erase
+;   Out:       for each cell emits BS, space, BS ($08/$20/$08) so A characters disappear from the display; BC preserved
+;   Clobbers:  A; B is used internally as the loop counter but the caller's BC is saved and restored
+;   Algorithm: PUSH BC, set B = A, then loop A times sending $08/$20/$08 -- the destructive-backspace sequence that erases the character to the left and leaves the cursor on the now-blank cell. POP BC, return. Called for ordinary single-char rubout (A = 1 via INLIN_BACKSPACE_ONE_CHAR) and for Tab rubout (A = columns to the previous tab stop). [RE] The byte at $719D immediately after this loop is the separate one-byte data cell INLIN_TAB_BASE_COLUMN (the prompt-column store), not part of this routine.
+; ----------------------------------------------------------------------
 INLIN_ERASE_N_COLS:
         PUSH BC
+        ; erase A cells; B is the loop counter
         LD B,A
-INLIN_ERASE_N_COLS_1:
+INLIN_ERASE_N_COLS_LOOP:
+        ; destructive backspace: BS, space, BS leaves one blank cell with the cursor on it
         LD A,$08
         CALL OUTCHR
         LD A,$20
         CALL OUTCHR
         LD A,$08
         CALL OUTCHR
-        DJNZ INLIN_ERASE_N_COLS_1
+        DJNZ INLIN_ERASE_N_COLS_LOOP
         POP BC
         RET
-INLIN_ERASE_N_COLS_2:
+INLIN_TAB_BASE_COLUMN:
         NOP
 ; [RE] WHILE statement handler (token $AF): begin a WHILE/WEND loop; records the loop text pointer ($0B4E).
 STMT_WHILE:
@@ -20590,7 +21121,7 @@ INPUT_FILE_CONVERT:
 ; ----------------------------------------------------------------------
 INPUT_FILE_CONVERT_18:
         LD (HL),$00
-        LD HL,L_0A0D
+        LD HL,BUF_INPUT_RESET_PTR
         LD A,E
         ; E==space ($20) marks a numeric field -> numeric reader; otherwise build a string from BUF
         SUB $20
@@ -20680,7 +21211,7 @@ LOAD_PROGRAM_2:
 ; ----------------------------------------------------------------------
 LOAD_PROGRAM_3:
         OR $F1
-        LD (L_084A),A
+        LD (RUN_AFTER_LOAD_FLAG),A
         LD HL,$0080
         LD (HL),$00
         LD (FILTAB),HL
@@ -20737,7 +21268,7 @@ LOAD_PROGRAM_6:
         LD A,(CHAIN_BREAK_FLAG)
         OR A
         JP NZ,CHAIN_MOVE_STRING_VAR_3
-        LD A,(L_084A)
+        LD A,(RUN_AFTER_LOAD_FLAG)
         OR A
         JP Z,NEWSTT_READY
         JP STMT_FOR_7
@@ -20770,7 +21301,7 @@ STMT_MERGE:
 ; ----------------------------------------------------------------------
 STMT_MERGE_1:
         XOR A
-        LD (L_084A),A
+        LD (RUN_AFTER_LOAD_FLAG),A
         CALL GETC_FILE_EOF
         JP C,DIRECT_LINE_DISPATCH
         INC A
