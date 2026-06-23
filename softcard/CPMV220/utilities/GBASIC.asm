@@ -150,7 +150,8 @@ DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS
 ;   $6438 -> SUB_63EA_6+1         shared instruction tail: $6438 is reachable code inside the instruction at $6437
 ;   $6468 -> SUB_63EA_14+1        shared instruction tail: $6468 is reachable code inside the instruction at $6467
 
-    ORG $0100
+    INCLUDE "cpm22.inc"                  ; CP/M 2.2 ABI (provides TPA = $0100)
+    ORG TPA
 
 ; [AI] CP/M loads GBASIC.COM here at $0100 (start of the TPA) and jumps in.
 TPA_START:

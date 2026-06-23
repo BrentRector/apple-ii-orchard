@@ -50,7 +50,8 @@ DRV_MASK    EQU $F3E4   ; (current drive & 3) - target drive for the 6502 RWTS
 DRV_NAME    EQU $F3E6   ; drive letter glyph for messages
 
     IFNDEF CPM60_LINK  ; [link] master defines CPM60_LINK and owns this; standalone keeps it
-    ORG $0100
+TPA     EQU $0100                        ; CP/M transient program area (local; 60K build does not stage shared includes)
+    ORG TPA
     ENDIF
 
 ; ---------------------------------------------------------------------------

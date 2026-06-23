@@ -80,7 +80,8 @@ DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS
 ;   $5A6C -> DO_SYSTEM+1        shared instruction tail: $5A6C is reachable code inside the instruction at $5A6B
 ;   $5D44 -> SUB_5BB1_5+2         shared instruction tail: $5D44 is reachable code inside the instruction at $5D42
 
-    ORG $0100
+    INCLUDE "cpm22.inc"                  ; CP/M 2.2 ABI (provides TPA = $0100)
+    ORG TPA
 
 ; [AI] CP/M transient entry point at $0100. Jumps to the cold-start initializer (L_5E51); the
 ;       $0103+ bytes that follow are the BASIC interpreter's runtime data area, not code.

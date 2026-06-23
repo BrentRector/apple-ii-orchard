@@ -41,7 +41,8 @@ DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS
 ;   $0230 -> COPY_DIR_WRITE_2+2   shared instruction tail: $0230 is reachable code inside the instruction at $022E
 ;   $02A4 -> SET_DE_PTR_PATCH+1   shared instruction tail: $02A4 is reachable code inside the instruction at $02A3
 
-    ORG $0100
+    INCLUDE "cpm22.inc"                  ; CP/M 2.2 ABI (provides TPA = $0100)
+    ORG TPA
 
 ; [AI] ===== Program entry (TPA $0100) =====
 ; [AI] Initialise: recover the saved parse pointer, clear the screen / print the

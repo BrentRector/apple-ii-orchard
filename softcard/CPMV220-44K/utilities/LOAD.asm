@@ -16,7 +16,8 @@ DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS
 ; -- Mid-instruction references (shown inline as cover+offset) --
 ;   $0400 -> BDOS_MAKE_FILE+1           z80 skip idiom: enters the operand of $21 at $03FF
 
-    ORG $0100
+    INCLUDE "cpm22.inc"                  ; CP/M 2.2 ABI (provides TPA = $0100)
+    ORG TPA
 
 ; [AI] The $0100 program entry point. The opening JP jumps over the embedded copyright/message
 ;       string block to the real startup code at MAIN.

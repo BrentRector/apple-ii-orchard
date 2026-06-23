@@ -15,7 +15,8 @@ DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS
 ; -- Mid-instruction references (shown inline as cover+offset) --
 ;   $0125 -> TPA_START_14+1       shared instruction tail: $0125 is reachable code inside the instruction at $0124
 
-    ORG $0100
+    INCLUDE "cpm22.inc"                  ; CP/M 2.2 ABI (provides TPA = $0100)
+    ORG TPA
 
 ; [AI] The standard $0100 CP/M transient entry point. Seeds a Z-80 launch byte at $000B and begins
 ;       the re-boot sequence that hands the Apple II back to a raw disk bootstrap.

@@ -22,7 +22,8 @@ BUF_POS              EQU $0213               ; 1-byte input-buffer position vari
 SAVED_SP             EQU $0215               ; 2-byte cell holding the CCP stack pointer saved at entry (LD (SAVED_SP),HL / LD HL,(SAVED_SP)).
 PRIVATE_STACK_TOP    EQU $0257               ; top of the program's private stack (LD SP,PRIVATE_STACK_TOP).
 
-    ORG $0100
+    INCLUDE "cpm22.inc"                  ; CP/M 2.2 ABI (provides TPA = $0100)
+    ORG TPA
 
 ; [AI] Program entry at $0100; saves the CCP's stack pointer for a clean return, switches to a
 ;       private stack, then opens the input file and begins dumping.

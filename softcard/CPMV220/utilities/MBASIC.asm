@@ -140,7 +140,8 @@ DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS
 ;   $5D44 -> SUB_5BB1_5+2         shared instruction tail: $5D44 is reachable code inside the instruction at $5D42
 ;   $5F05 -> COLD_START_95+1        z80 skip idiom: enters the operand of $01 at $5F04
 
-    ORG $0100
+    INCLUDE "cpm22.inc"                  ; CP/M 2.2 ABI (provides TPA = $0100)
+    ORG TPA
 
 ; [AI] CP/M program entry. The first 3 bytes are the only real instruction here:
 ;      JP COLD_START. Everything from $0103 onward is DATA (the interpreter's

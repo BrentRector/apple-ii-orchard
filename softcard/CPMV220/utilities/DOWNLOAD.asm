@@ -36,7 +36,8 @@ DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS
 SIO_STATUS           EQU $E0AE               ; [AI] serial status: bit0 = RX byte available, bit1 = TX holding-reg empty
 SIO_DATA             EQU $E0AF               ; [AI] serial data register: read = RX byte, write = TX byte
 
-    ORG $0100
+    INCLUDE "cpm22.inc"                  ; CP/M 2.2 ABI (provides TPA = $0100)
+    ORG TPA
 
 ; [AI] ----- Program entry: validate command line, (re)create the output file -----
 MAIN:

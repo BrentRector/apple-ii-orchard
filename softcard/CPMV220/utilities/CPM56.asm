@@ -47,7 +47,8 @@ WBOOT_VEC            EQU $0000               ; Warm-boot vector — JP WBOOT in 
 BDOS_VEC             EQU $0005               ; BDOS call vector — JP BDOS_ENTRY. Programs use CALL $0005 to invoke BDOS. Word at $0006 is also the top-of-TPA marker.
 DEFAULT_FCB          EQU $005C               ; Default File Control Block — populated by CCP from command-line argument 1. Standard 36-byte FCB structure (drive + filename + extents + record number).
 
-    ORG $0100
+    INCLUDE "cpm22.inc"                  ; CP/M 2.2 ABI (provides TPA = $0100)
+    ORG TPA
 
 MAIN:
         LD A,(DEFAULT_FCB)               ; $0100  3A 5C 00   ; [AI] A = drive byte of default FCB (set by CCP from cmd arg)

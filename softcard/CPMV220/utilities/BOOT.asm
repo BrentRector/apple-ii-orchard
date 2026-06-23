@@ -24,7 +24,8 @@ BDOS_VEC             EQU $0005               ; BDOS call vector — JP BDOS_ENTR
 ; [AI] -- SoftCard host (6502-side) communication cells in high RAM --
 APPLE_DISKII_SLOT6   EQU $C600               ; [AI] Apple II Disk II controller boot ROM entry, slot 6 ($Cn00, n=6)
 
-    ORG $0100
+    INCLUDE "cpm22.inc"                  ; CP/M 2.2 ABI (provides TPA = $0100)
+    ORG TPA
 
 ; [AI] ===== Zero-filled entry pad ($0100-$01FF) =================================
 ; [AI] 256 NOPs. CP/M loads and enters BOOT.COM at $0100; execution slides through

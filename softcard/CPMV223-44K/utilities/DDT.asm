@@ -13,7 +13,8 @@ BDOS_VEC             EQU $0005               ; BDOS call vector — JP BDOS_ENTR
 DDT_IMG_BASE         EQU $0200               ; [AI] resident image base = .COM load addr of the relocatable body
 DDT_IMG_LEN          EQU $1010               ; [AI] image byte count copied to high RAM (the loader's LD BC value)
 
-    ORG $0100
+TPA     EQU $0100                        ; CP/M transient program area (local; file has its own BDOS label)
+    ORG TPA
 
 ; [AI] The standard CP/M transient-program load address $0100 where the CCP loads and starts
 ;       DDT.COM. Execution begins here; the first instruction loads BC with a size/relocation value

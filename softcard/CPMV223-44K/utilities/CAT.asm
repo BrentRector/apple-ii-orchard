@@ -21,7 +21,8 @@ DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS
 ;   $0239 -> COUNT_FREE_BLOCKS_2+1         z80 skip idiom: enters the operand of $11 at $0238
 ;   $032C -> LIST_AND_SUMMARY_1+1         shared instruction tail: $032C is reachable code inside the instruction at $032B
 
-    ORG $0100
+    INCLUDE "cpm22.inc"                  ; CP/M 2.2 ABI (provides TPA = $0100)
+    ORG TPA
 
 ; [AI] Program entry at $0100 (start of the TPA). Saves the CCP's stack pointer to $03D3, switches
 ;       to CAT's private stack, then runs init, the directory scan, the listing, and the summary

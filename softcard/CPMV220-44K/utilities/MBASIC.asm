@@ -9,7 +9,8 @@
     INCLUDE "msbasic_tokens.inc"   ; MS BASIC keyword-token names
     INCLUDE "msbasic_errors.inc"   ; MS BASIC error-code names (ERR_*)
 
-    ORG $0100
+    INCLUDE "cpm22.inc"                  ; CP/M 2.2 ABI (provides TPA = $0100)
+    ORG TPA
 
 ; CP/M .COM entry point at $0100: JP COLD_START ($5E51). MBASIC runs in place (no relocation), so this is the only fixed CP/M load address. Replaces COM_ENTRY. [RE]
 COM_ENTRY:
