@@ -307,7 +307,7 @@ SOURCES_220_44K: dict[str, ChunkSource | Path] = {
         # CCP embeds a 6502 RPC block ($9400-$9500), INCBIN'd from its ca65 source
         # (44K config: no CFG_56K); CCP INCLUDEs the BDOS component source.
         incbin_deps=(("CPM_RPC6502.bin", OS220_44K / "CPM_RPC6502.s", ()),),
-        include_files=(OS220_44K / "CPM_BDOS.asm",),
+        include_files=(OS220_44K / "CPM_BDOS.asm", CPM22_INC),
     ),
     # As-shipped pristine on-disk BIOS ($AA00-$AEFF) -- what LOAD_CPM reads.
     "CPM220_44K_BIOS_Disk": ChunkSource(

@@ -169,7 +169,7 @@ def apply_spec(text, spec):
             edits.append((b, idx, _framed_header([_strip_was(_rn(h)) for h in hdr])))
             rep["headers"] += 1
         for bc in r.get("body_comments", []) or []:
-            anchor = _rn((bc.get("anchor") or "").strip())   # normalize to post-rename names
+            anchor = code_norm(_rn(bc.get("anchor") or ""))   # code-only (strip any "; addr" the agent left)
             occ = bc.get("occ", 1)
             n, placed = 0, False
             for k in range(idx + 1, end):

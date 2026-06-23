@@ -38,6 +38,10 @@ emu_*.bin
 # reference, emitted by `python -m cpm_pipeline.basic.fold_build` (the master BASIC.asm
 # no longer carries inline `; $XXXX <bytes>` comments). Regenerated, not tracked.
 **/utilities/*.lst
+# CP/M OS listings (CPM_BIOS.lst, CPM_CCP.lst, ...) -- the per-file address+machine-code
+# reference emitted by cpm_pipeline.os_listing; the os/ .asm carries no inline `$addr`
+# comments either. Regenerated, not tracked.
+**/os/*.lst
 
 # IDE / editor
 .vscode/

@@ -55,7 +55,8 @@ class ChunkSource:
     include_files: tuple = ()   # tuple of Paths copied into the build dir
 
 
-def assemble_chunk(source: ChunkSource, *, cwd: Path | None = None) -> bytes:
+def assemble_chunk(source: ChunkSource, *, cwd: Path | None = None,
+                   lst_path: Path | None = None) -> bytes:
     """Assemble `source` and return the resulting binary bytes.
 
     `cwd` controls the working directory the assembler runs from (matters
@@ -76,7 +77,7 @@ def assemble_chunk(source: ChunkSource, *, cwd: Path | None = None) -> bytes:
     if source.cpu == "6502":
         return _assemble_6502(source, cwd=cwd)
     if source.cpu == "z80":
-        return _assemble_z80(source, cwd=cwd)
+        return _assemble_z80(source, cwd=cwd, lst_path=lst_path)
     raise AssemblyError(f"unknown CPU {source.cpu!r} for {source.asm_path.name}")
 
 
@@ -202,8 +203,10 @@ def _build_incbin_dep(src_path: Path, out_bin: Path, defines: tuple) -> None:
         raise AssemblyError(f"ld65 failed for {src_path.name}:\n{ld.stdout}{ld.stderr}")
 
 
-def _assemble_z80(source: ChunkSource, *, cwd: Path | None) -> bytes:
-    """Run sjasmplus against a Z-80 source, return the binary bytes."""
+def _assemble_z80(source: ChunkSource, *, cwd: Path | None, lst_path: Path | None = None) -> bytes:
+    """Run sjasmplus against a Z-80 source, return the binary bytes. If `lst_path` is given,
+    also emit the sjasmplus listing (address + machine bytes + source per line) there -- the
+    OS analogue of fold_build's GBASIC.lst (the .asm carries no inline `$addr` comments)."""
     if not shutil.which("sjasmplus"):
         raise AssemblyError("sjasmplus not on PATH (source shared/toolchain/env.sh)")
 
@@ -230,10 +233,12 @@ def _assemble_z80(source: ChunkSource, *, cwd: Path | None) -> bytes:
         # When there are INCBIN/INCLUDE deps, run from the temp dir so relative
         # INCBIN/INCLUDE paths resolve there (mirrors the CPM60.COM build).
         run_cwd = str(tmp) if (source.incbin_deps or source.include_files) else cwd
-        result = subprocess.run(
-            ["sjasmplus", copied_asm.name if source.incbin_deps else str(copied_asm)],
-            capture_output=True, text=True, cwd=run_cwd,
-        )
+        lst_tmp = tmp / "out.lst"
+        cmd = ["sjasmplus"]
+        if lst_path is not None:
+            cmd.append(f"--lst={lst_tmp.resolve().as_posix()}")
+        cmd.append(copied_asm.name if source.incbin_deps else str(copied_asm))
+        result = subprocess.run(cmd, capture_output=True, text=True, cwd=run_cwd)
         if result.returncode != 0:
             raise AssemblyError(
                 f"sjasmplus failed for {source.asm_path.name}:\n{result.stdout}{result.stderr}"
@@ -248,4 +253,6 @@ def _assemble_z80(source: ChunkSource, *, cwd: Path | None) -> bytes:
             raise AssemblyError(
                 f"{source.asm_path.name}: expected {source.size} bytes, got {len(bytes_)}"
             )
+        if lst_path is not None and lst_tmp.exists():
+            Path(lst_path).write_text(lst_tmp.read_text(encoding="latin-1"), encoding="latin-1")
         return bytes_

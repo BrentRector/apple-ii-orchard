@@ -41,6 +41,7 @@
 ; -- Page-zero / external symbols (canonical CP/M low memory) --
 ; [DOC CPMREF 3-44] WBOOT_VEC ($0000): JMP to the BIOS warm-boot routine; most
 ;       transients return to CP/M via JP $0000.
+        INCLUDE "cpm22.inc"
 WBOOT_VEC            EQU $0000
 ; [DOC S&HD 2-18] IOBYTE ($0003): logical-to-physical device map (CONSOLE/READER/
 ;       PUNCH/LIST, 4 fields x 2 bits). Read/written via BDOS fns 7/8.
@@ -184,226 +185,519 @@ BDOS_VAR_PAGE_9_p6_STG                   EQU $A9EA
 BDOS_VAR_PAGE_9_p8_STG                   EQU $A9EC
 
     DISP $9A01
+; ----------------------------------------------------------------------
+; CCP_TAIL_LOADRET -- CCP transient open/stage path: build the default FCB from the parsed command +
+; scan/dispatch the command line. [RE]
+;   In:        A = a count from the caller (semantics UNKNOWN -- see note); the CCP's parsed-FCB
+;              scratch buffer at run $9BCD.. and command-line buffer at $9408 (both in CPM_CCP.asm
+;              space).
+;   Out:       falls through into the directory-search engine (JP CCP_TAIL_2 at $9A3B); or
+;              conditionally branches to the dir-name-match code at $9B71 (CCP_TAIL_6+1) when A!=1
+;              after DEC.
+;   Clobbers:  A,B,DE,HL; copies a $21-byte FCB to TFCB ($005C); self-writes the CCP scratch cells
+;              $9BCD/$9BDD/$9BED.
+;   Algorithm: [RE] POP a return address; DEC A and, if non-zero, JP to $9B71 (CCP_TAIL_6+1) --
+;              which disassembles as directory NAME-MATCH code (LD A,H/AND E/PUSH BC/CALL
+;              FCB_EXTRACT_RANDREC...), NOT a loader loop. Otherwise call two CCP routines (one does
+;              the 6502 console RPC), seed/clear the $9Bxx scratch cells, copy the 0x21-byte parsed
+;              FCB down to the default FCB at TFCB ($005C), then walk the command-line buffer at
+;              $9408 skipping a leading NUL/space and JP into the directory-search engine
+;              (CCP_TAIL_2). The exact role of the A-count and the JP-NZ target is UNKNOWN pending
+;              the above-image/CCP caller; the prior 'sector-load loop' framing was an invented
+;              narrative and is removed.
+; ----------------------------------------------------------------------
 CCP_TAIL_LOADRET:
-        POP HL                           ; $9A01  E1
-        DEC A                            ; $9A02  3D
-        JP NZ,CCP_TAIL_6+1                   ; $9A03  C2 71 9B
-        CALL $9866                       ; $9A06  CD 66 98
-        CALL $965E                       ; $9A09  CD 5E 96
-        LD HL,CCP_TAIL_16+2                   ; $9A0C  21 F0 9B
-        PUSH HL                          ; $9A0F  E5
-        LD A,(HL)                        ; $9A10  7E
-        LD (CCP_TAIL_14+1),A                  ; $9A11  32 CD 9B
-        LD A,$10                         ; $9A14  3E 10
-        CALL $9660                       ; $9A16  CD 60 96
-        POP HL                           ; $9A19  E1
-        LD A,(HL)                        ; $9A1A  7E
-        LD (CCP_TAIL_10),A                    ; $9A1B  32 DD 9B
-        XOR A                            ; $9A1E  AF
-        LD (CCP_TAIL_11),A                    ; $9A1F  32 ED 9B
-        LD DE,$005C                      ; $9A22  11 5C 00
-        LD HL,CCP_TAIL_14+1                   ; $9A25  21 CD 9B
-        LD B,$21                         ; $9A28  06 21
-        CALL $9842                       ; $9A2A  CD 42 98
-        LD HL,$9408                      ; $9A2D  21 08 94
-        LD A,(HL)                        ; $9A30  7E
-        OR A                             ; $9A31  B7
-        JP Z,CCP_TAIL_3+1                    ; $9A32  CA 3E 9B
-        CP $20                           ; $9A35  FE 20
-        JP Z,CCP_TAIL_3+1                    ; $9A37  CA 3E 9B
-        INC HL                           ; $9A3A  23
-        JP CCP_TAIL_2                        ; $9A3B  C3 30 9B
+        POP HL
+        DEC A
+        JP NZ,CCP_TAIL_6+1
+        ; [RE] call into the CCP (run $9866 is itself a CALL RPC6502_E0D0) -- refresh/reset the
+        ; console via the 6502 RPC gateway
+        CALL $9866
+        CALL $965E
+        LD HL,CCP_TAIL_16+2
+        PUSH HL
+        LD A,(HL)
+        LD (CCP_TAIL_14+1),A
+        LD A,$10
+        CALL $9660
+        POP HL
+        LD A,(HL)
+        LD (CCP_TAIL_10),A
+        XOR A
+        LD (CCP_TAIL_11),A
+        ; copy the parsed 0x21-byte FCB from the CCP scratch buffer ($9BCD) down to the default FCB
+        ; (TFCB)
+        LD DE,TFCB
+        LD HL,CCP_TAIL_14+1
+        LD B,$21
+        CALL $9842
+        ; point at the CCP command-line buffer and skip a leading NUL/space before entering the
+        ; directory search
+        LD HL,$9408
+        LD A,(HL)
+        OR A
+        JP Z,CCP_TAIL_3+1
+        CP ' '
+        JP Z,CCP_TAIL_3+1
+        INC HL
+        JP CCP_TAIL_2
+; ----------------------------------------------------------------------
+; CCP_TAIL_CMDTAIL -- copy the command tail into the default DMA buffer for the transient.
+;   In:        HL -> first command-tail character; the default DMA/command-tail buffer base is TBUFF
+;              ($0080).
+;   Out:       TBUFF+1 ($0081).. = the tail characters; B = running count; on the NUL terminator
+;              jumps to CCP_TAIL_5+2 to store the final length byte at TBUFF.
+;   Clobbers:  A,B,DE,HL.
+;   Algorithm: classic CP/M command-tail copy: B counts characters, DE walks TBUFF+1 ($0081) onward,
+;              copy bytes until a 0 terminator, then jump to store the accumulated length at TBUFF
+;              ($0080).
+; ----------------------------------------------------------------------
 CCP_TAIL_CMDTAIL:
-        LD B,$00                         ; $9A3E  06 00
-        LD DE,$0081                      ; $9A40  11 81 00
-        LD A,(HL)                        ; $9A43  7E
-        LD (DE),A                        ; $9A44  12
-        OR A                             ; $9A45  B7
-        JP Z,CCP_TAIL_5+2                    ; $9A46  CA 4F 9B
-        INC B                            ; $9A49  04
-        INC HL                           ; $9A4A  23
-        INC DE                           ; $9A4B  13
-        JP CCP_TAIL_4                        ; $9A4C  C3 43 9B
-        DEFB    $78,$32,$80,$00,$CD,$98,$94,$CD,$D5,$95,$CD,$1A,$95,$CD,$00,$01 ; $9A4F
-        DEFB    $31,$AB,$9B,$CD,$29,$95,$CD,$BD,$94,$C3,$82,$97,$CD,$66,$98,$C3 ; $9A5F
-        DEFB    $09,$96,$01,$7A,$9B,$CD,$A7,$94,$C3,$86,$9B      ; $9A6F
-        DEFB    "BAD LOAD"    ; $9A7A  string
-        DEFB    $00    ; $9A82  terminator
-        DEFB    $43,$4F,$4D,$CD,$66,$98,$CD,$5E,$96,$3A,$CE,$9B,$D6,$20,$21,$F0 ; $9A83
-        DEFB    $9B,$B6,$C2,$09,$96,$C3,$82,$97                  ; $9A93
-        DEFS    18, $00    ; $9A9B  fill
-        DEFB    "$$$     SUB"    ; $9AAD  string
-        DEFB    $00    ; $9AB8  terminator
-        DEFS    71, $00    ; $9AB9  fill
-        DEFB    $A2,$3A,$D4,$A9,$C3,$01,$9F,$C5,$F5,$3A,$C5,$A9,$2F,$47,$79,$A0 ; $9B00
-        DEFB    $4F,$F1,$A0,$91,$E6,$1F,$C1,$C9,$3E,$FF,$32,$D4,$A9,$21,$D8,$A9 ; $9B10
-        DEFB    $71,$2A,$43,$9F,$22,$D9,$A9,$CD,$FE,$A1,$CD,$A1,$9F,$0E,$00,$CD ; $9B20
+        LD B,$00
+        LD DE,TBUFF+1
+        ; copy the next command-tail character into the DMA buffer
+        LD A,(HL)
+        LD (DE),A
+        OR A
+        ; on the NUL terminator, finish: store the accumulated tail length at TBUFF
+        JP Z,CCP_TAIL_5+2
+        INC B
+        INC HL
+        INC DE
+        JP CCP_TAIL_4
+        DEFB    $78,$32,$80,$00,$CD,$98,$94,$CD,$D5,$95,$CD,$1A,$95,$CD,$00,$01
+        DEFB    $31,$AB,$9B,$CD,$29,$95,$CD,$BD,$94,$C3,$82,$97,$CD,$66,$98,$C3
+        DEFB    $09,$96,$01,$7A,$9B,$CD,$A7,$94,$C3,$86,$9B
+        DEFB    "BAD LOAD"               ; string
+        DEFB    $00                      ; terminator
+        DEFB    $43,$4F,$4D,$CD,$66,$98,$CD,$5E,$96,$3A,$CE,$9B,$D6,$20,$21,$F0
+        DEFB    $9B,$B6,$C2,$09,$96,$C3,$82,$97
+        DEFS    18, $00                  ; fill
+        DEFB    "$$$     SUB"            ; string
+        DEFB    $00                      ; terminator
+        DEFS    71, $00                  ; fill
+        DEFB    $A2,$3A,$D4,$A9,$C3,$01,$9F,$C5,$F5,$3A,$C5,$A9,$2F,$47,$79,$A0
+        DEFB    $4F,$F1,$A0,$91,$E6,$1F,$C1,$C9,$3E,$FF,$32,$D4,$A9,$21,$D8,$A9
+        DEFB    $71,$2A,$43,$9F,$22,$D9,$A9,$CD,$FE,$A1,$CD,$A1,$9F,$0E,$00,$CD
+; ----------------------------------------------------------------------
+; CCP_TAIL_2 -- BDOS directory-search inner step (MIS-NAMED; not CCP loader code). Overlap entry.
+; [RE]
+;   In:        reached by JP from $9A3B (the CCP command-line scan) and, on fall-through from blob3
+;              at run $9B2F, the bytes here ($05,$A2) are the operand of CALL BDOS_CHECK_ERROR_2
+;              ($A205). ($A9D9) holds the current directory-buffer pointer.
+;   Out:       continues into the deleted-entry test (CCP_TAIL_3); on a BDOS error jumps to
+;              FCB_EXTENT_TO_TRKSEC_8+1.
+;   Clobbers:  A,DE,HL.
+;   Algorithm: [RE] check the last directory/disk op for error (CALL BDOS_CHECK_ERROR $A1F5), load
+;              the directory-buffer pointer from ($A9D9), and fetch the first byte of the current
+;              entry. UNKNOWN: precise role pending the above-image caller; part of the
+;              open/search-first engine.
+;   NOTE: $9B30 is a genuine OVERLAP ENTRY. A clean cover-split needs blob3 ($9B00) decoded to code
+;         first; FLAGGED, not split here (would touch cross-cluster entries).
+; ----------------------------------------------------------------------
 CCP_TAIL_2:
-        DEC B                            ; $9B30  05
-        AND D                            ; $9B31  A2
-        CALL BDOS_CHECK_ERROR                    ; $9B32  CD F5 A1
-        JP Z,FCB_EXTENT_TO_TRKSEC_8+1                ; $9B35  CA 94 A3
-        LD HL,($A9D9)                    ; $9B38  2A D9 A9
-        EX DE,HL                         ; $9B3B  EB
-        LD A,(DE)                        ; $9B3C  1A
+        DEC B
+        AND D
+        ; check the result of the preceding directory/disk operation; on fall-through from blob3 the
+        ; prior two bytes are the CALL BDOS_CHECK_ERROR_2 operand
+        CALL BDOS_CHECK_ERROR
+        JP Z,FCB_EXTENT_TO_TRKSEC_8+1
+        ; load the current directory-buffer pointer (BDOS scratch $A9D9) and address the entry via
+        ; DE
+        LD HL,($A9D9)
+        EX DE,HL
+        LD A,(DE)
+; ----------------------------------------------------------------------
+; CCP_TAIL_3 -- directory-entry deleted-marker test (MIS-NAMED; BDOS dir search). [RE]
+;   In:        A = first byte of the directory entry pointed at by DE.
+;   Out:       if the entry is deleted ($E5) jump to FCB_EXTENT_TO_TRKSEC_2+1 (skip it); else PUSH
+;              DE and fall into the field compare.
+;   Clobbers:  flags; pushes DE.
+;   Algorithm: [RE] CP $E5 detects an erased/empty directory slot (CP/M uses $E5 for
+;              deleted/never-used entries) and skips it, otherwise preserves the entry pointer for
+;              the field-by-field match.
+; ----------------------------------------------------------------------
 CCP_TAIL_3:
-        CP $E5                           ; $9B3D  FE E5
-        JP Z,FCB_EXTENT_TO_TRKSEC_2+1                ; $9B3F  CA 4A A3
-        PUSH DE                          ; $9B42  D5
+        ; $E5 marks a deleted/empty directory entry: skip it if found
+        CP $E5
+        JP Z,FCB_EXTENT_TO_TRKSEC_2+1
+        PUSH DE
+; ----------------------------------------------------------------------
+; CCP_TAIL_4 -- directory-entry compare driver (MIS-NAMED; BDOS dir search). [RE]
+;   In:        DE -> candidate directory entry; the FCB/search mask in BDOS scratch.
+;   Out:       on no match (NC) jump to FCB_EXTENT_TO_TRKSEC_8+1 (advance to next entry); on match
+;              CALL DIR_SEARCH_STEP_6+1 and continue.
+;   Clobbers:  A,DE,HL.
+;   Algorithm: [RE] compare the candidate entry against the search FCB (CALL DISK_DEBLOCK_CMP
+;              $A17F), restore DE, branch to the next-entry path if it did not match, else record
+;              the hit.
+; ----------------------------------------------------------------------
 CCP_TAIL_4:
-        CALL DISK_DEBLOCK_CMP                    ; $9B43  CD 7F A1
-        POP DE                           ; $9B46  D1
-        JP NC,FCB_EXTENT_TO_TRKSEC_8+1               ; $9B47  D2 94 A3
-        CALL DIR_SEARCH_STEP_6+1                ; $9B4A  CD 5E A1
+        ; compare the candidate directory entry against the search FCB
+        CALL DISK_DEBLOCK_CMP
+        POP DE
+        JP NC,FCB_EXTENT_TO_TRKSEC_8+1
+        CALL DIR_SEARCH_STEP_6+1
+; ----------------------------------------------------------------------
+; CCP_TAIL_5 -- per-character FCB name/type field compare (MIS-NAMED; BDOS dir search). [RE]
+;   In:        ($A9D8) = field length / match counter; DE -> directory-entry field; HL -> FCB field;
+;              B = field index.
+;   Out:       branches into FCB_EXTENT_TO_TRKSEC_4/5/6 by field type; AND $7F compares ignoring the
+;              attribute high bit.
+;   Clobbers:  A,B,C,HL.
+;   Algorithm: [RE] loop over the FCB name/type bytes: handle the '?' wildcard (matches anything),
+;              special-case the extent/type boundary indices (B==$0D, B==$0C), and compare data
+;              bytes with the attribute bit masked off (AND $7F). Drives search-first/search-next.
+; ----------------------------------------------------------------------
 CCP_TAIL_5:
-        LD A,($A9D8)                     ; $9B4D  3A D8 A9
-        LD C,A                           ; $9B50  4F
-        LD B,$00                         ; $9B51  06 00
-        LD A,C                           ; $9B53  79
-        OR A                             ; $9B54  B7
-        JP Z,FCB_EXTENT_TO_TRKSEC_6+2                ; $9B55  CA 83 A3
-        LD A,(DE)                        ; $9B58  1A
-        CP $3F                           ; $9B59  FE 3F
-        JP Z,FCB_EXTENT_TO_TRKSEC_5                  ; $9B5B  CA 7C A3
-        LD A,B                           ; $9B5E  78
-        CP $0D                           ; $9B5F  FE 0D
-        JP Z,FCB_EXTENT_TO_TRKSEC_5                  ; $9B61  CA 7C A3
-        CP $0C                           ; $9B64  FE 0C
-        LD A,(DE)                        ; $9B66  1A
-        JP Z,FCB_EXTENT_TO_TRKSEC_4                  ; $9B67  CA 73 A3
-        SUB (HL)                         ; $9B6A  96
-        AND $7F                          ; $9B6B  E6 7F
-        JP NZ,FCB_EXTENT_TO_TRKSEC_1+2               ; $9B6D  C2 2D A3
+        ; load the field-length / remaining-match counter from BDOS scratch ($A9D8)
+        LD A,($A9D8)
+        LD C,A
+        LD B,$00
+        LD A,C
+        OR A
+        JP Z,FCB_EXTENT_TO_TRKSEC_6+2
+        LD A,(DE)
+        ; a '?' in the FCB field is a wildcard that matches any directory byte
+        CP '?'
+        JP Z,FCB_EXTENT_TO_TRKSEC_5
+        LD A,B
+        CP $0D
+        JP Z,FCB_EXTENT_TO_TRKSEC_5
+        CP $0C
+        LD A,(DE)
+        JP Z,FCB_EXTENT_TO_TRKSEC_4
+        SUB (HL)
+        ; compare the byte with the attribute high bit masked off (filetype bytes carry
+        ; R/O,SYS,archive flags in bit 7)
+        AND $7F
+        JP NZ,FCB_EXTENT_TO_TRKSEC_1+2
+; ----------------------------------------------------------------------
+; CCP_TAIL_6 -- match-success forwarding jump (MIS-NAMED; BDOS dir search). [RE]
+;   In:        reached on a successful field match; its operand byte at $9B71 (CCP_TAIL_6+1) is ALSO
+;              the JP NZ target from CCP_TAIL_LOADRET ($9A03).
+;   Out:       JP FCB_EXTENT_TO_TRKSEC_5 (record the matched entry).
+;   Clobbers:  none here.
+;   Algorithm: [RE] single forwarding jump. NOTE: $9B71 (CCP_TAIL_6+1) is an OVERLAP entry: the
+;              $7C,$A3 operand bytes of this JP disassemble (verified) as LD A,H / AND E, falling
+;              into PUSH BC / LD C,(HL) / CALL FCB_EXTRACT_RANDREC at $9B73 -- a directory
+;              name-match continuation. Not cleanly splittable without touching cross-cluster
+;              entries; FLAGGED.
+; ----------------------------------------------------------------------
 CCP_TAIL_6:
-        JP FCB_EXTENT_TO_TRKSEC_5                    ; $9B70  C3 7C A3
-        PUSH BC                          ; $9B73  C5
-        LD C,(HL)                        ; $9B74  4E
-        CALL FCB_EXTRACT_RANDREC                    ; $9B75  CD 07 A3
-        POP BC                           ; $9B78  C1
-        JP NZ,FCB_EXTENT_TO_TRKSEC_1+2               ; $9B79  C2 2D A3
-        INC DE                           ; $9B7C  13
-        INC HL                           ; $9B7D  23
-        INC B                            ; $9B7E  04
-        DEC C                            ; $9B7F  0D
-        JP FCB_EXTENT_TO_TRKSEC_3                    ; $9B80  C3 53 A3
+        JP FCB_EXTENT_TO_TRKSEC_5
+        PUSH BC
+        LD C,(HL)
+        CALL FCB_EXTRACT_RANDREC
+        POP BC
+        JP NZ,FCB_EXTENT_TO_TRKSEC_1+2
+        INC DE
+        INC HL
+        INC B
+        DEC C
+        JP FCB_EXTENT_TO_TRKSEC_3
+; ----------------------------------------------------------------------
+; CCP_TAIL_7 -- (MIS-NAMED) directory match-count continuation at $9B73/$9B83 (BDOS). [RE]
+;   In:        $9B73 path: HL -> matched field, BC saved; $9B83 path: A := ($A9EA) raw match-result
+;              cell.
+;   Out:       at $9B73 walk remaining bytes (CALL FCB_EXTRACT_RANDREC) advancing DE/HL and
+;              decrementing the count; at $9B83 fall into the 0-3 directory-code reducer
+;              (CCP_TAIL_8).
+;   Clobbers:  A,B,C,DE,HL.
+;   Algorithm: [RE] continuation of the name match then reduce to the CP/M directory code. UNKNOWN:
+;              exact split of the two entry points pending the above-image caller.
+; ----------------------------------------------------------------------
 CCP_TAIL_7:
-        LD A,($A9EA)                     ; $9B83  3A EA A9
+        ; load the raw directory match-result cell ($A9EA) before reducing it to a 0-3 directory
+        ; code
+        LD A,($A9EA)
+; ----------------------------------------------------------------------
+; CCP_TAIL_8 -- reduce a directory search result to the CP/M directory code 0-3 (MIS-NAMED; BDOS).
+; [RE]
+;   In:        A = raw match index; ($A9D4) = an open/found flag.
+;   Out:       BDOS_RETURN_VAL ($9F45) = directory code in 0..3; if the flag's high bit is set it is
+;              cleared.
+;   Clobbers:  A,HL.
+;   Algorithm: [RE] AND $03 forces the result into the CP/M directory-code range (0-3, the value
+;              search-first/next return in A); store it to BDOS_RETURN_VAL, then if ($A9D4) bit 7 is
+;              set (RLA tests it) zero that cell.
+; ----------------------------------------------------------------------
 CCP_TAIL_8:
-        AND $03                          ; $9B86  E6 03
-        LD (BDOS_RETURN_VAL),A               ; $9B88  32 45 9F
-        LD HL,$A9D4                      ; $9B8B  21 D4 A9
-        LD A,(HL)                        ; $9B8E  7E
-        RLA                              ; $9B8F  17
-        RET NC                           ; $9B90  D0
-        XOR A                            ; $9B91  AF
-        LD (HL),A                        ; $9B92  77
-        RET                              ; $9B93  C9
+        ; mask the match index to the 0-3 CP/M directory-code range returned by search-first/next
+        AND $03
+        ; publish the directory code as the BDOS return value ($9F45; A=L on the BDOS return path)
+        LD (BDOS_RETURN_VAL),A
+        LD HL,$A9D4
+        LD A,(HL)
+        RLA
+        RET NC
+        XOR A
+        LD (HL),A
+        RET
+; ----------------------------------------------------------------------
+; CCP_TAIL_9 -- file-not-found / error return path (MIS-NAMED; BDOS). [RE]
+;   In:        on entry the directory search has failed.
+;   Out:       A = $FF (CP/M directory/search not-found sentinel) returned via BDOS_RET_RESULT+2.
+;   Clobbers:  A,HL.
+;   Algorithm: [RE] CALL BDOS_CHECK_ERROR_1 ($A1FE, stores 0 at (HL)), load A=$FF (the search
+;              no-match return) and jump to the common result-store/return. The bytes at $9B9C are
+;              the start of an adjacent worker (verified: CALL $A154 / LD C,$0C / CALL $A318 / CALL
+;              BDOS_CHECK_ERROR / RET Z / CALL $A144), currently DEFB -> FLAGGED missed code (NOTE:
+;              C is loaded with $0C, an extent/field constant -- it is NOT F_SFIRST).
+; ----------------------------------------------------------------------
 CCP_TAIL_9:
-        CALL BDOS_CHECK_ERROR_1                  ; $9B94  CD FE A1
-        LD A,$FF                         ; $9B97  3E FF
-        JP BDOS_RET_RESULT+2                 ; $9B99  C3 01 9F
-        DEFB    $CD,$54,$A1,$0E,$0C,$CD,$18,$A3,$CD,$F5,$A1,$C8,$CD,$44,$A1 ; $9B9C
+        CALL BDOS_CHECK_ERROR_1
+        ; A=$FF is the CP/M directory/search 'no match / error' return code
+        LD A,$FF
+        JP BDOS_RET_RESULT+2
+        DEFB    $CD,$54,$A1,$0E,$0C,$CD,$18,$A3,$CD,$F5,$A1,$C8,$CD,$44,$A1
+; ----------------------------------------------------------------------
+; CCP_TAIL_12 -- erase a directory entry / advance allocation scan (MIS-NAMED; BDOS, UNDER AUDIT).
+; [RE]
+;   In:        HL -> directory entry (via DIR_SEARCH_STEP_6+1); BDOS scratch as set by the delete
+;              handler.
+;   Out:       writes $E5 (deleted marker) into the entry; chains through
+;              BDOS_RANDREC_5/DISK_DEBLOCK_1/FCB_EXTENT_TO_TRKSEC then JP FCB_EXTENT_TO_TRKSEC_10.
+;   Clobbers:  A,C,HL.
+;   Algorithm: [RE] mark the directory entry deleted (LD (HL),$E5) and run the deblock/extent
+;              updates to write it back. CAUTION: run $9BAB-$9BFF is REUSED MEMORY -- also the CCP
+;              loader's parsed-FCB scratch/stack (CCP_TAIL_LOADRET writes $9BCD/$9BDD/$9BED; LD
+;              SP,$9BAB targets here). No path in this file reaches $9BAB as code; the code role is
+;              the above-image-called BDOS tenant, the data role is the CCP tenant (temporally
+;              separate, never concurrent, never dual-CPU). UNKNOWN until the $A8xx-$A9xx caller is
+;              decoded.
+; ----------------------------------------------------------------------
 CCP_TAIL_12:
-        CALL DIR_SEARCH_STEP_6+1                ; $9BAB  CD 5E A1
-        LD (HL),$E5                      ; $9BAE  36 E5
-        LD C,$00                         ; $9BB0  0E 00
-        CALL BDOS_RANDREC_5                    ; $9BB2  CD 6B A2
-        CALL DISK_DEBLOCK_1+2                ; $9BB5  CD C6 A1
-        CALL FCB_EXTENT_TO_TRKSEC_1+2                ; $9BB8  CD 2D A3
-        JP FCB_EXTENT_TO_TRKSEC_10                    ; $9BBB  C3 A4 A3
+        CALL DIR_SEARCH_STEP_6+1
+        ; stamp $E5 over the directory entry's first byte to mark it deleted
+        LD (HL),$E5
+        LD C,$00
+        CALL BDOS_RANDREC_5
+        CALL DISK_DEBLOCK_1+2
+        CALL FCB_EXTENT_TO_TRKSEC_1+2
+        JP FCB_EXTENT_TO_TRKSEC_10
+; ----------------------------------------------------------------------
+; CCP_TAIL_13 -- allocation-block scan, lower-bound loop (MIS-NAMED; BDOS, UNDER AUDIT). [RE]
+;   In:        BC = a block/record counter; DE mirrors it.
+;   Out:       loops calling BDOS_RANDREC_1 (test a block) and comparing against the allocation
+;              limit in ($A9C6); branches to FCB_ALLOC_BLOCK_NUM_* on the boundaries.
+;   Clobbers:  A,BC,DE,HL.
+;   Algorithm: [RE] walk down a block count: copy BC->DE, exit when zero, DEC, test the block (CALL
+;              BDOS_RANDREC_1; RRA reads the result bit), compare the running pointer against the
+;              allocation ceiling ($A9C6). Part of compute-size/get-allocation. SAME reused-memory
+;              caveat as CCP_TAIL_12.
+; ----------------------------------------------------------------------
 CCP_TAIL_13:
-        LD D,B                           ; $9BBE  50
-        LD E,C                           ; $9BBF  59
-        LD A,C                           ; $9BC0  79
-        OR B                             ; $9BC1  B0
-        JP Z,FCB_ALLOC_BLOCK_NUM_1                  ; $9BC2  CA D1 A3
-        DEC BC                           ; $9BC5  0B
-        PUSH DE                          ; $9BC6  D5
-        PUSH BC                          ; $9BC7  C5
-        CALL BDOS_RANDREC_1                    ; $9BC8  CD 35 A2
-        RRA                              ; $9BCB  1F
+        LD D,B
+        LD E,C
+        LD A,C
+        OR B
+        JP Z,FCB_ALLOC_BLOCK_NUM_1
+        DEC BC
+        PUSH DE
+        PUSH BC
+        CALL BDOS_RANDREC_1
+        RRA
+; ----------------------------------------------------------------------
+; CCP_TAIL_14 -- allocation-scan branch / ALSO the CCP parsed-FCB scratch byte $9BCD (DUAL TENANT).
+; [RE]
+;   In:        (code role) carry from the preceding RRA at $9BCB; (data role) $9BCD = CCP_TAIL_14+1
+;              is written by CCP_TAIL_LOADRET (LD (CCP_TAIL_14+1),A @ $9A11) as a parsed-FCB byte
+;              and is the SOURCE base of the $21-byte FCB copy to TFCB.
+;   Out:       (code) JP NC,FCB_ALLOC_BLOCK_NUM_3+2 on a free block.
+;   Clobbers:  none here.
+;   Algorithm: [RE] one conditional jump in the allocation scan. DUAL-TENANT: $9BCD is also the base
+;              of the CCP's parsed-FCB copy buffer and is self-written at $9A11. Same bytes serve as
+;              BDOS code (above-image caller) and CCP loader data at different times -- never
+;              concurrent, never dual-CPU. Likely a data-as-code mis-decode of the FCB buffer;
+;              FLAGGED.
+; ----------------------------------------------------------------------
 CCP_TAIL_14:
-        JP NC,FCB_ALLOC_BLOCK_NUM_3+2               ; $9BCC  D2 EC A3
-        POP BC                           ; $9BCF  C1
-        POP DE                           ; $9BD0  D1
-        LD HL,($A9C6)                    ; $9BD1  2A C6 A9
-        LD A,E                           ; $9BD4  7B
-        SUB L                            ; $9BD5  95
-        LD A,D                           ; $9BD6  7A
-        SBC A,H                          ; $9BD7  9C
-        JP NC,FCB_ALLOC_BLOCK_NUM_4                 ; $9BD8  D2 F4 A3
-        INC DE                           ; $9BDB  13
-        PUSH BC                          ; $9BDC  C5
+        JP NC,FCB_ALLOC_BLOCK_NUM_3+2
+        POP BC
+        POP DE
+        LD HL,($A9C6)
+        LD A,E
+        SUB L
+        LD A,D
+        SBC A,H
+        JP NC,FCB_ALLOC_BLOCK_NUM_4
+        INC DE
+        PUSH BC
+; ----------------------------------------------------------------------
+; CCP_TAIL_10 -- allocation-scan upper loop / ALSO CCP scratch $9BDD (DUAL TENANT) (MIS-NAMED). [RE]
+;   In:        (code) DE = candidate block; (data) $9BDD = CCP_TAIL_10 is written by
+;              CCP_TAIL_LOADRET (LD (CCP_TAIL_10),A @ $9A1B).
+;   Out:       (code) tests blocks via BDOS_RANDREC_1 and chains to FCB_ALLOC_BLOCK_NUM_3+2 /
+;              FCB_ALLOC_BLOCK_NUM+2.
+;   Clobbers:  A,BC,DE.
+;   Algorithm: [RE] upper half of the block-allocation scan loop (push candidate, test, advance).
+;              DUAL-TENANT/reused-memory caveat as CCP_TAIL_14: $9BDD is also a CCP FCB-scratch
+;              cell. FLAGGED as likely data-as-code mis-decode.
+; ----------------------------------------------------------------------
 CCP_TAIL_10:
-        PUSH DE                          ; $9BDD  D5
-        LD B,D                           ; $9BDE  42
-        LD C,E                           ; $9BDF  4B
-        CALL BDOS_RANDREC_1                    ; $9BE0  CD 35 A2
-        RRA                              ; $9BE3  1F
-        JP NC,FCB_ALLOC_BLOCK_NUM_3+2               ; $9BE4  D2 EC A3
-        POP DE                           ; $9BE7  D1
-        POP BC                           ; $9BE8  C1
-        JP FCB_ALLOC_BLOCK_NUM+2                    ; $9BE9  C3 C0 A3
+        PUSH DE
+        LD B,D
+        LD C,E
+        CALL BDOS_RANDREC_1
+        RRA
+        JP NC,FCB_ALLOC_BLOCK_NUM_3+2
+        POP DE
+        POP BC
+        JP FCB_ALLOC_BLOCK_NUM+2
+; ----------------------------------------------------------------------
+; CCP_TAIL_15 -- single RLA, fall-through into CCP_TAIL_11 (MIS-NAMED; likely buffer byte). UNKNOWN
+;   In:        UNKNOWN (no in-file code path reaches $9BEC as code).
+;   Out:       falls into CCP_TAIL_11.
+;   Clobbers:  flags.
+;   Algorithm: UNKNOWN. $9BEC sits inside the CCP loader scratch/stack region; the lone RLA is most
+;              likely a mis-decoded buffer byte, not a real instruction. FLAGGED -- do not trust
+;              this decode.
+; ----------------------------------------------------------------------
 CCP_TAIL_15:
-        RLA                              ; $9BEC  17
+        RLA
+; ----------------------------------------------------------------------
+; CCP_TAIL_11 -- INC A, fall-through into CCP_TAIL_16 / ALSO CCP scratch $9BED (DUAL TENANT)
+; (MIS-NAMED). [RE]
+;   In:        (data) $9BED = CCP_TAIL_11 is zeroed by CCP_TAIL_LOADRET (XOR A; LD (CCP_TAIL_11),A @
+;              $9A1F).
+;   Out:       falls into CCP_TAIL_16.
+;   Clobbers:  A.
+;   Algorithm: UNKNOWN as code. The byte is a CCP loader flag cell (written 0 by LOADRET); decoding
+;              it as INC A is most likely a data-as-code artifact. FLAGGED.
+; ----------------------------------------------------------------------
 CCP_TAIL_11:
-        INC A                            ; $9BED  3C
+        INC A
+; ----------------------------------------------------------------------
+; CCP_TAIL_16 -- (MIS-NAMED) directory-write tail / ALSO CCP scratch base $9BEE-$9BF0 (DUAL TENANT).
+; [RE]
+;   In:        (code) entered as a subroutine that runs BDOS_RANDREC_4 then unwinds two stack words
+;              (POP HL/POP DE) and RETs; (data) CCP_TAIL_16+2 = $9BF0 is read by CCP_TAIL_LOADRET
+;              (LD HL,$9BF0; LD A,(HL)) and by blob2 (LD HL,$9BF0; OR (HL)) as a flag cell.
+;   Out:       (code) RET after a directory/record write.
+;   Clobbers:  A,DE,HL.
+;   Algorithm: [RE] flush a directory/record update (CALL BDOS_RANDREC_4) and return. DUAL-TENANT:
+;              $9BF0 doubles as the CCP loader's flag byte. Same reused-memory caveat; the code
+;              decode is suspect where it overlaps the loader buffer. FLAGGED.
+; ----------------------------------------------------------------------
 CCP_TAIL_16:
-        CALL BDOS_RANDREC_4                  ; $9BEE  CD 64 A2
-        POP HL                           ; $9BF1  E1
-        POP DE                           ; $9BF2  D1
-        RET                              ; $9BF3  C9
-        DEFB    $79,$B0,$C2,$C0,$A3,$21,$00                      ; $9BF4  "y0B@#!"
-        DEFB    $00,$C9,$0E,$00,$1E                              ; $9BFB
+        CALL BDOS_RANDREC_4
+        POP HL
+        POP DE
+        RET
+        DEFB    $79,$B0,$C2,$C0,$A3,$21,$00 ; "y0B@#!"
+        DEFB    $00,$C9,$0E,$00,$1E
+; ----------------------------------------------------------------------
+; BDOS_IMAGE_HEADER -- the $9C00 BDOS image header: 6-byte serial number + jump to the FDOS entry.
+;   In:        none (image data at the BDOS run base $9C00).
+;   Out:       the JP at $9C06 transfers to BDOS_ENTRY; the bytes $9C00-$9C05 are the per-copy
+;              serial fingerprint, not code.
+;   Clobbers:  n/a.
+;   Algorithm: OBSERVED: $9C00-$9C05 are the standard CP/M BDOS 6-byte serial-number cells (here BD
+;              16 00 00 16 DF), decoded SPURIOUSLY as CP L / LD D,nn / NOP / LD D,nn. The standard
+;              FBASE header is 6 serial bytes then JMP to the dispatcher. The JP BDOS_ENTRY ($9C11)
+;              at $9C06 is the real $0005-vector landing point. FLAGGED: the CP L / LD D,nn
+;              'instructions' are a mis-decode of the serial bytes; left as-is to preserve
+;              presentation (converting to DEFB is presentation-only, bytes unchanged) --
+;              documented, not converted, in this verify pass.
+; ----------------------------------------------------------------------
 BDOS_IMAGE_HEADER:
-        CP L                             ; $9C00  BD
-        LD D,$00                         ; $9C01  16 00
-        NOP                              ; $9C03  00
-        LD D,$DF                         ; $9C04  16 DF
-        JP BDOS_ENTRY                        ; $9C06  C3 11 9C
+        ; $9C00-$9C05 are the BDOS per-copy SERIAL-number bytes (here BD 16 00 00 16 DF), DATA
+        ; mis-decoded as instructions; the real header is 6 serial bytes then the JP below
+        CP L
+        LD D,$00
+        NOP
+        LD D,$DF
+        ; FBASE entry vector: the page-zero JMP at $0005 lands here and jumps to the FDOS dispatcher
+        JP BDOS_ENTRY
+; ----------------------------------------------------------------------
+; BDOS_ERR_VECTORS -- 4-word BDOS error-class -> reporter dispatch table (in the image header).
+;   In:        an error class index 0..3 selects the word.
+;   Out:       each word is the address of the matching reporter (BAD SECTOR / SELECT / R/O-changed
+;              / R/O).
+;   Clobbers:  n/a (data).
+;   Algorithm: OBSERVED: a 4-entry DEFW table of in-image reporter labels (BDOS_ERROR /
+;              BDOS_ERROR_SELECT / BDOS_ERROR_RO_CHANGED / BDOS_ERROR_RO), indexed by error class.
+;              Already fully label-based; no rewrite needed.
+; ----------------------------------------------------------------------
 BDOS_ERR_VECTORS:
 ; [DOC CPMREF 3-36/3-37] Error-handler vector table (4 words) embedded in the image header,
 ;       selecting which BDOS error reporter to enter by error class. Same bytes as before.
-        DEFW    BDOS_ERROR                       ; $9C09  class 0 -> BAD SECTOR reporter
-        DEFW    BDOS_ERROR_SELECT                ; $9C0B  class 1 -> SELECT reporter
-        DEFW    BDOS_ERROR_RO_CHANGED            ; $9C0D  class 2 -> R/O (changed disk) reporter
-        DEFW    BDOS_ERROR_RO                    ; $9C0F  class 3 -> R/O reporter
-; [DOC CPMREF 3-44 ; facts sec.7.1/7.2] Primary FDOS entry reached via the JMP planted at $0005.
-;       Function number in C, information address in DE (single-byte params in E). Byte results in A,
-;       word results in HL; for compatibility A=L and B=H on every return; out-of-range C returns 0.
-;       Saves caller SP (BDOS_SAVED_SP), switches to BDOS_STACK, range-checks C ( >=$29 -> RET ),
-;       indexes BDOS_DISPATCH_TBL (2 bytes/entry) and enters the handler via JP (HL).
+        DEFW    BDOS_ERROR               ; class 0 -> BAD SECTOR reporter
+        DEFW    BDOS_ERROR_SELECT        ; class 1 -> SELECT reporter
+        DEFW    BDOS_ERROR_RO_CHANGED    ; class 2 -> R/O (changed disk) reporter
+        DEFW    BDOS_ERROR_RO            ; class 3 -> R/O reporter
+; ----------------------------------------------------------------------
+; BDOS_ENTRY -- the CP/M 2.2 FDOS entry/dispatcher (reached via the JMP at page-zero $0005).
+;   In:        C = BDOS function number (0..40); DE = information address / single-byte arg in E;
+;              caller SP live.
+;   Out:       byte result in A (and L), word result in HL (and B=H); for out-of-range C (>= $29=41)
+;              returns immediately; control transfers to the selected handler via JP (HL), which
+;              RETs to the pushed return $A974.
+;   Clobbers:  A,BC,DE,HL,SP (switches to the BDOS internal stack at BDOS_DEFAULT_FCB+2 = $9F41).
+;   Algorithm: save the DE arg (BDOS_DE_PARAM $9F43) and low byte E ($A9D6), default the word result
+;              to 0 (the LD HL,$0000 skip-cover), capture the caller SP (BDOS_SAVED_SP) and switch
+;              to the BDOS stack, clear two state cells ($A9E0/$A9DE), push the common return
+;              address ($A974), range-check C against 41 ($29) returning if too large, then index
+;              BDOS_DISPATCH_TBL by 2*C, load the handler word and JP (HL). DISPATCH IS
+;              STATIC-INDEXED by the function number in C (verified: fn N -> table entry N, no
+;              off-by-one).
+; ----------------------------------------------------------------------
 BDOS_ENTRY:
-        EX DE,HL                         ; $9C11  EB
-        LD (BDOS_DE_PARAM),HL              ; $9C12  22 43 9F
-        EX DE,HL                         ; $9C15  EB
-        LD A,E                           ; $9C16  7B
-        LD ($A9D6),A                     ; $9C17  32 D6 A9
-        LD HL,$0000                      ; $9C1A  21 00 00
-        LD (BDOS_RETURN_VAL),HL              ; $9C1D  22 45 9F
-        ADD HL,SP                        ; $9C20  39
-        LD (BDOS_SAVED_SP),HL              ; $9C21  22 0F 9F
-        LD SP,BDOS_DEFAULT_FCB+2              ; $9C24  31 41 9F
-        XOR A                            ; $9C27  AF
-        LD ($A9E0),A                     ; $9C28  32 E0 A9
-        LD ($A9DE),A                     ; $9C2B  32 DE A9
-        LD HL,$A974                      ; $9C2E  21 74 A9
-        PUSH HL                          ; $9C31  E5
-        LD A,C                           ; $9C32  79
-        CP $29                           ; $9C33  FE 29
-        RET NC                           ; $9C35  D0
-        LD C,E                           ; $9C36  4B
-        LD HL,BDOS_DISPATCH_TBL                     ; $9C37  21 47 9C
-        LD E,A                           ; $9C3A  5F
-        LD D,$00                         ; $9C3B  16 00
-        ADD HL,DE                        ; $9C3D  19
-        ADD HL,DE                        ; $9C3E  19
-        LD E,(HL)                        ; $9C3F  5E
-        INC HL                           ; $9C40  23
-        LD D,(HL)                        ; $9C41  56
-        LD HL,(BDOS_DE_PARAM)              ; $9C42  2A 43 9F
-        EX DE,HL                         ; $9C45  EB
-        JP (HL)                          ; $9C46  E9
+        EX DE,HL
+        ; save the caller's DE information address (re-loaded into HL just before JP (HL))
+        LD (BDOS_DE_PARAM),HL
+        EX DE,HL
+        LD A,E
+        LD ($A9D6),A
+        DEFB $21                         ; cover: on FALL-THROUGH $21 (LD HL,nn) executes the full LD HL,$0000 below, defaulting the BDOS word result to 0
+        DEFB $00                         ; low byte of the swallowed LD HL,$0000 operand
+BDOS_ENTRY_NO_CLEAR:                     ; alternate CCP entry (= BDOS_ENTRY_p9_STG+2 per CPM_CCP.asm): skip the HL clear, keep HL
+        NOP                              ; ($00) high byte of the swallowed operand; runs as a harmless NOP on the alternate entry
+        LD (BDOS_RETURN_VAL),HL
+        ; capture the caller's stack pointer (HL was 0) before switching to the BDOS internal stack
+        ADD HL,SP
+        LD (BDOS_SAVED_SP),HL
+        ; switch to the private BDOS stack (top at BDOS_DEFAULT_FCB+2 = $9F41)
+        LD SP,BDOS_DEFAULT_FCB+2
+        XOR A
+        LD ($A9E0),A
+        LD ($A9DE),A
+        ; push the common BDOS exit/return-result routine ($A974, above this staged image) so each
+        ; handler RETs to it
+        LD HL,$A974
+        PUSH HL
+        LD A,C
+        ; range-check the function number: 41 ($29) or higher is out of range -> return with HL=0
+        CP $29
+        RET NC
+        LD C,E
+        ; index the dispatch table by 2*C to fetch the handler address, then JP (HL)
+        LD HL,BDOS_DISPATCH_TBL
+        LD E,A
+        LD D,$00
+        ADD HL,DE
+        ADD HL,DE
+        LD E,(HL)
+        INC HL
+        LD D,(HL)
+        LD HL,(BDOS_DE_PARAM)
+        EX DE,HL
+        JP (HL)
+; ----------------------------------------------------------------------
+; BDOS_DISPATCH_TBL -- 41-entry BDOS function dispatch table (one DEFW handler per function 0..40).
+;   In:        indexed by 2*C in BDOS_ENTRY.
+;   Out:       the selected word is loaded and entered via JP (HL).
+;   Clobbers:  n/a (data).
+;   Algorithm: OBSERVED: DEFW table, already correctly mixed label/literal by IMAGE membership.
+;              In-image handlers render as clean labels (fns 1,2,3,6,7,8,9,10,11, plus fn 28 =
+;              DIR_SEARCH_STEP_1+16 and fns 38/39 = BDOS_RET_RESULT_1+1, all below $A800). The fn
+;              0/4/5 thunks ($AA03/$AA12/$AA0F) and most fn 12-40 handlers ($A845-$A99B) run ABOVE
+;              this staged image (file tops at run ~$A7E4) and are correctly kept as raw $hex
+;              (out-of-image). Functions 0-36 ($00-$24) are the standard CP/M 2.2 set; slots 37-40
+;              ($25-$28) are SoftCard build-specific. No rewrite: the literals are genuinely
+;              out-of-image and the in-image ones are already labels.
+; ----------------------------------------------------------------------
 BDOS_DISPATCH_TBL:
 ; [DOC CPMREF 3-44/3-76] BDOS function dispatch table: one DEFW handler address per BDOS function
 ;       number, indexed by C (see Manual Reconcile Facts sec.5). Each word is a RUN address; the
@@ -450,1705 +744,4426 @@ BDOS_DISPATCH_TBL:
         DEFW    BDOS_RET_RESULT_1+1        ; [AI] fn 38 ($26) -- NOT in the CP/M 2.2 manual (build-specific slot)
         DEFW    BDOS_RET_RESULT_1+1        ; [AI] fn 39 ($27) -- NOT in the CP/M 2.2 manual (build-specific slot)
         DEFW    $A99B                           ; [AI] fn 40 ($28) -- NOT in the CP/M 2.2 manual (build-specific slot)
-; [DOC CPMREF 3-36/3-37 ; facts sec.5] BDOS run-time error reporter + texts. The three CP/M 2.2 BDOS
-;       errors are BAD SECTOR (controller R/W error; this entry), SELECT (drive out of range; reboots
-;       after console input) and R/O (write to a read-only / changed disk; warm start). Each message is
-;       '$'-terminated for Print String. Printed: "Bdos Err On x: <error>" (drive letter at BDOS_ERR_DRIVE_SLOT).
+; ----------------------------------------------------------------------
+; x
+; ----------------------------------------------------------------------
 BDOS_ERROR:
-        LD HL,BDOS_ERR_BADSEC                     ; $9C99  21 CA 9C
-        CALL BDOS_ERR_PRINT                    ; $9C9C  CD E5 9C
-        CP $03                           ; $9C9F  FE 03
-        JP Z,WBOOT_VEC                        ; $9CA1  CA 00 00
-        RET                              ; $9CA4  C9
+        LD HL,BDOS_ERR_BADSEC
+        CALL BDOS_ERR_PRINT
+        CP $03
+        JP Z,WBOOT_VEC
+        RET
 BDOS_ERROR_SELECT:
-        LD HL,BDOS_ERR_SELECT                     ; $9CA5  21 D5 9C
-        JP BDOS_ERROR_REPORT                        ; $9CA8  C3 B4 9C
+        LD HL,BDOS_ERR_SELECT
+        JP BDOS_ERROR_REPORT
 BDOS_ERROR_RO_CHANGED:
-        LD HL,BDOS_ERR_RO_2                     ; $9CAB  21 E1 9C
-        JP BDOS_ERROR_REPORT                        ; $9CAE  C3 B4 9C
+        LD HL,BDOS_ERR_RO_2
+        JP BDOS_ERROR_REPORT
 BDOS_ERROR_RO:
-        LD HL,BDOS_ERR_RO                     ; $9CB1  21 DC 9C
+        LD HL,BDOS_ERR_RO
 BDOS_ERROR_REPORT:
-        CALL BDOS_ERR_PRINT                    ; $9CB4  CD E5 9C
-        JP WBOOT_VEC                          ; $9CB7  C3 00 00
+        CALL BDOS_ERR_PRINT
+        JP WBOOT_VEC
 BDOS_ERR_MSG:
-        DEFB    "Bdos Err On "    ; $9CBA  string
+        DEFB    "Bdos Err On "           ; string
 BDOS_ERR_DRIVE_SLOT:
-        DEFB    " : $"                                 ; $9CC6  drive-letter slot + " : " + $-terminator
+        DEFB    " : $"                   ; drive-letter slot + " : " + $-terminator
 BDOS_ERR_BADSEC:
-        DEFB    "Bad Sector$"    ; $9CCA  string
+        DEFB    "Bad Sector$"            ; string
 BDOS_ERR_SELECT:
-        DEFB    "Select$"    ; $9CD5  string
+        DEFB    "Select$"                ; string
 BDOS_ERR_RO:
-        DEFB    "File "    ; $9CDC  string
+        DEFB    "File "                  ; string
 BDOS_ERR_RO_2:
-        DEFB    "R/O$"                                 ; $9CE1  tail of "File R/O$" (split at BDOS_ERR_RO_2)
+        DEFB    "R/O$"                   ; tail of "File R/O$" (split at BDOS_ERR_RO_2)
 BDOS_ERR_PRINT:
-        PUSH HL                          ; $9CE5  E5
-        CALL BDOS_CON_9+2                ; $9CE6  CD C9 9D
-        LD A,(FCB_USER_SCRATCH)               ; $9CE9  3A 42 9F
-        ADD A,$41                        ; $9CEC  C6 41
-        LD (BDOS_ERR_DRIVE_SLOT),A                    ; $9CEE  32 C6 9C
-        LD BC,BDOS_ERR_MSG                     ; $9CF1  01 BA 9C
-        CALL BDOS_CON_10+2               ; $9CF4  CD D3 9D
-        POP BC                           ; $9CF7  C1
-        CALL BDOS_CON_10+2               ; $9CF8  CD D3 9D
+        PUSH HL
+        CALL BDOS_CON_9+2
+        LD A,(FCB_USER_SCRATCH)
+        ADD A,$41
+        LD (BDOS_ERR_DRIVE_SLOT),A
+        LD BC,BDOS_ERR_MSG
+        CALL BDOS_CON_10+2
+        POP BC
+        CALL BDOS_CON_10+2
+; ----------------------------------------------------------------------
+; y
+; ----------------------------------------------------------------------
 FCB_SEQ_IO_STEP:
-        LD HL,CON_OUT_STATE                ; $9CFB  21 0E 9F
-        LD A,(HL)                        ; $9CFE  7E
-        LD (HL),$20                      ; $9CFF  36 20
-        PUSH DE                          ; $9D01  D5
-        LD B,$00                         ; $9D02  06 00
+        LD HL,CON_OUT_STATE
+        LD A,(HL)
+        LD (HL),$20
+        PUSH DE
+        LD B,$00
 FCB_SEQ_IO_STEP_1:
-        LD HL,(BDOS_DE_PARAM)              ; $9D04  2A 43 9F
-        ADD HL,BC                        ; $9D07  09
-        EX DE,HL                         ; $9D08  EB
-        CALL DIR_SEARCH_STEP_6+1                ; $9D09  CD 5E A1
-        POP BC                           ; $9D0C  C1
-        CALL FCB_SET_REC_FLAG                    ; $9D0D  CD 4F 9F
-        CALL DISK_READ_RECORD                    ; $9D10  CD C3 9F
+        LD HL,(BDOS_DE_PARAM)
+        ADD HL,BC
+        EX DE,HL
+        CALL DIR_SEARCH_STEP_6+1
+        POP BC
+        CALL FCB_SET_REC_FLAG
+        CALL DISK_READ_RECORD
 FCB_SEQ_IO_STEP_2:
-        JP DISK_DEBLOCK_1+2                  ; $9D13  C3 C6 A1
+        JP DISK_DEBLOCK_1+2
 FCB_SEQ_IO_STEP_3:
-        CALL DIR_SEARCH_STEP_5+1                ; $9D16  CD 54 A1
-        LD C,$0C                         ; $9D19  0E 0C
-        CALL FCB_EXTENT_TO_TRKSEC                    ; $9D1B  CD 18 A3
-        LD HL,(BDOS_DE_PARAM)              ; $9D1E  2A 43 9F
-        LD A,(HL)                        ; $9D21  7E
+        CALL DIR_SEARCH_STEP_5+1
+        LD C,$0C
+        CALL FCB_EXTENT_TO_TRKSEC
+        LD HL,(BDOS_DE_PARAM)
+        LD A,(HL)
 FCB_SEQ_IO_STEP_4:
-        LD DE,$0010                      ; $9D22  11 10 00
+        DEFB $11             ; cover: $11 (LD DE,nn) eats the next two operand bytes so DE:=$0010
+CON_TABEXP_LOOP:
+        DJNZ FCB_SEQ_IO_STEP_5  ; entry (was FCB_SEQ_IO_STEP_4+1, $9D23): $10 $00 = DJNZ +0 -> $9D25
 FCB_SEQ_IO_STEP_5:
-        ADD HL,DE                        ; $9D25  19
-        LD (HL),A                        ; $9D26  77
-        CALL BDOS_CHECK_ERROR                    ; $9D27  CD F5 A1
-        RET Z                            ; $9D2A  C8
-        CALL DIR_SEARCH_STEP_2+1                ; $9D2B  CD 44 A1
-        LD C,$10                         ; $9D2E  0E 10
-        LD E,$0C                         ; $9D30  1E 0C
-        CALL DISK_STORE_SEC_TRK                    ; $9D32  CD 01 A4
-        CALL FCB_EXTENT_TO_TRKSEC_1+2                ; $9D35  CD 2D A3
-        JP DISK_STORE_SEC_TRK_4+2                  ; $9D38  C3 27 A4
+        ADD HL,DE
+        LD (HL),A
+        CALL BDOS_CHECK_ERROR
+        RET Z
+        CALL DIR_SEARCH_STEP_2+1
+        LD C,$10
+        LD E,$0C
+        CALL DISK_STORE_SEC_TRK
+        CALL FCB_EXTENT_TO_TRKSEC_1+2
+        JP DISK_STORE_SEC_TRK_4+2
 FCB_SEQ_IO_STEP_6:
-        LD C,$0C                         ; $9D3B  0E 0C
-        CALL FCB_EXTENT_TO_TRKSEC                    ; $9D3D  CD 18 A3
+        LD C,$0C
+        CALL FCB_EXTENT_TO_TRKSEC
 FCB_SEQ_IO_STEP_7:
-        CALL BDOS_CHECK_ERROR                    ; $9D40  CD F5 A1
-        RET Z                            ; $9D43  C8
+        CALL BDOS_CHECK_ERROR
+        RET Z
 FCB_SEQ_IO_STEP_8:
-        LD C,$00                         ; $9D44  0E 00
-        LD E,$0C                         ; $9D46  1E 0C
-; [AI] CONOUT one-character primitive: callers load the char in C (e.g. LD C,$0D;
-;      LD C,$0A; LD C,$20; LD C,$5E) and CALL/JP here to emit it to the console.
-;      (Was mis-stemmed DIR_BUF_READ_REC by fall-through _N numbering.)
+        DEFB $0E             ; cover: $0E (LD C,n) eats the next NOP so C:=$00
+CON_SETE_0C:
+        NOP                 ; entry (was FCB_SEQ_IO_STEP_8+1, $9D45)
+        LD E,$0C
+; ----------------------------------------------------------------------
+; UNKNOWN/CONTESTED: body CALL A401/A32D/JP A440 uses no C, but callers preload chars into C;
+; 2.23=DIR_BUF_READ_REC. Likely console with a mis-decoded body. Keep name; FLAG; reject
+; DIR_ENTRY_FLUSH_AND_REPOS.
+; ----------------------------------------------------------------------
 CONOUT_PUTC:
-        CALL DISK_STORE_SEC_TRK                    ; $9D48  CD 01 A4
-        CALL FCB_EXTENT_TO_TRKSEC_1+2                ; $9D4B  CD 2D A3
-        JP DISK_STORE_SEC_TRK_6+2                  ; $9D4E  C3 40 A4
+        CALL DISK_STORE_SEC_TRK
+        CALL FCB_EXTENT_TO_TRKSEC_1+2
+        JP DISK_STORE_SEC_TRK_6+2
+; ----------------------------------------------------------------------
+; FCB rc fetch (9D51), FCB sub-block not console.
+; ----------------------------------------------------------------------
 CONOUT_PUTC_1:
-        LD C,$0F                         ; $9D51  0E 0F
-        CALL FCB_EXTENT_TO_TRKSEC                    ; $9D53  CD 18 A3
-        CALL BDOS_CHECK_ERROR                    ; $9D56  CD F5 A1
-        RET Z                            ; $9D59  C8
-        CALL FCB_CMP_DIR_ENTRY                    ; $9D5A  CD A6 A0
-        LD A,(HL)                        ; $9D5D  7E
+        LD C,FCB_RC
+        CALL FCB_EXTENT_TO_TRKSEC
+        CALL BDOS_CHECK_ERROR
+        RET Z
+        CALL FCB_CMP_DIR_ENTRY
+        LD A,(HL)
+; ----------------------------------------------------------------------
+; FCB ex/rc reconcile (9D5E), FCB sub-block; _3/_4 are continuations.
+; ----------------------------------------------------------------------
 CONOUT_PUTC_2:
-        PUSH AF                          ; $9D5E  F5
-        PUSH HL                          ; $9D5F  E5
+        PUSH AF
+        PUSH HL
 CONOUT_PUTC_3:
-        CALL DIR_SEARCH_STEP_6+1                ; $9D60  CD 5E A1
-        EX DE,HL                         ; $9D63  EB
-        LD HL,(BDOS_DE_PARAM)              ; $9D64  2A 43 9F
-        LD C,$20                         ; $9D67  0E 20
-        PUSH DE                          ; $9D69  D5
-        CALL FCB_SET_REC_FLAG                    ; $9D6A  CD 4F 9F
-        CALL DISK_RW_GUARD_1+1                ; $9D6D  CD 78 A1
-        POP DE                           ; $9D70  D1
-        LD HL,$000C                      ; $9D71  21 0C 00
-        ADD HL,DE                        ; $9D74  19
-        LD C,(HL)                        ; $9D75  4E
-        LD HL,$000F                      ; $9D76  21 0F 00
+        CALL DIR_SEARCH_STEP_6+1
+        EX DE,HL
+        LD HL,(BDOS_DE_PARAM)
+        LD C,$20
+        PUSH DE
+        CALL FCB_SET_REC_FLAG
+        CALL DISK_RW_GUARD_1+1
+        POP DE
+        LD HL,$000C
+        ADD HL,DE
+        LD C,(HL)
+        LD HL,$000F
 CONOUT_PUTC_4:
-        ADD HL,DE                        ; $9D79  19
-        LD B,(HL)                        ; $9D7A  46
-        POP HL                           ; $9D7B  E1
-        POP AF                           ; $9D7C  F1
-        LD (HL),A                        ; $9D7D  77
-        LD A,C                           ; $9D7E  79
+        ADD HL,DE
+        LD B,(HL)
+        POP HL
+        POP AF
+        LD (HL),A
+        LD A,C
 BDOS_CON:
-        CP (HL)                          ; $9D7F  BE
-        LD A,B                           ; $9D80  78
-        JP Z,DISK_STORE_SEC_TRK_17+1               ; $9D81  CA 8B A4
-        LD A,$00                         ; $9D84  3E 00
-        JP C,DISK_STORE_SEC_TRK_17+1               ; $9D86  DA 8B A4
-        LD A,$80                         ; $9D89  3E 80
-        LD HL,(BDOS_DE_PARAM)              ; $9D8B  2A 43 9F
+        CP (HL)
+        LD A,B
+        JP Z,DISK_STORE_SEC_TRK_17+1
+        LD A,$00
+        JP C,DISK_STORE_SEC_TRK_17+1
+        LD A,$80
+        LD HL,(BDOS_DE_PARAM)
+; ----------------------------------------------------------------------
+; Dual-entry; +2 at 9D90 is an unresolved mis-decode. Fall-through 9D8E stores A at FCB+0Fh rc.
+; Dispatch routes fn 2 Console Output at 9D90 but the body cannot do it. Do NOT split/rename 9D90.
+; FLAG.
+; ----------------------------------------------------------------------
 CON_OUT_SINGLE:
-        LD DE,$000F                      ; $9D8E  11 0F 00
-        ADD HL,DE                        ; $9D91  19
-        LD (HL),A                        ; $9D92  77
-        RET                              ; $9D93  C9
+        LD DE,$000F
+        ADD HL,DE
+        LD (HL),A
+        RET
 BDOS_CON_2:
-        LD A,(HL)                        ; $9D94  7E
-        INC HL                           ; $9D95  23
+        LD A,(HL)
+        INC HL
 BDOS_CON_3:
-        OR (HL)                          ; $9D96  B6
-        DEC HL                           ; $9D97  2B
-        RET NZ                           ; $9D98  C0
-        LD A,(DE)                        ; $9D99  1A
-        LD (HL),A                        ; $9D9A  77
-        INC DE                           ; $9D9B  13
-        INC HL                           ; $9D9C  23
-        LD A,(DE)                        ; $9D9D  1A
-        LD (HL),A                        ; $9D9E  77
-        DEC DE                           ; $9D9F  1B
-        DEC HL                           ; $9DA0  2B
-        RET                              ; $9DA1  C9
+        OR (HL)
+        DEC HL
+        RET NZ
+        LD A,(DE)
+        LD (HL),A
+        INC DE
+        INC HL
+        LD A,(DE)
+        LD (HL),A
+        DEC DE
+        DEC HL
+        RET
 BDOS_SET_RESULT_ZERO:
-        XOR A                            ; $9DA2  AF
+        XOR A
+; ----------------------------------------------------------------------
+; 9DA3 stores A as BDOS return value (9F45), mirrors into A9EA/A9EB (off-image, role UNKNOWN). +1
+; entry 9DA4 mid LD(nn),A operand (FLAG).
+; ----------------------------------------------------------------------
 BDOS_SET_RESULT_VAL:
-        LD (BDOS_RETURN_VAL),A               ; $9DA3  32 45 9F
-        LD ($A9EA),A                     ; $9DA6  32 EA A9
-        LD ($A9EB),A                     ; $9DA9  32 EB A9
+        LD (BDOS_RETURN_VAL),A
+        LD ($A9EA),A
+        LD ($A9EB),A
 BDOS_CON_6:
-        CALL DIR_SEARCH_STEP_1+2                ; $9DAC  CD 1E A1
-        RET NZ                           ; $9DAF  C0
+        CALL DIR_SEARCH_STEP_1+2
+        RET NZ
+; ----------------------------------------------------------------------
+; 9DB0 fetch dir DMA ptr; AND 80h; LD C,0Fh. DROP the peer LD C,0Fh->FCB_RC here (console-overlap;
+; only after re-trace). +1 entry mid CALL operand (FLAG).
+; ----------------------------------------------------------------------
 BDOS_CON_7:
-        CALL DISK_SET_DMA_READ                    ; $9DB0  CD 69 A1
-        AND $80                          ; $9DB3  E6 80
-        RET NZ                           ; $9DB5  C0
-        LD C,$0F                         ; $9DB6  0E 0F
+        CALL DISK_SET_DMA_READ
+        AND $80
+        RET NZ
+        LD C,$0F
 BDOS_CON_8:
-        CALL FCB_EXTENT_TO_TRKSEC                    ; $9DB8  CD 18 A3
-        CALL BDOS_CHECK_ERROR                    ; $9DBB  CD F5 A1
-        RET Z                            ; $9DBE  C8
-        LD BC,$0010                      ; $9DBF  01 10 00
-        CALL DIR_SEARCH_STEP_6+1                ; $9DC2  CD 5E A1
-        ADD HL,BC                        ; $9DC5  09
-        EX DE,HL                         ; $9DC6  EB
+        CALL FCB_EXTENT_TO_TRKSEC
+        CALL BDOS_CHECK_ERROR
+        RET Z
+        LD BC,$0010
+        CALL DIR_SEARCH_STEP_6+1
+        ADD HL,BC
+        EX DE,HL
+; ----------------------------------------------------------------------
+; 9DC7 16-byte merge/compare gated by off-image A9DD. +2 entry mid LD HL operand (FLAG).
+; ----------------------------------------------------------------------
 BDOS_CON_9:
-        LD HL,(BDOS_DE_PARAM)              ; $9DC7  2A 43 9F
-        ADD HL,BC                        ; $9DCA  09
-        LD C,$10                         ; $9DCB  0E 10
-        LD A,($A9DD)                     ; $9DCD  3A DD A9
-        OR A                             ; $9DD0  B7
+        LD HL,(BDOS_DE_PARAM)
+        ADD HL,BC
+        LD C,$10
+        LD A,($A9DD)
+        OR A
 BDOS_CON_10:
-        JP Z,DRV_INSTALL_RWTS_9                  ; $9DD1  CA E8 A4
-        LD A,(HL)                        ; $9DD4  7E
-        OR A                             ; $9DD5  B7
-        LD A,(DE)                        ; $9DD6  1A
-        JP NZ,DRV_INSTALL_RWTS_7+1               ; $9DD7  C2 DB A4
-        LD (HL),A                        ; $9DDA  77
-        OR A                             ; $9DDB  B7
-        JP NZ,DRV_INSTALL_RWTS_8+2               ; $9DDC  C2 E1 A4
-        LD A,(HL)                        ; $9DDF  7E
-        LD (DE),A                        ; $9DE0  12
+        JP Z,DRV_INSTALL_RWTS_9
+        LD A,(HL)
+        OR A
+        LD A,(DE)
+        JP NZ,DRV_INSTALL_RWTS_7+1
+        LD (HL),A
+        OR A
+        JP NZ,DRV_INSTALL_RWTS_8+2
+        LD A,(HL)
+        LD (DE),A
+; ----------------------------------------------------------------------
+; 9DE1 CONTESTED mis-decode: a CP/JP byte compare; dispatch routes fn 10 here but it is also +offset
+; from the loop. Keep name; no rename; FLAG.
+; ----------------------------------------------------------------------
 BDOS_READ_CON_BUF:
 BDOS_READ_CON_BUF_FN:
-        CP (HL)                          ; $9DE1  BE
-        JP NZ,DRV_INSTALL_RWTS_16                ; $9DE2  C2 1F A5
-        JP DRV_INSTALL_RWTS_12                   ; $9DE5  C3 FD A4
+        CP (HL)
+        JP NZ,DRV_INSTALL_RWTS_16
+        JP DRV_INSTALL_RWTS_12
 BDOS_CON_12:
-        CALL DISK_STORE_SEC_TRK_19+2               ; $9DE8  CD 94 A4
-        EX DE,HL                         ; $9DEB  EB
-        CALL DISK_STORE_SEC_TRK_19+2               ; $9DEC  CD 94 A4
+        CALL DISK_STORE_SEC_TRK_19+2
+        EX DE,HL
+        CALL DISK_STORE_SEC_TRK_19+2
 BDOS_CON_13:
-        EX DE,HL                         ; $9DEF  EB
-        LD A,(DE)                        ; $9DF0  1A
+        EX DE,HL
+        LD A,(DE)
+; ----------------------------------------------------------------------
+; 9DF1 unrolled 16-byte compare; on match JP AA09 off-image BIOS table; 9E00 NOP is padding. Peer
+; CONIN-warm-path UNVERIFIED.
+; ----------------------------------------------------------------------
 BDOS_CON_14:
-        CP (HL)                          ; $9DF1  BE
-        JP NZ,DRV_INSTALL_RWTS_16                ; $9DF2  C2 1F A5
-        INC DE                           ; $9DF5  13
-        INC HL                           ; $9DF6  23
-        LD A,(DE)                        ; $9DF7  1A
-        CP (HL)                          ; $9DF8  BE
-        JP NZ,DRV_INSTALL_RWTS_16                ; $9DF9  C2 1F A5
-        DEC C                            ; $9DFC  0D
-        INC DE                           ; $9DFD  13
-        INC HL                           ; $9DFE  23
-        DEC C                            ; $9DFF  0D
-        NOP                              ; $9E00  00
-        OR A                             ; $9E01  B7
-        RET NZ                           ; $9E02  C0
-        JP $AA09                         ; $9E03  C3 09 AA
+        CP (HL)
+        JP NZ,DRV_INSTALL_RWTS_16
+        INC DE
+        INC HL
+        LD A,(DE)
+        CP (HL)
+        JP NZ,DRV_INSTALL_RWTS_16
+        DEC C
+        INC DE
+        INC HL
+        DEC C
+        NOP
+        OR A
+        RET NZ
+        JP $AA09
+; ----------------------------------------------------------------------
+; 9E06 reads a byte via sequential-IO then CALL CON_OUT_SINGLE+2 (9D90); if 9D90 is the console-out
+; entry this OUTPUTS it; 9D90 unresolved -> UNKNOWN. Do NOT rewrite to FCB_STORE_A_AT_DE. FLAG.
+; ----------------------------------------------------------------------
 BDOS_CON_15:
-        CALL FCB_SEQ_IO_STEP                    ; $9E06  CD FB 9C
-        CALL FCB_SEQ_IO_STEP_2+1                ; $9E09  CD 14 9D
-        RET C                            ; $9E0C  D8
-        PUSH AF                          ; $9E0D  F5
-        LD C,A                           ; $9E0E  4F
-        CALL CON_OUT_SINGLE+2                ; $9E0F  CD 90 9D
-        POP AF                           ; $9E12  F1
-        RET                              ; $9E13  C9
+        CALL FCB_SEQ_IO_STEP
+        CALL FCB_SEQ_IO_STEP_2+1
+        RET C
+        PUSH AF
+        LD C,A
+        CALL CON_OUT_SINGLE+2
+        POP AF
+        RET
+; ----------------------------------------------------------------------
+; IS_CTRL_CHAR -- classify a console character: is it a non-graphic control code?
+;   In:        A = character to test
+;   Out:       Z set if A is CR($0D), LF($0A), TAB($09) or BS($08) (the four
+;              cursor-affecting controls); otherwise the final CP ' ' sets CY when
+;              A < ' ' (any control) and Z when A == ' ' exactly.
+;   Clobbers:  flags only (A preserved)
+;   Algorithm: A chain of CP/RET-Z tests. Returns early (Z) the moment A matches one of
+;              the four special controls; else falls through to the CP ' ' boundary test
+;              so callers can branch printable-vs-control. IS_CTRL_CHAR_1 is the alternate
+;              entry used after the caller has already handled the BS/rubout case.
+; ----------------------------------------------------------------------
 IS_CTRL_CHAR:
-        CP $0D                           ; $9E14  FE 0D
+        ; ; carriage return (CR)? -> report as a special control
+        CP $0D
+; ----------------------------------------------------------------------
+; IS_CTRL_CHAR_1 -- alternate entry into IS_CTRL_CHAR that skips the CR test
+;   In:        A = character (caller has already ruled out the BS/rubout case)
+;   Out:       same contract as IS_CTRL_CHAR for LF/TAB/BS and the ' ' boundary
+;   Clobbers:  flags only
+;   Algorithm: Falls straight into the LF/TAB/BS/space tail of IS_CTRL_CHAR. Reached by
+;              READ_CON_BUF_EDIT ($A004: JP NZ,IS_CTRL_CHAR_1) after it has handled the
+;              BS key via its own SBC computation and only needs the remaining tests.
+; ----------------------------------------------------------------------
 IS_CTRL_CHAR_1:
-        RET Z                            ; $9E16  C8
-        CP $0A                           ; $9E17  FE 0A
-        RET Z                            ; $9E19  C8
-        CP $09                           ; $9E1A  FE 09
-        RET Z                            ; $9E1C  C8
-        CP $08                           ; $9E1D  FE 08
-        RET Z                            ; $9E1F  C8
-        CP $20                           ; $9E20  FE 20
-        RET                              ; $9E22  C9
+        RET Z
+        ; ; line feed (LF)?
+        CP $0A
+        RET Z
+        ; ; horizontal tab (TAB)?
+        CP $09
+        RET Z
+        ; ; backspace (BS)?
+        CP $08
+        RET Z
+        ; ; printable boundary: CY => A is a (non-special) control, Z => A is space
+        CP ' '
+        RET
+; ----------------------------------------------------------------------
+; BDOS_CON_18 -- console break-check entry that first samples the held char
+;   In:        CON_OUT_STATE = typed-ahead/held console char (0 = none held)
+;   Out:       see BDOS_CON_19
+;   Clobbers:  A, flags
+;   Algorithm: Loads the held-char cell and falls into BDOS_CON_19. Standard CP/M
+;              'check for ^S (pause) / ^C (abort) while emitting output' entry: a char
+;              buffered during a prior pause is reused, else the keyboard is sampled.
+;   NOTE:      not referenced by name inside this file; reached by external/CCP callers
+; ----------------------------------------------------------------------
 BDOS_CON_18:
-        LD A,(CON_OUT_STATE)               ; $9E23  3A 0E 9F
+        ; ; sample the typed-ahead/held console char captured during an earlier output pause
+        LD A,(CON_OUT_STATE)
+; ----------------------------------------------------------------------
+; BDOS_CON_19 -- the ^S-pause / ^C-abort console break check proper
+;   In:        A = CON_OUT_STATE (held char) on entry from BDOS_CON_18
+;   Out:       A = 0 (no actionable key) normally; never returns on ^C ($03 -> warm boot)
+;   Clobbers:  A, flags; may warm-boot the system
+;   Algorithm: If a char is already held (A != 0) tail to the deliver path. Else poll
+;              BIOS CONST ($AA06); if no key, return. Read the key with BIOS CONIN
+;              ($AA09): ^S($13) -> pause (BDOS_CON_20 blocks on the next key and aborts
+;              on ^C); a non-^S key tails to the type-ahead-stash path.
+;   NOTE [RE]: by CP/M convention the NZ tail delivers the held char and the $9D-page
+;              targets stash/deliver type-ahead, BUT FCB_SEQ_IO_STEP_8+1 ($9D45) /
+;              FCB_SEQ_IO_STEP_7+2 ($9D42) land MID-INSTRUCTION in the mislabeled
+;              $9D-page console code (see file summary FLAG #1/#3); their precise role
+;              is UNKNOWN from the bytes alone -- the byte-targets do not decode
+;              coherently in the current framing.
+; ----------------------------------------------------------------------
 BDOS_CON_19:
-        OR A                             ; $9E26  B7
-        JP NZ,FCB_SEQ_IO_STEP_8+1               ; $9E27  C2 45 9D
-        CALL $AA06                       ; $9E2A  CD 06 AA
-        AND $01                          ; $9E2D  E6 01
-        RET Z                            ; $9E2F  C8
-        CALL $AA09                       ; $9E30  CD 09 AA
-        CP $13                           ; $9E33  FE 13
+        ; ; a char already buffered from an earlier pause?
+        OR A
+        ; ; yes -> [RE,UNKNOWN target] deliver the held char (mid-instruction entry in the
+        ; mislabeled $9D-page console code)
+        JP NZ,FCB_SEQ_IO_STEP_8+1
+        ; ; BIOS CONST: is a console key waiting?
+        CALL $AA06
+        ; ; CONST returns $FF/$00; isolate the 'key ready' bit
+        AND $01
+        ; ; no key -> nothing to do, keep emitting output
+        RET Z
+        ; ; BIOS CONIN: fetch the waiting key
+        CALL $AA09
+        ; ; ^S (XOFF/DC3) = pause-output request?
+        CP $13
+; ----------------------------------------------------------------------
+; BDOS_CON_20 -- ^S-pause tail: wait for the resume key, abort on ^C
+;   In:        reached from BDOS_CON_19 after a ^S was seen
+;   Out:       A = 0 on resume (any non-^C key); never returns on ^C ($03 -> warm boot)
+;   Clobbers:  A, flags
+;   Algorithm: The leading 'JP NZ,FCB_SEQ_IO_STEP_7+2' doubles as a 3-byte cover: at the
+;              top (^S fell through, ZF=0) it routes a non-^S key to the $9D-page
+;              type-ahead path; entered at +2 (from READ_CON_BUF_EDIT_3 $A028's ^E
+;              handler) the JP's $9D operand byte executes as a harmless SBC A,L, then
+;              it reads a key (BIOS CONIN) and warm-boots on ^C ($03) else returns A=0.
+;              [RE] overlapping-code idiom.
+;   NOTE:      cover-split to mint BDOS_CON_20+2 would DEFB-freeze the relocatable
+;              JP NZ target, so the +2 entry is DOCUMENTED, not split. The $9D-page
+;              type-ahead target is mid-instruction in mislabeled code (role UNKNOWN).
+; ----------------------------------------------------------------------
 BDOS_CON_20:
-        JP NZ,FCB_SEQ_IO_STEP_7+2               ; $9E35  C2 42 9D
-        CALL $AA09                       ; $9E38  CD 09 AA
-        CP $03                           ; $9E3B  FE 03
-        JP Z,$0000                       ; $9E3D  CA 00 00
-        XOR A                            ; $9E40  AF
-        RET                              ; $9E41  C9
+        ; ; top entry: non-^S key -> [RE,UNKNOWN target] $9D-page type-ahead path. Entered at +2
+        ; (from the line editor $A028) the $9D operand byte runs as SBC A,L instead (overlapping
+        ; entry)
+        JP NZ,FCB_SEQ_IO_STEP_7+2
+        ; ; BIOS CONIN: block until the user presses the resume (or abort) key
+        CALL $AA09
+        ; ; ^C (ETX) = abort the running program?
+        CP $03
+        ; ; ^C -> warm boot via the page-zero WBOOT vector (returns control to the CCP)
+        JP Z,WBOOT_VEC
+        ; ; any other key -> resume output (A := 0, nothing buffered)
+        XOR A
+        RET
+; ----------------------------------------------------------------------
+; BDOS_CON_21 -- store a char into CON_OUT_STATE and return 1
+;   In:        A = char to store
+;   Out:       CON_OUT_STATE := A; A := 1
+;   Clobbers:  A
+;   Algorithm: Writes A to the held-char cell and returns 1. [RE] by CP/M convention
+;              this is the type-ahead save returning the 'a char is pending' flag, but
+;              it is NOT referenced by name anywhere in this file (grep-confirmed) and
+;              is NOT the target of the BDOS_CON_19/20 tails (those go to the $9D page,
+;              $9D42/$9D45, a different address). Its caller is UNKNOWN from this file.
+; ----------------------------------------------------------------------
 BDOS_CON_21:
-        LD (CON_OUT_STATE),A               ; $9E42  32 0E 9F
-        LD A,$01                         ; $9E45  3E 01
-        RET                              ; $9E47  C9
+        ; ; store the char into the held/typed-ahead cell
+        LD (CON_OUT_STATE),A
+        ; ; return 1 ([RE] 'a character is now pending')
+        LD A,$01
+        RET
+; ----------------------------------------------------------------------
+; CON_PUT_COL -- column-tracking console output of one character (BDOS conout core)
+;   In:        C = character to emit; CON_COLUMN = echo-suppress flag (non-0 => no
+;              physical output, used by the line editor); CON_START_COLUMN+1 = current
+;              column; CON_START_COLUMN+2 = list-device (printer) echo flag
+;   Out:       character emitted to the console (and to the printer if list-echo on);
+;              CON_START_COLUMN+1 (column) advanced/adjusted for the char
+;   Clobbers:  A, HL, flags (BC preserved across the BIOS calls via PUSH/POP)
+;   Algorithm: If CON_COLUMN != 0 (editor wants no echo) divert via CON_PUT_COL_1.
+;              Otherwise run a $9D-page pre-output helper, emit C via BIOS CONOUT
+;              ($AA0C), and if the list-echo flag is set also emit via BIOS LIST
+;              ($AA0F). Then update the column counter (CON_PUT_COL_3 tail): skip
+;              DEL($7F); INC for any char, keep the +1 for a printable char (>= ' ')
+;              and return; for a control char undo it and special-case BS (column--).
+;   NOTE:      the $9D-page helper it CALLs (FCB_SEQ_IO_STEP_4+1) is mislabeled console
+;              code (file summary FLAG #1); precise role UNKNOWN from the bytes.
+; ----------------------------------------------------------------------
 CON_PUT_COL:
-        LD A,(CON_COLUMN)               ; $9E48  3A 0A 9F
-        OR A                             ; $9E4B  B7
+        ; ; line-editor echo-suppress flag (non-zero = do not physically print)
+        LD A,(CON_COLUMN)
+        OR A
+; ----------------------------------------------------------------------
+; CON_PUT_COL_1 -- echo-suppress divert of CON_PUT_COL (+ an overlapping editor entry)
+;   In:        ZF from the CON_COLUMN test in CON_PUT_COL
+;   Out:       diverts to the $9D-page no-echo path when output is suppressed
+;   Clobbers:  flags
+;   Algorithm: 'JP NZ,CONOUT_PUTC_3+2' sends the suppressed-output case to the $9D-page
+;              helper. The +2 form (CON_PUT_COL_1+2, $9E4E, reached from
+;              READ_CON_BUF_EDIT_10 $A05C) executes the JP's $9D operand byte as SBC A,L
+;              then joins the PUSH BC / pre-output / CONOUT path. [RE] overlapping-code
+;              idiom; not split (a split would freeze the relocatable JP target).
+; ----------------------------------------------------------------------
 CON_PUT_COL_1:
-        JP NZ,CONOUT_PUTC_3+2               ; $9E4C  C2 62 9D
-        PUSH BC                          ; $9E4F  C5
-        CALL FCB_SEQ_IO_STEP_4+1                ; $9E50  CD 23 9D
-        POP BC                           ; $9E53  C1
-        PUSH BC                          ; $9E54  C5
-        CALL $AA0C                       ; $9E55  CD 0C AA
-        POP BC                           ; $9E58  C1
-        PUSH BC                          ; $9E59  C5
-        LD A,(CON_START_COLUMN+2)             ; $9E5A  3A 0D 9F
-        OR A                             ; $9E5D  B7
+        ; ; suppressed-output divert ([RE,UNKNOWN target] mislabeled $9D-page). At +2 (from the line
+        ; editor $A05C) the $9D operand byte runs as SBC A,L instead
+        JP NZ,CONOUT_PUTC_3+2
+        PUSH BC
+        ; ; [RE,UNKNOWN target] $9D-page pre-output console helper (mislabeled; mid-instruction
+        ; entry)
+        CALL FCB_SEQ_IO_STEP_4+1
+        POP BC
+        PUSH BC
+        ; ; BIOS CONOUT: emit the char in C to the console
+        CALL $AA0C
+        POP BC
+        PUSH BC
+        ; ; list-device (printer) echo enabled?
+        LD A,(CON_START_COLUMN+2)
+        OR A
+; ----------------------------------------------------------------------
+; CON_PUT_COL_2 -- conditional list-device echo of the emitted char
+;   In:        ZF from the CON_START_COLUMN+2 (list-echo) test; C = char
+;   Out:       char also sent to BIOS LIST when the flag was non-zero
+;   Clobbers:  A, flags
+;   Algorithm: 'CALL NZ,$AA0F' echoes the char to the printer (BIOS LIST) only when the
+;              list-echo flag was set. The +1 form (CON_PUT_COL_2+1, $9E5F, reached from
+;              READ_CON_BUF_EDIT_8 $A04A) executes the CALL's $0F operand byte as RRCA
+;              before merging into the column-update tail. [RE] overlapping-code idiom.
+; ----------------------------------------------------------------------
 CON_PUT_COL_2:
-        CALL NZ,$AA0F                    ; $9E5E  C4 0F AA
-        POP BC                           ; $9E61  C1
-        LD A,C                           ; $9E62  79
-        LD HL,CON_START_COLUMN+1              ; $9E63  21 0C 9F
-        CP $7F                           ; $9E66  FE 7F
-        RET Z                            ; $9E68  C8
-        INC (HL)                         ; $9E69  34
+        ; ; BIOS LIST: echo char to printer iff list-echo flag set. At +1 (from the line editor
+        ; $A04A) the $0F operand runs as RRCA -- overlapping entry
+        CALL NZ,$AA0F
+        POP BC
+        LD A,C
+        LD HL,CON_START_COLUMN+1
+        CP $7F
+        RET Z
+        INC (HL)
+; ----------------------------------------------------------------------
+; CON_PUT_COL_3 -- column-counter update tail (printable advance, control fixups)
+;   In:        C = emitted char; HL -> CON_START_COLUMN+1 (column, already pre-INC'd by
+;              the INC (HL) just above)
+;   Out:       column adjusted: printable keeps the +1; control undoes it; the control
+;              path continues into CON_PUT_COL_4 (BS) and the $9D-page handler
+;   Clobbers:  A, (HL), flags
+;   Algorithm: CP ' ': a printable char (>= space) leaves the incremented column and
+;              RET NC. A control char DECs the column back; if now 0 return; else if BS
+;              ($08) DEC once more (cursor left); any other control diverts to the
+;              $9D-page handler at CONOUT_PUTC_4. The +1 form (CON_PUT_COL_3+1, $9E6B,
+;              from READ_CON_BUF_EDIT_11 $A061) runs the CP's $20 operand byte as JR NZ.
+; ----------------------------------------------------------------------
 CON_PUT_COL_3:
-        CP $20                           ; $9E6A  FE 20
-        RET NC                           ; $9E6C  D0
-        DEC (HL)                         ; $9E6D  35
-        LD A,(HL)                        ; $9E6E  7E
-        OR A                             ; $9E6F  B7
+        ; ; printable char (>= space)? if so the pre-incremented column is correct. (+1 here is the
+        ; editor's overlapping JR NZ entry from $A061)
+        CP ' '
+        ; ; printable -> column already advanced, done
+        RET NC
+        ; ; control char does not advance like a glyph -> undo the increment
+        DEC (HL)
+        LD A,(HL)
+        OR A
+; ----------------------------------------------------------------------
+; CON_PUT_COL_4 -- BS / control-char column fixup (continuation of CON_PUT_COL_3)
+;   In:        C = char; (HL) = column counter (already decremented once for a control)
+;   Out:       column decremented again for BS; non-BS controls jumped to the $9D-page
+;              at CONOUT_PUTC_4 ($9D79)
+;   Clobbers:  A, (HL), flags
+;   Algorithm: If the column already reached 0 return. Else for BS($08) DEC the column
+;              a second time; for any other control JP to CONOUT_PUTC_4 ($9D79).
+;              CON_PUT_COL_4 is also the editor's rubout re-entry (READ_CON_BUF_EDIT_1
+;              $A013: JP CON_PUT_COL_4, after copying CON_START_COLUMN+1 into CON_COLUMN).
+;   NOTE [RE]: the non-BS branch target $9D79 (CONOUT_PUTC_4) decodes as ADD HL,DE;
+;              LD B,(HL);... -- a record/memory fragment, NOT a coherent CR/tab handler;
+;              the $9D-page label is mislabeled (FLAG #1) so its role is UNKNOWN.
+; ----------------------------------------------------------------------
 CON_PUT_COL_4:
-        RET Z                            ; $9E70  C8
-        LD A,C                           ; $9E71  79
-        CP $08                           ; $9E72  FE 08
-        JP NZ,CONOUT_PUTC_4                 ; $9E74  C2 79 9D
-        DEC (HL)                         ; $9E77  35
+        ; ; column already at 0 -> nothing to back up
+        RET Z
+        LD A,C
+        ; ; backspace (BS)?
+        CP $08
+        ; ; not BS -> hand other controls to the $9D-page ([RE,UNKNOWN target] mislabeled;
+        ; byte-target decodes incoherently)
+        JP NZ,CONOUT_PUTC_4
+        ; ; BS: move the column one position left
+        DEC (HL)
+; ----------------------------------------------------------------------
+; CON_PUT_COL_5 -- shared RET closing the BS branch of the column-update tail
+;   In:        -
+;   Out:       returns to caller
+;   Clobbers:  none
+;   Algorithm: Bare RET. Also the JP target of FCB_NAME_MATCH_REC ($A087: JP
+;              CON_PUT_COL_5), a line-edit helper that uses it as a shared return.
+;   NOTE:      FCB_NAME_MATCH_REC is itself a mislabeled line-edit helper (FLAG #1).
+; ----------------------------------------------------------------------
 CON_PUT_COL_5:
-        RET                              ; $9E78  C9
+        RET
+; ----------------------------------------------------------------------
+; CON_PUT_COL_6 -- (OBSERVED) reset the column counter to 0 on a line feed
+;   In:        C = char (intended); HL -> column counter (CON_START_COLUMN+1)
+;   Out:       column counter set to 0 when the char is LF; unchanged otherwise
+;   Clobbers:  A, (HL), flags
+;   Algorithm: CP LF($0A): if LF reset the column to 0 (start of a new line); else RET.
+;   NOTE [UNKNOWN reach]: NO reference to CON_PUT_COL_6 ($9E79) exists anywhere in this
+;              file (grep-confirmed); it is NOT a fall-through (CON_PUT_COL_5 is a RET
+;              just above) and is NOT the CONOUT_PUTC_4 target ($9D79 != $9E79). How (or
+;              whether) it is entered is UNKNOWN from this cluster. Behaviour above is
+;              read straight from the bytes.
+; ----------------------------------------------------------------------
 CON_PUT_COL_6:
-        CP $0A                           ; $9E79  FE 0A
-        RET NZ                           ; $9E7B  C0
-        LD (HL),$00                      ; $9E7C  36 00
-        RET                              ; $9E7E  C9
+        ; ; line feed (LF)?
+        CP $0A
+        ; ; not LF -> leave the column counter alone
+        RET NZ
+        ; ; LF -> new line: reset the column counter to 0
+        LD (HL),$00
+        RET
+; ----------------------------------------------------------------------
+; BDOS_CON_29 -- echo one char, showing non-printing controls as ^X
+;   In:        C = character to display
+;   Out:       character (or its ^X representation) emitted via the $9D-page conout
+;   Clobbers:  A, C, flags
+;   Algorithm: A := C; test 'is it printable' via a $9D-page helper (CY clear =>
+;              printable). If printable, tail to CON_OUT_SINGLE+2 and return. If a
+;              control, save it, emit a leading '^' (caret) and fall into BDOS_CON_30 to
+;              print the control's letter form. This is the line-editor visible-control
+;              echo (e.g. ^C, ^I), distinct from CON_PUT_COL's column-tracking conout.
+;   NOTE [RE]: FCB_SEQ_IO_STEP_2+1 ($9D14) and CON_OUT_SINGLE+2 ($9D90) are mislabeled
+;              $9D-page console code (FLAG #1) and the +offset byte-targets decode
+;              incoherently in the current framing; the 'printable test' / 'direct
+;              conout' roles are CP/M-convention [RE], target detail UNKNOWN.
+; ----------------------------------------------------------------------
 BDOS_CON_29:
-        LD A,C                           ; $9E7F  79
-        CALL FCB_SEQ_IO_STEP_2+1                ; $9E80  CD 14 9D
-        JP NC,CON_OUT_SINGLE+2               ; $9E83  D2 90 9D
-        PUSH AF                          ; $9E86  F5
-        LD C,$5E                         ; $9E87  0E 5E
+        ; ; A := the char to display
+        LD A,C
+        ; ; [RE,UNKNOWN target] test printable? CY clear => printable (mislabeled $9D-page helper,
+        ; mid-instruction entry)
+        CALL FCB_SEQ_IO_STEP_2+1
+        ; ; printable -> emit directly and return ([RE,UNKNOWN target] $9D-page conout)
+        JP NC,CON_OUT_SINGLE+2
+        ; ; control char: remember it while we print the caret
+        PUSH AF
+        ; ; load '^' (caret) to introduce the control-char display
+        LD C,'^'
+; ----------------------------------------------------------------------
+; BDOS_CON_30 -- emit the caret then the control char's printable letter (^X tail)
+;   In:        C = '^' on entry from BDOS_CON_29; the original control char saved on the
+;              stack
+;   Out:       '^' then (control|$40) emitted; the LD C,' ' tab path below is NOT reached
+;              on this fall-through (see Algorithm)
+;   Clobbers:  A, C, flags
+;   Algorithm: CALL the $9D-page conout to print '^', POP the original control char,
+;              OR $40 to fold it into the printable letter range (^A=$01 -> 'A'=$41;
+;              TAB $09 -> 'I'=$49), and emit it. The following 'CP $09 / JP NZ,CONOUT_PUTC'
+;              compares the ALREADY-OR'd value (always >= $40), so it is never $09 and
+;              always takes the JP -> emits the letter and returns; the LD C,' '/tab path
+;              is therefore dead on this fall-through.
+;   NOTE [RE]: BDOS_CON_30+1 ($9E8A, reached from FCB_NAME_MATCH_REC $A07A) is a separate
+;              overlapping entry (the CALL's $48 operand runs as LD C,B); the dead-looking
+;              CP $09 is the residue of that shared form. CONOUT_PUTC mislabeled (FLAG #1).
+; ----------------------------------------------------------------------
 BDOS_CON_30:
-        CALL CONOUT_PUTC                    ; $9E89  CD 48 9D
-        POP AF                           ; $9E8C  F1
-        OR $40                           ; $9E8D  F6 40
-        LD C,A                           ; $9E8F  4F
-        LD A,C                           ; $9E90  79
-        CP $09                           ; $9E91  FE 09
-        JP NZ,CONOUT_PUTC                   ; $9E93  C2 48 9D
-        LD C,$20                         ; $9E96  0E 20
+        ; ; emit the leading '^' ([RE,UNKNOWN target] mislabeled $9D-page conout)
+        CALL CONOUT_PUTC
+        ; ; recover the original control char
+        POP AF
+        ; ; fold control code into its printable letter (^A=$01 -> 'A'=$41; TAB $09 -> 'I')
+        OR $40
+        LD C,A
+        LD A,C
+        ; ; [RE] compares the post-OR value (always >= $40) so never equal -> always emits the
+        ; letter; the LD C,' ' tab path is the editor's separate +1 entry
+        CP $09
+        JP NZ,CONOUT_PUTC
+        LD C,$20
+; ----------------------------------------------------------------------
+; BDOS_CON_31 -- TAB expansion: emit spaces up to the next 8-column tab stop
+;   In:        C = ' ' (space) on entry; CON_START_COLUMN+1 = current column
+;   Out:       one space emitted; loops at the $9D-page BDOS_CON_3 until the column is a
+;              multiple of 8, then returns
+;   Clobbers:  A, flags
+;   Algorithm: Emit a space via the $9D-page conout, read the column, AND $07; if
+;              non-zero (not yet on a tab stop) JP to the $9D-page loop continuation
+;              (BDOS_CON_3, $9D96) to emit another space, else return. BDOS_CON_31+1
+;              ($9E99, from DIR_NEXT_ENTRY $A0A0) runs the CALL's $48 operand as LD C,B.
+;   NOTE:      CONOUT_PUTC and BDOS_CON_3 are mislabeled $9D-page console code (FLAG #1).
+; ----------------------------------------------------------------------
 BDOS_CON_31:
-        CALL CONOUT_PUTC                    ; $9E98  CD 48 9D
-        LD A,(CON_START_COLUMN+1)             ; $9E9B  3A 0C 9F
-        AND $07                          ; $9E9E  E6 07
-        JP NZ,BDOS_CON_3                 ; $9EA0  C2 96 9D
-        RET                              ; $9EA3  C9
+        ; ; emit one space of the tab fill ([RE,UNKNOWN target] $9D-page conout)
+        CALL CONOUT_PUTC
+        ; ; current output column
+        LD A,(CON_START_COLUMN+1)
+        ; ; on an 8-column tab stop? (column mod 8 == 0)
+        AND $07
+        ; ; not yet -> emit another fill space ([RE,UNKNOWN target] tab-fill loop in the mislabeled
+        ; $9D page)
+        JP NZ,BDOS_CON_3
+        RET
+; ----------------------------------------------------------------------
+; BDOS_CON_32 -- rubout erase: backspace, blank, backspace (visually delete a char)
+;   In:        (none beyond the implicit cursor position)
+;   Out:       a destructive backspace sequence emitted to the console
+;   Clobbers:  A, C, flags
+;   Algorithm: CALL a $9D-page console helper (BDOS_CON_6, [RE] likely the leading
+;              backspace) then, via BDOS_CON_33, emit space (BIOS CONOUT) and BS (BIOS
+;              CONOUT) so the erased glyph is overwritten and the cursor steps back.
+;              BDOS_CON_32+2 ($9EA6, from READ_CON_BUF_EDIT_12 $A06D) runs the CALL's
+;              $9D operand byte as SBC A,L.
+;   NOTE:      BDOS_CON_6 is mislabeled $9D-page console code (FLAG #1); role UNKNOWN.
+; ----------------------------------------------------------------------
 BDOS_CON_32:
-        CALL BDOS_CON_6                  ; $9EA4  CD AC 9D
-        LD C,$20                         ; $9EA7  0E 20
+        ; ; [RE,UNKNOWN target] $9D-page console helper (mislabeled). +2 overlapping editor entry
+        ; ($A06D) runs SBC A,L
+        CALL BDOS_CON_6
+        ; ; load space to overwrite the erased glyph
+        LD C,' '
+; ----------------------------------------------------------------------
+; BDOS_CON_33 -- emit space then backspace (the blank-and-step-back half of an erase)
+;   In:        C = ' ' (space) on entry from BDOS_CON_32, or entered directly with C set
+;   Out:       space then BS emitted via BIOS CONOUT
+;   Clobbers:  A, C, flags
+;   Algorithm: BIOS CONOUT($AA0C) the space, load BS($08), tail-JP to BIOS CONOUT again.
+;              Entered directly by READ_CON_BUF_EDIT_2 ($A023: JP BDOS_CON_33, rubout).
+; ----------------------------------------------------------------------
 BDOS_CON_33:
-        CALL $AA0C                       ; $9EA9  CD 0C AA
-        LD C,$08                         ; $9EAC  0E 08
-        JP $AA0C                         ; $9EAE  C3 0C AA
+        ; ; BIOS CONOUT: print the blanking space
+        CALL $AA0C
+        ; ; load backspace (BS)
+        LD C,$08
+        ; ; BIOS CONOUT (tail): step the cursor back over the blank
+        JP $AA0C
+; ----------------------------------------------------------------------
+; BDOS_CON_34 -- line-kill echo: print '#' and restore the cursor toward the prompt
+;   In:        CON_START_COLUMN = start (prompt) column; CON_START_COLUMN+1 = current
+;              column
+;   Out:       '#' emitted; control passes to the column-restore loop (BDOS_CON_35/36)
+;   Clobbers:  A, C, HL, flags
+;   Algorithm: Emit '#' (the CP/M line-delete echo) via the $9D-page conout, CALL a
+;              $9D-page helper (BDOS_CON_9+2), load the current column, and fall into
+;              BDOS_CON_35 to pad/erase back to the start column.
+;   NOTE:      CONOUT_PUTC / BDOS_CON_9 are mislabeled $9D-page console code (FLAG #1).
+; ----------------------------------------------------------------------
 BDOS_CON_34:
-        LD C,$23                         ; $9EB1  0E 23
-        CALL CONOUT_PUTC                    ; $9EB3  CD 48 9D
-        CALL BDOS_CON_9+2                ; $9EB6  CD C9 9D
-        LD A,(CON_START_COLUMN+1)             ; $9EB9  3A 0C 9F
+        ; ; load '#' -- the CP/M kill-line echo character
+        LD C,'#'
+        ; ; print '#' ([RE,UNKNOWN target] mislabeled $9D-page conout)
+        CALL CONOUT_PUTC
+        ; ; [RE,UNKNOWN target] $9D-page console helper in the kill-line sequence (mislabeled)
+        CALL BDOS_CON_9+2
+        ; ; current output column (to compare against the start column)
+        LD A,(CON_START_COLUMN+1)
+; ----------------------------------------------------------------------
+; BDOS_CON_35 -- compare current column to the start column (kill-line restore guard)
+;   In:        A = current column; CON_START_COLUMN = start (prompt) column
+;   Out:       returns if current >= start (cursor already back at the prompt); else
+;              falls into BDOS_CON_36 to emit one more pad space
+;   Clobbers:  HL, flags
+;   Algorithm: HL -> CON_START_COLUMN; CP (HL); RET NC when the cursor has returned to
+;              (or past) the prompt column. BDOS_CON_35+1 ($9EBD, from FCB_CMP_DIR_ENTRY
+;              $A0B5) runs the LD HL operand's $0B byte as DEC BC.
+; ----------------------------------------------------------------------
 BDOS_CON_35:
-        LD HL,CON_START_COLUMN                ; $9EBC  21 0B 9F
-        CP (HL)                          ; $9EBF  BE
-        RET NC                           ; $9EC0  D0
+        ; ; point at the start (prompt) column. +1 overlapping editor entry ($A0B5) runs DEC BC
+        LD HL,CON_START_COLUMN
+        ; ; current column vs start column
+        CP (HL)
+        ; ; cursor back at/before the prompt -> done restoring
+        RET NC
+; ----------------------------------------------------------------------
+; BDOS_CON_36 -- kill-line restore: emit one pad space then loop
+;   In:        (kill-line path) current vs start column from BDOS_CON_35
+;   Out:       one space emitted, then JP to the $9D-page loop back into the column test
+;   Clobbers:  A, C, flags
+;   Algorithm: LD C,' '; emit via the $9D-page conout; JP BDOS_CON_8+1 ($9DB9) to re-test
+;              the column, walking the cursor back to the prompt one space at a time.
+;   FLAG [RE/SYSTEMIC]: the BDOS dispatch word for fn 1 (Console Input) is BDOS_CON_36+7
+;              = $9EC8, which decodes SBC A,L then BDOS_CON_37 (emit CR+LF) -- NOT a key
+;              reader. The neighbour fn 2 (Console Output) word -> CON_OUT_SINGLE+2
+;              ($9D90) likewise decodes a memory-store fragment, NOT a conout. So the
+;              ENTIRE console dispatch group's LABELS are anchored at wrong instruction
+;              boundaries by the prior pass (the dispatch WORDS are correct bytes). The
+;              real fn-1/fn-2 handler framing is UNKNOWN until the $9C/$9D/$9E console
+;              decode is re-anchored from the dispatch-word targets. Do NOT invent a
+;              Console-Input story; do NOT cover-split +7 yet (would freeze the
+;              relocatable JP BDOS_CON_8+1 operand before the re-anchor).
+; ----------------------------------------------------------------------
 BDOS_CON_36:
-        LD C,$20                         ; $9EC1  0E 20
-        CALL CONOUT_PUTC                    ; $9EC3  CD 48 9D
-        JP BDOS_CON_8+1                  ; $9EC6  C3 B9 9D
+        ; ; load space to pad/erase one column back toward the prompt
+        LD C,' '
+        ; ; emit the pad space ([RE,UNKNOWN target] mislabeled $9D-page conout)
+        CALL CONOUT_PUTC
+        ; ; [RE,UNKNOWN target] loop back into the column-restore test (mislabeled $9D page). NOTE:
+        ; the high operand byte $9D at +7 here is the fn-1 dispatch entry -- see header FLAG
+        JP BDOS_CON_8+1
+; ----------------------------------------------------------------------
+; BDOS_CON_37 -- emit a newline (CR then LF) to the console
+;   In:        (none)
+;   Out:       CR ($0D) then LF ($0A) emitted via the $9D-page conout
+;   Clobbers:  A, C, flags
+;   Algorithm: LD C,CR; CALL conout; fall into the LF tail (BDOS_READER_INPUT_FN: LD
+;              C,LF; JP conout). Reached by BDOS_PRINT_STRING_FN ($9EFA: JP Z,BDOS_CON_36
+;              on a CR in the printed string) and is the +7 fall-through landing for the
+;              SUSPECT fn-1 dispatch entry $9EC8 (see BDOS_CON_36 FLAG).
+;   NOTE:      CONOUT_PUTC is mislabeled $9D-page code (FLAG #1); the immediately
+;              following BDOS_READER_INPUT_FN (fn 3) shares this LF-emit tail.
+; ----------------------------------------------------------------------
 BDOS_CON_37:
-        LD C,$0D                         ; $9EC9  0E 0D
-        CALL CONOUT_PUTC                    ; $9ECB  CD 48 9D
+        ; ; load carriage return (CR)
+        LD C,$0D
+        ; ; emit CR ([RE,UNKNOWN target] mislabeled $9D-page conout), then fall into the LF tail
+        CALL CONOUT_PUTC
+; ----------------------------------------------------------------------
+; BDOS_READER_INPUT / BDOS_READER_INPUT_FN ($9ECE) -- emit a linefeed via the console-output
+; primitive; ALSO the BDOS fn 3 dispatch slot.
+;   In:        (fall-through) reached from BDOS_CON_37 ($9EC9) which just emitted a CR; (as fn 3)
+;              C-param in C.
+;   Out:       linefeed ($0A) sent to the console; tail-jumps into CONOUT_PUTC (no local return).
+;   Clobbers:  C, A and whatever CONOUT_PUTC touches.
+;   Algorithm: OBSERVED: LD C,$0A / JP CONOUT_PUTC. With BDOS_CON_37 (emit CR) above, this is the
+;              console CR/LF sequence used by the line editor / tab expansion.
+;   NOTE:      The fn-3 (Reader Input) dispatch word targets this address; the 2.23-44K twin frames
+;              these exact bytes identically (BDOS_READER_INPUT), so the framing is the accepted
+;              decode. [RE] reader maps onto the console tail on this SoftCard build; exact device
+;              routing [RE] not fully traced.
+; ----------------------------------------------------------------------
 BDOS_READER_INPUT:
+; ----------------------------------------------------------------------
+; BDOS_READER_INPUT_FN -- second label co-located with BDOS_READER_INPUT at $9ECE (see that header).
+;   Note:      The '_FN' alias is the BDOS fn 3 (Reader Input) dispatch target. Same bytes; the 2.23
+;              twin frames them identically. [RE] reader maps onto the console tail.
+; ----------------------------------------------------------------------
 BDOS_READER_INPUT_FN:
-        LD C,$0A                         ; $9ECE  0E 0A
-        JP CONOUT_PUTC                      ; $9ED0  C3 48 9D
+        ; ; OBSERVED: load linefeed ($0A); BDOS_CON_37 just above emitted the CR, completing a CR/LF
+        ; pair
+        LD C,$0A
+        ; ; tail-jump into the console-output primitive to send the char in C (returns to our
+        ; caller)
+        JP CONOUT_PUTC
+; ----------------------------------------------------------------------
+; BDOS_CON_39 ($9ED3) -- head of the Print-String / Direct-Console per-char body: fetch the next
+; string byte.
+;   In:        BC -> next byte of a '$'-terminated string (Print String walk).
+;   Out:       A = next string byte; falls into BDOS_DIRECT_CON_IO ($9ED4).
+;   Clobbers:  A.
+;   Algorithm: OBSERVED: LD A,(BC) fetches the next character; control falls into the shared
+;              per-char body at $9ED4. The 2.23 twin frames this identically (BDOS_READER_INPUT_1).
+; ----------------------------------------------------------------------
 BDOS_CON_39:
-        LD A,(BC)                        ; $9ED3  0A
+        ; ; OBSERVED: fetch next string byte (BC = string cursor) for the per-char body below
+        LD A,(BC)
+; ----------------------------------------------------------------------
+; BDOS_DIRECT_CON_IO / BDOS_DIRECT_CON_IO_FN ($9ED4) -- per-character emit body ('$' guard +
+; output), shared by the Print-String walk and CP/M fn 6 (Direct Console I/O); fn-6 dispatch target.
+;   In:        A = candidate char (from LD A,(BC) above, or the fn-6 path); BC = string cursor.
+;   Out:       if A=='$' (Print-String terminator) RET Z; else emit the char, advance BC, continue
+;              to CON_DIRECT_OUT_RET.
+;   Clobbers:  A, C, BC (advanced); BC saved/restored via PUSH/POP.
+;   Algorithm: OBSERVED: CP '$' -> RET Z; INC BC; PUSH BC; LD C,A; CALL the one-char output
+;              primitive (entered at CON_OUT_SINGLE+2, a shared-instruction-tail entry); POP BC.
+;              [RE] canonical CP/M Print-String body with fn-6 sharing the emit path [DOC CPMREF
+;              3-44]. The 2.23 twin frames these bytes identically.
+;   NOTE:      CALL CON_OUT_SINGLE+2 ($9D90) is a deliberate shared-instruction-tail entry (the +2
+;              idiom is enumerated as accepted in the 2.23 twin), NOT a mis-frame.
+; ----------------------------------------------------------------------
 BDOS_DIRECT_CON_IO:
+; ----------------------------------------------------------------------
+; BDOS_DIRECT_CON_IO_FN -- second label co-located with BDOS_DIRECT_CON_IO at $9ED4 (see that
+; header).
+;   Note:      The '_FN' alias is the BDOS fn 6 (Direct Console I/O) dispatch target [DOC CPMREF
+;              3-44].
+; ----------------------------------------------------------------------
 BDOS_DIRECT_CON_IO_FN:
-        CP $24                           ; $9ED4  FE 24
-        RET Z                            ; $9ED6  C8
-        INC BC                           ; $9ED7  03
-        PUSH BC                          ; $9ED8  C5
-        LD C,A                           ; $9ED9  4F
-        CALL CON_OUT_SINGLE+2                ; $9EDA  CD 90 9D
-        POP BC                           ; $9EDD  C1
+        ; ; OBSERVED: '$' is the Print-String terminator -- stop here if reached
+        CP '$'
+        RET Z
+        ; ; advance the string cursor past the char we are about to print
+        INC BC
+        PUSH BC
+        ; ; move the character into C for the console one-char output primitive
+        LD C,A
+        ; ; emit the character via the one-char output primitive (shared-instruction-tail entry, +2
+        ; overlap idiom)
+        CALL CON_OUT_SINGLE+2
+        POP BC
+; ----------------------------------------------------------------------
+; BDOS_CON_41 ($9EDE) -- tail of the per-char emit body: rejoin the console-handling loop.
+;   In:        BC restored (string cursor) by the POP just above.
+;   Out:       jumps to BDOS_CON_10+2 ($9DD3).
+;   Clobbers:  none locally.
+;   Algorithm: OBSERVED: JP BDOS_CON_10+2 -- after emitting one character, continue the console
+;              loop. The +2 is a shared-instruction-tail entry (accepted idiom; the 2.23 twin names
+;              this CON_DIRECT_OUT_RET and frames it identically).
+;   NOTE:      The bytes after this JP ($9EE1: LD A,(CON_START_COLUMN+1) / LD (CON_START_COLUMN),A /
+;              LD HL,(BDOS_DE_PARAM) / LD C,(HL) / INC HL / PUSH HL) begin the Read-Console-Buffer
+;              (fn 10) setup, reached from its own dispatch word -- NOT a fall-through from this JP.
+; ----------------------------------------------------------------------
 BDOS_CON_41:
-        JP BDOS_CON_10+2                 ; $9EDE  C3 D3 9D
-        LD A,(CON_START_COLUMN+1)             ; $9EE1  3A 0C 9F
-        LD (CON_START_COLUMN),A               ; $9EE4  32 0B 9F
-        LD HL,(BDOS_DE_PARAM)              ; $9EE7  2A 43 9F
-        LD C,(HL)                        ; $9EEA  4E
-        INC HL                           ; $9EEB  23
-        PUSH HL                          ; $9EEC  E5
+        ; ; OBSERVED: char emitted -- rejoin the console-handler loop (shared-instruction-tail
+        ; entry, +2 overlap idiom)
+        JP BDOS_CON_10+2
+        LD A,(CON_START_COLUMN+1)
+        LD (CON_START_COLUMN),A
+        LD HL,(BDOS_DE_PARAM)
+        LD C,(HL)
+        INC HL
+        PUSH HL
+; ----------------------------------------------------------------------
+; BDOS_GET_IOBYTE_FN ($9EED) -- inner read-one-console-char step of the Read-Console-Buffer (fn 10)
+; editor; ALSO the fn 7/fn 8 (Get/Set I/O Byte) dispatch slot AS LABELED.
+;   In:        HL/BC set up by the fn-10 head at $9EE1 (read path); (as labeled fn 7/8) C=$07/$08,
+;              E=new IOBYTE for fn 8.
+;   Out:       OBSERVED: A = one console char masked to 7 bits, with BC and HL preserved across the
+;              read.
+;   Clobbers:  A, B; BC/HL saved+restored.
+;   Algorithm: OBSERVED: LD B,$00; PUSH BC; PUSH HL; CALL the console-input primitive
+;              (FCB_SEQ_IO_STEP, reached via a shared tail); AND $7F (strip the high/parity bit);
+;              POP HL; POP BC. The 2.23 twin frames these bytes identically and names the masking
+;              step CON_GETCHAR_MASK.
+;   WARNING:   The fn 7/8 dispatch words ($9EED / +6=$9EF3) point INTO this Read-Console-Buffer
+;              code, NOT at a plain LD A,(IOBYTE) / LD (IOBYTE),A. [DOC S&HD 2-18 ; cpm22.inc]
+;              IOBYTE=$0003. The genuine Get/Set I/O Byte handler location for this build is [RE]
+;              UNKNOWN -- the only point in the cluster where a dispatch word's target does not
+;              match the labeled CP/M function; flag for a dispatch-anchored trace.
+; ----------------------------------------------------------------------
 BDOS_GET_IOBYTE_FN:
-        LD B,$00                         ; $9EED  06 00
-        PUSH BC                          ; $9EEF  C5
-        PUSH HL                          ; $9EF0  E5
-        CALL FCB_SEQ_IO_STEP                    ; $9EF1  CD FB 9C
-        AND $7F                          ; $9EF4  E6 7F
-        POP HL                           ; $9EF6  E1
-        POP BC                           ; $9EF7  C1
+        LD B,$00
+        PUSH BC
+        PUSH HL
+        ; ; OBSERVED: read one character from the console (shared-tail entry; HL/BC saved across the
+        ; call)
+        CALL FCB_SEQ_IO_STEP
+        ; ; mask the input to 7 bits (strip the high/parity bit)
+        AND $7F
+        POP HL
+        POP BC
+; ----------------------------------------------------------------------
+; BDOS_PRINT_STRING_FN ($9EF8) -- CR/LF classifier of the Read-Console-Buffer editor; ALSO the fn 9
+; (Print String) dispatch slot AS LABELED.
+;   In:        A = a just-read console character (from the read step above).
+;   Out:       OBSERVED: if A==CR -> JP BDOS_CON_36 (carriage-return handling); the LF branch
+;              follows at $9EFF (see anomaly note).
+;   Clobbers:  A, flags.
+;   Algorithm: OBSERVED: CP $0D / JP Z,BDOS_CON_36 / CP $0A / <LF branch>. Classifies the input char
+;              as CR or LF and branches to the matching console handler. The 2.23 twin frames these
+;              bytes identically (BDOS_PRINT_STRING_FN / CON_CHK_LF). NOT a fn-9 DE-string walk.
+;   WARNING:   The fn 9 (Print String) dispatch word targets these bytes, which do not implement a
+;              DE-string walk -- the genuine fn-9 handler for this build is [RE] UNKNOWN at these
+;              bytes. SEE the $9EFF anomaly below.
+; ----------------------------------------------------------------------
 BDOS_PRINT_STRING_FN:
-        CP $0D                           ; $9EF8  FE 0D
-        JP Z,BDOS_CON_36                 ; $9EFA  CA C1 9E
-        CP $0A                           ; $9EFD  FE 0A
+        CP $0D
+        ; ; OBSERVED: carriage return -> branch to the CR console handler
+        JP Z,BDOS_CON_36
+        ; ; OBSERVED: classify the input character as linefeed (the LF-branch JP at $9EFF is the
+        ; unresolved anomaly -- see header)
+        CP $0A
+; ----------------------------------------------------------------------
+; BDOS_RET_RESULT ($9EFF) -- UNRESOLVED ANOMALY / common-tail entry, reached ONLY as +2 ($9F01) by
+; ~14 JP sites.
+;   In:        [RE] handler result in A/HL (CP/M A=L,B=H convention applies on the eventual return
+;              [DOC CPMREF 3-44]).
+;   Out:       UNKNOWN.
+;   Clobbers:  UNKNOWN.
+;   Algorithm: UNKNOWN-FRAMING. At $9EFF the bytes CA C2 CD linear-decode as JP Z,$CDC2; $CDC2 is
+;              OUT OF THIS IMAGE, so that is not a real instruction at this boundary. The address
+;              actually USED is BDOS_RET_RESULT+2 = $9F01 (the $CD byte), the heavily-used common
+;              tail. Decoded from $9F01 the bytes do NOT cohere as a return epilogue (CALL $01A4
+;              ...), and from $9F03/$9F05 they reach disk routines $A410/$A517, so this is NOT the
+;              BDOS success-return epilogue (the real epilogue is $A974 -> $A691 restore-SP / $A695
+;              load BDOS_RETURN_VAL). The 2.23-44K twin carries the IDENTICAL bytes, the IDENTICAL
+;              JP Z,$CDC2, and the IDENTICAL +2 entry arithmetic (labels CON_CHK_LF_DONE /
+;              BDOS_RETURN_AH), so this is a real, SHARED, still-unresolved decode -- not a 2.20
+;              corruption. True framing of $9EFF-$9F09 is UNKNOWN; flagged for a
+;              dispatch/skip-idiom-anchored re-walk. No split invented.
+; ----------------------------------------------------------------------
 BDOS_RET_RESULT:
-        JP Z,$CDC2                       ; $9EFF  CA C2 CD
-        AND H                            ; $9F02  A4
+        ; ; ANOMALY: $CDC2 is out of image; this boundary is NOT a real JP Z. The live common tail
+        ; is entered at +2 ($9F01). True framing UNKNOWN (see header); same anomaly in the 2.23 twin
+        JP Z,$CDC2
+        AND H
+; ----------------------------------------------------------------------
+; BDOS_RET_RESULT_1 ($9F03) -- UNRESOLVED skip-idiom entry, used as +2 ($9F05) by a JP/CALL and as
+; fn 38/39's +1 slot.
+;   In:        UNKNOWN.
+;   Out:       UNKNOWN.
+;   Clobbers:  UNKNOWN.
+;   Algorithm: UNKNOWN-FRAMING. At $9F03 the bytes 01 EC FF linear-decode as LD BC,$FFEC; the
+;              address actually USED is BDOS_RET_RESULT_1+2 = $9F05 (the $FF byte = RST $38) -- the
+;              2.23 twin documents this as a Z-80 SKIP idiom ('enters the operand of $01 at $9F03'):
+;              the $01 (LD BC,nn) opcode is a 3-byte cover that, entered mid-operand at +2, exposes
+;              a different real instruction. The fn 38/39 dispatch words point at +1 ($9F04) as this
+;              build's empty/return-only slots (NOT in the CP/M 2.2 manual). The instruction(s)
+;              behind the cover are UNKNOWN here and unresolved identically in the 2.23 twin; no
+;              cover-split emitted because the true boundary cannot be verified and an invented
+;              split could not be caught by the byte gate.
+; ----------------------------------------------------------------------
 BDOS_RET_RESULT_1:
-        LD BC,$FFEC                      ; $9F03  01 EC FF
-        ADD HL,BC                        ; $9F06  09
-        EX DE,HL                         ; $9F07  EB
-        ADD HL,BC                        ; $9F08  09
-        LD A,(DE)                        ; $9F09  1A
+        ; ; SKIP-IDIOM COVER: the $01 (LD BC,nn) opcode here is a 3-byte cover; the live entry is +2
+        ; ($9F05). True framing UNKNOWN (see header)
+        LD BC,$FFEC
+        ADD HL,BC
+        EX DE,HL
+        ADD HL,BC
+        LD A,(DE)
+; ----------------------------------------------------------------------
+; CON_COLUMN ($9F0A) -- BDOS scratch-RAM byte: current console output COLUMN (DATA cell; linear
+; sweep mis-frames it as code).
+;   Tenancy:   DUAL CODE/DATA. The image byte linear-decodes as CP (HL), but the BDOS never EXECUTES
+;              this address -- it READS/WRITES it as a one-byte variable.
+;   Used by:   OBSERVED writes LD (CON_COLUMN),A at $A010 and $A096; read LD A,(CON_COLUMN) at $9E48
+;   (then OR A).
+;   Semantics: [RE] tracks the physical print column so the BDOS can expand tabs (mod-8) and
+;              suppress backspace past col 0.
+;   Out/Clob:  written/read as data; not code. (Same label/address in the 2.23 twin.)
+; ----------------------------------------------------------------------
 CON_COLUMN:
-        CP (HL)                          ; $9F0A  BE
+        CP (HL)
+; ----------------------------------------------------------------------
+; CON_START_COLUMN ($9F0B) -- BDOS scratch-RAM: 3-byte console-edit column state (DATA cells;
+; mis-framed as code by linear sweep).
+;   Tenancy:   DUAL CODE/DATA. The three image bytes linear-decode as JP C,DRV_INSTALL_RWTS_15 /
+;              start of LD (HL),A, but the BDOS uses them purely as variables:
+;                CON_START_COLUMN   ($9F0B) -- edit line-base column (read LD A,(CON_START_COLUMN)
+;                at $A04E; written $A031 / $9EE4).
+;                CON_START_COLUMN+1 ($9F0C) -- working/cursor column (read $9E9B/$9EB9/$A00D/$A08B;
+;                INC (HL) at $9E69; AND $07 tab test $9E9E).
+;                CON_START_COLUMN+2 ($9F0D) -- flag tested at $9E5A (LD A,(CON_START_COLUMN+2))
+;                gating an optional console call.
+;   Semantics: [RE] the console line-editor / tab-expansion working columns; +1 is the live cursor
+;              column.
+;   Out/Clob:  written/read as data; not code. (Same labels/addresses in the 2.23 twin.)
+; ----------------------------------------------------------------------
 CON_START_COLUMN:
-        JP C,DRV_INSTALL_RWTS_15                 ; $9F0B  DA 17 A5
+        JP C,DRV_INSTALL_RWTS_15
+; ----------------------------------------------------------------------
+; CON_OUT_STATE ($9F0E) -- BDOS scratch-RAM byte: console-output state/suspend flag (DATA cell;
+; mis-framed as code).
+;   Tenancy:   DUAL CODE/DATA. Linear-decodes as LD (HL),A; used as a variable, not executed.
+;   Used by:   OBSERVED read LD A,(CON_OUT_STATE) at $9E23 (then OR A); written LD (CON_OUT_STATE),A
+;   at $9E42; and FCB_SEQ_IO_STEP ($9CFB) does LD HL,CON_OUT_STATE / LD A,(HL) / LD (HL),$20
+;   (read-old, set ' ').
+;   Semantics: [RE] a console-output state byte swapped to a space ($20) while emitting; OR A tests
+;              it for the stop/pending path. [RE] tentative -- exact protocol (e.g. ^S/^Q) UNKNOWN.
+;   Out/Clob:  written/read as data; not code. (Same label/address in the 2.23 twin.)
+; ----------------------------------------------------------------------
 CON_OUT_STATE:
-        LD (HL),A                        ; $9F0E  77
+        LD (HL),A
+; ----------------------------------------------------------------------
+; BDOS_SAVED_SP ($9F0F) -- BDOS scratch-RAM word: the CALLER's stack pointer saved on BDOS entry
+; (DATA cell; mis-framed as code).
+;   Tenancy:   DUAL CODE/DATA. Linear-decodes as LD BC,$0003; the BDOS uses the two bytes as a
+;              saved-SP variable.
+;   Written:   OBSERVED $9C21 LD (BDOS_SAVED_SP),HL (after ADD HL,SP) -- stashes the caller SP
+;              before switching to the BDOS's own stack (LD SP,BDOS_DEFAULT_FCB+2 at $9C24).
+;   Read:      OBSERVED the epilogue $A691 LD HL,(BDOS_SAVED_SP) / LD SP,HL -- restores the caller
+;              SP just before RET.
+;   Semantics: [RE] standard CP/M BDOS stack-swap save slot.
+;   Out/Clob:  written/read as data; not code. (Same label/address in the 2.23 twin.)
+; ----------------------------------------------------------------------
 BDOS_SAVED_SP:
-        LD BC,$0003                      ; $9F0F  01 03 00
-        ADD HL,BC                        ; $9F12  09
-        EX DE,HL                         ; $9F13  EB
-        ADD HL,BC                        ; $9F14  09
-        LD A,(HL)                        ; $9F15  7E
-        LD (DE),A                        ; $9F16  12
-        LD A,$FF                         ; $9F17  3E FF
-        LD ($A9D2),A                     ; $9F19  32 D2 A9
-        JP DISK_STORE_SEC_TRK_2                    ; $9F1C  C3 10 A4
+        LD BC,$0003
+        ADD HL,BC
+        EX DE,HL
+        ADD HL,BC
+        LD A,(HL)
+        LD (DE),A
+        LD A,$FF
+        LD ($A9D2),A
+        JP DISK_STORE_SEC_TRK_2
+; ----------------------------------------------------------------------
+; BDOS_DEC_RESULT ($9F1F) -- decrement the BDOS return-value low byte (clean, correctly-framed
+; routine).
+;   In:        BDOS_RETURN_VAL ($9F45) holds the pending result low byte.
+;   Out:       (BDOS_RETURN_VAL) decremented by 1.
+;   Clobbers:  HL and the byte at BDOS_RETURN_VAL; A/flags untouched (DEC (HL) only).
+;   Algorithm: OBSERVED: LD HL,BDOS_RETURN_VAL / DEC (HL) / RET. [RE] adjusts a 1-based count/code
+;              to the 0-based value CP/M returns before exit. (The 2.23 twin frames these bytes
+;              identically; its label BDOS_SAVED_SP_1 is a numbering artifact -- this functional
+;              name is preferred.)
+; ----------------------------------------------------------------------
 BDOS_DEC_RESULT:
-        LD HL,BDOS_RETURN_VAL                ; $9F1F  21 45 9F
-        DEC (HL)                         ; $9F22  35
-        RET                              ; $9F23  C9
-BDOS_CON_49:
-        CALL DIR_SEARCH_STEP_5+1                ; $9F24  CD 54 A1
-        LD HL,(BDOS_DE_PARAM)              ; $9F27  2A 43 9F
-        PUSH HL                          ; $9F2A  E5
-        LD HL,$A9AC                      ; $9F2B  21 AC A9
-        LD (BDOS_DE_PARAM),HL              ; $9F2E  22 43 9F
-        LD C,$01                         ; $9F31  0E 01
-BDOS_CON_50:
-        CALL FCB_EXTENT_TO_TRKSEC                    ; $9F33  CD 18 A3
-        CALL BDOS_CHECK_ERROR                    ; $9F36  CD F5 A1
-        POP HL                           ; $9F39  E1
-        LD (BDOS_DE_PARAM),HL              ; $9F3A  22 43 9F
-        RET Z                            ; $9F3D  C8
-        EX DE,HL                         ; $9F3E  EB
+        LD HL,BDOS_RETURN_VAL
+        ; ; OBSERVED: decrement the pending BDOS return-value low byte in place
+        DEC (HL)
+        RET
+; ----------------------------------------------------------------------
+; DIR_READ_REC_TO_SCRATCH ($9F24) -- read a directory record into the BDOS $A9AC scratch buffer
+; (clean routine; NOT console I/O).
+;   In:        BDOS_DE_PARAM = caller's current FCB/param pointer; directory machinery
+;              pre-positioned by CALL DIR_SEARCH_STEP_5+1 ($A154).
+;   Out:       falls into DIR_READ_REC_TO_SCRATCH_1 ($9F33) which reads the record and reports any
+;              error; on success the record sits at $A9AC and BDOS_DE_PARAM is restored.
+;   Clobbers:  HL, C, A; saves/restores BDOS_DE_PARAM around the temporary redirect.
+;   Algorithm: OBSERVED: CALL DIR_SEARCH_STEP_5+1; PUSH (save BDOS_DE_PARAM); LD HL,$A9AC + LD
+;              (BDOS_DE_PARAM),HL (redirect param to the scratch buffer); LD C,$01 (one record).
+;              [RE] temporarily hijacks the BDOS param pointer to fetch a directory record into
+;              private RAM, then restores it. (The 2.23 twin frames these bytes identically; its
+;              label BDOS_SAVED_SP_2 is a numbering artifact -- this functional name is preferred.)
+;   RENAME:    DIR_READ_REC_TO_SCRATCH -> DIR_READ_REC_TO_SCRATCH (the 'BDOS_CON' stem is
+;              fall-through numbering, not console I/O).
+; ----------------------------------------------------------------------
+DIR_READ_REC_TO_SCRATCH:
+        CALL DIR_SEARCH_STEP_5+1
+        LD HL,(BDOS_DE_PARAM)
+        ; ; save the caller's BDOS_DE_PARAM before temporarily redirecting it to the scratch buffer
+        PUSH HL
+        ; ; point BDOS_DE_PARAM at the $A9AC directory/record scratch buffer in the BDOS variable
+        ; page
+        LD HL,$A9AC
+        LD (BDOS_DE_PARAM),HL
+        ; ; request a single record for the directory read performed by DIR_READ_REC_TO_SCRATCH_1
+        ; below
+        LD C,$01
+; ----------------------------------------------------------------------
+; DIR_READ_REC_TO_SCRATCH_1 ($9F33) -- perform the redirected record read, check error, restore
+; BDOS_DE_PARAM (tail of DIR_READ_REC_TO_SCRATCH).
+;   In:        BDOS_DE_PARAM = $A9AC scratch buffer (set by the head above); C = record count ($01);
+;              saved caller param on stack.
+;   Out:       Z set on read success (RET Z); BDOS_DE_PARAM restored to the caller's pointer; on
+;              success continues EX DE,HL.
+;   Clobbers:  A, HL, DE; reads error status via BDOS_CHECK_ERROR.
+;   Algorithm: OBSERVED: CALL FCB_EXTENT_TO_TRKSEC (map FCB extent/record -> physical trk+sec and
+;              read); CALL BDOS_CHECK_ERROR; POP HL + LD (BDOS_DE_PARAM),HL (restore caller param);
+;              RET Z on success. (Same bytes/framing in the 2.23 twin, labeled BDOS_SAVED_SP_3 -- a
+;              numbering artifact; this functional name is preferred.)
+;   RENAME:    DIR_READ_REC_TO_SCRATCH_1 -> DIR_READ_REC_TO_SCRATCH_1 (continuation; not console
+;              I/O).
+; ----------------------------------------------------------------------
+DIR_READ_REC_TO_SCRATCH_1:
+        CALL FCB_EXTENT_TO_TRKSEC
+        CALL BDOS_CHECK_ERROR
+        ; ; recover the caller's saved BDOS_DE_PARAM pointer
+        POP HL
+        LD (BDOS_DE_PARAM),HL
+        ; ; OBSERVED: return on read success (Z from BDOS_CHECK_ERROR); caller param already
+        ; restored
+        RET Z
+        EX DE,HL
+; ----------------------------------------------------------------------
+; BDOS_DEFAULT_FCB ($9F3F) -- BDOS scratch-RAM cell, ALSO the BDOS private stack base via +2 (DATA,
+; NOT code).
+;   Tenancy:   DUAL CODE/DATA. Linear-decodes as LD HL,$000F; used as data:
+;                BDOS_DEFAULT_FCB+2 ($9F41) -- OBSERVED read $A575/$A635 (LD
+;                A,(BDOS_DEFAULT_FCB+2)), written $A63D: [RE] holds the current USER number /
+;                current drive code (Set/Get-User & Select path).
+;                BDOS_DEFAULT_FCB+2 is ALSO the BDOS private stack base: OBSERVED BDOS_ENTRY $9C24
+;                LD SP,BDOS_DEFAULT_FCB+2.
+;   Semantics: [RE] a BDOS workspace cell (user/drive byte) just below the private stack; the field
+;              beyond the +2 usage is UNKNOWN. (The 2.23 twin labels $9F3F BDOS_SAVED_SP_4 and
+;              treats +2 as the stack base similarly.)
+;   Out/Clob:  written/read as data and used as the stack base; not executed as code.
+; ----------------------------------------------------------------------
 BDOS_DEFAULT_FCB:
-        LD HL,$000F                      ; $9F3F  21 0F 00
+        LD HL,$000F
+; ----------------------------------------------------------------------
+; FCB_USER_SCRATCH ($9F42) -- BDOS scratch-RAM byte: the active DRIVE index used by the file system
+; and error reporter (DATA, NOT code).
+;   Tenancy:   DUAL CODE/DATA. Linear-decodes as ADD HL,DE; used as a variable.
+;   Used by:   OBSERVED read LD A,(FCB_USER_SCRATCH) at $9CE9/$A259/$A524/$A565/$A604; written LD
+;   (FCB_USER_SCRATCH),A at $A58D; addressed LD HL,FCB_USER_SCRATCH at $A548; BDOS_ERR_PRINT ($9CE9)
+;   adds $41 ('A') to it to print the drive letter.
+;   Semantics: [RE] the active 0-based drive index, used both for disk select and to form the 'Bdos
+;              Err On x:' drive letter.
+;   Out/Clob:  written/read as data; not code. (Same label/address in the 2.23 twin.)
+; ----------------------------------------------------------------------
 FCB_USER_SCRATCH:
-        ADD HL,DE                        ; $9F42  19
+        ADD HL,DE
+; ----------------------------------------------------------------------
+; BDOS_DE_PARAM ($9F43) -- BDOS scratch-RAM word: the saved DE PARAMETER (FCB / DMA / info address)
+; of the current BDOS call (DATA, NOT code).
+;   Tenancy:   DUAL CODE/DATA. Linear-decodes as LD C,$11; used as a 16-bit variable throughout the
+;              BDOS.
+;   Written:   OBSERVED BDOS_ENTRY $9C12 LD (BDOS_DE_PARAM),HL (saves DE); re-pointed temporarily by
+;              the directory-read path ($9F2E/$9F3A) and restored; also $A5CB.
+;   Read:      OBSERVED dozens of LD HL,(BDOS_DE_PARAM) sites ($9C42, $9D04, $9D1E, $9D64, $9D8B,
+;              $9DC7, $9EE7, $A10B, ...) -- handlers reload the caller's FCB/info pointer from here.
+;   Semantics: [RE] the 'information address (DE)' of the CP/M BDOS call interface [DOC CPMREF
+;              3-44]; the single source of the caller's FCB/DMA/param pointer for every handler.
+;   Out/Clob:  written/read as data; not code. (Same label/address in the 2.23 twin.)
+; ----------------------------------------------------------------------
 BDOS_DE_PARAM:
-        LD C,$11                         ; $9F43  0E 11
+        LD C,$11
+; ----------------------------------------------------------------------
+; BDOS_RETURN_VAL ($9F45) -- BDOS scratch-RAM word: the pending RETURN VALUE delivered to the caller
+; in A=L/B=H (DATA, NOT code).
+;   Tenancy:   DUAL CODE/DATA. Linear-decodes as XOR A; used as a 16-bit result variable.
+;   Written:   OBSERVED BDOS_ENTRY $9C1D zeroes it (LD HL,$0000 / LD (BDOS_RETURN_VAL),HL); handlers
+;              store via $9B88/$9DA3/$A201/$A38D (LD (BDOS_RETURN_VAL),A) and $A629 (LD
+;              (BDOS_RETURN_VAL),HL); BDOS_DEC_RESULT decrements it.
+;   Read:      OBSERVED the epilogue $A695 LD HL,(BDOS_RETURN_VAL) / LD A,L / LD B,H (CP/M A=L,B=H
+;              convention); tested at $A16E/$A350/$A364/$A378 (LD A,(BDOS_RETURN_VAL)).
+;   Semantics: [RE] the standard CP/M BDOS result cell (byte result in A, word in HL, A=L/B=H on
+;              return [DOC CPMREF 3-44]).
+;   Out/Clob:  written/read as data; not code. (Same label/address in the 2.23 twin.)
+; ----------------------------------------------------------------------
 BDOS_RETURN_VAL:
-        XOR A                            ; $9F45  AF
-        LD (HL),A                        ; $9F46  77
+        XOR A
+        LD (HL),A
+; ----------------------------------------------------------------------
+; FCB_INC_REC_PTR -- walk tail
+; ----------------------------------------------------------------------
 FCB_INC_REC_PTR:
-        INC HL                           ; $9F47  23
-        DEC C                            ; $9F48  0D
+        INC HL
+        DEC C
+; ----------------------------------------------------------------------
+; overlap anchor
+; ----------------------------------------------------------------------
 FCB_INC_REC_PTR_1:
-        JP NZ,DISK_SEEK_TRACK_1+1               ; $9F49  C2 46 A5
-        LD HL,$000D                      ; $9F4C  21 0D 00
+        JP NZ,DISK_SEEK_TRACK_1+1
+        LD HL,FCB_S1
+; ----------------------------------------------------------------------
+; store+guard
+; ----------------------------------------------------------------------
 FCB_SET_REC_FLAG:
-        ADD HL,DE                        ; $9F4F  19
+        ADD HL,DE
+; ----------------------------------------------------------------------
+; alt entry
+; ----------------------------------------------------------------------
 FCB_SET_REC_THEN_RW:
-        LD (HL),A                        ; $9F50  77
-        CALL DISK_DEBLOCK                    ; $9F51  CD 8C A1
-        CALL DISK_SET_SEC_PARM                    ; $9F54  CD FD A3
+        LD (HL),A
+        CALL DISK_DEBLOCK
+        CALL DISK_SET_SEC_PARM
+; ----------------------------------------------------------------------
+; JP guard
+; ----------------------------------------------------------------------
 FCB_SET_REC_FLAG_2:
-        JP DISK_RW_GUARD_1+1                  ; $9F57  C3 78 A1
+        JP DISK_RW_GUARD_1+1
+; ----------------------------------------------------------------------
+; next extent; DRV_INSTALL_RWTS HL UNKNOWN
+; ----------------------------------------------------------------------
 FCB_SET_REC_FLAG_3:
-        XOR A                            ; $9F5A  AF
-        LD ($A9D2),A                     ; $9F5B  32 D2 A9
-        CALL DRV_INSTALL_RWTS                    ; $9F5E  CD A2 A4
-        CALL BDOS_CHECK_ERROR                    ; $9F61  CD F5 A1
-        RET Z                            ; $9F64  C8
-        LD HL,(BDOS_DE_PARAM)              ; $9F65  2A 43 9F
-        LD BC,$000C                      ; $9F68  01 0C 00
-        ADD HL,BC                        ; $9F6B  09
-        LD A,(HL)                        ; $9F6C  7E
-        INC A                            ; $9F6D  3C
-        AND $1F                          ; $9F6E  E6 1F
-        LD (HL),A                        ; $9F70  77
-        JP Z,DIR_NAME_MASK_2                  ; $9F71  CA 83 A5
-        LD B,A                           ; $9F74  47
-        LD A,($A9C5)                     ; $9F75  3A C5 A9
-        AND B                            ; $9F78  A0
-        LD HL,$A9D2                      ; $9F79  21 D2 A9
-        AND (HL)                         ; $9F7C  A6
-        JP Z,DIR_NAME_MASK_3+1                ; $9F7D  CA 8E A5
-        JP DIR_NAME_MASK_6+1                  ; $9F80  C3 AC A5
+        XOR A
+        LD ($A9D2),A
+        CALL DRV_INSTALL_RWTS
+        CALL BDOS_CHECK_ERROR
+        RET Z
+        LD HL,(BDOS_DE_PARAM)
+        LD BC,FCB_EX
+        ADD HL,BC
+        LD A,(HL)
+        INC A
+        AND $1F
+        LD (HL),A
+        JP Z,DIR_NAME_MASK_2
+        LD B,A
+        LD A,($A9C5)
+        AND B
+        LD HL,$A9D2
+        AND (HL)
+        JP Z,DIR_NAME_MASK_3+1
+        JP DIR_NAME_MASK_6+1
+; ----------------------------------------------------------------------
+; record-count test
+; ----------------------------------------------------------------------
 FCB_SET_REC_FLAG_4:
-        LD BC,$0002                      ; $9F83  01 02 00
-        ADD HL,BC                        ; $9F86  09
-        INC (HL)                         ; $9F87  34
-        LD A,(HL)                        ; $9F88  7E
-        AND $0F                          ; $9F89  E6 0F
-        JP Z,DIR_NAME_MASK_8+2                ; $9F8B  CA B6 A5
-        LD C,$0F                         ; $9F8E  0E 0F
-        CALL FCB_EXTENT_TO_TRKSEC                    ; $9F90  CD 18 A3
+        LD BC,$0002
+        ADD HL,BC
+        INC (HL)
+        LD A,(HL)
+        AND $0F
+        JP Z,DIR_NAME_MASK_8+2
+        LD C,$0F
+        CALL FCB_EXTENT_TO_TRKSEC
+; ----------------------------------------------------------------------
+; check+INC index
+; ----------------------------------------------------------------------
 FCB_SET_REC_FLAG_5:
-        CALL BDOS_CHECK_ERROR                    ; $9F93  CD F5 A1
-        JP NZ,DIR_NAME_MASK_6+1               ; $9F96  C2 AC A5
-        LD A,($A9D3)                     ; $9F99  3A D3 A9
-        INC A                            ; $9F9C  3C
+        CALL BDOS_CHECK_ERROR
+        JP NZ,DIR_NAME_MASK_6+1
+        LD A,($A9D3)
+        INC A
+; ----------------------------------------------------------------------
+; wrap branch
+; ----------------------------------------------------------------------
 FCB_SET_REC_FLAG_6:
-        JP Z,DIR_NAME_MASK_8+2                ; $9F9D  CA B6 A5
+        JP Z,DIR_NAME_MASK_8+2
+; ----------------------------------------------------------------------
+; seek+check
+; ----------------------------------------------------------------------
 FCB_SET_REC_FLAG_7:
-        CALL DISK_SEEK_TRACK                    ; $9FA0  CD 24 A5
-        CALL BDOS_CHECK_ERROR                    ; $9FA3  CD F5 A1
-        JP Z,DIR_NAME_MASK_8+2                ; $9FA6  CA B6 A5
-        JP DIR_NAME_MASK_7                    ; $9FA9  C3 AF A5
+        CALL DISK_SEEK_TRACK
+        CALL BDOS_CHECK_ERROR
+        JP Z,DIR_NAME_MASK_8+2
+        JP DIR_NAME_MASK_7
+; ----------------------------------------------------------------------
+; CALL $A0BB UNKNOWN
+; ----------------------------------------------------------------------
 FCB_SET_REC_FLAG_8:
-        CALL DISK_STORE_SEC_TRK_8+1                ; $9FAC  CD 5A A4
-        CALL FCB_CMP_DIR_ENTRY_2+1                ; $9FAF  CD BB A0
+        CALL DISK_STORE_SEC_TRK_8+1
+        CALL FCB_CMP_DIR_ENTRY_2+1
+; ----------------------------------------------------------------------
+; JP $9F01 UNKNOWN
+; ----------------------------------------------------------------------
 DISK_RET_OK:
-        XOR A                            ; $9FB2  AF
-        JP BDOS_RET_RESULT+2                 ; $9FB3  C3 01 9F
+        XOR A
+        JP BDOS_RET_RESULT+2
+; ----------------------------------------------------------------------
+; CALL $9F05 UNKNOWN
+; ----------------------------------------------------------------------
 DISK_RET_OK_1:
-        CALL BDOS_RET_RESULT_1+2               ; $9FB6  CD 05 9F
+        CALL BDOS_RET_RESULT_1+2
+; ----------------------------------------------------------------------
+; JP guard
+; ----------------------------------------------------------------------
 DISK_RET_OK_2:
-        JP DISK_RW_GUARD_1+1                  ; $9FB9  C3 78 A1
+        JP DISK_RW_GUARD_1+1
+; ----------------------------------------------------------------------
+; seed scan
+; ----------------------------------------------------------------------
 DISK_RET_OK_3:
-        LD A,$01                         ; $9FBC  3E 01
-        LD ($A9D5),A                     ; $9FBE  32 D5 A9
-        LD A,$FF                         ; $9FC1  3E FF
+        LD A,$01
+        LD ($A9D5),A
+        LD A,$FF
+; ----------------------------------------------------------------------
+; dir scan; $A0BB UNKNOWN
+; ----------------------------------------------------------------------
 DISK_READ_RECORD:
-        LD ($A9D3),A                     ; $9FC3  32 D3 A9
-        CALL FCB_CMP_DIR_ENTRY_2+1                ; $9FC6  CD BB A0
-        LD A,($A9E3)                     ; $9FC9  3A E3 A9
-        LD HL,$A9E1                      ; $9FCC  21 E1 A9
-        CP (HL)                          ; $9FCF  BE
+        LD ($A9D3),A
+        CALL FCB_CMP_DIR_ENTRY_2+1
+        LD A,($A9E3)
+        LD HL,$A9E1
+        CP (HL)
+; ----------------------------------------------------------------------
+; in-block+refill
+; ----------------------------------------------------------------------
 DISK_READ_RECORD_1:
-        JP C,DIR_NAME_MASK_14                 ; $9FD0  DA E6 A5
-        CP $80                           ; $9FD3  FE 80
-        JP NZ,DIR_NAME_MASK_17                ; $9FD5  C2 FB A5
-        CALL DIR_NAME_MASK                    ; $9FD8  CD 5A A5
-        XOR A                            ; $9FDB  AF
-        LD ($A9E3),A                     ; $9FDC  32 E3 A9
-        LD A,(BDOS_RETURN_VAL)               ; $9FDF  3A 45 9F
-        OR A                             ; $9FE2  B7
+        JP C,DIR_NAME_MASK_14
+        CP $80
+        JP NZ,DIR_NAME_MASK_17
+        CALL DIR_NAME_MASK
+        XOR A
+        LD ($A9E3),A
+        LD A,(BDOS_RETURN_VAL)
+        OR A
+; ----------------------------------------------------------------------
+; name match
+; ----------------------------------------------------------------------
 DISK_READ_RECORD_2:
-        JP NZ,DIR_NAME_MASK_17                ; $9FE3  C2 FB A5
-        CALL FCB_NAME_MATCH_REC                    ; $9FE6  CD 77 A0
-        CALL FCB_NAME_MATCH_REC_1+2                ; $9FE9  CD 84 A0
-        JP Z,DIR_NAME_MASK_17                 ; $9FEC  CA FB A5
-        CALL DIR_NEXT_ENTRY                    ; $9FEF  CD 8A A0
-        CALL DISK_READ_RECORD_1+1                ; $9FF2  CD D1 9F
-        CALL DISK_RET_OK                    ; $9FF5  CD B2 9F
+        JP NZ,DIR_NAME_MASK_17
+        CALL FCB_NAME_MATCH_REC
+        CALL FCB_NAME_MATCH_REC_1+2
+        JP Z,DIR_NAME_MASK_17
+        CALL DIR_NEXT_ENTRY
+        CALL DISK_READ_RECORD_1+1
+        CALL DISK_RET_OK
+; ----------------------------------------------------------------------
+; JP $A0D2; JP $9F05 UNKNOWN
+; ----------------------------------------------------------------------
 DISK_READ_RECORD_3:
-        JP FCB_CMP_DIR_ENTRY_5+1                  ; $9FF8  C3 D2 A0
-        JP BDOS_RET_RESULT_1+2                 ; $9FFB  C3 05 9F
+        JP FCB_CMP_DIR_ENTRY_5+1
+        JP BDOS_RET_RESULT_1+2
+; ----------------------------------------------------------------------
+; READ_CON_BUF_EDIT -- forward-decoded view of the fn-10 line-editor control-key tail (UNREFERENCED
+; entry; alignment UNVERIFIED)
+;   In:        (as decoded) A = input char (7-bit); B = buffer char count; HL -> last stored buffer
+;              byte; console cells CON_COLUMN/CON_START_COLUMN ($9F0A/$9F0B)
+;   Out:       falls/jumps to the matching control-key handler or the $9DEF/$9DF1 read-loop tails
+;   Clobbers:  A, B, HL, console-state cells
+;   Algorithm: [RE] At THIS alignment the bytes from $9FFE decode as the canonical CP/M 2.2 line
+;              editor's control-key classifier (handles $08 ^H, $7F DEL, $05 ^E, $10 ^P, $18 ^X, $15
+;              ^U, $12 ^R, matching standard KBUF). CAVEAT (CORRECTED from peer): this entry ($9FFE)
+;              is NOT referenced anywhere in the image, and the BDOS dispatch table routes fn-10
+;              Read Console Buffer to $9DE1 (BDOS_READ_CON_BUF_FN), not here. So this decode is an
+;              UNREFERENCED forward-decode whose true instruction boundary is UNKNOWN. The bytes are
+;              correct (byte-identical) but the line-editor structure shown here is unverified --
+;              treat as a hint, not fact. No relocation pass should be done until an
+;              emulation-traced re-disassembly pins the real boundaries.
+; ----------------------------------------------------------------------
 READ_CON_BUF_EDIT:
-        LD A,$01                         ; $9FFE  3E 01
-        POP BC                           ; $A000  C1
-        SBC A,(HL)                       ; $A001  9E
-        CP $08                           ; $A002  FE 08
-        JP NZ,IS_CTRL_CHAR_1                ; $A004  C2 16 9E
-        LD A,B                           ; $A007  78
-        OR A                             ; $A008  B7
-        JP Z,BDOS_CON_13                 ; $A009  CA EF 9D
-        DEC B                            ; $A00C  05
+        LD A,$01
+        POP BC
+        SBC A,(HL)
+        CP $08
+        JP NZ,IS_CTRL_CHAR_1
+        LD A,B
+        OR A
+        JP Z,BDOS_CON_13
+        DEC B
 READ_CON_BUF_EDIT_1:
-        LD A,(CON_START_COLUMN+1)             ; $A00D  3A 0C 9F
-        LD (CON_COLUMN),A               ; $A010  32 0A 9F
-        JP CON_PUT_COL_4                   ; $A013  C3 70 9E
+        LD A,(CON_START_COLUMN+1)
+        LD (CON_COLUMN),A
+        JP CON_PUT_COL_4
 READ_CON_BUF_EDIT_2:
-        CP $7F                           ; $A016  FE 7F
-        JP NZ,BDOS_CON_19                ; $A018  C2 26 9E
-        LD A,B                           ; $A01B  78
-        OR A                             ; $A01C  B7
-        JP Z,BDOS_CON_13                 ; $A01D  CA EF 9D
-        LD A,(HL)                        ; $A020  7E
-        DEC B                            ; $A021  05
-        DEC HL                           ; $A022  2B
-        JP BDOS_CON_33                   ; $A023  C3 A9 9E
+        CP $7F
+        JP NZ,BDOS_CON_19
+        LD A,B
+        OR A
+        JP Z,BDOS_CON_13
+        LD A,(HL)
+        DEC B
+        DEC HL
+        JP BDOS_CON_33
 READ_CON_BUF_EDIT_3:
-        CP $05                           ; $A026  FE 05
-        JP NZ,BDOS_CON_20+2              ; $A028  C2 37 9E
-        PUSH BC                          ; $A02B  C5
-        PUSH HL                          ; $A02C  E5
-        CALL BDOS_CON_9+2                ; $A02D  CD C9 9D
-        XOR A                            ; $A030  AF
-        LD (CON_START_COLUMN),A               ; $A031  32 0B 9F
+        CP $05
+        JP NZ,BDOS_CON_20+2
+        PUSH BC
+        PUSH HL
+        CALL BDOS_CON_9+2
+        XOR A
+        LD (CON_START_COLUMN),A
 READ_CON_BUF_EDIT_4:
-        JP BDOS_CON_14                   ; $A034  C3 F1 9D
+        JP BDOS_CON_14
 READ_CON_BUF_EDIT_5:
-        CP $10                           ; $A037  FE 10
-        JP NZ,CON_PUT_COL                ; $A039  C2 48 9E
-        PUSH HL                          ; $A03C  E5
+        CP $10
+        JP NZ,CON_PUT_COL
+        PUSH HL
 READ_CON_BUF_EDIT_6:
-        LD HL,CON_START_COLUMN+2              ; $A03D  21 0D 9F
-        LD A,$01                         ; $A040  3E 01
-        SUB (HL)                         ; $A042  96
-        LD (HL),A                        ; $A043  77
-        POP HL                           ; $A044  E1
+        LD HL,CON_START_COLUMN+2
+        LD A,$01
+        SUB (HL)
+        LD (HL),A
+        POP HL
 READ_CON_BUF_EDIT_7:
-        JP BDOS_CON_13                   ; $A045  C3 EF 9D
+        JP BDOS_CON_13
 READ_CON_BUF_EDIT_8:
-        CP $18                           ; $A048  FE 18
-        JP NZ,CON_PUT_COL_2+1              ; $A04A  C2 5F 9E
-        POP HL                           ; $A04D  E1
-        LD A,(CON_START_COLUMN)               ; $A04E  3A 0B 9F
+        CP $18
+        JP NZ,CON_PUT_COL_2+1
+        POP HL
+        LD A,(CON_START_COLUMN)
 READ_CON_BUF_EDIT_9:
-        LD HL,CON_START_COLUMN+1              ; $A051  21 0C 9F
-        CP (HL)                          ; $A054  BE
-        JP NC,BDOS_READ_CON_BUF                ; $A055  D2 E1 9D
-        DEC (HL)                         ; $A058  35
-        CALL BDOS_SET_RESULT_VAL+1                ; $A059  CD A4 9D
+        LD HL,CON_START_COLUMN+1
+        CP (HL)
+        JP NC,BDOS_READ_CON_BUF
+        DEC (HL)
+        CALL BDOS_SET_RESULT_VAL+1
 READ_CON_BUF_EDIT_10:
-        JP CON_PUT_COL_1+2                 ; $A05C  C3 4E 9E
+        JP CON_PUT_COL_1+2
 READ_CON_BUF_EDIT_11:
-        CP $15                           ; $A05F  FE 15
-        JP NZ,CON_PUT_COL_3+1              ; $A061  C2 6B 9E
-        CALL BDOS_CON_7+1                ; $A064  CD B1 9D
-        POP HL                           ; $A067  E1
-        JP BDOS_READ_CON_BUF                   ; $A068  C3 E1 9D
+        CP $15
+        JP NZ,CON_PUT_COL_3+1
+        CALL BDOS_CON_7+1
+        POP HL
+        JP BDOS_READ_CON_BUF
 READ_CON_BUF_EDIT_12:
-        CP $12                           ; $A06B  FE 12
-        JP NZ,BDOS_CON_32+2              ; $A06D  C2 A6 9E
-        PUSH BC                          ; $A070  C5
+        CP $12
+        JP NZ,BDOS_CON_32+2
+        PUSH BC
 READ_CON_BUF_EDIT_13:
-        CALL BDOS_CON_7+1                ; $A071  CD B1 9D
-        POP BC                           ; $A074  C1
-        POP HL                           ; $A075  E1
-        PUSH HL                          ; $A076  E5
+        CALL BDOS_CON_7+1
+        POP BC
+        POP HL
+        PUSH HL
+; ----------------------------------------------------------------------
+; FCB_NAME_MATCH_REC -- referenced subroutine reached ONLY from disk/directory code (semantics
+; UNKNOWN; under audit)
+;   In:        (as decoded) B = a count; HL -> a buffer/record; C receives a byte from (HL)
+;   Out:       calls $9D7F and returns via the $9E8A tail
+;   Clobbers:  A, B, C, HL
+;   Algorithm: [RE] The bytes at $A077 decode as: save BC; if B==0 branch to $9E8A; else INC HL,
+;              load C=(HL), DEC B, then CALL $9D7F (at $A082) and continue. CONTROL-FLOW FACT (the
+;              reason I keep the FCB/disk name): the ONLY callers of $A077 are $9FE6
+;              (DISK_READ_RECORD) and $A11C (DIR_SEARCH_STEP_1) -- both disk/directory routines. It
+;              is NEVER called from the line editor. CORRECTION of peer: the peer renamed this to
+;              RDBUF_RETYPE_LOOP (a console echo loop), but that is contradicted by every call site
+;              and by the peer's own 'alignment unverifiable' caveat. The precise function is
+;              UNKNOWN in clean-room (the in-image targets $9E8A/$9D7F land mid-instruction at this
+;              alignment), so I retain the existing call-graph-consistent name rather than assert an
+;              unproven console role.
+; ----------------------------------------------------------------------
 FCB_NAME_MATCH_REC:
-        PUSH BC                          ; $A077  C5
-        LD A,B                           ; $A078  78
-        OR A                             ; $A079  B7
-        JP Z,BDOS_CON_30+1               ; $A07A  CA 8A 9E
-        INC HL                           ; $A07D  23
-        LD C,(HL)                        ; $A07E  4E
-        DEC B                            ; $A07F  05
-        PUSH BC                          ; $A080  C5
-        PUSH HL                          ; $A081  E5
+        PUSH BC
+        LD A,B
+        OR A
+        JP Z,BDOS_CON_30+1
+        INC HL
+        LD C,(HL)
+        DEC B
+        PUSH BC
+        PUSH HL
+; ----------------------------------------------------------------------
+; FCB_NAME_MATCH_REC_1 -- continuation of the $A077 subroutine (semantics UNKNOWN; under audit)
+;   In:        (as decoded) BC/HL saved on stack across a CALL $9D7F
+;   Out:       restores HL/BC, jumps to the $9E78 tail
+;   Clobbers:  A; (PUSH/POP preserve BC,HL)
+;   Algorithm: [RE] CALL $9D7F then POP HL/POP BC, JP $9E78. The '+2' entry ($A084) referenced from
+;              $9FE9/$A11F lands mid-instruction at this alignment. CORRECTION of peer: renaming to
+;              RDBUF_ECHO_CHAR is unsupported -- the only callers are disk/directory routines. Exact
+;              role UNKNOWN without an emulation trace; existing name retained.
+; ----------------------------------------------------------------------
 FCB_NAME_MATCH_REC_1:
-        CALL BDOS_CON                    ; $A082  CD 7F 9D
-        POP HL                           ; $A085  E1
-        POP BC                           ; $A086  C1
-        JP CON_PUT_COL_5                   ; $A087  C3 78 9E
+        CALL BDOS_CON
+        POP HL
+        POP BC
+        JP CON_PUT_COL_5
+; ----------------------------------------------------------------------
+; DIR_NEXT_ENTRY -- referenced subroutine reached ONLY from disk/directory code (semantics UNKNOWN;
+; under audit)
+;   In:        (as decoded) reads CON_COLUMN ($9F0A) and CON_START_COLUMN+1 ($9F0C)
+;   Out:       updates ($9F0A); branches via $9DF1 / $9E99
+;   Clobbers:  A, HL, (HL)
+;   Algorithm: [RE] PUSH HL; A=($9F0A); OR A; if 0 -> $9DF1; else subtract ($9F0C), store back, then
+;              loop with DEC (HL). CONTROL-FLOW FACT: callers are ONLY $9FEF (DISK_READ_RECORD) and
+;              $A174 (the deblock loop) -- disk context. CORRECTION of peer: 'RDBUF_BACKSPACE_N'
+;              (console column erase) is contradicted by the call graph and by the peer's own
+;              alignment caveat. NOTE: it touches the $9F0A/$9F0C cells (which the editor also
+;              uses), but at this alignment those cell roles are themselves a guess. True function
+;              UNKNOWN; existing name retained.
+; ----------------------------------------------------------------------
 DIR_NEXT_ENTRY:
-        PUSH HL                          ; $A08A  E5
-        LD A,(CON_COLUMN)               ; $A08B  3A 0A 9F
-        OR A                             ; $A08E  B7
+        PUSH HL
+        LD A,(CON_COLUMN)
+        OR A
+; ----------------------------------------------------------------------
+; DIR_NEXT_ENTRY_1 -- continuation/loop body of the $A08A subroutine (semantics UNKNOWN; under
+; audit)
+;   In:        (as decoded) column-style counter
+;   Out:       loops emitting an action per pass; exits via $9DF1
+;   Clobbers:  A, HL, (HL)
+;   Algorithm: [RE] loop tail of DIR_NEXT_ENTRY. The '+1' entry ($A090) referenced from $A492 lands
+;              mid-instruction at this alignment. CORRECTION of peer: 'RDBUF_BACKSPACE_N_LOOP'
+;              unsupported; role UNKNOWN; existing name retained.
+; ----------------------------------------------------------------------
 DIR_NEXT_ENTRY_1:
-        JP Z,BDOS_CON_14                 ; $A08F  CA F1 9D
-        LD HL,CON_START_COLUMN+1              ; $A092  21 0C 9F
-        SUB (HL)                         ; $A095  96
-        LD (CON_COLUMN),A               ; $A096  32 0A 9F
-        CALL BDOS_SET_RESULT_VAL+1                ; $A099  CD A4 9D
-        LD HL,CON_COLUMN                ; $A09C  21 0A 9F
-        DEC (HL)                         ; $A09F  35
-        JP NZ,BDOS_CON_31+1              ; $A0A0  C2 99 9E
-        JP BDOS_CON_14                   ; $A0A3  C3 F1 9D
+        JP Z,BDOS_CON_14
+        LD HL,CON_START_COLUMN+1
+        SUB (HL)
+        LD (CON_COLUMN),A
+        CALL BDOS_SET_RESULT_VAL+1
+        LD HL,CON_COLUMN
+        DEC (HL)
+        JP NZ,BDOS_CON_31+1
+        JP BDOS_CON_14
+; ----------------------------------------------------------------------
+; FCB_CMP_DIR_ENTRY -- referenced subroutine reached ONLY from disk/FCB code (semantics UNKNOWN;
+; under audit)
+;   In:        (as decoded) A = a byte; B = a count; HL -> a buffer/record slot
+;   Out:       writes (HL)=A, INC B, CALLs $9D7F, then runs CP $03 / CP $01 / CP C tests
+;   Clobbers:  A, BC, HL
+;   Algorithm: [RE] INC HL; (HL)=A; INC B; PUSH BC/HL; C=A; CALL $9D7F (at $A0AC); restore; then
+;              A=(HL), CP $03 / CP $01 / CP C deciding a branch, including JP Z,$0000 (warm boot) at
+;              $A0BA. CONTROL-FLOW FACT: callers are $9D5A, $A4C7, $A5B4 -- all FCB/disk. CORRECTION
+;              of peer: 'RDBUF_STORE_ECHO' (store-typed-char-and-echo) is contradicted by the call
+;              graph; precise function UNKNOWN; existing name retained.
+; ----------------------------------------------------------------------
 FCB_CMP_DIR_ENTRY:
-        INC HL                           ; $A0A6  23
-        LD (HL),A                        ; $A0A7  77
-        INC B                            ; $A0A8  04
-        PUSH BC                          ; $A0A9  C5
-        PUSH HL                          ; $A0AA  E5
-        LD C,A                           ; $A0AB  4F
+        INC HL
+        LD (HL),A
+        INC B
+        PUSH BC
+        PUSH HL
+        LD C,A
+; ----------------------------------------------------------------------
+; FCB_CMP_DIR_ENTRY_1 -- continuation of $A0A6: CALL $9D7F then the post-test chain (semantics
+; UNKNOWN; under audit)
+;   In:        (as decoded) C = a byte; BC/HL saved across CALL $9D7F
+;   Out:       restores regs; CP $03 / CP $01 / CP C tests; may JP Z,$0000 (warm boot)
+;   Clobbers:  A, BC, HL
+;   Algorithm: [RE] CALL $9D7F; POP HL/BC; A=(HL); CP $03; A=B; JP NZ,$9EBD; CP $01; fall to
+;              FCB_CMP_DIR_ENTRY_2. The '+2' entry ($A0AE) referenced from $A4BB/$A4D2 lands
+;              mid-instruction at this alignment. CORRECTION of peer: 'RDBUF_STORE_ECHO_TAIL'
+;              unsupported; role UNKNOWN; existing name retained.
+; ----------------------------------------------------------------------
 FCB_CMP_DIR_ENTRY_1:
-        CALL BDOS_CON                    ; $A0AC  CD 7F 9D
-        POP HL                           ; $A0AF  E1
-        POP BC                           ; $A0B0  C1
-        LD A,(HL)                        ; $A0B1  7E
-        CP $03                           ; $A0B2  FE 03
-        LD A,B                           ; $A0B4  78
-        JP NZ,BDOS_CON_35+1              ; $A0B5  C2 BD 9E
-        CP $01                           ; $A0B8  FE 01
+        CALL BDOS_CON
+        POP HL
+        POP BC
+        LD A,(HL)
+        CP $03
+        LD A,B
+        JP NZ,BDOS_CON_35+1
+        CP $01
+; ----------------------------------------------------------------------
+; FCB_CMP_DIR_ENTRY_2 -- warm-boot-when-zero site: JP Z,WBOOT_VEC ($0000)
+;   In:        Z flag from the preceding compare in the $A0A6 chain
+;   Out:       on Z, JP $0000 (BIOS warm boot via the page-zero WBOOT vector); else CP C and
+;              continue
+;   Clobbers:  none
+;   Algorithm: [OBSERVED] $A0BA = CA 00 00 = JP Z,$0000, the canonical CP/M reboot-on-this-condition
+;              site (and the '+1' entry $A0BB, referenced from $9FAF/$9FC6/$A111, enters one byte in
+;              so the $00 $00 operand bytes run as NOPs before the shared tail). $0000 is the
+;              off-image page-zero WBOOT vector (EQU WBOOT_VEC) so I polish the literal to WBOOT_VEC
+;              (byte-identical, safe regardless of alignment). I do NOT mint a cover-split label for
+;              the '+1' bridge entry: the surrounding region's instruction alignment is UNVERIFIED
+;              (see summary) and a split could assert unproven structure.
+; ----------------------------------------------------------------------
 FCB_CMP_DIR_ENTRY_2:
-        JP Z,$0000                       ; $A0BA  CA 00 00
-        CP C                             ; $A0BD  B9
-        JP C,BDOS_CON_13                 ; $A0BE  DA EF 9D
-        POP HL                           ; $A0C1  E1
-        LD (HL),B                        ; $A0C2  70
-        LD C,$0D                         ; $A0C3  0E 0D
-        JP CONOUT_PUTC                      ; $A0C5  C3 48 9D
+        JP Z,WBOOT_VEC
+        CP C
+        JP C,BDOS_CON_13
+        POP HL
+        LD (HL),B
+        LD C,$0D
+        JP CONOUT_PUTC
+; ----------------------------------------------------------------------
+; FCB_CMP_DIR_ENTRY_3 -- tail: service step then return via the BDOS result path (semantics partly
+; UNKNOWN)
+;   In:        --
+;   Out:       CALL $9D06 then JP BDOS_RET_RESULT+2 ($9F01)
+;   Clobbers:  per callee
+;   Algorithm: [RE] $A0C8 = CALL FCB_SEQ_IO_STEP_1+2 ($9D06); $A0CB = JP $9F01. A
+;              return-to-BDOS-dispatcher tail. UNKNOWN: exact callee semantics in this misaligned
+;              region; both targets are in-image but at mid-instruction alignment, so no relocation
+;              rewrite is emitted.
+; ----------------------------------------------------------------------
 FCB_CMP_DIR_ENTRY_3:
-        CALL FCB_SEQ_IO_STEP_1+2                ; $A0C8  CD 06 9D
-        JP BDOS_RET_RESULT+2                 ; $A0CB  C3 01 9F
+        CALL FCB_SEQ_IO_STEP_1+2
+        JP BDOS_RET_RESULT+2
+; ----------------------------------------------------------------------
+; FCB_CMP_DIR_ENTRY_4 -- tail: call an out-of-image BIOS vector ($AA15) then return
+;   In:        --
+;   Out:       CALL $AA15 (out-of-image BIOS area, correctly literal); falls into
+;              FCB_CMP_DIR_ENTRY_5
+;   Clobbers:  per callee
+;   Algorithm: [RE] $A0CE = CALL $AA15. $AA15 is above the $9A01-$A7FF image (BIOS jump area) so the
+;              literal is correct. UNKNOWN: which BIOS entry, given the alignment uncertainty.
+; ----------------------------------------------------------------------
 FCB_CMP_DIR_ENTRY_4:
-        CALL $AA15                       ; $A0CE  CD 15 AA
+        CALL $AA15
+; ----------------------------------------------------------------------
+; FCB_CMP_DIR_ENTRY_5 -- return-to-BDOS trampoline (JP BDOS_RET_RESULT+2, $9F01)
+;   In:        --
+;   Out:       JP $9F01
+;   Clobbers:  none
+;   Algorithm: [RE] $A0D1 = JP $9F01. The '+1' entry ($A0D2) referenced from $9FF8/$A1EC lands
+;              mid-instruction at this alignment (UNVERIFIED); no split emitted. $9F01 is in-image
+;              but mid-instruction, so no relocation rewrite.
+; ----------------------------------------------------------------------
 FCB_CMP_DIR_ENTRY_5:
-        JP BDOS_RET_RESULT+2                 ; $A0D1  C3 01 9F
-        LD A,C                           ; $A0D4  79
-        INC A                            ; $A0D5  3C
-        JP Z,BDOS_CON_41+2               ; $A0D6  CA E0 9E
-        INC A                            ; $A0D9  3C
-        JP Z,$AA06                       ; $A0DA  CA 06 AA
+        JP BDOS_RET_RESULT+2
+        LD A,C
+        INC A
+        JP Z,BDOS_CON_41+2
+        INC A
+        JP Z,$AA06
+; ----------------------------------------------------------------------
+; FCB_CMP_DIR_ENTRY_6 -- branch into out-of-image BIOS/handler vectors ($AA06/$AA0C) (semantics
+; UNKNOWN)
+;   In:        (as decoded) A/C sentinel state
+;   Out:       INC A tests for $FF/$FE; dispatches to $AA06 / $AA0C (out-of-image, literal)
+;   Clobbers:  A
+;   Algorithm: [RE] $A0D4-$A0DD: A=C; INC A; JP Z,$9EE0; INC A; JP Z,$AA06; JP $AA0C. Sentinel-check
+;              dispatch into the BIOS jump area. UNKNOWN precise role given alignment uncertainty;
+;              $AAxx targets correctly literal (out of this image).
+; ----------------------------------------------------------------------
 FCB_CMP_DIR_ENTRY_6:
-        JP $AA0C                         ; $A0DD  C3 0C AA
+        JP $AA0C
+; ----------------------------------------------------------------------
+; FCB_CMP_DIR_ENTRY_7 -- call out-of-image BIOS vector $AA06, test, branch (semantics UNKNOWN)
+;   In:        --
+;   Out:       CALL $AA06; if zero JP $A991; else CALL $AA09 (all out-of-image / above-image,
+;              literal)
+;   Clobbers:  A
+;   Algorithm: [RE] $A0E0-$A0E7: CALL $AA06; OR A; JP Z,$A991; CALL $AA09. $A991 is above the
+;              $9A01-$A7FF image and $AAxx is the BIOS area, so all three targets are correctly
+;              literal. UNKNOWN exact semantics given alignment uncertainty.
+; ----------------------------------------------------------------------
 FCB_CMP_DIR_ENTRY_7:
-        CALL $AA06                       ; $A0E0  CD 06 AA
-        OR A                             ; $A0E3  B7
-        JP Z,$A991                       ; $A0E4  CA 91 A9
-        CALL $AA09                       ; $A0E7  CD 09 AA
-; [AI] BDOS return/result trampoline: JP into the BDOS_RET_RESULT tail. Reached
-;      from disk-side code (DISK_SEEK_TRACK $A528, DRV_INSTALL_RWTS_10 $A4F4 via
-;      +1). NOT a console helper (corrected from RPC_CONOUT_HELPER).
+        CALL $AA06
+        OR A
+        JP Z,$A991
+        CALL $AA09
+; ----------------------------------------------------------------------
+; BDOS_RET_TRAMPOLINE -- tail JP into the (cover-merged, unresolved) BDOS result tail.
+;   In:        UNKNOWN. Reached by CALL from BDOS_RANDREC_10 ($A2C8) and DISK_SEEK_TRACK
+;              ($A528), and by JP from DRV_INSTALL_RWTS_10 (+1, $A4F4).
+;   Out:       UNKNOWN. The single instruction here is JP $9F01.
+;   Clobbers:  none added by this JP.
+;   Algorithm: OBSERVED: a bare `JP BDOS_RET_RESULT+2`. The target $9F01 lands MID-
+;              instruction (BDOS_RET_RESULT=$9EFF decodes `JP Z,$CDC2` = CA C2 CD), i.e. a
+;              cover-merge -- the real epilogue boundary is not recoverable from this
+;              cluster (see summary). [RE] BDOS_RANDREC_10 CALLs this and then CONTINUES,
+;              which is INCONSISTENT with this being the BDOS 'final return to the $0005
+;              caller' epilogue; what it actually computes/returns is UNKNOWN. (An earlier
+;              note had it mislabeled RPC_CONOUT_HELPER -- correctly dropped; do not replace
+;              it with an equally unproven 'BDOS final return' story.)
+; ----------------------------------------------------------------------
 BDOS_RET_TRAMPOLINE:
-        JP BDOS_RET_RESULT+2                 ; $A0EA  C3 01 9F
-; [AI] Direct Console I/O + Get/Set I/O Byte service tail ($A0ED-$A105): handles the
-;      fn 6 status/input path and the IOBYTE ($0003) get/set. (Were BDOS_<addr> labels.)
+        ; [FLAG] JP to $9F01, which lands mid-instruction (cover-merge); the real target/behavior is
+        ; UNKNOWN until the whole-file boundary re-decode.
+        JP BDOS_RET_RESULT+2
+; ----------------------------------------------------------------------
+; BDOS_DCIO_GETIOBYTE -- read the IOBYTE cell, then exit via the (cover-merged) result tail.
+;   In:        none (reads IOBYTE_ADDR=$0003).
+;   Out:       A = current IOBYTE; JP into the BDOS result tail ($9F01, cover-merged).
+;   Clobbers:  A.
+;   Algorithm: OBSERVED: `LD A,(IOBYTE_ADDR); JP $9F01`. By bytes this IS an IOBYTE-read
+;              primitive. [RE/UNKNOWN] NOT proven to be the BDOS fn 7 handler: BDOS_DISPATCH
+;              _TBL routes fn 7 to BDOS_GET_IOBYTE_FN ($9EED), not here; how $A0ED is
+;              reached is UNKNOWN. [DOC S&HD 2-18] IOBYTE = 4 two-bit fields
+;              (CONSOLE/READER/PUNCH/LIST).
+; ----------------------------------------------------------------------
 BDOS_DCIO_GETIOBYTE:
-        LD A,($0003)                     ; $A0ED  3A 03 00
-        JP BDOS_RET_RESULT+2                 ; $A0F0  C3 01 9F
+        ; Read the IOBYTE logical<->physical device-map cell (base-page $0003).
+        LD A,(IOBYTE_ADDR)
+        JP BDOS_RET_RESULT+2
+; ----------------------------------------------------------------------
+; BDOS_DCIO_SETIOBYTE -- store C into the IOBYTE cell, then RET.
+;   In:        C = new IOBYTE value.
+;   Out:       IOBYTE cell ($0003) updated; RET.
+;   Clobbers:  HL.
+;   Algorithm: OBSERVED: `LD HL,IOBYTE_ADDR; LD (HL),C; RET`. By bytes this IS an IOBYTE-
+;              write primitive. [RE/UNKNOWN] NOT proven to be the BDOS fn 8 handler (fn 8
+;              dispatches to BDOS_GET_IOBYTE_FN+6=$9EF3, not here).
+; ----------------------------------------------------------------------
 BDOS_DCIO_SETIOBYTE:
-        LD HL,$0003                      ; $A0F3  21 03 00
-        LD (HL),C                        ; $A0F6  71
-        RET                              ; $A0F7  C9
+        ; Address the IOBYTE device-map cell ($0003).
+        LD HL,IOBYTE_ADDR
+        ; Store the caller-supplied IOBYTE value.
+        LD (HL),C
+        RET
+; ----------------------------------------------------------------------
+; BDOS_DCIO_1 -- marshal a char from DE into BC and tail-jump to the console-out worker.
+;   In:        DE = character to emit (low byte).
+;   Out:       jumps to BDOS_CON_10+2 (console-out worker; +2 is itself cover-merged).
+;   Clobbers:  BC, HL.
+;   Algorithm: OBSERVED: `EX DE,HL; LD C,L; LD B,H; JP BDOS_CON_10+2`. [RE] BC carries the
+;              char/column argument; the +2 target is part of the file-wide cover-merge
+;              (FLAG).
+; ----------------------------------------------------------------------
 BDOS_DCIO_1:
-        EX DE,HL                         ; $A0F8  EB
-        LD C,L                           ; $A0F9  4D
-        LD B,H                           ; $A0FA  44
-        JP BDOS_CON_10+2                 ; $A0FB  C3 D3 9D
+        ; Move the character argument from DE into BC for the console-out worker.
+        EX DE,HL
+        LD C,L
+        LD B,H
+        ; [FLAG] tail-jump to the console-out worker (target carries +2 cover-merge arithmetic).
+        JP BDOS_CON_10+2
+; ----------------------------------------------------------------------
+; BDOS_DCIO_2 -- UNKNOWN / suspected cover-merge artifact ($A0FE-$A104).
+;   In:        UNKNOWN.
+;   Out:       UNKNOWN.
+;   Clobbers:  UNKNOWN.
+;   Algorithm: UNKNOWN. As decoded: `CALL $3223` (a TPA address OUTSIDE this image) then
+;              `PUSH DE; XOR C; LD A,$00`, where the XOR C is immediately overwritten
+;              (dead). A call into the TPA and a dead instruction are both tells that $A0FE
+;              is NOT a true boundary (cover-merge). Reached only as a (mis-aligned) target
+;              ($A0FB is an unconditional JP). Do NOT trust this decode; do NOT relocate
+;              $3223. Recovery needs the whole-file re-decode.
+; ----------------------------------------------------------------------
 BDOS_DCIO_2:
-        CALL $3223                       ; $A0FE  CD 23 32
-        PUSH DE                          ; $A101  D5
-        XOR C                            ; $A102  A9
-        LD A,$00                         ; $A103  3E 00
+        ; [FLAG] target $3223 is in the TPA, outside the BDOS image, and the following XOR C is dead
+        ; -- artifact of a mis-aligned boundary, not a real call. UNKNOWN until the file is
+        ; re-aligned.
+        CALL $3223
+        PUSH DE
+        XOR C
+        LD A,$00
+; ----------------------------------------------------------------------
+; BDOS_DCIO_3 -- directory-search entry: stash the search byte, then run the search engine.
+;   In:        A = the byte the search engine saves (stored to BDOS scratch $A9D3).
+;   Out:       falls into DIR_SEARCH_STEP after a setup CALL.
+;   Clobbers:  A (stored) plus whatever the search path touches.
+;   Algorithm: OBSERVED store: `LD ($A9D3),A`. [RE] matches the canonical CP/M search setup
+;              (save the compare-length byte, init the dir pointer, search); DISK_READ_RECORD
+;              ($9FC3) uses the same `LD ($A9D3),A` prologue. The CALL uses DIR_SEARCH_STEP_5+1
+;              cover-merge arithmetic ($A154, inside `LD A,($A9DD)`) -- FLAG. $A9D3 =
+;              variable-page RAM (keep_literal).
+; ----------------------------------------------------------------------
 BDOS_DCIO_3:
-        LD ($A9D3),A                     ; $A105  32 D3 A9
-        CALL DIR_SEARCH_STEP_5+1                ; $A108  CD 54 A1
+        ; Save the search compare-length/state byte into BDOS scratch ($A9D3, variable-page RAM).
+        LD ($A9D3),A
+        ; [FLAG] call into a cover-merged target ($A154 lands inside `LD A,($A9DD)`); the
+        ; directory-search setup -- needs the whole-file re-decode.
+        CALL DIR_SEARCH_STEP_5+1
+; ----------------------------------------------------------------------
+; DIR_SEARCH_STEP -- the directory SEARCH engine ([RE] canonical CP/M 2.2 `search`).
+;   In:        BDOS_DE_PARAM ($9F43) -> the caller FCB; $A9E3 = directory-entry counter;
+;              BDOS scratch holds the compare mask/state.
+;   Out:       returns a directory code / 'no match' through the BDOS result tail; updates
+;              the dir-entry counter and current-entry pointer.
+;   Clobbers:  A, BC, DE, HL and BDOS scratch cells.
+;   Algorithm: [RE, structural map to canonical `search`] load the FCB pointer, advance a
+;              directory entry, compare FCB name/type under the mask, loop until match or
+;              until the entry counter ($A9E3) reaches $80 (128 entries on a standard DPB),
+;              then return 'no match' via the result tail. OBSERVED: the $A9E3 / CP $80 /
+;              JP NC sequence. CAVEAT: internal targets use cover-merge `+1`/`+2` arithmetic
+;              (DIR_SEARCH_STEP_3+2=$A147 inside a JP; DIR_SEARCH_STEP_5+1=$A154 inside `LD
+;              A,($A9DD)`; FCB_CMP_DIR_ENTRY_2+1) -- FLAG; the per-step layout is provisional
+;              until the file is re-decoded.
+; ----------------------------------------------------------------------
 DIR_SEARCH_STEP:
-        LD HL,(BDOS_DE_PARAM)              ; $A10B  2A 43 9F
-        CALL DIR_SEARCH_STEP_3+2                ; $A10E  CD 47 A1
-        CALL FCB_CMP_DIR_ENTRY_2+1                ; $A111  CD BB A0
-        LD A,($A9E3)                     ; $A114  3A E3 A9
-        CP $80                           ; $A117  FE 80
-        JP NC,BDOS_RET_RESULT_1+2              ; $A119  D2 05 9F
+        ; Load the caller's FCB pointer (the file being searched for).
+        LD HL,(BDOS_DE_PARAM)
+        CALL DIR_SEARCH_STEP_3+2
+        CALL FCB_CMP_DIR_ENTRY_2+1
+        ; Read the directory-entry counter (how many dir slots scanned so far).
+        LD A,($A9E3)
+        ; Stop once the counter reaches the per-disk directory maximum (128 entries on a standard
+        ; DPB).
+        CP $80
+        ; [FLAG] on directory exhausted return 'no match' via the result tail ($9F05, a cover-merged
+        ; target).
+        JP NC,BDOS_RET_RESULT_1+2
+; ----------------------------------------------------------------------
+; DIR_SEARCH_STEP_1 -- name-match + allocation/extent record tail of the search.
+;   In:        FCB pointer / dir-entry state from DIR_SEARCH_STEP.
+;   Out:       on a name match, compute the allocation block number and record the extent
+;              byte; on no match jump to a mask routine.
+;   Clobbers:  A, BC, HL and BDOS scratch cells.
+;   Algorithm: [RE] save the extent/record byte to $A9D7, compute the allocation block
+;              number (CALL FCB_ALLOC_BLOCK_NUM), branch on the result. The no-match branch
+;              `JP NZ,DIR_NAME_MASK_37` targets $A66E, which IS real mask code -- OK; but
+;              neighbouring CALL targets use +2 cover-merge arithmetic (FCB_NAME_MATCH_REC_1
+;              +2, DIR_NAME_MASK_32+1) -- FLAG.
+; ----------------------------------------------------------------------
 DIR_SEARCH_STEP_1:
-        CALL FCB_NAME_MATCH_REC                    ; $A11C  CD 77 A0
-        CALL FCB_NAME_MATCH_REC_1+2                ; $A11F  CD 84 A0
-        LD C,$00                         ; $A122  0E 00
-        JP NZ,DIR_NAME_MASK_37                ; $A124  C2 6E A6
-        CALL READ_CON_BUF_EDIT_6+1               ; $A127  CD 3E A0
-        LD ($A9D7),A                     ; $A12A  32 D7 A9
-        LD BC,$0000                      ; $A12D  01 00 00
-        OR A                             ; $A130  B7
-        JP Z,DIR_NAME_MASK_30                 ; $A131  CA 3B A6
-        LD C,A                           ; $A134  4F
-        DEC BC                           ; $A135  0B
-        CALL READ_CON_BUF_EDIT_10+2               ; $A136  CD 5E A0
-        LD B,H                           ; $A139  44
-        LD C,L                           ; $A13A  4D
-        CALL FCB_ALLOC_BLOCK_NUM                    ; $A13B  CD BE A3
-        LD A,L                           ; $A13E  7D
-        OR H                             ; $A13F  B4
-        JP NZ,DIR_NAME_MASK_32+1              ; $A140  C2 48 A6
+        CALL FCB_NAME_MATCH_REC
+        CALL FCB_NAME_MATCH_REC_1+2
+        LD C,$00
+        JP NZ,DIR_NAME_MASK_37
+        CALL READ_CON_BUF_EDIT_6+1
+        ; Save the extent/record byte read from the matched directory entry (BDOS scratch $A9D7).
+        LD ($A9D7),A
+        LD BC,$0000
+        OR A
+        JP Z,DIR_NAME_MASK_30
+        LD C,A
+        DEC BC
+        CALL READ_CON_BUF_EDIT_10+2
+        LD B,H
+        LD C,L
+        ; Compute the allocation block number the matched directory entry maps to.
+        CALL FCB_ALLOC_BLOCK_NUM
+        LD A,L
+        OR H
+        JP NZ,DIR_NAME_MASK_32+1
+; ----------------------------------------------------------------------
+; DIR_SEARCH_STEP_2 -- 'matched, return directory code 2' arm.
+;   In:        match result from DIR_SEARCH_STEP_1.
+;   Out:       A = 2; falls into DIR_SEARCH_STEP_3 (the result-tail jump).
+;   Clobbers:  A.
+;   Algorithm: OBSERVED: `LD A,$02`. [RE] CP/M directory codes are 0..3 (which 32-byte slot
+;              of the 128-byte directory record matched); this arm reports slot 2.
+; ----------------------------------------------------------------------
 DIR_SEARCH_STEP_2:
-        LD A,$02                         ; $A143  3E 02
+        ; Set the directory return code to 2 (matched dir-slot index).
+        LD A,$02
+; ----------------------------------------------------------------------
+; DIR_SEARCH_STEP_3 -- shared result-tail jump for the search arms.
+;   In:        A = directory return code.
+;   Out:       JP into the BDOS result tail ($9F01, cover-merged); does not return here.
+;   Clobbers:  none added.
+;   Algorithm: OBSERVED `JP BDOS_RET_RESULT+2`; target is cover-merged (FLAG).
+; ----------------------------------------------------------------------
 DIR_SEARCH_STEP_3:
-        JP BDOS_RET_RESULT+2                 ; $A145  C3 01 9F
+        ; [FLAG] return the directory code via the BDOS result tail ($9F01, cover-merged).
+        JP BDOS_RET_RESULT+2
+; ----------------------------------------------------------------------
+; DIR_SEARCH_STEP_4 -- point HL at the FCB allocation/disk-map field (offset $10).
+;   In:        BDOS_DE_PARAM ($9F43) -> the caller FCB; HL = a working pointer to save.
+;   Out:       HL = FCB + $10 (start of the 16-byte d0..dn allocation map); prior HL saved
+;              to BDOS scratch $A9E5.
+;   Clobbers:  BC, DE, HL.
+;   Algorithm: OBSERVED: `LD ($A9E5),HL; ... LD HL,(BDOS_DE_PARAM); LD BC,$0010; ADD HL,BC`.
+;              $10 is the FCB allocation-map offset. $A9E5 = variable-page RAM
+;              (keep_literal); $0010 is an FCB field offset (numeric, keep_literal).
+; ----------------------------------------------------------------------
 DIR_SEARCH_STEP_4:
-        LD ($A9E5),HL                    ; $A148  22 E5 A9
-        EX DE,HL                         ; $A14B  EB
-        LD HL,(BDOS_DE_PARAM)              ; $A14C  2A 43 9F
-        LD BC,$0010                      ; $A14F  01 10 00
-        ADD HL,BC                        ; $A152  09
+        ; Save the working logical-record pointer into BDOS scratch ($A9E5).
+        LD ($A9E5),HL
+        EX DE,HL
+        LD HL,(BDOS_DE_PARAM)
+        ; Offset $10 = start of the FCB's 16-byte allocation/disk-map field (d0..dn).
+        LD BC,$0010
+        ADD HL,BC
+; ----------------------------------------------------------------------
+; DIR_SEARCH_STEP_5 -- branch on the random/sequential mode flag.
+;   In:        $A9DD = mode flag; $A9D7 = saved extent/record byte.
+;   Out:       branches into the DIR_NAME_MASK group; on the other arm falls into
+;              DIR_SEARCH_STEP_6.
+;   Clobbers:  A.
+;   Algorithm: OBSERVED: `LD A,($A9DD); OR A; LD A,($A9D7); JP Z,...`. Both cells = variable-
+;              page RAM (keep_literal). The Z-branch target DIR_NAME_MASK_35+1 is cover-
+;              merged (FLAG).
+; ----------------------------------------------------------------------
 DIR_SEARCH_STEP_5:
-        LD A,($A9DD)                     ; $A153  3A DD A9
-        OR A                             ; $A156  B7
-        LD A,($A9D7)                     ; $A157  3A D7 A9
-        JP Z,DIR_NAME_MASK_35+1               ; $A15A  CA 64 A6
+        ; Read the random/sequential mode flag (BDOS scratch $A9DD).
+        LD A,($A9DD)
+        OR A
+        LD A,($A9D7)
+        JP Z,DIR_NAME_MASK_35+1
+; ----------------------------------------------------------------------
+; DIR_SEARCH_STEP_6 -- index the FCB map by 2*A (via DISK_SET_DMA_PTR), store E, continue.
+;   In:        HL -> FCB allocation-map base, A = word index, E = byte to store.
+;   Out:       stores E at the indexed map slot; JP DIR_NAME_MASK_36 (real mask code).
+;   Clobbers:  BC, HL.
+;   Algorithm: OBSERVED: `CALL DISK_SET_DMA_PTR` (advances HL by 2*A) then `LD (HL),E`. The
+;              JP target DIR_NAME_MASK_36 ($A66C) IS real code (a mask-and-store to $A9AD).
+; ----------------------------------------------------------------------
 DIR_SEARCH_STEP_6:
-        CALL DISK_SET_DMA_PTR                    ; $A15D  CD 64 A1
-        LD (HL),E                        ; $A160  73
-        JP DIR_NAME_MASK_36                   ; $A161  C3 6C A6
+        ; Advance HL to the A-indexed (word-stride) allocation-map slot.
+        CALL DISK_SET_DMA_PTR
+        ; Store the record byte into the indexed FCB allocation-map slot.
+        LD (HL),E
+        JP DIR_NAME_MASK_36
+; ----------------------------------------------------------------------
+; DISK_SET_DMA_PTR -- advance HL by 2*A (word stride), then fall into the word store.
+;   In:        A = word index, HL = table/buffer base.
+;   Out:       HL += 2*A; falls into DISK_SET_DMA_READ which stores DE at (HL).
+;   Clobbers:  BC, HL.
+;   Algorithm: OBSERVED: `LD C,A; LD B,$00; ADD HL,BC; ADD HL,BC` (HL += 2*A), then fall
+;              through. Addresses a word slot in a BDOS table indexed by A.
+; ----------------------------------------------------------------------
 DISK_SET_DMA_PTR:
-        LD C,A                           ; $A164  4F
-        LD B,$00                         ; $A165  06 00
-        ADD HL,BC                        ; $A167  09
-        ADD HL,BC                        ; $A168  09
+        ; BC = A (word index); B cleared next.
+        LD C,A
+        LD B,$00
+        ; Add the index twice (HL += 2*A) for a 16-bit (word) stride.
+        ADD HL,BC
+        ADD HL,BC
+; ----------------------------------------------------------------------
+; DISK_SET_DMA_READ -- store DE at (HL), set C=2, then guard on the BDOS result cell.
+;   In:        HL = destination, DE = 16-bit value.
+;   Out:       (HL),(HL+1) = E,D; C = $02; A = (BDOS_RETURN_VAL); falls into DISK_RW_GUARD.
+;   Clobbers:  A, HL.
+;   Algorithm: OBSERVED: `LD (HL),E; INC HL; LD (HL),D; LD C,$02; LD A,(BDOS_RETURN_VAL); OR
+;              A`. [RE] $02 = the SoftCard sectors-per-block/op count; $9F45 = the BDOS
+;              function result byte (already labeled BDOS_RETURN_VAL).
+; ----------------------------------------------------------------------
 DISK_SET_DMA_READ:
-        LD (HL),E                        ; $A169  73
-        INC HL                           ; $A16A  23
-        LD (HL),D                        ; $A16B  72
-        LD C,$02                         ; $A16C  0E 02
-        LD A,(BDOS_RETURN_VAL)               ; $A16E  3A 45 9F
-        OR A                             ; $A171  B7
+        ; Store the low byte of the pointer/record word.
+        LD (HL),E
+        INC HL
+        ; Store the high byte (little-endian word now planted).
+        LD (HL),D
+        LD C,$02
+        ; Read the BDOS result byte to gate the rest of the record op.
+        LD A,(BDOS_RETURN_VAL)
+        OR A
+; ----------------------------------------------------------------------
+; DISK_RW_GUARD -- early-out if a BDOS error is already pending.
+;   In:        flags from `OR A` on the BDOS result byte; BC saved by caller.
+;   Out:       RET if result != 0; else PUSH BC, CALL DIR_NEXT_ENTRY, continue.
+;   Clobbers:  none added before RET.
+;   Algorithm: OBSERVED: `RET NZ` guards the record-I/O path so a controller error short-
+;              circuits the operation.
+; ----------------------------------------------------------------------
 DISK_RW_GUARD:
-        RET NZ                           ; $A172  C0
-        PUSH BC                          ; $A173  C5
-        CALL DIR_NEXT_ENTRY                    ; $A174  CD 8A A0
+        ; Abort the record op early if a BDOS error is already pending (result byte nonzero).
+        RET NZ
+        PUSH BC
+        ; No error: advance to the next directory/buffer entry.
+        CALL DIR_NEXT_ENTRY
+; ----------------------------------------------------------------------
+; DISK_RW_GUARD_1 -- value-2 test on $A9D5, but the branch targets MIS-DECODED padding.
+;   In:        $A9D5 = op/state count.
+;   Out:       `JP NZ,DIR_NAME_MASK_43` -- targets $A6BB, a run of NOP padding (NOT code);
+;              else falls into DISK_DEBLOCK_CMP.
+;   Clobbers:  A.
+;   Algorithm: OBSERVED: `LD A,($A9D5); DEC A; DEC A; JP NZ,...`. The taken branch lands in
+;              NOP padding ($A6BB), so this region is part of the file-wide cover-merge --
+;              the DIR_NAME_MASK_43 label sits on padding, not a routine (FLAG). [RE] the
+;              $A9D5-minus-2 test plausibly selects a case, but trust it only after the
+;              whole-file re-decode. $A9D5 = variable-page RAM (keep_literal).
+; ----------------------------------------------------------------------
 DISK_RW_GUARD_1:
-        LD A,($A9D5)                     ; $A177  3A D5 A9
-        DEC A                            ; $A17A  3D
-        DEC A                            ; $A17B  3D
-        JP NZ,DIR_NAME_MASK_43                ; $A17C  C2 BB A6
+        ; Read the deblock op-count/direction flag (BDOS scratch $A9D5).
+        LD A,($A9D5)
+        DEC A
+        DEC A
+        ; [FLAG] branch target $A6BB is NOP padding, not code -- a mis-decode; do not read this as a
+        ; real control path.
+        JP NZ,DIR_NAME_MASK_43
+; ----------------------------------------------------------------------
+; DISK_DEBLOCK_CMP -- value-2 test on the caller op count (C), with the same MIS-DECODED branch.
+;   In:        top-of-stack BC (op count in C).
+;   Out:       `JP NZ,DIR_NAME_MASK_43` (targets $A6BB NOP padding) unless C-2==0; on ==2,
+;              loads $A9B9 and clears D.
+;   Clobbers:  A, BC (restored), D, HL.
+;   Algorithm: OBSERVED: peek BC, `LD A,C; DEC A; DEC A; JP NZ,...`. Same NOP-padding target
+;              as DISK_RW_GUARD_1 (FLAG). $A9B9 = variable-page RAM (keep_literal).
+; ----------------------------------------------------------------------
 DISK_DEBLOCK_CMP:
-        POP BC                           ; $A17F  C1
-        PUSH BC                          ; $A180  C5
-        LD A,C                           ; $A181  79
-        DEC A                            ; $A182  3D
-        DEC A                            ; $A183  3D
-        JP NZ,DIR_NAME_MASK_43                ; $A184  C2 BB A6
-        PUSH HL                          ; $A187  E5
-        LD HL,($A9B9)                    ; $A188  2A B9 A9
-        LD D,A                           ; $A18B  57
+        POP BC
+        PUSH BC
+        ; Take the caller's op-count from C for the value-2 test.
+        LD A,C
+        DEC A
+        DEC A
+        JP NZ,DIR_NAME_MASK_43
+        PUSH HL
+        ; Load the host deblock-buffer pointer (BDOS scratch $A9B9).
+        LD HL,($A9B9)
+        LD D,A
+; ----------------------------------------------------------------------
+; DISK_DEBLOCK -- [RE] physical-sector deblock/reblock between host buffer and 128-byte record.
+;   In:        HL = host buffer pointer, D = byte index, $A9C4 = block mask, $A9E5/$A9E7 =
+;              working record pointers, $9400 = host sector buffer.
+;   Out:       moves the selected 128-byte CP/M record to/from the larger physical sector;
+;              updates the working pointers via DISK_READ_RECORD_1.
+;   Clobbers:  A, BC, DE, HL and the working scratch cells.
+;   Algorithm: [RE, structural map to canonical CP/M deblocking] fill/scan the host buffer
+;              ($9400), select which 128-byte record sits in the physical sector via the
+;              block mask ($A9C4: AND L; CP B), and read/write the record (CALL DISK_READ_
+;              RECORD_1) staging through $A9E5/$A9E7. The two NOPs at $A1D2-$A1D3 are
+;              padding. $9400 = host buffer (RAM); $A9xx = variable-page RAM (keep_literal).
+;              CAVEAT: internal CALL targets use cover-merge arithmetic (DISK_READ_RECORD_1+1,
+;              DISK_RET_OK_1+2, DISK_DEBLOCK_3+1) -- FLAG; layout provisional until re-decode.
+; ----------------------------------------------------------------------
 DISK_DEBLOCK:
-        LD (HL),A                        ; $A18C  77
-        INC HL                           ; $A18D  23
-        INC D                            ; $A18E  14
-        JP P,DIR_NAME_MASK_39+1               ; $A18F  F2 8C A6
-        CALL DISK_DEBLOCK_3+1                ; $A192  CD E0 A1
-        LD HL,($A9E7)                    ; $A195  2A E7 A9
-        LD C,$02                         ; $A198  0E 02
-        LD ($A9E5),HL                    ; $A19A  22 E5 A9
-        PUSH BC                          ; $A19D  C5
-        CALL DISK_READ_RECORD_1+1                ; $A19E  CD D1 9F
-        POP BC                           ; $A1A1  C1
-        CALL DISK_RET_OK_1+2                ; $A1A2  CD B8 9F
-        LD HL,($A9E5)                    ; $A1A5  2A E5 A9
-        LD C,$00                         ; $A1A8  0E 00
-        LD A,($A9C4)                     ; $A1AA  3A C4 A9
-        LD B,A                           ; $A1AD  47
-        AND L                            ; $A1AE  A5
-        CP B                             ; $A1AF  B8
-        INC HL                           ; $A1B0  23
-        JP NZ,DIR_NAME_MASK_40                ; $A1B1  C2 9A A6
-        POP HL                           ; $A1B4  E1
-        LD ($A9E5),HL                    ; $A1B5  22 E5 A9
-        CALL DISK_DEBLOCK_2+2                ; $A1B8  CD DA A1
-        CALL DISK_READ_RECORD_1+1                ; $A1BB  CD D1 9F
-        POP BC                           ; $A1BE  C1
-        PUSH BC                          ; $A1BF  C5
-        CALL DISK_RET_OK_1+2                ; $A1C0  CD B8 9F
-        POP BC                           ; $A1C3  C1
+        LD (HL),A
+        INC HL
+        INC D
+        JP P,DIR_NAME_MASK_39+1
+        CALL DISK_DEBLOCK_3+1
+        ; Load the working physical-record pointer for the deblock transfer.
+        LD HL,($A9E7)
+        LD C,$02
+        LD ($A9E5),HL
+        PUSH BC
+        CALL DISK_READ_RECORD_1+1
+        POP BC
+        CALL DISK_RET_OK_1+2
+        LD HL,($A9E5)
+        LD C,$00
+        ; Load the block mask: which 128-byte record sits inside the physical sector.
+        LD A,($A9C4)
+        LD B,A
+        AND L
+        CP B
+        INC HL
+        JP NZ,DIR_NAME_MASK_40
+        POP HL
+        LD ($A9E5),HL
+        CALL DISK_DEBLOCK_2+2
+        CALL DISK_READ_RECORD_1+1
+        POP BC
+        PUSH BC
+        CALL DISK_RET_OK_1+2
+        POP BC
+; ----------------------------------------------------------------------
+; DISK_DEBLOCK_1 -- record-count compare; one branch targets MIS-DECODED padding.
+;   In:        $A9E3 = record index, $A9E1 = record-count limit cell.
+;   Out:       `JP C,DIR_NAME_MASK_44` -- targets $A6D2, a run of NOP padding (NOT code);
+;              else stores and INCs the limit cell.
+;   Clobbers:  A, HL.
+;   Algorithm: OBSERVED: `LD A,($A9E3); LD HL,$A9E1; CP (HL); JP C,...; LD (HL),A; INC (HL)`.
+;              The carry branch lands in NOP padding ($A6D2) -- FLAG, mis-decode. [RE] the
+;              store/INC arm is per-extent record-count bookkeeping. $A9E1/$A9E3 = variable-
+;              page RAM (keep_literal).
+; ----------------------------------------------------------------------
 DISK_DEBLOCK_1:
-        LD A,($A9E3)                     ; $A1C4  3A E3 A9
-        LD HL,$A9E1                      ; $A1C7  21 E1 A9
-        CP (HL)                          ; $A1CA  BE
-        JP C,DIR_NAME_MASK_44                 ; $A1CB  DA D2 A6
-        LD (HL),A                        ; $A1CE  77
-        INC (HL)                         ; $A1CF  34
-        LD C,$02                         ; $A1D0  0E 02
-        NOP                              ; $A1D2  00
-        NOP                              ; $A1D3  00
-        LD HL,$9400                      ; $A1D4  21 00 94
-        PUSH AF                          ; $A1D7  F5
+        ; Load the current record index for the count-limit compare.
+        LD A,($A9E3)
+        LD HL,$A9E1
+        CP (HL)
+        ; [FLAG] branch target $A6D2 is NOP padding, not code -- a mis-decode, not a real path.
+        JP C,DIR_NAME_MASK_44
+        LD (HL),A
+        ; Advance the record-count limit (a new record accounted for).
+        INC (HL)
+        LD C,$02
+        NOP
+        NOP
+        ; Point at the host sector buffer ($9400, the deblock staging area).
+        LD HL,$9400
+        PUSH AF
+; ----------------------------------------------------------------------
+; DISK_DEBLOCK_2 -- mask a byte to 7 bits and store it during deblock.
+;   In:        A = byte to mask, HL = host-buffer destination.
+;   Out:       (HL) = A & $7F.
+;   Clobbers:  A.
+;   Algorithm: OBSERVED: `AND $7F; LD (HL),A`. [RE] strips the high (attribute) bit when
+;              copying a record byte. Note DISK_DEBLOCK_2+2 is the entry used by callers
+;              (cover-merged label, FLAG).
+; ----------------------------------------------------------------------
 DISK_DEBLOCK_2:
-        CALL DISK_SET_DMA_READ                    ; $A1D8  CD 69 A1
-        AND $7F                          ; $A1DB  E6 7F
-        LD (HL),A                        ; $A1DD  77
-        POP AF                           ; $A1DE  F1
+        CALL DISK_SET_DMA_READ
+        ; Mask off the high bit (keep the 7-bit data) before storing.
+        AND $7F
+        LD (HL),A
+        POP AF
+; ----------------------------------------------------------------------
+; DISK_DEBLOCK_3 -- $7F boundary + op-count test; both branches target MIS-DECODED data.
+;   In:        A = current record/byte index, $A9D5 = op-count flag.
+;   Out:       `JP NZ,BDOS_VAR_FILL_1` (targets $A700 = uninitialized $E5 variable page).
+;   Clobbers:  A.
+;   Algorithm: OBSERVED: `CP $7F; JP NZ,$A700; LD A,($A9D5); CP $01`. The branch target
+;              $A700 is `DEFB $E5` UNINITIALIZED VARIABLE PAGE, NOT code -- so this region
+;              is mis-decoded; do NOT read it as a real 'continue' path. [RE] the intended
+;              last-record-of-sector test is plausible but provisional until re-decode.
+;              $A9D5 = variable-page RAM (keep_literal).
+; ----------------------------------------------------------------------
 DISK_DEBLOCK_3:
-        CP $7F                           ; $A1DF  FE 7F
-        JP NZ,BDOS_VAR_FILL_1                     ; $A1E1  C2 00 A7
-        LD A,($A9D5)                     ; $A1E4  3A D5 A9
-        CP $01                           ; $A1E7  FE 01
+        ; Test for the 128-byte record boundary within the physical sector.
+        CP $7F
+        JP NZ,BDOS_VAR_FILL_1
+        ; Load the op-count flag (BDOS scratch $A9D5).
+        LD A,($A9D5)
+        CP $01
+; ----------------------------------------------------------------------
+; DISK_DEBLOCK_4 -- branch targeting the MIS-DECODED $E5 variable page.
+;   In:        Z/NZ from DISK_DEBLOCK_3's count test.
+;   Out:       `JP NZ,BDOS_VAR_FILL_1` ($A700 = uninitialized $E5 page, NOT code); else CALL
+;              FCB_CMP_DIR_ENTRY_5+1 then DIR_NAME_MASK.
+;   Clobbers:  none added.
+;   Algorithm: OBSERVED conditional JP. [FLAG] the branch target $A700 is $E5-filled
+;              variable page, not code -- a mis-decode. The fall-through CALL uses
+;              FCB_CMP_DIR_ENTRY_5+1 cover-merge arithmetic (FLAG). UNKNOWN until re-decode.
+; ----------------------------------------------------------------------
 DISK_DEBLOCK_4:
-        JP NZ,BDOS_VAR_FILL_1                     ; $A1E9  C2 00 A7
-        CALL FCB_CMP_DIR_ENTRY_5+1                ; $A1EC  CD D2 A0
-        CALL DIR_NAME_MASK                    ; $A1EF  CD 5A A5
-        LD HL,BDOS_RETURN_VAL                ; $A1F2  21 45 9F
+        ; [FLAG] target $A700 is the uninitialized $E5 variable page, not code -- a mis-decode, not
+        ; a real branch.
+        JP NZ,BDOS_VAR_FILL_1
+        CALL FCB_CMP_DIR_ENTRY_5+1
+        ; Fall-through arm: run the directory mask/flush helper.
+        CALL DIR_NAME_MASK
+        LD HL,BDOS_RETURN_VAL
+; ----------------------------------------------------------------------
+; BDOS_CHECK_ERROR -- test the BDOS result cell, set the directory counter on success.
+;   In:        HL -> BDOS_RETURN_VAL ($9F45), set by the caller.
+;   Out:       Z reflects (result==0); on no-error sets the dir counter ($A9E3) to $FF and
+;              falls into BDOS_CHECK_ERROR_1.
+;   Clobbers:  A.
+;   Algorithm: OBSERVED: `LD A,(HL); OR A; JP NZ,BDOS_VAR_FILL; DEC A; LD ($A9E3),A`. [RE]
+;              $FF in $A9E3 marks 'scan exhausted / not found'. CAVEAT: the error branch `JP
+;              NZ,BDOS_VAR_FILL` targets $A6FE (the two $00 bytes ahead of the $E5 page), so
+;              treat the error path as provisional (FLAG). $A9E3 = variable-page RAM.
+; ----------------------------------------------------------------------
 BDOS_CHECK_ERROR:
-        LD A,(HL)                        ; $A1F5  7E
-        OR A                             ; $A1F6  B7
-        JP NZ,BDOS_VAR_FILL                     ; $A1F7  C2 FE A6
-        DEC A                            ; $A1FA  3D
-        LD ($A9E3),A                     ; $A1FB  32 E3 A9
+        ; Read the BDOS result byte (HL points at BDOS_RETURN_VAL).
+        LD A,(HL)
+        OR A
+        ; [FLAG] nonzero result branches to $A6FE, which sits at padding ahead of the $E5 variable
+        ; page -- target boundary is suspect.
+        JP NZ,BDOS_VAR_FILL
+        DEC A
+        ; On success store $FF into the directory counter (marks 'no entry / scan reset').
+        LD ($A9E3),A
+; ----------------------------------------------------------------------
+; BDOS_CHECK_ERROR_1 -- clear the result cell, write back a derived status, RET.
+;   In:        HL -> BDOS_RETURN_VAL ($9F45).
+;   Out:       (HL)=0; BDOS_RETURN_VAL = (A SBC L); RET.
+;   Clobbers:  A.
+;   Algorithm: OBSERVED: `LD (HL),$00; SBC A,L; LD (BDOS_RETURN_VAL),A; RET`. [RE] resets the
+;              result cell after a clean directory op; `SBC A,L` derives a 0/borrow status.
+; ----------------------------------------------------------------------
 BDOS_CHECK_ERROR_1:
-        LD (HL),$00                      ; $A1FE  36 00
-        SBC A,L                          ; $A200  9D
-        LD (BDOS_RETURN_VAL),A               ; $A201  32 45 9F
-        RET                              ; $A204  C9
+        ; Clear the BDOS result cell.
+        LD (HL),$00
+        SBC A,L
+        ; Write back the derived status to the BDOS result byte.
+        LD (BDOS_RETURN_VAL),A
+        RET
+; ----------------------------------------------------------------------
+; BDOS_CHECK_ERROR_2 -- return constant 1 via the (cover-merged) result tail.
+;   In:        none.
+;   Out:       A = 1; JP into the BDOS result tail ($9F01, cover-merged).
+;   Clobbers:  A.
+;   Algorithm: OBSERVED: `LD A,$01; JP BDOS_RET_RESULT+2`. [RE] a fixed directory/return code
+;              1; the result-tail target is cover-merged (FLAG).
+; ----------------------------------------------------------------------
 BDOS_CHECK_ERROR_2:
-        LD A,$01                         ; $A205  3E 01
-        JP BDOS_RET_RESULT+2                 ; $A207  C3 01 9F
-        DEFS    43, $00    ; $A20A  fill
-; [AI] BDOS random-record / compute-file-size / disk-parameter group ($A235-$A2FF):
-;      called as subroutines from the above-image Read/Write Random + Compute File
-;      Size handlers (fns 33-35). Structural _N names (were BDOS_<addr> machine labels);
-;      exact per-routine roles (SET_RANDOM_REC / COMPUTE_FILE_SIZE / GET_ALLOC_VEC) are
-;      not separable in clean-room without the above-image callers.
+        ; Return code 1.
+        LD A,$01
+        ; [FLAG] hand the code to the BDOS result tail ($9F01, cover-merged).
+        JP BDOS_RET_RESULT+2
+        DEFS    43, $00                  ; fill
+; ----------------------------------------------------------------------
+; BDOS_RANDREC_1 -- BDOS error dispatch via the in-header error-vector table (enters at +2).
+;   In:        BDOS_ERR_VECTORS ($9C09) = 4-word reporter table; HL set to +2 here.
+;   Out:       JP (HL) to the selected reporter (class 1 = SELECT). Does not return.
+;   Clobbers:  DE, HL.
+;   Algorithm: OBSERVED: 18 NOP pad bytes, then `LD HL,BDOS_ERR_VECTORS+2; LD E,(HL); INC
+;              HL; LD D,(HL); EX DE,HL; JP (HL)`. [RE] a STATIC in-image pointer table
+;              indexed at fixed offset +2. The 18 NOPs are alignment padding. RELOC:
+;              BDOS_ERR_VECTORS is already a DEFW-of-labels table (lines 367-370); the +2
+;              here is a correct in-image label reference, NOT a cover-merge.
+; ----------------------------------------------------------------------
 BDOS_RANDREC_1:
-        NOP                              ; $A235  00
-        NOP                              ; $A236  00
-        NOP                              ; $A237  00
-        NOP                              ; $A238  00
-        NOP                              ; $A239  00
-        NOP                              ; $A23A  00
-        NOP                              ; $A23B  00
-        NOP                              ; $A23C  00
-        NOP                              ; $A23D  00
-        NOP                              ; $A23E  00
-        NOP                              ; $A23F  00
-        NOP                              ; $A240  00
-        NOP                              ; $A241  00
-        NOP                              ; $A242  00
-        NOP                              ; $A243  00
-        NOP                              ; $A244  00
-        NOP                              ; $A245  00
-        NOP                              ; $A246  00
-        LD HL,BDOS_ERR_VECTORS+2                     ; $A247  21 0B 9C
-        LD E,(HL)                        ; $A24A  5E
-        INC HL                           ; $A24B  23
-        LD D,(HL)                        ; $A24C  56
-        EX DE,HL                         ; $A24D  EB
-        JP (HL)                          ; $A24E  E9
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        ; Point at error-vector entry +2 (class 1 = SELECT reporter); BDOS_ERR_VECTORS is the 4-word
+        ; table in the image header.
+        LD HL,BDOS_ERR_VECTORS+2
+        ; Fetch the selected reporter address (low byte).
+        LD E,(HL)
+        INC HL
+        LD D,(HL)
+        EX DE,HL
+        ; Dispatch to the chosen BDOS error reporter.
+        JP (HL)
+; ----------------------------------------------------------------------
+; BDOS_RANDREC_2 -- copy one byte arg into the FCB, then set-record + read/write.
+;   In:        C = count guard, DE -> source byte, HL -> FCB destination.
+;   Out:       RET Z if count is 1; else (HL)=(DE), advance both, JP FCB_SET_REC_THEN_RW.
+;   Clobbers:  A, DE, HL.
+;   Algorithm: OBSERVED: `INC C; DEC C; RET Z` guards an empty count; `LD A,(DE); LD (HL),A;
+;              INC DE; INC HL; JP FCB_SET_REC_THEN_RW`. [RE] stages one FCB field byte ahead
+;              of a record op. FCB_SET_REC_THEN_RW ($9F50) is an in-image label (OK).
+; ----------------------------------------------------------------------
 BDOS_RANDREC_2:
-        INC C                            ; $A24F  0C
-        DEC C                            ; $A250  0D
-        RET Z                            ; $A251  C8
-        LD A,(DE)                        ; $A252  1A
-        LD (HL),A                        ; $A253  77
-        INC DE                           ; $A254  13
-        INC HL                           ; $A255  23
-        JP FCB_SET_REC_THEN_RW                    ; $A256  C3 50 9F
+        INC C
+        DEC C
+        RET Z
+        ; Read the source byte to plant into the FCB.
+        LD A,(DE)
+        LD (HL),A
+        INC DE
+        INC HL
+        ; Continue into the set-record-and-do-I/O path.
+        JP FCB_SET_REC_THEN_RW
+; ----------------------------------------------------------------------
+; BDOS_RANDREC_3 -- look up the per-drive parameter (DPB) pointer block for the current user/drive.
+;   In:        FCB_USER_SCRATCH ($9F42) = current user/drive code.
+;   Out:       HL -> per-drive pointer block, or HL=0 (RET Z); else begins reading the
+;              pointer set into RANDREC_4.
+;   Clobbers:  A, C, HL.
+;   Algorithm: OBSERVED: `LD A,(FCB_USER_SCRATCH); LD C,A; CALL $AA1B; LD A,H; OR L; RET Z;
+;              LD E,(HL)`. [RE] $AA1B is an above-image lookup helper (off this image,
+;              keep_literal); $9F42 is already labeled.
+; ----------------------------------------------------------------------
 BDOS_RANDREC_3:
-        LD A,(FCB_USER_SCRATCH)               ; $A259  3A 42 9F
-        LD C,A                           ; $A25C  4F
-        CALL $AA1B                       ; $A25D  CD 1B AA
-        LD A,H                           ; $A260  7C
-        OR L                             ; $A261  B5
-        RET Z                            ; $A262  C8
-        LD E,(HL)                        ; $A263  5E
+        ; Load the current user/drive code to index the per-drive parameter table.
+        LD A,(FCB_USER_SCRATCH)
+        LD C,A
+        CALL $AA1B
+        LD A,H
+        ; Test the returned pointer for null (no DPB for this drive).
+        OR L
+        RET Z
+        LD E,(HL)
+; ----------------------------------------------------------------------
+; BDOS_RANDREC_4 -- unpack the DPB pointer set into the BDOS working pointers.
+;   In:        HL -> the per-drive pointer block (from RANDREC_3).
+;   Out:       $A9B3/$A9B5/$A9B7 (and $A9D0 in RANDREC_5) loaded with DPB-derived pointers.
+;   Clobbers:  A, BC, DE, HL.
+;   Algorithm: OBSERVED: walks the block with INC HL, stashing 16-bit words into the $A9Bx
+;              working-pointer cells later dereferenced by seek/deblock. [RE] the 'select
+;              disk' pointer setup. $A9xx = variable-page RAM (keep_literal).
+; ----------------------------------------------------------------------
 BDOS_RANDREC_4:
-        INC HL                           ; $A264  23
-        LD D,(HL)                        ; $A265  56
-        INC HL                           ; $A266  23
-        LD ($A9B3),HL                    ; $A267  22 B3 A9
-        INC HL                           ; $A26A  23
+        INC HL
+        LD D,(HL)
+        INC HL
+        ; Store the first DPB-derived working pointer ($A9B3).
+        LD ($A9B3),HL
+        INC HL
+; ----------------------------------------------------------------------
+; BDOS_RANDREC_5 -- finish unpacking the DPB pointers, seed FCB field runs, set the mode flag.
+;   In:        HL still walking the per-drive pointer block.
+;   Out:       $A9B7/$A9D0 set; FCB field runs seeded via FCB_SET_REC_FLAG (counts 8 and
+;              $0F); mode flag $A9DD set; returns A=$FF or via FCB_SET_REC_FLAG_6.
+;   Clobbers:  A, C, DE, HL.
+;   Algorithm: OBSERVED: store remaining pointers; `LD HL,$A9B9; LD C,$08; CALL
+;              FCB_SET_REC_FLAG`; `LD HL,$A9C1; LD C,$0F; CALL FCB_SET_REC_FLAG`; test
+;              ($A9C6) high byte to set $A9DD and return. [RE] counts 8/15 walk FCB/dir sub-
+;              fields. $A9xx = variable-page RAM (keep_literal).
+; ----------------------------------------------------------------------
 BDOS_RANDREC_5:
-        INC HL                           ; $A26B  23
-        LD ($A9B5),HL                    ; $A26C  22 B5 A9
-        INC HL                           ; $A26F  23
-        INC HL                           ; $A270  23
-        LD ($A9B7),HL                    ; $A271  22 B7 A9
-        INC HL                           ; $A274  23
-        INC HL                           ; $A275  23
-        EX DE,HL                         ; $A276  EB
-        LD ($A9D0),HL                    ; $A277  22 D0 A9
-        LD HL,$A9B9                      ; $A27A  21 B9 A9
-        LD C,$08                         ; $A27D  0E 08
-        CALL FCB_SET_REC_FLAG                    ; $A27F  CD 4F 9F
-        LD HL,($A9BB)                    ; $A282  2A BB A9
-        EX DE,HL                         ; $A285  EB
-        LD HL,$A9C1                      ; $A286  21 C1 A9
-        LD C,$0F                         ; $A289  0E 0F
-        CALL FCB_SET_REC_FLAG                    ; $A28B  CD 4F 9F
-        LD HL,($A9C6)                    ; $A28E  2A C6 A9
-        LD A,H                           ; $A291  7C
-        LD HL,$A9DD                      ; $A292  21 DD A9
-        LD (HL),$FF                      ; $A295  36 FF
-        OR A                             ; $A297  B7
-        JP Z,FCB_SET_REC_FLAG_6                  ; $A298  CA 9D 9F
-        LD (HL),$00                      ; $A29B  36 00
-        LD A,$FF                         ; $A29D  3E FF
-        OR A                             ; $A29F  B7
-        RET                              ; $A2A0  C9
+        INC HL
+        LD ($A9B5),HL
+        INC HL
+        INC HL
+        ; Store the third DPB-derived working pointer ($A9B7) -- the seek record-pointer.
+        LD ($A9B7),HL
+        INC HL
+        INC HL
+        EX DE,HL
+        LD ($A9D0),HL
+        LD HL,$A9B9
+        LD C,$08
+        CALL FCB_SET_REC_FLAG
+        LD HL,($A9BB)
+        EX DE,HL
+        LD HL,$A9C1
+        LD C,$0F
+        CALL FCB_SET_REC_FLAG
+        LD HL,($A9C6)
+        LD A,H
+        LD HL,$A9DD
+        ; Default the mode flag to $FF before the high-byte test.
+        LD (HL),$FF
+        OR A
+        JP Z,FCB_SET_REC_FLAG_6
+        LD (HL),$00
+        LD A,$FF
+        OR A
+        RET
+; ----------------------------------------------------------------------
+; BDOS_RANDREC_6 -- zero a pair of 16-bit working cells (record/size accumulators).
+;   In:        $A9B5/$A9B7 -> the working-cell pointers.
+;   Out:       both pointed-at 16-bit cells set to 0.
+;   Clobbers:  A, HL.
+;   Algorithm: OBSERVED: `CALL $AA18; XOR A; LD HL,($A9B5); LD (HL),A; INC HL; LD (HL),A; LD
+;              HL,($A9B7); ... RET`. [RE] resets the accumulators before a size pass. $AA18
+;              off image (keep_literal); $A9xx = RAM.
+; ----------------------------------------------------------------------
 BDOS_RANDREC_6:
-        CALL $AA18                       ; $A2A1  CD 18 AA
-        XOR A                            ; $A2A4  AF
-        LD HL,($A9B5)                    ; $A2A5  2A B5 A9
-        LD (HL),A                        ; $A2A8  77
-        INC HL                           ; $A2A9  23
-        LD (HL),A                        ; $A2AA  77
-        LD HL,($A9B7)                    ; $A2AB  2A B7 A9
-        LD (HL),A                        ; $A2AE  77
-        INC HL                           ; $A2AF  23
-        LD (HL),A                        ; $A2B0  77
-        RET                              ; $A2B1  C9
+        CALL $AA18
+        ; A=0 to clear the working cells.
+        XOR A
+        ; Dereference the first working-cell pointer to zero it.
+        LD HL,($A9B5)
+        LD (HL),A
+        INC HL
+        LD (HL),A
+        LD HL,($A9B7)
+        LD (HL),A
+        INC HL
+        LD (HL),A
+        RET
+; ----------------------------------------------------------------------
+; BDOS_RANDREC_7 -- call an above-image helper, then exit via DISK_RET_OK_2 (cover-merged).
+;   In:        per the helper at $AA27.
+;   Out:       JP DISK_RET_OK_2+2.
+;   Clobbers:  per helper.
+;   Algorithm: OBSERVED `CALL $AA27; JP DISK_RET_OK_2+2`. [RE] thin wrapper over an above-
+;              image disk helper ($AA27, off image, keep_literal); the +2 on the JP is
+;              cover-merge arithmetic (FLAG).
+; ----------------------------------------------------------------------
 BDOS_RANDREC_7:
-        CALL $AA27                       ; $A2B2  CD 27 AA
-        JP DISK_RET_OK_2+2                  ; $A2B5  C3 BB 9F
+        CALL $AA27
+        ; [FLAG] return via the disk 'operation OK' path (target carries +2 cover-merge arithmetic).
+        JP DISK_RET_OK_2+2
+; ----------------------------------------------------------------------
+; BDOS_RANDREC_8 -- call an above-image helper; on error dispatch the class-0 reporter.
+;   In:        per the helper at $AA2A; A = status on return.
+;   Out:       RET Z on success; on error `LD HL,BDOS_ERR_VECTORS; JP FCB_INC_REC_PTR_1+1`.
+;   Clobbers:  A, HL.
+;   Algorithm: OBSERVED. [RE] BDOS_ERR_VECTORS ($9C09) class 0 = BAD SECTOR. $AA2A off image
+;              (keep_literal); FCB_INC_REC_PTR_1+1 is cover-merge arithmetic (FLAG).
+; ----------------------------------------------------------------------
 BDOS_RANDREC_8:
-        CALL $AA2A                       ; $A2B8  CD 2A AA
-        OR A                             ; $A2BB  B7
-        RET Z                            ; $A2BC  C8
-        LD HL,BDOS_ERR_VECTORS                     ; $A2BD  21 09 9C
-        JP FCB_INC_REC_PTR_1+1                  ; $A2C0  C3 4A 9F
+        CALL $AA2A
+        OR A
+        ; Success (status 0): return.
+        RET Z
+        ; Error: point at the class-0 (BAD SECTOR) reporter vector before dispatching.
+        LD HL,BDOS_ERR_VECTORS
+        JP FCB_INC_REC_PTR_1+1
+; ----------------------------------------------------------------------
+; BDOS_RANDREC_9 -- load a working record pointer and a count of 2 for the size compare.
+;   In:        $A9EA -> a record-pointer cell.
+;   Out:       HL = ($A9EA); C = 2; falls into RANDREC_10.
+;   Clobbers:  C, HL.
+;   Algorithm: OBSERVED. [RE] stages the compute-file-size compare; $A9EA = variable-page
+;              RAM (keep_literal); 2 = the SoftCard sector/op count.
+; ----------------------------------------------------------------------
 BDOS_RANDREC_9:
-        LD HL,($A9EA)                    ; $A2C3  2A EA A9
-        LD C,$02                         ; $A2C6  0E 02
+        ; Load the working record pointer for the file-size compare.
+        LD HL,($A9EA)
+        LD C,$02
+; ----------------------------------------------------------------------
+; BDOS_RANDREC_10 -- compute/marshal a record number and cache it in the size cells.
+;   In:        HL/C from RANDREC_9.
+;   Out:       result HL stored to $A9E5 and $A9EC; BC reloaded from $A9E5.
+;   Clobbers:  A, BC, HL.
+;   Algorithm: OBSERVED: `CALL BDOS_RET_TRAMPOLINE; LD ($A9E5),HL; LD ($A9EC),HL; LD
+;              HL,$A9E5; LD C,(HL); INC HL; LD B,(HL)`. NOTE the CALLee (BDOS_RET_TRAMPOLINE)
+;              only does `JP $9F01` which is mid-instruction, so the exact computation is
+;              UNKNOWN (FLAG); the caching of the result into $A9E5/$A9EC is OBSERVED. $A9xx
+;              = variable-page RAM (keep_literal).
+; ----------------------------------------------------------------------
 BDOS_RANDREC_10:
-        CALL BDOS_RET_TRAMPOLINE                    ; $A2C8  CD EA A0
-        LD ($A9E5),HL                    ; $A2CB  22 E5 A9
-        LD ($A9EC),HL                    ; $A2CE  22 EC A9
-        LD HL,$A9E5                      ; $A2D1  21 E5 A9
-        LD C,(HL)                        ; $A2D4  4E
-        INC HL                           ; $A2D5  23
-        LD B,(HL)                        ; $A2D6  46
+        ; [FLAG] compute/marshal the record number; the callee resolves through the cover-merged
+        ; $9F01 tail, so its exact action is UNKNOWN (see summary).
+        CALL BDOS_RET_TRAMPOLINE
+        ; Cache the computed record number in the size working cell ($A9E5).
+        LD ($A9E5),HL
+        LD ($A9EC),HL
+        LD HL,$A9E5
+        LD C,(HL)
+        INC HL
+        LD B,(HL)
+; ----------------------------------------------------------------------
+; BDOS_RANDREC_11 -- multi-byte compare of the computed record vs the directory record count.
+;   In:        $A9B7 -> one record value, $A9B5 -> the other, BC = computed record.
+;   Out:       sets carry/flags for RANDREC_12's branch (computed >= stored ?).
+;   Clobbers:  A, DE, HL.
+;   Algorithm: OBSERVED: `LD HL,($A9B7); LD E,(HL); INC HL; LD D,(HL); LD HL,($A9B5); LD
+;              A,(HL); INC HL; LD H,(HL); LD L,A; LD A,C; SUB E; LD A,B; SBC A,D`. This IS a
+;              clean instruction boundary (RANDREC_11+ is correctly decoded). [RE] matches
+;              the canonical compute-file-size / seek record compare. $A9xx = RAM.
+; ----------------------------------------------------------------------
 BDOS_RANDREC_11:
-        LD HL,($A9B7)                    ; $A2D7  2A B7 A9
-        LD E,(HL)                        ; $A2DA  5E
-        INC HL                           ; $A2DB  23
-        LD D,(HL)                        ; $A2DC  56
-        LD HL,($A9B5)                    ; $A2DD  2A B5 A9
-        LD A,(HL)                        ; $A2E0  7E
-        INC HL                           ; $A2E1  23
-        LD H,(HL)                        ; $A2E2  66
-        LD L,A                           ; $A2E3  6F
-        LD A,C                           ; $A2E4  79
-        SUB E                            ; $A2E5  93
-        LD A,B                           ; $A2E6  78
-        SBC A,D                          ; $A2E7  9A
+        ; Load one operand pointer pair for the multi-byte record compare.
+        LD HL,($A9B7)
+        LD E,(HL)
+        INC HL
+        LD D,(HL)
+        LD HL,($A9B5)
+        LD A,(HL)
+        INC HL
+        LD H,(HL)
+        LD L,A
+        LD A,C
+        ; Begin the little-endian subtract (computed record - stored record).
+        SUB E
+        LD A,B
+        SBC A,D
+; ----------------------------------------------------------------------
+; BDOS_RANDREC_12 -- branch on the compare; on the other arm adjust DE by ($A9C1).
+;   In:        flags from RANDREC_11; HL = a record pointer; DE = a value; $A9C1.
+;   Out:       `JP NC,DISK_READ_RECORD_3+2` (cover-merged) on >=; else DE -= ($A9C1), DEC HL,
+;              fall into RANDREC_13.
+;   Clobbers:  A, DE, HL.
+;   Algorithm: OBSERVED. [RE] mirrors canonical seek record/track adjustment. $A9C1 = RAM
+;              (keep_literal); DISK_READ_RECORD_3+2 is cover-merge arithmetic (FLAG).
+; ----------------------------------------------------------------------
 BDOS_RANDREC_12:
-        JP NC,DISK_READ_RECORD_3+2               ; $A2E8  D2 FA 9F
-        PUSH HL                          ; $A2EB  E5
-        LD HL,($A9C1)                    ; $A2EC  2A C1 A9
-        LD A,E                           ; $A2EF  7B
-        SUB L                            ; $A2F0  95
-        LD E,A                           ; $A2F1  5F
-        LD A,D                           ; $A2F2  7A
-        SBC A,H                          ; $A2F3  9C
-        LD D,A                           ; $A2F4  57
-        POP HL                           ; $A2F5  E1
-        DEC HL                           ; $A2F6  2B
+        ; [FLAG] if computed >= stored take the read path (target carries +2 cover-merge
+        ; arithmetic).
+        JP NC,DISK_READ_RECORD_3+2
+        PUSH HL
+        ; Load the per-track/block adjustment value (BDOS scratch $A9C1).
+        LD HL,($A9C1)
+        LD A,E
+        SUB L
+        LD E,A
+        LD A,D
+        SBC A,H
+        LD D,A
+        POP HL
+        DEC HL
+; ----------------------------------------------------------------------
+; BDOS_RANDREC_13 -- loop back into the read-record path (to a COVER-MERGED target).
+;   In:        adjusted DE/HL from RANDREC_12.
+;   Out:       `JP DISK_READ_RECORD_2+1` ($9FE4); does not return.
+;   Clobbers:  none added.
+;   Algorithm: OBSERVED unconditional JP. The target $9FE4 lands inside `JP NZ,
+;              DIR_NAME_MASK_17` (C2 FB A5) -- a cover-merge (FLAG), not a fall-through into
+;              RANDREC_14. [RE] continues the seek/read loop but the exact entry is
+;              unresolved until the file is re-decoded.
+; ----------------------------------------------------------------------
 BDOS_RANDREC_13:
-        JP DISK_READ_RECORD_2+1                  ; $A2F7  C3 E4 9F
+        ; [FLAG] loop back to the seek/read path; target $9FE4 is mid-instruction (cover-merge).
+        JP DISK_READ_RECORD_2+1
+; ----------------------------------------------------------------------
+; BDOS_RANDREC_14 -- UNKNOWN / suspected cover-merge artifact entry ($A2FA-$A2FE).
+;   In:        UNKNOWN (reached only as a jump target; $A2F7 is an unconditional JP, NOT
+;              fall-through).
+;   Out:       UNKNOWN.
+;   Clobbers:  HL, DE.
+;   Algorithm: As decoded: `PUSH HL; LD HL,($A9C1); ADD HL,DE`, which resembles canonical
+;              seek1's 'push h; lhld sectpt; dad d' -- BUT the bytes that follow ($A2FF: DA
+;              C3 D2 A0...) do NOT continue like canonical seek1, so this is most likely a
+;              cover-merge artifact entry, not a true routine head. UNKNOWN until the whole-
+;              file re-decode. $A9C1 = variable-page RAM (keep_literal).
+; ----------------------------------------------------------------------
 BDOS_RANDREC_14:
-        PUSH HL                          ; $A2FA  E5
-        LD HL,($A9C1)                    ; $A2FB  2A C1 A9
-        ADD HL,DE                        ; $A2FE  19
+        PUSH HL
+        ; [FLAG] as-decoded loads the per-track/block cell, but this entry sits at a suspected
+        ; mis-aligned boundary; see summary.
+        LD HL,($A9C1)
+        ADD HL,DE
+; ----------------------------------------------------------------------
+; BDOS_RANDREC_15 -- MIS-DECODE / cover-merge boundary at $A2FF (FLAGGED, NOT split).
+;   In:        n/a.
+;   Out:       n/a.
+;   Clobbers:  n/a.
+;   Algorithm: The current decode `JP C,$D2C3` (DA C3 D2) jumps OUT of the BDOS image to
+;              $D2C3 (Apple-ROM space) -- impossible for a BDOS data path, so $A2FF is a
+;              cover-merge. Decoding $A300 gives `JP $A0D2` (in-image, coherent). HOWEVER the
+;              three callers (`JP BDOS_RANDREC_15+2` at $A5DD/$A5FB/$A623) target $A301,
+;              which is neither $A300 nor a clean entry, and canonical CP/M 2.2 uses NO db
+;              cover near seek. The true re-encoding of $A2FA-$A306 cannot be pinned from
+;              this cluster alone -- it needs the whole-file re-decode plus the $A8xx callers
+;              of RANDREC_14. NOT split here (a partial split would desync the byte-identical
+;              gate); FLAGGED instead. RELOC: blocked -- the in-image $A0D2 target hidden in
+;              these bytes cannot be safely labelized until the boundary is re-aligned across
+;              the file.
+; ----------------------------------------------------------------------
 BDOS_RANDREC_15:
-        JP C,$D2C3                       ; $A2FF  DA C3 D2
-        AND B                            ; $A302  A0
-        XOR A                            ; $A303  AF
-        LD ($A9D5),A                     ; $A304  32 D5 A9
+        ; [FLAG] MIS-DECODE: bytes DA C3 D2 -- $DA is a cover byte; the real instruction at $A300 is
+        ; JP $A0D2 (in-image). The out-of-image $D2C3 target proves the merge. Not split here
+        ; because the three +2 callers target $A301; needs the whole-file boundary re-decode (see
+        ; summary).
+        JP C,$D2C3
+        AND B
+        XOR A
+        LD ($A9D5),A
+; ----------------------------------------------------------------------
+; FCB_EXTRACT_RANDREC -- decompose the 24-bit random record number (FCB.R0/R1/R2) into the
+; current-record (CR) and extent (EX/S2) fields; head of the random-positioning path used by
+; Set-Random-Record / Read-Random / Write-Random (BDOS fns 36/33/34).
+;   In:        BDOS_DE_PARAM = &FCB; FCB.R0/R1/R2 = random record number (18 bits significant).
+;   Out:       A = CR candidate (R0 & $7F); falls into FCB_EXTENT_TO_TRKSEC, which finishes EX/S2
+;              and tests R2 for overflow; HL walks &FCB.R0..R2.
+;   Clobbers:  A,B,C,HL,DE,F; pushes BC and the CR on the stack (consumed downstream).
+;   Algorithm: point HL at FCB.R0; CR = R0 & $7F (saved); rotate R0 bit7 into the record index; read
+;              R1 then R2. The continuation builds the extent number from R1 (low 5 bits) and R1>>4
+;              (S2 nibble) and treats a nonzero R2 as a >16-bit record-number overflow. [RE]
+;              standard DRI CP/M 2.2 random-record decompose.
+; ----------------------------------------------------------------------
 FCB_EXTRACT_RANDREC:
-        PUSH BC                          ; $A307  C5
-        LD HL,(BDOS_DE_PARAM)              ; $A308  2A 43 9F
-        EX DE,HL                         ; $A30B  EB
-        LD HL,$0021                      ; $A30C  21 21 00
-        ADD HL,DE                        ; $A30F  19
-        LD A,(HL)                        ; $A310  7E
-        AND $7F                          ; $A311  E6 7F
-        PUSH AF                          ; $A313  F5
-        LD A,(HL)                        ; $A314  7E
-        RLA                              ; $A315  17
-        INC HL                           ; $A316  23
-        LD A,(HL)                        ; $A317  7E
+        PUSH BC
+        ; load the caller's FCB pointer (the BDOS DE argument)
+        LD HL,(BDOS_DE_PARAM)
+        EX DE,HL
+        LD HL,FCB_R0
+        ADD HL,DE
+        LD A,(HL)
+        ; CR candidate = R0 & $7F : current record within the extent (0..127), saved for FCB.CR
+        AND $7F
+        PUSH AF
+        LD A,(HL)
+        ; rotate R0 bit7 into carry: it is the low bit of the extent index
+        RLA
+        INC HL
+        LD A,(HL)
+; ----------------------------------------------------------------------
+; FCB_EXTENT_TO_TRKSEC -- finish building the extent number from the random record index
+; (mid-routine continuation of FCB_EXTRACT_RANDREC; also a CALL entry from the sequential/size paths
+; to recompute the FCB extent fields).
+;   In:        HL walking FCB.R1/R2, carry = R0 bit7; CR saved on the stack.
+;   Out:       C = extent-low ((R1<<1 | R0.7) & $1F); B = extent-high/S2 ((R1>>4) & $0F); A =
+;              restored CR; HL -> FCB.R2; Z reflects the R2 (overflow) test; L staged = error code
+;              6.
+;   Clobbers:  A,B,C,HL,F.
+;   Algorithm: assemble extent-low into C and the S2 nibble into B, restore CR, then INC L/DEC L
+;              sets Z from R2 (overflow) and LD L,$06 pre-stages BDOS error code 6 for the overflow
+;              exit taken in FCB_EXTENT_TO_TRKSEC_1.
+; ----------------------------------------------------------------------
 FCB_EXTENT_TO_TRKSEC:
-        RLA                              ; $A318  17
-        AND $1F                          ; $A319  E6 1F
-        LD C,A                           ; $A31B  4F
-        LD A,(HL)                        ; $A31C  7E
-        RRA                              ; $A31D  1F
-        RRA                              ; $A31E  1F
-        RRA                              ; $A31F  1F
-        RRA                              ; $A320  1F
-        AND $0F                          ; $A321  E6 0F
-        LD B,A                           ; $A323  47
-        POP AF                           ; $A324  F1
-        INC HL                           ; $A325  23
-        LD L,(HL)                        ; $A326  6E
-        INC L                            ; $A327  2C
-        DEC L                            ; $A328  2D
-        LD L,$06                         ; $A329  2E 06
+        RLA
+        ; extent-low = (R1<<1 | R0.bit7) & $1F
+        AND $1F
+        LD C,A
+        LD A,(HL)
+        RRA
+        RRA
+        RRA
+        RRA
+        AND $0F
+        LD B,A
+        ; restore the saved CR (R0 & $7F)
+        POP AF
+        INC HL
+        LD L,(HL)
+        INC L
+        DEC L
+        ; pre-stage BDOS error code 6 (record-number overflow) for the conditional exit below; used
+        ; only if that branch is taken
+        LD L,$06
+; ----------------------------------------------------------------------
+; FCB_EXTENT_TO_TRKSEC_1 -- store CR into the FCB and branch by whether the requested extent is
+; already the open one (continuation; the +2 entry is widely reused as a 'store current record'
+; helper).
+;   In:        A = CR, C = extent-low, B = extent-high/S2; DE = &FCB; Z = R2-overflow flag; L =
+;              staged err 6.
+;   Out:       no-overflow: FCB.CR := CR, then compare (C vs FCB.EX, B vs FCB.S2); overflow: take
+;              the error exit. The three branch targets are the DRI extent-already-open /
+;              reopen-extent / overflow-error handler bodies.
+;   Clobbers:  A,HL,F.
+;   Algorithm: if R2!=0 take the overflow error exit; else write CR into FCB.CR ($20) and compare
+;              the requested extent (EX/S2) with the FCB's current extent to choose open-in-place vs
+;              reopen-extent. CORRECTION: the three targets the disassembler rendered
+;              BDOS_VAR_PAGE_4/_1/_2 are NOT scratch -- they are real handler bodies addressed at
+;              their STAGING address ($A78B/$A747/$A77F); the run-base label is a disassembly-base
+;              artifact over the variable-page init image (see summary). Bytes are correct and
+;              frozen.
+; ----------------------------------------------------------------------
 FCB_EXTENT_TO_TRKSEC_1:
-        JP NZ,BDOS_VAR_PAGE_4                     ; $A32B  C2 8B A7
-        LD HL,$0020                      ; $A32E  21 20 00
-        ADD HL,DE                        ; $A331  19
-        LD (HL),A                        ; $A332  77
-        LD HL,$000C                      ; $A333  21 0C 00
-        ADD HL,DE                        ; $A336  19
-        LD A,C                           ; $A337  79
-        SUB (HL)                         ; $A338  96
-        JP NZ,BDOS_VAR_PAGE_1                     ; $A339  C2 47 A7
-        LD HL,$000E                      ; $A33C  21 0E 00
-        ADD HL,DE                        ; $A33F  19
-        LD A,B                           ; $A340  78
-        SUB (HL)                         ; $A341  96
-        AND $7F                          ; $A342  E6 7F
-        JP Z,BDOS_VAR_PAGE_2                      ; $A344  CA 7F A7
-        PUSH BC                          ; $A347  C5
-        PUSH DE                          ; $A348  D5
+        ; R2!=0 -> record number overflowed -> error exit (err 6). Operand $A78B is a STAGING
+        ; handler address; the BDOS_VAR_PAGE_4 label is a run-base shadow over the $E5 var-page
+        ; image (see summary), bytes correct
+        JP NZ,BDOS_VAR_PAGE_4
+        LD HL,FCB_CR
+        ADD HL,DE
+        ; FCB.CR := current record
+        LD (HL),A
+        LD HL,FCB_EX
+        ADD HL,DE
+        ; compare requested extent-low against FCB.EX (is the requested extent the one already
+        ; open?)
+        LD A,C
+        SUB (HL)
+        ; extent differs -> reopen the correct extent (operand $A747 = staging handler addr; label
+        ; is a run-base shadow, see summary)
+        JP NZ,BDOS_VAR_PAGE_1
+        LD HL,FCB_S2
+        ADD HL,DE
+        LD A,B
+        SUB (HL)
+        AND $7F
+        ; same extent already open -> positioning done (operand $A77F = staging handler addr; label
+        ; is a run-base shadow, see summary)
+        JP Z,BDOS_VAR_PAGE_2
+        PUSH BC
+        PUSH DE
+; ----------------------------------------------------------------------
+; FCB_EXTENT_TO_TRKSEC_2 -- reopen-extent path: read the FCB's directory entry, then commit the new
+; extent if found (continuation).
+;   In:        C = extent-low, B = extent-high; DE = &FCB.
+;   Out:       on directory match: continues to write FCB.EX/FCB.S2; BDOS_RETURN_VAL carries the
+;              search result ($FF = not found).
+;   Clobbers:  A,B,C,D,E,H,L,F; saves/restores BC,DE across the call.
+;   Algorithm: call the FCB/DPB record-read helper (named DRV_INSTALL_RWTS -- a misnomer; it is
+;              record math, not an RWTS install), restore BC/DE, then test the result and fall into
+;              FCB_EXTENT_TO_TRKSEC_3.
+; ----------------------------------------------------------------------
 FCB_EXTENT_TO_TRKSEC_2:
-        CALL DRV_INSTALL_RWTS                    ; $A349  CD A2 A4
-        POP DE                           ; $A34C  D1
-        POP BC                           ; $A34D  C1
-        LD L,$03                         ; $A34E  2E 03
-        LD A,(BDOS_RETURN_VAL)               ; $A350  3A 45 9F
+        ; read/locate the directory entry for this FCB+extent (DRV_INSTALL_RWTS is a MISNOMER:
+        ; FCB/DPB record math, not an RWTS install -- see summary)
+        CALL DRV_INSTALL_RWTS
+        POP DE
+        POP BC
+        LD L,$03
+        ; fetch the search result; INC A below sets Z when it was $FF (not found)
+        LD A,(BDOS_RETURN_VAL)
+; ----------------------------------------------------------------------
+; FCB_EXTENT_TO_TRKSEC_3 -- commit the new extent into the FCB and recompute the physical sector for
+; the new position (continuation).
+;   In:        A+1 = directory-search result (Z = not found); C = extent-low, B = extent-high; DE =
+;              &FCB.
+;   Out:       FCB.EX := C, FCB.S2 := B; runs the deblock helper; on its error -> error exit; else
+;              continue to the seek step.
+;   Clobbers:  A,HL,F.
+;   Algorithm: if the entry was not found take the not-found error exit; else write EX/S2 and call
+;              the deblock helper (DISK_STORE_SEC_TRK_7+1) to recompute the sector. CORRECTION: the
+;              Z-branch target the disassembler rendered BDOS_VAR_PAGE_3 is the real not-found error
+;              handler at staging $A784, not scratch (run-base shadow; bytes frozen).
+; ----------------------------------------------------------------------
 FCB_EXTENT_TO_TRKSEC_3:
-        INC A                            ; $A353  3C
-        JP Z,BDOS_VAR_PAGE_3                      ; $A354  CA 84 A7
-        LD HL,$000C                      ; $A357  21 0C 00
-        ADD HL,DE                        ; $A35A  19
-        LD (HL),C                        ; $A35B  71
-        LD HL,$000E                      ; $A35C  21 0E 00
-        ADD HL,DE                        ; $A35F  19
-        LD (HL),B                        ; $A360  70
-        CALL DISK_STORE_SEC_TRK_7+1                ; $A361  CD 51 A4
-        LD A,(BDOS_RETURN_VAL)               ; $A364  3A 45 9F
-        INC A                            ; $A367  3C
-        JP NZ,BDOS_VAR_PAGE_2                     ; $A368  C2 7F A7
-        POP BC                           ; $A36B  C1
-        PUSH BC                          ; $A36C  C5
-        LD L,$04                         ; $A36D  2E 04
-        INC C                            ; $A36F  0C
-        JP Z,BDOS_VAR_PAGE_3                      ; $A370  CA 84 A7
+        INC A
+        ; directory entry not found -> error exit (operand $A784 = staging error-handler addr;
+        ; BDOS_VAR_PAGE_3 is a run-base shadow over the $E5 var-page image, see summary)
+        JP Z,BDOS_VAR_PAGE_3
+        LD HL,FCB_EX
+        ADD HL,DE
+        ; FCB.EX := requested extent-low
+        LD (HL),C
+        LD HL,FCB_S2
+        ADD HL,DE
+        ; FCB.S2 := requested extent-high
+        LD (HL),B
+        ; recompute the physical sector for the new extent (BDOS deblock helper; +1 =
+        ; shared-instruction tail entry)
+        CALL DISK_STORE_SEC_TRK_7+1
+        LD A,(BDOS_RETURN_VAL)
+        INC A
+        JP NZ,BDOS_VAR_PAGE_2
+        POP BC
+        PUSH BC
+        LD L,$04
+        INC C
+        JP Z,BDOS_VAR_PAGE_3
+; ----------------------------------------------------------------------
+; FCB_EXTENT_TO_TRKSEC_4 -- advance/seek to the resolved record and check the result (continuation).
+;   In:        DE = &FCB; the deblock helper has set the sector parameters.
+;   Out:       on failure -> error exit; else continue with success.
+;   Clobbers:  A,L,F.
+;   Algorithm: call DISK_SEEK_TRACK (the sequential record-advance + select-on-change helper, not a
+;              physical seek), stage err 5, and branch to the error exit on failure.
+; ----------------------------------------------------------------------
 FCB_EXTENT_TO_TRKSEC_4:
-        CALL DISK_SEEK_TRACK                    ; $A373  CD 24 A5
-        LD L,$05                         ; $A376  2E 05
-        LD A,(BDOS_RETURN_VAL)               ; $A378  3A 45 9F
-        INC A                            ; $A37B  3C
+        ; advance to the resolved record (DISK_SEEK_TRACK is the sequential record-advance /
+        ; select-on-change helper -- a misnomer, see summary)
+        CALL DISK_SEEK_TRACK
+        ; pre-stage BDOS error code 5 for the failure exit
+        LD L,$05
+        LD A,(BDOS_RETURN_VAL)
+        INC A
+; ----------------------------------------------------------------------
+; FCB_EXTENT_TO_TRKSEC_5 -- success tail of the random-positioning path (continuation).
+;   In:        A+1 = seek result (Z = failure).
+;   Out:       failure -> error exit; success -> A := 0 and fall into FCB_EXTENT_TO_TRKSEC_6.
+;   Clobbers:  A,F; pops BC.
+;   Algorithm: branch to the error handler on failure; else restore BC and clear A (success code 0).
+;              CORRECTION: the Z-branch target rendered BDOS_VAR_PAGE_3 is the real error handler at
+;              staging $A784 (run-base shadow; bytes frozen).
+; ----------------------------------------------------------------------
 FCB_EXTENT_TO_TRKSEC_5:
-        JP Z,BDOS_VAR_PAGE_3                      ; $A37C  CA 84 A7
-        POP BC                           ; $A37F  C1
-        XOR A                            ; $A380  AF
+        ; seek failed (err 5) -> error exit (operand $A784 = staging error-handler addr; label is a
+        ; run-base shadow, see summary)
+        JP Z,BDOS_VAR_PAGE_3
+        POP BC
+        ; A := 0 : success / record positioned
+        XOR A
+; ----------------------------------------------------------------------
+; FCB_EXTENT_TO_TRKSEC_6 -- return A as the BDOS byte result (success tail).
+;   In:        A = result code.
+;   Out:       jumps to the shared 'store A as result' tail (BDOS_RET_RESULT+2), which records A
+;              into BDOS_RETURN_VAL and returns.
+;   Clobbers:  -.
+;   Algorithm: tail-jump into the common byte-result store.
+; ----------------------------------------------------------------------
 FCB_EXTENT_TO_TRKSEC_6:
-        JP BDOS_RET_RESULT+2                 ; $A381  C3 01 9F
+        ; store A as the BDOS byte result and return (shared tail; +2 = shared-instruction tail
+        ; entry past the cover)
+        JP BDOS_RET_RESULT+2
+; ----------------------------------------------------------------------
+; FCB_EXTENT_TO_TRKSEC_7 -- mark the active 128-byte record buffer in-use ($C0) and record the
+; record index as the byte result (helper reached from the read/write paths).
+;   In:        HL = buffer pointer; L = record index.
+;   Out:       (buffer status byte) := $C0; BDOS_RETURN_VAL := L; tail-jumps to DISK_RW_GUARD_1+1.
+;   Clobbers:  A,HL,BC,F.
+;   Algorithm: set the DMA read pointer, stamp the buffer-status byte $C0 (allocated + needs
+;              write-back), record the record index, and continue at the disk R/W guard.
+; ----------------------------------------------------------------------
 FCB_EXTENT_TO_TRKSEC_7:
-        PUSH HL                          ; $A384  E5
-        CALL DISK_SET_DMA_READ                    ; $A385  CD 69 A1
-        LD (HL),$C0                      ; $A388  36 C0
-        POP HL                           ; $A38A  E1
-        POP BC                           ; $A38B  C1
-        LD A,L                           ; $A38C  7D
-        LD (BDOS_RETURN_VAL),A               ; $A38D  32 45 9F
-        JP DISK_RW_GUARD_1+1                  ; $A390  C3 78 A1
+        PUSH HL
+        ; point the deblock buffer at the active DMA record
+        CALL DISK_SET_DMA_READ
+        ; stamp the record-buffer status byte = $C0 (in use / needs write-back)
+        LD (HL),$C0
+        POP HL
+        POP BC
+        LD A,L
+        LD (BDOS_RETURN_VAL),A
+        JP DISK_RW_GUARD_1+1
+; ----------------------------------------------------------------------
+; FCB_EXTENT_TO_TRKSEC_8 -- run a directory operation with the 'set/update' selector ($FF) then
+; conditionally finalize the extent (helper).
+;   In:        BDOS workspace primed by the caller.
+;   Out:       runs the directory routine; on success calls the extent-finalize step; RET.
+;   Clobbers:  A,C,F.
+;   Algorithm: C := $FF (set selector), call the directory-buffer routine, and on Z (success) call
+;              DIR_NAME_MASK_10+1. CORRECTION: the CALL target rendered BDOS_VAR_FILL_2 is the real
+;              directory routine at staging $A703, not scratch (a CALL into $E5 fill would be
+;              nonsense, which is precisely what exposed the disassembly-base error -- see summary).
+;              Bytes frozen.
+; ----------------------------------------------------------------------
 FCB_EXTENT_TO_TRKSEC_8:
-        LD C,$FF                         ; $A393  0E FF
-        CALL BDOS_VAR_FILL_2                    ; $A395  CD 03 A7
-        CALL Z,DIR_NAME_MASK_10+1             ; $A398  CC C1 A5
-        RET                              ; $A39B  C9
+        ; C := $FF : 'set/update' selector for the directory operation
+        LD C,$FF
+        ; call the directory-buffer routine (operand $A703 = STAGING address of real code;
+        ; BDOS_VAR_FILL_2 is a run-base shadow over the $E5 var-page image -- a CALL into $E5 is
+        ; impossible, confirming the base error; see summary)
+        CALL BDOS_VAR_FILL_2
+        ; on success, finalize the extent (+1 = shared-instruction tail entry)
+        CALL Z,DIR_NAME_MASK_10+1
+        RET
+; ----------------------------------------------------------------------
+; FCB_EXTENT_TO_TRKSEC_9 -- run a directory operation with the 'get/read' selector ($00), then
+; continue to the result tail (helper).
+;   In:        BDOS workspace primed by the caller.
+;   Out:       on success continue via DIR_NAME_MASK_19+2 (the HL-result return tail); fall through
+;              to the RET in _10.
+;   Clobbers:  A,C,F.
+;   Algorithm: C := $00 (read selector), call the directory routine, on Z continue at the result
+;              tail. CORRECTION: BDOS_VAR_FILL_2 target = real directory routine at staging $A703
+;              (run-base shadow; bytes frozen).
+; ----------------------------------------------------------------------
 FCB_EXTENT_TO_TRKSEC_9:
-        LD C,$00                         ; $A39C  0E 00
-        CALL BDOS_VAR_FILL_2                    ; $A39E  CD 03 A7
-        CALL Z,DIR_NAME_MASK_19+2             ; $A3A1  CC 03 A6
+        ; C := 0 : 'get/read' selector for the directory operation
+        LD C,$00
+        ; call the directory-buffer routine (operand $A703 = STAGING real-code address; label is a
+        ; run-base shadow, see summary)
+        CALL BDOS_VAR_FILL_2
+        CALL Z,DIR_NAME_MASK_19+2
+; ----------------------------------------------------------------------
+; FCB_EXTENT_TO_TRKSEC_10 -- shared RET tail for the FCB extent helpers.
+;   In:        -.
+;   Out:       returns to caller.
+;   Clobbers:  -.
+;   Algorithm: plain RET; common exit reused by several FCB-positioning callers.
+; ----------------------------------------------------------------------
 FCB_EXTENT_TO_TRKSEC_10:
-        RET                              ; $A3A4  C9
+        RET
+; ----------------------------------------------------------------------
+; FCB_ALLOC_PREP -- build the absolute record number (extent*128 + CR) from the FCB extent/record
+; fields; head of the block-number computation (partner of FCB_ALLOC_BLOCK_NUM).
+;   In:        DE/HL positioned at the FCB by the caller; uses FCB.EX.
+;   Out:       BC = running record-number accumulator; HL preserved relative to &FCB.
+;   Clobbers:  A,B,C,HL,F.
+;   Algorithm: C := CR (record within extent), B := 0; then fold FCB.EX in: rotate EX so its low bit
+;              contributes +128 and its high nibble the next weight, accumulating into BC with
+;              carry. Falls into FCB_ALLOC_BLOCK_NUM. [RE] standard DRI record-to-block setup.
+; ----------------------------------------------------------------------
 FCB_ALLOC_PREP:
-        EX DE,HL                         ; $A3A5  EB
-        ADD HL,DE                        ; $A3A6  19
-        LD C,(HL)                        ; $A3A7  4E
-        LD B,$00                         ; $A3A8  06 00
-        LD HL,$000C                      ; $A3AA  21 0C 00
-        ADD HL,DE                        ; $A3AD  19
-        LD A,(HL)                        ; $A3AE  7E
-        RRCA                             ; $A3AF  0F
-        AND $80                          ; $A3B0  E6 80
-        ADD A,C                          ; $A3B2  81
-        LD C,A                           ; $A3B3  4F
-        LD A,$00                         ; $A3B4  3E 00
-        ADC A,B                          ; $A3B6  88
-        LD B,A                           ; $A3B7  47
-        LD A,(HL)                        ; $A3B8  7E
-        RRCA                             ; $A3B9  0F
-        AND $0F                          ; $A3BA  E6 0F
-        ADD A,B                          ; $A3BC  80
-        LD B,A                           ; $A3BD  47
+        EX DE,HL
+        ADD HL,DE
+        ; C := FCB current record (CR); B := 0 -> BC = record-within-extent
+        LD C,(HL)
+        LD B,$00
+        LD HL,FCB_EX
+        ADD HL,DE
+        LD A,(HL)
+        ; rotate FCB.EX to extract its top bit as the +128 record carry
+        RRCA
+        AND $80
+        ; fold the extent's low contribution into the running record accumulator
+        ADD A,C
+        LD C,A
+        LD A,$00
+        ADC A,B
+        LD B,A
+        LD A,(HL)
+        RRCA
+        AND $0F
+        ADD A,B
+        LD B,A
+; ----------------------------------------------------------------------
+; FCB_ALLOC_BLOCK_NUM -- finish the record-number accumulation and return the record's even/odd bit
+; (continuation; also a CALL entry).
+;   In:        DE = &FCB; BC = partial accumulator from FCB_ALLOC_PREP.
+;   Out:       B = high byte of the absolute record number; A & $01 = record bit0 (even/odd, picks
+;              the buffer half).
+;   Clobbers:  A,B,HL,F; uses PUSH AF/POP HL recombine idiom.
+;   Algorithm: add FCB.S2 ($0E) shifted left 4 into the high byte, recombine via PUSH AF/POP HL, and
+;              mask bit0. [RE] standard DRI byte-vs-word allocation-map deblock feed.
+; ----------------------------------------------------------------------
 FCB_ALLOC_BLOCK_NUM:
-        LD HL,$000E                      ; $A3BE  21 0E 00
-        ADD HL,DE                        ; $A3C1  19
-        LD A,(HL)                        ; $A3C2  7E
-        ADD A,A                          ; $A3C3  87
-        ADD A,A                          ; $A3C4  87
-        ADD A,A                          ; $A3C5  87
-        ADD A,A                          ; $A3C6  87
-        PUSH AF                          ; $A3C7  F5
-        ADD A,B                          ; $A3C8  80
-        LD B,A                           ; $A3C9  47
-        PUSH AF                          ; $A3CA  F5
-        POP HL                           ; $A3CB  E1
-        LD A,L                           ; $A3CC  7D
-        POP HL                           ; $A3CD  E1
-        OR L                             ; $A3CE  B5
-        AND $01                          ; $A3CF  E6 01
+        LD HL,FCB_S2
+        ADD HL,DE
+        ; A := FCB.S2 (extent-high); shifted x4 to weight it into the high record bits
+        LD A,(HL)
+        ADD A,A
+        ADD A,A
+        ADD A,A
+        ADD A,A
+        PUSH AF
+        ADD A,B
+        LD B,A
+        PUSH AF
+        POP HL
+        LD A,L
+        POP HL
+        OR L
+        ; isolate record bit0 : even/odd record within a logical block (selects the buffer half)
+        AND $01
+; ----------------------------------------------------------------------
+; FCB_ALLOC_BLOCK_NUM_1 -- RET tail of the block-number computation.
+;   In:        flags/A from FCB_ALLOC_BLOCK_NUM.
+;   Out:       returns to caller.
+;   Clobbers:  -.
+;   Algorithm: plain RET.
+; ----------------------------------------------------------------------
 FCB_ALLOC_BLOCK_NUM_1:
-        RET                              ; $A3D1  C9
+        RET
+; ----------------------------------------------------------------------
+; FCB_ALLOC_BLOCK_NUM_2 -- (re)open the extent, zero the FCB random-record bytes, then continue in
+; the above-image handler (open/make body).
+;   In:        BDOS_DE_PARAM = &FCB.
+;   Out:       FCB.R0/R1/R2 := 0; on BDOS_CHECK_ERROR success, continue at the staging handler
+;              $A80C.
+;   Clobbers:  A,B,C,D,E,H,L,F; pushes &FCB.R0.
+;   Algorithm: with C=$0C (FCB.EX selector) assemble the extent; clear R0/R1/R2 (D=0); run
+;              BDOS_CHECK_ERROR; on success jump to staging $A80C (above-image handler tail).
+; ----------------------------------------------------------------------
 FCB_ALLOC_BLOCK_NUM_2:
-        LD C,$0C                         ; $A3D2  0E 0C
-        CALL FCB_EXTENT_TO_TRKSEC                    ; $A3D4  CD 18 A3
-        LD HL,(BDOS_DE_PARAM)              ; $A3D7  2A 43 9F
-        LD DE,$0021                      ; $A3DA  11 21 00
-        ADD HL,DE                        ; $A3DD  19
-        PUSH HL                          ; $A3DE  E5
-        LD (HL),D                        ; $A3DF  72
-        INC HL                           ; $A3E0  23
-        LD (HL),D                        ; $A3E1  72
-        INC HL                           ; $A3E2  23
-        LD (HL),D                        ; $A3E3  72
-        CALL BDOS_CHECK_ERROR                    ; $A3E4  CD F5 A1
-        JP Z,$A80C                       ; $A3E7  CA 0C A8
+        LD C,FCB_EX
+        ; assemble the extent fields for the FCB.EX selector (C=$0C)
+        CALL FCB_EXTENT_TO_TRKSEC
+        LD HL,(BDOS_DE_PARAM)
+        LD DE,FCB_R0
+        ADD HL,DE
+        PUSH HL
+        ; FCB.R0 := 0 (D=0): clear the random record number for this newly-positioned extent
+        LD (HL),D
+        INC HL
+        LD (HL),D
+        INC HL
+        LD (HL),D
+        CALL BDOS_CHECK_ERROR
+        ; on success continue in the above-image handler at staging $A80C (out-of-this-file-decode;
+        ; keep literal)
+        JP Z,$A80C
+; ----------------------------------------------------------------------
+; FCB_ALLOC_BLOCK_NUM_3 -- read the current extent's record count and feed the file-size record
+; comparison (Compute-File-Size body, BDOS fn 35).
+;   In:        directory entry/FCB located by the preceding step.
+;   Out:       record count fetched; HL restored to &FCB.R0; falls into the 24-bit compare in _4.
+;   Clobbers:  A,C,D,E,H,L,F; pops saved &FCB.R0.
+;   Algorithm: read the extent record count (DIR_SEARCH_STEP_6+1), then with DE = FCB.RC ($0F) call
+;              the record-math helper, and fall into the comparator. CORRECTION: the CALL target
+;              rendered BDOS_VAR_PAGE_7 is the real record-math helper at staging $A7A5, not scratch
+;              (run-base shadow; bytes frozen).
+; ----------------------------------------------------------------------
 FCB_ALLOC_BLOCK_NUM_3:
-        CALL DIR_SEARCH_STEP_6+1                ; $A3EA  CD 5E A1
-        LD DE,$000F                      ; $A3ED  11 0F 00
-        CALL BDOS_VAR_PAGE_7                    ; $A3F0  CD A5 A7
-        POP HL                           ; $A3F3  E1
+        ; read the current extent's record count (+1 = shared-instruction tail entry)
+        CALL DIR_SEARCH_STEP_6+1
+        LD DE,FCB_RC
+        ; call the per-extent record-math helper (operand $A7A5 = STAGING real-code address;
+        ; BDOS_VAR_PAGE_7 is a run-base shadow over the $E5 var-page image -- a CALL into $E5 would
+        ; be nonsense, see summary)
+        CALL BDOS_VAR_PAGE_7
+        POP HL
+; ----------------------------------------------------------------------
+; FCB_ALLOC_BLOCK_NUM_4 -- 24-bit signed compare of a computed record/size value against the FCB
+; random-record number (continuation; file-size vs random-record comparator).
+;   In:        C,B,A = computed value bytes; HL -> &FCB.R0..R2.
+;   Out:       performs SUB/SBC/SBC across R0,R1,R2 with borrow; carry = computed value exceeds
+;              stored.
+;   Clobbers:  A,E,HL,F; pushes HL.
+;   Algorithm: walk FCB.R0,R1,R2 with SUB then SBC then SBC to do a 24-bit compare. The C-branch
+;              that follows (in DISK_SET_SEC_PARM) is the out-of-range/error exit; its operand
+;              ($0F06) is, like the Flag-1 family, a single-base mis-resolution of an error-trap
+;              target -- bytes correct, UNKNOWN exact handler, frozen (NOT a cover split).
+; ----------------------------------------------------------------------
 FCB_ALLOC_BLOCK_NUM_4:
-        PUSH HL                          ; $A3F4  E5
-        LD E,A                           ; $A3F5  5F
-        LD A,C                           ; $A3F6  79
-        SUB (HL)                         ; $A3F7  96
-        INC HL                           ; $A3F8  23
-        LD A,B                           ; $A3F9  78
-        SBC A,(HL)                       ; $A3FA  9E
-        INC HL                           ; $A3FB  23
-        LD A,E                           ; $A3FC  7B
+        PUSH HL
+        LD E,A
+        ; begin the 24-bit compare: computed-low minus FCB.R0
+        LD A,C
+        SUB (HL)
+        INC HL
+        LD A,B
+        ; subtract FCB.R1 with borrow (middle byte of the 24-bit compare)
+        SBC A,(HL)
+        INC HL
+        LD A,E
+; ----------------------------------------------------------------------
+; DISK_SET_SEC_PARM -- (SEAM LABEL) high byte of the 24-bit record comparator; NOT an independent
+; routine.
+;   In:        A/HL mid-compare from FCB_ALLOC_BLOCK_NUM_4.
+;   Out:       finishes SBC A,(HL) for the third byte; the following JP C is the out-of-range exit.
+;   Clobbers:  A,HL,F.
+;   Algorithm: this label sits on the SBC A,(HL) that finishes the 24-bit compare; CALL
+;              DISK_SET_SEC_PARM from FCB_SET_REC_THEN_RW enters here. CORRECTION (Flag 2): JP
+;              C,$0F06 (DA 06 0F) decodes CLEANLY as a JP C,nn -- it is NOT a merged skip-cover.
+;              $0F06 is an error-trap target the single-base decode mis-resolved (same family as the
+;              Flag-1 staging-vs-run base error). Bytes correct; do NOT split; exact target UNKNOWN
+;              pending the upper-block re-DISP.
+; ----------------------------------------------------------------------
 DISK_SET_SEC_PARM:
-        SBC A,(HL)                       ; $A3FD  9E
-        JP C,$0F06                       ; $A3FE  DA 06 0F
+        SBC A,(HL)
+        ; out-of-range/error exit of the record compare; operand $0F06 is a mis-resolved error-trap
+        ; target (single-base decode artifact, NOT a cover-byte; see summary) -- bytes correct,
+        ; frozen
+        JP C,$0F06
+; ----------------------------------------------------------------------
+; DISK_STORE_SEC_TRK -- (SEAM LABEL) second multi-byte compare in the record/limit check; NOT a
+; physical sector store (the DISK_STORE_SEC_TRK* family is BDOS deblock / DPB sector<->block
+; arithmetic and buffer moves -- the name is a misnomer, see summary).
+;   In:        BC = computed value, HL = limit pointer.
+;   Out:       16-bit compare; on borrow -> the out-of-range branch; else advance HL and continue
+;              the record read.
+;   Clobbers:  A,HL,DE,F.
+;   Algorithm: SUB L / SBC A,H is a 16-bit compare of the computed value against a limit; the
+;              conditional handles out-of-range.
+; ----------------------------------------------------------------------
 DISK_STORE_SEC_TRK:
-        AND B                            ; $A401  A0
-        LD A,C                           ; $A402  79
-        SUB L                            ; $A403  95
-        LD A,B                           ; $A404  78
-        SBC A,H                          ; $A405  9C
-        JP C,READ_CON_BUF_EDIT_1+2                ; $A406  DA 0F A0
-        EX DE,HL                         ; $A409  EB
-        POP HL                           ; $A40A  E1
-        INC HL                           ; $A40B  23
-        JP DISK_READ_RECORD_3+2                  ; $A40C  C3 FA 9F
+        AND B
+        LD A,C
+        SUB L
+        LD A,B
+        SBC A,H
+        ; computed value below the limit -> out-of-range branch (+2 = shared-instruction tail entry)
+        JP C,READ_CON_BUF_EDIT_1+2
+        EX DE,HL
+        POP HL
+        INC HL
+        ; in range: advance HL and continue the record read (+2 = shared-instruction tail entry)
+        JP DISK_READ_RECORD_3+2
 DISK_STORE_SEC_TRK_1:
-        POP HL                           ; $A40F  E1
+        POP HL
+; ----------------------------------------------------------------------
+; DISK_STORE_SEC_TRK_2 -- BDOS record-buffer move setup: save the working pointers and stage the
+; source for the deblock copy.
+;   In:        DE/HL = source/destination record pointers; BC working.
+;   Out:       pushes BC,DE,HL and EX DE,HL; falls into _3.
+;   Clobbers:  stack, DE,HL.
+;   Algorithm: preserve BC/DE/HL and swap DE<->HL so the move code can index the sector buffers via
+;              the DPB pointers in the variable page.
+; ----------------------------------------------------------------------
 DISK_STORE_SEC_TRK_2:
-        PUSH BC                          ; $A410  C5
-        PUSH DE                          ; $A411  D5
-        PUSH HL                          ; $A412  E5
-        EX DE,HL                         ; $A413  EB
+        ; save the caller's working registers across the buffer move
+        PUSH BC
+        PUSH DE
+        PUSH HL
+        EX DE,HL
+; ----------------------------------------------------------------------
+; DISK_STORE_SEC_TRK_3 -- compute the source buffer address, run the above-image block move, and
+; update the two DPB record-pointer cells (continuation; +2 CALL entry from DIR_NAME_MASK_16).
+;   In:        DE = offset; var-page cell $A9CE = base buffer pointer; $A9B5/$A9B7 = record-pointer
+;              cells; $A9D0 = destination base.
+;   Out:       calls the above-image move helper ($AA1E), writes the advanced pointers back into
+;              *(A9B5)/*(A9B7), computes the residual length, then the second move ($AA30) and tail
+;              to $AA21.
+;   Clobbers:  A,B,C,D,E,H,L,F.
+;   Algorithm: HL := *(A9CE)+DE; CALL $AA1E (byte move in the BIOS-adjacent above-image region);
+;              store the post-move DE into the record cells; BC -= DE; load *(A9D0) and CALL $AA30;
+;              JP $AA21.
+; ----------------------------------------------------------------------
 DISK_STORE_SEC_TRK_3:
-        LD HL,($A9CE)                    ; $A414  2A CE A9
-        ADD HL,DE                        ; $A417  19
-        LD B,H                           ; $A418  44
-        LD C,L                           ; $A419  4D
-        CALL $AA1E                       ; $A41A  CD 1E AA
-        POP DE                           ; $A41D  D1
-        LD HL,($A9B5)                    ; $A41E  2A B5 A9
-        LD (HL),E                        ; $A421  73
-        INC HL                           ; $A422  23
-        LD (HL),D                        ; $A423  72
-        POP DE                           ; $A424  D1
+        ; base record-buffer pointer from the BDOS variable page (absolute $A9xx RAM cell, keep
+        ; literal)
+        LD HL,($A9CE)
+        ADD HL,DE
+        LD B,H
+        LD C,L
+        ; above-image block-move helper at $AA1E (BIOS-adjacent; out of this file's decode, keep
+        ; literal)
+        CALL $AA1E
+        POP DE
+        ; store the advanced source pointer back into the *(A9B5) DPB record cell
+        LD HL,($A9B5)
+        LD (HL),E
+        INC HL
+        LD (HL),D
+        POP DE
+; ----------------------------------------------------------------------
+; DISK_STORE_SEC_TRK_4 -- store the second record pointer, compute residual byte count, run the
+; second move (continuation).
+;   In:        DE = advanced pointer; BC = original count; $A9B7/$A9D0 = DPB cells.
+;   Out:       *(A9B7) := DE; BC := BC - DE; runs the second above-image move; tail to $AA21.
+;   Clobbers:  A,B,C,D,E,H,L,F.
+;   Algorithm: write DE into *(A9B7), BC -= DE, load *(A9D0) into DE, CALL $AA30, JP $AA21.
+; ----------------------------------------------------------------------
 DISK_STORE_SEC_TRK_4:
-        LD HL,($A9B7)                    ; $A425  2A B7 A9
-        LD (HL),E                        ; $A428  73
-        INC HL                           ; $A429  23
-        LD (HL),D                        ; $A42A  72
-        POP BC                           ; $A42B  C1
-        LD A,C                           ; $A42C  79
-        SUB E                            ; $A42D  93
-        LD C,A                           ; $A42E  4F
-        LD A,B                           ; $A42F  78
-        SBC A,D                          ; $A430  9A
-        LD B,A                           ; $A431  47
-        LD HL,($A9D0)                    ; $A432  2A D0 A9
-        EX DE,HL                         ; $A435  EB
-        CALL $AA30                       ; $A436  CD 30 AA
-        LD C,L                           ; $A439  4D
-        LD B,H                           ; $A43A  44
+        ; second DPB record-pointer cell (absolute $A9xx RAM, keep literal)
+        LD HL,($A9B7)
+        LD (HL),E
+        INC HL
+        LD (HL),D
+        POP BC
+        LD A,C
+        SUB E
+        LD C,A
+        LD A,B
+        SBC A,D
+        LD B,A
+        LD HL,($A9D0)
+        EX DE,HL
+        ; second above-image block-move helper at $AA30 (out of this file's decode, keep literal)
+        CALL $AA30
+        LD C,L
+        LD B,H
+; ----------------------------------------------------------------------
+; DISK_STORE_SEC_TRK_5 -- tail-jump into the above-image move finalize ($AA21).
+;   In:        BC = residual length.
+;   Out:       transfers to $AA21 (above-image).
+;   Clobbers:  -.
+;   Algorithm: BC := HL then JP $AA21.
+; ----------------------------------------------------------------------
 DISK_STORE_SEC_TRK_5:
-        JP $AA21                         ; $A43B  C3 21 AA
+        ; continue in the above-image move finalize at $AA21 (out of this file's decode, keep
+        ; literal)
+        JP $AA21
+; ----------------------------------------------------------------------
+; DISK_STORE_SEC_TRK_6 -- derive the record<->sector deblock shift from the DPB block-shift (BSH).
+;   In:        $A9C3 = BSH; $A9E3 = record byte; working cells in the var page.
+;   Out:       C = residual record-within-block bit count (8 - BSH path); branches on underflow.
+;   Clobbers:  A,B,C,HL,F.
+;   Algorithm: load BSH into C, manipulate the $A9E3 record byte (OR/RRA), decrement the counter and
+;              on underflow branch; else C := 8 - BSH. [RE] standard CP/M DPB record->sector
+;              deblock.
+; ----------------------------------------------------------------------
 DISK_STORE_SEC_TRK_6:
-        LD HL,$A9C3                      ; $A43E  21 C3 A9
-        LD C,(HL)                        ; $A441  4E
-        LD A,($A9E3)                     ; $A442  3A E3 A9
-        OR A                             ; $A445  B7
-        RRA                              ; $A446  1F
-        DEC C                            ; $A447  0D
-        JP NZ,READ_CON_BUF_EDIT_7                ; $A448  C2 45 A0
-        LD B,A                           ; $A44B  47
-        LD A,$08                         ; $A44C  3E 08
-        SUB (HL)                         ; $A44E  96
-        LD C,A                           ; $A44F  4F
+        ; &BSH (block-shift) in the BDOS variable page (absolute $A9xx RAM, keep literal)
+        LD HL,$A9C3
+        LD C,(HL)
+        LD A,($A9E3)
+        OR A
+        RRA
+        DEC C
+        JP NZ,READ_CON_BUF_EDIT_7
+        LD B,A
+        ; C := 8 - BSH : residual record-within-block bit count
+        LD A,$08
+        SUB (HL)
+        LD C,A
+; ----------------------------------------------------------------------
+; DISK_STORE_SEC_TRK_7 -- continue the record->sector shift using the $A9E2 working byte
+; (continuation; the heavily-used +1 entry, e.g. from FCB_EXTENT_TO_TRKSEC_3 and DIR_NAME_MASK_4).
+;   In:        $A9E2 = working byte; C = shift counter.
+;   Out:       counter==1 -> done; else rotate left and loop.
+;   Clobbers:  A,C,F.
+;   Algorithm: load the $A9E2 byte, DEC the counter; when it reaches 1 the shift is complete;
+;              otherwise RLA and loop via the shared-instruction tail. The +1 entry skips the LD
+;              A,($A9E2).
+; ----------------------------------------------------------------------
 DISK_STORE_SEC_TRK_7:
-        LD A,($A9E2)                     ; $A450  3A E2 A9
-        DEC C                            ; $A453  0D
-        JP Z,READ_CON_BUF_EDIT_10                 ; $A454  CA 5C A0
-        OR A                             ; $A457  B7
-        RLA                              ; $A458  17
+        ; working sector/record byte from the variable page (absolute $A9xx RAM, keep literal)
+        LD A,($A9E2)
+        DEC C
+        ; shift complete -> finalize (READ_CON_BUF_EDIT_10 is a shared instruction-tail label reused
+        ; here as a code seam)
+        JP Z,READ_CON_BUF_EDIT_10
+        OR A
+        RLA
+; ----------------------------------------------------------------------
+; DISK_STORE_SEC_TRK_8 -- loop-back of the record->sector shift (continuation; +1 entry from
+; FCB_SET_REC_FLAG_8).
+;   In:        A = partially-shifted value.
+;   Out:       jumps to the shift-loop body.
+;   Clobbers:  -.
+;   Algorithm: JP into the shift loop body (shared instruction-tail label).
+; ----------------------------------------------------------------------
 DISK_STORE_SEC_TRK_8:
-        JP READ_CON_BUF_EDIT_9+2                 ; $A459  C3 53 A0
+        ; continue the shift loop (+2 = shared-instruction tail entry)
+        JP READ_CON_BUF_EDIT_9+2
+; ----------------------------------------------------------------------
+; DISK_STORE_SEC_TRK_9 -- combine and return the shifted sector value.
+;   In:        A,B = partial sector value.
+;   Out:       A := A + B; RET.
+;   Clobbers:  A,F.
+;   Algorithm: ADD A,B then RET -- final combine of the deblock shift.
+; ----------------------------------------------------------------------
 DISK_STORE_SEC_TRK_9:
-        ADD A,B                          ; $A45C  80
-        RET                              ; $A45D  C9
+        ADD A,B
+        RET
+; ----------------------------------------------------------------------
+; DISK_STORE_SEC_TRK_10 -- index the FCB allocation map (D0..D15) by block index.
+;   In:        BDOS_DE_PARAM = &FCB; BC = block index within the extent.
+;   Out:       HL := &FCB + $10 (allocation map AL) + BC.
+;   Clobbers:  HL,DE,F.
+;   Algorithm: HL := &FCB + $10 + BC; the AL map holds the file's disk block numbers, so this yields
+;              the slot for the requested block. (The $10 offset is left literal: cpm22.inc has no
+;              FCB_AL EQU -- only the STRUCT field CPMFCB.AL in msbasic_fcb.inc.)
+; ----------------------------------------------------------------------
 DISK_STORE_SEC_TRK_10:
-        LD HL,(BDOS_DE_PARAM)              ; $A45E  2A 43 9F
-        LD DE,$0010                      ; $A461  11 10 00
-        ADD HL,DE                        ; $A464  19
-        ADD HL,BC                        ; $A465  09
+        ; HL := FCB base
+        LD HL,(BDOS_DE_PARAM)
+        LD DE,$0010
+        ADD HL,DE
+        ; index into the FCB allocation map (D0..D15) by the block number
+        ADD HL,BC
+; ----------------------------------------------------------------------
+; DISK_STORE_SEC_TRK_11 -- read the block number from the allocation map honoring 8-bit vs 16-bit
+; block format (continuation).
+;   In:        HL -> AL slot; $A9DD = block-number-width flag (0 = 8-bit blocks).
+;   Out:       8-bit: L := *(HL), H := 0; else fall into the 16-bit read.
+;   Clobbers:  A,HL,F.
+;   Algorithm: test the DPB-derived width flag; small disks use single-byte AL entries
+;              (zero-extend), large disks two bytes.
+; ----------------------------------------------------------------------
 DISK_STORE_SEC_TRK_11:
-        LD A,($A9DD)                     ; $A466  3A DD A9
-        OR A                             ; $A469  B7
-        JP Z,READ_CON_BUF_EDIT_13                 ; $A46A  CA 71 A0
-        LD L,(HL)                        ; $A46D  6E
-        LD H,$00                         ; $A46E  26 00
+        ; block-number width flag from the variable page (0 = 8-bit AL entries; absolute $A9xx RAM,
+        ; keep literal)
+        LD A,($A9DD)
+        OR A
+        JP Z,READ_CON_BUF_EDIT_13
+        ; 8-bit block format: load the single-byte block number and zero-extend
+        LD L,(HL)
+        LD H,$00
+; ----------------------------------------------------------------------
+; DISK_STORE_SEC_TRK_12 -- RET tail of the 8-bit allocation-map read.
+;   In:        HL = zero-extended block number.
+;   Out:       returns.
+;   Clobbers:  -.
+;   Algorithm: RET.
+; ----------------------------------------------------------------------
 DISK_STORE_SEC_TRK_12:
-        RET                              ; $A470  C9
+        RET
+; ----------------------------------------------------------------------
+; DISK_STORE_SEC_TRK_13 -- read a 16-bit block number from the allocation map (continuation).
+;   In:        HL -> AL slot; BC index.
+;   Out:       HL := little-endian 16-bit block number.
+;   Clobbers:  D,E,HL,F.
+;   Algorithm: HL += BC, E := *(HL), D := *(HL+1), EX DE,HL, RET.
+; ----------------------------------------------------------------------
 DISK_STORE_SEC_TRK_13:
-        ADD HL,BC                        ; $A471  09
-        LD E,(HL)                        ; $A472  5E
-        INC HL                           ; $A473  23
-        LD D,(HL)                        ; $A474  56
-        EX DE,HL                         ; $A475  EB
-        RET                              ; $A476  C9
+        ADD HL,BC
+        ; 16-bit block format: read the low byte then high byte of the block number
+        LD E,(HL)
+        INC HL
+        LD D,(HL)
+        EX DE,HL
+        RET
+; ----------------------------------------------------------------------
+; DISK_STORE_SEC_TRK_14 -- convert a block number to its first sector address and store it
+; (continuation).
+;   In:        block number reached via a shared-tail seam; BC working.
+;   Out:       ($A9E5) := computed sector/block address.
+;   Clobbers:  A,B,C,HL,F.
+;   Algorithm: read a parameter byte, call the block->sector scaler, store the result in the *(A9E5)
+;              working cell.
+; ----------------------------------------------------------------------
 DISK_STORE_SEC_TRK_14:
-        CALL READ_CON_BUF_EDIT_6+1               ; $A477  CD 3E A0
-        LD C,A                           ; $A47A  4F
-        LD B,$00                         ; $A47B  06 00
-        CALL READ_CON_BUF_EDIT_10+2               ; $A47D  CD 5E A0
+        CALL READ_CON_BUF_EDIT_6+1
+        LD C,A
+        LD B,$00
+        CALL READ_CON_BUF_EDIT_10+2
+; ----------------------------------------------------------------------
+; DISK_STORE_SEC_TRK_15 -- RET tail of _14.
+;   In:        HL stored to ($A9E5).
+;   Out:       returns.
+;   Clobbers:  -.
+;   Algorithm: RET.
+; ----------------------------------------------------------------------
 DISK_STORE_SEC_TRK_15:
-        LD ($A9E5),HL                    ; $A480  22 E5 A9
-        RET                              ; $A483  C9
+        LD ($A9E5),HL
+        RET
+; ----------------------------------------------------------------------
+; DISK_STORE_SEC_TRK_16 -- test whether the working block/sector cell is zero.
+;   In:        ($A9E5) = working value.
+;   Out:       A := L|H, Z iff zero; RET.
+;   Clobbers:  A,HL,F.
+;   Algorithm: load *(A9E5) and OR its bytes to set Z (the 'no block allocated' test).
+; ----------------------------------------------------------------------
 DISK_STORE_SEC_TRK_16:
-        LD HL,($A9E5)                    ; $A484  2A E5 A9
-        LD A,L                           ; $A487  7D
-        OR H                             ; $A488  B4
-        RET                              ; $A489  C9
+        ; load the working block/sector cell to test for zero (absolute $A9xx RAM, keep literal)
+        LD HL,($A9E5)
+        LD A,L
+        OR H
+        RET
+; ----------------------------------------------------------------------
+; DISK_STORE_SEC_TRK_17 -- scale the working block number into the absolute logical sector by BSH
+; and the block mask (continuation).
+;   In:        $A9C3 = BSH; ($A9E5) = block number; $A9C4 = BLM; $A9E3 = record-within-block.
+;   Out:       ($A9E5) := (block << BSH) | (record-within-block & BLM).
+;   Clobbers:  A,C,HL,F.
+;   Algorithm: A := BSH; shift the block left BSH times (loop body in _18/_19), then OR in the
+;              masked record-within-block ($A9E3 & BLM). [RE] standard CP/M record->sector formula.
+; ----------------------------------------------------------------------
 DISK_STORE_SEC_TRK_17:
-        LD A,($A9C3)                     ; $A48A  3A C3 A9
+        ; A := block-shift count BSH from the DPB shadow (absolute $A9xx RAM, keep literal)
+        LD A,($A9C3)
+; ----------------------------------------------------------------------
+; DISK_STORE_SEC_TRK_18 -- block<<BSH shift-loop body (continuation).
+;   In:        ($A9E5) value; A = remaining shift count.
+;   Out:       ADD HL,HL once, DEC A; loops via _19.
+;   Clobbers:  A,HL,F.
+;   Algorithm: one left shift of the block number per BSH bit.
+; ----------------------------------------------------------------------
 DISK_STORE_SEC_TRK_18:
-        LD HL,($A9E5)                    ; $A48D  2A E5 A9
-        ADD HL,HL                        ; $A490  29
-        DEC A                            ; $A491  3D
+        LD HL,($A9E5)
+        ; block number <<= 1 (one BSH bit per iteration)
+        ADD HL,HL
+        DEC A
+; ----------------------------------------------------------------------
+; DISK_STORE_SEC_TRK_19 -- finish the scale: OR in the masked record-within-block and store
+; (continuation).
+;   In:        A = shift remaining; HL = shifted block; $A9E7/$A9C4/$A9E3 working.
+;   Out:       on more shifts -> loop; else *(A9E7) := block base, then OR (record & BLM) and store
+;              *(A9E5).
+;   Clobbers:  A,C,L,HL,F.
+;   Algorithm: loop while A!=0; once done save the block base in *(A9E7), mask the
+;              record-within-block with BLM and OR it into the low byte, store the final sector
+;              index. (DIR_NEXT_ENTRY_1+1 is a shared instruction-tail seam.)
+; ----------------------------------------------------------------------
 DISK_STORE_SEC_TRK_19:
-        JP NZ,DIR_NEXT_ENTRY_1+1               ; $A492  C2 90 A0
-        LD ($A9E7),HL                    ; $A495  22 E7 A9
-        LD A,($A9C4)                     ; $A498  3A C4 A9
-        LD C,A                           ; $A49B  4F
-        LD A,($A9E3)                     ; $A49C  3A E3 A9
-        AND C                            ; $A49F  A1
-        OR L                             ; $A4A0  B5
-        LD L,A                           ; $A4A1  6F
+        ; more BSH bits to shift -> loop (+1 = shared-instruction tail entry)
+        JP NZ,DIR_NEXT_ENTRY_1+1
+        LD ($A9E7),HL
+        ; A := block mask BLM; masks the record-within-block before OR into the sector index
+        ; (absolute $A9xx RAM, keep literal)
+        LD A,($A9C4)
+        LD C,A
+        LD A,($A9E3)
+        AND C
+        OR L
+        LD L,A
+; ----------------------------------------------------------------------
+; DRV_INSTALL_RWTS -- MISNOMER: store the computed block/sector value and return; it does NOT
+; install RWTS. One-instruction store tail in the deblock chain (CALL'd from FCB_SET_REC_FLAG_3,
+; DIR_NAME_MASK_5, FCB_EXTENT_TO_TRKSEC_2).
+;   In:        HL = block/sector value.
+;   Out:       ($A9E5) := HL; RET.
+;   Clobbers:  -.
+;   Algorithm: LD ($A9E5),HL / RET. [RE] the name is wrong; this is FCB/DPB record math, not an RWTS
+;              install (whole-file rename recommended).
+; ----------------------------------------------------------------------
 DRV_INSTALL_RWTS:
-        LD ($A9E5),HL                    ; $A4A2  22 E5 A9
-        RET                              ; $A4A5  C9
+        ; store the computed sector/block value into the variable-page working cell (absolute $A9xx
+        ; RAM, keep literal); the label DRV_INSTALL_RWTS is a misnomer -- see summary
+        LD ($A9E5),HL
+        RET
+; ----------------------------------------------------------------------
+; DRV_INSTALL_RWTS_1 -- return a pointer to FCB.EX (misnomer name).
+;   In:        BDOS_DE_PARAM = &FCB.
+;   Out:       HL := &FCB.EX ($0C); RET.
+;   Clobbers:  HL,DE,F.
+;   Algorithm: HL := FCB base + FCB_EX.
+; ----------------------------------------------------------------------
 DRV_INSTALL_RWTS_1:
-        LD HL,(BDOS_DE_PARAM)              ; $A4A6  2A 43 9F
-        LD DE,$000C                      ; $A4A9  11 0C 00
-        ADD HL,DE                        ; $A4AC  19
-        RET                              ; $A4AD  C9
+        ; HL := FCB base; + FCB_EX yields &FCB.EX
+        LD HL,(BDOS_DE_PARAM)
+        LD DE,FCB_EX
+        ADD HL,DE
+        RET
+; ----------------------------------------------------------------------
+; DRV_INSTALL_RWTS_2 -- return pointers to FCB.RC and FCB.CR (misnomer name).
+;   In:        BDOS_DE_PARAM = &FCB.
+;   Out:       DE := &FCB.RC ($0F); HL := DE + $11 = &FCB.CR ($20); RET.
+;   Clobbers:  HL,DE,F.
+;   Algorithm: DE := &FCB.RC; HL := DE + $11 = &FCB.CR. Returns both cursors for the read/write
+;              step.
+; ----------------------------------------------------------------------
 DRV_INSTALL_RWTS_2:
-        LD HL,(BDOS_DE_PARAM)              ; $A4AE  2A 43 9F
-        LD DE,$000F                      ; $A4B1  11 0F 00
-        ADD HL,DE                        ; $A4B4  19
-        EX DE,HL                         ; $A4B5  EB
-        LD HL,$0011                      ; $A4B6  21 11 00
-        ADD HL,DE                        ; $A4B9  19
-        RET                              ; $A4BA  C9
+        LD HL,(BDOS_DE_PARAM)
+        ; DE := &FCB.RC (record count for the current extent)
+        LD DE,FCB_RC
+        ADD HL,DE
+        EX DE,HL
+        ; HL := DE + $11 = &FCB.CR (current record within the extent)
+        LD HL,$0011
+        ADD HL,DE
+        RET
+; ----------------------------------------------------------------------
+; DRV_INSTALL_RWTS_3 -- read the current extent's record/extent bytes from the located directory
+; entry into the BDOS working cells (misnomer name; open/extent-read body).
+;   In:        a located directory entry; DE/HL positioned by FCB_CMP_DIR_ENTRY_1+2.
+;   Out:       $A9E3 := dir-entry record byte; falls into _4.
+;   Clobbers:  A,HL,DE,F.
+;   Algorithm: position to the directory entry's record fields and capture the record byte into the
+;              $A9E3 variable-page cell.
+; ----------------------------------------------------------------------
 DRV_INSTALL_RWTS_3:
-        CALL FCB_CMP_DIR_ENTRY_1+2                ; $A4BB  CD AE A0
+        ; position to the directory entry's record fields (+2 = shared-instruction tail entry)
+        CALL FCB_CMP_DIR_ENTRY_1+2
+; ----------------------------------------------------------------------
+; DRV_INSTALL_RWTS_4 -- capture the dir-entry record byte and S2 into the working cells, then mask
+; by EXM (continuation).
+;   In:        HL/DE -> directory-entry record/extent bytes.
+;   Out:       $A9E3 := record byte, $A9E1 := extent/S2 byte, $A9E2 := (entry & EXM).
+;   Clobbers:  A,HL,DE,F.
+;   Algorithm: store the record byte to $A9E3 and the extent byte to $A9E1; re-read the entry, AND
+;              with the extent mask EXM ($A9C5), store to $A9E2 (the per-extent shadow cells the
+;              read/write logic compares).
+; ----------------------------------------------------------------------
 DRV_INSTALL_RWTS_4:
-        LD A,(HL)                        ; $A4BE  7E
-        LD ($A9E3),A                     ; $A4BF  32 E3 A9
-        EX DE,HL                         ; $A4C2  EB
-        LD A,(HL)                        ; $A4C3  7E
-        LD ($A9E1),A                     ; $A4C4  32 E1 A9
-        CALL FCB_CMP_DIR_ENTRY                    ; $A4C7  CD A6 A0
-        LD A,($A9C5)                     ; $A4CA  3A C5 A9
+        LD A,(HL)
+        ; $A9E3 := directory entry's record byte (absolute $A9xx RAM, keep literal)
+        LD ($A9E3),A
+        EX DE,HL
+        LD A,(HL)
+        ; $A9E1 := directory entry's extent/S2 byte (absolute $A9xx RAM, keep literal)
+        LD ($A9E1),A
+        CALL FCB_CMP_DIR_ENTRY
+        LD A,($A9C5)
+; ----------------------------------------------------------------------
+; DRV_INSTALL_RWTS_5 -- apply the extent mask (EXM) to the entry byte and store (continuation).
+;   In:        HL -> entry byte; $A9C5 = EXM.
+;   Out:       $A9E2 := entry & EXM; RET.
+;   Clobbers:  A,F.
+;   Algorithm: AND the entry byte with EXM -- isolates the extent bits used to test extent equality.
+; ----------------------------------------------------------------------
 DRV_INSTALL_RWTS_5:
-        AND (HL)                         ; $A4CD  A6
-        LD ($A9E2),A                     ; $A4CE  32 E2 A9
-        RET                              ; $A4D1  C9
+        ; mask the directory record byte with the extent mask EXM ($A9C5)
+        AND (HL)
+        LD ($A9E2),A
+        RET
+; ----------------------------------------------------------------------
+; DRV_INSTALL_RWTS_6 -- write-mode record-count update branch (misnomer name; reached when the
+; operation mode cell == 2). NOTE: this routine is the SAME bytes the disassembler also shadowed as
+; the 'DIR_NAME_MASK_44' NOP-pad label (its staging address $A6D2 was mis-resolved against the run
+; base -- see summary).
+;   In:        $A9D5 = operation mode; directory entry located.
+;   Out:       mode != 2 -> skip; else proceed to recompute the record count.
+;   Clobbers:  A,C,HL,DE,F.
+;   Algorithm: position to the directory entry, test the mode cell for 2 (write); only the write
+;              path updates the on-disk record count via _8.
+; ----------------------------------------------------------------------
 DRV_INSTALL_RWTS_6:
-        CALL FCB_CMP_DIR_ENTRY_1+2                ; $A4D2  CD AE A0
-        LD A,($A9D5)                     ; $A4D5  3A D5 A9
-        CP $02                           ; $A4D8  FE 02
+        CALL FCB_CMP_DIR_ENTRY_1+2
+        ; A := operation mode (variable-page cell; 2 = write/extend; absolute $A9xx RAM, keep
+        ; literal)
+        LD A,($A9D5)
+        ; is this a write operation? only then update the on-disk record count
+        CP $02
+; ----------------------------------------------------------------------
+; DRV_INSTALL_RWTS_7 -- non-write skip / start the count accumulation (continuation).
+;   In:        Z from the mode==2 test.
+;   Out:       mode != 2 -> skip the count update; else XOR A / LD C,A.
+;   Clobbers:  A,C,F.
+;   Algorithm: branch out for non-write; for write clear A and C to start the record-count
+;              accumulation.
+; ----------------------------------------------------------------------
 DRV_INSTALL_RWTS_7:
-        JP NZ,FCB_CMP_DIR_ENTRY_6+1               ; $A4DA  C2 DE A0
-        XOR A                            ; $A4DD  AF
-        LD C,A                           ; $A4DE  4F
+        ; not a write -> skip the record-count update (+1 = shared-instruction tail entry)
+        JP NZ,FCB_CMP_DIR_ENTRY_6+1
+        XOR A
+        LD C,A
+; ----------------------------------------------------------------------
+; DRV_INSTALL_RWTS_8 -- store the updated record count and extent back into the directory entry
+; (continuation).
+;   In:        $A9E3 = record byte, $A9E1 = extent byte; C = carry adjust; HL/DE -> entry fields.
+;   Out:       *(HL) := $A9E3 + C, then *(DE) := $A9E1.
+;   Clobbers:  A,HL,DE,F.
+;   Algorithm: write the recomputed record count (with the +C adjust) and the extent byte into the
+;              directory buffer entry so a later flush persists them.
+; ----------------------------------------------------------------------
 DRV_INSTALL_RWTS_8:
-        LD A,($A9E3)                     ; $A4DF  3A E3 A9
-        ADD A,C                          ; $A4E2  81
-        LD (HL),A                        ; $A4E3  77
-        EX DE,HL                         ; $A4E4  EB
-        LD A,($A9E1)                     ; $A4E5  3A E1 A9
+        ; A := new record byte; + C adjust, then stored into the dir entry (absolute $A9xx cell,
+        ; keep literal)
+        LD A,($A9E3)
+        ADD A,C
+        LD (HL),A
+        EX DE,HL
+        LD A,($A9E1)
+; ----------------------------------------------------------------------
+; DRV_INSTALL_RWTS_9 -- store the extent byte and RET (continuation).
+;   In:        A = extent byte; HL -> entry extent field.
+;   Out:       *(HL) := A; RET.
+;   Clobbers:  -.
+;   Algorithm: LD (HL),A / RET.
+; ----------------------------------------------------------------------
 DRV_INSTALL_RWTS_9:
-        LD (HL),A                        ; $A4E8  77
-        RET                              ; $A4E9  C9
+        LD (HL),A
+        RET
+; ----------------------------------------------------------------------
+; DRV_INSTALL_RWTS_10 -- conditionally halve a block/record index (record->block deblock divide);
+; misnomer name.
+;   In:        C = flag (Z = no-op), HL = value.
+;   Out:       C==0 -> RET unchanged; else HL := HL >> 1 (logical) and tail-jump to
+;              BDOS_RET_TRAMPOLINE+1.
+;   Clobbers:  A,HL,F.
+;   Algorithm: INC C/DEC C tests C; when nonzero shift HL right one bit (through H then L) to
+;              convert a record offset to a half-block index, then continue at the trampoline.
+; ----------------------------------------------------------------------
 DRV_INSTALL_RWTS_10:
-        INC C                            ; $A4EA  0C
-        DEC C                            ; $A4EB  0D
-        RET Z                            ; $A4EC  C8
-        LD A,H                           ; $A4ED  7C
-        OR A                             ; $A4EE  B7
-        RRA                              ; $A4EF  1F
-        LD H,A                           ; $A4F0  67
-        LD A,L                           ; $A4F1  7D
-        RRA                              ; $A4F2  1F
-        LD L,A                           ; $A4F3  6F
-        JP BDOS_RET_TRAMPOLINE+1                    ; $A4F4  C3 EB A0
+        ; test C for zero (INC C/DEC C sets Z without changing C): zero -> no shift
+        INC C
+        DEC C
+        RET Z
+        ; shift HL right by one bit (halve the block/record index)
+        LD A,H
+        OR A
+        RRA
+        LD H,A
+        LD A,L
+        RRA
+        LD L,A
+        JP BDOS_RET_TRAMPOLINE+1
+; ----------------------------------------------------------------------
+; DRV_INSTALL_RWTS_11 -- directory-buffer scan/checksum setup over 128 bytes at the $A9B9 buffer
+; (misnomer name).
+;   In:        $A9B9 = directory/DPB buffer pointer.
+;   Out:       primes the 128-byte accumulate loop in _12.
+;   Clobbers:  A,B,C,HL,F.
+;   Algorithm: C := $80 (one CP/M record), HL := *(A9B9), A := 0; the loop in _12 accumulates and
+;              writes back parameter cells. [RE] standard DRI directory checksum scan.
+; ----------------------------------------------------------------------
 DRV_INSTALL_RWTS_11:
-        LD C,$80                         ; $A4F7  0E 80
-        LD HL,($A9B9)                    ; $A4F9  2A B9 A9
-        XOR A                            ; $A4FC  AF
+        ; C := 128 : byte count for the directory-buffer scan (one CP/M record)
+        LD C,$80
+        ; HL := directory/DPB buffer base (absolute $A9xx RAM, keep literal)
+        LD HL,($A9B9)
+        XOR A
+; ----------------------------------------------------------------------
+; DRV_INSTALL_RWTS_12 -- directory-buffer accumulate loop + parameter write-back, then finalize and
+; continue (continuation).
+;   In:        HL = buffer pointer, C = count, A = accumulator, B/E/C params.
+;   Out:       accumulates A += *(HL) across the buffer, writes E/B/C into the cells below HL, CALLs
+;              the extent-finalize, then continues at the staging handler ($A7E4 staging = real
+;              code; see below).
+;   Clobbers:  A,B,C,HL,F.
+;   Algorithm: [RE] tight accumulate+store loop (the XOR B mid-sequence is a real instruction in the
+;              scan, not a seam). CORRECTION to the peer: this routine is the SAME bytes the
+;              disassembler also shadowed as BDOS_VAR_FILL/_1/_2 + BDOS_VAR_PAGE (its staging
+;              addresses $A6FE-$A707 were mis-resolved against the run base). The JP BDOS_VAR_PAGE_9
+;              target ($A7E4 staging) IS real handler code, not scratch. Bytes correct, frozen;
+;              recommend the upper-block re-DISP to relabel.
+; ----------------------------------------------------------------------
 DRV_INSTALL_RWTS_12:
-        ADD A,(HL)                       ; $A4FD  86
-        INC HL                           ; $A4FE  23
-        DEC C                            ; $A4FF  0D
-        XOR B                            ; $A500  A8
-        LD (HL),E                        ; $A501  73
-        DEC HL                           ; $A502  2B
-        LD (HL),B                        ; $A503  70
-        DEC HL                           ; $A504  2B
-        LD (HL),C                        ; $A505  71
-        CALL FCB_EXTENT_TO_TRKSEC_1+2                ; $A506  CD 2D A3
-        JP BDOS_VAR_PAGE_9                        ; $A509  C3 E4 A7
+        ADD A,(HL)
+        INC HL
+        DEC C
+        XOR B
+        LD (HL),E
+        DEC HL
+        LD (HL),B
+        DEC HL
+        LD (HL),C
+        ; finalize the extent fields after the scan (+2 = shared-instruction tail entry)
+        CALL FCB_EXTENT_TO_TRKSEC_1+2
+        ; tail into the directory-finalize handler (operand $A7E4 = STAGING real-code address;
+        ; BDOS_VAR_PAGE_9 is a run-base shadow over the $E5 var-page image -- see summary)
+        JP BDOS_VAR_PAGE_9
+; ----------------------------------------------------------------------
+; DRV_INSTALL_RWTS_13 -- POP HL / RET cleanup tail.
+;   In:        stack top = saved HL.
+;   Out:       restores HL and returns.
+;   Clobbers:  HL.
+;   Algorithm: POP HL / RET.
+; ----------------------------------------------------------------------
 DRV_INSTALL_RWTS_13:
-        POP HL                           ; $A50C  E1
-        RET                              ; $A50D  C9
+        POP HL
+        RET
+; ----------------------------------------------------------------------
+; DRV_INSTALL_RWTS_14 -- store a computed record number into FCB.R0/R1/R2 (misnomer name; the
+; Set-Random-Record store, BDOS fn 36).
+;   In:        BDOS_DE_PARAM = &FCB; C/B/A = record number bytes.
+;   Out:       FCB.R0 := C, FCB.R1 := B, FCB.R2 := A.
+;   Clobbers:  A,HL,DE,F.
+;   Algorithm: DE := &FCB.CR ($20), call the record-math helper, then store C/B/A into FCB.R0/R1/R2
+;              ($21/$22/$23). CORRECTION: the CALL target rendered BDOS_VAR_PAGE_7 is the real
+;              record-math helper at staging $A7A5, not scratch (run-base shadow; bytes frozen).
+; ----------------------------------------------------------------------
 DRV_INSTALL_RWTS_14:
-        LD HL,(BDOS_DE_PARAM)              ; $A50E  2A 43 9F
-        LD DE,$0020                      ; $A511  11 20 00
-        CALL BDOS_VAR_PAGE_7                    ; $A514  CD A5 A7
+        LD HL,(BDOS_DE_PARAM)
+        LD DE,FCB_CR
+        ; call the record-math helper (operand $A7A5 = STAGING real-code address; BDOS_VAR_PAGE_7 is
+        ; a run-base shadow over the $E5 var-page image, see summary)
+        CALL BDOS_VAR_PAGE_7
+; ----------------------------------------------------------------------
+; DRV_INSTALL_RWTS_15 -- store the random record bytes into FCB.R0/R1 (continuation; also JP'd from
+; CON_START_COLUMN).
+;   In:        DE = &FCB; C/B/A = record number bytes.
+;   Out:       FCB.R0 := C, FCB.R1 := B; falls into _16 for FCB.R2 := A.
+;   Clobbers:  HL,F.
+;   Algorithm: HL := &FCB.R0 ($21); store C then B at R0/R1, advance to R2.
+; ----------------------------------------------------------------------
 DRV_INSTALL_RWTS_15:
-        LD HL,$0021                      ; $A517  21 21 00
-        ADD HL,DE                        ; $A51A  19
-        LD (HL),C                        ; $A51B  71
-        INC HL                           ; $A51C  23
-        LD (HL),B                        ; $A51D  70
-        INC HL                           ; $A51E  23
+        LD HL,FCB_R0
+        ADD HL,DE
+        ; FCB.R0 := record-number low byte
+        LD (HL),C
+        INC HL
+        ; FCB.R1 := record-number middle byte
+        LD (HL),B
+        INC HL
+; ----------------------------------------------------------------------
+; DRV_INSTALL_RWTS_16 -- store FCB.R2 and RET (continuation).
+;   In:        HL -> FCB.R2; A = record-number high byte.
+;   Out:       FCB.R2 := A; RET.
+;   Clobbers:  -.
+;   Algorithm: LD (HL),A / RET -- completes the 3-byte random record store.
+; ----------------------------------------------------------------------
 DRV_INSTALL_RWTS_16:
-        LD (HL),A                        ; $A51F  77
-        RET                              ; $A520  C9
+        ; FCB.R2 := record-number high/overflow byte
+        LD (HL),A
+        RET
+; ----------------------------------------------------------------------
+; DRV_INSTALL_RWTS_17 -- load the saved record/login vector from $A9AF and fall into
+; DISK_SEEK_TRACK.
+;   In:        $A9AF = saved record/login vector cell.
+;   Out:       HL := *(A9AF); falls into DISK_SEEK_TRACK.
+;   Clobbers:  HL.
+;   Algorithm: load the working pointer then continue into the record-advance path.
+; ----------------------------------------------------------------------
 DRV_INSTALL_RWTS_17:
-        LD HL,($A9AF)                    ; $A521  2A AF A9
+        ; load the saved record/login working pointer (absolute $A9xx RAM, keep literal)
+        LD HL,($A9AF)
+; ----------------------------------------------------------------------
+; DISK_SEEK_TRACK -- advance to the next directory/record position and update the login/working
+; vector (MISNOMER: sequential record-advance + login-vector maintenance, NOT a physical seek -- see
+; summary).
+;   In:        FCB_USER_SCRATCH = current user/drive; $A9AF = working record vector.
+;   Out:       advances the record cursor; updates *(A9AF); continues at BDOS_RANDREC_6+2.
+;   Clobbers:  A,B,C,H,L,DE,F.
+;   Algorithm: load the current user into C, run the record-step helpers (FCB_SET_REC_FLAG_2+2,
+;              conditionally FCB_INC_REC_PTR), re-derive the working vector, step the directory
+;              (DIR_SEARCH_STEP), store the new vector and continue.
+; ----------------------------------------------------------------------
 DISK_SEEK_TRACK:
-        LD A,(FCB_USER_SCRATCH)               ; $A524  3A 42 9F
-        LD C,A                           ; $A527  4F
-        CALL BDOS_RET_TRAMPOLINE                    ; $A528  CD EA A0
-        PUSH HL                          ; $A52B  E5
-        EX DE,HL                         ; $A52C  EB
-        CALL FCB_SET_REC_FLAG_2+2                ; $A52D  CD 59 9F
-        POP HL                           ; $A530  E1
-        CALL Z,FCB_INC_REC_PTR                  ; $A531  CC 47 9F
-        LD A,L                           ; $A534  7D
-        RRA                              ; $A535  1F
-        RET C                            ; $A536  D8
-        LD HL,($A9AF)                    ; $A537  2A AF A9
-        LD C,L                           ; $A53A  4D
-        LD B,H                           ; $A53B  44
-        CALL DIR_SEARCH_STEP                    ; $A53C  CD 0B A1
-        LD ($A9AF),HL                    ; $A53F  22 AF A9
-        JP BDOS_RANDREC_6+2                  ; $A542  C3 A3 A2
+        ; A := current user/drive scratch value
+        LD A,(FCB_USER_SCRATCH)
+        LD C,A
+        CALL BDOS_RET_TRAMPOLINE
+        PUSH HL
+        EX DE,HL
+        CALL FCB_SET_REC_FLAG_2+2
+        POP HL
+        ; advance the FCB record pointer when the prior step succeeded
+        CALL Z,FCB_INC_REC_PTR
+        LD A,L
+        RRA
+        RET C
+        LD HL,($A9AF)
+        LD C,L
+        LD B,H
+        CALL DIR_SEARCH_STEP
+        ; save the updated working record/login vector (absolute $A9xx RAM, keep literal)
+        LD ($A9AF),HL
+        JP BDOS_RANDREC_6+2
+; ----------------------------------------------------------------------
+; DISK_SEEK_TRACK_1 -- re-select the drive if it changed (the +1 entry FCB_INC_REC_PTR_1 jumps
+; here). NOTE: this routine is the SAME bytes the disassembler also shadowed as BDOS_VAR_PAGE_1
+; (staging $A747 mis-resolved against the run base -- see summary).
+;   In:        $A9D6 = requested drive; FCB_USER_SCRATCH = selected drive.
+;   Out:       unchanged -> RET; changed -> update FCB_USER_SCRATCH and jump to the above-image
+;              select handler $A821.
+;   Clobbers:  A,HL,F.
+;   Algorithm: compare requested vs selected drive; on change, record it and dispatch the
+;              above-image select/login at staging $A821.
+; ----------------------------------------------------------------------
 DISK_SEEK_TRACK_1:
-        LD A,($A9D6)                     ; $A545  3A D6 A9
-        LD HL,FCB_USER_SCRATCH                ; $A548  21 42 9F
-        CP (HL)                          ; $A54B  BE
-        RET Z                            ; $A54C  C8
-        LD (HL),A                        ; $A54D  77
-        JP $A821                         ; $A54E  C3 21 A8
+        ; A := requested drive (absolute $A9xx RAM, keep literal)
+        LD A,($A9D6)
+        LD HL,FCB_USER_SCRATCH
+        CP (HL)
+        RET Z
+        LD (HL),A
+        ; drive changed -> above-image select/login handler at staging $A821 (out of this file's
+        ; decode, keep literal)
+        JP $A821
+; ----------------------------------------------------------------------
+; DISK_SEEK_TRACK_2 -- begin Select-Disk / directory-search setup: arm the search-active flag and
+; read the FCB drive byte (head of the DIR_NAME_MASK group; reached from Open/Search/Select paths).
+;   In:        BDOS_DE_PARAM = &FCB.
+;   Out:       $A9DE := $FF (search-active); A := FCB.DR; falls into DIR_NAME_MASK.
+;   Clobbers:  A,HL,F.
+;   Algorithm: set the search-active flag and load the FCB drive byte to be masked by DIR_NAME_MASK.
+; ----------------------------------------------------------------------
 DISK_SEEK_TRACK_2:
-        LD A,$FF                         ; $A551  3E FF
-        LD ($A9DE),A                     ; $A553  32 DE A9
-        LD HL,(BDOS_DE_PARAM)              ; $A556  2A 43 9F
-        LD A,(HL)                        ; $A559  7E
+        ; arm the directory-search-active flag
+        LD A,$FF
+        ; $A9DE := $FF : a drive/search operation is in progress (absolute $A9xx RAM, keep literal)
+        LD ($A9DE),A
+        LD HL,(BDOS_DE_PARAM)
+        ; A := FCB.DR (drive code in byte 0 of the FCB)
+        LD A,(HL)
+; ----------------------------------------------------------------------
+; DIR_NAME_MASK -- mask the FCB drive/user prefix and select the requested drive before a directory
+; operation, snapshotting the prior drive for restore.
+;   In:        A = FCB.DR; HL = &FCB.DR; FCB_USER_SCRATCH = current drive; BDOS_DEFAULT_FCB+2 =
+;              current user.
+;   Out:       $A9D6 := (DR&$1F)-1; saves old drive ($A9DF) + original FCB byte ($A9E0); FCB.DR :=
+;              DR & $E0; selects the drive (staging $A845); merges the user number into FCB.DR.
+;   Clobbers:  A,HL,F.
+;   Algorithm: drive = (DR&$1F)-1; if >= $1E take the above-image special/error path ($A875); else
+;              snapshot, clear the drive nibble (keep attribute bits), CALL Select-Disk ($A845), and
+;              OR the active user number into FCB.DR so the match uses the right user. [DOC CPMREF:
+;              FCB drive/user prefix]
+; ----------------------------------------------------------------------
 DIR_NAME_MASK:
-        AND $1F                          ; $A55A  E6 1F
-        DEC A                            ; $A55C  3D
-        LD ($A9D6),A                     ; $A55D  32 D6 A9
-        CP $1E                           ; $A560  FE 1E
-        JP NC,$A875                      ; $A562  D2 75 A8
-        LD A,(FCB_USER_SCRATCH)               ; $A565  3A 42 9F
-        LD ($A9DF),A                     ; $A568  32 DF A9
-        LD A,(HL)                        ; $A56B  7E
-        LD ($A9E0),A                     ; $A56C  32 E0 A9
-        AND $E0                          ; $A56F  E6 E0
-        LD (HL),A                        ; $A571  77
-        CALL $A845                       ; $A572  CD 45 A8
-        LD A,(BDOS_DEFAULT_FCB+2)             ; $A575  3A 41 9F
-        LD HL,(BDOS_DE_PARAM)              ; $A578  2A 43 9F
-        OR (HL)                          ; $A57B  B6
-        LD (HL),A                        ; $A57C  77
-        RET                              ; $A57D  C9
+        ; isolate the drive code from FCB.DR (low 5 bits); 0 = default, 1..16 = A..P
+        AND $1F
+        DEC A
+        LD ($A9D6),A
+        ; drive index >= 30 ($1E) is out of range -> above-image special/error path
+        CP $1E
+        JP NC,$A875
+        LD A,(FCB_USER_SCRATCH)
+        LD ($A9DF),A
+        LD A,(HL)
+        LD ($A9E0),A
+        ; clear the drive nibble, keep the high attribute bits, before re-stamping the user number
+        AND $E0
+        LD (HL),A
+        ; above-image Select-Disk handler at staging $A845 (out of this file's decode, keep literal)
+        CALL $A845
+        LD A,(BDOS_DEFAULT_FCB+2)
+        LD HL,(BDOS_DE_PARAM)
+        ; merge the current user number (from BDOS_DEFAULT_FCB+2) into the FCB drive/user byte
+        OR (HL)
+        LD (HL),A
+        RET
+; ----------------------------------------------------------------------
+; DIR_NAME_MASK_1 -- return BDOS code $22 (bad-drive/select error return; reached from the
+; out-of-range drive path). NOTE: this is the SAME bytes the disassembler also shadowed as
+; BDOS_VAR_PAGE_2 (staging $A77F mis-resolved against the run base -- see summary).
+;   In:        -.
+;   Out:       A := $22; jumps to the BDOS result tail.
+;   Clobbers:  A.
+;   Algorithm: A := $22 then JP BDOS_RET_RESULT+2. [RE] $22 is this build's select/bad-drive code
+;              (not a standard CP/M directory return code).
+; ----------------------------------------------------------------------
 DIR_NAME_MASK_1:
-        LD A,$22                         ; $A57E  3E 22
-        JP BDOS_RET_RESULT+2                 ; $A580  C3 01 9F
+        ; [RE] return code $22 : bad-drive / select error (build-specific value)
+        LD A,$22
+        JP BDOS_RET_RESULT+2
+; ----------------------------------------------------------------------
+; DIR_NAME_MASK_2 -- Reset Disk System (BDOS fn 13): clear the login/record vectors, set the default
+; DMA, re-login. NOTE: this is the SAME bytes the disassembler also shadowed as BDOS_VAR_PAGE_3/_4
+; (staging $A784/$A78B mis-resolved against the run base -- see summary).
+;   In:        -.
+;   Out:       ($A9AD)/($A9AF) := 0, FCB_USER_SCRATCH := 0, DMA cell ($A9B1) := TBUFF; dispatch the
+;              above-image login at $A821.
+;   Clobbers:  A,HL,F.
+;   Algorithm: zero the login/alloc vector and the working record vector, clear the selected drive,
+;              set the DMA pointer to the default buffer TBUFF ($0080), and jump to the above-image
+;              select/login at staging $A821.
+; ----------------------------------------------------------------------
 DIR_NAME_MASK_2:
-        LD HL,$0000                      ; $A583  21 00 00
-        LD ($A9AD),HL                    ; $A586  22 AD A9
-        LD ($A9AF),HL                    ; $A589  22 AF A9
-        XOR A                            ; $A58C  AF
+        LD HL,$0000
+        ; clear the login/alloc accumulator (absolute $A9xx RAM, keep literal)
+        LD ($A9AD),HL
+        ; clear the working record vector (absolute $A9xx RAM, keep literal)
+        LD ($A9AF),HL
+        XOR A
+; ----------------------------------------------------------------------
+; DIR_NAME_MASK_3 -- clear the selected-drive scratch (continuation of the reset path).
+;   In:        A = 0.
+;   Out:       FCB_USER_SCRATCH := 0; continues to set the DMA pointer.
+;   Clobbers:  -.
+;   Algorithm: store 0 into the current-drive scratch cell.
+; ----------------------------------------------------------------------
 DIR_NAME_MASK_3:
-        LD (FCB_USER_SCRATCH),A               ; $A58D  32 42 9F
-        LD HL,$0080                      ; $A590  21 80 00
-        LD ($A9B1),HL                    ; $A593  22 B1 A9
-        CALL DISK_DEBLOCK_2+2                ; $A596  CD DA A1
-        JP $A821                         ; $A599  C3 21 A8
+        ; selected-drive scratch := 0 (drive A / default)
+        LD (FCB_USER_SCRATCH),A
+        LD HL,$0080
+        LD ($A9B1),HL
+        CALL DISK_DEBLOCK_2+2
+        JP $A821
+; ----------------------------------------------------------------------
+; DIR_NAME_MASK_4 -- Open File body (BDOS fn 15): login guard, directory-search prologue, then load
+; the extent (dispatched from the above-image $A89C handler).
+;   In:        BDOS_DE_PARAM = &FCB.
+;   Out:       runs DISK_RW_GUARD, the above-image dir prologue ($A851), then the deblock
+;              (DISK_STORE_SEC_TRK_7+1).
+;   Clobbers:  A,B,C,D,E,H,L,F.
+;   Algorithm: ensure logged in, call the directory-search prologue, then enter the record/extent
+;              deblock.
+; ----------------------------------------------------------------------
 DIR_NAME_MASK_4:
-        CALL DISK_RW_GUARD                    ; $A59C  CD 72 A1
-        CALL $A851                       ; $A59F  CD 51 A8
-        JP DISK_STORE_SEC_TRK_7+1                  ; $A5A2  C3 51 A4
+        ; ensure the current drive is logged in / writable before the directory access
+        CALL DISK_RW_GUARD
+        ; above-image directory-search prologue at staging $A851 (out of this file's decode, keep
+        ; literal)
+        CALL $A851
+        JP DISK_STORE_SEC_TRK_7+1
+; ----------------------------------------------------------------------
+; DIR_NAME_MASK_5 -- Close File body (BDOS fn 16): directory prologue then commit via the store tail
+; (dispatched from above-image $A8A5).
+;   In:        BDOS_DE_PARAM = &FCB.
+;   Out:       calls $A851 then jumps to DRV_INSTALL_RWTS (the store/commit tail).
+;   Clobbers:  A,HL,F.
+;   Algorithm: run the directory prologue and commit the FCB's directory entry.
+; ----------------------------------------------------------------------
 DIR_NAME_MASK_5:
-        CALL $A851                       ; $A5A5  CD 51 A8
-        JP DRV_INSTALL_RWTS                      ; $A5A8  C3 A2 A4
+        ; above-image directory-search prologue at staging $A851 (out of this file's decode, keep
+        ; literal)
+        CALL $A851
+        ; commit/store the result (DRV_INSTALL_RWTS is the store tail -- a misnomer, see summary)
+        JP DRV_INSTALL_RWTS
+; ----------------------------------------------------------------------
+; DIR_NAME_MASK_6 -- begin matching an FCB filename against a directory entry, with '?' wildcard
+; handling (name-compare prologue).
+;   In:        DE -> directory entry.
+;   Out:       reads the entry's first byte; '?' -> above-image match-any ($A8C2); else compare
+;              names.
+;   Clobbers:  A,C,HL,DE,F.
+;   Algorithm: C := 0, EX DE,HL so HL -> entry, read *(HL); if '?' the FCB matches any entry; else
+;              compare. [DOC CPMREF: '?' = directory match-any]
+; ----------------------------------------------------------------------
 DIR_NAME_MASK_6:
-        LD C,$00                         ; $A5AB  0E 00
-        EX DE,HL                         ; $A5AD  EB
-        LD A,(HL)                        ; $A5AE  7E
+        LD C,$00
+        EX DE,HL
+        ; read the directory entry's first byte (status / first filename char)
+        LD A,(HL)
+; ----------------------------------------------------------------------
+; DIR_NAME_MASK_7 -- '?' wildcard test on the entry (continuation; JP'd from FCB_SET_REC_FLAG_7).
+;   In:        A = entry byte.
+;   Out:       A == '?' -> above-image match-any ($A8C2); else fall into the compare.
+;   Clobbers:  F.
+;   Algorithm: compare the entry byte against the '?' wildcard marker.
+; ----------------------------------------------------------------------
 DIR_NAME_MASK_7:
-        CP $3F                           ; $A5AF  FE 3F
-        JP Z,$A8C2                       ; $A5B1  CA C2 A8
+        ; is the entry byte '?' (CP/M directory match-any wildcard)?
+        CP '?'
+        ; wildcard -> above-image match-any handler at staging $A8C2 (out of this file's decode,
+        ; keep literal)
+        JP Z,$A8C2
+; ----------------------------------------------------------------------
+; DIR_NAME_MASK_8 -- compare the FCB name/type against the directory entry (continuation).
+;   In:        HL/DE -> entry and FCB name fields.
+;   Out:       per-byte compare; '?' positions match any; on mismatch -> guard/next-entry.
+;   Clobbers:  A,HL,DE,F.
+;   Algorithm: call the byte comparator, re-test the entry byte for '?', and on a non-wildcard
+;              mismatch run DISK_RW_GUARD.
+; ----------------------------------------------------------------------
 DIR_NAME_MASK_8:
-        CALL FCB_CMP_DIR_ENTRY                    ; $A5B4  CD A6 A0
-        LD A,(HL)                        ; $A5B7  7E
-        CP $3F                           ; $A5B8  FE 3F
+        ; compare the FCB name/type bytes against this directory entry
+        CALL FCB_CMP_DIR_ENTRY
+        LD A,(HL)
+        ; treat '?' positions as match-any
+        CP '?'
+; ----------------------------------------------------------------------
+; DIR_NAME_MASK_9 -- on name mismatch, run the login guard then the directory prologue
+; (continuation; +2 CALL entry from DIR_NAME_MASK_13).
+;   In:        flags from the compare.
+;   Out:       conditional DISK_RW_GUARD then $A851 prologue; falls into _10.
+;   Clobbers:  A,HL,F.
+;   Algorithm: NZ (mismatch) -> guard; always run the prologue before reading the next entry.
+; ----------------------------------------------------------------------
 DIR_NAME_MASK_9:
-        CALL NZ,DISK_RW_GUARD                 ; $A5BA  C4 72 A1
-        CALL $A851                       ; $A5BD  CD 51 A8
+        ; on name mismatch, re-assert the drive login/guard
+        CALL NZ,DISK_RW_GUARD
+        ; above-image directory-search prologue at staging $A851 (out of this file's decode, keep
+        ; literal)
+        CALL $A851
+; ----------------------------------------------------------------------
+; DIR_NAME_MASK_10 -- assemble the extent for the FCB.RC selector then dispatch the deblock-complete
+; path (continuation; +1 entry from FCB_EXTENT_TO_TRKSEC_8).
+;   In:        DE = &FCB.
+;   Out:       C := $0F (RC selector); FCB_EXTENT_TO_TRKSEC then JP DISK_DEBLOCK_4.
+;   Clobbers:  A,B,C,H,L,F.
+;   Algorithm: select FCB.RC via C, assemble the extent, dispatch deblock-complete.
+; ----------------------------------------------------------------------
 DIR_NAME_MASK_10:
-        LD C,$0F                         ; $A5C0  0E 0F
-        CALL FCB_EXTENT_TO_TRKSEC                    ; $A5C2  CD 18 A3
-        JP DISK_DEBLOCK_4                    ; $A5C5  C3 E9 A1
+        LD C,FCB_RC
+        ; assemble the extent for the FCB.RC selector
+        CALL FCB_EXTENT_TO_TRKSEC
+        JP DISK_DEBLOCK_4
+; ----------------------------------------------------------------------
+; DIR_NAME_MASK_11 -- redirect the active FCB to the saved copy ($A9D9) and re-run the prologue +
+; extent (continuation; delete/rename helper). NOTE: this routine is the SAME bytes the disassembler
+; also shadowed as BDOS_VAR_PAGE_8 (staging $A7D2 mis-resolved against the run base -- see summary).
+;   In:        $A9D9 = saved FCB pointer.
+;   Out:       BDOS_DE_PARAM := *(A9D9); runs $A851 + FCB_EXTENT_TO_TRKSEC_1+2; JP DISK_DEBLOCK_4.
+;   Clobbers:  A,HL,F.
+;   Algorithm: switch the active FCB to the saved copy, re-run the directory prologue and extent
+;              assembly.
+; ----------------------------------------------------------------------
 DIR_NAME_MASK_11:
-        LD HL,($A9D9)                    ; $A5C8  2A D9 A9
-        LD (BDOS_DE_PARAM),HL              ; $A5CB  22 43 9F
-        CALL $A851                       ; $A5CE  CD 51 A8
-        CALL FCB_EXTENT_TO_TRKSEC_1+2                ; $A5D1  CD 2D A3
-        JP DISK_DEBLOCK_4                    ; $A5D4  C3 E9 A1
+        ; load the saved FCB pointer (absolute $A9xx RAM, keep literal)
+        LD HL,($A9D9)
+        ; redirect the BDOS argument to the saved FCB
+        LD (BDOS_DE_PARAM),HL
+        CALL $A851
+        CALL FCB_EXTENT_TO_TRKSEC_1+2
+        JP DISK_DEBLOCK_4
+; ----------------------------------------------------------------------
+; DIR_NAME_MASK_12 -- prologue then the get/read directory operation, returning via the
+; random-record result tail (continuation).
+;   In:        BDOS workspace primed.
+;   Out:       $A851 prologue, FCB_EXTENT_TO_TRKSEC_9, then BDOS_RANDREC_15+2.
+;   Clobbers:  A,HL,F.
+;   Algorithm: directory prologue, read-selector directory step, continue at the result tail.
+; ----------------------------------------------------------------------
 DIR_NAME_MASK_12:
-        CALL $A851                       ; $A5D7  CD 51 A8
-        CALL FCB_EXTENT_TO_TRKSEC_9                    ; $A5DA  CD 9C A3
-        JP BDOS_RANDREC_15+2                 ; $A5DD  C3 01 A3
+        ; above-image directory-search prologue at staging $A851 (out of this file's decode, keep
+        ; literal)
+        CALL $A851
+        CALL FCB_EXTENT_TO_TRKSEC_9
+        JP BDOS_RANDREC_15+2
+; ----------------------------------------------------------------------
+; DIR_NAME_MASK_13 -- prologue then re-enter the name-compare mismatch path (continuation). NOTE:
+; this routine is the SAME bytes the disassembler also shadowed as BDOS_VAR_PAGE_9 (staging $A7E4
+; mis-resolved against the run base -- see summary).
+;   In:        BDOS workspace primed.
+;   Out:       $A851 prologue then JP DIR_NAME_MASK_9+2.
+;   Clobbers:  A,HL,F.
+;   Algorithm: directory prologue then resume the per-entry compare.
+; ----------------------------------------------------------------------
 DIR_NAME_MASK_13:
-        CALL $A851                       ; $A5E0  CD 51 A8
-        JP DIR_NAME_MASK_9+2                  ; $A5E3  C3 BC A5
+        ; above-image directory-search prologue at staging $A851 (out of this file's decode, keep
+        ; literal)
+        CALL $A851
+        JP DIR_NAME_MASK_9+2
+; ----------------------------------------------------------------------
+; DIR_NAME_MASK_14 -- prologue then read the working record vector (continuation; JP'd from
+; DISK_READ_RECORD_1).
+;   In:        BDOS workspace primed.
+;   Out:       $A851 prologue then JP DIR_NAME_MASK_18.
+;   Clobbers:  A,HL,F.
+;   Algorithm: directory prologue then continue at the vector-return path.
+; ----------------------------------------------------------------------
 DIR_NAME_MASK_14:
-        CALL $A851                       ; $A5E6  CD 51 A8
-        JP DIR_NAME_MASK_18                   ; $A5E9  C3 FE A5
+        ; above-image directory-search prologue at staging $A851 (out of this file's decode, keep
+        ; literal)
+        CALL $A851
+        JP DIR_NAME_MASK_18
+; ----------------------------------------------------------------------
+; DIR_NAME_MASK_15 -- guard + prologue then the record-advance (continuation).
+;   In:        BDOS workspace primed.
+;   Out:       DISK_RW_GUARD, $A851 prologue, then JP DISK_SEEK_TRACK.
+;   Clobbers:  A,B,C,H,L,DE,F.
+;   Algorithm: ensure login, run the prologue, advance the record.
+; ----------------------------------------------------------------------
 DIR_NAME_MASK_15:
-        CALL DISK_RW_GUARD                    ; $A5EC  CD 72 A1
-        CALL $A851                       ; $A5EF  CD 51 A8
-        JP DISK_SEEK_TRACK                      ; $A5F2  C3 24 A5
+        CALL DISK_RW_GUARD
+        ; above-image directory-search prologue at staging $A851 (out of this file's decode, keep
+        ; literal)
+        CALL $A851
+        JP DISK_SEEK_TRACK
+; ----------------------------------------------------------------------
+; DIR_NAME_MASK_16 -- prologue then the record buffer-move (continuation).
+;   In:        BDOS workspace primed.
+;   Out:       $A851 prologue, CALL DISK_STORE_SEC_TRK_3+2, then BDOS_RANDREC_15+2.
+;   Clobbers:  A,B,C,D,E,H,L,F.
+;   Algorithm: directory prologue then run the buffer move and return via the random-record tail.
+; ----------------------------------------------------------------------
 DIR_NAME_MASK_16:
-        CALL $A851                       ; $A5F5  CD 51 A8
-        CALL DISK_STORE_SEC_TRK_3+2                ; $A5F8  CD 16 A4
+        CALL $A851
+        ; run the record buffer move (+2 = shared-instruction tail entry)
+        CALL DISK_STORE_SEC_TRK_3+2
+; ----------------------------------------------------------------------
+; DIR_NAME_MASK_17 -- jump to the random-record result tail (common exit).
+;   In:        -.
+;   Out:       JP BDOS_RANDREC_15+2.
+;   Clobbers:  -.
+;   Algorithm: tail-jump into the random-record return code.
+; ----------------------------------------------------------------------
 DIR_NAME_MASK_17:
-        JP BDOS_RANDREC_15+2                 ; $A5FB  C3 01 A3
+        JP BDOS_RANDREC_15+2
+; ----------------------------------------------------------------------
+; DIR_NAME_MASK_18 -- load the working record/login vector for a vector-return function
+; (continuation).
+;   In:        $A9AF = working vector.
+;   Out:       HL := *(A9AF); falls into DIR_NAME_MASK_19.
+;   Clobbers:  HL.
+;   Algorithm: fetch the working vector to return in HL.
+; ----------------------------------------------------------------------
 DIR_NAME_MASK_18:
-        LD HL,($A9AF)                    ; $A5FE  2A AF A9
+        ; load the working record/login vector (absolute $A9xx RAM, keep literal)
+        LD HL,($A9AF)
+; ----------------------------------------------------------------------
+; DIR_NAME_MASK_19 -- dispatch to the above-image HL-result return ($A929) (the +2 entry is a common
+; 'return HL' tail).
+;   In:        HL = the word result.
+;   Out:       JP $A929 (above-image: store HL into BDOS_RETURN_VAL and return).
+;   Clobbers:  -.
+;   Algorithm: tail into the above-image word-result return.
+; ----------------------------------------------------------------------
 DIR_NAME_MASK_19:
-        JP $A929                         ; $A601  C3 29 A9
+        ; above-image word-result return at staging $A929 (out of this file's decode, keep literal)
+        JP $A929
+; ----------------------------------------------------------------------
+; DIR_NAME_MASK_20 -- Return Current Disk (BDOS fn 25): return the selected drive in A (dispatched
+; from above-image $A904).
+;   In:        FCB_USER_SCRATCH = selected drive.
+;   Out:       A := current drive; jumps to the BDOS result tail.
+;   Clobbers:  A.
+;   Algorithm: load the selected-drive scratch and return it as the byte result.
+; ----------------------------------------------------------------------
 DIR_NAME_MASK_20:
-        LD A,(FCB_USER_SCRATCH)               ; $A604  3A 42 9F
-        JP BDOS_RET_RESULT+2                 ; $A607  C3 01 9F
+        ; A := currently selected drive (0 = A)
+        LD A,(FCB_USER_SCRATCH)
+        JP BDOS_RET_RESULT+2
+; ----------------------------------------------------------------------
+; DIR_NAME_MASK_21 -- Set DMA Address (BDOS fn 26): store the caller's DMA pointer (dispatched from
+; above-image $A90A).
+;   In:        DE = new DMA address.
+;   Out:       ($A9B1) := DE; continues at DISK_DEBLOCK_2+2.
+;   Clobbers:  HL.
+;   Algorithm: EX DE,HL then store the new DMA address into the variable-page DMA cell.
+; ----------------------------------------------------------------------
 DIR_NAME_MASK_21:
-        EX DE,HL                         ; $A60A  EB
-        LD ($A9B1),HL                    ; $A60B  22 B1 A9
-        JP DISK_DEBLOCK_2+2                  ; $A60E  C3 DA A1
+        EX DE,HL
+        ; BDOS DMA pointer := caller's DMA address (absolute $A9xx RAM, keep literal)
+        LD ($A9B1),HL
+        JP DISK_DEBLOCK_2+2
+; ----------------------------------------------------------------------
+; DIR_NAME_MASK_22 -- Get Addr (Disk Parms) (BDOS fn 31): return the DPB pointer in HL (dispatched
+; from above-image $A926).
+;   In:        $A9BF = pointer to the current drive's DPB.
+;   Out:       HL := *(A9BF); JP $A929.
+;   Clobbers:  HL.
+;   Algorithm: load the DPB pointer and return it via the above-image HL-result tail.
+; ----------------------------------------------------------------------
 DIR_NAME_MASK_22:
-        LD HL,($A9BF)                    ; $A611  2A BF A9
-        JP $A929                         ; $A614  C3 29 A9
+        ; HL := current drive's DPB pointer (absolute $A9xx RAM, keep literal)
+        LD HL,($A9BF)
+        ; above-image word-result return at staging $A929 (out of this file's decode, keep literal)
+        JP $A929
+; ----------------------------------------------------------------------
+; DIR_NAME_MASK_23 -- Get Addr (Alloc) / R/O / Login vector return: return the accumulated vector in
+; HL (dispatched from the above-image vector handlers).
+;   In:        $A9AD = the login/allocation/read-only vector accumulator.
+;   Out:       HL := *(A9AD); falls into _24 -> $A929.
+;   Clobbers:  HL.
+;   Algorithm: load the vector accumulator to return in HL.
+; ----------------------------------------------------------------------
 DIR_NAME_MASK_23:
-        LD HL,($A9AD)                    ; $A617  2A AD A9
+        ; HL := login/alloc/RO vector accumulator (absolute $A9xx RAM, keep literal)
+        LD HL,($A9AD)
+; ----------------------------------------------------------------------
+; DIR_NAME_MASK_24 -- HL-result return dispatch (identical tail to _19).
+;   In:        HL = word result.
+;   Out:       JP $A929.
+;   Clobbers:  -.
+;   Algorithm: tail into the above-image word-result return.
+; ----------------------------------------------------------------------
 DIR_NAME_MASK_24:
-        JP $A929                         ; $A61A  C3 29 A9
+        ; above-image word-result return at staging $A929 (out of this file's decode, keep literal)
+        JP $A929
+; ----------------------------------------------------------------------
+; DIR_NAME_MASK_25 -- prologue then a buffer-move-finalize, returning via the random-record tail
+; (continuation).
+;   In:        BDOS workspace primed.
+;   Out:       $A851 prologue, CALL DISK_STORE_SEC_TRK_5, then JP BDOS_RANDREC_15+2.
+;   Clobbers:  A,B,C,H,L,F.
+;   Algorithm: directory prologue then the move-finalize and result return.
+; ----------------------------------------------------------------------
 DIR_NAME_MASK_25:
-        CALL $A851                       ; $A61D  CD 51 A8
-        CALL DISK_STORE_SEC_TRK_5                  ; $A620  CD 3B A4
-        JP BDOS_RANDREC_15+2                 ; $A623  C3 01 A3
+        ; above-image directory-search prologue at staging $A851 (out of this file's decode, keep
+        ; literal)
+        CALL $A851
+        CALL DISK_STORE_SEC_TRK_5
+        JP BDOS_RANDREC_15+2
+; ----------------------------------------------------------------------
+; DIR_NAME_MASK_26 -- Return Version Number (BDOS fn 12): return the version word in HL (dispatched
+; from above-image $A87E).
+;   In:        $A9BB = BDOS version constant cell.
+;   Out:       HL := *(A9BB); falls into _27 to store as BDOS_RETURN_VAL.
+;   Clobbers:  HL.
+;   Algorithm: load the version word from the variable page.
+; ----------------------------------------------------------------------
 DIR_NAME_MASK_26:
-        LD HL,($A9BB)                    ; $A626  2A BB A9
+        ; HL := BDOS version word (absolute $A9xx RAM, keep literal)
+        LD HL,($A9BB)
+; ----------------------------------------------------------------------
+; DIR_NAME_MASK_27 -- store HL into BDOS_RETURN_VAL and RET (the word-result store).
+;   In:        HL = word result.
+;   Out:       BDOS_RETURN_VAL := HL; RET.
+;   Clobbers:  -.
+;   Algorithm: LD (BDOS_RETURN_VAL),HL / RET (A=L, B=H supplied by the common tail).
+; ----------------------------------------------------------------------
 DIR_NAME_MASK_27:
-        LD (BDOS_RETURN_VAL),HL              ; $A629  22 45 9F
-        RET                              ; $A62C  C9
+        ; record the 16-bit result for the BDOS caller (A=L, B=H on return)
+        LD (BDOS_RETURN_VAL),HL
+        RET
+; ----------------------------------------------------------------------
+; DIR_NAME_MASK_28 -- Set/Get User Code (BDOS fn 32): E==$FF returns the current user, else sets it
+; (dispatched from above-image $A92D).
+;   In:        $A9D6 = the E argument; BDOS_DEFAULT_FCB+2 = current user.
+;   Out:       $FF -> A := current user, result tail; else -> above-image set path ($A93B), then _30
+;              stores it.
+;   Clobbers:  A,F.
+;   Algorithm: test the argument for $FF (query) vs set.
+; ----------------------------------------------------------------------
 DIR_NAME_MASK_28:
-        LD A,($A9D6)                     ; $A62D  3A D6 A9
-        CP $FF                           ; $A630  FE FF
-        JP NZ,$A93B                      ; $A632  C2 3B A9
-        LD A,(BDOS_DEFAULT_FCB+2)             ; $A635  3A 41 9F
+        ; A := the user-number argument (absolute $A9xx RAM; $FF = query, keep literal)
+        LD A,($A9D6)
+        ; $FF means 'get current user'; any other value sets it
+        CP $FF
+        ; set path: continue in the above-image handler at staging $A93B (out of this file's decode,
+        ; keep literal)
+        JP NZ,$A93B
+        ; A := current user number (the user-nibble cell)
+        LD A,(BDOS_DEFAULT_FCB+2)
+; ----------------------------------------------------------------------
+; DIR_NAME_MASK_29 -- return the current user number in A (get-user path).
+;   In:        A = current user.
+;   Out:       jumps to the BDOS result tail.
+;   Clobbers:  -.
+;   Algorithm: JP BDOS_RET_RESULT+2.
+; ----------------------------------------------------------------------
 DIR_NAME_MASK_29:
-        JP BDOS_RET_RESULT+2                 ; $A638  C3 01 9F
+        JP BDOS_RET_RESULT+2
+; ----------------------------------------------------------------------
+; DIR_NAME_MASK_30 -- set the current user number (set-user path).
+;   In:        A = requested user number.
+;   Out:       BDOS_DEFAULT_FCB+2 := A & $1F; RET.
+;   Clobbers:  A,F.
+;   Algorithm: mask to 5 bits (users 0..31) and store. The fn-28 write-protect path also reaches
+;              this via +16.
+; ----------------------------------------------------------------------
 DIR_NAME_MASK_30:
-        AND $1F                          ; $A63B  E6 1F
-        LD (BDOS_DEFAULT_FCB+2),A             ; $A63D  32 41 9F
-        RET                              ; $A640  C9
+        ; clamp the user number to 0..31
+        AND $1F
+        ; store the new current user number
+        LD (BDOS_DEFAULT_FCB+2),A
+        RET
+; ----------------------------------------------------------------------
+; DIR_NAME_MASK_31 -- Read Sequential (BDOS fn 20): directory prologue then the sequential-read body
+; (dispatched from above-image $A8E0).
+;   In:        BDOS_DE_PARAM = &FCB.
+;   Out:       $A851 prologue then JP to the Read-Sequential body.
+;   Clobbers:  A,HL,F.
+;   Algorithm: directory prologue then enter the sequential-read path. CORRECTION: the JP target
+;              rendered BDOS_VAR_PAGE_5 IS the real Read-Sequential body at staging $A793 (verified:
+;              22 B1 A9 CD DA A1 C3 21 A8 = LD ($A9B1),HL; CALL $A1DA; JP $A821), NOT scratch -- it
+;              is the run-base shadow over the $E5 var-page image (see summary). Bytes correct,
+;              frozen.
+; ----------------------------------------------------------------------
 DIR_NAME_MASK_31:
-        CALL $A851                       ; $A641  CD 51 A8
-        JP BDOS_VAR_PAGE_5                        ; $A644  C3 93 A7
+        ; above-image directory-search prologue at staging $A851 (out of this file's decode, keep
+        ; literal)
+        CALL $A851
+        ; enter the Read-Sequential body (operand $A793 = STAGING address of real handler code,
+        ; verified; BDOS_VAR_PAGE_5 is a run-base shadow over the $E5 var-page image, see summary)
+        JP BDOS_VAR_PAGE_5
+; ----------------------------------------------------------------------
+; DIR_NAME_MASK_32 -- Write Sequential (BDOS fn 21): directory prologue then the sequential-write
+; body (dispatched from above-image $A8E6).
+;   In:        BDOS_DE_PARAM = &FCB.
+;   Out:       $A851 prologue then JP to the Write-Sequential body.
+;   Clobbers:  A,HL,F.
+;   Algorithm: directory prologue then enter the sequential-write path. CORRECTION: the JP target
+;              rendered BDOS_VAR_PAGE_6 IS the real Write-Sequential body at staging $A79C
+;              (verified: CD 72 A1 CD 51 A8 C3 51 A4 = CALL $A172; CALL $A851; JP $A451), NOT
+;              scratch (run-base shadow; see summary). Bytes correct, frozen.
+; ----------------------------------------------------------------------
 DIR_NAME_MASK_32:
-        CALL $A851                       ; $A647  CD 51 A8
-        JP BDOS_VAR_PAGE_6                        ; $A64A  C3 9C A7
+        ; above-image directory-search prologue at staging $A851 (out of this file's decode, keep
+        ; literal)
+        CALL $A851
+        ; enter the Write-Sequential body (operand $A79C = STAGING address of real handler code,
+        ; verified; BDOS_VAR_PAGE_6 is a run-base shadow over the $E5 var-page image, see summary)
+        JP BDOS_VAR_PAGE_6
+; ----------------------------------------------------------------------
+; DIR_NAME_MASK_33 -- Make File (BDOS fn 22): directory prologue then the create path (dispatched
+; from above-image $A8EC).
+;   In:        BDOS_DE_PARAM = &FCB.
+;   Out:       $A851 prologue then JP to the Make-File body.
+;   Clobbers:  A,HL,F.
+;   Algorithm: directory prologue then enter the create-file path. CORRECTION: the JP target
+;              rendered BDOS_VAR_PAGE_8 IS the real Make-File body at staging $A7D2 (real code), NOT
+;              scratch (run-base shadow; see summary). Bytes correct, frozen.
+; ----------------------------------------------------------------------
 DIR_NAME_MASK_33:
-        CALL $A851                       ; $A64D  CD 51 A8
-        JP BDOS_VAR_PAGE_8                        ; $A650  C3 D2 A7
+        ; above-image directory-search prologue at staging $A851 (out of this file's decode, keep
+        ; literal)
+        CALL $A851
+        ; enter the Make-File body (operand $A7D2 = STAGING address of real handler code;
+        ; BDOS_VAR_PAGE_8 is a run-base shadow over the $E5 var-page image, see summary)
+        JP BDOS_VAR_PAGE_8
+; ----------------------------------------------------------------------
+; DIR_NAME_MASK_34 -- clear the current drive's bit in the working/login vectors (AND-NOT mask step;
+; fn 28 write-protect / login maintenance).
+;   In:        BDOS_DE_PARAM = a drive bit-mask word; $A9AF = working drive vector.
+;   Out:       complements the mask and AND's it into the working vector (clears that drive's bit).
+;   Clobbers:  A,D,E,HL,F.
+;   Algorithm: take the drive bit-mask, CPL on L and H, AND into the working vector ($A9AF); _35
+;              also AND's it into the login accumulator ($A9AD).
+; ----------------------------------------------------------------------
 DIR_NAME_MASK_34:
-        LD HL,(BDOS_DE_PARAM)              ; $A653  2A 43 9F
-        LD A,L                           ; $A656  7D
-        CPL                              ; $A657  2F
-        LD E,A                           ; $A658  5F
-        LD A,H                           ; $A659  7C
-        CPL                              ; $A65A  2F
-        LD HL,($A9AF)                    ; $A65B  2A AF A9
-        AND H                            ; $A65E  A4
-        LD D,A                           ; $A65F  57
-        LD A,L                           ; $A660  7D
-        AND E                            ; $A661  A3
-        LD E,A                           ; $A662  5F
+        ; HL := the drive bit-mask word argument
+        LD HL,(BDOS_DE_PARAM)
+        LD A,L
+        ; complement the mask low byte -> AND-NOT to clear the drive's bit
+        CPL
+        LD E,A
+        LD A,H
+        CPL
+        ; load the working drive vector to mask (absolute $A9xx RAM, keep literal)
+        LD HL,($A9AF)
+        AND H
+        LD D,A
+        LD A,L
+        AND E
+        LD E,A
+; ----------------------------------------------------------------------
+; DIR_NAME_MASK_35 -- apply the complemented mask to the login accumulator and store (continuation).
+;   In:        DE = complemented mask; $A9AD = login accumulator.
+;   Out:       ($A9AF) := masked working vector; ($A9AD) := accumulator & DE.
+;   Clobbers:  A,HL,DE,F.
+;   Algorithm: store the masked working vector, then AND the login accumulator with the mask
+;              (_36/_37 do the byte-wise AND).
+; ----------------------------------------------------------------------
 DIR_NAME_MASK_35:
-        LD HL,($A9AD)                    ; $A663  2A AD A9
-        EX DE,HL                         ; $A666  EB
-        LD ($A9AF),HL                    ; $A667  22 AF A9
-        LD A,L                           ; $A66A  7D
-        AND E                            ; $A66B  A3
+        ; load the login/alloc accumulator (absolute $A9xx RAM, keep literal)
+        LD HL,($A9AD)
+        EX DE,HL
+        ; store the masked working drive vector (absolute $A9xx RAM, keep literal)
+        LD ($A9AF),HL
+        LD A,L
+        AND E
+; ----------------------------------------------------------------------
+; DIR_NAME_MASK_36 -- low-byte AND of the login accumulator with the mask (continuation; JP'd from
+; DIR_SEARCH_STEP_6).
+;   In:        E = mask low byte; HL = accumulator.
+;   Out:       L := L & E.
+;   Clobbers:  A,L,F.
+;   Algorithm: AND the accumulator low byte with the mask low byte.
+; ----------------------------------------------------------------------
 DIR_NAME_MASK_36:
-        LD L,A                           ; $A66C  6F
-        LD A,H                           ; $A66D  7C
+        LD L,A
+        LD A,H
+; ----------------------------------------------------------------------
+; DIR_NAME_MASK_37 -- high-byte AND and store (continuation; JP'd from DIR_SEARCH_STEP_1).
+;   In:        D = mask high byte; H = accumulator high byte.
+;   Out:       H := H & D; ($A9AD) := masked accumulator; RET.
+;   Clobbers:  A,H,F.
+;   Algorithm: AND the high byte with the mask, store the result back into the login accumulator.
+; ----------------------------------------------------------------------
 DIR_NAME_MASK_37:
-        AND D                            ; $A66E  A2
-        LD H,A                           ; $A66F  67
-        LD ($A9AD),HL                    ; $A670  22 AD A9
-        RET                              ; $A673  C9
+        AND D
+        LD H,A
+        ; store the masked login/alloc accumulator (absolute $A9xx RAM, keep literal)
+        LD ($A9AD),HL
+        RET
+; ----------------------------------------------------------------------
+; DIR_NAME_MASK_38 -- BDOS directory-op epilogue: restore the FCB drive byte and the previously
+; selected drive, then return (restores the snapshot taken by DIR_NAME_MASK).
+;   In:        $A9DE = search-active flag; BDOS_DE_PARAM = &FCB; $A9E0 = saved FCB byte; $A9DF =
+;              saved drive; BDOS_SAVED_SP; BDOS_RETURN_VAL.
+;   Out:       restores FCB.DR + selected drive, restores SP, HL := BDOS_RETURN_VAL (A=L,B=H),
+;              returns to the BDOS caller.
+;   Clobbers:  A,B,H,L,SP,F.
+;   Algorithm: if search was active, write the saved FCB byte back (or 0) and re-select the prior
+;              drive via Select-Disk ($A845); reload SP, fetch the result (A=L,B=H), RET. [RE]
+;              standard CP/M 'restore default drive and return' epilogue.
+; ----------------------------------------------------------------------
 DIR_NAME_MASK_38:
-        LD A,($A9DE)                     ; $A674  3A DE A9
-        OR A                             ; $A677  B7
-        JP Z,$A991                       ; $A678  CA 91 A9
-        LD HL,(BDOS_DE_PARAM)              ; $A67B  2A 43 9F
-        LD (HL),$00                      ; $A67E  36 00
-        LD A,($A9E0)                     ; $A680  3A E0 A9
-        OR A                             ; $A683  B7
-        JP Z,$A991                       ; $A684  CA 91 A9
-        LD (HL),A                        ; $A687  77
-        LD A,($A9DF)                     ; $A688  3A DF A9
+        ; was a drive/search operation active? (if not, skip the restore) (absolute $A9xx RAM, keep
+        ; literal)
+        LD A,($A9DE)
+        OR A
+        JP Z,$A991
+        LD HL,(BDOS_DE_PARAM)
+        LD (HL),$00
+        ; saved original FCB drive byte (restored into the FCB) (absolute $A9xx RAM, keep literal)
+        LD A,($A9E0)
+        OR A
+        JP Z,$A991
+        LD (HL),A
+        LD A,($A9DF)
+; ----------------------------------------------------------------------
+; DIR_NAME_MASK_39 -- restore the saved drive number then re-select (continuation of the epilogue).
+;   In:        $A9DF = saved drive number.
+;   Out:       $A9D6 := saved drive; CALL Select-Disk ($A845); falls into the SP/result restore.
+;   Clobbers:  A,HL,F.
+;   Algorithm: copy the saved drive into the requested-drive cell and re-select it.
+; ----------------------------------------------------------------------
 DIR_NAME_MASK_39:
-        LD ($A9D6),A                     ; $A68B  32 D6 A9
-        CALL $A845                       ; $A68E  CD 45 A8
-        LD HL,(BDOS_SAVED_SP)              ; $A691  2A 0F 9F
-        LD SP,HL                         ; $A694  F9
-        LD HL,(BDOS_RETURN_VAL)              ; $A695  2A 45 9F
-        LD A,L                           ; $A698  7D
-        LD B,H                           ; $A699  44
+        ; requested drive := the saved drive to restore (absolute $A9xx RAM, keep literal)
+        LD ($A9D6),A
+        ; re-select the saved drive (above-image Select-Disk at staging $A845, keep literal)
+        CALL $A845
+        LD HL,(BDOS_SAVED_SP)
+        LD SP,HL
+        LD HL,(BDOS_RETURN_VAL)
+        LD A,L
+        LD B,H
+; ----------------------------------------------------------------------
+; DIR_NAME_MASK_40 -- RET to the BDOS caller (final return of the directory epilogue).
+;   In:        A=L, B=H = result.
+;   Out:       returns to the BDOS caller (and thence the transient program).
+;   Clobbers:  -.
+;   Algorithm: RET.
+; ----------------------------------------------------------------------
 DIR_NAME_MASK_40:
-        RET                              ; $A69A  C9
+        RET
+; ----------------------------------------------------------------------
+; DIR_NAME_MASK_41 -- Delete File (BDOS fn 19): directory prologue, set mode=2, run the delete scan
+; (dispatched from above-image $A8D7).
+;   In:        BDOS_DE_PARAM = &FCB.
+;   Out:       $A9D5 := 2 (delete mode); C := 0; runs the directory scan; on success finalizes via
+;              DIR_NAME_MASK_19+2.
+;   Clobbers:  A,C,F.
+;   Algorithm: directory prologue, set the operation-mode cell to 2 (delete rewrites matching
+;              entries with the $E5 erased marker), C=0 read selector, run the scan, finalize.
+;              CORRECTION: the CALL target rendered BDOS_VAR_PAGE is the real directory-scan routine
+;              at staging $A707, not scratch (a CALL into $E5 would be nonsense -- run-base shadow,
+;              see summary).
+; ----------------------------------------------------------------------
 DIR_NAME_MASK_41:
-        CALL $A851                       ; $A69B  CD 51 A8
-        LD A,$02                         ; $A69E  3E 02
-        LD ($A9D5),A                     ; $A6A0  32 D5 A9
-        LD C,$00                         ; $A6A3  0E 00
-        CALL BDOS_VAR_PAGE                    ; $A6A5  CD 07 A7
+        ; above-image directory-search prologue at staging $A851 (out of this file's decode, keep
+        ; literal)
+        CALL $A851
+        ; operation mode := 2 (delete: rewrite matching directory entries with the $E5 erased
+        ; marker)
+        LD A,$02
+        LD ($A9D5),A
+        LD C,$00
+        ; run the directory scan (operand $A707 = STAGING real-code address; BDOS_VAR_PAGE is a
+        ; run-base shadow over the $E5 var-page image, see summary)
+        CALL BDOS_VAR_PAGE
+; ----------------------------------------------------------------------
+; DIR_NAME_MASK_42 -- finalize the delete and RET (the LAST real code rendered at the run base in
+; this file, $A6A8-$A6AB).
+;   In:        Z from the scan result.
+;   Out:       on success CALL DIR_NAME_MASK_19+2 (return the result), then RET.
+;   Clobbers:  A,HL,F.
+;   Algorithm: on a successful scan, run the result-return tail, then RET. NOTE: the bytes from
+;              $A6AC to $A7FF in THIS run-base decode are the variable-page INIT image ($00/$E5) --
+;              but the SAME physical bytes, addressed at their staging address ($A8xx-$A9FF), are
+;              the fn-12..40 handler bodies the dispatch table and the JPs above target (see
+;              summary).
+; ----------------------------------------------------------------------
 DIR_NAME_MASK_42:
-        CALL Z,DIR_NAME_MASK_19+2             ; $A6A8  CC 03 A6
-        RET                              ; $A6AB  C9
-        DEFB    $E5,$00,$00,$00,$00,$80                          ; $A6AC
-        DEFS    9, $00    ; $A6B2  fill
+        ; on success, return the result via the HL-result tail (+2 = shared-instruction tail entry)
+        CALL Z,DIR_NAME_MASK_19+2
+        RET
+        DEFB    $E5,$00,$00,$00,$00,$80
+        DEFS    9, $00                   ; fill
+; ----------------------------------------------------------------------
+; DIR_NAME_MASK_43 -- (RUN-BASE SHADOW LABEL on NOP/$00 padding, $A6BB-$A6D1). NOT an executed
+; routine at the RUN base.
+;   In:        n/a.
+;   Out:       n/a.
+;   Clobbers:  n/a.
+;   Algorithm: at the RUN base this is $00 padding. It is referenced as a branch-target operand
+;              ($A6BB) by DISK_RW_GUARD_1/DISK_DEBLOCK_CMP. CORRECTION to the peer: that branch is
+;              NOT into dead padding -- the operand $A6BB is a STAGING address, and the bytes at
+;              staging $A6BB (CD AE A0 7E 32 E3 A9 ...) are the real DRV_INSTALL_RWTS_3/_4 body (the
+;              SAME bytes this file decodes at run $A4BB). The run-base shadow lands on padding only
+;              because of the single-base decode (see summary). Bytes correct, frozen; recommend
+;              re-DISP to relabel the operand to the real handler.
+; ----------------------------------------------------------------------
 DIR_NAME_MASK_43:
-        NOP                              ; $A6BB  00
-        NOP                              ; $A6BC  00
-        NOP                              ; $A6BD  00
-        NOP                              ; $A6BE  00
-        NOP                              ; $A6BF  00
-        NOP                              ; $A6C0  00
-        NOP                              ; $A6C1  00
-        NOP                              ; $A6C2  00
-        NOP                              ; $A6C3  00
-        NOP                              ; $A6C4  00
-        NOP                              ; $A6C5  00
-        NOP                              ; $A6C6  00
-        NOP                              ; $A6C7  00
-        NOP                              ; $A6C8  00
-        NOP                              ; $A6C9  00
-        NOP                              ; $A6CA  00
-        NOP                              ; $A6CB  00
-        NOP                              ; $A6CC  00
-        NOP                              ; $A6CD  00
-        NOP                              ; $A6CE  00
-        NOP                              ; $A6CF  00
-        NOP                              ; $A6D0  00
-        NOP                              ; $A6D1  00
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+; ----------------------------------------------------------------------
+; DIR_NAME_MASK_44 -- (RUN-BASE SHADOW LABEL on NOP/$00 padding, $A6D2-$A6FD). NOT an executed
+; routine at the RUN base.
+;   In:        n/a.
+;   Out:       n/a.
+;   Clobbers:  n/a.
+;   Algorithm: at the RUN base this is $00 padding, referenced as the branch-target operand ($A6D2)
+;              of DISK_DEBLOCK_1. CORRECTION to the peer: the operand $A6D2 is a STAGING address,
+;              and the bytes at staging $A6D2 (CD AE A0 3A D5 A9 FE 02 C2 DE A0 ...) are the real
+;              DRV_INSTALL_RWTS_6 body (verified: the SAME bytes this file decodes at run $A4D2).
+;              NOT dead padding -- a single-base decode artifact (see summary). Bytes correct,
+;              frozen.
+; ----------------------------------------------------------------------
 DIR_NAME_MASK_44:
-        NOP                              ; $A6D2  00
-        NOP                              ; $A6D3  00
-        NOP                              ; $A6D4  00
-        NOP                              ; $A6D5  00
-        NOP                              ; $A6D6  00
-        NOP                              ; $A6D7  00
-        NOP                              ; $A6D8  00
-        NOP                              ; $A6D9  00
-        NOP                              ; $A6DA  00
-        NOP                              ; $A6DB  00
-        NOP                              ; $A6DC  00
-        NOP                              ; $A6DD  00
-        NOP                              ; $A6DE  00
-        NOP                              ; $A6DF  00
-        NOP                              ; $A6E0  00
-        NOP                              ; $A6E1  00
-        NOP                              ; $A6E2  00
-        NOP                              ; $A6E3  00
-        NOP                              ; $A6E4  00
-        NOP                              ; $A6E5  00
-        NOP                              ; $A6E6  00
-        NOP                              ; $A6E7  00
-        NOP                              ; $A6E8  00
-        NOP                              ; $A6E9  00
-        NOP                              ; $A6EA  00
-        NOP                              ; $A6EB  00
-        NOP                              ; $A6EC  00
-        NOP                              ; $A6ED  00
-        NOP                              ; $A6EE  00
-        NOP                              ; $A6EF  00
-        NOP                              ; $A6F0  00
-        NOP                              ; $A6F1  00
-        NOP                              ; $A6F2  00
-        NOP                              ; $A6F3  00
-        NOP                              ; $A6F4  00
-        NOP                              ; $A6F5  00
-        NOP                              ; $A6F6  00
-        NOP                              ; $A6F7  00
-        NOP                              ; $A6F8  00
-        NOP                              ; $A6F9  00
-        NOP                              ; $A6FA  00
-        NOP                              ; $A6FB  00
-        NOP                              ; $A6FC  00
-        NOP                              ; $A6FD  00
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+        NOP
+; ----------------------------------------------------------------------
+; BDOS_VAR_FILL -- DATA at the RUN base ($A6FE, $00 bytes): start of the BDOS variable-page INIT
+; image. ALSO a run-base SHADOW of real code: the operand $A6FE (from BDOS_CHECK_ERROR's JP NZ) is a
+; STAGING address whose bytes (23 0D A8 73 2B 70 2B 71 CD 2D A3 C3 E4 A7) are the real
+; DRV_INSTALL_RWTS_12 body. Two views of the same physical bytes (see summary).
+;   In:        n/a (the run-base view is uninitialized $00/$E5 var-page image).
+;   Out:       n/a.
+;   Clobbers:  n/a.
+;   Algorithm: DATA at the run base; do NOT change bytes. The JP NZ,BDOS_VAR_FILL ($A1F7) branch is
+;              a VALID jump to the real error/continue handler at staging $A6FE; the run-base label
+;              is a shadow. CORRECTION to the peer: this is NOT an UNKNOWN/stale-label mystery -- it
+;              is the staging-vs-run single-base decode artifact; recommend re-DISP.
+; ----------------------------------------------------------------------
 BDOS_VAR_FILL:
-        DEFB    $00,$00                                          ; $A6FE
+        DEFB    $00,$00
+; ----------------------------------------------------------------------
+; BDOS_VAR_FILL_1 -- DATA at the RUN base ($A700, $E5 var-page image). ALSO a run-base shadow: the
+; operand $A700 (from DISK_DEBLOCK_3/_4 JP NZ) is a STAGING address whose bytes (A8 73 2B 70 2B 71
+; CD 2D A3 ...) are real handler code. See summary.
+;   In:        n/a.
+;   Out:       n/a.
+;   Clobbers:  n/a.
+;   Algorithm: DATA at the run base; bytes frozen. The branch is a valid jump to staging $A700 (real
+;              code), not into scratch. CORRECTION to the peer (not UNKNOWN).
+; ----------------------------------------------------------------------
 BDOS_VAR_FILL_1:
-        DEFB    $E5,$E5,$E5                                      ; $A700
+        DEFB    $E5,$E5,$E5
+; ----------------------------------------------------------------------
+; BDOS_VAR_FILL_2 -- DATA at the RUN base ($A703, $E5 var-page image). ALSO a run-base shadow: the
+; operand $A703 (from FCB_EXTENT_TO_TRKSEC_8/_9 CALL) is a STAGING address whose bytes are the real
+; directory-buffer routine. A CALL into $E5 would be impossible -- this is the clearest tell of the
+; single-base decode error (see summary).
+;   In:        n/a.
+;   Out:       n/a.
+;   Clobbers:  n/a.
+;   Algorithm: DATA at the run base; bytes frozen. CORRECTION to the peer: the CALL target is real
+;              code at staging $A703, NOT scratch / UNKNOWN.
+; ----------------------------------------------------------------------
 BDOS_VAR_FILL_2:
-        DEFB    $E5,$E5,$E5,$E5                                  ; $A703
+        DEFB    $E5,$E5,$E5,$E5
+; ----------------------------------------------------------------------
+; BDOS_VAR_PAGE -- DATA at the RUN base ($A707-, $E5 var-page INIT image; this is the on-disk init
+; for the absolute $A9xx workspace the code reads/writes -- DMA pointer, DPB BSH/BLM/EXM/DSM
+; shadows, sector buffers, drive/user latches, R/O & login vectors). ALSO a run-base shadow: the
+; operand $A707 (from DIR_NAME_MASK_41 CALL) is a STAGING address (real directory-scan code). See
+; summary.
+;   In:        n/a.
+;   Out:       n/a.
+;   Clobbers:  n/a.
+;   Algorithm: DATA at the run base; bytes frozen. CORRECTION to the peer: the CALL target is real
+;              code at staging $A707, not scratch; the $A9xx variable cells are referenced by their
+;              ABSOLUTE address elsewhere (not relocated).
+; ----------------------------------------------------------------------
 BDOS_VAR_PAGE:
-        DEFS    64, $E5    ; $A707  fill
+        DEFS    64, $E5                  ; fill
+; ----------------------------------------------------------------------
+; BDOS_VAR_PAGE_1 -- DATA at the RUN base ($A747, $E5). RUN-BASE SHADOW of real code: the operand
+; $A747 (FCB_EXTENT_TO_TRKSEC_1 JP NZ, reopen-extent exit) is a STAGING address; bytes at staging
+; $A747 (A9 21 42 9F BE C8 77 C3 21 A8) are the real DISK_SEEK_TRACK_1 drive-change/select body. See
+; summary. Bytes frozen.
+;   In:        n/a.
+;   Out:       n/a.
+;   Clobbers:  n/a.
+;   Algorithm: DATA at the run base; CORRECTION to the peer (real code at staging $A747, not
+;              scratch).
+; ----------------------------------------------------------------------
 BDOS_VAR_PAGE_1:
-        DEFS    56, $E5    ; $A747  fill
+        DEFS    56, $E5                  ; fill
+; ----------------------------------------------------------------------
+; BDOS_VAR_PAGE_2 -- DATA at the RUN base ($A77F, $E5). RUN-BASE SHADOW: the operand $A77F
+; (FCB_EXTENT_TO_TRKSEC_1/_3 JP) is a STAGING address; bytes at staging $A77F (22 C3 01 9F 21 ...)
+; are the real DIR_NAME_MASK_1 error-return body. Bytes frozen. See summary.
+;   In:        n/a.
+;   Out:       n/a.
+;   Clobbers:  n/a.
+;   Algorithm: DATA at the run base; CORRECTION to the peer (real code at staging, not scratch).
+; ----------------------------------------------------------------------
 BDOS_VAR_PAGE_2:
-        DEFB    $E5,$E5,$E5,$E5,$E5                              ; $A77F  "eeeee"
+        DEFB    $E5,$E5,$E5,$E5,$E5      ; "eeeee"
+; ----------------------------------------------------------------------
+; BDOS_VAR_PAGE_3 -- DATA at the RUN base ($A784, $E5). RUN-BASE SHADOW: the operand $A784
+; (FCB_EXTENT_TO_TRKSEC_3/_5 not-found/seek-fail exits) is a STAGING address; bytes at staging $A784
+; (00 00 22 AD A9 22 AF A9 ...) are the real DIR_NAME_MASK_2 Reset-Disk body. Bytes frozen. See
+; summary.
+;   In:        n/a.
+;   Out:       n/a.
+;   Clobbers:  n/a.
+;   Algorithm: DATA at the run base; CORRECTION to the peer (real code at staging, not scratch).
+; ----------------------------------------------------------------------
 BDOS_VAR_PAGE_3:
-        DEFB    $E5,$E5,$E5,$E5,$E5,$E5,$E5                      ; $A784  "eeeeeee"
+        DEFB    $E5,$E5,$E5,$E5,$E5,$E5,$E5 ; "eeeeeee"
+; ----------------------------------------------------------------------
+; BDOS_VAR_PAGE_4 -- DATA at the RUN base ($A78B, $E5). RUN-BASE SHADOW: the operand $A78B
+; (FCB_EXTENT_TO_TRKSEC_1 record-overflow exit) is a STAGING address; bytes at staging $A78B (A9 AF
+; 32 42 9F 21 80 00 ...) are the real DIR_NAME_MASK_2 reset body (mid-routine). Bytes frozen. See
+; summary.
+;   In:        n/a.
+;   Out:       n/a.
+;   Clobbers:  n/a.
+;   Algorithm: DATA at the run base; CORRECTION to the peer (real code at staging, not scratch).
+; ----------------------------------------------------------------------
 BDOS_VAR_PAGE_4:
-        DEFS    8, $E5    ; $A78B  fill
+        DEFS    8, $E5                   ; fill
+; ----------------------------------------------------------------------
+; BDOS_VAR_PAGE_5 -- DATA at the RUN base ($A793, $E5). RUN-BASE SHADOW of the real READ-SEQUENTIAL
+; body: the operand $A793 (DIR_NAME_MASK_31 JP, fn 20) is a STAGING address; bytes at staging $A793
+; (22 B1 A9 CD DA A1 C3 21 A8 = LD ($A9B1),HL; CALL $A1DA; JP $A821) are real, verified code. Bytes
+; frozen. See summary.
+;   In:        n/a.
+;   Out:       n/a.
+;   Clobbers:  n/a.
+;   Algorithm: DATA at the run base; CORRECTION to the peer -- this is the Read-Sequential handler,
+;              NOT scratch/UNKNOWN.
+; ----------------------------------------------------------------------
 BDOS_VAR_PAGE_5:
-        DEFS    9, $E5    ; $A793  fill
+        DEFS    9, $E5                   ; fill
+; ----------------------------------------------------------------------
+; BDOS_VAR_PAGE_6 -- DATA at the RUN base ($A79C, $E5). RUN-BASE SHADOW of the real WRITE-SEQUENTIAL
+; body: the operand $A79C (DIR_NAME_MASK_32 JP, fn 21) is a STAGING address; bytes at staging $A79C
+; (CD 72 A1 CD 51 A8 C3 51 A4 = CALL $A172; CALL $A851; JP $A451) are real, verified code. Bytes
+; frozen. See summary.
+;   In:        n/a.
+;   Out:       n/a.
+;   Clobbers:  n/a.
+;   Algorithm: DATA at the run base; CORRECTION to the peer -- the Write-Sequential handler, not
+;              scratch.
+; ----------------------------------------------------------------------
 BDOS_VAR_PAGE_6:
-        DEFS    9, $E5    ; $A79C  fill
+        DEFS    9, $E5                   ; fill
+; ----------------------------------------------------------------------
+; BDOS_VAR_PAGE_7 -- DATA at the RUN base ($A7A5, $E5). RUN-BASE SHADOW: the operand $A7A5
+; (FCB_ALLOC_BLOCK_NUM_3 + DRV_INSTALL_RWTS_14 CALL) is a STAGING address of a real record-math
+; helper; bytes at staging $A7A5 (CD 51 A8 C3 A2 A4 0E 00 ...) are real code (a CALL into $E5 would
+; be impossible -- see summary). Bytes frozen.
+;   In:        n/a.
+;   Out:       n/a.
+;   Clobbers:  n/a.
+;   Algorithm: DATA at the run base; CORRECTION to the peer (real subroutine at staging, not
+;              scratch).
+; ----------------------------------------------------------------------
 BDOS_VAR_PAGE_7:
-        DEFS    45, $E5    ; $A7A5  fill
+        DEFS    45, $E5                  ; fill
+; ----------------------------------------------------------------------
+; BDOS_VAR_PAGE_8 -- DATA at the RUN base ($A7D2, $E5). RUN-BASE SHADOW of the real MAKE-FILE body:
+; the operand $A7D2 (DIR_NAME_MASK_33 JP, fn 22) is a STAGING address; bytes at staging $A7D2 (2D A3
+; C3 E9 A1 ...) are real code. Bytes frozen. See summary.
+;   In:        n/a.
+;   Out:       n/a.
+;   Clobbers:  n/a.
+;   Algorithm: DATA at the run base; CORRECTION to the peer -- the Make-File handler, not scratch.
+; ----------------------------------------------------------------------
 BDOS_VAR_PAGE_8:
-        DEFS    18, $E5    ; $A7D2  fill
+        DEFS    18, $E5                  ; fill
+; ----------------------------------------------------------------------
+; BDOS_VAR_PAGE_9 -- DATA at the RUN base ($A7E4, $E5). RUN-BASE SHADOW: the operand $A7E4
+; (DRV_INSTALL_RWTS_12 JP) is a STAGING address; bytes at staging $A7E4 (BC A5 CD 51 A8 C3 FE A5
+; ...) are real directory-finalize code. Bytes frozen. See summary.
+;   In:        n/a.
+;   Out:       n/a.
+;   Clobbers:  n/a.
+;   Algorithm: DATA at the run base; CORRECTION to the peer (real code at staging, not scratch).
+; ----------------------------------------------------------------------
 BDOS_VAR_PAGE_9:
-        DEFS    28, $E5    ; $A7E4  fill
+        DEFS    28, $E5                  ; fill
     ENT
