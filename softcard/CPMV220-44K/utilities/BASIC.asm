@@ -1314,7 +1314,7 @@ ERROR_REPORT_BODY_6:
 ; direct-mode message ($0521); else print ' in <line>' and drop to READY.
 ERROR_RESUME_FROM_DIRECT:
         LD A,(HL)
-        CP $3F
+        CP '?'
         JR NZ,STOP_BREAK
         POP HL
         LD HL,ERROR_MESSAGE_TABLE
@@ -1607,7 +1607,7 @@ DIRECT_READ_NONAUTO:
         ; line-number digit.
         CALL CRUNCH_SKIP_BLANKS_BACK
         LD A,(HL)
-        CP $20
+        CP ' '
         ; If a blank separates the line number from the statement, skip exactly that one blank
         ; (FP_LOAD_DONE is reused here just as INC HL); CRUNCH absorbs any
         ; remaining blanks.
@@ -1896,7 +1896,7 @@ CHEAD_LOOP_1:
 CHEAD_LOOP_2:
         OR A
         JR Z,CHEAD_LOOP_3
-        CP $20
+        CP ' '
         JR NC,CHEAD_LOOP_1
         CP $0B
         JR C,CHEAD_LOOP_1
@@ -1922,7 +1922,7 @@ SCAN_LINE_RANGE:
         PUSH DE
         JR Z,SCAN_LINE_RANGE_3
         LD A,(HL)
-        CP $2C
+        CP ','
         JR Z,SCAN_LINE_RANGE_1
         CP TOK_MINUS
         JP NZ,RAISE_SYNTAX_ERROR
@@ -1982,7 +1982,7 @@ FNDLIN_LOOP:
 ; ($0B6F).
 EVAL_CHANNEL_OR_ITEM:
         CALL CHRGOT
-        CP $23
+        CP '#'
         RET Z
         PUSH HL
         CALL FRMEVL_NOPAREN
@@ -2140,7 +2140,7 @@ CRUNCH_SCAN:
         CP $22
         JP Z,CRUNCH_COPY_QUOTED
         ; A blank is copied through unchanged (CRUNCH_PASS_CHAR).
-        CP $20
+        CP ' '
         JP Z,CRUNCH_PASS_CHAR
         ; NUL marks end of the source line: finish the crunched line (CRUNCH_FINALIZE_LINE).
         OR A
@@ -2153,7 +2153,7 @@ CRUNCH_SCAN:
         JP NZ,CRUNCH_PASS_CHAR
         ; '?' is shorthand for PRINT: this CP sets Z iff the char is '?'; the following LD A,$91
         ; preloads TOK_PRINT without disturbing Z, so CRUNCH_RESWORD_BEGIN can emit PRINT directly.
-        CP $3F
+        CP '?'
         LD A,$91
 ; ----------------------------------------------------------------------
 ; CRUNCH_RESWORD_BEGIN -- start the reserved-word fold for the current candidate.
@@ -2197,18 +2197,18 @@ CRUNCH_RESWORD_BEGIN:
         PUSH BC
         ; Leading 'G' opens the 'GO TO'/'GO SUB' two-word recognizer; RET NZ falls through (into
         ; CRUNCH_RESWORD_TAIL) for any other first letter.
-        CP $47
+        CP 'G'
         RET NZ
         INC HL
         CALL CHRGET_UPCASE
         ; Require 'O' after 'G' ("GO"); otherwise abandon the two-word path (RET NZ).
-        CP $4F
+        CP 'O'
         RET NZ
         INC HL
         CALL CHRGET_UPCASE
         ; Require a blank after "GO" (the two-word forms are spelled "GO TO"/"GO SUB"); otherwise
         ; fall back to the keyword lookup (RET NZ).
-        CP $20
+        CP ' '
         RET NZ
         INC HL
 ; ----------------------------------------------------------------------
@@ -2228,19 +2228,19 @@ CRUNCH_RESWORD_BEGIN:
 CRUNCH_GOTO_SUB_SCAN:
         CALL CHRGET_UPCASE
         INC HL
-        CP $20
+        CP ' '
         ; Allow extra blanks between "GO" and "TO"/"SUB" beyond the first mandatory one (keep
         ; skipping spaces).
         JR Z,CRUNCH_GOTO_SUB_SCAN
         ; 'S' -> the "GO SUB" recognizer (CRUNCH_GOSUB_TAIL).
-        CP $53
+        CP 'S'
         JR Z,CRUNCH_GOSUB_TAIL
         ; 'T' -> the "GO TO" recognizer; any other character aborts the two-word special case (RET
         ; NZ).
-        CP $54
+        CP 'T'
         RET NZ
         CALL CHRGET_UPCASE
-        CP $4F
+        CP 'O'
         ; Preload the GOTO token (does not disturb the preceding CP $4F flags);
         ; CRUNCH_GOTO_SUB_COMMIT commits it only if that 'O' matched (Z set).
         LD A,TOK_GOTO
@@ -2258,13 +2258,13 @@ CRUNCH_GOTO_SUB_SCAN:
 CRUNCH_GOSUB_TAIL:
         CALL CHRGET_UPCASE
         ; Require 'U' after "GO S"; otherwise abandon (RET NZ) and try an ordinary keyword.
-        CP $55
+        CP 'U'
         RET NZ
         INC HL
         CALL CHRGET_UPCASE
         ; Require the final 'B' of "SUB"; CRUNCH_GOTO_SUB_COMMIT commits GOSUB only if this compares
         ; equal.
-        CP $42
+        CP 'B'
         ; Stage the GOSUB token (TOK_GOSUB=$8D) for CRUNCH_GOTO_SUB_COMMIT; the LD leaves the
         ; preceding 'B' compare's Z flag intact.
         LD A,$8D
@@ -2321,7 +2321,7 @@ CRUNCH_RESWORD_TAIL:
         ; letter's keyword group.
         LD HL,RESWORD_INDEX
         ; Convert the first letter to a 0-based index ('A'->0 ... 'Z'->25).
-        SUB $41
+        SUB 'A'
         ; Double the index because each group pointer is two bytes.
         ADD A,A
         LD C,A
@@ -2396,7 +2396,7 @@ CRUNCH_RESWORD_CMP_LOOP:
         ; keep comparing
         JP P,CRUNCH_RESWORD_CMP_LOOP
         LD A,C
-        CP $28
+        CP '('
         JR Z,CRUNCH_RESWORD_EMIT_TOKEN
         LD A,(DE)
         CP $E2
@@ -2404,7 +2404,7 @@ CRUNCH_RESWORD_CMP_LOOP:
         CP $E1
         JR Z,CRUNCH_RESWORD_EMIT_TOKEN
         CALL CHRGET_UPCASE
-        CP $2E
+        CP '.'
         JR Z,CRUNCH_RESWORD_REJECT_PREFIX
         CALL IS_ALNUM_CHAR
 ; ----------------------------------------------------------------------
@@ -2670,12 +2670,12 @@ CRUNCH_STORE_FLAG_AND_EMIT:
 CRUNCH_17:
         LD A,(HL)
         ; a leading '.' may start a fractional constant like .5 -> treat as numeric
-        CP $2E
+        CP '.'
         JR Z,CRUNCH_18
-        CP $3A
+        CP ':'
         ; char is >= ':' (past the digits): not a number, retry it as an operator char
         JP NC,CRUNCH_26
-        CP $30
+        CP '0'
         ; char is below '0': not a digit either, retry it as an operator char
         JP C,CRUNCH_26
 ; ----------------------------------------------------------------------
@@ -2711,7 +2711,7 @@ CRUNCH_18:
         JP M,CRUNCH_PASS_CHAR
         ; ordinary numeric literal (not a line number): pack it via FIN in CRUNCH_22
         JR Z,CRUNCH_22
-        CP $2E
+        CP '.'
         JP Z,CRUNCH_PASS_CHAR
         ; emit the line-number-reference token ($0E) ahead of the 2-byte line number
         LD A,$0E
@@ -2966,7 +2966,7 @@ CRUNCH_27:
 ; ----------------------------------------------------------------------
 CRUNCH_AMP_HEX_OCT:
         ; is this byte an '&' radix-constant prefix (&H hex / &O octal)?
-        CP $26
+        CP '&'
         ; not '&': branch to CRUNCH_PASS_CHAR to emit the byte (ordinary char or operator token)
         JR NZ,CRUNCH_PASS_CHAR
         PUSH HL
@@ -2975,7 +2975,7 @@ CRUNCH_AMP_HEX_OCT:
         POP HL
         CALL TOUPPER_A
         ; 'H' -> hex; otherwise treat as octal
-        CP $48
+        CP 'H'
         ; default radix marker = octal ($0B), loaded before the branch resolves
         LD A,$0B
         JR NZ,CRUNCH_AMP_EMIT_AND_SCAN
@@ -3035,7 +3035,7 @@ CRUNCH_PASS_CHAR:
         CALL CRUNCH_EMIT
         POP AF
         ; classify the char: $3A == ':' arms literal+linenum modes
-        SUB $3A
+        SUB ':'
         JR Z,CRUNCH_SET_LITERAL_MODE
         ; residual $4A means char == $84 = TOK_DATA: DATA text is also copied raw
         CP $4A
@@ -3291,13 +3291,13 @@ CRUNCH_COPY_IDENT_LOOP:
         CALL IS_LETTER_A
         ; carry clear = letter (A-Z): still inside the identifier, keep copying
         JR NC,CRUNCH_COPY_IDENT_LOOP
-        CP $3A
+        CP ':'
         ; char >= ':' (and not a letter) ends the name -- stop copying
         JR NC,CRUNCH_COPY_IDENT_DONE
-        CP $30
+        CP '0'
         ; digit 0-9: a legal identifier continuation character, keep copying
         JR NC,CRUNCH_COPY_IDENT_LOOP
-        CP $2E
+        CP '.'
         ; '.' is allowed inside BASIC variable names, keep copying
         JR Z,CRUNCH_COPY_IDENT_LOOP
 ; ----------------------------------------------------------------------
@@ -3326,14 +3326,14 @@ CRUNCH_COPY_IDENT_DONE:
 CRUNCH_NORMALIZE_CTRL:
         ; no operator matched: take the raw source character
         LD A,(HL)
-        CP $20
+        CP ' '
         JR NC,CRUNCH_EMIT_OP
         CP $09
         JR Z,CRUNCH_EMIT_OP
         CP $0A
         JR Z,CRUNCH_EMIT_OP
         ; a stray control char (not TAB/LF): substitute a space
-        LD A,$20
+        LD A,' '
 ; ----------------------------------------------------------------------
 ; CRUNCH_EMIT_OP -- finalize a single-character operator/punctuation byte and rejoin the
 ; matched-token epilogue
@@ -3391,7 +3391,7 @@ CRUNCH_SKIP_BLANKS_BACK:
         ; step back over a trailing whitespace byte
         DEC HL
         LD A,(HL)
-        CP $20
+        CP ' '
         JR Z,CRUNCH_SKIP_BLANKS_BACK
         CP $09
         JR Z,CRUNCH_SKIP_BLANKS_BACK
@@ -3702,7 +3702,7 @@ STMT_FOR_8:
         LD (OLDTXT),HL
         LD (SAVSTK),SP
         LD A,(HL)
-        CP $3A
+        CP ':'
         JR Z,NEWSTT_NEXTLINE_2
         OR A
         JP NZ,RAISE_SYNTAX_ERROR
@@ -3844,7 +3844,7 @@ CHRGOT:
         LD A,(HL)
         ; fast exit for anything >= ':' (keywords, operators, letters): RET NC leaves carry clear =
         ; 'not a digit'
-        CP $3A
+        CP ':'
         RET NC
 ; ----------------------------------------------------------------------
 ; CHRGOT_1 -- classify a char below ':' : skip spaces, detect end-of-line, split digits from the
@@ -3863,7 +3863,7 @@ CHRGOT:
 ;              and $1F) fall to CHRGOT_2.
 ; ----------------------------------------------------------------------
 CHRGOT_1:
-        CP $20
+        CP ' '
         ; skip a literal space: loop back to CHRGET to fetch the following char
         JR Z,CHRGET
         ; printable char in $21-$39: go classify it as digit vs non-digit
@@ -4094,7 +4094,7 @@ CHRGOT_9:
 ; ----------------------------------------------------------------------
 CHRGOT_10:
         ; compare against '0'; combined with the <':' entry this isolates the digit range
-        CP $30
+        CP '0'
         ; invert so carry SET == 'char is a digit 0-9'
         CCF
         ; INC/DEC pair restores A and sets Z iff A==0, leaving carry intact
@@ -4304,7 +4304,7 @@ STMT_DEFSTR_4:
         PUSH BC
         RET C
         ; Convert the start letter to a 0-based DEFTYPE_TBL index (letter - 'A').
-        SUB $41
+        SUB 'A'
         LD C,A
         LD B,A
         CALL CHRGET
@@ -4364,7 +4364,7 @@ STMT_DEFSTR_6:
         POP HL
         LD A,(HL)
         ; A ',' chains another letter-range clause; anything else ends the statement.
-        CP $2C
+        CP ','
         RET NZ
         CALL CHRGET
         JR STMT_DEFSTR_4
@@ -4389,7 +4389,7 @@ ERROR_FC:
 ; line number into DE.
 LINGET_DOT:
         LD A,(HL)
-        CP $2E
+        CP '.'
         EX DE,HL
         LD HL,(ERRLIN)
         EX DE,HL
@@ -4429,7 +4429,7 @@ LINGET_TOKLINE_1:
         ADD HL,DE
         ADD HL,HL
         POP AF
-        SUB $30
+        SUB '0'
         LD E,A
         LD D,$00
         ADD HL,DE
@@ -4773,7 +4773,7 @@ STMT_DATA_3:
         INC HL
         ; a double-quote opens/closes a string constant: swap B/C so colons inside the quoted text
         ; are passed over verbatim
-        CP $22
+        CP '"'
         JR Z,STMT_DATA_1
         INC A
         JR Z,STMT_DATA_3
@@ -5066,7 +5066,7 @@ STMT_ON_4:
         LD A,B
         JP Z,NEWSTT_DISPATCH
         CALL LINGET_NEXT
-        CP $2C
+        CP ','
         RET NZ
         JR STMT_ON_4
 ; ----------------------------------------------------------------------
@@ -5247,7 +5247,7 @@ STMT_IF:
         ; evaluate the IF condition into FAC
         CALL FRMEVL_NOPAREN
         LD A,(HL)
-        CP $2C
+        CP ','
         CALL Z,CHRGET
         CP TOK_GOTO
         JR Z,STMT_IF_1
@@ -5357,9 +5357,9 @@ STMT_PRINT_2:
         CP $E3
         JP Z,STMT_PRINT_11
         PUSH HL
-        CP $2C
+        CP ','
         JR Z,STMT_PRINT_7
-        CP $3B
+        CP ';'
         JP Z,STMT_PRINT_20
         POP BC
         CALL FRMEVL_NOPAREN
@@ -5368,7 +5368,7 @@ STMT_PRINT_2:
         JR Z,STMT_PRINT_3
         CALL FOUT_2
         CALL SCAN_STR_LITERAL
-        LD (HL),$20
+        LD (HL),' '
         LD HL,(FAC)
         INC (HL)
 STMT_PRINT_3:
@@ -5561,7 +5561,7 @@ STMT_LINE:
         DEFB    TOK_INPUT                ; inline keyword-token arg consumed by the preceding CALL
         ; LINE INPUT#: a '#' here means read from a file, not the console -- hand off to the file
         ; path
-        CP $23
+        CP '#'
         JP Z,LINE_INPUT_FILE
         ; record an optional leading ';' (it sets L_0C93 to suppress the closing CR/LF), then
         ; INPUT_PROMPT emits the optional quoted prompt
@@ -5615,7 +5615,7 @@ STMT_LINE_1:
         OR A
         ; unterminated quoted literal inside the subscript expression -> Syntax error
         JP Z,RAISE_SYNTAX_ERROR
-        CP $22
+        CP '"'
         ; skip the quoted-string body verbatim until its closing quote
         JR NZ,STMT_LINE_1
         JP INPUT_PROMPT_8
@@ -5701,7 +5701,7 @@ STMT_LINE_5:
 ;              the value-parse loop.
 ; ----------------------------------------------------------------------
 STMT_INPUT:
-        CP $23
+        CP '#'
         ; INPUT#: '#' means read fields from a file instead of the console
         JP Z,STMT_LINE_5
         CALL INPUT_PROMPT_SEP
@@ -5726,7 +5726,7 @@ STMT_INPUT:
 ;              SYNCHR-require ';'. Either way STRPRT prints the prompt string and RET.
 ; ----------------------------------------------------------------------
 INPUT_PROMPT:
-        CP $22
+        CP '"'
         LD A,$00
         LD (CTRL_O_SUPPRESS),A
         ; default: show the automatic '? ' input marker (L_0C94 nonzero); a trailing ',' below will
@@ -5739,7 +5739,7 @@ INPUT_PROMPT:
         ; capture the quoted prompt literal into a string descriptor
         CALL SCAN_STR_QUOTE
         LD A,(HL)
-        CP $2C
+        CP ','
         JR NZ,INPUT_PROMPT_2
         ; prompt followed by ',' -> clear L_0C94 to suppress the automatic '?' marker (PRINT-style
         ; prompt)
@@ -5812,7 +5812,7 @@ INPUT_PARSE_VALUES:
         CALL PTRGET_1+1
         LD A,(HL)
         DEC HL
-        CP $28
+        CP '('
         JR NZ,INPUT_PROMPT_9
         INC HL
         LD B,$00
@@ -5821,11 +5821,11 @@ INPUT_PROMPT_7:
 INPUT_PROMPT_8:
         CALL CHRGET
         JP Z,RAISE_SYNTAX_ERROR
-        CP $22
+        CP '"'
         JP Z,STMT_LINE_1
-        CP $28
+        CP '('
         JR Z,INPUT_PROMPT_7
-        CP $29
+        CP ')'
         JR NZ,INPUT_PROMPT_8
         DJNZ INPUT_PROMPT_8
 ; ----------------------------------------------------------------------
@@ -5849,13 +5849,13 @@ INPUT_PROMPT_8:
 INPUT_PROMPT_9:
         CALL CHRGET
         JR Z,INPUT_PROMPT_10
-        CP $2C
+        CP ','
         ; variables in the INPUT list must be separated by ',' (or end the statement)
         JP NZ,RAISE_SYNTAX_ERROR
 INPUT_PROMPT_10:
         EX (SP),HL
         LD A,(HL)
-        CP $2C
+        CP ','
         ; sentinel no longer 1 => the typed field did not parse -> '?Redo from start'
         ; reply has no ',' here -> fewer values than variables -> '?Redo from start'
         JP NZ,STMT_LINE_2
@@ -5898,7 +5898,7 @@ INPUT_PROMPT_11:
         CALL CHRGET
         EX (SP),HL
         LD A,(HL)
-        CP $2C
+        CP ','
         ; the PROGRAM (variable list) has another ',' -> another variable follows; loop to read its
         ; reply field
         JR Z,INPUT_PARSE_VALUES
@@ -5976,7 +5976,7 @@ STMT_READ_3:
         EX (SP),HL
         PUSH DE
         LD A,(HL)
-        CP $2C
+        CP ','
         JR Z,STMT_READ_4
         LD A,(L_0B53)
         OR A
@@ -6022,7 +6022,7 @@ STMT_READ_4:
         CALL CHRGET
         LD D,A
         LD B,A
-        CP $22
+        CP '"'
         JR Z,STMT_READ_6
         LD A,(L_0B53)
         OR A
@@ -6030,7 +6030,7 @@ STMT_READ_4:
         JR Z,STMT_READ_5
         ; string field from program DATA (L_0B53!=0): a ':' is set as a second terminator so a colon
         ; also ends the DATA item (for console INPUT D was left 0)
-        LD D,$3A
+        LD D,':'
 STMT_READ_5:
         LD B,$2C
         DEC HL
@@ -6080,7 +6080,7 @@ STMT_READ_9:
         DEC HL
         CALL CHRGET
         JR Z,STMT_READ_10
-        CP $2C
+        CP ','
         JP NZ,STMT_LINE_3
 STMT_READ_10:
         EX (SP),HL
@@ -6918,11 +6918,11 @@ FRMEVL_EVAL_OPERAND:
         JR Z,FRMEVL_EVAL_OPERAND
         CP TOK_MINUS
         JP Z,FRMEVL_PAREN_1
-        CP $22
+        CP '"'
         JP Z,SCAN_STR_QUOTE
         CP TOK_NOT
         JP Z,FRMEVL_NOT
-        CP $26
+        CP '&'
         JP Z,SCAN_AMP_RADIX_CONST
         CP $E6
         JR NZ,FRMEVL_EVAL_OPERAND_1
@@ -6954,7 +6954,7 @@ FRMEVL_EVAL_OPERAND_2:
         CALL CHRGET
         CALL SYNCHR
         DEFB    '('                      ; inline char arg consumed by the preceding CALL
-        CP $23
+        CP '#'
         JR NZ,FRMEVL_EVAL_OPERAND_3
         CALL GETBYT_CHRGET
         PUSH HL
@@ -7096,10 +7096,10 @@ CHRGET_UPCASE:
 ; ----------------------------------------------------------------------
 TOUPPER_A:
         ; Below 'a' ($61): not lowercase, return char unchanged.
-        CP $61
+        CP 'a'
         RET C
         ; At or above '{' ($7B), i.e. past 'z': not lowercase, return char unchanged.
-        CP $7B
+        CP '{'
         RET NC
         ; In a-z: clear bit 5 ($20) to fold lowercase to uppercase.
         AND $5F
@@ -7118,7 +7118,7 @@ TOUPPER_A:
 ; ----------------------------------------------------------------------
 LINGET_OR_AMP:
         ; '&' introduces an &H/&O radix literal; anything else is a decimal line number.
-        CP $26
+        CP '&'
         JP NZ,LINGET
 ; ----------------------------------------------------------------------
 ; SCAN_AMP_RADIX_CONST -- parse an &H<hex> or &O<octal> integer literal into the FAC
@@ -7143,11 +7143,11 @@ SCAN_AMP_RADIX_CONST:
         CALL CHRGET
         CALL TOUPPER_A
         ; 'O' -> octal scanner.
-        CP $4F
+        CP 'O'
         JR Z,SCAN_AMP_RADIX_CONST_5
         ; 'H' -> hex scanner; any other letter defaults to octal with the char pushed back (DEC HL
         ; at _4).
-        CP $48
+        CP 'H'
         JR NZ,SCAN_AMP_RADIX_CONST_4
         ; Hex digit-count guard: at most 4 nibbles fit in 16 bits, so a 5th decrements B to zero ->
         ; Overflow.
@@ -7159,13 +7159,13 @@ SCAN_AMP_RADIX_CONST_1:
         CALL IS_LETTER_A
         EX DE,HL
         JR NC,SCAN_AMP_RADIX_CONST_2
-        CP $3A
+        CP ':'
         JR NC,SCAN_AMP_RADIX_CONST_6
-        SUB $30
+        SUB '0'
         JR C,SCAN_AMP_RADIX_CONST_6
         JR SCAN_AMP_RADIX_CONST_3
 SCAN_AMP_RADIX_CONST_2:
-        CP $47
+        CP 'G'
         JR NC,SCAN_AMP_RADIX_CONST_6
         SUB $37
 SCAN_AMP_RADIX_CONST_3:
@@ -7199,7 +7199,7 @@ SCAN_AMP_RADIX_CONST_5:
         EX DE,HL
         JR NC,SCAN_AMP_RADIX_CONST_6
         ; Digit '8' or '9' is not a valid octal digit -> Syntax error.
-        CP $38
+        CP '8'
         JP NC,RAISE_SYNTAX_ERROR
         ; Arm RAISE_OVERFLOW as the return target so the three RET C shift-overflow checks raise
         ; Overflow with no explicit branch each.
@@ -7213,7 +7213,7 @@ SCAN_AMP_RADIX_CONST_5:
         RET C
         POP BC
         LD B,$00
-        SUB $30
+        SUB '0'
         LD C,A
         ADD HL,BC
         EX DE,HL
@@ -7264,7 +7264,7 @@ FRMEVL_FUNC_TOKEN:
         JR NZ,FRMEVL_FUNC_TOKEN_1
         PUSH HL
         CALL CHRGET
-        CP $28
+        CP '('
         POP HL
         ; [RE] RND with no '(': divert to the RND-no-argument entry ($5D89), which CHRGETs, loads a
         ; default arg, and calls FN_RND -- POLY_EVAL_2 is a mislabel of that entry.
@@ -7420,11 +7420,11 @@ FIN_EXP_SIGN_SCAN:
         DEC D
         CP TOK_MINUS
         RET Z
-        CP $2D
+        CP '-'
         RET Z
         ; Cancel the tentative flip for the '+' / no-sign cases.
         INC D
-        CP $2B
+        CP '+'
         RET Z
         CP TOK_PLUS
         RET Z
@@ -7777,7 +7777,7 @@ STMT_DEF:
         EX DE,HL
         LD A,(HL)
         ; a '(' begins the formal-parameter list; without one there is nothing more to scan
-        CP $28
+        CP '('
         ; no parameter list: skip the rest of the statement like a DATA line
         JP NZ,STMT_DATA
         CALL CHRGET
@@ -7798,7 +7798,7 @@ STMT_DEF_1:
         ; skip one formal-parameter name (advance the text cursor past it)
         CALL PTRGET_1+1
         LD A,(HL)
-        CP $29
+        CP ')'
         ; ')' closes the parameter list: ignore the body text and skip to end of statement
         JP Z,STMT_DATA
         CALL SYNCHR
@@ -7841,7 +7841,7 @@ CALL_FN:
         ; the slot holds $0000 -> this FN was never DEF'd
         JP Z,RAISE_UNDEFINED_USER_FUNCTION
         LD A,(HL)
-        CP $28
+        CP '('
         ; definition has no '(' (no-arg form): jump into the bare PUSH DE cover at CALL_FN_BIND+1
         JP NZ,CALL_FN_BIND+1
         CALL CHRGET
@@ -7903,7 +7903,7 @@ CALL_FN_ARG:
         PUSH AF
         LD HL,(FOUT_DP_POSITION)
         LD A,(HL)
-        CP $29
+        CP ')'
         ; ')' ends the argument list -> finish binding
         JR Z,STMT_DEF_5
         CALL SYNCHR
@@ -8288,7 +8288,7 @@ STMT_WIDTH:
 ;   width read at STMT_PRINT_8 ($3609) when PTRFIL=0 and PRTFLG clear.
 ; ----------------------------------------------------------------------
 STMT_WIDTH_1:
-        CP $2C
+        CP ','
         ; leading ',': width omitted, set only the trailing page-length field
         JR Z,WIDTH_SET_CONSOLE_1
         CALL GETBYT
@@ -8300,7 +8300,7 @@ WIDTH_SET_CONSOLE:
         CALL WIDTH_CLAMP_COLUMN
         LD (WIDTH_FILE),A
         LD A,(HL)
-        CP $2C
+        CP ','
         RET NZ
 WIDTH_SET_CONSOLE_1:
         CALL CHRGET
@@ -8731,7 +8731,7 @@ DETOKENIZE_LINE_3:
         JP M,DETOKENIZE_LINE_8
         LD E,A
         ; [RE] '.' can begin a numeric literal -> treat as a spacing-relevant word char
-        CP $2E
+        CP '.'
         JR Z,DETOKENIZE_LINE_4
         ; letters/digits return NC (word-forming) -> spacing path; other bytes return C
         CALL IS_ALNUM_CHAR
@@ -9227,9 +9227,9 @@ IS_ALNUM_CHAR:
         CALL IS_LETTER_A
         RET NC
         ; below '0': not a digit either, return carry set (non-alphanumeric)
-        CP $30
+        CP '0'
         RET C
-        CP $3A
+        CP ':'
         ; map '0'-'9' to NC (alphanumeric); ':' and above to C
         CCF
         RET
@@ -9375,7 +9375,7 @@ CONST_FMT_SKIP_SPACE:
         LD A,(HL)
         ; FOUT prefixes a non-negative number with a leading space placeholder; drop it before
         ; copying
-        CP $20
+        CP ' '
         ; FP_LOAD_DONE = INC HL/RET: advance past the leading space
         CALL Z,FP_LOAD_DONE
 ; ----------------------------------------------------------------------
@@ -9420,7 +9420,7 @@ CONST_FMT_COPY:
         LD A,(BC)
         INC BC
         JR NZ,CONST_FMT_SUFFIX_TEST
-        CP $2E
+        CP '.'
         JR Z,CONST_FMT_CLEAR_SUFFIX
 ; ----------------------------------------------------------------------
 ; CONST_FMT_SUFFIX_TEST -- test a copied char for an exponent marker ('D'/'E') and drop the
@@ -9438,10 +9438,10 @@ CONST_FMT_COPY:
 ; ----------------------------------------------------------------------
 CONST_FMT_SUFFIX_TEST:
         ; 'D' = double-precision exponent marker -> type already shown, drop the suffix
-        CP $44
+        CP 'D'
         JR Z,CONST_FMT_CLEAR_SUFFIX
         ; 'E' = single-precision exponent marker -> drop the suffix; any other char keeps copying
-        CP $45
+        CP 'E'
         JR NZ,CONST_FMT_COPY
 ; ----------------------------------------------------------------------
 ; CONST_FMT_CLEAR_SUFFIX -- suppress the trailing type-suffix because the printed text already shows
@@ -9771,7 +9771,7 @@ STMT_RENUM:
         LD E,B
         ; no operands at all: use all defaults (new start 10, old start = top of program, step 10)
         JR Z,STMT_RENUM_2
-        CP $2C
+        CP ','
         JR Z,STMT_RENUM_1
         PUSH DE
         ; parse the new starting line number (BC); '.' means the current line
@@ -10105,7 +10105,7 @@ STMT_OPTION:
         POP HL
         LD A,(HL)
         ; convert the ASCII digit to 0/1; reject anything outside [0,1] as a Syntax error
-        SUB $30
+        SUB '0'
         JP C,RAISE_SYNTAX_ERROR
         CP $02
         JP NC,RAISE_SYNTAX_ERROR
@@ -11439,9 +11439,9 @@ STMT_CALL_INVOKE_6502:
 STMT_CALL_ARG_LOOP:
         LD A,(HL)
         ; ')' ends the argument list
-        CP $29
+        CP ')'
         JR Z,STMT_CALL_ARG_END
-        CP $2C
+        CP ','
         JR NZ,STMT_CALL_ARG_STORE
         CALL CHRGET
         JR STMT_CALL_ARG_NEXT
@@ -11456,7 +11456,7 @@ STMT_CALL_ARG_STORE:
         LD (DE),A
         INC DE
         LD A,(HL)
-        CP $2C
+        CP ','
         CALL Z,CHRGET
 STMT_CALL_ARG_NEXT:
         DJNZ STMT_CALL_ARG_LOOP
@@ -11517,7 +11517,7 @@ GFX_DISPLAY_MODE_WRITE:
         POP HL
         LD A,(HL)
         ; report to the caller whether a ',' sub-argument follows
-        CP $2C
+        CP ','
         RET
     IFDEF GBASIC
 ; ====================================================================== GRAPHICS (GBASIC only)
@@ -16540,14 +16540,14 @@ FIN_1:
         EX DE,HL
         LD A,(HL)
         ; '&' radix prefix (&H hex / &O octal): hand off to the radix-constant scanner
-        CP $26
+        CP '&'
         JP Z,SCAN_AMP_RADIX_CONST
         ; leading '-': remember it (PUSH AF leaves Z set) so FIN_10 negates the result
-        CP $2D
+        CP '-'
         PUSH AF
         JP Z,FIN_2
         ; leading '+': consume it, no negate
-        CP $2B
+        CP '+'
         JR Z,FIN_2
         ; no sign char: back up so FIN_2 re-reads this character as the first digit
         DEC HL
@@ -16573,12 +16573,12 @@ FIN_2:
         ; digit: fold it into the running integer/float value
         JP C,FIN_ACCUM_DIGIT
         ; '.' decimal point: switch to fractional-digit counting (FIN_11)
-        CP $2E
+        CP '.'
         JP Z,FIN_11
         ; 'e'/'E' candidate exponent marker -> FIN_3 to disambiguate from the ELSE/EQV keywords
-        CP $65
+        CP 'e'
         JR Z,FIN_3
-        CP $45
+        CP 'E'
 ; ----------------------------------------------------------------------
 ; FIN_3 -- decide whether an 'e'/'E' is an exponent marker or the start of a keyword, by
 ;          peeking the following character.
@@ -16606,13 +16606,13 @@ FIN_3:
         CALL CHRGET
         ; [RE] 'l'/'L' (or 'q'/'Q' below) after 'E' => the keyword ELSE/EQV, not an exponent: end
         ; the number before 'E'
-        CP $6C
+        CP 'l'
         JR Z,FIN_4
-        CP $4C
+        CP 'L'
         JR Z,FIN_4
-        CP $71
+        CP 'q'
         JR Z,FIN_4
-        CP $51
+        CP 'Q'
 ; ----------------------------------------------------------------------
 ; FIN_4 -- exponent vs keyword resolution; on the exponent path choose the result type and
 ;          set A to the FIN_7 type-fixup selector.
@@ -16671,18 +16671,18 @@ FIN_5:
 ; ----------------------------------------------------------------------
 FIN_6:
         ; '%' integer type suffix
-        CP $25
+        CP '%'
         JP Z,FIN_12
         ; '#' double type suffix
-        CP $23
+        CP '#'
         JP Z,FIN_13
         ; '!' single type suffix
-        CP $21
+        CP '!'
         JP Z,FIN_14
         ; 'd'/'D' double-precision exponent marker: parse it like 'e'/'E' (FIN_7), forcing double
-        CP $64
+        CP 'd'
         JR Z,FIN_7
-        CP $44
+        CP 'D'
         ; no suffix or exponent: finalize the value with the scale accumulated so far
         JR NZ,FIN_9
 ; ----------------------------------------------------------------------
@@ -17056,7 +17056,7 @@ FIN_ACCUM_DIGIT:
         ; fetch the ASCII digit at the text pointer
         LD A,(HL)
         ; convert ASCII '0'..'9' to its numeric value 0..9
-        SUB $30
+        SUB '0'
         PUSH AF
         CALL FRMEVL_TEST_TYPE
         ; value already promoted to float (sign positive) -> accumulate this digit in floating point
@@ -17307,7 +17307,7 @@ FIN_EXP_DIGIT:
         RLCA
         ; fold in the ASCII digit, then SUB '0' to get its numeric value
         ADD A,(HL)
-        SUB $30
+        SUB '0'
         LD E,A
 ; ----------------------------------------------------------------------
 ; FIN_EXP_SATURATE -- exponent-overflow cover; continue scanning the exponent field
@@ -17945,16 +17945,16 @@ PRUSING_FIELD_1:
         CALL CHRGET
         JR Z,PRUSING_FIELD_2
         ; 'E' exponent marker reached -> force the leading zero
-        CP $45
+        CP 'E'
         JR Z,PRUSING_FIELD_2
-        CP $44
+        CP 'D'
         JR Z,PRUSING_FIELD_2
-        CP $30
+        CP '0'
         JR Z,PRUSING_FIELD_1
-        CP $2C
+        CP ','
         JR Z,PRUSING_FIELD_1
         ; '.' decimal point reached -> force the leading zero
-        CP $2E
+        CP '.'
         JR NZ,PRUSING_FIELD_3
 ; ----------------------------------------------------------------------
 ; PRUSING_FIELD_2 -- force a leading '0' when the number starts with '.', 'E' or 'D' (or is empty).
@@ -18093,10 +18093,10 @@ FOUT_SET_FORMAT_3:
         CP B
         JP Z,FOUT_SET_FORMAT_6
         ; char above '9' -> not a digit
-        CP $3A
+        CP ':'
         JP NC,FOUT_SET_FORMAT_4
         ; char below '0' -> not a digit
-        CP $30
+        CP '0'
         JP C,FOUT_SET_FORMAT_4
         ; count this digit
         INC C
@@ -18193,13 +18193,13 @@ FOUT_SET_FORMAT_6:
 ; ----------------------------------------------------------------------
 FOUT_SET_FORMAT_7:
         ; '+' exponent sign -> accept without forcing E-notation
-        CP $2B
+        CP '+'
         JP Z,PRUSING_FIELD_ABORT
         ; '-' exponent sign -> negative-exponent branch
-        CP $2D
+        CP '-'
         JP Z,FOUT_SET_FORMAT_8
         ; ASCII digit -> its numeric value
-        SUB $30
+        SUB '0'
         LD C,A
         LD A,B
         ADD A,A
@@ -18237,7 +18237,7 @@ FOUT_SET_FORMAT_8:
         POP BC
         LD A,B
         ; 'E' (single-precision exponent) -> use the $09 digit-window limit
-        CP $45
+        CP 'E'
         JP NZ,PRUSING_EXP_FITS_CHECK
         LD A,C
         ADD A,H
@@ -18443,9 +18443,9 @@ FOUT_CORE_4:
         DEC HL
         LD A,(HL)
         ; trim trailing '0' digits the rounding produced
-        CP $30
+        CP '0'
         JR Z,FOUT_CORE_4
-        CP $2E
+        CP '.'
         CALL NZ,FP_LOAD_DONE
         POP AF
         ; fixed notation: NUL-terminate; otherwise fall through to append the E/D exponent
@@ -18641,10 +18641,10 @@ PRUSING_IMAGE_SCAN:
         ; trailing image fully consumed: done
         RET Z
         LD A,(HL)
-        CP $20
+        CP ' '
         ; skip a space fill character
         JR Z,PRUSING_IMAGE_SCAN_NEXT
-        CP $2A
+        CP '*'
         ; skip a '*' fill character
         JR Z,PRUSING_IMAGE_SCAN_NEXT
         DEC HL
@@ -18672,14 +18672,14 @@ PRUSING_TRAIL_SCAN:
         PUSH BC
         ; advance HL and fetch the next format-image character
         CALL CHRGET
-        CP $2D
+        CP '-'
         RET Z
-        CP $2B
+        CP '+'
         RET Z
-        CP $24
+        CP '$'
         RET Z
         POP BC
-        CP $30
+        CP '0'
         JR NZ,PRUSING_FIELD_OVERFLOW
         INC HL
         CALL CHRGET
@@ -19070,7 +19070,7 @@ FOUT_EFIELD_COUNT:
         JP NZ,FOUT_EFIELD_EXP_VALUE
         CALL DEC_HL_RET
         LD A,(HL)
-        CP $2E
+        CP '.'
         ; last char is not '.': INC HL to re-include the final digit (the '.' is dropped only when
         ; present)
         CALL NZ,FP_LOAD_DONE
@@ -20144,8 +20144,8 @@ HEX_OCT_OUT_4:
 ;              ':'..'@' gap so 10..15 map to 'A'..'F'.
 ; ----------------------------------------------------------------------
 HEX_OCT_OUT_5:
-        ADD A,$30
-        CP $3A
+        ADD A,'0'
+        CP ':'
         JP C,HEX_OCT_OUT_6
         ; value 10..15: add 7 to jump the ASCII gap from '9' up to 'A'..'F'
         ADD A,$07
@@ -20818,12 +20818,12 @@ PTRGET_2:
         LD (VARNAM_EXTLEN),A
         INC HL
         LD A,(HL)
-        CP $2E
+        CP '.'
         JR C,PTRGET_7
         JR Z,PTRGET_4
-        CP $3A
+        CP ':'
         JR NC,PTRGET_3
-        CP $30
+        CP '0'
         JR NC,PTRGET_4
 ; ----------------------------------------------------------------------
 ; PTRGET_3 -- classify a non-digit, non-'.' next character as letter-or-terminator.
@@ -20878,9 +20878,9 @@ PTRGET_5:
         INC DE
         INC HL
         LD A,(HL)
-        CP $3A
+        CP ':'
         JR NC,PTRGET_6
-        CP $30
+        CP '0'
         JR NC,PTRGET_5
 ; ----------------------------------------------------------------------
 ; PTRGET_6 -- continuation test + name-length cap, then close the name scan.
@@ -20900,7 +20900,7 @@ PTRGET_5:
 PTRGET_6:
         CALL IS_LETTER_A
         JR NC,PTRGET_5
-        CP $2E
+        CP '.'
         JR Z,PTRGET_5
         LD A,B
         ; Cap the identifier length at $27 name-extension chars; >= $27 is a SYNTAX ERROR.
@@ -20925,7 +20925,7 @@ PTRGET_6:
 ;              PTRGET_10 return) and PTRGET_8 for the default-type lookup.
 ; ----------------------------------------------------------------------
 PTRGET_7:
-        CP $26
+        CP '&'
         JR NC,PTRGET_8
         ; Queue PTRGET_10 as the return so a matched suffix lands directly on the VALTYP-store with
         ; D=type.
@@ -20934,16 +20934,16 @@ PTRGET_7:
         ; Start the suffix type at integer (2); INC D below advances it for '$' (3) and '!' (4); '#'
         ; is forced to 8 (double).
         LD D,$02
-        CP $25
+        CP '%'
         RET Z
         INC D
-        CP $24
+        CP '$'
         RET Z
         INC D
-        CP $21
+        CP '!'
         RET Z
         LD D,$08
-        CP $23
+        CP '#'
         RET Z
         POP AF
 ; ----------------------------------------------------------------------
@@ -21016,7 +21016,7 @@ PTRGET_10:
         JP Z,PTRGET_SEARCH_22+1
         JP P,PTRGET_SEARCH
         LD A,(HL)
-        SUB $28
+        SUB '('
         JP Z,PTRGET_SEARCH_14
         SUB $33
         JP Z,PTRGET_SEARCH_14
@@ -21316,11 +21316,11 @@ PTRGET_SEARCH_20:
         LD D,A
         LD A,(HL)
         ; ',' means another dimension follows; ')' or ']' closes the subscript list
-        CP $2C
+        CP ','
         JP Z,PTRGET_SEARCH_15
-        CP $29
+        CP ')'
         JR Z,PTRGET_SEARCH_21
-        CP $5D
+        CP ']'
         JP NZ,RAISE_SYNTAX_ERROR
 PTRGET_SEARCH_21:
         CALL CHRGET
@@ -21787,7 +21787,7 @@ STMT_EDIT_7:
         OR A
         JR Z,STMT_EDIT_7
         CALL TOUPPER_A
-        SUB $30
+        SUB '0'
         JR C,STMT_EDIT_8
         CP $0A
         JR NC,STMT_EDIT_8
@@ -21963,7 +21963,7 @@ EDIT_EMIT_BACKSLASH_1:
         RET Z
 EDIT_EMIT_BACKSLASH_2:
         CALL CONIN
-        CP $20
+        CP ' '
         JR NC,EDIT_EMIT_BACKSLASH_3
         CP $0A
         JR Z,EDIT_EMIT_BACKSLASH_3
@@ -22006,9 +22006,9 @@ EDIT_EMIT_BACKSLASH_6:
         JR Z,EDIT_BUF_SHIFT_2
         CP $09
         JR Z,EDIT_BUF_SHIFT_2
-        CP $20
+        CP ' '
         JR C,EDIT_EMIT_BACKSLASH_6
-        CP $5F
+        CP '_'
         JR NZ,EDIT_BUF_SHIFT_2
 EDIT_EMIT_BACKSLASH_7:
         LD A,$5F
@@ -22160,7 +22160,7 @@ PRINT_LIST_ENTRY_7:
         INC HL
         CP $5C
         JP Z,PRINT_LIST_ENTRY_33+1
-        CP $20
+        CP ' '
         JR NZ,PRINT_LIST_ENTRY_8
         INC C
         DJNZ PRINT_LIST_ENTRY_7
@@ -22180,31 +22180,31 @@ PRINT_LIST_ENTRY_11:
         LD D,A
         LD A,(HL)
         INC HL
-        CP $21
+        CP '!'
         JP Z,PRINT_LIST_ENTRY_32
-        CP $23
+        CP '#'
         JR Z,PRINT_LIST_ENTRY_15
-        CP $26
+        CP '&'
         JP Z,PRINT_LIST_ENTRY_31
         DEC B
         JP Z,PRINT_LIST_ENTRY_27
-        CP $2B
+        CP '+'
         LD A,$08
         JR Z,PRINT_LIST_ENTRY_11
         DEC HL
         LD A,(HL)
         INC HL
-        CP $2E
+        CP '.'
         JR Z,PRINT_LIST_ENTRY_16
-        CP $5F
+        CP '_'
         JP Z,PRINT_LIST_ENTRY_30
         CP $5C
         JR Z,PRINT_LIST_ENTRY_6
         CP (HL)
         JR NZ,PRINT_LIST_ENTRY_9
-        CP $24
+        CP '$'
         JR Z,PRINT_LIST_ENTRY_13+1
-        CP $2A
+        CP '*'
         JR NZ,PRINT_LIST_ENTRY_9
         LD A,B
         INC HL
@@ -22238,11 +22238,11 @@ PRINT_LIST_ENTRY_15:
         JR Z,PRINT_LIST_ENTRY_20
         LD A,(HL)
         INC HL
-        CP $2E
+        CP '.'
         JR Z,PRINT_LIST_ENTRY_17
-        CP $23
+        CP '#'
         JR Z,PRINT_LIST_ENTRY_15
-        CP $2C
+        CP ','
         JR NZ,PRINT_LIST_ENTRY_18
         LD A,D
         OR $40
@@ -22250,8 +22250,8 @@ PRINT_LIST_ENTRY_15:
         JR PRINT_LIST_ENTRY_15
 PRINT_LIST_ENTRY_16:
         LD A,(HL)
-        CP $23
-        LD A,$2E
+        CP '#'
+        LD A,'.'
         JP NZ,PRINT_LIST_ENTRY_9
         LD C,$01
         INC HL
@@ -22261,7 +22261,7 @@ PRINT_LIST_ENTRY_17:
         JR Z,PRINT_LIST_ENTRY_20
         LD A,(HL)
         INC HL
-        CP $23
+        CP '#'
         JR Z,PRINT_LIST_ENTRY_17
 PRINT_LIST_ENTRY_18:
         PUSH DE
@@ -22269,7 +22269,7 @@ PRINT_LIST_ENTRY_18:
         PUSH DE
         LD D,H
         LD E,L
-        CP $5E
+        CP '^'
         RET NZ
         CP (HL)
         RET NZ
@@ -22308,7 +22308,7 @@ PRINT_LIST_ENTRY_20:
         OR A
         JR Z,PRINT_LIST_ENTRY_22
         LD A,(HL)
-        SUB $2D
+        SUB '-'
         JR Z,PRINT_LIST_ENTRY_21
         CP $FE
         JR NZ,PRINT_LIST_ENTRY_22
@@ -22345,9 +22345,9 @@ PRINT_LIST_ENTRY_23:
         SCF
         JR Z,PRINT_LIST_ENTRY_25
         LD (L_0B53),A
-        CP $3B
+        CP ';'
         JR Z,PRINT_LIST_ENTRY_24
-        CP $2C
+        CP ','
         JP NZ,RAISE_SYNTAX_ERROR
 PRINT_LIST_ENTRY_24:
         CALL CHRGET
@@ -22710,14 +22710,14 @@ OUTDO_WIDTH_6:
         POP BC
         RET
 OUTDO_WIDTH_7:
-        CP $20
+        CP ' '
         JR C,OUTDO_WIDTH_8
 OUTDO_WIDTH_8:
         POP AF
         PUSH AF
         ; send the character to the console device (BIOS CONOUT)
         CALL OUTDO_DEVICE2
-        CP $20
+        CP ' '
         JR C,OUTDO_WIDTH_9
         LD A,(PRINT_WIDTH)
         INC A
@@ -24144,7 +24144,7 @@ STMT_ERASE_2:
         LD A,(HL)
         ; If the next char is ',', another array name follows (ERASE A,B): consume it and loop;
         ; otherwise the statement is done.
-        CP $2C
+        CP ','
         RET NZ
         CALL CHRGET
         JR STMT_ERASE
@@ -24176,9 +24176,9 @@ IS_LETTER:
 ;              identifier tests.
 ; ----------------------------------------------------------------------
 IS_LETTER_A:
-        CP $41
+        CP 'A'
         RET C
-        CP $5B
+        CP '['
         CCF
         RET
 ; ----------------------------------------------------------------------
@@ -24212,7 +24212,7 @@ IS_LETTER_A:
 STMT_CLEAR:
         ; Bare CLEAR with no arguments: just reset all variable/array/string storage and return.
         JP Z,CLEAR_RESET_STORAGE
-        CP $2C
+        CP ','
         JR Z,STMT_CLEAR_1
         ; [RE] Parse the first numeric field as a non-negative integer; its value is validated but
         ; then discarded (HL is overwritten just below).
@@ -24231,7 +24231,7 @@ STMT_CLEAR_1:
         ; below.
         LD HL,(TOP_OF_STACK_ROOM)
         EX DE,HL
-        CP $2C
+        CP ','
         JR Z,STMT_CLEAR_2
         ; Evaluate the memory argument m (requested new top-of-stack-room address).
         CALL FRMEVL_NOPAREN
@@ -24474,7 +24474,7 @@ NEXT_LOOP_BODY_6:
         LD (SAVSTK),HL
         LD HL,(OPEN_RESUME_TEXT_PTR)
         LD A,(HL)
-        CP $2C
+        CP ','
         JP NZ,STMT_FOR_7
         CALL CHRGET
         CALL NEXT_LOOP_BODY
@@ -24701,11 +24701,11 @@ SCAN_STR_BODY_1:
         CP B
         JR NZ,SCAN_STR_BODY_1
 SCAN_STR_BODY_2:
-        CP $22
+        CP '"'
         CALL Z,CHRGET
         PUSH HL
         LD A,B
-        CP $2C
+        CP ','
         JR NZ,SCAN_STR_BODY_4
         INC C
 SCAN_STR_BODY_3:
@@ -24713,7 +24713,7 @@ SCAN_STR_BODY_3:
         JR Z,SCAN_STR_BODY_4
         DEC HL
         LD A,(HL)
-        CP $20
+        CP ' '
         JR Z,SCAN_STR_BODY_3
 SCAN_STR_BODY_4:
         POP HL
@@ -26357,7 +26357,7 @@ MID_ASSIGN_COPY:
 PARSE_OPT_LEN_ARG:
         ; default length = $FF (take the rest of the string)
         LD E,$FF
-        CP $29
+        CP ')'
         ; next char is ')': no length given, keep the default
         JR Z,PARSE_OPT_LEN_ARG_1
         CALL SYNCHR
@@ -26713,7 +26713,7 @@ INLIN_CTRL_R:
 INLIN_REJECT_LOW_CTRL:
         ; any other char below space is an unhandled control code -- ignore it and fetch the next
         ; key
-        CP $20
+        CP ' '
         JP C,INLIN_GETCH
 ; ----------------------------------------------------------------------
 ; INLIN_STORE_CHAR -- accept one character into the line, with full-buffer guard
@@ -26865,7 +26865,7 @@ INPUT_PROMPT_SEP:
         POP AF
         ; ';' after the prompt string suppresses the newline -- set the flag (store the char) and
         ; skip the ';'
-        CP $3B
+        CP ';'
         RET NZ
         LD (L_0C93),A
         JP CHRGET
@@ -27217,7 +27217,7 @@ STMT_CALL:
         LD (PTRGET_SUBSCRIPT_FLAG),A
         LD A,(HL)
         ; leading '%' selects the SoftCard 6502-call form (vs a native Z-80 CALL)
-        CP $25
+        CP '%'
         PUSH AF
         CALL Z,CHRGET
         CALL PTRGET_1+1
@@ -27278,7 +27278,7 @@ STMT_CALL_1:
         POP DE
         POP BC
         LD A,(HL)
-        CP $2C
+        CP ','
         JR NZ,STMT_CALL_2
         ; one fewer parameter slot remaining
         DEC C
@@ -27369,7 +27369,7 @@ STMT_CHAIN_1:
         JP Z,STMT_CHAIN_5
         CALL SYNCHR
         DEFB    ','                      ; inline char arg consumed by the preceding CALL
-        CP $2C
+        CP ','
         JR Z,STMT_CHAIN_2
         CALL FRMEVL_NOPAREN
         PUSH HL
@@ -27442,7 +27442,7 @@ STMT_CHAIN_7:
 STMT_CHAIN_8:
         OR A
         JR Z,STMT_CHAIN_6
-        CP $3A
+        CP ':'
         JR Z,STMT_CHAIN_7
         LD DE,$00B3
         CP E
@@ -27469,13 +27469,13 @@ STMT_CHAIN_10:
         LD (PTRGET_SUBSCRIPT_FLAG),A
         JR NZ,STMT_CHAIN_11
         LD A,(HL)
-        CP $28
+        CP '('
         JR NZ,STMT_CHAIN_12
         POP AF
         JR CHAIN_MARK_VAR_4
 STMT_CHAIN_11:
         LD A,(HL)
-        CP $28
+        CP '('
         JP Z,ERROR_FC
 STMT_CHAIN_12:
         POP HL
@@ -27516,7 +27516,7 @@ CHAIN_MARK_VAR_1:
 CHAIN_MARK_VAR_2:
         LD (PTRGET_SUBSCRIPT_FLAG),A
         LD A,(HL)
-        CP $28
+        CP '('
         JR NZ,STMT_CHAIN_12
         EX (SP),HL
         DEC BC
@@ -27527,7 +27527,7 @@ CHAIN_MARK_VAR_3:
         DEC HL
         CALL CHRGET
         JP Z,STMT_CHAIN_8
-        CP $28
+        CP '('
         JR NZ,CHAIN_MARK_VAR_5
 CHAIN_MARK_VAR_4:
         CALL CHRGET
@@ -27857,7 +27857,7 @@ STMT_WRITE_1:
         LD D,(HL)
         LD A,(DE)
         ; strip FOUT's leading sign-space so WRITE has no padding before the number
-        CP $20
+        CP ' '
         JR NZ,STMT_WRITE_2
         INC DE
         LD (HL),D
@@ -27890,7 +27890,7 @@ STMT_WRITE_3:
         DEC HL
         CALL CHRGET
         JR Z,STMT_WRITE_6
-        CP $3B
+        CP ';'
         JR Z,STMT_WRITE_4
         ; require a ',' or ';' between list items (syntax error otherwise)
         CALL SYNCHR
@@ -28017,7 +28017,7 @@ GET_FILENUM_PREFIX_C1:
 ;              (SYNCHR) and fall into STORE_CUR_FCB_PTR to record the selection.
 ; ----------------------------------------------------------------------
 PARSE_FILENUM_HASH:
-        CP $23
+        CP '#'
         RET NZ
         PUSH BC
         ; evaluate the file-number expression -> BC=FCB base, A=mode byte
@@ -28068,7 +28068,7 @@ STORE_CUR_FCB_PTR:
 FILE_NUM_TO_FCB:
         DEC HL
         CALL CHRGET
-        CP $23
+        CP '#'
         ; skip the '#' if present before evaluating the file number
         CALL Z,CHRGET
         CALL FRMEVL_NOPAREN
@@ -28337,7 +28337,7 @@ INPUT_FILE_SCAN_6:
         ; read next byte from the current file; carry => EOF -> Input past end
         CALL GETC_FILE_EOF
         JP C,RAISE_INPUT_PAST_END
-        CP $20
+        CP ' '
         JR NZ,INPUT_FILE_SCAN_7
         INC D
         DEC D
@@ -28356,11 +28356,11 @@ INPUT_FILE_SCAN_6:
 INPUT_FILE_SCAN_7:
         ; a leading quote opens a quoted string field (commas/spaces become literal until the
         ; closing quote)
-        CP $22
+        CP '"'
         JR NZ,INPUT_FILE_SCAN_8
         LD B,A
         LD A,E
-        CP $2C
+        CP ','
         LD A,B
         JR NZ,INPUT_FILE_SCAN_8
         LD D,B
@@ -28399,7 +28399,7 @@ INPUT_FILE_SCAN_8:
 INPUT_FILE_SCAN_9:
         LD C,A
         LD A,D
-        CP $22
+        CP '"'
         LD A,C
         JR Z,INPUT_FILE_SCAN_10
         CP $0D
@@ -28410,7 +28410,7 @@ INPUT_FILE_SCAN_9:
         JR NZ,INPUT_FILE_SCAN_10
         LD C,A
         LD A,E
-        CP $2C
+        CP ','
         LD A,C
         ; [RE] store this bare LF into the field unless the field is comma-delimited (E==',')
         CALL NZ,INPUT_BUF_STORE
@@ -28419,7 +28419,7 @@ INPUT_FILE_SCAN_9:
         CP $0D
         JR NZ,INPUT_FILE_SCAN_10
         LD A,E
-        CP $20
+        CP ' '
         JR Z,INPUT_FILE_SCAN_11
         CP $2C
         LD A,$0D
@@ -28463,9 +28463,9 @@ INPUT_FILE_SCAN_11:
 ; ----------------------------------------------------------------------
 INPUT_FILE_FINISH:
         PUSH HL
-        CP $22
+        CP '"'
         JR Z,INPUT_FILE_SKIPWS
-        CP $20
+        CP ' '
         JR NZ,INPUT_FILE_CONVERT
 ; ----------------------------------------------------------------------
 ; INPUT_FILE_SKIPWS -- skip the inter-field delimiter run (spaces, one comma, optional CRLF).
@@ -28488,9 +28488,9 @@ INPUT_FILE_SKIPWS:
 ; ----------------------------------------------------------------------
 INPUT_FILE_SKIPWS_14:
         JR C,INPUT_FILE_CONVERT
-        CP $20
+        CP ' '
         JR Z,INPUT_FILE_SKIPWS
-        CP $2C
+        CP ','
         JP Z,INPUT_FILE_CONVERT
         CP $0D
         JR NZ,INPUT_FILE_PUSHBACK
@@ -28558,7 +28558,7 @@ INPUT_FILE_CONVERT_18:
         LD HL,BUF_INPUT_RESET_PTR
         LD A,E
         ; E==space ($20) marks a numeric field -> numeric reader; otherwise build a string from BUF
-        SUB $20
+        SUB ' '
         JR Z,INPUT_FILE_CONVERT_NUM
         LD B,D
         LD D,$00
@@ -28793,7 +28793,7 @@ STMT_SAVE:
         JR Z,STMT_SAVE_1
         CALL SYNCHR
         DEFB    ','                      ; inline char arg consumed by the preceding CALL
-        CP $50
+        CP 'P'
         JP Z,SAVE_PROTECTED_PROGRAM
         CALL SYNCHR
         DEFB    'A'                      ; inline char arg consumed by the preceding CALL
@@ -28869,7 +28869,7 @@ CLOSE_ONE_THEN_COMMA:
         POP BC
         POP HL
         LD A,(HL)
-        CP $2C
+        CP ','
         RET NZ
         CALL CHRGET
 ; ----------------------------------------------------------------------
@@ -28879,7 +28879,7 @@ CLOSE_ONE_THEN_COMMA:
 STMT_CLOSE_4:
         PUSH BC
         LD A,(HL)
-        CP $23
+        CP '#'
         CALL Z,CHRGET
         CALL GETBYT
         EX (SP),HL
@@ -28964,7 +28964,7 @@ STMT_FIELD_1:
         EX DE,HL
         LD A,(HL)
         ; ',' separates fields; anything else ends the FIELD list
-        CP $2C
+        CP ','
         RET NZ
         PUSH DE
         PUSH BC
@@ -29293,7 +29293,7 @@ FN_INPUT_DOLLAR:
         PUSH DE
         LD A,(HL)
         ; ',' introduces an optional '#filenum' source
-        CP $2C
+        CP ','
         JR NZ,FN_INPUT_DOLLAR_1
         CALL CHRGET
         CALL FILE_NUM_TO_FCB
@@ -30199,7 +30199,7 @@ PARSE_FILENAME_TO_FCB:
         LD A,(HL)
         DEC E
         ; second char is ':' ? then the first char is a drive letter (d:)
-        CP $3A
+        CP ':'
         JR Z,PARSE_FILENAME_TO_FCB_2
         DEC HL
         INC E
@@ -30233,7 +30233,7 @@ PARSE_FILENAME_TO_FCB_2:
         JP Z,RAISE_BAD_FILE_NAME
         LD A,C
         ; convert drive letter to CP/M drive number (A:->1 ..); range-check 0..26, 0 = default
-        SUB $40
+        SUB '@'
         JP C,RAISE_BAD_FILE_NAME
         CP $1B
         JP NC,RAISE_BAD_FILE_NAME
@@ -30276,7 +30276,7 @@ PARSE_FILENAME_TO_FCB_4:
         JP M,FCB_PAD_FIELD_1
         LD A,(HL)
         ; '.' starts the extension: pad the name field then switch to the type field
-        CP $2E
+        CP '.'
         JR NZ,PARSE_FILENAME_TO_FCB_5
         CALL FCB_PAD_FIELD
         POP AF
@@ -30499,13 +30499,13 @@ STMT_OPEN:
         ; upper-case the mode letter so 'o'/'i'/'r' match 'O'/'I'/'R'
         AND $DF
         LD D,FCB_MODE_SEQ_OUT
-        CP $4F
+        CP 'O'
         JR Z,STMT_OPEN_1
         LD D,FCB_MODE_SEQ_IN
-        CP $49
+        CP 'I'
         JR Z,STMT_OPEN_1
         LD D,FCB_MODE_RANDOM
-        CP $52
+        CP 'R'
         JP NZ,RAISE_BAD_FILE_MODE
 ; ----------------------------------------------------------------------
 ; STMT_OPEN_1 -- OPEN mode resolved: parse the file-number argument.
@@ -30522,7 +30522,7 @@ STMT_OPEN_1:
         DEFB    ','                      ; inline char arg consumed by the preceding CALL
         PUSH DE
         ; optional '#' before the file number -- skip it if present
-        CP $23
+        CP '#'
         CALL Z,CHRGET
         CALL GETBYT
         CALL SYNCHR
@@ -30577,13 +30577,13 @@ STMT_OPEN_2:
         ; no extension typed: default the filetype to 'BAS'
         LD HL,SCRATCH_FCB_TYPE
         LD A,(HL)
-        CP $20
+        CP ' '
         JR NZ,STMT_OPEN_3
-        LD (HL),$42
+        LD (HL),'B'
         INC HL
-        LD (HL),$41
+        LD (HL),'A'
         INC HL
-        LD (HL),$53
+        LD (HL),'S'
 ; ----------------------------------------------------------------------
 ; STMT_OPEN_3 -- copy the scratch FCB into the channel's entry and clear its open-state bytes.
 ;   In:        D = mode; entry pointer on the stack (-> HL); SCRATCH_FCB holds the parsed name.
@@ -30966,9 +30966,9 @@ STMT_FILES_3:
         CP $04
         JR NZ,STMT_FILES_5
         LD A,(HL)
-        CP $20
+        CP ' '
         JR Z,STMT_FILES_4
-        LD A,$2E
+        LD A,'.'
 ; ----------------------------------------------------------------------
 ; STMT_FILES_4 -- emit the chosen name/extension boundary byte.
 ;   In:        A = '.' ($2E, when the extension is non-blank) or the actual type byte (when ext is
@@ -31039,7 +31039,7 @@ STMT_FILES_6:
 ; ----------------------------------------------------------------------
 FCB_WILD_IF_STAR:
         LD A,(HL)
-        CP $2A
+        CP '*'
         RET NZ
 ; ----------------------------------------------------------------------
 ; FCB_WILD_EXPAND -- fill C FCB field bytes with '?' ($3F) (a match-anything wildcard for BDOS
@@ -31361,7 +31361,7 @@ GET_PUT_RECORD_CORE:
         INC DE
         EX (SP),HL
         LD A,(HL)
-        CP $2C
+        CP ','
 ; ----------------------------------------------------------------------
 ; GET_PUT_RECORD_CORE_1 -- parse the optional explicit record number and validate the statement
 ; tail.
@@ -32528,14 +32528,14 @@ COLD_SET_WIDTH_1:
         CALL CHRGET
         OR A
         JP Z,WORKAREA_CARVE_FCBS
-        CP $2F
+        CP '/'
         JR Z,COLD_SET_WIDTH_3
         DEC HL
-        LD (HL),$22
+        LD (HL),'"'
         LD (STARTUP_CMD_PTR),HL
         INC HL
 COLD_SET_WIDTH_2:
-        CP $2F
+        CP '/'
         JR Z,COLD_SET_WIDTH_3
         CALL CHRGET
         OR A
@@ -32546,12 +32546,12 @@ COLD_SET_WIDTH_3:
 COLD_SET_WIDTH_4:
         CALL CHRGET
 COLD_SET_WIDTH_5:
-        CP $53
+        CP 'S'
         JR Z,COLD_SET_WIDTH_9
-        CP $4D
+        CP 'M'
         PUSH AF
         JP Z,COLD_SET_WIDTH_6
-        CP $46
+        CP 'F'
         JP NZ,RAISE_SYNTAX_ERROR
 COLD_SET_WIDTH_6:
         CALL CHRGET

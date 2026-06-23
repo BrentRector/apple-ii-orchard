@@ -126,15 +126,17 @@ def apply_spec(text, spec):
     spec_label_names = {rmap(r["label"]) for r in routines}
 
     def body_end(idx, label):
-        """End of a routine's body for anchor search: the next OTHER enriched routine
-        (a spec label that is not this routine or its NAME_n continuation) or a banner."""
+        """End of a routine's body for anchor search: the next label that starts a
+        DIFFERENT routine (not this label or its NAME_n continuation) or a banner.
+        Uses ALL labels (not just enriched ones) so operand rewrites can't leak into a
+        neighbouring routine where the same instruction text recurs."""
         for j in range(idx + 1, len(lines)):
             if BANNER_RE.match(lines[j]):
                 return j
             m = LABEL_RE.match(lines[j])
             if m:
                 ll = m.group(1)
-                if ll in spec_label_names and ll != label and not ll.startswith(label + "_"):
+                if ll != label and not ll.startswith(label + "_"):
                     return j
         return len(lines)
 
