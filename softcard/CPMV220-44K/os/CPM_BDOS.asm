@@ -41,7 +41,6 @@
 ; -- Page-zero / external symbols (canonical CP/M low memory) --
 ; [DOC CPMREF 3-44] WBOOT_VEC ($0000): JMP to the BIOS warm-boot routine; most
 ;       transients return to CP/M via JP $0000.
-        INCLUDE "cpm22.inc"
 WBOOT_VEC            EQU $0000
 ; [DOC S&HD 2-18] IOBYTE ($0003): logical-to-physical device map (CONSOLE/READER/
 ;       PUNCH/LIST, 4 fields x 2 bits). Read/written via BDOS fns 7/8.

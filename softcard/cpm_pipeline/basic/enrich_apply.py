@@ -224,7 +224,7 @@ def apply_spec(text, spec):
     # in-image hex operands can be rewritten to a label (full relocatability). The label
     # emits no bytes; the byte-identical gate proves the label resolves to the same addr.
     for lbl in spec.get("labels", []) or []:
-        anc = _rn((lbl.get("anchor") or "").strip())
+        anc = code_norm(_rn(lbl.get("anchor") or ""))   # code-only (strip any trailing comment)
         occ, name = lbl.get("occ", 1), lbl.get("name")
         n, placed = 0, False
         for k in range(len(lines)):
