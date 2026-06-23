@@ -115,8 +115,8 @@ STMT_DISPATCH_TBL:
         DEFW    GFX_STMT_HOME
         DEFW    GFX_STMT_VTAB
         DEFW    GFX_STMT_HTAB
-        DEFW    GFX_STMT_HOME_1+1
-        DEFW    GFX_STMT_HOME_2+1
+        DEFW    STMT_INVERSE+1
+        DEFW    STMT_NORMAL+1
         DEFW    GFX_STMT_GR
         DEFW    GFX_STMT_COLOR
         DEFW    GFX_STMT_HLIN
@@ -185,8 +185,8 @@ FUNC_DISPATCH_TBL:
         DEFW    FN_MKI_STR
         DEFW    FN_MKS_STR+1
         DEFW    FN_MKD_STR+1
-        DEFW    GFX_FN_MKD_STR
-        DEFW    GFX_FN_VPOS
+        DEFW    FN_VPOS
+        DEFW    FN_PDL
         DEFW    GFX_FN_PDL
 ; -- Reserved-word / token table (CRUNCH keyword<->token map). The
 ;    per-letter index points at each first-letter group; a name entry
@@ -617,9 +617,9 @@ BUF:
         DEFS    242, $00                 ; fill
 L_0B10:
         DEFB    "\0"
-L_0B11:
+CURSOR_POS:
         DEFB    "\0"
-L_0B12:
+CURSOR_ROW:
         DEFB    "\0"
 L_0B13:
         DEFB    "\0"
@@ -3573,7 +3573,7 @@ STMT_PRINT_4:
         LD B,A
         INC A
         JR Z,STMT_PRINT_6
-        LD A,(L_0B11)
+        LD A,(CURSOR_POS)
         OR A
         JR Z,STMT_PRINT_6
         ADD A,(HL)
@@ -3608,7 +3608,7 @@ STMT_PRINT_7:
 STMT_PRINT_8:
         LD A,(WIDTH_FILE)
         LD B,A
-        LD A,(L_0B11)
+        LD A,(CURSOR_POS)
         CP $FF
         JR Z,STMT_PRINT_10
         CP B
@@ -3674,7 +3674,7 @@ STMT_PRINT_15:
         LD A,(OUTPUT_COLUMN)
         JR STMT_PRINT_17
 STMT_PRINT_16:
-        LD A,(L_0B11)
+        LD A,(CURSOR_POS)
 STMT_PRINT_17:
         CPL
         ADD A,E
@@ -4717,7 +4717,7 @@ FRMEVL_EVAL_OPERAND_5:
         CP $E9
         JP Z,FN_INSTR
         CP $CD
-        JP Z,GFX_FN_VPOS_3
+        JP Z,FN_COLOR_READ
         CP $D3
     IFDEF GBASIC
         JP Z,GFX_FN_HCOLOR               ; (GBASIC: HCOLOR() fn handler)
@@ -4725,7 +4725,7 @@ FRMEVL_EVAL_OPERAND_5:
         JP Z,RAISE_GRAPHICS_STATEMENT_NOT_IMPLEMENTED  ; $3C85->$280F  HCOLOR() fn -> not-impl (MBASIC)
     ENDIF
         CP $EC
-        JP Z,GFX_FN_VPOS_2
+        JP Z,FN_SCRN
         CP $ED
     IFDEF GBASIC
         JP Z,GFX_FN_HSCRN                ; (GBASIC: HSCRN() fn handler)
@@ -4986,7 +4986,7 @@ FRMEVL_FUNC_ARG_PAREN:
 ;   In:        Doubled dispatch index on the stack (with the saved text pointer below it); argument staged in the FAC.
 ;   Out:       FRMEVL_PAREN_2 (POP HL; RET) pushed as the handler's return; L_0CB6 set to 1; falls into FRMEVL_FUNC_DISPATCH.
 ;   Clobbers:  A, DE, F.
-;   Algorithm: Push FRMEVL_PAREN_2 so the function handler, when it RETs, pops the saved text pointer and returns through it. Set L_0CB6 = 1. [RE] L_0CB6 here is the FRMEVL function-evaluation-in-progress flag (cleared to 0 by XOR A; LD (L_0CB6),A at FRMEVL_OPLOOP $3A82). DUAL-USE CAVEAT: GFX_CLR_REVERSE_FLAG ($4539) treats the same cell $0CB6 as a screen reverse/INVERSE flag; the two uses are NOT reconciled, so the label is left unrenamed.
+;   Algorithm: Push FRMEVL_PAREN_2 so the function handler, when it RETs, pops the saved text pointer and returns through it. Set L_0CB6 = 1. [RE] L_0CB6 here is the FRMEVL function-evaluation-in-progress flag (cleared to 0 by XOR A; LD (L_0CB6),A at FRMEVL_OPLOOP $3A82). DUAL-USE CAVEAT: CLEAR_EVAL_FLAG_0CB6 ($4539) treats the same cell $0CB6 as a screen reverse/INVERSE flag; the two uses are NOT reconciled, so the label is left unrenamed.
 ; ----------------------------------------------------------------------
 FRMEVL_FUNC_ARG_PROMOTE:
         ; Arm FRMEVL_PAREN_2 (POP HL; RET) as the function handler's return path; its POP HL recovers the saved text pointer.
@@ -5212,7 +5212,7 @@ FN_LPOS:
         JR FN_POS_1
 ; [RE] POS(x) handler (function token $10): current console output column (($0B11)+1) into the FAC; shares the integer-load tail with FP_LOAD_INT_TO_FAC.
 FN_POS:
-        LD A,(L_0B11)
+        LD A,(CURSOR_POS)
 FN_POS_1:
         INC A
 ; [RE] Store the 8-bit value in A (zero-extended to HL) as an integer into the FAC via FP_STORE_FAC_INT.
@@ -6764,362 +6764,766 @@ BLOCK_SCAN_FORNEXT_11:
 ; ======================================================================
 ; GRAPHICS + TEXT-SCREEN STATEMENTS and the 6502 RPC PATH (SoftCard superset)  ---  Apple soft-switches reached as $E0xx (Z-80 $E000-$EFFF == Apple $C000-$CFFF); Apple monitor-ROM calls reached by the 6502 RPC (A$VEC=$F3D0, Z$CPU=$F3DE, SLTTYP+2=$F3BB).  Handlers $45xx-$4Bxx; dispatch table $0194-$01B0.
 ; ======================================================================
-; [RE] Clears the screen reverse/INVERSE flag cell ($0CB6=0) used by the console attribute path. Entry just below the VTAB/HTAB cursor helpers.
-GFX_CLR_REVERSE_FLAG:
+; ----------------------------------------------------------------------
+; CLEAR_EVAL_FLAG_0CB6 -- (was GFX_CLR_REVERSE_FLAG) zero the $0CB6 floating-point / numeric-eval state flag.
+;   In:        (none)
+;   Out:       byte at $0CB6 = 0; A and flags preserved (PUSH AF / POP AF bracket the write)
+;   Clobbers:  nothing visible to the caller
+;   Algorithm: Zero the cell at $0CB6. [RE] This is NOT a graphics/screen routine despite its
+;              physical location among the GFX statements and its prior name. Every observed use
+;              of $0CB6 is floating-point / numeric-eval STATE: FIN (the number parser) sets it
+;              to 1 then tests 0/1/2; the '^'/power path (FN_SQR) pushes THIS routine as its
+;              return and sets $0CB6=1; the FRMEVL operator scan clears it (the file's own
+;              comments there call it 'the FP sign flag' / 'function-evaluation-in-progress
+;              flag'); and RESET_RUN_STATE calls this to clear it on RUN/error unwind. No code
+;              path ties $0CB6 to a console reverse/INVERSE attribute -- the 'screen reverse'
+;              reading is UNKNOWN/unsupported. So this is a generic 'clear the eval state flag'
+;              helper, called from the run-state reset and used as a tail-return by the FP
+;              power routine.
+; ----------------------------------------------------------------------
+CLEAR_EVAL_FLAG_0CB6:
         PUSH AF
         XOR A
         LD (L_0CB6),A
         POP AF
         RET
-; [RE] VTAB statement handler (token $C8): Apple graphics superset -- set the text cursor row (CALL $458E reads the operand).
+; ----------------------------------------------------------------------
+; GFX_STMT_VTAB -- VTAB statement handler (token $C8, dispatch slot $0196): set the text cursor ROW and reposition.
+;   In:        HL -> BASIC text just past the VTAB token; the row expression follows
+;   Out:       CURSOR_ROW ($0B12) = (row-1) mod PAGE_LENGTH; cursor repositioned on the console
+;              via SCREEN_POS_FROM_TABLE; HL restored to post-expression text; A,DE clobbered
+;   Clobbers:  A, DE, HL (saved/restored), the row cell $0B12
+;   Algorithm: Evaluate the 1-based row operand (GFX_GET_BYTE_ARG returns row-1, 0-based).
+;              Reduce it modulo PAGE_LENGTH ($083C, lines-per-page, default 24) with the classic
+;              repeated-subtract-then-add-back idiom, store the wrapped row in CURSOR_ROW, then
+;              call SCREEN_POS_FROM_TABLE to emit the new cursor position to the terminal.
+; ----------------------------------------------------------------------
 GFX_STMT_VTAB:
         CALL GFX_GET_BYTE_ARG
         PUSH HL
+        ; reduce the 0-based row modulo the page length (lines-per-screen) so it wraps into range
         LD HL,PAGE_LENGTH
 GFX_STMT_VTAB_1:
         SUB (HL)
         JP P,GFX_STMT_VTAB_1
         ADD A,(HL)
-        LD (L_0B12),A
+        ; store the wrapped row in the cursor-row cell
+        LD (CURSOR_ROW),A
 GFX_STMT_VTAB_2:
+        ; emit the Address-Cursor sequence so the terminal moves to the new row/column
         CALL SCREEN_POS_FROM_TABLE
         POP HL
         RET
-; [RE] Cursor/position helper used by HTAB/VTAB/HOME. Reads the per-screen cursor-config cells SLTTYP table at $F396/$F397 (40 vs 80-column geometry; bit7 selects swap of H/L) and folds the BASIC position ($0B11) into a console call via $6704. $F396/$F397 are SoftCard I/O-config screen cells in the $F3xx block.
+; ----------------------------------------------------------------------
+; SCREEN_POS_FROM_TABLE -- emit the SoftCard 'Address Cursor' sequence to move the terminal cursor to (col,row).
+;   In:        $0B11 = cursor column (CURSOR_COL), $0B12 = cursor row (CURSOR_ROW) -- the two bytes
+;              form the LD HL,($0B11) word (L=col, H=row); SXYOFF ($F396) = cursor-XY coordinate
+;              offset, low 7 bits = origin bias, bit7 = transmit order; screen-function table
+;              entry fn7 at $F39E reached via SCREEN_POS_EMIT
+;   Out:       fn7 (Address Cursor, optional lead-in) then the two offset-biased coordinate bytes
+;              sent to the console via OUTDO_DEVICE2 (char in A); A,HL,DE clobbered
+;   Clobbers:  A, HL, DE
+;   Algorithm: First emit screen-function #7 (Address Cursor) via SCREEN_POS_EMIT (E=7). Load
+;              (col,row) into HL (L=col, H=row), read SXYOFF: if bit7=0 send Y(row) first then
+;              X(col); if bit7=1 swap H<->L so X(col) is sent first then Y(row). Bias each
+;              coordinate by the low-7-bit offset and emit the two adjusted bytes in that order
+;              via OUTDO_DEVICE2. Implements the GOTOXY/cursor-addressing protocol of the I/O
+;              Configuration Block [DOC software-and-hardware-details 2-14].
+; ----------------------------------------------------------------------
 SCREEN_POS_FROM_TABLE:
+        ; screen function 7 = Address Cursor: emit its lead-in/code before the coordinates
         LD E,$07
         CALL SCREEN_POS_EMIT
-        LD HL,(L_0B11)
+        ; load the cursor position: L = column ($0B11), H = row ($0B12)
+        LD HL,(CURSOR_POS)
         LD A,(SXYOFF)
         OR A
+        ; SXYOFF bit7: clear => send Y(row) then X(col); set => swap to send X(col) then Y(row)
         JP P,SCREEN_POS_FROM_TABLE_1
         AND $7F
+        ; bit7 set: swap H<->L so the column is the first coordinate transmitted
         LD E,L
         LD L,H
         LD H,E
 SCREEN_POS_FROM_TABLE_1:
         LD E,A
+        ; bias each coordinate by the terminal's XY offset before sending
         ADD A,L
         LD L,A
         LD A,E
         ADD A,H
         PUSH HL
+        ; send the first coordinate byte (in A) to the console
         CALL OUTDO_DEVICE2
         POP HL
         LD A,L
+        ; tail-emit the second coordinate byte (in A) through the same console-output vector
         JR SCREEN_POS_EMIT_1
-; [RE] Emits one cursor-position component. Indexes the $F397 screen-config cell by E, applies the bit7 'present' test (AND $7F), and routes the value through the console output routine $6704. Part of the HTAB/VTAB cursor positioning path.
+; ----------------------------------------------------------------------
+; SCREEN_POS_EMIT -- emit one SoftCard screen-control function (number in E) to the console.
+;   In:        E = screen-function number 1..9 (1=Clear Screen, 4=Set Normal, 5=Set Inverse,
+;              7=Address Cursor, ... per the Software Screen Function Table); the function byte
+;              is at SSFTAB-1+E = SFLDIN($F397)+E; SFLDIN holds the table's lead-in char
+;   Out:       the function's terminal sequence (optional lead-in + 7-bit function byte) sent via
+;              OUTDO_DEVICE2; returns with NO output if the table byte is 0
+;   Clobbers:  A, D, HL (E preserved; PUSH AF/POP AF brackets the lead-in; tail-jumps to OUTDO_DEVICE2)
+;   Algorithm: Index the screen-function table by E (D=0, ADD HL,DE) to fetch the terminal byte
+;              for that function. A zero byte means 'function not implemented' -> RET without
+;              emitting. If the byte's high bit is set the function needs a lead-in: send SFLDIN
+;              first, then tail-jump to OUTDO_DEVICE2 with the function byte masked to 7 bits.
+;              Otherwise tail-jump straight to OUTDO_DEVICE2 [DOC software-and-hardware-details 2-14..2-15].
+; ----------------------------------------------------------------------
 SCREEN_POS_EMIT:
         LD D,$00
+        ; index the software screen-function table (SSFTAB-1 = SFLDIN) by the function number in DE
         LD HL,SFLDIN
         ADD HL,DE
         LD A,(HL)
         OR A
+        ; a zero table entry means this screen function is not implemented on this terminal -- do nothing
         RET Z
+        ; high bit set => a lead-in char is required before the function byte
         JP P,SCREEN_POS_EMIT_1
         AND $7F
         PUSH AF
+        ; emit the lead-in character first
         LD A,(SFLDIN)
         CALL OUTDO_DEVICE2
         POP AF
 SCREEN_POS_EMIT_1:
+        ; send the function byte (in A) to the console (tail call)
         JP OUTDO_DEVICE2
-; [RE] Evaluate one expression and return it as an 8-bit value (CALL FRMEVL-byte $4097); A=0 -> error ($34D0), else returns A-1. Argument fetch shared by the cursor/graphics statements.
+; ----------------------------------------------------------------------
+; GFX_GET_BYTE_ARG -- evaluate the next expression as a 1-based byte and return it 0-based.
+;   In:        HL -> BASIC text at the operand expression
+;   Out:       A = (value - 1); HL advanced past the expression (via GETBYT/CONINT). Raises
+;              'Illegal function call' (ERROR_FC, $34D0) if the value is 0
+;   Clobbers:  A, plus whatever GETBYT/FRMEVL clobbers (BC, DE, HL, FAC); HL ends past the operand
+;   Algorithm: Call GETBYT to evaluate the expression and range-check it to 0..255. Reject 0
+;              with the FC error, then decrement so a 1-based BASIC coordinate (VTAB/HTAB use
+;              1-based rows/columns) becomes the 0-based internal coordinate. Shared operand
+;              fetch for the VTAB and HTAB cursor statements.
+; ----------------------------------------------------------------------
 GFX_GET_BYTE_ARG:
         CALL GETBYT
         OR A
+        ; VTAB/HTAB are 1-based: position 0 is out of range -> Illegal function call
         JP Z,ERROR_FC
+        ; convert the 1-based coordinate to the 0-based internal value
         DEC A
         RET
-; [RE] HTAB statement handler (token $C9): Apple graphics superset -- set the text cursor column.
+; ----------------------------------------------------------------------
+; GFX_STMT_HTAB -- HTAB statement handler (token $C9, dispatch slot $0198): set the text cursor COLUMN and reposition.
+;   In:        HL -> BASIC text just past the HTAB token; the column expression follows
+;   Out:       CURSOR_COL ($0B11) = (col-1) mod PRINT_WIDTH; cursor repositioned on the console;
+;              HL restored past the expression; A,DE clobbered
+;   Clobbers:  A, DE, HL (saved/restored), the column cell $0B11
+;   Algorithm: Evaluate the 1-based column (GFX_GET_BYTE_ARG -> col-1), reduce it modulo
+;              PRINT_WIDTH ($083B, default 80) with the repeated-subtract/add-back idiom, store
+;              the wrapped column in CURSOR_COL, then FALL THROUGH (no return) into the
+;              CURSOR_REPOSITION thunk at the next address ('JR GFX_STMT_VTAB_2'), which CALLs
+;              SCREEN_POS_FROM_TABLE and then POP HL / RET -- balancing this routine's own
+;              PUSH HL. So HTAB does physically move the terminal cursor.
+; ----------------------------------------------------------------------
 GFX_STMT_HTAB:
         CALL GFX_GET_BYTE_ARG
         PUSH HL
+        ; reduce the 0-based column modulo the output line width so it wraps into range
         LD HL,PRINT_WIDTH
 GFX_STMT_HTAB_1:
         SUB (HL)
         JP P,GFX_STMT_HTAB_1
         ADD A,(HL)
-        LD (L_0B11),A
-; [RE] HOME statement (token $C7, dispatch $0194 -> $45A8). $45A6 JRs into $4539_3; $45A8 zeroes the BASIC cursor-position cell $0B11, selects the screen attribute table entry (E=1, BC=$051E/$041E mode index) and calls SCREEN_POS_EMIT to clear/home the text cursor.
-STMT_HOME:
+        ; store the wrapped column in the cursor-column cell, then fall into CURSOR_REPOSITION to move the terminal cursor
+        LD (CURSOR_POS),A
+; ----------------------------------------------------------------------
+; CURSOR_REPOSITION -- (was STMT_HOME) shared 'reposition the terminal cursor' tail: JR into GFX_STMT_VTAB_2.
+;   In:        $0B11/$0B12 (CURSOR_COL/CURSOR_ROW) already set to the desired (col,row); the caller
+;              has a matching PUSH HL outstanding (HTAB's PUSH HL, or the TEXT handler's PUSH HL)
+;   Out:       jumps to GFX_STMT_VTAB_2 (CALL SCREEN_POS_FROM_TABLE; POP HL; RET): emits the
+;              Address-Cursor sequence then returns to the statement handler's caller
+;   Clobbers:  A, DE, HL (via SCREEN_POS_FROM_TABLE)
+;   Algorithm: A 2-byte 'JR GFX_STMT_VTAB_2' thunk. It is NOT the HOME statement dispatch target
+;              (that is GFX_STMT_HOME at the next address, $45A8). It is reached two ways: (1) by
+;              FALL-THROUGH from GFX_STMT_HTAB after HTAB stores the column -- this is HTAB's
+;              normal completion, so HTAB DOES reposition; and (2) by an explicit 'JR STMT_HOME'
+;              from the tail of the TEXT statement handler after it resets the cursor cells and
+;              exits graphics mode. Either way it re-emits the cursor position once.
+; ----------------------------------------------------------------------
+CURSOR_REPOSITION:
         JR GFX_STMT_VTAB_2
-; [RE] HOME statement handler (token $C7): Apple graphics superset -- clear the text screen / home cursor via the 6502 RPC.
+; ----------------------------------------------------------------------
+; GFX_STMT_HOME -- HOME statement handler (token $C7, dispatch slot $0194 -> $45A8): clear screen and home cursor.
+;   In:        HL -> BASIC text (no operand); also called internally (e.g. the sign-on path at
+;              $83D2 before printing the banner) as a plain 'clear and home' subroutine
+;   Out:       $0B11/$0B12 (CURSOR_COL,CURSOR_ROW) = 0,0; screen-function #1 (Clear Screen) emitted
+;              to the terminal; HL preserved
+;   Clobbers:  A, BC, DE, E (E=1 selects fn1); HL saved/restored
+;   Algorithm: Zero the 16-bit cursor word ($0B11=col, $0B12=row) so the BASIC notion of the
+;              cursor is home, set E=1, then fall through GFX_STMT_HOME_1/_2 (whose LD BC,$051E /
+;              LD BC,$041E cover bytes clobber BC but leave E=1 on this path) into the shared
+;              tail PUSH HL / CALL SCREEN_POS_EMIT / POP HL / RET, which sends the terminal's
+;              Clear-Screen sequence. Net effect: clear the text screen and home the cursor.
+; ----------------------------------------------------------------------
 GFX_STMT_HOME:
         PUSH HL
         LD HL,$0000
-        LD (L_0B11),HL
+        ; reset the BASIC cursor position (column low $0B11, row high $0B12) to home (0,0)
+        LD (CURSOR_POS),HL
         POP HL
+        ; select screen function 1 = Clear Screen for the shared SCREEN_POS_EMIT tail
         LD E,$01
-; [RE] Shared cursor handler via LD BC,nn cover. 01 1E 05 at $45B2 = LD BC,$051E: the HOME path ($0194, E=$01 from $45B0) absorbs 1E 05 and keeps E. DEFW GFX_STMT_HOME_1+1 ($019A) enters at $45B3 so 1E 05 = LD E,$05 (screen-config cell 5); both share the SCREEN_POS_EMIT tail. Independently verified; MBASIC dispatch confirms.
-GFX_STMT_HOME_1:
+; ----------------------------------------------------------------------
+; STMT_INVERSE -- (entered at +1) INVERSE statement handler (token $CA, dispatch slot $019A).
+;   In:        HL -> BASIC text (no operand); reached via DEFW GFX_STMT_HOME_1+1 = $019A -> $45B3
+;   Out:       screen-function #5 (Set Inverse / high-light text mode) emitted to the terminal;
+;              HL preserved
+;   Clobbers:  A, D, E (=5); HL saved/restored
+;   Algorithm: Classic LD-BC-cover overlap idiom. The assembled bytes 01 1E 05 read as
+;              'LD BC,$051E' on fall-through from the HOME path (which keeps E=1), but the
+;              dispatch slot $019A enters one byte in, at '1E 05' = 'LD E,$05', selecting screen
+;              function 5 (Set Inverse text mode). It then shares the common tail (PUSH HL; CALL
+;              SCREEN_POS_EMIT; POP HL; RET) that emits the function. Verified against the MBASIC twin.
+; ----------------------------------------------------------------------
+STMT_INVERSE:
         LD BC,$051E
-; [RE] Shared cursor handler. 01 1E 04 at $45B5 = LD BC,$041E covers the LD E,$04 inside. Dispatch entry GFX_STMT_HOME_2+1 ($019C) enters at $45B6 = LD E,$04 (screen-config cell 4); the fall-through chain from HOME/_1 keeps its prior E. Common tail = SCREEN_POS_EMIT. Independently verified; MBASIC dispatch confirms.
-GFX_STMT_HOME_2:
+; ----------------------------------------------------------------------
+; STMT_NORMAL -- (entered at +1) NORMAL statement handler (token $CB, dispatch slot $019C).
+;   In:        HL -> BASIC text (no operand); reached via DEFW GFX_STMT_HOME_2+1 = $019C -> $45B6
+;   Out:       screen-function #4 (Set Normal / low-light text mode) emitted to the terminal;
+;              HL preserved
+;   Clobbers:  A, D, E (=4); HL saved/restored
+;   Algorithm: Same overlap idiom as STMT_INVERSE: bytes 01 1E 04 are 'LD BC,$041E' on
+;              fall-through, but dispatch slot $019C enters at '1E 04' = 'LD E,$04', selecting
+;              screen function 4 (Set Normal text mode). Falls into the shared tail (PUSH HL;
+;              CALL SCREEN_POS_EMIT; POP HL; RET) that emits the Set-Normal sequence. Verified
+;              against the MBASIC twin.
+; ----------------------------------------------------------------------
+STMT_NORMAL:
         LD BC,$041E
         PUSH HL
+        ; emit the selected screen-function sequence (Clear/Normal/Inverse) to the terminal
         CALL SCREEN_POS_EMIT
         POP HL
         RET
-; [RE] GFX_ TEXT statement handler (token $C6): Apple graphics superset -- return the screen to text mode (RPC to the 6502 side).
+; ----------------------------------------------------------------------
+; STMT_TEXT -- TEXT statement (token $C6): leave Apple graphics and return the console to the text screen.
+;   In:        HL = BASIC text pointer (past the TEXT token). GFX_MODE_ACTIVE_FLAG nonzero iff a graphics
+;              mode is currently active. PAGE_LENGTH = current text screen height in rows (default $18=24).
+;   Out:       Returns to the caller (via the STMT_HOME -> GFX_STMT_VTAB_2 tail, which ends in RET) with HL
+;              preserved. On the way the Apple is switched to text/page-1, the BASIC cursor is homed to the
+;              bottom-left, and -- if graphics had been active -- the screen is cleared via the Apple HOME ROM.
+;   Clobbers:  A,F, CURSOR_POS, GFX_MODE_ACTIVE_FLAG; HL preserved across the body via PUSH/POP.
+;   Algorithm: RPC to the Apple TEXT ROM entry to set text mode + full-screen window, then set the BASIC
+;              cursor cell CURSOR_POS to row=(PAGE_LENGTH-1), col=0 (bottom-left). Read the TXTSET and
+;              TXTPAGE1 soft switches (the read toggles the switch) to force text display on page 1. If a
+;              graphics mode was active (flag != 0) also RPC the Apple HOME ROM to clear the text window.
+;              Clear the graphics-active flag and fall into STMT_HOME, whose RET tail returns to the caller.
+;              [RE] Reused by STMT_SYSTEM (CALL STMT_TEXT) to restore the text screen before warm-booting CP/M,
+;              which depends on this routine returning normally.
+; ----------------------------------------------------------------------
 STMT_TEXT:
         PUSH HL
+        ; RPC the Apple TEXT monitor entry: set text mode and a full-screen text window
         LD HL,TEXT_ROM
         CALL RPC_CALL
+        ; home the BASIC cursor to the bottom-left of the text screen: row = PAGE_LENGTH-1, col = 0
         LD A,(PAGE_LENGTH)
         DEC A
         LD H,A
         LD L,$00
-        LD (L_0B11),HL
+        LD (CURSOR_POS),HL
+        ; read the soft switches to force the text display on page 1 (the read itself flips each switch)
         LD A,(TXTSET)
         LD A,(TXTPAGE1)
-        LD A,(GFX_STMT_HPLOT_8)
+        ; if a graphics mode was active, also clear the text window via the Apple HOME ROM
+        LD A,(GFX_MODE_ACTIVE_FLAG)
         OR A
-        JR Z,SUB_45CF_1
+        JR Z,STMT_TEXT_DONE
         LD HL,HOME_ROM
         CALL RPC_CALL
-SUB_45CF_1:
+STMT_TEXT_DONE:
+        ; back in text mode: clear the graphics-active flag and fall into STMT_HOME (whose RET returns to the caller)
         XOR A
-        LD (GFX_STMT_HPLOT_8),A
-        JR STMT_HOME
+        LD (GFX_MODE_ACTIVE_FLAG),A
+        JR CURSOR_REPOSITION
 
 ; ======================================================================
 ; GRAPHICS SUBSYSTEM (GFX_) + 6502 RPC bridge
 ; ======================================================================
-; [RE] 6502 remote-procedure-call dispatcher. HL = Apple monitor-ROM target address; stores it at A$VEC ($F3D0) then writes the trigger cell whose operand was self-modified at cold start to Z$CPU ($F3DE) (the 'LD ($0000),A' at $45EA is patched to 'LD ($F3DE),A' by the init at $8243). Storing to Z$CPU hands control to the 6502, which runs the Apple monitor routine and returns. This is the bridge graphics uses to reach the Apple ROM (TEXT/HOME/PREAD/etc.).
+; ----------------------------------------------------------------------
+; RPC_CALL -- Z80->6502 remote-procedure-call bridge: run an Apple monitor-ROM routine on the 6502.
+;   In:        HL = the Apple ROM (6502) target address to execute (e.g. TEXT_ROM, HOME_ROM, HLINE).
+;              Caller has already staged any 6502 register arguments in RPC_ACC/RPC_XREG/RPC_YREG.
+;   Out:       The 6502 routine has run and returned; no Z80 register result (results, if any, are read
+;              back from the shared RPC register cells by the caller).
+;   Clobbers:  A_VEC (set to HL); the trigger store writes A (caller's A). Z80 registers otherwise preserved.
+;   Algorithm: Store the target address into A_VEC ($F3D0), the SoftCard 6502-call-vector cell, then fall
+;              into RPC_TRIGGER_STORE, whose store-address operand was self-modified at cold start. Executing
+;              that store hands the bus to the 6502, which runs the routine at A_VEC and returns control to
+;              the Z80. This is the single bridge all graphics/screen statements use to reach the Apple ROM.
+; ----------------------------------------------------------------------
 RPC_CALL:
+        ; publish the 6502 target address in the SoftCard call-vector cell, then fall into the trigger store
         LD (A_VEC),HL
-; [RE] Self-modified store. Assembled as LD ($0000),A; cold-start init ($8240-$8245) reads Z$CPU ($F3DE) and patches this operand so it becomes LD (Z$CPU),A -- the write that actually triggers the 6502 to service the call queued at A$VEC.
-; [RE] SMC operand patch (not a flag-skip). $45EA = LD ($0000),A; cold-start init at $8243 loads (Z$CPU)=$F3DE ($8240) and writes it into the operand at $45EB, making the instruction LD ($F3DE),A. RPC_CALL runs the patched store to trigger the 6502 to service the routine queued at A$VEC ($F3D0). Both write AND later execute confirmed; MBASIC patches the same cell.
+; ----------------------------------------------------------------------
+; RPC_TRIGGER_STORE -- the self-modified store that triggers the SoftCard 6502 hand-off.
+;   In:        A_VEC already holds the 6502 target address (set by RPC_CALL).
+;   Out:       The 6502 runs and returns; control resumes at the RET.
+;   Clobbers:  the destination cell of the store (the byte written is the caller's A; its value is
+;              irrelevant -- it is the WRITE to the SoftCard trigger that matters, not the value).
+;   Algorithm: Assembled as LD ($0000),A (a placeholder operand). At cold start the init at $8243 does
+;              LD HL,(Z_CPU) / LD (RPC_TRIGGER_STORE+1),HL, patching this instruction's operand word so the
+;              live store writes to the SoftCard CPU-switch trigger; that write switches CPUs, the 6502 runs
+;              the queued routine, and on return this routine RETs to RPC_CALL's caller.
+;   Note:      [RE] LD HL,(Z_CPU) reads the WORD stored AT $F3DE, not the literal $F3DE, so the exact patched
+;              destination is the contents of that cell at cold start; the file convention treats it as $F3DE
+;              (a self-pointing trigger cell), giving the live instruction LD (Z_CPU),A. UNKNOWN whether the
+;              cell ever holds anything other than $F3DE.
+; ----------------------------------------------------------------------
 RPC_TRIGGER_STORE:
         LD ($0000),A
         RET
-; [RE] GR statement handler (token $CC): Apple graphics superset -- enter low-res graphics mode (loads mode byte then 6502 RPC).
+; ----------------------------------------------------------------------
+; GFX_STMT_GR -- GR statement (token $CC): enter low-res graphics mode and clear the graphics field.
+;   In:        HL = BASIC text pointer at the (optional) argument. On entry the Z flag reflects the
+;              statement-entry CHRGOT classification of the first char (Z = end-of-statement / bare GR,
+;              NZ = an argument character follows). Optional syntax: GR [mode][,color], mode in {0,1}.
+;   Out:       Apple is in low-res graphics on page 1: mode 0 = mixed (split graphics + 4 bottom text lines,
+;              40 graphics rows); mode 1 = full-screen graphics (48 rows). The graphics field is cleared/filled
+;              by drawing a full-width HLIN on every row using the current COLOR. GFX_MODE_ACTIVE_FLAG := $FF.
+;              HL advanced past the consumed argument(s). Returns to the statement executor.
+;   Clobbers:  A,B,C,D,E,H,L,F; COLOR, WNDTOP, CURSOR_POS, H2, RPC_ACC, RPC_YREG, the TXTCLR/MIXSET/MIXCLR/
+;              LORES soft switches.
+;   Algorithm: Default COLOR=0 (black). If an argument follows (entry NZ), GETBYT the MODE into A; reject
+;              mode >= 2 (ERROR_FC). Set the text-window top to row $14 (20) and CURSOR_POS so the cursor sits
+;              at row 23, col 0; position it via SCREEN_POS_FROM_TABLE. Read the LORES soft switch (select
+;              low-res, clear hi-res). Call GFX_SET_DISPLAY_MODE which uses bit 0 of the mode to pick MIXSET
+;              (mode 0, mixed, D=$28=40 rows) vs MIXCLR (mode 1, full screen, D=$30=48 rows) and returns Z iff
+;              the next BASIC char is ',' (a second argument, the lo-res color, follows). If a comma follows,
+;              skip it (INC HL), GETBYT the color into E, and apply it via GFX_SET_LORES_COLOR. Then clear the
+;              field: H2 := $27 (right-edge col 39), B := D (row count, 40 or 48); for each row B-1 down to 0
+;              stage RPC_YREG=0 (left col) and RPC_ACC=row, calling GFX_LORES_HLIN_RPC to draw a full-width
+;              horizontal line. Finally set GFX_MODE_ACTIVE_FLAG=$FF.
+;   Note:      [RE] The mode->display mapping (0=mixed/1=full-screen, row count 40/48) is read directly from
+;              GFX_SET_DISPLAY_MODE's MIXSET/MIXCLR + D=$28/$30 logic, not inferred. The mode>=2 reject limits
+;              GR to the two hardware display modes.
+; ----------------------------------------------------------------------
 GFX_STMT_GR:
+        ; default the lo-res plotting color to 0 (black) before reading any argument
         LD A,$00
         LD (COLOR),A
+        ; if an argument follows the GR token, fetch the display mode (0=mixed, 1=full-screen) into A
         CALL NZ,GETBYT
         CP $02
+        ; reject GR display modes >= 2 as illegal (shared ERROR_FC tail)
         JR NC,GFX_PARSE_LINE_COORDS_1
         PUSH HL
         PUSH AF
+        ; set the text-window top to row 20, reserving the bottom text lines for the mixed-graphics screen
         LD A,$14
         LD (WNDTOP),A
         LD HL,$1700
-        LD (L_0B11),HL
+        LD (CURSOR_POS),HL
         CALL SCREEN_POS_FROM_TABLE
+        ; read the LORES soft switch to select low-res graphics and clear hi-res
         LD A,(LORES)
         POP AF
         POP HL
         LD (LORES),A
+        ; commit MIXSET vs MIXCLR from the mode and set D = row count (40 or 48); Z means a ',color' arg follows
         CALL GFX_SET_DISPLAY_MODE
-        JR NZ,GFX_STMT_GR_2
+        JR NZ,GFX_STMT_GR_FILL
         INC HL
         PUSH DE
         CALL GETBYT
-GFX_STMT_GR_1:
+GFX_STMT_GR_SETCOLOR:
         CALL GFX_SET_LORES_COLOR
         POP DE
-GFX_STMT_GR_2:
+GFX_STMT_GR_FILL:
         PUSH HL
+        ; set the HLIN right-edge column to 39 so each fill line spans the full 40-column field
         LD A,$27
         LD (H2),A
         LD B,D
-GFX_STMT_GR_3:
+GFX_STMT_GR_FILL_ROW:
+        ; stage the 6502 call: Y = left column 0, A = current row, then RPC one full-width HLIN
         XOR A
         LD (RPC_YREG),A
         LD A,B
         DEC A
         LD (RPC_ACC),A
         CALL GFX_LORES_HLIN_RPC
-        DJNZ GFX_STMT_GR_3
+        ; repeat for every row (B = 40 or 48 down to 0), clearing the field one horizontal line at a time
+        DJNZ GFX_STMT_GR_FILL_ROW
+        ; mark graphics mode active so a later TEXT statement knows to clear the screen
         LD A,$FF
-        LD (GFX_STMT_HPLOT_8),A
+        LD (GFX_MODE_ACTIVE_FLAG),A
         POP HL
         RET
-; [RE] Low-res block-draw RPC tail: LD HL,$F819 (6502 HLIN handler entry) then JP RPC_CALL. Called by GR fill, HLIN setup to execute the horizontal-segment draw on the 6502 side.
+; ----------------------------------------------------------------------
+; GFX_LORES_HLIN_RPC -- draw one low-res horizontal line on the 6502 side via the RPC bridge.
+;   In:        RPC_ACC = row (Apple $45, passed to 6502 A), RPC_YREG = left column (Apple $47, 6502 Y),
+;              H2 ($F02C, Apple $2C) = right-edge column, COLOR ($F030, Apple $30) = lo-res color. All staged
+;              by the caller.
+;   Out:       The 6502 HLINE ($F819) routine has drawn the segment; returns to the caller of RPC_CALL.
+;   Clobbers:  A_VEC; per RPC_CALL.
+;   Algorithm: Load HL with the Apple HLINE ROM entry ($F819) and tail-jump into RPC_CALL, which queues
+;              the address and triggers the 6502 to run the lo-res horizontal-line draw. Used by the GR
+;              screen-clear fill and by the HLIN statement.
+; ----------------------------------------------------------------------
 GFX_LORES_HLIN_RPC:
         LD HL,HLINE
         JP RPC_CALL
-; [RE] COLOR statement handler (token $CD): Apple graphics superset -- set the low-res plotting color.
+; ----------------------------------------------------------------------
+; GFX_STMT_COLOR -- COLOR= statement (token $CD): set the current low-res plotting color.
+;   In:        HL = BASIC text pointer positioned at the '=' token after COLOR.
+;   Out:       Falls into GFX_SET_LORES_COLOR with E = the parsed color byte; on return COLOR ($F030)
+;              holds the 4-bit color replicated into both nibbles. HL advanced past the expression.
+;   Clobbers:  A,E,F,H,L (via SYNCHR/GETBYT).
+;   Algorithm: Require the '=' token via SYNCHR (the inline DEFB TOK_EQ is the expected-token argument that
+;              SYNCHR reads from the byte after the call), evaluate the following expression to a byte with
+;              GETBYT (result in A and E), then fall into GFX_SET_LORES_COLOR to validate and pack it.
+; ----------------------------------------------------------------------
 GFX_STMT_COLOR:
+        ; require the '=' that follows the COLOR keyword (the expected token is the inline DEFB below)
         CALL SYNCHR
         DEFB    TOK_EQ                   ; inline keyword-token arg consumed by the preceding CALL
+        ; evaluate the color expression to a 0..255 byte (in A and E), then validate and pack it
         CALL GETBYT
-; [RE] COLOR statement body: validate color E<16, replicate it into both nibbles (4x ADD A,A; OR E) and store the packed low-res color byte to $F030.
+; ----------------------------------------------------------------------
+; GFX_SET_LORES_COLOR -- validate a lo-res color and store it packed into both nibbles at COLOR.
+;   In:        E = requested low-res color (0..15).
+;   Out:       COLOR ($F030) = (E<<4) | E, i.e. the color in both the high and low nibble. Returns to
+;              caller. On E >= 16, jumps to ERROR_FC (Illegal function call) instead.
+;   Clobbers:  A,F. (E preserved.)
+;   Algorithm: Reject colors >= 16. Otherwise replicate the 4-bit color into both nibbles by four ADD A,A
+;              (shift left 4) then OR E, and store the packed byte to the Apple lo-res COLOR cell, so that
+;              a lo-res plot of one screen cell paints both stacked half-blocks the same color.
+; ----------------------------------------------------------------------
 GFX_SET_LORES_COLOR:
         LD A,E
+        ; low-res colors are 0..15; anything larger is an illegal function call
         CP $10
         JR NC,GFX_PARSE_LINE_COORDS_1
+        ; replicate the 4-bit color into both nibbles: shift it into the high nibble (4x), then OR in the low
         ADD A,A
         ADD A,A
         ADD A,A
         ADD A,A
         OR E
+        ; store the packed color so each lo-res cell paints both half-blocks the same
         LD (COLOR),A
         RET
-; [RE] GFX parse line coordinates: returns A = cross-axis coord, E = start, D = end.
+; ----------------------------------------------------------------------
+; GFX_PARSE_LINE_COORDS -- parse a low-res line's "start,end AT cross" coordinate triple for HLIN/VLIN
+;   In:        HL -> text after the HLIN/VLIN token; B = exclusive upper bound for the end coordinate, C = exclusive upper bound for the cross-axis coordinate (HLIN passes BC=$2830 => end<$28=40 columns, cross<$30=48 rows; VLIN passes BC=$3028 => end<$30=48 rows, cross<$28=40 columns)
+;   Out:       A = cross-axis coordinate (the "AT" value); E = start coordinate; D = end coordinate; HL advanced past the parsed text
+;   Clobbers:  A, D, E, flags (BC is pushed/popped, restored to the caller's bound; the saved start/end is recovered into DE at the final POP)
+;   Algorithm: Reads "start,end" via GFX_PARSE_TWO_BYTES (leaves A=end, E=start), then range-checks: end must be < B and end >= start (else Illegal-function-call). Saves start/end, requires the literal "AT", reads the cross-axis byte with GETBYT, range-checks it < C, and returns it in A with start/end restored in E/D. The two bounds are swapped between HLIN and VLIN so the same parser enforces the correct column-vs-row limits for each axis.
+; ----------------------------------------------------------------------
 GFX_PARSE_LINE_COORDS:
         PUSH BC
+        ; read the "start,end" pair: A=end coordinate, E=start coordinate
         CALL GFX_PARSE_TWO_BYTES
         POP BC
+        ; reject end coordinate >= its axis limit (B)
         CP B
 GFX_PARSE_LINE_COORDS_1:
         JP NC,ERROR_FC
+        ; reject end < start (segment would run backwards)
         CP E
         JP C,ERROR_FC
         LD D,A
         PUSH DE
         PUSH BC
         CALL SYNCHR
+        ; require the literal "AT" separating the segment from its cross-axis coordinate
         DEFB    'A'                      ; inline char arg consumed by the preceding CALL
         CALL SYNCHR
         DEFB    'T'                      ; inline char arg consumed by the preceding CALL
+        ; read the cross-axis ("AT") coordinate into A
         CALL GETBYT
         POP BC
+        ; reject cross-axis coordinate >= its axis limit (C)
         CP C
         JR NC,GFX_PARSE_LINE_COORDS_1
         POP DE
         RET
-; [RE] HLIN statement handler (token $CE): Apple graphics superset -- draw a horizontal low-res line.
+; ----------------------------------------------------------------------
+; GFX_STMT_HLIN -- HLIN statement (token $CE): draw a horizontal low-res line via the 6502 ROM
+;   In:        HL -> text after the HLIN token, expecting "x1,x2 AT y"
+;   Out:       Horizontal segment drawn by the Apple HLINE ROM ($F819); HL advanced past the statement; returns to the statement dispatcher
+;   Clobbers:  A, D, E, BC, HL (restored), the Apple-side cells RPC_ACC/RPC_YREG/H2
+;   Algorithm: Sets bounds BC=$2830 (x-column 0..39, y-row 0..47) and parses "x1,x2 AT y" with GFX_PARSE_LINE_COORDS, yielding A=y(row), E=x1(left col), D=x2(right col). Stages them where the Apple HLINE primitive expects: RPC_ACC=row (6502 A), RPC_YREG=left col (6502 Y), H2=right col, then RPC-calls HLINE on the 6502 to render the run.
+; ----------------------------------------------------------------------
 GFX_STMT_HLIN:
+        ; axis limits for HLIN: end column < $28 (40), row < $30 (48)
         LD BC,$2830
         CALL GFX_PARSE_LINE_COORDS
+        ; HLINE wants A=row, Y=left col, H2=right col -> stage the row in the 6502 A cell
         LD (RPC_ACC),A
         LD A,E
         LD (RPC_YREG),A
+        ; right-edge column -> HLINE right-end cell H2
         LD A,D
         LD (H2),A
         PUSH HL
+        ; run the Apple HLINE ROM on the 6502 to draw the row segment
         CALL GFX_LORES_HLIN_RPC
         POP HL
         RET
-; [RE] VLIN statement body (mirror of GFX_STMT_HLIN): parse coords, store Y0/Y1->$F045/$F047 and X->$F02D, then fall to the low-res draw RPC ($F828) via GFX_STMT_PLOT_1.
+; ----------------------------------------------------------------------
+; GFX_STMT_VLIN -- VLIN statement (token $CF): draw a vertical low-res line via the 6502 ROM
+;   In:        HL -> text after the VLIN token, expecting "y1,y2 AT x"
+;   Out:       Vertical segment drawn by the Apple VLINE ROM ($F828); HL advanced; returns to the dispatcher (via the shared GFX_STMT_PLOT_1 tail)
+;   Clobbers:  A, D, E, BC, HL (restored by the shared tail), cells RPC_ACC/RPC_YREG/V2
+;   Algorithm: Mirror of GFX_STMT_HLIN with axis limits swapped: BC=$3028 (y-row 0..47, x-column 0..39). Parses "y1,y2 AT x" giving A=x(col), E=y1(top row), D=y2(bottom row). Stages RPC_YREG=col (6502 Y), RPC_ACC=top row (6502 A), V2=bottom row, loads HL=VLINE ($F828), and falls into GFX_STMT_PLOT_1 to RPC-call the 6502 VLINE primitive.
+; ----------------------------------------------------------------------
 GFX_STMT_VLIN:
+        ; axis limits for VLIN: end row < $30 (48), column < $28 (40)
         LD BC,$3028
         CALL GFX_PARSE_LINE_COORDS
+        ; VLINE wants A=top row, Y=column, V2=bottom row -> stage the column in the 6502 Y cell
         LD (RPC_YREG),A
         LD A,E
         LD (RPC_ACC),A
+        ; bottom row -> VLINE bottom-end cell V2
         LD A,D
         LD (V2),A
         PUSH HL
+        ; target the Apple VLINE ROM and join the shared RPC-call/return tail
         LD HL,VLINE
         JR GFX_STMT_PLOT_1
-; [RE] Parse two comma-separated byte expressions (X then Y): eval first into A, SYNCHR ',', eval second into A; preserves DE across. Used by PLOT/SCRN/BEEP coordinate reads.
+; ----------------------------------------------------------------------
+; GFX_PARSE_TWO_BYTES -- evaluate two comma-separated byte expressions "a,b"
+;   In:        HL -> text positioned at the first expression
+;   Out:       A = second byte value; E = first byte value; D = high byte of the first value (0, since CONINT forces it; unused by callers); HL advanced past "a,b"
+;   Clobbers:  A, D, E, flags (DE saved across the comma so the first value survives the second GETBYT)
+;   Algorithm: GETBYT evaluates the first byte (into A/E), pushes DE to preserve it, requires a literal comma, GETBYT evaluates the second byte (into A), then POPs DE to recover the first byte in E. Returns first in E, second in A. Shared low-res coordinate-pair reader used by PLOT, SCRN(), HLIN/VLIN (indirectly) and BEEP.
+; ----------------------------------------------------------------------
 GFX_PARSE_TWO_BYTES:
+        ; evaluate the first byte; save it across the comma and second evaluation
         CALL GETBYT
         PUSH DE
         CALL SYNCHR
+        ; require the comma between the two values
         DEFB    ','                      ; inline char arg consumed by the preceding CALL
+        ; evaluate the second byte into A; restore the first into E
         CALL GETBYT
         POP DE
         RET
-; [RE] Parse+range-check a low-res PLOT coordinate pair: X<$30 and Y<$28 (else FC error), store X->$F045 and Y->$F047.
+; ----------------------------------------------------------------------
+; GFX_PARSE_PLOT_COORD -- parse and range-check a low-res "x,y" point and stage it for the 6502
+;   In:        HL -> text at the X (first) expression of an "x,y" pair
+;   Out:       RPC_YREG = X column (0..39, the 6502 Y reg); RPC_ACC = Y row (0..47, the 6502 A reg); HL advanced past "x,y"; on out-of-range value, jumps to Illegal-function-call (never returns)
+;   Clobbers:  A, E, flags, cells RPC_ACC/RPC_YREG
+;   Algorithm: Reads the pair via GFX_PARSE_TWO_BYTES (A=second operand=Y row, E=first operand=X column). Validates the row Y < $30 (48 rows) and the column X < $28 (40 columns), erroring otherwise, then stores the row into RPC_ACC (6502 A) and the column into RPC_YREG (6502 Y) so the Apple PLOT/SCRN primitives find the point in (A=row, Y=column) form. Shared by PLOT and SCRN(). [RE] orientation taken from the ROM convention (HLINE/PLOT use A=row, Y=column) and the matching < 48 / < 40 bounds; the BASIC operand order is X(column) then Y(row).
+; ----------------------------------------------------------------------
 GFX_PARSE_PLOT_COORD:
         CALL GFX_PARSE_TWO_BYTES
+        ; reject the Y row >= 48 (this is the second operand, staged into the 6502 A cell)
         CP $30
         JR NC,GFX_PARSE_LINE_COORDS_1
+        ; stage the row in the 6502 A cell (PLOT/SCRN expect the row in A)
         LD (RPC_ACC),A
         LD A,E
+        ; reject the X column >= 40 (first operand, staged into the 6502 Y cell)
         CP $28
         JR NC,GFX_PARSE_LINE_COORDS_1
+        ; stage the column in the 6502 Y cell
         LD (RPC_YREG),A
         RET
-; [RE] PLOT statement body: parse+validate coords (GFX_PARSE_PLOT_COORD), set HL=$F800 (6502 PLOT handler) and fall into the RPC tail.
+; ----------------------------------------------------------------------
+; GFX_STMT_PLOT -- PLOT statement (token $CD-family): light one low-res cell via the 6502 ROM
+;   In:        HL -> text after the PLOT token, expecting "x,y" (x=column, y=row)
+;   Out:       The cell at (x,y) plotted in the current COLOR by the Apple PLOT ROM ($F800); HL advanced; returns to the dispatcher
+;   Clobbers:  A, E, HL (restored), cells RPC_ACC/RPC_YREG
+;   Algorithm: Parses and validates the coordinate with GFX_PARSE_PLOT_COORD (which stages row->RPC_ACC and column->RPC_YREG into the 6502 register cells), loads HL=$F800 (the Apple PLOT entry), and falls into GFX_STMT_PLOT_1 to perform the RPC and restore HL.
+; ----------------------------------------------------------------------
 GFX_STMT_PLOT:
         CALL GFX_PARSE_PLOT_COORD
         PUSH HL
+        ; target the Apple PLOT ROM entry, then join the shared RPC-call tail
         LD HL,$F800
+; ----------------------------------------------------------------------
+; GFX_STMT_PLOT_1 -- shared RPC-call-and-restore tail for the low-res draw statements
+;   In:        HL = Apple ROM target address to call on the 6502; one saved HL (the BASIC text pointer) on the stack
+;   Out:       The 6502 routine executed; HL restored to the BASIC text pointer; returns to the dispatcher
+;   Clobbers:  whatever RPC_CALL touches; HL reloaded from the stack
+;   Algorithm: Calls RPC_CALL to run the staged 6502 graphics primitive, then POPs the text pointer back into HL. Tail-shared by PLOT (fall-through), VLIN (JR), and BEEP (JP).
+; ----------------------------------------------------------------------
 GFX_STMT_PLOT_1:
         CALL RPC_CALL
         POP HL
         RET
-; [RE] PDL() handler (function token $35): Apple graphics superset -- read a game paddle/analog value via the 6502 RPC.
+; ----------------------------------------------------------------------
+; GFX_FN_PDL -- PDL(n) function (token $35): read pushbutton/switch n as a BASIC integer
+;   In:        HL -> text at the argument expression; the argument already parenthesized by the function dispatcher
+;   Out:       FAC = -1 if button n is pressed, 0 if not (returned as a 16-bit integer); HL advanced; on n > 2, Illegal-function-call
+;   Clobbers:  A, D, E, HL (restored), FAC
+;   Algorithm: CONINT evaluates the argument to a 0..255 byte (E=value, A=E; CONINT itself raises FC if it does not fit in a byte, leaving D=0). Requires n in 0..2 (CP $03 / JR NC -> FC). The following LD A,D / OR A / JR NZ is a redundant high-byte guard -- CONINT has already forced D to 0, so it can never fire. Then indexes the Apple pushbutton soft-switches at BUTN0 ($E061=Apple $C061) by n and reads the switch; bit 7 = pressed. RLA rotates that bit into carry and SBC A,A turns it into $FF (pressed) or $00 (released), then falls into GFX_STORE_SIGNED_BYTE_FAC to return it as a 16-bit integer. NOTE [RE]: despite the Applesoft name PDL(), this reads the BUTNn PUSHBUTTON soft-switches (a boolean -1/0), not the analog paddle position; the analog read (PREAD $FB1E) is in the adjacent routine currently labeled GFX_FN_VPOS.
+; ----------------------------------------------------------------------
 GFX_FN_PDL:
+        ; evaluate the button number into a 0..255 byte (E=value, A=E; D forced to 0)
         CALL CONINT
         LD A,E
+        ; only buttons 0..2 are valid
         CP $03
-        JR NC,GFX_FN_VPOS_1
+        JR NC,FN_RANGE_ERR
         LD A,D
         OR A
-        JR NZ,GFX_FN_VPOS_1
+        JR NZ,FN_RANGE_ERR
         PUSH HL
+        ; index the pushbutton soft-switch for button n and read its state (bit 7 = pressed)
         LD HL,BUTN0
         ADD HL,DE
         LD A,(HL)
         POP HL
+        ; move the pressed bit (bit 7) into carry, then SBC A,A expands it to $FF (pressed) / $00 (released)
         RLA
         SBC A,A
-; [RE] Store a sign-extended byte (A, sign already in carry from RLA/SBC A,A) as a 16-bit integer in HL and JP FP_STORE_FAC_INT. Result tail for PDL().
+; ----------------------------------------------------------------------
+; GFX_STORE_SIGNED_BYTE_FAC -- return a sign-extended 8-bit value as a 16-bit BASIC integer
+;   In:        A = byte value whose sign has already been broadcast across all 8 bits ($00 or $FF, as left by RLA/SBC A,A in the PDL path)
+;   Out:       FAC holds the signed 16-bit integer (VALTYP=VT_INT); returns via FP_STORE_FAC_INT to the function-return path
+;   Clobbers:  H, L, FAC
+;   Algorithm: Copies A into both H and L (so $FFFF = -1 or $0000 = 0), then tail-calls FP_STORE_FAC_INT to load HL into the floating accumulator as an integer. Result tail for PDL().
+; ----------------------------------------------------------------------
 GFX_STORE_SIGNED_BYTE_FAC:
+        ; replicate the already-sign-extended byte into both halves of HL (0000 or FFFF)
         LD L,A
         LD H,A
         JP FP_STORE_FAC_INT
-; [RE] MKD$() handler (function token $33): pack a double into an 8-byte string for random files (note: this entry sits in the Apple graphics block region).
-GFX_FN_MKD_STR:
-        LD A,(L_0B12)
+; ----------------------------------------------------------------------
+; FN_VPOS -- VPOS() function (function token $34): return the current vertical text
+; row counter (1-based) as an integer in the FAC.  MISLABELED: this is VPOS, not MKD$.
+; FUNC_DISPATCH_TBL is based at $01B2, slot address = base + 2*(token-1), so this slot
+; $0218 = token $34 = VPOS (msbasic_tokens.inc); the real MKD$ is FN_MKD_STR at slot
+; $0216 = token $33.  Vertical analogue of FN_POS, which reads the horizontal column
+; cell L_0B11.
+;   In:        L_0B12 = current screen row / printed-line counter (set by GFX_STMT_VTAB,
+;              advanced by LINE_COUNT_INC / OUTDO_WIDTH).  HL -> BASIC text pointer.
+;   Out:       FAC = (L_0B12)+1 as a zero-extended 16-bit integer (VALTYP := VT_INT, set by
+;              FP_STORE_FAC_INT); HL preserved.
+;   Clobbers:  A, L, H, flags.
+;   Algorithm: A := (row counter)+1, then fall into the shared 'push text ptr / load byte
+;              into FAC as integer / restore text ptr' tail (FAC_LOAD_BYTE_PUSH_TXT, which
+;              zero-extends the byte via FP_LOAD_INT_TO_FAC).
+; ----------------------------------------------------------------------
+FN_VPOS:
+        ; read the vertical cursor row / lines-printed counter (1-based after the INC)
+        LD A,(CURSOR_ROW)
         INC A
-GFX_FN_MKD_STR_1:
+FAC_LOAD_BYTE_PUSH_TXT:
         PUSH HL
-GFX_FN_MKD_STR_2:
+FAC_LOAD_BYTE_POP_TXT:
         CALL FP_LOAD_INT_TO_FAC
         POP HL
         RET
-; [RE] BEEP statement handler (token $D4): Apple graphics superset -- sound the console bell via the 6502 RPC.
+; ----------------------------------------------------------------------
+; GFX_STMT_BEEP -- BEEP statement (token $D4): sound a tone whose pitch and length come from "a,b"
+;   In:        HL -> text after the BEEP token, expecting "pitch,duration" (first operand=pitch, second=duration)
+;   Out:       A tone played by the embedded 6502 routine; HL advanced; returns to the dispatcher (via GFX_STMT_PLOT_1)
+;   Clobbers:  A, E, HL (restored by the tail), cells RPC_ACC/RPC_XREG
+;   Algorithm: Parses two bytes with GFX_PARSE_TWO_BYTES (E=first operand, A=second operand). Increments each (so a 0 argument still yields a minimal count rather than the 256-iteration wraparound the 6502 loop would otherwise take), stages the SECOND operand in RPC_ACC (6502 zp $45) and the FIRST in RPC_XREG (6502 zp $46), points HL at the embedded 6502 tone loop at its 6502-view address (BEEP_6502_PAYLOAD+$1000 = $5709), and JPs to GFX_STMT_PLOT_1 to RPC-run it. [RE] in the 6502 loop zp $45 is the duration (outer toggle count) and zp $46 sets the half-period (pitch); so the second operand is duration and the first is pitch.
+; ----------------------------------------------------------------------
 GFX_STMT_BEEP:
+        ; read the "pitch,duration" pair: E=first operand (pitch), A=second operand (duration)
         CALL GFX_PARSE_TWO_BYTES
+        ; +1 so a 0 argument gives a minimal (not wrapped 256) count; stage the duration in 6502 zp $45
         INC A
         LD (RPC_ACC),A
         LD A,E
+        ; +1 the pitch likewise; stage it in 6502 zp $46
         INC A
         LD (RPC_XREG),A
         PUSH HL
+        ; target the embedded 6502 tone loop at its 6502-view address ($5709) and RPC-run it
         LD HL,BEEP_6502_PAYLOAD+$1000
         JP GFX_STMT_PLOT_1
-; [RE] Embedded 6502 BEEP tone-loop, run by GFX_STMT_BEEP via the Z80->6502 RPC. From the 6502's view this lives at $4709+$1000=$5709 (the SoftCard maps a Z80 address X to 6502 address X+$1000), which is the value GFX_STMT_BEEP loads into HL (= A_VEC, the 6502 subroutine address) before triggering the RPC. 6502 listing: LDY #$00 / LDA $C030 (toggle speaker) / DEY / BNE +4 / DEC $45 (duration, =RPC_ACC) / BEQ done / JSR $FF57 (Monitor WAIT, delay) / DEX / BNE loop / LDX $46 (pitch, =RPC_XREG) / loop / RTS. Reads zp $45/$46 = the duration/pitch cells GFX_STMT_BEEP staged. Opaque DEFB from the Z80 view; the +$1000 in the operand expression is the documented SoftCard CPU-view offset, not a relocation artifact.
+; ----------------------------------------------------------------------
+; BEEP_6502_PAYLOAD -- embedded 6502 machine code that GFX_STMT_BEEP RPC-executes to play a tone
+;   In:        (read by the 6502) zp $45 = duration count (from RPC_ACC), zp $46 = pitch/half-period count (from RPC_XREG)
+;   Out:       Speaker toggled to produce a tone; control returns to the RPC bridge via RTS
+;   Clobbers:  6502 A, X, Y, zp $45 (counted down to 0); from the Z80 view this block is opaque data
+;   Algorithm: Nested-loop square-wave generator. The speaker is toggled by LDA $C030 at the top; an inner loop then DEYs (Y down from 0 = up to 256 passes) with a JSR $FF57 (Monitor WAIT) delay each pass, gated by X which is reloaded from zp $46 (so $46 sets the inner pass count = half-period = pitch). When Y wraps to 0 it DECs the duration in zp $45 and exits (RTS) when that reaches 0; otherwise it reloads X from $46 and branches back to toggle the speaker again. Verified 6502 listing at $5709: LDY #$00 / LDA $C030 / DEY / BNE $5715 / DEC $45 / BEQ $5721 / JSR $FF57 / DEX / BNE $570E / LDX $46 / BNE $570B / BEQ $570B / RTS. The +$1000 on the load address in GFX_STMT_BEEP is the SoftCard CPU-view offset (a Z80 ADDRESS X maps to 6502 ADDRESS X+$1000), not a relocation artifact.
+; ----------------------------------------------------------------------
 BEEP_6502_PAYLOAD:
         DEFB    $A0,$00,$AD,$30,$C0,$88,$D0,$04,$C6,$45,$F0,$0C,$20,$57,$FF,$CA
         DEFB    $D0,$F3,$A6,$46,$D0,$EC,$F0,$EA,$60
-; [RE] WAIT statement handler (token $D5): poll an I/O port until (in AND mask) XOR xor is non-zero.
+; ----------------------------------------------------------------------
+; STMT_WAIT -- WAIT statement (token $D5): busy-poll an I/O port until masked bits match (SoftCard superset)
+;   In:        HL -> text after the WAIT token, expecting "port, andmask [, xormask]"
+;   Out:       Returns once ((portbyte XOR xormask) AND andmask) is non-zero; HL advanced; loops forever if the condition is never met
+;   Clobbers:  A, D, E, HL (text pointer saved/restored via the stack), flags
+;   Algorithm: GETINT evaluates the 16-bit port address (saved on the stack as the poll target), GETBYT reads the AND mask, and an optional third byte is the XOR mask (default 0 when the comma is absent, detected by the GETBYT Z flag -- Z set means the statement ended with no third argument). With D=AND mask and E=XOR mask, it swaps the saved port address into HL and spins: read (HL), XOR with E, AND with D, repeat while zero. This blocks BASIC until the selected hardware-port bits reach the wanted state -- the classic MS-BASIC/Apple WAIT, present here as a SoftCard extension and physically interleaved with the graphics statements.
+; ----------------------------------------------------------------------
 STMT_WAIT:
+        ; evaluate the 16-bit I/O port address; keep it on the stack as the poll target
         CALL GETINT
         PUSH DE
         CALL SYNCHR
         DEFB    ','                      ; inline char arg consumed by the preceding CALL
         CALL GETBYT
         PUSH AF
+        ; default the XOR mask to 0; the GETBYT Z flag (pushed) is set when the statement ended with no third argument
         LD E,$00
-        JR Z,STMT_WAIT_1
+        JR Z,STMT_WAIT_HAVE_MASKS
         CALL SYNCHR
+        ; optional third argument present -> read the XOR mask into E
         DEFB    ','                      ; inline char arg consumed by the preceding CALL
         CALL GETBYT
-STMT_WAIT_1:
+STMT_WAIT_HAVE_MASKS:
         POP AF
         LD D,A
+        ; swap the saved port address into HL so (HL) reads the port; the BASIC text pointer parks on the stack
         EX (SP),HL
-STMT_WAIT_2:
+STMT_WAIT_POLL_LOOP:
+        ; poll: read the port, apply XOR/AND masks, loop until any selected bit is set
         LD A,(HL)
         XOR E
         AND D
-        JR Z,STMT_WAIT_2
+        JR Z,STMT_WAIT_POLL_LOOP
         POP HL
         RET
-; [RE] VPOS() handler (function token $34): Apple graphics superset -- current text cursor row (CALL $409A).
-GFX_FN_VPOS:
+; ----------------------------------------------------------------------
+; FN_PDL -- PDL() function (function token $35): read an Apple game paddle / analog input
+; via the 6502 monitor PREAD routine over the Z80->6502 RPC bridge.  MISLABELED as VPOS:
+; FUNC_DISPATCH_TBL slot $021A = base $01B2 + 2*($35-1) = token $35 = PDL, and the body
+; RPC-calls PREAD, not a cursor read.
+;   In:        Paddle-number expression in source; CONINT yields it in E (and A), 0..255.
+;              RPC bridge: A_VEC ($F3D0) / Z_CPU ($F3DE) RPC dispatch cells; RPC_XREG passes
+;              the paddle index to the 6502, RPC_YREG returns the result.
+;   Out:       FAC = paddle value 0..255 as a zero-extended integer (VALTYP := VT_INT).
+;   Clobbers:  A,E,HL, the 6502 RPC cells; HL (text ptr) saved/restored across the RPC.
+;   Algorithm: Range-check the paddle index < 4 (else 'Illegal function call' via ERROR_FC).
+;              Stage it in RPC_XREG, RPC-call the Apple ROM PREAD ($FB1E) which returns the
+;              paddle/timer count in 6502 Y = RPC_YREG, then load that byte into the FAC as
+;              an integer.
+;
+; NOTE: the labels GFX_FN_VPOS_2..\_9 below are NOT part of PDL -- they are independent
+; function/statement bodies that merely share the _N numbering: _1 = shared range-error
+; tail; _2 = SCRN() fn; _3 = COLOR-read fn; _4..\_9 = the argument list + 6502-invoke tail
+; of STMT_CALL (entered via JP Z,GFX_FN_VPOS_4 at asm line 14704).  See their renames.
+; ----------------------------------------------------------------------
+FN_PDL:
         CALL CONINT
         LD A,E
         CP $04
-GFX_FN_VPOS_1:
+FN_RANGE_ERR:
         JP NC,ERROR_FC
+        ; pass the paddle number to the 6502 in X
         LD (RPC_XREG),A
         PUSH HL
+        ; call the Apple monitor paddle-read routine over the 6502 RPC bridge
         LD HL,PREAD
         CALL RPC_CALL
         POP HL
+        ; PREAD returns the paddle/timer count in 6502 Y
         LD A,(RPC_YREG)
         JP FP_LOAD_INT_TO_FAC
-GFX_FN_VPOS_2:
+FN_SCRN:
         CALL CHRGET
         CALL SYNCHR
         DEFB    '('                      ; inline char arg consumed by the preceding CALL
@@ -7130,13 +7534,13 @@ GFX_FN_VPOS_2:
         LD HL,SCRN_ROM
         CALL RPC_CALL
         LD A,(RPC_ACC)
-        JP GFX_FN_MKD_STR_2
-GFX_FN_VPOS_3:
+        JP FAC_LOAD_BYTE_POP_TXT
+FN_COLOR_READ:
         CALL CHRGET
         LD A,(COLOR)
         AND $0F
-        JP GFX_FN_MKD_STR_1
-GFX_FN_VPOS_4:
+        JP FAC_LOAD_BYTE_PUSH_TXT
+STMT_CALL_INVOKE_6502:
         LD HL,RPC_ACC
         XOR A
         LD (HL),A
@@ -7146,20 +7550,20 @@ GFX_FN_VPOS_4:
         LD (HL),A
         POP HL
         CALL CHRGOT
-        JR Z,GFX_FN_VPOS_9
+        JR Z,STMT_CALL_INVOKE
         CALL SYNCHR
         DEFB    '('                      ; inline char arg consumed by the preceding CALL
         LD DE,RPC_ACC
         LD B,$03
-GFX_FN_VPOS_5:
+STMT_CALL_ARG_LOOP:
         LD A,(HL)
         CP $29
-        JR Z,GFX_FN_VPOS_8
+        JR Z,STMT_CALL_ARG_END
         CP $2C
-        JR NZ,GFX_FN_VPOS_6
+        JR NZ,STMT_CALL_ARG_STORE
         CALL CHRGET
-        JR GFX_FN_VPOS_7
-GFX_FN_VPOS_6:
+        JR STMT_CALL_ARG_NEXT
+STMT_CALL_ARG_STORE:
         PUSH BC
         PUSH DE
         CALL GETBYT
@@ -7170,29 +7574,48 @@ GFX_FN_VPOS_6:
         LD A,(HL)
         CP $2C
         CALL Z,CHRGET
-GFX_FN_VPOS_7:
-        DJNZ GFX_FN_VPOS_5
-GFX_FN_VPOS_8:
+STMT_CALL_ARG_NEXT:
+        DJNZ STMT_CALL_ARG_LOOP
+STMT_CALL_ARG_END:
         CALL SYNCHR
         DEFB    ')'                      ; inline char arg consumed by the preceding CALL
-GFX_FN_VPOS_9:
+STMT_CALL_INVOKE:
         PUSH HL
         LD HL,(L_0C93)
         JP GFX_STMT_PLOT_1
-; [RE] Graphics display-mode soft-switch helper. LD ($E050),A = $C050 TXTCLR (graphics on); LD HL,$E053; RRA selects mixed vs full screen: NC -> use $E053 ($C053 MIXSET, mixed text+graphics, D=$28 rows); C -> DEC L to $E052 ($C052 MIXCLR, full-screen graphics, D=$30 rows); the LD (HL),L touches the chosen switch. Sets the Apple display into the requested graphics mode.
+; ----------------------------------------------------------------------
+; GFX_SET_DISPLAY_MODE -- switch the Apple video into the requested graphics mode and
+; report the resulting lo-res screen height.
+;   In:        A = mode byte (the LORES/HIRES soft-switch value); bit 0 selects the screen
+;              split.  HL -> BASIC text pointer (preserved; used for the trailing peek).
+;   Out:       Display soft switches set; D = lo-res screen height ($30 = 48 rows full-screen,
+;              $28 = 40 rows mixed); Z/flags from comparing the next source char to ','.
+;              A = next source char; HL preserved.
+;   Clobbers:  A, D, HL (restored), flags.
+;   Algorithm: Touch TXTCLR ($C050) to turn graphics on.  RRA rotates mode bit 0 into carry:
+;              carry clear (bit0=0, EVEN) keeps MIXSET ($C053, mixed graphics + 4 text lines,
+;              D:=$28); carry set (bit0=1, ODD) does DEC L to MIXCLR ($C052, full screen,
+;              D:=$30).  Touch the chosen switch, then peek whether the next source char is
+;              ',' so the caller can read an optional sub-argument.  [RE] D is consumed by
+;              the GR statement as a row count (GFX_STMT_GR does LD B,D then a DJNZ fill loop).
+; ----------------------------------------------------------------------
 GFX_SET_DISPLAY_MODE:
         PUSH HL
+        ; turn graphics on (clear the text screen) -- Apple $C050
         LD (TXTCLR),A
         LD HL,MIXSET
+        ; rotate mode bit 0 into carry: even keeps MIXSET (mixed + 4 text lines), odd selects MIXCLR (full-screen)
         RRA
         LD D,$28
-        JR NC,SUB_47C6_1
+        JR NC,GFX_DISPLAY_MODE_WRITE
+        ; odd/full-screen path: step the switch pointer from MIXSET ($C053) down to MIXCLR ($C052)
         DEC L
         LD D,$30
-SUB_47C6_1:
+GFX_DISPLAY_MODE_WRITE:
         LD (HL),L
         POP HL
         LD A,(HL)
+        ; report to the caller whether a ',' sub-argument follows
         CP $2C
         RET
     IFDEF GBASIC
@@ -7221,12 +7644,41 @@ GFX_X_COORD:
 ; [RE] Current hi-res Y/row coordinate, stored by GFX_XY_TO_HIRES_ADDR ($497D); read/updated by GFX_DRAW_LINE to compute the vertical delta for Bresenham stepping.
 GFX_Y_COORD:
         DEFB    "\0"
-; [RE] HCOLOR() function handler (token $D3): hi-res color read; reached via the special-case FUNCTION dispatch JP Z at $3C85. MBASIC (graphics-OFF) routes this to RAISE_GRAPHICS_STATEMENT_NOT_IMPLEMENTED.
+; ----------------------------------------------------------------------
+; GFX_FN_HCOLOR -- HCOLOR() function (function token $D3): return the current hi-res plot
+; colour/mode index.  GBASIC-only; MBASIC routes token $D3 to the not-implemented stub
+; (RAISE_GRAPHICS_STATEMENT_NOT_IMPLEMENTED).  Reached from FRMEVL_EVAL_OPERAND_5 via CP
+; $D3 / JP Z at $3C85.
+;   In:        GFX_COLOR_INDEX = colour index set by the HCOLOR= statement (GFX_SET_COLOR_INDEX).
+;              HL -> the function token, the current char.
+;   Out:       FAC = colour index as a zero-extended integer (VALTYP := VT_INT); HL preserved.
+;   Clobbers:  A, HL (saved/restored by the shared tail), flags.
+;   Algorithm: Advance past the function token (CHRGET), read GFX_COLOR_INDEX, and load it
+;              into the FAC as an integer via the shared FAC_LOAD_BYTE_PUSH_TXT tail.
+; ----------------------------------------------------------------------
 GFX_FN_HCOLOR:
         CALL CHRGET
+        ; read the current hi-res colour index set by HCOLOR=
         LD A,(GFX_COLOR_INDEX)
-        JP GFX_FN_MKD_STR_1
-; [RE] HSCRN() function handler (token $ED): hi-res screen-point read; reached via the special-case FUNCTION dispatch JP Z at $3C8F. MBASIC routes it to the not-implemented stub.
+        JP FAC_LOAD_BYTE_PUSH_TXT
+; ----------------------------------------------------------------------
+; GFX_FN_HSCRN -- HSCRN() function (function token $ED): read a hi-res screen point and
+; return its on/off state.  Reached from FRMEVL_EVAL_OPERAND_5 via CP $ED / JP Z at $3C8F;
+; GBASIC-only (MBASIC stubs token $ED to the not-implemented raise).
+;   In:        '(x,y)' coordinate pair in source (row 0-23, column 0-191 via
+;              GFX_READ_COORD_PAIR).  HL -> BASIC text pointer.
+;   Out:       FAC = -1 if the point is set, 0 if clear (signed integer); the three live
+;              hi-res plot-state cells are restored to their pre-call values; HL preserved.
+;   Clobbers:  A,BC,DE,HL and the alternate register set; FAC.
+;   Algorithm: Parse and range-check (x,y).  Save the BASIC text ptr, then save the THREE
+;              live plot-state cells (GFX_HIRES_BYTE_ADDR / _ROW_BASE / _BIT_INDEX) on the
+;              stack so the read does not disturb a HPLOT in progress.  Push HSCRN_READ_PIXEL
+;              TWICE (so GFX_XY_TO_HIRES_ADDR_4's POP HL/RET lands on it), self-modify that
+;              routine's mask-table pointer (GFX_XY_TO_HIRES_ADDR_4+1) to colour-mask table B,
+;              then JP GFX_XY_TO_HIRES_ADDR_1 to compute the byte address (which on this path
+;              leaves the two table-B mask bytes in GFX_HIRES_BYTE_ADDR).  HSCRN_READ_PIXEL
+;              tests them and returns -1/0, then restores the saved cells and text ptr.
+; ----------------------------------------------------------------------
 GFX_FN_HSCRN:
         CALL CHRGET
         CALL SYNCHR
@@ -7235,35 +7687,64 @@ GFX_FN_HSCRN:
         CALL SYNCHR
         DEFB    ')'                      ; inline char arg consumed by the preceding CALL
         PUSH HL
+        ; save the live hi-res plot-state cells so the point read does not corrupt an in-progress HPLOT
         LD HL,(GFX_HIRES_BYTE_ADDR)
         PUSH HL
         LD HL,(GFX_HIRES_ROW_BASE)
         PUSH HL
         LD HL,(GFX_HIRES_BIT_INDEX)
         PUSH HL
-        LD HL,SUB_47C6_4
+        LD HL,HSCRN_READ_PIXEL
         PUSH HL
         PUSH HL
         LD HL,GFX_HIRES_COLOR_MASK_TABLE_B
+        ; self-modify the address builder to use colour-mask table B for this read
         LD (GFX_XY_TO_HIRES_ADDR_4+1),HL
         LD A,C
+        ; compute the screen byte/bit address for (x,y); returns into HSCRN_READ_PIXEL (pushed above)
         JP GFX_XY_TO_HIRES_ADDR_1
-SUB_47C6_4:
+; ----------------------------------------------------------------------
+; HSCRN_READ_PIXEL -- HSCRN() read body: test the hi-res byte at the computed address
+; against the colour masks and store -1 (point set) or 0 (clear) into the FAC, then restore
+; the saved plot-state cells and the BASIC text pointer.
+;   In:        Entered (via the pushed return address) after GFX_XY_TO_HIRES_ADDR_1 ran with
+;              mask-table B selected, so GFX_HIRES_BYTE_ADDR holds the two table-B mask bytes.
+;              GFX_LOAD_STEP_STATE then (after EXX) gives BC = those two masks (C=first,
+;              B=second), DE = colour pattern, HL = row base + X offset = the actual screen
+;              byte address.  Stack holds the three saved plot-state words then the text ptr.
+;   Out:       FAC = -1 if the addressed pixel (either mask bit) is set, else 0; the
+;              GFX_HIRES_BIT_INDEX / _ROW_BASE / _BYTE_ADDR cells and HL (text ptr) restored.
+;   Clobbers:  A,BC,DE,HL, alternate registers; FAC.
+;   Algorithm: AND the screen byte with mask C; ADD A,A discards the high palette bit ($80)
+;              so JR NZ fires only on a real pixel bit.  If clear, INC HL and AND the NEXT
+;              byte with mask B (again ADD A,A then JR Z).  If either pixel bit survives load
+;              A=$FF (-1) else A=$00, and store it into the FAC via GFX_STORE_SIGNED_BYTE_FAC.
+;              Finally pop the three saved words back into the plot-state cells and pop HL.
+;              UNKNOWN: the precise palette reason both adjacent bytes are consulted (inferred
+;              from the two-byte mask layout, not round-trip-confirmed).
+; ----------------------------------------------------------------------
+HSCRN_READ_PIXEL:
+        ; load the screen byte address and the two colour-mask bytes for the target point
         CALL GFX_LOAD_STEP_STATE
         EXX
         LD A,(HL)
+        ; mask this byte with the first colour-mask byte
         AND C
         ADD A,A
-        JR NZ,SUB_47C6_5
+        JR NZ,HSCRN_PIXEL_ON
         INC HL
         LD A,(HL)
+        ; if the first byte showed no pixel, test the adjacent byte against the second mask
         AND B
         ADD A,A
-        JR Z,SUB_47C6_6
-SUB_47C6_5:
+        JR Z,HSCRN_PIXEL_DONE
+HSCRN_PIXEL_ON:
+        ; pixel set -> return TRUE (-1)
         LD A,$FF
-SUB_47C6_6:
+HSCRN_PIXEL_DONE:
+        ; store the -1/0 result into the FAC
         CALL GFX_STORE_SIGNED_BYTE_FAC
+        ; restore the saved hi-res plot-state cells (bit index, row base, byte addr)
         POP HL
         LD (GFX_HIRES_BIT_INDEX),HL
         POP HL
@@ -7272,19 +7753,37 @@ SUB_47C6_6:
         LD (GFX_HIRES_BYTE_ADDR),HL
         POP HL
         RET
-; [RE] HCOLOR statement handler (token $D3): Apple graphics superset -- set the hi-res plotting color (CALL $6925 evaluates the operand).
+; ----------------------------------------------------------------------
+; GFX_STMT_HCOLOR -- HCOLOR= statement handler (token $D3): set the current hi-res plotting color/mode.
+;   In:        HL -> BASIC text after the HCOLOR token (expects '=' then a numeric expression)
+;   Out:       falls through into GFX_SET_COLOR_INDEX with A = the evaluated color index (0..12); on return the global plot color/mask state is armed
+;   Clobbers:  A, BC, DE, HL (via SYNCHR/GETBYT and the fall-through)
+;   Algorithm: Require the literal '=' token (SYNCHR with the inline DEFB TOK_EQ argument it consumes), then GETBYT evaluates the following expression and range-checks it to an 8-bit value in A (and E). Control drops straight into GFX_SET_COLOR_INDEX, which validates and installs the color.
+; ----------------------------------------------------------------------
 GFX_STMT_HCOLOR:
+        ; require the '=' after HCOLOR (the inline DEFB TOK_EQ is the token SYNCHR matches and skips past)
         CALL SYNCHR
         DEFB    TOK_EQ                   ; inline keyword-token arg consumed by the preceding CALL
+        ; evaluate the color expression to a 0..255 byte in A, then fall into the shared color-select code
         CALL GETBYT
-; [RE] Set the current plotting color/mode index (0-12, else error). Stores the index at $47DA and selects the corresponding hi-res bit-pattern mask routine ($4888 family) and color bit table; shared setup for COLOR/HCOLOR plotting.
+; ----------------------------------------------------------------------
+; GFX_SET_COLOR_INDEX -- validate a hi-res color index and arm the global plot color/mask state.
+;   In:        A = color/mode index (0..12); HL -> BASIC text (saved/restored across the body)
+;   Out:       GFX_COLOR_INDEX = A; GFX_COLOR_PATTERN = the 2-byte pixel pattern for this color; GFX_PLOT_BYTE_1+1 self-modified to select the color vs erase plot body; the active color-mask table pointer is set via GFX_SELECT_COLOR_MASK and the current point's mask/address state is recomputed (tail JP GFX_XY_TO_HIRES_ADDR_3). HL restored.
+;   Clobbers:  A, DE, HL (HL saved/restored around the body)
+;   Algorithm: Reject index >= 13 (CP $0D -> ERROR_FC) and store it at GFX_COLOR_INDEX. For index 0..7, read a 2-byte pixel pattern from GFX_HIRES_COLOR_WORDS[2*index] into HL. For 8..11 synthesise a solid pattern: RRA puts the index's low bit into carry, SBC A,A makes A all-0s (even index) or all-1s (odd index); 8/9 then AND $7F (clear bit7), 10/11 then SET 7,A (force bit7); LD H,A/LD L,A duplicate the byte into both halves. Index 12 is the dedicated erase color (no pattern needed). Store the pattern at GFX_COLOR_PATTERN, then self-modify the plotter's JP slot: GFX_PLOT_BYTE_2 for the color (XOR/AND merge) variant, GFX_PLOT_BYTE_7 for the AND $7F erase variant (index 12). Finally select the matching color-mask table and recompute the current pixel's mask/address.
+; ----------------------------------------------------------------------
 GFX_SET_COLOR_INDEX:
+        ; reject indices >= 13 (above 12) with an Illegal Function Call error
         CP $0D
         JP NC,ERROR_FC
+        ; record the current plot color/mode index for the mask selector and SCRN reads
         LD (GFX_COLOR_INDEX),A
         PUSH HL
+        ; indices 0..7 take a 2-byte pattern from the color-word table; 8..12 are computed/special
         CP $08
         JR NC,GFX_SET_COLOR_INDEX_1
+        ; index the pixel-pattern table at base + 2*color and load that word into HL
         LD HL,GFX_HIRES_COLOR_WORDS
         ADD A,A
         LD E,A
@@ -7296,45 +7795,78 @@ GFX_SET_COLOR_INDEX:
         EX DE,HL
         JR GFX_SET_COLOR_INDEX_4
 GFX_SET_COLOR_INDEX_1:
+        ; index 12 is the erase color: route to the AND $7F erase-body selection
         CP $0C
         JR Z,GFX_SET_COLOR_INDEX_6
         CP $0A
         JR NC,GFX_SET_COLOR_INDEX_2
+        ; [RE] index low bit -> carry, then SBC A,A makes A a solid all-0 (even) or all-1 (odd) byte
         RRA
         SBC A,A
+        ; indices 8/9: clear bit7 of the solid byte
         AND $7F
         JR GFX_SET_COLOR_INDEX_3
 GFX_SET_COLOR_INDEX_2:
         RRA
         SBC A,A
+        ; indices 10/11: set bit7 of the solid byte
         SET 7,A
 GFX_SET_COLOR_INDEX_3:
+        ; replicate the solid byte into both halves of the 2-byte pattern
         LD H,A
         LD L,A
 GFX_SET_COLOR_INDEX_4:
+        ; publish the chosen 2-byte pixel pattern for the plot/line writer
         LD (GFX_COLOR_PATTERN),HL
+        ; self-modify the plotter dispatch JP to the color (XOR/AND merge) body
         LD HL,GFX_PLOT_BYTE_2
         LD (GFX_PLOT_BYTE_1+1),HL
 GFX_SET_COLOR_INDEX_5:
+        ; pick the color-mask table for this index, then recompute the current pixel's mask/address
         CALL GFX_SELECT_COLOR_MASK
         JP GFX_XY_TO_HIRES_ADDR_3
 GFX_SET_COLOR_INDEX_6:
+        ; erase color: self-modify the plotter dispatch JP to the AND $7F erase body
         LD HL,GFX_PLOT_BYTE_7
         LD (GFX_PLOT_BYTE_1+1),HL
         JR GFX_SET_COLOR_INDEX_5
-; [RE] Plot one hi-res byte: with the screen address in the alternate HL (EXX), XOR/AND the color bit-mask (B/C and D/E pixel patterns) into the hi-res page byte and its neighbor, honoring the even/odd column ($4888_1 self-modified jump selects the masking variant). Core pixel writer for HPLOT and the line drawer.
+; ----------------------------------------------------------------------
+; GFX_PLOT_BYTE -- write the current pixel's color/mask into the hi-res screen byte(s).
+;   In:        the alternate register set holds the plot state (set up by GFX_LOAD_STEP_STATE / GFX_LOAD_COLUMN_MASK before the call): HL' = screen byte address (row base + intra-row X offset), BC' = the two per-column mask bytes (B,C), DE' = the 2-byte color pixel pattern (D,E). [RE] the masks come from the GFX_HIRES_BYTE_ADDR workspace cell, whose name is misleading: GFX_XY_TO_HIRES_ADDR stores two mask-table bytes there, not a screen address. GFX_PLOT_BYTE_1+1 has been self-modified to the active body.
+;   Out:       one or two hi-res page bytes updated in place to show the pixel in the current color/mode; registers restored (EXX back) before RET.
+;   Clobbers:  A, L (transiently via INC/DEC L); uses the alternate register bank for the screen pointer/masks/pattern.
+;   Algorithm: EXX into the bank holding the screen pointer, masks and pattern. BIT 0,L tests the low bit of the screen address (even/odd byte), which selects which mask/pattern half is written first. The self-modified JP at GFX_PLOT_BYTE_1 then enters GFX_PLOT_BYTE_2 (color body: scr = ((scr XOR pattern) AND mask) XOR scr, i.e. set the masked bits to the pattern) or GFX_PLOT_BYTE_7 (erase body: clear/toggle the masked low-7 bits). Each body conditionally writes the neighbour byte too when that half's mask byte has bit7 set (LD A,mask / ADD A,A tests bit7), stepping L across the byte pair.
+; ----------------------------------------------------------------------
 GFX_PLOT_BYTE:
+        ; switch to the alternate bank holding the screen pointer, the two mask bytes and the color pattern
         EXX
+        ; [RE] low bit of the screen address (even/odd byte) selects which mask/pattern half is written first
         BIT 0,L
-; [RE] SMC: JP operand patched by GFX_SET_COLOR_INDEX. $4877 (SET_COLOR_INDEX_4) stores GFX_PLOT_BYTE_2 ($488E, color XOR/AND variant); $4883 (SET_COLOR_INDEX_6, index $0C) stores GFX_PLOT_BYTE_7 ($48C1, AND $7F erase variant). $488C is the operand byte, not code.
+; ----------------------------------------------------------------------
+; GFX_PLOT_BYTE_1 -- self-modifying dispatch slot inside GFX_PLOT_BYTE.
+;   In:        the 2-byte operand at GFX_PLOT_BYTE_1+1 has been written by GFX_SET_COLOR_INDEX.
+;   Out:       jumps to the selected plot body.
+;   Clobbers:  none (a single JP).
+;   Algorithm: A bare JP whose 2-byte target operand is patched at runtime: GFX_SET_COLOR_INDEX_4 ($4877) stores GFX_PLOT_BYTE_2 (color XOR/AND variant) and GFX_SET_COLOR_INDEX_6 ($4883, index 12) stores GFX_PLOT_BYTE_7 (AND $7F erase variant). The bytes after the C3 JP opcode are this operand, not separate code.
+; ----------------------------------------------------------------------
 GFX_PLOT_BYTE_1:
         JP GFX_PLOT_BYTE_2
+; ----------------------------------------------------------------------
+; GFX_PLOT_BYTE_2 -- color plot body: set the addressed hi-res pixel bits to the current color pattern.
+;   In:        HL = screen byte address; B,C = the two per-column mask bytes; D,E = the two color-pattern halves; Z flag from BIT 0,L (even vs odd address).
+;   Out:       up to two hi-res bytes updated so the masked pixel bits carry the color pattern; registers restored via EXX before RET.
+;   Clobbers:  A, L (transiently via INC/DEC L), flags.
+;   Algorithm: Branch on the even/odd address (NZ -> GFX_PLOT_BYTE_4, which writes the B/D half first instead of the C/E half). For each half whose mask byte has bit7 set (tested by LD A,mask / ADD A,A): A = screen byte; XOR the matching pattern half (E or D); AND the column mask (C or B) to keep only the addressed bits changing; XOR back with the original screen byte; store. INC/DEC L crosses to the neighbour byte for the second half. A mask byte with bit7 clear skips its half (JP Z to the tail). GFX_PLOT_BYTE_3 / GFX_PLOT_BYTE_5 are the second-byte tails; GFX_PLOT_BYTE_6 is the common EXX/RET exit.
+; ----------------------------------------------------------------------
 GFX_PLOT_BYTE_2:
+        ; [RE] odd address: write the B/D half first instead of the C/E half
         JP NZ,GFX_PLOT_BYTE_4
+        ; load this column's mask; the following ADD A,A / JP Z skips this byte when its bit7 is clear
         LD A,C
         ADD A,A
         JP Z,GFX_PLOT_BYTE_3
         LD A,(HL)
+        ; merge color: ((scr XOR pattern) AND mask) XOR scr sets only the masked bits to the pattern
         XOR E
         AND C
         XOR (HL)
@@ -7343,6 +7875,7 @@ GFX_PLOT_BYTE_2:
         ADD A,A
         JP Z,GFX_PLOT_BYTE_6
 GFX_PLOT_BYTE_3:
+        ; step to the neighbour screen byte for the second mask/pattern half
         INC L
         LD A,(HL)
         XOR D
@@ -7375,13 +7908,23 @@ GFX_PLOT_BYTE_5:
 GFX_PLOT_BYTE_6:
         EXX
         RET
+; ----------------------------------------------------------------------
+; GFX_PLOT_BYTE_7 -- erase plot body (color index 12): clear/toggle the addressed pixel bits, leaving bit7 untouched.
+;   In:        HL = screen byte address; B,C = the two per-column mask bytes; Z flag from BIT 0,L (even vs odd address). The color pattern D/E is unused on this path.
+;   Out:       up to two hi-res bytes have their addressed low-7 pixel bits XOR'd by the (masked) mask byte, leaving bit7 (the palette/phase bit) untouched on the first-byte writes; registers restored via EXX before RET.
+;   Clobbers:  A, L (transiently), flags.
+;   Algorithm: Branch on even/odd address like the color body. For the FIRST byte of a half, take the mask (C in the even path, B in the odd path), AND $7F, XOR it into the screen byte and store. For the SECOND (neighbour) byte the tails GFX_PLOT_BYTE_8 / GFX_PLOT_BYTE_10 do NOT freshly reload the mask: they reuse the A left by the preceding LD A,mask / ADD A,A, i.e. a SHIFTED mask byte, then AND $7F. OBSERVED anomaly: GFX_PLOT_BYTE_8 finishes with XOR (HL) (XOR against the screen byte) but GFX_PLOT_BYTE_10 finishes with XOR B (XOR against mask B, NOT the screen byte) before storing. Both the shifted-A reuse and the GFX_PLOT_BYTE_10 XOR B divergence are what the shipped bytes do; the intent of those two second-byte paths is UNKNOWN (not asserting a bug or invented rationale).
+; ----------------------------------------------------------------------
 GFX_PLOT_BYTE_7:
+        ; [RE] odd address: take the B-mask erase path first
         JP NZ,GFX_PLOT_BYTE_9
         LD A,C
         ADD A,A
         JP Z,GFX_PLOT_BYTE_8
         LD A,C
+        ; confine the erase mask to the 7 visible pixel bits, preserving the palette/phase bit7
         AND $7F
+        ; XOR the masked bits into the screen byte (clear/toggle the addressed pixels)
         XOR (HL)
         LD (HL),A
         LD A,B
@@ -7415,9 +7958,32 @@ GFX_PLOT_BYTE_10:
         DEC L
         EXX
         RET
-; [RE] Bresenham line draw between the current point and a new endpoint. Computes |dx|,|dy|, picks X-major vs Y-major stepping ($4A1B / $4A65 step routines, self-modified into $4955/$4966), and walks the segment calling GFX_PLOT_BYTE ($4888) at each step. Drives HPLOT ... TO ... and connected HPLOT lists.
+; ----------------------------------------------------------------------
+; GFX_DRAW_LINE -- draw a hi-res line from the current point to a new (X,Y) endpoint (Bresenham).
+;   In:        DE = X column (0-279) of the new endpoint, C = Y row (0-191) of the new endpoint;
+;              current point in GFX_X_COORD (word) / GFX_Y_COORD (byte); color already selected.
+;   Out:       line plotted; GFX_X_COORD/GFX_Y_COORD updated to the new endpoint. On return the
+;              alternate register set holds the last pixel's working state: BC = the two column
+;              bit-mask bytes (the value of GFX_HIRES_BYTE_ADDR), DE = the color pixel-pattern word
+;              (GFX_COLOR_PATTERN), HL = the live screen pointer; the HPLOT caller reads these back.
+;              Returns when the major-axis step counter (BC) reaches zero.
+;   Clobbers:  A,BC,DE,HL, AF'/BC'/DE'/HL', and the three SMC operand cells GFX_DRAW_LINE_7+1 /
+;              _9+1 / _10+1 (the major/minor step-routine CALL targets and the [RE] major-count
+;              value used in the error-reset add).
+;   Algorithm: Compute |dy| = |Ycur - Ynew| and |dx| = |Xnew - Xcur|, selecting the Y/row stepper
+;              (GFX_LOAD_STEP_STATE_1 for up, GFX_STEP_ROW for down) for the vertical move and the
+;              X/column stepper (GFX_STEP_BIT for +X, GFX_STEP_ROW_6 for -X) for the horizontal move.
+;              Pick the larger delta as the MAJOR axis (its step routine is self-modified into the
+;              always-taken CALL at _7 and its count drives the loop) and the smaller as the MINOR
+;              axis (its step routine into the conditional CALL at _9, its count into DE). _10+1 is
+;              self-modified to the MAJOR count. Seed the error term HL to majorcount/2; each loop
+;              iteration subtracts the minor count from HL and, when it underflows, takes one minor
+;              step and adds the major count back (_10), then always takes one major step and calls
+;              GFX_PLOT_BYTE.
+; ----------------------------------------------------------------------
 GFX_DRAW_LINE:
         CALL GFX_SELECT_COLOR_MASK
+        ; vertical delta: |dy| = |Ycur - Ynew|; choose the Y/row stepper for the direction (up vs down)
         LD A,(GFX_Y_COORD)
         LD HL,GFX_LOAD_STEP_STATE_1
         SUB C
@@ -7430,10 +7996,12 @@ GFX_DRAW_LINE_1:
         PUSH AF
         LD A,C
         LD (GFX_Y_COORD),A
+        ; horizontal delta: store the new X as current, dx = Xnew - Xcur (abs value), and pick the +X (GFX_STEP_BIT) or -X (GFX_STEP_ROW_6) column stepper
         LD HL,(GFX_X_COORD)
         EX DE,HL
         LD (GFX_X_COORD),HL
         OR A
+        ; Bresenham error update: subtract the MINOR delta; on underflow take a minor-axis step and add the major count back
         SBC HL,DE
         JR NC,GFX_DRAW_LINE_2
         ADD HL,DE
@@ -7446,6 +8014,7 @@ GFX_DRAW_LINE_2:
         LD DE,GFX_STEP_BIT
 GFX_DRAW_LINE_3:
         POP BC
+        ; choose the major axis: X is major when |dx| > |dy| (else Y is major); the larger delta drives the loop count
         LD A,H
         OR A
         LD A,B
@@ -7453,6 +8022,7 @@ GFX_DRAW_LINE_3:
         CP L
         JR C,GFX_DRAW_LINE_4
         EX (SP),HL
+        ; Y-major branch: self-modify the always-taken CALL _7 to the major (Y/row) stepper and the conditional CALL _9 to the minor (X/column) stepper
         LD (GFX_DRAW_LINE_7+1),HL
         EX DE,HL
         LD (GFX_DRAW_LINE_9+1),HL
@@ -7463,6 +8033,7 @@ GFX_DRAW_LINE_3:
         JR GFX_DRAW_LINE_5
 GFX_DRAW_LINE_4:
         EX (SP),HL
+        ; X-major branch (swapped vs Y-major): conditional CALL _9 = minor (Y/row) stepper, always-taken CALL _7 = major (X/column) stepper
         LD (GFX_DRAW_LINE_9+1),HL
         EX DE,HL
         LD (GFX_DRAW_LINE_7+1),HL
@@ -7475,15 +8046,26 @@ GFX_DRAW_LINE_5:
         LD C,L
         INC BC
         OR A
+        ; seed the Bresenham error term to majorcount/2
         RR H
         RR L
         JR GFX_DRAW_LINE_8
 GFX_DRAW_LINE_6:
         EXX
-; [RE] SMC: CALL operand = the per-step major-axis stepper. $492D/$4940 patch it to GFX_STEP_ROW ($4A1B) or GFX_STEP_ROW_6 ($4A4E) per the X/Y-major branch. $4956 is the operand, not code.
+; ----------------------------------------------------------------------
+; GFX_DRAW_LINE_7 -- per-step MAJOR-axis CALL site (self-modified operand).
+;   In:        operand byte at GFX_DRAW_LINE_7+1 patched by GFX_DRAW_LINE to whichever step routine
+;              drives the major axis (Y/row: GFX_LOAD_STEP_STATE_1 or GFX_STEP_ROW; X/column:
+;              GFX_STEP_BIT or GFX_STEP_ROW_6), per the major-axis branch.
+;   Out:       advances the working screen state one pixel along the major axis (alternate reg set).
+;   Clobbers:  per the selected step routine.
+;   Algorithm: This label exists only because GFX_DRAW_LINE_7+1 is a self-modifying-code operand; the
+;              CALL opcode here is executed every Bresenham iteration with the patched target.
+; ----------------------------------------------------------------------
 GFX_DRAW_LINE_7:
         CALL GFX_STEP_ROW
         EXX
+        ; write the pixel at the current screen byte for this step
         CALL GFX_PLOT_BYTE
 GFX_DRAW_LINE_8:
         DEC BC
@@ -7494,18 +8076,56 @@ GFX_DRAW_LINE_8:
         SBC HL,DE
         JR NC,GFX_DRAW_LINE_6
         EXX
-; [RE] SMC: CALL operand = the per-step minor-axis stepper, paired with GFX_DRAW_LINE_7. $4931/$493C patch it to GFX_STEP_BIT ($4A65) or GFX_STEP_ROW_6 ($4A4E) per the X/Y-major branch. $4967 is the operand, not code.
+; ----------------------------------------------------------------------
+; GFX_DRAW_LINE_9 -- per-step MINOR-axis CALL site (self-modified operand), paired with GFX_DRAW_LINE_7.
+;   In:        operand byte at GFX_DRAW_LINE_9+1 patched by GFX_DRAW_LINE to the OTHER step routine
+;              from _7 (the minor axis).
+;   Out:       advances the working screen state one pixel along the minor axis when the error term
+;              underflows (alternate reg set).
+;   Clobbers:  per the selected step routine.
+;   Algorithm: Reached only on a minor-axis step; the CALL operand is SMC, patched once per line by
+;              GFX_DRAW_LINE.
+; ----------------------------------------------------------------------
 GFX_DRAW_LINE_9:
         CALL GFX_STEP_BIT
         EXX
         PUSH DE
-; [RE] SMC: LD DE immediate = the minor-axis screen-pointer increment, patched at $4947 from line setup; $496E ADD HL,DE applies it each step. $496C is the operand, not code.
+; ----------------------------------------------------------------------
+; GFX_DRAW_LINE_10 -- Bresenham error-reset add (self-modified LD DE immediate = the major-axis count).
+;   In:        the 16-bit immediate at GFX_DRAW_LINE_10+1 self-modified by GFX_DRAW_LINE to the MAJOR
+;              count (|dx| when X-major, |dy| when Y-major); HL (main reg set) = the running Bresenham
+;              error accumulator.
+;   Out:       HL += the major count (the standard error-term reset after a minor-axis step), executed
+;              with the alternate set already switched back to main (the screen pointer in the
+;              alternate HL is NOT touched here).
+;   Clobbers:  HL; DE preserved (pushed/popped around the add).
+;   Algorithm: Run only on the minor-step branch: after CALL _9 steps the minor axis, switch back to
+;              the main registers and add the patched major count back into the error accumulator HL,
+;              then loop to GFX_DRAW_LINE_6 for the always-taken major step. This is the Bresenham
+;              error reset, NOT a screen-address increment.
+; ----------------------------------------------------------------------
 GFX_DRAW_LINE_10:
         LD DE,$0000
         ADD HL,DE
         POP DE
         JP GFX_DRAW_LINE_6
-; [RE] Convert an (X,Y) hi-res coordinate to a screen byte address + intra-byte bit position. Stores X in $47E3 and the byte address in $47DF, builds the interleaved Apple hi-res row address (AND $C0 / shifts / ADD $10 page base) and the bit index within the byte. Used by HPLOT and GFX_DRAW_LINE.
+; ----------------------------------------------------------------------
+; GFX_XY_TO_HIRES_ADDR -- convert (X,Y) to an Apple hi-res screen address, bit index, and color mask pair.
+;   In:        DE = X column (0-279), C = Y row (0-191).
+;   Out:       GFX_X_COORD = X, GFX_Y_COORD = Y; GFX_HIRES_ROW_BASE = interleaved scan-line base
+;              address (this build's hi-res buffer is based at $1000, so the high byte lands in
+;              $10-$2F); GFX_HIRES_BIT_INDEX = X mod 14 (intra-cell bit position, set via GFX_XY_HELPER);
+;              GFX_X_FRACTION = byte offset within the row; GFX_HIRES_BYTE_ADDR = the 2 column
+;              bit-mask bytes for this point (E = mask at the bit column, D = mask at column+7).
+;              HL preserved (pushed/popped).
+;   Clobbers:  A,BC,DE.
+;   Algorithm: Select the color mask table, then build the Apple interleaved hi-res row address from
+;              Y (AND $C0 + rotates to spread the three address bit-groups, AND $1F, + $10 base into
+;              H). Split X into byte+bit via GFX_XY_HELPER, store the byte offset, then index the active
+;              color-mask table twice (at the bit column and at column+7, the second wrapped down by
+;              $0E when it crosses into the next 14-pixel cell) to fetch the low/high mask bytes for
+;              GFX_PLOT_BYTE.
+; ----------------------------------------------------------------------
 GFX_XY_TO_HIRES_ADDR:
         PUSH HL
         CALL GFX_SELECT_COLOR_MASK
@@ -7515,6 +8135,7 @@ GFX_XY_TO_HIRES_ADDR:
         LD A,C
         LD (GFX_Y_COORD),A
 GFX_XY_TO_HIRES_ADDR_1:
+        ; build the Apple interleaved hi-res scan-line address from Y: spread Y's bit groups across H (high byte $10-$2F, the $1F group plus the $10 buffer base) and L (byte-in-line)
         AND $C0
         LD L,A
         RRA
@@ -7535,6 +8156,7 @@ GFX_XY_TO_HIRES_ADDR_1:
         LD H,A
         LD (GFX_HIRES_ROW_BASE),HL
         EX DE,HL
+        ; split the X column into a byte index (B) and an intra-cell bit index (GFX_HIRES_BIT_INDEX = X mod 14)
         CALL GFX_XY_HELPER
         SUB $07
         JR C,GFX_XY_TO_HIRES_ADDR_2
@@ -7543,6 +8165,7 @@ GFX_XY_TO_HIRES_ADDR_2:
         LD A,B
         LD (GFX_X_FRACTION),A
 GFX_XY_TO_HIRES_ADDR_3:
+        ; index the active color-mask table to fetch the two mask bytes (E at this bit column, D at column+7 wrapped) for GFX_PLOT_BYTE
         LD A,(GFX_HIRES_BIT_INDEX)
         LD C,A
 ; [RE] SMC: LD HL immediate = the active hi-res color-mask table base. $4812 stores GFX_HIRES_COLOR_MASK_TABLE_B ($4AC5); GFX_SELECT_COLOR_MASK $4AB3 stores table A ($4AB7) or B ($4AC5) per color index. $49AB is the operand, not code.
@@ -7563,29 +8186,55 @@ GFX_XY_TO_HIRES_ADDR_5:
         ADD HL,BC
         LD D,(HL)
         EX DE,HL
+        ; store the 2 column bit-mask bytes (E:D, here in HL) for the current point
         LD (GFX_HIRES_BYTE_ADDR),HL
         POP HL
         RET
-; [RE] Coordinate sub-helper for GFX_XY_TO_HIRES_ADDR / line setup (divides/normalizes the X column into byte+bit). Called from the address-computation and line code.
+; ----------------------------------------------------------------------
+; GFX_XY_HELPER -- normalize an X column into a 14-pixel-cell byte index and intra-cell bit position.
+;   In:        HL = X coordinate (0-279).
+;   Out:       B = 2 * (X div 14) (the screen byte-pair index, doubled because each 14-pixel color
+;              cell spans two screen bytes); GFX_HIRES_BIT_INDEX = X mod 14 (the bit position within
+;              the 14-pixel cell).
+;   Clobbers:  A,B,DE,HL.
+;   Algorithm: Repeatedly add -14 ($FFF2) to HL, counting in A, until HL goes negative; A then holds
+;              X div 14. Double A into B. The final iteration over-subtracts by 14, so the leftover
+;              low byte + $0E (14) recovers exactly X mod 14, which is stored as the bit index.
+; ----------------------------------------------------------------------
 GFX_XY_HELPER:
         LD DE,$FFF2
         LD A,D
 GFX_XY_HELPER_1:
+        ; count how many whole 14-pixel cells fit in X: repeatedly subtract 14 until the value goes negative
         INC A
         ADD HL,DE
         JR C,GFX_XY_HELPER_1
+        ; two screen bytes per 14-pixel color cell, so the byte-pair index is 2 * (X div 14)
         ADD A,A
         LD B,A
         LD A,L
+        ; add back the 14 the loop over-subtracted on its last pass, recovering exactly X mod 14 as the bit index
         ADD A,$0E
         LD (GFX_HIRES_BIT_INDEX),A
         RET
-; [RE] Load the hi-res color bit-mask byte for the current intra-byte column: index the active pattern table ($4AC5, wrapping the 7-bit column via -7) and stash the masked pattern in A'.
+; ----------------------------------------------------------------------
+; GFX_LOAD_COLUMN_MASK -- fetch the per-column hi-res bit mask for the current point into A'.
+;   In:        GFX_HIRES_BIT_INDEX = intra-cell bit position (0-13) of the current point.
+;   Out:       A' (alternate accumulator) = the column's bit-mask byte ANDed with $7F (high bit
+;              cleared); alternate register set selected (EXX) on exit. Falls through into
+;              GFX_LOAD_STEP_STATE.
+;   Clobbers:  A,DE,HL (in the alternate set after the EXX); AF'.
+;   Algorithm: Switch to the alternate registers, fold the bit index into the 7-bit screen byte
+;              (subtract 7 if >= 7, the two bytes of a 14-pixel cell share one 7-bit pattern), index
+;              GFX_HIRES_COLOR_MASK_TABLE_B, mask off the high bit, and stash the result in A' for the
+;              plot writer; then fall into GFX_LOAD_STEP_STATE.
+; ----------------------------------------------------------------------
 GFX_LOAD_COLUMN_MASK:
         EXX
         LD HL,GFX_HIRES_COLOR_MASK_TABLE_B
         LD D,$00
         LD A,(GFX_HIRES_BIT_INDEX)
+        ; fold the bit index into the 7-pixel screen byte (a 14-pixel cell spans two bytes that share one 7-bit pattern)
         SUB $07
         JR NC,GFX_LOAD_COLUMN_MASK_1
         ADD A,$07
@@ -7593,27 +8242,59 @@ GFX_LOAD_COLUMN_MASK_1:
         LD E,A
         ADD HL,DE
         LD A,(HL)
+        ; clear the high (color-phase) bit; the mask is a 7-pixel pattern
         AND $7F
+        ; hand the column mask to A' for GFX_PLOT_BYTE, then fall into the step-state loader
         EX AF,AF'
-; [RE] Load the line/plot working state from the soft-switch save cells into the alternate registers: BC=byte addr ($47DD), DE=color pattern ($47DB), HL=row base+X-offset ($47DF + $47E2); used at each Bresenham step.
+; ----------------------------------------------------------------------
+; GFX_LOAD_STEP_STATE -- load the plot/line working point from save cells into the alternate registers.
+;   In:        GFX_HIRES_BYTE_ADDR, GFX_COLOR_PATTERN, GFX_X_FRACTION, GFX_HIRES_ROW_BASE (the saved
+;              current-point state).
+;   Out:       alternate set: BC = the two column bit-mask bytes (the value of GFX_HIRES_BYTE_ADDR),
+;              DE = the color pixel-pattern word, HL = row-base address + X byte offset (the live
+;              screen pointer). Main register set restored on exit (EXX); RET.
+;   Clobbers:  A; alternate BC/DE/HL.
+;   Algorithm: Pull the current point's mask bytes, color pattern, and row base from the workspace
+;              cells into the alternate registers and add the X sub-byte fraction to the row-base low
+;              byte to form the live screen pointer, so the Bresenham steppers and GFX_PLOT_BYTE can
+;              run entirely in the alternate set.
+; ----------------------------------------------------------------------
 GFX_LOAD_STEP_STATE:
+        ; BC = the two column bit-mask bytes for the current point (used as masks by GFX_PLOT_BYTE)
         LD HL,(GFX_HIRES_BYTE_ADDR)
         LD C,L
         LD B,H
+        ; DE = the two-byte color pixel pattern for the selected HCOLOR
         LD HL,(GFX_COLOR_PATTERN)
         EX DE,HL
         LD A,(GFX_X_FRACTION)
         LD HL,(GFX_HIRES_ROW_BASE)
+        ; HL = row base + X byte offset = the live hi-res screen pointer for plotting
         ADD A,L
         LD L,A
         EXX
         RET
+; ----------------------------------------------------------------------
+; GFX_LOAD_STEP_STATE_1 -- Y/row step (up): move the working screen pointer one scan line toward smaller Y.
+;   In:        L = low byte of the current screen pointer; GFX_HIRES_ROW_BASE = current row base.
+;   Out:       GFX_HIRES_ROW_BASE advanced one display row (handling the Apple hi-res interleave and
+;              page-group wrap); the pointer's offset within the row re-applied via the shared tail.
+;              Joins the GFX_STEP_ROW tail at GFX_STEP_ROW_3 / GFX_STEP_ROW_5.
+;   Clobbers:  A,HL (and the stack via PUSH AF / POP AF in the shared tail).
+;   Algorithm: Save the pointer's offset past its row base, then adjust the high byte by -$14 to move
+;              to the adjacent interleaved scan group; on wrap re-base H to $2F and shift L by $28
+;              [RE] -- this is the decreasing-Y direction, mirroring GFX_STEP_ROW's increasing-Y case.
+;              GFX_DRAW_LINE selects this routine (vs GFX_STEP_ROW) by the sign of the Y delta; it
+;              then serves as the major or minor stepper depending on which axis Y is.
+; ----------------------------------------------------------------------
 GFX_LOAD_STEP_STATE_1:
         LD A,L
         LD HL,(GFX_HIRES_ROW_BASE)
+        ; remember how far the live pointer sits past its row base, to re-apply after re-basing the row
         SUB L
         PUSH AF
         LD A,H
+        ; step to the adjacent scan line by adjusting the interleaved hi-res row group in H
         SUB $14
         JR NC,GFX_STEP_ROW_3
         RL L
@@ -7621,6 +8302,7 @@ GFX_LOAD_STEP_STATE_1:
         DEC A
         BIT 3,A
         JR NZ,GFX_STEP_ROW_1
+        ; [RE] wrapped the page group: re-base H to $2F and shift L by one byte-line ($28)
         LD H,$2F
         SCF
         LD A,L
@@ -7628,14 +8310,23 @@ GFX_LOAD_STEP_STATE_1:
         SUB $28
         LD L,A
         JP GFX_STEP_ROW_5
-; [RE] X-major Bresenham step: advance the hi-res X position by one pixel, recomputing the byte address (row table $47DF, page-base groups via SUB $0C/ADD $10) and the intra-byte bit so GFX_PLOT_BYTE writes the next column.
+; ----------------------------------------------------------------------
+; GFX_STEP_ROW -- hi-res row stepper: move the current plot point DOWN one scan line (Y+1).
+;   In:        Alternate register set active (the line drawer EXX's before calling). HL = current screen pointer (current row-base low byte plus the X sub-byte offset in L, page in H). GFX_HIRES_ROW_BASE = the 16-bit screen address of the current row's left edge.
+;   Out:       GFX_HIRES_ROW_BASE advanced to the next scan line down; HL reformed as the new row base plus the preserved X sub-byte offset (so the screen pointer follows the same column on the new row).
+;   Clobbers:  A, HL, flags; pushes/pops AF internally to preserve the X sub-byte offset across the row-base update.
+;   Algorithm: Apple hi-res scan lines within a 64-line group are $0400 apart and the three groups interleave. Recover the X sub-byte offset (A = old L minus row-base low). Then advance the page/row: compute A = H - $0C and test BIT 5. [RE] When BIT 5 is CLEAR the next line stays in the current 8-line page band, so just ADD $10 to H. When BIT 5 is SET the step crosses a band/group boundary, so re-derive the low byte (the wrap path uses RL L/RLA/INC A then BIT 3 to pick between the $28 row-spacing add with H reset to $10, or the XOR $60 group toggle) and reset H accordingly. Store the new row base, then re-add the saved X offset to L. This is the step-DOWN routine; GFX_LOAD_STEP_STATE_1 is the step-UP twin (the line drawer selects one as the Y-axis stepper). [RE] The exact interleave arithmetic of the wrap branches (BIT 3 / XOR $60 / $28) is inferred from the Apple hi-res row layout, not fully traced. NOTE: the prior in-file [RE] gloss calling this an 'X step that advances the bit mask' is WRONG -- it advances the row (Y), not the column.
+; ----------------------------------------------------------------------
 GFX_STEP_ROW:
         LD A,L
         LD HL,(GFX_HIRES_ROW_BASE)
+        ; recover the saved X sub-byte offset within the row (A = current L minus row-base low byte)
         SUB L
+        ; stash the X offset so it can be re-added after the row base advances
         PUSH AF
         LD A,H
         SUB $0C
+        ; [RE] bit 5 of (H-$0C) clear: next line stays in this page band; set: cross a band/group boundary
         BIT 5,A
         JR Z,GFX_STEP_ROW_3
         RL L
@@ -7643,9 +8334,11 @@ GFX_STEP_ROW:
         INC A
         BIT 3,A
         JR Z,GFX_STEP_ROW_2
+        ; [RE] crossed an interleave group: reset the page base to $10 on the wrap branch
         LD H,$10
         LD A,L
         RRA
+        ; [RE] advance the row-base low byte by the $28 group row-spacing on the wrap branch
         ADD A,$28
         LD L,A
         JP GFX_STEP_ROW_5
@@ -7657,112 +8350,184 @@ GFX_STEP_ROW_2:
         RR L
         JP GFX_STEP_ROW_4
 GFX_STEP_ROW_3:
+        ; still in the page band: bump the page byte by $10 to the next scan line
         ADD A,$10
 GFX_STEP_ROW_4:
         LD H,A
 GFX_STEP_ROW_5:
+        ; commit the new scan-line row base
         LD (GFX_HIRES_ROW_BASE),HL
         POP AF
+        ; re-apply the saved X sub-byte offset so the pointer tracks the same column on the new row
         ADD A,L
         LD L,A
         RET
+; ----------------------------------------------------------------------
+; GFX_STEP_ROW_6 -- hi-res column stepper: move the current plot point LEFT one pixel (X-1).
+;   In:        Alternate register set active. A' (reached via EX AF,AF') = the single-bit intra-byte phase flag; L = screen pointer low byte; B/C = the two adjacent-byte single-column write masks consumed by GFX_PLOT_BYTE (C for the current byte, B for the neighbor byte). [RE] which neighbor (left vs right) B represents is inferred, not proven.
+;   Out:       B/C rotated right by one bit position (active column shifted one pixel left); L decremented when the pixel crosses to the previous screen byte; A' phase flag updated.
+;   Clobbers:  A' (alternate A), B, C, L, flags.
+;   Algorithm: The X-decreasing (leftward) column stepper, twin of GFX_STEP_BIT (rightward). Rotate the phase flag in A' right (RRCA); on carry-out the pixel left the byte, so DEC L (step to the previous screen byte) and rotate A' again. Then SCF + RR the masks (RR B, RR C) so a 1 enters the high bit, conditionally RES the wrap bit (RES 7,C when B did not carry, RES 6,B when C did not carry) so exactly one column stays selected across the byte boundary. The drawer self-modifies this routine into GFX_DRAW_LINE's CALL operand as the X stepper (major axis for an X-major leftward line, minor axis for a Y-major line). [RE] The exact wrap-bit bookkeeping is inferred from the mask shape, not fully traced.
+; ----------------------------------------------------------------------
 GFX_STEP_ROW_6:
         EX AF,AF'
+        ; rotate the intra-byte phase flag right; carry out means the pixel left the low end of the byte
         RRCA
         JP NC,GFX_STEP_ROW_7
+        ; pixel crossed a byte boundary: step the screen pointer to the previous byte
         DEC L
         RRCA
 GFX_STEP_ROW_7:
         EX AF,AF'
         SCF
+        ; shift the neighbor-byte column mask right (a 1 is fed in via the preceding SCF)
         RR B
         JP C,GFX_STEP_ROW_8
+        ; [RE] clear the wrap bit so only the active column stays masked when the neighbor did not carry
         RES 7,C
 GFX_STEP_ROW_8:
         SCF
+        ; shift the current-byte column mask right one pixel position
         RR C
         RET C
+        ; [RE] clear the spill bit in the neighbor mask after the cross
         RES 6,B
         RET
-; [RE] GFX hi-res horizontal X step: advance the bit mask / X coordinate one pixel (not Y-major).
+; ----------------------------------------------------------------------
+; GFX_STEP_BIT -- hi-res column stepper: move the current plot point RIGHT one pixel (X+1).
+;   In:        Alternate register set active. A' = the single-bit intra-byte phase flag; L = screen pointer low byte; B/C = the two adjacent-byte single-column write masks consumed by GFX_PLOT_BYTE. [RE] B vs C neighbor assignment inferred.
+;   Out:       B/C rotated left one bit position (active column shifted one pixel right); L incremented when the pixel crosses into the next screen byte; A' phase flag updated.
+;   Clobbers:  A' (alternate A), B, C, L, flags.
+;   Algorithm: The X-increasing (rightward) column stepper, twin of GFX_STEP_ROW_6 (leftward). Shift the phase flag left (ADD A,A); when it goes negative (JP P not taken) the pixel left the high end of the byte, so INC L to the next screen byte and re-seed the flag (RLCA). Then SCF and manage the carry across the masks: BIT 6,B and the conditional OR A select whether the carry feeds the neighbor byte, RL C / RL B shift the masks left, SET 7,C (conditional) / SET 7,B (unconditional) re-seed the wrap bit so one column stays selected across the byte boundary. The drawer self-modifies this into the CALL operand as the X stepper. [RE] The exact carry/SET-bit bookkeeping is inferred from the mask shape, not fully traced.
+; ----------------------------------------------------------------------
 GFX_STEP_BIT:
         EX AF,AF'
+        ; shift the intra-byte phase flag left; a negative result means the pixel left the high end of the byte
         ADD A,A
         JP P,GFX_STEP_BIT_1
+        ; pixel crossed a byte boundary: step the screen pointer to the next byte
         INC L
         RLCA
 GFX_STEP_BIT_1:
         EX AF,AF'
         SCF
+        ; [RE] test bit 6 of the neighbor mask to decide whether the carry feeds the neighbor byte
         BIT 6,B
         JP NZ,GFX_STEP_BIT_2
         OR A
 GFX_STEP_BIT_2:
+        ; shift the current-byte column mask left one pixel position
         RL C
         JP M,GFX_STEP_BIT_3
         OR A
+        ; [RE] re-seed the high column bit so one column stays selected after the shift
         SET 7,C
 GFX_STEP_BIT_3:
+        ; shift the neighbor-byte column mask left in step
         RL B
+        ; [RE] re-seed the neighbor mask's high bit for the cross-byte case
         SET 7,B
         RET
-; [RE] Apple hi-res color/pixel-pattern word table, indexed at $484F as base + 2*color: black($0000), violet($552A), green($2A55), white($7F7F) and their high-bit blue/orange variants. Supplies the two-byte plot pattern at GFX_COLOR_PATTERN.
+; ----------------------------------------------------------------------
+; GFX_HIRES_COLOR_WORDS -- hi-res color -> two-byte pixel-pattern lookup table (8 entries x 2 bytes).
+;   In:        Indexed by GFX_SET_COLOR_INDEX as base + 2*colorIndex, for color indices 0-7 only (indices 8-11 compute their pattern arithmetically instead and do not read this table).
+;   Out:       The selected 16-bit word (read little-endian into DE, then EX DE,HL) is stored at GFX_COLOR_PATTERN; GFX_LOAD_COLUMN_MASK / GFX_PLOT_BYTE later load it as the D/E pixel pattern.
+;   Clobbers:  (data table, no code).
+;   Algorithm: Eight color words, read little-endian: 0=$0000 black, 1=$552A, 2=$2A55, 3=$7F7F white, then high-bit (palette-shift) variants 4=$8080, 5=$D5AA, 6=$AAD5, 7=$FFFF. [RE] Entries 1/2 and 5/6 are the two halftone phases of a color (the byte pair swaps $2A/$55 or $AA/$D5) so adjacent screen bytes get complementary patterns; bit 7 ($80) selects the Apple palette-shift group. Specific color names (violet/green/blue/orange) are the conventional Apple hi-res assignments and are [RE] inference.
+; ----------------------------------------------------------------------
 GFX_HIRES_COLOR_WORDS:
         DEFB    $00,$00,$2A,$55,$55,$2A,$7F,$7F,$80,$80,$AA,$D5,$D5,$AA,$FF,$FF
-; [RE] Select the color bit-pattern table for the current color index ($47DA). Picks one of the mask tables ($4AB7 / $4AC5) and stores its pointer into the plot routine's self-modified operand ($49AB), so GFX_PLOT_BYTE uses the right 2-byte pixel pattern. The tables at $4AB7/$4AC5 are the hi-res color bit patterns.
+; ----------------------------------------------------------------------
+; GFX_SELECT_COLOR_MASK -- choose hi-res column-mask table A or B for the current color and patch it into the address-builder's self-modified pointer.
+;   In:        GFX_COLOR_INDEX = current color/mode index (0-12). DE = a 16-bit value (the X coordinate on the GFX_XY_TO_HIRES_ADDR / GFX_DRAW_LINE call paths) used by the index>=8 / odd-phase branch.
+;   Out:       The chosen table base (GFX_HIRES_COLOR_MASK_TABLE_A or _B) is written into GFX_XY_TO_HIRES_ADDR_4+1, the self-modified LD HL immediate that the address builder uses to fetch the per-column mask byte.
+;   Clobbers:  A, HL, flags; DE may be decremented (DEC DE) on one branch.
+;   Algorithm: Default to table B. Index 12 keeps B. For index < 8: take (colorIndex AND 3); phases 0 and 3 keep B, phases 1 and 2 fall to the table-A path. For index >= 8 also take the table-A path. On the table-A path it first does LD HL,$FEE9 / AND A / ADC HL,DE: $FEE9 = -$0117 = -279, so HL = DE - 279; if DE == 279 (Z set) it does DEC DE before loading table A. [RE] $0117 = 279 is the maximum hi-res X column index, so this looks like a right-edge clamp nudging the X coordinate in DE left by one when it sits at the extreme right; the downstream consumer of the modified DE is not fully traced, so treat the DE side effect as [RE]/UNKNOWN. The selected table base is the firmly verified output.
+; ----------------------------------------------------------------------
 GFX_SELECT_COLOR_MASK:
         LD A,(GFX_COLOR_INDEX)
+        ; default to mask table B
         LD HL,GFX_HIRES_COLOR_MASK_TABLE_B
+        ; index 12 (full-screen erase mode) keeps table B unchanged
         CP $0C
         JR Z,GFX_SELECT_COLOR_MASK_3
+        ; indices >= 8 take the table-A path
         CP $08
         JR NC,GFX_SELECT_COLOR_MASK_1
+        ; isolate the halftone phase of indices < 8; phases 0 and 3 keep table B
         AND $03
         JR Z,GFX_SELECT_COLOR_MASK_3
         CP $03
         JR Z,GFX_SELECT_COLOR_MASK_3
 GFX_SELECT_COLOR_MASK_1:
+        ; [RE] $FEE9 = -279; HL = DE - 279 to test the X coordinate against the rightmost hi-res column
         LD HL,$FEE9
         AND A
         ADC HL,DE
         JR NZ,GFX_SELECT_COLOR_MASK_2
+        ; [RE] nudge the X coordinate left by one when it sits at the extreme right edge (DE == 279)
         DEC DE
 GFX_SELECT_COLOR_MASK_2:
+        ; select mask table A
         LD HL,GFX_HIRES_COLOR_MASK_TABLE_A
 GFX_SELECT_COLOR_MASK_3:
+        ; self-modify the address builder's mask-table pointer to the chosen table
         LD (GFX_XY_TO_HIRES_ADDR_4+1),HL
         RET
-; [RE] Hi-res color bit-pattern table A (odd/violet-green palette masks $83,$86,$8C,$98,$B0,$E0,$C0,...) selected by GFX_SELECT_COLOR_MASK for the plot/line writer.
+; ----------------------------------------------------------------------
+; GFX_HIRES_COLOR_MASK_TABLE_A -- hi-res per-column bit masks, palette/phase A.
+;   In:        Indexed by intra-byte column via GFX_XY_TO_HIRES_ADDR_4's self-modified pointer; also referenced by GFX_LOAD_COLUMN_MASK.
+;   Out:       Each byte is a single-column write mask used by GFX_PLOT_BYTE / the address builder to select one pixel column of a hi-res byte; bit 7 is the palette-shift flag.
+;   Clobbers:  (data table, no code).
+;   Algorithm: 14 bytes $83,$86,$8C,$98,$B0,$E0,$C0 then $80 x6,$81. [RE] The first 7 entries walk a column mask across the 7 pixels of a hi-res byte for this palette phase; the trailing $80 run plus the $81 wrap entry cover the adjacent-byte carry positions used when a step crosses a byte boundary. The violet-green palette assignment is [RE] inference.
+; ----------------------------------------------------------------------
 GFX_HIRES_COLOR_MASK_TABLE_A:
         DEFB    $83,$86,$8C,$98,$B0,$E0,$C0,$80,$80,$80,$80,$80,$80,$81
-; [RE] Hi-res color bit-pattern table B (even/blue-orange palette masks ...,$84,$88,$90,$A0,$C0, then $80 fill) selected by GFX_SELECT_COLOR_MASK; default table set at routine entry.
+; ----------------------------------------------------------------------
+; GFX_HIRES_COLOR_MASK_TABLE_B -- hi-res per-column bit masks, palette/phase B; the default table.
+;   In:        Indexed by intra-byte column via the address builder's self-modified pointer; loaded as the default by GFX_SELECT_COLOR_MASK and GFX_LOAD_COLUMN_MASK.
+;   Out:       Each byte is a single-column write mask for this palette phase (bit 7 = palette flag).
+;   Clobbers:  (data table, no code).
+;   Algorithm: 7 active bytes $81,$82,$84,$88,$90,$A0,$C0 -- a single bit walking left across the 7 pixel columns of a hi-res byte -- followed by an 8-byte $80 fill covering the cross-byte carry positions. The blue-orange palette assignment is [RE] inference.
+; ----------------------------------------------------------------------
 GFX_HIRES_COLOR_MASK_TABLE_B:
         DEFB    $81,$82,$84,$88,$90,$A0,$C0
         DEFS    8, $80                   ; fill
-; [RE] HGR statement handler (token $D1): Apple graphics superset -- enter hi-res graphics mode (loads mode byte then 6502 RPC).
+; ----------------------------------------------------------------------
+; GFX_STMT_HGR -- HGR statement (token $D1): enter hi-res graphics mode, optionally set color, and clear the screen.
+;   In:        HL = BASIC text pointer; the dispatcher's Z flag indicates whether a mode-argument byte follows (NZ => evaluate it via GETBYT).
+;   Out:       HIRES mode cell set; display soft switches programmed (GFX_SET_DISPLAY_MODE); plot color set (GFX_SET_COLOR_INDEX); hi-res page optionally filled/cleared. HL advanced past consumed arguments.
+;   Clobbers:  A, BC, DE, HL, flags; writes the HIRES cell and the screen page buffer.
+;   Algorithm: Read the mode byte (default 0, or GETBYT if an arg follows), range-check < 4 (else ERROR_FC) and store it to HIRES. GFX_SET_DISPLAY_MODE programs the actual display soft switches. Read the optional color/fill argument and set the plot color (GFX_SET_COLOR_INDEX). If bit 1 of the mode byte is set, return without clearing. Otherwise clear the page: for color index $0C complement (XOR $7F) every byte of the page, else broadcast the 2-byte GFX_COLOR_PATTERN across the page with LDIR. NOTE: the page buffer here is at RELOCATE_AND_RUN ($1000); in this self-relocated GBASIC layout that region aliases the working hi-res page memory. [RE] the $1000 aliasing is inference from the layout.
+; ----------------------------------------------------------------------
 GFX_STMT_HGR:
         LD A,$00
+        ; an argument follows: evaluate the hi-res mode byte (else it defaults to 0)
         CALL NZ,GETBYT
+        ; valid hi-res modes are 0-3
         CP $04
 GFX_STMT_HGR_1:
         JP NC,ERROR_FC
+        ; record the requested mode (GFX_SET_DISPLAY_MODE below programs the soft switches)
         LD (HIRES),A
         PUSH AF
         CALL GFX_SET_DISPLAY_MODE
         LD A,$00
-        JR NZ,SUB_4ADE_1
+        JR NZ,GFX_STMT_HGR_2
         INC HL
         CALL GETBYT
-SUB_4ADE_1:
+GFX_STMT_HGR_2:
         PUSH AF
+        ; set the current plot color from the optional second argument
         CALL GFX_SET_COLOR_INDEX
         POP BC
         POP AF
+        ; mode bit 1 set means 'enter graphics but do not clear the screen'
         AND $02
         RET NZ
         LD A,B
         CP $0C
-        JR Z,SUB_4ADE_2
+        JR Z,GFX_STMT_HGR_ERASE_PAGE
         PUSH HL
         LD HL,RELOCATE_AND_RUN
         LD HL,(GFX_COLOR_PATTERN)
@@ -7770,39 +8535,58 @@ SUB_4ADE_1:
         LD HL,RELOCATE_AND_RUN
         LD DE,$1002
         LD BC,$1FFE
+        ; clear the page by broadcasting the 2-byte color pattern across it
         LDIR
         POP HL
         RET
-SUB_4ADE_2:
+GFX_STMT_HGR_ERASE_PAGE:
         LD DE,RELOCATE_AND_RUN
-SUB_4ADE_3:
+GFX_STMT_HGR_ERASE_PAGE_1:
         LD A,(DE)
+        ; color index 12: erase the page by complementing each byte instead of pattern-filling
         XOR $7F
         LD (DE),A
         INC DE
         LD A,D
         CP $30
-        JR NZ,SUB_4ADE_3
+        JR NZ,GFX_STMT_HGR_ERASE_PAGE_1
         RET
-; [RE] Read and range-check a hi-res coordinate pair: row 0-23 (CP $18) via $4088, column 0-191 (CP $C0) via CHRGET+eval; errors to $34D0 on overflow. Coordinate parser for HLIN/VLIN/HPLOT/PLOT.
+; ----------------------------------------------------------------------
+; GFX_READ_COORD_PAIR -- parse and range-check a two-number coordinate pair "<n>,<m>" from BASIC text.
+;   In:        HL = BASIC text pointer positioned at the first coordinate expression.
+;   Out:       DE = first value (range-checked 0..23, this value is stored as GFX_X_COORD by GFX_XY_TO_HIRES_ADDR); C = second value (range-checked 0..191, stored as GFX_Y_COORD); HL advanced past both numbers and the comma. On either out-of-range it jumps to the shared ERROR_FC site (labeled GFX_STMT_HGR_1) and does not return.
+;   Clobbers:  A, C, DE, HL, flags; consumes the inline ',' separator.
+;   Algorithm: GETINT evaluates the first value into DE and the CP $18 / SBC A,$01 pair range-checks it against 0..23 (else ERROR_FC). SYNCHR consumes the required ','. GETBYT evaluates the second value and CP $C0 checks it < 192 (else ERROR_FC); it is returned in C. NOTE: the first value (0-23) is stored as GFX_X_COORD and the second (0-191) as GFX_Y_COORD by the caller. [RE]/UNKNOWN: the row-vs-column semantic meaning is unverified -- the 0-23 bound on the X-coord slot does not map cleanly to a 280-wide hi-res X, so do not assert which is row vs column. This is the generic coordinate reader for the hi-res statements.
+; ----------------------------------------------------------------------
 GFX_READ_COORD_PAIR:
         CALL GETINT
         LD A,E
+        ; first value must be 0-23 (reject 24+ or negative)
         CP $18
         LD A,D
         SBC A,$01
         JR NC,GFX_STMT_HGR_1
         PUSH DE
+        ; require the comma separator between the two values
         CALL SYNCHR
         DEFB    ','                      ; inline char arg consumed by the preceding CALL
         CALL GETBYT
+        ; second value must be 0-191
         CP $C0
         JR NC,GFX_STMT_HGR_1
+        ; return the second value in C (the first is already in DE)
         LD C,A
         POP DE
         RET
-; [RE] HPLOT statement handler (token $D2): Apple graphics superset -- hi-res plot/line-draw (CP $DD tests for TO continuation).
+; ----------------------------------------------------------------------
+; GFX_STMT_HPLOT -- HPLOT statement (token $D2): plot a hi-res point and/or draw connected lines via TO.
+;   In:        A = current (lookahead) token from the dispatcher; HL = BASIC text pointer. A = TOK_TO distinguishes 'HPLOT TO ...' (continue from the current point) from 'HPLOT x,y ...'.
+;   Out:       The point(s) plotted to the hi-res page; the current-point state (GFX_HIRES_BYTE_ADDR, GFX_HIRES_ROW_BASE, GFX_X_FRACTION, GFX_X_COORD/GFX_Y_COORD) left at the final endpoint. HL advanced past the statement.
+;   Clobbers:  A, BC, DE, HL and the alternate register set; flags.
+;   Algorithm: If the token is TO, skip the initial coordinate and just load the column mask, continuing the line from the existing current point. Otherwise read a coordinate pair, convert to a screen address (GFX_XY_TO_HIRES_ADDR), load the column mask, and plot the single point (GFX_PLOT_BYTE); if no more text (CHRGOT Z), return. Then for each 'TO <n>,<m>': read the endpoint and draw a Bresenham line to it (GFX_DRAW_LINE), looping while another TO follows. At line end, EXX into the alternate working values and reconstruct the canonical current-point state: derive GFX_X_FRACTION from the final screen pointer vs row base, store the final byte address (GFX_HIRES_BYTE_ADDR), and recompute the intra-byte bit (GFX_XY_HELPER) so a later HPLOT TO continues correctly.
+; ----------------------------------------------------------------------
 GFX_STMT_HPLOT:
+        ; 'HPLOT TO ...' continues a line from the current point with no leading coordinate
         CP TOK_TO
         JR NZ,GFX_STMT_HPLOT_1
         CALL GFX_LOAD_COLUMN_MASK
@@ -7811,28 +8595,34 @@ GFX_STMT_HPLOT_1:
         CALL GFX_READ_COORD_PAIR
         CALL GFX_XY_TO_HIRES_ADDR
         CALL GFX_LOAD_COLUMN_MASK
+        ; plot the single starting point
         CALL GFX_PLOT_BYTE
         CALL CHRGOT
+        ; no TO clause follows: a lone point was requested, done
         RET Z
 GFX_STMT_HPLOT_2:
         CALL CHRGET
         CALL GFX_READ_COORD_PAIR
         PUSH HL
+        ; draw a Bresenham line from the current point to this endpoint
         CALL GFX_DRAW_LINE
         POP HL
         LD A,(HL)
         CP TOK_TO
+        ; another TO follows: chain the next connected segment
         JR Z,GFX_STMT_HPLOT_2
         EXX
         LD A,(GFX_HIRES_ROW_BASE)
         SUB L
         CPL
         INC A
+        ; rebuild the final point's X sub-byte offset from screen pointer minus row base
         LD (GFX_X_FRACTION),A
         LD L,C
         LD H,B
         LD (GFX_HIRES_BYTE_ADDR),HL
         LD HL,(GFX_X_COORD)
+        ; recompute the intra-byte bit index so a later HPLOT TO resumes from this point
         CALL GFX_XY_HELPER
         EXX
         RET
@@ -7918,8 +8708,22 @@ RAISE_GRAPHICS_STATEMENT_NOT_IMPLEMENTED:
         LD E,ERR_GRAPHICS_STATEMENT_NOT_IMPLEMENTED  ; HGR/HPLOT/HCOLOR raise (MBASIC has no hi-res)
     ENDIF
         JP RAISE_ERROR
-GFX_STMT_HPLOT_8:
+; ----------------------------------------------------------------------
+; GFX_STMT_HPLOT_8 -- one-byte graphics-mode/text-screen state flag (NOT executable code; disassembles incidentally as NOP $00).
+;   In:        Written by the GR statement (set to $FF at $4637) and read/cleared in a TEXT/HOME screen-restore path (read at $45D5, cleared to 0 at $45E2). It is a flag, not an HPLOT entry point.
+;   Out:       Holds a graphics-active flag that the text/HOME path tests to decide whether to issue the 6502 HOME RPC before returning to text.
+;   Clobbers:  (data cell).
+;   Algorithm: A 1-byte work cell sitting just past the IFDEF graphics block; the $00 here is its initial value. OBSERVED writers/readers: set $FF at $4637 (GR), read at $45D5, cleared at $45E2. [RE] Its precise role is a graphics-entered flag gating a text-screen HOME; not part of the HPLOT plotter -- its placement here is a layout artifact.
+; ----------------------------------------------------------------------
+GFX_MODE_ACTIVE_FLAG:
         NOP
+; ----------------------------------------------------------------------
+; GFX_STMT_HPLOT_9 -- one-byte terminal line-width work cell (NOT executable code; disassembles incidentally as LD D,B $50).
+;   In:        Written during cold start (set to $28 = 40 for a 40-column console, else $50 = 80) and read back by the output/LIST width logic.
+;   Out:       Holds the current terminal text width used by the console output paths.
+;   Clobbers:  (data cell).
+;   Algorithm: A 1-byte state variable, not code at this address. OBSERVED: stored at $8289 (cold start, A = $28 or $50), loaded at $66F7 and compared in the output-width logic. Its placement just past the conditional graphics region is a layout artifact, not an HPLOT flow target.
+; ----------------------------------------------------------------------
 GFX_STMT_HPLOT_9:
         LD D,B
 ; [RE] FADDT entry: load constant pointer ($5BDC) then fall into FADD-with-operand; adds the FP value at (HL) to FAC.
@@ -9967,7 +10771,7 @@ FIN_DONE_19:
 FIN_DONE_20:
         LD HL,(L_0848)
         CALL STROUT_NOFLAGS
-        LD (L_0B11),A
+        LD (CURSOR_POS),A
         LD A,$0D
         CALL STROUT_PUTC
         LD A,$0A
@@ -10963,7 +11767,7 @@ FN_SQR_1:
 FN_SQR_2:
         POP BC
         POP DE
-        LD HL,GFX_CLR_REVERSE_FLAG
+        LD HL,CLEAR_EVAL_FLAG_0CB6
         PUSH HL
         LD A,$01
         LD (L_0CB6),A
@@ -12605,18 +13409,18 @@ OUTDO_WIDTH_1:
 OUTDO_WIDTH_2:
         CP $08
         JR NZ,OUTDO_WIDTH_4
-        LD A,(L_0B11)
+        LD A,(CURSOR_POS)
         OR A
         JR NZ,OUTDO_WIDTH_3
-        LD A,(L_0B12)
+        LD A,(CURSOR_ROW)
         OR A
         JR Z,OUTDO_WIDTH_6
         DEC A
-        LD (L_0B12),A
+        LD (CURSOR_ROW),A
         LD A,(PRINT_WIDTH)
 OUTDO_WIDTH_3:
         DEC A
-        LD (L_0B11),A
+        LD (CURSOR_POS),A
         LD A,$08
         JR OUTDO_WIDTH_8
 OUTDO_WIDTH_4:
@@ -12625,7 +13429,7 @@ OUTDO_WIDTH_4:
 OUTDO_WIDTH_5:
         LD A,$20
         CALL OUTCHR
-        LD A,(L_0B11)
+        LD A,(CURSOR_POS)
         AND $07
         JR NZ,OUTDO_WIDTH_5
 OUTDO_WIDTH_6:
@@ -12646,10 +13450,10 @@ OUTDO_WIDTH_8:
         JR Z,OUTDO_WIDTH_9
         DEC A
         LD B,A
-        LD A,(L_0B11)
+        LD A,(CURSOR_POS)
         INC A
         JR Z,OUTDO_WIDTH_9
-        LD (L_0B11),A
+        LD (CURSOR_POS),A
         CP B
         JR NZ,OUTDO_WIDTH_9
         LD A,(GFX_STMT_HPLOT_9)
@@ -12682,11 +13486,11 @@ LIST_NEWLINE_COUNT:
 LINE_COUNT_INC:
         LD A,(PAGE_LENGTH)
         LD B,A
-        LD A,(L_0B12)
+        LD A,(CURSOR_ROW)
         INC A
         CP B
         JR NC,LINE_COUNT_INC_1
-        LD (L_0B12),A
+        LD (CURSOR_ROW),A
 LINE_COUNT_INC_1:
         XOR A
         RET
@@ -12751,7 +13555,7 @@ CONIN_1:
         RET
 ; [RE] If the auto-print column flag ($0B11) is nonzero, emit CR/LF (CRLF $6788); else return. Ensures output starts on a fresh line.
 PRINT_CRLF_IF_COL:
-        LD A,(L_0B11)
+        LD A,(CURSOR_POS)
         OR A
         RET Z
         JP CRLF
@@ -12783,7 +13587,7 @@ RESET_PRINT_STATE_1:
         RET
 RESET_PRINT_STATE_2:
         XOR A
-        LD (L_0B11),A
+        LD (CURSOR_POS),A
         XOR A
         RET
 ; [RE] RPC stub: CALL the runtime-patched 6502-bridge vector at $0000 (cell filled by cold-start from the CP/M BIOS jump table) to poll console status; returns Z per result. One of several $0000 RPC call sites the cold-start patcher fixes up.
@@ -13013,7 +13817,7 @@ RESET_RUN_STATE:
         LD SP,HL
         LD HL,TEMPST
         LD (TEMPPT),HL
-        CALL GFX_CLR_REVERSE_FLAG
+        CALL CLEAR_EVAL_FLAG_0CB6
         CALL OUTDO_RESET_COL
         CALL PRINT_RESET_STATE
         XOR A
@@ -14484,7 +15288,7 @@ INLIN_15:
         CALL OUTCHR
         SUB $0A
         JP NZ,INLIN_GETCH
-        LD (L_0B11),A
+        LD (CURSOR_POS),A
         LD A,$0D
         CALL OUTCHR
 ; [RE] after echoing a hard LF, poll the console until a non-null key arrives; CR ends the line, anything else re-enters the dispatcher.
@@ -14516,7 +15320,7 @@ INPUT_PROMPT_SEP:
         JP CHRGET
 ; [RE] snapshot the current print column ($0B11) into the Tab-expansion base cell (self-modified operand at $719D) so Tab stops align to where the prompt left the cursor.
 INLIN_SAVE_COLUMN:
-        LD A,(L_0B11)
+        LD A,(CURSOR_POS)
         LD (INLIN_ERASE_N_COLS_2),A
         RET
 ; [RE] backspace/Ctrl-H handling: if erasing over a LF redisplay the line; if over a Tab recompute and back up the right number of columns to the previous tab stop; else erase one echoed character.
@@ -14701,7 +15505,7 @@ STMT_CALL:
         CALL FN_CINT
         LD (L_0C93),HL
         POP AF
-        JP Z,GFX_FN_VPOS_4
+        JP Z,STMT_CALL_INVOKE_6502
         LD C,$20
         CALL CHECK_STACK_ROOM
         POP DE
@@ -18105,7 +18909,7 @@ STMT_FILES_4:
 STMT_FILES_5:
         DEC C
         JR NZ,STMT_FILES_3
-        LD A,(L_0B11)
+        LD A,(CURSOR_POS)
         ADD A,$0F
         LD D,A
         ; decide whether the next column fits on the current line
