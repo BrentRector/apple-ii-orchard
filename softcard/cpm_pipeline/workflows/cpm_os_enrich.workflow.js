@@ -4,10 +4,29 @@ export const meta = {
   phases: [{ title: 'Map' }, { title: 'Enrich' }, { title: 'Verify' }],
 }
 
-const TARGET = 'E:/Orchard/softcard/CPMV220-44K/os/CPM_CCP.asm'
-const MODULE = 'the Microsoft SoftCard CP/M 2.20 44K CCP -- the Console Command Processor (Z-80; run base ~$9300, the head of the CCP+BDOS system image). It parses the console command line and dispatches the built-ins (DIR/ERA/REN/SAVE/TYPE/USER) else loads + runs a .COM via the BDOS. It INCLUDEs CPM_BDOS.asm (already C-level enriched -- do NOT re-enrich the BDOS body; only enrich the CCP code ABOVE the INCLUDE line) and INCBINs a 6502 RPC block (CPM_RPC6502.bin, $9400-$94FF) -- that embedded-6502 block is already INCBIN-extracted, leave it. Reassembles byte-identical (the CCP+BDOS unit). NOTE: this file still carries inline ; $addr comments (use them for addresses); they are stripped to CPM_CCP.lst AFTER enrichment.'
+const TARGET = 'E:/Orchard/softcard/CPMV223-44K/os/CPM_BIOS.asm'
+const IMAGE = '$FA00-$FDFF'   // the on-disk BIOS chunk (1024 bytes); in-image refs here become labels
+const MODULE = `the Microsoft SoftCard CP/M 2.23 (44K) BIOS -- the 17-entry CP/M BIOS jump table +
+implementations (BOOT/WBOOT/CONST/CONIN/CONOUT/LIST/PUNCH/READER/HOME/SELDSK/SETTRK/SETSEC/SETDMA/READ/
+WRITE/LISTST/SECTRAN), the slot/card/device scan, and cold/warm boot. This is the AS-SHIPPED on-disk
+BIOS chunk, Z-80 run address ${IMAGE}.
+  ** CLEAN-SLATE (mandatory): enrich from THIS 2.23 file's OWN bytes. The enriched 2.20-44K BIOS
+     (softcard/CPMV220-44K/os/CPM_BIOS.asm) may be consulted ONLY as a structural cross-reference LEAD
+     during verify -- NEVER copy its comments/decode onto 2.23. 2.23 DIFFERS from 2.20 (a Videx 80-col
+     console path AND a 40-col real-ROM fallback; a POST-1980 device-6 / Pascal-1.1 / $Cn0B slot probe;
+     different rebase) -- where they diverge, the 2.20 text is WRONG for 2.23. Decode 2.23 on its bytes.
+  ** ADDRESS FRAMING (do NOT get this wrong): the SoftCard maps Z-80 $F000-$FFFF -> Apple $0000-$0FFF
+     (LOW main RAM). So this BIOS at Z-80 $FA00 lives in Apple $0A00 -- LOW MAIN RAM, NOT the language
+     card. 2.23-44K is a 44K (main-RAM-only) system and uses NO language card. Z-80 $E000-$EFFF = Apple
+     I/O ($Cxxx soft switches seen as $E0xx); Z-80 $B000-$DFFF = Apple $D000-$FFFF (the LC region -- the
+     56K/60K builds, NOT this one). Never describe a high Z-80 address as "LC / high RAM".
+  ** Console: 2.23 supports a Videx Videoterm 80-col card AND falls back to the Apple 40-col text screen
+     when no 80-col card is present (40-col is uppercase-only). Document BOTH paths from the bytes.
+  ** The $FE00+ resident tail is built in RAM at cold boot (NOT in this on-disk image) -- references to
+     $FExx are OUT of this $FA00-$FDFF image, so keep them literal. Reassembles byte-identical.`
 const INC = 'E:/Orchard/softcard/include'
 const DOCS = 'E:/Orchard/softcard/docs'
+const SPEC_DIR = 'E:/tmp'   // verify writes os_spec_<i>.json here (no giant round-trip)
 
 const STYLE = `
 THE FILE: ${TARGET} -- ${MODULE}. It already has 0 machine labels, [AI]/[DOC] one-liner comments,
@@ -88,15 +107,21 @@ IDIOM POLISH (as operand_rewrites; the byte gate proves equivalence): character 
 literals (CP '"' not CP $22; CP ' ' not CP $20); CP/M constants -> names (CALL BDOS not CALL $0005;
 LD C,F_* / DRV_*; $0080 -> TBUFF; $005C -> TFCB).
 
-USE SHARED INCLUDES, never independently redefine (single source of truth):
-- If this file LOCALLY re-defines a symbol a system include already provides (a local "FOO EQU $0005"
-  duplicating cpm22.inc's BDOS; an FCB offset; a hardware/RPC cell apple_softcard.inc provides; an FCB
-  field already in msbasic_fcb.inc), emit equ_to_include {local_name, include_name, include_file} --
-  the applier renames refs local->include and DELETES the local def so the include is the only def.
-- List in "includes" any system include this file SHOULD pull in but does not yet (cpm22.inc,
-  apple_softcard.inc, msbasic_fcb.inc, ...). Only include what the file actually references.
-- Match by VALUE/semantics, not name: a local "BDOS_ENTRY EQU $9C06" is the config-specific BIOS->BDOS
-  jump address, NOT cpm22.inc's standard BDOS=$0005 -- do NOT fold those; they are different symbols.
+USE SHARED INCLUDES, never independently redefine (single source of truth) -- PROACTIVE, REQUIRED:
+- Go through this file's LOCAL EQU block and fold EVERY local symbol that is the SAME item (same
+  value + same meaning) as one a system include already provides. cpm22.inc base page: WBOOTV $0000,
+  IOBYTE_ADDR $0003, CDISK_ADDR $0004, BDOS $0005, TFCB $005C, TBUFF $0080, TPA $0100 (so a local
+  WBOOT_VEC/CDISK/BDOS_VEC/DEFAULT_DMA -> WBOOTV/CDISK_ADDR/BDOS/TBUFF). apple_softcard.inc: the
+  hardware/RPC cells, soft switches, slot/config cells. msbasic_fcb.inc: the FCB STRUCT fields.
+  For EACH, emit equ_to_include {local_name, include_name, include_file}: the applier renames every ref
+  local->include name AND DELETES the local def, so the include is the only definition. Do this even
+  when the local name is "nicer" -- the SHARED name wins (the byte gate proves the value is identical).
+- If you fold ANY symbol from an include this file does not yet INCLUDE, ALSO list that include in
+  "includes" so the applier adds the INCLUDE line (else the folded refs won't resolve and the build
+  breaks -- e.g. folding to IOBYTE_ADDR requires INCLUDE "cpm22.inc"). Only include what is referenced.
+- Match by VALUE/semantics, not name: a local "BDOS_ENTRY EQU $9C06" / "BDOS_ENTRY_223 $9C06" is the
+  config-specific BIOS->BDOS jump address, NOT cpm22.inc's standard BDOS=$0005 -- do NOT fold those.
+  Config-specific cells ($9Cxx BDOS base, $FExx resident-tail entries, $9300 CCP base) stay LOCAL.
 
 EMBEDDED 6502 CODE (this is a SoftCard DUAL-CPU module): a block of 6502 machine code inside this Z-80
 source (the CCP's RPC block, BIOS/boot console + disk + probe overlays) is CODE, not byte data. The
@@ -203,6 +228,18 @@ const SCHEMA = {
   }, required: ['routines', 'summary'],
 }
 
+const VERIFY_SUMMARY = {
+  type: 'object', additionalProperties: false,
+  properties: {
+    cluster: { type: 'string' },
+    path: { type: 'string', description: 'the os_spec_<i>.json file written' },
+    n_routines: { type: 'number' }, n_labels: { type: 'number' },
+    n_operand_rewrites: { type: 'number' }, n_splits: { type: 'number' },
+    flags: { type: 'array', items: { type: 'string' }, description: 'mis-decodes fixed, embedded-6502/missed-code blobs, unverifiable cells left literal, 2.20-vs-2.23 divergences, local EQUs to share' },
+    summary: { type: 'string' },
+  }, required: ['cluster', 'path', 'summary'],
+}
+
 phase('Map')
 const mapping = await agent(
   `${STYLE}\n\nYOUR JOB (map): read ${TARGET} IN FULL and enumerate EVERY routine, then group them ALL
@@ -227,8 +264,8 @@ For EACH routine produce the C-level HEADER + a few high-level BODY comments + s
 the RELOCATABILITY operand_rewrites/labels (frozen in-image hex -> label) AND idiom operand_rewrites
 (char literals / CP/M constants). Trace dataflow precisely; mark UNKNOWN rather than guess. One entry per routine.`,
     { label: `enrich:${c.name}`, phase: 'Enrich', schema: SCHEMA }),
-  (spec, c) => agent(
-    `${STYLE}\n\nYOUR JOB (adversarial verify): a peer enriched cluster "${c.name}" of ${TARGET}.
+  (spec, c, idx) => agent(
+    `${STYLE}\n\nYOUR JOB (adversarial verify + WRITE): a peer enriched cluster "${c.name}" of ${TARGET}.
 VERIFY every header/body/rename/operand_rewrite/label against the ACTUAL bytes + the CP/M BIOS ABI +
 the IOB/RPC/jump-table facts. Check In/Out/Algorithm vs what the code does; check EACH relocatability
 rewrite points at the correct in-image label and that non-image operands were left literal; flag/fix
@@ -241,8 +278,14 @@ command index, an off-by-one shifts the WHOLE cluster of handler names by one --
 handler bodies against their computed index (BASIC's FUNC_DISPATCH was off by one). (3) A label/comment
 that makes no functional sense (a "continuation" pointing at a lone RST/RET; a one-time "dynamic" call)
 is a red flag of a mis-decode to chase, not narrate. (4) FLAG any embedded-6502 block left as raw DEFB,
-and any DEFB blob that decodes as coherent in-image code, instead of enriching around it.
-Return the corrected spec (same schema). Default skeptical.\n\nSPEC TO VERIFY:\n${JSON.stringify(spec)}`,
-    { label: `verify:${c.name}`, phase: 'Verify', schema: SCHEMA }))
+and any DEFB blob that decodes as coherent in-image code, instead of enriching around it. (5) Flag any
+2.20-vs-2.23 divergence you notice (the 2.20 twin is a LEAD only -- 2.23 is decoded on its own bytes).
+Default skeptical. THEN: WRITE the corrected spec as STRICT JSON (no markdown fences, no prose -- ONLY the
+JSON object matching the enrich schema: {routines:[{label,header[],body_comments[{anchor,occ,comment}],
+renames[{old,new}],operand_rewrites[{anchor,occ,old,new}]}], labels[{anchor,occ,name}], splits[{anchor,
+occ,into[]}], includes[], equ_to_include[], summary}) to EXACTLY the file ${SPEC_DIR}/os_spec_${idx}.json
+using the Write tool, then return the VERIFY_SUMMARY (path=${SPEC_DIR}/os_spec_${idx}.json, counts, flags).
+\n\nSPEC TO VERIFY:\n${JSON.stringify(spec)}`,
+    { label: `verify:${c.name}`, phase: 'Verify', schema: VERIFY_SUMMARY }))
 
-return { target: TARGET, clusters: clusters.length, specs: results.filter(Boolean) }
+return { target: TARGET, clusters: clusters.length, spec_dir: SPEC_DIR, summaries: results.filter(Boolean) }

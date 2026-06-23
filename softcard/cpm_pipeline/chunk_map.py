@@ -110,7 +110,7 @@ SOURCES_223: dict[str, ChunkSource | Path] = {
         asm_path=OS223_44K / "CPM_BIOS.asm",
         cpu="z80", org=0xFA00, size=0x0400,
         expected_bin_name="build/CPM223_BIOS_Disk.bin",
-        include_files=(SOFTCARD_INC,),
+        include_files=(SOFTCARD_INC, CPM22_INC),
     ),
 }
 

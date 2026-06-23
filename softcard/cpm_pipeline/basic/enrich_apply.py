@@ -178,7 +178,10 @@ def apply_spec(text, spec):
                     n += 1
                     if n == occ:
                         indent = lines[k][:len(lines[k]) - len(lines[k].lstrip())]
-                        edits.append((k, k, _wrap(indent + "; " + _strip_was(_rn(bc["comment"])))))
+                        _ct = _strip_was(_rn(bc["comment"])).lstrip()
+                        if _ct.startswith(";"):           # agent already prefixed "; " -> don't double it
+                            _ct = _ct.lstrip("; ")
+                        edits.append((k, k, _wrap(indent + "; " + _ct)))
                         rep["body"] += 1
                         placed = True
                         break

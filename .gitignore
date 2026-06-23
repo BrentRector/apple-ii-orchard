@@ -33,6 +33,12 @@ emu_*.bin
 # sub-assembled at build time (see chunk_map incbin_deps) and must not be tracked
 **/CPM_BootLoader_*.bin
 **/CPM_RPC6502.bin
+# stray build artifacts an assemble/verify step may leave in an os/ source dir:
+# the per-chunk .bin output and any include copy staged beside the source. The
+# canonical includes live in softcard/include/; the build stages its own copies.
+**/os/*.bin
+**/os/apple_softcard.inc
+**/os/cpm22.inc
 
 # BASIC fold listings: GBASIC.lst / MBASIC.lst are the per-build address+machine-code
 # reference, emitted by `python -m cpm_pipeline.basic.fold_build` (the master BASIC.asm

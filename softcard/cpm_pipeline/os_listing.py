@@ -39,7 +39,10 @@ def _strip_comment(comment: str):
     if _ALL_BYTES.fullmatch(rest):            # address + pure machine bytes -> drop entirely
         return ""
     mb = _LEAD_BYTES.match(rest)              # address + >=2 byte pairs + semantic -> keep semantic
-    return (mb.group(1) if mb else rest).strip()
+    kept = (mb.group(1) if mb else rest).strip()
+    # the kept remainder may itself START with a second ';' (the source had "; $addr bytes ; note");
+    # drop that leading ';' so the re-render doesn't produce a double ';; '.
+    return kept.lstrip("; ").strip() if kept.startswith(";") else kept
 
 
 def _comment_index(line: str) -> int:
