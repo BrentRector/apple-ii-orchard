@@ -91,8 +91,8 @@ def _preceding_comment_block(lines, idx):
 
 def apply_spec(text, spec):
     routines = [r for r in spec.get("routines", []) if r.get("label")]
-    rep = {"headers": 0, "body": 0, "operands": 0, "labels": 0, "includes": 0, "equ_folded": 0,
-           "renames": 0, "unmatched": [], "collisions": []}
+    rep = {"headers": 0, "body": 0, "operands": 0, "labels": 0, "splits": 0, "includes": 0,
+           "equ_folded": 0, "renames": 0, "unmatched": [], "collisions": []}
 
     # 1) collect + apply RENAMES first, so that header/body anchors -- which the agents
     #    write with the FINAL (post-rename) names -- match the text we then scan.
@@ -186,7 +186,7 @@ def apply_spec(text, spec):
         # operand rewrites: replace one literal in a code line (e.g. CP $22 -> CP '"').
         # In-place (no index shift); the fold byte-gate verifies the operand resolves identically.
         for orw in r.get("operand_rewrites", []) or []:
-            anc = _rn((orw.get("anchor") or "").strip())
+            anc = code_norm(_rn(orw.get("anchor") or ""))
             occ, old, new = orw.get("occ", 1), orw.get("old"), orw.get("new")
             n, done = 0, False
             for k in range(idx + 1, end):
@@ -201,6 +201,24 @@ def apply_spec(text, spec):
                         break
             if not done:
                 rep["unmatched"].append(("operand", r["label"], anc, occ))
+
+    # top-level (file-global) operand rewrites: scattered rewrites not tied to one routine span
+    for orw in spec.get("operand_rewrites", []) or []:
+        anc = code_norm(_rn(orw.get("anchor") or ""))
+        occ, old, new = orw.get("occ", 1), orw.get("old"), orw.get("new")
+        n, done = 0, False
+        for k in range(len(lines)):
+            if anc and code_norm(lines[k]) == anc:
+                n += 1
+                if n == occ:
+                    code, sep, rest = lines[k].partition(";")
+                    if old and old in code:
+                        lines[k] = code.replace(old, new, 1) + sep + rest
+                        rep["operands"] += 1
+                        done = True
+                    break
+        if not done:
+            rep["unmatched"].append(("operand", "<global>", anc, occ))
 
     # relocation labels: define a label at an address-anchored line so that frozen
     # in-image hex operands can be rewritten to a label (full relocatability). The label
@@ -219,6 +237,46 @@ def apply_spec(text, spec):
                     break
         if not placed:
             rep["unmatched"].append(("label", name, anc, occ))
+
+    # cover-idiom SPLIT (the BASIC approach): re-render a merged cover-decode as an unlabeled DEFB
+    # cover byte + the real instruction at the entry, each its own clean label -- NO label arithmetic.
+    # Replaces the anchor line (+ any contiguous `absorbs` lines, for data words that straddle the
+    # original line breaks) with the `into` lines (same bytes; the gate proves it). Optionally drops a
+    # pre-existing mis-anchored label line.
+    for sp in spec.get("splits", []) or []:
+        anc = code_norm(_rn(sp.get("anchor") or ""))
+        occ = sp.get("occ", 1)
+        into = [_rn(x) for x in (sp.get("into") or [])]
+        absorbs = [code_norm(_rn(x)) for x in (sp.get("absorbs") or [])]
+        n, placed = 0, False
+        for k in range(len(lines)):
+            if anc and code_norm(lines[k]) == anc:
+                n += 1
+                if n == occ:
+                    end, ok = k + 1, True
+                    for a in absorbs:               # consume the contiguous absorbed lines
+                        if end < len(lines) and code_norm(lines[end]) == a:
+                            end += 1
+                        else:
+                            ok = False
+                            break
+                    if ok:
+                        edits.append((k, end, into))
+                        rep["splits"] += 1
+                        placed = True
+                    break
+        if not placed:
+            rep["unmatched"].append(("split", anc, occ))
+        dl = sp.get("delete_existing_label_line")
+        if dl:
+            lt = (_rn(dl.get("line_text")) if isinstance(dl, dict) else _rn(dl)).strip()
+            docc, dn = (dl.get("occ", 1) if isinstance(dl, dict) else 1), 0
+            for k in range(len(lines)):
+                if lines[k].strip() == lt:
+                    dn += 1
+                    if dn == docc:
+                        edits.append((k, k + 1, []))
+                        break
 
     # fold redundant local EQU defs into the include's symbol, and ensure the INCLUDEs are present
     def _base(p):
@@ -267,7 +325,7 @@ def main():
     text = target.read_text(encoding="latin-1")
     out, rep = apply_spec(text, spec)
     print(f"headers={rep['headers']} body={rep['body']} operands={rep['operands']} "
-          f"labels={rep['labels']} includes={rep['includes']} equ_folded={rep['equ_folded']} "
+          f"labels={rep['labels']} splits={rep['splits']} includes={rep['includes']} equ_folded={rep['equ_folded']} "
           f"renames={rep['renames']} unmatched={len(rep['unmatched'])} "
           f"collisions={len(rep['collisions'])}")
     if rep["unmatched"]:

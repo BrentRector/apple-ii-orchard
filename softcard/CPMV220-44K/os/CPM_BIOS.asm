@@ -151,19 +151,27 @@ DEVTAB_HDR:
 DEVTAB:
         ; record 0: handler=$AEBA (mid-instruction PTRSEL entry), common=$AA93 (mid-data), p3=$AF9A,
         ; p4=$AF3A (p3/p4 off-image $AF00 runtime tables)
-        DEFB    $BA,$AE,$93,$AA,$9A,$AF,$3A,$AF                  ; $AA3B record 0
+        DEFW    PTRSEL_58,DEVTAB_COMMON                          ; $AA3B record 0  handler=$AEBA common=$AA93 ($20 flag of rec5)
+        DEFB    $9A,$AF,$3A,$AF                                  ; $AA3F record 0  p3=$AF9A p4=$AF3A (off-image $AF00 runtime tables, kept literal)
         DEFS    8, $00    ; $AA43  fill
-        DEFB    $BA,$AE,$93                                      ; $AA4B record 1
-        DEFB    $AA,$A6,$AF,$4A,$AF,$00                          ; $AA4E
-        DEFB    $00,$00,$00,$00,$00,$00,$00,$BA,$AE,$93          ; $AA54 record 2
-        DEFB    $AA,$B2,$AF,$5A,$AF,$00                          ; $AA5E
-        DEFB    $00,$00,$00,$00,$00,$00,$00,$BA,$AE,$93          ; $AA64 record 3
-        DEFB    $AA,$BE,$AF,$6A,$AF,$00                          ; $AA6E
-        DEFB    $00,$00,$00,$00,$00,$00,$00,$BA,$AE,$93          ; $AA74 record 4
-        DEFB    $AA,$CA,$AF,$7A,$AF,$00                          ; $AA7E
+        DEFW    PTRSEL_58,DEVTAB_COMMON                          ; $AA4B record 1  handler=$AEBA common=$AA93
+        DEFB    $A6,$AF,$4A,$AF,$00                              ; $AA4F record 1  p3=$AFA6 p4=$AF4A (off-image) + $00 fill
+        DEFB    $00,$00,$00,$00,$00,$00,$00                      ; $AA54 record 2  fill
+        DEFW    PTRSEL_58,DEVTAB_COMMON                          ; $AA5B record 2  handler=$AEBA common=$AA93
+        DEFB    $B2,$AF,$5A,$AF,$00                              ; $AA5F record 2  p3=$AFB2 p4=$AF5A (off-image) + $00 fill
+        DEFB    $00,$00,$00,$00,$00,$00,$00                      ; $AA64 record 3  fill
+        DEFW    PTRSEL_58,DEVTAB_COMMON                          ; $AA6B record 3  handler=$AEBA common=$AA93
+        DEFB    $BE,$AF,$6A,$AF,$00                              ; $AA6F record 3  p3=$AFBE p4=$AF6A (off-image) + $00 fill
+        DEFB    $00,$00,$00,$00,$00,$00,$00                      ; $AA74 record 4  fill
+        DEFW    PTRSEL_58,DEVTAB_COMMON                          ; $AA7B record 4  handler=$AEBA common=$AA93
+        DEFB    $CA,$AF,$7A,$AF,$00                              ; $AA7F record 4  p3=$AFCA p4=$AF7A (off-image) + $00 fill
         ; record 5 (last, short): handler=$AEBA, common=$AA93, p3=$AFD6, p4=$AF8A, trailing flag $20
         ; (no zero fill)
-        DEFB    $00,$00,$00,$00,$00,$00,$00,$BA,$AE,$93,$AA,$D6,$AF,$8A,$AF,$20 ; $AA84 record 5
+        DEFB    $00,$00,$00,$00,$00,$00,$00                      ; $AA84 record 5  fill
+        DEFW    PTRSEL_58,DEVTAB_COMMON                          ; $AA8B record 5  handler=$AEBA common=$AA93
+        DEFB    $D6,$AF,$8A,$AF                                  ; $AA8F record 5  p3=$AFD6 p4=$AF8A (off-image)
+DEVTAB_COMMON:                                                   ; $AA93  record-5 trailing flag byte; ALSO the DEVTAB 'common' word target ($AA93) referenced by every record
+        DEFB    $20                                              ; $AA93  $20 flag (in place of the zero fill the other records carry)
 ; ----------------------------------------------------------------------
 ; SCRN_PARM -- screen parameter / field-mask block. PURE DATA.
 ;   In:        Read by the screen-function emit/cursor code as byte pairs.
@@ -233,7 +241,7 @@ SCAN_TEST_DEV4:
         JR NZ,SCAN_NEXT                  ; $AAB6
         ; 80-col card: run the screen-function lead-in init (mid-instruction cover entry at $ACEE,
         ; inside the JR at $ACED) [RE]
-        CALL SF_INIT_TAIL+1              ; $AAB8  ($ACEE) screen-fn lead-in init
+        CALL SF_INIT_TAIL_MID              ; $AAB8  ($ACEE) screen-fn lead-in init
         ; pass the 6502 the $C800 shared expansion-ROM window address (claimed for the 80-col card)
         LD HL,$C800                      ; $AABB  expansion-ROM window
         ; issue the 6502 RPC to claim the $C800 window
@@ -559,9 +567,9 @@ LIST_ENTRY:
 LIST_ENTRY_JP:
         ; tail-jump into the runtime-generated list/console emit handler (LIST_ENTRY_JP+1 is a
         ; separate mid-instruction re-entry from the screen-fn emit at $ACD7) [RE]
-        JP LIST_EMIT                        ; $AC2C  (runtime) list handler
-                                         ; (LIST_ENTRY_JP+1 = $AC2D is a re-entry
-                                         ;  used by the screen-fn emit at $ACD7)
+        DEFB    $C3                      ; $AC2C  cover: 'JP nn' opcode; on fall-through it swallows the LIST_EMIT word below as its operand
+LIST_ENTRY_JP_MID:
+        DEFW    LIST_EMIT                ; $AC2D  JP operand (RELOCATABLE -> LIST_EMIT); ALSO the mid-instruction re-entry CALLed from the screen-fn emit at $ACD7
 
 ; ----------------------------------------------------------------------
 ; KBD_WAIT_STROBE -- block until an Apple key is pressed, then clear the strobe.
@@ -666,7 +674,11 @@ CONOUT_VECTOR:
 ; ----------------------------------------------------------------------
 CONOUT_DISP:
         ; ; load the CP/M IOBYTE (logical-to-physical device map) from $0003
-        LD A,($0003)                     ; $AC43  IOBYTE
+        DEFB    $3A                      ; $AC43  cover: 'LD A,(nn)' opcode; on fall-through it reads the IOBYTE word $0003 below
+CONOUT_REDISPATCH:
+        ; ; mid-byte re-entry from LIST_REENTRY ($AE41): the bytes $03,$00 run as INC BC / NOP,
+        ; ; skipping the IOBYTE reload so the caller's existing A is masked by the AND $03 that follows
+        DEFB    $03,$00                  ; $AC44-$AC45  operand $0003 of 'LD A,(nn)'; as code = INC BC / NOP
         ; ; keep only the CONSOLE field (bits 0-1): 0=TTY: 1=CRT: 2=BAT: 3=UC1:
         AND $03                          ; $AC46  CONSOLE field (bits 0-1)
         ; ; CONSOLE==2 means BAT:, which sends console output to the LIST device
@@ -969,7 +981,7 @@ IO_FLAG_FALSE:
         ; ; read the SOFTWARE cursor-address XY coordinate offset (0-127; high bit = X-first vs
         ; Y-first order) [DOC S&HD page 2-14]
         LD A,(SXYOFF)                    ; $ACA4  $F396 signed skew sign cell
-        LD HL,CURSOR_XY+1                      ; $ACA7  relocated RWTS IOB sector cell
+        LD HL,CURSOR_Y                      ; $ACA7  relocated RWTS IOB sector cell
         ; ; both coordinate bytes now captured -> transmit the finished X/Y pair (CURSOR_XMIT_PAIR)
         JR Z,CURSOR_XMIT_PAIR            ; $ACAA
         ; ; first coordinate byte: test the SXYOFF sign (high bit selects transmit order / negative
@@ -1074,7 +1086,7 @@ SF_SELECTOR_TBL:
         ; ; B = screen-fn signal/marker for the FIRST (low) coordinate byte
         LD B,$07                         ; $ACD5  RPC command: address lo
         ; ; emit the first (low) coordinate byte through the runtime console-out engine ($AC2D)
-        CALL LIST_ENTRY_JP+1             ; $ACD7  ($AC2D) dispatch lo half to disk engine
+        CALL LIST_ENTRY_JP_MID             ; $ACD7  ($AC2D) dispatch lo half to disk engine
         POP AF                           ; $ACDA
         ; ; B = screen-fn signal/marker for the SECOND (high) coordinate byte
         LD B,$0A                         ; $ACDB  RPC command: address hi
@@ -1133,7 +1145,11 @@ SF_NORMAL:
 SF_INIT_TAIL:
         ; ; SFLDIN == 0 means no lead-in configured -> treat the char as ordinary/control
         ; (SF_NOLEAD)
-        JR Z,SF_NOLEAD                   ; $ACED
+        DEFB    $28                      ; $ACED  cover: 'JR Z' opcode; on fall-through it consumes $06 as the relative displacement to SF_NOLEAD ($ACF5)
+SF_INIT_TAIL_MID:
+        ; ; mid-byte entry CALLed from CARDTYPE_SCAN at $AAB8: $06,$B9 run as LD B,$B9, then the
+        ; ; 'JR NZ,SF_NOLEAD' below executes
+        DEFB    $06                      ; $ACEE  JR Z displacement ($ACF5-$ACEF=6); as code = 'LD B,$B9' opcode (the $B9 is CP C at $ACEF)
         ; ; does the incoming char match the configured lead-in character?
         CP C                             ; $ACEF
         ; ; not the lead-in -> handle as an ordinary/control char
@@ -1365,7 +1381,7 @@ SF_EMIT:
 LIST_REENTRY:
         LD DE,$0003                      ; $AE3E
         ; ; re-enter the CONOUT IOBYTE demux body ($AC44) to re-route the char [DOC S&HD 2-18]
-        JP CONOUT_DISP+1                 ; $AE41  ($AC44)
+        JP CONOUT_REDISPATCH                 ; $AE41  ($AC44)
 
 ; ============================================================================
 ; CURSOR-ADDRESS / WRAP HANDLER  ($AE44)
@@ -1608,9 +1624,16 @@ COLD_BOOT:
 ;              same bytes encode 'LD ($F045),A'.  OBSERVED dual code/data use, not a bug.
 ;   [RE] the BASCAL2 target as a screen-line-base RPC; OBSERVED the staged A + $FBC1 pointer.
 ; ----------------------------------------------------------------------
-CURSOR_XY:                               ; $AEAA  cursor X/Y word (overlaps code)
-        ; ; stage A into the 6502 A-register pass cell for the RPC
-        LD (RPC_ACC),A                     ; $AEAA  $F045
+; OVERLAP: the three bytes $32,$45,$F0 ($AEAA-$AEAC) execute as 'LD (RPC_ACC),A' -- stage A into
+; the 6502 A-register pass cell ($F045) to prime the SoftCard RPC.  $AEAA/$AEAB are ALSO the
+; CURSOR_XY coordinate word (X low at $AEAA, Y high at $AEAB), read by CURSOR_CLAMP and the disk
+; sector-parameter path.  Rendered as labeled DEFB (same convention as the $AEA0-$AEA3 overlap
+; block below) so CURSOR_Y can land on $AEAB -- the single-coordinate store target the disk path
+; previously addressed with the forbidden 'CURSOR_XY+1' arithmetic.
+CURSOR_XY:                               ; $AEAA  X low byte of the cursor word / opcode $32 of 'LD (RPC_ACC),A'
+        DEFB    $32                      ; $AEAA  'LD (nn),A' opcode (also CURSOR_XY low = X)
+CURSOR_Y:                                ; $AEAB  Y high byte of the cursor word / low byte of the $F045 operand
+        DEFB    $45,$F0                  ; $AEAB-$AEAC  $F045 operand of 'LD (nn),A' (also CURSOR_XY high = Y at $AEAB)
         ; ; HL = $FBC1 = BASCAL2 (Apple Monitor BASCALC inner entry); caller arms this as the 6502
         ; RPC target
         LD HL,$FBC1                      ; $AEAD  Apple Monitor routine
@@ -1670,10 +1693,11 @@ CURMODE_INSTR:
 ;              carries $AEBA in its handler field, so selecting a console card lands here.
 ;   OBSERVED: DEVTAB records at $AA4B/$AA55/... lead with $BA,$AE,$93 (handler = $AEBA).
 ; ----------------------------------------------------------------------
-PTRSEL_58:
         ; ; skip-idiom; the entry at $AEBA instead runs 'LD L,$58' -> HL=$FC58 (the DEVTAB console
         ; handler)
-        LD BC,$582E                      ; $AEB9  (entry $AEBA: LD L,$58 -> $FC58)
+        DEFB    $01                      ; $AEB9  cover: on fall-through from PTRSEL ($AEB7), $01 (LD BC,nn) swallows the next LD L
+PTRSEL_58:
+        LD L,$58                         ; $AEBA  real mid-byte entry -> HL=$FC58 (the DEVTAB per-card console handler; every DEVTAB record's handler word points here)
         ; ; common tail for all four entries: H=$FC, so HL = $FC<selected low byte>
         LD H,$FC                         ; $AEBC
         RET                              ; $AEBE
