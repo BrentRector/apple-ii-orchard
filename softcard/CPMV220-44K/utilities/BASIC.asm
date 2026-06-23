@@ -80,7 +80,7 @@ STMT_DISPATCH_TBL:
         DEFW    STMT_ERROR
         DEFW    STMT_RESUME
         DEFW    STMT_DELETE
-        DEFW    SCAN_LINE_RANGE_RESUME
+        DEFW    STMT_AUTO
         DEFW    STMT_RENUM
         DEFW    STMT_DEFSTR
         DEFW    STMT_DEFSTR_1+1
@@ -530,7 +530,7 @@ OUTPUT_COLUMN:
 ; [RE] PRTFLG (printer-output selector, whole-byte boolean -- no mask). Set to $01 by LPRINT ($3744) and LLIST ($40A8); cleared to 0 by the PRINT epilogue ($3880), OUTDO_RESET_COL ($667A), RESET_PRINT_STATE ($679D), and Ctrl-C ($6997). Read by OUTCHR ($661E, OR A / JP Z): nonzero routes the character through the printer-device path (with printer-specific backspace at $6627) instead of the console. UNKNOWN/CONFLICT: some in-file prose ($667A, $6997) describes this cell as an 'output-suppress' flag; that does not match the LPRINT/LLIST set sites (which mean 'direct output to printer'). Treat the 'suppress' wording as a probable mislabel pending a dedicated audit; do not assume a suppress semantic.
 PRTFLG:
         DEFB    "\0"
-L_0839:
+LPRINT_ZONE_WIDTH:
         DEFB    "p"
 PRINTER_WIDTH:
         DEFB    $84
@@ -724,7 +724,7 @@ ARYTAB:
         DEFB    "\0\0"
 STREND:
         DEFB    "\0\0"
-L_0B75:
+DATA_READ_PTR:
         DEFB    "\0\0"
 ; [RE] DEFTYPE_TBL: the 26-byte per-letter default value-type array (one VALTYP byte per variable initial letter A..Z; MS BASIC DEFTBL). Written by the DEF* statement handler (STMT_DEFSTR $34B4: stores the requested type code E across the letter range) and reset to the default ($04) for all 26 letters by CLEAR/RUN ($68A3). PTRGET reads the default type for a variable's first letter via the bias-base addressing at $5FA6 (base $0B36 + ASCII-letter-code lands here: $0B36+$41='A'->$0B77 ... $0B36+$5A='Z'->$0B90). NOTE the default fill value is $04; the exact VALTYP code->precision mapping is not asserted here (the file's own type-code notes are inconsistent) -- see UNKNOWNS.
 DEFTYPE_TBL:
@@ -760,7 +760,7 @@ L_0C69:
         DEFB    "\0"
 L_0C6A:
         DEFB    "\0\0"
-L_0C6C:
+NEXT_ENTRY_FLAG:
         DEFB    "\0"
 FOR_NEXT_VALUE_TEMP:
         DEFB    "\0\0\0\0"
@@ -803,7 +803,7 @@ CHAIN_BREAK_FLAG:
         DEFB    "\0"
 L_0CA1:
         DEFB    "\0\0"
-L_0CA3:
+SWAP_VALUE_TEMP:
         DEFS    8, $00                   ; fill
 ; [RE] TRCFLG: MS BASIC execution-trace flag (whole-byte boolean). TRON sets it $AF, TROFF / program start sets it $00 (STMT_TRACE $69BF, via the AF/XOR-A dual-entry skip). NEWSTT reads it each line ($3393, OR A / JR Z) and, when nonzero, prints '[<linenum>]' before executing the line. No bitmask -- any nonzero value means trace on.
 TRCFLG:
@@ -1095,25 +1095,82 @@ ERROR_RESUME_FROM_DIRECT_2:
         CALL NZ,PRINT_IN_LINENO
 ERROR_RESUME_FROM_DIRECT_3:
         DEFB    $3E                      ; LD A,# cover -- the fall-through loads A=$C1 from the next byte
-; [RE] POP one return frame off the stack, then fall into the prompt/READY loop (NEWSTT_READY). Entered mid-instruction as the $C1 (POP BC) operand byte of the LD A,$C1 cover at the preceding label; the cover's fall-through instead loads A=$C1 (default prompt char).
+; ----------------------------------------------------------------------
+; READY_POP_FRAME -- discard one stacked word, then fall into the READY prompt loop.
+;   In:        SP -> a 2-byte word to be discarded (a stale return/expression frame left by an
+;              aborted statement, e.g. a LIST that ran to end-of-program via JP C,READY_POP_FRAME).
+;   Out:       Falls into NEWSTT_READY (never returns to a caller).
+;   Clobbers:  BC (loaded with the popped word), then everything NEWSTT_READY clobbers.
+;   Algorithm: POP BC throws away the top stack word so the interpreter restarts with a clean stack,
+;              then drops into the main READY loop. Reached via JP/JR from several tails (LIST done,
+;              error/quit paths). It is also entered one byte early as the $C1 operand of the
+;              'DEFB $3E' (LD A,#) cover at ERROR_RESUME_FROM_DIRECT_3: that cover's straight-line
+;              fall-through instead executes 'LD A,$C1' (coded overlap).
+;   [RE] The fall-through value A=$C1 is described elsewhere as a default prompt char; that role is
+;        not confirmed by these bytes -- treat the prompt-char reading as inference, not OBSERVED.
+; ----------------------------------------------------------------------
 READY_POP_FRAME:
+        ; Drop the stale top-of-stack word so the READY loop restarts with a balanced stack.
         POP BC                           ; the LD operand byte, entered here as an opcode (coded overlap)
-; READY/main interpreter loop: print prompt char, clear output column $083F, read a console line ($781A), then process it (tokenize or execute).
+; ----------------------------------------------------------------------
+; NEWSTT_READY -- main READY loop: reset output state, print 'Ok', then read/process a console line.
+;   In:        Entered after a statement error, a STOP/END, program completion, or a direct line.
+;   Out:       Does not return; falls into DIRECT_LINE_DISPATCH to classify the next console line
+;              (edit/insert a numbered line, or execute a direct statement).
+;   Clobbers:  AF,BC,DE,HL,SP (full interpreter reset).
+;   Algorithm: Reset the output column (OUTDO_RESET_COL), clear the CTRL_O_SUPPRESS cell, run the
+;              load/file cleanup + run-state reset (LOAD_CLEANUP_RESET), emit a CRLF if mid-line
+;              (PRINT_CRLF_IF_COL), then print MSG_OK ('Ok',CR,LF) through the cold-patched STROUT
+;              call vector (NEWSTT_READY_1). Then re-read ERRFLG and, at NEWSTT_READY_2, if it is 2
+;              resume the line editor before falling into DIRECT_LINE_DISPATCH.
+;   [RE] CTRL_O_SUPPRESS is named for a Ctrl-O print-suppress flag; the file's own notes on the
+;        related PRTFLG cell flag a suppress-vs-printer-select ambiguity, so treat 'clears the
+;        Ctrl-O suppress flag' as inference for this cell's exact semantics.
+; ----------------------------------------------------------------------
 NEWSTT_READY:
+        ; Return the console to the start of a fresh line before prompting.
         CALL OUTDO_RESET_COL
         XOR A
         LD (CTRL_O_SUPPRESS),A
+        ; Close the open file, reset print state, and re-establish the run-state stack.
         CALL LOAD_CLEANUP_RESET
         CALL PRINT_CRLF_IF_COL
+        ; Point at the 'Ok' ready-prompt string for the print call below.
         LD HL,MSG_OK
+; ----------------------------------------------------------------------
+; NEWSTT_READY_1 -- print the message at HL through the cold-patched STROUT call vector.
+;   In:        HL -> a NUL-terminated message string (e.g. MSG_OK from NEWSTT_READY).
+;   Out:       The string is printed; execution continues at the following LD A,(ERRFLG).
+;   Clobbers:  per STROUT.
+;   Algorithm: A 'CALL <vector>' whose 16-bit operand is the data cell STROUT_CALL_VECTOR. The
+;              on-disk operand is $0000; cold start patches it ONCE to STROUT ($6C40) (single writer
+;              at $83E8, confirmed by byte scan) and never re-points it, so after init this is
+;              effectively 'CALL STROUT'. The $CD opcode is emitted as a DEFB so the next word can
+;              serve as both the CALL operand and the named data cell.
+;   [RE] Why the original used a patchable cell here instead of a direct CALL is not determinable
+;        from the bytes.
+; ----------------------------------------------------------------------
 NEWSTT_READY_1:
         DEFB    $CD                      ; LL opcode -- target word self-modified at runtime (patched via LD (next),HL)
 ; [RE] Self-modified operand word of the CALL at $0E33 in the prompt/message print path (LD HL,<msg> / CALL through here). The cold sign-on patches it ONCE to STROUT ($6C40), via LD HL,STROUT / LD (STROUT_CALL_VECTOR),HL at $83E8 -- byte-scan confirms a SINGLE writer in both builds and it is never re-pointed, so after init the call is effectively CALL STROUT, not a runtime-varying dispatch. The indirection is NOT an address-resolution workaround: low-RAM JPs into the relocated body directly elsewhere (e.g. JP RESET_RUN_STATE = $68F4 at $0DA4). Why the original used a patchable cell here rather than a direct CALL is not determinable from the bytes. Init $0000.
 STROUT_CALL_VECTOR:
         DEFW    $0000                    ; the patched CALL target (init $0000)
         LD A,(ERRFLG)
+; ----------------------------------------------------------------------
+; NEWSTT_READY_2 -- post-'Ok' tail: if ERRFLG==2 run the line editor, then process the input line.
+;   In:        A = ERRFLG (the value just loaded by NEWSTT_READY).
+;   Out:       Falls into DIRECT_LINE_DISPATCH to read and classify the next console line.
+;   Clobbers:  AF,DE,HL (plus whatever STMT_EDIT_LINENUM touches).
+;   Algorithm: SUB 2 from A; if the result is zero (ERRFLG==2) CALL STMT_EDIT_LINENUM to re-enter
+;              the line editor, then continue into DIRECT_LINE_DISPATCH for the normal
+;              read/tokenize/execute path.
+;   [RE] ERRFLG==2 selecting a deferred-EDIT re-entry is inferred from the conditional editor call;
+;        the exact ERRFLG code map is not asserted here.
+; ----------------------------------------------------------------------
 NEWSTT_READY_2:
+        ; Test ERRFLG against 2 (Z set means the EDIT-pending case).
         SUB $02
+        ; ERRFLG==2: re-enter the line editor before reading the next input line.
         CALL Z,STMT_EDIT_LINENUM
 ; [RE] Process the input line: FOUT the leading line number, FNDLIN to locate it, CRUNCH-tokenize ($3000), then insert/replace/delete in the program or execute as a direct statement.
 DIRECT_LINE_DISPATCH:
@@ -3052,8 +3109,24 @@ CHRGOT_CONST_VALUE_3:
         ; type-checked, width-driven move of the double-precision operand into the FAC double field
         CALL FP_ARG_SETUP1
         JP CHRGOT_3
-; [RE] DEFSTR statement handler (token $A9): declare a default-string letter range. DEFINT/DEFSNG/DEFDBL ($AA-$AC) enter a few bytes later with a different type code.
+; ----------------------------------------------------------------------
+; STMT_DEFSTR -- DEFSTR/DEFINT/DEFSNG/DEFDBL handler: set the default value-type for a letter range.
+;   In:        Four entry points select the type code in E: DEFSTR ($A9) enters here (E=$03);
+;              DEFINT/DEFSNG/DEFDBL enter at the +1 aliases (E=$02 / $04 / $08).
+;              HL -> the statement text after the keyword (a letter, optionally 'letter-letter').
+;   Out:       DEFTYPE_TBL[letter..letter] := E for each letter in each comma-separated range;
+;              RET to the per-statement executor (STMT_FOR_7).
+;   Clobbers:  AF,BC,DE,HL.
+;   Algorithm: Load the type code into E (one of four entry points), then fall into the shared range
+;              scanner STMT_DEFSTR_4. The +1 aliases exploit the 'LD BC,nn' ($01) opcode as a 2-byte
+;              skip so the unwanted 'LD E,nn' instructions are stepped over and all four variants
+;              converge on the same scanner carrying the correct code.
+;   [RE] The codes 3/2/4/8 are the values stored into DEFTYPE_TBL; the file's own type-code notes
+;        are inconsistent about the exact code->precision mapping, so the precise VALTYP meaning of
+;        each code is UNKNOWN here -- the handler only writes the code, it does not interpret it.
+; ----------------------------------------------------------------------
 STMT_DEFSTR:
+        ; DEFSTR: default type code = 3.
         LD E,$03
 ; [RE] Dual-entry type-code skip. DEFSTR (token $A9) enters at STMT_DEFSTR ($3484, LD E,$03); the $01 (LD BC,nn) opcodes act as 2-byte skips over each following LD E,nn. DEFINT (token $AA) is dispatched to STMT_DEFSTR_1+1 ($3487), which decodes 1E 02 as LD E,$02 (type code 2). All four entries converge at STMT_DEFSTR_4 ($348F). The DEFW is written +1 so it relocates.
 STMT_DEFSTR_1:
@@ -3064,15 +3137,32 @@ STMT_DEFSTR_2:
 ; [RE] DEFDBL entry of the DEFxxx skip chain. Token $AC dispatches to STMT_DEFSTR_3+1 ($348D) which decodes 1E 08 as LD E,$08 (double-precision code), then falls into the shared CALL IS_LETTER at STMT_DEFSTR_4 ($348F). The four DEFxxx variants (string/int/sng/dbl) differ only by which LD E,nn they land on.
 STMT_DEFSTR_3:
         LD BC,$081E
+; ----------------------------------------------------------------------
+; STMT_DEFSTR_4 -- DEFxxx range scanner: parse 'letter[-letter]' clauses and stamp the type code.
+;   In:        E = the type code to assign; HL -> the first letter of a range clause.
+;   Out:       DEFTYPE_TBL entries for every letter in the range set to E; loops back on a comma;
+;              RET (to STMT_FOR_7) at end of statement.
+;   Clobbers:  AF,BC,DE,HL.
+;   Algorithm: Require a letter (IS_LETTER; carry => not a letter). RAISE_SYNTAX_ERROR is PUSHed as
+;              the return so the following RET C lands there on a non-letter. Convert the letter to a
+;              0-based index (-$41='A') and set both C (low bound) and B (provisional high bound). If
+;              the next char is '-' (TOK_MINUS), require a second letter and use it as the high bound
+;              B. Fall into STMT_DEFSTR_5 to fill DEFTYPE_TBL[C..B]:=E, then on a trailing ',' CHRGET
+;              past it and re-enter here for the next clause.
+; ----------------------------------------------------------------------
 STMT_DEFSTR_4:
+        ; A DEFxxx range must start with a letter A-Z (carry = not a letter).
         CALL IS_LETTER
+        ; Pre-stage the syntax-error handler as the return taken by the RET C below if a letter is missing.
         LD BC,RAISE_SYNTAX_ERROR
         PUSH BC
         RET C
+        ; Convert the start letter to a 0-based DEFTYPE_TBL index (letter - 'A').
         SUB $41
         LD C,A
         LD B,A
         CALL CHRGET
+        ; A '-' introduces an explicit upper bound (e.g. DEFINT I-N).
         CP TOK_MINUS
         JR NZ,STMT_DEFSTR_5
         CALL CHRGET
@@ -3081,22 +3171,49 @@ STMT_DEFSTR_4:
         SUB $41
         LD B,A
         CALL CHRGET
+; ----------------------------------------------------------------------
+; STMT_DEFSTR_5 -- compute the inclusive letter span, then point at the table and fill.
+;   In:        C = low letter index, B = high letter index (B==C for a single letter), E = type code;
+;              SP -> the saved text pointer was just swapped in by RAISE_SYNTAX_ERROR push at _4.
+;   Out:       A = span length (B-C+1); HL := DEFTYPE_TBL+C; falls into the fill loop STMT_DEFSTR_6.
+;   Clobbers:  AF,BC,DE,HL.
+;   Algorithm: Compute B-C; a negative result (high < low, e.g. DEFINT N-A) RET C through the pushed
+;              RAISE_SYNTAX_ERROR. INC A makes the span inclusive. EX (SP),HL stashes the text pointer
+;              on the stack (discarding the pushed error-return), then LD HL,DEFTYPE_TBL / LD B,$00 /
+;              ADD HL,BC points HL at DEFTYPE_TBL+low (B forced 0 so BC = the low index in C).
+; ----------------------------------------------------------------------
 STMT_DEFSTR_5:
         LD A,B
+        ; Span = high index - low index; negative (high<low) is a syntax error via the pushed handler.
         SUB C
         RET C
+        ; Make the span inclusive of both endpoints.
         INC A
         EX (SP),HL
+        ; Point at DEFTYPE_TBL[low] (ADD HL,BC with B=0 adds the low letter index in C).
         LD HL,DEFTYPE_TBL
         LD B,$00
         ADD HL,BC
+; ----------------------------------------------------------------------
+; STMT_DEFSTR_6 -- write the type code across one letter range, then look for the next clause.
+;   In:        HL -> DEFTYPE_TBL[low], A = inclusive count, E = type code; the text pointer is the
+;              top stack word (stashed by _5).
+;   Out:       DEFTYPE_TBL[low..high] all set to E; RET (to STMT_FOR_7) if no comma follows, else
+;              CHRGET past the ',' and JR back to STMT_DEFSTR_4 for the next clause.
+;   Clobbers:  AF,HL (and DE/BC via CHRGET).
+;   Algorithm: Store E into successive table bytes, INC HL / DEC A until the count is exhausted. POP
+;              the saved text pointer; if the current char is ',' ($2C) chain to the next range
+;              clause; otherwise the statement is complete.
+; ----------------------------------------------------------------------
 STMT_DEFSTR_6:
+        ; Set this letter's default type code.
         LD (HL),E
         INC HL
         DEC A
         JR NZ,STMT_DEFSTR_6
         POP HL
         LD A,(HL)
+        ; A ',' chains another letter-range clause; anything else ends the statement.
         CP $2C
         RET NZ
         CALL CHRGET
@@ -3163,38 +3280,126 @@ LINGET_TOKLINE_2:
         POP AF
         POP HL
         RET
-; [RE] RUN statement handler (token $8A): clears variables and begins execution at the start (or a given line).
+; ----------------------------------------------------------------------
+; STMT_RUN -- RUN handler (token $8A): clear variables and start program execution.
+;   In:        A = first char after RUN (Z if end-of-statement), HL -> text past it. The dispatcher
+;              entered the handler via CHRGET (so the arg char is already fetched) and pushed
+;              STMT_FOR_7 as the post-statement return.
+;   Out:       Begins execution; does not return normally (transfers to the program start, a given
+;              start line, or the file loader for RUN "file").
+;   Clobbers:  AF,BC,DE,HL,SP (full storage reset).
+;   Algorithm: Classify the RUN argument: bare RUN (Z) -> JP CLEAR_RESET_DATAPTR (run from start);
+;              RUN with a $0E (line-number token) or $0D (cached line token) -> STMT_RUN_1 (clear
+;              storage and GOTO that line); otherwise -> JP LOAD_PROGRAM (filename: load/chain-run).
+; ----------------------------------------------------------------------
 STMT_RUN:
+        ; Bare RUN: reset storage and run from the first program line.
         JP Z,CLEAR_RESET_DATAPTR
+        ; RUN <line-number>: a line-number token follows.
         CP $0E
         JR Z,STMT_RUN_1
         CP $0D
+        ; Neither end-of-statement nor a line token: treat the argument as a filename (RUN "file").
         JP NZ,LOAD_PROGRAM
+; ----------------------------------------------------------------------
+; STMT_RUN_1 -- RUN <line>: full storage reset, then transfer control to the requested line.
+;   In:        HL -> the line-number argument text (a $0E or $0D line token).
+;   Out:       Variables/arrays/strings/stack reset; control transfers to the target line via
+;              STMT_GOSUB_1 -> STMT_GOTO (no GOSUB return frame is built).
+;   Clobbers:  AF,BC,DE,HL,SP.
+;   Algorithm: CALL CLEAR_RESET_STORAGE, preload BC = STMT_FOR_7, and JR STMT_GOSUB_1, which PUSHes
+;              BC as the post-transfer resume address and falls into STMT_GOTO to parse and locate
+;              the line. Net effect: RUN <line> = CLEAR + GOTO <line> with the per-statement executor
+;              as the continuation.
+; ----------------------------------------------------------------------
 STMT_RUN_1:
+        ; RUN always starts cold: clear variables, arrays, strings, and reset the stack.
         CALL CLEAR_RESET_STORAGE
+        ; Resume into the per-statement executor after the transfer (no GOSUB return frame).
         LD BC,STMT_FOR_7
         JR STMT_GOSUB_1
-; [RE] GOSUB statement handler (token $8D): pushes a return frame then transfers like GOTO.
+; ----------------------------------------------------------------------
+; STMT_GOSUB -- GOSUB handler (token $8D): build a return frame, then transfer like GOTO.
+;   In:        A = first char after GOSUB, HL -> text past it; STMT_FOR_7 pushed by the dispatcher.
+;   Out:       A GOSUB return frame (resume text pointer, SAVTXT, $8D marker byte, resume address) is
+;              left on the stack; control transfers to the target line via STMT_GOTO_1.
+;   Clobbers:  AF,BC,DE,HL,SP.
+;   Algorithm: CHECK_STACK_ROOM (C=3 words) for the frame. LINGET parses the destination line number
+;              into DE. POP BC recovers the pushed STMT_FOR_7 resume address, then build the frame:
+;              PUSH HL twice and EX (SP),HL with SAVTXT so the stack carries the post-GOSUB text
+;              pointer and SAVTXT; PUSH the $8D marker byte (PUSH AF / INC SP keeps only the byte);
+;              PUSH BC (the resume address). Finally JP STMT_GOTO_1 to locate the target line.
+;   [RE] The frame's $8D marker is the byte that STMT_POP/STMT_RETURN later test with CP $8D; note
+;        STKFRAME_SCAN's own internal frame marker is $82, a different value (see those routines).
+; ----------------------------------------------------------------------
 STMT_GOSUB:
+        ; Reserve stack room for the GOSUB return frame before pushing it.
         LD C,$03
         CALL CHECK_STACK_ROOM
+        ; Parse the destination line number into DE.
         CALL LINGET
         POP BC
         PUSH HL
         PUSH HL
         LD HL,(SAVTXT)
         EX (SP),HL
+        ; Tag the frame with $8D so RETURN/POP can recognize a GOSUB frame.
         LD A,$8D
         PUSH AF
+        ; Keep only the marker byte (drop the high byte of the pushed AF word).
         INC SP
         PUSH BC
+        ; Frame built: transfer to the subroutine's first line exactly like GOTO.
         JP STMT_GOTO_1
+; ----------------------------------------------------------------------
+; STMT_GOSUB_1 -- shared 'push resume address then GOTO' tail used by RUN <line>.
+;   In:        BC = the address to resume at after the transfer (STMT_FOR_7 for RUN); HL -> the
+;              pending line-number argument text.
+;   Out:       BC pushed onto the stack as the continuation; falls into STMT_GOTO to parse the line
+;              number and transfer.
+;   Clobbers:  per STMT_GOTO.
+;   Algorithm: PUSH BC then fall into STMT_GOTO. This is the no-frame variant reached from
+;              STMT_RUN_1; the full GOSUB path reaches STMT_GOTO_1 directly after building a complete
+;              return frame.
+; ----------------------------------------------------------------------
 STMT_GOSUB_1:
+        ; Push the post-transfer resume address before STMT_GOTO consumes the line number.
         PUSH BC
-; [RE] GOTO statement handler (token $89): parses a line number, FNDLIN search, sets the text pointer.
+; ----------------------------------------------------------------------
+; STMT_GOTO -- GOTO handler (token $89): parse a line number and transfer to that line.
+;   In:        HL -> the line-number argument text; STMT_FOR_7 pushed as the resume address.
+;   Out:       On success returns with HL/BC -> the target line node (the executor continues there);
+;              raises 'Undefined line number' (ERROR_UL) if the line does not exist.
+;   Clobbers:  AF,BC,DE,HL.
+;   Algorithm: LINGET parses the destination line number into DE, then fall into STMT_GOTO_1 to
+;              locate the line (with the forward/backward search optimization) and cache it.
+; ----------------------------------------------------------------------
 STMT_GOTO:
+        ; Parse the GOTO target line number into DE.
         CALL LINGET
+; ----------------------------------------------------------------------
+; STMT_GOTO_1 -- locate a target program line, cache the resolved reference, set the run cursor.
+;   In:        DE = target line number; CONST_TOKEN = the constant token the scanner last decoded for
+;              the line-number operand ($0D if it was already a cached/resolved line link, $0E if a
+;              raw line number).
+;   Out:       On a cached token, returns with HL = the cached line pointer. Otherwise HL/BC -> the
+;              located line node and RET to the executor. Raises ERROR_UL if not found.
+;   Clobbers:  AF,BC,DE,HL.
+;   Algorithm: If CONST_TOKEN is already $0D, the reference was resolved on a prior pass -- EX DE,HL
+;              and RET Z with the cached pointer. Otherwise search the program: stage the search
+;              start via CONST_TEXT_RESUME, then compare the target line against the current line
+;              (SAVTXT, via CMP_HL_DE) -- if carry, search forward from here (FNDLIN_LOOP), else from
+;              the program start (FNDLIN). On a hit, decrement the found node pointer (DEC BC), set
+;              RENUM_PENDING_FLAG, and RENUM_STORE_LINEREF writes $0D + the 2-byte (node-1) address
+;              back into the source token stream so subsequent jumps skip the search; load HL=BC for
+;              the executor.
+;   [RE] This is MS BASIC's line-number-cache optimization: the first GOTO/GOSUB to a line resolves
+;        it by search, then stores the resolved (biased) node pointer back into the tokenized line
+;        ($0D + address) for O(1) re-execution. The exact role of the CALL STMT_DATA+2 / CONST_TEXT_RESUME
+;        sequence in re-positioning HL before the search is inferred, not fully pinned.
+; ----------------------------------------------------------------------
 STMT_GOTO_1:
+        ; Already resolved? CONST_TOKEN==$0D means the line reference was cached on a prior pass.
         LD A,(CONST_TOKEN)
         CP $0D
         EX DE,HL
@@ -3206,16 +3411,21 @@ STMT_GOTO_1:
         CALL STMT_DATA+2
         INC HL
         PUSH HL
+        ; Decide search direction by comparing the target line against the current line.
         LD HL,(SAVTXT)
         CALL CMP_HL_DE
         POP HL
+        ; Target is at/after the current line: search forward from here.
         CALL C,FNDLIN_LOOP
+        ; Target is earlier: search from the start of the program.
         CALL NC,FNDLIN
+        ; Not found: 'Undefined line number'.
         JR NC,ERROR_UL
         DEC BC
         LD A,$0D
         LD (RENUM_PENDING_FLAG),A
         POP HL
+        ; Cache the resolved node back into the token stream ($0D + biased node address).
         CALL RENUM_STORE_LINEREF
         LD H,B
         LD L,C
@@ -3224,91 +3434,208 @@ STMT_GOTO_1:
 ERROR_UL:
         LD E,ERR_UNDEFINED_LINE_NUMBER
         JP RAISE_ERROR
-; [RE] POP statement handler (token $AE): discard the top GOSUB return frame.
+; ----------------------------------------------------------------------
+; STMT_POP -- POP handler (token $AE): discard the most recent GOSUB frame without resuming at the call.
+;   In:        HL -> the statement text after POP; the runtime stack holds zero or more FOR/GOSUB
+;              frames above the current scratch.
+;   Out:       The top GOSUB frame (if any) is removed and SP/SAVSTK rewound past it; control
+;              continues at the next statement (STMT_FOR_7). If none, falls into STMT_RETURN_1 which
+;              raises 'RETURN without GOSUB'.
+;   Clobbers:  AF,BC,DE,HL,SP.
+;   Algorithm: Save the current text pointer (OPEN_RESUME_TEXT_PTR). Set D=$FF, then STKFRAME_SCAN_INIT
+;              walks the stack, skipping FOR ($AF) frames and returning A = the first non-FOR frame
+;              marker; set SP/SAVSTK to that point. If that marker is $8D (CP $8D), drop the 4-byte
+;              GOSUB frame (LD HL,$0004 / ADD HL,SP / set SP,SAVSTK), restore the text pointer, and
+;              JP STMT_FOR_7 -- unlike RETURN it does NOT resume at the call site. If the marker is
+;              not $8D, STMT_RETURN_1 raises the error.
+;   [RE] STKFRAME_SCAN returns at the FIRST non-FOR frame (its own RET NZ after CP $82); the line
+;        comparison inside the scanner is only exercised for its internal $82 marker, so for finding
+;        a $8D GOSUB frame the D/E target value is not actually consulted. The purpose of D=$FF here
+;        is UNKNOWN beyond 'DE nonzero'.
+; ----------------------------------------------------------------------
 STMT_POP:
+        ; Stash the text pointer; POP keeps executing the current statement's successors.
         LD (OPEN_RESUME_TEXT_PTR),HL
         LD D,$FF
         CALL STKFRAME_SCAN_INIT
         LD SP,HL
         LD (SAVSTK),HL
+        ; Is the unwound frame a GOSUB frame ($8D)? If not, fall to the RETURN-without-GOSUB error.
         CP $8D
         JR NZ,STMT_RETURN_1
+        ; Discard the 4-byte GOSUB frame (two saved pointers + marker) from the stack.
         LD HL,$0004
         ADD HL,SP
         LD (SAVSTK),HL
         LD SP,HL
         LD HL,(OPEN_RESUME_TEXT_PTR)
+        ; POP does not transfer control: resume at the statement after POP.
         JP STMT_FOR_7
-; [RE] RETURN statement handler (token $8E): pops the GOSUB return frame and resumes.
+; ----------------------------------------------------------------------
+; STMT_RETURN -- RETURN handler (token $8E): pop the GOSUB frame and resume after the GOSUB call.
+;   In:        A/flags from the dispatcher's CHRGET (NZ if a trailing token follows RETURN); the
+;              stack holds the active GOSUB return frame.
+;   Out:       Restores the GOSUB caller's text pointer (SAVTXT) and resumes at the statement after
+;              the GOSUB. Raises 'RETURN without GOSUB' if no GOSUB frame is found.
+;   Clobbers:  AF,BC,DE,HL,SP.
+;   Algorithm: RET NZ rejects a trailing argument (a bare RETURN is expected here). Set D=$FF, then
+;              STKFRAME_SCAN_INIT walks the stack skipping FOR ($AF) frames and returns A = the first
+;              non-FOR frame marker; set SP/SAVSTK there. CP $8D, then fall into STMT_RETURN_1.
+;   [RE] Same caveat as STMT_POP: the scanner returns at the first non-FOR frame regardless of the
+;        D/E target, so D=$FF's role is UNKNOWN beyond making DE nonzero.
+; ----------------------------------------------------------------------
 STMT_RETURN:
+        ; RETURN takes no argument: a trailing token returns early (back to the executor).
         RET NZ
+        ; Set D=$FF before the stack walk that finds the first non-FOR frame.
         LD D,$FF
         CALL STKFRAME_SCAN_INIT
         LD SP,HL
         LD (SAVSTK),HL
         CP $8D
+; ----------------------------------------------------------------------
+; STMT_RETURN_1 -- shared frame-found tail for RETURN/POP: error if no GOSUB, else restore and resume.
+;   In:        Zero flag = whether the unwound frame marker matched $8D (Z=GOSUB frame found); SP
+;              rewound to that frame.
+;   Out:       On no match, raises ERR_RETURN_WITHOUT_GOSUB. On success, SAVTXT := the GOSUB's saved
+;              text pointer and control resumes after the original GOSUB statement via STMT_FOR_7.
+;   Clobbers:  AF,DE,HL,SP.
+;   Algorithm: LD E,ERR_RETURN_WITHOUT_GOSUB then JP NZ,RAISE_ERROR if the marker did not match.
+;              Otherwise POP the saved resume text pointer into SAVTXT, then LD HL,STMT_FOR_7 /
+;              EX (SP),HL installs STMT_FOR_7 as the eventual return. Execution then continues with
+;              'LD A,$E1' (a cover; A is immediately overwritten) and FALLS INTO the STMT_DATA
+;              statement scanner, which advances the text pointer past the remainder of the GOSUB
+;              statement to the next ':' or end-of-line and RETs to STMT_FOR_7 -- so RETURN resumes
+;              at the statement following the original GOSUB.
+;   [RE] The 'LD A,$E1' is the MS BASIC LD-A,(POP-HL-opcode) cover idiom; here it is reached by
+;        fall-through, so its functional effect is just a (dead) LD A and a clean fall into
+;        STMT_DATA, NOT an executed POP HL. The exact provenance of HL handed to the STMT_DATA scan
+;        (set by EX (SP),HL) is UNKNOWN/not fully pinned.
+; ----------------------------------------------------------------------
 STMT_RETURN_1:
+        ; No matching GOSUB frame: this is a RETURN (or POP) without GOSUB.
         LD E,ERR_RETURN_WITHOUT_GOSUB
         JP NZ,RAISE_ERROR
         POP HL
         LD (SAVTXT),HL
+        ; Install the per-statement executor as the return after the resumed GOSUB statement.
         LD HL,STMT_FOR_7
         EX (SP),HL
         LD A,$E1
-; [RE] DATA statement handler (token $84): no-op at run time (scanned/skipped). COMMON (token $B3) also dispatches to this same entry. Dual-entry skip idiom: the $01 (LD BC,nn) opcode doubles as a 2-byte skip. Entered here, the full LD BC,$0E3A executes; entered at STMT_DATA+2 ($35B6, called from ERROR_PRINT_SETUP) the embedded bytes start LD C,$00 ($0E $00) instead. Two paths share these bytes; the literal CALL $35B6 is written STMT_DATA+2 so it relocates.
-; [RE] DATA/COMMON statement scanner with a dual-entry terminator skip. Entered at STMT_DATA ($35B4): LD BC,$0E3A loads C=':' so the scan stops at a colon (DATA item separator) -- token $84/$B3. Entered at STMT_DATA+2 ($35B6): the $01 opcode is sidestepped, 0E 00 decodes as LD C,$00 so B ends $00 and the scan runs to end-of-line only (REM-class, and the generic skip used by $0DF4/$3555). The CALL/DEFW targets are written +2 so they relocate.
+; ----------------------------------------------------------------------
+; STMT_DATA -- DATA/REM run-time scanner: skip the body of a DATA/COMMON/REM statement (or any statement) to its terminator, while counting nested IF tokens for the IF...ELSE matcher.
+;   In:        HL -> crunched text just after the statement token. Entered three ways: (a) STMT_DATA proper ($35B4) for token $84 DATA and token $B3 COMMON -- LD BC,$0E3A (C=':') then NOP then LD B,$00, then FALLS INTO STMT_DATA_1 which swaps B<->C leaving B=':' as the active terminator, so the scan stops at a colon OR end-of-line; (b) STMT_DATA+2 ($35B6): the LD BC opcode is side-stepped so the bytes $0E $00 decode as LD C,$00, then LD B,$00 and the STMT_DATA_1 swap leave B=C=$00, so the scan stops only at end-of-line ($00) -- the generic 'skip to next statement' used by REM/' , GOTO line-search, ERROR_REPORT_BODY message walking, and STMT_IF_4's false-branch skip; (c) STMT_RESUME and STMT_IF_4 JP/CALL here.
+;   Out:       HL -> the terminating byte (the ':' or the $00). A = that terminator char. [RE] Z is set on BOTH RET Z exits (A=0 for end-of-line via OR A; A=':' equal to B for DATA via CP B), so Z alone does not distinguish them -- test A. D = the running IF-nesting count (see Algorithm); it is an in/out accumulator for STMT_IF_4, not a documented general output.
+;   Clobbers:  A, B, C, D, HL, flags.
+;   Algorithm: CHRGET-walk the text. RET on $00 (end-of-line) or on the B-register terminator (':' for DATA). A double-quote ($22) enters STMT_DATA_1 to swap B/C so ':' is ignored inside a quoted string until the closing quote. INC A skips a $FF byte. The SUB $8C test isolates the IF token ($8B): when the scanned token is $8B, CP B / ADC A,D / LD D,A increments D, so D counts nested IFs -- STMT_IF_4 starts D=1 and uses this count to pair each ELSE with the correct IF. Pure scanner: emits nothing, just advances HL to the statement boundary.
+; ----------------------------------------------------------------------
 STMT_DATA:
+        ; DATA/COMMON entry: loads C=':'; after the NOP, LD B,$00 and the STMT_DATA_1 swap leave B=':' as the active terminator (stop at a colon as well as end-of-line)
         LD BC,$0E3A
         NOP
         LD B,$00
+; ----------------------------------------------------------------------
+; STMT_DATA_1 -- terminator-pair swap (string-mode toggle) for the DATA/skip scanner.
+;   In:        B/C hold the active vs inactive terminator pair.
+;   Out:       B and C exchanged, then falls into the scan loop at STMT_DATA_2/_3.
+;   Clobbers:  A, B, C.
+;   Algorithm: Rotate A<-C, C<-B, B<-A to swap the two terminator candidates. Reached two ways: (1) by fall-through from the STMT_DATA / STMT_DATA+2 entry, where it performs the INITIAL setup that promotes ':'/$00 into the active terminator B; and (2) on every double-quote during the scan, so an opening quote suppresses the ':' test (string mode) and the closing quote restores it.
+; ----------------------------------------------------------------------
 STMT_DATA_1:
         LD A,C
         LD C,B
         LD B,A
+; ----------------------------------------------------------------------
+; STMT_DATA_2 -- scanner step-back entry: DEC HL then fall into the fetch loop.
+;   In:        HL -> current text byte.
+;   Out:       falls into STMT_DATA_3 with HL backed up one, compensating the INC HL the loop performed on a non-special byte so CHRGET re-reads from the right place.
+;   Clobbers:  HL.
+;   Algorithm: Counterpart to the INC HL taken after a normal byte; keeps the net advance at one byte per scanned character.
+; ----------------------------------------------------------------------
 STMT_DATA_2:
         DEC HL
+; ----------------------------------------------------------------------
+; STMT_DATA_3 -- main fetch/classify loop of the DATA/skip scanner.
+;   In:        HL -> text; B = active terminator; C = inactive terminator; D = running IF-nesting count.
+;   Out:       on a terminator, RET with HL -> terminator and A = terminator (Z set on both exits -- see STMT_DATA).
+;   Clobbers:  A, D, HL, flags.
+;   Algorithm: CHRGET the next char; RET on $00 or on the B terminator; route $22 to the string toggle, skip $FF, count the IF token ($8B) into D; otherwise loop. Statement tokens other than IF are passed over transparently because only $00 and the active separator end the body.
+; ----------------------------------------------------------------------
 STMT_DATA_3:
         CALL CHRGET
+        ; stop at the end-of-line terminator ($00)
         OR A
         RET Z
+        ; stop at the active separator: ':' for the DATA entry, $00-only for the STMT_DATA+2 (REM-class) entry
         CP B
         RET Z
         INC HL
+        ; a double-quote opens/closes a string constant: swap B/C so colons inside the quoted text are passed over verbatim
         CP $22
         JR Z,STMT_DATA_1
         INC A
         JR Z,STMT_DATA_3
+        ; isolate the IF token: $8B+1-$8C == 0 marks an IF, whose nesting is then counted in D for STMT_IF_4's ELSE matcher
         SUB $8C
         JR NZ,STMT_DATA_2
         CP B
         ADC A,D
         LD D,A
         JR STMT_DATA_2
+; ----------------------------------------------------------------------
+; STMT_DATA_4 -- LINE INPUT# value-store finisher: store the line just read from a file into the target string variable.
+;   In:        Reached by RET into this address (pushed as BC=STMT_DATA_4 by LINE_INPUT_FILE). Top of stack = a saved AF whose A is 0 (LINE_INPUT_FILE did XOR A before joining the scan); below it the target variable address; the assembled string descriptor is current.
+;   Out:       A = 0+3 = $03 = VT_STR, then JR STMT_LET_1 to perform the typed (string) store into the variable.
+;   Clobbers:  A, F, then whatever STMT_LET_1 clobbers.
+;   Algorithm: POP AF recovers the saved A (=0 for the line-input path); ADD A,$03 makes A = VT_STR; JR STMT_LET_1 joins the shared LET store so the captured line lands in the string variable. [RE] Only caller is LINE_INPUT_FILE; the +3 here yields the string type rather than 'biasing an arbitrary VALTYP'. UNKNOWN whether any other caller reuses this entry with a non-zero saved A.
+; ----------------------------------------------------------------------
 STMT_DATA_4:
+        ; recover the saved A (0 on the LINE INPUT# path)
         POP AF
+        ; 0+3 = VT_STR: store the captured line as a string, via the shared LET store
         ADD A,$03
         JR STMT_LET_1
-; [RE] LET / implicit-assignment handler (token $88): evaluates RHS (CALL $5F35) and stores into the target variable.
+; ----------------------------------------------------------------------
+; STMT_LET -- LET / implicit assignment handler (token $88, and the fall-through reached by NEWSTT_DISPATCH for any line that does not start with a statement keyword): evaluate the RHS expression and store it into the target variable with type coercion.
+;   In:        HL -> text at the target variable name (after the optional LET token).
+;   Out:       the evaluated, type-coerced value stored into the variable's cell; HL -> text after the statement; RET to the per-statement executor (STMT_FOR_7).
+;   Clobbers:  A, B, C, D, E, H, L, FAC/FAC_DBL, VALTYP, OPEN_RESUME_TEXT_PTR, flags, stack temporaries.
+;   Algorithm: PTRGET (entered at PTRGET_1+1) resolves the L-value to its storage address in DE. SYNCHR consumes the '=' token (inline TOK_EQ=$F0). The target address is saved BOTH into OPEN_RESUME_TEXT_PTR and pushed on the stack; the target's current VALTYP is pushed; FRMEVL_NOPAREN evaluates the right-hand side into FAC. From STMT_LET_1 on: if the result VALTYP differs from the target VALTYP, FRMEVL_APPLY_OP coerces it. For a string target it runs the descriptor-management path (alias vs copy, see STMT_LET_5); finally FP_MOVE_TYPED copies VALTYP bytes from FAC/FAC_DBL (or the 3-byte string descriptor) into the variable.
+; ----------------------------------------------------------------------
 STMT_LET:
+        ; resolve the assignment target (L-value) to its storage address in DE
         CALL PTRGET_1+1
+        ; require and consume the '=' token (TOK_EQ) between target and expression
         CALL SYNCHR
         DEFB    TOK_EQ                   ; inline keyword-token arg consumed by the preceding CALL
         EX DE,HL
+        ; stash the target variable's storage address (also pushed) while the RHS is evaluated
         LD (OPEN_RESUME_TEXT_PTR),HL
         EX DE,HL
         PUSH DE
         LD A,(VALTYP)
         PUSH AF
+        ; evaluate the right-hand-side expression into FAC
         CALL FRMEVL_NOPAREN
         POP AF
+; ----------------------------------------------------------------------
+; STMT_LET_1 -- typed-store entry: recover the target address from the stack and coerce/store the value.
+;   In:        A = target value type (VALTYP code); top of stack = target storage address; FAC/FAC_DBL = evaluated value with its own VALTYP.
+;   Out:       value coerced to the target type and copied into the target cell; the assignment stack frame popped; RET.
+;   Clobbers:  A, B, C, D, E, H, L, flags, FAC, VALTYP.
+;   Algorithm: EX (SP),HL brings the target address into HL. If the current VALTYP already equals the target type (A), skip coercion; otherwise FRMEVL_APPLY_OP converts (it dispatches OPERATOR_ROUTINE_TBL[A&7]). Select FAC (int/single) or FAC_DBL (double, VALTYP>=5) as the source, run the string-descriptor copy decision, then FP_MOVE_TYPED moves the bytes. Shared by STMT_LET and the LINE INPUT# store at STMT_DATA_4.
+; ----------------------------------------------------------------------
 STMT_LET_1:
+        ; bring the saved target storage address into HL
         EX (SP),HL
 STMT_LET_2:
         LD B,A
         LD A,(VALTYP)
+        ; if the evaluated VALTYP already matches the target type, skip the coercion call
         CP B
         LD A,B
         JR Z,STMT_LET_4
+        ; coerce the value to the target's type (dispatch OPERATOR_ROUTINE_TBL[A&7])
         CALL FRMEVL_APPLY_OP
 STMT_LET_3:
         LD A,(VALTYP)
@@ -3317,8 +3644,16 @@ STMT_LET_4:
         CP $05
         JR C,STMT_LET_5
         LD DE,FAC_DBL
+; ----------------------------------------------------------------------
+; STMT_LET_5 -- string-vs-scalar store dispatch: route a string assignment through descriptor management, scalars through a direct copy.
+;   In:        A = target value type; DE = source FAC base (FAC or FAC_DBL); HL/stack = target address.
+;   Out:       for VT_STR, the source string is aliased or copied and its descriptor stored; for scalars, falls to STMT_LET_8 for a plain typed copy.
+;   Clobbers:  A, B, C, D, E, H, L, flags, the temp string-descriptor stack.
+;   Algorithm: PUSH the target address. If VALTYP != VT_STR ($03), JR to STMT_LET_8 (scalar copy). Otherwise read the source string descriptor's data pointer (DE) and order it against three pointers via CMP_HL_DE. [RE] alias (no copy, STMT_LET_7) when the string body sits in the program/variable/array region -- roughly TXTTAB <= DE <= STREND (or the DSCTMP working cell); copy via STR_BUILD_FROM_DESC (STMT_LET_6 path) when DE is BELOW TXTTAB (the volatile direct-mode/input buffer) or in the high temporary string heap (DE above that range). NOTE: the exact boundary semantics of the three compares (TXTTAB / STREND / DSCTMP) are only partly understood; the alias-vs-copy direction stated here is taken from the branch targets, but a precise 'which region is which' mapping is UNKNOWN.
+; ----------------------------------------------------------------------
 STMT_LET_5:
         PUSH HL
+        ; string target takes the descriptor-management path; scalars fall through to the plain typed copy
         CP VT_STR
         JR NZ,STMT_LET_8
         LD HL,(FAC)
@@ -3327,9 +3662,11 @@ STMT_LET_5:
         LD E,(HL)
         INC HL
         LD D,(HL)
+        ; first bound: a source string at/below program start (the volatile input buffer) must be copied, not aliased
         LD HL,(TXTTAB)
         CALL CMP_HL_DE
         JR NC,STMT_LET_6+1
+        ; second bound: a string inside the program/variable/array area is stable and can be aliased without copying
         LD HL,(STREND)
         CALL CMP_HL_DE
         POP DE
@@ -3337,22 +3674,51 @@ STMT_LET_5:
         LD HL,DSCTMP
         CALL CMP_HL_DE
         JR NC,STMT_LET_7
-; [RE] Stack-balancing entry skip. STMT_LET_6 ($362F) is entered by fall-through and runs LD A,$D1 (A=flag for FREE_TOP_TEMP_DESCR). The first range compare jumps JR NC,STMT_LET_6+1 ($3630), where the $D1 immediate decodes as POP DE, discarding the pointer PUSHed at $3611 (the POP DE at $3624 was skipped on that branch) before the shared CALL FREE_TOP_TEMP_DESCR. (MBASIC labels the same site STMT_LET_7+1.)
+; ----------------------------------------------------------------------
+; STMT_LET_6 -- materialise a string value into owned heap before storing, with a coded-overlap dual entry.
+;   In:        DE = source string descriptor data pointer; on the fall-through entry the source pointer pushed at $3611 has already been POPped at $3624 (stack balanced); on the +1 entry it has not.
+;   Out:       a heap-resident copy of the string built (STR_BUILD_FROM_DESC); falls into STMT_LET_7 to free the temp descriptor and store.
+;   Clobbers:  A, D, E, H, L, flags, heap allocation pointers.
+;   Algorithm: On fall-through, LD A,$D1 executes as a harmless instruction (the value loaded into A is a don't-care -- FREE_TOP_TEMP_DESCR takes its candidate descriptor in DE, not A). When entered at STMT_LET_6+1 (JR NC at the TXTTAB compare), the same $D1 byte instead decodes as POP DE, discarding the source pointer that the matching POP DE at $3624 did not consume on that branch -- a pure stack-balancing coded overlap. Either way STR_BUILD_FROM_DESC then copies the string body into freshly allocated heap before the shared free-and-store tail.
+; ----------------------------------------------------------------------
 STMT_LET_6:
         LD A,$D1
         CALL FREE_TOP_TEMP_DESCR
         EX DE,HL
+        ; copy the source string body into freshly owned heap so the variable does not alias volatile/temp space
         CALL STR_BUILD_FROM_DESC
+; ----------------------------------------------------------------------
+; STMT_LET_7 -- common string-store tail: release the temporary string descriptor and recover the target address.
+;   In:        the evaluated string descriptor live; target address one level down the stack.
+;   Out:       top temp descriptor freed (if it matches); target address restored into HL; falls into STMT_LET_8 to copy the descriptor.
+;   Clobbers:  A, D, E, H, L, flags, temp-descriptor stack.
+;   Algorithm: FREE_TOP_TEMP_DESCR pops the just-consumed temporary string descriptor off the TEMPPT stack (if DE matches the top), EX (SP),HL recovers the target variable address, then STMT_LET_8 copies the now-stable descriptor bytes into the variable.
+; ----------------------------------------------------------------------
 STMT_LET_7:
         CALL FREE_TOP_TEMP_DESCR
         EX (SP),HL
+; ----------------------------------------------------------------------
+; STMT_LET_8 -- final typed copy of the value into the target variable.
+;   In:        HL = target storage address; DE = source FAC/descriptor base; VALTYP = byte width.
+;   Out:       VALTYP bytes copied into the target; the two pushed stack words popped; RET to the executor.
+;   Clobbers:  A, B, D, E, H, L, flags.
+;   Algorithm: FP_MOVE_TYPED copies VALTYP bytes from DE to HL (2/3/4/8 for int / string-descriptor / single / double), then POP DE / POP HL unwinds the assignment frame and returns.
+; ----------------------------------------------------------------------
 STMT_LET_8:
+        ; copy VALTYP bytes (the value, or its 3-byte string descriptor) into the target variable
         CALL FP_MOVE_TYPED
         POP DE
         POP HL
         RET
-; [RE] ON statement handler (token $95): ON..GOTO/GOSUB/ERROR computed branch (CP $A4 tests for ERROR).
+; ----------------------------------------------------------------------
+; STMT_ON -- ON statement handler (token $95): dispatches ON ERROR GOTO <line> and ON <expr> GOTO/GOSUB <list>.
+;   In:        HL -> text after the ON token; A = the char already fetched (CP $A4 tests for the ERROR keyword).
+;   Out:       ON ERROR: ON_ERROR_LINE set to the handler line's BASLINE pointer (0 disables the trap); ON <expr> GOTO/GOSUB: control transferred to the Nth line in the list (or fall through to the next statement if N exceeds the list).
+;   Clobbers:  A, B, C, D, E, H, L, flags; ON_ERROR_LINE, ERRFLG.
+;   Algorithm: If the next token is ERROR ($A4): consume it, SYNCHR the GOTO token, LINGET the handler line number; if 0, skip FNDLIN (disable); else FNDLIN_FROM_TEXT resolves it to a BASLINE pointer (not found -> Undefined Line). STMT_ON_1 stores it into ON_ERROR_LINE and, if a handler was already active (ONEFLG) with an armed code (ERRFLG), re-dispatches through ERROR_PRINT_SETUP. Otherwise (ON <expr> GOTO/GOSUB): STMT_ON_2 evaluates the selector with GETBYT and walks the comma-separated line list, taking the Nth line as the GOTO/GOSUB target via NEWSTT_DISPATCH.
+; ----------------------------------------------------------------------
 STMT_ON:
+        ; ON ERROR vs ON <expr>: $A4 is the ERROR keyword token
         CP $A4
         JR NZ,STMT_ON_2
         CALL CHRGET
@@ -3362,27 +3728,47 @@ STMT_ON:
         LD A,D
         OR E
         JR Z,STMT_ON_1
+        ; resolve the ON ERROR handler line number to its BASLINE pointer
         CALL FNDLIN_FROM_TEXT
         LD D,B
         LD E,C
         POP HL
         JP NC,ERROR_UL
+; ----------------------------------------------------------------------
+; STMT_ON_1 -- ON ERROR arm/re-dispatch tail.
+;   In:        HL = resolved handler BASLINE pointer (or 0); carry set when disabling (line 0); ONEFLG/ERRFLG reflect any pending error.
+;   Out:       ON_ERROR_LINE updated; if a handler was active with a code armed, JP ERROR_PRINT_SETUP to run it; else RET.
+;   Clobbers:  A, D, E, H, L, flags.
+;   Algorithm: Store HL into ON_ERROR_LINE. RET C when disabling. If ONEFLG is zero (no error currently being handled) RET (A=E preserved). Otherwise load the saved code from ERRFLG into E and JP ERROR_PRINT_SETUP so the freshly-set handler takes effect at once.
+; ----------------------------------------------------------------------
 STMT_ON_1:
         EX DE,HL
+        ; arm (or, if 0, disable) the error-trap target line
         LD (ON_ERROR_LINE),HL
         EX DE,HL
         RET C
+        ; if an error is currently being handled, the new ON ERROR target takes effect immediately
         LD A,(ONEFLG)
         OR A
         LD A,E
         RET Z
         LD A,(ERRFLG)
         LD E,A
+        ; re-enter the error dispatcher with the armed code so the handler runs
         JP ERROR_PRINT_SETUP
+; ----------------------------------------------------------------------
+; STMT_ON_2 -- ON <expr> GOTO/GOSUB selector and list walk.
+;   In:        HL -> text at the selector expression; the GOTO ($89) or GOSUB ($8D) token follows it.
+;   Out:       transfers to the Nth line of the list via NEWSTT_DISPATCH, or RETs (falls to the next statement) if the selector exceeds the list length.
+;   Clobbers:  A, B, C, D, E, H, L, flags.
+;   Algorithm: GETBYT evaluates the selector (returned in A=E). Save the following token in B; if it is GOSUB ($8D) accept it directly (JR Z,STMT_ON_3), otherwise SYNCHR-require GOTO ($89). STMT_ON_3/_4: set C = selector and DEC C each entry; when C reaches zero, JP NEWSTT_DISPATCH with A = B (the GOTO/GOSUB token) so the located line is taken. Each iteration LINGET_NEXT reads a line number and a ',' must follow (RET if not -- the list ran out before the selector, so the statement is a no-op).
+; ----------------------------------------------------------------------
 STMT_ON_2:
+        ; evaluate the ON selector (1-based index into the line list)
         CALL GETBYT
         LD A,(HL)
         LD B,A
+        ; $8D is GOSUB: accept it directly; otherwise require GOTO ($89) via SYNCHR
         CP $8D
         JR Z,STMT_ON_3
         CALL SYNCHR
@@ -3391,6 +3777,7 @@ STMT_ON_2:
 STMT_ON_3:
         LD C,E
 STMT_ON_4:
+        ; count down to the selected list entry; zero => take this line as the GOTO/GOSUB target
         DEC C
         LD A,B
         JP Z,NEWSTT_DISPATCH
@@ -3398,25 +3785,41 @@ STMT_ON_4:
         CP $2C
         RET NZ
         JR STMT_ON_4
-; [RE] RESUME statement handler (token $A5): return from an ON ERROR handler (RESUME/RESUME NEXT/RESUME line).
+; ----------------------------------------------------------------------
+; STMT_RESUME -- RESUME statement handler (token $A5): leave an active ON ERROR handler and resume execution (RESUME, RESUME NEXT, or RESUME <line>).
+;   In:        HL -> text after the RESUME token; ONEFLG nonzero (a handler is running); ERR_SAVTXT/RESUME_TXTPTR hold the error-time text pointers.
+;   Out:       execution resumed: at the offending statement (plain RESUME, via the RET NZ in STMT_RESUME_2 to RESUME_TXTPTR), at the statement after it (RESUME NEXT), or at <line> (RESUME <line> -> STMT_GOTO_1); ERRFLG/ONEFLG updated; SAVTXT reloaded from ERR_SAVTXT.
+;   Clobbers:  A, D, E, H, L, flags; ERRFLG, ONEFLG, SAVTXT.
+;   Algorithm: If ONEFLG is 0 there is no error to resume -> RAISE_RESUME_WITHOUT_ERROR. Otherwise INC A and store the result into both ERRFLG and ONEFLG (mark the handler exited). If the next token is NEXT ($83) -> STMT_RESUME_1 (RESUME NEXT). Else LINGET a line number: if nonzero, RESUME <line> -> STMT_GOTO_1; if absent (plain RESUME) INC A (force NZ) and join STMT_RESUME_2. STMT_RESUME_2 reloads SAVTXT from ERR_SAVTXT and, on NZ (plain RESUME), RETs immediately so execution restarts at RESUME_TXTPTR (the exact offending statement); on Z (RESUME NEXT) it falls into the line/statement-advance code and STMT_RESUME_3 -> JP STMT_DATA.
+; ----------------------------------------------------------------------
 STMT_RESUME:
         LD DE,ONEFLG
         LD A,(DE)
         OR A
+        ; RESUME outside an active error handler is an error
         JP Z,RAISE_RESUME_WITHOUT_ERROR
         INC A
         LD (ERRFLG),A
         LD (DE),A
         LD A,(HL)
+        ; RESUME NEXT (token $83 = NEXT): resume at the statement AFTER the one that failed
         CP $83
         JR Z,STMT_RESUME_1
         CALL LINGET
         RET NZ
         LD A,D
         OR E
+        ; RESUME <line>: transfer like GOTO to the given line
         JP NZ,STMT_GOTO_1
         INC A
         JR STMT_RESUME_2
+; ----------------------------------------------------------------------
+; STMT_RESUME_1 -- RESUME NEXT branch.
+;   In:        HL -> the NEXT token ($83) just matched at STMT_RESUME.
+;   Out:       CHRGET past it; RET NZ if non-end-of-statement junk follows; else falls into STMT_RESUME_2 with Z set, so the resume positions at the statement following the error.
+;   Clobbers:  A, HL, flags.
+;   Algorithm: Consume the NEXT keyword and verify end-of-statement, then join the common resume-pointer reload (the Z flag from this CHRGET drives STMT_RESUME_2's RET NZ test).
+; ----------------------------------------------------------------------
 STMT_RESUME_1:
         CALL CHRGET
         RET NZ
@@ -3434,48 +3837,82 @@ STMT_RESUME_2:
         INC HL
         INC HL
         INC HL
+; ----------------------------------------------------------------------
+; STMT_RESUME_3 -- RESUME NEXT statement-advance tail: position the text pointer at the statement after the error and re-enter execution.
+;   In:        HL = RESUME_TXTPTR (error-time cursor); reached only on the RESUME NEXT path (the RET NZ in STMT_RESUME_2 already returned plain RESUME). SAVTXT was reloaded from ERR_SAVTXT in STMT_RESUME_2.
+;   Out:       HL stepped over the rest of the failed statement (and, when the error was at end-of-line, over the next BASLINE's 4-byte link+linenum header), then JP STMT_DATA scans to the next statement boundary so the executor continues there.
+;   Clobbers:  A, H, L, flags.
+;   Algorithm: If (HL) is nonzero the error was mid-line, so a single INC HL then JP STMT_DATA skips to the next ':'/end. If (HL) is $00 (error at end of its line), four INC HL skip the next line's BASLINE header (link word + line-number word) before STMT_RESUME_3's INC HL and JP STMT_DATA, restarting at that next line. [RE] the precise byte counts were read from the code; the line-crossing case is the RESUME-NEXT-at-end-of-line path.
+; ----------------------------------------------------------------------
 STMT_RESUME_3:
         INC HL
+        ; scan to the next statement boundary, then the executor continues from there
         JP STMT_DATA
-; [RE] ERROR statement handler (token $A4): force the given error code through the ERROR handler.
+; ----------------------------------------------------------------------
+; STMT_ERROR -- ERROR statement handler (token $A4): raise the user-specified error code through the normal error machinery.
+;   In:        HL -> text after the ERROR token; the operand is a byte expression (the error code).
+;   Out:       does not return normally: JP RAISE_ERROR with the code in E (GETBYT leaves A=E), or JP ERROR_FC if the code is 0.
+;   Clobbers:  A, E, flags (then control leaves via RAISE_ERROR/ERROR_FC).
+;   Algorithm: GETBYT evaluates the code into A (=E); RET NZ rejects trailing junk; code 0 is itself illegal (JP ERROR_FC, Illegal Function Call); otherwise JP RAISE_ERROR to report/trap exactly as if BASIC had raised that error -- how programs simulate or re-raise errors.
+; ----------------------------------------------------------------------
 STMT_ERROR:
+        ; evaluate the ERROR statement's code operand into A (=E)
         CALL GETBYT
         RET NZ
         OR A
         JP Z,ERROR_FC
+        ; drive the code (in E) through the normal error dispatcher (ON ERROR trap or '?... Error' report)
         JP RAISE_ERROR
-; [RE] Parse an optional line-number range (default span $000A) via LINGET_DOT/LINGET, store the start/end pointers into the continue/trace cells $0B5A/$0B57/$0B58, then JP $0E3E to re-enter the NEWSTT main loop at that line.
-SCAN_LINE_RANGE_RESUME:
+; ----------------------------------------------------------------------
+; STMT_AUTO -- AUTO command handler (token $A7): begin auto line-numbering for program entry.
+;   In:        HL -> text after the AUTO token. Operands: optional start line and optional ',' increment. Z (from the dispatcher's CHRGET) indicates AUTO with no arguments.
+;   Out:       AUTLIN = starting line number, AUTINC = increment (default 10 / $000A), AUTFLG set nonzero (auto mode on); then JP DIRECT_LINE_DISPATCH to re-enter the line-input loop pre-numbered.
+;   Clobbers:  A, B, C, D, E, H, L, flags; AUTLIN, AUTINC, AUTFLG.
+;   Algorithm: Push the default increment $000A. With no start, jump straight to the store. Otherwise LINGET_DOT parses the start ('.' = current line) into HL and swaps it onto the stack; an optional ',' (SYNCHR ',') then introduces an explicit increment via LINGET (default kept = the prior AUTINC). A zero start or increment is rejected (ERROR_FC). Store AUTINC, set AUTFLG nonzero, POP the start into AUTLIN, discard the caller return (POP BC), then JP DIRECT_LINE_DISPATCH so subsequent input lines are auto-numbered. This is the AUTO command, not a RESUME/line-scan helper.
+; ----------------------------------------------------------------------
+STMT_AUTO:
+        ; default AUTO increment = 10
         LD DE,$000A
         PUSH DE
-        JR Z,SCAN_LINE_RANGE_RESUME_1
+        JR Z,STMT_AUTO_1
+        ; parse the optional starting line number ('.' = current line)
         CALL LINGET_DOT
         EX DE,HL
         EX (SP),HL
-        JR Z,SCAN_LINE_RANGE_RESUME_2
+        JR Z,STMT_AUTO_2
         EX DE,HL
         CALL SYNCHR
+        ; an optional comma introduces an explicit increment
         DEFB    ','                      ; inline char arg consumed by the preceding CALL
         EX DE,HL
         LD HL,(AUTINC)
         EX DE,HL
-        JR Z,SCAN_LINE_RANGE_RESUME_1
+        JR Z,STMT_AUTO_1
         CALL LINGET
         JP NZ,RAISE_SYNTAX_ERROR
-SCAN_LINE_RANGE_RESUME_1:
+STMT_AUTO_1:
         EX DE,HL
-SCAN_LINE_RANGE_RESUME_2:
+STMT_AUTO_2:
         LD A,H
         OR L
         JP Z,ERROR_FC
         LD (AUTINC),HL
+        ; turn AUTO line-numbering mode on (A = nonzero increment)
         LD (AUTFLG),A
         POP HL
         LD (AUTLIN),HL
         POP BC
+        ; re-enter the interactive line-input loop, now issuing auto line numbers
         JP DIRECT_LINE_DISPATCH
-; [RE] IF statement handler: evaluate the condition via FRMEVL, skip an optional ',' and the THEN/GOTO token; if true, a following line-number token ($0E) means GOTO (JP STMT_GOTO) else execute the THEN clause via NEWSTT_DISPATCH; if false, scan forward over the matching ELSE ($9E) depth (STMT_IF_4) to the alternate/next line.
+; ----------------------------------------------------------------------
+; STMT_IF -- IF statement handler (token $8B): evaluate the condition and branch to the THEN clause, an ELSE clause, or the next line.
+;   In:        HL -> text after the IF token (the condition expression).
+;   Out:       if true, executes the THEN clause (GOTO a line, a pre-resolved line, or inline statements); if false, scans forward past the matching ELSE (honouring nested IF/ELSE depth) to the alternate clause or end of line.
+;   Clobbers:  A, B, C, D, E, H, L, flags, FAC.
+;   Algorithm: FRMEVL_NOPAREN evaluates the condition into FAC. Skip an optional ','; if the following token is GOTO ($89) go to STMT_IF_1, else SYNCHR-require THEN. STMT_IF_1 tests the condition with FP_TEST_SIGN: nonzero (true) -> STMT_IF_2 runs the consequent; zero (false) -> STMT_IF_3/_4 scan forward via STMT_DATA to the matching ELSE ($9E), using D as the IF-nesting depth so a nested IF's ELSE is not mistaken for ours.
+; ----------------------------------------------------------------------
 STMT_IF:
+        ; evaluate the IF condition into FAC
         CALL FRMEVL_NOPAREN
         LD A,(HL)
         CP $2C
@@ -3485,35 +3922,69 @@ STMT_IF:
         CALL SYNCHR
         DEFB    TOK_THEN                 ; inline keyword-token arg consumed by the preceding CALL
         DEC HL
+; ----------------------------------------------------------------------
+; STMT_IF_1 -- IF condition-test entry (after the THEN/GOTO token consumed).
+;   In:        HL -> the consequent text; FAC = condition value.
+;   Out:       Z reflects the condition (Z = false); HL preserved; branches to STMT_IF_3 on false, falls into STMT_IF_2 on true.
+;   Clobbers:  A, flags (HL saved/restored across the test).
+;   Algorithm: PUSH/POP HL around FP_TEST_SIGN so the consequent pointer survives the floating-point sign test.
+; ----------------------------------------------------------------------
 STMT_IF_1:
         PUSH HL
+        ; test the condition: nonzero = true (run THEN), zero = false (skip to ELSE/next line)
         CALL FP_TEST_SIGN
         POP HL
         JR Z,STMT_IF_3
+; ----------------------------------------------------------------------
+; STMT_IF_2 -- execute the true (THEN) clause.
+;   In:        HL -> consequent text (after THEN/GOTO).
+;   Out:       transfers to the THEN target: GOTO a line ($0E line-number token), resume an already-resolved line ($0D cached-pointer token), or execute inline statements via NEWSTT_DISPATCH; RET on end-of-line.
+;   Clobbers:  A, H, L, flags.
+;   Algorithm: CHRGET the first consequent char. End-of-line -> RET. $0E (a 2-byte line-number constant token) -> JP STMT_GOTO ('IF c THEN 100'). If not $0D -> JP NEWSTT_DISPATCH (inline statement list). If $0D (a line reference already resolved to a cached BASLINE node pointer) -> LD HL,(CONST_VALUE) and RET, so the caller resumes at that pre-resolved node like a fast GOTO.
+; ----------------------------------------------------------------------
 STMT_IF_2:
         CALL CHRGET
         RET Z
+        ; 'THEN <line-number>' shorthand ($0E line-number token) -> treat as GOTO
         CP $0E
         JP Z,STMT_GOTO
         CP $0D
+        ; not a line reference: the THEN clause is an inline statement list -> execute it
         JP NZ,NEWSTT_DISPATCH
         LD HL,(CONST_VALUE)
         RET
 STMT_IF_3:
         LD D,$01
+; ----------------------------------------------------------------------
+; STMT_IF_4 -- false-branch skip: scan forward to the matching ELSE (or end of line), honouring nested IF/ELSE depth.
+;   In:        D = nesting depth counter (1 on entry from STMT_IF_3); HL -> text to scan.
+;   Out:       on finding the matching-depth ELSE, joins STMT_IF_2 to run the ELSE clause; if end-of-line is reached first, RET (fall through to the next line).
+;   Clobbers:  A, B, C, D, H, L, flags.
+;   Algorithm: CALL STMT_DATA skips a statement's worth of text (and, via STMT_DATA's IF-counter, increments D for each nested IF token encountered). At end-of-line (A=0) RET. CHRGET the terminator; an ELSE ($9E) decrements D -- depth 0 means this ELSE pairs with our IF, so jump to STMT_IF_2 to execute the ELSE clause; otherwise keep scanning so inner ELSEs are skipped.
+; ----------------------------------------------------------------------
 STMT_IF_4:
+        ; skip one statement's worth of text (which also counts nested IF tokens into D) while hunting for our ELSE
         CALL STMT_DATA
         OR A
         RET Z
         CALL CHRGET
+        ; an ELSE at matching nesting depth pairs with this IF -> run the ELSE clause
         CP TOK_ELSE
         JR NZ,STMT_IF_4
+        ; track IF/ELSE nesting so a nested IF's ELSE is not mistaken for ours
         DEC D
         JR NZ,STMT_IF_4
         JR STMT_IF_2
-; [RE] LPRINT statement handler (token $9B): PRINT directed to the line printer; falls into the shared PRINT engine.
+; ----------------------------------------------------------------------
+; STMT_LPRINT -- LPRINT statement handler (token $9B): direct PRINT output to the line printer, then fall into the shared PRINT engine.
+;   In:        HL -> text after the LPRINT token (the print list).
+;   Out:       PRTFLG set to 1 (route output to the printer); JP STMT_PRINT_1 to run the common print-list walker (skipping the file-number parse).
+;   Clobbers:  A; PRTFLG.
+;   Algorithm: Set PRTFLG=1 so OUTCHR sends to the printer device, then join STMT_PRINT_1. LPRINT is PRINT with the printer flag set; PRTFLG is cleared again by the PRINT epilogue when the statement finishes.
+; ----------------------------------------------------------------------
 STMT_LPRINT:
         LD A,$01
+        ; route output to the line printer, then run the shared PRINT engine
         LD (PRTFLG),A
         JP STMT_PRINT_1
 ; PRINT statement engine (shared by PRINT/LPRINT/PRINT#): walk the print list emitting expressions, honour ',' tab zones and ';' (no-space), TAB($E8)/SPC($DF)/USING($E3) functions, and emit CRLF unless suppressed; column tracking via $0837/$0B11.
@@ -3598,7 +4069,7 @@ STMT_PRINT_7:
         LD A,(PRTFLG)
         OR A
         JR Z,STMT_PRINT_8
-        LD A,(L_0839)
+        LD A,(LPRINT_ZONE_WIDTH)
         LD B,A
         INC A
         LD A,(OUTPUT_COLUMN)
@@ -3706,27 +4177,39 @@ PRINT_RESET_STATE:
         LD (PTRFIL),HL
         POP HL
         RET
-; [RE] LINE statement handler (token $AD): LINE INPUT (read a whole console line into a string).
+; ----------------------------------------------------------------------
+; STMT_LINE -- LINE INPUT statement handler (token LINE, $AD): read one whole console line (or one whole file line) verbatim into a single string variable.
+;   In:        HL -> program text just past the LINE token (the next token must be INPUT). A = current char.
+;   Out:       The destination string variable is assigned the entire typed/read line as a string (VALTYP=VT_STR). On an aborted console read (INLIN returns carry) control diverts to STMT_END_2+1 (statement ends with the break flag, value unset). HL advanced past the statement.
+;   Clobbers:  AF, BC, DE, HL; the leading-';' flag L_0C93 (via INPUT_PROMPT_SEP) and CTRL_O_SUPPRESS/L_0C94 (via INPUT_PROMPT); the target variable's value.
+;   Algorithm: SYNCHR-assert the INPUT keyword follows LINE (the inline DEFB TOK_INPUT is the token CALL SYNCHR consumes). If the next char is '#' ($23) this is LINE INPUT# -> JP LINE_INPUT_FILE. Otherwise: INPUT_PROMPT_SEP records an optional leading ';' (sets L_0C93 to suppress the closing CR/LF), INPUT_PROMPT emits an optional quoted prompt, PTRGET resolves the target variable and REQUIRE_STRING checks it is a string. Save var ptr + text ptr, INLIN reads one edited console line into BUF; a carry return (Ctrl-C / aborted) jumps to STMT_END_2+1. Then SCAN_STR_TERM with B=0 (so SCAN_STR_TERM's LD D,B leaves D=0 too -> stops only at the line's NUL) builds a STRDESC spanning the whole line, and JP STMT_LET_1 with A=VT_STR=3 assigns it to the variable.
+; ----------------------------------------------------------------------
 STMT_LINE:
         CALL SYNCHR
         DEFB    TOK_INPUT                ; inline keyword-token arg consumed by the preceding CALL
+        ; LINE INPUT#: a '#' here means read from a file, not the console -- hand off to the file path
         CP $23
         JP Z,LINE_INPUT_FILE
+        ; record an optional leading ';' (it sets L_0C93 to suppress the closing CR/LF), then INPUT_PROMPT emits the optional quoted prompt
         CALL INPUT_PROMPT_SEP
         CALL INPUT_PROMPT
+        ; resolve the destination variable; REQUIRE_STRING then rejects a numeric target (LINE INPUT only stores strings)
         CALL PTRGET_1+1
         CALL REQUIRE_STRING
         PUSH DE
         PUSH HL
+        ; read one fully-edited console line into BUF; carry on return means the input was aborted (Ctrl-C) -> end the statement
         CALL INLIN
         POP DE
         POP BC
         JP C,STMT_END_2+1
         PUSH BC
         PUSH DE
+        ; B=0 (and so D=0 inside SCAN_STR_TERM): no extra delimiter, capture the whole line up to its NUL as one string field
         LD B,$00
         CALL SCAN_STR_TERM
         POP HL
+        ; assign the captured line (VALTYP=VT_STR=3) to the variable via the LET store tail
         LD A,$03
         JP STMT_LET_1
 ; INPUT error literal "?Redo from start" + CR/LF; STROUT'd by the INPUT re-prompt path (STMT_LINE_2) when the user's typed reply does not parse. The INPUT value-parse code follows the $00 terminator.
@@ -3734,52 +4217,102 @@ MSG_REDO_FROM_START:
         DEFB    "?Redo from start"       ; string
         DEFB    $0D                      ; terminator
         DEFB    "\n\0"
+; ----------------------------------------------------------------------
+; STMT_LINE_1 -- skip a quoted-string literal embedded in the INPUT variable list's array-subscript expression (in the PROGRAM text), then rejoin the paren-balancing subscript scan.
+;   In:        HL -> the opening '"' of a quoted literal inside a subscript expression in the crunched program text (entered from INPUT_PROMPT_8 on CP $22 while it is walking the parenthesized subscript that follows an array variable in the INPUT list). [RE]
+;   Out:       HL advanced to the closing '"'; control returns to INPUT_PROMPT_8 (via JP) to continue the subscript scan. A NUL before the closing quote raises Syntax error.
+;   Clobbers:  AF, HL.
+;   Algorithm: Walk forward (INC HL / LD A,(HL)) over the quoted-string body verbatim. A NUL ($00) before the close means the program text is malformed -> JP RAISE_SYNTAX_ERROR. On the matching '"' ($22) JP INPUT_PROMPT_8 (a backward jump -- INPUT_PROMPT_8 sits physically above this routine) to resume balancing parens of the subscript.
+; ----------------------------------------------------------------------
 STMT_LINE_1:
         INC HL
         LD A,(HL)
         OR A
+        ; unterminated quoted literal inside the subscript expression -> Syntax error
         JP Z,RAISE_SYNTAX_ERROR
         CP $22
+        ; skip the quoted-string body verbatim until its closing quote
         JR NZ,STMT_LINE_1
         JP INPUT_PROMPT_8
 STMT_LINE_2:
         POP HL
         POP HL
         JP STMT_LINE_4
+; ----------------------------------------------------------------------
+; STMT_LINE_3 -- malformed READ/INPUT field fork: route the error to either the program-DATA error path (READ) or the console re-prompt (INPUT).
+;   In:        L_0B53 = source flag (0 = console INPUT, nonzero = program DATA/READ). Stack holds the saved INPUT/READ context (consumed by STMT_LINE_4's POP).
+;   Out:       READ case: JP CONT_RESUME_RESTORE, which re-points SAVTXT at the saved DATA line then falls into RAISE_SYNTAX_ERROR (so the Syntax error is reported against the DATA line). INPUT case: falls into STMT_LINE_4 to print '?Redo from start' and re-enter the INPUT statement.
+;   Clobbers:  AF (READ path continues into the error machinery).
+;   Algorithm: Read L_0B53; if nonzero (a READ of program DATA produced a bad value) JP CONT_RESUME_RESTORE, which loads DATA_LINE_TXTPTR into SAVTXT and raises Syntax error so the message blames the DATA line. If zero (console INPUT) fall through to STMT_LINE_4, the '?Redo from start' re-prompt.
+; ----------------------------------------------------------------------
 STMT_LINE_3:
         LD A,(L_0B53)
         OR A
+        ; a bad value came from program DATA: re-point SAVTXT at the DATA line so the Syntax error blames it, then raise
         JP NZ,CONT_RESUME_RESTORE
+; ----------------------------------------------------------------------
+; STMT_LINE_4 -- INPUT re-prompt: print '?Redo from start' and re-execute the INPUT statement from its start.
+;   In:        Stack top = the saved INPUT context word (discarded). OLDTXT = text pointer to the start of the current statement.
+;   Out:       MSG_REDO_FROM_START printed via STROUT; HL := OLDTXT; RET (so the interpreter re-runs the INPUT statement, re-reading the line).
+;   Clobbers:  AF, BC, HL.
+;   Algorithm: POP the stale context word, STROUT the '?Redo from start' message, load HL from OLDTXT (the statement's start) and RET -- the statement is then re-entered so the user re-types the reply.
+; ----------------------------------------------------------------------
 STMT_LINE_4:
         POP BC
         LD HL,MSG_REDO_FROM_START
         CALL STROUT
         LD HL,(OLDTXT)
         RET
+; ----------------------------------------------------------------------
+; STMT_LINE_5 -- INPUT# entry: read fields from a file (rather than the console) into the variable list.
+;   In:        HL -> the '#' of an INPUT# statement (STMT_INPUT jumped here on CP $23).
+;   Out:       PTRFIL selected to the named file's FCB; control enters the shared field-binding tail seeded with the in-image fixed ',' at L_0A0D (so the first field reads as if a separator preceded it).
+;   Clobbers:  AF, BC, DE, HL; PTRFIL.
+;   Algorithm: GET_FILENUM_PREFIX_C1 parses the '#file,' channel prefix (requiring sequential-input mode, though a RANDOM file is also tolerated) and sets PTRFIL to that file's FCB. Push the text pointer, point HL at the fixed comma byte L_0A0D (a constant ',' that primes the field scanner), and JP INPUT_PROMPT_12, which stores ',' there and joins STMT_READ_1+1 -- the shared READ/INPUT variable walk -- now sourcing characters from the file because PTRFIL is nonzero.
+; ----------------------------------------------------------------------
 STMT_LINE_5:
+        ; parse the '#file,' prefix (default/required mode = sequential input; RANDOM also accepted) and select it via PTRFIL
         CALL GET_FILENUM_PREFIX_C1
         PUSH HL
         LD HL,BUF_INPUT_RESET_PTR
         JP INPUT_PROMPT_12
-; [RE] INPUT statement handler (token $85): prompt + read console line, parse values into the variable list.
+; ----------------------------------------------------------------------
+; STMT_INPUT -- INPUT statement handler (token INPUT, $85): emit an optional prompt, read one console line, then parse comma-separated fields into the variable list.
+;   In:        HL -> program text just past the INPUT token. A = current char.
+;   Out:       Each named variable receives its parsed field (numeric via FIN, string via SCAN_STR_BODY). On a short/over-long reply the user is re-prompted ('?Redo from start'); on Ctrl-C the statement aborts via STMT_END_2+1. HL advanced past the statement.
+;   Clobbers:  AF, BC, DE, HL; L_0C93/L_0C94/CTRL_O_SUPPRESS/L_0B53 and the assigned variables.
+;   Algorithm: If the next char is '#' ($23) this is INPUT# -> JP STMT_LINE_5 (file path). Otherwise INPUT_PROMPT_SEP records an optional leading ';' (CR/LF-suppress, in L_0C93), then push INPUT_EMIT_PROMPT as the continuation and fall into INPUT_PROMPT. INPUT_PROMPT parses/emits the optional quoted prompt and sets L_0C94 (whether the automatic '? ' marker is shown); INPUT_EMIT_PROMPT then emits the marker, reads the line and drives the value-parse loop.
+; ----------------------------------------------------------------------
 STMT_INPUT:
         CP $23
+        ; INPUT#: '#' means read fields from a file instead of the console
         JP Z,STMT_LINE_5
         CALL INPUT_PROMPT_SEP
+        ; queue the line-read+parse continuation to run after the optional prompt string is emitted
         LD BC,INPUT_EMIT_PROMPT
         PUSH BC
-; [RE] INPUT prompt parser: if the next token is '"' read the quoted prompt string and emit it; the following ';' vs ',' sets the suppress-'?'-mark flag ($0C94) and trailing-comma flag ($083F); shared prompt setup before reading the console line.
+; ----------------------------------------------------------------------
+; INPUT_PROMPT -- INPUT/LINE-INPUT prompt parser: emit an optional quoted prompt string and decide whether the automatic '? ' marker is shown.
+;   In:        A = current char; HL -> program text. Reached with INPUT_EMIT_PROMPT (or the LINE INPUT body) queued as the caller.
+;   Out:       CTRL_O_SUPPRESS cleared; L_0C94 = show-'?' flag (preset $FF=show). If a quoted prompt is present it is printed via STRPRT; a following ',' clears L_0C94 (suppress the '?'), a following ';' is required and keeps the '?'. If no quote, RET immediately with the marker enabled.
+;   Clobbers:  AF, HL; CTRL_O_SUPPRESS, L_0C94.
+;   Algorithm: Compare the char to '"' ($22) first; the result is preserved across the next two LDs, which unconditionally clear CTRL_O_SUPPRESS and set L_0C94=$FF (default: show the '? ' marker). RET NZ if there was no quote (plain INPUT with the marker). On a quote, SCAN_STR_QUOTE captures the prompt literal; if the delimiter after it is ',' clear L_0C94 (trailing comma means 'no question mark') and CHRGET past it; otherwise SYNCHR-require ';'. Either way STRPRT prints the prompt string and RET.
+; ----------------------------------------------------------------------
 INPUT_PROMPT:
         CP $22
         LD A,$00
         LD (CTRL_O_SUPPRESS),A
+        ; default: show the automatic '? ' input marker (L_0C94 nonzero); a trailing ',' below will clear it
         LD A,$FF
         LD (L_0C94),A
+        ; no quoted prompt (the saved CP $22 was not equal): plain INPUT, return with the '?' marker enabled
         RET NZ
+        ; capture the quoted prompt literal into a string descriptor
         CALL SCAN_STR_QUOTE
         LD A,(HL)
         CP $2C
         JR NZ,INPUT_PROMPT_2
+        ; prompt followed by ',' -> clear L_0C94 to suppress the automatic '?' marker (PRINT-style prompt)
         XOR A
         LD (L_0C94),A
 INPUT_PROMPT_1:
@@ -3790,6 +4323,7 @@ INPUT_PROMPT_2:
         DEFB    ';'                      ; inline char arg consumed by the preceding CALL
 INPUT_PROMPT_3:
         PUSH HL
+        ; print the prompt string to the console
         CALL STRPRT
         POP HL
         RET
@@ -3803,11 +4337,21 @@ INPUT_EMIT_PROMPT:
         CALL OUTCHR
         LD A,$20
         CALL OUTCHR
+; ----------------------------------------------------------------------
+; INPUT_PROMPT_5 -- read the console reply line and prime the field-parse loop (tail of INPUT_EMIT_PROMPT).
+;   In:        Entered after the optional '? ' marker was emitted; the stack carries the variable-list (program) text pointer pushed at INPUT_EMIT_PROMPT entry.
+;   Out:       INLIN leaves the typed line in BUF NUL-terminated and HL = L_0A0D (the fixed ',' just before BUF); the seed comma is (re)written; the program text pointer is restored and the reply seed ptr is staged on the stack; control falls into INPUT_PARSE_VALUES. A carry from INLIN (Ctrl-C/abort) diverts to STMT_END_2+1.
+;   Clobbers:  AF, BC, DE, HL; BUF / the seed cell L_0A0D.
+;   Algorithm: INLIN reads one edited line into BUF and returns HL = L_0A0D (BUF-1, the fixed leading-comma seed). POP the queued program text pointer; carry => aborted -> JP STMT_END_2+1. Store ',' at L_0A0D (priming the scanner so the first reply field reads as if a separator preceded it -- this is a LEADING seed, not a trailing terminator). Juggle HL/DE so HL -> program (variable-list) text and DE = the reply seed ptr, push the reply seed twice, DEC HL, and fall into INPUT_PARSE_VALUES.
+; ----------------------------------------------------------------------
 INPUT_PROMPT_5:
+        ; read one edited console line into BUF; INLIN returns HL = L_0A0D (the fixed ',' seed just before BUF)
         CALL INLIN
         POP BC
+        ; INLIN carry = input aborted (Ctrl-C) -> end the statement with the break flag set
         JP C,STMT_END_2+1
         PUSH BC
+        ; (re)write the LEADING ',' seed at L_0A0D so the first reply field parses as if a separator preceded it (not a trailing terminator)
         LD (HL),$2C
         EX DE,HL
         POP HL
@@ -3839,25 +4383,45 @@ INPUT_PROMPT_8:
         CP $29
         JR NZ,INPUT_PROMPT_8
         DJNZ INPUT_PROMPT_8
+; ----------------------------------------------------------------------
+; INPUT_PROMPT_9 -- require the variable-list separator after a resolved INPUT target, then scan the next reply field (scan-only validation pass).
+;   In:        HL -> program text after the just-resolved variable (array subscript already skipped via INPUT_PROMPT_7/_8). Stack: parked program-text ptr and reply-buffer ptr.
+;   Out:       Requires a ',' (or end-of-statement) in the PROGRAM text separating variables; switches to the reply buffer, requires a ',' separator before the field there (else '?Redo from start'), then scans/converts the field via STMT_READ_4+1 in scan-only mode and re-checks the validation sentinel; on success falls into INPUT_PROMPT_11.
+;   Clobbers:  AF, BC, DE, HL; L_0CB7.
+;   Algorithm: CHRGET the next PROGRAM char; end-of-statement (Z) or a ',' is required (else Syntax error). EX (SP),HL to switch to the reply buffer: if the reply char is not ',' there are too few values -> STMT_LINE_2 ('?Redo from start'). Set L_0CB7=1 (validation sentinel), CALL STMT_READ_4+1 to scan/convert the field with no store (the +1 entry runs the cover byte as XOR A, clearing L_0C69), then re-read L_0CB7: if it is no longer 1 the field failed to parse -> STMT_LINE_2. On success fall into INPUT_PROMPT_11.
+; ----------------------------------------------------------------------
 INPUT_PROMPT_9:
         CALL CHRGET
         JR Z,INPUT_PROMPT_10
         CP $2C
+        ; variables in the INPUT list must be separated by ',' (or end the statement)
         JP NZ,RAISE_SYNTAX_ERROR
 INPUT_PROMPT_10:
         EX (SP),HL
         LD A,(HL)
         CP $2C
+        ; sentinel no longer 1 => the typed field did not parse -> '?Redo from start'
+        ; reply has no ',' here -> fewer values than variables -> '?Redo from start'
         JP NZ,STMT_LINE_2
+        ; arm the validation sentinel (L_0CB7=1); [RE] for a numeric field FIN's epilogue snapshots L_0CB6 into L_0CB7, so a malformed number leaves it != 1
         LD A,$01
         LD (L_0CB7),A
+        ; scan+convert this reply field WITHOUT assigning (the +1 entry runs the cover byte as XOR A, clearing the store flag L_0C69)
         CALL STMT_READ_4+1
         LD A,(L_0CB7)
         DEC A
         JP NZ,STMT_LINE_2
         PUSH HL
+; ----------------------------------------------------------------------
+; INPUT_PROMPT_11 -- commit the parsed INPUT field, then either bind the next variable, finish, or warn on surplus input.
+;   In:        Stack: parked program-text ptr and reply-buffer ptr. The field value is staged (FAC + VALTYP) from the scan pass.
+;   Out:       If the value is a string its temporary descriptor is resolved (FRESTR); if the PROGRAM text holds another ',' (another variable in the list) loops to INPUT_PARSE_VALUES to bind it; otherwise, if the REPLY still has data, more values were typed than variables -> STMT_LINE_4 ('?Redo from start'); if both are exhausted, falls into INPUT_PROMPT_12 to finish.
+;   Clobbers:  AF, BC, DE, HL.
+;   Algorithm: FRMEVL_TEST_TYPE; if the staged value is a string (Z) CALL FRESTR to resolve its descriptor. Advance the reply pointer past the field, then EX (SP),HL to bring the PROGRAM (variable-list) pointer into HL and test (HL) for ',': a comma means another variable follows -> JR INPUT_PARSE_VALUES (which will demand its reply field). If the variable list ended, switch back to the REPLY pointer and CHRGET it: if the reply char is nonzero (leftover typed values) -> JP STMT_LINE_4 ('?Redo from start', too many values); else fall into INPUT_PROMPT_12 with HL = the reply seed ptr.
+; ----------------------------------------------------------------------
 INPUT_PROMPT_11:
         CALL FRMEVL_TEST_TYPE
+        ; string field: resolve/free its temporary descriptor before reusing the buffer
         CALL Z,FRESTR
         POP HL
         DEC HL
@@ -3865,24 +4429,49 @@ INPUT_PROMPT_11:
         EX (SP),HL
         LD A,(HL)
         CP $2C
+        ; the PROGRAM (variable list) has another ',' -> another variable follows; loop to read its reply field
         JR Z,INPUT_PARSE_VALUES
         POP HL
         DEC HL
         CALL CHRGET
         OR A
         POP HL
+        ; reply still has data but the variable list ended -> more values typed than variables -> '?Redo from start'
         JP NZ,STMT_LINE_4
+; ----------------------------------------------------------------------
+; INPUT_PROMPT_12 -- shared restore/seed tail: write a ',' at (HL) and re-enter the variable walk at STMT_READ_1+1 in console-INPUT mode.
+;   In:        HL -> the seed comma cell L_0A0D (INPUT# path, set by STMT_LINE_5) or, on the INPUT epilogue fall-through, the reply seed pointer left by INPUT_PROMPT_11.
+;   Out:       ',' stored at (HL); control enters STMT_READ_1+1 with the source flag cleared (console/INPUT semantics).
+;   Clobbers:  HL (plus whatever STMT_READ_1+1 onward touches).
+;   Algorithm: LD (HL),',' primes a separator, then JR STMT_READ_1+1 -- entering one byte past the STMT_READ_1 label so the F6 cover byte runs as XOR A, clearing L_0B53 to mark the source as console INPUT (vs program DATA) before the shared variable-binding walk.
+; ----------------------------------------------------------------------
 INPUT_PROMPT_12:
         LD (HL),$2C
+        ; +1 entry runs the cover byte as XOR A so L_0B53 is cleared -> the shared walk runs in console-INPUT mode, not READ mode
         JR STMT_READ_1+1
-; [RE] READ statement handler (token $87): reads the next DATA item into a variable.
+; ----------------------------------------------------------------------
+; STMT_READ -- READ statement handler (token READ, $87): bind the next program DATA item(s) to the named variable(s).
+;   In:        HL -> program text after the READ token; DATA_READ_PTR = DATPTR, the saved cursor into the program DATA stream (set by RESTORE / advanced by prior READs).
+;   Out:       Each listed variable is assigned its next DATA value; DATPTR (DATA_READ_PTR) advanced past the consumed items; HL advanced past the READ statement. 'Out of DATA' raised if the stream is exhausted.
+;   Clobbers:  AF, BC, DE, HL; L_0B53, DATA_READ_PTR, the assigned variables.
+;   Algorithm: PUSH the READ statement's text pointer and load HL=DATPTR (DATA_READ_PTR, the DATA cursor). Fall into STMT_READ_1 at the label (cover byte = OR $AF) which forces L_0B53 nonzero -> 'source = program DATA'. The two text pointers (variable list vs DATA cursor) are then alternately swapped on the stack as the body consumes a variable name from the READ list and a value field from the DATA stream.
+; ----------------------------------------------------------------------
 STMT_READ:
         PUSH HL
-        LD HL,(L_0B75)
-; [RE] READ/INPUT source-flag skip. STMT_READ ($39B7) falls into STMT_READ_1 ($39BB OR $AF), forcing A nonzero so $0B53 marks 'READ from program DATA'. The INPUT path jumps JR STMT_READ_1+1 ($39BC) where the $AF byte is XOR A, clearing A so $0B53 marks 'console INPUT'. Both converge at LD ($0B53),A.
+        ; load DATPTR: the running cursor into the program DATA stream
+        LD HL,(DATA_READ_PTR)
+; ----------------------------------------------------------------------
+; STMT_READ_1 -- dual-entry source-flag setter shared by READ and console INPUT.
+;   In:        Entered at the label (READ) or at STMT_READ_1+1 (INPUT, from INPUT_PROMPT_12). Stack top = the alternate text pointer to swap in.
+;   Out:       L_0B53 set: READ entry leaves it nonzero ('program DATA' source); INPUT entry (+1) leaves it 0 ('console' source). The DATA-cursor and variable-list pointers are exchanged (EX (SP),HL) and control jumps to STMT_READ_3 to resolve the first variable.
+;   Clobbers:  AF, HL; L_0B53.
+;   Algorithm: The F6 cover byte is 'OR $AF' at the label (A becomes nonzero) and 'XOR A' at +1 (A=0). LD (L_0B53),A records the source. EX (SP),HL brings the variable-list pointer into HL while parking the DATA/reply cursor on the stack, then JR STMT_READ_3 (skipping STMT_READ_2's inter-variable ',' check for the first item).
+; ----------------------------------------------------------------------
 STMT_READ_1:
+        ; label entry: force A nonzero so L_0B53 marks 'source = program DATA'; the +1 entry runs this same F6 byte as XOR A (console INPUT)
         OR $AF
         LD (L_0B53),A
+        ; swap to the variable-list pointer, parking the DATA/reply cursor on the stack
         EX (SP),HL
         JR STMT_READ_3
 STMT_READ_2:
@@ -3898,8 +4487,15 @@ STMT_READ_3:
         LD A,(L_0B53)
         OR A
         JP NZ,STMT_READ_11
-; [RE] STMT_READ_4 mode-flag skip. Entered at the label ($39D8 OR $AF) the $0C69 flag is set nonzero; entered at STMT_READ_4+1 ($39D9) via CALL at $398D the $AF byte is XOR A, clearing $0C69. The OR immediate operand doubles as the XOR A opcode; both paths share LD ($0C69),A.
+; ----------------------------------------------------------------------
+; STMT_READ_4 -- bind one field to the resolved target variable: choose numeric vs string scan, optionally store, dispatching to file/console/DATA source.
+;   In:        Label entry: store the value (cover byte sets L_0C69 nonzero). STMT_READ_4+1 entry (from INPUT_PROMPT_9): scan only, do not store (cover byte runs as XOR A, clearing L_0C69). DE = target variable address; HL -> the source field text; the stack carries the value type and a finisher. PTRFIL selects file vs console/DATA.
+;   Out:       The field is scanned (and, on the label/store entry, converted and assigned via STMT_LET_2). For file input control diverts to INPUT_FILE_SCAN. String-field terminators depend on source: console INPUT ends on ',' or NUL; program DATA additionally ends on ':'; a leading '"' makes it a '"'-quoted field.
+;   Clobbers:  AF, BC, DE, HL; L_0C69; the target variable (store path).
+;   Algorithm: Cover byte sets L_0C69 = store-flag (OR $AF at label = store; XOR A at +1 = scan-only). If PTRFIL is nonzero -> JP INPUT_FILE_SCAN (file source). Else FRMEVL_TEST_TYPE on the target's VALTYP: a numeric target (NZ) -> STMT_READ_8 (FIN parses a number); a string target reads the field with SCAN_STR_BODY, setting the terminators in B (primary) and D (secondary): if the first char is '"' then B=D='"' (quoted field); otherwise B=',' and D is taken from L_0B53 -- for program DATA (L_0B53 nonzero) D is overwritten with ':' so a colon also ends a DATA item, while for console INPUT (L_0B53=0) D stays 0 (only ',' and NUL terminate). The scanned descriptor flows to the STMT_READ_7 finisher.
+; ----------------------------------------------------------------------
 STMT_READ_4:
+        ; label entry: set the store flag (L_0C69 nonzero) so the field is assigned; the +1 entry runs this F6 byte as XOR A to scan WITHOUT storing (INPUT validation pre-pass)
         OR $AF
         LD (L_0C69),A
         EX DE,HL
@@ -3907,9 +4503,11 @@ STMT_READ_4:
         LD A,H
         OR L
         EX DE,HL
+        ; a file is selected (PTRFIL!=0): read the field from the file instead
         JP NZ,INPUT_FILE_SCAN
         CALL FRMEVL_TEST_TYPE
         PUSH AF
+        ; numeric target: parse the field as a number via FIN
         JR NZ,STMT_READ_8
         CALL CHRGET
         LD D,A
@@ -3920,6 +4518,7 @@ STMT_READ_4:
         OR A
         LD D,A
         JR Z,STMT_READ_5
+        ; string field from program DATA (L_0B53!=0): a ':' is set as a second terminator so a colon also ends the DATA item (for console INPUT D was left 0)
         LD D,$3A
 STMT_READ_5:
         LD B,$2C
@@ -3939,13 +4538,22 @@ STMT_READ_7:
         EX (SP),HL
         PUSH DE
         JP STMT_LET_2
+; ----------------------------------------------------------------------
+; STMT_READ_8 -- numeric-field path: convert the source text to a number in FAC via the float scanner.
+;   In:        HL -> first char of the numeric field; stack top = the saved FRMEVL_TEST_TYPE result (A=VALTYP-3 plus its flags, pushed at STMT_READ_4). Its carry distinguishes the target type (carry set = NOT double; carry clear = double).
+;   Out:       FAC = the parsed numeric value; control returns through STMT_READ_7 which (if L_0C69 set) assigns it. [RE] L_0CB6/L_0CB7 reflect FIN's parse-success snapshot (consumed by the INPUT '?Redo' validation).
+;   Clobbers:  AF, BC, DE, HL; FAC, VALTYP, L_0CB6.
+;   Algorithm: CHRGET the first field char, recover the saved type/flags (POP AF/PUSH AF), push STMT_READ_7 as the finisher, then dispatch into FIN by the saved carry: carry set (target not double) -> FIN_1+1 (pre-seeds FAC as an integer); carry clear (double target) -> FIN (fresh double-precision accumulation). FIN parses digits/sign/exponent into FAC and its epilogue snapshots L_0CB6 into L_0CB7.
+; ----------------------------------------------------------------------
 STMT_READ_8:
         CALL CHRGET
         POP AF
         PUSH AF
+        ; after the number is parsed, return to the common finisher that (if storing) assigns it
         LD BC,STMT_READ_7
         PUSH BC
         JP C,FIN_1+1
+        ; double target (carry clear): scan the field with FIN; FIN_1+1 (carry set) is the non-double entry that pre-seeds FAC as an integer
         JP FIN
 STMT_READ_9:
         DEC HL
@@ -3966,7 +4574,15 @@ STMT_READ_10:
         PUSH DE
         POP HL
         JP PRINT_RESET_STATE
+; ----------------------------------------------------------------------
+; STMT_READ_11 -- DATA-stream advance: scan forward to the next DATA item, crossing statement and line boundaries, raising 'Out of DATA' at the end.
+;   In:        HL -> current position in the program DATA stream (just past a consumed value).
+;   Out:       HL positioned to re-enter STMT_READ_12 at the next statement; DATA_LINE_TXTPTR updated for the new DATA line (so a parse error can blame the right line). 'Out of DATA' (ERR_OUT_OF_DATA=4) raised when the program text runs out.
+;   Clobbers:  AF, DE, HL; DATA_LINE_TXTPTR.
+;   Algorithm: STMT_DATA scans to the next ':' or end-of-line; a nonzero return (it stopped on ':' -- another statement on the line) -> STMT_READ_12. Otherwise (end-of-line) step over the line's link word: INC HL, OR the two link bytes; if 0000 the program text ended -> raise 'Out of DATA'. Read the next line's header word into DATA_LINE_TXTPTR (recording the new DATA line for error reporting), then fall into STMT_READ_12 which CHRGETs and requires the DATA token ($84) before re-entering STMT_READ_4.
+; ----------------------------------------------------------------------
 STMT_READ_11:
+        ; scan to the next ':' or end-of-line, skipping quoted strings; nonzero return = stopped at a ':' (another statement follows on this line)
         CALL STMT_DATA
         OR A
         JR NZ,STMT_READ_12
@@ -3975,18 +4591,29 @@ STMT_READ_11:
         INC HL
         OR (HL)
         LD E,ERR_OUT_OF_DATA
+        ; the line link is 0000: program text ended before another DATA value -> 'Out of DATA'
         JP Z,RAISE_ERROR
         INC HL
         LD E,(HL)
         INC HL
         LD D,(HL)
         EX DE,HL
+        ; record the DATA line now being read so a bad value reports against it
         LD (DATA_LINE_TXTPTR),HL
         EX DE,HL
+; ----------------------------------------------------------------------
+; STMT_READ_12 -- require the DATA token at the start of the next statement, then resume field reading.
+;   In:        HL -> the start of a (possibly DATA) statement reached by STMT_READ_11's line/statement walk.
+;   Out:       If the statement is DATA ($84), re-enters STMT_READ_4 to read its first value; otherwise loops back to STMT_READ_11 to keep scanning for a DATA statement.
+;   Clobbers:  AF, HL.
+;   Algorithm: CHRGET the next significant token. If it is not the DATA token ($84) this statement is not DATA -> JR STMT_READ_11 to advance further. If it is DATA, JP STMT_READ_4 to scan its first item into the current target variable.
+; ----------------------------------------------------------------------
 STMT_READ_12:
         CALL CHRGET
         CP $84
+        ; not a DATA statement -> keep scanning for the next DATA line
         JR NZ,STMT_READ_11
+        ; found a DATA statement: read its first value into the current variable
         JP STMT_READ_4
 ; [RE] Evaluate-expression wrapper: SYNCHR the current char (advance past a required token), RET if at end-of-statement (P flag), else JP into FRMEVL to evaluate the following expression into FAC.
 EVAL_EXPR_AFTER_SYNCHR:
@@ -4739,7 +5366,7 @@ FRMEVL_EVAL_OPERAND_5:
         CP TOK_INPUT
         JP Z,FN_INPUT_DOLLAR
         CP TOK_FN
-        JP Z,STMT_DEF_2
+        JP Z,CALL_FN
 ; ----------------------------------------------------------------------
 ; paren subexpr: FRMEVL + SYNCHR ')'. Pre-existing 'ADD HL,HL FAC->integer' source comment is WRONG.
 ; ----------------------------------------------------------------------
@@ -5272,30 +5899,60 @@ USRVEC_ADDR_2:
         LD (HL),D
         POP HL
         RET
-; [RE] DEF statement handler (token $96): DEF FN user-function definition / DEF USR (CP $E1 = USR token).
+; ----------------------------------------------------------------------
+; STMT_DEF -- DEF statement handler (keyword token $96): route DEF USR vs DEF FN and record the definition.
+;   In:        A = the token immediately after DEF (already CHRGOT by the statement dispatcher); HL -> that token in the program text.
+;   Out:       For DEF USR (A == $E1): tail-jumps to USRVEC_ADDR_2, which parses '=addr' (GETINT) and stores the address word into the USR(n) vector slot (L_081F + n*2). For DEF FN: the function name's variable slot is made to hold the text pointer just past 'FN name', so a later FN call can find and execute the definition. The formal-parameter list inside '(...)' is then consumed by the fall-through into STMT_DEF_1, ending at STMT_DATA (skip to end of statement). HL advanced.
+;   Clobbers:  A, BC, DE, HL, flags, the FAC (via GETVAR_NAME->PTRGET).
+;   Algorithm: If A == $E1 (USR token) divert to USRVEC_ADDR_2 (DEF USRn = addr). Otherwise this is DEF FN: GETVAR_NAME parses 'FN name' and resolves the function variable's storage to DE; DEF_FN_REQUIRE_PROGRAM rejects DEF issued in direct mode. The two-byte text pointer (current HL, just past the name) is written into that variable's value cell (EX DE,HL / store E,D) so the slot records WHERE the definition's parameter list begins. If the next char is not '(' there is no parameter list to scan, so jump to STMT_DATA. Otherwise CHRGET past '(' and fall into STMT_DEF_1 to walk the formal parameters.
+; ----------------------------------------------------------------------
 STMT_DEF:
         CP $E1
+        ; DEF USR token ($E1): hand off to the USR(n)-vector '=addr' parser
         JR Z,USRVEC_ADDR_2
         CALL GETVAR_NAME
+        ; DEF FN is illegal in direct mode -- must be inside a stored program
         CALL DEF_FN_REQUIRE_PROGRAM
         EX DE,HL
+        ; record the text pointer (just past 'FN name') into the function variable's slot so a later FN call can locate this definition
         LD (HL),E
         INC HL
         LD (HL),D
         EX DE,HL
         LD A,(HL)
+        ; a '(' begins the formal-parameter list; without one there is nothing more to scan
         CP $28
+        ; no parameter list: skip the rest of the statement like a DATA line
         JP NZ,STMT_DATA
         CALL CHRGET
+; ----------------------------------------------------------------------
+; STMT_DEF_1 -- DEF FN definition: consume the comma-separated formal-parameter name list inside the parentheses.
+;   In:        HL -> first char of a formal parameter (or ')'); the DEF statement is recording, not evaluating.
+;   Out:       On ')' jumps to STMT_DATA to skip to the end of the DEF statement (the body text is left in place for later FN calls). HL advanced past the parameter list.
+;   Clobbers:  A, BC, DE, HL, flags, the FAC (via PTRGET).
+;   Algorithm: Loop: PTRGET_1+1 parses and skips one formal-parameter variable name (allocating/locating its slot is harmless here -- the DEF only needs to advance the cursor). If the next char is ')', the list is complete -> STMT_DATA. Otherwise SYNCHR requires a ',' separator and the loop repeats for the next parameter name.
+; ----------------------------------------------------------------------
 STMT_DEF_1:
+        ; skip one formal-parameter name (advance the text cursor past it)
         CALL PTRGET_1+1
         LD A,(HL)
         CP $29
+        ; ')' closes the parameter list: ignore the body text and skip to end of statement
         JP Z,STMT_DATA
         CALL SYNCHR
+        ; a ',' must separate successive formal parameters
         DEFB    ','                      ; inline char arg consumed by the preceding CALL
         JR STMT_DEF_1
-STMT_DEF_2:
+; ----------------------------------------------------------------------
+; CALL_FN -- evaluate an FN function-call reference in an expression (NOT part of the DEF statement). MIS-NAMED as CALL_FN.
+;   In:        Reached only from FRMEVL's 'CP TOK_FN / JP Z' arm (verified at BASIC.asm:4742): HL -> the 'FN' reference in an expression.
+;   Out:       The function result is left in the FAC (VALTYP set); HL advanced past the call. May raise 'Undefined user function' if the function was never DEF'd.
+;   Clobbers:  A, BC, DE, HL, SP frame, flags, the FAC.
+;   Algorithm: GETVAR_NAME resolves 'FN name' to the function variable slot (DE). Save the caller's VALTYP (PUSH AF). Load the stored definition pointer from the slot (the text pointer STMT_DEF wrote, pointing at the DEF's parameter list); if it is $0000 the function was never defined -> RAISE_UNDEFINED_USER_FUNCTION. If the definition's first char is not '(' (a no-arg / bare reference) divert to CALL_FN_BIND+1 (the bare-PUSH-DE cover entry). Otherwise CHRGET past the definition's '(', save the call-site cursor in PRUSING_FORMAT_FLAGS and reload the definition cursor from FOUT_DP_POSITION, SYNCHR the call's '(', push a zero arg-count seed, and fall into the per-argument loop CALL_FN_ARG.
+;   UNKNOWN:   [RE] the reuse of PRUSING_FORMAT_FLAGS / FOUT_DP_POSITION as call-site-vs-definition cursor scratch is inferred from the store/reload pattern, not separately audited.
+; ----------------------------------------------------------------------
+CALL_FN:
+        ; resolve 'FN name' to the function variable's slot (DE)
         CALL GETVAR_NAME
         LD A,(VALTYP)
         OR A
@@ -5307,21 +5964,32 @@ STMT_DEF_2:
         LD H,(HL)
         LD L,A
         OR H
+        ; the slot holds $0000 -> this FN was never DEF'd
         JP Z,RAISE_UNDEFINED_USER_FUNCTION
         LD A,(HL)
         CP $28
-        JP NZ,STMT_DEF_8+1
+        ; definition has no '(' (no-arg form): jump into the bare PUSH DE cover at CALL_FN_BIND+1
+        JP NZ,CALL_FN_BIND+1
         CALL CHRGET
         LD (PRUSING_FORMAT_FLAGS),HL
         EX DE,HL
         LD HL,(FOUT_DP_POSITION)
         CALL SYNCHR
+        ; match the '(' of the call's argument list
         DEFB    '('                      ; inline char arg consumed by the preceding CALL
         XOR A
         PUSH AF
         PUSH HL
         EX DE,HL
-STMT_DEF_3:
+; ----------------------------------------------------------------------
+; CALL_FN_ARG -- per-argument loop of an FN call: evaluate one actual argument, coerce it to the formal parameter's type, and stage it on the stack. MIS-NAMED as CALL_FN_ARG.
+;   In:        Iterating over an FN call's actual-argument list; FOUT_DP_POSITION / PRUSING_FORMAT_FLAGS hold the definition and call-site text cursors; top-of-stack carries the running arg-count seed.
+;   Out:       One argument value coerced and pushed as an 8-byte FP-arg frame slot; loops via CALL_FN_ARG for the next ','-separated argument, or falls through to STMT_DEF_5 on ')'.
+;   Clobbers:  A, BC, DE, HL, SP frame, flags, the FAC.
+;   Algorithm: Force scalar context (PTRGET_SUBSCRIPT_FLAG=$80) and PTRGET the next FORMAL parameter to learn its required VALTYP. Evaluate the matching ACTUAL argument expression (FRMEVL_NOPAREN), save the cursors, then FRMEVL_APPLY_OP coerces the FAC to the formal's type (dispatch via OPERATOR_ROUTINE_TBL[VALTYP&7]). Reserve 8 bytes of stack (LD C,$04 / CHECK_STACK_ROOM then SP += $FFF8 = SP-8) and FP_ARG_SETUP2 stores the coerced value there. If the next definition char is ')', the list ends -> STMT_DEF_5; otherwise SYNCHR a ',' on both the definition and call cursors and loop back via CALL_FN_ARG to evaluate the next argument.
+; ----------------------------------------------------------------------
+CALL_FN_ARG:
+        ; force scalar (non-array) context for resolving the formal parameter
         LD A,$80
         LD (PTRGET_SUBSCRIPT_FLAG),A
         CALL PTRGET_1+1
@@ -5330,14 +5998,17 @@ STMT_DEF_3:
         LD A,(VALTYP)
         PUSH AF
         PUSH DE
+        ; evaluate the actual-argument expression into the FAC
         CALL FRMEVL_NOPAREN
         LD (FOUT_DP_POSITION),HL
         POP HL
         LD (PRUSING_FORMAT_FLAGS),HL
         POP AF
+        ; coerce the argument value to the formal parameter's declared type
         CALL FRMEVL_APPLY_OP
         LD C,$04
         CALL CHECK_STACK_ROOM
+        ; reserve 8 bytes on the stack for this argument's FP slot (SP -= 8)
         LD HL,$FFF8
         ADD HL,SP
         LD SP,HL
@@ -5347,6 +6018,7 @@ STMT_DEF_3:
         LD HL,(FOUT_DP_POSITION)
         LD A,(HL)
         CP $29
+        ; ')' ends the argument list -> finish binding
         JR Z,STMT_DEF_5
         CALL SYNCHR
         DEFB    ','                      ; inline char arg consumed by the preceding CALL
@@ -5354,14 +6026,15 @@ STMT_DEF_3:
         LD HL,(PRUSING_FORMAT_FLAGS)
         CALL SYNCHR
         DEFB    ','                      ; inline char arg consumed by the preceding CALL
-        JR STMT_DEF_3
+        ; more arguments: consume the ',' and evaluate the next one
+        JR CALL_FN_ARG
 STMT_DEF_4:
         POP AF
         LD (L_0BFB),A
 STMT_DEF_5:
         POP AF
         OR A
-        JR Z,STMT_DEF_7
+        JR Z,CALL_FN_BODY_PREP
         LD (VALTYP),A
         LD HL,$0000
         ADD HL,SP
@@ -5371,12 +6044,21 @@ STMT_DEF_5:
         LD SP,HL
         POP DE
         LD L,$03
-STMT_DEF_6:
+; ----------------------------------------------------------------------
+; CALL_FN_PARAM_SIZE -- back-scan a packed formal-parameter name to recover its length, range-check the running argument-save block, save the formal's current slot, and store the staged actual into it. MIS-NAMED as CALL_FN_PARAM_SIZE.
+;   In:        DE -> just past a formal parameter's packed name in the definition; L = $03 running-length seed; VALTYP = this parameter's type; L_0BFB = accumulated arg-block length so far.
+;   Out:       The formal's current slot contents are saved into the per-call argument block (L_0BFD + running offset); raises ERROR_FC if the accumulated block length reaches $64 (>= 100 bytes). Continues into STMT_LET_3 (assign the staged actual value into the formal's slot) with STMT_DEF_4 pushed twice as the return continuation.
+;   Clobbers:  A, BC, DE, HL, flags.
+;   Algorithm: Walk DE backward over the name's high-bit-set continuation bytes (INC L per byte, JP M loops while the sign bit is set), then DEC DE three more times (no L update) to skip a fixed name/type prefix. [RE] the precise packed-name field layout is inferred from the INC/DEC counts. ADD VALTYP to L -> this parameter's cell size in B; load the running accumulator L_0BFB into C, ADD A,B and if the total reaches $64 (NC) raise 'Illegal function call'. Compute the destination inside the per-call arg block (L_0BFD + running offset BC) and BLOCK_COPY_DE_HL the formal's current slot contents there (so they can be restored after the call). PUSH STMT_DEF_4 twice and JP STMT_LET_3 to store the staged actual value into the formal variable's slot.
+;   UNKNOWN:   [RE] the exact field offsets within the packed SIMPLEVAR name layout being back-scanned are inferred from the INC/DEC counts, not separately verified.
+; ----------------------------------------------------------------------
+CALL_FN_PARAM_SIZE:
         INC L
         DEC DE
         LD A,(DE)
         OR A
-        JP M,STMT_DEF_6
+        ; walk back over the name's high-bit-set continuation bytes, counting length in L
+        JP M,CALL_FN_PARAM_SIZE
         DEC DE
         DEC DE
         DEC DE
@@ -5386,6 +6068,7 @@ STMT_DEF_6:
         LD A,(L_0BFB)
         LD C,A
         ADD A,B
+        ; accumulated argument-block size >= 100 bytes -> too many/large FN parameters (FC error)
         CP $64
         JP NC,ERROR_FC
         PUSH AF
@@ -5394,20 +6077,40 @@ STMT_DEF_6:
         LD HL,L_0BFD
         ADD HL,BC
         LD C,A
+        ; save the formal variable's current contents into the per-call argument block (restored after the call)
         CALL BLOCK_COPY_DE_HL
+        ; push STMT_DEF_4 as the STMT_LET_3 return continuation (back into the next-argument step)
         LD BC,STMT_DEF_4
         PUSH BC
         PUSH BC
+        ; assign the staged actual value into the formal parameter's variable slot
         JP STMT_LET_3
-STMT_DEF_7:
+; ----------------------------------------------------------------------
+; CALL_FN_BODY_PREP -- FN call: parenthesised argument list finished; advance both cursors past the call's ')' and fall into the frame-build tail. MIS-NAMED as CALL_FN_BODY_PREP.
+;   In:        Reached when the argument loop sees ')'; FOUT_DP_POSITION = definition cursor, PRUSING_FORMAT_FLAGS = call-site cursor.
+;   Out:       Both cursors advanced; falls through the PUSH-skip cover (LD A,$D5 in CALL_FN_BIND) into the frame-build/body-evaluation tail. HL = definition cursor pushed for the body eval.
+;   Clobbers:  A, HL, flags.
+;   Algorithm: Reload the definition cursor (FOUT_DP_POSITION), CHRGET past the parameter-list terminator, push it; reload the call-site cursor (PRUSING_FORMAT_FLAGS) and SYNCHR the call's closing ')'. Then fall into the 3E D5 cover at CALL_FN_BIND: the D5 byte is absorbed as the operand of LD A,$D5 here, so the PUSH DE that the no-arg entry (CALL_FN_BIND+1) would execute is skipped on this parenthesised path. Both paths converge at the store into PRUSING_FORMAT_FLAGS in CALL_FN_BIND.
+; ----------------------------------------------------------------------
+CALL_FN_BODY_PREP:
         LD HL,(FOUT_DP_POSITION)
+        ; advance the definition cursor past the parameter-list terminator
         CALL CHRGET
         PUSH HL
         LD HL,(PRUSING_FORMAT_FLAGS)
         CALL SYNCHR
+        ; match the closing ')' of the call's argument list
         DEFB    ')'                      ; inline char arg consumed by the preceding CALL
-; [RE] PUSH-skip cover. 3E D5 = LD A,$D5: the fall-through (parenthesized DEF FN arglist done, from STMT_DEF_7 $3F6E CALL SYNCHR/$3F71 DEFB ')') absorbs the D5 and skips a PUSH DE. JP NZ,STMT_DEF_8+1 at $3EC4 (no-paren function ref, when $3EC2 CP $28 fails) lands on the bare D5 = PUSH DE to save the text pointer; both then fall into LD ($0B4A),HL at $3F74. Independently verified; confirmed against MBASIC label shift.
-STMT_DEF_8:
+; ----------------------------------------------------------------------
+; CALL_FN_BIND -- build the FN activation frame on the stack, bind the dummy parameters, evaluate the function body, then fall into CALL_FN_RETURN to unwind. MIS-NAMED as CALL_FN_BIND.
+;   In:        Entered at CALL_FN_BIND+1 (the bare PUSH DE) from a no-arg FN reference, or by fall-through from CALL_FN_BODY_PREP (the PUSH is skipped). HL/cursors hold the body text position; coerced argument values are staged on the stack; DEFFN_* runtime cells hold the prior FN nesting state.
+;   Out:       The function body is evaluated, leaving its result in the FAC; nested DEF FN depth is incremented around the body. Raises 'Syntax error' if the body does not end at a statement terminator.
+;   Clobbers:  A, BC, DE, HL, SP frame, flags, the FAC. DEFFN_FRAME_PTR/SIZE, DEFFN_DEPTH, DEFFN_ACTIVE_FLAG, L_0BFB updated.
+;   Algorithm: Save the body text cursor into PRUSING_FORMAT_FLAGS. Take DEFFN_FRAME_SIZE+4 as the frame byte count (RRCA halves it only to give CHECK_STACK_ROOM a word count); carve that many bytes off SP (negate via CPL/INC, ADD HL,SP, LD SP,HL). BLOCK_COPY the previous DEFFN_FRAME_PTR header into the new frame (chain the old activation) and republish DEFFN_FRAME_PTR/SIZE. Copy the staged argument block (FN_ARG_BLOCK <- L_0BFD), clear the running arg cell L_0BFB, INC DEFFN_DEPTH and set its boolean shadow DEFFN_ACTIVE_FLAG. Reload the body cursor and EVAL_EXPR_AFTER_SYNCHR evaluates the DEF body expression; the body must end at a statement terminator (DEC HL / CHRGET == 0) else RAISE_SYNTAX_ERROR. If the result is a string whose descriptor points at/above DSCTMP, copy it to a fresh temp (STR_BUILD_FROM_DESC / PUT_STR_TEMP) so it survives the frame teardown, then fall into CALL_FN_RETURN.
+;   UNKNOWN:   [RE] the +4 / RRCA frame-size handling and the activation-chain word layout are inferred from the copy pattern; not bit-for-bit audited.
+; ----------------------------------------------------------------------
+CALL_FN_BIND:
+        ; [RE] 3E D5 cover: on the with-args path the D5 is the LD A operand; the no-arg entry (CALL_FN_BIND+1) executes it as PUSH DE to save the text cursor
         LD A,$D5
         LD (PRUSING_FORMAT_FLAGS),HL
         LD A,(DEFFN_FRAME_SIZE)
@@ -5415,6 +6118,7 @@ STMT_DEF_8:
         PUSH AF
         RRCA
         LD C,A
+        ; ensure the stack has room for the new FN activation frame
         CALL CHECK_STACK_ROOM
         POP AF
         LD C,A
@@ -5426,6 +6130,7 @@ STMT_DEF_8:
         LD SP,HL
         PUSH HL
         LD DE,DEFFN_FRAME_PTR
+        ; chain the enclosing activation's frame header into the new frame
         CALL BLOCK_COPY_DE_HL
         POP HL
         LD (DEFFN_FRAME_PTR),HL
@@ -5439,6 +6144,7 @@ STMT_DEF_8:
         LD H,A
         LD L,A
         LD (L_0BFB),HL
+        ; enter one FN nesting level deeper
         LD HL,(DEFFN_DEPTH)
         INC HL
         LD (DEFFN_DEPTH),HL
@@ -5446,24 +6152,36 @@ STMT_DEF_8:
         OR L
         LD (DEFFN_ACTIVE_FLAG),A
         LD HL,(PRUSING_FORMAT_FLAGS)
+        ; evaluate the function's defining expression (the body) into the FAC
         CALL EVAL_EXPR_AFTER_SYNCHR
         DEC HL
         CALL CHRGET
+        ; the body must end exactly at the statement terminator
         JP NZ,RAISE_SYNTAX_ERROR
         CALL FRMEVL_TEST_TYPE
-        JR NZ,STMT_DEF_9
+        JR NZ,CALL_FN_RETURN
         LD DE,DSCTMP
         LD HL,(FAC)
         CALL CMP_HL_DE
-        JR C,STMT_DEF_9
+        JR C,CALL_FN_RETURN
+        ; string result descriptor points at/above DSCTMP: copy it to a temp so it outlives the frame teardown
         CALL STR_BUILD_FROM_DESC
         CALL PUT_STR_TEMP_1+1
-STMT_DEF_9:
+; ----------------------------------------------------------------------
+; CALL_FN_RETURN -- tear down the FN activation frame and return to the caller with the result in the FAC. MIS-NAMED as CALL_FN_RETURN.
+;   In:        DEFFN_FRAME_PTR -> the current FN activation frame on the stack; the result is in the FAC; DEFFN_DEPTH counts the active nesting.
+;   Out:       SP restored to discard the frame; DEFFN_FRAME_PTR/SIZE restored from the saved chain; DEFFN_DEPTH decremented and DEFFN_ACTIVE_FLAG refreshed; the caller's saved HL (text cursor) and AF (saved VALTYP) popped. Falls through into FRMEVL_APPLY_OP / the shared return path.
+;   Clobbers:  A, BC, DE, HL, SP, flags.
+;   Algorithm: Load DEFFN_FRAME_PTR (D,E = frame base), read the saved-frame length word at frame+2,+3 into BC and INC BC four times (add the header). Restore the enclosing frame header (BLOCK_COPY from frame base into DEFFN_FRAME_PTR), then EX DE,HL / LD SP,HL sets SP to the end of the copied region to pop the activation. DEC DEFFN_DEPTH and update its boolean shadow DEFFN_ACTIVE_FLAG. POP the caller's saved HL (text cursor) and AF (the VALTYP saved at FN entry), then fall through to FRMEVL_APPLY_OP.
+;   UNKNOWN:   [RE] the activation-header layout (length word at +2) is inferred from the INC HL counts.
+; ----------------------------------------------------------------------
+CALL_FN_RETURN:
         LD HL,(DEFFN_FRAME_PTR)
         LD D,H
         LD E,L
         INC HL
         INC HL
+        ; read the saved-frame length word (low byte) from the activation header at frame+2
         LD C,(HL)
         INC HL
         LD B,(HL)
@@ -5472,9 +6190,12 @@ STMT_DEF_9:
         INC BC
         INC BC
         LD HL,DEFFN_FRAME_PTR
+        ; restore the enclosing activation's frame header from the saved chain
         CALL BLOCK_COPY_DE_HL
         EX DE,HL
+        ; discard the FN activation frame (SP = end of restored region)
         LD SP,HL
+        ; leave this FN nesting level
         LD HL,(DEFFN_DEPTH)
         DEC HL
         LD (DEFFN_DEPTH),HL
@@ -5567,8 +6288,16 @@ GETVAR_NAME_1:
         INC HL
         JP STMT_MID_ASSIGN
         JP RAISE_SYNTAX_ERROR
-; [RE] WIDTH statement handler (token $9D): set console/printer output line width (CP $9B tests for LPRINT form).
+; ----------------------------------------------------------------------
+; STMT_WIDTH -- WIDTH statement handler (keyword token $9D): set the output line width, distinguishing 'WIDTH LPRINT n' from the console/file forms.
+;   In:        A = the token after WIDTH (CHRGOT by the dispatcher); HL -> that token. A == $9B is the LPRINT keyword token (the 'WIDTH LPRINT' form).
+;   Out:       For 'WIDTH LPRINT n': stores the printer line width n into LPRINT_WIDTH ($083A) and the clamped comma-zone column into LPRINT_ZONE_WIDTH ($0839), then RET. For other forms: falls into STMT_WIDTH_1. HL advanced past the parsed operand.
+;   Clobbers:  A, BC, DE, HL, flags, the FAC.
+;   Algorithm: If A == $9B (LPRINT token) this is 'WIDTH LPRINT n': CHRGET past LPRINT, GETBYT evaluates the width byte, store it raw as the printer width (LPRINT_WIDTH), then WIDTH_CLAMP_COLUMN folds it into the printer comma-zone column stored at LPRINT_ZONE_WIDTH, and return. Otherwise dispatch the console/optional-trailing-field forms via STMT_WIDTH_1.
+;   NOTE [RE]: LPRINT_WIDTH ($083A, default $84=132) and LPRINT_ZONE_WIDTH ($0839, default $70=112) are the printer-output line width and comma-zone width read by the PRINT line-overflow / comma-tab logic when PRTFLG is set (verified at STMT_PRINT_3 line 3559 and STMT_PRINT_7 line 3601, both gated on PRTFLG nonzero).
+; ----------------------------------------------------------------------
 STMT_WIDTH:
+        ; $9B is the LPRINT token: select 'WIDTH LPRINT n' (printer width) vs the console form
         CP $9B
         JR NZ,STMT_WIDTH_1
         CALL CHRGET
@@ -5576,10 +6305,20 @@ STMT_WIDTH:
         LD (PRINTER_WIDTH),A
         LD E,A
         CALL WIDTH_CLAMP_COLUMN
-        LD (L_0839),A
+        ; store the clamped printer comma-zone column
+        LD (LPRINT_ZONE_WIDTH),A
         RET
+; ----------------------------------------------------------------------
+; STMT_WIDTH_1 -- WIDTH continuation (non-LPRINT form): set the console width and an optional trailing page-length field.
+;   In:        A = the token after WIDTH (not the LPRINT token); HL -> it.
+;   Out:       Falls into WIDTH_SET_CONSOLE (stores PRINT_WIDTH and the clamped console comma-zone width WIDTH_FILE, then on a trailing ',' stores PAGE_LENGTH), or jumps to WIDTH_SET_CONSOLE_1 when the form starts with ',' (set only the page-length field). HL advanced.
+;   Clobbers:  A, BC, DE, HL, flags, the FAC.
+;   Algorithm: If the next char is ',' the width field is omitted -> WIDTH_SET_CONSOLE_1 sets only the page-length. Otherwise GETBYT evaluates the console width and falls into WIDTH_SET_CONSOLE to store PRINT_WIDTH + the clamped comma-zone width; a trailing ',' then sets PAGE_LENGTH.
+;   CORRECTION [RE]: this handler does NOT decode a '#file' number -- there is no '#' parse in the code path (contradicting the pre-existing line-5585 source comment's 'WIDTH #file,width' wording). The immediate path sets the console width and an optional trailing PAGE_LENGTH; per-file output width lives in the FCB (read at STMT_PRINT_7 when PTRFIL is nonzero), not here. The existing WIDTH_FILE label name is itself misleading: $083D holds the CONSOLE comma-zone width read at STMT_PRINT_8 ($3609) when PTRFIL=0 and PRTFLG clear.
+; ----------------------------------------------------------------------
 STMT_WIDTH_1:
         CP $2C
+        ; leading ',': width omitted, set only the trailing page-length field
         JR Z,WIDTH_SET_CONSOLE_1
         CALL GETBYT
 ; [RE] WIDTH continuation: parse 'WIDTH #file,width' branch - stores file-width to $083B/$083D, then handles optional ',pos' second field.
@@ -6404,27 +7143,47 @@ CONST_FMT_RESUME:
         LD HL,(CONST_TEXT_RESUME)
         ; rejoin the detokenize loop for the next byte of the line
         JP DETOKENIZE_LINE_2
-; [RE] DELETE statement handler (token $A6): delete a range of program lines (CALL $0F61 parses the range).
+; ----------------------------------------------------------------------
+; STMT_DELETE -- DELETE statement handler (keyword token $A6): remove a range of program lines.
+;   In:        HL -> the line-range arguments after DELETE; the program is the singly-linked BASLINE list from TXTTAB.
+;   Out:       On a valid non-empty range, 'Ok' is printed and the routine falls into BLOCK_MOVE_TO_VARTAB to excise the lines (text above the range moved down over them, VARTAB re-anchored), with SUB_0EB7_4 arranged as the post-delete relink/reset continuation. Raises 'Illegal function call' (via STMT_DELETE_1) if the range is empty or malformed.
+;   Clobbers:  A, BC, DE, HL, SP frame, flags.
+;   Algorithm: SCAN_LINE_RANGE parses 'start[-end]', leaving the start link/insert point in BC and the end line number on the stack. RENUM_FIXUP_IF_PENDING applies any deferred RENUM line-reference patch first. FNDLIN locates the END line: if not found (NC) drop into STMT_DELETE_1's FC check; otherwise verify the found end line is at/after the start (CMP_HL_DE) and join STMT_DELETE_1.
+;   UNKNOWN:   [RE] the exact stack choreography handing the start/end pointers between SCAN_LINE_RANGE, FNDLIN and BLOCK_MOVE_TO_VARTAB is inferred from the PUSH/POP/EX (SP) pattern, not single-stepped.
+; ----------------------------------------------------------------------
 STMT_DELETE:
+        ; parse the 'start[-end]' line-number range to delete
         CALL SCAN_LINE_RANGE
         PUSH BC
+        ; apply any deferred RENUM line-reference fixups before editing the program
         CALL RENUM_FIXUP_IF_PENDING
         POP BC
         POP DE
         PUSH BC
         PUSH BC
+        ; locate the end line of the range in the program
         CALL FNDLIN
         JR NC,STMT_DELETE_1
         LD D,H
         LD E,L
         EX (SP),HL
         PUSH HL
+        ; verify the end line is at or after the start (non-empty range)
         CALL CMP_HL_DE
+; ----------------------------------------------------------------------
+; STMT_DELETE_1 -- DELETE validity gate and program-compaction setup (continuation of STMT_DELETE).
+;   In:        Carry reflects the range validity check (NC = invalid/empty range); BC/stack hold the start insert point; the end-of-range pointer is staged.
+;   Out:       On an invalid range raises 'Illegal function call'. On a valid range prints 'Ok', arranges SUB_0EB7_4 as the post-delete continuation, and falls into BLOCK_MOVE_TO_VARTAB to delete the lines by compacting the program text.
+;   Clobbers:  A, BC, DE, HL, SP frame, flags.
+;   Algorithm: JP NC,ERROR_FC rejects an empty/invalid range. Print MSG_OK ('Ok'). POP the start pointer into BC (destination of the compaction copy), load SUB_0EB7_4 and EX (SP),HL so it becomes the routine BLOCK_MOVE_TO_VARTAB returns to (re-link program and reset run state). Fall into BLOCK_MOVE_TO_VARTAB to move the surviving text down and re-anchor VARTAB.
+; ----------------------------------------------------------------------
 STMT_DELETE_1:
+        ; empty or malformed line range -> Illegal function call
         JP NC,ERROR_FC
         LD HL,MSG_OK
         CALL STROUT
         POP BC
+        ; arrange the post-delete relink/reset to run after the program is compacted
         LD HL,SUB_0EB7_4
         EX (SP),HL
 ; ----------------------------------------------------------------------
@@ -6462,17 +7221,30 @@ FN_PEEK:
         CALL DIRECT_MODE_GUARD
         LD A,(HL)
         JP FP_LOAD_INT_TO_FAC
-; [RE] POKE statement handler (token $97): evaluate address,value then store to memory.
+; ----------------------------------------------------------------------
+; STMT_POKE -- POKE statement handler (keyword token $97): store a byte to an arbitrary memory address.
+;   In:        HL -> the 'addr , value' arguments after POKE.
+;   Out:       The byte 'value' (0..255) is written to memory at the unsigned 16-bit 'addr'. HL advanced past the second operand. May raise Type mismatch / Overflow (via GETADR) or 'Illegal function call' (value not a byte, or via DIRECT_MODE_GUARD).
+;   Clobbers:  A, BC, DE, HL, flags, the FAC.
+;   Algorithm: FRMEVL_NOPAREN evaluates the address expression into the FAC; PUSH HL saves the text cursor; GETADR coerces the FAC to an unsigned 16-bit address (returned in HL); EX (SP),HL stashes that address and restores the text cursor. DIRECT_MODE_GUARD blocks the store in a protected/direct context. SYNCHR consumes the ',' , GETBYT evaluates the value as a byte in A, POP DE recovers the address, and LD (DE),A performs the store.
+;   UNKNOWN:   [RE] the precise condition DIRECT_MODE_GUARD enforces here (protected vs direct mode) is shared with FN_PEEK; not separately audited in this routine.
+; ----------------------------------------------------------------------
 STMT_POKE:
+        ; evaluate the destination address expression into the FAC
         CALL FRMEVL_NOPAREN
         PUSH HL
+        ; coerce the address to an unsigned 16-bit value (returned in HL)
         CALL GETADR
         EX (SP),HL
+        ; guard the store (shared PEEK/POKE protected/direct check)
         CALL DIRECT_MODE_GUARD
         CALL SYNCHR
+        ; require the ',' between address and value
         DEFB    ','                      ; inline char arg consumed by the preceding CALL
+        ; evaluate the value to store as a single byte (0..255)
         CALL GETBYT
         POP DE
+        ; write the byte to the target address
         LD (DE),A
         RET
 ; ----------------------------------------------------------------------
@@ -6518,34 +7290,75 @@ GETADR:
         LD BC,$9180
         LD DE,$0000
         JP FADD_ALIGN
-; [RE] RENUM statement handler (token $A8): renumber program lines (defaults start/step in the LD BC,$000A).
+; ----------------------------------------------------------------------
+; STMT_RENUM -- RENUM statement handler (token $A8): renumber the program's lines and fix all line-number references.
+;   In:        HL -> crunched text just past the RENUM token; Z set if no operands. Optional
+;              syntax: RENUM [newstart][,[oldstart][,increment]]. Defaults newstart=10, increment=10.
+;   Out:       Program lines renumbered in place; every GOTO/GOSUB/THEN/etc. line reference
+;              retargeted (RENUM_PATCH_LINEREFS). Returns to the READY prompt via the pushed
+;              READY_POP_FRAME frame. Raises FC (Illegal function call) on overlap/overflow,
+;              Syntax error on a bad increment, 'Undefined line' for references with no target.
+;   Clobbers:  AF, BC, DE, HL; rewrites BASLINE.LINENUM fields and embedded line-ref tokens.
+;   Algorithm: Parse up to three operands. BC := new starting line number (LINGET_DOT, default 10),
+;              pushed for later reuse; DE := old starting line number (the first line to touch,
+;              default 0 = top of program); when an explicit increment is given it replaces the
+;              pushed BC and is validated non-zero (else FC). FNDLIN locates the old-start line and a
+;              guard checks the new range does not collide with lines that stay (CMP_HL_DE, FC on
+;              overlap). A first walk (STMT_RENUM_3/_4) advances the running counter by the increment
+;              once per line from old-start to end-of-program, range-checking against 16-bit overflow
+;              and the max-line-number ceiling $FFF9 (FC on either) WITHOUT yet writing the lines.
+;              STMT_RENUM_5 then arms the line-ref flag (RENUM_PENDING_FLAG via STMT_RENUM_8+1) and
+;              STMT_RENUM_6 writes the running counter into each node's BASLINE.LINENUM. Finally
+;              RENUM_PATCH_LINEREFS rewrites every encoded line-number reference to its new value.
+;   [RE] The split into a validating walk (RENUM_3/_4) and a storing walk (RENUM_6) is inferred from
+;              the byte flow: RENUM_3/_4 only ADD HL,BC and range-check; the LD (HL),E/LD (HL),D store
+;              is exclusively in RENUM_6.
+; ----------------------------------------------------------------------
 STMT_RENUM:
+        ; default new-starting-line-number and increment are both 10 (BC, pushed and reused as the step)
         LD BC,$000A
         PUSH BC
         LD D,B
         LD E,B
+        ; no operands at all: use all defaults (new start 10, old start = top of program, step 10)
         JR Z,STMT_RENUM_2
         CP $2C
         JR Z,STMT_RENUM_1
         PUSH DE
+        ; parse the new starting line number (BC); '.' means the current line
         CALL LINGET_DOT
         LD B,D
         LD C,E
         POP DE
         JR Z,STMT_RENUM_2
+; ----------------------------------------------------------------------
+; STMT_RENUM_1 -- RENUM operand parser, second/third operand entry (',' already seen).
+;   In:        HL -> the comma separating RENUM operands; stack holds the new-start number (BC).
+;   Out:       DE := old-start line number; on the three-operand path BC := the increment and the
+;              pushed new-start is replaced; falls into the FNDLIN range-check at STMT_RENUM_2.
+;   Clobbers:  AF, BC, DE, HL.
+;   Algorithm: Consume the ',' (SYNCHR), LINGET_DOT the old-start line into DE (Z = omitted ->
+;              default 0). If a further ',' follows, pop the saved new-start, consume the comma,
+;              and LINGET the increment (Syntax error if absent, FC if zero); shuffle the increment
+;              into the pushed slot via EX (SP),HL so the later store walk still finds the new-start.
+; ----------------------------------------------------------------------
 STMT_RENUM_1:
         CALL SYNCHR
         DEFB    ','                      ; inline char arg consumed by the preceding CALL
+        ; parse the old-start line number (first line to renumber) into DE; omitted -> 0 = top of program
         CALL LINGET_DOT
         JR Z,STMT_RENUM_2
+        ; discard the placeholder; the third operand (increment) is about to be parsed and re-pushed
         POP AF
         CALL SYNCHR
         DEFB    ','                      ; inline char arg consumed by the preceding CALL
         PUSH DE
+        ; parse the explicit increment into DE; it must be present and non-zero here
         CALL LINGET
         JP NZ,RAISE_SYNTAX_ERROR
         LD A,D
         OR E
+        ; a zero increment is illegal (lines must stay distinct)
         JP Z,ERROR_FC
         EX DE,HL
         EX (SP),HL
@@ -6556,6 +7369,7 @@ STMT_RENUM_2:
         POP DE
         PUSH DE
         PUSH BC
+        ; locate the old-start line; the following CMP_HL_DE guards that the new numbers won't collide with lines that keep their old numbers (FC on overlap)
         CALL FNDLIN
         LD H,B
         LD L,C
@@ -6568,12 +7382,29 @@ STMT_RENUM_2:
         POP AF
         PUSH HL
         PUSH DE
+        ; begin the validating walk: advance/range-check the running counter once per line (the actual LINENUM store happens later in STMT_RENUM_6)
         JR STMT_RENUM_4
+; ----------------------------------------------------------------------
+; STMT_RENUM_3 / STMT_RENUM_4 -- RENUM validating walk: range-check the new line numbers without storing.
+;   In:        HL -> current BASLINE node; BC = increment; DE/stack carry the running new line
+;              number; entered at STMT_RENUM_4 for the first line.
+;   Out:       The running counter is advanced once per line over the renumber range; on success the
+;              walk falls into STMT_RENUM_5 (which arms the line-ref flag and starts the store walk).
+;              No BASLINE field is written here.
+;   Clobbers:  AF, BC, DE, HL.
+;   Algorithm: STMT_RENUM_3 advances the running counter by the increment (FC if it carries past 16
+;              bits) and guards it stays at/below the max-line-number ceiling $FFF9 (FC otherwise).
+;              STMT_RENUM_4 reads the current node's BASLINE.LINK; a $0000 link ends the walk
+;              (STMT_RENUM_5). The actual store of the counter into BASLINE.LINENUM happens later in
+;              the STMT_RENUM_6 loop; this walk only sequences the line list and validates the range.
+; ----------------------------------------------------------------------
 STMT_RENUM_3:
+        ; advance the running new line number by the increment
         ADD HL,BC
         JP C,ERROR_FC
         EX DE,HL
         PUSH HL
+        ; ceiling check: the running line number must not exceed $FFF9 (65529), MS BASIC's maximum line number ([RE] the values above it are reserved for the direct-mode sentinel)
         LD HL,$FFF9
         CALL CMP_HL_DE
         POP HL
@@ -6587,6 +7418,7 @@ STMT_RENUM_4:
         OR D
         EX DE,HL
         POP DE
+        ; BASLINE.LINK == 0: reached the end of the program text, validating walk done
         JR Z,STMT_RENUM_5
         LD A,(HL)
         INC HL
@@ -6594,8 +7426,26 @@ STMT_RENUM_4:
         DEC HL
         EX DE,HL
         JR NZ,STMT_RENUM_3
+; ----------------------------------------------------------------------
+; STMT_RENUM_5 / STMT_RENUM_6 -- RENUM store walk: write the new BASLINE.LINENUM into each line.
+;   In:        Stack/registers carry the running new line number, the increment (BC), and HL ->
+;              first line to renumber (recovered from the stack).
+;   Out:       Every line from the start node onward has BASLINE.LINENUM := running number; running
+;              number += increment per line. Ends when BASLINE.LINK == 0; falls into STMT_RENUM_7.
+;   Clobbers:  AF, BC, DE, HL.
+;   Algorithm: STMT_RENUM_5 first arms the line-reference patch flag (CALL STMT_RENUM_8+1, whose +1
+;              entry decodes as OR $AF; LD (RENUM_PENDING_FLAG),A and so sets it nonzero), then
+;              restores the new-number/increment/start-node off the stack. STMT_RENUM_6 walks the
+;              line list: at each node read BASLINE.LINK (stop on $0000), write the running new number
+;              into the node's BASLINE.LINENUM (the two bytes after the link), add the increment, and
+;              follow the link.
+;   [RE] STMT_RENUM_8+1 is a coded-overlap dual entry: the byte pair $F6 $AF at STMT_RENUM_8/+0..+1
+;              reads as CP $F6 on the clear (fall-through) path; entering at +1 runs $F6 $AF as
+;              OR $AF, setting RENUM_PENDING_FLAG nonzero.
+; ----------------------------------------------------------------------
 STMT_RENUM_5:
         PUSH BC
+        ; arm the pending-line-reference flag (RENUM_PENDING_FLAG := nonzero) so the patch pass will run after relinking
         CALL STMT_RENUM_8+1
         POP BC
         POP DE
@@ -6607,20 +7457,35 @@ STMT_RENUM_6:
         INC HL
         LD D,(HL)
         OR D
+        ; BASLINE.LINK == 0: all lines renumbered, proceed to the reference-patch pass
         JR Z,STMT_RENUM_7
         EX DE,HL
         EX (SP),HL
         EX DE,HL
         INC HL
+        ; store the new line number into this node's BASLINE.LINENUM (low byte then high)
         LD (HL),E
         INC HL
         LD (HL),D
         EX DE,HL
+        ; advance the running new line number by the increment for the next line
         ADD HL,BC
         EX DE,HL
         POP HL
         JR STMT_RENUM_6
+; ----------------------------------------------------------------------
+; STMT_RENUM_7 -- RENUM tail: arm the return-to-READY frame, then fall into the line-reference patch.
+;   In:        Line renumbering complete; the program's BASLINE.LINENUM fields are updated.
+;   Out:       Pushes READY_POP_FRAME so RENUM_PATCH_LINEREFS returns to the Ok/READY prompt; falls
+;              into STMT_RENUM_8 / RENUM_PATCH_LINEREFS.
+;   Clobbers:  BC (the pushed return address).
+;   Algorithm: Push READY_POP_FRAME as the eventual return target, then fall into the coded-overlap
+;              dual entry STMT_RENUM_8 (the $F6 operand byte of CP $F6 is absorbed on this path, then
+;              RENUM_PATCH_LINEREFS clears RENUM_PENDING_FLAG and rewrites every encoded line-number
+;              reference to its renumbered target).
+; ----------------------------------------------------------------------
 STMT_RENUM_7:
+        ; after the reference patch completes, fall back to the Ok/READY prompt
         LD BC,READY_POP_FRAME
         PUSH BC
 ; [RE] Flag-skip into RENUM line-ref pass setup. FE F6 = CP $F6: fall-through (from PUSH BC at $436F) absorbs F6 and runs XOR A; LD ($0B56),A = clear the pending-refs flag. CALL STMT_RENUM_8+1 ($4351) re-decodes F6 AF as OR $AF; LD ($0B56),A = set the flag nonzero. $0B56 read at $438A / gated at $440B drives RENUM_PATCH_LINEREFS. Independently verified; MBASIC twin confirms.
@@ -6733,7 +7598,18 @@ RENUM_FIXUP_IF_PENDING:
         OR A
         RET Z
         JP RENUM_PATCH_LINEREFS
-; [RE] OPTION statement handler (token $B5): OPTION BASE 0/1 array lower-bound selector.
+; ----------------------------------------------------------------------
+; STMT_OPTION -- OPTION statement handler (token $B5): set the array lower bound, OPTION BASE 0|1.
+;   In:        HL -> text just past the OPTION token (expects the letters BASE then a 0/1 digit).
+;   Out:       OPTION_BASE_VALUE := 0 or 1; OPTION_BASE_SET_FLAG := value+1 (now nonzero = 'BASE
+;              has been set'). HL advanced past the digit. RET.
+;   Clobbers:  AF, DE, HL.
+;   Algorithm: Match the literal keyword 'BASE' (four SYNCHR character checks). Reject a second
+;              OPTION BASE: 'Duplicate Definition' if OPTION_BASE_SET_FLAG is already set, OR if any
+;              array has been dimensioned (ARYTAB != STREND, i.e. array space is non-empty -- BASE
+;              must come before any array use). Read the bound digit, require '0' or '1' (Syntax
+;              error otherwise), store it as OPTION_BASE_VALUE, and mark it set (value+1).
+; ----------------------------------------------------------------------
 STMT_OPTION:
         CALL SYNCHR
         DEFB    'B'                      ; inline char arg consumed by the preceding CALL
@@ -6743,10 +7619,12 @@ STMT_OPTION:
         DEFB    'S'                      ; inline char arg consumed by the preceding CALL
         CALL SYNCHR
         DEFB    'E'                      ; inline char arg consumed by the preceding CALL
+        ; OPTION BASE may be set only once: reject a repeat
         LD A,(OPTION_BASE_SET_FLAG)
         OR A
         JP NZ,RAISE_DUPLICATE_DEFINITION
         PUSH HL
+        ; and only before any array exists: ARYTAB != STREND means array space is non-empty -> too late, Duplicate Definition
         LD HL,(ARYTAB)
         EX DE,HL
         LD HL,(STREND)
@@ -6754,10 +7632,12 @@ STMT_OPTION:
         JP NZ,RAISE_DUPLICATE_DEFINITION
         POP HL
         LD A,(HL)
+        ; convert the ASCII digit to 0/1; reject anything outside [0,1] as a Syntax error
         SUB $30
         JP C,RAISE_SYNTAX_ERROR
         CP $02
         JP NC,RAISE_SYNTAX_ERROR
+        ; record the lower bound (0 or 1) and mark BASE as set (store value+1 into the set-flag)
         LD (OPTION_BASE_VALUE),A
         INC A
         LD (OPTION_BASE_SET_FLAG),A
@@ -6797,31 +7677,76 @@ STROUT_PUTC:
         ; stash the char; OUTDO_WIDTH_1 recovers it with its POP AF (after the Ctrl-O test), or GETSPA_2 pops it if suppressed
         PUSH AF
         JP OUTDO_WIDTH_1
-; [RE] RANDOMIZE statement handler (token $B6): reseed the RND generator (prompts for a seed if none given).
+; ----------------------------------------------------------------------
+; STMT_RANDOMIZE -- RANDOMIZE statement handler (token $B6): reseed the RND generator.
+;   In:        HL -> text just past the RANDOMIZE token; Z set if no seed expression follows.
+;   Out:       The user seed is injected into the RND state's mantissa bytes (via STMT_RANDOMIZE_3)
+;              and the generator is advanced/reseeded (RND_SEED_RESET). HL restored. RET.
+;   Clobbers:  AF, BC, DE, HL, FAC; updates the RND seed state.
+;   Algorithm: If an argument is present, FRMEVL_NOPAREN it and FN_CINT it to a signed 16-bit integer
+;              in HL. If absent, prompt interactively (STMT_RANDOMIZE_1/_2). Either way join at
+;              STMT_RANDOMIZE_3 which stores HL into RNDX_SEED_WORD (overwriting two of the RND
+;              state's upper mantissa bytes) and calls RND_SEED_RESET to fold the generator forward.
+; ----------------------------------------------------------------------
 STMT_RANDOMIZE:
+        ; no seed given: drop into the interactive 'Random number seed' prompt
         JR Z,STMT_RANDOMIZE_1
+        ; evaluate the supplied seed expression
         CALL FRMEVL_NOPAREN
         PUSH HL
+        ; coerce the seed to a signed 16-bit integer (HL)
         CALL FN_CINT
         JR STMT_RANDOMIZE_3
+; ----------------------------------------------------------------------
+; STMT_RANDOMIZE_1 / STMT_RANDOMIZE_2 -- interactive RANDOMIZE seed prompt loop.
+;   In:        HL preserved (pushed); reached when RANDOMIZE was typed with no argument.
+;   Out:       HL = the entered seed as a signed 16-bit integer; falls into STMT_RANDOMIZE_3 to
+;              store it. If the input line was aborted (QINLIN carry), branches to STMT_END_2+1
+;              to break to direct mode.
+;   Clobbers:  AF, BC, DE, HL, FAC.
+;   Algorithm: Print MSG_RANDOMIZE_PROMPT ('Random number seed (-32768 to 32767)') via STROUT and
+;              read a console line with QINLIN. On Ctrl-C/abort (carry) jump to the break path.
+;              Parse the typed text as a numeric constant into the FAC (FIN_1+1); if any non-numeric
+;              trailing character remains, re-prompt. Otherwise FN_CINT the value to a 16-bit integer
+;              in HL and continue.
+; ----------------------------------------------------------------------
 STMT_RANDOMIZE_1:
         PUSH HL
 STMT_RANDOMIZE_2:
+        ; show the 'Random number seed (-32768 to 32767)' prompt and read a console line
         LD HL,MSG_RANDOMIZE_PROMPT
         CALL STROUT
         CALL QINLIN
         POP DE
+        ; input aborted (Ctrl-C): break to direct mode (the +1 entry runs OR $FF, flagging A=$FF break)
         JP C,STMT_END_2+1
         PUSH DE
         INC HL
         LD A,(HL)
+        ; parse the typed text into the FAC as a numeric constant (the +1 entry pre-seeds FAC=0 as an integer)
         CALL FIN_1+1
         LD A,(HL)
         OR A
+        ; trailing non-numeric junk after the number: reject and re-prompt
         JR NZ,STMT_RANDOMIZE_2
         CALL FN_CINT
+; ----------------------------------------------------------------------
+; STMT_RANDOMIZE_3 -- store the new RND seed and reseed the generator.
+;   In:        HL = the 16-bit seed value (from the expression or the prompt); a caller HL was
+;              pushed earlier.
+;   Out:       RNDX_SEED_WORD := HL (2 bytes); RND state advanced/reseeded via RND_SEED_RESET;
+;              caller HL restored. RET.
+;   Clobbers:  AF, BC, DE, FAC; HL restored from the stack.
+;   Algorithm: Write the 16-bit HL into RNDX_SEED_WORD ([RE] this cell is the start of the RND
+;              state's upper mantissa bytes at $5E25, so the store overwrites two of those bytes and
+;              perturbs the running seed), call RND_SEED_RESET (which loads the constant 1.0 and folds
+;              it through FN_RND to advance/reseed the generator), then pop the saved text-pointer HL
+;              and return.
+; ----------------------------------------------------------------------
 STMT_RANDOMIZE_3:
+        ; inject the user seed (2 bytes) into the upper mantissa bytes of the RND state
         LD (RNDX_SEED_WORD),HL
+        ; fold the constant 1.0 through FN_RND to advance/reseed the generator with the new seed in place
         CALL RND_SEED_RESET
         POP HL
         RET
@@ -7754,7 +8679,15 @@ FN_COLOR_READ:
         LD A,(COLOR)
         AND $0F
         JP FAC_LOAD_BYTE_PUSH_TXT
+; ----------------------------------------------------------------------
+; STMT_CALL_INVOKE_6502 -- SoftCard CALL %addr(a,x,y): stage the 6502 A/X/Y registers from the argument list.
+;   In:        L_0C93 = the resolved 6502 target address (set by STMT_CALL). The text pointer is on the stack (POPped here -> HL). Optional argument list "(a[,x[,y]])".
+;   Out:       The three SoftCard register cells RPC_ACC/RPC_XREG/RPC_YREG ($F045..$F047 = Apple zp $45/$46/$47) initialized to 0 then loaded from the supplied byte arguments; falls into STMT_CALL_INVOKE which performs the 6502 call.
+;   Clobbers:  AF,BC,DE,HL; RPC_ACC,RPC_XREG,RPC_YREG.
+;   Algorithm: Zero the three consecutive register cells (LD HL,RPC_ACC; XOR A; store 3 bytes). POP the text pointer. If no '(' follows (CHRGOT Z) go straight to STMT_CALL_INVOKE (call with A=X=Y=0). Otherwise SYNCHR '(' and run STMT_CALL_ARG_LOOP over up to 3 comma-separated byte values, storing them into RPC_ACC,RPC_XREG,RPC_YREG in store order.
+; ----------------------------------------------------------------------
 STMT_CALL_INVOKE_6502:
+        ; default the 6502 A/X/Y register cells ($F045..$F047) to zero before reading any arguments
         LD HL,RPC_ACC
         XOR A
         LD (HL),A
@@ -7764,13 +8697,23 @@ STMT_CALL_INVOKE_6502:
         LD (HL),A
         POP HL
         CALL CHRGOT
+        ; no argument list: call the 6502 routine with A=X=Y=0
         JR Z,STMT_CALL_INVOKE
         CALL SYNCHR
         DEFB    '('                      ; inline char arg consumed by the preceding CALL
         LD DE,RPC_ACC
         LD B,$03
+; ----------------------------------------------------------------------
+; STMT_CALL_ARG_LOOP -- parse up to three byte arguments into the 6502 register cells (A, X, Y).
+;   In:        HL -> text inside the argument list; DE -> RPC_ACC (first register cell); B = 3 (max arguments); '(' already consumed.
+;   Out:       Each supplied byte expression evaluated and stored into the next register cell (DE auto-increments RPC_ACC->RPC_XREG->RPC_YREG); ')' ends the list (-> STMT_CALL_ARG_END requiring ')'). HL advanced past the arguments.
+;   Clobbers:  AF,BC,DE,HL.
+;   Algorithm: Inspect the current char: ')' ($29) -> done; ',' ($2C) -> an empty slot, CHRGET past the comma and DJNZ without storing. Otherwise STMT_CALL_ARG_STORE evaluates a byte (GETBYT), stores it at (DE), INC DE, and skips a following comma. DJNZ repeats up to 3 times, then STMT_CALL_ARG_END requires the closing ')'.
+;   Note:      OBSERVED: an explicitly omitted argument (consecutive commas) decrements B but leaves DE unchanged, so the empty slot does NOT reserve a register cell -- the next value lands in the cell the empty slot would have used (arguments map by store-order, not comma-position). [RE]/UNKNOWN whether MS intended positional skipping.
+; ----------------------------------------------------------------------
 STMT_CALL_ARG_LOOP:
         LD A,(HL)
+        ; ')' ends the argument list
         CP $29
         JR Z,STMT_CALL_ARG_END
         CP $2C
@@ -7780,9 +8723,11 @@ STMT_CALL_ARG_LOOP:
 STMT_CALL_ARG_STORE:
         PUSH BC
         PUSH DE
+        ; evaluate the next argument as a 0..255 byte for the 6502 register
         CALL GETBYT
         POP DE
         POP BC
+        ; store it into the next 6502 register cell (A then X then Y, in store order)
         LD (DE),A
         INC DE
         LD A,(HL)
@@ -7793,9 +8738,18 @@ STMT_CALL_ARG_NEXT:
 STMT_CALL_ARG_END:
         CALL SYNCHR
         DEFB    ')'                      ; inline char arg consumed by the preceding CALL
+; ----------------------------------------------------------------------
+; STMT_CALL_INVOKE -- perform the SoftCard 6502 subroutine call with the staged A/X/Y registers.
+;   In:        L_0C93 = the 6502 target address; RPC_ACC/RPC_XREG/RPC_YREG already staged; HL -> text after the argument list.
+;   Out:       The 6502 routine at the target address executes (with the staged registers) and returns; HL restored to the BASIC text pointer; control returns to the statement executor. Any 6502 results are read back from the register cells by the caller, not here.
+;   Clobbers:  whatever the shared RPC tail (GFX_STMT_PLOT_1 -> RPC_CALL) touches; HL reloaded.
+;   Algorithm: PUSH the text pointer, load HL = the target address from L_0C93, and JP GFX_STMT_PLOT_1 -- the shared 'RPC_CALL then POP HL' tail used by the low-res graphics statements -- so RPC_CALL runs the 6502 code at the target via the SoftCard CPU switch, then HL is restored on return.
+; ----------------------------------------------------------------------
 STMT_CALL_INVOKE:
         PUSH HL
+        ; load the 6502 target address resolved by STMT_CALL
         LD HL,(L_0C93)
+        ; reuse the shared RPC-call-and-restore tail to bridge to the 6502 and pop HL back
         JP GFX_STMT_PLOT_1
 ; ----------------------------------------------------------------------
 ; GFX_SET_DISPLAY_MODE -- switch the Apple video into the requested graphics mode and
@@ -16177,26 +17131,53 @@ VARNAM_COMPARE_2:
         POP BC
         POP DE
         RET
-; [RE] EDIT-statement line-number resolver: store the LIST/edit flag at $0835, fetch the current/target line pointer from $0B60, and fall into the EDIT statement handler (STMT_EDIT) to enter the line editor.
+; ----------------------------------------------------------------------
+; STMT_EDIT_LINENUM -- entry reached from the READY loop when ERRFLG==2: commit the flag, fetch ERR_SAVTXT, and fall into the EDIT path.
+;   In:        A = the value to commit to ERRFLG (the READY loop reaches this via 'LD A,(ERRFLG) / SUB $02 / CALL Z,STMT_EDIT_LINENUM', so A = ERRFLG-2 = 0 here). ERR_SAVTXT ($0B60) = the saved error text pointer.
+;   Out:       Stores A into ERRFLG. If ERR_SAVTXT = $FFFF (no saved position) returns immediately (Z). Otherwise EX DE,HL leaves DE = ERR_SAVTXT and falls through (JR) to STMT_EDIT_1.
+;   Clobbers:  AF,DE,HL.
+;   Algorithm: Commit the flag to ERRFLG, load ERR_SAVTXT, and test it for the $FFFF sentinel (OR H / AND L / INC A -> A=0,Z iff $FFFF). EX DE,HL stages ERR_SAVTXT in DE; RET Z when it is $FFFF, else JR into STMT_EDIT_1. [RE]/UNKNOWN: this is plausibly the auto-edit-after-error feature, but STMT_EDIT_1/_2 stores DE into ERRLIN and passes it to FNDLIN as a LINE NUMBER, whereas ERR_SAVTXT is documented elsewhere as a TEXT pointer (see the [FIX/UNKNOWN] note at the ERR/ERL reader). The exact line-identity semantics on this path are not confirmed from the bytes.
+; ----------------------------------------------------------------------
 STMT_EDIT_LINENUM:
+        ; commit the flag byte (this READY-loop path passes 0)
         LD (ERRFLG),A
         LD HL,(ERR_SAVTXT)
+        ; test ERR_SAVTXT for the $FFFF 'no saved error position' sentinel (OR H/AND L/INC A -> Z iff $FFFF)
         OR H
         AND L
         INC A
         EX DE,HL
+        ; no saved position captured: nothing to do, return to the READY loop
         RET Z
+        ; [RE] fall into the EDIT setup with DE = ERR_SAVTXT (treated by STMT_EDIT_2 as a line number for FNDLIN; see header UNKNOWN)
         JR STMT_EDIT_1
-; [RE] EDIT statement handler (token $A3): enter the line editor for a program line.
+; ----------------------------------------------------------------------
+; STMT_EDIT -- EDIT statement handler (token $A3): enter the interactive line editor for a program line.
+;   In:        HL -> BASIC text after EDIT: a line number, or '.' for the last-referenced line (ERRLIN).
+;   Out:       On a valid line number, opens that line in the line editor (via STMT_EDIT_1): detokenizes it into BUF and runs the keystroke-driven edit loop. If the text after the line number is not end-of-statement, RETs without editing (NZ). Undefined line -> ERROR_UL (Undefined line).
+;   Clobbers:  AF,BC,DE,HL (and the editor's working set).
+;   Algorithm: LINGET_DOT parses the line number into DE (substituting ERRLIN for '.'); a trailing non-end-of-statement token (NZ) RETs. Otherwise fall into STMT_EDIT_1, which discards the dispatcher's return address (the editor owns the stack), records the line in ERRLIN, locates it with FNDLIN (ERROR_UL if missing), detokenizes its crunched text into BUF, prints the line number, and enters the EDIT subcommand loop.
+; ----------------------------------------------------------------------
 STMT_EDIT:
+        ; parse the target line number (or '.' = last-referenced line, ERRLIN) into DE
         CALL LINGET_DOT
+        ; anything other than a clean line number ends the statement (no edit)
         RET NZ
+; ----------------------------------------------------------------------
+; STMT_EDIT_1 -- EDIT setup: seize the stack, locate the line, detokenize it into BUF, and start the edit loop.
+;   In:        DE = the line number to edit (from STMT_EDIT via LINGET_DOT; or ERR_SAVTXT via STMT_EDIT_LINENUM -- see that routine's UNKNOWN). One dispatcher return address is on the stack (popped here).
+;   Out:       ERRLIN = the line being edited; BUF holds the detokenized source text of the line; the line number has been printed; control enters the editor's per-keystroke loop. On a missing line, jumps to ERROR_UL.
+;   Clobbers:  AF,BC,DE,HL,SP.
+;   Algorithm: POP the dispatcher return so the editor controls its own return path, then (STMT_EDIT_2) record DE in ERRLIN and FNDLIN to find the line; ERROR_UL if not found. Skip past the line's link + line-number words to its crunched tokens, push that text pointer, and DETOKENIZE_LINE it back into editable ASCII in BUF. Print the line number (FOUT) and fall into the editor's keystroke dispatch.
+; ----------------------------------------------------------------------
 STMT_EDIT_1:
+        ; discard the statement-dispatcher return: the interactive editor manages its own stack/return
         POP HL
 STMT_EDIT_2:
         EX DE,HL
         LD (ERRLIN),HL
         EX DE,HL
+        ; locate the program line by number; not found -> Undefined line error
         CALL FNDLIN
         JP NC,ERROR_UL
         LD H,B
@@ -16208,6 +17189,7 @@ STMT_EDIT_2:
         LD B,(HL)
         INC HL
         PUSH BC
+        ; expand the line's crunched tokens back into editable ASCII in BUF
         CALL DETOKENIZE_LINE
 STMT_EDIT_3:
         POP HL
@@ -16224,10 +17206,19 @@ STMT_EDIT_4:
         LD HL,BUF
         PUSH HL
         LD C,$FF
+; ----------------------------------------------------------------------
+; STMT_EDIT_5 -- measure the editable line: count the characters now sitting in BUF.
+;   In:        HL -> start of BUF (the detokenized line, NUL-terminated). C preset to $FF by the caller (STMT_EDIT_4).
+;   Out:       C = length of the line in BUF (number of bytes before the NUL); HL restored to BUF start; B := A (= 0 from the terminator), seeding the editor's column/cursor state.
+;   Clobbers:  A,C,HL,F.
+;   Algorithm: Walk BUF incrementing C until the terminating $00 (INC C precedes each LD A,(HL), so C ends as the count of non-NUL bytes). POP HL back to BUF and set B = A (= 0) for the keystroke loop that follows.
+; ----------------------------------------------------------------------
 STMT_EDIT_5:
+        ; count one more character of the line buffer (C started at $FF so it ends = length)
         INC C
         LD A,(HL)
         INC HL
+        ; stop at the NUL terminator that ends the detokenized line
         OR A
         JR NZ,STMT_EDIT_5
         POP HL
@@ -16252,10 +17243,19 @@ STMT_EDIT_7:
         ADD A,E
         LD D,A
         JR STMT_EDIT_7
+; ----------------------------------------------------------------------
+; STMT_EDIT_8 -- EDIT keystroke dispatcher: decode one edit subcommand and branch to its handler.
+;   In:        A = the just-read keystroke uppercased and reduced by $30 (digits were already accumulated into D as a repeat count by STMT_EDIT_7); HL/BC/D = the editor's buffer pointer, column, and repeat-count state.
+;   Out:       Pushes STMT_EDIT_6 as the return so each subcommand resumes the read-next-key loop, normalizes the repeat count to a default of 1, then JP/JRs to the matching subcommand handler. An unrecognized key falls through to ring the bell (LD A,$07 / OUTCHR).
+;   Clobbers:  AF,D,HL,SP (per the dispatched handler).
+;   Algorithm: Push STMT_EDIT_6 (the 'await next keystroke' re-entry) as the common return via PUSH HL / LD HL,STMT_EDIT_6 / EX (SP),HL. Normalize the repeat count (DEC D/INC D forces a default of 1 when none was typed). Compare A against the normalized EDIT command codes ($D8/$4F/$DD/$F0 at STMT_EDIT_9; STMT_EDIT_9 then does the >=$31 SUB $20 fold and continues at STMT_EDIT_10) and JP/JR to each handler. [RE] the precise user-facing key letters behind several normalized codes are not pinned from the bytes; named code mappings are deferred to the handlers.
+; ----------------------------------------------------------------------
 STMT_EDIT_8:
         PUSH HL
+        ; make every subcommand return to the 'read next keystroke' loop
         LD HL,STMT_EDIT_6
         EX (SP),HL
+        ; normalize the typed repeat count to a default of 1 when no digits preceded the command
         DEC D
         INC D
         JP NZ,STMT_EDIT_9
@@ -16272,7 +17272,15 @@ STMT_EDIT_9:
         CP $31
         JR C,STMT_EDIT_10
         SUB $20
+; ----------------------------------------------------------------------
+; STMT_EDIT_10 -- EDIT dispatcher tail: the remaining subcommand comparisons after the STMT_EDIT_9 lowercase fold.
+;   In:        A = normalized command code (codes below $31 reach here without the $20 fold STMT_EDIT_9 applies to the rest).
+;   Out:       Branches to the matching echo-span / buffer-shift edit handler, to PRINT_LIST_ENTRY_1 (the edit-finish path that returns to the READY loop), or falls through to ring the bell (LD A,$07 / JP OUTCHR) on an unrecognized key. Each editing handler returns via the STMT_EDIT_6 address pushed by STMT_EDIT_8.
+;   Clobbers:  AF,HL (per the dispatched handler).
+;   Algorithm: Continuation of the STMT_EDIT_8/_9 compare chain: CP $21 / $1C / $23 / $19 / $14 / $13 / $15 / $28 / $1B / $18 / $11 each route to the corresponding edit handler. UNKNOWN: the user-facing key letters behind these normalized codes are not confirmed from the bytes; e.g. $1C -> EDIT_ECHO_SPAN_6 (line-list redisplay) and $21 -> PRINT_LIST_ENTRY_1 (discard editor state and return to the READY loop).
+; ----------------------------------------------------------------------
 STMT_EDIT_10:
+        ; [RE] this code -> PRINT_LIST_ENTRY_1, the edit-finish path (pops the editor state and returns to the READY loop); the exact key letter is UNKNOWN (the value is a normalized code, not ASCII '!')
         CP $21
         JP Z,PRINT_LIST_ENTRY_1
         CP $1C
@@ -17844,42 +18852,117 @@ SYNCHR:
         JP CHRGOT_1
 SYNCHR_MISMATCH:
         JP RAISE_SYNTAX_ERROR
-; [RE] RESTORE statement handler (token $8C): resets the DATA read pointer (optionally to a line number).
+; ----------------------------------------------------------------------
+; STMT_RESTORE -- RESTORE statement handler (token $8C): reset the READ/DATA scan pointer.
+;   In:        HL -> text just past the RESTORE token; Z set if no line-number argument follows.
+;              (Also called internally by the CLEAR/RUN storage reset with HL = scratch, Z forced.)
+;   Out:       DATA_READ_PTR ($0B75, MS BASIC DATPTR) := one byte before the next DATA byte to read
+;              -- start-of-program (RESTORE with no line) or the located line. HL restored (EX DE,HL
+;              on exit). RET.
+;   Clobbers:  AF, BC, DE, HL.
+;   Algorithm: Save the caller's text pointer in DE. Default target = TXTTAB (start of program).
+;              With a line-number argument, LINGET it and FNDLIN the line; 'Undefined line' if not
+;              found, else target = that line's BASLINE node. DEC the target so the next READ's
+;              pre-increment lands on the first byte, store it in DATA_READ_PTR, restore HL, return.
+;              STMT_READ reads (DATA_READ_PTR) to find where the next DATA item begins.
+; ----------------------------------------------------------------------
 STMT_RESTORE:
         EX DE,HL
+        ; default DATA pointer target = start of program text (RESTORE with no line number)
         LD HL,(TXTTAB)
         JR Z,STMT_RESTORE_1
         EX DE,HL
+        ; RESTORE <line>: parse the line number and locate that BASLINE node (FNDLIN)
         CALL LINGET
         PUSH HL
         CALL FNDLIN
         LD H,B
         LD L,C
         POP DE
+        ; the requested RESTORE target line does not exist -> Undefined line
         JP NC,ERROR_UL
+; ----------------------------------------------------------------------
+; STMT_RESTORE_1 / STMT_RESTORE_2 -- common DATA-pointer store tail.
+;   In:        HL -> the chosen target (start-of-program or a located BASLINE node).
+;   Out:       DATA_READ_PTR := HL-1; HL restored to the caller's text pointer (EX DE,HL). RET.
+;   Clobbers:  HL (then restored), DE.
+;   Algorithm: Step the target back one byte (so the next READ's CHRGET pre-increment lands on the
+;              first program/DATA byte), store it into DATA_READ_PTR, swap the saved caller pointer
+;              back into HL, and return. STMT_RESTORE_2 is the store-only entry used when the target
+;              is already adjusted (e.g. the STMT_READ rewind path jumps here).
+; ----------------------------------------------------------------------
 STMT_RESTORE_1:
+        ; back up one byte so the next READ's pre-increment lands on the first DATA byte
         DEC HL
 STMT_RESTORE_2:
-        LD (L_0B75),HL
+        ; commit the new DATA read pointer (STMT_READ resumes scanning from here)
+        LD (DATA_READ_PTR),HL
         EX DE,HL
         RET
-; [RE] STOP statement handler (token $90): break to direct mode with a Break message (shares logic with END at $6956).
+; ----------------------------------------------------------------------
+; STMT_STOP -- STOP statement handler (token $90): break to direct mode with a 'Break' message.
+;   In:        A = the statement-terminator result from CHRGOT (Z = STOP stands alone); HL -> text
+;              just past the STOP token.
+;   Out:       A := 1 (the 'print Break message' selector); transfers to STMT_END_1 to perform the
+;              halt-to-direct-mode sequence. Does not return to the program.
+;   Clobbers:  AF.
+;   Algorithm: STOP must stand alone: 'RET NZ' bails (returning to the dispatcher to raise Syntax
+;              error) if any argument follows. Otherwise A is 0 here, so INC A makes A=1 (the flag
+;              RESUME_AT_DIRECT later tests, NZ -> print 'Break'); JP STMT_END_1 shares END's
+;              break-to-direct-mode tail.
+; ----------------------------------------------------------------------
 STMT_STOP:
+        ; STOP takes no argument: anything trailing is a syntax error (return to dispatcher)
         RET NZ
+        ; A := 1 selects the 'Break' message path in RESUME_AT_DIRECT (END leaves A=0 = silent)
         INC A
         JP STMT_END_1
 
 ; ======================================================================
 ; BASIC-80 statement dispatch handlers (table base $0108, indexed by (token-$81)*2)
 ; ======================================================================
-; [RE] END statement handler (token $81). Reached via the GONE/NEWSTT statement dispatcher at $33B1 (SUB $81; RLCA; LD HL,$0108; ADD HL,BC; load handler; JP).
+; ----------------------------------------------------------------------
+; STMT_END -- END statement handler (token $81): close files and halt the program to direct mode.
+;   In:        A = the statement-terminator result from CHRGOT (Z = END stands alone); HL -> text
+;              just past the END token. Reached via the GONE/NEWSTT statement dispatcher (table base
+;              $0108, indexed (token-$81)*2).
+;   Out:       All open files closed; interpreter returned to direct/command mode silently (A=0,
+;              no 'Break' message). Does not return to the program.
+;   Clobbers:  AF, BC, DE, HL.
+;   Algorithm: END must stand alone ('RET NZ' on trailing junk). With A=0 (Z) close all files
+;              (CALL Z,CLOSE_ALL_FILES, A preserved across via PUSH/POP AF) then fall into
+;              STMT_END_1, which snapshots the resume pointers and drops to the Ok prompt without
+;              printing 'Break'.
+; ----------------------------------------------------------------------
 STMT_END:
+        ; END takes no argument: trailing text is a syntax error (return to dispatcher)
         RET NZ
         PUSH AF
+        ; on the plain-END path (A=0) close every open file before halting
         CALL Z,CLOSE_ALL_FILES
         POP AF
+; ----------------------------------------------------------------------
+; STMT_END_1 / STMT_END_2 -- shared STOP/END halt-to-direct-mode tail.
+;   In:        HL = current statement text pointer; A = break selector (0 = END/silent, nonzero =
+;              STOP/'Break'). Entered by STOP (after INC A) and END; STMT_END_2+1 is also entered
+;              from the three input-abort sites (Ctrl-C during INPUT/RANDOMIZE) where it forces A=$FF.
+;   Out:       OLDTXT := current statement pointer (so CONT can later resume here); the temp-string
+;              descriptor stack reset (TEMPPT := TEMPST); control falls into RESUME_AT_DIRECT, which
+;              (when SAVTXT is not $FFFF) copies SAVTXT->SAVED_ERR_TXTPTR and OLDTXT->CONT_TXTPTR and
+;              returns to the Ok/Break prompt.
+;   Clobbers:  AF, BC, DE, HL.
+;   Algorithm: Record the current statement pointer in OLDTXT (CONT's resume anchor) and reset the
+;              temporary string-descriptor stack pointer (TEMPPT := TEMPST). STMT_END_2 then falls
+;              into RESUME_AT_DIRECT.
+;   [RE] STMT_END_2 is a coded-overlap dual entry: the bytes 21 F6 FF read as 'LD HL,$FFF6' on the
+;              fall-through path (the $FFF6 value is dead -- RESUME_AT_DIRECT reloads HL from SAVTXT --
+;              so this only absorbs the F6 FF bytes with A preserved). The +1 entry (input-abort
+;              sites) runs F6 FF as OR $FF, flagging A=$FF (break).
+; ----------------------------------------------------------------------
 STMT_END_1:
+        ; remember where execution stopped so CONT can pick up here
         LD (OLDTXT),HL
+        ; reset the temporary string-descriptor stack (discard any pending intermediate strings)
         LD HL,TEMPST
         LD (TEMPPT),HL
 ; [RE] Dual entry. Fall-through (END/stop tail from STMT_END_1) runs LD HL,$FFF6 whose value is dead (RESUME_AT_DIRECT at $6969 reloads HL from SAVTXT); its only job is to eat the F6 FF bytes so A is preserved. The three JP C,STMT_END_2+1 sites (after INLIN returns carry = input aborted) enter +1 so F6 FF runs as OR $FF, flagging the break in A=$FF. Both merge at $6968 POP BC.
@@ -17944,31 +19027,72 @@ ECHO_CTRL_CHAR_1:
         CALL OUTCHR
         ; finish the caret echo with a newline (returns A=0/Z)
         JP CRLF
-; [RE] CONT statement handler (token $98): resume a stopped program from the saved text pointer ($0B6D).
+; ----------------------------------------------------------------------
+; STMT_CONT -- CONT statement handler (token $98): resume a stopped program where it left off.
+;   In:        CONT_TXTPTR holds the saved OLDTXT snapshot (set by STOP/END/error via
+;              RESUME_AT_DIRECT); SAVED_ERR_TXTPTR holds the matching SAVTXT snapshot. HL is
+;              irrelevant on entry.
+;   Out:       SAVTXT := SAVED_ERR_TXTPTR and execution continues from the saved line (RET into the
+;              run loop). Raises 'Can't continue' (err 17) if there is nothing to resume.
+;   Clobbers:  AF, DE, HL.
+;   Algorithm: Load CONT_TXTPTR purely as a presence sentinel -- if it is $0000 there is no stopped
+;              program to continue ('Can't continue'). Otherwise restore the running program pointer
+;              SAVTXT from SAVED_ERR_TXTPTR (the saved line pointer) so the next NEWSTT cycle
+;              re-executes from the stopped line, and return. (CONT_TXTPTR's value itself is the
+;              stopped statement pointer but is only tested for zero here.)
+;   [RE] Note: the 'Can't continue' error lives here, not in PROGRAM_END (which raises 'No RESUME').
+; ----------------------------------------------------------------------
 STMT_CONT:
+        ; load the resume sentinel; zero means nothing is stopped to continue
         LD HL,(CONT_TXTPTR)
         LD A,H
         OR L
+        ; no resume point set -> 'Can't continue' (a program was edited, NEW'd, or never STOPped)
         LD DE,ERR_CANT_CONTINUE
         JP Z,RAISE_ERROR
         EX DE,HL
         LD HL,(SAVED_ERR_TXTPTR)
+        ; restore the running program pointer (from SAVED_ERR_TXTPTR) so execution resumes at the stopped line
         LD (SAVTXT),HL
         EX DE,HL
         RET
-; [RE] TRACE statement handler (token $9F): enable execution trace (TRON-equivalent); sets the trace flag.
-; [RE] TRON/TROFF share one tail. TRON (DEFW at $0144) enters $69BF and runs LD A,$AF (trace ON); TROFF (DEFW at $0146) and program-start (CALL from $687A) enter +1 so the AF byte runs as XOR A (trace OFF). Both fall into LD ($0CAB),A; RET, storing $AF or 0 into the trace flag read at $3393.
+; ----------------------------------------------------------------------
+; STMT_TRACE -- TRON/TROFF statement handler (tokens $9F/$A0): toggle the execution-trace flag.
+;   In:        Entry point selects the mode: STMT_TRACE (TRON, $0144) executes 'LD A,$AF';
+;              STMT_TRACE+1 (TROFF $0146, and the CLEAR/program-start trace reset) lands on the $AF
+;              byte which decodes as XOR A.
+;   Out:       TRCFLG := $AF (trace on) or $00 (trace off). RET.
+;   Clobbers:  AF.
+;   Algorithm: Single coded-overlap tail. TRON sets A=$AF; TROFF / program start enters one byte
+;              later so the $AF runs as XOR A (A=0). Both fall into 'LD (TRCFLG),A; RET'. NEWSTT
+;              reads TRCFLG each line ($3393) and, when nonzero, prints '[<linenum>]' before
+;              executing it.
+;   [RE] The +1 (XOR A) entry is also reused by the CLEAR/RUN reset (CALL STMT_TRACE+1 at $687A) as
+;              a one-shot 'turn trace off and return A=0' helper.
+;   [RE] The internal token labels are TOK_TRACE ($9F) / TOK_NOTRACE ($A0); the user keywords are
+;              TRON/TROFF.
+; ----------------------------------------------------------------------
 STMT_TRACE:
+        ; TRON path: load the trace-on marker (the $AF byte doubles as XOR A for the TROFF +1 entry)
         LD A,$AF
+        ; store the trace state ($AF on / $00 off); NEWSTT prints '[line]' per statement when nonzero
         LD (TRCFLG),A
         RET
-; [RE] SWAP statement handler (token $A1): exchange the values of two variables.
+; ----------------------------------------------------------------------
+; STMT_SWAP -- SWAP statement handler (token $A1): exchange the values of two same-type variables in place.
+;   In:        HL -> BASIC text after the SWAP token: "var1 , var2".
+;   Out:       The two scalar/array-element values exchanged byte-for-byte; HL -> text after var2. RETs to the statement executor. Raises TYPE MISMATCH if the two variables differ in VALTYP, or Illegal function call if resolving var2 grew the array table (which would invalidate var1's saved address).
+;   Clobbers:  AF,BC,DE,HL; SWAP_VALUE_TEMP (8-byte scratch).
+;   Algorithm: PTRGET var1 -> its storage address in DE; copy its VALTYP-wide value into the SWAP_VALUE_TEMP scratch cell (FP_MOVE_TYPED). Snapshot ARYTAB, then PTRGET var2. Require the two types to match: FRMEVL_TEST_TYPE returns A=VALTYP-3 for each; B holds var1's value, A holds var2's; CP B / TYPE MISMATCH on mismatch. [RE] Re-read ARYTAB and compare it (CMP_HL_DE) to the snapshot: if PTRGET of var2 allocated a new array (ARYTAB moved), var1's saved address is now stale -> Illegal function call. Otherwise copy var2's value into var1's slot (FP_MOVE_TYPED), then copy the saved value out of SWAP_VALUE_TEMP into var2's slot, completing the exchange.
+; ----------------------------------------------------------------------
 STMT_SWAP:
         CALL PTRGET_1+1
         PUSH DE
         PUSH HL
-        LD HL,L_0CA3
+        ; save var1's value (VALTYP bytes) into the SWAP scratch cell so it survives while var1's slot is overwritten
+        LD HL,SWAP_VALUE_TEMP
         CALL FP_MOVE_TYPED
+        ; snapshot the array-table top before resolving var2 (to detect a relocation)
         LD HL,(ARYTAB)
         EX (SP),HL
         CALL FRMEVL_TEST_TYPE
@@ -17978,11 +19102,13 @@ STMT_SWAP:
         CALL PTRGET_1+1
         POP BC
         CALL FRMEVL_TEST_TYPE
+        ; the two variables must have the same type/width (FRMEVL_TEST_TYPE codes), else TYPE MISMATCH
         CP B
         JP NZ,RAISE_TYPE_MISMATCH
         EX (SP),HL
         EX DE,HL
         PUSH HL
+        ; [RE] if PTRGET(var2) allocated a new array ARYTAB moved -> var1's saved address is stale -> Illegal function call
         LD HL,(ARYTAB)
         CALL CMP_HL_DE
         JP NZ,ERROR_FC
@@ -17990,9 +19116,11 @@ STMT_SWAP:
         POP HL
         EX (SP),HL
         PUSH DE
+        ; copy var2's value into var1's slot
         CALL FP_MOVE_TYPED
         POP HL
-        LD DE,L_0CA3
+        ; copy the saved var1 value out of scratch into var2's slot, finishing the swap
+        LD DE,SWAP_VALUE_TEMP
         CALL FP_MOVE_TYPED
         POP HL
         RET
@@ -18183,14 +19311,30 @@ SUB_HL_DE:
         SBC A,D
         LD D,A
         RET
-; [RE] NEXT statement handler (token $83): advances/closes the current FOR loop frame.
+; ----------------------------------------------------------------------
+; STMT_NEXT -- NEXT statement handler (token $83): close/advance the current FOR loop (NEXT-entry of the shared FOR/NEXT body).
+;   In:        HL -> BASIC text after the NEXT token; the entry flags carry Z set if end-of-statement (bare NEXT) or NZ if a loop-variable name follows ('NEXT i'), as left by the dispatcher's CHRGET.
+;   Out:       Marks NEXT_ENTRY_FLAG nonzero (this is a NEXT statement, so STEP is applied), then falls into the shared NEXT body which applies STEP, compares against the limit, and either re-enters the loop or drops the frame and continues after the loop.
+;   Clobbers:  AF (the entry flags are saved across the flag store via PUSH/POP AF); then everything the shared body clobbers.
+;   Algorithm: PUSH AF to preserve the bare-vs-named entry flags across the flag store, then fall into STMT_NEXT_1. [RE] STMT_NEXT (entered at +0) runs its first opcode 'OR $AF' (A becomes nonzero) -> NEXT_ENTRY_FLAG = nonzero = 'NEXT statement'. The alternate entry STMT_NEXT_1+1 (the JP from STMT_FOR_5, the FOR zero-trip setup) lands on the $AF operand byte, which decodes as 'XOR A' -> NEXT_ENTRY_FLAG = 0 = 'FOR first pass'.
+; ----------------------------------------------------------------------
 STMT_NEXT:
+        ; preserve the entry flags (bare NEXT = Z, 'NEXT i' = NZ) across the NEXT_ENTRY_FLAG store below; restored by POP AF and used to gate the loop-variable PTRGET
         PUSH AF
-; [RE] Shared NEXT body, two entries. NEXT statement falls through $6AD3 OR $AF (A nonzero) so the $0C6C flag marks 'NEXT'; the FOR-loop re-iteration (JP STMT_NEXT_1+1 from $3364) enters +1 so the AF byte runs as XOR A (flag 0). Both store via LD ($0C6C),A; POP AF; the flag is read at $6B0D/$6B3A.
+; ----------------------------------------------------------------------
+; STMT_NEXT_1 -- coded dual-entry that records WHICH caller is running the shared FOR/NEXT body.
+;   In:        Two distinct entry offsets, and the bare-vs-named entry flags preserved on the stack by STMT_NEXT. Entered AT STMT_NEXT_1 (from STMT_NEXT): the first opcode 'OR $AF' runs, forcing A nonzero. Entered AT STMT_NEXT_1+1 (JP from STMT_FOR_5, the FOR zero-trip setup): the $AF operand byte executes as 'XOR A', forcing A = 0. On entry the FOR frame for this loop is already on the stack.
+;   Out:       NEXT_ENTRY_FLAG = A (nonzero = NEXT statement: apply STEP before the limit compare; zero = FOR first pass: skip STEP, just do the initial compare). AF restored to the bare-vs-named entry flags; DE := 0. Falls into the shared NEXT body (NEXT_LOOP_BODY).
+;   Clobbers:  AF (restored), DE, NEXT_ENTRY_FLAG.
+;   Algorithm: Store A into NEXT_ENTRY_FLAG (the STEP-or-not selector read later at NEXT_LOOP_BODY_1 / NEXT_LOOP_BODY_2), POP AF to restore the bare-vs-named flags (which gate the loop-variable PTRGET in the body), and set DE=0. [RE] DE=0 is the 'match the innermost FOR frame' marker consumed by the stack scan (STKFRAME_SCAN tests LD A,D/OR E and skips the variable-address compare when DE=0); for a named NEXT the body's PTRGET will overwrite DE with the loop variable's address before the scan. This is the classic byte-overlap idiom: opcode $F6 (OR n) vs its operand $AF (XOR A) select the flag value purely by entry offset.
+; ----------------------------------------------------------------------
 STMT_NEXT_1:
+        ; [RE] coded overlap: entered here (STMT_NEXT_1) A becomes nonzero (NEXT statement); the FOR first-pass entry +1 runs this $AF byte as XOR A (flag 0)
         OR $AF
-        LD (L_0C6C),A
+        ; record entry kind: nonzero = NEXT (apply STEP), zero = FOR's first pass (initial compare only)
+        LD (NEXT_ENTRY_FLAG),A
         POP AF
+        ; DE=0 = 'match the innermost FOR frame' marker for the stack scan; a named NEXT later overwrites DE with the loop variable's address via PTRGET
         LD DE,$0000
 ; [RE] Core of the NEXT statement: locate the matching FOR frame on the stack ($0CFD search), apply the STEP, compare against the limit, and either re-enter the loop (STMT_FOR_6) or fall through to loop exit; also handles 'NEXT var,var'.
 NEXT_LOOP_BODY:
@@ -18223,7 +19367,7 @@ NEXT_LOOP_BODY:
         CALL FP_STORE_REGS_LD
         EX (SP),HL
         PUSH HL
-        LD A,(L_0C6C)
+        LD A,(NEXT_ENTRY_FLAG)
         OR A
         JR NZ,NEXT_LOOP_BODY_1
         LD HL,FOR_NEXT_VALUE_TEMP
@@ -18254,7 +19398,7 @@ NEXT_LOOP_BODY_2:
         PUSH HL
         LD L,C
         LD H,B
-        LD A,(L_0C6C)
+        LD A,(NEXT_ENTRY_FLAG)
         OR A
         JR NZ,NEXT_LOOP_BODY_3
         LD HL,(FOR_NEXT_VALUE_TEMP)
@@ -19236,11 +20380,18 @@ POP_LEN_TO_B_7:
         INC HL
         DJNZ POP_LEN_TO_B_3
         JR POP_LEN_TO_B_5
-; [RE] LET MID$(var$,start[,len])=src$ assignment body: locate the target string in place (allocating/copying it down out of program/heap space if needed), then overwrite the selected character range with the source string's bytes (no length change).
+; ----------------------------------------------------------------------
+; STMT_MID_ASSIGN -- LET MID$(var$,start[,len]) = src$ : overwrite a slice of a string variable in place (no length change).
+;   In:        HL -> BASIC text after the MID$ token, expecting "(var$ , start [, len]) = src$".
+;   Out:       Up to 'len' (default = whole source) characters of var$, starting at 1-based position 'start', replaced by the leading bytes of src$. var$'s length is unchanged; the copy is clamped to min(len, remaining room in var$, len(src$)). HL -> text after the assignment. Illegal function call if start = 0 or start beyond var$'s length.
+;   Clobbers:  AF,BC,DE,HL; may allocate a heap copy of var$.
+;   Algorithm: SYNCHR '(' and PTRGET var$, REQUIRE_STRING. Read var$'s data pointer from its descriptor and compare it to STREND and TXTTAB: if it lies BETWEEN TXTTAB and STREND (i.e. inside the program text / variable+array area, not yet in owned string heap), STR_BUILD_FROM_DESC copies var$ into a freshly owned heap block and rewrites the descriptor (FP_MOVE_TYPED) so the target is safely writable; if the data is already above STREND (string heap) or below TXTTAB it is left in place (the copy is skipped). SYNCHR ',' then GETBYT 'start' (reject 0). PARSE_OPT_LEN_ARG reads the optional ',len' (default $FF) and the closing ')'. EVAL_EXPR_AFTER_SYNCHR requires '=' and evaluates src$; FRETMP materializes its descriptor. Push FMUL_7 (a POP HL/RET tail) as the cleanup return. Clamp the copy count to start..end-of-var and to len(src$), compute the destination (var$ data + start-1), then MID_ASSIGN_COPY writes the source bytes over the slice.
+; ----------------------------------------------------------------------
 STMT_MID_ASSIGN:
         CALL SYNCHR
         DEFB    '('                      ; inline char arg consumed by the preceding CALL
         CALL PTRGET_1+1
+        ; the MID$ target must be a string variable
         CALL REQUIRE_STRING
         PUSH HL
         PUSH DE
@@ -19249,30 +20400,34 @@ STMT_MID_ASSIGN:
         LD E,(HL)
         INC HL
         LD D,(HL)
+        ; if var$'s data lies between TXTTAB and STREND (program text / variable area, not yet owned string heap), copy it to an owned heap block so the slice can be overwritten safely; data already in the heap or below TXTTAB is left in place
         LD HL,(STREND)
         CALL CMP_HL_DE
-        JR C,POP_LEN_TO_B_9
+        JR C,MID_ASSIGN_AFTER_COPYOUT
         LD HL,(TXTTAB)
         CALL CMP_HL_DE
-        JR NC,POP_LEN_TO_B_9
+        JR NC,MID_ASSIGN_AFTER_COPYOUT
         POP HL
         PUSH HL
         CALL STR_BUILD_FROM_DESC
         POP HL
         PUSH HL
         CALL FP_MOVE_TYPED
-POP_LEN_TO_B_9:
+MID_ASSIGN_AFTER_COPYOUT:
         POP HL
         EX (SP),HL
         CALL SYNCHR
         DEFB    ','                      ; inline char arg consumed by the preceding CALL
+        ; read the 1-based start position; 0 is an Illegal function call
         CALL GETBYT
         OR A
         JP Z,ERROR_FC
         PUSH AF
         LD A,(HL)
+        ; read the optional length (default $FF = to end of source) and consume the closing ')'
         CALL PARSE_OPT_LEN_ARG
         PUSH DE
+        ; require '=' then evaluate the source string expression
         CALL EVAL_EXPR_AFTER_SYNCHR
         PUSH HL
         CALL FRETMP
@@ -19283,6 +20438,7 @@ POP_LEN_TO_B_9:
         LD B,A
         EX (SP),HL
         PUSH HL
+        ; push the shared POP HL/RET tail (FMUL_7) as the return so HL is restored and we return to the caller on exit
         LD HL,FMUL_7
         EX (SP),HL
         LD A,C
@@ -19293,9 +20449,9 @@ POP_LEN_TO_B_9:
         JP C,ERROR_FC
         INC A
         CP C
-        JR C,POP_LEN_TO_B_10
+        JR C,MID_ASSIGN_CLAMP_LEN
         LD A,C
-POP_LEN_TO_B_10:
+MID_ASSIGN_CLAMP_LEN:
         LD C,B
         DEC C
         LD B,$00
@@ -19796,12 +20952,20 @@ INLIN_ERASE_N_COLS_LOOP:
         RET
 INLIN_TAB_BASE_COLUMN:
         NOP
-; [RE] WHILE statement handler (token $AF): begin a WHILE/WEND loop; records the loop text pointer ($0B4E).
+; ----------------------------------------------------------------------
+; STMT_WHILE -- WHILE statement handler (token $AF): open a WHILE/WEND loop and push its stack frame.
+;   In:        HL -> BASIC text after WHILE (the loop condition expression).
+;   Out:       A WHILE frame (saved SAVTXT, loop key, condition text pointer) is pushed; any stale frame for the same loop is discarded; control evaluates the condition (falls into STMT_WEND_1). The matching WEND has been located ahead by BLOCK_SCAN_WHILE (WHILE without WEND error if absent).
+;   Clobbers:  AF,BC,DE,HL,SP; SAVSTK; L_0B4E (loop-key cell, shared with FOR).
+;   Algorithm: Record the condition's text pointer as this loop's key in L_0B4E. BLOCK_SCAN_WHILE forward-scans the program for the matching WEND (raising WHILE without WEND, err 29, on run-off). CHRGET past the marker; WHILE_FIND_FRAME walks the stack (skipping nested $82 FOR frames) for an existing $AF WHILE frame of this same loop (a re-entry, e.g. a GOTO back in): on a match (Z) rewind SP/SAVSTK to drop the stale frame and its nested frames. Then (STMT_WHILE_1) push the saved SAVTXT, the loop key, and the condition pointer to build the frame, and join STMT_WEND_1 to evaluate the condition for the first iteration.
+; ----------------------------------------------------------------------
 STMT_WHILE:
         LD (L_0B4E),HL
+        ; forward-scan for the matching WEND now (WHILE without WEND error if the program runs out)
         CALL BLOCK_SCAN_WHILE
         CALL CHRGET
         EX DE,HL
+        ; look for an existing frame of THIS loop (a re-entry); a match means we jumped back in
         CALL WHILE_FIND_FRAME
         INC SP
         INC SP
@@ -19809,23 +20973,40 @@ STMT_WHILE:
         ADD HL,BC
         LD SP,HL
         LD (SAVSTK),HL
+; ----------------------------------------------------------------------
+; STMT_WHILE_1 -- build the WHILE stack frame, then fall into the condition test.
+;   In:        DE = the loop condition's text pointer; L_0B4E = this loop's key; SAVTXT = current source-line pointer; SP positioned (stale frame already dropped by STMT_WHILE).
+;   Out:       Three words pushed onto the stack (saved SAVTXT, loop key, condition pointer). Falls into STMT_WEND_1 to evaluate the condition.
+;   Clobbers:  HL,SP.
+;   Algorithm: PUSH (SAVTXT) so a WEND can restore the line, PUSH the loop key (L_0B4E), PUSH DE (the condition text pointer re-evaluated each pass), then JR into STMT_WEND_1 (FRMEVL on the condition). [RE] The $AF marker byte that WHILE_FIND_FRAME later matches is NOT pushed here -- it is a separate 1-byte tag pushed by STMT_WEND_1 (LD BC,$00AF / PUSH BC / INC SP) on each iteration the condition is true.
+; ----------------------------------------------------------------------
 STMT_WHILE_1:
         LD HL,(SAVTXT)
         PUSH HL
         LD HL,(L_0B4E)
         PUSH HL
+        ; frame the condition text pointer so WEND can re-evaluate it each iteration
         PUSH DE
         JR STMT_WEND_1
-; [RE] WEND statement handler (token $B0): test the WHILE condition and loop or fall through.
+; ----------------------------------------------------------------------
+; STMT_WEND -- WEND statement handler (token $B0): re-evaluate the WHILE condition; loop back if true, exit if false.
+;   In:        On arrival the Z flag reflects the dispatcher's end-of-statement check (Z = nothing after WEND); HL -> text after WEND. The runtime stack holds the open WHILE frame(s).
+;   Out:       Locates the innermost matching WHILE frame (WHILE_FIND_FRAME); WEND without WHILE error if none. Restores SP/SAVSTK to that frame, sets SAVTXT to the WHILE condition's text, and falls into STMT_WEND_1 to test the condition: nonzero -> re-enter the loop body; zero -> pop the frame and continue after WEND.
+;   Clobbers:  AF,BC,DE,HL,SP; SAVSTK; SAVTXT; L_0C71.
+;   Algorithm: Reject trailing text (SYNTAX ERROR). WHILE_FIND_FRAME scans the stack (skipping nested $82 FOR frames) for the $AF WHILE frame whose key matches the current WEND position; WEND without WHILE if absent. Rewind SP/SAVSTK to the frame. Save the current SAVTXT (the source-line pointer) into L_0C71 so STMT_WEND_2 can restore it on loop exit, then read the framed words to reload SAVTXT = the WHILE condition's text pointer, and fall into STMT_WEND_1.
+; ----------------------------------------------------------------------
 STMT_WEND:
+        ; WEND takes no operand: trailing text is a syntax error
         JP NZ,RAISE_SYNTAX_ERROR
         EX DE,HL
+        ; find the open WHILE frame this WEND closes; none -> WEND without WHILE
         CALL WHILE_FIND_FRAME
         JP NZ,WEND_NO_WHILE_ERR
         LD SP,HL
         LD (SAVSTK),HL
         EX DE,HL
         LD HL,(SAVTXT)
+        ; save the current SAVTXT (source-line pointer) into L_0C71 so the loop-exit path (STMT_WEND_2) can restore it
         LD (L_0C71),HL
         EX DE,HL
         INC HL
@@ -19838,22 +21019,42 @@ STMT_WEND:
         INC HL
         LD H,(HL)
         LD L,A
+        ; set the source pointer back to the WHILE condition so it is re-evaluated
         LD (SAVTXT),HL
         EX DE,HL
+; ----------------------------------------------------------------------
+; STMT_WEND_1 -- evaluate the WHILE condition and decide loop-continue vs loop-exit.
+;   In:        HL -> the WHILE condition's text pointer (set by STMT_WHILE_1 on entry, or by STMT_WEND after restoring the frame). The WHILE frame is on the stack.
+;   Out:       If the condition is zero/false branch to STMT_WEND_2 to pop the frame and leave the loop. Otherwise re-push the $AF WHILE marker and re-enter the loop body via the shared per-statement executor (STMT_FOR_7).
+;   Clobbers:  AF,BC,HL,SP.
+;   Algorithm: FRMEVL_NOPAREN evaluates the condition into the FAC; FP_TEST_SIGN reduces it to a sign/zero test. If false (Z), STMT_WEND_2 unwinds. If true, push the $AF marker byte (LD BC,$00AF / LD B,C / PUSH BC / INC SP keeps just the marker) so WHILE_FIND_FRAME can locate the frame, and JP STMT_FOR_7 -- the shared 'execute the next statement' re-entry -- so the loop body runs with the console poll and CONT/error bookkeeping.
+; ----------------------------------------------------------------------
 STMT_WEND_1:
         CALL FRMEVL_NOPAREN
         PUSH HL
+        ; reduce the WHILE condition to true(nonzero)/false(zero)
         CALL FP_TEST_SIGN
         POP HL
+        ; condition false: leave the loop
         JR Z,STMT_WEND_2
         LD BC,$00AF
         LD B,C
         PUSH BC
         INC SP
+        ; condition true: re-enter the loop body via the shared per-statement executor
         JP STMT_FOR_7
+; ----------------------------------------------------------------------
+; STMT_WEND_2 -- WHILE loop exit: drop the WHILE frame and resume execution after WEND.
+;   In:        L_0C71 = the saved SAVTXT (source-line pointer) stashed by STMT_WEND. The WHILE frame (3 words) is on top of the stack.
+;   Out:       SAVTXT restored to the saved source-line pointer; the WHILE frame popped (condition ptr, key, saved SAVTXT); control continues with the statement after WEND via STMT_FOR_7.
+;   Clobbers:  AF,HL,SP; SAVTXT.
+;   Algorithm: Reload SAVTXT from L_0C71, POP the three frame words off the stack to discard the loop frame, and JP STMT_FOR_7 to execute the statement following WEND.
+; ----------------------------------------------------------------------
 STMT_WEND_2:
+        ; restore SAVTXT from the source-line pointer saved by STMT_WEND
         LD HL,(L_0C71)
         LD (SAVTXT),HL
+        ; discard the WHILE frame (condition ptr / key / saved SAVTXT) now that the loop is done
         POP HL
         POP AF
         POP AF
@@ -19892,11 +21093,19 @@ WHILE_FIND_FRAME_3:
 WEND_NO_WHILE_ERR:
         LD DE,ERR_WEND_WITHOUT_WHILE
         JP RAISE_ERROR
-; [RE] CALL statement handler (token $B1): call an external machine-code routine.
+; ----------------------------------------------------------------------
+; STMT_CALL -- CALL statement handler (token $B1): invoke an external machine-code routine, with two forms (native Z-80, or '%'-prefixed SoftCard 6502 call).
+;   In:        HL -> BASIC text after CALL: "[%] addr-expr [(arg[,arg...])]". A leading '%' ($25) selects the SoftCard 6502-call form.
+;   Out:       The named address is called as a subroutine. Native Z-80 form: arguments (CALL addr(v1,v2,...)) are resolved by PTRGET and their addresses passed in HL/DE/BC or via a parameter block; control transfers to the routine which returns via STMT_CALL_4. 6502 form: jumps to STMT_CALL_INVOKE_6502 to stage A/X/Y and bridge to the 6502.
+;   Clobbers:  AF,BC,DE,HL,SP; PTRGET_SUBSCRIPT_FLAG; L_0C93 (call-target address); OPEN_RESUME_TEXT_PTR.
+;   Algorithm: Set PTRGET_SUBSCRIPT_FLAG=$80. Peek for a leading '%' (CP $25; PUSH AF; CALL Z,CHRGET past it); the saved Z flag later selects the 6502 path. PTRGET + FRMEVL_TEST_TYPE + FP_ARG_SETUP1 + FN_CINT evaluate the address expression to a 16-bit integer, stored in L_0C93. If '%' was present (POP AF, Z) JP STMT_CALL_INVOKE_6502. Otherwise the native path reserves stack room (CHECK_STACK_ROOM C=$20), opens a 64-byte parameter area below SP (LD HL,$FFC0 / ADD HL,SP / LD SP,HL), and if an argument list follows ('(') resolves each argument's address (STMT_CALL_1); then STMT_CALL_2/_3 set up a return into STMT_CALL_4 and jump to the target in L_0C93.
+;   Note:      [RE] '%' for the SoftCard 6502-call form is inferred from the dispatch into STMT_CALL_INVOKE_6502 (which stages the Apple $45/$46/$47 register cells); the exact published syntax letter is not confirmed from the bytes.
+; ----------------------------------------------------------------------
 STMT_CALL:
         LD A,$80
         LD (PTRGET_SUBSCRIPT_FLAG),A
         LD A,(HL)
+        ; leading '%' selects the SoftCard 6502-call form (vs a native Z-80 CALL)
         CP $25
         PUSH AF
         CALL Z,CHRGET
@@ -19906,13 +21115,17 @@ STMT_CALL:
         EX DE,HL
         CALL FRMEVL_TEST_TYPE
         CALL FP_ARG_SETUP1
+        ; coerce the address expression to a 16-bit integer = the call target
         CALL FN_CINT
+        ; stash the resolved call-target address for the invoke step
         LD (L_0C93),HL
         POP AF
+        ; '%' present: hand off to the 6502 RPC path
         JP Z,STMT_CALL_INVOKE_6502
         LD C,$20
         CALL CHECK_STACK_ROOM
         POP DE
+        ; open a 64-byte parameter area below the stack for the argument-address block
         LD HL,$FFC0
         ADD HL,SP
         LD SP,HL
@@ -19924,11 +21137,20 @@ STMT_CALL:
         JR Z,STMT_CALL_3
         CALL SYNCHR
         DEFB    '('                      ; inline char arg consumed by the preceding CALL
+; ----------------------------------------------------------------------
+; STMT_CALL_1 -- native CALL argument loop: resolve each argument variable and push its address into the parameter block.
+;   In:        HL -> text at an argument expression; DE -> next free slot in the parameter area; C = remaining slot count; '(' already consumed.
+;   Out:       Each comma-separated argument variable is resolved by PTRGET and its address stored (low,high) into the parameter block; HL advanced past the list; C decremented per argument. On the non-comma char (closing ')') falls into STMT_CALL_2.
+;   Clobbers:  AF,BC,DE,HL.
+;   Algorithm: For each argument: PUSH BC/DE, PTRGET the variable -> address in DE, store it into the parameter slot (EX (SP),HL then LD (HL),E / INC HL / LD (HL),D), POP back DE/BC. If the next char is ',', DEC C and CHRGET past it and loop; otherwise drop to STMT_CALL_2 to require ')'. The parameter block becomes an array of pointers the called routine can read.
+; ----------------------------------------------------------------------
 STMT_CALL_1:
         PUSH BC
         PUSH DE
+        ; resolve this argument variable to its storage address
         CALL PTRGET_1+1
         EX (SP),HL
+        ; store the argument's address (low,high) into the parameter block
         LD (HL),E
         INC HL
         LD (HL),D
@@ -19939,26 +21161,40 @@ STMT_CALL_1:
         LD A,(HL)
         CP $2C
         JR NZ,STMT_CALL_2
+        ; one fewer parameter slot remaining
         DEC C
         CALL CHRGET
         JR STMT_CALL_1
+; ----------------------------------------------------------------------
+; STMT_CALL_2 -- native CALL finalize: require ')', compute the argument count, and hand the parameter block to the routine.
+;   In:        HL -> text at the closing ')'; C = remaining-slot counter (so $21-C = how many arguments were supplied); the parameter-address block built by STMT_CALL_1 is below SP.
+;   Out:       OPEN_RESUME_TEXT_PTR = text after ')'. For 1/2/3 arguments the routine pops the corresponding argument addresses into HL/DE/BC; for more, BC -> the parameter block. Falls into STMT_CALL_3 which sets up the return-to-STMT_CALL_4 trampoline and jumps to the target.
+;   Clobbers:  AF,BC,DE,HL,SP; OPEN_RESUME_TEXT_PTR.
+;   Algorithm: SYNCHR ')', save the post-call text pointer. Derive the argument count from $21-C (DEC A chain): 1 arg -> POP HL (HL=&arg1); 2 args -> also POP DE; 3 args -> also POP BC; passing the three common cases in registers. For >3 arguments, point BC at the parameter block on the stack (LD HL,$0002 / ADD HL,SP). STMT_CALL_3 then pushes STMT_CALL_4 as the return address and the target (L_0C93) and RETs into the routine.
+;   Note:      [RE] This register-passing convention (1=HL, 2=+DE, 3=+BC, >3 via BC->block) is the standard MS BASIC USR/CALL argument protocol; it is read from the DEC A / POP chain here.
+; ----------------------------------------------------------------------
 STMT_CALL_2:
         CALL SYNCHR
         DEFB    ')'                      ; inline char arg consumed by the preceding CALL
         LD (OPEN_RESUME_TEXT_PTR),HL
+        ; compute the argument count from the slot counter C ($21 - C)
         LD A,$21
         SUB C
+        ; 1 argument: pass its address in HL
         POP HL
         DEC A
         JR Z,STMT_CALL_3
+        ; 2nd argument's address in DE
         POP DE
         DEC A
         JR Z,STMT_CALL_3
+        ; 3rd argument's address in BC
         POP BC
         DEC A
         JR Z,STMT_CALL_3
         PUSH BC
         PUSH HL
+        ; more than 3 arguments: point BC at the parameter-address block on the stack
         LD HL,$0002
         ADD HL,SP
         LD B,H
