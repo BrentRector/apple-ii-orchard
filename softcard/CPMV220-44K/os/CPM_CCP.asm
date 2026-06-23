@@ -540,157 +540,217 @@ RPC6502_BLOCK:                           ; -$9500  embedded 6502 RPC block -- 65
 ;
 ; .org $9400
 ;
+; ; ----------------------------------------------------------------------------
+; ; SECTOR_RW -- RWTS retry tail. Restore the saved processor flags and re-enter
+; ;   the RWTS dispatcher ($0F3E) with the read ($40) or write ($20) command in A.
+; ;   The two backward branches ($93EA/$93D1) re-enter the surrounding RWTS driver
+; ;   (below this image -- kept literal, [?]).
+; ;   Clobbers: A, flags, stack (PLA/PLP).
+; ; ----------------------------------------------------------------------------
 ; SECTOR_RW:
-;         DEC $04F8                    ; $9400  CE F8 04
-;         BNE $93EA                    ; $9403  D0 E5
-;         BEQ $93D1                    ; $9405  F0 CA
-;         PLA                          ; $9407  68
-;         LDA #$40                     ; $9408  A9 40
+;         DEC $04F8                    ; retry counter (low sector cell)
+;         BNE $93EA                    ; more retries -> back into the RWTS driver [?]
+;         BEQ $93D1                    ; exhausted -> error exit [?]
+;         PLA
+;         LDA #$40                     ; command = read
 ; SECTOR_RW_1:
-;         PLP                          ; $940A  28
-;         JMP $0F3E                    ; $940B  4C 3E 0F
+;         PLP                          ; restore caller's flags
+;         JMP $0F3E                    ; -> RWTS dispatcher
+;
+; ; ----------------------------------------------------------------------------
+; ; SECTOR_MATCH -- compare the requested sector ($2D, post-skew) against the
+; ;   address field just read. On a match, fall to DRIVE_MOTOR_ON; on the wrong
+; ;   sector, retry with command $20/$10; the skew maps logical->physical via the
+; ;   $0F9D translate table.
+; ;   Clobbers: A, Y, flags.
+; ; ----------------------------------------------------------------------------
 ; SECTOR_MATCH:
-;         BEQ DRIVE_MOTOR_ON           ; $940E  F0 2A
-;         LDA $2F                      ; $9410  A5 2F
-;         STA $03E3                    ; $9412  8D E3 03
-;         LDA $03E2                    ; $9415  AD E2 03
-;         BEQ SECTOR_MATCH_1           ; $9418  F0 08
-;         CMP $2F                      ; $941A  C5 2F
-;         BEQ SECTOR_MATCH_1           ; $941C  F0 04
-;         LDA #$20                     ; $941E  A9 20
-;         BNE SECTOR_RW_1              ; $9420  D0 E8
+;         BEQ DRIVE_MOTOR_ON           ; already positioned -> set up the drive
+;         LDA $2F
+;         STA $03E3                    ; save current track
+;         LDA $03E2
+;         BEQ SECTOR_MATCH_1           ; no target track yet -> accept
+;         CMP $2F
+;         BEQ SECTOR_MATCH_1           ; on the target track -> accept
+;         LDA #$20                     ; wrong track -> re-seek command
+;         BNE SECTOR_RW_1
 ; SECTOR_MATCH_1:
-;         LDA $03E1                    ; $9422  AD E1 03
-;         TAY                          ; $9425  A8
-;         LDA $0F9D,Y                  ; $9426  B9 9D 0F
-;         CMP $2D                      ; $9429  C5 2D
-;         BNE $93CC                    ; $942B  D0 9F
-;         PLP                          ; $942D  28
-;         BCC DRIVE_MOTOR_ON_2         ; $942E  90 19
-;         JSR $0B00                    ; $9430  20 00 0B
-;         PHP                          ; $9433  08
-;         BCS $93CC                    ; $9434  B0 96
-;         PLP                          ; $9436  28
-;         JSR $0BC6                    ; $9437  20 C6 0B
+;         LDA $03E1                    ; requested logical sector
+;         TAY
+;         LDA $0F9D,Y                  ; physical sector via the skew table
+;         CMP $2D                      ; == the sector just found?
+;         BNE $93CC                    ; no -> back into the RWTS driver [?]
+;         PLP
+;         BCC DRIVE_MOTOR_ON_2         ; carry clear -> seek/settle path
+;         JSR $0B00                    ; read the sector
+;         PHP
+;         BCS $93CC                    ; read error -> driver [?]
+;         PLP
+;         JSR $0BC6                    ; post-read processing
+;
+; ; ----------------------------------------------------------------------------
+; ; DRIVE_MOTOR_ON -- finalize drive state: clear (or, via DRIVE_MOTOR_ON_SEC, set)
+; ;   the carry-into-$03EA flag, then touch the slot's $C088,X soft switch (motor).
+; ;   DRIVE_MOTOR_ON_1 holds a BIT-cover byte so the CLC fall-through path skips the
+; ;   SEC that the LDA #$10 path (DRIVE_MOTOR_ON_2) jumps into.
+; ;   Clobbers: A, X, flags.  Returns via RTS.
+; ; ----------------------------------------------------------------------------
 ; DRIVE_MOTOR_ON:
-;         CLC                          ; $943A  18
-;         LDA #$00                     ; $943B  A9 00
+;         CLC
+;         LDA #$00                     ; A=0, carry clear (no-error path)
 ; DRIVE_MOTOR_ON_1:
-;         BIT $38                      ; $943D  24 38
-;         STA $03EA                    ; $943F  8D EA 03
-;         LDX $05F8                    ; $9442  AE F8 05
-;         LDA $C088,X                  ; $9445  BD 88 C0
-;         RTS                          ; $9448  60
+;         .byte $24                    ; cover byte (BIT-zp opcode): on fall-through this
+;                                      ;   eats the next byte as `BIT $38`, skipping the SEC
+; DRIVE_MOTOR_ON_SEC:                  ; entered via DRIVE_MOTOR_ON_2 -> set carry first
+;         SEC                          ; ($38) error path: carry set
+;         STA $03EA                    ; record the result flag
+;         LDX $05F8                    ; slot soft-switch offset
+;         LDA $C088,X                  ; drive motor toggle
+;         RTS
 ; DRIVE_MOTOR_ON_2:
-;         JSR $0A25                    ; $9449  20 25 0A
-;         BCC DRIVE_MOTOR_ON           ; $944C  90 EC
-;         LDA #$10                     ; $944E  A9 10
-;         BNE DRIVE_MOTOR_ON_1+1       ; $9450  D0 EC
-;         ASL                          ; $9452  0A
-;         JSR $0F5A                    ; $9453  20 5A 0F
-;         LSR $0478                    ; $9456  4E 78 04
-;         RTS                          ; $9459  60
+;         JSR $0A25                    ; seek/settle the arm
+;         BCC DRIVE_MOTOR_ON           ; settled -> finalize (no error)
+;         LDA #$10                     ; seek-error result code
+;         BNE DRIVE_MOTOR_ON_SEC       ; -> SEC; STA $03EA (error path)
+;         ASL                          ; (dead tail after the BNE-always above)
+;         JSR $0F5A
+;         LSR $0478
+;         RTS
+;
+; ; ----------------------------------------------------------------------------
+; ; SECTOR_XFER_BYTE -- move one sector-data byte between the caller (A) and the
+; ;   active half of the sector buffer. Bit 7 of $35 selects which buffer page
+; ;   ($0478 vs $04F8) is the source and which the destination, then jumps into
+; ;   the RWTS nibble path ($0BDE).
+; ;   In: A = byte, Y = buffer index, $35 bit7 = direction.  Clobbers: A, flags.
+; ; ----------------------------------------------------------------------------
 ; SECTOR_XFER_BYTE:
-;         STA $2E                      ; $945A  85 2E
-;         JSR $0F7D                    ; $945C  20 7D 0F
-;         LDA $0478,Y                  ; $945F  B9 78 04
-;         BIT $35                      ; $9462  24 35
-;         BMI SECTOR_XFER_BYTE_1       ; $9464  30 03
-;         LDA $04F8,Y                  ; $9466  B9 F8 04
+;         STA $2E                      ; stash the byte
+;         JSR $0F7D                    ; RWTS helper (sync/position)
+;         LDA $0478,Y                  ; read from buffer page A ...
+;         BIT $35
+;         BMI SECTOR_XFER_BYTE_1
+;         LDA $04F8,Y                  ; ... or page B (bit7 clear)
 ; SECTOR_XFER_BYTE_1:
-;         STA $0478                    ; $9469  8D 78 04
-;         LDA $2E                      ; $946C  A5 2E
-;         BIT $35                      ; $946E  24 35
-;         BMI SECTOR_XFER_BYTE_2       ; $9470  30 05
-;         STA $04F8,Y                  ; $9472  99 F8 04
-;         BPL SECTOR_XFER_BYTE_3       ; $9475  10 03
+;         STA $0478                    ; latch into the working cell
+;         LDA $2E                      ; recover the byte
+;         BIT $35
+;         BMI SECTOR_XFER_BYTE_2
+;         STA $04F8,Y                  ; write to page B ...
+;         BPL SECTOR_XFER_BYTE_3
 ; SECTOR_XFER_BYTE_2:
-;         STA $0478,Y                  ; $9477  99 78 04
+;         STA $0478,Y                  ; ... or page A (bit7 set)
 ; SECTOR_XFER_BYTE_3:
-;         JMP $0BDE                    ; $947A  4C DE 0B
+;         JMP $0BDE                    ; -> RWTS nibble routine
+;
+; ; ----------------------------------------------------------------------------
+; ; SLOT_TO_INDEX -- convert a Disk II slot soft-switch offset (X = slot<<4) to a
+; ;   slot index (Y = slot number) by four logical shifts.
+; ;   In: X = slot<<4.  Out: Y = slot.  Clobbers: A, Y.
+; ; ----------------------------------------------------------------------------
 ; SLOT_TO_INDEX:
-;         TXA                          ; $947D  8A
-;         LSR                          ; $947E  4A
-;         LSR                          ; $947F  4A
-;         LSR                          ; $9480  4A
-;         LSR                          ; $9481  4A
-;         TAY                          ; $9482  A8
-;         RTS                          ; $9483  60
+;         TXA
+;         LSR
+;         LSR
+;         LSR
+;         LSR
+;         TAY
+;         RTS
+;
+; ; ----------------------------------------------------------------------------
+; ; SECTOR_MOVE -- self-modified sector-data mover. The four bytes at $9488 are
+; ;   PATCHED at run time (via cells $9488/$948A) to become the active move/rotate
+; ;   instruction; bit 7 of $35 again selects the $0478/$04F8 buffer half. Decoded
+; ;   statically (on-disk bytes), so $9488 shows as `.byte` and $948C's `ADC` is
+; ;   the unpatched form -- [RE], the live opcodes differ.
+; ;   Clobbers: A, flags.  Returns via RTS.
+; ; ----------------------------------------------------------------------------
 ; SECTOR_MOVE:
-;         PHA                          ; $9484  48
-;         LDA $03E4                    ; $9485  AD E4 03
-;         .byte   $6A, $66, $35, $20                               ; $9488
+;         PHA
+;         LDA $03E4                    ; current move parameter
+;         .byte   $6A, $66, $35, $20   ; self-modified slot ($9488-$948B); see header [RE]
 ; SECTOR_MOVE_1:
-;         ADC $680F,X                  ; $948C  7D 0F 68
-;         ASL                          ; $948F  0A
-;         BIT $35                      ; $9490  24 35
+;         ADC $680F,X                  ; (unpatched static form; operand self-modified [RE])
+;         ASL
+;         BIT $35
 ; SECTOR_MOVE_2:
-;         BMI SECTOR_MOVE_4            ; $9492  30 05
-;         STA $04F8,Y                  ; $9494  99 F8 04
+;         BMI SECTOR_MOVE_4            ; bit7 set -> page A
+;         STA $04F8,Y                  ; page B
 ; SECTOR_MOVE_3:
-;         BPL SECTOR_MOVE_5            ; $9497  10 03
+;         BPL SECTOR_MOVE_5
 ; SECTOR_MOVE_4:
-;         STA $0478,Y                  ; $9499  99 78 04
+;         STA $0478,Y                  ; page A
 ; SECTOR_MOVE_5:
-;         RTS                          ; $949C  60
+;         RTS
+;
+; ; ----------------------------------------------------------------------------
+; ; SECTOR_XLATE_TABLE -- 16-entry logical->physical sector interleave (the 2:1
+; ;   "soft" skew: 0,2,4,...,E,1,3,...,F), indexed by SECTOR_MATCH via $0F9D.
+; ; ----------------------------------------------------------------------------
 ; SECTOR_XLATE_TABLE:
-;         .byte   $00, $02, $04, $06, $08, $0A, $0C, $0E, $01, $03, $05, $07, $09, $0B, $0D, $0F ; $949D
-; ; Warm-boot reload: re-reads CP/M (CCP+BDOS) from the boot disk into the system
-; ; image, which is why only ~5K of CP/M's 7K stays resident during a transient.
-; ; [DOC Vol1 1-19 ; facts sec.8.7]
+;         .byte   $00, $02, $04, $06, $08, $0A, $0C, $0E, $01, $03, $05, $07, $09, $0B, $0D, $0F
+;
+; ; ----------------------------------------------------------------------------
+; ; WBOOT_LOAD -- warm-boot reload: re-read CP/M (CCP+BDOS) from the boot disk into
+; ;   the system image, which is why only ~5K of CP/M's 7K stays resident during a
+; ;   transient. [DOC Vol1 1-19 ; facts sec.8.7]. Points the load buffer high byte
+; ;   at the CP/M base ($A400 44K / $E400 56K), seeds the RWTS config cells, then
+; ;   loops over $1C sectors via $0E10, advancing the buffer page each time.
+; ;   Clobbers: A, X, Y, flags.  Returns via RTS (or aborts to the Monitor on error).
+; ; ----------------------------------------------------------------------------
 ; WBOOT_LOAD:
 ;         .ifdef CFG_56K
-;             lda     #>$E400          ; $94AD  warm-boot load buffer hi (56K)
+;             lda     #>$E400          ; warm-boot load buffer hi (56K)
 ;         .else
-;             lda     #>$A400          ; $94AD  warm-boot load buffer hi (44K)
+;             lda     #>$A400          ; warm-boot load buffer hi (44K)
 ;         .endif
-;         STA $03E9                    ; $94AF  8D E9 03
-;         LDY #$00                     ; $94B2  A0 00
-;         STY $03E8                    ; $94B4  8C E8 03
+;         STA $03E9                    ; buffer page
+;         LDY #$00
+;         STY $03E8
 ; WBOOT_LOAD_1:
-;         STY $03E0                    ; $94B7  8C E0 03
-;         INY                          ; $94BA  C8
+;         STY $03E0                    ; track = 0
+;         INY
 ; WBOOT_LOAD_2:
-;         STY $03E4                    ; $94BB  8C E4 03
-;         STY $03EB                    ; $94BE  8C EB 03
-;         LDA #$60                     ; $94C1  A9 60   slot 6 (6<<4): the boot disk
-;         STA $03E6                    ; $94C3  8D E6 03  controller, drives A:/B:, MUST be present [DOC Vol1 1-3/1-4 ; facts sec.8.9]
-;         LDA #$0B                     ; $94C6  A9 0B
-;         STA $03E1                    ; $94C8  8D E1 03
-;         LDA #$1C                     ; $94CB  A9 1C
+;         STY $03E4
+;         STY $03EB
+;         LDA #$60                     ; slot 6 (6<<4): the boot disk
+;         STA $03E6                    ; controller, drives A:/B:, MUST be present [DOC Vol1 1-3/1-4 ; facts sec.8.9]
+;         LDA #$0B
+;         STA $03E1                    ; starting sector
+;         LDA #$1C                     ; sector count to load ($1C)
 ; WBOOT_READ_SECTOR:
-;         PHA                          ; $94CD  48
-;         PHP                          ; $94CE  08
-;         SEI                          ; $94CF  78
+;         PHA                          ; save the remaining count
+;         PHP
+;         SEI                          ; reads are timing-critical
 ; WBOOT_READ_SECTOR_1:
-;         JSR $0E10                    ; $94D0  20 10 0E
-;         BCC WBOOT_NEXT_SECTOR        ; $94D3  90 08
-;         JSR PRERR                    ; $94D5  20 2D FF
-;         PLP                          ; $94D8  28
-;         PLA                          ; $94D9  68
+;         JSR $0E10                    ; read one sector
+;         BCC WBOOT_NEXT_SECTOR        ; ok -> advance
+;         JSR PRERR                    ; error -> "ERR" + bell ...
+;         PLP
+;         PLA
 ; WBOOT_ERR_MONITOR:
-;         JMP $0FAD                    ; $94DA  4C AD 0F
+;         JMP $0FAD                    ; ... and abort to the Monitor
 ; WBOOT_NEXT_SECTOR:
-;         PLP                          ; $94DD  28
-;         INC $03E9                    ; $94DE  EE E9 03
-;         LDX $03E1                    ; $94E1  AE E1 03
+;         PLP
+;         INC $03E9                    ; next buffer page
+;         LDX $03E1                    ; current sector
 ; WBOOT_NEXT_SECTOR_1:
-;         INX                          ; $94E4  E8
-;         CPX #$10                     ; $94E5  E0 10
-;         BNE WBOOT_NEXT_SECTOR_3      ; $94E7  D0 05
+;         INX
+;         CPX #$10                     ; past sector $0F?
+;         BNE WBOOT_NEXT_SECTOR_3
 ; WBOOT_NEXT_SECTOR_2:
-;         LDX #$00                     ; $94E9  A2 00
-;         INC $03E0                    ; $94EB  EE E0 03
+;         LDX #$00                     ; wrap to sector 0 ...
+;         INC $03E0                    ; ... and step to the next track
 ; WBOOT_NEXT_SECTOR_3:
-;         STX $03E1                    ; $94EE  8E E1 03
-;         PLA                          ; $94F1  68
-;         SEC                          ; $94F2  38
-;         SBC #$01                     ; $94F3  E9 01
-;         BNE WBOOT_READ_SECTOR        ; $94F5  D0 D6
-;         LDA #$08                     ; $94F7  A9 08
-;         STA $03E9                    ; $94F9  8D E9 03
-;         RTS                          ; $94FC  60
-;         .byte   $FF, $FF, $FF, $00                               ; $94FD
+;         STX $03E1
+;         PLA                          ; remaining count
+;         SEC
+;         SBC #$01
+;         BNE WBOOT_READ_SECTOR        ; more -> read the next sector
+;         LDA #$08                     ; done: reset the buffer page marker
+;         STA $03E9
+;         RTS
+;         .byte   $FF, $FF, $FF, $00   ; pad to $9500 (block tail)
 ;   <<< end listing <<<
         INCBIN  "CPM_RPC6502.bin"
 ; -- Addresses the Z-80 references inside the 6502 block, as offsets from RPC6502_BLOCK
