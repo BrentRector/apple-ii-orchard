@@ -43,21 +43,24 @@ def code_norm(line):
     return line.split(';', 1)[0].strip()
 
 
-def _wrap(line, width=160):
-    """Word-wrap an over-long comment line so it stays well under the assembler's
-    line-length cap (sjasmplus ~2048); continuation lines reuse the "; " prefix."""
+def _wrap(line, width=100):
+    """Word-wrap an over-long comment line for readability (and to stay under the
+    assembler's ~2048 line cap). Continuation lines reuse the leading indent + ';'
+    and align under the field text (so "In:/Out:/Algorithm:" continuations line up)."""
     if len(line) <= width:
         return [line]
-    m = re.match(r'^(\s*;\s*)(.*)$', line)
+    m = re.match(r'^(\s*)(;\s*)(\w+:\s+)?(.*)$', line)
     if not m:
         return [line]
-    head, text = m.group(1), m.group(2)
+    ws, semi, label, text = m.group(1), m.group(2), m.group(3) or "", m.group(4)
+    head = ws + semi + label
+    cont = ws + ";" + " " * (len(semi) - 1 + len(label))   # ';' then pad to the text column
     out, cur = [], head
     for w in text.split(" "):
-        cand = cur + ("" if cur == head else " ") + w
-        if len(cand) > width and cur != head:
+        cand = cur + ("" if cur in (head, cont) else " ") + w
+        if len(cand) > width and cur not in (head, cont):
             out.append(cur)
-            cur = head + w
+            cur = cont + w
         else:
             cur = cand
     out.append(cur)
@@ -88,7 +91,7 @@ def _preceding_comment_block(lines, idx):
 
 def apply_spec(text, spec):
     routines = [r for r in spec.get("routines", []) if r.get("label")]
-    rep = {"headers": 0, "body": 0, "renames": 0, "unmatched": [], "collisions": []}
+    rep = {"headers": 0, "body": 0, "operands": 0, "renames": 0, "unmatched": [], "collisions": []}
 
     # 1) collect + apply RENAMES first, so that header/body anchors -- which the agents
     #    write with the FINAL (post-rename) names -- match the text we then scan.
@@ -164,6 +167,24 @@ def apply_spec(text, spec):
                         break
             if not placed:
                 rep["unmatched"].append(("body", r["label"], anchor, occ))
+        # operand rewrites: replace one literal in a code line (e.g. CP $22 -> CP '"').
+        # In-place (no index shift); the fold byte-gate verifies the operand resolves identically.
+        for orw in r.get("operand_rewrites", []) or []:
+            anc = _rn((orw.get("anchor") or "").strip())
+            occ, old, new = orw.get("occ", 1), orw.get("old"), orw.get("new")
+            n, done = 0, False
+            for k in range(idx + 1, end):
+                if anc and code_norm(lines[k]) == anc:
+                    n += 1
+                    if n == occ:
+                        code, sep, rest = lines[k].partition(";")
+                        if old and old in code:
+                            lines[k] = code.replace(old, new, 1) + sep + rest
+                            rep["operands"] += 1
+                            done = True
+                        break
+            if not done:
+                rep["unmatched"].append(("operand", r["label"], anc, occ))
 
     for start, end, repl in sorted(edits, key=lambda e: -e[0]):
         lines[start:end] = repl
@@ -180,8 +201,8 @@ def main():
     spec = json.loads(Path(paths[0]).read_text(encoding="utf-8"))
     text = MASTER.read_text(encoding="latin-1")
     out, rep = apply_spec(text, spec)
-    print(f"headers={rep['headers']} body={rep['body']} renames={rep['renames']} "
-          f"unmatched={len(rep['unmatched'])} collisions={len(rep['collisions'])}")
+    print(f"headers={rep['headers']} body={rep['body']} operands={rep['operands']} "
+          f"renames={rep['renames']} unmatched={len(rep['unmatched'])} collisions={len(rep['collisions'])}")
     if rep["unmatched"]:
         print("  UNMATCHED:", rep["unmatched"][:25])
     if rep["collisions"]:
