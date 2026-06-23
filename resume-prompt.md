@@ -18,27 +18,28 @@ User's sequencing: TWO INDEPENDENT uplifts — **2.20-44K fully, then 2.23-44K c
 land in the same order, like BASIC). Within the OS: "**finish the OS core (BIOS/BDOS/CCP)
 properly first**, same depth," before utilities.
 
-**Status — 2.20-44K OS core** (commits aac0bb0→d8382ce):
-- **CPM_BIOS.asm — DONE** (4fed9e9/9142e2f/395378b/f067bac): correctly decoded, fully
-  relocatable, all techniques, cover idioms in split form, uses apple_softcard.inc +
-  cpm22.inc, stripped → `CPM_BIOS.lst`. (#8 re-pass fixed the reversed PUN_DISP banner.)
-- **CPM_CCP.asm — correctly decoded + clean reloc** (b93c63f/60508c0/d8382ce): C-level layer;
-  the 2nd embedded **6502 block `$9600-$9700` EXTRACTED** to `CPM_RPC6502_Restart.s` (it was
-  mis-decoded as Z-80 — a byte-identical-but-WRONG decode the enhanced verify CAUGHT); 10 clean
-  relocatizations; cpm22.inc at the unit top; stripped → `CPM_CCP.lst` (combined CCP+BDOS).
-- **CPM_BDOS.asm — documented + clean reloc** (299d4ea/d8382ce): C-level headers/body,
-  cover-idiom splits incl. BDOS_ENTRY, clean relocatizations.
-- **#7 OVERLAP AUDIT — IN FLIGHT** (background agent `ad3162a1dfc6260da`; partial output
-  `E:\Temp\claude\E--Orchard\e3e75fa3-e5c0-4129-b485-cc620dd57a2b\tasks\ad3162a1dfc6260da.output`).
-  Resolve the `$9Bxx` temporal-tenant overlap (CCP-tail code that is ALSO FCB-build scratch over
-  the DISP'd BDOS run-image), verify the `$9854`/`$9952`/`$9515` message/RPC position-offset
-  idioms, then relocatize what resolves cleanly (labels / cover-splits, NO arithmetic) and keep
-  ambiguous cells LITERAL with UNKNOWN notes (don't force an unverifiable relocatization). The
-  agent self-validates byte-identical, reverts the .asm clean, and writes the verified spec to
-  **`E:/tmp/ccp_bdos_overlap_spec.json`**.
-  **RESUME #7:** if no live agent, read that output / the spec (if produced) else re-run the
-  audit → apply via `enrich_apply --target` to BOTH CCP+BDOS → gate byte-identical + full suite
-  → refresh `CPM_CCP.lst` → commit = **OS core complete**.
+**Status — 2.20-44K OS core = COMPLETE** (commits aac0bb0→**508c406**; gate 228):
+- **CPM_BIOS.asm — DONE** (4fed9e9/9142e2f/395378b/f067bac/508c406): correctly decoded, fully
+  relocatable, all techniques, cover idioms in split form, uses apple_softcard.inc + cpm22.inc,
+  ZERO inline `; $addr` → `CPM_BIOS.lst`. (#8 fixed the reversed PUN_DISP banner; 508c406 stripped
+  39 residual `; $addr` comments #8 had re-introduced.)
+- **CPM_CCP.asm — DONE** (b93c63f/60508c0/d8382ce/508c406): C-level layer; the 2nd embedded
+  **6502 block `$9600-$9700` EXTRACTED** to `CPM_RPC6502_Restart.s` (a byte-identical-but-WRONG
+  Z-80 decode the verify CAUGHT); cpm22.inc at the unit top; **#7 overlap audit applied** (below).
+- **CPM_BDOS.asm — DONE** (299d4ea/d8382ce): C-level headers/body, cover-idiom splits incl.
+  BDOS_ENTRY, clean relocatizations. (#7: needs no further edits — every BDOS label the CCP
+  references already resolves in the combined unit.)
+- **#7 OVERLAP AUDIT — DONE** (agent `ad3162a1dfc6260da`; spec `E:/tmp/ccp_bdos_overlap_spec.json`;
+  applied + committed in 508c406). The `$9Bxx` region is genuine **DUAL code/data** = the CCP
+  command-FCB build buffer at **CCP_FCB=$9BCD** (+1 name, +32 FCB.CR, +33 FCB.R0, +35 drive-seen
+  flag), cross-validated against the 2.23 twin (same offsets) — NOT a mis-decode. 46 of 47 deferred
+  operands relocatized (CCP_FCB±offset cluster; +$0200/+$0100 6502-view message pointers;
+  MSG_ALL_YN+2 print-newline ×6; CCP_CMD_NAMES+5 / MSG_NO_FILE+5 table-/string-interior code
+  entries; BDOS_ERR_VECTORS / BDOS_DEFAULT_FCB). The one unverifiable cell (`LD HL,$9710` in
+  SEARCH_BUILTIN) kept LITERAL with an UNKNOWN note (its 2.23 analog points to a different relative
+  cell). Side fix: **`os_listing` strip is now quote-aware** — a `CP ';'` char literal no longer
+  hides the trailing listing comment from `partition(';')` (the bug that left those 39 BIOS + 2 CCP
+  residuals); every OS-core file now has ZERO inline `; $addr`.
 
 **Infrastructure (built this campaign; reuse it).**
 - `cpm_pipeline/basic/enrich_apply.py` — generalized from BASIC: CLI `--target PATH --write`;
@@ -47,7 +48,8 @@ properly first**, same depth," before utilities.
   `includes[]`, `equ_to_include[]`, top-level `operand_rewrites`; all anchors via
   `code_norm(_rn(anchor))`.
 - `cpm_pipeline/os_listing.py` (NEW) — `strip_listing_comments` (removes ONLY `; $addr <bytes>`
-  runs; keeps docs/semantic notes/headers) + `emit_listing` (`assemble_chunk(... lst_path=)`).
+  runs; keeps docs/semantic notes/headers; **quote-aware comment finder** so `CP ';'` doesn't
+  hide the trailing listing comment) + `emit_listing` (`assemble_chunk(... lst_path=)`).
 - `cpm_pipeline/assemble.py` — `assemble_chunk`/`_assemble_z80` gained `lst_path` (sjasmplus
   `--lst`, reuses the byte-identical build path).
 - `cpm_pipeline/chunk_map.py` — `CPM22_INC`; BIOS + System ChunkSources carry the includes;
@@ -75,10 +77,11 @@ specs → `enrich_apply --target <file> --write` → strip + regen `.lst` (`os_l
 - Don't force a relocatization onto an unverifiable decode — defer with UNKNOWN
   [[feedback_dont_overclassify_dead_or_data]]. The **5-hour usage limit RESETS** — pause, don't ration.
 
-**Remaining campaign (after #7):** 6502 OS files (CPM_BootLoader.s / CPM_RPC6502.s / boot
-fragments — need a **6502-aware STYLE** variant) → ~16 shared Z-80 utilities (PIP/ED/ASM/STAT/
-DDT/…) + their `_6502.s` payloads (disassemble the DEFB blobs) → then **2.23-44K** (clean-slate)
-→ then the emulator-driven disk producer (capstone).
+**Remaining campaign (OS core DONE → next):** 6502 OS files (CPM_BootLoader.s / CPM_RPC6502.s /
+boot fragments — need a **6502-aware STYLE** variant) → ~16 shared Z-80 utilities (PIP/ED/ASM/
+STAT/DDT/…) + their `_6502.s` payloads (disassemble the DEFB blobs; this phase absorbs the queued
+CP/M-constant rename) → then **2.23-44K** (clean-slate) → then the emulator-driven disk producer
+(capstone).
 
 **Disk-image model (decided; `softcard/docs/CPM_Disk_Build_Plan.md`).** A "full" build = ONE flat
 143,360-byte raw sector image (35×16×256). CP/M 2.2 has NO CPM.SYS: tracks 0-2 = boot + CCP/BDOS

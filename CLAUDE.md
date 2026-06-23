@@ -106,15 +106,17 @@ Sequencing (Brent): TWO INDEPENDENT uplifts — **2.20-44K fully, then 2.23-44K 
 derived), both fully relocatable; THEN decide whether to fold. Within the OS: **finish the core
 (BIOS/BDOS/CCP) first**, same depth, before utilities.
 
-State (commits aac0bb0→d8382ce): **CPM_BIOS.asm DONE** (correctly decoded, fully relocatable, all
-techniques, stripped → `.lst`). **CPM_CCP.asm** correctly decoded — its 2nd embedded 6502 block
-`$9600-$9700` was a byte-identical-but-WRONG Z-80 decode the verify CAUGHT, now EXTRACTED to
-`CPM_RPC6502_Restart.s` — plus clean relocatizations. **CPM_BDOS.asm** documented + clean reloc.
-**#7 (IN FLIGHT, background agent `ad3162a1dfc6260da`):** the `$9Bxx` temporal-tenant overlap
-audit (CCP-tail code that is also FCB-build scratch over the DISP'd BDOS image) + verify the
-`$9854`/`$9952`/`$9515` idioms; verified spec → `E:/tmp/ccp_bdos_overlap_spec.json`; apply →
-gate → commit = OS core complete. Infra reused/built: generalized **`cpm_pipeline.basic.enrich_apply`**
-(`--target`, byte-safe `splits`/cover-idiom re-render, `labels`, `includes`, `equ_to_include`),
+State — **OS core COMPLETE** (commits aac0bb0→**508c406**, gate 228): **CPM_BIOS.asm / CPM_CCP.asm /
+CPM_BDOS.asm all DONE** (correctly decoded, fully relocatable, all techniques, ZERO inline `; $addr`
+→ `.lst`). CPM_CCP's 2nd embedded 6502 block `$9600-$9700` was a byte-identical-but-WRONG Z-80
+decode the verify CAUGHT, EXTRACTED to `CPM_RPC6502_Restart.s`. **#7 overlap audit DONE** (agent
+`ad3162a1dfc6260da`, spec `E:/tmp/ccp_bdos_overlap_spec.json`, applied in 508c406): the `$9Bxx`
+region is genuine DUAL code/data = the CCP command-FCB build buffer at **CCP_FCB=$9BCD**,
+cross-validated against the 2.23 twin — NOT a mis-decode; 46/47 deferred operands relocatized, the
+1 unverifiable (`LD HL,$9710`) kept LITERAL + UNKNOWN. Side fix: **`os_listing` strip is now
+quote-aware** (`CP ';'` no longer hides the trailing listing comment) — caught 39 residual `; $addr`
+in BIOS + 2 in CCP. Infra reused/built: generalized **`cpm_pipeline.basic.enrich_apply`** (`--target`,
+byte-safe `splits`/cover-idiom re-render, `labels`, `includes`, `equ_to_include`),
 **`cpm_pipeline/os_listing.py`** (strip `; $addr` + emit `.lst`), and the full-technique enrichment
 workflow saved at **`softcard/cpm_pipeline/workflows/cpm_os_enrich.workflow.js`** (`args` doesn't
 bind — hardcode TARGET). **COVER IDIOM = unlabeled `DEFB $01` + the real instr at its OWN clean
@@ -122,7 +124,7 @@ label, NO label arithmetic.** Read `resume-prompt.md` (top) + memory
 `project_cpm_source_quality_uplift` for the full handoff; plan docs `CPM_Source_Quality_Uplift_Plan.md`
 / `CPM_Lift_Techniques_From_BASIC.md` (27-technique checklist) / `CPM_Disk_Build_Plan.md`.
 
-**NEXT after #7:** the 6502 OS files (CPM_BootLoader.s / CPM_RPC6502.s / boot fragments — need a
+**NEXT (OS core DONE):** the 6502 OS files (CPM_BootLoader.s / CPM_RPC6502.s / boot fragments — need a
 6502-aware STYLE) → ~16 shared Z-80 utilities + their `_6502.s` payloads (this absorbs the queued
 **CP/M-constant rename** across the ~30 `cpm22.inc`-carrying utilities: `CALL $0005`→`CALL BDOS`,
 `LD C,$nn`→`F_*`/`DRV_*`, `$0080`→`TBUFF`, `$005C`→`TFCB`; CAUTION 3 files STAT/CPMV220 +
