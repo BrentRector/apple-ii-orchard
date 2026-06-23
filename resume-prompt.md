@@ -1,6 +1,96 @@
 # Resume Prompt — Microsoft SoftCard CP/M Investigation
 
-## CURRENT STATE — 2026-06-22 (BASIC interpreter RE'd to C-level + the GBASIC/MBASIC FOLD — DONE and MERGED to `main`)
+## CURRENT STATE — 2026-06-23 (LIVE: CP/M source quality-uplift to the BASIC.asm bar — 2.20-44K OS core nearly done)
+
+**Branch `main`, working tree clean, gate 228 passed** (`cd /e/Orchard && source
+shared/toolchain/env.sh && python -m pytest softcard/ shared/` — was 226; +2 from the new
+`test_rpc6502_restart` pin). Full memory: **[[project_cpm_source_quality_uplift]]**.
+
+**The campaign.** Bring every CP/M source to the exact bar BASIC.asm set — C-level function
+headers (Purpose/In/Out/Clobbers/Algorithm), high-level body comments, semantic names
+(FUNCNAME_N locals, never L_xxxx), char + CP/M-constant literals, 100-col wrap, FULL
+relocatability (every in-image operand a LABEL), shared includes (single source of truth),
+**ZERO inline `; $addr <bytes>` comments** (addresses live in a generated `.lst`),
+adversarial-verify to catch byte-identical-but-WRONG decodes. **Byte-identical is the FLOOR;
+total semantic understanding is the goal** ([[feedback_semantic_understanding_is_the_goal]]).
+User's sequencing: TWO INDEPENDENT uplifts — **2.20-44K fully, then 2.23-44K clean-slate**
+(NOT derived) — both fully relocatable; THEN decide whether to fold them (only if functions
+land in the same order, like BASIC). Within the OS: "**finish the OS core (BIOS/BDOS/CCP)
+properly first**, same depth," before utilities.
+
+**Status — 2.20-44K OS core** (commits aac0bb0→d8382ce):
+- **CPM_BIOS.asm — DONE** (4fed9e9/9142e2f/395378b/f067bac): correctly decoded, fully
+  relocatable, all techniques, cover idioms in split form, uses apple_softcard.inc +
+  cpm22.inc, stripped → `CPM_BIOS.lst`. (#8 re-pass fixed the reversed PUN_DISP banner.)
+- **CPM_CCP.asm — correctly decoded + clean reloc** (b93c63f/60508c0/d8382ce): C-level layer;
+  the 2nd embedded **6502 block `$9600-$9700` EXTRACTED** to `CPM_RPC6502_Restart.s` (it was
+  mis-decoded as Z-80 — a byte-identical-but-WRONG decode the enhanced verify CAUGHT); 10 clean
+  relocatizations; cpm22.inc at the unit top; stripped → `CPM_CCP.lst` (combined CCP+BDOS).
+- **CPM_BDOS.asm — documented + clean reloc** (299d4ea/d8382ce): C-level headers/body,
+  cover-idiom splits incl. BDOS_ENTRY, clean relocatizations.
+- **#7 OVERLAP AUDIT — IN FLIGHT** (background agent `ad3162a1dfc6260da`; partial output
+  `E:\Temp\claude\E--Orchard\e3e75fa3-e5c0-4129-b485-cc620dd57a2b\tasks\ad3162a1dfc6260da.output`).
+  Resolve the `$9Bxx` temporal-tenant overlap (CCP-tail code that is ALSO FCB-build scratch over
+  the DISP'd BDOS run-image), verify the `$9854`/`$9952`/`$9515` message/RPC position-offset
+  idioms, then relocatize what resolves cleanly (labels / cover-splits, NO arithmetic) and keep
+  ambiguous cells LITERAL with UNKNOWN notes (don't force an unverifiable relocatization). The
+  agent self-validates byte-identical, reverts the .asm clean, and writes the verified spec to
+  **`E:/tmp/ccp_bdos_overlap_spec.json`**.
+  **RESUME #7:** if no live agent, read that output / the spec (if produced) else re-run the
+  audit → apply via `enrich_apply --target` to BOTH CCP+BDOS → gate byte-identical + full suite
+  → refresh `CPM_CCP.lst` → commit = **OS core complete**.
+
+**Infrastructure (built this campaign; reuse it).**
+- `cpm_pipeline/basic/enrich_apply.py` — generalized from BASIC: CLI `--target PATH --write`;
+  new spec fields **`splits[{anchor,occ,into[],absorbs[],delete_existing_label_line}]`**
+  (re-renders a cover idiom as DEFB cover + clean-labeled real instr — byte-safe), `labels[]`,
+  `includes[]`, `equ_to_include[]`, top-level `operand_rewrites`; all anchors via
+  `code_norm(_rn(anchor))`.
+- `cpm_pipeline/os_listing.py` (NEW) — `strip_listing_comments` (removes ONLY `; $addr <bytes>`
+  runs; keeps docs/semantic notes/headers) + `emit_listing` (`assemble_chunk(... lst_path=)`).
+- `cpm_pipeline/assemble.py` — `assemble_chunk`/`_assemble_z80` gained `lst_path` (sjasmplus
+  `--lst`, reuses the byte-identical build path).
+- `cpm_pipeline/chunk_map.py` — `CPM22_INC`; BIOS + System ChunkSources carry the includes;
+  System gained the `CPM_RPC6502_Restart.bin` incbin_dep. **RULE: adding an include to an OS
+  file REQUIRES registering it in that ChunkSource.include_files.**
+- `cpm_pipeline/gen_rpc6502_restart.py` + `tests/test_rpc6502_restart.py` (NEW) — recipe + pin.
+- **The enrichment WORKFLOW** (full-technique STYLE; map → enrich-per-cluster →
+  adversarial-verify) is saved at **`softcard/cpm_pipeline/workflows/cpm_os_enrich.workflow.js`**
+  (the session workflows dir is NOT durable). **`args` does NOT bind here — hardcode the
+  TARGET/MODULE constants in the script** before each run, then `Workflow({scriptPath})`.
+
+**Per-file loop:** set TARGET in the workflow script → `Workflow({scriptPath})` → merge cluster
+specs → `enrich_apply --target <file> --write` → strip + regen `.lst` (`os_listing`) →
+**fast gate `test_cpm220_44k_reconstruct_byte_identical`** + full suite (env.sh!) → commit.
+
+**Conventions locked this campaign (user corrections):**
+- **COVER IDIOM = unlabeled `DEFB $01` cover byte + the real instruction at its OWN clean label.
+  NO address/label arithmetic, EVER** (no `LABEL+offset`). Pointer tables → `DEFW` of clean
+  labels. (My earlier "cover+offset" framing was WRONG — corrected.)
+- **ZERO inline `; $addr <bytes>` comments** — BASIC.asm has none; strip to the `.lst`.
+- **Use ALL the BASIC lifts from the start** (the 27-technique checklist) — don't wait to be
+  told; diff CP/M output directly against BASIC.asm's actual conventions.
+- Reloc discriminator: "does the operand point INTO this module's image?" → LABEL; else
+  (RAM/HW/numeric constant/off-image) → keep literal [[feedback_image_refs_are_relocatable_labels]].
+- Don't force a relocatization onto an unverifiable decode — defer with UNKNOWN
+  [[feedback_dont_overclassify_dead_or_data]]. The **5-hour usage limit RESETS** — pause, don't ration.
+
+**Remaining campaign (after #7):** 6502 OS files (CPM_BootLoader.s / CPM_RPC6502.s / boot
+fragments — need a **6502-aware STYLE** variant) → ~16 shared Z-80 utilities (PIP/ED/ASM/STAT/
+DDT/…) + their `_6502.s` payloads (disassemble the DEFB blobs) → then **2.23-44K** (clean-slate)
+→ then the emulator-driven disk producer (capstone).
+
+**Disk-image model (decided; `softcard/docs/CPM_Disk_Build_Plan.md`).** A "full" build = ONE flat
+143,360-byte raw sector image (35×16×256). CP/M 2.2 has NO CPM.SYS: tracks 0-2 = boot + CCP/BDOS
++ BIOS as raw sectors; tracks 3+ = the filesystem. Producers: (1) **reconstruct** (reference-
+anchored, byte-identical — the GATE), (2) emulator-driven from-scratch (boot OS tracks + empty
+FS in softcard_emu, drive BDOS `F_MAKE`/`F_WRITE`/`F_CLOSE` per .COM in directory order — deferred).
+Plan docs: `CPM_Source_Quality_Uplift_Plan.md`, `CPM_Lift_Techniques_From_BASIC.md` (27-technique
+checklist), `CPM_Disk_Build_Plan.md`.
+
+---
+
+## Earlier handoff — 2026-06-22 (BASIC interpreter RE'd to C-level + the GBASIC/MBASIC FOLD — DONE and MERGED to `main`)
 
 **Branch: `main`, working tree clean, pushed to origin. Merge `b398441`** (`--no-ff`, 23
 commits; the local feature branch `basic-semantic-enrichment` was deleted after merge).
@@ -56,7 +146,7 @@ commit. Adversarial verify caught real mis-decodes: FN_LOF->MKI$/MKS$/MKD$, FN_C
 scanner, FN_INT->FN_ABS, STKFRAME_SCAN->FNDFOR ($82=FOR not GOSUB), OUTDO_DEVICE/_2 BIOS-vector
 swap, `$0CB6` = FP-eval flag not screen-reverse, VALTYP legend inverted, &O/&H octal/hex reversed.
 
-### >> THE LIVE NEXT TRACK: CP/M-constant rename across the utilities
+### Queued (now folded into the campaign's UTILITIES phase): CP/M-constant rename across the utilities
 
 Brent's sequencing was "finish BASIC enrichment first," then this. Across the ~30 utility
 `.asm` files that now carry `cpm22.inc`: rename `CALL $0005` -> `CALL BDOS`, `LD C,$nn` BDOS

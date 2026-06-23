@@ -95,39 +95,45 @@ Write-ups publish to **wiseowl.com** (Astro v6, Cloudflare Pages) at
 
 ## Current focus
 
-**LIVE (2026-06-22, on `main`, gate 226): the BASIC interpreter is RE'd to C-level and the
-GBASIC/MBASIC FOLD is DONE — merged to `main` (merge `b398441`, pushed).** ONE editable master
-**`CPMV220-44K/utilities/BASIC.asm`** assembles byte-identical to BOTH GBASIC.COM (`DEFINE
-GBASIC`, body self-relocates to `$3000`, 25600 B) and MBASIC.COM (no define, flat at `$0100`,
-24576 B). All **14 subsystems** carry C-level function headers (Purpose/In/Out/Clobbers/
-Algorithm) + high-level body comments; only **3 genuine `IFDEF GBASIC` islands** remain.
-Enrichment was applied byte-safely by **`cpm_pipeline.basic.enrich_apply`** (insert +
-global-rename + length-preserving operand-rewrite only — the fold byte-gate is the proof),
-driven by a per-subsystem **map -> enrich -> ADVERSARIAL verify** workflow that caught real
-mis-decodes (FN_LOF->MKI$, FN_CVI->INPUT# scan, STKFRAME_SCAN->FNDFOR, VALTYP legend inverted,
-&O/&H swap). BASIC.asm is the editable MASTER (the gen_gbasic/apply_naming/fold_gen pipeline is
-provenance-only; `fold_gen` needs `--write-master`); per-build addresses live in git-ignored
-`GBASIC.lst`/`MBASIC.lst` (`fold_build --lst`); `GBASIC.asm`/`MBASIC.asm` are byte-pinned
-reference views whose annotations now lag. Also landed: canonical `STRUCT CPMFCB` + the
-type-model includes, `ORG TPA` across all 4 trees, character literals, 100-col comment wrapping.
-GOAL = total semantic understanding; byte-identical is the floor
-(`feedback_semantic_understanding_is_the_goal`). Read `resume-prompt.md` (top) + memory
-`project_basic_gbasic_mbasic_fold` for the full handoff.
+**LIVE (2026-06-23, on `main`, gate 228): the CP/M source quality-uplift to the BASIC.asm bar.**
+Bring every CP/M source to the standard BASIC.asm set — C-level function headers (Purpose/In/Out/
+Clobbers/Algorithm) + high-level body comments, semantic names, char + CP/M-constant literals,
+100-col wrap, FULL relocatability (every in-image operand a LABEL), shared includes, **ZERO
+inline `; $addr` comments** (addresses live in a generated `.lst` via the new `os_listing.py`),
+adversarial-verify to catch byte-identical-but-WRONG decodes. **Byte-identical is the FLOOR;
+total semantic understanding is the goal** (`feedback_semantic_understanding_is_the_goal`).
+Sequencing (Brent): TWO INDEPENDENT uplifts — **2.20-44K fully, then 2.23-44K clean-slate** (NOT
+derived), both fully relocatable; THEN decide whether to fold. Within the OS: **finish the core
+(BIOS/BDOS/CCP) first**, same depth, before utilities.
 
-**NEXT (live track): the CP/M-constant rename across the utilities** (Brent's sequencing: BASIC
-enrichment first, now done). Across the ~30 utility `.asm` files now carrying `cpm22.inc`:
-`CALL $0005` -> `CALL BDOS`, `LD C,$nn` -> `F_*`/`DRV_*`, `$0080` -> `TBUFF`, `$005C` -> `TFCB`.
-CAUTION: 3 files (STAT/CPMV220, DDT/CPMV220-44K, DDT/CPMV223-44K) keep a local `TPA EQU` to
-dodge a BDOS-symbol collision, and the 60K build (CPM60.asm/CPM60_installer.asm) keeps it too
-(no shared includes staged — adding cpm22.inc there broke `build_cpm60`). Suggested: a per-file
-byte-safe rewrite applier, base tree CPMV220-44K first. The two shared includes remain the
-SINGLE SOURCE OF TRUTH (conform files to them): `softcard/include/apple_softcard.inc` (Apple/
-SoftCard hardware externals) + `softcard/include/cpm22.inc` (CP/M 2.2 ABI). THEN the held
-low-confidence BASIC items; retire standalone MBASIC.asm; the older queue: 2.20<->2.23 BASIC
-patch consolidation; finish include propagation (CPMV223-60K + `src` build wiring, the
-`CPM60_installer` disk path, a 6502-side include for the `.s` files); the 56K/60K trees to the
-same standard, the CPM56->os/ fold, and the wiseowl "Guided Tour" article series. Plan:
-`softcard/docs/CPM_Source_Completion_and_Tour_Plan.md`, `project_softcard_source_completion_and_tour`.
+State (commits aac0bb0→d8382ce): **CPM_BIOS.asm DONE** (correctly decoded, fully relocatable, all
+techniques, stripped → `.lst`). **CPM_CCP.asm** correctly decoded — its 2nd embedded 6502 block
+`$9600-$9700` was a byte-identical-but-WRONG Z-80 decode the verify CAUGHT, now EXTRACTED to
+`CPM_RPC6502_Restart.s` — plus clean relocatizations. **CPM_BDOS.asm** documented + clean reloc.
+**#7 (IN FLIGHT, background agent `ad3162a1dfc6260da`):** the `$9Bxx` temporal-tenant overlap
+audit (CCP-tail code that is also FCB-build scratch over the DISP'd BDOS image) + verify the
+`$9854`/`$9952`/`$9515` idioms; verified spec → `E:/tmp/ccp_bdos_overlap_spec.json`; apply →
+gate → commit = OS core complete. Infra reused/built: generalized **`cpm_pipeline.basic.enrich_apply`**
+(`--target`, byte-safe `splits`/cover-idiom re-render, `labels`, `includes`, `equ_to_include`),
+**`cpm_pipeline/os_listing.py`** (strip `; $addr` + emit `.lst`), and the full-technique enrichment
+workflow saved at **`softcard/cpm_pipeline/workflows/cpm_os_enrich.workflow.js`** (`args` doesn't
+bind — hardcode TARGET). **COVER IDIOM = unlabeled `DEFB $01` + the real instr at its OWN clean
+label, NO label arithmetic.** Read `resume-prompt.md` (top) + memory
+`project_cpm_source_quality_uplift` for the full handoff; plan docs `CPM_Source_Quality_Uplift_Plan.md`
+/ `CPM_Lift_Techniques_From_BASIC.md` (27-technique checklist) / `CPM_Disk_Build_Plan.md`.
+
+**NEXT after #7:** the 6502 OS files (CPM_BootLoader.s / CPM_RPC6502.s / boot fragments — need a
+6502-aware STYLE) → ~16 shared Z-80 utilities + their `_6502.s` payloads (this absorbs the queued
+**CP/M-constant rename** across the ~30 `cpm22.inc`-carrying utilities: `CALL $0005`→`CALL BDOS`,
+`LD C,$nn`→`F_*`/`DRV_*`, `$0080`→`TBUFF`, `$005C`→`TFCB`; CAUTION 3 files STAT/CPMV220 +
+DDT/CPMV220-44K + DDT/CPMV223-44K keep a local `TPA EQU` to dodge a BDOS collision, and the 60K
+build keeps it too — adding cpm22.inc there broke `build_cpm60`) → then the independent **2.23-44K**
+uplift → then the emulator-driven disk producer (capstone). The DONE BASIC track (one master
+`BASIC.asm` byte-identical to both GBASIC/MBASIC, all 14 subsystems C-level, merged `b398441`)
+is the model — see `project_basic_gbasic_mbasic_fold`. Older queue still open: 2.20↔2.23 BASIC
+patch consolidation; the 56K/60K trees to the same standard, the CPM56→os/ fold, and the wiseowl
+"Guided Tour" article series (`softcard/docs/CPM_Source_Completion_and_Tour_Plan.md`,
+`project_softcard_source_completion_and_tour`).
 
 Background (the longer-running asset): the **canonical SoftCard / Apple CP/M archive**
 at `softcard/reference/softcard-cpm-archive/` (one-stop source: disk images, manuals,
