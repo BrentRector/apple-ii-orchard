@@ -134,12 +134,12 @@ STMT_DISPATCH_TBL:
         DEFW    GFX_STMT_BEEP
         DEFW    STMT_WAIT
 FUNC_DISPATCH_TBL:
-        DEFW    STR_SUBSTR_ALLOC_COPY
-        DEFW    FN_LEFT_STR
-        DEFW    FN_RIGHT_STR
+        DEFW    LEFT_STR_AND_SUBSTR_TAIL
+        DEFW    FN_RIGHTDOLLAR
+        DEFW    FN_MIDDOLLAR
         DEFW    FN_MID_STR
         DEFW    FN_INT_FLOOR
-        DEFW    FN_INT
+        DEFW    FN_ABS
         DEFW    FN_SQR
         DEFW    FN_RND
         DEFW    FN_SIN
@@ -656,7 +656,7 @@ L_0B36:
 ; [RE] DSCTMP: the one-entry working string descriptor (STRDESC, msbasic_strdesc.inc) -- STORE_STR_DESC writes the freshly-built len/pointer here ($6BDF LD HL,DSCTMP then STR_DESC_STORE), and PUT_STR_TEMP ($6C1A) copies it from here onto the temp-descriptor stack (TEMPPT/TEMPST). DSCTMP.LEN=$0B45, DSCTMP.PTR=$0B46 (the existing $0B46 word).
 DSCTMP:
         DEFB    "\0"
-L_0B46:
+DSCTMP_PTR:
         DEFB    "\0\0"
 ; [RE] Top-of-free-string-space pointer (MS BASIC FRETOP): the string heap allocates downward from here; GETSPA decrements it, FRESTR1 hands back the topmost string, GARBAG slides live strings up to it. Seeded from MEMSIZ at cold-start/CLEAR.
 FRETOP:
@@ -10824,9 +10824,18 @@ FLOAT_A_1:
         ; shift the source sign bit into carry so FADD_COMBINE applies the sign (CALL C,FCOMPL)
         RLA
         JP FADD_COMBINE
-; [RE] INT() handler (function token $05): floor to integer.
-FN_INT:
+; ----------------------------------------------------------------------
+; FN_ABS -- ABS() intrinsic (dispatch index 5 = function token $06 ABS): return the absolute value of the FAC.
+;   In:        FAC = numeric operand; VALTYP ($0B14) = its type (int / single / double).
+;   Out:       FAC = |operand|, same type. A string operand raises Type-mismatch (inside FP_TEST_SIGN).
+;   Clobbers:  A, H, L, flags; on the negate path also whatever INT_NEGATE_FAC / FP_NEG touch.
+;   Algorithm: FP_TEST_SIGN both type-checks the value (string -> Type mismatch) and returns its sign in A (0 / +1 ($01) / -1 ($FF)) with the FAC left intact. RET P returns when the sign is zero-or-positive (the value already equals its own magnitude). On a negative sign, control falls into FP_NEGATE_CHECKED, which negates by type (integer path via INT_NEGATE_FAC, handling the -32768->single promotion; single/double path via FP_NEG toggling the sign bit), yielding |operand|.
+;   [RE] MISLABEL: the file label FN_ABS and the existing '[RE] INT() handler (function token $05): floor to integer' comment are WRONG. The function-dispatch slot address = FUNC_DISPATCH_TBL($01B2) + 2*(token-1) (see the FN_VPOS header note and msbasic_tokens.inc). INT (TOK_INT=$05) -> slot $01BA = FN_INT_FLOOR, which IS the real floor-to-minus-infinity handler. This routine sits at slot $01BC = TOK_ABS=$06, and its code (test sign, keep if >=0, negate if <0) is textbook ABS. It does NOT floor or truncate. Renamed FN_ABS.
+; ----------------------------------------------------------------------
+FN_ABS:
+        ; type-check (string -> Type mismatch) and get the operand's sign in A (0/+1/-1), leaving the FAC unchanged
         CALL FP_TEST_SIGN
+        ; sign zero-or-positive: |x| == x, return it unchanged (negative falls into FP_NEGATE_CHECKED to negate)
         RET P
 ; ----------------------------------------------------------------------
 ; FP_NEGATE_CHECKED -- unary-minus handler: negate the numeric value in the FAC, dispatching by type.
@@ -17817,7 +17826,7 @@ PRINT_LIST_ENTRY_34:
         LD B,C
         LD C,$00
         PUSH BC
-        CALL STR_SUBSTR_ALLOC_COPY_2+1
+        CALL LEFT_STR_AND_SUBSTR_TAIL_2+1
         CALL STRPRT
         LD HL,(FAC)
         POP AF
@@ -19480,35 +19489,78 @@ NEXT_LOOP_BODY_8:
         JR Z,NEXT_LOOP_BODY_8
         CCF
         JP FP_SIGN_3
-; [RE] OCT$(x) handler (function token $18): format x as octal-digit text (shared STR_FN_FINALIZE_1 tail).
+; ----------------------------------------------------------------------
+; FN_OCT_STR -- OCT$(x) intrinsic (function token $18): octal-text formatter.
+;   In:        FAC = numeric value (HEX_OCT_OUT coerces it to a 16-bit UNSIGNED integer via GETADR).
+;   Out:       FAC = a string TEMPORARY (VT_STR) holding the value's octal digits, no leading zeros; returns via the shared FN_STR_1 finalize tail.
+;   Clobbers:  A, BC, DE, HL, flags; renderer scratch buffer $0CC2; string heap (GETSPA); temp-descriptor stack.
+;   Algorithm: HEX_OCT_OUT renders the integer as octal ASCII (base flag B=0, six 3-bit groups) into the scratch buffer at $0CC2, NUL-terminated, and returns HL -> the buffer start. JR FN_STR_1 then turns that volatile text into an owned string temporary.
+; ----------------------------------------------------------------------
 FN_OCT_STR:
+        ; render the FAC as octal text (B=0 selects the six 3-bit octal groups) into the $0CC2 scratch buffer; HL -> start
         CALL HEX_OCT_OUT
+        ; hand the rendered text to the shared finalize tail to materialize it as a returnable string temporary
         JR FN_STR_1
-; [RE] HEX$(x) handler (function token $19): format x as hex-digit text (shared STR_FN_FINALIZE_1 tail).
+; ----------------------------------------------------------------------
+; FN_HEX_STR -- HEX$(x) intrinsic (function token $19): hexadecimal-text formatter.
+;   In:        FAC = numeric value (the renderer coerces it to a 16-bit UNSIGNED integer via GETADR).
+;   Out:       FAC = a string TEMPORARY (VT_STR) holding the value's hex digits ('0'..'9','A'..'F'), no leading zeros; returns via the shared FN_STR_1 finalize tail.
+;   Clobbers:  A, BC, DE, HL, flags; renderer scratch buffer $0CC2; string heap (GETSPA); temp-descriptor stack.
+;   Algorithm: Enter the shared HEX/OCT renderer one byte in, at HEX_OCT_OUT_1+1, so the operand bytes of the preceding 'JP NZ,$0106' ($C2 06 01) execute as LD B,$01, selecting the hex width (four 4-bit nibble groups). The digits render into $0CC2 NUL-terminated with HL -> start, then JR FN_STR_1 materializes the owned string temporary.
+; ----------------------------------------------------------------------
 FN_HEX_STR:
+        ; enter the renderer mid-instruction so the '06 01' operand bytes run as LD B,$01 (B!=0 selects hex, four 4-bit nibble groups); text -> $0CC2, HL -> start
         CALL HEX_OCT_OUT_1+1
+        ; hand the rendered text to the shared finalize tail to materialize it as a returnable string temporary
         JR FN_STR_1
-; [RE] STR$(x) handler (function token $12): format a number as its ASCII text (FOUT) and return a string temporary. The finalize tail (STR_FN_FINALIZE_1) is shared by OCT$/HEX$/SPACE$.
+; ----------------------------------------------------------------------
+; FN_STR -- STR$(x) intrinsic (function token $12): decimal-text formatter (the PRINT representation of a number).
+;   In:        FAC = numeric value; VALTYP = its type (int / single / double).
+;   Out:       FAC = a string TEMPORARY (VT_STR) holding the value's ASCII decimal rendering, including the leading sign/space FOUT emits; returns via the shared FN_STR_1 finalize tail.
+;   Clobbers:  A, BC, DE, HL, flags; FOUT scratch buffer $0CC3; string heap (GETSPA); temp-descriptor stack.
+;   Algorithm: FOUT_2 formats the FAC as a plain PRINT/STR$ conversion (A=0, no PRINT-USING flags), leaving a NUL-terminated string in the $0CC3 buffer with HL -> its start. Fall straight into FN_STR_1 to copy that volatile text into owned heap and return it as a string value.
+; ----------------------------------------------------------------------
 FN_STR:
+        ; format the number to its PRINT text (leading space-or-'-' sign + digits) in the $0CC3 buffer; HL -> start
         CALL FOUT_2
+; ----------------------------------------------------------------------
+; FN_STR_1 -- shared finalize tail for OCT$/HEX$/STR$: turn freshly rendered, volatile scratch-buffer text into an owned, returnable string temporary.
+;   In:        HL -> a NUL-terminated character string in a renderer scratch buffer ($0CC2 for OCT$/HEX$, $0CC3 for STR$) -- the bytes are transient and would be overwritten by the next conversion.
+;   Out:       Returns to its function's caller (FRMEVL) via the pushed STR_FN_RETURN_CHAR_1 continuation, with FAC = a VT_STR temporary whose data has been copied into permanent string heap and pushed onto the temp-descriptor stack. VALTYP := VT_STR.
+;   Clobbers:  A, BC, DE, HL, flags; string heap (GETSPA); DSCTMP; temp-descriptor stack (TEMPPT).
+;   Algorithm: SCAN_STR_LITERAL measures the scratch text to its NUL terminator, builds a STRDESC, and (falling through into PUT_STR_TEMP, no RET between them) stages it on the temp-descriptor stack, leaving FAC = the staged descriptor's slot address (a leftover internal PUSH HL from the scan absorbs PUT_STR_TEMP's POP HL, so control returns here to CALL FRESTR). FRESTR then loads that slot address from FAC into HL and pops the just-staged temp; because its data lives in the volatile $0CC2/$0CC3 scratch buffer (FRETOP != data_ptr-1), no heap is reclaimed, so HL -> the {LEN, scratch-PTR} STRDESC. Push STR_FN_RETURN_CHAR_1 as the return continuation and fall into STR_BUILD_FROM_DESC, which GETSPAs LEN heap bytes and copies the scratch text into them; on its RET, STR_FN_RETURN_CHAR_1 (POP BC / JP PUT_STR_TEMP) re-stages the now-permanent DSCTMP descriptor as the function's string result and returns to FRMEVL.
+; ----------------------------------------------------------------------
 FN_STR_1:
+        ; measure the scratch text to its NUL and (via the fall-through into PUT_STR_TEMP) stage a temp descriptor for it; FAC := the staged descriptor's slot address
         CALL SCAN_STR_LITERAL
+        ; pop that just-staged temp (HL := its STRDESC address from FAC); its data is in volatile scratch, not the heap (FRETOP != data_ptr-1), so nothing is reclaimed -- this only recovers HL -> {LEN, scratch-PTR}
         CALL FRESTR
+        ; arrange STR_FN_RETURN_CHAR_1 (POP BC / JP PUT_STR_TEMP) to run on STR_BUILD_FROM_DESC's RET: it re-stages the owned DSCTMP descriptor as the result and returns to FRMEVL
         LD BC,STR_FN_RETURN_CHAR_1
         PUSH BC
-; [RE] STR_BUILD_FROM_DESC: given (HL) -> a source STRDESC (msbasic_strdesc.inc), read STRDESC.LEN ($6BC6), GETSPA that many heap bytes, then read STRDESC.PTR (LD C,(HL)$6BCD / LD B,(HL)$6BCF) and copy LEN bytes (BLOCK_COPY_BC_TO_DE) into the new heap block, recording the result via STORE_STR_DESC. Materialises a string value's bytes into freshly owned heap space; used by string concatenation/formatting and CHAIN string preservation.
+; ----------------------------------------------------------------------
+; STR_BUILD_FROM_DESC -- materialize a string into freshly owned heap: copy a source STRDESC's bytes into a new GETSPA-allocated block and record the result descriptor in DSCTMP.
+;   In:        HL -> a source STRDESC (msbasic_strdesc.inc): LEN byte then a 2-byte data pointer, whose data may live in volatile/foreign space (renderer scratch buffer, program text, a buffer being reloaded).
+;   Out:       New heap block (LEN bytes) holds a copy of the source bytes; DSCTMP ($0B45) holds the new {LEN, heap-PTR} descriptor; DE = DSCTMP address (the trailing POP DE recovers the HL=DSCTMP that STORE_STR_DESC returned and that was PUSHed before the copy). HL = source+LEN, BC = source-data-ptr+LEN (advanced by the copy).
+;   Clobbers:  A, BC, DE, HL, flags; string heap (GETSPA lowers FRETOP); DSCTMP.
+;   Algorithm: Read STRDESC.LEN into A and advance HL past it. GETSPA reserves LEN heap bytes (DE = new block start); the source-descriptor pointer is saved across that call (PUSH HL / POP HL) and the source data pointer is then read into BC (LD C,(HL) low, LD B,(HL) high). STORE_STR_DESC writes the result descriptor (LEN=A, PTR=DE -> the new block) into DSCTMP and returns HL -> DSCTMP, which is PUSHed. L:=A sets the byte count for BLOCK_COPY_BC_TO_DE, which then copies LEN bytes from the source (BC) into the new block (DE). The trailing POP DE restores DE = DSCTMP. [RE] Callers: string formatters (via FN_STR_1), DEF-FN string-result staging (STMT_DEF), the string-argument copy-to-safe-space path near POP_LEN_TO_B, and CHAIN string preservation (CHAIN_MOVE_STRING_VAR).
+; ----------------------------------------------------------------------
 STR_BUILD_FROM_DESC:
         LD A,(HL)
         INC HL
         PUSH HL
+        ; reserve LEN (A) bytes of permanent string heap; DE = first byte of the new block
         CALL GETSPA
         POP HL
         LD C,(HL)
         INC HL
         LD B,(HL)
+        ; record the result descriptor {LEN=A, PTR=DE->new block} in DSCTMP; HL := DSCTMP (pushed below, recovered into DE by the trailing POP)
         CALL STORE_STR_DESC
         PUSH HL
+        ; set the copy count for BLOCK_COPY_BC_TO_DE (which counts down in L) to LEN bytes
         LD L,A
+        ; copy LEN bytes of the source string (from BC) into the freshly owned heap block (DE)
         CALL BLOCK_COPY_BC_TO_DE
         POP DE
         RET
@@ -19958,7 +20010,7 @@ STR_CONCAT:
         EX (SP),HL
         CALL FRESTR_DE
         PUSH HL
-        LD HL,(L_0B46)
+        LD HL,(DSCTMP_PTR)
         EX DE,HL
         CALL STR_COPY_DESCR_DATA
         CALL STR_COPY_DESCR_DATA
@@ -20078,106 +20130,210 @@ FREE_TOP_TEMP_DESCR:
         ; DE was the top temp: pop it by retracting TEMPPT one descriptor (3 bytes)
         LD (TEMPPT),HL
         RET
-; [RE] LEN(a$) handler (function token $11): length of a string (its descriptor count byte) into the FAC.
+; ----------------------------------------------------------------------
+; FN_LEN -- LEN(a$) intrinsic (FUNC_DISPATCH_TBL index 16, function token $11): length of a string into the FAC.
+;   In:        The string argument has just been evaluated by the function dispatcher; its STRDESC pointer is in the FAC, VALTYP=VT_STR. FRMEVL_PAREN_2 is armed as this handler's return continuation.
+;   Out:       FAC = the string's length (0..255) as a VT_INT value; the temporary argument string is freed (FRETMP).
+;   Clobbers:  A, B, C, D, E, H, L, F, FAC, VALTYP.
+;   Algorithm: Pre-push FP_LOAD_INT_TO_FAC as a return continuation, then fall into GET_STR_DESCR_PTR. That helper frees/locates the argument descriptor and returns with A = STRDESC.LEN; on its RET the pushed FP_LOAD_INT_TO_FAC runs with A=LEN and stores LEN as a 16-bit integer in the FAC (FP_LOAD_INT_TO_FAC zero-extends A into HL by itself). LEN accepts the empty string (length 0 is a valid result, so it does NOT FC-error, unlike ASC).
+; ----------------------------------------------------------------------
 FN_LEN:
+        ; pre-push the "store A as a 16-bit integer in the FAC" continuation; GET_STR_DESCR_PTR returns A = string length and RETs straight into it
         LD BC,FP_LOAD_INT_TO_FAC
         PUSH BC
-; [RE] evaluate the pending string argument to a descriptor (via FRETMP), returning the descriptor's length in A and address in HL; Z set if the string is empty.
+; ----------------------------------------------------------------------
+; GET_STR_DESCR_PTR -- shared single-string-arg fetch: retire the argument string and locate its descriptor.
+;   In:        FAC holds the just-evaluated argument's STRDESC pointer; VALTYP=VT_STR (asserted inside FRETMP via REQUIRE_STRING).
+;   Out:       HL = address of the argument's STRDESC; A = STRDESC.LEN; D = 0; Z set iff the string is empty (LEN==0). The temporary's heap bytes are reclaimed if it was the topmost allocation.
+;   Clobbers:  A, B, C, D, E, H, L, F.
+;   Algorithm: FRETMP asserts the value is a string (Type mismatch otherwise) and frees/locates it, returning HL = its STRDESC. XOR A then LD D,A sets D=0; [RE] D=0 is NOT consumed here -- it is carried out for the FN_VAL caller, which writes it (LD (HL),D) as a NUL terminator at the end of the string before FIN parsing. Then LD A=STRDESC.LEN (byte at HL) and OR A sets Z when the length is zero. Shared by LEN (fall-through from FN_LEN), ASC (via FN_VAL_BODY) and FN_VAL.
+; ----------------------------------------------------------------------
 GET_STR_DESCR_PTR:
+        ; free and locate the argument string: HL -> its STRDESC (Type mismatch if the value is not a string)
         CALL FRETMP
         XOR A
+        ; D=0 (from the preceding XOR A): carried out as the NUL terminator that the FN_VAL caller stores past the string before FIN parsing
         LD D,A
+        ; A = STRDESC.LEN; the following OR A sets Z iff the string is empty
         LD A,(HL)
         OR A
         RET
-; [RE] ASC(a$) handler (function token $14): character code of the string FIRST byte into the FAC (FC error if the string is empty).
+; ----------------------------------------------------------------------
+; FN_ASC -- ASC(a$) intrinsic (FUNC_DISPATCH_TBL index 19, function token $14): character code of the string's first byte into the FAC.
+;   In:        The string argument is evaluated; its STRDESC pointer is in the FAC, VALTYP=VT_STR. FRMEVL_PAREN_2 is armed as the handler's return continuation.
+;   Out:       FAC = code of the first character (0..255) as a VT_INT value; the argument temporary is freed. Raises 'Illegal function call' (FC) if the string is empty.
+;   Clobbers:  A, B, C, D, E, H, L, F, FAC, VALTYP.
+;   Algorithm: Pre-push FP_LOAD_INT_TO_FAC as a return continuation, then fall into FN_VAL_BODY which (via GET_STR_DESCR_PTR) FC-errors on the empty string and otherwise returns A = the first character byte. On FN_VAL_BODY's RET the pushed continuation stores A as a 16-bit integer in the FAC.
+; ----------------------------------------------------------------------
 FN_ASC:
+        ; pre-push the integer-to-FAC continuation; FN_VAL_BODY returns A = the first character code, which RETs into it
         LD BC,FP_LOAD_INT_TO_FAC
         PUSH BC
-; [RE] FN_VAL_BODY: fetch the argument's STRDESC (msbasic_strdesc.inc) via GET_STR_DESCR_PTR (HL -> descriptor, A=STRDESC.LEN), FC error if empty, then read STRDESC.PTR into DE (INC HL/LD E,(HL)$6E00/INC HL/LD D,(HL)$6E02) and LD A,(DE) to fetch the first character for numeric parsing (FIN).
+; ----------------------------------------------------------------------
+; FN_VAL_BODY -- fetch a string argument's descriptor and read its FIRST character (the ASC body; NOT the VAL body).
+;   In:        FAC holds the argument's STRDESC pointer (VALTYP=VT_STR).
+;   Out:       A = the string's first character byte; DE = STRDESC.PTR (address of the character data); HL = descriptor+2; the argument temporary is freed. Raises FC if the string is empty.
+;   Clobbers:  A, B, C, D, E, H, L, F.
+;   Algorithm: GET_STR_DESCR_PTR frees/locates the descriptor and returns A=STRDESC.LEN with Z iff empty; an empty string is an FC error. Otherwise step HL across the LEN byte and read STRDESC.PTR into DE (E=low at +1, D=high at +2), then LD A,(DE) to fetch the first data byte. [RE] Reused TWO ways: ASC (fall-through from FN_ASC) and FN_STRING_FROM_STR (the fill character for STRING$). FN_VAL does NOT call this -- it calls GET_STR_DESCR_PTR directly and inlines a different descriptor walk (loading STRDESC.PTR into HL, not DE), so despite the name this is not VAL's body.
+; ----------------------------------------------------------------------
 FN_VAL_BODY:
         CALL GET_STR_DESCR_PTR
+        ; empty string has no first character -> Illegal function call
         JP Z,ERROR_FC
+        ; step past STRDESC.LEN to STRDESC.PTR and load the data pointer into DE (E=low, D=high)
         INC HL
         LD E,(HL)
         INC HL
         LD D,(HL)
+        ; A = the string's first character byte
         LD A,(DE)
         RET
-; [RE] CHR$(n) handler (function token $15): allocate a 1-byte string holding character n; returned as a string temporary.
+; ----------------------------------------------------------------------
+; FN_CHR -- CHR$(n) intrinsic (FUNC_DISPATCH_TBL index 20, function token $15): build a one-byte string holding character n.
+;   In:        The numeric argument is evaluated into the FAC. The handler was reached via FRMEVL_FUNC_DISPATCH with FRMEVL_PAREN_2 armed and the saved text pointer parked beneath it on the stack.
+;   Out:       A new 1-byte string temporary is pushed on the temp-descriptor stack and made the current value (VALTYP=VT_STR); control returns to the FRMEVL operand-eval caller via PUT_STR_TEMP (HL = text pointer recovered there).
+;   Clobbers:  A, B, C, D, E, H, L, F, FAC, VALTYP, DSCTMP, the string heap, TEMPPT.
+;   Algorithm: ALLOC_STR_1 reserves one byte of heap and records its descriptor in DSCTMP (DSCTMP.PTR = the new byte's address). CONINT narrows the FAC to a single byte (FC on overflow), returning the character code in A=E. Fall into STR_FN_RETURN_CHAR, which writes E into the allocated byte and stages the temporary via PUT_STR_TEMP.
+; ----------------------------------------------------------------------
 FN_CHR:
+        ; reserve one heap byte and record its descriptor in DSCTMP (DSCTMP.PTR -> the new byte)
         CALL ALLOC_STR_1
+        ; narrow the FAC argument to a byte 0..255 (FC on overflow); E = the character code
         CALL CONINT
-; [RE] string-function epilogue: store result char (E) into the string work buffer at ($0B46) and return through PUT_STR_TEMP (FRMEVL string-temp fixup).
+; ----------------------------------------------------------------------
+; STR_FN_RETURN_CHAR -- single-char string-result epilogue: deposit one character into the freshly allocated buffer and stage the temporary.
+;   In:        DSCTMP describes a 1-byte string just allocated (DSCTMP.PTR = its data address); E = the character to store. The stack holds (top-down) a word that POP BC will discard and then the saved text pointer that PUT_STR_TEMP recovers. [RE]
+;   Out:       The character is written to the allocated byte; the descriptor is pushed onto the temp-descriptor stack and becomes the current string value; control returns to the FRMEVL operand-eval caller via PUT_STR_TEMP, with HL = the recovered text pointer. [RE]
+;   Clobbers:  A, B, C, D, E, H, L, F, FAC, VALTYP, TEMPPT.
+;   Algorithm: Load HL = DSCTMP.PTR (data pointer of the just-built descriptor) and store the character E there, then fall into STR_FN_RETURN_CHAR_1. Used by CHR$ and reached from the STRING$/SPACE$ fill helper (STR_FILL_ALLOC) when the count is zero.
+; ----------------------------------------------------------------------
 STR_FN_RETURN_CHAR:
-        LD HL,(L_0B46)
+        ; HL = DSCTMP.PTR (the new string's data address); store the result character there
+        LD HL,(DSCTMP_PTR)
         LD (HL),E
+; ----------------------------------------------------------------------
+; STR_FN_RETURN_CHAR_1 -- string-result hand-off: drop one stacked word and stage the built descriptor.
+;   In:        DSCTMP holds the completed result STRDESC. The stack holds (top-down) one word to discard, then the saved program text pointer, then the FRMEVL operand-eval return address. The word discarded differs by entry: for the FUNC_DISPATCH_TBL string builders (CHR$/STR$/HEX$/OCT$/MKx$) it is the armed FRMEVL_PAREN_2 continuation; for STRING$/SPACE$ it is STR_FILL_ALLOC's own CALL return. [RE]
+;   Out:       Tail-jumps to PUT_STR_TEMP, which copies DSCTMP onto the temp-descriptor stack, sets VALTYP=VT_STR and FAC = the staged slot, then its own POP HL recovers the saved text pointer and RETs to the FRMEVL operand-eval caller. Net effect: control returns one level higher than a plain RET would, with HL = text pointer.
+;   Clobbers:  A, B, C, D, E, H, L, F, FAC, VALTYP, TEMPPT.
+;   Algorithm: POP BC discards the top stacked word so that, after PUT_STR_TEMP's own POP HL absorbs the parked text pointer, its RET delivers control to the FRMEVL caller (not back here). Then JP PUT_STR_TEMP. Common exit for the string-building handlers (CHR$, STR$/HEX$/OCT$, MKI$/MKS$/MKD$, STRING$/SPACE$), which all pre-push or reach it with the descriptor already in DSCTMP. [RE]
+; ----------------------------------------------------------------------
 STR_FN_RETURN_CHAR_1:
+        ; discard the top stacked word (the armed FRMEVL return for the dispatch-table builders, or STR_FILL_ALLOC's return for STRING$/SPACE$); PUT_STR_TEMP's own POP HL then recovers the text pointer and returns to the FRMEVL caller
         POP BC
         JP PUT_STR_TEMP
-; [RE] STRING$() body (token $E7): parse (count, char-or-string$) then pad-fill the new string via STR_FILL_ALLOC. NOT MID$ -- MID$ is FN_MID_STR $6582, token $03.
+; ----------------------------------------------------------------------
+; FN_STRING_STR -- STRING$(count, char) intrinsic (operand-level token $E7): build a string of 'count' identical characters.
+;   In:        HL -> program text positioned at the STRING$ token (the '(' follows). This is the direct operand-fetch entry (FRMEVL_EVAL_OPERAND_5, JP from CP $E7), NOT a FUNC_DISPATCH_TBL handler; the stack top is the FRMEVL operand-eval return address (no FRMEVL_PAREN_2 armed). NOT MID$.
+;   Out:       A new string of 'count' copies of the fill character is left as the current string value (built via STR_FILL_ALLOC) and staged on the temp stack; returns to the FRMEVL caller with HL = text pointer past the ')'.
+;   Clobbers:  A, B, C, D, E, H, L, F, FAC, VALTYP, DSCTMP, string heap, TEMPPT.
+;   Algorithm: Step past the token (CHRGET), require '(', parse the repeat count as a byte (GETBYT -> DE, D=0) and save it (PUSH DE). Require ',', evaluate the fill argument (FRMEVL_NOPAREN -> FAC), require ')'. Then EX (SP),HL / PUSH HL parks the program text pointer on the stack UNDER a fresh copy of the count (so HL now holds the count, not the text pointer) -- the text pointer is recovered later by PUT_STR_TEMP's POP HL. Classify the fill value: if it is a string (FRMEVL_TEST_TYPE -> Z) branch to FN_STRING_FROM_STR to take its first byte as the pad character; otherwise CONINT narrows the numeric fill to a byte code in E (its HL side effects are discarded -- HL holds the count here, not a text pointer) and joins the fill path at STR_FN_RETURN_CHAR_4.
+; ----------------------------------------------------------------------
 FN_STRING_STR:
+        ; advance past the STRING$ token to its argument list
         CALL CHRGET
         CALL SYNCHR
         DEFB    '('                      ; inline char arg consumed by the preceding CALL
+        ; parse the repeat count as a byte (0..255) into DE; save it on the stack
         CALL GETBYT
         PUSH DE
         CALL SYNCHR
         DEFB    ','                      ; inline char arg consumed by the preceding CALL
+        ; evaluate the fill argument (a numeric char code or a string whose first byte is the pad char) into the FAC
         CALL FRMEVL_NOPAREN
         CALL SYNCHR
         DEFB    ')'                      ; inline char arg consumed by the preceding CALL
+        ; park the text pointer on the stack and copy the count above it; HL now holds the count (NOT the text pointer -- the text pointer is recovered later by PUT_STR_TEMP's POP HL)
         EX (SP),HL
         PUSH HL
+        ; Z => string fill (take its first byte via FN_STRING_FROM_STR); else numeric fill (use its byte value as the char code)
         CALL FRMEVL_TEST_TYPE
         JR Z,FN_STRING_FROM_STR
+        ; numeric fill: coerce the FAC to a byte char code in E (FC on overflow); CONINT's HL update is junk here and discarded
         CALL CONINT
         JR STR_FN_RETURN_CHAR_4
-; [RE] STRING$ branch when the fill argument is a string: use its first byte as the pad character (FN_VAL_BODY), then STR_FILL_ALLOC.
+; ----------------------------------------------------------------------
+; FN_STRING_FROM_STR -- STRING$ branch when the fill argument is a string: take its first character as the pad byte.
+;   In:        Reached from FN_STRING_STR with the fill value being a string (FAC = its STRDESC, VALTYP=VT_STR) and the repeat count still saved on the stack.
+;   Out:       Falls into STR_FN_RETURN_CHAR_4 / STR_FILL_ALLOC with A (=E only after the path sets it) = the pad character; the count is popped at STR_FN_RETURN_CHAR_4. Raises FC if the fill string is empty (inside FN_VAL_BODY).
+;   Clobbers:  A, B, C, D, E, H, L, F, FAC, VALTYP, DSCTMP, string heap, TEMPPT.
+;   Algorithm: CALL FN_VAL_BODY to free/locate the fill string and return A = its first character; then fall through into the shared fill path (STR_FN_RETURN_CHAR_4 pops the count into DE, STR_FILL_ALLOC allocates and fills).
+; ----------------------------------------------------------------------
 FN_STRING_FROM_STR:
+        ; use the fill string's first byte as the pad character (FC if the string is empty)
         CALL FN_VAL_BODY
 STR_FN_RETURN_CHAR_4:
         POP DE
         CALL STR_FILL_ALLOC
-; [RE] SPACE$(n) handler (function token $17): build a string of n blanks via the shared string-fill allocator.
+; ----------------------------------------------------------------------
+; FN_SPACE -- SPACE$(n) handler (function token $17): build a string of n blanks.
+;   In:        FAC = the evaluated numeric argument n (single parenthesised arg; reached via FRMEVL_FUNC_ARG_PAREN since SPACE$ is dispatch index $16, doubled >= 5); text cursor past the argument.
+;   Out:       Function result = a freshly allocated n-byte string filled with $20 (space), registered as a string temporary via the shared STR_FILL_ALLOC builder. Returns through the FRMEVL string-temp path (PUT_STR_TEMP).
+;   Clobbers:  A, B, C, D, E, H, L, F, FAC, DSCTMP, the string heap.
+;   Algorithm: CONINT narrows n to a byte 0..255 (returns A=E=n, D=0; FC on overflow), set the pad character A=$20, then fall into the shared STR_FILL_ALLOC builder which reserves E heap bytes and fills them with A. SPACE$(n) is exactly STRING$(n," ").
+; ----------------------------------------------------------------------
 FN_SPACE:
         CALL CONINT
         LD A,$20
-; [RE] STRING$/SPACE$ build helper: allocate B bytes of string space, fill with the pad char in A, returning the new descriptor; entry from the function epilogue at STR_FN_RETURN_CHAR.
+; ----------------------------------------------------------------------
+; STR_FILL_ALLOC -- shared STRING$/SPACE$ builder: allocate an E-byte string and fill it with the pad char A.
+;   In:        E = string length (0..255); A = the fill/pad character. Entered from FN_SPACE (A=$20) and from the STRING$ epilogue (STR_FN_RETURN_CHAR_4: A = caller-chosen pad char, E = the count arg recovered from the stack).
+;   Out:       A new E-byte string filled with A; its descriptor is built in DSCTMP (via ALLOC_STR_A) and control continues into the string-function epilogue STR_FN_RETURN_CHAR_1, which registers it as a string temporary via PUT_STR_TEMP. Does not return to its caller; exits through the epilogue's POP BC / JP PUT_STR_TEMP.
+;   Clobbers:  A, B, C, D, E, H, L, F, FAC, DSCTMP, the string heap.
+;   Algorithm: Save the pad char (PUSH AF), reserve E heap bytes via ALLOC_STR_A (which GETSPAs E bytes and writes len/data-ptr into the working descriptor DSCTMP, returning A=E). Keep the length in B; restore the pad char. If the length is zero (INC B/DEC B sets Z), skip straight to the epilogue. Otherwise load the new buffer's data pointer from DSCTMP.PTR (DSCTMP_PTR) and run STR_FILL_LOOP to write the pad char into all B bytes, then jump to the epilogue.
+; ----------------------------------------------------------------------
 STR_FILL_ALLOC:
         PUSH AF
+        ; reserve E (the requested length) heap bytes for the new string
         LD A,E
         CALL ALLOC_STR_A
         LD B,A
+        ; restore the pad/fill character to write
         POP AF
         INC B
         DEC B
+        ; zero-length string: nothing to fill, go register the empty result
         JR Z,STR_FN_RETURN_CHAR_1
-        LD HL,(L_0B46)
-; [RE] fill loop: write fill char A into B successive bytes of the freshly allocated string buffer at ($0B46).
+        ; point HL at the freshly allocated buffer (the data pointer just stored in DSCTMP)
+        LD HL,(DSCTMP_PTR)
+; ----------------------------------------------------------------------
+; STR_FILL_LOOP -- write the pad character into every byte of the new string buffer.
+;   In:        HL = first byte of the freshly allocated buffer; B = byte count (>0); A = pad character.
+;   Out:       B bytes at the buffer set to A; HL = one past the buffer end; jumps to STR_FN_RETURN_CHAR_1 (the string-temp epilogue).
+;   Clobbers:  B, H, L, F.
+;   Algorithm: Classic store-and-count loop: LD (HL),A / INC HL / DJNZ until B bytes are written, then JR to the epilogue (STR_FN_RETURN_CHAR_1) to register the filled string as a temporary.
+; ----------------------------------------------------------------------
 STR_FILL_LOOP:
         LD (HL),A
         INC HL
         DJNZ STR_FILL_LOOP
         JR STR_FN_RETURN_CHAR_1
-; [RE] LEFT$/RIGHT$/MID$ common tail: parse the length byte, clamp it to the source length, allocate a new string of that size and copy the selected substring into it; returns via FRMEVL string-temp fixup.
-STR_SUBSTR_ALLOC_COPY:
+; ----------------------------------------------------------------------
+; LEFT_STR_AND_SUBSTR_TAIL -- LEFT$(s$,n) handler (dispatch slot 0 / sub-token $81) AND the shared substring allocate-and-copy tail for LEFT$/RIGHT$/MID$.
+;   In:        DE = text cursor (positioned at the count expression's terminator ')'); stack (top-down): caller return, count word (D=0,E=n staged by FRMEVL_FUNC_TOKEN_1), source string's STRDESC address.
+;   Out:       Function result = a new string holding the selected substring, registered as a string temporary; the source temp is freed if it was the topmost heap allocation (FRESTR1). Exits via JP PUT_STR_TEMP.
+;   Clobbers:  A, B, C, D, E, H, L, F, FAC, DSCTMP, the string heap.
+;   Algorithm: As the LEFT$ entry: PARSE_BYTE_ARG consumes ')' and recovers the requested count into B (leaving the source STRDESC address on the stack, cursor in HL), then XOR A sets the copy offset to 0 (start of string). Falls into the common tail at LEFT_STR_AND_SUBSTR_TAIL_1: with offset in A->C and requested count in B, clamp the copy length to the source length, GETSPA a buffer, compute copy source = source_data_ptr + offset, BLOCK_COPY_BC_TO_DE the bytes in, build the result descriptor (STORE_STR_DESC), free the source (FRESTR1) and register the result (PUT_STR_TEMP). RIGHT$ and MID$ reach this tail at later entry points after computing their own offset/length.
+; ----------------------------------------------------------------------
+LEFT_STR_AND_SUBSTR_TAIL:
+        ; LEFT$: consume ')' and recover the requested length n into B (source descriptor left on the stack)
         CALL PARSE_BYTE_ARG
+        ; LEFT$ copies from offset 0 (the start of the string)
         XOR A
-STR_SUBSTR_ALLOC_COPY_1:
+LEFT_STR_AND_SUBSTR_TAIL_1:
         EX (SP),HL
         LD C,A
 ; [RE] Substring alloc tail, two entries. LEFT$/MID$/RIGHT$ fall into $6E5B LD A,$E5 (A dead) and push HL once at _3 ($6E5D). PRINT-USING (CALL +1 from $65EC) enters $6E5C so the E5 byte runs as PUSH HL, then _3 pushes HL again, giving the second stacked HL that the normal callers supply via the pre-pushed descriptor.
-STR_SUBSTR_ALLOC_COPY_2:
+LEFT_STR_AND_SUBSTR_TAIL_2:
         LD A,$E5
-STR_SUBSTR_ALLOC_COPY_3:
+LEFT_STR_AND_SUBSTR_TAIL_3:
         PUSH HL
         LD A,(HL)
         CP B
-        JR C,STR_SUBSTR_ALLOC_COPY_4+1
+        JR C,LEFT_STR_AND_SUBSTR_TAIL_4+1
         LD A,B
 ; [RE] Length-clamp merge. No-carry (source>=requested) clamps A=B then runs LD DE,$000E (DE unused -> filler) and PRESERVES the copy-offset in C (set at $6E5A). The JR C from $6E60 (source<requested) enters +1 so the 0E 00 bytes run as LD C,$00, RESETTING the copy-offset to 0 while keeping A=source length. Both merge at $6E66 PUSH BC; CALL GETSPA; C is consumed at $6E74 ADD HL,BC. The 11 opcode hides the LD C,$00 on the no-carry path. (Refines prior 'value-neutral' note: C IS affected.)
-STR_SUBSTR_ALLOC_COPY_4:
+LEFT_STR_AND_SUBSTR_TAIL_4:
         LD DE,$000E
         PUSH BC
         CALL GETSPA
@@ -20203,43 +20359,79 @@ STR_SUBSTR_ALLOC_COPY_4:
 ; ======================================================================
 ; BASIC-80 function dispatch handlers (table base $01B2, indexed by token*2; dispatcher at $3D8E)
 ; ======================================================================
-; [RE] LEFT$() handler (function token $01): leftmost n chars of a string.
-FN_LEFT_STR:
+; ----------------------------------------------------------------------
+; FN_RIGHTDOLLAR -- RIGHT$(s$,n) handler (dispatch slot 1 / sub-token $82): rightmost n characters of a string.
+;   In:        DE = text cursor at the count terminator ')'; stack (top-down): caller return, count word (D=0,E=n), source STRDESC address (same stager state as LEFT$).
+;   Out:       Function result = the last n characters of the source string, registered as a string temporary (built by the shared substring tail).
+;   Clobbers:  A, B, C, D, E, H, L, F, FAC, DSCTMP, the string heap.
+;   Algorithm: PARSE_BYTE_ARG consumes ')' and recovers the requested count into B (source descriptor left on the stack). POP DE / PUSH DE recovers the source STRDESC address into DE; read source_len = (DE) and compute the copy OFFSET = source_len - n (SUB B). Jump into the shared tail at LEFT_STR_AND_SUBSTR_TAIL_1 with that offset (in A) and count B, which clamps and copies n bytes starting at offset = the rightmost n chars.
+;   Algorithm-note: [RE] Identified as RIGHT$ (not LEFT$) from the offset computation source_len - n, the MS BASIC-80 RIGHT$ start index, AND from the dispatch arithmetic (RIGHT$ token $02 -> $FF $82 -> sub-token-$81 = index 1 = this slot). The previous label FN_RIGHTDOLLAR was a mislabel; the real LEFT$ is the offset-0 slot 0 at $6E55.
+; ----------------------------------------------------------------------
+FN_RIGHTDOLLAR:
+        ; RIGHT$: consume ')' and recover the requested count n into B
         CALL PARSE_BYTE_ARG
         POP DE
         PUSH DE
+        ; A = source string length
         LD A,(DE)
+        ; copy offset = source_len - n (start so the last n chars are taken)
         SUB B
-        JR STR_SUBSTR_ALLOC_COPY_1
-; [RE] RIGHT$() handler (function token $02): rightmost n chars of a string.
-FN_RIGHT_STR:
+        JR LEFT_STR_AND_SUBSTR_TAIL_1
+; ----------------------------------------------------------------------
+; FN_MIDDOLLAR -- MID$(s$,start[,len]) handler (dispatch slot 2 / sub-token $83): substring from 1-based position 'start'.
+;   In:        DE = text cursor positioned at the char AFTER the 'start' expression (',' for the 3-arg form or ')' for the 2-arg form); stack (top-down): caller return, start word (D=0,E=start), source STRDESC address.
+;   Out:       Function result = up to 'len' characters of the source starting at 1-based position 'start' (or to end of string if len omitted), registered as a string temporary. Empty string if start is past the end.
+;   Clobbers:  A, B, C, D, E, H, L, F, FAC, DSCTMP, the string heap.
+;   Algorithm: EX DE,HL moves the text cursor into HL and LD A,(HL) PEEKS the next source char so PARSE_OPT_LEN_ARG can later test it (',' vs ')') -- this is NOT the source length. POP_LEN_TO_B recovers 'start' into B; INC B/DEC B rejects start=0 (Illegal function call). Save start (PUSH BC), parse the optional length argument (PARSE_OPT_LEN_ARG: if the peeked char is ')' default E=$FF=to end, else SYNCHR ',' then a length byte into E, then ')'); recover start into A (POP AF). Reload HL = source STRDESC address (EX (SP),HL) and arm the shared tail by pushing LEFT_STR_AND_SUBSTR_TAIL_3 as the return. DEC A makes offset = start-1; CP (HL) against source_len: if offset >= source_len return empty (LD B,$00 / RET NC). Otherwise set offset C = start-1, available = source_len - offset (LD A,(HL)/SUB C); copy length B = min(available, requested E) (CP E / LD B,A / RET C, else LD B,E). RET drops into the pushed tail entry _3 which allocates and copies.
+;   Algorithm-note: [RE] CORRECTION vs the reviewed draft: at handler entry DE = text cursor (not the source descriptor), so EX DE,HL parks the CURSOR in HL and the leading LD A,(HL) reads the next SOURCE CHARACTER (for the optional-length test), not the source length. The source-length compare (CP (HL)) happens later, after EX (SP),HL reloads HL with the descriptor address.
+; ----------------------------------------------------------------------
+FN_MIDDOLLAR:
         EX DE,HL
+        ; peek the next source char (',' for 3-arg MID$ or ')' for 2-arg) for the optional-length test below
         LD A,(HL)
+        ; recover the 1-based start position into B
         CALL POP_LEN_TO_B
         INC B
         DEC B
+        ; start position 0 is illegal (positions are 1-based)
         JP Z,ERROR_FC
         PUSH BC
+        ; parse the optional length (default $FF = take everything to end of string)
         CALL PARSE_OPT_LEN_ARG
         POP AF
         EX (SP),HL
-        LD BC,STR_SUBSTR_ALLOC_COPY_3
+        ; arm the shared allocate/copy tail as the return target
+        LD BC,LEFT_STR_AND_SUBSTR_TAIL_3
         PUSH BC
+        ; convert 1-based start to a 0-based copy offset
         DEC A
+        ; offset >= source length: return empty (LD B,$00 / RET NC)
         CP (HL)
         LD B,$00
         RET NC
         LD C,A
         LD A,(HL)
+        ; available chars = source_len - offset
         SUB C
+        ; clamp the copy length to the requested length
         CP E
         LD B,A
         RET C
+        ; requested length fits: copy exactly that many
         LD B,E
         RET
-; [RE] VAL(a$) handler (function token $13): numeric value of a string (parsed via FIN); NUL-terminates the source then converts.
+; ----------------------------------------------------------------------
+; FN_VAL -- VAL(a$) handler (function token $13): numeric value parsed from a string.
+;   In:        The a$ argument has ALREADY been evaluated by the function-dispatch caller (single-arg paren path FRMEVL_PAREN/FRMEVL_FUNC_ARG_PAREN), so its string result sits as the current FRMEVL string temp; its STRDESC (msbasic_strdesc.inc) is reached via GET_STR_DESCR_PTR, which frees that temp and returns HL -> STRDESC, A = STRDESC.LEN, D = 0, Z iff empty. The saved program-text pointer is on the stack under the armed FRMEVL_PAREN_2 (POP HL; RET) return.
+;   Out:       FAC ($0CB1) = the number FIN parsed from the string's leading characters (0 for an empty string or non-numeric lead). FN_VAL RETs into FRMEVL_PAREN_2, which restores the saved program-text pointer.
+;   Clobbers:  A, B, C, D, E, H, L, F, FAC.
+;   Algorithm: Empty string -> Z from GET_STR_DESCR_PTR -> tail to FP_LOAD_INT_TO_FAC with A=0, returning VAL("")=0. Otherwise compute the address one past the string's last character (STRDESC.PTR + LEN), SAVE the byte living there, and OVERWRITE it with 0 (a NUL the parser stops on) -- FIN scans a NUL-terminated buffer, so this fences the parse to exactly the string's own data bytes (which live in the string heap, not program text). DEC HL then CHRGET repositions to the string's first character, CALL FIN parses the number into the FAC, then RESTORE the saved byte so neighbouring memory (the next string, heap, or program text) is left intact.
+;   Algorithm-note: D is 0 on entry (GET_STR_DESCR_PTR did XOR A / LD D,A), so 'LD (HL),D' is the NUL store; the original byte was captured in B first and written back via 'LD (HL),B'.
+;   Algorithm-note: [RE] FIN advances HL through the string's heap DATA buffer (a temporary), not through program text; FN_VAL itself does not move the program-text cursor -- that pointer is restored by the FRMEVL_PAREN_2 return armed by the function dispatcher.
+; ----------------------------------------------------------------------
 FN_VAL:
         CALL GET_STR_DESCR_PTR
+        ; empty string: VAL("") is 0 -- load 0 (A) into the FAC and return
         JP Z,FP_LOAD_INT_TO_FAC
         LD E,A
         INC HL
@@ -20248,57 +20440,98 @@ FN_VAL:
         LD H,(HL)
         LD L,A
         PUSH HL
+        ; point one past the last character (data pointer + length)
         ADD HL,DE
+        ; save the byte just past the string, then plant a NUL there so FIN stops at the string's end
         LD B,(HL)
         LD (HL),D
         EX (SP),HL
         PUSH BC
         DEC HL
         CALL CHRGET
+        ; parse the now-NUL-terminated text into the FAC
         CALL FIN
         POP BC
         POP HL
+        ; restore the byte we overwrote with the NUL
         LD (HL),B
         RET
-; [RE] parse a required numeric byte argument terminated by ')': SYNCHR ')' then return the prior length byte in B from the caller's pushed args.
+; ----------------------------------------------------------------------
+; PARSE_BYTE_ARG -- consume the closing ')' of a single-count string function, then recover its count and source.
+;   In:        DE = text cursor (positioned at the char that should be ')'); stack (top-down): this routine's caller return, count word (D=0,E=count), source STRDESC address.
+;   Out:       B = the requested count; the count word has been popped (leaving the source STRDESC address under the return); HL = text cursor advanced past ')'.
+;   Clobbers:  A, B, C, D, E, H, L, F (and consumes one stack word).
+;   Algorithm: EX DE,HL puts the text cursor in HL, SYNCHR ')' verifies and steps past the closing paren (Syntax error otherwise), then falls into POP_LEN_TO_B to lift the stacked count into B while preserving the return address. Shared by LEFT$ and RIGHT$, whose single numeric argument is a plain count.
+; ----------------------------------------------------------------------
 PARSE_BYTE_ARG:
+        ; move the text cursor into HL for SYNCHR
         EX DE,HL
         CALL SYNCHR
         DEFB    ')'                      ; inline char arg consumed by the preceding CALL
-; [RE] recover the source-string length byte into B from the two stacked descriptor halves, preserving the return address.
+; ----------------------------------------------------------------------
+; POP_LEN_TO_B -- lift the stacked numeric argument (count/start) into B, keeping the return address on top.
+;   In:        Stack (top-down): caller return address, the staged numeric-arg word (D=0,E=value from GETBYT) left by the FRMEVL argument stager.
+;   Out:       B = value (the low byte E of that word); the word removed from the stack; the return address remains on top so a normal RET returns to the caller. DE = the popped word.
+;   Clobbers:  B, C, D, E (and removes one stack word).
+;   Algorithm: POP the return address into BC, POP the staged arg word into DE, PUSH the return address back, then LD B,E so B holds the value. Used directly by MID$ (to fetch the 1-based start position) and as the fall-through of PARSE_BYTE_ARG for LEFT$/RIGHT$ (where the value is the requested count).
+;   Algorithm-note: [RE] The popped word is the numeric argument the FRMEVL stager left on the stack (D=0,E=value from GETBYT) -- a count for LEFT$/RIGHT$ or the start position for MID$ -- NOT a string-length byte; the prior 'source length byte' wording was wrong.
+; ----------------------------------------------------------------------
 POP_LEN_TO_B:
+        ; save the return address
         POP BC
+        ; pull the stacked numeric argument (E = value)
         POP DE
         PUSH BC
+        ; deliver the argument value in B
         LD B,E
         RET
-; [RE] INSTR() body (token $E9): parse optional start position then the two string arguments, search for the second string inside the first and return the 1-based match index (0 if not found).
+; ----------------------------------------------------------------------
+; FN_INSTR -- INSTR([start,] hay$, needle$) handler (function token $E9): 1-based position of needle$ within hay$.
+;   In:        HL -> program text at the '(' of INSTR(...) (FN_INSTR is multi-arg dispatched at token $E9 and parses its own arguments; its first CHRGET steps to the first argument token).
+;   Out:       FAC = 1-based index where needle$ first occurs in hay$ at or after 'start' (0 if absent). Returns via the stacked FP_LOAD_INT_TO_FAC -> FMUL_7 chain, which loads the byte index into the FAC and restores the saved program-text pointer (FMUL_7 = POP HL; RET).
+;   Clobbers:  A, B, C, D, E, H, L, F, FAC; consumes/rebuilds several stack frames.
+;   Algorithm: Parse an OPTIONAL leading start position: FRMEVL the first item, then FRMEVL_TEST_TYPE -- if it is a STRING (Z, VALTYP==3) it is actually hay$ (no start given) so default start=1 and branch into the two-string path at INSTR_PARSE_SEARCH_STR; if NUMERIC, CONINT it to a 0..255 byte then OR A / JP Z,ERROR_FC reject 0 (so start is 1..255), SYNCHR ',', then FRMEVL_NOPAREN hay$. INSTR_PARSE_SEARCH_STR: SYNCHR ',', evaluate needle$, SYNCHR ')'. Both string temps are freed (FRETMP/FRESTR_DE) and a return chain is stacked so the final RET delivers the index byte to the FAC. Early outs: (start-1) >= len(hay$) -> 0 (start past end); len(needle$)==0 -> start (empty needle matches at start). Otherwise set HL to hay$.data + (start-1), B = remaining positions to try (len(hay) - (start-1)), DE = needle$.data, C = len(needle$), and run the brute-force matcher (INSTR_TRY_POSITION).
+;   Algorithm-note: at each candidate position INSTR_MATCH_CHARS compares up to len(needle$) bytes; INSTR_FOUND computes index = positions_advanced + (start-1) + 1 to convert to a 1-based offset from the start of hay$.
+; ----------------------------------------------------------------------
 FN_INSTR:
         CALL CHRGET
         CALL FRMEVL
+        ; first argument: a string means no start was given (it is hay$); a number is the optional start position
         CALL FRMEVL_TEST_TYPE
         LD A,$01
         PUSH AF
-        JR Z,POP_LEN_TO_B_2
+        ; string => start defaults to 1 (already pushed); join the two-string path
+        JR Z,INSTR_PARSE_SEARCH_STR
         POP AF
+        ; coerce the start expression to a byte (0..255; >255 raises FC inside CONINT)
         CALL CONINT
         OR A
+        ; start of 0 is illegal (positions are 1-based)
         JP Z,ERROR_FC
         PUSH AF
         CALL SYNCHR
         DEFB    ','                      ; inline char arg consumed by the preceding CALL
         CALL FRMEVL_NOPAREN
         CALL REQUIRE_STRING
-POP_LEN_TO_B_2:
+; ----------------------------------------------------------------------
+; INSTR_PARSE_SEARCH_STR -- INSTR continuation: parse needle$, free the temps, and stack the index-return chain.
+;   In:        HL -> program text at the ',' before needle$. Stack top = the start byte (pushed as AF: A=1 on the no-start path, or the validated 1..255 start on the start-given path); nothing else of this routine's frame is on the stack yet. FAC currently holds hay$'s STRDESC pointer (hay$ has been parsed on both arrival paths).
+;   Out:       Falls into the matcher setup with HL=hay$ STRDESC addr, DE=needle$ STRDESC addr, A=start. A return chain (FP_LOAD_INT_TO_FAC over FMUL_7 over the saved program-text pointer) is on the stack so the matcher's final RET delivers the result to the FAC and restores the cursor.
+;   Clobbers:  A, B, C, D, E, H, L, F.
+;   Algorithm: SYNCHR ','; PUSH the current text cursor, then stash hay$'s STRDESC pointer (LD HL,(FAC) / EX (SP),HL) beneath it; FRMEVL_NOPAREN needle$; SYNCHR ')'. Free needle$ (FRETMP) into DE and recover hay$ STRDESC (HL) and start (A) off the stack. Re-push the text cursor, then stack FMUL_7 and FP_LOAD_INT_TO_FAC as the return chain. Free hay$'s temp (FRESTR_DE, descriptor in HL). The matcher setup (see FN_INSTR) follows.
+; ----------------------------------------------------------------------
+INSTR_PARSE_SEARCH_STR:
         CALL SYNCHR
         DEFB    ','                      ; inline char arg consumed by the preceding CALL
         PUSH HL
+        ; stash hay$'s descriptor pointer beneath the just-saved text cursor while we evaluate needle$
         LD HL,(FAC)
         EX (SP),HL
         CALL FRMEVL_NOPAREN
         CALL SYNCHR
         DEFB    ')'                      ; inline char arg consumed by the preceding CALL
         PUSH HL
+        ; consume/free needle$ and get its descriptor address
         CALL FRETMP
         EX DE,HL
         POP BC
@@ -20311,6 +20544,7 @@ POP_LEN_TO_B_2:
         PUSH BC
         PUSH AF
         PUSH DE
+        ; free hay$'s temporary too (descriptor in HL); HL stays pointing at its descriptor
         CALL FRESTR_DE
         POP DE
         POP AF
@@ -20343,53 +20577,99 @@ POP_LEN_TO_B_2:
         INC HL
         LD D,(HL)
         POP HL
-POP_LEN_TO_B_3:
+; ----------------------------------------------------------------------
+; INSTR_TRY_POSITION -- attempt a needle$ match anchored at the current position in hay$ (outer search loop).
+;   In:        HL = current candidate position in hay$'s data; DE = needle$ data pointer; B = remaining candidate positions from this anchor; C = len(needle$). Beneath on the stack: the (B=initial remaining, C=start-1) snapshot used to compute the final index.
+;   Out:       Falls into INSTR_MATCH_CHARS with the position/pointers/counters saved on the stack for restoration on mismatch.
+;   Clobbers:  none here (pure save); the inner loop consumes the registers.
+;   Algorithm: PUSH the candidate position (HL), the needle$ pointer (DE), and the loop counters (BC), then run the character comparison.
+; ----------------------------------------------------------------------
+INSTR_TRY_POSITION:
         PUSH HL
         PUSH DE
         PUSH BC
-POP_LEN_TO_B_4:
+; ----------------------------------------------------------------------
+; INSTR_MATCH_CHARS -- compare needle$ against hay$ byte-by-byte at the current position (inner search loop).
+;   In:        DE -> next needle$ char; HL -> next hay$ char; C = needle$ chars still to match; B = hay$ chars still available from this anchor. Saved frame (position, ptr, counters) on the stack from INSTR_TRY_POSITION.
+;   Out:       On full match (C reaches 0) -> INSTR_FOUND. On a byte mismatch -> INSTR_ADVANCE_POSITION. On running out of hay$ mid-match (B exhausted via DJNZ) -> drop the saved frame and fall into INSTR_NOT_FOUND.
+;   Clobbers:  A, C, D, E, H, L, B, F.
+;   Algorithm: Compare (DE) with (HL); mismatch -> advance to the next start position. On equal, step needle$ (INC DE), decrement the needle$ remaining count (DEC C) -- zero means every needle$ char matched (INSTR_FOUND). Otherwise step hay$ (INC HL) and DJNZ on the hay$-remaining count B; if hay$ is exhausted before needle$ completes, the match cannot finish anywhere (later anchors have fewer chars), so discard the saved frame and report not-found.
+; ----------------------------------------------------------------------
+INSTR_MATCH_CHARS:
         LD A,(DE)
         CP (HL)
-        JR NZ,POP_LEN_TO_B_7
+        ; characters differ: give up here and try the next start position
+        JR NZ,INSTR_ADVANCE_POSITION
         INC DE
         DEC C
-        JR Z,POP_LEN_TO_B_6
+        ; all of needle$ matched -> found
+        JR Z,INSTR_FOUND
         INC HL
-        DJNZ POP_LEN_TO_B_4
+        ; more hay$ available: compare the next character pair
+        DJNZ INSTR_MATCH_CHARS
         POP DE
         POP DE
         POP BC
-POP_LEN_TO_B_5:
+; ----------------------------------------------------------------------
+; INSTR_NOT_FOUND -- needle$ does not occur in hay$ at or after the start position.
+;   In:        Stack top = the (initial remaining, start-1) snapshot to be discarded.
+;   Out:       A = 0; RET (into the FP_LOAD_INT_TO_FAC -> FMUL_7 chain, yielding INSTR()=0).
+;   Clobbers:  A, D, E, F.
+;   Algorithm: Drop the index-bookkeeping snapshot off the stack (POP DE), zero A, and return 0 through the stacked result chain.
+; ----------------------------------------------------------------------
+INSTR_NOT_FOUND:
         POP DE
         XOR A
         RET
-POP_LEN_TO_B_6:
+; ----------------------------------------------------------------------
+; INSTR_FOUND -- needle$ matched; compute and return its 1-based position within hay$.
+;   In:        Stack (top-down): the per-anchor loop counters pushed at INSTR_TRY_POSITION (B=remaining positions counted from this anchor), the needle$ pointer, the matched-position pointer, and the (B=initial remaining, C=start-1) snapshot.
+;   Out:       A = 1-based index of the match; RET into the result chain (FP_LOAD_INT_TO_FAC -> FMUL_7).
+;   Clobbers:  A, B, C, D, E, H, L, F.
+;   Algorithm: Unwind the four saved words. POP HL lands the per-anchor counter pair, so H = the remaining-positions count recorded when this anchor began. Discard the needle$ pointer and the matched-position pointer (two POP DE). POP BC lands the snapshot, so B = initial remaining (= len(hay$)-(start-1)), C = start-1. index = (B - H) + C + 1 = positions_advanced + (start-1) + 1, converting the advance count into a 1-based offset from the start of hay$.
+; ----------------------------------------------------------------------
+INSTR_FOUND:
         POP HL
         POP DE
         POP DE
         POP BC
         LD A,B
+        ; positions advanced from the scan start = initial_remaining - remaining_at_anchor
         SUB H
+        ; add (start-1) to rebase onto the start of hay$
         ADD A,C
+        ; convert the 0-based offset to a 1-based INSTR index
         INC A
         RET
-POP_LEN_TO_B_7:
+; ----------------------------------------------------------------------
+; INSTR_ADVANCE_POSITION -- mismatch at the current position; restore state and try the next start.
+;   In:        Stack (top-down): the per-anchor loop counters, the needle$ pointer, the candidate-position pointer (all from INSTR_TRY_POSITION).
+;   Out:       On more positions remaining -> re-enter INSTR_TRY_POSITION one character further along; otherwise -> INSTR_NOT_FOUND.
+;   Clobbers:  B, C, D, E, H, L, F.
+;   Algorithm: Restore the saved counters (BC: B=remaining positions at this anchor, C=len(needle$)), needle$ pointer (DE), and candidate position (HL); INC HL to step to the next start position; DJNZ on the remaining-positions count B back to INSTR_TRY_POSITION, or fall through (JR) to INSTR_NOT_FOUND when exhausted.
+; ----------------------------------------------------------------------
+INSTR_ADVANCE_POSITION:
         POP BC
         POP DE
         POP HL
+        ; slide the anchor one character forward in hay$
         INC HL
-        DJNZ POP_LEN_TO_B_3
-        JR POP_LEN_TO_B_5
+        ; positions left: retry the match at the new anchor
+        DJNZ INSTR_TRY_POSITION
+        JR INSTR_NOT_FOUND
 ; ----------------------------------------------------------------------
-; STMT_MID_ASSIGN -- LET MID$(var$,start[,len]) = src$ : overwrite a slice of a string variable in place (no length change).
-;   In:        HL -> BASIC text after the MID$ token, expecting "(var$ , start [, len]) = src$".
-;   Out:       Up to 'len' (default = whole source) characters of var$, starting at 1-based position 'start', replaced by the leading bytes of src$. var$'s length is unchanged; the copy is clamped to min(len, remaining room in var$, len(src$)). HL -> text after the assignment. Illegal function call if start = 0 or start beyond var$'s length.
-;   Clobbers:  AF,BC,DE,HL; may allocate a heap copy of var$.
-;   Algorithm: SYNCHR '(' and PTRGET var$, REQUIRE_STRING. Read var$'s data pointer from its descriptor and compare it to STREND and TXTTAB: if it lies BETWEEN TXTTAB and STREND (i.e. inside the program text / variable+array area, not yet in owned string heap), STR_BUILD_FROM_DESC copies var$ into a freshly owned heap block and rewrites the descriptor (FP_MOVE_TYPED) so the target is safely writable; if the data is already above STREND (string heap) or below TXTTAB it is left in place (the copy is skipped). SYNCHR ',' then GETBYT 'start' (reject 0). PARSE_OPT_LEN_ARG reads the optional ',len' (default $FF) and the closing ')'. EVAL_EXPR_AFTER_SYNCHR requires '=' and evaluates src$; FRETMP materializes its descriptor. Push FMUL_7 (a POP HL/RET tail) as the cleanup return. Clamp the copy count to start..end-of-var and to len(src$), compute the destination (var$ data + start-1), then MID_ASSIGN_COPY writes the source bytes over the slice.
+; STMT_MID_ASSIGN -- LET MID$(var$, start [, len]) = src$ assignment STATEMENT (overwrites characters in place).
+;   STATEMENT scope: this is the MID$ on the LEFT of '=' (the assignment form), reached from the statement path when a line begins with the MID$ token, NOT the MID$() function. The applier should treat it as a statement handler, not a FRMEVL function.
+;   In:        HL -> program text at the '(' of MID$(...) (just past the MID$ token).
+;   Out:       The selected character range of var$ is overwritten with src$'s bytes (var$'s overall length unchanged). Returns via the stacked FMUL_7 (POP HL; RET, restores the program-text pointer). Raises FC if start is 0 or beyond len(var$).
+;   Clobbers:  A, B, C, D, E, H, L, F; var$'s heap copy and STRDESC if relocation was needed.
+;   Algorithm: PTRGET the target string variable (DE -> its STRDESC); REQUIRE_STRING. If var$'s data currently lives in the program text or the variable/array area (its data pointer falls between TXTTAB and STREND, i.e. NOT in the writable string heap), copy var$ to fresh heap (STR_BUILD_FROM_DESC) and repoint the variable at the copy (FP_MOVE_TYPED) so we never scribble over a string constant. At MID_ASSIGN_LEN_ARG: parse start (GETBYT, FC if 0), the optional length (PARSE_OPT_LEN_ARG -> E, default $FF = rest of string), and the '='-prefixed source expression (EVAL_EXPR_AFTER_SYNCHR); free src$ (FRETMP). Stack FMUL_7 as the return tail. Clamp the copy count to min(requested len, len(var$)-start+1 room, len(src$)) and overwrite var$[start..] in place via MID_ASSIGN_COPY.
+;   Algorithm-note: the TXTTAB/STREND window test distinguishes 'data is in a read-only/relocatable region' (must duplicate first) from 'data already in the freely-writable string heap' (overwrite directly).
 ; ----------------------------------------------------------------------
 STMT_MID_ASSIGN:
         CALL SYNCHR
         DEFB    '('                      ; inline char arg consumed by the preceding CALL
+        ; locate the target string variable; DE -> its descriptor
         CALL PTRGET_1+1
         ; the MID$ target must be a string variable
         CALL REQUIRE_STRING
@@ -20401,6 +20681,7 @@ STMT_MID_ASSIGN:
         INC HL
         LD D,(HL)
         ; if var$'s data lies between TXTTAB and STREND (program text / variable area, not yet owned string heap), copy it to an owned heap block so the slice can be overwritten safely; data already in the heap or below TXTTAB is left in place
+        ; is the string's data inside the program text / variable area (TXTTAB..STREND) rather than the writable heap?
         LD HL,(STREND)
         CALL CMP_HL_DE
         JR C,MID_ASSIGN_AFTER_COPYOUT
@@ -20409,9 +20690,11 @@ STMT_MID_ASSIGN:
         JR NC,MID_ASSIGN_AFTER_COPYOUT
         POP HL
         PUSH HL
+        ; yes: copy var$ into fresh heap so we do not overwrite a program string constant
         CALL STR_BUILD_FROM_DESC
         POP HL
         PUSH HL
+        ; repoint the variable's descriptor at the new heap copy
         CALL FP_MOVE_TYPED
 MID_ASSIGN_AFTER_COPYOUT:
         POP HL
@@ -20419,15 +20702,18 @@ MID_ASSIGN_AFTER_COPYOUT:
         CALL SYNCHR
         DEFB    ','                      ; inline char arg consumed by the preceding CALL
         ; read the 1-based start position; 0 is an Illegal function call
+        ; parse the 1-based start position
         CALL GETBYT
         OR A
         JP Z,ERROR_FC
         PUSH AF
         LD A,(HL)
         ; read the optional length (default $FF = to end of source) and consume the closing ')'
+        ; parse the optional length (E = $FF means to the end of var$)
         CALL PARSE_OPT_LEN_ARG
         PUSH DE
         ; require '=' then evaluate the source string expression
+        ; consume '=' and evaluate the source string expression
         CALL EVAL_EXPR_AFTER_SYNCHR
         PUSH HL
         CALL FRETMP
@@ -20439,15 +20725,19 @@ MID_ASSIGN_AFTER_COPYOUT:
         EX (SP),HL
         PUSH HL
         ; push the shared POP HL/RET tail (FMUL_7) as the return so HL is restored and we return to the caller on exit
+        ; install FMUL_7 (POP HL; RET) as the return tail so the final RET restores the program-text pointer
         LD HL,FMUL_7
         EX (SP),HL
         LD A,C
         OR A
         RET Z
+        ; len(var$): compute how many characters are available from 'start' to the end
         LD A,(HL)
         SUB B
+        ; start is past the end of var$ -> illegal function call
         JP C,ERROR_FC
         INC A
+        ; clamp the copy length to whichever is smaller: available room or requested length
         CP C
         JR C,MID_ASSIGN_CLAMP_LEN
         LD A,C
@@ -20461,6 +20751,7 @@ MID_ASSIGN_CLAMP_LEN:
         INC HL
         LD H,(HL)
         LD L,E
+        ; destination = var$ data + (start-1): first character to overwrite
         ADD HL,BC
         LD B,A
         POP DE
@@ -20475,24 +20766,50 @@ MID_ASSIGN_CLAMP_LEN:
         LD A,C
         OR A
         RET Z
-; [RE] MID$-assignment inner copy: write up to C bytes from the source (DE) over the target slice (HL), stopping at the shorter of source length or remaining target room.
+; ----------------------------------------------------------------------
+; MID_ASSIGN_COPY -- overwrite a slice of var$ with src$'s bytes (the MID$-assignment inner copy).
+;   In:        HL -> destination (the first var$ character to overwrite); DE -> src$ data; B = clamped copy count (min of available room and requested length); C = len(src$).
+;   Out:       min(B, C) bytes copied from src$ into var$; HL, DE advanced; RET (into the stacked FMUL_7 -> caller).
+;   Clobbers:  A, B, C, D, E, H, L, F.
+;   Algorithm: Copy one byte at a time, advancing both pointers. Stop when either the source length runs out (DEC C -> RET Z) or the clamped count is reached (DJNZ on B falls through to RET). So exactly min(B, C) characters are written and var$'s overall length is never changed.
+; ----------------------------------------------------------------------
 MID_ASSIGN_COPY:
         LD A,(DE)
         LD (HL),A
         INC DE
         INC HL
         DEC C
+        ; stop when the source string is exhausted
         RET Z
+        ; continue until the clamped copy count is reached
         DJNZ MID_ASSIGN_COPY
         RET
-; [RE] parse an optional second/length argument: default $FF (whole string) when next char is ')', otherwise SYNCHR ',' and read a byte expression; ends by checking for ')'.
+; ----------------------------------------------------------------------
+; PARSE_OPT_LEN_ARG -- parse an optional ', len' argument and the closing ')', shared by RIGHT$ and MID$=.
+;   Callers:    FN_MIDDOLLAR (RIGHT$, token $02) and STMT_MID_ASSIGN. (INSTR does NOT use this -- it parses its own optional start inline; verified the only two callers are $6E99 and $6F9D.)
+;   In:        A = the current token/char (the char (HL) the caller just loaded); HL -> program text at that char.
+;   Out:       E = the length argument (default $FF = 'to end of string' when no length is given; else the GETBYT value); HL advanced past the ')'. Raises Syntax error if the expected ',' or ')' is missing.
+;   Clobbers:  A, B, C, D, E, H, L, F (when a length expression is evaluated).
+;   Algorithm: Default E = $FF. If the current char is ')' there is no length -> fall through to consume ')'. Otherwise SYNCHR ',' and GETBYT the length (returned in A and E, D=0). PARSE_OPT_LEN_ARG_1 then SYNCHR-asserts the closing ')'.
+;   Algorithm-note: $FF is the 'whole remaining string' sentinel the callers clamp against the actual available length; GETBYT leaves the value in both A and E so the caller can read E.
+; ----------------------------------------------------------------------
 PARSE_OPT_LEN_ARG:
+        ; default length = $FF (take the rest of the string)
         LD E,$FF
         CP $29
+        ; next char is ')': no length given, keep the default
         JR Z,PARSE_OPT_LEN_ARG_1
         CALL SYNCHR
         DEFB    ','                      ; inline char arg consumed by the preceding CALL
+        ; evaluate the explicit length byte (returned in A and E)
         CALL GETBYT
+; ----------------------------------------------------------------------
+; PARSE_OPT_LEN_ARG_1 -- tail of PARSE_OPT_LEN_ARG: require and consume the closing ')'.
+;   In:        HL -> program text at the expected ')'.
+;   Out:       HL advanced past ')'; E unchanged (carries the length set by the caller). Raises Syntax error if ')' is absent.
+;   Clobbers:  A, F (SYNCHR re-reads the char).
+;   Algorithm: SYNCHR ')' (the inline DEFB ')' is the char SYNCHR matches), then RET. Separate entry so the 'no length' path can jump straight here after defaulting E.
+; ----------------------------------------------------------------------
 PARSE_OPT_LEN_ARG_1:
         CALL SYNCHR
         DEFB    ')'                      ; inline char arg consumed by the preceding CALL
@@ -22035,7 +22352,7 @@ FN_MKD_STR:
         POP AF
         ; allocate A (2/4/8) bytes of string heap for the packed value; the heap body pointer lands in DSCTMP.PTR ($0B46)
         CALL ALLOC_STR_A
-        LD HL,(L_0B46)
+        LD HL,(DSCTMP_PTR)
         CALL FP_ARG_SETUP2
         JP STR_FN_RETURN_CHAR_1
 ; ----------------------------------------------------------------------
