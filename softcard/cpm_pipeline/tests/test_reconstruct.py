@@ -139,6 +139,30 @@ def test_cpm220_44k_deskew_roundtrip_and_coherent():
 
 
 @pytest.mark.skipif(not HAS_ASSEMBLERS, reason="ca65/ld65/sjasmplus not on PATH")
+def test_cpm220_44k_runtime_source_reskews_byte_identical():
+    """The de-skew RE-BASE: the runtime-addressed source CPM_System_rt.asm (ORG $9600)
+    assembles to the runtime image, and re-skewing it (runtime_to_ondisk) reproduces the
+    reference on-disk system image byte-for-byte. This gates the in-progress re-decode --
+    enrichment must keep this green."""
+    from pathlib import Path as _P
+    from cpm_pipeline.chunk_map import SOURCES_220_44K, OS220_44K, ChunkSource
+    from cpm_pipeline.assemble import assemble_chunk
+    from cpm_pipeline.deskew import runtime_to_ondisk, RUNTIME_ORG
+    rt_src = ChunkSource(
+        asm_path=OS220_44K / "CPM_System_rt.asm",
+        cpu="z80", org=RUNTIME_ORG, size=0x1400,
+        expected_bin_name="build/CPM220_44K_System_rt.bin",
+    )
+    if not _P(rt_src.asm_path).exists():
+        pytest.skip("CPM_System_rt.asm not present")
+    runtime = assemble_chunk(rt_src)
+    ondisk = assemble_chunk(SOURCES_220_44K["CPM220_44K_System"])
+    rebuilt = runtime_to_ondisk(runtime, ondisk_template=ondisk)
+    diffs = [i for i in range(len(ondisk)) if rebuilt[i] != ondisk[i]]
+    assert not diffs, f"runtime-source re-skew differs at {len(diffs)} bytes; first {[hex(o) for o in diffs[:8]]}"
+
+
+@pytest.mark.skipif(not HAS_ASSEMBLERS, reason="ca65/ld65/sjasmplus not on PATH")
 def test_cpm220_44k_full_disk_reconstruct_byte_identical():
     """Whole 2.20-44K system disk rebuilt from source: the OS region from the
     clean-room CPMV220-44K/os/ tree, every .COM from its decompilation, only
