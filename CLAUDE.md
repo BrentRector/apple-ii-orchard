@@ -95,6 +95,18 @@ Write-ups publish to **wiseowl.com** (Astro v6, Cloudflare Pages) at
 
 ## Current focus
 
+**>> RESUME (PAUSED 2026-06-23): CCP/BDOS SEPARATE COMPILATIONS + BDOS EXPORT HEADER.** The CP/M
+CCP and BDOS become TWO independent compilations (own `.bin`s, concatenated) in BOTH trees; cross-
+module symbols go through a per-module BDOS export header that is the SINGLE definition both
+INCLUDE — never a duplicate/equivalent-value EQU (`feedback_no_duplicate_symbol_definitions`).
+DONE: cpm22.inc base-page consolidation + **2.23 CCP/BDOS split** (f9a551c, byte-identical) + 2.20
+BDOS base-page fold (677bb9a). NEXT: the **2.20 CCP/BDOS split** — its enriched CCP references 59
+BDOS-internal symbols, so build the BDOS export header `cpm_bdos_220.inc` FIRST (resolve the BDOS
+`+offset` cover-idiom exports; semantically name the BDOS_VAR_PAGE_* cells), then restructure +
+split (mirror chunk_map `CPM223_44K_CCP`/`_BDOS`). Then 2.23 the same once its CCP is enriched.
+Exact steps/sizes: `resume-prompt.md` top + memory `project_cpm_ccp_bdos_separate_compilation`.
+The "enrich CPM_CCP as a combined-unit head" plan below is SUPERSEDED by this split architecture.
+
 **LIVE (2026-06-23, on `main`, gate 228): the CP/M source quality-uplift to the BASIC.asm bar.**
 Bring every CP/M source to the standard BASIC.asm set — C-level function headers (Purpose/In/Out/
 Clobbers/Algorithm) + high-level body comments, semantic names, char + CP/M-constant literals,

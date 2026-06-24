@@ -1,5 +1,55 @@
 # Resume Prompt — Microsoft SoftCard CP/M Investigation
 
+## >> RESUME HERE — 2026-06-23 (PAUSED): CCP/BDOS SEPARATE COMPILATIONS + BDOS EXPORT HEADER
+
+**Branch `main`, working tree CLEAN, gate 228, both trees byte-identical.** Full plan +
+exact steps: memory **[[project_cpm_ccp_bdos_separate_compilation]]**; the hard rule:
+**[[feedback_no_duplicate_symbol_definitions]]**.
+
+**The architecture decision (Brent).** The CP/M system image's CCP and BDOS are TWO modules
+-> TWO **separate compilations** (each its own `.bin`, concatenated on the system tracks),
+in BOTH the 2.20-44K and 2.23-44K trees. The CCP no longer INCLUDEs the BDOS. Cross-module
+references go through a **per-module BDOS EXPORT HEADER** that is the SINGLE definition both
+modules INCLUDE -- NEVER a duplicate/equivalent-value EQU. Any exported symbol has semantic
+value and must be properly named.
+
+**DONE + committed this session:**
+- **cpm22.inc consolidation** (f9a551c): `RST2_VEC $0010 / RST4_VEC $0020 / CMDLINE $0081`
+  added to `softcard/include/cpm22.inc`; their local dup defs deleted from the 15 utilities
+  that INCLUDE cpm22.inc.
+- **2.23-44K CCP+BDOS = SEPARATE compilations** (f9a551c): CCP `SAVEBIN $8000,$0D00`; BDOS
+  builds standalone (`ORG $9C00 ... SAVEBIN $9C00,$0A00`); both fold base page to cpm22.inc.
+  chunk_map `CPM223_44K_System` -> `CPM223_44K_CCP` + `CPM223_44K_BDOS`; `_build_chunks_223`
+  concatenates; `component_diff` maps both -> "CCP+BDOS". Byte-identical. **CAVEAT:** this
+  split is clean ONLY because the 2.23 CCP is still RAW -- its refs into the BDOS are bare hex
+  (`CALL $9Cxx`, numbers). When the 2.23 CCP is enriched (refs become NAMED), it will need the
+  export header too.
+- **2.20-44K BDOS base-page fold** (677bb9a): folded WBOOT_VEC/IOBYTE/DEFAULT_DMA -> cpm22 names.
+
+**PAUSED -- the 2.20-44K CCP/BDOS split (DO THIS NEXT):** the enriched 2.20 CCP references
+**59 BDOS-internal symbols** (genuine code: `JP Z,DISK_READ_RECORD_STG+1`, `CALL
+FCB_SET_REC_FLAG_5_STG+2`, `JP READ_CON_BUF_EDIT_STG`, `LD HL,(BDOS_VAR_PAGE_7_p12_STG)`,
+`BDOS_ERR_VECTORS+6`, `BDOS_DEFAULT_FCB+2`, ...), so it is NOT independently compilable until
+the BDOS exports them. Steps (full detail in the project memory):
+1. **PREREQ:** resolve the BDOS's ~16 `cover+offset` / `+1`/`+2` exported entries into clean
+   cover-idiom splits (DEFB cover + own clean label, NO arithmetic) -- a header can't ship +offset.
+2. **PREREQ:** understand + semantically name the `BDOS_VAR_PAGE_7/8/9_pN_STG` shared cells.
+3. Author `softcard/include/cpm_bdos_220.inc` -- the single-source export contract (semantic
+   name -> BDOS run address); BDOS INCLUDEs it + uses its names; CCP INCLUDEs it.
+4. Split: CCP `SAVEBIN $9300,$0901` (2305 B); the 2.20 BDOS is a pure body fragment
+   (`DISP $9A01 ... ENT`, no scaffolding) -> add `IFNDEF CPM_LINK DEVICE + ORG $9C01 + INCLUDE
+   cpm22.inc + INCLUDE cpm_bdos_220.inc` before, `SAVEBIN "{out_bin}",$9C01,$0DFF` (3583 B)
+   after; CCP drops the BDOS INCLUDE. chunk_map: `CPM220_44K_System` -> `CPM220_44K_CCP` +
+   `CPM220_44K_BDOS` (mirror 2.23 + `_build_chunks_220`). (chunk_map's CPM56-reuses-CCP comment
+   is OUTDATED -- CPM56.asm is self-contained, no entanglement.)
+5. THEN 2.23: enrich its CCP, build `cpm_bdos_223.inc`, repeat.
+Gate each step: `test_cpm220_44k_reconstruct` / `test_cpm223_reconstruct` + full suite 228.
+
+**Re-derive the 59 cross-refs:** Python -- defs(BDOS labels+EQUs) ∩ refs(CCP code, comments
+stripped) − CCP-defs − cpm22 names. They collapse to ~18-20 distinct interface symbols.
+
+---
+
 ## CURRENT STATE — 2026-06-23 (LIVE: CP/M source quality-uplift to the BASIC.asm bar — 2.20-44K OS core nearly done)
 
 **Branch `main`, working tree clean, gate 228 passed** (`cd /e/Orchard && source
