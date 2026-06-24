@@ -36,13 +36,19 @@ headline 2.23 deltas are correctly decoded, and caught commentary/structural bug
 READER dispatch thresholds (CP $08 not $04), a phantom DISK_SEKTRK_223 label (= BOOT+1), over-asserted
 transferred deblock semantics (now tagged [RE, transferred; off-image consumer not in image]), the
 DEVICE_IO_BASE-vs-SLOT_IO_ADDR header mixup, and the fused MIXED-CPU blob now annotated as 3 regions.
-**2.23 CORE PIPELINE COMPLETE** (de-skew + decode + semantic lift + adversarial review, all byte-
-identical, gate 226). **REMAINING POLISH (the ONLY open 2.23 items, all in CPM_BIOS.asm, 18 machine
-labels left): decode the 3 fused regions at $FDC1-$FE6B -- the Z-80 SCREEN_RPC_HELPER ($FDC1) + the
-Z-80 DEV_OUT_STUBS ($FE42, self-modified JP cells) to instructions, and EXTRACT the embedded 6502 RPC
-service RPC6502_SERVICE_223 ($FDD0-$FE41) to CPM_RPC6502_223.s + INCBIN (like 2.20's CPM_RPC6502);
-then resolve the SUB_FE85_23 skip idiom.** (Optional: lighter adversarial on the 2.23-only CCP
-fast-loader $9A54+.) 56K still OUT. Reuse `enrich_apply`/`os_listing.py`/`disasm_z80`.
+**2.23-44K NOW COMPLETE AT THE 2.20-44K STANDARD** (gate 226, all byte-identical). The full
+pipeline ran: de-skew + decode + semantic lift + adversarial review + structural finish. The final
+piece (the BIOS fused mixed-CPU blob $FDC1-$FE6B) is DONE: the embedded 6502 RPC service ($FDD0-$FE41
+= Apple $0DD0) EXTRACTED to `CPMV223-44K/os/CPM_RPC6502_223.s` (+ .cfg) and INCBIN'd (verbatim 6502
+listing injected, chunk_map incbin_dep wired); the Z-80 SCREEN_RPC_HELPER + DEV_OUT_STUBS decoded
+(3 self-modified device JPs -> DEV_OUT_*_JP+offset); the screen-driver region ($FBF0-$FDB0, a cluster
+gap) named by 2.20 transfer (SCREEN_EMIT/CTRL_CHAR_DISPATCH/SET_SCREEN_BASE/COL_*). **All three 2.23
+OS components are at ZERO machine labels, addresses stripped to .lst, byte-identical.** Minor residue
+(non-blocking): the L_FCF1/CTRL_PLAIN_CHAR control-char handler blob + the $FF6F pointer-table region
+are byte-identical but still partly DEFB-rendered (the 2.20 twin shows the clean form if a future pass
+wants it). **BOTH 44K OS TREES (2.20 + 2.23) are now de-skewed + fully RE'd. 56K is OUT (LC-relocated).**
+Open older queue: 2.20<->2.23 BASIC patch consolidation; 56K/60K to the same standard; the wiseowl
+"Guided Tour" article series. Reuse `enrich_apply`/`os_listing.py`/`disasm_z80`/`disasm6502`.
 
 Full de-skew finding: **`softcard/docs/CPM_Skew_Findings.md`**; the lesson:
 **[[feedback_decode_deskewed_runtime_not_ondisk]]**; the campaign:
