@@ -108,6 +108,37 @@ def test_cpm220_44k_reconstruct_byte_identical():
 
 
 @pytest.mark.skipif(not HAS_ASSEMBLERS, reason="ca65/ld65/sjasmplus not on PATH")
+def test_cpm220_44k_deskew_roundtrip_and_coherent():
+    """The 44K system image runs sector-DE-INTERLEAVED (see CPM_Skew_Findings.md).
+    Pin the de-skew permutation: de-skew the on-disk image then re-skew it back ==
+    byte-identical, and the de-skewed image decodes coherently at its runtime
+    addresses (the BDOS dispatch table sits at $9C47 and its in-image fn handlers
+    land inside the de-skewed image -- impossible on the sector-scrambled order)."""
+    from cpm_pipeline.chunk_map import SOURCES_220_44K
+    from cpm_pipeline.assemble import assemble_chunk
+    from cpm_pipeline.deskew import (
+        ondisk_to_runtime, runtime_to_ondisk, RUNTIME_ORG,
+    )
+    ondisk = assemble_chunk(SOURCES_220_44K["CPM220_44K_System"])
+    runtime = ondisk_to_runtime(ondisk)
+    assert runtime_to_ondisk(runtime, ondisk) == ondisk, "de-skew round-trip not byte-identical"
+
+    # Coherence: dispatch table at runtime $9C47; its in-image fn handlers ($9Cxx-$A9xx)
+    # must point inside the de-skewed runtime image (on the skewed source they pointed
+    # at $E5 fill / out of image).
+    def at(addr):
+        return runtime[addr - RUNTIME_ORG]
+    def word(addr):
+        return at(addr) | (at(addr + 1) << 8)
+    lo, hi = RUNTIME_ORG, RUNTIME_ORG + len(runtime)
+    disp = 0x9C47
+    in_image = sum(1 for fn in range(41) if lo <= word(disp + fn * 2) < hi)
+    assert in_image >= 35, f"only {in_image}/41 dispatch handlers land in the de-skewed image"
+    # fn7 Get-IOBYTE handler must begin LD A,($0003) (canonical CP/M 2.2)
+    assert at(word(disp + 7 * 2)) == 0x3A and word(word(disp + 7 * 2) + 1) == 0x0003
+
+
+@pytest.mark.skipif(not HAS_ASSEMBLERS, reason="ca65/ld65/sjasmplus not on PATH")
 def test_cpm220_44k_full_disk_reconstruct_byte_identical():
     """Whole 2.20-44K system disk rebuilt from source: the OS region from the
     clean-room CPMV220-44K/os/ tree, every .COM from its decompilation, only
