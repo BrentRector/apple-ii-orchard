@@ -29,9 +29,6 @@ SITES = [
      _OS / "CPMV223-44K/os/CPM_BootLoader_ProbeOvl.asm", "CPM_BootLoader_ProbeOvl.asm"),
     (_OS / "CPMV223-44K/os/CPM_BootLoader.s", "CPM_BootLoader_DiskXlate.bin",
      _OS / "CPMV223-44K/os/CPM_BootLoader_DiskXlate.asm", "CPM_BootLoader_DiskXlate.asm"),
-    # 2.23-44K CCP: embedded 6502 RPC block ($9401-$94FF)
-    (_OS / "CPMV223-44K/os/CPM_CCP.asm", "CPM_RPC6502.bin",
-     _OS / "CPMV223-44K/os/CPM_RPC6502.s", "CPM_RPC6502.s"),
     # 56K boot loader: slot-probe handshake + slot-3 console driver
     (_OS / "CPMV220/os/CPM_BootLoader.s", "CPM_BootLoader_ProbeOvl.bin",
      _OS / "CPMV220/os/CPM_BootLoader_ProbeOvl.asm", "CPM_BootLoader_ProbeOvl.asm"),

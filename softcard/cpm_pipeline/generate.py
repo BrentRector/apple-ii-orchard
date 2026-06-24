@@ -90,9 +90,9 @@ SOURCES_BY_VARIANT = {
     # duplicates and are removed).
     "softcard_cpm_2_23": [
         "CPM_BootLoader.s",
-        "CPM_DiskCallbacks.asm",
-        # The system image is two independent modules: CCP (which INCLUDEs BDOS to
-        # assemble the staging image) + BDOS. (Was the combined CPM_SystemImage.asm.)
+        # The system image is the DE-SKEWED CCP + BDOS as two independent runtime-addressed
+        # compilations ($9300 / $9C00) sharing cpm_system_223.inc, plus the BIOS ($FA00).
+        # (DiskCallbacks/RPC6502 were on-disk-order artifacts, absorbed by the de-skew.)
         "CPM_CCP.asm",
         "CPM_BDOS.asm",
         "CPM_BIOS.asm",
