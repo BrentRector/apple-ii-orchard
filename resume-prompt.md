@@ -31,11 +31,18 @@ headers; DPH array+DPB rendered = 4 drives/DSM=139). KEY 2.23 finding: the BIOS 
 OFF-IMAGE (READ->`JP $AC39`, WRITE->`JP $AC49`; no in-image $03E0 IOB / deblock engine), Videx CONST
 patch $1FBE, BIOS at Apple $0A00 low RAM, CCP entry $9300. The CCP/BDOS were a clean structural
 TRANSFER from the fully-RE'd (already devil's-advocated) 2.20 twins, byte-verified. **2.23 README
-updated.** **REMAINING (in flight / next): (1) BIOS adversarial review (agent a193f42b8c7b329da running)
--> apply findings; (2) BIOS structural polish -- decode the Z-80 DEV-handler stubs $FE41-$FE6B + EXTRACT
-the embedded 6502 RPC service $FDD1-$FE40 (cross-CPU INCBIN, like 2.20's CPM_RPC6502), resolve the
-SUB_FE85_23 skip idiom; (3) optional lighter adversarial on the 2.23-only CCP fast-loader.** Then 2.23
-is DONE. 56K still OUT. Reuse `enrich_apply`/`os_listing.py`/`disasm_z80`.
+updated.** **BIOS ADVERSARIAL REVIEW DONE + FIXES APPLIED** (agent a193f42b8c7b329da): it CONFIRMED all five
+headline 2.23 deltas are correctly decoded, and caught commentary/structural bugs, all fixed -- the
+READER dispatch thresholds (CP $08 not $04), a phantom DISK_SEKTRK_223 label (= BOOT+1), over-asserted
+transferred deblock semantics (now tagged [RE, transferred; off-image consumer not in image]), the
+DEVICE_IO_BASE-vs-SLOT_IO_ADDR header mixup, and the fused MIXED-CPU blob now annotated as 3 regions.
+**2.23 CORE PIPELINE COMPLETE** (de-skew + decode + semantic lift + adversarial review, all byte-
+identical, gate 226). **REMAINING POLISH (the ONLY open 2.23 items, all in CPM_BIOS.asm, 18 machine
+labels left): decode the 3 fused regions at $FDC1-$FE6B -- the Z-80 SCREEN_RPC_HELPER ($FDC1) + the
+Z-80 DEV_OUT_STUBS ($FE42, self-modified JP cells) to instructions, and EXTRACT the embedded 6502 RPC
+service RPC6502_SERVICE_223 ($FDD0-$FE41) to CPM_RPC6502_223.s + INCBIN (like 2.20's CPM_RPC6502);
+then resolve the SUB_FE85_23 skip idiom.** (Optional: lighter adversarial on the 2.23-only CCP
+fast-loader $9A54+.) 56K still OUT. Reuse `enrich_apply`/`os_listing.py`/`disasm_z80`.
 
 Full de-skew finding: **`softcard/docs/CPM_Skew_Findings.md`**; the lesson:
 **[[feedback_decode_deskewed_runtime_not_ondisk]]**; the campaign:

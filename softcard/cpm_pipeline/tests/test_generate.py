@@ -41,9 +41,9 @@ def test_generate_2_23_tree_structure():
         assert (out / "analysis" / "03_cold_boot.txt").exists()
         assert (out / "analysis" / "04_handoff.txt").exists()
         # 5 sources for 2.23: BootLoader (incl. RWTS + install image), DiskCallbacks,
-        # CCP, BDOS, BIOS (no separate RWTS / InstallFragments -- those duplicated
-        # the boot loader and were removed).
-        assert len(result.sources_copied) == 5
+        # BootLoader + CCP + BDOS + BIOS (4): the de-skew absorbed CPM_DiskCallbacks
+        # into the runtime CCP/BDOS image, and the on-disk-order RPC6502 INCBIN is gone.
+        assert len(result.sources_copied) == 4
         # 3 symbol tables for 2.23
         assert len(result.symbols_copied) == 3
         # Variant detected
