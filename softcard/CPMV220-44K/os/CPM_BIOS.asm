@@ -49,27 +49,27 @@
 ; ----------------------------------------------------------------------
 BIOS_VECTOR:
         ; entry 0 = cold boot (first run after the loader)
-        JP BOOT                    ; $AA00  C3 A8 AE
+        JP BOOT
 BIOS_VECTOR_WBOOT:
         ; jump table
         ; entry 1 = warm boot: reload CCP, rebuild page zero
-        JP      WBOOT               ; $AA03
-        JP      CONST               ; $AA06
-        JP      CONIN               ; $AA09
+        JP      WBOOT
+        JP      CONST
+        JP      CONIN
         ; entry 4 = CONOUT; target CONOUT_DISPATCH+1 (skips its leading LD C,A)
-        JP      CONOUT_DISPATCH+1        ; $AA0C
-        JP      LIST               ; $AA0F
-        JP      PUNCH               ; $AA12
-        JP      READER               ; $AA15
-        JP      HOME               ; $AA18
-        JP      SELDSK               ; $AA1B
+        JP      CONOUT_DISPATCH+1
+        JP      LIST
+        JP      PUNCH
+        JP      READER
+        JP      HOME
+        JP      SELDSK
         ; entry 10 = SETTRK; the LD A,C tail shared with HOME
-        JP      SETTRK                   ; $AA1E
-        JP      SETSEC               ; $AA21
-        JP      SETDMA                 ; $AA24
-        JP      READ               ; $AA27
-        JP      WRITE               ; $AA2A
-        DEFB    $AF,$C9,$00,$60,$69,$C9                          ; $AA2D
+        JP      SETTRK
+        JP      SETSEC
+        JP      SETDMA
+        JP      READ
+        JP      WRITE
+        DEFB    $AF,$C9,$00,$60,$69,$C9
 ; ----------------------------------------------------------------------
 ; DISK_PARAM_TABLE -- per-drive disk parameter / config rows (DATA, not code).
 ;   Built from a repeating 16-byte row stride: a leading pointer cluster
@@ -82,19 +82,19 @@ BIOS_VECTOR_WBOOT:
 ;   reads. DATA: described, not renamed internally. [RE]
 ; ----------------------------------------------------------------------
 DISK_PARAM_TABLE:
-        DEFS    8, $00    ; $AA33  fill
-        DEFB    $BA,$AE,$93,$AA,$9A,$AF,$3A,$AF                  ; $AA3B
-        DEFS    8, $00    ; $AA43  fill
-        DEFB    $BA,$AE,$93                                      ; $AA4B
-        DEFB    $AA,$A6,$AF,$4A,$AF,$00                          ; $AA4E  "*&/J/"
-        DEFB    $00,$00,$00,$00,$00,$00,$00,$BA,$AE,$93          ; $AA54
-        DEFB    $AA,$B2,$AF,$5A,$AF,$00                          ; $AA5E  "*2/Z/"
-        DEFB    $00,$00,$00,$00,$00,$00,$00,$BA,$AE,$93          ; $AA64
-        DEFB    $AA,$BE,$AF,$6A,$AF,$00                          ; $AA6E  "*>/j/"
-        DEFB    $00,$00,$00,$00,$00,$00,$00,$BA,$AE,$93          ; $AA74
-        DEFB    $AA,$CA,$AF,$7A,$AF,$00                          ; $AA7E  "*J/z/"
-        DEFB    $00,$00,$00,$00,$00,$00,$00,$BA,$AE,$93,$AA,$D6,$AF,$8A,$AF,$20 ; $AA84
-        DEFB    $00,$03,$07,$00,$7F,$00,$2F,$00,$C0,$00,$0C,$00,$03,$00 ; $AA94
+        DEFS    8, $00                   ; fill
+        DEFB    $BA,$AE,$93,$AA,$9A,$AF,$3A,$AF
+        DEFS    8, $00                   ; fill
+        DEFB    $BA,$AE,$93
+        DEFB    $AA,$A6,$AF,$4A,$AF,$00  ; "*&/J/"
+        DEFB    $00,$00,$00,$00,$00,$00,$00,$BA,$AE,$93
+        DEFB    $AA,$B2,$AF,$5A,$AF,$00  ; "*2/Z/"
+        DEFB    $00,$00,$00,$00,$00,$00,$00,$BA,$AE,$93
+        DEFB    $AA,$BE,$AF,$6A,$AF,$00  ; "*>/j/"
+        DEFB    $00,$00,$00,$00,$00,$00,$00,$BA,$AE,$93
+        DEFB    $AA,$CA,$AF,$7A,$AF,$00  ; "*J/z/"
+        DEFB    $00,$00,$00,$00,$00,$00,$00,$BA,$AE,$93,$AA,$D6,$AF,$8A,$AF,$20
+        DEFB    $00,$03,$07,$00,$7F,$00,$2F,$00,$C0,$00,$0C,$00,$03,$00
 ; ----------------------------------------------------------------------
 ; PROBE_DEVICES -- scan the 7-entry SoftCard device/config area and mark presence.
 ;   In:  none (walks Apple $03B8.. via z80 $F3B8 = the SoftCard config block).
@@ -108,32 +108,32 @@ DISK_PARAM_TABLE:
 ; ----------------------------------------------------------------------
 PROBE_DEVICES:
         ; DE = 7 entries to scan (index walks down to 1)
-        LD DE,$0007                      ; $AAA2  11 07 00
+        LD DE,$0007
 PROBE_DEVICES_LOOP:
         ; z80 $F3B8 = Apple $03B8 = base of the SoftCard device config block
-        LD HL,$F3B8                      ; $AAA5  21 B8 F3
-        ADD HL,DE                        ; $AAA8  19
-        LD A,(HL)                        ; $AAA9  7E
+        LD HL,$F3B8
+        ADD HL,DE
+        LD A,(HL)
         ; config value 3 = a recognized/present device in this slot
-        SUB $03                          ; $AAAA  D6 03
-        JR NZ,PROBE_DEVICES_CHK4                 ; $AAAC  20 07
-        CALL SLOT_IO_ADDR                    ; $AAAE  CD 60 AD
+        SUB $03
+        JR NZ,PROBE_DEVICES_CHK4
+        CALL SLOT_IO_ADDR
         ; rewrite the cell: $03 then $15 = mark this device configured
-        LD (HL),$03                      ; $AAB1  36 03
-        LD (HL),$15                      ; $AAB3  36 15
+        LD (HL),$03
+        LD (HL),$15
 PROBE_DEVICES_CHK4:
         ; after the SUB, A==1 here means the original value was 4 (e.g. Videx-class console)
-        DEC A                            ; $AAB5  3D
-        JR NZ,PROBE_DEVICES_NEXT                 ; $AAB6  20 09
-        CALL SET_SCREEN_BASE                    ; $AAB8  CD EE AC
+        DEC A
+        JR NZ,PROBE_DEVICES_NEXT
+        CALL SET_SCREEN_BASE
         ; z80 $C800 = Apple $C800 shared expansion-ROM window for the configured card
-        LD HL,$C800                      ; $AABB  21 00 C8
-        CALL RPC_TRIGGER                    ; $AABE  CD 3B AB
+        LD HL,$C800
+        CALL RPC_TRIGGER
 PROBE_DEVICES_NEXT:
         ; next config entry; loop until all 7 scanned
-        DEC E                            ; $AAC1  1D
-        JR NZ,PROBE_DEVICES_LOOP                 ; $AAC2  20 E1
-        RET                              ; $AAC4  C9
+        DEC E
+        JR NZ,PROBE_DEVICES_LOOP
+        RET
 ; ----------------------------------------------------------------------
 ; SLOT_IO_ADDR -- form a SoftCard I/O / soft-switch address from a slot/offset index.
 ;   In:  E = low offset within the I/O page.
@@ -144,12 +144,12 @@ PROBE_DEVICES_NEXT:
 ; ----------------------------------------------------------------------
 DEVICE_IO_BASE:
         ; z80 $E000 = Apple $C000 = base of the soft-switch / slot I/O page
-        LD HL,$E000                      ; $AAC5  21 00 E0
-        LD A,E                           ; $AAC8  7B
+        LD HL,$E000
+        LD A,E
         ; force the high byte into the $C0xx I/O range
-        OR H                             ; $AAC9  B4
-        LD H,A                           ; $AACA  67
-        RET                              ; $AACB  C9
+        OR H
+        LD H,A
+        RET
 ; ----------------------------------------------------------------------
 ; WBOOT -- CP/M warm boot: re-initialize the console, rebuild page zero, re-enter CCP.
 ;   In:  none. Out: jumps to the CCP at $9400; does not return.
@@ -161,14 +161,14 @@ DEVICE_IO_BASE:
 ; ----------------------------------------------------------------------
 WBOOT:
         ; stack at the default DMA buffer top (page-zero $0080)
-        LD SP,$0080                      ; $AACC  31 80 00
+        LD SP,$0080
         ; z80 $E051 = Apple $C051 TXTSET soft switch (console video reset)
-        LD A,($E051)                     ; $AACF  3A 51 E0
-        LD HL,$0E00                      ; $AAD2  21 00 0E
+        LD A,($E051)
+        LD HL,$0E00
         ; re-init the console I/O vectors for warm restart
-        CALL RPC_TRIGGER                    ; $AAD5  CD 3B AB
+        CALL RPC_TRIGGER
         ; re-scan devices so warm boot rebuilds the I/O table
-        CALL PROBE_DEVICES                    ; $AAD8  CD A2 AA
+        CALL PROBE_DEVICES
 ; ----------------------------------------------------------------------
 ; PAGEZERO_REBUILD -- write the standard CP/M page-zero vectors and enter the CCP.
 ;   In:  none. Out: tail-calls into CCP_MODE_FLAG / JP $9400 (the CCP); no return.
@@ -179,26 +179,26 @@ WBOOT:
 ;        SETDMA; then fall into the CCP-launch tail. [RE]
 ; ----------------------------------------------------------------------
 PAGEZERO_REBUILD:
-        XOR A                            ; $AADB  AF
+        XOR A
         ; clear a self-modified BIOS console-state cell
-        LD (DISK_WRTYPE+2),A             ; $AADC  32 B4 AE
-        LD (DISK_SEKDSK+2),A             ; $AADF  32 AF AE
+        LD (DISK_WRTYPE+2),A
+        LD (DISK_SEKDSK+2),A
         ; $C3 = Z-80 JP opcode to plant at the page-zero hooks
-        LD A,$C3                         ; $AAE2  3E C3
+        LD A,$C3
         ; page-zero $0000 = JP to WBOOT (CP/M warm-boot hook)
-        LD ($0000),A                     ; $AAE4  32 00 00
+        LD ($0000),A
         ; operand of the $0000 JP = BIOS vector+3 (WBOOT entry)
-        LD HL,BIOS_VECTOR_WBOOT                     ; $AAE7  21 03 AA
-        LD ($0001),HL                    ; $AAEA  22 01 00
+        LD HL,BIOS_VECTOR_WBOOT
+        LD ($0001),HL
         ; page-zero $0005 = JP to BDOS (the CP/M BDOS call hook)
-        LD ($0005),A                     ; $AAED  32 05 00
+        LD ($0005),A
         ; BDOS entry point ($9C06) for the $0005 hook
-        LD HL,$9C06                      ; $AAF0  21 06 9C
-        LD ($0006),HL                    ; $AAF3  22 06 00
+        LD HL,$9C06
+        LD ($0006),HL
         ; default DMA address = $0080 (page-zero buffer)
-        LD BC,$0080                      ; $AAF6  01 80 00
+        LD BC,$0080
         ; install the default DMA pointer
-        CALL SETDMA                    ; $AAF9  CD 8E AD
+        CALL SETDMA
 ; ----------------------------------------------------------------------
 ; CCP_LAUNCH -- final warm/cold-boot tail: set the CCP entry flag and jump to the CCP.
 ;   In:  none. Out: JP $9400 (CCP cold/warm entry); no return.
@@ -210,14 +210,14 @@ PAGEZERO_REBUILD:
 ; ----------------------------------------------------------------------
 CCP_MODE_FLAG:
         ; CCP-mode flag value (this immediate is self-modified elsewhere)
-        LD A,$01                         ; $AAFC  3E 01
+        LD A,$01
         ; store the CCP entry/mode flag into CCP workspace at $98B2
-        LD ($98B2),A                     ; $AAFE  32 B2 98
+        LD ($98B2),A
         ; page-zero $0004 = current default drive byte
-        LD A,($0004)                     ; $AB01  3A 04 00
-        LD C,A                           ; $AB04  4F
+        LD A,($0004)
+        LD C,A
         ; enter the CCP at $9400, C = default drive
-        JP $9400                         ; $AB05  C3 00 94
+        JP $9400
 ; ----------------------------------------------------------------------
 ; CONST -- CP/M console status: return $FF if a console char is ready, else $00.
 ;   In:  none. Out: A = $FF (ready) / $00 (not). Clobbers: A,HL.
@@ -227,9 +227,9 @@ CCP_MODE_FLAG:
 ; ----------------------------------------------------------------------
 CONST:
         ; z80 $F380 = Apple $0380 = console-status handler vector cell
-        LD HL,($F380)                    ; $AB08  2A 80 F3
+        LD HL,($F380)
         ; dispatch to the selected console-status handler (returns A)
-        JP (HL)                          ; $AB0B  E9
+        JP (HL)
 ; ----------------------------------------------------------------------
 ; KBD_STATUS_40COL -- 40-column console status via the Apple keyboard strobe.
 ;   In:  none. Out: A = $FF if a key is waiting (bit 7 set at $C000), else $00.
@@ -240,12 +240,12 @@ CONST:
 ; ----------------------------------------------------------------------
 KBD_STATUS_40COL:
         ; z80 $E000 = Apple $C000 keyboard register (bit 7 = key ready)
-        LD A,($E000)                     ; $AB0C  3A 00 E0
+        LD A,($E000)
         ; rotate key-ready bit 7 into carry
-        RLA                              ; $AB0F  17
+        RLA
         ; carry -> A = $FF (ready) or $00 (none)
-        SBC A,A                          ; $AB10  9F
-        RET                              ; $AB11  C9
+        SBC A,A
+        RET
 ; ----------------------------------------------------------------------
 ; CONSOLE_IN_40COL -- CONIN for the built-in Apple keyboard (default console-input
 ; handler, installed into the I/O vector table). Waits for a key, then maps it through
@@ -253,45 +253,45 @@ KBD_STATUS_40COL:
 ;   Out: A = (translated) key. Clobbers A,B,C,DE,HL.
 ; ----------------------------------------------------------------------
 CONSOLE_IN_40COL:
-        CALL CONIN_KEYWAIT               ; $AB12  wait for a raw key in A
-        LD HL,$F3AB                      ; $AB15  HL = key-remap table (Apple $03AB)
-        LD B,$06                         ; $AB18  up to 6 table entries
-        LD C,A                           ; $AB1A  C = raw key
+        CALL CONIN_KEYWAIT               ; wait for a raw key in A
+        LD HL,$F3AB                      ; HL = key-remap table (Apple $03AB)
+        LD B,$06                         ; up to 6 table entries
+        LD C,A                           ; C = raw key
 CONIN_XLATE_LOOP:
-        INC HL                           ; $AB1B
-        LD A,(HL)                        ; $AB1C  entry's match byte
-        INC HL                           ; $AB1D
-        OR A                             ; $AB1E
-        JP M,CONIN_XLATE_DONE            ; $AB1F  high-bit sentinel ends the table
-        CP C                             ; $AB22  raw key == this entry?
-        LD A,(HL)                        ; $AB23  paired replacement byte
-        RET Z                            ; $AB24  match -> return the translated key
-        DJNZ CONIN_XLATE_LOOP            ; $AB25
+        INC HL
+        LD A,(HL)                        ; entry's match byte
+        INC HL
+        OR A
+        JP M,CONIN_XLATE_DONE            ; high-bit sentinel ends the table
+        CP C                             ; raw key == this entry?
+        LD A,(HL)                        ; paired replacement byte
+        RET Z                            ; match -> return the translated key
+        DJNZ CONIN_XLATE_LOOP
 CONIN_XLATE_DONE:
-        LD A,C                           ; $AB27  no match -> return the raw key
-        RET                              ; $AB28
+        LD A,C                           ; no match -> return the raw key
+        RET
 CONIN_KEYWAIT:
-        LD DE,$0003                      ; $AB29
+        LD DE,$0003
 CONIN_DISPATCH:
-        JP KBD_WAIT_KEY                  ; $AB2C  target (CONIN_DISPATCH+1) patched at boot
+        JP KBD_WAIT_KEY                  ; target (CONIN_DISPATCH+1) patched at boot
 KBD_WAIT_KEY:
-        LD A,($E000)                     ; $AB2F  poll Apple $C000 keyboard register
-        RLA                              ; $AB32  key-ready (bit 7) -> carry
-        JR NC,KBD_WAIT_KEY               ; $AB33  spin until a key is down
-        LD ($E010),A                     ; $AB35  clear the keyboard strobe (Apple $C010)
-        CCF                              ; $AB38
-        RRA                              ; $AB39  A = 7-bit key
-        RET                              ; $AB3A
+        LD A,($E000)                     ; poll Apple $C000 keyboard register
+        RLA                              ; key-ready (bit 7) -> carry
+        JR NC,KBD_WAIT_KEY               ; spin until a key is down
+        LD ($E010),A                     ; clear the keyboard strobe (Apple $C010)
+        CCF
+        RRA                              ; A = 7-bit key
+        RET
 ; ----------------------------------------------------------------------
 ; RPC_TRIGGER -- fire a SoftCard 6502<->Z80 RPC: stash HL to the command mailbox at
 ; Apple $03D0, then poke the trigger cell (its address is patched per config at boot).
 ;   In: HL = command/params; A = trigger value. Out: per the 6502 service routine.
 ; ----------------------------------------------------------------------
 RPC_TRIGGER:
-        LD ($F3D0),HL                    ; $AB3B  22 D0 F3
+        LD ($F3D0),HL
 RPC_TRIGGER_STORE:
-        LD ($0000),A                     ; $AB3E  32 00 00
-        RET                              ; $AB41  C9
+        LD ($0000),A
+        RET
 ; ----------------------------------------------------------------------
 ; CONOUT body -- emit a console character, routed by the CP/M IOBYTE.
 ;   In:  A = character (caller's CONOUT arg, moved to C here).
@@ -305,18 +305,18 @@ RPC_TRIGGER_STORE:
 ; ----------------------------------------------------------------------
 CONOUT_DISPATCH:
         ; save the character to emit in C for the filter path
-        LD C,A                           ; $AB42  4F
+        LD C,A
         ; read the CP/M IOBYTE (page-zero $0003)
-        LD A,($0003)                     ; $AB43  3A 03 00
+        LD A,($0003)
         ; isolate the 2-bit CONSOLE device field of the IOBYTE
-        AND $03                          ; $AB46  E6 03
+        AND $03
         ; device value 2 = direct console; anything else takes the filter path
-        CP $02                           ; $AB48  FE 02
-        JR NZ,CONOUT_FILTER_NOEXPAND                ; $AB4A  20 4B
+        CP $02
+        JR NZ,CONOUT_FILTER_NOEXPAND
 LIST_VIA_VEC_F392:
         ; load console-output handler addr from SoftCard I/O vector ($F392 = Apple $0392)
-        LD HL,($F392)                    ; $AB4C  2A 92 F3
-        JP (HL)                          ; $AB4F  E9
+        LD HL,($F392)
+        JP (HL)
 ; ----------------------------------------------------------------------
 ; CONIN -- read a console character, routed by the IOBYTE CONSOLE field.
 ;   In:  none. Out: A = character. Clobbers: A,HL.
@@ -326,22 +326,22 @@ LIST_VIA_VEC_F392:
 ;              JP (HL) into the chosen handler. ($F38x = Apple $038x I/O vector.) [RE]
 ; ----------------------------------------------------------------------
 CONIN:
-        LD A,($0003)                     ; $AB50  3A 03 00
-        AND $03                          ; $AB53  E6 03
-        CP $02                           ; $AB55  FE 02
+        LD A,($0003)
+        AND $03
+        CP $02
         ; preload input-handler vector for the high CONSOLE field value ($F384 = Apple $0384)
-        LD HL,($F384)                    ; $AB57  2A 84 F3
-        JR Z,CONIN_VIA_VEC_F38A                  ; $AB5A  28 06
-        JR NC,DISPATCH_VIA_HL                 ; $AB5C  30 07
+        LD HL,($F384)
+        JR Z,CONIN_VIA_VEC_F38A
+        JR NC,DISPATCH_VIA_HL
 CONIN_VIA_VEC_F382:
         ; input-handler vector for the low CONSOLE field values ($F382 = Apple $0382)
-        LD HL,($F382)                    ; $AB5E  2A 82 F3
-        JP (HL)                          ; $AB61  E9
+        LD HL,($F382)
+        JP (HL)
 CONIN_VIA_VEC_F38A:
         ; input-handler vector for CONSOLE field value 2 ($F38A = Apple $038A)
-        LD HL,($F38A)                    ; $AB62  2A 8A F3
+        LD HL,($F38A)
 DISPATCH_VIA_HL:
-        JP (HL)                          ; $AB65  E9
+        JP (HL)
 ; ----------------------------------------------------------------------
 ; LIST -- emit a character to the list device, routed by the IOBYTE LIST field.
 ;   In:  C = character. Out: none. Clobbers: A,HL.
@@ -351,15 +351,15 @@ DISPATCH_VIA_HL:
 ;              the list-handler vector cell $F394 (Apple $0394). [RE]
 ; ----------------------------------------------------------------------
 LIST:
-        LD A,($0003)                     ; $AB66  3A 03 00
+        LD A,($0003)
         ; isolate the 2-bit LIST device field (top bits of the IOBYTE)
-        AND $C0                          ; $AB69  E6 C0
-        CP $80                           ; $AB6B  FE 80
-        JR C,CONOUT_FILTER                  ; $AB6D  38 27
-        JR Z,LIST_VIA_VEC_F392                  ; $AB6F  28 DB
+        AND $C0
+        CP $80
+        JR C,CONOUT_FILTER
+        JR Z,LIST_VIA_VEC_F392
         ; load list-handler vector ($F394 = Apple $0394)
-        LD HL,($F394)                    ; $AB71  2A 94 F3
-        JP (HL)                          ; $AB74  E9
+        LD HL,($F394)
+        JP (HL)
 ; ----------------------------------------------------------------------
 ; PUNCH -- emit a character to the punch device, routed by the IOBYTE PUNCH field.
 ;   In:  C = character. Out: none. Clobbers: A,HL.
@@ -368,17 +368,17 @@ LIST:
 ;              values dispatch through vector $F38E. ($F38E/$F390 = Apple $038E/$0390.) [RE]
 ; ----------------------------------------------------------------------
 PUNCH:
-        LD A,($0003)                     ; $AB75  3A 03 00
+        LD A,($0003)
         ; isolate the 2-bit PUNCH device field of the IOBYTE
-        AND $30                          ; $AB78  E6 30
-        CP $10                           ; $AB7A  FE 10
-        JR C,CONOUT_FILTER                  ; $AB7C  38 18
+        AND $30
+        CP $10
+        JR C,CONOUT_FILTER
         ; punch-handler vector for the higher PUNCH field values ($F38E = Apple $038E)
-        LD HL,($F38E)                    ; $AB7E  2A 8E F3
-        JR NZ,DISPATCH_VIA_HL                 ; $AB81  20 E2
+        LD HL,($F38E)
+        JR NZ,DISPATCH_VIA_HL
         ; punch-handler vector for PUNCH field value $10 ($F390 = Apple $0390)
-        LD HL,($F390)                    ; $AB83  2A 90 F3
-        JP (HL)                          ; $AB86  E9
+        LD HL,($F390)
+        JP (HL)
 ; ----------------------------------------------------------------------
 ; READER -- read a character from the reader device, routed by the IOBYTE READER field.
 ;   In:  none. Out: A = character. Clobbers: A,HL.
@@ -387,15 +387,15 @@ PUNCH:
 ;              path; higher values dispatch through reader vector $F38C (Apple $038C). [RE]
 ; ----------------------------------------------------------------------
 READER:
-        LD A,($0003)                     ; $AB87  3A 03 00
+        LD A,($0003)
         ; isolate the 2-bit READER device field of the IOBYTE
-        AND $0C                          ; $AB8A  E6 0C
-        CP $04                           ; $AB8C  FE 04
-        JR C,CONIN_VIA_VEC_F382                  ; $AB8E  38 CE
-        JR Z,CONIN_VIA_VEC_F38A                  ; $AB90  28 D0
+        AND $0C
+        CP $04
+        JR C,CONIN_VIA_VEC_F382
+        JR Z,CONIN_VIA_VEC_F38A
         ; load reader-handler vector ($F38C = Apple $038C)
-        LD HL,($F38C)                    ; $AB92  2A 8C F3
-        JP (HL)                          ; $AB95  E9
+        LD HL,($F38C)
+        JP (HL)
 ; ----------------------------------------------------------------------
 ; CONOUT_FILTER -- column-tracking and tab/control formatting for console output.
 ;   In:  C = character; entered from CONOUT/LIST/PUNCH when the IOBYTE field selects the
@@ -411,30 +411,30 @@ READER:
 ; ----------------------------------------------------------------------
 CONOUT_FILTER:
         ; carry-set entry: mark the expand flag before SBC A,A turns it into $FF
-        SCF                              ; $AB96  37
+        SCF
 CONOUT_FILTER_NOEXPAND:
         ; convert carry into a 0/$FF flag byte for COL_FLAG
-        SBC A,A                          ; $AB97  9F
-        LD HL,COL_FLAG               ; $AB98  21 A2 AE
+        SBC A,A
+        LD HL,COL_FLAG
         ; store the entry flag into COL_FLAG
-        LD (HL),A                        ; $AB9B  77
+        LD (HL),A
         ; strip the high bit of the character (7-bit ASCII)
-        RES 7,C                          ; $AB9C  CB B9
-        INC HL                           ; $AB9E  23
+        RES 7,C
+        INC HL
         ; load COL_PENDING (pending column-skip / fill count)
-        LD A,(HL)                        ; $AB9F  7E
-        OR A                             ; $ABA0  B7
+        LD A,(HL)
+        OR A
         ; no pending column work -> go run tab/control expansion
-        JR Z,TAB_EXPAND                  ; $ABA1  28 3D
+        JR Z,TAB_EXPAND
         ; consume one pending column step
-        DEC (HL)                         ; $ABA3  35
+        DEC (HL)
         ; read screen-width / left-margin config byte ($F396 = Apple $0396)
-        LD A,($F396)                     ; $ABA4  3A 96 F3
-        LD HL,DISK_SELDSK_SAVE                 ; $ABA7  21 AB AE
-        JR Z,COL_OFFSET_FROM_WIDTH                  ; $ABAA  28 0C
-        OR A                             ; $ABAC  B7
-        JP P,COL_APPLY_OFFSET_RAW                  ; $ABAD  F2 B3 AB
-        DEC HL                           ; $ABB0  2B
+        LD A,($F396)
+        LD HL,DISK_SELDSK_SAVE
+        JR Z,COL_OFFSET_FROM_WIDTH
+        OR A
+        JP P,COL_APPLY_OFFSET_RAW
+        DEC HL
 ; ----------------------------------------------------------------------
 ; COL_APPLY_OFFSET -- apply a signed config offset to the running column position.
 ;   In:  A = config byte (sign bit = direction); C = current column; HL -> column cell.
@@ -445,40 +445,40 @@ CONOUT_FILTER_NOEXPAND:
 ; ----------------------------------------------------------------------
 COL_APPLY_OFFSET:
         ; drop the sign bit to get the offset magnitude
-        AND $7F                          ; $ABB1  E6 7F
+        AND $7F
 COL_APPLY_OFFSET_RAW:
-        LD E,A                           ; $ABB3  5F
-        LD A,C                           ; $ABB4  79
+        LD E,A
+        LD A,C
         ; new column = current column (C) minus the offset
-        SUB E                            ; $ABB5  93
+        SUB E
         ; store the updated column position
-        LD (HL),A                        ; $ABB6  77
-        RET                              ; $ABB7  C9
+        LD (HL),A
+        RET
 COL_OFFSET_FROM_WIDTH:
-        OR A                             ; $ABB8  B7
-        JP M,COL_OFFSET_FROM_WIDTH_1                  ; $ABB9  FA BD AB
-        DEC HL                           ; $ABBC  2B
+        OR A
+        JP M,COL_OFFSET_FROM_WIDTH_1
+        DEC HL
 COL_OFFSET_FROM_WIDTH_1:
-        CALL COL_APPLY_OFFSET                    ; $ABBD  CD B1 AB
-        LD HL,(BOOT+2)             ; $ABC0  2A AA AE
-        LD A,($F3A1)                     ; $ABC3  3A A1 F3
-        OR A                             ; $ABC6  B7
-        JP P,COL_COMBINE_BASE                  ; $ABC7  F2 CF AB
-        AND $7F                          ; $ABCA  E6 7F
-        LD E,L                           ; $ABCC  5D
-        LD L,H                           ; $ABCD  6C
-        LD H,E                           ; $ABCE  63
+        CALL COL_APPLY_OFFSET
+        LD HL,(BOOT+2)
+        LD A,($F3A1)
+        OR A
+        JP P,COL_COMBINE_BASE
+        AND $7F
+        LD E,L
+        LD L,H
+        LD H,E
 COL_COMBINE_BASE:
-        LD E,A                           ; $ABCF  5F
-        ADD A,H                          ; $ABD0  84
-        LD C,A                           ; $ABD1  4F
-        LD A,E                           ; $ABD2  7B
-        ADD A,L                          ; $ABD3  85
-        PUSH AF                          ; $ABD4  F5
-        LD B,$07                         ; $ABD5  06 07
-        CALL SCREEN_EMIT                    ; $ABD7  CD 2D AC
-        POP AF                           ; $ABDA  F1
-        LD B,$0A                         ; $ABDB  06 0A
+        LD E,A
+        ADD A,H
+        LD C,A
+        LD A,E
+        ADD A,L
+        PUSH AF
+        LD B,$07
+        CALL SCREEN_EMIT
+        POP AF
+        LD B,$0A
 ; ----------------------------------------------------------------------
 ; CONOUT_EMIT_B -- emit character C, then route to TAB_EXPAND/SCREEN_EMIT with B as mode.
 ;   In:  A = character to emit; B = mode/count code.
@@ -489,8 +489,8 @@ COL_COMBINE_BASE:
 ; ----------------------------------------------------------------------
 CONOUT_EMIT_B:
         ; move the character into C for the screen emit path
-        LD C,A                           ; $ABDD  4F
-        JR SCREEN_EMIT                      ; $ABDE  18 4D
+        LD C,A
+        JR SCREEN_EMIT
 ; ----------------------------------------------------------------------
 ; TAB_EXPAND -- expand tabs / handle special columns against the tab-stop config table.
 ;   In:  C = character (already 7-bit); B = passed from caller.
@@ -504,69 +504,69 @@ CONOUT_EMIT_B:
 ;        (COL_PENDING) = 2. Falls through to SCREEN_EMIT for the actual output. [RE]
 ; ----------------------------------------------------------------------
 TAB_EXPAND:
-        LD B,A                           ; $ABE0  47
+        LD B,A
         ; HL -> COL_STATE sticky control-state cell
-        LD HL,COL_STATE                 ; $ABE1  21 A4 AE
-        LD A,(HL)                        ; $ABE4  7E
-        LD E,A                           ; $ABE5  5F
-        OR A                             ; $ABE6  B7
-        JR NZ,TAB_TABLE_SCAN                 ; $ABE7  20 11
+        LD HL,COL_STATE
+        LD A,(HL)
+        LD E,A
+        OR A
+        JR NZ,TAB_TABLE_SCAN
         ; read the special trigger character from config ($F397 = Apple $0397)
-        LD A,($F397)                     ; $ABE9  3A 97 F3
-        OR A                             ; $ABEC  B7
-        JR Z,TAB_EXPAND_CHECK_CTRL                  ; $ABED  28 06
+        LD A,($F397)
+        OR A
+        JR Z,TAB_EXPAND_CHECK_CTRL
         ; does the current character match the trigger?
-        CP C                             ; $ABEF  B9
-        JR NZ,TAB_EXPAND_CHECK_CTRL                 ; $ABF0  20 03
+        CP C
+        JR NZ,TAB_EXPAND_CHECK_CTRL
         ; arm the sticky control state for the next character
-        LD (HL),$80                      ; $ABF2  36 80
-        RET                              ; $ABF4  C9
+        LD (HL),$80
+        RET
 TAB_EXPAND_CHECK_CTRL:
         ; control-char threshold: chars <= $1F are not table-scanned
-        LD A,$1F                         ; $ABF5  3E 1F
-        CP C                             ; $ABF7  B9
-        JR C,SCREEN_EMIT                    ; $ABF8  38 33
+        LD A,$1F
+        CP C
+        JR C,SCREEN_EMIT
 TAB_TABLE_SCAN:
         ; HL -> top of the 9-entry tab-stop config table ($F3A0 = Apple $03A0)
-        LD HL,$F3A0                      ; $ABFA  21 A0 F3
+        LD HL,$F3A0
         ; 9 tab-stop table entries to scan
-        LD B,$09                         ; $ABFD  06 09
+        LD B,$09
 TAB_TABLE_SCAN_LOOP:
-        LD A,(HL)                        ; $ABFF  7E
-        OR A                             ; $AC00  B7
-        JR Z,TAB_TABLE_SCAN_NEXT                  ; $AC01  28 04
+        LD A,(HL)
+        OR A
+        JR Z,TAB_TABLE_SCAN_NEXT
         ; fold in COL_STATE before comparing the table entry to the char
-        XOR E                            ; $AC03  AB
-        CP C                             ; $AC04  B9
-        JR Z,TAB_TABLE_HIT                  ; $AC05  28 05
+        XOR E
+        CP C
+        JR Z,TAB_TABLE_HIT
 TAB_TABLE_SCAN_NEXT:
-        DEC HL                           ; $AC07  2B
-        DJNZ TAB_TABLE_SCAN_LOOP                  ; $AC08  10 F5
-        JR SCREEN_EMIT                      ; $AC0A  18 21
+        DEC HL
+        DJNZ TAB_TABLE_SCAN_LOOP
+        JR SCREEN_EMIT
 TAB_TABLE_HIT:
         ; step +$0B from the matched stop to its parallel action byte
-        LD DE,$000B                      ; $AC0C  11 0B 00
-        ADD HL,DE                        ; $AC0F  19
-        LD A,(HL)                        ; $AC10  7E
-        OR A                             ; $AC11  B7
-        LD C,A                           ; $AC12  4F
-        JP P,TAB_EXPAND_DONE                  ; $AC13  F2 23 AC
-        AND $7F                          ; $AC16  E6 7F
-        LD C,A                           ; $AC18  4F
-        PUSH BC                          ; $AC19  C5
+        LD DE,$000B
+        ADD HL,DE
+        LD A,(HL)
+        OR A
+        LD C,A
+        JP P,TAB_EXPAND_DONE
+        AND $7F
+        LD C,A
+        PUSH BC
         ; secondary action character from config ($F3A2 = Apple $03A2)
-        LD A,($F3A2)                     ; $AC1A  3A A2 F3
-        LD B,$07                         ; $AC1D  06 07
-        CALL CONOUT_EMIT_B                    ; $AC1F  CD DD AB
-        POP BC                           ; $AC22  C1
+        LD A,($F3A2)
+        LD B,$07
+        CALL CONOUT_EMIT_B
+        POP BC
 TAB_EXPAND_DONE:
-        LD A,B                           ; $AC23  78
+        LD A,B
         ; action code 7 -> set COL_MODE = 2
-        CP $07                           ; $AC24  FE 07
-        JR NZ,SCREEN_EMIT                   ; $AC26  20 05
-        LD A,$02                         ; $AC28  3E 02
+        CP $07
+        JR NZ,SCREEN_EMIT
+        LD A,$02
         ; record COL_MODE = 2 for the next emit
-        LD (COL_PENDING),A                ; $AC2A  32 A3 AE
+        LD (COL_PENDING),A
 ; ----------------------------------------------------------------------
 ; CONOUT_VIA_SCREEN -- emit one character to the Apple text screen, then advance
 ; the cursor and redraw it.
@@ -580,27 +580,27 @@ TAB_EXPAND_DONE:
 ;              [RE] COL_FLAG selects 40-col vs 80-col / normal vs alternate path.
 ; ----------------------------------------------------------------------
 SCREEN_EMIT:
-        XOR A                            ; $AC2D  AF
+        XOR A
         ; clear the pending wrap/scroll flag before emitting
         ; clear COL_STATE before handing off to the screen handler
-        LD (COL_STATE),A                ; $AC2E  32 A4 AE
+        LD (COL_STATE),A
         ; screen-mode selector: chooses which driver entry to vector to [RE]
         ; test COL_FLAG to choose which screen-output vector to use
-        LD A,(COL_FLAG)              ; $AC31  3A A2 AE
-        OR A                             ; $AC34  B7
+        LD A,(COL_FLAG)
+        OR A
         ; default screen-driver entry (SoftCard vector table, Apple $0388)
         ; default screen-output vector ($F388 = Apple $0388)
-        LD HL,($F388)                    ; $AC35  2A 88 F3
-        JR Z,SCREEN_EMIT_VECTOR                  ; $AC38  28 03
+        LD HL,($F388)
+        JR Z,SCREEN_EMIT_VECTOR
         ; alternate screen-driver entry (Apple $0386) when selector nonzero
         ; alternate screen-output vector ($F386 = Apple $0386)
-        LD HL,($F386)                    ; $AC3A  2A 86 F3
+        LD HL,($F386)
 ; ----------------------------------------------------------------------
 ; Merge point: HL = the selected screen-driver entry; fall through to the JP (HL).
 ; ----------------------------------------------------------------------
 SCREEN_EMIT_VECTOR:
         ; tail-jump into the selected screen-driver entry point
-        JP (HL)                          ; $AC3D  E9
+        JP (HL)
 ; ----------------------------------------------------------------------
 ; PUT_CHAR_DE3 -- screen-driver entry that preloads DE=3 (advance amount / column
 ; step) and falls into the glyph-store path. [RE]
@@ -609,7 +609,7 @@ SCREEN_EMIT_VECTOR:
 ; ----------------------------------------------------------------------
 PUT_CHAR_DE3:
         ; preset DE = column/advance step for this driver variant [RE]
-        LD DE,$0003                      ; $AC3E  11 03 00
+        LD DE,$0003
 ; ----------------------------------------------------------------------
 ; PUT_CHAR_VECTOR -- indirect entry into the glyph-store body. This JP's target
 ; operand is SELF-MODIFIED elsewhere (patch site = PUT_CHAR_VECTOR+1); it normally
@@ -618,7 +618,7 @@ PUT_CHAR_DE3:
 PUT_CHAR_VECTOR:
         ; dispatch into the glyph-store body; target operand (PUT_CHAR_VECTOR+1) is patched at
         ; runtime [RE]
-        JP PUT_CHAR_STORE                    ; $AC41  C3 44 AC
+        JP PUT_CHAR_STORE
 ; ----------------------------------------------------------------------
 ; PUT_CHAR_STORE -- store the current glyph at the cursor cell, recompute the cursor
 ; screen address from CH/BASL, read back the char now under the cursor, and write it
@@ -633,146 +633,143 @@ PUT_CHAR_VECTOR:
 ; ----------------------------------------------------------------------
 PUT_CHAR_STORE:
         ; HL = saved cursor screen pointer (cell holding the cursor)
-        LD HL,(SCREEN_CURSOR_PTR)               ; $AC44  2A A5 AE
+        LD HL,(SCREEN_CURSOR_PTR)
         ; A = staged glyph (the real char that belongs in that cell)
-        LD A,(SCREEN_CHAR)                ; $AC47  3A A7 AE
+        LD A,(SCREEN_CHAR)
         ; draw the inverse-video cursor glyph in the new cell
         ; restore the real char into the old cursor cell
-        LD (HL),A                        ; $AC4A  77
+        LD (HL),A
         ; run control-char handling / cursor advance (may update CH=$F024)
-        CALL CTRL_CHAR_DISPATCH                    ; $AC4B  CD 6B AC
+        CALL CTRL_CHAR_DISPATCH
         ; HL = current text line base BASL/BASH (Apple ZP $0028/$0029)
-        LD HL,($F028)                    ; $AC4E  2A 28 F0
+        LD HL,($F028)
         ; A = cursor column CH (Apple ZP $0024)
-        LD A,($F024)                     ; $AC51  3A 24 F0
-        LD E,A                           ; $AC54  5F
+        LD A,($F024)
+        LD E,A
         ; high byte $F0 maps column offset into the Apple low-RAM screen region
-        LD D,$F0                         ; $AC55  16 F0
+        LD D,$F0
         ; HL = BASL + CH = address of the new cursor cell
-        ADD HL,DE                        ; $AC57  19
+        ADD HL,DE
         ; save the new cursor cell pointer
-        LD (SCREEN_CURSOR_PTR),HL               ; $AC58  22 A5 AE
-        LD A,(HL)                        ; $AC5B  7E
+        LD (SCREEN_CURSOR_PTR),HL
+        LD A,(HL)
         ; save the char currently under the cursor (to restore later)
-        LD (SCREEN_CHAR),A                ; $AC5C  32 A7 AE
+        LD (SCREEN_CHAR),A
         ; is the char in the lowercase/high range? choose inverse-video mapping
-        CP $E0                           ; $AC5F  FE E0
-        JR C,PUT_CHAR_CURSOR_GLYPH                  ; $AC61  38 02
+        CP $E0
+        JR C,PUT_CHAR_CURSOR_GLYPH
         ; fold lowercase to its display form for the cursor glyph
-        XOR $20                          ; $AC63  EE 20
+        XOR $20
 ; ----------------------------------------------------------------------
 ; Merge point in the cursor-glyph conversion (chars below $E0 skip the XOR $20 fold).
 ; ----------------------------------------------------------------------
 PUT_CHAR_CURSOR_GLYPH:
         ; mask to 6-bit glyph code
-        AND $3F                          ; $AC65  E6 3F
+        AND $3F
         ; set inverse/flash field for the on-screen cursor glyph
-        OR $40                           ; $AC67  F6 40
-        LD (HL),A                        ; $AC69  77
-        RET                              ; $AC6A  C9
+        OR $40
+        LD (HL),A
+        RET
 ; ----------------------------------------------------------------------
 ; CTRL_CHAR_DISPATCH -- handle a control character / cursor-motion code by indexing a
 ; per-code offset table and jumping to the matching handler body.
 ;   In:  B = control-code index (0 = none/plain char). A is loaded from B.
 ;   Out: per-handler (typically updates CH=$F024 and/or the line base). Clobbers A,HL.
 ;   Algorithm: if B==0 fall through to the plain-character handler at CTRL_PLAIN_CHAR. Else
-;              push RET address RPC_TRIGGER (handlers RET back into the caller's flow),
-;              load HL = the offset table base (CTRL_HANDLER_OFFSET_TBL), add the code to L, read
-;              the
-;              handler's low byte from the table, and JP (HL) into page $AC where all
-;              the handler bodies live. See flags[] for the exact table/body layout.
-;   NOTE: the byte stream $AC77-$ACD3 below the ADD A,L is the dispatch tail + handler
-;         bodies (CODE currently left as DEFB); $ACD4-$ACE5 is the offset table + a
-;         trailing helper. UNKNOWN exactly which control code maps to which handler
-;         until the bodies are disassembled.
+;              push the RET address RPC_TRIGGER (each handler RETs back through it), load
+;              HL = CTRL_HANDLER_OFFSET_TBL, add the code to L, read the handler's low byte
+;              from the table (high byte stays $AC), and JP (HL) into the handler body. The
+;              handlers set HL to an Apple monitor routine address and RET (the caller fires
+;              the 6502 RPC), or update the cursor cells (CH/CV at Apple ZP $0024/$0025)
+;              directly. See CTRL_HANDLER_OFFSET_TBL for the code -> handler mapping.
 ; ----------------------------------------------------------------------
 CTRL_CHAR_DISPATCH:
         ; A = control-code index passed in B
-        LD A,B                           ; $AC6B  78
+        LD A,B
         ; index 0 means plain character: fall through to CTRL_PLAIN_CHAR
-        OR A                             ; $AC6C  B7
+        OR A
         ; no control code: take the plain-char store path
-        JR Z,CTRL_PLAIN_CHAR                      ; $AC6D  28 0B
+        JR Z,CTRL_PLAIN_CHAR
         ; push the common return address so each handler RETs back here [RE]
-        LD HL,RPC_TRIGGER                   ; $AC6F  21 3B AB
-        PUSH HL                          ; $AC72  E5
+        LD HL,RPC_TRIGGER
+        PUSH HL
         ; HL = base of the per-code handler offset table
-        LD HL,CTRL_HANDLER_OFFSET_TBL                     ; $AC73  21 D4 AC
+        LD HL,CTRL_HANDLER_OFFSET_TBL
         ; index the table: L = table_base_low + control-code; (HL) then holds the handler low byte
         ; [RE]
-        ADD A,L                          ; $AC76  85
+        ADD A,L
         ; dispatch tail: L = table base low + control code; fetch the handler low byte
         ; (high byte stays $AC) and jump to it.
-        LD L,A                           ; $AC77  6F
-        LD L,(HL)                        ; $AC78  6E  L = CTRL_HANDLER_OFFSET_TBL[code]
-        JP (HL)                          ; $AC79  E9  enter the handler in page $AC
+        LD L,A
+        LD L,(HL)                        ; 6E  L = CTRL_HANDLER_OFFSET_TBL[code]
+        JP (HL)                          ; E9  enter the handler in page $AC
 ; CTRL_PLAIN_CHAR -- store a printable character (or handle CR) on the text screen.
 CTRL_PLAIN_CHAR:
-        LD A,C                           ; $AC7A
-        CP $0D                           ; $AC7B  carriage return?
-        JR NZ,CTRL_PLAIN_PUT             ; $AC7D
-        XOR A                            ; $AC7F
-        LD ($F024),A                     ; $AC80  CR: reset cursor column CH (Apple ZP $0024)
-        RET                              ; $AC83
+        LD A,C
+        CP $0D                           ; carriage return?
+        JR NZ,CTRL_PLAIN_PUT
+        XOR A
+        LD ($F024),A                     ; CR: reset cursor column CH (Apple ZP $0024)
+        RET
 CTRL_PLAIN_PUT:
-        OR $80                           ; $AC84  set high bit (Apple screen glyph)
-        CP $E0                           ; $AC86  in the lowercase range?
-        JR C,CTRL_PLAIN_STORE            ; $AC88
-        LD HL,$F3DD                      ; $AC8A  case-fold config byte (Apple $03DD)
-        XOR (HL)                         ; $AC8D
+        OR $80                           ; set high bit (Apple screen glyph)
+        CP $E0                           ; in the lowercase range?
+        JR C,CTRL_PLAIN_STORE
+        LD HL,$F3DD                      ; case-fold config byte (Apple $03DD)
+        XOR (HL)
 CTRL_PLAIN_STORE:
-        LD ($F045),A                     ; $AC8E  stash the glyph (Apple ZP $0045)
-        LD HL,$FDF0                      ; $AC91  HL = Apple monitor COUT1 ($FDF0) for the 6502 RPC
-        JR PLOT_RPC_TAIL                 ; $AC94  emit via the shared RPC tail
+        LD ($F045),A                     ; stash the glyph (Apple ZP $0045)
+        LD HL,$FDF0                      ; HL = Apple monitor COUT1 ($FDF0) for the 6502 RPC
+        JR PLOT_RPC_TAIL                 ; emit via the shared RPC tail
 ; --- control-code handlers (entered via the offset table; each RETs through RPC_TRIGGER) ---
 CTRL_MODE_FF:                            ; code 4
-        LD A,$FF                         ; $AC96
-        DEFB    $01                      ; $AC98  cover (LD BC,nn): skips the LD A,$3F below
+        LD A,$FF
+        DEFB    $01                      ; cover (LD BC,nn): skips the LD A,$3F below
 CTRL_MODE_3F:                            ; code 5
-        LD A,$3F                         ; $AC99  3E 3F
-        LD ($F032),A                     ; $AC9B  set the screen mode/mask byte (Apple ZP $0032)
+        LD A,$3F
+        LD ($F032),A                     ; set the screen mode/mask byte (Apple ZP $0032)
 CTRL_POP_RET:                            ; code 7: discard the pushed return and exit
-        POP HL                           ; $AC9E
-        RET                              ; $AC9F
+        POP HL
+        RET
 CTRL_RPC_FBF4:                           ; code 9
-        LD HL,$FBF4                      ; $ACA0  HL = Apple monitor routine ($FBF4) for the RPC
-        RET                              ; $ACA3
+        LD HL,$FBF4                      ; HL = Apple monitor routine ($FBF4) for the RPC
+        RET
 CTRL_HOME_CURSOR:                        ; code 6: home the cursor (CH/CV = 0)
-        XOR A                            ; $ACA4
-        LD L,A                           ; $ACA5
-        LD H,A                           ; $ACA6
-        LD ($F024),HL                    ; $ACA7  Apple ZP $0024/$0025 = (0,0)
+        XOR A
+        LD L,A
+        LD H,A
+        LD ($F024),HL                    ; Apple ZP $0024/$0025 = (0,0)
 CTRL_RPC_BASCALC:
-        LD ($F045),A                     ; $ACAA
-        LD HL,$FBC1                      ; $ACAD  HL = Apple monitor BASCALC ($FBC1) for the RPC
-        RET                              ; $ACB0
+        LD ($F045),A
+        LD HL,$FBC1                      ; HL = Apple monitor BASCALC ($FBC1) for the RPC
+        RET
 CTRL_COL_42:                             ; code 2
-        LD L,$42                         ; $ACB1  2E 42
-        DEFB    $01                      ; $ACB3  cover: skips the LD L,$9C below
+        LD L,$42
+        DEFB    $01                      ; cover: skips the LD L,$9C below
 CTRL_COL_9C:                             ; code 3
-        LD L,$9C                         ; $ACB4  2E 9C
-        DEFB    $01                      ; $ACB6  cover: skips the LD L,$1A below
+        LD L,$9C
+        DEFB    $01                      ; cover: skips the LD L,$1A below
 CTRL_COL_1A:                             ; code 8
-        LD L,$1A                         ; $ACB7  2E 1A
-        DEFB    $01                      ; $ACB9  cover: skips the LD L,$58 below
+        LD L,$1A
+        DEFB    $01                      ; cover: skips the LD L,$58 below
 CTRL_COL_58:                             ; code 1
-        LD L,$58                         ; $ACBA  2E 58
-        LD H,$FC                         ; $ACBC  HL = Apple monitor routine ($FC..) for the RPC
-        RET                              ; $ACBE
+        LD L,$58
+        LD H,$FC                         ; HL = Apple monitor routine ($FC..) for the RPC
+        RET
 CTRL_CLAMP_CURSOR:                       ; code 10: clamp the saved cursor to 40x24 and store it
-        LD HL,(BOOT+2)                   ; $ACBF  load saved cursor col/row (BOOT+2 cell)
-        LD A,L                           ; $ACC2
-        CP $28                           ; $ACC3  column >= 40?
-        JR C,CTRL_CLAMP_ROW              ; $ACC5
-        LD L,$00                         ; $ACC7  clamp column to 0
+        LD HL,(BOOT+2)                   ; load saved cursor col/row (BOOT+2 cell)
+        LD A,L
+        CP $28                           ; column >= 40?
+        JR C,CTRL_CLAMP_ROW
+        LD L,$00                         ; clamp column to 0
 CTRL_CLAMP_ROW:
-        LD A,H                           ; $ACC9
-        CP $18                           ; $ACCA  row >= 24?
-        JR C,CTRL_CLAMP_STORE            ; $ACCC
-        LD H,$00                         ; $ACCE  clamp row to 0
+        LD A,H
+        CP $18                           ; row >= 24?
+        JR C,CTRL_CLAMP_STORE
+        LD H,$00                         ; clamp row to 0
 CTRL_CLAMP_STORE:
-        LD ($F024),HL                    ; $ACD0  store cursor (Apple ZP $0024/$0025)
-        DEFB    $18                      ; $ACD3  JR opcode; its offset is the table[0] byte below
+        LD ($F024),HL                    ; store cursor (Apple ZP $0024/$0025)
+        DEFB    $18                      ; JR opcode; its offset is the table[0] byte below
                                          ;        ($D5 = -43 -> CTRL_RPC_BASCALC)
 CTRL_HANDLER_OFFSET_TBL:
         ; low byte of each control-code handler (high byte $AC); indexed by control code
@@ -780,17 +777,17 @@ CTRL_HANDLER_OFFSET_TBL:
         ; it falls through to CTRL_PLAIN_CHAR earlier).
         ; -> [0]=JR-offset, COL_58, COL_42, COL_9C, MODE_FF, MODE_3F, HOME, POP_RET, COL_1A,
         ;    RPC_FBF4, CLAMP
-        DEFB    $D5,$BA,$B1,$B4,$96,$99,$A4,$9E,$B7,$A0,$BF      ; $ACD4
+        DEFB    $D5,$BA,$B1,$B4,$96,$99,$A4,$9E,$B7,$A0,$BF
 ; DEV_STROBE_RD -- device handler: poll a status bit at the slot I/O base, then strobe.
 DEV_STROBE_RD:
-        CALL SLOT_IO_ADDR                ; $ACDF  HL = slot I/O base for the device
+        CALL SLOT_IO_ADDR                ; HL = slot I/O base for the device
 DEV_STROBE_WAIT:
-        LD A,(HL)                        ; $ACE2
-        AND $02                          ; $ACE3  wait for the ready bit
-        JR Z,DEV_STROBE_WAIT             ; $ACE5
-        INC L                            ; $ACE7
-        LD (HL),C                        ; $ACE8  hand the byte to the device
-        RET                              ; $ACE9
+        LD A,(HL)
+        AND $02                          ; wait for the ready bit
+        JR Z,DEV_STROBE_WAIT
+        INC L
+        LD (HL),C                        ; hand the byte to the device
+        RET
 ; ----------------------------------------------------------------------
 ; SET_CURSOR_COL_AND_BASE -- set the cursor column from C, then compute the screen
 ; line base address for the current row.
@@ -801,9 +798,9 @@ DEV_STROBE_WAIT:
 ; ----------------------------------------------------------------------
 SET_CURSOR_COL_AND_BASE:
         ; A = requested cursor column from C
-        LD A,C                           ; $ACEA  79
+        LD A,C
         ; store cursor column (Apple ZP $0045) [RE]
-        LD ($F045),A                     ; $ACEB  32 45 F0
+        LD ($F045),A
 ; ----------------------------------------------------------------------
 ; SET_SCREEN_BASE -- compute the text-line base address for the current cursor row
 ; and stash its parts in the Apple ZP screen-base cells.
@@ -818,21 +815,21 @@ SET_CURSOR_COL_AND_BASE:
 ; ----------------------------------------------------------------------
 SET_SCREEN_BASE:
         ; derive the text-line base address for the current row
-        CALL SLOT_IO_ADDR_W                    ; $ACEE  CD 5B AD
+        CALL SLOT_IO_ADDR_W
         ; save base into scratch cell (Apple $06F8)
-        LD ($F6F8),A                     ; $ACF1  32 F8 F6
+        LD ($F6F8),A
         ; store base into a screen-base cell (Apple ZP $0047)
-        LD ($F047),A                     ; $ACF4  32 47 F0
+        LD ($F047),A
         ; read a column/value from SoftCard I/O ($EFFF = Apple $CFFF) [RE]
-        LD A,($EFFF)                     ; $ACF7  3A FF EF
-        CALL DEVICE_IO_BASE                    ; $ACFA  CD C5 AA
+        LD A,($EFFF)
+        CALL DEVICE_IO_BASE
         ; remove the space ($20) bias to get a screen offset [RE]
-        SUB $20                          ; $ACFD  D6 20
+        SUB $20
         ; store the computed offset into a screen-base cell (Apple ZP $0046)
-        LD ($F046),A                     ; $ACFF  32 46 F0
+        LD ($F046),A
         ; return the character currently at the computed cell
-        LD A,(HL)                        ; $AD02  7E
-        RET                              ; $AD03  C9
+        LD A,(HL)
+        RET
 ; ----------------------------------------------------------------------
 ; PLOT_CHAR_AT_COL -- position to a column then write C into the row buffer at that
 ; offset, and tail-jump to the common screen-driver return.
@@ -843,60 +840,60 @@ SET_SCREEN_BASE:
 ; ----------------------------------------------------------------------
 PLOT_CHAR_AT_COL:
         ; set cursor column and recompute the row base
-        CALL SET_CURSOR_COL_AND_BASE                    ; $AD04  CD EA AC
+        CALL SET_CURSOR_COL_AND_BASE
         ; HL = row buffer base (Apple $0678) [RE]
-        LD HL,$F678                      ; $AD07  21 78 F6
+        LD HL,$F678
         ; HL = buffer base + column offset DE
-        ADD HL,DE                        ; $AD0A  19
+        ADD HL,DE
         ; store the character at the target column
-        LD (HL),C                        ; $AD0B  71
-        LD HL,$C9AA                      ; $AD0C  21 AA C9
+        LD (HL),C
+        LD HL,$C9AA
         ; tail into the shared screen-driver return path
 PLOT_RPC_TAIL:
-        JP RPC_TRIGGER                      ; $AD0F  C3 3B AB  (emit via the SoftCard RPC trigger)
+        JP RPC_TRIGGER                   ; (emit via the SoftCard RPC trigger)
 ; DEV_READ_BIT -- device handler: poll a status bit until set, then read the data byte.
-DEV_READ_BIT:                            ; $AD12  (DEV_HANDLER_PTRS_B[0])
-        CALL SLOT_IO_ADDR                ; $AD12
+DEV_READ_BIT:                            ; (DEV_HANDLER_PTRS_B[0])
+        CALL SLOT_IO_ADDR
 DEV_READ_WAIT:
-        LD A,(HL)                        ; $AD15
-        RRA                              ; $AD16  ready bit -> carry
-        JR NC,DEV_READ_WAIT              ; $AD17
-        INC L                            ; $AD19
-        LD A,(HL)                        ; $AD1A  read the data byte
-        RET                              ; $AD1B
+        LD A,(HL)
+        RRA                              ; ready bit -> carry
+        JR NC,DEV_READ_WAIT
+        INC L
+        LD A,(HL)                        ; read the data byte
+        RET
 ; DEV_OUT_RPC -- device handler: position via the screen base, RPC a fixed command, read back.
-DEV_OUT_RPC:                             ; $AD1C  (DEV_HANDLER_PTRS_B[1])
-        CALL SET_SCREEN_BASE             ; $AD1C
-        LD HL,$C84D                      ; $AD1F
-        CALL RPC_TRIGGER                    ; $AD22  trigger the SoftCard RPC
-        LD HL,$F678                      ; $AD25  row buffer base (Apple $0678)
-        ADD HL,DE                        ; $AD28
-        LD A,(HL)                        ; $AD29
-        RET                              ; $AD2A
-DEV_OUT_1:                               ; $AD2B  (default I/O vector handler)
-        LD DE,$0001                      ; $AD2B
+DEV_OUT_RPC:                             ; (DEV_HANDLER_PTRS_B[1])
+        CALL SET_SCREEN_BASE
+        LD HL,$C84D
+        CALL RPC_TRIGGER                 ; trigger the SoftCard RPC
+        LD HL,$F678                      ; row buffer base (Apple $0678)
+        ADD HL,DE
+        LD A,(HL)
+        RET
+DEV_OUT_1:                               ; (default I/O vector handler)
+        LD DE,$0001
 DEV_OUT_1_JP:
-        JP DEV_RET                       ; $AD2E  target (DEV_OUT_1_JP+1) patched at boot
+        JP DEV_RET                       ; target (DEV_OUT_1_JP+1) patched at boot
 ; DEV_WR_BIT -- device handler: wait for ready, then write C to the slot I/O port.
-DEV_WR_BIT:                              ; $AD31  (DEV_HANDLER_PTRS[2])
-        CALL DEVICE_IO_BASE              ; $AD31
-        LD L,$C1                         ; $AD34
+DEV_WR_BIT:                              ; (DEV_HANDLER_PTRS[2])
+        CALL DEVICE_IO_BASE
+        LD L,$C1
 DEV_WR_WAIT:
-        LD A,(HL)                        ; $AD36
-        RLA                              ; $AD37  ready bit -> carry
-        JR C,DEV_WR_WAIT                 ; $AD38
-        CALL SLOT_IO_ADDR_W              ; $AD3A
-        LD (HL),C                        ; $AD3D
+        LD A,(HL)
+        RLA                              ; ready bit -> carry
+        JR C,DEV_WR_WAIT
+        CALL SLOT_IO_ADDR_W
+        LD (HL),C
 DEV_RET:
-        RET                              ; $AD3E  shared return (DEV_OUT_1/_2 JP here)
-DEV_OUT_2:                               ; $AD3F  (default I/O vector handler)
-        LD DE,$0002                      ; $AD3F
+        RET                              ; shared return (DEV_OUT_1/_2 JP here)
+DEV_OUT_2:                               ; (default I/O vector handler)
+        LD DE,$0002
 DEV_OUT_2_JP:
-        JP DEV_RET                       ; $AD42  target (DEV_OUT_2_JP+1) patched at boot
-DEV_OUT_3:                               ; $AD45  (default I/O vector handler)
-        LD DE,$0002                      ; $AD45
+        JP DEV_RET                       ; target (DEV_OUT_2_JP+1) patched at boot
+DEV_OUT_3:                               ; (default I/O vector handler)
+        LD DE,$0002
 DEV_OUT_3_JP:
-        JP $0000                         ; $AD48  whole instruction built at boot (DEV_OUT_3_JP+0/+1/+2)
+        JP $0000                         ; whole instruction built at boot (DEV_OUT_3_JP+0/+1/+2)
 ; ----------------------------------------------------------------------
 ; HOME -- BIOS jump-vector entry: seek the selected drive to track 0.
 ;   In:  none (operates on the selected disk).
@@ -909,11 +906,11 @@ DEV_OUT_3_JP:
 ; ----------------------------------------------------------------------
 HOME:
         ; read hstwrt (host-write-pending flag)
-        LD A,(DISK_HSTWRT)               ; $AD4B  3A B0 AE
-        OR A                             ; $AD4E  B7
-        JR NZ,SETTRK_STORE                 ; $AD4F  20 03
+        LD A,(DISK_HSTWRT)
+        OR A
+        JR NZ,SETTRK_STORE
         ; no pending write: clear hstact so the host buffer is reloaded on next access
-        LD (DISK_SEKDSK+2),A             ; $AD51  32 AF AE
+        LD (DISK_SEKDSK+2),A
 ; ----------------------------------------------------------------------
 ; SETTRK -- BIOS jump-vector entry (vector $AA1E -> here): set the requested track.
 ;   In:  C = track number (BC = track; only C used).
@@ -924,13 +921,13 @@ HOME:
 ; ----------------------------------------------------------------------
 SETTRK_STORE:
         ; HOME enters here with track 0; SETTRK enters at the LD A,C below
-        LD C,$00                         ; $AD54  0E 00
+        LD C,$00
         ; track number from BDOS
 SETTRK:                                  ; BIOS jump-vector entry 10 (HOME falls in above)
-        LD A,C                           ; $AD56  79
+        LD A,C
         ; store into sektrk (overlaid on the BOOT entry's LD SP operand)
-        LD (BOOT),A                ; $AD57  32 A8 AE
-        RET                              ; $AD5A  C9
+        LD (BOOT),A
+        RET
 ; ----------------------------------------------------------------------
 ; SLOT_IO_ADDR_W -- map a slot/drive index to an Apple write-side I/O soft-switch base.
 ;   In:  E = slot/drive index (0..15).
@@ -942,8 +939,8 @@ SETTRK:                                  ; BIOS jump-vector entry 10 (HOME falls
 ; ----------------------------------------------------------------------
 SLOT_IO_ADDR_W:
         ; z80 $E080 = Apple $C080 slot-I/O base (write/control bank)
-        LD HL,$E080                      ; $AD5B  21 80 E0
-        JR SLOT_IO_SCALE_E                    ; $AD5E  18 03
+        LD HL,$E080
+        JR SLOT_IO_SCALE_E
 ; ----------------------------------------------------------------------
 ; SLOT_IO_ADDR -- map a slot/drive index to an Apple I/O soft-switch address ($C08E bank).
 ;   In:  E = slot/drive index (0..15).
@@ -954,20 +951,20 @@ SLOT_IO_ADDR_W:
 ; ----------------------------------------------------------------------
 SLOT_IO_ADDR:
         ; z80 $E08E = Apple $C08E slot-I/O base
-        LD HL,$E08E                      ; $AD60  21 8E E0
+        LD HL,$E08E
 SLOT_IO_SCALE_E:
         ; slot/drive index
-        LD A,E                           ; $AD63  7B
+        LD A,E
 SLOT_IO_SCALE:
-        ADD A,A                          ; $AD64  87
-        ADD A,A                          ; $AD65  87
-        ADD A,A                          ; $AD66  87
-        ADD A,A                          ; $AD67  87
-        PUSH AF                          ; $AD68  F5
-        ADD A,L                          ; $AD69  85
-        LD L,A                           ; $AD6A  6F
-        POP AF                           ; $AD6B  F1
-        RET                              ; $AD6C  C9
+        ADD A,A
+        ADD A,A
+        ADD A,A
+        ADD A,A
+        PUSH AF
+        ADD A,L
+        LD L,A
+        POP AF
+        RET
 ; ----------------------------------------------------------------------
 ; SELDSK -- BIOS jump-vector entry: select the disk drive for subsequent I/O.
 ;   In:  C = disk number (0-based).
@@ -981,29 +978,29 @@ SLOT_IO_SCALE:
 ; ----------------------------------------------------------------------
 SELDSK:
         ; DE -> sekdsk build site (the SMC cells overlaid on the BOOT-area instructions)
-        LD DE,DISK_SELDSK_SAVE+1               ; $AD6D  11 AC AE
-        LD HL,$0004                      ; $AD70  21 04 00
+        LD DE,DISK_SELDSK_SAVE+1
+        LD HL,$0004
         ; configured drive count from Apple config $03B8
-        LD A,($F3B8)                     ; $AD73  3A B8 F3
-        DEC A                            ; $AD76  3D
+        LD A,($F3B8)
+        DEC A
         ; requested drive vs (count-1); C-flag set if out of range
-        CP C                             ; $AD77  B9
+        CP C
         ; out of range -> return HL=0
-        JR C,SELDSK_BAD_DRIVE                  ; $AD78  38 0A
-        LD A,(HL)                        ; $AD7A  7E
+        JR C,SELDSK_BAD_DRIVE
+        LD A,(HL)
         ; store the marker, then the selected disk number into sekdsk
-        LD (DE),A                        ; $AD7B  12
-        INC DE                           ; $AD7C  13
-        LD A,C                           ; $AD7D  79
-        LD (DE),A                        ; $AD7E  12
+        LD (DE),A
+        INC DE
+        LD A,C
+        LD (DE),A
         ; base DPH; SLOT_IO_SCALE indexes it by the drive number
-        LD HL,DISK_PARAM_TABLE                     ; $AD7F  21 33 AA
-        JR SLOT_IO_SCALE                    ; $AD82  18 E0
+        LD HL,DISK_PARAM_TABLE
+        JR SLOT_IO_SCALE
 SELDSK_BAD_DRIVE:
-        LD A,(DE)                        ; $AD84  1A
-        LD (HL),A                        ; $AD85  77
-        LD L,$00                         ; $AD86  2E 00
-        RET                              ; $AD88  C9
+        LD A,(DE)
+        LD (HL),A
+        LD L,$00
+        RET
 ; ----------------------------------------------------------------------
 ; SETSEC -- BIOS jump-vector entry: set the requested sector.
 ;   In:  C = sector number.
@@ -1012,10 +1009,10 @@ SELDSK_BAD_DRIVE:
 ;              Consumed later by the deblock host-match test.
 ; ----------------------------------------------------------------------
 SETSEC:
-        LD A,C                           ; $AD89  79
+        LD A,C
         ; store into seksec
-        LD (BOOT+1),A              ; $AD8A  32 A9 AE
-        RET                              ; $AD8D  C9
+        LD (BOOT+1),A
+        RET
 ; ----------------------------------------------------------------------
 ; SETDMA -- BIOS jump-vector entry: set the DMA (record transfer) address.
 ;   In:  BC = DMA buffer address (where the 128-byte CP/M record is read to/written from).
@@ -1025,8 +1022,8 @@ SETSEC:
 ; ----------------------------------------------------------------------
 SETDMA:
         ; store the DMA address into dmaadr
-        LD (DISK_DMAADR),BC              ; $AD8E  ED 43 B8 AE
-        RET                              ; $AD92  C9
+        LD (DISK_DMAADR),BC
+        RET
 ; ----------------------------------------------------------------------
 ; READ -- BIOS jump-vector entry: read one 128-byte CP/M record via deblocking.
 ;   In:  sekdsk/sektrk/seksec/dmaadr previously set by SELDSK/SETTRK/SETSEC/SETDMA.
@@ -1037,19 +1034,19 @@ SETDMA:
 ;              requested record is not already buffered, then copies host -> DMA. [RE]
 ; ----------------------------------------------------------------------
 READ:
-        XOR A                            ; $AD93  AF
+        XOR A
         ; unacnt = 0: a read never continues an unallocated-write run
-        LD (DISK_WRTYPE+2),A             ; $AD94  32 B4 AE
-        LD A,$02                         ; $AD97  3E 02
+        LD (DISK_WRTYPE+2),A
+        LD A,$02
         ; HL -> readop; seed readop and the following flag bytes = 2 (read operation)
-        LD HL,DISK_HSTWRT+1              ; $AD99  21 B1 AE
-        LD (HL),A                        ; $AD9C  77
-        INC HL                           ; $AD9D  23
-        LD (HL),A                        ; $AD9E  77
-        INC HL                           ; $AD9F  23
-        LD (HL),A                        ; $ADA0  77
+        LD HL,DISK_HSTWRT+1
+        LD (HL),A
+        INC HL
+        LD (HL),A
+        INC HL
+        LD (HL),A
         ; enter the shared deblock core (skip the write-only pre-roll)
-        JR DEBLOCK_CORE                    ; $ADA1  18 4F
+        JR DEBLOCK_CORE
 ; ----------------------------------------------------------------------
 ; WRITE -- BIOS jump-vector entry: write one 128-byte CP/M record via deblocking.
 ;   In:  C = write type (0=allocated, 1=directory, 2=to a freshly-allocated/unalloc block);
@@ -1063,26 +1060,26 @@ READ:
 ;              DMA -> host, mark hstwrt. [RE]
 ; ----------------------------------------------------------------------
 WRITE:
-        LD H,C                           ; $ADA3  61
-        LD L,$00                         ; $ADA4  2E 00
+        LD H,C
+        LD L,$00
         ; readop = wrtype (from C), clear the adjacent flag byte
-        LD (DISK_HSTWRT+1),HL            ; $ADA6  22 B1 AE
-        LD A,C                           ; $ADA9  79
+        LD (DISK_HSTWRT+1),HL
+        LD A,C
         ; wrtype 2 = write to an unallocated block (start a sequential run)
-        CP $02                           ; $ADAA  FE 02
+        CP $02
         ; ordinary write: skip the unalloc-run seeding
-        JR NZ,DEBLOCK_CHECK_UNALLOC                 ; $ADAC  20 0F
+        JR NZ,DEBLOCK_CHECK_UNALLOC
         ; unacnt = 8 records in the new unallocated run (host blocking factor)
-        LD L,$08                         ; $ADAE  2E 08
+        LD L,$08
         ; compare sekdsk against the run's disk
-        LD A,(DISK_SEKDSK)               ; $ADB0  3A AD AE
-        LD H,A                           ; $ADB3  67
+        LD A,(DISK_SEKDSK)
+        LD H,A
         ; seed unacnt (and the next byte) for the run
-        LD (DISK_WRTYPE+2),HL            ; $ADB4  22 B4 AE
+        LD (DISK_WRTYPE+2),HL
         ; anchor the run's next-track/sector (unatrk/unasec) at the requested sektrk/seksec
-        LD HL,(BOOT)               ; $ADB7  2A A8 AE
+        LD HL,(BOOT)
         ; advance unatrk/unasec to the next record in the run
-        LD (DISK_UNADSK+1),HL            ; $ADBA  22 B6 AE
+        LD (DISK_UNADSK+1),HL
 ; ----------------------------------------------------------------------
 ; DEBLOCK_CHECK_UNALLOC -- decide whether the requested record continues the active
 ;   unallocated-write run; if so just buffer it, else force a pre-read.
@@ -1094,44 +1091,44 @@ WRITE:
 ; ----------------------------------------------------------------------
 DEBLOCK_CHECK_UNALLOC:
         ; point HL at unacnt (unallocated record count)
-        LD HL,DISK_WRTYPE+2              ; $ADBD  21 B4 AE
+        LD HL,DISK_WRTYPE+2
         ; unacnt: zero means no active unalloc run
-        LD A,(HL)                        ; $ADC0  7E
-        OR A                             ; $ADC1  B7
-        JR Z,DEBLOCK_FORCE_PREREAD                  ; $ADC2  28 28
+        LD A,(HL)
+        OR A
+        JR Z,DEBLOCK_FORCE_PREREAD
         ; consume one record of the unallocated run
-        DEC (HL)                         ; $ADC4  35
-        LD A,(DISK_SEKDSK)               ; $ADC5  3A AD AE
-        INC HL                           ; $ADC8  23
-        CP (HL)                          ; $ADC9  BE
-        JR NZ,DEBLOCK_FORCE_PREREAD                 ; $ADCA  20 20
-        LD A,(BOOT)                ; $ADCC  3A A8 AE
+        DEC (HL)
+        LD A,(DISK_SEKDSK)
+        INC HL
+        CP (HL)
+        JR NZ,DEBLOCK_FORCE_PREREAD
+        LD A,(BOOT)
         ; load unatrk/unasec (the run's current track/sector)
-        LD HL,(DISK_UNADSK+1)            ; $ADCF  2A B6 AE
-        CP L                             ; $ADD2  BD
-        JR NZ,DEBLOCK_FORCE_PREREAD                 ; $ADD3  20 17
+        LD HL,(DISK_UNADSK+1)
+        CP L
+        JR NZ,DEBLOCK_FORCE_PREREAD
         ; requested seksec vs the run's sector
-        LD A,(BOOT+1)              ; $ADD5  3A A9 AE
-        CP H                             ; $ADD8  BC
-        JR NZ,DEBLOCK_FORCE_PREREAD                 ; $ADD9  20 11
+        LD A,(BOOT+1)
+        CP H
+        JR NZ,DEBLOCK_FORCE_PREREAD
         ; advance the unalloc sector; wrap to next track when it passes the sectors-per-track limit
         ; ($20)
-        INC H                            ; $ADDB  24
-        LD A,H                           ; $ADDC  7C
-        SUB $20                          ; $ADDD  D6 20
-        JR C,DEBLOCK_RUN_CONTINUES                  ; $ADDF  38 02
-        LD H,A                           ; $ADE1  67
-        INC L                            ; $ADE2  2C
+        INC H
+        LD A,H
+        SUB $20
+        JR C,DEBLOCK_RUN_CONTINUES
+        LD H,A
+        INC L
 DEBLOCK_RUN_CONTINUES:
-        LD (DISK_UNADSK+1),HL            ; $ADE3  22 B6 AE
-        XOR A                            ; $ADE6  AF
+        LD (DISK_UNADSK+1),HL
+        XOR A
         ; rsflag = 0: record continues the run, no host pre-read needed
-        LD (DISK_WRTYPE+1),A             ; $ADE7  32 B3 AE
-        JR DEBLOCK_CORE                    ; $ADEA  18 06
+        LD (DISK_WRTYPE+1),A
+        JR DEBLOCK_CORE
 DEBLOCK_FORCE_PREREAD:
         ; rsflag = 1: record breaks the run, force a host-sector pre-read
-        LD HL,$0001                      ; $ADEC  21 01 00
-        LD (DISK_WRTYPE+1),HL            ; $ADEF  22 B3 AE
+        LD HL,$0001
+        LD (DISK_WRTYPE+1),HL
 ; ----------------------------------------------------------------------
 ; DEBLOCK_CORE -- shared host-buffer management for READ and WRITE (the deblock heart).
 ;   In:  sekdsk/sektrk/seksec, readop, wrtype, rsflag, hstact, hstwrt, dmaadr.
@@ -1147,104 +1144,104 @@ DEBLOCK_FORCE_PREREAD:
 ; ----------------------------------------------------------------------
 DEBLOCK_CORE:
         ; read seksec back (returns the requested sector for translation)
-        CALL READ_SEKSEC                    ; $ADF2  CD F0 AF
-        LD E,A                           ; $ADF5  5F
-        RRA                              ; $ADF6  1F
+        CALL READ_SEKSEC
+        LD E,A
+        RRA
         ; translate logical sector -> physical via the skew table
-        LD HL,SECTOR_XLATE                 ; $ADF7  21 92 AE
-        ADD A,L                          ; $ADFA  85
-        LD L,A                           ; $ADFB  6F
-        LD C,(HL)                        ; $ADFC  4E
+        LD HL,SECTOR_XLATE
+        ADD A,L
+        LD L,A
+        LD C,(HL)
         ; HL -> hstact; remember prior state, then mark the host buffer active
-        LD HL,DISK_SEKDSK+2              ; $ADFD  21 AF AE
-        LD A,(HL)                        ; $AE00  7E
+        LD HL,DISK_SEKDSK+2
+        LD A,(HL)
         ; hstact = 1 (host buffer now in use)
-        LD (HL),$01                      ; $AE01  36 01
-        OR A                             ; $AE03  B7
+        LD (HL),$01
+        OR A
         ; host buffer was inactive: no flush/match test needed, go set up RWTS
-        JR Z,DEBLOCK_SETUP_RWTS                  ; $AE04  28 1B
+        JR Z,DEBLOCK_SETUP_RWTS
         ; compare sekdsk vs hstdsk (host buffer's disk)
-        LD HL,(DISK_SEKDSK)              ; $AE06  2A AD AE
-        LD A,L                           ; $AE09  7D
-        CP H                             ; $AE0A  BC
-        JR NZ,DEBLOCK_NEED_RELOAD                 ; $AE0B  20 0D
+        LD HL,(DISK_SEKDSK)
+        LD A,L
+        CP H
+        JR NZ,DEBLOCK_NEED_RELOAD
         ; Apple $03E0 = current RWTS track/sector in the host buffer
-        LD HL,($F3E0)                    ; $AE0D  2A E0 F3
+        LD HL,($F3E0)
         ; requested sektrk vs host buffer track
-        LD A,(BOOT)                ; $AE10  3A A8 AE
-        CP L                             ; $AE13  BD
-        JR NZ,DEBLOCK_NEED_RELOAD                 ; $AE14  20 04
-        LD A,C                           ; $AE16  79
-        CP H                             ; $AE17  BC
+        LD A,(BOOT)
+        CP L
+        JR NZ,DEBLOCK_NEED_RELOAD
+        LD A,C
+        CP H
         ; requested record already in the host buffer -> skip flush and re-read, go straight to the
         ; copy
-        JR Z,DEBLOCK_COPY_RECORD                  ; $AE18  28 33
+        JR Z,DEBLOCK_COPY_RECORD
 DEBLOCK_NEED_RELOAD:
         ; hstwrt: if the outgoing host buffer is dirty, flush it first
-        LD A,(DISK_HSTWRT)               ; $AE1A  3A B0 AE
-        OR A                             ; $AE1D  B7
+        LD A,(DISK_HSTWRT)
+        OR A
         ; flush the dirty host buffer before reloading
-        CALL NZ,CONFIG_PROBE                 ; $AE1E  C4 73 AE
+        CALL NZ,CONFIG_PROBE
 DEBLOCK_SETUP_RWTS:
-        LD A,(DISK_SEKDSK)               ; $AE21  3A AD AE
-        LD (DISK_SEKDSK+1),A             ; $AE24  32 AE AE
-        LD B,A                           ; $AE27  47
-        AND $01                          ; $AE28  E6 01
-        INC A                            ; $AE2A  3C
+        LD A,(DISK_SEKDSK)
+        LD (DISK_SEKDSK+1),A
+        LD B,A
+        AND $01
+        INC A
         ; Apple $03E4 = RWTS unit/volume cell
-        LD ($F3E4),A                     ; $AE2B  32 E4 F3
-        LD A,B                           ; $AE2E  78
-        AND $0E                          ; $AE2F  E6 0E
-        ADD A,A                          ; $AE31  87
-        ADD A,A                          ; $AE32  87
-        ADD A,A                          ; $AE33  87
-        CPL                              ; $AE34  2F
-        ADD A,$61                        ; $AE35  C6 61
+        LD ($F3E4),A
+        LD A,B
+        AND $0E
+        ADD A,A
+        ADD A,A
+        ADD A,A
+        CPL
+        ADD A,$61
         ; Apple $03E6 = RWTS track cell
-        LD ($F3E6),A                     ; $AE37  32 E6 F3
-        LD A,(BOOT)                ; $AE3A  3A A8 AE
-        LD L,A                           ; $AE3D  6F
-        LD H,C                           ; $AE3E  61
+        LD ($F3E6),A
+        LD A,(BOOT)
+        LD L,A
+        LD H,C
         ; Apple $03E0 = record the host buffer's new track/sector
-        LD ($F3E0),HL                    ; $AE3F  22 E0 F3
+        LD ($F3E0),HL
         ; rsflag: nonzero -> physically pre-read the host sector
-        LD A,(DISK_WRTYPE+1)             ; $AE42  3A B3 AE
-        OR A                             ; $AE45  B7
+        LD A,(DISK_WRTYPE+1)
+        OR A
         ; perform the host sector read (RWTS read entry)
-        CALL NZ,CONIO_SET_A1             ; $AE46  C4 7A AE
-        XOR A                            ; $AE49  AF
+        CALL NZ,CONIO_SET_A1
+        XOR A
         ; hstwrt = 0 after a fresh read
-        LD (DISK_HSTWRT),A               ; $AE4A  32 B0 AE
+        LD (DISK_HSTWRT),A
 DEBLOCK_COPY_RECORD:
-        LD A,E                           ; $AE4D  7B
+        LD A,E
         ; z80 $F800 = Apple $0800 host sector buffer base
-        LD HL,$F800                      ; $AE4E  21 00 F8
-        RRA                              ; $AE51  1F
+        LD HL,$F800
+        RRA
         ; select the upper/lower 128-byte half of the host sector from the record's parity
-        RR L                             ; $AE52  CB 1D
+        RR L
         ; dmaadr = the CP/M record buffer
-        LD DE,(DISK_DMAADR)              ; $AE54  ED 5B B8 AE
+        LD DE,(DISK_DMAADR)
         ; 128-byte CP/M record length
-        LD BC,$0080                      ; $AE58  01 80 00
+        LD BC,$0080
         ; readop: nonzero = read (host->DMA), zero = write (DMA->host)
-        LD A,(DISK_HSTWRT+1)             ; $AE5B  3A B1 AE
-        OR A                             ; $AE5E  B7
-        JR NZ,DEBLOCK_COPY                ; $AE5F  20 05
-        INC A                            ; $AE61  3C
-        LD (DISK_HSTWRT),A               ; $AE62  32 B0 AE
+        LD A,(DISK_HSTWRT+1)
+        OR A
+        JR NZ,DEBLOCK_COPY
+        INC A
+        LD (DISK_HSTWRT),A
         ; write direction: swap so LDIR copies DMA -> host buffer
-        EX DE,HL                         ; $AE65  EB
+        EX DE,HL
 DEBLOCK_COPY:
         ; copy the 128-byte record host<->DMA
-        LDIR                             ; $AE66  ED B0
+        LDIR
         ; wrtype: bit 0 decides whether a write must flush immediately (directory write)
-        LD A,(DISK_WRTYPE)               ; $AE68  3A B2 AE
-        RRA                              ; $AE6B  1F
-        LD A,$00                         ; $AE6C  3E 00
-        RET NC                           ; $AE6E  D0
+        LD A,(DISK_WRTYPE)
+        RRA
+        LD A,$00
+        RET NC
         ; immediate flush of the dirty host buffer
-        CALL CONFIG_PROBE                    ; $AE6F  CD 73 AE
-        RET                              ; $AE72  C9
+        CALL CONFIG_PROBE
+        RET
 ; ----------------------------------------------------------------------
 ; CONFIG_PROBE -- re-detect the console device and reset the deblock state.
 ;   In:  none (reads the SoftCard config/IOBYTE cells in Apple page $03).
@@ -1257,75 +1254,75 @@ DEBLOCK_COPY:
 ;              at cold boot (from BOOT path) and on a disk-select change. [RE]
 ; ----------------------------------------------------------------------
 CONFIG_PROBE:
-        XOR A                            ; $AE73  AF
+        XOR A
         ; clear the host-active deblock flag (this LD A operand cell doubles as the disk hstact var)
-        LD (DISK_HSTWRT),A               ; $AE74  32 B0 AE
-        LD A,$02                         ; $AE77  3E 02
-        DEFB    $21                      ; $AE79  cover (LD HL,nn opcode): on fall-through absorbs the
+        LD (DISK_HSTWRT),A
+        LD A,$02
+        DEFB    $21                      ; cover (LD HL,nn opcode): on fall-through absorbs the
                                          ;        LD A,$01 below, leaving A=$02 from $AE77
 CONIO_SET_A1:
-        LD A,$01                         ; $AE7A  CALL'd directly -> A=$01 (cover-skipped on fall-through)
+        LD A,$01                         ; CALL'd directly -> A=$01 (cover-skipped on fall-through)
         ; store the console-selector index into the SoftCard config block (Apple $03EB)
-        LD ($F3EB),A                     ; $AE7C  32 EB F3
-        LD HL,$0E03                      ; $AE7F  21 03 0E
+        LD ($F3EB),A
+        LD HL,$0E03
         ; probe/init the selected console device handler
-        CALL RPC_TRIGGER                    ; $AE82  CD 3B AB
+        CALL RPC_TRIGGER
         ; read the detected device-class byte from the config block (Apple $03EA)
-        LD A,($F3EA)                     ; $AE85  3A EA F3
-        OR A                             ; $AE88  B7
+        LD A,($F3EA)
+        OR A
         ; no special device class -> done
-        RET Z                            ; $AE89  C8
-        POP DE                           ; $AE8A  D1
+        RET Z
+        POP DE
         ; device class $10 -> dispatch through the installed handler vector
-        CP $10                           ; $AE8B  FE 10
-        RET NZ                           ; $AE8D  C0
+        CP $10
+        RET NZ
         ; fetch the handler entry from the CCP/loader vector cell and tail-jump to it [RE]
-        LD HL,($9C0D)                    ; $AE8E  2A 0D 9C
-        JP (HL)                          ; $AE91  E9
+        LD HL,($9C0D)
+        JP (HL)
 ; ----------------------------------------------------------------------
 ; SECTOR_XLATE -- 16-entry logical->physical sector skew table (a 0..15 permutation).
 ;   Indexed by the deblock code (LD A,L add-offset lookup) to translate a CP/M logical
 ;   sector to the physical RWTS sector. DATA, not code.
 ; ----------------------------------------------------------------------
 SECTOR_XLATE:
-        ; $AE92  16-entry logical->physical sector skew table (a 0..15 permutation),
+        ; 16-entry logical->physical sector skew table (a 0..15 permutation),
         ; indexed during disk deblock (DEV_HANDLER_LOOKUP-style *1 byte lookups).
-        DEFB    $00,$09,$03,$0C,$06,$0F,$01,$0A      ; $AE92
-        DEFB    $04,$0D,$07,$08,$02,$0B,$05,$0E      ; $AE9A
+        DEFB    $00,$09,$03,$0C,$06,$0F,$01,$0A
+        DEFB    $04,$0D,$07,$08,$02,$0B,$05,$0E
 ; ----------------------------------------------------------------------
 ; COL_FLAG -- console-output entry/expand flag (0 or $FF), set by CONOUT_FILTER and
 ;   tested by SCREEN_EMIT to pick the physical output vector. Immediately followed by
 ;   COL_PENDING at A3-adjacent cells. Scratch byte, init $00. [RE]
 ; ----------------------------------------------------------------------
 COL_FLAG:
-        DEFB    $00                      ; $AEA2  disk scratch byte
+        DEFB    $00                      ; disk scratch byte
 ; ----------------------------------------------------------------------
 ; COL_PENDING -- pending column-skip / fill counter for console output, also reused as a
 ;   mode byte (set to 2 by TAB_EXPAND_DONE). Decremented as columns are consumed.
 ;   Accessed as COL_FLAG+1 in CONOUT_FILTER. Scratch byte, init $00. [RE]
 ; ----------------------------------------------------------------------
 COL_PENDING:
-        DEFB    $00                      ; $AEA3  disk scratch byte
+        DEFB    $00                      ; disk scratch byte
 ; ----------------------------------------------------------------------
 ; COL_STATE -- sticky control/escape state for tab expansion; armed to $80 on a trigger-
 ;   char match and cleared by SCREEN_EMIT. Scratch byte, init $00. [RE]
 ; ----------------------------------------------------------------------
 COL_STATE:
-        DEFB    $00                      ; $AEA4  disk scratch byte
+        DEFB    $00                      ; disk scratch byte
 ; ----------------------------------------------------------------------
 ; SCREEN_CURSOR_PTR -- 2-byte pointer cell used by the screen routines (initialized to
 ;   point at SCREEN_CHAR / SCREEN_CHAR). Loaded and re-stored by PUT_CHAR_STORE while reading
 ;   the Apple cursor base ($F028) and column ($F024) to compute the on-screen cell. [RE]
 ; ----------------------------------------------------------------------
 SCREEN_CURSOR_PTR:
-        DEFW    SCREEN_CHAR              ; $AEA5  pointer cell (init -> SCREEN_CHAR)
+        DEFW    SCREEN_CHAR              ; pointer cell (init -> SCREEN_CHAR)
 ; ----------------------------------------------------------------------
 ; SCREEN_CHAR -- saved on-screen character byte (the cell SCREEN_CURSOR_PTR points at by
 ;   default); written back to the screen with format bits applied. Scratch byte, init $00.
 ;   [RE]
 ; ----------------------------------------------------------------------
 SCREEN_CHAR:
-        DEFB    $00                      ; $AEA7  disk scratch byte
+        DEFB    $00                      ; disk scratch byte
 ; ----------------------------------------------------------------------
 ; BOOT -- CP/M cold-boot BIOS entry (jump-vector $AA00 lands here via $AA00->$AEA8).
 ;   In:  none. Out: does not return through here (falls into the install engine).
@@ -1343,7 +1340,7 @@ SCREEN_CHAR:
 BOOT:
         ; init Z-80 stack; these 3 bytes are reused post-boot as the disk sektrk/seksec deblock
         ; cells (BOOT=track, BOOT+1=sector)
-        LD SP,$0100                      ; $AEA8  31 00 01
+        LD SP,$0100
 ; ----------------------------------------------------------------------
 ; DISK_SELDSK_SAVE -- (boot install template 'LD A,$C9'); +1 byte reused as SELDSK scratch.
 ;   At cold boot this is the install engine's 'LD A,$C9' template. After boot SELDSK
@@ -1351,7 +1348,7 @@ BOOT:
 ;   then the disk number into DISK_SEKDSK (the next cell). [RE]
 ; ----------------------------------------------------------------------
 DISK_SELDSK_SAVE:
-        LD A,$C9                         ; $AEAB  3E C9
+        LD A,$C9
 ; ----------------------------------------------------------------------
 ; DISK_SEKDSK -- CP/M-requested disk number (DRI deblock 'sekdsk'); +1/+2 = hstdsk/hstact.
 ;   Boot tenant: install template 'LD (nn),A' (operand runtime-patched). Operational
@@ -1360,7 +1357,7 @@ DISK_SELDSK_SAVE:
 ;   HOME and the deblock, set when a host sector is staged. [RE]
 ; ----------------------------------------------------------------------
 DISK_SEKDSK:
-        LD (BIOS_VECTOR),A                    ; $AEAD  32 00 AA
+        LD (BIOS_VECTOR),A
 ; ----------------------------------------------------------------------
 ; DISK_HSTWRT -- host-buffer-dirty flag (DRI deblock 'hstwrt' [RE]); +1 = readop [RE].
 ;   Boot tenant: install template 'LD A,$95' (the default IOBYTE immediate). Operational
@@ -1368,7 +1365,7 @@ DISK_SEKDSK:
 ;   DISK_HSTWRT+1 is the read/seek scratch the READ/WRITE deblock loads. [RE]
 ; ----------------------------------------------------------------------
 DISK_HSTWRT:
-        LD A,$95                         ; $AEB0  3E 95
+        LD A,$95
 ; ----------------------------------------------------------------------
 ; DISK_WRTYPE -- deblock write type (DRI 'wrtype' [RE]); +1 = rsflag, +2 = unacnt.
 ;   Boot tenant: install template 'LD ($0003),A' (stores the default IOBYTE). Operational
@@ -1377,7 +1374,7 @@ DISK_HSTWRT:
 ;   by the WRITE deblock loop. [RE]
 ; ----------------------------------------------------------------------
 DISK_WRTYPE:
-        LD ($0003),A                     ; $AEB2  32 03 00
+        LD ($0003),A
 ; ----------------------------------------------------------------------
 ; DISK_UNADSK -- unallocated-run disk (DRI 'unadsk' [RE]); +1/+2 = unatrk/unasec.
 ;   Boot tenant: install template 'LD HL,(nn)'. Operational tenant: the unallocated
@@ -1385,7 +1382,7 @@ DISK_WRTYPE:
 ;   CP/M-requested track/sector (BOOT/BOOT+1) and advanced as the run is written. [RE]
 ; ----------------------------------------------------------------------
 DISK_UNADSK:
-        LD HL,($F3DE)                    ; $AEB5  2A DE F3
+        LD HL,($F3DE)
 ; ----------------------------------------------------------------------
 ; DISK_DMAADR -- current DMA buffer address (DRI deblock 'dmaadr').
 ;   Boot tenant: install template 'LD (nn),HL' (patches a console/IO operand at boot).
@@ -1393,75 +1390,75 @@ DISK_UNADSK:
 ;   CP/M 128-byte record source/destination.
 ; ----------------------------------------------------------------------
 DISK_DMAADR:
-        LD (RPC_TRIGGER_STORE+1),HL             ; $AEB8  22 3F AB
-        XOR A                            ; $AEBB  AF
-        LD ($0004),A                     ; $AEBC  32 04 00
-        LD A,($F3BB)                     ; $AEBF  3A BB F3
-        CP $05                           ; $AEC2  FE 05
-        JR NC,CONFIG_PROBE_16                ; $AEC4  30 1F
-        SUB $03                          ; $AEC6  D6 03
-        JR C,CONFIG_PROBE_16                 ; $AEC8  38 1B
-        JR NZ,CONFIG_PROBE_15                ; $AECA  20 06
-        LD HL,$1FB0                      ; $AECC  21 B0 1F
-        LD (KBD_STATUS_40COL+2),HL             ; $AECF  22 0E AB
+        LD (RPC_TRIGGER_STORE+1),HL
+        XOR A
+        LD ($0004),A
+        LD A,($F3BB)
+        CP $05
+        JR NC,CONFIG_PROBE_16
+        SUB $03
+        JR C,CONFIG_PROBE_16
+        JR NZ,CONFIG_PROBE_15
+        LD HL,$1FB0
+        LD (KBD_STATUS_40COL+2),HL
 CONFIG_PROBE_15:
-        PUSH AF                          ; $AED2  F5
-        CALL DEV_HANDLER_LOOKUP                    ; $AED3  CD 59 AF
-        POP AF                           ; $AED6  F1
-        LD (PUT_CHAR_VECTOR+1),HL             ; $AED7  22 42 AC
-        CALL DEV_HANDLER_LOOKUP_B                    ; $AEDA  CD 54 AF
-        LD (CONIN_DISPATCH+1),HL         ; $AEDD  22 2D AB  patch the CONIN keyboard-wait vector
-        LD A,$03                         ; $AEE0  3E 03
-        LD (CCP_MODE_FLAG+1),A              ; $AEE2  32 FD AA
+        PUSH AF
+        CALL DEV_HANDLER_LOOKUP
+        POP AF
+        LD (PUT_CHAR_VECTOR+1),HL
+        CALL DEV_HANDLER_LOOKUP_B
+        LD (CONIN_DISPATCH+1),HL         ; patch the CONIN keyboard-wait vector
+        LD A,$03
+        LD (CCP_MODE_FLAG+1),A
 CONFIG_PROBE_16:
-        LD A,($F3B9)                     ; $AEE5  3A B9 F3
-        SUB $03                          ; $AEE8  D6 03
-        JR C,CONFIG_PROBE_17                 ; $AEEA  38 08
-        CALL DEV_HANDLER_LOOKUP                    ; $AEEC  CD 59 AF
-        LD (DEV_OUT_1_JP+1),HL           ; $AEEF  22 2F AD  patch the DEV_OUT_1 vector
-        LD E,$80                         ; $AEF2  1E 80
+        LD A,($F3B9)
+        SUB $03
+        JR C,CONFIG_PROBE_17
+        CALL DEV_HANDLER_LOOKUP
+        LD (DEV_OUT_1_JP+1),HL           ; patch the DEV_OUT_1 vector
+        LD E,$80
 CONFIG_PROBE_17:
-        LD A,($F3BA)                     ; $AEF4  3A BA F3
-        SUB $03                          ; $AEF7  D6 03
-        JR C,CONFIG_PROBE_18                 ; $AEF9  38 14
-        PUSH AF                          ; $AEFB  F5
-        CALL DEV_HANDLER_LOOKUP                    ; $AEFC  CD 59 AF
-        LD (DEV_OUT_2_JP+1),HL           ; $AEFF  22 43 AD  patch the DEV_OUT_2 vector
-        POP AF                           ; $AF02  F1
-        CP $02                           ; $AF03  FE 02
-        JR NC,CONFIG_PROBE_18                ; $AF05  30 08
-        CALL DEV_HANDLER_LOOKUP_B                    ; $AF07  CD 54 AF
-        LD (DEV_OUT_3_JP+1),HL           ; $AF0A  22 49 AD  patch the DEV_OUT_3 jump target
-        JR CONFIG_PROBE_19                   ; $AF0D  18 0B
+        LD A,($F3BA)
+        SUB $03
+        JR C,CONFIG_PROBE_18
+        PUSH AF
+        CALL DEV_HANDLER_LOOKUP
+        LD (DEV_OUT_2_JP+1),HL           ; patch the DEV_OUT_2 vector
+        POP AF
+        CP $02
+        JR NC,CONFIG_PROBE_18
+        CALL DEV_HANDLER_LOOKUP_B
+        LD (DEV_OUT_3_JP+1),HL           ; patch the DEV_OUT_3 jump target
+        JR CONFIG_PROBE_19
 CONFIG_PROBE_18:
-        LD HL,$1A3E                      ; $AF0F  21 3E 1A
-        LD (DEV_OUT_3_JP),HL             ; $AF12  22 48 AD  build DEV_OUT_3's instruction (opcode+lo)
-        LD A,$C9                         ; $AF15  3E C9
-        LD (DEV_OUT_3_JP+2),A            ; $AF17  32 4A AD  build DEV_OUT_3's instruction (hi byte)
+        LD HL,$1A3E
+        LD (DEV_OUT_3_JP),HL             ; build DEV_OUT_3's instruction (opcode+lo)
+        LD A,$C9
+        LD (DEV_OUT_3_JP+2),A            ; build DEV_OUT_3's instruction (hi byte)
 CONFIG_PROBE_19:
-        LD A,($F381)                     ; $AF1A  3A 81 F3
-        OR A                             ; $AF1D  B7
-        JR NZ,CONFIG_PROBE_20                ; $AF1E  20 0B
-        LD HL,IO_VECTOR_DEFAULTS                     ; $AF20  21 AE AF
-        LD DE,$F380                      ; $AF23  11 80 F3
-        LD BC,$0016                      ; $AF26  01 16 00
-        LDIR                             ; $AF29  ED B0
+        LD A,($F381)
+        OR A
+        JR NZ,CONFIG_PROBE_20
+        LD HL,IO_VECTOR_DEFAULTS
+        LD DE,$F380
+        LD BC,$0016
+        LDIR
 CONFIG_PROBE_20:
-        CALL PROBE_DEVICES                    ; $AF2B  CD A2 AA
-        LD A,($F398)                     ; $AF2E  3A 98 F3
-        CALL SIGNON_EMIT                    ; $AF31  CD 64 AF
-        LD A,($F39B)                     ; $AF34  3A 9B F3
-        CALL SIGNON_EMIT                    ; $AF37  CD 64 AF
-        LD HL,SIGNON_BANNER                     ; $AF3A  21 73 AF
+        CALL PROBE_DEVICES
+        LD A,($F398)
+        CALL SIGNON_EMIT
+        LD A,($F39B)
+        CALL SIGNON_EMIT
+        LD HL,SIGNON_BANNER
 CONFIG_PROBE_21:
-        LD A,(HL)                        ; $AF3D  7E
-        OR A                             ; $AF3E  B7
-        JP Z,PAGEZERO_REBUILD                  ; $AF3F  CA DB AA
-        PUSH HL                          ; $AF42  E5
-        CALL CONOUT_DISPATCH                    ; $AF43  CD 42 AB
-        POP HL                           ; $AF46  E1
-        INC HL                           ; $AF47  23
-        JR CONFIG_PROBE_21                   ; $AF48  18 F3
+        LD A,(HL)
+        OR A
+        JP Z,PAGEZERO_REBUILD
+        PUSH HL
+        CALL CONOUT_DISPATCH
+        POP HL
+        INC HL
+        JR CONFIG_PROBE_21
 ; ----------------------------------------------------------------------
 ; DEV_HANDLER_PTRS -- DEFW table of disk read/write handler addresses (primary group),
 ;   indexed by DEV_HANDLER_LOOKUP. Continues as DEV_HANDLER_PTRS_B (+6). DATA.
@@ -1478,15 +1475,15 @@ CONFIG_PROBE_21:
 ;   that are really handler CODE, so the relocations need those blocks named first.
 ; ----------------------------------------------------------------------
 DEV_HANDLER_PTRS:
-        ; $AF4A  table of device-handler addresses (DEFW). DEV_HANDLER_LOOKUP indexes from
+        ; table of device-handler addresses (DEFW). DEV_HANDLER_LOOKUP indexes from
         ; here; DEV_HANDLER_LOOKUP_B indexes from DEV_HANDLER_PTRS_B (+6). Selected per config
         ; by CONFIG_PROBE to install the right console/disk handler into the vector slots.
-        DEFW    DEV_STROBE_RD            ; $AF4A  [0]
-        DEFW    PLOT_CHAR_AT_COL         ; $AF4C  [1]
-        DEFW    DEV_WR_BIT               ; $AF4E  [2]
+        DEFW    DEV_STROBE_RD            ; [0]
+        DEFW    PLOT_CHAR_AT_COL         ; [1]
+        DEFW    DEV_WR_BIT               ; [2]
 DEV_HANDLER_PTRS_B:
-        DEFW    DEV_READ_BIT             ; $AF50  DEV_HANDLER_LOOKUP_B base
-        DEFW    DEV_OUT_RPC              ; $AF52
+        DEFW    DEV_READ_BIT             ; DEV_HANDLER_LOOKUP_B base
+        DEFW    DEV_OUT_RPC
 ; ----------------------------------------------------------------------
 ; DEV_HANDLER_LOOKUP_B -- fetch a disk-handler address from DEV_HANDLER_PTRS_B[A].
 ;   In:  A = entry index (0-based). Out: HL = handler address. Clobbers: A,HL.
@@ -1496,8 +1493,8 @@ DEV_HANDLER_PTRS_B:
 ; ----------------------------------------------------------------------
 DEV_HANDLER_LOOKUP_B:
         ; select the secondary handler-pointer table
-        LD HL,DEV_HANDLER_PTRS_B              ; $AF54  21 50 AF
-        JR DISK_RTN_LOOKUP_IDX                    ; $AF57  18 03
+        LD HL,DEV_HANDLER_PTRS_B
+        JR DISK_RTN_LOOKUP_IDX
 ; ----------------------------------------------------------------------
 ; DEV_HANDLER_LOOKUP -- fetch a disk-handler address from DEV_HANDLER_PTRS[A].
 ;   In:  A = entry index (0-based). Out: HL = handler address. Clobbers: A,HL.
@@ -1506,19 +1503,19 @@ DEV_HANDLER_LOOKUP_B:
 ; ----------------------------------------------------------------------
 DEV_HANDLER_LOOKUP:
         ; select the primary handler-pointer table
-        LD HL,DEV_HANDLER_PTRS                ; $AF59  21 4A AF
+        LD HL,DEV_HANDLER_PTRS
 DISK_RTN_LOOKUP_IDX:
         ; index*2 for 16-bit (word) table entries
-        ADD A,A                          ; $AF5C  87
-        ADD A,L                          ; $AF5D  85
-        LD L,A                           ; $AF5E  6F
+        ADD A,A
+        ADD A,L
+        LD L,A
         ; load handler address low byte
-        LD A,(HL)                        ; $AF5F  7E
-        INC L                            ; $AF60  2C
+        LD A,(HL)
+        INC L
         ; load handler address high byte -> HL = handler entry
-        LD H,(HL)                        ; $AF61  66
-        LD L,A                           ; $AF62  6F
-        RET                              ; $AF63  C9
+        LD H,(HL)
+        LD L,A
+        RET
 ; ----------------------------------------------------------------------
 ; SIGNON_EMIT -- emit one sign-on byte, optionally preceded by a fixed prefix char.
 ;   In:  A = byte/flag. Out: none (prints via CONOUT_DISPATCH=CONOUT-class writer).
@@ -1527,34 +1524,34 @@ DISK_RTN_LOOKUP_IDX:
 ;   the boot path to emit two config-derived sign-on chars before the banner. [RE]
 ; ----------------------------------------------------------------------
 SIGNON_EMIT:
-        OR A                             ; $AF64  B7
+        OR A
         ; bit7 clear -> emit the char directly
-        JP P,SIGNON_EMIT_CHAR                  ; $AF65  F2 70 AF
-        PUSH AF                          ; $AF68  F5
+        JP P,SIGNON_EMIT_CHAR
+        PUSH AF
         ; negative flag: fetch the prefix char from the config block (Apple $0397)
-        LD A,($F397)                     ; $AF69  3A 97 F3
+        LD A,($F397)
         ; emit the prefix char
-        CALL CONOUT_DISPATCH                    ; $AF6C  CD 42 AB
-        POP AF                           ; $AF6F  F1
+        CALL CONOUT_DISPATCH
+        POP AF
 SIGNON_EMIT_CHAR:
         ; tail-call to emit the original char
-        JP CONOUT_DISPATCH                      ; $AF70  C3 42 AB
+        JP CONOUT_DISPATCH
 ; ----------------------------------------------------------------------
 ; SIGNON_BANNER -- the cold-boot sign-on string, printed char-by-char by the boot path
 ;   (loop at CONFIG_PROBE_21) until the $00 terminator. Reads:
 ;   'Apple ][ CP/M' / '44K Ver. 2.20' / '(C) 1980 Microsoft', CR/LF separated. DATA.
 ; ----------------------------------------------------------------------
 SIGNON_BANNER:
-        DEFB    "\r\n\r\n\r\n"    ; $AF73
-        DEFB    "Apple ][ CP/M"    ; $AF79  string
-        DEFB    $0D    ; $AF86  terminator
-        DEFB    "\n"    ; $AF87
-        DEFB    "44K Ver. 2.20"    ; $AF88  string
-        DEFB    $0D    ; $AF95  terminator
-        DEFB    "\n"    ; $AF96
-        DEFB    "(C) 1980 Microsoft"    ; $AF97  string
-        DEFB    $0D    ; $AFA9  terminator
-        DEFB    "\n\r\n\0"    ; $AFAA
+        DEFB    "\r\n\r\n\r\n"
+        DEFB    "Apple ][ CP/M"          ; string
+        DEFB    $0D                      ; terminator
+        DEFB    "\n"
+        DEFB    "44K Ver. 2.20"          ; string
+        DEFB    $0D                      ; terminator
+        DEFB    "\n"
+        DEFB    "(C) 1980 Microsoft"     ; string
+        DEFB    $0D                      ; terminator
+        DEFB    "\n\r\n\0"
 ; ----------------------------------------------------------------------
 ; IO_VECTOR_DEFAULTS -- 22-byte (BC=$0016) DATA table of default I/O handler pointers,
 ;   copied by the boot path (LDIR) into the SoftCard config/vector page at $F380=Apple
@@ -1566,23 +1563,23 @@ SIGNON_BANNER:
 ;   but are NOT executed from here. [RE] -- see flags.
 ; ----------------------------------------------------------------------
 IO_VECTOR_DEFAULTS:
-        DEFW    KBD_STATUS_40COL         ; $AFAE  CONST (40-col keyboard status)
-        DEFW    CONSOLE_IN_40COL         ; $AFB0  CONIN
-        DEFW    CONSOLE_IN_40COL         ; $AFB2
-        DEFW    PUT_CHAR_DE3             ; $AFB4  CONOUT
-        DEFW    PUT_CHAR_DE3             ; $AFB6
-        DEFW    DEV_OUT_3                ; $AFB8  LIST/PUNCH/READER stubs
-        DEFW    DEV_OUT_3                ; $AFBA
-        DEFW    DEV_OUT_2                ; $AFBC
-        DEFW    DEV_OUT_2                ; $AFBE
-        DEFW    DEV_OUT_1                ; $AFC0
-        DEFW    DEV_OUT_1                ; $AFC2
+        DEFW    KBD_STATUS_40COL         ; CONST (40-col keyboard status)
+        DEFW    CONSOLE_IN_40COL         ; CONIN
+        DEFW    CONSOLE_IN_40COL
+        DEFW    PUT_CHAR_DE3             ; CONOUT
+        DEFW    PUT_CHAR_DE3
+        DEFW    DEV_OUT_3                ; LIST/PUNCH/READER stubs
+        DEFW    DEV_OUT_3
+        DEFW    DEV_OUT_2
+        DEFW    DEV_OUT_2
+        DEFW    DEV_OUT_1
+        DEFW    DEV_OUT_1
         ; $AFC4-$AFEF: an in-image second copy of the DEV_HANDLER_PTRS table + the
         ; DEV_HANDLER_LOOKUP / SIGNON_EMIT routines (byte-identical to $AF4A-$AF6F);
         ; not referenced or executed from here. [RE]
-        DEFB    $42,$AB,$E1,$23,$18,$F3,$DF,$AC,$04,$AD,$31,$AD,$12,$AD,$1C,$AD ; $AFC4
-        DEFB    $21,$50,$AF,$18,$03,$21,$4A,$AF,$87,$85,$6F,$7E,$2C,$66,$6F,$C9 ; $AFD4
-        DEFB    $B7,$F2,$70,$AF,$F5,$3A,$97,$F3,$CD,$42,$AB,$F1                 ; $AFE4
+        DEFB    $42,$AB,$E1,$23,$18,$F3,$DF,$AC,$04,$AD,$31,$AD,$12,$AD,$1C,$AD
+        DEFB    $21,$50,$AF,$18,$03,$21,$4A,$AF,$87,$85,$6F,$7E,$2C,$66,$6F,$C9
+        DEFB    $B7,$F2,$70,$AF,$F5,$3A,$97,$F3,$CD,$42,$AB,$F1
 ; ----------------------------------------------------------------------
 ; READ_SEKSEC -- load the current deblock sector and set flags.
 ;   In:  none. Out: A = current sector (from BOOT+1=seksec); Z set if sector==0.
@@ -1591,11 +1588,11 @@ IO_VECTOR_DEFAULTS:
 ; ----------------------------------------------------------------------
 READ_SEKSEC:
         ; read the current deblock sector (BOOT+1 reused as seksec)
-        LD A,(BOOT+1)              ; $AFF0  3A A9 AE
+        LD A,(BOOT+1)
         ; set Z/sign flags on the sector value for the caller
-        OR A                             ; $AFF3  B7
-        RET                              ; $AFF4  C9
-        DEFB    "\r\n\r\nApple ]"    ; $AFF5
+        OR A
+        RET
+        DEFB    "\r\n\r\nApple ]"
 
     IFNDEF CPM_LINK
     SAVEBIN "{out_bin}", $AA00, $0600
