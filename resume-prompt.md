@@ -45,6 +45,16 @@ result-tail).
    (assemble + `runtime_to_ondisk`) into the build to replace the skewed source. NOTE: CCP
    entry is $9400 (BIOS) but the de-skewed Z-80 image starts at $9600 -- resolve where the CCP
    runs vs the 6502 passthrough pages ($9400/$9600) early. Add the boot-and-compare gate.
+   **ENRICH STARTED (committed):** `CPMV220-44K/os/CPM_System_rt.asm` is the runtime-order
+   re-base workspace (`--auto-coverage --relocatable` disasm, ORG $9600, byte-identical), gated
+   by `test_cpm220_44k_runtime_source_reskews_byte_identical`. First naming pass DONE: 53
+   authoritative semantic names BY ADDRESS (the 41 dispatch fn handlers from the $9C47 table,
+   the 14 var-page cells from the two-sided analysis, BDOS_ENTRY/DISPATCH/DISPATCH_TBL/
+   RET_RESULT). REMAINING enrich: the other ~340 auto-labels (FUNCNAME_N), C-level headers +
+   body comments (existing skewed CPM_BDOS.asm/CPM_CCP.asm = the LEAD), decode the CCP region
+   (still partly DEFB -- needs CCP entry points once the $9400/$9600 layout is resolved), strip
+   the inline `; $addr` to a `.lst`, then switch the build's ChunkSource to the runtime source +
+   `runtime_to_ondisk` and retire the skewed files. Gate: `softcard/ shared/` = 230.
 3. THEN the CCP/BDOS split + `cpm_bdos_220.inc` export header (the now-DEFERRED
    `[[project_cpm_ccp_bdos_separate_compilation]]`) fall out trivially on a runtime-addressed
    source, and the cross-ref naming (the two-sided analysis, `E:/tmp/locked_names.md`,
