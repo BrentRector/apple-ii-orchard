@@ -14,14 +14,25 @@ mislabels (the "$AE73 config-probe" is actually the host WRITE RWTS RPC -> `DISK
 DPH/DPB were called "config rows"; control codes map to Apple monitor routines). The 2.20-44K
 **README.md** now documents assemble + boot-track-write precisely. Build doc: `CPMV220-44K/README.md`.
 
-**>> NEXT (Brent, 2026-06-24): repeat the ENTIRE pipeline on the 2.23-44K OS disk** — de-skew,
-decode, semantic lift, adversarial review — to correct/replace its on-disk-order decode the same
-way. 2.23-44K is a CLEAN-SLATE decode from 2.23 bytes (2.20 = verify cross-ref, never copied —
-[[feedback_clean_slate_not_patch_prior_decompile]]). Its BIOS uses a DIFFERENT off-image `$FExx`
-RWTS mechanism (not the 2.20 `$03E0` IOB) and falls back to the 40-col Apple screen when no Videx
-([[feedback_223_not_80col_only]]). Reuse all the tooling: `deskew.py` (needs a 2.23 page map —
-derive from the emulator), `enrich_apply`, `os_listing.py`, the multi-agent enrich + devil's-
-advocate workflow. Mirror chunk_map `CPM223_44K_*`.
+**>> 2.23-44K PIPELINE IN PROGRESS (2026-06-24).** De-skew maps DERIVED + wired BYTE-IDENTICAL
+(commits through the 2.23 de-skew + the BIOS): `deskew.py :: PAGE_TO_SECTOR_223` (CCP+BDOS runtime
+$9300-$A9FF) + `BIOS_PAGE_TO_SECTOR_223` (BIOS z80 $FA00-$FFFF = Apple $0A00 LOW RAM, 6 pages,
+sectors 40-45) -- the 2.23 loader STAGES at Apple $8000 then relocates, so the maps were derived by
+matching emulator post-boot RAM to disk sectors. Sources REPLACED with the de-skewed runtime
+disassembly: CPM_CCP.asm ($9300 $0900) + CPM_BDOS.asm ($9C00 $0E00) as two compilations sharing
+`include/cpm_system_223.inc` (BDOS_FBASE $9C00, CCP_WBOOT $9B06), CPM_BIOS.asm ($FA00 $0600); chunk_map
+`_build_chunks_223` scatters via the maps; DiskCallbacks/RPC6502-INCBIN were skew artifacts, dropped.
+Gate 226, byte-identical. **BIOS semantic lift DONE-ish**: 71 names + 58 C-level headers + 177 body
+comments (3-cluster agent lift vs the 2.20 twin), DPH array + DPB rendered (4 drives, DSM=139). KEY
+2.23 finding: the BIOS DELEGATES disk deblock OFF-IMAGE (READ->`JP $AC39`, WRITE->`JP $AC49`; no
+in-image $03E0 IOB / SECTOR_XLATE / deblock engine), Videx CONST patch $1FBE, CCP entry $9300.
+**IN FLIGHT: 5 background agents enriching CCP (2) + BDOS (3)** vs the 2.20 twins -> spec JSONs at
+`E:/tmp/{ccp,bdos}223_spec_*.json`. **NEXT: collect those specs -> merge -> enrich_apply --target ->
+gate byte-identical -> commit CCP, then BDOS.** THEN remaining BIOS structural polish (decode the
+Z-80 DEV-handler stubs $FE41-$FE6B + EXTRACT the embedded 6502 RPC service $FDD1-$FE40, resolve the
+SUB_FE85_23 skip idiom, strip $addr to .lst) + adversarial review of all three + a 2.23 README.
+2.23 = CLEAN-SLATE from 2.23 bytes (2.20 = verify lead only -- [[feedback_clean_slate_not_patch_prior_decompile]]).
+Reuse `enrich_apply`/`os_listing.py`. 56K still OUT.
 
 Full de-skew finding: **`softcard/docs/CPM_Skew_Findings.md`**; the lesson:
 **[[feedback_decode_deskewed_runtime_not_ondisk]]**; the campaign:
