@@ -763,8 +763,8 @@ L_9BF0:
 L_9BF1:
         DEFS    15, $00    ; $9BF1  fill
         DEFB    $BD,$16,$00,$00,$16,$DF                          ; $9C00
-SUB_9866_42:
-        JP SUB_9866_47                   ; $9C06  C3 11 9C
+BDOS_ENTRY:
+        JP BDOS_DISPATCH                   ; $9C06  C3 11 9C
 SUB_9866_43:
         SBC A,C                          ; $9C09  99
         SBC A,H                          ; $9C0A  9C
@@ -777,7 +777,7 @@ SUB_9866_45:
 SUB_9866_46:
         OR C                             ; $9C0F  B1
         SBC A,H                          ; $9C10  9C
-SUB_9866_47:
+BDOS_DISPATCH:
         EX DE,HL                         ; $9C11  EB
         LD (L_9F43),HL                   ; $9C12  22 43 9F
         EX DE,HL                         ; $9C15  EB
@@ -797,7 +797,7 @@ SUB_9866_47:
         CP $29                           ; $9C33  FE 29
         RET NC                           ; $9C35  D0
         LD C,E                           ; $9C36  4B
-        LD HL,L_9C47                     ; $9C37  21 47 9C
+        LD HL,BDOS_DISPATCH_TBL                     ; $9C37  21 47 9C
         LD E,A                           ; $9C3A  5F
         LD D,$00                         ; $9C3B  16 00
         ADD HL,DE                        ; $9C3D  19
@@ -808,41 +808,41 @@ SUB_9866_47:
         LD HL,(L_9F43)                   ; $9C42  2A 43 9F
         EX DE,HL                         ; $9C45  EB
         JP (HL)                          ; $9C46  E9
-L_9C47:
+BDOS_DISPATCH_TBL:
         DEFW    $AA03                    ; $9C47
-        DEFW    SUB_9DC9_20              ; $9C49
-        DEFW    SUB_9D90                 ; $9C4B
-        DEFW    SUB_9DC9_21              ; $9C4D
+        DEFW    F_CONIN_H              ; $9C49
+        DEFW    F_CONOUT_H                 ; $9C4B
+        DEFW    F_READERIN_H              ; $9C4D
         DEFB    $12,$AA,$0F,$AA,$D4,$9E,$ED,$9E,$F3,$9E,$F8,$9E,$E1,$9D,$FE,$9E ; $9C4F
-        DEFW    SUB_A851_2               ; $9C5F
-        DEFW    SUB_A851_3               ; $9C61
-        DEFW    SUB_A845                 ; $9C63
-        DEFW    SUB_A851_4               ; $9C65
-        DEFW    SUB_A851_5               ; $9C67
-        DEFW    SUB_A851_6               ; $9C69
-        DEFW    SUB_A851_8               ; $9C6B
-        DEFW    SUB_A851_9               ; $9C6D
-        DEFW    SUB_A851_10              ; $9C6F
-        DEFW    SUB_A851_11              ; $9C71
-        DEFW    SUB_A851_12              ; $9C73
-        DEFW    SUB_A851_13              ; $9C75
-        DEFW    SUB_A851_14              ; $9C77
-        DEFW    SUB_A851_15              ; $9C79
-        DEFW    SUB_A851_16              ; $9C7B
-        DEFW    SUB_A851_17              ; $9C7D
-        DEFW    SUB_A12C                 ; $9C7F
-        DEFW    SUB_A851_18              ; $9C81
-        DEFW    SUB_A851_19              ; $9C83
-        DEFW    SUB_A851_20              ; $9C85
-        DEFW    SUB_A851_22              ; $9C87
-        DEFW    SUB_A851_24              ; $9C89
-        DEFW    SUB_A851_25              ; $9C8B
-        DEFW    SUB_A851_26              ; $9C8D
-        DEFW    SUB_A7A5_5               ; $9C8F
+        DEFW    S_BDOSVER_H               ; $9C5F
+        DEFW    DRV_ALLRESET_H               ; $9C61
+        DEFW    DRV_SET_H                 ; $9C63
+        DEFW    F_OPEN_H               ; $9C65
+        DEFW    F_CLOSE_H               ; $9C67
+        DEFW    F_SFIRST_H               ; $9C69
+        DEFW    F_SNEXT_H               ; $9C6B
+        DEFW    F_DELETE_H               ; $9C6D
+        DEFW    F_READ_H              ; $9C6F
+        DEFW    F_WRITE_H              ; $9C71
+        DEFW    F_MAKE_H              ; $9C73
+        DEFW    F_RENAME_H              ; $9C75
+        DEFW    DRV_LOGINVEC_H              ; $9C77
+        DEFW    DRV_GET_H              ; $9C79
+        DEFW    F_DMAOFF_H              ; $9C7B
+        DEFW    DRV_ALLOCVEC_H              ; $9C7D
+        DEFW    DRV_SETRO_H                 ; $9C7F
+        DEFW    DRV_ROVEC_H              ; $9C81
+        DEFW    F_ATTRIB_H              ; $9C83
+        DEFW    DRV_DPB_H              ; $9C85
+        DEFW    F_USERNUM_H              ; $9C87
+        DEFW    F_READRAND_H              ; $9C89
+        DEFW    F_WRITERAND_H              ; $9C8B
+        DEFW    F_SIZE_H              ; $9C8D
+        DEFW    F_RANDREC_H               ; $9C8F
         DEFW    SUB_A851_27              ; $9C91
         DEFW    $9F04                    ; $9C93
         DEFW    $9F04                    ; $9C95
-        DEFW    SUB_A851_30              ; $9C97
+        DEFW    F_WRITEZF_H              ; $9C97
         DEFW    $CA21                    ; $9C99
         DEFW    $CD9C                    ; $9C9B
         DEFW    SUB_9866_48              ; $9C9D
@@ -880,7 +880,7 @@ SUB_9D06:
         RET C                            ; $9D0C  D8
         PUSH AF                          ; $9D0D  F5
         LD C,A                           ; $9D0E  4F
-        CALL SUB_9D90                    ; $9D0F  CD 90 9D
+        CALL F_CONOUT_H                    ; $9D0F  CD 90 9D
         POP AF                           ; $9D12  F1
         RET                              ; $9D13  C9
 SUB_9D14:
@@ -954,14 +954,14 @@ SUB_9D48_2:
 SUB_9D7F:
         LD A,C                           ; $9D7F  79
         CALL SUB_9D14                    ; $9D80  CD 14 9D
-        JP NC,SUB_9D90                   ; $9D83  D2 90 9D
+        JP NC,F_CONOUT_H                   ; $9D83  D2 90 9D
         PUSH AF                          ; $9D86  F5
         LD C,$5E                         ; $9D87  0E 5E
         CALL SUB_9D48                    ; $9D89  CD 48 9D
         POP AF                           ; $9D8C  F1
         OR $40                           ; $9D8D  F6 40
         LD C,A                           ; $9D8F  4F
-SUB_9D90:
+F_CONOUT_H:
         LD A,C                           ; $9D90  79
         CP $09                           ; $9D91  FE 09
         JP NZ,SUB_9D48                   ; $9D93  C2 48 9D
@@ -1003,10 +1003,10 @@ SUB_9DC9_1:
         INC BC                           ; $9DD7  03
         PUSH BC                          ; $9DD8  C5
         LD C,A                           ; $9DD9  4F
-        CALL SUB_9D90                    ; $9DDA  CD 90 9D
+        CALL F_CONOUT_H                    ; $9DDA  CD 90 9D
         POP BC                           ; $9DDD  C1
         JP SUB_9DC9_1                    ; $9DDE  C3 D3 9D
-SUB_9DC9_2:
+F_READCONBUF_H:
         LD A,(L_9F0C)                    ; $9DE1  3A 0C 9F
         LD (L_9F0B),A                    ; $9DE4  32 0B 9F
         LD HL,(L_9F43)                   ; $9DE7  2A 43 9F
@@ -1072,7 +1072,7 @@ SUB_9DC9_9:
         LD A,(L_9F0B)                    ; $9E4E  3A 0B 9F
         LD HL,L_9F0C                     ; $9E51  21 0C 9F
         CP (HL)                          ; $9E54  BE
-        JP NC,SUB_9DC9_2                 ; $9E55  D2 E1 9D
+        JP NC,F_READCONBUF_H                 ; $9E55  D2 E1 9D
         DEC (HL)                         ; $9E58  35
         CALL SUB_9DA4                    ; $9E59  CD A4 9D
         JP SUB_9DC9_9                    ; $9E5C  C3 4E 9E
@@ -1081,7 +1081,7 @@ SUB_9DC9_10:
         JP NZ,SUB_9DC9_11                ; $9E61  C2 6B 9E
         CALL SUB_9DB1                    ; $9E64  CD B1 9D
         POP HL                           ; $9E67  E1
-        JP SUB_9DC9_2                    ; $9E68  C3 E1 9D
+        JP F_READCONBUF_H                    ; $9E68  C3 E1 9D
 SUB_9DC9_11:
         CP $12                           ; $9E6B  FE 12
         JP NZ,SUB_9DC9_16                ; $9E6D  C2 A6 9E
@@ -1144,13 +1144,13 @@ SUB_9DC9_19:
         LD (HL),B                        ; $9EC2  70
         LD C,$0D                         ; $9EC3  0E 0D
         JP SUB_9D48                      ; $9EC5  C3 48 9D
-SUB_9DC9_20:
+F_CONIN_H:
         CALL SUB_9D06                    ; $9EC8  CD 06 9D
-        JP SUB_9DC9_28                   ; $9ECB  C3 01 9F
-SUB_9DC9_21:
+        JP BDOS_RET_RESULT                   ; $9ECB  C3 01 9F
+F_READERIN_H:
         CALL $AA15                       ; $9ECE  CD 15 AA
-        JP SUB_9DC9_28                   ; $9ED1  C3 01 9F
-SUB_9DC9_22:
+        JP BDOS_RET_RESULT                   ; $9ED1  C3 01 9F
+F_DIRECTIO_H:
         LD A,C                           ; $9ED4  79
         INC A                            ; $9ED5  3C
         JP Z,SUB_9DC9_23                 ; $9ED6  CA E0 9E
@@ -1162,27 +1162,27 @@ SUB_9DC9_23:
         OR A                             ; $9EE3  B7
         JP Z,SUB_A851_29                 ; $9EE4  CA 91 A9
         CALL $AA09                       ; $9EE7  CD 09 AA
-        JP SUB_9DC9_28                   ; $9EEA  C3 01 9F
-SUB_9DC9_24:
+        JP BDOS_RET_RESULT                   ; $9EEA  C3 01 9F
+F_GETIOB_H:
         LD A,($0003)                     ; $9EED  3A 03 00
-        JP SUB_9DC9_28                   ; $9EF0  C3 01 9F
-SUB_9DC9_25:
+        JP BDOS_RET_RESULT                   ; $9EF0  C3 01 9F
+F_SETIOB_H:
         LD HL,$0003                      ; $9EF3  21 03 00
         LD (HL),C                        ; $9EF6  71
         RET                              ; $9EF7  C9
-SUB_9DC9_26:
+F_PRINTSTR_H:
         EX DE,HL                         ; $9EF8  EB
         LD C,L                           ; $9EF9  4D
         LD B,H                           ; $9EFA  44
         JP SUB_9DC9_1                    ; $9EFB  C3 D3 9D
-SUB_9DC9_27:
+F_CONSTAT_H:
         CALL SUB_9D23                    ; $9EFE  CD 23 9D
-SUB_9DC9_28:
+BDOS_RET_RESULT:
         LD (L_9F45),A                    ; $9F01  32 45 9F
         RET                              ; $9F04  C9
 SUB_9F05:
         LD A,$01                         ; $9F05  3E 01
-        JP SUB_9DC9_28                   ; $9F07  C3 01 9F
+        JP BDOS_RET_RESULT                   ; $9F07  C3 01 9F
 L_9F0A:
         DEFB    "\0"    ; $9F0A
 L_9F0B:
@@ -1232,7 +1232,7 @@ SUB_9F59:
         INC HL                           ; $9F64  23
         LD D,(HL)                        ; $9F65  56
         INC HL                           ; $9F66  23
-        LD (L_A9B3),HL                   ; $9F67  22 B3 A9
+        LD (DPB_WORK_PTR0),HL                   ; $9F67  22 B3 A9
         INC HL                           ; $9F6A  23
         INC HL                           ; $9F6B  23
         LD (L_A9B5),HL                   ; $9F6C  22 B5 A9
@@ -1243,7 +1243,7 @@ SUB_9F59:
         INC HL                           ; $9F75  23
         EX DE,HL                         ; $9F76  EB
         LD (L_A9D0),HL                   ; $9F77  22 D0 A9
-        LD HL,L_A9B9                     ; $9F7A  21 B9 A9
+        LD HL,DIRBUF_PTR                     ; $9F7A  21 B9 A9
         LD C,$08                         ; $9F7D  0E 08
         CALL SUB_9F4F                    ; $9F7F  CD 4F 9F
         LD HL,(L_A9BB)                   ; $9F82  2A BB A9
@@ -1251,9 +1251,9 @@ SUB_9F59:
         LD HL,L_A9C1                     ; $9F86  21 C1 A9
         LD C,$0F                         ; $9F89  0E 0F
         CALL SUB_9F4F                    ; $9F8B  CD 4F 9F
-        LD HL,(L_A9C6)                   ; $9F8E  2A C6 A9
+        LD HL,(MAX_BLOCK_DSM)                   ; $9F8E  2A C6 A9
         LD A,H                           ; $9F91  7C
-        LD HL,L_A9DD                     ; $9F92  21 DD A9
+        LD HL,BLOCK_WIDTH_FLAG                     ; $9F92  21 DD A9
         LD (HL),$FF                      ; $9F95  36 FF
         OR A                             ; $9F97  B7
         JP Z,SUB_9F59_1                  ; $9F98  CA 9D 9F
@@ -1285,11 +1285,11 @@ SUB_9FB8_1:
         LD HL,SUB_9866_43                ; $9FBD  21 09 9C
         JP SUB_9F47_1                    ; $9FC0  C3 4A 9F
 SUB_9FC3:
-        LD HL,(L_A9EA)                   ; $9FC3  2A EA A9
+        LD HL,(CUR_RECORD)                   ; $9FC3  2A EA A9
         LD C,$02                         ; $9FC6  0E 02
         CALL SUB_A0EA                    ; $9FC8  CD EA A0
         LD (L_A9E5),HL                   ; $9FCB  22 E5 A9
-        LD (L_A9EC),HL                   ; $9FCE  22 EC A9
+        LD (REC_CACHE),HL                   ; $9FCE  22 EC A9
 SUB_9FD1:
         LD HL,L_A9E5                     ; $9FD1  21 E5 A9
         LD C,(HL)                        ; $9FD4  4E
@@ -1397,7 +1397,7 @@ SUB_A05E:
         LD DE,$0010                      ; $A061  11 10 00
         ADD HL,DE                        ; $A064  19
         ADD HL,BC                        ; $A065  09
-        LD A,(L_A9DD)                    ; $A066  3A DD A9
+        LD A,(BLOCK_WIDTH_FLAG)                    ; $A066  3A DD A9
         OR A                             ; $A069  B7
         JP Z,SUB_A05E_1                  ; $A06A  CA 71 A0
         LD L,(HL)                        ; $A06D  6E
@@ -1493,7 +1493,7 @@ SUB_A0EA_1:
         JP SUB_A0EA_1                    ; $A0F4  C3 EB A0
 SUB_A0F7:
         LD C,$80                         ; $A0F7  0E 80
-        LD HL,(L_A9B9)                   ; $A0F9  2A B9 A9
+        LD HL,(DIRBUF_PTR)                   ; $A0F9  2A B9 A9
         XOR A                            ; $A0FC  AF
 SUB_A0F7_1:
         ADD A,(HL)                       ; $A0FD  86
@@ -1523,24 +1523,24 @@ SUB_A10B:
         LD H,A                           ; $A11C  67
         RET                              ; $A11D  C9
 SUB_A11E:
-        LD HL,(L_A9AD)                   ; $A11E  2A AD A9
+        LD HL,(DRV_LOGIN_VECTOR)                   ; $A11E  2A AD A9
         LD A,(L_9F42)                    ; $A121  3A 42 9F
         LD C,A                           ; $A124  4F
         CALL SUB_A0EA                    ; $A125  CD EA A0
         LD A,L                           ; $A128  7D
         AND $01                          ; $A129  E6 01
         RET                              ; $A12B  C9
-SUB_A12C:
-        LD HL,L_A9AD                     ; $A12C  21 AD A9
+DRV_SETRO_H:
+        LD HL,DRV_LOGIN_VECTOR                     ; $A12C  21 AD A9
         LD C,(HL)                        ; $A12F  4E
         INC HL                           ; $A130  23
         LD B,(HL)                        ; $A131  46
         CALL SUB_A10B                    ; $A132  CD 0B A1
-        LD (L_A9AD),HL                   ; $A135  22 AD A9
-        LD HL,(L_A9C8)                   ; $A138  2A C8 A9
+        LD (DRV_LOGIN_VECTOR),HL                   ; $A135  22 AD A9
+        LD HL,(DPB_REC_PTR)                   ; $A138  2A C8 A9
         INC HL                           ; $A13B  23
         EX DE,HL                         ; $A13C  EB
-        LD HL,(L_A9B3)                   ; $A13D  2A B3 A9
+        LD HL,(DPB_WORK_PTR0)                   ; $A13D  2A B3 A9
         LD (HL),E                        ; $A140  73
         INC HL                           ; $A141  23
         LD (HL),D                        ; $A142  72
@@ -1561,8 +1561,8 @@ SUB_A154:
         LD HL,SUB_9866_45                ; $A158  21 0D 9C
         JP SUB_9F47_1                    ; $A15B  C3 4A 9F
 SUB_A15E:
-        LD HL,(L_A9B9)                   ; $A15E  2A B9 A9
-        LD A,(L_A9E9)                    ; $A161  3A E9 A9
+        LD HL,(DIRBUF_PTR)                   ; $A15E  2A B9 A9
+        LD A,(DEBLOCK_BYTE_OFF)                    ; $A161  3A E9 A9
 SUB_A164:
         ADD A,L                          ; $A164  85
         LD L,A                           ; $A165  6F
@@ -1585,9 +1585,9 @@ SUB_A178:
         LD (HL),A                        ; $A17D  77
         RET                              ; $A17E  C9
 SUB_A17F:
-        LD HL,(L_A9EA)                   ; $A17F  2A EA A9
+        LD HL,(CUR_RECORD)                   ; $A17F  2A EA A9
         EX DE,HL                         ; $A182  EB
-        LD HL,(L_A9B3)                   ; $A183  2A B3 A9
+        LD HL,(DPB_WORK_PTR0)                   ; $A183  2A B3 A9
         LD A,E                           ; $A186  7B
         SUB (HL)                         ; $A187  96
         INC HL                           ; $A188  23
@@ -1613,16 +1613,16 @@ SUB_A195:
 SUB_A19C:
         LD C,$FF                         ; $A19C  0E FF
 SUB_A19C_1:
-        LD HL,(L_A9EC)                   ; $A19E  2A EC A9
+        LD HL,(REC_CACHE)                   ; $A19E  2A EC A9
         EX DE,HL                         ; $A1A1  EB
-        LD HL,(L_A9CC)                   ; $A1A2  2A CC A9
+        LD HL,(REC_SCAN_PTR)                   ; $A1A2  2A CC A9
         CALL SUB_A195                    ; $A1A5  CD 95 A1
         RET NC                           ; $A1A8  D0
         PUSH BC                          ; $A1A9  C5
         CALL SUB_A0F7                    ; $A1AA  CD F7 A0
-        LD HL,(L_A9BD)                   ; $A1AD  2A BD A9
+        LD HL,(REC_BYTE_OFFSET)                   ; $A1AD  2A BD A9
         EX DE,HL                         ; $A1B0  EB
-        LD HL,(L_A9EC)                   ; $A1B1  2A EC A9
+        LD HL,(REC_CACHE)                   ; $A1B1  2A EC A9
         ADD HL,DE                        ; $A1B4  19
         POP BC                           ; $A1B5  C1
         INC C                            ; $A1B6  0C
@@ -1631,7 +1631,7 @@ SUB_A19C_1:
         RET Z                            ; $A1BB  C8
         CALL SUB_A17F                    ; $A1BC  CD 7F A1
         RET NC                           ; $A1BF  D0
-        CALL SUB_A12C                    ; $A1C0  CD 2C A1
+        CALL DRV_SETRO_H                    ; $A1C0  CD 2C A1
         RET                              ; $A1C3  C9
 SUB_A19C_2:
         LD (HL),A                        ; $A1C4  77
@@ -1646,23 +1646,23 @@ SUB_A1D4:
         CALL SUB_A1E0                    ; $A1D4  CD E0 A1
         CALL SUB_9FB2                    ; $A1D7  CD B2 9F
 SUB_A1DA:
-        LD HL,L_A9B1                     ; $A1DA  21 B1 A9
+        LD HL,DMA_ADDR                     ; $A1DA  21 B1 A9
         JP SUB_A1E0_1                    ; $A1DD  C3 E3 A1
 SUB_A1E0:
-        LD HL,L_A9B9                     ; $A1E0  21 B9 A9
+        LD HL,DIRBUF_PTR                     ; $A1E0  21 B9 A9
 SUB_A1E0_1:
         LD C,(HL)                        ; $A1E3  4E
         INC HL                           ; $A1E4  23
         LD B,(HL)                        ; $A1E5  46
         JP $AA24                         ; $A1E6  C3 24 AA
 SUB_A1E0_2:
-        LD HL,(L_A9B9)                   ; $A1E9  2A B9 A9
+        LD HL,(DIRBUF_PTR)                   ; $A1E9  2A B9 A9
         EX DE,HL                         ; $A1EC  EB
-        LD HL,(L_A9B1)                   ; $A1ED  2A B1 A9
+        LD HL,(DMA_ADDR)                   ; $A1ED  2A B1 A9
         LD C,$80                         ; $A1F0  0E 80
         JP SUB_9F4F                      ; $A1F2  C3 4F 9F
 SUB_A1F5:
-        LD HL,L_A9EA                     ; $A1F5  21 EA A9
+        LD HL,CUR_RECORD                     ; $A1F5  21 EA A9
         LD A,(HL)                        ; $A1F8  7E
         INC HL                           ; $A1F9  23
         CP (HL)                          ; $A1FA  BE
@@ -1671,26 +1671,26 @@ SUB_A1F5:
         RET                              ; $A1FD  C9
 SUB_A1FE:
         LD HL,$FFFF                      ; $A1FE  21 FF FF
-        LD (L_A9EA),HL                   ; $A201  22 EA A9
+        LD (CUR_RECORD),HL                   ; $A201  22 EA A9
         RET                              ; $A204  C9
 SUB_A205:
-        LD HL,(L_A9C8)                   ; $A205  2A C8 A9
+        LD HL,(DPB_REC_PTR)                   ; $A205  2A C8 A9
         EX DE,HL                         ; $A208  EB
-        LD HL,(L_A9EA)                   ; $A209  2A EA A9
+        LD HL,(CUR_RECORD)                   ; $A209  2A EA A9
         INC HL                           ; $A20C  23
-        LD (L_A9EA),HL                   ; $A20D  22 EA A9
+        LD (CUR_RECORD),HL                   ; $A20D  22 EA A9
         CALL SUB_A195                    ; $A210  CD 95 A1
         JP NC,SUB_A205_1                 ; $A213  D2 19 A2
         JP SUB_A1FE                      ; $A216  C3 FE A1
 SUB_A205_1:
-        LD A,(L_A9EA)                    ; $A219  3A EA A9
+        LD A,(CUR_RECORD)                    ; $A219  3A EA A9
         AND $03                          ; $A21C  E6 03
         LD B,$05                         ; $A21E  06 05
 SUB_A205_2:
         ADD A,A                          ; $A220  87
         DEC B                            ; $A221  05
         JP NZ,SUB_A205_2                 ; $A222  C2 20 A2
-        LD (L_A9E9),A                    ; $A225  32 E9 A9
+        LD (DEBLOCK_BYTE_OFF),A                    ; $A225  32 E9 A9
         OR A                             ; $A228  B7
         RET NZ                           ; $A229  C0
         PUSH BC                          ; $A22A  C5
@@ -1724,7 +1724,7 @@ SUB_A235:
         RRCA                             ; $A24D  0F
         AND $1F                          ; $A24E  E6 1F
         LD B,A                           ; $A250  47
-        LD HL,(L_A9BF)                   ; $A251  2A BF A9
+        LD HL,(ALLOC_VEC_PTR)                   ; $A251  2A BF A9
         ADD HL,BC                        ; $A254  09
         LD A,(HL)                        ; $A255  7E
 SUB_A235_1:
@@ -1755,7 +1755,7 @@ SUB_A26B_1:
         DEC C                            ; $A276  0D
         RET Z                            ; $A277  C8
         PUSH DE                          ; $A278  D5
-        LD A,(L_A9DD)                    ; $A279  3A DD A9
+        LD A,(BLOCK_WIDTH_FLAG)                    ; $A279  3A DD A9
         OR A                             ; $A27C  B7
         JP Z,SUB_A26B_2                  ; $A27D  CA 88 A2
         PUSH BC                          ; $A280  C5
@@ -1774,7 +1774,7 @@ SUB_A26B_3:
         LD A,C                           ; $A28E  79
         OR B                             ; $A28F  B0
         JP Z,SUB_A26B_4                  ; $A290  CA 9D A2
-        LD HL,(L_A9C6)                   ; $A293  2A C6 A9
+        LD HL,(MAX_BLOCK_DSM)                   ; $A293  2A C6 A9
         LD A,L                           ; $A296  7D
         SUB C                            ; $A297  91
         LD A,H                           ; $A298  7C
@@ -1786,13 +1786,13 @@ SUB_A26B_4:
         POP BC                           ; $A29F  C1
         JP SUB_A26B_1                    ; $A2A0  C3 75 A2
 SUB_A26B_5:
-        LD HL,(L_A9C6)                   ; $A2A3  2A C6 A9
+        LD HL,(MAX_BLOCK_DSM)                   ; $A2A3  2A C6 A9
         LD C,$03                         ; $A2A6  0E 03
         CALL SUB_A0EA                    ; $A2A8  CD EA A0
         INC HL                           ; $A2AB  23
         LD B,H                           ; $A2AC  44
         LD C,L                           ; $A2AD  4D
-        LD HL,(L_A9BF)                   ; $A2AE  2A BF A9
+        LD HL,(ALLOC_VEC_PTR)                   ; $A2AE  2A BF A9
 SUB_A26B_6:
         LD (HL),$00                      ; $A2B1  36 00
         INC HL                           ; $A2B3  23
@@ -1800,14 +1800,14 @@ SUB_A26B_6:
         LD A,B                           ; $A2B5  78
         OR C                             ; $A2B6  B1
         JP NZ,SUB_A26B_6                 ; $A2B7  C2 B1 A2
-        LD HL,(L_A9CA)                   ; $A2BA  2A CA A9
+        LD HL,(ALLOC_END_PTR)                   ; $A2BA  2A CA A9
         EX DE,HL                         ; $A2BD  EB
-        LD HL,(L_A9BF)                   ; $A2BE  2A BF A9
+        LD HL,(ALLOC_VEC_PTR)                   ; $A2BE  2A BF A9
         LD (HL),E                        ; $A2C1  73
         INC HL                           ; $A2C2  23
         LD (HL),D                        ; $A2C3  72
         CALL SUB_9FA1                    ; $A2C4  CD A1 9F
-        LD HL,(L_A9B3)                   ; $A2C7  2A B3 A9
+        LD HL,(DPB_WORK_PTR0)                   ; $A2C7  2A B3 A9
         LD (HL),$03                      ; $A2CA  36 03
         INC HL                           ; $A2CC  23
         LD (HL),$00                      ; $A2CD  36 00
@@ -1837,7 +1837,7 @@ SUB_A26B_8:
         JP SUB_A26B_7                    ; $A2FE  C3 D2 A2
 SUB_A26B_9:
         LD A,(L_A9D4)                    ; $A301  3A D4 A9
-        JP SUB_9DC9_28                   ; $A304  C3 01 9F
+        JP BDOS_RET_RESULT                   ; $A304  C3 01 9F
 SUB_A307:
         PUSH BC                          ; $A307  C5
         PUSH AF                          ; $A308  F5
@@ -1911,7 +1911,7 @@ SUB_A32D_4:
         DEC C                            ; $A37F  0D
         JP SUB_A32D_2                    ; $A380  C3 53 A3
 SUB_A32D_5:
-        LD A,(L_A9EA)                    ; $A383  3A EA A9
+        LD A,(CUR_RECORD)                    ; $A383  3A EA A9
         AND $03                          ; $A386  E6 03
         LD (L_9F45),A                    ; $A388  32 45 9F
         LD HL,L_A9D4                     ; $A38B  21 D4 A9
@@ -1924,7 +1924,7 @@ SUB_A32D_5:
 SUB_A32D_6:
         CALL SUB_A1FE                    ; $A394  CD FE A1
         LD A,$FF                         ; $A397  3E FF
-        JP SUB_9DC9_28                   ; $A399  C3 01 9F
+        JP BDOS_RET_RESULT                   ; $A399  C3 01 9F
 SUB_A39C:
         CALL SUB_A154                    ; $A39C  CD 54 A1
         LD C,$0C                         ; $A39F  0E 0C
@@ -1956,7 +1956,7 @@ SUB_A3BE_1:
         POP BC                           ; $A3CF  C1
         POP DE                           ; $A3D0  D1
 SUB_A3BE_2:
-        LD HL,(L_A9C6)                   ; $A3D1  2A C6 A9
+        LD HL,(MAX_BLOCK_DSM)                   ; $A3D1  2A C6 A9
         LD A,E                           ; $A3D4  7B
         SUB L                            ; $A3D5  95
         LD A,D                           ; $A3D6  7A
@@ -2088,7 +2088,7 @@ SUB_A494:
 SUB_A4A2:
         XOR A                            ; $A4A2  AF
         LD (L_9F45),A                    ; $A4A3  32 45 9F
-        LD (L_A9EA),A                    ; $A4A6  32 EA A9
+        LD (CUR_RECORD),A                    ; $A4A6  32 EA A9
         LD (L_A9EB),A                    ; $A4A9  32 EB A9
         CALL SUB_A11E                    ; $A4AC  CD 1E A1
         RET NZ                           ; $A4AF  C0
@@ -2107,7 +2107,7 @@ SUB_A4A2:
         ADD HL,BC                        ; $A4CA  09
         LD C,$10                         ; $A4CB  0E 10
 SUB_A4A2_1:
-        LD A,(L_A9DD)                    ; $A4CD  3A DD A9
+        LD A,(BLOCK_WIDTH_FLAG)                    ; $A4CD  3A DD A9
         OR A                             ; $A4D0  B7
         JP Z,SUB_A4A2_4                  ; $A4D1  CA E8 A4
         LD A,(HL)                        ; $A4D4  7E
@@ -2238,7 +2238,7 @@ SUB_A55A_3:
 SUB_A55A_4:
         CALL SUB_A0BB                    ; $A5AF  CD BB A0
         XOR A                            ; $A5B2  AF
-        JP SUB_9DC9_28                   ; $A5B3  C3 01 9F
+        JP BDOS_RET_RESULT                   ; $A5B3  C3 01 9F
 SUB_A55A_5:
         CALL SUB_9F05                    ; $A5B6  CD 05 9F
         JP SUB_A178                      ; $A5B9  C3 78 A1
@@ -2304,14 +2304,14 @@ SUB_A603_1:
         OR H                             ; $A63F  B4
         JP NZ,SUB_A603_2                 ; $A640  C2 48 A6
         LD A,$02                         ; $A643  3E 02
-        JP SUB_9DC9_28                   ; $A645  C3 01 9F
+        JP BDOS_RET_RESULT                   ; $A645  C3 01 9F
 SUB_A603_2:
         LD (L_A9E5),HL                   ; $A648  22 E5 A9
         EX DE,HL                         ; $A64B  EB
         LD HL,(L_9F43)                   ; $A64C  2A 43 9F
         LD BC,$0010                      ; $A64F  01 10 00
         ADD HL,BC                        ; $A652  09
-        LD A,(L_A9DD)                    ; $A653  3A DD A9
+        LD A,(BLOCK_WIDTH_FLAG)                    ; $A653  3A DD A9
         OR A                             ; $A656  B7
         LD A,(L_A9D7)                    ; $A657  3A D7 A9
         JP Z,SUB_A603_3                  ; $A65A  CA 64 A6
@@ -2345,7 +2345,7 @@ SUB_A603_5:
         DEC A                            ; $A683  3D
         JP NZ,SUB_A603_8                 ; $A684  C2 BB A6
         PUSH HL                          ; $A687  E5
-        LD HL,(L_A9B9)                   ; $A688  2A B9 A9
+        LD HL,(DIRBUF_PTR)                   ; $A688  2A B9 A9
         LD D,A                           ; $A68B  57
 SUB_A603_6:
         LD (HL),A                        ; $A68C  77
@@ -2491,7 +2491,7 @@ SUB_A707_1:
 SUB_A707_2:
         POP BC                           ; $A77F  C1
         XOR A                            ; $A780  AF
-        JP SUB_9DC9_28                   ; $A781  C3 01 9F
+        JP BDOS_RET_RESULT                   ; $A781  C3 01 9F
 SUB_A707_3:
         PUSH HL                          ; $A784  E5
         CALL SUB_A169                    ; $A785  CD 69 A1
@@ -2590,7 +2590,7 @@ SUB_A7A5_3:
 SUB_A7A5_4:
         POP HL                           ; $A80C  E1
         RET                              ; $A80D  C9
-SUB_A7A5_5:
+F_RANDREC_H:
         LD HL,(L_9F43)                   ; $A80E  2A 43 9F
         LD DE,$0020                      ; $A811  11 20 00
         CALL SUB_A7A5                    ; $A814  CD A5 A7
@@ -2621,7 +2621,7 @@ SUB_A7A5_6:
         CALL SUB_A10B                    ; $A83C  CD 0B A1
         LD (L_A9AF),HL                   ; $A83F  22 AF A9
         JP SUB_A26B_5                    ; $A842  C3 A3 A2
-SUB_A845:
+DRV_SET_H:
         LD A,(L_A9D6)                    ; $A845  3A D6 A9
         LD HL,L_9F42                     ; $A848  21 42 9F
         CP (HL)                          ; $A84B  BE
@@ -2644,34 +2644,34 @@ SUB_A851:
         LD (L_A9E0),A                    ; $A86C  32 E0 A9
         AND $E0                          ; $A86F  E6 E0
         LD (HL),A                        ; $A871  77
-        CALL SUB_A845                    ; $A872  CD 45 A8
+        CALL DRV_SET_H                    ; $A872  CD 45 A8
 SUB_A851_1:
         LD A,(L_9F41)                    ; $A875  3A 41 9F
         LD HL,(L_9F43)                   ; $A878  2A 43 9F
         OR (HL)                          ; $A87B  B6
         LD (HL),A                        ; $A87C  77
         RET                              ; $A87D  C9
-SUB_A851_2:
+S_BDOSVER_H:
         LD A,$22                         ; $A87E  3E 22
-        JP SUB_9DC9_28                   ; $A880  C3 01 9F
-SUB_A851_3:
+        JP BDOS_RET_RESULT                   ; $A880  C3 01 9F
+DRV_ALLRESET_H:
         LD HL,$0000                      ; $A883  21 00 00
-        LD (L_A9AD),HL                   ; $A886  22 AD A9
+        LD (DRV_LOGIN_VECTOR),HL                   ; $A886  22 AD A9
         LD (L_A9AF),HL                   ; $A889  22 AF A9
         XOR A                            ; $A88C  AF
         LD (L_9F42),A                    ; $A88D  32 42 9F
         LD HL,$0080                      ; $A890  21 80 00
-        LD (L_A9B1),HL                   ; $A893  22 B1 A9
+        LD (DMA_ADDR),HL                   ; $A893  22 B1 A9
         CALL SUB_A1DA                    ; $A896  CD DA A1
         JP SUB_A7A5_6                    ; $A899  C3 21 A8
-SUB_A851_4:
+F_OPEN_H:
         CALL SUB_A172                    ; $A89C  CD 72 A1
         CALL SUB_A851                    ; $A89F  CD 51 A8
         JP SUB_A451                      ; $A8A2  C3 51 A4
-SUB_A851_5:
+F_CLOSE_H:
         CALL SUB_A851                    ; $A8A5  CD 51 A8
         JP SUB_A4A2                      ; $A8A8  C3 A2 A4
-SUB_A851_6:
+F_SFIRST_H:
         LD C,$00                         ; $A8AB  0E 00
         EX DE,HL                         ; $A8AD  EB
         LD A,(HL)                        ; $A8AE  7E
@@ -2686,72 +2686,72 @@ SUB_A851_6:
 SUB_A851_7:
         CALL SUB_A318                    ; $A8C2  CD 18 A3
         JP SUB_A1E0_2                    ; $A8C5  C3 E9 A1
-SUB_A851_8:
+F_SNEXT_H:
         LD HL,(L_A9D9)                   ; $A8C8  2A D9 A9
         LD (L_9F43),HL                   ; $A8CB  22 43 9F
         CALL SUB_A851                    ; $A8CE  CD 51 A8
         CALL SUB_A32D                    ; $A8D1  CD 2D A3
         JP SUB_A1E0_2                    ; $A8D4  C3 E9 A1
-SUB_A851_9:
+F_DELETE_H:
         CALL SUB_A851                    ; $A8D7  CD 51 A8
         CALL SUB_A39C                    ; $A8DA  CD 9C A3
         JP SUB_A26B_9                    ; $A8DD  C3 01 A3
-SUB_A851_10:
+F_READ_H:
         CALL SUB_A851                    ; $A8E0  CD 51 A8
         JP SUB_A55A_6                    ; $A8E3  C3 BC A5
-SUB_A851_11:
+F_WRITE_H:
         CALL SUB_A851                    ; $A8E6  CD 51 A8
         JP SUB_A5C1_3                    ; $A8E9  C3 FE A5
-SUB_A851_12:
+F_MAKE_H:
         CALL SUB_A172                    ; $A8EC  CD 72 A1
         CALL SUB_A851                    ; $A8EF  CD 51 A8
         JP SUB_A524                      ; $A8F2  C3 24 A5
-SUB_A851_13:
+F_RENAME_H:
         CALL SUB_A851                    ; $A8F5  CD 51 A8
         CALL SUB_A416                    ; $A8F8  CD 16 A4
         JP SUB_A26B_9                    ; $A8FB  C3 01 A3
-SUB_A851_14:
+DRV_LOGINVEC_H:
         LD HL,(L_A9AF)                   ; $A8FE  2A AF A9
         JP SUB_A851_21                   ; $A901  C3 29 A9
-SUB_A851_15:
+DRV_GET_H:
         LD A,(L_9F42)                    ; $A904  3A 42 9F
-        JP SUB_9DC9_28                   ; $A907  C3 01 9F
-SUB_A851_16:
+        JP BDOS_RET_RESULT                   ; $A907  C3 01 9F
+F_DMAOFF_H:
         EX DE,HL                         ; $A90A  EB
-        LD (L_A9B1),HL                   ; $A90B  22 B1 A9
+        LD (DMA_ADDR),HL                   ; $A90B  22 B1 A9
         JP SUB_A1DA                      ; $A90E  C3 DA A1
-SUB_A851_17:
-        LD HL,(L_A9BF)                   ; $A911  2A BF A9
+DRV_ALLOCVEC_H:
+        LD HL,(ALLOC_VEC_PTR)                   ; $A911  2A BF A9
         JP SUB_A851_21                   ; $A914  C3 29 A9
-SUB_A851_18:
-        LD HL,(L_A9AD)                   ; $A917  2A AD A9
+DRV_ROVEC_H:
+        LD HL,(DRV_LOGIN_VECTOR)                   ; $A917  2A AD A9
         JP SUB_A851_21                   ; $A91A  C3 29 A9
-SUB_A851_19:
+F_ATTRIB_H:
         CALL SUB_A851                    ; $A91D  CD 51 A8
         CALL SUB_A43B                    ; $A920  CD 3B A4
         JP SUB_A26B_9                    ; $A923  C3 01 A3
-SUB_A851_20:
+DRV_DPB_H:
         LD HL,(L_A9BB)                   ; $A926  2A BB A9
 SUB_A851_21:
         LD (L_9F45),HL                   ; $A929  22 45 9F
         RET                              ; $A92C  C9
-SUB_A851_22:
+F_USERNUM_H:
         LD A,(L_A9D6)                    ; $A92D  3A D6 A9
         CP $FF                           ; $A930  FE FF
         JP NZ,SUB_A851_23                ; $A932  C2 3B A9
         LD A,(L_9F41)                    ; $A935  3A 41 9F
-        JP SUB_9DC9_28                   ; $A938  C3 01 9F
+        JP BDOS_RET_RESULT                   ; $A938  C3 01 9F
 SUB_A851_23:
         AND $1F                          ; $A93B  E6 1F
         LD (L_9F41),A                    ; $A93D  32 41 9F
         RET                              ; $A940  C9
-SUB_A851_24:
+F_READRAND_H:
         CALL SUB_A851                    ; $A941  CD 51 A8
         JP SUB_A707_5                    ; $A944  C3 93 A7
-SUB_A851_25:
+F_WRITERAND_H:
         CALL SUB_A851                    ; $A947  CD 51 A8
         JP SUB_A707_6                    ; $A94A  C3 9C A7
-SUB_A851_26:
+F_SIZE_H:
         CALL SUB_A851                    ; $A94D  CD 51 A8
         JP SUB_A7A5_1                    ; $A950  C3 D2 A7
 SUB_A851_27:
@@ -2767,7 +2767,7 @@ SUB_A851_27:
         LD A,L                           ; $A960  7D
         AND E                            ; $A961  A3
         LD E,A                           ; $A962  5F
-        LD HL,(L_A9AD)                   ; $A963  2A AD A9
+        LD HL,(DRV_LOGIN_VECTOR)                   ; $A963  2A AD A9
         EX DE,HL                         ; $A966  EB
         LD (L_A9AF),HL                   ; $A967  22 AF A9
         LD A,L                           ; $A96A  7D
@@ -2776,7 +2776,7 @@ SUB_A851_27:
         LD A,H                           ; $A96D  7C
         AND D                            ; $A96E  A2
         LD H,A                           ; $A96F  67
-        LD (L_A9AD),HL                   ; $A970  22 AD A9
+        LD (DRV_LOGIN_VECTOR),HL                   ; $A970  22 AD A9
         RET                              ; $A973  C9
 SUB_A851_28:
         LD A,(L_A9DE)                    ; $A974  3A DE A9
@@ -2790,7 +2790,7 @@ SUB_A851_28:
         LD (HL),A                        ; $A987  77
         LD A,(L_A9DF)                    ; $A988  3A DF A9
         LD (L_A9D6),A                    ; $A98B  32 D6 A9
-        CALL SUB_A845                    ; $A98E  CD 45 A8
+        CALL DRV_SET_H                    ; $A98E  CD 45 A8
 SUB_A851_29:
         LD HL,(L_9F0F)                   ; $A991  2A 0F 9F
         LD SP,HL                         ; $A994  F9
@@ -2798,7 +2798,7 @@ SUB_A851_29:
         LD A,L                           ; $A998  7D
         LD B,H                           ; $A999  44
         RET                              ; $A99A  C9
-SUB_A851_30:
+F_WRITEZF_H:
         CALL SUB_A851                    ; $A99B  CD 51 A8
         LD A,$02                         ; $A99E  3E 02
         LD (L_A9D5),A                    ; $A9A0  32 D5 A9
@@ -2808,25 +2808,25 @@ SUB_A851_30:
         RET                              ; $A9AB  C9
 L_A9AC:
         DEFB    $E5                                              ; $A9AC
-L_A9AD:
+DRV_LOGIN_VECTOR:
         DEFB    "\0\0"    ; $A9AD
 L_A9AF:
         DEFB    "\0\0"    ; $A9AF
-L_A9B1:
+DMA_ADDR:
         DEFB    $80,$00                                          ; $A9B1
-L_A9B3:
+DPB_WORK_PTR0:
         DEFB    "\0\0"    ; $A9B3
 L_A9B5:
         DEFB    "\0\0"    ; $A9B5
 L_A9B7:
         DEFB    "\0\0"    ; $A9B7
-L_A9B9:
+DIRBUF_PTR:
         DEFB    "\0\0"    ; $A9B9
 L_A9BB:
         DEFB    "\0\0"    ; $A9BB
-L_A9BD:
+REC_BYTE_OFFSET:
         DEFB    "\0\0"    ; $A9BD
-L_A9BF:
+ALLOC_VEC_PTR:
         DEFB    "\0\0"    ; $A9BF
 L_A9C1:
         DEFB    "\0\0"    ; $A9C1
@@ -2836,13 +2836,13 @@ L_A9C4:
         DEFB    "\0"    ; $A9C4
 L_A9C5:
         DEFB    "\0"    ; $A9C5
-L_A9C6:
+MAX_BLOCK_DSM:
         DEFB    "\0\0"    ; $A9C6
-L_A9C8:
+DPB_REC_PTR:
         DEFB    "\0\0"    ; $A9C8
-L_A9CA:
+ALLOC_END_PTR:
         DEFB    "\0\0"    ; $A9CA
-L_A9CC:
+REC_SCAN_PTR:
         DEFB    "\0\0"    ; $A9CC
 L_A9CE:
         DEFB    "\0\0"    ; $A9CE
@@ -2864,7 +2864,7 @@ L_A9D8:
         DEFB    "\0"    ; $A9D8
 L_A9D9:
         DEFB    "\0\0\0\0"    ; $A9D9
-L_A9DD:
+BLOCK_WIDTH_FLAG:
         DEFB    "\0"    ; $A9DD
 L_A9DE:
         DEFB    "\0"    ; $A9DE
@@ -2882,13 +2882,13 @@ L_A9E5:
         DEFB    "\0\0"    ; $A9E5
 L_A9E7:
         DEFB    "\0\0"    ; $A9E7
-L_A9E9:
+DEBLOCK_BYTE_OFF:
         DEFB    "\0"    ; $A9E9
-L_A9EA:
+CUR_RECORD:
         DEFB    "\0"    ; $A9EA
 L_A9EB:
         DEFB    "\0"    ; $A9EB
-L_A9EC:
+REC_CACHE:
         DEFS    20, $00    ; $A9EC  fill
 
     SAVEBIN "E:/tmp/cpm_system_rt2.bin", $9600, $1400
