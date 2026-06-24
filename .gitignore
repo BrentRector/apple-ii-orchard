@@ -46,8 +46,14 @@ emu_*.bin
 **/utilities/*.lst
 # CP/M OS listings (CPM_BIOS.lst, CPM_CCP.lst, ...) -- the per-file address+machine-code
 # reference emitted by cpm_pipeline.os_listing; the os/ .asm carries no inline `$addr`
-# comments either. Regenerated, not tracked.
+# comments either. Intermediate fragment listings stay untracked; the four per-component
+# listings are TRACKED side-by-side with their .asm (they are the reader-facing reference
+# linked from the wiseowl articles) and held fresh by test_os_listings_are_fresh.
 **/os/*.lst
+!**/os/CPM_BootLoader.lst
+!**/os/CPM_CCP.lst
+!**/os/CPM_BDOS.lst
+!**/os/CPM_BIOS.lst
 
 # IDE / editor
 .vscode/

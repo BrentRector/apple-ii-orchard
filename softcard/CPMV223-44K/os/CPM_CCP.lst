@@ -1,0 +1,2725 @@
+# file opened: CPM_CCP.asm
+   1  0000              ; ============================================================================
+   2  0000              ; Microsoft SoftCard CP/M 2.23 (44K) -- CCP (Console Command Processor)
+   3  0000              ; ----------------------------------------------------------------------------
+   4  0000              ; Runtime-addressed (de-skewed): ORG $9300 (CBASE), runs $9300-$9BFF. An independent
+   5  0000              ; compilation; calls the BDOS only through the $0005 ABI and references the BDOS base
+   6  0000              ; once (BDOS_FBASE). The 44K system tracks store this sector-interleaved; the disk
+   7  0000              ; producer re-applies the skew (cpm_pipeline/deskew.py :: PAGE_TO_SECTOR_223). See
+   8  0000              ; ../../docs/CPM_Skew_Findings.md.
+   9  0000              ; ============================================================================
+  10  0000
+  11  0000                  IFNDEF CPM_LINK
+  12  0000                  DEVICE NOSLOT64K
+  13  0000                  INCLUDE "cpm22.inc"
+# file opened: cpm22.inc
+   1+ 0000              ; cpm22.inc -- canonical Digital Research CP/M 2.2 definitions shared by SoftCard
+   2+ 0000              ; CP/M sources.  Defined ONCE here and INCLUDEd by each source rather than re-deriving
+   3+ 0000              ; magic numbers per file.  EQUs are zero-width, so including this is byte-identical.
+   4+ 0000              ; This is the OS/ABI counterpart to apple_softcard.inc (which holds the Apple/SoftCard
+   5+ 0000              ; HARDWARE externals); keep the two concerns separate.
+   6+ 0000              ;
+   7+ 0000              ; Source: CP/M 2.2 Interface Guide / "CP/M Reference Manual" [DOC CPMREF] (in the
+   8+ 0000              ; archive at softcard/reference/softcard-cpm-archive/manuals/transcribed/).
+   9+ 0000              ;
+  10+ 0000              ; NOTE on the base page: $0000 (warm-boot JP) and $0005 (BDOS JP) are implementation
+  11+ 0000              ; LABELS inside the BIOS/CCP/BDOS modules but CALL TARGETS in transient programs.  The
+  12+ 0000              ; cell EQUs below are for the transient-program (caller) view; an OS module that DEFINES
+  13+ 0000              ; these vectors as its own labels should not also pull in this base-page section.
+  14+ 0000
+  15+ 0000              ; ---- base page (transient-program view) ----------------------------------------
+  16+ 0000              WBOOTV      EQU $0000      ; warm-boot vector: JP WBOOT (a CALL/JP $0000 restarts CP/M)
+  17+ 0000              IOBYTE_ADDR EQU $0003      ; logical<->physical device map (STAT / fns 7,8)
+  18+ 0000              CDISK_ADDR  EQU $0004      ; current drive (low nibble) / user (high nibble)
+  19+ 0000              BDOS        EQU $0005      ; BDOS entry vector: CALL BDOS with C=function, DE=arg
+  20+ 0000              RST2_VEC    EQU $0010      ; Z-80 RST 2 ($10) restart vector (8 bytes); CP/M leaves it for the app/debugger
+  21+ 0000              RST4_VEC    EQU $0020      ; Z-80 RST 4 ($20) restart vector (8 bytes); CP/M leaves it for the app/debugger
+  22+ 0000              TFCB        EQU $005C      ; default FCB parsed from the command tail
+  23+ 0000              TFCB2       EQU $006C      ; second parsed FCB (overlaps TFCB+16)
+  24+ 0000              TBUFF       EQU $0080      ; default DMA buffer (128 B); also the command-tail buffer
+  25+ 0000              CMDLINE     EQU $0081      ; command-tail characters (TBUFF+1): $0080 = length, $0081+ = the upper-cased tail
+  26+ 0000              TPA         EQU $0100      ; transient program area / load address
+  27+ 0000
+  28+ 0000              ; ---- BDOS function numbers (register C) ----------------------------------------
+  29+ 0000              P_TERMCPM   EQU 0          ; system reset (return to CCP)
+  30+ 0000              C_READ      EQU 1          ; console input (echoed) -> A
+  31+ 0000              C_WRITE     EQU 2          ; console output (E = char)
+  32+ 0000              A_READ      EQU 3          ; reader (AUX) input -> A
+  33+ 0000              A_WRITE     EQU 4          ; punch (AUX) output (E = char)
+  34+ 0000              L_WRITE     EQU 5          ; list (printer) output (E = char)
+  35+ 0000              C_RAWIO     EQU 6          ; direct console I/O (E=$FF read / else write)
+  36+ 0000              A_STATIN    EQU 7          ; get IOBYTE -> A
+  37+ 0000              A_STATOUT   EQU 8          ; set IOBYTE (E = value)
+  38+ 0000              C_WRITESTR  EQU 9          ; print '$'-terminated string (DE -> string)
+  39+ 0000              C_READSTR   EQU 10         ; buffered console line input (DE -> buffer)
+  40+ 0000              C_STAT      EQU 11         ; console status -> A (0 = none ready)
+  41+ 0000              S_BDOSVER   EQU 12         ; return BDOS version -> HL
+  42+ 0000              DRV_ALLRESET EQU 13        ; reset disk system
+  43+ 0000              DRV_SET     EQU 14         ; select drive (E = 0=A..15=P)
+  44+ 0000              F_OPEN      EQU 15         ; open file (DE -> FCB)
+  45+ 0000              F_CLOSE     EQU 16         ; close file (DE -> FCB)
+  46+ 0000              F_SFIRST    EQU 17         ; search for first (DE -> FCB)
+  47+ 0000              F_SNEXT     EQU 18         ; search for next
+  48+ 0000              F_DELETE    EQU 19         ; delete file (DE -> FCB)
+  49+ 0000              F_READ      EQU 20         ; read sequential (DE -> FCB)
+  50+ 0000              F_WRITE     EQU 21         ; write sequential (DE -> FCB)
+  51+ 0000              F_MAKE      EQU 22         ; create file (DE -> FCB)
+  52+ 0000              F_RENAME    EQU 23         ; rename file (DE -> FCB)
+  53+ 0000              DRV_LOGINVEC EQU 24        ; return login vector -> HL
+  54+ 0000              DRV_GET     EQU 25         ; return current drive -> A
+  55+ 0000              F_DMAOFF    EQU 26         ; set DMA address (DE)
+  56+ 0000              DRV_ALLOCVEC EQU 27        ; return allocation vector -> HL
+  57+ 0000              DRV_SETRO   EQU 28         ; write-protect current drive
+  58+ 0000              DRV_ROVEC   EQU 29         ; return read-only vector -> HL
+  59+ 0000              F_ATTRIB    EQU 30         ; set file attributes (DE -> FCB)
+  60+ 0000              DRV_DPB     EQU 31         ; return DPB address -> HL
+  61+ 0000              F_USERNUM   EQU 32         ; get/set user number (E=$FF get / else set)
+  62+ 0000              F_READRAND  EQU 33         ; read random (DE -> FCB)
+  63+ 0000              F_WRITERAND EQU 34         ; write random (DE -> FCB)
+  64+ 0000              F_SIZE      EQU 35         ; compute file size (DE -> FCB)
+  65+ 0000              F_RANDREC   EQU 36         ; set random record (DE -> FCB)
+  66+ 0000              DRV_RESET   EQU 37         ; reset drives (DE = drive vector)
+  67+ 0000              F_WRITEZF   EQU 40         ; write random with zero fill (DE -> FCB)
+  68+ 0000
+  69+ 0000              ; ---- FCB field offsets (from the start of a 36-byte FCB) ------------------------
+  70+ 0000              FCB_DR      EQU 0          ; drive code (0 = default, 1..16 = A..P)
+  71+ 0000              FCB_F       EQU 1          ; filename (8 bytes, space-padded)
+  72+ 0000              FCB_T       EQU 9          ; filetype (3 bytes; hi bits = R/O, SYS, archive)
+  73+ 0000              FCB_EX      EQU 12         ; current extent
+  74+ 0000              FCB_S1      EQU 13         ; reserved
+  75+ 0000              FCB_S2      EQU 14         ; reserved (extent high)
+  76+ 0000              FCB_RC      EQU 15         ; record count for the current extent (0..128)
+  77+ 0000              FCB_CR      EQU 32         ; current record within the extent
+  78+ 0000              FCB_R0      EQU 33         ; random record number, low byte
+  79+ 0000              FCB_R1      EQU 34         ; random record number, middle byte
+  80+ 0000              FCB_R2      EQU 35         ; random record number, high byte (overflow)
+  81+ 0000
+# file closed: cpm22.inc
+  14  0000                  INCLUDE "cpm_system_223.inc"
+# file opened: cpm_system_223.inc
+   1+ 0000              ; ============================================================================
+   2+ 0000              ; cpm_system_223.inc -- CP/M 2.23 (44K) cross-module system contract
+   3+ 0000              ; ----------------------------------------------------------------------------
+   4+ 0000              ; The de-skewed 2.23-44K system image is TWO independent compilations -- the CCP
+   5+ 0000              ; ($9300-$9BFF) and the BDOS ($9C00-$A9FF) -- decoded at their true RUNTIME
+   6+ 0000              ; addresses (see ../docs/CPM_Skew_Findings.md). On the correctly-addressed source
+   7+ 0000              ; the two are almost decoupled: the CCP calls the BDOS only through the page-zero
+   8+ 0000              ; $0005 ABI (cpm22.inc :: BDOS), and the ONLY direct cross-module symbols are the
+   9+ 0000              ; module bases + the warm-boot re-entry below. Defined ONCE here, INCLUDEd by both
+  10+ 0000              ; (never duplicated -- feedback_no_duplicate_symbol_definitions).
+  11+ 0000              ; ============================================================================
+  12+ 0000
+  13+ 0000              CCP_BASE   EQU $9300      ; CCP cold entry (the BIOS cold/warm boot lands here)
+  14+ 0000              CCP_WBOOT  EQU $9B06      ; CCP warm-boot re-entry the BDOS returns through
+  15+ 0000              BDOS_FBASE EQU $9C00      ; FBASE: BDOS image base (6-byte serial + JP entry)
+  16+ 0000
+# file closed: cpm_system_223.inc
+  15  0000                  ORG $9300
+  16  9300                  ENDIF
+  17  9300
+  18  9300                      ; CCP_BASE ($9300): cold/warm-boot entry vector (named by cpm_system_223.inc)
+  19  9300 C3 0C 96             JP CCP_COLD_ENTRY
+  20  9303 C3 08 96             DEFB    $C3,$08,$96
+  21  9306              ; ----------------------------------------------------------------------
+  22  9306              ; CCP_INBUF -- console line-input buffer descriptor for C_READSTR.
+  23  9306              ;   Layout: byte0 ($9306)=max length ($7F=127), byte1 ($9307)=returned count,
+  24  9306              ;     bytes2.. ($9308)=the typed command line (also the CCP work text area).
+  25  9306              ;   [RE] Standard CP/M 2.2 CCP command buffer.
+  26  9306              ; ----------------------------------------------------------------------
+  27  9306              CCP_INBUF:
+  28  9306                      ; max input length = 127 ($7F)
+  29  9306 7F                   DEFB    $7F
+  30  9307              ; ----------------------------------------------------------------------
+  31  9307              ; CCP_INLEN -- count of characters returned by the last C_READSTR (buffer fill).
+  32  9307              ;   Also doubles as the auto-command flag: nonzero on entry means a command string
+  33  9307              ;   is already staged in CCP_CMDTEXT and is re-parsed instead of re-prompting.
+  34  9307              ;   [RE]
+  35  9307              ; ----------------------------------------------------------------------
+  36  9307              CCP_INLEN:
+  37  9307 00                   DEFB    "\0"
+  38  9308              ; ----------------------------------------------------------------------
+  39  9308              ; CCP_CMDTEXT -- the command-line text area (CCP_INBUF+2).
+  40  9308              ;   Holds the upper-cased command line being parsed. On cold start it carries
+  41  9308              ;   16 spaces, the DRI string 'COPYRIGHT (C) 1979, DIGITAL RESEARCH  ', a NUL, then
+  42  9308              ;   73 zero pad bytes -- this fixed init doubles as the CCP scratch/line area.
+  43  9308              ;   [RE]
+  44  9308              ; ----------------------------------------------------------------------
+  45  9308              CCP_CMDTEXT:
+  46  9308 20 20 20...          DEFS    16, $20                  ; fill
+  47  9318                      ; DRI copyright banner; also the cold-start command-line scratch fill
+  48  9318 43 4F 50 59          DEFB    "COPYRIGHT (C) 1979, DIGITAL RESEARCH  " ; string
+  48  931C 52 49 47 48
+  48  9320 54 20 28 43
+  48  9324 29 20 31 39
+  48  9328 37 39 2C 20
+  48  932C 44 49 47 49
+  48  9330 54 41 4C 20
+  48  9334 52 45 53 45
+  48  9338 41 52 43 48
+  48  933C 20 20
+  49  933E 00                   DEFB    $00                      ; terminator
+  50  933F 00 00 00...          DEFS    73, $00                  ; fill
+  51  9388              ; ----------------------------------------------------------------------
+  52  9388              ; CCP_PARSEPTR -- 16-bit scan pointer into CCP_CMDTEXT used during command parse.
+  53  9388              ;   Initialized to CCP_CMDTEXT ($9308); advanced as tokens are consumed.
+  54  9388              ;   [RE]
+  55  9388              ; ----------------------------------------------------------------------
+  56  9388              CCP_PARSEPTR:
+  57  9388                      ; init = CCP_CMDTEXT ($9308) little-endian
+  58  9388 08 93                DEFB    $08,$93
+  59  938A              ; ----------------------------------------------------------------------
+  60  938A              ; CCP_TOKENPTR -- 16-bit pointer to the start of the current token.
+  61  938A              ;   Saved by the FCB builder and reused by the bad-character echo routine.
+  62  938A              ;   [RE]
+  63  938A              ; ----------------------------------------------------------------------
+  64  938A              CCP_TOKENPTR:
+  65  938A 00 00                DEFB    "\0\0"
+  66  938C              ; ----------------------------------------------------------------------
+  67  938C              ; CCP_CONOUT -- write one character to the console via BDOS C_WRITE.
+  68  938C              ;   In: A = character to emit.
+  69  938C              ;   Out: none (BDOS return ignored).
+  70  938C              ;   Clobbers: C, E; BDOS clobbers per ABI.
+  71  938C              ;   Algorithm: E:=A; C:=C_WRITE(2); JP BDOS.
+  72  938C              ;   [RE]
+  73  938C              ; ----------------------------------------------------------------------
+  74  938C              CCP_CONOUT:
+  75  938C 5F                   LD E,A
+  76  938D                      ; C_WRITE = 2
+  77  938D 0E 02                LD C,$02
+  78  938F 18 28                JR BDOS_JP_TAIL
+  79  9391              ; ----------------------------------------------------------------------
+  80  9391              ; CCP_SPACE -- emit a single blank to the console.
+  81  9391              ;   In: none.  Out: BC preserved.  Clobbers: A/flags.
+  82  9391              ;   Algorithm: A:=' ' ($20); fall into CCP_CONOUT_KEEPBC.
+  83  9391              ;   [RE]
+  84  9391              ; ----------------------------------------------------------------------
+  85  9391              CCP_SPACE:
+  86  9391                      ; space character
+  87  9391 3E 20                LD A,$20
+  88  9393              ; ----------------------------------------------------------------------
+  89  9393              ; CCP_CONOUT_KEEPBC -- print one char (CCP_CONOUT) preserving BC.
+  90  9393              ;   In: A = character.  Out: BC unchanged.
+  91  9393              ;   Clobbers: A/flags via BDOS; BC saved/restored.
+  92  9393              ;   Algorithm: PUSH BC; call CCP_CONOUT; POP BC; RET.
+  93  9393              ;   [RE]
+  94  9393              ; ----------------------------------------------------------------------
+  95  9393              CCP_CONOUT_KEEPBC:
+  96  9393 C5                   PUSH BC
+  97  9394 CD 8C 93             CALL CCP_CONOUT
+  98  9397 C1                   POP BC
+  99  9398 C9                   RET
+ 100  9399              ; ----------------------------------------------------------------------
+ 101  9399              ; CCP_CRLF -- emit a carriage-return + line-feed to the console.
+ 102  9399              ;   In: none.  Out: cursor at start of next line; BC preserved.
+ 103  9399              ;   Clobbers: A/flags.
+ 104  9399              ;   Algorithm: print CR ($0D) then LF ($0A), each via CCP_CONOUT_KEEPBC.
+ 105  9399              ;   [RE]
+ 106  9399              ; ----------------------------------------------------------------------
+ 107  9399              CCP_CRLF:
+ 108  9399                      ; CR
+ 109  9399 3E 0D                LD A,$0D
+ 110  939B CD 93 93             CALL CCP_CONOUT_KEEPBC
+ 111  939E                      ; LF
+ 112  939E 3E 0A                LD A,$0A
+ 113  93A0 18 F1                JR CCP_CONOUT_KEEPBC
+ 114  93A2              ; ----------------------------------------------------------------------
+ 115  93A2              ; CCP_CRLF_MSG -- emit CR/LF then print a NUL-terminated message.
+ 116  93A2              ;   In: BC -> NUL-terminated message string.
+ 117  93A2              ;   Out: message printed after a new line.
+ 118  93A2              ;   Clobbers: A, HL, BC.
+ 119  93A2              ;   Algorithm: CCP_CRLF; HL:=BC (via PUSH BC/POP HL); fall into CCP_PUTS.
+ 120  93A2              ;   [RE] Used by the 'Read error' / 'No file' message printers.
+ 121  93A2              ; ----------------------------------------------------------------------
+ 122  93A2              CCP_CRLF_MSG:
+ 123  93A2 C5                   PUSH BC
+ 124  93A3 CD 99 93             CALL CCP_CRLF
+ 125  93A6 E1                   POP HL
+ 126  93A7              ; ----------------------------------------------------------------------
+ 127  93A7              ; CCP_PUTS -- print a NUL-terminated string to the console.
+ 128  93A7              ;   In: HL -> string.
+ 129  93A7              ;   Out: HL past the terminator on exit (loop stops at the NUL).
+ 130  93A7              ;   Clobbers: A, HL.
+ 131  93A7              ;   Algorithm: loop: A:=(HL); if A==0 RET; INC HL; emit A via CCP_CONOUT; repeat.
+ 132  93A7              ;   [RE]
+ 133  93A7              ; ----------------------------------------------------------------------
+ 134  93A7              CCP_PUTS:
+ 135  93A7 7E                   LD A,(HL)
+ 136  93A8 B7                   OR A
+ 137  93A9 C8                   RET Z
+ 138  93AA 23                   INC HL
+ 139  93AB E5                   PUSH HL
+ 140  93AC CD 8C 93             CALL CCP_CONOUT
+ 141  93AF E1                   POP HL
+ 142  93B0 18 F5                JR CCP_PUTS
+ 143  93B2              ; ----------------------------------------------------------------------
+ 144  93B2              ; BDOS_DRV_ALLRESET -- reset the disk system (BDOS function 13).
+ 145  93B2              ;   In: none.  Out: per BDOS.  Clobbers: per BDOS ABI.
+ 146  93B2              ;   Algorithm: C:=DRV_ALLRESET($0D); JP BDOS.
+ 147  93B2              ;   [RE]
+ 148  93B2              ; ----------------------------------------------------------------------
+ 149  93B2              BDOS_DRV_ALLRESET:
+ 150  93B2                      ; DRV_ALLRESET = 13
+ 151  93B2 0E 0D                LD C,$0D
+ 152  93B4 18 03                JR BDOS_JP_TAIL
+ 153  93B6              ; ----------------------------------------------------------------------
+ 154  93B6              ; BDOS_DRV_SET -- select the default drive (BDOS function 14).
+ 155  93B6              ;   In: A = drive number (0=A..15=P).
+ 156  93B6              ;   Out: per BDOS.  Clobbers: C, E; BDOS ABI.
+ 157  93B6              ;   Algorithm: E:=A; C:=DRV_SET($0E); JP BDOS (shared $0005 tail).
+ 158  93B6              ;   [RE]
+ 159  93B6              ; ----------------------------------------------------------------------
+ 160  93B6              BDOS_DRV_SET:
+ 161  93B6 5F                   LD E,A
+ 162  93B7                      ; DRV_SET = 14
+ 163  93B7 0E 0E                LD C,$0E
+ 164  93B9              BDOS_JP_TAIL:
+ 165  93B9 C3 05 00             JP $0005
+ 166  93BC              ; ----------------------------------------------------------------------
+ 167  93BC              ; BDOS_F_CLOSE -- close the file named by DE (BDOS function 16).
+ 168  93BC              ;   In: DE -> FCB.  Out: A/Z per BDOS_FCB_OP.  Clobbers: A/flags.
+ 169  93BC              ;   Algorithm: C:=F_CLOSE($10); fall into BDOS_FCB_OP.
+ 170  93BC              ;   [RE]
+ 171  93BC              ; ----------------------------------------------------------------------
+ 172  93BC              BDOS_F_CLOSE:
+ 173  93BC                      ; F_CLOSE = 16
+ 174  93BC 0E 10                LD C,$10
+ 175  93BE              BDOS_FCB_OP:
+ 176  93BE CD 05 00             CALL $0005
+ 177  93C1 32 A7 9B             LD (CCP_BDOS_RESULT),A
+ 178  93C4 3C                   INC A
+ 179  93C5 C9                   RET
+ 180  93C6              ; ----------------------------------------------------------------------
+ 181  93C6              ; CCP_OPEN_SUBMIT -- open the staged submit ($$$.SUB) FCB at record 0.
+ 182  93C6              ;   In: submit FCB at CCP_FCB (CCP_SUB_FCB).
+ 183  93C6              ;   Out: A/Z per BDOS_F_OPEN.  Clobbers: A/flags, DE.
+ 184  93C6              ;   Algorithm: clear current-record cell (CCP_FCB_CR); DE:=CCP_SUB_FCB; fall into
+ 185  93C6              ;     BDOS_F_OPEN.
+ 186  93C6              ;   [RE]
+ 187  93C6              ; ----------------------------------------------------------------------
+ 188  93C6              CCP_OPEN_SUBMIT:
+ 189  93C6 AF                   XOR A
+ 190  93C7 32 A6 9B             LD (CCP_FCB_CR),A
+ 191  93CA 11 86 9B             LD DE,CCP_FCB
+ 192  93CD              ; ----------------------------------------------------------------------
+ 193  93CD              ; BDOS_F_OPEN -- open the file named by DE (BDOS function 15).
+ 194  93CD              ;   In: DE -> FCB.  Out: A/Z per BDOS_FCB_OP (Z = open failed).
+ 195  93CD              ;   Clobbers: A/flags.
+ 196  93CD              ;   Algorithm: C:=F_OPEN($0F); JP BDOS_FCB_OP.
+ 197  93CD              ;   [RE]
+ 198  93CD              ; ----------------------------------------------------------------------
+ 199  93CD              BDOS_F_OPEN:
+ 200  93CD                      ; F_OPEN = 15
+ 201  93CD 0E 0F                LD C,$0F
+ 202  93CF 18 ED                JR BDOS_FCB_OP
+ 203  93D1              ; ----------------------------------------------------------------------
+ 204  93D1              ; CCP_SEARCH_FIRST_SUBMIT -- search-for-first on the submit FCB (BDOS function 17).
+ 205  93D1              ;   In: submit FCB at CCP_SUB_FCB.
+ 206  93D1              ;   Out: A/Z per BDOS_FCB_OP.  Clobbers: A/flags, DE.
+ 207  93D1              ;   Algorithm: DE:=CCP_SUB_FCB; C:=F_SFIRST($11); JP BDOS_FCB_OP.
+ 208  93D1              ;   [RE]
+ 209  93D1              ; ----------------------------------------------------------------------
+ 210  93D1              CCP_SEARCH_FIRST_SUBMIT:
+ 211  93D1 11 86 9B             LD DE,CCP_FCB
+ 212  93D4                      ; F_SFIRST = 17
+ 213  93D4 0E 11                LD C,$11
+ 214  93D6 18 E6                JR BDOS_FCB_OP
+ 215  93D8              ; ----------------------------------------------------------------------
+ 216  93D8              ; BDOS_F_SNEXT -- search-for-next matching directory entry (BDOS function 18).
+ 217  93D8              ;   In: prior F_SFIRST/F_SNEXT context.
+ 218  93D8              ;   Out: A = next directory index or $FF; Z per BDOS_FCB_OP.
+ 219  93D8              ;   Clobbers: A/flags.
+ 220  93D8              ;   Algorithm: C:=F_SNEXT($12); JP BDOS_FCB_OP.
+ 221  93D8              ;   [RE]
+ 222  93D8              ; ----------------------------------------------------------------------
+ 223  93D8              BDOS_F_SNEXT:
+ 224  93D8                      ; F_SNEXT = 18
+ 225  93D8 0E 12                LD C,$12
+ 226  93DA 18 E2                JR BDOS_FCB_OP
+ 227  93DC              ; ----------------------------------------------------------------------
+ 228  93DC              ; BDOS_F_DELETE -- delete the file named by DE (BDOS function 19).
+ 229  93DC              ;   In: DE -> FCB.  Out: per BDOS.  Clobbers: per BDOS ABI.
+ 230  93DC              ;   Algorithm: C:=F_DELETE($13); JP BDOS ($0005).
+ 231  93DC              ;   [RE]
+ 232  93DC              ; ----------------------------------------------------------------------
+ 233  93DC              BDOS_F_DELETE:
+ 234  93DC                      ; F_DELETE = 19
+ 235  93DC 0E 13                LD C,$13
+ 236  93DE 18 D9                JR BDOS_JP_TAIL
+ 237  93E0              ; ----------------------------------------------------------------------
+ 238  93E0              ; CCP_READ_SUBMIT -- read the next record of the submit FCB (BDOS function 20).
+ 239  93E0              ;   In: submit FCB at CCP_SUB_FCB; DMA preset by the caller.
+ 240  93E0              ;   Out: A/Z per BDOS_CALL_TESTERR.  Clobbers: flags, DE.
+ 241  93E0              ;   Algorithm: DE:=CCP_SUB_FCB; C:=F_READ($14); fall into BDOS_F_READ.
+ 242  93E0              ;   [RE]
+ 243  93E0              ; ----------------------------------------------------------------------
+ 244  93E0              CCP_READ_SUBMIT:
+ 245  93E0 11 86 9B             LD DE,CCP_FCB
+ 246  93E3              ; ----------------------------------------------------------------------
+ 247  93E3              ; BDOS_F_READ -- read the next sequential record (BDOS function 20).
+ 248  93E3              ;   In: DE -> FCB; DMA set elsewhere.
+ 249  93E3              ;   Out: A = 0 on success / nonzero on error or EOF; Z per BDOS_CALL_TESTERR.
+ 250  93E3              ;   Clobbers: flags.
+ 251  93E3              ;   Algorithm: C:=F_READ($14); fall into BDOS_CALL_TESTERR.
+ 252  93E3              ;   [RE]
+ 253  93E3              ; ----------------------------------------------------------------------
+ 254  93E3              BDOS_F_READ:
+ 255  93E3                      ; F_READ = 20
+ 256  93E3 0E 14                LD C,$14
+ 257  93E5              BDOS_CALL_TESTERR:
+ 258  93E5 CD 05 00             CALL $0005
+ 259  93E8 B7                   OR A
+ 260  93E9 C9                   RET
+ 261  93EA              ; ----------------------------------------------------------------------
+ 262  93EA              ; BDOS_F_WRITE -- write the next sequential record (BDOS function 21).
+ 263  93EA              ;   In: DE -> FCB; DMA holds the record.
+ 264  93EA              ;   Out: A = 0 on success / nonzero on error; Z per BDOS_CALL_TESTERR.
+ 265  93EA              ;   Clobbers: flags.
+ 266  93EA              ;   Algorithm: C:=F_WRITE($15); JP BDOS_CALL_TESTERR.
+ 267  93EA              ;   [RE]
+ 268  93EA              ; ----------------------------------------------------------------------
+ 269  93EA              BDOS_F_WRITE:
+ 270  93EA                      ; F_WRITE = 21
+ 271  93EA 0E 15                LD C,$15
+ 272  93EC 18 F7                JR BDOS_CALL_TESTERR
+ 273  93EE              ; ----------------------------------------------------------------------
+ 274  93EE              ; BDOS_F_MAKE -- create the file named by DE (BDOS function 22).
+ 275  93EE              ;   In: DE -> FCB.  Out: A/Z per BDOS_FCB_OP (Z = create failed/dir full).
+ 276  93EE              ;   Clobbers: A/flags.
+ 277  93EE              ;   Algorithm: C:=F_MAKE($16); JP BDOS_FCB_OP.
+ 278  93EE              ;   [RE]
+ 279  93EE              ; ----------------------------------------------------------------------
+ 280  93EE              BDOS_F_MAKE:
+ 281  93EE                      ; F_MAKE = 22
+ 282  93EE 0E 16                LD C,$16
+ 283  93F0 18 CC                JR BDOS_FCB_OP
+ 284  93F2              ; ----------------------------------------------------------------------
+ 285  93F2              ; BDOS_F_RENAME -- rename a file (BDOS function 23).
+ 286  93F2              ;   In: DE -> FCB whose first 16 bytes name the old file and second 16 the new.
+ 287  93F2              ;   Out: per BDOS.  Clobbers: per BDOS ABI.
+ 288  93F2              ;   Algorithm: C:=F_RENAME($17); JP BDOS ($0005).
+ 289  93F2              ;   [RE]
+ 290  93F2              ; ----------------------------------------------------------------------
+ 291  93F2              BDOS_F_RENAME:
+ 292  93F2                      ; F_RENAME = 23
+ 293  93F2 0E 17                LD C,$17
+ 294  93F4 18 C3                JR BDOS_JP_TAIL
+ 295  93F6              ; ----------------------------------------------------------------------
+ 296  93F6              ; BDOS_USER_GET -- get the current user number (BDOS function 32, E=$FF).
+ 297  93F6              ;   In: none.  Out: A = current user number (0..15).  Clobbers: A, C, E.
+ 298  93F6              ;   Algorithm: E:=$FF (interrogate); fall into BDOS_USERNUM.
+ 299  93F6              ;   [RE]
+ 300  93F6              ; ----------------------------------------------------------------------
+ 301  93F6              BDOS_USER_GET:
+ 302  93F6                      ; $FF = interrogate (get) user number
+ 303  93F6 1E FF                LD E,$FF
+ 304  93F8              ; ----------------------------------------------------------------------
+ 305  93F8              ; BDOS_USERNUM -- set/get the user number (BDOS function 32).
+ 306  93F8              ;   In: E = user number to set, or $FF to interrogate.
+ 307  93F8              ;   Out: A = user number when interrogating.  Clobbers: A, C; BDOS ABI.
+ 308  93F8              ;   Algorithm: C:=F_USERNUM($20); JP BDOS ($0005).
+ 309  93F8              ;   [RE]
+ 310  93F8              ; ----------------------------------------------------------------------
+ 311  93F8              BDOS_USERNUM:
+ 312  93F8                      ; F_USERNUM = 32
+ 313  93F8 0E 20                LD C,$20
+ 314  93FA 18 BD                JR BDOS_JP_TAIL
+ 315  93FC              ; ----------------------------------------------------------------------
+ 316  93FC              ; CCP_SET_USERDRIVE -- write the packed user/drive byte into base page $0004.
+ 317  93FC              ;   In: current user (from BDOS_USER_GET) and CCP_CDISK (CCP_CUR_DRIVE, default drive).
+ 318  93FC              ;   Out: base-page $0004 := (user<<4 | drive); the CP/M default-drive/user cell.
+ 319  93FC              ;   Clobbers: A, HL.
+ 320  93FC              ;   Algorithm: A:=BDOS_USER_GET; A<<=4 (ADD A,A x4); OR in CCP_CDISK; store $0004.
+ 321  93FC              ;   [RE] $0004 (CDISK_ADDR) is the CP/M default-drive/user cell read by the warm boot.
+ 322  93FC              ; ----------------------------------------------------------------------
+ 323  93FC              CCP_SET_USERDRIVE:
+ 324  93FC CD F6 93             CALL BDOS_USER_GET
+ 325  93FF 87                   ADD A,A
+ 326  9400 87                   ADD A,A
+ 327  9401 87                   ADD A,A
+ 328  9402 87                   ADD A,A
+ 329  9403 21 A8 9B             LD HL,CCP_CUR_DRIVE
+ 330  9406 B6                   OR (HL)
+ 331  9407                      ; store login byte (user<<4|drive) to base page $0004 (CDISK)
+ 332  9407 32 04 00             LD ($0004),A
+ 333  940A C9                   RET
+ 334  940B              ; ----------------------------------------------------------------------
+ 335  940B              ; CCP_SET_DRIVE_ONLY -- write just the default drive into base-page $0004.
+ 336  940B              ;   In: CCP_CDISK (CCP_CUR_DRIVE).
+ 337  940B              ;   Out: $0004 := default drive (user nibble cleared).  Clobbers: A.
+ 338  940B              ;   Algorithm: A:=CCP_CDISK; store to $0004.
+ 339  940B              ;   [RE]
+ 340  940B              ; ----------------------------------------------------------------------
+ 341  940B              CCP_SET_DRIVE_ONLY:
+ 342  940B 3A A8 9B             LD A,(CCP_CUR_DRIVE)
+ 343  940E                      ; store default drive to base page $0004 (CDISK)
+ 344  940E 32 04 00             LD ($0004),A
+ 345  9411 C9                   RET
+ 346  9412              ; ----------------------------------------------------------------------
+ 347  9412              ; CCP_UPCASE -- fold one ASCII lower-case letter to upper case.
+ 348  9412              ;   In: A = character.
+ 349  9412              ;   Out: A = upper-cased character ('a'..'z' -> 'A'..'Z'); others unchanged.
+ 350  9412              ;   Clobbers: A/flags.
+ 351  9412              ;   Algorithm: if A < 'a'($61) RET; if A >= '{'($7B) RET; AND $5F to clear bit5.
+ 352  9412              ;   [RE]
+ 353  9412              ; ----------------------------------------------------------------------
+ 354  9412              CCP_UPCASE:
+ 355  9412                      ; below 'a' -> leave unchanged
+ 356  9412 FE 61                CP $61
+ 357  9414 D8                   RET C
+ 358  9415                      ; above 'z' -> leave unchanged
+ 359  9415 FE 7B                CP $7B
+ 360  9417 D0                   RET NC
+ 361  9418                      ; clear bit 5: lower -> upper
+ 362  9418 E6 5F                AND $5F
+ 363  941A C9                   RET
+ 364  941B              ; ----------------------------------------------------------------------
+ 365  941B              ; CCP_GETCMD -- obtain the next command line (from submit file or console).
+ 366  941B              ;   In: CCP_SUBMIT_FLAG (CCP_STACK_BASE); submit FCB (CCP_SUB_FCB); CCP_INBUF buffer.
+ 367  941B              ;   Out: CCP_CMDTEXT holds the upper-cased command line ready to parse;
+ 368  941B              ;     CCP_PARSEPTR set to its start.
+ 369  941B              ;   Clobbers: A, BC, DE, HL.
+ 370  941B              ;   Algorithm: if a $$$.SUB submit is active (CCP_SUBMIT_FLAG != 0): select its drive,
+ 371  941B              ;     open + read the next record of the submit FCB into TBUFF, set its current-record
+ 372  941B              ;     cell to 0 and decrement its record count, copy the 128-byte record into CCP_INBUF,
+ 373  941B              ;     close the submit FCB, then poll the console for a ^C abort; if no submit (or it
+ 374  941B              ;     ends/errs/aborts) discard submit (CCP_DISCARD_SUBMIT) and do a console C_READSTR
+ 375  941B              ;     into CCP_INBUF. Either path falls into CCP_UPCASE_LINE.
+ 376  941B              ;   [RE] Standard CP/M 2.2 CCP command-acquire with SUBMIT support.
+ 377  941B              ; ----------------------------------------------------------------------
+ 378  941B              CCP_GETCMD:
+ 379  941B 3A 64 9B             LD A,(CCP_STACK_BASE)
+ 380  941E B7                   OR A
+ 381  941F 28 52                JR Z,CCP_READ_CONSOLE
+ 382  9421 3A A8 9B             LD A,(CCP_CUR_DRIVE)
+ 383  9424 B7                   OR A
+ 384  9425 3E 00                LD A,$00
+ 385  9427 C4 B6 93             CALL NZ,BDOS_DRV_SET
+ 386  942A 11 65 9B             LD DE,CCP_SUB_FCB
+ 387  942D CD CD 93             CALL BDOS_F_OPEN
+ 388  9430 28 41                JR Z,CCP_READ_CONSOLE
+ 389  9432 3A 74 9B             LD A,(CCP_SUB_FCB_CR)
+ 390  9435 3D                   DEC A
+ 391  9436 32 85 9B             LD (CCP_SUB_PREV_REC),A
+ 392  9439 11 65 9B             LD DE,CCP_SUB_FCB
+ 393  943C CD E3 93             CALL BDOS_F_READ
+ 394  943F 20 32                JR NZ,CCP_READ_CONSOLE
+ 395  9441 11 07 93             LD DE,CCP_INLEN
+ 396  9444 21 80 00             LD HL,$0080
+ 397  9447 01 80 00             LD BC,$0080
+ 398  944A                      ; copy 128 bytes TBUFF -> CCP_INBUF (the submit record)
+ 399  944A ED B0                LDIR
+ 400  944C 21 73 9B             LD HL,CCP_SUB_FCB_S2
+ 401  944F 36 00                LD (HL),$00
+ 402  9451 23                   INC HL
+ 403  9452 35                   DEC (HL)
+ 404  9453 11 65 9B             LD DE,CCP_SUB_FCB
+ 405  9456 CD BC 93             CALL BDOS_F_CLOSE
+ 406  9459 28 18                JR Z,CCP_READ_CONSOLE
+ 407  945B 3A A8 9B             LD A,(CCP_CUR_DRIVE)
+ 408  945E B7                   OR A
+ 409  945F C4 B6 93             CALL NZ,BDOS_DRV_SET
+ 410  9462 21 08 93             LD HL,CCP_CMDTEXT
+ 411  9465 CD A7 93             CALL CCP_PUTS
+ 412  9468 CD 9A 94             CALL CCP_CHECK_ABORT
+ 413  946B 28 14                JR Z,CCP_UPCASE_LINE
+ 414  946D CD B5 94             CALL CCP_DISCARD_SUBMIT
+ 415  9470 C3 31 96             JP CCP_PROMPT_AND_READ
+ 416  9473              CCP_READ_CONSOLE:
+ 417  9473 CD B5 94             CALL CCP_DISCARD_SUBMIT
+ 418  9476 CD FC 93             CALL CCP_SET_USERDRIVE
+ 419  9479                      ; C_READSTR = 10 (buffered console line input)
+ 420  9479 0E 0A                LD C,$0A
+ 421  947B 11 06 93             LD DE,CCP_INBUF
+ 422  947E CD 05 00             CALL $0005
+ 423  9481              CCP_UPCASE_LINE:
+ 424  9481 21 07 93             LD HL,CCP_INLEN
+ 425  9484 46                   LD B,(HL)
+ 426  9485              CCP_UPCASE_LOOP:
+ 427  9485 23                   INC HL
+ 428  9486 78                   LD A,B
+ 429  9487 B7                   OR A
+ 430  9488 28 08                JR Z,CCP_UPCASE_DONE
+ 431  948A 7E                   LD A,(HL)
+ 432  948B CD 12 94             CALL CCP_UPCASE
+ 433  948E 77                   LD (HL),A
+ 434  948F 05                   DEC B
+ 435  9490 18 F3                JR CCP_UPCASE_LOOP
+ 436  9492              CCP_UPCASE_DONE:
+ 437  9492 77                   LD (HL),A
+ 438  9493 21 08 93             LD HL,CCP_CMDTEXT
+ 439  9496 22 88 93             LD (CCP_PARSEPTR),HL
+ 440  9499 C9                   RET
+ 441  949A              ; ----------------------------------------------------------------------
+ 442  949A              ; CCP_CHECK_ABORT -- poll the console; if a key is waiting, consume it.
+ 443  949A              ;   In: none.
+ 444  949A              ;   Out: Z set if no key was pending (continue submit); NZ if a key was read
+ 445  949A              ;     (abort the running submit); A = the key on the NZ path.
+ 446  949A              ;   Clobbers: A/flags.
+ 447  949A              ;   Algorithm: C:=C_STAT($0B), CALL BDOS; if A==0 RET (Z); else C:=C_READ($01),
+ 448  949A              ;     CALL BDOS to swallow the key; OR A; RET.
+ 449  949A              ;   [RE] Lets a typed key abort an active SUBMIT batch.
+ 450  949A              ; ----------------------------------------------------------------------
+ 451  949A              CCP_CHECK_ABORT:
+ 452  949A                      ; C_STAT = 11 (console status)
+ 453  949A 0E 0B                LD C,$0B
+ 454  949C CD 05 00             CALL $0005
+ 455  949F B7                   OR A
+ 456  94A0 C8                   RET Z
+ 457  94A1                      ; C_READ = 1: consume the typed key
+ 458  94A1 0E 01                LD C,$01
+ 459  94A3 CD 05 00             CALL $0005
+ 460  94A6 B7                   OR A
+ 461  94A7 C9                   RET
+ 462  94A8              ; ----------------------------------------------------------------------
+ 463  94A8              ; BDOS_DRV_GET -- return the current default drive (BDOS function 25).
+ 464  94A8              ;   In: none.  Out: A = current drive (0..15).  Clobbers: A, C.
+ 465  94A8              ;   Algorithm: C:=DRV_GET($19); JP BDOS ($0005).
+ 466  94A8              ;   [RE]
+ 467  94A8              ; ----------------------------------------------------------------------
+ 468  94A8              BDOS_DRV_GET:
+ 469  94A8                      ; DRV_GET = 25
+ 470  94A8 0E 19                LD C,$19
+ 471  94AA C3 05 00             JP $0005
+ 472  94AD              ; ----------------------------------------------------------------------
+ 473  94AD              ; CCP_SET_DMA_TBUFF -- set the DMA address back to the default buffer TBUFF.
+ 474  94AD              ;   In: none.  Out: BDOS DMA := TBUFF ($0080).  Clobbers: C, DE.
+ 475  94AD              ;   Algorithm: DE:=TBUFF($0080); fall into BDOS_F_DMAOFF.
+ 476  94AD              ;   [RE]
+ 477  94AD              ; ----------------------------------------------------------------------
+ 478  94AD              CCP_SET_DMA_TBUFF:
+ 479  94AD                      ; DE = TBUFF (default DMA buffer)
+ 480  94AD 11 80 00             LD DE,$0080
+ 481  94B0              ; ----------------------------------------------------------------------
+ 482  94B0              ; BDOS_F_DMAOFF -- set the disk DMA (transfer) address (BDOS function 26).
+ 483  94B0              ;   In: DE = DMA address.  Out: per BDOS.  Clobbers: C; BDOS ABI.
+ 484  94B0              ;   Algorithm: C:=F_DMAOFF($1A); JP BDOS ($0005).
+ 485  94B0              ;   [RE]
+ 486  94B0              ; ----------------------------------------------------------------------
+ 487  94B0              BDOS_F_DMAOFF:
+ 488  94B0                      ; F_DMAOFF = 26 (set DMA)
+ 489  94B0 0E 1A                LD C,$1A
+ 490  94B2 C3 05 00             JP $0005
+ 491  94B5              ; ----------------------------------------------------------------------
+ 492  94B5              ; CCP_DISCARD_SUBMIT -- end an active SUBMIT: clear the flag and delete $$$.SUB.
+ 493  94B5              ;   In: CCP_SUBMIT_FLAG (CCP_STACK_BASE); submit FCB (CCP_SUB_FCB); CCP_CDISK (CCP_CUR_DRIVE).
+ 494  94B5              ;   Out: if submit was active it is cleared, drive A selected, the submit file
+ 495  94B5              ;     deleted, and the default drive restored; otherwise a no-op.
+ 496  94B5              ;   Clobbers: A, DE.
+ 497  94B5              ;   Algorithm: if CCP_SUBMIT_FLAG==0 RET; clear it; select drive 0; delete submit FCB
+ 498  94B5              ;     (BDOS_F_DELETE); reselect CCP_CDISK (BDOS_DRV_SET).
+ 499  94B5              ;   [RE]
+ 500  94B5              ; ----------------------------------------------------------------------
+ 501  94B5              CCP_DISCARD_SUBMIT:
+ 502  94B5 21 64 9B             LD HL,CCP_STACK_BASE
+ 503  94B8 7E                   LD A,(HL)
+ 504  94B9 B7                   OR A
+ 505  94BA C8                   RET Z
+ 506  94BB 36 00                LD (HL),$00
+ 507  94BD AF                   XOR A
+ 508  94BE CD B6 93             CALL BDOS_DRV_SET
+ 509  94C1 11 65 9B             LD DE,CCP_SUB_FCB
+ 510  94C4 CD DC 93             CALL BDOS_F_DELETE
+ 511  94C7 3A A8 9B             LD A,(CCP_CUR_DRIVE)
+ 512  94CA C3 B6 93             JP BDOS_DRV_SET
+ 513  94CD              ; ----------------------------------------------------------------------
+ 514  94CD              ; CCP_CHECK_SERIAL -- verify the resident BDOS serial number is still intact.
+ 515  94CD              ;   In: CCP_SERIAL_STAMP (CCP_SERIAL_STAMP) holds the saved 6-byte CP/M serial number; the live
+ 516  94CD              ;     BDOS image base is at BDOS_FBASE ($9C00), whose first 6 bytes are that serial.
+ 517  94CD              ;   Out: returns if the 6 bytes match; otherwise jumps to the warm-boot reload/halt
+ 518  94CD              ;     path CCP_SERIAL_MISMATCH_HALT ($967E).
+ 519  94CD              ;   Clobbers: A, B, DE, HL.
+ 520  94CD              ;   Algorithm: compare 6 bytes at CCP_SERIAL_STAMP against the BDOS image header; on first
+ 521  94CD              ;     mismatch JP CCP_SERIAL_MISMATCH_HALT; on full match RET.
+ 522  94CD              ;   [RE] Standard CP/M 2.2 CCP serial-number self-check: a transient that overwrote
+ 523  94CD              ;     the resident BDOS forces a fresh system load / lock.
+ 524  94CD              ; ----------------------------------------------------------------------
+ 525  94CD              CCP_CHECK_SERIAL:
+ 526  94CD 11 DF 95             LD DE,CCP_SERIAL_STAMP
+ 527  94D0 21 00 9C             LD HL,BDOS_FBASE
+ 528  94D3                      ; compare 6 serial bytes
+ 529  94D3 06 06                LD B,$06
+ 530  94D5              CCP_CHECK_SERIAL_LOOP:
+ 531  94D5 1A                   LD A,(DE)
+ 532  94D6 BE                   CP (HL)
+ 533  94D7 C2 7E 96             JP NZ,CCP_SERIAL_MISMATCH_HALT
+ 534  94DA 13                   INC DE
+ 535  94DB 23                   INC HL
+ 536  94DC 10 F7                DJNZ CCP_CHECK_SERIAL_LOOP
+ 537  94DE C9                   RET
+ 538  94DF              ; ----------------------------------------------------------------------
+ 539  94DF              ; CCP_ECHO_TOKEN -- echo the current command token to the console up to a blank.
+ 540  94DF              ;   In: CCP_TOKENPTR (CCP_TOKENPTR) -> start of the offending token.
+ 541  94DF              ;   Out: token characters printed; falls into the bad-command report.
+ 542  94DF              ;   Clobbers: A, HL.
+ 543  94DF              ;   Algorithm: CCP_CRLF; HL:=CCP_TOKENPTR; print each char until a space or NUL,
+ 544  94DF              ;     print '?' + CR/LF, discard submit, then JP to the warm-restart prompt.
+ 545  94DF              ;   [RE] The CCP's classic 'BADNAME?' error responder.
+ 546  94DF              ; ----------------------------------------------------------------------
+ 547  94DF              CCP_ECHO_TOKEN:
+ 548  94DF CD 99 93             CALL CCP_CRLF
+ 549  94E2 2A 8A 93             LD HL,(CCP_TOKENPTR)
+ 550  94E5              CCP_ECHO_TOKEN_LOOP:
+ 551  94E5 7E                   LD A,(HL)
+ 552  94E6 FE 20                CP $20
+ 553  94E8 28 0B                JR Z,CCP_REPORT_BADCMD
+ 554  94EA B7                   OR A
+ 555  94EB 28 08                JR Z,CCP_REPORT_BADCMD
+ 556  94ED E5                   PUSH HL
+ 557  94EE CD 8C 93             CALL CCP_CONOUT
+ 558  94F1 E1                   POP HL
+ 559  94F2 23                   INC HL
+ 560  94F3 18 F0                JR CCP_ECHO_TOKEN_LOOP
+ 561  94F5              CCP_REPORT_BADCMD:
+ 562  94F5                      ; '?' marks an unknown command
+ 563  94F5 3E 3F                LD A,$3F
+ 564  94F7 CD 8C 93             CALL CCP_CONOUT
+ 565  94FA CD 99 93             CALL CCP_CRLF
+ 566  94FD CD B5 94             CALL CCP_DISCARD_SUBMIT
+ 567  9500 C3 31 96             JP CCP_PROMPT_AND_READ
+ 568  9503              ; ----------------------------------------------------------------------
+ 569  9503              ; CCP_AT_DELIM -- test whether the char at (DE) ends an FCB field.
+ 570  9503              ;   In: DE -> current command-line char.
+ 571  9503              ;   Out: Z set if the char is a terminator (NUL, ' ', '=', '_', '.', ':', ';', '<',
+ 572  9503              ;     '>'); for a control char (<' ', excluding NUL) it diverts to the bad-token echo;
+ 573  9503              ;     NZ for a normal filename character.
+ 574  9503              ;   Clobbers: A/flags.
+ 575  9503              ;   Algorithm: A:=(DE); RET Z on NUL; if A<' ' JP CCP_ECHO_TOKEN (illegal ctrl);
+ 576  9503              ;     RET Z when A==' ' or A equals any field-delimiter punctuation; else NZ.
+ 577  9503              ;   [RE] Field/separator classifier used while building the FCB name and type.
+ 578  9503              ; ----------------------------------------------------------------------
+ 579  9503              CCP_AT_DELIM:
+ 580  9503 1A                   LD A,(DE)
+ 581  9504 B7                   OR A
+ 582  9505 C8                   RET Z
+ 583  9506 FE 20                CP $20
+ 584  9508                      ; control char in name -> bad-token echo (CCP_ECHO_TOKEN)
+ 585  9508 38 D5                JR C,CCP_ECHO_TOKEN
+ 586  950A C8                   RET Z
+ 587  950B                      ; '=' delimiter
+ 588  950B FE 3D                CP $3D
+ 589  950D C8                   RET Z
+ 590  950E FE 5F                CP $5F
+ 591  9510 C8                   RET Z
+ 592  9511                      ; '.' (name/type separator)
+ 593  9511 FE 2E                CP $2E
+ 594  9513 C8                   RET Z
+ 595  9514                      ; ':' (drive separator)
+ 596  9514 FE 3A                CP $3A
+ 597  9516 C8                   RET Z
+ 598  9517 FE 3B                CP $3B
+ 599  9519 C8                   RET Z
+ 600  951A FE 3C                CP $3C
+ 601  951C C8                   RET Z
+ 602  951D FE 3E                CP $3E
+ 603  951F C8                   RET Z
+ 604  9520 C9                   RET
+ 605  9521              ; ----------------------------------------------------------------------
+ 606  9521              ; CCP_SKIP_BLANKS -- advance (DE) past any run of spaces.
+ 607  9521              ;   In: DE -> command-line char.
+ 608  9521              ;   Out: DE -> first non-blank (or the NUL); Z set if at end of line.
+ 609  9521              ;   Clobbers: A/flags, DE.
+ 610  9521              ;   Algorithm: loop: A:=(DE); RET Z on NUL; if A != ' ' RET NZ; INC DE; loop.
+ 611  9521              ;   [RE]
+ 612  9521              ; ----------------------------------------------------------------------
+ 613  9521              CCP_SKIP_BLANKS:
+ 614  9521 1A                   LD A,(DE)
+ 615  9522 B7                   OR A
+ 616  9523 C8                   RET Z
+ 617  9524 FE 20                CP $20
+ 618  9526 C0                   RET NZ
+ 619  9527 13                   INC DE
+ 620  9528 18 F7                JR CCP_SKIP_BLANKS
+ 621  952A              ; ----------------------------------------------------------------------
+ 622  952A              ; CCP_HL_ADD_A -- add the unsigned A to HL (16-bit add of an 8-bit offset).
+ 623  952A              ;   In: HL = base, A = offset.
+ 624  952A              ;   Out: HL = HL + A.  Clobbers: A, HL, flags.
+ 625  952A              ;   Algorithm: A:=A+L; L:=A; if no carry RET; else INC H; RET.
+ 626  952A              ;   [RE] Used to index the FCB by 0 or 16 (parse FCB1 vs FCB2).
+ 627  952A              ; ----------------------------------------------------------------------
+ 628  952A              CCP_HL_ADD_A:
+ 629  952A 85                   ADD A,L
+ 630  952B 6F                   LD L,A
+ 631  952C D0                   RET NC
+ 632  952D 24                   INC H
+ 633  952E C9                   RET
+ 634  952F              ; ----------------------------------------------------------------------
+ 635  952F              ; CCP_PARSE_FCB1 -- parse the first command-tail filename into FCB at offset 0.
+ 636  952F              ;   In: CCP_PARSEPTR (CCP_PARSEPTR) -> current parse position in CCP_CMDTEXT.
+ 637  952F              ;   Out: command FCB (CCP_FCB) filled with drive+name+type; CCP_PARSEPTR advanced;
+ 638  952F              ;     CCP_DRIVEGIVEN (CCP_FCB_DRIVE_PREFIX) set if an explicit drive prefix was present.
+ 639  952F              ;   Clobbers: A, BC, DE, HL.
+ 640  952F              ;   Algorithm: A:=0 (FCB offset 0); fall into CCP_BUILD_FCB.
+ 641  952F              ;   [RE]
+ 642  952F              ; ----------------------------------------------------------------------
+ 643  952F              CCP_PARSE_FCB1:
+ 644  952F                      ; offset 0 -> first FCB (command FCB +0)
+ 645  952F 3E 00                LD A,$00
+ 646  9531              ; ----------------------------------------------------------------------
+ 647  9531              ; CCP_BUILD_FCB -- parse one filename token from the command tail into an FCB.
+ 648  9531              ;   In: A = FCB byte offset (0 for FCB1, 16 for FCB2); CCP_PARSEPTR -> scan point.
+ 649  9531              ;   Out: the FCB at CCP_FCB+offset holds {drive, 8-char NAME, 3-char TYPE} with '*'
+ 650  9531              ;     expanded to '?' and unused positions blank-padded; the 3 trailing extent/record
+ 651  9531              ;     bytes are zeroed; CCP_PARSEPTR / CCP_TOKENPTR advanced past the token;
+ 652  9531              ;     CCP_DRIVEGIVEN (CCP_FCB_DRIVE_PREFIX) set to the parsed drive if a 'd:' prefix was present;
+ 653  9531              ;     A = count of '?' wildcards in the 11 name+type bytes (nonzero => ambiguous FCB).
+ 654  9531              ;   Clobbers: A, BC, DE, HL.
+ 655  9531              ;   Algorithm: point HL at FCB+offset (CCP_HL_ADD_A); clear CCP_DRIVEGIVEN; load DE
+ 656  9531              ;     from CCP_PARSEPTR and skip leading blanks; save token start to CCP_TOKENPTR;
+ 657  9531              ;     detect an optional 'd:' drive prefix and store the drive into FCB[0]; copy up to
+ 658  9531              ;     8 name chars, skip an over-long name, blank-pad a short name; if a '.' follows copy
+ 659  9531              ;     up to 3 type chars else blank-pad the type; zero the 3 trailing FCB bytes; save the
+ 660  9531              ;     parse pointer; finally count the '?' wildcards (falls into FCB_WILDCARD_SCAN).
+ 661  9531              ;   [RE] Classic CP/M 2.2 CCP command-tail FCB parser.
+ 662  9531              ; ----------------------------------------------------------------------
+ 663  9531              CCP_BUILD_FCB:
+ 664  9531 21 86 9B             LD HL,CCP_FCB
+ 665  9534 CD 2A 95             CALL CCP_HL_ADD_A
+ 666  9537 E5                   PUSH HL
+ 667  9538 E5                   PUSH HL
+ 668  9539 AF                   XOR A
+ 669  953A 32 A9 9B             LD (CCP_FCB_DRIVE_PREFIX),A
+ 670  953D 2A 88 93             LD HL,(CCP_PARSEPTR)
+ 671  9540 EB                   EX DE,HL
+ 672  9541 CD 21 95             CALL CCP_SKIP_BLANKS
+ 673  9544 EB                   EX DE,HL
+ 674  9545 22 8A 93             LD (CCP_TOKENPTR),HL
+ 675  9548 EB                   EX DE,HL
+ 676  9549 E1                   POP HL
+ 677  954A 1A                   LD A,(DE)
+ 678  954B B7                   OR A
+ 679  954C 28 0A                JR Z,CCP_FCB_DRIVE_DEFAULT
+ 680  954E                      ; letter -> 1-based drive number (carry clear after CCP_AT_DELIM path)
+ 681  954E DE 40                SBC A,$40
+ 682  9550 47                   LD B,A
+ 683  9551 13                   INC DE
+ 684  9552 1A                   LD A,(DE)
+ 685  9553                      ; is the next char ':' (drive prefix)?
+ 686  9553 FE 3A                CP $3A
+ 687  9555 28 07                JR Z,CCP_FCB_DRIVE_EXPLICIT
+ 688  9557 1B                   DEC DE
+ 689  9558              CCP_FCB_DRIVE_DEFAULT:
+ 690  9558 3A A8 9B             LD A,(CCP_CUR_DRIVE)
+ 691  955B 77                   LD (HL),A
+ 692  955C 18 06                JR CCP_BUILD_FCB_NAME_SETUP
+ 693  955E              CCP_FCB_DRIVE_EXPLICIT:
+ 694  955E 78                   LD A,B
+ 695  955F 32 A9 9B             LD (CCP_FCB_DRIVE_PREFIX),A
+ 696  9562 70                   LD (HL),B
+ 697  9563 13                   INC DE
+ 698  9564              CCP_BUILD_FCB_NAME_SETUP:
+ 699  9564 06 08                LD B,$08
+ 700  9566              CCP_FCB_NAME_LOOP:
+ 701  9566 CD 03 95             CALL CCP_AT_DELIM
+ 702  9569 28 15                JR Z,CCP_FCB_NAME_PAD
+ 703  956B 23                   INC HL
+ 704  956C FE 2A                CP $2A
+ 705  956E 20 04                JR NZ,CCP_FCB_NAME_STORE
+ 706  9570                      ; '*' wildcard -> store '?' in the name field
+ 707  9570 36 3F                LD (HL),$3F
+ 708  9572 18 02                JR CCP_FCB_NAME_NEXT
+ 709  9574              CCP_FCB_NAME_STORE:
+ 710  9574 77                   LD (HL),A
+ 711  9575 13                   INC DE
+ 712  9576              CCP_FCB_NAME_NEXT:
+ 713  9576 10 EE                DJNZ CCP_FCB_NAME_LOOP
+ 714  9578              CCP_FCB_NAME_SKIP:
+ 715  9578 CD 03 95             CALL CCP_AT_DELIM
+ 716  957B 28 08                JR Z,CCP_FCB_TYPE_BEGIN
+ 717  957D 13                   INC DE
+ 718  957E 18 F8                JR CCP_FCB_NAME_SKIP
+ 719  9580              CCP_FCB_NAME_PAD:
+ 720  9580 23                   INC HL
+ 721  9581 36 20                LD (HL),$20
+ 722  9583 10 FB                DJNZ CCP_FCB_NAME_PAD
+ 723  9585              CCP_FCB_TYPE_BEGIN:
+ 724  9585 06 03                LD B,$03
+ 725  9587 FE 2E                CP $2E
+ 726  9589 20 1B                JR NZ,CCP_FCB_TYPE_PAD
+ 727  958B 13                   INC DE
+ 728  958C              CCP_FCB_TYPE_LOOP:
+ 729  958C CD 03 95             CALL CCP_AT_DELIM
+ 730  958F 28 15                JR Z,CCP_FCB_TYPE_PAD
+ 731  9591 23                   INC HL
+ 732  9592 FE 2A                CP $2A
+ 733  9594 20 04                JR NZ,CCP_FCB_TYPE_STORE
+ 734  9596                      ; '*' wildcard -> store '?' in the type field
+ 735  9596 36 3F                LD (HL),$3F
+ 736  9598 18 02                JR CCP_FCB_TYPE_NEXT
+ 737  959A              CCP_FCB_TYPE_STORE:
+ 738  959A 77                   LD (HL),A
+ 739  959B 13                   INC DE
+ 740  959C              CCP_FCB_TYPE_NEXT:
+ 741  959C 10 EE                DJNZ CCP_FCB_TYPE_LOOP
+ 742  959E              CCP_FCB_TYPE_SKIP:
+ 743  959E CD 03 95             CALL CCP_AT_DELIM
+ 744  95A1 28 08                JR Z,CCP_FCB_ZERO_TRAILER
+ 745  95A3 13                   INC DE
+ 746  95A4 18 F8                JR CCP_FCB_TYPE_SKIP
+ 747  95A6              CCP_FCB_TYPE_PAD:
+ 748  95A6 23                   INC HL
+ 749  95A7 36 20                LD (HL),$20
+ 750  95A9 10 FB                DJNZ CCP_FCB_TYPE_PAD
+ 751  95AB              CCP_FCB_ZERO_TRAILER:
+ 752  95AB 06 03                LD B,$03
+ 753  95AD              CCP_FCB_ZERO_LOOP:
+ 754  95AD 23                   INC HL
+ 755  95AE 36 00                LD (HL),$00
+ 756  95B0 10 FB                DJNZ CCP_FCB_ZERO_LOOP
+ 757  95B2 EB                   EX DE,HL
+ 758  95B3 22 88 93             LD (CCP_PARSEPTR),HL
+ 759  95B6 E1                   POP HL
+ 760  95B7 01 0B 00             LD BC,$000B
+ 761  95BA              FCB_WILDCARD_SCAN:
+ 762  95BA 23                   INC HL
+ 763  95BB 7E                   LD A,(HL)
+ 764  95BC                      ; is this name/type byte the '?' wildcard?
+ 765  95BC FE 3F                CP $3F
+ 766  95BE 20 01                JR NZ,FCB_WILDCARD_SCAN_1
+ 767  95C0 04                   INC B
+ 768  95C1              FCB_WILDCARD_SCAN_1:
+ 769  95C1 0D                   DEC C
+ 770  95C2 20 F6                JR NZ,FCB_WILDCARD_SCAN
+ 771  95C4 78                   LD A,B
+ 772  95C5 B7                   OR A
+ 773  95C6 C9                   RET
+ 774  95C7              ; ----------------------------------------------------------------------
+ 775  95C7              ; CCP_BUILTIN_NAMES -- table of the six built-in command names, 4 bytes each.
+ 776  95C7              ;   Layout: 'DIR ','ERA ','TYPE','SAVE','REN ','USER' (24 bytes, blank-padded).
+ 777  95C7              ;   Indexed 0..5 by SEARCH_BUILTIN; the matched index then selects a handler.
+ 778  95C7              ;   [RE]
+ 779  95C7              ; ----------------------------------------------------------------------
+ 780  95C7              CCP_BUILTIN_NAMES:
+ 781  95C7 44 49 52 20          DEFB    "DIR ERA TYPESAVEREN USER" ; string
+ 781  95CB 45 52 41 20
+ 781  95CF 54 59 50 45
+ 781  95D3 53 41 56 45
+ 781  95D7 52 45 4E 20
+ 781  95DB 55 53 45 52
+ 782  95DF              ; ----------------------------------------------------------------------
+ 783  95DF              ; CCP_SERIAL_STAMP -- 6-byte CP/M serial-number stamp embedded in the CCP.
+ 784  95DF              ;   Compared against the first 6 bytes of the BDOS image header (BDOS_FBASE, $9C00)
+ 785  95DF              ;   by CCP_CHECK_SERIAL; a mismatch means the CCP and BDOS are from different copies
+ 786  95DF              ;   and the check jumps to CCP_SERIAL_MISMATCH_HALT. Opaque serial data, not code.
+ 787  95DF              ;   [RE] DELTA vs 2.20: 2.23 serial = BD 16 00 01 4D 40; 2.20 = BD 16 00 00 16 DF
+ 788  95DF              ;   (different licensed-copy serial; this is the documented per-copy fingerprint).
+ 789  95DF              ; ----------------------------------------------------------------------
+ 790  95DF              CCP_SERIAL_STAMP:
+ 791  95DF BD 16 00 01          DEFB    $BD,$16,$00,$01,$4D,$40
+ 791  95E3 4D 40
+ 792  95E5              ; ----------------------------------------------------------------------
+ 793  95E5              ; SEARCH_BUILTIN -- match the parsed command word against the six built-in names.
+ 794  95E5              ;   In: parsed command FCB name field at CCP_FCB_NAME (the command word is the first 4+ chars).
+ 795  95E5              ;   Out: A = command index 0..5 when a built-in matches with a trailing space; on no
+ 796  95E5              ;     match the loop runs C up to 6 and returns A = 6 (>=6 means not a built-in, falls
+ 797  95E5              ;     through to the external-command dispatch slot). Carry is NOT a result flag.
+ 798  95E5              ;   Clobbers: A, B, C, DE, HL.
+ 799  95E5              ;   Algorithm: for command index C=0..5, point HL at the 4-byte name entry in
+ 800  95E5              ;     CCP_BUILTIN_NAMES and DE at the parsed command bytes; compare 4 bytes; on a full
+ 801  95E5              ;     match require the next parsed byte to be a space and return C; else advance HL past
+ 802  95E5              ;     this entry and try the next index.
+ 803  95E5              ;   [RE]
+ 804  95E5              ; ----------------------------------------------------------------------
+ 805  95E5              SEARCH_BUILTIN:
+ 806  95E5 21 C7 95             LD HL,CCP_BUILTIN_NAMES
+ 807  95E8 0E 00                LD C,$00
+ 808  95EA              SEARCH_BUILTIN_NEXT:
+ 809  95EA 79                   LD A,C
+ 810  95EB                      ; tried all 6 built-ins? (>=6 -> not a built-in)
+ 811  95EB FE 06                CP $06
+ 812  95ED D0                   RET NC
+ 813  95EE 11 87 9B             LD DE,CCP_FCB_NAME
+ 814  95F1                      ; compare 4 name chars
+ 815  95F1 06 04                LD B,$04
+ 816  95F3              SEARCH_BUILTIN_CMP:
+ 817  95F3 1A                   LD A,(DE)
+ 818  95F4 BE                   CP (HL)
+ 819  95F5 20 0B                JR NZ,SEARCH_BUILTIN_SKIP
+ 820  95F7 13                   INC DE
+ 821  95F8 23                   INC HL
+ 822  95F9 10 F8                DJNZ SEARCH_BUILTIN_CMP
+ 823  95FB 1A                   LD A,(DE)
+ 824  95FC FE 20                CP $20
+ 825  95FE 20 05                JR NZ,SEARCH_BUILTIN_ADVANCE
+ 826  9600 79                   LD A,C
+ 827  9601 C9                   RET
+ 828  9602              SEARCH_BUILTIN_SKIP:
+ 829  9602 23                   INC HL
+ 830  9603 10 FD                DJNZ SEARCH_BUILTIN_SKIP
+ 831  9605              SEARCH_BUILTIN_ADVANCE:
+ 832  9605 0C                   INC C
+ 833  9606 18 E2                JR SEARCH_BUILTIN_NEXT
+ 834  9608              ; ----------------------------------------------------------------------
+ 835  9608              ; CCP_WARM_ENTRY -- warm-boot entry to the Console Command Processor.
+ 836  9608              ;   In: (cold path enters one line below at CCP_COLD_ENTRY=$960C with C = login byte:
+ 837  9608              ;     high nibble = user number, low nibble = default drive.)
+ 838  9608              ;   Out: does not return normally; reads, parses, and dispatches one command.
+ 839  9608              ;   Clobbers: all.
+ 840  9608              ;   Algorithm: warm entry clears the submit/auto-command flag (CCP_INLEN) then falls into
+ 841  9608              ;     CCP_COLD_ENTRY, which sets the user (F_USERNUM=32), resets disk (DRV_ALLRESET=13),
+ 842  9608              ;     selects the default drive (DRV_SET=14), and if no pending submit prints the 'd>'
+ 843  9608              ;     prompt, reads a line, sets DMA to TBUFF, parses into the command FCB, looks it up
+ 844  9608              ;     (SEARCH_BUILTIN) and JP (HL)'s through the dispatch table.
+ 845  9608              ;   [RE]
+ 846  9608              ; ----------------------------------------------------------------------
+ 847  9608              CCP_WARM_ENTRY:
+ 848  9608 AF                   XOR A
+ 849  9609                      ; clear the submit/auto-command flag (CCP_INLEN)
+ 850  9609 32 07 93             LD (CCP_INLEN),A
+ 851  960C              CCP_COLD_ENTRY:
+ 852  960C 31 64 9B             LD SP,CCP_STACK_BASE
+ 853  960F C5                   PUSH BC
+ 854  9610 79                   LD A,C
+ 855  9611 1F                   RRA
+ 856  9612 1F                   RRA
+ 857  9613 1F                   RRA
+ 858  9614 1F                   RRA
+ 859  9615 E6 0F                AND $0F
+ 860  9617 5F                   LD E,A
+ 861  9618 CD F8 93             CALL BDOS_USERNUM
+ 862  961B CD B2 93             CALL BDOS_DRV_ALLRESET
+ 863  961E 32 64 9B             LD (CCP_STACK_BASE),A
+ 864  9621 C1                   POP BC
+ 865  9622 79                   LD A,C
+ 866  9623 E6 0F                AND $0F
+ 867  9625 32 A8 9B             LD (CCP_CUR_DRIVE),A
+ 868  9628 CD B6 93             CALL BDOS_DRV_SET
+ 869  962B 3A 07 93             LD A,(CCP_INLEN)
+ 870  962E B7                   OR A
+ 871  962F 20 16                JR NZ,CCP_PARSE_AND_DISPATCH
+ 872  9631              CCP_PROMPT_AND_READ:
+ 873  9631 31 64 9B             LD SP,CCP_STACK_BASE
+ 874  9634 CD 99 93             CALL CCP_CRLF
+ 875  9637 CD A8 94             CALL BDOS_DRV_GET
+ 876  963A C6 41                ADD A,$41
+ 877  963C CD 8C 93             CALL CCP_CONOUT
+ 878  963F 3E 3E                LD A,$3E
+ 879  9641 CD 8C 93             CALL CCP_CONOUT
+ 880  9644 CD 1B 94             CALL CCP_GETCMD
+ 881  9647              CCP_PARSE_AND_DISPATCH:
+ 882  9647 11 80 00             LD DE,$0080
+ 883  964A CD B0 94             CALL BDOS_F_DMAOFF
+ 884  964D CD A8 94             CALL BDOS_DRV_GET
+ 885  9650 32 A8 9B             LD (CCP_CUR_DRIVE),A
+ 886  9653 CD 2F 95             CALL CCP_PARSE_FCB1
+ 887  9656 C4 DF 94             CALL NZ,CCP_ECHO_TOKEN
+ 888  9659 3A A9 9B             LD A,(CCP_FCB_DRIVE_PREFIX)
+ 889  965C B7                   OR A
+ 890  965D C2 26 99             JP NZ,CCP_DRIVE_SELECT
+ 891  9660 CD E5 95             CALL SEARCH_BUILTIN
+ 892  9663 21 70 96             LD HL,CCP_CMD_DISPATCH_TBL
+ 893  9666 5F                   LD E,A
+ 894  9667 16 00                LD D,$00
+ 895  9669 19                   ADD HL,DE
+ 896  966A 19                   ADD HL,DE
+ 897  966B 7E                   LD A,(HL)
+ 898  966C 23                   INC HL
+ 899  966D 66                   LD H,(HL)
+ 900  966E 6F                   LD L,A
+ 901  966F E9                   JP (HL)
+ 902  9670              CCP_CMD_DISPATCH_TBL:
+ 903  9670 18 97                DEFW    DIR_CMD
+ 904  9672 B1 97                DEFW    ERA_CMD
+ 905  9674 EE 97                DEFW    TYPE_CMD
+ 906  9676 3A 98                DEFW    SAVE_CMD
+ 907  9678 98 98                DEFW    REN_CMD
+ 908  967A 0F 99                DEFW    CCP_CMD_USER
+ 909  967C 26 99                DEFW    CCP_DRIVE_SELECT
+ 910  967E              CCP_SERIAL_MISMATCH_HALT:
+ 911  967E 21 F3 76             LD HL,$76F3
+ 912  9681 22 00 93             LD (CCP_BASE),HL
+ 913  9684 21 00 93             LD HL,CCP_BASE
+ 914  9687 E9                   JP (HL)
+ 915  9688              ; ----------------------------------------------------------------------
+ 916  9688              ; PRINT_READ_ERROR -- emit the 'Read error' message on a fresh line.
+ 917  9688              ;   In: none.  Out: message printed via CCP_CRLF_MSG.  Clobbers: A, BC, HL.
+ 918  9688              ;   Algorithm: BC:=MSG_READ_ERROR; JP CCP_CRLF_MSG (CRLF then print-until-NUL).
+ 919  9688              ;   [RE] CCP disk read-error report.
+ 920  9688              ; ----------------------------------------------------------------------
+ 921  9688              PRINT_READ_ERROR:
+ 922  9688 01 8E 96             LD BC,MSG_READ_ERROR
+ 923  968B C3 A2 93             JP CCP_CRLF_MSG
+ 924  968E              ; ----------------------------------------------------------------------
+ 925  968E              ; MSG_READ_ERROR -- NUL-terminated console message 'Read error'.
+ 926  968E              ;   [RE]
+ 927  968E              ; ----------------------------------------------------------------------
+ 928  968E              MSG_READ_ERROR:
+ 929  968E 52 65 61 64          DEFB    "Read error"             ; string
+ 929  9692 20 65 72 72
+ 929  9696 6F 72
+ 930  9698 00                   DEFB    $00                      ; terminator
+ 931  9699              ; ----------------------------------------------------------------------
+ 932  9699              ; PRINT_NO_FILE -- emit the 'No file' message on a fresh line.
+ 933  9699              ;   In: none.  Out: message printed via CCP_CRLF_MSG.  Clobbers: A, BC, HL.
+ 934  9699              ;   Algorithm: BC:=MSG_NO_FILE; JP CCP_CRLF_MSG.
+ 935  9699              ;   [RE] CCP 'file not found' report.
+ 936  9699              ; ----------------------------------------------------------------------
+ 937  9699              PRINT_NO_FILE:
+ 938  9699 01 9F 96             LD BC,MSG_NO_FILE
+ 939  969C C3 A2 93             JP CCP_CRLF_MSG
+ 940  969F              ; ----------------------------------------------------------------------
+ 941  969F              ; MSG_NO_FILE -- NUL-terminated console message 'No file'.
+ 942  969F              ;   [RE]
+ 943  969F              ; ----------------------------------------------------------------------
+ 944  969F              MSG_NO_FILE:
+ 945  969F 4E 6F 20 66          DEFB    "No file"                ; string
+ 945  96A3 69 6C 65
+ 946  96A6 00                   DEFB    $00                      ; terminator
+ 947  96A7              ; ----------------------------------------------------------------------
+ 948  96A7              ; CCP_PARSE_USERNUM -- parse a decimal user number from the command FCB name.
+ 949  96A7              ;   In: command FCB name field at CCP_FCB_NAME.
+ 950  96A7              ;   Out: A = parsed user number (0..15); on a non-digit or out-of-range value jumps
+ 951  96A7              ;     to CCP_ECHO_TOKEN (bad-command echo). CCP_DRIVEGIVEN must be 0 (no drive prefix).
+ 952  96A7              ;   Clobbers: A, B, C, D, HL.
+ 953  96A7              ;   Algorithm: re-parse the FCB (CCP_PARSE_FCB1); reject if a drive prefix was given;
+ 954  96A7              ;     accumulate decimal digits in B (B = B*10 + digit) with overflow/range checks;
+ 955  96A7              ;     trailing blanks must pad the field; return B in A.
+ 956  96A7              ;   [RE] Backs the USER built-in command.
+ 957  96A7              ; ----------------------------------------------------------------------
+ 958  96A7              CCP_PARSE_USERNUM:
+ 959  96A7 CD 2F 95             CALL CCP_PARSE_FCB1
+ 960  96AA 3A A9 9B             LD A,(CCP_FCB_DRIVE_PREFIX)
+ 961  96AD B7                   OR A
+ 962  96AE C2 DF 94             JP NZ,CCP_ECHO_TOKEN
+ 963  96B1 21 87 9B             LD HL,CCP_FCB_NAME
+ 964  96B4 01 0B 00             LD BC,$000B
+ 965  96B7              CCP_PARSE_USERNUM_LOOP:
+ 966  96B7 7E                   LD A,(HL)
+ 967  96B8 FE 20                CP $20
+ 968  96BA 28 24                JR Z,CCP_PARSE_USERNUM_TAIL
+ 969  96BC 23                   INC HL
+ 970  96BD                      ; ASCII digit -> binary ('0'=$30)
+ 971  96BD D6 30                SUB $30
+ 972  96BF                      ; reject non-digit (>= 10)
+ 973  96BF FE 0A                CP $0A
+ 974  96C1 D2 DF 94             JP NC,CCP_ECHO_TOKEN
+ 975  96C4 57                   LD D,A
+ 976  96C5 78                   LD A,B
+ 977  96C6 E6 E0                AND $E0
+ 978  96C8 C2 DF 94             JP NZ,CCP_ECHO_TOKEN
+ 979  96CB 78                   LD A,B
+ 980  96CC 07                   RLCA
+ 981  96CD 07                   RLCA
+ 982  96CE 07                   RLCA
+ 983  96CF 80                   ADD A,B
+ 984  96D0 DA DF 94             JP C,CCP_ECHO_TOKEN
+ 985  96D3 80                   ADD A,B
+ 986  96D4 DA DF 94             JP C,CCP_ECHO_TOKEN
+ 987  96D7 82                   ADD A,D
+ 988  96D8 DA DF 94             JP C,CCP_ECHO_TOKEN
+ 989  96DB 47                   LD B,A
+ 990  96DC 0D                   DEC C
+ 991  96DD 20 D8                JR NZ,CCP_PARSE_USERNUM_LOOP
+ 992  96DF C9                   RET
+ 993  96E0              CCP_PARSE_USERNUM_TAIL:
+ 994  96E0 7E                   LD A,(HL)
+ 995  96E1 FE 20                CP $20
+ 996  96E3 C2 DF 94             JP NZ,CCP_ECHO_TOKEN
+ 997  96E6 23                   INC HL
+ 998  96E7 0D                   DEC C
+ 999  96E8 20 F6                JR NZ,CCP_PARSE_USERNUM_TAIL
+1000  96EA 78                   LD A,B
+1001  96EB C9                   RET
+1002  96EC              ; ----------------------------------------------------------------------
+1003  96EC              ; CCP_FCB_BYTE_AT -- fetch one byte of the command FCB at TBUFF+(A+C).
+1004  96EC              ;   In: A = offset, C = base offset; the FCB region begins at TBUFF ($0080).
+1005  96EC              ;   Out: A = the FCB byte at $0080+C+A.  Clobbers: A, HL.
+1006  96EC              ;   Algorithm: HL:=TBUFF($0080); A:=A+C; HL+=A (CCP_HL_ADD_A); A:=(HL).
+1007  96EC              ;   [RE] Used by the directory lister to read FCB/dir-entry bytes.
+1008  96EC              ; ----------------------------------------------------------------------
+1009  96EC              CCP_FCB_BYTE_AT:
+1010  96EC 21 80 00             LD HL,$0080
+1011  96EF 81                   ADD A,C
+1012  96F0 CD 2A 95             CALL CCP_HL_ADD_A
+1013  96F3 7E                   LD A,(HL)
+1014  96F4 C9                   RET
+1015  96F5              ; ----------------------------------------------------------------------
+1016  96F5              ; CCP_RESET_USER_IF_NEEDED -- clear the FCB drive byte and restore the user/drive.
+1017  96F5              ;   In: CCP_DRIVEGIVEN (CCP_FCB_DRIVE_PREFIX); CCP_CDISK (CCP_CUR_DRIVE).
+1018  96F5              ;   Out: FCB drive byte (CCP_FCB) := 0; if a different drive was named, reselect it.
+1019  96F5              ;   Clobbers: A, HL.
+1020  96F5              ;   Algorithm: clear CCP_FCB; if CCP_DRIVEGIVEN==0 RET; (drive-1) compared to CDISK;
+1021  96F5              ;     if equal RET; else BDOS_DRV_SET to the named drive.
+1022  96F5              ;   [RE]
+1023  96F5              ; ----------------------------------------------------------------------
+1024  96F5              CCP_RESET_USER_IF_NEEDED:
+1025  96F5 AF                   XOR A
+1026  96F6 32 86 9B             LD (CCP_FCB),A
+1027  96F9 3A A9 9B             LD A,(CCP_FCB_DRIVE_PREFIX)
+1028  96FC B7                   OR A
+1029  96FD C8                   RET Z
+1030  96FE 3D                   DEC A
+1031  96FF 21 A8 9B             LD HL,CCP_CUR_DRIVE
+1032  9702 BE                   CP (HL)
+1033  9703 C8                   RET Z
+1034  9704 C3 B6 93             JP BDOS_DRV_SET
+1035  9707              ; ----------------------------------------------------------------------
+1036  9707              ; CCP_RESTORE_DEFAULT_DRIVE -- if the FCB carried an explicit 'd:' prefix, re-select the default
+1037  9707              ; drive.
+1038  9707              ;   In: CCP_FCB_DRIVE_PREFIX (=CCP_FCB_DRIVE_PREFIX) = explicit drive prefix parsed from the command
+1039  9707              ;       FCB (0 = none);
+1040  9707              ;       CCP_CUR_DRIVE (=CCP_CUR_DRIVE) = current default drive.
+1041  9707              ;   Out: when the FCB had a prefix that differs from the default, the BDOS current disk is set back
+1042  9707              ;        to CCP_CUR_DRIVE via DRV_SET (fn 14); else a no-op.
+1043  9707              ;   Clobbers: A, E, HL.
+1044  9707              ;   Algorithm: if prefix is 0 return; convert 1-based prefix to 0-based; if it already equals the
+1045  9707              ;     default drive return; else A:=CCP_CUR_DRIVE and tail-call BDOS_DRV_SET. Variant of
+1046  9707              ;     RESOLVE_DRIVE_PREFIX that does NOT zero the FCB drive byte and restores the DEFAULT drive.
+1047  9707              ;   [RE] Transferred from the fully-RE'd 2.20-44K twin; byte-identical structure (offset -$100).
+1048  9707              ; ----------------------------------------------------------------------
+1049  9707              CCP_RESTORE_DEFAULT_DRIVE:
+1050  9707                      ; A = explicit drive prefix from the parsed FCB (0 = none)
+1051  9707 3A A9 9B             LD A,(CCP_FCB_DRIVE_PREFIX)
+1052  970A B7                   OR A
+1053  970B C8                   RET Z
+1054  970C                      ; convert 1-based prefix (1..16) to 0-based drive number
+1055  970C 3D                   DEC A
+1056  970D 21 A8 9B             LD HL,CCP_CUR_DRIVE
+1057  9710 BE                   CP (HL)
+1058  9711 C8                   RET Z
+1059  9712                      ; load the DEFAULT drive code as the DRV_SET argument (restore it)
+1060  9712 3A A8 9B             LD A,(CCP_CUR_DRIVE)
+1061  9715                      ; tail-call BDOS DRV_SET (fn 14) to re-select the default drive
+1062  9715 C3 B6 93             JP BDOS_DRV_SET
+1063  9718              ; ----------------------------------------------------------------------
+1064  9718              ; DIR_CMD -- CCP built-in DIR: list directory entries matching the command-tail filespec.
+1065  9718              ;   In: command tail already parsed; default drive in CCP_CUR_DRIVE.
+1066  9718              ;   Out: matching names printed (here 4 per line as 'd:NAME EXT'); 'No file' if none. Returns via
+1067  9718              ;        the CCP command-complete path.
+1068  9718              ;   Clobbers: A,B,C,D,E,H,L.
+1069  9718              ;   Algorithm: build the search FCB from the tail (CCP_PARSE_LINE_FCB); select the requested drive
+1070  9718              ;     (RESOLVE_DRIVE_PREFIX). If the first name byte is blank (no name), fall into DIR_WILDCARD_FILL
+1071  9718              ;     to set all 11 name/type bytes to '?' (match every file). Falls into DIR_START_SEARCH.
+1072  9718              ;   [RE] Transferred from the 2.20-44K twin DIR_CMD. NOTE: this 2.23 build lists 4 entries per line
+1073  9718              ;     (AND $03) where the 2.20 twin used 2 per line (AND $01) -- a real version difference.
+1074  9718              ; ----------------------------------------------------------------------
+1075  9718              DIR_CMD:
+1076  9718                      ; parse the command tail into the search FCB
+1077  9718 CD 2F 95             CALL CCP_PARSE_FCB1
+1078  971B                      ; select the drive named by the filespec prefix (RESOLVE_DRIVE_PREFIX)
+1079  971B CD F5 96             CALL CCP_RESET_USER_IF_NEEDED
+1080  971E 21 87 9B             LD HL,CCP_FCB_NAME
+1081  9721 7E                   LD A,(HL)
+1082  9722                      ; first FCB name byte blank? => no filespec name given, wildcard everything
+1083  9722 FE 20                CP $20
+1084  9724 20 07                JR NZ,DIR_START_SEARCH
+1085  9726                      ; 11 = length of the FCB name+type field to wildcard-fill
+1086  9726 06 0B                LD B,$0B
+1087  9728              ; ----------------------------------------------------------------------
+1088  9728              ; DIR_WILDCARD_FILL -- overwrite the 11 FCB name+type bytes with '?' so DIR matches every file.
+1089  9728              ;   In: HL = first name byte of the search FCB; B = 11.
+1090  9728              ;   Out: 11 bytes set to '?' ($3F); HL advanced; B = 0. Falls into DIR_START_SEARCH.
+1091  9728              ;   Clobbers: B, HL (A preserved).
+1092  9728              ;   Algorithm: store '?' through HL, advance, decrement count, repeat 11 times.
+1093  9728              ;   [RE] 2.20-44K twin DIR_WILDCARD_FILL.
+1094  9728              ; ----------------------------------------------------------------------
+1095  9728              DIR_WILDCARD_FILL:
+1096  9728 36 3F                LD (HL),$3F
+1097  972A 23                   INC HL
+1098  972B 10 FB                DJNZ DIR_WILDCARD_FILL
+1099  972D              ; ----------------------------------------------------------------------
+1100  972D              ; DIR_START_SEARCH -- begin the DIR directory scan and test the first SEARCH result.
+1101  972D              ;   In: search FCB populated.
+1102  972D              ;   Out: per-line entry counter E:=0 and pushed; BDOS SEARCH_FIRST (fn 17) issued; on no match
+1103  972D              ;        'No file' printed. Falls into DIR_CMD_2.
+1104  972D              ;   Clobbers: A, E, flags; pushes DE (the entry counter).
+1105  972D              ;   Algorithm: E:=0, PUSH DE; call SEARCH_FIRST (CCP_SEARCH_FIRST_SUBMIT = CCP_SEARCH_FIRST_SUBMIT);
+1106  972D              ;              on no-match (Z)
+1107  972D              ;     print 'No file' (PRINT_NO_FILE = PRINT_NO_FILE). Falls into DIR_CMD_2.
+1108  972D              ;   [RE] 2.20-44K twin DIR_START_SEARCH.
+1109  972D              ; ----------------------------------------------------------------------
+1110  972D              DIR_START_SEARCH:
+1111  972D                      ; E = directory-entry counter (drives the per-line column layout)
+1112  972D 1E 00                LD E,$00
+1113  972F D5                   PUSH DE
+1114  9730                      ; BDOS SEARCH_FIRST (fn 17) on the search FCB
+1115  9730 CD D1 93             CALL CCP_SEARCH_FIRST_SUBMIT
+1116  9733                      ; no directory match: print 'No file'
+1117  9733 CC 99 96             CALL Z,PRINT_NO_FILE
+1118  9736              ; ----------------------------------------------------------------------
+1119  9736              ; DIR_CMD_2 -- DIR main loop: format one matched directory entry from the DMA buffer (TBUFF).
+1120  9736              ;   In: Z from the preceding SEARCH set when the directory is exhausted; BDOS stored the matched
+1121  9736              ;       entry's directory code (0..3) in CCP_BDOS_RESULT (=CCP_BDOS_RESULT); the 32-byte entry sits
+1122  9736              ;       in TBUFF.
+1123  9736              ;   Out: one entry printed as 'd:NAME EXT'; loops via SEARCH_NEXT; exits to DIR_EXIT when done.
+1124  9736              ;   Clobbers: A,B,C,D,E,H,L.
+1125  9736              ;   Algorithm: if no further match go DIR_EXIT. code*32 (RRCA x3, AND $60) = byte offset of the
+1126  9736              ;              entry
+1127  9736              ;     in TBUFF, into C. Read the entry flag byte at +10; if bit7 set skip it. Else pop/inc/re-push
+1128  9736              ;     the
+1129  9736              ;     counter and AND $03 to test the 4-column parity: nonzero continues the current line
+1130  9736              ;     (DIR_FMT_ENTRY_COLS), zero starts a fresh CRLF line then prints the drive letter
+1131  9736              ;     ('A'+drive)+':'.
+1132  9736              ;   [RE] 2.20-44K twin DIR_CMD_2. DIFFERENCE: 2.23 masks AND $03 (4 entries/line) vs 2.20 AND $01.
+1133  9736              ; ----------------------------------------------------------------------
+1134  9736              DIR_CMD_2:
+1135  9736                      ; SEARCH returned no (further) match: finish DIR
+1136  9736 28 75                JR Z,DIR_EXIT
+1137  9738                      ; BDOS directory code (0..3) of the matched entry
+1138  9738 3A A7 9B             LD A,(CCP_BDOS_RESULT)
+1139  973B 0F                   RRCA
+1140  973C 0F                   RRCA
+1141  973D 0F                   RRCA
+1142  973E                      ; code*32: byte offset of the matched 32-byte entry within TBUFF
+1143  973E E6 60                AND $60
+1144  9740 4F                   LD C,A
+1145  9741                      ; offset 10 within the entry = the file flag/attribute byte
+1146  9741 3E 0A                LD A,$0A
+1147  9743 CD EC 96             CALL CCP_FCB_BYTE_AT
+1148  9746                      ; move flag bit7 into carry
+1149  9746 17                   RLA
+1150  9747                      ; flag bit7 set: skip this entry, go SEARCH_NEXT
+1151  9747 38 5A                JR C,DIR_NEXT_OR_EXIT
+1152  9749 D1                   POP DE
+1153  974A 7B                   LD A,E
+1154  974B 1C                   INC E
+1155  974C D5                   PUSH DE
+1156  974D                      ; parity of the entry index => 4-per-line column layout (2.20 twin used AND $01 = 2/line)
+1157  974D E6 03                AND $03
+1158  974F F5                   PUSH AF
+1159  9750                      ; nonzero column: continue on the same line with a separator
+1160  9750 20 14                JR NZ,DIR_FMT_ENTRY_COLS
+1161  9752 CD 99 93             CALL CCP_CRLF
+1162  9755 C5                   PUSH BC
+1163  9756 CD A8 94             CALL BDOS_DRV_GET
+1164  9759 C1                   POP BC
+1165  975A                      ; convert drive 0..15 to letter 'A'..'P'
+1166  975A C6 41                ADD A,$41
+1167  975C CD 93 93             CALL CCP_CONOUT_KEEPBC
+1168  975F 3E 3A                LD A,$3A
+1169  9761 CD 93 93             CALL CCP_CONOUT_KEEPBC
+1170  9764 18 08                JR DIR_PRINT_NAME
+1171  9766              ; ----------------------------------------------------------------------
+1172  9766              ; DIR_FMT_ENTRY_COLS -- emit the column separator before a continued entry on the current line.
+1173  9766              ;   In: reached for a nonzero column index (continuing the current output line).
+1174  9766              ;   Out: a space separator and a ':' printed; falls into DIR_PRINT_NAME.
+1175  9766              ;   Clobbers: A.
+1176  9766              ;   Algorithm: print the inter-column space (CCP_SPACE), then ':' , then continue into the name
+1177  9766              ;              print.
+1178  9766              ;   [RE] 2.20-44K twin DIR_FMT_ENTRY_COLS.
+1179  9766              ; ----------------------------------------------------------------------
+1180  9766              DIR_FMT_ENTRY_COLS:
+1181  9766 CD 91 93             CALL CCP_SPACE
+1182  9769 3E 3A                LD A,$3A
+1183  976B CD 93 93             CALL CCP_CONOUT_KEEPBC
+1184  976E              ; ----------------------------------------------------------------------
+1185  976E              ; DIR_PRINT_NAME -- print one directory entry's 11-character NAME EXT field.
+1186  976E              ;   In: C = base offset of the entry within TBUFF.
+1187  976E              ;   Out: bytes 1..11 of the name/type printed with high bits stripped.
+1188  976E              ;   Clobbers: A, B.
+1189  976E              ;   Algorithm: print a leading space, B:=1 (first name byte, skipping the drive byte at 0); fall
+1190  976E              ;              into
+1191  976E              ;     DIR_EMIT_NAME_CHAR.
+1192  976E              ;   [RE] 2.20-44K twin DIR_PRINT_NAME.
+1193  976E              ; ----------------------------------------------------------------------
+1194  976E              DIR_PRINT_NAME:
+1195  976E CD 91 93             CALL CCP_SPACE
+1196  9771 06 01                LD B,$01
+1197  9773              ; ----------------------------------------------------------------------
+1198  9773              ; DIR_EMIT_NAME_CHAR -- loop emitting the characters of a directory name/type field.
+1199  9773              ;   In: B = current name byte index (1..11); C = entry base offset in TBUFF; the column-parity value
+1200  9773              ;       pushed by DIR_CMD_2 is on the stack.
+1201  9773              ;   Out: each char printed (blanks emitted as one space); a separator space between name (1..8) and
+1202  9773              ;        type (9..11).
+1203  9773              ;   Clobbers: A, B.
+1204  9773              ;   Algorithm: fetch TBUFF[C+B], strip the high bit (AND $7F). If non-blank, print it. If blank,
+1205  9773              ;     recover the saved parity (POP/PUSH AF) and CP $03: in THIS 2.23 build the saved value is AND
+1206  9773              ;     $03
+1207  9773              ;     (0..3), so the CP $03 type-peek block at LD A,$09 is LIVE -- when the column is the last (3)
+1208  9773              ;     it
+1209  9773              ;     peeks the first type byte and, if the extension is all blank, stops the entry early. (In the
+1210  9773              ;     2.20 twin the saved value was AND $01, so that block was dead.)
+1211  9773              ;   [RE] 2.20-44K twin DIR_EMIT_NAME_CHAR, with the type-peek block now live (4-column build).
+1212  9773              ; ----------------------------------------------------------------------
+1213  9773              DIR_EMIT_NAME_CHAR:
+1214  9773 78                   LD A,B
+1215  9774 CD EC 96             CALL CCP_FCB_BYTE_AT
+1216  9777                      ; strip the directory attribute high bit
+1217  9777 E6 7F                AND $7F
+1218  9779 FE 20                CP $20
+1219  977B 20 13                JR NZ,DIR_PUT_NAME_CHAR
+1220  977D F1                   POP AF
+1221  977E F5                   PUSH AF
+1222  977F                      ; saved column-parity == 3 (last of 4)? LIVE here (AND $03); dead in the 2.20 AND $01 twin
+1223  977F FE 03                CP $03
+1224  9781 20 0B                JR NZ,DIR_EMIT_NAME_CHAR_2
+1225  9783                      ; offset 9 = first type byte, peeked to detect an all-blank extension
+1226  9783 3E 09                LD A,$09
+1227  9785 CD EC 96             CALL CCP_FCB_BYTE_AT
+1228  9788 E6 7F                AND $7F
+1229  978A FE 20                CP $20
+1230  978C                      ; all-blank extension at the last column: stop and fetch the next entry
+1231  978C 28 14                JR Z,DIR_SEARCH_NEXT
+1232  978E              ; ----------------------------------------------------------------------
+1233  978E              ; DIR_EMIT_NAME_CHAR_2 -- substitute a single space for a blank name char, then emit it.
+1234  978E              ;   In: reached when the current name character is a blank to be rendered as one space.
+1235  978E              ;   Out: A:=' '; falls into DIR_PUT_NAME_CHAR.
+1236  978E              ;   Clobbers: A.
+1237  978E              ;   [RE] 2.20-44K twin DIR_EMIT_NAME_CHAR_2.
+1238  978E              ; ----------------------------------------------------------------------
+1239  978E              DIR_EMIT_NAME_CHAR_2:
+1240  978E 3E 20                LD A,$20
+1241  9790              ; ----------------------------------------------------------------------
+1242  9790              ; DIR_PUT_NAME_CHAR -- output one name character and advance to the next name-field position.
+1243  9790              ;   In: A = char; B = current name byte index; C = entry base offset.
+1244  9790              ;   Out: char printed; B incremented; loops, inserts the name/type gap, or finishes the field.
+1245  9790              ;   Clobbers: A, B.
+1246  9790              ;   Algorithm: CONOUT the char (CCP_CONOUT_KEEPBC). INC B; if B==12 the 11-char field is done (go
+1247  9790              ;     DIR_SEARCH_NEXT). When B==9 (start of type) print an extra space then continue; else continue.
+1248  9790              ;   [RE] 2.20-44K twin DIR_PUT_NAME_CHAR.
+1249  9790              ; ----------------------------------------------------------------------
+1250  9790              DIR_PUT_NAME_CHAR:
+1251  9790 CD 93 93             CALL CCP_CONOUT_KEEPBC
+1252  9793 04                   INC B
+1253  9794 78                   LD A,B
+1254  9795                      ; reached index 12 (all 11 name+type chars done)?
+1255  9795 FE 0C                CP $0C
+1256  9797 30 09                JR NC,DIR_SEARCH_NEXT
+1257  9799                      ; reached the first type-field byte (index 9)? print the name/ext separator
+1258  9799 FE 09                CP $09
+1259  979B 20 D6                JR NZ,DIR_EMIT_NAME_CHAR
+1260  979D CD 91 93             CALL CCP_SPACE
+1261  97A0 18 D1                JR DIR_EMIT_NAME_CHAR
+1262  97A2              ; ----------------------------------------------------------------------
+1263  97A2              ; DIR_SEARCH_NEXT -- drop the saved column-parity value, then fall into the break-check +
+1264  97A2              ; SEARCH_NEXT.
+1265  97A2              ;   In: the column-parity value pushed by DIR_CMD_2 is on the stack.
+1266  97A2              ;   Out: that value discarded; falls into DIR_NEXT_OR_EXIT (the per-line entry counter remains
+1267  97A2              ;        beneath).
+1268  97A2              ;   Clobbers: AF.
+1269  97A2              ;   [RE] 2.20-44K twin DIR_SEARCH_NEXT.
+1270  97A2              ; ----------------------------------------------------------------------
+1271  97A2              DIR_SEARCH_NEXT:
+1272  97A2 F1                   POP AF
+1273  97A3              ; ----------------------------------------------------------------------
+1274  97A3              ; DIR_NEXT_OR_EXIT -- poll for a console abort, then issue BDOS SEARCH_NEXT to continue DIR.
+1275  97A3              ;   In: search FCB still set from SEARCH_FIRST.
+1276  97A3              ;   Out: if a key is waiting DIR aborts to DIR_EXIT; else SEARCH_NEXT (fn 18) runs and the loop
+1277  97A3              ;        resumes at DIR_CMD_2.
+1278  97A3              ;   Clobbers: A.
+1279  97A3              ;   Algorithm: CCP_CHECK_ABORT (CCP_CHECK_ABORT); if NZ (key) exit DIR; else SEARCH_NEXT
+1280  97A3              ;              (BDOS_F_SNEXT) and loop.
+1281  97A3              ;   [RE] 2.20-44K twin DIR_NEXT_OR_EXIT.
+1282  97A3              ; ----------------------------------------------------------------------
+1283  97A3              DIR_NEXT_OR_EXIT:
+1284  97A3                      ; poll console for a break/abort keypress (BDOS fn 11 then fn 1)
+1285  97A3 CD 9A 94             CALL CCP_CHECK_ABORT
+1286  97A6 20 05                JR NZ,DIR_EXIT
+1287  97A8                      ; BDOS SEARCH_NEXT (fn 18) for the following entry
+1288  97A8 CD D8 93             CALL BDOS_F_SNEXT
+1289  97AB 18 89                JR DIR_CMD_2
+1290  97AD              ; ----------------------------------------------------------------------
+1291  97AD              ; DIR_EXIT -- DIR completion: drop the saved entry counter and return to the CCP command-complete
+1292  97AD              ; path.
+1293  97AD              ;   In: the per-line entry counter (pushed in DIR_START_SEARCH) is on the stack.
+1294  97AD              ;   Out: stack balanced; jumps to the shared CCP end-of-command handler (CCP_RETURN_OK =
+1295  97AD              ;        CCP_RETURN_OK).
+1296  97AD              ;   Clobbers: DE.
+1297  97AD              ;   [RE] 2.20-44K twin DIR_EXIT.
+1298  97AD              ; ----------------------------------------------------------------------
+1299  97AD              DIR_EXIT:
+1300  97AD D1                   POP DE
+1301  97AE C3 38 9A             JP CCP_RETURN_OK
+1302  97B1              ; ----------------------------------------------------------------------
+1303  97B1              ; ERA_CMD -- CCP built-in ERA (ERASE): delete files matching the command-tail filespec.
+1304  97B1              ;   In: command tail already parsed; default drive in CCP_CUR_DRIVE.
+1305  97B1              ;   Out: matching files deleted; if the spec is all-wildcard ('*.*', 11 '?' bytes) the user is
+1306  97B1              ;        prompted 'All (y/n)?' first. Returns via the CCP command-complete path.
+1307  97B1              ;   Clobbers: A,B,C,D,E,H,L.
+1308  97B1              ;   Algorithm: CCP_PARSE_LINE_FCB returns A = count of '?' wildcards. If A==11 print 'All (y/n)?',
+1309  97B1              ;     read a line, abort unless it is a single 'Y'. Then fall into ERA_DO_DELETE.
+1310  97B1              ;   [RE] 2.20-44K twin ERA_CMD. NOTE: 2.23 prompt text is lowercase 'All (y/n)?' (2.20: 'ALL
+1311  97B1              ;   (Y/N)?').
+1312  97B1              ; ----------------------------------------------------------------------
+1313  97B1              ERA_CMD:
+1314  97B1 CD 2F 95             CALL CCP_PARSE_FCB1
+1315  97B4                      ; all 11 name/type bytes wildcard => spec was '*.*' (erase everything)
+1316  97B4 FE 0B                CP $0B
+1317  97B6 20 1B                JR NZ,ERA_DO_DELETE
+1318  97B8                      ; point at the 'All (y/n)?' confirmation prompt
+1319  97B8 01 E3 97             LD BC,MSG_ERA_CONFIRM
+1320  97BB CD A2 93             CALL CCP_CRLF_MSG
+1321  97BE CD 1B 94             CALL CCP_GETCMD
+1322  97C1 21 07 93             LD HL,CCP_INLEN
+1323  97C4 35                   DEC (HL)
+1324  97C5 C2 31 96             JP NZ,CCP_PROMPT_AND_READ
+1325  97C8 23                   INC HL
+1326  97C9 7E                   LD A,(HL)
+1327  97CA                      ; reply must be 'Y'
+1328  97CA FE 59                CP $59
+1329  97CC C2 31 96             JP NZ,CCP_PROMPT_AND_READ
+1330  97CF 23                   INC HL
+1331  97D0 22 88 93             LD (CCP_PARSEPTR),HL
+1332  97D3              ; ----------------------------------------------------------------------
+1333  97D3              ; ERA_DO_DELETE -- perform the ERA file deletion after any confirmation.
+1334  97D3              ;   In: FCB holds the (possibly wildcard) filespec.
+1335  97D3              ;   Out: BDOS F_DELETE executed; 'No file' printed when nothing matched; returns via the command
+1336  97D3              ;        path.
+1337  97D3              ;   Clobbers: A, D, E.
+1338  97D3              ;   Algorithm: select the drive (RESOLVE_DRIVE_PREFIX = CCP_RESET_USER_IF_NEEDED); DE:=FCB; F_DELETE
+1339  97D3              ;              (BDOS_F_DELETE, fn 19).
+1340  97D3              ;     INC A so a $FF (no-file) return becomes 0/Z; on Z print 'No file'. Jump to CCP_RETURN_OK.
+1341  97D3              ;   [RE] 2.20-44K twin ERA_DO_DELETE.
+1342  97D3              ; ----------------------------------------------------------------------
+1343  97D3              ERA_DO_DELETE:
+1344  97D3 CD F5 96             CALL CCP_RESET_USER_IF_NEEDED
+1345  97D6 11 86 9B             LD DE,CCP_FCB
+1346  97D9                      ; BDOS F_DELETE (fn 19) on the FCB
+1347  97D9 CD DC 93             CALL BDOS_F_DELETE
+1348  97DC                      ; map $FF (no file deleted) to 0 so Z signals 'nothing matched'
+1349  97DC 3C                   INC A
+1350  97DD                      ; nothing deleted: print 'No file'
+1351  97DD CC 99 96             CALL Z,PRINT_NO_FILE
+1352  97E0 C3 38 9A             JP CCP_RETURN_OK
+1353  97E3              ; ----------------------------------------------------------------------
+1354  97E3              ; MSG_ERA_CONFIRM -- ASCIIZ prompt 'All (y/n)?' shown before erasing every file (ERA *.*).
+1355  97E3              ;   [RE] 2.20-44K twin MSG_ERA_CONFIRM. The 2.23 text is lowercase 'All (y/n)?' (2.20 was 'ALL
+1356  97E3              ;   (Y/N)?').
+1357  97E3              ; ----------------------------------------------------------------------
+1358  97E3              MSG_ERA_CONFIRM:
+1359  97E3 41 6C 6C 20          DEFB    "All (y/n)?"             ; string
+1359  97E7 28 79 2F 6E
+1359  97EB 29 3F
+1360  97ED 00                   DEFB    $00                      ; terminator
+1361  97EE              ; ----------------------------------------------------------------------
+1362  97EE              ; TYPE_CMD -- CCP built-in TYPE: open the named text file and echo its contents to the console.
+1363  97EE              ;   In: command tail already parsed; default drive in CCP_CUR_DRIVE.
+1364  97EE              ;   Out: file contents printed record by record until the $1A EOF marker or a console break; on open
+1365  97EE              ;        failure the offending name is echoed. Returns via the CCP command-complete path.
+1366  97EE              ;   Clobbers: A,B,C,D,E,H,L.
+1367  97EE              ;   Algorithm: re-parse the FCB; if flagged (NZ, ambiguous) reject via CCP_ECHO_TOKEN
+1368  97EE              ;              (CCP_ECHO_TOKEN).
+1369  97EE              ;     Select the drive, OPEN the file (CCP_OPEN_SUBMIT = CCP_OPEN_SUBMIT); on failure (Z) report it.
+1370  97EE              ;     Emit a
+1371  97EE              ;     leading CRLF, prime the per-record byte counter to $FF, enter TYPE_PRINT_LOOP.
+1372  97EE              ;   [RE] 2.20-44K twin TYPE_CMD.
+1373  97EE              ; ----------------------------------------------------------------------
+1374  97EE              TYPE_CMD:
+1375  97EE CD 2F 95             CALL CCP_PARSE_FCB1
+1376  97F1                      ; bad/ambiguous filespec: echo the offending token and abort
+1377  97F1 C2 DF 94             JP NZ,CCP_ECHO_TOKEN
+1378  97F4 CD F5 96             CALL CCP_RESET_USER_IF_NEEDED
+1379  97F7                      ; BDOS OPEN (fn 15) on the FCB (CCP_OPEN_SUBMIT)
+1380  97F7 CD C6 93             CALL CCP_OPEN_SUBMIT
+1381  97FA                      ; open failed (file not found): go report it (TYPE_NO_FILE)
+1382  97FA 28 38                JR Z,TYPE_NO_FILE
+1383  97FC CD 99 93             CALL CCP_CRLF
+1384  97FF 21 AA 9B             LD HL,CCP_TYPE_REC_INDEX
+1385  9802                      ; prime the per-record byte counter so the first pass forces a record read
+1386  9802 36 FF                LD (HL),$FF
+1387  9804              ; ----------------------------------------------------------------------
+1388  9804              ; TYPE_PRINT_LOOP -- TYPE inner loop: read each record and print its bytes until EOF.
+1389  9804              ;   In: file opened; per-record byte counter (CCP_TYPE_REC_INDEX) primed to $FF.
+1390  9804              ;   Out: each 128-byte record's chars echoed; stops at $1A (Ctrl-Z) EOF, a nonzero read, or a break.
+1391  9804              ;   Clobbers: A,B,C,D,E,H,L.
+1392  9804              ;   Algorithm: when the byte counter >= $80 (record consumed) read the next record (F_READ fn 20);
+1393  9804              ;     nonzero status -> TYPE_READ_DONE; reset the counter to 0. Then fall into TYPE_EMIT_CHAR.
+1394  9804              ;   [RE] 2.20-44K twin TYPE_PRINT_LOOP.
+1395  9804              ; ----------------------------------------------------------------------
+1396  9804              TYPE_PRINT_LOOP:
+1397  9804 21 AA 9B             LD HL,CCP_TYPE_REC_INDEX
+1398  9807 7E                   LD A,(HL)
+1399  9808                      ; consumed a whole 128-byte record? then read the next one
+1400  9808 FE 80                CP $80
+1401  980A 38 09                JR C,TYPE_EMIT_CHAR
+1402  980C E5                   PUSH HL
+1403  980D                      ; BDOS F_READ (fn 20) next record into the DMA buffer
+1404  980D CD E0 93             CALL CCP_READ_SUBMIT
+1405  9810 E1                   POP HL
+1406  9811                      ; nonzero status: EOF or error -> TYPE_READ_DONE
+1407  9811 20 1A                JR NZ,TYPE_READ_DONE
+1408  9813 AF                   XOR A
+1409  9814 77                   LD (HL),A
+1410  9815              ; ----------------------------------------------------------------------
+1411  9815              ; TYPE_EMIT_CHAR -- emit one buffered char of the TYPE'd file, advancing the record index.
+1412  9815              ;   In: HL -> the record-byte-index cell (CCP_TYPE_REC_INDEX); the current 128-byte record is in
+1413  9815              ;       TBUFF ($0080).
+1414  9815              ;   Out: char written via C_WRITE; loops for the next char; returns to the command-complete exit on
+1415  9815              ;        $1A (EOF) or a console-abort keypress.
+1416  9815              ;   Clobbers: A, HL, flags.
+1417  9815              ;   Algorithm: INC the index; form TBUFF+offset and fetch the byte. If $1A (Ctrl-Z soft EOF) finish.
+1418  9815              ;     Else C_WRITE it (CCP_CONOUT), poll for an abort (CCP_CHECK_ABORT = CCP_CHECK_ABORT); on abort
+1419  9815              ;     finish; else
+1420  9815              ;     loop back to TYPE_PRINT_LOOP.
+1421  9815              ;   [RE] 2.20-44K twin TYPE_EMIT_CHAR; $1A = CP/M text EOF sentinel.
+1422  9815              ; ----------------------------------------------------------------------
+1423  9815              TYPE_EMIT_CHAR:
+1424  9815 34                   INC (HL)
+1425  9816 21 80 00             LD HL,$0080
+1426  9819 CD 2A 95             CALL CCP_HL_ADD_A
+1427  981C 7E                   LD A,(HL)
+1428  981D                      ; $1A = Ctrl-Z, the CP/M soft end-of-file marker -> stop TYPE
+1429  981D FE 1A                CP $1A
+1430  981F CA 38 9A             JP Z,CCP_RETURN_OK
+1431  9822 CD 8C 93             CALL CCP_CONOUT
+1432  9825                      ; poll the console for a key (fn 11/fn 1); nonzero = user aborted TYPE
+1433  9825 CD 9A 94             CALL CCP_CHECK_ABORT
+1434  9828 C2 38 9A             JP NZ,CCP_RETURN_OK
+1435  982B 18 D7                JR TYPE_PRINT_LOOP
+1436  982D              ; ----------------------------------------------------------------------
+1437  982D              ; TYPE_READ_DONE -- handle a failed/short F_READ during TYPE (EOF vs read error).
+1438  982D              ;   In: A = F_READ return (1 = normal EOF, other nonzero = read error).
+1439  982D              ;   Out: on normal EOF returns quietly to the CCP exit; on a read error prints 'Read error' then
+1440  982D              ;        falls into TYPE_NO_FILE.
+1441  982D              ;   Clobbers: A, BC, flags.
+1442  982D              ;   Algorithm: DEC A; if 0 (was 1 = EOF) go CCP_RETURN_OK; else call the 'Read error' printer
+1443  982D              ;              (PRINT_READ_ERROR).
+1444  982D              ;   [RE] 2.20-44K twin TYPE_READ_DONE. NOTE: 2.23 message is lowercase 'Read error' (2.20 'READ
+1445  982D              ;   ERROR').
+1446  982D              ; ----------------------------------------------------------------------
+1447  982D              TYPE_READ_DONE:
+1448  982D                      ; F_READ code 1 (normal EOF) -> 0 here; any other code stays nonzero = real error
+1449  982D 3D                   DEC A
+1450  982E CA 38 9A             JP Z,CCP_RETURN_OK
+1451  9831                      ; print the 'Read error' message (disk read failure)
+1452  9831 CD 88 96             CALL PRINT_READ_ERROR
+1453  9834              ; ----------------------------------------------------------------------
+1454  9834              ; TYPE_NO_FILE -- TYPE error/not-found tail: restore the caller's drive and echo the bad command.
+1455  9834              ;   In: entered when the TYPE target could not be opened, or after a read error.
+1456  9834              ;   Out: re-selects the user's original drive (CCP_RESTORE_DEFAULT_DRIVE =
+1457  9834              ;        CCP_RESTORE_DEFAULT_DRIVE) and jumps to the
+1458  9834              ;        bad-command echo (CCP_ECHO_TOKEN = CCP_ECHO_TOKEN); does not return.
+1459  9834              ;   Clobbers: A, HL, flags.
+1460  9834              ;   [RE] 2.20-44K twin TYPE_NO_FILE.
+1461  9834              ; ----------------------------------------------------------------------
+1462  9834              TYPE_NO_FILE:
+1463  9834 CD 07 97             CALL CCP_RESTORE_DEFAULT_DRIVE
+1464  9837 C3 DF 94             JP CCP_ECHO_TOKEN
+1465  983A              ; ----------------------------------------------------------------------
+1466  983A              ; SAVE_CMD -- CCP built-in SAVE: write N pages of memory from the TPA to a new disk file.
+1467  983A              ;   In: command line 'SAVE n filespec'; n = decimal 256-byte page count; filespec built into the
+1468  983A              ;       FCB.
+1469  983A              ;   Out: creates the file and writes n*2 128-byte records from $0100; on dir/disk-full prints 'No
+1470  983A              ;        space'.
+1471  983A              ;   Clobbers: A,BC,DE,HL,flags.
+1472  983A              ;   Algorithm: parse the page count (PARSE_FCB_DECIMAL = CCP_PARSE_USERNUM) and stash it; build the
+1473  983A              ;              filename FCB
+1474  983A              ;     and reject a malformed spec; resolve the drive; F_DELETE any existing file (fn 19); F_MAKE (fn
+1475  983A              ;     22)
+1476  983A              ;     and on failure branch to SAVE_DISK_FULL; clear the FCB CR byte; count := pages*2, source :=
+1477  983A              ;     $0100;
+1478  983A              ;     enter SAVE_WRITE_LOOP.
+1479  983A              ;   [RE] 2.20-44K twin SAVE_CMD; source data begins at the TPA base $0100.
+1480  983A              ; ----------------------------------------------------------------------
+1481  983A              SAVE_CMD:
+1482  983A                      ; parse the leading decimal page-count argument (PARSE_FCB_DECIMAL)
+1483  983A CD A7 96             CALL CCP_PARSE_USERNUM
+1484  983D F5                   PUSH AF
+1485  983E CD 2F 95             CALL CCP_PARSE_FCB1
+1486  9841 C2 DF 94             JP NZ,CCP_ECHO_TOKEN
+1487  9844 CD F5 96             CALL CCP_RESET_USER_IF_NEEDED
+1488  9847 11 86 9B             LD DE,CCP_FCB
+1489  984A D5                   PUSH DE
+1490  984B CD DC 93             CALL BDOS_F_DELETE
+1491  984E D1                   POP DE
+1492  984F                      ; BDOS F_MAKE (fn 22): create the new (empty) file
+1493  984F CD EE 93             CALL BDOS_F_MAKE
+1494  9852                      ; no free directory entry: jump to the 'No space' error
+1495  9852 28 2F                JR Z,SAVE_DISK_FULL
+1496  9854 AF                   XOR A
+1497  9855 32 A6 9B             LD (CCP_FCB_CR),A
+1498  9858 F1                   POP AF
+1499  9859 6F                   LD L,A
+1500  985A 26 00                LD H,$00
+1501  985C                      ; pages*2 = number of 128-byte records to write
+1502  985C 29                   ADD HL,HL
+1503  985D                      ; DE = source pointer, starting at the TPA base $0100
+1504  985D 11 00 01             LD DE,$0100
+1505  9860              ; ----------------------------------------------------------------------
+1506  9860              ; SAVE_WRITE_LOOP -- write the remaining 128-byte records of a SAVE from successive memory slices.
+1507  9860              ;   In: HL = remaining record count; DE = current source/DMA address (starts $0100, +$80 per
+1508  9860              ;       record);
+1509  9860              ;       the FCB is the open output file.
+1510  9860              ;   Out: writes each record; on a write failure (disk full) branches to SAVE_DISK_FULL; falls into
+1511  9860              ;        SAVE_CLOSE when the count reaches zero.
+1512  9860              ;   Clobbers: A,BC,DE,HL,flags.
+1513  9860              ;   Algorithm: while HL!=0: DEC it; precompute NEXT source ($0080+DE) onto the stack; set DMA to the
+1514  9860              ;     CURRENT DE (F_DMAOFF fn 26); F_WRITE (fn 21) from the FCB; POP the advanced pointer; on
+1515  9860              ;     nonzero
+1516  9860              ;     status -> SAVE_DISK_FULL; else loop.
+1517  9860              ;   [RE] 2.20-44K twin SAVE_WRITE_LOOP.
+1518  9860              ; ----------------------------------------------------------------------
+1519  9860              SAVE_WRITE_LOOP:
+1520  9860 7C                   LD A,H
+1521  9861 B5                   OR L
+1522  9862 28 16                JR Z,SAVE_CLOSE
+1523  9864 2B                   DEC HL
+1524  9865 E5                   PUSH HL
+1525  9866 21 80 00             LD HL,$0080
+1526  9869 19                   ADD HL,DE
+1527  986A E5                   PUSH HL
+1528  986B                      ; BDOS F_DMAOFF (fn 26): point the DMA at the CURRENT source slice (DE)
+1529  986B CD B0 94             CALL BDOS_F_DMAOFF
+1530  986E 11 86 9B             LD DE,CCP_FCB
+1531  9871                      ; BDOS F_WRITE (fn 21): append the record to the file
+1532  9871 CD EA 93             CALL BDOS_F_WRITE
+1533  9874 D1                   POP DE
+1534  9875 E1                   POP HL
+1535  9876                      ; write failed (disk full): jump to the 'No space' error
+1536  9876 20 0B                JR NZ,SAVE_DISK_FULL
+1537  9878 18 E6                JR SAVE_WRITE_LOOP
+1538  987A              ; ----------------------------------------------------------------------
+1539  987A              ; SAVE_CLOSE -- close the SAVE output file after all records are written.
+1540  987A              ;   In: the FCB = the open output file.
+1541  987A              ;   Out: closes the file; on success continues to SAVE_FINISH, on close failure falls into
+1542  987A              ;        SAVE_DISK_FULL.
+1543  987A              ;   Clobbers: A, C, DE, flags.
+1544  987A              ;   Algorithm: DE:=FCB, F_CLOSE (BDOS_F_CLOSE, fn 16); the wrapper INC's A so a $FF failure becomes
+1545  987A              ;              0; a
+1546  987A              ;     nonzero result means success -> SAVE_FINISH; a zero (failure) falls into SAVE_DISK_FULL.
+1547  987A              ;   [RE] 2.20-44K twin SAVE_CLOSE.
+1548  987A              ; ----------------------------------------------------------------------
+1549  987A              SAVE_CLOSE:
+1550  987A 11 86 9B             LD DE,CCP_FCB
+1551  987D                      ; BDOS F_CLOSE (fn 16): flush the directory entry for the saved file
+1552  987D CD BC 93             CALL BDOS_F_CLOSE
+1553  9880                      ; map the $FF close-error code to 0; a valid directory code becomes nonzero = success
+1554  9880 3C                   INC A
+1555  9881 20 06                JR NZ,SAVE_FINISH
+1556  9883              ; ----------------------------------------------------------------------
+1557  9883              ; SAVE_DISK_FULL -- SAVE error tail: report 'No space' and clean up.
+1558  9883              ;   In: entered on F_MAKE failure, a failed F_WRITE, or a failed F_CLOSE.
+1559  9883              ;   Out: prints 'No space', then falls into SAVE_FINISH.
+1560  9883              ;   Clobbers: A,BC,DE,HL,flags.
+1561  9883              ;   Algorithm: BC:=MSG_NO_SPACE, print it (CRLF + string via CCP_CRLF_MSG = CCP_CRLF_MSG), fall
+1562  9883              ;              through.
+1563  9883              ;   [RE] 2.20-44K twin SAVE_DISK_FULL. NOTE: 2.23 text is lowercase 'No space' (2.20 'NO SPACE').
+1564  9883              ; ----------------------------------------------------------------------
+1565  9883              SAVE_DISK_FULL:
+1566  9883 01 8F 98             LD BC,MSG_NO_SPACE
+1567  9886 CD A2 93             CALL CCP_CRLF_MSG
+1568  9889              ; ----------------------------------------------------------------------
+1569  9889              ; SAVE_FINISH -- restore the default DMA address and return to the CCP after a SAVE.
+1570  9889              ;   In: none.
+1571  9889              ;   Out: resets the BDOS DMA to the default $0080 (CCP_SET_DMA_TBUFF = CCP_SET_DMA_TBUFF) and jumps
+1572  9889              ;        to
+1573  9889              ;        CCP_RETURN_OK; does not return.
+1574  9889              ;   Clobbers: A, C, DE, flags.
+1575  9889              ;   [RE] 2.20-44K twin SAVE_FINISH.
+1576  9889              ; ----------------------------------------------------------------------
+1577  9889              SAVE_FINISH:
+1578  9889 CD AD 94             CALL CCP_SET_DMA_TBUFF
+1579  988C C3 38 9A             JP CCP_RETURN_OK
+1580  988F              ; ----------------------------------------------------------------------
+1581  988F              ; MSG_NO_SPACE -- ASCIIZ console message 'No space' shown when SAVE runs out of room.
+1582  988F              ;   [RE] 2.20-44K twin MSG_NO_SPACE (2.23 text lowercase 'No space').
+1583  988F              ; ----------------------------------------------------------------------
+1584  988F              MSG_NO_SPACE:
+1585  988F 4E 6F 20 73          DEFB    "No space"               ; string
+1585  9893 70 61 63 65
+1586  9897 00                   DEFB    $00                      ; terminator
+1587  9898              ; ----------------------------------------------------------------------
+1588  9898              ; REN_CMD -- CCP built-in REN(AME): rename an existing file given 'REN newname=oldname'.
+1589  9898              ;   In: command line 'REN newfile=oldfile'; the new name is parsed first into the FCB.
+1590  9898              ;   Out: renames oldfile to newfile via F_RENAME; errors are 'File exists', 'No file', or a bad
+1591  9898              ;        echo.
+1592  9898              ;   Clobbers: A,B,DE,HL,flags.
+1593  9898              ;   Algorithm: parse the new-name FCB; reject a malformed spec; save the new name's drive prefix;
+1594  9898              ;     resolve the drive; SEARCH_FIRST for the new name and if it EXISTS branch to REN_FILE_EXISTS;
+1595  9898              ;     copy the 16-byte new-name FCB to the second slot at +16 (CCP_FCB_SECOND) so F_RENAME sees
+1596  9898              ;     old@+0/new@+16;
+1597  9898              ;     skip blanks and require '=' ($3D) or '_' ($5F) (else REN_ERROR); then parse the old name.
+1598  9898              ;   [RE] 2.20-44K twin REN_CMD; F_RENAME FCB carries old name at +0, new name at +16.
+1599  9898              ; ----------------------------------------------------------------------
+1600  9898              REN_CMD:
+1601  9898 CD 2F 95             CALL CCP_PARSE_FCB1
+1602  989B C2 DF 94             JP NZ,CCP_ECHO_TOKEN
+1603  989E 3A A9 9B             LD A,(CCP_FCB_DRIVE_PREFIX)
+1604  98A1 F5                   PUSH AF
+1605  98A2 CD F5 96             CALL CCP_RESET_USER_IF_NEEDED
+1606  98A5                      ; BDOS SEARCH_FIRST (fn 17): does the NEW name already exist?
+1607  98A5 CD D1 93             CALL CCP_SEARCH_FIRST_SUBMIT
+1608  98A8                      ; new name already exists: report 'File exists'
+1609  98A8 20 50                JR NZ,REN_FILE_EXISTS
+1610  98AA 21 86 9B             LD HL,CCP_FCB
+1611  98AD 11 96 9B             LD DE,CCP_FCB_SECOND
+1612  98B0 01 10 00             LD BC,$0010
+1613  98B3                      ; copy the 16-byte new-name FCB into the second FCB slot at +16 (the rename pair)
+1614  98B3 ED B0                LDIR
+1615  98B5 2A 88 93             LD HL,(CCP_PARSEPTR)
+1616  98B8 EB                   EX DE,HL
+1617  98B9 CD 21 95             CALL CCP_SKIP_BLANKS
+1618  98BC                      ; '=' separator between new and old names
+1619  98BC FE 3D                CP $3D
+1620  98BE 28 04                JR Z,REN_PARSE_OLD
+1621  98C0                      ; '_' is also accepted as the new=old separator
+1622  98C0 FE 5F                CP $5F
+1623  98C2 20 30                JR NZ,REN_ERROR
+1624  98C4              ; ----------------------------------------------------------------------
+1625  98C4              ; REN_PARSE_OLD -- parse the old-name FCB after the separator and validate the drive match.
+1626  98C4              ;   In: scan pointer is at the '=' / '_' separator; the new-name drive prefix is on the stack.
+1627  98C4              ;   Out: builds the old-name FCB and confirms both names target the same drive; on mismatch/parse
+1628  98C4              ;        error branches to REN_ERROR; falls into REN_DO_RENAME.
+1629  98C4              ;   Clobbers: A,B,DE,HL,flags.
+1630  98C4              ;   Algorithm: step past the separator and update CCP_PARSEPTR; parse the old-name FCB; on error
+1631  98C4              ;     -> REN_ERROR. Recover the new name's prefix into B; read the old name's prefix; if 0 accept;
+1632  98C4              ;     else the two prefixes must be equal (store B and compare) else REN_ERROR.
+1633  98C4              ;   [RE] 2.20-44K twin REN_PARSE_OLD.
+1634  98C4              ; ----------------------------------------------------------------------
+1635  98C4              REN_PARSE_OLD:
+1636  98C4 EB                   EX DE,HL
+1637  98C5 23                   INC HL
+1638  98C6 22 88 93             LD (CCP_PARSEPTR),HL
+1639  98C9 CD 2F 95             CALL CCP_PARSE_FCB1
+1640  98CC 20 26                JR NZ,REN_ERROR
+1641  98CE F1                   POP AF
+1642  98CF 47                   LD B,A
+1643  98D0 21 A9 9B             LD HL,CCP_FCB_DRIVE_PREFIX
+1644  98D3 7E                   LD A,(HL)
+1645  98D4 B7                   OR A
+1646  98D5 28 04                JR Z,REN_DO_RENAME
+1647  98D7 B8                   CP B
+1648  98D8 70                   LD (HL),B
+1649  98D9 20 19                JR NZ,REN_ERROR
+1650  98DB              ; ----------------------------------------------------------------------
+1651  98DB              ; REN_DO_RENAME -- locate the old file and perform the directory rename.
+1652  98DB              ;   In: FCB holds old name at +0 and new name at +16; B = the agreed drive prefix.
+1653  98DB              ;   Out: searches for the old name; if not found -> REN_OLD_NOT_FOUND; else F_RENAME and return.
+1654  98DB              ;   Clobbers: A,B,DE,HL,flags.
+1655  98DB              ;   Algorithm: store B into the drive-prefix cell; zero the FCB drive byte (default drive);
+1656  98DB              ;              SEARCH_FIRST
+1657  98DB              ;     for the old name (fn 17) -- if absent -> REN_OLD_NOT_FOUND; else F_RENAME (BDOS_F_RENAME, fn
+1658  98DB              ;     23) and
+1659  98DB              ;     finish at CCP_RETURN_OK.
+1660  98DB              ;   [RE] 2.20-44K twin REN_DO_RENAME.
+1661  98DB              ; ----------------------------------------------------------------------
+1662  98DB              REN_DO_RENAME:
+1663  98DB 70                   LD (HL),B
+1664  98DC AF                   XOR A
+1665  98DD 32 86 9B             LD (CCP_FCB),A
+1666  98E0 CD D1 93             CALL CCP_SEARCH_FIRST_SUBMIT
+1667  98E3 28 09                JR Z,REN_OLD_NOT_FOUND
+1668  98E5 11 86 9B             LD DE,CCP_FCB
+1669  98E8                      ; BDOS F_RENAME (fn 23): rename old -> new using the paired FCB
+1670  98E8 CD F2 93             CALL BDOS_F_RENAME
+1671  98EB C3 38 9A             JP CCP_RETURN_OK
+1672  98EE              ; ----------------------------------------------------------------------
+1673  98EE              ; REN_OLD_NOT_FOUND -- REN error: the source file to rename does not exist.
+1674  98EE              ;   In: none.
+1675  98EE              ;   Out: prints 'No file' (PRINT_NO_FILE) and returns to CCP_RETURN_OK.
+1676  98EE              ;   Clobbers: A, BC, flags.
+1677  98EE              ;   [RE] 2.20-44K twin REN_OLD_NOT_FOUND.
+1678  98EE              ; ----------------------------------------------------------------------
+1679  98EE              REN_OLD_NOT_FOUND:
+1680  98EE CD 99 96             CALL PRINT_NO_FILE
+1681  98F1 C3 38 9A             JP CCP_RETURN_OK
+1682  98F4              ; ----------------------------------------------------------------------
+1683  98F4              ; REN_ERROR -- REN bad-command tail: restore the drive and echo the offending command.
+1684  98F4              ;   In: entered on a missing/invalid separator, an old-name parse error, or a drive mismatch.
+1685  98F4              ;   Out: restores the default drive (CCP_RESTORE_DEFAULT_DRIVE = CCP_RESTORE_DEFAULT_DRIVE) and
+1686  98F4              ;        jumps to the
+1687  98F4              ;        bad-command echo (CCP_ECHO_TOKEN = CCP_ECHO_TOKEN); does not return.
+1688  98F4              ;   Clobbers: A, HL, flags.
+1689  98F4              ;   [RE] 2.20-44K twin REN_ERROR.
+1690  98F4              ; ----------------------------------------------------------------------
+1691  98F4              REN_ERROR:
+1692  98F4 CD 07 97             CALL CCP_RESTORE_DEFAULT_DRIVE
+1693  98F7 C3 DF 94             JP CCP_ECHO_TOKEN
+1694  98FA              ; ----------------------------------------------------------------------
+1695  98FA              ; REN_FILE_EXISTS -- REN error: the requested new name already exists on disk.
+1696  98FA              ;   In: none.
+1697  98FA              ;   Out: prints 'File exists' and returns to CCP_RETURN_OK.
+1698  98FA              ;   Clobbers: A, BC, flags.
+1699  98FA              ;   [RE] 2.20-44K twin REN_FILE_EXISTS; the new name was found by the earlier SEARCH_FIRST.
+1700  98FA              ; ----------------------------------------------------------------------
+1701  98FA              REN_FILE_EXISTS:
+1702  98FA 01 03 99             LD BC,CCP_MSG_FILE_EXISTS
+1703  98FD CD A2 93             CALL CCP_CRLF_MSG
+1704  9900 C3 38 9A             JP CCP_RETURN_OK
+1705  9903              ; ----------------------------------------------------------------------
+1706  9903              ; CCP_MSG_FILE_EXISTS -- ASCIIZ console message 'File exists'.
+1707  9903              ;   [RE] 2.20-44K twin CCP_MSG_FILE_EXISTS (2.23 text lowercase 'File exists').
+1708  9903              ; ----------------------------------------------------------------------
+1709  9903              CCP_MSG_FILE_EXISTS:
+1710  9903 46 69 6C 65          DEFB    "File exists"            ; string
+1710  9907 20 65 78 69
+1710  990B 73 74 73
+1711  990E 00                   DEFB    $00                      ; terminator
+1712  990F              ; ----------------------------------------------------------------------
+1713  990F              ; CCP_CMD_USER -- built-in USER command: select the user-number area (0..15).
+1714  990F              ;   In: command FCB; the numeric argument sits in the FCB name field (CCP_FCB_NAME).
+1715  990F              ;   Out: BDOS user number set to the parsed value; joins CCP_RETURN_OK_NOCRLF.
+1716  990F              ;   Clobbers: A, E, and the BDOS-call registers.
+1717  990F              ;   Algorithm: PARSE_FCB_DECIMAL (CCP_PARSE_USERNUM) parses a decimal number into A; if >= $10 (16)
+1718  990F              ;              it is out
+1719  990F              ;     of the 0..15 range, so abort to CCP_ECHO_TOKEN. E:=value; reject a blank name byte (no
+1720  990F              ;     argument);
+1721  990F              ;     BDOS F_USERNUM (fn 32, C=$20) to set the user area; join CCP_RETURN_OK_NOCRLF.
+1722  990F              ;   [RE] 2.20-44K twin CCP_CMD_USER (keyword table index 5).
+1723  990F              ; ----------------------------------------------------------------------
+1724  990F              CCP_CMD_USER:
+1725  990F CD A7 96             CALL CCP_PARSE_USERNUM
+1726  9912                      ; user numbers are 0..15; reject $10 (16) or more as out of range
+1727  9912 FE 10                CP $10
+1728  9914 D2 DF 94             JP NC,CCP_ECHO_TOKEN
+1729  9917 5F                   LD E,A
+1730  9918 3A 87 9B             LD A,(CCP_FCB_NAME)
+1731  991B FE 20                CP $20
+1732  991D CA DF 94             JP Z,CCP_ECHO_TOKEN
+1733  9920                      ; BDOS F_USERNUM (fn 32, C=$20): set the user number to E
+1734  9920 CD F8 93             CALL BDOS_USERNUM
+1735  9923 C3 3B 9A             JP CCP_RETURN_OK_NOCRLF
+1736  9926              ; ----------------------------------------------------------------------
+1737  9926              ; CCP_DRIVE_SELECT -- handle a drive-prefixed command word: bare 'd:' (change default drive) or
+1738  9926              ;   'd:NAME' (drive-prefixed transient).
+1739  9926              ;   In: command FCB; CCP_FCB_DRIVE_PREFIX (CCP_FCB_DRIVE_PREFIX) non-zero (a 'd:' was typed).
+1740  9926              ;   Out: if no command word followed, the default drive is changed and control joins
+1741  9926              ;        CCP_RETURN_OK_NOCRLF; if a name followed, control falls to CCP_CMD_TRANSIENT.
+1742  9926              ;   Clobbers: A, and the BDOS-call registers.
+1743  9926              ;   Algorithm: reached from the dispatcher when CCP_FCB_DRIVE_PREFIX != 0 (dispatch slot 6). First
+1744  9926              ;              CCP_CHECK_SERIAL
+1745  9926              ;     (CCP_CHECK_SERIAL) verifies the CCP/BDOS serial still matches. If the FCB name is non-blank a
+1746  9926              ;     command
+1747  9926              ;     word follows -> CCP_CMD_TRANSIENT. Else (bare 'd:') if the prefix is 0 return OK; else DEC it
+1748  9926              ;     to
+1749  9926              ;     0-based, store as current drive (CCP_CUR_DRIVE), write it to $0004 (CCP_SET_DRIVE_ONLY =
+1750  9926              ;     CCP_SET_DRIVE_ONLY), and
+1751  9926              ;     DRV_SET (BDOS_DRV_SET), then return OK.
+1752  9926              ;   [RE] 2.20-44K twin CCP_DRIVE_SELECT; NOT the keyword USER built-in -- this is dispatch slot 6.
+1753  9926              ; ----------------------------------------------------------------------
+1754  9926              CCP_DRIVE_SELECT:
+1755  9926                      ; verify the CCP and BDOS serial numbers still match (integrity check, CCP_CHECK_SERIAL)
+1756  9926 CD CD 94             CALL CCP_CHECK_SERIAL
+1757  9929 3A 87 9B             LD A,(CCP_FCB_NAME)
+1758  992C FE 20                CP $20
+1759  992E                      ; a name follows the drive prefix: treat as a transient program load
+1760  992E 20 16                JR NZ,CCP_CMD_TRANSIENT
+1761  9930 3A A9 9B             LD A,(CCP_FCB_DRIVE_PREFIX)
+1762  9933 B7                   OR A
+1763  9934 CA 3B 9A             JP Z,CCP_RETURN_OK_NOCRLF
+1764  9937 3D                   DEC A
+1765  9938 F5                   PUSH AF
+1766  9939 CD B6 93             CALL BDOS_DRV_SET
+1767  993C F1                   POP AF
+1768  993D 32 A8 9B             LD (CCP_CUR_DRIVE),A
+1769  9940 CD 0B 94             CALL CCP_SET_DRIVE_ONLY
+1770  9943 C3 3B 9A             JP CCP_RETURN_OK_NOCRLF
+1771  9946              ; ----------------------------------------------------------------------
+1772  9946              ; CCP_CMD_TRANSIENT -- load and run a transient (.COM) program from disk.
+1773  9946              ;   In: parsed command FCB holding the command name; command tail.
+1774  9946              ;   Out: on success transfers control to the loaded program at the TPA ($0100); on error joins
+1775  9946              ;        CCP_BAD_LOAD / CCP_NO_FILE; never returns normally.
+1776  9946              ;   Clobbers: all registers; rebuilds the TPA and page-zero command tail.
+1777  9946              ;   Algorithm: require a blank FCB extension (else CCP_ECHO_TOKEN); select the command's drive;
+1778  9946              ;              force
+1779  9946              ;     the extension to 'COM' (copy the 3-byte CCP_COM_EXT = CCP_COM_EXT); open the file; if not
+1780  9946              ;     found go
+1781  9946              ;     CCP_NO_FILE. Then loop reading $80-byte records into the TPA from $0100, until the load
+1782  9946              ;     address
+1783  9946              ;     would reach the CCP base ($9300, abort = BAD LOAD) or EOF. On clean EOF, launch.
+1784  9946              ;   [RE] 2.20-44K twin CCP_CMD_TRANSIENT. NOTE the entry self-checks the FCB type, then forces COM.
+1785  9946              ; ----------------------------------------------------------------------
+1786  9946              CCP_CMD_TRANSIENT:
+1787  9946 CD F6 93             CALL BDOS_USER_GET
+1788  9949 32 43 9B             LD (FASTLOAD_DRIVE_SAVE),A
+1789  994C 11 8F 9B             LD DE,CCP_FCB_EXT
+1790  994F 1A                   LD A,(DE)
+1791  9950 FE 20                CP $20
+1792  9952                      ; explicit extension given: not a bare transient command, echo+abort
+1793  9952 C2 DF 94             JP NZ,CCP_ECHO_TOKEN
+1794  9955 D5                   PUSH DE
+1795  9956 CD F5 96             CALL CCP_RESET_USER_IF_NEEDED
+1796  9959 D1                   POP DE
+1797  995A                      ; source = the constant 'COM' extension text (CCP_COM_EXT)
+1798  995A 21 35 9A             LD HL,CCP_COM_EXT
+1799  995D 01 03 00             LD BC,$0003
+1800  9960                      ; force the FCB type field to COM (3-byte copy)
+1801  9960 ED B0                LDIR
+1802  9962              ; ----------------------------------------------------------------------
+1803  9962              ; CCP_TRANSIENT_OPEN -- open the forced NAME.COM and start the load (or report not found).
+1804  9962              ;   In: FCB type field forced to 'COM'.
+1805  9962              ;   Out: on open failure (no file) -> CCP_NO_FILE; else proceeds and falls into the DPB fast-path
+1806  9962              ;        check (CCP_LOAD_CHECK_FASTPATH).
+1807  9962              ;   Clobbers: A, DE, HL.
+1808  9962              ;   Algorithm: OPEN the file (CCP_OPEN_SUBMIT = CCP_OPEN_SUBMIT); on Z (not found) jump to
+1809  9962              ;              CCP_NO_FILE; else
+1810  9962              ;     proceed via the drive/record reset helper (FASTLOAD_SET_DRIVE) into the loader.
+1811  9962              ;   [RE] 2.20 twin equivalent is the CCP_CMD_TRANSIENT open path; the fast-path branch below is
+1812  9962              ;   2.23-only.
+1813  9962              ; ----------------------------------------------------------------------
+1814  9962              CCP_TRANSIENT_OPEN:
+1815  9962                      ; BDOS OPEN (fn 15) the forced NAME.COM (CCP_OPEN_SUBMIT)
+1816  9962 CD C6 93             CALL CCP_OPEN_SUBMIT
+1817  9965 20 0D                JR NZ,CCP_LOAD_PREP
+1818  9967 CD F6 93             CALL BDOS_USER_GET
+1819  996A B7                   OR A
+1820  996B                      ; open failed (file not found): go CCP_NO_FILE
+1821  996B CA 1B 9A             JP Z,CCP_NO_FILE
+1822  996E AF                   XOR A
+1823  996F CD 50 9A             CALL FASTLOAD_SET_DRIVE
+1824  9972 18 EE                JR CCP_TRANSIENT_OPEN
+1825  9974              ; ----------------------------------------------------------------------
+1826  9974              ; CCP_LOAD_PREP -- prepare the transient load: optional drive re-select, then test the disk for the
+1827  9974              ;   SoftCard RPC fast-load path.
+1828  9974              ;   In: the .COM file is open.
+1829  9974              ;   Out: falls into CCP_LOAD_CHECK_FASTPATH which queries the BDOS DPB.
+1830  9974              ;   Clobbers: A, HL.
+1831  9974              ;   Algorithm: if the FCB carried a drive prefix re-select it (BDOS_DRV_SET); fall through.
+1832  9974              ;   [RE] 2.20 twin: part of the CCP_CMD_TRANSIENT load setup; the DPB/fast-load test below is
+1833  9974              ;     SoftCard-specific to 2.23 (no 2.20 equivalent).
+1834  9974              ; ----------------------------------------------------------------------
+1835  9974              CCP_LOAD_PREP:
+1836  9974 3A 86 9B             LD A,(CCP_FCB)
+1837  9977 B7                   OR A
+1838  9978 28 04                JR Z,CCP_LOAD_CHECK_FASTPATH
+1839  997A 3D                   DEC A
+1840  997B CD B6 93             CALL BDOS_DRV_SET
+1841  997E              ; ----------------------------------------------------------------------
+1842  997E              ; CCP_LOAD_CHECK_FASTPATH -- 2.23-ONLY: query the disk parameter block and choose the SoftCard RPC
+1843  997E              ;   fast-loader when the open file lives on a compatible disk.
+1844  997E              ;   In: the .COM file is open; HL set by the preceding code.
+1845  997E              ;   Out: if the DPB signature matches, JP to FASTLOAD_RPC_BEGIN (FASTLOAD_RPC_BEGIN) to load via the
+1846  997E              ;        6502 RWTS;
+1847  997E              ;        otherwise falls into the standard byte-by-byte CCP_LOAD_LOOP at $0100.
+1848  997E              ;   Clobbers: A, HL.
+1849  997E              ;   Algorithm: C:=$1F (BDOS F_DPB = fn 31, get Disk Parameter Block address), CALL BDOS; advance HL
+1850  997E              ;              by
+1851  997E              ;     2 and read the DPB byte at +2, comparing CP $03; if it differs take the standard loader. Else
+1852  997E              ;     advance to +5 and CP $8B; on a match JP FASTLOAD_RPC_BEGIN (FASTLOAD_RPC_BEGIN). The exact DPB
+1853  997E              ;     fields are
+1854  997E              ;     [RE] the block-shift / a SoftCard format marker that gates the accelerated path.
+1855  997E              ;   [RE] NO 2.20 EQUIVALENT -- this is a SoftCard 2.23 addition; FLAGGED. Fields verified as DPB by
+1856  997E              ;     the F_DPB call; their precise meaning is partly UNKNOWN.
+1857  997E              ; ----------------------------------------------------------------------
+1858  997E              CCP_LOAD_CHECK_FASTPATH:
+1859  997E                      ; BDOS F_DPB (fn 31): get the Disk Parameter Block address for the open drive
+1860  997E 0E 1F                LD C,$1F
+1861  9980 CD 05 00             CALL $0005
+1862  9983 23                   INC HL
+1863  9984 23                   INC HL
+1864  9985 7E                   LD A,(HL)
+1865  9986                      ; DPB field at +2 vs $03: gate for the SoftCard RPC fast-load path [RE]
+1866  9986 FE 03                CP $03
+1867  9988 20 09                JR NZ,CCP_LOAD_LOOP
+1868  998A 23                   INC HL
+1869  998B 23                   INC HL
+1870  998C 23                   INC HL
+1871  998D 7E                   LD A,(HL)
+1872  998E                      ; DPB field at +5 vs $8B: second fast-load gate marker [RE]
+1873  998E FE 8B                CP $8B
+1874  9990                      ; DPB matches: use the SoftCard 6502-RWTS accelerated loader (FASTLOAD_RPC_BEGIN)
+1875  9990 CA 54 9A             JP Z,FASTLOAD_RPC_BEGIN
+1876  9993              ; ----------------------------------------------------------------------
+1877  9993              ; CCP_LOAD_LOOP -- standard read of the .COM file record-by-record into the TPA (no fast path).
+1878  9993              ;   In: HL = next TPA load address ($0100 on entry); FCB open.
+1879  9993              ;   Out: loops until EOF (-> CCP_LOAD_DONE) or until the load pointer reaches the CCP base
+1880  9993              ;        ($9300, -> CCP_BAD_LOAD).
+1881  9993              ;   Clobbers: A, DE, HL.
+1882  9993              ;   Algorithm: HL:=$0100 then fall into the body: PUSH the load address, set DMA (F_DMAOFF), F_READ
+1883  9993              ;              one
+1884  9993              ;     $80-byte record; nonzero -> CCP_LOAD_DONE; else advance HL by $80 and compare against CCP_BASE
+1885  9993              ;     ($9300) via a 16-bit subtract: if HL >= base the program is too big -> CCP_BAD_LOAD; else
+1886  9993              ;     loop.
+1887  9993              ;   [RE] 2.20-44K twin CCP_LOAD_LOOP (the slow loader); the 2.20 ceiling was $9400 vs $9300 here.
+1888  9993              ; ----------------------------------------------------------------------
+1889  9993              CCP_LOAD_LOOP:
+1890  9993 21 00 01             LD HL,$0100
+1891  9996              ; ----------------------------------------------------------------------
+1892  9996              ; CCP_LOAD_LOOP_BODY -- one iteration of the standard transient read loop.
+1893  9996              ;   In: HL = current TPA load pointer.
+1894  9996              ;   Out: reads one record to (HL); on EOF/error -> CCP_LOAD_DONE; advances HL; on TPA overflow ->
+1895  9996              ;        CCP_BAD_LOAD; else loops.
+1896  9996              ;   Clobbers: A, DE, HL.
+1897  9996              ;   Algorithm: set DMA to HL (F_DMAOFF = BDOS_F_DMAOFF); F_READ (BDOS_F_READ, fn 20); nonzero ->
+1898  9996              ;              CCP_LOAD_DONE;
+1899  9996              ;     HL += $80; LD DE,CCP_BASE (CCP base = $9300); 16-bit HL-DE; NC (HL>=base) -> CCP_BAD_LOAD;
+1900  9996              ;     loop.
+1901  9996              ;   [RE] 2.20-44K twin CCP_LOAD_LOOP body; image ceiling is the CCP base CCP_BASE ($9300).
+1902  9996              ; ----------------------------------------------------------------------
+1903  9996              CCP_LOAD_LOOP_BODY:
+1904  9996 E5                   PUSH HL
+1905  9997 EB                   EX DE,HL
+1906  9998 CD B0 94             CALL BDOS_F_DMAOFF
+1907  999B 11 86 9B             LD DE,CCP_FCB
+1908  999E                      ; BDOS F_READ (fn 20): read one 128-byte record into the TPA
+1909  999E CD E3 93             CALL BDOS_F_READ
+1910  99A1                      ; nonzero = EOF or read error: finish the load (CCP_LOAD_DONE)
+1911  99A1 20 11                JR NZ,CCP_LOAD_DONE
+1912  99A3 E1                   POP HL
+1913  99A4 11 80 00             LD DE,$0080
+1914  99A7 19                   ADD HL,DE
+1915  99A8                      ; CCP base ($9300): the ceiling the loaded program must not reach
+1916  99A8 11 00 93             LD DE,CCP_BASE
+1917  99AB B7                   OR A
+1918  99AC E5                   PUSH HL
+1919  99AD ED 52                SBC HL,DE
+1920  99AF E1                   POP HL
+1921  99B0                      ; load reached the CCP: program too large -> CCP_BAD_LOAD
+1922  99B0 30 72                JR NC,CCP_BAD_LOAD
+1923  99B2 18 E2                JR CCP_LOAD_LOOP_BODY
+1924  99B4              ; ----------------------------------------------------------------------
+1925  99B4              ; CCP_LOAD_DONE -- finish a transient load and decide EOF vs error.
+1926  99B4              ;   In: the BDOS read returned nonzero (A); a stacked TPA load pointer on entry.
+1927  99B4              ;   Out: if the read was true EOF (A becomes 0 after DEC) proceeds to launch (CCP_LAUNCH_TRANSIENT);
+1928  99B4              ;        otherwise -> CCP_BAD_LOAD.
+1929  99B4              ;   Clobbers: all registers.
+1930  99B4              ;   Algorithm: POP the saved pointer; DEC A -- a sequential-read return of 1 means clean EOF (now
+1931  99B4              ;              0);
+1932  99B4              ;     anything else is an error (-> CCP_BAD_LOAD).
+1933  99B4              ;   [RE] 2.20-44K twin CCP_LOAD_DONE (head).
+1934  99B4              ; ----------------------------------------------------------------------
+1935  99B4              CCP_LOAD_DONE:
+1936  99B4 E1                   POP HL
+1937  99B5                      ; sequential-read return 1 = clean EOF -> 0; any other value is a load error
+1938  99B5 3D                   DEC A
+1939  99B6                      ; non-EOF read result: report BAD LOAD
+1940  99B6 20 6C                JR NZ,CCP_BAD_LOAD
+1941  99B8              ; ----------------------------------------------------------------------
+1942  99B8              ; CCP_LAUNCH_TRANSIENT -- build page zero (two default FCBs + command tail) and run the program.
+1943  99B8              ;   In: the .COM image is loaded at $0100.
+1944  99B8              ;   Out: copies a $21-byte FCB image to TFCB ($005C), builds the second FCB and the command tail at
+1945  99B8              ;        TBUFF, then (via CCP_TAIL_SETLEN) CALLs $0100; on return rejoins the CCP loop.
+1946  99B8              ;   Clobbers: all registers.
+1947  99B8              ;   Algorithm: re-select the drive (CCP_RESTORE_DEFAULT_DRIVE via
+1948  99B8              ;              FASTLOAD_RESELECT_DRIVE/CCP_RESTORE_DEFAULT_DRIVE), rebuild the FCB
+1949  99B8              ;     (CCP_PARSE_LINE_FCB = CCP_PARSE_FCB1), build a second FCB at +16, zero the CR, copy $21 bytes
+1950  99B8              ;     to $005C
+1951  99B8              ;     (LDIR), and walk the command line to the tail.
+1952  99B8              ;   [RE] 2.20-44K twin CCP_LOAD_DONE tail / launch setup. Reached from the fast-loader too
+1953  99B8              ;   (FASTLOAD_RPC_EXEC).
+1954  99B8              ; ----------------------------------------------------------------------
+1955  99B8              CCP_LAUNCH_TRANSIENT:
+1956  99B8 CD 4D 9A             CALL FASTLOAD_RESELECT_DRIVE
+1957  99BB CD 07 97             CALL CCP_RESTORE_DEFAULT_DRIVE
+1958  99BE CD 2F 95             CALL CCP_PARSE_FCB1
+1959  99C1 21 A9 9B             LD HL,CCP_FCB_DRIVE_PREFIX
+1960  99C4 E5                   PUSH HL
+1961  99C5 7E                   LD A,(HL)
+1962  99C6 32 86 9B             LD (CCP_FCB),A
+1963  99C9 3E 10                LD A,$10
+1964  99CB CD 31 95             CALL CCP_BUILD_FCB
+1965  99CE E1                   POP HL
+1966  99CF 7E                   LD A,(HL)
+1967  99D0 32 96 9B             LD (CCP_FCB_SECOND),A
+1968  99D3 AF                   XOR A
+1969  99D4 32 A6 9B             LD (CCP_FCB_CR),A
+1970  99D7                      ; destination = the default FCB at page-zero TFCB ($005C)
+1971  99D7 11 5C 00             LD DE,$005C
+1972  99DA 21 86 9B             LD HL,CCP_FCB
+1973  99DD 01 21 00             LD BC,$0021
+1974  99E0                      ; copy $21 (33) bytes = one full FCB image down to TFCB
+1975  99E0 ED B0                LDIR
+1976  99E2 21 08 93             LD HL,CCP_CMDTEXT
+1977  99E5              ; ----------------------------------------------------------------------
+1978  99E5              ; CCP_TAIL_SKIP_NAME -- scan past the program name to the start of the command tail.
+1979  99E5              ;   In: HL = pointer into the CCP command-line buffer (CCP_CMDTEXT).
+1980  99E5              ;   Out: HL at the first blank or NUL after the command word; falls into CCP_TAIL_COPY.
+1981  99E5              ;   Clobbers: A, HL.
+1982  99E5              ;   [RE] 2.20-44K twin CCP_TAIL_SKIP_NAME.
+1983  99E5              ; ----------------------------------------------------------------------
+1984  99E5              CCP_TAIL_SKIP_NAME:
+1985  99E5 7E                   LD A,(HL)
+1986  99E6 B7                   OR A
+1987  99E7 28 07                JR Z,CCP_TAIL_COPY
+1988  99E9 FE 20                CP $20
+1989  99EB 28 03                JR Z,CCP_TAIL_COPY
+1990  99ED 23                   INC HL
+1991  99EE 18 F5                JR CCP_TAIL_SKIP_NAME
+1992  99F0              ; ----------------------------------------------------------------------
+1993  99F0              ; CCP_TAIL_COPY -- begin copying the command tail to TBUFF and counting its length.
+1994  99F0              ;   In: HL = first char of the command tail (blank or NUL).
+1995  99F0              ;   Out: DE:=$0081 (TBUFF+1), B:=0 (length); falls into CCP_TAIL_COPY_LOOP.
+1996  99F0              ;   Clobbers: B, DE.
+1997  99F0              ;   [RE] 2.20-44K twin CCP_TAIL_COPY; $0080 (TBUFF) holds the final length byte.
+1998  99F0              ; ----------------------------------------------------------------------
+1999  99F0              CCP_TAIL_COPY:
+2000  99F0 06 00                LD B,$00
+2001  99F2 11 81 00             LD DE,$0081
+2002  99F5              ; ----------------------------------------------------------------------
+2003  99F5              ; CCP_TAIL_COPY_LOOP -- per-character copy loop of the command tail.
+2004  99F5              ;   In: HL = source char, DE = TBUFF dest, B = running length.
+2005  99F5              ;   Out: on the NUL terminator branches to CCP_TAIL_SETLEN with B = length.
+2006  99F5              ;   Clobbers: A, B, DE, HL.
+2007  99F5              ;   [RE] 2.20-44K twin CCP_TAIL_COPY_LOOP.
+2008  99F5              ; ----------------------------------------------------------------------
+2009  99F5              CCP_TAIL_COPY_LOOP:
+2010  99F5 7E                   LD A,(HL)
+2011  99F6 12                   LD (DE),A
+2012  99F7 B7                   OR A
+2013  99F8 28 05                JR Z,CCP_TAIL_SETLEN
+2014  99FA 04                   INC B
+2015  99FB 23                   INC HL
+2016  99FC 13                   INC DE
+2017  99FD 18 F6                JR CCP_TAIL_COPY_LOOP
+2018  99FF              ; ----------------------------------------------------------------------
+2019  99FF              ; CCP_TAIL_SETLEN -- finalize page zero and launch the transient at $0100.
+2020  99FF              ;   In: B = command-tail length; FCBs and TBUFF text already built.
+2021  99FF              ;   Out: stores the tail length at TBUFF ($0080), sets the default DMA, rebuilds the $0004
+2022  99FF              ;        drive/user
+2023  99FF              ;        byte, and CALLs the program at $0100; on its return restores the CCP stack/drive and warm-
+2024  99FF              ;        restarts the CCP.
+2025  99FF              ;   Clobbers: all registers.
+2026  99FF              ;   Algorithm: ($0080):=B; CCP_CRLF; CCP_SET_DMA_TBUFF; CCP_SET_USERDRIVE (CCP_CRLF); CALL $0100; on
+2027  99FF              ;     return SP:=CCP_STACK_BASE (CCP stack), CCP_SET_DRIVE_ONLY (CCP_SET_DRIVE_ONLY), DRV_SET
+2028  99FF              ;     (BDOS_DRV_SET), JP warm restart.
+2029  99FF              ;   [RE] 2.20-44K twin CCP_TAIL_SETLEN.
+2030  99FF              ; ----------------------------------------------------------------------
+2031  99FF              CCP_TAIL_SETLEN:
+2032  99FF 78                   LD A,B
+2033  9A00 32 80 00             LD ($0080),A
+2034  9A03 CD 99 93             CALL CCP_CRLF
+2035  9A06 CD AD 94             CALL CCP_SET_DMA_TBUFF
+2036  9A09 CD FC 93             CALL CCP_SET_USERDRIVE
+2037  9A0C                      ; run the loaded transient program in the TPA
+2038  9A0C CD 00 01             CALL $0100
+2039  9A0F                      ; restore the CCP private stack after the program returns
+2040  9A0F 31 64 9B             LD SP,CCP_STACK_BASE
+2041  9A12 CD 0B 94             CALL CCP_SET_DRIVE_ONLY
+2042  9A15 CD B6 93             CALL BDOS_DRV_SET
+2043  9A18 C3 31 96             JP CCP_PROMPT_AND_READ
+2044  9A1B              ; ----------------------------------------------------------------------
+2045  9A1B              ; CCP_NO_FILE -- handle a transient whose .COM file was not found.
+2046  9A1B              ;   In: entered when BDOS OPEN returned not-found in CCP_CMD_TRANSIENT.
+2047  9A1B              ;   Out: reselects the drive (via FASTLOAD_RESELECT_DRIVE/CCP_RESTORE_DEFAULT_DRIVE) then echoes the
+2048  9A1B              ;        offending token
+2049  9A1B              ;        with '?' (CCP_ECHO_TOKEN = CCP_ECHO_TOKEN) and warm-restarts; does not return.
+2050  9A1B              ;   Clobbers: A, and the echo/BDOS registers.
+2051  9A1B              ;   [RE] 2.20-44K twin CCP_NO_FILE.
+2052  9A1B              ; ----------------------------------------------------------------------
+2053  9A1B              CCP_NO_FILE:
+2054  9A1B CD 4D 9A             CALL FASTLOAD_RESELECT_DRIVE
+2055  9A1E CD 07 97             CALL CCP_RESTORE_DEFAULT_DRIVE
+2056  9A21 C3 DF 94             JP CCP_ECHO_TOKEN
+2057  9A24              ; ----------------------------------------------------------------------
+2058  9A24              ; CCP_BAD_LOAD -- report a transient that would not fit / had a read error.
+2059  9A24              ;   In: entered on TPA overflow or a non-EOF read error.
+2060  9A24              ;   Out: prints 'Bad load' (CRLF + message via CCP_CRLF_MSG = CCP_CRLF_MSG) then joins
+2061  9A24              ;        CCP_RETURN_OK.
+2062  9A24              ;   Clobbers: BC and the print/BDOS registers.
+2063  9A24              ;   [RE] 2.20-44K twin CCP_BAD_LOAD. NOTE: 2.23 text lowercase 'Bad load' (2.20 'BAD LOAD').
+2064  9A24              ; ----------------------------------------------------------------------
+2065  9A24              CCP_BAD_LOAD:
+2066  9A24 01 2C 9A             LD BC,CCP_MSG_BAD_LOAD
+2067  9A27 CD A2 93             CALL CCP_CRLF_MSG
+2068  9A2A 18 0C                JR CCP_RETURN_OK
+2069  9A2C              ; ----------------------------------------------------------------------
+2070  9A2C              ; CCP_MSG_BAD_LOAD -- ASCIIZ console message 'Bad load'.
+2071  9A2C              ;   [RE] 2.20-44K twin CCP_MSG_BAD_LOAD (2.23 text lowercase 'Bad load').
+2072  9A2C              ; ----------------------------------------------------------------------
+2073  9A2C              CCP_MSG_BAD_LOAD:
+2074  9A2C 42 61 64 20          DEFB    "Bad load"               ; string
+2074  9A30 6C 6F 61 64
+2075  9A34 00                   DEFB    $00                      ; terminator
+2076  9A35              ; ----------------------------------------------------------------------
+2077  9A35              ; CCP_COM_EXT -- the constant file-extension text 'COM' for transient loads (3 bytes, no
+2078  9A35              ; terminator).
+2079  9A35              ;   Copied into the FCB type field by CCP_CMD_TRANSIENT so the CCP opens NAME.COM.
+2080  9A35              ;   [RE] 2.20-44K twin CCP_COM_EXT.
+2081  9A35              ; ----------------------------------------------------------------------
+2082  9A35              CCP_COM_EXT:
+2083  9A35 43 4F 4D             DEFB    "COM"
+2084  9A38              ; ----------------------------------------------------------------------
+2085  9A38              ; CCP_RETURN_OK -- normal CCP return tail: restore the drive then check for leftover input.
+2086  9A38              ;   In: joined after a built-in or error completes.
+2087  9A38              ;   Out: reselects the command's drive prefix (CCP_RESTORE_DEFAULT_DRIVE =
+2088  9A38              ;        CCP_RESTORE_DEFAULT_DRIVE), then falls into
+2089  9A38              ;        CCP_RETURN_OK_NOCRLF.
+2090  9A38              ;   Clobbers: A, HL, and BDOS registers.
+2091  9A38              ;   [RE] 2.20-44K twin CCP_RETURN_OK.
+2092  9A38              ; ----------------------------------------------------------------------
+2093  9A38              CCP_RETURN_OK:
+2094  9A38 CD 07 97             CALL CCP_RESTORE_DEFAULT_DRIVE
+2095  9A3B              ; ----------------------------------------------------------------------
+2096  9A3B              ; CCP_RETURN_OK_NOCRLF -- verify the whole command was consumed, then warm-restart the CCP.
+2097  9A3B              ;   In: command FCB name first byte (CCP_FCB_NAME); drive-prefix flag (CCP_FCB_DRIVE_PREFIX).
+2098  9A3B              ;   Out: if there is unparsed trailing text it is echoed as a bad command (CCP_ECHO_TOKEN =
+2099  9A3B              ;        CCP_ECHO_TOKEN);
+2100  9A3B              ;        otherwise the CCP warm-restarts (CCP_PROMPT_AND_READ). Does not return.
+2101  9A3B              ;   Clobbers: A, HL, and the print/BDOS registers.
+2102  9A3B              ;   Algorithm: rebuild the FCB (CCP_PARSE_LINE_FCB = CCP_PARSE_FCB1); SUB $20 from the name byte and
+2103  9A3B              ;              OR the
+2104  9A3B              ;     drive-prefix flag -- if nonzero there is leftover input (echo bad token); else warm-restart.
+2105  9A3B              ;   [RE] 2.20-44K twin CCP_RETURN_OK_NOCRLF.
+2106  9A3B              ; ----------------------------------------------------------------------
+2107  9A3B              CCP_RETURN_OK_NOCRLF:
+2108  9A3B CD 2F 95             CALL CCP_PARSE_FCB1
+2109  9A3E 3A 87 9B             LD A,(CCP_FCB_NAME)
+2110  9A41 D6 20                SUB $20
+2111  9A43 21 A9 9B             LD HL,CCP_FCB_DRIVE_PREFIX
+2112  9A46 B6                   OR (HL)
+2113  9A47 C2 DF 94             JP NZ,CCP_ECHO_TOKEN
+2114  9A4A C3 31 96             JP CCP_PROMPT_AND_READ
+2115  9A4D              ; ----------------------------------------------------------------------
+2116  9A4D              ; FASTLOAD_RESELECT_DRIVE -- helper: load the saved SoftCard load-drive byte then re-select that
+2117  9A4D              ; drive.
+2118  9A4D              ;   In: FASTLOAD_DRIVE_SAVE = a saved drive/parameter byte used by the fast-loader and the launch
+2119  9A4D              ;       path.
+2120  9A4D              ;   Out: A:=that byte; falls into FASTLOAD_SET_DRIVE (FASTLOAD_SET_DRIVE).
+2121  9A4D              ;   Clobbers: A, E.
+2122  9A4D              ;   [RE] NO 2.20 EQUIVALENT (SoftCard 2.23 fast-load support). Also used on the standard launch path
+2123  9A4D              ;     (CCP_LAUNCH_TRANSIENT / CCP_NO_FILE call it) to re-select the command's drive. [RE] partial.
+2124  9A4D              ; ----------------------------------------------------------------------
+2125  9A4D              FASTLOAD_RESELECT_DRIVE:
+2126  9A4D 3A 43 9B             LD A,(FASTLOAD_DRIVE_SAVE)
+2127  9A50              ; ----------------------------------------------------------------------
+2128  9A50              ; FASTLOAD_SET_DRIVE -- select the drive in A via BDOS, used by the SoftCard fast-loader.
+2129  9A50              ;   In: A = drive/parameter value.
+2130  9A50              ;   Out: E:=A; tail-jump to the DRV_SET wrapper (BDOS_USERNUM = F_USERNUM/DRV path).
+2131  9A50              ;   Clobbers: A, E.
+2132  9A50              ;   [RE] NO 2.20 EQUIVALENT (SoftCard 2.23). Thin wrapper; exact BDOS function via BDOS_USERNUM.
+2133  9A50              ; ----------------------------------------------------------------------
+2134  9A50              FASTLOAD_SET_DRIVE:
+2135  9A50 5F                   LD E,A
+2136  9A51 C3 F8 93             JP BDOS_USERNUM
+2137  9A54              ; ----------------------------------------------------------------------
+2138  9A54              ; FASTLOAD_RPC_BEGIN -- 2.23-ONLY: initialise the SoftCard 6502-RWTS accelerated .COM loader.
+2139  9A54              ;   In: the .COM file is open; the DPB fast-path was selected (CCP_LOAD_CHECK_FASTPATH).
+2140  9A54              ;   Out: seeds the RPC mailbox/IOB cells in Apple page 3 (Z-80 $F3xx = Apple $03xx), primes the
+2141  9A54              ;        per-pass state, and falls into FASTLOAD_BUILD_PASS to read directory blocks in sector
+2142  9A54              ;        order.
+2143  9A54              ;   Clobbers: A, DE, HL.
+2144  9A54              ;   Algorithm: HL:=($F3DE) (Z$CPU / SoftCard control cell, Apple $03DE) and self-modify it into the
+2145  9A54              ;     RPC dispatch (LD (FASTLOAD_RPC_TRIGGER+1),HL); clear FASTLOAD_PASS_COUNT (pass counter);
+2146  9A54              ;     FASTLOAD_LOAD_PAGE:=$11 (a starting IOB
+2147  9A54              ;     value); DE:=$92FF (top of the request-list scratch area just below the CCP). Fall into the
+2148  9A54              ;     build
+2149  9A54              ;     loop. The $F3xx cells are the SoftCard I/O-config / IOB cells the 6502 RWTS reads (see
+2150  9A54              ;     CPM_BIOS
+2151  9A54              ;     and CPM_BootLoader: $03D0 RPC mailbox, $03DE Z$CPU, $03E0-$03EB IOB).
+2152  9A54              ;   [RE] NO 2.20 EQUIVALENT -- SoftCard 2.23 accelerated loader; FLAGGED. Cell roles cited from the
+2153  9A54              ;     BIOS/BootLoader; precise per-byte field semantics partly UNKNOWN.
+2154  9A54              ; ----------------------------------------------------------------------
+2155  9A54              FASTLOAD_RPC_BEGIN:
+2156  9A54                      ; Z-80 $F3DE = Apple $03DE = Z$CPU / SoftCard control cell ($Cn00 slot base) [DOC S&HD
+2157  9A54                      ; 2-24/2-25]
+2158  9A54 2A DE F3             LD HL,($F3DE)
+2159  9A57                      ; self-modify the RPC dispatch's operand (LABEL+1) with the SoftCard control address
+2160  9A57 22 26 9B             LD (FASTLOAD_RPC_TRIGGER+1),HL
+2161  9A5A AF                   XOR A
+2162  9A5B 32 92 9B             LD (FASTLOAD_PASS_COUNT),A
+2163  9A5E 3E 11                LD A,$11
+2164  9A60 32 41 9B             LD (FASTLOAD_LOAD_PAGE),A
+2165  9A63                      ; DE = top of the request-list scratch area (just below the CCP at $9300)
+2166  9A63 11 FF 92             LD DE,$92FF
+2167  9A66              ; ----------------------------------------------------------------------
+2168  9A66              ; FASTLOAD_BUILD_PASS -- 2.23-ONLY: build one pass of block-read requests from the directory map.
+2169  9A66              ;   In: DE = current request-list write pointer; CCP_FCB_SECOND = the open file's 16-byte
+2170  9A66              ;       allocation/dir map.
+2171  9A66              ;   Out: appends IOB request records for this pass; loops while more allocation entries remain.
+2172  9A66              ;   Clobbers: A, HL.
+2173  9A66              ;   Algorithm: clear CCP_FCB_CR (current-record/scratch); HL:=CCP_FCB_SECOND (allocation map) and
+2174  9A66              ;              scan it
+2175  9A66              ;     (FASTLOAD_SCAN_DIRMAP), emitting an IOB record per nonzero block via FASTLOAD_EMIT_IOB.
+2176  9A66              ;   [RE] NO 2.20 EQUIVALENT (SoftCard 2.23). Field roles partly UNKNOWN.
+2177  9A66              ; ----------------------------------------------------------------------
+2178  9A66              FASTLOAD_BUILD_PASS:
+2179  9A66 AF                   XOR A
+2180  9A67 32 A6 9B             LD (CCP_FCB_CR),A
+2181  9A6A 21 96 9B             LD HL,CCP_FCB_SECOND
+2182  9A6D              ; ----------------------------------------------------------------------
+2183  9A6D              ; FASTLOAD_SCAN_DIRMAP -- 2.23-ONLY: walk the file's allocation map, emitting a read request per
+2184  9A6D              ; block.
+2185  9A6D              ;   In: HL -> allocation-map byte (within CCP_FCB_SECOND).
+2186  9A6D              ;   Out: for each nonzero block number, FASTLOAD_EMIT_IOB appends a request; stops at a 0 entry or
+2187  9A6D              ;        end.
+2188  9A6D              ;   Clobbers: A, HL.
+2189  9A6D              ;   [RE] NO 2.20 EQUIVALENT (SoftCard 2.23).
+2190  9A6D              ; ----------------------------------------------------------------------
+2191  9A6D              FASTLOAD_SCAN_DIRMAP:
+2192  9A6D 7E                   LD A,(HL)
+2193  9A6E B7                   OR A
+2194  9A6F 28 06                JR Z,FASTLOAD_PASS_CHECK
+2195  9A71 CD 8D 9A             CALL FASTLOAD_EMIT_IOB
+2196  9A74 23                   INC HL
+2197  9A75 18 F6                JR FASTLOAD_SCAN_DIRMAP
+2198  9A77              ; ----------------------------------------------------------------------
+2199  9A77              ; FASTLOAD_PASS_CHECK -- 2.23-ONLY: at the end of the map, decide whether another directory pass is
+2200  9A77              ;   needed (more extents) and loop, else proceed to execute the queued requests.
+2201  9A77              ;   In: HL at the end of the 16-byte map (L is compared against $A6 = low byte of CCP_FCB_CR).
+2202  9A77              ;   Out: if more dir entries remain (FASTLOAD_NEXT_DIR_ENTRY returns NZ) loop to
+2203  9A77              ;        FASTLOAD_BUILD_PASS;
+2204  9A77              ;        else fall into FASTLOAD_RPC_EXEC.
+2205  9A77              ;   Clobbers: A.
+2206  9A77              ;   [RE] NO 2.20 EQUIVALENT (SoftCard 2.23).
+2207  9A77              ; ----------------------------------------------------------------------
+2208  9A77              FASTLOAD_PASS_CHECK:
+2209  9A77                      ; $A6 = low byte of CCP_FCB_CR: detect HL reaching the end of the 16-byte allocation map
+2210  9A77 3E A6                LD A,$A6
+2211  9A79 BD                   CP L
+2212  9A7A C2 82 9A             JP NZ,FASTLOAD_RPC_EXEC
+2213  9A7D CD C8 9A             CALL FASTLOAD_NEXT_DIR_ENTRY
+2214  9A80 20 E4                JR NZ,FASTLOAD_BUILD_PASS
+2215  9A82              ; ----------------------------------------------------------------------
+2216  9A82              ; FASTLOAD_RPC_EXEC -- 2.23-ONLY: terminate the request list, sort + dispatch it to the 6502 RWTS,
+2217  9A82              ;   then warm-boot the CCP state and join the standard launch.
+2218  9A82              ;   In: the request list is built down from $92FF.
+2219  9A82              ;   Out: writes a 0 terminator, sorts the requests (FASTLOAD_SORT_REQUESTS), dispatches them through
+2220  9A82              ;        the RPC (CCP_WBOOT = $9B06 entry), then JP CCP_LAUNCH_TRANSIENT (CCP_LAUNCH_TRANSIENT) to
+2221  9A82              ;        build page
+2222  9A82              ;        zero and run the program.
+2223  9A82              ;   Clobbers: all.
+2224  9A82              ;   Algorithm: (DE):=0 (list terminator); CALL FASTLOAD_SORT_REQUESTS (FASTLOAD_SORT_REQUESTS); CALL
+2225  9A82              ;              CCP_WBOOT (the
+2226  9A82              ;     $9B06 RPC dispatcher entry, which feeds the sorted IOB list to the 6502); JP
+2227  9A82              ;     CCP_LAUNCH_TRANSIENT.
+2228  9A82              ;   [RE] NO 2.20 EQUIVALENT (SoftCard 2.23). The reuse of the CCP_WBOOT entry as the RPC dispatcher
+2229  9A82              ;   is
+2230  9A82              ;     OBSERVED; the dispatch internals are FASTLOAD_DISPATCH_RPC below.
+2231  9A82              ; ----------------------------------------------------------------------
+2232  9A82              FASTLOAD_RPC_EXEC:
+2233  9A82 AF                   XOR A
+2234  9A83 12                   LD (DE),A
+2235  9A84                      ; sort the queued block-read requests into ascending sector order (FASTLOAD_SORT_REQUESTS)
+2236  9A84 CD D4 9A             CALL FASTLOAD_SORT_REQUESTS
+2237  9A87                      ; dispatch the sorted IOB request list to the 6502 RWTS via the $9B06 RPC entry
+2238  9A87 CD 06 9B             CALL CCP_WBOOT
+2239  9A8A                      ; join the standard launch path (CCP_LAUNCH_TRANSIENT) to build page zero and run
+2240  9A8A C3 B8 99             JP CCP_LAUNCH_TRANSIENT
+2241  9A8D              ; ----------------------------------------------------------------------
+2242  9A8D              ; FASTLOAD_EMIT_IOB -- 2.23-ONLY: encode one block number into a 4-byte IOB request, applying the
+2243  9A8D              ;   physical sector-skew map.
+2244  9A8D              ;   In: A = logical block number; HL -> map; DE = request-list write pointer (descending).
+2245  9A8D              ;   Out: appends a 4-byte request (track/sector + load-address fields) to the list; updates
+2246  9A8D              ;        FASTLOAD_LOAD_PAGE/FASTLOAD_TRACK_TMP.
+2247  9A8D              ;   Clobbers: A, B, DE, HL.
+2248  9A8D              ;   Algorithm: derive a track-ish value (SRL A x2, +3 -> FASTLOAD_TRACK_TMP); index the 16-entry
+2249  9A8D              ;              skew table
+2250  9A8D              ;     SECTOR_SKEW_MAP (SECTOR_SKEW_MAP) by (block & 3)*4; write 4 IOB bytes per request, advancing
+2251  9A8D              ;     FASTLOAD_LOAD_PAGE the
+2252  9A8D              ;     sequential load page and special-casing $C0->$D0 (the language-card / I/O page boundary).
+2253  9A8D              ;   [RE] NO 2.20 EQUIVALENT (SoftCard 2.23). The skew table is the DOS 3.3 physical interleave; the
+2254  9A8D              ;     page wrap at $C0 keeps loads out of the $C000 I/O window. Field details partly UNKNOWN.
+2255  9A8D              ; ----------------------------------------------------------------------
+2256  9A8D              FASTLOAD_EMIT_IOB:
+2257  9A8D E5                   PUSH HL
+2258  9A8E F5                   PUSH AF
+2259  9A8F CB 3F                SRL A
+2260  9A91 CB 3F                SRL A
+2261  9A93 C6 03                ADD A,$03
+2262  9A95 32 42 9B             LD (FASTLOAD_TRACK_TMP),A
+2263  9A98 F1                   POP AF
+2264  9A99 E6 03                AND $03
+2265  9A9B 87                   ADD A,A
+2266  9A9C 87                   ADD A,A
+2267  9A9D                      ; SECTOR_SKEW_MAP: 16-entry logical->physical sector interleave table
+2268  9A9D 21 31 9B             LD HL,SECTOR_SKEW_MAP
+2269  9AA0 85                   ADD A,L
+2270  9AA1 6F                   LD L,A
+2271  9AA2 30 01                JR NC,FASTLOAD_EMIT_IOB_1
+2272  9AA4 24                   INC H
+2273  9AA5              FASTLOAD_EMIT_IOB_1:
+2274  9AA5 06 04                LD B,$04
+2275  9AA7              FASTLOAD_EMIT_IOB_2:
+2276  9AA7 3A 42 9B             LD A,(FASTLOAD_TRACK_TMP)
+2277  9AAA 12                   LD (DE),A
+2278  9AAB 1B                   DEC DE
+2279  9AAC 7E                   LD A,(HL)
+2280  9AAD 23                   INC HL
+2281  9AAE 12                   LD (DE),A
+2282  9AAF 1B                   DEC DE
+2283  9AB0 3A 41 9B             LD A,(FASTLOAD_LOAD_PAGE)
+2284  9AB3 FE A1                CP $A1
+2285  9AB5 CA 24 9A             JP Z,CCP_BAD_LOAD
+2286  9AB8                      ; load page reached $C0 (the $C000 I/O window): skip it
+2287  9AB8 FE C0                CP $C0
+2288  9ABA 20 02                JR NZ,FASTLOAD_EMIT_IOB_3
+2289  9ABC                      ; bump the load page from $C0 to $D0 to step over the I/O window
+2290  9ABC 3E D0                LD A,$D0
+2291  9ABE              FASTLOAD_EMIT_IOB_3:
+2292  9ABE 12                   LD (DE),A
+2293  9ABF 3C                   INC A
+2294  9AC0 1B                   DEC DE
+2295  9AC1 32 41 9B             LD (FASTLOAD_LOAD_PAGE),A
+2296  9AC4 10 E1                DJNZ FASTLOAD_EMIT_IOB_2
+2297  9AC6 E1                   POP HL
+2298  9AC7 C9                   RET
+2299  9AC8              ; ----------------------------------------------------------------------
+2300  9AC8              ; FASTLOAD_NEXT_DIR_ENTRY -- 2.23-ONLY: read the file's next directory extent into the allocation
+2301  9AC8              ; map.
+2302  9AC8              ;   In: directory search context for the open file.
+2303  9AC8              ;   Out: bumps the pass counter (FASTLOAD_PASS_COUNT) and SEARCH_NEXT-style fetches the next 16-byte
+2304  9AC8              ;        map; Z/NZ
+2305  9AC8              ;        reports whether another extent was found.
+2306  9AC8              ;   Clobbers: A (HL/DE preserved).
+2307  9AC8              ;   Algorithm: INC FASTLOAD_PASS_COUNT (pass counter); CALL CCP_OPEN_SUBMIT (the
+2308  9AC8              ;              directory-read/SEARCH helper) to refill
+2309  9AC8              ;     the map; preserve HL/DE around it.
+2310  9AC8              ;   [RE] NO 2.20 EQUIVALENT (SoftCard 2.23).
+2311  9AC8              ; ----------------------------------------------------------------------
+2312  9AC8              FASTLOAD_NEXT_DIR_ENTRY:
+2313  9AC8 E5                   PUSH HL
+2314  9AC9 D5                   PUSH DE
+2315  9ACA 21 92 9B             LD HL,FASTLOAD_PASS_COUNT
+2316  9ACD 34                   INC (HL)
+2317  9ACE CD C6 93             CALL CCP_OPEN_SUBMIT
+2318  9AD1 D1                   POP DE
+2319  9AD2 E1                   POP HL
+2320  9AD3 C9                   RET
+2321  9AD4              ; ----------------------------------------------------------------------
+2322  9AD4              ; FASTLOAD_SORT_REQUESTS -- 2.23-ONLY: sort the built IOB request list into ascending order so the
+2323  9AD4              ;   6502 RWTS reads sectors in one efficient sweep.
+2324  9AD4              ;   In: the request list occupies memory from $92FF downward, each record 3 bytes (key + payload),
+2325  9AD4              ;       0-terminated.
+2326  9AD4              ;   Out: the list is sorted in place by its sort key (an exchange/bubble sort).
+2327  9AD4              ;   Clobbers: A, B, DE, HL.
+2328  9AD4              ;   Algorithm: classic in-place exchange sort: outer pointer HL from $92FF, inner pointer DE walking
+2329  9AD4              ;     down 3 bytes at a time; compare keys (CP (HL) and the secondary byte), swap the 3-byte records
+2330  9AD4              ;     when out of order; repeat until a clean pass.
+2331  9AD4              ;   [RE] NO 2.20 EQUIVALENT (SoftCard 2.23). Record stride 3 and the 0 terminator are OBSERVED; the
+2332  9AD4              ;     exact key semantics are partly UNKNOWN.
+2333  9AD4              ; ----------------------------------------------------------------------
+2334  9AD4              FASTLOAD_SORT_REQUESTS:
+2335  9AD4 21 FF 92             LD HL,$92FF
+2336  9AD7              FASTLOAD_SORT_REQUESTS_1:
+2337  9AD7 54                   LD D,H
+2338  9AD8 5D                   LD E,L
+2339  9AD9              FASTLOAD_SORT_REQUESTS_2:
+2340  9AD9 1B                   DEC DE
+2341  9ADA 1B                   DEC DE
+2342  9ADB 1B                   DEC DE
+2343  9ADC 1A                   LD A,(DE)
+2344  9ADD B7                   OR A
+2345  9ADE 28 1E                JR Z,FASTLOAD_SORT_REQUESTS_5
+2346  9AE0 BE                   CP (HL)
+2347  9AE1 38 0A                JR C,FASTLOAD_SORT_REQUESTS_3
+2348  9AE3 20 F4                JR NZ,FASTLOAD_SORT_REQUESTS_2
+2349  9AE5 1B                   DEC DE
+2350  9AE6 1A                   LD A,(DE)
+2351  9AE7 13                   INC DE
+2352  9AE8 2B                   DEC HL
+2353  9AE9 BE                   CP (HL)
+2354  9AEA 23                   INC HL
+2355  9AEB 30 EC                JR NC,FASTLOAD_SORT_REQUESTS_2
+2356  9AED              FASTLOAD_SORT_REQUESTS_3:
+2357  9AED E5                   PUSH HL
+2358  9AEE D5                   PUSH DE
+2359  9AEF 06 03                LD B,$03
+2360  9AF1              FASTLOAD_SORT_REQUESTS_4:
+2361  9AF1 1A                   LD A,(DE)
+2362  9AF2 4E                   LD C,(HL)
+2363  9AF3 77                   LD (HL),A
+2364  9AF4 79                   LD A,C
+2365  9AF5 12                   LD (DE),A
+2366  9AF6 2B                   DEC HL
+2367  9AF7 1B                   DEC DE
+2368  9AF8 10 F7                DJNZ FASTLOAD_SORT_REQUESTS_4
+2369  9AFA D1                   POP DE
+2370  9AFB E1                   POP HL
+2371  9AFC 18 DB                JR FASTLOAD_SORT_REQUESTS_2
+2372  9AFE              FASTLOAD_SORT_REQUESTS_5:
+2373  9AFE 2B                   DEC HL
+2374  9AFF 2B                   DEC HL
+2375  9B00 2B                   DEC HL
+2376  9B01 7E                   LD A,(HL)
+2377  9B02 B7                   OR A
+2378  9B03 20 D2                JR NZ,FASTLOAD_SORT_REQUESTS_1
+2379  9B05 C9                   RET
+2380  9B06 11 FF 92             LD DE,$92FF
+2381  9B09              ; ----------------------------------------------------------------------
+2382  9B09              ; FASTLOAD_DISPATCH_RPC -- 2.23-ONLY: walk the sorted IOB list and fire each block read through the
+2383  9B09              ;   6502 RWTS via the SoftCard RPC cells.
+2384  9B09              ;   In: DE -> the request list (from $92FF down); the RPC dispatch operand was self-modified by
+2385  9B09              ;       FASTLOAD_RPC_BEGIN. NOTE: the routine entry at $9B06 (one line above) is the cross-module
+2386  9B09              ;       CCP_WBOOT warm-boot re-entry (defined in cpm_system_223.inc); the BDOS returns through it
+2387  9B09              ;       AND
+2388  9B09              ;       the fast-loader calls it to start the dispatch.
+2389  9B09              ;   Out: for each request pokes the IOB cells ($F3E0/$F3E1/$F3E9 = Apple $03E0/$03E1/$03E9), sets
+2390  9B09              ;        the
+2391  9B09              ;        command at $F3EB and the deblock/length at $F3D0, fires the RPC (the self-modified store),
+2392  9B09              ;        and
+2393  9B09              ;        polls the return code at $F3EA until done; loops to the next request; RET at the list end.
+2394  9B09              ;   Clobbers: A, DE, HL.
+2395  9B09              ;   Algorithm: A:=(DE); if 0 the list is exhausted -> RET; store IOB bytes to $F3E0/$F3E1/$F3E9;
+2396  9B09              ;     set $F3EB:=1 (read command), $F3D0:=$0E03 (deblock params); the self-modified LD ($xxxx),A at
+2397  9B09              ;     FASTLOAD_RPC_TRIGGER writes the SoftCard control cell to hand off to the 6502; re-read $F3EA
+2398  9B09              ;     (return code);
+2399  9B09              ;     on completion loop, else jump back into the standard loader at CCP_LOAD_LOOP (CCP_LOAD_LOOP).
+2400  9B09              ;   [RE] NO 2.20 EQUIVALENT (SoftCard 2.23). Cell roles cited from CPM_BIOS / CPM_BootLoader;
+2401  9B09              ;   precise
+2402  9B09              ;     handshake timing UNKNOWN. The $9B06 entry is shared with CCP_WBOOT (cpm_system_223.inc).
+2403  9B09              ; ----------------------------------------------------------------------
+2404  9B09              FASTLOAD_DISPATCH_RPC:
+2405  9B09 1A                   LD A,(DE)
+2406  9B0A B7                   OR A
+2407  9B0B C8                   RET Z
+2408  9B0C                      ; Z-80 $F3E0 = Apple $03E0 = IOB sector/load-address cell read by the 6502 RWTS
+2409  9B0C 32 E0 F3             LD ($F3E0),A
+2410  9B0F 1B                   DEC DE
+2411  9B10 1A                   LD A,(DE)
+2412  9B11 32 E1 F3             LD ($F3E1),A
+2413  9B14 1B                   DEC DE
+2414  9B15 1A                   LD A,(DE)
+2415  9B16 32 E9 F3             LD ($F3E9),A
+2416  9B19 1B                   DEC DE
+2417  9B1A 3E 01                LD A,$01
+2418  9B1C                      ; Z-80 $F3EB = Apple $03EB = IOB command cell (1 = read)
+2419  9B1C 32 EB F3             LD ($F3EB),A
+2420  9B1F 21 03 0E             LD HL,$0E03
+2421  9B22                      ; Z-80 $F3D0 = Apple $03D0 = RPC command/params (deblock) mailbox
+2422  9B22 22 D0 F3             LD ($F3D0),HL
+2423  9B25              ; ----------------------------------------------------------------------
+2424  9B25              ; FASTLOAD_RPC_TRIGGER -- 2.23-ONLY: the self-modified store that writes the SoftCard control cell
+2425  9B25              ; to
+2426  9B25              ;   hand the bus to the 6502 (the actual RPC trigger).
+2427  9B25              ;   In: A = the value to write; the operand address was patched by FASTLOAD_RPC_BEGIN (LABEL+1).
+2428  9B25              ;   Out: writes A to the SoftCard control/Z$CPU cell, switching execution to the 6502; then checks
+2429  9B25              ;        $F3EA and continues the dispatch loop.
+2430  9B25              ;   Clobbers: A, flags.
+2431  9B25              ;   Algorithm: LD ($0000),A where the $0000 operand is self-modified at FASTLOAD_RPC_TRIGGER+1 to
+2432  9B25              ;              the
+2433  9B25              ;     SoftCard control address loaded from $F3DE; the write triggers the CPU switch / RPC.
+2434  9B25              ;   [RE] NO 2.20 EQUIVALENT (SoftCard 2.23). The operand is a self-modify target
+2435  9B25              ;   (FASTLOAD_RPC_TRIGGER+1).
+2436  9B25              ; ----------------------------------------------------------------------
+2437  9B25              FASTLOAD_RPC_TRIGGER:
+2438  9B25                      ; self-modified operand (FASTLOAD_RPC_TRIGGER+1, patched to the $F3DE SoftCard control
+2439  9B25                      ; address): the write switches the bus to the 6502 = the RPC trigger
+2440  9B25 32 00 00             LD ($0000),A
+2441  9B28 3A EA F3             LD A,($F3EA)
+2442  9B2B B7                   OR A
+2443  9B2C 28 DB                JR Z,FASTLOAD_DISPATCH_RPC
+2444  9B2E C3 93 99             JP CCP_LOAD_LOOP
+2445  9B31              ; ----------------------------------------------------------------------
+2446  9B31              ; SECTOR_SKEW_MAP -- 2.23-ONLY: 16-byte logical->physical sector interleave table for the
+2447  9B31              ; fast-loader.
+2448  9B31              ;   Bytes: 00 09 03 0C 06 0F 01 0A 04 0D 07 08 02 0B 05 0E -- the Apple DOS 3.3 sector skew, indexed
+2449  9B31              ;          by
+2450  9B31              ;   FASTLOAD_EMIT_IOB to issue block reads in physical order.
+2451  9B31              ;   [RE] NO 2.20 EQUIVALENT (SoftCard 2.23 accelerated loader).
+2452  9B31              ; ----------------------------------------------------------------------
+2453  9B31              SECTOR_SKEW_MAP:
+2454  9B31 00 09 03 0C          DEFB    $00,$09,$03,$0C,$06,$0F,$01,$0A,$04,$0D,$07,$08,$02,$0B,$05,$0E
+2454  9B35 06 0F 01 0A
+2454  9B39 04 0D 07 08
+2454  9B3D 02 0B 05 0E
+2455  9B41              ; ----------------------------------------------------------------------
+2456  9B41              ; FASTLOAD_LOAD_PAGE -- 2.23-ONLY: running load-page byte the fast-loader writes into successive IOB
+2457  9B41              ;   records (advanced per block; steps $C0->$D0 over the I/O window).
+2458  9B41              ;   [RE] NO 2.20 EQUIVALENT.
+2459  9B41              ; ----------------------------------------------------------------------
+2460  9B41              FASTLOAD_LOAD_PAGE:
+2461  9B41 00                   DEFB    "\0"
+2462  9B42              ; ----------------------------------------------------------------------
+2463  9B42              ; FASTLOAD_TRACK_TMP -- 2.23-ONLY: scratch track-ish value derived from the block number in
+2464  9B42              ;   FASTLOAD_EMIT_IOB (SRL x2, +3) before it is written into the IOB record.
+2465  9B42              ;   [RE] NO 2.20 EQUIVALENT.
+2466  9B42              ; ----------------------------------------------------------------------
+2467  9B42              FASTLOAD_TRACK_TMP:
+2468  9B42 00                   DEFB    "\0"
+2469  9B43              ; ----------------------------------------------------------------------
+2470  9B43              ; FASTLOAD_DRIVE_SAVE -- 2.23-ONLY: saved drive/parameter byte for the fast-loader / launch path,
+2471  9B43              ;   reloaded by FASTLOAD_RESELECT_DRIVE. (33 reserved bytes here; the first is the live cell.)
+2472  9B43              ;   [RE] partial -- the live use is the saved drive byte; the remaining reserved bytes are UNKNOWN.
+2473  9B43              ; ----------------------------------------------------------------------
+2474  9B43              FASTLOAD_DRIVE_SAVE:
+2475  9B43 00 00 00...          DEFS    33, $00                  ; fill
+2476  9B64              ; ----------------------------------------------------------------------
+2477  9B64              ; CCP_STACK_BASE -- top of the CCP private stack (SP is loaded here at warm start and after a
+2478  9B64              ;   transient returns).
+2479  9B64              ;   [RE] 2.20-44K twin equivalent (here it is the stack-base cell at $9B64).
+2480  9B64              ; ----------------------------------------------------------------------
+2481  9B64              CCP_STACK_BASE:
+2482  9B64 00                   DEFB    "\0"
+2483  9B65              ; ----------------------------------------------------------------------
+2484  9B65              ; CCP_SUB_FCB -- the FCB for the $$$.SUB batch (SUBMIT) file; name/ext constant '$$$     SUB'
+2485  9B65              ; follows.
+2486  9B65              ;   Opened/read/deleted by the CCP batch logic to source successive command lines.
+2487  9B65              ;   [RE] 2.20-44K twin CCP_SUB_FCB.
+2488  9B65              ; ----------------------------------------------------------------------
+2489  9B65              CCP_SUB_FCB:
+2490  9B65 00                   DEFB    "\0"
+2491  9B66 24 24 24 20          DEFB    "$$$     SUB"            ; string
+2491  9B6A 20 20 20 20
+2491  9B6E 53 55 42
+2492  9B71 00                   DEFB    $00                      ; terminator
+2493  9B72 00                   DEFB    "\0"
+2494  9B73              ; ----------------------------------------------------------------------
+2495  9B73              ; CCP_SUB_FCB_S2 -- the S2 (extent-high) field of the $$$.SUB FCB; cleared before reading the next
+2496  9B73              ;   batch record.
+2497  9B73              ;   [RE] 2.20-44K twin CCP_SUB_FCB_S2.
+2498  9B73              ; ----------------------------------------------------------------------
+2499  9B73              CCP_SUB_FCB_S2:
+2500  9B73 00                   DEFB    "\0"
+2501  9B74              ; ----------------------------------------------------------------------
+2502  9B74              ; CCP_SUB_FCB_CR -- the current-record (CR) field of the $$$.SUB FCB; the SUBMIT file is consumed in
+2503  9B74              ;   reverse, so this is decremented to position the next read.
+2504  9B74              ;   [RE] 2.20-44K twin CCP_SUB_FCB_CR (followed by reserved FCB bytes).
+2505  9B74              ; ----------------------------------------------------------------------
+2506  9B74              CCP_SUB_FCB_CR:
+2507  9B74 00 00 00...          DEFS    17, $00                  ; fill
+2508  9B85              ; ----------------------------------------------------------------------
+2509  9B85              ; CCP_SUB_PREV_REC -- previous batch record index (cell just below the command FCB); receives
+2510  9B85              ;   CCP_SUB_FCB_CR-1, the record to read next from $$$.SUB.
+2511  9B85              ;   [RE] 2.20-44K twin CCP_SUB_PREV_REC.
+2512  9B85              ; ----------------------------------------------------------------------
+2513  9B85              CCP_SUB_PREV_REC:
+2514  9B85 00                   DEFB    "\0"
+2515  9B86              ; ----------------------------------------------------------------------
+2516  9B86              ; CCP_FCB -- the command-line FCB the CCP builds from the typed command (drive byte; name at
+2517  9B86              ;   CCP_FCB_NAME, type at CCP_FCB_EXT). Copied to TFCB ($005C) before a transient runs.
+2518  9B86              ;   [RE] 2.20-44K twin CCP_FCB.
+2519  9B86              ; ----------------------------------------------------------------------
+2520  9B86              CCP_FCB:
+2521  9B86 00                   DEFB    "\0"
+2522  9B87              ; ----------------------------------------------------------------------
+2523  9B87              ; CCP_FCB_NAME -- the 8-character filename field of the command FCB (parsed command word,
+2524  9B87              ; blank-padded);
+2525  9B87              ;   matched 4 chars at a time against the keyword table and used as the .COM filename.
+2526  9B87              ;   [RE] 2.20-44K twin CCP_FCB_NAME.
+2527  9B87              ; ----------------------------------------------------------------------
+2528  9B87              CCP_FCB_NAME:
+2529  9B87 00 00 00...          DEFS    8, $00                   ; fill
+2530  9B8F              ; ----------------------------------------------------------------------
+2531  9B8F              ; CCP_FCB_EXT -- the 3-character extension (type) field of the command FCB; must be blank for a bare
+2532  9B8F              ;   command word; the transient loader overwrites it with 'COM'.
+2533  9B8F              ;   [RE] 2.20-44K twin CCP_FCB_EXT.
+2534  9B8F              ; ----------------------------------------------------------------------
+2535  9B8F              CCP_FCB_EXT:
+2536  9B8F 00 00 00             DEFB    "\0\0\0"
+2537  9B92              ; ----------------------------------------------------------------------
+2538  9B92              ; FASTLOAD_PASS_COUNT -- 2.23-ONLY: directory-pass counter for the fast-loader (incremented by
+2539  9B92              ;   FASTLOAD_NEXT_DIR_ENTRY as it walks the file's extents). (4 reserved bytes here.)
+2540  9B92              ;   [RE] NO 2.20 EQUIVALENT; exact width/use of the trailing bytes partly UNKNOWN.
+2541  9B92              ; ----------------------------------------------------------------------
+2542  9B92              FASTLOAD_PASS_COUNT:
+2543  9B92 00 00 00 00          DEFB    "\0\0\0\0"
+2544  9B96              ; ----------------------------------------------------------------------
+2545  9B96              ; CCP_FCB_SECOND -- the second filename built into the command FCB at offset $10 (so the transient
+2546  9B96              ;   receives two default FCBs at $005C/$006C). Also reused by the fast-loader as the 16-byte
+2547  9B96              ;   allocation/directory map scratch.
+2548  9B96              ;   [RE] 2.20-44K twin CCP_FCB_SECOND.
+2549  9B96              ; ----------------------------------------------------------------------
+2550  9B96              CCP_FCB_SECOND:
+2551  9B96 00 00 00...          DEFS    16, $00                  ; fill
+2552  9BA6              ; ----------------------------------------------------------------------
+2553  9BA6              ; CCP_FCB_CR -- the current-record (CR) field of the command FCB; zeroed before each open/read so
+2554  9BA6              ;   loads start at record 0.
+2555  9BA6              ;   [RE] 2.20-44K twin CCP_FCB_CR.
+2556  9BA6              ; ----------------------------------------------------------------------
+2557  9BA6              CCP_FCB_CR:
+2558  9BA6 00                   DEFB    "\0"
+2559  9BA7              ; ----------------------------------------------------------------------
+2560  9BA7              ; CCP_BDOS_RESULT -- saved A return code from the most recent BDOS file call
+2561  9BA7              ; (open/close/search/make);
+2562  9BA7              ;   the wrapper saves A here then INC A so the caller can test the $FF not-found code as zero.
+2563  9BA7              ;   [RE] 2.20-44K twin CCP_BDOS_RESULT.
+2564  9BA7              ; ----------------------------------------------------------------------
+2565  9BA7              CCP_BDOS_RESULT:
+2566  9BA7 00                   DEFB    "\0"
+2567  9BA8              ; ----------------------------------------------------------------------
+2568  9BA8              ; CCP_CUR_DRIVE -- the CCP's current default drive number (0=A,1=B,...); written to the low nibble
+2569  9BA8              ; of
+2570  9BA8              ;   page-zero $0004 and reselected after every transient runs.
+2571  9BA8              ;   [RE] 2.20-44K twin CCP_CUR_DRIVE (NOT the user number, which lives in the BDOS).
+2572  9BA8              ; ----------------------------------------------------------------------
+2573  9BA8              CCP_CUR_DRIVE:
+2574  9BA8 00                   DEFB    "\0"
+2575  9BA9              ; ----------------------------------------------------------------------
+2576  9BA9              ; CCP_FCB_DRIVE_PREFIX -- explicit drive-prefix flag for the parsed command (0 = no 'd:' prefix,
+2577  9BA9              ; else
+2578  9BA9              ;   drive#+1). A non-zero value routes the dispatcher to CCP_DRIVE_SELECT (slot 6).
+2579  9BA9              ;   [RE] 2.20-44K twin CCP_FCB_DRIVE_PREFIX.
+2580  9BA9              ; ----------------------------------------------------------------------
+2581  9BA9              CCP_FCB_DRIVE_PREFIX:
+2582  9BA9 00                   DEFB    "\0"
+2583  9BAA              ; ----------------------------------------------------------------------
+2584  9BAA              ; CCP_TYPE_REC_INDEX -- TYPE's per-record byte index (advanced 0..$80 by TYPE_EMIT_CHAR; primed to
+2585  9BAA              ;   $FF to force the first record read). Followed by 86 reserved/scratch bytes up to the CCP top.
+2586  9BAA              ;   [RE] 2.20-44K twin (the CCP_FCB_TAIL / TYPE counter region).
+2587  9BAA              ; ----------------------------------------------------------------------
+2588  9BAA              CCP_TYPE_REC_INDEX:
+2589  9BAA 00 00 00...          DEFS    86, $00                  ; fill
+2590  9C00                  IFNDEF CPM_LINK
+2591  9C00                  SAVEBIN "{out_bin}", $9300, $0900
+2592  9C00                  ENDIF
+2593  9C00
+# file closed: CPM_CCP.asm

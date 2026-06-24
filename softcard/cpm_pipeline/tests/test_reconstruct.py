@@ -168,6 +168,33 @@ def test_cpm223_44k_deskew_roundtrip_and_coherent():
 
 
 @pytest.mark.skipif(not HAS_ASSEMBLERS, reason="ca65/ld65/sjasmplus not on PATH")
+def test_os_listings_are_fresh():
+    """The four per-component .lst listings (BootLoader/CCP/BDOS/BIOS) for each 44K tree are
+    TRACKED side-by-side with their .asm and linked from the wiseowl articles, so they must
+    not drift from the source. Regenerate each and compare to the committed file."""
+    import tempfile
+    from pathlib import Path
+    from cpm_pipeline.chunk_map import SOURCES_220_44K, SOURCES_223
+    from cpm_pipeline.os_listing import emit_listing
+    chunks = [SOURCES_220_44K[k] for k in
+              ("CPM220_44K_BootLoader", "CPM220_44K_CCP", "CPM220_44K_BDOS", "CPM220_44K_BIOS_Disk")]
+    chunks += [SOURCES_223[k] for k in
+               ("CPM223_BootLoader", "CPM223_44K_CCP", "CPM223_44K_BDOS", "CPM223_BIOS_Disk")]
+    stale = []
+    for cs in chunks:
+        committed = cs.asm_path.with_suffix(".lst")
+        if not committed.exists():
+            stale.append(f"{committed} missing")
+            continue
+        tmp = Path(tempfile.mktemp(suffix=".lst"))
+        emit_listing(cs, tmp)
+        if tmp.read_text(encoding="latin-1") != committed.read_text(encoding="latin-1"):
+            stale.append(f"{committed.relative_to(committed.parents[3])} differs from source "
+                         f"(regenerate: cpm_pipeline.os_listing.emit_listing)")
+    assert not stale, "stale committed .lst:\n  " + "\n  ".join(stale)
+
+
+@pytest.mark.skipif(not HAS_ASSEMBLERS, reason="ca65/ld65/sjasmplus not on PATH")
 def test_cpm220_44k_ccp_bdos_concatenate_to_deskewed_image():
     """The de-skew RE-BASE: the two independent runtime-addressed compilations -- CPM_CCP.asm
     (ORG $9400, $0800) and CPM_BDOS.asm (ORG $9C00, $0E00) -- assembled and concatenated

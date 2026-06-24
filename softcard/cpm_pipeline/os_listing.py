@@ -95,7 +95,28 @@ def emit_listing(source: ChunkSource, lst_path: Path) -> None:
     sjasmplus `--lst` for Z-80, ca65 `-l` for 6502 (the .s `.org` gives absolute addresses)."""
     if source.cpu not in ("z80", "6502"):
         raise AssemblyError(f"emit_listing supports z80/6502 sources (got {source.cpu})")
-    assemble_chunk(source, lst_path=Path(lst_path))
+    lst_path = Path(lst_path)
+    assemble_chunk(source, lst_path=lst_path)
+    # Strip the assembler's non-deterministic preamble: sjasmplus emits a leading
+    # "warning[backslash]: ... <temp-dir>\<file>.asm" line naming the randomly-named temp
+    # copy it assembled, which would make the committed listing differ run to run. Drop any
+    # line that names a staging temp path so the .lst is reproducible.
+    try:
+        text = lst_path.read_text(encoding="latin-1")
+    except FileNotFoundError:
+        return
+    import re
+    kept = []
+    for ln in text.split("\n"):
+        if "File name contains" in ln:                       # sjasmplus temp-path warning
+            continue
+        # The assembler ran on a randomly-named temp copy; scrub those temp paths so the
+        # committed listing is reproducible: the sjasmplus SAVEBIN output and the ca65
+        # "Main file"/"Current file" header both name it.
+        ln = re.sub(r'("[^"]*[\\/]out\.bin")', '"{out_bin}"', ln)
+        ln = re.sub(r'^((?:Main|Current) file\s*:\s*).*[\\/]([^\\/]+)$', r'\1\2', ln)
+        kept.append(ln)
+    lst_path.write_text("\n".join(kept), encoding="latin-1")
 
 
 def main():
