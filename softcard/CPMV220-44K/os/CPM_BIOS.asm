@@ -19,23 +19,20 @@
     ORG $AA00
     ENDIF
 
-; -- Mid-instruction references (shown inline as cover+offset) --
-;   $AAFD -> CCP_MODE_FLAG+1         z80 skip idiom: enters the operand of $3E at $AAFC
-;   $AB0E -> KBD_STATUS_40COL+2         shared instruction tail: $AB0E is reachable code inside the instruction at $AB0C
-;   $AB3F -> RPC_TRIGGER_STORE+1         shared instruction tail: $AB3F is reachable code inside the instruction at $AB3E
-;   $AC42 -> PUT_CHAR_VECTOR+1         shared instruction tail: $AC42 is reachable code inside the instruction at $AC41
-;   $AE7A -> CONIO_SET_A1         z80 skip idiom: enters the operand of $21 at $AE79
-;   $AEA2 -> COL_FLAG         shared instruction tail: $AEA2 is reachable code inside the instruction at $AEA1
-;   $AEA9 -> BOOT+1         shared instruction tail: $AEA9 is reachable code inside the instruction at $AEA8
-;   $AEAA -> BOOT+2         shared instruction tail: $AEAA is reachable code inside the instruction at $AEA8
-;   $AEAC -> DISK_SELDSK_SAVE+1         z80 skip idiom: enters the operand of $3E at $AEAB
-;   $AEAE -> DISK_SEKDSK+1        shared instruction tail: $AEAE is reachable code inside the instruction at $AEAD
-;   $AEAF -> DISK_SEKDSK+2        shared instruction tail: $AEAF is reachable code inside the instruction at $AEAD
-;   $AEB1 -> DISK_HSTWRT+1        z80 skip idiom: enters the operand of $3E at $AEB0
-;   $AEB3 -> DISK_WRTYPE+1        shared instruction tail: $AEB3 is reachable code inside the instruction at $AEB2
-;   $AEB4 -> DISK_WRTYPE+2        shared instruction tail: $AEB4 is reachable code inside the instruction at $AEB2
-;   $AEB6 -> DISK_UNADSK+1        shared instruction tail: $AEB6 is reachable code inside the instruction at $AEB5
-;   $AF50 -> DEV_HANDLER_PTRS_B        shared instruction tail: $AF50 is reachable code inside the instruction at $AF4E
+; -- Self-modify / dual-use cells (operand bytes referenced as LABEL+offset, per the
+;    SoftCard convention: the patched instruction keeps a semantic label; the patch site
+;    is +1/+2). The cold-boot installer (BOOT..DEV_INSTALL_*) and the deblock share much
+;    of the $AEA8-$AEBA band: --
+;      CCP_MODE_FLAG+1       patched immediate of the CCP-launch flag
+;      KBD_STATUS_40COL+2    CONST read-address, repointed per console card
+;      RPC_TRIGGER_STORE+1   RPC trigger store-address (set from the SoftCard config)
+;      PUT_CHAR_VECTOR+1     self-modified screen-emit jump target
+;      DEV_OUT_1_JP+1 / DEV_OUT_2_JP+1 / DEV_OUT_3_JP(+1/+2)  device-handler vectors
+;      CONIN_DISPATCH+1      keyboard-wait vector
+;      DISK_SEKDSK(+1/+2), DISK_HSTWRT(+1), DISK_WRTYPE(+1/+2), DISK_UNADSK(+1/+2),
+;      DISK_DMAADR, BOOT, BOOT+1   the DRI deblock scratch (sekdsk/hstdsk/hstact/hstwrt/
+;                                  readop/wrtype/rsflag/unacnt/unatrk/unasec/dmaadr/
+;                                  sektrk/seksec), overlaid on the install templates.
 
 ; ----------------------------------------------------------------------
 ; BIOS_VECTOR -- the CP/M 2.2 BIOS entry jump vector.
@@ -71,30 +68,32 @@ BIOS_VECTOR_WBOOT:
         JP      WRITE
         DEFB    $AF,$C9,$00,$60,$69,$C9
 ; ----------------------------------------------------------------------
-; DISK_PARAM_TABLE -- per-drive disk parameter / config rows (DATA, not code).
-;   Built from a repeating 16-byte row stride: a leading pointer cluster
-;   ($BA,$AE,$93,$AA = pointers into BIOS routines/data), then a 13-byte tail of
-;   $00 fill plus the row's own pointer pair (e.g. $AA,$A6,$AF / $4A,$AF), one row
-;   per logical drive. SELDSK indexes a parallel pointer at DISK_PARAM_TABLE (LD
-;   HL,DISK_PARAM_TABLE).
-;   The trailing 14 bytes at $AA94 ($00,$03,$07,$00,$7F,$00,$2F,$00,$C0,$00,$0C,
-;   $00,$03,$00) are the device/config parameter words the probe loop PROBE_DEVICES
-;   reads. DATA: described, not renamed internally. [RE]
+; DPH_TABLE -- the CP/M 2.2 Disk Parameter Header array (one 16-byte DPH per logical
+;   drive 0..5). SELDSK returns DPH_TABLE + 16*drive (or 0 for an out-of-range drive).
+;   Each DPH = XLT, three BDOS scratch words, DIRBUF, DPB, CSV, ALV. XLT = 0 (no SECTRAN
+;   sector translate; the deblock applies the skew internally via SECTOR_XLATE). All six
+;   drives share one DIRBUF and one DPB. DIRBUF ($AEBA, 128 bytes) and the per-drive CSV
+;   (checksum, 12 bytes) and ALV (allocation, ~17 bytes) vectors live in the BIOS's own
+;   $AE/$AF RAM, reused as scratch after the cold-boot code there has run; they are kept
+;   as literal addresses (not relocatable labels) for that reason. [RE]
 ; ----------------------------------------------------------------------
-DISK_PARAM_TABLE:
-        DEFS    8, $00                   ; fill
-        DEFB    $BA,$AE,$93,$AA,$9A,$AF,$3A,$AF
-        DEFS    8, $00                   ; fill
-        DEFB    $BA,$AE,$93
-        DEFB    $AA,$A6,$AF,$4A,$AF,$00  ; "*&/J/"
-        DEFB    $00,$00,$00,$00,$00,$00,$00,$BA,$AE,$93
-        DEFB    $AA,$B2,$AF,$5A,$AF,$00  ; "*2/Z/"
-        DEFB    $00,$00,$00,$00,$00,$00,$00,$BA,$AE,$93
-        DEFB    $AA,$BE,$AF,$6A,$AF,$00  ; "*>/j/"
-        DEFB    $00,$00,$00,$00,$00,$00,$00,$BA,$AE,$93
-        DEFB    $AA,$CA,$AF,$7A,$AF,$00  ; "*J/z/"
-        DEFB    $00,$00,$00,$00,$00,$00,$00,$BA,$AE,$93,$AA,$D6,$AF,$8A,$AF,$20
-        DEFB    $00,$03,$07,$00,$7F,$00,$2F,$00,$C0,$00,$0C,$00,$03,$00
+DPH_TABLE:
+        DEFW    0,0,0,0,$AEBA,DPB,$AF9A,$AF3A   ; drive 0: DIRBUF, DPB, CSV=$AF9A, ALV=$AF3A
+        DEFW    0,0,0,0,$AEBA,DPB,$AFA6,$AF4A   ; drive 1
+        DEFW    0,0,0,0,$AEBA,DPB,$AFB2,$AF5A   ; drive 2
+        DEFW    0,0,0,0,$AEBA,DPB,$AFBE,$AF6A   ; drive 3
+        DEFW    0,0,0,0,$AEBA,DPB,$AFCA,$AF7A   ; drive 4
+        DEFW    0,0,0,0,$AEBA,DPB,$AFD6,$AF8A   ; drive 5
+; DPB -- the shared Disk Parameter Block (5.25" floppy geometry; every DPH points here).
+DPB:
+        DEFW    $0020                    ; SPT = 32 sectors (128-byte records) per track
+        DEFB    $03,$07                  ; BSH=3, BLM=7 -> 1 KB allocation blocks
+        DEFB    $00                      ; EXM = 0
+        DEFW    $007F                    ; DSM = 127 (128 blocks => 128 KB capacity)
+        DEFW    $002F                    ; DRM = 47 (48 directory entries)
+        DEFB    $C0,$00                  ; AL0/AL1 -> 2 directory-reserved blocks
+        DEFW    $000C                    ; CKS = 12 (directory checksum bytes)
+        DEFW    $0003                    ; OFF = 3 reserved (system) tracks
 ; ----------------------------------------------------------------------
 ; PROBE_DEVICES -- scan the 7-entry SoftCard device/config area and mark presence.
 ;   In:  none (walks Apple $03B8.. via z80 $F3B8 = the SoftCard config block).
@@ -254,7 +253,7 @@ KBD_STATUS_40COL:
 ; ----------------------------------------------------------------------
 CONSOLE_IN_40COL:
         CALL CONIN_KEYWAIT               ; wait for a raw key in A
-        LD HL,$F3AB                      ; HL = key-remap table (Apple $03AB)
+        LD HL,$F3AB                      ; HL = key-remap table base (Apple $03AB; first entry pair at $03AC)
         LD B,$06                         ; up to 6 table entries
         LD C,A                           ; C = raw key
 CONIN_XLATE_LOOP:
@@ -722,39 +721,39 @@ CTRL_PLAIN_STORE:
         LD HL,$FDF0                      ; HL = Apple monitor COUT1 ($FDF0) for the 6502 RPC
         JR PLOT_RPC_TAIL                 ; emit via the shared RPC tail
 ; --- control-code handlers (entered via the offset table; each RETs through RPC_TRIGGER) ---
-CTRL_MODE_FF:                            ; code 4
+CTRL_VIDEO_NORMAL:                       ; code 4: select normal video
         LD A,$FF
         DEFB    $01                      ; cover (LD BC,nn): skips the LD A,$3F below
-CTRL_MODE_3F:                            ; code 5
+CTRL_VIDEO_INVERSE:                      ; code 5: select inverse video
         LD A,$3F
-        LD ($F032),A                     ; set the screen mode/mask byte (Apple ZP $0032)
+        LD ($F032),A                     ; INVFLG (Apple ZP $0032): $FF = normal, $3F = inverse
 CTRL_POP_RET:                            ; code 7: discard the pushed return and exit
         POP HL
         RET
-CTRL_RPC_FBF4:                           ; code 9
-        LD HL,$FBF4                      ; HL = Apple monitor routine ($FBF4) for the RPC
+CTRL_CURSOR_RIGHT:                       ; code 9: cursor right
+        LD HL,$FBF4                      ; HL = Apple monitor ADVANCE ($FBF4) for the RPC
         RET
 CTRL_HOME_CURSOR:                        ; code 6: home the cursor (CH/CV = 0)
         XOR A
         LD L,A
         LD H,A
-        LD ($F024),HL                    ; Apple ZP $0024/$0025 = (0,0)
-CTRL_RPC_BASCALC:
+        LD ($F024),HL                    ; Apple ZP $0024/$0025 (CH/CV) = (0,0)
+CTRL_BASCAL2:
         LD ($F045),A
-        LD HL,$FBC1                      ; HL = Apple monitor BASCALC ($FBC1) for the RPC
+        LD HL,$FBC1                      ; HL = Apple monitor BASCAL2 ($FBC1, line-base calc) for the RPC
         RET
-CTRL_COL_42:                             ; code 2
+CTRL_CLREOP:                             ; code 2: clear to end of page -> $FC42 CLREOP
         LD L,$42
         DEFB    $01                      ; cover: skips the LD L,$9C below
-CTRL_COL_9C:                             ; code 3
+CTRL_CLREOL:                             ; code 3: clear to end of line -> $FC9C CLREOL
         LD L,$9C
         DEFB    $01                      ; cover: skips the LD L,$1A below
-CTRL_COL_1A:                             ; code 8
+CTRL_CURSOR_UP:                          ; code 8: cursor up -> $FC1A UP
         LD L,$1A
         DEFB    $01                      ; cover: skips the LD L,$58 below
-CTRL_COL_58:                             ; code 1
+CTRL_CLR_HOME:                           ; code 1: clear screen + home -> $FC58 HOME
         LD L,$58
-        LD H,$FC                         ; HL = Apple monitor routine ($FC..) for the RPC
+        LD H,$FC                         ; HL = Apple monitor routine in page $FC (per the L above)
         RET
 CTRL_CLAMP_CURSOR:                       ; code 10: clamp the saved cursor to 40x24 and store it
         LD HL,(BOOT+2)                   ; load saved cursor col/row (BOOT+2 cell)
@@ -770,7 +769,7 @@ CTRL_CLAMP_ROW:
 CTRL_CLAMP_STORE:
         LD ($F024),HL                    ; store cursor (Apple ZP $0024/$0025)
         DEFB    $18                      ; JR opcode; its offset is the table[0] byte below
-                                         ;        ($D5 = -43 -> CTRL_RPC_BASCALC)
+                                         ;        ($D5 = -43 -> CTRL_BASCAL2)
 CTRL_HANDLER_OFFSET_TBL:
         ; low byte of each control-code handler (high byte $AC); indexed by control code
         ; 1..10. Entry [0]=$D5 doubles as the JR offset above (code 0 never dispatches here;
@@ -973,7 +972,7 @@ SLOT_IO_SCALE:
 ;   Algorithm: read the configured drive count from the SoftCard config block
 ;              (z80 $F3B8 = Apple $03B8). If C >= count, return 0. Otherwise record
 ;              the selected disk into the sekdsk build site (DISK_SELDSK_SAVE+1 = $04 marker
-;              then C) and return the constant DPH at DISK_PARAM_TABLE scaled by the index.
+;              then C) and return the constant DPH at DPH_TABLE scaled by the index.
 ;              z80 $F3B8 = Apple ZP/config $03B8. [RE]
 ; ----------------------------------------------------------------------
 SELDSK:
@@ -994,7 +993,7 @@ SELDSK:
         LD A,C
         LD (DE),A
         ; base DPH; SLOT_IO_SCALE indexes it by the drive number
-        LD HL,DISK_PARAM_TABLE
+        LD HL,DPH_TABLE
         JR SLOT_IO_SCALE
 SELDSK_BAD_DRIVE:
         LD A,(DE)
@@ -1181,7 +1180,7 @@ DEBLOCK_NEED_RELOAD:
         LD A,(DISK_HSTWRT)
         OR A
         ; flush the dirty host buffer before reloading
-        CALL NZ,CONFIG_PROBE
+        CALL NZ,DISK_WRITE_HOST
 DEBLOCK_SETUP_RWTS:
         LD A,(DISK_SEKDSK)
         LD (DISK_SEKDSK+1),A
@@ -1208,7 +1207,7 @@ DEBLOCK_SETUP_RWTS:
         LD A,(DISK_WRTYPE+1)
         OR A
         ; perform the host sector read (RWTS read entry)
-        CALL NZ,CONIO_SET_A1
+        CALL NZ,DISK_READ_HOST
         XOR A
         ; hstwrt = 0 after a fresh read
         LD (DISK_HSTWRT),A
@@ -1240,27 +1239,30 @@ DEBLOCK_COPY:
         LD A,$00
         RET NC
         ; immediate flush of the dirty host buffer
-        CALL CONFIG_PROBE
+        CALL DISK_WRITE_HOST
         RET
 ; ----------------------------------------------------------------------
-; CONFIG_PROBE -- re-detect the console device and reset the deblock state.
-;   In:  none (reads the SoftCard config/IOBYTE cells in Apple page $03).
-;   Out: none. Clobbers: A,HL,DE.
-;   Algorithm: clear the host-sector-active flag (PATCH_LDA_HSTACT operand cell),
-;              default A=2, then via the CONIO_SET_A1 cover entry set the console
-;              selector at $F3EB=Apple $03EB and probe the device through RPC_TRIGGER.
-;              If the probe returns a non-zero device class (==$10) it pops the
-;              return address and tail-jumps through the vector at $9C0D. Called
-;              at cold boot (from BOOT path) and on a disk-select change. [RE]
+; DISK_WRITE_HOST -- write the staged host sector to disk via the SoftCard RWTS RPC.
+;   Clears hstwrt, sets the RWTS command cell ($F3EB = Apple $03EB) to write ($02),
+;   fires the RPC (RPC_TRIGGER) with the track/sector params, then checks RWTS status
+;   ($F3EA = Apple $03EA): 0 = OK; $10 = write-protected -> dispatch the BDOS read-only
+;   disk error through the vector at ($9C0D). The read entry DISK_READ_HOST just below
+;   shares this body via the $21 cover. Called by the deblock to flush a dirty host
+;   buffer / write a directory record. [RE]
 ; ----------------------------------------------------------------------
-CONFIG_PROBE:
+DISK_WRITE_HOST:
         XOR A
-        ; clear the host-active deblock flag (this LD A operand cell doubles as the disk hstact var)
+        ; clear the host-buffer-dirty flag (hstwrt) as part of the flush
         LD (DISK_HSTWRT),A
         LD A,$02
         DEFB    $21                      ; cover (LD HL,nn opcode): on fall-through absorbs the
-                                         ;        LD A,$01 below, leaving A=$02 from $AE77
-CONIO_SET_A1:
+; ----------------------------------------------------------------------
+; DISK_READ_HOST -- read a host sector from disk via the RWTS RPC. A direct CALL enters
+;   here so the LD A,$01 sets the RWTS command to read ($01); the $21 cover above absorbs
+;   this instruction on fall-through, leaving DISK_WRITE_HOST's A=$02 (write). Shares the
+;   RWTS command/status path with DISK_WRITE_HOST. [RE]
+; ----------------------------------------------------------------------
+DISK_READ_HOST:
         LD A,$01                         ; CALL'd directly -> A=$01 (cover-skipped on fall-through)
         ; store the console-selector index into the SoftCard config block (Apple $03EB)
         LD ($F3EB),A
@@ -1327,19 +1329,19 @@ SCREEN_CHAR:
 ; BOOT -- CP/M cold-boot BIOS entry (jump-vector $AA00 lands here via $AA00->$AEA8).
 ;   In:  none. Out: does not return through here (falls into the install engine).
 ;   Clobbers: all.
-;   DUAL USE of the first 3 bytes: the opcode bytes of this 'LD SP,$0100' instruction
-;   are TEMPORALLY REUSED after boot as disk-deblock cells. BOOT+1/BOOT+2 (the $00,$01
-;   immediate-operand bytes) hold the current track / current sector during operation:
-;   SETSEC writes BOOT+1 (seksec), HOME/HOME-path writes BOOT (sektrk low), and the
-;   WRITE/READ deblock logic and READ_SEKSEC read BOOT/BOOT+1. They are valid SP-init
-;   bytes only during the single cold-boot pass; thereafter they are scratch, never
-;   re-executed. [RE]
+;   DUAL USE of the first 2 operand bytes: this 'LD SP,$0100' executes once at cold boot;
+;   afterwards BOOT and BOOT+1 (the $00,$01 immediate-operand bytes) are reused as the
+;   disk-deblock sektrk and seksec cells: HOME/SETTRK write BOOT (sektrk), SETSEC writes
+;   BOOT+1 (seksec), and the WRITE/READ deblock and READ_SEKSEC read them. The third byte
+;   BOOT+2 is a SEPARATE console cursor word (read by the column/tab path and
+;   CTRL_CLAMP_CURSOR), NOT a disk cell. Valid SP-init bytes only during the single
+;   cold-boot pass; thereafter scratch, never re-executed. [RE]
 ;   Algorithm: set the Z-80 stack, then fall through into the self-modifying install
 ;   engine (PATCH_* cells) that writes the per-config operands into the running BIOS.
 ; ----------------------------------------------------------------------
 BOOT:
-        ; init Z-80 stack; these 3 bytes are reused post-boot as the disk sektrk/seksec deblock
-        ; cells (BOOT=track, BOOT+1=sector)
+        ; init Z-80 stack; BOOT/BOOT+1 are reused post-boot as the sektrk/seksec deblock
+        ; cells (BOOT=track, BOOT+1=sector); BOOT+2 is a separate console cursor word
         LD SP,$0100
 ; ----------------------------------------------------------------------
 ; DISK_SELDSK_SAVE -- (boot install template 'LD A,$C9'); +1 byte reused as SELDSK scratch.
@@ -1395,13 +1397,15 @@ DISK_DMAADR:
         LD ($0004),A
         LD A,($F3BB)
         CP $05
-        JR NC,CONFIG_PROBE_16
+        JR NC,DEV_INSTALL_2
         SUB $03
-        JR C,CONFIG_PROBE_16
-        JR NZ,CONFIG_PROBE_15
+        JR C,DEV_INSTALL_2
+        JR NZ,DEV_INSTALL_1
+        ; this console card class: repoint the CONST handler's read to $1FB0 (rewrites the
+        ; LD A,($E000) operand + the following byte) so status comes from the card, not $C000
         LD HL,$1FB0
         LD (KBD_STATUS_40COL+2),HL
-CONFIG_PROBE_15:
+DEV_INSTALL_1:
         PUSH AF
         CALL DEV_HANDLER_LOOKUP
         POP AF
@@ -1410,47 +1414,47 @@ CONFIG_PROBE_15:
         LD (CONIN_DISPATCH+1),HL         ; patch the CONIN keyboard-wait vector
         LD A,$03
         LD (CCP_MODE_FLAG+1),A
-CONFIG_PROBE_16:
+DEV_INSTALL_2:
         LD A,($F3B9)
         SUB $03
-        JR C,CONFIG_PROBE_17
+        JR C,DEV_INSTALL_3
         CALL DEV_HANDLER_LOOKUP
         LD (DEV_OUT_1_JP+1),HL           ; patch the DEV_OUT_1 vector
         LD E,$80
-CONFIG_PROBE_17:
+DEV_INSTALL_3:
         LD A,($F3BA)
         SUB $03
-        JR C,CONFIG_PROBE_18
+        JR C,DEV_INSTALL_4
         PUSH AF
         CALL DEV_HANDLER_LOOKUP
         LD (DEV_OUT_2_JP+1),HL           ; patch the DEV_OUT_2 vector
         POP AF
         CP $02
-        JR NC,CONFIG_PROBE_18
+        JR NC,DEV_INSTALL_4
         CALL DEV_HANDLER_LOOKUP_B
         LD (DEV_OUT_3_JP+1),HL           ; patch the DEV_OUT_3 jump target
-        JR CONFIG_PROBE_19
-CONFIG_PROBE_18:
+        JR DEV_INSTALL_5
+DEV_INSTALL_4:
         LD HL,$1A3E
         LD (DEV_OUT_3_JP),HL             ; build DEV_OUT_3's instruction (opcode+lo)
         LD A,$C9
         LD (DEV_OUT_3_JP+2),A            ; build DEV_OUT_3's instruction (hi byte)
-CONFIG_PROBE_19:
+DEV_INSTALL_5:
         LD A,($F381)
         OR A
-        JR NZ,CONFIG_PROBE_20
+        JR NZ,DEV_INSTALL_6
         LD HL,IO_VECTOR_DEFAULTS
         LD DE,$F380
         LD BC,$0016
         LDIR
-CONFIG_PROBE_20:
+DEV_INSTALL_6:
         CALL PROBE_DEVICES
         LD A,($F398)
         CALL SIGNON_EMIT
         LD A,($F39B)
         CALL SIGNON_EMIT
         LD HL,SIGNON_BANNER
-CONFIG_PROBE_21:
+DEV_INSTALL_7:
         LD A,(HL)
         OR A
         JP Z,PAGEZERO_REBUILD
@@ -1458,7 +1462,7 @@ CONFIG_PROBE_21:
         CALL CONOUT_DISPATCH
         POP HL
         INC HL
-        JR CONFIG_PROBE_21
+        JR DEV_INSTALL_7
 ; ----------------------------------------------------------------------
 ; DEV_HANDLER_PTRS -- DEFW table of disk read/write handler addresses (primary group),
 ;   indexed by DEV_HANDLER_LOOKUP. Continues as DEV_HANDLER_PTRS_B (+6). DATA.
@@ -1477,7 +1481,7 @@ CONFIG_PROBE_21:
 DEV_HANDLER_PTRS:
         ; table of device-handler addresses (DEFW). DEV_HANDLER_LOOKUP indexes from
         ; here; DEV_HANDLER_LOOKUP_B indexes from DEV_HANDLER_PTRS_B (+6). Selected per config
-        ; by CONFIG_PROBE to install the right console/disk handler into the vector slots.
+        ; by DISK_WRITE_HOST to install the right console/disk handler into the vector slots.
         DEFW    DEV_STROBE_RD            ; [0]
         DEFW    PLOT_CHAR_AT_COL         ; [1]
         DEFW    DEV_WR_BIT               ; [2]
@@ -1488,7 +1492,7 @@ DEV_HANDLER_PTRS_B:
 ; DEV_HANDLER_LOOKUP_B -- fetch a disk-handler address from DEV_HANDLER_PTRS_B[A].
 ;   In:  A = entry index (0-based). Out: HL = handler address. Clobbers: A,HL.
 ;   Algorithm: point HL at DEV_HANDLER_PTRS_B then fall into the shared index loader
-;   (HL += A*2; HL = word at that slot). Used by CONFIG_PROBE to install the per-config
+;   (HL += A*2; HL = word at that slot). Used by DISK_WRITE_HOST to install the per-config
 ;   read/write handler addresses. [RE]
 ; ----------------------------------------------------------------------
 DEV_HANDLER_LOOKUP_B:
@@ -1538,7 +1542,7 @@ SIGNON_EMIT_CHAR:
         JP CONOUT_DISPATCH
 ; ----------------------------------------------------------------------
 ; SIGNON_BANNER -- the cold-boot sign-on string, printed char-by-char by the boot path
-;   (loop at CONFIG_PROBE_21) until the $00 terminator. Reads:
+;   (loop at DEV_INSTALL_7) until the $00 terminator. Reads:
 ;   'Apple ][ CP/M' / '44K Ver. 2.20' / '(C) 1980 Microsoft', CR/LF separated. DATA.
 ; ----------------------------------------------------------------------
 SIGNON_BANNER:
