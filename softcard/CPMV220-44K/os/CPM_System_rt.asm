@@ -4,33 +4,258 @@
 ; The 44K system tracks store the CCP/BDOS sector-INTERLEAVED; the cold loader
 ; de-interleaves them into contiguous RAM, so the image EXECUTES in a different
 ; order than it sits on disk (see ../../docs/CPM_Skew_Findings.md). This source
-; is decoded against the DE-SKEWED RUNTIME image: ORG $9600, every label a true
-; runtime address. The disk producer re-applies the sector skew
-; (cpm_pipeline/deskew.py :: runtime_to_ondisk) so the on-disk image stays
-; byte-identical. Runtime map: CCP $9600-$9BFF, BDOS $9C00 (FBASE; entry $9C06,
-; dispatch table $9C47), fn 12-40 handlers $A8xx, BDOS variable page $A9xx.
+; is decoded against the DE-SKEWED RUNTIME image -- exactly what the CPU runs --
+; ORG $9400, every label a true runtime address. The de-skew map (runtime page ->
+; .dsk sector) is cpm_pipeline/deskew.py, read straight from the emulator's loader.
 ;
-; DECODE IN PROGRESS: this began as an --auto-coverage --relocatable disassembly
-; of the de-skewed image (byte-identical) and is being enriched to the C-level
-; bar (semantic names + headers + body comments). The prior on-disk-order
-; CPM_CCP.asm / CPM_BDOS.asm are a naming LEAD only (their addresses are skewed).
+; Runtime map:  CCP $9400-$9BFF (CBASE $9400, entry JP $975C; DRI copyright at
+; $9408), BDOS $9C00-$A9FF (FBASE $9C00; entry $9C06; dispatch table $9C47; fn
+; 12-40 handlers $A8xx; variable page $A9xx). The two embedded 6502 RPC payloads
+; and the boot stub live on other sectors and are not part of this Z-80 image.
+;
+; DECODE IN PROGRESS: began as an --auto-coverage --relocatable disassembly of the
+; de-skewed image (byte-identical), being enriched to the C-level bar. The prior
+; on-disk-order CPM_CCP.asm / CPM_BDOS.asm are a naming LEAD only (skewed addresses,
+; and their headers carry obsolete skew-seam caveats the de-skew resolved).
 ; ============================================================================
 
     DEVICE NOSLOT64K
 
-    ORG $9600
+    ORG $9400
 
-PRE_CCP_FRAGMENT_9300:
-        RST $08                          ; $9600  CF
-        SUB A                            ; $9601  97
+L_9400:
+        JP SUB_972E_6                    ; $9400  C3 5C 97
+        DEFB    $C3,$58,$97                                      ; $9403
+L_9406:
+        DEFB    $7F                                              ; $9406
+L_9407:
+        DEFB    "\0"    ; $9407
+L_9408:
+        DEFS    16, $20    ; $9408  fill
+        DEFB    "COPYRIGHT (C) 1979, DIGITAL RESEARCH  "    ; $9418  string
+        DEFB    $00    ; $943E  terminator
+        DEFS    73, $00    ; $943F  fill
+L_9488:
+        DEFB    $08,$94                                          ; $9488
+L_948A:
+        DEFB    "\0\0"    ; $948A
+SUB_948C:
+        LD E,A                           ; $948C  5F
+        LD C,$02                         ; $948D  0E 02
+        JP $0005                         ; $948F  C3 05 00
+SUB_9492:
+        PUSH BC                          ; $9492  C5
+        CALL SUB_948C                    ; $9493  CD 8C 94
+        POP BC                           ; $9496  C1
+        RET                              ; $9497  C9
+SUB_9498:
+        LD A,$0D                         ; $9498  3E 0D
+        CALL SUB_9492                    ; $949A  CD 92 94
+        LD A,$0A                         ; $949D  3E 0A
+        JP SUB_9492                      ; $949F  C3 92 94
+SUB_94A2:
+        LD A,$20                         ; $94A2  3E 20
+        JP SUB_9492                      ; $94A4  C3 92 94
+SUB_94A7:
+        PUSH BC                          ; $94A7  C5
+        CALL SUB_9498                    ; $94A8  CD 98 94
+        POP HL                           ; $94AB  E1
+SUB_94AC:
+        LD A,(HL)                        ; $94AC  7E
+        OR A                             ; $94AD  B7
+        RET Z                            ; $94AE  C8
+        INC HL                           ; $94AF  23
+        PUSH HL                          ; $94B0  E5
+        CALL SUB_948C                    ; $94B1  CD 8C 94
+        POP HL                           ; $94B4  E1
+        JP SUB_94AC                      ; $94B5  C3 AC 94
+SUB_94B8:
+        LD C,$0D                         ; $94B8  0E 0D
+        JP $0005                         ; $94BA  C3 05 00
+SUB_94BD:
+        LD E,A                           ; $94BD  5F
+        LD C,$0E                         ; $94BE  0E 0E
+        JP $0005                         ; $94C0  C3 05 00
+SUB_94BD_1:
+        CALL $0005                       ; $94C3  CD 05 00
+        LD (L_9BEE),A                    ; $94C6  32 EE 9B
+        INC A                            ; $94C9  3C
+        RET                              ; $94CA  C9
+SUB_94CB:
+        LD C,$0F                         ; $94CB  0E 0F
+        JP SUB_94BD_1                    ; $94CD  C3 C3 94
+SUB_94D0:
+        XOR A                            ; $94D0  AF
+        LD (L_9BED),A                    ; $94D1  32 ED 9B
+        LD DE,L_9BCD                     ; $94D4  11 CD 9B
+        JP SUB_94CB                      ; $94D7  C3 CB 94
+SUB_94DA:
+        LD C,$10                         ; $94DA  0E 10
+        JP SUB_94BD_1                    ; $94DC  C3 C3 94
+SUB_94DA_1:
+        LD C,$11                         ; $94DF  0E 11
+        JP SUB_94BD_1                    ; $94E1  C3 C3 94
+SUB_94E4:
+        LD C,$12                         ; $94E4  0E 12
+        JP SUB_94BD_1                    ; $94E6  C3 C3 94
+SUB_94E9:
+        LD DE,L_9BCD                     ; $94E9  11 CD 9B
+        JP SUB_94DA_1                    ; $94EC  C3 DF 94
+SUB_94EF:
+        LD C,$13                         ; $94EF  0E 13
+        JP $0005                         ; $94F1  C3 05 00
+SUB_94EF_1:
+        CALL $0005                       ; $94F4  CD 05 00
+        OR A                             ; $94F7  B7
+        RET                              ; $94F8  C9
+SUB_94F9:
+        LD C,$14                         ; $94F9  0E 14
+        JP SUB_94EF_1                    ; $94FB  C3 F4 94
+SUB_94FE:
+        LD DE,L_9BCD                     ; $94FE  11 CD 9B
+        JP SUB_94F9                      ; $9501  C3 F9 94
+SUB_9504:
+        LD C,$15                         ; $9504  0E 15
+        JP SUB_94EF_1                    ; $9506  C3 F4 94
+SUB_9509:
+        LD C,$16                         ; $9509  0E 16
+        JP SUB_94BD_1                    ; $950B  C3 C3 94
+SUB_950E:
+        LD C,$17                         ; $950E  0E 17
+        JP $0005                         ; $9510  C3 05 00
+SUB_9513:
+        LD E,$FF                         ; $9513  1E FF
+SUB_9515:
+        LD C,$20                         ; $9515  0E 20
+        JP $0005                         ; $9517  C3 05 00
+SUB_951A:
+        CALL SUB_9513                    ; $951A  CD 13 95
+        ADD A,A                          ; $951D  87
+        ADD A,A                          ; $951E  87
+        ADD A,A                          ; $951F  87
+        ADD A,A                          ; $9520  87
+        LD HL,L_9BEF                     ; $9521  21 EF 9B
+        OR (HL)                          ; $9524  B6
+        LD ($0004),A                     ; $9525  32 04 00
+        RET                              ; $9528  C9
+SUB_9529:
+        LD A,(L_9BEF)                    ; $9529  3A EF 9B
+        LD ($0004),A                     ; $952C  32 04 00
+        RET                              ; $952F  C9
+SUB_9530:
+        CP $61                           ; $9530  FE 61
+        RET C                            ; $9532  D8
+        CP $7B                           ; $9533  FE 7B
+        RET NC                           ; $9535  D0
+        AND $5F                          ; $9536  E6 5F
+        RET                              ; $9538  C9
+SUB_9539:
+        LD A,(L_9BAB)                    ; $9539  3A AB 9B
+        OR A                             ; $953C  B7
+        JP Z,SUB_9539_1                  ; $953D  CA 96 95
+        LD A,(L_9BEF)                    ; $9540  3A EF 9B
+        OR A                             ; $9543  B7
+        LD A,$00                         ; $9544  3E 00
+        CALL NZ,SUB_94BD                 ; $9546  C4 BD 94
+        LD DE,L_9BAC                     ; $9549  11 AC 9B
+        CALL SUB_94CB                    ; $954C  CD CB 94
+        JP Z,SUB_9539_1                  ; $954F  CA 96 95
+        LD A,(L_9BBB)                    ; $9552  3A BB 9B
+        DEC A                            ; $9555  3D
+        LD (L_9BCC),A                    ; $9556  32 CC 9B
+        LD DE,L_9BAC                     ; $9559  11 AC 9B
+        CALL SUB_94F9                    ; $955C  CD F9 94
+        JP NZ,SUB_9539_1                 ; $955F  C2 96 95
+        LD DE,L_9407                     ; $9562  11 07 94
+        LD HL,$0080                      ; $9565  21 80 00
+        LD B,$80                         ; $9568  06 80
+        CALL SUB_9842                    ; $956A  CD 42 98
+        LD HL,L_9BBA                     ; $956D  21 BA 9B
+        LD (HL),$00                      ; $9570  36 00
+        INC HL                           ; $9572  23
+        DEC (HL)                         ; $9573  35
+        LD DE,L_9BAC                     ; $9574  11 AC 9B
+        CALL SUB_94DA                    ; $9577  CD DA 94
+        JP Z,SUB_9539_1                  ; $957A  CA 96 95
+        LD A,(L_9BEF)                    ; $957D  3A EF 9B
+        OR A                             ; $9580  B7
+        CALL NZ,SUB_94BD                 ; $9581  C4 BD 94
+        LD HL,L_9408                     ; $9584  21 08 94
+        CALL SUB_94AC                    ; $9587  CD AC 94
+        CALL SUB_95C2                    ; $958A  CD C2 95
+        JP Z,SUB_9539_2                  ; $958D  CA A7 95
+        CALL SUB_95DD                    ; $9590  CD DD 95
+        JP SUB_972E_7                    ; $9593  C3 82 97
+SUB_9539_1:
+        CALL SUB_95DD                    ; $9596  CD DD 95
+        CALL SUB_951A                    ; $9599  CD 1A 95
+        LD C,$0A                         ; $959C  0E 0A
+        LD DE,L_9406                     ; $959E  11 06 94
+        CALL $0005                       ; $95A1  CD 05 00
+        CALL SUB_9529                    ; $95A4  CD 29 95
+SUB_9539_2:
+        LD HL,L_9407                     ; $95A7  21 07 94
+        LD B,(HL)                        ; $95AA  46
+SUB_9539_3:
+        INC HL                           ; $95AB  23
+        LD A,B                           ; $95AC  78
+        OR A                             ; $95AD  B7
+        JP Z,SUB_9539_4                  ; $95AE  CA BA 95
+        LD A,(HL)                        ; $95B1  7E
+        CALL SUB_9530                    ; $95B2  CD 30 95
+        LD (HL),A                        ; $95B5  77
+        DEC B                            ; $95B6  05
+        JP SUB_9539_3                    ; $95B7  C3 AB 95
+SUB_9539_4:
+        LD (HL),A                        ; $95BA  77
+        LD HL,L_9408                     ; $95BB  21 08 94
+        LD (L_9488),HL                   ; $95BE  22 88 94
+        RET                              ; $95C1  C9
+SUB_95C2:
+        LD C,$0B                         ; $95C2  0E 0B
+        CALL $0005                       ; $95C4  CD 05 00
+        OR A                             ; $95C7  B7
+        RET Z                            ; $95C8  C8
+        LD C,$01                         ; $95C9  0E 01
+        CALL $0005                       ; $95CB  CD 05 00
+        OR A                             ; $95CE  B7
+        RET                              ; $95CF  C9
+SUB_95D0:
+        LD C,$19                         ; $95D0  0E 19
+        JP $0005                         ; $95D2  C3 05 00
+SUB_95D5:
+        LD DE,$0080                      ; $95D5  11 80 00
+SUB_95D8:
+        LD C,$1A                         ; $95D8  0E 1A
+        JP $0005                         ; $95DA  C3 05 00
+SUB_95DD:
+        LD HL,L_9BAB                     ; $95DD  21 AB 9B
+        LD A,(HL)                        ; $95E0  7E
+        OR A                             ; $95E1  B7
+        RET Z                            ; $95E2  C8
+        LD (HL),$00                      ; $95E3  36 00
+        XOR A                            ; $95E5  AF
+        CALL SUB_94BD                    ; $95E6  CD BD 94
+        LD DE,L_9BAC                     ; $95E9  11 AC 9B
+        CALL SUB_94EF                    ; $95EC  CD EF 94
+        LD A,(L_9BEF)                    ; $95EF  3A EF 9B
+        JP SUB_94BD                      ; $95F2  C3 BD 94
+SUB_95F5:
+        LD DE,CCP_CMD_NAMES_END                     ; $95F5  11 28 97
+        LD HL,BDOS_IMAGE_HEADER                     ; $95F8  21 00 9C
+        LD B,$06                         ; $95FB  06 06
+SUB_95F5_1:
+        LD A,(DE)                        ; $95FD  1A
+        CP (HL)                          ; $95FE  BE
+        JP NZ,SUB_972E_9                 ; $95FF  C2 CF 97
         INC DE                           ; $9602  13
         INC HL                           ; $9603  23
         DEC B                            ; $9604  05
-        JP NZ,$95FD                      ; $9605  C2 FD 95
+        JP NZ,SUB_95F5_1                 ; $9605  C2 FD 95
         RET                              ; $9608  C9
 ECHO_TO_BLANK:
-        CALL $9498                       ; $9609  CD 98 94
-        LD HL,($948A)                    ; $960C  2A 8A 94
+        CALL SUB_9498                    ; $9609  CD 98 94
+        LD HL,(L_948A)                   ; $960C  2A 8A 94
 SUB_9609_1:
         LD A,(HL)                        ; $960F  7E
         CP $20                           ; $9610  FE 20
@@ -38,16 +263,16 @@ SUB_9609_1:
         OR A                             ; $9615  B7
         JP Z,PARSE_BADCHAR                  ; $9616  CA 22 96
         PUSH HL                          ; $9619  E5
-        CALL $948C                       ; $961A  CD 8C 94
+        CALL SUB_948C                    ; $961A  CD 8C 94
         POP HL                           ; $961D  E1
         INC HL                           ; $961E  23
         JP SUB_9609_1                    ; $961F  C3 0F 96
 PARSE_BADCHAR:
         LD A,$3F                         ; $9622  3E 3F
-        CALL $948C                       ; $9624  CD 8C 94
-        CALL $9498                       ; $9627  CD 98 94
-        CALL $95DD                       ; $962A  CD DD 95
-        JP SUB_972E_5                    ; $962D  C3 82 97
+        CALL SUB_948C                    ; $9624  CD 8C 94
+        CALL SUB_9498                    ; $9627  CD 98 94
+        CALL SUB_95DD                    ; $962A  CD DD 95
+        JP SUB_972E_7                    ; $962D  C3 82 97
 SCAN_DELIM:
         LD A,(DE)                        ; $9630  1A
         OR A                             ; $9631  B7
@@ -80,9 +305,12 @@ SKIP_ONE_BLANK:
         JP SKIP_ONE_BLANK                      ; $9656  C3 4F 96
 SUB_9659:
         ADD A,L                          ; $9659  85
-        DEFB    $6F,$D0,$24,$C9                                  ; $965A
+        LD L,A                           ; $965A  6F
+        RET NC                           ; $965B  D0
+        INC H                            ; $965C  24
+        RET                              ; $965D  C9
 SUB_965E:
-        DEFB    ">\0"    ; $965E
+        LD A,$00                         ; $965E  3E 00
 BUILD_FCB:
         LD HL,L_9BCD                     ; $9660  21 CD 9B
         CALL SUB_9659                    ; $9663  CD 59 96
@@ -90,11 +318,11 @@ BUILD_FCB:
         PUSH HL                          ; $9667  E5
         XOR A                            ; $9668  AF
         LD (L_9BF0),A                    ; $9669  32 F0 9B
-        LD HL,($9488)                    ; $966C  2A 88 94
+        LD HL,(L_9488)                   ; $966C  2A 88 94
         EX DE,HL                         ; $966F  EB
         CALL SKIP_ONE_BLANK                    ; $9670  CD 4F 96
         EX DE,HL                         ; $9673  EB
-        LD ($948A),HL                    ; $9674  22 8A 94
+        LD (L_948A),HL                   ; $9674  22 8A 94
         EX DE,HL                         ; $9677  EB
         POP HL                           ; $9678  E1
         LD A,(DE)                        ; $9679  1A
@@ -179,7 +407,7 @@ SUB_9660_16:
         DEC B                            ; $96F5  05
         JP NZ,SUB_9660_16                ; $96F6  C2 F2 96
         EX DE,HL                         ; $96F9  EB
-        LD ($9488),HL                    ; $96FA  22 88 94
+        LD (L_9488),HL                   ; $96FA  22 88 94
         POP HL                           ; $96FD  E1
         LD BC,$000B                      ; $96FE  01 0B 00
 FCB_WILDCARD_NEXT:
@@ -195,9 +423,9 @@ FCB_WILDCARD_CMP_C:
         OR A                             ; $970E  B7
         RET                              ; $970F  C9
 L_9710:
-        DEFB    $44,$49,$52,$20,$45,$52,$41,$20,$54,$59,$50,$45,$53,$41,$56,$45 ; $9710  "DIR ERA TYPESAVEREN USER="
-        DEFB    $52,$45,$4E,$20,$55,$53,$45,$52,$BD              ; $9720
-        DEFB    $16,$00,$00,$16,$DF                              ; $9729
+        DEFB    "DIR ERA TYPESAVEREN USER"    ; $9710  string
+CCP_CMD_NAMES_END:
+        DEFB    $BD,$16,$00,$00,$16,$DF                          ; $9728
 SUB_972E:
         LD HL,L_9710                     ; $972E  21 10 97
         LD C,$00                         ; $9731  0E 00
@@ -227,21 +455,43 @@ SEARCH_BUILTIN_2:
 SUB_972E_4:
         INC C                            ; $9754  0C
         JP SUB_972E_1                    ; $9755  C3 33 97
-        DEFB    $AF,$32,$07,$94,$31,$AB,$9B,$C5,$79,$1F,$1F,$1F,$1F,$E6,$0F,$5F ; $9758
-        DEFB    $CD,$15,$95,$CD,$B8,$94,$32,$AB,$9B,$C1,$79,$E6,$0F,$32,$EF,$9B ; $9768
-        DEFB    $CD,$BD,$94,$3A,$07,$94,$B7,$C2,$98,$97          ; $9778
-SUB_972E_5:
+CCP_MAIN_LOOP:
+        XOR A                            ; $9758  AF
+        LD (L_9407),A                    ; $9759  32 07 94
+SUB_972E_6:
+        LD SP,L_9BAB                     ; $975C  31 AB 9B
+        PUSH BC                          ; $975F  C5
+        LD A,C                           ; $9760  79
+        RRA                              ; $9761  1F
+        RRA                              ; $9762  1F
+        RRA                              ; $9763  1F
+        RRA                              ; $9764  1F
+        AND $0F                          ; $9765  E6 0F
+        LD E,A                           ; $9767  5F
+        CALL SUB_9515                    ; $9768  CD 15 95
+        CALL SUB_94B8                    ; $976B  CD B8 94
+        LD (L_9BAB),A                    ; $976E  32 AB 9B
+        POP BC                           ; $9771  C1
+        LD A,C                           ; $9772  79
+        AND $0F                          ; $9773  E6 0F
+        LD (L_9BEF),A                    ; $9775  32 EF 9B
+        CALL SUB_94BD                    ; $9778  CD BD 94
+        LD A,(L_9407)                    ; $977B  3A 07 94
+        OR A                             ; $977E  B7
+        JP NZ,SUB_972E_8                 ; $977F  C2 98 97
+SUB_972E_7:
         LD SP,L_9BAB                     ; $9782  31 AB 9B
-        CALL $9498                       ; $9785  CD 98 94
-        CALL $95D0                       ; $9788  CD D0 95
+        CALL SUB_9498                    ; $9785  CD 98 94
+        CALL SUB_95D0                    ; $9788  CD D0 95
         ADD A,$41                        ; $978B  C6 41
-        CALL $948C                       ; $978D  CD 8C 94
+        CALL SUB_948C                    ; $978D  CD 8C 94
         LD A,$3E                         ; $9790  3E 3E
-        CALL $948C                       ; $9792  CD 8C 94
-        CALL $9539                       ; $9795  CD 39 95
+        CALL SUB_948C                    ; $9792  CD 8C 94
+        CALL SUB_9539                    ; $9795  CD 39 95
+SUB_972E_8:
         LD DE,$0080                      ; $9798  11 80 00
-        CALL $95D8                       ; $979B  CD D8 95
-        CALL $95D0                       ; $979E  CD D0 95
+        CALL SUB_95D8                    ; $979B  CD D8 95
+        CALL SUB_95D0                    ; $979E  CD D0 95
         LD (L_9BEF),A                    ; $97A1  32 EF 9B
         CALL SUB_965E                    ; $97A4  CD 5E 96
         CALL NZ,ECHO_TO_BLANK                 ; $97A7  C4 09 96
@@ -267,18 +517,20 @@ L_97C1:
         DEFW    CMD_EXEC_42              ; $97C9
         DEFW    CMD_EXEC_48              ; $97CB
         DEFW    CMD_EXEC_49              ; $97CD
-        DEFW    $F321                    ; $97CF
-        DEFW    $2276                    ; $97D1
-        DEFB    $00,$94,$21,$00,$94,$E9                          ; $97D3
+SUB_972E_9:
+        LD HL,$76F3                      ; $97CF  21 F3 76
+        LD (L_9400),HL                   ; $97D2  22 00 94
+        LD HL,L_9400                     ; $97D5  21 00 94
+        JP (HL)                          ; $97D8  E9
 SUB_97D9:
         LD BC,L_97DF                     ; $97D9  01 DF 97
-        JP $94A7                         ; $97DC  C3 A7 94
+        JP SUB_94A7                      ; $97DC  C3 A7 94
 L_97DF:
         DEFB    "READ ERROR"    ; $97DF  string
         DEFB    $00    ; $97E9  terminator
 SUB_97EA:
         LD BC,L_97F0                     ; $97EA  01 F0 97
-        JP $94A7                         ; $97ED  C3 A7 94
+        JP SUB_94A7                      ; $97ED  C3 A7 94
 L_97F0:
         DEFB    "NO FILE"    ; $97F0  string
         DEFB    $00    ; $97F7  terminator
@@ -350,7 +602,7 @@ RESOLVE_DRIVE_PREFIX:
         LD HL,L_9BEF                     ; $985E  21 EF 9B
         CP (HL)                          ; $9861  BE
         RET Z                            ; $9862  C8
-        JP $94BD                         ; $9863  C3 BD 94
+        JP SUB_94BD                      ; $9863  C3 BD 94
 RESOLVE_DRIVE_PREFIX_2:
         LD A,(L_9BF0)                    ; $9866  3A F0 9B
         OR A                             ; $9869  B7
@@ -360,7 +612,7 @@ RESOLVE_DRIVE_PREFIX_2:
         CP (HL)                          ; $986F  BE
         RET Z                            ; $9870  C8
         LD A,(L_9BEF)                    ; $9871  3A EF 9B
-        JP $94BD                         ; $9874  C3 BD 94
+        JP SUB_94BD                      ; $9874  C3 BD 94
 DIR_CMD:
         CALL SUB_965E                    ; $9877  CD 5E 96
         CALL RESOLVE_DRIVE_PREFIX                    ; $987A  CD 54 98
@@ -377,7 +629,7 @@ SUB_9866_2:
 SUB_9866_3:
         LD E,$00                         ; $988F  1E 00
         PUSH DE                          ; $9891  D5
-        CALL $94E9                       ; $9892  CD E9 94
+        CALL SUB_94E9                    ; $9892  CD E9 94
         CALL Z,SUB_97EA                  ; $9895  CC EA 97
 DIR_CMD_2:
         JP Z,DIR_EXIT                 ; $9898  CA 1B 99
@@ -398,21 +650,21 @@ DIR_CMD_2:
         AND $01                          ; $98B1  E6 01
         PUSH AF                          ; $98B3  F5
         JP NZ,DIR_FMT_ENTRY_COLS                 ; $98B4  C2 CC 98
-        CALL $9498                       ; $98B7  CD 98 94
+        CALL SUB_9498                    ; $98B7  CD 98 94
         PUSH BC                          ; $98BA  C5
-        CALL $95D0                       ; $98BB  CD D0 95
+        CALL SUB_95D0                    ; $98BB  CD D0 95
         POP BC                           ; $98BE  C1
         ADD A,$41                        ; $98BF  C6 41
-        CALL $9492                       ; $98C1  CD 92 94
+        CALL SUB_9492                    ; $98C1  CD 92 94
         LD A,$3A                         ; $98C4  3E 3A
-        CALL $9492                       ; $98C6  CD 92 94
+        CALL SUB_9492                    ; $98C6  CD 92 94
         JP SUB_9866_6                    ; $98C9  C3 D4 98
 DIR_FMT_ENTRY_COLS:
-        CALL $94A2                       ; $98CC  CD A2 94
+        CALL SUB_94A2                    ; $98CC  CD A2 94
         LD A,$3A                         ; $98CF  3E 3A
-        CALL $9492                       ; $98D1  CD 92 94
+        CALL SUB_9492                    ; $98D1  CD 92 94
 SUB_9866_6:
-        CALL $94A2                       ; $98D4  CD A2 94
+        CALL SUB_94A2                    ; $98D4  CD A2 94
         LD B,$01                         ; $98D7  06 01
 DIR_EMIT_NAME_CHAR:
         LD A,B                           ; $98D9  78
@@ -432,48 +684,48 @@ DIR_EMIT_NAME_CHAR:
 DIR_EMIT_NAME_CHAR_2:
         LD A,$20                         ; $98F7  3E 20
 SUB_9866_9:
-        CALL $9492                       ; $98F9  CD 92 94
+        CALL SUB_9492                    ; $98F9  CD 92 94
         INC B                            ; $98FC  04
         LD A,B                           ; $98FD  78
         CP $0C                           ; $98FE  FE 0C
         JP NC,DIR_SEARCH_NEXT                ; $9900  D2 0E 99
         CP $09                           ; $9903  FE 09
         JP NZ,DIR_EMIT_NAME_CHAR                 ; $9905  C2 D9 98
-        CALL $94A2                       ; $9908  CD A2 94
+        CALL SUB_94A2                    ; $9908  CD A2 94
         JP DIR_EMIT_NAME_CHAR                    ; $990B  C3 D9 98
 DIR_SEARCH_NEXT:
         POP AF                           ; $990E  F1
 SUB_9866_11:
-        CALL $95C2                       ; $990F  CD C2 95
+        CALL SUB_95C2                    ; $990F  CD C2 95
         JP NZ,DIR_EXIT                ; $9912  C2 1B 99
-        CALL $94E4                       ; $9915  CD E4 94
+        CALL SUB_94E4                    ; $9915  CD E4 94
         JP DIR_CMD_2                    ; $9918  C3 98 98
 DIR_EXIT:
         POP DE                           ; $991B  D1
-        JP SUB_9866_40                   ; $991C  C3 86 9B
+        JP SUB_9866_42                   ; $991C  C3 86 9B
 ERA_CMD:
         CALL SUB_965E                    ; $991F  CD 5E 96
         CP $0B                           ; $9922  FE 0B
         JP NZ,CCP_NEWLINE_AND_FILEOP                ; $9924  C2 42 99
         LD BC,L_9952                     ; $9927  01 52 99
-        CALL $94A7                       ; $992A  CD A7 94
-        CALL $9539                       ; $992D  CD 39 95
-        LD HL,$9407                      ; $9930  21 07 94
+        CALL SUB_94A7                    ; $992A  CD A7 94
+        CALL SUB_9539                    ; $992D  CD 39 95
+        LD HL,L_9407                     ; $9930  21 07 94
         DEC (HL)                         ; $9933  35
-        JP NZ,SUB_972E_5                 ; $9934  C2 82 97
+        JP NZ,SUB_972E_7                 ; $9934  C2 82 97
         INC HL                           ; $9937  23
         LD A,(HL)                        ; $9938  7E
         CP $59                           ; $9939  FE 59
-        JP NZ,SUB_972E_5                 ; $993B  C2 82 97
+        JP NZ,SUB_972E_7                 ; $993B  C2 82 97
         INC HL                           ; $993E  23
-        LD ($9488),HL                    ; $993F  22 88 94
+        LD (L_9488),HL                   ; $993F  22 88 94
 CCP_NEWLINE_AND_FILEOP:
         CALL RESOLVE_DRIVE_PREFIX                    ; $9942  CD 54 98
         LD DE,L_9BCD                     ; $9945  11 CD 9B
-        CALL $94EF                       ; $9948  CD EF 94
+        CALL SUB_94EF                    ; $9948  CD EF 94
         INC A                            ; $994B  3C
         CALL Z,SUB_97EA                  ; $994C  CC EA 97
-        JP SUB_9866_40                   ; $994F  C3 86 9B
+        JP SUB_9866_42                   ; $994F  C3 86 9B
 L_9952:
         DEFB    "ALL (Y/N)?"    ; $9952  string
         DEFB    $00    ; $995C  terminator
@@ -481,28 +733,38 @@ PRINT_STR_AT:
         CALL SUB_965E                    ; $995D  CD 5E 96
         JP NZ,ECHO_TO_BLANK                   ; $9960  C2 09 96
         CALL RESOLVE_DRIVE_PREFIX                    ; $9963  CD 54 98
-        CALL $94D0                       ; $9966  CD D0 94
-        JP Z,SUB_9866_17                 ; $9969  CA A7 99
-        CALL $9498                       ; $996C  CD 98 94
+        CALL SUB_94D0                    ; $9966  CD D0 94
+        JP Z,SUB_9866_19                 ; $9969  CA A7 99
+        CALL SUB_9498                    ; $996C  CD 98 94
         LD HL,L_9BF1                     ; $996F  21 F1 9B
         LD (HL),$FF                      ; $9972  36 FF
+SUB_9866_16:
         LD HL,L_9BF1                     ; $9974  21 F1 9B
         LD A,(HL)                        ; $9977  7E
         CP $80                           ; $9978  FE 80
-        JP C,L_9987                      ; $997A  DA 87 99
+        JP C,SUB_9866_17                 ; $997A  DA 87 99
         PUSH HL                          ; $997D  E5
-        CALL $94FE                       ; $997E  CD FE 94
+        CALL SUB_94FE                    ; $997E  CD FE 94
         POP HL                           ; $9981  E1
         JP NZ,CMD_EXEC_3                ; $9982  C2 A0 99
-        DEFB    $AF,$77                                          ; $9985
-L_9987:
-        DEFB    $34,$21,$80,$00,$CD,$59,$96,$7E,$FE,$1A,$CA,$86,$9B,$CD,$8C,$94 ; $9987
-        DEFB    $CD,$C2,$95,$C2,$86,$9B,$C3,$74,$99              ; $9997
+        XOR A                            ; $9985  AF
+        LD (HL),A                        ; $9986  77
+SUB_9866_17:
+        INC (HL)                         ; $9987  34
+        LD HL,$0080                      ; $9988  21 80 00
+        CALL SUB_9659                    ; $998B  CD 59 96
+        LD A,(HL)                        ; $998E  7E
+        CP $1A                           ; $998F  FE 1A
+        JP Z,SUB_9866_42                 ; $9991  CA 86 9B
+        CALL SUB_948C                    ; $9994  CD 8C 94
+        CALL SUB_95C2                    ; $9997  CD C2 95
+        JP NZ,SUB_9866_42                ; $999A  C2 86 9B
+        JP SUB_9866_16                   ; $999D  C3 74 99
 CMD_EXEC_3:
         DEC A                            ; $99A0  3D
-        JP Z,SUB_9866_40                 ; $99A1  CA 86 9B
+        JP Z,SUB_9866_42                 ; $99A1  CA 86 9B
         CALL SUB_97D9                    ; $99A4  CD D9 97
-SUB_9866_17:
+SUB_9866_19:
         CALL RESOLVE_DRIVE_PREFIX_2                    ; $99A7  CD 66 98
         JP ECHO_TO_BLANK                      ; $99AA  C3 09 96
 CMD_EXEC_4:
@@ -513,10 +775,10 @@ CMD_EXEC_4:
         CALL RESOLVE_DRIVE_PREFIX                    ; $99B7  CD 54 98
         LD DE,L_9BCD                     ; $99BA  11 CD 9B
         PUSH DE                          ; $99BD  D5
-        CALL $94EF                       ; $99BE  CD EF 94
+        CALL SUB_94EF                    ; $99BE  CD EF 94
         POP DE                           ; $99C1  D1
-        CALL $9509                       ; $99C2  CD 09 95
-        JP Z,SUB_9866_21                 ; $99C5  CA FB 99
+        CALL SUB_9509                    ; $99C2  CD 09 95
+        JP Z,SUB_9866_23                 ; $99C5  CA FB 99
         XOR A                            ; $99C8  AF
         LD (L_9BED),A                    ; $99C9  32 ED 9B
         POP AF                           ; $99CC  F1
@@ -533,24 +795,24 @@ CMD_EXEC_6:
         LD HL,$0080                      ; $99DB  21 80 00
         ADD HL,DE                        ; $99DE  19
         PUSH HL                          ; $99DF  E5
-        CALL $95D8                       ; $99E0  CD D8 95
+        CALL SUB_95D8                    ; $99E0  CD D8 95
         LD DE,L_9BCD                     ; $99E3  11 CD 9B
-        CALL $9504                       ; $99E6  CD 04 95
+        CALL SUB_9504                    ; $99E6  CD 04 95
         POP DE                           ; $99E9  D1
         POP HL                           ; $99EA  E1
-        JP NZ,SUB_9866_21                ; $99EB  C2 FB 99
+        JP NZ,SUB_9866_23                ; $99EB  C2 FB 99
         JP CMD_EXEC_6                   ; $99EE  C3 D4 99
 CMD_EXEC_8:
         LD DE,L_9BCD                     ; $99F1  11 CD 9B
-        CALL $94DA                       ; $99F4  CD DA 94
+        CALL SUB_94DA                    ; $99F4  CD DA 94
         INC A                            ; $99F7  3C
-        JP NZ,SUB_9866_22                ; $99F8  C2 01 9A
-SUB_9866_21:
+        JP NZ,SUB_9866_24                ; $99F8  C2 01 9A
+SUB_9866_23:
         LD BC,L_9A07                     ; $99FB  01 07 9A
-        CALL $94A7                       ; $99FE  CD A7 94
-SUB_9866_22:
-        CALL $95D5                       ; $9A01  CD D5 95
-        JP SUB_9866_40                   ; $9A04  C3 86 9B
+        CALL SUB_94A7                    ; $99FE  CD A7 94
+SUB_9866_24:
+        CALL SUB_95D5                    ; $9A01  CD D5 95
+        JP SUB_9866_42                   ; $9A04  C3 86 9B
 L_9A07:
         DEFB    "NO SPACE"    ; $9A07  string
         DEFB    $00    ; $9A0F  terminator
@@ -560,13 +822,13 @@ CMD_EXEC_42:
         LD A,(L_9BF0)                    ; $9A16  3A F0 9B
         PUSH AF                          ; $9A19  F5
         CALL RESOLVE_DRIVE_PREFIX                    ; $9A1A  CD 54 98
-        CALL $94E9                       ; $9A1D  CD E9 94
+        CALL SUB_94E9                    ; $9A1D  CD E9 94
         JP NZ,CMD_EXEC_47                ; $9A20  C2 79 9A
         LD HL,L_9BCD                     ; $9A23  21 CD 9B
         LD DE,L_9BDD                     ; $9A26  11 DD 9B
         LD B,$10                         ; $9A29  06 10
         CALL SUB_9842                    ; $9A2B  CD 42 98
-        LD HL,($9488)                    ; $9A2E  2A 88 94
+        LD HL,(L_9488)                   ; $9A2E  2A 88 94
         EX DE,HL                         ; $9A31  EB
         CALL SKIP_ONE_BLANK                    ; $9A32  CD 4F 96
         CP $3D                           ; $9A35  FE 3D
@@ -576,7 +838,7 @@ CMD_EXEC_42:
 CMD_EXEC_43:
         EX DE,HL                         ; $9A3F  EB
         INC HL                           ; $9A40  23
-        LD ($9488),HL                    ; $9A41  22 88 94
+        LD (L_9488),HL                   ; $9A41  22 88 94
         CALL SUB_965E                    ; $9A44  CD 5E 96
         JP NZ,CMD_EXEC_46                ; $9A47  C2 73 9A
         POP AF                           ; $9A4A  F1
@@ -592,21 +854,21 @@ CMD_EXEC_44:
         LD (HL),B                        ; $9A59  70
         XOR A                            ; $9A5A  AF
         LD (L_9BCD),A                    ; $9A5B  32 CD 9B
-        CALL $94E9                       ; $9A5E  CD E9 94
+        CALL SUB_94E9                    ; $9A5E  CD E9 94
         JP Z,CMD_EXEC_45                 ; $9A61  CA 6D 9A
         LD DE,L_9BCD                     ; $9A64  11 CD 9B
-        CALL $950E                       ; $9A67  CD 0E 95
-        JP SUB_9866_40                   ; $9A6A  C3 86 9B
+        CALL SUB_950E                    ; $9A67  CD 0E 95
+        JP SUB_9866_42                   ; $9A6A  C3 86 9B
 CMD_EXEC_45:
         CALL SUB_97EA                    ; $9A6D  CD EA 97
-        JP SUB_9866_40                   ; $9A70  C3 86 9B
+        JP SUB_9866_42                   ; $9A70  C3 86 9B
 CMD_EXEC_46:
         CALL RESOLVE_DRIVE_PREFIX_2                    ; $9A73  CD 66 98
         JP ECHO_TO_BLANK                      ; $9A76  C3 09 96
 CMD_EXEC_47:
         LD BC,L_9A82                     ; $9A79  01 82 9A
-        CALL $94A7                       ; $9A7C  CD A7 94
-        JP SUB_9866_40                   ; $9A7F  C3 86 9B
+        CALL SUB_94A7                    ; $9A7C  CD A7 94
+        JP SUB_9866_42                   ; $9A7F  C3 86 9B
 L_9A82:
         DEFB    "FILE EXISTS"    ; $9A82  string
         DEFB    $00    ; $9A8D  terminator
@@ -618,21 +880,21 @@ CMD_EXEC_48:
         LD A,(L_9BCE)                    ; $9A97  3A CE 9B
         CP $20                           ; $9A9A  FE 20
         JP Z,ECHO_TO_BLANK                    ; $9A9C  CA 09 96
-        CALL $9515                       ; $9A9F  CD 15 95
-        JP SUB_9866_41                   ; $9AA2  C3 89 9B
+        CALL SUB_9515                    ; $9A9F  CD 15 95
+        JP SUB_9866_43                   ; $9AA2  C3 89 9B
 CMD_EXEC_49:
-        CALL $95F5                       ; $9AA5  CD F5 95
+        CALL SUB_95F5                    ; $9AA5  CD F5 95
         LD A,(L_9BCE)                    ; $9AA8  3A CE 9B
         CP $20                           ; $9AAB  FE 20
         JP NZ,CMD_EXEC_50                ; $9AAD  C2 C4 9A
         LD A,(L_9BF0)                    ; $9AB0  3A F0 9B
         OR A                             ; $9AB3  B7
-        JP Z,SUB_9866_41                 ; $9AB4  CA 89 9B
+        JP Z,SUB_9866_43                 ; $9AB4  CA 89 9B
         DEC A                            ; $9AB7  3D
         LD (L_9BEF),A                    ; $9AB8  32 EF 9B
-        CALL $9529                       ; $9ABB  CD 29 95
-        CALL $94BD                       ; $9ABE  CD BD 94
-        JP SUB_9866_41                   ; $9AC1  C3 89 9B
+        CALL SUB_9529                    ; $9ABB  CD 29 95
+        CALL SUB_94BD                    ; $9ABE  CD BD 94
+        JP SUB_9866_43                   ; $9AC1  C3 89 9B
 CMD_EXEC_50:
         LD DE,L_9BD6                     ; $9AC4  11 D6 9B
         LD A,(DE)                        ; $9AC7  1A
@@ -643,30 +905,30 @@ CMD_EXEC_50:
         POP DE                           ; $9AD1  D1
         LD HL,L_9B83                     ; $9AD2  21 83 9B
         CALL COPY_FCB_EXT                    ; $9AD5  CD 40 98
-        CALL $94D0                       ; $9AD8  CD D0 94
-        JP Z,SUB_9866_38                 ; $9ADB  CA 6B 9B
+        CALL SUB_94D0                    ; $9AD8  CD D0 94
+        JP Z,SUB_9866_40                 ; $9ADB  CA 6B 9B
         LD HL,$0100                      ; $9ADE  21 00 01
-SUB_9866_32:
+SUB_9866_34:
         PUSH HL                          ; $9AE1  E5
         EX DE,HL                         ; $9AE2  EB
-        CALL $95D8                       ; $9AE3  CD D8 95
+        CALL SUB_95D8                    ; $9AE3  CD D8 95
         LD DE,L_9BCD                     ; $9AE6  11 CD 9B
-        CALL $94F9                       ; $9AE9  CD F9 94
+        CALL SUB_94F9                    ; $9AE9  CD F9 94
         JP NZ,CCP_TAIL_LOADRET                ; $9AEC  C2 01 9B
         POP HL                           ; $9AEF  E1
         LD DE,$0080                      ; $9AF0  11 80 00
         ADD HL,DE                        ; $9AF3  19
-        LD DE,$9400                      ; $9AF4  11 00 94
+        LD DE,L_9400                     ; $9AF4  11 00 94
         LD A,L                           ; $9AF7  7D
         SUB E                            ; $9AF8  93
         LD A,H                           ; $9AF9  7C
         SBC A,D                          ; $9AFA  9A
-        JP NC,SUB_9866_39                ; $9AFB  D2 71 9B
-        JP SUB_9866_32                   ; $9AFE  C3 E1 9A
+        JP NC,SUB_9866_41                ; $9AFB  D2 71 9B
+        JP SUB_9866_34                   ; $9AFE  C3 E1 9A
 CCP_TAIL_LOADRET:
         POP HL                           ; $9B01  E1
         DEC A                            ; $9B02  3D
-        JP NZ,SUB_9866_39                ; $9B03  C2 71 9B
+        JP NZ,SUB_9866_41                ; $9B03  C2 71 9B
         CALL RESOLVE_DRIVE_PREFIX_2                    ; $9B06  CD 66 98
         CALL SUB_965E                    ; $9B09  CD 5E 96
         LD HL,L_9BF0                     ; $9B0C  21 F0 9B
@@ -684,66 +946,74 @@ CCP_TAIL_LOADRET:
         LD HL,L_9BCD                     ; $9B25  21 CD 9B
         LD B,$21                         ; $9B28  06 21
         CALL SUB_9842                    ; $9B2A  CD 42 98
-        LD HL,$9408                      ; $9B2D  21 08 94
-SUB_9866_34:
+        LD HL,L_9408                     ; $9B2D  21 08 94
+SUB_9866_36:
         LD A,(HL)                        ; $9B30  7E
         OR A                             ; $9B31  B7
         JP Z,CCP_TAIL_CMDTAIL                 ; $9B32  CA 3E 9B
         CP $20                           ; $9B35  FE 20
         JP Z,CCP_TAIL_CMDTAIL                 ; $9B37  CA 3E 9B
         INC HL                           ; $9B3A  23
-        JP SUB_9866_34                   ; $9B3B  C3 30 9B
+        JP SUB_9866_36                   ; $9B3B  C3 30 9B
 CCP_TAIL_CMDTAIL:
         LD B,$00                         ; $9B3E  06 00
         LD DE,$0081                      ; $9B40  11 81 00
-SUB_9866_36:
+SUB_9866_38:
         LD A,(HL)                        ; $9B43  7E
         LD (DE),A                        ; $9B44  12
         OR A                             ; $9B45  B7
-        JP Z,SUB_9866_37                 ; $9B46  CA 4F 9B
+        JP Z,SUB_9866_39                 ; $9B46  CA 4F 9B
         INC B                            ; $9B49  04
         INC HL                           ; $9B4A  23
         INC DE                           ; $9B4B  13
-        JP SUB_9866_36                   ; $9B4C  C3 43 9B
-SUB_9866_37:
+        JP SUB_9866_38                   ; $9B4C  C3 43 9B
+SUB_9866_39:
         LD A,B                           ; $9B4F  78
         LD ($0080),A                     ; $9B50  32 80 00
-        CALL $9498                       ; $9B53  CD 98 94
-        CALL $95D5                       ; $9B56  CD D5 95
-        CALL $951A                       ; $9B59  CD 1A 95
+        CALL SUB_9498                    ; $9B53  CD 98 94
+        CALL SUB_95D5                    ; $9B56  CD D5 95
+        CALL SUB_951A                    ; $9B59  CD 1A 95
         CALL $0100                       ; $9B5C  CD 00 01
         LD SP,L_9BAB                     ; $9B5F  31 AB 9B
-        CALL $9529                       ; $9B62  CD 29 95
-        CALL $94BD                       ; $9B65  CD BD 94
-        JP SUB_972E_5                    ; $9B68  C3 82 97
-SUB_9866_38:
+        CALL SUB_9529                    ; $9B62  CD 29 95
+        CALL SUB_94BD                    ; $9B65  CD BD 94
+        JP SUB_972E_7                    ; $9B68  C3 82 97
+SUB_9866_40:
         CALL RESOLVE_DRIVE_PREFIX_2                    ; $9B6B  CD 66 98
         JP ECHO_TO_BLANK                      ; $9B6E  C3 09 96
-SUB_9866_39:
+SUB_9866_41:
         LD BC,L_9B7A                     ; $9B71  01 7A 9B
-        CALL $94A7                       ; $9B74  CD A7 94
-        JP SUB_9866_40                   ; $9B77  C3 86 9B
+        CALL SUB_94A7                    ; $9B74  CD A7 94
+        JP SUB_9866_42                   ; $9B77  C3 86 9B
 L_9B7A:
         DEFB    "BAD LOAD"    ; $9B7A  string
         DEFB    $00    ; $9B82  terminator
 L_9B83:
         DEFB    "COM"    ; $9B83
-SUB_9866_40:
+SUB_9866_42:
         CALL RESOLVE_DRIVE_PREFIX_2                    ; $9B86  CD 66 98
-SUB_9866_41:
+SUB_9866_43:
         CALL SUB_965E                    ; $9B89  CD 5E 96
         LD A,(L_9BCE)                    ; $9B8C  3A CE 9B
         SUB $20                          ; $9B8F  D6 20
         LD HL,L_9BF0                     ; $9B91  21 F0 9B
         OR (HL)                          ; $9B94  B6
         JP NZ,ECHO_TO_BLANK                   ; $9B95  C2 09 96
-        JP SUB_972E_5                    ; $9B98  C3 82 97
+        JP SUB_972E_7                    ; $9B98  C3 82 97
         DEFS    16, $00    ; $9B9B  fill
 L_9BAB:
-        DEFB    "\0\0"    ; $9BAB
+        DEFB    "\0"    ; $9BAB
+L_9BAC:
+        DEFB    "\0"    ; $9BAC
         DEFB    "$$$     SUB"    ; $9BAD  string
         DEFB    $00    ; $9BB8  terminator
-        DEFS    20, $00    ; $9BB9  fill
+        DEFB    "\0"    ; $9BB9
+L_9BBA:
+        DEFB    "\0"    ; $9BBA
+L_9BBB:
+        DEFS    17, $00    ; $9BBB  fill
+L_9BCC:
+        DEFB    "\0"    ; $9BCC
 L_9BCD:
         DEFB    "\0"    ; $9BCD
 L_9BCE:
@@ -762,19 +1032,20 @@ L_9BF0:
         DEFB    "\0"    ; $9BF0
 L_9BF1:
         DEFS    15, $00    ; $9BF1  fill
+BDOS_IMAGE_HEADER:
         DEFB    $BD,$16,$00,$00,$16,$DF                          ; $9C00
 BDOS_ENTRY:
         JP BDOS_DISPATCH                   ; $9C06  C3 11 9C
 BDOS_ERR_VECTORS:
         SBC A,C                          ; $9C09  99
         SBC A,H                          ; $9C0A  9C
-SUB_9866_44:
+SUB_9866_46:
         AND L                            ; $9C0B  A5
         SBC A,H                          ; $9C0C  9C
-SUB_9866_45:
+SUB_9866_47:
         XOR E                            ; $9C0D  AB
         SBC A,H                          ; $9C0E  9C
-SUB_9866_46:
+SUB_9866_48:
         OR C                             ; $9C0F  B1
         SBC A,H                          ; $9C10  9C
 BDOS_DISPATCH:
@@ -840,19 +1111,26 @@ BDOS_DISPATCH_TBL:
         DEFW    F_SIZE_H              ; $9C8D
         DEFW    F_RANDREC_H               ; $9C8F
         DEFW    DIR_NAME_MASK_34              ; $9C91
-        DEFW    $9F04                    ; $9C93
-        DEFW    $9F04                    ; $9C95
+        DEFW    SUB_9DC9_29              ; $9C93
+        DEFW    SUB_9DC9_29              ; $9C95
         DEFW    F_WRITEZF_H              ; $9C97
         DEFW    $CA21                    ; $9C99
         DEFW    $CD9C                    ; $9C9B
-        DEFW    BDOS_ERR_PRINT              ; $9C9D
+        DEFW    BDOS_ERR_PRINT                 ; $9C9D
         DEFW    $03FE                    ; $9C9F
         DEFW    $00CA                    ; $9CA1
         DEFW    $C900                    ; $9CA3
         DEFW    $D521                    ; $9CA5
         DEFW    $C39C                    ; $9CA7
-        DEFB    $B4,$9C,$21,$E1,$9C,$C3,$B4,$9C,$21,$DC,$9C,$CD,$E5,$9C,$C3,$00 ; $9CA9
-        DEFB    "\0"    ; $9CB9
+        DEFW    SUB_9866_50              ; $9CA9
+        DEFW    $E121                    ; $9CAB
+        DEFW    $C39C                    ; $9CAD
+        DEFW    SUB_9866_50              ; $9CAF
+        DEFW    $DC21                    ; $9CB1
+        DEFB    $9C                                              ; $9CB3
+SUB_9866_50:
+        CALL BDOS_ERR_PRINT                    ; $9CB4  CD E5 9C
+        JP $0000                         ; $9CB7  C3 00 00
 L_9CBA:
         DEFB    "Bdos Err On "    ; $9CBA  string
 L_9CC6:
@@ -1179,6 +1457,7 @@ F_CONSTAT_H:
         CALL BDOS_CON_18                    ; $9EFE  CD 23 9D
 BDOS_RET_RESULT:
         LD (L_9F45),A                    ; $9F01  32 45 9F
+SUB_9DC9_29:
         RET                              ; $9F04  C9
 BDOS_CHECK_ERROR_2:
         LD A,$01                         ; $9F05  3E 01
@@ -1204,7 +1483,7 @@ L_9F43:
 L_9F45:
         DEFB    "\0\0"    ; $9F45
 SUB_9F47:
-        LD HL,SUB_9866_44                ; $9F47  21 0B 9C
+        LD HL,SUB_9866_46                ; $9F47  21 0B 9C
 SUB_9F47_1:
         LD E,(HL)                        ; $9F4A  5E
         INC HL                           ; $9F4B  23
@@ -1553,12 +1832,12 @@ SUB_A147:
         LD A,(HL)                        ; $A14B  7E
         RLA                              ; $A14C  17
         RET NC                           ; $A14D  D0
-        LD HL,SUB_9866_46                ; $A14E  21 0F 9C
+        LD HL,SUB_9866_48                ; $A14E  21 0F 9C
         JP SUB_9F47_1                    ; $A151  C3 4A 9F
 CMD_EXEC_20:
         CALL DRIVE_BIT_TEST                    ; $A154  CD 1E A1
         RET Z                            ; $A157  C8
-        LD HL,SUB_9866_45                ; $A158  21 0D 9C
+        LD HL,SUB_9866_47                ; $A158  21 0D 9C
         JP SUB_9F47_1                    ; $A15B  C3 4A 9F
 FCB_BUF_PTR_ADD_OFFSET:
         LD HL,(DIRBUF_PTR)                   ; $A15E  2A B9 A9
@@ -2388,7 +2667,7 @@ SUB_A603_8:
 SUB_A603_9:
         NOP                              ; $A6D2  00
         NOP                              ; $A6D3  00
-        LD HL,$9400                      ; $A6D4  21 00 94
+        LD HL,L_9400                     ; $A6D4  21 00 94
         PUSH AF                          ; $A6D7  F5
         CALL FCB_GET_S2                    ; $A6D8  CD 69 A1
         AND $7F                          ; $A6DB  E6 7F
@@ -2891,4 +3170,4 @@ L_A9EB:
 REC_CACHE:
         DEFS    20, $00    ; $A9EC  fill
 
-    SAVEBIN "E:/tmp/cpm_system_rt2.bin", $9600, $1400
+    SAVEBIN "E:/tmp/cpm_system_full.bin", $9400, $1600

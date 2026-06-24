@@ -1,77 +1,72 @@
 """CP/M 2.20-44K system-track sector de-interleave (the "de-skew").
 
 The CCP/BDOS sit on the system tracks **sector-interleaved**. The cold loader reads
-*logical* sectors (RWTS skew table) into *contiguous* RAM, so the bytes EXECUTE in a
-different order than they sit on disk. The OS sources must therefore be decoded against
-the **de-skewed runtime image** (every label a true runtime address); this module maps
-between the two so the disk producer can re-skew a runtime-order source back to a
-byte-identical disk.  See ``softcard/docs/CPM_Skew_Findings.md`` and
+*logical* sectors (RWTS skew) into *contiguous* RAM, so the bytes EXECUTE in a different
+order than they sit on disk. The OS sources must therefore be decoded against the
+**de-skewed runtime image** (every label a true runtime address); this module maps
+between the two so the source can be both decoded at runtime addresses and rebuilt to a
+byte-identical disk. See ``softcard/docs/CPM_Skew_Findings.md`` and
 ``feedback_decode_deskewed_runtime_not_ondisk``.
 
-The page permutation below was derived deterministically from the loader's own recorded
-reads (``SoftCardMachine.disk_reads`` -> ``(track, sec_log, phys, dest)``), is bijective,
-and round-trips byte-identical (``E:/tmp/deskew_exact.py``; verified 2026-06-23). The
-20 system-code pages map to runtime $9600-$A9FF; the three remaining on-disk pages are
-passthrough -- the two embedded 6502 RPC blocks ($9400, $9600) and the BDOS variable
-page ($A900) -- which the loader does not place into the Z-80 runtime image and which the
-source reproduces directly at their on-disk positions.
+The mapping below was read straight from the emulator's loader (``SoftCardMachine.run`` ->
+``disk_reads``): each runtime page records the .dsk linear sector (``track*16 + file_idx``)
+the cold loader copied into it. It covers the WHOLE CCP+BDOS the CPU runs -- z80
+$9400-$A9FF, 22 pages (the CCP runs at $9400, FBASE $9C00, var page $A9xx). Derived +
+verified 2026-06-23 via ``E:/tmp/deskew_full_220_44k.bin`` (disassembles + reassembles
+byte-identical). The embedded 6502 RPC payloads and the boot stub live on other sectors
+and are not part of this Z-80 runtime image.
 """
 
-ONDISK_ORG = 0x9300            # base address of the on-disk linear system image
-RUNTIME_ORG = 0x9600          # base address of the de-skewed Z-80 runtime image
+RUNTIME_ORG = 0x9400          # base address of the de-skewed Z-80 runtime image
 PAGE = 0x100
+RUNTIME_LEN = 22 * PAGE
 
-# runtime page address -> the on-disk page address whose bytes execute there.
-RUNTIME_TO_ONDISK = {
-    0x9600: 0x9300, 0x9700: 0x9500, 0x9800: 0x9700, 0x9900: 0x9800,
-    0x9A00: 0x9A00, 0x9B00: 0x9C00, 0x9C00: 0x9E00, 0x9D00: 0xA000,
-    0x9E00: 0xA200, 0x9F00: 0xA400, 0xA000: 0xA600, 0xA100: 0x9900,
-    0xA200: 0x9B00, 0xA300: 0x9D00, 0xA400: 0x9F00, 0xA500: 0xA100,
-    0xA600: 0xA300, 0xA700: 0xA500, 0xA800: 0xA700, 0xA900: 0xA800,
+# runtime page address -> .dsk linear sector (track*16 + file sector) the loader read it from.
+PAGE_TO_SECTOR = {
+    0x9400: 4,  0x9500: 3,  0x9600: 2,  0x9700: 1,  0x9800: 15, 0x9900: 16,
+    0x9A00: 30, 0x9B00: 29, 0x9C00: 28, 0x9D00: 27, 0x9E00: 26, 0x9F00: 25,
+    0xA000: 24, 0xA100: 23, 0xA200: 22, 0xA300: 21, 0xA400: 20, 0xA500: 19,
+    0xA600: 18, 0xA700: 17, 0xA800: 31, 0xA900: 32,
 }
-ONDISK_TO_RUNTIME = {v: k for k, v in RUNTIME_TO_ONDISK.items()}
-
-# on-disk pages the loader does NOT de-interleave into the Z-80 runtime image
-# (embedded 6502 RPC blocks + the $E5 variable page); reproduced in place.
-ONDISK_PASSTHROUGH = (0x9400, 0x9600, 0xA900)
 
 
-def ondisk_to_runtime(ondisk: bytes) -> bytes:
-    """De-skew: on-disk linear image ($9300, 23 pages) -> runtime image ($9600, 20 pages)."""
-    out = bytearray(20 * PAGE)
-    for rt, od in RUNTIME_TO_ONDISK.items():
-        o_od = od - ONDISK_ORG
-        o_rt = rt - RUNTIME_ORG
-        out[o_rt:o_rt + PAGE] = ondisk[o_od:o_od + PAGE]
+def build_runtime_image(dsk: bytes) -> bytes:
+    """Gather the de-skewed runtime image ($9400, 22 pages) from a .dsk disk image:
+    each runtime page = the .dsk sector the loader copied into it."""
+    out = bytearray(RUNTIME_LEN)
+    for page, sector in PAGE_TO_SECTOR.items():
+        o = page - RUNTIME_ORG
+        out[o:o + PAGE] = dsk[sector * PAGE: sector * PAGE + PAGE]
     return bytes(out)
 
 
-def runtime_to_ondisk(runtime: bytes, ondisk_template: bytes) -> bytes:
-    """Re-skew: runtime image ($9600, 20 pages) + the three passthrough pages (taken from
-    ``ondisk_template``) -> the byte-identical on-disk linear image ($9300, 23 pages)."""
-    out = bytearray(ondisk_template)            # passthrough pages come from the template
-    for rt, od in RUNTIME_TO_ONDISK.items():
-        o_od = od - ONDISK_ORG
-        o_rt = rt - RUNTIME_ORG
-        out[o_od:o_od + PAGE] = runtime[o_rt:o_rt + PAGE]
-    return bytes(out)
+def scatter_to_disk(runtime: bytes, dsk: bytearray) -> bytearray:
+    """Re-skew: write each runtime page of ``runtime`` back to its .dsk sector in ``dsk``
+    (mutates + returns ``dsk``). Reproduces the system-track CCP/BDOS sectors."""
+    for page, sector in PAGE_TO_SECTOR.items():
+        o = page - RUNTIME_ORG
+        dsk[sector * PAGE: sector * PAGE + PAGE] = runtime[o:o + PAGE]
+    return dsk
+
+
+def reference_runtime_image() -> bytes:
+    """The de-skewed runtime image gathered from the canonical 2.20-44K system .dsk."""
+    from cpm_pipeline.reference_data import DISK_2_20_44K_SYSTEM
+    return build_runtime_image(DISK_2_20_44K_SYSTEM.read_bytes())
 
 
 def _selftest():
-    """Round-trip against the live on-disk image: de-skew then re-skew == original."""
-    from cpm_pipeline.chunk_map import SOURCES_220_44K
-    from cpm_pipeline.assemble import assemble_chunk
-    ondisk = assemble_chunk(SOURCES_220_44K['CPM220_44K_System'])
-    assert len(ondisk) == 23 * PAGE, len(ondisk)
-    rt = ondisk_to_runtime(ondisk)
-    back = runtime_to_ondisk(rt, ondisk)
-    assert back == ondisk, "round-trip mismatch"
-    # bijection sanity
-    assert len(set(RUNTIME_TO_ONDISK.values())) == 20
-    mapped = set(RUNTIME_TO_ONDISK.values()) | set(ONDISK_PASSTHROUGH)
-    assert mapped == {ONDISK_ORG + i * PAGE for i in range(23)}, "pages not fully covered"
+    from cpm_pipeline.reference_data import DISK_2_20_44K_SYSTEM
+    dsk = bytearray(DISK_2_20_44K_SYSTEM.read_bytes())
+    rt = build_runtime_image(dsk)
+    assert len(rt) == RUNTIME_LEN
+    # round-trip: scatter the gathered image back == the original sectors
+    dsk2 = scatter_to_disk(rt, bytearray(dsk))
+    for sector in PAGE_TO_SECTOR.values():
+        assert dsk2[sector*PAGE:sector*PAGE+PAGE] == dsk[sector*PAGE:sector*PAGE+PAGE]
+    assert len(set(PAGE_TO_SECTOR.values())) == 22, "sectors not distinct"
     return True
 
 
 if __name__ == "__main__":
-    print("de-skew round-trip byte-identical:", _selftest())
+    print("de-skew round-trip ok:", _selftest())

@@ -107,59 +107,57 @@ def test_cpm220_44k_reconstruct_byte_identical():
         assert result.bytes_from_assembled > 0
 
 
-@pytest.mark.skipif(not HAS_ASSEMBLERS, reason="ca65/ld65/sjasmplus not on PATH")
 def test_cpm220_44k_deskew_roundtrip_and_coherent():
     """The 44K system image runs sector-DE-INTERLEAVED (see CPM_Skew_Findings.md).
-    Pin the de-skew permutation: de-skew the on-disk image then re-skew it back ==
-    byte-identical, and the de-skewed image decodes coherently at its runtime
-    addresses (the BDOS dispatch table sits at $9C47 and its in-image fn handlers
-    land inside the de-skewed image -- impossible on the sector-scrambled order)."""
-    from cpm_pipeline.chunk_map import SOURCES_220_44K
-    from cpm_pipeline.assemble import assemble_chunk
+    Pin the de-skew map: gather the de-skewed runtime image from the reference .dsk,
+    scatter it back == byte-identical, and the de-skewed image decodes coherently at
+    its runtime addresses (CCP entry $9400, BDOS dispatch $9C47 with its fn handlers
+    in-image -- impossible on the sector-scrambled order)."""
+    from cpm_pipeline.reference_data import DISK_2_20_44K_SYSTEM, present
     from cpm_pipeline.deskew import (
-        ondisk_to_runtime, runtime_to_ondisk, RUNTIME_ORG,
+        build_runtime_image, scatter_to_disk, reference_runtime_image,
+        RUNTIME_ORG, RUNTIME_LEN, PAGE_TO_SECTOR, PAGE,
     )
-    ondisk = assemble_chunk(SOURCES_220_44K["CPM220_44K_System"])
-    runtime = ondisk_to_runtime(ondisk)
-    assert runtime_to_ondisk(runtime, ondisk) == ondisk, "de-skew round-trip not byte-identical"
+    if not present(DISK_2_20_44K_SYSTEM):
+        pytest.skip("reference disk missing")
+    dsk = bytearray(DISK_2_20_44K_SYSTEM.read_bytes())
+    runtime = build_runtime_image(dsk)
+    assert len(runtime) == RUNTIME_LEN
+    back = scatter_to_disk(runtime, bytearray(dsk))
+    for s in PAGE_TO_SECTOR.values():
+        assert back[s*PAGE:s*PAGE+PAGE] == dsk[s*PAGE:s*PAGE+PAGE], "scatter not byte-identical"
 
-    # Coherence: dispatch table at runtime $9C47; its in-image fn handlers ($9Cxx-$A9xx)
-    # must point inside the de-skewed runtime image (on the skewed source they pointed
-    # at $E5 fill / out of image).
-    def at(addr):
-        return runtime[addr - RUNTIME_ORG]
-    def word(addr):
-        return at(addr) | (at(addr + 1) << 8)
+    def at(a): return runtime[a - RUNTIME_ORG]
+    def word(a): return at(a) | (at(a + 1) << 8)
     lo, hi = RUNTIME_ORG, RUNTIME_ORG + len(runtime)
     disp = 0x9C47
     in_image = sum(1 for fn in range(41) if lo <= word(disp + fn * 2) < hi)
     assert in_image >= 35, f"only {in_image}/41 dispatch handlers land in the de-skewed image"
-    # fn7 Get-IOBYTE handler must begin LD A,($0003) (canonical CP/M 2.2)
-    assert at(word(disp + 7 * 2)) == 0x3A and word(word(disp + 7 * 2) + 1) == 0x0003
+    assert at(word(disp + 7 * 2)) == 0x3A and word(word(disp + 7 * 2) + 1) == 0x0003  # fn7 LD A,($0003)
+    assert at(0x9400) == 0xC3  # CCP entry JP
 
 
 @pytest.mark.skipif(not HAS_ASSEMBLERS, reason="ca65/ld65/sjasmplus not on PATH")
-def test_cpm220_44k_runtime_source_reskews_byte_identical():
-    """The de-skew RE-BASE: the runtime-addressed source CPM_System_rt.asm (ORG $9600)
-    assembles to the runtime image, and re-skewing it (runtime_to_ondisk) reproduces the
-    reference on-disk system image byte-for-byte. This gates the in-progress re-decode --
-    enrichment must keep this green."""
+def test_cpm220_44k_runtime_source_byte_identical():
+    """The de-skew RE-BASE: the runtime-addressed source CPM_System_rt.asm (ORG $9400,
+    22 pages) assembles byte-for-byte to the de-skewed runtime image gathered from the
+    reference disk. This gates the in-progress re-decode -- enrichment must keep it green."""
     from pathlib import Path as _P
-    from cpm_pipeline.chunk_map import SOURCES_220_44K, OS220_44K, ChunkSource
+    from cpm_pipeline.chunk_map import OS220_44K, ChunkSource
     from cpm_pipeline.assemble import assemble_chunk
-    from cpm_pipeline.deskew import runtime_to_ondisk, RUNTIME_ORG
+    from cpm_pipeline.deskew import reference_runtime_image, RUNTIME_ORG, RUNTIME_LEN
+    from cpm_pipeline.reference_data import DISK_2_20_44K_SYSTEM, present
     rt_src = ChunkSource(
         asm_path=OS220_44K / "CPM_System_rt.asm",
-        cpu="z80", org=RUNTIME_ORG, size=0x1400,
+        cpu="z80", org=RUNTIME_ORG, size=RUNTIME_LEN,
         expected_bin_name="build/CPM220_44K_System_rt.bin",
     )
-    if not _P(rt_src.asm_path).exists():
-        pytest.skip("CPM_System_rt.asm not present")
+    if not _P(rt_src.asm_path).exists() or not present(DISK_2_20_44K_SYSTEM):
+        pytest.skip("source or reference disk not present")
     runtime = assemble_chunk(rt_src)
-    ondisk = assemble_chunk(SOURCES_220_44K["CPM220_44K_System"])
-    rebuilt = runtime_to_ondisk(runtime, ondisk_template=ondisk)
-    diffs = [i for i in range(len(ondisk)) if rebuilt[i] != ondisk[i]]
-    assert not diffs, f"runtime-source re-skew differs at {len(diffs)} bytes; first {[hex(o) for o in diffs[:8]]}"
+    ref = reference_runtime_image()
+    diffs = [i for i in range(len(ref)) if runtime[i] != ref[i]]
+    assert not diffs, f"runtime source differs from de-skewed image at {len(diffs)} bytes; first {[hex(RUNTIME_ORG+o) for o in diffs[:8]]}"
 
 
 @pytest.mark.skipif(not HAS_ASSEMBLERS, reason="ca65/ld65/sjasmplus not on PATH")
