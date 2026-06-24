@@ -23,26 +23,35 @@ CPMV223-44K/
   README.md             this file
 ```
 
-## `os/` — the operating system
+## `os/` — the operating system (de-skewed, runtime-addressed)
 
-The disk's system area (tracks 0-2) holds the boot pipeline and the staged CP/M
-system. These sources reassemble to exactly those bytes; the disk build
-(`chunk_map`) reads them directly.
+The disk's system area (tracks 0-2) holds the boot pipeline and the CP/M system.
+Like 2.20-44K, the CCP/BDOS/BIOS are stored **sector-interleaved**; the cold loader
+stages them at Apple `$8000` then relocates them to their runtime addresses. These
+sources are decoded at their true **runtime** addresses, and the disk producer
+re-applies the skew (`cpm_pipeline/deskew.py :: PAGE_TO_SECTOR_223` /
+`BIOS_PAGE_TO_SECTOR_223`; see [`../docs/CPM_Skew_Findings.md`](../docs/CPM_Skew_Findings.md)).
+**Decode/edit the de-skewed runtime image, never the raw on-disk bytes.**
 
-| File | CPU | Load | What it is |
-|------|-----|------|------------|
-| `CPM_BootLoader.s` | 6502 | `$0800` | Stage-2 boot loader (`$0800-$13FF`): install-copy logic, the `LOAD_CPM` staging read, the RWTS (`$0A00-$0FFF`, GCR 6-and-2 codec), and the install image (`$1200-$13FF`, run at `$0200-$03FF`). The single canonical decode of the Apple-side OS |
-| `CPM_DiskCallbacks.asm` | Z-80 | `$1A00` | Z-80 thunks bridging BDOS/BIOS disk requests to the 6502 RWTS |
-| `CPM_CCP.asm` | Z-80 | `$8000` | The CCP module; also assembles the staged **CCP + BDOS** image `LOAD_CPM` reads, by INCLUDEing `CPM_BDOS.asm` (runs at `$9300`/`$9C00`) |
-| `CPM_BDOS.asm` | Z-80 | `$9C00` | The 2.23 BDOS module (builds standalone; INCLUDEd by `CPM_CCP.asm` under `DISP $9C00`) |
-| `CPM_BIOS.asm` | Z-80 | `$FA00` | The **as-shipped** pristine on-disk BIOS (`$FA00-$FDFF`); jump table + console/disk/IOBYTE primitives |
+| File | CPU | Runtime ORG | Size | What it is |
+|------|-----|------|------|------------|
+| `CPM_BootLoader.s` | 6502 | `$0800` | `$0C00` | Track-0 boot stub + RWTS (GCR 6-and-2) + the `LOAD_CPM` staging read + install image |
+| `CPM_CCP.asm` | Z-80 | `$9300` | `$0900` | Console Command Processor (one page lower than 2.20's `$9400`); includes a 2.23-only SoftCard fast `.COM` loader |
+| `CPM_BDOS.asm` | Z-80 | `$9C00` | `$0E00` | Basic Disk Operating System; an independent compilation |
+| `CPM_BIOS.asm` | Z-80 | `$FA00` | `$0600` | Basic I/O System at z80 `$FA00` = **Apple `$0A00` low RAM** (not `$AA00` like 2.20). Console/IOBYTE RPC; disk deblock is **delegated off-image** (`READ -> JP $AC39`, `WRITE -> JP $AC49`) |
 
-6502 regions are ca65 `.s` + a `.cfg` linker config; Z-80 regions are sjasmplus
-`.asm`. The CP/M system image is **two independent module files** — `CPM_CCP.asm`
-(the CCP) and `CPM_BDOS.asm` (the BDOS); the CCP INCLUDEs the BDOS so the two
-compile as one staged image and reassemble byte-identical. The BIOS is the bytes on disk; the
-running BIOS additionally builds a `$FE00-$FF47` device/console tail in RAM (the
-Videx/Pascal path) — see [`BOOT_AND_PATCHING.md`](BOOT_AND_PATCHING.md).
+6502 regions are ca65 `.s`; Z-80 regions are sjasmplus `.asm`. The CP/M system image
+is **two independent compilations** — `CPM_CCP.asm` (`$9300`) and `CPM_BDOS.asm`
+(`$9C00`) — sharing only the `$0005` ABI (`cpm22.inc`) and the cross-module symbols in
+`../include/cpm_system_223.inc` (`BDOS_FBASE=$9C00`, `CCP_WBOOT=$9B06`). Each carries
+`IFNDEF CPM_LINK / DEVICE / ORG / SAVEBIN` so it assembles standalone, byte-identical.
+Addresses live in the generated `os/*.lst` (not inline). 2.23 vs 2.20 highlights: the
+BIOS runs in Apple low RAM and delegates deblock off-image, the DPB has DSM=139 (vs 127)
+with 4 drives (vs 6), and the Videx 80-col card vs 40-col Apple screen are both handled
+(see [`BOOT_AND_PATCHING.md`](BOOT_AND_PATCHING.md)). The boot loader's two embedded
+Z-80 blocks are sub-assembled and INCBIN'd; the BIOS carries an embedded 6502 RPC
+service (`$FDD1-$FE40`) and Z-80 device-handler stubs that are flagged for the same
+cross-CPU extraction treatment.
 
 ## `utilities/` — the filesystem programs
 
