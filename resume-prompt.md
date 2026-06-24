@@ -1,52 +1,47 @@
 # Resume Prompt — Microsoft SoftCard CP/M Investigation
 
-## >> RESUME HERE — 2026-06-23 (PAUSED): CCP/BDOS SEPARATE COMPILATIONS + BDOS EXPORT HEADER
+## >> RESUME HERE — 2026-06-23 (LIVE): RE-BASE THE 44K OS DECODE ONTO THE DE-SKEWED RUNTIME IMAGE
 
-**Branch `main`, working tree CLEAN, gate 228, both trees byte-identical.** Full plan +
-exact steps: memory **[[project_cpm_ccp_bdos_separate_compilation]]**; the hard rule:
-**[[feedback_no_duplicate_symbol_definitions]]**.
+**Branch `main`, working tree CLEAN, gate 228, both trees byte-identical (on disk).** Full
+finding: **`softcard/docs/CPM_Skew_Findings.md`**; the lesson:
+**[[feedback_decode_deskewed_runtime_not_ondisk]]**; the campaign:
+**[[project_cpm_deskew_rebase]]**.
 
-**The architecture decision (Brent).** The CP/M system image's CCP and BDOS are TWO modules
--> TWO **separate compilations** (each its own `.bin`, concatenated on the system tracks),
-in BOTH the 2.20-44K and 2.23-44K trees. The CCP no longer INCLUDEs the BDOS. Cross-module
-references go through a **per-module BDOS EXPORT HEADER** that is the SINGLE definition both
-modules INCLUDE -- NEVER a duplicate/equivalent-value EQU. Any exported symbol has semantic
-value and must be properly named.
+**THE FINDING (the pivot).** The 44K OS sources (CCP **and** BDOS, both 2.20-44K and
+2.23-44K) were decoded against the **on-disk** byte order, but the CPU runs the image in a
+**sector-de-interleaved** order. CP/M stores the CCP/BDOS sector-interleaved on the system
+tracks; the cold loader reads logical sectors (RWTS skew) into **contiguous** RAM, which
+de-interleaves them. PROOF (definitive, copy-immune): boot in `softcard_emu`, compare each
+source-listing line's bytes to runtime memory at the SAME address -> **2.20-44K 10.3%**,
+**2.23-44K 11.0%** match. Byte-identical reassembly stayed green because the gate only checks
+**disk** reproduction; it is **blind** to whether labels match runtime. ALL the "shadows /
+cover-merge / out-of-image $9F01 / staging-vs-runtime confusion" we fought = sector-seam
+artifacts. The de-skewed image is COHERENT ($9EC8 fn1 = clean handler; $9F01 = the real BDOS
+result-tail).
 
-**DONE + committed this session:**
-- **cpm22.inc consolidation** (f9a551c): `RST2_VEC $0010 / RST4_VEC $0020 / CMDLINE $0081`
-  added to `softcard/include/cpm22.inc`; their local dup defs deleted from the 15 utilities
-  that INCLUDE cpm22.inc.
-- **2.23-44K CCP+BDOS = SEPARATE compilations** (f9a551c): CCP `SAVEBIN $8000,$0D00`; BDOS
-  builds standalone (`ORG $9C00 ... SAVEBIN $9C00,$0A00`); both fold base page to cpm22.inc.
-  chunk_map `CPM223_44K_System` -> `CPM223_44K_CCP` + `CPM223_44K_BDOS`; `_build_chunks_223`
-  concatenates; `component_diff` maps both -> "CCP+BDOS". Byte-identical. **CAVEAT:** this
-  split is clean ONLY because the 2.23 CCP is still RAW -- its refs into the BDOS are bare hex
-  (`CALL $9Cxx`, numbers). When the 2.23 CCP is enriched (refs become NAMED), it will need the
-  export header too.
-- **2.20-44K BDOS base-page fold** (677bb9a): folded WBOOT_VEC/IOBYTE/DEFAULT_DMA -> cpm22 names.
+**THE FIX / PILOT — re-base 2.20-44K (44K ONLY; 56K is OUT, it LC-relocates):**
+1. **De-skew tooling + round-trip (task #6):** derive the exact system-track sector skew
+   (RWTS skew table + the chunk_map sector layout; byte-match is confounded by self-mods/6502
+   blocks on the CCP-head pages). Build the pristine de-skewed runtime image from the on-disk
+   image; verify it is coherent (dispatch targets land on instr starts) and that re-skewing
+   reproduces the byte-identical disk. Scratch: `E:/tmp/deskew_build.py` (BDOS pages map
+   256/256; CCP head $9300-$95FF + track boundaries still need the exact skew).
+2. **Re-base the source (task #7):** decode `CPM_CCP.asm` + `CPM_BDOS.asm` against the
+   de-skewed image -> every label a true runtime address, no DISP-skew, no shadows, $9F01
+   coherent. The disk producer (`chunk_map`/`_build_chunks_220_44k`) **re-applies the sector
+   skew** so the disk stays byte-identical.
+3. **New gate:** after the byte-identical build, boot + assert source-listing bytes ==
+   runtime bytes at the same address (the 10%->~100% test). Byte-identity is necessary, not
+   sufficient.
+4. THEN the CCP/BDOS split + `cpm_bdos_220.inc` export header (the now-DEFERRED
+   `[[project_cpm_ccp_bdos_separate_compilation]]`) fall out trivially on a runtime-addressed
+   source, and the cross-ref naming (the two-sided analysis, `E:/tmp/locked_names.md`,
+   `reconciliation.md`) becomes reliable.
 
-**PAUSED -- the 2.20-44K CCP/BDOS split (DO THIS NEXT):** the enriched 2.20 CCP references
-**59 BDOS-internal symbols** (genuine code: `JP Z,DISK_READ_RECORD_STG+1`, `CALL
-FCB_SET_REC_FLAG_5_STG+2`, `JP READ_CON_BUF_EDIT_STG`, `LD HL,(BDOS_VAR_PAGE_7_p12_STG)`,
-`BDOS_ERR_VECTORS+6`, `BDOS_DEFAULT_FCB+2`, ...), so it is NOT independently compilable until
-the BDOS exports them. Steps (full detail in the project memory):
-1. **PREREQ:** resolve the BDOS's ~16 `cover+offset` / `+1`/`+2` exported entries into clean
-   cover-idiom splits (DEFB cover + own clean label, NO arithmetic) -- a header can't ship +offset.
-2. **PREREQ:** understand + semantically name the `BDOS_VAR_PAGE_7/8/9_pN_STG` shared cells.
-3. Author `softcard/include/cpm_bdos_220.inc` -- the single-source export contract (semantic
-   name -> BDOS run address); BDOS INCLUDEs it + uses its names; CCP INCLUDEs it.
-4. Split: CCP `SAVEBIN $9300,$0901` (2305 B); the 2.20 BDOS is a pure body fragment
-   (`DISP $9A01 ... ENT`, no scaffolding) -> add `IFNDEF CPM_LINK DEVICE + ORG $9C01 + INCLUDE
-   cpm22.inc + INCLUDE cpm_bdos_220.inc` before, `SAVEBIN "{out_bin}",$9C01,$0DFF` (3583 B)
-   after; CCP drops the BDOS INCLUDE. chunk_map: `CPM220_44K_System` -> `CPM220_44K_CCP` +
-   `CPM220_44K_BDOS` (mirror 2.23 + `_build_chunks_220`). (chunk_map's CPM56-reuses-CCP comment
-   is OUTDATED -- CPM56.asm is self-contained, no entanglement.)
-5. THEN 2.23: enrich its CCP, build `cpm_bdos_223.inc`, repeat.
-Gate each step: `test_cpm220_44k_reconstruct` / `test_cpm223_reconstruct` + full suite 228.
-
-**Re-derive the 59 cross-refs:** Python -- defs(BDOS labels+EQUs) ∩ refs(CCP code, comments
-stripped) − CCP-defs − cpm22 names. They collapse to ~18-20 distinct interface symbols.
+**Earlier-this-session DONE + committed (still valid, on disk):** cpm22.inc consolidation +
+2.23-44K CCP/BDOS split + 2.20-44K BDOS base-page fold (commits f9a551c / 677bb9a / 2e36aec).
+These are byte-identical-correct on disk; they will be carried forward but re-based onto
+runtime addresses during the pilot.
 
 ---
 

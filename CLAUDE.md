@@ -92,20 +92,32 @@ Write-ups publish to **wiseowl.com** (Astro v6, Cloudflare Pages) at
   instead of `L_xxxx`.
 - **The SoftCard has no on-board ROM:** cold-boot Z-80 bytes come from 6502
   writes, disk loads, or runtime Z-80 generation — never a card ROM.
+- **Decode the DE-SKEWED runtime image, not the raw on-disk bytes** (44K system
+  tracks). CP/M stores the CCP/BDOS sector-interleaved; the cold loader
+  de-interleaves them into contiguous RAM, so the bytes EXECUTE in a different
+  order than they sit on disk. Byte-identical reassembly only proves *disk*
+  reproduction and is **blind** to skew — a source can round-trip perfectly while
+  ~90% of its labels point at the wrong runtime address. Verify source labels
+  against the **emulator runtime** (boot + compare bytes at the same address), and
+  ORG each section to its true runtime address; the disk producer re-applies the
+  skew. See `softcard/docs/CPM_Skew_Findings.md` and
+  `feedback_decode_deskewed_runtime_not_ondisk`. (Discovered 2026-06-23; the prior
+  "shadows / cover-merges / out-of-image $9F01" were all sector-seam artifacts.)
 
 ## Current focus
 
-**>> RESUME (PAUSED 2026-06-23): CCP/BDOS SEPARATE COMPILATIONS + BDOS EXPORT HEADER.** The CP/M
-CCP and BDOS become TWO independent compilations (own `.bin`s, concatenated) in BOTH trees; cross-
-module symbols go through a per-module BDOS export header that is the SINGLE definition both
-INCLUDE — never a duplicate/equivalent-value EQU (`feedback_no_duplicate_symbol_definitions`).
-DONE: cpm22.inc base-page consolidation + **2.23 CCP/BDOS split** (f9a551c, byte-identical) + 2.20
-BDOS base-page fold (677bb9a). NEXT: the **2.20 CCP/BDOS split** — its enriched CCP references 59
-BDOS-internal symbols, so build the BDOS export header `cpm_bdos_220.inc` FIRST (resolve the BDOS
-`+offset` cover-idiom exports; semantically name the BDOS_VAR_PAGE_* cells), then restructure +
-split (mirror chunk_map `CPM223_44K_CCP`/`_BDOS`). Then 2.23 the same once its CCP is enriched.
-Exact steps/sizes: `resume-prompt.md` top + memory `project_cpm_ccp_bdos_separate_compilation`.
-The "enrich CPM_CCP as a combined-unit head" plan below is SUPERSEDED by this split architecture.
+**>> LIVE (2026-06-23): RE-BASE THE 44K OS DECODE ONTO THE DE-SKEWED RUNTIME IMAGE.** The emulator
+proved the 44K OS sources (CCP **and** BDOS, both 2.20-44K and 2.23-44K) were decoded against the
+**on-disk** byte order, but the CPU runs a **sector-de-interleaved** order — only ~10% of source
+labels match the real runtime address (`softcard/docs/CPM_Skew_Findings.md`,
+`feedback_decode_deskewed_runtime_not_ondisk`, `project_cpm_deskew_rebase`). Byte-identical stayed
+green because the gate only checks DISK reproduction; it is blind to the skew. ALL the "shadows /
+cover-merges / out-of-image $9F01 / staging-vs-runtime confusion" were sector-seam artifacts.
+**PILOT: re-base 2.20-44K** — decode against the de-skewed runtime image (every label a true runtime
+address; the disk producer re-applies the skew for byte-identity), verify source==runtime in the
+emulator, THEN the CCP/BDOS split + export header fall out trivially. 56K is OUT (it relocates into
+the language card — different mechanism, not touched). The CCP/BDOS-split + export-header plan
+(`project_cpm_ccp_bdos_separate_compilation`) is correct but DEFERRED until the source matches runtime.
 
 **LIVE (2026-06-23, on `main`, gate 228): the CP/M source quality-uplift to the BASIC.asm bar.**
 Bring every CP/M source to the standard BASIC.asm set — C-level function headers (Purpose/In/Out/
