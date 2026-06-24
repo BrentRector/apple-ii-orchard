@@ -69,17 +69,35 @@ The 20th, `CPM60.COM`, is built from the 60K master
 (`CONFIGIO.BAS` and `DUMP.ASM` are BASIC/asm text files on the disk, not machine
 code.) `GBASIC` self-relocates and is one file via `DISP`; see its header.
 
-## How the disk is laid out
+## How the binaries are written to the boot tracks
 
-- **Tracks 0-2** — the reserved system area: the boot sector, the 6502 boot
-  loader / RWTS / install fragments, and the `LOAD_CPM` staging (CCP + BDOS +
-  disk callbacks + the on-disk BIOS).
-- **Tracks 3+** — the CP/M filesystem (the 20 `.COM` + the `.BAS`/`.ASM` files).
-- **`cp/m.sys`** — a hidden directory entry at user `$1F` reserving 12 KB of data
-  blocks (`$80-$8B`); it's how `CPM60.COM` protects the embedded 60K system it
-  writes to the data tracks during conversion.
+The disk layout is declarative, in
+[`../cpm_pipeline/chunk_map.py`](../cpm_pipeline/chunk_map.py) (`SOURCES_223` +
+`_build_chunks_223`). The producer assembles each source, then places 256-byte slices
+at physical disk sectors. Because the system tracks are sector-interleaved, the producer
+**re-applies the skew**: it writes each de-skewed runtime page back to the `.dsk` sector
+the cold loader read it from (`deskew.py :: PAGE_TO_SECTOR_223` / `BIOS_PAGE_TO_SECTOR_223`),
+i.e. runtime page -> `.dsk` linear sector `S` -> `(track = S // 16, physical sector whose
+DOS-3.3 on-disk position is S % 16)`.
 
-The full boot/load/cold-boot-generate sequence is in
+1. **Boot stub — track 0.** `CPM_BootLoader` (`$0800-$13FF`) is laid down as 11 sectors on
+   track 0 (physical sectors `0,2,4,6,8,A,C,E,1,3,5` <- loader offsets `$0800-$1300`).
+   Sector T0S0 is the `$C600`-PROM-loaded boot-0; it pulls in the rest of the loader, which
+   stages the system at Apple `$8000`, relocates it to the runtime addresses, and starts the
+   Z-80.
+2. **CCP + BDOS — scattered across tracks 0-2.** The 23 runtime pages (`$9300-$A9FF`) are
+   scattered back to their source sectors via `PAGE_TO_SECTOR_223`. Pages `$9300-$9BFF` come
+   from `CPM_CCP.asm`; `$9C00-$A9FF` from `CPM_BDOS.asm`.
+3. **BIOS — track 2.** The 6 runtime pages (`$FA00-$FFFF` = Apple `$0A00-$0FFF`) are scattered
+   to `.dsk` linear sectors 40-45 (all on track 2) via `BIOS_PAGE_TO_SECTOR_223`. The BIOS
+   also INCBINs its embedded 6502 RPC service (`CPM_RPC6502_223.bin`) at the `$FDD0` position.
+4. **Tracks 3+** — the CP/M filesystem (the 20 `.COM` + the `.BAS`/`.ASM` files), carried
+   verbatim from the reference image. Sectors not written by any chunk keep their reference
+   bytes, so the round-trip is exact.
+
+`cp/m.sys` is a hidden directory entry at user `$1F` reserving 12 KB of data blocks
+(`$80-$8B`); it's how `CPM60.COM` protects the embedded 60K system it writes to the data
+tracks during conversion. The full boot/load/cold-boot-generate sequence is in
 [`BOOT_AND_PATCHING.md`](BOOT_AND_PATCHING.md).
 
 ## Building the disk from source
@@ -99,7 +117,12 @@ data files, and prints a per-byte provenance summary. It exits 0 only when the
 result is **byte-identical** to the archived `softcard-cpm2.23-44k-system.dsk` (over 80% of the disk comes
 from re-assembled source; the rest is filesystem data, the directory, and free
 space). The same check runs in CI as
-`test_cpm223_full_disk_reconstruct_byte_identical`.
+`test_cpm223_full_disk_reconstruct_byte_identical`. `reconstruct` auto-selects the
+`223` variant for this disk (by the Z-80 reset-plant base), so `--variant` is optional.
+**Without `env.sh`** the assemblers are off `PATH` and the byte-identical reconstruct
+cases **skip** rather than fail; always source `env.sh` first and confirm they show
+PASSED. Addresses/machine bytes live in the generated `os/*.lst`, not inline; to
+(re)strip a source: `python -m cpm_pipeline.os_listing softcard/CPMV223-44K/os/CPM_BIOS.asm --write`.
 
 `bin/` is the committed assembled output. To regenerate it from the sources
 (each `.asm` SAVEBINs `<NAME>.bin`, which is the same bytes as the disk's
