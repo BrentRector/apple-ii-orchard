@@ -1,9 +1,29 @@
 # Resume Prompt — Microsoft SoftCard CP/M Investigation
 
-## >> RESUME HERE — 2026-06-23 (LIVE): RE-BASE THE 44K OS DECODE ONTO THE DE-SKEWED RUNTIME IMAGE
+## >> RESUME HERE — 2026-06-24 (LIVE): de-skew + decode + semantic-lift + adversarial-review the **2.23-44K** OS
 
-**Branch `main`, working tree CLEAN, gate 228, both trees byte-identical (on disk).** Full
-finding: **`softcard/docs/CPM_Skew_Findings.md`**; the lesson:
+**2.20-44K OS CORE IS COMPLETE** (`main`, gate 225, byte-identical): the de-skew re-base is
+DONE for all three components — **CPM_CCP.asm ($9400), CPM_BDOS.asm ($9C00)** (prior sessions)
+and now **CPM_BIOS.asm ($AA00)** (this session, commits d1db0c2→91f21f8): de-skewed onto the
+runtime image, every DEFB-as-code block decoded (keyboard CONIN, control-char dispatch, device
+handlers — two `$01`-cover chains found), all self-modify resolved as `LABEL+offset` per Brent's
+rule, all data tables identified (DPH array + shared DPB, sector-xlate, IO-vector defaults,
+device-handler pointers), C-level headers + semantic names (zero machine labels), addresses
+stripped to `.lst`, and a 2-agent **adversarial review** that caught real byte-identical-but-WRONG
+mislabels (the "$AE73 config-probe" is actually the host WRITE RWTS RPC -> `DISK_WRITE_HOST`; the
+DPH/DPB were called "config rows"; control codes map to Apple monitor routines). The 2.20-44K
+**README.md** now documents assemble + boot-track-write precisely. Build doc: `CPMV220-44K/README.md`.
+
+**>> NEXT (Brent, 2026-06-24): repeat the ENTIRE pipeline on the 2.23-44K OS disk** — de-skew,
+decode, semantic lift, adversarial review — to correct/replace its on-disk-order decode the same
+way. 2.23-44K is a CLEAN-SLATE decode from 2.23 bytes (2.20 = verify cross-ref, never copied —
+[[feedback_clean_slate_not_patch_prior_decompile]]). Its BIOS uses a DIFFERENT off-image `$FExx`
+RWTS mechanism (not the 2.20 `$03E0` IOB) and falls back to the 40-col Apple screen when no Videx
+([[feedback_223_not_80col_only]]). Reuse all the tooling: `deskew.py` (needs a 2.23 page map —
+derive from the emulator), `enrich_apply`, `os_listing.py`, the multi-agent enrich + devil's-
+advocate workflow. Mirror chunk_map `CPM223_44K_*`.
+
+Full de-skew finding: **`softcard/docs/CPM_Skew_Findings.md`**; the lesson:
 **[[feedback_decode_deskewed_runtime_not_ondisk]]**; the campaign:
 **[[project_cpm_deskew_rebase]]**.
 
