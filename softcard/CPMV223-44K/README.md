@@ -100,35 +100,56 @@ DOS-3.3 on-disk position is S % 16)`.
 tracks during conversion. The full boot/load/cold-boot-generate sequence is in
 [`BOOT_AND_PATCHING.md`](BOOT_AND_PATCHING.md).
 
-## Building the disk from source
+## Step 1 — compile the OS sources into binaries
 
-From the repo root, with the toolchain on PATH:
+Each source assembles, standalone, to a fixed-size binary at its runtime ORG: the Z-80
+sources `SAVEBIN` their image (sjasmplus), the 6502 sources link to a flat binary
+(ca65 + ld65). Two sources pull in a foreign-CPU binary by `INCBIN`, so that dependency
+is compiled first.
 
-```bash
-source shared/toolchain/env.sh        # ca65 + ld65 + sjasmplus
+| Source | Assembler | Produces | At ORG | Size | Notes |
+|--------|-----------|----------|--------|------|-------|
+| `os/CPM_RPC6502_223.s` | ca65 + ld65 | `CPM_RPC6502_223.bin` | `$0DD0` | `$0072` | the embedded 6502 RPC service (INCBIN'd by the BIOS) |
+| `os/CPM_BIOS.asm` | sjasmplus | `CPM_BIOS.bin` | `$FA00` | `$0600` | INCBINs `CPM_RPC6502_223.bin` |
+| `os/CPM_CCP.asm` | sjasmplus | `CPM_CCP.bin` | `$9300` | `$0900` | needs `cpm22.inc` + `cpm_system_223.inc` |
+| `os/CPM_BDOS.asm` | sjasmplus | `CPM_BDOS.bin` | `$9C00` | `$0E00` | needs `cpm22.inc` + `cpm_system_223.inc` |
+| `os/CPM_BootLoader.s` | ca65 + ld65 | the `$0800-$13FF` boot image | `$0800` | `$0C00` | INCBINs two Z-80 fragments (sub-assembled by sjasmplus) |
 
-# Rebuild the WHOLE disk from source and verify byte-identical:
-python -m cpm_pipeline.reconstruct softcard/reference/softcard-cpm-archive/os/softcard-cpm2.23-44k-system.dsk rebuilt.dsk
-```
-
-This assembles the OS region from `os/`, lays in every `.COM` from
-`utilities/bin/` (and `CPM60.COM` from the 60K master), carries the filesystem's
-data files, and prints a per-byte provenance summary. It exits 0 only when the
-result is **byte-identical** to the archived `softcard-cpm2.23-44k-system.dsk` (over 80% of the disk comes
-from re-assembled source; the rest is filesystem data, the directory, and free
-space). The same check runs in CI as
-`test_cpm223_full_disk_reconstruct_byte_identical`. `reconstruct` auto-selects the
-`223` variant for this disk (by the Z-80 reset-plant base), so `--variant` is optional.
-**Without `env.sh`** the assemblers are off `PATH` and the byte-identical reconstruct
-cases **skip** rather than fail; always source `env.sh` first and confirm they show
-PASSED. Addresses/machine bytes live in the generated `os/*.lst`, not inline; to
-(re)strip a source: `python -m cpm_pipeline.os_listing softcard/CPMV223-44K/os/CPM_BIOS.asm --write`.
-
-`bin/` is the committed assembled output. To regenerate it from the sources
-(each `.asm` SAVEBINs `<NAME>.bin`, which is the same bytes as the disk's
-`<NAME>.COM`):
+The pipeline knows each source's ORG/size, include path, and INCBIN dependencies
+(`cpm_pipeline/chunk_map.py :: SOURCES_223`), so the one call below compiles a source and
+returns its bytes (it stages the includes/deps and rewrites the source's `SAVEBIN`
+target into a temp file):
 
 ```bash
-cd softcard/CPMV223-44K/utilities
-for f in *.asm; do sjasmplus "$f" && mv "${f%.asm}.bin" "bin/${f%.asm}.COM"; done
+source shared/toolchain/env.sh                  # puts ca65 + ld65 + sjasmplus on PATH
+python -c "from cpm_pipeline.chunk_map import SOURCES_223; \
+from cpm_pipeline.assemble import assemble_chunk; \
+open('CPM_BIOS.bin','wb').write(assemble_chunk(SOURCES_223['CPM223_BIOS_Disk']))"
+# -> CPM_BIOS.bin (1536 bytes); likewise CPM223_44K_CCP / CPM223_44K_BDOS / CPM223_BootLoader.
 ```
+
+(The `.COM` utility programs assemble the same way -- each `utilities/*.asm` self-`SAVEBIN`s
+its `<NAME>.bin`, byte-identical to the disk's `<NAME>.COM`; `bin/` holds the committed output.)
+
+## Step 2 — lay the compiled binaries onto the disk tracks
+
+The binaries are placed onto a disk image by the de-skew scatter described in **"How the
+binaries are written to the boot tracks"** above: each binary's 256-byte pages go to the
+specific (track, physical sector) the cold loader reads them from. The filesystem (tracks
+3+, the `.COM` and `.BAS`/`.ASM` files) is carried verbatim, since the OS sources own only
+tracks 0-2. One call compiles every source and lays the result onto a disk image:
+
+```bash
+python -m cpm_pipeline.reconstruct \
+    softcard/reference/softcard-cpm-archive/os/softcard-cpm2.23-44k-system.dsk \
+    softcard-cpm2.23-44k-built.dsk
+```
+
+The first argument supplies the filesystem (tracks 3+) and the OS tracks are overwritten
+with the freshly compiled binaries; the second is the disk image written out. As a
+build-correctness check it also confirms the result is **byte-identical** to the original
+2.23-44K disk (it exits non-zero otherwise; CI runs this as
+`test_cpm223_full_disk_reconstruct_byte_identical`). **Source `env.sh` first** -- without
+the assemblers on `PATH` the byte-identical build cases skip rather than run. Addresses and
+machine bytes live in the generated `os/*.lst`, not inline; regenerate one with
+`python -m cpm_pipeline.os_listing softcard/CPMV223-44K/os/CPM_BIOS.asm --write`.

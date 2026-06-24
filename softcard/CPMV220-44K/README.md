@@ -85,28 +85,56 @@ Sectors not written by any chunk keep their reference bytes, so the round-trip i
 exact: *gather the de-skewed image, edit at runtime addresses, scatter back*
 reproduces the disk byte-for-byte.
 
-## Build and verify
+## Step 1 — compile the OS sources into binaries
+
+Each source assembles, standalone, to a fixed-size binary at its runtime ORG: the Z-80
+sources `SAVEBIN` their image (sjasmplus), the 6502 boot loader links to a flat binary
+(ca65 + ld65), sub-assembling its two embedded Z-80 fragments first.
+
+| Source | Assembler | Produces | At ORG | Size | Notes |
+|--------|-----------|----------|--------|------|-------|
+| `os/CPM_CCP.asm` | sjasmplus | `CPM_CCP.bin` | `$9400` | `$0800` | needs `cpm22.inc` + `cpm_system_220.inc` |
+| `os/CPM_BDOS.asm` | sjasmplus | `CPM_BDOS.bin` | `$9C00` | `$0E00` | needs `cpm22.inc` + `cpm_system_220.inc` |
+| `os/CPM_BIOS.asm` | sjasmplus | `CPM_BIOS.bin` | `$AA00` | `$0600` | the 6502 RPC code lives in the boot loader, not here |
+| `os/CPM_BootLoader.s` | ca65 + ld65 | the `$0800-$13FF` boot image | `$0800` | `$0C00` | INCBINs two Z-80 fragments (sub-assembled by sjasmplus) |
+
+The pipeline knows each source's ORG/size, include path, and INCBIN dependencies
+(`cpm_pipeline/chunk_map.py :: SOURCES_220_44K`), so the call below compiles one source and
+returns its bytes (staging the includes/deps and rewriting the source's `SAVEBIN` target):
 
 ```bash
-# from the repo root
-source shared/toolchain/env.sh          # puts ca65/ld65/sjasmplus on PATH (+ PYTHONPATH)
-
-# rebuild the whole 2.20-44K disk from source and verify byte-identical:
-python -m cpm_pipeline.reconstruct \
-    softcard/reference/softcard-cpm-archive/.../softcard-cpm2.20-44k-system-1980.dsk \
-    /tmp/cpm220_44k_rebuilt.dsk --variant 220-44k
-
-# or run the gate (OS region + CCP/BDOS de-skew round-trip + full disk):
-python -m pytest softcard/cpm_pipeline/tests/test_reconstruct.py -k 220_44k
+source shared/toolchain/env.sh                  # puts ca65 + ld65 + sjasmplus on PATH
+python -c "from cpm_pipeline.chunk_map import SOURCES_220_44K; \
+from cpm_pipeline.assemble import assemble_chunk; \
+open('CPM_BIOS.bin','wb').write(assemble_chunk(SOURCES_220_44K['CPM220_44K_BIOS_Disk']))"
+# -> CPM_BIOS.bin (1536 bytes); likewise CPM220_44K_CCP / CPM220_44K_BDOS / CPM220_44K_BootLoader.
 ```
 
-(`reconstruct._detect_variant` auto-selects `220-44k` for this disk by the Z-80
-reset-plant base `$AA00`, vs `$DA00` for the 2.20B-56K build.) `reconstruct_disk`
-rebuilds just the OS region over a reference image; `reconstruct_full_disk` rebuilds
-the whole disk (OS region from `os/`, every `.COM` from `utilities/`, only filesystem
-data carried). Both assert **0 byte differences**. Without `env.sh` the assemblers are
-off `PATH` and the byte-identical cases **skip** rather than fail — always confirm they
-show PASSED. To (re)generate a component listing:
+(The `.COM` utility programs assemble the same way -- each `utilities/*.asm` self-`SAVEBIN`s
+its `<NAME>.bin`, byte-identical to the disk's `<NAME>.COM`.)
+
+## Step 2 — lay the compiled binaries onto the disk tracks
+
+The binaries are placed onto a disk image by the de-skew scatter described in **"How the
+binaries are written to the boot tracks"** above: each binary's 256-byte pages go to the
+specific (track, physical sector) the cold loader reads them from. The filesystem (tracks
+3+) is carried verbatim, since the OS sources own only tracks 0-2. One call compiles every
+source and lays the result onto a disk image:
+
+```bash
+python -m cpm_pipeline.reconstruct \
+    softcard/reference/softcard-cpm-archive/.../softcard-cpm2.20-44k-system-1980.dsk \
+    softcard-cpm2.20-44k-built.dsk --variant 220-44k
+```
+
+The first argument supplies the filesystem (tracks 3+); the OS tracks are overwritten with
+the freshly compiled binaries; the second is the disk image written out. (`--variant` is
+optional -- `reconstruct` auto-selects `220-44k` by the Z-80 reset-plant base `$AA00`, vs
+`$DA00` for the 2.20B-56K build.) As a build-correctness check it also confirms the result
+is **byte-identical** to the original 1980 disk (CI runs this as the `220_44k` reconstruct
+tests). **Source `env.sh` first** -- without the assemblers on `PATH` the byte-identical
+build cases skip rather than run. Addresses/machine bytes live in the generated `os/*.lst`,
+not inline; regenerate one with
 `python -m cpm_pipeline.os_listing softcard/CPMV220-44K/os/CPM_BIOS.asm --write`.
 
 ## Reverse-engineering conventions used here
