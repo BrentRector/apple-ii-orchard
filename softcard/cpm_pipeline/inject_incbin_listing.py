@@ -29,6 +29,9 @@ SITES = [
      _OS / "CPMV223-44K/os/CPM_BootLoader_ProbeOvl.asm", "CPM_BootLoader_ProbeOvl.asm"),
     (_OS / "CPMV223-44K/os/CPM_BootLoader.s", "CPM_BootLoader_DiskXlate.bin",
      _OS / "CPMV223-44K/os/CPM_BootLoader_DiskXlate.asm", "CPM_BootLoader_DiskXlate.asm"),
+    # 2.23-44K BIOS: embedded 6502 RPC service ($FDD0-$FE41 = Apple $0DD0)
+    (_OS / "CPMV223-44K/os/CPM_BIOS.asm", "CPM_RPC6502_223.bin",
+     _OS / "CPMV223-44K/os/CPM_RPC6502_223.s", "CPM_RPC6502_223.s"),
     # 56K boot loader: slot-probe handshake + slot-3 console driver
     (_OS / "CPMV220/os/CPM_BootLoader.s", "CPM_BootLoader_ProbeOvl.bin",
      _OS / "CPMV220/os/CPM_BootLoader_ProbeOvl.asm", "CPM_BootLoader_ProbeOvl.asm"),

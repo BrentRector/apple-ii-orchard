@@ -108,6 +108,9 @@ SOURCES_223: dict[str, ChunkSource | Path] = {
         asm_path=OS223_44K / "CPM_BIOS.asm",
         cpu="z80", org=0xFA00, size=0x0600,
         expected_bin_name="build/CPM223_BIOS_Disk.bin",
+        # The BIOS embeds a 6502 RPC service ($FDD0-$FE41); its ca65 source is
+        # sub-assembled and INCBIN'd (the CPM_RPC6502 pattern).
+        incbin_deps=(("CPM_RPC6502_223.bin", OS223_44K / "CPM_RPC6502_223.s", ()),),
         include_files=(SOFTCARD_INC, CPM22_INC),
     ),
 }

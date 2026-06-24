@@ -98,7 +98,7 @@ DPB:
 ;     cell to flag it configured.  A secondary DEC A test (original value 4, e.g. a
 ;     Videx-class 80-col console) runs SET_SCREEN_BASE and claims the $C800 shared
 ;     expansion-ROM window via RPC_TRIGGER; a value-2 path repoints a vector via
-;     SUB_FDB0 ($0DD0 param).  Same shape as the 2.20 twin's PROBE_DEVICES. [RE]
+;     PLOT_CHAR_RPC ($0DD0 param).  Same shape as the 2.20 twin's PROBE_DEVICES. [RE]
 ; ----------------------------------------------------------------------
 PROBE_DEVICES:
         ; DE = 7 entries to scan (index walks down to 1)
@@ -121,18 +121,18 @@ PROBE_DEVICES_CHK4:
         DEC A
         JR NZ,PROBE_DEVICES_CHK2
         ; console probe / select the 80-col screen base (SET_SCREEN_BASE)
-        CALL SUB_FD83
+        CALL SET_SCREEN_BASE
         ; z80 $C800 = Apple $C800 shared expansion-ROM window for the configured card
         LD HL,$C800
         CALL RPC_TRIGGER
         JR PROBE_DEVICES_NEXT
 PROBE_DEVICES_CHK2:
-        ; value 2 = a different device class (e.g. printer/serial); takes the SUB_FDB0 path
+        ; value 2 = a different device class (e.g. printer/serial); takes the PLOT_CHAR_RPC path
         CP $02
         JR NZ,PROBE_DEVICES_NEXT
         ; param for the value-2 vector init ($0DD0)
         LD HL,$0DD0
-        CALL SUB_FDB0
+        CALL PLOT_CHAR_RPC
 PROBE_DEVICES_NEXT:
         ; next config entry; loop until all 7 scanned
         DEC E
@@ -496,9 +496,9 @@ CONOUT_FILTER_NOEXPAND:
         LD HL,$F3A2
         LD L,(HL)
         INC L
-        JP Z,SUB_FCA4
+        JP Z,SCREEN_EMIT
         ; HL -> COL_FLAG cell ($FECB)
-        LD HL,L_FECB
+        LD HL,COL_FLAG
         ; store the entry flag into COL_FLAG
         LD (HL),A
         ; strip the high bit of the character (7-bit ASCII)
@@ -589,13 +589,13 @@ COL_COMBINE_BASE:
         ; mode/count code 7 for the screen emit
         LD B,$07
         ; emit via the screen handler (SCREEN_EMIT)
-        CALL SUB_FCA4
+        CALL SCREEN_EMIT
         POP AF
         ; mode/count code $0A for the follow-up emit
         LD B,$0A
-SUB_FBF0:
+CHAR_C_TO_SCREEN:
         LD C,A
-        JP SUB_FCA4
+        JP SCREEN_EMIT
 ; ----------------------------------------------------------------------
 ; SETSEC -- BIOS jump-vector entry 11 ($FA24 -> $FBF4): set the requested sector.
 ;   In:  C = sector number. Out: none. Clobbers: A.
@@ -625,7 +625,7 @@ SETDMA:
         DEFS    88, $00                  ; fill
 SETDMA_1:
         LD B,A
-        LD HL,L_FECD
+        LD HL,COL_STATE
         LD A,(HL)
         LD E,A
         OR A
@@ -640,7 +640,7 @@ SETDMA_1:
 SETDMA_2:
         LD A,$1F
         CP C
-        JP C,SUB_FCA4
+        JP C,SCREEN_EMIT
 SETDMA_3:
         LD HL,$F3A0
         LD B,$09
@@ -654,7 +654,7 @@ SETDMA_4:
 SETDMA_5:
         DEC HL
         DJNZ SETDMA_4
-        JR SUB_FCA4
+        JR SCREEN_EMIT
 SETDMA_6:
         LD DE,$000B
         ADD HL,DE
@@ -667,59 +667,59 @@ SETDMA_6:
         PUSH BC
         LD A,($F3A2)
         LD B,$07
-        CALL SUB_FBF0
+        CALL CHAR_C_TO_SCREEN
         POP BC
 SETDMA_7:
         LD A,B
         CP $07
-        JR NZ,SUB_FCA4
+        JR NZ,SCREEN_EMIT
         LD A,$02
-        LD (L_FECC),A
-SUB_FCA4:
+        LD (COL_PENDING),A
+SCREEN_EMIT:
         XOR A
-        LD (L_FECD),A
-        LD A,(L_FECB)
+        LD (COL_STATE),A
+        LD A,(COL_FLAG)
         OR A
         LD HL,($F388)
-        JR Z,SUB_FCA4_1
+        JR Z,SCREEN_EMIT_1
         LD HL,($F386)
-SUB_FCA4_1:
+SCREEN_EMIT_1:
         JP (HL)
-SUB_FCA4_2:
+SCREEN_EMIT_2:
         LD DE,$0003
-SUB_FCA4_3:
-        JP SUB_FCA4_4
-SUB_FCA4_4:
-        LD HL,(L_FECE)
-        LD A,(L_FED0)
+SCREEN_EMIT_3:
+        JP SCREEN_EMIT_4
+SCREEN_EMIT_4:
+        LD HL,(SCREEN_CURSOR_PTR)
+        LD A,(SCREEN_CHAR)
         LD (HL),A
-        CALL SUB_FCE2
+        CALL CTRL_CHAR_DISPATCH
         LD HL,($F028)
         LD A,($F024)
         LD E,A
         LD D,$F0
         ADD HL,DE
-        LD (L_FECE),HL
+        LD (SCREEN_CURSOR_PTR),HL
         LD A,(HL)
-        LD (L_FED0),A
+        LD (SCREEN_CHAR),A
         CP $E0
-        JR C,SUB_FCA4_5
+        JR C,SCREEN_EMIT_5
         XOR $20
-SUB_FCA4_5:
+SCREEN_EMIT_5:
         AND $3F
         OR $40
         LD (HL),A
         RET
-SUB_FCE2:
+CTRL_CHAR_DISPATCH:
         LD A,B
         OR A
-        JR Z,L_FCF1
+        JR Z,CTRL_PLAIN_CHAR
         LD HL,RPC_TRIGGER
         PUSH HL
-        LD HL,L_FD66
+        LD HL,CTRL_HANDLER_OFFSET_TBL
         ADD A,L
         DEFB    $6F,$6E,$E9
-L_FCF1:
+CTRL_PLAIN_CHAR:
         DEFB    $79,$FE,$0D,$20,$05
         DEFB    $AF,$32,$24,$F0,$C9,$F6,$80 ; "/2$pIv"
         DEFB    $FE,$E0,$38,$04
@@ -732,11 +732,11 @@ L_FCF1:
         DEFB    $42,$01,$2E,$9C,$01,$2E,$1A,$01,$2E,$58,$26,$FC,$C9,$2A,$D3,$FE
         DEFB    $7D,$FE,$28,$38,$02,$2E,$00,$7C,$FE,$18,$38,$02,$26,$00,$22,$24
         DEFB    $F0,$18
-L_FD66:
+CTRL_HANDLER_OFFSET_TBL:
         DEFB    $D5,$4C,$43,$46,$28,$2B,$36,$30,$49,$32,$51,$CD ; "ULCF(+60I2QM"
         DEFB    $83,$FD,$21,$78,$F6,$19,$71,$21,$AA,$C9,$79,$32,$45,$F0,$C3,$45
         DEFB    $FB
-SUB_FD83:
+SET_SCREEN_BASE:
         CALL SLOT_IO_ADDR_W
         LD ($F6F8),A
         LD ($F047),A
@@ -746,67 +746,139 @@ SUB_FD83:
         LD ($F046),A
         LD A,(HL)
         RET
-SUB_FD83_1:
+SET_SCREEN_BASE_1:
         LD HL,$0E14
         LD E,$03
         LD A,$01
-        CALL SUB_FDAD
+        CALL SET_CURSOR_COL_AND_BASE
         LD A,($F048)
         RRA
         SBC A,A
         RET
         DEFB    $21,$E1,$0D,$79
-SUB_FDAD:
+SET_CURSOR_COL_AND_BASE:
         LD ($F045),A
-SUB_FDB0:
+PLOT_CHAR_RPC:
         LD A,E
         LD ($F047),A
         JP RPC_TRIGGER
-SUB_FDB0_1:
+PLOT_CHAR_RPC_1:
         LD HL,$0E06
-        CALL SUB_FDB0
+        CALL PLOT_CHAR_RPC
         LD A,($F045)
         RET
-; ----------------------------------------------------------------------
-; The next ~143 bytes ($FDC1-$FE4F) are THREE fused regions the --auto-coverage disassembler
-; left as DEFB (reached only via the install-time self-modified device vectors). They are NOT
-; one data blob -- they are MIXED CPU and still need full decode/extraction (TODO,
-; feedback_disassemble_all_code_both_cpus):
-;   $FDC1-$FDCF  Z-80  SCREEN_RPC_HELPER: CALL SUB_FD83 / LD HL,$C84D / CALL $FB45 /
-;                      LD HL,$F678 / ADD HL,DE / LD A,(HL) / RET  (a screen read-back).
-;   $FDD0-$FE41  6502  the embedded 6502 RPC service (mapped at Apple $0DD0): LDA ($F6),Y /
-;                      JMP ($00F6) / LDA $CFFF (slot ROM off) / JMP $BBE9,$BE04 (firmware) /
-;                      the RPC epilogue (PHA/LDA $45/LDX $46/LDY $47/PLP/CLI/RTS) at $FE36.
-;                      TODO extract to CPM_RPC6502_223.s + INCBIN, like 2.20's CPM_RPC6502.
-;   $FE42-$FE6B  Z-80  DEV_OUT handler stubs (CALL SLOT_IO_ADDR / poll-ready / store), with
-;                      L_FE50/L_FE64/L_FE69 = self-modified JP-operand cells the install code
-;                      patches with the per-config handler addresses.
-; ----------------------------------------------------------------------
-SCREEN_RPC_HELPER:                                                       ; $FDC1  Z-80
-        DEFB    $CD,$83,$FD,$21,$4D,$C8,$CD,$45,$FB,$21,$78,$F6,$19,$7E,$C9
-RPC6502_SERVICE_223:                                                     ; $FDD0  6502 ->
-        DEFB    $48
-        DEFB    $20,$1D,$0E,$A0,$0D,$B1,$F6,$85,$F6,$AC,$F8,$06,$68,$6C,$F6,$00
-        DEFB    $48,$A9,$00,$20,$EF,$0D,$20,$1D,$0E,$A0,$0F,$4C,$D6,$0D,$84,$F5
-        DEFB    $48,$20,$14,$0E,$68,$A4,$F5,$90,$F5,$60,$00,$00,$00,$00,$00,$4C
-        DEFB    $E9,$BB,$4C,$04,$BE,$A9,$01,$20,$EF,$0D,$20,$1D,$0E,$48,$A0,$0E
-        DEFB    $4C,$D6,$0D,$48,$20,$1D,$0E,$A0,$10,$4C,$D6,$0D,$98,$09,$C0,$AA
-        DEFB    $98,$0A,$0A,$0A,$0A,$A8,$8C,$F8,$06,$A9,$00,$85,$F6,$86,$F7,$AD
-        DEFB    $FF,$CF,$B1,$F6,$60,$A5,$48,$48,$A5,$45,$A6,$46,$A4,$47,$28,$58
-        DEFB    $60                                                      ; $FE41  6502 RTS
-DEV_OUT_STUBS:                                                           ; $FE42  Z-80
-        DEFB    $CD,$81,$FE,$7E,$1F,$30,$FC,$2C,$7E,$C9,$11,$01,$00,$C3
-L_FE50:
-        DEFB    $5F,$FE,$CD,$B1,$FA,$2E,$C1,$7E,$17,$38,$FC,$CD,$7C,$FE,$71,$C9
-        DEFB    $11,$02,$00,$C3
-L_FE64:
-        DEFB    $5F,$FE,$11,$02,$00
-L_FE69:
-        DEFB    $C3
-L_FE6A:
-        DEFB    "\0"
-L_FE6B:
-        DEFB    "\0"
+; SCREEN_RPC_HELPER -- read back a screen byte via the RPC: position, fire the RPC, fetch.
+SCREEN_RPC_HELPER:
+        CALL SET_SCREEN_BASE                    ; compute the screen base for the current row
+        LD HL,$C84D                      ; 6502 RPC parameter (Apple expansion-ROM addr)
+        CALL RPC_TRIGGER                 ; run the embedded 6502 service on the 6502
+        LD HL,$F678                      ; HL = row buffer base (Apple $0678)
+        ADD HL,DE
+        LD A,(HL)                        ; read back the character
+        RET
+; RPC6502_SERVICE_223 -- the embedded 6502 RPC service ($FDD0-$FE41 = Apple $0DD0); its
+; own ca65 source CPM_RPC6502_223.s is sub-assembled and INCBIN'd here (the 2.20
+; CPM_RPC6502 pattern). It forms a slot-ROM pointer ($CFFF disables expansion ROM),
+; LDA ($F6),Y, and JMP ($00F6) dispatches into the selected slot-ROM/firmware routine.
+RPC6502_SERVICE_223:
+;   >>> CPM_RPC6502_223.s -- verbatim listing of the INCBIN'd source (regen: inject_incbin_listing) >>>
+;
+; .org $0DD0
+;
+; L_0DD0:
+;         PHA                          ; $0DD0  48
+;         JSR SUB_0E1D                 ; $0DD1  20 1D 0E
+;         LDY #$0D                     ; $0DD4  A0 0D
+; L_0DD6:
+;         LDA ($F6),Y                  ; $0DD6  B1 F6
+;         STA $F6                      ; $0DD8  85 F6
+;         LDY $06F8                    ; $0DDA  AC F8 06
+;         PLA                          ; $0DDD  68
+;         JMP ($00F6)                ; $0DDE  6C F6 00
+; L_0DE1:
+;         PHA                          ; $0DE1  48
+;         LDA #$00                     ; $0DE2  A9 00
+;         JSR SUB_0DEF                 ; $0DE4  20 EF 0D
+;         JSR SUB_0E1D                 ; $0DE7  20 1D 0E
+;         LDY #$0F                     ; $0DEA  A0 0F
+;         JMP L_0DD6                   ; $0DEC  4C D6 0D
+; SUB_0DEF:
+;         STY $F5                      ; $0DEF  84 F5
+;         PHA                          ; $0DF1  48
+;         JSR SUB_0E14                 ; $0DF2  20 14 0E
+;         PLA                          ; $0DF5  68
+;         LDY $F5                      ; $0DF6  A4 F5
+;         BCC SUB_0DEF                 ; $0DF8  90 F5
+;         RTS                          ; $0DFA  60
+;         .byte   $00, $00, $00, $00, $00, $4C, $E9, $BB, $4C, $04, $BE, $A9, $01, $20, $EF, $0D ; $0DFB
+;         .byte   $20, $1D, $0E, $48, $A0, $0E, $4C, $D6, $0D      ; $0E0B
+; SUB_0E14:
+;         PHA                          ; $0E14  48
+;         JSR SUB_0E1D                 ; $0E15  20 1D 0E
+;         LDY #$10                     ; $0E18  A0 10
+;         JMP L_0DD6                   ; $0E1A  4C D6 0D
+; SUB_0E1D:
+;         TYA                          ; $0E1D  98
+;         ORA #$C0                     ; $0E1E  09 C0
+;         TAX                          ; $0E20  AA
+;         TYA                          ; $0E21  98
+;         ASL                          ; $0E22  0A
+;         ASL                          ; $0E23  0A
+;         ASL                          ; $0E24  0A
+;         ASL                          ; $0E25  0A
+;         TAY                          ; $0E26  A8
+;         STY $06F8                    ; $0E27  8C F8 06
+;         LDA #$00                     ; $0E2A  A9 00
+;         STA $F6                      ; $0E2C  85 F6
+;         STX $F7                      ; $0E2E  86 F7
+;         LDA $CFFF                    ; $0E30  AD FF CF
+;         LDA ($F6),Y                  ; $0E33  B1 F6
+;         RTS                          ; $0E35  60
+; SUB_0E1D_1:
+;         LDA $48                      ; $0E36  A5 48
+;         PHA                          ; $0E38  48
+;         LDA $45                      ; $0E39  A5 45
+;         LDX $46                      ; $0E3B  A6 46
+;         LDY $47                      ; $0E3D  A4 47
+;         PLP                          ; $0E3F  28
+;         CLI                          ; $0E40  58
+;         RTS                          ; $0E41  60
+;   <<< end listing <<<
+        INCBIN "CPM_RPC6502_223.bin"     ; 114 bytes of 6502 (runs on the 6502 via the RPC)
+; DEV_READ_BIT -- device handler: poll a status bit until set, then read the data byte.
+DEV_READ_BIT:
+        CALL SLOT_IO_ADDR
+DEV_READ_WAIT:
+        LD A,(HL)
+        RRA                              ; ready bit -> carry
+        JR NC,DEV_READ_WAIT
+        INC L
+        LD A,(HL)                        ; read the data byte
+        RET
+DEV_OUT_1:                               ; default I/O vector handler (LIST stub)
+        LD DE,$0001
+DEV_OUT_1_JP:
+        JP DEV_RET                       ; target (DEV_OUT_1_JP+1) patched at boot
+; DEV_WR_BIT -- device handler: wait for ready, then write C to the slot I/O port.
+DEV_WR_BIT:
+        CALL DEVICE_IO_BASE
+        LD L,$C1
+DEV_WR_WAIT:
+        LD A,(HL)
+        RLA                              ; ready bit -> carry
+        JR C,DEV_WR_WAIT
+        CALL SLOT_IO_ADDR_W
+        LD (HL),C
+DEV_RET:
+        RET                              ; shared return (DEV_OUT_1/_2 JP here)
+DEV_OUT_2:                               ; default I/O vector handler (PUNCH stub)
+        LD DE,$0002
+DEV_OUT_2_JP:
+        JP DEV_RET                       ; target (DEV_OUT_2_JP+1) patched at boot
+DEV_OUT_3:                               ; default I/O vector handler (READER stub)
+        LD DE,$0002
+DEV_OUT_3_JP:
+        JP $0000                         ; whole instruction built at boot (DEV_OUT_3_JP+0/+1/+2)
 ; ----------------------------------------------------------------------
 ; HOME -- BIOS jump-vector entry 8 ($FA18): seek the selected drive to track 0. [RE]
 ;   In:  none. Out: none. Clobbers: A,C.
@@ -964,15 +1036,15 @@ WRITE:
         JP $AC49
         DEFB    $C3,$45,$FB,$2A,$0D      ; "CE{*"
         DEFB    $9C,$E9,$C9
-L_FECB:
+COL_FLAG:
         DEFB    "\0"
-L_FECC:
+COL_PENDING:
         DEFB    "\0"
-L_FECD:
+COL_STATE:
         DEFB    "\0"
-L_FECE:
+SCREEN_CURSOR_PTR:
         DEFB    $D0,$FE
-L_FED0:
+SCREEN_CHAR:
         DEFB    "\0"
 ; ----------------------------------------------------------------------
 ; BOOT -- CP/M cold-boot BIOS entry (jump-vector entry 0; $FA00 -> here at $FED1).
@@ -1075,7 +1147,7 @@ SECTOR_BLOCK_PATCH:
         CP $06
         JR NZ,DEV_INSTALL_LIST
         ; device-6 console: install the $FD99 status handler
-        LD HL,SUB_FD83_1
+        LD HL,SET_SCREEN_BASE_1
         ; store it into the SoftCard console-status I/O vector cell (Apple $0380)
         LD ($F380),HL
         SUB $03
@@ -1085,7 +1157,7 @@ SECTOR_BLOCK_PATCH:
 ;   In:  install engine running. Out: patches the LIST output stub vector. Clobbers: A,HL.
 ;   Algorithm: read the LIST card class (config $F3B9 = Apple $03B9), bias by 3; if a
 ;     real device is configured, look up its handler (CALL HANDLER_LOOKUP) and store it
-;     into the LIST stub vector cell L_FE50. Twin of 2.20 DEV_INSTALL flow. [RE]
+;     into the LIST stub vector (DEV_OUT_1_JP+1). Twin of 2.20 DEV_INSTALL flow. [RE]
 ; ----------------------------------------------------------------------
 DEV_INSTALL_LIST:
         CP $05
@@ -1101,15 +1173,15 @@ DEV_INSTALL_LIST:
 ; ----------------------------------------------------------------------
 ; DEV_INSTALL_PUNCH -- install the PUNCH device-output handler from the config class. [RE]
 ;   Algorithm: read the PUNCH card class (config $F3BA = Apple $03BA), bias by 3; if
-;     configured, look up the handler and store it into the PUNCH stub vector L_FE64; for
-;     the higher class value also install a secondary handler into L_FE6A. Twin of 2.20
+;     configured, look up the handler and store it into the PUNCH stub vector (DEV_OUT_2_JP+1); for
+;     the higher class value also install a secondary handler into DEV_OUT_3_JP+1. Twin of 2.20
 ;     DEV_INSTALL flow. [RE]
 ; ----------------------------------------------------------------------
 DEV_INSTALL_PUNCH:
         PUSH AF
         CALL DEV_HANDLER_LOOKUP
         POP AF
-        LD (SUB_FCA4_3+1),HL
+        LD (SCREEN_EMIT_3+1),HL
         ; secondary handler lookup via the skip-idiom entry (HANDLER_LOOKUP_B); the FD cover byte at
         ; DEV_HANDLER_LOOKUP_B is skipped [RE]
         CALL DEV_HANDLER_LOOKUP_B+1
@@ -1118,7 +1190,7 @@ DEV_INSTALL_PUNCH:
         LD (CCP_LAUNCH+1),A
 ; ----------------------------------------------------------------------
 ; DEV_INSTALL_READER -- build the default READER/list-output stub when none is configured.
-;   Algorithm: when no real device class is configured, build the no-op stub at L_FE69:
+;   Algorithm: when no real device class is configured, build the no-op stub at DEV_OUT_3_JP:
 ;     store $1A3E ('LD A,$1A' opcode+immediate) then $C9 ('RET') so the device returns a
 ;     constant. Twin of 2.20 DEV_INSTALL_4's DEV_OUT_3 build. [RE]
 ; ----------------------------------------------------------------------
@@ -1127,7 +1199,7 @@ DEV_INSTALL_READER:
         SUB $03
         JR C,INSTALL_DONE_DEVICES
         CALL DEV_HANDLER_LOOKUP
-        LD (L_FE50),HL
+        LD (DEV_OUT_1_JP+1),HL
 ; ----------------------------------------------------------------------
 ; INSTALL_DONE_DEVICES -- run the device probe after the per-device installs. [RE]
 ;   Algorithm: CALL PROBE_DEVICES (PROBE_DEVICES) to scan the 7 SoftCard config slots and
@@ -1140,18 +1212,18 @@ INSTALL_DONE_DEVICES:
         JR C,SLOT_IO_SCALE_17
         PUSH AF
         CALL DEV_HANDLER_LOOKUP
-        LD (L_FE64),HL
+        LD (DEV_OUT_2_JP+1),HL
         POP AF
         CP $02
         JR Z,SLOT_IO_SCALE_17
         CALL DEV_HANDLER_LOOKUP_B+1
-        LD (L_FE6A),HL
+        LD (DEV_OUT_3_JP+1),HL
         JR SLOT_IO_SCALE_18
 SLOT_IO_SCALE_17:
         LD HL,$1A3E
-        LD (L_FE69),HL
+        LD (DEV_OUT_3_JP),HL
         LD A,$C9
-        LD (L_FE6B),A
+        LD (DEV_OUT_3_JP+2),A
 SLOT_IO_SCALE_18:
         ; scan + init the 7 SoftCard config slots (device probe) before the sign-on
         CALL PROBE_DEVICES
@@ -1194,16 +1266,16 @@ SIGNON_BANNER_LOOP:
 SLOT_IO_SCALE_21:
         LD C,$FD
         LD (HL),C
-        DEFB $FD  ; ignored IY prefix; inner: LD D,D ; $FF72  FD 52
+        DEFB $FD  ; ignored IY prefix; inner: LD D,D
         LD D,D
         CP $A9
-        DEFB $FD  ; ignored IY prefix; inner: LD B,D ; $FF76  FD 42
+        DEFB $FD  ; ignored IY prefix; inner: LD B,D
 SLOT_IO_SCALE_22:
         LD B,D
         CP $C1
-        DEFB $FD  ; ignored IY prefix; inner: OR A ; $FF7A  FD B7
+        DEFB $FD  ; ignored IY prefix; inner: OR A
         OR A
-        DEFB $FD  ; ignored IY prefix; inner: OR A ; $FF7C  FD B7
+        DEFB $FD  ; ignored IY prefix; inner: OR A
         OR A
 ; ----------------------------------------------------------------------
 ; DEV_HANDLER_LOOKUP_B -- secondary-table handler lookup, entered at +1 via a skip idiom.
