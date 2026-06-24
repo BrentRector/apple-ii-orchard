@@ -61,8 +61,8 @@ BIOS_VECTOR_WBOOT:
         JP      READ
         ; entry 14 = WRITE (out of this scope, $FE85 band)
         JP      WRITE
-        ; post-vector trailer = XOR A / RET / DW $6000 / RET; same 6 bytes as 2.20's $AA2D. See
-        ; flags.
+        ; post-vector trailer: $AF $C9 (XOR A / RET) then 4 opaque bytes $00,$60,$69,$C9;
+        ; the same 6 bytes as 2.20's $AA2D trailer. [RE] not reached as code here.
         DEFB    $AF,$C9,$00,$60,$69,$C9
 ; ----------------------------------------------------------------------
 ; DPH_TABLE -- the CP/M 2.2 Disk Parameter Header array (one 16-byte DPH per logical
@@ -94,7 +94,7 @@ DPB:
 ;   Out: config bytes updated in place; per-device init called when a device is found.
 ;   Clobbers: A,DE,HL.
 ;   Algorithm: for E = 7 down to 1, read config[$F3B8 + E].  If it equals 3 the slot
-;     holds a recognized device, so call SLOT_IO_INIT and store $03 then $15 into the
+;     holds a recognized device, so call SLOT_IO_ADDR and store $03 then $15 into the
 ;     cell to flag it configured.  A secondary DEC A test (original value 4, e.g. a
 ;     Videx-class 80-col console) runs SET_SCREEN_BASE and claims the $C800 shared
 ;     expansion-ROM window via RPC_TRIGGER; a value-2 path repoints a vector via
@@ -111,7 +111,7 @@ PROBE_DEVICES_LOOP:
         ; config value 3 = a recognized/present device in this slot
         SUB $03
         JR NZ,PROBE_DEVICES_CHK4
-        ; build the slot I/O base for the found device (SLOT_IO_INIT)
+        ; build the slot I/O base for the found device (SLOT_IO_ADDR)
         CALL SLOT_IO_ADDR
         ; rewrite the cell: $03 then $15 = mark this device configured
         LD (HL),$03
@@ -139,13 +139,13 @@ PROBE_DEVICES_NEXT:
         JR NZ,PROBE_DEVICES_LOOP
         RET
 ; ----------------------------------------------------------------------
-; SLOT_IO_ADDR -- form a SoftCard I/O / soft-switch address from a slot/offset index.
+; DEVICE_IO_BASE -- form a SoftCard I/O / soft-switch address from a device/offset index.
 ;   In:  E = low offset within the I/O page.
-;   Out: HL = $E0(E | $E0), an address in z80 $E000-$EFFF = Apple I/O $C000-$CFFF;
+;   Out: HL = ((E | $E0) << 8), an address in z80 $E000-$EFFF = Apple I/O $C000-$CFFF;
 ;        A clobbered.
 ;   Algorithm: H = $E0 base; A = E OR H forces the high nibble into the $C0xx I/O
 ;        page, then H = A.  Used to reach keyboard / soft switches / slot I/O.
-;        Same as the 2.20 twin's DEVICE_IO_BASE. [RE]
+;        Same as the 2.20 twin's DEVICE_IO_BASE (distinct from SLOT_IO_ADDR at $FE81). [RE]
 ; ----------------------------------------------------------------------
 DEVICE_IO_BASE:
         ; z80 $E000 = Apple $C000 = base of the soft-switch / slot I/O page
@@ -462,18 +462,18 @@ PUNCH:
 ; ----------------------------------------------------------------------
 ; READER -- read a character from the reader device, routed by the IOBYTE READER field.
 ;   In:  none.  Out: A = character.  Clobbers: A,HL.
-;   Algorithm: read IOBYTE, mask the READER field (AND $0C).  Below $04 reuses the
-;     CONIN low-value vector; == $04 reuses the CONIN $F38A path; higher values use
-;     reader vector $F38C (Apple $038C). [RE]
+;   Algorithm: read IOBYTE, mask the READER field (AND $0C), compare against $08. Field
+;     < $08 ($00/$04) reuses the CONIN $F382 vector; == $08 reuses the CONIN $F38A vector;
+;     > $08 ($0C) uses the reader vector $F38C (Apple $038C). [RE]
 ; ----------------------------------------------------------------------
 READER:
         LD A,($0003)
         ; isolate the 2-bit READER device field of the IOBYTE
         AND $0C
         CP $08
-        ; field < $04 -> reuse the CONIN low-value vector path
+        ; field < $08 ($00/$04) -> reuse the CONIN $F382 vector path
         JR C,CONIN_VIA_VEC_F382
-        ; field == $04 -> reuse the CONIN $F38A vector path
+        ; field == $08 -> reuse the CONIN $F38A vector path
         JR Z,CONIN_VIA_VEC_F38A
         ; reader-handler vector ($F38C = Apple $038C)
         LD HL,($F38C)
@@ -599,13 +599,14 @@ SUB_FBF0:
 ; ----------------------------------------------------------------------
 ; SETSEC -- BIOS jump-vector entry 11 ($FA24 -> $FBF4): set the requested sector.
 ;   In:  C = sector number. Out: none. Clobbers: A.
-;   Algorithm: store C into seksec (DISK_SEKTRK_223+1 = $FED2, the SP-operand low
-;        byte reused as the deblock sector cell). Consumed later by the OFF-IMAGE
-;        deblock host-match test, not acted on here. Mirrors the 2.20 SETSEC. [RE]
+;   Algorithm: store C into the sector cell BOOT+1 ($FED2 = the cold-boot LD SP operand
+;        low byte, reused post-boot as the requested-sector cell). The off-image RWTS
+;        ($AC39/$AC49) is the consumer; this image only WRITES it. Mirrors 2.20 SETSEC.
+;        [RE, transferred from 2.20; the off-image consumer is not in this image]
 ; ----------------------------------------------------------------------
 SETSEC:
         LD A,C
-        ; store the sector into seksec ($FED2, DISK_SEKTRK_223+1)
+        ; store the requested sector into BOOT+1 (reused as the seksec cell)
         LD (BOOT+1),A
         RET
 ; ----------------------------------------------------------------------
@@ -766,7 +767,25 @@ SUB_FDB0_1:
         CALL SUB_FDB0
         LD A,($F045)
         RET
-        DEFB    $CD,$83,$FD,$21,$4D,$C8,$CD,$45,$FB,$21,$78,$F6,$19,$7E,$C9,$48
+; ----------------------------------------------------------------------
+; The next ~143 bytes ($FDC1-$FE4F) are THREE fused regions the --auto-coverage disassembler
+; left as DEFB (reached only via the install-time self-modified device vectors). They are NOT
+; one data blob -- they are MIXED CPU and still need full decode/extraction (TODO,
+; feedback_disassemble_all_code_both_cpus):
+;   $FDC1-$FDCF  Z-80  SCREEN_RPC_HELPER: CALL SUB_FD83 / LD HL,$C84D / CALL $FB45 /
+;                      LD HL,$F678 / ADD HL,DE / LD A,(HL) / RET  (a screen read-back).
+;   $FDD0-$FE41  6502  the embedded 6502 RPC service (mapped at Apple $0DD0): LDA ($F6),Y /
+;                      JMP ($00F6) / LDA $CFFF (slot ROM off) / JMP $BBE9,$BE04 (firmware) /
+;                      the RPC epilogue (PHA/LDA $45/LDX $46/LDY $47/PLP/CLI/RTS) at $FE36.
+;                      TODO extract to CPM_RPC6502_223.s + INCBIN, like 2.20's CPM_RPC6502.
+;   $FE42-$FE6B  Z-80  DEV_OUT handler stubs (CALL SLOT_IO_ADDR / poll-ready / store), with
+;                      L_FE50/L_FE64/L_FE69 = self-modified JP-operand cells the install code
+;                      patches with the per-config handler addresses.
+; ----------------------------------------------------------------------
+SCREEN_RPC_HELPER:                                                       ; $FDC1  Z-80
+        DEFB    $CD,$83,$FD,$21,$4D,$C8,$CD,$45,$FB,$21,$78,$F6,$19,$7E,$C9
+RPC6502_SERVICE_223:                                                     ; $FDD0  6502 ->
+        DEFB    $48
         DEFB    $20,$1D,$0E,$A0,$0D,$B1,$F6,$85,$F6,$AC,$F8,$06,$68,$6C,$F6,$00
         DEFB    $48,$A9,$00,$20,$EF,$0D,$20,$1D,$0E,$A0,$0F,$4C,$D6,$0D,$84,$F5
         DEFB    $48,$20,$14,$0E,$68,$A4,$F5,$90,$F5,$60,$00,$00,$00,$00,$00,$4C
@@ -774,7 +793,9 @@ SUB_FDB0_1:
         DEFB    $4C,$D6,$0D,$48,$20,$1D,$0E,$A0,$10,$4C,$D6,$0D,$98,$09,$C0,$AA
         DEFB    $98,$0A,$0A,$0A,$0A,$A8,$8C,$F8,$06,$A9,$00,$85,$F6,$86,$F7,$AD
         DEFB    $FF,$CF,$B1,$F6,$60,$A5,$48,$48,$A5,$45,$A6,$46,$A4,$47,$28,$58
-        DEFB    $60,$CD,$81,$FE,$7E,$1F,$30,$FC,$2C,$7E,$C9,$11,$01,$00,$C3
+        DEFB    $60                                                      ; $FE41  6502 RTS
+DEV_OUT_STUBS:                                                           ; $FE42  Z-80
+        DEFB    $CD,$81,$FE,$7E,$1F,$30,$FC,$2C,$7E,$C9,$11,$01,$00,$C3
 L_FE50:
         DEFB    $5F,$FE,$CD,$B1,$FA,$2E,$C1,$7E,$17,$38,$FC,$CD,$7C,$FE,$71,$C9
         DEFB    $11,$02,$00,$C3
