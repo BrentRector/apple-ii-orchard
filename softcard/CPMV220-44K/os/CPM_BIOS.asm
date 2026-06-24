@@ -24,8 +24,8 @@
 ;   $AB0E -> SUB_AAC5_5+2         shared instruction tail: $AB0E is reachable code inside the instruction at $AB0C
 ;   $AB3F -> SUB_AB3B_1+1         shared instruction tail: $AB3F is reachable code inside the instruction at $AB3E
 ;   $AC42 -> SUB_AC2D_3+1         shared instruction tail: $AC42 is reachable code inside the instruction at $AC41
-;   $AE7A -> SUB_AE73_1+1         z80 skip idiom: enters the operand of $21 at $AE79
-;   $AEA2 -> SUB_AE73_3+1         shared instruction tail: $AEA2 is reachable code inside the instruction at $AEA1
+;   $AE7A -> CONIO_SET_A1         z80 skip idiom: enters the operand of $21 at $AE79
+;   $AEA2 -> BIOS_VAR_A2         shared instruction tail: $AEA2 is reachable code inside the instruction at $AEA1
 ;   $AEA9 -> BOOT+1         shared instruction tail: $AEA9 is reachable code inside the instruction at $AEA8
 ;   $AEAA -> BOOT+2         shared instruction tail: $AEAA is reachable code inside the instruction at $AEA8
 ;   $AEAC -> SUB_AE73_9+1         z80 skip idiom: enters the operand of $3E at $AEAB
@@ -35,7 +35,7 @@
 ;   $AEB3 -> SUB_AE73_12+1        shared instruction tail: $AEB3 is reachable code inside the instruction at $AEB2
 ;   $AEB4 -> SUB_AE73_12+2        shared instruction tail: $AEB4 is reachable code inside the instruction at $AEB2
 ;   $AEB6 -> SUB_AE73_13+1        shared instruction tail: $AEB6 is reachable code inside the instruction at $AEB5
-;   $AF50 -> SUB_AE73_23+2        shared instruction tail: $AF50 is reachable code inside the instruction at $AF4E
+;   $AF50 -> DISK_RTN_PTRS_B        shared instruction tail: $AF50 is reachable code inside the instruction at $AF4E
 
 L_AA00:
         JP BOOT                    ; $AA00  C3 A8 AE
@@ -191,7 +191,7 @@ SUB_AB42_9:
         SCF                              ; $AB96  37
 SUB_AB42_10:
         SBC A,A                          ; $AB97  9F
-        LD HL,SUB_AE73_3+1               ; $AB98  21 A2 AE
+        LD HL,BIOS_VAR_A2               ; $AB98  21 A2 AE
         LD (HL),A                        ; $AB9B  77
         RES 7,C                          ; $AB9C  CB B9
         INC HL                           ; $AB9E  23
@@ -243,7 +243,7 @@ SUB_ABDD:
         JR SUB_AC2D                      ; $ABDE  18 4D
 SUB_ABDD_1:
         LD B,A                           ; $ABE0  47
-        LD HL,SUB_AE73_5                 ; $ABE1  21 A4 AE
+        LD HL,BIOS_VAR_A4                 ; $ABE1  21 A4 AE
         LD A,(HL)                        ; $ABE4  7E
         LD E,A                           ; $ABE5  5F
         OR A                             ; $ABE6  B7
@@ -292,11 +292,11 @@ SUB_ABDD_7:
         CP $07                           ; $AC24  FE 07
         JR NZ,SUB_AC2D                   ; $AC26  20 05
         LD A,$02                         ; $AC28  3E 02
-        LD (SUB_AE73_4),A                ; $AC2A  32 A3 AE
+        LD (BIOS_VAR_A3),A                ; $AC2A  32 A3 AE
 SUB_AC2D:
         XOR A                            ; $AC2D  AF
-        LD (SUB_AE73_5),A                ; $AC2E  32 A4 AE
-        LD A,(SUB_AE73_3+1)              ; $AC31  3A A2 AE
+        LD (BIOS_VAR_A4),A                ; $AC2E  32 A4 AE
+        LD A,(BIOS_VAR_A2)              ; $AC31  3A A2 AE
         OR A                             ; $AC34  B7
         LD HL,($F388)                    ; $AC35  2A 88 F3
         JR Z,SUB_AC2D_1                  ; $AC38  28 03
@@ -308,8 +308,8 @@ SUB_AC2D_2:
 SUB_AC2D_3:
         JP SUB_AC2D_4                    ; $AC41  C3 44 AC
 SUB_AC2D_4:
-        LD HL,(SUB_AE73_6)               ; $AC44  2A A5 AE
-        LD A,(SUB_AE73_7)                ; $AC47  3A A7 AE
+        LD HL,(BIOS_PTR_A5)               ; $AC44  2A A5 AE
+        LD A,(BIOS_VAR_A7)                ; $AC47  3A A7 AE
         LD (HL),A                        ; $AC4A  77
         CALL SUB_AC6B                    ; $AC4B  CD 6B AC
         LD HL,($F028)                    ; $AC4E  2A 28 F0
@@ -317,9 +317,9 @@ SUB_AC2D_4:
         LD E,A                           ; $AC54  5F
         LD D,$F0                         ; $AC55  16 F0
         ADD HL,DE                        ; $AC57  19
-        LD (SUB_AE73_6),HL               ; $AC58  22 A5 AE
+        LD (BIOS_PTR_A5),HL               ; $AC58  22 A5 AE
         LD A,(HL)                        ; $AC5B  7E
-        LD (SUB_AE73_7),A                ; $AC5C  32 A7 AE
+        LD (BIOS_VAR_A7),A                ; $AC5C  32 A7 AE
         CP $E0                           ; $AC5F  FE E0
         JR C,SUB_AC2D_5                  ; $AC61  38 02
         XOR $20                          ; $AC63  EE 20
@@ -493,7 +493,7 @@ SUB_AD8E_6:
         CALL SUB_AFF0                    ; $ADF2  CD F0 AF
         LD E,A                           ; $ADF5  5F
         RRA                              ; $ADF6  1F
-        LD HL,SUB_AE73_2                 ; $ADF7  21 92 AE
+        LD HL,SECTOR_XLATE                 ; $ADF7  21 92 AE
         ADD A,L                          ; $ADFA  85
         LD L,A                           ; $ADFB  6F
         LD C,(HL)                        ; $ADFC  4E
@@ -538,7 +538,7 @@ SUB_AD8E_8:
         LD ($F3E0),HL                    ; $AE3F  22 E0 F3
         LD A,(SUB_AE73_12+1)             ; $AE42  3A B3 AE
         OR A                             ; $AE45  B7
-        CALL NZ,SUB_AE73_1+1             ; $AE46  C4 7A AE
+        CALL NZ,CONIO_SET_A1             ; $AE46  C4 7A AE
         XOR A                            ; $AE49  AF
         LD (SUB_AE73_11),A               ; $AE4A  32 B0 AE
 SUB_AD8E_9:
@@ -566,8 +566,10 @@ SUB_AE73:
         XOR A                            ; $AE73  AF
         LD (SUB_AE73_11),A               ; $AE74  32 B0 AE
         LD A,$02                         ; $AE77  3E 02
-SUB_AE73_1:
-        LD HL,$013E                      ; $AE79  21 3E 01
+        DEFB    $21                      ; $AE79  cover (LD HL,nn opcode): on fall-through absorbs the
+                                         ;        LD A,$01 below, leaving A=$02 from $AE77
+CONIO_SET_A1:
+        LD A,$01                         ; $AE7A  CALL'd directly -> A=$01 (cover-skipped on fall-through)
         LD ($F3EB),A                     ; $AE7C  32 EB F3
         LD HL,$0E03                      ; $AE7F  21 03 0E
         CALL SUB_AB3B                    ; $AE82  CD 3B AB
@@ -579,30 +581,21 @@ SUB_AE73_1:
         RET NZ                           ; $AE8D  C0
         LD HL,($9C0D)                    ; $AE8E  2A 0D 9C
         JP (HL)                          ; $AE91  E9
-SUB_AE73_2:
-        NOP                              ; $AE92  00
-        ADD HL,BC                        ; $AE93  09
-        INC BC                           ; $AE94  03
-        INC C                            ; $AE95  0C
-        LD B,$0F                         ; $AE96  06 0F
-        LD BC,$040A                      ; $AE98  01 0A 04
-        DEC C                            ; $AE9B  0D
-        RLCA                             ; $AE9C  07
-        EX AF,AF'                        ; $AE9D  08
-        LD (BC),A                        ; $AE9E  02
-        DEC BC                           ; $AE9F  0B
-        DEC B                            ; $AEA0  05
-SUB_AE73_3:
-        LD C,$00                         ; $AEA1  0E 00
-SUB_AE73_4:
-        NOP                              ; $AEA3  00
-SUB_AE73_5:
-        NOP                              ; $AEA4  00
-SUB_AE73_6:
-        AND A                            ; $AEA5  A7
-        XOR (HL)                         ; $AEA6  AE
-SUB_AE73_7:
-        NOP                              ; $AEA7  00
+SECTOR_XLATE:
+        ; $AE92  16-entry logical->physical sector skew table (a 0..15 permutation),
+        ; indexed during disk deblock (SUB_AF59-style *1 byte lookups).
+        DEFB    $00,$09,$03,$0C,$06,$0F,$01,$0A      ; $AE92
+        DEFB    $04,$0D,$07,$08,$02,$0B,$05,$0E      ; $AE9A
+BIOS_VAR_A2:
+        DEFB    $00                      ; $AEA2  disk scratch byte
+BIOS_VAR_A3:
+        DEFB    $00                      ; $AEA3  disk scratch byte
+BIOS_VAR_A4:
+        DEFB    $00                      ; $AEA4  disk scratch byte
+BIOS_PTR_A5:
+        DEFW    BIOS_VAR_A7              ; $AEA5  pointer cell (init -> BIOS_VAR_A7)
+BIOS_VAR_A7:
+        DEFB    $00                      ; $AEA7  disk scratch byte
 BOOT:
         LD SP,$0100                      ; $AEA8  31 00 01
 SUB_AE73_9:
@@ -685,21 +678,21 @@ SUB_AE73_21:
         POP HL                           ; $AF46  E1
         INC HL                           ; $AF47  23
         JR SUB_AE73_21                   ; $AF48  18 F3
-SUB_AE73_22:
-        RST $18                          ; $AF4A  DF
-        XOR H                            ; $AF4B  AC
-        INC B                            ; $AF4C  04
-        XOR L                            ; $AF4D  AD
-SUB_AE73_23:
-        LD SP,$12AD                      ; $AF4E  31 AD 12
-        XOR L                            ; $AF51  AD
-        INC E                            ; $AF52  1C
-        XOR L                            ; $AF53  AD
+DISK_RTN_PTRS:
+        ; $AF4A  table of BIOS handler addresses (DEFW); SUB_AF59 indexes from here,
+        ; SUB_AF54 indexes from DISK_RTN_PTRS_B (+6). Addresses relocated in the
+        ; semantic pass once the targets are named.
+        DEFW    $ACDF                    ; $AF4A  [0]
+        DEFW    $AD04                    ; $AF4C  [1]
+        DEFW    $AD31                    ; $AF4E  [2]
+DISK_RTN_PTRS_B:
+        DEFW    $AD12                    ; $AF50  SUB_AF54 base
+        DEFW    $AD1C                    ; $AF52
 SUB_AF54:
-        LD HL,SUB_AE73_23+2              ; $AF54  21 50 AF
+        LD HL,DISK_RTN_PTRS_B              ; $AF54  21 50 AF
         JR SUB_AF59_1                    ; $AF57  18 03
 SUB_AF59:
-        LD HL,SUB_AE73_22                ; $AF59  21 4A AF
+        LD HL,DISK_RTN_PTRS                ; $AF59  21 4A AF
 SUB_AF59_1:
         ADD A,A                          ; $AF5C  87
         ADD A,L                          ; $AF5D  85
