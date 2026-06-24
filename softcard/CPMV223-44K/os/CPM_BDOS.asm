@@ -13,7 +13,7 @@
     INCLUDE "cpm_system_223.inc"
     ORG $9C00
     ENDIF
-        DEFB    $BD,$16,$00,$01,$4D,$40                          ; $9C00
+        DEFB    $BD,$16,$00,$01,$4D,$40
 ; ----------------------------------------------------------------------
 ; BDOS_ENTRY -- the BDOS=$0005-vector landing point (FBASE+6); jumps to the function dispatcher.
 ;   In: C = BDOS function number, DE = info address (or single-byte arg in E) -- the standard $0005
@@ -24,7 +24,7 @@
 ;              address ($9C06), so every BDOS call enters here. [RE]
 ; ----------------------------------------------------------------------
 BDOS_ENTRY:
-        JP BDOS_DISPATCH                    ; $9C06  C3 11 9C
+        JP BDOS_DISPATCH
 ; ----------------------------------------------------------------------
 ; BDOS_ERR_VECTORS -- DATA: first entry of a 4-word table of BDOS disk-error reporter addresses.
 ;   In: a caller does LD HL,<one of these 4 word slots> then falls into the reporter helper at
@@ -36,8 +36,8 @@ BDOS_ENTRY:
 ;              '$'-terminated cause string ('Bad Sector'/'Select'/'R/O'/'File R/O'). [RE]
 ; ----------------------------------------------------------------------
 BDOS_ERR_VECTORS:
-        SBC A,C                          ; $9C09  99
-        SBC A,H                          ; $9C0A  9C
+        SBC A,C
+        SBC A,H
 ; ----------------------------------------------------------------------
 ; BDOS_ERRVEC_SELECT -- DATA: word for the Select-error reporter in the BDOS error-vector table.
 ;   In: n/a (data; loaded into HL by the helper front-end at BDOS_ERR_SELECT ($9F47) before
@@ -49,8 +49,8 @@ BDOS_ERR_VECTORS:
 ;              mis-decoded as AND L / SBC A,H. [RE]
 ; ----------------------------------------------------------------------
 BDOS_ERRVEC_SELECT:
-        AND L                            ; $9C0B  A5
-        SBC A,H                          ; $9C0C  9C
+        AND L
+        SBC A,H
 ; ----------------------------------------------------------------------
 ; BDOS_ERRVEC_RODISK -- DATA: word for the R/O-disk error reporter in the BDOS error-vector table.
 ;   In: n/a (data; loaded into HL by the caller reached when a write is attempted to a R/O-flagged
@@ -62,8 +62,8 @@ BDOS_ERRVEC_SELECT:
 ;              'R/O'. [RE]
 ; ----------------------------------------------------------------------
 BDOS_ERRVEC_RODISK:
-        XOR E                            ; $9C0D  AB
-        SBC A,H                          ; $9C0E  9C
+        XOR E
+        SBC A,H
 ; ----------------------------------------------------------------------
 ; BDOS_ERRVEC_FILERO -- DATA: word for the File-R/O error reporter in the BDOS error-vector table.
 ;   In: n/a (data; loaded into HL by the caller reached on a write to a read-only file).
@@ -74,8 +74,8 @@ BDOS_ERRVEC_RODISK:
 ;              follows. [RE]
 ; ----------------------------------------------------------------------
 BDOS_ERRVEC_FILERO:
-        OR C                             ; $9C0F  B1
-        SBC A,H                          ; $9C10  9C
+        OR C
+        SBC A,H
 ; ----------------------------------------------------------------------
 ; BDOS_DISPATCH -- the CP/M 2.2 FDOS dispatcher: set up the BDOS frame and vector to the handler.
 ;   In: C = BDOS function number (valid 0..40); DE = info address (single-byte arg also in E);
@@ -94,36 +94,36 @@ BDOS_ERRVEC_FILERO:
 ;              EX DE,HL, JP (HL). Static-indexed: function N selects table entry N. [RE]
 ; ----------------------------------------------------------------------
 BDOS_DISPATCH:
-        EX DE,HL                         ; $9C11  EB
-        LD (BDOS_PARAM_PTR),HL                   ; $9C12  22 43 9F
-        EX DE,HL                         ; $9C15  EB
-        LD A,E                           ; $9C16  7B
-        LD (DRV_SELECT_ARG),A                    ; $9C17  32 D6 A9
-        LD HL,$0000                      ; $9C1A  21 00 00
-        LD (BDOS_RETVAL),HL                   ; $9C1D  22 45 9F
-        ADD HL,SP                        ; $9C20  39
-        LD (BDOS_SAVED_SP),HL                   ; $9C21  22 0F 9F
-        LD SP,BDOS_STACK_TOP                     ; $9C24  31 41 9F
-        XOR A                            ; $9C27  AF
-        LD (DRV_SAVED_FCB_BYTE),A                    ; $9C28  32 E0 A9
-        LD (DRV_RESTORE_FLAG),A                    ; $9C2B  32 DE A9
-        LD HL,FCB_AUTO_DRIVE_RESTORE                ; $9C2E  21 74 A9
-        PUSH HL                          ; $9C31  E5
-        LD A,C                           ; $9C32  79
-        CP $29                           ; $9C33  FE 29
-        RET NC                           ; $9C35  D0
-        LD C,E                           ; $9C36  4B
-        LD HL,BDOS_DISPATCH_TBL                     ; $9C37  21 47 9C
-        LD E,A                           ; $9C3A  5F
-        LD D,$00                         ; $9C3B  16 00
-        ADD HL,DE                        ; $9C3D  19
-        ADD HL,DE                        ; $9C3E  19
-        LD E,(HL)                        ; $9C3F  5E
-        INC HL                           ; $9C40  23
-        LD D,(HL)                        ; $9C41  56
-        LD HL,(BDOS_PARAM_PTR)                   ; $9C42  2A 43 9F
-        EX DE,HL                         ; $9C45  EB
-        JP (HL)                          ; $9C46  E9
+        EX DE,HL
+        LD (BDOS_PARAM_PTR),HL
+        EX DE,HL
+        LD A,E
+        LD (DRV_SELECT_ARG),A
+        LD HL,$0000
+        LD (BDOS_RETVAL),HL
+        ADD HL,SP
+        LD (BDOS_SAVED_SP),HL
+        LD SP,BDOS_STACK_TOP
+        XOR A
+        LD (DRV_SAVED_FCB_BYTE),A
+        LD (DRV_RESTORE_FLAG),A
+        LD HL,FCB_AUTO_DRIVE_RESTORE
+        PUSH HL
+        LD A,C
+        CP $29
+        RET NC
+        LD C,E
+        LD HL,BDOS_DISPATCH_TBL
+        LD E,A
+        LD D,$00
+        ADD HL,DE
+        ADD HL,DE
+        LD E,(HL)
+        INC HL
+        LD D,(HL)
+        LD HL,(BDOS_PARAM_PTR)
+        EX DE,HL
+        JP (HL)
 ; ----------------------------------------------------------------------
 ; BDOS_DISPATCH_TBL -- 41-entry BDOS function dispatch table (one handler address per fn 0..40).
 ;   In: indexed by 2*A (the function number) in BDOS_DISPATCH.
@@ -143,56 +143,56 @@ BDOS_DISPATCH:
 ;     file). [RE]
 ; ----------------------------------------------------------------------
 BDOS_DISPATCH_TBL:
-        DEFW    $FA03                    ; $9C47
-        DEFW    F_CONIN_H              ; $9C49
-        DEFW    F_CONOUT_H                 ; $9C4B
-        DEFW    F_READERIN_H              ; $9C4D
-        DEFB    $12,$FA,$0F,$FA,$D4,$9E,$ED,$9E,$F3,$9E,$F8,$9E,$E1,$9D,$FE,$9E ; $9C4F
-        DEFW    S_BDOSVER_H               ; $9C5F
-        DEFW    DRV_ALLRESET_H               ; $9C61
-        DEFW    DRV_SET_H                 ; $9C63
-        DEFW    F_OPEN_H               ; $9C65
-        DEFW    F_CLOSE_H               ; $9C67
-        DEFW    F_SFIRST_H               ; $9C69
-        DEFW    F_SNEXT_H               ; $9C6B
-        DEFW    F_DELETE_H               ; $9C6D
-        DEFW    F_READ_H              ; $9C6F
-        DEFW    F_WRITE_H              ; $9C71
-        DEFW    F_MAKE_H              ; $9C73
-        DEFW    F_RENAME_H              ; $9C75
-        DEFW    DRV_LOGINVEC_H              ; $9C77
-        DEFW    DRV_GET_H              ; $9C79
-        DEFW    F_DMAOFF_H              ; $9C7B
-        DEFW    DRV_ALLOCVEC_H              ; $9C7D
-        DEFW    DRV_SETRO_H                 ; $9C7F
-        DEFW    DRV_ROVEC_H              ; $9C81
-        DEFW    F_ATTRIB_H              ; $9C83
-        DEFW    DRV_DPB_H              ; $9C85
-        DEFW    F_USERNUM_H              ; $9C87
-        DEFW    F_READRAND_H              ; $9C89
-        DEFW    F_WRITERAND_H              ; $9C8B
-        DEFW    F_SIZE_H              ; $9C8D
-        DEFW    F_RANDREC_H               ; $9C8F
-        DEFW    DRV_RESET_H              ; $9C91
-        DEFW    $9F04                    ; $9C93
-        DEFW    $9F04                    ; $9C95
-        DEFW    F_WRITEZF_H              ; $9C97
-        DEFW    $CA21                    ; $9C99
-        DEFW    $CD9C                    ; $9C9B
-        DEFW    BDOS_ERR_PRINT               ; $9C9D
-        DEFW    $03FE                    ; $9C9F
-        DEFW    $00CA                    ; $9CA1
-        DEFW    $C900                    ; $9CA3
-        DEFW    $D521                    ; $9CA5
-        DEFW    $C39C                    ; $9CA7
-        DEFB    $B4,$9C,$21,$E1,$9C,$C3,$B4,$9C,$21,$DC,$9C,$CD,$E5,$9C,$C3,$00 ; $9CA9
-        DEFB    "\0"    ; $9CB9
+        DEFW    $FA03
+        DEFW    F_CONIN_H
+        DEFW    F_CONOUT_H
+        DEFW    F_READERIN_H
+        DEFB    $12,$FA,$0F,$FA,$D4,$9E,$ED,$9E,$F3,$9E,$F8,$9E,$E1,$9D,$FE,$9E
+        DEFW    S_BDOSVER_H
+        DEFW    DRV_ALLRESET_H
+        DEFW    DRV_SET_H
+        DEFW    F_OPEN_H
+        DEFW    F_CLOSE_H
+        DEFW    F_SFIRST_H
+        DEFW    F_SNEXT_H
+        DEFW    F_DELETE_H
+        DEFW    F_READ_H
+        DEFW    F_WRITE_H
+        DEFW    F_MAKE_H
+        DEFW    F_RENAME_H
+        DEFW    DRV_LOGINVEC_H
+        DEFW    DRV_GET_H
+        DEFW    F_DMAOFF_H
+        DEFW    DRV_ALLOCVEC_H
+        DEFW    DRV_SETRO_H
+        DEFW    DRV_ROVEC_H
+        DEFW    F_ATTRIB_H
+        DEFW    DRV_DPB_H
+        DEFW    F_USERNUM_H
+        DEFW    F_READRAND_H
+        DEFW    F_WRITERAND_H
+        DEFW    F_SIZE_H
+        DEFW    F_RANDREC_H
+        DEFW    DRV_RESET_H
+        DEFW    $9F04
+        DEFW    $9F04
+        DEFW    F_WRITEZF_H
+        DEFW    $CA21
+        DEFW    $CD9C
+        DEFW    BDOS_ERR_PRINT
+        DEFW    $03FE
+        DEFW    $00CA
+        DEFW    $C900
+        DEFW    $D521
+        DEFW    $C39C
+        DEFB    $B4,$9C,$21,$E1,$9C,$C3,$B4,$9C,$21,$DC,$9C,$CD,$E5,$9C,$C3,$00
+        DEFB    "\0"
 ; ----------------------------------------------------------------------
 ; BDOS_ERR_MSG_HEAD -- '$'-terminated head of the BDOS error banner: 'Bdos Err On '.
 ;   [RE] Printed by BDOS_ERR_PRINT; the drive letter is patched into the byte that follows.
 ; ----------------------------------------------------------------------
 BDOS_ERR_MSG_HEAD:
-        DEFB    "Bdos Err On "    ; $9CBA  string
+        DEFB    "Bdos Err On "           ; string
 ; ----------------------------------------------------------------------
 ; BDOS_ERR_MSG_DRIVE -- drive-letter slot plus the four '$'-delimited error reasons.
 ;   Layout: 1 patched drive-letter byte, then ' : $', 'Bad Sector$', 'Select$', 'File R/O$'.
@@ -201,7 +201,7 @@ BDOS_ERR_MSG_HEAD:
 ;        reason string (at +4 / +15 / +22) is pointed to by HL on entry to the trap.
 ; ----------------------------------------------------------------------
 BDOS_ERR_MSG_DRIVE:
-        DEFB    " : $Bad Sector$Select$File R/O$"    ; $9CC6  string
+        DEFB    " : $Bad Sector$Select$File R/O$" ; string
 ; ----------------------------------------------------------------------
 ; BDOS_ERR_PRINT -- print the 'Bdos Err On d: <reason>' banner to the console.
 ;   In: HL = pointer to the trailing reason string ('$'-terminated); BDOS_CUR_DRIVE = drive index.
@@ -213,18 +213,18 @@ BDOS_ERR_MSG_DRIVE:
 ;   [RE] Standard CP/M 2.2 BDOS error reporter.
 ; ----------------------------------------------------------------------
 BDOS_ERR_PRINT:
-        PUSH HL                          ; $9CE5  E5
-        CALL CON_CRLF                    ; $9CE6  CD C9 9D
+        PUSH HL
+        CALL CON_CRLF
         ; Current drive index (0=A) from BDOS_CUR_DRIVE
-        LD A,(BDOS_CUR_DRIVE)                    ; $9CE9  3A 42 9F
+        LD A,(BDOS_CUR_DRIVE)
         ; Convert drive index to a letter 'A'+n
-        ADD A,$41                        ; $9CEC  C6 41
-        LD (BDOS_ERR_MSG_DRIVE),A                    ; $9CEE  32 C6 9C
+        ADD A,$41
+        LD (BDOS_ERR_MSG_DRIVE),A
         ; Point BC at the fixed head 'Bdos Err On '
-        LD BC,BDOS_ERR_MSG_HEAD                     ; $9CF1  01 BA 9C
-        CALL CON_PRINT_STR                  ; $9CF4  CD D3 9D
-        POP BC                           ; $9CF7  C1
-        CALL CON_PRINT_STR                  ; $9CF8  CD D3 9D
+        LD BC,BDOS_ERR_MSG_HEAD
+        CALL CON_PRINT_STR
+        POP BC
+        CALL CON_PRINT_STR
 ; ----------------------------------------------------------------------
 ; CON_GETC_OR_RAW -- return the 1-char type-ahead if present, else read raw console input.
 ;   In: CON_PENDING_CHAR = pending look-ahead char (0 if none).
@@ -235,13 +235,13 @@ BDOS_ERR_PRINT:
 ;   [RE] Single-byte console un-get buffer used by the line editor and CONIN.
 ; ----------------------------------------------------------------------
 CON_GETC_OR_RAW:
-        LD HL,CON_PENDING_CHAR                     ; $9CFB  21 0E 9F
-        LD A,(HL)                        ; $9CFE  7E
-        LD (HL),$00                      ; $9CFF  36 00
-        OR A                             ; $9D01  B7
-        RET NZ                           ; $9D02  C0
+        LD HL,CON_PENDING_CHAR
+        LD A,(HL)
+        LD (HL),$00
+        OR A
+        RET NZ
         ; BIOS CONIN vector (2.23 BIOS variable page $FA00 = Apple low RAM $0A00)
-        JP $FA09                         ; $9D03  C3 09 FA
+        JP $FA09
 ; ----------------------------------------------------------------------
 ; F_CONIN_RAW -- read one console char, echoing it unless it is a control char.
 ;   In: none.  Out: A = character read (7-bit not masked here).  Clobbers: AF, BC, HL.
@@ -250,14 +250,14 @@ CON_GETC_OR_RAW:
 ;   [RE] Backs BDOS function 1 (Console Input with echo).
 ; ----------------------------------------------------------------------
 F_CONIN_RAW:
-        CALL CON_GETC_OR_RAW                    ; $9D06  CD FB 9C
-        CALL IS_CTRL_CHAR                    ; $9D09  CD 14 9D
-        RET C                            ; $9D0C  D8
-        PUSH AF                          ; $9D0D  F5
-        LD C,A                           ; $9D0E  4F
-        CALL F_CONOUT_H                    ; $9D0F  CD 90 9D
-        POP AF                           ; $9D12  F1
-        RET                              ; $9D13  C9
+        CALL CON_GETC_OR_RAW
+        CALL IS_CTRL_CHAR
+        RET C
+        PUSH AF
+        LD C,A
+        CALL F_CONOUT_H
+        POP AF
+        RET
 ; ----------------------------------------------------------------------
 ; IS_CTRL_CHAR -- classify a char as a special/control code for echo suppression.
 ;   In: A = character.
@@ -268,16 +268,16 @@ F_CONIN_RAW:
 ;              through to CP ' ' so carry tells printable-vs-control. [RE]
 ; ----------------------------------------------------------------------
 IS_CTRL_CHAR:
-        CP $0D                           ; $9D14  FE 0D
-        RET Z                            ; $9D16  C8
-        CP $0A                           ; $9D17  FE 0A
-        RET Z                            ; $9D19  C8
-        CP $09                           ; $9D1A  FE 09
-        RET Z                            ; $9D1C  C8
-        CP $08                           ; $9D1D  FE 08
-        RET Z                            ; $9D1F  C8
-        CP $20                           ; $9D20  FE 20
-        RET                              ; $9D22  C9
+        CP $0D
+        RET Z
+        CP $0A
+        RET Z
+        CP $09
+        RET Z
+        CP $08
+        RET Z
+        CP $20
+        RET
 ; ----------------------------------------------------------------------
 ; CON_POLL_STATUS -- console-status poll that also traps Ctrl-S/Ctrl-C while idle.
 ;   In: CON_PENDING_CHAR = type-ahead char (nonzero => a key is already pending).
@@ -290,37 +290,37 @@ IS_CTRL_CHAR:
 ;   [RE] Backs the BDOS console-status / flow-control behaviour.
 ; ----------------------------------------------------------------------
 CON_POLL_STATUS:
-        LD A,(CON_PENDING_CHAR)                    ; $9D23  3A 0E 9F
-        OR A                             ; $9D26  B7
-        JP NZ,CON_STATUS_READY                 ; $9D27  C2 45 9D
+        LD A,(CON_PENDING_CHAR)
+        OR A
+        JP NZ,CON_STATUS_READY
         ; BIOS console-status vector ($FA00 BIOS variable page = Apple $0A00)
-        CALL $FA06                       ; $9D2A  CD 06 FA
-        AND $01                          ; $9D2D  E6 01
-        RET Z                            ; $9D2F  C8
+        CALL $FA06
+        AND $01
+        RET Z
         ; Peek the pending key via the BIOS CONIN vector
-        CALL $FA09                       ; $9D30  CD 09 FA
-        CP $13                           ; $9D33  FE 13
-        JP NZ,CON_POLL_STASH                 ; $9D35  C2 42 9D
+        CALL $FA09
+        CP $13
+        JP NZ,CON_POLL_STASH
         ; After Ctrl-S, read the resume/abort key (Ctrl-C warm-boots)
-        CALL $FA09                       ; $9D38  CD 09 FA
-        CP $03                           ; $9D3B  FE 03
-        JP Z,$0000                       ; $9D3D  CA 00 00
-        XOR A                            ; $9D40  AF
-        RET                              ; $9D41  C9
+        CALL $FA09
+        CP $03
+        JP Z,$0000
+        XOR A
+        RET
 ; ----------------------------------------------------------------------
 ; CON_POLL_STASH -- stash the just-read key as type-ahead and report 'ready'.
 ;   In: A = key character to hold.  Out: A = 1 (ready).  Clobbers: none beyond A.
 ;   Algorithm: store A into CON_PENDING_CHAR, then fall into the A:=1 tail (CON_STATUS_READY). [RE]
 ; ----------------------------------------------------------------------
 CON_POLL_STASH:
-        LD (CON_PENDING_CHAR),A                    ; $9D42  32 0E 9F
+        LD (CON_PENDING_CHAR),A
 ; ----------------------------------------------------------------------
 ; CON_STATUS_READY -- return A=1, the 'character is ready' status result.
 ;   In: none.  Out: A=1.  Clobbers: A.  [RE] Shared tail of CON_POLL_STATUS.
 ; ----------------------------------------------------------------------
 CON_STATUS_READY:
-        LD A,$01                         ; $9D45  3E 01
-        RET                              ; $9D47  C9
+        LD A,$01
+        RET
 ; ----------------------------------------------------------------------
 ; CON_PUT_COL -- output one char to the console, tracking column and honouring Ctrl-S.
 ;   In: C = character to print.
@@ -335,22 +335,22 @@ CON_STATUS_READY:
 ;              BS decrements; LF zeroes it. [RE] Core char output + column bookkeeping.
 ; ----------------------------------------------------------------------
 CON_PUT_COL:
-        LD A,(CON_SAVED_COL)                    ; $9D48  3A 0A 9F
-        OR A                             ; $9D4B  B7
-        JP NZ,CON_TRACK_COL                 ; $9D4C  C2 62 9D
-        PUSH BC                          ; $9D4F  C5
-        CALL CON_POLL_STATUS                    ; $9D50  CD 23 9D
-        POP BC                           ; $9D53  C1
-        PUSH BC                          ; $9D54  C5
+        LD A,(CON_SAVED_COL)
+        OR A
+        JP NZ,CON_TRACK_COL
+        PUSH BC
+        CALL CON_POLL_STATUS
+        POP BC
+        PUSH BC
         ; BIOS console-output vector ($FA00 BIOS variable page)
-        CALL $FA0C                       ; $9D55  CD 0C FA
-        POP BC                           ; $9D58  C1
-        PUSH BC                          ; $9D59  C5
-        LD A,(CON_LIST_ECHO)                    ; $9D5A  3A 0D 9F
-        OR A                             ; $9D5D  B7
+        CALL $FA0C
+        POP BC
+        PUSH BC
+        LD A,(CON_LIST_ECHO)
+        OR A
         ; BIOS list-output vector when printer echo (CON_LIST_ECHO) is set
-        CALL NZ,$FA0F                    ; $9D5E  C4 0F FA
-        POP BC                           ; $9D61  C1
+        CALL NZ,$FA0F
+        POP BC
 ; ----------------------------------------------------------------------
 ; CON_TRACK_COL -- update the output column counter for the char just sent.
 ;   In: C = the char emitted; CON_COL = current column.
@@ -360,32 +360,32 @@ CON_PUT_COL:
 ;              BS(08) -> decrement; LF(0A) -> zero the column. [RE]
 ; ----------------------------------------------------------------------
 CON_TRACK_COL:
-        LD A,C                           ; $9D62  79
-        LD HL,CON_COL                     ; $9D63  21 0C 9F
-        CP $7F                           ; $9D66  FE 7F
-        RET Z                            ; $9D68  C8
-        INC (HL)                         ; $9D69  34
-        CP $20                           ; $9D6A  FE 20
-        RET NC                           ; $9D6C  D0
-        DEC (HL)                         ; $9D6D  35
-        LD A,(HL)                        ; $9D6E  7E
-        OR A                             ; $9D6F  B7
-        RET Z                            ; $9D70  C8
-        LD A,C                           ; $9D71  79
-        CP $08                           ; $9D72  FE 08
-        JP NZ,CON_TRACK_COL_LF                 ; $9D74  C2 79 9D
-        DEC (HL)                         ; $9D77  35
-        RET                              ; $9D78  C9
+        LD A,C
+        LD HL,CON_COL
+        CP $7F
+        RET Z
+        INC (HL)
+        CP $20
+        RET NC
+        DEC (HL)
+        LD A,(HL)
+        OR A
+        RET Z
+        LD A,C
+        CP $08
+        JP NZ,CON_TRACK_COL_LF
+        DEC (HL)
+        RET
 ; ----------------------------------------------------------------------
 ; CON_TRACK_COL_LF -- handle the line-feed case of column tracking.
 ;   In: A = the control char; HL -> column cell.  Out: column zeroed if A was LF; else unchanged.
 ;   Clobbers: AF.  [RE] LF tail of CON_TRACK_COL.
 ; ----------------------------------------------------------------------
 CON_TRACK_COL_LF:
-        CP $0A                           ; $9D79  FE 0A
-        RET NZ                           ; $9D7B  C0
-        LD (HL),$00                      ; $9D7C  36 00
-        RET                              ; $9D7E  C9
+        CP $0A
+        RET NZ
+        LD (HL),$00
+        RET
 ; ----------------------------------------------------------------------
 ; CON_PUT_VISIBLE -- output a char, expanding non-tab control codes as '^X'.
 ;   In: C = character.  Out: char(s) sent via CON_PUT_COL; TAB handled by F_CONOUT_H expansion.
@@ -397,15 +397,15 @@ CON_TRACK_COL_LF:
 ;   [RE] Visible-control echo used by the line editor's buffer redisplay.
 ; ----------------------------------------------------------------------
 CON_PUT_VISIBLE:
-        LD A,C                           ; $9D7F  79
-        CALL IS_CTRL_CHAR                    ; $9D80  CD 14 9D
-        JP NC,F_CONOUT_H                   ; $9D83  D2 90 9D
-        PUSH AF                          ; $9D86  F5
-        LD C,$5E                         ; $9D87  0E 5E
-        CALL CON_PUT_COL                    ; $9D89  CD 48 9D
-        POP AF                           ; $9D8C  F1
-        OR $40                           ; $9D8D  F6 40
-        LD C,A                           ; $9D8F  4F
+        LD A,C
+        CALL IS_CTRL_CHAR
+        JP NC,F_CONOUT_H
+        PUSH AF
+        LD C,$5E
+        CALL CON_PUT_COL
+        POP AF
+        OR $40
+        LD C,A
 ; ----------------------------------------------------------------------
 ; F_CONOUT_H -- BDOS console-output handler (function 2) with tab expansion.
 ;   In: C = character to print.  Out: character emitted; TAB expands to spaces to the next 8-column
@@ -416,9 +416,9 @@ CON_PUT_VISIBLE:
 ;              until CON_COL is a multiple of 8. [RE] BDOS function 2 (Console Output).
 ; ----------------------------------------------------------------------
 F_CONOUT_H:
-        LD A,C                           ; $9D90  79
-        CP $09                           ; $9D91  FE 09
-        JP NZ,CON_PUT_COL                   ; $9D93  C2 48 9D
+        LD A,C
+        CP $09
+        JP NZ,CON_PUT_COL
 ; ----------------------------------------------------------------------
 ; CONOUT_TAB_FILL -- emit spaces until the column reaches the next 8-stop (tab expand).
 ;   In: CON_COL = current column.  Out: spaces printed until (column & 7)==0.  Clobbers: AF, C.
@@ -427,12 +427,12 @@ F_CONOUT_H:
 ;   [RE] Tab-expansion loop of F_CONOUT_H.
 ; ----------------------------------------------------------------------
 CONOUT_TAB_FILL:
-        LD C,$20                         ; $9D96  0E 20
-        CALL CON_PUT_COL                    ; $9D98  CD 48 9D
-        LD A,(CON_COL)                    ; $9D9B  3A 0C 9F
-        AND $07                          ; $9D9E  E6 07
-        JP NZ,CONOUT_TAB_FILL                 ; $9DA0  C2 96 9D
-        RET                              ; $9DA3  C9
+        LD C,$20
+        CALL CON_PUT_COL
+        LD A,(CON_COL)
+        AND $07
+        JP NZ,CONOUT_TAB_FILL
+        RET
 ; ----------------------------------------------------------------------
 ; CON_BACKSPACE -- erase the last echoed character (BS, space, BS).
 ;   In: none.  Out: cursor moved left one cell, char blanked on screen.  Clobbers: AF, C.
@@ -440,19 +440,19 @@ CONOUT_TAB_FILL:
 ;              ($FA0C) so the previous glyph is overwritten with a blank. [RE]
 ; ----------------------------------------------------------------------
 CON_BACKSPACE:
-        CALL CON_BS_OUT                    ; $9DA4  CD AC 9D
-        LD C,$20                         ; $9DA7  0E 20
+        CALL CON_BS_OUT
+        LD C,$20
         ; BIOS conout vector: print the blanking space ($FA00 BIOS variable page)
-        CALL $FA0C                       ; $9DA9  CD 0C FA
+        CALL $FA0C
 ; ----------------------------------------------------------------------
 ; CON_BS_OUT -- send a single backspace (08) to the console.
 ;   In: none.  Out: BS emitted via the BIOS conout vector ($FA0C).  Clobbers: C.
 ;   [RE] Tail-call helper; also used as the leading BS of CON_BACKSPACE.
 ; ----------------------------------------------------------------------
 CON_BS_OUT:
-        LD C,$08                         ; $9DAC  0E 08
+        LD C,$08
         ; BIOS conout vector (tail call), $FA00 BIOS variable page
-        JP $FA0C                         ; $9DAE  C3 0C FA
+        JP $FA0C
 ; ----------------------------------------------------------------------
 ; CON_RETYPE_LINE -- echo '#' + CR/LF and reprint the current edit buffer (Ctrl-R / Ctrl-U).
 ;   In: CON_COL = total chars in the line; the edit buffer follows BDOS_PARAM_PTR's pointer.
@@ -461,9 +461,9 @@ CON_BS_OUT:
 ;              the echoed count CON_LINE_START_COL reaches CON_COL. [RE]
 ; ----------------------------------------------------------------------
 CON_RETYPE_LINE:
-        LD C,$23                         ; $9DB1  0E 23
-        CALL CON_PUT_COL                    ; $9DB3  CD 48 9D
-        CALL CON_CRLF                    ; $9DB6  CD C9 9D
+        LD C,$23
+        CALL CON_PUT_COL
+        CALL CON_CRLF
 ; ----------------------------------------------------------------------
 ; CON_RETYPE_LOOP -- reprint buffered characters until the column matches the count.
 ;   In: CON_LINE_START_COL = chars already re-echoed; CON_COL = target count.
@@ -474,23 +474,23 @@ CON_RETYPE_LINE:
 ;       'advance until equal'.
 ; ----------------------------------------------------------------------
 CON_RETYPE_LOOP:
-        LD A,(CON_COL)                    ; $9DB9  3A 0C 9F
-        LD HL,CON_LINE_START_COL                     ; $9DBC  21 0B 9F
-        CP (HL)                          ; $9DBF  BE
-        RET NC                           ; $9DC0  D0
-        LD C,$20                         ; $9DC1  0E 20
-        CALL CON_PUT_COL                    ; $9DC3  CD 48 9D
-        JP CON_RETYPE_LOOP                    ; $9DC6  C3 B9 9D
+        LD A,(CON_COL)
+        LD HL,CON_LINE_START_COL
+        CP (HL)
+        RET NC
+        LD C,$20
+        CALL CON_PUT_COL
+        JP CON_RETYPE_LOOP
 ; ----------------------------------------------------------------------
 ; CON_CRLF -- output a carriage-return / line-feed pair to the console.
 ;   In: none.  Out: CR then LF emitted; column reset by the LF.  Clobbers: AF, C.
 ;   Algorithm: CON_PUT_COL with CR(0D), then tail-call CON_PUT_COL with LF(0A). [RE]
 ; ----------------------------------------------------------------------
 CON_CRLF:
-        LD C,$0D                         ; $9DC9  0E 0D
-        CALL CON_PUT_COL                    ; $9DCB  CD 48 9D
-        LD C,$0A                         ; $9DCE  0E 0A
-        JP CON_PUT_COL                      ; $9DD0  C3 48 9D
+        LD C,$0D
+        CALL CON_PUT_COL
+        LD C,$0A
+        JP CON_PUT_COL
 ; ----------------------------------------------------------------------
 ; CON_PRINT_STR -- print a '$'-terminated string to the console.
 ;   In: BC = pointer to the string; terminated by '$' (24h).
@@ -499,15 +499,15 @@ CON_CRLF:
 ;              (preserving BC), and loop. [RE] Backs BDOS function 9 and the error printer.
 ; ----------------------------------------------------------------------
 CON_PRINT_STR:
-        LD A,(BC)                        ; $9DD3  0A
-        CP $24                           ; $9DD4  FE 24
-        RET Z                            ; $9DD6  C8
-        INC BC                           ; $9DD7  03
-        PUSH BC                          ; $9DD8  C5
-        LD C,A                           ; $9DD9  4F
-        CALL F_CONOUT_H                    ; $9DDA  CD 90 9D
-        POP BC                           ; $9DDD  C1
-        JP CON_PRINT_STR                    ; $9DDE  C3 D3 9D
+        LD A,(BC)
+        CP $24
+        RET Z
+        INC BC
+        PUSH BC
+        LD C,A
+        CALL F_CONOUT_H
+        POP BC
+        JP CON_PRINT_STR
 ; ----------------------------------------------------------------------
 ; F_READCONBUF_H -- BDOS buffered console line input (function 10) with editing.
 ;   In: BDOS_PARAM_PTR -> the read buffer (byte0 = max length, byte1 = returned count, data...).
@@ -522,13 +522,13 @@ CON_PRINT_STR:
 ;   [RE] Classic CP/M 2.2 line editor (Read Console Buffer).
 ; ----------------------------------------------------------------------
 F_READCONBUF_H:
-        LD A,(CON_COL)                    ; $9DE1  3A 0C 9F
-        LD (CON_LINE_START_COL),A                    ; $9DE4  32 0B 9F
-        LD HL,(BDOS_PARAM_PTR)                   ; $9DE7  2A 43 9F
-        LD C,(HL)                        ; $9DEA  4E
-        INC HL                           ; $9DEB  23
-        PUSH HL                          ; $9DEC  E5
-        LD B,$00                         ; $9DED  06 00
+        LD A,(CON_COL)
+        LD (CON_LINE_START_COL),A
+        LD HL,(BDOS_PARAM_PTR)
+        LD C,(HL)
+        INC HL
+        PUSH HL
+        LD B,$00
 ; ----------------------------------------------------------------------
 ; READBUF_NEXT -- top of the line-editor read loop: save state and fetch a char.
 ;   In: B = count so far, HL -> buffer position.
@@ -536,8 +536,8 @@ F_READCONBUF_H:
 ;   [RE] Per-keystroke loop head of F_READCONBUF_H.
 ; ----------------------------------------------------------------------
 READBUF_NEXT:
-        PUSH BC                          ; $9DEF  C5
-        PUSH HL                          ; $9DF0  E5
+        PUSH BC
+        PUSH HL
 ; ----------------------------------------------------------------------
 ; READBUF_GETC -- read and classify the next edit character.
 ;   In: stacked BC/HL = saved count and buffer pointer.
@@ -549,23 +549,23 @@ READBUF_NEXT:
 ;   [RE] Keystroke dispatcher inside F_READCONBUF_H.
 ; ----------------------------------------------------------------------
 READBUF_GETC:
-        CALL CON_GETC_OR_RAW                    ; $9DF1  CD FB 9C
-        AND $7F                          ; $9DF4  E6 7F
-        POP HL                           ; $9DF6  E1
-        POP BC                           ; $9DF7  C1
-        CP $0D                           ; $9DF8  FE 0D
-        JP Z,READBUF_DONE                 ; $9DFA  CA C1 9E
-        CP $0A                           ; $9DFD  FE 0A
-        JP Z,READBUF_DONE                 ; $9DFF  CA C1 9E
-        CP $08                           ; $9E02  FE 08
-        JP NZ,READBUF_DEL                 ; $9E04  C2 16 9E
-        LD A,B                           ; $9E07  78
-        OR A                             ; $9E08  B7
-        JP Z,READBUF_NEXT                  ; $9E09  CA EF 9D
-        DEC B                            ; $9E0C  05
-        LD A,(CON_COL)                    ; $9E0D  3A 0C 9F
-        LD (CON_SAVED_COL),A                    ; $9E10  32 0A 9F
-        JP READBUF_REDISPLAY                   ; $9E13  C3 70 9E
+        CALL CON_GETC_OR_RAW
+        AND $7F
+        POP HL
+        POP BC
+        CP $0D
+        JP Z,READBUF_DONE
+        CP $0A
+        JP Z,READBUF_DONE
+        CP $08
+        JP NZ,READBUF_DEL
+        LD A,B
+        OR A
+        JP Z,READBUF_NEXT
+        DEC B
+        LD A,(CON_COL)
+        LD (CON_SAVED_COL),A
+        JP READBUF_REDISPLAY
 ; ----------------------------------------------------------------------
 ; READBUF_DEL -- handle DEL (7F) as a destructive rubout of the previous char.
 ;   In: A = char (7F), B = count, HL -> buffer position.
@@ -573,15 +573,15 @@ READBUF_GETC:
 ;        just re-loops.  Clobbers: AF, B, HL.  [RE] DELETE key path of the line editor.
 ; ----------------------------------------------------------------------
 READBUF_DEL:
-        CP $7F                           ; $9E16  FE 7F
-        JP NZ,READBUF_CTRL_E                 ; $9E18  C2 26 9E
-        LD A,B                           ; $9E1B  78
-        OR A                             ; $9E1C  B7
-        JP Z,READBUF_NEXT                  ; $9E1D  CA EF 9D
-        LD A,(HL)                        ; $9E20  7E
-        DEC B                            ; $9E21  05
-        DEC HL                           ; $9E22  2B
-        JP READBUF_STORE_ECHO                   ; $9E23  C3 A9 9E
+        CP $7F
+        JP NZ,READBUF_CTRL_E
+        LD A,B
+        OR A
+        JP Z,READBUF_NEXT
+        LD A,(HL)
+        DEC B
+        DEC HL
+        JP READBUF_STORE_ECHO
 ; ----------------------------------------------------------------------
 ; READBUF_CTRL_E -- handle Ctrl-E (05): physical CR/LF without ending the line.
 ;   In: A = char, BC/HL = editor state.  Out: cursor moved to a new line, echoed-count reset;
@@ -592,14 +592,14 @@ READBUF_DEL:
 ;              fall through to the next control test. [RE]
 ; ----------------------------------------------------------------------
 READBUF_CTRL_E:
-        CP $05                           ; $9E26  FE 05
-        JP NZ,READBUF_CTRL_P                 ; $9E28  C2 37 9E
-        PUSH BC                          ; $9E2B  C5
-        PUSH HL                          ; $9E2C  E5
-        CALL CON_CRLF                    ; $9E2D  CD C9 9D
-        XOR A                            ; $9E30  AF
-        LD (CON_LINE_START_COL),A                    ; $9E31  32 0B 9F
-        JP READBUF_GETC                    ; $9E34  C3 F1 9D
+        CP $05
+        JP NZ,READBUF_CTRL_P
+        PUSH BC
+        PUSH HL
+        CALL CON_CRLF
+        XOR A
+        LD (CON_LINE_START_COL),A
+        JP READBUF_GETC
 ; ----------------------------------------------------------------------
 ; READBUF_CTRL_P -- handle Ctrl-P (10): toggle the printer (list-device) echo flag.
 ;   In: A = char.  Out: CON_LIST_ECHO flipped between 0 and 1; editing continues.  Clobbers: AF, HL.
@@ -608,15 +608,15 @@ READBUF_CTRL_E:
 ;              fall through to the Ctrl-X test. [RE]
 ; ----------------------------------------------------------------------
 READBUF_CTRL_P:
-        CP $10                           ; $9E37  FE 10
-        JP NZ,READBUF_CTRL_X                 ; $9E39  C2 48 9E
-        PUSH HL                          ; $9E3C  E5
-        LD HL,CON_LIST_ECHO                     ; $9E3D  21 0D 9F
-        LD A,$01                         ; $9E40  3E 01
-        SUB (HL)                         ; $9E42  96
-        LD (HL),A                        ; $9E43  77
-        POP HL                           ; $9E44  E1
-        JP READBUF_NEXT                    ; $9E45  C3 EF 9D
+        CP $10
+        JP NZ,READBUF_CTRL_X
+        PUSH HL
+        LD HL,CON_LIST_ECHO
+        LD A,$01
+        SUB (HL)
+        LD (HL),A
+        POP HL
+        JP READBUF_NEXT
 ; ----------------------------------------------------------------------
 ; READBUF_CTRL_X -- handle Ctrl-X (18): erase the whole input line.
 ;   In: A = char; CON_COL = column; CON_LINE_START_COL = start column.
@@ -627,9 +627,9 @@ READBUF_CTRL_P:
 ;              read with an empty buffer; else fall to the Ctrl-U test. [RE]
 ; ----------------------------------------------------------------------
 READBUF_CTRL_X:
-        CP $18                           ; $9E48  FE 18
-        JP NZ,READBUF_CTRL_U                ; $9E4A  C2 5F 9E
-        POP HL                           ; $9E4D  E1
+        CP $18
+        JP NZ,READBUF_CTRL_U
+        POP HL
 ; ----------------------------------------------------------------------
 ; READBUF_ERASE_LOOP -- backspace-erase characters back to the line start.
 ;   In: CON_LINE_START_COL = start column, CON_COL = current column.
@@ -637,13 +637,13 @@ READBUF_CTRL_X:
 ;   Algorithm: while current column > start column, decrement it and CON_BACKSPACE. [RE]
 ; ----------------------------------------------------------------------
 READBUF_ERASE_LOOP:
-        LD A,(CON_LINE_START_COL)                    ; $9E4E  3A 0B 9F
-        LD HL,CON_COL                     ; $9E51  21 0C 9F
-        CP (HL)                          ; $9E54  BE
-        JP NC,F_READCONBUF_H                 ; $9E55  D2 E1 9D
-        DEC (HL)                         ; $9E58  35
-        CALL CON_BACKSPACE                    ; $9E59  CD A4 9D
-        JP READBUF_ERASE_LOOP                    ; $9E5C  C3 4E 9E
+        LD A,(CON_LINE_START_COL)
+        LD HL,CON_COL
+        CP (HL)
+        JP NC,F_READCONBUF_H
+        DEC (HL)
+        CALL CON_BACKSPACE
+        JP READBUF_ERASE_LOOP
 ; ----------------------------------------------------------------------
 ; READBUF_CTRL_U -- handle Ctrl-U (15): abandon the line, show '#', restart.
 ;   In: A = char.  Out: '#' printed, fresh line started, buffer reset.  Clobbers: AF, HL.
@@ -652,11 +652,11 @@ READBUF_ERASE_LOOP:
 ;              otherwise fall to the Ctrl-R test. [RE]
 ; ----------------------------------------------------------------------
 READBUF_CTRL_U:
-        CP $15                           ; $9E5F  FE 15
-        JP NZ,READBUF_CTRL_R                ; $9E61  C2 6B 9E
-        CALL CON_RETYPE_LINE                    ; $9E64  CD B1 9D
-        POP HL                           ; $9E67  E1
-        JP F_READCONBUF_H                    ; $9E68  C3 E1 9D
+        CP $15
+        JP NZ,READBUF_CTRL_R
+        CALL CON_RETYPE_LINE
+        POP HL
+        JP F_READCONBUF_H
 ; ----------------------------------------------------------------------
 ; READBUF_CTRL_R -- handle Ctrl-R (12): retype the current line, else store the char.
 ;   In: A = char, B = count, HL -> buffer.
@@ -665,8 +665,8 @@ READBUF_CTRL_U:
 ;              retype-and-redisplay sequence. [RE]
 ; ----------------------------------------------------------------------
 READBUF_CTRL_R:
-        CP $12                           ; $9E6B  FE 12
-        JP NZ,READBUF_STORE                ; $9E6D  C2 A6 9E
+        CP $12
+        JP NZ,READBUF_STORE
 ; ----------------------------------------------------------------------
 ; READBUF_REDISPLAY -- reprint the buffered line after a retype/delete.
 ;   In: B = char count; buffer on stack (HL).
@@ -677,12 +677,12 @@ READBUF_CTRL_R:
 ;              backspace.
 ; ----------------------------------------------------------------------
 READBUF_REDISPLAY:
-        PUSH BC                          ; $9E70  C5
-        CALL CON_RETYPE_LINE                    ; $9E71  CD B1 9D
-        POP BC                           ; $9E74  C1
-        POP HL                           ; $9E75  E1
-        PUSH HL                          ; $9E76  E5
-        PUSH BC                          ; $9E77  C5
+        PUSH BC
+        CALL CON_RETYPE_LINE
+        POP BC
+        POP HL
+        PUSH HL
+        PUSH BC
 ; ----------------------------------------------------------------------
 ; READBUF_REDISPLAY_LOOP -- re-echo each buffered character.
 ;   In: B = remaining count, HL -> buffer position.
@@ -692,18 +692,18 @@ READBUF_REDISPLAY:
 ;              fall into the post-redisplay column fixup (READBUF_REPOS). [RE]
 ; ----------------------------------------------------------------------
 READBUF_REDISPLAY_LOOP:
-        LD A,B                           ; $9E78  78
-        OR A                             ; $9E79  B7
-        JP Z,READBUF_REPOS                 ; $9E7A  CA 8A 9E
-        INC HL                           ; $9E7D  23
-        LD C,(HL)                        ; $9E7E  4E
-        DEC B                            ; $9E7F  05
-        PUSH BC                          ; $9E80  C5
-        PUSH HL                          ; $9E81  E5
-        CALL CON_PUT_VISIBLE                    ; $9E82  CD 7F 9D
-        POP HL                           ; $9E85  E1
-        POP BC                           ; $9E86  C1
-        JP READBUF_REDISPLAY_LOOP                   ; $9E87  C3 78 9E
+        LD A,B
+        OR A
+        JP Z,READBUF_REPOS
+        INC HL
+        LD C,(HL)
+        DEC B
+        PUSH BC
+        PUSH HL
+        CALL CON_PUT_VISIBLE
+        POP HL
+        POP BC
+        JP READBUF_REDISPLAY_LOOP
 ; ----------------------------------------------------------------------
 ; READBUF_REPOS -- after redisplay, backspace the cursor to the edit position.
 ;   In: CON_SAVED_COL = saved column to restore to, CON_COL = current column.
@@ -716,13 +716,13 @@ READBUF_REDISPLAY_LOOP:
 ;       directory traversal.
 ; ----------------------------------------------------------------------
 READBUF_REPOS:
-        PUSH HL                          ; $9E8A  E5
-        LD A,(CON_SAVED_COL)                    ; $9E8B  3A 0A 9F
-        OR A                             ; $9E8E  B7
-        JP Z,READBUF_GETC                  ; $9E8F  CA F1 9D
-        LD HL,CON_COL                     ; $9E92  21 0C 9F
-        SUB (HL)                         ; $9E95  96
-        LD (CON_SAVED_COL),A                    ; $9E96  32 0A 9F
+        PUSH HL
+        LD A,(CON_SAVED_COL)
+        OR A
+        JP Z,READBUF_GETC
+        LD HL,CON_COL
+        SUB (HL)
+        LD (CON_SAVED_COL),A
 ; ----------------------------------------------------------------------
 ; READBUF_REPOS_LOOP -- backspace the cursor by the computed cell count.
 ;   In: CON_SAVED_COL = number of cells to back up.
@@ -730,11 +730,11 @@ READBUF_REPOS:
 ;   Algorithm: CON_BACKSPACE, decrement CON_SAVED_COL, repeat until zero, then resume input. [RE]
 ; ----------------------------------------------------------------------
 READBUF_REPOS_LOOP:
-        CALL CON_BACKSPACE                    ; $9E99  CD A4 9D
-        LD HL,CON_SAVED_COL                     ; $9E9C  21 0A 9F
-        DEC (HL)                         ; $9E9F  35
-        JP NZ,READBUF_REPOS_LOOP                ; $9EA0  C2 99 9E
-        JP READBUF_GETC                    ; $9EA3  C3 F1 9D
+        CALL CON_BACKSPACE
+        LD HL,CON_SAVED_COL
+        DEC (HL)
+        JP NZ,READBUF_REPOS_LOOP
+        JP READBUF_GETC
 ; ----------------------------------------------------------------------
 ; READBUF_STORE -- store an ordinary character into the input buffer.
 ;   In: A = char to store, B = count, HL -> next buffer slot.
@@ -746,9 +746,9 @@ READBUF_REPOS_LOOP:
 ;       an FCB/directory compare.
 ; ----------------------------------------------------------------------
 READBUF_STORE:
-        INC HL                           ; $9EA6  23
-        LD (HL),A                        ; $9EA7  77
-        INC B                            ; $9EA8  04
+        INC HL
+        LD (HL),A
+        INC B
 ; ----------------------------------------------------------------------
 ; READBUF_STORE_ECHO -- echo the stored char and enforce the buffer length limit.
 ;   In: A = char, B = count, C = buffer max length.
@@ -761,18 +761,18 @@ READBUF_STORE:
 ;       semantics beyond 'terminate when full' are UNKNOWN.
 ; ----------------------------------------------------------------------
 READBUF_STORE_ECHO:
-        PUSH BC                          ; $9EA9  C5
-        PUSH HL                          ; $9EAA  E5
-        LD C,A                           ; $9EAB  4F
-        CALL CON_PUT_VISIBLE                    ; $9EAC  CD 7F 9D
-        POP HL                           ; $9EAF  E1
-        POP BC                           ; $9EB0  C1
-        LD A,(HL)                        ; $9EB1  7E
-        CP $03                           ; $9EB2  FE 03
-        LD A,B                           ; $9EB4  78
-        JP NZ,READBUF_LIMIT                ; $9EB5  C2 BD 9E
-        CP $01                           ; $9EB8  FE 01
-        JP Z,$0000                       ; $9EBA  CA 00 00
+        PUSH BC
+        PUSH HL
+        LD C,A
+        CALL CON_PUT_VISIBLE
+        POP HL
+        POP BC
+        LD A,(HL)
+        CP $03
+        LD A,B
+        JP NZ,READBUF_LIMIT
+        CP $01
+        JP Z,$0000
 ; ----------------------------------------------------------------------
 ; READBUF_LIMIT -- compare the count to the buffer max and continue or finish.
 ;   In: A = count (B), C = buffer maximum length.
@@ -780,8 +780,8 @@ READBUF_STORE_ECHO:
 ;   Algorithm: CP C; if count < max (carry) loop back to READBUF_NEXT, else finish. [RE]
 ; ----------------------------------------------------------------------
 READBUF_LIMIT:
-        CP C                             ; $9EBD  B9
-        JP C,READBUF_NEXT                  ; $9EBE  DA EF 9D
+        CP C
+        JP C,READBUF_NEXT
 ; ----------------------------------------------------------------------
 ; READBUF_DONE -- finish the input line: store the count and emit a CR.
 ;   In: stacked HL -> buffer count byte; B = final character count.
@@ -791,10 +791,10 @@ READBUF_LIMIT:
 ;              (tail call) to close the input line. [RE] Reached on CR/LF/buffer-full.
 ; ----------------------------------------------------------------------
 READBUF_DONE:
-        POP HL                           ; $9EC1  E1
-        LD (HL),B                        ; $9EC2  70
-        LD C,$0D                         ; $9EC3  0E 0D
-        JP CON_PUT_COL                      ; $9EC5  C3 48 9D
+        POP HL
+        LD (HL),B
+        LD C,$0D
+        JP CON_PUT_COL
 ; ----------------------------------------------------------------------
 ; F_CONIN_H -- BDOS function 1 handler: console input with echo, returned in A.
 ;   In: none.  Out: BDOS result (BDOS_RETVAL) = char read.  Clobbers: AF, BC, HL.
@@ -802,8 +802,8 @@ READBUF_DONE:
 ;   [RE] Dispatch-table entry for function 1.
 ; ----------------------------------------------------------------------
 F_CONIN_H:
-        CALL F_CONIN_RAW                    ; $9EC8  CD 06 9D
-        JP BDOS_RET_RESULT                   ; $9ECB  C3 01 9F
+        CALL F_CONIN_RAW
+        JP BDOS_RET_RESULT
 ; ----------------------------------------------------------------------
 ; F_READERIN_H -- BDOS function 3 handler: read from the reader (AUX/RDR) device.
 ;   In: none.  Out: BDOS result (BDOS_RETVAL) = byte from the BIOS reader vector.  Clobbers: AF.
@@ -812,8 +812,8 @@ F_CONIN_H:
 ; ----------------------------------------------------------------------
 F_READERIN_H:
         ; BIOS reader-input vector ($FA00 BIOS variable page = Apple $0A00)
-        CALL $FA15                       ; $9ECE  CD 15 FA
-        JP BDOS_RET_RESULT                   ; $9ED1  C3 01 9F
+        CALL $FA15
+        JP BDOS_RET_RESULT
 ; ----------------------------------------------------------------------
 ; F_DIRECTIO_H -- BDOS function 6 handler: direct console I/O.
 ;   In: C = subfunction (FF = input/status, FE = status only, else = output char).
@@ -825,14 +825,14 @@ F_READERIN_H:
 ;              control. [RE] Dispatch entry for function 6 (Direct Console I/O).
 ; ----------------------------------------------------------------------
 F_DIRECTIO_H:
-        LD A,C                           ; $9ED4  79
-        INC A                            ; $9ED5  3C
-        JP Z,DIRECTIO_INPUT                 ; $9ED6  CA E0 9E
-        INC A                            ; $9ED9  3C
+        LD A,C
+        INC A
+        JP Z,DIRECTIO_INPUT
+        INC A
         ; FE subfunction -> raw BIOS console-status ($FA00 BIOS variable page)
-        JP Z,$FA06                       ; $9EDA  CA 06 FA
+        JP Z,$FA06
         ; Else output C directly via BIOS conout ($FA00 BIOS variable page)
-        JP $FA0C                         ; $9EDD  C3 0C FA
+        JP $FA0C
 ; ----------------------------------------------------------------------
 ; DIRECTIO_INPUT -- direct console input subfunction of function 6.
 ;   In: none.  Out: BDOS result = char if one is ready, else 0; no echo, no flow control.  Clobbers:
@@ -845,20 +845,20 @@ F_DIRECTIO_H:
 ; ----------------------------------------------------------------------
 DIRECTIO_INPUT:
         ; Raw BIOS console-status vector ($FA00 BIOS variable page)
-        CALL $FA06                       ; $9EE0  CD 06 FA
-        OR A                             ; $9EE3  B7
-        JP Z,BDOS_RETURN_RESULT                 ; $9EE4  CA 91 A9
+        CALL $FA06
+        OR A
+        JP Z,BDOS_RETURN_RESULT
         ; Read the key raw, no echo (BIOS CONIN vector, $FA00 page)
-        CALL $FA09                       ; $9EE7  CD 09 FA
-        JP BDOS_RET_RESULT                   ; $9EEA  C3 01 9F
+        CALL $FA09
+        JP BDOS_RET_RESULT
 ; ----------------------------------------------------------------------
 ; F_GETIOB_H -- BDOS function 7 handler: get the I/O byte (IOBYTE).
 ;   In: none.  Out: BDOS result = the IOBYTE at fixed address 0003.  Clobbers: AF.
 ;   Algorithm: load (0003) and return it as the result. [RE] Dispatch entry for function 7.
 ; ----------------------------------------------------------------------
 F_GETIOB_H:
-        LD A,($0003)                     ; $9EED  3A 03 00
-        JP BDOS_RET_RESULT                   ; $9EF0  C3 01 9F
+        LD A,($0003)
+        JP BDOS_RET_RESULT
 ; ----------------------------------------------------------------------
 ; F_SETIOB_H -- BDOS function 8 handler: set the I/O byte (IOBYTE).
 ;   In: C = new IOBYTE value.  Out: (0003) = C.  Clobbers: HL.
@@ -866,9 +866,9 @@ F_GETIOB_H:
 ;              function 8.
 ; ----------------------------------------------------------------------
 F_SETIOB_H:
-        LD HL,$0003                      ; $9EF3  21 03 00
-        LD (HL),C                        ; $9EF6  71
-        RET                              ; $9EF7  C9
+        LD HL,$0003
+        LD (HL),C
+        RET
 ; ----------------------------------------------------------------------
 ; F_PRINTSTR_H -- BDOS function 9 handler: print a '$'-terminated string.
 ;   In: DE = pointer to the string.  Out: string echoed to the console up to the '$'.  Clobbers: AF,
@@ -876,10 +876,10 @@ F_SETIOB_H:
 ;   Algorithm: move DE into BC and tail-call CON_PRINT_STR. [RE] Dispatch entry for function 9.
 ; ----------------------------------------------------------------------
 F_PRINTSTR_H:
-        EX DE,HL                         ; $9EF8  EB
-        LD C,L                           ; $9EF9  4D
-        LD B,H                           ; $9EFA  44
-        JP CON_PRINT_STR                    ; $9EFB  C3 D3 9D
+        EX DE,HL
+        LD C,L
+        LD B,H
+        JP CON_PRINT_STR
 ; ----------------------------------------------------------------------
 ; F_CONSTAT_H -- BDOS function 11 handler: get console status.
 ;   In: none.  Out: BDOS result = 1 if a console char is ready, else 0.  Clobbers: AF.
@@ -887,7 +887,7 @@ F_PRINTSTR_H:
 ;              BDOS_RET_RESULT to store the 0/1 status. [RE] Dispatch entry for function 11.
 ; ----------------------------------------------------------------------
 F_CONSTAT_H:
-        CALL CON_POLL_STATUS                    ; $9EFE  CD 23 9D
+        CALL CON_POLL_STATUS
 ; ----------------------------------------------------------------------
 ; BDOS_RET_RESULT -- store A as the BDOS function return value and return.
 ;   In: A = result byte.  Out: BDOS_RETVAL (BDOS return cell) = A.  Clobbers: none beyond the cell.
@@ -897,80 +897,80 @@ F_CONSTAT_H:
 ;              'BDOS_RET_NOP'). [RE] The BDOS result sink read by BDOS_DISPATCH on exit.
 ; ----------------------------------------------------------------------
 BDOS_RET_RESULT:
-        LD (BDOS_RETVAL),A                    ; $9F01  32 45 9F
-        RET                              ; $9F04  C9
+        LD (BDOS_RETVAL),A
+        RET
 ; ----------------------------------------------------------------------
 ; BDOS_RET_ONE -- set the BDOS return value to 1 and exit.
 ;   In: none.  Out: BDOS result (BDOS_RETVAL) = 1.  Clobbers: AF.
 ;   Algorithm: load A=1 and join BDOS_RET_RESULT. [RE] Used by handlers reporting a fixed 1.
 ; ----------------------------------------------------------------------
 BDOS_RET_ONE:
-        LD A,$01                         ; $9F05  3E 01
-        JP BDOS_RET_RESULT                   ; $9F07  C3 01 9F
+        LD A,$01
+        JP BDOS_RET_RESULT
 ; ----------------------------------------------------------------------
 ; CON_SAVED_COL -- saved cursor column for line-editor redisplay/reposition.
 ;   Also doubles as a 'suppress status-poll/echo' flag inside CON_PUT_COL.
 ;   [RE] BDOS console state byte; zero when not repositioning.
 ; ----------------------------------------------------------------------
 CON_SAVED_COL:
-        DEFB    "\0"    ; $9F0A
+        DEFB    "\0"
 ; ----------------------------------------------------------------------
 ; CON_LINE_START_COL -- column at the start of the current input line (echoed-count base).
 ;   [RE] Used by the line editor to know how far back Ctrl-X / DEL may erase.
 ; ----------------------------------------------------------------------
 CON_LINE_START_COL:
-        DEFB    "\0"    ; $9F0B
+        DEFB    "\0"
 ; ----------------------------------------------------------------------
 ; CON_COL -- current console output column counter.
 ;   [RE] Incremented per printable char, reset by LF; drives tab expansion and editing.
 ; ----------------------------------------------------------------------
 CON_COL:
-        DEFB    "\0"    ; $9F0C
+        DEFB    "\0"
 ; ----------------------------------------------------------------------
 ; CON_LIST_ECHO -- printer (list device) echo flag; nonzero => mirror console output.
 ;   [RE] Toggled by the line editor's Ctrl-P.
 ; ----------------------------------------------------------------------
 CON_LIST_ECHO:
-        DEFB    "\0"    ; $9F0D
+        DEFB    "\0"
 ; ----------------------------------------------------------------------
 ; CON_PENDING_CHAR -- 1-byte console type-ahead / un-get buffer (0 = empty).
 ;   [RE] Filled by CON_POLL_STATUS, consumed by CON_GETC_OR_RAW.
 ; ----------------------------------------------------------------------
 CON_PENDING_CHAR:
-        DEFB    "\0"    ; $9F0E
+        DEFB    "\0"
 ; ----------------------------------------------------------------------
 ; BDOS_SAVED_SP -- caller's stack pointer saved on BDOS entry (then BDOS-local stack slack).
 ;   [RE] BDOS_DISPATCH saves SP here and switches to the BDOS-local stack; restored on exit. The
 ;        trailing DEFS reserves the BDOS local stack space below BDOS_STACK_TOP.
 ; ----------------------------------------------------------------------
 BDOS_SAVED_SP:
-        DEFS    50, $00    ; $9F0F  fill
+        DEFS    50, $00                  ; fill
 ; ----------------------------------------------------------------------
 ; BDOS_STACK_TOP -- top of the BDOS private stack (SP loaded here on entry).
 ;   [RE] BDOS_DISPATCH does LD SP,BDOS_STACK_TOP before dispatching a function.
 ; ----------------------------------------------------------------------
 BDOS_STACK_TOP:
-        DEFB    "\0"    ; $9F41
+        DEFB    "\0"
 ; ----------------------------------------------------------------------
 ; BDOS_CUR_DRIVE -- current selected drive index (0=A) for error reporting and disk ops.
 ;   [RE] Used to form the error-banner drive letter and as the drive arg in random-record / DPB
 ;   setup.
 ; ----------------------------------------------------------------------
 BDOS_CUR_DRIVE:
-        DEFB    "\0"    ; $9F42
+        DEFB    "\0"
 ; ----------------------------------------------------------------------
 ; BDOS_PARAM_PTR -- saved DE parameter pointer from the BDOS call (FCB / DMA / buffer).
 ;   [RE] BDOS_DISPATCH stashes the incoming DE here; consumers reload it as the operand pointer.
 ;   16-bit cell.
 ; ----------------------------------------------------------------------
 BDOS_PARAM_PTR:
-        DEFB    "\0\0"    ; $9F43
+        DEFB    "\0\0"
 ; ----------------------------------------------------------------------
 ; BDOS_RETVAL -- BDOS function return value (16-bit: low byte = A result, high = B).
 ;   [RE] Cleared on entry; written by BDOS_RET_RESULT; read back by the dispatcher's exit.
 ; ----------------------------------------------------------------------
 BDOS_RETVAL:
-        DEFB    "\0\0"    ; $9F45
+        DEFB    "\0\0"
 ; ----------------------------------------------------------------------
 ; BDOS_ERR_SELECT -- enter the BDOS disk-error handler via the error-vector table.
 ;   In: none (uses the fixed error-vector list at BDOS_ERR_VECTORS).
@@ -981,7 +981,7 @@ BDOS_RETVAL:
 ;   [?] Exact reason-code mapping is encoded by which vector slot the caller chose.
 ; ----------------------------------------------------------------------
 BDOS_ERR_SELECT:
-        LD HL,BDOS_ERRVEC_SELECT                 ; $9F47  21 0B 9C
+        LD HL,BDOS_ERRVEC_SELECT
 ; ----------------------------------------------------------------------
 ; BDOS_VECTOR_JUMP -- jump through a 2-byte pointer pointed to by HL.
 ;   In: HL -> a little-endian routine pointer.  Out: control transferred to (HL); does not return
@@ -992,11 +992,11 @@ BDOS_ERR_SELECT:
 ;              tail used by the BDOS error/random-record paths.
 ; ----------------------------------------------------------------------
 BDOS_VECTOR_JUMP:
-        LD E,(HL)                        ; $9F4A  5E
-        INC HL                           ; $9F4B  23
-        LD D,(HL)                        ; $9F4C  56
-        EX DE,HL                         ; $9F4D  EB
-        JP (HL)                          ; $9F4E  E9
+        LD E,(HL)
+        INC HL
+        LD D,(HL)
+        EX DE,HL
+        JP (HL)
 ; ----------------------------------------------------------------------
 ; BLOCK_COPY_INCC -- copy (C+1) bytes from (DE) to (HL); pre-increment entry.
 ;   In: C = count-1, DE = source, HL = destination.  Out: bytes copied; DE/HL advanced past the
@@ -1006,7 +1006,7 @@ BDOS_VECTOR_JUMP:
 ;   [RE] Small memory-copy helper used by the BDOS DPB / random-record setup.
 ; ----------------------------------------------------------------------
 BLOCK_COPY_INCC:
-        INC C                            ; $9F4F  0C
+        INC C
 ; ----------------------------------------------------------------------
 ; BLOCK_COPY_LOOP -- byte-copy loop body for BLOCK_COPY_INCC.
 ;   In: C = remaining count, DE = source, HL = destination.  Out: copies bytes until C decrements to
@@ -1015,283 +1015,283 @@ BLOCK_COPY_INCC:
 ;   Algorithm: DEC C; if zero return; copy (DE)->(HL); INC DE; INC HL; loop. [RE]
 ; ----------------------------------------------------------------------
 BLOCK_COPY_LOOP:
-        DEC C                            ; $9F50  0D
-        RET Z                            ; $9F51  C8
-        LD A,(DE)                        ; $9F52  1A
-        LD (HL),A                        ; $9F53  77
-        INC DE                           ; $9F54  13
-        INC HL                           ; $9F55  23
-        JP BLOCK_COPY_LOOP                    ; $9F56  C3 50 9F
+        DEC C
+        RET Z
+        LD A,(DE)
+        LD (HL),A
+        INC DE
+        INC HL
+        JP BLOCK_COPY_LOOP
 BDOS_RANDREC_3:
-        LD A,(BDOS_CUR_DRIVE)                    ; $9F59  3A 42 9F
-        LD C,A                           ; $9F5C  4F
-        CALL $FA1B                       ; $9F5D  CD 1B FA
-        LD A,H                           ; $9F60  7C
-        OR L                             ; $9F61  B5
-        RET Z                            ; $9F62  C8
-        LD E,(HL)                        ; $9F63  5E
-        INC HL                           ; $9F64  23
-        LD D,(HL)                        ; $9F65  56
-        INC HL                           ; $9F66  23
-        LD (DPB_WORK_PTR0),HL                   ; $9F67  22 B3 A9
-        INC HL                           ; $9F6A  23
-        INC HL                           ; $9F6B  23
-        LD (DEBLOCK_HSTREC_PTR0),HL                   ; $9F6C  22 B5 A9
-        INC HL                           ; $9F6F  23
-        INC HL                           ; $9F70  23
-        LD (DEBLOCK_HSTREC_PTR1),HL                   ; $9F71  22 B7 A9
-        INC HL                           ; $9F74  23
-        INC HL                           ; $9F75  23
-        EX DE,HL                         ; $9F76  EB
-        LD (DPB_XLT_PTR),HL                   ; $9F77  22 D0 A9
-        LD HL,DIRBUF_PTR                     ; $9F7A  21 B9 A9
-        LD C,$08                         ; $9F7D  0E 08
-        CALL BLOCK_COPY_INCC                    ; $9F7F  CD 4F 9F
-        LD HL,(DPB_PTR)                   ; $9F82  2A BB A9
-        EX DE,HL                         ; $9F85  EB
-        LD HL,DPB_SPT                     ; $9F86  21 C1 A9
-        LD C,$0F                         ; $9F89  0E 0F
-        CALL BLOCK_COPY_INCC                    ; $9F8B  CD 4F 9F
-        LD HL,(MAX_BLOCK_DSM)                   ; $9F8E  2A C6 A9
-        LD A,H                           ; $9F91  7C
-        LD HL,BLOCK_WIDTH_FLAG                     ; $9F92  21 DD A9
-        LD (HL),$FF                      ; $9F95  36 FF
-        OR A                             ; $9F97  B7
-        JP Z,BDOS_RANDREC_3_1                  ; $9F98  CA 9D 9F
-        LD (HL),$00                      ; $9F9B  36 00
+        LD A,(BDOS_CUR_DRIVE)
+        LD C,A
+        CALL $FA1B
+        LD A,H
+        OR L
+        RET Z
+        LD E,(HL)
+        INC HL
+        LD D,(HL)
+        INC HL
+        LD (DPB_WORK_PTR0),HL
+        INC HL
+        INC HL
+        LD (DEBLOCK_HSTREC_PTR0),HL
+        INC HL
+        INC HL
+        LD (DEBLOCK_HSTREC_PTR1),HL
+        INC HL
+        INC HL
+        EX DE,HL
+        LD (DPB_XLT_PTR),HL
+        LD HL,DIRBUF_PTR
+        LD C,$08
+        CALL BLOCK_COPY_INCC
+        LD HL,(DPB_PTR)
+        EX DE,HL
+        LD HL,DPB_SPT
+        LD C,$0F
+        CALL BLOCK_COPY_INCC
+        LD HL,(MAX_BLOCK_DSM)
+        LD A,H
+        LD HL,BLOCK_WIDTH_FLAG
+        LD (HL),$FF
+        OR A
+        JP Z,BDOS_RANDREC_3_1
+        LD (HL),$00
 BDOS_RANDREC_3_1:
-        LD A,$FF                         ; $9F9D  3E FF
-        OR A                             ; $9F9F  B7
-        RET                              ; $9FA0  C9
+        LD A,$FF
+        OR A
+        RET
 DISK_HOME_CLEAR_SCAN:
-        CALL $FA18                       ; $9FA1  CD 18 FA
-        XOR A                            ; $9FA4  AF
-        LD HL,(DEBLOCK_HSTREC_PTR0)                   ; $9FA5  2A B5 A9
-        LD (HL),A                        ; $9FA8  77
-        INC HL                           ; $9FA9  23
-        LD (HL),A                        ; $9FAA  77
-        LD HL,(DEBLOCK_HSTREC_PTR1)                   ; $9FAB  2A B7 A9
-        LD (HL),A                        ; $9FAE  77
-        INC HL                           ; $9FAF  23
-        LD (HL),A                        ; $9FB0  77
-        RET                              ; $9FB1  C9
+        CALL $FA18
+        XOR A
+        LD HL,(DEBLOCK_HSTREC_PTR0)
+        LD (HL),A
+        INC HL
+        LD (HL),A
+        LD HL,(DEBLOCK_HSTREC_PTR1)
+        LD (HL),A
+        INC HL
+        LD (HL),A
+        RET
 DISK_READ_CHECKED:
-        CALL $FA27                       ; $9FB2  CD 27 FA
-        JP DISK_WRITE_CHECKED_1                    ; $9FB5  C3 BB 9F
+        CALL $FA27
+        JP DISK_WRITE_CHECKED_1
 DISK_WRITE_CHECKED:
-        CALL $FA2A                       ; $9FB8  CD 2A FA
+        CALL $FA2A
 DISK_WRITE_CHECKED_1:
-        OR A                             ; $9FBB  B7
-        RET Z                            ; $9FBC  C8
-        LD HL,BDOS_ERR_VECTORS                 ; $9FBD  21 09 9C
-        JP BDOS_VECTOR_JUMP                    ; $9FC0  C3 4A 9F
+        OR A
+        RET Z
+        LD HL,BDOS_ERR_VECTORS
+        JP BDOS_VECTOR_JUMP
 REC_DIV4_SETUP:
-        LD HL,(CUR_RECORD)                   ; $9FC3  2A EA A9
-        LD C,$02                         ; $9FC6  0E 02
-        CALL DRV_INSTALL_RWTS_10                    ; $9FC8  CD EA A0
-        LD (CUR_BLOCK_NUMBER),HL                   ; $9FCB  22 E5 A9
-        LD (REC_CACHE),HL                   ; $9FCE  22 EC A9
+        LD HL,(CUR_RECORD)
+        LD C,$02
+        CALL DRV_INSTALL_RWTS_10
+        LD (CUR_BLOCK_NUMBER),HL
+        LD (REC_CACHE),HL
 RECORD_TO_TRACK:
-        LD HL,CUR_BLOCK_NUMBER                     ; $9FD1  21 E5 A9
-        LD C,(HL)                        ; $9FD4  4E
-        INC HL                           ; $9FD5  23
-        LD B,(HL)                        ; $9FD6  46
-        LD HL,(DEBLOCK_HSTREC_PTR1)                   ; $9FD7  2A B7 A9
-        LD E,(HL)                        ; $9FDA  5E
-        INC HL                           ; $9FDB  23
-        LD D,(HL)                        ; $9FDC  56
-        LD HL,(DEBLOCK_HSTREC_PTR0)                   ; $9FDD  2A B5 A9
-        LD A,(HL)                        ; $9FE0  7E
-        INC HL                           ; $9FE1  23
-        LD H,(HL)                        ; $9FE2  66
-        LD L,A                           ; $9FE3  6F
+        LD HL,CUR_BLOCK_NUMBER
+        LD C,(HL)
+        INC HL
+        LD B,(HL)
+        LD HL,(DEBLOCK_HSTREC_PTR1)
+        LD E,(HL)
+        INC HL
+        LD D,(HL)
+        LD HL,(DEBLOCK_HSTREC_PTR0)
+        LD A,(HL)
+        INC HL
+        LD H,(HL)
+        LD L,A
 RECORD_TO_TRACK_1:
-        LD A,C                           ; $9FE4  79
-        SUB E                            ; $9FE5  93
-        LD A,B                           ; $9FE6  78
-        SBC A,D                          ; $9FE7  9A
-        JP NC,RECORD_TO_TRACK_2                 ; $9FE8  D2 FA 9F
-        PUSH HL                          ; $9FEB  E5
-        LD HL,(DPB_SPT)                   ; $9FEC  2A C1 A9
-        LD A,E                           ; $9FEF  7B
-        SUB L                            ; $9FF0  95
-        LD E,A                           ; $9FF1  5F
-        LD A,D                           ; $9FF2  7A
-        SBC A,H                          ; $9FF3  9C
-        LD D,A                           ; $9FF4  57
-        POP HL                           ; $9FF5  E1
-        DEC HL                           ; $9FF6  2B
-        JP RECORD_TO_TRACK_1                    ; $9FF7  C3 E4 9F
+        LD A,C
+        SUB E
+        LD A,B
+        SBC A,D
+        JP NC,RECORD_TO_TRACK_2
+        PUSH HL
+        LD HL,(DPB_SPT)
+        LD A,E
+        SUB L
+        LD E,A
+        LD A,D
+        SBC A,H
+        LD D,A
+        POP HL
+        DEC HL
+        JP RECORD_TO_TRACK_1
 RECORD_TO_TRACK_2:
-        PUSH HL                          ; $9FFA  E5
-        LD HL,(DPB_SPT)                   ; $9FFB  2A C1 A9
-        ADD HL,DE                        ; $9FFE  19
-        JP C,RECORD_TO_TRACK_3                  ; $9FFF  DA 0F A0
-        LD A,C                           ; $A002  79
-        SUB L                            ; $A003  95
-        LD A,B                           ; $A004  78
-        SBC A,H                          ; $A005  9C
-        JP C,RECORD_TO_TRACK_3                  ; $A006  DA 0F A0
-        EX DE,HL                         ; $A009  EB
-        POP HL                           ; $A00A  E1
-        INC HL                           ; $A00B  23
-        JP RECORD_TO_TRACK_2                    ; $A00C  C3 FA 9F
+        PUSH HL
+        LD HL,(DPB_SPT)
+        ADD HL,DE
+        JP C,RECORD_TO_TRACK_3
+        LD A,C
+        SUB L
+        LD A,B
+        SBC A,H
+        JP C,RECORD_TO_TRACK_3
+        EX DE,HL
+        POP HL
+        INC HL
+        JP RECORD_TO_TRACK_2
 RECORD_TO_TRACK_3:
-        POP HL                           ; $A00F  E1
-        PUSH BC                          ; $A010  C5
-        PUSH DE                          ; $A011  D5
-        PUSH HL                          ; $A012  E5
-        EX DE,HL                         ; $A013  EB
-        LD HL,(DPB_OFF)                   ; $A014  2A CE A9
-        ADD HL,DE                        ; $A017  19
-        LD B,H                           ; $A018  44
-        LD C,L                           ; $A019  4D
-        CALL $FA1E                       ; $A01A  CD 1E FA
-        POP DE                           ; $A01D  D1
-        LD HL,(DEBLOCK_HSTREC_PTR0)                   ; $A01E  2A B5 A9
-        LD (HL),E                        ; $A021  73
-        INC HL                           ; $A022  23
-        LD (HL),D                        ; $A023  72
-        POP DE                           ; $A024  D1
-        LD HL,(DEBLOCK_HSTREC_PTR1)                   ; $A025  2A B7 A9
-        LD (HL),E                        ; $A028  73
-        INC HL                           ; $A029  23
-        LD (HL),D                        ; $A02A  72
-        POP BC                           ; $A02B  C1
-        LD A,C                           ; $A02C  79
-        SUB E                            ; $A02D  93
-        LD C,A                           ; $A02E  4F
-        LD A,B                           ; $A02F  78
-        SBC A,D                          ; $A030  9A
-        LD B,A                           ; $A031  47
-        LD HL,(DPB_XLT_PTR)                   ; $A032  2A D0 A9
-        EX DE,HL                         ; $A035  EB
-        CALL $FA30                       ; $A036  CD 30 FA
-        LD C,L                           ; $A039  4D
-        LD B,H                           ; $A03A  44
-        JP $FA21                         ; $A03B  C3 21 FA
+        POP HL
+        PUSH BC
+        PUSH DE
+        PUSH HL
+        EX DE,HL
+        LD HL,(DPB_OFF)
+        ADD HL,DE
+        LD B,H
+        LD C,L
+        CALL $FA1E
+        POP DE
+        LD HL,(DEBLOCK_HSTREC_PTR0)
+        LD (HL),E
+        INC HL
+        LD (HL),D
+        POP DE
+        LD HL,(DEBLOCK_HSTREC_PTR1)
+        LD (HL),E
+        INC HL
+        LD (HL),D
+        POP BC
+        LD A,C
+        SUB E
+        LD C,A
+        LD A,B
+        SBC A,D
+        LD B,A
+        LD HL,(DPB_XLT_PTR)
+        EX DE,HL
+        CALL $FA30
+        LD C,L
+        LD B,H
+        JP $FA21
 DISK_STORE_SEC_TRK_6:
-        LD HL,DPB_BSH                     ; $A03E  21 C3 A9
-        LD C,(HL)                        ; $A041  4E
-        LD A,(FCB_CURREC)                    ; $A042  3A E3 A9
+        LD HL,DPB_BSH
+        LD C,(HL)
+        LD A,(FCB_CURREC)
 DISK_STORE_SEC_TRK_6_1:
-        OR A                             ; $A045  B7
-        RRA                              ; $A046  1F
-        DEC C                            ; $A047  0D
-        JP NZ,DISK_STORE_SEC_TRK_6_1                 ; $A048  C2 45 A0
-        LD B,A                           ; $A04B  47
-        LD A,$08                         ; $A04C  3E 08
-        SUB (HL)                         ; $A04E  96
-        LD C,A                           ; $A04F  4F
-        LD A,(FCB_EXTENT_MASKED)                    ; $A050  3A E2 A9
+        OR A
+        RRA
+        DEC C
+        JP NZ,DISK_STORE_SEC_TRK_6_1
+        LD B,A
+        LD A,$08
+        SUB (HL)
+        LD C,A
+        LD A,(FCB_EXTENT_MASKED)
 DISK_STORE_SEC_TRK_6_2:
-        DEC C                            ; $A053  0D
-        JP Z,DISK_STORE_SEC_TRK_6_3                  ; $A054  CA 5C A0
-        OR A                             ; $A057  B7
-        RLA                              ; $A058  17
-        JP DISK_STORE_SEC_TRK_6_2                    ; $A059  C3 53 A0
+        DEC C
+        JP Z,DISK_STORE_SEC_TRK_6_3
+        OR A
+        RLA
+        JP DISK_STORE_SEC_TRK_6_2
 DISK_STORE_SEC_TRK_6_3:
-        ADD A,B                          ; $A05C  80
-        RET                              ; $A05D  C9
+        ADD A,B
+        RET
 DISK_STORE_SEC_TRK_10:
-        LD HL,(BDOS_PARAM_PTR)                   ; $A05E  2A 43 9F
-        LD DE,$0010                      ; $A061  11 10 00
-        ADD HL,DE                        ; $A064  19
-        ADD HL,BC                        ; $A065  09
-        LD A,(BLOCK_WIDTH_FLAG)                    ; $A066  3A DD A9
-        OR A                             ; $A069  B7
-        JP Z,DISK_STORE_SEC_TRK_10_1                  ; $A06A  CA 71 A0
-        LD L,(HL)                        ; $A06D  6E
-        LD H,$00                         ; $A06E  26 00
-        RET                              ; $A070  C9
+        LD HL,(BDOS_PARAM_PTR)
+        LD DE,$0010
+        ADD HL,DE
+        ADD HL,BC
+        LD A,(BLOCK_WIDTH_FLAG)
+        OR A
+        JP Z,DISK_STORE_SEC_TRK_10_1
+        LD L,(HL)
+        LD H,$00
+        RET
 DISK_STORE_SEC_TRK_10_1:
-        ADD HL,BC                        ; $A071  09
-        LD E,(HL)                        ; $A072  5E
-        INC HL                           ; $A073  23
-        LD D,(HL)                        ; $A074  56
-        EX DE,HL                         ; $A075  EB
-        RET                              ; $A076  C9
+        ADD HL,BC
+        LD E,(HL)
+        INC HL
+        LD D,(HL)
+        EX DE,HL
+        RET
 DISK_STORE_SEC_TRK_14:
-        CALL DISK_STORE_SEC_TRK_6                    ; $A077  CD 3E A0
-        LD C,A                           ; $A07A  4F
-        LD B,$00                         ; $A07B  06 00
-        CALL DISK_STORE_SEC_TRK_10                    ; $A07D  CD 5E A0
-        LD (CUR_BLOCK_NUMBER),HL                   ; $A080  22 E5 A9
-        RET                              ; $A083  C9
+        CALL DISK_STORE_SEC_TRK_6
+        LD C,A
+        LD B,$00
+        CALL DISK_STORE_SEC_TRK_10
+        LD (CUR_BLOCK_NUMBER),HL
+        RET
 DISK_STORE_SEC_TRK_16:
-        LD HL,(CUR_BLOCK_NUMBER)                   ; $A084  2A E5 A9
-        LD A,L                           ; $A087  7D
-        OR H                             ; $A088  B4
-        RET                              ; $A089  C9
+        LD HL,(CUR_BLOCK_NUMBER)
+        LD A,L
+        OR H
+        RET
 DISK_STORE_SEC_TRK_17:
-        LD A,(DPB_BSH)                    ; $A08A  3A C3 A9
-        LD HL,(CUR_BLOCK_NUMBER)                   ; $A08D  2A E5 A9
+        LD A,(DPB_BSH)
+        LD HL,(CUR_BLOCK_NUMBER)
 DISK_STORE_SEC_TRK_17_1:
-        ADD HL,HL                        ; $A090  29
-        DEC A                            ; $A091  3D
-        JP NZ,DISK_STORE_SEC_TRK_17_1                 ; $A092  C2 90 A0
-        LD (BLOCK_BASE_RECORD),HL                   ; $A095  22 E7 A9
-        LD A,(DPB_BLM)                    ; $A098  3A C4 A9
-        LD C,A                           ; $A09B  4F
-        LD A,(FCB_CURREC)                    ; $A09C  3A E3 A9
-        AND C                            ; $A09F  A1
-        OR L                             ; $A0A0  B5
-        LD L,A                           ; $A0A1  6F
-        LD (CUR_BLOCK_NUMBER),HL                   ; $A0A2  22 E5 A9
-        RET                              ; $A0A5  C9
+        ADD HL,HL
+        DEC A
+        JP NZ,DISK_STORE_SEC_TRK_17_1
+        LD (BLOCK_BASE_RECORD),HL
+        LD A,(DPB_BLM)
+        LD C,A
+        LD A,(FCB_CURREC)
+        AND C
+        OR L
+        LD L,A
+        LD (CUR_BLOCK_NUMBER),HL
+        RET
 DRV_INSTALL_RWTS_1:
-        LD HL,(BDOS_PARAM_PTR)                   ; $A0A6  2A 43 9F
-        LD DE,$000C                      ; $A0A9  11 0C 00
-        ADD HL,DE                        ; $A0AC  19
-        RET                              ; $A0AD  C9
+        LD HL,(BDOS_PARAM_PTR)
+        LD DE,$000C
+        ADD HL,DE
+        RET
 DRV_INSTALL_RWTS_2:
-        LD HL,(BDOS_PARAM_PTR)                   ; $A0AE  2A 43 9F
-        LD DE,$000F                      ; $A0B1  11 0F 00
-        ADD HL,DE                        ; $A0B4  19
-        EX DE,HL                         ; $A0B5  EB
-        LD HL,$0011                      ; $A0B6  21 11 00
-        ADD HL,DE                        ; $A0B9  19
-        RET                              ; $A0BA  C9
+        LD HL,(BDOS_PARAM_PTR)
+        LD DE,$000F
+        ADD HL,DE
+        EX DE,HL
+        LD HL,$0011
+        ADD HL,DE
+        RET
 DRV_INSTALL_RWTS_3:
-        CALL DRV_INSTALL_RWTS_2                    ; $A0BB  CD AE A0
-        LD A,(HL)                        ; $A0BE  7E
-        LD (FCB_CURREC),A                    ; $A0BF  32 E3 A9
-        EX DE,HL                         ; $A0C2  EB
-        LD A,(HL)                        ; $A0C3  7E
-        LD (FCB_RECCOUNT),A                    ; $A0C4  32 E1 A9
-        CALL DRV_INSTALL_RWTS_1                    ; $A0C7  CD A6 A0
-        LD A,(DPB_EXM)                    ; $A0CA  3A C5 A9
-        AND (HL)                         ; $A0CD  A6
-        LD (FCB_EXTENT_MASKED),A                    ; $A0CE  32 E2 A9
-        RET                              ; $A0D1  C9
+        CALL DRV_INSTALL_RWTS_2
+        LD A,(HL)
+        LD (FCB_CURREC),A
+        EX DE,HL
+        LD A,(HL)
+        LD (FCB_RECCOUNT),A
+        CALL DRV_INSTALL_RWTS_1
+        LD A,(DPB_EXM)
+        AND (HL)
+        LD (FCB_EXTENT_MASKED),A
+        RET
 DRV_INSTALL_RWTS_6:
-        CALL DRV_INSTALL_RWTS_2                    ; $A0D2  CD AE A0
-        LD A,(WRITE_TYPE_FLAG)                    ; $A0D5  3A D5 A9
-        CP $02                           ; $A0D8  FE 02
-        JP NZ,DRV_INSTALL_RWTS_6_1                 ; $A0DA  C2 DE A0
-        XOR A                            ; $A0DD  AF
+        CALL DRV_INSTALL_RWTS_2
+        LD A,(WRITE_TYPE_FLAG)
+        CP $02
+        JP NZ,DRV_INSTALL_RWTS_6_1
+        XOR A
 DRV_INSTALL_RWTS_6_1:
-        LD C,A                           ; $A0DE  4F
-        LD A,(FCB_CURREC)                    ; $A0DF  3A E3 A9
-        ADD A,C                          ; $A0E2  81
-        LD (HL),A                        ; $A0E3  77
-        EX DE,HL                         ; $A0E4  EB
-        LD A,(FCB_RECCOUNT)                    ; $A0E5  3A E1 A9
-        LD (HL),A                        ; $A0E8  77
-        RET                              ; $A0E9  C9
+        LD C,A
+        LD A,(FCB_CURREC)
+        ADD A,C
+        LD (HL),A
+        EX DE,HL
+        LD A,(FCB_RECCOUNT)
+        LD (HL),A
+        RET
 DRV_INSTALL_RWTS_10:
-        INC C                            ; $A0EA  0C
+        INC C
 DRV_INSTALL_RWTS_10_1:
-        DEC C                            ; $A0EB  0D
-        RET Z                            ; $A0EC  C8
-        LD A,H                           ; $A0ED  7C
-        OR A                             ; $A0EE  B7
-        RRA                              ; $A0EF  1F
-        LD H,A                           ; $A0F0  67
-        LD A,L                           ; $A0F1  7D
-        RRA                              ; $A0F2  1F
-        LD L,A                           ; $A0F3  6F
-        JP DRV_INSTALL_RWTS_10_1                    ; $A0F4  C3 EB A0
+        DEC C
+        RET Z
+        LD A,H
+        OR A
+        RRA
+        LD H,A
+        LD A,L
+        RRA
+        LD L,A
+        JP DRV_INSTALL_RWTS_10_1
 ; ----------------------------------------------------------------------
 ; DIR_CHECKSUM -- compute the 128-byte additive checksum of the directory buffer.
 ;   In: DIRBUF_PTR -> 128-byte directory sector buffer.
@@ -1300,19 +1300,19 @@ DRV_INSTALL_RWTS_10_1:
 ;   [RE] canonical CP/M directory-checksum routine (detects media swap). [DOC CP/M 2.2 ALG]
 ; ----------------------------------------------------------------------
 DIR_CHECKSUM:
-        LD C,$80                         ; $A0F7  0E 80
-        LD HL,(DIRBUF_PTR)                   ; $A0F9  2A B9 A9
-        XOR A                            ; $A0FC  AF
+        LD C,$80
+        LD HL,(DIRBUF_PTR)
+        XOR A
 ; ----------------------------------------------------------------------
 ; DIR_CHECKSUM_LOOP -- accumulate the 8-bit additive checksum over the 128-byte directory buffer.
 ; [RE]
 ; ----------------------------------------------------------------------
 DIR_CHECKSUM_LOOP:
-        ADD A,(HL)                       ; $A0FD  86
-        INC HL                           ; $A0FE  23
-        DEC C                            ; $A0FF  0D
-        JP NZ,DIR_CHECKSUM_LOOP                 ; $A100  C2 FD A0
-        RET                              ; $A103  C9
+        ADD A,(HL)
+        INC HL
+        DEC C
+        JP NZ,DIR_CHECKSUM_LOOP
+        RET
 ; ----------------------------------------------------------------------
 ; SHL_HL_C -- logical-shift HL left by C bit positions.
 ;   In: HL = value; C = shift count (0 leaves HL unchanged).
@@ -1321,15 +1321,15 @@ DIR_CHECKSUM_LOOP:
 ;   [RE] generic unsigned left-shift helper (e.g. building a 1<<n drive-bit mask).
 ; ----------------------------------------------------------------------
 SHL_HL_C:
-        INC C                            ; $A104  0C
+        INC C
 ; ----------------------------------------------------------------------
 ; SHL_HL_C_LOOP -- one ADD HL,HL per remaining shift count in C. [RE]
 ; ----------------------------------------------------------------------
 SHL_HL_C_LOOP:
-        DEC C                            ; $A105  0D
-        RET Z                            ; $A106  C8
-        ADD HL,HL                        ; $A107  29
-        JP SHL_HL_C_LOOP                    ; $A108  C3 05 A1
+        DEC C
+        RET Z
+        ADD HL,HL
+        JP SHL_HL_C_LOOP
 ; ----------------------------------------------------------------------
 ; DRIVE_BIT_OR_INTO_VECTOR -- OR the current drive's single-bit mask into a 16-bit vector.
 ;   In: BC = existing 16-bit vector (preserved); BDOS_CUR_DRIVE = current drive (0-based).
@@ -1341,19 +1341,19 @@ SHL_HL_C_LOOP:
 ;   setters). [?]
 ; ----------------------------------------------------------------------
 DRIVE_BIT_OR_INTO_VECTOR:
-        PUSH BC                          ; $A10B  C5
-        LD A,(BDOS_CUR_DRIVE)                    ; $A10C  3A 42 9F
-        LD C,A                           ; $A10F  4F
-        LD HL,$0001                      ; $A110  21 01 00
-        CALL SHL_HL_C                    ; $A113  CD 04 A1
-        POP BC                           ; $A116  C1
-        LD A,C                           ; $A117  79
-        OR L                             ; $A118  B5
-        LD L,A                           ; $A119  6F
-        LD A,B                           ; $A11A  78
-        OR H                             ; $A11B  B4
-        LD H,A                           ; $A11C  67
-        RET                              ; $A11D  C9
+        PUSH BC
+        LD A,(BDOS_CUR_DRIVE)
+        LD C,A
+        LD HL,$0001
+        CALL SHL_HL_C
+        POP BC
+        LD A,C
+        OR L
+        LD L,A
+        LD A,B
+        OR H
+        LD H,A
+        RET
 ; ----------------------------------------------------------------------
 ; DRIVE_BIT_TEST -- test whether the current drive's bit is set in the read-only drive vector.
 ;   In: the 16-bit R/O vector at DRV_LOGIN_VECTOR (cell mislabeled DRV_LOGIN_VECTOR; it is the
@@ -1366,13 +1366,13 @@ DRIVE_BIT_OR_INTO_VECTOR:
 ;        read-only vector, not the login vector. [?] cell-name fix deferred.
 ; ----------------------------------------------------------------------
 DRIVE_BIT_TEST:
-        LD HL,(DRV_LOGIN_VECTOR)                   ; $A11E  2A AD A9
-        LD A,(BDOS_CUR_DRIVE)                    ; $A121  3A 42 9F
-        LD C,A                           ; $A124  4F
-        CALL DRV_INSTALL_RWTS_10                    ; $A125  CD EA A0
-        LD A,L                           ; $A128  7D
-        AND $01                          ; $A129  E6 01
-        RET                              ; $A12B  C9
+        LD HL,(DRV_LOGIN_VECTOR)
+        LD A,(BDOS_CUR_DRIVE)
+        LD C,A
+        CALL DRV_INSTALL_RWTS_10
+        LD A,L
+        AND $01
+        RET
 ; ----------------------------------------------------------------------
 ; DRV_SETRO_H -- BDOS function 28 (Write Protect Disk): set the current drive's R/O bit.
 ;   In: the R/O drive vector at DRV_LOGIN_VECTOR; BDOS_CUR_DRIVE = current drive; DPB_REC_PTR (a
@@ -1388,21 +1388,21 @@ DRIVE_BIT_TEST:
 ;        caching DPB_REC_PTR+1 UNKNOWN.
 ; ----------------------------------------------------------------------
 DRV_SETRO_H:
-        LD HL,DRV_LOGIN_VECTOR                     ; $A12C  21 AD A9
-        LD C,(HL)                        ; $A12F  4E
-        INC HL                           ; $A130  23
-        LD B,(HL)                        ; $A131  46
-        CALL DRIVE_BIT_OR_INTO_VECTOR                    ; $A132  CD 0B A1
+        LD HL,DRV_LOGIN_VECTOR
+        LD C,(HL)
+        INC HL
+        LD B,(HL)
+        CALL DRIVE_BIT_OR_INTO_VECTOR
         ; store the R/O drive vector back with the current drive's bit set
-        LD (DRV_LOGIN_VECTOR),HL                   ; $A135  22 AD A9
-        LD HL,(DPB_REC_PTR)                   ; $A138  2A C8 A9
-        INC HL                           ; $A13B  23
-        EX DE,HL                         ; $A13C  EB
-        LD HL,(DPB_WORK_PTR0)                   ; $A13D  2A B3 A9
-        LD (HL),E                        ; $A140  73
-        INC HL                           ; $A141  23
-        LD (HL),D                        ; $A142  72
-        RET                              ; $A143  C9
+        LD (DRV_LOGIN_VECTOR),HL
+        LD HL,(DPB_REC_PTR)
+        INC HL
+        EX DE,HL
+        LD HL,(DPB_WORK_PTR0)
+        LD (HL),E
+        INC HL
+        LD (HL),D
+        RET
 ; ----------------------------------------------------------------------
 ; FCB_RO_FLAG_TEST -- raise the file-R/O error if the matched directory entry is read-only.
 ;   In: DIRBUF_PTR / DEBLOCK_BYTE_OFF locate the matched directory entry (via
@@ -1417,20 +1417,20 @@ DRV_SETRO_H:
 ;   [RE] CP/M file R/O attribute = bit 7 of directory-entry byte 9 (t1'). [DOC CP/M 2.2 FCB]
 ; ----------------------------------------------------------------------
 FCB_RO_FLAG_TEST:
-        CALL FCB_BUF_PTR_ADD_OFFSET                    ; $A144  CD 5E A1
+        CALL FCB_BUF_PTR_ADD_OFFSET
 ; ----------------------------------------------------------------------
 ; CHECK_DIRENT_READONLY_INNER -- inner entry of FCB_RO_FLAG_TEST (HL already on the directory
 ; entry). [RE]
 ; ----------------------------------------------------------------------
 CHECK_DIRENT_READONLY_INNER:
         ; advance to directory-entry byte +9 (type byte t1'; bit 7 = R/O attribute)
-        LD DE,$0009                      ; $A147  11 09 00
-        ADD HL,DE                        ; $A14A  19
-        LD A,(HL)                        ; $A14B  7E
-        RLA                              ; $A14C  17
-        RET NC                           ; $A14D  D0
-        LD HL,BDOS_ERRVEC_FILERO                 ; $A14E  21 0F 9C
-        JP BDOS_VECTOR_JUMP                    ; $A151  C3 4A 9F
+        LD DE,$0009
+        ADD HL,DE
+        LD A,(HL)
+        RLA
+        RET NC
+        LD HL,BDOS_ERRVEC_FILERO
+        JP BDOS_VECTOR_JUMP
 ; ----------------------------------------------------------------------
 ; CHECK_DRIVE_READONLY -- raise the disk-R/O error if the current drive is write-protected.
 ;   In: the current drive context (DRIVE_BIT_TEST reads the R/O drive vector).
@@ -1441,10 +1441,10 @@ CHECK_DIRENT_READONLY_INNER:
 ;   [RE] guards writes against a write-protected disk. [?]
 ; ----------------------------------------------------------------------
 CHECK_DRIVE_READONLY:
-        CALL DRIVE_BIT_TEST                    ; $A154  CD 1E A1
-        RET Z                            ; $A157  C8
-        LD HL,BDOS_ERRVEC_RODISK                 ; $A158  21 0D 9C
-        JP BDOS_VECTOR_JUMP                    ; $A15B  C3 4A 9F
+        CALL DRIVE_BIT_TEST
+        RET Z
+        LD HL,BDOS_ERRVEC_RODISK
+        JP BDOS_VECTOR_JUMP
 ; ----------------------------------------------------------------------
 ; FCB_BUF_PTR_ADD_OFFSET -- compute a pointer to the matched directory entry inside the directory
 ; buffer.
@@ -1454,17 +1454,17 @@ CHECK_DRIVE_READONLY:
 ;   [RE] locates the directory entry just matched by a BDOS directory search. [?]
 ; ----------------------------------------------------------------------
 FCB_BUF_PTR_ADD_OFFSET:
-        LD HL,(DIRBUF_PTR)                   ; $A15E  2A B9 A9
-        LD A,(DEBLOCK_BYTE_OFF)                    ; $A161  3A E9 A9
+        LD HL,(DIRBUF_PTR)
+        LD A,(DEBLOCK_BYTE_OFF)
 ; ----------------------------------------------------------------------
 ; DIRENT_PTR_ADD -- add the 8-bit directory-entry offset in A to HL (carry into H). [RE]
 ; ----------------------------------------------------------------------
 DIRENT_PTR_ADD:
-        ADD A,L                          ; $A164  85
-        LD L,A                           ; $A165  6F
-        RET NC                           ; $A166  D0
-        INC H                            ; $A167  24
-        RET                              ; $A168  C9
+        ADD A,L
+        LD L,A
+        RET NC
+        INC H
+        RET
 ; ----------------------------------------------------------------------
 ; FCB_GET_S2 -- point HL at FCB byte 14 (the S2 / extent-high field) of the current FCB.
 ;   In: BDOS_PARAM_PTR (CURFCB_PTR) = current FCB pointer.
@@ -1473,11 +1473,11 @@ DIRENT_PTR_ADD:
 ;   [RE] FCB byte 14 = S2 (extent-high / module count) per CP/M 2.2 FCB layout. [DOC CP/M 2.2 FCB]
 ; ----------------------------------------------------------------------
 FCB_GET_S2:
-        LD HL,(BDOS_PARAM_PTR)                   ; $A169  2A 43 9F
-        LD DE,$000E                      ; $A16C  11 0E 00
-        ADD HL,DE                        ; $A16F  19
-        LD A,(HL)                        ; $A170  7E
-        RET                              ; $A171  C9
+        LD HL,(BDOS_PARAM_PTR)
+        LD DE,$000E
+        ADD HL,DE
+        LD A,(HL)
+        RET
 ; ----------------------------------------------------------------------
 ; CLEAR_FCB_S2 -- zero the S2 (byte 14) field of the current FCB.
 ;   In: the current FCB (via FCB_GET_S2).  Out: FCB byte 14 = 0.  Clobbers: A,DE,HL.
@@ -1485,9 +1485,9 @@ FCB_GET_S2:
 ;   [RE] resets the extent-high/S2 field. [DOC CP/M 2.2 FCB]
 ; ----------------------------------------------------------------------
 CLEAR_FCB_S2:
-        CALL FCB_GET_S2                    ; $A172  CD 69 A1
-        LD (HL),$00                      ; $A175  36 00
-        RET                              ; $A177  C9
+        CALL FCB_GET_S2
+        LD (HL),$00
+        RET
 ; ----------------------------------------------------------------------
 ; MARK_FCB_S2_HIGHBIT -- set bit 7 of the FCB S2 (byte 14) field.
 ;   In: the current FCB (via FCB_GET_S2, which also returns A = the current S2 value).
@@ -1498,10 +1498,10 @@ CLEAR_FCB_S2:
 ;        [DOC CP/M 2.2 FCB]
 ; ----------------------------------------------------------------------
 MARK_FCB_S2_HIGHBIT:
-        CALL FCB_GET_S2                    ; $A178  CD 69 A1
-        OR $80                           ; $A17B  F6 80
-        LD (HL),A                        ; $A17D  77
-        RET                              ; $A17E  C9
+        CALL FCB_GET_S2
+        OR $80
+        LD (HL),A
+        RET
 ; ----------------------------------------------------------------------
 ; CMP_CURREC_VS_WORKPTR -- compare the current record number against the working record cell.
 ;   In: CUR_RECORD = 16-bit current record; DPB_WORK_PTR0 -> a 16-bit working record value.
@@ -1514,15 +1514,15 @@ MARK_FCB_S2_HIGHBIT:
 ;   high-water count. [?]
 ; ----------------------------------------------------------------------
 CMP_CURREC_VS_WORKPTR:
-        LD HL,(CUR_RECORD)                   ; $A17F  2A EA A9
-        EX DE,HL                         ; $A182  EB
-        LD HL,(DPB_WORK_PTR0)                   ; $A183  2A B3 A9
-        LD A,E                           ; $A186  7B
-        SUB (HL)                         ; $A187  96
-        INC HL                           ; $A188  23
-        LD A,D                           ; $A189  7A
-        SBC A,(HL)                       ; $A18A  9E
-        RET                              ; $A18B  C9
+        LD HL,(CUR_RECORD)
+        EX DE,HL
+        LD HL,(DPB_WORK_PTR0)
+        LD A,E
+        SUB (HL)
+        INC HL
+        LD A,D
+        SBC A,(HL)
+        RET
 ; ----------------------------------------------------------------------
 ; RECPTR_INC_STORE -- if the current record is at/past the stored high-water count, bump it one
 ; past.
@@ -1537,13 +1537,13 @@ CMP_CURREC_VS_WORKPTR:
 ;   accessed.
 ; ----------------------------------------------------------------------
 RECPTR_INC_STORE:
-        CALL CMP_CURREC_VS_WORKPTR                    ; $A18C  CD 7F A1
-        RET C                            ; $A18F  D8
-        INC DE                           ; $A190  13
-        LD (HL),D                        ; $A191  72
-        DEC HL                           ; $A192  2B
-        LD (HL),E                        ; $A193  73
-        RET                              ; $A194  C9
+        CALL CMP_CURREC_VS_WORKPTR
+        RET C
+        INC DE
+        LD (HL),D
+        DEC HL
+        LD (HL),E
+        RET
 ; ----------------------------------------------------------------------
 ; SUB16_DE_HL -- 16-bit subtract HL := DE - HL.
 ;   In: DE = minuend, HL = subtrahend.
@@ -1553,13 +1553,13 @@ RECPTR_INC_STORE:
 ;   [RE] general BDOS 16-bit compare/difference helper used by the record scan and seek logic.
 ; ----------------------------------------------------------------------
 SUB16_DE_HL:
-        LD A,E                           ; $A195  7B
-        SUB L                            ; $A196  95
-        LD L,A                           ; $A197  6F
-        LD A,D                           ; $A198  7A
-        SBC A,H                          ; $A199  9C
-        LD H,A                           ; $A19A  67
-        RET                              ; $A19B  C9
+        LD A,E
+        SUB L
+        LD L,A
+        LD A,D
+        SBC A,H
+        LD H,A
+        RET
 ; ----------------------------------------------------------------------
 ; RECORD_SCAN_INIT -- enter the directory-record scan in store mode (write A into the located byte).
 ;   In: see RECORD_SCAN_BODY.  Out: see RECORD_SCAN_BODY.  Clobbers: A,BC,DE,HL,flags.
@@ -1569,7 +1569,7 @@ SUB16_DE_HL:
 ;   [RE] thin mode-selecting entry to the shared directory-record scan.
 ; ----------------------------------------------------------------------
 RECORD_SCAN_INIT:
-        LD C,$FF                         ; $A19C  0E FF
+        LD C,$FF
 ; ----------------------------------------------------------------------
 ; RECORD_SCAN_BODY -- scan to the target byte in the cached directory record, then store or compare
 ; A there.
@@ -1590,26 +1590,26 @@ RECORD_SCAN_INIT:
 ;   [RE] heart of the directory record scan/checksum loop in the BDOS deblocking layer.
 ; ----------------------------------------------------------------------
 RECORD_SCAN_BODY:
-        LD HL,(REC_CACHE)                   ; $A19E  2A EC A9
-        EX DE,HL                         ; $A1A1  EB
-        LD HL,(REC_SCAN_PTR)                   ; $A1A2  2A CC A9
-        CALL SUB16_DE_HL                    ; $A1A5  CD 95 A1
-        RET NC                           ; $A1A8  D0
-        PUSH BC                          ; $A1A9  C5
-        CALL DIR_CHECKSUM                    ; $A1AA  CD F7 A0
-        LD HL,(REC_BYTE_OFFSET)                   ; $A1AD  2A BD A9
-        EX DE,HL                         ; $A1B0  EB
-        LD HL,(REC_CACHE)                   ; $A1B1  2A EC A9
-        ADD HL,DE                        ; $A1B4  19
-        POP BC                           ; $A1B5  C1
-        INC C                            ; $A1B6  0C
-        JP Z,FCB_STORE_A_ORPHAN                  ; $A1B7  CA C4 A1
-        CP (HL)                          ; $A1BA  BE
-        RET Z                            ; $A1BB  C8
-        CALL CMP_CURREC_VS_WORKPTR                    ; $A1BC  CD 7F A1
-        RET NC                           ; $A1BF  D0
-        CALL DRV_SETRO_H                    ; $A1C0  CD 2C A1
-        RET                              ; $A1C3  C9
+        LD HL,(REC_CACHE)
+        EX DE,HL
+        LD HL,(REC_SCAN_PTR)
+        CALL SUB16_DE_HL
+        RET NC
+        PUSH BC
+        CALL DIR_CHECKSUM
+        LD HL,(REC_BYTE_OFFSET)
+        EX DE,HL
+        LD HL,(REC_CACHE)
+        ADD HL,DE
+        POP BC
+        INC C
+        JP Z,FCB_STORE_A_ORPHAN
+        CP (HL)
+        RET Z
+        CALL CMP_CURREC_VS_WORKPTR
+        RET NC
+        CALL DRV_SETRO_H
+        RET
 ; ----------------------------------------------------------------------
 ; FCB_STORE_A_ORPHAN -- store the accumulator into the directory byte addressed by HL (scan
 ; store-mode tail).
@@ -1619,8 +1619,8 @@ RECORD_SCAN_BODY:
 ;   [RE] store-mode terminator branched to from RECORD_SCAN_BODY when INC C wrapped to 0.
 ; ----------------------------------------------------------------------
 FCB_STORE_A_ORPHAN:
-        LD (HL),A                        ; $A1C4  77
-        RET                              ; $A1C5  C9
+        LD (HL),A
+        RET
 ; ----------------------------------------------------------------------
 ; DIR_RECORD_WRITE -- checksum-verify then write the directory buffer to disk as a record, and
 ; refresh the user buffer.
@@ -1637,11 +1637,11 @@ FCB_STORE_A_ORPHAN:
 ;   [RE] directory-record write path; C=1 is the CP/M deblock directory-write code.
 ; ----------------------------------------------------------------------
 DIR_RECORD_WRITE:
-        CALL RECORD_SCAN_INIT                    ; $A1C6  CD 9C A1
-        CALL SET_DMA_TO_DISK_BUF                    ; $A1C9  CD E0 A1
-        LD C,$01                         ; $A1CC  0E 01
-        CALL DISK_WRITE_CHECKED                    ; $A1CE  CD B8 9F
-        JP RESTORE_USER_DMA                      ; $A1D1  C3 DA A1
+        CALL RECORD_SCAN_INIT
+        CALL SET_DMA_TO_DISK_BUF
+        LD C,$01
+        CALL DISK_WRITE_CHECKED
+        JP RESTORE_USER_DMA
 ; ----------------------------------------------------------------------
 ; DIR_RECORD_READ -- read a directory record from disk into the directory buffer, then restore the
 ; user DMA.
@@ -1654,8 +1654,8 @@ DIR_RECORD_WRITE:
 ;   [RE] directory-record read path; pairs with DIR_RECORD_WRITE.
 ; ----------------------------------------------------------------------
 DIR_RECORD_READ:
-        CALL SET_DMA_TO_DISK_BUF                    ; $A1D4  CD E0 A1
-        CALL DISK_READ_CHECKED                    ; $A1D7  CD B2 9F
+        CALL SET_DMA_TO_DISK_BUF
+        CALL DISK_READ_CHECKED
 ; ----------------------------------------------------------------------
 ; RESTORE_USER_DMA -- restore the BIOS DMA address to the user's DMA buffer.
 ;   In: DMA_ADDR cell holds the user DMA address.
@@ -1664,8 +1664,8 @@ DIR_RECORD_READ:
 ;   [RE] used after directory I/O to put DMA back to the application buffer.
 ; ----------------------------------------------------------------------
 RESTORE_USER_DMA:
-        LD HL,DMA_ADDR                     ; $A1DA  21 B1 A9
-        JP SET_DMA_FROM_CELL                    ; $A1DD  C3 E3 A1
+        LD HL,DMA_ADDR
+        JP SET_DMA_FROM_CELL
 ; ----------------------------------------------------------------------
 ; SET_DMA_TO_DISK_BUF -- point the BIOS DMA at the directory/disk buffer (DIRBUF).
 ;   In: DIRBUF_PTR cell holds the directory buffer address.
@@ -1674,7 +1674,7 @@ RESTORE_USER_DMA:
 ;   [RE] companion to RESTORE_USER_DMA; aims I/O at the OS directory buffer.
 ; ----------------------------------------------------------------------
 SET_DMA_TO_DISK_BUF:
-        LD HL,DIRBUF_PTR                     ; $A1E0  21 B9 A9
+        LD HL,DIRBUF_PTR
 ; ----------------------------------------------------------------------
 ; SET_DMA_FROM_CELL -- load a DMA address from a 16-bit cell and hand it to the BIOS SETDMA vector.
 ;   In: HL -> a 2-byte little-endian DMA address cell.
@@ -1687,10 +1687,10 @@ SET_DMA_TO_DISK_BUF:
 ;        feedback_softcard_z80_high_addr_is_low_apple_ram]
 ; ----------------------------------------------------------------------
 SET_DMA_FROM_CELL:
-        LD C,(HL)                        ; $A1E3  4E
-        INC HL                           ; $A1E4  23
-        LD B,(HL)                        ; $A1E5  46
-        JP $FA24                         ; $A1E6  C3 24 FA
+        LD C,(HL)
+        INC HL
+        LD B,(HL)
+        JP $FA24
 ; ----------------------------------------------------------------------
 ; DISK_BUF_MOVE -- copy the 128-byte directory buffer into the user DMA buffer.
 ;   In: DIRBUF_PTR -> source (directory buffer); DMA_ADDR -> destination (user DMA).
@@ -1699,11 +1699,11 @@ SET_DMA_FROM_CELL:
 ;   [RE] deblock read-back: surfaces a directory-sector record to the application buffer.
 ; ----------------------------------------------------------------------
 DISK_BUF_MOVE:
-        LD HL,(DIRBUF_PTR)                   ; $A1E9  2A B9 A9
-        EX DE,HL                         ; $A1EC  EB
-        LD HL,(DMA_ADDR)                   ; $A1ED  2A B1 A9
-        LD C,$80                         ; $A1F0  0E 80
-        JP BLOCK_COPY_INCC                      ; $A1F2  C3 4F 9F
+        LD HL,(DIRBUF_PTR)
+        EX DE,HL
+        LD HL,(DMA_ADDR)
+        LD C,$80
+        JP BLOCK_COPY_INCC
 ; ----------------------------------------------------------------------
 ; CUR_RECORD_BYTES_EQUAL -- test whether the low and high bytes of the 16-bit CUR_RECORD cell are
 ; equal.
@@ -1716,13 +1716,13 @@ DISK_BUF_MOVE:
 ;        equal/INC result is UNKNOWN from these bytes alone (callers consume A / the Z flag).
 ; ----------------------------------------------------------------------
 CUR_RECORD_BYTES_EQUAL:
-        LD HL,CUR_RECORD                     ; $A1F5  21 EA A9
-        LD A,(HL)                        ; $A1F8  7E
-        INC HL                           ; $A1F9  23
-        CP (HL)                          ; $A1FA  BE
-        RET NZ                           ; $A1FB  C0
-        INC A                            ; $A1FC  3C
-        RET                              ; $A1FD  C9
+        LD HL,CUR_RECORD
+        LD A,(HL)
+        INC HL
+        CP (HL)
+        RET NZ
+        INC A
+        RET
 ; ----------------------------------------------------------------------
 ; INVALIDATE_CUR_RECORD -- mark the cached record pointer invalid (CUR_RECORD := $FFFF).
 ;   In: none.  Out: CUR_RECORD cell = $FFFF.  Clobbers: HL.
@@ -1730,9 +1730,9 @@ CUR_RECORD_BYTES_EQUAL:
 ;   [RE] forces the next deblock access to reload, since $FFFF can never equal a real record number.
 ; ----------------------------------------------------------------------
 INVALIDATE_CUR_RECORD:
-        LD HL,$FFFF                      ; $A1FE  21 FF FF
-        LD (CUR_RECORD),HL                   ; $A201  22 EA A9
-        RET                              ; $A204  C9
+        LD HL,$FFFF
+        LD (CUR_RECORD),HL
+        RET
 ; ----------------------------------------------------------------------
 ; DIR_READ_NEXT -- advance the directory record pointer and read the next directory record.
 ;   In: CUR_RECORD = last directory record index processed; DPB_REC_PTR = total directory records on
@@ -1746,15 +1746,15 @@ INVALIDATE_CUR_RECORD:
 ;   [RE] canonical CP/M 2.2 read-next-directory-entry sequencer.
 ; ----------------------------------------------------------------------
 DIR_READ_NEXT:
-        LD HL,(DPB_REC_PTR)                   ; $A205  2A C8 A9
-        EX DE,HL                         ; $A208  EB
-        LD HL,(CUR_RECORD)                   ; $A209  2A EA A9
+        LD HL,(DPB_REC_PTR)
+        EX DE,HL
+        LD HL,(CUR_RECORD)
         ; CUR_RECORD += 1 (advance to the next directory record)
-        INC HL                           ; $A20C  23
-        LD (CUR_RECORD),HL                   ; $A20D  22 EA A9
-        CALL SUB16_DE_HL                    ; $A210  CD 95 A1
-        JP NC,DIR_RECORD_DEBLOCK                 ; $A213  D2 19 A2
-        JP INVALIDATE_CUR_RECORD                      ; $A216  C3 FE A1
+        INC HL
+        LD (CUR_RECORD),HL
+        CALL SUB16_DE_HL
+        JP NC,DIR_RECORD_DEBLOCK
+        JP INVALIDATE_CUR_RECORD
 ; ----------------------------------------------------------------------
 ; DIR_RECORD_DEBLOCK -- position on the current 32-byte directory entry within its 128-byte record,
 ; reading from disk on a boundary.
@@ -1769,25 +1769,25 @@ DIR_READ_NEXT:
 ;   step.
 ; ----------------------------------------------------------------------
 DIR_RECORD_DEBLOCK:
-        LD A,(CUR_RECORD)                    ; $A219  3A EA A9
-        AND $03                          ; $A21C  E6 03
-        LD B,$05                         ; $A21E  06 05
+        LD A,(CUR_RECORD)
+        AND $03
+        LD B,$05
 ; ----------------------------------------------------------------------
 ; DIR_DEBLOCK_SHIFT -- (record & 3) << 5 to form the 32-byte entry offset within the 128-byte
 ; record. [RE]
 ; ----------------------------------------------------------------------
 DIR_DEBLOCK_SHIFT:
-        ADD A,A                          ; $A220  87
-        DEC B                            ; $A221  05
-        JP NZ,DIR_DEBLOCK_SHIFT                 ; $A222  C2 20 A2
-        LD (DEBLOCK_BYTE_OFF),A                    ; $A225  32 E9 A9
-        OR A                             ; $A228  B7
-        RET NZ                           ; $A229  C0
-        PUSH BC                          ; $A22A  C5
-        CALL REC_DIV4_SETUP                    ; $A22B  CD C3 9F
-        CALL DIR_RECORD_READ                    ; $A22E  CD D4 A1
-        POP BC                           ; $A231  C1
-        JP RECORD_SCAN_BODY                    ; $A232  C3 9E A1
+        ADD A,A
+        DEC B
+        JP NZ,DIR_DEBLOCK_SHIFT
+        LD (DEBLOCK_BYTE_OFF),A
+        OR A
+        RET NZ
+        PUSH BC
+        CALL REC_DIV4_SETUP
+        CALL DIR_RECORD_READ
+        POP BC
+        JP RECORD_SCAN_BODY
 ; ----------------------------------------------------------------------
 ; ALLOC_BIT_GET -- fetch the allocation-vector bit for a given disk block, returning it in carry.
 ;   In: BC = block (group) number.
@@ -1801,43 +1801,43 @@ DIR_DEBLOCK_SHIFT:
 ;   [RE] canonical CP/M 2.2 getmod: read one allocation bit from the bit-vector.
 ; ----------------------------------------------------------------------
 ALLOC_BIT_GET:
-        LD A,C                           ; $A235  79
-        AND $07                          ; $A236  E6 07
-        INC A                            ; $A238  3C
-        LD E,A                           ; $A239  5F
-        LD D,A                           ; $A23A  57
-        LD A,C                           ; $A23B  79
-        RRCA                             ; $A23C  0F
-        RRCA                             ; $A23D  0F
-        RRCA                             ; $A23E  0F
-        AND $1F                          ; $A23F  E6 1F
-        LD C,A                           ; $A241  4F
-        LD A,B                           ; $A242  78
-        ADD A,A                          ; $A243  87
-        ADD A,A                          ; $A244  87
-        ADD A,A                          ; $A245  87
-        ADD A,A                          ; $A246  87
-        ADD A,A                          ; $A247  87
-        OR C                             ; $A248  B1
-        LD C,A                           ; $A249  4F
-        LD A,B                           ; $A24A  78
-        RRCA                             ; $A24B  0F
-        RRCA                             ; $A24C  0F
-        RRCA                             ; $A24D  0F
-        AND $1F                          ; $A24E  E6 1F
-        LD B,A                           ; $A250  47
-        LD HL,(ALLOC_VEC_PTR)                   ; $A251  2A BF A9
-        ADD HL,BC                        ; $A254  09
-        LD A,(HL)                        ; $A255  7E
+        LD A,C
+        AND $07
+        INC A
+        LD E,A
+        LD D,A
+        LD A,C
+        RRCA
+        RRCA
+        RRCA
+        AND $1F
+        LD C,A
+        LD A,B
+        ADD A,A
+        ADD A,A
+        ADD A,A
+        ADD A,A
+        ADD A,A
+        OR C
+        LD C,A
+        LD A,B
+        RRCA
+        RRCA
+        RRCA
+        AND $1F
+        LD B,A
+        LD HL,(ALLOC_VEC_PTR)
+        ADD HL,BC
+        LD A,(HL)
 ; ----------------------------------------------------------------------
 ; ALLOC_BIT_ROTATE -- rotate the allocation byte left D=bit-index times to land the wanted bit in
 ; the MSB. [RE]
 ; ----------------------------------------------------------------------
 ALLOC_BIT_ROTATE:
-        RLCA                             ; $A256  07
-        DEC E                            ; $A257  1D
-        JP NZ,ALLOC_BIT_ROTATE                 ; $A258  C2 56 A2
-        RET                              ; $A25B  C9
+        RLCA
+        DEC E
+        JP NZ,ALLOC_BIT_ROTATE
+        RET
 ; ----------------------------------------------------------------------
 ; ALLOC_BIT_SET -- mark a disk block as allocated in the allocation vector.
 ;   In: BC = block (group) number.  Out: the allocation byte for that block is updated in place with
@@ -1850,21 +1850,21 @@ ALLOC_BIT_ROTATE:
 ;   [RE] canonical CP/M 2.2 setmod: set one allocation bit in the bit-vector.
 ; ----------------------------------------------------------------------
 ALLOC_BIT_SET:
-        PUSH DE                          ; $A25C  D5
-        CALL ALLOC_BIT_GET                    ; $A25D  CD 35 A2
-        AND $FE                          ; $A260  E6 FE
-        POP BC                           ; $A262  C1
-        OR C                             ; $A263  B1
+        PUSH DE
+        CALL ALLOC_BIT_GET
+        AND $FE
+        POP BC
+        OR C
 ; ----------------------------------------------------------------------
 ; ALLOC_BIT_RESTORE -- rotate the allocation byte right D times to restore alignment, then store it
 ; back. [RE]
 ; ----------------------------------------------------------------------
 ALLOC_BIT_RESTORE:
-        RRCA                             ; $A264  0F
-        DEC D                            ; $A265  15
-        JP NZ,ALLOC_BIT_RESTORE                   ; $A266  C2 64 A2
-        LD (HL),A                        ; $A269  77
-        RET                              ; $A26A  C9
+        RRCA
+        DEC D
+        JP NZ,ALLOC_BIT_RESTORE
+        LD (HL),A
+        RET
 ; ----------------------------------------------------------------------
 ; ALLOC_FROM_FCB -- mark every disk block referenced by a directory entry's block map as allocated.
 ;   In: DEBLOCK_BYTE_OFF positions HL on the current 32-byte directory entry; BLOCK_WIDTH_FLAG
@@ -1880,59 +1880,59 @@ ALLOC_BIT_RESTORE:
 ;   allocation vector.
 ; ----------------------------------------------------------------------
 ALLOC_FROM_FCB:
-        CALL FCB_BUF_PTR_ADD_OFFSET                    ; $A26B  CD 5E A1
+        CALL FCB_BUF_PTR_ADD_OFFSET
         ; point HL at the 16-byte block map at directory-entry offset $10
-        LD DE,$0010                      ; $A26E  11 10 00
-        ADD HL,DE                        ; $A271  19
-        PUSH BC                          ; $A272  C5
-        LD C,$11                         ; $A273  0E 11
+        LD DE,$0010
+        ADD HL,DE
+        PUSH BC
+        LD C,$11
 ; ----------------------------------------------------------------------
 ; ALLOC_FROM_FCB_LOOP -- per block-map slot: dispatch 8-bit vs 16-bit block-number handling. [RE]
 ; ----------------------------------------------------------------------
 ALLOC_FROM_FCB_LOOP:
-        POP DE                           ; $A275  D1
-        DEC C                            ; $A276  0D
-        RET Z                            ; $A277  C8
-        PUSH DE                          ; $A278  D5
-        LD A,(BLOCK_WIDTH_FLAG)                    ; $A279  3A DD A9
-        OR A                             ; $A27C  B7
-        JP Z,ALLOC_FROM_FCB_WIDE                  ; $A27D  CA 88 A2
-        PUSH BC                          ; $A280  C5
-        PUSH HL                          ; $A281  E5
-        LD C,(HL)                        ; $A282  4E
-        LD B,$00                         ; $A283  06 00
-        JP ALLOC_FROM_FCB_CHECK                    ; $A285  C3 8E A2
+        POP DE
+        DEC C
+        RET Z
+        PUSH DE
+        LD A,(BLOCK_WIDTH_FLAG)
+        OR A
+        JP Z,ALLOC_FROM_FCB_WIDE
+        PUSH BC
+        PUSH HL
+        LD C,(HL)
+        LD B,$00
+        JP ALLOC_FROM_FCB_CHECK
 ; ----------------------------------------------------------------------
 ; ALLOC_FROM_FCB_WIDE -- 8-bit block path: load a single block byte into BC. [RE]
 ; ----------------------------------------------------------------------
 ALLOC_FROM_FCB_WIDE:
-        DEC C                            ; $A288  0D
-        PUSH BC                          ; $A289  C5
-        LD C,(HL)                        ; $A28A  4E
-        INC HL                           ; $A28B  23
-        LD B,(HL)                        ; $A28C  46
-        PUSH HL                          ; $A28D  E5
+        DEC C
+        PUSH BC
+        LD C,(HL)
+        INC HL
+        LD B,(HL)
+        PUSH HL
 ; ----------------------------------------------------------------------
 ; ALLOC_FROM_FCB_CHECK -- mark the block used if it is non-zero and within MAX_BLOCK_DSM. [RE]
 ; ----------------------------------------------------------------------
 ALLOC_FROM_FCB_CHECK:
-        LD A,C                           ; $A28E  79
-        OR B                             ; $A28F  B0
-        JP Z,ALLOC_FROM_FCB_NEXT                  ; $A290  CA 9D A2
-        LD HL,(MAX_BLOCK_DSM)                   ; $A293  2A C6 A9
-        LD A,L                           ; $A296  7D
-        SUB C                            ; $A297  91
-        LD A,H                           ; $A298  7C
-        SBC A,B                          ; $A299  98
-        CALL NC,ALLOC_BIT_SET                 ; $A29A  D4 5C A2
+        LD A,C
+        OR B
+        JP Z,ALLOC_FROM_FCB_NEXT
+        LD HL,(MAX_BLOCK_DSM)
+        LD A,L
+        SUB C
+        LD A,H
+        SBC A,B
+        CALL NC,ALLOC_BIT_SET
 ; ----------------------------------------------------------------------
 ; ALLOC_FROM_FCB_NEXT -- advance to the next block-map slot and loop. [RE]
 ; ----------------------------------------------------------------------
 ALLOC_FROM_FCB_NEXT:
-        POP HL                           ; $A29D  E1
-        INC HL                           ; $A29E  23
-        POP BC                           ; $A29F  C1
-        JP ALLOC_FROM_FCB_LOOP                    ; $A2A0  C3 75 A2
+        POP HL
+        INC HL
+        POP BC
+        JP ALLOC_FROM_FCB_LOOP
 ; ----------------------------------------------------------------------
 ; ALLOC_VECTOR_BUILD -- rebuild the drive's allocation bit-vector by scanning the entire directory.
 ;   In: selected drive's DPB fields (MAX_BLOCK_DSM, directory-reserved-blocks word at ALLOC_END_PTR,
@@ -1954,67 +1954,67 @@ ALLOC_FROM_FCB_NEXT:
 ;       its exact intent is UNKNOWN.
 ; ----------------------------------------------------------------------
 ALLOC_VECTOR_BUILD:
-        LD HL,(MAX_BLOCK_DSM)                   ; $A2A3  2A C6 A9
-        LD C,$03                         ; $A2A6  0E 03
-        CALL DRV_INSTALL_RWTS_10                    ; $A2A8  CD EA A0
-        INC HL                           ; $A2AB  23
-        LD B,H                           ; $A2AC  44
-        LD C,L                           ; $A2AD  4D
-        LD HL,(ALLOC_VEC_PTR)                   ; $A2AE  2A BF A9
+        LD HL,(MAX_BLOCK_DSM)
+        LD C,$03
+        CALL DRV_INSTALL_RWTS_10
+        INC HL
+        LD B,H
+        LD C,L
+        LD HL,(ALLOC_VEC_PTR)
 ; ----------------------------------------------------------------------
 ; ALLOC_VECTOR_CLEAR_LOOP -- zero the allocation vector across its full (DSM+1)/8 byte length. [RE]
 ; ----------------------------------------------------------------------
 ALLOC_VECTOR_CLEAR_LOOP:
-        LD (HL),$00                      ; $A2B1  36 00
-        INC HL                           ; $A2B3  23
-        DEC BC                           ; $A2B4  0B
-        LD A,B                           ; $A2B5  78
-        OR C                             ; $A2B6  B1
-        JP NZ,ALLOC_VECTOR_CLEAR_LOOP                 ; $A2B7  C2 B1 A2
-        LD HL,(ALLOC_END_PTR)                   ; $A2BA  2A CA A9
-        EX DE,HL                         ; $A2BD  EB
-        LD HL,(ALLOC_VEC_PTR)                   ; $A2BE  2A BF A9
-        LD (HL),E                        ; $A2C1  73
-        INC HL                           ; $A2C2  23
-        LD (HL),D                        ; $A2C3  72
-        CALL DISK_HOME_CLEAR_SCAN                    ; $A2C4  CD A1 9F
-        LD HL,(DPB_WORK_PTR0)                   ; $A2C7  2A B3 A9
-        LD (HL),$03                      ; $A2CA  36 03
-        INC HL                           ; $A2CC  23
-        LD (HL),$00                      ; $A2CD  36 00
-        CALL INVALIDATE_CUR_RECORD                    ; $A2CF  CD FE A1
+        LD (HL),$00
+        INC HL
+        DEC BC
+        LD A,B
+        OR C
+        JP NZ,ALLOC_VECTOR_CLEAR_LOOP
+        LD HL,(ALLOC_END_PTR)
+        EX DE,HL
+        LD HL,(ALLOC_VEC_PTR)
+        LD (HL),E
+        INC HL
+        LD (HL),D
+        CALL DISK_HOME_CLEAR_SCAN
+        LD HL,(DPB_WORK_PTR0)
+        LD (HL),$03
+        INC HL
+        LD (HL),$00
+        CALL INVALIDATE_CUR_RECORD
 ; ----------------------------------------------------------------------
 ; ALLOC_VECTOR_SCAN_LOOP -- read each directory entry, skipping erased ($E5) ones, applying the
 ; special-entry check. [RE]
 ; ----------------------------------------------------------------------
 ALLOC_VECTOR_SCAN_LOOP:
-        LD C,$FF                         ; $A2D2  0E FF
-        CALL DIR_READ_NEXT                    ; $A2D4  CD 05 A2
-        CALL CUR_RECORD_BYTES_EQUAL                    ; $A2D7  CD F5 A1
-        RET Z                            ; $A2DA  C8
-        CALL FCB_BUF_PTR_ADD_OFFSET                    ; $A2DB  CD 5E A1
-        LD A,$E5                         ; $A2DE  3E E5
-        CP (HL)                          ; $A2E0  BE
-        JP Z,ALLOC_VECTOR_SCAN_LOOP                  ; $A2E1  CA D2 A2
-        LD A,(BDOS_STACK_TOP)                    ; $A2E4  3A 41 9F
-        CP (HL)                          ; $A2E7  BE
-        JP NZ,ALLOC_VECTOR_SCAN_MARK                 ; $A2E8  C2 F6 A2
-        INC HL                           ; $A2EB  23
-        LD A,(HL)                        ; $A2EC  7E
+        LD C,$FF
+        CALL DIR_READ_NEXT
+        CALL CUR_RECORD_BYTES_EQUAL
+        RET Z
+        CALL FCB_BUF_PTR_ADD_OFFSET
+        LD A,$E5
+        CP (HL)
+        JP Z,ALLOC_VECTOR_SCAN_LOOP
+        LD A,(BDOS_STACK_TOP)
+        CP (HL)
+        JP NZ,ALLOC_VECTOR_SCAN_MARK
+        INC HL
+        LD A,(HL)
         ; compare the name byte against '$' for the special-entry path [?]
-        SUB $24                          ; $A2ED  D6 24
-        JP NZ,ALLOC_VECTOR_SCAN_MARK                 ; $A2EF  C2 F6 A2
-        DEC A                            ; $A2F2  3D
-        LD (BDOS_RETVAL),A                    ; $A2F3  32 45 9F
+        SUB $24
+        JP NZ,ALLOC_VECTOR_SCAN_MARK
+        DEC A
+        LD (BDOS_RETVAL),A
 ; ----------------------------------------------------------------------
 ; ALLOC_VECTOR_SCAN_MARK -- mark this entry's blocks used (ALLOC_FROM_FCB) and advance the scan.
 ; [RE]
 ; ----------------------------------------------------------------------
 ALLOC_VECTOR_SCAN_MARK:
-        LD C,$01                         ; $A2F6  0E 01
-        CALL ALLOC_FROM_FCB                    ; $A2F8  CD 6B A2
-        CALL RECPTR_INC_STORE                    ; $A2FB  CD 8C A1
-        JP ALLOC_VECTOR_SCAN_LOOP                    ; $A2FE  C3 D2 A2
+        LD C,$01
+        CALL ALLOC_FROM_FCB
+        CALL RECPTR_INC_STORE
+        JP ALLOC_VECTOR_SCAN_LOOP
 ; ----------------------------------------------------------------------
 ; DIR_RETURN_MATCH_FLAG -- return the saved directory-search match status as the BDOS result.
 ;   In: DIR_MATCH_FLAG (DIR_MATCH_FLAG) holds the last directory scan result ($FF=no match, else the
@@ -2025,8 +2025,8 @@ ALLOC_VECTOR_SCAN_MARK:
 ;   [RE] common return tail of F_DELETE_HND / F_RENAME_HND / F_ATTRIB_HND.
 ; ----------------------------------------------------------------------
 DIR_RETURN_MATCH_FLAG:
-        LD A,(DIR_MATCH_FLAG)                    ; $A301  3A D4 A9
-        JP BDOS_RET_RESULT                   ; $A304  C3 01 9F
+        LD A,(DIR_MATCH_FLAG)
+        JP BDOS_RET_RESULT
 ; ----------------------------------------------------------------------
 ; FCB_EXTENT_COMPARE -- compare two FCB extent bytes under the drive's extent mask.
 ;   In: C = one extent byte; A = the other extent byte; EXTENT_MASK (DPB_EXM) = DPB EXM.
@@ -2038,21 +2038,21 @@ DIR_RETURN_MATCH_FLAG:
 ;   [RE]
 ; ----------------------------------------------------------------------
 FCB_EXTENT_COMPARE:
-        PUSH BC                          ; $A307  C5
-        PUSH AF                          ; $A308  F5
-        LD A,(DPB_EXM)                    ; $A309  3A C5 A9
-        CPL                              ; $A30C  2F
-        LD B,A                           ; $A30D  47
-        LD A,C                           ; $A30E  79
-        AND B                            ; $A30F  A0
-        LD C,A                           ; $A310  4F
-        POP AF                           ; $A311  F1
-        AND B                            ; $A312  A0
-        SUB C                            ; $A313  91
+        PUSH BC
+        PUSH AF
+        LD A,(DPB_EXM)
+        CPL
+        LD B,A
+        LD A,C
+        AND B
+        LD C,A
+        POP AF
+        AND B
+        SUB C
         ; keep five extent bits for the masked extent comparison
-        AND $1F                          ; $A314  E6 1F
-        POP BC                           ; $A316  C1
-        RET                              ; $A317  C9
+        AND $1F
+        POP BC
+        RET
 ; ----------------------------------------------------------------------
 ; DIR_SEARCH_FIRST -- begin a directory scan for the current FCB, comparing C bytes per entry.
 ;   In: C = number of FCB bytes to match ($0C=name+type, $0F=incl. extent); FCB pointer in
@@ -2067,14 +2067,14 @@ FCB_EXTENT_COMPARE:
 ;   [RE]
 ; ----------------------------------------------------------------------
 DIR_SEARCH_FIRST:
-        LD A,$FF                         ; $A318  3E FF
-        LD (DIR_MATCH_FLAG),A                    ; $A31A  32 D4 A9
-        LD HL,DIR_CMP_LEN                     ; $A31D  21 D8 A9
-        LD (HL),C                        ; $A320  71
-        LD HL,(BDOS_PARAM_PTR)                   ; $A321  2A 43 9F
-        LD (DIR_FCB_PTR),HL                   ; $A324  22 D9 A9
-        CALL INVALIDATE_CUR_RECORD                    ; $A327  CD FE A1
-        CALL DISK_HOME_CLEAR_SCAN                    ; $A32A  CD A1 9F
+        LD A,$FF
+        LD (DIR_MATCH_FLAG),A
+        LD HL,DIR_CMP_LEN
+        LD (HL),C
+        LD HL,(BDOS_PARAM_PTR)
+        LD (DIR_FCB_PTR),HL
+        CALL INVALIDATE_CUR_RECORD
+        CALL DISK_HOME_CLEAR_SCAN
 ; ----------------------------------------------------------------------
 ; BDOS_DIR_SCAN_NEXT -- advance through directory entries until one matches the search FCB.
 ;   In: search-FCB pointer in DIR_FCB_PTR (DIR_FCB_PTR); compare length in DIR_CMP_LEN
@@ -2091,19 +2091,19 @@ DIR_SEARCH_FIRST:
 ;   [RE] standard CP/M 2.2 directory search-next with '?' wildcards.
 ; ----------------------------------------------------------------------
 BDOS_DIR_SCAN_NEXT:
-        LD C,$00                         ; $A32D  0E 00
-        CALL DIR_READ_NEXT                    ; $A32F  CD 05 A2
-        CALL CUR_RECORD_BYTES_EQUAL                    ; $A332  CD F5 A1
-        JP Z,DIR_NO_MATCH                  ; $A335  CA 94 A3
-        LD HL,(DIR_FCB_PTR)                   ; $A338  2A D9 A9
-        EX DE,HL                         ; $A33B  EB
-        LD A,(DE)                        ; $A33C  1A
-        CP $E5                           ; $A33D  FE E5
-        JP Z,BDOS_DIR_SCAN_NEXT_CMP                  ; $A33F  CA 4A A3
-        PUSH DE                          ; $A342  D5
-        CALL CMP_CURREC_VS_WORKPTR                    ; $A343  CD 7F A1
-        POP DE                           ; $A346  D1
-        JP NC,DIR_NO_MATCH                 ; $A347  D2 94 A3
+        LD C,$00
+        CALL DIR_READ_NEXT
+        CALL CUR_RECORD_BYTES_EQUAL
+        JP Z,DIR_NO_MATCH
+        LD HL,(DIR_FCB_PTR)
+        EX DE,HL
+        LD A,(DE)
+        CP $E5
+        JP Z,BDOS_DIR_SCAN_NEXT_CMP
+        PUSH DE
+        CALL CMP_CURREC_VS_WORKPTR
+        POP DE
+        JP NC,DIR_NO_MATCH
 ; ----------------------------------------------------------------------
 ; BDOS_DIR_SCAN_NEXT_CMP -- set up the per-entry compare loop for BDOS_DIR_SCAN_NEXT.
 ;   In: DE -> directory entry; FCB bytes via FCB_BUF_PTR_ADD_OFFSET; DIR_CMP_LEN (DIR_CMP_LEN) bytes
@@ -2114,10 +2114,10 @@ BDOS_DIR_SCAN_NEXT:
 ;   [RE]
 ; ----------------------------------------------------------------------
 BDOS_DIR_SCAN_NEXT_CMP:
-        CALL FCB_BUF_PTR_ADD_OFFSET                    ; $A34A  CD 5E A1
-        LD A,(DIR_CMP_LEN)                    ; $A34D  3A D8 A9
-        LD C,A                           ; $A350  4F
-        LD B,$00                         ; $A351  06 00
+        CALL FCB_BUF_PTR_ADD_OFFSET
+        LD A,(DIR_CMP_LEN)
+        LD C,A
+        LD B,$00
 ; ----------------------------------------------------------------------
 ; DIR_CMP_BYTE_LOOP -- compare one FCB byte against the directory entry, honoring wildcards.
 ;   In: C = bytes remaining; B = byte index; DE -> entry byte; HL -> FCB byte.
@@ -2132,22 +2132,22 @@ BDOS_DIR_SCAN_NEXT_CMP:
 ;   [RE]
 ; ----------------------------------------------------------------------
 DIR_CMP_BYTE_LOOP:
-        LD A,C                           ; $A353  79
-        OR A                             ; $A354  B7
-        JP Z,DIR_MATCH_FOUND                  ; $A355  CA 83 A3
-        LD A,(DE)                        ; $A358  1A
-        CP $3F                           ; $A359  FE 3F
-        JP Z,DIR_CMP_ADVANCE                  ; $A35B  CA 7C A3
-        LD A,B                           ; $A35E  78
-        CP $0D                           ; $A35F  FE 0D
-        JP Z,DIR_CMP_ADVANCE                  ; $A361  CA 7C A3
-        CP $0C                           ; $A364  FE 0C
-        LD A,(DE)                        ; $A366  1A
-        JP Z,DIR_CMP_EXTENT                  ; $A367  CA 73 A3
-        SUB (HL)                         ; $A36A  96
-        AND $7F                          ; $A36B  E6 7F
-        JP NZ,BDOS_DIR_SCAN_NEXT                   ; $A36D  C2 2D A3
-        JP DIR_CMP_ADVANCE                    ; $A370  C3 7C A3
+        LD A,C
+        OR A
+        JP Z,DIR_MATCH_FOUND
+        LD A,(DE)
+        CP $3F
+        JP Z,DIR_CMP_ADVANCE
+        LD A,B
+        CP $0D
+        JP Z,DIR_CMP_ADVANCE
+        CP $0C
+        LD A,(DE)
+        JP Z,DIR_CMP_EXTENT
+        SUB (HL)
+        AND $7F
+        JP NZ,BDOS_DIR_SCAN_NEXT
+        JP DIR_CMP_ADVANCE
 ; ----------------------------------------------------------------------
 ; DIR_CMP_EXTENT -- compare the extent byte during the directory match.
 ;   In: HL -> FCB extent byte; A = entry extent byte; B/C preserved across the call.
@@ -2159,11 +2159,11 @@ DIR_CMP_BYTE_LOOP:
 ;   [RE]
 ; ----------------------------------------------------------------------
 DIR_CMP_EXTENT:
-        PUSH BC                          ; $A373  C5
-        LD C,(HL)                        ; $A374  4E
-        CALL FCB_EXTENT_COMPARE                    ; $A375  CD 07 A3
-        POP BC                           ; $A378  C1
-        JP NZ,BDOS_DIR_SCAN_NEXT                   ; $A379  C2 2D A3
+        PUSH BC
+        LD C,(HL)
+        CALL FCB_EXTENT_COMPARE
+        POP BC
+        JP NZ,BDOS_DIR_SCAN_NEXT
 ; ----------------------------------------------------------------------
 ; DIR_CMP_ADVANCE -- step to the next byte of the entry/FCB compare.
 ;   In: DE -> entry byte, HL -> FCB byte, B = index, C = count remaining.
@@ -2173,11 +2173,11 @@ DIR_CMP_EXTENT:
 ;   [RE]
 ; ----------------------------------------------------------------------
 DIR_CMP_ADVANCE:
-        INC DE                           ; $A37C  13
-        INC HL                           ; $A37D  23
-        INC B                            ; $A37E  04
-        DEC C                            ; $A37F  0D
-        JP DIR_CMP_BYTE_LOOP                    ; $A380  C3 53 A3
+        INC DE
+        INC HL
+        INC B
+        DEC C
+        JP DIR_CMP_BYTE_LOOP
 ; ----------------------------------------------------------------------
 ; DIR_MATCH_FOUND -- record a successful directory match and return its index.
 ;   In: CUR_RECORD (CUR_RECORD) = current directory record number.
@@ -2190,16 +2190,16 @@ DIR_CMP_ADVANCE:
 ;   [RE]
 ; ----------------------------------------------------------------------
 DIR_MATCH_FOUND:
-        LD A,(CUR_RECORD)                    ; $A383  3A EA A9
-        AND $03                          ; $A386  E6 03
-        LD (BDOS_RETVAL),A                    ; $A388  32 45 9F
-        LD HL,DIR_MATCH_FLAG                     ; $A38B  21 D4 A9
-        LD A,(HL)                        ; $A38E  7E
-        RLA                              ; $A38F  17
-        RET NC                           ; $A390  D0
-        XOR A                            ; $A391  AF
-        LD (HL),A                        ; $A392  77
-        RET                              ; $A393  C9
+        LD A,(CUR_RECORD)
+        AND $03
+        LD (BDOS_RETVAL),A
+        LD HL,DIR_MATCH_FLAG
+        LD A,(HL)
+        RLA
+        RET NC
+        XOR A
+        LD (HL),A
+        RET
 ; ----------------------------------------------------------------------
 ; DIR_NO_MATCH -- terminate a directory scan with 'not found'.
 ;   In: none.  Out: BDOS result byte (BDOS_RETVAL) = $FF; record counter reset to -1.  Clobbers:
@@ -2208,9 +2208,9 @@ DIR_MATCH_FOUND:
 ;   [RE]
 ; ----------------------------------------------------------------------
 DIR_NO_MATCH:
-        CALL INVALIDATE_CUR_RECORD                    ; $A394  CD FE A1
-        LD A,$FF                         ; $A397  3E FF
-        JP BDOS_RET_RESULT                   ; $A399  C3 01 9F
+        CALL INVALIDATE_CUR_RECORD
+        LD A,$FF
+        JP BDOS_RET_RESULT
 ; ----------------------------------------------------------------------
 ; F_DELETE_HND -- delete every directory entry matching the FCB (BDOS function 19).
 ;   In: CURFCB_PTR (BDOS_PARAM_PTR) -> FCB (may contain '?' wildcards). Reached from the dispatcher
@@ -2224,10 +2224,10 @@ DIR_NO_MATCH:
 ;   [RE] CP/M 2.2 F_DELETE.
 ; ----------------------------------------------------------------------
 F_DELETE_HND:
-        CALL CHECK_DRIVE_READONLY                    ; $A39C  CD 54 A1
+        CALL CHECK_DRIVE_READONLY
         ; compare 12 bytes (name+type) when searching for entries to delete
-        LD C,$0C                         ; $A39F  0E 0C
-        CALL DIR_SEARCH_FIRST                    ; $A3A1  CD 18 A3
+        LD C,$0C
+        CALL DIR_SEARCH_FIRST
 ; ----------------------------------------------------------------------
 ; F_DELETE_LOOP -- erase-and-write each matching directory entry, then search the next.
 ;   In: a pending search result from DIR_SEARCH_FIRST / NEXT.  Out: returns when no further matches
@@ -2241,16 +2241,16 @@ F_DELETE_HND:
 ;   [RE]
 ; ----------------------------------------------------------------------
 F_DELETE_LOOP:
-        CALL CUR_RECORD_BYTES_EQUAL                    ; $A3A4  CD F5 A1
-        RET Z                            ; $A3A7  C8
-        CALL FCB_RO_FLAG_TEST                    ; $A3A8  CD 44 A1
-        CALL FCB_BUF_PTR_ADD_OFFSET                    ; $A3AB  CD 5E A1
-        LD (HL),$E5                      ; $A3AE  36 E5
-        LD C,$00                         ; $A3B0  0E 00
-        CALL ALLOC_FROM_FCB                    ; $A3B2  CD 6B A2
-        CALL DIR_RECORD_WRITE                    ; $A3B5  CD C6 A1
-        CALL BDOS_DIR_SCAN_NEXT                    ; $A3B8  CD 2D A3
-        JP F_DELETE_LOOP                    ; $A3BB  C3 A4 A3
+        CALL CUR_RECORD_BYTES_EQUAL
+        RET Z
+        CALL FCB_RO_FLAG_TEST
+        CALL FCB_BUF_PTR_ADD_OFFSET
+        LD (HL),$E5
+        LD C,$00
+        CALL ALLOC_FROM_FCB
+        CALL DIR_RECORD_WRITE
+        CALL BDOS_DIR_SCAN_NEXT
+        JP F_DELETE_LOOP
 ; ----------------------------------------------------------------------
 ; ALLOC_GET_BLOCK -- find/allocate a disk block near a starting block, marking it used.
 ;   In: BC = starting block number (passed by the write core when extending a file).
@@ -2264,8 +2264,8 @@ F_DELETE_LOOP:
 ;   [RE] allocation-vector block search/allocate.
 ; ----------------------------------------------------------------------
 ALLOC_GET_BLOCK:
-        LD D,B                           ; $A3BE  50
-        LD E,C                           ; $A3BF  59
+        LD D,B
+        LD E,C
 ; ----------------------------------------------------------------------
 ; ALLOC_SCAN_DOWN -- scan downward for an in-use block in the run.
 ;   In: BC = block counter; DE = candidate block; allocation vector via ALLOC_BIT_GET.
@@ -2276,17 +2276,17 @@ ALLOC_GET_BLOCK:
 ;   [RE]
 ; ----------------------------------------------------------------------
 ALLOC_SCAN_DOWN:
-        LD A,C                           ; $A3C0  79
-        OR B                             ; $A3C1  B0
-        JP Z,ALLOC_SCAN_UP                  ; $A3C2  CA D1 A3
-        DEC BC                           ; $A3C5  0B
-        PUSH DE                          ; $A3C6  D5
-        PUSH BC                          ; $A3C7  C5
-        CALL ALLOC_BIT_GET                    ; $A3C8  CD 35 A2
-        RRA                              ; $A3CB  1F
-        JP NC,ALLOC_MARK_DONE                 ; $A3CC  D2 EC A3
-        POP BC                           ; $A3CF  C1
-        POP DE                           ; $A3D0  D1
+        LD A,C
+        OR B
+        JP Z,ALLOC_SCAN_UP
+        DEC BC
+        PUSH DE
+        PUSH BC
+        CALL ALLOC_BIT_GET
+        RRA
+        JP NC,ALLOC_MARK_DONE
+        POP BC
+        POP DE
 ; ----------------------------------------------------------------------
 ; ALLOC_SCAN_UP -- scan upward (toward MAX_BLOCK_DSM) for an in-use block.
 ;   In: DE = candidate block; MAX_BLOCK_DSM (MAX_BLOCK_DSM) = highest block number on the drive.
@@ -2298,23 +2298,23 @@ ALLOC_SCAN_DOWN:
 ;   [RE]
 ; ----------------------------------------------------------------------
 ALLOC_SCAN_UP:
-        LD HL,(MAX_BLOCK_DSM)                   ; $A3D1  2A C6 A9
-        LD A,E                           ; $A3D4  7B
-        SUB L                            ; $A3D5  95
-        LD A,D                           ; $A3D6  7A
-        SBC A,H                          ; $A3D7  9C
-        JP NC,ALLOC_SCAN_FINISH                 ; $A3D8  D2 F4 A3
-        INC DE                           ; $A3DB  13
-        PUSH BC                          ; $A3DC  C5
-        PUSH DE                          ; $A3DD  D5
-        LD B,D                           ; $A3DE  42
-        LD C,E                           ; $A3DF  4B
-        CALL ALLOC_BIT_GET                    ; $A3E0  CD 35 A2
-        RRA                              ; $A3E3  1F
-        JP NC,ALLOC_MARK_DONE                 ; $A3E4  D2 EC A3
-        POP DE                           ; $A3E7  D1
-        POP BC                           ; $A3E8  C1
-        JP ALLOC_SCAN_DOWN                    ; $A3E9  C3 C0 A3
+        LD HL,(MAX_BLOCK_DSM)
+        LD A,E
+        SUB L
+        LD A,D
+        SBC A,H
+        JP NC,ALLOC_SCAN_FINISH
+        INC DE
+        PUSH BC
+        PUSH DE
+        LD B,D
+        LD C,E
+        CALL ALLOC_BIT_GET
+        RRA
+        JP NC,ALLOC_MARK_DONE
+        POP DE
+        POP BC
+        JP ALLOC_SCAN_DOWN
 ; ----------------------------------------------------------------------
 ; ALLOC_MARK_DONE -- set the chosen block's allocation bit and return it.
 ;   In: A = the block's current allocation byte (rotated by the scan); the block number tracked by
@@ -2327,12 +2327,12 @@ ALLOC_SCAN_UP:
 ;   [RE]
 ; ----------------------------------------------------------------------
 ALLOC_MARK_DONE:
-        RLA                              ; $A3EC  17
-        INC A                            ; $A3ED  3C
-        CALL ALLOC_BIT_RESTORE                    ; $A3EE  CD 64 A2
-        POP HL                           ; $A3F1  E1
-        POP DE                           ; $A3F2  D1
-        RET                              ; $A3F3  C9
+        RLA
+        INC A
+        CALL ALLOC_BIT_RESTORE
+        POP HL
+        POP DE
+        RET
 ; ----------------------------------------------------------------------
 ; ALLOC_SCAN_FINISH -- end the block scan when the disk limit is reached.
 ;   In: BC = remaining block counter; DE = candidate block.
@@ -2343,11 +2343,11 @@ ALLOC_MARK_DONE:
 ;   [RE]
 ; ----------------------------------------------------------------------
 ALLOC_SCAN_FINISH:
-        LD A,C                           ; $A3F4  79
-        OR B                             ; $A3F5  B0
-        JP NZ,ALLOC_SCAN_DOWN                 ; $A3F6  C2 C0 A3
-        LD HL,$0000                      ; $A3F9  21 00 00
-        RET                              ; $A3FC  C9
+        LD A,C
+        OR B
+        JP NZ,ALLOC_SCAN_DOWN
+        LD HL,$0000
+        RET
 ; ----------------------------------------------------------------------
 ; FCB_WRITE_DIR_ENTRY -- copy the whole 32-byte FCB image into the matched directory entry and write
 ; it.
@@ -2357,8 +2357,8 @@ ALLOC_SCAN_FINISH:
 ;   [RE]
 ; ----------------------------------------------------------------------
 FCB_WRITE_DIR_ENTRY:
-        LD C,$00                         ; $A3FD  0E 00
-        LD E,$20                         ; $A3FF  1E 20
+        LD C,$00
+        LD E,$20
 ; ----------------------------------------------------------------------
 ; FCB_COPY_TO_DIR -- copy E FCB bytes (from offset C) into the matched directory entry.
 ;   In: C = FCB byte offset; E = byte count; CURFCB_PTR (BDOS_PARAM_PTR) -> FCB; current matched dir
@@ -2371,14 +2371,14 @@ FCB_WRITE_DIR_ENTRY:
 ;   [RE]
 ; ----------------------------------------------------------------------
 FCB_COPY_TO_DIR:
-        PUSH DE                          ; $A401  D5
-        LD B,$00                         ; $A402  06 00
-        LD HL,(BDOS_PARAM_PTR)                   ; $A404  2A 43 9F
-        ADD HL,BC                        ; $A407  09
-        EX DE,HL                         ; $A408  EB
-        CALL FCB_BUF_PTR_ADD_OFFSET                    ; $A409  CD 5E A1
-        POP BC                           ; $A40C  C1
-        CALL BLOCK_COPY_INCC                    ; $A40D  CD 4F 9F
+        PUSH DE
+        LD B,$00
+        LD HL,(BDOS_PARAM_PTR)
+        ADD HL,BC
+        EX DE,HL
+        CALL FCB_BUF_PTR_ADD_OFFSET
+        POP BC
+        CALL BLOCK_COPY_INCC
 ; ----------------------------------------------------------------------
 ; FCB_FLUSH_DIR -- position to the directory record and write it back.
 ;   In: current directory record state from the preceding match.  Out: the directory record written
@@ -2389,8 +2389,8 @@ FCB_COPY_TO_DIR:
 ;   [RE]
 ; ----------------------------------------------------------------------
 FCB_FLUSH_DIR:
-        CALL REC_DIV4_SETUP                    ; $A410  CD C3 9F
-        JP DIR_RECORD_WRITE                      ; $A413  C3 C6 A1
+        CALL REC_DIV4_SETUP
+        JP DIR_RECORD_WRITE
 ; ----------------------------------------------------------------------
 ; F_RENAME_HND -- rename a file: replace matching directory entries with the new name (BDOS fn 23).
 ;   In: CURFCB_PTR (BDOS_PARAM_PTR) -> FCB whose bytes 0..15 are the old name and bytes 16..31 the
@@ -2404,14 +2404,14 @@ FCB_FLUSH_DIR:
 ;   [RE] CP/M 2.2 F_RENAME.
 ; ----------------------------------------------------------------------
 F_RENAME_HND:
-        CALL CHECK_DRIVE_READONLY                    ; $A416  CD 54 A1
-        LD C,$0C                         ; $A419  0E 0C
-        CALL DIR_SEARCH_FIRST                    ; $A41B  CD 18 A3
-        LD HL,(BDOS_PARAM_PTR)                   ; $A41E  2A 43 9F
-        LD A,(HL)                        ; $A421  7E
-        LD DE,$0010                      ; $A422  11 10 00
-        ADD HL,DE                        ; $A425  19
-        LD (HL),A                        ; $A426  77
+        CALL CHECK_DRIVE_READONLY
+        LD C,$0C
+        CALL DIR_SEARCH_FIRST
+        LD HL,(BDOS_PARAM_PTR)
+        LD A,(HL)
+        LD DE,$0010
+        ADD HL,DE
+        LD (HL),A
 ; ----------------------------------------------------------------------
 ; F_RENAME_LOOP -- rewrite each matched entry with the new name and write it back.
 ;   In: a pending search result.  Out: returns when no more matches.  Clobbers: A,B,C,D,E,H,L,flags.
@@ -2421,14 +2421,14 @@ F_RENAME_HND:
 ;   [RE]
 ; ----------------------------------------------------------------------
 F_RENAME_LOOP:
-        CALL CUR_RECORD_BYTES_EQUAL                    ; $A427  CD F5 A1
-        RET Z                            ; $A42A  C8
-        CALL FCB_RO_FLAG_TEST                    ; $A42B  CD 44 A1
-        LD C,$10                         ; $A42E  0E 10
-        LD E,$0C                         ; $A430  1E 0C
-        CALL FCB_COPY_TO_DIR                    ; $A432  CD 01 A4
-        CALL BDOS_DIR_SCAN_NEXT                    ; $A435  CD 2D A3
-        JP F_RENAME_LOOP                    ; $A438  C3 27 A4
+        CALL CUR_RECORD_BYTES_EQUAL
+        RET Z
+        CALL FCB_RO_FLAG_TEST
+        LD C,$10
+        LD E,$0C
+        CALL FCB_COPY_TO_DIR
+        CALL BDOS_DIR_SCAN_NEXT
+        JP F_RENAME_LOOP
 ; ----------------------------------------------------------------------
 ; F_ATTRIB_HND -- set file attributes from the FCB into matching directory entries (BDOS fn 30).
 ;   In: CURFCB_PTR (BDOS_PARAM_PTR) -> FCB carrying the attribute high bits in the name/type bytes.
@@ -2441,8 +2441,8 @@ F_RENAME_LOOP:
 ;   [RE] CP/M 2.2 F_ATTRIB.
 ; ----------------------------------------------------------------------
 F_ATTRIB_HND:
-        LD C,$0C                         ; $A43B  0E 0C
-        CALL DIR_SEARCH_FIRST                    ; $A43D  CD 18 A3
+        LD C,$0C
+        CALL DIR_SEARCH_FIRST
 ; ----------------------------------------------------------------------
 ; F_ATTRIB_LOOP -- write the FCB's attribute bytes into each matched entry.
 ;   In: a pending search result.  Out: returns when no more matches.  Clobbers: A,B,C,D,E,H,L,flags.
@@ -2452,13 +2452,13 @@ F_ATTRIB_HND:
 ;   [RE]
 ; ----------------------------------------------------------------------
 F_ATTRIB_LOOP:
-        CALL CUR_RECORD_BYTES_EQUAL                    ; $A440  CD F5 A1
-        RET Z                            ; $A443  C8
-        LD C,$00                         ; $A444  0E 00
-        LD E,$0C                         ; $A446  1E 0C
-        CALL FCB_COPY_TO_DIR                    ; $A448  CD 01 A4
-        CALL BDOS_DIR_SCAN_NEXT                    ; $A44B  CD 2D A3
-        JP F_ATTRIB_LOOP                    ; $A44E  C3 40 A4
+        CALL CUR_RECORD_BYTES_EQUAL
+        RET Z
+        LD C,$00
+        LD E,$0C
+        CALL FCB_COPY_TO_DIR
+        CALL BDOS_DIR_SCAN_NEXT
+        JP F_ATTRIB_LOOP
 ; ----------------------------------------------------------------------
 ; FCB_OPEN_SEARCH -- search-first for the FCB's extent and merge the directory entry into the FCB.
 ;   In: CURFCB_PTR (BDOS_PARAM_PTR) -> FCB. Core of F_OPEN (dispatcher fn 15) and the random-record
@@ -2473,10 +2473,10 @@ F_ATTRIB_LOOP:
 ; ----------------------------------------------------------------------
 FCB_OPEN_SEARCH:
         ; compare 15 bytes (name+type+extent) for the open/extent search
-        LD C,$0F                         ; $A451  0E 0F
-        CALL DIR_SEARCH_FIRST                    ; $A453  CD 18 A3
-        CALL CUR_RECORD_BYTES_EQUAL                    ; $A456  CD F5 A1
-        RET Z                            ; $A459  C8
+        LD C,$0F
+        CALL DIR_SEARCH_FIRST
+        CALL CUR_RECORD_BYTES_EQUAL
+        RET Z
 ; ----------------------------------------------------------------------
 ; FILE_SIZE_FROM_EXTENT -- merge a matched directory entry into the FCB and update its record count.
 ;   In: HL -> matched directory entry; CURFCB_PTR (BDOS_PARAM_PTR) -> the user FCB.
@@ -2493,34 +2493,34 @@ FCB_OPEN_SEARCH:
 ;   [RE]
 ; ----------------------------------------------------------------------
 FILE_SIZE_FROM_EXTENT:
-        CALL DRV_INSTALL_RWTS_1                    ; $A45A  CD A6 A0
-        LD A,(HL)                        ; $A45D  7E
-        PUSH AF                          ; $A45E  F5
-        PUSH HL                          ; $A45F  E5
-        CALL FCB_BUF_PTR_ADD_OFFSET                    ; $A460  CD 5E A1
-        EX DE,HL                         ; $A463  EB
-        LD HL,(BDOS_PARAM_PTR)                   ; $A464  2A 43 9F
-        LD C,$20                         ; $A467  0E 20
-        PUSH DE                          ; $A469  D5
-        CALL BLOCK_COPY_INCC                    ; $A46A  CD 4F 9F
-        CALL MARK_FCB_S2_HIGHBIT                    ; $A46D  CD 78 A1
-        POP DE                           ; $A470  D1
-        LD HL,$000C                      ; $A471  21 0C 00
-        ADD HL,DE                        ; $A474  19
-        LD C,(HL)                        ; $A475  4E
-        LD HL,$000F                      ; $A476  21 0F 00
-        ADD HL,DE                        ; $A479  19
-        LD B,(HL)                        ; $A47A  46
-        POP HL                           ; $A47B  E1
-        POP AF                           ; $A47C  F1
-        LD (HL),A                        ; $A47D  77
-        LD A,C                           ; $A47E  79
-        CP (HL)                          ; $A47F  BE
-        LD A,B                           ; $A480  78
-        JP Z,FILE_SIZE_STORE                  ; $A481  CA 8B A4
-        LD A,$00                         ; $A484  3E 00
-        JP C,FILE_SIZE_STORE                  ; $A486  DA 8B A4
-        LD A,$80                         ; $A489  3E 80
+        CALL DRV_INSTALL_RWTS_1
+        LD A,(HL)
+        PUSH AF
+        PUSH HL
+        CALL FCB_BUF_PTR_ADD_OFFSET
+        EX DE,HL
+        LD HL,(BDOS_PARAM_PTR)
+        LD C,$20
+        PUSH DE
+        CALL BLOCK_COPY_INCC
+        CALL MARK_FCB_S2_HIGHBIT
+        POP DE
+        LD HL,$000C
+        ADD HL,DE
+        LD C,(HL)
+        LD HL,$000F
+        ADD HL,DE
+        LD B,(HL)
+        POP HL
+        POP AF
+        LD (HL),A
+        LD A,C
+        CP (HL)
+        LD A,B
+        JP Z,FILE_SIZE_STORE
+        LD A,$00
+        JP C,FILE_SIZE_STORE
+        LD A,$80
 ; ----------------------------------------------------------------------
 ; FILE_SIZE_STORE -- write the computed record value into the FCB record-count field.
 ;   In: A = computed value ($00/$80/extent RC); CURFCB_PTR (BDOS_PARAM_PTR) -> FCB.  Out: FCB offset
@@ -2529,11 +2529,11 @@ FILE_SIZE_FROM_EXTENT:
 ;   [RE]
 ; ----------------------------------------------------------------------
 FILE_SIZE_STORE:
-        LD HL,(BDOS_PARAM_PTR)                   ; $A48B  2A 43 9F
-        LD DE,$000F                      ; $A48E  11 0F 00
-        ADD HL,DE                        ; $A491  19
-        LD (HL),A                        ; $A492  77
-        RET                              ; $A493  C9
+        LD HL,(BDOS_PARAM_PTR)
+        LD DE,$000F
+        ADD HL,DE
+        LD (HL),A
+        RET
 ; ----------------------------------------------------------------------
 ; FCB_WORD_FILL_IF_ZERO -- copy a 16-bit word from (DE) to (HL) only when (HL) is currently zero.
 ;   In: HL -> destination word; DE -> source word.
@@ -2545,20 +2545,20 @@ FILE_SIZE_STORE:
 ;   [RE] allocation-word merge helper used during F_CLOSE_HND.
 ; ----------------------------------------------------------------------
 FCB_WORD_FILL_IF_ZERO:
-        LD A,(HL)                        ; $A494  7E
-        INC HL                           ; $A495  23
-        OR (HL)                          ; $A496  B6
-        DEC HL                           ; $A497  2B
-        RET NZ                           ; $A498  C0
-        LD A,(DE)                        ; $A499  1A
-        LD (HL),A                        ; $A49A  77
-        INC DE                           ; $A49B  13
-        INC HL                           ; $A49C  23
-        LD A,(DE)                        ; $A49D  1A
-        LD (HL),A                        ; $A49E  77
-        DEC DE                           ; $A49F  1B
-        DEC HL                           ; $A4A0  2B
-        RET                              ; $A4A1  C9
+        LD A,(HL)
+        INC HL
+        OR (HL)
+        DEC HL
+        RET NZ
+        LD A,(DE)
+        LD (HL),A
+        INC DE
+        INC HL
+        LD A,(DE)
+        LD (HL),A
+        DEC DE
+        DEC HL
+        RET
 ; ----------------------------------------------------------------------
 ; F_CLOSE_HND -- close a file: merge the in-memory FCB into its directory entry (BDOS fn 16).
 ;   In: CURFCB_PTR (BDOS_PARAM_PTR) -> FCB. Dispatcher fn 16; also used internally to flush an
@@ -2574,26 +2574,26 @@ FCB_WORD_FILL_IF_ZERO:
 ;   [RE] CP/M 2.2 F_CLOSE.
 ; ----------------------------------------------------------------------
 F_CLOSE_HND:
-        XOR A                            ; $A4A2  AF
-        LD (BDOS_RETVAL),A                    ; $A4A3  32 45 9F
-        LD (CUR_RECORD),A                    ; $A4A6  32 EA A9
-        LD (CUR_RECORD_HI),A                    ; $A4A9  32 EB A9
-        CALL DRIVE_BIT_TEST                    ; $A4AC  CD 1E A1
-        RET NZ                           ; $A4AF  C0
-        CALL FCB_GET_S2                    ; $A4B0  CD 69 A1
-        AND $80                          ; $A4B3  E6 80
-        RET NZ                           ; $A4B5  C0
-        LD C,$0F                         ; $A4B6  0E 0F
-        CALL DIR_SEARCH_FIRST                    ; $A4B8  CD 18 A3
-        CALL CUR_RECORD_BYTES_EQUAL                    ; $A4BB  CD F5 A1
-        RET Z                            ; $A4BE  C8
-        LD BC,$0010                      ; $A4BF  01 10 00
-        CALL FCB_BUF_PTR_ADD_OFFSET                    ; $A4C2  CD 5E A1
-        ADD HL,BC                        ; $A4C5  09
-        EX DE,HL                         ; $A4C6  EB
-        LD HL,(BDOS_PARAM_PTR)                   ; $A4C7  2A 43 9F
-        ADD HL,BC                        ; $A4CA  09
-        LD C,$10                         ; $A4CB  0E 10
+        XOR A
+        LD (BDOS_RETVAL),A
+        LD (CUR_RECORD),A
+        LD (CUR_RECORD_HI),A
+        CALL DRIVE_BIT_TEST
+        RET NZ
+        CALL FCB_GET_S2
+        AND $80
+        RET NZ
+        LD C,$0F
+        CALL DIR_SEARCH_FIRST
+        CALL CUR_RECORD_BYTES_EQUAL
+        RET Z
+        LD BC,$0010
+        CALL FCB_BUF_PTR_ADD_OFFSET
+        ADD HL,BC
+        EX DE,HL
+        LD HL,(BDOS_PARAM_PTR)
+        ADD HL,BC
+        LD C,$10
 ; ----------------------------------------------------------------------
 ; FCB_MERGE_MAP_LOOP -- merge the FCB allocation map slot-by-slot into the directory entry.
 ;   In: HL -> entry allocation slot; DE -> FCB allocation slot; C = slots remaining (16).
@@ -2606,14 +2606,14 @@ F_CLOSE_HND:
 ;   [RE]
 ; ----------------------------------------------------------------------
 FCB_MERGE_MAP_LOOP:
-        LD A,(BLOCK_WIDTH_FLAG)                    ; $A4CD  3A DD A9
-        OR A                             ; $A4D0  B7
-        JP Z,FCB_MERGE_WORD                  ; $A4D1  CA E8 A4
-        LD A,(HL)                        ; $A4D4  7E
-        OR A                             ; $A4D5  B7
-        LD A,(DE)                        ; $A4D6  1A
-        JP NZ,FCB_MERGE_BYTE_CHECK                 ; $A4D7  C2 DB A4
-        LD (HL),A                        ; $A4DA  77
+        LD A,(BLOCK_WIDTH_FLAG)
+        OR A
+        JP Z,FCB_MERGE_WORD
+        LD A,(HL)
+        OR A
+        LD A,(DE)
+        JP NZ,FCB_MERGE_BYTE_CHECK
+        LD (HL),A
 ; ----------------------------------------------------------------------
 ; FCB_MERGE_BYTE_CHECK -- reconcile one 8-bit allocation slot between FCB and entry.
 ;   In: A = FCB block byte; HL -> entry block byte; DE -> FCB block byte.
@@ -2625,10 +2625,10 @@ FCB_MERGE_MAP_LOOP:
 ;   [RE]
 ; ----------------------------------------------------------------------
 FCB_MERGE_BYTE_CHECK:
-        OR A                             ; $A4DB  B7
-        JP NZ,FCB_MERGE_DIFF                 ; $A4DC  C2 E1 A4
-        LD A,(HL)                        ; $A4DF  7E
-        LD (DE),A                        ; $A4E0  12
+        OR A
+        JP NZ,FCB_MERGE_DIFF
+        LD A,(HL)
+        LD (DE),A
 ; ----------------------------------------------------------------------
 ; FCB_MERGE_DIFF -- detect a block-map disagreement between FCB and directory entry.
 ;   In: A = FCB block byte; HL -> entry block byte.
@@ -2640,9 +2640,9 @@ FCB_MERGE_BYTE_CHECK:
 ;   [RE]
 ; ----------------------------------------------------------------------
 FCB_MERGE_DIFF:
-        CP (HL)                          ; $A4E1  BE
-        JP NZ,FCB_DEC_RESULT                 ; $A4E2  C2 1F A5
-        JP FCB_MERGE_NEXT                    ; $A4E5  C3 FD A4
+        CP (HL)
+        JP NZ,FCB_DEC_RESULT
+        JP FCB_MERGE_NEXT
 ; ----------------------------------------------------------------------
 ; FCB_MERGE_WORD -- merge/compare a 16-bit allocation word for double-byte-block drives.
 ;   In: HL -> entry word; DE -> FCB word.
@@ -2656,19 +2656,19 @@ FCB_MERGE_DIFF:
 ;   [RE]
 ; ----------------------------------------------------------------------
 FCB_MERGE_WORD:
-        CALL FCB_WORD_FILL_IF_ZERO                    ; $A4E8  CD 94 A4
-        EX DE,HL                         ; $A4EB  EB
-        CALL FCB_WORD_FILL_IF_ZERO                    ; $A4EC  CD 94 A4
-        EX DE,HL                         ; $A4EF  EB
-        LD A,(DE)                        ; $A4F0  1A
-        CP (HL)                          ; $A4F1  BE
-        JP NZ,FCB_DEC_RESULT                 ; $A4F2  C2 1F A5
-        INC DE                           ; $A4F5  13
-        INC HL                           ; $A4F6  23
-        LD A,(DE)                        ; $A4F7  1A
-        CP (HL)                          ; $A4F8  BE
-        JP NZ,FCB_DEC_RESULT                 ; $A4F9  C2 1F A5
-        DEC C                            ; $A4FC  0D
+        CALL FCB_WORD_FILL_IF_ZERO
+        EX DE,HL
+        CALL FCB_WORD_FILL_IF_ZERO
+        EX DE,HL
+        LD A,(DE)
+        CP (HL)
+        JP NZ,FCB_DEC_RESULT
+        INC DE
+        INC HL
+        LD A,(DE)
+        CP (HL)
+        JP NZ,FCB_DEC_RESULT
+        DEC C
 ; ----------------------------------------------------------------------
 ; FCB_MERGE_NEXT -- step to the next allocation slot, then finalize the record count.
 ;   In: DE,HL -> current FCB/entry block bytes; C = slot count remaining.
@@ -2683,24 +2683,24 @@ FCB_MERGE_WORD:
 ;   [RE]
 ; ----------------------------------------------------------------------
 FCB_MERGE_NEXT:
-        INC DE                           ; $A4FD  13
-        INC HL                           ; $A4FE  23
-        DEC C                            ; $A4FF  0D
-        JP NZ,FCB_MERGE_MAP_LOOP                 ; $A500  C2 CD A4
-        LD BC,$FFEC                      ; $A503  01 EC FF
-        ADD HL,BC                        ; $A506  09
-        EX DE,HL                         ; $A507  EB
-        ADD HL,BC                        ; $A508  09
-        LD A,(DE)                        ; $A509  1A
-        CP (HL)                          ; $A50A  BE
-        JP C,FCB_MERGE_FINISH                  ; $A50B  DA 17 A5
-        LD (HL),A                        ; $A50E  77
-        LD BC,$0003                      ; $A50F  01 03 00
-        ADD HL,BC                        ; $A512  09
-        EX DE,HL                         ; $A513  EB
-        ADD HL,BC                        ; $A514  09
-        LD A,(HL)                        ; $A515  7E
-        LD (DE),A                        ; $A516  12
+        INC DE
+        INC HL
+        DEC C
+        JP NZ,FCB_MERGE_MAP_LOOP
+        LD BC,$FFEC
+        ADD HL,BC
+        EX DE,HL
+        ADD HL,BC
+        LD A,(DE)
+        CP (HL)
+        JP C,FCB_MERGE_FINISH
+        LD (HL),A
+        LD BC,$0003
+        ADD HL,BC
+        EX DE,HL
+        ADD HL,BC
+        LD A,(HL)
+        LD (DE),A
 ; ----------------------------------------------------------------------
 ; FCB_MERGE_FINISH -- mark the merged entry dirty and flush the directory record.
 ;   In: merged directory entry in the buffer.  Out: dir-changed flag (DIR_DIRTY_FLAG) = $FF;
@@ -2711,9 +2711,9 @@ FCB_MERGE_NEXT:
 ;   [RE]
 ; ----------------------------------------------------------------------
 FCB_MERGE_FINISH:
-        LD A,$FF                         ; $A517  3E FF
-        LD (DIR_DIRTY_FLAG),A                    ; $A519  32 D2 A9
-        JP FCB_FLUSH_DIR                    ; $A51C  C3 10 A4
+        LD A,$FF
+        LD (DIR_DIRTY_FLAG),A
+        JP FCB_FLUSH_DIR
 ; ----------------------------------------------------------------------
 ; FCB_DEC_RESULT -- record a directory-merge conflict by decrementing the result byte.
 ;   In: none (operates on the BDOS result byte BDOS_RETVAL).  Out: result byte decremented (toward
@@ -2724,9 +2724,9 @@ FCB_MERGE_FINISH:
 ;   [RE]
 ; ----------------------------------------------------------------------
 FCB_DEC_RESULT:
-        LD HL,BDOS_RETVAL                     ; $A51F  21 45 9F
-        DEC (HL)                         ; $A522  35
-        RET                              ; $A523  C9
+        LD HL,BDOS_RETVAL
+        DEC (HL)
+        RET
 ; ----------------------------------------------------------------------
 ; DIR_MAKE_ENTRY -- find a free directory slot and create a new (empty) entry for the FCB.
 ;   In: CURFCB_PTR (BDOS_PARAM_PTR) -> FCB. Core of F_MAKE (dispatcher fn 22).
@@ -2743,37 +2743,37 @@ FCB_DEC_RESULT:
 ;   [RE] make-directory-entry helper.
 ; ----------------------------------------------------------------------
 DIR_MAKE_ENTRY:
-        CALL CHECK_DRIVE_READONLY                    ; $A524  CD 54 A1
-        LD HL,(BDOS_PARAM_PTR)                   ; $A527  2A 43 9F
-        PUSH HL                          ; $A52A  E5
-        LD HL,EMPTY_DIR_FCB                     ; $A52B  21 AC A9
-        LD (BDOS_PARAM_PTR),HL                   ; $A52E  22 43 9F
-        LD C,$01                         ; $A531  0E 01
-        CALL DIR_SEARCH_FIRST                    ; $A533  CD 18 A3
-        CALL CUR_RECORD_BYTES_EQUAL                    ; $A536  CD F5 A1
-        POP HL                           ; $A539  E1
-        LD (BDOS_PARAM_PTR),HL                   ; $A53A  22 43 9F
-        RET Z                            ; $A53D  C8
-        EX DE,HL                         ; $A53E  EB
-        LD HL,$000F                      ; $A53F  21 0F 00
-        ADD HL,DE                        ; $A542  19
-        LD C,$11                         ; $A543  0E 11
-        XOR A                            ; $A545  AF
+        CALL CHECK_DRIVE_READONLY
+        LD HL,(BDOS_PARAM_PTR)
+        PUSH HL
+        LD HL,EMPTY_DIR_FCB
+        LD (BDOS_PARAM_PTR),HL
+        LD C,$01
+        CALL DIR_SEARCH_FIRST
+        CALL CUR_RECORD_BYTES_EQUAL
+        POP HL
+        LD (BDOS_PARAM_PTR),HL
+        RET Z
+        EX DE,HL
+        LD HL,$000F
+        ADD HL,DE
+        LD C,$11
+        XOR A
 ; ----------------------------------------------------------------------
 ; DIR_ZERO_ALLOC -- store-zero / INC HL / DEC C loop clearing the new entry's record/allocation
 ; bytes. [RE]
 ; ----------------------------------------------------------------------
 DIR_ZERO_ALLOC:
-        LD (HL),A                        ; $A546  77
-        INC HL                           ; $A547  23
-        DEC C                            ; $A548  0D
-        JP NZ,DIR_ZERO_ALLOC                 ; $A549  C2 46 A5
-        LD HL,$000D                      ; $A54C  21 0D 00
-        ADD HL,DE                        ; $A54F  19
-        LD (HL),A                        ; $A550  77
-        CALL RECPTR_INC_STORE                    ; $A551  CD 8C A1
-        CALL FCB_WRITE_DIR_ENTRY                    ; $A554  CD FD A3
-        JP MARK_FCB_S2_HIGHBIT                      ; $A557  C3 78 A1
+        LD (HL),A
+        INC HL
+        DEC C
+        JP NZ,DIR_ZERO_ALLOC
+        LD HL,$000D
+        ADD HL,DE
+        LD (HL),A
+        CALL RECPTR_INC_STORE
+        CALL FCB_WRITE_DIR_ENTRY
+        JP MARK_FCB_S2_HIGHBIT
 ; ----------------------------------------------------------------------
 ; FCB_ADVANCE_RECORD -- advance the FCB to the next record/extent for sequential write.
 ;   In: CURFCB_PTR ($9F43) -> open FCB.
@@ -2788,32 +2788,32 @@ DIR_ZERO_ALLOC:
 ;   [RE] sequential-write record/extent advance
 ; ----------------------------------------------------------------------
 FCB_ADVANCE_RECORD:
-        XOR A                            ; $A55A  AF
+        XOR A
         ; clear the directory-changed flag
-        LD (DIR_DIRTY_FLAG),A                    ; $A55B  32 D2 A9
+        LD (DIR_DIRTY_FLAG),A
         ; close/flush the current extent first
-        CALL F_CLOSE_HND                    ; $A55E  CD A2 A4
-        CALL CUR_RECORD_BYTES_EQUAL                    ; $A561  CD F5 A1
-        RET Z                            ; $A564  C8
-        LD HL,(BDOS_PARAM_PTR)                   ; $A565  2A 43 9F
+        CALL F_CLOSE_HND
+        CALL CUR_RECORD_BYTES_EQUAL
+        RET Z
+        LD HL,(BDOS_PARAM_PTR)
         ; FCB offset 12 = current-record byte
-        LD BC,$000C                      ; $A568  01 0C 00
-        ADD HL,BC                        ; $A56B  09
-        LD A,(HL)                        ; $A56C  7E
-        INC A                            ; $A56D  3C
+        LD BC,$000C
+        ADD HL,BC
+        LD A,(HL)
+        INC A
         ; wrap the current record mod 32 (128 records/extent)
-        AND $1F                          ; $A56E  E6 1F
-        LD (HL),A                        ; $A570  77
+        AND $1F
+        LD (HL),A
         ; record wrapped -> move to the next extent
-        JP Z,FCB_NEXT_EXTENT                  ; $A571  CA 83 A5
-        LD B,A                           ; $A574  47
+        JP Z,FCB_NEXT_EXTENT
+        LD B,A
         ; load the extent mask (EXM)
-        LD A,(DPB_EXM)                    ; $A575  3A C5 A9
-        AND B                            ; $A578  A0
-        LD HL,DIR_DIRTY_FLAG                     ; $A579  21 D2 A9
-        AND (HL)                         ; $A57C  A6
-        JP Z,FCB_OPEN_NEXT_EXTENT                  ; $A57D  CA 8E A5
-        JP FCB_MERGE_FOUND_EXTENT                    ; $A580  C3 AC A5
+        LD A,(DPB_EXM)
+        AND B
+        LD HL,DIR_DIRTY_FLAG
+        AND (HL)
+        JP Z,FCB_OPEN_NEXT_EXTENT
+        JP FCB_MERGE_FOUND_EXTENT
 ; ----------------------------------------------------------------------
 ; FCB_NEXT_EXTENT -- step the FCB to the next extent when the record count wraps.
 ;   In: HL -> FCB current-record byte; FCB extent fields follow.
@@ -2826,15 +2826,15 @@ FCB_ADVANCE_RECORD:
 ; ----------------------------------------------------------------------
 FCB_NEXT_EXTENT:
         ; step from record byte (12) to the extent byte (14)
-        LD BC,$0002                      ; $A583  01 02 00
-        ADD HL,BC                        ; $A586  09
+        LD BC,$0002
+        ADD HL,BC
         ; advance to the next extent
-        INC (HL)                         ; $A587  34
-        LD A,(HL)                        ; $A588  7E
+        INC (HL)
+        LD A,(HL)
         ; low nibble = extent within the current entry group
-        AND $0F                          ; $A589  E6 0F
+        AND $0F
         ; extent group rolled over -> finish
-        JP Z,DISK_FINISH_OK                  ; $A58B  CA B6 A5
+        JP Z,DISK_FINISH_OK
 ; ----------------------------------------------------------------------
 ; FCB_OPEN_NEXT_EXTENT -- search the directory for the FCB's next extent, creating it if absent.
 ;   In: CURFCB_PTR ($9F43) -> FCB positioned at the next extent; the read/write direction flag in
@@ -2849,20 +2849,20 @@ FCB_NEXT_EXTENT:
 ; ----------------------------------------------------------------------
 FCB_OPEN_NEXT_EXTENT:
         ; search on 15 bytes (name+type+extent)
-        LD C,$0F                         ; $A58E  0E 0F
+        LD C,$0F
         ; search-first for the next extent
-        CALL DIR_SEARCH_FIRST                    ; $A590  CD 18 A3
-        CALL CUR_RECORD_BYTES_EQUAL                    ; $A593  CD F5 A1
+        CALL DIR_SEARCH_FIRST
+        CALL CUR_RECORD_BYTES_EQUAL
         ; extent exists -> merge it into the FCB
-        JP NZ,FCB_MERGE_FOUND_EXTENT                 ; $A596  C2 AC A5
-        LD A,(RW_DIRECTION_FLAG)                    ; $A599  3A D3 A9
-        INC A                            ; $A59C  3C
-        JP Z,DISK_FINISH_OK                  ; $A59D  CA B6 A5
+        JP NZ,FCB_MERGE_FOUND_EXTENT
+        LD A,(RW_DIRECTION_FLAG)
+        INC A
+        JP Z,DISK_FINISH_OK
         ; no extent -> make a new directory entry
-        CALL DIR_MAKE_ENTRY                    ; $A5A0  CD 24 A5
-        CALL CUR_RECORD_BYTES_EQUAL                    ; $A5A3  CD F5 A1
-        JP Z,DISK_FINISH_OK                  ; $A5A6  CA B6 A5
-        JP FCB_FINISH_NEW_EXTENT                    ; $A5A9  C3 AF A5
+        CALL DIR_MAKE_ENTRY
+        CALL CUR_RECORD_BYTES_EQUAL
+        JP Z,DISK_FINISH_OK
+        JP FCB_FINISH_NEW_EXTENT
 ; ----------------------------------------------------------------------
 ; FCB_MERGE_FOUND_EXTENT -- merge a located directory extent back into the FCB.
 ;   In: a successful search result for the extent; CURFCB_PTR ($9F43) -> FCB.
@@ -2876,7 +2876,7 @@ FCB_OPEN_NEXT_EXTENT:
 FCB_MERGE_FOUND_EXTENT:
         ; FCB_FINISH_NEW_EXTENT
         ; merge the matched extent and set the FCB record count, then fall into
-        CALL FILE_SIZE_FROM_EXTENT                    ; $A5AC  CD 5A A4
+        CALL FILE_SIZE_FROM_EXTENT
 ; ----------------------------------------------------------------------
 ; FCB_FINISH_NEW_EXTENT -- finish opening a newly created extent and return OK.
 ;   In: a new directory entry just made for the FCB.
@@ -2887,10 +2887,10 @@ FCB_MERGE_FOUND_EXTENT:
 ; ----------------------------------------------------------------------
 FCB_FINISH_NEW_EXTENT:
         ; refresh the FCB drive/extent working fields
-        CALL DRV_INSTALL_RWTS_3                    ; $A5AF  CD BB A0
-        XOR A                            ; $A5B2  AF
+        CALL DRV_INSTALL_RWTS_3
+        XOR A
         ; return success (0)
-        JP BDOS_RET_RESULT                   ; $A5B3  C3 01 9F
+        JP BDOS_RET_RESULT
 ; ----------------------------------------------------------------------
 ; DISK_FINISH_OK -- finalize the BDOS result and set the FCB written flag.
 ;   In: directory/record operation just completed.
@@ -2902,9 +2902,9 @@ FCB_FINISH_NEW_EXTENT:
 ; ----------------------------------------------------------------------
 DISK_FINISH_OK:
         ; finalize the BDOS result for the operation
-        CALL BDOS_RET_ONE                    ; $A5B6  CD 05 9F
+        CALL BDOS_RET_ONE
         ; set the FCB S2 'written' flag and return
-        JP MARK_FCB_S2_HIGHBIT                      ; $A5B9  C3 78 A1
+        JP MARK_FCB_S2_HIGHBIT
 ; ----------------------------------------------------------------------
 ; FILE_READ_SEQ -- sequential read of one record into the DMA buffer (BDOS fn 20).
 ;   In: CURFCB_PTR ($9F43) -> open FCB. Reached from F_READ_H (dispatch fn 20).
@@ -2916,9 +2916,9 @@ DISK_FINISH_OK:
 ; ----------------------------------------------------------------------
 FILE_READ_SEQ:
         ; mode = 1 (sequential read)
-        LD A,$01                         ; $A5BC  3E 01
+        LD A,$01
         ; store the sequential/random mode flag (1=sequential)
-        LD (WRITE_TYPE_FLAG),A                    ; $A5BE  32 D5 A9
+        LD (WRITE_TYPE_FLAG),A
 ; ----------------------------------------------------------------------
 ; FILE_READ_RECORD -- read the FCB's current record into the DMA buffer (shared read core).
 ;   In: CURFCB_PTR ($9F43) -> open FCB; record/extent fields set. Shared by sequential
@@ -2933,24 +2933,24 @@ FILE_READ_SEQ:
 ; ----------------------------------------------------------------------
 FILE_READ_RECORD:
         ; direction = read
-        LD A,$FF                         ; $A5C1  3E FF
+        LD A,$FF
         ; store the read/write direction flag ($FF=read)
-        LD (RW_DIRECTION_FLAG),A                    ; $A5C3  32 D3 A9
+        LD (RW_DIRECTION_FLAG),A
         ; refresh the FCB drive/extent working fields
-        CALL DRV_INSTALL_RWTS_3                    ; $A5C6  CD BB A0
-        LD A,(FCB_CURREC)                    ; $A5C9  3A E3 A9
-        LD HL,FCB_RECCOUNT                     ; $A5CC  21 E1 A9
-        CP (HL)                          ; $A5CF  BE
-        JP C,FILE_READ_DO_SECTOR                  ; $A5D0  DA E6 A5
+        CALL DRV_INSTALL_RWTS_3
+        LD A,(FCB_CURREC)
+        LD HL,FCB_RECCOUNT
+        CP (HL)
+        JP C,FILE_READ_DO_SECTOR
         ; record at the $80 boundary = extent boundary / EOF
-        CP $80                           ; $A5D3  FE 80
-        JP NZ,FILE_READ_ERROR                 ; $A5D5  C2 FB A5
-        CALL FCB_ADVANCE_RECORD                    ; $A5D8  CD 5A A5
-        XOR A                            ; $A5DB  AF
-        LD (FCB_CURREC),A                    ; $A5DC  32 E3 A9
-        LD A,(BDOS_RETVAL)                    ; $A5DF  3A 45 9F
-        OR A                             ; $A5E2  B7
-        JP NZ,FILE_READ_ERROR                 ; $A5E3  C2 FB A5
+        CP $80
+        JP NZ,FILE_READ_ERROR
+        CALL FCB_ADVANCE_RECORD
+        XOR A
+        LD (FCB_CURREC),A
+        LD A,(BDOS_RETVAL)
+        OR A
+        JP NZ,FILE_READ_ERROR
 ; ----------------------------------------------------------------------
 ; FILE_READ_DO_SECTOR -- translate the record to a sector and read it into the DMA buffer.
 ;   In: FCB working fields set; record within the current extent.
@@ -2963,16 +2963,16 @@ FILE_READ_RECORD:
 ; ----------------------------------------------------------------------
 FILE_READ_DO_SECTOR:
         ; compute the block number for this record
-        CALL DISK_STORE_SEC_TRK_14                    ; $A5E6  CD 77 A0
-        CALL DISK_STORE_SEC_TRK_16                    ; $A5E9  CD 84 A0
+        CALL DISK_STORE_SEC_TRK_14
+        CALL DISK_STORE_SEC_TRK_16
         ; no allocated block -> read error / unwritten
-        JP Z,FILE_READ_ERROR                  ; $A5EC  CA FB A5
+        JP Z,FILE_READ_ERROR
         ; compute the physical sector/track
-        CALL DISK_STORE_SEC_TRK_17                    ; $A5EF  CD 8A A0
-        CALL RECORD_TO_TRACK                    ; $A5F2  CD D1 9F
-        CALL DISK_READ_CHECKED                    ; $A5F5  CD B2 9F
+        CALL DISK_STORE_SEC_TRK_17
+        CALL RECORD_TO_TRACK
+        CALL DISK_READ_CHECKED
         ; perform the BIOS sector read and return
-        JP DRV_INSTALL_RWTS_6                      ; $A5F8  C3 D2 A0
+        JP DRV_INSTALL_RWTS_6
 ; ----------------------------------------------------------------------
 ; FILE_READ_ERROR -- return a read error / unwritten-record result.
 ;   In: none.
@@ -2983,7 +2983,7 @@ FILE_READ_DO_SECTOR:
 ; ----------------------------------------------------------------------
 FILE_READ_ERROR:
         ; return the BDOS read error code
-        JP BDOS_RET_ONE                      ; $A5FB  C3 05 9F
+        JP BDOS_RET_ONE
 ; ----------------------------------------------------------------------
 ; FILE_WRITE_SEQ -- sequential write of one record from the DMA buffer (BDOS fn 21).
 ;   In: CURFCB_PTR ($9F43) -> FCB; DMA buffer holds the record. Reached from F_WRITE_H (dispatch fn
@@ -2997,9 +2997,9 @@ FILE_READ_ERROR:
 ; ----------------------------------------------------------------------
 FILE_WRITE_SEQ:
         ; mode = 1 (sequential write)
-        LD A,$01                         ; $A5FE  3E 01
+        LD A,$01
         ; store the sequential/random mode flag (1=sequential)
-        LD (WRITE_TYPE_FLAG),A                    ; $A600  32 D5 A9
+        LD (WRITE_TYPE_FLAG),A
 ; ----------------------------------------------------------------------
 ; BDOS_WRITE -- BDOS WRITE primitive (CP/M 2.2 fn 21 F_WRITE / fn 34 F_WRITERAND / fn 40 F_WRITEZF
 ; target). Write the current record of the open file, allocating and deblocking disk blocks as
@@ -3027,44 +3027,44 @@ FILE_WRITE_SEQ:
 ; ----------------------------------------------------------------------
 BDOS_WRITE:
         ; Clear the directory-update-needed flag (RW_DIRECTION_FLAG) before starting this write.
-        LD A,$00                         ; $A603  3E 00
-        LD (RW_DIRECTION_FLAG),A                    ; $A605  32 D3 A9
+        LD A,$00
+        LD (RW_DIRECTION_FLAG),A
         ; Drive read-only / select check (raises a BDOS error overlay if the drive is not writable).
-        CALL CHECK_DRIVE_READONLY                    ; $A608  CD 54 A1
+        CALL CHECK_DRIVE_READONLY
         ; HL = pointer to the active FCB (CURFCB).
-        LD HL,(BDOS_PARAM_PTR)                   ; $A60B  2A 43 9F
-        CALL CHECK_DIRENT_READONLY_INNER                    ; $A60E  CD 47 A1
-        CALL DRV_INSTALL_RWTS_3                    ; $A611  CD BB A0
+        LD HL,(BDOS_PARAM_PTR)
+        CALL CHECK_DIRENT_READONLY_INNER
+        CALL DRV_INSTALL_RWTS_3
         ; Load the current record number within the extent (primed from the FCB).
-        LD A,(FCB_CURREC)                    ; $A614  3A E3 A9
+        LD A,(FCB_CURREC)
         ; Record index 128 means the extent is full -> cannot write, report error.
-        CP $80                           ; $A617  FE 80
+        CP $80
         ; Extent full / index out of range: bail to the BDOS error path.
-        JP NC,BDOS_RET_ONE                   ; $A619  D2 05 9F
-        CALL DISK_STORE_SEC_TRK_14                    ; $A61C  CD 77 A0
-        CALL DISK_STORE_SEC_TRK_16                    ; $A61F  CD 84 A0
+        JP NC,BDOS_RET_ONE
+        CALL DISK_STORE_SEC_TRK_14
+        CALL DISK_STORE_SEC_TRK_16
         ; allocated.
         ; C = 0: existing-block write mode (no zero-fill); used only if the block is already
-        LD C,$00                         ; $A622  0E 00
+        LD C,$00
         ; phase.
         ; Block already allocated (slot held a non-zero block) -> skip allocation, go to the write
-        JP NZ,BDOS_WRITE_PHASE                 ; $A624  C2 6E A6
+        JP NZ,BDOS_WRITE_PHASE
         ; disk block).
         ; Recompute the FCB allocation-map slot index for the current record (A = slot index, NOT a
-        CALL DISK_STORE_SEC_TRK_6                    ; $A627  CD 3E A0
+        CALL DISK_STORE_SEC_TRK_6
         ; Save the allocation-slot index for use when storing the new block number.
-        LD (ALLOC_SLOT_INDEX),A                    ; $A62A  32 D7 A9
-        LD BC,$0000                      ; $A62D  01 00 00
-        OR A                             ; $A630  B7
+        LD (ALLOC_SLOT_INDEX),A
+        LD BC,$0000
+        OR A
         ; Slot index 0 (first slot) -> skip the previous-slot fetch; go allocate a fresh block.
-        JP Z,BDOS_WRITE_ALLOCBLK                  ; $A631  CA 3B A6
-        LD C,A                           ; $A634  4F
-        DEC BC                           ; $A635  0B
+        JP Z,BDOS_WRITE_ALLOCBLK
+        LD C,A
+        DEC BC
         ; -> HL.
         ; Fetch the block stored in the PREVIOUS slot (BC = slot-1) as the allocation starting hint
-        CALL DISK_STORE_SEC_TRK_10                    ; $A636  CD 5E A0
-        LD B,H                           ; $A639  44
-        LD C,L                           ; $A63A  4D
+        CALL DISK_STORE_SEC_TRK_10
+        LD B,H
+        LD C,L
 ; ----------------------------------------------------------------------
 ; BDOS_WRITE_ALLOCBLK -- allocate a fresh data block from the disk allocation vector, or return
 ; 'disk full'.
@@ -3080,16 +3080,16 @@ BDOS_WRITE:
 BDOS_WRITE_ALLOCBLK:
         ; full).
         ; Allocate a fresh block from the drive allocation bitmap; HL = new block number (0 = disk
-        CALL ALLOC_GET_BLOCK                    ; $A63B  CD BE A3
-        LD A,L                           ; $A63E  7D
+        CALL ALLOC_GET_BLOCK
+        LD A,L
         ; Test HL for zero (no free block was found).
-        OR H                             ; $A63F  B4
+        OR H
         ; Non-zero block: proceed to record it in the FCB.
-        JP NZ,BDOS_WRITE_STOREBLK                 ; $A640  C2 48 A6
+        JP NZ,BDOS_WRITE_STOREBLK
         ; A = 2: disk-full return code.
-        LD A,$02                         ; $A643  3E 02
+        LD A,$02
         ; Return disk-full status to the caller.
-        JP BDOS_RET_RESULT                   ; $A645  C3 01 9F
+        JP BDOS_RET_RESULT
 ; ----------------------------------------------------------------------
 ; BDOS_WRITE_STOREBLK -- store the (new or existing) block number into the FCB allocation slot for
 ; the current record.
@@ -3106,24 +3106,24 @@ BDOS_WRITE_ALLOCBLK:
 ; ----------------------------------------------------------------------
 BDOS_WRITE_STOREBLK:
         ; Save the block number for the write phase (host record/sector base).
-        LD (CUR_BLOCK_NUMBER),HL                   ; $A648  22 E5 A9
-        EX DE,HL                         ; $A64B  EB
-        LD HL,(BDOS_PARAM_PTR)                   ; $A64C  2A 43 9F
+        LD (CUR_BLOCK_NUMBER),HL
+        EX DE,HL
+        LD HL,(BDOS_PARAM_PTR)
         ; Offset 16 = start of the allocation/disk-map area inside the FCB.
-        LD BC,$0010                      ; $A64F  01 10 00
-        ADD HL,BC                        ; $A652  09
+        LD BC,$0010
+        ADD HL,BC
         ; Test whether the drive uses 8-bit (small disk) or 16-bit block numbers.
-        LD A,(BLOCK_WIDTH_FLAG)                    ; $A653  3A DD A9
-        OR A                             ; $A656  B7
+        LD A,(BLOCK_WIDTH_FLAG)
+        OR A
         ; A = allocation-slot index within the FCB extent.
-        LD A,(ALLOC_SLOT_INDEX)                    ; $A657  3A D7 A9
+        LD A,(ALLOC_SLOT_INDEX)
         ; 16-bit-block-number drive: store the block number as a 2-byte entry.
-        JP Z,BDOS_WRITE_STOREBLK16                  ; $A65A  CA 64 A6
+        JP Z,BDOS_WRITE_STOREBLK16
         ; Add the slot index to HL = address of the single-byte slot inside the FCB map.
-        CALL DIRENT_PTR_ADD                    ; $A65D  CD 64 A1
+        CALL DIRENT_PTR_ADD
         ; Store the low byte (8-bit block number) into the FCB slot.
-        LD (HL),E                        ; $A660  73
-        JP BDOS_WRITE_NEWBLK                    ; $A661  C3 6C A6
+        LD (HL),E
+        JP BDOS_WRITE_NEWBLK
 ; ----------------------------------------------------------------------
 ; BDOS_WRITE_STOREBLK16 -- store a 16-bit block number into the FCB allocation map (large-disk
 ; format).
@@ -3135,16 +3135,16 @@ BDOS_WRITE_STOREBLK:
 ; ----------------------------------------------------------------------
 BDOS_WRITE_STOREBLK16:
         ; BC = slot index.
-        LD C,A                           ; $A664  4F
-        LD B,$00                         ; $A665  06 00
+        LD C,A
+        LD B,$00
         ; Add slot index twice (this is the first add) => byte offset = slot*2 for 16-bit entries.
-        ADD HL,BC                        ; $A667  09
-        ADD HL,BC                        ; $A668  09
+        ADD HL,BC
+        ADD HL,BC
         ; Store block-number low byte.
-        LD (HL),E                        ; $A669  73
-        INC HL                           ; $A66A  23
+        LD (HL),E
+        INC HL
         ; Store block-number high byte.
-        LD (HL),D                        ; $A66B  72
+        LD (HL),D
 ; ----------------------------------------------------------------------
 ; BDOS_WRITE_NEWBLK -- mark this write as 'new block, must zero-fill' before the write phase.
 ;   In: control reaches here after a freshly allocated block was recorded in the FCB.
@@ -3154,7 +3154,7 @@ BDOS_WRITE_STOREBLK16:
 ; ----------------------------------------------------------------------
 BDOS_WRITE_NEWBLK:
         ; C = 2: new-block write mode (the block was just allocated, zero-fill it).
-        LD C,$02                         ; $A66C  0E 02
+        LD C,$02
 ; ----------------------------------------------------------------------
 ; BDOS_WRITE_PHASE -- perform the physical write of the current record, honoring the
 ; deblocking/new-block mode.
@@ -3177,33 +3177,33 @@ BDOS_WRITE_NEWBLK:
 BDOS_WRITE_PHASE:
         ; pending).
         ; Load the seek create/extend mode flag (BDOS_RETVAL; 00 = normal, FF = create/extend
-        LD A,(BDOS_RETVAL)                    ; $A66E  3A 45 9F
-        OR A                             ; $A671  B7
+        LD A,(BDOS_RETVAL)
+        OR A
         ; Create/extend flagged (BDOS_RETVAL != 0) -> return to the caller without writing here.
-        RET NZ                           ; $A672  C0
+        RET NZ
         ; Preserve the write-mode byte (C) across the sector computation.
-        PUSH BC                          ; $A673  C5
+        PUSH BC
         ; Compute the host physical record index/sector for the current logical record.
-        CALL DISK_STORE_SEC_TRK_17                    ; $A674  CD 8A A0
+        CALL DISK_STORE_SEC_TRK_17
         ; Load the BDOS write type (1 = sequential, 2 = random).
-        LD A,(WRITE_TYPE_FLAG)                    ; $A677  3A D5 A9
-        DEC A                            ; $A67A  3D
-        DEC A                            ; $A67B  3D
+        LD A,(WRITE_TYPE_FLAG)
+        DEC A
+        DEC A
         ; Write type != 2 (sequential) -> may need the new-block zero-fill path.
-        JP NZ,BDOS_WRITE_DOWRITE                 ; $A67C  C2 BB A6
-        POP BC                           ; $A67F  C1
-        PUSH BC                          ; $A680  C5
+        JP NZ,BDOS_WRITE_DOWRITE
+        POP BC
+        PUSH BC
         ; A = write mode (was the block freshly allocated?).
-        LD A,C                           ; $A681  79
-        DEC A                            ; $A682  3D
-        DEC A                            ; $A683  3D
+        LD A,C
+        DEC A
+        DEC A
         ; Existing block (mode != 2): write directly, no zero-fill.
-        JP NZ,BDOS_WRITE_DOWRITE                 ; $A684  C2 BB A6
-        PUSH HL                          ; $A687  E5
+        JP NZ,BDOS_WRITE_DOWRITE
+        PUSH HL
         ; HL = directory/work buffer to be zero-filled before the new-block write.
-        LD HL,(DIRBUF_PTR)                   ; $A688  2A B9 A9
+        LD HL,(DIRBUF_PTR)
         ; D = 0: byte counter for the 128-byte fill loop.
-        LD D,A                           ; $A68B  57
+        LD D,A
 ; ----------------------------------------------------------------------
 ; BDOS_WRITE_ZEROFILL -- zero-fill one 128-byte record buffer for a freshly allocated block.
 ;   In: HL = buffer start; A = 0 (fill value); D = 0 (loop counter).
@@ -3215,17 +3215,17 @@ BDOS_WRITE_PHASE:
 ; ----------------------------------------------------------------------
 BDOS_WRITE_ZEROFILL:
         ; Store 0 into the buffer byte.
-        LD (HL),A                        ; $A68C  77
-        INC HL                           ; $A68D  23
+        LD (HL),A
+        INC HL
         ; Advance the 0..127 fill counter.
-        INC D                            ; $A68E  14
+        INC D
         ; Loop while D < 128 (sign clear): fill all 128 record bytes.
-        JP P,BDOS_WRITE_ZEROFILL                  ; $A68F  F2 8C A6
+        JP P,BDOS_WRITE_ZEROFILL
         ; Point the DMA at the deblocking/host buffer for the fill writes.
-        CALL SET_DMA_TO_DISK_BUF                    ; $A692  CD E0 A1
+        CALL SET_DMA_TO_DISK_BUF
         ; HL = base host record index for this block's fill.
-        LD HL,(BLOCK_BASE_RECORD)                   ; $A695  2A E7 A9
-        LD C,$02                         ; $A698  0E 02
+        LD HL,(BLOCK_BASE_RECORD)
+        LD C,$02
 ; ----------------------------------------------------------------------
 ; BDOS_WRITE_FILLLOOP -- write the zero-filled records of a new block up to the host-sector
 ; boundary.
@@ -3243,29 +3243,29 @@ BDOS_WRITE_ZEROFILL:
 ; ----------------------------------------------------------------------
 BDOS_WRITE_FILLLOOP:
         ; Save the working host-record index.
-        LD (CUR_BLOCK_NUMBER),HL                   ; $A69A  22 E5 A9
-        PUSH BC                          ; $A69D  C5
+        LD (CUR_BLOCK_NUMBER),HL
+        PUSH BC
         ; Translate/seek the host track+sector for this record.
-        CALL RECORD_TO_TRACK                    ; $A69E  CD D1 9F
-        POP BC                           ; $A6A1  C1
+        CALL RECORD_TO_TRACK
+        POP BC
         ; Write the (zeroed) record to the host sector via the BIOS R/W call.
-        CALL DISK_WRITE_CHECKED                    ; $A6A2  CD B8 9F
-        LD HL,(CUR_BLOCK_NUMBER)                   ; $A6A5  2A E5 A9
-        LD C,$00                         ; $A6A8  0E 00
+        CALL DISK_WRITE_CHECKED
+        LD HL,(CUR_BLOCK_NUMBER)
+        LD C,$00
         ; Load the records-per-host-sector mask.
-        LD A,(DPB_BLM)                    ; $A6AA  3A C4 A9
-        LD B,A                           ; $A6AD  47
+        LD A,(DPB_BLM)
+        LD B,A
         ; Mask the record index to its position within the host sector.
-        AND L                            ; $A6AE  A5
+        AND L
         ; Compare against the host-sector base value (still inside this host sector?).
-        CP B                             ; $A6AF  B8
-        INC HL                           ; $A6B0  23
+        CP B
+        INC HL
         ; Loop while still within the same host sector (fill all its records).
-        JP NZ,BDOS_WRITE_FILLLOOP                 ; $A6B1  C2 9A A6
-        POP HL                           ; $A6B4  E1
-        LD (CUR_BLOCK_NUMBER),HL                   ; $A6B5  22 E5 A9
+        JP NZ,BDOS_WRITE_FILLLOOP
+        POP HL
+        LD (CUR_BLOCK_NUMBER),HL
         ; Restore the caller DMA and finalize the new-block fill.
-        CALL RESTORE_USER_DMA                    ; $A6B8  CD DA A1
+        CALL RESTORE_USER_DMA
 ; ----------------------------------------------------------------------
 ; BDOS_WRITE_DOWRITE -- write the caller's current record to its host sector and bump the extent
 ; record count.
@@ -3282,26 +3282,26 @@ BDOS_WRITE_FILLLOOP:
 ; ----------------------------------------------------------------------
 BDOS_WRITE_DOWRITE:
         ; Translate/seek the host track+sector for the current record.
-        CALL RECORD_TO_TRACK                    ; $A6BB  CD D1 9F
-        POP BC                           ; $A6BE  C1
-        PUSH BC                          ; $A6BF  C5
+        CALL RECORD_TO_TRACK
+        POP BC
+        PUSH BC
         ; Write the caller's record to the host sector via the BIOS R/W call.
-        CALL DISK_WRITE_CHECKED                    ; $A6C0  CD B8 9F
-        POP BC                           ; $A6C3  C1
+        CALL DISK_WRITE_CHECKED
+        POP BC
         ; A = the record index just written within the extent.
-        LD A,(FCB_CURREC)                    ; $A6C4  3A E3 A9
+        LD A,(FCB_CURREC)
         ; HL -> the extent's current record-count cell (FCB_RECCOUNT).
-        LD HL,FCB_RECCOUNT                     ; $A6C7  21 E1 A9
+        LD HL,FCB_RECCOUNT
         ; Is the written record beyond the current record count?
-        CP (HL)                          ; $A6CA  BE
+        CP (HL)
         ; Record is within the existing count -> no count update needed.
-        JP C,BDOS_WRITE_S2UPDATE                  ; $A6CB  DA D2 A6
+        JP C,BDOS_WRITE_S2UPDATE
         ; Extent grew: store the new record index as the count...
-        LD (HL),A                        ; $A6CE  77
+        LD (HL),A
         ; ...and bump it (count = index + 1).
-        INC (HL)                         ; $A6CF  34
+        INC (HL)
         ; C = 2: signal the extent record count was extended.
-        LD C,$02                         ; $A6D0  0E 02
+        LD C,$02
 ; ----------------------------------------------------------------------
 ; BDOS_WRITE_S2UPDATE -- refresh the FCB S2 byte and, at end-of-extent, advance the FCB to the next
 ; extent.
@@ -3323,19 +3323,19 @@ BDOS_WRITE_DOWRITE:
 ; NOP padding; see the spec flag for $A6D2.
 ; ----------------------------------------------------------------------
 BDOS_WRITE_S2UPDATE:
-        DEC C                            ; $A6D2  0D
-        DEC C                            ; $A6D3  0D
+        DEC C
+        DEC C
         ; Vestigial load of the local S2-check site ($A6DF) -- HL is immediately overwritten by
         ; FCB_GET_S2 below; value unused. (2.20 loads CCP_ENTRY=$9400 here; 2.23 loads $A6DF.)
-        LD HL,BDOS_WRITE_S2CHECK                ; $A6D4  21 DF A6
-        PUSH AF                          ; $A6D7  F5
+        LD HL,BDOS_WRITE_S2CHECK
+        PUSH AF
         ; HL -> the FCB S2 (extent-module) byte; A = its value.
-        CALL FCB_GET_S2                    ; $A6D8  CD 69 A1
+        CALL FCB_GET_S2
         ; Clear the high (modified/in-use) bit of the S2 byte.
-        AND $7F                          ; $A6DB  E6 7F
+        AND $7F
         ; Store the updated S2 byte back into the FCB.
-        LD (HL),A                        ; $A6DD  77
-        POP AF                           ; $A6DE  F1
+        LD (HL),A
+        POP AF
 ; ----------------------------------------------------------------------
 ; BDOS_WRITE_S2CHECK -- extent-end test inside the S2 update: was the just-written record the
 ; last of the extent (index $7F)?
@@ -3350,19 +3350,19 @@ BDOS_WRITE_S2UPDATE:
 ;   BDOS_WRITE_S2UPDATE (HL is overwritten by FCB_GET_S2; the value is unused).
 ; ----------------------------------------------------------------------
 BDOS_WRITE_S2CHECK:
-        CP $7F                           ; $A6DF  FE 7F
-        JP NZ,BDOS_WRITE_RET                ; $A6E1  C2 00 A7
-        LD A,(WRITE_TYPE_FLAG)                    ; $A6E4  3A D5 A9
-        CP $01                           ; $A6E7  FE 01
-        JP NZ,BDOS_WRITE_RET                ; $A6E9  C2 00 A7
-        CALL DRV_INSTALL_RWTS_6                    ; $A6EC  CD D2 A0
-        CALL FCB_ADVANCE_RECORD                    ; $A6EF  CD 5A A5
-        LD HL,BDOS_RETVAL                     ; $A6F2  21 45 9F
-        LD A,(HL)                        ; $A6F5  7E
-        OR A                             ; $A6F6  B7
-        JP NZ,BDOS_WRITE_RESETREC                ; $A6F7  C2 FE A6
-        DEC A                            ; $A6FA  3D
-        LD (FCB_CURREC),A                    ; $A6FB  32 E3 A9
+        CP $7F
+        JP NZ,BDOS_WRITE_RET
+        LD A,(WRITE_TYPE_FLAG)
+        CP $01
+        JP NZ,BDOS_WRITE_RET
+        CALL DRV_INSTALL_RWTS_6
+        CALL FCB_ADVANCE_RECORD
+        LD HL,BDOS_RETVAL
+        LD A,(HL)
+        OR A
+        JP NZ,BDOS_WRITE_RESETREC
+        DEC A
+        LD (FCB_CURREC),A
 ; ----------------------------------------------------------------------
 ; BDOS_WRITE_RESETREC -- clear the seek/create-mode flag cell after an extent rollover.
 ;   In: HL -> the BDOS_RETVAL flag cell.
@@ -3373,7 +3373,7 @@ BDOS_WRITE_S2CHECK:
 ; ----------------------------------------------------------------------
 BDOS_WRITE_RESETREC:
         ; Clear the BDOS_RETVAL seek/create-mode flag for the new extent.
-        LD (HL),$00                      ; $A6FE  36 00
+        LD (HL),$00
 ; ----------------------------------------------------------------------
 ; BDOS_WRITE_RET -- common exit of the WRITE primitive.
 ;   In: write completed (or no further action needed).
@@ -3384,7 +3384,7 @@ BDOS_WRITE_RESETREC:
 ; ----------------------------------------------------------------------
 BDOS_WRITE_RET:
         ; Copy the working record/count back into the FCB and return via the shared tail.
-        JP DRV_INSTALL_RWTS_6                      ; $A700  C3 D2 A0
+        JP DRV_INSTALL_RWTS_6
 ; ----------------------------------------------------------------------
 ; BDOS_SEEK_NOREAD -- SEEK entry that clears the write-type cell, then computes/positions the target
 ; extent.
@@ -3399,9 +3399,9 @@ BDOS_WRITE_RET:
 ;              afterward.) [RE]
 ; ----------------------------------------------------------------------
 BDOS_SEEK_NOREAD:
-        XOR A                            ; $A703  AF
+        XOR A
         ; Write type = 0 (cleared before the seek).
-        LD (WRITE_TYPE_FLAG),A                    ; $A704  32 D5 A9
+        LD (WRITE_TYPE_FLAG),A
 ; ----------------------------------------------------------------------
 ; BDOS_SEEK_COMPUTE -- compute the target extent/record from the FCB random-record field (R0/R1/R2)
 ; and seek the directory to it.
@@ -3420,66 +3420,66 @@ BDOS_SEEK_NOREAD:
 ;              extent. Mirrors the standard CP/M 2.2 BDOS random seek. [RE]
 ; ----------------------------------------------------------------------
 BDOS_SEEK_COMPUTE:
-        PUSH BC                          ; $A707  C5
+        PUSH BC
         ; HL = pointer to the active FCB (CURFCB).
-        LD HL,(BDOS_PARAM_PTR)                   ; $A708  2A 43 9F
-        EX DE,HL                         ; $A70B  EB
+        LD HL,(BDOS_PARAM_PTR)
+        EX DE,HL
         ; Offset 33 (0x21) = FCB random-record field R0; HL = FCB+33 after ADD HL,DE.
-        LD HL,$0021                      ; $A70C  21 21 00
-        ADD HL,DE                        ; $A70F  19
-        LD A,(HL)                        ; $A710  7E
+        LD HL,$0021
+        ADD HL,DE
+        LD A,(HL)
         ; Record-within-extent = R0 bits 0..6 (0..127).
-        AND $7F                          ; $A711  E6 7F
-        PUSH AF                          ; $A713  F5
-        LD A,(HL)                        ; $A714  7E
+        AND $7F
+        PUSH AF
+        LD A,(HL)
         ; Rotate R0 bit7 into carry (combined with R1 below for the extent number).
-        RLA                              ; $A715  17
-        INC HL                           ; $A716  23
-        LD A,(HL)                        ; $A717  7E
+        RLA
+        INC HL
+        LD A,(HL)
         ; Rotate R1 left, picking up R0.bit7 from carry: forms (R1 << 1) | R0.bit7.
-        RLA                              ; $A718  17
+        RLA
         ; Low 5 bits = extent number within the directory entry.
-        AND $1F                          ; $A719  E6 1F
+        AND $1F
         ; C = target extent (low part).
-        LD C,A                           ; $A71B  4F
-        LD A,(HL)                        ; $A71C  7E
-        RRA                              ; $A71D  1F
-        RRA                              ; $A71E  1F
-        RRA                              ; $A71F  1F
-        RRA                              ; $A720  1F
+        LD C,A
+        LD A,(HL)
+        RRA
+        RRA
+        RRA
+        RRA
         ; Keep R1's high nibble = S2 / extent-module count.
-        AND $0F                          ; $A721  E6 0F
+        AND $0F
         ; B = target S2 (extent module) value (R1 >> 4).
-        LD B,A                           ; $A723  47
-        POP AF                           ; $A724  F1
-        INC HL                           ; $A725  23
-        LD L,(HL)                        ; $A726  6E
-        INC L                            ; $A727  2C
-        DEC L                            ; $A728  2D
+        LD B,A
+        POP AF
+        INC HL
+        LD L,(HL)
+        INC L
+        DEC L
         ; Preset L = seek phase code 6 (the random-record overflow result).
-        LD L,$06                         ; $A729  2E 06
+        LD L,$06
         ; R2 (high random-record byte) non-zero -> record number out of range, abort the seek.
-        JP NZ,RANDREC_POS_RET                 ; $A72B  C2 8B A7
-        LD HL,$0020                      ; $A72E  21 20 00
-        ADD HL,DE                        ; $A731  19
-        LD (HL),A                        ; $A732  77
+        JP NZ,RANDREC_POS_RET
+        LD HL,$0020
+        ADD HL,DE
+        LD (HL),A
         ; Offset 12 = FCB extent (EX) byte.
-        LD HL,$000C                      ; $A733  21 0C 00
-        ADD HL,DE                        ; $A736  19
-        LD A,C                           ; $A737  79
+        LD HL,$000C
+        ADD HL,DE
+        LD A,C
         ; Compare target extent (C) against the FCB's current extent.
-        SUB (HL)                         ; $A738  96
+        SUB (HL)
         ; Extent differs -> must reposition the directory to the new extent.
-        JP NZ,BDOS_SEEK_REPOSITION                 ; $A739  C2 47 A7
+        JP NZ,BDOS_SEEK_REPOSITION
         ; Offset 14 = FCB S2 (module) byte.
-        LD HL,$000E                      ; $A73C  21 0E 00
-        ADD HL,DE                        ; $A73F  19
-        LD A,B                           ; $A740  78
+        LD HL,$000E
+        ADD HL,DE
+        LD A,B
         ; Compare target S2 (B) against the FCB's current S2.
-        SUB (HL)                         ; $A741  96
-        AND $7F                          ; $A742  E6 7F
+        SUB (HL)
+        AND $7F
         ; Extent and S2 both already current -> nothing to seek, return OK.
-        JP Z,BDOS_SEEK_DONE                  ; $A744  CA 7F A7
+        JP Z,BDOS_SEEK_DONE
 ; ----------------------------------------------------------------------
 ; BDOS_SEEK_REPOSITION -- close the current extent and open/seek the directory to the requested
 ; extent.
@@ -3498,52 +3498,52 @@ BDOS_SEEK_COMPUTE:
 ;              (phase 5); then drop into BDOS_SEEK_DONE. [RE]
 ; ----------------------------------------------------------------------
 BDOS_SEEK_REPOSITION:
-        PUSH BC                          ; $A747  C5
-        PUSH DE                          ; $A748  D5
+        PUSH BC
+        PUSH DE
         ; repositioning.
         ; Close the currently open extent (clears the host-buffer/seek cache cells) before
-        CALL F_CLOSE_HND                    ; $A749  CD A2 A4
-        POP DE                           ; $A74C  D1
-        POP BC                           ; $A74D  C1
+        CALL F_CLOSE_HND
+        POP DE
+        POP BC
         ; Seek phase code 3 (extent-allocate path).
-        LD L,$03                         ; $A74E  2E 03
+        LD L,$03
         ; Load the create/extend mode flag.
-        LD A,(BDOS_RETVAL)                    ; $A750  3A 45 9F
+        LD A,(BDOS_RETVAL)
         ; Test for the 0xFF 'create/allocate on miss' value (INC -> 0 / sets Z).
-        INC A                            ; $A753  3C
+        INC A
         ; Create/allocate mode -> take the extent-allocate path.
-        JP Z,FCB_EXTENT_TO_TRKSEC_7                  ; $A754  CA 84 A7
+        JP Z,FCB_EXTENT_TO_TRKSEC_7
         ; Offset 12 = FCB extent (EX) byte.
-        LD HL,$000C                      ; $A757  21 0C 00
-        ADD HL,DE                        ; $A75A  19
+        LD HL,$000C
+        ADD HL,DE
         ; Store the new target extent into the FCB.
-        LD (HL),C                        ; $A75B  71
+        LD (HL),C
         ; Offset 14 = FCB S2 byte.
-        LD HL,$000E                      ; $A75C  21 0E 00
-        ADD HL,DE                        ; $A75F  19
+        LD HL,$000E
+        ADD HL,DE
         ; Store the new target S2 (module) into the FCB.
-        LD (HL),B                        ; $A760  70
+        LD (HL),B
         ; Search/open the directory entry for the new extent.
-        CALL FCB_OPEN_SEARCH                    ; $A761  CD 51 A4
-        LD A,(BDOS_RETVAL)                    ; $A764  3A 45 9F
-        INC A                            ; $A767  3C
-        JP NZ,BDOS_SEEK_DONE                 ; $A768  C2 7F A7
-        POP BC                           ; $A76B  C1
-        PUSH BC                          ; $A76C  C5
+        CALL FCB_OPEN_SEARCH
+        LD A,(BDOS_RETVAL)
+        INC A
+        JP NZ,BDOS_SEEK_DONE
+        POP BC
+        PUSH BC
         ; Seek phase code 4.
-        LD L,$04                         ; $A76D  2E 04
+        LD L,$04
         ; Bump the extent for the next-extent create probe.
-        INC C                            ; $A76F  0C
+        INC C
         ; Create path: allocate/init the new extent.
-        JP Z,FCB_EXTENT_TO_TRKSEC_7                  ; $A770  CA 84 A7
+        JP Z,FCB_EXTENT_TO_TRKSEC_7
         ; Read the directory record for the new extent into the scratch buffer.
-        CALL DIR_MAKE_ENTRY                    ; $A773  CD 24 A5
+        CALL DIR_MAKE_ENTRY
         ; Seek phase code 5.
-        LD L,$05                         ; $A776  2E 05
-        LD A,(BDOS_RETVAL)                    ; $A778  3A 45 9F
-        INC A                            ; $A77B  3C
+        LD L,$05
+        LD A,(BDOS_RETVAL)
+        INC A
         ; Create path: finalize the new extent.
-        JP Z,FCB_EXTENT_TO_TRKSEC_7                  ; $A77C  CA 84 A7
+        JP Z,FCB_EXTENT_TO_TRKSEC_7
 ; ----------------------------------------------------------------------
 ; BDOS_SEEK_DONE -- successful SEEK exit: restore registers and return OK.
 ;   In: target extent/record now current in the FCB.
@@ -3554,11 +3554,11 @@ BDOS_SEEK_REPOSITION:
 ; ----------------------------------------------------------------------
 BDOS_SEEK_DONE:
         ; Restore the caller's BC saved at SEEK entry.
-        POP BC                           ; $A77F  C1
+        POP BC
         ; A = 0: seek successful.
-        XOR A                            ; $A780  AF
+        XOR A
         ; Return the seek result (0 = OK) to the caller.
-        JP BDOS_RET_RESULT                   ; $A781  C3 01 9F
+        JP BDOS_RET_RESULT
 ; ----------------------------------------------------------------------
 ; RANDREC_POS_FAIL -- error tail of the random-record positioning code (BDOS_SEEK_COMPUTE): mark the
 ; extent invalid and report.
@@ -3577,12 +3577,12 @@ BDOS_SEEK_DONE:
 ;   BDOS error returned to the caller.
 ; ----------------------------------------------------------------------
 FCB_EXTENT_TO_TRKSEC_7:
-        PUSH HL                          ; $A784  E5
+        PUSH HL
         ; HL := &FCB.S2 (offset $0E of the current FCB)
-        CALL FCB_GET_S2                    ; $A785  CD 69 A1
+        CALL FCB_GET_S2
         ; S2 := $C0: high bit set (extent marked invalid/unwritten) + zero the module count [RE]
-        LD (HL),$C0                      ; $A788  36 C0
-        POP HL                           ; $A78A  E1
+        LD (HL),$C0
+        POP HL
 ; ----------------------------------------------------------------------
 ; RANDREC_POS_RET -- common exit for BDOS_SEEK_COMPUTE: discard the saved BC frame, publish the L
 ; result code, finalize via MARK_FCB_S2_HIGHBIT.
@@ -3599,12 +3599,12 @@ FCB_EXTENT_TO_TRKSEC_7:
 ; ----------------------------------------------------------------------
 RANDREC_POS_RET:
         ; discard the BC frame pushed on entry to BDOS_SEEK_COMPUTE
-        POP BC                           ; $A78B  C1
-        LD A,L                           ; $A78C  7D
+        POP BC
+        LD A,L
         ; publish the return/error code in the BDOS result cell
-        LD (BDOS_RETVAL),A                    ; $A78D  32 45 9F
+        LD (BDOS_RETVAL),A
         ; set FCB S2 high bit, then return to caller
-        JP MARK_FCB_S2_HIGHBIT                      ; $A790  C3 78 A1
+        JP MARK_FCB_S2_HIGHBIT
 ; ----------------------------------------------------------------------
 ; F_READRAND_BODY -- BDOS function 33 (Read Random) worker: position the FCB from its random record,
 ; then read that record.
@@ -3625,12 +3625,12 @@ RANDREC_POS_RET:
 FCB_EXTENT_TO_TRKSEC_8:
         ; path)
         ; C := $FF: read mode -- positioning must NOT extend/allocate (INC C->Z triggers the fail
-        LD C,$FF                         ; $A793  0E FF
+        LD C,$FF
         ; BDOS_SEEK_COMPUTE: convert random record (r0/r1/r2) into extent + cr; Z on success
-        CALL BDOS_SEEK_NOREAD                    ; $A795  CD 03 A7
+        CALL BDOS_SEEK_NOREAD
         ; if positioned OK, read the addressed record
-        CALL Z,FILE_READ_RECORD                  ; $A798  CC C1 A5
-        RET                              ; $A79B  C9
+        CALL Z,FILE_READ_RECORD
+        RET
 ; ----------------------------------------------------------------------
 ; F_WRITERAND_BODY -- BDOS function 34 (Write Random) worker: position the FCB from its random
 ; record, then write that record.
@@ -3648,12 +3648,12 @@ FCB_EXTENT_TO_TRKSEC_8:
 ; ----------------------------------------------------------------------
 FCB_EXTENT_TO_TRKSEC_9:
         ; C := $00: write mode -- positioning may allocate/extend the file (INC C->$01 NZ, no fail)
-        LD C,$00                         ; $A79C  0E 00
+        LD C,$00
         ; BDOS_SEEK_COMPUTE: convert random record into extent + cr; Z on success
-        CALL BDOS_SEEK_NOREAD                    ; $A79E  CD 03 A7
+        CALL BDOS_SEEK_NOREAD
         ; if positioned OK, write the addressed record
-        CALL Z,BDOS_WRITE                  ; $A7A1  CC 03 A6
-        RET                              ; $A7A4  C9
+        CALL Z,BDOS_WRITE
+        RET
 ; ----------------------------------------------------------------------
 ; FCB_RECNUM_FROM_FIELDS -- compute the 24-bit absolute record number from an FCB's record byte plus
 ; its extent (ex) and S2 fields.
@@ -3675,49 +3675,49 @@ FCB_EXTENT_TO_TRKSEC_9:
 ; ----------------------------------------------------------------------
 FCB_ALLOC_PREP:
         ; HL := caller offset; DE := FCB base pointer
-        EX DE,HL                         ; $A7A5  EB
+        EX DE,HL
         ; HL := &FCB + offset (the low record byte)
-        ADD HL,DE                        ; $A7A6  19
+        ADD HL,DE
         ; C := low record bits from that byte
-        LD C,(HL)                        ; $A7A7  4E
-        LD B,$00                         ; $A7A8  06 00
+        LD C,(HL)
+        LD B,$00
         ; offset $0C = FCB extent (ex) byte
-        LD HL,$000C                      ; $A7AA  21 0C 00
-        ADD HL,DE                        ; $A7AD  19
-        LD A,(HL)                        ; $A7AE  7E
-        RRCA                             ; $A7AF  0F
+        LD HL,$000C
+        ADD HL,DE
+        LD A,(HL)
+        RRCA
         ; extent bit0 -> record bit7 (the ex*128 contribution)
-        AND $80                          ; $A7B0  E6 80
-        ADD A,C                          ; $A7B2  81
-        LD C,A                           ; $A7B3  4F
-        LD A,$00                         ; $A7B4  3E 00
-        ADC A,B                          ; $A7B6  88
-        LD B,A                           ; $A7B7  47
-        LD A,(HL)                        ; $A7B8  7E
-        RRCA                             ; $A7B9  0F
-        AND $0F                          ; $A7BA  E6 0F
-        ADD A,B                          ; $A7BC  80
-        LD B,A                           ; $A7BD  47
+        AND $80
+        ADD A,C
+        LD C,A
+        LD A,$00
+        ADC A,B
+        LD B,A
+        LD A,(HL)
+        RRCA
+        AND $0F
+        ADD A,B
+        LD B,A
         ; offset $0E = FCB S2 byte (extent-high / module)
-        LD HL,$000E                      ; $A7BE  21 0E 00
-        ADD HL,DE                        ; $A7C1  19
-        LD A,(HL)                        ; $A7C2  7E
+        LD HL,$000E
+        ADD HL,DE
+        LD A,(HL)
         ; first of four ADD A,A: shift S2 left to form the high record bits
-        ADD A,A                          ; $A7C3  87
-        ADD A,A                          ; $A7C4  87
-        ADD A,A                          ; $A7C5  87
-        ADD A,A                          ; $A7C6  87
-        PUSH AF                          ; $A7C7  F5
-        ADD A,B                          ; $A7C8  80
-        LD B,A                           ; $A7C9  47
-        PUSH AF                          ; $A7CA  F5
-        POP HL                           ; $A7CB  E1
-        LD A,L                           ; $A7CC  7D
-        POP HL                           ; $A7CD  E1
-        OR L                             ; $A7CE  B5
+        ADD A,A
+        ADD A,A
+        ADD A,A
+        ADD A,A
+        PUSH AF
+        ADD A,B
+        LD B,A
+        PUSH AF
+        POP HL
+        LD A,L
+        POP HL
+        OR L
         ; set Z/NZ on the low bit of the result for callers
-        AND $01                          ; $A7CF  E6 01
-        RET                              ; $A7D1  C9
+        AND $01
+        RET
 ; ----------------------------------------------------------------------
 ; F_COMPSIZE_BODY -- BDOS function 35 (Compute File Size) worker: scan the directory and write the
 ; max record number into r0/r1/r2.
@@ -3737,22 +3737,22 @@ FCB_ALLOC_PREP:
 ; ----------------------------------------------------------------------
 FCB_ALLOC_BLOCK_NUM_2:
         ; mask = first $0C (12) FCB bytes: drive+name+type (extent NOT compared) when scanning
-        LD C,$0C                         ; $A7D2  0E 0C
+        LD C,$0C
         ; begin a masked directory search over those 12 bytes
-        CALL DIR_SEARCH_FIRST                    ; $A7D4  CD 18 A3
-        LD HL,(BDOS_PARAM_PTR)                   ; $A7D7  2A 43 9F
+        CALL DIR_SEARCH_FIRST
+        LD HL,(BDOS_PARAM_PTR)
         ; offset $21 = FCB random-record field r0 (D=0 used to zero the bytes)
-        LD DE,$0021                      ; $A7DA  11 21 00
-        ADD HL,DE                        ; $A7DD  19
-        PUSH HL                          ; $A7DE  E5
+        LD DE,$0021
+        ADD HL,DE
+        PUSH HL
         ; r0 := 0 (zero the 3-byte running maximum)
-        LD (HL),D                        ; $A7DF  72
-        INC HL                           ; $A7E0  23
+        LD (HL),D
+        INC HL
         ; r1 := 0
-        LD (HL),D                        ; $A7E1  72
-        INC HL                           ; $A7E2  23
+        LD (HL),D
+        INC HL
         ; r2 := 0
-        LD (HL),D                        ; $A7E3  72
+        LD (HL),D
 ; ----------------------------------------------------------------------
 ; COMPSIZE_SCAN_LOOP -- per-directory-entry step of Compute File Size: fold each extent's record
 ; number into the running max.
@@ -3773,37 +3773,37 @@ FCB_ALLOC_BLOCK_NUM_2:
 ; ----------------------------------------------------------------------
 COMPSIZE_SCAN_LOOP:
         ; test whether the directory search is exhausted; Z = no more entries
-        CALL CUR_RECORD_BYTES_EQUAL                    ; $A7E4  CD F5 A1
+        CALL CUR_RECORD_BYTES_EQUAL
         ; search exhausted -> finish (pop saved ptr and return)
-        JP Z,COMPSIZE_DONE                  ; $A7E7  CA 0C A8
+        JP Z,COMPSIZE_DONE
         ; HL := directory buffer + this entry's byte offset
-        CALL FCB_BUF_PTR_ADD_OFFSET                    ; $A7EA  CD 5E A1
+        CALL FCB_BUF_PTR_ADD_OFFSET
         ; offset $0F = the entry's record-count byte for FCB_RECNUM_FROM_FIELDS
-        LD DE,$000F                      ; $A7ED  11 0F 00
+        LD DE,$000F
         ; candidate record number -> C(lo)/B(mid)/A(hi)
-        CALL FCB_ALLOC_PREP                    ; $A7F0  CD A5 A7
-        POP HL                           ; $A7F3  E1
-        PUSH HL                          ; $A7F4  E5
-        LD E,A                           ; $A7F5  5F
+        CALL FCB_ALLOC_PREP
+        POP HL
+        PUSH HL
+        LD E,A
         ; begin 24-bit compare: candidate - stored max over r0/r1/r2
-        LD A,C                           ; $A7F6  79
-        SUB (HL)                         ; $A7F7  96
-        INC HL                           ; $A7F8  23
-        LD A,B                           ; $A7F9  78
-        SBC A,(HL)                       ; $A7FA  9E
-        INC HL                           ; $A7FB  23
-        LD A,E                           ; $A7FC  7B
-        SBC A,(HL)                       ; $A7FD  9E
+        LD A,C
+        SUB (HL)
+        INC HL
+        LD A,B
+        SBC A,(HL)
+        INC HL
+        LD A,E
+        SBC A,(HL)
         ; candidate < stored max -> keep stored max, skip the store
-        JP C,COMPSIZE_NEXT                  ; $A7FE  DA 06 A8
+        JP C,COMPSIZE_NEXT
         ; candidate >= max: store new high byte (r2)
-        LD (HL),E                        ; $A801  73
-        DEC HL                           ; $A802  2B
+        LD (HL),E
+        DEC HL
         ; store new mid byte (r1)
-        LD (HL),B                        ; $A803  70
-        DEC HL                           ; $A804  2B
+        LD (HL),B
+        DEC HL
         ; store new low byte (r0)
-        LD (HL),C                        ; $A805  71
+        LD (HL),C
 ; ----------------------------------------------------------------------
 ; COMPSIZE_NEXT -- Compute File Size loop continuation: advance the directory search and re-enter
 ; the scan loop.
@@ -3818,9 +3818,9 @@ COMPSIZE_SCAN_LOOP:
 ; ----------------------------------------------------------------------
 COMPSIZE_NEXT:
         ; advance the masked directory search to the next matching entry
-        CALL BDOS_DIR_SCAN_NEXT                    ; $A806  CD 2D A3
+        CALL BDOS_DIR_SCAN_NEXT
         ; loop back to fold the next extent into the max
-        JP COMPSIZE_SCAN_LOOP                    ; $A809  C3 E4 A7
+        JP COMPSIZE_SCAN_LOOP
 ; ----------------------------------------------------------------------
 ; COMPSIZE_DONE -- Compute File Size exit: discard the saved max pointer and return.
 ;   In: stack top = pointer to the FCB r0/r1/r2 max (already written in place).
@@ -3831,8 +3831,8 @@ COMPSIZE_NEXT:
 ; ----------------------------------------------------------------------
 COMPSIZE_DONE:
         ; balance the saved r0/r1/r2 pointer pushed before the scan loop
-        POP HL                           ; $A80C  E1
-        RET                              ; $A80D  C9
+        POP HL
+        RET
 ; ----------------------------------------------------------------------
 ; F_RANDREC_H -- BDOS function 36 (Set Random Record): compute the random-record field of the
 ; current FCB from its sequential position.
@@ -3850,26 +3850,26 @@ COMPSIZE_DONE:
 ; ----------------------------------------------------------------------
 F_RANDREC_H:
         ; HL = pointer to the current FCB (the file whose sequential position we are converting)
-        LD HL,(BDOS_PARAM_PTR)                   ; $A80E  2A 43 9F
+        LD HL,(BDOS_PARAM_PTR)
         ; base
         ; DE = $20: FCB_ALLOC_PREP reads the cr/extent region at FCB+$20 and returns DE = the FCB
-        LD DE,$0020                      ; $A811  11 20 00
+        LD DE,$0020
         ; overflow; returns DE = FCB base
         ; fold cr + extent# + extent-high bit into a 24-bit record number -> C low, B high, A
-        CALL FCB_ALLOC_PREP                    ; $A814  CD A5 A7
+        CALL FCB_ALLOC_PREP
         ; field r0,r1,r2
         ; HL = $0021; the next ADD HL,DE makes HL = FCB + $21, the start of the 3-byte random-record
-        LD HL,$0021                      ; $A817  21 21 00
-        ADD HL,DE                        ; $A81A  19
+        LD HL,$0021
+        ADD HL,DE
         ; store r0 (record number, low byte)
-        LD (HL),C                        ; $A81B  71
-        INC HL                           ; $A81C  23
+        LD (HL),C
+        INC HL
         ; store r1 (record number, high byte)
-        LD (HL),B                        ; $A81D  70
-        INC HL                           ; $A81E  23
+        LD (HL),B
+        INC HL
         ; store r2 (record number overflow / random-record overflow byte)
-        LD (HL),A                        ; $A81F  77
-        RET                              ; $A820  C9
+        LD (HL),A
+        RET
 ; ----------------------------------------------------------------------
 ; DRV_INSTALL_RWTS_17 -- Select-disk / log-in worker: ensure the drive in BDOS_CUR_DRIVE is logged
 ; in, and rebuild its allocation vector if it was not.
@@ -3894,34 +3894,34 @@ F_RANDREC_H:
 ; ----------------------------------------------------------------------
 DRV_INSTALL_RWTS_17:
         ; HL = working login/select vector
-        LD HL,(DRV_SELECT_VECTOR)                   ; $A821  2A AF A9
+        LD HL,(DRV_SELECT_VECTOR)
         ; A = requested drive number
-        LD A,(BDOS_CUR_DRIVE)                    ; $A824  3A 42 9F
-        LD C,A                           ; $A827  4F
+        LD A,(BDOS_CUR_DRIVE)
+        LD C,A
         ; shift to form the single-bit drive mask for this drive
-        CALL DRV_INSTALL_RWTS_10                    ; $A828  CD EA A0
-        PUSH HL                          ; $A82B  E5
-        EX DE,HL                         ; $A82C  EB
+        CALL DRV_INSTALL_RWTS_10
+        PUSH HL
+        EX DE,HL
         ; establish/test the drive's DPB; sets Z if the drive needs logging in
-        CALL BDOS_RANDREC_3                    ; $A82D  CD 59 9F
-        POP HL                           ; $A830  E1
+        CALL BDOS_RANDREC_3
+        POP HL
         ; drive not yet logged in: run the disk log-in / directory scan
-        CALL Z,BDOS_ERR_SELECT                  ; $A831  CC 47 9F
-        LD A,L                           ; $A834  7D
+        CALL Z,BDOS_ERR_SELECT
+        LD A,L
         ; bit set
         ; rotate bit 0 of the drive mask into carry: carry set => this drive already had its login
-        RRA                              ; $A835  1F
+        RRA
         ; already logged in: nothing more to do
-        RET C                            ; $A836  D8
-        LD HL,(DRV_SELECT_VECTOR)                   ; $A837  2A AF A9
-        LD C,L                           ; $A83A  4D
-        LD B,H                           ; $A83B  44
+        RET C
+        LD HL,(DRV_SELECT_VECTOR)
+        LD C,L
+        LD B,H
         ; OR this drive's bit into the working login vector
-        CALL DRIVE_BIT_OR_INTO_VECTOR                    ; $A83C  CD 0B A1
+        CALL DRIVE_BIT_OR_INTO_VECTOR
         ; store the updated working login vector
-        LD (DRV_SELECT_VECTOR),HL                   ; $A83F  22 AF A9
+        LD (DRV_SELECT_VECTOR),HL
         ; tail into rebuild-allocation-vector for the freshly logged-in drive
-        JP ALLOC_VECTOR_BUILD                    ; $A842  C3 A3 A2
+        JP ALLOC_VECTOR_BUILD
 ; ----------------------------------------------------------------------
 ; DRV_SET_H -- BDOS function 14 (Select Disk): make the drive in DRV_SELECT_ARG the current drive.
 ;   In: DRV_SELECT_ARG = desired drive number; BDOS_CUR_DRIVE = current drive number.
@@ -3935,17 +3935,17 @@ DRV_INSTALL_RWTS_17:
 ; ----------------------------------------------------------------------
 DRV_SET_H:
         ; A = requested drive number
-        LD A,(DRV_SELECT_ARG)                    ; $A845  3A D6 A9
+        LD A,(DRV_SELECT_ARG)
         ; HL -> current-drive cell
-        LD HL,BDOS_CUR_DRIVE                     ; $A848  21 42 9F
+        LD HL,BDOS_CUR_DRIVE
         ; already the current drive?
-        CP (HL)                          ; $A84B  BE
+        CP (HL)
         ; yes: nothing to do
-        RET Z                            ; $A84C  C8
+        RET Z
         ; set the new current drive
-        LD (HL),A                        ; $A84D  77
+        LD (HL),A
         ; log it in / rebuild its allocation vector
-        JP DRV_INSTALL_RWTS_17                    ; $A84E  C3 21 A8
+        JP DRV_INSTALL_RWTS_17
 ; ----------------------------------------------------------------------
 ; FCB_AUTO_DRIVE_SELECT -- common file-operation preamble: honor the drive prefix in the caller's
 ; FCB, temporarily selecting that drive.
@@ -3973,33 +3973,33 @@ DRV_SET_H:
 ; ----------------------------------------------------------------------
 FCB_AUTO_DRIVE_SELECT:
         ; mark 'a temporary drive switch is pending' so the epilogue restores it
-        LD A,$FF                         ; $A851  3E FF
+        LD A,$FF
         ; store the restore-pending flag
-        LD (DRV_RESTORE_FLAG),A                    ; $A853  32 DE A9
+        LD (DRV_RESTORE_FLAG),A
         ; HL -> caller's FCB; (HL) = drive-prefix byte
-        LD HL,(BDOS_PARAM_PTR)                   ; $A856  2A 43 9F
-        LD A,(HL)                        ; $A859  7E
+        LD HL,(BDOS_PARAM_PTR)
+        LD A,(HL)
         ; isolate the drive-prefix field of FCB byte 0
-        AND $1F                          ; $A85A  E6 1F
+        AND $1F
         ; convert prefix (1..16) to drive index (0..15); $00 (default) wraps to $FF
-        DEC A                            ; $A85C  3D
+        DEC A
         ; record the drive this FCB asks for
-        LD (DRV_SELECT_ARG),A                    ; $A85D  32 D6 A9
+        LD (DRV_SELECT_ARG),A
         ; no explicit drive (default => $FF) or out of range?
-        CP $1E                           ; $A860  FE 1E
+        CP $1E
         ; yes: skip the drive switch, just merge the user number
-        JP NC,FCB_MERGE_USER                 ; $A862  D2 75 A8
-        LD A,(BDOS_CUR_DRIVE)                    ; $A865  3A 42 9F
+        JP NC,FCB_MERGE_USER
+        LD A,(BDOS_CUR_DRIVE)
         ; save the current drive so the epilogue can restore it
-        LD (DRV_SAVED_DRIVE),A                    ; $A868  32 DF A9
-        LD A,(HL)                        ; $A86B  7E
+        LD (DRV_SAVED_DRIVE),A
+        LD A,(HL)
         ; save the original FCB drive-prefix byte for restore
-        LD (DRV_SAVED_FCB_BYTE),A                    ; $A86C  32 E0 A9
+        LD (DRV_SAVED_FCB_BYTE),A
         ; clear the drive-prefix bits, leaving the high flag bits of FCB byte0
-        AND $E0                          ; $A86F  E6 E0
-        LD (HL),A                        ; $A871  77
+        AND $E0
+        LD (HL),A
         ; temporarily select the drive named by the FCB
-        CALL DRV_SET_H                    ; $A872  CD 45 A8
+        CALL DRV_SET_H
 ; ----------------------------------------------------------------------
 ; FCB_MERGE_USER -- tail of FCB_AUTO_DRIVE_SELECT: OR the current user number into the FCB's drive
 ; byte.
@@ -4011,13 +4011,13 @@ FCB_AUTO_DRIVE_SELECT:
 ; ----------------------------------------------------------------------
 FCB_MERGE_USER:
         ; A = current user number
-        LD A,(BDOS_STACK_TOP)                    ; $A875  3A 41 9F
-        LD HL,(BDOS_PARAM_PTR)                   ; $A878  2A 43 9F
+        LD A,(BDOS_STACK_TOP)
+        LD HL,(BDOS_PARAM_PTR)
         ; merge the user number into the FCB's drive/flags byte
-        OR (HL)                          ; $A87B  B6
+        OR (HL)
         ; write it back
-        LD (HL),A                        ; $A87C  77
-        RET                              ; $A87D  C9
+        LD (HL),A
+        RET
 ; ----------------------------------------------------------------------
 ; S_BDOSVER_H -- BDOS function 12 (Return Version Number): report CP/M 2.2.
 ;   In: none.
@@ -4031,9 +4031,9 @@ FCB_MERGE_USER:
 ; ----------------------------------------------------------------------
 S_BDOSVER_H:
         ; version code $22 = CP/M 2.2
-        LD A,$22                         ; $A87E  3E 22
+        LD A,$22
         ; return it as the BDOS result low byte
-        JP BDOS_RET_RESULT                   ; $A880  C3 01 9F
+        JP BDOS_RET_RESULT
 ; ----------------------------------------------------------------------
 ; DRV_ALLRESET_H -- BDOS function 13 (Reset Disk System): return CP/M to its initial disk state.
 ;   In: none.
@@ -4046,22 +4046,22 @@ S_BDOSVER_H:
 ;   [RE] dispatch fn 13 at $9C61; matches canonical CP/M 2.2 Reset Disk System.
 ; ----------------------------------------------------------------------
 DRV_ALLRESET_H:
-        LD HL,$0000                      ; $A883  21 00 00
+        LD HL,$0000
         ; clear the master logged-in drive bitmap
-        LD (DRV_LOGIN_VECTOR),HL                   ; $A886  22 AD A9
+        LD (DRV_LOGIN_VECTOR),HL
         ; clear the working login/select vector
-        LD (DRV_SELECT_VECTOR),HL                   ; $A889  22 AF A9
-        XOR A                            ; $A88C  AF
+        LD (DRV_SELECT_VECTOR),HL
+        XOR A
         ; force current drive back to A: (0)
-        LD (BDOS_CUR_DRIVE),A                    ; $A88D  32 42 9F
+        LD (BDOS_CUR_DRIVE),A
         ; TBUFF ($0080) = default DMA address
-        LD HL,$0080                      ; $A890  21 80 00
+        LD HL,$0080
         ; reset the DMA address to TBUFF
-        LD (DMA_ADDR),HL                   ; $A893  22 B1 A9
+        LD (DMA_ADDR),HL
         ; push the reset DMA address through to disk buffering / BIOS
-        CALL RESTORE_USER_DMA                    ; $A896  CD DA A1
+        CALL RESTORE_USER_DMA
         ; log in drive A from a clean state
-        JP DRV_INSTALL_RWTS_17                    ; $A899  C3 21 A8
+        JP DRV_INSTALL_RWTS_17
 ; ----------------------------------------------------------------------
 ; F_OPEN_H -- BDOS function 15 (Open File): open the file named by the FCB.
 ;   In: BDOS_PARAM_PTR = pointer to the caller's FCB.
@@ -4074,11 +4074,11 @@ DRV_ALLRESET_H:
 ; ----------------------------------------------------------------------
 F_OPEN_H:
         ; prepare directory/open scratch state for this FCB
-        CALL CLEAR_FCB_S2                    ; $A89C  CD 72 A1
+        CALL CLEAR_FCB_S2
         ; auto-select the FCB's drive prefix
-        CALL FCB_AUTO_DRIVE_SELECT                    ; $A89F  CD 51 A8
+        CALL FCB_AUTO_DRIVE_SELECT
         ; search the directory and fill the FCB (open path)
-        JP FCB_OPEN_SEARCH                      ; $A8A2  C3 51 A4
+        JP FCB_OPEN_SEARCH
 ; ----------------------------------------------------------------------
 ; F_CLOSE_H -- BDOS function 16 (Close File): write the FCB back to its directory entry.
 ;   In: BDOS_PARAM_PTR = pointer to the caller's FCB (must be open).
@@ -4090,9 +4090,9 @@ F_OPEN_H:
 ; ----------------------------------------------------------------------
 F_CLOSE_H:
         ; auto-select the FCB's drive prefix
-        CALL FCB_AUTO_DRIVE_SELECT                    ; $A8A5  CD 51 A8
+        CALL FCB_AUTO_DRIVE_SELECT
         ; rewrite the directory entry and return the close result
-        JP F_CLOSE_HND                      ; $A8A8  C3 A2 A4
+        JP F_CLOSE_HND
 ; ----------------------------------------------------------------------
 ; F_SFIRST_H -- BDOS function 17 (Search for First): find the first directory entry matching the
 ; FCB.
@@ -4111,25 +4111,25 @@ F_CLOSE_H:
 ; ----------------------------------------------------------------------
 F_SFIRST_H:
         ; search match length 0 (default name+type compare)
-        LD C,$00                         ; $A8AB  0E 00
-        EX DE,HL                         ; $A8AD  EB
+        LD C,$00
+        EX DE,HL
         ; fetch FCB byte0 (drive/wildcard marker)
-        LD A,(HL)                        ; $A8AE  7E
+        LD A,(HL)
         ; $3F ('?') in byte0 => match every directory entry
-        CP $3F                           ; $A8AF  FE 3F
+        CP $3F
         ; all-entries scan: go straight to the directory search
-        JP Z,DIR_SEARCH_AND_COPY                  ; $A8B1  CA C2 A8
+        JP Z,DIR_SEARCH_AND_COPY
         ; HL = FCB + $0C (pointer to the extent byte); does NOT save the search FCB
-        CALL DRV_INSTALL_RWTS_1                    ; $A8B4  CD A6 A0
-        LD A,(HL)                        ; $A8B7  7E
+        CALL DRV_INSTALL_RWTS_1
+        LD A,(HL)
         ; is the extent byte FCB[$0C] the '?' wildcard (match all extents)?
-        CP $3F                           ; $A8B8  FE 3F
+        CP $3F
         ; extent not wildcard: prepare directory scratch state
-        CALL NZ,CLEAR_FCB_S2                 ; $A8BA  C4 72 A1
+        CALL NZ,CLEAR_FCB_S2
         ; auto-select the FCB's drive prefix
-        CALL FCB_AUTO_DRIVE_SELECT                    ; $A8BD  CD 51 A8
+        CALL FCB_AUTO_DRIVE_SELECT
         ; match 15 bytes (name+type+extent) for a qualified search
-        LD C,$0F                         ; $A8C0  0E 0F
+        LD C,$0F
 ; ----------------------------------------------------------------------
 ; DIR_SEARCH_AND_COPY -- run the directory scan and copy the matched entry to the DMA buffer.
 ;   In: C = number of bytes to compare in the directory match; search FCB already established by
@@ -4144,9 +4144,9 @@ F_SFIRST_H:
 ; ----------------------------------------------------------------------
 DIR_SEARCH_AND_COPY:
         ; scan the directory comparing C bytes against the search FCB
-        CALL DIR_SEARCH_FIRST                    ; $A8C2  CD 18 A3
+        CALL DIR_SEARCH_FIRST
         ; copy the matched directory entry to the DMA buffer, return its position
-        JP DISK_BUF_MOVE                    ; $A8C5  C3 E9 A1
+        JP DISK_BUF_MOVE
 ; ----------------------------------------------------------------------
 ; F_SNEXT_H -- BDOS function 18 (Search for Next): continue a directory search begun by Search
 ; First.
@@ -4164,15 +4164,15 @@ DIR_SEARCH_AND_COPY:
 ; ----------------------------------------------------------------------
 F_SNEXT_H:
         ; restore the saved Search-First FCB pointer
-        LD HL,(DIR_FCB_PTR)                   ; $A8C8  2A D9 A9
+        LD HL,(DIR_FCB_PTR)
         ; make it the active FCB for this scan step
-        LD (BDOS_PARAM_PTR),HL                   ; $A8CB  22 43 9F
+        LD (BDOS_PARAM_PTR),HL
         ; auto-select the FCB's drive prefix
-        CALL FCB_AUTO_DRIVE_SELECT                    ; $A8CE  CD 51 A8
+        CALL FCB_AUTO_DRIVE_SELECT
         ; advance the directory search from the last matched entry
-        CALL BDOS_DIR_SCAN_NEXT                    ; $A8D1  CD 2D A3
+        CALL BDOS_DIR_SCAN_NEXT
         ; copy the next matched entry to the DMA buffer, return its position
-        JP DISK_BUF_MOVE                    ; $A8D4  C3 E9 A1
+        JP DISK_BUF_MOVE
 ; ----------------------------------------------------------------------
 ; F_DELETE_H -- BDOS function 19 (Delete File): erase all directory entries matching the FCB.
 ;   In: BDOS_PARAM_PTR = pointer to the (possibly ambiguous) FCB.
@@ -4186,11 +4186,11 @@ F_SNEXT_H:
 ; ----------------------------------------------------------------------
 F_DELETE_H:
         ; auto-select the FCB's drive prefix
-        CALL FCB_AUTO_DRIVE_SELECT                    ; $A8D7  CD 51 A8
+        CALL FCB_AUTO_DRIVE_SELECT
         ; erase every matching directory entry and free its blocks
-        CALL F_DELETE_HND                    ; $A8DA  CD 9C A3
+        CALL F_DELETE_HND
         ; flush the directory and return the result code
-        JP DIR_RETURN_MATCH_FLAG                    ; $A8DD  C3 01 A3
+        JP DIR_RETURN_MATCH_FLAG
 ; ----------------------------------------------------------------------
 ; F_READ_H -- BDOS function 20 (Read Sequential): read the next 128-byte record of the open file.
 ;   In: BDOS_PARAM_PTR = pointer to an open FCB positioned at the next sequential record.
@@ -4203,9 +4203,9 @@ F_DELETE_H:
 ; ----------------------------------------------------------------------
 F_READ_H:
         ; auto-select the FCB's drive prefix
-        CALL FCB_AUTO_DRIVE_SELECT                    ; $A8E0  CD 51 A8
+        CALL FCB_AUTO_DRIVE_SELECT
         ; read the next sequential record into the DMA buffer
-        JP FILE_READ_SEQ                    ; $A8E3  C3 BC A5
+        JP FILE_READ_SEQ
 ; ----------------------------------------------------------------------
 ; F_WRITE_H -- BDOS function 21 (Write Sequential): write the next 128-byte record to the open file.
 ;   In: BDOS_PARAM_PTR = pointer to an open FCB; DMA buffer holds the record to write.
@@ -4219,9 +4219,9 @@ F_READ_H:
 ; ----------------------------------------------------------------------
 F_WRITE_H:
         ; auto-select the FCB's drive prefix
-        CALL FCB_AUTO_DRIVE_SELECT                    ; $A8E6  CD 51 A8
+        CALL FCB_AUTO_DRIVE_SELECT
         ; set the (normal) write mode and write the next sequential record
-        JP FILE_WRITE_SEQ                    ; $A8E9  C3 FE A5
+        JP FILE_WRITE_SEQ
 ; ----------------------------------------------------------------------
 ; F_MAKE_H -- BDOS function 22 (Make File): create a new directory entry for the FCB.
 ;   In: BDOS_PARAM_PTR = pointer to the FCB naming the file to create.
@@ -4234,11 +4234,11 @@ F_WRITE_H:
 ; ----------------------------------------------------------------------
 F_MAKE_H:
         ; prepare directory create scratch state
-        CALL CLEAR_FCB_S2                    ; $A8EC  CD 72 A1
+        CALL CLEAR_FCB_S2
         ; auto-select the FCB's drive prefix
-        CALL FCB_AUTO_DRIVE_SELECT                    ; $A8EF  CD 51 A8
+        CALL FCB_AUTO_DRIVE_SELECT
         ; allocate and initialize a new directory entry for the file
-        JP DIR_MAKE_ENTRY                      ; $A8F2  C3 24 A5
+        JP DIR_MAKE_ENTRY
 ; ----------------------------------------------------------------------
 ; F_RENAME_H -- BDOS function 23 (Rename File): change a file's name in its directory entries.
 ;   In: BDOS_PARAM_PTR = pointer to an FCB whose first 12 bytes hold the old name and bytes $10..
@@ -4254,11 +4254,11 @@ F_MAKE_H:
 ; ----------------------------------------------------------------------
 F_RENAME_H:
         ; auto-select the FCB's drive prefix
-        CALL FCB_AUTO_DRIVE_SELECT                    ; $A8F5  CD 51 A8
+        CALL FCB_AUTO_DRIVE_SELECT
         ; rewrite every matching directory entry to the new name
-        CALL F_RENAME_HND                    ; $A8F8  CD 16 A4
+        CALL F_RENAME_HND
         ; flush the directory and return the result code
-        JP DIR_RETURN_MATCH_FLAG                    ; $A8FB  C3 01 A3
+        JP DIR_RETURN_MATCH_FLAG
 ; ----------------------------------------------------------------------
 ; DRV_LOGINVEC_H -- BDOS function 24 (Return Login Vector): report which drives are logged in.
 ;   In: DRV_SELECT_VECTOR = working login/select vector (bit d = drive d logged in).
@@ -4270,9 +4270,9 @@ F_RENAME_H:
 ; ----------------------------------------------------------------------
 DRV_LOGINVEC_H:
         ; HL = login vector (one bit per logged-in drive)
-        LD HL,(DRV_SELECT_VECTOR)                   ; $A8FE  2A AF A9
+        LD HL,(DRV_SELECT_VECTOR)
         ; store HL as the 16-bit BDOS result
-        JP BDOS_RET_RESULT_HL                   ; $A901  C3 29 A9
+        JP BDOS_RET_RESULT_HL
 ; ----------------------------------------------------------------------
 ; DRV_GET_H -- BDOS function 25 (Return Current Disk): report the current default drive.
 ;   In: BDOS_CUR_DRIVE = current drive number.
@@ -4283,9 +4283,9 @@ DRV_LOGINVEC_H:
 ; ----------------------------------------------------------------------
 DRV_GET_H:
         ; A = current drive number
-        LD A,(BDOS_CUR_DRIVE)                    ; $A904  3A 42 9F
+        LD A,(BDOS_CUR_DRIVE)
         ; return it as the BDOS result
-        JP BDOS_RET_RESULT                   ; $A907  C3 01 9F
+        JP BDOS_RET_RESULT
 ; ----------------------------------------------------------------------
 ; F_DMAOFF_H -- BDOS function 26 (Set DMA Address): set the disk read/write buffer address.
 ;   In: DE = new DMA (disk transfer) address supplied by the caller.
@@ -4297,11 +4297,11 @@ DRV_GET_H:
 ; ----------------------------------------------------------------------
 F_DMAOFF_H:
         ; HL = caller's requested DMA address
-        EX DE,HL                         ; $A90A  EB
+        EX DE,HL
         ; record the new DMA address
-        LD (DMA_ADDR),HL                   ; $A90B  22 B1 A9
+        LD (DMA_ADDR),HL
         ; apply the DMA address to disk buffering / BIOS
-        JP RESTORE_USER_DMA                      ; $A90E  C3 DA A1
+        JP RESTORE_USER_DMA
 ; ----------------------------------------------------------------------
 ; DRV_ALLOCVEC_H -- BDOS function 27 (Return Allocation Vector address).
 ;   In: ALLOC_VEC_PTR = base address of the current drive's allocation (block-in-use) bit vector.
@@ -4312,9 +4312,9 @@ F_DMAOFF_H:
 ; ----------------------------------------------------------------------
 DRV_ALLOCVEC_H:
         ; HL = address of the current drive's allocation bit vector
-        LD HL,(ALLOC_VEC_PTR)                   ; $A911  2A BF A9
+        LD HL,(ALLOC_VEC_PTR)
         ; store HL as the 16-bit BDOS result
-        JP BDOS_RET_RESULT_HL                   ; $A914  C3 29 A9
+        JP BDOS_RET_RESULT_HL
 ; ----------------------------------------------------------------------
 ; DRV_ROVEC_H -- BDOS function 29 (Return Read-Only Vector): report which drives are read-only.
 ;   In: DRV_LOGIN_VECTOR -- here read as the read-only bit vector master copy.
@@ -4327,9 +4327,9 @@ DRV_ALLOCVEC_H:
 ; ----------------------------------------------------------------------
 DRV_ROVEC_H:
         ; HL = read-only drive vector (one bit per R/O drive)
-        LD HL,(DRV_LOGIN_VECTOR)                   ; $A917  2A AD A9
+        LD HL,(DRV_LOGIN_VECTOR)
         ; store HL as the 16-bit BDOS result
-        JP BDOS_RET_RESULT_HL                   ; $A91A  C3 29 A9
+        JP BDOS_RET_RESULT_HL
 ; ----------------------------------------------------------------------
 ; F_ATTRIB_H -- BDOS function 30 (Set File Attributes): write the FCB's attribute bits into its
 ; directory entries.
@@ -4346,11 +4346,11 @@ DRV_ROVEC_H:
 ; ----------------------------------------------------------------------
 F_ATTRIB_H:
         ; auto-select the FCB's drive prefix
-        CALL FCB_AUTO_DRIVE_SELECT                    ; $A91D  CD 51 A8
+        CALL FCB_AUTO_DRIVE_SELECT
         ; copy the FCB's attribute bits into every matching directory entry
-        CALL F_ATTRIB_HND                    ; $A920  CD 3B A4
+        CALL F_ATTRIB_HND
         ; flush the directory and return the result code
-        JP DIR_RETURN_MATCH_FLAG                    ; $A923  C3 01 A3
+        JP DIR_RETURN_MATCH_FLAG
 ; ----------------------------------------------------------------------
 ; DRV_DPB_H -- BDOS function 31 (Return Disk Parameter Block address).
 ;   In: DPB_PTR = address of the current drive's DPB (set during disk select/log-in).
@@ -4362,7 +4362,7 @@ F_ATTRIB_H:
 ; ----------------------------------------------------------------------
 DRV_DPB_H:
         ; HL = address of the current drive's Disk Parameter Block
-        LD HL,(DPB_PTR)                   ; $A926  2A BB A9
+        LD HL,(DPB_PTR)
 ; ----------------------------------------------------------------------
 ; BDOS_RET_RESULT_HL -- common exit: store the 16-bit value in HL as the BDOS return result.
 ;   In: HL = value to return to the caller.
@@ -4375,8 +4375,8 @@ DRV_DPB_H:
 ; ----------------------------------------------------------------------
 BDOS_RET_RESULT_HL:
         ; store HL as the 16-bit BDOS result
-        LD (BDOS_RETVAL),HL                   ; $A929  22 45 9F
-        RET                              ; $A92C  C9
+        LD (BDOS_RETVAL),HL
+        RET
 ; ----------------------------------------------------------------------
 ; F_USERNUM_H -- BDOS function 32 (Get/Set User Code).
 ;   In: DRV_SELECT_ARG = caller's argument byte ($FF = 'get', else the user number to set);
@@ -4391,15 +4391,15 @@ BDOS_RET_RESULT_HL:
 ; ----------------------------------------------------------------------
 F_USERNUM_H:
         ; A = caller's argument ($FF = query current user)
-        LD A,(DRV_SELECT_ARG)                    ; $A92D  3A D6 A9
+        LD A,(DRV_SELECT_ARG)
         ; is this a 'get current user' request?
-        CP $FF                           ; $A930  FE FF
+        CP $FF
         ; no: it is a 'set user number' request
-        JP NZ,SET_USER_NUMBER                ; $A932  C2 3B A9
+        JP NZ,SET_USER_NUMBER
         ; get path: load the current user number
-        LD A,(BDOS_STACK_TOP)                    ; $A935  3A 41 9F
+        LD A,(BDOS_STACK_TOP)
         ; return it as the BDOS result
-        JP BDOS_RET_RESULT                   ; $A938  C3 01 9F
+        JP BDOS_RET_RESULT
 ; ----------------------------------------------------------------------
 ; SET_USER_NUMBER -- set path of BDOS function 32: change the current user number.
 ;   In: A = requested user number.
@@ -4410,10 +4410,10 @@ F_USERNUM_H:
 ; ----------------------------------------------------------------------
 SET_USER_NUMBER:
         ; clamp the user number to the range 0..31
-        AND $1F                          ; $A93B  E6 1F
+        AND $1F
         ; store the new current user number
-        LD (BDOS_STACK_TOP),A                    ; $A93D  32 41 9F
-        RET                              ; $A940  C9
+        LD (BDOS_STACK_TOP),A
+        RET
 ; ----------------------------------------------------------------------
 ; F_READRAND_H -- BDOS function 33 (Read Random): read the record addressed by the FCB's
 ; random-record field.
@@ -4428,9 +4428,9 @@ SET_USER_NUMBER:
 ; ----------------------------------------------------------------------
 F_READRAND_H:
         ; auto-select the FCB's drive prefix
-        CALL FCB_AUTO_DRIVE_SELECT                    ; $A941  CD 51 A8
+        CALL FCB_AUTO_DRIVE_SELECT
         ; position to the FCB's random record and read it
-        JP FCB_EXTENT_TO_TRKSEC_8                    ; $A944  C3 93 A7
+        JP FCB_EXTENT_TO_TRKSEC_8
 ; ----------------------------------------------------------------------
 ; F_WRITERAND_H -- BDOS function 34 (Write Random): write the record addressed by the FCB's
 ; random-record field.
@@ -4445,9 +4445,9 @@ F_READRAND_H:
 ; ----------------------------------------------------------------------
 F_WRITERAND_H:
         ; auto-select the FCB's drive prefix
-        CALL FCB_AUTO_DRIVE_SELECT                    ; $A947  CD 51 A8
+        CALL FCB_AUTO_DRIVE_SELECT
         ; position to the FCB's random record and write it
-        JP FCB_EXTENT_TO_TRKSEC_9                    ; $A94A  C3 9C A7
+        JP FCB_EXTENT_TO_TRKSEC_9
 ; ----------------------------------------------------------------------
 ; F_SIZE_H -- BDOS function 35 (Compute File Size): set the FCB's random-record field to the file's
 ; record count.
@@ -4462,9 +4462,9 @@ F_WRITERAND_H:
 ; ----------------------------------------------------------------------
 F_SIZE_H:
         ; auto-select the FCB's drive prefix
-        CALL FCB_AUTO_DRIVE_SELECT                    ; $A94D  CD 51 A8
+        CALL FCB_AUTO_DRIVE_SELECT
         ; scan the file's extents and write its record count into the FCB
-        JP FCB_ALLOC_BLOCK_NUM_2                    ; $A950  C3 D2 A7
+        JP FCB_ALLOC_BLOCK_NUM_2
 ; ----------------------------------------------------------------------
 ; DRV_RESET_H -- BDOS function 37 (Reset Drive): mark the drives named by the caller's bit mask as
 ; no longer logged in.
@@ -4485,35 +4485,35 @@ F_SIZE_H:
 ; ----------------------------------------------------------------------
 DRV_RESET_H:
         ; HL = caller's reset bit-mask (one bit per drive to reset)
-        LD HL,(BDOS_PARAM_PTR)                   ; $A953  2A 43 9F
-        LD A,L                           ; $A956  7D
+        LD HL,(BDOS_PARAM_PTR)
+        LD A,L
         ; complement the mask low byte (a 1 marks a drive to KEEP; 0 marks a drive being reset)
-        CPL                              ; $A957  2F
-        LD E,A                           ; $A958  5F
-        LD A,H                           ; $A959  7C
-        CPL                              ; $A95A  2F
+        CPL
+        LD E,A
+        LD A,H
+        CPL
         ; HL = working login vector
-        LD HL,(DRV_SELECT_VECTOR)                   ; $A95B  2A AF A9
+        LD HL,(DRV_SELECT_VECTOR)
         ; clear the reset drives' bits in the login vector (high byte path)
-        AND H                            ; $A95E  A4
-        LD D,A                           ; $A95F  57
-        LD A,L                           ; $A960  7D
-        AND E                            ; $A961  A3
-        LD E,A                           ; $A962  5F
+        AND H
+        LD D,A
+        LD A,L
+        AND E
+        LD E,A
         ; HL = master logged-in / R-O vector
-        LD HL,(DRV_LOGIN_VECTOR)                   ; $A963  2A AD A9
-        EX DE,HL                         ; $A966  EB
+        LD HL,(DRV_LOGIN_VECTOR)
+        EX DE,HL
         ; store the updated login vector
-        LD (DRV_SELECT_VECTOR),HL                   ; $A967  22 AF A9
-        LD A,L                           ; $A96A  7D
-        AND E                            ; $A96B  A3
-        LD L,A                           ; $A96C  6F
-        LD A,H                           ; $A96D  7C
-        AND D                            ; $A96E  A2
-        LD H,A                           ; $A96F  67
+        LD (DRV_SELECT_VECTOR),HL
+        LD A,L
+        AND E
+        LD L,A
+        LD A,H
+        AND D
+        LD H,A
         ; store the master vector with the reset drives cleared
-        LD (DRV_LOGIN_VECTOR),HL                   ; $A970  22 AD A9
-        RET                              ; $A973  C9
+        LD (DRV_LOGIN_VECTOR),HL
+        RET
 ; ----------------------------------------------------------------------
 ; FCB_AUTO_DRIVE_RESTORE -- file-operation epilogue: undo a temporary drive switch made by
 ; FCB_AUTO_DRIVE_SELECT, then return the BDOS result.
@@ -4539,27 +4539,27 @@ DRV_RESET_H:
 ; ----------------------------------------------------------------------
 FCB_AUTO_DRIVE_RESTORE:
         ; was a temporary drive switch made by the preamble?
-        LD A,(DRV_RESTORE_FLAG)                    ; $A974  3A DE A9
-        OR A                             ; $A977  B7
+        LD A,(DRV_RESTORE_FLAG)
+        OR A
         ; no switch: skip restore, go straight to the result return
-        JP Z,BDOS_RETURN_RESULT                 ; $A978  CA 91 A9
+        JP Z,BDOS_RETURN_RESULT
         ; HL -> FCB whose drive byte was modified
-        LD HL,(BDOS_PARAM_PTR)                   ; $A97B  2A 43 9F
+        LD HL,(BDOS_PARAM_PTR)
         ; clear the FCB drive byte before restoring it
-        LD (HL),$00                      ; $A97E  36 00
+        LD (HL),$00
         ; A = saved original FCB drive-prefix byte
-        LD A,(DRV_SAVED_FCB_BYTE)                    ; $A980  3A E0 A9
-        OR A                             ; $A983  B7
+        LD A,(DRV_SAVED_FCB_BYTE)
+        OR A
         ; saved byte was 0 (no real prefix): nothing to put back, go to result return
-        JP Z,BDOS_RETURN_RESULT                 ; $A984  CA 91 A9
+        JP Z,BDOS_RETURN_RESULT
         ; restore the original FCB drive-prefix byte
-        LD (HL),A                        ; $A987  77
+        LD (HL),A
         ; A = saved current drive number
-        LD A,(DRV_SAVED_DRIVE)                    ; $A988  3A DF A9
+        LD A,(DRV_SAVED_DRIVE)
         ; set it as the drive to reselect
-        LD (DRV_SELECT_ARG),A                    ; $A98B  32 D6 A9
+        LD (DRV_SELECT_ARG),A
         ; reselect the drive that was current before the call
-        CALL DRV_SET_H                    ; $A98E  CD 45 A8
+        CALL DRV_SET_H
 ; ----------------------------------------------------------------------
 ; BDOS_RETURN_RESULT -- final BDOS exit: restore the entry stack and deliver the result to the
 ; caller.
@@ -4575,16 +4575,16 @@ FCB_AUTO_DRIVE_RESTORE:
 ; ----------------------------------------------------------------------
 BDOS_RETURN_RESULT:
         ; HL = saved BDOS entry stack pointer
-        LD HL,(BDOS_SAVED_SP)                   ; $A991  2A 0F 9F
+        LD HL,(BDOS_SAVED_SP)
         ; restore the BDOS entry stack (drop any locals)
-        LD SP,HL                         ; $A994  F9
+        LD SP,HL
         ; HL = the 16-bit BDOS result value
-        LD HL,(BDOS_RETVAL)                   ; $A995  2A 45 9F
+        LD HL,(BDOS_RETVAL)
         ; A = result low byte (8-bit return convention)
-        LD A,L                           ; $A998  7D
+        LD A,L
         ; B = result high byte (16-bit return convention)
-        LD B,H                           ; $A999  44
-        RET                              ; $A99A  C9
+        LD B,H
+        RET
 ; ----------------------------------------------------------------------
 ; F_WRITEZF_H -- BDOS function 40 (Write Random with Zero Fill): like Write Random, but newly
 ; allocated blocks are pre-filled with zeros.
@@ -4602,236 +4602,236 @@ BDOS_RETURN_RESULT:
 ; ----------------------------------------------------------------------
 F_WRITEZF_H:
         ; auto-select the FCB's drive prefix
-        CALL FCB_AUTO_DRIVE_SELECT                    ; $A99B  CD 51 A8
+        CALL FCB_AUTO_DRIVE_SELECT
         ; write-mode 2 = write random with zero fill of new blocks
-        LD A,$02                         ; $A99E  3E 02
+        LD A,$02
         ; select zero-fill write mode
-        LD (WRITE_TYPE_FLAG),A                    ; $A9A0  32 D5 A9
+        LD (WRITE_TYPE_FLAG),A
         ; C=0 parameter to the random-record extract core
-        LD C,$00                         ; $A9A3  0E 00
+        LD C,$00
         ; decode the FCB random record and seek/allocate to it
-        CALL BDOS_SEEK_COMPUTE                    ; $A9A5  CD 07 A7
+        CALL BDOS_SEEK_COMPUTE
         ; on success, write the record (with zero-filled new blocks)
-        CALL Z,BDOS_WRITE                  ; $A9A8  CC 03 A6
-        RET                              ; $A9AB  C9
+        CALL Z,BDOS_WRITE
+        RET
 ; ----------------------------------------------------------------------
 ; EMPTY_DIR_FCB -- Sentinel byte $E5 used as an empty/deleted directory-entry marker and zero-FCB
 ; source. [RE]
 ; ----------------------------------------------------------------------
 EMPTY_DIR_FCB:
-        DEFB    $E5                                              ; $A9AC
+        DEFB    $E5
 ; ----------------------------------------------------------------------
 ; DRV_LOGIN_VECTOR -- 16-bit login vector: bit per drive that has been logged in (selected at least
 ; once). [RE]
 ; ----------------------------------------------------------------------
 DRV_LOGIN_VECTOR:
-        DEFB    "\0\0"    ; $A9AD
+        DEFB    "\0\0"
 ; ----------------------------------------------------------------------
 ; DRV_SELECT_VECTOR -- 16-bit drive read-only (R/O) vector: bit per drive currently flagged
 ; read-only. [RE]
 ; ----------------------------------------------------------------------
 DRV_SELECT_VECTOR:
-        DEFB    "\0\0"    ; $A9AF
+        DEFB    "\0\0"
 ; ----------------------------------------------------------------------
 ; DMA_ADDR -- Current DMA (disk transfer) address; defaults to TBUFF ($0080). [RE]
 ; ----------------------------------------------------------------------
 DMA_ADDR:
-        DEFB    $80,$00                                          ; $A9B1
+        DEFB    $80,$00
 ; ----------------------------------------------------------------------
 ; DPB_WORK_PTR0 -- Scratch pointer used while walking the Disk Parameter Block / allocation vector.
 ; [RE]
 ; ----------------------------------------------------------------------
 DPB_WORK_PTR0:
-        DEFB    "\0\0"    ; $A9B3
+        DEFB    "\0\0"
 ; ----------------------------------------------------------------------
 ; DEBLOCK_HSTREC_PTR0 -- Deblocking host-record pointer (low half) for the record/sector buffer
 ; cache. [RE]
 ; ----------------------------------------------------------------------
 DEBLOCK_HSTREC_PTR0:
-        DEFB    "\0\0"    ; $A9B5
+        DEFB    "\0\0"
 ; ----------------------------------------------------------------------
 ; DEBLOCK_HSTREC_PTR1 -- Deblocking host-record pointer (high half) for the record/sector buffer
 ; cache. [RE]
 ; ----------------------------------------------------------------------
 DEBLOCK_HSTREC_PTR1:
-        DEFB    "\0\0"    ; $A9B7
+        DEFB    "\0\0"
 ; ----------------------------------------------------------------------
 ; DIRBUF_PTR -- Pointer to the BIOS directory buffer (DIRBUF) used for directory record I/O. [RE]
 ; ----------------------------------------------------------------------
 DIRBUF_PTR:
-        DEFB    "\0\0"    ; $A9B9
+        DEFB    "\0\0"
 ; ----------------------------------------------------------------------
 ; DPB_PTR -- Pointer to the current drive's Disk Parameter Block (DPB). [RE]
 ; ----------------------------------------------------------------------
 DPB_PTR:
-        DEFB    "\0\0"    ; $A9BB
+        DEFB    "\0\0"
 ; ----------------------------------------------------------------------
 ; REC_BYTE_OFFSET -- Byte offset of the current record within the host sector (deblocking). [RE]
 ; ----------------------------------------------------------------------
 REC_BYTE_OFFSET:
-        DEFB    "\0\0"    ; $A9BD
+        DEFB    "\0\0"
 ; ----------------------------------------------------------------------
 ; ALLOC_VEC_PTR -- Pointer to the current drive's allocation vector (ALV). [RE]
 ; ----------------------------------------------------------------------
 ALLOC_VEC_PTR:
-        DEFB    "\0\0"    ; $A9BF
+        DEFB    "\0\0"
 ; ----------------------------------------------------------------------
 ; DPB_SPT -- DPB field SPT: sectors per track for the current drive. [RE]
 ; ----------------------------------------------------------------------
 DPB_SPT:
-        DEFB    "\0\0"    ; $A9C1
+        DEFB    "\0\0"
 ; ----------------------------------------------------------------------
 ; DPB_BSH -- DPB field BSH: block shift factor (log2 of records per block). [RE]
 ; ----------------------------------------------------------------------
 DPB_BSH:
-        DEFB    "\0"    ; $A9C3
+        DEFB    "\0"
 ; ----------------------------------------------------------------------
 ; DPB_BLM -- DPB field BLM: block mask (records per block minus 1). [RE]
 ; ----------------------------------------------------------------------
 DPB_BLM:
-        DEFB    "\0"    ; $A9C4
+        DEFB    "\0"
 ; ----------------------------------------------------------------------
 ; DPB_EXM -- DPB field EXM: extent mask. [RE]
 ; ----------------------------------------------------------------------
 DPB_EXM:
-        DEFB    "\0"    ; $A9C5
+        DEFB    "\0"
 ; ----------------------------------------------------------------------
 ; MAX_BLOCK_DSM -- DPB field DSM: highest block number on the drive (disk size in blocks minus 1).
 ; [RE]
 ; ----------------------------------------------------------------------
 MAX_BLOCK_DSM:
-        DEFB    "\0\0"    ; $A9C6
+        DEFB    "\0\0"
 ; ----------------------------------------------------------------------
 ; DPB_REC_PTR -- DPB field DRM-related record pointer / directory max entries working cell. [RE]
 ; ----------------------------------------------------------------------
 DPB_REC_PTR:
-        DEFB    "\0\0"    ; $A9C8
+        DEFB    "\0\0"
 ; ----------------------------------------------------------------------
 ; ALLOC_END_PTR -- Pointer to the end of the allocation vector (last byte+1). [RE]
 ; ----------------------------------------------------------------------
 ALLOC_END_PTR:
-        DEFB    "\0\0"    ; $A9CA
+        DEFB    "\0\0"
 ; ----------------------------------------------------------------------
 ; REC_SCAN_PTR -- Working pointer used while scanning records / the allocation map. [RE]
 ; ----------------------------------------------------------------------
 REC_SCAN_PTR:
-        DEFB    "\0\0"    ; $A9CC
+        DEFB    "\0\0"
 ; ----------------------------------------------------------------------
 ; DPB_OFF -- DPB field OFF: track offset (number of reserved system tracks). [RE]
 ; ----------------------------------------------------------------------
 DPB_OFF:
-        DEFB    "\0\0"    ; $A9CE
+        DEFB    "\0\0"
 ; ----------------------------------------------------------------------
 ; DPB_XLT_PTR -- Pointer to the current drive's sector-translation (skew) table (XLT). [RE]
 ; ----------------------------------------------------------------------
 DPB_XLT_PTR:
-        DEFB    "\0\0"    ; $A9D0
+        DEFB    "\0\0"
 ; ----------------------------------------------------------------------
 ; DIR_DIRTY_FLAG -- Directory-changed flag ($FF = a directory record needs flushing). [RE]
 ; ----------------------------------------------------------------------
 DIR_DIRTY_FLAG:
-        DEFB    "\0"    ; $A9D2
+        DEFB    "\0"
 ; ----------------------------------------------------------------------
 ; RW_DIRECTION_FLAG -- Read/write direction flag for the current record op ($FF = read, else write).
 ; [RE]
 ; ----------------------------------------------------------------------
 RW_DIRECTION_FLAG:
-        DEFB    "\0"    ; $A9D3
+        DEFB    "\0"
 ; ----------------------------------------------------------------------
 ; DIR_MATCH_FLAG -- Directory-search match flag / result ($FF when no entry matched). [RE]
 ; ----------------------------------------------------------------------
 DIR_MATCH_FLAG:
-        DEFB    "\0"    ; $A9D4
+        DEFB    "\0"
 ; ----------------------------------------------------------------------
 ; WRITE_TYPE_FLAG -- Write-mode flag: 1 = sequential, 2 = random / write-random-zero-fill. [RE]
 ; ----------------------------------------------------------------------
 WRITE_TYPE_FLAG:
-        DEFB    "\0"    ; $A9D5
+        DEFB    "\0"
 ; ----------------------------------------------------------------------
 ; DRV_SELECT_ARG -- Drive number argument staged for the BIOS SELDSK call. [RE]
 ; ----------------------------------------------------------------------
 DRV_SELECT_ARG:
-        DEFB    "\0"    ; $A9D6
+        DEFB    "\0"
 ; ----------------------------------------------------------------------
 ; ALLOC_SLOT_INDEX -- Index of the FCB allocation-map slot for the current record. [RE]
 ; ----------------------------------------------------------------------
 ALLOC_SLOT_INDEX:
-        DEFB    "\0"    ; $A9D7
+        DEFB    "\0"
 ; ----------------------------------------------------------------------
 ; DIR_CMP_LEN -- Length (byte count) used by the current directory-entry compare. [RE]
 ; ----------------------------------------------------------------------
 DIR_CMP_LEN:
-        DEFB    "\0"    ; $A9D8
+        DEFB    "\0"
 ; ----------------------------------------------------------------------
 ; DIR_FCB_PTR -- Saved FCB / directory pointer scratch (4 bytes) for directory operations. [RE]
 ; ----------------------------------------------------------------------
 DIR_FCB_PTR:
-        DEFB    "\0\0\0\0"    ; $A9D9
+        DEFB    "\0\0\0\0"
 ; ----------------------------------------------------------------------
 ; BLOCK_WIDTH_FLAG -- Block-number width flag (8-bit vs 16-bit block numbers per DSM). [RE]
 ; ----------------------------------------------------------------------
 BLOCK_WIDTH_FLAG:
-        DEFB    "\0"    ; $A9DD
+        DEFB    "\0"
 ; ----------------------------------------------------------------------
 ; DRV_RESTORE_FLAG -- Auto-drive-select restore flag ($FF = a prior drive must be restored). [RE]
 ; ----------------------------------------------------------------------
 DRV_RESTORE_FLAG:
-        DEFB    "\0"    ; $A9DE
+        DEFB    "\0"
 ; ----------------------------------------------------------------------
 ; DRV_SAVED_DRIVE -- Saved current drive number to restore after an explicit-drive FCB op. [RE]
 ; ----------------------------------------------------------------------
 DRV_SAVED_DRIVE:
-        DEFB    "\0"    ; $A9DF
+        DEFB    "\0"
 ; ----------------------------------------------------------------------
 ; DRV_SAVED_FCB_BYTE -- Saved original FCB drive byte to restore after auto-drive-select. [RE]
 ; ----------------------------------------------------------------------
 DRV_SAVED_FCB_BYTE:
-        DEFB    "\0"    ; $A9E0
+        DEFB    "\0"
 ; ----------------------------------------------------------------------
 ; FCB_RECCOUNT -- Working copy of the FCB record count (RC) for the current extent. [RE]
 ; ----------------------------------------------------------------------
 FCB_RECCOUNT:
-        DEFB    "\0"    ; $A9E1
+        DEFB    "\0"
 ; ----------------------------------------------------------------------
 ; FCB_EXTENT_MASKED -- Working copy of the FCB extent byte after applying the extent mask. [RE]
 ; ----------------------------------------------------------------------
 FCB_EXTENT_MASKED:
-        DEFB    "\0"    ; $A9E2
+        DEFB    "\0"
 ; ----------------------------------------------------------------------
 ; FCB_CURREC -- Working current-record number within the current extent. [RE]
 ; ----------------------------------------------------------------------
 FCB_CURREC:
-        DEFB    "\0\0"    ; $A9E3
+        DEFB    "\0\0"
 ; ----------------------------------------------------------------------
 ; CUR_BLOCK_NUMBER -- Block number for the current record (from the FCB allocation map). [RE]
 ; ----------------------------------------------------------------------
 CUR_BLOCK_NUMBER:
-        DEFB    "\0\0"    ; $A9E5
+        DEFB    "\0\0"
 ; ----------------------------------------------------------------------
 ; BLOCK_BASE_RECORD -- Base record number of the current block (block * records-per-block). [RE]
 ; ----------------------------------------------------------------------
 BLOCK_BASE_RECORD:
-        DEFB    "\0\0"    ; $A9E7
+        DEFB    "\0\0"
 ; ----------------------------------------------------------------------
 ; DEBLOCK_BYTE_OFF -- Deblocking byte offset within the host sector for the current record. [RE]
 ; ----------------------------------------------------------------------
 DEBLOCK_BYTE_OFF:
-        DEFB    "\0"    ; $A9E9
+        DEFB    "\0"
 ; ----------------------------------------------------------------------
 ; CUR_RECORD -- Current absolute record number (low byte) for sector translation. [RE]
 ; ----------------------------------------------------------------------
 CUR_RECORD:
-        DEFB    "\0"    ; $A9EA
+        DEFB    "\0"
 ; ----------------------------------------------------------------------
 ; CUR_RECORD_HI -- Current absolute record number (high byte). [RE]
 ; ----------------------------------------------------------------------
 CUR_RECORD_HI:
-        DEFB    "\0"    ; $A9EB
+        DEFB    "\0"
 ; ----------------------------------------------------------------------
 ; REC_CACHE -- 20-byte record/sector buffer cache scratch area (deblocking workspace). [RE]
 ; ----------------------------------------------------------------------
 REC_CACHE:
-        DEFS    20, $00    ; $A9EC  fill
+        DEFS    20, $00                  ; fill
 
     SAVEBIN "E:/tmp/cpm223_ccpbdos_rt.bin", $9300, $1700
     IFNDEF CPM_LINK
