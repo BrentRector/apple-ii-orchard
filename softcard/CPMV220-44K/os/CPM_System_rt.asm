@@ -2133,23 +2133,32 @@ TYPE_PRINT_LOOP:
 ; ----------------------------------------------------------------------
 TYPE_EMIT_CHAR:
         ; advance the TYPE record-byte-index cell (next byte within the current 128-byte record)
+        ; advance the within-record byte index (next byte of the current 128-byte record)
         INC (HL)                         ; $9987  34
         ; TBUFF base ($0080); CCP_HL_ADD_A adds the current offset in A to form TBUFF+offset
+        ; TBUFF base ($0080); the following CCP_HL_ADD_A adds the byte index in A to address
+        ; TBUFF+index
         LD HL,$0080                      ; $9988  21 80 00
         CALL CCP_HL_ADD_A                    ; $998B  CD 59 96
         LD A,(HL)                        ; $998E  7E
         ; $1A = Ctrl-Z, CP/M soft end-of-file marker -> stop TYPE
+        ; $1A = Ctrl-Z, the CP/M soft end-of-file marker that terminates a text file
         CP $1A                           ; $998F  FE 1A
         ; EOF reached: branch to the CCP command-complete exit
+        ; EOF reached: stop TYPE and return through the CCP command-complete path
         JP Z,CCP_RETURN_OK                 ; $9991  CA 86 9B
         ; BDOS C_WRITE (fn 2): print this character to the console
+        ; emit this record byte to the console via BDOS C_WRITE (fn 2)
         CALL CCP_CONOUT                    ; $9994  CD 8C 94
         ; poll console status (fn 11) then read (fn 1) if a key is down; nonzero = user pressed a
         ; key to abort TYPE
+        ; poll the console for a key (fn 11/fn 1); nonzero = user pressed a key to abort TYPE
         CALL CCP_CHECK_ABORT                    ; $9997  CD C2 95
         ; user aborted: branch to the command-complete exit
+        ; user aborted: stop TYPE and return through the CCP command-complete path
         JP NZ,CCP_RETURN_OK                ; $999A  C2 86 9B
         ; no EOF/abort: continue the TYPE character loop
+        ; no EOF and no abort: loop back for the next character/record
         JP TYPE_PRINT_LOOP                   ; $999D  C3 74 99
 ; ----------------------------------------------------------------------
 ; TYPE_READ_DONE -- Handle the result of a failed/short F_READ during TYPE (EOF vs read error).
@@ -3165,9 +3174,9 @@ BDOS_ERRVEC_FILERO:
 ;        default 0 result.
 ;   Clobbers: A, BC, DE, HL, SP (switches to the private BDOS stack).
 ;   Algorithm: OBSERVED -- save caller DE (the info-address) into BDOS_PARAM_PTR; copy low byte E
-;              into the requested-drive/byte-param cell L_A9D6; default the word result
+;              into the requested-drive/byte-param cell DRV_SELECT_ARG; default the word result
 ;              (BDOS_RETVAL) to 0; capture caller SP into BDOS_SAVED_SP and switch SP to the private
-;              BDOS stack top (BDOS_STACK_TOP); clear two per-call state cells (L_A9E0, L_A9DE) to
+;              BDOS stack top (BDOS_STACK_TOP); clear two per-call state cells (DRV_SAVED_FCB_BYTE, DRV_RESTORE_FLAG) to
 ;              0; push the common BDOS exit (FCB_AUTO_DRIVE_RESTORE = $A974) so every handler RETs
 ;              through it; range-check the function number A (=C) against $29 (41) -- CP $29 / RET
 ;              NC returns to the exit when A >= 41. Then move byte-arg E into C for the handler, set
@@ -3183,7 +3192,7 @@ BDOS_DISPATCH:
         EX DE,HL                         ; $9C15  EB
         LD A,E                           ; $9C16  7B
         ; stash the low arg byte E as the requested drive / byte parameter
-        LD (L_A9D6),A                    ; $9C17  32 D6 A9
+        LD (DRV_SELECT_ARG),A                    ; $9C17  32 D6 A9
         ; default the BDOS word result to 0 before dispatch
         LD HL,$0000                      ; $9C1A  21 00 00
         ; clear the BDOS word-result cell (read back by the common exit)
@@ -3196,9 +3205,9 @@ BDOS_DISPATCH:
         LD SP,BDOS_STACK_TOP                     ; $9C24  31 41 9F
         XOR A                            ; $9C27  AF
         ; clear a per-call disk/reselect state cell (A=0 from XOR A)
-        LD (L_A9E0),A                    ; $9C28  32 E0 A9
+        LD (DRV_SAVED_FCB_BYTE),A                    ; $9C28  32 E0 A9
         ; clear a second per-call state cell (A=0)
-        LD (L_A9DE),A                    ; $9C2B  32 DE A9
+        LD (DRV_RESTORE_FLAG),A                    ; $9C2B  32 DE A9
         ; load the common BDOS exit/return-result address ($A974)
         LD HL,FCB_AUTO_DRIVE_RESTORE                ; $9C2E  21 74 A9
         ; push the common exit so every handler RETs back through it
@@ -4401,7 +4410,7 @@ BLOCK_COPY_LOOP:
 ; ----------------------------------------------------------------------
 ; DRV_SELECT_DPB -- select the current drive and copy its Disk Parameter Block into BDOS work cells.
 ;   In: BDOS_CUR_DRIVE = drive index.
-;   Out: BDOS DPB/work pointers (DPB_WORK_PTR0, L_A9B5/B7, L_A9D0, dir/alloc fields,
+;   Out: BDOS DPB/work pointers (DPB_WORK_PTR0, DEBLOCK_HSTREC_PTR0/B7, DPB_XLT_PTR, dir/alloc fields,
 ;        MAX_BLOCK_DSM, BLOCK_WIDTH_FLAG) populated for the selected drive; A=FF success.
 ;   Clobbers: AF, BC, DE, HL.
 ;   Algorithm: ask the BIOS SELDSK vector ($AA1B) for the selected drive's DPH; if null
@@ -4431,20 +4440,20 @@ BDOS_RANDREC_3:
         LD (DPB_WORK_PTR0),HL                   ; $9F67  22 B3 A9
         INC HL                           ; $9F6A  23
         INC HL                           ; $9F6B  23
-        LD (L_A9B5),HL                   ; $9F6C  22 B5 A9
+        LD (DEBLOCK_HSTREC_PTR0),HL                   ; $9F6C  22 B5 A9
         INC HL                           ; $9F6F  23
         INC HL                           ; $9F70  23
-        LD (L_A9B7),HL                   ; $9F71  22 B7 A9
+        LD (DEBLOCK_HSTREC_PTR1),HL                   ; $9F71  22 B7 A9
         INC HL                           ; $9F74  23
         INC HL                           ; $9F75  23
         EX DE,HL                         ; $9F76  EB
-        LD (L_A9D0),HL                   ; $9F77  22 D0 A9
+        LD (DPB_XLT_PTR),HL                   ; $9F77  22 D0 A9
         LD HL,DIRBUF_PTR                     ; $9F7A  21 B9 A9
         LD C,$08                         ; $9F7D  0E 08
         CALL BLOCK_COPY_INCC                    ; $9F7F  CD 4F 9F
-        LD HL,(L_A9BB)                   ; $9F82  2A BB A9
+        LD HL,(DPB_PTR)                   ; $9F82  2A BB A9
         EX DE,HL                         ; $9F85  EB
-        LD HL,L_A9C1                     ; $9F86  21 C1 A9
+        LD HL,DPB_SPT                     ; $9F86  21 C1 A9
         LD C,$0F                         ; $9F89  0E 0F
         CALL BLOCK_COPY_INCC                    ; $9F8B  CD 4F 9F
         ; Max block number (DSM) for this drive
@@ -4484,14 +4493,14 @@ DRV_SELECT_OK:
 ; ----------------------------------------------------------------------
 ; DISK_HOME_CLEAR_SCAN -- seek the drive to track 0 and reset the two BDOS record-scan accumulator
 ; cells.
-;   In: L_A9B5 and L_A9B7 each hold the ADDRESS of a 16-bit scratch word (set up by the drive-select
+;   In: DEBLOCK_HSTREC_PTR0 and DEBLOCK_HSTREC_PTR1 each hold the ADDRESS of a 16-bit scratch word (set up by the drive-select
 ;       path).
-;   Out: BIOS HOME has positioned the head at track 0; the 16-bit word pointed to by (L_A9B5) and
-;        the 16-bit word pointed to by (L_A9B7) are both zeroed; A = 0.
+;   Out: BIOS HOME has positioned the head at track 0; the 16-bit word pointed to by (DEBLOCK_HSTREC_PTR0) and
+;        the 16-bit word pointed to by (DEBLOCK_HSTREC_PTR1) are both zeroed; A = 0.
 ;   Clobbers: A, HL, F.
 ;   Algorithm: CALL the BIOS HOME vector ($AA18, jump-table entry 8) to seek to track 0, then store
-;              0 into the two bytes of the word at (L_A9B5) and the two bytes of the word at
-;              (L_A9B7). This re-bases the record->track/sector walk at the start of the disk for a
+;              0 into the two bytes of the word at (DEBLOCK_HSTREC_PTR0) and the two bytes of the word at
+;              (DEBLOCK_HSTREC_PTR1). This re-bases the record->track/sector walk at the start of the disk for a
 ;              fresh scan.
 ; [RE] $AA18 is jump-table entry 8 = HOME (verified against the BIOS jump table at $AA00). A=0 (XOR
 ; A) is written through the two stored pointers, two bytes each.
@@ -4502,12 +4511,12 @@ DISK_HOME_CLEAR_SCAN:
         ; A = 0, the fill value for the scan-accumulator cells.
         XOR A                            ; $9FA4  AF
         ; HL = address of the first 16-bit scan accumulator; zero its two bytes.
-        LD HL,(L_A9B5)                   ; $9FA5  2A B5 A9
+        LD HL,(DEBLOCK_HSTREC_PTR0)                   ; $9FA5  2A B5 A9
         LD (HL),A                        ; $9FA8  77
         INC HL                           ; $9FA9  23
         LD (HL),A                        ; $9FAA  77
         ; HL = address of the second 16-bit scan accumulator; zero its two bytes.
-        LD HL,(L_A9B7)                   ; $9FAB  2A B7 A9
+        LD HL,(DEBLOCK_HSTREC_PTR1)                   ; $9FAB  2A B7 A9
         LD (HL),A                        ; $9FAE  77
         INC HL                           ; $9FAF  23
         LD (HL),A                        ; $9FB0  77
@@ -4572,11 +4581,11 @@ DISK_STATUS_CHECK:
 ; REC_DIV4_SETUP -- divide the current record number by 4 and stage it as the target for the
 ; record->track/sector walk.
 ;   In: CUR_RECORD holds the current logical record number (read here as a 16-bit value).
-;   Out: HL = CUR_RECORD >> 2; that value is stored into both L_A9E5 (the walk target) and the start
+;   Out: HL = CUR_RECORD >> 2; that value is stored into both CUR_BLOCK_NUMBER (the walk target) and the start
 ;        of REC_CACHE.
 ;   Clobbers: A, C, HL, F.
 ;   Algorithm: load HL from CUR_RECORD, set C = 2, call the logical-shift-right-by-C helper
-;              (DRV_INSTALL_RWTS_10) to compute HL = HL >> 2, then save the result to L_A9E5
+;              (DRV_INSTALL_RWTS_10) to compute HL = HL >> 2, then save the result to CUR_BLOCK_NUMBER
 ;              (consumed by RECORD_TO_TRACK as the search target) and cache it at REC_CACHE.
 ; [RE] DRV_INSTALL_RWTS_10 verified as a 'shift HL logically right C times' helper (OR A clears
 ; carry, then RRA on H and L, C iterations); C=2 -> divide by 4. The exact meaning of the /4 is
@@ -4590,42 +4599,42 @@ REC_DIV4_SETUP:
         ; HL >>= 2 via the shift-right-by-C helper.
         CALL DRV_INSTALL_RWTS_10                    ; $9FC8  CD EA A0
         ; Store as the search target for the record->track/sector walk.
-        LD (L_A9E5),HL                   ; $9FCB  22 E5 A9
+        LD (CUR_BLOCK_NUMBER),HL                   ; $9FCB  22 E5 A9
         ; Also cache the value at the start of REC_CACHE.
         LD (REC_CACHE),HL                   ; $9FCE  22 EC A9
 ; ----------------------------------------------------------------------
 ; RECORD_TO_TRACK -- entry of the loop that maps a logical record number to its physical track by
 ; stepping in sectors-per-track units.
-;   In: L_A9E5 = 16-bit search target (record/4, set by REC_DIV4_SETUP); (L_A9B7) -> a 16-bit
-;       running record-boundary accumulator; (L_A9B5) -> the current track number; L_A9C1 = SPT
+;   In: CUR_BLOCK_NUMBER = 16-bit search target (record/4, set by REC_DIV4_SETUP); (DEBLOCK_HSTREC_PTR1) -> a 16-bit
+;       running record-boundary accumulator; (DEBLOCK_HSTREC_PTR0) -> the current track number; DPB_SPT = SPT
 ;       (sectors per track, low word of the copied DPB).
 ;   Out: loads BC = target, DE = current boundary accumulator, HL = current track number, then
 ;        enters the search loop (RECORD_TO_TRACK_BACK). On a match it branches to
 ;        DISK_STORE_SEC_TRK_1, which sets the BIOS track/sector.
 ;   Clobbers: A, BC, DE, HL, F.
-;   Algorithm: load the target into BC (via L_A9E5), the boundary accumulator into DE (dereferenced
-;              through (L_A9B7)), and the current track number into HL (dereferenced through
-;              (L_A9B5)), then fall into the back/forward search that walks the accumulator by SPT
+;   Algorithm: load the target into BC (via CUR_BLOCK_NUMBER), the boundary accumulator into DE (dereferenced
+;              through (DEBLOCK_HSTREC_PTR1)), and the current track number into HL (dereferenced through
+;              (DEBLOCK_HSTREC_PTR0)), then fall into the back/forward search that walks the accumulator by SPT
 ;              until the target record falls inside one track.
-; [RE] L_A9C1 is the first word of the 15-byte DPB copied at $9F86 = SPT (sectors per track);
-; MAX_BLOCK_DSM/$A9C6 is DSM at DPB offset 5, L_A9CE is OFF at offset 13. The exit
-; DISK_STORE_SEC_TRK_1 adds L_A9CE (OFF) and calls the BIOS SETTRK vector ($AA1E), confirming the
+; [RE] DPB_SPT is the first word of the 15-byte DPB copied at $9F86 = SPT (sectors per track);
+; MAX_BLOCK_DSM/$A9C6 is DSM at DPB offset 5, DPB_OFF is OFF at offset 13. The exit
+; DISK_STORE_SEC_TRK_1 adds DPB_OFF (OFF) and calls the BIOS SETTRK vector ($AA1E), confirming the
 ; walked quantity is a track, not an allocation block.
 ; ----------------------------------------------------------------------
 RECORD_TO_TRACK:
         ; HL -> the 16-bit search-target cell (record/4).
-        LD HL,L_A9E5                     ; $9FD1  21 E5 A9
+        LD HL,CUR_BLOCK_NUMBER                     ; $9FD1  21 E5 A9
         ; BC = search target (low byte then high).
         LD C,(HL)                        ; $9FD4  4E
         INC HL                           ; $9FD5  23
         LD B,(HL)                        ; $9FD6  46
         ; Dereference the boundary-accumulator pointer; load DE = current boundary.
-        LD HL,(L_A9B7)                   ; $9FD7  2A B7 A9
+        LD HL,(DEBLOCK_HSTREC_PTR1)                   ; $9FD7  2A B7 A9
         LD E,(HL)                        ; $9FDA  5E
         INC HL                           ; $9FDB  23
         LD D,(HL)                        ; $9FDC  56
         ; Dereference the track-number pointer; load HL = current track number.
-        LD HL,(L_A9B5)                   ; $9FDD  2A B5 A9
+        LD HL,(DEBLOCK_HSTREC_PTR0)                   ; $9FDD  2A B5 A9
         LD A,(HL)                        ; $9FE0  7E
         INC HL                           ; $9FE1  23
         LD H,(HL)                        ; $9FE2  66
@@ -4633,16 +4642,16 @@ RECORD_TO_TRACK:
 ; ----------------------------------------------------------------------
 ; RECORD_TO_TRACK_BACK -- 'overshoot' branch: step the track number back while the boundary
 ; accumulator exceeds the target.
-;   In: BC = target; DE = current boundary accumulator; HL = current track number; L_A9C1 = SPT
+;   In: BC = target; DE = current boundary accumulator; HL = current track number; DPB_SPT = SPT
 ;       (sectors per track).
 ;   Out: loops, or when target >= accumulator falls into RECORD_TO_TRACK_FWD (forward branch).
 ;   Clobbers: A, DE, HL, F.
 ;   Algorithm: compute target - accumulator (BC - DE) via SUB E / SBC A,D; if no borrow (target >=
 ;              accumulator) branch forward to RECORD_TO_TRACK_FWD. Otherwise subtract one track's
-;              worth of sectors (SPT in L_A9C1) from DE and decrement the track number HL, then
+;              worth of sectors (SPT in DPB_SPT) from DE and decrement the track number HL, then
 ;              repeat.
 ; [RE] The SUB E / SBC A,D pattern is a 16-bit compare of BC against DE through A; the borrow
-; (carry-out) selects the direction. The subtraction of L_A9C1 from DE backs the boundary down by
+; (carry-out) selects the direction. The subtraction of DPB_SPT from DE backs the boundary down by
 ; one track.
 ; ----------------------------------------------------------------------
 RECORD_TO_TRACK_BACK:
@@ -4656,7 +4665,7 @@ RECORD_TO_TRACK_BACK:
         JP NC,RECORD_TO_TRACK_FWD                 ; $9FE8  D2 FA 9F
         PUSH HL                          ; $9FEB  E5
         ; HL = SPT (sectors per track); back the boundary accumulator down by one track.
-        LD HL,(L_A9C1)                   ; $9FEC  2A C1 A9
+        LD HL,(DPB_SPT)                   ; $9FEC  2A C1 A9
         LD A,E                           ; $9FEF  7B
         SUB L                            ; $9FF0  95
         LD E,A                           ; $9FF1  5F
@@ -4671,12 +4680,12 @@ RECORD_TO_TRACK_BACK:
 ; ----------------------------------------------------------------------
 ; RECORD_TO_TRACK_FWD -- 'forward' branch: step the track number ahead one track until the target
 ; record falls inside it.
-;   In: BC = target; DE = boundary accumulator; HL = current track number; L_A9C1 = SPT (sectors per
+;   In: BC = target; DE = boundary accumulator; HL = current track number; DPB_SPT = SPT (sectors per
 ;       track).
 ;   Out: when the target lies within the current track, branches to DISK_STORE_SEC_TRK_1 to set the
 ;        BIOS track and compute the sector within it; otherwise loops.
 ;   Clobbers: A, BC, DE, HL, F.
-;   Algorithm: add one SPT (L_A9C1) to the boundary DE; if that addition carries, the target is in
+;   Algorithm: add one SPT (DPB_SPT) to the boundary DE; if that addition carries, the target is in
 ;              this track -> exit. Else compare the target (BC) against the new boundary; if the
 ;              boundary now exceeds the target, exit; otherwise commit the new boundary into DE,
 ;              advance the track number HL, and repeat.
@@ -4686,7 +4695,7 @@ RECORD_TO_TRACK_BACK:
 RECORD_TO_TRACK_FWD:
         PUSH HL                          ; $9FFA  E5
         ; HL = SPT (sectors per track).
-        LD HL,(L_A9C1)                   ; $9FFB  2A C1 A9
+        LD HL,(DPB_SPT)                   ; $9FFB  2A C1 A9
         ; Advance the boundary accumulator by one track's sectors.
         ADD HL,DE                        ; $9FFE  19
         ; Carry: target is inside this track -> resolve to track/sector.
@@ -4709,13 +4718,13 @@ RECORD_TO_TRACK_FWD:
 ; ----------------------------------------------------------------------
 ; BDOS_DEBLOCK_XFER_LOOP -- transfer a record span through the BIOS-bridge helper, then advance.
 ;   In: BC = record count, DE = record offset within the buffer span, HL on the stack;
-;       L_A9CE = a base address/pointer set from the selected-disk header (role UNKNOWN);
-;       L_A9B5/L_A9B7 = pointer cells (set from the selected-disk header).
-;   Out: L_A9B5 and L_A9B7 each updated to the value DE returned by the helper; BC = BC - DE.
+;       DPB_OFF = a base address/pointer set from the selected-disk header (role UNKNOWN);
+;       DEBLOCK_HSTREC_PTR0/DEBLOCK_HSTREC_PTR1 = pointer cells (set from the selected-disk header).
+;   Out: DEBLOCK_HSTREC_PTR0 and DEBLOCK_HSTREC_PTR1 each updated to the value DE returned by the helper; BC = BC - DE.
 ;   Clobbers: A,BC,DE,HL.
-;   Algorithm: pop the saved pointer, add the L_A9CE base to DE to form the helper request in BC,
-;       CALL the BIOS-bridge helper $AA1E; store its returned DE into both [L_A9B5] and [L_A9B7];
-;       recompute BC = BC - DE; load the advance vector (L_A9D0) into DE, CALL the advance helper
+;   Algorithm: pop the saved pointer, add the DPB_OFF base to DE to form the helper request in BC,
+;       CALL the BIOS-bridge helper $AA1E; store its returned DE into both [DEBLOCK_HSTREC_PTR0] and [DEBLOCK_HSTREC_PTR1];
+;       recompute BC = BC - DE; load the advance vector (DPB_XLT_PTR) into DE, CALL the advance helper
 ;       $AA30, then JP back into the bridge at $AA21.
 ;   [RE] part of the BDOS deblocking transfer path; the $AAxx targets are BIOS-bridge helpers above
 ;       this cluster. [?] transfer DIRECTION (read vs write) and the exact buffer/pointer semantics
@@ -4727,20 +4736,20 @@ DISK_STORE_SEC_TRK_1:
         PUSH DE                          ; $A011  D5
         PUSH HL                          ; $A012  E5
         EX DE,HL                         ; $A013  EB
-        ; add the L_A9CE base (from the selected-disk header) to the record offset
-        LD HL,(L_A9CE)                   ; $A014  2A CE A9
+        ; add the DPB_OFF base (from the selected-disk header) to the record offset
+        LD HL,(DPB_OFF)                   ; $A014  2A CE A9
         ADD HL,DE                        ; $A017  19
         LD B,H                           ; $A018  44
         LD C,L                           ; $A019  4D
         ; BIOS-bridge transfer helper for the assembled span
         CALL $AA1E                       ; $A01A  CD 1E AA
         POP DE                           ; $A01D  D1
-        LD HL,(L_A9B5)                   ; $A01E  2A B5 A9
+        LD HL,(DEBLOCK_HSTREC_PTR0)                   ; $A01E  2A B5 A9
         LD (HL),E                        ; $A021  73
         INC HL                           ; $A022  23
         LD (HL),D                        ; $A023  72
         POP DE                           ; $A024  D1
-        LD HL,(L_A9B7)                   ; $A025  2A B7 A9
+        LD HL,(DEBLOCK_HSTREC_PTR1)                   ; $A025  2A B7 A9
         LD (HL),E                        ; $A028  73
         INC HL                           ; $A029  23
         LD (HL),D                        ; $A02A  72
@@ -4752,7 +4761,7 @@ DISK_STORE_SEC_TRK_1:
         LD A,B                           ; $A02F  78
         SBC A,D                          ; $A030  9A
         LD B,A                           ; $A031  47
-        LD HL,(L_A9D0)                   ; $A032  2A D0 A9
+        LD HL,(DPB_XLT_PTR)                   ; $A032  2A D0 A9
         EX DE,HL                         ; $A035  EB
         ; BIOS-bridge advance helper for the next span
         CALL $AA30                       ; $A036  CD 30 AA
@@ -4762,13 +4771,13 @@ DISK_STORE_SEC_TRK_1:
         JP $AA21                         ; $A03B  C3 21 AA
 ; ----------------------------------------------------------------------
 ; FCB_RECORD_TO_BLOCKMAP_INDEX -- derive the FCB disk-map index for the current record/extent.
-;   In: L_A9C3 = BSH (block-shift, records-per-block log2); L_A9E3 = CR (current record, low half);
-;       L_A9E2 = the masked extent value ((FCB extent) AND EXM).
+;   In: DPB_BSH = BSH (block-shift, records-per-block log2); FCB_CURREC = CR (current record, low half);
+;       FCB_EXTENT_MASKED = the masked extent value ((FCB extent) AND EXM).
 ;   Out: A = the index (0..15) into the FCB allocation map for the block holding the current record.
 ;   Clobbers: A,B,C,HL.
-;   Algorithm: C = BSH; rotate L_A9E3 right BSH times (loop FCB_BLOCKMAP_INDEX_SHR) to drop the
+;   Algorithm: C = BSH; rotate FCB_CURREC right BSH times (loop FCB_BLOCKMAP_INDEX_SHR) to drop the
 ;              within-block
-;       record bits, keep the result in B; then C = 8 - BSH and rotate L_A9E2 left (8-BSH) times
+;       record bits, keep the result in B; then C = 8 - BSH and rotate FCB_EXTENT_MASKED left (8-BSH) times
 ;       (loop FCB_BLOCKMAP_INDEX_SHL) to bring the extent bits up; finally ADD A,B at
 ;       DISK_STORE_SEC_TRK_9.
 ;   [RE] maps (record,extent) -> which d0..d15 entry of the FCB disk-allocation map; its output A is
@@ -4776,10 +4785,10 @@ DISK_STORE_SEC_TRK_1:
 ;       bit packing partially inferred.
 ; ----------------------------------------------------------------------
 DISK_STORE_SEC_TRK_6:
-        ; L_A9C3 = DPB block-shift factor (BSH), records-per-block log2
-        LD HL,L_A9C3                     ; $A03E  21 C3 A9
+        ; DPB_BSH = DPB block-shift factor (BSH), records-per-block log2
+        LD HL,DPB_BSH                     ; $A03E  21 C3 A9
         LD C,(HL)                        ; $A041  4E
-        LD A,(L_A9E3)                    ; $A042  3A E3 A9
+        LD A,(FCB_CURREC)                    ; $A042  3A E3 A9
 FCB_BLOCKMAP_INDEX_SHR:
         OR A                             ; $A045  B7
         RRA                              ; $A046  1F
@@ -4791,7 +4800,7 @@ FCB_BLOCKMAP_INDEX_SHR:
         ; C = 8 - BSH = left-rotate count for the extent half
         SUB (HL)                         ; $A04E  96
         LD C,A                           ; $A04F  4F
-        LD A,(L_A9E2)                    ; $A050  3A E2 A9
+        LD A,(FCB_EXTENT_MASKED)                    ; $A050  3A E2 A9
 FCB_BLOCKMAP_INDEX_SHL:
         DEC C                            ; $A053  0D
         JP Z,DISK_STORE_SEC_TRK_9                  ; $A054  CA 5C A0
@@ -4857,11 +4866,11 @@ DISK_STORE_SEC_TRK_13:
 ; ----------------------------------------------------------------------
 ; FCB_GET_CURRENT_BLOCK -- look up the FCB allocation-map block number for the current
 ; record/extent.
-;   In: the current FCB and the L_A9E3/L_A9E2 position cells (set by DRV_INSTALL_RWTS_3).
-;   Out: HL and L_A9E5 = the resolved block number from the FCB allocation map.
+;   In: the current FCB and the FCB_CURREC/FCB_EXTENT_MASKED position cells (set by DRV_INSTALL_RWTS_3).
+;   Out: HL and CUR_BLOCK_NUMBER = the resolved block number from the FCB allocation map.
 ;   Clobbers: A,BC,DE,HL.
 ;   Algorithm: CALL DISK_STORE_SEC_TRK_6 to get the map index in A, move it to BC (C=A, B=0),
-;       CALL GET_ALLOC_BLOCK_ENTRY to fetch the block number, then cache it in L_A9E5.
+;       CALL GET_ALLOC_BLOCK_ENTRY to fetch the block number, then cache it in CUR_BLOCK_NUMBER.
 ;   [RE] composes the index computation and the map lookup to get the current block number. [?]
 ; ----------------------------------------------------------------------
 DISK_STORE_SEC_TRK_14:
@@ -4872,54 +4881,54 @@ DISK_STORE_SEC_TRK_14:
         ; fetch the block number from the FCB allocation map
         CALL DISK_STORE_SEC_TRK_10                    ; $A07D  CD 5E A0
         ; cache the resolved block number
-        LD (L_A9E5),HL                   ; $A080  22 E5 A9
+        LD (CUR_BLOCK_NUMBER),HL                   ; $A080  22 E5 A9
         RET                              ; $A083  C9
 ; ----------------------------------------------------------------------
-; BLOCK_IS_ZERO -- test whether the cached block number (L_A9E5) is zero (unallocated).
-;   In: L_A9E5 = cached block number.
+; BLOCK_IS_ZERO -- test whether the cached block number (CUR_BLOCK_NUMBER) is zero (unallocated).
+;   In: CUR_BLOCK_NUMBER = cached block number.
 ;   Out: HL = the block number; Z set if it is zero (no block allocated -- a hole).
 ;   Clobbers: A,HL.
-;   Algorithm: load L_A9E5; LD A,L / OR H to set Z when both halves are zero.
+;   Algorithm: load CUR_BLOCK_NUMBER; LD A,L / OR H to set Z when both halves are zero.
 ;   [RE] standard 'block 0 means unallocated' test.
 ; ----------------------------------------------------------------------
 DISK_STORE_SEC_TRK_16:
-        LD HL,(L_A9E5)                   ; $A084  2A E5 A9
+        LD HL,(CUR_BLOCK_NUMBER)                   ; $A084  2A E5 A9
         LD A,L                           ; $A087  7D
         ; Z set when the 16-bit block number is zero (unallocated)
         OR H                             ; $A088  B4
         RET                              ; $A089  C9
 ; ----------------------------------------------------------------------
 ; BLOCK_TO_FIRST_RECORD -- expand a block number into the absolute record number it maps to.
-;   In: L_A9E5 = block number; L_A9C3 = BSH (records-per-block log2); L_A9C4 = BLM (block mask);
-;       L_A9E3 = CR (current record, low half).
-;   Out: L_A9E7 = block<<BSH (the block's base record); L_A9E5 = (block base) OR (CR AND BLM).
+;   In: CUR_BLOCK_NUMBER = block number; DPB_BSH = BSH (records-per-block log2); DPB_BLM = BLM (block mask);
+;       FCB_CURREC = CR (current record, low half).
+;   Out: BLOCK_BASE_RECORD = block<<BSH (the block's base record); CUR_BLOCK_NUMBER = (block base) OR (CR AND BLM).
 ;   Clobbers: A,C,HL.
-;   Algorithm: shift L_A9E5 left BSH times (loop BLOCK_TO_FIRST_RECORD_SHL) to get the block base
+;   Algorithm: shift CUR_BLOCK_NUMBER left BSH times (loop BLOCK_TO_FIRST_RECORD_SHL) to get the block base
 ;              record, store
-;       it in L_A9E7; then OR in the within-block record bits (L_A9E3 AND L_A9C4) and store the
-;       full record number back into L_A9E5.
+;       it in BLOCK_BASE_RECORD; then OR in the within-block record bits (FCB_CURREC AND DPB_BLM) and store the
+;       full record number back into CUR_BLOCK_NUMBER.
 ;   [RE] canonical record = (block << BSH) | (record AND BLM). [?]
 ; ----------------------------------------------------------------------
 DISK_STORE_SEC_TRK_17:
         ; BSH = number of left shifts (records-per-block log2)
-        LD A,(L_A9C3)                    ; $A08A  3A C3 A9
-        LD HL,(L_A9E5)                   ; $A08D  2A E5 A9
+        LD A,(DPB_BSH)                    ; $A08A  3A C3 A9
+        LD HL,(CUR_BLOCK_NUMBER)                   ; $A08D  2A E5 A9
 BLOCK_TO_FIRST_RECORD_SHL:
         ADD HL,HL                        ; $A090  29
         DEC A                            ; $A091  3D
         JP NZ,BLOCK_TO_FIRST_RECORD_SHL                 ; $A092  C2 90 A0
         ; save the block's base record number
-        LD (L_A9E7),HL                   ; $A095  22 E7 A9
+        LD (BLOCK_BASE_RECORD),HL                   ; $A095  22 E7 A9
         ; BLM = block mask for the within-block record bits
-        LD A,(L_A9C4)                    ; $A098  3A C4 A9
+        LD A,(DPB_BLM)                    ; $A098  3A C4 A9
         LD C,A                           ; $A09B  4F
-        LD A,(L_A9E3)                    ; $A09C  3A E3 A9
+        LD A,(FCB_CURREC)                    ; $A09C  3A E3 A9
         ; isolate the within-block record bits (CR AND BLM)
         AND C                            ; $A09F  A1
         ; merge the block base and the within-block offset
         OR L                             ; $A0A0  B5
         LD L,A                           ; $A0A1  6F
-        LD (L_A9E5),HL                   ; $A0A2  22 E5 A9
+        LD (CUR_BLOCK_NUMBER),HL                   ; $A0A2  22 E5 A9
         RET                              ; $A0A5  C9
 ; ----------------------------------------------------------------------
 ; FCB_FIELD_PTR_0C -- point HL at offset $0C (the EX / extent field) of the current FCB.
@@ -4958,11 +4967,11 @@ DRV_INSTALL_RWTS_2:
         RET                              ; $A0BA  C9
 ; ----------------------------------------------------------------------
 ; LOAD_FCB_POSITION -- copy the current FCB's position fields into the BDOS scratch cells.
-;   In: the current FCB (via DRV_INSTALL_RWTS_2 / _1); L_A9C5 = EXM (extent mask).
-;   Out: L_A9E3 = CR (FCB+$20); L_A9E1 = RC (FCB+$0F); L_A9E2 = EX (FCB+$0C) AND EXM.
+;   In: the current FCB (via DRV_INSTALL_RWTS_2 / _1); DPB_EXM = EXM (extent mask).
+;   Out: FCB_CURREC = CR (FCB+$20); FCB_RECCOUNT = RC (FCB+$0F); FCB_EXTENT_MASKED = EX (FCB+$0C) AND EXM.
 ;   Clobbers: A,DE,HL.
-;   Algorithm: via DRV_INSTALL_RWTS_2 read CR into L_A9E3 and RC into L_A9E1; via
-;       DRV_INSTALL_RWTS_1 read EX, mask it with EXM (L_A9C5), store in L_A9E2.
+;   Algorithm: via DRV_INSTALL_RWTS_2 read CR into FCB_CURREC and RC into FCB_RECCOUNT; via
+;       DRV_INSTALL_RWTS_1 read EX, mask it with EXM (DPB_EXM), store in FCB_EXTENT_MASKED.
 ;   [RE] loads the file's current record / record-count / masked-extent into the deblock scratch
 ;   cells. [DOC CP/M 2.2 FCB]
 ; ----------------------------------------------------------------------
@@ -4970,44 +4979,44 @@ DRV_INSTALL_RWTS_3:
         CALL DRV_INSTALL_RWTS_2                    ; $A0BB  CD AE A0
         LD A,(HL)                        ; $A0BE  7E
         ; stash CR (current record, FCB+$20)
-        LD (L_A9E3),A                    ; $A0BF  32 E3 A9
+        LD (FCB_CURREC),A                    ; $A0BF  32 E3 A9
         EX DE,HL                         ; $A0C2  EB
         LD A,(HL)                        ; $A0C3  7E
         ; stash RC (record count, FCB+$0F)
-        LD (L_A9E1),A                    ; $A0C4  32 E1 A9
+        LD (FCB_RECCOUNT),A                    ; $A0C4  32 E1 A9
         CALL DRV_INSTALL_RWTS_1                    ; $A0C7  CD A6 A0
         ; EXM (extent mask) applied to the EX byte
-        LD A,(L_A9C5)                    ; $A0CA  3A C5 A9
+        LD A,(DPB_EXM)                    ; $A0CA  3A C5 A9
         AND (HL)                         ; $A0CD  A6
         ; store EX AND EXM (the in-extent bits)
-        LD (L_A9E2),A                    ; $A0CE  32 E2 A9
+        LD (FCB_EXTENT_MASKED),A                    ; $A0CE  32 E2 A9
         RET                              ; $A0D1  C9
 ; ----------------------------------------------------------------------
 ; STORE_FCB_POSITION -- write the (possibly adjusted) position values back into the current FCB.
-;   In: L_A9D5 (mode/adjust selector), L_A9E3, L_A9E1 scratch cells; the current FCB.
-;   Out: FCB+$20 (CR) = L_A9E3 + adjust; FCB+$0F (RC) = L_A9E1.
+;   In: WRITE_TYPE_FLAG (mode/adjust selector), FCB_CURREC, FCB_RECCOUNT scratch cells; the current FCB.
+;   Out: FCB+$20 (CR) = FCB_CURREC + adjust; FCB+$0F (RC) = FCB_RECCOUNT.
 ;   Clobbers: A,C,DE,HL.
-;   Algorithm: get the RC/CR pointers; if L_A9D5 != 2 then C = L_A9D5 else C = 0; write
-;       (L_A9E3 + C) into CR and L_A9E1 into RC.
-;   [RE] inverse of LOAD_FCB_POSITION with a special case when L_A9D5 == 2 (the adjustment is
-;       zeroed). [?] meaning of the L_A9D5 selector values UNKNOWN.
+;   Algorithm: get the RC/CR pointers; if WRITE_TYPE_FLAG != 2 then C = WRITE_TYPE_FLAG else C = 0; write
+;       (FCB_CURREC + C) into CR and FCB_RECCOUNT into RC.
+;   [RE] inverse of LOAD_FCB_POSITION with a special case when WRITE_TYPE_FLAG == 2 (the adjustment is
+;       zeroed). [?] meaning of the WRITE_TYPE_FLAG selector values UNKNOWN.
 ; ----------------------------------------------------------------------
 DRV_INSTALL_RWTS_6:
         CALL DRV_INSTALL_RWTS_2                    ; $A0D2  CD AE A0
         ; mode/adjust selector; value 2 zeroes the adjustment
-        LD A,(L_A9D5)                    ; $A0D5  3A D5 A9
+        LD A,(WRITE_TYPE_FLAG)                    ; $A0D5  3A D5 A9
         ; special-case selector value 2
         CP $02                           ; $A0D8  FE 02
         JP NZ,STORE_FCB_POSITION_2                 ; $A0DA  C2 DE A0
         XOR A                            ; $A0DD  AF
 STORE_FCB_POSITION_2:
         LD C,A                           ; $A0DE  4F
-        LD A,(L_A9E3)                    ; $A0DF  3A E3 A9
+        LD A,(FCB_CURREC)                    ; $A0DF  3A E3 A9
         ; apply the selector-dependent adjustment to CR
         ADD A,C                          ; $A0E2  81
         LD (HL),A                        ; $A0E3  77
         EX DE,HL                         ; $A0E4  EB
-        LD A,(L_A9E1)                    ; $A0E5  3A E1 A9
+        LD A,(FCB_RECCOUNT)                    ; $A0E5  3A E1 A9
         LD (HL),A                        ; $A0E8  77
         RET                              ; $A0E9  C9
 ; ----------------------------------------------------------------------
@@ -5042,7 +5051,7 @@ SHR_HL_C_LOOP:
 ;   Algorithm: C=$80 count, HL=DIRBUF_PTR, A=0; loop ADD A,(HL)/INC HL/DEC C until C==0.
 ;   [RE] canonical CP/M directory-checksum routine (detects media swap). [DOC CP/M 2.2 ALG]
 ; ----------------------------------------------------------------------
-SUB_A0F7:
+DIR_CHECKSUM:
         ; 128 bytes = one directory sector
         LD C,$80                         ; $A0F7  0E 80
         ; directory sector buffer base
@@ -5363,7 +5372,7 @@ RECORD_SCAN_INIT:
 ;        (DRV_SETRO_H). If REC_CACHE - REC_SCAN_PTR did not borrow, returns NC (nothing to do).
 ;   Clobbers: A, BC, DE, HL, flags.
 ;   Algorithm: DE := REC_CACHE, HL := REC_SCAN_PTR; SUB16_DE_HL (HL = REC_CACHE - REC_SCAN_PTR); RET
-;              NC if no borrow. Else checksum the directory buffer (SUB_A0F7), add REC_BYTE_OFFSET
+;              NC if no borrow. Else checksum the directory buffer (DIR_CHECKSUM), add REC_BYTE_OFFSET
 ;              to REC_CACHE to address the target byte. INC C: if it wrapped to 0, store A there.
 ;              Otherwise CP (HL); RET Z on match. On mismatch CMP_CURREC_VS_WORKPTR; RET NC if
 ;              within the record count, else DRV_SETRO_H.
@@ -5381,7 +5390,7 @@ RECORD_SCAN_BODY:
         RET NC                           ; $A1A8  D0
         PUSH BC                          ; $A1A9  C5
         ; sum the 128-byte directory buffer (DIRBUF) -- the change-detect checksum
-        CALL SUB_A0F7                    ; $A1AA  CD F7 A0
+        CALL DIR_CHECKSUM                    ; $A1AA  CD F7 A0
         ; DE := byte offset within the record (after the following EX DE,HL)
         LD HL,(REC_BYTE_OFFSET)                   ; $A1AD  2A BD A9
         EX DE,HL                         ; $A1B0  EB
@@ -5872,7 +5881,7 @@ ALLOC_VECTOR_SCAN_MARK:
 ; ----------------------------------------------------------------------
 DIR_RETURN_MATCH_FLAG:
         ; fetch the directory-search match flag saved by the scan
-        LD A,(L_A9D4)                    ; $A301  3A D4 A9
+        LD A,(DIR_MATCH_FLAG)                    ; $A301  3A D4 A9
         ; store A as the BDOS function result and return
         JP BDOS_RET_RESULT                   ; $A304  C3 01 9F
 ; ----------------------------------------------------------------------
@@ -5889,7 +5898,7 @@ FCB_EXTENT_COMPARE:
         PUSH BC                          ; $A307  C5
         PUSH AF                          ; $A308  F5
         ; load the drive extent mask (DPB EXM)
-        LD A,(L_A9C5)                    ; $A309  3A C5 A9
+        LD A,(DPB_EXM)                    ; $A309  3A C5 A9
         ; complement mask: keep the extent bits, drop the EXM-masked low bits
         CPL                              ; $A30C  2F
         LD B,A                           ; $A30D  47
@@ -5921,14 +5930,14 @@ FCB_EXTENT_COMPARE:
 DIR_SEARCH_FIRST:
         LD A,$FF                         ; $A318  3E FF
         ; DIR_MATCH_FLAG = $FF (no match yet)
-        LD (L_A9D4),A                    ; $A31A  32 D4 A9
-        LD HL,L_A9D8                     ; $A31D  21 D8 A9
+        LD (DIR_MATCH_FLAG),A                    ; $A31A  32 D4 A9
+        LD HL,DIR_CMP_LEN                     ; $A31D  21 D8 A9
         ; save number of FCB bytes to compare per entry
         LD (HL),C                        ; $A320  71
         ; current FCB pointer
         LD HL,(BDOS_PARAM_PTR)                   ; $A321  2A 43 9F
         ; save the search-FCB pointer for the scan loop
-        LD (L_A9D9),HL                   ; $A324  22 D9 A9
+        LD (DIR_FCB_PTR),HL                   ; $A324  22 D9 A9
         ; reset the directory record counter to -1
         CALL INVALIDATE_CUR_RECORD                    ; $A327  CD FE A1
         ; rewind directory scan state / clear the record pointers
@@ -5954,7 +5963,7 @@ BDOS_DIR_SCAN_NEXT:
         ; record counter passed the directory limit -> not found
         JP Z,DIR_NO_MATCH                  ; $A335  CA 94 A3
         ; DE := search-FCB pointer
-        LD HL,(L_A9D9)                   ; $A338  2A D9 A9
+        LD HL,(DIR_FCB_PTR)                   ; $A338  2A D9 A9
         EX DE,HL                         ; $A33B  EB
         LD A,(DE)                        ; $A33C  1A
         ; first byte $E5 = empty/erased directory slot
@@ -5980,7 +5989,7 @@ BDOS_DIR_SCAN_NEXT_CMP:
         ; HL -> FCB bytes to compare against the entry
         CALL FCB_BUF_PTR_ADD_OFFSET                    ; $A34A  CD 5E A1
         ; load number of bytes to compare per entry
-        LD A,(L_A9D8)                    ; $A34D  3A D8 A9
+        LD A,(DIR_CMP_LEN)                    ; $A34D  3A D8 A9
         LD C,A                           ; $A350  4F
         LD B,$00                         ; $A351  06 00
 ; ----------------------------------------------------------------------
@@ -6068,7 +6077,7 @@ DIR_MATCH_FOUND:
         ; store entry index as the search result
         LD (BDOS_RETVAL),A                    ; $A388  32 45 9F
         ; point at DIR_MATCH_FLAG
-        LD HL,L_A9D4                     ; $A38B  21 D4 A9
+        LD HL,DIR_MATCH_FLAG                     ; $A38B  21 D4 A9
         LD A,(HL)                        ; $A38E  7E
         ; test the flag's high bit (still $FF == not yet matched)
         RLA                              ; $A38F  17
@@ -6520,7 +6529,7 @@ F_CLOSE:
         LD (BDOS_RETVAL),A                    ; $A4A3  32 45 9F
         ; clear the directory record counter
         LD (CUR_RECORD),A                    ; $A4A6  32 EA A9
-        LD (L_A9EB),A                    ; $A4A9  32 EB A9
+        LD (CUR_RECORD_HI),A                    ; $A4A9  32 EB A9
         ; is the drive logged in?
         CALL DRIVE_BIT_TEST                    ; $A4AC  CD 1E A1
         ; no valid drive -> nothing to close
@@ -6673,7 +6682,7 @@ FCB_MERGE_NEXT:
 FCB_MERGE_FINISH:
         LD A,$FF                         ; $A517  3E FF
         ; set the directory-changed flag ($FF)
-        LD (L_A9D2),A                    ; $A519  32 D2 A9
+        LD (DIR_DIRTY_FLAG),A                    ; $A519  32 D2 A9
         ; flush the merged entry to the directory sector
         JP FCB_FLUSH_DIR                    ; $A51C  C3 10 A4
 ; ----------------------------------------------------------------------
@@ -6709,7 +6718,7 @@ DIR_MAKE_ENTRY:
         LD HL,(BDOS_PARAM_PTR)                   ; $A527  2A 43 9F
         PUSH HL                          ; $A52A  E5
         ; point at a scratch FCB used to find a free slot
-        LD HL,L_A9AC                     ; $A52B  21 AC A9
+        LD HL,EMPTY_DIR_FCB                     ; $A52B  21 AC A9
         LD (BDOS_PARAM_PTR),HL                   ; $A52E  22 43 9F
         ; search mode 1: locate a free ($E5) directory entry
         LD C,$01                         ; $A531  0E 01
@@ -6759,7 +6768,7 @@ DIR_ZERO_ALLOC:
 FCB_ADVANCE_RECORD:
         XOR A                            ; $A55A  AF
         ; clear the directory-changed flag
-        LD (L_A9D2),A                    ; $A55B  32 D2 A9
+        LD (DIR_DIRTY_FLAG),A                    ; $A55B  32 D2 A9
         ; close/flush the current extent first
         CALL F_CLOSE                    ; $A55E  CD A2 A4
         CALL CUR_RECORD_BYTES_EQUAL                    ; $A561  CD F5 A1
@@ -6777,9 +6786,9 @@ FCB_ADVANCE_RECORD:
         JP Z,FCB_NEXT_EXTENT                  ; $A571  CA 83 A5
         LD B,A                           ; $A574  47
         ; load the extent mask (EXM)
-        LD A,(L_A9C5)                    ; $A575  3A C5 A9
+        LD A,(DPB_EXM)                    ; $A575  3A C5 A9
         AND B                            ; $A578  A0
-        LD HL,L_A9D2                     ; $A579  21 D2 A9
+        LD HL,DIR_DIRTY_FLAG                     ; $A579  21 D2 A9
         AND (HL)                         ; $A57C  A6
         JP Z,FCB_OPEN_NEXT_EXTENT                  ; $A57D  CA 8E A5
         JP FCB_MERGE_FOUND_EXTENT                    ; $A580  C3 AC A5
@@ -6824,7 +6833,7 @@ FCB_OPEN_NEXT_EXTENT:
         CALL CUR_RECORD_BYTES_EQUAL                    ; $A593  CD F5 A1
         ; extent exists -> merge it into the FCB
         JP NZ,FCB_MERGE_FOUND_EXTENT                 ; $A596  C2 AC A5
-        LD A,(L_A9D3)                    ; $A599  3A D3 A9
+        LD A,(RW_DIRECTION_FLAG)                    ; $A599  3A D3 A9
         INC A                            ; $A59C  3C
         JP Z,DISK_FINISH_OK                  ; $A59D  CA B6 A5
         ; no extent -> make a new directory entry
@@ -6887,7 +6896,7 @@ FILE_READ_SEQ:
         ; mode = 1 (sequential read)
         LD A,$01                         ; $A5BC  3E 01
         ; store the sequential/random mode flag (1=sequential)
-        LD (L_A9D5),A                    ; $A5BE  32 D5 A9
+        LD (WRITE_TYPE_FLAG),A                    ; $A5BE  32 D5 A9
 ; ----------------------------------------------------------------------
 ; FILE_READ_RECORD -- read the FCB's current record into the DMA buffer (shared read core).
 ;   In: CURFCB_PTR ($9F43) -> open FCB; record/extent fields set. Shared by sequential
@@ -6904,11 +6913,11 @@ FILE_READ_RECORD:
         ; direction = read
         LD A,$FF                         ; $A5C1  3E FF
         ; store the read/write direction flag ($FF=read)
-        LD (L_A9D3),A                    ; $A5C3  32 D3 A9
+        LD (RW_DIRECTION_FLAG),A                    ; $A5C3  32 D3 A9
         ; refresh the FCB drive/extent working fields
         CALL DRV_INSTALL_RWTS_3                    ; $A5C6  CD BB A0
-        LD A,(L_A9E3)                    ; $A5C9  3A E3 A9
-        LD HL,L_A9E1                     ; $A5CC  21 E1 A9
+        LD A,(FCB_CURREC)                    ; $A5C9  3A E3 A9
+        LD HL,FCB_RECCOUNT                     ; $A5CC  21 E1 A9
         CP (HL)                          ; $A5CF  BE
         JP C,FILE_READ_DO_SECTOR                  ; $A5D0  DA E6 A5
         ; record at the $80 boundary = extent boundary / EOF
@@ -6916,7 +6925,7 @@ FILE_READ_RECORD:
         JP NZ,FILE_READ_ERROR                 ; $A5D5  C2 FB A5
         CALL FCB_ADVANCE_RECORD                    ; $A5D8  CD 5A A5
         XOR A                            ; $A5DB  AF
-        LD (L_A9E3),A                    ; $A5DC  32 E3 A9
+        LD (FCB_CURREC),A                    ; $A5DC  32 E3 A9
         LD A,(BDOS_RETVAL)                    ; $A5DF  3A 45 9F
         OR A                             ; $A5E2  B7
         JP NZ,FILE_READ_ERROR                 ; $A5E3  C2 FB A5
@@ -6968,20 +6977,20 @@ FILE_WRITE_SEQ:
         ; mode = 1 (sequential write)
         LD A,$01                         ; $A5FE  3E 01
         ; store the sequential/random mode flag (1=sequential)
-        LD (L_A9D5),A                    ; $A600  32 D5 A9
+        LD (WRITE_TYPE_FLAG),A                    ; $A600  32 D5 A9
 ; ----------------------------------------------------------------------
 ; BDOS_WRITE -- BDOS WRITE primitive (CP/M 2.2 fn 21 F_WRITE / fn 34 F_WRITERAND / fn 40 F_WRITEZF
 ; target). Write the current record of the open file, allocating and deblocking disk blocks as
 ; needed.
-;   In: CURFCB (BDOS_PARAM_PTR) -> active FCB; the BDOS work cells for current-record (L_A9E3) /
-;       record-count (L_A9E1) have been primed from the FCB by DRV_INSTALL_RWTS_3; DMA holds the
-;       caller's record; L_A9D5 = write type (1 = sequential, 2 = random); BDOS_RETVAL = seek
+;   In: CURFCB (BDOS_PARAM_PTR) -> active FCB; the BDOS work cells for current-record (FCB_CURREC) /
+;       record-count (FCB_RECCOUNT) have been primed from the FCB by DRV_INSTALL_RWTS_3; DMA holds the
+;       caller's record; WRITE_TYPE_FLAG = write type (1 = sequential, 2 = random); BDOS_RETVAL = seek
 ;       create/extend mode flag.
 ;   Out: A = BDOS return code (0 = OK, 2 = disk full); status returned through BDOS_RET_RESULT; FCB
 ;        allocation map / record count updated; host sector written. (OBSERVED: only the disk-full=2
 ;        path is taken here; other error codes come from sub-routines.)
 ;   Clobbers: A, BC, DE, HL, flags.
-;   Algorithm: clear the directory-update flag (L_A9D3); fetch the current record index and reject
+;   Algorithm: clear the directory-update flag (RW_DIRECTION_FLAG); fetch the current record index and reject
 ;              it if >= 128 (extent full). Compute the FCB allocation-map SLOT for this record and
 ;              read the block number already stored there: if it is non-zero the block is already
 ;              allocated, so branch straight to the write phase. If it is zero, recompute the slot
@@ -6992,9 +7001,9 @@ FILE_WRITE_SEQ:
 ;              [RE]
 ; ----------------------------------------------------------------------
 BDOS_WRITE:
-        ; Clear the directory-update-needed flag (L_A9D3) before starting this write.
+        ; Clear the directory-update-needed flag (RW_DIRECTION_FLAG) before starting this write.
         LD A,$00                         ; $A603  3E 00
-        LD (L_A9D3),A                    ; $A605  32 D3 A9
+        LD (RW_DIRECTION_FLAG),A                    ; $A605  32 D3 A9
         ; Drive read-only / select check (raises a BDOS error overlay if the drive is not writable).
         CALL CMD_EXEC_20                    ; $A608  CD 54 A1
         ; HL = pointer to the active FCB (CURFCB).
@@ -7002,7 +7011,7 @@ BDOS_WRITE:
         CALL CHECK_DIRENT_READONLY_INNER                    ; $A60E  CD 47 A1
         CALL DRV_INSTALL_RWTS_3                    ; $A611  CD BB A0
         ; Load the current record number within the extent (primed from the FCB).
-        LD A,(L_A9E3)                    ; $A614  3A E3 A9
+        LD A,(FCB_CURREC)                    ; $A614  3A E3 A9
         ; Record index 128 means the extent is full -> cannot write, report error.
         CP $80                           ; $A617  FE 80
         ; Extent full / index out of range: bail to the BDOS error path.
@@ -7019,7 +7028,7 @@ BDOS_WRITE:
         ; disk block).
         CALL DISK_STORE_SEC_TRK_6                    ; $A627  CD 3E A0
         ; Save the allocation-slot index for use when storing the new block number.
-        LD (L_A9D7),A                    ; $A62A  32 D7 A9
+        LD (ALLOC_SLOT_INDEX),A                    ; $A62A  32 D7 A9
         LD BC,$0000                      ; $A62D  01 00 00
         OR A                             ; $A630  B7
         ; Slot index 0 (first slot) -> skip the previous-slot fetch; go allocate a fresh block.
@@ -7059,18 +7068,18 @@ BDOS_WRITE_ALLOCBLK:
 ; ----------------------------------------------------------------------
 ; BDOS_WRITE_STOREBLK -- store the (new or existing) block number into the FCB allocation slot for
 ; the current record.
-;   In: HL = block number; CURFCB (BDOS_PARAM_PTR) = active FCB; L_A9D7 = allocation-slot index
+;   In: HL = block number; CURFCB (BDOS_PARAM_PTR) = active FCB; ALLOC_SLOT_INDEX = allocation-slot index
 ;       within the extent; BLOCK_WIDTH_FLAG selects 1-byte vs 2-byte block entries.
 ;   Out: FCB allocation map updated with the block number at the computed slot.
 ;   Clobbers: A, BC, DE, HL, flags.
-;   Algorithm: save the block number to L_A9E5 (for the write phase) into DE; point HL at the FCB
+;   Algorithm: save the block number to CUR_BLOCK_NUMBER (for the write phase) into DE; point HL at the FCB
 ;              allocation map (FCB+16); read the slot index. If BLOCK_WIDTH_FLAG selects 8-bit
 ;              blocks, add the slot index to HL (via DIRENT_PTR_ADD) and store one byte; otherwise
 ;              jump to the 16-bit store path. [RE]
 ; ----------------------------------------------------------------------
 BDOS_WRITE_STOREBLK:
         ; Save the block number for the write phase (host record/sector base).
-        LD (L_A9E5),HL                   ; $A648  22 E5 A9
+        LD (CUR_BLOCK_NUMBER),HL                   ; $A648  22 E5 A9
         EX DE,HL                         ; $A64B  EB
         LD HL,(BDOS_PARAM_PTR)                   ; $A64C  2A 43 9F
         ; Offset 16 = start of the allocation/disk-map area inside the FCB.
@@ -7080,7 +7089,7 @@ BDOS_WRITE_STOREBLK:
         LD A,(BLOCK_WIDTH_FLAG)                    ; $A653  3A DD A9
         OR A                             ; $A656  B7
         ; A = allocation-slot index within the FCB extent.
-        LD A,(L_A9D7)                    ; $A657  3A D7 A9
+        LD A,(ALLOC_SLOT_INDEX)                    ; $A657  3A D7 A9
         ; 16-bit-block-number drive: store the block number as a 2-byte entry.
         JP Z,BDOS_WRITE_STOREBLK16                  ; $A65A  CA 64 A6
         ; Add the slot index to HL = address of the single-byte slot inside the FCB map.
@@ -7123,7 +7132,7 @@ BDOS_WRITE_NEWBLK:
 ; BDOS_WRITE_PHASE -- perform the physical write of the current record, honoring the
 ; deblocking/new-block mode.
 ;   In: C = write mode (0 = existing block, 2 = new block); CURFCB context valid; DMA holds the
-;       caller's record; BDOS_RETVAL = seek create/extend mode flag (00 / FF); L_A9D5 = BDOS write
+;       caller's record; BDOS_RETVAL = seek create/extend mode flag (00 / FF); WRITE_TYPE_FLAG = BDOS write
 ;       type (1 = sequential, 2 = random).
 ;   Out: host sector updated on disk; control merges into the post-write record-count update;
 ;        returns early if the create/extend flag is set.
@@ -7149,7 +7158,7 @@ BDOS_WRITE_PHASE:
         ; Compute the host physical record index/sector for the current logical record.
         CALL DISK_STORE_SEC_TRK_17                    ; $A674  CD 8A A0
         ; Load the BDOS write type (1 = sequential, 2 = random).
-        LD A,(L_A9D5)                    ; $A677  3A D5 A9
+        LD A,(WRITE_TYPE_FLAG)                    ; $A677  3A D5 A9
         DEC A                            ; $A67A  3D
         DEC A                            ; $A67B  3D
         ; Write type != 2 (sequential) -> may need the new-block zero-fill path.
@@ -7187,7 +7196,7 @@ BDOS_WRITE_ZEROFILL:
         ; Point the DMA at the deblocking/host buffer for the fill writes.
         CALL SET_DMA_TO_DISK_BUF                    ; $A692  CD E0 A1
         ; HL = base host record index for this block's fill.
-        LD HL,(L_A9E7)                   ; $A695  2A E7 A9
+        LD HL,(BLOCK_BASE_RECORD)                   ; $A695  2A E7 A9
         LD C,$02                         ; $A698  0E 02
 ; ----------------------------------------------------------------------
 ; BDOS_WRITE_FILLLOOP -- write the zero-filled records of a new block up to the host-sector
@@ -7197,25 +7206,25 @@ BDOS_WRITE_ZEROFILL:
 ;   Out: the records spanning the host sector written; loops until the record index crosses the
 ;        host-sector mask boundary.
 ;   Clobbers: A, BC, HL, flags.
-;   Algorithm: save the record index (L_A9E5), translate/seek the host sector (RECORD_TO_TRACK),
+;   Algorithm: save the record index (CUR_BLOCK_NUMBER), translate/seek the host sector (RECORD_TO_TRACK),
 ;              write it (DISK_WRITE_CHECKED), reload the index and mask it with the
-;              records-per-host-sector mask (L_A9C4); INC the index and loop until the masked value
+;              records-per-host-sector mask (DPB_BLM); INC the index and loop until the masked value
 ;              differs (host-sector boundary reached). Then restore the saved record index and
 ;              finalize via RESTORE_USER_DMA. [RE]
 ; ----------------------------------------------------------------------
 BDOS_WRITE_FILLLOOP:
         ; Save the working host-record index.
-        LD (L_A9E5),HL                   ; $A69A  22 E5 A9
+        LD (CUR_BLOCK_NUMBER),HL                   ; $A69A  22 E5 A9
         PUSH BC                          ; $A69D  C5
         ; Translate/seek the host track+sector for this record.
         CALL RECORD_TO_TRACK                    ; $A69E  CD D1 9F
         POP BC                           ; $A6A1  C1
         ; Write the (zeroed) record to the host sector via the BIOS R/W call.
         CALL DISK_WRITE_CHECKED                    ; $A6A2  CD B8 9F
-        LD HL,(L_A9E5)                   ; $A6A5  2A E5 A9
+        LD HL,(CUR_BLOCK_NUMBER)                   ; $A6A5  2A E5 A9
         LD C,$00                         ; $A6A8  0E 00
         ; Load the records-per-host-sector mask.
-        LD A,(L_A9C4)                    ; $A6AA  3A C4 A9
+        LD A,(DPB_BLM)                    ; $A6AA  3A C4 A9
         LD B,A                           ; $A6AD  47
         ; Mask the record index to its position within the host sector.
         AND L                            ; $A6AE  A5
@@ -7225,19 +7234,19 @@ BDOS_WRITE_FILLLOOP:
         ; Loop while still within the same host sector (fill all its records).
         JP NZ,BDOS_WRITE_FILLLOOP                 ; $A6B1  C2 9A A6
         POP HL                           ; $A6B4  E1
-        LD (L_A9E5),HL                   ; $A6B5  22 E5 A9
+        LD (CUR_BLOCK_NUMBER),HL                   ; $A6B5  22 E5 A9
         ; Restore the caller DMA and finalize the new-block fill.
         CALL RESTORE_USER_DMA                    ; $A6B8  CD DA A1
 ; ----------------------------------------------------------------------
 ; BDOS_WRITE_DOWRITE -- write the caller's current record to its host sector and bump the extent
 ; record count.
 ;   In: stack holds the mode byte; CURFCB context valid; DMA = caller record.
-;   Out: record written; FCB current-record-count cell (L_A9E1) advanced when this record extends
+;   Out: record written; FCB current-record-count cell (FCB_RECCOUNT) advanced when this record extends
 ;        the extent; C=2 if the count grew; falls into the S2/extent-overflow update.
 ;   Clobbers: A, BC, DE, HL, flags.
 ;   Algorithm: translate/seek (RECORD_TO_TRACK) and write (DISK_WRITE_CHECKED) the record; compare
-;              the just-written record index (L_A9E3) against the extent's stored record count
-;              (L_A9E1); if it is a new high-water record, store and increment the count and set C=2
+;              the just-written record index (FCB_CURREC) against the extent's stored record count
+;              (FCB_RECCOUNT); if it is a new high-water record, store and increment the count and set C=2
 ;              (extent grew). [RE]
 ; ----------------------------------------------------------------------
 BDOS_WRITE_DOWRITE:
@@ -7249,9 +7258,9 @@ BDOS_WRITE_DOWRITE:
         CALL DISK_WRITE_CHECKED                    ; $A6C0  CD B8 9F
         POP BC                           ; $A6C3  C1
         ; A = the record index just written within the extent.
-        LD A,(L_A9E3)                    ; $A6C4  3A E3 A9
-        ; HL -> the extent's current record-count cell (L_A9E1).
-        LD HL,L_A9E1                     ; $A6C7  21 E1 A9
+        LD A,(FCB_CURREC)                    ; $A6C4  3A E3 A9
+        ; HL -> the extent's current record-count cell (FCB_RECCOUNT).
+        LD HL,FCB_RECCOUNT                     ; $A6C7  21 E1 A9
         ; Is the written record beyond the current record count?
         CP (HL)                          ; $A6CA  BE
         ; Record is within the existing count -> no count update needed.
@@ -7265,14 +7274,14 @@ BDOS_WRITE_DOWRITE:
 ; ----------------------------------------------------------------------
 ; BDOS_WRITE_S2UPDATE -- refresh the FCB S2 byte and, at end-of-extent, advance the FCB to the next
 ; extent.
-;   In: A = current record/extent state; CURFCB context valid; L_A9D5 = write type.
+;   In: A = current record/extent state; CURFCB context valid; WRITE_TYPE_FLAG = write type.
 ;   Out: FCB S2 byte stored with its high bit cleared; on extent rollover (record index 0x7F with
 ;        sequential write) the record count is written back and the FCB moves to the next extent;
 ;        otherwise takes the common return.
 ;   Clobbers: A, BC, HL, flags.
 ;   Algorithm: (two leading NOPs are padding). Fetch the FCB S2 byte (FCB_GET_S2), clear its high
 ;              bit and store it back. If the just-written record was the last in the extent (0x7F)
-;              AND this is a sequential write (L_A9D5 == 1), copy the working record count back into
+;              AND this is a sequential write (WRITE_TYPE_FLAG == 1), copy the working record count back into
 ;              the FCB (DRV_INSTALL_RWTS_6) and advance to the next extent (FCB_ADVANCE_RECORD); if
 ;              no host buffer write is pending, reset the current-record cell; else take the common
 ;              return. (OBSERVED: the LD HL,$9400 at entry is immediately overwritten by FCB_GET_S2
@@ -7297,12 +7306,12 @@ BDOS_WRITE_S2UPDATE:
         ; Not at end of extent -> done, take the common return.
         JP NZ,BDOS_WRITE_RET                ; $A6E1  C2 00 A7
         ; Load the BDOS write type.
-        LD A,(L_A9D5)                    ; $A6E4  3A D5 A9
+        LD A,(WRITE_TYPE_FLAG)                    ; $A6E4  3A D5 A9
         ; Only sequential writes (type 1) roll the extent forward here.
         CP $01                           ; $A6E7  FE 01
         ; Random write at extent end -> done, common return.
         JP NZ,BDOS_WRITE_RET                ; $A6E9  C2 00 A7
-        ; Copy the working record count (L_A9E3/L_A9E1) back into the FCB before rolling over.
+        ; Copy the working record count (FCB_CURREC/FCB_RECCOUNT) back into the FCB before rolling over.
         CALL DRV_INSTALL_RWTS_6                    ; $A6EC  CD D2 A0
         ; Advance the FCB to the next extent (increment EX, handle module overflow).
         CALL FCB_ADVANCE_RECORD                    ; $A6EF  CD 5A A5
@@ -7311,7 +7320,7 @@ BDOS_WRITE_S2UPDATE:
         OR A                             ; $A6F6  B7
         JP NZ,BDOS_WRITE_RESETREC                ; $A6F7  C2 FE A6
         DEC A                            ; $A6FA  3D
-        LD (L_A9E3),A                    ; $A6FB  32 E3 A9
+        LD (FCB_CURREC),A                    ; $A6FB  32 E3 A9
 ; ----------------------------------------------------------------------
 ; BDOS_WRITE_RESETREC -- clear the seek/create-mode flag cell after an extent rollover.
 ;   In: HL -> the BDOS_RETVAL flag cell.
@@ -7340,7 +7349,7 @@ BDOS_WRITE_RET:
 ;   In: CURFCB (BDOS_PARAM_PTR) valid.
 ;   Out: as for BDOS_SEEK_COMPUTE below.
 ;   Clobbers: A, BC, DE, HL, flags.
-;   Algorithm: clear the write-type cell (L_A9D5 = 0), then fall straight into BDOS_SEEK_COMPUTE.
+;   Algorithm: clear the write-type cell (WRITE_TYPE_FLAG = 0), then fall straight into BDOS_SEEK_COMPUTE.
 ;              (OBSERVED: this entry is used by the random read/write callers
 ;              FCB_EXTENT_TO_TRKSEC_8/9 after they set C; BDOS_SEEK_NOREAD itself does not consume C
 ;              -- it is merely preserved on the stack across the seek and used by the caller
@@ -7349,7 +7358,7 @@ BDOS_WRITE_RET:
 BDOS_SEEK_NOREAD:
         XOR A                            ; $A703  AF
         ; Write type = 0 (cleared before the seek).
-        LD (L_A9D5),A                    ; $A704  32 D5 A9
+        LD (WRITE_TYPE_FLAG),A                    ; $A704  32 D5 A9
 ; ----------------------------------------------------------------------
 ; BDOS_SEEK_COMPUTE -- compute the target extent/record from the FCB random-record field (R0/R1/R2)
 ; and seek the directory to it.
@@ -7820,16 +7829,16 @@ F_RANDREC_H:
 ; ----------------------------------------------------------------------
 ; DRV_INSTALL_RWTS_17 -- Select-disk / log-in worker: ensure the drive in BDOS_CUR_DRIVE is logged
 ; in, and rebuild its allocation vector if it was not.
-;   In: BDOS_CUR_DRIVE = requested (current) drive number 0..15; L_A9AF = working login/select
+;   In: BDOS_CUR_DRIVE = requested (current) drive number 0..15; DRV_SELECT_VECTOR = working login/select
 ;       vector.
 ;   Out: if the drive was newly logged in, its directory is scanned (BDOS_ERR_SELECT) and its
-;        allocation vector rebuilt (CMD_EXEC_65); L_A9AF updated with the drive's login bit.
+;        allocation vector rebuilt (CMD_EXEC_65); DRV_SELECT_VECTOR updated with the drive's login bit.
 ;   Clobbers: A, BC, DE, HL.
-;   Algorithm: load the working login vector L_A9AF; build a single-bit mask for the requested drive
+;   Algorithm: load the working login vector DRV_SELECT_VECTOR; build a single-bit mask for the requested drive
 ;              (DRV_INSTALL_RWTS_10 shifts); test (BDOS_RANDREC_3) whether the drive's DPB is
 ;              already established; if not yet logged in (Z) call BDOS_ERR_SELECT to log it in /
 ;              scan its directory; if the login bit was already set (RRA -> carry) just return;
-;              otherwise OR this drive's bit into L_A9AF (CMD_EXEC_12), store it, and fall into
+;              otherwise OR this drive's bit into DRV_SELECT_VECTOR (CMD_EXEC_12), store it, and fall into
 ;              CMD_EXEC_65 to (re)build the allocation vector.
 ;   [RE] the standard CP/M 2.2 select-disk login path reached from DRV_SET (fn 14) and DRV_ALLRESET
 ;   (fn 13). [?] the A=L / RRA already-logged-in test is inferred from the surrounding flow, not
@@ -7837,7 +7846,7 @@ F_RANDREC_H:
 ; ----------------------------------------------------------------------
 DRV_INSTALL_RWTS_17:
         ; HL = working login/select vector
-        LD HL,(L_A9AF)                   ; $A821  2A AF A9
+        LD HL,(DRV_SELECT_VECTOR)                   ; $A821  2A AF A9
         ; A = requested drive number
         LD A,(BDOS_CUR_DRIVE)                    ; $A824  3A 42 9F
         LD C,A                           ; $A827  4F
@@ -7856,28 +7865,28 @@ DRV_INSTALL_RWTS_17:
         RRA                              ; $A835  1F
         ; already logged in: nothing more to do
         RET C                            ; $A836  D8
-        LD HL,(L_A9AF)                   ; $A837  2A AF A9
+        LD HL,(DRV_SELECT_VECTOR)                   ; $A837  2A AF A9
         LD C,L                           ; $A83A  4D
         LD B,H                           ; $A83B  44
         ; OR this drive's bit into the working login vector
         CALL CMD_EXEC_12                    ; $A83C  CD 0B A1
         ; store the updated working login vector
-        LD (L_A9AF),HL                   ; $A83F  22 AF A9
+        LD (DRV_SELECT_VECTOR),HL                   ; $A83F  22 AF A9
         ; tail into rebuild-allocation-vector for the freshly logged-in drive
         JP CMD_EXEC_65                    ; $A842  C3 A3 A2
 ; ----------------------------------------------------------------------
-; DRV_SET_H -- BDOS function 14 (Select Disk): make the drive in L_A9D6 the current drive.
-;   In: L_A9D6 = desired drive number; BDOS_CUR_DRIVE = current drive number.
+; DRV_SET_H -- BDOS function 14 (Select Disk): make the drive in DRV_SELECT_ARG the current drive.
+;   In: DRV_SELECT_ARG = desired drive number; BDOS_CUR_DRIVE = current drive number.
 ;   Out: if the drive changed, BDOS_CUR_DRIVE is updated and the drive is logged in / allocation
 ;        vector rebuilt (via DRV_INSTALL_RWTS_17); otherwise no-op.
 ;   Clobbers: A, HL (and whatever DRV_INSTALL_RWTS_17 clobbers).
-;   Algorithm: compare desired drive (L_A9D6) with current (BDOS_CUR_DRIVE); if equal return; else
+;   Algorithm: compare desired drive (DRV_SELECT_ARG) with current (BDOS_CUR_DRIVE); if equal return; else
 ;              store the new current drive and jump to the select/log-in worker.
 ;   [RE] dispatch fn 14 at $9C63; matches canonical CP/M 2.2 Select Disk.
 ; ----------------------------------------------------------------------
 DRV_SET_H:
         ; A = requested drive number
-        LD A,(L_A9D6)                    ; $A845  3A D6 A9
+        LD A,(DRV_SELECT_ARG)                    ; $A845  3A D6 A9
         ; HL -> current-drive cell
         LD HL,BDOS_CUR_DRIVE                     ; $A848  21 42 9F
         ; already the current drive?
@@ -7893,14 +7902,14 @@ DRV_SET_H:
 ; FCB, temporarily selecting that drive.
 ;   In: BDOS_PARAM_PTR = pointer to the caller's FCB (byte 0 = drive prefix, 0=default else
 ;       drive+1); BDOS_CUR_DRIVE = current drive; BDOS_STACK_TOP = current user number.
-;   Out: if the FCB names an explicit drive, that drive is selected (L_A9D6 set, DRV_SET_H called)
-;        and the prior drive is saved in the restore cells (L_A9DE flag=$FF, L_A9DF=saved drive,
-;        L_A9E0=saved FCB drive byte); the FCB's drive byte is rewritten to OR in the current user
+;   Out: if the FCB names an explicit drive, that drive is selected (DRV_SELECT_ARG set, DRV_SET_H called)
+;        and the prior drive is saved in the restore cells (DRV_RESTORE_FLAG flag=$FF, DRV_SAVED_DRIVE=saved drive,
+;        DRV_SAVED_FCB_BYTE=saved FCB drive byte); the FCB's drive byte is rewritten to OR in the current user
 ;        number.
 ;   Clobbers: A, HL.
-;   Algorithm: set restore-pending flag L_A9DE=$FF; read FCB byte0, mask $1F and DEC to get drive
-;              index into L_A9D6; if >=$1E (no explicit drive / out of range) skip the switch; else
-;              save current drive (BDOS_CUR_DRIVE->L_A9DF) and original FCB byte (->L_A9E0), strip
+;   Algorithm: set restore-pending flag DRV_RESTORE_FLAG=$FF; read FCB byte0, mask $1F and DEC to get drive
+;              index into DRV_SELECT_ARG; if >=$1E (no explicit drive / out of range) skip the switch; else
+;              save current drive (BDOS_CUR_DRIVE->DRV_SAVED_DRIVE) and original FCB byte (->DRV_SAVED_FCB_BYTE), strip
 ;              the drive prefix bits ($E0 mask) from FCB byte0, and select the requested drive via
 ;              DRV_SET_H; finally OR the current user number (BDOS_STACK_TOP) into FCB byte0.
 ;   [RE] this is the auto-disk-select / FCB drive-prefix handler that nearly every file BDOS call
@@ -7911,7 +7920,7 @@ FCB_AUTO_DRIVE_SELECT:
         ; mark 'a temporary drive switch is pending' so the epilogue restores it
         LD A,$FF                         ; $A851  3E FF
         ; store the restore-pending flag
-        LD (L_A9DE),A                    ; $A853  32 DE A9
+        LD (DRV_RESTORE_FLAG),A                    ; $A853  32 DE A9
         ; HL -> caller's FCB; (HL) = drive-prefix byte
         LD HL,(BDOS_PARAM_PTR)                   ; $A856  2A 43 9F
         LD A,(HL)                        ; $A859  7E
@@ -7920,17 +7929,17 @@ FCB_AUTO_DRIVE_SELECT:
         ; convert prefix (1..16) to drive index (0..15); $00 (default) wraps to $FF
         DEC A                            ; $A85C  3D
         ; record the drive this FCB asks for
-        LD (L_A9D6),A                    ; $A85D  32 D6 A9
+        LD (DRV_SELECT_ARG),A                    ; $A85D  32 D6 A9
         ; no explicit drive (default => $FF) or out of range?
         CP $1E                           ; $A860  FE 1E
         ; yes: skip the drive switch, just merge the user number
         JP NC,FCB_MERGE_USER                 ; $A862  D2 75 A8
         LD A,(BDOS_CUR_DRIVE)                    ; $A865  3A 42 9F
         ; save the current drive so the epilogue can restore it
-        LD (L_A9DF),A                    ; $A868  32 DF A9
+        LD (DRV_SAVED_DRIVE),A                    ; $A868  32 DF A9
         LD A,(HL)                        ; $A86B  7E
         ; save the original FCB drive-prefix byte for restore
-        LD (L_A9E0),A                    ; $A86C  32 E0 A9
+        LD (DRV_SAVED_FCB_BYTE),A                    ; $A86C  32 E0 A9
         ; clear the drive-prefix bits, leaving the high flag bits of FCB byte0
         AND $E0                          ; $A86F  E6 E0
         LD (HL),A                        ; $A871  77
@@ -7976,7 +7985,7 @@ S_BDOSVER_H:
 ;   Out: login vector and working login/select vector cleared; current drive forced to A: (0); DMA
 ;        address reset to TBUFF ($0080); drive A logged in fresh.
 ;   Clobbers: A, HL (and DRV_INSTALL_RWTS_17 / RESTORE_USER_DMA clobbers).
-;   Algorithm: zero DRV_LOGIN_VECTOR and L_A9AF; set current drive BDOS_CUR_DRIVE=0; set
+;   Algorithm: zero DRV_LOGIN_VECTOR and DRV_SELECT_VECTOR; set current drive BDOS_CUR_DRIVE=0; set
 ;              DMA_ADDR=$0080 (TBUFF); call RESTORE_USER_DMA (set the live BIOS DMA / reset disk
 ;              buffering); jump to DRV_INSTALL_RWTS_17 to log in drive A.
 ;   [RE] dispatch fn 13 at $9C61; matches canonical CP/M 2.2 Reset Disk System.
@@ -7986,7 +7995,7 @@ DRV_ALLRESET_H:
         ; clear the master logged-in drive bitmap
         LD (DRV_LOGIN_VECTOR),HL                   ; $A886  22 AD A9
         ; clear the working login/select vector
-        LD (L_A9AF),HL                   ; $A889  22 AF A9
+        LD (DRV_SELECT_VECTOR),HL                   ; $A889  22 AF A9
         XOR A                            ; $A88C  AF
         ; force current drive back to A: (0)
         LD (BDOS_CUR_DRIVE),A                    ; $A88D  32 42 9F
@@ -8086,20 +8095,20 @@ DIR_SEARCH_AND_COPY:
 ; ----------------------------------------------------------------------
 ; F_SNEXT_H -- BDOS function 18 (Search for Next): continue a directory search begun by Search
 ; First.
-;   In: search state saved in L_A9D9 (the search FCB pointer stored by the directory-search core
+;   In: search state saved in DIR_FCB_PTR (the search FCB pointer stored by the directory-search core
 ;       DIR_SEARCH_FIRST at $A324).
 ;   Out: next matching directory record copied to the DMA buffer; A = position (0..3) or $FF if no
 ;        more.
 ;   Clobbers: A, BC, DE, HL.
-;   Algorithm: restore the saved search FCB pointer (L_A9D9 -> BDOS_PARAM_PTR); auto-select its
+;   Algorithm: restore the saved search FCB pointer (DIR_FCB_PTR -> BDOS_PARAM_PTR); auto-select its
 ;              drive; BDOS_DIR_SCAN_NEXT advances the directory scan from the saved position; tail
 ;              into DISK_BUF_MOVE to deliver the hit.
-;   [RE] dispatch fn 18 at $9C6B; canonical CP/M 2.2 Search Next; L_A9D9 holds the in-progress
+;   [RE] dispatch fn 18 at $9C6B; canonical CP/M 2.2 Search Next; DIR_FCB_PTR holds the in-progress
 ;   search FCB.
 ; ----------------------------------------------------------------------
 F_SNEXT_H:
         ; restore the saved Search-First FCB pointer
-        LD HL,(L_A9D9)                   ; $A8C8  2A D9 A9
+        LD HL,(DIR_FCB_PTR)                   ; $A8C8  2A D9 A9
         ; make it the active FCB for this scan step
         LD (BDOS_PARAM_PTR),HL                   ; $A8CB  22 43 9F
         ; auto-select the FCB's drive prefix
@@ -8195,7 +8204,7 @@ F_RENAME_H:
         JP DIR_RETURN_MATCH_FLAG                    ; $A8FB  C3 01 A3
 ; ----------------------------------------------------------------------
 ; DRV_LOGINVEC_H -- BDOS function 24 (Return Login Vector): report which drives are logged in.
-;   In: L_A9AF = working login/select vector (bit d = drive d logged in).
+;   In: DRV_SELECT_VECTOR = working login/select vector (bit d = drive d logged in).
 ;   Out: BDOS result HL = the login vector (returned via the common result-store
 ;        BDOS_RET_RESULT_HL).
 ;   Clobbers: HL.
@@ -8204,7 +8213,7 @@ F_RENAME_H:
 ; ----------------------------------------------------------------------
 DRV_LOGINVEC_H:
         ; HL = login vector (one bit per logged-in drive)
-        LD HL,(L_A9AF)                   ; $A8FE  2A AF A9
+        LD HL,(DRV_SELECT_VECTOR)                   ; $A8FE  2A AF A9
         ; store HL as the 16-bit BDOS result
         JP BDOS_RET_RESULT_HL                   ; $A901  C3 29 A9
 ; ----------------------------------------------------------------------
@@ -8286,7 +8295,7 @@ F_ATTRIB_H:
         JP DIR_RETURN_MATCH_FLAG                    ; $A923  C3 01 A3
 ; ----------------------------------------------------------------------
 ; DRV_DPB_H -- BDOS function 31 (Return Disk Parameter Block address).
-;   In: L_A9BB = address of the current drive's DPB (set during disk select/log-in).
+;   In: DPB_PTR = address of the current drive's DPB (set during disk select/log-in).
 ;   Out: BDOS result HL = the DPB address.
 ;   Clobbers: HL.
 ;   Algorithm: load the DPB pointer and store it as the 16-bit BDOS result.
@@ -8295,7 +8304,7 @@ F_ATTRIB_H:
 ; ----------------------------------------------------------------------
 DRV_DPB_H:
         ; HL = address of the current drive's Disk Parameter Block
-        LD HL,(L_A9BB)                   ; $A926  2A BB A9
+        LD HL,(DPB_PTR)                   ; $A926  2A BB A9
 ; ----------------------------------------------------------------------
 ; BDOS_RET_RESULT_HL -- common exit: store the 16-bit value in HL as the BDOS return result.
 ;   In: HL = value to return to the caller.
@@ -8312,7 +8321,7 @@ BDOS_RET_RESULT_HL:
         RET                              ; $A92C  C9
 ; ----------------------------------------------------------------------
 ; F_USERNUM_H -- BDOS function 32 (Get/Set User Code).
-;   In: L_A9D6 = caller's argument byte ($FF = 'get', else the user number to set); BDOS_STACK_TOP =
+;   In: DRV_SELECT_ARG = caller's argument byte ($FF = 'get', else the user number to set); BDOS_STACK_TOP =
 ;       current user number.
 ;   Out: if get: BDOS result A = current user number; if set: current user number BDOS_STACK_TOP
 ;        updated to (arg AND $1F).
@@ -8323,7 +8332,7 @@ BDOS_RET_RESULT_HL:
 ; ----------------------------------------------------------------------
 F_USERNUM_H:
         ; A = caller's argument ($FF = query current user)
-        LD A,(L_A9D6)                    ; $A92D  3A D6 A9
+        LD A,(DRV_SELECT_ARG)                    ; $A92D  3A D6 A9
         ; is this a 'get current user' request?
         CP $FF                           ; $A930  FE FF
         ; no: it is a 'set user number' request
@@ -8400,13 +8409,13 @@ F_SIZE_H:
 ; ----------------------------------------------------------------------
 ; DRV_RESET_H -- BDOS function 37 (Reset Drive): mark the drives named by the caller's bit mask as
 ; no longer logged in.
-;   In: BDOS_PARAM_PTR = caller's reset bit-mask (one bit per drive to reset); L_A9AF = working
+;   In: BDOS_PARAM_PTR = caller's reset bit-mask (one bit per drive to reset); DRV_SELECT_VECTOR = working
 ;       login vector; DRV_LOGIN_VECTOR = master logged-in / R-O master vector.
-;   Out: for each drive bit set in the mask, that drive's bit is cleared in both L_A9AF and
+;   Out: for each drive bit set in the mask, that drive's bit is cleared in both DRV_SELECT_VECTOR and
 ;        DRV_LOGIN_VECTOR, forcing a fresh log-in on next access.
 ;   Clobbers: A, DE, HL.
 ;   Algorithm: form the bitwise complement of the caller's reset mask (CPL of each byte of
-;              BDOS_PARAM_PTR); AND it into L_A9AF to clear those login bits and store back; then
+;              BDOS_PARAM_PTR); AND it into DRV_SELECT_VECTOR to clear those login bits and store back; then
 ;              AND the now-masked login word with DRV_LOGIN_VECTOR (which also has the reset bits
 ;              cleared) and store back, so the master vector loses the reset drives' bits too.
 ;   [RE] dispatch fn 37 at $9C91; canonical CP/M 2.2 Reset Drive (selective reset). The auto-label
@@ -8422,7 +8431,7 @@ DRV_RESET_H:
         LD A,H                           ; $A959  7C
         CPL                              ; $A95A  2F
         ; HL = working login vector
-        LD HL,(L_A9AF)                   ; $A95B  2A AF A9
+        LD HL,(DRV_SELECT_VECTOR)                   ; $A95B  2A AF A9
         ; clear the reset drives' bits in the login vector (high byte path)
         AND H                            ; $A95E  A4
         LD D,A                           ; $A95F  57
@@ -8433,7 +8442,7 @@ DRV_RESET_H:
         LD HL,(DRV_LOGIN_VECTOR)                   ; $A963  2A AD A9
         EX DE,HL                         ; $A966  EB
         ; store the updated login vector
-        LD (L_A9AF),HL                   ; $A967  22 AF A9
+        LD (DRV_SELECT_VECTOR),HL                   ; $A967  22 AF A9
         LD A,L                           ; $A96A  7D
         AND E                            ; $A96B  A3
         LD L,A                           ; $A96C  6F
@@ -8446,24 +8455,24 @@ DRV_RESET_H:
 ; ----------------------------------------------------------------------
 ; FCB_AUTO_DRIVE_RESTORE -- file-operation epilogue: undo a temporary drive switch made by
 ; FCB_AUTO_DRIVE_SELECT, then return the BDOS result.
-;   In: L_A9DE = restore-pending flag (0 = no switch was made); BDOS_PARAM_PTR = FCB pointer; L_A9E0
-;       = saved FCB drive byte; L_A9DF = saved drive number; BDOS_SAVED_SP = saved BDOS stack
+;   In: DRV_RESTORE_FLAG = restore-pending flag (0 = no switch was made); BDOS_PARAM_PTR = FCB pointer; DRV_SAVED_FCB_BYTE
+;       = saved FCB drive byte; DRV_SAVED_DRIVE = saved drive number; BDOS_SAVED_SP = saved BDOS stack
 ;       pointer; BDOS_RETVAL = BDOS result.
 ;   Out: if a switch was pending, the FCB's drive byte and the current drive are restored to their
 ;        pre-call values (DRV_SET_H reselects the original drive); then control falls into
 ;        BDOS_RETURN_RESULT to restore the BDOS stack and deliver A = result low byte (B = high
 ;        byte).
 ;   Clobbers: A, B, HL, SP.
-;   Algorithm: if no temporary switch was made (L_A9DE==0) skip to the result return; else clear the
-;              FCB drive byte ($00), and if the saved original byte (L_A9E0) is nonzero restore it;
-;              restore the saved current drive (L_A9DF -> L_A9D6) and reselect it via DRV_SET_H;
+;   Algorithm: if no temporary switch was made (DRV_RESTORE_FLAG==0) skip to the result return; else clear the
+;              FCB drive byte ($00), and if the saved original byte (DRV_SAVED_FCB_BYTE) is nonzero restore it;
+;              restore the saved current drive (DRV_SAVED_DRIVE -> DRV_SELECT_ARG) and reselect it via DRV_SET_H;
 ;              fall into BDOS_RETURN_RESULT.
 ;   [RE] this is the universal file-op epilogue that pairs with FCB_AUTO_DRIVE_SELECT; the
 ;   'DIR_NAME_MASK' auto-label is unrelated.
 ; ----------------------------------------------------------------------
 FCB_AUTO_DRIVE_RESTORE:
         ; was a temporary drive switch made by the preamble?
-        LD A,(L_A9DE)                    ; $A974  3A DE A9
+        LD A,(DRV_RESTORE_FLAG)                    ; $A974  3A DE A9
         OR A                             ; $A977  B7
         ; no switch: skip restore, go straight to the result return
         JP Z,BDOS_RETURN_RESULT                 ; $A978  CA 91 A9
@@ -8472,16 +8481,16 @@ FCB_AUTO_DRIVE_RESTORE:
         ; clear the FCB drive byte before restoring it
         LD (HL),$00                      ; $A97E  36 00
         ; A = saved original FCB drive-prefix byte
-        LD A,(L_A9E0)                    ; $A980  3A E0 A9
+        LD A,(DRV_SAVED_FCB_BYTE)                    ; $A980  3A E0 A9
         OR A                             ; $A983  B7
         ; saved byte was 0 (no real prefix): nothing to put back, go to result return
         JP Z,BDOS_RETURN_RESULT                 ; $A984  CA 91 A9
         ; restore the original FCB drive-prefix byte
         LD (HL),A                        ; $A987  77
         ; A = saved current drive number
-        LD A,(L_A9DF)                    ; $A988  3A DF A9
+        LD A,(DRV_SAVED_DRIVE)                    ; $A988  3A DF A9
         ; set it as the drive to reselect
-        LD (L_A9D6),A                    ; $A98B  32 D6 A9
+        LD (DRV_SELECT_ARG),A                    ; $A98B  32 D6 A9
         ; reselect the drive that was current before the call
         CALL DRV_SET_H                    ; $A98E  CD 45 A8
 ; ----------------------------------------------------------------------
@@ -8517,10 +8526,10 @@ BDOS_RETURN_RESULT:
 ;   Out: the record written at the random position; any block newly allocated to reach it is
 ;        zero-filled first; A = 0 or a random-write error code.
 ;   Clobbers: A, BC, DE, HL.
-;   Algorithm: FCB_AUTO_DRIVE_SELECT honors the drive prefix; set write-mode L_A9D5=2 (zero-fill);
+;   Algorithm: FCB_AUTO_DRIVE_SELECT honors the drive prefix; set write-mode WRITE_TYPE_FLAG=2 (zero-fill);
 ;              C=0; call the random-record extract/seek core (BDOS_SEEK_COMPUTE) and, on success
 ;              (Z), perform the write (BDOS_WRITE).
-;   [RE] dispatch fn 40 at $9C97; canonical CP/M 2.2 Write Random with Zero Fill; L_A9D5=2
+;   [RE] dispatch fn 40 at $9C97; canonical CP/M 2.2 Write Random with Zero Fill; WRITE_TYPE_FLAG=2
 ;   distinguishes it from normal Write Random.
 ; ----------------------------------------------------------------------
 F_WRITEZF_H:
@@ -8529,7 +8538,7 @@ F_WRITEZF_H:
         ; write-mode 2 = write random with zero fill of new blocks
         LD A,$02                         ; $A99E  3E 02
         ; select zero-fill write mode
-        LD (L_A9D5),A                    ; $A9A0  32 D5 A9
+        LD (WRITE_TYPE_FLAG),A                    ; $A9A0  32 D5 A9
         ; C=0 parameter to the random-record extract core
         LD C,$00                         ; $A9A3  0E 00
         ; decode the FCB random record and seek/allocate to it
@@ -8537,35 +8546,35 @@ F_WRITEZF_H:
         ; on success, write the record (with zero-filled new blocks)
         CALL Z,BDOS_WRITE                  ; $A9A8  CC 03 A6
         RET                              ; $A9AB  C9
-L_A9AC:
+EMPTY_DIR_FCB:
         DEFB    $E5                                              ; $A9AC
 DRV_LOGIN_VECTOR:
         DEFB    "\0\0"    ; $A9AD
-L_A9AF:
+DRV_SELECT_VECTOR:
         DEFB    "\0\0"    ; $A9AF
 DMA_ADDR:
         DEFB    $80,$00                                          ; $A9B1
 DPB_WORK_PTR0:
         DEFB    "\0\0"    ; $A9B3
-L_A9B5:
+DEBLOCK_HSTREC_PTR0:
         DEFB    "\0\0"    ; $A9B5
-L_A9B7:
+DEBLOCK_HSTREC_PTR1:
         DEFB    "\0\0"    ; $A9B7
 DIRBUF_PTR:
         DEFB    "\0\0"    ; $A9B9
-L_A9BB:
+DPB_PTR:
         DEFB    "\0\0"    ; $A9BB
 REC_BYTE_OFFSET:
         DEFB    "\0\0"    ; $A9BD
 ALLOC_VEC_PTR:
         DEFB    "\0\0"    ; $A9BF
-L_A9C1:
+DPB_SPT:
         DEFB    "\0\0"    ; $A9C1
-L_A9C3:
+DPB_BSH:
         DEFB    "\0"    ; $A9C3
-L_A9C4:
+DPB_BLM:
         DEFB    "\0"    ; $A9C4
-L_A9C5:
+DPB_EXM:
         DEFB    "\0"    ; $A9C5
 MAX_BLOCK_DSM:
         DEFB    "\0\0"    ; $A9C6
@@ -8575,49 +8584,49 @@ ALLOC_END_PTR:
         DEFB    "\0\0"    ; $A9CA
 REC_SCAN_PTR:
         DEFB    "\0\0"    ; $A9CC
-L_A9CE:
+DPB_OFF:
         DEFB    "\0\0"    ; $A9CE
-L_A9D0:
+DPB_XLT_PTR:
         DEFB    "\0\0"    ; $A9D0
-L_A9D2:
+DIR_DIRTY_FLAG:
         DEFB    "\0"    ; $A9D2
-L_A9D3:
+RW_DIRECTION_FLAG:
         DEFB    "\0"    ; $A9D3
-L_A9D4:
+DIR_MATCH_FLAG:
         DEFB    "\0"    ; $A9D4
-L_A9D5:
+WRITE_TYPE_FLAG:
         DEFB    "\0"    ; $A9D5
-L_A9D6:
+DRV_SELECT_ARG:
         DEFB    "\0"    ; $A9D6
-L_A9D7:
+ALLOC_SLOT_INDEX:
         DEFB    "\0"    ; $A9D7
-L_A9D8:
+DIR_CMP_LEN:
         DEFB    "\0"    ; $A9D8
-L_A9D9:
+DIR_FCB_PTR:
         DEFB    "\0\0\0\0"    ; $A9D9
 BLOCK_WIDTH_FLAG:
         DEFB    "\0"    ; $A9DD
-L_A9DE:
+DRV_RESTORE_FLAG:
         DEFB    "\0"    ; $A9DE
-L_A9DF:
+DRV_SAVED_DRIVE:
         DEFB    "\0"    ; $A9DF
-L_A9E0:
+DRV_SAVED_FCB_BYTE:
         DEFB    "\0"    ; $A9E0
-L_A9E1:
+FCB_RECCOUNT:
         DEFB    "\0"    ; $A9E1
-L_A9E2:
+FCB_EXTENT_MASKED:
         DEFB    "\0"    ; $A9E2
-L_A9E3:
+FCB_CURREC:
         DEFB    "\0\0"    ; $A9E3
-L_A9E5:
+CUR_BLOCK_NUMBER:
         DEFB    "\0\0"    ; $A9E5
-L_A9E7:
+BLOCK_BASE_RECORD:
         DEFB    "\0\0"    ; $A9E7
 DEBLOCK_BYTE_OFF:
         DEFB    "\0"    ; $A9E9
 CUR_RECORD:
         DEFB    "\0"    ; $A9EA
-L_A9EB:
+CUR_RECORD_HI:
         DEFB    "\0"    ; $A9EB
 REC_CACHE:
         DEFS    20, $00    ; $A9EC  fill
