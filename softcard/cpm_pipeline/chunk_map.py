@@ -323,10 +323,12 @@ SOURCES_220_44K: dict[str, ChunkSource | Path] = {
         expected_bin_name="build/CPM220_44K_BDOS.bin",
         include_files=(CPM22_INC, CPM_SYSTEM_220_INC),
     ),
-    # As-shipped pristine on-disk BIOS ($AA00-$AEFF) -- what LOAD_CPM reads.
+    # The de-skewed runtime BIOS ($AA00-$AFFF, 6 pages) -- decoded at its true RUNTIME
+    # addresses (the cold loader de-interleaves it; cpm_pipeline/deskew.py ::
+    # BIOS_PAGE_TO_SECTOR). The disk producer re-applies the sector skew on the way out.
     "CPM220_44K_BIOS_Disk": ChunkSource(
         asm_path=OS220_44K / "CPM_BIOS.asm",
-        cpu="z80", org=0xAA00, size=0x0500,
+        cpu="z80", org=0xAA00, size=0x0600,
         expected_bin_name="build/CPM220_44K_BIOS_Disk.bin",
         include_files=(SOFTCARD_INC, CPM22_INC),
     ),
@@ -363,11 +365,15 @@ def _build_chunks_220_44k():
             source_name=src, src_offset=page - base, length=0x100,
             track=sector // 16, phys_sector=dos33_inv[sector % 16],
         ))
-    # BIOS ($AA00-$AEFF, 5 pages) -- unchanged skewed placement (track 2, phys 2-6).
-    for i in range(5):
+    # BIOS ($AA00-$AFFF, 6 pages): SCATTER each de-skewed runtime page to the .dsk sector
+    # the cold loader de-interleaved it from (emulator-derived; deskew.py::BIOS_PAGE_TO_SECTOR),
+    # exactly as for CCP+BDOS above. The prior 5-page placement decoded the BIOS in on-disk
+    # (sector-interleaved) order and was both mis-addressed and missing the 6th page.
+    from cpm_pipeline.deskew import BIOS_PAGE_TO_SECTOR
+    for page, sector in BIOS_PAGE_TO_SECTOR.items():
         CHUNKS_220_44K.append(ChunkSpec(
-            source_name="CPM220_44K_BIOS_Disk", src_offset=i * 0x100, length=0x100,
-            track=2, phys_sector=2 + i,
+            source_name="CPM220_44K_BIOS_Disk", src_offset=page - 0xAA00, length=0x100,
+            track=sector // 16, phys_sector=dos33_inv[sector % 16],
         ))
 
 

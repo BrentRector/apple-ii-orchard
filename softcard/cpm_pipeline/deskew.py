@@ -55,6 +55,26 @@ def reference_runtime_image() -> bytes:
     return build_runtime_image(DISK_2_20_44K_SYSTEM.read_bytes())
 
 
+# ---- BIOS: the as-loaded 6-page BIOS the CPU runs at z80 $AA00-$AFFF (the prior
+# 5-page on-disk-order CPM_BIOS.asm was skewed + missing the 6th page). Emulator-derived.
+BIOS_ORG = 0xAA00
+BIOS_LEN = 6 * PAGE
+BIOS_PAGE_TO_SECTOR = {0xAA00: 46, 0xAB00: 45, 0xAC00: 44, 0xAD00: 43, 0xAE00: 42, 0xAF00: 41}
+
+
+def build_bios_image(dsk: bytes) -> bytes:
+    out = bytearray(BIOS_LEN)
+    for page, sector in BIOS_PAGE_TO_SECTOR.items():
+        o = page - BIOS_ORG
+        out[o:o + PAGE] = dsk[sector * PAGE: sector * PAGE + PAGE]
+    return bytes(out)
+
+
+def reference_bios_image() -> bytes:
+    from cpm_pipeline.reference_data import DISK_2_20_44K_SYSTEM
+    return build_bios_image(DISK_2_20_44K_SYSTEM.read_bytes())
+
+
 def _selftest():
     from cpm_pipeline.reference_data import DISK_2_20_44K_SYSTEM
     dsk = bytearray(DISK_2_20_44K_SYSTEM.read_bytes())
