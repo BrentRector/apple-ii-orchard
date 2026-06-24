@@ -20,20 +20,32 @@ artifacts. The de-skewed image is COHERENT ($9EC8 fn1 = clean handler; $9F01 = t
 result-tail).
 
 **THE FIX / PILOT — re-base 2.20-44K (44K ONLY; 56K is OUT, it LC-relocates):**
-1. **De-skew tooling + round-trip (task #6):** derive the exact system-track sector skew
-   (RWTS skew table + the chunk_map sector layout; byte-match is confounded by self-mods/6502
-   blocks on the CCP-head pages). Build the pristine de-skewed runtime image from the on-disk
-   image; verify it is coherent (dispatch targets land on instr starts) and that re-skewing
-   reproduces the byte-identical disk. Scratch: `E:/tmp/deskew_build.py` (BDOS pages map
-   256/256; CCP head $9300-$95FF + track boundaries still need the exact skew).
-2. **Re-base the source (task #7):** decode `CPM_CCP.asm` + `CPM_BDOS.asm` against the
-   de-skewed image -> every label a true runtime address, no DISP-skew, no shadows, $9F01
-   coherent. The disk producer (`chunk_map`/`_build_chunks_220_44k`) **re-applies the sector
-   skew** so the disk stays byte-identical.
-3. **New gate:** after the byte-identical build, boot + assert source-listing bytes ==
-   runtime bytes at the same address (the 10%->~100% test). Byte-identity is necessary, not
-   sufficient.
-4. THEN the CCP/BDOS split + `cpm_bdos_220.inc` export header (the now-DEFERRED
+1. **De-skew tooling + round-trip — DONE + committed (970f700).** `cpm_pipeline/deskew.py`:
+   the exact 20-page permutation (runtime $9600-$A9FF <- on-disk pages), derived
+   deterministically from the loader's recorded reads (`SoftCardMachine.disk_reads`),
+   bijective, round-trips byte-identical; 3 passthrough pages = the two 6502 RPC blocks
+   ($9400/$9600) + the $A900 var page. `ondisk_to_runtime` / `runtime_to_ondisk`. Gated by
+   `test_cpm220_44k_deskew_roundtrip_and_coherent` (round-trip + >=35/41 dispatch handlers
+   land in-image + fn7 GetIOBYTE = `LD A,($0003)`). The de-skewed image is COHERENT (validated:
+   all 38 in-image dispatch handlers decode cleanly; the fn 12-40 "shadow" block is real code;
+   $9F01 = the result-tail; cross-checks the locked names GetAlloc=$A9BF ALLOC_VEC_PTR /
+   ROVec=$A9AD DRV_LOGIN_VECTOR). Scratch derivation: `E:/tmp/deskew_exact.py`,
+   `deskew_validate.py`; `deskewed_exact_220_44k.bin` (base $9600).
+2. **Re-base the source (task #7, NEXT — the big multi-session RE). PIPELINE PROVEN
+   END-TO-END this session (byte-identical disk from a runtime-order source).** The recipe
+   that works: `python -m disasm_z80 deskewed_exact_220_44k.bin --org $9600 --entry $9C06 +
+   the in-image dispatch handlers (read the 41-entry $9C47 table) --data-region $9C47-$9C98`
+   -> 2142-line `CPM_System_rt.asm` that reassembles with **0 byte diffs**; then
+   `runtime_to_ondisk(rt_binary, ondisk_template=assemble_chunk(reference))` == the reference
+   on-disk image (verified). So: assemble runtime-order source -> re-skew -> existing
+   `chunk_map` -> byte-identical disk. REMAINING = the ENRICHMENT: decode/comment the raw
+   disassembly to C-level (every label runtime; the existing skewed source's per-page decodes
+   are locally coherent = a naming LEAD only, clean-slate the de-skewed bytes
+   [[feedback_clean_slate_not_patch_prior_decompile]]); then wire a runtime-order ChunkSource
+   (assemble + `runtime_to_ondisk`) into the build to replace the skewed source. NOTE: CCP
+   entry is $9400 (BIOS) but the de-skewed Z-80 image starts at $9600 -- resolve where the CCP
+   runs vs the 6502 passthrough pages ($9400/$9600) early. Add the boot-and-compare gate.
+3. THEN the CCP/BDOS split + `cpm_bdos_220.inc` export header (the now-DEFERRED
    `[[project_cpm_ccp_bdos_separate_compilation]]`) fall out trivially on a runtime-addressed
    source, and the cross-ref naming (the two-sided analysis, `E:/tmp/locked_names.md`,
    `reconciliation.md`) becomes reliable.
