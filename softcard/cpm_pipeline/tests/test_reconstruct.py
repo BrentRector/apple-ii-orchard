@@ -137,6 +137,36 @@ def test_cpm220_44k_deskew_roundtrip_and_coherent():
     assert at(0x9400) == 0xC3  # CCP entry JP
 
 
+def test_cpm223_44k_deskew_roundtrip_and_coherent():
+    """The 2.23-44K system also runs sector-de-interleaved. Pin the emulator-derived
+    de-skew maps: gather the runtime image (CCP+BDOS at $9300, BIOS at $FA00) from the
+    reference .dsk, scatter it back byte-identical, and confirm it decodes coherently at
+    its runtime addresses (CCP entry $9300 = JP; BDOS dispatch handlers in-image)."""
+    from cpm_pipeline.reference_data import DISK_2_23_44K_SYSTEM, present
+    from cpm_pipeline.deskew import (
+        build_runtime_image_223, build_bios_image_223, _scatter,
+        PAGE_TO_SECTOR_223, BIOS_PAGE_TO_SECTOR_223, RUNTIME_ORG_223, RUNTIME_LEN_223, PAGE,
+    )
+    if not present(DISK_2_23_44K_SYSTEM):
+        pytest.skip("reference disk missing")
+    dsk = bytearray(DISK_2_23_44K_SYSTEM.read_bytes())
+    rt = build_runtime_image_223(dsk)
+    assert len(rt) == RUNTIME_LEN_223
+    back = _scatter(rt, PAGE_TO_SECTOR_223, RUNTIME_ORG_223, bytearray(dsk))
+    for s in list(PAGE_TO_SECTOR_223.values()) + list(BIOS_PAGE_TO_SECTOR_223.values()):
+        assert back[s*PAGE:s*PAGE+PAGE] == dsk[s*PAGE:s*PAGE+PAGE]
+    allsec = list(PAGE_TO_SECTOR_223.values()) + list(BIOS_PAGE_TO_SECTOR_223.values())
+    assert len(set(allsec)) == len(allsec) == 29, "2.23 de-skew sectors not distinct"
+
+    def at(a): return rt[a - RUNTIME_ORG_223]
+    def word(a): return at(a) | (at(a + 1) << 8)
+    lo, hi = RUNTIME_ORG_223, RUNTIME_ORG_223 + len(rt)
+    assert at(0x9300) == 0xC3                                   # CCP cold entry JP
+    disp = 0x9C47
+    in_image = sum(1 for fn in range(41) if lo <= word(disp + fn * 2) < hi)
+    assert in_image >= 35, f"only {in_image}/41 BDOS dispatch handlers land in the de-skewed image"
+
+
 @pytest.mark.skipif(not HAS_ASSEMBLERS, reason="ca65/ld65/sjasmplus not on PATH")
 def test_cpm220_44k_ccp_bdos_concatenate_to_deskewed_image():
     """The de-skew RE-BASE: the two independent runtime-addressed compilations -- CPM_CCP.asm

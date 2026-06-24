@@ -75,6 +75,53 @@ def reference_bios_image() -> bytes:
     return build_bios_image(DISK_2_20_44K_SYSTEM.read_bytes())
 
 
+# ===========================================================================
+# 2.23-44K: the same de-skew, derived from the 2.23-44K loader. 2.23 STAGES the system
+# at Apple $8000-$9CFF (already de-interleaved) and then RELOCATES it; the maps below are
+# the composed runtime-page -> .dsk-sector relation (verified by matching the emulator's
+# post-boot runtime memory to the disk sectors). 2.23 differs from 2.20: the CCP+BDOS run
+# at z80 $9300-$A9FF (CCP entry $9300, one page LOWER than 2.20's $9400) and the BIOS runs
+# at z80 $FA00-$FFFF (= Apple $0A00 LOW RAM, NOT $AA00 -- a different mechanism).
+RUNTIME_ORG_223 = 0x9300
+RUNTIME_LEN_223 = 23 * PAGE
+PAGE_TO_SECTOR_223 = {
+    0x9300: 4,  0x9400: 3,  0x9500: 2,  0x9600: 1,  0x9700: 15, 0x9800: 16,
+    0x9900: 30, 0x9A00: 29, 0x9B00: 28, 0x9C00: 27, 0x9D00: 26, 0x9E00: 25,
+    0x9F00: 24, 0xA000: 23, 0xA100: 22, 0xA200: 21, 0xA300: 20, 0xA400: 19,
+    0xA500: 18, 0xA600: 17, 0xA700: 31, 0xA800: 32, 0xA900: 46,
+}
+BIOS_ORG_223 = 0xFA00
+BIOS_LEN_223 = 6 * PAGE
+BIOS_PAGE_TO_SECTOR_223 = {0xFA00: 45, 0xFB00: 44, 0xFC00: 43, 0xFD00: 42, 0xFE00: 41, 0xFF00: 40}
+
+
+def _gather(dsk, page_to_sector, org, length):
+    out = bytearray(length)
+    for page, sector in page_to_sector.items():
+        out[page - org:page - org + PAGE] = dsk[sector * PAGE: sector * PAGE + PAGE]
+    return bytes(out)
+
+
+def _scatter(image, page_to_sector, org, dsk):
+    for page, sector in page_to_sector.items():
+        dsk[sector * PAGE: sector * PAGE + PAGE] = image[page - org:page - org + PAGE]
+    return dsk
+
+
+def build_runtime_image_223(dsk): return _gather(dsk, PAGE_TO_SECTOR_223, RUNTIME_ORG_223, RUNTIME_LEN_223)
+def build_bios_image_223(dsk): return _gather(dsk, BIOS_PAGE_TO_SECTOR_223, BIOS_ORG_223, BIOS_LEN_223)
+
+
+def reference_runtime_image_223():
+    from cpm_pipeline.reference_data import DISK_2_23_44K_SYSTEM
+    return build_runtime_image_223(DISK_2_23_44K_SYSTEM.read_bytes())
+
+
+def reference_bios_image_223():
+    from cpm_pipeline.reference_data import DISK_2_23_44K_SYSTEM
+    return build_bios_image_223(DISK_2_23_44K_SYSTEM.read_bytes())
+
+
 def _selftest():
     from cpm_pipeline.reference_data import DISK_2_20_44K_SYSTEM
     dsk = bytearray(DISK_2_20_44K_SYSTEM.read_bytes())
