@@ -37,6 +37,7 @@ OS220_44K = REPO_ROOT / "CPMV220-44K" / "os"   # canonical 2.20-44K OS source tr
 INCLUDE_DIR = REPO_ROOT / "include"            # shared single-source-of-truth EQU includes
 SOFTCARD_INC = INCLUDE_DIR / "apple_softcard.inc"   # Apple/SoftCard external-address names
 CPM22_INC = INCLUDE_DIR / "cpm22.inc"               # CP/M 2.2 ABI EQUs (BDOS, F_*/DRV_*, base page, FCB)
+CPM_SYSTEM_220_INC = INCLUDE_DIR / "cpm_system_220.inc"  # CCP<->BDOS cross-module bases (de-skew split)
 
 
 @dataclass(frozen=True)
@@ -303,26 +304,24 @@ SOURCES_220_44K: dict[str, ChunkSource | Path] = {
              OS220_44K / "CPM_BootLoader_ConInit.asm", ()),
         ),
     ),
-    # The former combined SystemImage is split into two OS component FILES, CCP
-    # and BDOS (boundary = BDOS base $9C00), that COMPILE TOGETHER: CPM_CCP.asm
-    # carries the shared header + CCP body and INCLUDEs CPM_BDOS.asm, so CCP<->BDOS
-    # references resolve directly (no cross-component equates). The combined unit
-    # assembles the whole $9300-$A9FF image, which the chunk map slices into
-    # sectors. (For the 56K fold, CPM56.asm DEFINEs CPM_LINK and DISPs this same
-    # CPM_CCP.asm -- the CPM60.asm pattern.)
-    "CPM220_44K_System": ChunkSource(
+    # The system image is the DE-SKEWED CCP + BDOS as TWO independent compilations,
+    # each decoded at its true RUNTIME address (see docs/CPM_Skew_Findings.md): the CCP
+    # at ORG $9400 ($0800) and the BDOS at ORG $9C00 ($0E00). They share only the $0005
+    # ABI (cpm22.inc) and the two module bases in cpm_system_220.inc. The cold loader
+    # de-interleaves the system tracks into this contiguous image, so the disk producer
+    # SCATTERS each runtime page back to the .dsk sector the loader read it from
+    # (cpm_pipeline/deskew.py :: PAGE_TO_SECTOR) -- see _build_chunks_220_44k.
+    "CPM220_44K_CCP": ChunkSource(
         asm_path=OS220_44K / "CPM_CCP.asm",
-        cpu="z80", org=0x9300, size=0x1700,
-        expected_bin_name="build/CPM220_44K_System.bin",
-        # CCP embeds TWO 6502 blocks, each INCBIN'd from its ca65 source:
-        #   $9400-$9500 RPC disk service (CPM_RPC6502.s)
-        #   $9600-$9700 cold-restart/RPC service (CPM_RPC6502_Restart.s)
-        # (44K config: no CFG_56K); CCP INCLUDEs the BDOS component source.
-        incbin_deps=(
-            ("CPM_RPC6502.bin", OS220_44K / "CPM_RPC6502.s", ()),
-            ("CPM_RPC6502_Restart.bin", OS220_44K / "CPM_RPC6502_Restart.s", ()),
-        ),
-        include_files=(OS220_44K / "CPM_BDOS.asm", CPM22_INC),
+        cpu="z80", org=0x9400, size=0x0800,
+        expected_bin_name="build/CPM220_44K_CCP.bin",
+        include_files=(CPM22_INC, CPM_SYSTEM_220_INC),
+    ),
+    "CPM220_44K_BDOS": ChunkSource(
+        asm_path=OS220_44K / "CPM_BDOS.asm",
+        cpu="z80", org=0x9C00, size=0x0E00,
+        expected_bin_name="build/CPM220_44K_BDOS.bin",
+        include_files=(CPM22_INC, CPM_SYSTEM_220_INC),
     ),
     # As-shipped pristine on-disk BIOS ($AA00-$AEFF) -- what LOAD_CPM reads.
     "CPM220_44K_BIOS_Disk": ChunkSource(
@@ -351,20 +350,24 @@ def _build_chunks_220_44k():
             src_offset=apple_addr - 0x0800, length=0x100,
             track=0, phys_sector=phys,
         ))
-    staging_sectors = [(0, p) for p in range(0xB, 0x10)]
-    staging_sectors += [(1, p) for p in range(0x10)]
-    staging_sectors += [(2, p) for p in range(0x7)]
-    # offset $0000-$16FF -> CPM220_44K_System (CCP+BDOS compiled together);
-    # $1700-$1BFF -> BIOS ($AA00)
-    for i, (track, phys) in enumerate(staging_sectors):
-        off = i * 0x100
-        if off < 0x1700:
-            src, base = "CPM220_44K_System", 0x0000
-        else:
-            src, base = "CPM220_44K_BIOS_Disk", 0x1700
+    # CCP+BDOS: SCATTER each de-skewed runtime page to the .dsk sector the cold loader
+    # de-interleaved it from (emulator-derived; cpm_pipeline/deskew.py). The .dsk linear
+    # sector S -> (track S//16, physical sector whose DOS-3.3 on-disk position is S%16).
+    from cpm_pipeline.deskew import PAGE_TO_SECTOR
+    from cpm_pipeline.disk_format import DOS33_INTERLEAVE
+    dos33_inv = {od: phys for phys, od in enumerate(DOS33_INTERLEAVE)}
+    for page, sector in PAGE_TO_SECTOR.items():
+        src, base = (("CPM220_44K_CCP", 0x9400) if page < 0x9C00
+                     else ("CPM220_44K_BDOS", 0x9C00))
         CHUNKS_220_44K.append(ChunkSpec(
-            source_name=src, src_offset=off - base, length=0x100,
-            track=track, phys_sector=phys,
+            source_name=src, src_offset=page - base, length=0x100,
+            track=sector // 16, phys_sector=dos33_inv[sector % 16],
+        ))
+    # BIOS ($AA00-$AEFF, 5 pages) -- unchanged skewed placement (track 2, phys 2-6).
+    for i in range(5):
+        CHUNKS_220_44K.append(ChunkSpec(
+            source_name="CPM220_44K_BIOS_Disk", src_offset=i * 0x100, length=0x100,
+            track=2, phys_sector=2 + i,
         ))
 
 

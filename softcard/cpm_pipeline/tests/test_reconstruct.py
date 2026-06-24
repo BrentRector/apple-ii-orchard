@@ -138,26 +138,25 @@ def test_cpm220_44k_deskew_roundtrip_and_coherent():
 
 
 @pytest.mark.skipif(not HAS_ASSEMBLERS, reason="ca65/ld65/sjasmplus not on PATH")
-def test_cpm220_44k_runtime_source_byte_identical():
-    """The de-skew RE-BASE: the runtime-addressed source CPM_System_rt.asm (ORG $9400,
-    22 pages) assembles byte-for-byte to the de-skewed runtime image gathered from the
-    reference disk. This gates the in-progress re-decode -- enrichment must keep it green."""
-    from pathlib import Path as _P
-    from cpm_pipeline.chunk_map import OS220_44K, ChunkSource
+def test_cpm220_44k_ccp_bdos_concatenate_to_deskewed_image():
+    """The de-skew RE-BASE: the two independent runtime-addressed compilations -- CPM_CCP.asm
+    (ORG $9400, $0800) and CPM_BDOS.asm (ORG $9C00, $0E00) -- assembled and concatenated
+    equal the de-skewed runtime image gathered from the reference disk. Enrichment must keep
+    this green (the disk reconstruct then scatters these pages back to byte-identical)."""
+    from cpm_pipeline.chunk_map import SOURCES_220_44K
     from cpm_pipeline.assemble import assemble_chunk
-    from cpm_pipeline.deskew import reference_runtime_image, RUNTIME_ORG, RUNTIME_LEN
+    from cpm_pipeline.deskew import reference_runtime_image, RUNTIME_ORG
     from cpm_pipeline.reference_data import DISK_2_20_44K_SYSTEM, present
-    rt_src = ChunkSource(
-        asm_path=OS220_44K / "CPM_System_rt.asm",
-        cpu="z80", org=RUNTIME_ORG, size=RUNTIME_LEN,
-        expected_bin_name="build/CPM220_44K_System_rt.bin",
-    )
-    if not _P(rt_src.asm_path).exists() or not present(DISK_2_20_44K_SYSTEM):
-        pytest.skip("source or reference disk not present")
-    runtime = assemble_chunk(rt_src)
+    if not present(DISK_2_20_44K_SYSTEM):
+        pytest.skip("reference disk not present")
+    ccp = assemble_chunk(SOURCES_220_44K["CPM220_44K_CCP"])
+    bdos = assemble_chunk(SOURCES_220_44K["CPM220_44K_BDOS"])
+    cat = ccp + bdos
     ref = reference_runtime_image()
-    diffs = [i for i in range(len(ref)) if runtime[i] != ref[i]]
-    assert not diffs, f"runtime source differs from de-skewed image at {len(diffs)} bytes; first {[hex(RUNTIME_ORG+o) for o in diffs[:8]]}"
+    diffs = [i for i in range(min(len(cat), len(ref))) if cat[i] != ref[i]]
+    assert len(cat) == len(ref) and not diffs, (
+        f"CCP+BDOS ({len(cat)}) != de-skewed image ({len(ref)}); "
+        f"{len(diffs)} diffs, first {[hex(RUNTIME_ORG+o) for o in diffs[:8]]}")
 
 
 @pytest.mark.skipif(not HAS_ASSEMBLERS, reason="ca65/ld65/sjasmplus not on PATH")

@@ -23,11 +23,7 @@ SITES = [
      _OS / "CPMV220-44K/os/CPM_BootLoader_ProbeOvl.asm", "CPM_BootLoader_ProbeOvl.asm"),
     (_OS / "CPMV220-44K/os/CPM_BootLoader.s", "CPM_BootLoader_ConInit.bin",
      _OS / "CPMV220-44K/os/CPM_BootLoader_ConInit.asm", "CPM_BootLoader_ConInit.asm"),
-    (_OS / "CPMV220-44K/os/CPM_CCP.asm", "CPM_RPC6502.bin",
-     _OS / "CPMV220-44K/os/CPM_RPC6502.s", "CPM_RPC6502.s"),
     # 2.20-44K CCP: SECOND embedded 6502 block ($9600-$9700) -- cold-restart/RPC service
-    (_OS / "CPMV220-44K/os/CPM_CCP.asm", "CPM_RPC6502_Restart.bin",
-     _OS / "CPMV220-44K/os/CPM_RPC6502_Restart.s", "CPM_RPC6502_Restart.s"),
     # 2.23-44K boot loader: slot-probe handshake + embedded Z-80 disk-translate routine
     (_OS / "CPMV223-44K/os/CPM_BootLoader.s", "CPM_BootLoader_ProbeOvl.bin",
      _OS / "CPMV223-44K/os/CPM_BootLoader_ProbeOvl.asm", "CPM_BootLoader_ProbeOvl.asm"),

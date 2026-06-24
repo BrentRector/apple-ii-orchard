@@ -1,3081 +1,3081 @@
 ; ============================================================================
-; Microsoft SoftCard CP/M 2.20 (44K) -- staged System Image (CCP + BDOS)
+; Microsoft SoftCard CP/M 2.20 (44K) -- CCP (Console Command Processor)
 ; ----------------------------------------------------------------------------
-; Reverse-engineered from the raw on-disk bytes (sysimg_220_44k.bin), exactly
-; the 5888 bytes that load at $9300. Reassembles BYTE-IDENTICAL.
-;
-; Runtime layout (BIOS jump table at staging offset $1700 == $AA00):
-;   $9300-$93FF  Pre-CCP / serial page (parser delimiter helpers + 6502 block)
-;   $9400-$94FC  Embedded 6502 RPC payload -- LDA/STA against the I/O Config
-;                Block cells ($03E0-$03EB) + JSR $0Exx + RTS. This is 6502
-;                machine code carried inside the Z-80 image; the SoftCard runs
-;                it on the 6502 side via the CPU-switch RPC, so from the Z-80's
-;                view it is DATA (decoding it as Z-80 is garbage). See the
-;                CALL $94xx fan-in from the CCP -- those reference 6502 entries.
-;   $9600-$9700  SECOND embedded 6502 block -- cold-restart / RPC service
-;                (LC RAM enable, console init, slot/card-type scan, Z-80 BIOS
-;                handoff builder at $1000). Also 6502 machine code run via the
-;                CPU switch; INCBIN'd from CPM_RPC6502_Restart.s. The CALL/JP
-;                $96xx fan-in from the CCP references its Z-80-visible entries.
-;   $9400-$9CFF  CCP -- command line parse, built-in table (DIR ERA TYPE SAVE
-;                REN USER), 8-word dispatch table at $95C2, transient .COM
-;                loader, $$$.SUB chaining ($$$ is a standard CP/M file type
-;                [DOC CPMREF 3-45 ; facts sec.7.7]), and the CP/M error texts.
-;   $9D00-$A8FF  BDOS (Microsoft SoftCard BDOS) -- function entry $9E16 (the
-;                referenced re-entry: save caller SP, switch to local stack,
-;                dispatch on C via the runtime pointer cell $9F43); $9E09-$9E15
-;                is data. FCB/directory/disk-record logic follows.
-;   $A900-$A9FF  BDOS variable + buffer page; $E5 (uninitialized) on disk.
-;
-; Message mechanism (prior finding, confirmed): the error texts are reached two
-; ways. Pointer form -- LD BC,<msg>; (CALL/JP print) -- for NO SPACE / FILE
-; EXISTS / BAD LOAD (the LD BC targets the string head). Computed/position form
-; for READ ERROR / NO FILE / ALL (Y/N)? -- the locator references an INTERIOR
-; offset of the text (e.g. CALL $9854 lands inside "ALL (Y/N)?"), which is why
-; those targets read as mid-string addresses, not labels.
-;
-; Address facts cross-checked against the 2.20 manual reconcile sheet:
-; CCP=$9400, BDOS=$9C00-region, I/O Config Block at 6502 $0200-$03FF (Z-80
-; $F200-$F3FF), 6502 RPC cells $45-$49, A$VEC=$F3D0, Z$CPU=$F3DE.
-;
-; Clean-room: decompiled solely from these bytes + public CP/M 2.2 architecture
-; and softcard/docs/CPM_Manual_Reconcile_Facts.md -- no 56K/2.23 source. The
-; code/data split was adversarially verified and reassembles BYTE-IDENTICAL;
-; comment PROSE is [AI] machine-inferred (a hint, not a manual citation) unless
-; marked [DOC <manual> <page>]; [?] = open question.
+; Runtime-addressed (de-skewed): ORG $9400 (CBASE), runs $9400-$9BFF. An independent
+; compilation; calls the BDOS only through the $0005 ABI and references the BDOS base
+; once (BDOS_FBASE). The 44K system tracks store this sector-interleaved; the disk
+; producer re-applies the skew (cpm_pipeline/deskew.py). See ../../docs/CPM_Skew_Findings.md.
 ; ============================================================================
 
     IFNDEF CPM_LINK
     DEVICE NOSLOT64K
+    INCLUDE "cpm22.inc"
+    INCLUDE "cpm_system_220.inc"
+    ORG $9400
     ENDIF
 
-; -- External symbols --
-BDOS_DISPATCH_PTR    EQU $9F43               ; runtime pointer cell used by the BDOS function dispatch
-
-; -- Mid-instruction references (shown inline as cover+offset) --
-;   $9504 -> FCB_WILDCARD_TEST+1         shared instruction tail: $9504 is reachable code inside the instruction at $9503
-;   $9539 -> SEARCH_BUILTIN_1+2         z80 skip idiom: enters the operand of $11 at $9537
-;   $95DD -> RPC_CALL_HL_2+1         shared instruction tail: $95DD is reachable code inside the instruction at $95DC
-;   $95FD -> CHECK_DRIVE_ERR_2+2         shared instruction tail: $95FD is reachable code inside the instruction at $95FB
-;   (the $96xx mid-instruction refs from the prior Z-80 mis-decode of the
-;    embedded 6502 restart block are gone -- they are 6502-internal, now
-;    documented in CPM_RPC6502_Restart.s)
-;   $973C -> FCB_FIELD_BLANKS_LOOP+1         shared instruction tail: $973C is reachable code inside the instruction at $973B
-;   $9782 -> DIR_CMD_1+1        shared instruction tail: $9782 is reachable code inside the instruction at $9781
-;   $97EA -> DIR_EMIT_NAME_CHAR_1+2         shared instruction tail: $97EA is reachable code inside the instruction at $97E8
-;   $97F8 -> DIR_EMIT_NAME_CHAR_2+1         z80 skip idiom: enters the operand of $3E at $97F7
-;   $9840 -> DIR_EMIT_NAME_CHAR_8+1         shared instruction tail: $9840 is reachable code inside the instruction at $983F
-;   $9898 -> CMD_EXEC_2+1         shared instruction tail: $9898 is reachable code inside the instruction at $9897
-;   $98F9 -> CMD_EXEC_10+1        shared instruction tail: $98F9 is reachable code inside the instruction at $98F8
-;   $990E -> CMD_EXEC_13+2        shared instruction tail: $990E is reachable code inside the instruction at $990C
-;   $9974 -> FCB_CLEAR_BYTE_PAD+2        shared instruction tail: $9974 is reachable code inside the instruction at $9972
-;   $99A0 -> RECORD_SCAN_BODY+2        shared instruction tail: $99A0 is reachable code inside the instruction at $999E
-;   $99A7 -> RECORD_SCAN_STEP+2        shared instruction tail: $99A7 is reachable code inside the instruction at $99A5
-;   $99F1 -> DISK_BUF_MOVE_GO+1        shared instruction tail: $99F1 is reachable code inside the instruction at $99F0
-;   $9B30 -> CMD_EXEC_55+2        shared instruction tail: $9B30 is reachable code inside the instruction at $9B2E
-;   $9B4F -> CMD_EXEC_59+1        shared instruction tail: $9B4F is reachable code inside the instruction at $9B4E
-;   $9B86 -> CMD_EXEC_63+1        shared instruction tail: $9B86 is reachable code inside the instruction at $9B85
-;   $9BD6 -> CMD_EXEC_67+2        shared instruction tail: $9BD6 is reachable code inside the instruction at $9BD4
-;   $9BDD -> CMD_EXEC_68+2        shared instruction tail: $9BDD is reachable code inside the instruction at $9BDB
-;   $9BF1 -> CMD_EXEC_69+2        shared instruction tail: $9BF1 is reachable code inside the instruction at $9BEF
-;   $9C0B -> CCP_TAIL_LOADRET_p8_STG+2        shared instruction tail: $9C0B is reachable code inside the instruction at $9C09
-;   $9C47 -> CCP_TAIL_CMDTAIL_p8_STG+1        shared instruction tail: $9C47 is reachable code inside the instruction at $9C46
-;   $9D23 -> CCP_TAIL_CMDTAIL_p227_STG+2         shared instruction tail: $9D23 is reachable code inside the instruction at $9D21
-;   $9D45 -> CCP_TAIL_4_STG+2         shared instruction tail: $9D45 is reachable code inside the instruction at $9D43
-;   $9D48 -> CCP_TAIL_4_p4_STG+1         shared instruction tail: $9D48 is reachable code inside the instruction at $9D47
-;   $9D62 -> CCP_TAIL_5_p20_STG+1         shared instruction tail: $9D62 is reachable code inside the instruction at $9D61
-;   $9D96 -> CCP_TAIL_9_STG+2         shared instruction tail: $9D96 is reachable code inside the instruction at $9D94
-;   $9DAC -> CCP_TAIL_12_STG+1         shared instruction tail: $9DAC is reachable code inside the instruction at $9DAB
-;   $9DB1 -> CCP_TAIL_12_p5_STG+1         shared instruction tail: $9DB1 is reachable code inside the instruction at $9DB0
-;   $9DB9 -> CCP_TAIL_12_p13_STG+1         shared instruction tail: $9DB9 is reachable code inside the instruction at $9DB8
-;   $9DC9 -> CCP_TAIL_13_p10_STG+1         shared instruction tail: $9DC9 is reachable code inside the instruction at $9DC8
-;   $9DD3 -> CCP_TAIL_14_p5_STG+2         shared instruction tail: $9DD3 is reachable code inside the instruction at $9DD1
-;   $9DE1 -> CCP_TAIL_10_p3_STG+1         shared instruction tail: $9DE1 is reachable code inside the instruction at $9DE0
-;   $9DEF -> CCP_TAIL_16_STG+1         shared instruction tail: $9DEF is reachable code inside the instruction at $9DEE
-;   $9E1C -> BDOS_ENTRY_p9_STG+2        z80 skip idiom: enters the operand of $21 at $9E1A
-;   $9E26 -> BDOS_ENTRY_p19_STG+2        shared instruction tail: $9E26 is reachable code inside the instruction at $9E24
-;   $9E4E -> BDOS_ENTRY_p60_STG+1        shared instruction tail: $9E4E is reachable code inside the instruction at $9E4D
-;   $9E78 -> BDOS_ENTRY_p102_STG+1        shared instruction tail: $9E78 is reachable code inside the instruction at $9E77
-;   $9EA6 -> BDOS_ERROR_SELECT_STG+1        z80 skip idiom: enters the operand of $21 at $9EA5
-;   $9EA9 -> BDOS_ERROR_SELECT_p3_STG+1        shared instruction tail: $9EA9 is reachable code inside the instruction at $9EA8
-;   $9F05 -> FCB_SEQ_IO_STEP_1_STG+1        shared instruction tail: $9F05 is reachable code inside the instruction at $9F04
-;   $9F45 -> FCB_SEQ_IO_STEP_8_STG+1        shared instruction tail: $9F45 is reachable code inside the instruction at $9F44
-;   $9F47 -> FCB_SEQ_IO_STEP_8_p2_STG+1        shared instruction tail: $9F47 is reachable code inside the instruction at $9F46
-;   $9F4A -> CONOUT_PUTC_STG+2        shared instruction tail: $9F4A is reachable code inside the instruction at $9F48
-;   $9F4F -> CONOUT_PUTC_p6_STG+1        shared instruction tail: $9F4F is reachable code inside the instruction at $9F4E
-;   $9F50 -> CONOUT_PUTC_p6_STG+2        shared instruction tail: $9F50 is reachable code inside the instruction at $9F4E
-;   $9FB2 -> BDOS_CON_7_STG+2         shared instruction tail: $9FB2 is reachable code inside the instruction at $9FB0
-;   $9FC3 -> BDOS_CON_8_p10_STG+1         shared instruction tail: $9FC3 is reachable code inside the instruction at $9FC2
-;   $9FE4 -> BDOS_READ_CON_BUF_p1_STG+2         shared instruction tail: $9FE4 is reachable code inside the instruction at $9FE2
-;   $9FFA -> BDOS_CON_14_p8_STG+1         shared instruction tail: $9FFA is reachable code inside the instruction at $9FF9
-;   $A03E -> BDOS_CON_20_p8_STG+1         shared instruction tail: $A03E is reachable code inside the instruction at $A03D
-;   $A05C -> CON_PUT_COL_1_p14_STG+2        shared instruction tail: $A05C is reachable code inside the instruction at $A05A
-;   $A084 -> BDOS_CON_29_p4_STG+1         shared instruction tail: $A084 is reachable code inside the instruction at $A083
-;   $A08A -> BDOS_CON_30_STG+1         shared instruction tail: $A08A is reachable code inside the instruction at $A089
-;   $A0A6 -> BDOS_CON_32_STG+2         shared instruction tail: $A0A6 is reachable code inside the instruction at $A0A4
-;   $A0BB -> BDOS_CON_34_p8_STG+2         shared instruction tail: $A0BB is reachable code inside the instruction at $A0B9
-;   $A0D2 -> BDOS_READER_INPUT_p2_STG+2         shared instruction tail: $A0D2 is reachable code inside the instruction at $A0D0
-;   $A104 -> BDOS_RET_RESULT_1_STG+1         z80 skip idiom: enters the operand of $01 at $A103
-;   $A105 -> BDOS_RET_RESULT_1_STG+2         z80 skip idiom: enters the operand of $01 at $A103
-;   $A11E -> BDOS_SAVED_SP_p13_STG+2         shared instruction tail: $A11E is reachable code inside the instruction at $A11C
-;   $A12C -> BDOS_CON_49_p7_STG+1         z80 skip idiom: enters the operand of $21 at $A12B
-;   $A144 -> BDOS_DE_PARAM_STG+1         shared instruction tail: $A144 is reachable code inside the instruction at $A143
-;   $A169 -> FCB_SET_REC_FLAG_3_p14_STG+1         z80 skip idiom: enters the operand of $01 at $A168
-;   $A172 -> FCB_SET_REC_FLAG_3_p23_STG+1         shared instruction tail: $A172 is reachable code inside the instruction at $A171
-;   $A17F -> FCB_SET_REC_FLAG_3_p35_STG+2         shared instruction tail: $A17F is reachable code inside the instruction at $A17D
-;   $A18C -> FCB_SET_REC_FLAG_4_p8_STG+1         shared instruction tail: $A18C is reachable code inside the instruction at $A18B
-;   $A195 -> FCB_SET_REC_FLAG_5_STG+2         shared instruction tail: $A195 is reachable code inside the instruction at $A193
-;   $A19E -> FCB_SET_REC_FLAG_6_STG+1         shared instruction tail: $A19E is reachable code inside the instruction at $A19D
-;   $A1C4 -> DISK_READ_RECORD_STG+1         shared instruction tail: $A1C4 is reachable code inside the instruction at $A1C3
-;   $A1D4 -> DISK_READ_RECORD_1_p3_STG+1         shared instruction tail: $A1D4 is reachable code inside the instruction at $A1D3
-;   $A1DA -> DISK_READ_RECORD_1_p8_STG+2         shared instruction tail: $A1DA is reachable code inside the instruction at $A1D8
-;   $A1E0 -> DISK_READ_RECORD_1_p15_STG+1         shared instruction tail: $A1E0 is reachable code inside the instruction at $A1DF
-;   $A205 -> READ_CON_BUF_EDIT_p6_STG+1         shared instruction tail: $A205 is reachable code inside the instruction at $A204
-;   $A219 -> READ_CON_BUF_EDIT_2_p2_STG+1         shared instruction tail: $A219 is reachable code inside the instruction at $A218
-;   $A235 -> READ_CON_BUF_EDIT_4_STG+1         shared instruction tail: $A235 is reachable code inside the instruction at $A234
-;   $A256 -> READ_CON_BUF_EDIT_9_p4_STG+1         shared instruction tail: $A256 is reachable code inside the instruction at $A255
-;   $A288 -> FCB_NAME_MATCH_REC_1_p5_STG+1         shared instruction tail: $A288 is reachable code inside the instruction at $A287
-;   $A29D -> DIR_NEXT_ENTRY_1_p13_STG+1         z80 skip idiom: enters the operand of $21 at $A29C
-;   $A2D2 -> FCB_CMP_DIR_ENTRY_5_STG+1        shared instruction tail: $A2D2 is reachable code inside the instruction at $A2D1
-;   $A307 -> BDOS_DCIO_3_STG+2        shared instruction tail: $A307 is reachable code inside the instruction at $A305
-;   $A318 -> DIR_SEARCH_STEP_p12_STG+1        shared instruction tail: $A318 is reachable code inside the instruction at $A317
-;   $A34A -> DIR_SEARCH_STEP_4_STG+2         shared instruction tail: $A34A is reachable code inside the instruction at $A348
-;   $A394 -> DISK_DEBLOCK_p6_STG+2         shared instruction tail: $A394 is reachable code inside the instruction at $A392
-;   $A39C -> DISK_DEBLOCK_p14_STG+2         shared instruction tail: $A39C is reachable code inside the instruction at $A39A
-;   $A3A4 -> DISK_DEBLOCK_p22_STG+2         shared instruction tail: $A3A4 is reachable code inside the instruction at $A3A2
-;   $A3D1 -> DISK_DEBLOCK_1_p12_STG+1         shared instruction tail: $A3D1 is reachable code inside the instruction at $A3D0
-;   $A3F4 -> DISK_DEBLOCK_4_p9_STG+2         z80 skip idiom: enters the operand of $21 at $A3F2
-;   $A3FD -> BDOS_CHECK_ERROR_p6_STG+2         shared instruction tail: $A3FD is reachable code inside the instruction at $A3FB
-;   $A45A -> BDOS_RANDREC_3_STG+1         shared instruction tail: $A45A is reachable code inside the instruction at $A459
-;   $A494 -> BDOS_RANDREC_5_p39_STG+2         z80 skip idiom: enters the operand of $21 at $A492
-;   $A4A2 -> BDOS_RANDREC_6_STG+1         shared instruction tail: $A4A2 is reachable code inside the instruction at $A4A1
-;   $A4FD -> BDOS_RANDREC_14_p1_STG+2        shared instruction tail: $A4FD is reachable code inside the instruction at $A4FB
-;   $A546 -> FCB_EXTENT_TO_TRKSEC_1_p25_STG+2         shared instruction tail: $A546 is reachable code inside the instruction at $A544
-;   $A583 -> FCB_EXTENT_TO_TRKSEC_6_STG+2         shared instruction tail: $A583 is reachable code inside the instruction at $A581
-;   $A58E -> FCB_EXTENT_TO_TRKSEC_7_p9_STG+1         shared instruction tail: $A58E is reachable code inside the instruction at $A58D
-;   $A5AC -> FCB_ALLOC_PREP_p5_STG+2         z80 skip idiom: enters the operand of $21 at $A5AA
-;   $A5E6 -> FCB_ALLOC_BLOCK_NUM_2_p18_STG+2         shared instruction tail: $A5E6 is reachable code inside the instruction at $A5E4
-;   $A66C -> DISK_STORE_SEC_TRK_11_p4_STG+2         shared instruction tail: $A66C is reachable code inside the instruction at $A66A
-;   $A68C -> DISK_STORE_SEC_TRK_17_STG+2        shared instruction tail: $A68C is reachable code inside the instruction at $A68A
-;   $A69A -> DISK_STORE_SEC_TRK_19_p6_STG+2        shared instruction tail: $A69A is reachable code inside the instruction at $A698
-;   $A707 -> DRV_INSTALL_RWTS_12_p9_STG+1         shared instruction tail: $A707 is reachable code inside the instruction at $A706
-;   $A747 -> DISK_SEEK_TRACK_1_STG+2         shared instruction tail: $A747 is reachable code inside the instruction at $A745
-;   $A77F -> DIR_NAME_MASK_1_STG+1         z80 skip idiom: enters the operand of $3E at $A77E
-;   $A784 -> DIR_NAME_MASK_2_STG+1         z80 skip idiom: enters the operand of $21 at $A783
-;   $A78B -> DIR_NAME_MASK_2_p6_STG+2        shared instruction tail: $A78B is reachable code inside the instruction at $A789
-;   $A7D2 -> DIR_NAME_MASK_11_p9_STG+1         shared instruction tail: $A7D2 is reachable code inside the instruction at $A7D1
-;   $A7E4 -> DIR_NAME_MASK_13_p3_STG+1         shared instruction tail: $A7E4 is reachable code inside the instruction at $A7E3
-;   $A80C -> DIR_NAME_MASK_21_p1_STG+1        shared instruction tail: $A80C is reachable code inside the instruction at $A80B
-;   $A821 -> DIR_NAME_MASK_25_p3_STG+1        shared instruction tail: $A821 is reachable code inside the instruction at $A820
-;   $A845 -> DIR_NAME_MASK_31_p3_STG+1        shared instruction tail: $A845 is reachable code inside the instruction at $A844
-;   $A851 -> DIR_NAME_MASK_33_p3_STG+1        shared instruction tail: $A851 is reachable code inside the instruction at $A850
-;   $A875 -> DIR_NAME_MASK_38_STG+1        shared instruction tail: $A875 is reachable code inside the instruction at $A874
-
-    IFNDEF CPM_LINK
-        INCLUDE "cpm22.inc"
-    ORG $9300
-    ENDIF
-
-
 ; ----------------------------------------------------------------------
-; PRE_CCP_FRAGMENT_9300 -- image-base bytes; NOT confirmed executable code [UNKNOWN]. $9300, 0
-; static referrers, file's only RST $08; JP target $95FD lands mid-instruction (inside LD A,($9BF0)
-; at $95FB). Likely not Z-80 code.
+; CCP_ENTRY -- CCP cold/warm entry; jump to the main login-and-prompt setup.
+;   In: C = (drive<<4 | user) packed login byte passed by the BIOS warm boot.
+;   Out: never returns (sets up the CCP then enters the command loop).
+;   Clobbers: all.
+;   Algorithm: JP to the CCP login setup at CCP_COLD_ENTRY ($975C). The 3 bytes after
+;     the JP are a second entry vector 'JP $9758' (C3 58 97); $9758 is CCP_WARM_ENTRY
+;     (clears CCP_INLEN, then re-runs the login setup) -- the warm-start re-entry.
+;   [RE] Standard CP/M 2.2 CCP base (CBASE).
 ; ----------------------------------------------------------------------
-PRE_CCP_FRAGMENT_9300:
-        RST $08
-        SUB A
-        INC DE
-        INC HL
-        DEC B
-        ; [FLAG] $95FD lands mid-instruction (inside LD A,($9BF0) at $95FB) -- data-as-code
-        JP NZ,CHECK_DRIVE_ERR_2+2
-        RET
+; (CCP_ENTRY == module base; defined in cpm_system_220.inc)
+        ; enter CCP login setup: reset SP, log in drive/user
+        JP CCP_COLD_ENTRY                    ; $9400  C3 5C 97
+        DEFB    $C3,$58,$97                                      ; $9403
 ; ----------------------------------------------------------------------
-; ECHO_TO_BLANK -- echo the PARSE_PTR2 token to the console (CONOUT E08C) up to a blank/NUL, then
-; tail-jump to the shared RET ($9622); else INC HL, re-enter scan continuation $960F. E098 fires
-; once at entry. $960F/$9622 in the RST-dispatch cluster (mis-decode owned there).
+; CCP_INBUF -- console line-input buffer descriptor for C_READSTR.
+;   Layout: byte0 ($9406)=max length ($7F=127), byte1 ($9407)=returned count,
+;     bytes2.. ($9408)=the typed command line (also the CCP work text area).
+;   [RE] Standard CP/M 2.2 CCP command buffer.
 ; ----------------------------------------------------------------------
-ECHO_TO_BLANK:
-        CALL RPC6502_E098
-        LD HL,(PARSE_PTR2)
-        LD A,(HL)
-        CP ' '
-        JP Z,RST_TABLE_9609_4
-        OR A
-        JP Z,RST_TABLE_9609_4
-        PUSH HL
-        CALL RPC6502_E08C
-        POP HL
-        INC HL
-        ; re-enter scan continuation ($960F) for the next char
-        JP RST_TABLE_9609_1
+CCP_INBUF:
+        DEFB    $7F                                              ; $9406
 ; ----------------------------------------------------------------------
-; PARSE_BADCHAR -- report a bad command by emitting '?' (CONOUT E08C), run E098, then CALL/JP into
-; the shared error path ($95DD / $9782). '?' emission OBSERVED.
+; CCP_INLEN -- count of characters returned by the last C_READSTR (buffer fill).
+;   Also doubles as the auto-command flag: nonzero on entry means a command string
+;   is already staged in CCP_CMDTEXT and is re-parsed instead of re-prompting.
+;   [RE]
 ; ----------------------------------------------------------------------
-PARSE_BADCHAR:
-        LD A,'?'
-        CALL RPC6502_E08C
-        CALL RPC6502_E098
-        ; [FLAG] shared error/print path; $95DD lands mid-instruction (inside JP RPC6502_E0A7 at
-        ; $95DC)
-        CALL RPC_CALL_HL_2+1
-        ; [FLAG] $9782 is the operand of the FE-20 (CP $20) cover at DIR_CMD_1 ($9781), a
-        ; cover-idiom entry into DIR_CMD code (NOT a message pointer)
-        JP DIR_CMD_1+1
+CCP_INLEN:
+        DEFB    "\0"    ; $9407
 ; ----------------------------------------------------------------------
-; SCAN_DELIM -- classify the byte at (DE) against the CP/M command-line delimiter set. Out: Z if
-; (DE) is NUL or a delimiter, else NZ. A control char (below space) aborts to $9609. The eight
-; tested chars are exactly the CP/M 2.2 delimiters (space = _ . : ; < >).
+; CCP_CMDTEXT -- the command-line text area (CCP_INBUF+2).
+;   Holds the upper-cased command line being parsed. On cold start it carries
+;   16 spaces, the DRI string 'COPYRIGHT (C) 1979, DIGITAL RESEARCH  ', a NUL, then
+;   73 zero pad bytes -- this fixed init doubles as the CCP scratch/line area.
+;   [RE]
 ; ----------------------------------------------------------------------
-SCAN_DELIM:
-        LD A,(DE)
-        OR A
-        RET Z
-        CP ' '
-        ; [FLAG] control chars (below space) illegal -> abort to the error handler ($9609)
-        JP C,RST_TABLE_9609
-        RET Z
-        CP '='
-        RET Z
-        CP '_'
-        RET Z
-        CP '.'
-        RET Z
-        CP ':'
-        RET Z
-        CP ';'
-        RET Z
-        CP '<'
-        RET Z
-        CP '>'
-        RET Z
-        RET
+CCP_CMDTEXT:
+        DEFS    16, $20    ; $9408  fill
+        DEFB    "COPYRIGHT (C) 1979, DIGITAL RESEARCH  "    ; $9418  string
+        DEFB    $00    ; $943E  terminator
+        DEFS    73, $00    ; $943F  fill
 ; ----------------------------------------------------------------------
-; SKIP_ONE_BLANK -- skip a single leading blank then chain to the scanner at $964F. NUL->RET Z;
-; non-blank->RET NZ; blank->INC DE + JP $964F. $964F in the RST-dispatch cluster (mis-decode; also
-; CALLed from BUILD_FCB $9370). The 7 bytes at $9359 are a separate recovered helper (see SPLITs).
+; CCP_PARSEPTR -- 16-bit scan pointer into CCP_CMDTEXT used during command parse.
+;   Initialized to CCP_CMDTEXT ($9408); advanced as tokens are consumed.
+;   [RE]
 ; ----------------------------------------------------------------------
-SKIP_ONE_BLANK:
-        LD A,(DE)
-        OR A
-        RET Z
-        CP ' '
-        RET NZ
-        INC DE
-        ; continue scanning to the next non-blank token ($964F)
-        JP RST_TABLE_964F
-        DEFB    $85
-        DEFB    $6F,$D0,$24,$C9,$3E,$00  ; "oP$I>"
+CCP_PARSEPTR:
+        DEFB    $08,$94                                          ; $9488
 ; ----------------------------------------------------------------------
-; BUILD_FCB -- [RE] parse the optional leading drive specifier ("X:") of one command-line filename
-; token into the CCP-local File Control Block. SEE CAVEAT: as decoded this routine cannot be the
-; LIVE parser (every exit targets the 6502 region); the FCB-parser reading is a strong [RE]
-; inference from the byte patterns, the precise control flow is NOT established.
-;   In:        PARSE_PTR ($9488, a cell inside the 6502 RPC block) holds the live command-line scan
-;              cursor; CMD_EXEC_69 ($9BEF, a CCP workspace byte that elsewhere also coincides with a
-;              JP opcode in the loaded image -- reused RAM) holds the current default-drive code. HL
-;              is set internally to the FCB build buffer at $9BCD.
-;   Out:       [RE] FCB.DR (byte 0 of the $9BCD buffer) set to a drive code; the $9BF0 flag cell
-;              cleared on entry; PARSE_PTR2 ($948A) set to the blank-skipped token start. On the
-;              no-explicit-drive path the default drive (CMD_EXEC_69) is stored to FCB.DR.
-;   Clobbers:  A, B, DE, HL, flag cell $9BF0; pushes HL (the FCB base) twice on entry (matching the
-;              POP HL in the parse routines).
-;   Algorithm: [RE] Set HL = FCB buffer $9BCD and PUSH it twice. Clear the $9BF0 flag. Skip leading
-;              blanks via the $964F RPC service and record the token start in PARSE_PTR2. Read the
-;              first token byte: if NUL, the line is empty. Otherwise tentatively treat it as a
-;              drive letter (B = char - '@' gives 1..26 for A..Z, with carry clear from the
-;              preceding OR A) and peek the following byte: if ':' an explicit drive prefix was
-;              present; if not, back up (DEC DE) and store the default drive (CMD_EXEC_69) into
-;              FCB.DR.
-;   CAVEAT (verified against sysimg_220_44k.bin, base $9300): EVERY conditional/unconditional exit
-;   of this routine (JP Z RPC_DISPATCH_7=$9689, JP Z RPC_DISPATCH_8+1=$9690, JP
-;   RPC_DISPATCH_9=$9696) targets the $9685-$96FF range, which disassembles as COHERENT 6502 code
-;   (config-block stores STA $03C7/STA $03DE, JSR $FDED=COUT, JMP $FF65=MONZ, and a JMP-$AA00
-;   trampoline builder LDA #$C3/STA $1000 ...), NOT Z-80. Likewise CALL RPC_DISPATCH_SETUP=$9659,
-;   CALL RST_TABLE_964F=$964F, CALL RST_TABLE_9630=$9630 all enter that 6502 region. So those
-;   targets are an UN-extracted embedded-6502 RPC service (the same kind already INCBIN'd at
-;   $9400-$94FF), mis-rendered as Z-80; their Z-80 meaning is UNKNOWN and they are NOT relocated
-;   here. Do NOT read the named '_8+1'/'_9' targets as the BUILD_FCB_NAME/BUILD_FCB_* routines that
-;   follow at $9390+ -- they are different addresses in the 6502 page. See summary.
+; CCP_TOKENPTR -- 16-bit pointer to the start of the current token.
+;   Saved by the FCB builder and reused by the bad-character echo routine.
+;   [RE]
 ; ----------------------------------------------------------------------
-BUILD_FCB:
-        ; [RE] point HL at the CCP-local File Control Block build buffer ($9BCD); byte 0 = FCB.DR,
-        ; bytes 1-8 the name (CPMFCB.F), bytes 9-11 the type/extension (CPMFCB.T)
-        LD HL,CCP_FCB
-        ; [RE] hand off to the 6502 via the SoftCard CPU switch (target $9659 is in the un-extracted
-        ; 6502 RPC region); exact service UNKNOWN as Z-80
-        CALL RPC_DISPATCH_SETUP
-        ; save the FCB buffer base twice so the parse code can restore it with POP HL
-        PUSH HL
-        PUSH HL
-        ; A=0, about to clear the $9BF0 drive-seen flag (no explicit drive yet)
-        XOR A
-        LD (CCP_FCB+35),A
-        ; [RE] load the live command-line scan cursor (PARSE_PTR, a cell inside the 6502 RPC block)
-        ; for the byte fetches below
-        LD HL,(PARSE_PTR)
-        EX DE,HL
-        ; [RE] skip leading blanks via the $964F 6502 RPC service (target is in the un-extracted
-        ; 6502 region); returns the cursor past the whitespace
-        CALL RST_TABLE_964F
-        EX DE,HL
-        ; record the blank-skipped token start in PARSE_PTR2 ($948A, a cell in the 6502 block)
-        LD (PARSE_PTR2),HL
-        EX DE,HL
-        POP HL
-        ; read the first token character; if zero the command line is empty
-        LD A,(DE)
-        OR A
-        JP Z,RPC_DISPATCH_7
-        ; [RE] tentatively convert a drive letter to a 1-based index: with carry clear (from OR A),
-        ; 'A'($41)-'@'($40)=1 ... 'P'=16 ... 'Z'=26; only meaningful if the next char is ':'
-        SBC A,'@'
-        LD B,A
-        INC DE
-        LD A,(DE)
-        ; [RE] is the second character ':'? if so the token began with an explicit drive specifier
-        ; "X:"
-        CP ':'
-        JP Z,RPC_DISPATCH_8+1
-        ; no ':' -- ordinary filename; back the cursor up over the char read as the would-be ':'
-        DEC DE
-        ; [RE] no explicit drive: take the CCP current default drive from workspace cell $9BEF (this
-        ; byte coincides with a JP opcode in the loaded image elsewhere -- reused RAM, read here as
-        ; a data byte)
-        LD A,(CMD_EXEC_69)
-        ; [RE] store the default drive code into FCB.DR (byte 0 of the $9BCD buffer)
-        LD (HL),A
-        JP RPC_DISPATCH_9
+CCP_TOKENPTR:
+        DEFB    "\0\0"    ; $948A
 ; ----------------------------------------------------------------------
-; BUILD_FCB_NAME -- [RE] begin filling the 8-character name field (CPMFCB.F) of the FCB from the
-; command line. SEE the BUILD_FCB CAVEAT: this fragment cannot run as live Z-80 as decoded (all its
-; branches/CALLs target the 6502 region); the name-field reading is a [RE] inference from the byte
-; patterns.
-;   In:        B = drive code (on the explicit "X:" path); HL = FCB.DR slot; DE = command-line
-;              cursor at the first name character. The $9630 reference is a 6502 RPC service
-;              (returns the next significant token character; Z at a terminator) -- not a Z-80
-;              subroutine.
-;   Out:       [RE] drive recorded in $9BF0 and stored to FCB.DR; B reloaded to 8 (name-field
-;              width); first name character classified ('*' wildcard vs literal).
-;   Clobbers:  A, B, HL, flag cell $9BF0.
-;   Algorithm: [RE] Record the drive in $9BF0 and store it to FCB.DR. Set the field counter B = 8.
-;              Obtain the next character via the $9630 6502 RPC; classify '*' (expand to '?' fill)
-;              vs a literal name character.
-;   CAVEAT: the branch targets (RPC_DISPATCH_16=$96B9, RPC_DISPATCH_13+1=$96A9,
-;           RPC_DISPATCH_14=$96AB) and CALL $9630 all land in the $96xx 6502 region (mis-rendered as
-;           Z-80); their Z-80 meaning is UNKNOWN and they are NOT relocated. Do NOT equate these
-;           named targets with BUILD_FCB_NAME_CH/_PAD -- those are at different $93xx addresses. See
-;           summary.
+; CCP_CONOUT -- write one character to the console via BDOS C_WRITE.
+;   In: A = character to emit.
+;   Out: none (BDOS return ignored).
+;   Clobbers: C, E; BDOS clobbers per ABI.
+;   Algorithm: E:=A; C:=C_WRITE(2); JP BDOS.
+;   [RE]
 ; ----------------------------------------------------------------------
-BUILD_FCB_NAME:
-        ; [RE] copy the drive code to record it in the flag cell and store it into the FCB
-        LD A,B
-        ; [RE] remember the parsed drive in the $9BF0 flag cell (non-zero => an explicit drive was
-        ; given)
-        LD (CCP_FCB+35),A
-        ; [RE] store the drive code into FCB.DR (byte 0 of the $9BCD buffer)
-        LD (HL),B
-        INC DE
-        ; set the field counter to 8 -- the width of the CP/M FCB name field (CPMFCB.F, F1-F8)
-        LD B,$08
-        ; [RE] fetch the next token character via the $9630 6502 RPC service (Z at a name-field
-        ; terminator); target is in the un-extracted 6502 region
-        CALL RST_TABLE_9630
-        JP Z,RPC_DISPATCH_16
-        INC HL
-        ; [RE] is this character '*'? a '*' wildcard expands to '?' fill for the rest of the field
-        CP '*'
-        JP NZ,RPC_DISPATCH_13+1
-        ; [RE] '*' seen: write a '?' wildcard into this name byte
-        LD (HL),'?'
-        JP RPC_DISPATCH_14
+CCP_CONOUT:
+        ; E = char to print
+        LD E,A                           ; $948C  5F
+        ; C_WRITE = 2
+        LD C,$02                         ; $948D  0E 02
+        ; tail-call BDOS to emit the char
+        JP $0005                         ; $948F  C3 05 00
 ; ----------------------------------------------------------------------
-; BUILD_FCB_NAME_CH -- [RE] store-and-advance loop body for one name character of the 8-char FCB
-; name field. SEE the BUILD_FCB CAVEAT: cannot run as live Z-80 as decoded (its branches/CALL target
-; the 6502 region).
-;   In:        A = the character to store; HL = current FCB name byte; DE = command-line cursor; B =
-;              remaining name-field count.
-;   Out:       [RE] character written to (HL); DE advanced; B decremented; on field full, the next
-;              character requested via the $9630 6502 RPC.
-;   Clobbers:  A, B, DE, HL.
-;   Algorithm: [RE] Write the character into the FCB name field, advance the cursor, decrement the
-;              counter; loop while not full. When the 8 bytes are consumed, request the next token
-;              character via the $9630 RPC to decide name-vs-extension.
-;   CAVEAT: the branch/loop targets (RPC_DISPATCH_10=$9698, _17=$96C0, _15=$96AF) and CALL $9630 are
-;           in the $96xx 6502 region (mis-rendered as Z-80); UNKNOWN as Z-80, NOT relocated. See
-;           summary.
+; CCP_CONOUT_KEEPBC -- print one char (CCP_CONOUT) preserving BC.
+;   In: A = character.
+;   Out: BC unchanged.
+;   Clobbers: A/flags via BDOS; BC saved/restored.
+;   Algorithm: PUSH BC; call CCP_CONOUT; POP BC; RET.
+;   [RE]
 ; ----------------------------------------------------------------------
-BUILD_FCB_NAME_CH:
-        ; [RE] store this character into the current FCB name byte (CPMFCB.F)
-        LD (HL),A
-        INC DE
-        ; one fewer name-field byte remaining; loop while the 8-char name field is not yet full
-        DEC B
-        JP NZ,RPC_DISPATCH_10
-        ; [RE] name field full: request the next token character via the $9630 6502 RPC (Z => token
-        ; ended, no extension); target is in the un-extracted 6502 region
-        CALL RST_TABLE_9630
-        JP Z,RPC_DISPATCH_17
-        INC DE
-        JP RPC_DISPATCH_15
+CCP_CONOUT_KEEPBC:
+        PUSH BC                          ; $9492  C5
+        ; emit char, with BC protected
+        CALL CCP_CONOUT                    ; $9493  CD 8C 94
+        POP BC                           ; $9496  C1
+        RET                              ; $9497  C9
 ; ----------------------------------------------------------------------
-; BUILD_FCB_PAD -- [RE] space-pad the unused tail of the 8-char name field, then begin the 3-char
-; type/extension field (CPMFCB.T). SEE the BUILD_FCB CAVEAT: cannot run as live Z-80 as decoded.
-;   In:        HL = current FCB name byte; B = remaining name-field bytes to pad; A = the name-scan
-;              terminator character (tested for '.').
-;   Out:       [RE] remaining name bytes filled with ' '; B reset to 3 for the extension; if a '.'
-;              separator is present the extension scan begins, classifying '*' as '?' fill.
-;   Clobbers:  A, B, HL, DE.
-;   Algorithm: [RE] Fill leftover name bytes with ' ' until B=0. Set B=3 (type-field width). If the
-;              terminator was not '.', no extension. Otherwise consume the '.', request the first
-;              extension character via $9630, and classify '*' (expand to '?').
-;   CAVEAT: the branch targets (RPC_DISPATCH_16=$96B9, _23+1=$96E9, _20=$96D9, _21=$96DB) and CALL
-;           $9630 are in the $96xx 6502 region (mis-rendered as Z-80); UNKNOWN as Z-80, NOT
-;           relocated. See summary.
+; CCP_CRLF -- emit a carriage-return + line-feed to the console.
+;   In: none.
+;   Out: cursor at start of next line; BC preserved.
+;   Clobbers: A/flags.
+;   Algorithm: print CR ($0D) then LF ($0A), each via CCP_CONOUT_KEEPBC.
+;   [RE]
 ; ----------------------------------------------------------------------
-BUILD_FCB_PAD:
-        INC HL
-        ; [RE] pad an unused name-field byte with a space (CP/M FCB name fields are blank-filled)
-        LD (HL),' '
-        DEC B
-        JP NZ,RPC_DISPATCH_16
-        ; set the field counter to 3 -- the width of the CP/M FCB type/extension field (CPMFCB.T,
-        ; T1-T3)
-        LD B,$03
-        ; [RE] was the name-field terminator a '.'? only then does a file-type extension follow
-        CP '.'
-        JP NZ,RPC_DISPATCH_23+1
-        INC DE
-        ; [RE] request the first extension character via the $9630 6502 RPC (Z => empty extension);
-        ; target is in the un-extracted 6502 region
-        CALL RST_TABLE_9630
-        JP Z,RPC_DISPATCH_23+1
-        INC HL
-        ; [RE] is the first extension character '*'? a '*' expands to '?' fill across the type field
-        CP '*'
-        JP NZ,RPC_DISPATCH_20
-        ; [RE] '*' seen in the extension: write a '?' wildcard into this type byte
-        LD (HL),'?'
-        JP RPC_DISPATCH_21
+CCP_CRLF:
+        ; CR
+        LD A,$0D                         ; $9498  3E 0D
+        CALL CCP_CONOUT_KEEPBC                    ; $949A  CD 92 94
+        ; LF
+        LD A,$0A                         ; $949D  3E 0A
+        JP CCP_CONOUT_KEEPBC                      ; $949F  C3 92 94
 ; ----------------------------------------------------------------------
-; BUILD_FCB_EXT_CH -- [RE] store-and-advance loop body for one character of the 3-char FCB
-; type/extension field (CPMFCB.T). SEE the BUILD_FCB CAVEAT: cannot run as live Z-80 as decoded.
-;   In:        A = the extension character to store; HL = current FCB type byte; DE = command-line
-;              cursor; B = remaining type-field count.
-;   Out:       [RE] character written to (HL); DE advanced; B decremented; on field full, the next
-;              character requested via the $9630 RPC.
-;   Clobbers:  A, B, DE, HL.
-;   Algorithm: [RE] Write the extension character into the FCB type field, advance the cursor,
-;              decrement the counter; loop while not full. When full, request the next token
-;              character via $9630 to detect the token end.
-;   CAVEAT: the branch targets (RPC_DISPATCH_18+1=$96C8, _24=$96F0, _22+1=$96DF) and CALL $9630 are
-;           in the $96xx 6502 region (mis-rendered as Z-80); UNKNOWN as Z-80, NOT relocated. See
-;           summary.
+; CCP_SPACE -- emit a single blank to the console.
+;   In: none.  Out: BC preserved.  Clobbers: A/flags.
+;   Algorithm: A:=' ' ($20); JP CCP_CONOUT_KEEPBC.
+;   [RE]
 ; ----------------------------------------------------------------------
-BUILD_FCB_EXT_CH:
-        ; [RE] store this character into the current FCB type/extension byte (CPMFCB.T)
-        LD (HL),A
-        INC DE
-        ; one fewer type-field byte remaining; loop while the 3-char extension field is not yet full
-        DEC B
-        JP NZ,RPC_DISPATCH_18+1
-        ; [RE] extension field full: request the next token character via the $9630 6502 RPC (Z =>
-        ; token complete); target is in the un-extracted 6502 region
-        CALL RST_TABLE_9630
-        JP Z,RPC_DISPATCH_24
-        INC DE
-        JP RPC_DISPATCH_22+1
+CCP_SPACE:
+        ; space character
+        LD A,$20                         ; $94A2  3E 20
+        JP CCP_CONOUT_KEEPBC                      ; $94A4  C3 92 94
 ; ----------------------------------------------------------------------
-; BUILD_FCB_EXT_PAD -- [RE] space-pad the unused tail of the 3-char type field, clear the following
-; FCB control byte, and write the advanced scan cursor back. SEE the BUILD_FCB CAVEAT plus the
-; no-terminator note below.
-;   In:        HL = current FCB type byte; B = remaining type-field bytes to pad; DE = command-line
-;              cursor past the token.
-;   Out:       [RE] remaining type bytes filled with ' '; the byte after the type field (FCB
-;              current-extent region, CPMFCB.EX) set to $00; PARSE_PTR ($9488) updated to the
-;              post-token cursor; HL (FCB base) restored via POP.
-;   Clobbers:  A, B, DE, HL; PARSE_PTR cell.
-;   Algorithm: [RE] Fill leftover type bytes with ' ' until B=0. Reload B=3, advance HL once and
-;              write $00 into the byte after the type field (clears the FCB current-extent byte so
-;              the FCB opens cleanly), looping once. Swap the cursor into HL, store it to PARSE_PTR,
-;              and POP the saved FCB base.
-;   CAVEAT: this fragment has NO Z-80 RET; after POP HL the bytes are DEFB $01,$0B (a boundary
-;           cover) and then the embedded 6502 RPC block at $9400 (RPC6502_BLOCK, INCBIN'd). Its
-;           in-loop branch targets (RPC_DISPATCH_23+1=$96E9, _25=$96F2) are in the $96xx 6502 region
-;           (mis-rendered as Z-80). The true terminal/return path is UNKNOWN as Z-80. The
-;           missing-RET plus fall-into-cover reinforces that the $9300 page does not terminate
-;           cleanly as live Z-80 -- see summary open question 1.
+; CCP_CRLF_MSG -- emit CR/LF then print a NUL-terminated message.
+;   In: BC -> NUL-terminated message string.
+;   Out: message printed after a new line.
+;   Clobbers: A, HL, BC.
+;   Algorithm: CCP_CRLF; HL:=BC (via PUSH BC/POP HL); fall into CCP_PUTS.
+;   [RE] Used by the 'READ ERROR' / 'NO FILE' message printers.
 ; ----------------------------------------------------------------------
-BUILD_FCB_EXT_PAD:
-        INC HL
-        ; [RE] pad an unused type-field byte with a space (CP/M FCB type fields are blank-filled)
-        LD (HL),' '
-        DEC B
-        JP NZ,RPC_DISPATCH_23+1
-        ; reload the loop guard to 3 for the single trailing-byte clear that follows
-        LD B,$03
-        INC HL
-        ; [RE] clear the byte after the 3-char type field -- the FCB current-extent byte (CPMFCB.EX)
-        ; -- so the FCB is ready for a BDOS open
-        LD (HL),$00
-        DEC B
-        JP NZ,RPC_DISPATCH_25
-        ; move the post-token command-line cursor (DE) into HL to store it
-        EX DE,HL
-        ; [RE] write the advanced scan cursor back to PARSE_PTR ($9488, a cell in the 6502 block)
-        ; for the next token parse
-        LD (PARSE_PTR),HL
-        ; restore the FCB buffer base saved by the two PUSH HL in BUILD_FCB
-        POP HL
-        DEFB    $01,$0B
-RPC6502_BLOCK:                           ; -$9500  embedded 6502 RPC block -- 6502 code (NOT Z-80), run on the
-;          ; 6502 via the SoftCard CPU switch. Assembled from CPM_RPC6502.s (ca65,
-;          ; authoritative) and INCBIN'd here byte-identical. Its exact source listing
-;          ; follows so this file is self-documenting.
-;   >>> CPM_RPC6502.s -- verbatim listing of the INCBIN'd source (regen: inject_incbin_listing) >>>
-;
-; PRERR           = $FF2D         ; Apple II Monitor: print "ERR" + bell
-;
-; .org $9400
-;
-; ; ----------------------------------------------------------------------------
-; ; SECTOR_RW -- RWTS retry tail. Restore the saved processor flags and re-enter
-; ;   the RWTS dispatcher ($0F3E) with the read ($40) or write ($20) command in A.
-; ;   The two backward branches ($93EA/$93D1) re-enter the surrounding RWTS driver
-; ;   (below this image -- kept literal, [?]).
-; ;   Clobbers: A, flags, stack (PLA/PLP).
-; ; ----------------------------------------------------------------------------
-; SECTOR_RW:
-;         DEC $04F8                    ; retry counter (low sector cell)
-;         BNE $93EA                    ; more retries -> back into the RWTS driver [?]
-;         BEQ $93D1                    ; exhausted -> error exit [?]
-;         PLA
-;         LDA #$40                     ; command = read
-; SECTOR_RW_1:
-;         PLP                          ; restore caller's flags
-;         JMP $0F3E                    ; -> RWTS dispatcher
-;
-; ; ----------------------------------------------------------------------------
-; ; SECTOR_MATCH -- compare the requested sector ($2D, post-skew) against the
-; ;   address field just read. On a match, fall to DRIVE_MOTOR_ON; on the wrong
-; ;   sector, retry with command $20/$10; the skew maps logical->physical via the
-; ;   $0F9D translate table.
-; ;   Clobbers: A, Y, flags.
-; ; ----------------------------------------------------------------------------
-; SECTOR_MATCH:
-;         BEQ DRIVE_MOTOR_ON           ; already positioned -> set up the drive
-;         LDA $2F
-;         STA $03E3                    ; save current track
-;         LDA $03E2
-;         BEQ SECTOR_MATCH_1           ; no target track yet -> accept
-;         CMP $2F
-;         BEQ SECTOR_MATCH_1           ; on the target track -> accept
-;         LDA #$20                     ; wrong track -> re-seek command
-;         BNE SECTOR_RW_1
-; SECTOR_MATCH_1:
-;         LDA $03E1                    ; requested logical sector
-;         TAY
-;         LDA $0F9D,Y                  ; physical sector via the skew table
-;         CMP $2D                      ; == the sector just found?
-;         BNE $93CC                    ; no -> back into the RWTS driver [?]
-;         PLP
-;         BCC DRIVE_MOTOR_ON_2         ; carry clear -> seek/settle path
-;         JSR $0B00                    ; read the sector
-;         PHP
-;         BCS $93CC                    ; read error -> driver [?]
-;         PLP
-;         JSR $0BC6                    ; post-read processing
-;
-; ; ----------------------------------------------------------------------------
-; ; DRIVE_MOTOR_ON -- finalize drive state: clear (or, via DRIVE_MOTOR_ON_SEC, set)
-; ;   the carry-into-$03EA flag, then touch the slot's $C088,X soft switch (motor).
-; ;   DRIVE_MOTOR_ON_1 holds a BIT-cover byte so the CLC fall-through path skips the
-; ;   SEC that the LDA #$10 path (DRIVE_MOTOR_ON_2) jumps into.
-; ;   Clobbers: A, X, flags.  Returns via RTS.
-; ; ----------------------------------------------------------------------------
-; DRIVE_MOTOR_ON:
-;         CLC
-;         LDA #$00                     ; A=0, carry clear (no-error path)
-; DRIVE_MOTOR_ON_1:
-;         .byte $24                    ; cover byte (BIT-zp opcode): on fall-through this
-;                                      ;   eats the next byte as `BIT $38`, skipping the SEC
-; DRIVE_MOTOR_ON_SEC:                  ; entered via DRIVE_MOTOR_ON_2 -> set carry first
-;         SEC                          ; ($38) error path: carry set
-;         STA $03EA                    ; record the result flag
-;         LDX $05F8                    ; slot soft-switch offset
-;         LDA $C088,X                  ; drive motor toggle
-;         RTS
-; DRIVE_MOTOR_ON_2:
-;         JSR $0A25                    ; seek/settle the arm
-;         BCC DRIVE_MOTOR_ON           ; settled -> finalize (no error)
-;         LDA #$10                     ; seek-error result code
-;         BNE DRIVE_MOTOR_ON_SEC       ; -> SEC; STA $03EA (error path)
-;         ASL                          ; (dead tail after the BNE-always above)
-;         JSR $0F5A
-;         LSR $0478
-;         RTS
-;
-; ; ----------------------------------------------------------------------------
-; ; SECTOR_XFER_BYTE -- move one sector-data byte between the caller (A) and the
-; ;   active half of the sector buffer. Bit 7 of $35 selects which buffer page
-; ;   ($0478 vs $04F8) is the source and which the destination, then jumps into
-; ;   the RWTS nibble path ($0BDE).
-; ;   In: A = byte, Y = buffer index, $35 bit7 = direction.  Clobbers: A, flags.
-; ; ----------------------------------------------------------------------------
-; SECTOR_XFER_BYTE:
-;         STA $2E                      ; stash the byte
-;         JSR $0F7D                    ; RWTS helper (sync/position)
-;         LDA $0478,Y                  ; read from buffer page A ...
-;         BIT $35
-;         BMI SECTOR_XFER_BYTE_1
-;         LDA $04F8,Y                  ; ... or page B (bit7 clear)
-; SECTOR_XFER_BYTE_1:
-;         STA $0478                    ; latch into the working cell
-;         LDA $2E                      ; recover the byte
-;         BIT $35
-;         BMI SECTOR_XFER_BYTE_2
-;         STA $04F8,Y                  ; write to page B ...
-;         BPL SECTOR_XFER_BYTE_3
-; SECTOR_XFER_BYTE_2:
-;         STA $0478,Y                  ; ... or page A (bit7 set)
-; SECTOR_XFER_BYTE_3:
-;         JMP $0BDE                    ; -> RWTS nibble routine
-;
-; ; ----------------------------------------------------------------------------
-; ; SLOT_TO_INDEX -- convert a Disk II slot soft-switch offset (X = slot<<4) to a
-; ;   slot index (Y = slot number) by four logical shifts.
-; ;   In: X = slot<<4.  Out: Y = slot.  Clobbers: A, Y.
-; ; ----------------------------------------------------------------------------
-; SLOT_TO_INDEX:
-;         TXA
-;         LSR
-;         LSR
-;         LSR
-;         LSR
-;         TAY
-;         RTS
-;
-; ; ----------------------------------------------------------------------------
-; ; SECTOR_MOVE -- self-modified sector-data mover. The four bytes at $9488 are
-; ;   PATCHED at run time (via cells $9488/$948A) to become the active move/rotate
-; ;   instruction; bit 7 of $35 again selects the $0478/$04F8 buffer half. Decoded
-; ;   statically (on-disk bytes), so $9488 shows as `.byte` and $948C's `ADC` is
-; ;   the unpatched form -- [RE], the live opcodes differ.
-; ;   Clobbers: A, flags.  Returns via RTS.
-; ; ----------------------------------------------------------------------------
-; SECTOR_MOVE:
-;         PHA
-;         LDA $03E4                    ; current move parameter
-;         .byte   $6A, $66, $35, $20   ; self-modified slot ($9488-$948B); see header [RE]
-; SECTOR_MOVE_1:
-;         ADC $680F,X                  ; (unpatched static form; operand self-modified [RE])
-;         ASL
-;         BIT $35
-; SECTOR_MOVE_2:
-;         BMI SECTOR_MOVE_4            ; bit7 set -> page A
-;         STA $04F8,Y                  ; page B
-; SECTOR_MOVE_3:
-;         BPL SECTOR_MOVE_5
-; SECTOR_MOVE_4:
-;         STA $0478,Y                  ; page A
-; SECTOR_MOVE_5:
-;         RTS
-;
-; ; ----------------------------------------------------------------------------
-; ; SECTOR_XLATE_TABLE -- 16-entry logical->physical sector interleave (the 2:1
-; ;   "soft" skew: 0,2,4,...,E,1,3,...,F), indexed by SECTOR_MATCH via $0F9D.
-; ; ----------------------------------------------------------------------------
-; SECTOR_XLATE_TABLE:
-;         .byte   $00, $02, $04, $06, $08, $0A, $0C, $0E, $01, $03, $05, $07, $09, $0B, $0D, $0F
-;
-; ; ----------------------------------------------------------------------------
-; ; WBOOT_LOAD -- warm-boot reload: re-read CP/M (CCP+BDOS) from the boot disk into
-; ;   the system image, which is why only ~5K of CP/M's 7K stays resident during a
-; ;   transient. [DOC Vol1 1-19 ; facts sec.8.7]. Points the load buffer high byte
-; ;   at the CP/M base ($A400 44K / $E400 56K), seeds the RWTS config cells, then
-; ;   loops over $1C sectors via $0E10, advancing the buffer page each time.
-; ;   Clobbers: A, X, Y, flags.  Returns via RTS (or aborts to the Monitor on error).
-; ; ----------------------------------------------------------------------------
-; WBOOT_LOAD:
-;         .ifdef CFG_56K
-;             lda     #>$E400          ; warm-boot load buffer hi (56K)
-;         .else
-;             lda     #>$A400          ; warm-boot load buffer hi (44K)
-;         .endif
-;         STA $03E9                    ; buffer page
-;         LDY #$00
-;         STY $03E8
-; WBOOT_LOAD_1:
-;         STY $03E0                    ; track = 0
-;         INY
-; WBOOT_LOAD_2:
-;         STY $03E4
-;         STY $03EB
-;         LDA #$60                     ; slot 6 (6<<4): the boot disk
-;         STA $03E6                    ; controller, drives A:/B:, MUST be present [DOC Vol1 1-3/1-4 ; facts sec.8.9]
-;         LDA #$0B
-;         STA $03E1                    ; starting sector
-;         LDA #$1C                     ; sector count to load ($1C)
-; WBOOT_READ_SECTOR:
-;         PHA                          ; save the remaining count
-;         PHP
-;         SEI                          ; reads are timing-critical
-; WBOOT_READ_SECTOR_1:
-;         JSR $0E10                    ; read one sector
-;         BCC WBOOT_NEXT_SECTOR        ; ok -> advance
-;         JSR PRERR                    ; error -> "ERR" + bell ...
-;         PLP
-;         PLA
-; WBOOT_ERR_MONITOR:
-;         JMP $0FAD                    ; ... and abort to the Monitor
-; WBOOT_NEXT_SECTOR:
-;         PLP
-;         INC $03E9                    ; next buffer page
-;         LDX $03E1                    ; current sector
-; WBOOT_NEXT_SECTOR_1:
-;         INX
-;         CPX #$10                     ; past sector $0F?
-;         BNE WBOOT_NEXT_SECTOR_3
-; WBOOT_NEXT_SECTOR_2:
-;         LDX #$00                     ; wrap to sector 0 ...
-;         INC $03E0                    ; ... and step to the next track
-; WBOOT_NEXT_SECTOR_3:
-;         STX $03E1
-;         PLA                          ; remaining count
-;         SEC
-;         SBC #$01
-;         BNE WBOOT_READ_SECTOR        ; more -> read the next sector
-;         LDA #$08                     ; done: reset the buffer page marker
-;         STA $03E9
-;         RTS
-;         .byte   $FF, $FF, $FF, $00   ; pad to $9500 (block tail)
-;   <<< end listing <<<
-        INCBIN  "CPM_RPC6502.bin"
-; -- Addresses the Z-80 references inside the 6502 block, as offsets from RPC6502_BLOCK
-;    (so they relocate with ORG). OPEN: how a Z-80 CALL into $94xx actually
-;    reaches/selects the 6502 service is NOT understood -- several of these land
-;    mid-6502-instruction or inside the skew table, so they are NOT semantic 6502
-;    entry points. Kept verbatim, auto-named, pending that investigation. The
-;    6502 CODE itself is named in CPM_RPC6502.s. --
-SUBMIT_FLAG           EQU RPC6502_BLOCK + $007
-CMDTAIL_SCRATCH           EQU RPC6502_BLOCK + $008
-PARSE_PTR           EQU RPC6502_BLOCK + $088
-PARSE_PTR2           EQU RPC6502_BLOCK + $08A
-RPC6502_E08C         EQU RPC6502_BLOCK + $08C
-RPC6502_E092         EQU RPC6502_BLOCK + $092
-RPC6502_E098         EQU RPC6502_BLOCK + $098
-RPC6502_E0A2         EQU RPC6502_BLOCK + $0A2
-RPC6502_E0A7         EQU RPC6502_BLOCK + $0A7
-RPC6502_E0B8         EQU RPC6502_BLOCK + $0B8
-RPC6502_E0BD         EQU RPC6502_BLOCK + $0BD
-RPC6502_E0D0         EQU RPC6502_BLOCK + $0D0
-RPC6502_E0DA         EQU RPC6502_BLOCK + $0DA
-RPC6502_E0E4         EQU RPC6502_BLOCK + $0E4
-RPC6502_E0E9         EQU RPC6502_BLOCK + $0E9
-RPC6502_E0EF         EQU RPC6502_BLOCK + $0EF
-RPC6502_E0F9         EQU RPC6502_BLOCK + $0F9
-RPC6502_E0FE         EQU RPC6502_BLOCK + $0FE
-RPC6502_END           EQU RPC6502_BLOCK + $0FF
+CCP_CRLF_MSG:
+        PUSH BC                          ; $94A7  C5
+        ; new line before the message
+        CALL CCP_CRLF                    ; $94A8  CD 98 94
+        ; HL = message pointer (was BC)
+        POP HL                           ; $94AB  E1
 ; ----------------------------------------------------------------------
-; FCB_WILDCARD_NEXT -- advance to the next name/type-field byte and fall into the per-byte
-; classifier [RE]
-;   In:        HL -> current byte of the field being scanned; B = running count of '?' bytes seen; C
-;              = bytes remaining in the field
-;   Out:       falls through into FCB_WILDCARD_TEST with A = the freshly fetched byte (HL advanced
-;              by one)
-;   Clobbers:  A, HL
-;   Algorithm: bump HL to the next field byte, load it into A, then fall into FCB_WILDCARD_TEST
-;              which classifies it as '?' vs. other. [RE] this is the per-byte step of a field scan;
-;              the non-'?' exit hands off to the decimal-digit field parser at FCB_DIGIT_ACCUM_STEP
-;              ($9709), so whether the field is an FCB name or a command-line numeric argument is
-;              not certain from these bytes alone.
+; CCP_PUTS -- print a NUL-terminated string to the console.
+;   In: HL -> string.
+;   Out: HL past the terminator on exit (loop stops at the NUL).
+;   Clobbers: A, HL.
+;   Algorithm: loop: A:=(HL); if A==0 RET; INC HL; emit A via CCP_CONOUT;
+;     repeat.
+;   [RE]
 ; ----------------------------------------------------------------------
-FCB_WILDCARD_NEXT:
-        ; ; step HL to the next byte of the field being scanned
-        INC HL
-        ; ; fetch the field byte; fall through to classify it
-        LD A,(HL)
+CCP_PUTS:
+        ; fetch next char
+        LD A,(HL)                        ; $94AC  7E
+        OR A                             ; $94AD  B7
+        ; NUL terminates the string
+        RET Z                            ; $94AE  C8
+        INC HL                           ; $94AF  23
+        PUSH HL                          ; $94B0  E5
+        ; emit this char
+        CALL CCP_CONOUT                    ; $94B1  CD 8C 94
+        POP HL                           ; $94B4  E1
+        JP CCP_PUTS                      ; $94B5  C3 AC 94
 ; ----------------------------------------------------------------------
-; FCB_WILDCARD_TEST -- classify the current field byte: '?' bumps the count, anything else leaves
-; the loop via the field parser [RE]
-;   In:        A = candidate field byte (from FCB_WILDCARD_NEXT); B = running '?' count; C = field
-;              bytes remaining
-;   Out:       if A != '?', branches to FCB_DIGIT_ACCUM_STEP ($9709, the digit/field parser); if A
-;              == '?', B is incremented then control falls into FCB_WILDCARD_CMP_C
-;   Clobbers:  B (on '?'), flags
-;   Algorithm: compare the byte against '?' ($3F). [RE] '?' looks like the CP/M ambiguous-filename
-;              wildcard, so a '?' increments the counter B and the scan continues into the
-;              field-length decrement; a non-'?' byte exits to the numeric/field parser at $9709.
-;              The exact field semantics are [RE], not confirmed.
-;   Note: $9503 is the FALL-THROUGH (CP $3F) tenant; the alternate mid-byte entry
-;         FCB_WILD_TEST_ENTRY ($9504 = CCF) is reached by `CALL $9504` at $98E6 and chains into the
-;         same $9709 parser. CCF touches only the carry flag, so the Z flag the caller set is
-;         preserved for the following `JP NZ`. See the split below.
+; BDOS_DRV_ALLRESET -- reset the disk system (BDOS function 13).
+;   In: none.  Out: per BDOS.  Clobbers: per BDOS ABI.
+;   Algorithm: C:=DRV_ALLRESET($0D); JP BDOS.
+;   [RE]
 ; ----------------------------------------------------------------------
-FCB_WILDCARD_TEST:
-        CP $3F
-        ; ; not '?' -> leave this loop, jump to the digit/field parser at FCB_DIGIT_ACCUM_STEP
-        ; ($9709)
-        JP NZ,FCB_DIGIT_ACCUM_STEP
-        ; ; '?' seen: bump the count [RE: CP/M ambiguous-filename wildcard]
-        INC B
+BDOS_DRV_ALLRESET:
+        ; DRV_ALLRESET = 13
+        LD C,$0D                         ; $94B8  0E 0D
+        JP $0005                         ; $94BA  C3 05 00
 ; ----------------------------------------------------------------------
-; FCB_WILDCARD_CMP_C -- decrement the field-byte counter; loop for the next byte unless the field is
-; exhausted [RE]
-;   In:        C = bytes remaining in the field; B = running '?' count; HL -> current field byte
-;   Out:       if C != 0, branches to FCB_DIGIT_ACCUM ($9701, the loop body) for the next byte; if C
-;              == 0, control falls into TEST_B_NZ with A = B
-;   Clobbers:  A, C, flags
-;   Algorithm: count down the per-field byte budget. While bytes remain, re-enter the scan loop body
-;              at $9701; once the field is exhausted, copy the accumulated count B into A and fall
-;              into TEST_B_NZ to set the predicate.
-;   Note: this label is also a clean CALL entry (`CALL $9509` at $98C2) used to decrement/test C
-;         directly. The loop body it targets ($9701) sits in the $9700 cluster, so the precise loop
-;         wiring across the $9500/$9700 boundary is only PARTIALLY understood.
+; BDOS_DRV_SET -- select the default drive (BDOS function 14).
+;   In: A = drive number (0=A..15=P).
+;   Out: per BDOS.  Clobbers: C, E; BDOS ABI.
+;   Algorithm: E:=A; C:=DRV_SET($0E); JP BDOS.
+;   [RE]
 ; ----------------------------------------------------------------------
-FCB_WILDCARD_CMP_C:
-        ; ; one fewer byte left in this field
-        DEC C
-        ; ; bytes remain -> back into the loop body at FCB_DIGIT_ACCUM ($9701)
-        JP NZ,FCB_DIGIT_ACCUM
-        ; ; field exhausted: move the accumulated count into A for the NZ predicate below
-        LD A,B
+BDOS_DRV_SET:
+        LD E,A                           ; $94BD  5F
+        ; DRV_SET = 14
+        LD C,$0E                         ; $94BE  0E 0E
+        JP $0005                         ; $94C0  C3 05 00
 ; ----------------------------------------------------------------------
-; TEST_B_NZ -- set Z/NZ from the byte in A (the accumulated count) and return [RE]
-;   In:        A = the count to test (from FCB_WILDCARD_CMP_C, or preloaded by the direct caller
-;              `CALL $950E` at $9A67)
-;   Out:       flags reflect A (Z if zero, NZ if non-zero); A unchanged
-;   Clobbers:  flags
-;   Algorithm: OR A then RET -- a one-instruction 'is A zero?' predicate. [RE] used as the 'was any
-;              '?' seen / is this field ambiguous?' test, but it is a generic zero-test and is also
-;              called directly with a caller-supplied A.
+; BDOS_FCB_OP -- call BDOS then record the result in CCP_OPENDIRCODE.
+;   In: C = BDOS function number, DE -> FCB (set by the caller).
+;   Out: A = BDOS return+1; Z set if the raw code was $FF (error/not-found);
+;     CCP_OPENDIRCODE ($9BEE) := the raw BDOS result code.
+;   Clobbers: A/flags.
+;   Algorithm: CALL BDOS; store A to CCP_OPENDIRCODE; INC A (so $FF->0 sets Z
+;     meaning 'failed'); RET.  Shared tail for the open/close/search/make-style
+;     wrappers (those whose error sentinel is $FF).
+;   [RE]
 ; ----------------------------------------------------------------------
-TEST_B_NZ:
-        ; ; set Z if A is 0, NZ otherwise (generic zero-test predicate)
-        OR A
-        RET
+BDOS_FCB_OP:
+        ; invoke BDOS with C=function, DE=FCB
+        CALL $0005                       ; $94C3  CD 05 00
+        ; save raw BDOS directory code
+        LD (CCP_BDOS_RESULT),A                    ; $94C6  32 EE 9B
+        ; $FF->0 so Z flags 'error/not found'
+        INC A                            ; $94C9  3C
+        RET                              ; $94CA  C9
 ; ----------------------------------------------------------------------
-; CCP_CMD_NAMES -- the 24-byte CCP built-in command name table: six 4-byte space-padded keywords
-; [DOC CPMREF 3-6 ; facts sec.7.8]
-;   Layout:    6 entries x 4 bytes = 'DIR ' 'ERA ' 'TYPE' 'SAVE' 'REN ' 'USER' (bytes 44 49 52 20 45
-;              52 41 20 54 59 50 45 53 41 56 45 52 45 4E 20 55 53 45 52, $9510-$9527).
-;   Note:      kept as a single DEFB string literal (byte-identical; do not touch per the
-;              keep-string-literal map). FLAG (UNRESOLVED): `CALL $9515` at $9568 and $9A9F lands
-;              MID-STRING here (the 'R' of 'ERA', $9510+5), a data-as-code / mis-decode tell to
-;              root-cause. Whether SEARCH_BUILTIN (which loads HL=$9710, NOT $9510) actually walks
-;              this table is UNKNOWN.
+; BDOS_F_OPEN -- open the file named by DE (BDOS function 15).
+;   In: DE -> FCB.
+;   Out: A/Z per BDOS_FCB_OP (Z = open failed).
+;   Clobbers: A/flags.
+;   Algorithm: C:=F_OPEN($0F); JP BDOS_FCB_OP.
+;   [RE]
 ; ----------------------------------------------------------------------
-CCP_CMD_NAMES:
-        ; ; CCP built-in command keywords, 4 space-padded bytes each: 'DIR ' 'ERA ' 'TYPE' 'SAVE'
-        ; 'REN ' 'USER' [DOC CPMREF 3-6]. FLAG: `CALL $9515` (x2) targets the 'R' of 'ERA' inside
-        ; this string -- data-as-code anomaly, unresolved
-        ; DUAL CODE/DATA: this 24-byte keyword table is ALSO entered as code -- `CALL
-        ; CCP_CMD_NAMES+5` (x2) runs the table-interior bytes as a short register-setup prefix that
-        ; falls through (past CCP_CMD_NAMES_END `CP L`) into SEARCH_BUILTIN. This is the documented
-        ; name-table-as-code idiom (the 2.23 twin's CMD_NAME_TBL+offset cover refs); the +5 entry
-        ; now relocates with the table. [RE]
-        DEFB    "DIR ERA TYPESAVEREN USER" ; CCP built-in command name table: DIR ERA TYPE SAVE REN USER (4 bytes each) [DOC CPMREF 3-6 ; facts sec.7.8] the six CCP built-in commands (ERA DIR REN SAVE TYPE USER)
-CCP_CMD_NAMES_END:
-        CP L
+BDOS_F_OPEN:
+        ; F_OPEN = 15
+        LD C,$0F                         ; $94CB  0E 0F
+        JP BDOS_FCB_OP                    ; $94CD  C3 C3 94
 ; ----------------------------------------------------------------------
-; SEARCH_BUILTIN -- UNKNOWN purpose: a routine called from CMD_EXEC ($9ABB) after a parsed
-; numeric value is stored; sets up a pointer (HL=$9710) and counter (C=0) and runs a
-; compare loop.
-;   In:        on the $9ABB path, (CCP_FCB+1)/CMD_EXEC_69 hold a parsed value (the caller did
-;              `DEC A; LD (CMD_EXEC_69),A` before calling); the compare loop reads bytes via
-;              DE/HL.
-;   Out:       on the early `CP $06 / RET NC` path, returns when C reaches 6 (C is 0 on first
-;              entry, so this never fires immediately); otherwise drops into the
-;              SEARCH_BUILTIN_1 compare loop and returns A from there.
-;   Clobbers:  A, B, C, D, DE, HL, flags.
-;   Algorithm: UNKNOWN. OBSERVED: `LD D,$00 / NOP / LD D,$DF` (D ends $DF; the first load is
-;              redundant -- a dead/patched-over artifact, UNKNOWN), then `LD HL,$9710 / LD
-;              C,$00`, then `LD A,C / CP $06 / RET NC` (a 0..5 index/limit guard), then fall
-;              into the compare loop. The 'walks CCP_CMD_NAMES and returns a built-in index'
-;              reading is UNSUPPORTED: HL is loaded with $9710, a byte INTO the $9700
-;              numeric-parser code (FCB_DIGIT_ACCUM_STEP), NOT CCP_CMD_NAMES ($9510).
-;   $9710 KEPT LITERAL (decode-audit task #7 verdict): $9710 = +1 into `SUB '0'` at $970F
-;   (FCB_DIGIT_ACCUM_STEP body), mid-instruction in an UNRELATED routine. Relocatizing it as
-;   `FCB_DIGIT_ACCUM_STEP+offset` would assert a relationship I cannot verify (the 2.23 twin's
-;   analogous compare pointer is `CCP_GET_FCB_DRIVE_3+1`, +1 into `AND $E0`, a DIFFERENT
-;   relative cell -- so the structural cross-ref does NOT confirm the target). With this
-;   routine's purpose itself UNVERIFIED, forcing a label here would paper over a probable
-;   mis-decode. UNKNOWN -- left literal pending a full decode of the $9700 cluster.
+; CCP_OPEN_SUBMIT -- open the staged command FCB at record 0.
+;   In: CCP command FCB at CCP_FCB ($9BCD) holds the file name.
+;   Out: A/Z per BDOS_F_OPEN.
+;   Clobbers: A/flags, DE.
+;   Algorithm: clear CCP_CURREC ($9BED, current-record byte); DE:=CCP_FCB; JP
+;     BDOS_F_OPEN.
+;   [RE] Opens the parsed command file (e.g. before a chained read).
+; ----------------------------------------------------------------------
+CCP_OPEN_SUBMIT:
+        XOR A                            ; $94D0  AF
+        ; current record := 0
+        LD (CCP_FCB_CR),A                    ; $94D1  32 ED 9B
+        ; DE -> CCP command FCB
+        LD DE,CCP_FCB                     ; $94D4  11 CD 9B
+        JP BDOS_F_OPEN                      ; $94D7  C3 CB 94
+; ----------------------------------------------------------------------
+; BDOS_F_CLOSE -- close the file named by DE (BDOS function 16).
+;   In: DE -> FCB.  Out: A/Z per BDOS_FCB_OP.  Clobbers: A/flags.
+;   Algorithm: C:=F_CLOSE_HND($10); JP BDOS_FCB_OP.
+;   [RE]
+; ----------------------------------------------------------------------
+BDOS_F_CLOSE:
+        ; F_CLOSE_HND = 16
+        LD C,$10                         ; $94DA  0E 10
+        JP BDOS_FCB_OP                    ; $94DC  C3 C3 94
+; ----------------------------------------------------------------------
+; BDOS_F_SFIRST -- search-for-first matching directory entry (BDOS function 17).
+;   In: DE -> FCB (may contain '?' wildcards).
+;   Out: A = directory index 0..3 or $FF if none; Z per BDOS_FCB_OP.
+;   Clobbers: A/flags.
+;   Algorithm: C:=F_SFIRST($11); JP BDOS_FCB_OP.
+;   [RE]
+; ----------------------------------------------------------------------
+BDOS_F_SFIRST:
+        ; F_SFIRST = 17
+        LD C,$11                         ; $94DF  0E 11
+        JP BDOS_FCB_OP                    ; $94E1  C3 C3 94
+; ----------------------------------------------------------------------
+; BDOS_F_SNEXT -- search-for-next matching directory entry (BDOS function 18).
+;   In: prior F_SFIRST/F_SNEXT context.
+;   Out: A = next directory index or $FF; Z per BDOS_FCB_OP.
+;   Clobbers: A/flags.
+;   Algorithm: C:=F_SNEXT($12); JP BDOS_FCB_OP.
+;   [RE]
+; ----------------------------------------------------------------------
+BDOS_F_SNEXT:
+        ; F_SNEXT = 18
+        LD C,$12                         ; $94E4  0E 12
+        JP BDOS_FCB_OP                    ; $94E6  C3 C3 94
+; ----------------------------------------------------------------------
+; CCP_SEARCH_FIRST_SUBMIT -- search-for-first on the CCP command FCB.
+;   In: CCP command FCB at CCP_FCB ($9BCD).
+;   Out: A/Z per BDOS_F_SFIRST.
+;   Clobbers: A/flags, DE.
+;   Algorithm: DE:=CCP_FCB; JP BDOS_F_SFIRST.
+;   [RE]
+; ----------------------------------------------------------------------
+CCP_SEARCH_FIRST_SUBMIT:
+        ; DE -> CCP command FCB
+        LD DE,CCP_FCB                     ; $94E9  11 CD 9B
+        JP BDOS_F_SFIRST                    ; $94EC  C3 DF 94
+; ----------------------------------------------------------------------
+; BDOS_F_DELETE -- delete the file named by DE (BDOS function 19).
+;   In: DE -> FCB.  Out: per BDOS.  Clobbers: per BDOS ABI.
+;   Algorithm: C:=F_DELETE_HND($13); JP BDOS.
+;   [RE]
+; ----------------------------------------------------------------------
+BDOS_F_DELETE:
+        ; F_DELETE_HND = 19
+        LD C,$13                         ; $94EF  0E 13
+        JP $0005                         ; $94F1  C3 05 00
+; ----------------------------------------------------------------------
+; BDOS_CALL_TESTERR -- call BDOS then set Z=1 only when A==0 (success).
+;   In: C = BDOS function, DE -> FCB.
+;   Out: A = BDOS code; flags from OR A (Z if A==0, i.e. read/write OK).
+;   Clobbers: flags.
+;   Algorithm: CALL BDOS; OR A; RET.  Shared tail for the read/write wrappers
+;     where 0 = success and nonzero = error/EOF.
+;   [RE]
+; ----------------------------------------------------------------------
+BDOS_CALL_TESTERR:
+        ; invoke BDOS
+        CALL $0005                       ; $94F4  CD 05 00
+        ; Z=1 means success (A==0)
+        OR A                             ; $94F7  B7
+        RET                              ; $94F8  C9
+; ----------------------------------------------------------------------
+; BDOS_F_READ -- read the next sequential record (BDOS function 20).
+;   In: DE -> FCB; DMA set elsewhere.
+;   Out: A = 0 on success / nonzero on error or EOF; Z per BDOS_CALL_TESTERR.
+;   Clobbers: flags.
+;   Algorithm: C:=F_READ($14); JP BDOS_CALL_TESTERR.
+;   [RE]
+; ----------------------------------------------------------------------
+BDOS_F_READ:
+        ; F_READ = 20
+        LD C,$14                         ; $94F9  0E 14
+        JP BDOS_CALL_TESTERR                    ; $94FB  C3 F4 94
+; ----------------------------------------------------------------------
+; CCP_READ_SUBMIT -- read the next record of the CCP command FCB.
+;   In: CCP command FCB at CCP_FCB ($9BCD); DMA preset by the caller.
+;   Out: A/Z per BDOS_F_READ.
+;   Clobbers: flags, DE.
+;   Algorithm: DE:=CCP_FCB; JP BDOS_F_READ.
+;   [RE]
+; ----------------------------------------------------------------------
+CCP_READ_SUBMIT:
+        ; DE -> CCP command FCB
+        LD DE,CCP_FCB                     ; $94FE  11 CD 9B
+        JP BDOS_F_READ                      ; $9501  C3 F9 94
+; ----------------------------------------------------------------------
+; BDOS_F_WRITE -- write the next sequential record (BDOS function 21).
+;   In: DE -> FCB; DMA holds the record.
+;   Out: A = 0 on success / nonzero on error; Z per BDOS_CALL_TESTERR.
+;   Clobbers: flags.
+;   Algorithm: C:=F_WRITE($15); JP BDOS_CALL_TESTERR.
+;   [RE]
+; ----------------------------------------------------------------------
+BDOS_F_WRITE:
+        ; F_WRITE = 21
+        LD C,$15                         ; $9504  0E 15
+        JP BDOS_CALL_TESTERR                    ; $9506  C3 F4 94
+; ----------------------------------------------------------------------
+; BDOS_F_MAKE -- create the file named by DE (BDOS function 22).
+;   In: DE -> FCB.  Out: A/Z per BDOS_FCB_OP (Z = create failed/dir full).
+;   Clobbers: A/flags.
+;   Algorithm: C:=F_MAKE($16); JP BDOS_FCB_OP.
+;   [RE]
+; ----------------------------------------------------------------------
+BDOS_F_MAKE:
+        ; F_MAKE = 22
+        LD C,$16                         ; $9509  0E 16
+        JP BDOS_FCB_OP                    ; $950B  C3 C3 94
+; ----------------------------------------------------------------------
+; BDOS_F_RENAME -- rename a file (BDOS function 23).
+;   In: DE -> FCB whose first 16 bytes name the old file and second 16 the new.
+;   Out: per BDOS.  Clobbers: per BDOS ABI.
+;   Algorithm: C:=F_RENAME_HND($17); JP BDOS.
+;   [RE]
+; ----------------------------------------------------------------------
+BDOS_F_RENAME:
+        ; F_RENAME_HND = 23
+        LD C,$17                         ; $950E  0E 17
+        JP $0005                         ; $9510  C3 05 00
+; ----------------------------------------------------------------------
+; BDOS_USER_GET -- get the current user number (BDOS function 32, E=$FF).
+;   In: none.  Out: A = current user number (0..15).  Clobbers: A, C, E.
+;   Algorithm: E:=$FF (interrogate); fall into BDOS_USERNUM.
+;   [RE]
+; ----------------------------------------------------------------------
+BDOS_USER_GET:
+        ; $FF = interrogate (get) user number
+        LD E,$FF                         ; $9513  1E FF
+; ----------------------------------------------------------------------
+; BDOS_USERNUM -- set/get the user number (BDOS function 32).
+;   In: E = user number to set, or $FF to interrogate.
+;   Out: A = user number when interrogating.  Clobbers: A, C; BDOS ABI.
+;   Algorithm: C:=F_USERNUM($20); JP BDOS.
+;   [RE]
+; ----------------------------------------------------------------------
+BDOS_USERNUM:
+        ; F_USERNUM = 32
+        LD C,$20                         ; $9515  0E 20
+        JP $0005                         ; $9517  C3 05 00
+; ----------------------------------------------------------------------
+; CCP_SET_USERDRIVE -- write the packed user/drive byte into base page $0004.
+;   In: current user (from BDOS_USER_GET) and CCP_CDISK ($9BEF, default drive).
+;   Out: base-page $0004 := (user<<4 | drive); the CP/M default-drive/user cell.
+;   Clobbers: A, HL.
+;   Algorithm: A:=BDOS_USER_GET; A<<=4 (ADD A,A x4); OR in CCP_CDISK; store $0004.
+;   [RE] $0004 is the CP/M default-drive/user cell read by the warm boot.
+; ----------------------------------------------------------------------
+CCP_SET_USERDRIVE:
+        ; A = current user number
+        CALL BDOS_USER_GET                    ; $951A  CD 13 95
+        ; user << 4 ...
+        ADD A,A                          ; $951D  87
+        ADD A,A                          ; $951E  87
+        ADD A,A                          ; $951F  87
+        ADD A,A                          ; $9520  87
+        ; HL -> CCP default-drive cell
+        LD HL,CCP_CUR_DRIVE                     ; $9521  21 EF 9B
+        ; pack (user<<4 | drive)
+        OR (HL)                          ; $9524  B6
+        ; store login byte to base page $0004
+        LD ($0004),A                     ; $9525  32 04 00
+        RET                              ; $9528  C9
+; ----------------------------------------------------------------------
+; CCP_SET_DRIVE_ONLY -- write just the default drive into base-page $0004.
+;   In: CCP_CDISK ($9BEF).
+;   Out: $0004 := default drive (user nibble cleared).
+;   Clobbers: A.
+;   Algorithm: A:=CCP_CDISK; store to $0004.
+;   [RE]
+; ----------------------------------------------------------------------
+CCP_SET_DRIVE_ONLY:
+        ; A = default drive
+        LD A,(CCP_CUR_DRIVE)                    ; $9529  3A EF 9B
+        ; store to base page $0004
+        LD ($0004),A                     ; $952C  32 04 00
+        RET                              ; $952F  C9
+; ----------------------------------------------------------------------
+; CCP_UPCASE -- fold one ASCII lower-case letter to upper case.
+;   In: A = character.
+;   Out: A = upper-cased character ('a'..'z' -> 'A'..'Z'); others unchanged.
+;   Clobbers: A/flags.
+;   Algorithm: if A < 'a'($61) RET; if A >= '{'($7B) RET; AND $5F to clear bit5.
+;   [RE]
+; ----------------------------------------------------------------------
+CCP_UPCASE:
+        ; below 'a' -> leave unchanged
+        CP $61                           ; $9530  FE 61
+        RET C                            ; $9532  D8
+        ; above 'z' -> leave unchanged
+        CP $7B                           ; $9533  FE 7B
+        RET NC                           ; $9535  D0
+        ; clear bit 5: lower -> upper
+        AND $5F                          ; $9536  E6 5F
+        RET                              ; $9538  C9
+; ----------------------------------------------------------------------
+; CCP_GETCMD -- obtain the next command line (from submit file or console).
+;   In: CCP_SUBMITON ($9BAB) flag; CCP_SUBMITFCB ($9BAC); CCP_INBUF buffer.
+;   Out: CCP_CMDTEXT holds the upper-cased command line ready to parse;
+;     CCP_PARSEPTR set to its start.
+;   Clobbers: A, BC, DE, HL.
+;   Algorithm: if a $$$.SUB submit is active (CCP_SUBMITON != 0): select its drive,
+;     open + read the next record of CCP_SUBMITFCB into TBUFF, set its current-record
+;     cell to 0 and decrement its record count, copy the 128-byte record into
+;     CCP_INBUF, close the submit FCB, then poll the console for a ^C abort; if no
+;     submit (or it ends/errs/aborts) discard submit (CCP_DISCARD_SUBMIT) and do a
+;     console C_READSTR into CCP_INBUF.  Either path falls into CCP_UPCASE_LINE to
+;     fold the line to upper case and reset the parse pointer.
+;   [RE] Standard CP/M 2.2 CCP command-acquire with SUBMIT support.
+; ----------------------------------------------------------------------
+CCP_GETCMD:
+        ; submit-active flag
+        LD A,(CCP_SUBMIT_FLAG)                    ; $9539  3A AB 9B
+        OR A                             ; $953C  B7
+        ; no submit -> read from console
+        JP Z,CCP_READ_CONSOLE                  ; $953D  CA 96 95
+        LD A,(CCP_CUR_DRIVE)                    ; $9540  3A EF 9B
+        OR A                             ; $9543  B7
+        LD A,$00                         ; $9544  3E 00
+        CALL NZ,BDOS_DRV_SET                 ; $9546  C4 BD 94
+        LD DE,CCP_SUB_FCB                     ; $9549  11 AC 9B
+        ; open the $$$.SUB submit file
+        CALL BDOS_F_OPEN                    ; $954C  CD CB 94
+        JP Z,CCP_READ_CONSOLE                  ; $954F  CA 96 95
+        ; submit FCB record-count byte (FCB+15)
+        LD A,(CCP_SUB_FCB_CR)                    ; $9552  3A BB 9B
+        DEC A                            ; $9555  3D
+        LD (CCP_SUB_PREV_REC),A                    ; $9556  32 CC 9B
+        LD DE,CCP_SUB_FCB                     ; $9559  11 AC 9B
+        ; read the next submit record into TBUFF
+        CALL BDOS_F_READ                    ; $955C  CD F9 94
+        JP NZ,CCP_READ_CONSOLE                 ; $955F  C2 96 95
+        ; DE -> CCP_INBUF count byte
+        LD DE,CCP_INLEN                     ; $9562  11 07 94
+        LD HL,$0080                      ; $9565  21 80 00
+        LD B,$80                         ; $9568  06 80
+        ; copy 128 bytes TBUFF -> CCP_INBUF
+        CALL COPY_N_BYTES                    ; $956A  CD 42 98
+        LD HL,CCP_SUB_FCB_S2                     ; $956D  21 BA 9B
+        LD (HL),$00                      ; $9570  36 00
+        INC HL                           ; $9572  23
+        DEC (HL)                         ; $9573  35
+        LD DE,CCP_SUB_FCB                     ; $9574  11 AC 9B
+        ; close submit FCB to commit the shortened file
+        CALL BDOS_F_CLOSE                    ; $9577  CD DA 94
+        JP Z,CCP_READ_CONSOLE                  ; $957A  CA 96 95
+        LD A,(CCP_CUR_DRIVE)                    ; $957D  3A EF 9B
+        OR A                             ; $9580  B7
+        CALL NZ,BDOS_DRV_SET                 ; $9581  C4 BD 94
+        LD HL,CCP_CMDTEXT                     ; $9584  21 08 94
+        CALL CCP_PUTS                    ; $9587  CD AC 94
+        ; poll console for a ^C abort of submit
+        CALL CCP_CHECK_ABORT                    ; $958A  CD C2 95
+        JP Z,CCP_UPCASE_LINE                  ; $958D  CA A7 95
+        ; abort: discard the submit file
+        CALL CCP_DISCARD_SUBMIT                    ; $9590  CD DD 95
+        JP CCP_PROMPT_AND_READ                    ; $9593  C3 82 97
+; ----------------------------------------------------------------------
+; CCP_READ_CONSOLE -- discard any pending submit, then read a console line.
+;   In: none.
+;   Out: CCP_INBUF filled by C_READSTR; falls into CCP_UPCASE_LINE.
+;   Clobbers: A, BC, DE.
+;   Algorithm: CCP_DISCARD_SUBMIT; CCP_SET_USERDRIVE; C:=C_READSTR(10),
+;     DE:=CCP_INBUF, CALL BDOS; then CCP_SET_DRIVE_ONLY.
+;   [RE]
+; ----------------------------------------------------------------------
+CCP_READ_CONSOLE:
+        ; discard any abandoned submit
+        CALL CCP_DISCARD_SUBMIT                    ; $9596  CD DD 95
+        ; publish user/drive to base page
+        CALL CCP_SET_USERDRIVE                    ; $9599  CD 1A 95
+        ; C_READSTR = 10 (buffered line input)
+        LD C,$0A                         ; $959C  0E 0A
+        ; DE -> CCP_INBUF descriptor
+        LD DE,CCP_INBUF                     ; $959E  11 06 94
+        ; read a console line into CCP_INBUF
+        CALL $0005                       ; $95A1  CD 05 00
+        CALL CCP_SET_DRIVE_ONLY                    ; $95A4  CD 29 95
+; ----------------------------------------------------------------------
+; CCP_UPCASE_LINE -- upper-case the command line in place and reset the parser.
+;   In: CCP_INLEN = char count, CCP_CMDTEXT = the typed line.
+;   Out: CCP_CMDTEXT folded to upper case + NUL-terminated; CCP_PARSEPTR:=
+;     CCP_CMDTEXT.
+;   Clobbers: A, B, HL.
+;   Algorithm: B:=count from CCP_INLEN; for each char apply CCP_UPCASE in place;
+;     append a terminating NUL; CCP_PARSEPTR:=CCP_CMDTEXT.
+;   [RE]
+; ----------------------------------------------------------------------
+CCP_UPCASE_LINE:
+        ; HL -> CCP_INLEN (count) byte
+        LD HL,CCP_INLEN                     ; $95A7  21 07 94
+        ; B = number of typed chars
+        LD B,(HL)                        ; $95AA  46
+; ----------------------------------------------------------------------
+; CCP_UPCASE_LOOP -- per-character upper-case loop body for CCP_UPCASE_LINE.
+;   In: HL -> char before the current one, B = remaining count.
+;   Out: char folded in place; loops until B==0 then joins CCP_UPCASE_DONE.
+;   Clobbers: A, B, HL.
+;   Algorithm: INC HL; if B==0 done; A:=(HL); A:=CCP_UPCASE(A); store; DEC B; loop.
+;   [RE]
+; ----------------------------------------------------------------------
+CCP_UPCASE_LOOP:
+        INC HL                           ; $95AB  23
+        LD A,B                           ; $95AC  78
+        OR A                             ; $95AD  B7
+        JP Z,CCP_UPCASE_DONE                  ; $95AE  CA BA 95
+        LD A,(HL)                        ; $95B1  7E
+        ; fold this char to upper case
+        CALL CCP_UPCASE                    ; $95B2  CD 30 95
+        ; write the folded char back
+        LD (HL),A                        ; $95B5  77
+        DEC B                            ; $95B6  05
+        JP CCP_UPCASE_LOOP                    ; $95B7  C3 AB 95
+; ----------------------------------------------------------------------
+; CCP_UPCASE_DONE -- terminate the upper-cased line and reset the parser.
+;   In: HL -> byte just past the last char, A = 0.
+;   Out: NUL written at HL; CCP_PARSEPTR := CCP_CMDTEXT.
+;   Clobbers: HL.
+;   Algorithm: (HL):=0 (NUL); CCP_PARSEPTR:=CCP_CMDTEXT; RET.
+;   [RE]
+; ----------------------------------------------------------------------
+CCP_UPCASE_DONE:
+        ; append NUL terminator
+        LD (HL),A                        ; $95BA  77
+        ; HL -> CCP_CMDTEXT
+        LD HL,CCP_CMDTEXT                     ; $95BB  21 08 94
+        ; parse pointer := start of line
+        LD (CCP_PARSEPTR),HL                   ; $95BE  22 88 94
+        RET                              ; $95C1  C9
+; ----------------------------------------------------------------------
+; CCP_CHECK_ABORT -- poll the console; if a key is waiting, consume it.
+;   In: none.
+;   Out: Z set if no key was pending (continue); NZ if a key was read (abort the
+;     running submit); A = the key on the NZ path.
+;   Clobbers: A/flags.
+;   Algorithm: C:=C_STAT($0B), CALL BDOS; if A==0 RET (Z, nothing pending); else
+;     C:=C_READ($01), CALL BDOS to swallow the key; OR A; RET.
+;   [RE] Lets a typed key abort an active SUBMIT batch.
+; ----------------------------------------------------------------------
+CCP_CHECK_ABORT:
+        ; C_STAT = 11 (console status)
+        LD C,$0B                         ; $95C2  0E 0B
+        CALL $0005                       ; $95C4  CD 05 00
+        OR A                             ; $95C7  B7
+        ; no key pending -> keep running submit
+        RET Z                            ; $95C8  C8
+        ; C_READ = 1: consume the typed key
+        LD C,$01                         ; $95C9  0E 01
+        CALL $0005                       ; $95CB  CD 05 00
+        OR A                             ; $95CE  B7
+        RET                              ; $95CF  C9
+; ----------------------------------------------------------------------
+; BDOS_DRV_GET -- return the current default drive (BDOS function 25).
+;   In: none.  Out: A = current drive (0..15).  Clobbers: A, C.
+;   Algorithm: C:=DRV_GET($19); JP BDOS.
+;   [RE]
+; ----------------------------------------------------------------------
+BDOS_DRV_GET:
+        ; DRV_GET = 25
+        LD C,$19                         ; $95D0  0E 19
+        JP $0005                         ; $95D2  C3 05 00
+; ----------------------------------------------------------------------
+; CCP_SET_DMA_TBUFF -- set the DMA address back to the default buffer TBUFF.
+;   In: none.  Out: BDOS DMA := TBUFF ($0080).  Clobbers: C, DE.
+;   Algorithm: DE:=TBUFF($0080); fall into BDOS_F_DMAOFF.
+;   [RE]
+; ----------------------------------------------------------------------
+CCP_SET_DMA_TBUFF:
+        ; DE = TBUFF (default DMA buffer)
+        LD DE,$0080                      ; $95D5  11 80 00
+; ----------------------------------------------------------------------
+; BDOS_F_DMAOFF -- set the disk DMA (transfer) address (BDOS function 26).
+;   In: DE = DMA address.  Out: per BDOS.  Clobbers: C; BDOS ABI.
+;   Algorithm: C:=F_DMAOFF($1A); JP BDOS.
+;   [RE]
+; ----------------------------------------------------------------------
+BDOS_F_DMAOFF:
+        ; F_DMAOFF = 26 (set DMA)
+        LD C,$1A                         ; $95D8  0E 1A
+        JP $0005                         ; $95DA  C3 05 00
+; ----------------------------------------------------------------------
+; CCP_DISCARD_SUBMIT -- end an active SUBMIT: clear the flag and delete $$$.SUB.
+;   In: CCP_SUBMITON ($9BAB) flag; CCP_SUBMITFCB ($9BAC); CCP_CDISK ($9BEF).
+;   Out: if submit was active it is cleared, drive A selected, the submit file
+;     deleted, and the default drive restored; otherwise a no-op.
+;   Clobbers: A, DE.
+;   Algorithm: if CCP_SUBMITON==0 RET; clear it; select drive 0 (BDOS_DRV_SET 0);
+;     delete CCP_SUBMITFCB (BDOS_F_DELETE); reselect CCP_CDISK (BDOS_DRV_SET).
+;   [RE]
+; ----------------------------------------------------------------------
+CCP_DISCARD_SUBMIT:
+        ; HL -> submit-active flag
+        LD HL,CCP_SUBMIT_FLAG                     ; $95DD  21 AB 9B
+        LD A,(HL)                        ; $95E0  7E
+        OR A                             ; $95E1  B7
+        ; no submit active -> nothing to discard
+        RET Z                            ; $95E2  C8
+        ; clear submit-active flag
+        LD (HL),$00                      ; $95E3  36 00
+        XOR A                            ; $95E5  AF
+        ; select drive A (where $$$.SUB lives)
+        CALL BDOS_DRV_SET                    ; $95E6  CD BD 94
+        LD DE,CCP_SUB_FCB                     ; $95E9  11 AC 9B
+        ; delete the $$$.SUB submit file
+        CALL BDOS_F_DELETE                    ; $95EC  CD EF 94
+        LD A,(CCP_CUR_DRIVE)                    ; $95EF  3A EF 9B
+        ; restore the user's default drive
+        JP BDOS_DRV_SET                      ; $95F2  C3 BD 94
+; ----------------------------------------------------------------------
+; CCP_CHECK_SERIAL -- verify the resident BDOS serial number is still intact.
+;   In: CCP_SERIAL ($9728) holds the saved 6-byte CP/M serial number; the live BDOS
+;     image base is at BDOS_FBASE ($9C00), whose first 6 bytes are that serial.
+;   Out: returns if the 6 bytes match; otherwise jumps to the warm-boot reload path
+;     CCP_SERIAL_MISMATCH_HALT ($97CF) to refetch the system from disk.
+;   Clobbers: A, B, DE, HL.
+;   Algorithm: compare 6 bytes at $9728 against the BDOS image header; on first
+;     mismatch JP CCP_SERIAL_MISMATCH_HALT; on full match RET.
+;   [RE] Standard CP/M 2.2 CCP serial-number self-check: detects a transient that
+;     overwrote the resident BDOS and forces a fresh system load if so.  NOTE: the
+;     6 bytes at $9728 are the saved serial, NOT a continuation of the command-name
+;     string, which ends at $9727.
+; ----------------------------------------------------------------------
+CCP_CHECK_SERIAL:
+        ; DE -> saved 6-byte CP/M serial number
+        LD DE,CCP_SERIAL_STAMP                     ; $95F5  11 28 97
+        ; HL -> live BDOS image header (serial at +0)
+        LD HL,BDOS_FBASE                     ; $95F8  21 00 9C
+        ; compare 6 serial bytes
+        LD B,$06                         ; $95FB  06 06
+; ----------------------------------------------------------------------
+; CCP_CHECK_SERIAL_LOOP -- compare loop for CCP_CHECK_SERIAL.
+;   In: DE -> saved serial, HL -> live BDOS header, B = bytes remaining.
+;   Out: on mismatch JP CCP_SERIAL_MISMATCH_HALT (warm-boot reload); on B==0 RET (match).
+;   Clobbers: A, B, DE, HL.
+;   Algorithm: A:=(DE); if A != (HL) reload; INC DE/HL; DEC B; loop.
+;   [RE]
+; ----------------------------------------------------------------------
+CCP_CHECK_SERIAL_LOOP:
+        LD A,(DE)                        ; $95FD  1A
+        CP (HL)                          ; $95FE  BE
+        ; BDOS serial clobbered -> reload system image
+        JP NZ,CCP_SERIAL_MISMATCH_HALT                 ; $95FF  C2 CF 97
+        INC DE                           ; $9602  13
+        INC HL                           ; $9603  23
+        DEC B                            ; $9604  05
+        JP NZ,CCP_CHECK_SERIAL_LOOP                 ; $9605  C2 FD 95
+        RET                              ; $9608  C9
+; ----------------------------------------------------------------------
+; CCP_ECHO_TOKEN -- echo the current command token to the console up to a blank.
+;   In: CCP_TOKENPTR ($948A) -> start of the offending token.
+;   Out: token characters printed; falls into CCP_REPORT_BADCMD.
+;   Clobbers: A, HL.
+;   Algorithm: CCP_CRLF; HL:=CCP_TOKENPTR; print each char until a space or NUL,
+;     then report the bad command.
+;   [RE] Used to echo the bad name before the '?' error.
+; ----------------------------------------------------------------------
+CCP_ECHO_TOKEN:
+        ; new line before echoing the token
+        CALL CCP_CRLF                    ; $9609  CD 98 94
+        ; HL -> start of the failing token
+        LD HL,(CCP_TOKENPTR)                   ; $960C  2A 8A 94
+; ----------------------------------------------------------------------
+; CCP_ECHO_TOKEN_LOOP -- character loop for CCP_ECHO_TOKEN.
+;   In: HL -> current char of the token.
+;   Out: prints chars until ' ' or NUL, then joins CCP_REPORT_BADCMD.
+;   Clobbers: A, HL.
+;   Algorithm: A:=(HL); if ' ' or NUL stop; emit A via CCP_CONOUT; INC HL; loop.
+;   [RE]
+; ----------------------------------------------------------------------
+CCP_ECHO_TOKEN_LOOP:
+        LD A,(HL)                        ; $960F  7E
+        ; stop at a blank (token boundary)
+        CP $20                           ; $9610  FE 20
+        ; blank -> done echoing
+        JP Z,CCP_REPORT_BADCMD                  ; $9612  CA 22 96
+        OR A                             ; $9615  B7
+        ; NUL -> done echoing
+        JP Z,CCP_REPORT_BADCMD                  ; $9616  CA 22 96
+        PUSH HL                          ; $9619  E5
+        ; echo this character
+        CALL CCP_CONOUT                    ; $961A  CD 8C 94
+        POP HL                           ; $961D  E1
+        INC HL                           ; $961E  23
+        JP CCP_ECHO_TOKEN_LOOP                    ; $961F  C3 0F 96
+; ----------------------------------------------------------------------
+; CCP_REPORT_BADCMD -- print '?' for an unrecognized command and return to prompt.
+;   In: none (called after the bad token has been echoed).
+;   Out: prints '?' + CR/LF, discards any submit, and jumps to the prompt loop.
+;   Clobbers: A.
+;   Algorithm: emit '?' ($3F); CCP_CRLF; CCP_DISCARD_SUBMIT; JP CCP_PROMPT_AND_READ ($9782,
+;     the CCP prompt).
+;   [RE] This is the CCP's classic 'BADNAME?' error responder.
+; ----------------------------------------------------------------------
+CCP_REPORT_BADCMD:
+        ; '?' marks an unknown command
+        LD A,$3F                         ; $9622  3E 3F
+        ; print the '?'
+        CALL CCP_CONOUT                    ; $9624  CD 8C 94
+        CALL CCP_CRLF                    ; $9627  CD 98 94
+        CALL CCP_DISCARD_SUBMIT                    ; $962A  CD DD 95
+        ; back to the CCP prompt
+        JP CCP_PROMPT_AND_READ                    ; $962D  C3 82 97
+; ----------------------------------------------------------------------
+; CCP_AT_DELIM -- test whether the char at (DE) ends an FCB field.
+;   In: DE -> current command-line char.
+;   Out: Z set if the char is a terminator (NUL, ' ', '=', '_', '.', ':', ';', '<',
+;     '>'); for a control char (<' ', excluding NUL) it diverts to the bad-token echo;
+;     NZ for a normal filename character.
+;   Clobbers: A/flags.
+;   Algorithm: A:=(DE); RET Z on NUL; if A<' ' JP CCP_ECHO_TOKEN (illegal ctrl);
+;     RET Z when A==' ' or A equals any field-delimiter punctuation; else NZ.
+;   [RE] Field/separator classifier used while building the FCB name and type.
+; ----------------------------------------------------------------------
+CCP_AT_DELIM:
+        LD A,(DE)                        ; $9630  1A
+        OR A                             ; $9631  B7
+        RET Z                            ; $9632  C8
+        CP $20                           ; $9633  FE 20
+        ; control char in name -> bad-token error
+        JP C,CCP_ECHO_TOKEN                    ; $9635  DA 09 96
+        RET Z                            ; $9638  C8
+        ; '=' delimiter
+        CP $3D                           ; $9639  FE 3D
+        RET Z                            ; $963B  C8
+        ; '_' delimiter
+        CP $5F                           ; $963C  FE 5F
+        RET Z                            ; $963E  C8
+        ; '.' (name/type separator)
+        CP $2E                           ; $963F  FE 2E
+        RET Z                            ; $9641  C8
+        ; ':' (drive separator)
+        CP $3A                           ; $9642  FE 3A
+        RET Z                            ; $9644  C8
+        ; ';' delimiter
+        CP $3B                           ; $9645  FE 3B
+        RET Z                            ; $9647  C8
+        ; '<' delimiter
+        CP $3C                           ; $9648  FE 3C
+        RET Z                            ; $964A  C8
+        ; '>' delimiter
+        CP $3E                           ; $964B  FE 3E
+        RET Z                            ; $964D  C8
+        RET                              ; $964E  C9
+; ----------------------------------------------------------------------
+; CCP_SKIP_BLANKS -- advance (DE) past any run of spaces.
+;   In: DE -> command-line char.
+;   Out: DE -> first non-blank (or the NUL); Z set if at end of line.
+;   Clobbers: A/flags, DE.
+;   Algorithm: loop: A:=(DE); RET Z on NUL; if A != ' ' RET NZ; INC DE; loop.
+;   [RE]
+; ----------------------------------------------------------------------
+CCP_SKIP_BLANKS:
+        LD A,(DE)                        ; $964F  1A
+        OR A                             ; $9650  B7
+        RET Z                            ; $9651  C8
+        ; blank?
+        CP $20                           ; $9652  FE 20
+        ; non-blank -> stop here
+        RET NZ                           ; $9654  C0
+        ; skip this space
+        INC DE                           ; $9655  13
+        JP CCP_SKIP_BLANKS                      ; $9656  C3 4F 96
+; ----------------------------------------------------------------------
+; CCP_HL_ADD_A -- add the unsigned A to HL (16-bit add of an 8-bit offset).
+;   In: HL = base, A = offset.
+;   Out: HL = HL + A.  Clobbers: A, HL, flags.
+;   Algorithm: A:=A+L; L:=A; if no carry RET; else INC H; RET.
+;   [RE] Used to index CCP_FCB by 0 or 16 (parse FCB1 vs FCB2).
+; ----------------------------------------------------------------------
+CCP_HL_ADD_A:
+        ; low byte of HL + offset
+        ADD A,L                          ; $9659  85
+        LD L,A                           ; $965A  6F
+        RET NC                           ; $965B  D0
+        ; propagate carry into high byte
+        INC H                            ; $965C  24
+        RET                              ; $965D  C9
+; ----------------------------------------------------------------------
+; CCP_PARSE_FCB1 -- parse the first command-tail filename into FCB at offset 0.
+;   In: CCP_PARSEPTR ($9488) -> current parse position in CCP_CMDTEXT.
+;   Out: CCP_FCB ($9BCD) filled with drive+name+type; CCP_PARSEPTR advanced;
+;     CCP_DRIVEGIVEN ($9BF0) set if an explicit drive prefix was present.
+;   Clobbers: A, BC, DE, HL.
+;   Algorithm: A:=0 (FCB offset 0); fall into CCP_BUILD_FCB.
+;   [RE]
+; ----------------------------------------------------------------------
+CCP_PARSE_FCB1:
+        ; offset 0 -> first FCB (CCP_FCB+0)
+        LD A,$00                         ; $965E  3E 00
+; ----------------------------------------------------------------------
+; CCP_BUILD_FCB -- parse one filename token from the command tail into an FCB.
+;   In: A = FCB byte offset (0 for FCB1, 16 for FCB2); CCP_PARSEPTR -> scan point.
+;   Out: the FCB at CCP_FCB+offset holds {drive, 8-char NAME, 3-char TYPE} with '*'
+;     expanded to '?' and unused positions blank-padded; the 3 trailing extent/record
+;     bytes are zeroed; CCP_PARSEPTR / CCP_TOKENPTR advanced past the token;
+;     CCP_DRIVEGIVEN set to the parsed drive if a 'd:' prefix was present; A = the
+;     count of '?' wildcards in the 11 name+type bytes (nonzero => ambiguous FCB).
+;   Clobbers: A, BC, DE, HL.
+;   Algorithm: point HL at CCP_FCB+offset (CCP_HL_ADD_A); clear CCP_DRIVEGIVEN; load
+;     DE from CCP_PARSEPTR and skip leading blanks (CCP_SKIP_BLANKS); save token start
+;     to CCP_TOKENPTR; detect an optional 'd:' drive prefix (letter, via SBC A,$40 to
+;     a 1-based drive number, followed by ':') and store the drive into FCB[0];
+;     copy up to 8 name chars, skip an over-long name, blank-pad a short name; if a
+;     '.' follows copy up to 3 type chars else blank-pad the type; zero the 3 trailing
+;     FCB bytes; save the parse pointer; finally count the '?' wildcards.
+;   [RE] Classic CP/M 2.2 CCP command-tail FCB parser.
+; ----------------------------------------------------------------------
+CCP_BUILD_FCB:
+        ; HL -> CCP_FCB (drive byte) base
+        LD HL,CCP_FCB                     ; $9660  21 CD 9B
+        ; HL += offset (select FCB1 or FCB2)
+        CALL CCP_HL_ADD_A                    ; $9663  CD 59 96
+        PUSH HL                          ; $9666  E5
+        PUSH HL                          ; $9667  E5
+        XOR A                            ; $9668  AF
+        ; clear explicit-drive flag
+        LD (CCP_FCB_DRIVE_PREFIX),A                    ; $9669  32 F0 9B
+        ; HL = current parse pointer
+        LD HL,(CCP_PARSEPTR)                   ; $966C  2A 88 94
+        EX DE,HL                         ; $966F  EB
+        ; skip leading blanks before the token
+        CALL CCP_SKIP_BLANKS                    ; $9670  CD 4F 96
+        EX DE,HL                         ; $9673  EB
+        ; remember token start for echo
+        LD (CCP_TOKENPTR),HL                   ; $9674  22 8A 94
+        EX DE,HL                         ; $9677  EB
+        POP HL                           ; $9678  E1
+        LD A,(DE)                        ; $9679  1A
+        OR A                             ; $967A  B7
+        JP Z,CCP_FCB_DRIVE_DEFAULT                  ; $967B  CA 89 96
+        ; letter -> 1-based drive number (carry clear)
+        SBC A,$40                        ; $967E  DE 40
+        LD B,A                           ; $9680  47
+        INC DE                           ; $9681  13
+        LD A,(DE)                        ; $9682  1A
+        ; is the next char ':' (drive prefix)?
+        CP $3A                           ; $9683  FE 3A
+        ; yes -> store drive, parse name
+        JP Z,CCP_FCB_DRIVE_EXPLICIT                  ; $9685  CA 90 96
+        ; no ':' -> back up, treat as name char
+        DEC DE                           ; $9688  1B
+; ----------------------------------------------------------------------
+; CCP_FCB_DRIVE_DEFAULT -- use the current default drive in the FCB drive byte.
+;   In: HL -> FCB drive byte; CCP_CDISK ($9BEF).
+;   Out: FCB[0] := default drive; continues into the name-copy setup.
+;   Clobbers: A.
+;   Algorithm: A:=CCP_CDISK; (HL):=A; JP CCP_BUILD_FCB_NAME_SETUP.
+;   [RE] Path taken when the token had no explicit 'd:' prefix.
+; ----------------------------------------------------------------------
+CCP_FCB_DRIVE_DEFAULT:
+        ; default drive
+        LD A,(CCP_CUR_DRIVE)                    ; $9689  3A EF 9B
+        ; FCB drive := default
+        LD (HL),A                        ; $968C  77
+        JP CCP_BUILD_FCB_NAME_SETUP                    ; $968D  C3 96 96
+; ----------------------------------------------------------------------
+; CCP_FCB_DRIVE_EXPLICIT -- store the parsed explicit drive into the FCB.
+;   In: B = 1-based drive number from the 'd:' prefix; HL -> FCB drive byte; DE -> ':'.
+;   Out: FCB[0] := drive; CCP_DRIVEGIVEN := drive; DE advanced past ':'; continues
+;     into the name copy.
+;   Clobbers: A, DE.
+;   Algorithm: A:=B; CCP_DRIVEGIVEN:=A; (HL):=B; INC DE (consume the ':').
+;   [RE]
+; ----------------------------------------------------------------------
+CCP_FCB_DRIVE_EXPLICIT:
+        LD A,B                           ; $9690  78
+        ; record that a drive was given
+        LD (CCP_FCB_DRIVE_PREFIX),A                    ; $9691  32 F0 9B
+        ; FCB drive := explicit drive number
+        LD (HL),B                        ; $9694  70
+        ; consume the ':' separator
+        INC DE                           ; $9695  13
+; ----------------------------------------------------------------------
+; CCP_BUILD_FCB_NAME_SETUP -- begin copying the 8-char file name into the FCB.
+;   In: HL -> FCB drive byte (name field follows), DE -> name chars.
+;   Out: B := 8 (name width); falls into CCP_FCB_NAME_LOOP.
+;   Clobbers: B.
+;   Algorithm: B:=8; fall through to the name copy loop.
+;   [RE]
+; ----------------------------------------------------------------------
+CCP_BUILD_FCB_NAME_SETUP:
+        ; 8 name characters maximum
+        LD B,$08                         ; $9696  06 08
+; ----------------------------------------------------------------------
+; CCP_FCB_NAME_LOOP -- copy one file-name character (handling '*' and delimiters).
+;   In: DE -> source char, HL -> FCB position, B = name chars remaining.
+;   Out: on a delimiter, jumps to CCP_FCB_NAME_PAD to blank-fill; '*' stores a '?' in
+;     this position and branches to fill the rest of the field with '?'; otherwise
+;     the char is stored and the loop continues.
+;   Clobbers: A, HL.
+;   Algorithm: if CCP_AT_DELIM -> pad; INC HL; if char=='*' store '?' and branch to
+;     the per-position fill; else store char + INC DE; DEC B; loop.
+;   [RE]
+; ----------------------------------------------------------------------
+CCP_FCB_NAME_LOOP:
+        ; stop at a field delimiter
+        CALL CCP_AT_DELIM                    ; $9698  CD 30 96
+        ; delimiter -> blank-pad remaining name
+        JP Z,CCP_FCB_NAME_PAD                  ; $969B  CA B9 96
+        INC HL                           ; $969E  23
+        ; '*' wildcard?
+        CP $2A                           ; $969F  FE 2A
+        JP NZ,CCP_FCB_NAME_STORE                 ; $96A1  C2 A9 96
+        ; '*' -> store '?' in this position
+        LD (HL),$3F                      ; $96A4  36 3F
+        ; '*' fills the rest of the field with '?'
+        JP CCP_FCB_NAME_NEXT                    ; $96A6  C3 AB 96
+; ----------------------------------------------------------------------
+; CCP_FCB_NAME_STORE -- store a literal name character into the FCB.
+;   In: A = char, HL -> FCB position, DE -> source.
+;   Out: (HL):=char; DE advanced; continues into the loop tail.
+;   Clobbers: DE.
+;   Algorithm: (HL):=A; INC DE; fall into CCP_FCB_NAME_NEXT.
+;   [RE]
+; ----------------------------------------------------------------------
+CCP_FCB_NAME_STORE:
+        ; store the name character
+        LD (HL),A                        ; $96A9  77
+        ; advance past the consumed char
+        INC DE                           ; $96AA  13
+; ----------------------------------------------------------------------
+; CCP_FCB_NAME_NEXT -- loop tail for the 8-char name copy.
+;   In: B = name chars remaining.
+;   Out: loops back to CCP_FCB_NAME_LOOP until B==0, then falls into the
+;     over-long-name skip.
+;   Clobbers: B.
+;   Algorithm: DEC B; if B != 0 JP CCP_FCB_NAME_LOOP; else fall through.
+;   [RE]
+; ----------------------------------------------------------------------
+CCP_FCB_NAME_NEXT:
+        ; one fewer name char to copy
+        DEC B                            ; $96AB  05
+        JP NZ,CCP_FCB_NAME_LOOP                 ; $96AC  C2 98 96
+; ----------------------------------------------------------------------
+; CCP_FCB_NAME_SKIP -- discard any name characters beyond the 8-byte field.
+;   In: DE -> next source char (name field already full).
+;   Out: DE advanced to the first delimiter; then falls into the type parser.
+;   Clobbers: A, DE.
+;   Algorithm: loop: if CCP_AT_DELIM stop; INC DE; repeat.
+;   [RE] Lets an over-length name (e.g. LONGFILENAME.TXT) truncate cleanly.
+; ----------------------------------------------------------------------
+CCP_FCB_NAME_SKIP:
+        ; stop skipping at a delimiter
+        CALL CCP_AT_DELIM                    ; $96AF  CD 30 96
+        ; delimiter -> go parse the type field
+        JP Z,CCP_FCB_TYPE_BEGIN                  ; $96B2  CA C0 96
+        ; discard excess name char
+        INC DE                           ; $96B5  13
+        JP CCP_FCB_NAME_SKIP                    ; $96B6  C3 AF 96
+; ----------------------------------------------------------------------
+; CCP_FCB_NAME_PAD -- blank-fill the remaining name positions of the FCB.
+;   In: HL -> last filled name position, B = positions remaining.
+;   Out: remaining name bytes set to ' '; then falls into the type parser.
+;   Clobbers: HL, B.
+;   Algorithm: loop: INC HL; (HL):=' '; DEC B; while B != 0; then type parse.
+;   [RE]
+; ----------------------------------------------------------------------
+CCP_FCB_NAME_PAD:
+        INC HL                           ; $96B9  23
+        ; pad name with a blank
+        LD (HL),$20                      ; $96BA  36 20
+        DEC B                            ; $96BC  05
+        JP NZ,CCP_FCB_NAME_PAD                 ; $96BD  C2 B9 96
+; ----------------------------------------------------------------------
+; CCP_FCB_TYPE_BEGIN -- start parsing the 3-char file type, if a '.' is present.
+;   In: A = current delimiter char, DE -> it, HL -> end of name field.
+;   Out: B := 3 (type width); if the delimiter is '.', consume it and copy the
+;     type; otherwise jump straight to blank-padding the type field.
+;   Clobbers: A, B, DE.
+;   Algorithm: B:=3; if A != '.' JP CCP_FCB_TYPE_PAD; INC DE (eat the dot).
+;   [RE]
+; ----------------------------------------------------------------------
+CCP_FCB_TYPE_BEGIN:
+        ; 3 type characters
+        LD B,$03                         ; $96C0  06 03
+        ; is the delimiter a '.'?
+        CP $2E                           ; $96C2  FE 2E
+        ; no type given -> blank-pad type
+        JP NZ,CCP_FCB_TYPE_PAD                ; $96C4  C2 E9 96
+        ; consume the '.'
+        INC DE                           ; $96C7  13
+; ----------------------------------------------------------------------
+; CCP_FCB_TYPE_LOOP -- copy one file-type character (handling '*').
+;   In: DE -> source, HL -> FCB type position, B = type chars remaining.
+;   Out: on a delimiter, pad the type; '*' -> '?' (fills the rest of the type);
+;     otherwise store the char.
+;   Clobbers: A, HL.
+;   Algorithm: mirror of CCP_FCB_NAME_LOOP for the 3-char type field.
+;   [RE]
+; ----------------------------------------------------------------------
+CCP_FCB_TYPE_LOOP:
+        ; stop at a delimiter
+        CALL CCP_AT_DELIM                    ; $96C8  CD 30 96
+        ; delimiter -> blank-pad type
+        JP Z,CCP_FCB_TYPE_PAD                 ; $96CB  CA E9 96
+        INC HL                           ; $96CE  23
+        ; '*' wildcard in type?
+        CP $2A                           ; $96CF  FE 2A
+        JP NZ,CCP_FCB_TYPE_STORE                ; $96D1  C2 D9 96
+        ; '*' -> store '?'
+        LD (HL),$3F                      ; $96D4  36 3F
+        ; '*' fills the rest of the type
+        JP CCP_FCB_TYPE_NEXT                   ; $96D6  C3 DB 96
+; ----------------------------------------------------------------------
+; CCP_FCB_TYPE_STORE -- store a literal type character into the FCB.
+;   In: A = char, HL -> FCB type position, DE -> source.
+;   Out: (HL):=char; DE advanced; continues into the type loop tail.
+;   Clobbers: DE.
+;   Algorithm: (HL):=A; INC DE; fall into CCP_FCB_TYPE_NEXT.
+;   [RE]
+; ----------------------------------------------------------------------
+CCP_FCB_TYPE_STORE:
+        ; store the type character
+        LD (HL),A                        ; $96D9  77
+        ; advance past the consumed char
+        INC DE                           ; $96DA  13
+; ----------------------------------------------------------------------
+; CCP_FCB_TYPE_NEXT -- loop tail for the 3-char type copy.
+;   In: B = type chars remaining.
+;   Out: loops to CCP_FCB_TYPE_LOOP until B==0, then falls into the over-long-type
+;     skip.
+;   Clobbers: B.
+;   Algorithm: DEC B; if B != 0 JP CCP_FCB_TYPE_LOOP; else fall through.
+;   [RE]
+; ----------------------------------------------------------------------
+CCP_FCB_TYPE_NEXT:
+        ; one fewer type char to copy
+        DEC B                            ; $96DB  05
+        JP NZ,CCP_FCB_TYPE_LOOP                ; $96DC  C2 C8 96
+; ----------------------------------------------------------------------
+; CCP_FCB_TYPE_SKIP -- discard any type characters beyond the 3-byte field.
+;   In: DE -> next source char (type field already full).
+;   Out: DE advanced to the next delimiter; then falls into the trailer zero-fill.
+;   Clobbers: A, DE.
+;   Algorithm: loop: if CCP_AT_DELIM stop; INC DE; repeat.
+;   [RE]
+; ----------------------------------------------------------------------
+CCP_FCB_TYPE_SKIP:
+        ; stop skipping at a delimiter
+        CALL CCP_AT_DELIM                    ; $96DF  CD 30 96
+        ; delimiter -> zero the FCB trailer
+        JP Z,CCP_FCB_ZERO_TRAILER                 ; $96E2  CA F0 96
+        ; discard excess type char
+        INC DE                           ; $96E5  13
+        JP CCP_FCB_TYPE_SKIP                   ; $96E6  C3 DF 96
+; ----------------------------------------------------------------------
+; CCP_FCB_TYPE_PAD -- blank-fill the remaining type positions of the FCB.
+;   In: HL -> last filled type position, B = positions remaining.
+;   Out: remaining type bytes set to ' '; then zero the FCB trailer.
+;   Clobbers: HL, B.
+;   Algorithm: loop: INC HL; (HL):=' '; DEC B; while B != 0.
+;   [RE]
+; ----------------------------------------------------------------------
+CCP_FCB_TYPE_PAD:
+        INC HL                           ; $96E9  23
+        ; pad type with a blank
+        LD (HL),$20                      ; $96EA  36 20
+        DEC B                            ; $96EC  05
+        JP NZ,CCP_FCB_TYPE_PAD                ; $96ED  C2 E9 96
+; ----------------------------------------------------------------------
+; CCP_FCB_ZERO_TRAILER -- zero the 3 reserved FCB bytes after name+type, finish.
+;   In: HL -> end of the type field.
+;   Out: the 3 bytes (extent/S1/S2 area) zeroed; CCP_PARSEPTR saved; HL restored
+;     to the start of the FCB; then falls into the wildcard scan.
+;   Clobbers: B, HL, DE.
+;   Algorithm: B:=3; loop INC HL,(HL):=0,DEC B; save DE->CCP_PARSEPTR; restore
+;     HL from the stack (start of FCB pushed by CCP_BUILD_FCB).
+;   [RE] The reserved trailer bytes are the FCB extent/record-count cells.
+; ----------------------------------------------------------------------
+CCP_FCB_ZERO_TRAILER:
+        ; 3 trailer bytes (extent/S1/S2)
+        LD B,$03                         ; $96F0  06 03
+; ----------------------------------------------------------------------
+; CCP_FCB_ZERO_LOOP -- zero-fill loop for CCP_FCB_ZERO_TRAILER; then scan wildcards.
+;   In: HL -> position before the first trailer byte, B = 3.
+;   Out: 3 zero bytes written; CCP_PARSEPTR := DE; HL := start-of-FCB; then count
+;     the '?' wildcards in the 11 name+type bytes and return that count in A
+;     (A != 0 means the FCB is ambiguous).
+;   Clobbers: A, B, C, HL, DE.
+;   Algorithm: INC HL,(HL):=0,DEC B loop; EX DE,HL; CCP_PARSEPTR:=HL; POP HL
+;     (FCB start); BC:=$000B; fall into the wildcard counter FCB_WILDCARD_SCAN.
+;   [RE]
+; ----------------------------------------------------------------------
+CCP_FCB_ZERO_LOOP:
+        INC HL                           ; $96F2  23
+        ; zero a reserved FCB byte
+        LD (HL),$00                      ; $96F3  36 00
+        DEC B                            ; $96F5  05
+        JP NZ,CCP_FCB_ZERO_LOOP                ; $96F6  C2 F2 96
+        EX DE,HL                         ; $96F9  EB
+        ; save the advanced parse pointer
+        LD (CCP_PARSEPTR),HL                   ; $96FA  22 88 94
+        ; HL = start of the parsed FCB
+        POP HL                           ; $96FD  E1
+        ; scan 11 name+type bytes for '?'
+        LD BC,$000B                      ; $96FE  01 0B 00
+; ----------------------------------------------------------------------
+; FCB_WILDCARD_SCAN -- count '?' wildcard chars in a parsed 11-byte FCB filename.
+;   In: HL -> the FCB drive byte ($9BCD); the first INC HL steps onto the 8+3
+;       name field. BC = $000B on entry (B = 0 wildcard counter, C = 11 byte count;
+;       set by 'LD BC,$000B' just before falling in here).
+;   Out: A = number of '?' chars found; Z set if none (plain filename),
+;        NZ if at least one wildcard (ambiguous reference).
+;   Clobbers: A, B, C, HL
+;   Algorithm: walk the 11 name+type bytes (loop C from 11 down to 0); for each
+;     byte that equals '?' increment the wildcard counter B; on exit move B to A
+;     and test it so the caller can branch on ambiguous-vs-plain. [RE]
+; ----------------------------------------------------------------------
+FCB_WILDCARD_SCAN:
+        ; advance to next FCB name/type byte
+        INC HL                           ; $9701  23
+        ; fetch this name byte
+        LD A,(HL)                        ; $9702  7E
+        ; is it the '?' wildcard char?
+        CP $3F                           ; $9703  FE 3F
+        ; no: skip the wildcard count
+        JP NZ,FCB_WILDCARD_SCAN_1                ; $9705  C2 09 97
+        ; yes: bump '?' counter
+        INC B                            ; $9708  04
+FCB_WILDCARD_SCAN_1:
+        ; one of the 11 name+type bytes done
+        DEC C                            ; $9709  0D
+        ; loop until all 11 scanned
+        JP NZ,FCB_WILDCARD_SCAN                ; $970A  C2 01 97
+        ; return wildcard count...
+        LD A,B                           ; $970D  78
+        ; ...and set Z (plain) / NZ (ambiguous)
+        OR A                             ; $970E  B7
+        RET                              ; $970F  C9
+; ----------------------------------------------------------------------
+; CCP_BUILTIN_NAMES -- table of the six built-in command names, 4 bytes each.
+;   Layout: 'DIR ','ERA ','TYPE','SAVE','REN ','USER' (24 bytes, blank-padded).
+;   Indexed 0..5 by SEARCH_BUILTIN; the matched index then selects a handler in
+;   CCP_BUILTIN_DISPATCH. [RE]
+; ----------------------------------------------------------------------
+CCP_BUILTIN_NAMES:
+        ; 0=DIR 1=ERA 2=TYPE 3=SAVE 4=REN 5=USER (4 chars each, space-padded)
+        DEFB    "DIR ERA TYPESAVEREN USER"    ; $9710  string
+; ----------------------------------------------------------------------
+; CCP_SERIAL_STAMP -- 6-byte CP/M serial-number stamp embedded in the CCP.
+;   These six bytes are compared against the first six bytes of the BDOS image
+;   header (BDOS_FBASE, $9C00) by the serial-check routine CCP_CHECK_SERIAL (it
+;   loads DE=$9728, HL=$9C00, B=6 and compares byte-for-byte); a mismatch means
+;   the CCP and BDOS are from different copies and CCP_CHECK_SERIAL jumps to
+;   CCP_SERIAL_MISMATCH_HALT.
+;   Treated here as opaque serial data, not code. [RE]
+; ----------------------------------------------------------------------
+CCP_SERIAL_STAMP:
+        ; CP/M serial-number bytes; must match BDOS header at $9C00 (checked by CCP_CHECK_SERIAL)
+        DEFB    $BD,$16,$00,$00,$16,$DF                          ; $9728
+; ----------------------------------------------------------------------
+; SEARCH_BUILTIN -- match the parsed command word against the six built-in names.
+;   In: parsed command FCB name field at CCP_FCB_NAME (the command word lives in the
+;       first 4+ chars of the FCB name).
+;   Out: A = command index 0..5 when a built-in matches with a trailing space; on
+;        no match the loop runs C up to 6 and returns with A = 6 (>=6). The caller
+;        discriminates by the index value (>=6 means 'not a built-in', falls through
+;        to the external-command dispatch slot) -- carry is NOT a result flag here:
+;        both the match path and the exhausted path return via NC.
+;   Clobbers: A, B, C, DE, HL
+;   Algorithm: for command index C = 0..5, point HL at the 4-byte name entry in
+;     CCP_BUILTIN_NAMES and DE at the parsed command bytes; compare 4 bytes; on a
+;     full match require the next parsed byte to be a space (no trailing junk) and
+;     return C as the matched index; otherwise advance HL past this entry and try
+;     the next index. [RE]
 ; ----------------------------------------------------------------------
 SEARCH_BUILTIN:
-        LD D,$00
-        NOP
-        LD D,$DF
-        ; ; FLAG: in-image pointer set to $9710 (into the $9700 parser code, NOT CCP_CMD_NAMES);
-        ; lands mid-instruction, relocation pending a split at $970F
-        ; $9710 = +1 into `SUB '0'` at $970F (FCB_DIGIT_ACCUM_STEP); mid-instruction in an unrelated
-        ; routine -- KEPT LITERAL (decode UNVERIFIED, see header). [UNKNOWN]
-        LD HL,$9710
-        ; ; index/counter C = 0
-        LD C,$00
-        LD A,C
-        ; ; C-index limit guard (0..5); purpose of the limit UNKNOWN
-        CP $06                           ; index past last built-in? there are exactly 6 [DOC CPMREF 3-6 ; facts sec.7.8] ERA DIR REN SAVE TYPE USER
-        ; ; return once the index reaches the limit (never fires on first entry, C just set to 0)
-        RET NC
+        ; HL -> first built-in name entry (CCP_BUILTIN_NAMES)
+        LD HL,CCP_BUILTIN_NAMES                     ; $972E  21 10 97
+        ; start at command index 0
+        LD C,$00                         ; $9731  0E 00
+SEARCH_BUILTIN_NEXT:
+        ; current command index -> A for the range test
+        LD A,C                           ; $9733  79
+        ; tried all 6 built-ins?
+        CP $06                           ; $9734  FE 06
+        ; yes: A>=6, none matched -> not a built-in
+        RET NC                           ; $9736  D0
+        ; DE -> parsed command name in the command FCB
+        LD DE,CCP_FCB_NAME                     ; $9737  11 CE 9B
+        ; compare 4 name chars
+        LD B,$04                         ; $973A  06 04
+SEARCH_BUILTIN_CMP:
+        ; next parsed command char
+        LD A,(DE)                        ; $973C  1A
+        ; vs the table name char
+        CP (HL)                          ; $973D  BE
+        ; mismatch: skip rest of this entry
+        JP NZ,SEARCH_BUILTIN_SKIP                 ; $973E  C2 4F 97
+        INC DE                           ; $9741  13
+        ; advance table ptr to next name char
+        INC HL                           ; $9742  23
+        DEC B                            ; $9743  05
+        ; loop the 4-char compare
+        JP NZ,SEARCH_BUILTIN_CMP                 ; $9744  C2 3C 97
+        ; char after the 4-char name
+        LD A,(DE)                        ; $9747  1A
+        ; must be a space (exact command, no junk)
+        CP $20                           ; $9748  FE 20
+        ; trailing junk: not this command, try next
+        JP NZ,SEARCH_BUILTIN_ADVANCE                 ; $974A  C2 54 97
+        ; matched: return command index in A
+        LD A,C                           ; $974D  79
+        RET                              ; $974E  C9
+SEARCH_BUILTIN_SKIP:
+        ; skip remaining bytes of the mismatched entry
+        INC HL                           ; $974F  23
+        DEC B                            ; $9750  05
+        ; until 4 bytes of this entry consumed
+        JP NZ,SEARCH_BUILTIN_SKIP                 ; $9751  C2 4F 97
+SEARCH_BUILTIN_ADVANCE:
+        ; advance to next command index
+        INC C                            ; $9754  0C
+        ; retry with the next built-in
+        JP SEARCH_BUILTIN_NEXT                    ; $9755  C3 33 97
 ; ----------------------------------------------------------------------
-; SEARCH_BUILTIN_1 -- compare a 4-byte run at (HL) against bytes at (DE), require a trailing space,
-; return C in A on full match [RE]
-;   In:        HL -> bytes to compare (set by SEARCH_BUILTIN to the $9710 region); (fall-through
-;              path) DE = $9BCE (a CCP workspace cell); C = current index
-;   Out:       on 4 matched bytes + a trailing space at (DE), A = C and RET; on any mismatch, branch
-;              to TBUFF_INDEX_FETCH_2 ($974F) or RESOLVE_DRIVE_PREFIX ($9754) in the $9700 cluster
-;   Clobbers:  A, B, DE, HL, flags
-;   Algorithm: B=4; compare (DE) vs (HL); on equality advance both pointers and loop; after 4 equal
-;              bytes require (DE)==' ' then return the index C in A. [RE] the structure is a
-;              fixed-width-field compare; what it compares against is governed by SEARCH_BUILTIN's
-;              HL setup, which is UNKNOWN, so the 'built-in keyword match' reading is NOT confirmed.
-;   Note: $9537 (LD DE,$9BCE) is the FALL-THROUGH tenant; the alternate mid-byte entry
-;         SEARCH_BUILTIN_ALT ($9539 = SBC A,E) is reached by `CALL $9539` at $9595 and $982D and
-;         re-uses this compare loop with caller-supplied DE/HL (purpose of the SBC entry: UNKNOWN --
-;         see split). $9BCE is a CCP workspace cell kept literal (file-wide relocation decision
-;         needed -- FLAG).
+; CCP_WARM_ENTRY -- warm-boot entry to the Console Command Processor.
+;   In: (cold-boot path enters one line below at CCP_COLD_ENTRY=$975C with C = login
+;       byte from the BIOS: high nibble = user number, low nibble = default drive.)
+;   Out: does not return normally; reads, parses, and dispatches one command,
+;        then loops back through the command processor.
+;   Clobbers: all
+;   Algorithm: the warm entry first clears the submit/auto-command flag
+;     (CCP_SUBMIT_FLAG at CCP_INLEN) then falls into the common entry, which: sets the
+;     user number (F_USERNUM=32) from the high nibble of the login byte, resets the
+;     disk system (DRV_ALLRESET=13), selects the default drive (DRV_SET=14) from the
+;     low nibble, and if no pending submit command prints the 'd>' prompt, reads a
+;     console line into the line buffer, sets DMA back to TBUFF, parses it into the
+;     command FCB, looks it up with SEARCH_BUILTIN, and JP (HL)'s through
+;     CCP_BUILTIN_DISPATCH to the matching built-in (or runs an external .COM). [RE]
 ; ----------------------------------------------------------------------
-SEARCH_BUILTIN_1:
-        LD DE,CCP_FCB+1
-        ; ; compare a 4-byte field
-        LD B,$04
-        LD A,(DE)
-        ; ; byte at (DE) vs byte at (HL) for this position
-        CP (HL)
-        JP NZ,TBUFF_INDEX_FETCH_2
-        INC DE
-        INC HL
-        DEC B
-        JP NZ,FCB_FIELD_BLANKS_LOOP+1
-        ; ; after 4 equal bytes, the byte at (DE) must be a space delimiter for a full match
-        LD A,(DE)
-        CP ' '
-        JP NZ,RESOLVE_DRIVE_PREFIX
-        ; ; full match: return the index C in A
-        LD A,C
-        RET
+CCP_WARM_ENTRY:
+        ; warm entry: clear A
+        XOR A                            ; $9758  AF
+        ; clear the submit/auto-command flag
+        LD (CCP_INLEN),A                    ; $9759  32 07 94
+CCP_COLD_ENTRY:
+        ; reset CCP stack to its private area
+        LD SP,CCP_SUBMIT_FLAG                     ; $975C  31 AB 9B
+        ; save the BIOS login byte (user<<4 | drive)
+        PUSH BC                          ; $975F  C5
+        ; login byte -> A
+        LD A,C                           ; $9760  79
+        ; shift high nibble (user number) down...
+        RRA                              ; $9761  1F
+        RRA                              ; $9762  1F
+        RRA                              ; $9763  1F
+        RRA                              ; $9764  1F
+        ; isolate the 4-bit user number
+        AND $0F                          ; $9765  E6 0F
+        ; E = user number for the set-user call
+        LD E,A                           ; $9767  5F
+        ; BDOS F_USERNUM(32): set current user code
+        CALL BDOS_USERNUM                    ; $9768  CD 15 95
+        ; BDOS DRV_ALLRESET(13): reset disk system, returns login vector
+        CALL BDOS_DRV_ALLRESET                    ; $976B  CD B8 94
+        ; stash returned login byte in CCP workspace
+        LD (CCP_SUBMIT_FLAG),A                    ; $976E  32 AB 9B
+        ; restore login byte
+        POP BC                           ; $9771  C1
+        ; login byte -> A again
+        LD A,C                           ; $9772  79
+        ; isolate the 4-bit default drive number
+        AND $0F                          ; $9773  E6 0F
+        ; remember current/default drive
+        LD (CCP_CUR_DRIVE),A                    ; $9775  32 EF 9B
+        ; BDOS DRV_SET(14): select the default drive
+        CALL BDOS_DRV_SET                    ; $9778  CD BD 94
+        ; pending submit/auto command?
+        LD A,(CCP_INLEN)                    ; $977B  3A 07 94
+        ; test the submit flag
+        OR A                             ; $977E  B7
+        ; yes: skip the prompt, take the queued line
+        JP NZ,CCP_PARSE_AND_DISPATCH                 ; $977F  C2 98 97
+CCP_PROMPT_AND_READ:
+        ; reset CCP stack before prompting
+        LD SP,CCP_SUBMIT_FLAG                     ; $9782  31 AB 9B
+        ; print CR/LF
+        CALL CCP_CRLF                    ; $9785  CD 98 94
+        ; BDOS DRV_GET(25): get current drive number
+        CALL BDOS_DRV_GET                    ; $9788  CD D0 95
+        ; convert drive 0..15 to ASCII 'A'..'P'
+        ADD A,$41                        ; $978B  C6 41
+        ; C_WRITE(2): echo the drive letter
+        CALL CCP_CONOUT                    ; $978D  CD 8C 94
+        ; '>' prompt character
+        LD A,$3E                         ; $9790  3E 3E
+        ; C_WRITE(2): print the '>' prompt
+        CALL CCP_CONOUT                    ; $9792  CD 8C 94
+        ; read a console command line into the buffer
+        CALL CCP_GETCMD                    ; $9795  CD 39 95
+CCP_PARSE_AND_DISPATCH:
+        ; DE -> TBUFF ($0080), the default DMA / line area
+        LD DE,$0080                      ; $9798  11 80 00
+        ; BDOS F_DMAOFF(26): set DMA back to TBUFF ($0080)
+        CALL BDOS_F_DMAOFF                    ; $979B  CD D8 95
+        ; BDOS DRV_GET(25): re-read current drive
+        CALL BDOS_DRV_GET                    ; $979E  CD D0 95
+        ; update current/default drive
+        LD (CCP_CUR_DRIVE),A                    ; $97A1  32 EF 9B
+        ; parse the typed line into the command FCB
+        CALL CCP_PARSE_FCB1                    ; $97A4  CD 5E 96
+        ; on parse note, echo command tail to first blank
+        CALL NZ,CCP_ECHO_TOKEN                 ; $97A7  C4 09 96
+        ; explicit drive prefix given on the command?
+        LD A,(CCP_FCB_DRIVE_PREFIX)                    ; $97AA  3A F0 9B
+        ; test the drive-prefix flag
+        OR A                             ; $97AD  B7
+        ; yes: go run it as an external command
+        JP NZ,CCP_DRIVE_SELECT                ; $97AE  C2 A5 9A
+        ; SEARCH_BUILTIN: find a built-in command index
+        CALL SEARCH_BUILTIN                    ; $97B1  CD 2E 97
+        ; HL -> built-in dispatch table
+        LD HL,CCP_BUILTIN_DISPATCH_TBL                     ; $97B4  21 C1 97
+        ; E = command index from SEARCH_BUILTIN
+        LD E,A                           ; $97B7  5F
+        ; DE = zero-extended index
+        LD D,$00                         ; $97B8  16 00
+        ; scale index by 2 (table of words)...
+        ADD HL,DE                        ; $97BA  19
+        ; ...HL -> the matching DEFW entry
+        ADD HL,DE                        ; $97BB  19
+        ; load handler address low byte
+        LD A,(HL)                        ; $97BC  7E
+        INC HL                           ; $97BD  23
+        ; load handler address high byte
+        LD H,(HL)                        ; $97BE  66
+        LD L,A                           ; $97BF  6F
+        ; jump to the built-in command handler
+        JP (HL)                          ; $97C0  E9
 ; ----------------------------------------------------------------------
-; SEARCH_BUILTIN_2 -- skip the rest of the mismatched field, bump the index, retry the next field
-; [RE]
-;   In:        HL -> within the current field; B = bytes left to skip; C = current index
-;   Out:       loops to FCB_FIELD_BLANKS ($9733) with C incremented and HL advanced past the field;
-;              on a skip miscount branches to TBUFF_INDEX_FETCH_2 ($974F)
-;   Clobbers:  B, C, HL, flags
-;   Algorithm: DEC B / INC HL to step HL over the remaining field bytes, then INC C and JP
-;              FCB_FIELD_BLANKS to retry the next field. [RE] this is the 'try the next entry' tail
-;              of the matcher; the targets are in the $9700 cluster so the wiring is only PARTIALLY
-;              understood (see SEARCH_BUILTIN FLAG).
+; CCP_BUILTIN_DISPATCH_TBL -- jump table of the 7 built-in CCP command handlers.
+;   In: indexed by the command number in A (0..6) returned by the built-in matcher
+;       SEARCH_BUILTIN (compares the command name against the keyword table at CCP_BUILTIN_NAMES).
+;   Out: n/a (table of DEFW handler addresses).
+;   Clobbers: n/a (data).
+;   Algorithm: the dispatcher at $97B4 loads HL=this table + 2*index, fetches the
+;              16-bit handler address, and JP (HL)s to it. Order matches the keyword
+;              table "DIR ERA TYPESAVEREN USER": 0=DIR 1=ERA 2=TYPE 3=SAVE 4=REN
+;              5=USER, 6=not-a-builtin (load+run as a transient program).
+;   [RE] Standard CP/M 2.2 CCP built-in dispatch table.
 ; ----------------------------------------------------------------------
-SEARCH_BUILTIN_2:
-        ; ; skip a remaining byte of the mismatched field
-        INC HL
-        DEC B
-        JP NZ,TBUFF_INDEX_FETCH_2
-        ; ; advance to the next index
-        INC C
-        ; ; retry the compare against the next field at FCB_FIELD_BLANKS ($9733)
-        JP FCB_FIELD_BLANKS
 ; ----------------------------------------------------------------------
-; CCP_MAIN_LOOP -- CCP top-of-loop: re-login, print drive prompt, read+parse a command line,
-; dispatch a built-in or load a transient .COM. In: BC=login byte, C=(user<<4)|drive. Out: drive
-; cell $9BEF set, FCB+TBUFF tail parsed. CAVEAT: several CALLs target mid-instruction/string data
-; (unresolved RPC/position idiom).
+; CCP_BUILTIN_DISPATCH -- word table of the six built-in command handler addresses.
+;   Indexed (x2) by the command number SEARCH_BUILTIN returns; entries 0..5 are
+;   DIR, ERA, TYPE, SAVE, REN, USER. A seventh DEFW (external/run path) follows
+;   so an out-of-range index (6) falls through to the external-command handler. [RE]
 ; ----------------------------------------------------------------------
-CCP_MAIN_LOOP:
-        XOR A
-        LD (SUBMIT_FLAG),A
-        LD SP,CCP_FCB-34
-        PUSH BC
-        LD A,C
-        RRA
-        RRA
-        RRA
-        RRA
-        AND $0F
-        LD E,A
-        ; [UNKNOWN] $9515 lands inside the CCP_CMD_NAMES string ($9510-$9527) -- a CALL-into-data
-        ; idiom unresolved by static decode
-        CALL CCP_CMD_NAMES+5
-        ; [RE] per-user login/select inferred from call-site; 6502 service at offset $0B8
-        ; UNIDENTIFIED -- the block is disk-only, selection mechanism is the file's open question
-        CALL RPC6502_E0B8
-        LD (CCP_FCB-34),A
-        POP BC
-        LD A,C
-        AND $0F
-        ; record the current drive in the CCP drive cell ($9BEF; runtime scratch RAM, not the BDOS
-        ; code it disassembles as)
-        LD (CMD_EXEC_69),A
-        ; [RE] per-drive select inferred from call-site; 6502 service at offset $0BD UNIDENTIFIED
-        CALL RPC6502_E0BD
-        LD A,(SUBMIT_FLAG)
-        OR A
-        JP NZ,DIR_CMD_2
-        LD SP,CCP_FCB-34
-        ; [RE] CRLF inferred from call-site; 6502 service at offset $098 UNIDENTIFIED
-        CALL RPC6502_E098
-        CALL GET_CUR_DRIVE
-        ADD A,'A'
-        ; [RE] drive letter inferred (A from ADD A,'A'); 6502 service at offset $08C UNIDENTIFIED --
-        ; the 6502 block has no console routine
-        CALL RPC6502_E08C
-        LD A,'>'
-        ; [RE] '>' inferred (A set to '>'); same UNIDENTIFIED-6502-service caveat
-        CALL RPC6502_E08C
-        ; [UNKNOWN] $9539 is MID-INSTRUCTION (operand of LD DE,$9BCE at $9537; header line 52) --
-        ; unresolved skip/cover idiom like CALL $9515; read/parse role inferred only from loop
-        ; position
-        CALL SEARCH_BUILTIN_1+2
-        LD DE,TBUFF                      ; default DMA buffer / command-tail buffer at 0080H [DOC CPMREF 3-47 ; facts sec.7.4/7.5] (byte 0080H = char count, then upper-cased tail; doubles as the initial DMA buffer)
-        CALL RPC_CALL_HL
-        CALL GET_CUR_DRIVE
-        LD (CMD_EXEC_69),A
-        CALL RPC_DISPATCH
-        CALL NZ,RST_TABLE_9609
-        LD A,(CCP_FCB+35)
-CCP_MAIN_LOOP_1:
-        OR A
-        JP NZ,CMD_EXEC_49
-        CALL FCB_FIELD_LEN_LOOP
-        LD HL,$97C1
-        LD E,A
-        LD D,$00
-        ADD HL,DE
-        ADD HL,DE
-        LD A,(HL)
-        INC HL
-        LD H,(HL)
-        LD L,A
-        JP (HL)
-        DEFB    $77
-CMD_DISPATCH_TBL:
-        DEFB    $98,$1F,$99,$5D,$99      ; [AI/RE] CCP-internal address table, reached via CALL CMD_DISPATCH_TBL (CD C2 95) from $980F and $9897 -- NOT the JP (HL) built-in dispatcher at $95C0 (that one indexes base $97C1). A per-implementation table, not a manual structure.
-CMD_DISPATCH_TBL_2:
-        DEFW    RECORD_SCAN_STEP_1
-        DEFW    CMD_EXEC_42
-        DEFW    CMD_EXEC_48
-        DEFW    CMD_EXEC_49
-        DEFB    $21
-GET_CUR_DRIVE:
-        DEFB    $F3,$76,$22,$00,$94
-RPC_ENTER_6502:
-        LD HL,RPC6502_BLOCK
-RPC_CALL_HL:
-        JP (HL)
+CCP_BUILTIN_DISPATCH_TBL:
+        ; index 0: DIR builtin
+        ; 0: DIR built-in
+        DEFW    DIR_CMD               ; $97C1
+        ; index 1: ERA builtin
+        ; 1: ERA built-in
+        DEFW    ERA_CMD              ; $97C3
+        ; index 2: TYPE builtin
+        ; 2: TYPE built-in
+        DEFW    TYPE_CMD              ; $97C5
+        ; index 3: SAVE builtin
+        ; 3: SAVE built-in
+        DEFW    SAVE_CMD              ; $97C7
+        ; index 4: REN builtin
+        ; 4: REN built-in
+        DEFW    REN_CMD              ; $97C9
+        ; index 5: USER builtin
+        ; 5: USER built-in
+        DEFW    CCP_CMD_USER              ; $97CB
+        ; index 6: not a builtin -> load and run transient .COM
+        ; 6: external / run .COM (out-of-range fallthrough)
+        DEFW    CCP_DRIVE_SELECT              ; $97CD
 ; ----------------------------------------------------------------------
-; RPC_CALL_HL_1 -- LD BC,$97DF then JP RPC6502_E0A7. UNKNOWN: [RE] call-site suggests a print RPC
-; but the 6502 service at $0A7 is UNIDENTIFIED. $97DF is IN-IMAGE (interior of DIR_EMIT_NAME_CHAR,
-; not MSG_READ_ERROR head $95DF), mid-instruction -- left literal, FLAGGED for a cover-split there.
+; CCP_SERIAL_MISMATCH_HALT -- lock the system when the BDOS serial does not match.
+;   In: reached via JP NZ from the CCP serial check (CCP_CHECK_SERIAL) on a byte mismatch.
+;   Out: never returns; the CPU is halted.
+;   Clobbers: HL; overwrites the first 2 bytes of the CCP entry vector at $9400.
+;   Algorithm: store the bytes $F3,$76 (DI ; HALT) over the CCP cold-entry vector,
+;              then JP (HL) into $9400 to execute DI then HALT, hanging the machine.
+;   [RE] Standard DRI CP/M anti-piracy serial trap: a corrupted/foreign BDOS makes
+;        the CCP destroy its own entry point and stop. $76F3 stored little-endian
+;        places opcodes F3,76 = DI ; HALT at $9400.
 ; ----------------------------------------------------------------------
-RPC_CALL_HL_1:
-        ; 6502-VIEW print pointer to MSG_READ_ERROR: $97DF = MSG_READ_ERROR ($95DF) + $0200 (the
-        ; Z-80<->6502 image-view offset for the $95xx page). Now relocatizes with the string label.
-        ; [RE]
-        LD BC,MSG_READ_ERROR+$0200
-RPC_CALL_HL_2:
-        JP RPC6502_E0A7
+CCP_SERIAL_MISMATCH_HALT:
+        ; $76F3 stored little-endian = bytes F3,76 = DI ; HALT
+        LD HL,$76F3                      ; $97CF  21 F3 76
+        ; overwrite the CCP cold-entry vector with DI ; HALT
+        LD (CCP_ENTRY),HL                   ; $97D2  22 00 94
+        ; point HL at the just-patched entry
+        LD HL,CCP_ENTRY                     ; $97D5  21 00 94
+        ; jump into it: DI then HALT -> system hangs (serial lock)
+        JP (HL)                          ; $97D8  E9
 ; ----------------------------------------------------------------------
-; MSG_READ_ERROR -- CP/M "READ ERROR" message text (NUL-terminated literal).
-;   In:        Not entered as code. A $00-terminated ASCII string literal addressed
-;              as DATA. It is reached for printing via the stub RPC_CALL_HL_1 at
-;              $95D9: LD BC,$97DF / JP RPC6502_E0A7 (the 6502 string-print RPC).
-;   Out:       n/a (data).
-;   Clobbers:  n/a (data).
-;   Algorithm: OBSERVED bytes "READ ERROR",$00. Printed when a CCP-driven disk read
-;              of a transient (.COM) hard-fails -- the standard CP/M 2.2 console
-;              read-error text. [RE] LOCATOR RESOLVED (peer had marked UNKNOWN): the
-;              print pointer $97DF is EXACTLY this label's address $95DF plus $0200,
-;              i.e. the 6502-VIEW address of the string (the Z-80<->6502 image-view
-;              +$0200 offset). The 6502 print RPC reads the same physical bytes from
-;              the 6502 address space. $97DF is therefore a cross-CPU literal, NOT a
-;              relocatable Z-80 label (it must stay literal). The exact Z-80 path that
-;              sets HL/falls into RPC_CALL_HL_1 is reached via the JP (HL) computed
-;              dispatch at RPC_CALL_HL ($95D8) and is only partially traced (UNKNOWN).
+; PRINT_READ_ERROR -- emit the "READ ERROR" message on a fresh line.
+;   In: none.
+;   Out: message printed via CCP_CRLF_MSG (CRLF then print-string-until-NUL).
+;   Clobbers: A, BC, HL (per the print helper).
+;   Algorithm: point BC at the "READ ERROR" string and tail-jump CCP_CRLF_MSG, which
+;              prints a CRLF then outputs the string until the $00 terminator.
+;   [RE] CCP disk read-error report.
+; ----------------------------------------------------------------------
+PRINT_READ_ERROR:
+        ; BC -> "READ ERROR" string
+        LD BC,MSG_READ_ERROR                     ; $97D9  01 DF 97
+        ; tail-call CRLF + print-string-until-NUL
+        JP CCP_CRLF_MSG                      ; $97DC  C3 A7 94
+; ----------------------------------------------------------------------
+; MSG_READ_ERROR -- NUL-terminated console message "READ ERROR".
+;   In: pointed to by PRINT_READ_ERROR.
+;   Out: n/a (data).
+;   Clobbers: n/a.
+;   Algorithm: ASCII text + $00 terminator.
+;   [RE] CCP message string.
 ; ----------------------------------------------------------------------
 MSG_READ_ERROR:
-        DEFB    "READ ERROR"             ; CP/M error text
-        DEFB    $00                      ; terminator
+        DEFB    "READ ERROR"    ; $97DF  string
+        DEFB    $00    ; $97E9  terminator
 ; ----------------------------------------------------------------------
-; RPC_CALL_HL_3 -- LD BC,$97F0 then JP RPC6502_E0A7. UNKNOWN: [RE] call-site suggests a print RPC
-; but the 6502 service at $0A7 is UNIDENTIFIED. $97F0 is IN-IMAGE (interior of DIR_EMIT_NAME_CHAR_2,
-; not MSG_NO_FILE head $95F0), mid-instruction -- left literal, FLAGGED for a cover-split.
+; PRINT_NO_FILE -- emit the "NO FILE" message on a fresh line.
+;   In: none.
+;   Out: message printed via CCP_CRLF_MSG (CRLF then print-string-until-NUL).
+;   Clobbers: A, BC, HL (per the print helper).
+;   Algorithm: point BC at the "NO FILE" string and tail-jump CCP_CRLF_MSG.
+;   [RE] CCP "file not found" report (DIR/ERA/REN with no matching file).
 ; ----------------------------------------------------------------------
-RPC_CALL_HL_3:
-        ; 6502-VIEW print pointer to MSG_NO_FILE: $97F0 = MSG_NO_FILE ($95F0) + $0200. Now
-        ; relocatizes with the string label. [RE]
-        LD BC,MSG_NO_FILE+$0200
-        JP RPC6502_E0A7
+PRINT_NO_FILE:
+        ; BC -> "NO FILE" string
+        LD BC,MSG_NO_FILE                     ; $97EA  01 F0 97
+        ; tail-call CRLF + print-string-until-NUL
+        JP CCP_CRLF_MSG                      ; $97ED  C3 A7 94
 ; ----------------------------------------------------------------------
-; MSG_NO_FILE -- CP/M "NO FILE" message text (NUL-terminated literal).
-;   In:        Not entered as code. A $00-terminated ASCII string literal emitted via
-;              the stub RPC_CALL_HL_3 at $95EA: LD BC,$97F0 / JP RPC6502_E0A7 (the
-;              6502 string-print RPC).
-;   Out:       n/a (data).
-;   Clobbers:  n/a (data).
-;   Algorithm: OBSERVED bytes "NO FILE",$00. Printed when a command names a file the
-;              directory search does not find -- standard CP/M 2.2 "NO FILE" text.
-;              [RE] LOCATOR RESOLVED (peer had marked UNKNOWN): the print pointer
-;              $97F0 is EXACTLY this label's address $95F0 plus $0200 -- the 6502-VIEW
-;              address of the string (same +$0200 Z-80<->6502 image-view offset as
-;              MSG_READ_ERROR). $97F0 is a cross-CPU literal, correctly kept literal,
-;              NOT a relocatable Z-80 label. The reaching Z-80 path is only partially
-;              traced (UNKNOWN precise trigger).
+; MSG_NO_FILE -- NUL-terminated console message "NO FILE".
+;   In: pointed to by PRINT_NO_FILE.
+;   Out: n/a (data).
+;   Clobbers: n/a.
+;   Algorithm: ASCII text + $00 terminator.
+;   [RE] CCP message string.
 ; ----------------------------------------------------------------------
 MSG_NO_FILE:
-        DEFB    "NO FILE"                ; CP/M error text
-        DEFB    $00                      ; terminator
+        DEFB    "NO FILE"    ; $97F0  string
+        DEFB    $00    ; $97F7  terminator
 ; ----------------------------------------------------------------------
-; CHECK_DRIVE_ERR_1 -- hand off to the 6502 RPC, then fall into the error-flag check.
-;   In:        Caller has set up the pending 6502 service; $9BF0 = CCP BDOS-result/
-;              error flag (0 = ok, nonzero = error code). $9BF0 is CCP RAM workspace
-;              (above the CP/M base page; not in cpm22.inc) -> kept literal.
-;   Out:       Falls into CHECK_DRIVE_ERR_2 with A = the $9BF0 flag and Z reflecting it.
-;   Clobbers:  A, plus whatever the 6502 service touches.
-;   Algorithm: Transfer to the embedded 6502 block via the Z-80 reference RPC_DISPATCH
-;              ($965E) -- a target INSIDE the 6502 program (see the cluster FLAG): how
-;              the Z-80 transfer selects the 6502 service is the unsolved CPU-switch
-;              question shared with the $9400 block. On return, read and test the CCP
-;              error flag at $9BF0.
+; PARSE_FCB_DECIMAL -- parse the file-name field of the parsed FCB as a decimal number.
+;   In: command tail in the CCP command buffer; reparsed here into the CCP FCB.
+;   Out: A = the 8-bit decimal value (also in B); falls through to error (CCP_ECHO_TOKEN)
+;        on a bad digit or overflow > 255.
+;   Clobbers: A, B, C, D, HL.
+;   Algorithm: rebuild the FCB from the tail (CCP_PARSE_FCB1/CCP_BUILD_FCB); if a second
+;              drive-prefixed token was parsed (CCP_FCB_DRIVE_PREFIX != 0), error. Walk the 11-char
+;              name field (HL=CCP_FCB_NAME): a space ends the number (then verify the
+;              remaining chars are all blank); else subtract '0' and require 0..9,
+;              accumulate value = value*10 + digit, trapping any carry as overflow.
+;              Used by SAVE (page count) and USER (user number).
+;   [RE] CCP numeric-argument parser for SAVE n and USER n.
 ; ----------------------------------------------------------------------
-CHECK_DRIVE_ERR_1:
-        ; ; hand off to the embedded 6502 block (target $965E lies INSIDE the 6502 program; the
-        ; CPU-switch selector is the documented OPEN QUESTION, file lines 489-494)
-        CALL RPC_DISPATCH
+PARSE_FCB_DECIMAL:
+        ; (re)parse the command tail into the CCP FCB
+        CALL CCP_PARSE_FCB1                    ; $97F8  CD 5E 96
+        ; A = second-token drive-prefix flag from the parse (0 = none)
+        LD A,(CCP_FCB_DRIVE_PREFIX)                    ; $97FB  3A F0 9B
+        OR A                             ; $97FE  B7
+        ; unexpected extra argument -> report bad command line
+        JP NZ,CCP_ECHO_TOKEN                   ; $97FF  C2 09 96
+        ; HL -> first char of the FCB name field
+        LD HL,CCP_FCB_NAME                     ; $9802  21 CE 9B
+        ; B=0 (accumulator), C=11 (name field length)
+        LD BC,$000B                      ; $9805  01 0B 00
 ; ----------------------------------------------------------------------
-; CHECK_DRIVE_ERR_2 -- test the CCP BDOS-result/error flag after an RPC service.
-;   In:        $9BF0 = CCP error flag set by the preceding operation (0 = success,
-;              nonzero = a BDOS/disk error code); CCP RAM workspace, kept literal.
-;   Out:       Genuine Z-80 body is ONLY LD A,($9BF0) ($95FB) / OR A ($95FE):
-;              A = flag, Z set iff no error.
-;   Clobbers:  A, flags.
-;   Algorithm: Load the error flag and OR A to set Z. WARNING (peer FLAG confirmed):
-;              everything from $95FF onward as shown (the bogus 'JP NZ,$81AD' and the
-;              lines below) is NOT Z-80 -- the disassembler mis-split the START of the
-;              embedded 6502 restart block into Z-80. The off-image target $81AD
-;              (outside the $9300-$9CFF CCP image) is the tell. Decoded as 6502 from
-;              $9600 the bytes 'AD 81 C0' = LDA $C081 (Language-Card enable), the real
-;              first instruction of the 6502 program (see the cluster FLAG). The true
-;              error branch lives in that 6502 payload. Also entered at
-;              CHECK_DRIVE_ERR_2+2 ($95FD, the documented shared instruction tail).
+; PARSE_FCB_DECIMAL_LOOP -- digit accumulation loop for PARSE_FCB_DECIMAL.
+;   In: HL -> current name char, B = running value, C = chars remaining.
+;   Out: loops until a blank or all 11 chars consumed; B holds the accumulated value.
+;   Clobbers: A, B, C, D, HL.
+;   Algorithm: load char; if ' ' jump to the trailing-blank check; else digit=char-'0',
+;              reject if >= 10; pre-reject if value >= 32 (would overflow *8); then
+;              new = value*8 (3x RLCA) + value + value (= *10) + digit, rejecting on
+;              carry at each add (overflow); store back, decrement count, repeat.
+;   [RE] Inner loop of the CCP decimal parser.
 ; ----------------------------------------------------------------------
-CHECK_DRIVE_ERR_2:
-        ; ; read the CCP BDOS-result/error flag ($9BF0: 0 = ok, nonzero = error code; CCP RAM
-        ; workspace)
-        LD A,(CCP_FCB+35)
-        ; ; set Z iff no error; FLAG: from the next line on the bytes are the embedded 6502 restart
-        ; block ($9600 AD 81 C0 = LDA $C081) mis-decoded as Z-80 -- do not trust as Z-80 code
-        OR A
-        ; $95FF: boundary filler byte before the embedded 6502 restart block.
-        ; Genuine Z-80 ends at OR A ($95FE); $95FF=$C2 is not part of the coherent
-        ; 6502 program (which starts at $9600) and is referenced by nothing.
-        ; Mirrors the DEFB $01,$0B filler before the $9400 INCBIN.
-        DEFB    $C2
-RPC_RESTART_BLOCK:                       ; embedded 6502 cold-restart/RPC service --
-;          ; 6502 code (NOT Z-80), run on the 6502 via the SoftCard CPU switch.
-;          ; Assembled from CPM_RPC6502_Restart.s (ca65, authoritative) and INCBIN'd
-;          ; here byte-identical. Its exact source listing follows so this file is
-;          ; self-documenting.
-;   >>> CPM_RPC6502_Restart.s -- verbatim listing of the INCBIN'd source (regen: inject_incbin_listing) >>>
-;
-; SETTXT  = $FB2F                 ; Apple II Monitor: select text mode
-; SETVID  = $FE93                 ; Apple II Monitor: reset output hook -> screen
-; SETKBD  = $FE89                 ; Apple II Monitor: reset input hook -> keyboard
-; COUT    = $FDED                 ; Apple II Monitor: output a character
-; MONZ    = $FF65                 ; Apple II Monitor: cold entry (Monitor prompt)
-;
-; .org $9600
-;
-; ; ----------------------------------------------------------------------------
-; ; RPC_RESTART_9600 -- service entry. Quiesce the machine (LC RAM writable, drive
-; ;   motor off, console back to the Apple text screen, 6502 stack reset), then
-; ;   read the caller's mode byte (A, returned by the loader routine $0F7D) and
-; ;   branch: A==6 -> full COLD_RESTART; else print the $114A message and drop to
-; ;   the Monitor.
-; ;   In:        X = Disk II slot soft-switch offset (slot<<4); Y = sector-cell
-; ;              index -- both set up by the caller. (Selection mechanism: see the
-; ;              file header OPEN QUESTION.)
-; ;   Out:       falls into SIGNON_COUT_LOOP or branches to COLD_RESTART.
-; ;   Clobbers:  A, X, Y, the 6502 stack pointer, processor flags.
-; ; ----------------------------------------------------------------------------
-; RPC_RESTART_9600:
-;         LDA $C081                    ; enable language-card RAM for writing:
-;         LDA $C081                    ;   two reads of $C081 (read ROM / write RAM bank 2)
-;         JSR $0F7D                    ; [AI] loader routine; returns the mode byte in A
-;         PHA                          ; save the mode byte across the quiesce sequence
-;         STA $C088,X                  ; drive motor OFF (Disk II $C088 + slot offset in X)
-;         LDA #$00
-;         STA $0478,Y                  ; clear the RWTS sector cells (index Y)
-;         STA $04F8,Y
-;         JSR SETTXT                   ; Apple text mode
-;         JSR SETVID                   ; output hook -> screen
-;         JSR SETKBD                   ; input hook -> keyboard
-;         PLA                          ; recover the mode byte
-;         LDX #$FF
-;         TXS                          ; reset the 6502 stack pointer
-;         CMP #$06                     ; mode 6 = full cold restart?
-;         BEQ COLD_RESTART             ; yes -> COLD_RESTART
-;         LDY #$00                     ; no -> print the $114A message, then Monitor
-;
-; ; ----------------------------------------------------------------------------
-; ; SIGNON_COUT_LOOP -- COUT the $00-terminated string at $114A (in the loader
-; ;   image), then enter the Apple Monitor. The non-cold-restart path.
-; ; ----------------------------------------------------------------------------
-; SIGNON_COUT_LOOP:
-;         LDA $114A,Y                  ; next message byte
-;         BEQ SIGNON_COUT_LOOP_1       ; $00 terminator -> done
-;         JSR COUT                     ; print it
-;         INY
-;         BNE SIGNON_COUT_LOOP         ; (Y wraps at 256 -- a guard, never reached)
-; SIGNON_COUT_LOOP_1:
-;         JMP MONZ                     ; drop to the Monitor prompt
-;
-; ; ----------------------------------------------------------------------------
-; ; COLD_RESTART -- the full restart. Stage three loader blocks down into low
-; ;   memory ($1168->$0FFF [15B], $1200->$0200 [page], $12FF->$02FF [partial
-; ;   $0300 page]), seed the scan cells ($03B8=0, $3C=0, $3E=$FF), then scan the
-; ;   slots from $C7 down.
-; ; ----------------------------------------------------------------------------
-; COLD_RESTART:
-;         LDY #$0E
-; COPY_1168_0FFF:                      ; copy $1168..$1176 -> $0FFF.. (Y = $0E..1)
-;         LDA $1168,Y
-;         STA $0FFF,Y
-;         DEY
-;         BNE COPY_1168_0FFF
-; COPY_1200_0200:                      ; copy the $1200 page -> $0200 (Y = 0, then $FF..1)
-;         LDA $1200,Y
-;         STA $0200,Y
-;         DEY
-;         BNE COPY_1200_0200
-;         LDY #$F1
-; COPY_12FF_02FF:                      ; copy $1300..$13F0 -> $0300..$03F0 (Y = $F1..1)
-;         LDA $12FF,Y
-;         STA $02FF,Y
-;         DEY
-;         BNE COPY_12FF_02FF
-;         STY $03B8                    ; $03B8 = 0  (slot-config scratch; Y is 0 here)
-;         STY $3C                      ; $3C = 0    (ZP card-ROM pointer low)
-;         DEY
-;         STY $3E                      ; $3E = $FF  (scan "card found" flag, [AI])
-;         LDY #$C7                     ; start at slot 7 ($Cn high byte $C7)
-;
-; ; ----------------------------------------------------------------------------
-; ; SLOT_SCAN_LOOP -- walk the slots (Y = $C7..$C1). For each, probe via the
-; ;   loader ($1180), then read two card-ROM bytes ($1117) and compare them: a
-; ;   self-consistent pair selects the card-type test (CARD_TYPE_MATCH); the
-; ;   $3E==0 branch records this slot as the boot card (SLOT_SCAN_LOOP_1).
-; ;   [AI] cell semantics inferred from the writes; the loader subroutines
-; ;   ($1180/$1117) are not decoded here.
-; ; ----------------------------------------------------------------------------
-; SLOT_SCAN_LOOP:
-;         JSR $1180                    ; [AI] loader: probe slot Y
-;         NOP
-;         LDA $3E
-;         BEQ SLOT_SCAN_LOOP_1         ; $3E==0 -> record this slot as the boot card
-;         JSR $1117                    ; [AI] loader: read a card-ROM byte -> A
-;         STA $40                      ; stash first byte/addr
-;         STX $41
-;         JSR $1117                    ; read again
-;         CPX #$00
-;         BEQ SLOT_SCAN_LOOP_2         ; X==0 -> not a candidate
-;         CMP $40                      ; bytes self-consistent?
-;         BNE SLOT_SCAN_LOOP_2
-;         CPX $41
-;         BEQ CARD_TYPE_MATCH          ; consistent -> run the card-type test
-;         BNE SLOT_SCAN_LOOP_2
-; SLOT_SCAN_LOOP_1:                    ; record slot Y as the boot card
-;         INC $3E
-;         STY $03C8                    ; $03C8 = slot $Cn high byte
-;         LDA #$00
-;         STA $03C7
-;         STA $03DE
-;         TYA
-;         CLC
-;         ADC #$20                     ; $Cn + $20  ([AI] slot ROM page derivation)
-;         STA $03DF
-; SLOT_SCAN_LOOP_2:
-;         LDX #$00                     ; card type 0 (none) ...
-;         BEQ SLOT_TYPE_RECORD         ; ... record it (always taken, X==0)
-; CARD_TYPE_MATCH:
-;         LDX #$04                     ; test the 4 known card types (X = 4..1)
-;
-; ; ----------------------------------------------------------------------------
-; ; CARD_TYPE_MATCH_1 -- compare the candidate card's ROM bytes at offsets 5 and 7
-; ;   (via (ZP $3C),Y) against the card-type signature tables $1176,X / $117A,X.
-; ;   A full match leaves X = the card type; type 2 also bumps $03B8.
-; ; ----------------------------------------------------------------------------
-; CARD_TYPE_MATCH_1:
-;         LDY #$05
-;         LDA ($3C),Y                  ; card ROM byte at offset 5
-;         CMP $1176,X                  ; vs signature table A
-;         BNE CARD_TYPE_MATCH_2        ; mismatch -> next type
-;         LDY #$07
-;         LDA ($3C),Y                  ; card ROM byte at offset 7
-;         CMP $117A,X                  ; vs signature table B
-;         BEQ CARD_TYPE_MATCH_3        ; both match -> this type
-; CARD_TYPE_MATCH_2:
-;         DEX
-;         BNE CARD_TYPE_MATCH_1        ; try the next type
-; CARD_TYPE_MATCH_3:
-;         INX                          ; (restore the matched index)
-;         CPX #$02
-;         BNE SLOT_TYPE_RECORD
-;         INC $03B8                    ; type 2 -> bump $03B8 ([AI])
-;
-; ; ----------------------------------------------------------------------------
-; ; SLOT_TYPE_RECORD -- store the resolved card type (X) for this slot into the
-; ;   per-slot type table $02F8,Y, step to the next slot, and loop until $C0.
-; ; ----------------------------------------------------------------------------
-; SLOT_TYPE_RECORD:
-;         LDY $3D                      ; slot index ($3D)
-;         TXA
-;         STA $02F8,Y                  ; per-slot card type
-;         DEY
-;         CPY #$C0                     ; scanned past slot 0?
-;         BNE SLOT_SCAN_LOOP           ; no -> next slot
-;         ASL $03B8                    ; finalize $03B8 ([AI])
-;         LDA $3E
-;         CMP #$01                     ; exactly one boot card found?
-;         BEQ BIOS_HANDOFF             ; yes -> hand off to the Z-80 BIOS
-;         STY $3D                      ; ($3D = $BF here)
-;         LDA #$85
-;         STA $3C
-;         STA $C085                    ; [AI] language-card bank select
-;         LDA $3E
-;         BEQ BIOS_HANDOFF             ; none found -> hand off anyway
-;         LDY #$00                     ; >1 found -> print the $112B message, Monitor
-;
-; ; ----------------------------------------------------------------------------
-; ; LC_COUT_LOOP -- COUT the $00-terminated message at $112B, then the Monitor.
-; ; ----------------------------------------------------------------------------
-; LC_COUT_LOOP:
-;         LDA $112B,Y
-;         BEQ LC_COUT_LOOP_1
-;         JSR COUT
-;         INY
-;         BNE LC_COUT_LOOP
-; LC_COUT_LOOP_1:
-;         JMP MONZ
-;
-; ; ----------------------------------------------------------------------------
-; ; BIOS_HANDOFF -- copy the 16-byte handoff block $13EF->$03EF and plant the Z-80
-; ;   entry jump at $1000 (the SoftCard maps the Z-80 reset $0000 to Apple $1000):
-; ;   C3 00 AA = `JMP $AA00`, the 44K BIOS cold-start. NOTE the $96FE anomaly --
-; ;   the $AA byte is stored to $0902, not $1002 (see the file header [RE] note).
-; ; ----------------------------------------------------------------------------
-; BIOS_HANDOFF:
-;         LDY #$10
-; BIOS_HANDOFF_1:                      ; copy $13EF..$13FF -> $03EF.. (16 bytes)
-;         LDA $13EF,Y
-;         STA $03EF,Y
-;         DEY
-;         BNE BIOS_HANDOFF_1
-;         LDA #$C3                     ; JMP opcode ...
-;         STA $1000                    ; ... at the Z-80 reset target $1000
-;         LDA #$00
-;         STA $1001                    ; low byte of $AA00
-;         LDA #$AA
-;         STA $0902                    ; [RE] high byte -> $0902, not $1002 (UNKNOWN; verbatim)
-;   <<< end listing <<<
-        INCBIN  "CPM_RPC6502_Restart.bin"
-; -- Z-80-visible entry points into the 6502 block, as offsets from
-;    RPC_RESTART_BLOCK (so they relocate with ORG). How a Z-80 CALL/JP into
-;    $96xx selects the 6502 service is the OPEN QUESTION; several targets land
-;    mid-6502-instruction. Names kept verbatim from the prior Z-80 mis-decode
-;    so the genuine-Z-80 call sites elsewhere in the file still resolve. --
-RST_TABLE_9609       EQU RPC_RESTART_BLOCK + $009
-RST_TABLE_9609_1     EQU RPC_RESTART_BLOCK + $00F
-RST_TABLE_9609_4     EQU RPC_RESTART_BLOCK + $022
-RST_TABLE_9630       EQU RPC_RESTART_BLOCK + $030
-RST_TABLE_964F       EQU RPC_RESTART_BLOCK + $04F
-RPC_DISPATCH_SETUP   EQU RPC_RESTART_BLOCK + $059
-RPC_DISPATCH         EQU RPC_RESTART_BLOCK + $05E
-RPC_DISPATCH_7       EQU RPC_RESTART_BLOCK + $089
-RPC_DISPATCH_8       EQU RPC_RESTART_BLOCK + $08F
-RPC_DISPATCH_9       EQU RPC_RESTART_BLOCK + $096
-RPC_DISPATCH_10      EQU RPC_RESTART_BLOCK + $098
-RPC_DISPATCH_13      EQU RPC_RESTART_BLOCK + $0A8
-RPC_DISPATCH_14      EQU RPC_RESTART_BLOCK + $0AB
-RPC_DISPATCH_15      EQU RPC_RESTART_BLOCK + $0AF
-RPC_DISPATCH_16      EQU RPC_RESTART_BLOCK + $0B9
-RPC_DISPATCH_17      EQU RPC_RESTART_BLOCK + $0C0
-RPC_DISPATCH_18      EQU RPC_RESTART_BLOCK + $0C7
-RPC_DISPATCH_20      EQU RPC_RESTART_BLOCK + $0D9
-RPC_DISPATCH_21      EQU RPC_RESTART_BLOCK + $0DB
-RPC_DISPATCH_22      EQU RPC_RESTART_BLOCK + $0DE
-RPC_DISPATCH_23      EQU RPC_RESTART_BLOCK + $0E8
-RPC_DISPATCH_24      EQU RPC_RESTART_BLOCK + $0F0
-RPC_DISPATCH_25      EQU RPC_RESTART_BLOCK + $0F2
-FCB_DIGIT_ACCUM:
-        SUB (HL)
-        LD HL,CCP_FCB+1
-        LD BC,$000B
-        LD A,(HL)
+PARSE_FCB_DECIMAL_LOOP:
+        LD A,(HL)                        ; $9808  7E
+        ; space ends the digit run
+        CP $20                           ; $9809  FE 20
+        ; verify the rest of the field is blank
+        JP Z,REQUIRE_TRAILING_BLANKS                  ; $980B  CA 33 98
+        INC HL                           ; $980E  23
+        ; char - '0' -> digit value
+        SUB $30                          ; $980F  D6 30
+        ; reject non-decimal (>= 10)
+        CP $0A                           ; $9811  FE 0A
+        JP NC,CCP_ECHO_TOKEN                   ; $9813  D2 09 96
+        LD D,A                           ; $9816  57
+        LD A,B                           ; $9817  78
+        ; value already >= 32? top 3 bits set means *8 (RLCA x3) overflows a byte
+        AND $E0                          ; $9818  E6 E0
+        JP NZ,CCP_ECHO_TOKEN                   ; $981A  C2 09 96
+        LD A,B                           ; $981D  78
+        ; value << 1 (first of three RLCA -> value*8)
+        RLCA                             ; $981E  07
+        RLCA                             ; $981F  07
+        RLCA                             ; $9820  07
+        ; value*8 + value -> *9 (trap carry = overflow)
+        ADD A,B                          ; $9821  80
+        JP C,CCP_ECHO_TOKEN                    ; $9822  DA 09 96
+        ; +value -> *10 (trap carry = overflow)
+        ADD A,B                          ; $9825  80
+        JP C,CCP_ECHO_TOKEN                    ; $9826  DA 09 96
+        ; + new digit (trap carry = overflow)
+        ADD A,D                          ; $9829  82
+        JP C,CCP_ECHO_TOKEN                    ; $982A  DA 09 96
+        ; store back the running value
+        LD B,A                           ; $982D  47
+        DEC C                            ; $982E  0D
+        JP NZ,PARSE_FCB_DECIMAL_LOOP                 ; $982F  C2 08 98
+        RET                              ; $9832  C9
 ; ----------------------------------------------------------------------
-; FCB_DIGIT_ACCUM_STEP -- [RE] per-character step ($9709). B:=B*10+digit; space->$9833;
-; non-digit/overflow/carry->$9609 (6502 region: UNKNOWN).
+; REQUIRE_TRAILING_BLANKS -- assert the remaining FCB name chars are all spaces.
+;   In: HL -> next name char, C = count of chars remaining, B = parsed value.
+;   Out: A = accumulated decimal value (from B) on success; falls to CCP_ECHO_TOKEN
+;        (bad command line) if any non-space is found.
+;   Clobbers: A, C, HL.
+;   Algorithm: scan C chars; any char != ' ' is an error; on reaching the end return
+;              the parsed value held in B.
+;   [RE] Tail of the SAVE/USER decimal parser.
 ; ----------------------------------------------------------------------
-FCB_DIGIT_ACCUM_STEP:
-        CP ' '
-        JP Z,DIR_EMIT_NAME_CHAR_7
-        INC HL
-        SUB '0'
-        CP $0A
-        JP NC,RST_TABLE_9609
-        LD D,A
-        LD A,B
-        AND $E0
-        JP NZ,RST_TABLE_9609
-        LD A,B
-        RLCA
-        RLCA
-        RLCA
-        ADD A,B
-        JP C,RST_TABLE_9609
-        ADD A,B
-        JP C,RST_TABLE_9609
-        ADD A,D
-        JP C,RST_TABLE_9609
-        LD B,A
+REQUIRE_TRAILING_BLANKS:
+        LD A,(HL)                        ; $9833  7E
+        ; must be a space
+        CP $20                           ; $9834  FE 20
+        ; trailing junk -> bad command line
+        JP NZ,CCP_ECHO_TOKEN                   ; $9836  C2 09 96
+        INC HL                           ; $9839  23
+        DEC C                            ; $983A  0D
+        ; continue while chars remain
+        JP NZ,REQUIRE_TRAILING_BLANKS                 ; $983B  C2 33 98
+        ; return the accumulated decimal value
+        LD A,B                           ; $983E  78
+        RET                              ; $983F  C9
 ; ----------------------------------------------------------------------
-; FCB_FIELD_LEN_LOOP -- [RE] field-length loop tail. DEC C; JP $9808 while C!=0 else RET.
-; Loop-closure UNKNOWN under cover/shared-tail framing.
+; COPY_3_BYTES -- copy a 3-byte field (an FCB type/extension) (HL)->(DE).
+;   In: HL = source, DE = destination.
+;   Out: HL, DE advanced past 3 bytes; B = 0.
+;   Clobbers: A, B, DE, HL.
+;   Algorithm: set B=3 and fall into the generic byte-copy loop COPY_N_BYTES.
+;   [RE] Called only by the transient-program loader (CCP_CMD_TRANSIENT) to save the
+;        command's 3-byte FCB type field (CCP_FCB_EXT) into a holding area (CCP_COM_EXT)
+;        before the FCB is rebuilt.
 ; ----------------------------------------------------------------------
-FCB_FIELD_LEN_LOOP:
-        DEC C
-        JP NZ,DIR_EMIT_NAME_CHAR_3
-        RET
+COPY_3_BYTES:
+        ; 3 bytes = FCB type/extension field
+        LD B,$03                         ; $9840  06 03
 ; ----------------------------------------------------------------------
-; FCB_FIELD_BLANKS -- [RE] verify the rest of the field is blanks. CP space; non-blank -> $9609
-; abort (6502 region: UNKNOWN).
+; COPY_N_BYTES -- copy B bytes from (HL) to (DE).
+;   In: HL = source, DE = destination, B = byte count (> 0).
+;   Out: HL, DE advanced past the copied bytes; B = 0.
+;   Clobbers: A, B, DE, HL.
+;   Algorithm: loop: load (HL), store (DE), bump both pointers, dec B until zero.
+;   [RE] Generic CCP memcpy. Entered with B=16 to copy a whole FCB (REN, REN_CMD),
+;        B=33 to copy the transient FCB to $005C, B=$80 to copy a sector, and B=3 via
+;        COPY_3_BYTES.
 ; ----------------------------------------------------------------------
-FCB_FIELD_BLANKS:
-        LD A,(HL)
-        CP ' '
-        JP NZ,RST_TABLE_9609
-        INC HL
-        DEC C
+COPY_N_BYTES:
+        ; load source byte
+        LD A,(HL)                        ; $9842  7E
+        ; store to destination
+        LD (DE),A                        ; $9843  12
+        INC HL                           ; $9844  23
+        INC DE                           ; $9845  13
+        DEC B                            ; $9846  05
+        ; repeat for B bytes
+        JP NZ,COPY_N_BYTES                   ; $9847  C2 42 98
+        RET                              ; $984A  C9
 ; ----------------------------------------------------------------------
-; FCB_FIELD_BLANKS_LOOP -- [RE] loop/return tail of the blank check. The +1 entry $973C is a
-; shared-tail target of SEARCH_BUILTIN_1 ($9544); clean framing UNKNOWN; not split.
-; ----------------------------------------------------------------------
-FCB_FIELD_BLANKS_LOOP:
-        JP NZ,DIR_EMIT_NAME_CHAR_7
-        LD A,B
-        RET
-; ----------------------------------------------------------------------
-; COPY_FCB_EXT -- [RE] copy the 3-byte FCB type/extension field HL->DE. CAVEAT: the tail back-edge
-; ($9747 -> $9842) does NOT close this 3-byte copy at $9742; back-edge UNKNOWN.
-; ----------------------------------------------------------------------
-COPY_FCB_EXT:
-        LD B,$03
-        LD A,(HL)
-        LD (DE),A
-        INC HL
-        INC DE
-; ----------------------------------------------------------------------
-; COPY_FCB_EXT_LOOP -- [RE] byte-count tail of the extension copy. DEC B; branch (to $9842, which
-; does NOT match this copy body -- UNKNOWN) else RET.
-; ----------------------------------------------------------------------
-COPY_FCB_EXT_LOOP:
-        DEC B
-        JP NZ,CCP_NEWLINE_AND_FILEOP
-        RET
-; ----------------------------------------------------------------------
-; TBUFF_INDEX_FETCH -- [RE] index into the command-tail buffer (TBUFF). LD HL,TBUFF, ADD A,C, fall
-; into TBUFF_INDEX_FETCH_2 (which CALLs $9659 in the 6502 region; final address partly UNKNOWN).
+; TBUFF_INDEX_FETCH -- read a byte from the default DMA buffer (TBUFF=$0080) at index C+A.
+;   In: A = an extra offset, C = base index into the buffer.
+;   Out: A = byte read from TBUFF + (C + A); HL = its address.
+;   Clobbers: A, HL.
+;   Algorithm: HL = TBUFF; A = A + C; add A to HL (via CCP_HL_ADD_A); load (HL) into A.
+;   [RE] CCP reads a directory-entry byte out of the BDOS DMA buffer at TBUFF=$0080
+;        (used by DIR to walk the returned directory records).
 ; ----------------------------------------------------------------------
 TBUFF_INDEX_FETCH:
-        LD HL,TBUFF                      ; base of command-tail buffer at 0080H [DOC CPMREF 3-47 ; facts sec.7.5] (0080H = tail length, 0081H+ = upper-cased command-line tail)
-        ADD A,C
+        ; HL = TBUFF (default DMA buffer at $0080)
+        LD HL,$0080                      ; $984B  21 80 00
+        ; combine the two index parts (C + A)
+        ADD A,C                          ; $984E  81
+        ; HL += A (16-bit add)
+        CALL CCP_HL_ADD_A                    ; $984F  CD 59 96
+        ; fetch the indexed byte
+        LD A,(HL)                        ; $9852  7E
+        RET                              ; $9853  C9
 ; ----------------------------------------------------------------------
-; TBUFF_INDEX_FETCH_2 -- [RE] finalise the indexed address and read the byte. CALL $9659, LD A,(HL),
-; RET. WARNING: $9659 is in the embedded 6502 overlay; its RPC_DISPATCH_SETUP label is a bogus Z-80
-; framing, so this CALL's effect is UNKNOWN.
-; ----------------------------------------------------------------------
-TBUFF_INDEX_FETCH_2:
-        CALL RPC_DISPATCH_SETUP
-        LD A,(HL)
-        RET
-; ----------------------------------------------------------------------
-; RESOLVE_DRIVE_PREFIX -- [RE] clear the FCB drive byte, then select the parsed drive if it differs.
-; XOR A/LD ($9BCD),A; LD A,($9BF0); OR A/RET Z; DEC A; CP (CMD_EXEC_69)/RET Z; else JP RPC6502_E0BD
-; (select-disk RPC).
+; RESOLVE_DRIVE_PREFIX -- clear the FCB drive byte, then select the command's drive.
+;   In: parsed FCB at CCP_FCB (drive byte CCP_FCB); explicit drive code in CCP_FCB_DRIVE_PREFIX
+;       (1=A..), 0=default; current logged drive in CCP_CUR_DRIVE.
+;   Out: the requested drive is selected (BDOS Select Disk, fn 14) when it differs from
+;        the current drive; returns with the FCB drive byte forced to 0 (default).
+;   Clobbers: A, HL.
+;   Algorithm: store 0 into the FCB drive byte (auto-select); read the explicit drive
+;              code, if 0 (none) return; decrement to a 0-based number; if it equals the
+;              current drive return; otherwise tail-call BDOS_DRV_SET (BDOS Select Disk).
+;   [RE] CCP drive-prefix handler. Companion CCP_RESTORE_DEFAULT_DRIVE ($9866) keeps the
+;        FCB drive byte (skips the initial clear).
 ; ----------------------------------------------------------------------
 RESOLVE_DRIVE_PREFIX:
-        XOR A
-        LD (CCP_FCB),A
-        LD A,(CCP_FCB+35)
-        OR A
-        RET Z
-        DEC A
-        LD HL,CMD_EXEC_69
-        CP (HL)
-        RET Z
-        JP RPC6502_E0BD
+        XOR A                            ; $9854  AF
+        ; force FCB drive byte = 0 (use selected default drive)
+        LD (CCP_FCB),A                    ; $9855  32 CD 9B
+        ; A = explicit drive code from the command (0 = none)
+        LD A,(CCP_FCB_DRIVE_PREFIX)                    ; $9858  3A F0 9B
+        OR A                             ; $985B  B7
+        ; no explicit drive -> nothing to select
+        RET Z                            ; $985C  C8
+        ; convert 1-based code to 0-based drive number
+        DEC A                            ; $985D  3D
+        ; HL -> current logged drive
+        LD HL,CCP_CUR_DRIVE                     ; $985E  21 EF 9B
+        ; already the current drive?
+        CP (HL)                          ; $9861  BE
+        ; yes -> no select needed
+        RET Z                            ; $9862  C8
+        ; tail-call BDOS Select Disk (fn 14) with A=drive
+        JP BDOS_DRV_SET                      ; $9863  C3 BD 94
 ; ----------------------------------------------------------------------
-; RESOLVE_DRIVE_PREFIX_2 -- [RE] select the parsed drive (variant, no FCB-drive zeroing). LD
-; A,($9BF0)/OR A/RET Z; DEC A; CP (CMD_EXEC_69)/RET Z; else LD A,(CMD_EXEC_69)/JP RPC6502_E0BD.
+; CCP_RESTORE_DEFAULT_DRIVE -- If the parsed FCB carried an explicit drive prefix, re-select the
+; default drive (no FCB-drive-byte clear).
+;   In: CCP_FCB_DRIVE_PREFIX = explicit drive prefix parsed from the command's FCB (0 = none),
+;       CCP_CUR_DRIVE = current default drive code.
+;   Out: When the FCB had a prefix that differs from the default, the BDOS current disk is set back
+;        to the default drive (CCP_CUR_DRIVE); A clobbered.
+;   Clobbers: A, E, HL.
+;   Algorithm: If the FCB drive byte is 0 (no prefix) return. Otherwise convert the 1-based prefix
+;              to 0-based; if it already equals the default drive (CCP_CUR_DRIVE) return; else load
+;              the DEFAULT drive code (CCP_CUR_DRIVE) and call BDOS F_DRV_SET (fn 14) to re-select
+;              it. Variant of RESOLVE_DRIVE_PREFIX: it does NOT zero the FCB drive byte at CCP_FCB,
+;              and it selects the DEFAULT drive (restoring it on the post-operation/error paths)
+;              rather than the FCB's drive.
+;   [RE]
 ; ----------------------------------------------------------------------
-RESOLVE_DRIVE_PREFIX_2:
-        LD A,(CCP_FCB+35)
-        OR A
-        RET Z
-        DEC A
-        LD HL,CMD_EXEC_69
-        CP (HL)
-        RET Z
-        LD A,(CMD_EXEC_69)
-        JP RPC6502_E0BD
+CCP_RESTORE_DEFAULT_DRIVE:
+        ; Load explicit drive prefix parsed into this FCB (0 => no prefix)
+        LD A,(CCP_FCB_DRIVE_PREFIX)                    ; $9866  3A F0 9B
+        OR A                             ; $9869  B7
+        ; No explicit drive prefix: leave current disk unchanged
+        RET Z                            ; $986A  C8
+        ; Convert 1-based prefix (A=1..16) to 0-based drive code
+        DEC A                            ; $986B  3D
+        LD HL,CCP_CUR_DRIVE                     ; $986C  21 EF 9B
+        ; Compare against the current default drive (CCP_CUR_DRIVE)
+        CP (HL)                          ; $986F  BE
+        ; Prefix already equals the default drive: nothing to do
+        RET Z                            ; $9870  C8
+        ; Load the DEFAULT drive code as the BDOS F_DRV_SET argument (restore it)
+        LD A,(CCP_CUR_DRIVE)                    ; $9871  3A EF 9B
+        ; Tail-call BDOS F_DRV_SET (fn 14) to re-select the default drive
+        JP BDOS_DRV_SET                      ; $9874  C3 BD 94
 ; ----------------------------------------------------------------------
-; DIR_CMD CCP DIR built-in
+; DIR_CMD -- CCP built-in DIR: list directory entries matching the command-tail filespec.
+;   In: Command tail already parsed; default drive in CCP_CUR_DRIVE.
+;   Out: Matching filenames printed (2 per line as 'd:NAME EXT'); 'NO FILE' if none. Returns via the
+;        CCP command-complete path.
+;   Clobbers: A, B, C, D, E, H, L.
+;   Algorithm: Build the search FCB from the tail (CCP_PARSE_FCB1); select the requested drive
+;              (RESOLVE_DRIVE_PREFIX). If the first FCB name byte is blank (no name given), fall
+;              into DIR_WILDCARD_FILL to set all 11 name/type bytes to '?' (match every file). Falls
+;              through to DIR_START_SEARCH which issues SEARCH_FIRST and enters the format loop.
+;   [RE]
 ; ----------------------------------------------------------------------
 DIR_CMD:
-        CALL RPC_DISPATCH
-        ; [RE] CCP print-newline ($9854==2.23 CCP_PRINT_NEWLINE, 6x; garbage Z-80 only b/c
-        ; embedded-6502 region; +2 into MSG_ALL_YN mis-split; frozen pending audit). NOT UNKNOWN
-        CALL MSG_ALL_YN+2
-        LD HL,CCP_FCB+1
-        LD A,(HL)
+        ; Parse the command tail into the search FCB at CCP_FCB
+        CALL CCP_PARSE_FCB1                    ; $9877  CD 5E 96
+        ; Select the drive named by the filespec prefix
+        CALL RESOLVE_DRIVE_PREFIX                    ; $987A  CD 54 98
+        ; Point at the FCB name field (first name byte)
+        LD HL,CCP_FCB_NAME                     ; $987D  21 CE 9B
+        LD A,(HL)                        ; $9880  7E
+        ; First name byte blank? => no filespec name was given
+        CP $20                           ; $9881  FE 20
+        JP NZ,DIR_START_SEARCH                 ; $9883  C2 8F 98
+        ; 11 = length of the FCB name+type field to wildcard-fill
+        LD B,$0B                         ; $9886  06 0B
 ; ----------------------------------------------------------------------
-; blank test; $9782 also a live JR NZ entry, GENUINE overlap NOT split
+; DIR_WILDCARD_FILL -- Overwrite the 11 FCB name+type bytes with '?' so DIR matches every file.
+;   In: HL = first name byte of the search FCB; B = 11.
+;   Out: 11 bytes set to '?' ($3F); HL advanced past them; B = 0. Falls into DIR_START_SEARCH.
+;   Clobbers: B, HL (A preserved).
+;   Algorithm: Store '?' through HL, advance, decrement count, repeat 11 times.
+;   [RE]
 ; ----------------------------------------------------------------------
-DIR_CMD_1:
-        CP $20
-        JP NZ,TYPE_EOF_CHECK
-        LD B,$0B
-        LD (HL),$3F
-        INC HL
-        DEC B
-        JP NZ,CMD_EXEC_1
-        LD E,$00
-        PUSH DE
-        CALL RPC6502_E0E9
-        CALL Z,DIR_EMIT_NAME_CHAR_1+2
+DIR_WILDCARD_FILL:
+        ; Write '?' wildcard into this FCB name byte
+        LD (HL),$3F                      ; $9888  36 3F
+        INC HL                           ; $988A  23
+        DEC B                            ; $988B  05
+        ; Loop until all 11 name+type bytes are wildcarded
+        JP NZ,DIR_WILDCARD_FILL                 ; $988C  C2 88 98
+; ----------------------------------------------------------------------
+; DIR_START_SEARCH -- Begin the DIR directory scan and test the first SEARCH result.
+;   In: Search FCB at CCP_FCB populated.
+;   Out: E (per-line entry counter) initialised to 0 and pushed; BDOS SEARCH_FIRST issued; if no
+;        match 'NO FILE' is printed. Falls through to DIR_CMD_2.
+;   Clobbers: A, E, flags; pushes DE (the entry counter).
+;   Algorithm: Set the per-line entry counter E=0 and save it on the stack; call BDOS SEARCH_FIRST
+;              (fn 17); on a no-match (Z) print 'NO FILE'. Falls through to DIR_CMD_2 which loops
+;              over results.
+;   [RE]
+; ----------------------------------------------------------------------
+DIR_START_SEARCH:
+        ; E = directory-entry counter (drives the per-line column layout)
+        LD E,$00                         ; $988F  1E 00
+        ; Save the entry counter across the BDOS calls
+        PUSH DE                          ; $9891  D5
+        ; BDOS SEARCH_FIRST (fn 17) on the FCB at CCP_FCB
+        CALL CCP_SEARCH_FIRST_SUBMIT                    ; $9892  CD E9 94
+        ; No directory match (Z): print 'NO FILE'
+        CALL Z,PRINT_NO_FILE                  ; $9895  CC EA 97
+; ----------------------------------------------------------------------
+; DIR_CMD_2 -- DIR main loop body: format one matched directory entry from the DMA buffer.
+;   In: Z flag from the preceding SEARCH set when the directory is exhausted; BDOS stored the
+;       matched entry's directory code (0..3) in CCP_BDOS_RESULT; the matched 32-byte entry sits in
+;       the 128-byte DMA buffer (TBUFF $0080).
+;   Out: One entry printed as 'd:NAME EXT'; loops via SEARCH_NEXT; exits to DIR_EXIT when no more
+;        entries.
+;   Clobbers: A, B, C, D, E, H, L.
+;   Algorithm: If SEARCH reported no (further) match, go DIR_EXIT. Convert the directory code (0..3)
+;              in CCP_BDOS_RESULT to the matched entry's byte offset in the DMA buffer = code*32
+;              (RRCA x3 then AND $60), into C. Read the entry's flag byte at offset 10; if its bit7
+;              (RLA into carry) is set, skip this entry. Otherwise pop+increment+re-push the entry
+;              counter, AND $01 to test column parity: odd index continues the current line
+;              (DIR_FMT_ENTRY_COLS), even index starts a fresh CRLF line then prints the drive
+;              letter ('A'+drive) and ':'. Then print the 11-char name. (Layout is 2 entries per
+;              line, per the AND $01 mask.)
+;   [RE]
+; ----------------------------------------------------------------------
 DIR_CMD_2:
-        JP Z,CMD_EXEC_15
-        LD A,(CCP_FCB+33)
-        RRCA
-        RRCA
-        RRCA
-        AND $60
-        LD C,A
-        LD A,$0A
-        CALL CCP_CONOUT_A
-        RLA
-        JP C,CMD_EXEC_14
-        POP DE
-        LD A,E
-        INC E
-        PUSH DE
-        AND $01
-        PUSH AF
-        JP NZ,CMD_EXEC_5
-        CALL RPC6502_E098
-        PUSH BC
-        CALL GET_CUR_DRIVE
-        POP BC
-        ADD A,$41
-        CALL RPC6502_E092
-        LD A,$3A
-        CALL RPC6502_E092
-        JP CMD_EXEC_6
+        ; SEARCH returned no (further) match: finish DIR
+        JP Z,DIR_EXIT                 ; $9898  CA 1B 99
+        ; BDOS directory code (0..3) of the matched entry, stored by the SEARCH wrapper
+        LD A,(CCP_BDOS_RESULT)                    ; $989B  3A EE 9B
+        RRCA                             ; $989E  0F
+        RRCA                             ; $989F  0F
+        RRCA                             ; $98A0  0F
+        ; code*32: byte offset of the matched 32-byte entry within the DMA buffer (RRCA x3 then
+        ; mask)
+        AND $60                          ; $98A1  E6 60
+        ; C = base offset of this entry within the DMA buffer
+        LD C,A                           ; $98A3  4F
+        ; Offset 10 within the entry: the file flag/attribute byte
+        LD A,$0A                         ; $98A4  3E 0A
+        ; Fetch DMA[C + 10] (the entry's flag byte)
+        CALL TBUFF_INDEX_FETCH                    ; $98A6  CD 4B 98
+        ; Move bit7 of the flag byte into carry
+        RLA                              ; $98A9  17
+        ; Flag bit7 set: skip this entry, advance to SEARCH_NEXT
+        JP C,DIR_NEXT_OR_EXIT                 ; $98AA  DA 0F 99
+        ; Recover the running entry counter (E)
+        POP DE                           ; $98AD  D1
+        LD A,E                           ; $98AE  7B
+        ; Count this displayed entry
+        INC E                            ; $98AF  1C
+        PUSH DE                          ; $98B0  D5
+        ; Parity of the entry index => 2-per-line column layout
+        AND $01                          ; $98B1  E6 01
+        PUSH AF                          ; $98B3  F5
+        ; Odd index: continue on the same line with a column separator
+        JP NZ,DIR_FMT_ENTRY_COLS                 ; $98B4  C2 CC 98
+        ; Even index: start a fresh output line (CRLF)
+        CALL CCP_CRLF                    ; $98B7  CD 98 94
+        PUSH BC                          ; $98BA  C5
+        ; BDOS GET_CUR_DRIVE (fn 25) for the drive number
+        CALL BDOS_DRV_GET                    ; $98BB  CD D0 95
+        POP BC                           ; $98BE  C1
+        ; Convert drive 0..15 to letter 'A'..'P'
+        ADD A,$41                        ; $98BF  C6 41
+        CALL CCP_CONOUT_KEEPBC                    ; $98C1  CD 92 94
+        ; ':' separator after the drive letter
+        LD A,$3A                         ; $98C4  3E 3A
+        CALL CCP_CONOUT_KEEPBC                    ; $98C6  CD 92 94
+        JP DIR_PRINT_NAME                    ; $98C9  C3 D4 98
 ; ----------------------------------------------------------------------
-; ->DIR_FMT_ENTRY_COLS dir name/type field (non-prefix), ==CPMV223 DIR_CMD_4/_5
+; DIR_FMT_ENTRY_COLS -- Emit the column separator before the 2nd entry on a line.
+;   In: Reached for an odd entry index (continuing the current output line).
+;   Out: A space separator and a ':' printed; falls through to DIR_PRINT_NAME.
+;   Clobbers: A.
+;   Algorithm: Print the inter-column space (CCP_SPACE), then a ':' separator, then continue into
+;              the name-print code.
+;   [RE]
 ; ----------------------------------------------------------------------
 DIR_FMT_ENTRY_COLS:
-        CALL RPC6502_E0A2
-        LD A,':'
-        CALL RPC6502_E092
-        CALL RPC6502_E0A2
-        LD B,$01
+        ; Print the inter-column space
+        CALL CCP_SPACE                    ; $98CC  CD A2 94
+        ; ':' column separator
+        LD A,$3A                         ; $98CF  3E 3A
+        CALL CCP_CONOUT_KEEPBC                    ; $98D1  CD 92 94
 ; ----------------------------------------------------------------------
-; ->DIR_EMIT_NAME_CHAR per-char emit loop pause/abort ==CPMV223 DIR_CMD_6..9. NOTE 2.20 DIR uses AND
-; $01 not 2.23 AND $03
+; DIR_PRINT_NAME -- Print one directory entry's 11-character NAME EXT field.
+;   In: C = base offset of the entry within the DMA buffer (TBUFF $0080).
+;   Out: Bytes 1..11 of the name/type printed with high bits stripped.
+;   Clobbers: A, B.
+;   Algorithm: Print a leading space (CCP_SPACE), set B=1 (first name byte index, skipping the drive
+;              byte at 0), and fall into DIR_EMIT_NAME_CHAR.
+;   [RE]
+; ----------------------------------------------------------------------
+DIR_PRINT_NAME:
+        ; Leading space before the filename
+        CALL CCP_SPACE                    ; $98D4  CD A2 94
+        ; B = name-byte index, starting at offset 1 (skip the FCB drive byte at 0)
+        LD B,$01                         ; $98D7  06 01
+; ----------------------------------------------------------------------
+; DIR_EMIT_NAME_CHAR -- Loop emitting the characters of a directory name/type field.
+;   In: B = current name byte index (1..11); C = entry base offset in the DMA buffer; the
+;       entry-parity value pushed by DIR_CMD_2 is on the stack.
+;   Out: Each character printed (blank positions emitted as a single space); a separator space
+;        inserted between name (1..8) and type (9..11).
+;   Clobbers: A, B.
+;   Algorithm: Fetch DMA[C + B] and strip the high bit (AND $7F). If it is non-blank, print it
+;              (DIR_PUT_NAME_CHAR). If it is a blank, recover the saved parity value (POP/PUSH AF)
+;              and CP $03; NOTE in THIS 2.20 build the saved value is the AND $01 parity (only ever
+;              0 or 1), so CP $03 never matches and the type-peek block at LD A,$09 is effectively
+;              dead -- the code always substitutes a single space (DIR_EMIT_NAME_CHAR_2). (In the
+;              4-column 2.23 twin the saved value is AND $03, making that block live.)
+;   [RE]
 ; ----------------------------------------------------------------------
 DIR_EMIT_NAME_CHAR:
-        LD A,B
-        CALL CCP_CONOUT_A
-        AND $7F
-        CP ' '
-        JP NZ,CMD_EXEC_10+1
-        POP AF
-        PUSH AF
-        CP $03
-DIR_EMIT_NAME_CHAR_1:
-        JP NZ,CMD_EXEC_9
-        LD A,$09
-        CALL CCP_CONOUT_A
-        AND $7F
-        CP $20
-        JP Z,CMD_EXEC_13+2
-DIR_EMIT_NAME_CHAR_2:
-        LD A,$20
-        CALL RPC6502_E092
-        INC B
-        LD A,B
-        CP $0C
-        JP NC,CMD_EXEC_13+2
-        CP $09
-        JP NZ,CMD_EXEC_7
-DIR_EMIT_NAME_CHAR_3:
-        CALL RPC6502_E0A2
-        JP CMD_EXEC_7
+        ; A = current name byte index
+        LD A,B                           ; $98D9  78
+        ; Fetch DMA[C + index] = this name/type character
+        CALL TBUFF_INDEX_FETCH                    ; $98DA  CD 4B 98
+        ; Strip the directory attribute high bit
+        AND $7F                          ; $98DD  E6 7F
+        ; Is this character a blank?
+        CP $20                           ; $98DF  FE 20
+        ; Non-blank: print it directly
+        JP NZ,DIR_PUT_NAME_CHAR                 ; $98E1  C2 F9 98
+        ; Recover the saved entry-parity value pushed by DIR_CMD_2
+        POP AF                           ; $98E4  F1
+        ; Keep it saved for the next iteration
+        PUSH AF                          ; $98E5  F5
+        ; Compare saved value to 3 (never matches here: AND $01 yields only 0/1)
+        CP $03                           ; $98E6  FE 03
+        ; Always taken in this build: emit a single space for the blank
+        JP NZ,DIR_EMIT_NAME_CHAR_2                 ; $98E8  C2 F7 98
+        ; (Dead in 2.20) offset 9 = first type-field byte, peeked to detect an all-blank extension
+        LD A,$09                         ; $98EB  3E 09
+        CALL TBUFF_INDEX_FETCH                    ; $98ED  CD 4B 98
+        AND $7F                          ; $98F0  E6 7F
+        CP $20                           ; $98F2  FE 20
+        ; (Dead in 2.20) all-blank extension: stop and go fetch the next entry
+        JP Z,DIR_SEARCH_NEXT                 ; $98F4  CA 0E 99
 ; ----------------------------------------------------------------------
-; ->DIR_SEARCH_NEXT next match; CMD_DISPATCH_TBL $95C2 via CALL NOT the JP(HL) dispatcher $95C0
+; DIR_EMIT_NAME_CHAR_2 -- Substitute a single space for a blank name character, then fall into the
+; emit step.
+;   In: Reached when the current name character is a blank to be rendered as one space.
+;   Out: A = ' ' ($20); falls into DIR_PUT_NAME_CHAR (CONOUT + advance).
+;   Clobbers: A.
+;   Algorithm: Load a space and continue to the character-output/advance step.
+;   [RE]
+; ----------------------------------------------------------------------
+DIR_EMIT_NAME_CHAR_2:
+        ; Emit a single space for the blank position
+        LD A,$20                         ; $98F7  3E 20
+; ----------------------------------------------------------------------
+; DIR_PUT_NAME_CHAR -- Output one name character and advance to the next name-field position.
+;   In: A = character to print; B = current name byte index; C = entry base offset.
+;   Out: Character printed; B incremented; loops back for the next character, or inserts the
+;        name/type gap, or finishes the field.
+;   Clobbers: A, B.
+;   Algorithm: CONOUT the character (CCP_CONOUT_KEEPBC). Increment B; if B reaches 12 the 11-char
+;              field is done (go DIR_SEARCH_NEXT). When B reaches 9 (start of the type field) print
+;              an extra separator space then continue the loop; otherwise just continue.
+;   [RE]
+; ----------------------------------------------------------------------
+DIR_PUT_NAME_CHAR:
+        ; CONOUT this name/type character (BDOS fn 2)
+        CALL CCP_CONOUT_KEEPBC                    ; $98F9  CD 92 94
+        ; Advance to the next name byte index
+        INC B                            ; $98FC  04
+        LD A,B                           ; $98FD  78
+        ; Reached index 12 (all 11 chars done)?
+        CP $0C                           ; $98FE  FE 0C
+        ; Field complete: fetch the next directory entry
+        JP NC,DIR_SEARCH_NEXT                ; $9900  D2 0E 99
+        ; Reached the first type-field byte (index 9)?
+        CP $09                           ; $9903  FE 09
+        JP NZ,DIR_EMIT_NAME_CHAR                 ; $9905  C2 D9 98
+        ; Print the name/extension separator space
+        CALL CCP_SPACE                    ; $9908  CD A2 94
+        ; Continue emitting type-field characters
+        JP DIR_EMIT_NAME_CHAR                    ; $990B  C3 D9 98
+; ----------------------------------------------------------------------
+; DIR_SEARCH_NEXT -- Drop the saved parity value, then fall into the break-check + SEARCH_NEXT path.
+;   In: The entry-parity value pushed by DIR_CMD_2 is on the stack.
+;   Out: That value discarded; falls into DIR_NEXT_OR_EXIT which polls for a break and issues
+;        SEARCH_NEXT.
+;   Clobbers: AF.
+;   Algorithm: POP the saved parity value off the stack (the per-line entry counter pushed in
+;              DIR_START_SEARCH remains beneath it), then continue into the break-check +
+;              SEARCH_NEXT path.
+;   [RE]
 ; ----------------------------------------------------------------------
 DIR_SEARCH_NEXT:
-        POP AF
-        CALL CMD_DISPATCH_TBL
-        JP NZ,CMD_EXEC_15
-        CALL RPC6502_E0E4
-        JP CMD_EXEC_2+1
+        ; Discard the saved entry-parity value pushed by DIR_CMD_2
+        POP AF                           ; $990E  F1
 ; ----------------------------------------------------------------------
-; ->DIR_EXIT leave DIR, jump CCP re-entry $9B86
+; DIR_NEXT_OR_EXIT -- Poll for a console abort, then issue BDOS SEARCH_NEXT to continue DIR.
+;   In: Search FCB still set from the original SEARCH_FIRST.
+;   Out: If a key is waiting (break) DIR aborts to DIR_EXIT; otherwise SEARCH_NEXT (fn 18) runs and
+;        the loop resumes at DIR_CMD_2.
+;   Clobbers: A.
+;   Algorithm: Call the console-status/break check (CCP_CHECK_ABORT); if a key is waiting (NZ), exit
+;              DIR. Else call BDOS SEARCH_NEXT (fn 18) and loop back to DIR_CMD_2 to format the next
+;              entry.
+;   [RE]
+; ----------------------------------------------------------------------
+DIR_NEXT_OR_EXIT:
+        ; Poll console for a break/abort keypress (BDOS fn 11 then fn 1)
+        CALL CCP_CHECK_ABORT                    ; $990F  CD C2 95
+        ; Key pressed: abort the directory listing
+        JP NZ,DIR_EXIT                ; $9912  C2 1B 99
+        ; BDOS SEARCH_NEXT (fn 18) for the following entry
+        CALL BDOS_F_SNEXT                    ; $9915  CD E4 94
+        ; Format the next matched entry
+        JP DIR_CMD_2                    ; $9918  C3 98 98
+; ----------------------------------------------------------------------
+; DIR_EXIT -- DIR completion: drop the saved entry counter and return to the CCP command-complete
+; path.
+;   In: The per-line entry counter (pushed in DIR_START_SEARCH) is on the stack.
+;   Out: Stack balanced; jumps to the shared CCP end-of-command handler.
+;   Clobbers: DE.
+;   Algorithm: POP the saved DE counter and jump to CCP_RETURN_OK (the CCP post-command /
+;              return-to-prompt handler).
+;   [RE]
 ; ----------------------------------------------------------------------
 DIR_EXIT:
-        POP DE
-        JP CMD_EXEC_63+1
+        ; Balance the entry counter pushed at the start of DIR
+        POP DE                           ; $991B  D1
+        ; Return to the CCP command-complete handler
+        JP CCP_RETURN_OK                   ; $991C  C3 86 9B
 ; ----------------------------------------------------------------------
-; ->ERA_CMD CCP ERA built-in; all-wildcard CP $0B ->'ALL (Y/N)?'->'Y'; 1:1 CPMV223 ERA_CMD
+; ERA_CMD -- CCP built-in ERA (ERASE): delete the files matching the command-tail filespec.
+;   In: Command tail already parsed; default drive in CCP_CUR_DRIVE.
+;   Out: Matching files deleted via BDOS; if the spec was all-wildcard (all 11 FCB bytes '?') the
+;        user is prompted 'ALL (Y/N)?' first. Returns via the CCP command-complete path.
+;   Clobbers: A, B, C, D, E, H, L.
+;   Algorithm: Build the FCB (CCP_PARSE_FCB1 returns A = count of '?' wildcard bytes in the 11-char
+;              name/type). If A=11 (every position is a wildcard, i.e. '*.*') print 'ALL (Y/N)?',
+;              read a console line, and abort unless it is a single 'Y'. Then fall into
+;              ERA_DO_DELETE.
+;   [RE]
 ; ----------------------------------------------------------------------
 ERA_CMD:
-        CALL RPC_DISPATCH
-        CP $0B
-        JP NZ,CMD_EXEC_18
-        ; [RE] 'ALL (Y/N)?' prompt interior-offset form ($9952=$9852+$100; like READ ERROR/NO FILE
-        ; +$200), not breakage; RPC decode UNKNOWN, left literal
-        LD BC,MSG_ALL_YN+$0100
-        CALL RPC6502_E0A7
-        CALL SEARCH_BUILTIN_1+2
-        LD HL,SUBMIT_FLAG
-DIR_EMIT_NAME_CHAR_7:
-        DEC (HL)
-        JP NZ,DIR_CMD_1+1
-        INC HL
-        LD A,(HL)
-        CP $59
-        JP NZ,DIR_CMD_1+1
-        INC HL
-DIR_EMIT_NAME_CHAR_8:
-        LD (PARSE_PTR),HL
+        ; Parse the command tail into the FCB; A = count of '?' wildcard bytes
+        CALL CCP_PARSE_FCB1                    ; $991F  CD 5E 96
+        ; All 11 name/type bytes wildcard => the spec was '*.*' (erase everything)
+        CP $0B                           ; $9922  FE 0B
+        ; Not '*.*': skip the confirmation prompt
+        JP NZ,ERA_DO_DELETE                ; $9924  C2 42 99
+        ; Point at the 'ALL (Y/N)?' prompt string
+        LD BC,MSG_ERA_CONFIRM                     ; $9927  01 52 99
+        ; Print CRLF then the prompt
+        CALL CCP_CRLF_MSG                    ; $992A  CD A7 94
+        ; Read a console input line (the Y/N reply)
+        CALL CCP_GETCMD                    ; $992D  CD 39 95
+        ; Point at the read-line character-count byte
+        LD HL,CCP_INLEN                     ; $9930  21 07 94
+        ; Require exactly one reply character (count must be 1)
+        DEC (HL)                         ; $9933  35
+        ; Not a single char: abort back to the prompt
+        JP NZ,CCP_PROMPT_AND_READ                 ; $9934  C2 82 97
+        INC HL                           ; $9937  23
+        LD A,(HL)                        ; $9938  7E
+        ; Reply must be 'Y'
+        CP $59                           ; $9939  FE 59
+        ; Not 'Y': cancel the ERA and return to the prompt
+        JP NZ,CCP_PROMPT_AND_READ                 ; $993B  C2 82 97
+        INC HL                           ; $993E  23
+        ; Advance the command-tail parse pointer past the consumed reply
+        LD (CCP_PARSEPTR),HL                   ; $993F  22 88 94
 ; ----------------------------------------------------------------------
-; ->CCP_NEWLINE_AND_FILEOP newline+FCB fileop tail (==CPMV223 ERA_CMD_1). FLAG: caller $9A2B sets up
-; a 16-byte copy then CALLs $9842(=newline) clobbering it -- separate load/exec mis-decode
+; ERA_DO_DELETE -- Perform the actual ERA file deletion after any confirmation.
+;   In: FCB at CCP_FCB holds the (possibly wildcard) filespec.
+;   Out: BDOS DELETE_FILE executed; 'NO FILE' printed when nothing matched; returns via the CCP
+;        command-complete path.
+;   Clobbers: A, D, E.
+;   Algorithm: Select the FCB's drive (RESOLVE_DRIVE_PREFIX); DE = FCB; call BDOS DELETE_FILE (fn
+;              19). INC A so a $FF (no-file) return becomes 0/Z; on Z print 'NO FILE'. Jump to the
+;              CCP post-command handler.
+;   [RE]
 ; ----------------------------------------------------------------------
-CCP_NEWLINE_AND_FILEOP:
-        CALL MSG_ALL_YN+2
-        LD DE,CCP_FCB
-        CALL RPC6502_E0EF
+ERA_DO_DELETE:
+        ; Select the drive named by the filespec
+        CALL RESOLVE_DRIVE_PREFIX                    ; $9942  CD 54 98
+        ; DE -> FCB for the delete call
+        LD DE,CCP_FCB                     ; $9945  11 CD 9B
+        ; BDOS DELETE_FILE (fn 19) on the FCB
+        CALL BDOS_F_DELETE                    ; $9948  CD EF 94
+        ; Map $FF (no file deleted) to 0 so Z signals 'nothing matched'
+        INC A                            ; $994B  3C
+        ; Nothing deleted => print 'NO FILE'
+        CALL Z,PRINT_NO_FILE                  ; $994C  CC EA 97
+        ; Return to the CCP command-complete handler
+        JP CCP_RETURN_OK                   ; $994F  C3 86 9B
 ; ----------------------------------------------------------------------
-; ->CCP_CONOUT_A console-output/flush tail (==CPMV223 CONOUT_A $96EC, 3x); console OUTPUT not input
+; MSG_ERA_CONFIRM -- ASCII prompt 'ALL (Y/N)?' shown before erasing every file (ERA *.*).
+;   In: n/a (data).
+;   Out: n/a (null-terminated string constant).
+;   Clobbers: none.
+;   Algorithm: Null-terminated string printed (CRLF-prefixed) by CCP_CRLF_MSG when an ERA names
+;              all-wildcard files.
+;   [RE]
 ; ----------------------------------------------------------------------
-CCP_CONOUT_A:
-        INC A
-        CALL Z,DIR_EMIT_NAME_CHAR_1+2
-        JP CMD_EXEC_63+1
+MSG_ERA_CONFIRM:
+        DEFB    "ALL (Y/N)?"    ; $9952  string
+        DEFB    $00    ; $995C  terminator
 ; ----------------------------------------------------------------------
-; MSG_ALL_YN -- the ERA 'ALL (Y/N)?' confirmation prompt ($00-terminated literal at $9852).
-;   In:        not entered as code (a string literal). Printed by ERA when the erase FCB is
-;              all-wildcard: the head is addressed as MSG_ALL_YN+$0100 (the 6502-VIEW print
-;              pointer; `LD BC,MSG_ALL_YN+$0100` at ERA_CMD).
-;   CODE/DATA OVERLAY (decode-audit task #7, CORRECTED): the prior note 'referenced by NOTHING'
-;   is FALSE -- the string head IS referenced via the +$0100 6502-view pointer above. AND the
-;   print-newline RPC entry physically aliases this string's interior at +2: `CALL MSG_ALL_YN+2`
-;   (x6) is the CCP print-newline routine (the 2.23 twin's CCP_PRINT_NEWLINE at $96F5, reached
-;   at the SAME six call sites). It is invoked through the 6502 CPU-switch print RPC, so its
-;   Z-80 bytes are NOT executed as Z-80 (decoding $9854 as Z-80 = garbage); they deliberately
-;   coincide with the 'L (Y/N)?' interior. Both the string and the +2 newline entry are real;
-;   both now relocate as MSG_ALL_YN-relative expressions. No mis-decode -- a deliberate overlay.
+; TYPE_CMD -- CCP built-in TYPE: open the named text file and echo its contents to the console.
+;   In: Command tail already parsed; default drive in CCP_CUR_DRIVE.
+;   Out: File contents printed record by record until the $1A EOF marker or a console break; on open
+;        failure the offending name is echoed. Returns via the CCP command-complete path.
+;   Clobbers: A, B, C, D, E, H, L.
+;   Algorithm: Re-parse the FCB (CCP_PARSE_FCB1); if the parse flagged the spec (NZ, e.g. ambiguous)
+;              reject it via CCP_ECHO_TOKEN. Select the drive and BDOS OPEN the file
+;              (CCP_OPEN_SUBMIT = fn 15); if the open fails (Z) go report it. Emit a leading CRLF,
+;              prime the per-record byte counter CCP_FCB_TAIL to $FF, and enter the read/print loop
+;              (TYPE_PRINT_LOOP).
+;   [RE]
 ; ----------------------------------------------------------------------
-MSG_ALL_YN:
-        DEFB    "ALL (Y/N)?"             ; ERA confirm prompt
-        DEFB    $00                      ; terminator
-PRINT_STR_AT:
-        CALL RPC_DISPATCH
-        JP NZ,RST_TABLE_9609
-        CALL MSG_ALL_YN+2
-CMD_EXEC:
-        CALL RPC6502_E0D0
-        JP Z,RECORD_SCAN_STEP+2
-        CALL RPC6502_E098
-        LD HL,CMD_EXEC_69+2
-        LD (HL),$FF
-        LD HL,CMD_EXEC_69+2
-        LD A,(HL)
-        CP $80
-        JP C,RECPTR_CMP16_TAIL
-        PUSH HL
-        CALL RPC6502_E0FE
-        POP HL
-        JP NZ,RECORD_SCAN_BODY+2
-        XOR A
-        LD (HL),A
-        INC (HL)
-CMD_EXEC_1:
-        LD HL,$0080
-        CALL RPC_DISPATCH_SETUP
-        LD A,(HL)
-TYPE_EOF_CHECK:
-        CP $1A
-        JP Z,CMD_EXEC_63+1
-        CALL RPC6502_E08C
-CMD_EXEC_2:
-        CALL CMD_DISPATCH_TBL
-        JP NZ,CMD_EXEC_63+1
-        JP FCB_CLEAR_BYTE_PAD+2
-CMD_EXEC_3:
-        DEC A
-        JP Z,CMD_EXEC_63+1
-        CALL DIR_EMIT_NAME_CHAR
-        CALL CMD_EXEC
-        JP RST_TABLE_9609
-CMD_EXEC_4:
-        CALL DIR_EMIT_NAME_CHAR_2+1
-        PUSH AF
-        CALL RPC_DISPATCH
-        JP NZ,RST_TABLE_9609
-        CALL MSG_ALL_YN+2
-        LD DE,CCP_FCB
-        PUSH DE
-        CALL RPC6502_E0EF
-        POP DE
-        CALL FCB_WILDCARD_CMP_C
-        JP Z,EXTENT_INDEX_TEST_TAIL
-        XOR A
-        LD (CCP_FCB+32),A
-CMD_EXEC_5:
-        POP AF
-        LD L,A
-        LD H,$00
-        ADD HL,HL
-        LD DE,$0100
-CMD_EXEC_6:
-        LD A,H
-        OR L
-        JP Z,DISK_BUF_MOVE_GO+1
-CMD_EXEC_7:
-        DEC HL
-        PUSH HL
-        LD HL,$0080
-        ADD HL,DE
-        PUSH HL
-        CALL RPC_CALL_HL
-        LD DE,CCP_FCB
-        CALL FCB_WILDCARD_TEST+1
-        POP DE
-        POP HL
-        JP NZ,EXTENT_INDEX_TEST_TAIL
-        JP DIR_RECORD_READ
-CMD_EXEC_8:
-        LD DE,CCP_FCB
-        CALL RPC6502_E0DA
-CMD_EXEC_9:
-        INC A
-CMD_EXEC_10:
-        JP NZ,CCP_RPC_THEN_LOOP
-        LD BC,MSG_NO_SPACE
-        CALL $C2A7
-        DEFB $FD  ; ignored IY prefix; inner: AND B ; $9901  FD A0
-        AND B
-        RET
-CMD_EXEC_11:
-        INC C
-        DEC C
-        RET Z
-        ADD HL,HL
-        JP BDOS_RET_RESULT_1_STG+2
-CMD_EXEC_12:
-        PUSH BC
-CMD_EXEC_13:
-        LD A,(FCB_USER_SCRATCH)
-CMD_EXEC_14:
-        LD C,A
-        LD HL,$0001
-        CALL BDOS_RET_RESULT_1_STG+1
-        POP BC
-        LD A,C
-        OR L
-        LD L,A
-        LD A,B
-CMD_EXEC_15:
-        OR H
-        LD H,A
-        RET
+TYPE_CMD:
+        ; Parse the command tail into the FCB at CCP_FCB
+        CALL CCP_PARSE_FCB1                    ; $995D  CD 5E 96
+        ; Bad/ambiguous filespec: echo the offending token and abort
+        JP NZ,CCP_ECHO_TOKEN                   ; $9960  C2 09 96
+        ; Select the file's drive
+        CALL RESOLVE_DRIVE_PREFIX                    ; $9963  CD 54 98
+        ; BDOS OPEN_FILE (fn 15) on the FCB at CCP_FCB
+        CALL CCP_OPEN_SUBMIT                    ; $9966  CD D0 94
+        ; Open failed (file not found): go report it
+        JP Z,TYPE_NO_FILE                 ; $9969  CA A7 99
+        ; Emit a leading CRLF before the file text
+        CALL CCP_CRLF                    ; $996C  CD 98 94
+        ; Point at the TYPE per-record byte counter
+        LD HL,CCP_FCB_TAIL                     ; $996F  21 F1 9B
+        ; Prime the counter so the first loop pass forces a record read
+        LD (HL),$FF                      ; $9972  36 FF
 ; ----------------------------------------------------------------------
-; DRIVE_BIT_TEST -- per-drive bit test in a BDOS alloc/RO word (orphan; load $A9AD, C=drive $9F42,
-; CALL $A0EA, AND $01). [RE] vector UNKNOWN.
+; TYPE_PRINT_LOOP -- TYPE inner loop: read each record and print its bytes until EOF.
+;   In: File opened; CCP_FCB_TAIL = per-record byte counter (primed to $FF).
+;   Out: Each 128-byte record's characters echoed; stops at the $1A (CTRL-Z) EOF marker, a non-zero
+;        read status, or a console break. Returns via the CCP command-complete path.
+;   Clobbers: A, B, C, D, E, H, L.
+;   Algorithm: When the byte counter has reached $80 (record consumed) read the next record (BDOS
+;              READ_SEQ, fn 20); a non-zero read status ends the file/handles the error at
+;              TYPE_READ_DONE, and the counter is reset to 0. INC the counter, index TBUFF+counter
+;              (LD HL,$0080 + CCP_HL_ADD_A); if the byte is $1A finish. Otherwise CONOUT it and poll
+;              the console for a break; on break finish, else loop.
+;   [RE]
 ; ----------------------------------------------------------------------
-DRIVE_BIT_TEST:
-        LD HL,(BDOS_VAR_PAGE_7_p8_STG)
-        LD A,(FCB_USER_SCRATCH)
-        LD C,A
-        CALL BDOS_CON_41_p12_STG
-        LD A,L
-        AND $01
-        RET
-CMD_EXEC_17:
-        LD HL,BDOS_VAR_PAGE_7_p8_STG
-        LD C,(HL)
-        INC HL
-        LD B,(HL)
-        CALL CON_START_COLUMN_STG
-        LD (BDOS_VAR_PAGE_7_p8_STG),HL
-        LD HL,(BDOS_VAR_PAGE_7_p35_STG)
-        INC HL
-        EX DE,HL
-        LD HL,(BDOS_VAR_PAGE_7_p14_STG)
-        LD (HL),E
-        INC HL
-CMD_EXEC_18:
-        LD (HL),D
-        RET
+TYPE_PRINT_LOOP:
+        ; Point at the per-record byte counter
+        LD HL,CCP_FCB_TAIL                     ; $9974  21 F1 9B
+        ; Fetch the current record byte (TBUFF + counter)
+        LD A,(HL)                        ; $9977  7E
+        ; Consumed a whole 128-byte record? then read the next one
+        CP $80                           ; $9978  FE 80
+        ; Still within the current record: print the next byte
+        JP C,TYPE_EMIT_CHAR                 ; $997A  DA 87 99
+        PUSH HL                          ; $997D  E5
+        ; BDOS READ_SEQ (fn 20) next record into the DMA buffer
+        CALL CCP_READ_SUBMIT                    ; $997E  CD FE 94
+        POP HL                           ; $9981  E1
+        ; Non-zero status: end of file (or error) -> finish at TYPE_READ_DONE
+        JP NZ,TYPE_READ_DONE                ; $9982  C2 A0 99
+        XOR A                            ; $9985  AF
+        ; Reset the byte counter to 0 for the new record
+        LD (HL),A                        ; $9986  77
 ; ----------------------------------------------------------------------
-; FCB_RO_FLAG_TEST ($9944) -- FCB R/O bit test (orphan). FIX2: ADD $0009 reaches FCB byte 9 = first
-; file-TYPE char T1 (bit7=R/O), NOT first filename char; RLA, RET NC; else HL=$9C0F JP $9F4A (mid
-; CCP_TAIL, left literal -- deferred).
+; TYPE_EMIT_CHAR -- Emit one buffered character of the TYPE'd file, advancing the record index.
+;   In: HL -> the TYPE record-byte-index cell (CCP_FCB_TAIL); A = the current within-record offset;
+;       the current 128-byte record has already been read into TBUFF ($0080).
+;   Out: character written to the console via C_WRITE; loops back for the next character, or returns
+;        to the CCP command-complete exit on Ctrl-Z (EOF marker) or a console-abort keypress.
+;   Clobbers: A, HL, flags.
+;   Algorithm: INC the index cell; form TBUFF+offset ($0080 + A via CCP_HL_ADD_A) and fetch the
+;              byte. If it is $1A (Ctrl-Z = soft end-of-file) finish the command. Otherwise write
+;              the byte with BDOS C_WRITE (fn 2), poll the console for an abort keystroke
+;              (CCP_CHECK_ABORT), and on abort finish; else continue the TYPE output loop.
+; [RE] TYPE built-in inner emit step; $1A = CP/M text EOF sentinel. [DOC CPMREF: CCP TYPE]
 ; ----------------------------------------------------------------------
-FCB_RO_FLAG_TEST:
-        CALL FCB_SET_REC_FLAG_3_p4_STG
-        LD DE,$0009
-        ADD HL,DE
-        LD A,(HL)
-        ; bit 7 of FCB byte 9 (T1, first file-TYPE char) = the CP/M R/O attribute -> shift into
-        ; carry
-        RLA
-        RET NC
-        ; HL := &BDOS_ERR_VECTORS+6, the class-3 (file R/O) reporter vector WORD in the BDOS image
-        ; header (run $9C0F = $9C09+6); passed to the error-report dispatch at CONOUT_PUTC_STG+2. A
-        ; clean in-image DATA pointer (DEFW boundary). [RE]
-        LD HL,BDOS_ERR_VECTORS+6
-        JP CONOUT_PUTC_STG+2
-CMD_EXEC_20:
-        CALL BDOS_SAVED_SP_p13_STG+2
-        RET Z
-        ; HL := &BDOS_ERR_VECTORS+4, the class-2 (R/O changed disk) reporter vector WORD (run $9C0D
-        ; = $9C09+4). A clean in-image DATA pointer (DEFW boundary). [RE]
-        LD HL,BDOS_ERR_VECTORS+4
-        JP CONOUT_PUTC_STG+2
+TYPE_EMIT_CHAR:
+        ; advance the TYPE record-byte-index cell (next byte within the current 128-byte record)
+        ; advance the within-record byte index (next byte of the current 128-byte record)
+        INC (HL)                         ; $9987  34
+        ; TBUFF base ($0080); CCP_HL_ADD_A adds the current offset in A to form TBUFF+offset
+        ; TBUFF base ($0080); the following CCP_HL_ADD_A adds the byte index in A to address
+        ; TBUFF+index
+        LD HL,$0080                      ; $9988  21 80 00
+        CALL CCP_HL_ADD_A                    ; $998B  CD 59 96
+        LD A,(HL)                        ; $998E  7E
+        ; $1A = Ctrl-Z, CP/M soft end-of-file marker -> stop TYPE
+        ; $1A = Ctrl-Z, the CP/M soft end-of-file marker that terminates a text file
+        CP $1A                           ; $998F  FE 1A
+        ; EOF reached: branch to the CCP command-complete exit
+        ; EOF reached: stop TYPE and return through the CCP command-complete path
+        JP Z,CCP_RETURN_OK                 ; $9991  CA 86 9B
+        ; BDOS C_WRITE (fn 2): print this character to the console
+        ; emit this record byte to the console via BDOS C_WRITE (fn 2)
+        CALL CCP_CONOUT                    ; $9994  CD 8C 94
+        ; poll console status (fn 11) then read (fn 1) if a key is down; nonzero = user pressed a
+        ; key to abort TYPE
+        ; poll the console for a key (fn 11/fn 1); nonzero = user pressed a key to abort TYPE
+        CALL CCP_CHECK_ABORT                    ; $9997  CD C2 95
+        ; user aborted: branch to the command-complete exit
+        ; user aborted: stop TYPE and return through the CCP command-complete path
+        JP NZ,CCP_RETURN_OK                ; $999A  C2 86 9B
+        ; no EOF/abort: continue the TYPE character loop
+        ; no EOF and no abort: loop back for the next character/record
+        JP TYPE_PRINT_LOOP                   ; $999D  C3 74 99
 ; ----------------------------------------------------------------------
-; FCB_BUF_PTR_ADD_OFFSET -- form a byte pointer into the BDOS disk buffer: HL = bufptr + offset.
-;   In:        BDOS_VAR_PAGE_7_p20 ($A9B9) = 16-bit disk/deblock-buffer base pointer;
-;              BDOS_VAR_PAGE_9_p5 ($A9E9) = 8-bit byte offset within that buffer.
-;   Out:       HL = ($A9B9) + ($A9E9) (16-bit add of an 8-bit offset, carry rippled into H).
-;   Clobbers:  A, HL, flags.
-;   Algorithm: load the buffer base into HL, add the unsigned byte offset to L, propagate the carry
-;              into H (RET NC skips the INC H). Indexes a record byte in the BDOS disk buffer.
-;              Reached indirectly via the CCP CMD_DISPATCH_TBL ($95C2, cluster-9). [RE] cell roles
-;              inferred from BDOS usage.
+; TYPE_READ_DONE -- Handle the result of a failed/short F_READ during TYPE (EOF vs read error).
+;   In: A = BDOS F_READ (fn 20) return code from the just-attempted sequential read (1 = normal
+;       end-of-file, other nonzero = read error).
+;   Out: on normal EOF returns quietly to the CCP exit; on a read error prints "READ ERROR" and
+;        falls through to the no-file/error tail.
+;   Clobbers: A, BC, flags.
+;   Algorithm: DEC A; if the code was 1 (normal EOF) jump to the command-complete exit. Otherwise
+;              (read error) call the "READ ERROR" message printer, then fall into the drive-restore
+;              + bad-command echo tail.
+; [RE] TYPE built-in read-failure dispatch. [DOC CPMREF: CCP TYPE]
 ; ----------------------------------------------------------------------
-FCB_BUF_PTR_ADD_OFFSET:
-        ; load the BDOS disk/deblock-buffer base pointer ($A9B9)
-        LD HL,(BDOS_VAR_PAGE_7_p20_STG)
-        LD A,(BDOS_VAR_PAGE_9_p5_STG)
-        ; add the 8-bit byte offset to the low byte of the buffer pointer
-        ADD A,L
-        LD L,A
-        RET NC
-        ; carry out of the low byte rippled into the high byte
-        INC H
-        RET
+TYPE_READ_DONE:
+        ; F_READ code 1 (normal EOF) -> 0 here; any other code stays nonzero = real error
+        DEC A                            ; $99A0  3D
+        ; normal end-of-file: finish the TYPE command cleanly
+        JP Z,CCP_RETURN_OK                 ; $99A1  CA 86 9B
+        ; print the "READ ERROR" message (disk read failure)
+        CALL PRINT_READ_ERROR                    ; $99A4  CD D9 97
 ; ----------------------------------------------------------------------
-; FCB_GET_S2 -- fetch the current FCB's S2 byte (FCB offset 14) via the BDOS info-address cell.
-;   In:        BDOS_DE_PARAM ($9F43) = caller's DE info-address = current CP/M FCB pointer (the
-;              CCP-local name BDOS_DISPATCH_PTR was a MISLABEL for this same cell -- see summary).
-;   Out:       A = FCB[FCB_S2] = FCB+14 (reserved / extent-high 'module' byte).
-;   Clobbers:  A, DE, HL, flags.
-;   Algorithm: HL := current FCB pointer; add FCB_S2 (offset 14); read the byte. [RE] reads the
-;              extent-high field used by multi-extent file-position arithmetic.
+; TYPE_NO_FILE -- TYPE error/not-found tail: restore the caller's drive and echo the bad command.
+;   In: none (entered when the TYPE target file could not be opened, or after a read error).
+;   Out: re-selects the user's original drive and jumps to the bad-command echo path; does not
+;        return.
+;   Clobbers: A, HL, flags.
+;   Algorithm: call CCP_RESTORE_DEFAULT_DRIVE to restore the default drive selection, then jump to
+;              the CCP_ECHO_TOKEN routine that re-emits the offending command word followed by '?'.
+; [RE] Shared TYPE failure exit. [DOC CPMREF: CCP TYPE]
 ; ----------------------------------------------------------------------
-FCB_GET_S2:
-        ; HL := current FCB pointer (BDOS_DE_PARAM, the BDOS caller-DE / info-address cell $9F43)
-        LD HL,(BDOS_DISPATCH_PTR)
-        ; FCB_S2 offset (14 = reserved / extent-high byte)
-        LD DE,$000E
-        ADD HL,DE
-        ; read FCB.S2 into A
-        LD A,(HL)
-        RET
+TYPE_NO_FILE:
+        ; restore the user's original/default drive after the temporary drive switch
+        CALL CCP_RESTORE_DEFAULT_DRIVE                    ; $99A7  CD 66 98
+        ; echo the unrecognized/failed command token with a '?' and re-prompt
+        JP CCP_ECHO_TOKEN                      ; $99AA  C3 09 96
 ; ----------------------------------------------------------------------
-; FCB_CLEAR_BYTE_PAD -- 2 dead cover bytes ahead of the real FCB_CLEAR_BYTE entry.
-;   In:        the leading $CD $69 at $9972 are NEVER reached as code (FCB_GET_S2 RETs at $9971; no
-;              ref targets $9972). The real entry is FCB_CLEAR_BYTE at +2 ($9974), reached only via
-;              JP FCB_CLEAR_BYTE_PAD+2 from $989D.
-;   Out:       n/a (cover bytes); see FCB_CLEAR_BYTE.
-;   Clobbers:  n/a.
-;   Algorithm: see the split: cover DEFB $CD,$69 then FCB_CLEAR_BYTE (AND C / LD (HL),$00 / RET) -
-;              zeroes a single record/FCB byte the caller has pointed HL at.
+; SAVE_CMD -- CCP built-in SAVE: write N pages of memory from the TPA to a new disk file.
+;   In: command line "SAVE n filespec"; n = decimal page count (256-byte pages) parsed from the
+;       line, filespec built into the CCP command FCB (CCP_FCB).
+;   Out: creates the named file and writes n*2 128-byte records starting at $0100; on success
+;        returns via the SAVE finish path, on dir-full/disk-full prints "NO SPACE".
+;   Clobbers: A, BC, DE, HL, flags.
+;   Algorithm: parse the numeric page count (PARSE_FCB_DECIMAL) and stash it; build the filename FCB
+;              (CCP_PARSE_FCB1) and reject a malformed filespec; resolve the drive prefix; delete
+;              any pre-existing file of that name (F_DELETE_HND fn 19); create the file (F_MAKE fn 22)
+;              and on failure branch to the NO-SPACE handler; clear the FCB current-record byte;
+;              convert the page count to a 128-byte record count (count*2) and set the source
+;              pointer to $0100; then enter the write loop.
+; [RE] SAVE built-in; source data begins at the TPA base $0100. [DOC CPMREF: CCP SAVE]
 ; ----------------------------------------------------------------------
-FCB_CLEAR_BYTE_PAD:
-        CALL FCB_SET_REC_FLAG_3_p14_STG+1
-        LD (HL),$00
-        RET
-        DEFB    $CD,$69,$A1,$F6,$80      ; "Mi!v"
+SAVE_CMD:
+        ; parse the leading decimal page-count argument; A = number of 256-byte pages
+        CALL PARSE_FCB_DECIMAL                    ; $99AD  CD F8 97
+        ; stash the page count across the FCB parse
+        PUSH AF                          ; $99B0  F5
+        ; build the destination filename into the CCP command FCB (CCP_FCB) from the command tail
+        CALL CCP_PARSE_FCB1                    ; $99B1  CD 5E 96
+        ; malformed filespec: echo the bad command and abort
+        JP NZ,CCP_ECHO_TOKEN                   ; $99B4  C2 09 96
+        CALL RESOLVE_DRIVE_PREFIX                    ; $99B7  CD 54 98
+        LD DE,CCP_FCB                     ; $99BA  11 CD 9B
+        PUSH DE                          ; $99BD  D5
+        ; BDOS F_DELETE_HND (fn 19): remove any existing file with this name first
+        CALL BDOS_F_DELETE                    ; $99BE  CD EF 94
+        POP DE                           ; $99C1  D1
+        ; BDOS F_MAKE (fn 22): create the new (empty) file
+        CALL BDOS_F_MAKE                    ; $99C2  CD 09 95
+        ; no free directory entry: jump to the NO-SPACE error
+        JP Z,SAVE_DISK_FULL                 ; $99C5  CA FB 99
+        XOR A                            ; $99C8  AF
+        ; clear the FCB current-record byte so writing starts at record 0
+        LD (CCP_FCB_CR),A                    ; $99C9  32 ED 9B
+        ; recover the saved page count
+        POP AF                           ; $99CC  F1
+        LD L,A                           ; $99CD  6F
+        LD H,$00                         ; $99CE  26 00
+        ; pages*2 = number of 128-byte records to write
+        ADD HL,HL                        ; $99D0  29
+        ; DE = source pointer, starting at the TPA base $0100
+        LD DE,$0100                      ; $99D1  11 00 01
 ; ----------------------------------------------------------------------
-; FCB_STORE_A_DEAD -- 'LD (HL),A; RET' fragment reachable ONLY via the $9978 orphan.
-;   In:        A = byte; HL -> cell -- BUT no live path reaches here: the only fall-in is from the
-;              unreferenced $9978 orphan (FCB_SET_BYTE_HIBIT), and $997D has ZERO direct references.
-;   Out:       (HL) := A; RET.
-;   Clobbers:  none.
-;   Algorithm: single store-and-return. [RE] effectively dead/orphan (the tail the $9978 orphan
-;              falls into). UNKNOWN whether it was once a live branch target.
+; SAVE_WRITE_LOOP -- Write the remaining 128-byte records of a SAVE from successive memory slices.
+;   In: HL = remaining record count; DE = current source/DMA address (starts $0100, advances by $80
+;       per record); the CCP command FCB (CCP_FCB) is the open output file.
+;   Out: writes each record sequentially; on a write failure (disk full) branches to NO-SPACE; falls
+;        through to the close step when the count reaches zero.
+;   Clobbers: A, BC, DE, HL, flags.
+;   Algorithm: while HL != 0: decrement it; precompute the NEXT source pointer ($0080 + DE) and park
+;              it on the stack; set the DMA to the CURRENT source DE via F_DMAOFF (fn 26); write the
+;              record with F_WRITE (fn 21) from the FCB; POP the advanced pointer back into DE and
+;              restore HL; on a nonzero write status jump to NO-SPACE; otherwise loop.
+;   [RE] DE is the live DMA/source; the $0080 add forms the next record's source, recovered from the
+;   stack after the write. [DOC CPMREF: CCP SAVE]
 ; ----------------------------------------------------------------------
-FCB_STORE_A_DEAD:
-        ; store the byte at (HL) -- only reached via the dead $9978 orphan fall-through
-        LD (HL),A
-        RET
+SAVE_WRITE_LOOP:
+        LD A,H                           ; $99D4  7C
+        ; test the 16-bit remaining-record count for zero
+        OR L                             ; $99D5  B5
+        ; all records written: go close the file
+        JP Z,SAVE_CLOSE                 ; $99D6  CA F1 99
+        ; consume one record from the remaining count
+        DEC HL                           ; $99D9  2B
+        PUSH HL                          ; $99DA  E5
+        ; compute $0080 + DE = the NEXT record's source (parked on the stack); the DMA below uses
+        ; the CURRENT DE
+        LD HL,$0080                      ; $99DB  21 80 00
+        ADD HL,DE                        ; $99DE  19
+        PUSH HL                          ; $99DF  E5
+        ; BDOS F_DMAOFF (fn 26): point the DMA at the CURRENT 128-byte source slice (DE)
+        CALL BDOS_F_DMAOFF                    ; $99E0  CD D8 95
+        LD DE,CCP_FCB                     ; $99E3  11 CD 9B
+        ; BDOS F_WRITE (fn 21): append the record to the file
+        CALL BDOS_F_WRITE                    ; $99E6  CD 04 95
+        POP DE                           ; $99E9  D1
+        POP HL                           ; $99EA  E1
+        ; write failed (disk full): jump to the NO-SPACE error
+        JP NZ,SAVE_DISK_FULL                ; $99EB  C2 FB 99
+        ; continue writing the next record
+        JP SAVE_WRITE_LOOP                   ; $99EE  C3 D4 99
 ; ----------------------------------------------------------------------
-; RECPTR_CMP16 -- 16-bit compare: set up DE := ($A9EA) vs the word *(($A9B3)).
-;   In:        BDOS_VAR_PAGE_9_p6 ($A9EA) = 16-bit record/match-result value; BDOS_VAR_PAGE_7_p14
-;              ($A9B3) = pointer to a 2-byte (little-endian) working value.
-;   Out:       falls into RECPTR_CMP16_TAIL (RECPTR_CMP16_TAIL) computing ($A9EA) - *(($A9B3)) into
-;              flags.
-;   Clobbers:  A, DE, HL, flags.
-;   Algorithm: DE := ($A9EA); HL := *(($A9B3)) pointer; A := E; continue into the subtract tail.
-;              [RE] sets up a 16-bit magnitude compare of two record counters.
+; SAVE_CLOSE -- Close the SAVE output file after all records are written.
+;   In: the CCP command FCB (CCP_FCB) = the open output file (all records already written).
+;   Out: closes the file; on success continues to the SAVE finish/cleanup path, on close failure
+;        falls into the NO-SPACE error.
+;   Clobbers: A, C, DE, flags.
+;   Algorithm: point DE at the FCB, call F_CLOSE_HND (fn 16); the wrapper returns $FF+1=0 on failure, so
+;              INC A here is already folded into the wrapper -- a nonzero result means success and
+;              branches to the finish path; a zero (failure) result falls into the NO-SPACE handler.
+; [RE] SAVE close step. [DOC CPMREF: CCP SAVE]
 ; ----------------------------------------------------------------------
-RECPTR_CMP16:
-        ; load the record/match-result word ($A9EA) to compare
-        LD HL,(BDOS_VAR_PAGE_9_p6_STG)
-        EX DE,HL
-        ; HL := pointer to the 2-byte working value ($A9B3)
-        LD HL,(BDOS_VAR_PAGE_7_p14_STG)
-        LD A,E
+SAVE_CLOSE:
+        LD DE,CCP_FCB                     ; $99F1  11 CD 9B
+        ; BDOS F_CLOSE_HND (fn 16): flush the directory entry for the saved file
+        CALL BDOS_F_CLOSE                    ; $99F4  CD DA 94
+        ; map the $FF close-error code to 0 (failure); a valid directory code becomes nonzero =
+        ; success
+        INC A                            ; $99F7  3C
+        ; close succeeded: go to the SAVE finish/cleanup path
+        JP NZ,SAVE_FINISH                ; $99F8  C2 01 9A
 ; ----------------------------------------------------------------------
-; RECPTR_CMP16_TAIL -- 16-bit subtract tail: (DE) - *(HL) leaving the result in flags/A.
-;   In:        DE = the value being compared; HL -> low byte of the 2-byte operand.
-;   Out:       A = high-byte result; carry/zero reflect the 16-bit compare; HL advanced past the low
-;              byte.
-;   Clobbers:  A, HL, flags.
-;   Algorithm: A := E - (HL) (low byte); INC HL; A := D - (HL) - borrow (high byte). [RE] standard
-;              little-endian 16-bit compare; only flags matter to the caller.
+; SAVE_DISK_FULL -- SAVE error tail: report "NO SPACE" and clean up.
+;   In: none (entered on F_MAKE failure, a failed F_WRITE, or a failed F_CLOSE_HND).
+;   Out: prints the "NO SPACE" message, then falls into the SAVE finish/cleanup path.
+;   Clobbers: A, BC, DE, HL, flags.
+;   Algorithm: load BC with the address of MSG_NO_SPACE, print it (CR/LF + string via CCP_CRLF_MSG),
+;              then fall through to SAVE_FINISH which restores the default DMA.
+; [RE] Shared SAVE failure message. [DOC CPMREF: CCP SAVE]
 ; ----------------------------------------------------------------------
-RECPTR_CMP16_TAIL:
-        ; subtract the low byte of the operand
-        SUB (HL)
-        INC HL
-        LD A,D
-        ; subtract the high byte with borrow -> 16-bit compare result in flags
-        SBC A,(HL)
-        RET
+SAVE_DISK_FULL:
+        ; address of the "NO SPACE" message string
+        LD BC,MSG_NO_SPACE                     ; $99FB  01 07 9A
+        ; print CR/LF then the NUL-terminated message via C_WRITE
+        CALL CCP_CRLF_MSG                    ; $99FE  CD A7 94
 ; ----------------------------------------------------------------------
-; RECPTR_INC_STORE -- after the BDOS extent step, bump DE and write it back as a 2-byte cell.
-;   In:        DE = a record/extent value; HL set by the BDOS helper (FCB_SET_REC_FLAG_3_p35+2) to
-;              point at the HIGH byte of a 2-byte little-endian destination.
-;   Out:       on carry from the helper, RET (no update); else DE incremented and stored
-;              (HL)=hi,(HL-1)=lo.
-;   Clobbers:  A (in helper), DE, HL, flags.
-;   Algorithm: CALL the BDOS extent/record helper; if carry, bail; otherwise INC DE and write the
-;              word back high-then-low (HL points at the high byte). [RE] record-count write-back.
+; SAVE_FINISH -- Restore the default DMA address and return to the CCP after a SAVE.
+;   In: none.
+;   Out: resets the BDOS DMA address to the default $0080 and jumps to the CCP command-complete
+;        exit; does not return.
+;   Clobbers: A, C, DE, flags.
+;   Algorithm: call CCP_SET_DMA_TBUFF which loads DE=$0080 and invokes F_DMAOFF (fn 26) to restore
+;              the default DMA (SAVE had walked the DMA across the TPA), then jump to the
+;              command-complete exit.
+; [RE] SAVE cleanup. [DOC CPMREF: CCP SAVE]
 ; ----------------------------------------------------------------------
-RECPTR_INC_STORE:
-        ; BDOS extent/record helper -- positions HL and returns carry on failure (cross-module BDOS,
-        ; kept)
-        CALL FCB_SET_REC_FLAG_3_p35_STG+2
-        RET C
-        ; advance the record/extent value by one
-        INC DE
-        ; write back the updated word (high byte here, low byte below)
-        LD (HL),D
-        DEC HL
-        LD (HL),E
-        RET
+SAVE_FINISH:
+        ; restore the DMA to the default $0080 (SAVE had walked it across memory)
+        CALL CCP_SET_DMA_TBUFF                    ; $9A01  CD D5 95
+        ; return to the CCP command-complete exit
+        JP CCP_RETURN_OK                   ; $9A04  C3 86 9B
 ; ----------------------------------------------------------------------
-; SUB16_DE_HL -- 16-bit subtract: HL := DE - HL.
-;   In:        DE, HL = 16-bit operands.
-;   Out:       HL = DE - HL; carry/zero reflect the subtraction.
-;   Clobbers:  A, HL, flags.
-;   Algorithm: A := E - L (low byte) -> L; A := D - H - borrow (high byte) -> H. [RE] a record/
-;              extent delta used to size a remaining transfer.
+; MSG_NO_SPACE -- NUL-terminated console message "NO SPACE" shown when SAVE runs out of room.
+;   In: referenced by BC in SAVE_DISK_FULL.
+;   Out: data only (the ASCII string followed by a $00 terminator).
+;   Clobbers: none.
+;   Algorithm: data.
+; [RE] CCP message string. [DOC CPMREF: CCP SAVE]
 ; ----------------------------------------------------------------------
-SUB16_DE_HL:
-        LD A,E
-        ; low byte: E - L
-        SUB L
-        LD L,A
-        LD A,D
-        ; high byte: D - H - borrow -> HL = DE - HL
-        SBC A,H
-        LD H,A
-        RET
-; ----------------------------------------------------------------------
-; RECORD_SCAN_INIT -- seed the record scan with C = $FF then fall into the scan body.
-;   In:        none (sets C := $FF as the scan sentinel/limit).
-;   Out:       falls through into RECORD_SCAN_BODY (RECORD_SCAN_BODY) with C = $FF.
-;   Clobbers:  C.
-;   Algorithm: C := $FF (initial sentinel) and continue. [RE] sentinel value inferred from the
-;              INC C / JP Z test inside the scan body.
-; ----------------------------------------------------------------------
-RECORD_SCAN_INIT:
-        ; seed the scan with C = $FF (the INC C below tests for the $FF->$00 wrap)
-        LD C,$FF
-; ----------------------------------------------------------------------
-; RECORD_SCAN_BODY -- load two record-pointer words, then enter the BDOS extent helper + scan loop.
-;   In:        fall-through: C = $FF from RECORD_SCAN_INIT. Alt entry +2 ($99A0,
-;              RECORD_SCAN_BODY_ALT)
-;              reached by JP NZ from $9882. BDOS_VAR_PAGE_9_p8 ($A9EC) = cached record/result word;
-;              BDOS_VAR_PAGE_7_p39 ($A9CC) = a record-pointer working value.
-;   Out:       DE := ($A9EC); HL := ($A9CC); falls into RECORD_SCAN_STEP (RECORD_SCAN_STEP).
-;   Clobbers:  A (alt entry only), DE, HL, flags.
-;   Algorithm: DUAL ENTRY (shared-tail): tenant-1 fall-through runs LD HL,($A9EC) (2A EC A9, the $A9
-;              high byte doubling as the next opcode); tenant-2 alt entry $99A0 runs that $A9 as XOR
-;              C before EX DE,HL / LD HL,($A9CC). [RE]
-; ----------------------------------------------------------------------
-RECORD_SCAN_BODY:
-        LD HL,(BDOS_VAR_PAGE_9_p8_STG)
-        EX DE,HL
-        ; HL := the record-pointer working value ($A9CC) for the scan step below
-        LD HL,(BDOS_VAR_PAGE_7_p39_STG)
-; ----------------------------------------------------------------------
-; RECORD_SCAN_STEP -- run the BDOS extent/record helper, then test a record against a buffer cell.
-;   In:        fall-through: HL/DE from RECORD_SCAN_BODY, C = sentinel. Alt entry +2 ($99A7,
-;              RECORD_SCAN_STEP_ALT) reached by JP Z from $9869. BDOS_VAR_PAGE_7_p24 ($A9BD) and
-;              _9_p8 ($A9EC) hold record pointers/counters.
-;   Out:       returns (RET NC / RET Z) at decision points; on the wrap path JP into
-;              DISK_READ_RECORD+1; otherwise CALL the BDOS extent helper + BDOS_CON_49 tail.
-;   Clobbers:  A, BC, DE, HL, flags.
-;   Algorithm: tenant-1 fall-through: CALL FCB_SET_REC_FLAG_5+2 (CD 95 A1, $A1 doubling as next
-;              opcode); RET NC; save C; CALL a BDOS record-state helper; HL := ($A9EC)+($A9BD);
-;              restore C, INC C and if it wrapped from $FF to 0 JP DISK_READ_RECORD+1; else CP (HL)
-;              and RET Z or run the FCB extent + record helpers. tenant-2 alt entry $99A7 = AND C
-;              then RET NC. [RE] $A9xx are BDOS variable-page scratch; CALL targets are BDOS
-;              internals (kept).
-; ----------------------------------------------------------------------
-RECORD_SCAN_STEP:
-        CALL FCB_SET_REC_FLAG_5_STG+2
-        RET NC
-        PUSH BC
-        ; BDOS record-state helper (cross-module BDOS, kept) -- the target name may itself be
-        ; mislabeled; role here is record bookkeeping [RE]
-        CALL BDOS_GET_IOBYTE_FN_p10_STG
-RECORD_SCAN_STEP_1:
-        LD HL,(BDOS_VAR_PAGE_7_p24_STG)
-        EX DE,HL
-        LD HL,(BDOS_VAR_PAGE_9_p8_STG)
-        ; HL := record cache ($A9EC) + offset ($A9BD) -> address of the record byte to test
-        ADD HL,DE
-        POP BC
-        ; if C was the $FF sentinel it wraps to 0 (Z) -> take the read-record path
-        INC C
-        ; sentinel exhausted -> enter the BDOS read-record path (cross-module BDOS, kept)
-        JP Z,DISK_READ_RECORD_STG+1
-        ; compare the candidate against the record byte at the computed address
-        CP (HL)
-        RET Z
-        CALL FCB_SET_REC_FLAG_3_p35_STG+2
-        RET NC
-        CALL BDOS_CON_49_p7_STG+1
-        RET
-; ----------------------------------------------------------------------
-; FCB_STORE_A_ORPHAN -- unreferenced 'LD (HL),A; RET' fragment.
-;   In:        A = byte; HL -> cell -- BUT $99C4 has ZERO references in CCP or BDOS and is NOT
-;              reached
-;              by fall-through (RECORD_SCAN_STEP RETs at $99C3). The peer's claim it is 'a branch
-;              target
-;              used by the scan code above' is FALSE.
-;   Out:       (HL) := A; RET.
-;   Clobbers:  none.
-;   Algorithm: single store-and-return. UNKNOWN reachability -- effectively dead/orphan. Decodes as
-;              clean code (77 C9), so left as real instructions.
-; ----------------------------------------------------------------------
-FCB_STORE_A_ORPHAN:
-        ; store the byte at (HL) -- orphan: no caller references $99C4 (UNKNOWN reachability)
-        LD (HL),A
-        RET
-; ----------------------------------------------------------------------
-; DIR_RECORD_WRITE -- run two BDOS helpers, set count=1, then tail into the BDOS record code.
-;   In:        BDOS extent state set up by the callers; the BDOS variable page addresses the record
-;              buffer.
-;   Out:       calls FCB_SET_REC_FLAG_5_p9 + DISK_READ_RECORD_1_p15+1, sets C := $01, calls
-;              BDOS_CON_8, then tail-jumps into DISK_READ_RECORD_1_p8+2.
-;   Clobbers:  A, C, HL, flags (per the BDOS helpers).
-;   Algorithm: CALL the BDOS extent helper; CALL the BDOS record helper; C := $01; CALL BDOS_CON_8;
-;              JP into the read-record continuation. [RE] all targets are BDOS internals (kept).
-;              The C := $01 reading as a record count and BDOS_CON_8's role are UNKNOWN (the
-;              BDOS_CON_* names may share the CONOUT mislabel).
-; ----------------------------------------------------------------------
-DIR_RECORD_WRITE:
-        CALL FCB_SET_REC_FLAG_5_p9_STG
-        CALL DISK_READ_RECORD_1_p15_STG+1
-        ; C := $01 ([RE] one record / op count) for the BDOS call
-        LD C,$01
-        CALL BDOS_CON_8_STG
-        ; tail into the BDOS read-record continuation (cross-module BDOS, kept)
-        JP DISK_READ_RECORD_1_p8_STG+2
-; ----------------------------------------------------------------------
-; DIR_RECORD_READ -- run the BDOS record helper, point HL at the DMA cell, tail into the read step.
-;   In:        BDOS extent state; BDOS_VAR_PAGE_7_p12 ($A9B1) = the DMA-address cell.
-;   Out:       JP DISK_READ_RECORD_2 with HL -> the DMA cell ($A9B1).
-;   Clobbers:  A, C, HL, flags (per the BDOS helpers).
-;   Algorithm: CALL DISK_READ_RECORD_1_p15+1; CALL BDOS_CON_7+2; HL := &($A9B1) DMA cell; JP
-;              DISK_READ_RECORD_2. [RE] BDOS internals kept; $A9B1 is the DMA pointer cell.
-; ----------------------------------------------------------------------
-DIR_RECORD_READ:
-        CALL DISK_READ_RECORD_1_p15_STG+1
-        CALL BDOS_CON_7_STG+2
-        ; HL := address of the BDOS DMA-pointer cell ($A9B1)
-        LD HL,BDOS_VAR_PAGE_7_p12_STG
-        JP DISK_READ_RECORD_2_STG
-; ----------------------------------------------------------------------
-; SET_DMA_TO_DISK_BUF -- point the BIOS DMA at the BDOS disk buffer, then jump to BIOS SETDMA.
-;   In:        BDOS_VAR_PAGE_7_p20 ($A9B9) = 16-bit disk/deblock-buffer pointer (lo ($A9B9), hi
-;              ($A9BA)).
-;   Out:       BC = the buffer pointer; control transfers to BIOS SETDMA ($AA24) which records the
-;              DMA address for the next physical read/write. Tail JP, does not return here.
-;   Clobbers:  BC, HL.
-;   Algorithm: HL := &($A9B9); BC := the 16-bit pointer there; JP $AA24. $AA24 = BIOS jump-table
-;              entry 12 (SETDMA = BIOS_BASE $AA00 + 12*3), in the BIOS (a SEPARATE output binary,
-;              off this CCP+BDOS image) -- kept literal as a documented cross-module BIOS call.
-; ----------------------------------------------------------------------
-SET_DMA_TO_DISK_BUF:
-        ; HL := address of the disk-buffer pointer cell ($A9B9)
-        LD HL,BDOS_VAR_PAGE_7_p20_STG
-        LD C,(HL)
-        INC HL
-        LD B,(HL)
-        ; BIOS SETDMA (jump-table entry 12 = $AA00+12*3; BIOS is a separate output image off this
-        ; CCP+BDOS image -- cross-module, kept literal) with BC = buffer pointer
-        JP $AA24
-; ----------------------------------------------------------------------
-; DISK_BUF_MOVE -- set up a record move between the disk buffer and the current DMA target.
-;   In:        BDOS_VAR_PAGE_7_p20 ($A9B9) = disk-buffer pointer; BDOS_VAR_PAGE_7_p12 ($A9B1) =
-;              current
-;              DMA-address cell.
-;   Out:       DE := ($A9B9) one endpoint, HL := ($A9B1) the other; falls into DISK_BUF_MOVE_GO
-;              (DISK_BUF_MOVE_GO) which sets the $80 count and tail-jumps into the BDOS record code.
-;   Clobbers:  DE, HL.
-;   Algorithm: DE := disk buffer ptr; HL := DMA pointer; continue. [RE] sets up moving one CP/M
-;              record ($80=128 bytes) between the deblock buffer and the caller's DMA area.
-; ----------------------------------------------------------------------
-DISK_BUF_MOVE:
-        ; load the disk-buffer pointer ($A9B9)
-        LD HL,(BDOS_VAR_PAGE_7_p20_STG)
-        EX DE,HL
-        ; HL := the current DMA address ($A9B1)
-        LD HL,(BDOS_VAR_PAGE_7_p12_STG)
-; ----------------------------------------------------------------------
-; DISK_BUF_MOVE_GO -- set the $80 count and tail into the BDOS record (disk-store) code.
-;   In:        fall-through from DISK_BUF_MOVE with DE/HL = the two endpoints; sets C := $80 (128 =
-;              one CP/M record). Alt entry +1 ($99F1, DISK_BUF_MOVE_GO_ALT) reached by JP Z from
-;              $98D6, where the $80 operand byte runs as ADD A,B.
-;   Out:       JP CONOUT_PUTC_p6+1 ($9F4F) -- a BDOS DISK/SECTOR-STORE routine (NOTE: CONOUT_PUTC is
-;              a KNOWN BDOS mislabel: disk/sector code, not console output -- see summary + BDOS
-;              line 841-848).
-;   Clobbers:  C (fall-through) or A (alt entry).
-;   Algorithm: DUAL ENTRY (shared-tail): tenant-1 fall-through C := $80 (0E 80) then JP into the
-;              BDOS
-;              record code; tenant-2 alt entry $99F1 runs the $80 byte as ADD A,B then the same JP.
-;              The $80 is the CP/M record-size constant (kept literal). [RE]
-; ----------------------------------------------------------------------
-DISK_BUF_MOVE_GO:
-        LD C,$80
-        ; tail into the BDOS record (disk-sector) store routine (cross-module, kept; CONOUT_PUTC is
-        ; a known BDOS mislabel -- disk/sector code, not console)
-        JP CONOUT_PUTC_p6_STG+1
-; ----------------------------------------------------------------------
-; EXTENT_INDEX_TEST -- compare two adjacent record/extent index bytes; signal a match via A+1.
-;   In:        BDOS_VAR_PAGE_9_p6 ($A9EA) = first index byte; ($A9EB) = the next byte.
-;   Out:       falls into EXTENT_INDEX_TEST_TAIL (EXTENT_INDEX_TEST_TAIL): bytes differ -> RET (NZ)
-;              A unchanged;
-;              equal -> A := A+1 then RET.
-;   Clobbers:  A, HL, flags.
-;   Algorithm: HL := &($A9EA); A := (HL); INC HL; CP (HL) -> compares ($A9EA) vs ($A9EB). [RE] tests
-;              whether two record/extent indices match (detect end-of-extent).
-; ----------------------------------------------------------------------
-EXTENT_INDEX_TEST:
-        ; HL := address of the first index byte ($A9EA)
-        LD HL,BDOS_VAR_PAGE_9_p6_STG
-        LD A,(HL)
-        INC HL
-        ; compare ($A9EA) against the following byte ($A9EB)
-        CP (HL)
-; ----------------------------------------------------------------------
-; EXTENT_INDEX_TEST_TAIL -- mismatch test tail: bump A on a match, else return unchanged.
-;   In:        Z/NZ from EXTENT_INDEX_TEST's CP; A holds the value to bump. Also a direct JP target
-;              from $98C5 / $98EB.
-;   Out:       NZ (mismatch) -> RET A unchanged; Z (match) -> A := A+1 then RET.
-;   Clobbers:  A, flags.
-;   Algorithm: RET NZ on mismatch; otherwise INC A; RET. [RE] returns A+1 to signal 'indices equal'.
-; ----------------------------------------------------------------------
-EXTENT_INDEX_TEST_TAIL:
-        ; indices differ -> return immediately with A unchanged
-        RET NZ
-        ; indices equal -> return A+1 as the match signal
-        INC A
-        RET
-; ----------------------------------------------------------------------
-; RPC_TAIL_ORPHAN -- UNREFERENCED 3-byte fragment 'LD HL,RPC6502_END'.
-;   In:        none. $99FE has ZERO references (EXTENT_INDEX_TEST_TAIL RETs at $99FD; no
-;              JP/CALL/table word
-;              targets $99FE).
-;   Out:       n/a -- its 'LD HL,$94FF' has NO observable effect: it falls into CCP_RPC_THEN_LOOP
-;              whose
-;              first act (CALL RPC_ENTER_6502 -> LD HL,RPC6502_BLOCK $9400; JP (HL)) IMMEDIATELY
-;              overwrites HL. The peer's 'point at the 6502 entry' narrative is FUNCTIONALLY WRONG.
-;   Clobbers:  HL.
-;   Algorithm: UNKNOWN/orphan. Decodes as clean code (21 FF 94); the $94FF is an in-image pointer
-;              into the 6502 RPC block so the operand is relocated to RPC6502_END (byte-identical),
-;              but the fragment is dead. Possibly a vestigial alternate entry.
-; ----------------------------------------------------------------------
-RPC_TAIL_ORPHAN:
-        ; orphan: HL := end of the 6502 RPC block ($94FF), but it has no effect -- RPC_ENTER_6502
-        ;         below reloads HL with $9400 (UNKNOWN why this fragment exists)
-        LD HL,RPC6502_END
-; ----------------------------------------------------------------------
-; CCP_RPC_THEN_LOOP -- invoke the 6502-side RPC, then resume the CCP command loop.
-;   In:        none required (RPC_ENTER_6502 itself loads HL := RPC6502_BLOCK $9400 and JP (HL)).
-;              Reached by JP NZ from $98F8 and via the CCP dispatch table.
-;   Out:       after the RPC returns, JP CMD_EXEC_63+1 -- back into the CCP command/prompt loop.
-;   Clobbers:  whatever RPC_ENTER_6502 clobbers (incl. HL).
-;   Algorithm: CALL RPC_ENTER_6502 (switch to the 6502, run the RPC-block payload at $9400, switch
-;              back); then JP into the CCP loop. [RE] CMD_EXEC_63+1 ($9B86) is a cross-cluster CCP
-;              shared-tail (kept +offset). NOTE: this is the REAL entry; the preceding
-;              RPC_TAIL_ORPHAN at $99FE is dead.
-; ----------------------------------------------------------------------
-CCP_RPC_THEN_LOOP:
-        ; switch to the 6502 and run the RPC-block payload ($9400), then return to the Z-80 (this
-        ; sets HL := $9400 itself)
-        CALL RPC_ENTER_6502
-        ; resume the CCP command loop
-        JP CMD_EXEC_63+1
 MSG_NO_SPACE:
-        DEFB    "NO SPACE"               ; CP/M error text
-        DEFB    $00                      ; terminator
+        DEFB    "NO SPACE"    ; $9A07  string
+        DEFB    $00    ; $9A0F  terminator
 ; ----------------------------------------------------------------------
-; CMD_EXEC_42 -- the CCP "REN" built-in: rename a disk file (REN newname=oldname).
-;   In:        reached via the DEFW entry at CMD_DISPATCH_TBL_2 ($95C9); PARSE_PTR -> the rest of
-;              the command line after "REN"; the parsed command FCB (CCP_FCB1, $9BCD) about to be
-;              filled.
-;   Out:       on success the file is renamed and control returns to the prompt via JP
-;              CMD_EXEC_63+1;
-;              FILE EXISTS / NO FILE / syntax errors divert to CMD_EXEC_47 / CMD_EXEC_46 /
-;              RST_TABLE_9609.
-;   Clobbers:  A,BC,DE,HL,flags; writes CCP_FCB1, the rename-target FCB (CCP_FCB1+16), the
-;              command-drive
-;              cell ($9BF0); pushes/pops the parsed drive.
-;   Algorithm: [RE] parse the NEW name into CCP_FCB1, then search the directory for it via the 6502
-;              RPC
-;              (RPC6502_E0E9) -- if it already exists go to the FILE EXISTS path. Otherwise copy the
-;              16-byte name+type into the rename-target FCB at CCP_FCB1+16 (the CP/M TFCB2
-;              convention),
-;              then scan forward for the '=' (or '_') separator that introduces the OLD name;
-;              missing
-;              separator -> CMD_EXEC_46. The exact function behind RPC6502_E0E9 is the file's
-;              documented
-;              OPEN item, not asserted here.
+; REN_CMD -- CCP built-in REN(AME): rename an existing file given "REN newname=oldname".
+;   In: command line "REN newfile=oldfile"; the new name is parsed first into the CCP command FCB
+;       (CCP_FCB).
+;   Out: renames oldfile to newfile via F_RENAME_HND; errors are reported as "FILE EXISTS", "NO FILE",
+;        or a bad-command echo.
+;   Clobbers: A, B, DE, HL, flags.
+;   Algorithm: parse the new-name FCB; reject a malformed spec; save the new name's drive prefix
+;              (CCP_FCB_DRIVE_PREFIX); resolve the drive; search the directory for the new name and
+;              if it already EXISTS branch to the FILE-EXISTS error; copy the 16-byte new-name FCB
+;              to the second FCB slot at +16 (CCP_FCB_SECOND) so F_RENAME_HND later sees old@+0/new@+16;
+;              advance the command-line pointer over blanks and require an '=' ($3D) or '_' ($5F)
+;              separator (else bad-command error); then parse the old name.
+; [RE] REN built-in; F_RENAME_HND FCB carries old name at +0, new name at +16. [DOC CPMREF: CCP REN]
 ; ----------------------------------------------------------------------
-CMD_EXEC_42:
-        ; parse the next command-line token into the command FCB (CCP_FCB1)
-        CALL RPC_DISPATCH
-        ; malformed/empty name -> the CCP error/redo path
-        JP NZ,RST_TABLE_9609
-        LD A,(CCP_FCB+35)
-        ; save the parsed drive prefix across the directory search
-        PUSH AF
-        ; print-newline RPC entry: aliases the MSG_ALL_YN string interior at +2 -- the CCP
-        ; print-newline routine, reached via the 6502 print RPC (see the MSG_ALL_YN header). [RE]
-        CALL MSG_ALL_YN+2
-        ; [RE] 6502-RPC directory search for the NEW name; NZ => already present (per CALL context;
-        ; exact RPC function UNKNOWN)
-        CALL RPC6502_E0E9
-        ; new name already on disk -> FILE EXISTS error
-        JP NZ,CMD_EXEC_47
-        LD HL,CCP_FCB
-        LD DE,CMD_EXEC_68+2
-        LD B,$10
-        ; copy the 16-byte name+type into the rename-target FCB (CCP_FCB1+16, the TFCB2 slot)
-        CALL CCP_NEWLINE_AND_FILEOP
-        LD HL,(PARSE_PTR)
-        EX DE,HL
-        ; advance past blanks and fetch the next non-blank separator character
-        CALL RST_TABLE_964F
-        CP '='
-        JP Z,CMD_EXEC_43
-        CP '_'
-        ; no '=' / '_' separator -> not a valid REN line
-        JP NZ,CMD_EXEC_46
+REN_CMD:
+        ; build the NEW filename into the CCP command FCB (CCP_FCB) from the command line
+        CALL CCP_PARSE_FCB1                    ; $9A10  CD 5E 96
+        ; malformed new-name spec: echo bad command
+        JP NZ,CCP_ECHO_TOKEN                   ; $9A13  C2 09 96
+        ; fetch the explicit drive prefix supplied with the new name
+        LD A,(CCP_FCB_DRIVE_PREFIX)                    ; $9A16  3A F0 9B
+        ; save the new name's drive prefix for the later drive-match check
+        PUSH AF                          ; $9A19  F5
+        CALL RESOLVE_DRIVE_PREFIX                    ; $9A1A  CD 54 98
+        ; BDOS F_SFIRST (fn 17): search the directory for the NEW name
+        CALL CCP_SEARCH_FIRST_SUBMIT                    ; $9A1D  CD E9 94
+        ; new name already exists: report FILE EXISTS
+        JP NZ,REN_FILE_EXISTS                ; $9A20  C2 79 9A
+        LD HL,CCP_FCB                     ; $9A23  21 CD 9B
+        LD DE,CCP_FCB_SECOND                     ; $9A26  11 DD 9B
+        ; count = 16: copy the new-name FCB into the second FCB slot at +16 (CCP_FCB_SECOND), the
+        ; rename source/target pair
+        LD B,$10                         ; $9A29  06 10
+        CALL COPY_N_BYTES                    ; $9A2B  CD 42 98
+        LD HL,(CCP_PARSEPTR)                   ; $9A2E  2A 88 94
+        EX DE,HL                         ; $9A31  EB
+        ; skip blanks to reach the '=' / '_' separator
+        CALL CCP_SKIP_BLANKS                    ; $9A32  CD 4F 96
+        ; '=' separator between new and old names
+        CP $3D                           ; $9A35  FE 3D
+        ; '=' seen: go parse the old name
+        JP Z,REN_PARSE_OLD                 ; $9A37  CA 3F 9A
+        ; '_' is also accepted as the new=old separator
+        CP $5F                           ; $9A3A  FE 5F
+        ; no valid separator: bad-command error
+        JP NZ,REN_ERROR                ; $9A3C  C2 73 9A
 ; ----------------------------------------------------------------------
-; CMD_EXEC_43 -- REN, parse the OLD name after the '=' separator.
-;   In:        DE/HL straddle the separator; B receives the parsed new-name drive (CMD_EXEC_42's
-;              PUSH).
-;   Out:       OLD name parsed into CCP_FCB1; command-drive cell ($9BF0) reconciled with the new
-;              name's
-;              drive; falls into CMD_EXEC_44 on success, else CMD_EXEC_46 on error.
-;   Clobbers:  A,B,DE,HL,flags; updates PARSE_PTR and the command-drive cell.
-;   Algorithm: [RE] step over the separator (INC HL, store PARSE_PTR), parse the OLD filename via
-;              the
-;              RPC parser, then check that the two filenames' drive prefixes agree (a cross-drive
-;              rename
-;              is rejected): if the command-drive cell is 0 take the new-name drive, else it must
-;              equal B.
+; REN_PARSE_OLD -- Parse the old-name FCB after the '=' separator and validate the drive match.
+;   In: scan pointer is at the separator; the new-name drive prefix is on the stack (pushed by
+;       REN_CMD).
+;   Out: builds the old-name FCB and confirms both names target the same drive; on mismatch or parse
+;        error branches to the bad-command error.
+;   Clobbers: A, B, DE, HL, flags.
+;   Algorithm: advance past the separator and update the scan pointer (CCP_PARSEPTR); parse the
+;              old-name FCB; on parse error -> error tail. Recover the new name's drive prefix into
+;              B; read the old name's prefix (CCP_FCB_DRIVE_PREFIX); if it is 0 (no explicit drive)
+;              accept it; otherwise the two prefixes must be equal (store B into
+;              CCP_FCB_DRIVE_PREFIX and compare) else error.
+; [RE] REN old-name parse + same-drive enforcement. [DOC CPMREF: CCP REN]
 ; ----------------------------------------------------------------------
-CMD_EXEC_43:
-        EX DE,HL
-        ; consume the '=' / '_' separator
-        INC HL
-        ; advance the command-line parse cursor past the separator
-        LD (PARSE_PTR),HL
-        ; parse the OLD filename into the command FCB
-        CALL RPC_DISPATCH
-        JP NZ,CMD_EXEC_46
-        ; recover the new name's drive prefix into B
-        POP AF
-        LD B,A
-        LD HL,CCP_FCB+35
-        ; command-drive cell ($9BF0): 0 = take the new name's drive
-        LD A,(HL)
-        OR A
-        JP Z,CMD_EXEC_44
-        ; both names must name the same drive; mismatch -> error
-        CP B
-        LD (HL),B
-        JP NZ,CMD_EXEC_46
+REN_PARSE_OLD:
+        EX DE,HL                         ; $9A3F  EB
+        ; step past the '=' / '_' separator
+        INC HL                           ; $9A40  23
+        LD (CCP_PARSEPTR),HL                   ; $9A41  22 88 94
+        ; build the OLD filename FCB from the rest of the line
+        CALL CCP_PARSE_FCB1                    ; $9A44  CD 5E 96
+        ; drives differ: reject as a bad command
+        ; malformed old-name spec: bad-command error
+        JP NZ,REN_ERROR                ; $9A47  C2 73 9A
+        ; recover the new name's drive prefix saved by REN_CMD (into A, then B)
+        POP AF                           ; $9A4A  F1
+        LD B,A                           ; $9A4B  47
+        ; CCP_FCB_DRIVE_PREFIX = the old name's explicit drive prefix
+        LD HL,CCP_FCB_DRIVE_PREFIX                     ; $9A4C  21 F0 9B
+        LD A,(HL)                        ; $9A4F  7E
+        OR A                             ; $9A50  B7
+        ; old name has no explicit drive: accept and proceed
+        JP Z,REN_DO_RENAME                 ; $9A51  CA 59 9A
+        ; the two filenames must reference the same drive
+        CP B                             ; $9A54  B8
+        LD (HL),B                        ; $9A55  70
+        JP NZ,REN_ERROR                ; $9A56  C2 73 9A
 ; ----------------------------------------------------------------------
-; CMD_EXEC_44 -- REN, locate the OLD file and perform the rename.
-;   In:        command FCB (CCP_FCB1) holds the OLD name; rename-target FCB (CCP_FCB1+16) holds NEW.
-;   Out:       on a found OLD file the rename runs and control returns to the prompt (JP
-;              CMD_EXEC_63+1);
-;              if the OLD file is absent -> CMD_EXEC_45 (NO FILE).
-;   Clobbers:  A,B,DE,HL,flags; zeroes CCP_FCB1's drive byte; commits B to the drive cell.
-;   Algorithm: [RE] commit the agreed drive, zero CCP_FCB1.DR so the search uses the default drive,
-;              then
-;              search the directory for the OLD name via the RPC (RPC6502_E0E9). Not found ->
-;              CMD_EXEC_45.
-;              Found -> issue the rename with DE -> CCP_FCB1 (the combined old+new FCB) and return.
-;              The
-;              exact RPC rename path is UNKNOWN.
+; REN_DO_RENAME -- Locate the old file and perform the directory rename.
+;   In: the CCP command FCB holds old name at +0 (CCP_FCB) and new name at +16 (CCP_FCB_SECOND); HL
+;       -> the drive-prefix cell CCP_FCB_DRIVE_PREFIX; B = the agreed drive prefix.
+;   Out: searches for the old name; if not found branches to NO-FILE; otherwise renames it and
+;        returns to the CCP exit.
+;   Clobbers: A, B, DE, HL, flags.
+;   Algorithm: store the agreed prefix B into CCP_FCB_DRIVE_PREFIX; zero the FCB drive byte (CCP_FCB
+;              = default drive); search-first for the old name (F_SFIRST fn 17) -- if absent jump to
+;              REN_OLD_NOT_FOUND; else call F_RENAME_HND (fn 23) on the old/new FCB pair and finish.
+; [RE] REN rename step. [DOC CPMREF: CCP REN]
 ; ----------------------------------------------------------------------
-CMD_EXEC_44:
-        ; store the resolved drive into the command-drive cell ($9BF0)
-        LD (HL),B
-        XOR A
-        ; clear CCP_FCB1.DR so the search runs on the default drive
-        LD (CCP_FCB),A
-        ; [RE] 6502-RPC directory search for the OLD name; Z => not present (per CALL context)
-        CALL RPC6502_E0E9
-        ; OLD file missing -> NO FILE
-        JP Z,CMD_EXEC_45
-        LD DE,CCP_FCB
-        ; [RE] perform/confirm the rename with DE -> CCP_FCB1 (old+new FCB); exact RPC path UNKNOWN
-        CALL TEST_B_NZ
-        JP CMD_EXEC_63+1
+REN_DO_RENAME:
+        ; store the agreed drive prefix B into the drive-prefix cell CCP_FCB_DRIVE_PREFIX (HL still
+        ; points there)
+        LD (HL),B                        ; $9A59  70
+        XOR A                            ; $9A5A  AF
+        ; zero the FCB drive byte (0 = default drive) before the search
+        LD (CCP_FCB),A                    ; $9A5B  32 CD 9B
+        ; BDOS F_SFIRST (fn 17): search the directory for the OLD name
+        CALL CCP_SEARCH_FIRST_SUBMIT                    ; $9A5E  CD E9 94
+        ; old file not found: report NO FILE
+        JP Z,REN_OLD_NOT_FOUND                 ; $9A61  CA 6D 9A
+        LD DE,CCP_FCB                     ; $9A64  11 CD 9B
+        ; BDOS F_RENAME_HND (fn 23): rename old -> new using the paired FCB
+        CALL BDOS_F_RENAME                    ; $9A67  CD 0E 95
+        ; rename done: return to the CCP command-complete exit
+        JP CCP_RETURN_OK                   ; $9A6A  C3 86 9B
 ; ----------------------------------------------------------------------
-; CMD_EXEC_45 -- REN, the "old file not found" report.
-;   In:        reached when the OLD-name directory search failed.
-;   Out:       prints the NO FILE message (via DIR_EMIT_NAME_CHAR_1+2) and returns to the prompt.
-;   Clobbers:  per the message-print helper.
-;   Algorithm: emit the standard CP/M "NO FILE" diagnostic, then JP CMD_EXEC_63+1 (back to the
-;              command loop).
+; REN_OLD_NOT_FOUND -- REN error: the source file to rename does not exist.
+;   In: none.
+;   Out: prints "NO FILE" and returns to the CCP command-complete exit.
+;   Clobbers: A, BC, flags.
+;   Algorithm: call the "NO FILE" message printer (PRINT_NO_FILE), then jump to the command-complete
+;              exit.
+; [RE] REN missing-source error. [DOC CPMREF: CCP REN]
 ; ----------------------------------------------------------------------
-CMD_EXEC_45:
-        ; print the NO FILE diagnostic for the missing rename source
-        CALL DIR_EMIT_NAME_CHAR_1+2
-        JP CMD_EXEC_63+1
+REN_OLD_NOT_FOUND:
+        ; print the "NO FILE" message (rename source not found)
+        CALL PRINT_NO_FILE                    ; $9A6D  CD EA 97
+        ; return to the CCP command-complete exit
+        JP CCP_RETURN_OK                   ; $9A70  C3 86 9B
 ; ----------------------------------------------------------------------
-; CMD_EXEC_46 -- REN syntax-error fallthrough: treat the line as a (failed) command.
-;   In:        reached on a malformed REN line (bad separator / drive mismatch).
-;   Out:       runs the generic command executor (CMD_EXEC) then diverts to the error/redo path.
-;   Clobbers:  per CMD_EXEC.
-;   Algorithm: [RE] hand the line to the generic CMD_EXEC dispatcher and then jump to the CCP error
-;              path
-;              (RST_TABLE_9609) -- effectively rejecting the malformed REN.
+; REN_ERROR -- REN bad-command tail: restore the drive and echo the offending command.
+;   In: none (entered on a missing/invalid separator, an old-name parse error, or a drive mismatch).
+;   Out: restores the default drive and jumps to the bad-command echo path; does not return.
+;   Clobbers: A, HL, flags.
+;   Algorithm: call CCP_RESTORE_DEFAULT_DRIVE to restore the user's drive, then jump to
+;              CCP_ECHO_TOKEN which re-emits the command word with a '?'.
+; [RE] Shared REN syntax-error exit. [DOC CPMREF: CCP REN]
 ; ----------------------------------------------------------------------
-CMD_EXEC_46:
-        ; fall back to the generic command executor for the malformed line
-        CALL CMD_EXEC
-        JP RST_TABLE_9609
+REN_ERROR:
+        ; restore the user's original/default drive selection
+        CALL CCP_RESTORE_DEFAULT_DRIVE                    ; $9A73  CD 66 98
+        ; echo the malformed command token with a '?' and re-prompt
+        JP CCP_ECHO_TOKEN                      ; $9A76  C3 09 96
 ; ----------------------------------------------------------------------
-; CMD_EXEC_47 -- REN, the "target name already exists" report (FILE EXISTS).
-;   In:        reached when the NEW name was found in the directory.
-;   Out:       prints MSG_FILE_EXISTS via the 6502-RPC string printer, then returns to the prompt.
-;   Clobbers:  BC and per the RPC printer.
-;   Algorithm: load BC -> MSG_FILE_EXISTS and call the pointer-form string printer (RPC6502_E0A7),
-;              then JP CMD_EXEC_63+1.
+; REN_FILE_EXISTS -- REN error: the requested new name already exists on disk.
+;   In: none.
+;   Out: prints "FILE EXISTS" and returns to the CCP command-complete exit.
+;   Clobbers: A, BC, flags.
+;   Algorithm: load BC with the "FILE EXISTS" message address, print it (CR/LF + string via
+;              CCP_CRLF_MSG), then jump to the command-complete exit.
+; [RE] REN destination-collision error; new name found by the earlier F_SFIRST. [DOC CPMREF: CCP
+; REN]
 ; ----------------------------------------------------------------------
-CMD_EXEC_47:
-        ; point BC at the FILE EXISTS message (pointer-form print)
-        LD BC,MSG_FILE_EXISTS
-        ; [RE] 6502-RPC print of the NUL-terminated string at BC
-        CALL RPC6502_E0A7
-        JP CMD_EXEC_63+1
+REN_FILE_EXISTS:
+        ; address of the "FILE EXISTS" message string
+        LD BC,CCP_MSG_FILE_EXISTS                     ; $9A79  01 82 9A
+        ; print CR/LF then the NUL-terminated message
+        CALL CCP_CRLF_MSG                    ; $9A7C  CD A7 94
+        ; return to the CCP command-complete exit
+        JP CCP_RETURN_OK                   ; $9A7F  C3 86 9B
 ; ----------------------------------------------------------------------
-; MSG_FILE_EXISTS -- CP/M error string printed when REN's target name already exists on disk.
-;   Reached: pointer-form, via LD BC,MSG_FILE_EXISTS then CALL RPC6502_E0A7 in CMD_EXEC_47.
-;   Layout:  NUL-terminated ASCII; "FILE EXISTS" then DEFB $00.
+; CCP_MSG_FILE_EXISTS -- ASCIIZ console message "FILE EXISTS".
+;   In: -- (data, addressed by REN_FILE_EXISTS in BC as the error text)
+;   Out: -- (zero-terminated string)
+;   Clobbers: --
+;   Algorithm: 11 bytes "FILE EXISTS" followed by a $00 terminator; loaded into BC
+;     by REN_FILE_EXISTS and printed by CCP_CRLF_MSG when the REN built-in finds the new
+;     name already on disk.
+;   [RE] string literal observed in the CCP image (OBSERVED bytes).
 ; ----------------------------------------------------------------------
-MSG_FILE_EXISTS:
-        ; string literal; printed by CMD_EXEC_47 when the rename target already exists
-        DEFB    "FILE EXISTS"            ; CP/M error text
-        DEFB    $00                      ; terminator
+CCP_MSG_FILE_EXISTS:
+        DEFB    "FILE EXISTS"    ; $9A82  string
+        DEFB    $00    ; $9A8D  terminator
 ; ----------------------------------------------------------------------
-; CMD_EXEC_48 -- directory-list field continuation: print/measure one FCB name field.
-;   In:        reached via the DEFW entry at CMD_DISPATCH_TBL_2 ($95CB); CCP_FCB1 holds the current
-;              entry;
-;              the field-print helper returns a field index/length in A.
-;   Out:       A = field length/index; advances to CMD_EXEC_64; out-of-range (>=16) or an empty
-;              leading
-;              name char (' ') -> RST_TABLE_9609.
-;   Clobbers:  A,E,flags.
-;   Algorithm: [RE] call the per-field print/measure helper (DIR_EMIT_NAME_CHAR_2+1), reject index
-;              >= 16 and
-;              the empty-name case (first name char is a blank), then continue the listing at
-;              CMD_EXEC_64.
-;              NOTE: the CALL $9515 below enters the CCP_CMD_NAMES string interior (file's
-;                    computed/position
-;              form) -- left a flagged literal.
+; CCP_CMD_USER -- built-in USER command: select the user-number area (0..15).
+;   In: command FCB at CCP_FCB; the numeric argument sits in the FCB name field.
+;   Out: BDOS user number set to the parsed value; joins CCP_RETURN_OK_NOCRLF.
+;   Clobbers: A, E, and the BDOS-call registers.
+;   Algorithm: dispatch table entry 5 (keyword "USER"). PARSE_FCB_DECIMAL parses a decimal
+;     number from the command FCB into A; if it is $10 (16) or more it is out of the
+;     0..15 user range, so abort to CCP_ECHO_TOKEN. Move the value to E, then call
+;     BDOS_USERNUM (BDOS function 32, Set/Get User Number, C=$20) to set the user area.
+;     The CP $20 test on the FCB name byte rejects a missing argument. Join the
+;     no-CR/LF return tail CCP_RETURN_OK_NOCRLF.
+;   [RE] standard CP/M 2.2 CCP USER built-in; identity from keyword table
+;     "DIR ERA TYPESAVEREN USER" index 5 -> dispatch entry CCP_CMD_USER.
 ; ----------------------------------------------------------------------
-CMD_EXEC_48:
-        ; print/measure one directory field; A = field length/index
-        CALL DIR_EMIT_NAME_CHAR_2+1
-        CP $10
-        ; index past the 16-byte name+type span -> done/abort
-        JP NC,RST_TABLE_9609
-        LD E,A
-        ; fetch the entry's first filename character
-        LD A,(CCP_FCB+1)
-        CP ' '
-        ; blank leading char => empty entry, skip the listing
-        JP Z,RST_TABLE_9609
-        ; table-interior code entry: CCP_CMD_NAMES+5 runs the keyword-table bytes as a short
-        ; register-setup prefix that falls into SEARCH_BUILTIN -- the documented name-table-as-code
-        ; idiom, verified vs the 2.23 twin (see the CCP_CMD_NAMES note). [RE]
-        CALL CCP_CMD_NAMES+5
-        JP CMD_EXEC_64
+CCP_CMD_USER:
+        ; parse the decimal user number from the command FCB name field into A
+        CALL PARSE_FCB_DECIMAL                    ; $9A8E  CD F8 97
+        ; user numbers are 0..15; reject $10 (16) or more as out of range
+        CP $10                           ; $9A91  FE 10
+        ; number too large: echo the bad token and abort
+        JP NC,CCP_ECHO_TOKEN                   ; $9A93  D2 09 96
+        ; E = user number, the argument for the Set-User BDOS call
+        LD E,A                           ; $9A96  5F
+        ; fetch first byte of the FCB name field
+        LD A,(CCP_FCB_NAME)                    ; $9A97  3A CE 9B
+        ; a blank here means no argument was supplied, reject
+        CP $20                           ; $9A9A  FE 20
+        ; no argument: abort to the bad-command echo
+        JP Z,CCP_ECHO_TOKEN                    ; $9A9C  CA 09 96
+        ; BDOS function 32 (C=$20): set the user number to E
+        CALL BDOS_USERNUM                    ; $9A9F  CD 15 95
+        ; join the return tail that does not emit a leading CR/LF
+        JP CCP_RETURN_OK_NOCRLF                   ; $9AA2  C3 89 9B
 ; ----------------------------------------------------------------------
-; CMD_EXEC_49 -- the explicit drive-change / USER-number path of the command loop.
-;   In:        reached via the DEFW entry at CMD_DISPATCH_TBL_2 ($95CD) and from CCP_MAIN_LOOP_1;
-;              CCP_FCB1 =
-;              the parsed command FCB; the command-drive cell ($9BF0) = drive prefix.
-;   Out:       if a bare drive ("B:") was typed, selects it (current drive := drive-1) and reselects
-;              via
-;              the RPC; otherwise hands off to CMD_EXEC_50 (transient loader).
-;   Clobbers:  A,flags; writes the current-drive cell (CMD_EXEC_69 / $9BEF).
-;   Algorithm: [RE] if the command FCB has no filename (first char blank) it is a pure drive change:
-;              when
-;              a command drive prefix is present, convert 1-based -> 0-based (DEC A), store it as
-;              the
-;              current drive, and re-select the disk via the 6502 RPC. NOTE: the leading CALL $95F5
-;              enters
-;              the MSG_NO_FILE string tail (computed/position form) -- the 3 bytes there decode as
-;              LD C,H/LD B,L/NOP falling into CHECK_DRIVE_ERR_1; left a flagged literal.
+; CCP_DRIVE_SELECT -- handle a drive-prefixed command word: bare "d:" (change
+;   default drive) or "d:NAME" (drive-prefixed transient).
+;   In: command FCB; CCP_FCB_DRIVE_PREFIX (CCP_FCB_DRIVE_PREFIX) non-zero (a "d:" was typed).
+;   Out: if no command word followed the prefix, the default drive is changed and
+;     control joins CCP_RETURN_OK_NOCRLF; if a name followed, control falls to the
+;     transient loader CCP_CMD_TRANSIENT.
+;   Clobbers: A, and the BDOS-call registers.
+;   Algorithm: reached from CCP_PARSE_AND_DISPATCH when CCP_FCB_DRIVE_PREFIX != 0 (it is NOT in
+;     the keyword dispatch table). First CCP_CHECK_SERIAL verifies the CCP and BDOS serial
+;     numbers still match (integrity check). If the FCB name field is non-blank a
+;     command word follows the drive letter -> jump to CCP_CMD_TRANSIENT (transient load).
+;     Otherwise (bare "d:") if the drive-prefix flag is zero there is nothing to do
+;     (return OK); else DEC it to a 0-based drive number, store it as the current
+;     drive (CCP_CUR_DRIVE), write it to page zero (CCP_SET_DRIVE_ONLY) and issue BDOS
+;     Select-Disk (BDOS_DRV_SET), then return OK.
+;   [RE] CP/M 2.2 CCP default-drive change / drive-prefix entry. NOT the keyword
+;     USER built-in (that is CCP_CMD_USER); this is dispatch slot 6, reachable only
+;     via the drive-prefix branch.
 ; ----------------------------------------------------------------------
-CMD_EXEC_49:
-        ; code entry into the MSG_NO_FILE string tail (MSG_NO_FILE+5): the bytes there decode as
-        ; LD C,H/LD B,L/NOP then fall into CHECK_DRIVE_ERR_1 -- the file's documented
-        ; computed/position-form entry idiom; now relocatized with the string label. [RE]
-        CALL MSG_NO_FILE+5
-        ; is the parsed FCB filename empty? (a bare "X:" drive change)
-        LD A,(CCP_FCB+1)
-        CP $20
-        ; a real filename was typed -> the transient .COM loader
-        JP NZ,CMD_EXEC_50
-        ; command-line drive prefix ($9BF0): 0 = no drive given, nothing to change
-        LD A,(CCP_FCB+35)
-        OR A
-        JP Z,CMD_EXEC_64
-        ; convert the 1-based command drive to a 0-based drive number
-        DEC A
-        ; set the current default drive ($9BEF)
-        LD (CMD_EXEC_69),A
-        CALL SEARCH_BUILTIN
-        ; [RE] 6502-RPC: re-select the now-current disk drive
-        CALL RPC6502_E0BD
-        JP CMD_EXEC_64
+CCP_DRIVE_SELECT:
+        ; verify the CCP and BDOS serial numbers still match (integrity check)
+        CALL CCP_CHECK_SERIAL                    ; $9AA5  CD F5 95
+        ; first byte of the FCB name field
+        LD A,(CCP_FCB_NAME)                    ; $9AA8  3A CE 9B
+        ; blank name = bare "d:" with no command word after the drive letter
+        CP $20                           ; $9AAB  FE 20
+        ; a name follows the drive prefix: treat as a transient program load
+        JP NZ,CCP_CMD_TRANSIENT                ; $9AAD  C2 C4 9A
+        ; load the explicit drive-prefix flag (0 = none, else drive#+1)
+        LD A,(CCP_FCB_DRIVE_PREFIX)                    ; $9AB0  3A F0 9B
+        ; was a drive actually supplied?
+        OR A                             ; $9AB3  B7
+        ; no drive value: nothing to change, finish via the OK tail
+        JP Z,CCP_RETURN_OK_NOCRLF                 ; $9AB4  CA 89 9B
+        ; convert the 1-based prefix to a 0-based drive number
+        DEC A                            ; $9AB7  3D
+        ; commit it as the CCP current default drive
+        LD (CCP_CUR_DRIVE),A                    ; $9AB8  32 EF 9B
+        ; write the current drive to page-zero default-drive byte $0004
+        CALL CCP_SET_DRIVE_ONLY                    ; $9ABB  CD 29 95
+        ; issue BDOS Select-Disk (function 14) for the new drive
+        CALL BDOS_DRV_SET                    ; $9ABE  CD BD 94
+        ; finish via the OK return tail (no leading CR/LF)
+        JP CCP_RETURN_OK_NOCRLF                   ; $9AC1  C3 89 9B
 ; ----------------------------------------------------------------------
-; CMD_EXEC_50 -- transient command: verify the name carries no explicit type, then prepare to load.
-;   In:        CCP_FCB1 holds the parsed command name; CCP_FCB1+FCB_T ($9BD6) = its type field.
-;   Out:       if a type was already given (non-blank) -> error (RST_TABLE_9609); otherwise falls
-;              into
-;              CMD_EXEC_51 to open and load.
-;   Clobbers:  A,DE,flags; preserves DE (the type-field pointer) across the helper call.
-;   Algorithm: [RE] read the FCB type field; a CP/M command name must carry no explicit type so the
-;              implied ".COM" can be applied -- a non-blank type is rejected. Then call the setup
-;              helper at
-;              $9854 (computed/position-form entry, flagged) before loading.
+; CCP_CMD_TRANSIENT -- load and run a transient (.COM) program from disk.
+;   In: parsed command FCB (CCP_FCB) holding the command name; command tail.
+;   Out: on success transfers control to the loaded program at the TPA ($0100); on
+;     error joins CCP_BAD_LOAD / CCP_NO_FILE; never returns normally.
+;   Clobbers: all registers; rebuilds the TPA and page-zero command tail.
+;   Algorithm: verify the FCB extension is blank (no explicit type) -- if not, the
+;     command is rejected (CCP_ECHO_TOKEN). Select the command's drive prefix, force
+;     the extension to "COM" (CCP_COM_EXT), open the file; if not found jump to the
+;     no-file handler. Then loop reading $80-byte records sequentially into the TPA
+;     starting at $0100, advancing $80 bytes each record, until either the load
+;     address would reach the CCP base ($9400 = CCP_ENTRY, abort = BAD LOAD) or EOF.
+;     On clean EOF, build the page-zero command tail and JP $0100 (done in the
+;     routines that follow).
+;   [RE] CP/M 2.2 CCP transient program loader.
 ; ----------------------------------------------------------------------
-CMD_EXEC_50:
-        ; DE -> CCP_FCB1's type field ($9BD6 = CCP_FCB1+FCB_T); kept as the pre-existing
-        ; CMD_EXEC_67+2 form (FLAG: cluster-12 to re-split the $9BCD-$9C00 FCB workspace and mint a
-        ; clean type-field label)
-        LD DE,CMD_EXEC_67+2
-        ; read the first file-type character
-        LD A,(DE)
-        CP ' '
-        ; an explicit extension was typed -> reject (only the implied .COM is loadable)
-        JP NZ,RST_TABLE_9609
-        PUSH DE
-        ; print-newline RPC entry: aliases the MSG_ALL_YN string interior at +2 -- the CCP
-        ; print-newline routine, reached via the 6502 print RPC (see the MSG_ALL_YN header). [RE]
-        CALL MSG_ALL_YN+2
-        POP DE
+CCP_CMD_TRANSIENT:
+        ; point at the FCB extension (type) field
+        LD DE,CCP_FCB_EXT                     ; $9AC4  11 D6 9B
+        ; fetch first byte of the file extension
+        LD A,(DE)                        ; $9AC7  1A
+        ; extension must be blank: a typed extension is not a bare command
+        CP $20                           ; $9AC8  FE 20
+        ; explicit extension given: not a transient command, echo+abort
+        JP NZ,CCP_ECHO_TOKEN                   ; $9ACA  C2 09 96
+        PUSH DE                          ; $9ACD  D5
+        ; select the drive named by the command's drive prefix
+        CALL RESOLVE_DRIVE_PREFIX                    ; $9ACE  CD 54 98
+        POP DE                           ; $9AD1  D1
+        ; source = the constant "COM" extension text
+        LD HL,CCP_COM_EXT                     ; $9AD2  21 83 9B
+        ; force the FCB type field to COM
+        CALL COPY_3_BYTES                    ; $9AD5  CD 40 98
+        ; open the .COM file via BDOS
+        CALL CCP_OPEN_SUBMIT                    ; $9AD8  CD D0 94
+        ; open failed (file not found): go to the no-file handler
+        JP Z,CCP_NO_FILE                 ; $9ADB  CA 6B 9B
+        ; load address starts at the base of the TPA
+        LD HL,$0100                      ; $9ADE  21 00 01
 ; ----------------------------------------------------------------------
-; CMD_EXEC_51 -- open the .COM file and load it into the TPA, with an overflow guard.
-;   In:        CCP_FCB1 = the (typeless) command FCB; CCP_LOAD_FCB_SRC ($9B83) seeds the load setup.
-;   Out:       on a successful in-range load the result is captured by CMD_EXEC_52; a missing file
-;              ->
-;              CMD_EXEC_61; an image judged too large -> JP $FFE1 (off-image error vector).
-;   Clobbers:  A,DE,HL,flags; pushes the TPA base.
-;   Algorithm: [RE/OBSERVED] build/open the load setup (DIR_EMIT_NAME_CHAR_8+1 entry at $9840 via
-;              the $9B83
-;              pointer), probe for the file (RPC6502_E0D0); Z -> not found -> CMD_EXEC_61. Else set
-;              the
-;              load/exec address to TPA ($0100) and call the 6502-RPC load path (RPC_CALL_HL then
-;              RPC6502_E0F9). On the NZ result it stores the captured address (CMD_EXEC_52) and
-;              returns. On
-;              the Z path it runs a size check against the $9400 (RPC6502_BLOCK) ceiling; no-borrow
-;              ->
-;              proceed (CMD_EXEC_62), borrow -> JP $FFE1 (too big / BAD LOAD). UNKNOWN: the real
-;              load-end
-;              arrives through the 6502 RPC -- statically the visible HL=$0100+$0080=$0180 is a
-;              constant,
-;              so the branch outcome is RPC-side and not determinable from the Z-80 bytes; do NOT
-;              read this
-;              as a Z-80 record-streaming loop.
-;   Re-entry:  CMD_EXEC_69 ($9BFE) JPs back here to load the next $$$.SUB-chained command.
+; CCP_LOAD_LOOP -- read the .COM file record-by-record into the TPA.
+;   In: HL = next TPA load address; FCB already open at CCP_FCB.
+;   Out: loops until EOF (-> CCP_LOAD_DONE) or until the load pointer reaches the
+;     CCP base (-> CCP_BAD_LOAD).
+;   Clobbers: A, DE, HL.
+;   Algorithm: push the load address, set the BDOS DMA to it (BDOS_F_DMAOFF), do a
+;     sequential read (BDOS_F_READ) of one $80-byte record; on a non-zero (EOF/error)
+;     read result branch to CCP_LOAD_DONE. Otherwise advance HL by $80 and compare
+;     it against CCP_ENTRY ($9400 = CCP base) via a 16-bit subtract: if HL >= base the
+;     program is too big -> CCP_BAD_LOAD; else loop for the next record.
+;   [RE] transient-load inner loop.
 ; ----------------------------------------------------------------------
-CMD_EXEC_51:
-        LD HL,CMD_EXEC_62_RECLEN
-        ; build/open the load setup from CCP_LOAD_FCB_SRC (enters the CCP_NEWLINE_AND_FILEOP path
-        ; via the +1 cover at $9840)
-        CALL DIR_EMIT_NAME_CHAR_8+1
-        ; [RE] 6502-RPC: probe the directory for the .COM file; Z => not found (per CALL context)
-        CALL RPC6502_E0D0
-        ; file not found -> the not-found / chaining path
-        JP Z,CMD_EXEC_61
-        ; set the load/execute address to the TPA base
-        LD HL,TPA                        ; TPA base = TBASE 0100H, the .COM transient load/exec address [DOC CPMREF 3-45 ; facts sec.7.4/7.7]
-        PUSH HL
-        EX DE,HL
-        ; [RE] hand off to the 6502 side (set DMA / drive the load); side effects UNKNOWN from Z-80
-        CALL RPC_CALL_HL
-        LD DE,CCP_FCB
-        ; [RE] 6502-RPC load/read step; on NZ the load completed -> store the result
-        CALL RPC6502_E0F9
-        ; load done (NZ) -> CMD_EXEC_52 stores the captured address and returns
-        JP NZ,CMD_EXEC_52
-        POP HL
-        LD DE,TBUFF
-        ADD HL,DE
-        ; the ceiling: the loaded image must stay below the 6502 RPC block at $9400
-        LD DE,RPC6502_BLOCK
-        LD A,L
-        SUB E
-        LD A,H
-        SBC A,D
-        ; size check passed (no borrow) -> proceed
-        JP NC,CMD_EXEC_62
-        ; [FLAG] program too big (BAD LOAD): JP to the off-image $FFE1 vector. Kept literal
-        ; (off-image; not the $0000 warm-boot, not in the BIOS table) -- target UNKNOWN
-        JP $FFE1
+CCP_LOAD_LOOP:
+        ; save the current TPA load pointer across the read
+        PUSH HL                          ; $9AE1  E5
+        EX DE,HL                         ; $9AE2  EB
+        ; set the BDOS DMA address (function 26) to the load pointer
+        CALL BDOS_F_DMAOFF                    ; $9AE3  CD D8 95
+        ; DE = the open command FCB
+        LD DE,CCP_FCB                     ; $9AE6  11 CD 9B
+        ; BDOS sequential read (function 20) of one 128-byte record
+        CALL BDOS_F_READ                    ; $9AE9  CD F9 94
+        ; non-zero = EOF or read error: finish the load
+        JP NZ,CCP_LOAD_DONE                ; $9AEC  C2 01 9B
+        POP HL                           ; $9AEF  E1
+        ; record size = 128 bytes
+        LD DE,$0080                      ; $9AF0  11 80 00
+        ; advance the load pointer to the next record slot
+        ADD HL,DE                        ; $9AF3  19
+        ; compare against the CCP base -- the ceiling the program must not reach
+        LD DE,CCP_ENTRY                     ; $9AF4  11 00 94
+        LD A,L                           ; $9AF7  7D
+        SUB E                            ; $9AF8  93
+        LD A,H                           ; $9AF9  7C
+        SBC A,D                          ; $9AFA  9A
+        ; load reached the CCP: program too large -> BAD LOAD
+        JP NC,CCP_BAD_LOAD                ; $9AFB  D2 71 9B
+        JP CCP_LOAD_LOOP                   ; $9AFE  C3 E1 9A
 ; ----------------------------------------------------------------------
-; CMD_EXEC_52 -- record the address captured after a .COM load, then return.
-;   In:        HL = the address produced by the load path.
-;   Out:       stores HL into the BDOS workspace cell ($A9EA = BDOS_VAR_PAGE_9_p6_STG) and RETs.
-;   Clobbers:  none beyond the store.
-;   Algorithm: write HL to the BDOS variable at $A9EA, then RET to CMD_EXEC_51's caller.
+; CCP_LOAD_DONE -- finish a transient load and launch the program.
+;   In: the BDOS read returned non-zero (A); stacked TPA load pointer on entry.
+;   Out: if the read result was true EOF (A becomes 0 after DEC) builds page zero
+;     and proceeds to the launch; otherwise -> CCP_BAD_LOAD.
+;   Clobbers: all registers.
+;   Algorithm: pop the saved load pointer; DEC A -- a sequential-read return of 1
+;     means clean EOF (now 0); anything else is an error (-> CCP_BAD_LOAD). Reselect
+;     the command's drive (CCP_RESTORE_DEFAULT_DRIVE), rebuild the command FCB (CCP_PARSE_FCB1),
+;     then build a second FCB from the command tail at offset $10 into CCP_FCB
+;     (CCP_BUILD_FCB with A=$10) so the program gets two default FCBs. Zero the FCB CR
+;     field, copy a $21-byte FCB image down to TFCB ($005C), then fall through to the
+;     tail-copy routines that build the command tail at TBUFF and launch.
+;   [RE] transient launch / page-zero setup, standard CP/M 2.2 CCP.
 ; ----------------------------------------------------------------------
-CMD_EXEC_52:
-        ; save the captured load address into the BDOS workspace cell ($A9EA)
-        LD (BDOS_VAR_PAGE_9_p6_STG),HL
-        RET
+CCP_LOAD_DONE:
+        ; discard the saved load pointer
+        POP HL                           ; $9B01  E1
+        ; sequential-read return 1 = clean EOF -> 0; any other value is a load error
+        DEC A                            ; $9B02  3D
+        ; non-EOF read result: report BAD LOAD
+        JP NZ,CCP_BAD_LOAD                ; $9B03  C2 71 9B
+        ; reselect the drive named by the command prefix
+        CALL CCP_RESTORE_DEFAULT_DRIVE                    ; $9B06  CD 66 98
+        CALL CCP_PARSE_FCB1                    ; $9B09  CD 5E 96
+        ; point at the drive-prefix flag (saved across the FCB rebuild)
+        LD HL,CCP_FCB_DRIVE_PREFIX                     ; $9B0C  21 F0 9B
+        PUSH HL                          ; $9B0F  E5
+        LD A,(HL)                        ; $9B10  7E
+        ; seed the command FCB drive byte before the second-FCB parse
+        LD (CCP_FCB),A                    ; $9B11  32 CD 9B
+        ; offset $10 = build the second filename into FCB+16
+        LD A,$10                         ; $9B14  3E 10
+        ; parse a second command-tail filename into the alternate FCB
+        CALL CCP_BUILD_FCB                    ; $9B16  CD 60 96
+        POP HL                           ; $9B19  E1
+        LD A,(HL)                        ; $9B1A  7E
+        ; store the second-FCB drive prefix byte
+        LD (CCP_FCB_SECOND),A                    ; $9B1B  32 DD 9B
+        ; zero the FCB current-record field before launch
+        XOR A                            ; $9B1E  AF
+        ; clear the command FCB CR byte
+        LD (CCP_FCB_CR),A                    ; $9B1F  32 ED 9B
+        ; destination = the default FCB at page zero TFCB ($005C)
+        LD DE,$005C                      ; $9B22  11 5C 00
+        ; source = the CCP-built command FCB
+        LD HL,CCP_FCB                     ; $9B25  21 CD 9B
+        ; copy $21 (33) bytes = one full FCB image
+        LD B,$21                         ; $9B28  06 21
+        ; copy the FCB image down to TFCB
+        CALL COPY_N_BYTES                    ; $9B2A  CD 42 98
+        ; source for the tail = the CCP command-line buffer
+        LD HL,CCP_CMDTEXT                     ; $9B2D  21 08 94
 ; ----------------------------------------------------------------------
-; CMD_EXEC_53 -- SUBMIT ($$$.SUB) record-write step (BDOS page): advance and dispatch a record
-; write.
-;   In:        BDOS workspace ($A9C8 = DMA/buffer pointer, $A9EA = running record number) set up by
-;              the
-;              $$$.SUB writer.
-;   Out:       advances the record number and dispatches into the BDOS write path (at $A1FE /
-;              $A219).
-;   Clobbers:  DE,HL,flags.
-;   Algorithm: [RE] fetch the DMA/buffer source ($A9C8) into DE, bump the running record number
-;              ($A9EA),
-;              set the record position (CALL $A195), then dispatch to the BDOS write. UNKNOWN:
-;              precise
-;              BDOS-side semantics; this block ($9B05+) is reached only via fall-through (it lives
-;              in the
-;              BDOS-owned page).
+; CCP_TAIL_SKIP_NAME -- scan past the program name to the start of the tail.
+;   In: HL = pointer into the CCP command-line buffer (CCP_CMDTEXT).
+;   Out: HL points at the first blank or the NUL terminator following the command
+;     word; falls through to CCP_TAIL_COPY.
+;   Clobbers: A, HL.
+;   Algorithm: walk forward over name characters until a $00 (end of line) or a $20
+;     (blank, start of the argument tail) is found.
+;   [RE] command-tail scanner.
 ; ----------------------------------------------------------------------
-CMD_EXEC_53:
-        ; load the current DMA/buffer source pointer ($A9C8)
-        LD HL,(BDOS_VAR_PAGE_7_p35_STG)
-        EX DE,HL
-        LD HL,(BDOS_VAR_PAGE_9_p6_STG)
-        ; advance to the next $$$.SUB record number
-        INC HL
-        LD (BDOS_VAR_PAGE_9_p6_STG),HL
-        ; set the BDOS record position for the write
-        CALL FCB_SET_REC_FLAG_5_STG+2
-        JP NC,READ_CON_BUF_EDIT_2_p2_STG+1
-        JP READ_CON_BUF_EDIT_STG
+CCP_TAIL_SKIP_NAME:
+        ; fetch the next command-line character
+        LD A,(HL)                        ; $9B30  7E
+        ; end of line?
+        OR A                             ; $9B31  B7
+        ; no tail: jump to copy an empty tail
+        JP Z,CCP_TAIL_COPY                 ; $9B32  CA 3E 9B
+        ; blank separates the command word from its tail
+        CP $20                           ; $9B35  FE 20
+        ; found the blank: HL now at the tail, go copy it
+        JP Z,CCP_TAIL_COPY                 ; $9B37  CA 3E 9B
+        ; advance past this name character
+        INC HL                           ; $9B3A  23
+        JP CCP_TAIL_SKIP_NAME                   ; $9B3B  C3 30 9B
 ; ----------------------------------------------------------------------
-; CMD_EXEC_54 -- SUBMIT record-write: position within a 4-record group.
-;   In:        the running record number ($A9EA).
-;   Out:       on a group boundary stores the masked position ($A9E9) and RETs (Z); else diverts
-;              into the
-;              BDOS path ($A220).
-;   Clobbers:  A,B,flags.
-;   Algorithm: [RE] compute record_number & 3 (position within a 4-record group) and double it; a
-;              non-zero
-;              result jumps into the BDOS engine ($A220), otherwise the masked value is stored and
-;              the
-;              routine returns. UNKNOWN: precise BDOS-side semantics.
+; CCP_TAIL_COPY -- begin copying the command tail to TBUFF and counting its length.
+;   In: HL = first character of the command tail (blank or NUL).
+;   Out: sets DE = $0081 (TBUFF+1) and B = 0 (length), then falls into the copy
+;     loop CCP_TAIL_COPY_LOOP.
+;   Clobbers: B, DE.
+;   Algorithm: initialize the length accumulator B to 0 and the destination pointer
+;     DE to TBUFF+1 ($0081); $0080 (TBUFF) will hold the final length byte.
+;   [RE] page-zero command-tail builder setup, standard CP/M 2.2 CCP.
 ; ----------------------------------------------------------------------
-CMD_EXEC_54:
-        ; current $$$.SUB record number ($A9EA)
-        LD A,(BDOS_VAR_PAGE_9_p6_STG)
-        ; position within a 4-record group
-        AND $03
-        LD B,$05
-        ADD A,A
-        DEC B
-        JP NZ,READ_CON_BUF_EDIT_2_p10_STG
-        LD (BDOS_VAR_PAGE_9_p5_STG),A
-        OR A
-        RET NZ
-        PUSH BC
-        CALL BDOS_CON_8_p10_STG+1
+CCP_TAIL_COPY:
+        ; tail length accumulator starts at 0
+        LD B,$00                         ; $9B3E  06 00
+        ; destination = TBUFF+1 ($0080 holds the length byte)
+        LD DE,$0081                      ; $9B40  11 81 00
 ; ----------------------------------------------------------------------
-; CMD_EXEC_55 -- SUBMIT record-write tail (BDOS page): flush one record then chain to the BDOS
-; engine.
-;   In:        BC saved by the caller; BDOS console/record state set up.
-;   Out:       flushes/reads one record via the BDOS, restores BC, JPs into the BDOS record routine
-;              ($A19E).
-;   Clobbers:  per the BDOS calls; restores BC.
-;   Algorithm: [RE] on the fall-through path: CALL BDOS_CON_8_p10_STG+1, then CALL $A1D4 (flush/read
-;              one
-;              record), POP BC, JP $A19E.
-;   Note:      the address $9B30 (the $A1 operand byte of the CALL at $9B2E) is a genuine OVERLAP
-;              ENTRY
-;              reached by a JP from the CCP command scan. Per the BDOS owner's note (CPM_BDOS.asm
-;              CCP_TAIL_2, lines 283-296): a clean cover-split needs blob3 ($9B00) decoded to code
-;              FIRST
-;              and is FLAGGED, NOT split here. No split is emitted (verified: NO referrer to $9B30
-;              exists
-;              in CPM_CCP.asm or CPM_BDOS.asm).
+; CCP_TAIL_COPY_LOOP -- per-character copy loop of the command tail.
+;   In: HL = source char, DE = TBUFF dest, B = running length.
+;   Out: on the NUL terminator branches to CCP_TAIL_SETLEN with B = length.
+;   Clobbers: A, B, DE, HL.
+;   Algorithm: load (HL), store to (DE); if it was $00 the tail is done; else bump
+;     the length B and advance both pointers and loop.
+;   [RE] inner copy loop of CCP_TAIL_COPY.
 ; ----------------------------------------------------------------------
-CMD_EXEC_55:
-        CALL DISK_READ_RECORD_1_p3_STG+1
-        POP BC
-        JP FCB_SET_REC_FLAG_6_STG+1
+CCP_TAIL_COPY_LOOP:
+        ; next tail character
+        LD A,(HL)                        ; $9B43  7E
+        ; store into the TBUFF command-tail buffer
+        LD (DE),A                        ; $9B44  12
+        ; NUL terminator ends the tail
+        OR A                             ; $9B45  B7
+        ; tail done: go store the final length
+        JP Z,CCP_TAIL_SETLEN                 ; $9B46  CA 4F 9B
+        ; count this character
+        INC B                            ; $9B49  04
+        INC HL                           ; $9B4A  23
+        INC DE                           ; $9B4B  13
+        JP CCP_TAIL_COPY_LOOP                   ; $9B4C  C3 43 9B
 ; ----------------------------------------------------------------------
-; CMD_EXEC_56 -- allocation-vector bit fetch, part 1: split a disk block number into a bitmap byte
-; offset + in-byte bit position.
-;   In:        BC = a disk allocation block number (B = high byte, C = low byte).
-;              BDOS_VAR_PAGE_7_p26_STG ($A9BF) = base pointer of the current drive's
-;              allocation/directory bit map (set up from the DPB by the BDOS select-disk path).
-;   Out:       D = E = (block & 7) + 1 (the 1-based bit-walk count, used by CMD_EXEC_59/60); C being
-;              rebuilt as the low part of the byte offset; falls through into CMD_EXEC_57.
-;   Clobbers:  A, C, D, E.
-;   Algorithm: OBSERVED A=C; A&=7; A++; D=E=A (bit-in-byte index +1). Then A=C; rotate right twice
-;              (continued in CMD_EXEC_57) to begin forming block>>3. [RE] classic CP/M alloc-bitmap
-;              address split: byte = block/8, bit = block%8.
+; CCP_TAIL_SETLEN -- finalize page zero and launch the transient at $0100.
+;   In: B = command-tail length; FCBs and TBUFF text already built.
+;   Out: stores the tail length at TBUFF ($0080), sets the default DMA, and CALLs
+;     the program at $0100; on its return rejoins the CCP loop.
+;   Clobbers: all registers.
+;   Algorithm: store B at $0080 (TBUFF length byte); emit the pending CR/LF
+;     (CCP_CRLF); reset the default DMA to $0080 (CCP_SET_DMA_TBUFF); rebuild the page-zero
+;     default drive/user byte at $0004 (CCP_SET_USERDRIVE); CALL $0100 to run the program.
+;     After it returns, restore the CCP private stack (SP = CCP_SUBMIT_FLAG), restore the
+;     current drive (CCP_SET_DRIVE_ONLY) and reselect it (BDOS_DRV_SET), then JP to the CCP
+;     warm-restart point CCP_PROMPT_AND_READ.
+;   [RE] transient launch finalizer, standard CP/M 2.2 CCP.
 ; ----------------------------------------------------------------------
-CMD_EXEC_56:
-        ; ; take the block number's low byte to extract the in-byte bit position
-        LD A,C
-        ; ; bit-within-byte index = block & 7
-        AND $07
-        INC A
-        ; ; D and E both hold (block&7)+1: E counts the bit-walk in CMD_EXEC_59, D in the bit-set
-        ; tail CMD_EXEC_60
-        LD E,A
-        LD D,A
-        ; ; reload the block low byte and begin shifting it right by 3 to form the byte offset
-        ; (block/8)
-        LD A,C
-        RRCA
-        RRCA
+CCP_TAIL_SETLEN:
+        ; tail character count
+        LD A,B                           ; $9B4F  78
+        ; store as the TBUFF length byte ($0080 = TBUFF)
+        LD ($0080),A                     ; $9B50  32 80 00
+        ; emit the pending CR/LF before running the program
+        CALL CCP_CRLF                    ; $9B53  CD 98 94
+        ; reset the BDOS DMA address to the default ($0080)
+        CALL CCP_SET_DMA_TBUFF                    ; $9B56  CD D5 95
+        ; rebuild the page-zero default drive/user byte at $0004
+        CALL CCP_SET_USERDRIVE                    ; $9B59  CD 1A 95
+        ; run the loaded transient program in the TPA
+        CALL $0100                       ; $9B5C  CD 00 01
+        ; restore the CCP private stack after the program returns
+        LD SP,CCP_SUBMIT_FLAG                     ; $9B5F  31 AB 9B
+        ; restore the current drive in page zero
+        CALL CCP_SET_DRIVE_ONLY                    ; $9B62  CD 29 95
+        ; reselect the current drive via BDOS
+        CALL BDOS_DRV_SET                    ; $9B65  CD BD 94
+        ; rejoin the CCP command loop (warm restart)
+        JP CCP_PROMPT_AND_READ                    ; $9B68  C3 82 97
 ; ----------------------------------------------------------------------
-; CMD_EXEC_57 -- allocation-vector bit fetch, part 2: finish the low 5 bits of the bitmap byte
-; offset.
-;   In:        A = block low byte already rotated right twice by CMD_EXEC_56; B = block high byte.
-;   Out:       C = (block_low >> 3) & $1F; A = B (loaded for the next stage); falls through into
-;              CMD_EXEC_58.
-;   Clobbers:  A, C.
-;   Algorithm: OBSERVED one more RRCA (total >>3), AND $1F, store to C; then A=B to fold the block
-;              high byte in. [RE] continues building the 16-bit bitmap byte offset from the block
-;              number.
+; CCP_NO_FILE -- handle a transient whose .COM file was not found.
+;   In: -- (entered when BDOS open returned not-found in CCP_CMD_TRANSIENT).
+;   Out: reselects the drive then echoes the offending token and aborts; does not
+;     return.
+;   Clobbers: A, and the echo/BDOS registers.
+;   Algorithm: reselect the command's drive prefix (CCP_RESTORE_DEFAULT_DRIVE), then jump
+;     to CCP_ECHO_TOKEN which prints the command word with a trailing '?' and warm-
+;     restarts the CCP.
+;   [RE] file-not-found path of the transient loader.
 ; ----------------------------------------------------------------------
-CMD_EXEC_57:
-        RRCA
-        ; ; keep the low 5 bits of (block_low >> 3): the partial bitmap byte offset
-        AND $1F
-        LD C,A
-        ; ; bring in the block number's high byte to fold into the byte offset (CMD_EXEC_58)
-        LD A,B
+CCP_NO_FILE:
+        ; reselect the drive the command named
+        CALL CCP_RESTORE_DEFAULT_DRIVE                    ; $9B6B  CD 66 98
+        ; echo the bad command name with '?' and restart
+        JP CCP_ECHO_TOKEN                      ; $9B6E  C3 09 96
 ; ----------------------------------------------------------------------
-; CMD_EXEC_58 -- allocation-vector bit fetch, part 3: fold the block high byte into the 16-bit
-; bitmap byte offset.
-;   In:        A = block high byte; C = partial offset from CMD_EXEC_57.
-;   Out:       C = ((block_high << 5) | (block_low>>3)) low byte of the offset; B begins the high
-;              byte (block_high>>3) -- completed in CMD_EXEC_59.
-;   Clobbers:  A, B, C.
-;   Algorithm: OBSERVED A<<=5 (five ADD A,A); OR C; C=A (offset low). Then A=B; RRCA x3
-;              (block_high>>3, masked in CMD_EXEC_59) for the offset high byte. [RE] BC becomes the
-;              byte index into the allocation bit map.
+; CCP_BAD_LOAD -- report a transient that would not fit / had a read error.
+;   In: -- (entered on TPA overflow or a non-EOF read error).
+;   Out: prints "BAD LOAD" then joins the return tail CCP_RETURN_OK; does not return.
+;   Clobbers: BC and the print/BDOS registers.
+;   Algorithm: load BC with the CCP_MSG_BAD_LOAD ("BAD LOAD") text and call CCP_CRLF_MSG (CR/LF +
+;     message printer), then JP to the drive-restore return tail CCP_RETURN_OK.
+;   [RE] over-size / read-error path of the transient loader.
 ; ----------------------------------------------------------------------
-CMD_EXEC_58:
-        ; ; shift the block high byte left 5 (x32) so it lines up above the (block>>3) low bits
-        ADD A,A
-        ADD A,A
-        ADD A,A
-        ADD A,A
-        ADD A,A
-        ; ; combine with the low part: C = low byte of the bitmap byte offset
-        OR C
-        LD C,A
-        ; ; recompute from the block high byte: A=(block_high>>3) becomes the offset high byte
-        LD A,B
-        RRCA
-        RRCA
-        RRCA
+CCP_BAD_LOAD:
+        ; point at the "BAD LOAD" message text
+        LD BC,CCP_MSG_BAD_LOAD                     ; $9B71  01 7A 9B
+        ; print CR/LF + the message
+        CALL CCP_CRLF_MSG                    ; $9B74  CD A7 94
+        ; join the drive-restore return tail
+        JP CCP_RETURN_OK                   ; $9B77  C3 86 9B
 ; ----------------------------------------------------------------------
-; CMD_EXEC_59 -- allocation-vector bit fetch, part 4: address the bitmap byte and rotate the wanted
-; bit into carry.
-;   In:        A = block_high>>3 (just computed); C = offset low byte; D=E = (block&7)+1 from
-;              CMD_EXEC_56; BDOS_VAR_PAGE_7_p26_STG ($A9BF) = allocation/dir bit-map base pointer.
-;   Out:       HL -> the bitmap byte holding the block's bit; the wanted bit rotated into carry/high
-;              after E iterations; RET (carry/A reflect the bit). Loops via the BDOS continuation at
-;              READ_CON_BUF_EDIT_9_p4_STG+1 ($A256).
-;   Clobbers:  A, B, HL, flags.
-;   Algorithm: OBSERVED B = (block_high>>3)&$1F (offset high); HL = (*$A9BF) + BC; A=(HL); RLCA; DEC
-;              E; loop until E hits 0 (positions the block%8 bit), else RET. [RE] reads/tests one
-;              allocation-vector bit for the given block; +1 of the (block&7) count makes the final
-;              rotate land the wanted bit in the carry.
+; CCP_MSG_BAD_LOAD -- ASCIIZ console message "BAD LOAD".
+;   In: -- (data, addressed by CCP_BAD_LOAD as the message in BC)
+;   Out: -- (zero-terminated string)
+;   Clobbers: --
+;   Algorithm: 8 bytes "BAD LOAD" followed by a $00 terminator.
+;   [RE] string literal observed in the CCP image (OBSERVED bytes).
 ; ----------------------------------------------------------------------
-CMD_EXEC_59:
-        ; ; finish the offset high byte = (block>>3) high 5 bits; BC is now the byte index into the
-        ; bit map
-        AND $1F
-        LD B,A
-        ; ; load the current drive's allocation/directory bit-map base pointer ($A9BF, from the DPB)
-        LD HL,(BDOS_VAR_PAGE_7_p26_STG)
-        ; ; HL -> the bitmap byte that contains this block's allocation bit
-        ADD HL,BC
-        LD A,(HL)
-        ; ; rotate the byte left; repeated DEC E times to walk to the (block & 7) bit position
-        RLCA
-        DEC E
-        ; ; not yet at the target bit: continue the rotate loop in the BDOS bit helper ($A256)
-        JP NZ,READ_CON_BUF_EDIT_9_p4_STG+1
-        RET
+CCP_MSG_BAD_LOAD:
+        DEFB    "BAD LOAD"    ; $9B7A  string
+        DEFB    $00    ; $9B82  terminator
 ; ----------------------------------------------------------------------
-; CMD_EXEC_60 -- allocation-vector bit SET: write the marked bit back into the bitmap byte.
-;   In:        DE/HL set up by the fetch path; C = the bit value to OR in; D = the bit-walk count;
-;              HL -> bitmap byte.
-;   Out:       (HL) updated with the block's allocation bit set; RET. Loops via the BDOS
-;              continuation READ_CON_BUF_EDIT_11_p5_STG ($A264).
-;   Clobbers:  A, B, C, flags.
-;   Algorithm: OBSERVED PUSH DE; CALL the BDOS bit-read worker ($A235); AND $FE (clear bit 0); POP
-;              BC; OR C (set the wanted bit); RRCA; DEC D; loop until positioned, then LD (HL),A;
-;              RET. [RE] the write-back counterpart of CMD_EXEC_56-59 -- marks a block as allocated
-;              in the directory/allocation bit map.
+; CCP_COM_EXT -- the constant file-extension text "COM" for transient loads.
+;   In: -- (data, source for COPY_3_BYTES in CCP_CMD_TRANSIENT)
+;   Out: -- (3 bytes, no terminator)
+;   Clobbers: --
+;   Algorithm: the three ASCII bytes "COM" copied into the FCB type field so the
+;     CCP opens the command word as NAME.COM.
+;   [RE] CP/M 2.2 CCP default transient extension.
 ; ----------------------------------------------------------------------
-CMD_EXEC_60:
-        PUSH DE
-        ; ; fetch the current bitmap byte via the BDOS bit-access worker ($A235)
-        CALL READ_CON_BUF_EDIT_4_STG+1
-        ; ; clear the low bit so the wanted bit can be OR'd in cleanly
-        AND $FE
-        POP BC
-        ; ; set this block's allocation bit
-        OR C
-        RRCA
-        DEC D
-        ; ; not yet rotated back to the byte's natural alignment: continue in the BDOS bit helper
-        ; ($A264)
-        JP NZ,READ_CON_BUF_EDIT_11_p5_STG
-        ; ; store the updated allocation-bitmap byte back
-        LD (HL),A
-        RET
+CCP_COM_EXT:
+        DEFB    "COM"    ; $9B83
 ; ----------------------------------------------------------------------
-; CMD_EXEC_61 -- directory allocation-map scan: read a directory record, then point at its
-; allocation-map field.
-;   In:        current FCB / drive context (consumed by the BDOS dir-read helper).
-;   Out:       HL advanced to the directory entry's allocation-map (FCB.D0 = entry+$10) via
-;              DE=$0010; falls through into CMD_EXEC_62.
-;   Clobbers:  A, BC, DE, HL (per the callee).
-;   Algorithm: OBSERVED CALL FCB_SET_REC_FLAG_3_p4_STG (BDOS: select drive + read the next directory
-;              record, HL -> entry); LD DE,$0010 = the FCB allocation-map offset. [RE] sets up to
-;              walk the 16-byte block list of one directory entry while computing file size /
-;              building the allocation vector.
+; CCP_RETURN_OK -- normal CCP return tail: restore the drive then check for leftover.
+;   In: -- (joined after a built-in or error completes).
+;   Out: reselects the command's drive prefix, then falls into CCP_RETURN_OK_NOCRLF.
+;   Clobbers: A, HL, and BDOS registers.
+;   Algorithm: call CCP_RESTORE_DEFAULT_DRIVE to reselect the drive named by the
+;     command, then fall through to CCP_RETURN_OK_NOCRLF (CCP_RETURN_OK_NOCRLF).
+;   [RE] CCP command epilogue.
 ; ----------------------------------------------------------------------
-CMD_EXEC_61:
-        ; ; BDOS: select the drive and read the next directory record; HL -> the directory entry
-        CALL FCB_SET_REC_FLAG_3_p4_STG
-        ; ; $0010 = offset of the allocation-map field (FCB.D0) within a directory entry
-        LD DE,$0010
+CCP_RETURN_OK:
+        ; reselect the drive named in the command prefix
+        CALL CCP_RESTORE_DEFAULT_DRIVE                    ; $9B86  CD 66 98
 ; ----------------------------------------------------------------------
-; CMD_EXEC_62 -- directory allocation-map scan loop body: advance to the map, then read one block
-; number (8- or 16-bit).
-;   In:        HL -> directory entry; DE = $0010 (map offset); BC scratch; BDOS_VAR_PAGE_8_p11_STG
-;              ($A9DD) = block-number width flag (0 = 8-bit blocks, else 16-bit).
-;   Out:       HL -> the allocation-map field; for 8-bit blocks, C = (HL) and B = 0; for 16-bit
-;              blocks, the value is fetched in CMD_EXEC_64. RET Z early if the per-entry count
-;              exhausts.
-;   Clobbers:  A, BC, DE, HL.
-;   Algorithm: OBSERVED HL += DE (-> map); register-shuffle (PUSH BC/LD C,$11/POP DE) parks the old
-;              BC in DE and sets C=$11; DEC C / RET Z (slot-count guard); save DE; A=($A9DD) OR A ->
-;              if zero (8-bit blocks) JP into the BDOS dir helper ($A288); else (16-bit) save BC/HL,
-;              C=(HL), B=0 and fall through into the split cover. [RE] the block-list walk,
-;              parameterised on 8- vs 16-bit allocation block numbers.
+; CCP_RETURN_OK_NOCRLF -- verify the whole command was consumed, then restart CCP.
+;   In: command FCB name first byte (CCP_FCB_NAME); drive-prefix flag (CCP_FCB_DRIVE_PREFIX).
+;   Out: if there is unparsed trailing text it is echoed as a bad command; otherwise
+;     the CCP warm-restarts. Does not return to the caller.
+;   Clobbers: A, HL, and the print/BDOS registers.
+;   Algorithm: rebuild the command FCB once more (CCP_PARSE_FCB1), then test whether the
+;     FCB name field was blank ($20) AND no drive prefix remained: SUB the blank from
+;     the name byte, OR with the drive-prefix flag -- if the result is non-zero there
+;     is leftover input, so echo the bad token (CCP_ECHO_TOKEN); else JP to the CCP
+;     warm restart (CCP_PROMPT_AND_READ).
+;   [RE] CCP command epilogue (no leading CR/LF).
 ; ----------------------------------------------------------------------
-CMD_EXEC_62:
-        ; ; advance HL to the directory entry's allocation-map field
-        ADD HL,DE
-        PUSH BC
-        LD C,$11
-        POP DE
-        ; ; per-entry block-slot guard (C was set to $11); exhausted -> return
-        DEC C
-        RET Z
-        PUSH DE
-        ; ; read the block-number-width flag ($A9DD): 0 = 8-bit block numbers, nonzero = 16-bit
-        LD A,(BDOS_VAR_PAGE_8_p11_STG)
-        OR A
-        ; ; 8-bit block numbers: hand the single-byte block to the BDOS dir helper ($A288)
-        JP Z,FCB_NAME_MATCH_REC_1_p5_STG+1
-        PUSH BC
-        PUSH HL
-        ; ; 16-bit blocks: read the low byte of the next allocation block number
-        LD C,(HL)
-        ; ; B := 0 to clear the block-number high byte before the split cover at $9B85. NOTE: this
-        ; byte ($9B83) is ALSO the in-image pointer target CMD_EXEC_62_RECLEN of the foreign LD
-        ; HL,$9B83 at $9AD2 (dual code/data; a scratch buffer).
-CMD_EXEC_62_RECLEN:
-        LD B,$00
+CCP_RETURN_OK_NOCRLF:
+        ; re-parse the command FCB to test for leftover text
+        CALL CCP_PARSE_FCB1                    ; $9B89  CD 5E 96
+        ; first FCB name byte
+        LD A,(CCP_FCB_NAME)                    ; $9B8C  3A CE 9B
+        ; subtract a blank: zero means the name field was empty
+        SUB $20                          ; $9B8F  D6 20
+        ; point at the drive-prefix flag
+        LD HL,CCP_FCB_DRIVE_PREFIX                     ; $9B91  21 F0 9B
+        ; combine: nonzero if either a name or a drive prefix is left over
+        OR (HL)                          ; $9B94  B6
+        ; leftover token: echo it as a bad command
+        JP NZ,CCP_ECHO_TOKEN                   ; $9B95  C2 09 96
+        ; command fully consumed: warm-restart the CCP
+        JP CCP_PROMPT_AND_READ                    ; $9B98  C3 82 97
+        DEFS    16, $00    ; $9B9B  fill
 ; ----------------------------------------------------------------------
-; CMD_EXEC_63 -- shared dir-helper re-entry (cover-split): the real entry reached by 9 `JP
-; CMD_EXEC_63` sites (post-split; foreign clusters).
-;   In:        BC = block number (B=0 for 8-bit), HL/BC saved on stack by CMD_EXEC_62; or
-;              caller-supplied state at the +1 entry.
-;   Out:       continues into the block-number test at CMD_EXEC_64 (DEC C then PUSH BC...).
-;   Clobbers:  A (ADC A,(HL)), flags.
-;   Algorithm: OBSERVED the byte at $9B85 is a cover ($C3): on FALL-THROUGH from CMD_EXEC_62's `LD
-;              B,$00` it is JP DIR_NEXT_ENTRY_p4_STG ($A28E, the BDOS directory-next worker). When
-;              ENTERED at +1 ($9B86, this label after the split) the operand bytes run as `ADC
-;              A,(HL); AND D` then DEC C ($9B88) and fall into the block-number test CMD_EXEC_64.
-;              [RE] a dual-use cover that both tail-jumps to the BDOS dir-next routine and serves as
-;              the 9-caller re-entry into the block-number reconcile; the +1 entry's leading ADC/AND
-;              are the disassembler-merged operand tail (effect on A is consumed/overwritten before
-;              it matters), the meaningful work resumes at CMD_EXEC_64. CAUTION (applier): minting
-;              this label at $9B86 REQUIRES rewriting the 9 foreign `JP CMD_EXEC_63+1` sites to `JP
-;              CMD_EXEC_63` in the SAME byte-identical pass.
+; CCP_SUBMIT_FLAG -- SUBMIT/batch-active flag; also the base of the CCP stack.
+;   In/Out: a single byte. Non-zero while the CCP is feeding commands from a
+;     $$$.SUB batch file; the CCP private stack is loaded with SP = this address
+;     (LD SP,CCP_SUBMIT_FLAG) at every warm start and after a transient returns.
+;   Clobbers: --
+;   Algorithm: set non-zero when a $$$.SUB batch line is delivered (CCP_GETCMD
+;     region), cleared by CCP_DISCARD_SUBMIT when batch input ends; doubles as the CCP stack
+;     top.
+;   [RE] CP/M 2.2 CCP batch flag / stack base.
 ; ----------------------------------------------------------------------
-CMD_EXEC_63:
-        JP DIR_NEXT_ENTRY_p4_STG
-        DEC C
+CCP_SUBMIT_FLAG:
+        DEFB    "\0"    ; $9BAB
 ; ----------------------------------------------------------------------
-; CMD_EXEC_64 -- per-block reconcile: read one 16-bit allocation block number and range-check it
-; against the drive ceiling.
-;   In:        HL -> allocation-map slot; BDOS_VAR_PAGE_7_p33_STG ($A9C6) = the drive's maximum
-;              block number (allocation ceiling).
-;   Out:       BC = the block number; if zero (unused slot) skip via the BDOS dir helper ($A29D); if
-;              in range, mark it (CALL NC into $A25C). Advances HL; continues via
-;              READ_CON_BUF_EDIT_13_p4_STG ($A275).
-;   Clobbers:  A, BC, HL, flags.
-;   Algorithm: OBSERVED PUSH BC; C=(HL); INC HL; B=(HL) (16-bit block number); PUSH HL; A=C OR B ->
-;              JP Z dir-helper (slot empty); HL=($A9C6) (max block); compute (max - block) via SUB C
-;              / SBC A,B; CALL NC the BDOS bit-mark helper when block <= max; restore HL, INC HL,
-;              restore BC; JP the BDOS continuation. [RE] for each non-empty block in the directory
-;              entry, if the block number is within the drive's allocation ceiling, mark it
-;              allocated.
+; CCP_SUB_FCB -- the FCB for the $$$.SUB batch (SUBMIT) file.
+;   In/Out: 33-byte FCB; drive byte at this address, name/ext set to "$$$    SUB".
+;   Clobbers: --
+;   Algorithm: opened/read/deleted by the CCP batch logic (CCP_GETCMD / CCP_DISCARD_SUBMIT) to
+;     source successive command lines from the $$$.SUB file; its name/extension
+;     constant follows here.
+;   [RE] CP/M 2.2 CCP SUBMIT FCB.
 ; ----------------------------------------------------------------------
-CMD_EXEC_64:
-        PUSH BC
-        ; ; read the low byte of a 16-bit allocation block number
-        LD C,(HL)
-        INC HL
-        ; ; read its high byte -> BC = the block number
-        LD B,(HL)
-        PUSH HL
-        LD A,C
-        OR B
-        ; ; block number 0 = unused map slot: skip it (BDOS dir helper $A29D)
-        JP Z,DIR_NEXT_ENTRY_1_p13_STG+1
-        ; ; load the drive's maximum block number ($A9C6, the allocation ceiling)
-        LD HL,(BDOS_VAR_PAGE_7_p33_STG)
-        LD A,L
-        ; ; compute (max_block - block) across SUB C / SBC A,B to range-check the block number
-        SUB C
-        LD A,H
-        SBC A,B
-        ; ; block <= ceiling (no borrow): mark it allocated via the BDOS bit-mark helper ($A25C)
-        CALL NC,READ_CON_BUF_EDIT_10_STG
-        POP HL
-        INC HL
-        POP BC
-        JP READ_CON_BUF_EDIT_13_p4_STG
+CCP_SUB_FCB:
+        DEFB    "\0"    ; $9BAC
+        DEFB    "$$$     SUB"    ; $9BAD  string
+        DEFB    $00    ; $9BB8  terminator
+        DEFB    "\0"    ; $9BB9
 ; ----------------------------------------------------------------------
-; CMD_EXEC_65 -- post-scan: scale the high block count and zero-fill the allocation/working buffer.
-;   In:        BDOS_VAR_PAGE_7_p33_STG ($A9C6) = max block number / working count;
-;              BDOS_VAR_PAGE_7_p26_STG ($A9BF) = allocation/dir buffer base pointer.
-;   Out:       BC = a derived length; the buffer at (*$A9BF) zero-filled (loop continues in
-;              CMD_EXEC_66).
-;   Clobbers:  A, BC, HL.
-;   Algorithm: OBSERVED HL=($A9C6); C=$03; CALL BDOS_CON_41_p12_STG ($A0EA: shift/scale by 3); INC
-;              HL; BC=HL (length+1); HL=(*$A9BF); (HL)=0; fall through to the zero-fill loop. [RE]
-;              computes how many allocation-vector bytes to clear and begins clearing them; reached
-;              as a CCP-resident continuation of the BDOS select/compute path (no direct CCP caller
-;              -- entered via the BDOS return path).
+; CCP_SUB_FCB_S2 -- the S2 (extent-high) field of the $$$.SUB FCB.
+;   In/Out: 1 byte at CCP_SUB_FCB+$0E; cleared to 0 before reading the next batch
+;     record (CCP_GETCMD writes CCP_SUB_FCB_S2 = 0 then DECs the CR field below it).
+;   Clobbers: --
+;   Algorithm: part of CCP_SUB_FCB; written 0 so the extent is reset before the
+;     reverse read positions the CR field.
+;   [RE] FCB S2 byte of the SUBMIT FCB.
 ; ----------------------------------------------------------------------
-CMD_EXEC_65:
-        ; ; load the max block number / working count ($A9C6)
-        LD HL,(BDOS_VAR_PAGE_7_p33_STG)
-        LD C,$03
-        ; ; scale by 3 (C=$03) via the BDOS shift helper ($A0EA) to size the allocation-vector
-        ; buffer
-        CALL BDOS_CON_41_p12_STG
-        INC HL
-        LD B,H
-        LD C,L
-        ; ; point at the allocation/directory buffer base ($A9BF)
-        LD HL,(BDOS_VAR_PAGE_7_p26_STG)
-        ; ; begin zero-filling the allocation-vector buffer
-        LD (HL),$00
+CCP_SUB_FCB_S2:
+        DEFB    "\0"    ; $9BBA
 ; ----------------------------------------------------------------------
-; CMD_EXEC_66 -- finish zero-filling the buffer, store the end pointer, and seed a 3-byte record
-; header.
-;   In:        BC = remaining byte count; HL = buffer write pointer; BDOS_VAR_PAGE_7_p37_STG ($A9CA)
-;              = an end/limit pointer; BDOS_VAR_PAGE_7_p26_STG ($A9BF) / BDOS_VAR_PAGE_7_p14_STG
-;              ($A9B3) = working pointers.
-;   Out:       buffer cleared; (*$A9BF) word := ($A9CA); a 2-byte field at (*$A9B3) seeded $03,$00;
-;              then CALL READ_CON_BUF_EDIT_STG and C=$FF before falling into the $$$.SUB detect
-;              (CMD_EXEC_67).
-;   Clobbers:  A, BC, DE, HL.
-;   Algorithm: OBSERVED zero-fill loop INC HL/DEC BC/until BC==0 (JP NZ $A2B1); store the saved end
-;              pointer ($A9CA) into the cell at (*$A9BF); write $03,$00 through (*$A9B3); CALL the
-;              BDOS record-read entry ($A1FE); LD C,$FF. [RE] finalizes the cleared
-;              allocation/working buffer and primes the directory scan that detects the SUBMIT chain
-;              file. NOTE: the LD (HL),$03 / LD (HL),$00 write THROUGH HL pointers; they do not
-;              define the bytes at $9BCD as data -- but the instruction `LD (HL),$00` physically
-;              sits AT $9BCD, which is ALSO the command-FCB base (FCB.DR) read/written as DATA by
-;              ~20 foreign CCP sites (dual code/data; see summary).
+; CCP_SUB_FCB_CR -- the current-record (CR) field of the $$$.SUB FCB.
+;   In/Out: 1 byte at CCP_SUB_FCB+$0F; holds the next batch record to read.
+;   Clobbers: --
+;   Algorithm: read by CCP_GETCMD, decremented, and stored as the new record index in
+;     CCP_SUB_PREV_REC (the SUBMIT file is consumed in reverse).
+;   [RE] FCB CR byte of the SUBMIT FCB.
 ; ----------------------------------------------------------------------
-CMD_EXEC_66:
-        INC HL
-        DEC BC
-        LD A,B
-        OR C
-        ; ; loop until the whole allocation/working buffer is cleared (BDOS dir helper $A2B1)
-        JP NZ,FCB_CMP_DIR_ENTRY_1_p5_STG
-        ; ; fetch the saved end/limit pointer ($A9CA)
-        LD HL,(BDOS_VAR_PAGE_7_p37_STG)
-        EX DE,HL
-        LD HL,(BDOS_VAR_PAGE_7_p26_STG)
-        ; ; store the end pointer (E,D) into the word at (*$A9BF)
-        LD (HL),E
-        INC HL
-        LD (HL),D
-        CALL BDOS_CON_3_p11_STG
-        LD HL,(BDOS_VAR_PAGE_7_p14_STG)
-        ; ; seed a 3-byte record header (write $03 then $00 through the (*$A9B3) pointer)
-        LD (HL),$03
-        INC HL
+CCP_SUB_FCB_CR:
+        DEFS    17, $00    ; $9BBB  fill
+; ----------------------------------------------------------------------
+; CCP_SUB_PREV_REC -- previous batch record index (cell just below the command FCB).
+;   In/Out: 1 byte immediately below CCP_FCB; receives CCP_SUB_FCB_CR-1, the record
+;     to read next from the $$$.SUB file (CCP_GETCMD: DEC A / LD (CCP_SUB_PREV_REC),A).
+;   Clobbers: --
+;   Algorithm: SUBMIT reads records back-to-front; this cell carries the decremented
+;     record number used to position the next read.
+;   [RE] SUBMIT reverse-read record holder.
+; ----------------------------------------------------------------------
+CCP_SUB_PREV_REC:
+        DEFB    "\0"    ; $9BCC
+; ----------------------------------------------------------------------
+; CCP_FCB -- the command-line FCB the CCP builds from the typed command.
+;   In/Out: 33-byte FCB; this byte is the drive field, the 8-char name follows at
+;     CCP_FCB_NAME, the 3-char type at CCP_FCB_EXT. Copied to TFCB ($005C) before a
+;     transient runs.
+;   Clobbers: --
+;   Algorithm: filled by CCP_BUILD_FCB from the command tail; the built-in search
+;     (SEARCH_BUILTIN) compares its name field against the keyword table and the transient
+;     loader opens it as NAME.COM.
+;   [RE] CP/M 2.2 CCP command FCB.
+; ----------------------------------------------------------------------
 CCP_FCB:
-        ; CCP_FCB ($9BCD): DUAL CODE/DATA. Tenant 1 (HERE, code) -- the CMD_EXEC_66 zero-fill `LD
-        ; (HL),$00` store-THROUGH-HL (this byte just happens to sit here). Tenant 2 (data, when the
-        ; CCP parses a command) -- the command-FCB build buffer base = FCB.DR; +1 = name byte 0, +32
-        ; = FCB.CR, +33 = FCB.R0, +35 = the drive-seen flag (2.23 twin: CCP_FCB / CCP_FCB_NAME /
-        ; CCP_FCB_DRIVE at the same offsets). The two tenants never coexist -- the buffer is reused
-        ; after the submit-scan code runs. CCP_FCB-34 ($9BAB) is a SEPARATE cell: the CCP
-        ; private-stack base. [RE]
-        LD (HL),$00
-        ; ; BDOS: read the directory record that begins the SUBMIT-chain scan ($A1FE)
-        CALL READ_CON_BUF_EDIT_STG
-        ; ; C := $FF, the scan/record sentinel for the $$$.SUB detect that follows
-        LD C,$FF
+        DEFB    "\0"    ; $9BCD
 ; ----------------------------------------------------------------------
-; CMD_EXEC_67 -- $$$.SUB scan step: read one directory record and re-enter the entry test.
-;   In:        C = scan sentinel; current FCB/drive context.
-;   Out:       on read success continues into CMD_EXEC_68; RET Z when the directory is exhausted.
-;   Clobbers:  per the BDOS callees.
-;   Algorithm: OBSERVED CALL READ_CON_BUF_EDIT_p6_STG+1 ($A205) then CALL DISK_READ_RECORD_2_p18_STG
-;              ($A1F5); RET Z (no more records). [RE] the loop step of the SUBMIT-chain directory
-;              scan. NOTE: the +2 address ($9BD6) is NOT a code entry -- it is read as DATA (the
-;              command FCB name byte, the foreign LD DE,CMD_EXEC_67+2 at $9AC4 is a data-pointer
-;              load, verified); see the summary's dual code/data note.
+; CCP_FCB_NAME -- the 8-character filename field of the command FCB.
+;   In/Out: 8 bytes at CCP_FCB+1; the parsed command word (blank-padded).
+;   Clobbers: --
+;   Algorithm: matched 4 chars at a time against the keyword table
+;     "DIR ERA TYPESAVEREN USER" (SEARCH_BUILTIN) and used as the .COM filename for
+;     transient loads; a leading blank means no command word was given.
+;   [RE] FCB name field.
 ; ----------------------------------------------------------------------
-CMD_EXEC_67:
-        ; ; BDOS step into the directory record scan ($A205)
-        CALL READ_CON_BUF_EDIT_p6_STG+1
-        ; ; read the next directory record ($A1F5); RET Z when the directory is exhausted
-        CALL DISK_READ_RECORD_2_p18_STG
-        RET Z
+CCP_FCB_NAME:
+        DEFS    8, $00    ; $9BCE  fill
 ; ----------------------------------------------------------------------
-; CMD_EXEC_68 -- $$$.SUB entry test: skip deleted entries, match the wanted user/drive byte, and
-; check for a '$' first char.
-;   In:        HL -> a directory entry's status byte; BDOS_DEFAULT_FCB+2 ($9F41) = the current
-;              user/drive byte (OBSERVED in the BDOS as the user-number/select cell and
-;              private-stack base; the 2.23 twin labels the same physical $9F41 as
-;              CCP_DELIM_BYTE+2).
-;   Out:       on a deleted entry ($E5) re-scan via FCB_CMP_DIR_ENTRY_5_STG+1 ($A2D2); on a user
-;              mismatch exit via BDOS_DCIO_SETIOBYTE_p3_STG ($A2F6); else A = (firstchar - '$') for
-;              CMD_EXEC_69.
-;   Clobbers:  A, HL, flags.
-;   Algorithm: OBSERVED CALL FCB_SET_REC_FLAG_3_p4_STG (read the directory entry); A=$E5; CP (HL) ->
-;              JP Z (deleted entry, keep scanning); A=(BDOS_DEFAULT_FCB+2); CP (HL) -> JP NZ
-;              (different user, stop); INC HL; A=(HL); SUB '$'. [RE] standard CP/M directory match:
-;              deleted-marker skip + user/drive-code match + filename-first-char test for the
-;              conventional '$$$.SUB' temporary file.
+; CCP_FCB_EXT -- the 3-character extension (type) field of the command FCB.
+;   In/Out: 3 bytes at CCP_FCB+9.
+;   Clobbers: --
+;   Algorithm: must be blank for a bare command word; the transient loader overwrites
+;     it with "COM" before opening the file.
+;   [RE] FCB type field.
 ; ----------------------------------------------------------------------
-CMD_EXEC_68:
-        ; ; BDOS: fetch the directory entry; HL -> its first (status/user) byte
-        CALL FCB_SET_REC_FLAG_3_p4_STG
-        ; ; $E5 = the CP/M deleted-directory-entry marker
-        LD A,$E5
-        CP (HL)
-        ; ; entry is deleted: skip it and continue scanning ($A2D2)
-        JP Z,FCB_CMP_DIR_ENTRY_5_STG+1
-        ; ; load the current user/drive byte (BDOS_DEFAULT_FCB+2 = $9F41; OBSERVED in the BDOS as
-        ; the user-number/select cell)
-        LD A,(BDOS_DEFAULT_FCB+2)
-        CP (HL)
-        ; ; entry belongs to a different user: stop the scan ($A2F6)
-        JP NZ,BDOS_DCIO_SETIOBYTE_p3_STG
-        INC HL
-        LD A,(HL)
-        ; ; test the filename's first char against '$' (the $$$.SUB temp-file marker)
-        SUB '$'
+CCP_FCB_EXT:
+        DEFB    "\0\0\0\0\0\0\0"    ; $9BD6
 ; ----------------------------------------------------------------------
-; CMD_EXEC_69 -- $$$.SUB confirmed: write $FF to a BDOS workspace cell and chain back to the
-; transient loader.
-;   In:        A = (firstchar - '$') from CMD_EXEC_68 (0 if the file is a $$$ temp file).
-;   Out:       if not a '$' file, exit via BDOS_DCIO_SETIOBYTE_p3_STG ($A2F6); else stores $FF into
-;              the BDOS workspace cell BDOS_RETURN_VAL ($9F45), sets record count C=$01, runs the
-;              BDOS record step, then JP CMD_EXEC_51 (the transient open/stage path at $9AD2).
-;   Clobbers:  A, C, flags; writes the BDOS cell $9F45.
-;   Algorithm: OBSERVED JP NZ ($A2F6) when firstchar!='$'; DEC A (A was 0 -> $FF); LD
-;              (BDOS_RETURN_VAL),A; LD C,$01; CALL READ_CON_BUF_EDIT_12_STG ($A26B); CALL
-;              FCB_SET_REC_FLAG_4_p8_STG+1 ($A18C); JP CMD_EXEC_51. [RE] a SUBMIT/$$$ chain file was
-;              found and the CCP re-enters the command-tail loader. The store at $9BF3 writes $FF
-;              into the BDOS workspace cell $9F45 (CPM_BDOS.asm: BDOS_RETURN_VAL, the standard CP/M
-;              result cell; the 2.23 twin labels the same physical $9F45 CCP_DE_PARAM+2). UNKNOWN:
-;              whether the loader consumes this $FF as a 'submit active' flag -- no reader is traced
-;              from this cluster; do NOT assert the submit-flag role as fact. DUAL CODE/DATA: this
-;              routine's address ($9BEF) is ALSO read/written as the command-FCB cell (FCB.R1) by
-;              many foreign CCP sites (e.g. LD A,(CMD_EXEC_69) at $9389); the +2 ($9BF1) is read as
-;              a DATA pointer by the foreign LD HL,CMD_EXEC_69+2 at $986F/$9874.
+; CCP_FCB_SECOND -- the second filename built into the command FCB at offset $10.
+;   In/Out: starts at CCP_FCB+$10; a second command-tail filename is parsed here so
+;     the transient receives two default FCBs (at $005C and $006C after the copy).
+;   Clobbers: --
+;   Algorithm: CCP_BUILD_FCB called with A=$10 fills this; its drive prefix byte is
+;     stored here, and the $21-byte copy to TFCB carries both FCB images to page zero.
+;   [RE] CP/M 2.2 CCP second default FCB.
 ; ----------------------------------------------------------------------
-CMD_EXEC_69:
-        ; ; first filename char is not '$': not a $$$.SUB file, stop ($A2F6)
-        JP NZ,BDOS_DCIO_SETIOBYTE_p3_STG
-        ; ; A was 0 ('$' matched) -> $FF
-        DEC A
-        ; ; store $FF into the BDOS workspace cell BDOS_RETURN_VAL ($9F45). [RE] flags the found
-        ; $$$.SUB record; UNKNOWN whether the loader reads it as a submit-active flag (see header)
-        LD (FCB_SEQ_IO_STEP_8_STG+1),A
-        ; ; record count = 1 for the following BDOS record step
-        LD C,$01
-        CALL READ_CON_BUF_EDIT_12_STG
-        CALL FCB_SET_REC_FLAG_4_p8_STG+1
-        ; ; chain back to the transient open/stage loader ($9AD2) to load/run the SUBMIT file
-        JP CMD_EXEC_51
-
-    INCLUDE "CPM_BDOS.asm"   ; BDOS compiles together with the CCP
+CCP_FCB_SECOND:
+        DEFS    16, $00    ; $9BDD  fill
+; ----------------------------------------------------------------------
+; CCP_FCB_CR -- the current-record (CR) field of the command FCB.
+;   In/Out: 1 byte at CCP_FCB+$20; zeroed before each open/read so loads start at
+;     record 0.
+;   Clobbers: --
+;   Algorithm: cleared by the open helper (CCP_OPEN_SUBMIT) and before launching a transient.
+;   [RE] FCB CR byte of the command FCB.
+; ----------------------------------------------------------------------
+CCP_FCB_CR:
+        DEFB    "\0"    ; $9BED
+; ----------------------------------------------------------------------
+; CCP_BDOS_RESULT -- saved A return code from the most recent BDOS file call.
+;   In/Out: 1 byte; written with the BDOS return value by the file-call wrapper
+;     BDOS_FCB_OP (open/close/search/delete) right after CALL $0005.
+;   Clobbers: --
+;   Algorithm: the wrapper saves A here, then INC A so the caller can test for the
+;     $FF (not-found) directory code as zero.
+;   [RE] CCP scratch for the last BDOS directory-code.
+; ----------------------------------------------------------------------
+CCP_BDOS_RESULT:
+        DEFB    "\0"    ; $9BEE
+; ----------------------------------------------------------------------
+; CCP_CUR_DRIVE -- the CCP's current default drive number (0=A, 1=B, ...).
+;   In/Out: 1 byte; the active drive the CCP selects and writes to the low nibble of
+;     page-zero $0004.
+;   Clobbers: --
+;   Algorithm: set from the BDOS current-disk value at warm start (low nibble of the
+;     boot C register) and updated by the drive-select path (CCP_DRIVE_SELECT). CCP_SET_DRIVE_ONLY
+;     writes it straight to $0004; CCP_SET_USERDRIVE merges it with the user number (in the
+;     high nibble) and stores the combined byte at $0004. Reselected after every
+;     transient runs. NOTE: this is the DRIVE, not the user number (the user number
+;     lives in the BDOS, set via function 32).
+;   [RE] CP/M 2.2 CCP current default-drive byte.
+; ----------------------------------------------------------------------
+CCP_CUR_DRIVE:
+        DEFB    "\0"    ; $9BEF
+; ----------------------------------------------------------------------
+; CCP_FCB_DRIVE_PREFIX -- explicit drive-prefix flag for the parsed command.
+;   In/Out: 1 byte; 0 means no "d:" prefix was typed, otherwise drive#+1 (A=1,B=2,..).
+;   Clobbers: --
+;   Algorithm: set by CCP_BUILD_FCB when it sees a "d:" before the name; used to select
+;     the right drive for the command and to decide leftover-token handling. A
+;     non-zero value also routes the dispatcher to CCP_DRIVE_SELECT (drive-select path).
+;   [RE] CP/M 2.2 CCP command drive-prefix flag.
+; ----------------------------------------------------------------------
+CCP_FCB_DRIVE_PREFIX:
+        DEFB    "\0"    ; $9BF0
+; ----------------------------------------------------------------------
+; CCP_FCB_TAIL -- trailing bytes of the command FCB record / data page.
+;   In/Out: 15 bytes following the drive-prefix flag, completing the FCB-sized
+;     record region the CCP keeps in its data page.
+;   Clobbers: --
+;   Algorithm: reserved scratch / FCB-tail bytes; no code in this cluster reads them
+;     meaningfully. Exact use beyond padding the FCB record is UNKNOWN.
+;   [?] purpose beyond reserved FCB-tail padding is UNKNOWN.
+; ----------------------------------------------------------------------
+CCP_FCB_TAIL:
+        DEFS    15, $00    ; $9BF1  fill
+; ----------------------------------------------------------------------
+; BDOS_FBASE -- BDOS image header at FBASE ($9C00): 6 serial/header bytes, then the FDOS
+; entry jump.
+;   In: none (static image bytes at the BDOS run base).
+;   Out: bytes +0..+5 are the per-copy serial/header cells (not code); the JP at +6 (BDOS_ENTRY) is
+;        the actual entry.
+;   Clobbers: n/a (data + one jump).
+;   Algorithm: OBSERVED -- the six bytes here are DEFB $BD,$16,$00,$00,$16,$DF, the standard CP/M
+;              FBASE serial-number / header cells. The disassembler renders them as spurious
+;              SBC/AND/XOR/OR instructions further on, but these +0..+5 bytes are DATA. The byte at
+;              +6 is the JP BDOS_ENTRY/dispatcher that the page-zero BDOS=$0005 jump-vector lands
+;              on. [RE] standard CP/M 2.2 FBASE header layout.
+; ----------------------------------------------------------------------
     IFNDEF CPM_LINK
-    SAVEBIN "{out_bin}", $9300, $1700
+    SAVEBIN "{out_bin}", $9400, $0800
     ENDIF
