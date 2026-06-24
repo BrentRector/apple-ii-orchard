@@ -22,17 +22,20 @@ matching emulator post-boot RAM to disk sectors. Sources REPLACED with the de-sk
 disassembly: CPM_CCP.asm ($9300 $0900) + CPM_BDOS.asm ($9C00 $0E00) as two compilations sharing
 `include/cpm_system_223.inc` (BDOS_FBASE $9C00, CCP_WBOOT $9B06), CPM_BIOS.asm ($FA00 $0600); chunk_map
 `_build_chunks_223` scatters via the maps; DiskCallbacks/RPC6502-INCBIN were skew artifacts, dropped.
-Gate 226, byte-identical. **BIOS semantic lift DONE-ish**: 71 names + 58 C-level headers + 177 body
-comments (3-cluster agent lift vs the 2.20 twin), DPH array + DPB rendered (4 drives, DSM=139). KEY
-2.23 finding: the BIOS DELEGATES disk deblock OFF-IMAGE (READ->`JP $AC39`, WRITE->`JP $AC49`; no
-in-image $03E0 IOB / SECTOR_XLATE / deblock engine), Videx CONST patch $1FBE, CCP entry $9300.
-**IN FLIGHT: 5 background agents enriching CCP (2) + BDOS (3)** vs the 2.20 twins -> spec JSONs at
-`E:/tmp/{ccp,bdos}223_spec_*.json`. **NEXT: collect those specs -> merge -> enrich_apply --target ->
-gate byte-identical -> commit CCP, then BDOS.** THEN remaining BIOS structural polish (decode the
-Z-80 DEV-handler stubs $FE41-$FE6B + EXTRACT the embedded 6502 RPC service $FDD1-$FE40, resolve the
-SUB_FE85_23 skip idiom, strip $addr to .lst) + adversarial review of all three + a 2.23 README.
-2.23 = CLEAN-SLATE from 2.23 bytes (2.20 = verify lead only -- [[feedback_clean_slate_not_patch_prior_decompile]]).
-Reuse `enrich_apply`/`os_listing.py`. 56K still OUT.
+Gate 226, byte-identical. **ALL THREE 2.23 OS COMPONENTS now semantically lifted + byte-identical + $addr-stripped (gate
+green):** CPM_CCP ($9300; 177 names/138 headers; the de-skewed CCP has NO embedded 6502 block -- $9400
+is genuine Z-80; a 2.23-only SoftCard fast `.COM` loader at $9A54+; DIR `AND $03`=4cols), CPM_BDOS
+($9C00; 266 names/266 headers/349 comments; byte-identical to the 2.20 twin at the same addresses bar
+the $FAxx-vs-$AAxx BIOS-base operands + the serial + one $A6D2 S2-delta), CPM_BIOS ($FA00; 71 names/58
+headers; DPH array+DPB rendered = 4 drives/DSM=139). KEY 2.23 finding: the BIOS DELEGATES disk deblock
+OFF-IMAGE (READ->`JP $AC39`, WRITE->`JP $AC49`; no in-image $03E0 IOB / deblock engine), Videx CONST
+patch $1FBE, BIOS at Apple $0A00 low RAM, CCP entry $9300. The CCP/BDOS were a clean structural
+TRANSFER from the fully-RE'd (already devil's-advocated) 2.20 twins, byte-verified. **2.23 README
+updated.** **REMAINING (in flight / next): (1) BIOS adversarial review (agent a193f42b8c7b329da running)
+-> apply findings; (2) BIOS structural polish -- decode the Z-80 DEV-handler stubs $FE41-$FE6B + EXTRACT
+the embedded 6502 RPC service $FDD1-$FE40 (cross-CPU INCBIN, like 2.20's CPM_RPC6502), resolve the
+SUB_FE85_23 skip idiom; (3) optional lighter adversarial on the 2.23-only CCP fast-loader.** Then 2.23
+is DONE. 56K still OUT. Reuse `enrich_apply`/`os_listing.py`/`disasm_z80`.
 
 Full de-skew finding: **`softcard/docs/CPM_Skew_Findings.md`**; the lesson:
 **[[feedback_decode_deskewed_runtime_not_ondisk]]**; the campaign:
