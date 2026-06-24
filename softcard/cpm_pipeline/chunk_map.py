@@ -89,18 +89,24 @@ SOURCES_223: dict[str, ChunkSource | Path] = {
         include_files=(SOFTCARD_INC,),
     ),
     # The CP/M system image is TWO independent modules -- the CCP and the BDOS --
-    # each its own source file. CPM_CCP.asm carries the CCP (staged $8000-$8CFF) and
-    # assembles the full $8000 staging image by INCLUDEing CPM_BDOS.asm (staged
-    # $8D00, runs $9C00) under DISP $9C00, so the two compile as ONE unit and
-    # reassemble byte-identical. (Mirrors the CPMV220-44K CPM_CCP+CPM_BDOS split.)
-    "CPM223_44K_System": ChunkSource(
+    # each its own source file -- and now SEPARATE compilations: CPM_CCP.asm builds
+    # the CCP alone (staged $8000-$8CFF, run $9300), CPM_BDOS.asm builds standalone
+    # (run $9C00), and the two .bins are concatenated on the system tracks. They
+    # share no internal labels (only the $0005 ABI + the base-page cells, all from
+    # cpm22.inc), so each compiles independently.
+    "CPM223_44K_CCP": ChunkSource(
         asm_path=OS223_44K / "CPM_CCP.asm",
-        cpu="z80", org=0x8000, size=0x1700,
-        expected_bin_name="build/CPM223_44K_System.bin",
-        # CCP embeds a 6502 RPC block ($9401-$94FF), INCBIN'd from its ca65 source
-        # (the CPM_RPC6502 pattern; mirrors CPM220_44K_System).
+        cpu="z80", org=0x8000, size=0x0D00,
+        expected_bin_name="build/CPM223_44K_CCP.bin",
+        # CCP embeds a 6502 RPC block ($9401-$94FF), INCBIN'd from its ca65 source.
         incbin_deps=(("CPM_RPC6502.bin", OS223_44K / "CPM_RPC6502.s", ()),),
-        include_files=(OS223_44K / "CPM_BDOS.asm",),
+        include_files=(CPM22_INC,),
+    ),
+    "CPM223_44K_BDOS": ChunkSource(
+        asm_path=OS223_44K / "CPM_BDOS.asm",
+        cpu="z80", org=0x9C00, size=0x0A00,
+        expected_bin_name="build/CPM223_44K_BDOS.bin",
+        include_files=(CPM22_INC,),
     ),
     # The as-shipped pristine on-disk BIOS ($FA00-$FDFF) -- exactly what LOAD_CPM
     # reads off the system tracks. The cold-boot self-modifications and the
@@ -162,14 +168,18 @@ def _build_chunks_223():
     staging_sectors += [(2, p) for p in range(0x8)]
 
     # Each 256-byte staging sector now comes from an assembled annotated
-    # source rather than the pre-extracted staging_223.bin:
-    #   offset $0000-$16FF (sectors 0-22)  -> CPM223_44K_System  (CCP + INCLUDEd BDOS)
+    # source rather than the pre-extracted staging_223.bin (CCP + BDOS are now
+    # SEPARATE compilations, concatenated here):
+    #   offset $0000-$0CFF (sectors 0-12)  -> CPM223_44K_CCP   (CCP, run $9300)
+    #   offset $0D00-$16FF (sectors 13-22) -> CPM223_44K_BDOS  (BDOS, run $9C00)
     #   offset $1700-$18FF (sectors 23-24) -> CPM223_DiskCallbacks
     #   offset $1900-$1CFF (sectors 25-28) -> CPM223_BIOS_Disk     (pristine BIOS @ $FA00)
     for i, (track, phys) in enumerate(staging_sectors):
         off = i * 0x100
-        if off < 0x1700:
-            src, base = "CPM223_44K_System", 0x0000
+        if off < 0x0D00:
+            src, base = "CPM223_44K_CCP", 0x0000
+        elif off < 0x1700:
+            src, base = "CPM223_44K_BDOS", 0x0D00
         elif off < 0x1900:
             src, base = "CPM223_DiskCallbacks", 0x1700
         else:

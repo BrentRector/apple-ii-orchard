@@ -14,7 +14,6 @@ BDOS_VEC             EQU $0005               ; BDOS call vector — JP BDOS_ENTR
 DEFAULT_FCB          EQU $005C               ; Default File Control Block — populated by CCP from command-line argument 1. Standard 36-byte FCB structure (drive + filename + extents + record number).
 DEFAULT_RND          EQU $007D               ; Default FCB random record number (3 bytes — low/middle/high).
 DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS cold-init / DRV_ALLRESET (fn 13) set the DMA address here and WBOOT re-issues SETDMA($0080); sector/record I/O moves 128 bytes through it. At program load this same buffer doubles as the command tail: the first byte ($0080) holds the tail length (0-127) and the characters follow at $0081 (CMDLINE).
-CMDLINE              EQU $0081               ; Command-line tail characters (uppercase, with leading space). Same buffer as DEFAULT_DMA.
 
 ; -- Mid-instruction references (shown inline as cover+offset) --
 ;   $03C2 -> WRITE_RECORD_VERIFY_1+1         z80 skip idiom: enters the operand of $21 at $03C1

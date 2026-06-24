@@ -28,22 +28,16 @@
     ENDIF
 
 ; -- External symbols --
-; [DOC CPMREF 3-44] WBOOT_VEC: page-zero location $0000 normally holds a JMP to the
+; [DOC CPMREF 3-44] WBOOTV: page-zero location $0000 normally holds a JMP to the
 ;       BIOS warm-boot routine; most transients return to CP/M via JMP $0000. Touching it
 ;       causes a CP/M warm boot.
-WBOOT_VEC            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
-; [DOC S&HD 2-18] IOBYTE at $0003: maps the four logical devices to physical devices via four
+; [DOC S&HD 2-18] IOBYTE_ADDR at $0003: maps the four logical devices to physical devices via four
 ;       2-bit fields -- CONSOLE (bits 0-1), READER (bits 2-3), PUNCH (bits 4-5), LIST (bits 6-7).
 ;       Read/written via BDOS fns 7 (Get I/O Byte) and 8 (Set I/O Byte).
-IOBYTE               EQU $0003               ; I/O assignment byte — logical-to-physical device routing (CONSOLE/READER/PUNCH/LIST). 4 fields × 2 bits each.
-CDISK                EQU $0004               ; Current drive (low nibble: 0=A, 1=B, ..., 15=P) and current user (high nibble, 0-15).
-RST2_VEC             EQU $0010               ; Z-80 RST 2 ($10) restart vector — 8 bytes. Available for application/debugger use.
-RST4_VEC             EQU $0020               ; Z-80 RST 4 ($20) restart vector — 8 bytes. Available for application/debugger use.
-; [DOC CPMREF 3-47/3-48] DEFAULT_DMA at $0080: the default 128-byte DMA buffer; it resets to
+; [DOC CPMREF 3-47/3-48] TBUFF at $0080: the default 128-byte DMA buffer; it resets to
 ;       $0080 on cold start, warm start, and disk reset (fn 13). At program load this same
 ;       buffer doubles as the command tail -- byte $0080 holds the tail length and the
 ;       upper-cased characters follow at $0081.
-DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS cold-init / DRV_ALLRESET (fn 13) set the DMA address here and WBOOT re-issues SETDMA($0080); sector/record I/O moves 128 bytes through it. At program load this same buffer doubles as the command tail: the first byte ($0080) holds the tail length (0-127) and the characters follow at $0081 (CMDLINE).
 
 ; -- Mid-instruction label aliases (a curated/semantic name landing inside an
 ;    instruction: the byte is reused as a RAM cell or reached via a Z-80 skip
@@ -174,6 +168,7 @@ BANNER_END           EQU BANNER_BASE+71
 ;   $A5B6 -> CON_EMIT_CHAR+2    shared instruction tail: $A5B6 is reachable code inside the instruction at $A5B4
 
     IFNDEF CPM_LINK
+        INCLUDE "cpm22.inc"
     ORG $9C00
     ENDIF
 
@@ -255,7 +250,7 @@ BDOS_ENTRY:
         EX DE,HL
         LD A,E
         LD ($A9D6),A
-        LD HL,WBOOT_VEC
+        LD HL,WBOOTV
         ; Clear the BDOS result word to the default zero (HL is $0000 here).
         LD (BDOS_RETURN_VAL),HL
         ; Snapshot the caller's stack pointer, then switch to the BDOS-local stack.
@@ -327,7 +322,7 @@ BDOS_DISPATCH_TBL:
         DEFW    $FA0F                    ; [DOC CPMREF 3-44] fn 5  ($05) List Output (E=char)
         DEFW    BDOS_DIRECT_CON_IO       ; [DOC CPMREF 3-44] fn 6  ($06) Direct Console I/O
         DEFW    BDOS_GET_IOBYTE          ; [DOC CPMREF 3-44] fn 7  ($07) Get I/O Byte -> A
-        DEFW    CON_GETCHAR_MASK+2       ; [DOC CPMREF 3-44] fn 8  ($08) Set I/O Byte (E=IOBYTE)
+        DEFW    CON_GETCHAR_MASK+2       ; [DOC CPMREF 3-44] fn 8  ($08) Set I/O Byte (E=IOBYTE_ADDR)
         DEFW    BDOS_PRINT_STRING_FN     ; [DOC CPMREF 3-44] fn 9  ($09) Print String (DE='$'-term)
         DEFW    BDOS_READ_CON_BUF        ; [DOC CPMREF 3-44] fn 10 ($0A) Read Console Buffer
         DEFW    CON_CHK_LF+1             ; [DOC CPMREF 3-44] fn 11 ($0B) Get Console Status -> A
@@ -382,7 +377,7 @@ BDOS_ERROR:
         ; [RE] if the caller requested it (A=$03), warm-boot CP/M after reporting; otherwise just
         ; return.
         CP $03
-        JP Z,WBOOT_VEC
+        JP Z,WBOOTV
         RET
 ; ----------------------------------------------------------------------
 ; BDOS_ERROR_SELECT -- BDOS error reporter, class 1: SELECT (drive outside the legal range).
@@ -443,7 +438,7 @@ BDOS_ERROR_REPORT:
 ;              is folded into BDOS_ERROR_REPORT with no separate label.
 ; ----------------------------------------------------------------------
 BDOS_ERROR_WARMBOOT:
-        JP WBOOT_VEC
+        JP WBOOTV
 ; ----------------------------------------------------------------------
 ; BDOS_ERR_MSG -- '$'-terminated error-banner base 'Bdos Err On ' (+ the patched drive letter).
 ;   In:        printed by BDOS_ERR_PRINT (LD BC,BDOS_ERR_MSG).
@@ -1308,7 +1303,7 @@ CON_BREAK_PAUSE_WAIT:
 ; ----------------------------------------------------------------------
 CON_BREAK_WARMBOOT:
         ; Ctrl-C -> warm boot CP/M via the page-zero WBOOTV vector (returns control to the CCP)
-        JP Z,WBOOT_VEC
+        JP Z,WBOOTV
         ; any other key -> resume output (A := 0, nothing buffered)
         XOR A
         RET
@@ -1840,14 +1835,14 @@ CON_DIRECT_OUT_RET:
 ;              (FCB_SEQ_IO_STEP, $9CFB) via CON_GETCHAR_MASK below; AND $7F (strip the high/parity
 ;              bit); POP HL; POP BC. The 2.20-44K twin frames these bytes identically.
 ;   WARNING:   The fn 7 (Get I/O Byte) dispatch word ($9C55) targets this address, which is
-;              Read-Console-Buffer code, NOT a plain LD A,(IOBYTE) [DOC S&HD 2-18; cpm22.inc
+;              Read-Console-Buffer code, NOT a plain LD A,(IOBYTE_ADDR) [DOC S&HD 2-18; cpm22.inc
 ;              IOBYTE_ADDR=$0003]. This is part of the systemic console-dispatch mis-anchoring (see
 ;              CON_OUT_EXPAND_TAIL). The genuine Get-I/O-Byte read for this build is at
-;              BDOS_GET_IOBYTE_CELL ($A0ED, LD A,(IOBYTE)) -- how it is reached is [RE] UNKNOWN.
-;              NOTE on the IOBYTE fold: NOT applied in this BDOS-only pass -- CPM_CCP.asm also
-;              references the local IOBYTE symbol and neither 2.23 file yet INCLUDEs cpm22.inc;
+;              BDOS_GET_IOBYTE_CELL ($A0ED, LD A,(IOBYTE_ADDR)) -- how it is reached is [RE] UNKNOWN.
+;              NOTE on the IOBYTE_ADDR fold: NOT applied in this BDOS-only pass -- CPM_CCP.asm also
+;              references the local IOBYTE_ADDR symbol and neither 2.23 file yet INCLUDEs cpm22.inc;
 ;              folding to IOBYTE_ADDR must be coordinated with adding cpm22.inc to CPM_CCP.asm (the
-;              2.20 twin keeps the local IOBYTE EQU and uses IOBYTE_ADDR only at the genuine
+;              2.20 twin keeps the local IOBYTE_ADDR EQU and uses IOBYTE_ADDR only at the genuine
 ;              $A0ED/$A0F3 access sites).
 ; ----------------------------------------------------------------------
 BDOS_GET_IOBYTE:
@@ -1866,9 +1861,9 @@ BDOS_GET_IOBYTE:
 ;              the high/parity bit); POP HL; POP BC. The 2.20-44K twin frames these bytes
 ;              identically.
 ;   WARNING:   The fn 8 (Set I/O Byte) dispatch word ($9C57) targets CON_GETCHAR_MASK+2 = $9EF3,
-;              which is mid-instruction in this read step, NOT a LD (IOBYTE),A. Part of the systemic
+;              which is mid-instruction in this read step, NOT a LD (IOBYTE_ADDR),A. Part of the systemic
 ;              console-dispatch mis-anchoring (see CON_OUT_EXPAND_TAIL); the genuine Set-I/O-Byte
-;              store is at BDOS_SET_IOBYTE_CELL ($A0F3, LD HL,IOBYTE / LD (HL),C). [RE] true fn-8
+;              store is at BDOS_SET_IOBYTE_CELL ($A0F3, LD HL,IOBYTE_ADDR / LD (HL),C). [RE] true fn-8
 ;              framing UNKNOWN.
 ; ----------------------------------------------------------------------
 CON_GETCHAR_MASK:
@@ -2012,18 +2007,18 @@ CON_OUT_STATE:
         LD (HL),A
 ; ----------------------------------------------------------------------
 ; BDOS_SAVED_SP ($9F0F) -- BDOS scratch-RAM word: the CALLER's stack pointer saved on BDOS entry
-; (DATA cell; mis-framed as LD BC,IOBYTE/$0003).
+; (DATA cell; mis-framed as LD BC,IOBYTE_ADDR/$0003).
 ;   Tenancy:   DUAL CODE/DATA. The two bytes are a saved-SP variable.
 ;   Written:   OBSERVED entry $9C21 LD (BDOS_SAVED_SP),HL (after ADD HL,SP) -- stashes the caller SP
 ;              before switching to the BDOS's own stack (LD SP,BDOS_STACK at $9C24).
 ;   Read:      OBSERVED the epilogue restores the caller SP from here just before RET.
 ;   Semantics: [RE] the standard CP/M BDOS stack-swap save slot.
 ;   Out/Clob:  written/read as data; not code. Same label/address in the 2.20-44K twin.
-;   NOTE:      Its code-as-data rendering is LD BC,IOBYTE ($0003); this is NOT a real IOBYTE access,
-;              so it is left as-is (the IOBYTE->IOBYTE_ADDR fold is deferred, see summary).
+;   NOTE:      Its code-as-data rendering is LD BC,IOBYTE_ADDR ($0003); this is NOT a real IOBYTE_ADDR access,
+;              so it is left as-is (the IOBYTE_ADDR->IOBYTE_ADDR fold is deferred, see summary).
 ; ----------------------------------------------------------------------
 BDOS_SAVED_SP:
-        LD BC,IOBYTE
+        LD BC,IOBYTE_ADDR
         ADD HL,BC
         EX DE,HL
         ADD HL,BC
@@ -2152,7 +2147,7 @@ BDOS_DE_PARAM:
 ; BDOS_RETURN_VAL ($9F45) -- BDOS scratch-RAM word: the pending RETURN VALUE delivered to the caller
 ; in A=L / B=H (DATA, mis-framed as XOR A / LD (HL),A).
 ;   Tenancy:   DUAL CODE/DATA. Used as a 16-bit result variable.
-;   Written:   OBSERVED entry zeroes it ($9C1D LD (BDOS_RETURN_VAL),HL after LD HL,WBOOT_VEC=$0000);
+;   Written:   OBSERVED entry zeroes it ($9C1D LD (BDOS_RETURN_VAL),HL after LD HL,WBOOTV=$0000);
 ;              handlers store via LD (BDOS_RETURN_VAL),A ($9DA3, $A201, $A38D) and via HL;
 ;              BDOS_DEC_RESULT decrements it ($9F1F).
 ;   Read:      OBSERVED the epilogue reads it (LD A,L / LD B,H, the CP/M A=L, B=H convention); also
@@ -3052,13 +3047,13 @@ DIR_CMP_RECCNT_1:
         ; compare the count against the constant 1 (next branch in the chain)
         CP $01
 ; ----------------------------------------------------------------------
-; DIR_CMP_RECCNT_2 -- warm-boot-when-zero site (JP Z,WBOOT_VEC, $0000) + the test tail
+; DIR_CMP_RECCNT_2 -- warm-boot-when-zero site (JP Z,WBOOTV, $0000) + the test tail
 ;   In:        Z flag from the preceding CP $01 in the DIR_CMP_RECCNT chain
 ;   Out:       on Z, JP $0000 (BIOS warm boot via the page-zero WBOOT vector); else CP C, branch
 ;   Clobbers:  flags
-;   Algorithm: OBSERVED: $A0BA = `CA 00 00` = JP Z,WBOOT_VEC -- the canonical CP/M
+;   Algorithm: OBSERVED: $A0BA = `CA 00 00` = JP Z,WBOOTV -- the canonical CP/M
 ;              reboot-on-this-condition site (off-image page-zero vector, already polished to the
-;              WBOOT_VEC EQU, byte-identical and alignment-independent). Then CP C; JP C,$9DEF;
+;              WBOOTV EQU, byte-identical and alignment-independent). Then CP C; JP C,$9DEF;
 ;              POP HL; (HL)=B; LD C,$0D; JP $9D48. FLAG: a cover+offset EQU (DISK_COMPUTE_BLOCK =
 ;              DIR_CMP_RECCNT_2+1, $A0BB) treats the JP operand's first $00 byte as a NOP entry
 ;              reached from $9FAF/$9FC6/$A111. NOT split: this region's alignment is UNVERIFIED
@@ -3067,7 +3062,7 @@ DIR_CMP_RECCNT_1:
 ; ----------------------------------------------------------------------
 DIR_CMP_RECCNT_2:
         ; on the equal condition, warm-boot CP/M via the page-zero WBOOT vector ($0000)
-        JP Z,WBOOT_VEC
+        JP Z,WBOOTV
         CP C
         JP C,CON_CMP_3BYTE
         POP HL
@@ -3160,23 +3155,23 @@ BDOS_IOBYTE_HELPER:
         ; [FLAG] JP to $9F01 which lands mid-instruction (cover-merge); true target/behavior UNKNOWN
         JP CON_CHK_LF_DONE+2
 ; ----------------------------------------------------------------------
-; BDOS_GET_IOBYTE_CELL -- read the IOBYTE device-map cell, then exit via the result tail
+; BDOS_GET_IOBYTE_CELL -- read the IOBYTE_ADDR device-map cell, then exit via the result tail
 ;   In:        none (reads IOBYTE_ADDR = $0003)
-;   Out:       A = current IOBYTE; JP $9F01 (BDOS result tail)
+;   Out:       A = current IOBYTE_ADDR; JP $9F01 (BDOS result tail)
 ;   Clobbers:  A
-;   Algorithm: OBSERVED: `LD A,(IOBYTE_ADDR); JP $9F01`. By bytes this IS an IOBYTE-read
+;   Algorithm: OBSERVED: `LD A,(IOBYTE_ADDR); JP $9F01`. By bytes this IS an IOBYTE_ADDR-read
 ;              primitive. [RE/UNKNOWN] NOT proven to be the BDOS fn-7 (Get I/O Byte) handler: the
 ;              dispatch table routes fn 7 to BDOS_GET_IOBYTE ($9EED), not here; how $A0ED is
-;              reached is UNKNOWN. [DOC S&HD 2-18] IOBYTE = four 2-bit fields
+;              reached is UNKNOWN. [DOC S&HD 2-18] IOBYTE_ADDR = four 2-bit fields
 ;              (CONSOLE/READER/PUNCH/LIST). FLAG: $9F01 is mid-instruction. Cross-ref: 2.20-44K
 ;              sibling BDOS_DCIO_GETIOBYTE.
 ; ----------------------------------------------------------------------
 BDOS_GET_IOBYTE_CELL:
-        ; read the IOBYTE logical<->physical device-map cell (base page $0003)
-        LD A,(IOBYTE)
+        ; read the IOBYTE_ADDR logical<->physical device-map cell (base page $0003)
+        LD A,(IOBYTE_ADDR)
 ; ----------------------------------------------------------------------
-; BDOS_IOBYTE_HELPER_2 -- return-to-BDOS trampoline (JP $9F01), tail of the IOBYTE-read primitive
-;   In:        A = IOBYTE value just read
+; BDOS_IOBYTE_HELPER_2 -- return-to-BDOS trampoline (JP $9F01), tail of the IOBYTE_ADDR-read primitive
+;   In:        A = IOBYTE_ADDR value just read
 ;   Out:       JP $9F01 (BDOS result tail)
 ;   Clobbers:  none
 ;   Algorithm: OBSERVED: `JP CON_CHK_LF_DONE+2`. [FLAG] target $9F01 is mid-instruction
@@ -3186,19 +3181,19 @@ BDOS_IOBYTE_HELPER_2:
         ; [FLAG mid-instruction $9F01] return to the BDOS result/return tail
         JP CON_CHK_LF_DONE+2
 ; ----------------------------------------------------------------------
-; BDOS_SET_IOBYTE_CELL -- store C into the IOBYTE device-map cell, then RET
-;   In:        C = new IOBYTE value
+; BDOS_SET_IOBYTE_CELL -- store C into the IOBYTE_ADDR device-map cell, then RET
+;   In:        C = new IOBYTE_ADDR value
 ;   Out:       IOBYTE_ADDR ($0003) updated; RET
 ;   Clobbers:  HL
-;   Algorithm: OBSERVED: `LD HL,IOBYTE_ADDR; LD (HL),C; RET`. By bytes this IS an IOBYTE-write
+;   Algorithm: OBSERVED: `LD HL,IOBYTE_ADDR; LD (HL),C; RET`. By bytes this IS an IOBYTE_ADDR-write
 ;              primitive. [RE/UNKNOWN] NOT proven to be the BDOS fn-8 (Set I/O Byte) handler (fn
 ;              8 dispatches to CON_GETCHAR_MASK+2 = $9EF3, inside the fn-10 editor, not here).
 ;              Cross-ref: 2.20-44K sibling BDOS_DCIO_SETIOBYTE.
 ; ----------------------------------------------------------------------
 BDOS_SET_IOBYTE_CELL:
-        ; address the IOBYTE device-map cell ($0003)
-        LD HL,IOBYTE
-        ; store the caller-supplied IOBYTE value
+        ; address the IOBYTE_ADDR device-map cell ($0003)
+        LD HL,IOBYTE_ADDR
+        ; store the caller-supplied IOBYTE_ADDR value
         LD (HL),C
         RET
 ; ----------------------------------------------------------------------
@@ -3349,17 +3344,17 @@ DISK_READ_FCB_RECORD_3:
 ;              allocation block number (CALL FCB_ALLOC_BLOCK_NUM) and branches on the result
 ;              (off-image $A648 on nonzero).
 ;   Clobbers:  A, BC, HL.
-;   Algorithm: OBSERVED: LD ($A9D7),A saves the extent/record byte; LD BC,WBOOT_VEC ($0000) zeroes
+;   Algorithm: OBSERVED: LD ($A9D7),A saves the extent/record byte; LD BC,WBOOTV ($0000) zeroes
 ;              BC; OR A then JP Z,$A63B handles the empty case; else LD C,A / DEC BC, CALL
 ;              CON_CTRL_R_RETYPE (an in-image $A05E helper owned by another cluster), LD B,H/LD C,L,
 ;              CALL FCB_ALLOC_BLOCK_NUM, then JP NZ,$A648. $A9D7 = scratch RAM, $A63B/$A648 =
-;              off-image (all keep_literal); WBOOT_VEC = base-page constant (already a shared name,
+;              off-image (all keep_literal); WBOOTV = base-page constant (already a shared name,
 ;              value $0000).
 ; ----------------------------------------------------------------------
 DIR_SEARCH_RESULT:
         ; Save the extent/record byte read from the matched directory entry (BDOS scratch $A9D7).
         LD ($A9D7),A
-        LD BC,WBOOT_VEC
+        LD BC,WBOOTV
         OR A
         JP Z,$A63B
         LD C,A
@@ -4789,16 +4784,16 @@ DIR_NAME_MASK_1:
 ;              user-scratch byte
 ;              and re-points the DMA/dir-buffer pointer at the default DMA (TBUFF).
 ;   Clobbers:  HL, A, F, and the off-image $A9AD/$A9AF/$A9B1 pointer cells.
-;   Algorithm: [RE] LD HL,WBOOT_VEC loads the literal constant $0000 (WBOOT_VEC is a misnomer here -
+;   Algorithm: [RE] LD HL,WBOOTV loads the literal constant $0000 (WBOOTV is a misnomer here -
 ;              used as zero,
 ;              not the warm-boot vector) and stores it into the first dir-buffer pointer cell, then
 ;              falls into the
 ;              common reset code.
 ; ----------------------------------------------------------------------
 DIR_NAME_MASK_2:
-        ; HL := 0 (WBOOT_VEC=$0000 used as the literal zero constant here, not the warm-boot
+        ; HL := 0 (WBOOTV=$0000 used as the literal zero constant here, not the warm-boot
         ; vector); clear the first dir-buffer pointer ($A9AD)
-        LD HL,WBOOT_VEC
+        LD HL,WBOOTV
         LD ($A9AD),HL
 ; ----------------------------------------------------------------------
 ; DIR_NAME_MASK_3 -- common directory-scan reset: clear the second buffer pointer + user scratch,
@@ -4822,7 +4817,7 @@ DIR_NAME_MASK_3:
         LD (FCB_USER_SCRATCH),A
         ; reset the active DMA / directory-buffer pointer to the default $0080 (TBUFF) before
         ; re-pointing it at $A9B1
-        LD HL,DEFAULT_DMA
+        LD HL,TBUFF
 ; ----------------------------------------------------------------------
 ; DIR_NAME_MASK_4 -- store the (reset) directory-buffer pointer, read the host sector, jump
 ; off-image
@@ -5098,12 +5093,12 @@ DRV_INSTALL_RWTS_12:
 ;   In:        Entered (via JP DISK_SYSTEM_INIT from $9DE5, landing at $A4FD = the $A3/AND E high
 ;              byte of the covering JP at $A4FB) during cold-boot SYS_INIT at staging; SLTTYP3
 ;              ($F3BB) holds the slot-3 (console) Card-Type Table value.
-;   Out:       CDISK := 0 (drive A); for device-6 the FW-console STATUS handler $FD99 is stored into
+;   Out:       CDISK_ADDR := 0 (drive A); for device-6 the FW-console STATUS handler $FD99 is stored into
 ;              CONST_VEC ($F380) and A normalized by SUB $03; otherwise falls into DRV_TYPE_DISPATCH
 ;              with A = the raw Card-Type.
-;   Clobbers:  A, HL, flags; memory CDISK, CONST_VEC.
+;   Clobbers:  A, HL, flags; memory CDISK_ADDR, CONST_VEC.
 ;   Algorithm: [DOC S&HD 2-26/2-27] LD HL,($FBAF) (resident cell, off-image, kept literal); XOR A /
-;              LD (CDISK),A reset the current drive to A. Read SLTTYP3; CP $06: if the console card
+;              LD (CDISK_ADDR),A reset the current drive to A. Read SLTTYP3; CP $06: if the console card
 ;              is device 6 (the post-1980 Pascal-1.1/$Cn0B Videx reassignment, above the 1980
 ;              manual's table top of 5) install $FD99 into CONST_VEC and SUB $03, then JR
 ;              DRV_INSTALL_VECTORS; else JR NZ to DRV_TYPE_DISPATCH to classify the other card
@@ -5129,7 +5124,7 @@ DRV_SYSTEM_INIT:
         LD HL,($FBAF)
         XOR A
         ; reset the current drive to A (drive 0) at cold-boot driver install
-        LD (CDISK),A
+        LD (CDISK_ADDR),A
         ; read the slot-3 console card type from the Card-Type Table (SLTTYP3)
         LD A,($F3BB)
         ; device 6 = the Videx/Pascal-1.1 firmware-card console (above the 1980 manual's table top

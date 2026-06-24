@@ -47,15 +47,11 @@
 SYS_INIT             EQU $9631               ; system init / relocator entry (runs in-place at staging)
 SYS_INIT_4           EQU $967B               ; SYS_INIT inner loop ($967B)
 
-; -- Page-zero symbols the CCP references. WBOOT_VEC ($0000), IOBYTE ($0003),
-;    RST2_VEC ($0010) and DEFAULT_DMA ($0080) are ALSO defined by CPM_BDOS.asm
+; -- Page-zero symbols the CCP references. WBOOTV ($0000), IOBYTE_ADDR ($0003),
+;    RST2_VEC ($0010) and TBUFF ($0080) are ALSO defined by CPM_BDOS.asm
 ;    (INCLUDEd below); since the two compile as one unit those definitions resolve
 ;    the CCP's references, so they are NOT redefined here (a duplicate EQU is an
 ;    error). The four below are CCP-only and are defined here. --
-BDOS_VEC             EQU $0005               ; BDOS call vector -- JP BDOS_ENTRY. Programs CALL $0005; the word at $0006 doubles as the top-of-TPA marker. [DOC CPMREF 3-44 ; facts sec.7.1] OS calls pass fn# in C / info addr in DE through BOOT+$0005; $0006/$0007 hold FBASE = top of available memory.
-DEFAULT_FCB          EQU $005C               ; Default File Control Block -- the CCP populates it from command-line argument 1 (standard 36-byte FCB). [DOC CPMREF 3-46 ; facts sec.7.4] transients use the default FCB at $005C.
-CMDLINE              EQU $0081               ; Command-line tail characters (uppercase, leading space). Same buffer as DEFAULT_DMA ($0080). [DOC CPMREF 3-47/3-48 ; facts sec.7.5] $0080 = char count, $0081+ = the upper-cased command tail; the $0080 buffer doubles as the initial DMA buffer.
-TPA_START            EQU $0100               ; Start of the Transient Program Area; .COM files load and start executing here. [DOC CPMREF 3-44/3-45 ; facts sec.7.7] TBASE = $0100; a COM file is a TPA-executable memory image loaded at TBASE.
 
 ; -- Mid-instruction references (shown inline as cover+offset) --
 ;   $9307 -> SCAN_DELIM_1+1             shared instruction tail: $9307 is reachable code inside the instruction at $9306
@@ -94,6 +90,7 @@ TPA_START            EQU $0100               ; Start of the Transient Program Ar
 ;   $9FC3 -> TRANSIENT_COPY_LOOP_1+1         shared instruction tail: $9FC3 is reachable code inside the instruction at $9FC2
 ;   $9FFA -> RET_HL_ZERO+1         z80 skip idiom: enters the operand of $21 at $9FF9
 
+        INCLUDE "cpm22.inc"
     ORG $8000
     DISP $9300
 
@@ -545,7 +542,7 @@ CCP_PROMPT_AND_READ:
         CALL PARSE_FCB_FIELD                    ; $9541  CD 8C 93
         CALL RPC6502_941B                    ; $9544  CD 1B 94
 CCP_PROMPT_AND_READ_1:
-        LD DE,DEFAULT_DMA                ; $9547  11 80 00
+        LD DE,TBUFF                ; $9547  11 80 00
         CALL RPC6502_94B0                    ; $954A  CD B0 94
         CALL RPC6502_94A8                    ; $954D  CD A8 94
         LD (CCP_CUR_DRIVE),A               ; $9550  32 A8 9B
@@ -638,7 +635,7 @@ CCP_GET_FCB_DRIVE_6:
         LD A,B                           ; $95EA  78
         RET                              ; $95EB  C9
 CCP_FETCH_DMA_BYTE:
-        LD HL,DEFAULT_DMA                ; $95EC  21 80 00
+        LD HL,TBUFF                ; $95EC  21 80 00
         ADD A,C                          ; $95EF  81
         CALL CCP_PARSE_CMDLINE_1+2                ; $95F0  CD 2A 95
         LD A,(HL)                        ; $95F3  7E
@@ -1030,7 +1027,7 @@ TYPE_CMD_1:
         LD (HL),A                        ; $9814  77
 TYPE_CMD_2:
         INC (HL)                         ; $9815  34
-        LD HL,DEFAULT_DMA                ; $9816  21 80 00
+        LD HL,TBUFF                ; $9816  21 80 00
         CALL CCP_PARSE_CMDLINE_1+2                ; $9819  CD 2A 95
         LD A,(HL)                        ; $981C  7E
         CP $1A                           ; $981D  FE 1A
@@ -1064,14 +1061,14 @@ SAVE_CMD:
         LD L,A                           ; $9859  6F
         LD H,$00                         ; $985A  26 00
         ADD HL,HL                        ; $985C  29
-        LD DE,TPA_START                  ; $985D  11 00 01
+        LD DE,TPA                  ; $985D  11 00 01
 SAVE_CMD_1:
         LD A,H                           ; $9860  7C
         OR L                             ; $9861  B5
         JR Z,SAVE_CMD_2                 ; $9862  28 16
         DEC HL                           ; $9864  2B
         PUSH HL                          ; $9865  E5
-        LD HL,DEFAULT_DMA                ; $9866  21 80 00
+        LD HL,TBUFF                ; $9866  21 80 00
         ADD HL,DE                        ; $9869  19
         PUSH HL                          ; $986A  E5
         CALL RPC6502_94B0                    ; $986B  CD B0 94
@@ -1368,7 +1365,7 @@ SELECT_DRIVE_AND_RUN_1:
         CALL CCP_PRINT_NEWLINE                    ; $9A56  CD F5 96
         POP DE                           ; $9A59  D1
         LD HL,GET_FCB_DRIVE_ARG_5+1              ; $9A5A  21 35 9A
-        LD BC,IOBYTE                     ; $9A5D  01 03 00
+        LD BC,IOBYTE_ADDR                     ; $9A5D  01 03 00
         LDIR                             ; $9A60  ED B0
 SELECT_DRIVE_AND_RUN_2:
         CALL FCB_COUNT_WILDCARDS_RET                    ; $9A62  CD C6 93
@@ -1388,7 +1385,7 @@ SELECT_DRIVE_AND_RUN_3:
 SELECT_DRIVE_AND_RUN_4:
         LD C,$1F                         ; $9A7E  0E 1F
 SELECT_DRIVE_AND_RUN_5:
-        CALL BDOS_VEC                    ; $9A80  CD 05 00
+        CALL BDOS                    ; $9A80  CD 05 00
         INC HL                           ; $9A83  23
         INC HL                           ; $9A84  23
         LD A,(HL)                        ; $9A85  7E
@@ -1402,7 +1399,7 @@ LOAD_AND_GO:
         CP $8B                           ; $9A8E  FE 8B
         JP Z,SELECT_DRIVE_AND_RUN_1+2                ; $9A90  CA 54 9A
 LOAD_AND_GO_1:
-        LD HL,TPA_START                  ; $9A93  21 00 01
+        LD HL,TPA                  ; $9A93  21 00 01
 LOAD_AND_GO_2:
         PUSH HL                          ; $9A96  E5
         EX DE,HL                         ; $9A97  EB
@@ -1411,7 +1408,7 @@ LOAD_AND_GO_2:
         CALL SEARCH_BUILTIN_1+1                ; $9A9E  CD E3 93
         JR NZ,LOAD_AND_GO_3                 ; $9AA1  20 11
         POP HL                           ; $9AA3  E1
-        LD DE,DEFAULT_DMA                ; $9AA4  11 80 00
+        LD DE,TBUFF                ; $9AA4  11 80 00
         ADD HL,DE                        ; $9AA7  19
         LD DE,CCP_IMAGE_ENTRY                     ; $9AA8  11 00 93
         OR A                             ; $9AAB  B7
@@ -1442,7 +1439,7 @@ LOAD_AND_GO_4:
 ;      default FCB at $005C, then build the command-tail buffer at $0080 (count) / $0081+.
 SETUP_TPA_AND_TAIL:
         LD (CCP_USER_SCRATCH+1),A             ; $9AD4  32 A6 9B
-        LD DE,DEFAULT_FCB                ; $9AD7  11 5C 00  [DOC CPMREF 3-46 ; facts sec.7.4] default FCB #1 at $005C
+        LD DE,TFCB                ; $9AD7  11 5C 00  [DOC CPMREF 3-46 ; facts sec.7.4] default FCB #1 at $005C
         LD HL,CCP_FCB                ; $9ADA  21 86 9B
         LD BC,$0021                      ; $9ADD  01 21 00  ; 33-byte (sequential) FCB
         LDIR                             ; $9AE0  ED B0
@@ -1658,7 +1655,7 @@ SUBMIT_CHECK:
         CALL RPC6502_94AD                    ; $9C06  CD AD 94
         CALL SEARCH_BUILTIN_8                    ; $9C09  CD FC 93
 TRANSIENT_RUN:
-        CALL TPA_START                   ; $9C0C  CD 00 01
+        CALL TPA                   ; $9C0C  CD 00 01
 TRANSIENT_RETURN:
         LD SP,CCP_STACK                ; $9C0F  31 64 9B
         CALL RPC6502_940B                    ; $9C12  CD 0B 94
@@ -1987,7 +1984,7 @@ SUBMIT_INSTALL_1:
         LD ($F3EB),A                     ; $9E1C  32 EB F3
         LD HL,$0E03                      ; $9E1F  21 03 0E
         LD ($F3D0),HL                    ; $9E22  22 D0 F3
-        LD (WBOOT_VEC),A                 ; $9E25  32 00 00
+        LD (WBOOTV),A                 ; $9E25  32 00 00
         LD A,($F3EA)                     ; $9E28  3A EA F3
         OR A                             ; $9E2B  B7
         JR Z,SUBMIT_INSTALL_1                 ; $9E2C  28 DB
@@ -2151,7 +2148,7 @@ TRANSIENT_COPY_LOOP_3:
         OR B                             ; $9FF5  B0
         JP NZ,$A3C0                      ; $9FF6  C2 C0 A3
 RET_HL_ZERO:
-        LD HL,WBOOT_VEC                  ; $9FF9  21 00 00
+        LD HL,WBOOTV                  ; $9FF9  21 00 00
         RET                              ; $9FFC  C9
 CCP_TAIL_PAD:
         LD C,$00                         ; $9FFD  0E 00
@@ -2159,16 +2156,10 @@ CCP_TAIL_PAD:
     ENT
 
 ; ---------------------------------------------------------------------------
-; BDOS module ($8D00 staged -> $9C00 run). DISP makes its labels $9C00-based while
-; its bytes are placed here at staging offset $0D00; DEFINE CPM_LINK keeps its
-; standalone DEVICE/ORG/SAVEBIN out of this combined build.
+; The BDOS is a SEPARATE compilation: CPM_BDOS.asm builds standalone (ORG $9C00) to
+; its own .bin; the two .bins are concatenated on the system tracks (CCP $8000-$8CFF
+; run $9300, BDOS run $9C00). It is no longer INCLUDEd here -- the CCP and BDOS share
+; no internal labels (only the $0005 ABI vector + the base-page cells from cpm22.inc),
+; so each compiles independently.
 ; ---------------------------------------------------------------------------
-    DISP $9C00
-    DEFINE CPM_LINK
-    INCLUDE "CPM_BDOS.asm"
-    UNDEFINE CPM_LINK
-    ENT
-
-    IFNDEF CPM_LINK
-    SAVEBIN "{out_bin}", $8000, $1700
-    ENDIF
+    SAVEBIN "{out_bin}", $8000, $0D00     ; CCP only: $8000-$8CFF (3328 bytes, run $9300)

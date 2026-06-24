@@ -14,12 +14,15 @@
 
 ; ---- base page (transient-program view) ----------------------------------------
 WBOOTV      EQU $0000      ; warm-boot vector: JP WBOOT (a CALL/JP $0000 restarts CP/M)
-BDOS        EQU $0005      ; BDOS entry vector: CALL BDOS with C=function, DE=arg
-CDISK_ADDR  EQU $0004      ; current drive (low nibble) / user (high nibble)
 IOBYTE_ADDR EQU $0003      ; logical<->physical device map (STAT / fns 7,8)
+CDISK_ADDR  EQU $0004      ; current drive (low nibble) / user (high nibble)
+BDOS        EQU $0005      ; BDOS entry vector: CALL BDOS with C=function, DE=arg
+RST2_VEC    EQU $0010      ; Z-80 RST 2 ($10) restart vector (8 bytes); CP/M leaves it for the app/debugger
+RST4_VEC    EQU $0020      ; Z-80 RST 4 ($20) restart vector (8 bytes); CP/M leaves it for the app/debugger
 TFCB        EQU $005C      ; default FCB parsed from the command tail
 TFCB2       EQU $006C      ; second parsed FCB (overlaps TFCB+16)
 TBUFF       EQU $0080      ; default DMA buffer (128 B); also the command-tail buffer
+CMDLINE     EQU $0081      ; command-tail characters (TBUFF+1): $0080 = length, $0081+ = the upper-cased tail
 TPA         EQU $0100      ; transient program area / load address
 
 ; ---- BDOS function numbers (register C) ----------------------------------------
