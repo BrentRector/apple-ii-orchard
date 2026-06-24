@@ -65,29 +65,29 @@ BIOS_VECTOR_WBOOT:
         ; flags.
         DEFB    $AF,$C9,$00,$60,$69,$C9                          ; $FA2D
 ; ----------------------------------------------------------------------
-; DPH_TABLE -- the CP/M 2.2 Disk Parameter Header array (one 16-byte DPH per
-;   logical drive 0..5).  SELDSK returns DPH_TABLE + 16*drive.  Each DPH = XLT(0),
-;   three BDOS scratch words, DIRBUF, DPB, CSV, ALV.  XLT = 0 (no SECTRAN; the
-;   deblock applies the skew internally).  All six drives share one DIRBUF ($FEE4)
-;   and one DPB ($FA73).  See flags for the per-drive CSV/ALV cells. [RE]
+; DPH_TABLE -- the CP/M 2.2 Disk Parameter Header array (one 16-byte DPH per logical
+;   drive 0..3; 2.23 supports 4 drives, vs 6 in the 2.20 twin). SELDSK returns
+;   DPH_TABLE + 16*drive. Each DPH = XLT, three BDOS scratch words, DIRBUF, DPB, CSV,
+;   ALV. XLT = 0 (no SECTRAN translate). All drives share one DIRBUF ($FEE4, in the
+;   install/deblock band) and one DPB. The per-drive CSV (checksum) / ALV (allocation)
+;   vectors live in the BIOS's $FF RAM, reused as scratch after boot; kept literal. [RE]
 ; ----------------------------------------------------------------------
 DPH_TABLE:
-        DEFS    8, $00    ; $FA33  fill
-        ; drive 0 tail: DIRBUF=$FEE4, DPB=$FA73, CSV=$FFAC, ALV=$FF64 (preceded by 8 zero bytes =
-        ; XLT + 3 scratch words)
-        DEFB    $E4,$FE,$73,$FA,$AC,$FF,$64,$FF                  ; $FA3B
-        DEFS    8, $00    ; $FA43  fill
-        ; drive 1 tail: DIRBUF=$FEE4, DPB=$FA73, CSV=$FFB8, ALV=$FF76
-        DEFB    $E4,$FE,$73,$FA,$B8,$FF,$76,$FF                  ; $FA4B
-        DEFS    8, $00    ; $FA53  fill
-        ; drive 2 tail: DIRBUF=$FEE4, DPB=$FA73, CSV=$FFC4, ALV=$FF88
-        DEFB    $E4,$FE,$73,$FA,$C4,$FF,$88,$FF                  ; $FA5B
-        DEFS    8, $00    ; $FA63  fill
-        ; drive 3 tail (DIRBUF=$FEE4, DPB=$FA73, CSV=$FFD0, ALV=$FF9A) then DPB starts at $FA73:
-        ; SPT=$0020(32), BSH=3, BLM=7, EXM=0, DSM low byte $8B... See flags for the full DPB decode.
-        DEFB    $E4,$FE,$73,$FA,$D0,$FF,$9A,$FF,$20,$00,$03,$07,$00,$8B,$00,$2F ; $FA6B
-        ; DPB tail: DSM high=$00 (DSM=$008B=139), DRM=$00C0... AL0/AL1, CKS, OFF. See flags.
-        DEFB    $00,$C0,$00,$0C,$00,$03,$00                      ; $FA7B
+        DEFW    0,0,0,0,$FEE4,DPB,$FFAC,$FF64   ; drive 0: DIRBUF, DPB, CSV=$FFAC, ALV=$FF64
+        DEFW    0,0,0,0,$FEE4,DPB,$FFB8,$FF76   ; drive 1
+        DEFW    0,0,0,0,$FEE4,DPB,$FFC4,$FF88   ; drive 2
+        DEFW    0,0,0,0,$FEE4,DPB,$FFD0,$FF9A   ; drive 3
+; DPB -- the shared Disk Parameter Block (5.25" floppy; every DPH points here).
+;   DSM = 139 here vs the 2.20 twin's 127 (a slightly larger usable capacity).
+DPB:
+        DEFW    $0020                    ; SPT = 32 sectors (128-byte records) per track
+        DEFB    $03,$07                  ; BSH=3, BLM=7 -> 1 KB allocation blocks
+        DEFB    $00                      ; EXM = 0
+        DEFW    $008B                    ; DSM = 139 (140 blocks => 140 KB capacity)
+        DEFW    $002F                    ; DRM = 47 (48 directory entries)
+        DEFB    $C0,$00                  ; AL0/AL1 -> 2 directory-reserved blocks
+        DEFW    $000C                    ; CKS = 12 (directory checksum bytes)
+        DEFW    $0003                    ; OFF = 3 reserved (system) tracks
 ; ----------------------------------------------------------------------
 ; PROBE_DEVICES -- scan the SoftCard device/config area and mark presence.
 ;   In:  none (walks Apple $03B8.. via z80 $F3B8 = the SoftCard config block).
