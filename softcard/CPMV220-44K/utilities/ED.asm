@@ -8,13 +8,12 @@
     DEVICE NOSLOT64K
 
 ; -- External symbols --
-WBOOT_VEC            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
-CDISK                EQU $0004               ; Current drive (low nibble: 0=A, 1=B, ..., 15=P) and current user (high nibble, 0-15).
-BDOS_VEC             EQU $0005               ; BDOS call vector — JP BDOS_ENTRY. Programs use CALL $0005 to invoke BDOS. Word at $0006 is also the top-of-TPA marker.
-DEFAULT_FCB          EQU $005C               ; Default File Control Block — populated by CCP from command-line argument 1. Standard 36-byte FCB structure (drive + filename + extents + record number).
-DEFAULT_FCB2         EQU $006C               ; $006C-$007B — second filename area. Overlaps with the second half of DEFAULT_FCB. Populated by CCP from command-line argument 2.
-DEFAULT_CR           EQU $007C               ; Default FCB current record byte (overlaps end of DEFAULT_FCB2).
-DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS cold-init / DRV_ALLRESET (fn 13) set the DMA address here and WBOOT re-issues SETDMA($0080); sector/record I/O moves 128 bytes through it. At program load this same buffer doubles as the command tail: the first byte ($0080) holds the tail length (0-127) and the characters follow at $0081 (CMDLINE).
+; ED's CP/M 2.2 base-page cells + BDOS entry vector come from cpm22.inc (INCLUDEd
+; below): WBOOTV $0000, CDISK_ADDR $0004, BDOS $0005, TFCB $005C (+ FCB_CR), TFCB2
+; $006C, TBUFF $0080, and the C_*/F_*/DRV_* BDOS function constants. Defined once
+; there, not re-derived per file. NOTE: the many LD HL/DE/BC,$0000 are the number
+; zero (zero-init / dummy BDOS DE arg), kept literal; only the genuine CALL through
+; the warm-boot vector takes the cpm22 name (WBOOTV).
 
 ; -- Mid-instruction references (shown inline as cover+offset) --
 ;   $0400 -> INSERT_PROC_CHAR_119+1      shared instruction tail: $0400 is reachable code inside the instruction at $03FF
@@ -116,7 +115,7 @@ ED_INIT_39:
         JP NC,ED_INIT_40               ; $01F6  D2 02 02
         LD BC,MSG_NO_MEMORY              ; $01F9  01 A8 01
         CALL PRINT_MSG_NL                ; $01FC  CD 0A 0C
-        CALL WBOOT_VEC                   ; $01FF  CD 00 00
+        CALL WBOOTV                   ; $01FF  CD 00 00
 ; [AI] Continues memory-layout setup, deriving the buffer base/limit pointers used by the editor's
 ;       append and edit-buffer logic.
 ED_INIT_40:
@@ -244,7 +243,7 @@ ED_INIT_100:
 ; [AI] Validates and records the source-file drive from the first FCB; if no filename was given it
 ;       falls back to fetching the current default drive via BDOS function 25.
 INIT_SRC_DRIVE:
-        LD A,(DEFAULT_FCB)               ; $027D  3A 5C 00
+        LD A,(TFCB)               ; $027D  3A 5C 00
         LD ($1B64),A                     ; $0280  32 64 1B
         CP $00                           ; $0283  FE 00
         JP NZ,INIT_SRC_DRIVE_102              ; $0285  C2 91 02
@@ -257,12 +256,12 @@ INIT_SRC_DRIVE_102:
         LD A,($1B64)                     ; $0291  3A 64 1B
         DEC A                            ; $0294  3D
         LD ($1B64),A                     ; $0295  32 64 1B
-        LD HL,DEFAULT_FCB                ; $0298  21 5C 00
+        LD HL,TFCB                ; $0298  21 5C 00
         LD (HL),$00                      ; $029B  36 00
 ; [AI] Resolves the destination-file drive from the second FCB, defaulting it to the source drive
 ;       when no second filename was supplied.
 INIT_DST_DRIVE:
-        LD A,(DEFAULT_FCB2)              ; $029D  3A 6C 00
+        LD A,(TFCB2)              ; $029D  3A 6C 00
         LD ($1B65),A                     ; $02A0  32 65 1B
         CP $00                           ; $02A3  FE 00
         JP NZ,INIT_DST_DRIVE_104              ; $02A5  C2 B1 02
@@ -350,7 +349,7 @@ ED_COMMAND_LOOP:
         LD A,($1B64)                     ; $0344  3A 64 1B
         CP (HL)                          ; $0347  BE
         JP Z,ED_COMMAND_LOOP_113               ; $0348  CA 5C 03
-        LD A,(CDISK)                     ; $034B  3A 04 00
+        LD A,(CDISK_ADDR)                     ; $034B  3A 04 00
         AND $F0                          ; $034E  E6 F0
         PUSH AF                          ; $0350  F5
         LD A,($1B65)                     ; $0351  3A 65 1B
@@ -358,7 +357,7 @@ ED_COMMAND_LOOP:
         POP BC                           ; $0356  C1
         LD C,B                           ; $0357  48
         OR C                             ; $0358  B1
-        LD (CDISK),A                     ; $0359  32 04 00
+        LD (CDISK_ADDR),A                     ; $0359  32 04 00
 ED_COMMAND_LOOP_113:
         CALL ED_EXIT                     ; $035C  CD 07 0D
         JP CMD_NEXT                      ; $035F  C3 EE 0A
@@ -437,7 +436,7 @@ INSERT_PROC_CHAR:
         OR C                             ; $03E2  B1
         RRA                              ; $03E3  1F
         JP NC,INSERT_BACKSPACE           ; $03E4  D2 2C 04
-        LD HL,WBOOT_VEC                  ; $03E7  21 00 00
+        LD HL,$0000                  ; $03E7  21 00 00
         LD ($1D1C),HL                    ; $03EA  22 1C 1D
         LD HL,$1D20                      ; $03ED  21 20 1D
         LD (HL),$00                      ; $03F0  36 00
@@ -508,7 +507,7 @@ INSERT_BACKSPACE_124:
         LD (HL),$01                      ; $0473  36 01
         LD HL,$1B68                      ; $0475  21 68 1B
         LD (HL),$00                      ; $0478  36 00
-        LD HL,WBOOT_VEC                  ; $047A  21 00 00
+        LD HL,$0000                  ; $047A  21 00 00
         LD ($1D1C),HL                    ; $047D  22 1C 1D
         LD HL,$1D20                      ; $0480  21 20 1D
         LD (HL),$00                      ; $0483  36 00
@@ -1333,9 +1332,9 @@ DEAD_0AF1:
         HALT                             ; $0AF2  76
 ; [AI] Reads one character from the console with echo via BDOS function 1 (console input).
 CON_GETCH:
-        LD DE,WBOOT_VEC                  ; $0AF3  11 00 00
-        LD C,$01                         ; $0AF6  0E 01
-        CALL BDOS_VEC                    ; $0AF8  CD 05 00
+        LD DE,$0000                  ; $0AF3  11 00 00
+        LD C,C_READ                         ; $0AF6  0E 01
+        CALL BDOS                    ; $0AF8  CD 05 00
         RET                              ; $0AFB  C9
 ; [AI] Conditional console-output helper: stores the character and, if the suppress-output flag is
 ;       clear, writes it via BDOS function 2.
@@ -1357,9 +1356,9 @@ CON_PUTCH_6:
 CON_PUTCH_7:
         EX DE,HL                         ; $0B0D  EB
 CON_PUTCH_8:
-        LD C,$02                         ; $0B0E  0E 02
+        LD C,C_WRITE                         ; $0B0E  0E 02
 CON_PUTCH_9:
-        CALL BDOS_VEC                    ; $0B10  CD 05 00
+        CALL BDOS                    ; $0B10  CD 05 00
 CON_PUTCH_10:
         RET                              ; $0B13  C9
 ; [AI] Console-output helper that also maintains the current column counter, incrementing it for
@@ -1590,9 +1589,9 @@ PRINT_STR_4:
 PRINT_STR_5:
         EX DE,HL                         ; $0C03  EB
 PRINT_STR_6:
-        LD C,$09                         ; $0C04  0E 09
+        LD C,C_WRITESTR                         ; $0C04  0E 09
 PRINT_STR_7:
-        CALL BDOS_VEC                    ; $0C06  CD 05 00
+        CALL BDOS                    ; $0C06  CD 05 00
 PRINT_STR_8:
         RET                              ; $0C09  C9
 ; [AI] Convenience routine that begins a new line (CR/LF) and then prints the $-terminated message
@@ -1626,8 +1625,8 @@ BDOS_READ_LINE:
         LD (HL),C                        ; $0C21  71
         LD HL,($1B76)                    ; $0C22  2A 76 1B
         EX DE,HL                         ; $0C25  EB
-        LD C,$0A                         ; $0C26  0E 0A
-        CALL BDOS_VEC                    ; $0C28  CD 05 00
+        LD C,C_READSTR                         ; $0C26  0E 0A
+        CALL BDOS                    ; $0C28  CD 05 00
         RET                              ; $0C2B  C9
 ; [AI] BDOS function 15 (open file) wrapper that opens the FCB in BC and records the success/error
 ;       result in the status byte.
@@ -1638,8 +1637,8 @@ BDOS_OPEN:
         LD (HL),C                        ; $0C31  71
         LD HL,($1B79)                    ; $0C32  2A 79 1B
         EX DE,HL                         ; $0C35  EB
-        LD C,$0F                         ; $0C36  0E 0F
-        CALL BDOS_VEC                    ; $0C38  CD 05 00
+        LD C,F_OPEN                         ; $0C36  0E 0F
+        CALL BDOS                    ; $0C38  CD 05 00
         LD ($1B78),A                     ; $0C3B  32 78 1B
         RET                              ; $0C3E  C9
 ; [AI] BDOS function 16 (close file) wrapper for the FCB in BC, recording the result.
@@ -1656,9 +1655,9 @@ BDOS_CLOSE_4:
 BDOS_CLOSE_5:
         EX DE,HL                         ; $0C48  EB
 BDOS_CLOSE_6:
-        LD C,$10                         ; $0C49  0E 10
+        LD C,F_CLOSE                         ; $0C49  0E 10
 BDOS_CLOSE_7:
-        CALL BDOS_VEC                    ; $0C4B  CD 05 00
+        CALL BDOS                    ; $0C4B  CD 05 00
 BDOS_CLOSE_8:
         LD ($1B78),A                     ; $0C4E  32 78 1B
 BDOS_CLOSE_9:
@@ -1671,8 +1670,8 @@ BDOS_SEARCH_FIRST:
         LD (HL),C                        ; $0C57  71
         LD HL,($1B7D)                    ; $0C58  2A 7D 1B
         EX DE,HL                         ; $0C5B  EB
-        LD C,$11                         ; $0C5C  0E 11
-        CALL BDOS_VEC                    ; $0C5E  CD 05 00
+        LD C,F_SFIRST                         ; $0C5C  0E 11
+        CALL BDOS                    ; $0C5E  CD 05 00
         LD ($1B78),A                     ; $0C61  32 78 1B
         RET                              ; $0C64  C9
 ; [AI] BDOS function 19 (delete file) wrapper for the FCB in BC.
@@ -1683,8 +1682,8 @@ BDOS_DELETE:
         LD (HL),C                        ; $0C6A  71
         LD HL,($1B7F)                    ; $0C6B  2A 7F 1B
         EX DE,HL                         ; $0C6E  EB
-        LD C,$13                         ; $0C6F  0E 13
-        CALL BDOS_VEC                    ; $0C71  CD 05 00
+        LD C,F_DELETE                         ; $0C6F  0E 13
+        CALL BDOS                    ; $0C71  CD 05 00
         RET                              ; $0C74  C9
 ; [AI] BDOS function 20 (read sequential record) wrapper for the FCB in BC, returning the read
 ;       status.
@@ -1695,8 +1694,8 @@ BDOS_READ_SEQ:
         LD (HL),C                        ; $0C7A  71
         LD HL,($1B81)                    ; $0C7B  2A 81 1B
         EX DE,HL                         ; $0C7E  EB
-        LD C,$14                         ; $0C7F  0E 14
-        CALL BDOS_VEC                    ; $0C81  CD 05 00
+        LD C,F_READ                         ; $0C7F  0E 14
+        CALL BDOS                    ; $0C81  CD 05 00
         RET                              ; $0C84  C9
 ; [AI] BDOS function 21 (write sequential record) wrapper for the FCB in BC.
 BDOS_WRITE_SEQ:
@@ -1706,8 +1705,8 @@ BDOS_WRITE_SEQ:
         LD (HL),C                        ; $0C8A  71
         LD HL,($1B83)                    ; $0C8B  2A 83 1B
         EX DE,HL                         ; $0C8E  EB
-        LD C,$15                         ; $0C8F  0E 15
-        CALL BDOS_VEC                    ; $0C91  CD 05 00
+        LD C,F_WRITE                         ; $0C8F  0E 15
+        CALL BDOS                    ; $0C91  CD 05 00
         RET                              ; $0C94  C9
 ; [AI] BDOS function 22 (make file) wrapper that creates the file for the FCB in BC, recording the
 ;       result.
@@ -1718,8 +1717,8 @@ BDOS_MAKE:
         LD (HL),C                        ; $0C9A  71
         LD HL,($1B85)                    ; $0C9B  2A 85 1B
         EX DE,HL                         ; $0C9E  EB
-        LD C,$16                         ; $0C9F  0E 16
-        CALL BDOS_VEC                    ; $0CA1  CD 05 00
+        LD C,F_MAKE                         ; $0C9F  0E 16
+        CALL BDOS                    ; $0CA1  CD 05 00
         LD ($1B78),A                     ; $0CA4  32 78 1B
         RET                              ; $0CA7  C9
 ; [AI] BDOS function 23 (rename file) wrapper for the FCB pair in BC, used to commit the temporary
@@ -1731,8 +1730,8 @@ BDOS_RENAME:
         LD (HL),C                        ; $0CAD  71
         LD HL,($1B87)                    ; $0CAE  2A 87 1B
         EX DE,HL                         ; $0CB1  EB
-        LD C,$17                         ; $0CB2  0E 17
-        CALL BDOS_VEC                    ; $0CB4  CD 05 00
+        LD C,F_RENAME                         ; $0CB2  0E 17
+        CALL BDOS                    ; $0CB4  CD 05 00
         RET                              ; $0CB7  C9
 ; [AI] Resets the DMA address back to the default $0080 buffer via BDOS function 26 before normal
 ;       record I/O.
@@ -1745,14 +1744,14 @@ SET_DMA_DEFAULT:
 ; [AI] Polls console status via BDOS function 11; if a key (typically Ctrl-C) is waiting it
 ;       consumes it and reports a break request, used to abort long operations.
 CHECK_BREAK:
-        LD DE,WBOOT_VEC                  ; $0CC4  11 00 00
-        LD C,$0B                         ; $0CC7  0E 0B
-        CALL BDOS_VEC                    ; $0CC9  CD 05 00
+        LD DE,$0000                  ; $0CC4  11 00 00
+        LD C,C_STAT                         ; $0CC7  0E 0B
+        CALL BDOS                    ; $0CC9  CD 05 00
         RRA                              ; $0CCC  1F
         JP NC,CHECK_BREAK_1                 ; $0CCD  D2 DB 0C
-        LD DE,WBOOT_VEC                  ; $0CD0  11 00 00
-        LD C,$01                         ; $0CD3  0E 01
-        CALL BDOS_VEC                    ; $0CD5  CD 05 00
+        LD DE,$0000                  ; $0CD0  11 00 00
+        LD C,C_READ                         ; $0CD3  0E 01
+        CALL BDOS                    ; $0CD5  CD 05 00
         LD A,$01                         ; $0CD8  3E 01
         RET                              ; $0CDA  C9
 CHECK_BREAK_1:
@@ -1761,9 +1760,9 @@ CHECK_BREAK_1:
 ; [AI] Returns the current default drive number via BDOS function 25, used when no drive was
 ;       specified on the command line.
 GET_CUR_DRIVE:
-        LD DE,WBOOT_VEC                  ; $0CDE  11 00 00
-        LD C,$19                         ; $0CE1  0E 19
-        CALL BDOS_VEC                    ; $0CE3  CD 05 00
+        LD DE,$0000                  ; $0CDE  11 00 00
+        LD C,DRV_GET                         ; $0CE1  0E 19
+        CALL BDOS                    ; $0CE3  CD 05 00
         RET                              ; $0CE6  C9
 ; [AI] Selects the disk drive given in C via BDOS function 14, switching the active drive for the
 ;       following file operation.
@@ -1773,8 +1772,8 @@ SELECT_DRIVE:
         LD HL,($1C0D)                    ; $0CEB  2A 0D 1C
         LD H,$00                         ; $0CEE  26 00
         EX DE,HL                         ; $0CF0  EB
-        LD C,$0E                         ; $0CF1  0E 0E
-        CALL BDOS_VEC                    ; $0CF3  CD 05 00
+        LD C,DRV_SET                         ; $0CF1  0E 0E
+        CALL BDOS                    ; $0CF3  CD 05 00
         RET                              ; $0CF6  C9
 ; [AI] Sets the DMA transfer address (BC) via BDOS function 26 so the next read/write lands in ED's
 ;       chosen buffer region rather than the default $0080.
@@ -1785,8 +1784,8 @@ SET_DMA:
         LD (HL),C                        ; $0CFC  71
         LD HL,($1C0E)                    ; $0CFD  2A 0E 1C
         EX DE,HL                         ; $0D00  EB
-        LD C,$1A                         ; $0D01  0E 1A
-        CALL BDOS_VEC                    ; $0D03  CD 05 00
+        LD C,F_DMAOFF                         ; $0D01  0E 1A
+        CALL BDOS                    ; $0D03  CD 05 00
         RET                              ; $0D06  C9
 ; [AI] Exit/return routine: deletes the temporary file if one is active, then warm-boots back to
 ;       CP/M via the WBOOT vector.
@@ -1799,7 +1798,7 @@ ED_EXIT_2:
         LD BC,X_FCB_ACTIVE               ; $0D0E  01 95 1A
         CALL BDOS_DELETE                 ; $0D11  CD 65 0C
 ED_EXIT_3:
-        CALL WBOOT_VEC                   ; $0D14  CD 00 00
+        CALL WBOOTV                   ; $0D14  CD 00 00
         RET                              ; $0D17  C9
 ; [AI] Fatal-message helper: prints the $-terminated message in BC, emits CR/LF, and aborts to the
 ;       warm-boot exit (used for unrecoverable disk-full / no-file errors).
@@ -1862,17 +1861,17 @@ SET_FCB_EXT_1:
 OPEN_FILES:
         LD HL,($1B39)                    ; $0D55  2A 39 1B
         LD ($1B60),HL                    ; $0D58  22 60 1B
-        LD HL,WBOOT_VEC                  ; $0D5B  21 00 00
+        LD HL,$0000                  ; $0D5B  21 00 00
         LD ($1B62),HL                    ; $0D5E  22 62 1B
         LD HL,$0068                      ; $0D61  21 68 00
         LD (HL),$00                      ; $0D64  36 00
         LD HL,$006A                      ; $0D66  21 6A 00
         LD (HL),$00                      ; $0D69  36 00
-        LD HL,DEFAULT_CR                 ; $0D6B  21 7C 00
+        LD HL,TFCB+FCB_CR                 ; $0D6B  21 7C 00
         LD (HL),$00                      ; $0D6E  36 00
         LD L,$21                         ; $0D70  2E 21
         LD DE,$1B3D                      ; $0D72  11 3D 1B
-        LD BC,DEFAULT_FCB                ; $0D75  01 5C 00
+        LD BC,TFCB                ; $0D75  01 5C 00
 OPEN_FILES_1:
         LD A,(BC)                        ; $0D78  0A
         LD (DE),A                        ; $0D79  12
@@ -1887,7 +1886,7 @@ OPEN_FILES_1:
         LD HL,($1B65)                    ; $0D8A  2A 65 1B
         LD C,L                           ; $0D8D  4D
         CALL SELECT_DRIVE                ; $0D8E  CD E7 0C
-        LD BC,DEFAULT_FCB                ; $0D91  01 5C 00
+        LD BC,TFCB                ; $0D91  01 5C 00
         CALL BDOS_SEARCH_FIRST           ; $0D94  CD 52 0C
         LD A,($1B78)                     ; $0D97  3A 78 1B
         CP $FF                           ; $0D9A  FE FF
@@ -1898,12 +1897,12 @@ OPEN_FILES_2:
         LD HL,($1B64)                    ; $0DA5  2A 64 1B
         LD C,L                           ; $0DA8  4D
         CALL SELECT_DRIVE                ; $0DA9  CD E7 0C
-        LD BC,DEFAULT_FCB                ; $0DAC  01 5C 00
+        LD BC,TFCB                ; $0DAC  01 5C 00
         CALL BDOS_OPEN                   ; $0DAF  CD 2C 0C
         LD A,($1B78)                     ; $0DB2  3A 78 1B
         CP $FF                           ; $0DB5  FE FF
         JP NZ,OPEN_FILES_4                 ; $0DB7  C2 D7 0D
-        LD BC,DEFAULT_FCB                ; $0DBA  01 5C 00
+        LD BC,TFCB                ; $0DBA  01 5C 00
         CALL BDOS_MAKE                   ; $0DBD  CD 95 0C
         LD A,($1B78)                     ; $0DC0  3A 78 1B
         CP $FF                           ; $0DC3  FE FF
@@ -2003,7 +2002,7 @@ FILL_BUFFER_1:
         LD B,H                           ; $0E89  44
         LD C,L                           ; $0E8A  4D
         CALL SET_DMA                     ; $0E8B  CD F7 0C
-        LD BC,DEFAULT_FCB                ; $0E8E  01 5C 00
+        LD BC,TFCB                ; $0E8E  01 5C 00
         CALL BDOS_READ_SEQ               ; $0E91  CD 75 0C
         LD ($1B78),A                     ; $0E94  32 78 1B
         CP $00                           ; $0E97  FE 00
@@ -2023,7 +2022,7 @@ FILL_BUFFER_2:
         LD ($1C19),A                     ; $0EB5  32 19 1C
         JP FILL_BUFFER_4                    ; $0EB8  C3 C5 0E
 FILL_BUFFER_3:
-        LD DE,DEFAULT_DMA                ; $0EBB  11 80 00
+        LD DE,TBUFF                ; $0EBB  11 80 00
         LD HL,($1B60)                    ; $0EBE  2A 60 1B
         ADD HL,DE                        ; $0EC1  19
         LD ($1B60),HL                    ; $0EC2  22 60 1B
@@ -2037,7 +2036,7 @@ FILL_BUFFER_5:
         RET                              ; $0ED2  C9
 ; [AI] Resets the source-file append pointer to the start of its buffer region.
 RESET_SRC_PTR:
-        LD HL,WBOOT_VEC                  ; $0ED3  21 00 00
+        LD HL,$0000                  ; $0ED3  21 00 00
         LD ($1B60),HL                    ; $0ED6  22 60 1B
         RET                              ; $0ED9  C9
 ; [AI] Fetches the next character of the source file from the append buffer, refilling it from disk
@@ -2102,7 +2101,7 @@ FLUSH_BUFFER_2:
         JP Z,FLUSH_BUFFER_3                  ; $0F48  CA 4E 0F
         CALL DISK_FULL_ABORT             ; $0F4B  CD 2D 0D
 FLUSH_BUFFER_3:
-        LD DE,DEFAULT_DMA                ; $0F4E  11 80 00
+        LD DE,TBUFF                ; $0F4E  11 80 00
         LD HL,($1B62)                    ; $0F51  2A 62 1B
         ADD HL,DE                        ; $0F54  19
         LD ($1B62),HL                    ; $0F55  22 62 1B
@@ -2115,7 +2114,7 @@ FLUSH_BUFFER_4:
         RET                              ; $0F65  C9
 ; [AI] Resets the output-file write pointer to the start of its buffer region.
 RESET_OUT_PTR:
-        LD HL,WBOOT_VEC                  ; $0F66  21 00 00
+        LD HL,$0000                  ; $0F66  21 00 00
         LD ($1B62),HL                    ; $0F69  22 62 1B
         RET                              ; $0F6C  C9
 ; [AI] Stores one character (C) into the output buffer, flushing a full 128-byte record to disk via
@@ -2202,7 +2201,7 @@ CLOSE_OUTPUT_3:
         CALL SELECT_DRIVE                ; $100B  CD E7 0C
         LD L,$10                         ; $100E  2E 10
         LD DE,$1B3D                      ; $1010  11 3D 1B
-        LD BC,DEFAULT_FCB                ; $1013  01 5C 00
+        LD BC,TFCB                ; $1013  01 5C 00
 CLOSE_OUTPUT_4:
         LD A,(BC)                        ; $1016  0A
         LD (DE),A                        ; $1017  12
@@ -2474,7 +2473,7 @@ GET_COMMAND_CH_5:
         LD DE,$1D24                      ; $11E8  11 24 1D
         CALL CMP16_BC_DE                 ; $11EB  CD ED 19
         JP C,GET_COMMAND_CH_6                  ; $11EE  DA FA 11
-        LD BC,WBOOT_VEC                  ; $11F1  01 00 00
+        LD BC,$0000                  ; $11F1  01 00 00
         CALL PRINT_LINENO                ; $11F4  CD 19 11
         JP GET_COMMAND_CH_7                    ; $11F7  C3 FD 11
 GET_COMMAND_CH_6:
@@ -2524,7 +2523,7 @@ SELECT_SRC_DMA_DEF:
         LD HL,($1B64)                    ; $1247  2A 64 1B
         LD C,L                           ; $124A  4D
         CALL SELECT_DRIVE                ; $124B  CD E7 0C
-        LD BC,DEFAULT_DMA                ; $124E  01 80 00
+        LD BC,TBUFF                ; $124E  01 80 00
         CALL SET_DMA                     ; $1251  CD F7 0C
         RET                              ; $1254  C9
 ; [AI] Reads the next character from the library (X) scratch file's record buffer, fetching a new
@@ -2550,7 +2549,7 @@ LIB_GETCH_2:
         DEC A                            ; $127A  3D
         LD C,A                           ; $127B  4F
         LD B,$00                         ; $127C  06 00
-        LD HL,DEFAULT_DMA                ; $127E  21 80 00
+        LD HL,TBUFF                ; $127E  21 80 00
         ADD HL,BC                        ; $1281  09
         LD C,(HL)                        ; $1282  4E
         CALL FOLD_CASE                   ; $1283  CD 92 10
@@ -2573,7 +2572,7 @@ COUNT_NONZERO:
         RET                              ; $129A  C9
 ; [AI] Zeroes the pending argument/repeat count, terminating the current command's iteration.
 CLEAR_COUNT:
-        LD HL,WBOOT_VEC                  ; $129B  21 00 00
+        LD HL,$0000                  ; $129B  21 00 00
         LD ($1D1C),HL                    ; $129E  22 1C 1D
         RET                              ; $12A1  C9
 ; [AI] Loop control for repeated commands: if the argument count is nonzero, decrements it and
@@ -2604,7 +2603,7 @@ COMPUTE_RANGE:
         LD ($1D1C),HL                    ; $12C9  22 1C 1D
         LD HL,($1D22)                    ; $12CC  2A 22 1D
         LD ($1D2A),HL                    ; $12CF  22 2A 1D
-        LD HL,WBOOT_VEC                  ; $12D2  21 00 00
+        LD HL,$0000                  ; $12D2  21 00 00
         LD ($1D2E),HL                    ; $12D5  22 2E 1D
         DEC HL                           ; $12D8  2B
         LD ($1D2C),HL                    ; $12D9  22 2C 1D
@@ -3264,7 +3263,7 @@ TYPE_LINES:
         LD A,($1D20)                     ; $174E  3A 20 1D
         CP $01                           ; $1751  FE 01
         JP NZ,TYPE_LINES_1                 ; $1753  C2 65 17
-        LD HL,WBOOT_VEC                  ; $1756  21 00 00
+        LD HL,$0000                  ; $1756  21 00 00
         LD ($1C12),HL                    ; $1759  22 12 1C
         LD HL,($1D22)                    ; $175C  2A 22 1D
         LD ($1D3F),HL                    ; $175F  22 3F 1D
@@ -3514,8 +3513,8 @@ CONFIRM_CMD:
         LD C,L                           ; $1911  4D
         CALL CON_PUTCH                   ; $1912  CD FC 0A
         LD DE,MSG_YN_PROMPT              ; $1915  11 A0 01
-        LD C,$09                         ; $1918  0E 09
-        CALL BDOS_VEC                    ; $191A  CD 05 00
+        LD C,C_WRITESTR                         ; $1918  0E 09
+        CALL BDOS                    ; $191A  CD 05 00
         CALL CON_GETCH                   ; $191D  CD F3 0A
         LD C,A                           ; $1920  4F
         CALL TO_UPPER                    ; $1921  CD 79 10
@@ -3546,7 +3545,7 @@ IS_DIGIT:
 ; [AI] Parses a multi-digit decimal number from the command line into the argument register by
 ;       repeatedly multiplying by ten and adding each digit.
 PARSE_NUMBER:
-        LD HL,WBOOT_VEC                  ; $194A  21 00 00
+        LD HL,$0000                  ; $194A  21 00 00
         LD ($1D1C),HL                    ; $194D  22 1C 1D
 PARSE_NUMBER_1:
         CALL IS_DIGIT                    ; $1950  CD 3B 19
@@ -3603,7 +3602,7 @@ LINENO_TO_OFFSET_2:
 DIV16:
         LD B,H                           ; $19AA  44
         LD C,L                           ; $19AB  4D
-        LD HL,WBOOT_VEC                  ; $19AC  21 00 00
+        LD HL,$0000                  ; $19AC  21 00 00
         LD A,$10                         ; $19AF  3E 10
 DIV16_1:
         PUSH AF                          ; $19B1  F5
