@@ -1,23 +1,31 @@
 # Resume Prompt — Microsoft SoftCard CP/M Investigation
 
-## >> RESUME HERE — 2026-06-29 (LIVE): CP/M-constant rename of the 2.20-44K shared utilities — 10/15 DONE
+## >> RESUME HERE — 2026-06-29: CP/M-constant rename of the 2.20-44K utilities — 15/15 COMPLETE
 
-**The task** (queued in CLAUDE.md): bring `CPMV220-44K/utilities/*.asm` to the BASIC.asm bar's CP/M-constant
-standard — drop each file's local base-page EQUs (which DUPLICATE cpm22.inc cells under different names = the
-no-duplicate-symbol rule [[feedback_no_duplicate_symbol_definitions]]) and use the canonical cpm22.inc names:
-`CALL/JP $0005`→`BDOS`, `LD C,$nn`→`C_*/F_*/DRV_*/S_*`, `$0080`→`TBUFF`, `$005C`→`TFCB` (+ `TFCB+FCB_*` fields),
-`$0081`→`CMDLINE`, warm-boot→`WBOOTV`. Byte-identical is the FLOOR; semantic correctness the goal.
+**THIS CAMPAIGN IS DONE** (gate `softcard/ shared/` = 227 byte-identical; **8 commits** on `main`:
+`e4a4616` COPY+STAT · `c3ee8f6` XSUB+DUMP+DOWNLOAD+SUBMIT+LOAD+APDOS · `83a3888` FORMAT+RW13 · `8155c4a` DDT ·
+`6dc6234` ASM · `1b5e6d6` ED · `10564fb` PIP · `06ba635` CPM56; the two BASICs were already done). Every
+`CPMV220-44K/utilities/*.asm` is at the cpm22.inc base-page-constant standard. Full handoff +
+the per-site method live in `[[project_cpm_utility_constant_rename]]`.
 
-**DONE (10/15), 3 commits on `main`, gate `softcard/ shared/` = 227:** `e4a4616` COPY+STAT · `c3ee8f6`
-XSUB+DUMP+DOWNLOAD+SUBMIT+LOAD+APDOS · `83a3888` FORMAT+RW13. (The two BASICs were already done.)
+**Two findings carried (re-test, don't trust the old cautions):**
+1. **DDT's "BDOS collision" caution is OBSOLETE** — its image is now wrapped in `MODULE DDT_RESIDENT`, so the
+   image's own `BDOS` thunk ($06A8) is module-scoped and coexists with cpm22's global `BDOS` ($0005); DDT now
+   INCLUDEs cpm22.inc. **Always EMPIRICALLY test the include, never trust a stale memory caution.**
+2. **The rename is GATE-BLIND** (every rendering is byte-identical by value → purely semantic). The prior pass had
+   mis-named all `LD r,$0000` (the number zero) as WBOOT_VEC; only `JP/CALL $0000` is WBOOTV. DDT also needed a
+   **DISP-$0000 de-alias**: its relocated image reads the FIXED real base page (TFCB/TBUFF), which `DISP $0000` had
+   aliased to image code labels (`$005D`→PARSE_TOKEN_SCAN+1 etc.). Selectors auto-classified by "the next CALL
+   before any other LD C/branch is `CALL BDOS_VEC`". Adversarial-verify the gate-blind calls.
 
-**REMAINING (5, all large): ASM (8K), ED (6.6K), PIP (7.4K), DDT (5.1K), CPM56 (10.7K). Start with DDT.**
-- **DDT keeps a LOCAL `TPA EQU`** to dodge a BDOS-symbol collision (CLAUDE.md caution) — do NOT disturb it; verify
-  byte-identical after.
-- **CPM56** is the 56K-system builder image; large, overlaps the queued CPM56→os/ fold.
-- A file is DONE when: dup base-page EQUs removed → a cpm22 pointer note, refs use cpm22 names, **byte-identical**
-  (`source shared/toolchain/env.sh && python -m pytest softcard/cpm_pipeline/tests/test_utilities_roundtrip.py -k NAME`),
-  no mojibake (`grep 'Ã'`), no stale `BDOS_VEC`/`DEFAULT_*`/raw BDOS-fn `LD C,$nn`.
+**NEXT (broader queue — your choice):** extend the SAME rename to the OTHER trees' DISTINCT utilities — esp.
+**`CPMV223-44K/utilities/DDT.asm`** (a SEPARATE file from the 2.20 DDT; same DISP-$0000 de-alias needed), plus
+CPMV220 (56K) + CPMV223-60K utilities (mind the 60K `build_cpm60` include-staging caution). **CPM56 was
+installer-scope only**: its DISP-relocated 56K OS body (raw `CALL $0005` + its own `LD C,fn` wrapper library) was
+DEFERRED to the **CPM56→os/ fold** (which replaces the body with shared os/ sources). THEN the larger queued
+work: 2.23-44K OS uplift continuation, the os/ folds, 56K/60K to standard, the wiseowl "Guided Tour" series.
+
+### (historical) the original campaign brief
 
 **THE METHOD — NOT a blind rename** (the crux: a blind sed is byte-identical-but-WRONG, the exact
 [[feedback_byte_identical_not_correct_decode]] trap). The disassembler auto-symbolized many NUMERIC LITERALS by value
