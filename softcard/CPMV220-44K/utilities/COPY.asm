@@ -47,10 +47,12 @@
     INCLUDE "apple_softcard.inc"   ; Apple/SoftCard external names (single source of truth)
 
 ; -- External symbols --
-WBOOT_VEC            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
-BDOS_VEC             EQU $0005               ; BDOS call vector — JP BDOS_ENTRY. Programs use CALL $0005 to invoke BDOS. Word at $0006 is also the top-of-TPA marker. [DOC CPMREF 3-44; facts sec.7.1]
-RST6_VEC             EQU $0030               ; Z-80 RST 6 ($30) restart vector — 8 bytes. Available for application/debugger use. (COPY reuses $0030 as a "single-drive mode" resume sentinel.)
-DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer [DOC CPMREF 3-47; facts sec.7.4]. At program load this buffer doubles as the command tail: byte $0080 holds the tail length (0-127), chars follow at $0081 [DOC CPMREF 3-47; facts sec.7.5].
+; The CP/M 2.2 base-page cells this program touches (WBOOTV $0000, BDOS $0005,
+; TFCB $005C, TBUFF $0080, CMDLINE $0081) and the BDOS function numbers (C_*)
+; all come from cpm22.inc, INCLUDEd below: defined once there, not re-derived
+; per file. The only base-page symbol local to COPY is its borrow of the unused
+; RST 6 slot as a sentinel value:
+RST6_VEC             EQU $0030               ; Z-80 RST 6 ($30) vector cell -- 8 free base-page bytes. COPY borrows the address $0030 as its "single-drive mode" resume sentinel (never executed as a restart).
 
 ; -- Mid-instruction references (shown inline as cover+offset) --
 ;   $0230 -> COPY_DIR_WRITE_2+2   shared instruction tail: $0230 is reachable code inside the instruction at $022E
@@ -73,13 +75,13 @@ TPA_START_3:
 TPA_START_4:
         CALL PRINT_STRING                ; $010C  CD 45 02   ; [AI] print the "APPLE ][ CP/M ... Copy Program" banner
 TPA_START_5:
-        LD A,($0007)                     ; $010F  3A 07 00   ; [AI] high byte of BDOS entry = top of usable TPA, in pages [DOC CPMREF 3-44; facts sec.7.1]
+        LD A,(BDOS+2)                    ; $010F  3A 07 00   ; [AI] high byte of the BDOS entry word ($0006/$0007) = top of usable TPA, in pages [DOC CPMREF 3-44; facts sec.7.1]
 TPA_START_6:
         SUB $07                          ; $0112  D6 07      ; [AI] reserve top 7 pages -> usable track count
 TPA_START_7:
         LD (TRACKS_TO_COPY),A            ; $0114  32 E0 02   ; [AI] save number of tracks to copy per pass
 TPA_START_8:
-        LD A,(DEFAULT_DMA)               ; $0117  3A 80 00   ; [AI] command-tail length byte at $0080 [DOC CPMREF 3-47; facts sec.7.5]
+        LD A,(TBUFF)                     ; $0117  3A 80 00   ; [AI] command-tail length byte at $0080 [DOC CPMREF 3-47; facts sec.7.5]
 TPA_START_9:
         OR A                             ; $011A  B7         ; [AI] any command tail present?
 TPA_START_10:
@@ -91,13 +93,13 @@ PROMPT_INPUT:
 TPA_START_12:
         LD A,$80                         ; $0121  3E 80      ; [AI] max input length = 128
 TPA_START_13:
-        LD (DEFAULT_DMA),A               ; $0123  32 80 00   ; [AI] set the BDOS read-buffer "mx" max-length header byte [DOC CPMREF 3-51; facts sec.5 fn10]
+        LD (TBUFF),A                     ; $0123  32 80 00   ; [AI] set the BDOS read-buffer "mx" max-length header byte [DOC CPMREF 3-51; facts sec.5 fn10]
 TPA_START_14:
-        LD C,$0A                         ; $0126  0E 0A      ; [AI] BDOS fn 10 = Read Console Buffer [DOC CPMREF 3-44; facts sec.5]
+        LD C,C_READSTR                   ; $0126  0E 0A      ; [AI] BDOS fn 10 = Read Console Buffer [DOC CPMREF 3-44; facts sec.5]
 TPA_START_15:
-        LD DE,DEFAULT_DMA                ; $0128  11 80 00   ; [AI] DE -> read buffer (also default DMA)
+        LD DE,TBUFF                      ; $0128  11 80 00   ; [AI] DE -> read buffer (also default DMA)
 TPA_START_16:
-        CALL BDOS_VEC                    ; $012B  CD 05 00   ; [AI] read the command line
+        CALL BDOS                        ; $012B  CD 05 00   ; [AI] read the command line
 TPA_START_17:
         LD A,$0A                         ; $012E  3E 0A      ; [AI] line feed
 TPA_START_18:
@@ -109,7 +111,7 @@ HAVE_CMDTAIL:
 ; [AI] "/S" switch (single-drive mode: resume target = the $0030 sentinel).
         LD SP,STACK_TOP                  ; $0133  31 00 03   ; [AI] (re)establish stack just below banner text [DOC CPMREF 3-44; facts sec.7.3]
 TPA_START_20:
-        LD HL,$0082                      ; $0136  21 82 00   ; [AI] HL -> first real char of the command tail
+        LD HL,CMDLINE+1                  ; $0136  21 82 00   ; [AI] HL -> first real char of the command tail (CMDLINE $0081 + leading space)
 TPA_START_21:
         CALL NEXT_CHAR                   ; $0139  CD 54 02   ; [AI] fetch first char (uppercased)
 TPA_START_22:
@@ -141,7 +143,7 @@ SET_RESUME:
 ; [AI] TRACKS_TO_COPY tracks of $0800 bytes from MASTER to SLAVE.
 COPY_PASS:
         PUSH DE                          ; $0171  D5         ; [AI] save resume vector
-        LD HL,WBOOT_VEC                  ; $0172  21 00 00   ; [AI] HL = 0 (track 0 start)
+        LD HL,$0000                      ; $0172  21 00 00   ; [AI] HL = 0 (track 0 start; literal zero, not the warm-boot vector)
         LD (DSK_TRACK),HL                    ; $0175  22 E0 F3   ; [AI] reset track counter to 0
         LD HL,(SRC_DST_DRIVES)           ; $0178  2A DE 02   ; [AI] HL = {dst,src} drive pair
         LD DE,PROMPT_INSERT_MASTER       ; $017B  11 FC 03   ; [AI] "Insert MASTER disk into drive Z:"
@@ -166,7 +168,7 @@ TRACK_GROUP_LOOP:
         JR NC,FULL_BATCH                 ; $0199  30 05      ; [AI] enough for a full batch
         ADD HL,DE                        ; $019B  19         ; [AI] restore: fewer than a full batch left
         LD B,L                           ; $019C  45         ; [AI] B = exact remaining count
-        LD HL,WBOOT_VEC                  ; $019D  21 00 00   ; [AI] HL = 0 (last batch)
+        LD HL,$0000                      ; $019D  21 00 00   ; [AI] HL = 0 (last batch; literal zero)
 FULL_BATCH:
         PUSH HL                          ; $01A0  E5         ; [AI] save remaining-track count
         LD A,(SINGLE_DRIVE_FLAG)         ; $01A1  3A E1 02   ; [AI] single-drive write-phase flag
@@ -202,7 +204,7 @@ ASK_YN:
         LD DE,PROMPT_INSERT_SYSTEM       ; $01E2  11 AC 03   ; [AI] "Insert CP/M System disk into drive A:"
         CALL PRINT_AND_WAIT_CR           ; $01E5  CD BD 02   ; [AI] prompt for system disk before exit
 EXIT_WBOOT:
-        JP WBOOT_VEC                     ; $01E8  C3 00 00   ; [AI] warm boot back to CCP [DOC CPMREF 3-44; facts sec.7.3]
+        JP WBOOTV                        ; $01E8  C3 00 00   ; [AI] warm boot back to CCP [DOC CPMREF 3-44; facts sec.7.3]
 ANSWER_NOT_N:
         CP $59                           ; $01EB  FE 59      ; [AI] 'Y'?
         JR NZ,ASK_YN                     ; $01ED  20 DE      ; [AI] neither Y nor N -> re-read key
@@ -264,7 +266,7 @@ ECHO_CRLF2:
 HOME_CLEAR:
         LD DE,MSG_CRLF_CRLF              ; $0242  11 59 04   ; [AI] DE -> "\r\n\r\n$"
 PRINT_STRING:
-        LD C,$09                         ; $0245  0E 09      ; [AI] BDOS fn 9 = Print String [DOC CPMREF 3-44; facts sec.5]
+        LD C,C_WRITESTR                  ; $0245  0E 09      ; [AI] BDOS fn 9 = Print String [DOC CPMREF 3-44; facts sec.5]
 PRINT_STRING_1:
         JR CONOUT_2                      ; $0247  18 08
 CLEAR_AND_STAR:
@@ -274,9 +276,9 @@ CLEAR_AND_STAR_1:
 CONOUT:
         LD E,A                           ; $024E  5F         ; [AI] BDOS fn 2 = Console Output of char in A [DOC CPMREF 3-44; facts sec.5]
 CONOUT_1:
-        LD C,$02                         ; $024F  0E 02
+        LD C,C_WRITE                     ; $024F  0E 02      ; [AI] BDOS fn 2 = Console Output (char in E)
 CONOUT_2:
-        JP BDOS_VEC                      ; $0251  C3 05 00   ; [AI] tail-call into BDOS
+        JP BDOS                          ; $0251  C3 05 00   ; [AI] tail-call into BDOS
 ; [AI] Fetch next command-tail character via HL and fold lowercase to uppercase
 ; [AI] (subtract $20 when >= $E0 in the rotated sense), return in A. Walks the tail.
 NEXT_CHAR:
@@ -355,7 +357,7 @@ CHECK_6502_STATUS:
         LD HL,$14AE                      ; $029D  21 AE 14   ; [AI] run-address of the embedded 6502 driver (see COPY_6502 / INCBIN below)
         LD (A_VEC),HL                    ; $02A0  22 D0 F3   ; [AI] arm A$VEC with the driver address [DOC S&HD 2-25; facts sec.4.2]
 CHECK_6502_STATUS_PATCH:
-        LD (WBOOT_VEC),A                 ; $02A3  32 00 00   ; [AI] CPU-SWITCH dispatch: operand = cached Z$CPU (patched at $0103); this write runs the 6502 (entry $02A4 = +1)
+        LD ($0000),A                     ; $02A3  32 00 00   ; [AI] CPU-SWITCH dispatch: the $0000 operand is a placeholder, self-modified at $0103 to the cached Z$CPU word; this write runs the 6502 (entry $02A4 = +1)
         LD A,(DSK_STATUS)                     ; $02A6  3A EA F3   ; [AI] 6502 result/status byte returned by the call
         OR A                             ; $02A9  B7         ; [AI] 0 = success?
         RET Z                            ; $02AA  C8         ; [AI] OK -> continue
@@ -381,13 +383,13 @@ PRINT_AND_WAIT_CR_1:
 ; [AI] uppercase the result.
 CONIN_UPPER:
         LD E,$FF                         ; $02C8  1E FF      ; [AI] fn 6 "input" request code
-        LD C,$06                         ; $02CA  0E 06      ; [AI] BDOS fn 6 = Direct Console I/O
-        CALL BDOS_VEC                    ; $02CC  CD 05 00
+        LD C,C_RAWIO                     ; $02CA  0E 06      ; [AI] BDOS fn 6 = Direct Console I/O
+        CALL BDOS                        ; $02CC  CD 05 00
         OR A                             ; $02CF  B7         ; [AI] no key ready?
 CONIN_UPPER_1:
         JR Z,CONIN_UPPER                 ; $02D0  28 F6      ; [AI] poll until a key arrives
         CP $03                           ; $02D2  FE 03      ; [AI] ^C abort?
-        JP Z,WBOOT_VEC                   ; $02D4  CA 00 00   ; [AI] ^C -> warm boot
+        JP Z,WBOOTV                      ; $02D4  CA 00 00   ; [AI] ^C -> warm boot
         CP $60                           ; $02D7  FE 60      ; [AI] lowercase letter?
         RET C                            ; $02D9  D8         ; [AI] no -> return as-is
         SUB $20                          ; $02DA  D6 20      ; [AI] fold to uppercase

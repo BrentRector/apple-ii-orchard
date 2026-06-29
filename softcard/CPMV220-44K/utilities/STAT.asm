@@ -8,13 +8,13 @@
     DEVICE NOSLOT64K
 
 ; -- External symbols --
-WBOOT_VEC            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
-IOBYTE               EQU $0003               ; I/O assignment byte — logical-to-physical device routing (CONSOLE/READER/PUNCH/LIST). 4 fields × 2 bits each.
-CDISK                EQU $0004               ; Current drive (low nibble: 0=A, 1=B, ..., 15=P) and current user (high nibble, 0-15).
-BDOS_VEC             EQU $0005               ; BDOS call vector — JP BDOS_ENTRY. Programs use CALL $0005 to invoke BDOS. Word at $0006 is also the top-of-TPA marker.
-DEFAULT_FCB          EQU $005C               ; Default File Control Block — populated by CCP from command-line argument 1. Standard 36-byte FCB structure (drive + filename + extents + record number).
-DEFAULT_RND          EQU $007D               ; Default FCB random record number (3 bytes — low/middle/high).
-DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS cold-init / DRV_ALLRESET (fn 13) set the DMA address here and WBOOT re-issues SETDMA($0080); sector/record I/O moves 128 bytes through it. At program load this same buffer doubles as the command tail: the first byte ($0080) holds the tail length (0-127) and the characters follow at $0081 (CMDLINE).
+; The CP/M 2.2 base-page cells and BDOS function numbers STAT uses come from
+; cpm22.inc (INCLUDEd below): WBOOTV $0000, IOBYTE_ADDR $0003, BDOS $0005,
+; TFCB $005C (+ FCB_* field offsets), TBUFF $0080, and the C_*/F_*/DRV_*/S_*
+; function constants. Defined once there, not re-derived per file. NOTE: the
+; disk-parameter-block field offsets STAT indexes (DPB+4 = EXM, DPB+5 = DSM) and
+; the 128-bytes-per-record multiplier are plain numeric literals, NOT base-page
+; cells -- they only coincide in value with $0004 / $0005 / $0080.
 
 ; -- Mid-instruction references (shown inline as cover+offset) --
 ;   (none) -- the earlier $102E -> FILE_STATUS_MAIN_21+1 entry was a phantom from a DEFW data match at
@@ -163,7 +163,7 @@ TPA_START_44:
 ; [AI] Real startup: saves the entry stack pointer, switches to STAT's private stack, then checks
 ;       the CP/M version before doing anything else.
 TPA_START_45:
-        LD HL,WBOOT_VEC                  ; $0433  21 00 00
+        LD HL,$0000                  ; $0433  21 00 00
 TPA_START_46:
         ADD HL,SP                        ; $0436  39
 TPA_START_47:
@@ -189,12 +189,12 @@ TPA_START_55:
 TPA_START_56:
         LD HL,CMD_TAIL_IDX                ; $044F  21 5D 15
         LD (HL),$01                      ; $0452  36 01
-        LD A,(DEFAULT_FCB)               ; $0454  3A 5C 00
+        LD A,(TFCB)               ; $0454  3A 5C 00
         SUB $00                          ; $0457  D6 00
         SUB $01                          ; $0459  D6 01
         SBC A,A                          ; $045B  9F
         PUSH AF                          ; $045C  F5
-        LD A,($005D)                     ; $045D  3A 5D 00
+        LD A,(TFCB+FCB_F)                     ; $045D  3A 5D 00
         SUB $20                          ; $0460  D6 20
         SUB $01                          ; $0462  D6 01
         SBC A,A                          ; $0464  9F
@@ -208,7 +208,7 @@ TPA_START_56:
 ; [AI] Branch taken when a filename argument is present, dispatching to the per-file status path
 ;       (HANDLE_FILE_OR_ASSIGN) rather than the disk-summary path.
 TPA_START_57:
-        LD A,(DEFAULT_FCB)               ; $0472  3A 5C 00
+        LD A,(TFCB)               ; $0472  3A 5C 00
         CP $00                           ; $0475  FE 00
         JP Z,TPA_START_58                ; $0477  CA 80 04
         CALL HANDLE_FILE_OR_ASSIGN                    ; $047A  CD 02 14
@@ -241,7 +241,7 @@ CONOUT_CHAR_3:
 CONOUT_CHAR_4:
         EX DE,HL                         ; $0499  EB
 CONOUT_CHAR_5:
-        LD C,$02                         ; $049A  0E 02
+        LD C,C_WRITE                        ; $049A  0E 02
 CONOUT_CHAR_6:
         CALL BDOS_CALL_VOID                    ; $049C  CD 4C 14
 CONOUT_CHAR_7:
@@ -321,16 +321,16 @@ PRINT_LINE_9:
 ; [AI] BDOS function 11 (console status / break check), returning whether a key is waiting; used to
 ;       honor user abort during listings.
 BDOS_CONST:
-        LD DE,WBOOT_VEC                  ; $04E4  11 00 00
-        LD C,$0B                         ; $04E7  0E 0B
+        LD DE,$0000                  ; $04E4  11 00 00
+        LD C,C_STAT                        ; $04E7  0E 0B
         CALL BDOS_CALL_A                    ; $04E9  CD 4F 14
         RET                              ; $04EC  C9
 ; [AI] BDOS function 12 (return version number); called at startup to verify this is CP/M 2.x
 ;       before running.
 BDOS_GET_VERSION:
-        LD DE,WBOOT_VEC                  ; $04ED  11 00 00
+        LD DE,$0000                  ; $04ED  11 00 00
 BDOS_GET_VERSION_1:
-        LD C,$0C                         ; $04F0  0E 0C
+        LD C,S_BDOSVER                        ; $04F0  0E 0C
 BDOS_GET_VERSION_2:
         CALL BDOS_CALL_A                    ; $04F2  CD 4F 14
 BDOS_GET_VERSION_3:
@@ -343,7 +343,7 @@ BDOS_SELECT_DISK:
         LD HL,(SEL_DISK_ARG)              ; $04FA  2A 28 15
         LD H,$00                         ; $04FD  26 00
         EX DE,HL                         ; $04FF  EB
-        LD C,$0E                         ; $0500  0E 0E
+        LD C,DRV_SET                        ; $0500  0E 0E
         CALL BDOS_CALL_VOID                    ; $0502  CD 4C 14
         RET                              ; $0505  C9
 ; [AI] Unreferenced (dead) BDOS function 15 (open file) wrapper on the FCB whose address is in C,
@@ -355,7 +355,7 @@ BDOS_OPEN_FILE:
         LD (HL),C                        ; $050B  71
         LD HL,(SEL_DISK_ARG+1)              ; $050C  2A 29 15
         EX DE,HL                         ; $050F  EB
-        LD C,$0F                         ; $0510  0E 0F
+        LD C,F_OPEN                        ; $0510  0E 0F
         CALL BDOS_CALL_A                    ; $0512  CD 4F 14
         LD (DIR_CODE),A                ; $0515  32 27 15
         RET                              ; $0518  C9
@@ -368,23 +368,23 @@ BDOS_SEARCH_FIRST:
         LD (HL),C                        ; $051E  71
         LD HL,(SRCH_FCB_PTR)              ; $051F  2A 2B 15
         EX DE,HL                         ; $0522  EB
-        LD C,$11                         ; $0523  0E 11
+        LD C,F_SFIRST                        ; $0523  0E 11
         CALL BDOS_CALL_A                    ; $0525  CD 4F 14
         LD (DIR_CODE),A                ; $0528  32 27 15
         RET                              ; $052B  C9
 ; [AI] BDOS function 18 (search next); continues the directory scan started by search-first,
 ;       storing the directory code.
 BDOS_SEARCH_NEXT:
-        LD DE,WBOOT_VEC                  ; $052C  11 00 00
-        LD C,$12                         ; $052F  0E 12
+        LD DE,$0000                  ; $052C  11 00 00
+        LD C,F_SNEXT                        ; $052F  0E 12
         CALL BDOS_CALL_A                    ; $0531  CD 4F 14
         LD (DIR_CODE),A                ; $0534  32 27 15
         RET                              ; $0537  C9
 ; [AI] BDOS function 25 (return current default drive number); used when printing which drive a
 ;       report refers to.
 BDOS_GET_CUR_DRIVE:
-        LD DE,WBOOT_VEC                  ; $0538  11 00 00
-        LD C,$19                         ; $053B  0E 19
+        LD DE,$0000                  ; $0538  11 00 00
+        LD C,DRV_GET                        ; $053B  0E 19
         CALL BDOS_CALL_A                    ; $053D  CD 4F 14
         RET                              ; $0540  C9
 ; [AI] BDOS function 26 (set DMA address) to the buffer pointed to by BC, redirecting where
@@ -396,49 +396,49 @@ BDOS_SET_DMA:
         LD (HL),C                        ; $0546  71
         LD HL,(SETDMA_ARG)              ; $0547  2A 2D 15
         EX DE,HL                         ; $054A  EB
-        LD C,$1A                         ; $054B  0E 1A
+        LD C,F_DMAOFF                        ; $054B  0E 1A
         CALL BDOS_CALL_VOID                    ; $054D  CD 4C 14
         RET                              ; $0550  C9
 ; [AI] BDOS function 27 (get allocation-vector address) for the current drive, returned in HL;
 ;       basis of the free-space computation.
 BDOS_GET_ALLOC_VEC:
-        LD DE,WBOOT_VEC                  ; $0551  11 00 00
-        LD C,$1B                         ; $0554  0E 1B
+        LD DE,$0000                  ; $0551  11 00 00
+        LD C,DRV_ALLOCVEC                        ; $0554  0E 1B
         CALL BDOS_CALL_HL                    ; $0556  CD 52 14
         RET                              ; $0559  C9
 ; [AI] BDOS function 24 (return login/active-drive bit vector) in HL; used to enumerate which
 ;       drives are online for DSK: status.
 BDOS_GET_LOGIN_VEC:
-        LD DE,WBOOT_VEC                  ; $055A  11 00 00
-        LD C,$18                         ; $055D  0E 18
+        LD DE,$0000                  ; $055A  11 00 00
+        LD C,DRV_LOGINVEC                        ; $055D  0E 18
         CALL BDOS_CALL_HL                    ; $055F  CD 52 14
         RET                              ; $0562  C9
 ; [AI] BDOS function 28 (write-protect current disk), invoked by the 'd:=R/O' temporary read-only
 ;       assignment command.
 BDOS_WRITE_PROTECT:
-        LD DE,WBOOT_VEC                  ; $0563  11 00 00
-        LD C,$1C                         ; $0566  0E 1C
+        LD DE,$0000                  ; $0563  11 00 00
+        LD C,DRV_SETRO                        ; $0566  0E 1C
         CALL BDOS_CALL_VOID                    ; $0568  CD 4C 14
         RET                              ; $056B  C9
 ; [AI] BDOS function 29 (return read-only drive bit vector) in HL; tells STAT which drives are
 ;       currently write-protected.
 BDOS_GET_RO_VEC:
-        LD DE,WBOOT_VEC                  ; $056C  11 00 00
-        LD C,$1D                         ; $056F  0E 1D
+        LD DE,$0000                  ; $056C  11 00 00
+        LD C,DRV_ROVEC                        ; $056F  0E 1D
         CALL BDOS_CALL_HL                    ; $0571  CD 52 14
         RET                              ; $0574  C9
 ; [AI] BDOS function 30 (set file attributes) wrapper on the default FCB; called by the set-indicator
 ;       finalize path (FILE_STATUS_MAIN_55) to commit a file's new R/O/SYS/DIR attribute bits to disk.
 BDOS_SET_FILE_ATTR:
-        LD DE,DEFAULT_FCB                ; $0575  11 5C 00
-        LD C,$1E                         ; $0578  0E 1E
+        LD DE,TFCB                ; $0575  11 5C 00
+        LD C,F_ATTRIB                        ; $0578  0E 1E
         CALL BDOS_CALL_VOID                    ; $057A  CD 4C 14
         RET                              ; $057D  C9
 ; [AI] BDOS function 31 (get disk-parameter-block address) in HL, saved at $151E; the source of
 ;       every drive-characteristics number STAT prints.
 BDOS_GET_DPB:
-        LD DE,WBOOT_VEC                  ; $057E  11 00 00
-        LD C,$1F                         ; $0581  0E 1F
+        LD DE,$0000                  ; $057E  11 00 00
+        LD C,DRV_DPB                        ; $0581  0E 1F
         CALL BDOS_CALL_HL                    ; $0583  CD 52 14
         LD (DPB_ADDR),HL               ; $0586  22 1E 15
         RET                              ; $0589  C9
@@ -446,7 +446,7 @@ BDOS_GET_DPB:
 ;       User display.
 BDOS_GET_USER:
         LD DE,$00FF                      ; $058A  11 FF 00
-        LD C,$20                         ; $058D  0E 20
+        LD C,F_USERNUM                   ; $058D  0E 20
         CALL BDOS_CALL_A                    ; $058F  CD 4F 14
         RET                              ; $0592  C9
 ; [AI] Unreferenced (dead) BDOS function 32 (set current user number) wrapper, user number in C;
@@ -457,7 +457,7 @@ BDOS_SET_USER:
         LD HL,(SETDMA_ARG_HI+1)              ; $0597  2A 2F 15
         LD H,$00                         ; $059A  26 00
         EX DE,HL                         ; $059C  EB
-        LD C,$20                         ; $059D  0E 20
+        LD C,F_USERNUM                   ; $059D  0E 20
         CALL BDOS_CALL_VOID                    ; $059F  CD 4C 14
         RET                              ; $05A2  C9
 ; [AI] BDOS function 35 (compute file size) for the FCB in BC, leaving the record count in the
@@ -469,7 +469,7 @@ BDOS_COMPUTE_FILESIZE:
         LD (HL),C                        ; $05A8  71
         LD HL,(FSIZE_FCB_PTR)              ; $05A9  2A 30 15
         EX DE,HL                         ; $05AC  EB
-        LD C,$23                         ; $05AD  0E 23
+        LD C,F_SIZE                        ; $05AD  0E 23
         CALL BDOS_CALL_VOID                    ; $05AF  CD 4C 14
         RET                              ; $05B2  C9
 ; [AI] Fetches the current disk parameter block and derives the drive's total 128-byte-record
@@ -482,7 +482,7 @@ GET_DRIVE_CAPACITY:
         LD C,(HL)                        ; $05BB  4E
         LD HL,$0001                      ; $05BC  21 01 00
         CALL SHL_HL                    ; $05BF  CD BD 14
-        LD DE,DEFAULT_DMA                ; $05C2  11 80 00
+        LD DE,$0080                ; $05C2  11 80 00
         CALL MUL16                    ; $05C5  CD 9E 14
         LD (DRIVE_CAPACITY),HL              ; $05C8  22 54 15
         RET                              ; $05CB  C9
@@ -561,7 +561,7 @@ CMP_TOKEN_RO_MATCH:
 PARSE_NEXT_TOKEN:
         LD HL,(CMD_TAIL_IDX)              ; $0639  2A 5D 15
         LD H,$00                         ; $063C  26 00
-        LD BC,DEFAULT_DMA                ; $063E  01 80 00
+        LD BC,TBUFF                ; $063E  01 80 00
         ADD HL,BC                        ; $0641  09
         LD A,(HL)                        ; $0642  7E
         CP $20                           ; $0643  FE 20
@@ -580,7 +580,7 @@ PARSE_NEXT_TOKEN_2:
         JP NC,PARSE_NEXT_TOKEN_7                 ; $0659  D2 E6 06
         LD HL,(CMD_TAIL_IDX)              ; $065C  2A 5D 15
         LD H,$00                         ; $065F  26 00
-        LD BC,DEFAULT_DMA                ; $0661  01 80 00
+        LD BC,TBUFF                ; $0661  01 80 00
         ADD HL,BC                        ; $0664  09
         LD A,(HL)                        ; $0665  7E
         LD (TOKEN_CUR_CHAR),A               ; $0666  32 62 15
@@ -661,7 +661,7 @@ PARSE_NEXT_TOKEN_4:
         JP NC,PARSE_NEXT_TOKEN_5                 ; $06CE  D2 DF 06
         LD HL,(CMD_TAIL_IDX)              ; $06D1  2A 5D 15
         LD H,$00                         ; $06D4  26 00
-        LD BC,DEFAULT_DMA                ; $06D6  01 80 00
+        LD BC,TBUFF                ; $06D6  01 80 00
         ADD HL,BC                        ; $06D9  09
         LD (HL),$01                      ; $06DA  36 01
         JP PARSE_NEXT_TOKEN_6                    ; $06DC  C3 E3 06
@@ -806,7 +806,7 @@ ACCUM_1K_BLOCKS_2:
 COUNT_USED_RECORDS:
         LD HL,COUNT_MODE                ; $07B7  21 6E 15
         LD (HL),C                        ; $07BA  71
-        LD HL,WBOOT_VEC                  ; $07BB  21 00 00
+        LD HL,$0000                  ; $07BB  21 00 00
         LD (BLOCK_TOTAL),HL              ; $07BE  22 6F 15
         LD (COUNT_PARTIAL),HL              ; $07C1  22 71 15
         LD A,L                           ; $07C4  7D
@@ -815,7 +815,7 @@ COUNT_USED_RECORDS:
         LD H,$00                         ; $07C9  26 00
         LD (COUNT_ENTRY_IDX),HL              ; $07CB  22 73 15
 COUNT_USED_RECORDS_1:
-        LD BC,BDOS_VEC                   ; $07CE  01 05 00
+        LD BC,$0005                   ; $07CE  01 05 00
         LD HL,(DPB_ADDR)               ; $07D1  2A 1E 15
         ADD HL,BC                        ; $07D4  09
         EX DE,HL                         ; $07D5  EB
@@ -963,7 +963,7 @@ PRINT_DRIVE_CHARS:
         LD HL,$0001                      ; $08E3  21 01 00
         CALL SHL_HL                    ; $08E6  CD BD 14
         LD (RECS_PER_BLOCK),HL              ; $08E9  22 97 15
-        LD BC,BDOS_VEC                   ; $08EC  01 05 00
+        LD BC,$0005                   ; $08EC  01 05 00
         LD HL,(DPB_ADDR)               ; $08EF  2A 1E 15
         ADD HL,BC                        ; $08F2  09
         LD C,(HL)                        ; $08F3  4E
@@ -1033,14 +1033,14 @@ PRINT_DRIVE_CHARS_3:
         CALL PRINT_CAPACITY_FIELD                    ; $0966  CD C0 09
         LD BC,TPA_START_15               ; $0969  01 54 02
         CALL PRINT_STRING                    ; $096C  CD B1 04
-        LD BC,CDISK                      ; $096F  01 04 00
+        LD BC,$0004                      ; $096F  01 04 00
         LD HL,(DPB_ADDR)               ; $0972  2A 1E 15
         ADD HL,BC                        ; $0975  09
         LD A,(HL)                        ; $0976  7E
         INC A                            ; $0977  3C
         LD L,A                           ; $0978  6F
         LD H,$00                         ; $0979  26 00
-        LD DE,DEFAULT_DMA                ; $097B  11 80 00
+        LD DE,$0080                ; $097B  11 80 00
         CALL MUL16                    ; $097E  CD 9E 14
         LD B,H                           ; $0981  44
         LD C,L                           ; $0982  4D
@@ -1210,7 +1210,7 @@ DISPATCH_COMMAND_2:
         LD A,(KW_DISPATCH_IDX)               ; $0AAC  3A A7 15
         CP $05                           ; $0AAF  FE 05
         JP NZ,DISPATCH_COMMAND_5                 ; $0AB1  C2 18 0B
-        LD A,(IOBYTE)                    ; $0AB4  3A 03 00
+        LD A,(IOBYTE_ADDR)                    ; $0AB4  3A 03 00
         LD (IOBYTE_WORK),A               ; $0AB7  32 A9 15
         LD HL,DEV_SUBINDEX                ; $0ABA  21 A8 15
         LD (HL),$00                      ; $0ABD  36 00
@@ -1411,11 +1411,11 @@ DISPATCH_COMMAND_17:
 ;       page-zero $0003.
 DISPATCH_COMMAND_18:
         LD A,(IOBYTE_WORK)               ; $0C38  3A A9 15
-        LD HL,IOBYTE                     ; $0C3B  21 03 00
+        LD HL,IOBYTE_ADDR                    ; $0C3B  21 03 00
         AND (HL)                         ; $0C3E  A6
         LD HL,DEV_SUBINDEX                ; $0C3F  21 A8 15
         OR (HL)                          ; $0C42  B6
-        LD (IOBYTE),A                    ; $0C43  32 03 00
+        LD (IOBYTE_ADDR),A                    ; $0C43  32 03 00
 ; [AI] Post-command continuation that checks the trailing delimiter, looping to process another
 ;       comma-separated assignment or reporting a bad-delimiter error.
 DISPATCH_COMMAND_19:
@@ -1618,10 +1618,10 @@ REPORT_DISK_STATUS_5:
 ; [AI] If a drive letter was given in the FCB, selects that drive so the following operation
 ;       reports on the user-named disk rather than the default.
 SELECT_FCB_DRIVE:
-        LD A,(DEFAULT_FCB)               ; $0DA9  3A 5C 00
+        LD A,(TFCB)               ; $0DA9  3A 5C 00
         CP $00                           ; $0DAC  FE 00
         JP Z,SELECT_FCB_DRIVE_1                  ; $0DAE  CA B9 0D
-        LD A,(DEFAULT_FCB)               ; $0DB1  3A 5C 00
+        LD A,(TFCB)               ; $0DB1  3A 5C 00
         DEC A                            ; $0DB4  3D
         LD C,A                           ; $0DB5  4F
         CALL SELECT_DRIVE_REFRESH                    ; $0DB6  CD CC 05
@@ -1649,21 +1649,21 @@ FILE_STATUS_MAIN_1:
         LD ($29CC),A                     ; $0DDE  32 CC 29
         JP FILE_STATUS_MAIN_3                    ; $0DE1  C3 F0 0D
 FILE_STATUS_MAIN_2:
-        LD A,($005D)                     ; $0DE4  3A 5D 00
+        LD A,(TFCB+FCB_F)                     ; $0DE4  3A 5D 00
         CP $20                           ; $0DE7  FE 20
         JP NZ,FILE_STATUS_MAIN_3                 ; $0DE9  C2 F0 0D
         CALL PRINT_BYTES_REMAINING                    ; $0DEC  CD 26 0D
         RET                              ; $0DEF  C9
 FILE_STATUS_MAIN_3:
-        LD HL,WBOOT_VEC                  ; $0DF0  21 00 00
+        LD HL,$0000                  ; $0DF0  21 00 00
         LD (FILE_COUNT),HL              ; $0DF3  22 B8 15
         LD A,L                           ; $0DF6  7D
-        LD (DEFAULT_FCB),A               ; $0DF7  32 5C 00
-        LD HL,$0068                      ; $0DFA  21 68 00
+        LD (TFCB),A               ; $0DF7  32 5C 00
+        LD HL,TFCB+FCB_EX                     ; $0DFA  21 68 00
         LD (HL),$3F                      ; $0DFD  36 3F
-        LD HL,$006A                      ; $0DFF  21 6A 00
+        LD HL,TFCB+FCB_S2                     ; $0DFF  21 6A 00
         LD (HL),$3F                      ; $0E02  36 3F
-        LD BC,DEFAULT_FCB                ; $0E04  01 5C 00
+        LD BC,TFCB                ; $0E04  01 5C 00
         CALL BDOS_SEARCH_FIRST                    ; $0E07  CD 19 05
 ; [AI] Directory-read loop that pages through directory entries via search-first/search-next,
 ;       collecting matching filenames into the in-memory file table.
@@ -1684,7 +1684,7 @@ FILE_STATUS_MAIN_4:
         LD ($29BA),HL                    ; $0E21  22 BA 29
         LD HL,$29CB                      ; $0E24  21 CB 29
         LD (HL),$00                      ; $0E27  36 00
-        LD HL,WBOOT_VEC                  ; $0E29  21 00 00
+        LD HL,$0000                  ; $0E29  21 00 00
         LD ($29BE),HL                    ; $0E2C  22 BE 29
 FILE_STATUS_MAIN_5:
         LD A,($29CB)                     ; $0E2F  3A CB 29
@@ -1777,7 +1777,7 @@ FILE_STATUS_MAIN_11:
         JP NC,FILE_STATUS_MAIN_12                ; $0ED5  D2 ED 0E
         LD BC,TPA_START_35               ; $0ED8  01 A5 03
         CALL PRINT_LINE                    ; $0EDB  CD D2 04
-        LD HL,WBOOT_VEC                  ; $0EDE  21 00 00
+        LD HL,$0000                  ; $0EDE  21 00 00
         LD ($29BE),HL                    ; $0EE1  22 BE 29
         LD HL,$0001                      ; $0EE4  21 01 00
         LD (FILE_COUNT),HL              ; $0EE7  22 B8 15
@@ -1884,7 +1884,7 @@ FILE_STATUS_MAIN_15:
         PUSH HL                          ; $0F91  E5
         LD HL,($29BA)                    ; $0F92  2A BA 29
         ADD HL,BC                        ; $0F95  09
-        LD BC,CDISK                      ; $0F96  01 04 00
+        LD BC,$0004                      ; $0F96  01 04 00
         PUSH HL                          ; $0F99  E5
         LD HL,(DPB_ADDR)               ; $0F9A  2A 1E 15
         ADD HL,BC                        ; $0F9D  09
@@ -1893,7 +1893,7 @@ FILE_STATUS_MAIN_15:
         AND (HL)                         ; $0FA0  A6
         LD L,A                           ; $0FA1  6F
         LD H,$00                         ; $0FA2  26 00
-        LD DE,DEFAULT_DMA                ; $0FA4  11 80 00
+        LD DE,$0080                ; $0FA4  11 80 00
         CALL MUL16                    ; $0FA7  CD 9E 14
         POP BC                           ; $0FAA  C1
         ADD HL,BC                        ; $0FAB  09
@@ -1908,7 +1908,7 @@ FILE_STATUS_MAIN_15:
         LD (HL),B                        ; $0FB8  70
         LD HL,$29C7                      ; $0FB9  21 C7 29
         LD (HL),$01                      ; $0FBC  36 01
-        LD BC,BDOS_VEC                   ; $0FBE  01 05 00
+        LD BC,$0005                   ; $0FBE  01 05 00
         LD HL,(DPB_ADDR)               ; $0FC1  2A 1E 15
         ADD HL,BC                        ; $0FC4  09
         LD A,$FF                         ; $0FC5  3E FF
@@ -2003,9 +2003,9 @@ FILE_STATUS_MAIN_26:
         LD HL,$29C0                      ; $1073  21 C0 29
         CALL CMP_A_MEM                    ; $1076  CD F5 14
         JP NC,FILE_STATUS_MAIN_34                ; $1079  D2 64 11
-        LD HL,WBOOT_VEC                  ; $107C  21 00 00
+        LD HL,$0000                  ; $107C  21 00 00
         LD ($29C0),HL                    ; $107F  22 C0 29
-        LD HL,WBOOT_VEC                  ; $1082  21 00 00
+        LD HL,$0000                  ; $1082  21 00 00
         LD ($29C4),HL                    ; $1085  22 C4 29
 FILE_STATUS_MAIN_27:
         LD HL,(FILE_COUNT)              ; $1088  2A B8 15
@@ -2142,7 +2142,7 @@ FILE_STATUS_MAIN_35:
 FILE_STATUS_MAIN_36:
         LD BC,TPA_START_38               ; $1177  01 D0 03
         CALL PRINT_STRING                    ; $117A  CD B1 04
-        LD HL,WBOOT_VEC                  ; $117D  21 00 00
+        LD HL,$0000                  ; $117D  21 00 00
         LD ($29C0),HL                    ; $1180  22 C0 29
 ; [AI] Per-file print loop: emits each file's record count, byte size, extent count, R/O+SYS access
 ;       flags, drive letter, and formatted name.
@@ -2167,7 +2167,7 @@ FILE_STATUS_MAIN_37:
         LD HL,($29BC)                    ; $11A7  2A BC 29
         LD B,H                           ; $11AA  44
         LD C,L                           ; $11AB  4D
-        LD DE,DEFAULT_FCB                ; $11AC  11 5C 00
+        LD DE,TFCB                ; $11AC  11 5C 00
         POP HL                           ; $11AF  E1
 FILE_STATUS_MAIN_38:
         LD A,(BC)                        ; $11B0  0A
@@ -2176,21 +2176,21 @@ FILE_STATUS_MAIN_38:
         INC DE                           ; $11B3  13
         DEC L                            ; $11B4  2D
         JP NZ,FILE_STATUS_MAIN_38                ; $11B5  C2 B0 11
-        LD HL,DEFAULT_FCB                ; $11B8  21 5C 00
+        LD HL,TFCB                ; $11B8  21 5C 00
         LD (HL),$00                      ; $11BB  36 00
         LD A,(SIZE_COL_FLAG)                ; $11BD  3A 1D 15
         RRA                              ; $11C0  1F
         JP NC,FILE_STATUS_MAIN_41                ; $11C1  D2 E9 11
-        LD BC,DEFAULT_FCB                ; $11C4  01 5C 00
+        LD BC,TFCB                ; $11C4  01 5C 00
         CALL BDOS_COMPUTE_FILESIZE                    ; $11C7  CD A3 05
-        LD A,($007F)                     ; $11CA  3A 7F 00
+        LD A,(TFCB+FCB_R2)                     ; $11CA  3A 7F 00
         CP $00                           ; $11CD  FE 00
         JP Z,FILE_STATUS_MAIN_39                 ; $11CF  CA DB 11
         LD BC,TPA_START_39               ; $11D2  01 E6 03
         CALL PRINT_STRING                    ; $11D5  CD B1 04
         JP FILE_STATUS_MAIN_40                   ; $11D8  C3 E6 11
 FILE_STATUS_MAIN_39:
-        LD HL,(DEFAULT_RND)              ; $11DB  2A 7D 00
+        LD HL,(TFCB+FCB_R0)              ; $11DB  2A 7D 00
         LD B,H                           ; $11DE  44
         LD C,L                           ; $11DF  4D
         LD DE,$2710                      ; $11E0  11 10 27
@@ -2283,7 +2283,7 @@ FILE_STATUS_MAIN_46:
 ; [AI] Set-indicator path: applies the requested $R/O, $R/W, $SYS, or $DIR attribute change to each
 ;       matched file via a jump-table dispatch.
 FILE_STATUS_MAIN_47:
-        LD HL,WBOOT_VEC                  ; $1293  21 00 00
+        LD HL,$0000                  ; $1293  21 00 00
         LD ($29C0),HL                    ; $1296  22 C0 29
 FILE_STATUS_MAIN_48:
         LD BC,FILE_COUNT                ; $1299  01 B8 15
@@ -2367,7 +2367,7 @@ FILE_STATUS_MAIN_56:
         LD HL,($29BC)                    ; $1322  2A BC 29
         LD B,H                           ; $1325  44
         LD C,L                           ; $1326  4D
-        LD DE,DEFAULT_FCB                ; $1327  11 5C 00
+        LD DE,TFCB                ; $1327  11 5C 00
         POP HL                           ; $132A  E1
 FILE_STATUS_MAIN_56_1:
         LD A,(BC)                        ; $132B  0A
@@ -2376,7 +2376,7 @@ FILE_STATUS_MAIN_56_1:
         INC DE                           ; $132E  13
         DEC L                            ; $132F  2D
         JP NZ,FILE_STATUS_MAIN_56_1                 ; $1330  C2 2B 13
-        LD HL,DEFAULT_FCB                ; $1333  21 5C 00
+        LD HL,TFCB                ; $1333  21 5C 00
         LD (HL),$00                      ; $1336  36 00
         CALL BDOS_SET_FILE_ATTR                    ; $1338  CD 75 05
         LD BC,TPA_START_40+4             ; $133B  01 EC 03
@@ -2530,17 +2530,17 @@ HANDLE_FILE_OR_ASSIGN_4:
 HANDLE_FILE_OR_ASSIGN_5:
         RET                              ; $1448  C9
 ; [AI] Dead instruction: a warm-boot jump (JP $0000) left after the RET above; unreachable.
-        JP WBOOT_VEC                     ; $1449  C3 00 00
+        JP WBOOTV                    ; $1449  C3 00 00
 ; [AI] BDOS call shim (jump to $0005) used for functions whose result is not needed by the caller.
 BDOS_CALL_VOID:
-        JP BDOS_VEC                      ; $144C  C3 05 00
+        JP BDOS                     ; $144C  C3 05 00
 ; [AI] BDOS call shim (jump to $0005) used where the A/HL result of the call is consumed.
 BDOS_CALL_A:
-        JP BDOS_VEC                      ; $144F  C3 05 00
+        JP BDOS                     ; $144F  C3 05 00
 ; [AI] BDOS call shim that uses CALL/RET (preserving STAT's stack frame) for functions invoked mid-
 ;       routine.
 BDOS_CALL_HL:
-        CALL BDOS_VEC                    ; $1452  CD 05 00
+        CALL BDOS                   ; $1452  CD 05 00
         RET                              ; $1455  C9
         DEFB    $C9,$C9,$69,$60                                  ; $1456  [AI] unreferenced code-shaped leftover (two RETs + LD L,C/LD H,B); no label targets it -- left as data
 ; [AI] 16-bit add of the word at (HL) to the word at (DE), returning the sum in HL; a PL/M-style
@@ -2595,7 +2595,7 @@ DIV16:
 ; [AI] Inner restoring-division routine entered with the dividend already in HL:DE form; shared
 ;       body of the 16-bit divide.
 DIV16_INNER:
-        LD HL,WBOOT_VEC                  ; $1481  21 00 00
+        LD HL,$0000                  ; $1481  21 00 00
         LD A,$10                         ; $1484  3E 10
 DIV16_INNER_1:
         PUSH AF                          ; $1486  F5
@@ -2627,7 +2627,7 @@ MUL16:
 ; [AI] Multiply entry point taking the multiplier already split into BC, performing the
 ;       16-iteration shift-add product.
 MUL16_BC:
-        LD HL,WBOOT_VEC                  ; $14A0  21 00 00
+        LD HL,$0000                  ; $14A0  21 00 00
         LD A,$10                         ; $14A3  3E 10
 MUL16_BC_1:
         ADD HL,HL                        ; $14A5  29
