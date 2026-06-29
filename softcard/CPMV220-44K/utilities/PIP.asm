@@ -8,11 +8,12 @@
     DEVICE NOSLOT64K
 
 ; -- External symbols --
-WBOOT_VEC            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
-IOBYTE               EQU $0003               ; I/O assignment byte — logical-to-physical device routing (CONSOLE/READER/PUNCH/LIST). 4 fields × 2 bits each.
-BDOS_VEC             EQU $0005               ; BDOS call vector — JP BDOS_ENTRY. Programs use CALL $0005 to invoke BDOS. Word at $0006 is also the top-of-TPA marker.
-DEFAULT_FCB          EQU $005C               ; Default File Control Block — populated by CCP from command-line argument 1. Standard 36-byte FCB structure (drive + filename + extents + record number).
-DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS cold-init / DRV_ALLRESET (fn 13) set the DMA address here and WBOOT re-issues SETDMA($0080); sector/record I/O moves 128 bytes through it. At program load this same buffer doubles as the command tail: the first byte ($0080) holds the tail length (0-127) and the characters follow at $0081 (CMDLINE).
+; PIP's CP/M 2.2 base-page cells + BDOS entry vector come from cpm22.inc (INCLUDEd
+; below): WBOOTV $0000, IOBYTE_ADDR $0003, BDOS $0005, TFCB $005C, TBUFF $0080, and
+; the C_*/F_*/DRV_* BDOS function constants. Defined once there, not re-derived per
+; file. NOTE: LD HL/DE,$0000 are the number zero (zero-init / dummy BDOS DE arg),
+; kept literal; only the genuine CALL through the warm-boot vector takes WBOOTV. Many
+; LD C,$nn that are NOT BDOS-function selectors (ASCII chars / counts) also stay literal.
 
     INCLUDE "cpm22.inc"                  ; CP/M 2.2 ABI (provides TPA = $0100)
     ORG TPA
@@ -122,7 +123,7 @@ INIT_PIP:
 ; [AI] Prepares to copy the command tail out of the $0080 default buffer into PIP's own argument-
 ;       line storage so it survives later DMA reuse.
 TPA_START_42:
-        LD BC,DEFAULT_DMA                ; $04D1  01 80 00
+        LD BC,TBUFF                ; $04D1  01 80 00
 TPA_START_43:
         PUSH BC                          ; $04D4  C5
 TPA_START_44:
@@ -160,15 +161,15 @@ TPA_START_57:
 TPA_START_58:
         CALL PRINT_STRING                    ; $04F7  CD 39 08
 TPA_START_59:
-        CALL WBOOT_VEC                   ; $04FA  CD 00 00
+        CALL WBOOTV                   ; $04FA  CD 00 00
 ; [AI] Queries the current default drive (BDOS 25) and saves it so PIP can restore it after
 ;       temporarily selecting other drives.
 TPA_START_60:
         CALL BDOS_GET_USER                    ; $04FD  CD 16 09
         LD ($1EC0),A                     ; $0500  32 C0 1E
-        LD DE,WBOOT_VEC                  ; $0503  11 00 00
-        LD C,$19                         ; $0506  0E 19
-        CALL BDOS_VEC                    ; $0508  CD 05 00
+        LD DE,$0000                  ; $0503  11 00 00
+        LD C,DRV_GET                         ; $0506  0E 19
+        CALL BDOS                    ; $0508  CD 05 00
         LD (VAR_DEFAULT_DRIVE),A               ; $050B  32 FC 1D
 ; [AI] Top of the main command loop: resets the stack and re-reads a fresh command line for each
 ;       PIP operation.
@@ -212,7 +213,7 @@ TPA_START_63:
         LD HL,(VAR_DEFAULT_DRIVE)              ; $0554  2A FC 1D
         LD C,L                           ; $0557  4D
         CALL BDOS_SELECT_DISK                    ; $0558  CD 5E 08
-        CALL WBOOT_VEC                   ; $055B  CD 00 00
+        CALL WBOOTV                   ; $055B  CD 00 00
 ; [AI] Clears more per-operation state and parses the first source/destination specifier,
 ;       dispatching on its type (drive, device, disk file, or list).
 TPA_START_64:
@@ -252,7 +253,7 @@ SETUP_SRC_COPY:
         LD A,(VAR_AMBIGUOUS)                ; $05A4  3A F5 1D
         RRA                              ; $05A7  1F
         JP NC,TPA_START_67               ; $05A8  D2 B7 05
-        LD BC,DEFAULT_FCB                ; $05AB  01 5C 00
+        LD BC,TFCB                ; $05AB  01 5C 00
         CALL INSTALL_DEST_FCB                    ; $05AE  CD EE 1C
         CALL COPY_WILDCARD                    ; $05B1  CD 78 1B
         JP TPA_START_68                  ; $05B4  C3 C0 05
@@ -600,9 +601,9 @@ READER_IN_VEC_RET:
 ; [AI] BDOS console-input wrapper (function 1): waits for and returns one echoed character from
 ;       CON:.
 BDOS_CONIN:
-        LD DE,WBOOT_VEC                  ; $0813  11 00 00
-        LD C,$01                         ; $0816  0E 01
-        CALL BDOS_VEC                    ; $0818  CD 05 00
+        LD DE,$0000                  ; $0813  11 00 00
+        LD C,C_READ                         ; $0816  0E 01
+        CALL BDOS                    ; $0818  CD 05 00
         RET                              ; $081B  C9
 ; [AI] BDOS console-output wrapper (function 2): sends the character in C to CON:, masking it to 7
 ;       bits first.
@@ -619,9 +620,9 @@ BDOS_CONOUT_4:
 BDOS_CONOUT_5:
         LD D,$00                         ; $0826  16 00
 BDOS_CONOUT_6:
-        LD C,$02                         ; $0828  0E 02
+        LD C,C_WRITE                         ; $0828  0E 02
 BDOS_CONOUT_7:
-        CALL BDOS_VEC                    ; $082A  CD 05 00
+        CALL BDOS                    ; $082A  CD 05 00
 BDOS_CONOUT_8:
         RET                              ; $082D  C9
 ; [AI] Emits a CR/LF pair to the console by calling the console-output wrapper twice.
@@ -652,27 +653,27 @@ PRINT_STRING_5:
 PRINT_STRING_6:
         EX DE,HL                         ; $0845  EB
 PRINT_STRING_7:
-        LD C,$09                         ; $0846  0E 09
+        LD C,C_WRITESTR                         ; $0846  0E 09
 PRINT_STRING_8:
-        CALL BDOS_VEC                    ; $0848  CD 05 00
+        CALL BDOS                    ; $0848  CD 05 00
 PRINT_STRING_9:
         RET                              ; $084B  C9
 ; [AI] BDOS direct-console-I/O wrapper (function 12 / get-version here): used to read raw console
 ;       status/character without echo.
 BDOS_GET_VERSION:
-        LD DE,WBOOT_VEC                  ; $084C  11 00 00
+        LD DE,$0000                  ; $084C  11 00 00
 BDOS_GET_VERSION_1:
-        LD C,$0C                         ; $084F  0E 0C
+        LD C,S_BDOSVER                         ; $084F  0E 0C
 BDOS_GET_VERSION_2:
-        CALL BDOS_VEC                    ; $0851  CD 05 00
+        CALL BDOS                    ; $0851  CD 05 00
 BDOS_GET_VERSION_3:
         RET                              ; $0854  C9
 ; [AI] Unreferenced BDOS reset-disk-system wrapper (function 13): resets the disk
 ;       subsystem and selects drive A. Present in PIP's code but never called.
 BDOS_RESET_DISK:
         LD DE,$0000                      ; $0855  11 00 00
-        LD C,$0D                         ; $0858  0E 0D
-        CALL BDOS_VEC                    ; $085A  CD 05 00
+        LD C,DRV_ALLRESET                         ; $0858  0E 0D
+        CALL BDOS                    ; $085A  CD 05 00
         RET                              ; $085D  C9
 ; [AI] BDOS select-disk wrapper (function 14): selects the drive whose code is in C as the current
 ;       default disk.
@@ -682,8 +683,8 @@ BDOS_SELECT_DISK:
         LD HL,($1EAF)                    ; $0862  2A AF 1E
         LD H,$00                         ; $0865  26 00
         EX DE,HL                         ; $0867  EB
-        LD C,$0E                         ; $0868  0E 0E
-        CALL BDOS_VEC                    ; $086A  CD 05 00
+        LD C,DRV_SET                         ; $0868  0E 0E
+        CALL BDOS                    ; $086A  CD 05 00
         RET                              ; $086D  C9
 ; [AI] BDOS open-file wrapper (function 15): opens the FCB pointed to by BC and saves the returned
 ;       directory code/status.
@@ -694,8 +695,8 @@ BDOS_OPEN_FILE:
         LD (HL),C                        ; $0873  71
         LD HL,($1EB0)                    ; $0874  2A B0 1E
         EX DE,HL                         ; $0877  EB
-        LD C,$0F                         ; $0878  0E 0F
-        CALL BDOS_VEC                    ; $087A  CD 05 00
+        LD C,F_OPEN                         ; $0878  0E 0F
+        CALL BDOS                    ; $087A  CD 05 00
         LD ($1EAE),A                     ; $087D  32 AE 1E
         RET                              ; $0880  C9
 ; [AI] BDOS close-file wrapper (function 16): closes the FCB at BC, flushing its directory entry,
@@ -707,8 +708,8 @@ BDOS_CLOSE_FILE:
         LD (HL),C                        ; $0886  71
         LD HL,($1EB2)                    ; $0887  2A B2 1E
         EX DE,HL                         ; $088A  EB
-        LD C,$10                         ; $088B  0E 10
-        CALL BDOS_VEC                    ; $088D  CD 05 00
+        LD C,F_CLOSE                         ; $088B  0E 10
+        CALL BDOS                    ; $088D  CD 05 00
         LD ($1EAE),A                     ; $0890  32 AE 1E
         RET                              ; $0893  C9
 ; [AI] BDOS search-first wrapper (function 17): searches the directory for the first match of the
@@ -720,16 +721,16 @@ BDOS_SEARCH_FIRST:
         LD (HL),C                        ; $0899  71
         LD HL,($1EB4)                    ; $089A  2A B4 1E
         EX DE,HL                         ; $089D  EB
-        LD C,$11                         ; $089E  0E 11
-        CALL BDOS_VEC                    ; $08A0  CD 05 00
+        LD C,F_SFIRST                         ; $089E  0E 11
+        CALL BDOS                    ; $08A0  CD 05 00
         LD ($1EAE),A                     ; $08A3  32 AE 1E
         RET                              ; $08A6  C9
 ; [AI] BDOS search-next wrapper (function 18): returns the next directory match after a prior
 ;       search-first, used for wildcard expansion.
 BDOS_SEARCH_NEXT:
-        LD DE,WBOOT_VEC                  ; $08A7  11 00 00
-        LD C,$12                         ; $08AA  0E 12
-        CALL BDOS_VEC                    ; $08AC  CD 05 00
+        LD DE,$0000                  ; $08A7  11 00 00
+        LD C,F_SNEXT                         ; $08AA  0E 12
+        CALL BDOS                    ; $08AC  CD 05 00
         LD ($1EAE),A                     ; $08AF  32 AE 1E
         RET                              ; $08B2  C9
 ; [AI] BDOS delete-file wrapper (function 19): erases the file(s) matching the FCB at BC.
@@ -740,8 +741,8 @@ BDOS_DELETE_FILE:
         LD (HL),C                        ; $08B8  71
         LD HL,($1EB6)                    ; $08B9  2A B6 1E
         EX DE,HL                         ; $08BC  EB
-        LD C,$13                         ; $08BD  0E 13
-        CALL BDOS_VEC                    ; $08BF  CD 05 00
+        LD C,F_DELETE                         ; $08BD  0E 13
+        CALL BDOS                    ; $08BF  CD 05 00
         RET                              ; $08C2  C9
 ; [AI] BDOS read-sequential wrapper (function 20): reads the next 128-byte record of the FCB at BC
 ;       into the DMA buffer.
@@ -752,8 +753,8 @@ BDOS_READ_SEQ:
         LD (HL),C                        ; $08C8  71
         LD HL,($1EB8)                    ; $08C9  2A B8 1E
         EX DE,HL                         ; $08CC  EB
-        LD C,$14                         ; $08CD  0E 14
-        CALL BDOS_VEC                    ; $08CF  CD 05 00
+        LD C,F_READ                         ; $08CD  0E 14
+        CALL BDOS                    ; $08CF  CD 05 00
         RET                              ; $08D2  C9
 ; [AI] BDOS write-sequential wrapper (function 21): writes the DMA buffer as the next record of the
 ;       FCB at BC.
@@ -764,8 +765,8 @@ BDOS_WRITE_SEQ:
         LD (HL),C                        ; $08D8  71
         LD HL,($1EBA)                    ; $08D9  2A BA 1E
         EX DE,HL                         ; $08DC  EB
-        LD C,$15                         ; $08DD  0E 15
-        CALL BDOS_VEC                    ; $08DF  CD 05 00
+        LD C,F_WRITE                         ; $08DD  0E 15
+        CALL BDOS                    ; $08DF  CD 05 00
         RET                              ; $08E2  C9
 ; [AI] BDOS make-file wrapper (function 22): creates a new directory entry for the FCB at BC and
 ;       saves the status.
@@ -776,8 +777,8 @@ BDOS_MAKE_FILE:
         LD (HL),C                        ; $08E8  71
         LD HL,($1EBC)                    ; $08E9  2A BC 1E
         EX DE,HL                         ; $08EC  EB
-        LD C,$16                         ; $08ED  0E 16
-        CALL BDOS_VEC                    ; $08EF  CD 05 00
+        LD C,F_MAKE                         ; $08ED  0E 16
+        CALL BDOS                    ; $08EF  CD 05 00
         LD ($1EAE),A                     ; $08F2  32 AE 1E
         RET                              ; $08F5  C9
 ; [AI] BDOS rename-file wrapper (function 23): renames the file described by the (old/new) FCB pair
@@ -789,8 +790,8 @@ BDOS_RENAME_FILE:
         LD (HL),C                        ; $08FB  71
         LD HL,($1EBE)                    ; $08FC  2A BE 1E
         EX DE,HL                         ; $08FF  EB
-        LD C,$17                         ; $0900  0E 17
-        CALL BDOS_VEC                    ; $0902  CD 05 00
+        LD C,F_RENAME                         ; $0900  0E 17
+        CALL BDOS                    ; $0902  CD 05 00
         RET                              ; $0905  C9
 ; [AI] BDOS set-file-attributes wrapper (function 30): applies the R/O and other attribute bits in
 ;       the FCB at BC.
@@ -801,15 +802,15 @@ BDOS_SET_ATTR:
         LD (HL),C                        ; $090B  71
         LD HL,($1EC2)                    ; $090C  2A C2 1E
         EX DE,HL                         ; $090F  EB
-        LD C,$1E                         ; $0910  0E 1E
-        CALL BDOS_VEC                    ; $0912  CD 05 00
+        LD C,F_ATTRIB                         ; $0910  0E 1E
+        CALL BDOS                    ; $0912  CD 05 00
         RET                              ; $0915  C9
 ; [AI] BDOS get/set-user-code wrapper (function 32) with E=$FF, i.e. a query that returns the
 ;       current user number.
 BDOS_GET_USER:
         LD DE,$00FF                      ; $0916  11 FF 00
-        LD C,$20                         ; $0919  0E 20
-        CALL BDOS_VEC                    ; $091B  CD 05 00
+        LD C,F_USERNUM                         ; $0919  0E 20
+        CALL BDOS                    ; $091B  CD 05 00
         RET                              ; $091E  C9
 ; [AI] BDOS set-user-code wrapper (function 32): selects the user-number area given in C for
 ;       subsequent file operations.
@@ -819,8 +820,8 @@ BDOS_SET_USER:
         LD HL,($1EC4)                    ; $0923  2A C4 1E
         LD H,$00                         ; $0926  26 00
         EX DE,HL                         ; $0928  EB
-        LD C,$20                         ; $0929  0E 20
-        CALL BDOS_VEC                    ; $092B  CD 05 00
+        LD C,F_USERNUM                         ; $0929  0E 20
+        CALL BDOS                    ; $092B  CD 05 00
         RET                              ; $092E  C9
 ; [AI] Switches to the source file's user number (saved at $1EC0) before reading from it.
 SELECT_SRC_USER:
@@ -844,8 +845,8 @@ BDOS_SET_DMA:
         LD (HL),C                        ; $0944  71
         LD HL,($1EC5)                    ; $0945  2A C5 1E
         EX DE,HL                         ; $0948  EB
-        LD C,$21                         ; $0949  0E 21
-        CALL BDOS_VEC                    ; $094B  CD 05 00
+        LD C,F_READRAND                         ; $0949  0E 21
+        CALL BDOS                    ; $094B  CD 05 00
         RET                              ; $094E  C9
 ; [AI] Unreferenced BDOS write-random wrapper (function 34, $22): writes the DMA
 ;       buffer to the random record of the FCB at BC. Present in PIP but never called.
@@ -856,8 +857,8 @@ BDOS_WRITE_RANDOM:
         LD (HL),C                        ; $0954  71
         LD HL,($1EC7)                    ; $0955  2A C7 1E
         EX DE,HL                         ; $0958  EB
-        LD C,$22                         ; $0959  0E 22
-        CALL BDOS_VEC                    ; $095B  CD 05 00
+        LD C,F_WRITERAND                         ; $0959  0E 22
+        CALL BDOS                    ; $095B  CD 05 00
         RET                              ; $095E  C9
 ; [AI] BDOS set-multi-sector / random-record helper (function 36, set-random-record): prepares the
 ;       FCB at BC for random access.
@@ -868,8 +869,8 @@ BDOS_SET_RANDOM_REC:
         LD (HL),C                        ; $0964  71
         LD HL,($1EC9)                    ; $0965  2A C9 1E
         EX DE,HL                         ; $0968  EB
-        LD C,$24                         ; $0969  0E 24
-        CALL BDOS_VEC                    ; $096B  CD 05 00
+        LD C,F_RANDREC                         ; $0969  0E 24
+        CALL BDOS                    ; $096B  CD 05 00
         RET                              ; $096E  C9
 ; [AI] Reads a console line (BDOS function 10, read-buffered-console) into PIP's input buffer for
 ;       the interactive '*' prompt.
@@ -877,15 +878,15 @@ BDOS_READ_CON_LINE:
         LD HL,$1ECB                      ; $096F  21 CB 1E
         LD (HL),$80                      ; $0972  36 80
         LD DE,$1ECB                      ; $0974  11 CB 1E
-        LD C,$0A                         ; $0977  0E 0A
-        CALL BDOS_VEC                    ; $0979  CD 05 00
+        LD C,C_READSTR                         ; $0977  0E 0A
+        CALL BDOS                    ; $0979  CD 05 00
         RET                              ; $097C  C9
 ; [AI] BDOS console-status wrapper (function 11): returns whether a console key is waiting, used to
 ;       poll for an abort keystroke during long copies.
 BDOS_CON_STATUS:
-        LD DE,WBOOT_VEC                  ; $097D  11 00 00
-        LD C,$0B                         ; $0980  0E 0B
-        CALL BDOS_VEC                    ; $0982  CD 05 00
+        LD DE,$0000                  ; $097D  11 00 00
+        LD C,C_STAT                         ; $0980  0E 0B
+        CALL BDOS                    ; $0982  CD 05 00
         RET                              ; $0985  C9
 ; [AI] BDOS set-random-record/seek helper (function 26 variant) that points the DMA at the supplied
 ;       BC address for the current transfer.
@@ -896,8 +897,8 @@ SET_DMA_BC:
         LD (HL),C                        ; $098B  71
         LD HL,($1F6A)                    ; $098C  2A 6A 1F
         EX DE,HL                         ; $098F  EB
-        LD C,$1A                         ; $0990  0E 1A
-        CALL BDOS_VEC                    ; $0992  CD 05 00
+        LD C,F_DMAOFF                         ; $0990  0E 1A
+        CALL BDOS                    ; $0992  CD 05 00
         RET                              ; $0995  C9
 READ_PAPER_TAPE:
         LD A,$0C                         ; $0996  3E 0C
@@ -1045,7 +1046,7 @@ BLOCK_MOVE_31:
 ; [AI] Reads a full record from the source disk file into the working buffer, handling read errors
 ;       and end-of-file (Ctrl-Z padding) for the copy engine.
 READ_SRC_RECORDS:
-        LD HL,WBOOT_VEC                  ; $0A4F  21 00 00
+        LD HL,$0000                  ; $0A4F  21 00 00
         LD ($1E9D),HL                    ; $0A52  22 9D 1E
         LD HL,($1E03)                    ; $0A55  2A 03 1E
         LD C,L                           ; $0A58  4D
@@ -1092,7 +1093,7 @@ READ_SRC_RECORDS_2:
 ; [AI] Normal-record path: advances the working buffer pointer by one 128-byte record and continues
 ;       reading.
 READ_SRC_RECORDS_3:
-        LD DE,DEFAULT_DMA                ; $0AAD  11 80 00
+        LD DE,TBUFF                ; $0AAD  11 80 00
         LD HL,($1E9D)                    ; $0AB0  2A 9D 1E
         ADD HL,DE                        ; $0AB3  19
         LD ($1E9D),HL                    ; $0AB4  22 9D 1E
@@ -1101,7 +1102,7 @@ READ_SRC_RECORDS_4:
         INC (HL)                         ; $0ABA  34
         JP NZ,READ_SRC_RECORDS_1                 ; $0ABB  C2 64 0A
 READ_SRC_RECORDS_5:
-        LD HL,WBOOT_VEC                  ; $0ABE  21 00 00
+        LD HL,$0000                  ; $0ABE  21 00 00
         LD ($1E9D),HL                    ; $0AC1  22 9D 1E
         CALL SELECT_SRC_USER                    ; $0AC4  CD 2F 09
         RET                              ; $0AC7  C9
@@ -1120,7 +1121,7 @@ WRITE_DST_RECORDS:
 ; [AI] Buffered multi-record read loop: selects the source drive/user, search-first/read each
 ;       record into the large buffer until full or EOF.
 WRITE_DST_RECORDS_1:
-        LD HL,WBOOT_VEC                  ; $0ADB  21 00 00
+        LD HL,$0000                  ; $0ADB  21 00 00
         LD ($1EA1),HL                    ; $0ADE  22 A1 1E
         LD HL,($1E4B)                    ; $0AE1  2A 4B 1E
         LD C,L                           ; $0AE4  4D
@@ -1151,7 +1152,7 @@ WRITE_DST_RECORDS_2:
         LD BC,MSG_DISK_WRITE_ERR                ; $0B1A  01 A4 02
         CALL FATAL_ERROR                    ; $0B1D  CD AF 09
 WRITE_DST_RECORDS_3:
-        LD DE,DEFAULT_DMA                ; $0B20  11 80 00
+        LD DE,TBUFF                ; $0B20  11 80 00
         LD HL,($1EA1)                    ; $0B23  2A A1 1E
         ADD HL,DE                        ; $0B26  19
         LD ($1EA1),HL                    ; $0B27  22 A1 1E
@@ -1164,9 +1165,9 @@ WRITE_DST_RECORDS_4:
         LD A,($1F65)                     ; $0B31  3A 65 1F
         RRA                              ; $0B34  1F
         JP NC,WRITE_DST_RECORDS_10                ; $0B35  D2 C9 0B
-        LD HL,WBOOT_VEC                  ; $0B38  21 00 00
+        LD HL,$0000                  ; $0B38  21 00 00
         LD ($1EA1),HL                    ; $0B3B  22 A1 1E
-        LD BC,DEFAULT_DMA                ; $0B3E  01 80 00
+        LD BC,TBUFF                ; $0B3E  01 80 00
         CALL SET_DMA_BC                    ; $0B41  CD 86 09
         LD HL,$1F7A                      ; $0B44  21 7A 1F
         LD (HL),$00                      ; $0B47  36 00
@@ -1199,7 +1200,7 @@ WRITE_DST_RECORDS_6:
         JP NC,WRITE_DST_RECORDS_7                 ; $0B78  D2 A2 0B
         LD HL,($1F7B)                    ; $0B7B  2A 7B 1F
         LD H,$00                         ; $0B7E  26 00
-        LD BC,DEFAULT_DMA                ; $0B80  01 80 00
+        LD BC,TBUFF                ; $0B80  01 80 00
         ADD HL,BC                        ; $0B83  09
         LD A,($1F7B)                     ; $0B84  3A 7B 1F
         LD DE,$1EA1                      ; $0B87  11 A1 1E
@@ -1219,7 +1220,7 @@ WRITE_DST_RECORDS_6:
 ; [AI] Advances buffer/record pointers after a verified record and reports a VERIFY ERROR message
 ;       on mismatch.
 WRITE_DST_RECORDS_7:
-        LD DE,DEFAULT_DMA                ; $0BA2  11 80 00
+        LD DE,TBUFF                ; $0BA2  11 80 00
         LD HL,($1EA1)                    ; $0BA5  2A A1 1E
         ADD HL,DE                        ; $0BA8  19
         LD ($1EA1),HL                    ; $0BA9  22 A1 1E
@@ -1239,7 +1240,7 @@ WRITE_DST_RECORDS_9:
         LD ($1F7F),A                     ; $0BC6  32 7F 1F
 ; [AI] Resets the buffer pointer to zero after the buffered read/verify pass completes.
 WRITE_DST_RECORDS_10:
-        LD HL,WBOOT_VEC                  ; $0BC9  21 00 00
+        LD HL,$0000                  ; $0BC9  21 00 00
         LD ($1EA1),HL                    ; $0BCC  22 A1 1E
         RET                              ; $0BCF  C9
 ; [AI] Low-level console/output character emitter with line-length tracking: counts printable
@@ -1264,7 +1265,7 @@ PUT_DEST_CHAR_RAW:
 ; [AI] Routes one output character to the physical device selected by the current option
 ;       (dispatches through the output jump table at $0CDD).
 PUT_DEST_CHAR_RAW_1:
-        LD A,(IOBYTE)                    ; $0BF4  3A 03 00
+        LD A,(IOBYTE_ADDR)                    ; $0BF4  3A 03 00
         LD ($1F81),A                     ; $0BF7  32 81 1F
         LD HL,($1EA3)                    ; $0BFA  2A A3 1E
         LD C,L                           ; $0BFD  4D
@@ -1314,19 +1315,19 @@ PUT_DEST_CHAR_RAW_11:
         CALL PUNCH_OUT_VEC                    ; $0C4A  CD E6 07
         JP PUT_DEST_CHAR_RAW_25                   ; $0C4D  C3 05 0D
 PUT_DEST_CHAR_RAW_12:
-        LD HL,IOBYTE                     ; $0C50  21 03 00
+        LD HL,IOBYTE_ADDR                     ; $0C50  21 03 00
         LD (HL),$80                      ; $0C53  36 80
         JP PUT_DEST_CHAR_RAW_15                   ; $0C55  C3 71 0C
 ; [AI] $0C58: dead JP PUT_DEST_CHAR_RAW_25 (C3 05 0D) after the unconditional jump above; unreachable.
         DEFB    $C3,$05,$0D                                      ; $0C58
 PUT_DEST_CHAR_RAW_13:
-        LD HL,IOBYTE                     ; $0C5B  21 03 00
+        LD HL,IOBYTE_ADDR                     ; $0C5B  21 03 00
         LD (HL),$C0                      ; $0C5E  36 C0
         JP PUT_DEST_CHAR_RAW_15                   ; $0C60  C3 71 0C
 ; [AI] $0C63: dead JP PUT_DEST_CHAR_RAW_25 (C3 05 0D) after the unconditional jump above; unreachable.
         DEFB    $C3,$05,$0D                                      ; $0C63
 PUT_DEST_CHAR_RAW_14:
-        LD HL,IOBYTE                     ; $0C66  21 03 00
+        LD HL,IOBYTE_ADDR                     ; $0C66  21 03 00
         LD (HL),$80                      ; $0C69  36 80
         JP PUT_DEST_CHAR_RAW_15                   ; $0C6B  C3 71 0C
 ; [AI] $0C6E: dead JP PUT_DEST_CHAR_RAW_25 (C3 05 0D) after the unconditional jump above; unreachable.
@@ -1335,23 +1336,23 @@ PUT_DEST_CHAR_RAW_15:
         LD HL,($1F80)                    ; $0C71  2A 80 1F
         LD H,$00                         ; $0C74  26 00
         EX DE,HL                         ; $0C76  EB
-        LD C,$05                         ; $0C77  0E 05
-        CALL BDOS_VEC                    ; $0C79  CD 05 00
+        LD C,L_WRITE                         ; $0C77  0E 05
+        CALL BDOS                    ; $0C79  CD 05 00
         JP PUT_DEST_CHAR_RAW_25                   ; $0C7C  C3 05 0D
 PUT_DEST_CHAR_RAW_16:
-        LD HL,IOBYTE                     ; $0C7F  21 03 00
+        LD HL,IOBYTE_ADDR                     ; $0C7F  21 03 00
         LD (HL),$10                      ; $0C82  36 10
         JP PUT_DEST_CHAR_RAW_19                   ; $0C84  C3 A0 0C
 ; [AI] $0C87: dead JP PUT_DEST_CHAR_RAW_25 (C3 05 0D) after the unconditional jump above; unreachable.
         DEFB    $C3,$05,$0D                                      ; $0C87
 PUT_DEST_CHAR_RAW_17:
-        LD HL,IOBYTE                     ; $0C8A  21 03 00
+        LD HL,IOBYTE_ADDR                     ; $0C8A  21 03 00
         LD (HL),$20                      ; $0C8D  36 20
         JP PUT_DEST_CHAR_RAW_19                   ; $0C8F  C3 A0 0C
 ; [AI] $0C92: dead JP PUT_DEST_CHAR_RAW_25 (C3 05 0D) after the unconditional jump above; unreachable.
         DEFB    $C3,$05,$0D                                      ; $0C92
 PUT_DEST_CHAR_RAW_18:
-        LD HL,IOBYTE                     ; $0C95  21 03 00
+        LD HL,IOBYTE_ADDR                     ; $0C95  21 03 00
         LD (HL),$30                      ; $0C98  36 30
         JP PUT_DEST_CHAR_RAW_19                   ; $0C9A  C3 A0 0C
 ; [AI] $0C9D: dead JP PUT_DEST_CHAR_RAW_25 (C3 05 0D) after the unconditional jump above; unreachable.
@@ -1360,23 +1361,23 @@ PUT_DEST_CHAR_RAW_19:
         LD HL,($1F80)                    ; $0CA0  2A 80 1F
         LD H,$00                         ; $0CA3  26 00
         EX DE,HL                         ; $0CA5  EB
-        LD C,$04                         ; $0CA6  0E 04
-        CALL BDOS_VEC                    ; $0CA8  CD 05 00
+        LD C,A_WRITE                         ; $0CA6  0E 04
+        CALL BDOS                    ; $0CA8  CD 05 00
         JP PUT_DEST_CHAR_RAW_25                   ; $0CAB  C3 05 0D
 PUT_DEST_CHAR_RAW_20:
-        LD HL,IOBYTE                     ; $0CAE  21 03 00
+        LD HL,IOBYTE_ADDR                     ; $0CAE  21 03 00
         LD (HL),$00                      ; $0CB1  36 00
         JP PUT_DEST_CHAR_RAW_23                   ; $0CB3  C3 CF 0C
 ; [AI] $0CB6: dead JP PUT_DEST_CHAR_RAW_25 (C3 05 0D) after the unconditional jump above; unreachable.
         DEFB    $C3,$05,$0D                                      ; $0CB6
 PUT_DEST_CHAR_RAW_21:
-        LD HL,IOBYTE                     ; $0CB9  21 03 00
+        LD HL,IOBYTE_ADDR                     ; $0CB9  21 03 00
         LD (HL),$01                      ; $0CBC  36 01
         JP PUT_DEST_CHAR_RAW_23                   ; $0CBE  C3 CF 0C
 ; [AI] $0CC1: dead JP PUT_DEST_CHAR_RAW_25 (C3 05 0D) after the unconditional jump above; unreachable.
         DEFB    $C3,$05,$0D                                      ; $0CC1
 PUT_DEST_CHAR_RAW_22:
-        LD HL,IOBYTE                     ; $0CC4  21 03 00
+        LD HL,IOBYTE_ADDR                     ; $0CC4  21 03 00
         LD (HL),$03                      ; $0CC7  36 03
         JP PUT_DEST_CHAR_RAW_23                   ; $0CC9  C3 CF 0C
 ; [AI] $0CCC: dead JP PUT_DEST_CHAR_RAW_25 (C3 05 0D) after the unconditional jump above; unreachable.
@@ -1385,8 +1386,8 @@ PUT_DEST_CHAR_RAW_23:
         LD HL,($1F80)                    ; $0CCF  2A 80 1F
         LD H,$00                         ; $0CD2  26 00
         EX DE,HL                         ; $0CD4  EB
-        LD C,$02                         ; $0CD5  0E 02
-        CALL BDOS_VEC                    ; $0CD7  CD 05 00
+        LD C,C_WRITE                         ; $0CD5  0E 02
+        CALL BDOS                    ; $0CD7  CD 05 00
         JP PUT_DEST_CHAR_RAW_25                   ; $0CDA  C3 05 0D
 PUT_DEST_CHAR_RAW_DEVTAB:
         DEFW    PUT_DEST_CHAR_RAW_3               ; $0CDD
@@ -1411,7 +1412,7 @@ PUT_DEST_CHAR_RAW_DEVTAB:
         DEFW    PUT_DEST_CHAR_RAW_23              ; $0D03
 PUT_DEST_CHAR_RAW_25:
         LD A,($1F81)                     ; $0D05  3A 81 1F
-        LD (IOBYTE),A                    ; $0D08  32 03 00
+        LD (IOBYTE_ADDR),A                    ; $0D08  32 03 00
         RET                              ; $0D0B  C9
 ; [AI] Tab-expanding character writer: emits the character, and when it is a TAB ($09) outputs
 ;       spaces to the next tab stop instead.
@@ -1764,7 +1765,7 @@ GET_SRC_CHAR_1:
 GET_SRC_CHAR_2:
         LD HL,$1F90                      ; $0F6D  21 90 1F
         LD (HL),$01                      ; $0F70  36 01
-        LD A,(IOBYTE)                    ; $0F72  3A 03 00
+        LD A,(IOBYTE_ADDR)                    ; $0F72  3A 03 00
         LD ($1F8E),A                     ; $0F75  32 8E 1F
         LD HL,($1EA4)                    ; $0F78  2A A4 1E
         LD C,L                           ; $0F7B  4D
@@ -1803,27 +1804,27 @@ GET_SRC_CHAR_6:
         LD ($1F8F),A                     ; $0FB9  32 8F 1F
         JP GET_SRC_CHAR_25                   ; $0FBC  C3 6D 10
 GET_SRC_CHAR_7:
-        LD HL,IOBYTE                     ; $0FBF  21 03 00
+        LD HL,IOBYTE_ADDR                     ; $0FBF  21 03 00
         LD (HL),$04                      ; $0FC2  36 04
         JP GET_SRC_CHAR_10                   ; $0FC4  C3 E0 0F
 ; [AI] $0FC7: dead JP GET_SRC_CHAR_25 (C3 6D 10) after the unconditional jump above; unreachable.
         DEFB    $C3,$6D,$10                                      ; $0FC7
 GET_SRC_CHAR_8:
-        LD HL,IOBYTE                     ; $0FCA  21 03 00
+        LD HL,IOBYTE_ADDR                     ; $0FCA  21 03 00
         LD (HL),$08                      ; $0FCD  36 08
         JP GET_SRC_CHAR_10                   ; $0FCF  C3 E0 0F
 ; [AI] $0FD2: dead JP GET_SRC_CHAR_25 (C3 6D 10) after the unconditional jump above; unreachable.
         DEFB    $C3,$6D,$10                                      ; $0FD2
 GET_SRC_CHAR_9:
-        LD HL,IOBYTE                     ; $0FD5  21 03 00
+        LD HL,IOBYTE_ADDR                     ; $0FD5  21 03 00
         LD (HL),$0C                      ; $0FD8  36 0C
         JP GET_SRC_CHAR_10                   ; $0FDA  C3 E0 0F
 ; [AI] $0FDD: dead JP GET_SRC_CHAR_25 (C3 6D 10) after the unconditional jump above; unreachable.
         DEFB    $C3,$6D,$10                                      ; $0FDD
 GET_SRC_CHAR_10:
-        LD DE,WBOOT_VEC                  ; $0FE0  11 00 00
-        LD C,$03                         ; $0FE3  0E 03
-        CALL BDOS_VEC                    ; $0FE5  CD 05 00
+        LD DE,$0000                  ; $0FE0  11 00 00
+        LD C,A_READ                         ; $0FE3  0E 03
+        CALL BDOS                    ; $0FE5  CD 05 00
         AND $7F                          ; $0FE8  E6 7F
         LD ($1F8F),A                     ; $0FEA  32 8F 1F
         JP GET_SRC_CHAR_25                   ; $0FED  C3 6D 10
@@ -1848,19 +1849,19 @@ GET_SRC_CHAR_19:
         CALL FATAL_ERROR                    ; $100B  CD AF 09
         JP GET_SRC_CHAR_25                   ; $100E  C3 6D 10
 GET_SRC_CHAR_20:
-        LD HL,IOBYTE                     ; $1011  21 03 00
+        LD HL,IOBYTE_ADDR                     ; $1011  21 03 00
         LD (HL),$00                      ; $1014  36 00
         JP GET_SRC_CHAR_23                   ; $1016  C3 32 10
 ; [AI] $1019: dead JP GET_SRC_CHAR_25 (C3 6D 10) after the unconditional jump above; unreachable.
         DEFB    $C3,$6D,$10                                      ; $1019
 GET_SRC_CHAR_21:
-        LD HL,IOBYTE                     ; $101C  21 03 00
+        LD HL,IOBYTE_ADDR                     ; $101C  21 03 00
         LD (HL),$01                      ; $101F  36 01
         JP GET_SRC_CHAR_23                   ; $1021  C3 32 10
 ; [AI] $1024: dead JP GET_SRC_CHAR_25 (C3 6D 10) after the unconditional jump above; unreachable.
         DEFB    $C3,$6D,$10                                      ; $1024
 GET_SRC_CHAR_22:
-        LD HL,IOBYTE                     ; $1027  21 03 00
+        LD HL,IOBYTE_ADDR                     ; $1027  21 03 00
         LD (HL),$03                      ; $102A  36 03
         JP GET_SRC_CHAR_23                   ; $102C  C3 32 10
 ; [AI] $102F: dead JP GET_SRC_CHAR_25 (C3 6D 10) after the unconditional jump above; unreachable.
@@ -1868,9 +1869,9 @@ GET_SRC_CHAR_22:
 GET_SRC_CHAR_23:
         LD HL,$1F90                      ; $1032  21 90 1F
         LD (HL),$00                      ; $1035  36 00
-        LD DE,WBOOT_VEC                  ; $1037  11 00 00
-        LD C,$01                         ; $103A  0E 01
-        CALL BDOS_VEC                    ; $103C  CD 05 00
+        LD DE,$0000                  ; $1037  11 00 00
+        LD C,C_READ                         ; $103A  0E 01
+        CALL BDOS                    ; $103C  CD 05 00
         LD ($1F8F),A                     ; $103F  32 8F 1F
         JP GET_SRC_CHAR_25                   ; $1042  C3 6D 10
 GET_SRC_CHAR_DEVTAB:
@@ -1896,7 +1897,7 @@ GET_SRC_CHAR_DEVTAB:
         DEFW    GET_SRC_CHAR_23              ; $106B
 GET_SRC_CHAR_25:
         LD A,($1F8E)                     ; $106D  3A 8E 1F
-        LD (IOBYTE),A                    ; $1070  32 03 00
+        LD (IOBYTE_ADDR),A                    ; $1070  32 03 00
         LD A,($1F54)                     ; $1073  3A 54 1F
         RRA                              ; $1076  1F
         JP NC,GET_SRC_CHAR_26                ; $1077  D2 92 10
@@ -3107,7 +3108,7 @@ OPEN_SOURCE:
 OPEN_SOURCE_1:
         LD HL,$1E47                      ; $18B2  21 47 1E
         LD (HL),$00                      ; $18B5  36 00
-        LD HL,WBOOT_VEC                  ; $18B7  21 00 00
+        LD HL,$0000                  ; $18B7  21 00 00
         LD ($1EA1),HL                    ; $18BA  22 A1 1E
         RET                              ; $18BD  C9
 ; [AI] Creates/opens the destination file: deletes any existing copy, makes a new directory entry,
@@ -3481,7 +3482,7 @@ BUFFER_HAS_ROOM:
 ; [AI] Implements multi-file (wildcard) copy: search-first/next over the source directory, copying
 ;       each matching file to the destination directory in turn.
 COPY_WILDCARD:
-        LD HL,WBOOT_VEC                  ; $1B78  21 00 00
+        LD HL,$0000                  ; $1B78  21 00 00
         LD ($1FC0),HL                    ; $1B7B  22 C0 1F
         LD ($1FC4),HL                    ; $1B7E  22 C4 1F
 ; [AI] Per-matched-file setup in the wildcard copy: selects the source drive/user and issues
@@ -3491,11 +3492,11 @@ COPY_WILDCARD_1:
         LD HL,($1E03)                    ; $1B84  2A 03 1E
         LD C,L                           ; $1B87  4D
         CALL BDOS_SELECT_DISK                    ; $1B88  CD 5E 08
-        LD BC,DEFAULT_DMA                ; $1B8B  01 80 00
+        LD BC,TBUFF                ; $1B8B  01 80 00
         CALL SET_DMA_BC                    ; $1B8E  CD 86 09
-        LD BC,DEFAULT_FCB                ; $1B91  01 5C 00
+        LD BC,TFCB                ; $1B91  01 5C 00
         CALL BDOS_SEARCH_FIRST                    ; $1B94  CD 94 08
-        LD HL,WBOOT_VEC                  ; $1B97  21 00 00
+        LD HL,$0000                  ; $1B97  21 00 00
         LD ($1FC2),HL                    ; $1B9A  22 C2 1F
 ; [AI] Advances through directory matches (search-next) skipping already-processed entries to find
 ;       the next file to copy.
@@ -3551,7 +3552,7 @@ COPY_WILDCARD_5:
         ADD A,A                          ; $1BF5  87
         LD E,A                           ; $1BF6  5F
         LD D,$00                         ; $1BF7  16 00
-        LD HL,DEFAULT_DMA                ; $1BF9  21 80 00
+        LD HL,TBUFF                ; $1BF9  21 80 00
         ADD HL,DE                        ; $1BFC  19
         PUSH HL                          ; $1BFD  E5
         LD E,$10                         ; $1BFE  1E 10
