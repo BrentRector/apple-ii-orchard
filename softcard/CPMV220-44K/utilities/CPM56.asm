@@ -6,9 +6,13 @@
     INCLUDE "apple_softcard.inc"   ; Apple/SoftCard external names (single source of truth)
 
 ; -- External symbols --
-WBOOT_VEC            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
-BDOS_VEC             EQU $0005               ; BDOS call vector — JP BDOS_ENTRY. Programs use CALL $0005 to invoke BDOS. Word at $0006 is also the top-of-TPA marker.
-DEFAULT_FCB          EQU $005C               ; Default File Control Block — populated by CCP from command-line argument 1. Standard 36-byte FCB structure (drive + filename + extents + record number).
+; CPM56's INSTALLER (this $0100 transient loader) draws its CP/M 2.2 base-page cells
+; + BDOS entry vector from cpm22.inc (INCLUDEd below): WBOOTV $0000, BDOS $0005,
+; TFCB $005C, plus the C_* BDOS function constants. Defined once there, not re-derived.
+; NOTE: the DISP-relocated 56K OS body further down (CCP/BDOS at run $C400+) is a raw
+; decode still using literal base-page forms (CALL $0005, LD HL,$0080, ...) and L_xxxx
+; machine labels; it is left as-is pending the CPM56->os/ fold, which will replace it
+; with the shared os/ sources ORG'd to the 56K Language-Card addresses.
 ; -- Staging-address label of the relocated body: the install loader copies the
 ;    body from its FILE/staging location, and a tail DEFW stores that staging
 ;    address. The body itself is decoded at its RUN address ($C403) under DISP,
@@ -19,7 +23,7 @@ L_0E03               EQU $0E03               ; [AI] staging addr of the body's C
     ORG TPA
 
 L_0100:
-        LD A,(DEFAULT_FCB)               ; $0100  3A 5C 00
+        LD A,(TFCB)               ; $0100  3A 5C 00
 L_0103:
         OR A                             ; $0103  B7
 L_0104:
@@ -29,7 +33,7 @@ L_0107:
 L_010A:
         CALL SUB_01A6                    ; $010A  CD A6 01
 L_010D:
-        JP WBOOT_VEC                     ; $010D  C3 00 00
+        JP WBOOTV                     ; $010D  C3 00 00
 L_0110:
         CALL SUB_02F9                    ; $0110  CD F9 02
         LD (DSK_DRIVE),A                     ; $0113  32 E4 F3
@@ -53,7 +57,7 @@ L_011A:
         LD (DSK_COMMAND),A                     ; $0134  32 EB F3
         LD A,$13                         ; $0137  3E 13
         LD (DSK_BUFFER_HI),A                     ; $0139  32 E9 F3
-        LD HL,WBOOT_VEC                  ; $013C  21 00 00
+        LD HL,$0000                  ; $013C  21 00 00
         LD B,$27                         ; $013F  06 27
 L_0141:
         LD (DSK_TRACK),HL                    ; $0141  22 E0 F3
@@ -103,17 +107,17 @@ SUB_0192:
         LD (HL),A                        ; $0198  77
         RET                              ; $0199  C9
 SUB_019A:
-        LD C,$06                         ; $019A  0E 06
+        LD C,C_RAWIO                         ; $019A  0E 06
 SUB_019A_1:
         LD E,$FF                         ; $019C  1E FF
-        CALL BDOS_VEC                    ; $019E  CD 05 00
+        CALL BDOS                    ; $019E  CD 05 00
         OR A                             ; $01A1  B7
         JP Z,SUB_019A                    ; $01A2  CA 9A 01
         RET                              ; $01A5  C9
 SUB_01A6:
-        LD C,$09                         ; $01A6  0E 09
+        LD C,C_WRITESTR                         ; $01A6  0E 09
 SUB_01A6_1:
-        JP BDOS_VEC                      ; $01A8  C3 05 00
+        JP BDOS                      ; $01A8  C3 05 00
 L_01AB:
         DEFB    $0D,$0A,$0D,$0A                                  ; $01AB
         DEFB    "      Apple ][ CP/M"    ; $01AF  string
@@ -3646,7 +3650,7 @@ L_27A5:
         DEFB    "Apple ]"    ; $29F9  string (banner start; body resumes at SUB_02F9_4)
 SUB_02F9_4:
         LD (HL),A                        ; $2A00  77
-        JP WBOOT_VEC                     ; $2A01  C3 00 00
+        JP WBOOTV                     ; $2A01  C3 00 00
         DEFS    252, $00    ; $2A04  fill
 
     SAVEBIN "bin/CPM56.COM", $0100, $2A00
