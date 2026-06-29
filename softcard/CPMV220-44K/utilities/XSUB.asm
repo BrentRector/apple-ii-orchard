@@ -8,7 +8,11 @@
     DEVICE NOSLOT64K
 
 ; -- External symbols --
-BDOS_VEC             EQU $0005               ; BDOS call vector — JP BDOS_ENTRY. Programs use CALL $0005 to invoke BDOS. Word at $0006 is also the top-of-TPA marker.
+; CP/M 2.2 base-page cells + BDOS function numbers come from cpm22.inc (INCLUDEd
+; below): BDOS $0005 (and BDOS+1 / BDOS+2 = the low / high byte of the BDOS
+; entry-address word at $0006 / $0007), plus the C_*/F_*/S_* function constants.
+; Defined once there. NOTE: the resident MODULE below is page-relative (DISP
+; $0000), so ITS $0006 is the local BDOS_INTERCEPT label, not this base-page cell.
 
 ; -- Mid-instruction references (shown inline as cover+offset) --
 ;   $01BC -> TPA_START_20+1       shared instruction tail: $01BC is reachable code inside the instruction at $01BB
@@ -34,7 +38,7 @@ TPA_START_4:
 ; [AI] Reads the high byte of the BDOS base pointer at $0006 to begin testing whether a compatible
 ;       CP/M 2.x is present before attempting to hook the BDOS.
 TPA_START_5:
-        LD A,($0006)                     ; $0158  3A 06 00
+        LD A,(BDOS+1)                    ; $0158  3A 06 00
 ; [AI] Compares the BDOS page value against $06; an unexpected value means the wrong CP/M version,
 ;       branching to the not-resident path that prints the version-error message.
 TPA_START_6:
@@ -43,7 +47,7 @@ TPA_START_6:
 ;       message and exit without installing.
 TPA_START_7:
         JP NZ,TPA_START_9                ; $015D  C2 79 01
-        LD HL,($0006)                    ; $0160  2A 06 00
+        LD HL,(BDOS+1)                   ; $0160  2A 06 00
         INC HL                           ; $0163  23
         INC HL                           ; $0164  23
         INC HL                           ; $0165  23
@@ -64,14 +68,14 @@ TPA_START_8:
 ;       restores BC, and returns to CCP. Used for both the version-error and already-present
 ;       notices.
 TPA_START_9:
-        LD C,$09                         ; $0179  0E 09
+        LD C,C_WRITESTR                        ; $0179  0E 09
 ; [AI] Sets DE=$011F, the address of the 'Xsub Already Present$' message, before the shared BDOS
 ;       print call at TPA_START_11.
 TPA_START_10:
         LD DE,TPA_START_2                ; $017B  11 1F 01
 ; [AI] Shared BDOS print-string-and-return tail: CALL $0005 then POP BC / RET back to the CCP.
 TPA_START_11:
-        CALL BDOS_VEC                    ; $017E  CD 05 00
+        CALL BDOS                   ; $017E  CD 05 00
 ; [AI] Restores the saved image-length in BC after the BDOS call so the stack is balanced on return
 ;       to the transient command loop.
 TPA_START_12:
@@ -82,20 +86,20 @@ TPA_START_13:
 ; [AI] Reached when the signature did not match: queries BDOS console/IOBYTE state (C=$0C, get-
 ;       version) and checks the result to decide whether the running system supports installation.
 TPA_START_14:
-        LD C,$0C                         ; $0183  0E 0C
-        CALL BDOS_VEC                    ; $0185  CD 05 00
+        LD C,S_BDOSVER                        ; $0183  0E 0C
+        CALL BDOS                   ; $0185  CD 05 00
         CP $20                           ; $0188  FE 20
         JP NC,TPA_START_15               ; $018A  D2 97 01
-        LD C,$09                         ; $018D  0E 09
+        LD C,C_WRITESTR                        ; $018D  0E 09
         LD DE,TPA_START_3                ; $018F  11 34 01
-        CALL BDOS_VEC                    ; $0192  CD 05 00
+        CALL BDOS                   ; $0192  CD 05 00
         POP BC                           ; $0195  C1
         RET                              ; $0196  C9
 ; [AI] Computes where in high memory the resident XSUB intercept will live: reads the BDOS page at
 ;       $0007, backs it off by the image size in B, and builds the destination page in D for
 ;       relocation.
 TPA_START_15:
-        LD HL,$0007                      ; $0197  21 07 00
+        LD HL,BDOS+2                     ; $0197  21 07 00
         LD A,(HL)                        ; $019A  7E
         DEC A                            ; $019B  3D
         SUB $08                          ; $019C  D6 08
@@ -218,7 +222,7 @@ OLD_BDOS_VEC:
         RET                              ; $002E  C9
 ACTIVATE_XSUB:
         LD SP,$01DE                      ; $002F  31 DE 01
-        LD C,$09                         ; $0032  0E 09
+        LD C,C_WRITESTR                        ; $0032  0E 09
         LD DE,MSG_XSUB_ACTIVE                 ; $0034  11 4D 00
         CALL CALL_REAL_BDOS                    ; $0037  CD 2A 00
         LD HL,SET_DMA_SCRATCH_RET                 ; $003A  21 80 00
@@ -260,13 +264,13 @@ BDOS_DISPATCH:
         EX DE,HL                         ; $0074  EB
         JP CALL_REAL_BDOS                      ; $0075  C3 2A 00
 SET_DMA_SCRATCH:
-        LD C,$1A                         ; $0078  0E 1A
+        LD C,F_DMAOFF                        ; $0078  0E 1A
         LD DE,SUBMIT_REC_BUF                ; $007A  11 37 01
         CALL CALL_REAL_BDOS                    ; $007D  CD 2A 00
 SET_DMA_SCRATCH_RET:
         RET                              ; $0080  C9
 RESTORE_CALLER_DMA:
-        LD C,$1A                         ; $0081  0E 1A
+        LD C,F_DMAOFF                        ; $0081  0E 1A
         LD HL,(CALLER_DMA_PTR)                   ; $0083  2A BA 01
         EX DE,HL                         ; $0086  EB
         CALL CALL_REAL_BDOS                    ; $0087  CD 2A 00
@@ -283,7 +287,7 @@ BDOS_WITH_SCRATCH_DMA:
         POP AF                           ; $0099  F1
         RET                              ; $009A  C9
 OPEN_SUBMIT_FILE:
-        LD C,$0F                         ; $009B  0E 0F
+        LD C,F_OPEN                        ; $009B  0E 0F
         LD DE,SUBMIT_FCB                     ; $009D  11 16 01
         CALL BDOS_WITH_SCRATCH_DMA                    ; $00A0  CD 8B 00
         INC A                            ; $00A3  3C
@@ -292,7 +296,7 @@ READ_LINE_FROM_SUBMIT:
         PUSH DE                          ; $00A5  D5
         CALL OPEN_SUBMIT_FILE                    ; $00A6  CD 9B 00
         POP DE                           ; $00A9  D1
-        LD C,$0A                         ; $00AA  0E 0A
+        LD C,C_READSTR                        ; $00AA  0E 0A
         JP Z,SUBMIT_EXHAUSTED                  ; $00AC  CA 0D 01
         PUSH DE                          ; $00AF  D5
         LD A,(SUBMIT_REC_COUNT)               ; $00B0  3A 25 01
@@ -301,7 +305,7 @@ READ_LINE_FROM_SUBMIT:
 READ_LINE_FROM_SUBMIT_2:
         DEC A                            ; $00B7  3D
         LD (SUBMIT_REC_TEMP),A               ; $00B8  32 36 01
-        LD C,$14                         ; $00BB  0E 14
+        LD C,F_READ                        ; $00BB  0E 14
         LD DE,SUBMIT_FCB                     ; $00BD  11 16 01
 READ_LINE_FROM_SUBMIT_3:
         CALL BDOS_WITH_SCRATCH_DMA                    ; $00C0  CD 8B 00
@@ -317,7 +321,7 @@ READ_LINE_FROM_SUBMIT_5:
         LD (HL),$0A                      ; $00CE  36 0A
         INC HL                           ; $00D0  23
         LD (HL),$24                      ; $00D1  36 24
-        LD C,$09                         ; $00D3  0E 09
+        LD C,C_WRITESTR                        ; $00D3  0E 09
         LD DE,SUBMIT_REC_BUF+1              ; $00D5  11 38 01
         CALL CALL_REAL_BDOS                    ; $00D8  CD 2A 00
         POP HL                           ; $00DB  E1
@@ -338,7 +342,7 @@ READ_LINE_FROM_SUBMIT_7:
         INC DE                           ; $00EC  13
         DEC C                            ; $00ED  0D
         JP NZ,READ_LINE_FROM_SUBMIT_7                 ; $00EE  C2 E9 00
-        LD C,$10                         ; $00F1  0E 10
+        LD C,F_CLOSE                        ; $00F1  0E 10
         LD DE,SUBMIT_FCB                     ; $00F3  11 16 01
         LD HL,INSTALL_INTERCEPT+1                   ; $00F6  21 0E 00
         ADD HL,DE                        ; $00F9  19
@@ -348,7 +352,7 @@ READ_LINE_FROM_SUBMIT_7:
         LD (SUBMIT_REC_COUNT),A               ; $0100  32 25 01
         OR A                             ; $0103  B7
         JP NZ,READ_LINE_FROM_SUBMIT_8                 ; $0104  C2 09 01
-        LD C,$13                         ; $0107  0E 13
+        LD C,F_DELETE                        ; $0107  0E 13
 READ_LINE_FROM_SUBMIT_8:
         CALL BDOS_WITH_SCRATCH_DMA                    ; $0109  CD 8B 00
         RET                              ; $010C  C9

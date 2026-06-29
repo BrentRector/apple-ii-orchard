@@ -9,11 +9,13 @@
     INCLUDE "apple_softcard.inc"   ; Apple/SoftCard external names (single source of truth)
 
 ; -- External symbols --
-WBOOT_VEC            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
-BDOS_VEC             EQU $0005               ; BDOS call vector — JP BDOS_ENTRY. Programs use CALL $0005 to invoke BDOS. Word at $0006 is also the top-of-TPA marker.
-DEFAULT_FCB          EQU $005C               ; Default File Control Block — populated by CCP from command-line argument 1. Standard 36-byte FCB structure (drive + filename + extents + record number).
-DEFAULT_CR           EQU $007C               ; Default FCB current record byte (overlaps end of DEFAULT_FCB2).
-DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS cold-init / DRV_ALLRESET (fn 13) set the DMA address here and WBOOT re-issues SETDMA($0080); sector/record I/O moves 128 bytes through it. At program load this same buffer doubles as the command tail: the first byte ($0080) holds the tail length (0-127) and the characters follow at $0081 (CMDLINE).
+; CP/M 2.2 base-page cells and BDOS function numbers come from cpm22.inc (INCLUDEd
+; below): WBOOTV $0000, BDOS $0005, TFCB $005C (+ FCB_* field offsets, so the FCB
+; current-record byte $007C = TFCB+FCB_CR), TBUFF $0080, and the C_*/F_* function
+; constants. Defined once there. (Apple/SoftCard hardware externals -- Z_CPU,
+; DSK_*, A_VEC, DSKCNT -- come from apple_softcard.inc, INCLUDEd above. An $0080
+; added to advance the record pointer is the 128-byte record size, not the DMA
+; buffer; APDOS points its own DMA at the $0A22 staging buffer via F_DMAOFF.)
 
 ; -- Mid-instruction references (shown inline as cover+offset) --
 ;   $0494 -> READ_APPLE_SECTOR_2+1 z80 skip idiom: enters the operand of $11 at $0493
@@ -29,7 +31,7 @@ TPA_START:
 TPA_START_1:
         LD (READ_APPLE_SECTOR_3+1),HL    ; $0103  22 AB 04
 TPA_START_2:
-        LD A,($0007)                     ; $0106  3A 07 00
+        LD A,(BDOS+2)                    ; $0106  3A 07 00  high byte of the BDOS entry word = top of usable TPA
 TPA_START_3:
         SUB $0B                          ; $0109  D6 0B
 TPA_START_4:
@@ -59,9 +61,9 @@ TPA_START_15:
 TPA_START_16:
         LD DE,$0922                      ; $012C  11 22 09
 TPA_START_17:
-        LD C,$0A                         ; $012F  0E 0A
+        LD C,C_READSTR                        ; $012F  0E 0A
 TPA_START_18:
-        CALL BDOS_VEC                    ; $0131  CD 05 00
+        CALL BDOS                   ; $0131  CD 05 00
 TPA_START_19:
         CALL PRINT_CRLF                  ; $0134  CD C2 04
 TPA_START_20:
@@ -136,13 +138,13 @@ DRAIN_CONSOLE:
 ;       currently available and consumes it.
 CONSOLE_STATUS:
         LD E,$FF                         ; $01B2  1E FF
-        LD C,$06                         ; $01B4  0E 06
-        CALL BDOS_VEC                    ; $01B6  CD 05 00
+        LD C,C_RAWIO                        ; $01B4  0E 06
+        CALL BDOS                   ; $01B6  CD 05 00
         OR A                             ; $01B9  B7
         RET                              ; $01BA  C9
 PARSE_FILESPEC:
         LD A,$20                         ; $01BB  3E 20
-        LD HL,$005D                      ; $01BD  21 5D 00
+        LD HL,TFCB+FCB_F                 ; $01BD  21 5D 00  blank the default FCB filename+type (11 bytes)
         LD B,$0B                         ; $01C0  06 0B
 CONSOLE_STATUS_2:
         LD (HL),A                        ; $01C2  77
@@ -157,7 +159,7 @@ CONSOLE_STATUS_3:
         LD HL,$0924                      ; $01CF  21 24 09
         LD DE,CONOUT_CHAR_17             ; $01D2  11 12 05
         CALL PARSE_DRIVE_PREFIX          ; $01D5  CD A2 03
-        LD DE,$005D                      ; $01D8  11 5D 00
+        LD DE,TFCB+FCB_F                 ; $01D8  11 5D 00  dest = FCB filename field
         LD B,$08                         ; $01DB  06 08
 CONSOLE_STATUS_4:
         CALL GET_UPPER_CHAR              ; $01DD  CD B9 03
@@ -171,7 +173,7 @@ CONSOLE_STATUS_4:
         DJNZ CONSOLE_STATUS_4            ; $01EC  10 EF
 CONSOLE_STATUS_5:
         LD B,$03                         ; $01EE  06 03
-        LD DE,$0065                      ; $01F0  11 65 00
+        LD DE,TFCB+FCB_T                 ; $01F0  11 65 00  dest = FCB file-type field
 CONSOLE_STATUS_6:
         CALL GET_UPPER_CHAR              ; $01F3  CD B9 03
         JR Z,CONSOLE_STATUS_7            ; $01F6  28 0F
@@ -239,19 +241,19 @@ CONSOLE_STATUS_13:
         LD (HL),A                        ; $026C  77
         CALL SET_DEST_FCB_DRIVE          ; $026D  CD 70 04
         XOR A                            ; $0270  AF
-        LD ($006A),A                     ; $0271  32 6A 00
+        LD (TFCB+FCB_S2),A                    ; $0271  32 6A 00
         LD (CONOUT_CHAR_19),A            ; $0274  32 14 05
         LD (CONOUT_CHAR_20),A            ; $0277  32 15 05
-        LD ($0068),A                     ; $027A  32 68 00
+        LD (TFCB+FCB_EX),A                    ; $027A  32 68 00
         CALL SETUP_SRC_READ              ; $027D  CD E3 02
-        LD DE,DEFAULT_FCB                ; $0280  11 5C 00
+        LD DE,TFCB               ; $0280  11 5C 00
         PUSH DE                          ; $0283  D5
-        LD C,$13                         ; $0284  0E 13
-        CALL BDOS_VEC                    ; $0286  CD 05 00
+        LD C,F_DELETE                        ; $0284  0E 13
+        CALL BDOS                   ; $0286  CD 05 00
         POP DE                           ; $0289  D1
         PUSH DE                          ; $028A  D5
-        LD C,$16                         ; $028B  0E 16
-        CALL BDOS_VEC                    ; $028D  CD 05 00
+        LD C,F_MAKE                        ; $028B  0E 16
+        CALL BDOS                   ; $028D  CD 05 00
         LD DE,CONOUT_CHAR_39             ; $0290  11 BC 06
         INC A                            ; $0293  3C
         JP Z,TPA_START_8                 ; $0294  CA 16 01
@@ -306,9 +308,9 @@ SETUP_SRC_READ:
         LD A,$01                         ; $02E9  3E 01
         LD (DSK_TRACK),A                     ; $02EB  32 E0 F3
         DEC A                            ; $02EE  3D
-        LD ($006A),A                     ; $02EF  32 6A 00
+        LD (TFCB+FCB_S2),A                    ; $02EF  32 6A 00
         LD A,(CONOUT_CHAR_19)            ; $02F2  3A 14 05
-        LD ($0068),A                     ; $02F5  32 68 00
+        LD (TFCB+FCB_EX),A                    ; $02F5  32 68 00
         LD DE,CONOUT_CHAR_33             ; $02F8  11 16 06
 SETUP_SRC_READ_1:
         JP PROMPT_SWAP_IF_SAME           ; $02FB  C3 ED 04
@@ -316,24 +318,24 @@ SETUP_SRC_READ_1:
 ;       side parameters, called when an output buffer must be flushed mid-transfer.
 CLOSE_OUTPUT_FILE:
         CALL SETUP_SRC_READ              ; $02FE  CD E3 02
-        LD DE,DEFAULT_FCB                ; $0301  11 5C 00
+        LD DE,TFCB               ; $0301  11 5C 00
 CLOSE_OUTPUT_FILE_1:
-        LD C,$0F                         ; $0304  0E 0F
-        CALL BDOS_VEC                    ; $0306  CD 05 00
+        LD C,F_OPEN                        ; $0304  0E 0F
+        CALL BDOS                   ; $0306  CD 05 00
         LD A,(CONOUT_CHAR_20)            ; $0309  3A 15 05
-        LD (DEFAULT_CR),A                ; $030C  32 7C 00
+        LD (TFCB+FCB_CR),A               ; $030C  32 7C 00
         JP SET_DEST_FCB_DRIVE            ; $030F  C3 70 04
 CLOSE_OUTPUT_FILE_2:
-        LD A,(DEFAULT_CR)                ; $0312  3A 7C 00
+        LD A,(TFCB+FCB_CR)               ; $0312  3A 7C 00
         LD (CONOUT_CHAR_20),A            ; $0315  32 15 05
-        LD A,($0068)                     ; $0318  3A 68 00
+        LD A,(TFCB+FCB_EX)               ; $0318  3A 68 00
         LD (CONOUT_CHAR_19),A            ; $031B  32 14 05
 ; [AI] Opens/creates the CP/M destination file (BDOS function 16 close) and resets the record-count
 ;       workspace ($0516) before beginning to write a new file.
 CREATE_DEST_FILE:
-        LD DE,DEFAULT_FCB                ; $031E  11 5C 00
-        LD C,$10                         ; $0321  0E 10
-        CALL BDOS_VEC                    ; $0323  CD 05 00
+        LD DE,TFCB               ; $031E  11 5C 00
+        LD C,F_CLOSE                        ; $0321  0E 10
+        CALL BDOS                   ; $0323  CD 05 00
         LD HL,$1A22                      ; $0326  21 22 1A
         LD (CONOUT_CHAR_21),HL           ; $0329  22 16 05
         LD DE,CONOUT_CHAR_32             ; $032C  11 EC 05
@@ -378,8 +380,8 @@ WRITE_CPM_RECORDS_1:
         PUSH BC                          ; $0368  C5
         PUSH HL                          ; $0369  E5
         EX DE,HL                         ; $036A  EB
-        LD C,$1A                         ; $036B  0E 1A
-        CALL BDOS_VEC                    ; $036D  CD 05 00
+        LD C,F_DMAOFF                        ; $036B  0E 1A
+        CALL BDOS                   ; $036D  CD 05 00
         LD A,(CONOUT_CHAR_14)            ; $0370  3A 0E 05
         OR A                             ; $0373  B7
         JR NZ,WRITE_CPM_RECORDS_3        ; $0374  20 0B
@@ -393,14 +395,14 @@ WRITE_CPM_RECORDS_2:
         INC HL                           ; $037E  23
         DJNZ WRITE_CPM_RECORDS_2         ; $037F  10 F9
 WRITE_CPM_RECORDS_3:
-        LD DE,DEFAULT_FCB                ; $0381  11 5C 00
-        LD C,$15                         ; $0384  0E 15
-        CALL BDOS_VEC                    ; $0386  CD 05 00
+        LD DE,TFCB               ; $0381  11 5C 00
+        LD C,F_WRITE                        ; $0384  0E 15
+        CALL BDOS                   ; $0386  CD 05 00
         OR A                             ; $0389  B7
         LD DE,CONOUT_CHAR_40             ; $038A  11 CB 06
         JP NZ,TPA_START_8                ; $038D  C2 16 01
         POP HL                           ; $0390  E1
-        LD DE,DEFAULT_DMA                ; $0391  11 80 00
+        LD DE,$0080                      ; $0391  11 80 00  + 128 = advance to the next record in the buffer
         ADD HL,DE                        ; $0394  19
         POP BC                           ; $0395  C1
         DEC BC                           ; $0396  0B
@@ -446,7 +448,7 @@ GET_UPPER_CHAR_1:
 CALL_SOFTCARD_BIOS:
         LD HL,CALL_SOFTCARD_BIOS_1       ; $03C3  21 CD 03
         PUSH HL                          ; $03C6  E5
-        LD HL,($0001)                    ; $03C7  2A 01 00
+        LD HL,(WBOOTV+1)                 ; $03C7  2A 01 00  read the warm-boot vector's JP target = the BIOS WBOOT entry
         LD L,$1B                         ; $03CA  2E 1B
         JP (HL)                          ; $03CC  E9
 CALL_SOFTCARD_BIOS_1:
@@ -555,7 +557,7 @@ SELECT_SRC_DRIVE:
 SET_DEST_FCB_DRIVE:
         LD A,(CONOUT_CHAR_17)            ; $0470  3A 12 05
         INC A                            ; $0473  3C
-        LD (DEFAULT_FCB),A               ; $0474  32 5C 00
+        LD (TFCB),A              ; $0474  32 5C 00
         RET                              ; $0477  C9
 ; [AI] Points the Apple-side DMA parameter (DSK_BUFFER) at the $1822 staging area, used when reading the
 ;       directory-continuation sector.
@@ -590,7 +592,7 @@ READ_APPLE_SECTOR_2:
         LD HL,$0E03                      ; $04A4  21 03 0E
         LD (A_VEC),HL                    ; $04A7  22 D0 F3
 READ_APPLE_SECTOR_3:
-        LD (WBOOT_VEC),A                 ; $04AA  32 00 00
+        LD ($0000),A                     ; $04AA  32 00 00  CPU-switch dispatch; the $0000 operand is self-modified at $0103 to the cached Z$CPU word (a write to it runs the 6502)
         LD A,(DSK_STATUS)                     ; $04AD  3A EA F3
         OR A                             ; $04B0  B7
         RET Z                            ; $04B1  C8
@@ -626,9 +628,9 @@ PRINT_MSG_BANNER_3:
         POP DE                           ; $04D2  D1
 ; [AI] Prints the '$'-terminated string at DE using BDOS function 9 (print string).
 PRINT_STRING:
-        LD C,$09                         ; $04D3  0E 09
+        LD C,C_WRITESTR                        ; $04D3  0E 09
 PRINT_STRING_1:
-        JP BDOS_VEC                      ; $04D5  C3 05 00
+        JP BDOS                     ; $04D5  C3 05 00
 ; [AI] When the source and destination are the same physical drive, prompts the user to swap to the
 ;       CP/M (destination) disk and waits, since a single drive must hold each disk in turn.
 PROMPT_SWAP_CPM:
@@ -669,9 +671,9 @@ CONOUT_CHAR_3:
 CONOUT_CHAR_4:
         LD E,A                           ; $0500  5F
 CONOUT_CHAR_5:
-        LD C,$02                         ; $0501  0E 02
+        LD C,C_WRITE                        ; $0501  0E 02
 CONOUT_CHAR_6:
-        CALL BDOS_VEC                    ; $0503  CD 05 00
+        CALL BDOS                   ; $0503  CD 05 00
 CONOUT_CHAR_7:
         POP HL                           ; $0506  E1
 CONOUT_CHAR_8:

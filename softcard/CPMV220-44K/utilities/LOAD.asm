@@ -8,10 +8,12 @@
     DEVICE NOSLOT64K
 
 ; -- External symbols --
-WBOOT_VEC            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
-BDOS_VEC             EQU $0005               ; BDOS call vector — JP BDOS_ENTRY. Programs use CALL $0005 to invoke BDOS. Word at $0006 is also the top-of-TPA marker.
-DEFAULT_FCB          EQU $005C               ; Default File Control Block — populated by CCP from command-line argument 1. Standard 36-byte FCB structure (drive + filename + extents + record number).
-DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS cold-init / DRV_ALLRESET (fn 13) set the DMA address here and WBOOT re-issues SETDMA($0080); sector/record I/O moves 128 bytes through it. At program load this same buffer doubles as the command tail: the first byte ($0080) holds the tail length (0-127) and the characters follow at $0081 (CMDLINE).
+; CP/M 2.2 base-page cells and BDOS function numbers come from cpm22.inc (INCLUDEd
+; below): WBOOTV $0000, BDOS $0005, TFCB $005C (+ FCB_* offsets), TBUFF $0080, and
+; the C_*/F_* function constants. Defined once there. (LOAD's working variables at
+; $0C00-$0D44 and its source buffer at $080A are program-private RAM, kept as
+; literal addresses; an $0080 added to advance a record pointer is the 128-byte
+; record size, not the DMA buffer.)
 
 ; -- Mid-instruction references (shown inline as cover+offset) --
 ;   $0400 -> BDOS_MAKE_FILE+1           z80 skip idiom: enters the operand of $21 at $03FF
@@ -71,7 +73,7 @@ RESTORE_CCP_STACK:
 ; [AI] Startup/initialization code: saves the entry stack pointer, sets up LOAD's own stack and
 ;       working variables, then validates the command-line filename before the main load.
 MAIN:
-        LD HL,WBOOT_VEC                  ; $0240  21 00 00
+        LD HL,$0000                 ; $0240  21 00 00
 RESTORE_CCP_STACK_2:
         ADD HL,SP                        ; $0243  39
 RESTORE_CCP_STACK_3:
@@ -89,7 +91,7 @@ RESTORE_CCP_STACK_8:
 RESTORE_CCP_STACK_9:
         LD ($0C0B),HL                    ; $0254  22 0B 0C
 RESTORE_CCP_STACK_10:
-        LD BC,DEFAULT_FCB                ; $0257  01 5C 00
+        LD BC,TFCB               ; $0257  01 5C 00
 RESTORE_CCP_STACK_11:
         PUSH BC                          ; $025A  C5
 RESTORE_CCP_STACK_12:
@@ -127,19 +129,19 @@ RESTORE_CCP_STACK_26:
 RESTORE_CCP_STACK_27:
         LD E,$03                         ; $0287  1E 03
 RESTORE_CCP_STACK_28:
-        LD BC,$0065                      ; $0289  01 65 00
+        LD BC,TFCB+FCB_T                 ; $0289  01 65 00  dest = TFCB+FCB_T (file-type field, set to "COM")
 RESTORE_CCP_STACK_29:
         CALL BLOCK_COPY                    ; $028C  CD 22 04
 RESTORE_CCP_STACK_30:
-        LD BC,DEFAULT_FCB                ; $028F  01 5C 00
+        LD BC,TFCB               ; $028F  01 5C 00
 RESTORE_CCP_STACK_31:
         CALL BDOS_DELETE_FILE                    ; $0292  CD CF 03
 RESTORE_CCP_STACK_32:
-        LD BC,DEFAULT_FCB                ; $0295  01 5C 00
+        LD BC,TFCB               ; $0295  01 5C 00
 RESTORE_CCP_STACK_33:
         CALL BDOS_MAKE_FILE                    ; $0298  CD FF 03
 RESTORE_CCP_STACK_34:
-        LD BC,DEFAULT_FCB                ; $029B  01 5C 00
+        LD BC,TFCB               ; $029B  01 5C 00
 RESTORE_CCP_STACK_35:
         CALL BDOS_OPEN_FILE                    ; $029E  CD 8A 03
 RESTORE_CCP_STACK_36:
@@ -153,7 +155,7 @@ RESTORE_CCP_STACK_38:
         JP RESTORE_CCP_STACK_40                   ; $02AF  C3 C9 02
 RESTORE_CCP_STACK_39:
         CALL LOAD_HEX_FILE                    ; $02B2  CD E4 04
-        LD BC,DEFAULT_FCB                ; $02B5  01 5C 00
+        LD BC,TFCB               ; $02B5  01 5C 00
         CALL BDOS_CLOSE_FILE                    ; $02B8  CD 9D 03
         LD A,($0C1A)                     ; $02BB  3A 1A 0C
         CP $FF                           ; $02BE  FE FF
@@ -172,7 +174,7 @@ CONOUT:
         LD HL,($0C0D)                    ; $02D4  2A 0D 0C
         LD H,$00                         ; $02D7  26 00
         EX DE,HL                         ; $02D9  EB
-        LD C,$02                         ; $02DA  0E 02
+        LD C,C_WRITE                        ; $02DA  0E 02
         CALL BDOS_CALL                    ; $02DC  CD 66 07
         RET                              ; $02DF  C9
 ; [AI] Emits a CR/LF pair (0x0D, 0x0A) to the console to start a new output line.
@@ -247,7 +249,7 @@ PRINT_STRING:
         LD (HL),C                        ; $0347  71
         LD HL,($0C12)                    ; $0348  2A 12 0C
         EX DE,HL                         ; $034B  EB
-        LD C,$09                         ; $034C  0E 09
+        LD C,C_WRITESTR                        ; $034C  0E 09
         CALL BDOS_CALL                    ; $034E  CD 66 07
         RET                              ; $0351  C9
 ; [AI] Starts a fresh line (CR/LF) and then prints the '$'-terminated message addressed by BC; the
@@ -300,7 +302,7 @@ BDOS_OPEN_FILE_4:
 BDOS_OPEN_FILE_5:
         EX DE,HL                         ; $0393  EB
 BDOS_OPEN_FILE_6:
-        LD C,$0F                         ; $0394  0E 0F
+        LD C,F_OPEN                        ; $0394  0E 0F
 BDOS_OPEN_FILE_7:
         CALL BDOS_CALL_RET                    ; $0396  CD 69 07
 BDOS_OPEN_FILE_8:
@@ -316,7 +318,7 @@ BDOS_CLOSE_FILE:
         LD (HL),C                        ; $03A2  71
         LD HL,($0C1D)                    ; $03A3  2A 1D 0C
         EX DE,HL                         ; $03A6  EB
-        LD C,$10                         ; $03A7  0E 10
+        LD C,F_CLOSE                        ; $03A7  0E 10
         CALL BDOS_CALL_RET                    ; $03A9  CD 69 07
         LD ($0C1A),A                     ; $03AC  32 1A 0C
         RET                              ; $03AF  C9
@@ -329,15 +331,15 @@ BDOS_SEARCH_FIRST:
         LD (HL),C                        ; $03B5  71
         LD HL,($0C1F)                    ; $03B6  2A 1F 0C
         EX DE,HL                         ; $03B9  EB
-        LD C,$11                         ; $03BA  0E 11
+        LD C,F_SFIRST                        ; $03BA  0E 11
         CALL BDOS_CALL_RET                    ; $03BC  CD 69 07
         LD ($0C1A),A                     ; $03BF  32 1A 0C
         RET                              ; $03C2  C9
 ; [AI] BDOS function 18 (search for next) with DE=0; status code saved at $0C1A. Standard BDOS
 ;       wrapper, present in the stock LOAD.COM but not reached by any call in this program.
 BDOS_SEARCH_NEXT:
-        LD DE,WBOOT_VEC                  ; $03C3  11 00 00
-        LD C,$12                         ; $03C6  0E 12
+        LD DE,$0000                 ; $03C3  11 00 00
+        LD C,F_SNEXT                        ; $03C6  0E 12
         CALL BDOS_CALL_RET                    ; $03C8  CD 69 07
         LD ($0C1A),A                     ; $03CB  32 1A 0C
         RET                              ; $03CE  C9
@@ -356,7 +358,7 @@ BDOS_DELETE_FILE_4:
 BDOS_DELETE_FILE_5:
         EX DE,HL                         ; $03D8  EB
 BDOS_DELETE_FILE_6:
-        LD C,$13                         ; $03D9  0E 13
+        LD C,F_DELETE                        ; $03D9  0E 13
 BDOS_DELETE_FILE_7:
         CALL BDOS_CALL                    ; $03DB  CD 66 07
 BDOS_DELETE_FILE_8:
@@ -376,7 +378,7 @@ BDOS_READ_SEQ_4:
 BDOS_READ_SEQ_5:
         EX DE,HL                         ; $03E8  EB
 BDOS_READ_SEQ_6:
-        LD C,$14                         ; $03E9  0E 14
+        LD C,F_READ                        ; $03E9  0E 14
 BDOS_READ_SEQ_7:
         CALL BDOS_CALL_RET                    ; $03EB  CD 69 07
 BDOS_READ_SEQ_8:
@@ -390,7 +392,7 @@ BDOS_WRITE_SEQ:
         LD (HL),C                        ; $03F4  71
         LD HL,($0C25)                    ; $03F5  2A 25 0C
         EX DE,HL                         ; $03F8  EB
-        LD C,$15                         ; $03F9  0E 15
+        LD C,F_WRITE                        ; $03F9  0E 15
         CALL BDOS_CALL_RET                    ; $03FB  CD 69 07
         RET                              ; $03FE  C9
 ; [AI] BDOS function 22 (make file) for the FCB in BC, creating the output file; the returned code
@@ -408,7 +410,7 @@ BDOS_MAKE_FILE_4:
 BDOS_MAKE_FILE_5:
         EX DE,HL                         ; $0408  EB
 BDOS_MAKE_FILE_6:
-        LD C,$16                         ; $0409  0E 16
+        LD C,F_MAKE                        ; $0409  0E 16
 BDOS_MAKE_FILE_7:
         CALL BDOS_CALL_RET                    ; $040B  CD 69 07
 BDOS_MAKE_FILE_8:
@@ -424,7 +426,7 @@ BDOS_RENAME_FILE:
         LD (HL),C                        ; $0417  71
         LD HL,($0C29)                    ; $0418  2A 29 0C
         EX DE,HL                         ; $041B  EB
-        LD C,$17                         ; $041C  0E 17
+        LD C,F_RENAME                        ; $041C  0E 17
         CALL BDOS_CALL                    ; $041E  CD 66 07
         RET                              ; $0421  C9
 ; [AI] Block-copy (memmove) helper: copies E bytes from the source address in BC to the destination
@@ -519,7 +521,7 @@ GET_SOURCE_BYTE_9:
 GET_SOURCE_BYTE_10:
         RET                              ; $0471  C9
 GET_SOURCE_BYTE_11:
-        LD HL,WBOOT_VEC                  ; $0472  21 00 00
+        LD HL,$0000                 ; $0472  21 00 00
 GET_SOURCE_BYTE_12:
         LD ($0C0B),HL                    ; $0475  22 0B 0C
 GET_SOURCE_BYTE_13:
@@ -533,7 +535,7 @@ GET_SOURCE_BYTE_16:
 GET_SOURCE_BYTE_17:
         JP GET_SOURCE_BYTE_23                   ; $0484  C3 97 04
 GET_SOURCE_BYTE_18:
-        LD DE,DEFAULT_DMA                ; $0487  11 80 00
+        LD DE,$0080                      ; $0487  11 80 00  + 128 = advance the buffer pointer one record
 GET_SOURCE_BYTE_19:
         LD HL,($0C0B)                    ; $048A  2A 0B 0C
 GET_SOURCE_BYTE_20:
@@ -554,7 +556,7 @@ GET_SOURCE_BYTE_26:
 GET_SOURCE_BYTE_27:
         JP NZ,GET_SOURCE_BYTE_38                ; $04A2  C2 BA 04
 GET_SOURCE_BYTE_28:
-        LD BC,DEFAULT_DMA                ; $04A5  01 80 00
+        LD BC,TBUFF               ; $04A5  01 80 00
 GET_SOURCE_BYTE_29:
         PUSH BC                          ; $04A8  C5
 GET_SOURCE_BYTE_30:
@@ -589,7 +591,7 @@ GET_SOURCE_BYTE_39:
 GET_SOURCE_BYTE_40:
         JP GET_SOURCE_BYTE_18                   ; $04D7  C3 87 04
 GET_SOURCE_BYTE_41:
-        LD HL,WBOOT_VEC                  ; $04DA  21 00 00
+        LD HL,$0000                 ; $04DA  21 00 00
 GET_SOURCE_BYTE_42:
         LD ($0C0B),HL                    ; $04DD  22 0B 0C
 GET_SOURCE_BYTE_43:
@@ -600,7 +602,7 @@ GET_SOURCE_BYTE_44:
 ;       the ':' start mark), parses its byte count, load address and record type, stores the data
 ;       bytes into the output image, and on the end record prints the load summary.
 LOAD_HEX_FILE:
-        LD HL,WBOOT_VEC                  ; $04E4  21 00 00
+        LD HL,$0000                 ; $04E4  21 00 00
 LOAD_HEX_FILE_1:
         LD ($0C36),HL                    ; $04E7  22 36 0C
 LOAD_HEX_FILE_2:
@@ -774,7 +776,7 @@ STORE_LOAD_BYTE_2:
         PUSH HL                          ; $063D  E5
         LD HL,($0D40)                    ; $063E  2A 40 0D
         LD H,$00                         ; $0641  26 00
-        LD BC,DEFAULT_DMA                ; $0643  01 80 00
+        LD BC,TBUFF               ; $0643  01 80 00
         ADD HL,BC                        ; $0646  09
         POP DE                           ; $0647  D1
         LD A,(DE)                        ; $0648  1A
@@ -788,7 +790,7 @@ STORE_LOAD_BYTE_2:
 STORE_LOAD_BYTE_3:
         LD HL,$0D3C                      ; $0658  21 3C 0D
         INC (HL)                         ; $065B  34
-        LD BC,DEFAULT_FCB                ; $065C  01 5C 00
+        LD BC,TFCB               ; $065C  01 5C 00
         CALL BDOS_WRITE_SEQ                    ; $065F  CD EF 03
         CP $00                           ; $0662  FE 00
         JP Z,STORE_LOAD_BYTE_4                  ; $0664  CA 6D 06
@@ -935,18 +937,18 @@ CALC_LOAD_ADDR:
         RET                              ; $0762  C9
 ; [AI] Lone JP to the warm-boot vector ($0000), sitting between CALC_LOAD_ADDR and the BDOS
 ;       trampolines; not reached by any call/jump in this program (orphan/dead instruction).
-        JP WBOOT_VEC                     ; $0763  C3 00 00
+        JP WBOOTV                    ; $0763  C3 00 00
 ; [AI] BDOS call trampoline (JP $0005); routines load the function number in C and the parameter in
 ;       DE then jump here to reach the BDOS.
 BDOS_CALL:
-        JP BDOS_VEC                      ; $0766  C3 05 00
+        JP BDOS                     ; $0766  C3 05 00
 ; [AI] A second BDOS-call trampoline (JP $0005), used by the file-open/close/read/write/create
 ;       routines that need the directory/status code returned in A.
 BDOS_CALL_RET:
-        JP BDOS_VEC                      ; $0769  C3 05 00
+        JP BDOS                     ; $0769  C3 05 00
 ; [AI] A third BDOS-call trampoline (CALL $0005 then RET), followed by two spare RET bytes; an
 ;       unreferenced helper in the stock LOAD.COM (no call/jump in this program reaches it).
-        CALL BDOS_VEC                    ; $076C  CD 05 00
+        CALL BDOS                   ; $076C  CD 05 00
         RET                              ; $076F  C9
         RET                              ; $0770  C9
         RET                              ; $0771  C9

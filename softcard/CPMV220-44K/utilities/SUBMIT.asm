@@ -5,10 +5,9 @@
     DEVICE NOSLOT64K
 
 ; -- External symbols --
-WBOOT_VEC            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
-BDOS_VEC             EQU $0005               ; BDOS call vector — JP BDOS_ENTRY. Programs use CALL $0005 to invoke BDOS. Word at $0006 is also the top-of-TPA marker.
-DEFAULT_FCB          EQU $005C               ; Default File Control Block — populated by CCP from command-line argument 1. Standard 36-byte FCB structure (drive + filename + extents + record number).
-DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS cold-init / DRV_ALLRESET (fn 13) set the DMA address here and WBOOT re-issues SETDMA($0080); sector/record I/O moves 128 bytes through it. At program load this same buffer doubles as the command tail: the first byte ($0080) holds the tail length (0-127) and the characters follow at $0081 (CMDLINE).
+; CP/M 2.2 base-page cells and BDOS function numbers come from cpm22.inc (INCLUDEd
+; below): WBOOTV $0000, BDOS $0005, TFCB $005C (+ FCB_* offsets), TBUFF $0080,
+; CMDLINE $0081, and the C_*/F_* function constants. Defined once there.
 
     INCLUDE "cpm22.inc"                  ; CP/M 2.2 ABI (provides TPA = $0100)
     ORG TPA
@@ -42,7 +41,7 @@ MSG_DIRECTORY_FULL:
 MSG_CANNOT_CLOSE:
         DEFB    "Cannot Close, Read/Only?$"    ; $01C6  string
 MAIN:
-        LD HL,WBOOT_VEC                  ; $01DF  21 00 00
+        LD HL,$0000                 ; $01DF  21 00 00
         ADD HL,SP                        ; $01E2  39   HL = caller's SP (CCP stack)
         LD (SAVED_SP),HL                 ; $01E3  22 F0 05  save for FATAL_ERROR exit
         LD HL,$0E93                      ; $01E6  21 93 0E
@@ -59,7 +58,7 @@ BDOS_PRINT_STRING:
         LD (HL),C                        ; $01FC  71
         LD HL,(ARG_PRINT)                ; $01FD  2A DC 05
         EX DE,HL                         ; $0200  EB
-        LD C,$09                         ; $0201  0E 09  BDOS fn 9 = print $-string
+        LD C,C_WRITESTR                        ; $0201  0E 09  BDOS fn 9 = print $-string
         CALL BDOS_CALL                   ; $0203  CD 8A 05
         RET                              ; $0206  C9
 BDOS_OPEN_FILE:
@@ -69,7 +68,7 @@ BDOS_OPEN_FILE:
         LD (HL),C                        ; $020C  71
         LD HL,(ARG_OPEN)                 ; $020D  2A DF 05
         EX DE,HL                         ; $0210  EB
-        LD C,$0F                         ; $0211  0E 0F  BDOS fn 15 = open file
+        LD C,F_OPEN                        ; $0211  0E 0F  BDOS fn 15 = open file
         CALL BDOS_CALL_RET               ; $0213  CD 8D 05
         LD (BDOS_RESULT),A               ; $0216  32 DE 05
         RET                              ; $0219  C9
@@ -80,7 +79,7 @@ BDOS_CLOSE_FILE:
         LD (HL),C                        ; $021F  71
         LD HL,(ARG_CLOSE)                ; $0220  2A E1 05
         EX DE,HL                         ; $0223  EB
-        LD C,$10                         ; $0224  0E 10  BDOS fn 16 = close file
+        LD C,F_CLOSE                        ; $0224  0E 10  BDOS fn 16 = close file
         CALL BDOS_CALL_RET               ; $0226  CD 8D 05
         LD (BDOS_RESULT),A               ; $0229  32 DE 05
         RET                              ; $022C  C9
@@ -91,7 +90,7 @@ BDOS_DELETE_FILE:
         LD (HL),C                        ; $0232  71
         LD HL,(ARG_DELETE)               ; $0233  2A E3 05
         EX DE,HL                         ; $0236  EB
-        LD C,$13                         ; $0237  0E 13  BDOS fn 19 = delete file
+        LD C,F_DELETE                        ; $0237  0E 13  BDOS fn 19 = delete file
         CALL BDOS_CALL                   ; $0239  CD 8A 05
         RET                              ; $023C  C9
 BDOS_READ_SEQ:
@@ -101,7 +100,7 @@ BDOS_READ_SEQ:
         LD (HL),C                        ; $0242  71
         LD HL,(ARG_READ)                 ; $0243  2A E5 05
         EX DE,HL                         ; $0246  EB
-        LD C,$14                         ; $0247  0E 14  BDOS fn 20 = read sequential
+        LD C,F_READ                        ; $0247  0E 14  BDOS fn 20 = read sequential
         CALL BDOS_CALL_RET               ; $0249  CD 8D 05
         RET                              ; $024C  C9
 BDOS_WRITE_SEQ:
@@ -111,7 +110,7 @@ BDOS_WRITE_SEQ:
         LD (HL),C                        ; $0252  71
         LD HL,(ARG_WRITE)                ; $0253  2A E7 05
         EX DE,HL                         ; $0256  EB
-        LD C,$15                         ; $0257  0E 15  BDOS fn 21 = write sequential
+        LD C,F_WRITE                        ; $0257  0E 15  BDOS fn 21 = write sequential
         CALL BDOS_CALL_RET               ; $0259  CD 8D 05
         RET                              ; $025C  C9
 BDOS_MAKE_FILE:
@@ -121,7 +120,7 @@ BDOS_MAKE_FILE:
         LD (HL),C                        ; $0262  71
         LD HL,(ARG_MAKE)                 ; $0263  2A E9 05
         EX DE,HL                         ; $0266  EB
-        LD C,$16                         ; $0267  0E 16  BDOS fn 22 = make file
+        LD C,F_MAKE                        ; $0267  0E 16  BDOS fn 22 = make file
         CALL BDOS_CALL_RET               ; $0269  CD 8D 05
         LD (BDOS_RESULT),A               ; $026C  32 DE 05
         RET                              ; $026F  C9
@@ -192,7 +191,7 @@ OPEN_SUB_FILE:
         LD E,$7F                         ; $02D0  1E 7F   count = 127
         LD BC,CMD_BUF                    ; $02D2  01 F4 05  dest = local text buffer
         CALL MEMCPY                      ; $02D5  CD 70 02
-        LD HL,(DEFAULT_DMA)              ; $02D8  2A 80 00  HL = tail length (byte $0080)
+        LD HL,(TBUFF)             ; $02D8  2A 80 00  HL = tail length (byte $0080)
         LD H,$00                         ; $02DB  26 00
         LD BC,CMD_BUF                    ; $02DD  01 F4 05
         ADD HL,BC                        ; $02E0  09
@@ -200,9 +199,9 @@ OPEN_SUB_FILE:
         LD BC,FN_SUB_EXT                 ; $02E3  01 3A 01  push source = "SUB" type
         PUSH BC                          ; $02E6  C5
         LD E,$03                         ; $02E7  1E 03   count = 3
-        LD BC,$0065                      ; $02E9  01 65 00  dest = DEFAULT_FCB+9 (file type)
+        LD BC,TFCB+FCB_T                 ; $02E9  01 65 00  dest = TFCB+FCB_T (the file-type field)
         CALL MEMCPY                      ; $02EC  CD 70 02
-        LD BC,DEFAULT_FCB                ; $02EF  01 5C 00
+        LD BC,TFCB               ; $02EF  01 5C 00
         CALL BDOS_OPEN_FILE              ; $02F2  CD 07 02
         LD A,(BDOS_RESULT)               ; $02F5  3A DE 05
         CP $FF                           ; $02F8  FE FF   $FF = open failed
@@ -222,7 +221,7 @@ GET_NEXT_CHAR:
         LD HL,$0674                      ; $030B  21 74 06  in-record cursor
         CP (HL)                          ; $030E  BE   cursor still < 128?
         JP NC,GET_NEXT_CHAR_FETCH        ; $030F  D2 25 03
-        LD BC,DEFAULT_FCB                ; $0312  01 5C 00  buffer exhausted -> read next record
+        LD BC,TFCB               ; $0312  01 5C 00  buffer exhausted -> read next record
         CALL BDOS_READ_SEQ               ; $0315  CD 3D 02
         CP $00                           ; $0318  FE 00   read OK?
         JP Z,GET_NEXT_CHAR_NEWREC        ; $031A  CA 20 03
@@ -238,7 +237,7 @@ GET_NEXT_CHAR_FETCH:
         DEC A                            ; $032C  3D
         LD C,A                           ; $032D  4F
         LD B,$00                         ; $032E  06 00
-        LD HL,DEFAULT_DMA                ; $0330  21 80 00
+        LD HL,TBUFF               ; $0330  21 80 00
         ADD HL,BC                        ; $0333  09   HL = &DMA[cursor]
         LD A,(HL)                        ; $0334  7E
         LD ($0675),A                     ; $0335  32 75 06  stash current char
@@ -296,7 +295,7 @@ WRITE_RECORD_1:
 PARSE_SUB_FILE:
         LD HL,$0676                      ; $038A  21 76 06  output buffer length byte
         LD (HL),$00                      ; $038D  36 00
-        LD HL,WBOOT_VEC                  ; $038F  21 00 00  HL = 0
+        LD HL,$0000                 ; $038F  21 00 00  HL = 0
         LD ($0E76),HL                    ; $0392  22 76 0E  output count = 0
         LD HL,$0E7C                      ; $0395  21 7C 0E
         LD (HL),$01                      ; $0398  36 01   more-lines flag = 1
@@ -514,7 +513,7 @@ BUILD_RECORD_LOOP:
         CP $00                           ; $0523  FE 00   length 0 -> nothing left
         JP Z,BUILD_CLOSE                 ; $0525  CA 65 05
         LD A,($0E7E)                     ; $0528  3A 7E 0E
-        LD (DEFAULT_DMA),A               ; $052B  32 80 00  store length at DMA[0]
+        LD (TBUFF),A              ; $052B  32 80 00  store length at DMA[0]
         LD C,A                           ; $052E  4F
         LD B,$00                         ; $052F  06 00
         LD HL,CMDLINE                    ; $0531  21 81 00
@@ -522,7 +521,7 @@ BUILD_RECORD_LOOP:
         LD (HL),$00                      ; $0535  36 00   NUL after the line text
         LD HL,($0E7E)                    ; $0537  2A 7E 0E
         LD H,$00                         ; $053A  26 00
-        LD BC,$0082                      ; $053C  01 82 00  DMA+2+len
+        LD BC,TBUFF+2                     ; $053C  01 82 00  TBUFF+2 base (+ line length -> '$' marker slot)
         ADD HL,BC                        ; $053F  09
         LD (HL),$24                      ; $0540  36 24   '$' marker after the line
 BUILD_FILL_LOOP:
@@ -533,7 +532,7 @@ BUILD_FILL_LOOP:
         CALL POP_OUTPUT_BYTE             ; $054B  CD 7A 05  next line char
         LD HL,($0E7E)                    ; $054E  2A 7E 0E
         LD H,$00                         ; $0551  26 00
-        LD BC,DEFAULT_DMA                ; $0553  01 80 00
+        LD BC,TBUFF               ; $0553  01 80 00
         ADD HL,BC                        ; $0556  09
         LD (HL),A                        ; $0557  77   store char at DMA[len]
         LD HL,$0E7E                      ; $0558  21 7E 0E
@@ -564,18 +563,18 @@ POP_OUTPUT_BYTE:
         RET                              ; $0586  C9
 ; WARM_BOOT -- return to CP/M via the warm-boot vector ($0000). [AI]
 WARM_BOOT:
-        JP WBOOT_VEC                     ; $0587  C3 00 00
+        JP WBOOTV                    ; $0587  C3 00 00
 BDOS_CALL:
-        JP BDOS_VEC                      ; $058A  C3 05 00
+        JP BDOS                     ; $058A  C3 05 00
 BDOS_CALL_RET:
-        JP BDOS_VEC                      ; $058D  C3 05 00
+        JP BDOS                     ; $058D  C3 05 00
 BDOS_CALLRET_UNUSED:
-        CALL BDOS_VEC                    ; $0590  CD 05 00
+        CALL BDOS                   ; $0590  CD 05 00
         RET                              ; $0593  C9
-; $0590  Standalone dead library thunk (CALL BDOS_VEC / RET): not an internal of
-;        BDOS_CALL_RET (which is JP BDOS_VEC and never falls through here).
+; $0590  Standalone dead library thunk (CALL BDOS / RET): not an internal of
+;        BDOS_CALL_RET (which is JP BDOS and never falls through here).
 ; $0594  Unreachable stale library tail. No call/jump targets $0590 or $0594,
-;        and the two BDOS thunks above (BDOS_CALL/BDOS_CALL_RET) are JP BDOS_VEC,
+;        and the two BDOS thunks above (BDOS_CALL/BDOS_CALL_RET) are JP BDOS,
 ;        so control never falls through here. The bytes are still valid Z-80 -- a
 ;        leftover runtime-helper tail (two RET tails + the standard LD E,A / LD D,0
 ;        zero-extend-A-into-DE prologue) -- decoded in place for clarity. [AI]

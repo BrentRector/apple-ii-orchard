@@ -8,11 +8,12 @@
     DEVICE NOSLOT64K
 
 ; -- External symbols --
-WBOOT_VEC            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
-BDOS_VEC             EQU $0005               ; BDOS call vector — JP BDOS_ENTRY. Programs use CALL $0005 to invoke BDOS. Word at $0006 is also the top-of-TPA marker.
-DEFAULT_FCB          EQU $005C               ; Default File Control Block — populated by CCP from command-line argument 1. Standard 36-byte FCB structure (drive + filename + extents + record number).
-DEFAULT_CR           EQU $007C               ; Default FCB current record byte (overlaps end of DEFAULT_FCB2).
-DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS cold-init / DRV_ALLRESET (fn 13) set the DMA address here and WBOOT re-issues SETDMA($0080); sector/record I/O moves 128 bytes through it. At program load this same buffer doubles as the command tail: the first byte ($0080) holds the tail length (0-127) and the characters follow at $0081 (CMDLINE).
+; CP/M 2.2 base-page cells and BDOS function numbers come from cpm22.inc (INCLUDEd
+; below): WBOOTV $0000, BDOS $0005, TFCB $005C (+ FCB_* offsets, so the FCB
+; current-record byte $007C = TFCB+FCB_CR), TBUFF $0080, and the C_*/F_* function
+; constants. Defined once there. NOTE: the leftover-image MODULE in the BSS tail
+; below is foreign relocatable code that never executes; it is left decoded
+; structurally and is NOT given cpm22 names.
 
 ; -- Program data cells (live BSS overlaid on the leftover image below) --
 ;   The three addresses the live program reads/writes as RAM all fall inside the
@@ -28,7 +29,7 @@ PRIVATE_STACK_TOP    EQU $0257               ; top of the program's private stac
 ; [AI] Program entry at $0100; saves the CCP's stack pointer for a clean return, switches to a
 ;       private stack, then opens the input file and begins dumping.
 TPA_START:
-        LD HL,WBOOT_VEC                  ; $0100  21 00 00
+        LD HL,$0000                 ; $0100  21 00 00
 TPA_START_1:
         ADD HL,SP                        ; $0103  39
 TPA_START_2:
@@ -49,7 +50,7 @@ TPA_START_7:
 TPA_START_8:
         LD (BUF_POS),A                   ; $011D  32 13 02
 TPA_START_9:
-        LD HL,WBOOT_VEC                  ; $0120  21 00 00
+        LD HL,$0000                 ; $0120  21 00 00
 TPA_START_10:
         PUSH HL                          ; $0123  E5
 TPA_START_11:
@@ -108,9 +109,9 @@ CHECK_ABORT_KEY_1:
 CHECK_ABORT_KEY_2:
         PUSH BC                          ; $015B  C5
 CHECK_ABORT_KEY_3:
-        LD C,$0B                         ; $015C  0E 0B
+        LD C,C_STAT                        ; $015C  0E 0B
 CHECK_ABORT_KEY_4:
-        CALL BDOS_VEC                    ; $015E  CD 05 00
+        CALL BDOS                   ; $015E  CD 05 00
 CHECK_ABORT_KEY_5:
         POP BC                           ; $0161  C1
 CHECK_ABORT_KEY_6:
@@ -128,11 +129,11 @@ PRINT_CHAR_1:
 PRINT_CHAR_2:
         PUSH BC                          ; $0167  C5
 PRINT_CHAR_3:
-        LD C,$02                         ; $0168  0E 02
+        LD C,C_WRITE                     ; $0168  0E 02
 PRINT_CHAR_4:
         LD E,A                           ; $016A  5F
 PRINT_CHAR_5:
-        CALL BDOS_VEC                    ; $016B  CD 05 00
+        CALL BDOS                   ; $016B  CD 05 00
 PRINT_CHAR_6:
         POP BC                           ; $016E  C1
 PRINT_CHAR_7:
@@ -193,8 +194,8 @@ PRINT_HEX_BYTE_8:
 ; [AI] Prints the '$'-terminated string pointed to by DE via BDOS function 9 (print string); used
 ;       for the version banner and the no-file error message.
 PRINT_STRING:
-        LD C,$09                         ; $019C  0E 09
-        CALL BDOS_VEC                    ; $019E  CD 05 00
+        LD C,C_WRITESTR                        ; $019C  0E 09
+        CALL BDOS                   ; $019E  CD 05 00
         RET                              ; $01A1  C9
 ; [AI] Returns the next byte of the input file in A, refilling the DMA buffer with a fresh record
 ;       (and signalling end-of-file via carry) whenever the current 128-byte buffer is exhausted.
@@ -221,7 +222,7 @@ GET_NEXT_BYTE_8:
 GET_NEXT_BYTE_9:
         LD (BUF_POS),A                   ; $01B7  32 13 02
 GET_NEXT_BYTE_10:
-        LD HL,DEFAULT_DMA                ; $01BA  21 80 00
+        LD HL,TBUFF               ; $01BA  21 80 00
 GET_NEXT_BYTE_11:
         ADD HL,DE                        ; $01BD  19
 GET_NEXT_BYTE_12:
@@ -235,13 +236,13 @@ GET_NEXT_BYTE_14:
 OPEN_INPUT_FILE:
         XOR A                            ; $01C1  AF
 OPEN_INPUT_FILE_1:
-        LD (DEFAULT_CR),A                ; $01C2  32 7C 00
+        LD (TFCB+FCB_CR),A               ; $01C2  32 7C 00
 OPEN_INPUT_FILE_2:
-        LD DE,DEFAULT_FCB                ; $01C5  11 5C 00
+        LD DE,TFCB               ; $01C5  11 5C 00
 OPEN_INPUT_FILE_3:
-        LD C,$0F                         ; $01C8  0E 0F
+        LD C,F_OPEN                        ; $01C8  0E 0F
 OPEN_INPUT_FILE_4:
-        CALL BDOS_VEC                    ; $01CA  CD 05 00
+        CALL BDOS                   ; $01CA  CD 05 00
 OPEN_INPUT_FILE_5:
         RET                              ; $01CD  C9
 ; [AI] Reads the next sequential 128-byte record into the DMA buffer via BDOS function 20 (read
@@ -253,11 +254,11 @@ READ_RECORD_1:
 READ_RECORD_2:
         PUSH BC                          ; $01D0  C5
 READ_RECORD_3:
-        LD DE,DEFAULT_FCB                ; $01D1  11 5C 00
+        LD DE,TFCB               ; $01D1  11 5C 00
 READ_RECORD_4:
-        LD C,$14                         ; $01D4  0E 14
+        LD C,F_READ                        ; $01D4  0E 14
 READ_RECORD_5:
-        CALL BDOS_VEC                    ; $01D6  CD 05 00
+        CALL BDOS                   ; $01D6  CD 05 00
 READ_RECORD_6:
         POP BC                           ; $01D9  C1
 READ_RECORD_7:

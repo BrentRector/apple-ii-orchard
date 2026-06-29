@@ -8,10 +8,12 @@
     DEVICE NOSLOT64K
 
 ; -- External symbols --
-WBOOT_VEC            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
-BDOS_VEC             EQU $0005               ; BDOS call vector — JP BDOS_ENTRY. Programs use CALL $0005 to invoke BDOS. Word at $0006 is also the top-of-TPA marker.
-DEFAULT_FCB          EQU $005C               ; Default File Control Block — populated by CCP from command-line argument 1. Standard 36-byte FCB structure (drive + filename + extents + record number).
-DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS cold-init / DRV_ALLRESET (fn 13) set the DMA address here and WBOOT re-issues SETDMA($0080); sector/record I/O moves 128 bytes through it. At program load this same buffer doubles as the command tail: the first byte ($0080) holds the tail length (0-127) and the characters follow at $0081 (CMDLINE).
+; CP/M 2.2 base-page cells and BDOS function numbers come from cpm22.inc (INCLUDEd
+; below): WBOOTV $0000, BDOS $0005, TFCB $005C, TBUFF $0080, and the C_*/F_*
+; function constants. Defined once there. NOTE: the leftover-image MODULE in the
+; final record ($0201+) is foreign relocatable code that never executes; it is
+; left decoded structurally and is NOT given cpm22 names. (The $E0xx operands in
+; the live code are serial-port hardware registers, not base-page cells.)
 
     INCLUDE "cpm22.inc"                  ; CP/M 2.2 ABI (provides TPA = $0100)
     ORG TPA
@@ -19,20 +21,20 @@ DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS
 ; [AI] Program entry point at $0100 (top of the TPA); checks the command-tail length byte to decide
 ;       whether a filename was supplied, branching to the error/exit path if not.
 TPA_START:
-        LD A,(DEFAULT_DMA)               ; $0100  3A 80 00
+        LD A,(TBUFF)              ; $0100  3A 80 00
 TPA_START_1:
         OR A                             ; $0103  B7
 TPA_START_2:
         LD DE,MSG_COMMAND_ERROR          ; $0104  11 C0 01
 TPA_START_3:
         JP Z,TPA_START_11                ; $0107  CA 8D 01
-        LD C,$13                         ; $010A  0E 13
-        LD DE,DEFAULT_FCB                ; $010C  11 5C 00
+        LD C,F_DELETE                        ; $010A  0E 13
+        LD DE,TFCB               ; $010C  11 5C 00
         PUSH DE                          ; $010F  D5
-        CALL BDOS_VEC                    ; $0110  CD 05 00
+        CALL BDOS                   ; $0110  CD 05 00
         POP DE                           ; $0113  D1
-        LD C,$16                         ; $0114  0E 16
-        CALL BDOS_VEC                    ; $0116  CD 05 00
+        LD C,F_MAKE                        ; $0114  0E 16
+        CALL BDOS                   ; $0116  CD 05 00
         INC A                            ; $0119  3C
         LD DE,MSG_NO_DIR_SPACE           ; $011A  11 CE 01
         JP Z,TPA_START_11                ; $011D  CA 8D 01
@@ -66,7 +68,7 @@ TPA_START_6:
 ; [AI] Record-receive loop: reads one 128-byte data record plus a checksum byte from the serial
 ;       port into the DMA buffer, accumulating an XOR checksum.
 TPA_START_7:
-        LD HL,DEFAULT_DMA                ; $0147  21 80 00
+        LD HL,TBUFF               ; $0147  21 80 00
         LD C,$00                         ; $014A  0E 00
         LD D,$81                         ; $014C  16 81
 ; [AI] Inner byte-receive loop for one record: fetches each byte via the port-read routine, stores
@@ -92,9 +94,9 @@ TPA_START_8:
 TPA_START_9:
         LD E,$2E                         ; $016A  1E 2E
         CALL BDOS_CONOUT                 ; $016C  CD BB 01
-        LD DE,DEFAULT_FCB                ; $016F  11 5C 00
-        LD C,$15                         ; $0172  0E 15
-        CALL BDOS_VEC                    ; $0174  CD 05 00
+        LD DE,TFCB               ; $016F  11 5C 00
+        LD C,F_WRITE                        ; $0172  0E 15
+        CALL BDOS                   ; $0174  CD 05 00
         LD E,$47                         ; $0177  1E 47
         CALL SERIAL_PUT_BYTE             ; $0179  CD 93 01
         JP TPA_START_7                   ; $017C  C3 47 01
@@ -103,9 +105,9 @@ TPA_START_9:
 ;       exiting.
 TPA_START_10:
         LD ($E010),A                     ; $017F  32 10 E0
-        LD DE,DEFAULT_FCB                ; $0182  11 5C 00
-        LD C,$10                         ; $0185  0E 10
-        CALL BDOS_VEC                    ; $0187  CD 05 00
+        LD DE,TFCB               ; $0182  11 5C 00
+        LD C,F_CLOSE                        ; $0185  0E 10
+        CALL BDOS                   ; $0187  CD 05 00
         LD DE,MSG_DOWNLOAD_COMPLETE      ; $018A  11 E1 01
 ; [AI] Common message-and-exit tail: prints the DE-pointed '$'-terminated status string then falls
 ;       through to warm-boot back to CP/M.
@@ -114,7 +116,7 @@ TPA_START_11:
 ; [AI] Final exit: jumps to the warm-boot vector to terminate the program and return to the CCP
 ;       prompt.
 TPA_START_12:
-        JP WBOOT_VEC                     ; $0190  C3 00 00
+        JP WBOOTV                    ; $0190  C3 00 00
 ; [AI] Serial transmit routine: polls the port status register ($E0AE) for the transmit-ready bit,
 ;       then writes the byte in E to the data register ($E0AF).
 SERIAL_PUT_BYTE:
@@ -143,15 +145,15 @@ SERIAL_RX_READY:
 ; [AI] Print-string helper: sets C to BDOS function 9 (print '$'-terminated string) and tail-jumps
 ;       into the BDOS call so the DE-pointed message is displayed.
 BDOS_PRINT_STRING:
-        LD C,$09                         ; $01B6  0E 09
+        LD C,C_WRITESTR                        ; $01B6  0E 09
 ; [AI] Shared BDOS tail-call: a JP $0005 reused as the final dispatch for the print-string helper.
 BDOS_PRINT_STRING_1:
-        JP BDOS_VEC                      ; $01B8  C3 05 00
+        JP BDOS                     ; $01B8  C3 05 00
 ; [AI] Console-output helper: sets C to BDOS function 2 (console out) and tail-jumps to BDOS to
 ;       echo the single character in E to the screen (used for the progress dots and banner).
 BDOS_CONOUT:
-        LD C,$02                         ; $01BB  0E 02
-        JP BDOS_VEC                      ; $01BD  C3 05 00
+        LD C,C_WRITE                        ; $01BB  0E 02
+        JP BDOS                     ; $01BD  C3 05 00
 MSG_COMMAND_ERROR:
         DEFB    "Command Error$"                                 ; $01C0  ('$' = BDOS fn 9 terminator)
 MSG_NO_DIR_SPACE:
