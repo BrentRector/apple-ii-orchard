@@ -8,11 +8,13 @@
     DEVICE NOSLOT64K
 
 ; -- External symbols --
-WBOOT_VEC            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
-BDOS_VEC             EQU $0005               ; BDOS call vector — JP BDOS_ENTRY. Programs use CALL $0005 to invoke BDOS. Word at $0006 is also the top-of-TPA marker.
-RST1_VEC             EQU $0008               ; Z-80 RST 1 ($08) restart vector — 8 bytes. Available for application/debugger use.
-DEFAULT_FCB          EQU $005C               ; Default File Control Block — populated by CCP from command-line argument 1. Standard 36-byte FCB structure (drive + filename + extents + record number).
-DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS cold-init / DRV_ALLRESET (fn 13) set the DMA address here and WBOOT re-issues SETDMA($0080); sector/record I/O moves 128 bytes through it. At program load this same buffer doubles as the command tail: the first byte ($0080) holds the tail length (0-127) and the characters follow at $0081 (CMDLINE).
+; ASM's CP/M 2.2 base-page cells + BDOS entry vector come from cpm22.inc (INCLUDEd
+; below): WBOOTV $0000, BDOS $0005, TFCB $005C, TBUFF $0080, and the C_*/F_*/DRV_*/S_*
+; BDOS function constants. Defined once there, not re-derived per file. NOTE: several
+; LD HL/BC,$0000 (zero-init / accumulator clears) plus LD DE,$0005 (a symbol-entry
+; +5 pointer offset) and LD BC,$0008 (an 8-byte compare count) only COINCIDE in value
+; with the $0000 / $0005 / $0008 base-page vectors -- they are plain numeric literals,
+; kept as such (only the genuine JP/CALL through a vector takes the cpm22 name).
 
     INCLUDE "cpm22.inc"                  ; CP/M 2.2 ABI (provides TPA = $0100)
     ORG TPA
@@ -173,9 +175,9 @@ SELECT_DRIVE_3:
 SELECT_DRIVE_4:
         LD E,A                           ; $0CA7  5F
 SELECT_DRIVE_5:
-        LD C,$0E                         ; $0CA8  0E 0E
+        LD C,DRV_SET                        ; $0CA8  0E 0E
 SELECT_DRIVE_6:
-        CALL BDOS_VEC                    ; $0CAA  CD 05 00
+        CALL BDOS                    ; $0CAA  CD 05 00
 SELECT_DRIVE_7:
         RET                              ; $0CAD  C9
 ; [AI] Reads the next character of the command tail/option string from (HL), folding a space to the
@@ -218,7 +220,7 @@ PRINT_MSG_CRLF_8:
 ; [AI] Copies the 8-character filename from the default FCB at $005C into the FCB being built at
 ;       (HL); aborts to the 'file name error' path if a '?' wildcard is found.
 COPY_FCB_NAME:
-        LD DE,DEFAULT_FCB                ; $0CCD  11 5C 00
+        LD DE,TFCB                ; $0CCD  11 5C 00
 COPY_FCB_NAME_1:
         LD B,$09                         ; $0CD0  06 09
 COPY_FCB_NAME_2:
@@ -250,45 +252,45 @@ MAIN_DRIVER_2:
 ; [AI] Opens the source (.ASM) file via BDOS function 15 (F_OPEN); on failure prints 'NO SOURCE
 ;       FILE PRESENT' and warm-boots.
 OPEN_SOURCE:
-        LD C,$0F                         ; $0CE9  0E 0F
+        LD C,F_OPEN                        ; $0CE9  0E 0F
 OPEN_SOURCE_1:
-        CALL BDOS_VEC                    ; $0CEB  CD 05 00
+        CALL BDOS                    ; $0CEB  CD 05 00
 OPEN_SOURCE_2:
         CP $FF                           ; $0CEE  FE FF
 OPEN_SOURCE_3:
         RET NZ                           ; $0CF0  C0
         LD HL,MSG_NO_SOURCE              ; $0CF1  21 B9 0F
         CALL PRINT_MSG_CRLF              ; $0CF4  CD BC 0C
-        JP WBOOT_VEC                     ; $0CF7  C3 00 00
+        JP WBOOTV                     ; $0CF7  C3 00 00
 ; [AI] Closes an output file via BDOS function 16 (F_CLOSE); on failure prints 'CANNOT CLOSE FILES'
 ;       and warm-boots.
 CLOSE_FILE:
-        LD C,$10                         ; $0CFA  0E 10
-        CALL BDOS_VEC                    ; $0CFC  CD 05 00
+        LD C,F_CLOSE                        ; $0CFA  0E 10
+        CALL BDOS                    ; $0CFC  CD 05 00
         CP $FF                           ; $0CFF  FE FF
         RET NZ                           ; $0D01  C0
         LD HL,MSG_CLOSE_ERR              ; $0D02  21 29 10
         CALL PRINT_MSG_CRLF              ; $0D05  CD BC 0C
-        JP WBOOT_VEC                     ; $0D08  C3 00 00
+        JP WBOOTV                     ; $0D08  C3 00 00
 ; [AI] Thin wrapper for BDOS function 19 (F_DELETE), used to erase any pre-existing .PRN/.HEX file
 ;       before recreating it.
 DELETE_FILE:
-        LD C,$13                         ; $0D0B  0E 13
+        LD C,F_DELETE                        ; $0D0B  0E 13
 DELETE_FILE_1:
-        JP BDOS_VEC                      ; $0D0D  C3 05 00
+        JP BDOS                      ; $0D0D  C3 05 00
 ; [AI] Creates an output file via BDOS function 22 (F_MAKE); on failure prints 'NO DIRECTORY SPACE'
 ;       and warm-boots.
 MAKE_FILE:
-        LD C,$16                         ; $0D10  0E 16
+        LD C,F_MAKE                        ; $0D10  0E 16
 MAKE_FILE_1:
-        CALL BDOS_VEC                    ; $0D12  CD 05 00
+        CALL BDOS                    ; $0D12  CD 05 00
 MAKE_FILE_2:
         CP $FF                           ; $0D15  FE FF
 MAKE_FILE_3:
         RET NZ                           ; $0D17  C0
         LD HL,MSG_NO_DIR_SPACE           ; $0D18  21 D0 0F
         CALL PRINT_MSG_CRLF              ; $0D1B  CD BC 0C
-        JP WBOOT_VEC                     ; $0D1E  C3 00 00
+        JP WBOOTV                     ; $0D1E  C3 00 00
 ; [AI] Selects the source-file's drive (from the saved drive byte at $0235) so subsequent source
 ;       reads target the right disk.
 SELECT_SRC_DRIVE:
@@ -327,15 +329,15 @@ SELECT_HEX_DRIVE_2:
 ;       drive selectors at $0234-$0237, then creates the .PRN and .HEX output files unless
 ;       suppressed.
 PARSE_CMDLINE:
-        LD A,(DEFAULT_FCB)               ; $0D3F  3A 5C 00
+        LD A,(TFCB)               ; $0D3F  3A 5C 00
 PARSE_CMDLINE_1:
         CP $20                           ; $0D42  FE 20
 PARSE_CMDLINE_2:
         JP Z,ERR_NAME                    ; $0D44  CA BB 0D
 PARSE_CMDLINE_3:
-        LD C,$19                         ; $0D47  0E 19
+        LD C,DRV_GET                        ; $0D47  0E 19
 PARSE_CMDLINE_4:
-        CALL BDOS_VEC                    ; $0D49  CD 05 00
+        CALL BDOS                    ; $0D49  CD 05 00
 PARSE_CMDLINE_5:
         LD (SRC_DRIVE),A                 ; $0D4C  32 34 02
 PARSE_CMDLINE_6:
@@ -432,7 +434,7 @@ PASS_INIT_9:
 ERR_NAME:
         LD HL,MSG_NAME_ERR               ; $0DBB  21 E3 0F
         CALL PRINT_MSG_CRLF              ; $0DBE  CD BC 0C
-        JP WBOOT_VEC                     ; $0DC1  C3 00 00
+        JP WBOOTV                     ; $0DC1  C3 00 00
 ; [AI] 16-bit compare of DE against HL (sets Z if equal), a helper used to detect when a
 ;       sector/output buffer pointer has reached its boundary.
 CMP16_DE_HL:
@@ -466,7 +468,7 @@ GET_SRC_CHAR_6:
 GET_SRC_CHAR_7:
         CALL SELECT_SRC_DRIVE            ; $0DD9  CD 21 0D
 GET_SRC_CHAR_8:
-        LD HL,WBOOT_VEC                  ; $0DDC  21 00 00
+        LD HL,$0000                  ; $0DDC  21 00 00
 GET_SRC_CHAR_9:
         LD (SRC_BUF_PTR),HL              ; $0DDF  22 9B 02
 GET_SRC_CHAR_10:
@@ -478,11 +480,11 @@ GET_SRC_CHAR_12:
 GET_SRC_CHAR_13:
         PUSH HL                          ; $0DE8  E5
 GET_SRC_CHAR_14:
-        LD C,$14                         ; $0DE9  0E 14
+        LD C,F_READ                        ; $0DE9  0E 14
 GET_SRC_CHAR_15:
         LD DE,SRC_FCB                    ; $0DEB  11 38 02
 GET_SRC_CHAR_16:
-        CALL BDOS_VEC                    ; $0DEE  CD 05 00
+        CALL BDOS                    ; $0DEE  CD 05 00
 GET_SRC_CHAR_17:
         POP HL                           ; $0DF1  E1
 GET_SRC_CHAR_18:
@@ -494,7 +496,7 @@ GET_SRC_CHAR_20:
 GET_SRC_CHAR_21:
         JP NZ,GET_SRC_CHAR_33                ; $0DF6  C2 0D 0E
 GET_SRC_CHAR_22:
-        LD DE,DEFAULT_DMA                ; $0DF9  11 80 00
+        LD DE,TBUFF                ; $0DF9  11 80 00
 GET_SRC_CHAR_23:
         LD C,$80                         ; $0DFC  0E 80
 GET_SRC_CHAR_24:
@@ -551,7 +553,7 @@ GET_SRC_CHAR_46:
 ERR_READ:
         LD HL,MSG_READ_ERR               ; $0E2B  21 FA 0F
         CALL PRINT_MSG_CRLF              ; $0E2E  CD BC 0C
-        JP WBOOT_VEC                     ; $0E31  C3 00 00
+        JP WBOOTV                     ; $0E31  C3 00 00
 ; [AI] Writes one byte to the .PRN listing: sends it to the console, to the listing-file buffer, or
 ;       discards it depending on the PRN-destination option (W=console, Z=none, else file).
 PUT_PRN_CHAR:
@@ -613,7 +615,7 @@ PRN_BUF_PUT_10:
 PRN_BUF_PUT_11:
         RET NZ                           ; $0E68  C0
         CALL SELECT_PRN_DRIVE            ; $0E69  CD 31 0D
-        LD HL,WBOOT_VEC                  ; $0E6C  21 00 00
+        LD HL,$0000                  ; $0E6C  21 00 00
         LD (PRN_BUF_IDX),HL              ; $0E6F  22 9D 06
         LD HL,PRN_BUF                    ; $0E72  21 9F 06
         LD DE,PRN_FCB                    ; $0E75  11 59 02
@@ -627,7 +629,7 @@ FLUSH_OUT_BUF:
         PUSH BC                          ; $0E7E  C5
         PUSH DE                          ; $0E7F  D5
         LD C,$80                         ; $0E80  0E 80
-        LD DE,DEFAULT_DMA                ; $0E82  11 80 00
+        LD DE,TBUFF                ; $0E82  11 80 00
 FLUSH_OUT_BUF_1:
         LD A,(HL)                        ; $0E85  7E
         LD (DE),A                        ; $0E86  12
@@ -638,8 +640,8 @@ FLUSH_OUT_BUF_1:
         POP DE                           ; $0E8D  D1
         PUSH DE                          ; $0E8E  D5
         PUSH HL                          ; $0E8F  E5
-        LD C,$15                         ; $0E90  0E 15
-        CALL BDOS_VEC                    ; $0E92  CD 05 00
+        LD C,F_WRITE                        ; $0E90  0E 15
+        CALL BDOS                    ; $0E92  CD 05 00
         POP HL                           ; $0E95  E1
         POP DE                           ; $0E96  D1
         POP BC                           ; $0E97  C1
@@ -680,7 +682,7 @@ HEX_BUF_PUT_1:
         CALL CMP16_DE_HL                 ; $0EC6  CD C4 0D
         RET NZ                           ; $0EC9  C0
         CALL SELECT_HEX_DRIVE            ; $0ECA  CD 38 0D
-        LD HL,WBOOT_VEC                  ; $0ECD  21 00 00
+        LD HL,$0000                  ; $0ECD  21 00 00
         LD (HEX_BUF_IDX),HL              ; $0ED0  22 9F 09
         LD HL,HEX_BUF                    ; $0ED3  21 A1 09
         LD DE,HEX_FCB                    ; $0ED6  11 7A 02
@@ -695,11 +697,11 @@ CONOUT_CHAR_1:
 CONOUT_CHAR_2:
         PUSH HL                          ; $0EE0  E5
 CONOUT_CHAR_3:
-        LD C,$02                         ; $0EE1  0E 02
+        LD C,C_WRITE                        ; $0EE1  0E 02
 CONOUT_CHAR_4:
         LD E,A                           ; $0EE3  5F
 CONOUT_CHAR_5:
-        CALL BDOS_VEC                    ; $0EE4  CD 05 00
+        CALL BDOS                    ; $0EE4  CD 05 00
 CONOUT_CHAR_6:
         POP HL                           ; $0EE7  E1
 CONOUT_CHAR_7:
@@ -826,7 +828,7 @@ FINALIZE_ASM_1:
 FINALIZE_ASM_2:
         LD HL,MSG_END_ASM                ; $0F97  21 3C 10
         CALL PRINT_MSG_CRLF              ; $0F9A  CD BC 0C
-        JP WBOOT_VEC                     ; $0F9D  C3 00 00
+        JP WBOOTV                     ; $0F9D  C3 00 00
 MSG_BANNER:
         DEFB    "CP/M ASSEMBLER - VER 2.0"    ; $0FA0  string
         DEFB    $0D    ; $0FB8  terminator
@@ -1289,7 +1291,7 @@ COMMIT_TOKEN_8:
 COMMIT_TOKEN_9:
         LD (RADIX),A                     ; $12B8  32 0B 11
 COMMIT_TOKEN_10:
-        LD HL,WBOOT_VEC                  ; $12BB  21 00 00
+        LD HL,$0000                  ; $12BB  21 00 00
         LD (NUM_ACCUM),HL                ; $12BE  22 86 01
         LD HL,IDENT_LEN                  ; $12C1  21 88 01
         LD C,(HL)                        ; $12C4  4E
@@ -1314,7 +1316,7 @@ COMMIT_TOKEN_13:
         LD A,(HL)                        ; $12E0  7E
         LD HL,(NUM_ACCUM)                ; $12E1  2A 86 01
         EX DE,HL                         ; $12E4  EB
-        LD HL,WBOOT_VEC                  ; $12E5  21 00 00
+        LD HL,$0000                  ; $12E5  21 00 00
 COMMIT_TOKEN_14:
         OR A                             ; $12E8  B7
         JP Z,COMMIT_TOKEN_16                 ; $12E9  CA F7 12
@@ -1439,7 +1441,7 @@ SYM_INIT_7:
 SYM_INIT_8:
         JP NZ,SYM_INIT_3                 ; $1467  C2 62 14
 SYM_INIT_9:
-        LD HL,WBOOT_VEC                  ; $146A  21 00 00
+        LD HL,$0000                  ; $146A  21 00 00
 SYM_INIT_10:
         LD (CUR_SYM_PTR),HL              ; $146D  22 D6 01
 SYM_INIT_11:
@@ -1549,7 +1551,7 @@ SYM_ALLOC:
         LD HL,(FREE_MEM_PTR)             ; $14F1  2A CB 01
         LD (CUR_SYM_PTR),HL              ; $14F4  22 D6 01
         ADD HL,DE                        ; $14F7  19
-        LD DE,BDOS_VEC                   ; $14F8  11 05 00
+        LD DE,$0005                   ; $14F8  11 05 00
         ADD HL,DE                        ; $14FB  19
         EX DE,HL                         ; $14FC  EB
         LD HL,(SYM_TABLE_LIMIT)          ; $14FD  2A CD 01
@@ -1749,7 +1751,7 @@ BINSEARCH_MNEMONIC_1:
         LD B,D                           ; $1795  42
         LD C,B                           ; $1796  48
         LD D,$00                         ; $1797  16 00
-        LD HL,WBOOT_VEC                  ; $1799  21 00 00
+        LD HL,$0000                  ; $1799  21 00 00
 BINSEARCH_MNEMONIC_2:
         ADD HL,DE                        ; $179C  19
         DEC B                            ; $179D  05
@@ -1811,7 +1813,7 @@ MATCH_DIRECTIVE:
         LD HL,IDENT_PAD                  ; $17ED  21 8B 01
         LD (HL),$20                      ; $17F0  36 20
 MATCH_DIRECTIVE_1:
-        LD BC,RST1_VEC                   ; $17F2  01 08 00
+        LD BC,$0008                   ; $17F2  01 08 00
         LD DE,DIRECTIVE_FRAGS            ; $17F5  11 73 17
 MATCH_DIRECTIVE_2:
         LD HL,IDENT_CHAR1                ; $17F8  21 8A 01
@@ -1965,7 +1967,7 @@ POP_OPERAND:
         OR A                             ; $18D3  B7
         JP NZ,POP_OPERAND_1                 ; $18D4  C2 DE 18
         CALL ERR_EXPR                    ; $18D7  CD 85 1B
-        LD HL,WBOOT_VEC                  ; $18DA  21 00 00
+        LD HL,$0000                  ; $18DA  21 00 00
         RET                              ; $18DD  C9
 POP_OPERAND_1:
         DEC (HL)                         ; $18DE  35
@@ -2050,7 +2052,7 @@ MUL16:
         LD (MUL_MULTIPLICAND),HL         ; $1939  22 6B 19
         LD HL,MUL_BIT_COUNT              ; $193C  21 6D 19
         LD (HL),$11                      ; $193F  36 11
-        LD BC,WBOOT_VEC                  ; $1941  01 00 00
+        LD BC,$0000                  ; $1941  01 00 00
         PUSH BC                          ; $1944  C5
         XOR A                            ; $1945  AF
 MUL16_1:
@@ -2091,7 +2093,7 @@ MUL_BIT_COUNT:
 DIV16:
         LD B,H                           ; $196E  44
         LD C,L                           ; $196F  4D
-        LD HL,WBOOT_VEC                  ; $1970  21 00 00
+        LD HL,$0000                  ; $1970  21 00 00
 DIV16_1:
         XOR A                            ; $1973  AF
         LD A,B                           ; $1974  78
@@ -2221,7 +2223,7 @@ IS_EXPR_DELIM_1:
         LD ($1892),A                     ; $1A1D  32 92 18
         DEC A                            ; $1A20  3D
         LD ($186C),A                     ; $1A21  32 6C 18
-        LD HL,WBOOT_VEC                  ; $1A24  21 00 00
+        LD HL,$0000                  ; $1A24  21 00 00
         LD ($01C9),HL                    ; $1A27  22 C9 01
 IS_EXPR_DELIM_2:
         CALL IS_EXPR_DELIM                    ; $1A2A  CD 04 1A
@@ -2372,7 +2374,7 @@ IS_EXPR_DELIM_19:
         CP $24                           ; $1B3C  FE 24
         JP Z,IS_EXPR_DELIM_20                 ; $1B3E  CA 4A 1B
         CALL ERR_EXPR                    ; $1B41  CD 85 1B
-        LD HL,WBOOT_VEC                  ; $1B44  21 00 00
+        LD HL,$0000                  ; $1B44  21 00 00
         JP IS_EXPR_DELIM_24                   ; $1B47  C3 71 1B
 IS_EXPR_DELIM_20:
         LD HL,(LOC_COUNTER)              ; $1B4A  2A D2 01
@@ -2424,7 +2426,7 @@ ASSEMBLE_DRIVER_3:
 ASSEMBLE_DRIVER_4:
         CALL VEC_PASS_INIT               ; $1BAA  CD 03 02
 ASSEMBLE_DRIVER_5:
-        LD HL,WBOOT_VEC                  ; $1BAD  21 00 00
+        LD HL,$0000                  ; $1BAD  21 00 00
 ASSEMBLE_DRIVER_6:
         LD (SAVED_SYM_PTR),HL            ; $1BB0  22 EB 20
 ASSEMBLE_DRIVER_7:
@@ -2675,7 +2677,7 @@ PSEUDO_OP_JMP_TBL_20:
         CALL RESTORE_AND_LOOKUP          ; $1DBE  CD 00 20
         POP HL                           ; $1DC1  E1
         CALL VEC_SYM_SET_VAL             ; $1DC2  CD 55 13
-        LD HL,WBOOT_VEC                  ; $1DC5  21 00 00
+        LD HL,$0000                  ; $1DC5  21 00 00
         LD (SAVED_SYM_PTR),HL            ; $1DC8  22 EB 20
         JP HANDLE_COMMENT_EOL            ; $1DCB  C3 31 1F
 PSEUDO_OP_JMP_TBL_21:
@@ -3022,7 +3024,7 @@ RESTORE_AND_LOOKUP:
 DEFINE_LABEL:
         CALL RESTORE_AND_LOOKUP          ; $200A  CD 00 20
         RET Z                            ; $200D  C8
-        LD HL,WBOOT_VEC                  ; $200E  21 00 00
+        LD HL,$0000                  ; $200E  21 00 00
         LD (SAVED_SYM_PTR),HL            ; $2011  22 EB 20
         LD A,(PASS_NUMBER)               ; $2014  3A CF 01
         OR A                             ; $2017  B7
