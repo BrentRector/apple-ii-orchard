@@ -169,7 +169,14 @@ rename BOTH files (folding BDOS-alone broke the CCP). **NEXT: enrich CPM_CCP as 
 `_6502.s` payloads (absorbs the queued **CP/M-constant rename** across the ~30 `cpm22.inc`-carrying
 utilities: `CALL $0005`→`CALL BDOS`, `LD C,$nn`→`F_*`/`DRV_*`, `$0080`→`TBUFF`, `$005C`→`TFCB`;
 CAUTION 3 files STAT/CPMV220 + DDT/CPMV220-44K + DDT/CPMV223-44K keep a local `TPA EQU` to dodge a
-BDOS collision, and the 60K build keeps it too — adding cpm22.inc there broke `build_cpm60`) → then
+BDOS collision, and the 60K build keeps it too — adding cpm22.inc there broke `build_cpm60`).
+**>> 2026-06-29: the CPMV220-44K rename is 10/15 DONE** (COPY/STAT/XSUB/DUMP/DOWNLOAD/SUBMIT/LOAD/
+APDOS/FORMAT/RW13; commits e4a4616/c3ee8f6/83a3888, gate 227 byte-identical). Remaining: ASM/ED/PIP/
+DDT/CPM56 — start DDT (the `TPA EQU` caution). NOT a blind rename: classify every value — DPB structure
+offsets, ×128 record-size multipliers, char loads, BIOS jump-table slot selectors, and CPU-switch
+self-modify placeholders all STAY LITERAL; only genuine base-page cells + BDOS dispatches get cpm22
+names. Full method + remaining-file checklist in `resume-prompt.md` (top) + memory
+`project_cpm_utility_constant_rename`. → then
 the emulator-driven disk producer (capstone). The DONE BASIC track (one master
 `BASIC.asm` byte-identical to both GBASIC/MBASIC, all 14 subsystems C-level, merged `b398441`)
 is the model — see `project_basic_gbasic_mbasic_fold`. Older queue still open: 2.20↔2.23 BASIC

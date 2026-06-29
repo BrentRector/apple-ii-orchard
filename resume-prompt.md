@@ -1,6 +1,55 @@
 # Resume Prompt — Microsoft SoftCard CP/M Investigation
 
-## >> RESUME HERE — 2026-06-24 (LIVE): de-skew + decode + semantic-lift + adversarial-review the **2.23-44K** OS
+## >> RESUME HERE — 2026-06-29 (LIVE): CP/M-constant rename of the 2.20-44K shared utilities — 10/15 DONE
+
+**The task** (queued in CLAUDE.md): bring `CPMV220-44K/utilities/*.asm` to the BASIC.asm bar's CP/M-constant
+standard — drop each file's local base-page EQUs (which DUPLICATE cpm22.inc cells under different names = the
+no-duplicate-symbol rule [[feedback_no_duplicate_symbol_definitions]]) and use the canonical cpm22.inc names:
+`CALL/JP $0005`→`BDOS`, `LD C,$nn`→`C_*/F_*/DRV_*/S_*`, `$0080`→`TBUFF`, `$005C`→`TFCB` (+ `TFCB+FCB_*` fields),
+`$0081`→`CMDLINE`, warm-boot→`WBOOTV`. Byte-identical is the FLOOR; semantic correctness the goal.
+
+**DONE (10/15), 3 commits on `main`, gate `softcard/ shared/` = 227:** `e4a4616` COPY+STAT · `c3ee8f6`
+XSUB+DUMP+DOWNLOAD+SUBMIT+LOAD+APDOS · `83a3888` FORMAT+RW13. (The two BASICs were already done.)
+
+**REMAINING (5, all large): ASM (8K), ED (6.6K), PIP (7.4K), DDT (5.1K), CPM56 (10.7K). Start with DDT.**
+- **DDT keeps a LOCAL `TPA EQU`** to dodge a BDOS-symbol collision (CLAUDE.md caution) — do NOT disturb it; verify
+  byte-identical after.
+- **CPM56** is the 56K-system builder image; large, overlaps the queued CPM56→os/ fold.
+- A file is DONE when: dup base-page EQUs removed → a cpm22 pointer note, refs use cpm22 names, **byte-identical**
+  (`source shared/toolchain/env.sh && python -m pytest softcard/cpm_pipeline/tests/test_utilities_roundtrip.py -k NAME`),
+  no mojibake (`grep 'Ã'`), no stale `BDOS_VEC`/`DEFAULT_*`/raw BDOS-fn `LD C,$nn`.
+
+**THE METHOD — NOT a blind rename** (the crux: a blind sed is byte-identical-but-WRONG, the exact
+[[feedback_byte_identical_not_correct_decode]] trap). The disassembler auto-symbolized many NUMERIC LITERALS by value
+coincidence. Classify EVERY site by context. These STAY LITERAL:
+- `LD HL/DE,$0000` where it is the number zero (SP capture, zero-init, dummy BDOS arg) — only genuine `JP/CALL` warm-boot → `WBOOTV`.
+- DPB structure offsets: `LD BC,$0005`=DPB+5 (DSM), `LD BC,$0004`=DPB+4 (EXM) — used with `LD HL,(DPB_ADDR)/ADD HL,BC` (STAT).
+- `LD DE,$0080` as a ×128 record-size MULTIPLIER (feeds MUL16) or a +128 record-pointer advance (STAT/LOAD/APDOS) — NOT TBUFF;
+  but `LD BC,DEFAULT_DMA` that INDEXES the command tail / is a copy DEST **is** TBUFF.
+- Character loads into C (`LD C,$0D/$0A/$20`, ':' etc.) and shift/loop counts — NOT BDOS functions.
+- BIOS jump-table SLOT selectors `LD C,$00/$01` (RW13); a SoftCard-BIOS-call param `LD C,$00` (APDOS) — NOT BDOS fns.
+- CPU-switch self-modify placeholder `LD ($0000),A` (COPY $02A3, APDOS $04AA) — operand patched at runtime to Z$CPU; keep `$0000`.
+- `LD C,$02` ambiguity: BDOS Console Output vs a 6502 command code (COPY) vs an overlay's dead thunk (DUMP) — disambiguate per site.
+
+GENUINE → rename: `CALL/JP $0005`; the `LD C,fn`→`CALL BDOS` wrapper blocks; base-page reads/writes of the cells and FCB
+fields (`$005D`=TFCB+FCB_F, `$0065`=TFCB+FCB_T, `$0068`=FCB_EX, `$006A`=FCB_S2, `$007C`=FCB_CR, `$007D`=FCB_R0,
+`$007F`=FCB_R2); `$0006/$0007`→`BDOS+1/BDOS+2`; `$0082/$0083`→`CMDLINE+1/+2`; `($0001)`→`WBOOTV+1` (the SoftCard
+BIOS-extension idiom reads the warm-boot JP target).
+
+**Structural cases already handled (model for the rest):** DUMP & DOWNLOAD each carry a FOREIGN leftover-image MODULE
+(DISP $0000) in the BSS/last record that NEVER executes — cpm22 names applied to the LIVE code ONLY, the overlay left
+decoded structurally (so DUMP's overlay `LD C,$02` stays literal, distinct from the live CONOUT's `C_WRITE`). XSUB's
+resident BDOS-interceptor MODULE IS real code that calls the real BDOS, so ITS `LD C,fn` WERE named — but its internal
+`$0006` is the module-local `BDOS_INTERCEPT` label, not the base-page cell. `apple_softcard.inc` hardware cells
+(`$F3xx/$FExx/$Exxx`, `DSK_*`, `A_VEC`, `Z_CPU`, `DSKCNT`) and each program's private RAM work cells stay literal.
+
+**Technique/tooling:** plain `Edit` only (remove the dup-EQU header block → a cpm22 pointer note; `replace_all` for uniform
+operands like `CALL BDOS_VEC`→`CALL BDOS` and each unique `LD C,$nn`; per-site full-line edits for duplicated/ambiguous
+operands, anchored on the `; $addr`). Inline `; $addr  bytes` comments are LEFT IN (a later `os_listing.py` `.lst`-strip
+pass removes them; not yet done for utilities). After the rename pass the deeper per-file C-level lift + the `.lst` strip
+remain (separate, later). See memory [[project_cpm_utility_constant_rename]].
+
+## CURRENT STATE — 2026-06-24: de-skew + decode + semantic-lift + adversarial-review the **2.23-44K** OS
 
 **2.20-44K OS CORE IS COMPLETE** (`main`, gate 225, byte-identical): the de-skew re-base is
 DONE for all three components — **CPM_CCP.asm ($9400), CPM_BDOS.asm ($9C00)** (prior sessions)
