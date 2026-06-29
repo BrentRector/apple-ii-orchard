@@ -4,13 +4,28 @@
 
     DEVICE NOSLOT64K
     INCLUDE "apple_softcard.inc"   ; Apple/SoftCard external names (single source of truth)
+    INCLUDE "cpm22.inc"            ; CP/M 2.2 ABI: TPA, BDOS, TFCB (+ FCB_* fields), TBUFF
 
 ; -- External symbols --
-BDOS_VEC             EQU $0005               ; BDOS call vector — JP BDOS_ENTRY. Programs use CALL $0005 to invoke BDOS. Word at $0006 is also the top-of-TPA marker.
-DDT_IMG_BASE         EQU $0200               ; [AI] resident image base = .COM load addr of the relocatable body
-DDT_IMG_LEN          EQU $1010               ; [AI] image byte count copied to high RAM (the loader's LD BC value)
+; The CP/M 2.2 base-page cells + BDOS entry vector DDT uses come from cpm22.inc
+; (INCLUDEd above): BDOS $0005, TFCB $005C (+ FCB_* field offsets), TBUFF $0080, TPA $0100.
+; Defined once there, not re-derived per file.
+;
+; DDT's resident debugger image (MODULE DDT_RESIDENT, DISP $0000 below) is decoded at
+; reference base $0000 but RUNS relocated near the top of the TPA, so its in-image labels
+; are NOT base page. A few ABSOLUTE operands inside the image instead reach the FIXED real
+; base page -- the default FCB at TFCB ($005C) and the default DMA buffer at TBUFF ($0080) --
+; for the R/I file-load commands. DISP $0000 had aliased those to in-image code labels
+; (e.g. $005D -> PARSE_TOKEN_SCAN+1); they are restored to their TFCB/TBUFF names here. The
+; image's own low jump-table / work cells ($0000-$0014: JMP_DISPATCH+1, DISASM_ONE, WORK_ADDR,
+; WORK_END+1, GO_TEMP_COUNT, ASM_PUT_PTR, SAVED_SP) relocate WITH the image and stay
+; image-internal.  NOTE: the module also defines its OWN label BDOS at image offset $06A8
+; (DDT's in-image BDOS-call gateway); module scoping keeps that distinct from the global
+; cpm22 BDOS ($0005) the loader stub calls.
+REC_BUF_POS          EQU $005B               ; DDT file-record read index (real base page, just below TFCB)
+DDT_IMG_BASE         EQU $0200               ; resident image base = .COM load addr of the relocatable body
+DDT_IMG_LEN          EQU $1010               ; image byte count copied to high RAM (the loader's LD BC value)
 
-TPA     EQU $0100                        ; CP/M transient program area (local; file has its own BDOS label)
     ORG TPA
 
 ; [AI] DDT loads as a $0100-based .COM whose entry stub (this $0100-$01A8 region)
@@ -42,7 +57,7 @@ RELOC_START_3:
 RELOC_START_4:
         LD C,$09                         ; $0145  0E 09
 RELOC_START_5:
-        CALL BDOS_VEC                    ; $0147  CD 05 00
+        CALL BDOS                        ; $0147  CD 05 00
 RELOC_START_6:
         LD A,(SLTTYP3)                     ; $014A  3A BB F3
 RELOC_START_7:
@@ -70,7 +85,7 @@ STORE_VER_DIGIT_5:
 COMPUTE_TPA_TOP:
         POP BC                           ; $0168  C1
 COMPUTE_TPA_TOP_1:
-        LD HL,$0007                      ; $0169  21 07 00
+        LD HL,BDOS+2                     ; $0169  21 07 00
 COMPUTE_TPA_TOP_2:
         LD A,(HL)                        ; $016C  7E
 COMPUTE_TPA_TOP_3:
@@ -215,13 +230,15 @@ DDT_IMAGE:                          ; loader copy-source anchor (global, value $
 ;   $0002 -> JMP_DISPATCH+2             shared instruction tail: $0002 is reachable code inside the instruction at $0000
 ;   $000B -> ABORT_TO_PROMPT+2           shared instruction tail: $000B is reachable code inside the instruction at $0009
 ;   $000E -> WORK_END+1         shared instruction tail: $000E is reachable code inside the instruction at $000D
-;   $005B -> PARSE_TOKEN_NEXT+2         shared instruction tail: $005B is reachable code inside the instruction at $0059
-;   $005D -> PARSE_TOKEN_SCAN+1         shared instruction tail: $005D is reachable code inside the instruction at $005C
-;   $0065 -> PARSE_TOKEN_6+1         shared instruction tail: $0065 is reachable code inside the instruction at $0064
-;   $007C -> PARSE_TOKEN_ERR+2         shared instruction tail: $007C is reachable code inside the instruction at $007A
 ;   $047E -> DISASM_LXI+2        z80 skip idiom: enters the operand of $21 at $047C
 ;   $06AE -> BDOS_ENTRY_RET+1         shared instruction tail: $06AE is reachable code inside the instruction at $06AD
 ;   $06AF -> BDOS_ENTRY_RET+2         shared instruction tail: $06AF is reachable code inside the instruction at $06AD
+;
+; NOTE: the former "$005B/$005D/$0065/$007C -> PARSE_TOKEN_* +offset" entries were NOT
+; mid-instruction code -- they are ABSOLUTE references to the FIXED real CP/M base page
+; (DDT runs relocated, so these reach the low base page, not the image). They now render as
+; their real cells: $005B = REC_BUF_POS (record-buffer index), $005D = TFCB+FCB_F,
+; $0065 = TFCB+FCB_T, $007C = TFCB+FCB_CR.
 
 
 JMP_DISPATCH:
@@ -1108,7 +1125,7 @@ STARTUP:
         LD (HL),E                        ; $06F3  73
         INC HL                           ; $06F4  23
         LD (HL),D                        ; $06F5  72
-        LD A,(PARSE_TOKEN_SCAN+1)              ; $06F6  3A 5D 00
+        LD A,(TFCB+FCB_F)              ; $06F6  3A 5D 00
         CP $20                           ; $06F9  FE 20
         JP Z,READ_COMMAND                  ; $06FB  CA 05 07
         LD HL,JMP_DISPATCH                     ; $06FE  21 00 00
@@ -1177,9 +1194,9 @@ GET_CMD_CHAR:
         PUSH DE                          ; $0773  D5
         PUSH BC                          ; $0774  C5
         XOR A                            ; $0775  AF
-        LD (PARSE_TOKEN_NEXT+2),A              ; $0776  32 5B 00
+        LD (REC_BUF_POS),A             ; $0776  32 5B 00
         LD C,$0F                         ; $0779  0E 0F
-        LD DE,PARSE_TOKEN_SCAN                 ; $077B  11 5C 00
+        LD DE,TFCB                ; $077B  11 5C 00
         CALL BDOS                    ; $077E  CD A8 06
         POP BC                           ; $0781  C1
         POP DE                           ; $0782  D1
@@ -1235,7 +1252,7 @@ CMD_D_DEFAULTS:
         LD A,L                           ; $07EF  7D
         AND $F0                          ; $07F0  E6 F0
         LD L,A                           ; $07F2  6F
-        LD DE,PARSE_TOKEN_5                 ; $07F3  11 5F 00
+        LD DE,$005F                 ; $07F3  11 5F 00
         ADD HL,DE                        ; $07F6  19
         JP C,CMD_D_CLAMP                  ; $07F7  DA 06 08
         LD A,(FLAG_REL_ADDR)                ; $07FA  3A A4 06
@@ -1423,11 +1440,11 @@ CMD_H_HEXMATH:
         JP READ_COMMAND                    ; $0930  C3 05 07
 CMD_I_INPUT:
         XOR A                            ; $0933  AF
-        LD (PARSE_TOKEN_ERR+2),A              ; $0934  32 7C 00
-        LD (PARSE_TOKEN_SCAN),A                ; $0937  32 5C 00
+        LD (TFCB+FCB_CR),A              ; $0934  32 7C 00
+        LD (TFCB),A                ; $0937  32 5C 00
         CALL GET_LINE_CHAR                    ; $093A  CD 11 0C
         LD C,$09                         ; $093D  0E 09
-        LD HL,PARSE_TOKEN_SCAN+1               ; $093F  21 5D 00
+        LD HL,TFCB+FCB_F               ; $093F  21 5D 00
 CMD_I_NAME_LOOP:
         LD (HL),A                        ; $0942  77
         INC HL                           ; $0943  23
@@ -1448,7 +1465,7 @@ CMD_I_EXT:
         LD C,$04                         ; $095F  0E 04
         CP $2E                           ; $0961  FE 2E
         JP NZ,CMD_I_EXT_PAD                 ; $0963  C2 7A 09
-        LD HL,PARSE_TOKEN_6+1               ; $0966  21 65 00
+        LD HL,TFCB+FCB_T              ; $0966  21 65 00
 CMD_I_EXT_LOOP:
         CALL GET_LINE_CHAR                    ; $0969  CD 11 0C
         CP $0D                           ; $096C  FE 0D
@@ -1481,7 +1498,7 @@ CMD_M_LOOP:
         JP Z,READ_COMMAND                  ; $0998  CA 05 07
         JP CMD_M_LOOP                   ; $099B  C3 8C 09
 IS_HEX_REQ:
-        LD HL,PARSE_TOKEN_6+1               ; $099E  21 65 00
+        LD HL,TFCB+FCB_T              ; $099E  21 65 00
         LD A,(HL)                        ; $09A1  7E
         AND $7F                          ; $09A2  E6 7F
         CP $48                           ; $09A4  FE 48
@@ -1541,13 +1558,13 @@ CMD_R_LOAD_BODY:
         ADD HL,DE                        ; $09F3  19
 CMD_R_HEX_REC:
         PUSH HL                          ; $09F4  E5
-        LD DE,PARSE_TOKEN_SCAN                 ; $09F5  11 5C 00
+        LD DE,TFCB                ; $09F5  11 5C 00
         LD C,$14                         ; $09F8  0E 14
         CALL BDOS                    ; $09FA  CD A8 06
         POP HL                           ; $09FD  E1
         OR A                             ; $09FE  B7
         JP NZ,PRINT_NEXT_PC                 ; $09FF  C2 7A 0A
-        LD DE,ASM_LINE_BUF                 ; $0A02  11 80 00
+        LD DE,TBUFF                 ; $0A02  11 80 00
         LD C,$80                         ; $0A05  0E 80
 CMD_R_COPY_REC:
         LD A,(DE)                        ; $0A07  1A
@@ -1781,28 +1798,28 @@ GET_HEXFILE_CHAR:
         PUSH HL                          ; $0BA8  E5
         PUSH DE                          ; $0BA9  D5
         PUSH BC                          ; $0BAA  C5
-        LD A,(PARSE_TOKEN_NEXT+2)              ; $0BAB  3A 5B 00
+        LD A,(REC_BUF_POS)              ; $0BAB  3A 5B 00
         AND $7F                          ; $0BAE  E6 7F
         JP Z,GET_HEXFILE_CHAR_2                  ; $0BB0  CA C8 0B
 GET_HEXFILE_CHAR_1:
         LD D,$00                         ; $0BB3  16 00
         LD E,A                           ; $0BB5  5F
-        LD HL,ASM_LINE_BUF                 ; $0BB6  21 80 00
+        LD HL,TBUFF                 ; $0BB6  21 80 00
         ADD HL,DE                        ; $0BB9  19
         LD A,(HL)                        ; $0BBA  7E
         CP $1A                           ; $0BBB  FE 1A
         JP Z,GET_HEXFILE_CHAR_EOF                  ; $0BBD  CA DA 0B
-        LD HL,PARSE_TOKEN_NEXT+2               ; $0BC0  21 5B 00
+        LD HL,REC_BUF_POS               ; $0BC0  21 5B 00
         INC (HL)                         ; $0BC3  34
         OR A                             ; $0BC4  B7
         JP GET_HEXFILE_CHAR_RET                    ; $0BC5  C3 DB 0B
 GET_HEXFILE_CHAR_2:
         LD C,$14                         ; $0BC8  0E 14
-        LD DE,PARSE_TOKEN_SCAN                 ; $0BCA  11 5C 00
+        LD DE,TFCB                ; $0BCA  11 5C 00
         CALL BDOS                    ; $0BCD  CD A8 06
         OR A                             ; $0BD0  B7
         JP NZ,GET_HEXFILE_CHAR_EOF                 ; $0BD1  C2 DA 0B
-        LD (PARSE_TOKEN_NEXT+2),A              ; $0BD4  32 5B 00
+        LD (REC_BUF_POS),A             ; $0BD4  32 5B 00
         JP GET_HEXFILE_CHAR_1                    ; $0BD7  C3 B3 0B
 GET_HEXFILE_CHAR_EOF:
         SCF                              ; $0BDA  37
