@@ -62,9 +62,11 @@
     INCLUDE "apple_softcard.inc"   ; Apple/SoftCard external names (single source of truth)
 
 ; -- External symbols --
-WBOOT_VEC            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
-BDOS_VEC             EQU $0005               ; BDOS call vector — JP BDOS_ENTRY. Programs use CALL $0005 to invoke BDOS. Word at $0006 is also the top-of-TPA marker.
-DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS cold-init / DRV_ALLRESET (fn 13) set the DMA address here and WBOOT re-issues SETDMA($0080); sector/record I/O moves 128 bytes through it. At program load this same buffer doubles as the command tail: the first byte ($0080) holds the tail length (0-127) and the characters follow at $0081 (CMDLINE).
+; CP/M 2.2 base-page cells and BDOS function numbers come from cpm22.inc (INCLUDEd
+; below): WBOOTV $0000 (and WBOOTV+1 = the BIOS-page word the SoftCard extension
+; idiom reads), BDOS $0005, TBUFF $0080, CMDLINE $0081, and the C_* function
+; constants. Defined once there. (Apple/SoftCard hardware externals -- DSKCNT,
+; A_VEC, Z_CPU, DSK_STATUS -- come from apple_softcard.inc, INCLUDEd above.)
 
     INCLUDE "cpm22.inc"                  ; CP/M 2.2 ABI (provides TPA = $0100)
     ORG TPA
@@ -75,12 +77,12 @@ MAIN_BANNER:
         LD DE,MSG_BANNER                 ; $0103  11 39 02
         CALL PRINT_STR                   ; $0106  CD C8 01  ; [AI] print the sign-on banner ($-terminated)
 MAIN_CHECK_TAIL:
-        LD A,(DEFAULT_DMA)               ; $0109  3A 80 00  ; [AI] A = command-tail length at $0080 [DOC CPMREF 3-47; facts sec.7.5]
+        LD A,(TBUFF)              ; $0109  3A 80 00  ; [AI] A = command-tail length at $0080 [DOC CPMREF 3-47; facts sec.7.5]
         LD (TAIL_LEN),A                  ; $010C  32 16 02  ; [AI] save tail length / "had-args" flag
         OR A                             ; $010F  B7
         JP Z,PROMPT_DRIVE                ; $0110  CA A7 01  ; [AI] no command tail -> ask interactively
 PARSE_CMD:
-        LD A,($0082)                     ; $0113  3A 82 00  ; [AI] first non-blank tail char = drive letter; $0081 is the leading space
+        LD A,(CMDLINE+1)                 ; $0113  3A 82 00  ; [AI] first non-blank tail char = drive letter; $0081 is the leading space
         CALL TO_UPPER                    ; $0116  CD 10 02  ; [AI] fold to upper case
         LD (DRV_LETTER_1),A              ; $0119  32 0A 03  ; [AI] patch drive letter into the "...in drive X:" prompt
         LD (DRV_LETTER_2),A              ; $011C  32 6D 03  ; [AI] patch drive letter into the "Disk in drive X: will be ERASED" prompt
@@ -90,7 +92,7 @@ PARSE_CMD:
         LD (FROM_SYSTEM_DISK),A          ; $0125  32 17 02   ; [AI] drive A: selected -> clear flag (A==0): the CP/M system disk is in this drive
 PARSE_HAVE_DRIVE:
         LD C,A                           ; $0128  4F         ; [AI] C = drive index
-        LD A,($0083)                     ; $0129  3A 83 00   ; [AI] next tail char, expect ':'
+        LD A,(CMDLINE+2)                 ; $0129  3A 83 00   ; [AI] next tail char, expect ':'
         CP $3A                           ; $012C  FE 3A      ; ':'
         JR Z,VALIDATE_DRIVE              ; $012E  28 08
 PARSE_ERR:
@@ -158,10 +160,10 @@ PROMPT_DRIVE:
 PROMPT_READ_LINE:
         CALL PRINT_STR                   ; $01AA  CD C8 01   ; [AI] "Format disk in which drive? "
         LD A,$80                         ; $01AD  3E 80      ; [AI] max input length = 128
-        LD (DEFAULT_DMA),A               ; $01AF  32 80 00   ; [AI] set the read-console-buffer header (max-length byte)
-        LD C,$0A                         ; $01B2  0E 0A      ; [AI] BDOS fn 10 = Read Console Buffer [DOC CPMREF 3-44; facts sec.5]
-        LD DE,DEFAULT_DMA                ; $01B4  11 80 00   ; [AI] DE -> buffer ($0080)
-        CALL BDOS_VEC                    ; $01B7  CD 05 00
+        LD (TBUFF),A              ; $01AF  32 80 00   ; [AI] set the read-console-buffer header (max-length byte)
+        LD C,C_READSTR                        ; $01B2  0E 0A      ; [AI] BDOS fn 10 = Read Console Buffer [DOC CPMREF 3-44; facts sec.5]
+        LD DE,TBUFF               ; $01B4  11 80 00   ; [AI] DE -> buffer ($0080)
+        CALL BDOS                   ; $01B7  CD 05 00
         LD A,$0A                         ; $01BA  3E 0A
         CALL CONOUT                      ; $01BC  CD CC 01   ; [AI] echo a line feed
         LD A,(CMDLINE)                   ; $01BF  3A 81 00   ; [AI] first typed char ($0081)
@@ -170,15 +172,15 @@ PROMPT_READ_LINE:
         JP PARSE_CMD                     ; $01C5  C3 13 01   ; [AI] reuse the command-tail parser on the typed text
 ; [AI] ---- BDOS console helpers ----
 PRINT_STR:
-        LD C,$09                         ; $01C8  0E 09      ; [AI] BDOS fn 9 = Print String (DE -> '$'-terminated) [DOC CPMREF 3-44; facts sec.5]
+        LD C,C_WRITESTR                        ; $01C8  0E 09      ; [AI] BDOS fn 9 = Print String (DE -> '$'-terminated) [DOC CPMREF 3-44; facts sec.5]
 PRINT_STR_FALL:
         JR CONOUT_BDOS                   ; $01CA  18 03
 CONOUT:
         LD E,A                           ; $01CC  5F         ; [AI] CONOUT(A): output the char in A
 CONOUT_SETFN:
-        LD C,$02                         ; $01CD  0E 02      ; [AI] BDOS fn 2 = Console Output [DOC CPMREF 3-44; facts sec.5]
+        LD C,C_WRITE                        ; $01CD  0E 02      ; [AI] BDOS fn 2 = Console Output [DOC CPMREF 3-44; facts sec.5]
 CONOUT_BDOS:
-        JP BDOS_VEC                      ; $01CF  C3 05 00   ; [AI] tail-call BDOS (DE/C already set)
+        JP BDOS                     ; $01CF  C3 05 00   ; [AI] tail-call BDOS (DE/C already set)
 CHECK_WRITE_PROTECT:
         LD HL,DRV_TOGGLE                 ; $01D2  21 18 02
         LD C,(HL)                        ; $01D5  4E         ; [AI] read current motor/select toggle state
@@ -186,15 +188,15 @@ CHECK_WRITE_PROTECT:
         XOR $01                          ; $01D7  EE 01      ; [AI] flip bit 0
         LD (HL),A                        ; $01D9  77         ; [AI] store the toggled state back
         CALL BIOS_HOME_EXT               ; $01DA  CD E3 01   ; [AI] BIOS extension: recalibrate/home the head
-        LD HL,($0001)                    ; $01DD  2A 01 00   ; [AI] HL = BIOS page (low byte ignored) [RE]
+        LD HL,(WBOOTV+1)                   ; $01DD  2A 01 00   ; [AI] HL = BIOS page (low byte ignored) [RE]
         LD L,$27                         ; $01E0  2E 27      ; [AI] BIOS extension entry at page+$27 (write-protect test) [RE]
         JP (HL)                          ; $01E2  E9         ; [AI] tail-call into BIOS; it RETs to our caller with A=status
 BIOS_HOME_EXT:
-        LD HL,($0001)                    ; $01E3  2A 01 00
+        LD HL,(WBOOTV+1)                   ; $01E3  2A 01 00
         LD L,$1E                         ; $01E6  2E 1E      ; [AI] BIOS extension entry at page+$1E (home head) [RE]
         JP (HL)                          ; $01E8  E9
 BIOS_SELDSK_EXT:
-        LD HL,($0001)                    ; $01E9  2A 01 00
+        LD HL,(WBOOTV+1)                   ; $01E9  2A 01 00
         LD L,$1B                         ; $01EC  2E 1B      ; [AI] BIOS extension entry at page+$1B (select drive in C) [RE]
         JP (HL)                          ; $01EE  E9
 EXIT:
@@ -206,16 +208,16 @@ EXIT_TEST:
         CALL PRINT_STR                   ; $01F8  CD C8 01   ; [AI] "Insert CP/M System disk in drive A:  Press RETURN"
         CALL CONIN_DIRECT                ; $01FB  CD 01 02   ; [AI] wait for a key
 DO_WARMBOOT:
-        JP WBOOT_VEC                     ; $01FE  C3 00 00   ; [AI] warm boot -> reload CCP/BDOS, back to the prompt [DOC CPMREF 3-44; facts sec.5]
+        JP WBOOTV                    ; $01FE  C3 00 00   ; [AI] warm boot -> reload CCP/BDOS, back to the prompt [DOC CPMREF 3-44; facts sec.5]
 CONIN_DIRECT:
         LD E,$FF                         ; $0201  1E FF      ; [AI] E=$FF -> input (vs output) for fn 6
 CONIN_DIRECT_FN:
-        LD C,$06                         ; $0203  0E 06      ; [AI] BDOS fn 6 = Direct Console I/O [DOC CPMREF 3-44; facts sec.5]
-        CALL BDOS_VEC                    ; $0205  CD 05 00
+        LD C,C_RAWIO                        ; $0203  0E 06      ; [AI] BDOS fn 6 = Direct Console I/O [DOC CPMREF 3-44; facts sec.5]
+        CALL BDOS                   ; $0205  CD 05 00
         OR A                             ; $0208  B7
         JR Z,CONIN_DIRECT                ; $0209  28 F6      ; [AI] A=0 -> no key ready, poll again
         CP $03                           ; $020B  FE 03      ; [AI] Ctrl-C ?
-        JP Z,WBOOT_VEC                   ; $020D  CA 00 00   ; [AI] Ctrl-C -> abort to warm boot
+        JP Z,WBOOTV                  ; $020D  CA 00 00   ; [AI] Ctrl-C -> abort to warm boot
 TO_UPPER:
         CP $60                           ; $0210  FE 60      ; [AI] >= 'a' (lower case) ?
         RET C                            ; $0212  D8         ; [AI] no -> leave unchanged

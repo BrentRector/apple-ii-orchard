@@ -25,9 +25,14 @@
     INCLUDE "apple_softcard.inc"   ; Apple/SoftCard external names (single source of truth)
 
 ; -- External symbols --
-WBOOT_VEC            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
-BDOS_VEC             EQU $0005               ; BDOS call vector — JP BDOS_ENTRY. Programs use CALL $0005 to invoke BDOS. Word at $0006 is also the top-of-TPA marker.
-DEFAULT_FCB          EQU $005C               ; Default File Control Block — populated by CCP from command-line argument 1. Standard 36-byte FCB structure (drive + filename + extents + record number).
+; CP/M 2.2 base-page cells and BDOS function numbers come from cpm22.inc (INCLUDEd
+; below): WBOOTV $0000 (and WBOOTV+1 = the BIOS-page word the SoftCard extension
+; idiom reads), BDOS $0005 (and BDOS+2 = the high byte of the BDOS entry word /
+; top-of-TPA marker), TFCB $005C, CMDLINE $0081, and the C_* function constants.
+; Defined once there. (Apple/SoftCard hardware externals -- A_VEC, Z_CPU, DSKCNT,
+; plus the $F3xx/$FExx BIOS data cells -- come from apple_softcard.inc or are kept
+; as literal addresses; they are not base-page CP/M cells. LD C,$00/$01 in the
+; install path select BIOS jump-table slots, not BDOS functions.)
 
     INCLUDE "cpm22.inc"                  ; CP/M 2.2 ABI (provides TPA = $0100)
     ORG TPA
@@ -37,11 +42,11 @@ DEFAULT_FCB          EQU $005C               ; Default File Control Block — po
 START:
         LD DE,MSG_BANNER                 ; $0100  11 A8 01  ; [AI] DE -> "APPLE ][ CP/M 13 Sector..." banner
 START_PRINT_BANNER:
-        LD C,$09                         ; $0103  0E 09     ; [AI] BDOS fn 9 = print $-terminated string [DOC CPMREF 3-44; facts sec.5]
+        LD C,C_WRITESTR                        ; $0103  0E 09     ; [AI] BDOS fn 9 = print $-terminated string [DOC CPMREF 3-44; facts sec.5]
 START_PRINT_CALL:
-        CALL BDOS_VEC                    ; $0105  CD 05 00  ; [AI] emit banner to console
+        CALL BDOS                   ; $0105  CD 05 00  ; [AI] emit banner to console
 START_DISPATCH:
-        LD A,($0082)                     ; $0108  3A 82 00  ; [AI] A = first char of command tail arg ($0080=len, $0081=' ', $0082=arg[0])
+        LD A,(CMDLINE+1)                 ; $0108  3A 82 00  ; [AI] A = first char of command tail arg ($0080=len, $0081=' ', $0082=arg[0])
         CP $58                           ; $010B  FE 58     ; [AI] 'X' (upper) -> install 13-sector mode
         JR Z,INSTALL_13SEC               ; $010D  28 04
         CP $78                           ; $010F  FE 78     ; [AI] 'x' (lower) -> install 13-sector mode
@@ -77,7 +82,7 @@ INSTALL_DONE_MSG:
 ; [AI]   JP (HL)) and relies on that path returning to $013F, so the "+$0A -> operand"
 ; [AI]   framing is inferred from the surrounding read/copy use, not proven from the flow.
 BIOS_JMPTAB_ENTRY:
-        LD HL,($0001)                    ; $0137  2A 01 00  ; [AI] HL = BIOS warm-boot vector (page from $0002)
+        LD HL,(WBOOTV+1)                   ; $0137  2A 01 00  ; [AI] HL = BIOS warm-boot vector (page from $0002)
         LD L,$1B                         ; $013A  2E 1B     ; [AI] point into BIOS jump-table region
         CALL JP_HL_THUNK                 ; $013C  CD 44 01  ; [AI] (indirect; see note) advance via jump table
         LD DE,$000A                      ; $013F  11 0A 00
@@ -94,11 +99,11 @@ ERR_INVALID_DRIVE:
 ; [AI] PRINT_AND_WBOOT: print $-string at DE via BDOS fn 9 [DOC CPMREF 3-44; facts sec.5],
 ; [AI]   then JP WBOOT (warm boot).
 PRINT_AND_WBOOT:
-        LD C,$09                         ; $0148  0E 09     ; [AI] BDOS fn 9 = print $-string
+        LD C,C_WRITESTR                        ; $0148  0E 09     ; [AI] BDOS fn 9 = print $-string
 PRINT_AND_WBOOT_CALL:
-        CALL BDOS_VEC                    ; $014A  CD 05 00
+        CALL BDOS                   ; $014A  CD 05 00
 PRINT_AND_WBOOT_C9:
-        JP WBOOT_VEC                     ; $014D  C3 00 00  ; [AI] return to CP/M via warm boot
+        JP WBOOTV                    ; $014D  C3 00 00  ; [AI] return to CP/M via warm boot
 
 ; [AI] ----- Restore path: bare drive letter argument -----
 ; [AI] Validate the drive, and if currently in 13-sector mode, put it back to 16-sector.
@@ -109,7 +114,7 @@ CHECK_RESTORE_1:
 CHECK_RESTORE_MSG:
         LD DE,MSG_MUST_RW13_FIRST        ; $0155  11 71 02  ; [AI] preload "Must 'RW13 X' first"
         JR NZ,PRINT_AND_WBOOT            ; $0158  20 EE     ; [AI] not in 13-sector -> nothing to restore, complain
-        LD A,(DEFAULT_FCB)               ; $015A  3A 5C 00  ; [AI] A = drive code from parsed FCB (0=default,1=A,...) [DOC CPMREF 3-46/3-47; facts sec.7.4]
+        LD A,(TFCB)              ; $015A  3A 5C 00  ; [AI] A = drive code from parsed FCB (0=default,1=A,...) [DOC CPMREF 3-46/3-47; facts sec.7.4]
         CP $01                           ; $015D  FE 01
         JR Z,ERR_INVALID_DRIVE           ; $015F  28 E4     ; [AI] drive 1 here is rejected as invalid
         JR NC,RESTORE_DRIVE              ; $0161  30 05     ; [AI] >=2 -> valid drive, proceed
@@ -134,12 +139,12 @@ RESTORE_DRIVE:
         CPL                              ; $0181  2F
         ADD A,$61                        ; $0182  C6 61     ; [RE] compute slot-I/O base offset for 6502 driver (encodes (drive-1) into a slot*16 index byte; $60 for drive A)
         LD (RW13_6502_PARAM_SLOT),A      ; $0184  32 0E 08  ; [AI] store into 6502 engine slot-I/O param @ run $180E
-        LD HL,($0001)                    ; $0187  2A 01 00  ; [AI] HL = BIOS warm-boot vector base
+        LD HL,(WBOOTV+1)                   ; $0187  2A 01 00  ; [AI] HL = BIOS warm-boot vector base
         LD L,$1B                         ; $018A  2E 1B
         CALL BIOS_JMPTAB_ENTRY           ; $018C  CD 37 01  ; [AI] HL -> BIOS jump-table operand to repoint
         LD (HL),$F0                      ; $018F  36 F0     ; [AI] low byte of new (6502-driver) handler address
         INC HL                           ; $0191  23
-        LD A,($0007)                     ; $0192  3A 07 00  ; [AI] high byte of BIOS/BDOS region (top of TPA marker)
+        LD A,(BDOS+2)                    ; $0192  3A 07 00  ; [AI] high byte of BIOS/BDOS region (top of TPA marker)
         SUB $09                          ; $0195  D6 09     ; [AI] derive driver page in high RAM
         LD (HL),A                        ; $0197  77        ; [AI] high byte of new handler address
         LD HL,$1300                      ; $0198  21 00 13  ; [AI] $1300 = 6502 engine run address (13-sector marker)
