@@ -60,18 +60,27 @@ RELOC_START_5:
         CALL BDOS                        ; $0147  CD 05 00
 RELOC_START_6:
         LD A,(SLTTYP3)                     ; $014A  3A BB F3
-RELOC_START_7:
-        SUB $03                          ; $014D  D6 03
-RELOC_START_8:
-        JP Z,STORE_VER_DIGIT                      ; $014F  CA 58 01
-RELOC_START_9:
-        DEC A                            ; $0152  3D
-RELOC_START_10:
-        JP Z,STORE_VER_DIGIT                      ; $0153  CA 58 01
-RELOC_START_11:
-        LD A,$01                         ; $0156  3E 01
+; [RE] Version / card-type probe -- the ONLY 12-byte code island ($014D-$0158) that differs
+;      between the 2.20 and 2.23 DDT. Both read the device type into A (above) and derive the
+;      stored version digit, then fall into the shared store at STORE_VER_DIGIT_1: the 2.20
+;      loader recognizes device types 3 and 4 (default $01); the 2.23 loader recognizes 0 and
+;      5 (default $FF).
+    IFDEF V223
+        OR A                             ; 2.23: device type == 0 ?
+        JP Z,STORE_VER_DIGIT_1           ;   yes -> store A unchanged
+        SUB $05                          ; 2.23: device type == 5 ?
+        JP Z,STORE_VER_DIGIT_1           ;   yes -> store A unchanged
+        LD A,$FF                         ; 2.23: else default $FF
+        NOP                              ;   pad: hold STORE_VER_DIGIT_1 at $0159
+    ELSE
+        SUB $03                          ; 2.20: device type == 3 ?
+        JP Z,STORE_VER_DIGIT             ;   yes
+        DEC A                            ; 2.20: device type == 4 ?
+        JP Z,STORE_VER_DIGIT             ;   yes
+        LD A,$01                         ; 2.20: else default $01
 STORE_VER_DIGIT:
-        DEC A                            ; $0158  3D
+        DEC A                            ; 2.20: digit - 1
+    ENDIF
 STORE_VER_DIGIT_1:
         LD (DDT_IMG_BASE+$06A4),A                    ; $0159  32 A4 08
 STORE_VER_DIGIT_2:

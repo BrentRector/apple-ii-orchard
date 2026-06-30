@@ -33,6 +33,12 @@ TREE_DISK = {
 # byte-identical-across-both-disks utilities: they live ONLY in the CPMV220-44K
 # base and must also reassemble == the 2.23-44K disk copy.
 SHARED_BASE = ["APDOS", "ASM", "DOWNLOAD", "DUMP", "ED", "LOAD", "PIP", "STAT", "XSUB"]
+# Version-folded utilities: a SINGLE master in CPMV220-44K/utilities builds the 2.20 .COM by
+# default and the 2.23 .COM when DEFINE V223 selects its IFDEF V223 islands. The 2.23-44K tree
+# carries NO separate copy. (Their .COMs differ by only a few bytes -- one source, two builds,
+# the same model as the GBASIC/MBASIC fold.) The default 2.20 build is checked by
+# test_utility_source_is_byte_identical; the V223 build by test_version_fold_builds_223.
+VERSION_FOLDED = ["SUBMIT", "DDT"]
 
 HAS_SJASM = shutil.which("sjasmplus") is not None
 _skip = lambda disk: pytest.mark.skipif(  # noqa: E731
@@ -70,9 +76,11 @@ def _include_deps(asm_path: Path):
     return deps
 
 
-def _assemble(asm_path: Path) -> bytes:
+def _assemble(asm_path: Path, defines=()) -> bytes:
     src = re.sub(r'SAVEBIN\s+"[^"]+"', 'SAVEBIN "{out_bin}"',
                  asm_path.read_text(encoding="latin-1"))
+    if defines:                                   # version-fold: e.g. DEFINE V223 selects the 2.23 islands
+        src = "".join(f"    DEFINE {d}\n" for d in defines) + src
     return assemble_z80(src, incbin_deps=_incbin_deps(asm_path),
                         include_files=_include_deps(asm_path))
 
@@ -116,6 +124,18 @@ def test_fold_build_byte_identical(mode, com):
     assert out, f"BASIC.asm ({mode}) failed to assemble:\n{log[-800:]}"
     assert out == fold_build.reference(com), (
         f"BASIC.asm in {mode} mode does not reassemble {com} byte-identically")
+
+
+@_skip(DISK_2_23_44K_SYSTEM)
+@pytest.mark.parametrize("name", VERSION_FOLDED)
+def test_version_fold_builds_223(name):
+    """The single CPMV220-44K master, assembled with DEFINE V223, reassembles the 2.23-44K
+    disk's .COM byte-identically -- the justification for one conditional source instead of
+    two near-duplicate files."""
+    built = _assemble(REPO / "CPMV220-44K" / "utilities" / f"{name}.asm", defines=["V223"])
+    com = bytes(extract_file(read_disk(Path(DISK_2_23_44K_SYSTEM)), f"{name}.COM"))
+    assert built and built == com, (
+        f"CPMV220-44K/{name}.asm with DEFINE V223 does not reassemble the 2.23-44K {name}.COM")
 
 
 @_skip(DISK_2_23_44K_SYSTEM)

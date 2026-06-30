@@ -380,7 +380,11 @@ PARSE_CARET:
         CP $5E                           ; $0439  FE 5E   '^' -> control-char escape?
         JP NZ,PARSE_LITERAL              ; $043B  C2 61 04
         CALL GET_NEXT_CHAR               ; $043E  CD 09 03  letter after '^'
-        SUB $61                          ; $0441  D6 61   - 'a'
+    IFDEF V223
+        SUB 'A'                          ; 2.23: ^A..^Z control-char escape (uppercase letter base)
+    ELSE
+        SUB 'a'                          ; 2.20: ^a..^z control-char escape (lowercase letter base)
+    ENDIF
         LD ($0E7D),A                     ; $0443  32 7D 0E
         LD C,A                           ; $0446  4F
         LD A,$19                         ; $0447  3E 19   in a..z (-> ^A..^Z)?
