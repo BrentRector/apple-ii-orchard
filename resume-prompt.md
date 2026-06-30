@@ -1,12 +1,22 @@
 # Resume Prompt — Microsoft SoftCard CP/M Investigation
 
-## >> RESUME HERE — 2026-06-29: CP/M-constant rename of the 2.20-44K utilities — 15/15 COMPLETE
+## >> RESUME HERE — 2026-06-29: CP/M-constant rename — BOTH 44K trees' non-BASIC utilities COMPLETE
 
-**THIS CAMPAIGN IS DONE** (gate `softcard/ shared/` = 227 byte-identical; **8 commits** on `main`:
-`e4a4616` COPY+STAT · `c3ee8f6` XSUB+DUMP+DOWNLOAD+SUBMIT+LOAD+APDOS · `83a3888` FORMAT+RW13 · `8155c4a` DDT ·
-`6dc6234` ASM · `1b5e6d6` ED · `10564fb` PIP · `06ba635` CPM56; the two BASICs were already done). Every
-`CPMV220-44K/utilities/*.asm` is at the cpm22.inc base-page-constant standard. Full handoff +
-the per-site method live in `[[project_cpm_utility_constant_rename]]`.
+**DONE** (gate `softcard/ shared/` = 227 byte-identical):
+- **2.20-44K = 15/15** (`e4a4616` COPY+STAT · `c3ee8f6` XSUB+DUMP+DOWNLOAD+SUBMIT+LOAD+APDOS · `83a3888`
+  FORMAT+RW13 · `8155c4a` DDT · `6dc6234` ASM · `1b5e6d6` ED · `10564fb` PIP · `06ba635` CPM56; BASICs folded).
+- **2.23-44K non-BASIC = DONE** (`d53e46f` DDT [de-aliased twin] · `42c0fd8` COPY/SUBMIT/CAT/MFT/PATCH/AUTORUN/
+  BOOT · `4e9d7a3` PATCH's missed DEFAULT_RND→TFCB+FCB_R0). Built a generalized helper
+  `E:/tmp/<scratch>/rename_util.py` (dry-run prints every gate-blind call; unmapped-base-page-EQU guard).
+Full handoff + the per-site method + the REMAINING map live in `[[project_cpm_utility_constant_rename]]`.
+
+**REMAINING (a distinct, careful sub-task — do NOT blind-extend the helper):**
+- **The BASICs** (CPMV223-44K + CPMV220 GBASIC/MBASIC): their `RST1_VEC` ($0008) + `RST5_VEC` ($0028) are
+  GENUINE MS-BASIC interpreter RST vectors (CHRGET / FP chain) — KEEP, not cpm22 dups. Only WBOOT_VEC/CDISK/
+  BDOS_VEC/DEFAULT_DMA map. (2.20-44K BASICs were folded — [[project_basic_gbasic_mbasic_fold]].)
+- **CPMV220 (56K) tree** (APDOS/BOOT/COPY/DOWNLOAD/FORMAT/PIP/RW13/STAT/CPM56): STAT keeps a local `TPA EQU`
+  (BDOS-collision — RE-TEST empirically, the DDT caution was obsolete); CPM56 installer-scope (body→fold);
+  COPY keeps a legit `RST6_VEC $0030` sentinel. **CPMV223-60K**: `build_cpm60` doesn't stage includes (fix first).
 
 **Two findings carried (re-test, don't trust the old cautions):**
 1. **DDT's "BDOS collision" caution is OBSOLETE** — its image is now wrapped in `MODULE DDT_RESIDENT`, so the
