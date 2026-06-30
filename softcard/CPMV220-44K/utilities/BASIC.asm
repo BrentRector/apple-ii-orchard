@@ -892,30 +892,33 @@ RAM_DISPATCH_TRAMPOLINE:
         PUSH DE
         JP (HL)
     IFDEF V223
-; [RE] 2.23-only console/memory helper -- lives in the 24-byte zero gap 2.20 leaves here. Two
-;      entries, reached from the IFDEF V223 islands below:
-;      NEW_CONSOLE_RESET -- the DISK_RESELECT_AND_RAISE redirect: restore SP from SAVSTK, then run
-;        the original PUSH DE / LD C,DRV_SET and continue into the reselect body.
-;      MEM_TOP_SCAN -- cold-start RAM sizing: scan pages up from the BDOS page for the $BD marker.
-NEW_CONSOLE_RESET:
-        LD HL,(SAVSTK)                   ; restore the saved stack pointer
+; [RE] 2.23-only DISK-ERROR additions -- two short routines 2.23 colocates in the 24-byte zero
+;      gap 2.20 leaves here, both reached from the IFDEF V223 islands below:
+;      DISK_RESELECT_SP_RESET -- the DISK_RESELECT_AND_RAISE redirect: restore SP from SAVSTK (so
+;        a fault deep in nested calls can't leave the stack misaligned), then run the original
+;        PUSH DE / LD C,DRV_SET and continue into the reselect body.
+;      RWTS_ERRVEC_FIND -- locate the SoftCard disk-error vector cell at cold start by scanning
+;        pages up from the CP/M BDOS for the $BD byte that tags the error-vector region; returns
+;        its page in H. (2.20 reaches the same cell by a fixed BIOS-relative offset instead.)
+DISK_RESELECT_SP_RESET:
+        LD HL,(SAVSTK)                   ; restore the saved (known-good) stack pointer
         LD SP,HL
         PUSH DE                          ; (the redirected DISK_RESELECT_AND_RAISE head)
         LD C,DRV_SET
         JP DISK_RESELECT_AND_RAISE_BODY
-MEM_TOP_SCAN:
-        LD A,(BDOS+2)                    ; $0007 = top-of-TPA page
+RWTS_ERRVEC_FIND:
+        LD A,(BDOS+2)                    ; $0007 = BDOS entry page (just above the TPA)
         LD H,A
         LD L,$00
-        LD A,$BD                         ; RAM-top marker byte
+        LD A,$BD                         ; signature byte tagging the disk-error-vector region
         DEC H                            ; pre-decrement (the loop's first INC H undoes it)
-MEM_TOP_SCAN_LOOP:
+RWTS_ERRVEC_FIND_LOOP:
         INC H                            ; next page up
         CP (HL)
-        JR NZ,MEM_TOP_SCAN_LOOP
+        JR NZ,RWTS_ERRVEC_FIND_LOOP
         RET
     ELSE
-        DEFS    24, $00                  ; 2.20: reserved (2.23's console/memory helper lives here)
+        DEFS    24, $00                  ; 2.20: reserved (2.23's disk-error routines live here)
     ENDIF
 L_0C93:
         DEFB    "\0"
@@ -12866,7 +12869,7 @@ DISK_RAISE_FILE_READ_ONLY:
 ; ----------------------------------------------------------------------
 DISK_RESELECT_AND_RAISE:
     IFDEF V223
-        JP NEW_CONSOLE_RESET             ; 2.23: reset SP first; the helper runs the PUSH DE / LD C,DRV_SET and returns below
+        JP DISK_RESELECT_SP_RESET        ; 2.23: reset SP first; the helper runs the PUSH DE / LD C,DRV_SET and returns below
     ELSE
         PUSH DE
         ; reselect the recorded default drive (E = CP/M current-drive byte at $0004) to undo any
@@ -32430,20 +32433,24 @@ COLD_START:
         LD E,(HL)
         INC HL
         LD D,(HL)
-        ; 4th (last) jump-table entry -> install BIOS LIST into the printer-output emitter, then
-        ; point HL at the disk/RWTS error-vector cell so the four disk-error entry points below
-        ; redirect the RWTS error path back into BASIC. The two releases reach that cell differently
-        ; (one of the console/memory islands): 2.20 adds a fixed -$0E08; 2.23 stores DE then scans
-        ; for the top-of-RAM marker via MEM_TOP_SCAN.
+        ; 4th (last) jump-table entry -> install the BIOS LIST handler as BASIC's printer-output
+        ; emitter, then point HL at the SoftCard disk-error vector cell so the four disk-error
+        ; entry points stored below redirect the RWTS error path back into BASIC. The releases
+        ; reach that cell differently: 2.20 by a fixed offset below the BIOS console jump table;
+        ; 2.23 by the dynamic RWTS_ERRVEC_FIND scan (which tolerates a relocated BIOS/BDOS).
     IFDEF V223
-        LD (OUTDO_DEVICE_1+1),DE         ; 2.23: store DE (the LIST vector) directly
-        CALL MEM_TOP_SCAN                ; 2.23: H := top-of-RAM page (scan up for the $BD marker)
-        LD L,$09                         ; 2.23: -> HL = error-vector cell
+        LD (OUTDO_DEVICE_1+1),DE         ; 2.23: store the LIST vector (DE) directly
+        CALL RWTS_ERRVEC_FIND            ; 2.23: H := the disk-error-vector page (scan for $BD)
+        LD L,$09                         ; 2.23: -> HL = the disk-error vector cell (page:$09)
     ELSE
         EX DE,HL
         LD (OUTDO_DEVICE_1+1),HL
         EX DE,HL
-        LD DE,$F1F8                      ; 2.20: add -$0E08 to reach the error-vector cell
+        ; HL = BIOS_base+17 (just past LIST's operand). The disk-error vector sits at BDOS_base+9,
+        ; a fixed $0E08 below: the CP/M 2.2 BDOS occupies the $0E00 just under the BIOS, and the
+        ; cell is +9 into the BDOS against the +17 walk position in the BIOS table. NOTE: this is an
+        ; OS-LAYOUT offset (config-specific), not BASIC-relative -- 2.23 made it dynamic instead.
+        LD DE,-$0E08                     ; 2.20: reach the disk-error vector cell (= $F1F8; BDOS_base+9)
         ADD HL,DE
     ENDIF
         LD DE,DISK_RAISE_DISK_I_O_ERROR
