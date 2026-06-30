@@ -1,6 +1,12 @@
 # Resume Prompt — Microsoft SoftCard CP/M Investigation
 
-## >> RESUME HERE — 2026-06-29: 44K-trees CP/M-constant rename DONE + the 2.20/2.23 VERSION-FOLD DONE
+## >> RESUME HERE — 2026-06-29: 44K trees DONE — CP/M-constant rename + 2.20/2.23 VERSION-FOLD + size-symbol sweep
+
+**Working tree clean; gate `cd /e/Orchard && source shared/toolchain/env.sh && python -m pytest softcard/ shared/`
+= 226 byte-identical.** Latest commits (newest first): `f396c0b` size-sweep · `f57b3d5` BDOS_SIZE label-arith ·
+`6f39224` BASIC-fold rename + de-magic errvec · `1a90ced` BASIC 4-way fold · `6110d20` SUBMIT+DDT fold ·
+`2cd34d5`/`4e9d7a3`/`42c0fd8`/`d53e46f` 2.23-44K rename · `ee55649`/`06ba635`/`10564fb`/`1b5e6d6`/`6dc6234`/`8155c4a`
+2.20-44K rename.
 
 **DONE** (gate `softcard/ shared/` = **226** byte-identical):
 - **CP/M-constant rename, both 44K trees' non-BASIC utilities** — 2.20-44K 15/15 + 2.23-44K (DDT/COPY/SUBMIT/
@@ -22,6 +28,18 @@
     source.** Verify byte deltas first (`extract_file` both disks, diff) — only COPY/DDT/GBASIC/MBASIC/SUBMIT
     differed small; CAT/MFT/PATCH/AUTORUN/BOOT are 2.23-only (no fold); the SHARED_BASE set is byte-identical
     (single-sourced already).
+- **SIZE-SYMBOL SWEEP — code-size constants are now LABEL ARITHMETIC, never magic numbers** (Brent's convention;
+  `f57b3d5`+`f396c0b`). A size = (label after the last byte) − (label on the first byte), defined in the shared
+  system contract where consumers need it, with a build ASSERT tying it to the real image extent:
+  - `cpm_system_220.inc`/`cpm_system_223.inc`: `CCP_SIZE = BDOS_FBASE-CCP_ENTRY`, `BDOS_SIZE = BIOS_FBASE-BDOS_FBASE`,
+    `BIOS_FBASE`/`BDOS_FLIMIT` boundary EQUs. CPM_CCP/CPM_BDOS define a `*_IMAGE_END:` label after their last byte +
+    `ASSERT *_IMAGE_END == <next boundary>`; their SAVEBIN lengths use the size symbols. The include-free BIOS
+    sources use a LOCAL end-label (`SAVEBIN $base, BIOS_IMAGE_END-$base`; the 2.23 BIOS wraps $FA00→$0000 and the
+    subtraction still gives $0600).
+  - `DDT_IMG_LEN = DDT_RELOC_BITMAP - DDT_IMG_BASE` (new `DDT_RELOC_BITMAP:` label at the bitmap start).
+  - **BASIC's 2.20 disk-error-vector offset** is now `LD DE,-(BDOS_SIZE+8)` (was the magic `$F1F8`): the vector sits
+    at `BDOS_base+9`, i.e. `BDOS_SIZE+8` below the BIOS console jump table (BASIC INCLUDEs `cpm_system_220.inc`).
+    See `[[feedback_code_size_symbols_from_labels]]`.
 
 **REMAINING (a distinct, careful sub-task):**
 - **CPMV220 (56K) tree** (APDOS/BOOT/COPY/DOWNLOAD/FORMAT/PIP/RW13/STAT/CPM56 + GBASIC/MBASIC). FIRST diff each
@@ -29,6 +47,10 @@
   re-renamed as duplicates. Then rename the genuinely-distinct ones. CAUTIONS: STAT keeps a local `TPA EQU`
   (BDOS-collision — RE-TEST empirically, the DDT one was obsolete); CPM56 installer-scope (body→fold); COPY keeps
   a legit `RST6_VEC $0030` sentinel; the 56K BASICs' `RST1_VEC`/`RST5_VEC` are GENUINE BASIC RST vectors (keep).
+- **Size-sweep for the LC-relocated 60K (CPMV223-60K) + 56K (CPMV220) trees — DEFERRED.** Their standalone
+  SAVEBINs are `IFNDEF CPM60_LINK`-guarded auxiliaries the master `CPM60.asm` build SKIPS; the 60K CCP is
+  NON-CONTIGUOUS (`$D300,$0906` overruns the `$DC00` BDOS base by 6 B — no clean boundary). Need per-source LOCAL
+  start/end labels + their own verification (the master build won't catch standalone-SAVEBIN errors).
 - **CPMV223-60K**: `build_cpm60` doesn't stage the shared includes (fix first, or stays local).
 - Cleanup: the 2.20-44K `GBASIC.asm`/`MBASIC.asm` reference views (pinned by test, annotations lag BASIC.asm) are
   slated to retire now that the 4-way fold covers them ([[project_basic_gbasic_mbasic_fold]] PROVENANCE.md).
