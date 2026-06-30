@@ -13,7 +13,6 @@
 ; constants. Defined once there, not re-derived per file. NOTE: LD HL/DE/BC,$0000 are the
 ; number zero (zero-init / dummy BDOS arg), kept literal; only a genuine JP/CALL through the
 ; warm-boot vector takes WBOOTV. Char/count LD C,$nn (not BDOS selectors) also stay literal.
-DEFAULT_RND          EQU $007D               ; Default FCB random record number (3 bytes — low/middle/high).
 
 ; -- Mid-instruction references (shown inline as cover+offset) --
 ;   $03C2 -> WRITE_RECORD_VERIFY_1+1         z80 skip idiom: enters the operand of $21 at $03C1
@@ -240,7 +239,7 @@ TPA_START_31:
         LD A,(BIOS_DISK_DISPATCH_14)               ; $0235  3A FD 04
         OR A                             ; $0238  B7
         JR Z,TPA_START_32                ; $0239  28 32
-        LD (DEFAULT_RND),HL              ; $023B  22 7D 00
+        LD (TFCB+FCB_R0),HL              ; $023B  22 7D 00
         XOR A                            ; $023E  AF
         LD ($007F),A                     ; $023F  32 7F 00
         LD C,F_OPEN                         ; $0242  0E 0F
@@ -254,12 +253,12 @@ TPA_START_31:
         LD A,($0562)                     ; $0257  3A 62 05
         OR A                             ; $025A  B7
         JR Z,TPA_START_34                ; $025B  28 40
-        LD HL,(DEFAULT_RND)              ; $025D  2A 7D 00
+        LD HL,(TFCB+FCB_R0)              ; $025D  2A 7D 00
         PUSH HL                          ; $0260  E5
         CALL ADVANCE_TO_REC2                    ; $0261  CD D7 03
         CALL WRITE_RECORD_VERIFY_1+1                ; $0264  CD C2 03
         POP HL                           ; $0267  E1
-        LD (DEFAULT_RND),HL              ; $0268  22 7D 00
+        LD (TFCB+FCB_R0),HL              ; $0268  22 7D 00
         JR TPA_START_34                  ; $026B  18 30
 ; [AI] Read-only display path (no '=' value given): divides the byte offset by the sector size to
 ;       derive the record number, reads the record, and dumps its bytes.
@@ -528,9 +527,9 @@ WRITE_RECORD_VERIFY_2:
 ; [AI] Increments the FCB random-record number and points the DMA at the second buffer so the
 ;       following (spanned) record can be read or written.
 ADVANCE_TO_REC2:
-        LD HL,(DEFAULT_RND)              ; $03D7  2A 7D 00
+        LD HL,(TFCB+FCB_R0)              ; $03D7  2A 7D 00
         INC HL                           ; $03DA  23
-        LD (DEFAULT_RND),HL              ; $03DB  22 7D 00
+        LD (TFCB+FCB_R0),HL              ; $03DB  22 7D 00
         LD DE,$05E4                      ; $03DE  11 E4 05
         JR SET_DMA_BUF1_1                    ; $03E1  18 03
 ; [AI] Sets the DMA address to the primary record buffer ($0564) via BDOS set-DMA (function 26)
