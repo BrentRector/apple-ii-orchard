@@ -29,8 +29,10 @@ INCLUDES = ("apple_softcard.inc", "msbasic_tokens.inc", "msbasic_errors.inc", "m
             "cpm22.inc")
 
 
-def assemble(mode, lst_path=None):
-    """Assemble BASIC.asm as 'GBASIC' or 'MBASIC'. Returns (bytes, sjasmplus_log).
+def assemble(mode, version="220", lst_path=None):
+    """Assemble BASIC.asm as 'GBASIC' or 'MBASIC', for release '220' or '223'. Returns
+    (bytes, sjasmplus_log). version='223' defines V223, selecting the IFDEF V223 islands
+    (the ~50-56 byte console/memory/date patches between the 2.20 and 2.23 interpreters).
 
     If lst_path is given, sjasmplus also writes a listing (address + machine code +
     source per line) there. The per-build listing is the reference for line addresses
@@ -40,6 +42,8 @@ def assemble(mode, lst_path=None):
     src = BASIC_ASM.read_text(encoding="latin-1")
     if mode == "GBASIC":
         src = "    DEFINE GBASIC\n" + src
+    if version == "223":
+        src = "    DEFINE V223\n" + src
     src = re.sub(r'SAVEBIN\s+"[^"]+"', 'SAVEBIN "{out_bin}"', src)
     with tempfile.TemporaryDirectory() as tds:
         td = Path(tds)
@@ -55,8 +59,9 @@ def assemble(mode, lst_path=None):
         return (out.read_bytes() if out.exists() else b""), r.stdout + r.stderr
 
 
-def reference(com_name):
-    return bytes(extract_file(read_disk(Path(rd.DISK_2_20_44K_SYSTEM)), com_name))
+def reference(com_name, version="220"):
+    disk = rd.DISK_2_23_44K_SYSTEM if version == "223" else rd.DISK_2_20_44K_SYSTEM
+    return bytes(extract_file(read_disk(Path(disk)), com_name))
 
 
 def diff_regions(a, b):
@@ -76,11 +81,11 @@ def diff_regions(a, b):
     return regions
 
 
-def report():
+def report(version="220"):
     for mode, com in (("GBASIC", "GBASIC.COM"), ("MBASIC", "MBASIC.COM")):
         lst = BASIC_ASM.with_name(f"{mode}.lst")
-        out, log = assemble(mode, lst_path=lst)
-        ref = reference(com)
+        out, log = assemble(mode, version=version, lst_path=lst)
+        ref = reference(com, version)
         errs = [l for l in log.splitlines() if "error:" in l.lower()]
         if errs:
             print(f"{mode}: {len(errs)} ASSEMBLY ERRORS (output is unreliable):")
@@ -102,4 +107,5 @@ def report():
 
 
 if __name__ == "__main__":
-    report()
+    import sys
+    report(sys.argv[1] if len(sys.argv) > 1 else "220")

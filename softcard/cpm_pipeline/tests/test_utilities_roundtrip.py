@@ -110,20 +110,24 @@ def test_utility_source_is_byte_identical(tree, name, disk):
         f"(does NOT round-trip byte-identical to {name}.COM on its disk)")
 
 
-@pytest.mark.parametrize("mode,com", [("GBASIC", "GBASIC.COM"), ("MBASIC", "MBASIC.COM")])
-def test_fold_build_byte_identical(mode, com):
-    """The GBASIC/MBASIC one-conditional-source fold master (BASIC.asm) reassembles BOTH
-    .COMs byte-identically: with the GBASIC symbol defined -> GBASIC.COM (self-relocating,
-    graphics-ON), without it -> MBASIC.COM (in place, graphics-OFF). One source, two builds."""
-    if not (HAS_SJASM and present(DISK_2_20_44K_SYSTEM)):
+@pytest.mark.parametrize("mode,version", [("GBASIC", "220"), ("MBASIC", "220"),
+                                          ("GBASIC", "223"), ("MBASIC", "223")])
+def test_fold_build_byte_identical(mode, version):
+    """The one-conditional-source BASIC fold master (BASIC.asm) reassembles ALL FOUR
+    interpreter .COMs byte-identically: DEFINE GBASIC selects GBASIC (self-relocating,
+    graphics-ON) vs MBASIC (in place, graphics-OFF); DEFINE V223 selects the 2.23 release
+    (the ~50-56 byte console/memory/date islands) vs the 2.20 default. One source, four builds;
+    the 2.23-44K GBASIC/MBASIC are no longer separate files."""
+    disk = DISK_2_23_44K_SYSTEM if version == "223" else DISK_2_20_44K_SYSTEM
+    if not (HAS_SJASM and present(disk)):
         pytest.skip("sjasmplus or 44K system disk missing")
     if not (REPO / "CPMV220-44K" / "utilities" / "BASIC.asm").exists():
         pytest.skip("BASIC.asm fold master not present")
     from cpm_pipeline.basic import fold_build
-    out, log = fold_build.assemble(mode)
-    assert out, f"BASIC.asm ({mode}) failed to assemble:\n{log[-800:]}"
-    assert out == fold_build.reference(com), (
-        f"BASIC.asm in {mode} mode does not reassemble {com} byte-identically")
+    out, log = fold_build.assemble(mode, version=version)
+    assert out, f"BASIC.asm ({mode} {version}) failed to assemble:\n{log[-800:]}"
+    assert out == fold_build.reference(f"{mode}.COM", version), (
+        f"BASIC.asm ({mode}, release {version}) does not reassemble {mode}.COM byte-identically")
 
 
 @_skip(DISK_2_23_44K_SYSTEM)

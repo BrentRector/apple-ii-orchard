@@ -891,7 +891,32 @@ RAM_DISPATCH_TRAMPOLINE:
         PUSH AF
         PUSH DE
         JP (HL)
-        DEFS    24, $00                  ; fill
+    IFDEF V223
+; [RE] 2.23-only console/memory helper -- lives in the 24-byte zero gap 2.20 leaves here. Two
+;      entries, reached from the IFDEF V223 islands below:
+;      NEW_CONSOLE_RESET -- the DISK_RESELECT_AND_RAISE redirect: restore SP from SAVSTK, then run
+;        the original PUSH DE / LD C,DRV_SET and continue into the reselect body.
+;      MEM_TOP_SCAN -- cold-start RAM sizing: scan pages up from the BDOS page for the $BD marker.
+NEW_CONSOLE_RESET:
+        LD HL,(SAVSTK)                   ; restore the saved stack pointer
+        LD SP,HL
+        PUSH DE                          ; (the redirected DISK_RESELECT_AND_RAISE head)
+        LD C,DRV_SET
+        JP DISK_RESELECT_AND_RAISE_BODY
+MEM_TOP_SCAN:
+        LD A,(BDOS+2)                    ; $0007 = top-of-TPA page
+        LD H,A
+        LD L,$00
+        LD A,$BD                         ; RAM-top marker byte
+        DEC H                            ; pre-decrement (the loop's first INC H undoes it)
+MEM_TOP_SCAN_LOOP:
+        INC H                            ; next page up
+        CP (HL)
+        JR NZ,MEM_TOP_SCAN_LOOP
+        RET
+    ELSE
+        DEFS    24, $00                  ; 2.20: reserved (2.23's console/memory helper lives here)
+    ENDIF
 L_0C93:
         DEFB    "\0"
 L_0C94:
@@ -11639,12 +11664,20 @@ HSCRN_READ_PIXEL:
         ; load the screen byte address and the two colour-mask bytes for the target point
         CALL GFX_LOAD_STEP_STATE
         EXX
+    IFDEF V223
+        BIT 0,L                          ; 2.23: odd target column?
+        JR NZ,HSCRN_READ_PIXEL_ADJ       ;   -> test the adjacent screen byte
+        LD B,C                           ; 2.23: select the first colour mask
+        NOP
+    ELSE
         LD A,(HL)
         ; mask this byte with the first colour-mask byte
         AND C
         ADD A,A
         JR NZ,HSCRN_PIXEL_ON
         INC HL
+    ENDIF
+HSCRN_READ_PIXEL_ADJ:
         LD A,(HL)
         ; if the first byte showed no pixel, test the adjacent byte against the second mask
         AND B
@@ -12832,10 +12865,15 @@ DISK_RAISE_FILE_READ_ONLY:
 ;              not implemented" raise (error 32) sharing this same JP RAISE_ERROR exit.
 ; ----------------------------------------------------------------------
 DISK_RESELECT_AND_RAISE:
+    IFDEF V223
+        JP NEW_CONSOLE_RESET             ; 2.23: reset SP first; the helper runs the PUSH DE / LD C,DRV_SET and returns below
+    ELSE
         PUSH DE
         ; reselect the recorded default drive (E = CP/M current-drive byte at $0004) to undo any
         ; drive the failed BDOS op left logged
         LD C,DRV_SET
+    ENDIF
+DISK_RESELECT_AND_RAISE_BODY:
         LD A,($0004)
         LD E,A
         CALL BDOS
@@ -32392,16 +32430,22 @@ COLD_START:
         LD E,(HL)
         INC HL
         LD D,(HL)
+        ; 4th (last) jump-table entry -> install BIOS LIST into the printer-output emitter, then
+        ; point HL at the disk/RWTS error-vector cell so the four disk-error entry points below
+        ; redirect the RWTS error path back into BASIC. The two releases reach that cell differently
+        ; (one of the console/memory islands): 2.20 adds a fixed -$0E08; 2.23 stores DE then scans
+        ; for the top-of-RAM marker via MEM_TOP_SCAN.
+    IFDEF V223
+        LD (OUTDO_DEVICE_1+1),DE         ; 2.23: store DE (the LIST vector) directly
+        CALL MEM_TOP_SCAN                ; 2.23: H := top-of-RAM page (scan up for the $BD marker)
+        LD L,$09                         ; 2.23: -> HL = error-vector cell
+    ELSE
         EX DE,HL
-        ; 4th (last) jump-table entry -> install BIOS LIST into the printer-output emitter.
         LD (OUTDO_DEVICE_1+1),HL
         EX DE,HL
-        ; HL is now BIOS_base+17 (past LIST's operand); add $F1F8 (= -$0E08) to reach the disk/RWTS
-        ; error-vector cell, then store BASIC's four disk-error entry
-        ; points there so the RWTS error path re-enters BASIC. ([RE] exact region inferred from the
-        ; DISK_RAISE usage.)
-        LD DE,$F1F8
+        LD DE,$F1F8                      ; 2.20: add -$0E08 to reach the error-vector cell
         ADD HL,DE
+    ENDIF
         LD DE,DISK_RAISE_DISK_I_O_ERROR
         LD (HL),E
         INC HL
@@ -32474,19 +32518,29 @@ COLD_BDOSVER_MERGE:
         LD (OUTPUT_COLUMN),HL
         LD (COLOR),A
         LD A,(SLTTYP3)
-        SUB $03
-        JR Z,COLD_SET_WIDTH+1
-        DEC A
-        JR Z,COLD_SET_WIDTH+1
-        LD A,$28
-; [RE] Select terminal line width during cold start: reads the configured console type ($F3BB) and
-; sets the line-width work cell (GFX_READ_COORD_PAIR_12, $4B97) to 40 ($28) or the wide default,
-; then initializes the file-control / disk-parameter pointers (WIDTH_SET_CONSOLE).
-; [RE] 40/80 line-width flag-skip. Default console falls through $8284 LD A,$28 (40), and 01 at
-; $8286 swallows 3E 50 so A stays $28. JR Z,COLD_SET_WIDTH+1 ($827F/$8282, console type 3/4) enters
-; $8287 = LD A,$50 (80). Converge at $8289 store of the width cell.
+; [RE] Select terminal line width at cold start from the console/device type in A (SLTTYP3): 40
+;      ($28) or 80 ($50) columns, stored by the LD (GFX_STMT_HPLOT_9),A below. One of the
+;      console-config islands -- the two releases recognize different device types for 80 columns
+;      (2.20: types 3/4; 2.23: anything but 0/5). The 2.20 form uses the LD BC,$503E cover idiom so
+;      JR ...,COLD_SET_WIDTH+1 enters the LD A,$50.
+    IFDEF V223
+        LD B,$28                         ; 2.23: default 40 columns
+        OR A                             ; device type == 0 ?
+        JR Z,COLD_SET_WIDTH              ;   -> keep 40
+        CP $05                           ; device type == 5 ?
+        JR Z,COLD_SET_WIDTH              ;   -> keep 40
+        LD B,$50                         ; else 80 columns
 COLD_SET_WIDTH:
-        LD BC,$503E
+        LD A,B                           ; A = selected width
+    ELSE
+        SUB $03                          ; 2.20: device type == 3 ?
+        JR Z,COLD_SET_WIDTH+1            ;   -> 80 columns (enter the LD A,$50 cover)
+        DEC A                            ; device type == 4 ?
+        JR Z,COLD_SET_WIDTH+1            ;   -> 80 columns
+        LD A,$28                         ; else 40 columns
+COLD_SET_WIDTH:
+        LD BC,$503E                      ; cover: $01 covers; COLD_SET_WIDTH+1 = LD A,$50 (80)
+    ENDIF
         LD (GFX_STMT_HPLOT_9),A
         CALL WIDTH_SET_CONSOLE
         LD HL,$0080
@@ -32737,7 +32791,11 @@ MSG_BYTES_FREE:
 SIGNON_BANNER_HEADER:
         DEFB    "\r\n\r\n\r\nBASIC-80 Rev"
         DEFB    ". 5.2\r\n[Apple CP/M Version]\r\nCopyright (C) 1980 by Micro"
-        DEFB    "soft\r\nCreated: 26-Aug-80\r\n\0"
+    IFDEF V223
+        DEFB    "soft\r\nCreated: 30-Mar-82\r\n\0"   ; 2.23 build date
+    ELSE
+        DEFB    "soft\r\nCreated: 26-Aug-80\r\n\0"   ; 2.20 build date
+    ENDIF
         DEFB    "\0"
 ; [RE] Top of the relocated interpreter (LDDR copy boundary): the $1000 relocator copies
 ; INTERP_RUN_START..INTERP_COPY_END-1 ($3000-$8482) up from the load image. $8483-$84F1 is dead .COM
