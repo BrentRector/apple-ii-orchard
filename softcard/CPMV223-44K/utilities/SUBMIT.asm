@@ -8,10 +8,11 @@
     DEVICE NOSLOT64K
 
 ; -- External symbols --
-WBOOT_VEC            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
-BDOS_VEC             EQU $0005               ; BDOS call vector — JP BDOS_ENTRY. Programs use CALL $0005 to invoke BDOS. Word at $0006 is also the top-of-TPA marker.
-DEFAULT_FCB          EQU $005C               ; Default File Control Block — populated by CCP from command-line argument 1. Standard 36-byte FCB structure (drive + filename + extents + record number).
-DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS cold-init / DRV_ALLRESET (fn 13) set the DMA address here and WBOOT re-issues SETDMA($0080); sector/record I/O moves 128 bytes through it. At program load this same buffer doubles as the command tail: the first byte ($0080) holds the tail length (0-127) and the characters follow at $0081 (CMDLINE).
+; SUBMIT's CP/M 2.2 base-page cells + BDOS entry vector come from cpm22.inc
+; (INCLUDEd below): BDOS, TBUFF, TFCB, WBOOTV, and the C_*/A_*/L_*/F_*/DRV_*/S_* BDOS function
+; constants. Defined once there, not re-derived per file. NOTE: LD HL/DE/BC,$0000 are the
+; number zero (zero-init / dummy BDOS arg), kept literal; only a genuine JP/CALL through the
+; warm-boot vector takes WBOOTV. Char/count LD C,$nn (not BDOS selectors) also stay literal.
 
     INCLUDE "cpm22.inc"                  ; CP/M 2.2 ABI (provides TPA = $0100)
     ORG TPA
@@ -53,7 +54,7 @@ TPA_START_11:
 ; [AI] Real startup: captures the CCP's stack pointer, switches to SUBMIT's private stack, then
 ;       calls the four phases (parse args, build script, write $$$.SUB, warm boot).
 TPA_START_12:
-        LD HL,WBOOT_VEC                  ; $01DF  21 00 00
+        LD HL,$0000                  ; $01DF  21 00 00
 TPA_START_13:
         ADD HL,SP                        ; $01E2  39
 TPA_START_14:
@@ -301,7 +302,7 @@ PARSE_ARGS_3:
 PARSE_ARGS_4:
         CALL BLOCK_COPY                    ; $02D5  CD 70 02
 PARSE_ARGS_5:
-        LD HL,(DEFAULT_DMA)              ; $02D8  2A 80 00
+        LD HL,(TBUFF)              ; $02D8  2A 80 00
 PARSE_ARGS_6:
         LD H,$00                         ; $02DB  26 00
 PARSE_ARGS_7:
@@ -321,7 +322,7 @@ PARSE_ARGS_13:
 PARSE_ARGS_14:
         CALL BLOCK_COPY                    ; $02EC  CD 70 02
 PARSE_ARGS_15:
-        LD BC,DEFAULT_FCB                ; $02EF  01 5C 00
+        LD BC,TFCB                ; $02EF  01 5C 00
 PARSE_ARGS_16:
         CALL BDOS_OPEN_FILE                    ; $02F2  CD 07 02
 PARSE_ARGS_17:
@@ -352,7 +353,7 @@ GET_NEXT_CHAR_2:
 GET_NEXT_CHAR_3:
         JP NC,GET_NEXT_CHAR_10                ; $030F  D2 25 03
 GET_NEXT_CHAR_4:
-        LD BC,DEFAULT_FCB                ; $0312  01 5C 00
+        LD BC,TFCB                ; $0312  01 5C 00
 GET_NEXT_CHAR_5:
         CALL BDOS_READ_SEQ                    ; $0315  CD 3D 02
 GET_NEXT_CHAR_6:
@@ -380,7 +381,7 @@ GET_NEXT_CHAR_14:
 GET_NEXT_CHAR_15:
         LD B,$00                         ; $032E  06 00
 GET_NEXT_CHAR_16:
-        LD HL,DEFAULT_DMA                ; $0330  21 80 00
+        LD HL,TBUFF                ; $0330  21 80 00
 GET_NEXT_CHAR_17:
         ADD HL,BC                        ; $0333  09
 GET_NEXT_CHAR_18:
@@ -448,7 +449,7 @@ BUILD_SCRIPT:
 BUILD_SCRIPT_1:
         LD (HL),$00                      ; $038D  36 00
 BUILD_SCRIPT_2:
-        LD HL,WBOOT_VEC                  ; $038F  21 00 00
+        LD HL,$0000                  ; $038F  21 00 00
 BUILD_SCRIPT_3:
         LD ($0E76),HL                    ; $0392  22 76 0E
 BUILD_SCRIPT_4:
@@ -724,7 +725,7 @@ WRITE_SUB_FILE_1:
         CP $00                           ; $0523  FE 00
         JP Z,WRITE_SUB_FILE_4                  ; $0525  CA 65 05
         LD A,($0E7E)                     ; $0528  3A 7E 0E
-        LD (DEFAULT_DMA),A               ; $052B  32 80 00
+        LD (TBUFF),A               ; $052B  32 80 00
         LD C,A                           ; $052E  4F
         LD B,$00                         ; $052F  06 00
         LD HL,CMDLINE                    ; $0531  21 81 00
@@ -745,7 +746,7 @@ WRITE_SUB_FILE_2:
         CALL FETCH_IMAGE_BYTE                    ; $054B  CD 7A 05
         LD HL,($0E7E)                    ; $054E  2A 7E 0E
         LD H,$00                         ; $0551  26 00
-        LD BC,DEFAULT_DMA                ; $0553  01 80 00
+        LD BC,TBUFF                ; $0553  01 80 00
         ADD HL,BC                        ; $0556  09
         LD (HL),A                        ; $0557  77
         LD HL,$0E7E                      ; $0558  21 7E 0E
@@ -777,13 +778,13 @@ FETCH_IMAGE_BYTE:
 ; [AI] Final warm-boot trampoline: jumps to the page-zero WBOOT vector to restart CP/M so the CCP
 ;       begins executing the just-written $$$.SUB script.
 WARM_BOOT:
-        JP WBOOT_VEC                     ; $0587  C3 00 00
+        JP WBOOTV                     ; $0587  C3 00 00
 ; [AI] Indirect BDOS call site (JP $0005) used by the print/read/write wrappers to enter the BDOS.
 BDOS_ENTRY_A:
-        JP BDOS_VEC                      ; $058A  C3 05 00
+        JP BDOS                      ; $058A  C3 05 00
 ; [AI] Second BDOS call trampoline (JP $0005) used by the open/close/delete/make wrappers.
 BDOS_ENTRY_B:
-        JP BDOS_VEC                      ; $058D  C3 05 00
+        JP BDOS                      ; $058D  C3 05 00
 ; [AI] Dead remnant: decodes as CALL $0005 / RET / (C9 C9) / LD E,A / LD D,$00, but no label or
 ;       jump in this program targets $0590 and BDOS_ENTRY_B above ends in JP (no fall-through), so
 ;       these bytes are never executed -- left as DEFB (unreferenced source leftover, not live code).

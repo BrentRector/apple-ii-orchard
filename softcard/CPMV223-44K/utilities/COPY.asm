@@ -9,9 +9,11 @@
     INCLUDE "apple_softcard.inc"   ; Apple/SoftCard external names (single source of truth)
 
 ; -- External symbols --
-WBOOT_VEC            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
-BDOS_VEC             EQU $0005               ; BDOS call vector — JP BDOS_ENTRY. Programs use CALL $0005 to invoke BDOS. Word at $0006 is also the top-of-TPA marker.
-DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS cold-init / DRV_ALLRESET (fn 13) set the DMA address here and WBOOT re-issues SETDMA($0080); sector/record I/O moves 128 bytes through it. At program load this same buffer doubles as the command tail: the first byte ($0080) holds the tail length (0-127) and the characters follow at $0081 (CMDLINE).
+; COPY's CP/M 2.2 base-page cells + BDOS entry vector come from cpm22.inc
+; (INCLUDEd below): BDOS, TBUFF, WBOOTV, and the C_*/A_*/L_*/F_*/DRV_*/S_* BDOS function
+; constants. Defined once there, not re-derived per file. NOTE: LD HL/DE/BC,$0000 are the
+; number zero (zero-init / dummy BDOS arg), kept literal; only a genuine JP/CALL through the
+; warm-boot vector takes WBOOTV. Char/count LD C,$nn (not BDOS selectors) also stay literal.
 
     INCLUDE "cpm22.inc"                  ; CP/M 2.2 ABI (provides TPA = $0100)
     ORG TPA
@@ -23,13 +25,13 @@ TPA_START:
 TPA_START_1:
         CALL PRINT_CRLF_STRING           ; $0103  CD 34 04
 TPA_START_2:
-        LD C,$20                         ; $0106  0E 20
+        LD C,F_USERNUM                         ; $0106  0E 20
 TPA_START_3:
         LD E,$1F                         ; $0108  1E 1F
 TPA_START_4:
-        CALL BDOS_VEC                    ; $010A  CD 05 00
+        CALL BDOS                    ; $010A  CD 05 00
 TPA_START_5:
-        LD A,(DEFAULT_DMA)               ; $010D  3A 80 00
+        LD A,(TBUFF)               ; $010D  3A 80 00
 TPA_START_6:
         OR A                             ; $0110  B7
 TPA_START_7:
@@ -53,13 +55,13 @@ TPA_START_15:
 TPA_START_16:
         LD A,$7D                         ; $0126  3E 7D
 TPA_START_17:
-        LD (DEFAULT_DMA),A               ; $0128  32 80 00
+        LD (TBUFF),A               ; $0128  32 80 00
 TPA_START_18:
-        LD C,$0A                         ; $012B  0E 0A
+        LD C,C_READSTR                         ; $012B  0E 0A
 TPA_START_19:
-        LD DE,DEFAULT_DMA                ; $012D  11 80 00
+        LD DE,TBUFF                ; $012D  11 80 00
 TPA_START_20:
-        CALL BDOS_VEC                    ; $0130  CD 05 00
+        CALL BDOS                    ; $0130  CD 05 00
 TPA_START_21:
         CALL PRINT_CRLF                  ; $0133  CD 3F 04
 TPA_START_22:
@@ -221,7 +223,7 @@ TPA_START_41:
 ; [AI] Sets up the per-track copy loop: initializes the SoftCard 6502 track counter in the shared
 ;       parameter block and, if source and destination differ, prints the copying message.
 TPA_START_42:
-        LD BC,WBOOT_VEC                  ; $0243  01 00 00
+        LD BC,$0000                  ; $0243  01 00 00
         LD L,B                           ; $0246  68
         LD H,C                           ; $0247  61
         PUSH DE                          ; $0248  D5
@@ -248,7 +250,7 @@ TPA_START_44:
         JR NC,TPA_START_45               ; $026A  30 05
         ADD HL,DE                        ; $026C  19
         LD B,L                           ; $026D  45
-        LD HL,WBOOT_VEC                  ; $026E  21 00 00
+        LD HL,$0000                  ; $026E  21 00 00
 TPA_START_45:
         PUSH HL                          ; $0271  E5
         CALL COPY_TRACK_BATCH            ; $0272  CD C1 02
@@ -287,7 +289,7 @@ TPA_START_49:
         LD DE,CHECK_SOURCE_SYSTEM_26     ; $02A6  11 8D 06
         CALL PRINT_WAIT_RETURN           ; $02A9  CD DC 04
 TPA_START_50:
-        JP WBOOT_VEC                     ; $02AC  C3 00 00
+        JP WBOOTV                     ; $02AC  C3 00 00
 ; [AI] User answered Yes: re-arm the system flag and jump back to BEGIN_COPY_PASS to run another copy pass.
 TPA_START_51:
         CALL PRINT_CHAR                  ; $02AF  CD 46 04
@@ -314,11 +316,11 @@ COPY_TRACK_BATCH:
         JR Z,COPY_TRACK_BATCH_1          ; $02DB  28 1B
         LD A,(CHECK_SOURCE_SYSTEM_2)     ; $02DD  3A 1C 05
         LD E,A                           ; $02E0  5F
-        LD C,$0E                         ; $02E1  0E 0E
-        CALL BDOS_VEC                    ; $02E3  CD 05 00
+        LD C,DRV_SET                         ; $02E1  0E 0E
+        CALL BDOS                    ; $02E3  CD 05 00
         LD DE,OPEN_SYSTEM_FCB_2          ; $02E6  11 EA 03
-        LD C,$11                         ; $02E9  0E 11
-        CALL BDOS_VEC                    ; $02EB  CD 05 00
+        LD C,F_SFIRST                         ; $02E9  0E 11
+        CALL BDOS                    ; $02EB  CD 05 00
         INC A                            ; $02EE  3C
         JP Z,ERR_SYSTEM_NOT_FOUND        ; $02EF  CA C3 03
         LD HL,(CHECK_SOURCE_SYSTEM_14)   ; $02F2  2A 2A 05
@@ -413,8 +415,8 @@ READ_SYSTEM_FILE:
         OR A                             ; $0382  B7
         RET Z                            ; $0383  C8
         CALL OPEN_SYSTEM_FCB             ; $0384  CD D3 03
-        LD C,$1B                         ; $0387  0E 1B
-        CALL BDOS_VEC                    ; $0389  CD 05 00
+        LD C,DRV_ALLOCVEC                         ; $0387  0E 1B
+        CALL BDOS                    ; $0389  CD 05 00
         LD DE,RST2_VEC                   ; $038C  11 10 00
         ADD HL,DE                        ; $038F  19
         LD A,(HL)                        ; $0390  7E
@@ -424,9 +426,9 @@ READ_SYSTEM_FILE:
         LD A,(HL)                        ; $0395  7E
         AND $F0                          ; $0396  E6 F0
         JR NZ,ERR_SPACE_IN_USE           ; $0398  20 2E
-        LD C,$16                         ; $039A  0E 16
+        LD C,F_MAKE                         ; $039A  0E 16
         LD DE,OPEN_SYSTEM_FCB_2          ; $039C  11 EA 03
-        CALL BDOS_VEC                    ; $039F  CD 05 00
+        CALL BDOS                    ; $039F  CD 05 00
         INC A                            ; $03A2  3C
         JR Z,ERR_NO_DIR_SPACE            ; $03A3  28 28
         LD HL,OPEN_SYSTEM_FCB_5          ; $03A5  21 FA 03
@@ -443,9 +445,9 @@ BUILD_RECORD_LIST:
         LD (OPEN_SYSTEM_FCB_4),A         ; $03B3  32 F9 03
         XOR A                            ; $03B6  AF
         LD (OPEN_SYSTEM_FCB_3),A         ; $03B7  32 F8 03
-        LD C,$10                         ; $03BA  0E 10
+        LD C,F_CLOSE                         ; $03BA  0E 10
         LD DE,OPEN_SYSTEM_FCB_2          ; $03BC  11 EA 03
-        CALL BDOS_VEC                    ; $03BF  CD 05 00
+        CALL BDOS                    ; $03BF  CD 05 00
         RET                              ; $03C2  C9
 ; [AI] Error exit selecting the 'System not found on source disk' message.
 ERR_SYSTEM_NOT_FOUND:
@@ -465,16 +467,16 @@ ERR_PRINT_RESTART:
 ; [AI] Resets the disk system (BDOS 13), selects the working drive (BDOS 14), and opens the system
 ;       FCB at $03EA (BDOS 15).
 OPEN_SYSTEM_FCB:
-        LD C,$0D                         ; $03D3  0E 0D
-        CALL BDOS_VEC                    ; $03D5  CD 05 00
+        LD C,DRV_ALLRESET                         ; $03D3  0E 0D
+        CALL BDOS                    ; $03D5  CD 05 00
         LD A,(CHECK_SOURCE_SYSTEM_3)     ; $03D8  3A 1D 05
         LD E,A                           ; $03DB  5F
-        LD C,$0E                         ; $03DC  0E 0E
-        CALL BDOS_VEC                    ; $03DE  CD 05 00
-        LD C,$13                         ; $03E1  0E 13
+        LD C,DRV_SET                         ; $03DC  0E 0E
+        CALL BDOS                    ; $03DE  CD 05 00
+        LD C,F_DELETE                         ; $03E1  0E 13
         LD DE,OPEN_SYSTEM_FCB_2          ; $03E3  11 EA 03
 OPEN_SYSTEM_FCB_1:
-        CALL BDOS_VEC                    ; $03E6  CD 05 00
+        CALL BDOS                    ; $03E6  CD 05 00
         RET                              ; $03E9  C9
 OPEN_SYSTEM_FCB_2:
         DEFB    $00,$63,$70,$2F,$6D,$20,$20,$20,$20,$73,$79,$73,$00,$00 ; $03EA
@@ -536,9 +538,9 @@ PRINT_CRLF_2:
 PRINT_CHAR:
         LD E,A                           ; $0446  5F
 PRINT_CHAR_1:
-        LD C,$02                         ; $0447  0E 02
+        LD C,C_WRITE                         ; $0447  0E 02
 PRINT_CHAR_2:
-        JP BDOS_VEC                      ; $0449  C3 05 00
+        JP BDOS                      ; $0449  C3 05 00
 ; [AI] Fetches and uppercases the next non-blank character from the command tail, decrementing the
 ;       tail length; returns zero when the tail is exhausted.
 NEXT_TAIL_CHAR:
@@ -667,8 +669,8 @@ WAIT_RETURN_LOOP:
 ;       ready; aborts to CP/M on Ctrl-C and uppercases letters.
 READ_CONSOLE_CHAR:
         LD E,$FF                         ; $04E7  1E FF
-        LD C,$06                         ; $04E9  0E 06
-        CALL BDOS_VEC                    ; $04EB  CD 05 00
+        LD C,C_RAWIO                         ; $04E9  0E 06
+        CALL BDOS                    ; $04EB  CD 05 00
         OR A                             ; $04EE  B7
         JR Z,READ_CONSOLE_CHAR           ; $04EF  28 F6
         CP $03                           ; $04F1  FE 03

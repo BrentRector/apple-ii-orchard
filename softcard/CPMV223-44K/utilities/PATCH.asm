@@ -8,12 +8,12 @@
     DEVICE NOSLOT64K
 
 ; -- External symbols --
-WBOOT_VEC            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
-CDISK                EQU $0004               ; Current drive (low nibble: 0=A, 1=B, ..., 15=P) and current user (high nibble, 0-15).
-BDOS_VEC             EQU $0005               ; BDOS call vector — JP BDOS_ENTRY. Programs use CALL $0005 to invoke BDOS. Word at $0006 is also the top-of-TPA marker.
-DEFAULT_FCB          EQU $005C               ; Default File Control Block — populated by CCP from command-line argument 1. Standard 36-byte FCB structure (drive + filename + extents + record number).
+; PATCH's CP/M 2.2 base-page cells + BDOS entry vector come from cpm22.inc
+; (INCLUDEd below): BDOS, CDISK_ADDR, TBUFF, TFCB, WBOOTV, and the C_*/A_*/L_*/F_*/DRV_*/S_* BDOS function
+; constants. Defined once there, not re-derived per file. NOTE: LD HL/DE/BC,$0000 are the
+; number zero (zero-init / dummy BDOS arg), kept literal; only a genuine JP/CALL through the
+; warm-boot vector takes WBOOTV. Char/count LD C,$nn (not BDOS selectors) also stay literal.
 DEFAULT_RND          EQU $007D               ; Default FCB random record number (3 bytes — low/middle/high).
-DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS cold-init / DRV_ALLRESET (fn 13) set the DMA address here and WBOOT re-issues SETDMA($0080); sector/record I/O moves 128 bytes through it. At program load this same buffer doubles as the command tail: the first byte ($0080) holds the tail length (0-127) and the characters follow at $0081 (CMDLINE).
 
 ; -- Mid-instruction references (shown inline as cover+offset) --
 ;   $03C2 -> WRITE_RECORD_VERIFY_1+1         z80 skip idiom: enters the operand of $21 at $03C1
@@ -33,7 +33,7 @@ TPA_START:
 ; [AI] Captures the command-tail length byte; a nonzero value means arguments were supplied so the
 ;       sign-on banner is skipped.
 TPA_START_1:
-        LD A,(DEFAULT_DMA)               ; $0103  3A 80 00
+        LD A,(TBUFF)               ; $0103  3A 80 00
 TPA_START_2:
         LD ($0563),A                     ; $0106  32 63 05
 TPA_START_3:
@@ -43,13 +43,13 @@ TPA_START_4:
 TPA_START_5:
         LD DE,BIOS_DISK_DISPATCH_13                ; $010C  11 9D 04
 TPA_START_6:
-        LD C,$09                         ; $010F  0E 09
+        LD C,C_WRITESTR                         ; $010F  0E 09
 TPA_START_7:
-        CALL BDOS_VEC                    ; $0111  CD 05 00
+        CALL BDOS                    ; $0111  CD 05 00
 ; [AI] Top of the main per-command loop (interactive re-entry point): seeds the work area with the
 ;       warm-boot zero word and clears parser state before parsing the next command.
 MAIN_COMMAND_LOOP:
-        LD HL,WBOOT_VEC                  ; $0114  21 00 00
+        LD HL,$0000                  ; $0114  21 00 00
 TPA_START_9:
         LD ($0506),HL                    ; $0117  22 06 05
 TPA_START_10:
@@ -65,7 +65,7 @@ TPA_START_13:
         JR NZ,TPA_START_14               ; $0129  20 15
         CALL GET_NEXT_CHAR                    ; $012B  CD 6A 03
         SUB $40                          ; $012E  D6 40
-        LD (DEFAULT_FCB),A               ; $0130  32 5C 00
+        LD (TFCB),A               ; $0130  32 5C 00
         INC IX                           ; $0133  DD 23
         LD A,(IX+0)                      ; $0135  DD 7E 00
         XOR $20                          ; $0138  EE 20
@@ -125,7 +125,7 @@ TPA_START_20:
 ;       (D:HL) digit-by-digit until '=' or a delimiter.
 TPA_START_21:
         LD (BIOS_DISK_DISPATCH_14),A               ; $017E  32 FD 04
-        LD HL,WBOOT_VEC                  ; $0181  21 00 00
+        LD HL,$0000                  ; $0181  21 00 00
         LD D,L                           ; $0184  55
 ; [AI] Hex-accumulation loop for the address/sector argument; shifts the running value left one
 ;       nibble and ORs in each parsed digit.
@@ -154,7 +154,7 @@ TPA_START_24:
         LD A,D                           ; $01A2  7A
         LD (BIOS_DISK_DISPATCH_15),A               ; $01A3  32 FE 04
         LD (BIOS_DISK_DISPATCH_16),HL              ; $01A6  22 FF 04
-        LD HL,WBOOT_VEC                  ; $01A9  21 00 00
+        LD HL,$0000                  ; $01A9  21 00 00
         LD A,L                           ; $01AC  7D
         LD ($0501),A                     ; $01AD  32 01 05
         LD ($0502),A                     ; $01B0  32 02 05
@@ -196,10 +196,10 @@ TPA_START_28:
 ; [AI] Resolves the target drive: uses the FCB-specified drive if present, otherwise the current
 ;       default drive, then locates that drive's BIOS disk parameter information.
 TPA_START_29:
-        LD A,(DEFAULT_FCB)               ; $01F5  3A 5C 00
+        LD A,(TFCB)               ; $01F5  3A 5C 00
         DEC A                            ; $01F8  3D
         JP P,TPA_START_30                ; $01F9  F2 FF 01
-        LD A,(CDISK)                     ; $01FC  3A 04 00
+        LD A,(CDISK_ADDR)                     ; $01FC  3A 04 00
 ; [AI] Calls into the disk-parameter lookup (BIOS_DISK_DISPATCH_1+1) and, from the returned DPB, fetches the
 ;       sector size used to split the byte offset into record number plus in-record offset.
 TPA_START_30:
@@ -243,9 +243,9 @@ TPA_START_31:
         LD (DEFAULT_RND),HL              ; $023B  22 7D 00
         XOR A                            ; $023E  AF
         LD ($007F),A                     ; $023F  32 7F 00
-        LD C,$0F                         ; $0242  0E 0F
-        LD DE,DEFAULT_FCB                ; $0244  11 5C 00
-        CALL BDOS_VEC                    ; $0247  CD 05 00
+        LD C,F_OPEN                         ; $0242  0E 0F
+        LD DE,TFCB                ; $0244  11 5C 00
+        CALL BDOS                    ; $0247  CD 05 00
         INC A                            ; $024A  3C
         LD DE,BIOS_DISK_DISPATCH_9                 ; $024B  11 5B 04
         JP Z,TPA_START_47                ; $024E  CA 30 03
@@ -351,9 +351,9 @@ TPA_START_39:
 ; [AI] Closes the file via BDOS function 16 after a successful write and reports a write/disk error
 ;       if the close fails.
 TPA_START_40:
-        LD C,$10                         ; $02F1  0E 10
-        LD DE,DEFAULT_FCB                ; $02F3  11 5C 00
-        CALL BDOS_VEC                    ; $02F6  CD 05 00
+        LD C,F_CLOSE                         ; $02F1  0E 10
+        LD DE,TFCB                ; $02F3  11 5C 00
+        CALL BDOS                    ; $02F6  CD 05 00
         INC A                            ; $02F9  3C
         JP Z,TPA_START_44                ; $02FA  CA 23 03
         JR TPA_START_48                  ; $02FD  18 34
@@ -399,10 +399,10 @@ TPA_START_47:
 ;       interactive mode or warm-boots back to CP/M when run from the command line.
 TPA_START_48:
         LD A,($0563)                     ; $0333  3A 63 05
-        LD (DEFAULT_DMA),A               ; $0336  32 80 00
+        LD (TBUFF),A               ; $0336  32 80 00
         OR A                             ; $0339  B7
         JP Z,MAIN_COMMAND_LOOP                 ; $033A  CA 14 01
-        JP WBOOT_VEC                     ; $033D  C3 00 00
+        JP WBOOTV                     ; $033D  C3 00 00
 ; [AI] Parses a full hex byte (two hex digits) from the input via two PARSE_HEX_NIBBLE calls, returning the
 ;       combined value or setting carry at end-of-input.
 PARSE_HEX_BYTE:
@@ -448,7 +448,7 @@ GET_NEXT_CHAR:
         SUB $20                          ; $0374  D6 20
         RET                              ; $0376  C9
 ; [AI] Appends a parsed byte to a growing buffer and bumps the associated length counter held at
-;       (IY) â used to build the new-byte and old-byte patch lists.
+;       (IY) -- used to build the new-byte and old-byte patch lists.
 APPEND_PATCH_BYTE:
         INC HL                           ; $0377  23
         LD (HL),A                        ; $0378  77
@@ -457,23 +457,23 @@ APPEND_PATCH_BYTE:
 ; [AI] Prints the '$'-terminated string at DE (BDOS function 9) followed by a CR/LF; the standard
 ;       message-output helper.
 PRINT_MSG_CRLF:
-        LD C,$09                         ; $037D  0E 09
-        CALL BDOS_VEC                    ; $037F  CD 05 00
+        LD C,C_WRITESTR                         ; $037D  0E 09
+        CALL BDOS                    ; $037F  CD 05 00
         LD E,$0D                         ; $0382  1E 0D
-        LD C,$02                         ; $0384  0E 02
-        CALL BDOS_VEC                    ; $0386  CD 05 00
-; [AI] Outputs a single line-feed (BDOS console-out, function 2) â the CR/LF helper's second
+        LD C,C_WRITE                         ; $0384  0E 02
+        CALL BDOS                    ; $0386  CD 05 00
+; [AI] Outputs a single line-feed (BDOS console-out, function 2) -- the CR/LF helper's second
 ;       half.
 PRINT_LF:
         LD E,$0A                         ; $0389  1E 0A
 PRINT_LF_1:
-        LD C,$02                         ; $038B  0E 02
+        LD C,C_WRITE                         ; $038B  0E 02
 PRINT_LF_2:
-        JP BDOS_VEC                      ; $038D  C3 05 00
+        JP BDOS                      ; $038D  C3 05 00
 ; [AI] Interactive-mode handler: prints the '*' prompt and reads a command line via BDOS read-
 ;       console-buffer (function 10) into $007D, then points the parser at it.
 READ_COMMAND_LINE:
-        LD A,(DEFAULT_DMA)               ; $0390  3A 80 00
+        LD A,(TBUFF)               ; $0390  3A 80 00
 READ_COMMAND_LINE_1:
         OR A                             ; $0393  B7
 READ_COMMAND_LINE_2:
@@ -481,19 +481,19 @@ READ_COMMAND_LINE_2:
 READ_COMMAND_LINE_3:
         LD DE,BIOS_DISK_DISPATCH_6                 ; $0396  11 3A 04
 READ_COMMAND_LINE_4:
-        LD C,$09                         ; $0399  0E 09
+        LD C,C_WRITESTR                         ; $0399  0E 09
 READ_COMMAND_LINE_5:
-        CALL BDOS_VEC                    ; $039B  CD 05 00
+        CALL BDOS                    ; $039B  CD 05 00
 READ_COMMAND_LINE_6:
         LD A,$7D                         ; $039E  3E 7D
 READ_COMMAND_LINE_7:
-        LD (DEFAULT_DMA),A               ; $03A0  32 80 00
+        LD (TBUFF),A               ; $03A0  32 80 00
 READ_COMMAND_LINE_8:
-        LD C,$0A                         ; $03A3  0E 0A
+        LD C,C_READSTR                         ; $03A3  0E 0A
 READ_COMMAND_LINE_9:
-        LD DE,DEFAULT_DMA                ; $03A5  11 80 00
+        LD DE,TBUFF                ; $03A5  11 80 00
 READ_COMMAND_LINE_10:
-        CALL BDOS_VEC                    ; $03A8  CD 05 00
+        CALL BDOS                    ; $03A8  CD 05 00
 READ_COMMAND_LINE_11:
         CALL PRINT_LF                    ; $03AB  CD 89 03
 READ_COMMAND_LINE_12:
@@ -512,11 +512,11 @@ READ_COMMAND_LINE_15:
 ; [AI] Performs a BDOS random-write-with-verify (function 34) of the patched record to the default
 ;       FCB and maps the BDOS return code onto the appropriate error message.
 WRITE_RECORD_VERIFY:
-        LD C,$22                         ; $03BF  0E 22
+        LD C,F_WRITERAND                         ; $03BF  0E 22
 WRITE_RECORD_VERIFY_1:
         LD HL,$210E                      ; $03C1  21 0E 21
-        LD DE,DEFAULT_FCB                ; $03C4  11 5C 00
-        CALL BDOS_VEC                    ; $03C7  CD 05 00
+        LD DE,TFCB                ; $03C4  11 5C 00
+        CALL BDOS                    ; $03C7  CD 05 00
         OR A                             ; $03CA  B7
         RET Z                            ; $03CB  C8
         CP $04                           ; $03CC  FE 04
@@ -538,8 +538,8 @@ ADVANCE_TO_REC2:
 SET_DMA_BUF1:
         LD DE,$0564                      ; $03E3  11 64 05
 SET_DMA_BUF1_1:
-        LD C,$1A                         ; $03E6  0E 1A
-        JP BDOS_VEC                      ; $03E8  C3 05 00
+        LD C,F_DMAOFF                         ; $03E6  0E 1A
+        JP BDOS                      ; $03E8  C3 05 00
 ; [AI] Sets up and issues a record read by loading the record number into the FCB and dispatching
 ;       through the jump-table read primitive.
 READ_RECORD_1:

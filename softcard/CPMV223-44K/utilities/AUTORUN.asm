@@ -8,8 +8,11 @@
     DEVICE NOSLOT64K
 
 ; -- External symbols --
-BDOS_VEC             EQU $0005               ; BDOS call vector — JP BDOS_ENTRY. Programs use CALL $0005 to invoke BDOS. Word at $0006 is also the top-of-TPA marker.
-DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS cold-init / DRV_ALLRESET (fn 13) set the DMA address here and WBOOT re-issues SETDMA($0080); sector/record I/O moves 128 bytes through it. At program load this same buffer doubles as the command tail: the first byte ($0080) holds the tail length (0-127) and the characters follow at $0081 (CMDLINE).
+; AUTORUN's CP/M 2.2 base-page cells + BDOS entry vector come from cpm22.inc
+; (INCLUDEd below): BDOS, TBUFF, and the C_*/A_*/L_*/F_*/DRV_*/S_* BDOS function
+; constants. Defined once there, not re-derived per file. NOTE: LD HL/DE/BC,$0000 are the
+; number zero (zero-init / dummy BDOS arg), kept literal; only a genuine JP/CALL through the
+; warm-boot vector takes WBOOTV. Char/count LD C,$nn (not BDOS selectors) also stay literal.
 
     INCLUDE "cpm22.inc"                  ; CP/M 2.2 ABI (provides TPA = $0100)
     ORG TPA
@@ -53,15 +56,15 @@ DO_SETTRK:
         XOR (HL)                         ; $0130  AE
         XOR $7F                          ; $0131  EE 7F
         JR Z,SIG_OK_COPY_TAIL                 ; $0133  28 08
-        LD C,$09                         ; $0135  0E 09
+        LD C,C_WRITESTR                         ; $0135  0E 09
         LD DE,MSG_NOT_CPM_DISK                 ; $0137  11 5B 01
-        JP BDOS_VEC                      ; $013A  C3 05 00
+        JP BDOS                      ; $013A  C3 05 00
 ; [AI] Taken when the loaded sector's signature checksum is valid (genuine disk): copies the
 ;       command-tail string from the $0080 DMA buffer into the local buffer at $0172 for further
 ;       processing.
 SIG_OK_COPY_TAIL:
         LD DE,TAIL_BUF                 ; $013D  11 72 01
-        LD HL,DEFAULT_DMA                ; $0140  21 80 00
+        LD HL,TBUFF                ; $0140  21 80 00
         LD A,(HL)                        ; $0143  7E
         LD (DE),A                        ; $0144  12
         OR A                             ; $0145  B7
@@ -81,7 +84,7 @@ DISPATCH_CONIN:
         LD A,$2A                         ; $0154  3E 2A
 ; [AI] BIOS jump-table thunk: reads the page-aligned warm-boot vector from $0001, replaces its low
 ;       byte with the offset passed in A (e.g. $1E=SETTRK, $21=SETSEC, $24=SETDMA, $27=READ,
-;       $2A=WRITE, $09=CONIN), and jumps to that BIOS entry â letting the program call BIOS
+;       $2A=WRITE, $09=CONIN), and jumps to that BIOS entry -- letting the program call BIOS
 ;       routines directly instead of through BDOS.
 BIOS_THUNK:
         LD HL,($0001)                    ; $0156  2A 01 00

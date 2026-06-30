@@ -8,12 +8,11 @@
     DEVICE NOSLOT64K
 
 ; -- External symbols --
-WBOOT_VEC            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
-CDISK                EQU $0004               ; Current drive (low nibble: 0=A, 1=B, ..., 15=P) and current user (high nibble, 0-15).
-BDOS_VEC             EQU $0005               ; BDOS call vector — JP BDOS_ENTRY. Programs use CALL $0005 to invoke BDOS. Word at $0006 is also the top-of-TPA marker.
-DEFAULT_FCB          EQU $005C               ; Default File Control Block — populated by CCP from command-line argument 1. Standard 36-byte FCB structure (drive + filename + extents + record number).
-DEFAULT_CR           EQU $007C               ; Default FCB current record byte (overlaps end of DEFAULT_FCB2).
-DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS cold-init / DRV_ALLRESET (fn 13) set the DMA address here and WBOOT re-issues SETDMA($0080); sector/record I/O moves 128 bytes through it. At program load this same buffer doubles as the command tail: the first byte ($0080) holds the tail length (0-127) and the characters follow at $0081 (CMDLINE).
+; MFT's CP/M 2.2 base-page cells + BDOS entry vector come from cpm22.inc
+; (INCLUDEd below): BDOS, CDISK_ADDR, TBUFF, TFCB, TFCB+FCB_CR, WBOOTV, and the C_*/A_*/L_*/F_*/DRV_*/S_* BDOS function
+; constants. Defined once there, not re-derived per file. NOTE: LD HL/DE/BC,$0000 are the
+; number zero (zero-init / dummy BDOS arg), kept literal; only a genuine JP/CALL through the
+; warm-boot vector takes WBOOTV. Char/count LD C,$nn (not BDOS selectors) also stay literal.
 
     INCLUDE "cpm22.inc"                  ; CP/M 2.2 ABI (provides TPA = $0100)
     ORG TPA
@@ -55,17 +54,17 @@ TPA_START_15:
 TPA_START_16:
         LD ($0A81),HL                    ; $0121  22 81 0A
 TPA_START_17:
-        LD A,(DEFAULT_DMA)               ; $0124  3A 80 00
+        LD A,(TBUFF)               ; $0124  3A 80 00
 TPA_START_18:
         DEC A                            ; $0127  3D
 TPA_START_19:
-        LD (DEFAULT_DMA),A               ; $0128  32 80 00
+        LD (TBUFF),A               ; $0128  32 80 00
 TPA_START_20:
         JP P,TPA_START_35                ; $012B  F2 51 01
 TPA_START_21:
         XOR A                            ; $012E  AF
 TPA_START_22:
-        LD (DEFAULT_DMA),A               ; $012F  32 80 00
+        LD (TBUFF),A               ; $012F  32 80 00
 TPA_START_23:
         CALL PRINT_CRLF                  ; $0132  CD AB 04
 TPA_START_24:
@@ -75,17 +74,17 @@ TPA_START_25:
 TPA_START_26:
         LD A,$50                         ; $013A  3E 50
 TPA_START_27:
-        LD DE,DEFAULT_DMA                ; $013C  11 80 00
+        LD DE,TBUFF                ; $013C  11 80 00
 TPA_START_28:
         LD (DE),A                        ; $013F  12
 TPA_START_29:
-        LD C,$0A                         ; $0140  0E 0A
+        LD C,C_READSTR                         ; $0140  0E 0A
 TPA_START_30:
-        CALL BDOS_VEC                    ; $0142  CD 05 00
+        CALL BDOS                    ; $0142  CD 05 00
 TPA_START_31:
         LD A,(CMDLINE)                   ; $0145  3A 81 00
 TPA_START_32:
-        LD (DEFAULT_DMA),A               ; $0148  32 80 00
+        LD (TBUFF),A               ; $0148  32 80 00
 TPA_START_33:
         OR A                             ; $014B  B7
 TPA_START_34:
@@ -98,7 +97,7 @@ TPA_START_35:
         LD A,($0B44)                     ; $015A  3A 44 0B
         OR A                             ; $015D  B7
         JR NZ,TPA_START_39               ; $015E  20 3A
-        LD HL,DEFAULT_DMA                ; $0160  21 80 00
+        LD HL,TBUFF                ; $0160  21 80 00
         LD DE,$0A85                      ; $0163  11 85 0A
         LD B,(HL)                        ; $0166  46
         LD C,$00                         ; $0167  0E 00
@@ -142,7 +141,7 @@ TPA_START_39:
         OR A                             ; $01AF  B7
         JR Z,TPA_START_40                ; $01B0  28 22
         LD HL,$0AE1                      ; $01B2  21 E1 0A
-        LD DE,DEFAULT_FCB                ; $01B5  11 5C 00
+        LD DE,TFCB                ; $01B5  11 5C 00
         LD BC,$0021                      ; $01B8  01 21 00
         LDIR                             ; $01BB  ED B0
         XOR A                            ; $01BD  AF
@@ -169,9 +168,9 @@ TPA_START_40:
         LD HL,$005D                      ; $01EB  21 5D 00
         CALL PRINT_FCB_NAME              ; $01EE  CD 89 04
         XOR A                            ; $01F1  AF
-        LD (DEFAULT_FCB),A               ; $01F2  32 5C 00
+        LD (TFCB),A               ; $01F2  32 5C 00
         LD ($0068),A                     ; $01F5  32 68 00
-        LD (DEFAULT_CR),A                ; $01F8  32 7C 00
+        LD (TFCB+FCB_CR),A                ; $01F8  32 7C 00
         CALL BDOS_DELETE_FILE            ; $01FB  CD CD 04
         LD HL,($0ADB)                    ; $01FE  2A DB 0A
         EX DE,HL                         ; $0201  EB
@@ -185,15 +184,15 @@ TPA_START_41:
         INC DE                           ; $020A  13
         EX DE,HL                         ; $020B  EB
         LD ($0ADB),HL                    ; $020C  22 DB 0A
-        LD HL,WBOOT_VEC                  ; $020F  21 00 00
+        LD HL,$0000                  ; $020F  21 00 00
         LD ($0AD7),HL                    ; $0212  22 D7 0A
 TPA_START_42:
         LD HL,($0ADF)                    ; $0215  2A DF 0A
         EX DE,HL                         ; $0218  EB
         CALL BDOS_SET_DMA                ; $0219  CD DD 04
-        LD C,$14                         ; $021C  0E 14
-        LD DE,DEFAULT_FCB                ; $021E  11 5C 00
-        CALL BDOS_VEC                    ; $0221  CD 05 00
+        LD C,F_READ                         ; $021C  0E 14
+        LD DE,TFCB                ; $021E  11 5C 00
+        CALL BDOS                    ; $0221  CD 05 00
         OR A                             ; $0224  B7
         JR Z,TPA_START_43                ; $0225  28 12
         CP $01                           ; $0227  FE 01
@@ -205,7 +204,7 @@ TPA_START_42:
         JR TPA_START_44                  ; $0237  18 2C
 TPA_START_43:
         LD HL,($0ADF)                    ; $0239  2A DF 0A
-        LD DE,DEFAULT_DMA                ; $023C  11 80 00
+        LD DE,TBUFF                ; $023C  11 80 00
         ADD HL,DE                        ; $023F  19
         LD ($0ADF),HL                    ; $0240  22 DF 0A
         LD HL,($0AD7)                    ; $0243  2A D7 0A
@@ -217,14 +216,14 @@ TPA_START_43:
         LD A,H                           ; $0251  7C
         OR L                             ; $0252  B5
         JR NZ,TPA_START_42               ; $0253  20 C0
-        LD HL,DEFAULT_FCB                ; $0255  21 5C 00
+        LD HL,TFCB                ; $0255  21 5C 00
         LD DE,$0AE1                      ; $0258  11 E1 0A
         LD BC,$0021                      ; $025B  01 21 00
         LDIR                             ; $025E  ED B0
         LD A,$01                         ; $0260  3E 01
         LD ($0B44),A                     ; $0262  32 44 0B
 TPA_START_44:
-        LD DE,DEFAULT_DMA                ; $0265  11 80 00
+        LD DE,TBUFF                ; $0265  11 80 00
         CALL BDOS_SET_DMA                ; $0268  CD DD 04
         CALL BDOS_CLOSE_FILE             ; $026B  CD D5 04
         LD HL,($0AD7)                    ; $026E  2A D7 0A
@@ -242,13 +241,13 @@ TPA_START_45:
         LD HL,MSG_INSERT_DEST            ; $0283  21 A6 05
         CALL PRINT_STRING                ; $0286  CD A2 04
         CALL WAIT_FOR_RETURN             ; $0289  CD BD 04
-        LD C,$0D                         ; $028C  0E 0D
-        CALL BDOS_VEC                    ; $028E  CD 05 00
+        LD C,DRV_ALLRESET                         ; $028C  0E 0D
+        CALL BDOS                    ; $028E  CD 05 00
         LD A,($0B45)                     ; $0291  3A 45 0B
         OR A                             ; $0294  B7
         JR Z,TPA_START_46                ; $0295  28 1A
         LD HL,$0B02                      ; $0297  21 02 0B
-        LD DE,DEFAULT_FCB                ; $029A  11 5C 00
+        LD DE,TFCB                ; $029A  11 5C 00
         LD BC,$0021                      ; $029D  01 21 00
         LDIR                             ; $02A0  ED B0
         CALL BDOS_DELETE_FILE            ; $02A2  CD CD 04
@@ -271,22 +270,22 @@ TPA_START_47:
         LDIR                             ; $02C5  ED B0
         LD ($0ADD),HL                    ; $02C7  22 DD 0A
         XOR A                            ; $02CA  AF
-        LD (DEFAULT_FCB),A               ; $02CB  32 5C 00
+        LD (TFCB),A               ; $02CB  32 5C 00
         LD ($0068),A                     ; $02CE  32 68 00
-        LD (DEFAULT_CR),A                ; $02D1  32 7C 00
+        LD (TFCB+FCB_CR),A                ; $02D1  32 7C 00
         LD A,($0065)                     ; $02D4  3A 65 00
         AND $7F                          ; $02D7  E6 7F
         LD ($0065),A                     ; $02D9  32 65 00
         LD A,($0066)                     ; $02DC  3A 66 00
         AND $7F                          ; $02DF  E6 7F
         LD ($0066),A                     ; $02E1  32 66 00
-        LD DE,DEFAULT_FCB                ; $02E4  11 5C 00
+        LD DE,TFCB                ; $02E4  11 5C 00
         PUSH DE                          ; $02E7  D5
-        LD C,$13                         ; $02E8  0E 13
-        CALL BDOS_VEC                    ; $02EA  CD 05 00
+        LD C,F_DELETE                         ; $02E8  0E 13
+        CALL BDOS                    ; $02EA  CD 05 00
         POP DE                           ; $02ED  D1
-        LD C,$16                         ; $02EE  0E 16
-        CALL BDOS_VEC                    ; $02F0  CD 05 00
+        LD C,F_MAKE                         ; $02EE  0E 16
+        CALL BDOS                    ; $02F0  CD 05 00
 TPA_START_48:
         INC A                            ; $02F3  3C
         JR NZ,TPA_START_49               ; $02F4  20 06
@@ -319,13 +318,13 @@ TPA_START_51:
         LD HL,($0ADF)                    ; $031E  2A DF 0A
         EX DE,HL                         ; $0321  EB
         CALL BDOS_SET_DMA                ; $0322  CD DD 04
-        LD C,$15                         ; $0325  0E 15
-        LD DE,DEFAULT_FCB                ; $0327  11 5C 00
-        CALL BDOS_VEC                    ; $032A  CD 05 00
+        LD C,F_WRITE                         ; $0325  0E 15
+        LD DE,TFCB                ; $0327  11 5C 00
+        CALL BDOS                    ; $032A  CD 05 00
         OR A                             ; $032D  B7
         JR NZ,TPA_START_53               ; $032E  20 2D
         LD HL,($0ADF)                    ; $0330  2A DF 0A
-        LD DE,DEFAULT_DMA                ; $0333  11 80 00
+        LD DE,TBUFF                ; $0333  11 80 00
         ADD HL,DE                        ; $0336  19
         LD ($0ADF),HL                    ; $0337  22 DF 0A
         LD HL,($0AD7)                    ; $033A  2A D7 0A
@@ -335,11 +334,11 @@ TPA_START_51:
         OR L                             ; $0342  B5
         JR NZ,TPA_START_51               ; $0343  20 D9
 TPA_START_52:
-        LD HL,DEFAULT_FCB                ; $0345  21 5C 00
+        LD HL,TFCB                ; $0345  21 5C 00
         LD DE,$0B02                      ; $0348  11 02 0B
         LD BC,$0021                      ; $034B  01 21 00
         LDIR                             ; $034E  ED B0
-        LD DE,DEFAULT_DMA                ; $0350  11 80 00
+        LD DE,TBUFF                ; $0350  11 80 00
         CALL BDOS_SET_DMA                ; $0353  CD DD 04
         CALL BDOS_CLOSE_FILE             ; $0356  CD D5 04
         INC A                            ; $0359  3C
@@ -359,7 +358,7 @@ TPA_START_56:
         LD HL,MSG_INSERT_SYSTEM          ; $0372  21 D2 05
         CALL PRINT_STRING                ; $0375  CD A2 04
         CALL WAIT_FOR_RETURN             ; $0378  CD BD 04
-        JP WBOOT_VEC                     ; $037B  C3 00 00
+        JP WBOOTV                     ; $037B  C3 00 00
 ; [AI] Parses the entire command tail into a list of source-file FCB patterns, validating each via
 ;       BDOS search-first ($11) and counting how many ambiguous (wildcard) names were given.
 PARSE_SOURCE_FCB_LIST:
@@ -380,9 +379,9 @@ PARSE_SOURCE_FCB_LIST_2:
         XOR A                            ; $039B  AF
         LD ($0B2F),A                     ; $039C  32 2F 0B
         LD DE,$0B23                      ; $039F  11 23 0B
-        LD C,$11                         ; $03A2  0E 11
+        LD C,F_SFIRST                         ; $03A2  0E 11
 PARSE_SOURCE_FCB_LIST_3:
-        CALL BDOS_VEC                    ; $03A4  CD 05 00
+        CALL BDOS                    ; $03A4  CD 05 00
         CP $FF                           ; $03A7  FE FF
         JR NZ,PARSE_SOURCE_FCB_LIST_4    ; $03A9  20 0E
         LD HL,MSG_NOT_FOUND              ; $03AB  21 86 05
@@ -399,7 +398,7 @@ PARSE_SOURCE_FCB_LIST_4:
         ADD HL,HL                        ; $03C0  29
         ADD HL,HL                        ; $03C1  29
         ADD HL,HL                        ; $03C2  29
-        LD DE,DEFAULT_DMA                ; $03C3  11 80 00
+        LD DE,TBUFF                ; $03C3  11 80 00
         ADD HL,DE                        ; $03C6  19
         LD C,$12                         ; $03C7  0E 12
         PUSH HL                          ; $03C9  E5
@@ -415,15 +414,15 @@ PARSE_SOURCE_FCB_LIST_5:
         LD BC,$000C                      ; $03DB  01 0C 00
         LDIR                             ; $03DE  ED B0
         LD HL,BDOS_SET_DMA_11            ; $03E0  21 2F 06
-        LD BC,CDISK                      ; $03E3  01 04 00
+        LD BC,CDISK_ADDR                      ; $03E3  01 04 00
         LDIR                             ; $03E6  ED B0
         EX DE,HL                         ; $03E8  EB
         LD ($0ADB),HL                    ; $03E9  22 DB 0A
         LD (HL),$FF                      ; $03EC  36 FF
         LD DE,$0B23                      ; $03EE  11 23 0B
 PARSE_SOURCE_FCB_LIST_6:
-        LD C,$12                         ; $03F1  0E 12
-        CALL BDOS_VEC                    ; $03F3  CD 05 00
+        LD C,F_SNEXT                         ; $03F1  0E 12
+        CALL BDOS                    ; $03F3  CD 05 00
         CP $FF                           ; $03F6  FE FF
         JR Z,PARSE_SOURCE_FCB_LIST_1     ; $03F8  28 8A
         AND $03                          ; $03FA  E6 03
@@ -434,7 +433,7 @@ PARSE_SOURCE_FCB_LIST_6:
         ADD HL,HL                        ; $0401  29
         ADD HL,HL                        ; $0402  29
         ADD HL,HL                        ; $0403  29
-        LD DE,DEFAULT_DMA                ; $0404  11 80 00
+        LD DE,TBUFF                ; $0404  11 80 00
         ADD HL,DE                        ; $0407  19
         PUSH HL                          ; $0408  E5
         POP IX                           ; $0409  DD E1
@@ -578,11 +577,11 @@ CONOUT:
 CONOUT_1:
         PUSH BC                          ; $04B3  C5
 CONOUT_2:
-        LD C,$02                         ; $04B4  0E 02
+        LD C,C_WRITE                         ; $04B4  0E 02
 CONOUT_3:
         LD E,A                           ; $04B6  5F
 CONOUT_4:
-        CALL BDOS_VEC                    ; $04B7  CD 05 00
+        CALL BDOS                    ; $04B7  CD 05 00
 CONOUT_5:
         POP BC                           ; $04BA  C1
 CONOUT_6:
@@ -595,8 +594,8 @@ CONOUT_7:
 WAIT_FOR_RETURN:
         LD A,($E010)                     ; $04BD  3A 10 E0
 WAIT_FOR_RETURN_1:
-        LD C,$01                         ; $04C0  0E 01
-        CALL BDOS_VEC                    ; $04C2  CD 05 00
+        LD C,C_READ                         ; $04C0  0E 01
+        CALL BDOS                    ; $04C2  CD 05 00
 WAIT_FOR_RETURN_2:
         CP $0D                           ; $04C5  FE 0D
         JR NZ,WAIT_FOR_RETURN_1          ; $04C7  20 F7
@@ -606,21 +605,21 @@ WAIT_FOR_RETURN_2:
 ;       delete/erase) on the default FCB before re-creating it, preventing duplicate directory
 ;       entries.
 BDOS_DELETE_FILE:
-        LD DE,DEFAULT_FCB                ; $04CD  11 5C 00
-        LD C,$0F                         ; $04D0  0E 0F
-        JP BDOS_VEC                      ; $04D2  C3 05 00
+        LD DE,TFCB                ; $04CD  11 5C 00
+        LD C,F_OPEN                         ; $04D0  0E 0F
+        JP BDOS                      ; $04D2  C3 05 00
 ; [AI] Closes the default FCB via BDOS function 16, flushing the directory entry after a file has
 ;       been written.
 BDOS_CLOSE_FILE:
-        LD DE,DEFAULT_FCB                ; $04D5  11 5C 00
-        LD C,$10                         ; $04D8  0E 10
-        JP BDOS_VEC                      ; $04DA  C3 05 00
+        LD DE,TFCB                ; $04D5  11 5C 00
+        LD C,F_CLOSE                         ; $04D8  0E 10
+        JP BDOS                      ; $04DA  C3 05 00
 ; [AI] Sets the DMA transfer address to the buffer in DE via BDOS function 26 before each disk read
 ;       or write, then restores DE.
 BDOS_SET_DMA:
         PUSH DE                          ; $04DD  D5
-        LD C,$1A                         ; $04DE  0E 1A
-        CALL BDOS_VEC                    ; $04E0  CD 05 00
+        LD C,F_DMAOFF                         ; $04DE  0E 1A
+        CALL BDOS                    ; $04E0  CD 05 00
         POP DE                           ; $04E3  D1
         RET                              ; $04E4  C9
 MSG_BANNER:

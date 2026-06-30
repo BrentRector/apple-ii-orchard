@@ -9,8 +9,11 @@
     INCLUDE "apple_softcard.inc"   ; Apple/SoftCard external names (single source of truth)
 
 ; -- External symbols --
-BDOS_VEC             EQU $0005               ; BDOS call vector — JP BDOS_ENTRY. Programs use CALL $0005 to invoke BDOS. Word at $0006 is also the top-of-TPA marker.
-DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS cold-init / DRV_ALLRESET (fn 13) set the DMA address here and WBOOT re-issues SETDMA($0080); sector/record I/O moves 128 bytes through it. At program load this same buffer doubles as the command tail: the first byte ($0080) holds the tail length (0-127) and the characters follow at $0081 (CMDLINE).
+; BOOT's CP/M 2.2 base-page cells + BDOS entry vector come from cpm22.inc
+; (INCLUDEd below): BDOS, TBUFF, and the C_*/A_*/L_*/F_*/DRV_*/S_* BDOS function
+; constants. Defined once there, not re-derived per file. NOTE: LD HL/DE/BC,$0000 are the
+; number zero (zero-init / dummy BDOS arg), kept literal; only a genuine JP/CALL through the
+; warm-boot vector takes WBOOTV. Char/count LD C,$nn (not BDOS selectors) also stay literal.
 
 ; -- Mid-instruction references (shown inline as cover+offset) --
 ;   $0125 -> TPA_START_14+1       shared instruction tail: $0125 is reachable code inside the instruction at $0124
@@ -27,13 +30,13 @@ TPA_START_1:
 TPA_START_2:
         CALL PARSE_DENSITY_ARG           ; $0105  CD 60 02
 TPA_START_3:
-        LD C,$09                         ; $0108  0E 09
+        LD C,C_WRITESTR                         ; $0108  0E 09
 TPA_START_4:
-        CALL BDOS_VEC                    ; $010A  CD 05 00
+        CALL BDOS                    ; $010A  CD 05 00
 TPA_START_5:
-        LD C,$01                         ; $010D  0E 01
+        LD C,C_READ                         ; $010D  0E 01
 TPA_START_6:
-        CALL BDOS_VEC                    ; $010F  CD 05 00
+        CALL BDOS                    ; $010F  CD 05 00
 TPA_START_7:
         LD HL,TPA_START_19               ; $0112  21 60 01
 TPA_START_8:
@@ -84,7 +87,7 @@ TPA_START_20 EQU BOOT_6502 + $0033       ; $0186  density self-mod target (LDA #
 PARSE_DENSITY_ARG:
         LD DE,TPA_START_18               ; $0260  11 2F 01
 PARSE_DENSITY_ARG_1:
-        LD A,(DEFAULT_DMA)               ; $0263  3A 80 00
+        LD A,(TBUFF)               ; $0263  3A 80 00
 PARSE_DENSITY_ARG_2:
         OR A                             ; $0266  B7
 PARSE_DENSITY_ARG_3:

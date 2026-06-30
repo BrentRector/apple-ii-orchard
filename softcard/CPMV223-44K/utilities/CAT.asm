@@ -9,11 +9,11 @@
     INCLUDE "apple_softcard.inc"   ; Apple/SoftCard external names (single source of truth)
 
 ; -- External symbols --
-WBOOT_VEC            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
-BDOS_VEC             EQU $0005               ; BDOS call vector — JP BDOS_ENTRY. Programs use CALL $0005 to invoke BDOS. Word at $0006 is also the top-of-TPA marker.
-RST1_VEC             EQU $0008               ; Z-80 RST 1 ($08) restart vector — 8 bytes. Available for application/debugger use.
-DEFAULT_FCB          EQU $005C               ; Default File Control Block — populated by CCP from command-line argument 1. Standard 36-byte FCB structure (drive + filename + extents + record number).
-DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS cold-init / DRV_ALLRESET (fn 13) set the DMA address here and WBOOT re-issues SETDMA($0080); sector/record I/O moves 128 bytes through it. At program load this same buffer doubles as the command tail: the first byte ($0080) holds the tail length (0-127) and the characters follow at $0081 (CMDLINE).
+; CAT's CP/M 2.2 base-page cells + BDOS entry vector come from cpm22.inc
+; (INCLUDEd below): BDOS, TBUFF, TFCB, WBOOTV, and the C_*/A_*/L_*/F_*/DRV_*/S_* BDOS function
+; constants. Defined once there, not re-derived per file. NOTE: LD HL/DE/BC,$0000 are the
+; number zero (zero-init / dummy BDOS arg), kept literal; only a genuine JP/CALL through the
+; warm-boot vector takes WBOOTV. Char/count LD C,$nn (not BDOS selectors) also stay literal.
 
 ; -- Mid-instruction references (shown inline as cover+offset) --
 ;   $0235 -> COUNT_FREE_BLOCKS_1+1         z80 skip idiom: enters the operand of $11 at $0234
@@ -34,17 +34,17 @@ TPA_START_2:
         CALL INIT_CATALOG                    ; $0107  CD 45 01
 TPA_START_3:
         CALL READ_DPB_PARAMS                    ; $010A  CD 51 02
-        LD C,$11                         ; $010D  0E 11
-        LD DE,DEFAULT_FCB                ; $010F  11 5C 00
-        CALL BDOS_VEC                    ; $0112  CD 05 00
+        LD C,F_SFIRST                         ; $010D  0E 11
+        LD DE,TFCB                ; $010F  11 5C 00
+        CALL BDOS                    ; $0112  CD 05 00
         INC A                            ; $0115  3C
         JR Z,TPA_START_5                 ; $0116  28 16
 TPA_START_4:
         CALL DMA_ENTRY_ADDR                    ; $0118  CD E4 01
         CALL INSERT_SORTED_ENTRY                    ; $011B  CD 85 01
-        LD C,$12                         ; $011E  0E 12
-        LD DE,DEFAULT_FCB                ; $0120  11 5C 00
-        CALL BDOS_VEC                    ; $0123  CD 05 00
+        LD C,F_SNEXT                         ; $011E  0E 12
+        LD DE,TFCB                ; $0120  11 5C 00
+        CALL BDOS                    ; $0123  CD 05 00
         INC A                            ; $0126  3C
         JR NZ,TPA_START_4                ; $0127  20 EF
         CALL LIST_AND_SUMMARY                    ; $0129  CD 1E 03
@@ -75,15 +75,15 @@ INIT_CATALOG_4:
 INIT_CATALOG_5:
         LD ($0068),A                     ; $0152  32 68 00
 INIT_CATALOG_6:
-        LD A,(DEFAULT_FCB)               ; $0155  3A 5C 00
+        LD A,(TFCB)               ; $0155  3A 5C 00
 INIT_CATALOG_7:
         OR A                             ; $0158  B7
 INIT_CATALOG_8:
         JR Z,INIT_CATALOG_9                  ; $0159  28 07
         DEC A                            ; $015B  3D
         LD E,A                           ; $015C  5F
-        LD C,$0E                         ; $015D  0E 0E
-        CALL BDOS_VEC                    ; $015F  CD 05 00
+        LD C,DRV_SET                         ; $015D  0E 0E
+        CALL BDOS                    ; $015F  CD 05 00
 INIT_CATALOG_9:
         LD HL,$005D                      ; $0162  21 5D 00
 INIT_CATALOG_10:
@@ -188,7 +188,7 @@ COMPARE_DIR_NAME_3:
 ;       matched: the search return code in A (0-3) selects one of the four 32-byte entries packed
 ;       into the sector.
 DMA_ENTRY_ADDR:
-        LD HL,DEFAULT_DMA                ; $01E4  21 80 00
+        LD HL,TBUFF                ; $01E4  21 80 00
         DEC A                            ; $01E7  3D
         RET Z                            ; $01E8  C8
         LD DE,RST4_VEC                   ; $01E9  11 20 00
@@ -245,15 +245,15 @@ TALLY_FILE_SIZE:
 ;       block (BDOS 31), counts the zero (free) bits across the allocation bitmap, and accumulates
 ;       the free block count.
 COUNT_FREE_BLOCKS:
-        LD C,$1B                         ; $022B  0E 1B
-        CALL BDOS_VEC                    ; $022D  CD 05 00
+        LD C,DRV_ALLOCVEC                         ; $022B  0E 1B
+        CALL BDOS                    ; $022D  CD 05 00
         EXX                              ; $0230  D9
-        LD HL,WBOOT_VEC                  ; $0231  21 00 00
+        LD HL,$0000                  ; $0231  21 00 00
 COUNT_FREE_BLOCKS_1:
         LD DE,$0001                      ; $0234  11 01 00
         EXX                              ; $0237  D9
 COUNT_FREE_BLOCKS_2:
-        LD DE,DEFAULT_DMA                ; $0238  11 80 00
+        LD DE,TBUFF                ; $0238  11 80 00
 COUNT_FREE_BLOCKS_3:
         LD C,(HL)                        ; $023B  4E
         LD B,$08                         ; $023C  06 08
@@ -278,9 +278,9 @@ COUNT_FREE_BLOCKS_6:
 ;       (block shift/size and total block count) needed to size files and compute free space,
 ;       patching them into the code's working values.
 READ_DPB_PARAMS:
-        LD C,$1F                         ; $0251  0E 1F
+        LD C,DRV_DPB                         ; $0251  0E 1F
 READ_DPB_PARAMS_1:
-        CALL BDOS_VEC                    ; $0253  CD 05 00
+        CALL BDOS                    ; $0253  CD 05 00
 READ_DPB_PARAMS_2:
         INC HL                           ; $0256  23
 READ_DPB_PARAMS_3:
@@ -356,8 +356,8 @@ PRINT_DECIMAL_16_1:
         LD A,E                           ; $0293  7B
         ADD A,$30                        ; $0294  C6 30
         LD E,A                           ; $0296  5F
-        LD C,$02                         ; $0297  0E 02
-        CALL BDOS_VEC                    ; $0299  CD 05 00
+        LD C,C_WRITE                         ; $0297  0E 02
+        CALL BDOS                    ; $0299  CD 05 00
         POP HL                           ; $029C  E1
         POP DE                           ; $029D  D1
         POP BC                           ; $029E  C1
@@ -404,8 +404,8 @@ DIV_DIGIT_STEP_1:
 ;       printer.
 CONOUT_CHAR:
         PUSH HL                          ; $02DF  E5
-        LD C,$02                         ; $02E0  0E 02
-        CALL BDOS_VEC                    ; $02E2  CD 05 00
+        LD C,C_WRITE                         ; $02E0  0E 02
+        CALL BDOS                    ; $02E2  CD 05 00
         POP HL                           ; $02E5  E1
         RET                              ; $02E6  C9
 ; [AI] Prints a $FF-terminated string starting at HL, one character at a time through CONOUT_CHAR.
@@ -444,7 +444,7 @@ PRINT_FILE_LINE:
         CALL TALLY_FILE_SIZE                    ; $0303  CD FE 01
         INC HL                           ; $0306  23
         LD DE,LIST_AND_SUMMARY_9                 ; $0307  11 9C 03
-        LD BC,RST1_VEC                   ; $030A  01 08 00
+        LD BC,$0008                   ; $030A  01 08 00
         LDIR                             ; $030D  ED B0
         INC DE                           ; $030F  13
         LD C,$03                         ; $0310  0E 03
@@ -477,7 +477,7 @@ LIST_AND_SUMMARY_2:
         CALL ADVANCE_HL_32                    ; $0334  CD F1 01
         LD C,L                           ; $0337  4D
         LD B,H                           ; $0338  44
-        LD DE,WBOOT_VEC                  ; $0339  11 00 00
+        LD DE,$0000                  ; $0339  11 00 00
 LIST_AND_SUMMARY_3:
         LD HL,LIST_AND_SUMMARY_23                ; $033C  21 FD 03
         ADD HL,DE                        ; $033F  19
