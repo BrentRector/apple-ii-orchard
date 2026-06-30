@@ -1424,10 +1424,12 @@
 1367  FFF6 FD 42 FE C1
 1367  FFFA FD B7 FD B7
 1367  FFFE FD 21
-1368  0000
-1369  0000                  SAVEBIN "{out_bin}", $FA00, $0600
-1370  0000                  IFNDEF CPM_LINK
-1371  0000                  SAVEBIN "{out_bin}", $FA00, $0600
-1372  0000                  ENDIF
-1373  0000
+1368  0000              BIOS_IMAGE_END:                          ; first byte past the BIOS image (wraps $10000->$0000)
+1369  0000
+1370  0000                  SAVEBIN "{out_bin}", $FA00, $0600
+1371  0000                  IFNDEF CPM_LINK
+1372  0000                  ; image size from bracketing labels; $FA00 = the ORG base (image wraps to $0000)
+1373  0000                  SAVEBIN "{out_bin}", $FA00, BIOS_IMAGE_END - $FA00
+1374  0000                  ENDIF
+1375  0000
 # file closed: CPM_BIOS.asm

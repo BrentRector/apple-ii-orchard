@@ -2587,6 +2587,8 @@ CCP_FCB_DRIVE_PREFIX:
 ; ----------------------------------------------------------------------
 CCP_TYPE_REC_INDEX:
         DEFS    86, $00                  ; fill
+CCP_IMAGE_END:                           ; first byte past the CCP image
     IFNDEF CPM_LINK
-    SAVEBIN "{out_bin}", $9300, $0900
+    ASSERT CCP_IMAGE_END == BDOS_FBASE    ; the CCP image must fill its $9300..$9C00 slot exactly
+    SAVEBIN "{out_bin}", CCP_BASE, CCP_SIZE
     ENDIF

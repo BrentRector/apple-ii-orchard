@@ -112,7 +112,13 @@
   13+ 0000              CCP_BASE   EQU $9300      ; CCP cold entry (the BIOS cold/warm boot lands here)
   14+ 0000              CCP_WBOOT  EQU $9B06      ; CCP warm-boot re-entry the BDOS returns through
   15+ 0000              BDOS_FBASE EQU $9C00      ; FBASE: BDOS image base (6-byte serial + JP entry)
-  16+ 0000
+  16+ 0000              BDOS_FLIMIT EQU $AA00     ; first byte PAST the BDOS image (CPM_BDOS asserts $ == this)
+  17+ 0000
+  18+ 0000              ; Region sizes computed from the contiguous CCP -> BDOS boundaries above -- never a magic
+  19+ 0000              ; number (the byte gate catches any overrun via the CPM_CCP/CPM_BDOS end-of-image ASSERTs).
+  20+ 0000              CCP_SIZE   EQU BDOS_FBASE - CCP_BASE     ; $0900: CCP image size  = (first BDOS byte) - (first CCP byte)
+  21+ 0000              BDOS_SIZE  EQU BDOS_FLIMIT - BDOS_FBASE  ; $0E00: BDOS image size = (byte after BDOS) - (first BDOS byte)
+  22+ 0000
 # file closed: cpm_system_223.inc
   15  0000                  ORG $9300
   16  9300                  ENDIF
@@ -2718,8 +2724,10 @@
 2587  9BAA              ; ----------------------------------------------------------------------
 2588  9BAA              CCP_TYPE_REC_INDEX:
 2589  9BAA 00 00 00...          DEFS    86, $00                  ; fill
-2590  9C00                  IFNDEF CPM_LINK
-2591  9C00                  SAVEBIN "{out_bin}", $9300, $0900
-2592  9C00                  ENDIF
-2593  9C00
+2590  9C00              CCP_IMAGE_END:                           ; first byte past the CCP image
+2591  9C00                  IFNDEF CPM_LINK
+2592  9C00                  ASSERT CCP_IMAGE_END == BDOS_FBASE    ; the CCP image must fill its $9300..$9C00 slot exactly
+2593  9C00                  SAVEBIN "{out_bin}", CCP_BASE, CCP_SIZE
+2594  9C00                  ENDIF
+2595  9C00
 # file closed: CPM_CCP.asm

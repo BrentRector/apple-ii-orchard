@@ -1365,8 +1365,10 @@ SIGNON_BANNER:
         DEFB    $0D                      ; terminator
         DEFB    $0A,$0D,$0A,$00,$FA,$E5,$CD,$4C,$FB,$E1,$23,$18,$F3,$0E,$FD,$71
         DEFB    $FD,$52,$FE,$A9,$FD,$42,$FE,$C1,$FD,$B7,$FD,$B7,$FD,$21
+BIOS_IMAGE_END:                          ; first byte past the BIOS image (wraps $10000->$0000)
 
     SAVEBIN "E:/tmp/cpm223_bios_rt.bin", $FA00, $0600
     IFNDEF CPM_LINK
-    SAVEBIN "{out_bin}", $FA00, $0600
+    ; image size from bracketing labels; $FA00 = the ORG base (image wraps to $0000)
+    SAVEBIN "{out_bin}", $FA00, BIOS_IMAGE_END - $FA00
     ENDIF

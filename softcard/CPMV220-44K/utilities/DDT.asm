@@ -24,7 +24,7 @@
 ; cpm22 BDOS ($0005) the loader stub calls.
 REC_BUF_POS          EQU $005B               ; DDT file-record read index (real base page, just below TFCB)
 DDT_IMG_BASE         EQU $0200               ; resident image base = .COM load addr of the relocatable body
-DDT_IMG_LEN          EQU $1010               ; image byte count copied to high RAM (the loader's LD BC value)
+DDT_IMG_LEN          EQU DDT_RELOC_BITMAP-DDT_IMG_BASE   ; image byte count moved to high RAM (= bitmap start - image base); the loader's LD BC value
 
     ORG TPA
 
@@ -2461,6 +2461,7 @@ REG_BASE:
         ; this block ($1239, $129B, $12F8, $131F, $1334, $135E, $138B, $13A3, $13D4
         ; ...) are COINCIDENTAL bitmap bytes that happen to equal a label address or
         ; printable run, NOT references. Byte-identical either way; kept as-is.
+DDT_RELOC_BITMAP:                        ; first byte past the moved image; DDT_IMG_LEN = this - DDT_IMG_BASE
         DEFB    $20,$90,$00,$40,$00,$08,$21,$10,$92,$10,$21,$12,$42,$48,$00,$09 ; $1210
         DEFB    $10,$02,$40,$00,$10,$40,$08,$08,$41,$02,$00,$82,$42,$48,$09,$09 ; $1220
         DEFB    $20,$42,$21,$01,$20,$08,$22,$12,$11              ; $1230

@@ -3200,21 +3200,23 @@
 3063  9BF1              ; ----------------------------------------------------------------------
 3064  9BF1              CCP_FCB_TAIL:
 3065  9BF1 00 00 00...          DEFS    15, $00                  ; fill
-3066  9C00              ; ----------------------------------------------------------------------
-3067  9C00              ; BDOS_FBASE -- BDOS image header at FBASE ($9C00): 6 serial/header bytes, then the FDOS
-3068  9C00              ; entry jump.
-3069  9C00              ;   In: none (static image bytes at the BDOS run base).
-3070  9C00              ;   Out: bytes +0..+5 are the per-copy serial/header cells (not code); the JP at +6 (BDOS_ENTRY) is
-3071  9C00              ;        the actual entry.
-3072  9C00              ;   Clobbers: n/a (data + one jump).
-3073  9C00              ;   Algorithm: OBSERVED -- the six bytes here are DEFB $BD,$16,$00,$00,$16,$DF, the standard CP/M
-3074  9C00              ;              FBASE serial-number / header cells. The disassembler renders them as spurious
-3075  9C00              ;              SBC/AND/XOR/OR instructions further on, but these +0..+5 bytes are DATA. The byte at
-3076  9C00              ;              +6 is the JP BDOS_ENTRY/dispatcher that the page-zero BDOS=$0005 jump-vector lands
-3077  9C00              ;              on. [RE] standard CP/M 2.2 FBASE header layout.
-3078  9C00              ; ----------------------------------------------------------------------
-3079  9C00                  IFNDEF CPM_LINK
-3080  9C00                  SAVEBIN "{out_bin}", $9400, $0800
-3081  9C00                  ENDIF
-3082  9C00
+3066  9C00              CCP_IMAGE_END:                           ; first byte past the CCP image
+3067  9C00              ; ----------------------------------------------------------------------
+3068  9C00              ; BDOS_FBASE -- BDOS image header at FBASE ($9C00): 6 serial/header bytes, then the FDOS
+3069  9C00              ; entry jump.
+3070  9C00              ;   In: none (static image bytes at the BDOS run base).
+3071  9C00              ;   Out: bytes +0..+5 are the per-copy serial/header cells (not code); the JP at +6 (BDOS_ENTRY) is
+3072  9C00              ;        the actual entry.
+3073  9C00              ;   Clobbers: n/a (data + one jump).
+3074  9C00              ;   Algorithm: OBSERVED -- the six bytes here are DEFB $BD,$16,$00,$00,$16,$DF, the standard CP/M
+3075  9C00              ;              FBASE serial-number / header cells. The disassembler renders them as spurious
+3076  9C00              ;              SBC/AND/XOR/OR instructions further on, but these +0..+5 bytes are DATA. The byte at
+3077  9C00              ;              +6 is the JP BDOS_ENTRY/dispatcher that the page-zero BDOS=$0005 jump-vector lands
+3078  9C00              ;              on. [RE] standard CP/M 2.2 FBASE header layout.
+3079  9C00              ; ----------------------------------------------------------------------
+3080  9C00                  IFNDEF CPM_LINK
+3081  9C00                  ASSERT CCP_IMAGE_END == BDOS_FBASE    ; the CCP image must fill its $9400..$9C00 slot exactly
+3082  9C00                  SAVEBIN "{out_bin}", CCP_ENTRY, CCP_SIZE
+3083  9C00                  ENDIF
+3084  9C00
 # file closed: CPM_CCP.asm

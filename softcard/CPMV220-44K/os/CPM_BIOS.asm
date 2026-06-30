@@ -1597,7 +1597,9 @@ READ_SEKSEC:
         OR A
         RET
         DEFB    "\r\n\r\nApple ]"
+BIOS_IMAGE_END:                          ; first byte past the BIOS image
 
     IFNDEF CPM_LINK
-    SAVEBIN "{out_bin}", $AA00, $0600
+    ; image size from its bracketing labels (no magic length); $AA00 = the ORG base
+    SAVEBIN "{out_bin}", $AA00, BIOS_IMAGE_END - $AA00
     ENDIF

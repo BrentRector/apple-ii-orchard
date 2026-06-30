@@ -3063,6 +3063,7 @@ CCP_FCB_DRIVE_PREFIX:
 ; ----------------------------------------------------------------------
 CCP_FCB_TAIL:
         DEFS    15, $00                  ; fill
+CCP_IMAGE_END:                           ; first byte past the CCP image
 ; ----------------------------------------------------------------------
 ; BDOS_FBASE -- BDOS image header at FBASE ($9C00): 6 serial/header bytes, then the FDOS
 ; entry jump.
@@ -3077,5 +3078,6 @@ CCP_FCB_TAIL:
 ;              on. [RE] standard CP/M 2.2 FBASE header layout.
 ; ----------------------------------------------------------------------
     IFNDEF CPM_LINK
-    SAVEBIN "{out_bin}", $9400, $0800
+    ASSERT CCP_IMAGE_END == BDOS_FBASE    ; the CCP image must fill its $9400..$9C00 slot exactly
+    SAVEBIN "{out_bin}", CCP_ENTRY, CCP_SIZE
     ENDIF

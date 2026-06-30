@@ -4832,8 +4832,10 @@ CUR_RECORD_HI:
 ; ----------------------------------------------------------------------
 REC_CACHE:
         DEFS    20, $00                  ; fill
+BDOS_IMAGE_END:                          ; first byte past the BDOS image
 
     SAVEBIN "E:/tmp/cpm223_ccpbdos_rt.bin", $9300, $1700
     IFNDEF CPM_LINK
-    SAVEBIN "{out_bin}", $9C00, $0E00
+    ASSERT BDOS_IMAGE_END == BDOS_FLIMIT
+    SAVEBIN "{out_bin}", BDOS_FBASE, BDOS_SIZE
     ENDIF

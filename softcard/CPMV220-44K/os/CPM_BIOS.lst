@@ -1642,9 +1642,11 @@
 1599  AFF5 0D 0A 0D 0A          DEFB    "\r\n\r\nApple ]"
 1599  AFF9 41 70 70 6C
 1599  AFFD 65 20 5D
-1600  B000
-1601  B000                  IFNDEF CPM_LINK
-1602  B000                  SAVEBIN "{out_bin}", $AA00, $0600
-1603  B000                  ENDIF
-1604  B000
+1600  B000              BIOS_IMAGE_END:                          ; first byte past the BIOS image
+1601  B000
+1602  B000                  IFNDEF CPM_LINK
+1603  B000                  ; image size from its bracketing labels (no magic length); $AA00 = the ORG base
+1604  B000                  SAVEBIN "{out_bin}", $AA00, BIOS_IMAGE_END - $AA00
+1605  B000                  ENDIF
+1606  B000
 # file closed: CPM_BIOS.asm
