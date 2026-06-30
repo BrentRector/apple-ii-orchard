@@ -114,7 +114,14 @@
   14+ 0000
   15+ 0000              CCP_ENTRY  EQU $9400      ; CBASE: CCP cold entry (JP cold-start); BDOS fn 0 / warm boot returns here
   16+ 0000              BDOS_FBASE EQU $9C00      ; FBASE: BDOS image base (6-byte serial + JP $9C06 entry); top-of-TPA marker the CCP loads
-  17+ 0000
+  17+ 0000              BIOS_FBASE EQU $AA00      ; WBOOT/BIOS base = the first byte PAST the BDOS image (CPM_BDOS asserts $ == this)
+  18+ 0000
+  19+ 0000              ; Region sizes are computed from the contiguous module boundaries above -- never a magic
+  20+ 0000              ; number -- so they track the image layout (and the byte gate catches any overrun via the
+  21+ 0000              ; CPM_BDOS end-of-image ASSERT). CCP -> BDOS -> BIOS are back-to-back.
+  22+ 0000              CCP_SIZE   EQU BDOS_FBASE - CCP_ENTRY     ; $0800: CCP image size  = (first BDOS byte) - (first CCP byte)
+  23+ 0000              BDOS_SIZE  EQU BIOS_FBASE - BDOS_FBASE    ; $0E00: BDOS image size = (byte after BDOS) - (first BDOS byte)
+  24+ 0000
 # file closed: cpm_system_220.inc
   16  0000                  ORG $9C00
   17  9C00                  ENDIF
@@ -5676,10 +5683,15 @@
 5560  A9EB 00                   DEFB    "\0"
 5561  A9EC              REC_CACHE:
 5562  A9EC 00 00 00...          DEFS    20, $00                  ; fill
-5563  AA00
-5564  AA00                  SAVEBIN "{out_bin}", $9400, $1600
-5565  AA00                  IFNDEF CPM_LINK
-5566  AA00                  SAVEBIN "{out_bin}", $9C00, $0E00
-5567  AA00                  ENDIF
-5568  AA00
+5563  AA00              BDOS_IMAGE_END:                          ; first byte past the BDOS image
+5564  AA00
+5565  AA00                  SAVEBIN "{out_bin}", $9400, $1600
+5566  AA00                  IFNDEF CPM_LINK
+5567  AA00                  ; The de-skewed BDOS must exactly fill its $9C00..$AA00 slot, so BDOS_SIZE
+5568  AA00                  ; (cpm_system_220.inc, = BIOS_FBASE - BDOS_FBASE) tracks the real image extent and
+5569  AA00                  ; any overrun fails the build here rather than silently truncating the SAVEBIN.
+5570  AA00                  ASSERT BDOS_IMAGE_END == BIOS_FBASE
+5571  AA00                  SAVEBIN "{out_bin}", BDOS_FBASE, BDOS_SIZE
+5572  AA00                  ENDIF
+5573  AA00
 # file closed: CPM_BDOS.asm

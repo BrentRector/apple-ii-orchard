@@ -5560,8 +5560,13 @@ CUR_RECORD_HI:
         DEFB    "\0"
 REC_CACHE:
         DEFS    20, $00                  ; fill
+BDOS_IMAGE_END:                          ; first byte past the BDOS image
 
     SAVEBIN "E:/tmp/cpm_system_full.bin", $9400, $1600
     IFNDEF CPM_LINK
-    SAVEBIN "{out_bin}", $9C00, $0E00
+    ; The de-skewed BDOS must exactly fill its $9C00..$AA00 slot, so BDOS_SIZE
+    ; (cpm_system_220.inc, = BIOS_FBASE - BDOS_FBASE) tracks the real image extent and
+    ; any overrun fails the build here rather than silently truncating the SAVEBIN.
+    ASSERT BDOS_IMAGE_END == BIOS_FBASE
+    SAVEBIN "{out_bin}", BDOS_FBASE, BDOS_SIZE
     ENDIF

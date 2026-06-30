@@ -29,6 +29,7 @@
     INCLUDE "msbasic_strdesc.inc"   ; MS BASIC string-descriptor STRUCT (STRDESC)
     INCLUDE "msbasic_var.inc"   ; MS BASIC variable/array storage STRUCTs
     INCLUDE "cpm22.inc"   ; CP/M 2.2 BDOS ABI (BDOS + F_*/DRV_*)
+    INCLUDE "cpm_system_220.inc"   ; 2.20-44K system layout: BDOS_SIZE (= BIOS_FBASE - BDOS_FBASE)
 
     ORG TPA                          ; CP/M transient program area = $0100 (cpm22.inc)
 
@@ -32447,10 +32448,11 @@ COLD_START:
         LD (OUTDO_DEVICE_1+1),HL
         EX DE,HL
         ; HL = BIOS_base+17 (just past LIST's operand). The disk-error vector sits at BDOS_base+9,
-        ; a fixed $0E08 below: the CP/M 2.2 BDOS occupies the $0E00 just under the BIOS, and the
-        ; cell is +9 into the BDOS against the +17 walk position in the BIOS table. NOTE: this is an
-        ; OS-LAYOUT offset (config-specific), not BASIC-relative -- 2.23 made it dynamic instead.
-        LD DE,-$0E08                     ; 2.20: reach the disk-error vector cell (= $F1F8; BDOS_base+9)
+        ; a fixed BDOS_SIZE+8 below: the CP/M 2.2 BDOS image (BDOS_SIZE = the byte-after-BDOS minus
+        ; the first BDOS byte, from cpm_system_220.inc) sits directly under the BIOS, and the cell is
+        ; +9 into the BDOS against the +17 walk position in the BIOS table. This is an OS-LAYOUT
+        ; offset, not BASIC-relative; 2.23 made it dynamic (RWTS_ERRVEC_FIND) instead.
+        LD DE,-(BDOS_SIZE+8)             ; 2.20: reach the disk-error vector cell (= $F1F8; BDOS_base+9)
         ADD HL,DE
     ENDIF
         LD DE,DISK_RAISE_DISK_I_O_ERROR

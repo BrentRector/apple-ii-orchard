@@ -112,7 +112,14 @@
   14+ 0000
   15+ 0000              CCP_ENTRY  EQU $9400      ; CBASE: CCP cold entry (JP cold-start); BDOS fn 0 / warm boot returns here
   16+ 0000              BDOS_FBASE EQU $9C00      ; FBASE: BDOS image base (6-byte serial + JP $9C06 entry); top-of-TPA marker the CCP loads
-  17+ 0000
+  17+ 0000              BIOS_FBASE EQU $AA00      ; WBOOT/BIOS base = the first byte PAST the BDOS image (CPM_BDOS asserts $ == this)
+  18+ 0000
+  19+ 0000              ; Region sizes are computed from the contiguous module boundaries above -- never a magic
+  20+ 0000              ; number -- so they track the image layout (and the byte gate catches any overrun via the
+  21+ 0000              ; CPM_BDOS end-of-image ASSERT). CCP -> BDOS -> BIOS are back-to-back.
+  22+ 0000              CCP_SIZE   EQU BDOS_FBASE - CCP_ENTRY     ; $0800: CCP image size  = (first BDOS byte) - (first CCP byte)
+  23+ 0000              BDOS_SIZE  EQU BIOS_FBASE - BDOS_FBASE    ; $0E00: BDOS image size = (byte after BDOS) - (first BDOS byte)
+  24+ 0000
 # file closed: cpm_system_220.inc
   14  0000                  ORG $9400
   15  9400                  ENDIF
