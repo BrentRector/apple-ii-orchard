@@ -14,9 +14,11 @@
 ; being enriched to the C-level bar.
 ; ============================================================================
 
+    INCLUDE "cpm_system_220.inc"   ; CCP/BDOS cross-module bases (CFG_56K re-homes them +$3000)
+
     IFNDEF CPM_LINK
     DEVICE NOSLOT64K
-    ORG $AA00
+    ORG BIOS_FBASE                 ; $AA00 (44K) or $DA00 (CFG_56K); the byte past the BDOS image
     ENDIF
 
 ; -- Self-modify / dual-use cells (operand bytes referenced as LABEL+offset, per the
@@ -77,13 +79,21 @@ BIOS_VECTOR_WBOOT:
 ;   $AE/$AF RAM, reused as scratch after the cold-boot code there has run; they are kept
 ;   as literal addresses (not relocatable labels) for that reason. [RE]
 ; ----------------------------------------------------------------------
+; The DIRBUF/CSV/ALV vectors OVERLAY the cold-boot/sign-on code in pages $AE-$AF: that
+; code runs once, then the disk system reuses the bytes as scratch buffers (which is why a
+; post-boot RAM dump shows those pages clobbered). They are in-image addresses, so define
+; them by arithmetic from BIOS_FBASE -- they relocate with CFG_56K (a raw literal would not,
+; silently breaking the 56K build's DPH pointers).
+DIRBUF       EQU BIOS_FBASE + $04BA   ; shared 128-byte directory buffer ($AEBA)
+CSV_VECTORS  EQU BIOS_FBASE + $059A   ; per-drive checksum vectors, 12 bytes apart ($AF9A..)
+ALV_VECTORS  EQU BIOS_FBASE + $053A   ; per-drive allocation vectors, 16 bytes apart ($AF3A..)
 DPH_TABLE:
-        DEFW    0,0,0,0,$AEBA,DPB,$AF9A,$AF3A   ; drive 0: DIRBUF, DPB, CSV=$AF9A, ALV=$AF3A
-        DEFW    0,0,0,0,$AEBA,DPB,$AFA6,$AF4A   ; drive 1
-        DEFW    0,0,0,0,$AEBA,DPB,$AFB2,$AF5A   ; drive 2
-        DEFW    0,0,0,0,$AEBA,DPB,$AFBE,$AF6A   ; drive 3
-        DEFW    0,0,0,0,$AEBA,DPB,$AFCA,$AF7A   ; drive 4
-        DEFW    0,0,0,0,$AEBA,DPB,$AFD6,$AF8A   ; drive 5
+        DEFW    0,0,0,0,DIRBUF,DPB,CSV_VECTORS,   ALV_VECTORS      ; drive 0
+        DEFW    0,0,0,0,DIRBUF,DPB,CSV_VECTORS+12,ALV_VECTORS+16   ; drive 1
+        DEFW    0,0,0,0,DIRBUF,DPB,CSV_VECTORS+24,ALV_VECTORS+32   ; drive 2
+        DEFW    0,0,0,0,DIRBUF,DPB,CSV_VECTORS+36,ALV_VECTORS+48   ; drive 3
+        DEFW    0,0,0,0,DIRBUF,DPB,CSV_VECTORS+48,ALV_VECTORS+64   ; drive 4
+        DEFW    0,0,0,0,DIRBUF,DPB,CSV_VECTORS+60,ALV_VECTORS+80   ; drive 5
 ; DPB -- the shared Disk Parameter Block (5.25" floppy geometry; every DPH points here).
 DPB:
         DEFW    $0020                    ; SPT = 32 sectors (128-byte records) per track
@@ -191,8 +201,8 @@ PAGEZERO_REBUILD:
         LD ($0001),HL
         ; page-zero $0005 = JP to BDOS (the CP/M BDOS call hook)
         LD ($0005),A
-        ; BDOS entry point ($9C06) for the $0005 hook
-        LD HL,$9C06
+        ; BDOS entry point (BDOS_FBASE+6) for the $0005 hook
+        LD HL,BDOS_FBASE+6
         LD ($0006),HL
         ; default DMA address = $0080 (page-zero buffer)
         LD BC,$0080
@@ -210,13 +220,13 @@ PAGEZERO_REBUILD:
 CCP_MODE_FLAG:
         ; CCP-mode flag value (this immediate is self-modified elsewhere)
         LD A,$01
-        ; store the CCP entry/mode flag into CCP workspace at $98B2
-        LD ($98B2),A
+        ; store the CCP entry/mode flag into CCP workspace at CCP_ENTRY+$04B2 ($98B2)
+        LD (CCP_ENTRY+$04B2),A
         ; page-zero $0004 = current default drive byte
         LD A,($0004)
         LD C,A
-        ; enter the CCP at $9400, C = default drive
-        JP $9400
+        ; enter the CCP at CCP_ENTRY ($9400), C = default drive
+        JP CCP_ENTRY
 ; ----------------------------------------------------------------------
 ; CONST -- CP/M console status: return $FF if a console char is ready, else $00.
 ;   In:  none. Out: A = $FF (ready) / $00 (not). Clobbers: A,HL.
@@ -1278,8 +1288,8 @@ DISK_READ_HOST:
         ; device class $10 -> dispatch through the installed handler vector
         CP $10
         RET NZ
-        ; fetch the handler entry from the CCP/loader vector cell and tail-jump to it [RE]
-        LD HL,($9C0D)
+        ; fetch the handler entry from the CCP/loader vector cell (BDOS_FBASE+$0D) and tail-jump to it [RE]
+        LD HL,(BDOS_FBASE+$0D)
         JP (HL)
 ; ----------------------------------------------------------------------
 ; SECTOR_XLATE -- 16-entry logical->physical sector skew table (a 0..15 permutation).
@@ -1601,5 +1611,5 @@ BIOS_IMAGE_END:                          ; first byte past the BIOS image
 
     IFNDEF CPM_LINK
     ; image size from its bracketing labels (no magic length); $AA00 = the ORG base
-    SAVEBIN "{out_bin}", $AA00, BIOS_IMAGE_END - $AA00
+    SAVEBIN "{out_bin}", BIOS_FBASE, BIOS_IMAGE_END - BIOS_FBASE
     ENDIF

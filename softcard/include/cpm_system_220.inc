@@ -12,9 +12,20 @@
 ; de-skewed source.
 ; ============================================================================
 
-CCP_ENTRY  EQU $9400      ; CBASE: CCP cold entry (JP cold-start); BDOS fn 0 / warm boot returns here
-BDOS_FBASE EQU $9C00      ; FBASE: BDOS image base (6-byte serial + JP $9C06 entry); top-of-TPA marker the CCP loads
-BIOS_FBASE EQU $AA00      ; WBOOT/BIOS base = the first byte PAST the BDOS image (CPM_BDOS asserts $ == this)
+; Memory-config axis: the 56K (Language Card) system is the 44K image lifted +$3000
+; (CCP $9400->$C400, BDOS $9C00->$CC00, BIOS $AA00->$DA00 = Apple LC $D400/$DC00/$EA00).
+; Because every address below is derived from this single offset, defining CFG_56K
+; (the build's -D flag) re-homes the whole 2.20 OS by re-assembly alone -- no per-cell
+; edits. See ../docs/CPM_56K_60K_Fold_Plan.md.
+    IFDEF CFG_56K
+OS_RELOC   EQU $3000      ; 56K: OS relocated into the Apple Language Card
+    ELSE
+OS_RELOC   EQU $0000      ; 44K: OS in main RAM (the base build)
+    ENDIF
+
+CCP_ENTRY  EQU $9400 + OS_RELOC  ; CBASE: CCP cold entry (JP cold-start); BDOS fn 0 / warm boot returns here
+BDOS_FBASE EQU $9C00 + OS_RELOC  ; FBASE: BDOS image base (6-byte serial + JP +6 entry); top-of-TPA marker the CCP loads
+BIOS_FBASE EQU $AA00 + OS_RELOC  ; WBOOT/BIOS base = the first byte PAST the BDOS image (CPM_BDOS asserts $ == this)
 
 ; Region sizes are computed from the contiguous module boundaries above -- never a magic
 ; number -- so they track the image layout (and the byte gate catches any overrun via the
