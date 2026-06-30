@@ -1,6 +1,64 @@
 # Resume Prompt — Microsoft SoftCard CP/M Investigation
 
-## >> RESUME HERE — 2026-06-29: 44K trees DONE — CP/M-constant rename + 2.20/2.23 VERSION-FOLD + size-symbol sweep
+## >> RESUME HERE — 2026-06-29 (LIVE): 56K/60K OS FOLD — eval+plan DONE, 2.20B BIOS decoded, NEXT = the BIOS fold
+
+**Gate `cd /e/Orchard && source shared/toolchain/env.sh && python -m pytest softcard/ shared/` = 227
+(UNCOMMITTED working tree: plan doc, the 4 state docs, `deskew.py`+test, `cpm_system_220.inc`+`CPM_CCP.asm`
+CCP_INLEN promotion, CCP/BDOS `.lst`). Last commit HEAD `d80bb54` (44K-trees-done).** New this session: plan doc
+**`softcard/docs/CPM_56K_60K_Fold_Plan.md`** + memory **[[project_cpm_56k_60k_fold_eval]]**. NEXT = Step "Fold"
+(below): make `CPMV220-44K/os/CPM_BIOS.asm` the shared master (CFG_56K ORG+$3000 + V220B island) and validate the
+2.20B-56K disk byte-identical.
+
+**THE DECISION (empirically verified — `cpm-56k-60k-fold-eval` workflow, all booted/assembled, not docs):**
+**Conditionally compile the 2.20 family from the 44K base; keep the 2.23-60K BDOS a SEPARATE build.** This
+confirms `[[project_shared_source_tree]]`'s HYBRID with bytes. CORRECTION to the old intuition: the **56K does
+NOT split** modules — it is a clean **uniform +$3000** of all three (CCP $9400→$C400, BDOS $9C00→$CC00, BIOS
+$AA00→$DA00; in Apple terms the OS lives in the language card $D400/$DC00/$EA00). The module that **splits** is
+the **60K** (BIOS stays $FA00 while CCP/BDOS go +$4000; its BDOS is cut across two LC banks).
+
+**Verified per-module (2.20 44K→56K), via booting `DISK_2_20B_56K_SYSTEM` in softcard_emu + de-skewed
+`bus.readz80()` diffed vs the 44K sources assembled at +$3000:**
+- **CCP** ($C400): pure +$3000, contiguous, **0 static code deltas** (12 diffs = reloc-gap + serial + live-RAM).
+- **BDOS** ($CC00): pure +$3000, contiguous, **no bank split, 0 LC soft-switches, no console-routing rewrite**;
+  93 diffs = reloc + serial + live-RAM + **1 inert dead-load byte**. Banking is the loader's/BIOS's job.
+- **BIOS** ($DA00): in-image addrs uniform +$3000 BUT **54 genuine 2.20→2.20B bytes / 8 clusters** (STATIC-vs-static;
+  Step 0 refined the eval's "~86 + $DEA5 device-output rework" down — those were static-vs-LIVE artifacts: pages
+  $DE/$DF are runtime-clobbered buffers, NOT version deltas). The real island: CONIN routed via a pre-scan wrapper
+  ($DA09→$DB12→`CALL $DB50`); a NEW warm-boot stub $DFE8 = `CALL` old-init then `XOR A; LD (CCP_INLEN),A` (clears the
+  CCP staged-command flag; `CCP_INLEN`=CCP_ENTRY+7); + the banner "44K Ver. 2.20"→"56K Ver. 2.20B" (44K/56K = memory
+  token CFG_56K, 2.20/2.20B = version token V220B).
+- **KEY:** the 2.20→2.20B functional delta lives **almost entirely in the BIOS**; CCP/BDOS are functionally
+  identical across 2.20/2.20B (serial + 1 inert byte only). So CCP/BDOS = memory-axis-only; **BIOS = the only
+  module the 2-axis (V220B × CFG_56K) fold actually touches.**
+
+**Release identity:** 2.20-44K = "Ver. 2.20" serial `00 16 DF`; 2.20B-56K = "Ver. 2.20B" serial `00 60 D9` —
+DIFFERENT sub-releases → 2.20 fold is **2-axis** (version × memory), like BASIC GBASIC×V223. 2.23-44K vs
+2.23-60K = SAME release (identical serial) → pure memory axis (but BDOS/BIOS still carry real banking code).
+
+**THE PLAN (`CPM_56K_60K_Fold_Plan.md`; build-cell matrix: refs pin the 2.20-44K + 2.20B-56K diagonal, 2.20B-44K
+is derived/transitively pinned):**
+- **Step 0 DONE (gate 227, UNCOMMITTED):** static on-disk 2.20B-56K BIOS extracted (the .po stores it as 6
+  contiguous sectors **33–38**; the LIVE post-boot dump's pages $DE/$DF are clobbered buffers, so decode the STATIC
+  on-disk bytes). Page→sector map wired into `cpm_pipeline/deskew.py` (`BIOS_PAGE_TO_SECTOR_220B_56K`,
+  `build_bios_image_220b_56k`, `reference_bios_image_220b_56k`) + roundtrip/+$3000 test
+  `test_cpm220b_56k_bios_deskew_roundtrip_and_is_44k_plus_3000`. V220B island fully decoded (see BIOS bullet above).
+  **`CCP_INLEN` (=`CCP_ENTRY+7`) promoted to `cpm_system_220.inc`** as the single cross-module name (the 2.20B
+  warm-boot stub's target); the CCP's local `CCP_INLEN:` label de-duped to it (byte-identical; CCP/BDOS `.lst`
+  regenerated). Scratch artifacts: `…/scratchpad/bios_220b_56k_STATIC.bin`, `bios_220_44k_STATIC.bin`.
+- **Step 1 (Axis A): build 2.20B-44K** — CCP/BDOS = 2.20-44K bytes (serial only); BIOS = one `IFDEF V220B` island
+  (the reorg block) + sign-on string. Validate (2.20,44K) vs its disk.
+- **Step 2 (Axis B): build 2.20B-56K** — add `CFG_56K` → ORG+$3000 via the cross-module boundary EQUs; validate
+  byte-identical vs `DISK_2_20B_56K_SYSTEM`; closes the loop.
+- **Prereq surfaced:** the 44K CCP/BDOS source hard-codes ~40 self/BIOS pointers as DEFB/DEFW LITERALS (don't
+  auto-relocate) — labelize them (already-wanted relocatability work) before the +$3000 is byte-clean.
+- **60K (later, separable):** CCP folds cleanly (ORG + 1 memsize byte `$A1→$F0`); BIOS = conditional with a big
+  `IFDEF V60` island for $FE00–$FFFF; **BDOS = SEPARATE build** (two-bank split + bank-weave + lower bank still an
+  undisassembled DEFB blob). Keep the existing `CPM60_LINK` master-link.
+
+deskew.py has NO 2.20-56K page→sector map yet (only `_220` 44K + `_223`); Step 0 uses the **emulator-boot**
+runtime dump (what the eval used), not a static deskew gather.
+
+## 2026-06-29 (prior): 44K trees DONE — CP/M-constant rename + 2.20/2.23 VERSION-FOLD + size-symbol sweep
 
 **Working tree clean; gate `cd /e/Orchard && source shared/toolchain/env.sh && python -m pytest softcard/ shared/`
 = 226 byte-identical.** Latest commits (newest first): `f396c0b` size-sweep · `f57b3d5` BDOS_SIZE label-arith ·

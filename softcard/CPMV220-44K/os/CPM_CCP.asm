@@ -40,9 +40,11 @@ CCP_INBUF:
 ; CCP_INLEN -- count of characters returned by the last C_READSTR (buffer fill).
 ;   Also doubles as the auto-command flag: nonzero on entry means a command string
 ;   is already staged in CCP_CMDTEXT and is re-parsed instead of re-prompting.
+;   Cross-module cell: CCP_INLEN = CCP_ENTRY+7 is defined ONCE in cpm_system_220.inc
+;   (the 2.20B BIOS warm-boot path clears it); here we only emit + position-check its byte.
 ;   [RE]
 ; ----------------------------------------------------------------------
-CCP_INLEN:
+        ASSERT $ == CCP_INLEN            ; CCP_ENTRY+7, per cpm_system_220.inc
         DEFB    "\0"
 ; ----------------------------------------------------------------------
 ; CCP_CMDTEXT -- the command-line text area (CCP_INBUF+2).

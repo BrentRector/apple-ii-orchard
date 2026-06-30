@@ -122,6 +122,16 @@
   22+ 0000              CCP_SIZE   EQU BDOS_FBASE - CCP_ENTRY     ; $0800: CCP image size  = (first BDOS byte) - (first CCP byte)
   23+ 0000              BDOS_SIZE  EQU BIOS_FBASE - BDOS_FBASE    ; $0E00: BDOS image size = (byte after BDOS) - (first BDOS byte)
   24+ 0000
+  25+ 0000              ; --- CCP cells referenced cross-module (single source of truth, by label arithmetic) ---
+  26+ 0000              ; CCP_INLEN ($9407 = CCP_ENTRY+7): the CCP console-line returned-count byte (CCP_INBUF+1).
+  27+ 0000              ; It doubles as the staged / auto-command flag -- nonzero on CCP entry means a command line
+  28+ 0000              ; is already staged in CCP_CMDTEXT and is re-parsed instead of re-prompting (the SUBMIT/$SUB
+  29+ 0000              ; chaining hook). The CCP warm-start clears it; the 2.20B BIOS warm-boot path ALSO clears it
+  30+ 0000              ; (XOR A; LD (CCP_INLEN),A) so a BIOS-driven warm boot discards any stale staged command and
+  31+ 0000              ; the CCP re-prompts cleanly. (The base 2.20 BIOS does not reference it; this is the lone
+  32+ 0000              ; genuine BIOS->CCP cell, introduced by 2.20B.)
+  33+ 0000              CCP_INLEN  EQU CCP_ENTRY + 7
+  34+ 0000
 # file closed: cpm_system_220.inc
   16  0000                  ORG $9C00
   17  9C00                  ENDIF

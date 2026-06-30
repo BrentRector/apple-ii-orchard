@@ -106,7 +106,19 @@ Write-ups publish to **wiseowl.com** (Astro v6, Cloudflare Pages) at
 
 ## Current focus
 
-**>> LIVE (2026-06-23): RE-BASE THE 44K OS DECODE ONTO THE DE-SKEWED RUNTIME IMAGE.** The emulator
+**>> LIVE (2026-06-29): 56K/60K OS FOLD — eval DONE, plan written, decoding the 2.20B BIOS.** Decision
+(empirically verified, `cpm-56k-60k-fold-eval` workflow): **conditionally compile the 2.20 family OS from the
+44K base; keep the 2.23-60K BDOS a SEPARATE build** (confirms `project_shared_source_tree`'s HYBRID with bytes).
+The **56K does NOT split** — it is a clean **uniform +$3000** of all three modules (CCP/BDOS PURE relocation, 0
+real deltas; the BIOS carries ~86 genuine 2.20→2.20B deltas in one bounded reorg block). The module that SPLITS
+is the **60K** (BIOS stays $FA00, CCP/BDOS +$4000, BDOS across two LC banks → BDOS stays separate). 2.20≠2.20B
+(2-axis fold, version × memory); 2.23-44K and 2.23-60K share a serial (pure memory axis). Plan of record:
+`softcard/docs/CPM_56K_60K_Fold_Plan.md`; memory `project_cpm_56k_60k_fold_eval`; full handoff at the top of
+`resume-prompt.md`. NOW: Step 0 — decode the 2.20B BIOS to its de-skewed runtime ($DA00–$DFFF, emulator-boot
+dump) and baseline vs the 44K BIOS+$3000 to isolate the V220B island. CCP/BDOS need no re-decode (the relocated
+44K source reproduces them); prereq is labelizing ~40 DEFB-literal pointers in the 44K CCP/BDOS.
+
+**(DONE 2026-06-24) RE-BASE THE 44K OS DECODE ONTO THE DE-SKEWED RUNTIME IMAGE.** The emulator
 proved the 44K OS sources (CCP **and** BDOS, both 2.20-44K and 2.23-44K) were decoded against the
 **on-disk** byte order, but the CPU runs a **sector-de-interleaved** order — only ~10% of source
 labels match the real runtime address (`softcard/docs/CPM_Skew_Findings.md`,

@@ -122,6 +122,30 @@ def reference_bios_image_223():
     return build_bios_image_223(DISK_2_23_44K_SYSTEM.read_bytes())
 
 
+# ===========================================================================
+# 2.20B-56K: the BIOS the CPU runs at z80 $DA00-$DFFF (= Apple language-card
+# $EA00-$EFFF). The whole 56K OS is the 2.20-44K image relocated +$3000
+# (CCP $9400->$C400, BDOS $9C00->$CC00, BIOS $AA00->$DA00); see
+# ../docs/CPM_56K_60K_Fold_Plan.md. The .po stores the 6 BIOS pages
+# CONTIGUOUSLY in sectors 33-38 (derived by best-matching the de-skewed runtime
+# to disk sectors). NB pages $DE/$DF are cold-boot code the running OS reuses as
+# buffers, so the on-disk bytes -- not a live post-boot dump -- are the image.
+BIOS_ORG_220B_56K = 0xDA00
+BIOS_LEN_220B_56K = 6 * PAGE
+BIOS_PAGE_TO_SECTOR_220B_56K = {
+    0xDA00: 33, 0xDB00: 34, 0xDC00: 35, 0xDD00: 36, 0xDE00: 37, 0xDF00: 38,
+}
+
+
+def build_bios_image_220b_56k(dsk):
+    return _gather(dsk, BIOS_PAGE_TO_SECTOR_220B_56K, BIOS_ORG_220B_56K, BIOS_LEN_220B_56K)
+
+
+def reference_bios_image_220b_56k():
+    from cpm_pipeline.reference_data import DISK_2_20B_56K_SYSTEM
+    return build_bios_image_220b_56k(DISK_2_20B_56K_SYSTEM.read_bytes())
+
+
 def _selftest():
     from cpm_pipeline.reference_data import DISK_2_20_44K_SYSTEM
     dsk = bytearray(DISK_2_20_44K_SYSTEM.read_bytes())

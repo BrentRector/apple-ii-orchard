@@ -167,6 +167,41 @@ def test_cpm223_44k_deskew_roundtrip_and_coherent():
     assert in_image >= 35, f"only {in_image}/41 BDOS dispatch handlers land in the de-skewed image"
 
 
+def test_cpm220b_56k_bios_deskew_roundtrip_and_is_44k_plus_3000():
+    """The 2.20B-56K BIOS lives at z80 $DA00-$DFFF (Apple language card), stored in the
+    .po as 6 contiguous sectors 33-38. Pin the map: gather it, scatter it back
+    byte-identical, and confirm it is the 2.20-44K BIOS ($AA00) relocated +$3000 -- every
+    byte is either identical, a +$30 relocation high-byte, or one of the small set of
+    genuine 2.20->2.20B deltas (3 console re-wires + the page-$DF warm-boot/sign-on block;
+    see CPM_56K_60K_Fold_Plan.md). Boot entry at $DA00 is a JP (the static on-disk byte,
+    not the post-boot self-modified $C9)."""
+    from cpm_pipeline.reference_data import (
+        DISK_2_20_44K_SYSTEM, DISK_2_20B_56K_SYSTEM, present)
+    from cpm_pipeline.deskew import (
+        build_bios_image_220b_56k, reference_bios_image, _scatter,
+        BIOS_PAGE_TO_SECTOR_220B_56K, BIOS_ORG_220B_56K, BIOS_LEN_220B_56K, PAGE)
+    if not (present(DISK_2_20B_56K_SYSTEM) and present(DISK_2_20_44K_SYSTEM)):
+        pytest.skip("reference disk(s) missing")
+    dsk = bytearray(DISK_2_20B_56K_SYSTEM.read_bytes())
+    bios56 = build_bios_image_220b_56k(dsk)
+    assert len(bios56) == BIOS_LEN_220B_56K == 6 * PAGE
+    back = _scatter(bios56, BIOS_PAGE_TO_SECTOR_220B_56K, BIOS_ORG_220B_56K, bytearray(dsk))
+    for s in BIOS_PAGE_TO_SECTOR_220B_56K.values():
+        assert back[s*PAGE:s*PAGE+PAGE] == dsk[s*PAGE:s*PAGE+PAGE], "scatter not byte-identical"
+    assert len(set(BIOS_PAGE_TO_SECTOR_220B_56K.values())) == 6, "sectors not distinct"
+    assert bios56[0] == 0xC3, "BOOT entry $DA00 should be JP on the static on-disk image"
+
+    bios44 = reference_bios_image()  # 2.20-44K BIOS at $AA00
+    same = reloc = genuine = 0
+    for a, b in zip(bios44, bios56):
+        if a == b: same += 1
+        elif (a + 0x30) & 0xFF == b: reloc += 1
+        else: genuine += 1
+    # 56K = 44K relocated +$3000: only the bounded 2.20->2.20B island is "genuine".
+    assert genuine <= 60, f"too many non-relocation deltas ({genuine}); 56K should be 44K+$3000"
+    assert reloc >= 150, f"expected the +$3000 high-byte shifts ({reloc} found)"
+
+
 @pytest.mark.skipif(not HAS_ASSEMBLERS, reason="ca65/ld65/sjasmplus not on PATH")
 def test_os_listings_are_fresh():
     """The four per-component .lst listings (BootLoader/CCP/BDOS/BIOS) for each 44K tree are
