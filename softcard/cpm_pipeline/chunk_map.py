@@ -369,13 +369,78 @@ def _build_chunks_220_44k():
 _build_chunks_220_44k()
 
 
+# ── Derived cells (no reference disk) + the 60K carry ───────────────────
+# The 2.20 fold has four (version x memory) cells but only two reference disks
+# (the 2.20-44K / 2.20B-56K diagonal). The two off-diagonal cells never shipped;
+# each is the SAME chunk placement as its same-MEMORY sibling with the OS modules'
+# -D defines swapped to describe the derived version/memory. Only the Z-80 OS
+# modules (CPM_{CCP,BDOS,BIOS}.asm) carry the axis defines; the 6502 boot loader is
+# version-agnostic and untouched. Validated TRANSITIVELY (docs/CPM_Unified_Build_Plan.md
+# Step 0 + targets.verify_derived), never against a (non-existent) reference.
+_OS_MODULE_NAMES = ("CPM_CCP.asm", "CPM_BDOS.asm", "CPM_BIOS.asm")
+
+
+def _override_os_defines(sources: dict, defines: tuple) -> dict:
+    """Copy a SOURCES dict, replacing every Z-80 OS module's `.defines` with `defines`
+    (the boot loader and any non-OS entries pass through unchanged)."""
+    from dataclasses import replace
+    out: dict = {}
+    for name, entry in sources.items():
+        if (isinstance(entry, ChunkSource) and entry.cpu == "z80"
+                and entry.asm_path.name in _OS_MODULE_NAMES):
+            entry = replace(entry, defines=defines)
+        out[name] = entry
+    return out
+
+
+# 2.20B-44K: the 2.20-44K placement (44K bases, DOS-3.3 .dsk) with the 2.20->2.20B
+# island (-DV220B, no CFG_56K). Carrier = the 2.20-44K disk (same memory geometry).
+SOURCES_220B_44K: dict = _override_os_defines(SOURCES_220_44K, ("V220B",))
+CHUNKS_220B_44K: list[ChunkSpec] = CHUNKS_220_44K
+
+# 2.20-56K: the 2.20B-56K placement (56K bases, ProDOS .po) WITHOUT the version island
+# (-DCFG_56K only). Carrier = the 2.20B-56K disk (same memory geometry).
+SOURCES_220_56K: dict = _override_os_defines(SOURCES_220, ("CFG_56K",))
+CHUNKS_220_56K: list[ChunkSpec] = CHUNKS_220
+
+# 2.23-60K: INSTALLER-DERIVED. The 60K system has NO OS chunk-map/reconstruct path
+# (its BDOS is bank-woven across two language-card banks and still a partial blob); only
+# CPM60.COM is byte-built from source (build_cpm60.build_cpm60_com). The disk is therefore
+# CARRIED verbatim from its committed reference and its provenance is anchored to the
+# byte-identical CPM60.COM. Empty OS chunk map = "carry the reference, overlay nothing".
+# See docs/CPM_Unified_Build_Plan.md section 3 (honesty constraint) + DO-NOT-FOLD list.
+SOURCES_223_60K: dict = {}
+CHUNKS_223_60K: list[ChunkSpec] = []
+
+
 # ── Convenience ────────────────────────────────────────────────────────
+_VARIANTS: dict[str, tuple] = {
+    "223":      ("CHUNKS_223", "SOURCES_223"),
+    "220":      ("CHUNKS_220", "SOURCES_220"),
+    "220-44k":  ("CHUNKS_220_44K", "SOURCES_220_44K"),
+    "220b-44k": ("CHUNKS_220B_44K", "SOURCES_220B_44K"),   # derived (2.20B-44K)
+    "220-56k":  ("CHUNKS_220_56K", "SOURCES_220_56K"),     # derived (2.20-56K)
+    "223-60k":  ("CHUNKS_223_60K", "SOURCES_223_60K"),     # installer-derived (carry)
+}
+
+
 def get_variant(variant: str) -> tuple[list[ChunkSpec], dict]:
-    """Return (chunks, sources) for variant '220', '223', or '220-44k'."""
-    if variant == "223":
-        return CHUNKS_223, SOURCES_223
-    if variant == "220":
-        return CHUNKS_220, SOURCES_220
-    if variant == "220-44k":
-        return CHUNKS_220_44K, SOURCES_220_44K
-    raise ValueError(f"unknown variant {variant!r}; expected '220', '223', or '220-44k'")
+    """Return (chunks, sources) for a chunk-map variant.
+
+    Variants: the three reference cells ('220', '223', '220-44k'), the two derived
+    2.20 cells ('220b-44k', '220-56k'), and the installer-derived 60K carry ('223-60k').
+    """
+    if variant not in _VARIANTS:
+        raise ValueError(
+            f"unknown variant {variant!r}; expected one of {sorted(_VARIANTS)}")
+    chunks_name, sources_name = _VARIANTS[variant]
+    return globals()[chunks_name], globals()[sources_name]
+
+
+def os_module_sources(variant: str) -> dict:
+    """The Z-80 OS module ChunkSources for a variant, keyed by asm filename
+    ('CPM_CCP.asm' / 'CPM_BDOS.asm' / 'CPM_BIOS.asm'). Empty for '223-60k' (no OS
+    chunk map). Used by targets.verify_derived to assemble a cell's OS modules."""
+    _, sources = get_variant(variant)
+    return {e.asm_path.name: e for e in sources.values()
+            if isinstance(e, ChunkSource) and e.asm_path.name in _OS_MODULE_NAMES}

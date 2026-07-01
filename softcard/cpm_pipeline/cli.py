@@ -3,16 +3,19 @@
     python -m cpm_pipeline detect <disk.dsk>
         Inspect a disk image; report format, boot stub structure, CP/M variant.
 
-    python -m cpm_pipeline build {220|223} \\
-        --reference REFERENCE.dsk \\
-        --output OUTPUT.dsk \\
-        [--verify] [--quiet]
+    python -m cpm_pipeline build --target VER/MEM[/FMT] [--output OUT] [--verify]
+        Build one matrix cell (e.g. 2.23/60K/dsk, 2.20B/44K) -- the reference/carrier
+        and chunk variant come from targets.py; the output defaults to the cell's
+        release filename. (Legacy positional form: build {220|223} --reference R --output O.)
 
-The `build` variant determines the chunk map (CP/M 2.20 vs 2.23). The
-reference disk provides bytes for sectors not yet covered by an
-annotated source (see chunk_map.py for current coverage). The output
-extension determines the disk format (.dsk vs .po; format conversion
-happens automatically if needed).
+    python -m cpm_pipeline release [--out dist/] [--publish TAG]
+        Build every target cell in both .dsk and .po (12 images) with SHA256SUMS +
+        a provenance manifest. Hard-fails if the assemblers are off PATH (never skips).
+
+The `build` variant/target determines the chunk map (CP/M 2.20 vs 2.23, 44K/56K/60K).
+The reference disk provides bytes for sectors not covered by an annotated source (see
+chunk_map.py). The output extension determines the disk format (.dsk vs .po; format
+conversion happens automatically if needed).
 """
 
 import argparse
@@ -236,6 +239,43 @@ def cmd_generate(args):
 
 
 def cmd_build(args):
+    # New form: --target VER/MEM[/FMT] resolves a cell from the targets registry
+    # (the reference/carrier and chunk variant come from targets.py, not flags).
+    if getattr(args, "target", None):
+        from .targets import resolve, DERIVED
+        from .disk_format import detect_format
+        try:
+            target, fmt = resolve(args.target)
+        except ValueError as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 2
+        reference = args.reference or str(target.source_disk)
+        if args.output:
+            output = args.output
+        else:
+            ext = fmt or detect_format(target.source_disk)
+            output = f"{target.basename()}.{ext}"
+        # A derived cell has no reference disk of its own -> byte-verify is meaningless;
+        # verify it transitively instead (unless the user forced --reference + --verify).
+        verify = args.verify and (target.provenance != DERIVED or args.reference)
+        result = reconstruct_disk(
+            variant=target.variant, reference_path=reference,
+            output_path=output, verify=verify, source_dir=args.source_dir)
+        if not args.quiet:
+            print(f"wrote {result.output_path}  [{target.key} / {target.provenance}]")
+            print(f"  {result.chunks_written} chunks, "
+                  f"{result.bytes_from_assembled} bytes from assembled OS source")
+            if target.provenance == DERIVED:
+                from .targets import verify_derived
+                print(f"  transitive verify: {verify_derived(target)}")
+            elif verify and result.diff_count == 0:
+                print(f"  BYTE-IDENTICAL to {reference}")
+            elif verify:
+                print(f"  DIFFERS from reference at {result.diff_count} byte(s): "
+                      + ", ".join(f"${o:05X}" for o in result.diff_offsets))
+        return 0 if (target.provenance == DERIVED or not verify
+                     or result.diff_count == 0) else 1
+
     variant = args.variant
     if variant == "auto":
         info = detect(args.reference)
@@ -251,6 +291,10 @@ def cmd_build(args):
         if not args.quiet:
             print(f"auto-detected variant: {variant} "
                   f"(confidence: {info.variant_confidence})")
+    if not args.reference or not args.output:
+        print("error: --reference and --output are required for the positional build "
+              "form (or use --target VER/MEM/FMT)", file=sys.stderr)
+        return 2
     result = reconstruct_disk(
         variant=variant,
         reference_path=args.reference,
@@ -276,6 +320,16 @@ def cmd_build(args):
                     print(f"  first diff offsets: " +
                           ", ".join(f"${off:05X}" for off in result.diff_offsets))
     return 0 if (not args.verify or result.diff_count == 0) else 1
+
+
+def cmd_release(args):
+    from .release import release, ReleaseError
+    try:
+        release(args.out_dir, publish_tag=args.publish, quiet=args.quiet)
+    except ReleaseError as e:
+        print(f"release failed: {e}", file=sys.stderr)
+        return 1
+    return 0
 
 
 def main(argv=None):
@@ -376,13 +430,18 @@ def main(argv=None):
     build = sub.add_parser("build", help="Build a CP/M disk image")
     build.add_argument("variant", choices=("220", "223", "auto"),
                        nargs="?", default="auto",
-                       help="CP/M variant (220 or 223, or 'auto' to detect "
-                            "from --reference; default: auto)")
-    build.add_argument("--reference", required=True,
-                       help="Reference disk image (provides bytes for "
-                            "sectors not yet covered by annotated source)")
-    build.add_argument("--output", required=True,
-                       help="Output disk image (.dsk or .po; format auto-detected)")
+                       help="CP/M variant for the positional form (220/223/auto); "
+                            "ignored when --target is given")
+    build.add_argument("--target", default=None,
+                       help="Build a matrix cell by VER/MEM[/FMT], e.g. 2.23/60K/dsk or "
+                            "2.20B/44K. Resolves the reference/carrier + chunk variant "
+                            "from targets.py; output defaults to the cell's release name")
+    build.add_argument("--reference", default=None,
+                       help="Reference disk image (required for the positional form; "
+                            "overrides the target's reference/carrier when --target is used)")
+    build.add_argument("--output", default=None,
+                       help="Output disk image (.dsk or .po; format auto-detected). "
+                            "With --target, defaults to the cell's release filename")
     build.add_argument("--source-dir", default=None, dest="source_dir",
                        help="Assemble the annotated OS sources from this directory "
                             "instead of softcard/docs/ (e.g. a decompiled/ os/ folder)")
@@ -390,6 +449,16 @@ def main(argv=None):
                        help="Byte-compare the output against the reference")
     build.add_argument("--quiet", action="store_true",
                        help="Suppress progress output")
+
+    rel = sub.add_parser("release",
+                         help="Build every target cell (6 cells x .dsk/.po = 12 images) "
+                              "into a directory with SHA256SUMS + a provenance manifest")
+    rel.add_argument("--out", default="dist", dest="out_dir",
+                     help="Output directory for the disk images (default: dist/)")
+    rel.add_argument("--publish", default=None, metavar="TAG",
+                     help="After building, publish the set via `gh release create TAG` "
+                          "(explicit opt-in; omit to only write local files)")
+    rel.add_argument("--quiet", action="store_true", help="Suppress progress output")
 
     args = p.parse_args(argv)
     if args.command == "detect":
@@ -416,6 +485,8 @@ def main(argv=None):
         return cmd_generate(args)
     if args.command == "build":
         return cmd_build(args)
+    if args.command == "release":
+        return cmd_release(args)
     p.print_help()
     return 1
 
