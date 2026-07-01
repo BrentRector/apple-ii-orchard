@@ -202,6 +202,42 @@ def test_cpm220b_56k_bios_deskew_roundtrip_and_is_44k_plus_3000():
     assert reloc >= 150, f"expected the +$3000 high-byte shifts ({reloc} found)"
 
 
+@pytest.mark.skipif(not HAS_ASSEMBLERS, reason="sjasmplus not on PATH")
+def test_cpm220_bios_folds_44k_and_2_20b_56k_from_one_source():
+    """The single CPMV220-44K/os/CPM_BIOS.asm conditionally compiles to BOTH the 2.20-44K
+    BIOS (no defines) and the 2.20B-56K BIOS (-DCFG_56K -DV220B), byte-identical to each
+    reference. CFG_56K re-homes the image +$3000 (cpm_system_220.inc's OS_RELOC); V220B adds
+    the 2.20->2.20B island: CONIN pre-scan routing, the CCP_INLEN warm-boot stub (x3, one the
+    live WBOOT target), and the '56K Ver. 2.20B' banner. See docs/CPM_56K_60K_Fold_Plan.md."""
+    import subprocess
+    import re as _re
+    from cpm_pipeline import deskew
+    if not (present(DISK_2_20_44K_SYSTEM) and present(DISK_2_20B_56K_SYSTEM)):
+        pytest.skip("reference disk(s) missing")
+    root = Path(__file__).resolve().parents[2]          # softcard/
+    bios = root / "CPMV220-44K" / "os" / "CPM_BIOS.asm"
+    incs = root / "include"
+
+    def assemble(defines):
+        tmp = Path(tempfile.mkdtemp())
+        for inc in ("apple_softcard.inc", "cpm22.inc", "cpm_system_220.inc"):
+            shutil.copy(incs / inc, tmp / inc)
+        src = bios.read_text(encoding="latin-1")
+        outbin = (tmp / "bios.bin").as_posix()
+        src = _re.sub(r'(\bSAVEBIN\s+")([^"]+)(",.*)',
+                      lambda m: m.group(1) + outbin + m.group(3), src)
+        (tmp / "CPM_BIOS.asm").write_text(src, encoding="latin-1")
+        r = subprocess.run(["sjasmplus"] + [f"-D{d}" for d in defines] + ["CPM_BIOS.asm"],
+                           cwd=tmp, capture_output=True, text=True)
+        assert r.returncode == 0, f"sjasmplus -D{defines} failed:\n{r.stdout}{r.stderr}"
+        return Path(outbin).read_bytes()
+
+    assert assemble(()) == deskew.reference_bios_image(), \
+        "2.20-44K BIOS (no defines) not byte-identical"
+    assert assemble(("CFG_56K", "V220B")) == deskew.reference_bios_image_220b_56k(), \
+        "2.20B-56K BIOS fold (-DCFG_56K -DV220B) not byte-identical"
+
+
 @pytest.mark.skipif(not HAS_ASSEMBLERS, reason="ca65/ld65/sjasmplus not on PATH")
 def test_os_listings_are_fresh():
     """The four per-component .lst listings (BootLoader/CCP/BDOS/BIOS) for each 44K tree are

@@ -54,7 +54,11 @@ BIOS_VECTOR_WBOOT:
         ; entry 1 = warm boot: reload CCP, rebuild page zero
         JP      WBOOT
         JP      CONST
+    IFDEF V220B
+        JP      CONSOLE_IN_40COL        ; 2.20B: CONIN enters the 40-col handler, which calls the IOBYTE dispatcher then remaps fn/arrow keys
+    ELSE
         JP      CONIN
+    ENDIF
         ; entry 4 = CONOUT; target CONOUT_DISPATCH+1 (skips its leading LD C,A)
         JP      CONOUT_DISPATCH+1
         JP      LIST
@@ -175,7 +179,11 @@ WBOOT:
         LD A,($E051)
         LD HL,$0E00
         ; re-init the console I/O vectors for warm restart
+    IFDEF V220B
+        CALL WARMBOOT_INLEN_STUB         ; 2.20B: fire the RPC, then clear CCP_INLEN so warm boot drops any staged command
+    ELSE
         CALL RPC_TRIGGER
+    ENDIF
         ; re-scan devices so warm boot rebuilds the I/O table
         CALL PROBE_DEVICES
 ; ----------------------------------------------------------------------
@@ -262,7 +270,11 @@ KBD_STATUS_40COL:
 ;   Out: A = (translated) key. Clobbers A,B,C,DE,HL.
 ; ----------------------------------------------------------------------
 CONSOLE_IN_40COL:
+    IFDEF V220B
+        CALL CONIN                       ; 2.20B: get the char via the IOBYTE-routed dispatcher first
+    ELSE
         CALL CONIN_KEYWAIT               ; wait for a raw key in A
+    ENDIF
         LD HL,$F3AB                      ; HL = key-remap table base (Apple $03AB; first entry pair at $03AC)
         LD B,$06                         ; up to 6 table entries
         LD C,A                           ; C = raw key
@@ -1462,7 +1474,11 @@ DEV_INSTALL_6:
         LD A,($F398)
         CALL SIGNON_EMIT
         LD A,($F39B)
+    IFDEF V220B
+        LD A,(SIGNON_EMIT)               ; 2.20B: skip emitting the 2nd config byte (A is reloaded then discarded by the banner loop)
+    ELSE
         CALL SIGNON_EMIT
+    ENDIF
         LD HL,SIGNON_BANNER
 DEV_INSTALL_7:
         LD A,(HL)
@@ -1560,12 +1576,26 @@ SIGNON_BANNER:
         DEFB    "Apple ][ CP/M"          ; string
         DEFB    $0D                      ; terminator
         DEFB    "\n"
-        DEFB    "44K Ver. 2.20"          ; string
+        ; memory token (CFG_56K) + version token (V220B); the +1 'B' is offset by
+        ; dropping a CR in the tail below so the banner stays 59 bytes either way.
+    IFDEF CFG_56K
+        DEFB    "56K"
+    ELSE
+        DEFB    "44K"
+    ENDIF
+        DEFB    " Ver. 2.20"
+    IFDEF V220B
+        DEFB    "B"                      ; 2.20B sub-revision
+    ENDIF
         DEFB    $0D                      ; terminator
         DEFB    "\n"
         DEFB    "(C) 1980 Microsoft"     ; string
         DEFB    $0D                      ; terminator
+    IFDEF V220B
+        DEFB    "\n\n\0"                  ; 2.20B: one fewer CR (offsets the 'B')
+    ELSE
         DEFB    "\n\r\n\0"
+    ENDIF
 ; ----------------------------------------------------------------------
 ; IO_VECTOR_DEFAULTS -- 22-byte (BC=$0016) DATA table of default I/O handler pointers,
 ;   copied by the boot path (LDIR) into the SoftCard config/vector page at $F380=Apple
@@ -1577,10 +1607,20 @@ SIGNON_BANNER:
 ;   but are NOT executed from here. [RE] -- see flags.
 ; ----------------------------------------------------------------------
 IO_VECTOR_DEFAULTS:
+    IFDEF V220B
+        ; 2.20B: the CCP_INLEN warm-boot stub overlays the first four (CONST/CONIN/CONOUT)
+        ; vector-default slots. Safe because the LDIR that copies these into the config page
+        ; runs only on an uninitialized page ($F381==0), which the Language-Card loader pre-sets.
+        CALL RPC_TRIGGER
+        XOR A
+        LD (CCP_INLEN),A
+        RET
+    ELSE
         DEFW    KBD_STATUS_40COL         ; CONST (40-col keyboard status)
         DEFW    CONSOLE_IN_40COL         ; CONIN
         DEFW    CONSOLE_IN_40COL
         DEFW    PUT_CHAR_DE3             ; CONOUT
+    ENDIF
         DEFW    PUT_CHAR_DE3
         DEFW    DEV_OUT_3                ; LIST/PUNCH/READER stubs
         DEFW    DEV_OUT_3
@@ -1588,12 +1628,21 @@ IO_VECTOR_DEFAULTS:
         DEFW    DEV_OUT_2
         DEFW    DEV_OUT_1
         DEFW    DEV_OUT_1
-        ; $AFC4-$AFEF: an in-image second copy of the DEV_HANDLER_PTRS table + the
-        ; DEV_HANDLER_LOOKUP / SIGNON_EMIT routines (byte-identical to $AF4A-$AF6F);
-        ; not referenced or executed from here. [RE]
-        DEFB    $42,$AB,$E1,$23,$18,$F3,$DF,$AC,$04,$AD,$31,$AD,$12,$AD,$1C,$AD
-        DEFB    $21,$50,$AF,$18,$03,$21,$4A,$AF,$87,$85,$6F,$7E,$2C,$66,$6F,$C9
-        DEFB    $B7,$F2,$70,$AF,$F5,$3A,$97,$F3,$CD,$42,$AB,$F1
+        ; A dead in-image mirror of the DEV_HANDLER_PTRS table + DEV_HANDLER_LOOKUP /
+        ; SIGNON_EMIT code (byte-identical to $xF44-$xF67); not referenced or executed. Its
+        ; embedded in-image address high-bytes relocate with the OS (+$3000 under CFG_56K).
+        DEFB    $42,$AB+(OS_RELOC>>8),$E1,$23,$18,$F3,$DF,$AC+(OS_RELOC>>8),$04,$AD+(OS_RELOC>>8),$31,$AD+(OS_RELOC>>8),$12,$AD+(OS_RELOC>>8),$1C,$AD+(OS_RELOC>>8)
+        DEFB    $21,$50,$AF+(OS_RELOC>>8),$18,$03,$21,$4A,$AF+(OS_RELOC>>8),$87,$85,$6F,$7E,$2C,$66,$6F,$C9
+        DEFB    $B7,$F2,$70,$AF+(OS_RELOC>>8)
+    IFDEF V220B
+WARMBOOT_INLEN_STUB:                     ; 2.20B: warm-boot RPC + clear the CCP staged-command flag
+        CALL RPC_TRIGGER
+        XOR A
+        LD (CCP_INLEN),A
+        RET
+    ELSE
+        DEFB    $F5,$3A,$97,$F3,$CD,$42,$AB,$F1   ; mirror tail (dead)
+    ENDIF
 ; ----------------------------------------------------------------------
 ; READ_SEKSEC -- load the current deblock sector and set flags.
 ;   In:  none. Out: A = current sector (from BOOT+1=seksec); Z set if sector==0.
@@ -1606,7 +1655,16 @@ READ_SEKSEC:
         ; set Z/sign flags on the sector value for the caller
         OR A
         RET
+    IFDEF V220B
+        ; 2.20B overlays the leading "\r\n\r\nAppl" of this dead fragment with a 3rd stub copy
+        CALL RPC_TRIGGER
+        XOR A
+        LD (CCP_INLEN),A
+        RET
+        DEFB    "e ]"
+    ELSE
         DEFB    "\r\n\r\nApple ]"
+    ENDIF
 BIOS_IMAGE_END:                          ; first byte past the BIOS image
 
     IFNDEF CPM_LINK
