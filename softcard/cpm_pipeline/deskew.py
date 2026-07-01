@@ -146,6 +146,28 @@ def reference_bios_image_220b_56k():
     return build_bios_image_220b_56k(DISK_2_20B_56K_SYSTEM.read_bytes())
 
 
+# 2.20B-56K CCP ($C400-$CBFF, 8 pages) + BDOS ($CC00-$D9FF, 14 pages): the .po stores them
+# contiguously in sectors 11-18 and 19-32. Verified against live emulator memory + a byte-identical
+# fold of the +$3000-relocated 44K sources (see docs/CPM_56K_60K_Fold_Plan.md; adversarial review
+# confirmed these sectors are the running CCP/BDOS).
+CCP_ORG_220B_56K = 0xC400
+CCP_PAGE_TO_SECTOR_220B_56K = {0xC400 + p * PAGE: 11 + p for p in range(8)}
+BDOS_ORG_220B_56K = 0xCC00
+BDOS_PAGE_TO_SECTOR_220B_56K = {0xCC00 + p * PAGE: 19 + p for p in range(14)}
+
+
+def reference_ccp_image_220b_56k():
+    from cpm_pipeline.reference_data import DISK_2_20B_56K_SYSTEM
+    return _gather(DISK_2_20B_56K_SYSTEM.read_bytes(),
+                   CCP_PAGE_TO_SECTOR_220B_56K, CCP_ORG_220B_56K, 8 * PAGE)
+
+
+def reference_bdos_image_220b_56k():
+    from cpm_pipeline.reference_data import DISK_2_20B_56K_SYSTEM
+    return _gather(DISK_2_20B_56K_SYSTEM.read_bytes(),
+                   BDOS_PAGE_TO_SECTOR_220B_56K, BDOS_ORG_220B_56K, 14 * PAGE)
+
+
 def _selftest():
     from cpm_pipeline.reference_data import DISK_2_20_44K_SYSTEM
     dsk = bytearray(DISK_2_20_44K_SYSTEM.read_bytes())

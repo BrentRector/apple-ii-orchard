@@ -238,6 +238,45 @@ def test_cpm220_bios_folds_44k_and_2_20b_56k_from_one_source():
         "2.20B-56K BIOS fold (-DCFG_56K -DV220B) not byte-identical"
 
 
+@pytest.mark.skipif(not HAS_ASSEMBLERS, reason="sjasmplus not on PATH")
+def test_cpm220_ccp_bdos_fold_44k_and_2_20b_56k_from_one_source():
+    """CPM_CCP.asm and CPM_BDOS.asm each conditionally compile byte-identical to BOTH the 2.20-44K
+    image (no defines) and the 2.20B-56K image (-DCFG_56K -DV220B). CFG_56K re-homes them +$3000 via
+    cpm_system_220.inc's OS_RELOC; V220B carries the small 2.20->2.20B deltas (the 6-byte serial in
+    both, the DIR column-parity mask AND $01->$03, and the inert BDOS LD HL). This is the memory-axis
+    counterpart to the BIOS fold; see docs/CPM_56K_60K_Fold_Plan.md."""
+    import subprocess
+    import re as _re
+    from cpm_pipeline import deskew
+    if not (present(DISK_2_20_44K_SYSTEM) and present(DISK_2_20B_56K_SYSTEM)):
+        pytest.skip("reference disk(s) missing")
+    root = Path(__file__).resolve().parents[2]
+    incs = root / "include"
+
+    def assemble(fname, defines):
+        tmp = Path(tempfile.mkdtemp())
+        for inc in ("apple_softcard.inc", "cpm22.inc", "cpm_system_220.inc"):
+            shutil.copy(incs / inc, tmp / inc)
+        src = (root / "CPMV220-44K" / "os" / fname).read_text(encoding="latin-1")
+        outbin = (tmp / "out.bin").as_posix()
+        src = src.replace("{out_bin}", outbin)                       # the real image SAVEBIN
+        src = _re.sub(r'SAVEBIN\s+"E:/tmp/[^"]+"',                   # BDOS debug SAVEBIN -> throwaway
+                      'SAVEBIN "' + (tmp / "debug.bin").as_posix() + '"', src)
+        (tmp / fname).write_text(src, encoding="latin-1")
+        r = subprocess.run(["sjasmplus"] + [f"-D{d}" for d in defines] + [fname],
+                           cwd=tmp, capture_output=True, text=True)
+        assert r.returncode == 0, f"sjasmplus {fname} -D{defines}:\n{r.stdout}{r.stderr}"
+        return Path(outbin).read_bytes()
+
+    rt44 = deskew.reference_runtime_image()          # 44K CCP($9400)+BDOS($9C00), 5632 B
+    assert assemble("CPM_CCP.asm", ()) == rt44[0x0000:0x0800], "2.20-44K CCP not byte-identical"
+    assert assemble("CPM_BDOS.asm", ()) == rt44[0x0800:0x1600], "2.20-44K BDOS not byte-identical"
+    assert assemble("CPM_CCP.asm", ("CFG_56K", "V220B")) == deskew.reference_ccp_image_220b_56k(), \
+        "2.20B-56K CCP fold not byte-identical"
+    assert assemble("CPM_BDOS.asm", ("CFG_56K", "V220B")) == deskew.reference_bdos_image_220b_56k(), \
+        "2.20B-56K BDOS fold not byte-identical"
+
+
 @pytest.mark.skipif(not HAS_ASSEMBLERS, reason="ca65/ld65/sjasmplus not on PATH")
 def test_os_listings_are_fresh():
     """The four per-component .lst listings (BootLoader/CCP/BDOS/BIOS) for each 44K tree are

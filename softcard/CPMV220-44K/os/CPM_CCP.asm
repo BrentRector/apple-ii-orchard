@@ -11,7 +11,7 @@
     DEVICE NOSLOT64K
     INCLUDE "cpm22.inc"
     INCLUDE "cpm_system_220.inc"
-    ORG $9400
+    ORG CCP_ENTRY                 ; $9400 (44K) or $C400 (CFG_56K)
     ENDIF
 
 ; ----------------------------------------------------------------------
@@ -27,7 +27,7 @@
 ; (CCP_ENTRY == module base; defined in cpm_system_220.inc)
         ; enter CCP login setup: reset SP, log in drive/user
         JP CCP_COLD_ENTRY
-        DEFB    $C3,$58,$97
+        DEFB    $C3,$58,$97+(OS_RELOC>>8)
 ; ----------------------------------------------------------------------
 ; CCP_INBUF -- console line-input buffer descriptor for C_READSTR.
 ;   Layout: byte0 ($9406)=max length ($7F=127), byte1 ($9407)=returned count,
@@ -64,7 +64,7 @@ CCP_CMDTEXT:
 ;   [RE]
 ; ----------------------------------------------------------------------
 CCP_PARSEPTR:
-        DEFB    $08,$94
+        DEFB    $08,$94+(OS_RELOC>>8)
 ; ----------------------------------------------------------------------
 ; CCP_TOKENPTR -- 16-bit pointer to the start of the current token.
 ;   Saved by the FCB builder and reused by the bad-character echo routine.
@@ -1187,8 +1187,13 @@ CCP_BUILTIN_NAMES:
 ;   Treated here as opaque serial data, not code. [RE]
 ; ----------------------------------------------------------------------
 CCP_SERIAL_STAMP:
-        ; CP/M serial-number bytes; must match BDOS header at $9C00 (checked by CCP_CHECK_SERIAL)
-        DEFB    $BD,$16,$00,$00,$16,$DF
+        ; CP/M serial-number bytes; must match the BDOS header serial (checked by CCP_CHECK_SERIAL).
+        ; V220B selects the 2.20B disk's serial (kept in lock-step with the BDOS DEFB).
+    IFDEF V220B
+        DEFB    $BD,$16,$00,$00,$60,$D9   ; 2.20B serial
+    ELSE
+        DEFB    $BD,$16,$00,$00,$16,$DF   ; 2.20 serial
+    ENDIF
 ; ----------------------------------------------------------------------
 ; SEARCH_BUILTIN -- match the parsed command word against the six built-in names.
 ;   In: parsed command FCB name field at CCP_FCB_NAME (the command word lives in the
@@ -1797,8 +1802,13 @@ DIR_CMD_2:
         ; Count this displayed entry
         INC E
         PUSH DE
-        ; Parity of the entry index => 2-per-line column layout
+        ; DIR column-layout mask: 2.20 uses $01 (2-per-line parity); 2.20B uses $03 (so the
+        ; later CP $03 can match -- a genuine 2.20->2.20B DIR-formatting change).
+    IFDEF V220B
+        AND $03
+    ELSE
         AND $01
+    ENDIF
         PUSH AF
         ; Odd index: continue on the same line with a column separator
         JP NZ,DIR_FMT_ENTRY_COLS

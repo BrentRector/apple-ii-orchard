@@ -13,10 +13,17 @@
     DEVICE NOSLOT64K
     INCLUDE "cpm22.inc"
     INCLUDE "cpm_system_220.inc"
-    ORG $9C00
+    ORG BDOS_FBASE               ; $9C00 (44K) or $CC00 (CFG_56K)
     ENDIF
 ; (BDOS_IMAGE_HEADER == module base; defined in cpm_system_220.inc)
-        DEFB    $BD,$16,$00,$00,$16,$DF
+; The 6-byte DRI/Microsoft serial number. It differs per released disk; the 2.20B-56K
+; disk carries a different tail than the 1980 2.20-44K disk (V220B selects it). The CCP
+; keeps a matching copy at CCP_SERIAL and self-checks it against this header.
+    IFDEF V220B
+        DEFB    $BD,$16,$00,$00,$60,$D9   ; 2.20B serial
+    ELSE
+        DEFB    $BD,$16,$00,$00,$16,$DF   ; 2.20 serial
+    ENDIF
 ; ----------------------------------------------------------------------
 ; BDOS_ENTRY -- the BDOS=$0005-vector landing point (FBASE+6); jumps to the function dispatcher.
 ;   In: C = BDOS function number, DE = info address (or single-byte arg in E) -- the standard $0005
@@ -47,7 +54,7 @@ BDOS_ERR_VECTORS:
         ;       SBC A,C
         SBC A,C
         ; DATA: high byte ($9C) of the Bad-Sector reporter address
-        SBC A,H
+        DEFB $9C+(OS_RELOC>>8)
 ; ----------------------------------------------------------------------
 ; BDOS_ERRVEC_SELECT -- DATA: word for the Select-error reporter in the BDOS error-vector table.
 ;   In: n/a (data; this label's address is loaded into HL by the helper-front-end at $9F47 (LD
@@ -62,7 +69,7 @@ BDOS_ERRVEC_SELECT:
         ; DATA: low byte of the Select-error reporter address -- mis-decoded as AND L
         AND L
         ; DATA: high byte ($9C) of the Select-error reporter address
-        SBC A,H
+        DEFB $9C+(OS_RELOC>>8)
 ; ----------------------------------------------------------------------
 ; BDOS_ERRVEC_RODISK -- DATA: word for the R/O-disk error reporter in the BDOS error-vector table.
 ;   In: n/a (data; loaded into HL by the caller at $A158 (LD HL,BDOS_ERRVEC_RODISK), reached when a
@@ -78,7 +85,7 @@ BDOS_ERRVEC_RODISK:
         ; DATA: low byte of the R/O-disk reporter address -- mis-decoded as XOR E
         XOR E
         ; DATA: high byte ($9C) of the R/O-disk reporter address
-        SBC A,H
+        DEFB $9C+(OS_RELOC>>8)
 ; ----------------------------------------------------------------------
 ; BDOS_ERRVEC_FILERO -- DATA: word for the File-R/O error reporter in the BDOS error-vector table.
 ;   In: n/a (data; loaded into HL by the caller at $A14E (LD HL,BDOS_ERRVEC_FILERO), reached on a
@@ -93,7 +100,7 @@ BDOS_ERRVEC_FILERO:
         ; DATA: low byte of the File-R/O reporter address -- mis-decoded as OR C
         OR C
         ; DATA: high byte ($9C) of the File-R/O reporter address
-        SBC A,H
+        DEFB $9C+(OS_RELOC>>8)
 ; ----------------------------------------------------------------------
 ; BDOS_DISPATCH -- the CP/M 2.2 FDOS dispatcher: set up the BDOS frame and vector to the function
 ; handler.
@@ -185,7 +192,7 @@ BDOS_DISPATCH:
 ; ----------------------------------------------------------------------
 BDOS_DISPATCH_TBL:
         ; fn 0 ($00) System Reset (warm boot)
-        DEFW    $AA03
+        DEFW    $AA03+OS_RELOC
         ; fn 1 ($01) Console Input -> A
         DEFW    F_CONIN_H
         ; fn 2 ($02) Console Output (E=char)
@@ -195,7 +202,7 @@ BDOS_DISPATCH_TBL:
         ; fns 4-11 as little-endian words: 4=$AA12 Punch Out, 5=$AA0F List Out, 6=$9ED4 Direct
         ; Console I/O, 7=$9EED Get IOBYTE, 8=$9EF3 Set IOBYTE, 9=$9EF8 Print String, 10=$9DE1 Read
         ; Console Buffer, 11=$9EFE Get Console Status
-        DEFB    $12,$AA,$0F,$AA,$D4,$9E,$ED,$9E,$F3,$9E,$F8,$9E,$E1,$9D,$FE,$9E
+        DEFW    $AA12+OS_RELOC,$AA0F+OS_RELOC,$9ED4+OS_RELOC,$9EED+OS_RELOC,$9EF3+OS_RELOC,$9EF8+OS_RELOC,$9DE1+OS_RELOC,$9EFE+OS_RELOC
         ; fn 12 ($0C) Return Version Number -> HL
         DEFW    S_BDOSVER_H
         ; fn 13 ($0D) Reset Disk System
@@ -254,20 +261,23 @@ BDOS_DISPATCH_TBL:
         DEFW    BDOS_RET_NOP
         ; fn 40 ($28) Write Random with Zero Fill
         DEFW    F_WRITEZF_H
-        DEFW    $CA21
-        DEFW    $CD9C
-        DEFW    BDOS_ERR_PRINT
-        DEFW    $03FE
-        DEFW    $00CA
-        DEFW    $C900
-        DEFW    $D521
-        DEFW    $C39C
-        DEFW    BDOS_ERR_TRAP
-        DEFW    $E121
-        DEFW    $C39C
-        DEFW    BDOS_ERR_TRAP
-        DEFW    $DC21
-        DEFB    $9C
+        ; --- the 4 disk-error reporter stubs (were misaligned DEFW; decoded as code so the
+        ;     in-image message/handler operands relocate). Each is the target of a BDOS_ERR_VECTORS
+        ;     word; each loads HL -> its '$'-terminated reason string then enters BDOS_ERR_TRAP. [RE]
+BDOS_ERRVEC_BADSEC_RPT:                  ; BDOS_ERR_VECTORS[0]
+        LD HL,$9CCA+OS_RELOC             ; -> reason string
+        CALL BDOS_ERR_PRINT
+        CP $03
+        JP Z,$0000
+        RET
+BDOS_ERRVEC_SELECT_RPT:                  ; BDOS_ERRVEC_SELECT
+        LD HL,$9CD5+OS_RELOC
+        JP BDOS_ERR_TRAP
+BDOS_ERRVEC_RODISK_RPT:                  ; BDOS_ERRVEC_RODISK
+        LD HL,$9CE1+OS_RELOC
+        JP BDOS_ERR_TRAP
+BDOS_ERRVEC_FILERO_RPT:                  ; BDOS_ERRVEC_FILERO; falls into BDOS_ERR_TRAP
+        LD HL,$9CDC+OS_RELOC
 ; ----------------------------------------------------------------------
 ; BDOS_ERR_TRAP -- Print a BDOS disk error message and warm-boot.
 ;   In: HL = pointer to the '$'-terminated reason string (set by the calling error
@@ -349,7 +359,7 @@ CON_GETC_OR_RAW:
         ; A held char was present: return it
         RET NZ
         ; Else fall through to the BIOS CONIN vector
-        JP $AA09
+        JP $AA09+OS_RELOC
 ; ----------------------------------------------------------------------
 ; F_CONIN_RAW -- read one console char, echoing it unless it is a control char.
 ;   In: none.
@@ -417,19 +427,19 @@ CON_POLL_STATUS:
         ; Yes -> report 'ready' (A=1)
         JP NZ,CON_STATUS_READY
         ; BIOS console status vector
-        CALL $AA06
+        CALL $AA06+OS_RELOC
         ; Bit0 = key available?
         AND $01
         ; No key -> return A=0 (not ready)
         RET Z
         ; Read the pending key
-        CALL $AA09
+        CALL $AA09+OS_RELOC
         ; Ctrl-S (stop/flow-control)?
         CP $13
         ; No -> buffer it as type-ahead
         JP NZ,CON_POLL_STASH
         ; After Ctrl-S, wait for the resume/abort key
-        CALL $AA09
+        CALL $AA09+OS_RELOC
         ; Ctrl-C while paused?
         CP $03
         ; Ctrl-C -> warm boot
@@ -480,14 +490,14 @@ CON_PUT_COL:
         POP BC
         PUSH BC
         ; BIOS console-output vector
-        CALL $AA0C
+        CALL $AA0C+OS_RELOC
         POP BC
         PUSH BC
         ; Printer (list) echo enabled?
         LD A,(CON_LIST_ECHO)
         OR A
         ; Also send to the list device
-        CALL NZ,$AA0F
+        CALL NZ,$AA0F+OS_RELOC
         POP BC
 ; ----------------------------------------------------------------------
 ; CON_TRACK_COL -- update the output column counter for the char just sent.
@@ -608,7 +618,7 @@ CON_BACKSPACE:
         ; Overwrite the char with a space
         LD C,$20
         ; BIOS conout: print the blanking space
-        CALL $AA0C
+        CALL $AA0C+OS_RELOC
 ; ----------------------------------------------------------------------
 ; CON_BS_OUT -- send a single backspace (08) to the console.
 ;   In: none. Out: BS emitted via the BIOS conout vector.
@@ -619,7 +629,7 @@ CON_BS_OUT:
         ; Backspace character
         LD C,$08
         ; BIOS conout (tail call)
-        JP $AA0C
+        JP $AA0C+OS_RELOC
 ; ----------------------------------------------------------------------
 ; CON_RETYPE_LINE -- echo '#' + CR/LF and reprint the current edit buffer (Ctrl-R).
 ;   In: CON_COL = total chars in the line; the edit buffer follows BDOS_PARAM_PTR's pointer.
@@ -1078,7 +1088,7 @@ F_CONIN_H:
 ; ----------------------------------------------------------------------
 F_READERIN_H:
         ; BIOS reader-input vector
-        CALL $AA15
+        CALL $AA15+OS_RELOC
         ; Store as the BDOS return value
         JP BDOS_RET_RESULT
 ; ----------------------------------------------------------------------
@@ -1100,9 +1110,9 @@ F_DIRECTIO_H:
         JP Z,DIRECTIO_INPUT
         INC A
         ; FE -> raw BIOS console status
-        JP Z,$AA06
+        JP Z,$AA06+OS_RELOC
         ; Else output C directly via BIOS conout
-        JP $AA0C
+        JP $AA0C+OS_RELOC
 ; ----------------------------------------------------------------------
 ; DIRECTIO_INPUT -- direct console input subfunction of function 6.
 ;   In: none.
@@ -1115,12 +1125,12 @@ F_DIRECTIO_H:
 ; ----------------------------------------------------------------------
 DIRECTIO_INPUT:
         ; Raw BIOS console status
-        CALL $AA06
+        CALL $AA06+OS_RELOC
         OR A
         ; No key -> return 0 result
         JP Z,BDOS_RETURN_RESULT
         ; Read the key raw (no echo)
-        CALL $AA09
+        CALL $AA09+OS_RELOC
         ; Store as the BDOS return value
         JP BDOS_RET_RESULT
 ; ----------------------------------------------------------------------
@@ -1356,7 +1366,7 @@ BDOS_RANDREC_3:
         LD A,(BDOS_CUR_DRIVE)
         LD C,A
         ; BIOS SELDSK -> DPH pointer in HL
-        CALL $AA1B
+        CALL $AA1B+OS_RELOC
         LD A,H
         ; DPH pointer null? (no such drive)
         OR L
@@ -1437,7 +1447,7 @@ DRV_SELECT_OK:
 ; ----------------------------------------------------------------------
 DISK_HOME_CLEAR_SCAN:
         ; BIOS HOME (jump-table entry 8): seek the head to track 0.
-        CALL $AA18
+        CALL $AA18+OS_RELOC
         ; A = 0, the fill value for the scan-accumulator cells.
         XOR A
         ; HL = address of the first 16-bit scan accumulator; zero its two bytes.
@@ -1466,7 +1476,7 @@ DISK_HOME_CLEAR_SCAN:
 DISK_READ_CHECKED:
         ; BIOS READ (jump-table entry 13): read the selected sector into the DMA buffer; A=0 on
         ; success.
-        CALL $AA27
+        CALL $AA27+OS_RELOC
         JP DISK_STATUS_CHECK
 ; ----------------------------------------------------------------------
 ; DISK_WRITE_CHECKED -- issue a BIOS sector WRITE and convert a non-zero BIOS status into a BDOS
@@ -1484,7 +1494,7 @@ DISK_READ_CHECKED:
 DISK_WRITE_CHECKED:
         ; BIOS WRITE (jump-table entry 14): write the DMA buffer to the selected sector; A=0 on
         ; success.
-        CALL $AA2A
+        CALL $AA2A+OS_RELOC
 ; ----------------------------------------------------------------------
 ; DISK_STATUS_CHECK -- shared BIOS-status check used by the READ/WRITE wrappers; raise a BDOS disk
 ; error on failure.
@@ -1672,7 +1682,7 @@ DISK_STORE_SEC_TRK_1:
         LD B,H
         LD C,L
         ; BIOS-bridge transfer helper for the assembled span
-        CALL $AA1E
+        CALL $AA1E+OS_RELOC
         POP DE
         LD HL,(DEBLOCK_HSTREC_PTR0)
         LD (HL),E
@@ -1694,11 +1704,11 @@ DISK_STORE_SEC_TRK_1:
         LD HL,(DPB_XLT_PTR)
         EX DE,HL
         ; BIOS-bridge advance helper for the next span
-        CALL $AA30
+        CALL $AA30+OS_RELOC
         LD C,L
         LD B,H
         ; re-enter the bridge to continue the transfer loop
-        JP $AA21
+        JP $AA21+OS_RELOC
 ; ----------------------------------------------------------------------
 ; FCB_RECORD_TO_BLOCKMAP_INDEX -- derive the FCB disk-map index for the current record/extent.
 ;   In: DPB_BSH = BSH (block-shift, records-per-block log2); FCB_CURREC = CR (current record, low half);
@@ -2440,7 +2450,7 @@ SET_DMA_FROM_CELL:
         ; BC high byte := DMA address high (HL advanced by the preceding INC HL)
         LD B,(HL)
         ; tail-jump to the BIOS SETDMA jump vector
-        JP $AA24
+        JP $AA24+OS_RELOC
 ; ----------------------------------------------------------------------
 ; DISK_BUF_MOVE -- Copy the 128-byte directory buffer into the user DMA buffer.
 ;   In: DIRBUF_PTR -> source (directory buffer); DMA_ADDR -> destination (user DMA).
@@ -4220,9 +4230,15 @@ BDOS_WRITE_DOWRITE:
 BDOS_WRITE_S2UPDATE:
         NOP
         NOP
-        ; Vestigial load of the BDOS base ($9400) -- HL is immediately overwritten by FCB_GET_S2
-        ; below; value unused.
-        LD HL,CCP_ENTRY
+        ; Vestigial DEAD load -- HL is immediately overwritten by FCB_GET_S2 below; the value is
+        ; never used. It is NOT a real pointer: 2.20 leaves $9400 here (which merely coincides with
+        ; the CCP base -- do NOT label it CCP_ENTRY, that mis-relocates), and 2.20B leaves a
+        ; self-pointer into BDOS code ($A6DF). Reproduce each disk's exact bytes.
+    IFDEF V220B
+        LD HL,$A6DF+OS_RELOC     ; 2.20B dead value ($A6DF; -> $D6DF under CFG_56K)
+    ELSE
+        LD HL,$9400              ; 2.20 dead value (coincidentally == CCP base; not a CCP ref)
+    ENDIF
         PUSH AF
         ; HL -> the FCB S2 (extent-module) byte; A = its value.
         CALL FCB_GET_S2
@@ -5562,7 +5578,7 @@ REC_CACHE:
         DEFS    20, $00                  ; fill
 BDOS_IMAGE_END:                          ; first byte past the BDOS image
 
-    SAVEBIN "E:/tmp/cpm_system_full.bin", $9400, $1600
+    SAVEBIN "E:/tmp/cpm_system_full.bin", CCP_ENTRY, CCP_SIZE+BDOS_SIZE
     IFNDEF CPM_LINK
     ; The de-skewed BDOS must exactly fill its $9C00..$AA00 slot, so BDOS_SIZE
     ; (cpm_system_220.inc, = BIOS_FBASE - BDOS_FBASE) tracks the real image extent and
