@@ -1,6 +1,48 @@
 # Resume Prompt — Microsoft SoftCard CP/M Investigation
 
-## >> RESUME HERE — 2026-06-30: 56K OS FOLD — **WHOLE 2.20 OS CORE DONE** (BIOS+CCP+BDOS), adversarial-reviewed
+## >> RESUME HERE — 2026-07-01 (FRESH SESSION HANDOFF): UNIFIED BUILD — one source base + build script + release
+
+**Gate `cd /e/Orchard && source shared/toolchain/env.sh && python -m pytest softcard/ shared/` = 230, working
+tree CLEAN, HEAD `4c7748c`.** ALWAYS source env.sh first (else the byte-identical tests SKIP silently, not fail).
+
+**THE PLAN OF RECORD (read it first): `softcard/docs/CPM_Unified_Build_Plan.md`** — the detailed, step-by-step,
+council-reviewed migration to ONE source base for ALL targets + the build-script + the 6-disk release. Memory:
+**[[project_cpm_unified_build_plan]]**. The 2.20 fold that this extends is DONE (see the section below +
+`CPM_56K_60K_Fold_Plan.md` + [[project_cpm_56k_60k_fold_eval]]).
+
+**THE DECISION (council synthesis, verified vs the bytes):** a DISCIPLINED one-base fold along two orthogonal `-D`
+axes — MEMORY (`CFG_56K`→`OS_RELOC=$3000` uniform; `CFG_60K`→per-module bases, NOT a scalar) and VERSION (`V220B`,
+`V223`). **CCP** folds to ALL 4 version×memory cells (the one clean case). **BDOS/BIOS** stay TWO version families
+(2.20, 2.23), each memory-folded internally. **The 2.23-60K BDOS stays a permanently SEPARATE build** under
+`CPM60.asm` (bank-woven across two LC banks, ~2700B undisassembled blob — a single ORG can't express it).
+BootLoader/RWTS stay separate per version.
+
+**MIGRATION STEPS (each with a byte-gate; full detail in the plan doc):**
+- **Step 0 (do FIRST):** two transitive derived-cell gates in `test_reconstruct.py` (pin 2.20B-44K + 2.20-56K;
+  makes axis-entanglement impossible to miss). Already manually verified (CCP/BDOS 0 genuine, BIOS 2 = banner token).
+- **Step 1:** labelize the BIOS `(OS_RELOC>>8)` dead-mirror arithmetic into real instructions/`DEFW LABEL` (the
+  highest silent-regression risk — sjasmplus can't validate the arithmetic).
+- **Step 2:** labelize the ~40 CCP/BDOS DEFB self-pointers (file by file).
+- **Step 3:** unify the link token `CPM60_LINK`→`CPM_LINK` (gate `build_cpm60_com` byte-identical).
+- **Step 4:** fold CCP to 4 cells (add `V223` $9300 + `CFG_60K` $D300 + memsize byte; retire the 2 duplicate CCP
+  sources).
+- **Step 5 (the build/release harness — the user's explicit ask):** `cpm_pipeline/targets.py` registry (one
+  `Target` per cell) + `build --target VER/MEM/FMT` + a `release` verb (12 images = 6 cells × 2 formats,
+  byte-verified, SHA256SUMS + provenance manifest, `gh release`). **Skip-is-failure** (hard-fail if assemblers off
+  PATH). Gaps to close: `get_variant` knows only 220/223/220-44k; the `build` verb hard-requires `--reference` +
+  only 3 choices; there is NO 60K disk chunk-map/reconstruct path (only `CPM60.COM` is byte-built → mark the 60K
+  disk `installer-derived`).
+- **Step 6 (optional):** the 60K BIOS upper-page `V60` island (separate INCLUDEd file). **NEVER** the 60K BDOS.
+- **Sequencing for the release ask:** Step 0 → jump to Step 5 (downloadable builds soon), then Steps 1-4.
+
+**DO-NOT-FOLD:** the 60K BDOS; 2.20↔2.23 BDOS/BIOS into one source; the BootLoader across versions; a standalone
+RWTS for 44K/56K; the 60K as a scalar `OS_RELOC`; any combined define (`CFG_56K_V220B`).
+
+**THE 6 TARGET CELLS (version × memory), refs:** (2.20,44K)=ref.dsk, (2.20B,56K)=ref.po, (2.23,44K)=ref.dsk,
+(2.23,60K)=installer-derived.DSK, + (2.20B,44K) & (2.20,56K) = DERIVED (no ref, validated transitively). Each
+buildable as EITHER `.dsk` or `.po`.
+
+## 2026-06-30: 56K OS FOLD — **WHOLE 2.20 OS CORE DONE** (BIOS+CCP+BDOS), adversarial-reviewed
 
 **Gate `cd /e/Orchard && source shared/toolchain/env.sh && python -m pytest softcard/ shared/` = 229, working
 tree CLEAN.** Commits this session: `f2fb84b` (Step0 + CCP_INLEN), `c7e9e3b` (BIOS foundation + DPH),

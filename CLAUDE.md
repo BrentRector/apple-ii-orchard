@@ -106,17 +106,20 @@ Write-ups publish to **wiseowl.com** (Astro v6, Cloudflare Pages) at
 
 ## Current focus
 
-**>> LIVE (2026-06-29): 56K/60K OS FOLD — eval DONE, plan written, decoding the 2.20B BIOS.** Decision
-(empirically verified, `cpm-56k-60k-fold-eval` workflow): **conditionally compile the 2.20 family OS from the
-44K base; keep the 2.23-60K BDOS a SEPARATE build** (confirms `project_shared_source_tree`'s HYBRID with bytes).
-The **56K does NOT split** — it is a clean **uniform +$3000** of all three modules (CCP/BDOS PURE relocation, 0
-real deltas; the BIOS carries ~86 genuine 2.20→2.20B deltas in one bounded reorg block). The module that SPLITS
-is the **60K** (BIOS stays $FA00, CCP/BDOS +$4000, BDOS across two LC banks → BDOS stays separate). 2.20≠2.20B
-(2-axis fold, version × memory); 2.23-44K and 2.23-60K share a serial (pure memory axis). Plan of record:
-`softcard/docs/CPM_56K_60K_Fold_Plan.md`; memory `project_cpm_56k_60k_fold_eval`; full handoff at the top of
-`resume-prompt.md`. NOW: Step 0 — decode the 2.20B BIOS to its de-skewed runtime ($DA00–$DFFF, emulator-boot
-dump) and baseline vs the 44K BIOS+$3000 to isolate the V220B island. CCP/BDOS need no re-decode (the relocated
-44K source reproduces them); prereq is labelizing ~40 DEFB-literal pointers in the 44K CCP/BDOS.
+**>> LIVE (2026-07-01): UNIFIED BUILD — one source base for all targets + a build script + a 6-disk release.**
+The **2.20 family OS fold is DONE** (gate 230, HEAD `4c7748c`): one `CPMV220-44K/os/CPM_{CCP,BDOS,BIOS}.asm`
+compiles byte-identical to BOTH the 2.20-44K disk (no defines) AND the real 2.20B-56K disk (`-DCFG_56K -DV220B`);
+the whole 56K DISK reconstructs from the folded sources; either `.dsk` or `.po` on request; legacy 56K sources
+retired; adversarially reviewed. **NOW: the council-reviewed migration to ONE source base for ALL six target
+cells** (version {2.20/2.20B/2.23} × memory {44K/56K/60K}). Decision: fold **CCP** across all 4 cells; keep
+**BDOS/BIOS** as TWO version families (2.20, 2.23) memory-folded internally; the **2.23-60K BDOS stays a
+permanently SEPARATE build** (bank-woven, undisassembled blob). Two orthogonal axes: MEMORY (`CFG_56K`→
+`OS_RELOC=$3000`; `CFG_60K`→per-module bases) × VERSION (`V220B`/`V223`), NEVER entangled. Plus a `targets.py`
+registry + `build --target VER/MEM/FMT` + a `release` verb (skip-is-failure; 12 images, SHA256SUMS + manifest,
+`gh release`). **Plan of record (detailed, step-by-step, fresh-session-ready): `softcard/docs/CPM_Unified_Build_Plan.md`**;
+memory `project_cpm_unified_build_plan`; full handoff at the top of `resume-prompt.md`. Steps: 0 derived-cell
+gates → 1 labelize BIOS reloc-arithmetic → 2 labelize CCP/BDOS pointers → 3 unify link token → 4 fold CCP 4-way →
+5 build/release harness → 6 optional 60K BIOS island. DO-NOT-FOLD: 60K BDOS, 2.20↔2.23 BDOS/BIOS, the BootLoader.
 
 **(DONE 2026-06-24) RE-BASE THE 44K OS DECODE ONTO THE DE-SKEWED RUNTIME IMAGE.** The emulator
 proved the 44K OS sources (CCP **and** BDOS, both 2.20-44K and 2.23-44K) were decoded against the
