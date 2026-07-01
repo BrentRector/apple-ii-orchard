@@ -23,7 +23,7 @@
 ;   $F3E0/$F3E9/$F3EB = sector / track / sector-count for the raw disk write
 ;   $F3EA = error/status returned by the 6502 side (0 = OK)
 ; A store to Z-80 $E700 (= Apple $C700, slot-7 access) is what actually invokes
-; the 6502 RWTS; SUB_01F9 here writes the opcode byte through ($F3DE) to do the
+; the 6502 RWTS; RPC_WRITE here writes the opcode byte through ($F3DE) to do the
 ; same. This is identical to the CCP sysgen path (CPM_CCP.asm SUB_DB06 @ $DB06)
 ; and the BIOS RPC_DISPATCH (@ $FB45) -- the installer is a stand-alone clone of
 ; the in-system "write the system tracks" routine.
@@ -54,7 +54,19 @@ TPA     EQU $0100                        ; CP/M transient program area (local; 6
     ORG TPA
     ENDIF
 
-; ---------------------------------------------------------------------------
+; ===========================================================================
+; TPA_START -- the installer's main(): convert the target disk to 60K in place.
+;   Purpose:   validate the disk through the BDOS, reserve its system area, write
+;              the embedded 60K system image onto the system tracks via the 6502
+;              RWTS, then fire the 6502 cold-boot relocator to bring it up.
+;   In:        runs as a CP/M .COM at $0100; DEFAULT_FCB drive byte = optional
+;              "X:" command-line drive; the 60K image follows at file page $0E.
+;   Out:       does not return -- ends by JP $000B into the 6502 relocator (or a
+;              reboot prompt on error). The target disk is left as a 60K system.
+;   Algorithm: (1) pick the target drive; (2) validate + reserve via BDOS; (3)
+;              commit the reservation; (4) prompt the operator; (5) raw-write the
+;              48-page image through the RPC loop; (6) hand off to the relocator.
+; ===========================================================================
 ; 1) DETERMINE TARGET DRIVE
 ;    Get current user (fn $20/$1F). If a drive was given on the command line
 ;    (FCB drive byte != 0) use it; else query current disk (fn $19) and +1.
@@ -136,7 +148,7 @@ TPA_START_2:
 ; ---------------------------------------------------------------------------
 ; 4) Build the drive-letter glyphs used in the on-screen messages, then print
 ;    banner + "Insert 16 sector disk into drive Z:  Press RETURN to begin".
-;    Wait for RETURN (SUB_0201 = poll console fn $06 until a key).
+;    Wait for RETURN (WAIT_KEY = poll console fn $06 until a key).
 ; ---------------------------------------------------------------------------
         LD A,C
         AND $0E
@@ -158,7 +170,7 @@ TPA_START_2:
 ;    Set up the raw-write bridge:  sector-count=2, track=$14 (20), source page
 ;    starting at $0E (the $0E00 payload page = start of CCP/BDOS/BIOS image in
 ;    this loaded .COM), and loop B=$30 (48) pages. Each pass:
-;      - SUB_01F9: RPC write of one unit ($F3D0 <- $0E03 opcode; A=page byte
+;      - RPC_WRITE: RPC write of one unit ($F3D0 <- $0E03 opcode; A=page byte
 ;        written thru ($F3DE)) -> 6502 RWTS lays the page onto the disk.
 ;      - read RPC_STAT ($F3EA): 0 = OK; $10 = write protected; other = I/O error
 ;      - advance source pointer (H = page hi), tick RW_TRACK on page wrap.
@@ -229,34 +241,49 @@ TPA_START_9:
         JP TPA_START_4
 
 ; ---------------------------------------------------------------------------
-; SUB_01F9 / RPC_WRITE -- issue one 6502 RPC: store parm word to RPC_PARM,
-; then write opcode byte A through the live trampoline pointer (RPC_TRAMP),
-; which lands on the 6502 RWTS bridge. Returns when the 6502 has serviced it.
+; RPC_WRITE -- issue one 6502 "RPC" (remote procedure call into the 6502 RWTS).
+;   Purpose:   hand the 6502 side one raw-disk request -- publish the parameter
+;              word, then poke the opcode byte through the live trampoline pointer,
+;              whose store address is a slot soft-switch ($E700 = Apple $C700) that
+;              transfers control to the 6502 RWTS. Returns once the 6502 serviced it.
+;   In:        HL = RPC parameter word (page in H, function in L, e.g. $0E03 =
+;              page $0E, function $03 write); A = opcode byte written through the
+;              trampoline to trigger the 6502.
+;   Out:       the 6502 has run; it leaves its status in RPC_STAT ($F3EA) for the
+;              caller to test (0 = OK, $10 = write-protected, else = I/O error).
+;   Clobbers:  HL (reloaded from RPC_TRAMP). A is consumed.
+;   Algorithm: (RPC_PARM) <- HL ; HL <- (RPC_TRAMP) ; (HL) <- A  [fires the 6502].
 ; ---------------------------------------------------------------------------
 RPC_WRITE:
-SUB_01F9:
         LD (RPC_PARM),HL        ; F3D0 = parm word
         LD HL,(RPC_TRAMP)       ; HL = trampoline ptr
         LD (HL),A               ; write opcode -> triggers 6502 (e.g. $E700)
         RET
 
 ; ---------------------------------------------------------------------------
-; WAIT_KEY -- BDOS fn $06 direct console input, polled (E=$FF), until a key.
+; WAIT_KEY -- block until the operator presses a key.
+;   Purpose:   pause the installer until a keypress (used after each prompt).
+;   In:        none.  Out: A = the key code read (non-zero); Z cleared.
+;   Clobbers:  A, C, E (BDOS-call registers).
+;   Algorithm: poll BDOS fn $06 direct console input with E=$FF until it returns
+;              a non-zero character.
 ; ---------------------------------------------------------------------------
 WAIT_KEY:
-SUB_0201:
         LD C,$06
         LD E,$FF                ; direct console input: poll keyboard
         CALL BDOS_VEC
         OR A
-        JP Z,SUB_0201           ; loop until a non-zero key
+        JP Z,WAIT_KEY           ; loop until a non-zero key
         RET
 
 ; ---------------------------------------------------------------------------
-; PRINT_STR -- BDOS fn $09 print '$'-terminated string at DE.
+; PRINT_STR -- print a '$'-terminated message.
+;   Purpose:   write one console message.  In: DE -> '$'-terminated string.
+;   Out:       string printed; tail-calls the BDOS (returns to PRINT_STR's caller).
+;   Clobbers:  C (=fn $09); the BDOS's own working registers.
+;   Algorithm: C <- $09 (print string); JP BDOS_VEC (tail call).
 ; ---------------------------------------------------------------------------
 PRINT_STR:
-SUB_020D:
         LD C,$09
         JP BDOS_VEC
 
