@@ -1,14 +1,33 @@
 # Resume Prompt — Microsoft SoftCard CP/M Investigation
 
-## >> RESUME HERE — 2026-07-01 (FRESH SESSION HANDOFF): UNIFIED BUILD — one source base + build script + release
+## >> RESUME HERE — 2026-07-01 (FRESH SESSION HANDOFF): UNIFIED BUILD — Step 0 + Step 5 DONE; release harness live
 
-**Gate `cd /e/Orchard && source shared/toolchain/env.sh && python -m pytest softcard/ shared/` = 230, working
-tree CLEAN, HEAD `4c7748c`.** ALWAYS source env.sh first (else the byte-identical tests SKIP silently, not fail).
+**Gate `cd /e/Orchard && source shared/toolchain/env.sh && python -m pytest softcard/ shared/` = 238, working
+tree CLEAN, HEAD `56c2259`.** ALWAYS source env.sh first (else the byte-identical tests SKIP silently, not fail).
 
 **THE PLAN OF RECORD (read it first): `softcard/docs/CPM_Unified_Build_Plan.md`** — the detailed, step-by-step,
 council-reviewed migration to ONE source base for ALL targets + the build-script + the 6-disk release. Memory:
 **[[project_cpm_unified_build_plan]]**. The 2.20 fold that this extends is DONE (see the section below +
 `CPM_56K_60K_Fold_Plan.md` + [[project_cpm_56k_60k_fold_eval]]).
+
+**>> DONE THIS SESSION (gate 230 → 238, commits `8c1f1f9` Step 0, `56c2259` Step 5):**
+- **Step 0 (derived-cell gates) DONE** — `test_reconstruct.py::test_cpm220_derived_2_20b_44k_is_2_20b_56k_relocated`
+  + `..._2_20_56k_is_2_20_44k_relocated`: each reference-less derived cell, relocated by the memory axis, ==
+  the byte-gated diagonal (CCP/BDOS 0 genuine deltas, BIOS 2 = the "44K"→"56K" banner at BIOS+$0588). Proves
+  the `CFG_56K` (memory) and `V220B` (version) `-D` axes are orthogonal.
+- **Step 5 (build/release harness) DONE — the user's explicit ask.** `cpm_pipeline/targets.py` = the 6-cell
+  registry (`Target` + `resolve('2.23/60K/dsk')` + `verify_derived()`); `chunk_map` generalized (`get_variant`
+  table + derived variants `220b-44k`/`220-56k` + 60K carry `223-60k` + `os_module_sources()`);
+  `cpm_pipeline/release.py` + the **`release`** verb (12 images = 6 cells × {.dsk,.po}, SHA256SUMS +
+  `release_manifest.json` with git-sha/tool-versions/per-cell provenance, **skip-is-failure**, CPM60.COM anchor);
+  **`build --target VER/MEM/FMT`** (legacy positional `build {220|223} --reference --output` unchanged). Tests:
+  `test_targets.py`. Run: `python -m cpm_pipeline release --out dist/`. The 2.23/60K disk is honestly marked
+  `installer-derived` (only CPM60.COM is source-built; its lower BDOS bank is still a partial blob).
+
+**NEXT (deferred by the release-first sequencing; each still one-step/one-gate/one-commit):** Step 1 (labelize
+the BIOS `(OS_RELOC>>8)` dead-mirror arithmetic), Step 2 (labelize the ~40 CCP/BDOS DEFB self-pointers), Step 3
+(`CPM60_LINK`→`CPM_LINK`, gate `build_cpm60_com` byte-identical), Step 4 (fold CCP to 4 cells + retire the 2
+duplicate CCP sources). Step 6 optional (60K BIOS `V60` island). **DO-NOT-FOLD: the 60K BDOS.**
 
 **THE DECISION (council synthesis, verified vs the bytes):** a DISCIPLINED one-base fold along two orthogonal `-D`
 axes — MEMORY (`CFG_56K`→`OS_RELOC=$3000` uniform; `CFG_60K`→per-module bases, NOT a scalar) and VERSION (`V220B`,

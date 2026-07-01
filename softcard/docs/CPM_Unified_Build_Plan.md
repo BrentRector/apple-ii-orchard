@@ -14,8 +14,26 @@ Companion docs: `CPM_56K_60K_Fold_Plan.md` (the 2.20 fold that is already DONE),
 ## 0. Where we are (the regression floor — do NOT break this)
 
 **Gate:** `cd /e/Orchard && source shared/toolchain/env.sh && python -m pytest softcard/ shared/`
-= **230 passed** (HEAD `4c7748c`, working tree clean). ALWAYS `source shared/toolchain/env.sh`
+= **238 passed** (working tree clean). ALWAYS `source shared/toolchain/env.sh`
 first — without it the byte-identical round-trip tests **SKIP silently** (they do not fail).
+
+> **PROGRESS (2026-07-01, this session): Step 0 + Step 5 DONE (gate 230 → 238).**
+> - **Step 0 DONE** — two transitive derived-cell gates added to `test_reconstruct.py`
+>   (`test_cpm220_derived_2_20b_44k_is_2_20b_56k_relocated`,
+>   `test_cpm220_derived_2_20_56k_is_2_20_44k_relocated`): each derived cell, relocated by
+>   the memory axis, == the byte-gated diagonal (pure +$3000; CCP/BDOS 0 genuine, BIOS 2 =
+>   the "44K"→"56K" banner). Proves the CFG_56K / V220B axes are orthogonal.
+> - **Step 5 DONE** — `cpm_pipeline/targets.py` (6-cell registry + `resolve()` + `verify_derived()`),
+>   `chunk_map` generalized (`get_variant` table + the two derived variants `220b-44k`/`220-56k`
+>   + the 60K carry `223-60k` + `os_module_sources()`), `cpm_pipeline/release.py` + the `release`
+>   verb (12 images, SHA256SUMS + `release_manifest.json`, **skip-is-failure**, CPM60.COM anchor),
+>   and `build --target VER/MEM/FMT` (legacy positional `build {220|223}` unchanged). Tests in
+>   `test_targets.py`. `python -m cpm_pipeline release --out dist/` produces all 6 cells × {.dsk,.po}.
+> - **REMAINING (deferred, order per the release-first sequencing):** Step 1 (labelize the BIOS
+>   `(OS_RELOC>>8)` dead-mirror arithmetic), Step 2 (labelize ~40 CCP/BDOS DEFB self-pointers),
+>   Step 3 (`CPM60_LINK`→`CPM_LINK`), Step 4 (fold CCP to 4 cells; retire the 2 duplicate CCP
+>   sources). Step 6 optional. The 60K disk stays `installer-derived` until a `SOURCES_223_60K`
+>   reconstruct path exists (do NOT fold the 60K BDOS).
 
 **DONE this session (commits `f2fb84b`→`4c7748c`, 10 commits):** the **entire 2.20 family OS core
 folds from ONE 44K source set.** `CPMV220-44K/os/CPM_{CCP,BDOS,BIOS}.asm` each compile
@@ -92,13 +110,13 @@ Fold tests already green (the pins — never regress): `test_cpm220_bios_folds_4
 
 Every step keeps all four trees byte-identical and adds a gate *before* it adds a capability.
 
-**Step 0 — Gate the derived cells FIRST (before touching any source).** Add two transitive CI
-gates in `test_reconstruct.py`: for each of the 2.20 modules, assert that the `-DV220B`-only build
-(2.20B-44K), relocated +$3000, equals the `-DCFG_56K -DV220B` build (2.20B-56K) MODULO the memory
-axis (all diffs are either identical, a +$30 relocation high-byte, or the `"44K"→"56K"` banner
-token). Same for the base 2.20 (`()` vs `CFG_56K`). This pins the two reference-less cells and makes
-axis-entanglement impossible to miss. *(Already manually verified: CCP/BDOS 0 genuine, BIOS 2 = the
-banner token.)* **Gate:** 2 new tests green; all existing tests stay green.
+**Step 0 — Gate the derived cells FIRST (before touching any source). — DONE (gate 232).** Two
+transitive CI gates in `test_reconstruct.py`: for each of the 2.20 modules, assert that the
+`-DV220B`-only build (2.20B-44K), relocated +$3000, equals the `-DCFG_56K -DV220B` build (2.20B-56K)
+MODULO the memory axis (all diffs are either identical, a +$30 relocation high-byte, or the
+`"44K"→"56K"` banner token). Same for the base 2.20 (`()` vs `CFG_56K`). This pins the two
+reference-less cells and makes axis-entanglement impossible to miss. *(Empirically: CCP/BDOS 0
+genuine, BIOS 2 = the banner token at BIOS+$0588.)* **Gate:** 2 new tests green; all existing green.
 
 **Step 1 — De-risk the relocation arithmetic (highest silent-regression risk).** Disassemble the
 BIOS "dead DEV_HANDLER mirror" (the block emitted as `DEFB $xx,$yy+(OS_RELOC>>8),...` — a dead,
@@ -124,9 +142,14 @@ byte `$A1→$F0`) to the canonical `CPMV220-44K/os/CPM_CCP.asm`. **Gate:** byte-
 2.23-44K CCP reference AND to the CCP region `CPM60.asm` currently INCLUDEs; retire the two duplicate
 CCP sources. (This is the one genuinely-new unification; CCP is the clean case.)
 
-**Step 5 — Build harness (additive, no source change).** `targets.py` registry + `build --target`
-+ `release` verbs (see §3). Cannot regress a byte gate — it only calls already-gated reconstruct
-paths. **Gate:** all 6 cells build and byte-verify through the new verb.
+**Step 5 — Build harness (additive, no source change). — DONE (gate 238).** `targets.py` registry
+(6-cell `Target` + `resolve()` + `verify_derived()`) + `chunk_map` generalization (`get_variant`
+table + derived variants `220b-44k`/`220-56k` + 60K carry `223-60k` + `os_module_sources()`) +
+`release.py` + the `build --target` / `release` verbs (see §3). It only calls already-gated
+reconstruct paths, so it cannot regress a byte gate. **Gate:** `test_targets.py` — all 6 cells build
++ byte-verify through `release`; the skip-is-failure guard proves the verb refuses to run with an
+assembler off PATH. `python -m cpm_pipeline release --out dist/` emits the 12 images + SHA256SUMS +
+manifest.
 
 **Step 6 — Optional convenience only if a target demands it.** The 60K BIOS upper-page `V60` island
 (as a separate INCLUDEd file, not inline IFDEFs). **NEVER** fold the 60K BDOS.
