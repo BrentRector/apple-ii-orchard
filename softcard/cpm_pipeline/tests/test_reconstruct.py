@@ -305,6 +305,102 @@ def test_cpm220_ccp_bdos_fold_44k_and_2_20b_56k_from_one_source():
         "2.20B-56K BDOS fold not byte-identical"
 
 
+# ── Step 0: transitive gates for the two DERIVED cells (no reference disk) ─────
+# The 2.20 fold has FOUR version x memory cells but only TWO reference disks (2.20-44K
+# and 2.20B-56K, the diagonal). The two off-diagonal cells -- 2.20B-44K and 2.20-56K --
+# never shipped, so nothing byte-pins them directly. These gates pin them TRANSITIVELY:
+# a derived cell, relocated by the memory axis, must equal a byte-gated diagonal cell of
+# the SAME version. That also proves the MEMORY (CFG_56K) and VERSION (V220B) -D axes are
+# ORTHOGONAL -- neither define smuggles in the other's deltas -- which is the one property
+# the diagonal references alone cannot show. See docs/CPM_Unified_Build_Plan.md Step 0.
+
+def _assemble_cpm220_os_module(fname, defines):
+    """Assemble one folded 2.20 OS module (CPM_{CCP,BDOS,BIOS}.asm from CPMV220-44K/os/)
+    with the given sjasmplus -D defines, returning the raw image bytes. Mirrors the fold
+    tests' staging (shared includes copied in, SAVEBIN redirected to a temp file)."""
+    import subprocess
+    import re as _re
+    root = Path(__file__).resolve().parents[2]
+    incs = root / "include"
+    tmp = Path(tempfile.mkdtemp())
+    for inc in ("apple_softcard.inc", "cpm22.inc", "cpm_system_220.inc"):
+        shutil.copy(incs / inc, tmp / inc)
+    src = (root / "CPMV220-44K" / "os" / fname).read_text(encoding="latin-1")
+    outbin = (tmp / "out.bin").as_posix()
+    src = src.replace("{out_bin}", outbin)
+    src = _re.sub(r'SAVEBIN\s+"E:/tmp/[^"]+"',
+                  'SAVEBIN "' + (tmp / "debug.bin").as_posix() + '"', src)
+    (tmp / fname).write_text(src, encoding="latin-1")
+    r = subprocess.run(["sjasmplus"] + [f"-D{d}" for d in defines] + [fname],
+                       cwd=tmp, capture_output=True, text=True)
+    assert r.returncode == 0, f"sjasmplus {fname} -D{defines}:\n{r.stdout}{r.stderr}"
+    return Path(outbin).read_bytes()
+
+
+def _classify_memory_axis(base44, reloc56):
+    """Classify the per-byte deltas between a 44K-base OS image and its +$3000 sibling of
+    the SAME version. Returns (same, reloc, genuine): a byte is `same`, a +$30 relocation
+    high-byte (`reloc`), or a `genuine` version/memory delta (offset, base, reloc)."""
+    assert len(base44) == len(reloc56), "images differ in length -- not a pure relocation"
+    same = reloc = 0
+    genuine = []
+    for i, (a, b) in enumerate(zip(base44, reloc56)):
+        if a == b:
+            same += 1
+        elif (a + 0x30) & 0xFF == b:
+            reloc += 1
+        else:
+            genuine.append((i, a, b))
+    return same, reloc, genuine
+
+
+# module -> count of genuine (non-relocation) memory-axis deltas expected. CCP/BDOS are a
+# pure +$3000 with ZERO genuine bytes; the BIOS's only genuine memory-axis delta is the
+# 2-byte "44K"->"56K" banner token (see the sign-on string). Empirically verified.
+_MEM_AXIS_MODULES = {"CPM_CCP.asm": 0, "CPM_BDOS.asm": 0, "CPM_BIOS.asm": 2}
+_BANNER_TOKEN = {(0x34, 0x35), (0x34, 0x36)}   # ASCII '4'->'5', '4'->'6'  ("44K" -> "56K")
+
+
+def _assert_pure_memory_axis(fname, base44, reloc56):
+    budget = _MEM_AXIS_MODULES[fname]
+    same, reloc, genuine = _classify_memory_axis(base44, reloc56)
+    assert reloc >= 100, f"{fname}: only {reloc} +$3000 relocations -- memory axis not applied?"
+    assert len(genuine) == budget, (
+        f"{fname}: {len(genuine)} genuine (non-relocation) deltas, expected {budget}: "
+        f"{[(hex(o), hex(a), hex(b)) for o, a, b in genuine]}")
+    assert all((a, b) in _BANNER_TOKEN for _, a, b in genuine), (
+        f"{fname}: genuine deltas are not the '44K'->'56K' banner token: "
+        f"{[(hex(o), hex(a), hex(b)) for o, a, b in genuine]}")
+
+
+@pytest.mark.skipif(not HAS_ASSEMBLERS, reason="sjasmplus not on PATH")
+def test_cpm220_derived_2_20b_44k_is_2_20b_56k_relocated():
+    """DERIVED CELL 2.20B-44K (no reference disk): CPM_{CCP,BDOS,BIOS}.asm built -DV220B
+    (44K bases) equals the SAME source built -DCFG_56K -DV220B (the real 2.20B-56K, already
+    byte-gated) MODULO the memory axis -- each byte identical, a +$30 relocation high-byte,
+    or the '44K'->'56K' banner token. Transitively pins the reference-less 2.20B-44K cell
+    and proves CFG_56K carries no V220B delta (axis orthogonality)."""
+    for fname in _MEM_AXIS_MODULES:
+        _assert_pure_memory_axis(
+            fname,
+            _assemble_cpm220_os_module(fname, ("V220B",)),
+            _assemble_cpm220_os_module(fname, ("CFG_56K", "V220B")))
+
+
+@pytest.mark.skipif(not HAS_ASSEMBLERS, reason="sjasmplus not on PATH")
+def test_cpm220_derived_2_20_56k_is_2_20_44k_relocated():
+    """DERIVED CELL 2.20-56K (no reference disk): CPM_{CCP,BDOS,BIOS}.asm built with no
+    defines (the real 2.20-44K, already byte-gated) equals the SAME source built -DCFG_56K
+    MODULO the memory axis -- identical, a +$30 relocation high-byte, or the '44K'->'56K'
+    banner token. Transitively pins the reference-less 2.20-56K cell and proves CFG_56K is a
+    pure memory relocation that never pulls in a version delta."""
+    for fname in _MEM_AXIS_MODULES:
+        _assert_pure_memory_axis(
+            fname,
+            _assemble_cpm220_os_module(fname, ()),
+            _assemble_cpm220_os_module(fname, ("CFG_56K",)))
+
+
 @pytest.mark.skipif(not HAS_ASSEMBLERS, reason="ca65/ld65/sjasmplus not on PATH")
 def test_os_listings_are_fresh():
     """The four per-component .lst listings (BootLoader/CCP/BDOS/BIOS) for each 44K tree are
