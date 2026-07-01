@@ -198,19 +198,26 @@ SOURCES_220: dict[str, ChunkSource | Path] = {
     # (No separate CPM220_RWTS / CPM220_InstallFragments: CPM_BootLoader.s is the
     # single canonical decode of $0800-$13FF, which already includes both regions;
     # the standalone files were byte-identical duplicates the build never placed.)
-    "CPM220_SystemImage": ChunkSource(
-        asm_path=OS220 / "CPM_SystemImage.asm",
-        cpu="z80", org=0x8000, size=0x1700,
-        expected_bin_name="build/CPM220_SystemImage.bin",
+    # The 2.20B-56K OS core is FOLDED from the canonical 2.20-44K sources: the SAME
+    # CPMV220-44K/os/CPM_{CCP,BDOS,BIOS}.asm, conditionally compiled with -DCFG_56K -DV220B,
+    # produce the runtime CCP ($C400) / BDOS ($CC00) / BIOS ($DA00) images that the cold
+    # loader de-interleaves onto the system tracks (sectors 11-18 / 19-32 / 33-38). This
+    # retires the legacy combined CPMV220/os/CPM_SystemImage.asm + CPMV220/os/CPM_BIOS.asm.
+    # See docs/CPM_56K_60K_Fold_Plan.md.
+    "CPM220_56K_CCP": ChunkSource(
+        asm_path=OS220_44K / "CPM_CCP.asm", cpu="z80", org=0xC400, size=0x0800,
+        defines=("CFG_56K", "V220B"),
+        include_files=(CPM22_INC, CPM_SYSTEM_220_INC),
     ),
-    # The as-shipped pristine on-disk BIOS ($DA00-$DEFF) -- what LOAD_CPM reads.
-    # The runtime device/console tail it builds in RAM is documented in
-    # CPMV220/BOOT_AND_PATCHING.md, not baked into this source.
-    "CPM220_BIOS_Disk": ChunkSource(
-        asm_path=OS220 / "CPM_BIOS.asm",
-        cpu="z80", org=0xDA00, size=0x0500,
-        expected_bin_name="build/CPM220_BIOS_Disk.bin",
-        include_files=(SOFTCARD_INC,),
+    "CPM220_56K_BDOS": ChunkSource(
+        asm_path=OS220_44K / "CPM_BDOS.asm", cpu="z80", org=0xCC00, size=0x0E00,
+        defines=("CFG_56K", "V220B"),
+        include_files=(CPM22_INC, CPM_SYSTEM_220_INC),
+    ),
+    "CPM220_56K_BIOS": ChunkSource(
+        asm_path=OS220_44K / "CPM_BIOS.asm", cpu="z80", org=0xDA00, size=0x0600,
+        defines=("CFG_56K", "V220B"),
+        include_files=(SOFTCARD_INC, CPM22_INC, CPM_SYSTEM_220_INC),
     ),
 }
 
@@ -241,27 +248,26 @@ def _build_chunks_220():
             track=0, phys_sector=phys,
         ))
 
-    # 2.20 LOAD_CPM reads 28 sectors (vs 2.23's 29). Same sequence,
-    # one short:
-    #   trk0:phys $B,$C,$D,$E,$F  (5 sectors)
-    #   trk1:phys $0..$F          (16 sectors)
-    #   trk2:phys $0..$6          (7 sectors)
-    staging_sectors = [(0, p) for p in range(0xB, 0x10)]
-    staging_sectors += [(1, p) for p in range(0x10)]
-    staging_sectors += [(2, p) for p in range(0x7)]
-
-    # offset $0000-$16FF (sectors 0-22)  -> CPM220_SystemImage (CCP + BDOS)
-    # offset $1700-$1BFF (sectors 23-27) -> CPM220_BIOS_Disk   (pristine BIOS @ $DA00)
-    for i, (track, phys) in enumerate(staging_sectors):
-        off = i * 0x100
-        if off < 0x1700:
-            src, base = "CPM220_SystemImage", 0x0000
-        else:
-            src, base = "CPM220_BIOS_Disk", 0x1700
-        CHUNKS_220.append(ChunkSpec(
-            source_name=src, src_offset=off - base, length=0x100,
-            track=track, phys_sector=phys,
-        ))
+    # The folded 56K OS core is de-skewed RUNTIME order; SCATTER each runtime page back to the
+    # .po sector the cold loader de-interleaved it from (deskew.py 220b maps), exactly as the
+    # 44K build does for its .dsk. The .po linear sector S -> (track S//16, physical sector whose
+    # ProDOS on-disk position is S%16). CCP=$C400 (8pp, sec 11-18), BDOS=$CC00 (14pp, 19-32),
+    # BIOS=$DA00 (6pp, 33-38).
+    from cpm_pipeline.deskew import (
+        CCP_PAGE_TO_SECTOR_220B_56K, BDOS_PAGE_TO_SECTOR_220B_56K, BIOS_PAGE_TO_SECTOR_220B_56K,
+    )
+    from cpm_pipeline.disk_format import PRODOS_INTERLEAVE
+    prodos_inv = {od: phys for phys, od in enumerate(PRODOS_INTERLEAVE)}
+    for src, org, page_map in (
+        ("CPM220_56K_CCP", 0xC400, CCP_PAGE_TO_SECTOR_220B_56K),
+        ("CPM220_56K_BDOS", 0xCC00, BDOS_PAGE_TO_SECTOR_220B_56K),
+        ("CPM220_56K_BIOS", 0xDA00, BIOS_PAGE_TO_SECTOR_220B_56K),
+    ):
+        for page, sector in page_map.items():
+            CHUNKS_220.append(ChunkSpec(
+                source_name=src, src_offset=page - org, length=0x100,
+                track=sector // 16, phys_sector=prodos_inv[sector % 16],
+            ))
 
 
 _build_chunks_220()

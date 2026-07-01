@@ -5722,13 +5722,12 @@
 5578  A9EC 00 00 00...          DEFS    20, $00                  ; fill
 5579  AA00              BDOS_IMAGE_END:                          ; first byte past the BDOS image
 5580  AA00
-5581  AA00                  SAVEBIN "{out_bin}", CCP_ENTRY, CCP_SIZE+BDOS_SIZE
-5582  AA00                  IFNDEF CPM_LINK
-5583  AA00                  ; The de-skewed BDOS must exactly fill its $9C00..$AA00 slot, so BDOS_SIZE
-5584  AA00                  ; (cpm_system_220.inc, = BIOS_FBASE - BDOS_FBASE) tracks the real image extent and
-5585  AA00                  ; any overrun fails the build here rather than silently truncating the SAVEBIN.
-5586  AA00                  ASSERT BDOS_IMAGE_END == BIOS_FBASE
-5587  AA00                  SAVEBIN "{out_bin}", BDOS_FBASE, BDOS_SIZE
-5588  AA00                  ENDIF
-5589  AA00
+5581  AA00                  IFNDEF CPM_LINK
+5582  AA00                  ; The de-skewed BDOS must exactly fill its $9C00..$AA00 slot, so BDOS_SIZE
+5583  AA00                  ; (cpm_system_220.inc, = BIOS_FBASE - BDOS_FBASE) tracks the real image extent and
+5584  AA00                  ; any overrun fails the build here rather than silently truncating the SAVEBIN.
+5585  AA00                  ASSERT BDOS_IMAGE_END == BIOS_FBASE
+5586  AA00                  SAVEBIN "{out_bin}", BDOS_FBASE, BDOS_SIZE
+5587  AA00                  ENDIF
+5588  AA00
 # file closed: CPM_BDOS.asm

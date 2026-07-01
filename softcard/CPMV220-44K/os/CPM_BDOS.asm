@@ -5578,7 +5578,6 @@ REC_CACHE:
         DEFS    20, $00                  ; fill
 BDOS_IMAGE_END:                          ; first byte past the BDOS image
 
-    SAVEBIN "E:/tmp/cpm_system_full.bin", CCP_ENTRY, CCP_SIZE+BDOS_SIZE
     IFNDEF CPM_LINK
     ; The de-skewed BDOS must exactly fill its $9C00..$AA00 slot, so BDOS_SIZE
     ; (cpm_system_220.inc, = BIOS_FBASE - BDOS_FBASE) tracks the real image extent and

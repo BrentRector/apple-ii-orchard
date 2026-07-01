@@ -53,6 +53,9 @@ class ChunkSource:
     # equates). Each path is copied verbatim beside the main source so the INCLUDE
     # resolves at assembly time.
     include_files: tuple = ()   # tuple of Paths copied into the build dir
+    # sjasmplus -D config flags applied to this Z-80 source (e.g. ('CFG_56K','V220B')
+    # to fold the 44K CPM_*.asm into the 2.20B-56K image). Empty = the base build.
+    defines: tuple = ()
 
 
 def assemble_chunk(source: ChunkSource, *, cwd: Path | None = None,
@@ -244,7 +247,7 @@ def _assemble_z80(source: ChunkSource, *, cwd: Path | None, lst_path: Path | Non
         # INCBIN/INCLUDE paths resolve there (mirrors the CPM60.COM build).
         run_cwd = str(tmp) if (source.incbin_deps or source.include_files) else cwd
         lst_tmp = tmp / "out.lst"
-        cmd = ["sjasmplus"]
+        cmd = ["sjasmplus"] + [f"-D{d}" for d in source.defines]
         if lst_path is not None:
             cmd.append(f"--lst={lst_tmp.resolve().as_posix()}")
         cmd.append(copied_asm.name if source.incbin_deps else str(copied_asm))
