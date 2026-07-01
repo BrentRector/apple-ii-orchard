@@ -1,30 +1,40 @@
 # Resume Prompt — Microsoft SoftCard CP/M Investigation
 
-## >> RESUME HERE — 2026-06-29 (LIVE): 56K OS FOLD — **BIOS DONE**, NEXT = CCP/BDOS fold (+ 56K disk wiring)
+## >> RESUME HERE — 2026-06-30: 56K OS FOLD — **WHOLE 2.20 OS CORE DONE** (BIOS+CCP+BDOS), adversarial-reviewed
 
-**Gate `cd /e/Orchard && source shared/toolchain/env.sh && python -m pytest softcard/ shared/` = 228, working
-tree CLEAN.** Commits this session: `f2fb84b` (Step0 + CCP_INLEN), `c7e9e3b` (BIOS fold foundation + DPH
-relocatization), **`589cda3` (BIOS fold COMPLETE)**. Plan of record `softcard/docs/CPM_56K_60K_Fold_Plan.md`;
-memory **[[project_cpm_56k_60k_fold_eval]]**.
+**Gate `cd /e/Orchard && source shared/toolchain/env.sh && python -m pytest softcard/ shared/` = 229, working
+tree CLEAN.** Commits this session: `f2fb84b` (Step0 + CCP_INLEN), `c7e9e3b` (BIOS foundation + DPH),
+`589cda3` (BIOS fold COMPLETE), `270f216` (resume), **`4df5f99` (CCP/BDOS fold COMPLETE)**. Plan of record
+`softcard/docs/CPM_56K_60K_Fold_Plan.md`; memory **[[project_cpm_56k_60k_fold_eval]]**.
 
-**>> BIOS FOLD DONE:** ONE `CPMV220-44K/os/CPM_BIOS.asm` conditionally compiles byte-identical to BOTH the
-2.20-44K BIOS (no defines) AND the 2.20B-56K BIOS (`-DCFG_56K -DV220B`) — verified 0-diff vs both real disks,
-gated by `test_cpm220_bios_folds_44k_and_2_20b_56k_from_one_source`. Mechanism: `cpm_system_220.inc` derives all
-bases from a single `OS_RELOC` offset ($0 / $3000); `CFG_56K` re-homes the OS +$3000; `V220B` adds the ~54-byte
-island (CONIN pre-scan routing, `$DF37` CALL→LD A, the `56K Ver. 2.20B` banner split across both axes, and the
-`CCP_INLEN` warm-boot stub ×3 — one the live `WARMBOOT_INLEN_STUB` WBOOT target). DPH DIRBUF/CSV/ALV literals +
-the dead DEV_HANDLER mirror relocate via `BIOS_FBASE`/`OS_RELOC`. Cross-refs ($9C06→BDOS_FBASE+6 etc.) relocatized.
+**>> WHOLE 2.20 OS CORE FOLDS FROM ONE 44K SOURCE SET:** `CPMV220-44K/os/{CPM_BIOS,CPM_CCP,CPM_BDOS}.asm` each
+compile byte-identical to BOTH the 2.20-44K disk (no defines) AND the real 2.20B-56K disk (`-DCFG_56K -DV220B`) —
+verified 0-diff vs both real disks; gated by `test_cpm220_bios_folds_44k_and_2_20b_56k_from_one_source` +
+`test_cpm220_ccp_bdos_fold_44k_and_2_20b_56k_from_one_source`.
+- **Mechanism:** `cpm_system_220.inc` derives all bases from ONE `OS_RELOC` offset ($0 / $3000); `CFG_56K` re-homes
+  the OS +$3000; `V220B` carries the tiny 2.20→2.20B deltas. Every in-image operand relocatized (BIOS cross-refs +
+  DPH; CCP/BDOS via scoped `+OS_RELOC` + re-decoding misaligned-DEFW data-as-code, e.g. the 4 disk-error reporters).
+- **BIOS V220B island (~54 B):** CONIN pre-scan routing, `$DF37` CALL→LD A, the `56K Ver. 2.20B` banner (44K/56K on
+  CFG_56K, the 'B' on V220B), the `CCP_INLEN` warm-boot stub ×3 (one live = `WARMBOOT_INLEN_STUB`).
+- **CCP/BDOS V220B deltas:** the 6-byte serial (BDOS header + `CCP_SERIAL_STAMP`), the DIR column-parity mask
+  `AND $01→$03`, and the inert BDOS `LD HL`.
+- **56K page→sector maps** wired in `deskew.py`: BIOS 33-38, CCP 11-18, BDOS 19-32 (`reference_{bios,ccp,bdos}_image_220b_56k`).
 
-**NEXT (the remaining 2.20 fold):**
-- **CCP/BDOS fold via CFG_56K (memory-axis only — no V220B island; they're functionally 2.20==2.20B).** Prereq:
-  labelize the ~40 DEFB-literal self/BIOS pointers in the 44K CPM_CCP.asm/CPM_BDOS.asm (same technique as the BIOS
-  DPH fix: `BIOS_FBASE`/`CCP_ENTRY`/`BDOS_FBASE`-relative, or `OS_RELOC` high-byte for dead literals). Then they
-  re-ORG +$3000 via the CFG_56K-aware `cpm_system_220.inc` (already done). Verify: assemble CCP@$C400 / BDOS@$CC00
-  with `-DCFG_56K` and diff vs the de-staged 56K SystemImage (or boot + readz80).
+**>> ADVERSARIAL REVIEW (this session, 4 skeptics):** BIOS fold UPHELD independently — reskewed the folded BIOS into
+a copy of the RAW `.po` → 0/143360 bytes differ; BOOTED the reconstruction → `56K VER. 2.20B / A>` identical, with a
+negative-control byte-flip proving those sectors run; semantics confirmed by LIVE tracing (CONIN reroute, the stub,
+the LDIR-guard-dead argument). It CAUGHT one real over-relocation — a dead `LD HL,CCP_ENTRY` that was
+byte-identical-but-WRONG ($9400 coincides with the CCP base; the real 2.20B has `$D6DF`, a self-pointer) — now fixed
++ V220B-gated. Lesson = `[[feedback_byte_identical_not_correct_decode]]`.
+
+**NEXT:**
 - **Full 2.20B-56K disk build (optional, beyond the fold gate):** add `defines` support to
-  `assemble_chunk`/`_assemble_z80` (only incbin deps take defines today); a 2.20B-56K BIOS+CCP+BDOS ChunkSource
-  set; reskew via `deskew.BIOS_PAGE_TO_SECTOR_220B_56K` (+ derive the 56K CCP/BDOS page→sector maps) → byte-
-  identical `DISK_2_20B_56K_SYSTEM`. Then create the derived 2.20B-44K build cell.
+  `assemble_chunk`/`_assemble_z80` (only incbin deps take defines today); a 2.20B-56K BIOS+CCP+BDOS ChunkSource set;
+  reskew via the `deskew` 220b maps → byte-identical `DISK_2_20B_56K_SYSTEM`; then the derived 2.20B-44K cell (build
+  with `-DV220B` only). Retire the legacy combined `CPMV220/os/CPM_SystemImage.asm`.
+- Then: 2.23-60K (BDOS stays SEPARATE — LC two-bank split), the CPM56→os/ fold, the other trees' size-sweep, wiseowl
+  "Guided Tour". Debug wart: `CPM_BDOS.asm` still has a hardcoded `SAVEBIN "E:/tmp/cpm_system_full.bin"` (relocatized
+  base but scratch path).
 
 **THE DECISION (empirically verified — `cpm-56k-60k-fold-eval` workflow, all booted/assembled, not docs):**
 **Conditionally compile the 2.20 family from the 44K base; keep the 2.23-60K BDOS a SEPARATE build.** This
