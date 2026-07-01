@@ -27,14 +27,20 @@ the LDIR-guard-dead argument). It CAUGHT one real over-relocation — a dead `LD
 byte-identical-but-WRONG ($9400 coincides with the CCP base; the real 2.20B has `$D6DF`, a self-pointer) — now fixed
 + V220B-gated. Lesson = `[[feedback_byte_identical_not_correct_decode]]`.
 
-**NEXT:**
-- **Full 2.20B-56K disk build (optional, beyond the fold gate):** add `defines` support to
-  `assemble_chunk`/`_assemble_z80` (only incbin deps take defines today); a 2.20B-56K BIOS+CCP+BDOS ChunkSource set;
-  reskew via the `deskew` 220b maps → byte-identical `DISK_2_20B_56K_SYSTEM`; then the derived 2.20B-44K cell (build
-  with `-DV220B` only). Retire the legacy combined `CPMV220/os/CPM_SystemImage.asm`.
-- Then: 2.23-60K (BDOS stays SEPARATE — LC two-bank split), the CPM56→os/ fold, the other trees' size-sweep, wiseowl
-  "Guided Tour". Debug wart: `CPM_BDOS.asm` still has a hardcoded `SAVEBIN "E:/tmp/cpm_system_full.bin"` (relocatized
-  base but scratch path).
+**>> 2.20 FAMILY FOLD COMPLETE (2026-06-30, gate 230):** the whole 2.20B-56K **DISK** now reconstructs
+byte-identical from the folded 44K sources (commits `2d34ead`/`021ab1a`/`c9250c5`):
+- `assemble.py`: `ChunkSource.defines` → sjasmplus `-D`. `chunk_map._build_chunks_220`: three folded 56K
+  ChunkSources (`-DCFG_56K -DV220B`) SCATTERED to their `.po` sectors via the deskew 220b maps + ProDOS-interleave
+  inverse. `reconstruct_disk("220")` → diff 0. Removed the debug `E:/tmp` SAVEBIN wart.
+- **Either `.dsk` or `.po` on request for any build** — chunks placed at physical (track,sector), so the format is
+  just the output extension; gated by `test_reconstruct_emits_either_dsk_or_po_for_any_build` (cross-format
+  round-trips to the real disk). CLI: `python -m cpm_pipeline build <variant> --reference D --output OUT.{dsk,po}`.
+- **Retired** `CPMV220/os/CPM_SystemImage.asm` + `CPMV220/os/CPM_BIOS.asm` (CPMV220/os keeps only the boot loader);
+  `generate.py` 2.20 variant + the CPMV220 README/BOOT_AND_PATCHING + Manual_Reconcile_Facts docs repointed to the
+  folded sources.
+
+**NEXT:** derived 2.20B-44K cell (build with `-DV220B` only, no reference — validated transitively); 2.23-60K
+(BDOS stays SEPARATE — LC two-bank split), the CPM56→os/ fold, the other trees' size-sweep, wiseowl "Guided Tour".
 
 **THE DECISION (empirically verified — `cpm-56k-60k-fold-eval` workflow, all booted/assembled, not docs):**
 **Conditionally compile the 2.20 family from the 44K base; keep the 2.23-60K BDOS a SEPARATE build.** This
