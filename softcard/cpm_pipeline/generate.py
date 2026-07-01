@@ -97,10 +97,15 @@ SOURCES_BY_VARIANT = {
         "CPM_BDOS.asm",
         "CPM_BIOS.asm",
     ],
+    # The 56K boot loader stays in CPMV220/os (the variant base); the OS CORE is FOLDED from
+    # the canonical 2.20-44K tree (build with -DCFG_56K -DV220B), so CCP/BDOS/BIOS are sourced
+    # from CPMV220-44K/os as absolute Paths. (Retires the legacy CPMV220/os/CPM_SystemImage.asm
+    # + CPMV220/os/CPM_BIOS.asm.)
     "softcard_cpm_2_20": [
         "CPM_BootLoader.s",
-        "CPM_SystemImage.asm",
-        "CPM_BIOS.asm",
+        REPO_ROOT / "CPMV220-44K" / "os" / "CPM_CCP.asm",
+        REPO_ROOT / "CPMV220-44K" / "os" / "CPM_BDOS.asm",
+        REPO_ROOT / "CPMV220-44K" / "os" / "CPM_BIOS.asm",
     ],
 }
 
@@ -176,11 +181,14 @@ def generate(disk_path: Path | str, output_dir: Path | str,
         source_dir = output_dir / "source"
         source_dir.mkdir()
         source_base = SOURCE_BASE_BY_VARIANT.get(info.variant, DOCS)
-        for fname in sources_to_copy:
-            src = source_base / fname
+        for entry in sources_to_copy:
+            # An entry is a base-relative filename, or an absolute Path (e.g. the 2.20-56K
+            # OS core, folded from the CPMV220-44K/os tree rather than the variant base).
+            src = entry if isinstance(entry, Path) else source_base / entry
+            name = src.name
             if src.exists():
-                shutil.copy2(src, source_dir / fname)
-                result.sources_copied.append(f"source/{fname}")
+                shutil.copy2(src, source_dir / name)
+                result.sources_copied.append(f"source/{name}")
             else:
                 result.notes.append(f"missing annotated source: {src}")
 

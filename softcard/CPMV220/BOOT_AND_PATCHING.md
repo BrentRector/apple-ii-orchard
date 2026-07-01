@@ -19,10 +19,16 @@ filesystem (the 11 `.COM` + data files in `utilities/`).
    `$0200-$03FF`) inline, then runs `LOAD_CPM`, the staged-system read off
    tracks 0-2 that lands the Z-80 system into low memory:
 
-   | staging offset | bytes | source (`os/`) | what it is |
-   |---|---|---|---|
-   | `$0000-$16FF` | `$1700` | `CPM_SystemImage.asm` | CCP + BDOS |
-   | `$1700-$1BFF` | `$0500` | `CPM_BIOS.asm` | the pristine on-disk BIOS, landed at `$DA00-$DEFF` |
+   | runtime image | source | what it is |
+   |---|---|---|
+   | CCP `$C400` (8 pp) | `../CPMV220-44K/os/CPM_CCP.asm` `-DCFG_56K -DV220B` | CCP |
+   | BDOS `$CC00` (14 pp) | `../CPMV220-44K/os/CPM_BDOS.asm` `-DCFG_56K -DV220B` | BDOS |
+   | BIOS `$DA00` (6 pp) | `../CPMV220-44K/os/CPM_BIOS.asm` `-DCFG_56K -DV220B` | BIOS: jump table + console/disk/IOBYTE |
+
+   The 56K OS core is now the **FOLDED** de-skewed runtime image: `-DCFG_56K -DV220B` re-homes
+   the 2.20-44K sources +$3000 into the Language Card (retiring the legacy `CPM_SystemImage.asm`
+   + a separate 56K `CPM_BIOS.asm`). The cold loader de-interleaves it off tracks 0-2 onto the
+   system-track sectors (linear 11-18 / 19-32 / 33-38).
 
    Unlike 2.23, 2.20 has **no `DiskCallbacks` region** — the 2.20 `LOAD_CPM` reads
    28 sectors (vs 2.23's 29), one short, with the BIOS staged directly after the

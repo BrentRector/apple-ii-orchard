@@ -80,7 +80,7 @@ Maps to code: top-level memory map for CPM 2.20 (44K/56K); annotate disk-buffer 
 
 One-line semantics: vertical CP/M layout high-to-low (FDOS above FBASE, CCP above CBASE, TPA above TBASE, system params above BOOT=`0000H`), with Apple-specific base addresses for two configs.
 Page: printed 3-41/3-42 (scan 053-054).
-Maps to code: `CPM_SystemImage.asm` ORG/EQU for CCP_BASE/BDOS_BASE/BIOS_BASE.
+Maps to code: the folded `CPMV220-44K/os/CPM_{CCP,BDOS,BIOS}.asm` (built `-DCFG_56K` re-homes CCP/BDOS/BIOS to `$C400`/`$CC00`/`$DA00` via `include/cpm_system_220.inc`'s `OS_RELOC`).
 
 | Module | 44K | 56K (Language Card) |
 |---|---|---|
@@ -93,7 +93,7 @@ Maps to code: `CPM_SystemImage.asm` ORG/EQU for CCP_BASE/BDOS_BASE/BIOS_BASE.
 
 > Base addresses for the two Apple memory configurations that can be used with CP/M are shown in the table below: | Module | 44K | 56K (Language Card) | | CCP | 9400H | C400H | | BDOS | 9C00H | CC00H | | BIOS | AA00H | DA00H | | Top of RAM | AFFFH | DFFFH |
 
-**SCOPE NOTE (corrected — was mis-tagged 2.23-only in the raw extract).** These CCP/BDOS/BIOS load addresses are from the 1980 SoftCard-edited DR Reference Manual, i.e. the **2.20-era** layout. Decisive cross-check against the repo sources: the **56K column** (CCP `C400H`, BDOS `CC00H`, BIOS `DA00H`) matches **CPMV220** exactly — `CPMV220/os/CPM_BIOS.asm` is `ORG $DA00` and declares `BDOS_ENTRY_220 EQU $CC06`. The **2.23 trees rebased the BIOS to `$FA00`** (`CPMV223-44K/os/CPM_BIOS.asm` is `ORG $FA00`), so this table maps to **CPMV220**, not the 2.23 sources. The manual's second config is "56K Language Card"; the project's later **60K** config is a separate post-1980 layout. The `BOOT=0000H` / `TBASE=0100H` / `0005H`-entry architecture is SHARED. The 44K column (`9400H`/`9C00H`/`AA00H`) has no direct repo source (CPMV220 is the `$DA00` build); confirm it against the PDF only if it is ever needed.
+**SCOPE NOTE (corrected — was mis-tagged 2.23-only in the raw extract).** These CCP/BDOS/BIOS load addresses are from the 1980 SoftCard-edited DR Reference Manual, i.e. the **2.20-era** layout. Decisive cross-check against the repo sources: the **56K column** (CCP `C400H`, BDOS `CC00H`, BIOS `DA00H`) matches the **folded 2.20 build** exactly — `CPMV220-44K/os/CPM_BIOS.asm` built `-DCFG_56K -DV220B` is `ORG $DA00` with its BDOS entry at `$CC06` (`cpm_system_220.inc` `OS_RELOC`). The **2.23 trees rebased the BIOS to `$FA00`** (`CPMV223-44K/os/CPM_BIOS.asm` is `ORG $FA00`), so this table maps to **CPMV220**, not the 2.23 sources. The manual's second config is "56K Language Card"; the project's later **60K** config is a separate post-1980 layout. The `BOOT=0000H` / `TBASE=0100H` / `0005H`-entry architecture is SHARED. The 44K column (`9400H`/`9C00H`/`AA00H`) IS the base build of the same folded sources (`CPMV220-44K/os`, no defines).
 
 ### 2.4 6502 RESET / NMI / BREAK vectors — SHARED
 
@@ -416,7 +416,7 @@ Page: printed 3-46/3-47 (scan 058-059).
 ### 7.1 FDOS / BDOS entry point at `BOOT+0005H`
 
 One-line semantics: all OS calls load a function number into C and an information address into DE, then CALL `BOOT+0005H` (normally `0005H`). Location `0005H` holds a JMP to FBASE; the 2-byte address at `0006H` equals FBASE = top of available memory.
-Page: printed 3-44 (scan 056). Maps to code: `CPM_BDOS.asm` dispatch entry (the JMP at `0005H` -> FBASE); `CPM_SystemImage.asm` page-zero layout (`BDOS=$0005`, `WBOOT=$0000`, FBASE pointer at `$0006`).
+Page: printed 3-44 (scan 056). Maps to code: `CPMV220-44K/os/CPM_BDOS.asm` dispatch entry (the JMP at `0005H` -> FBASE) + its page-zero layout (`BDOS=$0005`, `WBOOT=$0000`, FBASE pointer at `$0006`).
 
 > access to the FDOS functions is accomplished by passing a function number and information address through the primary entry point at location BOOT + 0005H. In general, the function number is passed in register C with the information address in the double byte pair DE. Single byte values are returned in register A, with double byte values returned in HL (a zero value is returned when the function number is out of range). For reasons of compatibility, register A = L and register B = H upon return in all cases.
 
@@ -432,7 +432,7 @@ Page: printed 3-44 (scan 056). Maps to code: `CPM_CCP.asm` transient-load/launch
 ### 7.4 Default FCB (`005CH`), second FCB (`006CH`), default DMA (`0080H`)
 
 One-line semantics: transients use the default FCB at `005CH` and the default 128-byte DMA buffer at `0080H`. The CCP parses up to two file specs into FCB1 (`005CH`) and a second FCB whose first 16 bytes occupy `006CH` (the `d0..dn` region of FCB1) — the second FCB must be copied elsewhere before opening FCB1. The three bytes at `007DH` are free for the random-record fields. Default DMA resets to `0080H` on cold start, warm start, and disk reset.
-Page: printed 3-46, 3-47/3-48 (scan 058-060). Maps to code: `CPM_SystemImage.asm` page-zero (`DEFAULT_FCB EQU $5C`, `DMA EQU $80`); `CPM_CCP.asm` two-FCB parse (FCB1=`$5C`, FCB2 first-16 at `$6C`, name at `$6D`, type at `$75`).
+Page: printed 3-46, 3-47/3-48 (scan 058-060). Maps to code: `CPMV220-44K/os/CPM_CCP.asm` page-zero (`DEFAULT_FCB EQU $5C`, `DMA EQU $80`) + its two-FCB parse (FCB1=`$5C`, FCB2 first-16 at `$6C`, name at `$6D`, type at `$75`).
 
 | Z-80 | Use |
 |---|---|

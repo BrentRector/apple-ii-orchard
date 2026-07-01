@@ -52,12 +52,13 @@ def test_generate_2_23_tree_structure():
 
 @pytest.mark.skipif(not present(DISK_2_20B_56K_SYSTEM), reason="2.20B 56K system disk missing")
 def test_generate_2_20_tree_structure():
-    """2.20 has 3 sources, 2 symbols (no cpm_2_23_bios.json)."""
+    """2.20 has 4 sources (56K BootLoader + the folded CCP/BDOS/BIOS from the 44K tree),
+    2 symbols (no cpm_2_23_bios.json)."""
     with tempfile.TemporaryDirectory() as tmp:
         out = Path(tmp) / "tree"
         result = generate(DISK_2_20B_56K_SYSTEM, out)
         assert result.variant == "softcard_cpm_2_20"
-        assert len(result.sources_copied) == 3
+        assert len(result.sources_copied) == 4
         assert len(result.symbols_copied) == 2
 
 
