@@ -107,6 +107,34 @@ def test_cpm220_44k_reconstruct_byte_identical():
         assert result.bytes_from_assembled > 0
 
 
+@pytest.mark.skipif(not HAS_ASSEMBLERS, reason="ca65/ld65/sjasmplus not on PATH")
+def test_reconstruct_emits_either_dsk_or_po_for_any_build():
+    """Any build can be written as EITHER a .dsk (DOS 3.3 order) or a .po (ProDOS order)
+    on request -- the format is taken from the output extension. Chunks are placed at
+    physical (track, sector), so the assembled OS region is byte-identical in either
+    format; the reference supplies the filesystem sectors (transcoded to the output
+    format). Verify: the output, transcoded back to the reference's own format, equals
+    the real reference disk byte-for-byte -- including the CROSS format (56K native .po
+    written as .dsk, 44K native .dsk written as .po)."""
+    from cpm_pipeline.reconstruct import _transcode, detect_format
+    for variant, reference in (("220", DISK_2_20B_56K_SYSTEM),
+                               ("220-44k", DISK_2_20_44K_SYSTEM)):
+        if not present(reference):
+            pytest.skip(f"reference disk missing: {reference}")
+        ref_fmt = detect_format(Path(reference))
+        ref_bytes = Path(reference).read_bytes()
+        for ext in (".dsk", ".po"):
+            with tempfile.TemporaryDirectory() as tmp:
+                out = Path(tmp) / f"cpm{ext}"
+                result = reconstruct_disk(variant, reference_path=reference,
+                                          output_path=out, verify=True)
+                assert result.diff_count == 0, f"{variant} -> {ext}: diff {result.diff_count}"
+                back = bytes(_transcode(out.read_bytes(),
+                                        src_format=ext[1:], dst_format=ref_fmt))
+                assert back == ref_bytes, \
+                    f"{variant} written as {ext} does not round-trip to the real disk"
+
+
 def test_cpm220_44k_deskew_roundtrip_and_coherent():
     """The 44K system image runs sector-DE-INTERLEAVED (see CPM_Skew_Findings.md).
     Pin the de-skew map: gather the de-skewed runtime image from the reference .dsk,
