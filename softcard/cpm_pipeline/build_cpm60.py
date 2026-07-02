@@ -37,6 +37,12 @@ from .regenerate import _assemble_savebin
 _REPO = Path(__file__).resolve().parents[2]
 _60K = _REPO / "softcard" / "CPMV223-60K"
 _OS = _60K / "os"
+_INCLUDE = _REPO / "softcard" / "include"
+# The 60K CCP is FOLDED from the canonical, C-level 2.23-44K CCP (relocated +$4000 via
+# -DCFG_60K); there is no separate 60K CCP source. The master + the via-layout cross-check
+# both build it from here + the shared EQU includes.
+_CANONICAL_CCP = _REPO / "softcard" / "CPMV223-44K" / "os" / "CPM_CCP.asm"
+_CCP_INCLUDES = ("cpm22.inc", "cpm_system_223.inc")
 _DISK = DISK_2_23_44K_SYSTEM
 _SJASMPLUS = _REPO / "shared" / "toolchain" / "sjasmplus" / "sjasmplus-1.23.0.win" / "sjasmplus.exe"
 
@@ -79,8 +85,13 @@ def build_cpm60_com() -> bytes:
         (td / "os").mkdir()
         shutil.copy(_60K / "CPM60.asm", td / "CPM60.asm")
         shutil.copy(_60K / "CPM60_installer.asm", td / "CPM60_installer.asm")
-        for name in ("CPM_CCP.asm", "CPM_BDOS.asm", "CPM_BIOS.asm"):
+        # BDOS/BIOS from the 60K os/ tree; the CCP is the folded canonical 2.23-44K CCP.
+        for name in ("CPM_BDOS.asm", "CPM_BIOS.asm"):
             shutil.copy(_OS / name, td / "os" / name)
+        shutil.copy(_CANONICAL_CCP, td / "os" / "CPM_CCP.asm")
+        # the shared EQU includes the folded CCP pulls in (master INCLUDEs them by bare name)
+        for inc in _CCP_INCLUDES:
+            shutil.copy(_INCLUDE / inc, td / inc)
         for bin_name, src in _SIX.items():
             if not _assemble_6502(src, td / bin_name):
                 raise RuntimeError(f"ca65 failed to assemble {src.name}")
@@ -111,10 +122,35 @@ LAYOUT = [
     _Region(0x0400, "rwts",       0x000, 0x5BD),
     _Region(0x0A00, "bootloader", 0x800, 0x1F2),   # $1000 reloc page
     _Region(0x0D80, "frag",       0x180, 0x080),   # InstallFragments $0380 slice
-    _Region(0x0E00, "ccp",        0x000, 0x906),
-    _Region(0x1700, "bdos",       0x000, 0xE00),    # overwrites CCP's 6-byte serial tail
+    _Region(0x0E00, "ccp",        0x000, 0x900),    # folded CCP, $D300-$DBFF (no serial tail)
+    _Region(0x1700, "bdos",       0x000, 0xE00),    # opens with the 6-byte serial at $DC00
     _Region(0x2600, "bios",       0x000, 0x600),
 ]
+
+
+def _folded_ccp() -> bytes:
+    """The 60K CCP as an independent component for the via-layout cross-check: the ONE
+    canonical, C-level 2.23-44K CCP relocated +$4000 (-DCFG_60K, DISP $D300). Exactly
+    $0900 (2304) bytes, $D300-$DBFF; the 6-byte BDOS serial that follows it is emitted
+    by the bdos component, not here."""
+    with tempfile.TemporaryDirectory() as tds:
+        td = Path(tds)
+        for inc in _CCP_INCLUDES:
+            shutil.copy(_INCLUDE / inc, td / inc)
+        shutil.copy(_CANONICAL_CCP, td / "CPM_CCP.asm")
+        (td / "w.asm").write_text(
+            "    DEVICE NOSLOT64K\n    DEFINE CPM_LINK\n    DEFINE CFG_60K\n"
+            "    MODULE ccp\n"
+            '    INCLUDE "cpm22.inc"\n    INCLUDE "cpm_system_223.inc"\n'
+            "    ORG $0F00\n    DISP $D300\n"
+            '    INCLUDE "CPM_CCP.asm"\n    ENT\n    ENDMODULE\n'
+            '    SAVEBIN "ccp.bin", $0F00, $0900\n', encoding="latin-1")
+        r = subprocess.run([_sjasmplus(), "w.asm"], cwd=str(td),
+                           capture_output=True, text=True)
+        ob = td / "ccp.bin"
+        if not ob.exists():
+            raise RuntimeError(f"folded CCP assembly failed:\n{r.stdout}{r.stderr}")
+        return ob.read_bytes()
 
 
 def _components() -> dict[str, bytes]:
@@ -130,7 +166,7 @@ def _components() -> dict[str, bytes]:
             out_bins[key] = ob.read_bytes() if _assemble_6502(src, ob) else b""
     return {
         "installer":  z(_60K / "CPM60_installer.asm"),
-        "ccp":        z(_OS / "CPM_CCP.asm"),
+        "ccp":        _folded_ccp(),                  # folded canonical 2.23 CCP (+$4000)
         "bdos":       z(_OS / "CPM_BDOS.asm"),
         "bios":       z(_OS / "CPM_BIOS.asm"),       # the unpatched template
         **out_bins,

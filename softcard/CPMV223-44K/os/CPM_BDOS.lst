@@ -108,16 +108,31 @@
   10+ 0000              ; (never duplicated -- feedback_no_duplicate_symbol_definitions).
   11+ 0000              ; ============================================================================
   12+ 0000
-  13+ 0000              CCP_BASE   EQU $9300      ; CCP cold entry (the BIOS cold/warm boot lands here)
-  14+ 0000              CCP_WBOOT  EQU $9B06      ; CCP warm-boot re-entry the BDOS returns through
-  15+ 0000              BDOS_FBASE EQU $9C00      ; FBASE: BDOS image base (6-byte serial + JP entry)
-  16+ 0000              BDOS_FLIMIT EQU $AA00     ; first byte PAST the BDOS image (CPM_BDOS asserts $ == this)
-  17+ 0000
-  18+ 0000              ; Region sizes computed from the contiguous CCP -> BDOS boundaries above -- never a magic
-  19+ 0000              ; number (the byte gate catches any overrun via the CPM_CCP/CPM_BDOS end-of-image ASSERTs).
-  20+ 0000              CCP_SIZE   EQU BDOS_FBASE - CCP_BASE     ; $0900: CCP image size  = (first BDOS byte) - (first CCP byte)
-  21+ 0000              BDOS_SIZE  EQU BDOS_FLIMIT - BDOS_FBASE  ; $0E00: BDOS image size = (byte after BDOS) - (first BDOS byte)
-  22+ 0000
+  13+ 0000              ; Memory-config axis. The 60K build lifts the CCP+BDOS +$4000 into the Apple Language
+  14+ 0000              ; Card (CCP $9300->$D300, BDOS $9C00->$DC00; the BIOS stays at $FA00). Defining CFG_60K
+  15+ 0000              ; re-homes the CCP by re-assembly alone, so the ONE C-level CCP source folds to both the
+  16+ 0000              ; 2.23-44K disk (no define) and the 60K CPM60.COM image (CPMV223-60K/CPM60.asm INCLUDEs
+  17+ 0000              ; it with -DCFG_60K). The 60K BDOS is a SEPARATE bank-woven build and does NOT fold here.
+  18+ 0000              ; See ../CPMV223-60K/CPM60_COM.md and docs/CPM_Unified_Build_Plan.md.
+  19+ 0000                  IFDEF CFG_60K
+  20+ 0000 ~            CCP_BASE   EQU $D300      ; 60K: CCP cold entry, relocated into the language card
+  21+ 0000 ~            CCP_WBOOT  EQU $DB06      ; 60K: CCP warm-boot re-entry
+  22+ 0000 ~            BDOS_FBASE EQU $DC00      ; 60K: BDOS image base (page-zero $0005 JP target)
+  23+ 0000 ~            BDOS_FLIMIT EQU $EA00     ; 60K: first byte past the BDOS image
+  24+ 0000 ~            FASTLOAD_TOP_PAGE EQU $F0 ; 60K: fast-loader top page (TPA reaches up into the LC)
+  25+ 0000                  ELSE
+  26+ 0000              CCP_BASE   EQU $9300      ; CCP cold entry (the BIOS cold/warm boot lands here)
+  27+ 0000              CCP_WBOOT  EQU $9B06      ; CCP warm-boot re-entry the BDOS returns through
+  28+ 0000              BDOS_FBASE EQU $9C00      ; FBASE: BDOS image base (6-byte serial + JP entry)
+  29+ 0000              BDOS_FLIMIT EQU $AA00     ; first byte PAST the BDOS image (CPM_BDOS asserts $ == this)
+  30+ 0000              FASTLOAD_TOP_PAGE EQU $A1 ; 44K: fast-loader top page = just below the CCP ($A1xx)
+  31+ 0000                  ENDIF
+  32+ 0000
+  33+ 0000              ; Region sizes computed from the contiguous CCP -> BDOS boundaries above -- never a magic
+  34+ 0000              ; number (the byte gate catches any overrun via the CPM_CCP/CPM_BDOS end-of-image ASSERTs).
+  35+ 0000              CCP_SIZE   EQU BDOS_FBASE - CCP_BASE     ; $0900: CCP image size  = (first BDOS byte) - (first CCP byte)
+  36+ 0000              BDOS_SIZE  EQU BDOS_FLIMIT - BDOS_FBASE  ; $0E00: BDOS image size = (byte after BDOS) - (first BDOS byte)
+  37+ 0000
 # file closed: cpm_system_223.inc
   14  0000                  ORG $9C00
   15  9C00                  ENDIF

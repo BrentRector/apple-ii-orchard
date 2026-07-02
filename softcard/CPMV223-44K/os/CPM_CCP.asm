@@ -17,7 +17,7 @@
 
         ; CCP_BASE ($9300): cold/warm-boot entry vector (named by cpm_system_223.inc)
         JP CCP_COLD_ENTRY
-        DEFB    $C3,$08,$96
+        JP CCP_WARM_ENTRY               ; warm-boot vector ($9303 -> CCP_WARM_ENTRY)
 ; ----------------------------------------------------------------------
 ; CCP_INBUF -- console line-input buffer descriptor for C_READSTR.
 ;   Layout: byte0 ($9306)=max length ($7F=127), byte1 ($9307)=returned count,
@@ -55,7 +55,7 @@ CCP_CMDTEXT:
 ; ----------------------------------------------------------------------
 CCP_PARSEPTR:
         ; init = CCP_CMDTEXT ($9308) little-endian
-        DEFB    $08,$93
+        DEFW    CCP_CMDTEXT
 ; ----------------------------------------------------------------------
 ; CCP_TOKENPTR -- 16-bit pointer to the start of the current token.
 ;   Saved by the FCB builder and reused by the bad-character echo routine.
@@ -2163,7 +2163,7 @@ FASTLOAD_RPC_BEGIN:
         LD A,$11
         LD (FASTLOAD_LOAD_PAGE),A
         ; DE = top of the request-list scratch area (just below the CCP at $9300)
-        LD DE,$92FF
+        LD DE,CCP_BASE-1        ; top of the request-list scratch (just below the CCP)
 ; ----------------------------------------------------------------------
 ; FASTLOAD_BUILD_PASS -- 2.23-ONLY: build one pass of block-read requests from the directory map.
 ;   In: DE = current request-list write pointer; CCP_FCB_SECOND = the open file's 16-byte
@@ -2281,7 +2281,7 @@ FASTLOAD_EMIT_IOB_2:
         LD (DE),A
         DEC DE
         LD A,(FASTLOAD_LOAD_PAGE)
-        CP $A1
+        CP FASTLOAD_TOP_PAGE            ; reached the top of loadable memory?
         JP Z,CCP_BAD_LOAD
         ; load page reached $C0 (the $C000 I/O window): skip it
         CP $C0
@@ -2332,7 +2332,7 @@ FASTLOAD_NEXT_DIR_ENTRY:
 ;     exact key semantics are partly UNKNOWN.
 ; ----------------------------------------------------------------------
 FASTLOAD_SORT_REQUESTS:
-        LD HL,$92FF
+        LD HL,CCP_BASE-1        ; top of the request-list scratch (just below the CCP)
 FASTLOAD_SORT_REQUESTS_1:
         LD D,H
         LD E,L
@@ -2377,7 +2377,7 @@ FASTLOAD_SORT_REQUESTS_5:
         OR A
         JR NZ,FASTLOAD_SORT_REQUESTS_1
         RET
-        LD DE,$92FF
+        LD DE,CCP_BASE-1        ; top of the request-list scratch (just below the CCP)
 ; ----------------------------------------------------------------------
 ; FASTLOAD_DISPATCH_RPC -- 2.23-ONLY: walk the sorted IOB list and fire each block read through the
 ;   6502 RWTS via the SoftCard RPC cells.

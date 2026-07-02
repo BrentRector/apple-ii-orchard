@@ -25,19 +25,21 @@
 ;  $0400-$09BC   --         RWTS driver                   CPM_RWTS.bin         (6502)
 ;  $0A00-$0BF1   $1000      boot loader (reloc page)      CPM_BootLoader.bin   (6502)
 ;  $0D80-$0DFF   $0380      install fragments slice       CPM_InstallFragments.bin (6502)
-;  $0E00-$1705   $D300      CCP                           os/CPM_CCP.asm       (Z-80, DISP)
+;  $0E00-$16FF   $D300      CCP (folded canonical)        ../CPMV223-44K/os/CPM_CCP.asm (Z-80, DISP+CFG_60K)
 ;  $1700-$24FF   $DC00      BDOS                          os/CPM_BDOS.asm      (Z-80, DISP)
 ;  $2600-$2BFF   $FA00      BIOS (as-shipped template)    os/CPM_BIOS.asm      (Z-80, DISP)
 ;
-;  The CCP/BDOS file regions overlap by 6 bytes ($1700-$1705): that is the
-;  shared "BD160001 4D40" serial that ends the CCP and begins the BDOS. CCP is
-;  emitted first; BDOS rewrites those 6 bytes with the identical serial.
+;  The BDOS image opens with the 6-byte "BD160001 4D40" serial at $DC00-$DC05
+;  (file $1700-$1705); the folded CCP is exactly $0900 bytes ($D300-$DBFF) and does
+;  NOT emit that serial, so the CCP and BDOS regions abut without overlap.
 ;  Gaps between regions are $00 (the SAVEBIN window zero-fills unwritten bytes).
 ;  Runtime boot/load patching is documented in BOOT_AND_PATCHING.md, not here.
 ; ============================================================================
 
     DEVICE NOSLOT64K
     DEFINE CPM60_LINK            ; tell each INCLUDEd module: master owns DEVICE/ORG/SAVEBIN
+    DEFINE CPM_LINK              ; same, for the folded canonical CCP (guards on CPM_LINK)
+    DEFINE CFG_60K               ; memory-config axis: cpm_system_223.inc -> CCP $D300 / BDOS $DC00
 
 ; --- installer driver: runs in place at $0100 (no relocation) -------------
 TPA     EQU $0100                        ; CP/M transient program area (local; 60K build does not stage shared includes)
@@ -57,8 +59,17 @@ TPA     EQU $0100                        ; CP/M transient program area (local; 6
     INCBIN "CPM_InstallFragments.bin", $0180, $0080  ; install-fragments slice ($0380)
 
 ; --- CCP: stored at file $0E00, runs at $D300 -----------------------------
+; FOLDED: the 60K CCP is the ONE canonical, C-level 2.23 CCP relocated +$4000. The
+; master INCLUDEs ../CPMV223-44K/os/CPM_CCP.asm (staged as os/CPM_CCP.asm) with -DCFG_60K,
+; which re-homes CCP_BASE/BDOS_FBASE via cpm_system_223.inc; DISP $D300 relocates every
+; in-image label. The shared EQU includes are pulled in scoped to this MODULE (so the
+; page-zero/BDOS constants never collide with the other modules' local names). The 6-byte
+; serial that opens the BDOS image ($DC00-$DC05) is emitted by the bdos module below, not
+; the CCP (the folded CCP is exactly $0900 bytes, $D300-$DBFF). See CPM60_COM.md.
     ORG $0F00                    ; file $0E00
     MODULE ccp
+    INCLUDE "cpm22.inc"
+    INCLUDE "cpm_system_223.inc"
     DISP $D300
     INCLUDE "os/CPM_CCP.asm"
     ENT

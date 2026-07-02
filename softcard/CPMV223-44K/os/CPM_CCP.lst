@@ -109,23 +109,38 @@
   10+ 0000              ; (never duplicated -- feedback_no_duplicate_symbol_definitions).
   11+ 0000              ; ============================================================================
   12+ 0000
-  13+ 0000              CCP_BASE   EQU $9300      ; CCP cold entry (the BIOS cold/warm boot lands here)
-  14+ 0000              CCP_WBOOT  EQU $9B06      ; CCP warm-boot re-entry the BDOS returns through
-  15+ 0000              BDOS_FBASE EQU $9C00      ; FBASE: BDOS image base (6-byte serial + JP entry)
-  16+ 0000              BDOS_FLIMIT EQU $AA00     ; first byte PAST the BDOS image (CPM_BDOS asserts $ == this)
-  17+ 0000
-  18+ 0000              ; Region sizes computed from the contiguous CCP -> BDOS boundaries above -- never a magic
-  19+ 0000              ; number (the byte gate catches any overrun via the CPM_CCP/CPM_BDOS end-of-image ASSERTs).
-  20+ 0000              CCP_SIZE   EQU BDOS_FBASE - CCP_BASE     ; $0900: CCP image size  = (first BDOS byte) - (first CCP byte)
-  21+ 0000              BDOS_SIZE  EQU BDOS_FLIMIT - BDOS_FBASE  ; $0E00: BDOS image size = (byte after BDOS) - (first BDOS byte)
-  22+ 0000
+  13+ 0000              ; Memory-config axis. The 60K build lifts the CCP+BDOS +$4000 into the Apple Language
+  14+ 0000              ; Card (CCP $9300->$D300, BDOS $9C00->$DC00; the BIOS stays at $FA00). Defining CFG_60K
+  15+ 0000              ; re-homes the CCP by re-assembly alone, so the ONE C-level CCP source folds to both the
+  16+ 0000              ; 2.23-44K disk (no define) and the 60K CPM60.COM image (CPMV223-60K/CPM60.asm INCLUDEs
+  17+ 0000              ; it with -DCFG_60K). The 60K BDOS is a SEPARATE bank-woven build and does NOT fold here.
+  18+ 0000              ; See ../CPMV223-60K/CPM60_COM.md and docs/CPM_Unified_Build_Plan.md.
+  19+ 0000                  IFDEF CFG_60K
+  20+ 0000 ~            CCP_BASE   EQU $D300      ; 60K: CCP cold entry, relocated into the language card
+  21+ 0000 ~            CCP_WBOOT  EQU $DB06      ; 60K: CCP warm-boot re-entry
+  22+ 0000 ~            BDOS_FBASE EQU $DC00      ; 60K: BDOS image base (page-zero $0005 JP target)
+  23+ 0000 ~            BDOS_FLIMIT EQU $EA00     ; 60K: first byte past the BDOS image
+  24+ 0000 ~            FASTLOAD_TOP_PAGE EQU $F0 ; 60K: fast-loader top page (TPA reaches up into the LC)
+  25+ 0000                  ELSE
+  26+ 0000              CCP_BASE   EQU $9300      ; CCP cold entry (the BIOS cold/warm boot lands here)
+  27+ 0000              CCP_WBOOT  EQU $9B06      ; CCP warm-boot re-entry the BDOS returns through
+  28+ 0000              BDOS_FBASE EQU $9C00      ; FBASE: BDOS image base (6-byte serial + JP entry)
+  29+ 0000              BDOS_FLIMIT EQU $AA00     ; first byte PAST the BDOS image (CPM_BDOS asserts $ == this)
+  30+ 0000              FASTLOAD_TOP_PAGE EQU $A1 ; 44K: fast-loader top page = just below the CCP ($A1xx)
+  31+ 0000                  ENDIF
+  32+ 0000
+  33+ 0000              ; Region sizes computed from the contiguous CCP -> BDOS boundaries above -- never a magic
+  34+ 0000              ; number (the byte gate catches any overrun via the CPM_CCP/CPM_BDOS end-of-image ASSERTs).
+  35+ 0000              CCP_SIZE   EQU BDOS_FBASE - CCP_BASE     ; $0900: CCP image size  = (first BDOS byte) - (first CCP byte)
+  36+ 0000              BDOS_SIZE  EQU BDOS_FLIMIT - BDOS_FBASE  ; $0E00: BDOS image size = (byte after BDOS) - (first BDOS byte)
+  37+ 0000
 # file closed: cpm_system_223.inc
   15  0000                  ORG $9300
   16  9300                  ENDIF
   17  9300
   18  9300                      ; CCP_BASE ($9300): cold/warm-boot entry vector (named by cpm_system_223.inc)
   19  9300 C3 0C 96             JP CCP_COLD_ENTRY
-  20  9303 C3 08 96             DEFB    $C3,$08,$96
+  20  9303 C3 08 96             JP CCP_WARM_ENTRY               ; warm-boot vector ($9303 -> CCP_WARM_ENTRY)
   21  9306              ; ----------------------------------------------------------------------
   22  9306              ; CCP_INBUF -- console line-input buffer descriptor for C_READSTR.
   23  9306              ;   Layout: byte0 ($9306)=max length ($7F=127), byte1 ($9307)=returned count,
@@ -172,7 +187,7 @@
   55  9388              ; ----------------------------------------------------------------------
   56  9388              CCP_PARSEPTR:
   57  9388                      ; init = CCP_CMDTEXT ($9308) little-endian
-  58  9388 08 93                DEFB    $08,$93
+  58  9388 08 93                DEFW    CCP_CMDTEXT
   59  938A              ; ----------------------------------------------------------------------
   60  938A              ; CCP_TOKENPTR -- 16-bit pointer to the start of the current token.
   61  938A              ;   Saved by the FCB builder and reused by the bad-character echo routine.
@@ -2295,7 +2310,7 @@
 2163  9A5E 3E 11                LD A,$11
 2164  9A60 32 41 9B             LD (FASTLOAD_LOAD_PAGE),A
 2165  9A63                      ; DE = top of the request-list scratch area (just below the CCP at $9300)
-2166  9A63 11 FF 92             LD DE,$92FF
+2166  9A63 11 FF 92             LD DE,CCP_BASE-1        ; top of the request-list scratch (just below the CCP)
 2167  9A66              ; ----------------------------------------------------------------------
 2168  9A66              ; FASTLOAD_BUILD_PASS -- 2.23-ONLY: build one pass of block-read requests from the directory map.
 2169  9A66              ;   In: DE = current request-list write pointer; CCP_FCB_SECOND = the open file's 16-byte
@@ -2413,7 +2428,7 @@
 2281  9AAE 12                   LD (DE),A
 2282  9AAF 1B                   DEC DE
 2283  9AB0 3A 41 9B             LD A,(FASTLOAD_LOAD_PAGE)
-2284  9AB3 FE A1                CP $A1
+2284  9AB3 FE A1                CP FASTLOAD_TOP_PAGE            ; reached the top of loadable memory?
 2285  9AB5 CA 24 9A             JP Z,CCP_BAD_LOAD
 2286  9AB8                      ; load page reached $C0 (the $C000 I/O window): skip it
 2287  9AB8 FE C0                CP $C0
@@ -2464,7 +2479,7 @@
 2332  9AD4              ;     exact key semantics are partly UNKNOWN.
 2333  9AD4              ; ----------------------------------------------------------------------
 2334  9AD4              FASTLOAD_SORT_REQUESTS:
-2335  9AD4 21 FF 92             LD HL,$92FF
+2335  9AD4 21 FF 92             LD HL,CCP_BASE-1        ; top of the request-list scratch (just below the CCP)
 2336  9AD7              FASTLOAD_SORT_REQUESTS_1:
 2337  9AD7 54                   LD D,H
 2338  9AD8 5D                   LD E,L
@@ -2509,7 +2524,7 @@
 2377  9B02 B7                   OR A
 2378  9B03 20 D2                JR NZ,FASTLOAD_SORT_REQUESTS_1
 2379  9B05 C9                   RET
-2380  9B06 11 FF 92             LD DE,$92FF
+2380  9B06 11 FF 92             LD DE,CCP_BASE-1        ; top of the request-list scratch (just below the CCP)
 2381  9B09              ; ----------------------------------------------------------------------
 2382  9B09              ; FASTLOAD_DISPATCH_RPC -- 2.23-ONLY: walk the sorted IOB list and fire each block read through the
 2383  9B09              ;   6502 RWTS via the SoftCard RPC cells.
