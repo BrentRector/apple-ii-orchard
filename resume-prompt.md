@@ -41,14 +41,25 @@ the 60K `$BFxx`/`$DFxx` cell scheme). Byte-identical. **Deliverable #2 DONE** (`
 `build_60k_disk_via_installer()` boots the archived 2.23-44K disk in softcard_emu, runs `CPM60`, and captures the
 system tracks the byte-built installer writes — byte-identical to `CPMV223-60K-EMU.DSK` (gated, ~44s).
 
-**REMAINING (all "enrich already-decoded code to C-level", NO more blobs):** (a) **BDOS UPPER bank** ($DC00-$DFFF,
-~500 lines, 74 machine labels, 0 headers) — the dispatcher + console fns 0-11 (44K console twins: F_CONIN_H/
-F_CONOUT_H/BDOS_DISPATCH/...) + the 60K-specific LC bank-switch trampolines ($DF1x-$DF8x); also wire the `$DC53`
-dispatch table `DEFW`s to the now-named `BDOS_F_*` handlers (byte-identical). (b) **CPM_BIOS.asm** C-level (802
-lines, LC-aware; 44K 2.23 BIOS = 65%-shared reference). (c) the 3 6502 files. Method that worked for the lower
-bank: subagent correlates 60K→44K (rename map + headers as JSON) → apply via `\b`-boundary regex → byte-identical
-guard (`build_cpm60_com == reference_com`). Scratch scripts `…/scratchpad/rename_bdos_lower.py`,
-`insert_bdos_headers.py`; header JSON `bdos60_headers.json`.
+**>> WHOLE Z-80 SIDE of CPM60.COM now at the C-level standard** (commits through `d833808`): BDOS **both banks**
+(lower decoded from blob + upper), BIOS, installer, and the folded CCP are all C-level with ZERO disassembler
+machine labels; every change byte-identical via `build_cpm60_com == reference_com`. Reusable applier:
+`…/scratchpad/apply_json.py <asm> <json>` (single-pass `\b` rename handling chains/swaps + header insertion + byte
+gate); `rename_sublabels.py` cleaned the `SUB_PARENT_N`→`FUNCNAME_N` continuation labels. Enrichment method that
+worked repeatedly: **subagent correlates 60K→44K twin → emits `{rename, headers}` JSON → apply → byte gate.**
+
+**REMAINING = the 6502 files (still undecoded `.byte` BLOBS — the last "no blobs" work):**
+`CPMV223-60K/os/CPM_BootLoader.s` (223 lines, **1 instruction / 158 `.byte`**), `CPM_RWTS.s` (partial: 67 instr /
+89 `.byte`), `CPM_InstallFragments.s` (all data). These are INCBIN'd into CPM60.COM (`_assemble_6502` builds them;
+run addrs: boot sector $0800, relocator $1000, DENIBBLE $0885). **Feasibility confirmed:** the $1000 relocator
+(`LDA $C081 ×2 / TXA / LSR×4 / STA $0478,Y…`) and the $0885 6-and-2 postnibble decode cleanly as 6502; the
+challenge is CODE/DATA separation (boot sector data byte $01 at $0800, the `$0900` nibble buffer, the copyright
+strings are genuine data). APPROACH: seed `disasm6502` (shared/disasm6502; `region_disasm._format_6502_instr`
+exists) at the entry points ($0801 boot1, $1000 relocator, $0885 denibble) OR emulator-trace the 6502 PCs during a
+60K boot for the definitive code map (dual analysis), rewrite the code `.byte` runs as instructions keeping data
+as `.byte`, byte-identical via the CPM60.COM gate; then C-level headers (the 44K 2.23 BootLoader is a naming lead
+for boot1/RWTS; the LC relocator is 60K-specific — see BOOT_AND_PATCHING.md §2). THEN wire the `$DC53` dispatch
+`DEFW`s to the named `BDOS_F_*` handlers (byte-identical polish, optional).
 
 ## >> RESUME HERE — 2026-07-01 (FRESH SESSION HANDOFF): UNIFIED BUILD — Step 0 + Step 5 DONE; release harness live
 
