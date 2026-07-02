@@ -76,11 +76,13 @@ TPA     EQU $0100                        ; CP/M transient program area (local; 6
     ENDMODULE
 
 ; --- BDOS: stored at file $1700, runs at $DC00 (rewrites CCP's 6-byte tail) -
+; The BDOS is BANK-WOVEN: its upper half runs at $DC00 but its lower half runs at
+; $B5C0 (the LC low mirror). sjasmplus cannot nest DISP, so the BDOS file owns its
+; OWN two sequential DISP regions ($DC00 upper, then $B5C0 lower) -- the master must
+; NOT wrap it in a DISP here (that would nest and be silently ignored).
     ORG $1800                    ; file $1700
     MODULE bdos
-    DISP $DC00
     INCLUDE "os/CPM_BDOS.asm"
-    ENT
     ENDMODULE
 
 ; --- BIOS: stored at file $2600, runs at $FA00 (as-shipped template) -------
