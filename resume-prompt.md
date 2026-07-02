@@ -20,13 +20,27 @@ CLEAN, HEAD `19d4769`.** Two deliverables (user directive):
   `test_dispatch_reloc.py`; rewrote `test_shared_ccp.py` to gate the fold. Both `build_cpm60_com` paths +
   the 2.23-44K disk stay byte-identical. The 60K CCP now inherits full C-level comments for free.
 
-**REMAINING (the bulk of "comment CPM60.COM"):** direct C-level enrichment (comments/labels only, byte-identical
-via the `build_cpm60_com == reference_com` gate) of — **CPM_BIOS.asm** (802 lines, LC-aware; the 44K 2.23 BIOS
-is a 65%-shared naming reference), **CPM_BDOS.asm** (839 lines, bank-woven; DO-NOT-FOLD, the lower-bank blob gets
-documented as data), and the 3 6502 files (BootLoader/RWTS/InstallFragments). NEITHER BDOS nor BIOS folds (BDOS
-2% / BIOS 65% reloc-explained vs the 44K twins). THEN deliverable #2: package the emulator install-run
-(softcard_emu already supports the guest disk-write; `CPMV223-60K-EMU.DSK` is the committed artifact) as a
-downloadable resource + wire into the release/targets provenance ("produced by running the byte-built CPM60.COM").
+**BDOS lower-bank blob ELIMINATED (commit `da98642`, gate 236) — the user's "no blobs" directive, hardest-first.**
+The ~2560-byte bank-woven lower BDOS was a DEFB blob; now fully decoded to real Z-80 (247 DEFB lines → 1616
+decoded lines; file DEFB 225→39, all genuine data). KEY FACTS (for the remaining commenting + any similar work):
+- **The lower bank = BDOS image offset `$400-$DFF` (storage `$E000-$E9FF`) running at `$B5C0-$BFBF`**, a uniform
+  **storage−$2A40** shift into the LC low mirror (Apple `$D5C0-$DFFF` bank 1). `$BFC0+` scratch is live RAM past
+  the image. Established by booting `DISK_2_23_60K_SYSTEM` in softcard_emu + `bus.readz80` + correlating each image
+  page to `m.lc.bank1`/`m.mem[$D000:$E000]` (scratch scripts in `…/scratchpad/bdos60_*.py`).
+- Seeds = the `$DC53` dispatch table's `$Bxxx` entries + upper-bank refs; `region_disasm.disasm_z80_region` at
+  `$B5C0` → clean code, reassembles byte-identical.
+- **sjasmplus CANNOT NEST DISP** ("displacement inside another displacement block, ignoring it"). So the master no
+  longer wraps the BDOS in `DISP $DC00`; the **BDOS file owns two sequential single-level DISP regions** (upper
+  `$DC00`, then `ENT`, then lower `$B5C0`), gated `IFDEF CPM60_LINK` (standalone uses `ORG $DC00` for the upper).
+- `LC_RDWR_BANK1/2` were mislabelled soft-switches → promoted to `LC_BANK1/LC_BANK2` EQUs (`$E08B/$E083`).
+
+**REMAINING:** (a) **RAISE the decoded BDOS lower bank to C-level** — semantic-rename the `SUB_Bxxx`/`L_Bxxx`
+machine labels + add C-level function headers/body comments (the 27 lower funcs are the FCB/file/dir/disk
+machinery; the `$DC53` table maps BDOS fn# → handler; the 44K 2.23 BDOS is the naming reference) + finish the
+upper bank; (b) **CPM_BIOS.asm** C-level (802 lines, LC-aware; 44K 2.23 BIOS = 65%-shared reference); (c) the 3
+6502 files. Byte-identical via `build_cpm60_com == reference_com`. THEN deliverable #2: package the emulator
+install-run (`CPMV223-60K-EMU.DSK`; softcard_emu supports the guest disk-write) as a downloadable resource + wire
+into release/targets provenance ("produced by running the byte-built CPM60.COM on a 2.23-44K disk").
 
 ## >> RESUME HERE — 2026-07-01 (FRESH SESSION HANDOFF): UNIFIED BUILD — Step 0 + Step 5 DONE; release harness live
 
