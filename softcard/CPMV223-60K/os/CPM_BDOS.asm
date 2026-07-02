@@ -607,19 +607,19 @@ LC_CALL_B5C0_7:
     ENT                ; close the upper-bank DISP $DC00 (linked build)
     ENDIF
     DISP $B5C0
-L_B5C0:
+IS_CTRL_CHAR:
         CP $0D                           ; $B5C0  FE 0D
-        JR Z,L_B5D2                      ; $B5C2  28 0E
+        JR Z,IS_CTRL_CHAR_TAIL                      ; $B5C2  28 0E
         CP $0A                           ; $B5C4  FE 0A
-        JR Z,L_B5D2                      ; $B5C6  28 0A
+        JR Z,IS_CTRL_CHAR_TAIL                      ; $B5C6  28 0A
         CP $09                           ; $B5C8  FE 09
-        JR Z,L_B5D2                      ; $B5CA  28 06
+        JR Z,IS_CTRL_CHAR_TAIL                      ; $B5CA  28 06
         CP $08                           ; $B5CC  FE 08
-        JR Z,L_B5D2                      ; $B5CE  28 02
+        JR Z,IS_CTRL_CHAR_TAIL                      ; $B5CE  28 02
         CP $20                           ; $B5D0  FE 20
-L_B5D2:
+IS_CTRL_CHAR_TAIL:
         JP $DF81                         ; $B5D2  C3 81 DF
-L_B5D5:
+CON_TRACK_COL:
         LD A,C                           ; $B5D5  79
         LD HL,$DEDA                      ; $B5D6  21 DA DE
         CP $7F                           ; $B5D9  FE 7F
@@ -636,7 +636,7 @@ L_B5D5:
         JP NZ,$DD64                      ; $B5E7  C2 64 DD
         DEC (HL)                         ; $B5EA  35
         RET                              ; $B5EB  C9
-SUB_B5EC:
+SELDSK_DPB_FETCH:
         LD A,($DF10)                     ; $B5EC  3A 10 DF
         LD C,A                           ; $B5EF  4F
         CALL $FA1B                       ; $B5F0  CD 1B FA
@@ -675,7 +675,7 @@ SUB_B5EC_1:
         LD A,$FF                         ; $B62E  3E FF
         OR A                             ; $B630  B7
         RET                              ; $B631  C9
-SUB_B632:
+DISK_HOME_CLEAR_SCAN:
         CALL $FA18                       ; $B632  CD 18 FA
         XOR A                            ; $B635  AF
         LD HL,($BFC2)                    ; $B636  2A C2 BF
@@ -687,13 +687,13 @@ SUB_B632:
         INC HL                           ; $B640  23
         LD (HL),A                        ; $B641  77
         RET                              ; $B642  C9
-SUB_B643:
+REC_DIV4_SETUP:
         LD HL,($BFF7)                    ; $B643  2A F7 BF
         LD C,$02                         ; $B646  0E 02
-        CALL SUB_B75F                    ; $B648  CD 5F B7
+        CALL SHR_HL_C                    ; $B648  CD 5F B7
         LD ($BFF2),HL                    ; $B64B  22 F2 BF
         LD ($BFF9),HL                    ; $B64E  22 F9 BF
-SUB_B651:
+RECORD_TO_TRACK:
         LD HL,$BFF2                      ; $B651  21 F2 BF
         LD C,(HL)                        ; $B654  4E
         INC HL                           ; $B655  23
@@ -772,7 +772,7 @@ SUB_B651_3:
         LD C,L                           ; $B6B4  4D
         LD B,H                           ; $B6B5  44
         JP $FA21                         ; $B6B6  C3 21 FA
-SUB_B6B9:
+REC_BLOCK_SHIFT_6:
         LD HL,$BFD0                      ; $B6B9  21 D0 BF
         LD C,(HL)                        ; $B6BC  4E
         LD A,($BFF0)                     ; $B6BD  3A F0 BF
@@ -795,7 +795,7 @@ SUB_B6B9_2:
 SUB_B6B9_3:
         ADD A,B                          ; $B6D4  80
         RET                              ; $B6D5  C9
-SUB_B6D6:
+FCB_BLOCKMAP_INDEX_10:
         LD HL,($DF11)                    ; $B6D6  2A 11 DF
         LD DE,$0010                      ; $B6D9  11 10 00
         ADD HL,DE                        ; $B6DC  19
@@ -813,19 +813,19 @@ SUB_B6D6_1:
         LD D,(HL)                        ; $B6EB  56
         EX DE,HL                         ; $B6EC  EB
         RET                              ; $B6ED  C9
-SUB_B6EE:
-        CALL SUB_B6B9                    ; $B6EE  CD B9 B6
+REC_TO_BLOCK_14:
+        CALL REC_BLOCK_SHIFT_6                    ; $B6EE  CD B9 B6
         LD C,A                           ; $B6F1  4F
         LD B,$00                         ; $B6F2  06 00
-        CALL SUB_B6D6                    ; $B6F4  CD D6 B6
+        CALL FCB_BLOCKMAP_INDEX_10                    ; $B6F4  CD D6 B6
         LD ($BFF2),HL                    ; $B6F7  22 F2 BF
         RET                              ; $B6FA  C9
-SUB_B6FB:
+BLOCK_IS_ZERO_16:
         LD HL,($BFF2)                    ; $B6FB  2A F2 BF
         LD A,L                           ; $B6FE  7D
         OR H                             ; $B6FF  B4
         RET                              ; $B700  C9
-SUB_B701:
+BLOCK_BASE_RECORD_17:
         LD A,($BFD0)                     ; $B701  3A D0 BF
         LD HL,($BFF2)                    ; $B704  2A F2 BF
 SUB_B701_1:
@@ -841,12 +841,12 @@ SUB_B701_1:
         LD L,A                           ; $B717  6F
         LD ($BFF2),HL                    ; $B718  22 F2 BF
         RET                              ; $B71B  C9
-SUB_B71C:
+FCB_PTR_EXTENT:
         LD HL,($DF11)                    ; $B71C  2A 11 DF
         LD DE,$000C                      ; $B71F  11 0C 00
         ADD HL,DE                        ; $B722  19
         RET                              ; $B723  C9
-SUB_B724:
+FCB_PTR_RC_CR:
         LD HL,($DF11)                    ; $B724  2A 11 DF
         LD DE,$000F                      ; $B727  11 0F 00
         ADD HL,DE                        ; $B72A  19
@@ -854,20 +854,20 @@ SUB_B724:
         LD HL,$0011                      ; $B72C  21 11 00
         ADD HL,DE                        ; $B72F  19
         RET                              ; $B730  C9
-SUB_B731:
-        CALL SUB_B724                    ; $B731  CD 24 B7
+FCB_PRIME_FIELDS:
+        CALL FCB_PTR_RC_CR                    ; $B731  CD 24 B7
         LD A,(HL)                        ; $B734  7E
         LD ($BFF0),A                     ; $B735  32 F0 BF
         EX DE,HL                         ; $B738  EB
         LD A,(HL)                        ; $B739  7E
         LD ($BFEE),A                     ; $B73A  32 EE BF
-        CALL SUB_B71C                    ; $B73D  CD 1C B7
+        CALL FCB_PTR_EXTENT                    ; $B73D  CD 1C B7
         LD A,($BFD2)                     ; $B740  3A D2 BF
         AND (HL)                         ; $B743  A6
         LD ($BFEF),A                     ; $B744  32 EF BF
         RET                              ; $B747  C9
-SUB_B748:
-        CALL SUB_B724                    ; $B748  CD 24 B7
+FCB_WRITEBACK_REC:
+        CALL FCB_PTR_RC_CR                    ; $B748  CD 24 B7
         LD A,($BFE2)                     ; $B74B  3A E2 BF
         CP $02                           ; $B74E  FE 02
         JR NZ,SUB_B748_1                 ; $B750  20 01
@@ -881,7 +881,7 @@ SUB_B748_1:
         LD A,($BFEE)                     ; $B75A  3A EE BF
         LD (HL),A                        ; $B75D  77
         RET                              ; $B75E  C9
-SUB_B75F:
+SHR_HL_C:
         INC C                            ; $B75F  0C
 SUB_B75F_1:
         DEC C                            ; $B760  0D
@@ -889,7 +889,7 @@ SUB_B75F_1:
         SRL H                            ; $B762  CB 3C
         RR L                             ; $B764  CB 1D
         JR SUB_B75F_1                    ; $B766  18 F8
-SUB_B768:
+DIR_CHECKSUM:
         LD C,$80                         ; $B768  0E 80
         LD HL,($BFC6)                    ; $B76A  2A C6 BF
         XOR A                            ; $B76D  AF
@@ -899,19 +899,19 @@ SUB_B768_1:
         DEC C                            ; $B770  0D
         JR NZ,SUB_B768_1                 ; $B771  20 FB
         RET                              ; $B773  C9
-SUB_B774:
+SHL_HL_C:
         INC C                            ; $B774  0C
 SUB_B774_1:
         DEC C                            ; $B775  0D
         RET Z                            ; $B776  C8
         ADD HL,HL                        ; $B777  29
         JR SUB_B774_1                    ; $B778  18 FB
-SUB_B77A:
+DRIVE_BIT_OR_INTO_VECTOR:
         PUSH BC                          ; $B77A  C5
         LD A,($DF10)                     ; $B77B  3A 10 DF
         LD C,A                           ; $B77E  4F
         LD HL,$0001                      ; $B77F  21 01 00
-        CALL SUB_B774                    ; $B782  CD 74 B7
+        CALL SHL_HL_C                    ; $B782  CD 74 B7
         POP BC                           ; $B785  C1
         LD A,C                           ; $B786  79
         OR L                             ; $B787  B5
@@ -920,21 +920,21 @@ SUB_B77A:
         OR H                             ; $B78A  B4
         LD H,A                           ; $B78B  67
         RET                              ; $B78C  C9
-SUB_B78D:
-        LD HL,(L_BFBA)                   ; $B78D  2A BA BF
+DRIVE_BIT_TEST:
+        LD HL,(DRV_LOGIN_VECTOR)                   ; $B78D  2A BA BF
         LD A,($DF10)                     ; $B790  3A 10 DF
         LD C,A                           ; $B793  4F
-        CALL SUB_B75F                    ; $B794  CD 5F B7
+        CALL SHR_HL_C                    ; $B794  CD 5F B7
         LD A,L                           ; $B797  7D
         AND $01                          ; $B798  E6 01
         RET                              ; $B79A  C9
-SUB_B79B:
-        LD HL,L_BFBA                     ; $B79B  21 BA BF
+BDOS_F_SETRO:
+        LD HL,DRV_LOGIN_VECTOR                     ; $B79B  21 BA BF
         LD C,(HL)                        ; $B79E  4E
         INC HL                           ; $B79F  23
         LD B,(HL)                        ; $B7A0  46
-        CALL SUB_B77A                    ; $B7A1  CD 7A B7
-        LD (L_BFBA),HL                   ; $B7A4  22 BA BF
+        CALL DRIVE_BIT_OR_INTO_VECTOR                    ; $B7A1  CD 7A B7
+        LD (DRV_LOGIN_VECTOR),HL                   ; $B7A4  22 BA BF
         LD HL,($BFD5)                    ; $B7A7  2A D5 BF
         INC HL                           ; $B7AA  23
         EX DE,HL                         ; $B7AB  EB
@@ -943,9 +943,9 @@ SUB_B79B:
         INC HL                           ; $B7B0  23
         LD (HL),D                        ; $B7B1  72
         RET                              ; $B7B2  C9
-SUB_B7B3:
-        CALL SUB_B7CD                    ; $B7B3  CD CD B7
-SUB_B7B6:
+FCB_RO_FLAG_TEST:
+        CALL FCB_BUF_PTR_ADD_OFFSET                    ; $B7B3  CD CD B7
+CHECK_DIRENT_READONLY_INNER:
         LD DE,$0009                      ; $B7B6  11 09 00
         ADD HL,DE                        ; $B7B9  19
         LD A,(HL)                        ; $B7BA  7E
@@ -953,41 +953,41 @@ SUB_B7B6:
         RET NC                           ; $B7BC  D0
         LD HL,$DC0F                      ; $B7BD  21 0F DC
         JP $DF18                         ; $B7C0  C3 18 DF
-SUB_B7C3:
-        CALL SUB_B78D                    ; $B7C3  CD 8D B7
+CHECK_DRIVE_READONLY:
+        CALL DRIVE_BIT_TEST                    ; $B7C3  CD 8D B7
         RET Z                            ; $B7C6  C8
         LD HL,$DC0D                      ; $B7C7  21 0D DC
         JP $DF18                         ; $B7CA  C3 18 DF
-SUB_B7CD:
+FCB_BUF_PTR_ADD_OFFSET:
         LD HL,($BFC6)                    ; $B7CD  2A C6 BF
         LD A,($BFF6)                     ; $B7D0  3A F6 BF
-SUB_B7D3:
+DIRENT_PTR_ADD:
         ADD A,L                          ; $B7D3  85
         LD L,A                           ; $B7D4  6F
         RET NC                           ; $B7D5  D0
         INC H                            ; $B7D6  24
         RET                              ; $B7D7  C9
-SUB_B7D8:
+FCB_GET_S2:
         LD HL,($DF11)                    ; $B7D8  2A 11 DF
         LD DE,$000E                      ; $B7DB  11 0E 00
         ADD HL,DE                        ; $B7DE  19
         LD A,(HL)                        ; $B7DF  7E
         RET                              ; $B7E0  C9
-SUB_B7E1:
-        CALL SUB_BFA3                    ; $B7E1  CD A3 BF
-        CALL SUB_B7EB                    ; $B7E4  CD EB B7
-        CALL SUB_BE77                    ; $B7E7  CD 77 BE
+F_MAKE_OPEN_PREP:
+        CALL RANDREC_FIELD_RESET                    ; $B7E1  CD A3 BF
+        CALL CLEAR_FCB_S2                    ; $B7E4  CD EB B7
+        CALL FCB_LOGIN_SELECT                    ; $B7E7  CD 77 BE
         RET                              ; $B7EA  C9
-SUB_B7EB:
-        CALL SUB_B7D8                    ; $B7EB  CD D8 B7
+CLEAR_FCB_S2:
+        CALL FCB_GET_S2                    ; $B7EB  CD D8 B7
         LD (HL),$00                      ; $B7EE  36 00
         RET                              ; $B7F0  C9
-SUB_B7F1:
-        CALL SUB_B7D8                    ; $B7F1  CD D8 B7
+MARK_FCB_S2_HIGHBIT:
+        CALL FCB_GET_S2                    ; $B7F1  CD D8 B7
         OR $80                           ; $B7F4  F6 80
         LD (HL),A                        ; $B7F6  77
         RET                              ; $B7F7  C9
-SUB_B7F8:
+CMP_CURREC_VS_WORKPTR:
         LD HL,($BFF7)                    ; $B7F8  2A F7 BF
         EX DE,HL                         ; $B7FB  EB
         LD HL,($BFC0)                    ; $B7FC  2A C0 BF
@@ -997,29 +997,29 @@ SUB_B7F8:
         LD A,D                           ; $B802  7A
         SBC A,(HL)                       ; $B803  9E
         RET                              ; $B804  C9
-SUB_B805:
-        CALL SUB_B7F8                    ; $B805  CD F8 B7
+RECPTR_INC_STORE:
+        CALL CMP_CURREC_VS_WORKPTR                    ; $B805  CD F8 B7
         RET C                            ; $B808  D8
         INC DE                           ; $B809  13
         LD (HL),D                        ; $B80A  72
         DEC HL                           ; $B80B  2B
         LD (HL),E                        ; $B80C  73
         RET                              ; $B80D  C9
-SUB_B80E:
+SUB16_DE_HL:
         EX DE,HL                         ; $B80E  EB
         OR A                             ; $B80F  B7
         SBC HL,DE                        ; $B810  ED 52
         RET                              ; $B812  C9
-SUB_B813:
+RECORD_SCAN_BODY:
         LD C,$FF                         ; $B813  0E FF
 SUB_B813_1:
         LD HL,($BFF9)                    ; $B815  2A F9 BF
         EX DE,HL                         ; $B818  EB
         LD HL,($BFD9)                    ; $B819  2A D9 BF
-        CALL SUB_B80E                    ; $B81C  CD 0E B8
+        CALL SUB16_DE_HL                    ; $B81C  CD 0E B8
         RET NC                           ; $B81F  D0
         PUSH BC                          ; $B820  C5
-        CALL SUB_B768                    ; $B821  CD 68 B7
+        CALL DIR_CHECKSUM                    ; $B821  CD 68 B7
         LD HL,($BFCA)                    ; $B824  2A CA BF
         EX DE,HL                         ; $B827  EB
         LD HL,($BFF9)                    ; $B828  2A F9 BF
@@ -1029,26 +1029,26 @@ SUB_B813_1:
         JR Z,SUB_B813_2                  ; $B82E  28 0A
         CP (HL)                          ; $B830  BE
         RET Z                            ; $B831  C8
-        CALL SUB_B7F8                    ; $B832  CD F8 B7
+        CALL CMP_CURREC_VS_WORKPTR                    ; $B832  CD F8 B7
         RET NC                           ; $B835  D0
-        CALL SUB_B79B                    ; $B836  CD 9B B7
+        CALL BDOS_F_SETRO                    ; $B836  CD 9B B7
         RET                              ; $B839  C9
 SUB_B813_2:
         LD (HL),A                        ; $B83A  77
         RET                              ; $B83B  C9
-SUB_B83C:
-        CALL SUB_B813                    ; $B83C  CD 13 B8
-        CALL SUB_B854                    ; $B83F  CD 54 B8
+DIR_RECORD_WRITE:
+        CALL RECORD_SCAN_BODY                    ; $B83C  CD 13 B8
+        CALL SET_DMA_TO_DISK_BUF                    ; $B83F  CD 54 B8
         LD C,$01                         ; $B842  0E 01
         CALL $DF28                       ; $B844  CD 28 DF
-        JR SUB_B84F                      ; $B847  18 06
-SUB_B849:
-        CALL SUB_B854                    ; $B849  CD 54 B8
+        JR RESTORE_USER_DMA                      ; $B847  18 06
+DIR_RECORD_READ:
+        CALL SET_DMA_TO_DISK_BUF                    ; $B849  CD 54 B8
         CALL $DF20                       ; $B84C  CD 20 DF
-SUB_B84F:
-        LD HL,L_BFBE                     ; $B84F  21 BE BF
+RESTORE_USER_DMA:
+        LD HL,DMA_ADDR                     ; $B84F  21 BE BF
         JR SUB_B854_1                    ; $B852  18 03
-SUB_B854:
+SET_DMA_TO_DISK_BUF:
         LD HL,$BFC6                      ; $B854  21 C6 BF
 SUB_B854_1:
         LD C,(HL)                        ; $B857  4E
@@ -1057,11 +1057,11 @@ SUB_B854_1:
         JP $FA24                         ; $B85A  C3 24 FA
 SUB_B854_2:
         LD HL,($BFC6)                    ; $B85D  2A C6 BF
-        LD DE,(L_BFBE)                   ; $B860  ED 5B BE BF
+        LD DE,(DMA_ADDR)                   ; $B860  ED 5B BE BF
         LD BC,$0080                      ; $B864  01 80 00
         CALL $DF3C                       ; $B867  CD 3C DF
         RET                              ; $B86A  C9
-SUB_B86B:
+CUR_RECORD_BYTES_EQUAL:
         LD HL,$BFF7                      ; $B86B  21 F7 BF
         LD A,(HL)                        ; $B86E  7E
         INC HL                           ; $B86F  23
@@ -1069,19 +1069,19 @@ SUB_B86B:
         RET NZ                           ; $B871  C0
         INC A                            ; $B872  3C
         RET                              ; $B873  C9
-SUB_B874:
+INVALIDATE_CUR_RECORD:
         LD HL,$FFFF                      ; $B874  21 FF FF
         LD ($BFF7),HL                    ; $B877  22 F7 BF
         RET                              ; $B87A  C9
-SUB_B87B:
+DIR_READ_NEXT:
         LD HL,($BFD5)                    ; $B87B  2A D5 BF
         EX DE,HL                         ; $B87E  EB
         LD HL,($BFF7)                    ; $B87F  2A F7 BF
         INC HL                           ; $B882  23
         LD ($BFF7),HL                    ; $B883  22 F7 BF
-        CALL SUB_B80E                    ; $B886  CD 0E B8
+        CALL SUB16_DE_HL                    ; $B886  CD 0E B8
         JR NC,SUB_B87B_1                 ; $B889  30 02
-        JR SUB_B874                      ; $B88B  18 E7
+        JR INVALIDATE_CUR_RECORD                      ; $B88B  18 E7
 SUB_B87B_1:
         LD A,($BFF7)                     ; $B88D  3A F7 BF
         AND $03                          ; $B890  E6 03
@@ -1093,11 +1093,11 @@ SUB_B87B_2:
         OR A                             ; $B89A  B7
         RET NZ                           ; $B89B  C0
         PUSH BC                          ; $B89C  C5
-        CALL SUB_B643                    ; $B89D  CD 43 B6
-        CALL SUB_B849                    ; $B8A0  CD 49 B8
+        CALL REC_DIV4_SETUP                    ; $B89D  CD 43 B6
+        CALL DIR_RECORD_READ                    ; $B8A0  CD 49 B8
         POP BC                           ; $B8A3  C1
         JP SUB_B813_1                    ; $B8A4  C3 15 B8
-SUB_B8A7:
+ALLOC_BIT_GET:
         LD A,C                           ; $B8A7  79
         AND $07                          ; $B8A8  E6 07
         INC A                            ; $B8AA  3C
@@ -1131,20 +1131,20 @@ SUB_B8A7_1:
         DEC E                            ; $B8C9  1D
         JR NZ,SUB_B8A7_1                 ; $B8CA  20 FC
         RET                              ; $B8CC  C9
-SUB_B8CD:
+ALLOC_BIT_SET:
         PUSH DE                          ; $B8CD  D5
-        CALL SUB_B8A7                    ; $B8CE  CD A7 B8
+        CALL ALLOC_BIT_GET                    ; $B8CE  CD A7 B8
         AND $FE                          ; $B8D1  E6 FE
         POP BC                           ; $B8D3  C1
         OR C                             ; $B8D4  B1
-SUB_B8D5:
+ALLOC_BIT_RESTORE:
         RRCA                             ; $B8D5  0F
         DEC D                            ; $B8D6  15
-        JR NZ,SUB_B8D5                   ; $B8D7  20 FC
+        JR NZ,ALLOC_BIT_RESTORE                   ; $B8D7  20 FC
         LD (HL),A                        ; $B8D9  77
         RET                              ; $B8DA  C9
-SUB_B8DB:
-        CALL SUB_B7CD                    ; $B8DB  CD CD B7
+ALLOC_FROM_FCB:
+        CALL FCB_BUF_PTR_ADD_OFFSET                    ; $B8DB  CD CD B7
         LD DE,$0010                      ; $B8DE  11 10 00
         ADD HL,DE                        ; $B8E1  19
         PUSH BC                          ; $B8E2  C5
@@ -1178,16 +1178,16 @@ SUB_B8DB_3:
         SUB C                            ; $B904  91
         LD A,H                           ; $B905  7C
         SBC A,B                          ; $B906  98
-        CALL NC,SUB_B8CD                 ; $B907  D4 CD B8
+        CALL NC,ALLOC_BIT_SET                 ; $B907  D4 CD B8
 SUB_B8DB_4:
         POP HL                           ; $B90A  E1
         INC HL                           ; $B90B  23
         POP BC                           ; $B90C  C1
         JR SUB_B8DB_1                    ; $B90D  18 D6
-SUB_B8DB_5:
+ALLOC_VECTOR_BUILD:
         LD HL,($BFD3)                    ; $B90F  2A D3 BF
         LD C,$03                         ; $B912  0E 03
-        CALL SUB_B75F                    ; $B914  CD 5F B7
+        CALL SHR_HL_C                    ; $B914  CD 5F B7
         INC HL                           ; $B917  23
         LD B,H                           ; $B918  44
         LD C,L                           ; $B919  4D
@@ -1205,18 +1205,18 @@ SUB_B8DB_6:
         LD (HL),E                        ; $B92C  73
         INC HL                           ; $B92D  23
         LD (HL),D                        ; $B92E  72
-        CALL SUB_B632                    ; $B92F  CD 32 B6
+        CALL DISK_HOME_CLEAR_SCAN                    ; $B92F  CD 32 B6
         LD HL,($BFC0)                    ; $B932  2A C0 BF
         LD (HL),$03                      ; $B935  36 03
         INC HL                           ; $B937  23
         LD (HL),$00                      ; $B938  36 00
-        CALL SUB_B874                    ; $B93A  CD 74 B8
+        CALL INVALIDATE_CUR_RECORD                    ; $B93A  CD 74 B8
 SUB_B8DB_7:
         LD C,$FF                         ; $B93D  0E FF
-        CALL SUB_B87B                    ; $B93F  CD 7B B8
-        CALL SUB_B86B                    ; $B942  CD 6B B8
+        CALL DIR_READ_NEXT                    ; $B93F  CD 7B B8
+        CALL CUR_RECORD_BYTES_EQUAL                    ; $B942  CD 6B B8
         RET Z                            ; $B945  C8
-        CALL SUB_B7CD                    ; $B946  CD CD B7
+        CALL FCB_BUF_PTR_ADD_OFFSET                    ; $B946  CD CD B7
         LD A,$E5                         ; $B949  3E E5
         CP (HL)                          ; $B94B  BE
         JR Z,SUB_B8DB_7                  ; $B94C  28 EF
@@ -1231,13 +1231,13 @@ SUB_B8DB_7:
         LD ($DF13),A                     ; $B95B  32 13 DF
 SUB_B8DB_8:
         LD C,$01                         ; $B95E  0E 01
-        CALL SUB_B8DB                    ; $B960  CD DB B8
-        CALL SUB_B805                    ; $B963  CD 05 B8
+        CALL ALLOC_FROM_FCB                    ; $B960  CD DB B8
+        CALL RECPTR_INC_STORE                    ; $B963  CD 05 B8
         JP SUB_B8DB_7                    ; $B966  C3 3D B9
-SUB_B8DB_9:
+DIR_RETURN_MATCH_FLAG:
         LD A,($BFE1)                     ; $B969  3A E1 BF
         JP $DED0                         ; $B96C  C3 D0 DE
-SUB_B96F:
+FCB_EXTENT_COMPARE:
         PUSH BC                          ; $B96F  C5
         PUSH AF                          ; $B970  F5
         LD A,($BFD2)                     ; $B971  3A D2 BF
@@ -1252,19 +1252,19 @@ SUB_B96F:
         AND $1F                          ; $B97C  E6 1F
         POP BC                           ; $B97E  C1
         RET                              ; $B97F  C9
-SUB_B980:
+DIR_SEARCH_FIRST:
         LD A,$FF                         ; $B980  3E FF
         LD ($BFE1),A                     ; $B982  32 E1 BF
         LD HL,$BFE5                      ; $B985  21 E5 BF
         LD (HL),C                        ; $B988  71
         LD HL,($DF11)                    ; $B989  2A 11 DF
         LD ($BFE6),HL                    ; $B98C  22 E6 BF
-        CALL SUB_B874                    ; $B98F  CD 74 B8
-        CALL SUB_B632                    ; $B992  CD 32 B6
-SUB_B995:
+        CALL INVALIDATE_CUR_RECORD                    ; $B98F  CD 74 B8
+        CALL DISK_HOME_CLEAR_SCAN                    ; $B992  CD 32 B6
+BDOS_DIR_SCAN_NEXT:
         LD C,$00                         ; $B995  0E 00
-        CALL SUB_B87B                    ; $B997  CD 7B B8
-        CALL SUB_B86B                    ; $B99A  CD 6B B8
+        CALL DIR_READ_NEXT                    ; $B997  CD 7B B8
+        CALL CUR_RECORD_BYTES_EQUAL                    ; $B99A  CD 6B B8
         JR Z,SUB_B995_6                  ; $B99D  28 52
         LD HL,($BFE6)                    ; $B99F  2A E6 BF
         EX DE,HL                         ; $B9A2  EB
@@ -1272,11 +1272,11 @@ SUB_B995:
         CP $E5                           ; $B9A4  FE E5
         JR Z,SUB_B995_1                  ; $B9A6  28 07
         PUSH DE                          ; $B9A8  D5
-        CALL SUB_B7F8                    ; $B9A9  CD F8 B7
+        CALL CMP_CURREC_VS_WORKPTR                    ; $B9A9  CD F8 B7
         POP DE                           ; $B9AC  D1
         JR NC,SUB_B995_6                 ; $B9AD  30 42
 SUB_B995_1:
-        CALL SUB_B7CD                    ; $B9AF  CD CD B7
+        CALL FCB_BUF_PTR_ADD_OFFSET                    ; $B9AF  CD CD B7
         LD A,($BFE5)                     ; $B9B2  3A E5 BF
         LD C,A                           ; $B9B5  4F
         LD B,$00                         ; $B9B6  06 00
@@ -1295,14 +1295,14 @@ SUB_B995_2:
         JR Z,SUB_B995_3                  ; $B9C9  28 07
         SUB (HL)                         ; $B9CB  96
         AND $7F                          ; $B9CC  E6 7F
-        JR NZ,SUB_B995                   ; $B9CE  20 C5
+        JR NZ,BDOS_DIR_SCAN_NEXT                   ; $B9CE  20 C5
         JR SUB_B995_4                    ; $B9D0  18 08
 SUB_B995_3:
         PUSH BC                          ; $B9D2  C5
         LD C,(HL)                        ; $B9D3  4E
-        CALL SUB_B96F                    ; $B9D4  CD 6F B9
+        CALL FCB_EXTENT_COMPARE                    ; $B9D4  CD 6F B9
         POP BC                           ; $B9D7  C1
-        JR NZ,SUB_B995                   ; $B9D8  20 BB
+        JR NZ,BDOS_DIR_SCAN_NEXT                   ; $B9D8  20 BB
 SUB_B995_4:
         INC DE                           ; $B9DA  13
         INC HL                           ; $B9DB  23
@@ -1321,25 +1321,25 @@ SUB_B995_5:
         LD (HL),A                        ; $B9EF  77
         RET                              ; $B9F0  C9
 SUB_B995_6:
-        CALL SUB_B874                    ; $B9F1  CD 74 B8
+        CALL INVALIDATE_CUR_RECORD                    ; $B9F1  CD 74 B8
         LD A,$FF                         ; $B9F4  3E FF
         JP $DED0                         ; $B9F6  C3 D0 DE
-SUB_B9F9:
-        CALL SUB_B7C3                    ; $B9F9  CD C3 B7
+F_DELETE_HND:
+        CALL CHECK_DRIVE_READONLY                    ; $B9F9  CD C3 B7
         LD C,$0C                         ; $B9FC  0E 0C
-        CALL SUB_B980                    ; $B9FE  CD 80 B9
+        CALL DIR_SEARCH_FIRST                    ; $B9FE  CD 80 B9
 SUB_B9F9_1:
-        CALL SUB_B86B                    ; $BA01  CD 6B B8
+        CALL CUR_RECORD_BYTES_EQUAL                    ; $BA01  CD 6B B8
         RET Z                            ; $BA04  C8
-        CALL SUB_B7B3                    ; $BA05  CD B3 B7
-        CALL SUB_B7CD                    ; $BA08  CD CD B7
+        CALL FCB_RO_FLAG_TEST                    ; $BA05  CD B3 B7
+        CALL FCB_BUF_PTR_ADD_OFFSET                    ; $BA08  CD CD B7
         LD (HL),$E5                      ; $BA0B  36 E5
         LD C,$00                         ; $BA0D  0E 00
-        CALL SUB_B8DB                    ; $BA0F  CD DB B8
-        CALL SUB_B83C                    ; $BA12  CD 3C B8
-        CALL SUB_B995                    ; $BA15  CD 95 B9
+        CALL ALLOC_FROM_FCB                    ; $BA0F  CD DB B8
+        CALL DIR_RECORD_WRITE                    ; $BA12  CD 3C B8
+        CALL BDOS_DIR_SCAN_NEXT                    ; $BA15  CD 95 B9
         JR SUB_B9F9_1                    ; $BA18  18 E7
-SUB_BA1A:
+ALLOC_GET_BLOCK:
         LD D,B                           ; $BA1A  50
         LD E,C                           ; $BA1B  59
 SUB_BA1A_1:
@@ -1349,7 +1349,7 @@ SUB_BA1A_1:
         DEC BC                           ; $BA20  0B
         PUSH DE                          ; $BA21  D5
         PUSH BC                          ; $BA22  C5
-        CALL SUB_B8A7                    ; $BA23  CD A7 B8
+        CALL ALLOC_BIT_GET                    ; $BA23  CD A7 B8
         RRA                              ; $BA26  1F
         JR NC,SUB_BA1A_3                 ; $BA27  30 1A
         POP BC                           ; $BA29  C1
@@ -1366,7 +1366,7 @@ SUB_BA1A_2:
         PUSH DE                          ; $BA36  D5
         LD B,D                           ; $BA37  42
         LD C,E                           ; $BA38  4B
-        CALL SUB_B8A7                    ; $BA39  CD A7 B8
+        CALL ALLOC_BIT_GET                    ; $BA39  CD A7 B8
         RRA                              ; $BA3C  1F
         JR NC,SUB_BA1A_3                 ; $BA3D  30 04
         POP DE                           ; $BA3F  D1
@@ -1375,7 +1375,7 @@ SUB_BA1A_2:
 SUB_BA1A_3:
         RLA                              ; $BA43  17
         INC A                            ; $BA44  3C
-        CALL SUB_B8D5                    ; $BA45  CD D5 B8
+        CALL ALLOC_BIT_RESTORE                    ; $BA45  CD D5 B8
         POP HL                           ; $BA48  E1
         POP DE                           ; $BA49  D1
         RET                              ; $BA4A  C9
@@ -1385,68 +1385,68 @@ SUB_BA1A_4:
         JR NZ,SUB_BA1A_1                 ; $BA4D  20 CD
         LD HL,$0000                      ; $BA4F  21 00 00
         RET                              ; $BA52  C9
-SUB_BA53:
+FCB_WRITE_DIR_ENTRY:
         LD C,$00                         ; $BA53  0E 00
         LD E,$20                         ; $BA55  1E 20
-SUB_BA57:
+FCB_COPY_TO_DIR:
         PUSH DE                          ; $BA57  D5
         LD B,$00                         ; $BA58  06 00
         LD HL,($DF11)                    ; $BA5A  2A 11 DF
         ADD HL,BC                        ; $BA5D  09
         EX DE,HL                         ; $BA5E  EB
-        CALL SUB_B7CD                    ; $BA5F  CD CD B7
+        CALL FCB_BUF_PTR_ADD_OFFSET                    ; $BA5F  CD CD B7
         POP BC                           ; $BA62  C1
         LD B,$00                         ; $BA63  06 00
         EX DE,HL                         ; $BA65  EB
         LDIR                             ; $BA66  ED B0
-SUB_BA57_1:
-        CALL SUB_B643                    ; $BA68  CD 43 B6
-        JP SUB_B83C                      ; $BA6B  C3 3C B8
-SUB_BA6E:
-        CALL SUB_B7C3                    ; $BA6E  CD C3 B7
+FCB_FLUSH_DIR:
+        CALL REC_DIV4_SETUP                    ; $BA68  CD 43 B6
+        JP DIR_RECORD_WRITE                      ; $BA6B  C3 3C B8
+F_RENAME_HND:
+        CALL CHECK_DRIVE_READONLY                    ; $BA6E  CD C3 B7
         LD C,$0C                         ; $BA71  0E 0C
-        CALL SUB_B980                    ; $BA73  CD 80 B9
+        CALL DIR_SEARCH_FIRST                    ; $BA73  CD 80 B9
         LD HL,($DF11)                    ; $BA76  2A 11 DF
         LD A,(HL)                        ; $BA79  7E
         LD DE,$0010                      ; $BA7A  11 10 00
         ADD HL,DE                        ; $BA7D  19
         LD (HL),A                        ; $BA7E  77
 SUB_BA6E_1:
-        CALL SUB_B86B                    ; $BA7F  CD 6B B8
+        CALL CUR_RECORD_BYTES_EQUAL                    ; $BA7F  CD 6B B8
         RET Z                            ; $BA82  C8
-        CALL SUB_B7B3                    ; $BA83  CD B3 B7
+        CALL FCB_RO_FLAG_TEST                    ; $BA83  CD B3 B7
         LD C,$10                         ; $BA86  0E 10
         LD E,$0C                         ; $BA88  1E 0C
-        CALL SUB_BA57                    ; $BA8A  CD 57 BA
-        CALL SUB_B995                    ; $BA8D  CD 95 B9
+        CALL FCB_COPY_TO_DIR                    ; $BA8A  CD 57 BA
+        CALL BDOS_DIR_SCAN_NEXT                    ; $BA8D  CD 95 B9
         JR SUB_BA6E_1                    ; $BA90  18 ED
-SUB_BA92:
+F_ATTRIB_HND:
         LD C,$0C                         ; $BA92  0E 0C
-        CALL SUB_B980                    ; $BA94  CD 80 B9
+        CALL DIR_SEARCH_FIRST                    ; $BA94  CD 80 B9
 SUB_BA92_1:
-        CALL SUB_B86B                    ; $BA97  CD 6B B8
+        CALL CUR_RECORD_BYTES_EQUAL                    ; $BA97  CD 6B B8
         RET Z                            ; $BA9A  C8
         LD C,$00                         ; $BA9B  0E 00
         LD E,$0C                         ; $BA9D  1E 0C
-        CALL SUB_BA57                    ; $BA9F  CD 57 BA
-        CALL SUB_B995                    ; $BAA2  CD 95 B9
+        CALL FCB_COPY_TO_DIR                    ; $BA9F  CD 57 BA
+        CALL BDOS_DIR_SCAN_NEXT                    ; $BAA2  CD 95 B9
         JR SUB_BA92_1                    ; $BAA5  18 F0
-SUB_BAA7:
+FILE_OPEN_SEARCH:
         LD C,$0F                         ; $BAA7  0E 0F
-        CALL SUB_B980                    ; $BAA9  CD 80 B9
-        CALL SUB_B86B                    ; $BAAC  CD 6B B8
+        CALL DIR_SEARCH_FIRST                    ; $BAA9  CD 80 B9
+        CALL CUR_RECORD_BYTES_EQUAL                    ; $BAAC  CD 6B B8
         RET Z                            ; $BAAF  C8
-SUB_BAB0:
-        CALL SUB_B71C                    ; $BAB0  CD 1C B7
+FCB_MERGE_ENTRY:
+        CALL FCB_PTR_EXTENT                    ; $BAB0  CD 1C B7
         LD A,(HL)                        ; $BAB3  7E
         PUSH AF                          ; $BAB4  F5
         PUSH HL                          ; $BAB5  E5
-        CALL SUB_B7CD                    ; $BAB6  CD CD B7
+        CALL FCB_BUF_PTR_ADD_OFFSET                    ; $BAB6  CD CD B7
         LD DE,($DF11)                    ; $BAB9  ED 5B 11 DF
         LD BC,$0020                      ; $BABD  01 20 00
         PUSH DE                          ; $BAC0  D5
         LDIR                             ; $BAC1  ED B0
-        CALL SUB_B7F1                    ; $BAC3  CD F1 B7
+        CALL MARK_FCB_S2_HIGHBIT                    ; $BAC3  CD F1 B7
         POP DE                           ; $BAC6  D1
         LD HL,$000C                      ; $BAC7  21 0C 00
         ADD HL,DE                        ; $BACA  19
@@ -1470,7 +1470,7 @@ SUB_BAB0_1:
         ADD HL,DE                        ; $BAE5  19
         LD (HL),A                        ; $BAE6  77
         RET                              ; $BAE7  C9
-SUB_BAE8:
+FCB_WORD_FILL_IF_ZERO:
         LD A,(HL)                        ; $BAE8  7E
         INC HL                           ; $BAE9  23
         OR (HL)                          ; $BAEA  B6
@@ -1485,22 +1485,22 @@ SUB_BAE8:
         DEC DE                           ; $BAF3  1B
         DEC HL                           ; $BAF4  2B
         RET                              ; $BAF5  C9
-SUB_BAF6:
+F_CLOSE_HND:
         XOR A                            ; $BAF6  AF
         LD ($DF13),A                     ; $BAF7  32 13 DF
         LD ($BFF7),A                     ; $BAFA  32 F7 BF
         LD ($BFF8),A                     ; $BAFD  32 F8 BF
-        CALL SUB_B78D                    ; $BB00  CD 8D B7
+        CALL DRIVE_BIT_TEST                    ; $BB00  CD 8D B7
         RET NZ                           ; $BB03  C0
-        CALL SUB_B7D8                    ; $BB04  CD D8 B7
+        CALL FCB_GET_S2                    ; $BB04  CD D8 B7
         AND $80                          ; $BB07  E6 80
         RET NZ                           ; $BB09  C0
         LD C,$0F                         ; $BB0A  0E 0F
-        CALL SUB_B980                    ; $BB0C  CD 80 B9
-        CALL SUB_B86B                    ; $BB0F  CD 6B B8
+        CALL DIR_SEARCH_FIRST                    ; $BB0C  CD 80 B9
+        CALL CUR_RECORD_BYTES_EQUAL                    ; $BB0F  CD 6B B8
         RET Z                            ; $BB12  C8
         LD BC,$0010                      ; $BB13  01 10 00
-        CALL SUB_B7CD                    ; $BB16  CD CD B7
+        CALL FCB_BUF_PTR_ADD_OFFSET                    ; $BB16  CD CD B7
         ADD HL,BC                        ; $BB19  09
         EX DE,HL                         ; $BB1A  EB
         LD HL,($DF11)                    ; $BB1B  2A 11 DF
@@ -1525,9 +1525,9 @@ SUB_BAF6_3:
         JR NZ,SUB_BAF6_7                 ; $BB33  20 35
         JR SUB_BAF6_5                    ; $BB35  18 13
 SUB_BAF6_4:
-        CALL SUB_BAE8                    ; $BB37  CD E8 BA
+        CALL FCB_WORD_FILL_IF_ZERO                    ; $BB37  CD E8 BA
         EX DE,HL                         ; $BB3A  EB
-        CALL SUB_BAE8                    ; $BB3B  CD E8 BA
+        CALL FCB_WORD_FILL_IF_ZERO                    ; $BB3B  CD E8 BA
         EX DE,HL                         ; $BB3E  EB
         LD A,(DE)                        ; $BB3F  1A
         CP (HL)                          ; $BB40  BE
@@ -1560,20 +1560,20 @@ SUB_BAF6_5:
 SUB_BAF6_6:
         LD A,$FF                         ; $BB62  3E FF
         LD ($BFDF),A                     ; $BB64  32 DF BF
-        JP SUB_BA57_1                    ; $BB67  C3 68 BA
+        JP FCB_FLUSH_DIR                    ; $BB67  C3 68 BA
 SUB_BAF6_7:
         LD HL,$DF13                      ; $BB6A  21 13 DF
         DEC (HL)                         ; $BB6D  35
         RET                              ; $BB6E  C9
-SUB_BB6F:
-        CALL SUB_B7C3                    ; $BB6F  CD C3 B7
+DIR_MAKE_ENTRY:
+        CALL CHECK_DRIVE_READONLY                    ; $BB6F  CD C3 B7
         LD HL,($DF11)                    ; $BB72  2A 11 DF
         PUSH HL                          ; $BB75  E5
-        LD HL,L_BFB9                     ; $BB76  21 B9 BF
+        LD HL,EMPTY_DIR_FCB                     ; $BB76  21 B9 BF
         LD ($DF11),HL                    ; $BB79  22 11 DF
         LD C,$01                         ; $BB7C  0E 01
-        CALL SUB_B980                    ; $BB7E  CD 80 B9
-        CALL SUB_B86B                    ; $BB81  CD 6B B8
+        CALL DIR_SEARCH_FIRST                    ; $BB7E  CD 80 B9
+        CALL CUR_RECORD_BYTES_EQUAL                    ; $BB81  CD 6B B8
         POP HL                           ; $BB84  E1
         LD ($DF11),HL                    ; $BB85  22 11 DF
         RET Z                            ; $BB88  C8
@@ -1590,14 +1590,14 @@ SUB_BB6F_1:
         LD HL,$000D                      ; $BB96  21 0D 00
         ADD HL,DE                        ; $BB99  19
         LD (HL),A                        ; $BB9A  77
-        CALL SUB_B805                    ; $BB9B  CD 05 B8
-        CALL SUB_BA53                    ; $BB9E  CD 53 BA
-        JP SUB_B7F1                      ; $BBA1  C3 F1 B7
-SUB_BBA4:
+        CALL RECPTR_INC_STORE                    ; $BB9B  CD 05 B8
+        CALL FCB_WRITE_DIR_ENTRY                    ; $BB9E  CD 53 BA
+        JP MARK_FCB_S2_HIGHBIT                      ; $BBA1  C3 F1 B7
+FCB_ADVANCE_RECORD:
         XOR A                            ; $BBA4  AF
         LD ($BFDF),A                     ; $BBA5  32 DF BF
-        CALL SUB_BAF6                    ; $BBA8  CD F6 BA
-        CALL SUB_B86B                    ; $BBAB  CD 6B B8
+        CALL F_CLOSE_HND                    ; $BBA8  CD F6 BA
+        CALL CUR_RECORD_BYTES_EQUAL                    ; $BBAB  CD 6B B8
         RET Z                            ; $BBAE  C8
         LD HL,($DF11)                    ; $BBAF  2A 11 DF
         LD BC,$000C                      ; $BBB2  01 0C 00
@@ -1623,83 +1623,83 @@ SUB_BBA4_1:
         JR Z,SUB_BBA4_5                  ; $BBD2  28 24
 SUB_BBA4_2:
         LD C,$0F                         ; $BBD4  0E 0F
-        CALL SUB_B980                    ; $BBD6  CD 80 B9
-        CALL SUB_B86B                    ; $BBD9  CD 6B B8
+        CALL DIR_SEARCH_FIRST                    ; $BBD6  CD 80 B9
+        CALL CUR_RECORD_BYTES_EQUAL                    ; $BBD9  CD 6B B8
         JR NZ,SUB_BBA4_3                 ; $BBDC  20 10
         LD A,($BFE0)                     ; $BBDE  3A E0 BF
         INC A                            ; $BBE1  3C
         JR Z,SUB_BBA4_5                  ; $BBE2  28 14
-        CALL SUB_BB6F                    ; $BBE4  CD 6F BB
-        CALL SUB_B86B                    ; $BBE7  CD 6B B8
+        CALL DIR_MAKE_ENTRY                    ; $BBE4  CD 6F BB
+        CALL CUR_RECORD_BYTES_EQUAL                    ; $BBE7  CD 6B B8
         JR Z,SUB_BBA4_5                  ; $BBEA  28 0C
         JR SUB_BBA4_4                    ; $BBEC  18 03
 SUB_BBA4_3:
-        CALL SUB_BAB0                    ; $BBEE  CD B0 BA
+        CALL FCB_MERGE_ENTRY                    ; $BBEE  CD B0 BA
 SUB_BBA4_4:
-        CALL SUB_B731                    ; $BBF1  CD 31 B7
+        CALL FCB_PRIME_FIELDS                    ; $BBF1  CD 31 B7
         XOR A                            ; $BBF4  AF
         JP $DED0                         ; $BBF5  C3 D0 DE
 SUB_BBA4_5:
         CALL $DED4                       ; $BBF8  CD D4 DE
-        JP SUB_B7F1                      ; $BBFB  C3 F1 B7
-SUB_BBA4_6:
+        JP MARK_FCB_S2_HIGHBIT                      ; $BBFB  C3 F1 B7
+FILE_WRITE_SEQ:
         LD A,$01                         ; $BBFE  3E 01
         LD ($BFE2),A                     ; $BC00  32 E2 BF
-SUB_BC03:
+FILE_READ_RECORD:
         LD A,$FF                         ; $BC03  3E FF
         LD ($BFE0),A                     ; $BC05  32 E0 BF
-        CALL SUB_B731                    ; $BC08  CD 31 B7
+        CALL FCB_PRIME_FIELDS                    ; $BC08  CD 31 B7
         LD A,($BFF0)                     ; $BC0B  3A F0 BF
         LD HL,$BFEE                      ; $BC0E  21 EE BF
         CP (HL)                          ; $BC11  BE
         JR C,SUB_BC03_1                  ; $BC12  38 11
         CP $80                           ; $BC14  FE 80
         JR NZ,SUB_BC03_2                 ; $BC16  20 21
-        CALL SUB_BBA4                    ; $BC18  CD A4 BB
+        CALL FCB_ADVANCE_RECORD                    ; $BC18  CD A4 BB
         XOR A                            ; $BC1B  AF
         LD ($BFF0),A                     ; $BC1C  32 F0 BF
         LD A,($DF13)                     ; $BC1F  3A 13 DF
         OR A                             ; $BC22  B7
         JR NZ,SUB_BC03_2                 ; $BC23  20 14
 SUB_BC03_1:
-        CALL SUB_B6EE                    ; $BC25  CD EE B6
-        CALL SUB_B6FB                    ; $BC28  CD FB B6
+        CALL REC_TO_BLOCK_14                    ; $BC25  CD EE B6
+        CALL BLOCK_IS_ZERO_16                    ; $BC28  CD FB B6
         JR Z,SUB_BC03_2                  ; $BC2B  28 0C
-        CALL SUB_B701                    ; $BC2D  CD 01 B7
-        CALL SUB_B651                    ; $BC30  CD 51 B6
+        CALL BLOCK_BASE_RECORD_17                    ; $BC2D  CD 01 B7
+        CALL RECORD_TO_TRACK                    ; $BC30  CD 51 B6
         CALL $DF20                       ; $BC33  CD 20 DF
-        JP SUB_B748                      ; $BC36  C3 48 B7
+        JP FCB_WRITEBACK_REC                      ; $BC36  C3 48 B7
 SUB_BC03_2:
         JP $DED4                         ; $BC39  C3 D4 DE
-SUB_BC03_3:
+FILE_READ_SEQ:
         LD A,$01                         ; $BC3C  3E 01
         LD ($BFE2),A                     ; $BC3E  32 E2 BF
-SUB_BC41:
+BDOS_WRITE:
         LD A,$00                         ; $BC41  3E 00
         LD ($BFE0),A                     ; $BC43  32 E0 BF
-        CALL SUB_B7C3                    ; $BC46  CD C3 B7
+        CALL CHECK_DRIVE_READONLY                    ; $BC46  CD C3 B7
         LD HL,($DF11)                    ; $BC49  2A 11 DF
-        CALL SUB_B7B6                    ; $BC4C  CD B6 B7
-        CALL SUB_B731                    ; $BC4F  CD 31 B7
+        CALL CHECK_DIRENT_READONLY_INNER                    ; $BC4C  CD B6 B7
+        CALL FCB_PRIME_FIELDS                    ; $BC4F  CD 31 B7
         LD A,($BFF0)                     ; $BC52  3A F0 BF
         CP $80                           ; $BC55  FE 80
         JP NC,$DED4                      ; $BC57  D2 D4 DE
-        CALL SUB_B6EE                    ; $BC5A  CD EE B6
-        CALL SUB_B6FB                    ; $BC5D  CD FB B6
+        CALL REC_TO_BLOCK_14                    ; $BC5A  CD EE B6
+        CALL BLOCK_IS_ZERO_16                    ; $BC5D  CD FB B6
         LD C,$00                         ; $BC60  0E 00
         JR NZ,SUB_BC41_5                 ; $BC62  20 43
-        CALL SUB_B6B9                    ; $BC64  CD B9 B6
+        CALL REC_BLOCK_SHIFT_6                    ; $BC64  CD B9 B6
         LD ($BFE4),A                     ; $BC67  32 E4 BF
         LD BC,$0000                      ; $BC6A  01 00 00
         OR A                             ; $BC6D  B7
         JR Z,SUB_BC41_1                  ; $BC6E  28 07
         LD C,A                           ; $BC70  4F
         DEC BC                           ; $BC71  0B
-        CALL SUB_B6D6                    ; $BC72  CD D6 B6
+        CALL FCB_BLOCKMAP_INDEX_10                    ; $BC72  CD D6 B6
         LD B,H                           ; $BC75  44
         LD C,L                           ; $BC76  4D
 SUB_BC41_1:
-        CALL SUB_BA1A                    ; $BC77  CD 1A BA
+        CALL ALLOC_GET_BLOCK                    ; $BC77  CD 1A BA
         LD A,L                           ; $BC7A  7D
         OR H                             ; $BC7B  B4
         JR NZ,SUB_BC41_2                 ; $BC7C  20 05
@@ -1715,7 +1715,7 @@ SUB_BC41_2:
         OR A                             ; $BC91  B7
         LD A,($BFE4)                     ; $BC92  3A E4 BF
         JR Z,SUB_BC41_3                  ; $BC95  28 06
-        CALL SUB_B7D3                    ; $BC97  CD D3 B7
+        CALL DIRENT_PTR_ADD                    ; $BC97  CD D3 B7
         LD (HL),E                        ; $BC9A  73
         JR SUB_BC41_4                    ; $BC9B  18 08
 SUB_BC41_3:
@@ -1733,7 +1733,7 @@ SUB_BC41_5:
         OR A                             ; $BCAA  B7
         RET NZ                           ; $BCAB  C0
         PUSH BC                          ; $BCAC  C5
-        CALL SUB_B701                    ; $BCAD  CD 01 B7
+        CALL BLOCK_BASE_RECORD_17                    ; $BCAD  CD 01 B7
         LD A,($BFE2)                     ; $BCB0  3A E2 BF
         DEC A                            ; $BCB3  3D
         DEC A                            ; $BCB4  3D
@@ -1752,13 +1752,13 @@ SUB_BC41_6:
         INC HL                           ; $BCC4  23
         INC D                            ; $BCC5  14
         JP P,SUB_BC41_6                  ; $BCC6  F2 C3 BC
-        CALL SUB_B854                    ; $BCC9  CD 54 B8
+        CALL SET_DMA_TO_DISK_BUF                    ; $BCC9  CD 54 B8
         LD HL,($BFF4)                    ; $BCCC  2A F4 BF
         LD C,$02                         ; $BCCF  0E 02
 SUB_BC41_7:
         LD ($BFF2),HL                    ; $BCD1  22 F2 BF
         PUSH BC                          ; $BCD4  C5
-        CALL SUB_B651                    ; $BCD5  CD 51 B6
+        CALL RECORD_TO_TRACK                    ; $BCD5  CD 51 B6
         POP BC                           ; $BCD8  C1
         CALL $DF28                       ; $BCD9  CD 28 DF
         LD HL,($BFF2)                    ; $BCDC  2A F2 BF
@@ -1771,9 +1771,9 @@ SUB_BC41_7:
         JR NZ,SUB_BC41_7                 ; $BCE8  20 E7
         POP HL                           ; $BCEA  E1
         LD ($BFF2),HL                    ; $BCEB  22 F2 BF
-        CALL SUB_B84F                    ; $BCEE  CD 4F B8
+        CALL RESTORE_USER_DMA                    ; $BCEE  CD 4F B8
 SUB_BC41_8:
-        CALL SUB_B651                    ; $BCF1  CD 51 B6
+        CALL RECORD_TO_TRACK                    ; $BCF1  CD 51 B6
         POP BC                           ; $BCF4  C1
         PUSH BC                          ; $BCF5  C5
         CALL $DF28                       ; $BCF6  CD 28 DF
@@ -1787,7 +1787,7 @@ SUB_BC41_8:
         LD C,$02                         ; $BD05  0E 02
 SUB_BC41_9:
         PUSH AF                          ; $BD07  F5
-        CALL SUB_B7D8                    ; $BD08  CD D8 B7
+        CALL FCB_GET_S2                    ; $BD08  CD D8 B7
         AND $7F                          ; $BD0B  E6 7F
         LD (HL),A                        ; $BD0D  77
         POP AF                           ; $BD0E  F1
@@ -1796,8 +1796,8 @@ SUB_BC41_9:
         LD A,($BFE2)                     ; $BD13  3A E2 BF
         CP $01                           ; $BD16  FE 01
         JR NZ,SUB_BC41_11                ; $BD18  20 13
-        CALL SUB_B748                    ; $BD1A  CD 48 B7
-        CALL SUB_BBA4                    ; $BD1D  CD A4 BB
+        CALL FCB_WRITEBACK_REC                    ; $BD1A  CD 48 B7
+        CALL FCB_ADVANCE_RECORD                    ; $BD1D  CD A4 BB
         LD HL,$DF13                      ; $BD20  21 13 DF
         LD A,(HL)                        ; $BD23  7E
         OR A                             ; $BD24  B7
@@ -1807,11 +1807,11 @@ SUB_BC41_9:
 SUB_BC41_10:
         LD (HL),$00                      ; $BD2B  36 00
 SUB_BC41_11:
-        JP SUB_B748                      ; $BD2D  C3 48 B7
-SUB_BD30:
+        JP FCB_WRITEBACK_REC                      ; $BD2D  C3 48 B7
+BDOS_SEEK_NOREAD:
         XOR A                            ; $BD30  AF
         LD ($BFE2),A                     ; $BD31  32 E2 BF
-SUB_BD34:
+BDOS_SEEK_COMPUTE:
         PUSH BC                          ; $BD34  C5
         LD HL,($DF11)                    ; $BD35  2A 11 DF
         EX DE,HL                         ; $BD38  EB
@@ -1858,7 +1858,7 @@ SUB_BD34:
 SUB_BD34_1:
         PUSH BC                          ; $BD71  C5
         PUSH DE                          ; $BD72  D5
-        CALL SUB_BAF6                    ; $BD73  CD F6 BA
+        CALL F_CLOSE_HND                    ; $BD73  CD F6 BA
         POP DE                           ; $BD76  D1
         POP BC                           ; $BD77  C1
         LD L,$03                         ; $BD78  2E 03
@@ -1871,7 +1871,7 @@ SUB_BD34_1:
         LD HL,$000E                      ; $BD85  21 0E 00
         ADD HL,DE                        ; $BD88  19
         LD (HL),B                        ; $BD89  70
-        CALL SUB_BAA7                    ; $BD8A  CD A7 BA
+        CALL FILE_OPEN_SEARCH                    ; $BD8A  CD A7 BA
         LD A,($DF13)                     ; $BD8D  3A 13 DF
         INC A                            ; $BD90  3C
         JR NZ,SUB_BD34_2                 ; $BD91  20 12
@@ -1880,7 +1880,7 @@ SUB_BD34_1:
         LD L,$04                         ; $BD95  2E 04
         INC C                            ; $BD97  0C
         JR Z,SUB_BD34_3                  ; $BD98  28 10
-        CALL SUB_BB6F                    ; $BD9A  CD 6F BB
+        CALL DIR_MAKE_ENTRY                    ; $BD9A  CD 6F BB
         LD L,$05                         ; $BD9D  2E 05
         LD A,($DF13)                     ; $BD9F  3A 13 DF
         INC A                            ; $BDA2  3C
@@ -1891,25 +1891,25 @@ SUB_BD34_2:
         JP $DED0                         ; $BDA7  C3 D0 DE
 SUB_BD34_3:
         PUSH HL                          ; $BDAA  E5
-        CALL SUB_B7D8                    ; $BDAB  CD D8 B7
+        CALL FCB_GET_S2                    ; $BDAB  CD D8 B7
         LD (HL),$C0                      ; $BDAE  36 C0
         POP HL                           ; $BDB0  E1
 SUB_BD34_4:
         POP BC                           ; $BDB1  C1
         LD A,L                           ; $BDB2  7D
         LD ($DF13),A                     ; $BDB3  32 13 DF
-        JP SUB_B7F1                      ; $BDB6  C3 F1 B7
-SUB_BD34_5:
+        JP MARK_FCB_S2_HIGHBIT                      ; $BDB6  C3 F1 B7
+F_READRAND_BODY:
         LD C,$FF                         ; $BDB9  0E FF
-        CALL SUB_BD30                    ; $BDBB  CD 30 BD
-        CALL Z,SUB_BC03                  ; $BDBE  CC 03 BC
+        CALL BDOS_SEEK_NOREAD                    ; $BDBB  CD 30 BD
+        CALL Z,FILE_READ_RECORD                  ; $BDBE  CC 03 BC
         RET                              ; $BDC1  C9
-SUB_BD34_6:
+F_WRITERAND_BODY:
         LD C,$00                         ; $BDC2  0E 00
-        CALL SUB_BD30                    ; $BDC4  CD 30 BD
-        CALL Z,SUB_BC41                  ; $BDC7  CC 41 BC
+        CALL BDOS_SEEK_NOREAD                    ; $BDC4  CD 30 BD
+        CALL Z,BDOS_WRITE                  ; $BDC7  CC 41 BC
         RET                              ; $BDCA  C9
-SUB_BDCB:
+FCB_RECNUM_FROM_FIELDS:
         EX DE,HL                         ; $BDCB  EB
         ADD HL,DE                        ; $BDCC  19
         LD C,(HL)                        ; $BDCD  4E
@@ -1946,9 +1946,9 @@ SUB_BDCB:
         OR L                             ; $BDF4  B5
         AND $01                          ; $BDF5  E6 01
         RET                              ; $BDF7  C9
-SUB_BDCB_1:
+F_COMPSIZE_BODY:
         LD C,$0C                         ; $BDF8  0E 0C
-        CALL SUB_B980                    ; $BDFA  CD 80 B9
+        CALL DIR_SEARCH_FIRST                    ; $BDFA  CD 80 B9
         LD HL,($DF11)                    ; $BDFD  2A 11 DF
         LD DE,$0021                      ; $BE00  11 21 00
         ADD HL,DE                        ; $BE03  19
@@ -1959,11 +1959,11 @@ SUB_BDCB_1:
         INC HL                           ; $BE08  23
         LD (HL),D                        ; $BE09  72
 SUB_BDCB_2:
-        CALL SUB_B86B                    ; $BE0A  CD 6B B8
+        CALL CUR_RECORD_BYTES_EQUAL                    ; $BE0A  CD 6B B8
         JR Z,SUB_BDCB_4                  ; $BE0D  28 20
-        CALL SUB_B7CD                    ; $BE0F  CD CD B7
+        CALL FCB_BUF_PTR_ADD_OFFSET                    ; $BE0F  CD CD B7
         LD DE,$000F                      ; $BE12  11 0F 00
-        CALL SUB_BDCB                    ; $BE15  CD CB BD
+        CALL FCB_RECNUM_FROM_FIELDS                    ; $BE15  CD CB BD
         POP HL                           ; $BE18  E1
         PUSH HL                          ; $BE19  E5
         LD E,A                           ; $BE1A  5F
@@ -1982,16 +1982,16 @@ SUB_BDCB_2:
         DEC HL                           ; $BE28  2B
         LD (HL),C                        ; $BE29  71
 SUB_BDCB_3:
-        CALL SUB_B995                    ; $BE2A  CD 95 B9
+        CALL BDOS_DIR_SCAN_NEXT                    ; $BE2A  CD 95 B9
         JR SUB_BDCB_2                    ; $BE2D  18 DB
 SUB_BDCB_4:
         POP HL                           ; $BE2F  E1
         RET                              ; $BE30  C9
-SUB_BDCB_5:
-        CALL SUB_BFA3                    ; $BE31  CD A3 BF
+BDOS_F_RANDREC:
+        CALL RANDREC_FIELD_RESET                    ; $BE31  CD A3 BF
         LD HL,($DF11)                    ; $BE34  2A 11 DF
         LD DE,$0020                      ; $BE37  11 20 00
-        CALL SUB_BDCB                    ; $BE3A  CD CB BD
+        CALL FCB_RECNUM_FROM_FIELDS                    ; $BE3A  CD CB BD
         LD HL,$0021                      ; $BE3D  21 21 00
         ADD HL,DE                        ; $BE40  19
         LD (HL),C                        ; $BE41  71
@@ -2000,34 +2000,34 @@ SUB_BDCB_5:
         INC HL                           ; $BE44  23
         LD (HL),A                        ; $BE45  77
         RET                              ; $BE46  C9
-SUB_BE47:
+BDOS_F_SELDSK:
         LD A,($BFE3)                     ; $BE47  3A E3 BF
         LD HL,$DF10                      ; $BE4A  21 10 DF
         CP (HL)                          ; $BE4D  BE
         RET Z                            ; $BE4E  C8
         LD (HL),A                        ; $BE4F  77
-SUB_BE47_1:
-        LD HL,(L_BFBC)                   ; $BE50  2A BC BF
+DRV_LOGIN_SCAN:
+        LD HL,(DRV_SELECT_VECTOR)                   ; $BE50  2A BC BF
         LD A,($DF10)                     ; $BE53  3A 10 DF
         LD C,A                           ; $BE56  4F
-        CALL SUB_B75F                    ; $BE57  CD 5F B7
+        CALL SHR_HL_C                    ; $BE57  CD 5F B7
         PUSH HL                          ; $BE5A  E5
         EX DE,HL                         ; $BE5B  EB
-        CALL SUB_B5EC                    ; $BE5C  CD EC B5
+        CALL SELDSK_DPB_FETCH                    ; $BE5C  CD EC B5
         POP HL                           ; $BE5F  E1
         CALL Z,$DF15                     ; $BE60  CC 15 DF
         LD A,L                           ; $BE63  7D
         RRA                              ; $BE64  1F
         RET C                            ; $BE65  D8
-        LD HL,(L_BFBC)                   ; $BE66  2A BC BF
+        LD HL,(DRV_SELECT_VECTOR)                   ; $BE66  2A BC BF
         LD C,L                           ; $BE69  4D
         LD B,H                           ; $BE6A  44
-        CALL SUB_B77A                    ; $BE6B  CD 7A B7
-        LD (L_BFBC),HL                   ; $BE6E  22 BC BF
-        JP SUB_B8DB_5                    ; $BE71  C3 0F B9
-SUB_BE74:
-        CALL SUB_BFA3                    ; $BE74  CD A3 BF
-SUB_BE77:
+        CALL DRIVE_BIT_OR_INTO_VECTOR                    ; $BE6B  CD 7A B7
+        LD (DRV_SELECT_VECTOR),HL                   ; $BE6E  22 BC BF
+        JP ALLOC_VECTOR_BUILD                    ; $BE71  C3 0F B9
+FCB_AUTO_DRIVE_SELECT:
+        CALL RANDREC_FIELD_RESET                    ; $BE74  CD A3 BF
+FCB_LOGIN_SELECT:
         LD A,$FF                         ; $BE77  3E FF
         LD ($BFEB),A                     ; $BE79  32 EB BF
         LD HL,($DF11)                    ; $BE7C  2A 11 DF
@@ -2036,157 +2036,157 @@ SUB_BE77:
         DEC A                            ; $BE82  3D
         LD ($BFE3),A                     ; $BE83  32 E3 BF
         CP $1E                           ; $BE86  FE 1E
-        JR NC,SUB_BE77_1                 ; $BE88  30 10
+        JR NC,FCB_MERGE_USER                 ; $BE88  30 10
         LD A,($DF10)                     ; $BE8A  3A 10 DF
         LD ($BFEC),A                     ; $BE8D  32 EC BF
         LD A,(HL)                        ; $BE90  7E
         LD ($BFED),A                     ; $BE91  32 ED BF
         AND $E0                          ; $BE94  E6 E0
         LD (HL),A                        ; $BE96  77
-        CALL SUB_BE47                    ; $BE97  CD 47 BE
-SUB_BE77_1:
+        CALL BDOS_F_SELDSK                    ; $BE97  CD 47 BE
+FCB_MERGE_USER:
         LD A,($DF0F)                     ; $BE9A  3A 0F DF
         LD HL,($DF11)                    ; $BE9D  2A 11 DF
         OR (HL)                          ; $BEA0  B6
         LD (HL),A                        ; $BEA1  77
         RET                              ; $BEA2  C9
-SUB_BE77_2:
+BDOS_F_VERSION:
         LD A,$22                         ; $BEA3  3E 22
         JP $DED0                         ; $BEA5  C3 D0 DE
-SUB_BE77_3:
+BDOS_F_DSKRESET:
         LD HL,$0000                      ; $BEA8  21 00 00
-        LD (L_BFBA),HL                   ; $BEAB  22 BA BF
-        LD (L_BFBC),HL                   ; $BEAE  22 BC BF
+        LD (DRV_LOGIN_VECTOR),HL                   ; $BEAB  22 BA BF
+        LD (DRV_SELECT_VECTOR),HL                   ; $BEAE  22 BC BF
         XOR A                            ; $BEB1  AF
         LD ($DF10),A                     ; $BEB2  32 10 DF
         LD HL,$0080                      ; $BEB5  21 80 00
-        LD (L_BFBE),HL                   ; $BEB8  22 BE BF
-        CALL SUB_B84F                    ; $BEBB  CD 4F B8
-        JR SUB_BE47_1                    ; $BEBE  18 90
-SUB_BE77_4:
-        CALL SUB_B7E1                    ; $BEC0  CD E1 B7
-        JP SUB_BAA7                      ; $BEC3  C3 A7 BA
-SUB_BE77_5:
-        CALL SUB_BE74                    ; $BEC6  CD 74 BE
-        JP SUB_BAF6                      ; $BEC9  C3 F6 BA
-SUB_BE77_6:
-        CALL SUB_BFA3                    ; $BECC  CD A3 BF
+        LD (DMA_ADDR),HL                   ; $BEB8  22 BE BF
+        CALL RESTORE_USER_DMA                    ; $BEBB  CD 4F B8
+        JR DRV_LOGIN_SCAN                    ; $BEBE  18 90
+BDOS_F_OPEN:
+        CALL F_MAKE_OPEN_PREP                    ; $BEC0  CD E1 B7
+        JP FILE_OPEN_SEARCH                      ; $BEC3  C3 A7 BA
+BDOS_F_CLOSE:
+        CALL FCB_AUTO_DRIVE_SELECT                    ; $BEC6  CD 74 BE
+        JP F_CLOSE_HND                      ; $BEC9  C3 F6 BA
+BDOS_F_SFIRST:
+        CALL RANDREC_FIELD_RESET                    ; $BECC  CD A3 BF
         LD C,$00                         ; $BECF  0E 00
         EX DE,HL                         ; $BED1  EB
         LD A,(HL)                        ; $BED2  7E
         CP $3F                           ; $BED3  FE 3F
-        JR Z,SUB_BE77_8                  ; $BED5  28 0E
-        CALL SUB_B71C                    ; $BED7  CD 1C B7
+        JR Z,DIR_SEARCH_AND_COPY                  ; $BED5  28 0E
+        CALL FCB_PTR_EXTENT                    ; $BED7  CD 1C B7
         LD A,(HL)                        ; $BEDA  7E
         CP $3F                           ; $BEDB  FE 3F
-SUB_BE77_7:
-        CALL NZ,SUB_B7EB                 ; $BEDD  C4 EB B7
-        CALL SUB_BE77                    ; $BEE0  CD 77 BE
+SFIRST_CLR_S2:
+        CALL NZ,CLEAR_FCB_S2                 ; $BEDD  C4 EB B7
+        CALL FCB_LOGIN_SELECT                    ; $BEE0  CD 77 BE
         LD C,$0F                         ; $BEE3  0E 0F
-SUB_BE77_8:
-        CALL SUB_B980                    ; $BEE5  CD 80 B9
+DIR_SEARCH_AND_COPY:
+        CALL DIR_SEARCH_FIRST                    ; $BEE5  CD 80 B9
         JP SUB_B854_2                    ; $BEE8  C3 5D B8
-SUB_BE77_9:
+BDOS_F_SNEXT:
         LD DE,($DF85)                    ; $BEEB  ED 5B 85 DF
-        CALL SUB_BFA3                    ; $BEEF  CD A3 BF
+        CALL RANDREC_FIELD_RESET                    ; $BEEF  CD A3 BF
         EX DE,HL                         ; $BEF2  EB
-        CALL SUB_BE77                    ; $BEF3  CD 77 BE
-        CALL SUB_B995                    ; $BEF6  CD 95 B9
+        CALL FCB_LOGIN_SELECT                    ; $BEF3  CD 77 BE
+        CALL BDOS_DIR_SCAN_NEXT                    ; $BEF6  CD 95 B9
         JP SUB_B854_2                    ; $BEF9  C3 5D B8
-SUB_BE77_10:
-        CALL SUB_BE74                    ; $BEFC  CD 74 BE
-        CALL SUB_B9F9                    ; $BEFF  CD F9 B9
-        JP SUB_B8DB_9                    ; $BF02  C3 69 B9
-SUB_BE77_11:
-        CALL SUB_BE74                    ; $BF05  CD 74 BE
-        JP SUB_BBA4_6                    ; $BF08  C3 FE BB
-SUB_BE77_12:
-        CALL SUB_BE74                    ; $BF0B  CD 74 BE
-        JP SUB_BC03_3                    ; $BF0E  C3 3C BC
-SUB_BE77_13:
-        CALL SUB_B7E1                    ; $BF11  CD E1 B7
-        JP SUB_BB6F                      ; $BF14  C3 6F BB
-SUB_BE77_14:
-        CALL SUB_BE74                    ; $BF17  CD 74 BE
-        CALL SUB_BA6E                    ; $BF1A  CD 6E BA
-        JP SUB_B8DB_9                    ; $BF1D  C3 69 B9
-SUB_BE77_15:
-        LD HL,(L_BFBC)                   ; $BF20  2A BC BF
-        JR SUB_BE77_22                   ; $BF23  18 23
-SUB_BE77_16:
+BDOS_F_DELETE:
+        CALL FCB_AUTO_DRIVE_SELECT                    ; $BEFC  CD 74 BE
+        CALL F_DELETE_HND                    ; $BEFF  CD F9 B9
+        JP DIR_RETURN_MATCH_FLAG                    ; $BF02  C3 69 B9
+BDOS_F_READ_SEQ:
+        CALL FCB_AUTO_DRIVE_SELECT                    ; $BF05  CD 74 BE
+        JP FILE_WRITE_SEQ                    ; $BF08  C3 FE BB
+BDOS_F_WRITE_SEQ:
+        CALL FCB_AUTO_DRIVE_SELECT                    ; $BF0B  CD 74 BE
+        JP FILE_READ_SEQ                    ; $BF0E  C3 3C BC
+BDOS_F_MAKE:
+        CALL F_MAKE_OPEN_PREP                    ; $BF11  CD E1 B7
+        JP DIR_MAKE_ENTRY                      ; $BF14  C3 6F BB
+BDOS_F_RENAME:
+        CALL FCB_AUTO_DRIVE_SELECT                    ; $BF17  CD 74 BE
+        CALL F_RENAME_HND                    ; $BF1A  CD 6E BA
+        JP DIR_RETURN_MATCH_FLAG                    ; $BF1D  C3 69 B9
+BDOS_F_LOGINVEC:
+        LD HL,(DRV_SELECT_VECTOR)                   ; $BF20  2A BC BF
+        JR BDOS_RET_RESULT_HL                   ; $BF23  18 23
+BDOS_F_CURDSK:
         LD A,($DF10)                     ; $BF25  3A 10 DF
         JP $DED0                         ; $BF28  C3 D0 DE
-SUB_BE77_17:
+BDOS_F_SETDMA:
         EX DE,HL                         ; $BF2B  EB
-        LD (L_BFBE),HL                   ; $BF2C  22 BE BF
-        JP SUB_B84F                      ; $BF2F  C3 4F B8
-SUB_BE77_18:
+        LD (DMA_ADDR),HL                   ; $BF2C  22 BE BF
+        JP RESTORE_USER_DMA                      ; $BF2F  C3 4F B8
+BDOS_F_ALLOCVEC:
         LD HL,($BFCC)                    ; $BF32  2A CC BF
-        JR SUB_BE77_22                   ; $BF35  18 11
-SUB_BE77_19:
-        LD HL,(L_BFBA)                   ; $BF37  2A BA BF
-        JR SUB_BE77_22                   ; $BF3A  18 0C
-SUB_BE77_20:
-        CALL SUB_BE74                    ; $BF3C  CD 74 BE
-        CALL SUB_BA92                    ; $BF3F  CD 92 BA
-        JP SUB_B8DB_9                    ; $BF42  C3 69 B9
-SUB_BE77_21:
+        JR BDOS_RET_RESULT_HL                   ; $BF35  18 11
+BDOS_F_ROVEC:
+        LD HL,(DRV_LOGIN_VECTOR)                   ; $BF37  2A BA BF
+        JR BDOS_RET_RESULT_HL                   ; $BF3A  18 0C
+BDOS_F_ATTRIB:
+        CALL FCB_AUTO_DRIVE_SELECT                    ; $BF3C  CD 74 BE
+        CALL F_ATTRIB_HND                    ; $BF3F  CD 92 BA
+        JP DIR_RETURN_MATCH_FLAG                    ; $BF42  C3 69 B9
+BDOS_F_GETDPB:
         LD HL,($BFC8)                    ; $BF45  2A C8 BF
-SUB_BE77_22:
+BDOS_RET_RESULT_HL:
         LD ($DF13),HL                    ; $BF48  22 13 DF
         RET                              ; $BF4B  C9
-SUB_BE77_23:
+BDOS_F_USERNUM:
         LD A,($BFE3)                     ; $BF4C  3A E3 BF
         CP $FF                           ; $BF4F  FE FF
-        JR NZ,SUB_BE77_24                ; $BF51  20 06
+        JR NZ,SET_USER_NUMBER                ; $BF51  20 06
         LD A,($DF0F)                     ; $BF53  3A 0F DF
         JP $DED0                         ; $BF56  C3 D0 DE
-SUB_BE77_24:
+SET_USER_NUMBER:
         AND $1F                          ; $BF59  E6 1F
         LD ($DF0F),A                     ; $BF5B  32 0F DF
         RET                              ; $BF5E  C9
-SUB_BE77_25:
-        CALL SUB_BE74                    ; $BF5F  CD 74 BE
-        JP SUB_BD34_5                    ; $BF62  C3 B9 BD
-SUB_BE77_26:
-        CALL SUB_BE74                    ; $BF65  CD 74 BE
-        JP SUB_BD34_6                    ; $BF68  C3 C2 BD
-SUB_BE77_27:
-        CALL SUB_BE74                    ; $BF6B  CD 74 BE
-        JP SUB_BDCB_1                    ; $BF6E  C3 F8 BD
-SUB_BE77_28:
+BDOS_F_READRAND:
+        CALL FCB_AUTO_DRIVE_SELECT                    ; $BF5F  CD 74 BE
+        JP F_READRAND_BODY                    ; $BF62  C3 B9 BD
+BDOS_F_WRITERAND:
+        CALL FCB_AUTO_DRIVE_SELECT                    ; $BF65  CD 74 BE
+        JP F_WRITERAND_BODY                    ; $BF68  C3 C2 BD
+BDOS_F_SIZE:
+        CALL FCB_AUTO_DRIVE_SELECT                    ; $BF6B  CD 74 BE
+        JP F_COMPSIZE_BODY                    ; $BF6E  C3 F8 BD
+BDOS_F_RESET_DRIVE:
         LD HL,($DF11)                    ; $BF71  2A 11 DF
         LD A,L                           ; $BF74  7D
         CPL                              ; $BF75  2F
         LD E,A                           ; $BF76  5F
         LD A,H                           ; $BF77  7C
         CPL                              ; $BF78  2F
-        LD HL,(L_BFBC)                   ; $BF79  2A BC BF
+        LD HL,(DRV_SELECT_VECTOR)                   ; $BF79  2A BC BF
         AND H                            ; $BF7C  A4
         LD D,A                           ; $BF7D  57
         LD A,L                           ; $BF7E  7D
         AND E                            ; $BF7F  A3
         LD E,A                           ; $BF80  5F
-        LD HL,(L_BFBA)                   ; $BF81  2A BA BF
+        LD HL,(DRV_LOGIN_VECTOR)                   ; $BF81  2A BA BF
         EX DE,HL                         ; $BF84  EB
-        LD (L_BFBC),HL                   ; $BF85  22 BC BF
+        LD (DRV_SELECT_VECTOR),HL                   ; $BF85  22 BC BF
         LD A,L                           ; $BF88  7D
         AND E                            ; $BF89  A3
         LD L,A                           ; $BF8A  6F
         LD A,H                           ; $BF8B  7C
         AND D                            ; $BF8C  A2
         LD H,A                           ; $BF8D  67
-        LD (L_BFBA),HL                   ; $BF8E  22 BA BF
+        LD (DRV_LOGIN_VECTOR),HL                   ; $BF8E  22 BA BF
         RET                              ; $BF91  C9
-SUB_BE77_29:
-        CALL SUB_BE74                    ; $BF92  CD 74 BE
+BDOS_F_WRITEZF:
+        CALL FCB_AUTO_DRIVE_SELECT                    ; $BF92  CD 74 BE
         LD A,$02                         ; $BF95  3E 02
         LD ($BFE2),A                     ; $BF97  32 E2 BF
         LD C,$00                         ; $BF9A  0E 00
-        CALL SUB_BD34                    ; $BF9C  CD 34 BD
-        CALL Z,SUB_BC41                  ; $BF9F  CC 41 BC
+        CALL BDOS_SEEK_COMPUTE                    ; $BF9C  CD 34 BD
+        CALL Z,BDOS_WRITE                  ; $BF9F  CC 41 BC
         RET                              ; $BFA2  C9
-SUB_BFA3:
+RANDREC_FIELD_RESET:
         LD HL,$DF87                      ; $BFA3  21 87 DF
         INC (HL)                         ; $BFA6  34
         INC HL                           ; $BFA7  23
@@ -2197,13 +2197,13 @@ SUB_BFA3:
         CALL $DF3C                       ; $BFB2  CD 3C DF
         LD DE,$DF88                      ; $BFB5  11 88 DF
         RET                              ; $BFB8  C9
-L_BFB9:
+EMPTY_DIR_FCB:
         DEFB    $E5                                              ; $BFB9
-L_BFBA:
+DRV_LOGIN_VECTOR:
         DEFB    "\0\0"    ; $BFBA
-L_BFBC:
+DRV_SELECT_VECTOR:
         DEFB    "\0\0"    ; $BFBC
-L_BFBE:
+DMA_ADDR:
         DEFB    $80,$00                                          ; $BFBE
     ENT
 ; -------------------- end lower LC bank (back to $EA00 image top) --------------------
