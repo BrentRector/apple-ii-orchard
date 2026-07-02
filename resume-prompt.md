@@ -34,13 +34,21 @@ decoded lines; file DEFB 225→39, all genuine data). KEY FACTS (for the remaini
   `$DC00`, then `ENT`, then lower `$B5C0`), gated `IFDEF CPM60_LINK` (standalone uses `ORG $DC00` for the upper).
 - `LC_RDWR_BANK1/2` were mislabelled soft-switches → promoted to `LC_BANK1/LC_BANK2` EQUs (`$E08B/$E083`).
 
-**REMAINING:** (a) **RAISE the decoded BDOS lower bank to C-level** — semantic-rename the `SUB_Bxxx`/`L_Bxxx`
-machine labels + add C-level function headers/body comments (the 27 lower funcs are the FCB/file/dir/disk
-machinery; the `$DC53` table maps BDOS fn# → handler; the 44K 2.23 BDOS is the naming reference) + finish the
-upper bank; (b) **CPM_BIOS.asm** C-level (802 lines, LC-aware; 44K 2.23 BIOS = 65%-shared reference); (c) the 3
-6502 files. Byte-identical via `build_cpm60_com == reference_com`. THEN deliverable #2: package the emulator
-install-run (`CPMV223-60K-EMU.DSK`; softcard_emu supports the guest disk-write) as a downloadable resource + wire
-into release/targets provenance ("produced by running the byte-built CPM60.COM on a 2.23-44K disk").
+**BDOS LOWER BANK now fully C-level** (commits `19bec6d` rename + `ffdb2ca` headers): 113 semantic labels (the 27
+`BDOS_F_*` dispatch entries + all file/dir/disk workers, matched routine-for-routine to the 44K 2.23 BDOS by a
+subagent) + 111 C-level function headers (Purpose/In/Out/Clobbers/Algorithm, ported from the 44K twins, adapted to
+the 60K `$BFxx`/`$DFxx` cell scheme). Byte-identical. **Deliverable #2 DONE** (`30c94c7`): `cpm_pipeline/install_60k.py`
+`build_60k_disk_via_installer()` boots the archived 2.23-44K disk in softcard_emu, runs `CPM60`, and captures the
+system tracks the byte-built installer writes — byte-identical to `CPMV223-60K-EMU.DSK` (gated, ~44s).
+
+**REMAINING (all "enrich already-decoded code to C-level", NO more blobs):** (a) **BDOS UPPER bank** ($DC00-$DFFF,
+~500 lines, 74 machine labels, 0 headers) — the dispatcher + console fns 0-11 (44K console twins: F_CONIN_H/
+F_CONOUT_H/BDOS_DISPATCH/...) + the 60K-specific LC bank-switch trampolines ($DF1x-$DF8x); also wire the `$DC53`
+dispatch table `DEFW`s to the now-named `BDOS_F_*` handlers (byte-identical). (b) **CPM_BIOS.asm** C-level (802
+lines, LC-aware; 44K 2.23 BIOS = 65%-shared reference). (c) the 3 6502 files. Method that worked for the lower
+bank: subagent correlates 60K→44K (rename map + headers as JSON) → apply via `\b`-boundary regex → byte-identical
+guard (`build_cpm60_com == reference_com`). Scratch scripts `…/scratchpad/rename_bdos_lower.py`,
+`insert_bdos_headers.py`; header JSON `bdos60_headers.json`.
 
 ## >> RESUME HERE — 2026-07-01 (FRESH SESSION HANDOFF): UNIFIED BUILD — Step 0 + Step 5 DONE; release harness live
 
