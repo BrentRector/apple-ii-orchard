@@ -1,5 +1,33 @@
 # Resume Prompt — Microsoft SoftCard CP/M Investigation
 
+## >> 2026-07-01 (LIVE): 60K CPM60.COM — fully C-level comment it + publish the installer-run disk
+
+**Gate `cd /e/Orchard && source shared/toolchain/env.sh && python -m pytest softcard/ shared/` = 236, tree
+CLEAN, HEAD `19d4769`.** Two deliverables (user directive):
+1. **Fully C-level-comment the 2.23 `CPM60.COM` program** (master + installer + the 60K `os/` components).
+2. **Publish, as a resource, the 2.23-60K `.dsk` produced by RUNNING the byte-built `CPM60.COM` on a 2.23-44K
+   `.dsk`** (the installer-run / emulator derivation — NOT a static chunk-map compile). *The earlier
+   "static chunk-map reconstruct of the 60K disk" plan is DROPPED per the user.*
+
+**DONE this phase:**
+- **Installer `CPM60_installer.asm` → C-level** (commit `9d5961d`): function headers on main()+RPC_WRITE/WAIT_KEY/
+  PRINT_STR; retired the redundant `SUB_xxxx` aliases. CPM60.COM byte-identical (both build paths).
+- **CCP FOLDED onto the canonical C-level 2.23 source** (commit `19d4769`, = unified-build Step 4 for the 2.23
+  family): the 60K CCP was a 1240-line duplicate = the 2.23-44K CCP +$4000 (1 byte). Now `CPM60.asm` INCLUDEs
+  `CPMV223-44K/os/CPM_CCP.asm` with `-DCFG_60K` (cpm_system_223.inc grew a CFG_60K branch: CCP $D300/BDOS
+  $DC00/FASTLOAD_TOP_PAGE $F0). Labelized the 5 non-relocatable CCP literals (`JP CCP_WARM_ENTRY`, `DEFW
+  CCP_CMDTEXT`, `LD DE/HL,CCP_BASE-1` ×3, `CP FASTLOAD_TOP_PAGE`). Retired the 60K CCP dup +
+  `test_dispatch_reloc.py`; rewrote `test_shared_ccp.py` to gate the fold. Both `build_cpm60_com` paths +
+  the 2.23-44K disk stay byte-identical. The 60K CCP now inherits full C-level comments for free.
+
+**REMAINING (the bulk of "comment CPM60.COM"):** direct C-level enrichment (comments/labels only, byte-identical
+via the `build_cpm60_com == reference_com` gate) of — **CPM_BIOS.asm** (802 lines, LC-aware; the 44K 2.23 BIOS
+is a 65%-shared naming reference), **CPM_BDOS.asm** (839 lines, bank-woven; DO-NOT-FOLD, the lower-bank blob gets
+documented as data), and the 3 6502 files (BootLoader/RWTS/InstallFragments). NEITHER BDOS nor BIOS folds (BDOS
+2% / BIOS 65% reloc-explained vs the 44K twins). THEN deliverable #2: package the emulator install-run
+(softcard_emu already supports the guest disk-write; `CPMV223-60K-EMU.DSK` is the committed artifact) as a
+downloadable resource + wire into the release/targets provenance ("produced by running the byte-built CPM60.COM").
+
 ## >> RESUME HERE — 2026-07-01 (FRESH SESSION HANDOFF): UNIFIED BUILD — Step 0 + Step 5 DONE; release harness live
 
 **Gate `cd /e/Orchard && source shared/toolchain/env.sh && python -m pytest softcard/ shared/` = 238, working
