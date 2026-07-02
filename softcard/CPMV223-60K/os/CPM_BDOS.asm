@@ -607,6 +607,17 @@ LC_CALL_B5C0_7:
     ENT                ; close the upper-bank DISP $DC00 (linked build)
     ENDIF
     DISP $B5C0
+; ----------------------------------------------------------------------
+; IS_CTRL_CHAR -- classify A as a printable/control character for the console echo path.
+;   In: A = character to test.
+;   Out: carry set when A is a control character that the line editor must expand (below space and
+;        not one of CR/LF/TAB/BS); carry clear for CR/LF/TAB/BS and for printable chars (>= space).
+;   Clobbers: A,flags (the tail-JP $DF81 = upper-bank LC_BANK2_RET banks bank2 back in and returns).
+;   Algorithm: compare A against CR($0D)/LF($0A)/TAB($09)/BS($08) (each a non-control 'pass'), then
+;       CP $20; JP $DF81 leaves carry = (A < $20) for the remaining control chars. Lives in the lower
+;       LC bank; the upper-bank echo caller reaches it via LC_CALL_B5C0 ($DF36).
+;   [RE] control-char discriminator for CON_OUT_EXPAND (^X caret display). [?]
+; ----------------------------------------------------------------------
 IS_CTRL_CHAR:
         CP $0D                           ; $B5C0  FE 0D
         JR Z,IS_CTRL_CHAR_TAIL                      ; $B5C2  28 0E
@@ -619,6 +630,16 @@ IS_CTRL_CHAR:
         CP $20                           ; $B5D0  FE 20
 IS_CTRL_CHAR_TAIL:
         JP $DF81                         ; $B5D2  C3 81 DF
+; ----------------------------------------------------------------------
+; CON_TRACK_COL -- update the console column counter (CON_COLUMN=$DEDA) for one output char.
+;   In: C = character being emitted.
+;   Out: the column cell $DEDA advanced for a printable char, decremented for a backspace, and left
+;        unchanged for rubout ($7F) or when already at column 0.  Clobbers: A,HL,flags.
+;   Algorithm: HL := $DEDA (upper-bank CON_COLUMN); RET on rubout; INC the column, but if the char is
+;       a control code (< space) undo it, and for BS ($08) tail to $DD64 (the upper-bank column-fix
+;       stub) to also DEC. Runs in the lower LC bank; called from CON_OUT_CHAR_2 via CALL $B5D5.
+;   [RE] column tracker feeding TAB expansion and line-edit backspace. [?]
+; ----------------------------------------------------------------------
 CON_TRACK_COL:
         LD A,C                           ; $B5D5  79
         LD HL,$DEDA                      ; $B5D6  21 DA DE
@@ -636,6 +657,20 @@ CON_TRACK_COL:
         JP NZ,$DD64                      ; $B5E7  C2 64 DD
         DEC (HL)                         ; $B5EA  35
         RET                              ; $B5EB  C9
+; ----------------------------------------------------------------------
+; SELDSK_DPB_FETCH -- SELDSK the current drive and cache its Disk Parameter Block fields locally.
+;   In: current drive at $DF10 (BDOS upper-bank current-drive cell).
+;   Out: Z (A=0) if the BIOS returned a null DPH (drive not present); else A=$FF and the DPB fields
+;        are unpacked into the $BFxx work cells (translate ptr $BFC0, block-shift/mask/EXM into
+;        $BFC2..$BFC6, the DPB word block $BFC6.. copied from the DPB, ALLOC-vec ptr region, etc.).
+;   Clobbers: A,BC,DE,HL,flags.
+;   Algorithm: A := (current drive $DF10); C := A; CALL BIOS SELDSK ($FA1B) -> HL = DPH; return Z if
+;       HL is 0; walk the DPH to the DPB, stash the XLT/DPB pointers into the $BFC0-$BFC6 work cells,
+;       LDIR the 8-byte DPB header and the 15-byte second block into $BFC6/$BFCE, set the block-width
+;       flag $BFEA from DSM's high byte, and return A=$FF.
+;   [RE] 60K equivalent of the 44K SELDSK/DPB-unpack; the DPB scratch lives in the LC low page ($BFxx
+;        here, vs the 44K $A9xx). [?] exact cell roles cross-checked against the 44K twin.
+; ----------------------------------------------------------------------
 SELDSK_DPB_FETCH:
         LD A,($DF10)                     ; $B5EC  3A 10 DF
         LD C,A                           ; $B5EF  4F
@@ -675,6 +710,14 @@ SUB_B5EC_1:
         LD A,$FF                         ; $B62E  3E FF
         OR A                             ; $B630  B7
         RET                              ; $B631  C9
+; ----------------------------------------------------------------------
+; DISK_HOME_CLEAR_SCAN -- HOME the drive and reset the directory-scan record/position work cells.
+;   In: DPB scratch pointers at $BFC2 (record-count work word ptr) and $BFC4 (scan-position word ptr).
+;   Out: the BIOS head is homed and the two 16-bit work cells addressed by ($BFC2) and ($BFC4) are
+;        zeroed, restarting a directory sweep from record 0.  Clobbers: A,HL,flags.
+;   Algorithm: CALL BIOS HOME ($FA18); A := 0; zero the word at ($BFC2) and the word at ($BFC4).
+;   [RE] scan-reset run at the start of ALLOC_VECTOR_BUILD and each DIR_SEARCH_FIRST. [?]
+; ----------------------------------------------------------------------
 DISK_HOME_CLEAR_SCAN:
         CALL $FA18                       ; $B632  CD 18 FA
         XOR A                            ; $B635  AF
@@ -687,12 +730,33 @@ DISK_HOME_CLEAR_SCAN:
         INC HL                           ; $B640  23
         LD (HL),A                        ; $B641  77
         RET                              ; $B642  C9
+; ----------------------------------------------------------------------
+; REC_DIV4_SETUP -- derive the 128-byte disk record (CUR_RECORD >> 2) that holds the current dir entry.
+;   In: CUR_RECORD = 16-bit current directory-entry index at $BFF7.
+;   Out: the record number CUR_RECORD/4 stored into the two deblock work words $BFF2 and $BFF9.
+;   Clobbers: A,BC,HL,flags.
+;   Algorithm: HL := (CUR_RECORD $BFF7); C := 2; SHR_HL_C (>>2 = four 32-byte entries per 128-byte
+;       record); store HL to $BFF2 and $BFF9; fall into RECORD_TO_TRACK.
+;   [RE] CP/M packs four 32-byte directory entries per 128-byte record; this picks the record. [?]
+; ----------------------------------------------------------------------
 REC_DIV4_SETUP:
         LD HL,($BFF7)                    ; $B643  2A F7 BF
         LD C,$02                         ; $B646  0E 02
         CALL SHR_HL_C                    ; $B648  CD 5F B7
         LD ($BFF2),HL                    ; $B64B  22 F2 BF
         LD ($BFF9),HL                    ; $B64E  22 F9 BF
+; ----------------------------------------------------------------------
+; RECORD_TO_TRACK -- translate the target logical record into a physical track/sector and program the BIOS.
+;   In: the record word at $BFF2; DPB fields cached in the $BFxx work cells (sectors-per-track word
+;       ($BFCE), track-offset ($BFDD), skew-table ($BFDB)).
+;   Out: BIOS SETTRK/SETSEC set for the record via the BIOS SECTRAN/step vectors; track/sector work
+;        cells ($BFC2/$BFC4) updated.  Clobbers: A,BC,DE,HL,flags.
+;   Algorithm: subtract whole tracks (sectors-per-track) from the record to get track# and
+;       sector-within-track, add the DPB track offset, program the BIOS via the $FAxx SET* vectors,
+;       and SECTRAN the sector through the skew table ($BFDB) before SETSEC.
+;   [RE] the 60K record->track/sector deblock; DPB geometry read from the LC low-page work cells.
+;        [?] cross-checked against the 44K RECORD_TO_TRACK twin.
+; ----------------------------------------------------------------------
 RECORD_TO_TRACK:
         LD HL,$BFF2                      ; $B651  21 F2 BF
         LD C,(HL)                        ; $B654  4E
@@ -772,6 +836,15 @@ SUB_B651_3:
         LD C,L                           ; $B6B4  4D
         LD B,H                           ; $B6B5  44
         JP $FA21                         ; $B6B6  C3 21 FA
+; ----------------------------------------------------------------------
+; REC_BLOCK_SHIFT_6 -- combine the FCB extent's low block-map bits with the record-in-block bits.
+;   In: DPB block-shift BSH at $BFD0; the record-low and extent-low work bytes at $BFF0 / $BFEF.
+;   Out: A = the composite index used by FCB_BLOCKMAP_INDEX_10 to pick the block-map slot.
+;   Clobbers: A,B,C,flags.
+;   Algorithm: shift the record byte ($BFF0) right (8 - BSH) times, shift the extent byte ($BFEF)
+;       left BSH times, and add them to form the block-map slot index.
+;   [RE] 60K deblock helper computing the FCB allocation-map slot from record + extent. [?]
+; ----------------------------------------------------------------------
 REC_BLOCK_SHIFT_6:
         LD HL,$BFD0                      ; $B6B9  21 D0 BF
         LD C,(HL)                        ; $B6BC  4E
@@ -795,6 +868,15 @@ SUB_B6B9_2:
 SUB_B6B9_3:
         ADD A,B                          ; $B6D4  80
         RET                              ; $B6D5  C9
+; ----------------------------------------------------------------------
+; FCB_BLOCKMAP_INDEX_10 -- fetch the disk block number from the FCB allocation map at slot BC.
+;   In: BC = slot index; current FCB pointer at $DF11 (upper-bank CURFCB cell); block-width flag $BFEA.
+;   Out: HL = the block (group) number stored at FCB+$10+slot (8-bit map) or the 16-bit word there
+;        (16-bit map, when $BFEA=0).  Clobbers: A,DE,HL,flags.
+;   Algorithm: HL := (CURFCB $DF11) + $10 + BC; if $BFEA (narrow) nonzero read one byte (H:=0), else
+;       add BC again and read the 16-bit word.
+;   [RE] reads an FCB block-map entry; $BFEA selects 8-bit vs 16-bit block numbers. [DOC CP/M 2.2 FCB]
+; ----------------------------------------------------------------------
 FCB_BLOCKMAP_INDEX_10:
         LD HL,($DF11)                    ; $B6D6  2A 11 DF
         LD DE,$0010                      ; $B6D9  11 10 00
@@ -813,6 +895,15 @@ SUB_B6D6_1:
         LD D,(HL)                        ; $B6EB  56
         EX DE,HL                         ; $B6EC  EB
         RET                              ; $B6ED  C9
+; ----------------------------------------------------------------------
+; REC_TO_BLOCK_14 -- map the current record to its disk block number via the FCB allocation map.
+;   In: the record/extent work bytes ($BFF0/$BFEF) and current FCB ($DF11).
+;   Out: the block number for this record stored into the block work word $BFF2 (0 = unallocated).
+;   Clobbers: A,BC,HL,flags.
+;   Algorithm: REC_BLOCK_SHIFT_6 forms the block-map slot in A; C:=A,B:=0; FCB_BLOCKMAP_INDEX_10
+;       reads that slot's block number; store to $BFF2.
+;   [RE] 60K record->block lookup; feeds BLOCK_IS_ZERO_16 / BLOCK_BASE_RECORD_17. [?]
+; ----------------------------------------------------------------------
 REC_TO_BLOCK_14:
         CALL REC_BLOCK_SHIFT_6                    ; $B6EE  CD B9 B6
         LD C,A                           ; $B6F1  4F
@@ -820,11 +911,28 @@ REC_TO_BLOCK_14:
         CALL FCB_BLOCKMAP_INDEX_10                    ; $B6F4  CD D6 B6
         LD ($BFF2),HL                    ; $B6F7  22 F2 BF
         RET                              ; $B6FA  C9
+; ----------------------------------------------------------------------
+; BLOCK_IS_ZERO_16 -- test whether the current record's block ($BFF2) is unallocated.
+;   In: block work word at $BFF2.
+;   Out: A = L, Z set when the 16-bit block number is 0 (no block yet allocated for this record).
+;   Clobbers: A,HL,flags.
+;   Algorithm: HL := ($BFF2); A := L OR H; RET (Z <=> block==0).
+;   [RE] the read/write core branches on Z here to decide allocate-vs-use. [?]
+; ----------------------------------------------------------------------
 BLOCK_IS_ZERO_16:
         LD HL,($BFF2)                    ; $B6FB  2A F2 BF
         LD A,L                           ; $B6FE  7D
         OR H                             ; $B6FF  B4
         RET                              ; $B700  C9
+; ----------------------------------------------------------------------
+; BLOCK_BASE_RECORD_17 -- compute the absolute base record of the current block plus the in-block record.
+;   In: DPB block-shift BSH at $BFD0, block-mask BLM at $BFD1; block number at $BFF2; record-low $BFF0.
+;   Out: $BFF4 = block# << BSH (the block's first record); $BFF2 = that base OR (record & BLM) = the
+;        exact physical record.  Clobbers: A,C,HL,flags.
+;   Algorithm: HL := block ($BFF2); ADD HL,HL BSH times to get the base record (stored $BFF4); then OR
+;       in (record-low $BFF0 AND BLM $BFD1) and store the physical record back to $BFF2.
+;   [RE] block-number -> physical-record fold used before RECORD_TO_TRACK. [?]
+; ----------------------------------------------------------------------
 BLOCK_BASE_RECORD_17:
         LD A,($BFD0)                     ; $B701  3A D0 BF
         LD HL,($BFF2)                    ; $B704  2A F2 BF
@@ -841,11 +949,26 @@ SUB_B701_1:
         LD L,A                           ; $B717  6F
         LD ($BFF2),HL                    ; $B718  22 F2 BF
         RET                              ; $B71B  C9
+; ----------------------------------------------------------------------
+; FCB_PTR_EXTENT -- point HL at the FCB's extent byte (FCB+$0C, the EX field).
+;   In: current FCB pointer at $DF11 (upper-bank CURFCB cell).
+;   Out: HL = CURFCB + $0C (the extent-number byte).  Clobbers: DE,HL.
+;   Algorithm: HL := ($DF11) + $000C.
+;   [RE] FCB byte 12 = EX (extent number) per CP/M 2.2 FCB layout. [DOC CP/M 2.2 FCB]
+; ----------------------------------------------------------------------
 FCB_PTR_EXTENT:
         LD HL,($DF11)                    ; $B71C  2A 11 DF
         LD DE,$000C                      ; $B71F  11 0C 00
         ADD HL,DE                        ; $B722  19
         RET                              ; $B723  C9
+; ----------------------------------------------------------------------
+; FCB_PTR_RC_CR -- point DE at the FCB record-count byte (FCB+$0F) and HL at the current-record byte (FCB+$20).
+;   In: current FCB pointer at $DF11.
+;   Out: DE = CURFCB + $0F (RC, record count in the extent); HL = CURFCB + $20 (CR, current record).
+;   Clobbers: DE,HL.
+;   Algorithm: DE := ($DF11) + $0F; HL := DE + $11 (= FCB + $20).
+;   [RE] FCB byte 15 = RC, byte 32 = CR per CP/M 2.2 FCB layout. [DOC CP/M 2.2 FCB]
+; ----------------------------------------------------------------------
 FCB_PTR_RC_CR:
         LD HL,($DF11)                    ; $B724  2A 11 DF
         LD DE,$000F                      ; $B727  11 0F 00
@@ -854,6 +977,15 @@ FCB_PTR_RC_CR:
         LD HL,$0011                      ; $B72C  21 11 00
         ADD HL,DE                        ; $B72F  19
         RET                              ; $B730  C9
+; ----------------------------------------------------------------------
+; FCB_PRIME_FIELDS -- load the current FCB's CR / RC / EX fields into the $BFxx deblock work bytes.
+;   In: current FCB ($DF11); DPB EXM mask at $BFD2.
+;   Out: $BFF0 = CR (current record, FCB+$20); $BFEE = RC (record count, FCB+$0F); $BFEF = EX (extent,
+;        FCB+$0C) masked with EXM.  Clobbers: A,DE,HL.
+;   Algorithm: FCB_PTR_RC_CR gets the RC/CR pointers; copy CR->$BFF0 and RC->$BFEE; FCB_PTR_EXTENT
+;       gets &EX; store (EX AND EXM $BFD2) -> $BFEF.
+;   [RE] primes the working record/extent bytes the read/write core operates on. [?]
+; ----------------------------------------------------------------------
 FCB_PRIME_FIELDS:
         CALL FCB_PTR_RC_CR                    ; $B731  CD 24 B7
         LD A,(HL)                        ; $B734  7E
@@ -866,6 +998,15 @@ FCB_PRIME_FIELDS:
         AND (HL)                         ; $B743  A6
         LD ($BFEF),A                     ; $B744  32 EF BF
         RET                              ; $B747  C9
+; ----------------------------------------------------------------------
+; FCB_WRITEBACK_REC -- write the working record/record-count bytes back into the current FCB.
+;   In: working CR byte $BFF0, working RC byte $BFEE; write-type flag WRITE_TYPE=$BFE2.
+;   Out: FCB CR (FCB+$20) := $BFF0 (+1 unless WRITE_TYPE=2 zero-fill); FCB RC (FCB+$0F) := $BFEE.
+;   Clobbers: A,C,DE,HL.
+;   Algorithm: FCB_PTR_RC_CR gets the pointers; C := 1 unless WRITE_TYPE ($BFE2)==2 (then 0); store
+;       (CR $BFF0 + C) to the FCB CR byte and RC $BFEE to the FCB RC byte.
+;   [RE] post-I/O FCB position commit; WRITE_TYPE=2 (WRITEZF) does not advance CR. [?]
+; ----------------------------------------------------------------------
 FCB_WRITEBACK_REC:
         CALL FCB_PTR_RC_CR                    ; $B748  CD 24 B7
         LD A,($BFE2)                     ; $B74B  3A E2 BF
@@ -881,6 +1022,13 @@ SUB_B748_1:
         LD A,($BFEE)                     ; $B75A  3A EE BF
         LD (HL),A                        ; $B75D  77
         RET                              ; $B75E  C9
+; ----------------------------------------------------------------------
+; SHR_HL_C -- logical-shift HL right by C bit positions.
+;   In: HL = value; C = shift count (0 leaves HL unchanged).
+;   Out: HL >>= C.  Clobbers: C,HL (C decremented to 0).
+;   Algorithm: INC C / loop { DEC C; ret if zero; SRL H; RR L }.
+;   [RE] generic unsigned right-shift helper (record/4, drive-bit extraction). Mirror of SHL_HL_C.
+; ----------------------------------------------------------------------
 SHR_HL_C:
         INC C                            ; $B75F  0C
 SUB_B75F_1:
@@ -889,6 +1037,13 @@ SUB_B75F_1:
         SRL H                            ; $B762  CB 3C
         RR L                             ; $B764  CB 1D
         JR SUB_B75F_1                    ; $B766  18 F8
+; ----------------------------------------------------------------------
+; DIR_CHECKSUM -- compute the 128-byte additive checksum of the directory buffer.
+;   In: the directory buffer pointer at $BFC6 (DIRBUF ptr).
+;   Out: A = 8-bit sum of the 128 bytes.  Clobbers: A,C,HL.
+;   Algorithm: C=$80 count, HL=(DIRBUF ptr $BFC6), A=0; loop ADD A,(HL)/INC HL/DEC C until C==0.
+;   [RE] canonical CP/M directory-checksum routine (detects media swap). [DOC CP/M 2.2 ALG]
+; ----------------------------------------------------------------------
 DIR_CHECKSUM:
         LD C,$80                         ; $B768  0E 80
         LD HL,($BFC6)                    ; $B76A  2A C6 BF
@@ -899,6 +1054,13 @@ SUB_B768_1:
         DEC C                            ; $B770  0D
         JR NZ,SUB_B768_1                 ; $B771  20 FB
         RET                              ; $B773  C9
+; ----------------------------------------------------------------------
+; SHL_HL_C -- logical-shift HL left by C bit positions.
+;   In: HL = value; C = shift count (0 leaves HL unchanged).
+;   Out: HL <<= C.  Clobbers: C,HL (C decremented to 0).
+;   Algorithm: INC C / loop { DEC C; ret if zero; ADD HL,HL }.
+;   [RE] generic unsigned left-shift helper (e.g. building a 1<<n drive-bit mask).
+; ----------------------------------------------------------------------
 SHL_HL_C:
         INC C                            ; $B774  0C
 SUB_B774_1:
@@ -906,6 +1068,16 @@ SUB_B774_1:
         RET Z                            ; $B776  C8
         ADD HL,HL                        ; $B777  29
         JR SUB_B774_1                    ; $B778  18 FB
+; ----------------------------------------------------------------------
+; DRIVE_BIT_OR_INTO_VECTOR -- OR the current drive's single-bit mask into a 16-bit vector.
+;   In: BC = existing 16-bit vector (preserved); current drive at $DF10.
+;       (HL on entry is IGNORED; it is overwritten with $0001.)
+;   Out: HL = BC OR (1 << current_drive).  Clobbers: A,HL (BC saved/restored).
+;   Algorithm: PUSH BC; C := current drive ($DF10); HL := 1; SHL_HL_C to form 1<<drive; POP BC;
+;       L := C OR L, H := B OR H.
+;   [RE] sets the current drive's bit in whatever vector the caller passes in BC (R/O and login
+;   setters). [?]
+; ----------------------------------------------------------------------
 DRIVE_BIT_OR_INTO_VECTOR:
         PUSH BC                          ; $B77A  C5
         LD A,($DF10)                     ; $B77B  3A 10 DF
@@ -920,6 +1092,15 @@ DRIVE_BIT_OR_INTO_VECTOR:
         OR H                             ; $B78A  B4
         LD H,A                           ; $B78B  67
         RET                              ; $B78C  C9
+; ----------------------------------------------------------------------
+; DRIVE_BIT_TEST -- test whether the current drive's bit is set in the read-only drive vector.
+;   In: the 16-bit R/O vector at DRV_LOGIN_VECTOR ($BFBA, the read-only vector set by the
+;       Write-Protect-Disk handler BDOS_F_SETRO); current drive at $DF10.
+;   Out: A = 1 if the current drive's R/O bit is set, else 0; Z reflects the result.  Clobbers: A,C,HL.
+;   Algorithm: load the vector ($BFBA), shift right by the drive number to bring its bit to bit 0, AND $01.
+;   [RE] CHECK_DRIVE_READONLY raises the R/O error when this bit is set, proving the vector is the
+;        read-only vector, not the login vector. [?] cell-name kept as DRV_LOGIN_VECTOR per the 44K twin.
+; ----------------------------------------------------------------------
 DRIVE_BIT_TEST:
         LD HL,(DRV_LOGIN_VECTOR)                   ; $B78D  2A BA BF
         LD A,($DF10)                     ; $B790  3A 10 DF
@@ -928,6 +1109,17 @@ DRIVE_BIT_TEST:
         LD A,L                           ; $B797  7D
         AND $01                          ; $B798  E6 01
         RET                              ; $B79A  C9
+; ----------------------------------------------------------------------
+; BDOS_F_SETRO -- BDOS function 28 (Write Protect Disk): set the current drive's R/O bit.
+;   In: the R/O drive vector at DRV_LOGIN_VECTOR ($BFBA); current drive at $DF10; the directory
+;       record-count limit word at ($BFD5); a 16-bit working cell addressed by ($BFC0).
+;   Out: the R/O vector has the current drive's bit set; the word at ($BFC0) := (record limit)+1.
+;   Clobbers: A,BC,DE,HL.
+;   Algorithm: load the R/O vector ($BFBA) into BC, set the current-drive bit via
+;       DRIVE_BIT_OR_INTO_VECTOR, store it back; then store ((word at $BFD5)+1) into the cell at ($BFC0).
+;   [RE] this is the fn-28 entry ($DC8B->$B79B) in the dispatch table, confirming Write-Protect-Disk.
+;        [?] reason for caching the record-limit+1 UNKNOWN.
+; ----------------------------------------------------------------------
 BDOS_F_SETRO:
         LD HL,DRV_LOGIN_VECTOR                     ; $B79B  21 BA BF
         LD C,(HL)                        ; $B79E  4E
@@ -943,8 +1135,22 @@ BDOS_F_SETRO:
         INC HL                           ; $B7B0  23
         LD (HL),D                        ; $B7B1  72
         RET                              ; $B7B2  C9
+; ----------------------------------------------------------------------
+; FCB_RO_FLAG_TEST -- raise the file-R/O error if the matched directory entry is read-only.
+;   In: the DIRBUF ptr ($BFC6) and entry byte-offset ($BFF6) locate the matched entry (via
+;       FCB_BUF_PTR_ADD_OFFSET).
+;   Out: returns normally if writable; otherwise jumps to the BDOS error vector (no return; loads the
+;        file-R/O error record at $DC0F and dispatches via $DF18).  Clobbers: A,DE,HL.
+;   Algorithm: point at the entry, advance to byte +9 (the first type byte t1', whose bit 7 is the R/O
+;       attribute), RLA to shift bit 7 into carry; RET NC if clear, else load HL=$DC0F (file-R/O error
+;       block) and JP $DF18 (the BDOS error dispatch trampoline).
+;   [RE] CP/M file R/O attribute = bit 7 of directory-entry byte 9 (t1'). [DOC CP/M 2.2 FCB]
+; ----------------------------------------------------------------------
 FCB_RO_FLAG_TEST:
         CALL FCB_BUF_PTR_ADD_OFFSET                    ; $B7B3  CD CD B7
+; ----------------------------------------------------------------------
+; CHECK_DIRENT_READONLY_INNER -- inner entry of FCB_RO_FLAG_TEST (HL already on the directory entry). [RE]
+; ----------------------------------------------------------------------
 CHECK_DIRENT_READONLY_INNER:
         LD DE,$0009                      ; $B7B6  11 09 00
         ADD HL,DE                        ; $B7B9  19
@@ -953,40 +1159,99 @@ CHECK_DIRENT_READONLY_INNER:
         RET NC                           ; $B7BC  D0
         LD HL,$DC0F                      ; $B7BD  21 0F DC
         JP $DF18                         ; $B7C0  C3 18 DF
+; ----------------------------------------------------------------------
+; CHECK_DRIVE_READONLY -- raise the disk-R/O error if the current drive is write-protected.
+;   In: the current drive context (DRIVE_BIT_TEST reads the R/O drive vector at $BFBA).
+;   Out: returns if writable; otherwise jumps to the BDOS error vector (no return; loads the disk-R/O
+;        error record at $DC0D and dispatches via $DF18).  Clobbers: A,C,HL.
+;   Algorithm: CALL DRIVE_BIT_TEST; RET Z if clear (writable), else HL := $DC0D (disk-R/O error block)
+;       and JP $DF18 (the BDOS error dispatch trampoline).
+;   [RE] guards writes against a write-protected disk. [?]
+; ----------------------------------------------------------------------
 CHECK_DRIVE_READONLY:
         CALL DRIVE_BIT_TEST                    ; $B7C3  CD 8D B7
         RET Z                            ; $B7C6  C8
         LD HL,$DC0D                      ; $B7C7  21 0D DC
         JP $DF18                         ; $B7CA  C3 18 DF
+; ----------------------------------------------------------------------
+; FCB_BUF_PTR_ADD_OFFSET -- compute a pointer to the matched directory entry inside the directory buffer.
+;   In: DIRBUF ptr at $BFC6; the entry byte-offset at $BFF6.
+;   Out: HL = (DIRBUF ptr) + offset.  Clobbers: A,HL.
+;   Algorithm: load the buffer base ($BFC6), load the 8-bit entry offset ($BFF6), add it to L with carry
+;       into H (falls into DIRENT_PTR_ADD).
+;   [RE] locates the directory entry just matched by a BDOS directory search. [?]
+; ----------------------------------------------------------------------
 FCB_BUF_PTR_ADD_OFFSET:
         LD HL,($BFC6)                    ; $B7CD  2A C6 BF
         LD A,($BFF6)                     ; $B7D0  3A F6 BF
+; ----------------------------------------------------------------------
+; DIRENT_PTR_ADD -- add the 8-bit directory-entry offset in A to HL (carry into H). [RE]
+; ----------------------------------------------------------------------
 DIRENT_PTR_ADD:
         ADD A,L                          ; $B7D3  85
         LD L,A                           ; $B7D4  6F
         RET NC                           ; $B7D5  D0
         INC H                            ; $B7D6  24
         RET                              ; $B7D7  C9
+; ----------------------------------------------------------------------
+; FCB_GET_S2 -- point HL at FCB byte 14 (the S2 / extent-high field) of the current FCB.
+;   In: current FCB pointer at $DF11 (upper-bank CURFCB cell).
+;   Out: HL = (CURFCB $DF11) + $000E (FCB+14, the S2 byte); A = its current value.  Clobbers: A,DE,HL.
+;   Algorithm: HL := base + $0E, read (HL) into A.
+;   [RE] FCB byte 14 = S2 (extent-high / module count) per CP/M 2.2 FCB layout. [DOC CP/M 2.2 FCB]
+; ----------------------------------------------------------------------
 FCB_GET_S2:
         LD HL,($DF11)                    ; $B7D8  2A 11 DF
         LD DE,$000E                      ; $B7DB  11 0E 00
         ADD HL,DE                        ; $B7DE  19
         LD A,(HL)                        ; $B7DF  7E
         RET                              ; $B7E0  C9
+; ----------------------------------------------------------------------
+; F_MAKE_OPEN_PREP -- shared Open/Make preamble: reset the random-record scratch, clear S2, log in the FCB drive.
+;   In: caller's FCB (DE set by the dispatcher; RANDREC_FIELD_RESET stages it into the scratch FCB).
+;   Out: the random-record scratch FCB primed, the FCB S2 byte cleared, and the FCB's drive selected
+;        (FCB_LOGIN_SELECT).  Clobbers: A,BC,DE,HL.
+;   Algorithm: CALL RANDREC_FIELD_RESET; CALL CLEAR_FCB_S2; CALL FCB_LOGIN_SELECT; RET.
+;   [RE] common front end of BDOS_F_OPEN (fn 15) and BDOS_F_MAKE (fn 22). [?]
+; ----------------------------------------------------------------------
 F_MAKE_OPEN_PREP:
         CALL RANDREC_FIELD_RESET                    ; $B7E1  CD A3 BF
         CALL CLEAR_FCB_S2                    ; $B7E4  CD EB B7
         CALL FCB_LOGIN_SELECT                    ; $B7E7  CD 77 BE
         RET                              ; $B7EA  C9
+; ----------------------------------------------------------------------
+; CLEAR_FCB_S2 -- zero the S2 (byte 14) field of the current FCB.
+;   In: the current FCB (via FCB_GET_S2).  Out: FCB byte 14 = 0.  Clobbers: A,DE,HL.
+;   Algorithm: get the S2 pointer, store 0.
+;   [RE] resets the extent-high/S2 field. [DOC CP/M 2.2 FCB]
+; ----------------------------------------------------------------------
 CLEAR_FCB_S2:
         CALL FCB_GET_S2                    ; $B7EB  CD D8 B7
         LD (HL),$00                      ; $B7EE  36 00
         RET                              ; $B7F0  C9
+; ----------------------------------------------------------------------
+; MARK_FCB_S2_HIGHBIT -- set bit 7 of the FCB S2 (byte 14) field.
+;   In: the current FCB (via FCB_GET_S2, which also returns A = the current S2 value).
+;   Out: FCB byte 14 |= $80.  Clobbers: A,DE,HL.
+;   Algorithm: get the S2 pointer (A = current S2), OR $80, store back.
+;   [RE] in CP/M 2.2 the high bit of S2 flags the FCB as written / needing a directory update at close.
+;        [DOC CP/M 2.2 FCB]
+; ----------------------------------------------------------------------
 MARK_FCB_S2_HIGHBIT:
         CALL FCB_GET_S2                    ; $B7F1  CD D8 B7
         OR $80                           ; $B7F4  F6 80
         LD (HL),A                        ; $B7F6  77
         RET                              ; $B7F7  C9
+; ----------------------------------------------------------------------
+; CMP_CURREC_VS_WORKPTR -- compare the current record number against the working record cell.
+;   In: CUR_RECORD = 16-bit current record at $BFF7; the working-record word pointer at ($BFC0).
+;   Out: HL = address of the working value's high byte; flags = (CUR_RECORD - working value);
+;        CARRY SET when CUR_RECORD < the working value.  Clobbers: A,DE,HL.
+;   Algorithm: DE := (CUR_RECORD $BFF7), HL := (word at $BFC0); subtract low byte then high byte,
+;       leaving HL on the high byte; no value is stored.
+;   [RE] RECPTR_INC_STORE uses this: on NC it bumps and stores CUR_RECORD+1, extending the high-water
+;   count. [?]
+; ----------------------------------------------------------------------
 CMP_CURREC_VS_WORKPTR:
         LD HL,($BFF7)                    ; $B7F8  2A F7 BF
         EX DE,HL                         ; $B7FB  EB
@@ -997,6 +1262,15 @@ CMP_CURREC_VS_WORKPTR:
         LD A,D                           ; $B802  7A
         SBC A,(HL)                       ; $B803  9E
         RET                              ; $B804  C9
+; ----------------------------------------------------------------------
+; RECPTR_INC_STORE -- if the current record is at/past the stored high-water count, bump it one past.
+;   In: CUR_RECORD = record just processed ($BFF7); the working record-count word via ($BFC0).
+;   Out: if CUR_RECORD >= cell, cell := CUR_RECORD+1; else unchanged. DE = CUR_RECORD(+1 if updated);
+;        HL in cell.  Clobbers: A,DE,HL,flags.
+;   Algorithm: CMP_CURREC_VS_WORKPTR; RET C (CUR_RECORD < count, leave it); else DE:=CUR_RECORD+1 and
+;       write it HIGH byte first (LD (HL),D), DEC HL, then LOW byte (LD (HL),E).
+;   [RE] classic CP/M 2.2 extent record-count bump; keeps the FCB high-water one past the last accessed.
+; ----------------------------------------------------------------------
 RECPTR_INC_STORE:
         CALL CMP_CURREC_VS_WORKPTR                    ; $B805  CD F8 B7
         RET C                            ; $B808  D8
@@ -1005,11 +1279,31 @@ RECPTR_INC_STORE:
         DEC HL                           ; $B80B  2B
         LD (HL),E                        ; $B80C  73
         RET                              ; $B80D  C9
+; ----------------------------------------------------------------------
+; SUB16_DE_HL -- 16-bit subtract HL := DE - HL.
+;   In: DE = minuend, HL = subtrahend.
+;   Out: HL = DE - HL; carry set on borrow (DE < HL unsigned).  Clobbers: HL,flags. DE preserved.
+;   Algorithm: EX DE,HL; OR A (clear carry); SBC HL,DE.
+;   [RE] general BDOS 16-bit compare/difference helper used by the record scan and seek logic.
+; ----------------------------------------------------------------------
 SUB16_DE_HL:
         EX DE,HL                         ; $B80E  EB
         OR A                             ; $B80F  B7
         SBC HL,DE                        ; $B810  ED 52
         RET                              ; $B812  C9
+; ----------------------------------------------------------------------
+; RECORD_SCAN_BODY -- scan to the target byte in the cached directory record, then store or compare A there.
+;   In: C = mode (INC C wraps to 0 => store mode, else compare); the scan cursor $BFF9 and limit $BFD9;
+;       the entry byte-offset via $BFCA/$BFF9; A = byte to store/compare; DIRBUF holds the record.
+;   Out: store mode writes A. Compare: Z on match; if no match and CUR_RECORD is past the stored count
+;        it flags the drive R/O (BDOS_F_SETRO). NC if the scan cursor did not pass the limit.
+;   Clobbers: A,BC,DE,HL,flags.
+;   Algorithm: DE:=scan cursor ($BFF9), HL:=limit ($BFD9); SUB16_DE_HL; RET NC if the cursor passed.
+;       Else DIR_CHECKSUM, add the offset ($BFCA) to $BFF9 to address the target byte. INC C: if it
+;       wrapped to 0, store A; else CP (HL), RET Z on match; on mismatch CMP_CURREC_VS_WORKPTR; RET NC
+;       if within count, else BDOS_F_SETRO.
+;   [RE] heart of the directory record scan/checksum loop in the BDOS deblocking layer.
+; ----------------------------------------------------------------------
 RECORD_SCAN_BODY:
         LD C,$FF                         ; $B813  0E FF
 SUB_B813_1:
@@ -1036,18 +1330,51 @@ SUB_B813_1:
 SUB_B813_2:
         LD (HL),A                        ; $B83A  77
         RET                              ; $B83B  C9
+; ----------------------------------------------------------------------
+; DIR_RECORD_WRITE -- checksum-verify then write the directory buffer to disk as a record, and refresh the user buffer.
+;   In: directory buffer (via DIRBUF ptr $BFC6) and the BDOS deblock state set up by the caller.
+;   Out: the record is written to disk (with the R/O-on-tamper check); user DMA restored; errors raised
+;        via the checked disk-write path.  Clobbers: A,BC,DE,HL,flags.
+;   Algorithm: RECORD_SCAN_BODY runs the scan in store mode (re-checksums DIRBUF, sets the drive R/O on
+;       a tamper mismatch). SET_DMA_TO_DISK_BUF aims the BIOS DMA at DIRBUF; C=1 selects the directory
+;       write type; CALL $DF28 (the lower-LC checked-write trampoline) issues the BIOS WRITE; JR into
+;       RESTORE_USER_DMA restores the user DMA.
+;   [RE] directory-record write path; C=1 is the CP/M deblock directory-write code.
+; ----------------------------------------------------------------------
 DIR_RECORD_WRITE:
         CALL RECORD_SCAN_BODY                    ; $B83C  CD 13 B8
         CALL SET_DMA_TO_DISK_BUF                    ; $B83F  CD 54 B8
         LD C,$01                         ; $B842  0E 01
         CALL $DF28                       ; $B844  CD 28 DF
         JR RESTORE_USER_DMA                      ; $B847  18 06
+; ----------------------------------------------------------------------
+; DIR_RECORD_READ -- read a directory record from disk into the directory buffer, then restore the user DMA.
+;   In: BDOS deblock state set up by the caller.
+;   Out: DIRBUF filled from disk; user DMA restored.  Clobbers: A,BC,DE,HL,flags.
+;   Algorithm: SET_DMA_TO_DISK_BUF, CALL $DF20 (the lower-LC checked-read trampoline: BIOS READ +
+;       error check), then fall through into RESTORE_USER_DMA.
+;   [RE] directory-record read path; pairs with DIR_RECORD_WRITE.
+; ----------------------------------------------------------------------
 DIR_RECORD_READ:
         CALL SET_DMA_TO_DISK_BUF                    ; $B849  CD 54 B8
         CALL $DF20                       ; $B84C  CD 20 DF
+; ----------------------------------------------------------------------
+; RESTORE_USER_DMA -- restore the BIOS DMA address to the user's DMA buffer.
+;   In: the DMA_ADDR cell at $BFBE holds the user DMA address.
+;   Out: BIOS DMA set to (DMA_ADDR) via the BIOS SETDMA vector ($FA24).  Clobbers: BC,HL,flags.
+;   Algorithm: HL := $BFBE (address of the DMA_ADDR cell), then load the word and JP BIOS SETDMA.
+;   [RE] used after directory I/O to put DMA back to the application buffer.
+; ----------------------------------------------------------------------
 RESTORE_USER_DMA:
         LD HL,DMA_ADDR                     ; $B84F  21 BE BF
         JR SUB_B854_1                    ; $B852  18 03
+; ----------------------------------------------------------------------
+; SET_DMA_TO_DISK_BUF -- point the BIOS DMA at the directory/disk buffer (DIRBUF).
+;   In: the DIRBUF ptr cell at $BFC6 holds the directory buffer address.
+;   Out: BIOS DMA set to (DIRBUF ptr) via the BIOS SETDMA vector ($FA24).  Clobbers: BC,HL,flags.
+;   Algorithm: HL := $BFC6 (address of the DIRBUF ptr cell); load the word and JP BIOS SETDMA.
+;   [RE] companion to RESTORE_USER_DMA; aims I/O at the OS directory buffer.
+; ----------------------------------------------------------------------
 SET_DMA_TO_DISK_BUF:
         LD HL,$BFC6                      ; $B854  21 C6 BF
 SUB_B854_1:
@@ -1061,6 +1388,14 @@ SUB_B854_2:
         LD BC,$0080                      ; $B864  01 80 00
         CALL $DF3C                       ; $B867  CD 3C DF
         RET                              ; $B86A  C9
+; ----------------------------------------------------------------------
+; CUR_RECORD_BYTES_EQUAL -- test whether the low and high bytes of the 16-bit CUR_RECORD cell ($BFF7) are equal.
+;   In: CUR_RECORD = a 16-bit cell ($BFF7 low, $BFF8 high).
+;   Out: if the two bytes differ, NZ with A = the low byte; if equal, A = low byte + 1.  Clobbers: A,HL,flags.
+;   Algorithm: HL -> low byte ($BFF7); A := (HL); INC HL; CP (HL); RET NZ if they differ; else INC A and RET.
+;   [RE] deblock helper comparing the two halves of CUR_RECORD; called widely as an end-of-scan test.
+;        The exact role of the equal/INC result is UNKNOWN from these bytes alone (callers consume Z).
+; ----------------------------------------------------------------------
 CUR_RECORD_BYTES_EQUAL:
         LD HL,$BFF7                      ; $B86B  21 F7 BF
         LD A,(HL)                        ; $B86E  7E
@@ -1069,10 +1404,27 @@ CUR_RECORD_BYTES_EQUAL:
         RET NZ                           ; $B871  C0
         INC A                            ; $B872  3C
         RET                              ; $B873  C9
+; ----------------------------------------------------------------------
+; INVALIDATE_CUR_RECORD -- mark the cached record pointer invalid (CUR_RECORD := $FFFF).
+;   In: none.  Out: CUR_RECORD cell ($BFF7) = $FFFF.  Clobbers: HL.
+;   Algorithm: HL := $FFFF; store to $BFF7; RET.
+;   [RE] forces the next deblock access to reload, since $FFFF can never equal a real record number.
+; ----------------------------------------------------------------------
 INVALIDATE_CUR_RECORD:
         LD HL,$FFFF                      ; $B874  21 FF FF
         LD ($BFF7),HL                    ; $B877  22 F7 BF
         RET                              ; $B87A  C9
+; ----------------------------------------------------------------------
+; DIR_READ_NEXT -- advance the directory record pointer and read the next 32-byte directory entry.
+;   In: CUR_RECORD ($BFF7) = last directory record index processed; the directory-record limit word at ($BFD5).
+;   Out: on a fresh 128-byte-record boundary the record is read into DIRBUF and the entry byte-offset
+;        ($BFF6) set to 0/32/64/96; at end of directory CUR_RECORD is invalidated ($FFFF).
+;   Clobbers: A,BC,DE,HL,flags.
+;   Algorithm: increment CUR_RECORD; SUB16_DE_HL against the limit ($BFD5); if past the limit ->
+;       INVALIDATE_CUR_RECORD; else offset := (CUR_RECORD & 3) << 5 into $BFF6, and on offset 0 compute
+;       the disk record (REC_DIV4_SETUP) and DIR_RECORD_READ it into DIRBUF, then re-enter the scan.
+;   [RE] canonical CP/M 2.2 read-next-directory-entry sequencer (four 32-byte entries per record).
+; ----------------------------------------------------------------------
 DIR_READ_NEXT:
         LD HL,($BFD5)                    ; $B87B  2A D5 BF
         EX DE,HL                         ; $B87E  EB
@@ -1097,6 +1449,16 @@ SUB_B87B_2:
         CALL DIR_RECORD_READ                    ; $B8A0  CD 49 B8
         POP BC                           ; $B8A3  C1
         JP SUB_B813_1                    ; $B8A4  C3 15 B8
+; ----------------------------------------------------------------------
+; ALLOC_BIT_GET -- fetch the allocation-vector bit for a given disk block, returning it in carry.
+;   In: BC = block (group) number; the allocation-vector base pointer at ($BFCC).
+;   Out: carry/high bit of A = current allocation state; A = the allocation byte rotated so the wanted
+;        bit is in the MSB; HL = address of that byte; D = E = bit index.  Clobbers: A,BC,DE,HL,flags.
+;   Algorithm: D=E=(block & 7)+1 = 1-based bit index (rotate count); byte index = block >> 3; add to the
+;       ALLOC-vec base ($BFCC); load the byte and rotate left by the bit index so the selected bit lands
+;       in carry/MSB.
+;   [RE] canonical CP/M 2.2 getmod: read one allocation bit from the bit-vector.
+; ----------------------------------------------------------------------
 ALLOC_BIT_GET:
         LD A,C                           ; $B8A7  79
         AND $07                          ; $B8A8  E6 07
@@ -1131,18 +1493,40 @@ SUB_B8A7_1:
         DEC E                            ; $B8C9  1D
         JR NZ,SUB_B8A7_1                 ; $B8CA  20 FC
         RET                              ; $B8CC  C9
+; ----------------------------------------------------------------------
+; ALLOC_BIT_SET -- mark a disk block as allocated in the allocation vector.
+;   In: BC = block (group) number.  Out: the allocation byte for that block is updated in place with its
+;       bit forced to 1.  Clobbers: A,BC,DE,HL,flags.
+;   Algorithm: ALLOC_BIT_GET reads the byte (left-rotated so the bit is in the MSB) and returns the bit
+;       index in D; clear the rotated LSB and OR in 1 to set the target bit; rotate right D times to
+;       restore alignment (ALLOC_BIT_RESTORE); store back.
+;   [RE] canonical CP/M 2.2 setmod: set one allocation bit in the bit-vector.
+; ----------------------------------------------------------------------
 ALLOC_BIT_SET:
         PUSH DE                          ; $B8CD  D5
         CALL ALLOC_BIT_GET                    ; $B8CE  CD A7 B8
         AND $FE                          ; $B8D1  E6 FE
         POP BC                           ; $B8D3  C1
         OR C                             ; $B8D4  B1
+; ----------------------------------------------------------------------
+; ALLOC_BIT_RESTORE -- rotate the allocation byte right D times to restore alignment, then store it back. [RE]
+; ----------------------------------------------------------------------
 ALLOC_BIT_RESTORE:
         RRCA                             ; $B8D5  0F
         DEC D                            ; $B8D6  15
         JR NZ,ALLOC_BIT_RESTORE                   ; $B8D7  20 FC
         LD (HL),A                        ; $B8D9  77
         RET                              ; $B8DA  C9
+; ----------------------------------------------------------------------
+; ALLOC_FROM_FCB -- mark every disk block referenced by a directory entry's block map as allocated.
+;   In: the entry byte-offset ($BFF6) positions HL on the current 32-byte directory entry; block-width
+;       flag $BFEA selects 8-bit (non-zero, DSM<256) vs 16-bit (zero) block numbers; entry holds a
+;       16-byte block map at offset $10; max block DSM at ($BFD3).
+;   Out: the allocation vector has every non-zero, in-range block of this entry marked used.  Clobbers: A,BC,DE,HL,flags.
+;   Algorithm: point HL at the block map (entry+$10); iterate 16 (8-bit) or 8 (16-bit) pointers; read
+;       each block number; if non-zero and <= max block ($BFD3), mark it allocated via ALLOC_BIT_SET.
+;   [RE] canonical CP/M 2.2 directory-entry allocation-map application used when rebuilding the alloc vector.
+; ----------------------------------------------------------------------
 ALLOC_FROM_FCB:
         CALL FCB_BUF_PTR_ADD_OFFSET                    ; $B8DB  CD CD B7
         LD DE,$0010                      ; $B8DE  11 10 00
@@ -1184,6 +1568,20 @@ SUB_B8DB_4:
         INC HL                           ; $B90B  23
         POP BC                           ; $B90C  C1
         JR SUB_B8DB_1                    ; $B90D  18 D6
+; ----------------------------------------------------------------------
+; ALLOC_VECTOR_BUILD -- rebuild the drive's allocation bit-vector by scanning the entire directory.
+;   In: selected drive's DPB fields (max block DSM at $BFD3, directory-reserved-blocks word at $BFD7,
+;       ALLOC-vec base at $BFCC).
+;   Out: allocation vector fully populated: reserved directory blocks plus every block referenced by a
+;        non-deleted directory entry are marked used.  Clobbers: A,BC,DE,HL,flags.
+;   Algorithm: zero the allocation vector across its whole length ((DSM+1)/8 bytes); seed the reserved
+;       directory blocks ($BFD7); reset the scan workspace to read from the start (DISK_HOME_CLEAR_SCAN);
+;       for each entry skip deleted ($E5) ones, run a special-entry check against the current user
+;       ($DF0F) / '$' ($24) name byte (storing into the result cell $DF13), and ALLOC_FROM_FCB to mark
+;       its blocks; advance until the directory is exhausted.
+;   [RE] canonical CP/M 2.2 drive-init allocation-vector builder, invoked on drive selection / reset.
+;   [?] the user-byte / '$' name-byte special-entry path's exact intent is UNKNOWN.
+; ----------------------------------------------------------------------
 ALLOC_VECTOR_BUILD:
         LD HL,($BFD3)                    ; $B90F  2A D3 BF
         LD C,$03                         ; $B912  0E 03
@@ -1234,9 +1632,24 @@ SUB_B8DB_8:
         CALL ALLOC_FROM_FCB                    ; $B960  CD DB B8
         CALL RECPTR_INC_STORE                    ; $B963  CD 05 B8
         JP SUB_B8DB_7                    ; $B966  C3 3D B9
+; ----------------------------------------------------------------------
+; DIR_RETURN_MATCH_FLAG -- return the saved directory-search match status as the BDOS result.
+;   In: the directory match flag at $BFE1 ($FF=no match, else the 0..3 entry index).
+;   Out: A = ($BFE1); stored to the BDOS result byte via the common result-store path ($DED0).  Clobbers: A.
+;   Algorithm: load the cached search-match flag ($BFE1) and JP $DED0 (the upper-bank BDOS_SET_RETURN).
+;   [RE] common return tail of F_DELETE_HND / F_RENAME_HND / F_ATTRIB_HND.
+; ----------------------------------------------------------------------
 DIR_RETURN_MATCH_FLAG:
         LD A,($BFE1)                     ; $B969  3A E1 BF
         JP $DED0                         ; $B96C  C3 D0 DE
+; ----------------------------------------------------------------------
+; FCB_EXTENT_COMPARE -- compare two FCB extent bytes under the drive's extent mask.
+;   In: C = one extent byte; A = the other extent byte; DPB EXM mask at $BFD2.
+;   Out: A,flags = ((A & ~mask) - (C & ~mask)) & $1F; Z set when the high extent fields match.  Clobbers: A (BC/AF saved+restored).
+;   Algorithm: complement EXM ($BFD2), AND it into both extent bytes (dropping the masked low bits),
+;       subtract, keep five bits, and test for equality.
+;   [RE]
+; ----------------------------------------------------------------------
 FCB_EXTENT_COMPARE:
         PUSH BC                          ; $B96F  C5
         PUSH AF                          ; $B970  F5
@@ -1252,6 +1665,16 @@ FCB_EXTENT_COMPARE:
         AND $1F                          ; $B97C  E6 1F
         POP BC                           ; $B97E  C1
         RET                              ; $B97F  C9
+; ----------------------------------------------------------------------
+; DIR_SEARCH_FIRST -- begin a directory scan for the current FCB, comparing C bytes per entry.
+;   In: C = number of FCB bytes to match ($0C=name+type, $0F=incl. extent); current FCB at $DF11.
+;   Out: falls through into BDOS_DIR_SCAN_NEXT, which returns the within-record entry index 0..3 or $FF.
+;   Clobbers: A,B,C,D,E,H,L,flags.
+;   Algorithm: set the match flag $BFE1=$FF, store the compare length ($BFE5) and search-FCB pointer
+;       ($BFE6), reset the record counter to -1 (INVALIDATE_CUR_RECORD), rewind/clear the scan state
+;       (DISK_HOME_CLEAR_SCAN), then run the first pass.
+;   [RE]
+; ----------------------------------------------------------------------
 DIR_SEARCH_FIRST:
         LD A,$FF                         ; $B980  3E FF
         LD ($BFE1),A                     ; $B982  32 E1 BF
@@ -1261,6 +1684,17 @@ DIR_SEARCH_FIRST:
         LD ($BFE6),HL                    ; $B98C  22 E6 BF
         CALL INVALIDATE_CUR_RECORD                    ; $B98F  CD 74 B8
         CALL DISK_HOME_CLEAR_SCAN                    ; $B992  CD 32 B6
+; ----------------------------------------------------------------------
+; BDOS_DIR_SCAN_NEXT -- advance through directory entries until one matches the search FCB.
+;   In: search-FCB pointer at $BFE6; compare length at $BFE5.
+;   Out: A = matching entry index (0..3, stored to result cell $DF13) on success; not-found via the
+;        $FF result path.  Clobbers: A,B,C,D,E,H,L,flags.
+;   Algorithm: step to the next directory record (DIR_READ_NEXT); if the counter passed the directory
+;       limit -> not found; otherwise treat erased ($E5) entries specially and bound-check
+;       (CMP_CURREC_VS_WORKPTR), then compare C bytes per entry (with '?' $3F wildcards and EXM-masked
+;       extent compare); on full match -> return the index, else loop to the next entry/record.
+;   [RE] standard CP/M 2.2 directory search-next with '?' wildcards.
+; ----------------------------------------------------------------------
 BDOS_DIR_SCAN_NEXT:
         LD C,$00                         ; $B995  0E 00
         CALL DIR_READ_NEXT                    ; $B997  CD 7B B8
@@ -1324,6 +1758,16 @@ SUB_B995_6:
         CALL INVALIDATE_CUR_RECORD                    ; $B9F1  CD 74 B8
         LD A,$FF                         ; $B9F4  3E FF
         JP $DED0                         ; $B9F6  C3 D0 DE
+; ----------------------------------------------------------------------
+; F_DELETE_HND -- delete every directory entry matching the FCB (worker for BDOS function 19).
+;   In: current FCB at $DF11 (may contain '?' wildcards).
+;   Out: matching directory entries marked erased ($E5), their blocks freed, and written back.
+;   Clobbers: A,B,C,D,E,H,L,flags.
+;   Algorithm: CHECK_DRIVE_READONLY, DIR_SEARCH_FIRST on 12 FCB bytes (name+type), then loop: for each
+;       match test the R/O flag (FCB_RO_FLAG_TEST), stamp the entry byte $E5, free its blocks
+;       (ALLOC_FROM_FCB with C=0), DIR_RECORD_WRITE, BDOS_DIR_SCAN_NEXT.
+;   [RE] CP/M 2.2 F_DELETE.
+; ----------------------------------------------------------------------
 F_DELETE_HND:
         CALL CHECK_DRIVE_READONLY                    ; $B9F9  CD C3 B7
         LD C,$0C                         ; $B9FC  0E 0C
@@ -1339,6 +1783,15 @@ SUB_B9F9_1:
         CALL DIR_RECORD_WRITE                    ; $BA12  CD 3C B8
         CALL BDOS_DIR_SCAN_NEXT                    ; $BA15  CD 95 B9
         JR SUB_B9F9_1                    ; $BA18  18 E7
+; ----------------------------------------------------------------------
+; ALLOC_GET_BLOCK -- find/allocate a disk block near a starting block, marking it used.
+;   In: BC = starting block number (passed by the write core when extending a file); max block DSM at ($BFD3).
+;   Out: HL = the block number actually claimed (0 if none free); its allocation-vector bit set.  Clobbers: A,B,C,D,E,H,L,flags.
+;   Algorithm: copy the start block to DE, scan downward then upward testing each block's allocation bit
+;       (ALLOC_BIT_GET), bounded by max block ($BFD3); mark the chosen block used (ALLOC_BIT_RESTORE)
+;       and return it, or 0 when no block can be allocated.
+;   [RE] allocation-vector block search/allocate.
+; ----------------------------------------------------------------------
 ALLOC_GET_BLOCK:
         LD D,B                           ; $BA1A  50
         LD E,C                           ; $BA1B  59
@@ -1385,9 +1838,24 @@ SUB_BA1A_4:
         JR NZ,SUB_BA1A_1                 ; $BA4D  20 CD
         LD HL,$0000                      ; $BA4F  21 00 00
         RET                              ; $BA52  C9
+; ----------------------------------------------------------------------
+; FCB_WRITE_DIR_ENTRY -- copy the whole 32-byte FCB image into the matched directory entry and write it.
+;   In: current FCB at $DF11; sets C=0 (FCB offset 0), E=$20 (32 bytes).
+;   Out: directory record holding this entry written back to disk.  Clobbers: A,B,C,D,E,H,L,flags.
+;   Algorithm: set up a full-32-byte copy at FCB offset 0 and fall into FCB_COPY_TO_DIR.
+;   [RE]
+; ----------------------------------------------------------------------
 FCB_WRITE_DIR_ENTRY:
         LD C,$00                         ; $BA53  0E 00
         LD E,$20                         ; $BA55  1E 20
+; ----------------------------------------------------------------------
+; FCB_COPY_TO_DIR -- copy E FCB bytes (from offset C) into the matched directory entry.
+;   In: C = FCB byte offset; E = byte count; current FCB at $DF11; current matched dir entry.
+;   Out: directory buffer updated, then the record written via FCB_FLUSH_DIR.  Clobbers: A,B,C,D,E,H,L,flags.
+;   Algorithm: form a source pointer at FCB+C ($DF11 + C), point HL at the directory entry slot
+;       (FCB_BUF_PTR_ADD_OFFSET), block-copy E bytes, then fall into FCB_FLUSH_DIR to commit the record.
+;   [RE]
+; ----------------------------------------------------------------------
 FCB_COPY_TO_DIR:
         PUSH DE                          ; $BA57  D5
         LD B,$00                         ; $BA58  06 00
@@ -1399,9 +1867,27 @@ FCB_COPY_TO_DIR:
         LD B,$00                         ; $BA63  06 00
         EX DE,HL                         ; $BA65  EB
         LDIR                             ; $BA66  ED B0
+; ----------------------------------------------------------------------
+; FCB_FLUSH_DIR -- position to the directory record and write it back.
+;   In: current directory record state from the preceding match.  Out: the directory record written to disk.
+;   Clobbers: A,B,C,D,E,H,L,flags.
+;   Algorithm: REC_DIV4_SETUP positions on the 128-byte record holding the entry, then tail-jump to
+;       DIR_RECORD_WRITE.
+;   [RE]
+; ----------------------------------------------------------------------
 FCB_FLUSH_DIR:
         CALL REC_DIV4_SETUP                    ; $BA68  CD 43 B6
         JP DIR_RECORD_WRITE                      ; $BA6B  C3 3C B8
+; ----------------------------------------------------------------------
+; F_RENAME_HND -- rename a file: replace matching directory entries with the new name (worker for BDOS fn 23).
+;   In: current FCB at $DF11 whose bytes 0..15 are the old name and bytes 16..31 the new name.
+;   Out: every matching directory entry rewritten with the new name; read-only entries rejected.
+;   Clobbers: A,B,C,D,E,H,L,flags.
+;   Algorithm: CHECK_DRIVE_READONLY, DIR_SEARCH_FIRST on 12 bytes of the old name, copy the FCB drive
+;       byte (offset 0) into the new-name half (offset 16) so both target the same drive, then loop:
+;       R/O-test each match and FCB_COPY_TO_DIR of 12 bytes from FCB offset $10 into the entry.
+;   [RE] CP/M 2.2 F_RENAME.
+; ----------------------------------------------------------------------
 F_RENAME_HND:
         CALL CHECK_DRIVE_READONLY                    ; $BA6E  CD C3 B7
         LD C,$0C                         ; $BA71  0E 0C
@@ -1420,6 +1906,15 @@ SUB_BA6E_1:
         CALL FCB_COPY_TO_DIR                    ; $BA8A  CD 57 BA
         CALL BDOS_DIR_SCAN_NEXT                    ; $BA8D  CD 95 B9
         JR SUB_BA6E_1                    ; $BA90  18 ED
+; ----------------------------------------------------------------------
+; F_ATTRIB_HND -- set file attributes from the FCB into matching directory entries (worker for BDOS fn 30).
+;   In: current FCB at $DF11 carrying the attribute high bits in the name/type bytes.
+;   Out: every matching directory entry's first 12 bytes rewritten with the FCB's attribute bits.
+;   Clobbers: A,B,C,D,E,H,L,flags.
+;   Algorithm: DIR_SEARCH_FIRST on 12 bytes, then loop FCB_COPY_TO_DIR of the 12 name/type bytes (with
+;       attribute high bits) from FCB offset 0 into each matched entry and write the record.
+;   [RE] CP/M 2.2 F_ATTRIB.
+; ----------------------------------------------------------------------
 F_ATTRIB_HND:
         LD C,$0C                         ; $BA92  0E 0C
         CALL DIR_SEARCH_FIRST                    ; $BA94  CD 80 B9
@@ -1431,11 +1926,32 @@ SUB_BA92_1:
         CALL FCB_COPY_TO_DIR                    ; $BA9F  CD 57 BA
         CALL BDOS_DIR_SCAN_NEXT                    ; $BAA2  CD 95 B9
         JR SUB_BA92_1                    ; $BAA5  18 F0
+; ----------------------------------------------------------------------
+; FILE_OPEN_SEARCH -- search-first for the FCB's extent and merge the directory entry into the FCB.
+;   In: current FCB at $DF11. Core of BDOS_F_OPEN (fn 15) and the random-record extent-positioning path.
+;   Out: on match, the matched entry is merged into the FCB (record-count fields filled, FCB_MERGE_ENTRY);
+;        on no match returns Z with no merge.  Clobbers: A,B,C,D,E,H,L,flags.
+;   Algorithm: DIR_SEARCH_FIRST on 15 bytes (name+type+extent); CUR_RECORD_BYTES_EQUAL; if not found
+;       return Z; otherwise fall through into FCB_MERGE_ENTRY to copy the entry into the FCB and set the
+;       record count.
+;   [RE] CP/M 2.2 F_OPEN core / extent locate-and-merge.
+; ----------------------------------------------------------------------
 FILE_OPEN_SEARCH:
         LD C,$0F                         ; $BAA7  0E 0F
         CALL DIR_SEARCH_FIRST                    ; $BAA9  CD 80 B9
         CALL CUR_RECORD_BYTES_EQUAL                    ; $BAAC  CD 6B B8
         RET Z                            ; $BAAF  C8
+; ----------------------------------------------------------------------
+; FCB_MERGE_ENTRY -- merge a matched directory entry into the FCB and update its record count.
+;   In: HL positioned via FCB_PTR_EXTENT on the FCB extent byte; current FCB at $DF11; the matched dir entry.
+;   Out: the 32-byte entry copied into the FCB image; the FCB's record-count byte (offset $0F) set to $00
+;        if this extent is below the current one, RC if equal, $80 if above; S2 'written' bit set.
+;   Clobbers: A,B,C,D,E,H,L,flags.
+;   Algorithm: save the FCB extent byte; FCB_BUF_PTR_ADD_OFFSET -> the dir entry; LDIR 32 bytes into the
+;       FCB ($DF11); MARK_FCB_S2_HIGHBIT; read dir-entry EX (offset $0C) and RC (offset $0F), compare
+;       against the saved FCB extent, and store the chosen record-count byte at FCB+$0F.
+;   [RE] used by both F_OPEN (FILE_OPEN_SEARCH) and F_SIZE. Twin of the 44K FILE_SIZE_FROM_EXTENT.
+; ----------------------------------------------------------------------
 FCB_MERGE_ENTRY:
         CALL FCB_PTR_EXTENT                    ; $BAB0  CD 1C B7
         LD A,(HL)                        ; $BAB3  7E
@@ -1470,6 +1986,14 @@ SUB_BAB0_1:
         ADD HL,DE                        ; $BAE5  19
         LD (HL),A                        ; $BAE6  77
         RET                              ; $BAE7  C9
+; ----------------------------------------------------------------------
+; FCB_WORD_FILL_IF_ZERO -- copy a 16-bit word from (DE) to (HL) only when (HL) is currently zero.
+;   In: HL -> destination word; DE -> source word.
+;   Out: if the destination word was 0, it is overwritten with the source word; DE,HL preserved.  Clobbers: A,flags.
+;   Algorithm: OR the two destination bytes; if non-zero return unchanged; otherwise copy both source
+;       bytes across, restoring DE/HL to their entry values.
+;   [RE] allocation-word merge helper used during F_CLOSE_HND.
+; ----------------------------------------------------------------------
 FCB_WORD_FILL_IF_ZERO:
         LD A,(HL)                        ; $BAE8  7E
         INC HL                           ; $BAE9  23
@@ -1485,6 +2009,17 @@ FCB_WORD_FILL_IF_ZERO:
         DEC DE                           ; $BAF3  1B
         DEC HL                           ; $BAF4  2B
         RET                              ; $BAF5  C9
+; ----------------------------------------------------------------------
+; F_CLOSE_HND -- close a file: merge the in-memory FCB into its directory entry (worker for BDOS fn 16).
+;   In: current FCB at $DF11. Also used internally to flush an extent.
+;   Out: directory entry updated with this FCB's allocation map / record count; result byte ($DF13) set.
+;   Clobbers: A,B,C,D,E,H,L,flags.
+;   Algorithm: zero the result byte ($DF13) and record state, verify the drive is selected (DRIVE_BIT_TEST)
+;       and the FCB S2 high bit is clear; DIR_SEARCH_FIRST on the extent (15 bytes); if found, merge the
+;       FCB's 16-byte allocation map into the entry (filling zero words via FCB_WORD_FILL_IF_ZERO, keeping
+;       the larger record count) then flush (FCB_FLUSH_DIR).
+;   [RE] CP/M 2.2 F_CLOSE.
+; ----------------------------------------------------------------------
 F_CLOSE_HND:
         XOR A                            ; $BAF6  AF
         LD ($DF13),A                     ; $BAF7  32 13 DF
@@ -1565,6 +2100,18 @@ SUB_BAF6_7:
         LD HL,$DF13                      ; $BB6A  21 13 DF
         DEC (HL)                         ; $BB6D  35
         RET                              ; $BB6E  C9
+; ----------------------------------------------------------------------
+; DIR_MAKE_ENTRY -- find a free directory slot and create a new (empty) entry for the FCB (worker for BDOS fn 22).
+;   In: current FCB at $DF11.
+;   Out: a free directory slot located and initialized for this file; returns Z if no slot is free.
+;   Clobbers: A,B,C,D,E,H,L,flags.
+;   Algorithm: CHECK_DRIVE_READONLY, temporarily redirect the FCB pointer ($DF11) to the scratch
+;       EMPTY_DIR_FCB and DIR_SEARCH_FIRST in mode 1 for an empty ($E5) slot, restore the FCB pointer; on
+;       success zero 17 bytes of the entry's record/allocation area (from offset $0F), clear the S1 byte
+;       (offset $0D), advance the record pointer (RECPTR_INC_STORE), write the new entry
+;       (FCB_WRITE_DIR_ENTRY), and set the FCB S2 'written' flag.
+;   [RE] make-directory-entry helper.
+; ----------------------------------------------------------------------
 DIR_MAKE_ENTRY:
         CALL CHECK_DRIVE_READONLY                    ; $BB6F  CD C3 B7
         LD HL,($DF11)                    ; $BB72  2A 11 DF
@@ -1593,6 +2140,17 @@ SUB_BB6F_1:
         CALL RECPTR_INC_STORE                    ; $BB9B  CD 05 B8
         CALL FCB_WRITE_DIR_ENTRY                    ; $BB9E  CD 53 BA
         JP MARK_FCB_S2_HIGHBIT                      ; $BBA1  C3 F1 B7
+; ----------------------------------------------------------------------
+; FCB_ADVANCE_RECORD -- advance the FCB to the next record/extent for sequential access.
+;   In: current FCB at $DF11; DPB EXM mask at $BFD2; the dir-changed flag $BFDF.
+;   Out: FCB current-record / extent fields stepped; new extent opened or created as needed; result $DF13.
+;   Clobbers: A,B,C,D,E,H,L,flags.
+;   Algorithm: clear the dir-changed flag ($BFDF), flush the current extent (F_CLOSE_HND), bump the FCB
+;       extent byte (offset $0C) mod 32; on wrap step the S2 module (offset $0E); otherwise use the EXM
+;       mask ($BFD2) and the dir-changed flag to decide between re-opening the current extent
+;       (FILE_OPEN_SEARCH / DIR_MAKE_ENTRY) or merging the just-flushed one (FCB_MERGE_ENTRY).
+;   [RE] sequential-access record/extent advance.
+; ----------------------------------------------------------------------
 FCB_ADVANCE_RECORD:
         XOR A                            ; $BBA4  AF
         LD ($BFDF),A                     ; $BBA5  32 DF BF
@@ -1642,9 +2200,29 @@ SUB_BBA4_4:
 SUB_BBA4_5:
         CALL $DED4                       ; $BBF8  CD D4 DE
         JP MARK_FCB_S2_HIGHBIT                      ; $BBFB  C3 F1 B7
+; ----------------------------------------------------------------------
+; FILE_WRITE_SEQ -- sequential-write entry into the shared read/deblock core (reached from BDOS_F_READ_SEQ).
+;   In: current FCB at $DF11.
+;   Out: enters FILE_READ_RECORD with the write-type flag set for a sequential operation.
+;   Clobbers: A,B,C,D,E,H,L,flags.
+;   Algorithm: set the write-type flag WRITE_TYPE=$BFE2 := 1 (sequential) then fall into FILE_READ_RECORD.
+;   [RE] NOTE the dispatch is crossed in this 60K build: BDOS_F_READ_SEQ (fn 20) jumps here and this
+;        entry feeds the read/deblock core. Twin of the 44K FILE_READ_SEQ (mode-flag set + fall-through).
+; ----------------------------------------------------------------------
 FILE_WRITE_SEQ:
         LD A,$01                         ; $BBFE  3E 01
         LD ($BFE2),A                     ; $BC00  32 E2 BF
+; ----------------------------------------------------------------------
+; FILE_READ_RECORD -- read the FCB's current record into the DMA buffer (shared read core).
+;   In: current FCB at $DF11; record/extent fields set. Shared by the sequential and random read paths.
+;   Out: the record's sector read and de-blocked to the DMA address; result = 0/error via $DED0/$DED4.
+;   Clobbers: A,B,C,D,E,H,L,flags.
+;   Algorithm: set the direction flag $BFE0=$FF (read), FCB_PRIME_FIELDS, compare the working CR ($BFF0)
+;       against the extent's record count ($BFEE); at the $80 boundary advance to the next extent
+;       (FCB_ADVANCE_RECORD), else REC_TO_BLOCK_14 / BLOCK_IS_ZERO_16 / BLOCK_BASE_RECORD_17 /
+;       RECORD_TO_TRACK and read the sector (CALL $DF20).
+;   [RE] CP/M 2.2 read core.
+; ----------------------------------------------------------------------
 FILE_READ_RECORD:
         LD A,$FF                         ; $BC03  3E FF
         LD ($BFE0),A                     ; $BC05  32 E0 BF
@@ -1671,9 +2249,33 @@ SUB_BC03_1:
         JP FCB_WRITEBACK_REC                      ; $BC36  C3 48 B7
 SUB_BC03_2:
         JP $DED4                         ; $BC39  C3 D4 DE
+; ----------------------------------------------------------------------
+; FILE_READ_SEQ -- sequential-write entry into the shared write core (reached from BDOS_F_WRITE_SEQ).
+;   In: current FCB at $DF11; DMA buffer holds the record.
+;   Out: enters BDOS_WRITE with the write-type flag set for a sequential operation.
+;   Clobbers: A,B,C,D,E,H,L,flags.
+;   Algorithm: set the write-type flag WRITE_TYPE=$BFE2 := 1 (sequential) then fall into BDOS_WRITE.
+;   [RE] NOTE the dispatch is crossed in this 60K build: BDOS_F_WRITE_SEQ (fn 21) jumps here and this
+;        entry feeds the write core. Twin of the 44K FILE_WRITE_SEQ (mode-flag set + fall-through).
+; ----------------------------------------------------------------------
 FILE_READ_SEQ:
         LD A,$01                         ; $BC3C  3E 01
         LD ($BFE2),A                     ; $BC3E  32 E2 BF
+; ----------------------------------------------------------------------
+; BDOS_WRITE -- BDOS WRITE primitive (fn 21 F_WRITE / fn 34 F_WRITERAND / fn 40 F_WRITEZF target). Write
+; the current record of the open file, allocating and deblocking disk blocks as needed.
+;   In: current FCB at $DF11; the working record/record-count bytes primed by FCB_PRIME_FIELDS; DMA holds
+;       the caller's record; WRITE_TYPE=$BFE2 = write type (1=sequential, 2=zero-fill/random); result
+;       cell $DF13 = seek create/extend mode flag.
+;   Out: A = BDOS return code (0=OK, 2=disk full) via the result cell $DF13 / $DED0; FCB allocation map /
+;        record count updated; host sector written.  Clobbers: A,BC,DE,HL,flags.
+;   Algorithm: clear the direction flag ($BFE0); reject the record if the working CR ($BFF0) >= 128
+;       (extent full). REC_TO_BLOCK_14 / BLOCK_IS_ZERO_16: if the block is already allocated branch to
+;       the write phase; else fetch the previous slot's block as a hint (FCB_BLOCKMAP_INDEX_10) and
+;       ALLOC_GET_BLOCK a fresh block, store it into the FCB allocation slot (8- or 16-bit per $BFEA),
+;       zero-fill new blocks when WRITE_TYPE=2, then RECORD_TO_TRACK and write (CALL $DF28), updating the
+;       extent record count and CR via FCB_WRITEBACK_REC. Mirrors the standard CP/M 2.2 BDOS write. [RE]
+; ----------------------------------------------------------------------
 BDOS_WRITE:
         LD A,$00                         ; $BC41  3E 00
         LD ($BFE0),A                     ; $BC43  32 E0 BF
@@ -1808,9 +2410,31 @@ SUB_BC41_10:
         LD (HL),$00                      ; $BD2B  36 00
 SUB_BC41_11:
         JP FCB_WRITEBACK_REC                      ; $BD2D  C3 48 B7
+; ----------------------------------------------------------------------
+; BDOS_SEEK_NOREAD -- SEEK entry that clears the write-type cell, then computes/positions the target extent.
+;   In: current FCB at $DF11 valid.
+;   Out: as for BDOS_SEEK_COMPUTE below.  Clobbers: A,BC,DE,HL,flags.
+;   Algorithm: clear the write-type cell (WRITE_TYPE=$BFE2 := 0), then fall straight into BDOS_SEEK_COMPUTE.
+;       (OBSERVED: used by the random read/write bodies after they set C; BDOS_SEEK_NOREAD itself does not
+;       consume C -- it is merely preserved on the stack across the seek and used by the caller after.) [RE]
+; ----------------------------------------------------------------------
 BDOS_SEEK_NOREAD:
         XOR A                            ; $BD30  AF
         LD ($BFE2),A                     ; $BD31  32 E2 BF
+; ----------------------------------------------------------------------
+; BDOS_SEEK_COMPUTE -- compute the target extent/record from the FCB random-record field (R0/R1/R2) and seek the directory to it.
+;   In: current FCB at $DF11 whose random-record bytes (FCB+$21..$23 = R0/R1/R2) hold the desired record;
+;       result cell $DF13 = create/extend mode flag.
+;   Out: B = target S2 (module), C = target extent-within-entry; if the FCB is already positioned there,
+;        returns OK (A=0) via $DED0; else repositions the directory; on R2 != 0 returns record-out-of-range.
+;        (OBSERVED: BC is also just preserved on the stack for the calling read/write routine.)
+;   Clobbers: A,BC,DE,HL,flags.
+;   Algorithm: read R0 and combine with R1 into the 16-bit record number. record-within-extent = R0 & $7F;
+;       extent = ((R1<<1)|R0.bit7) & $1F (C); S2/module = R1>>4 (B). If R2 (high random byte) is non-zero
+;       the record is out of range -> abort with phase code 6. Otherwise compare target extent (C vs
+;       FCB+$0C) and S2 (B vs FCB+$0E): if both match, fall through with no positioning; else reposition
+;       to the target extent. Mirrors the standard CP/M 2.2 BDOS random seek. [RE]
+; ----------------------------------------------------------------------
 BDOS_SEEK_COMPUTE:
         PUSH BC                          ; $BD34  C5
         LD HL,($DF11)                    ; $BD35  2A 11 DF
@@ -1899,16 +2523,53 @@ SUB_BD34_4:
         LD A,L                           ; $BDB2  7D
         LD ($DF13),A                     ; $BDB3  32 13 DF
         JP MARK_FCB_S2_HIGHBIT                      ; $BDB6  C3 F1 B7
+; ----------------------------------------------------------------------
+; F_READRAND_BODY -- BDOS function 33 (Read Random) worker: position the FCB from its random record, then read that record.
+;   In: current FCB at $DF11 (random-record field r0/r1/r2 set by the caller); reached from BDOS_F_READRAND
+;       after FCB_AUTO_DRIVE_SELECT.
+;   Out: read result stored in the result cell ($DF13) by the called read routine; Z from positioning
+;        governs whether the read runs.  Clobbers: A,BC,DE,HL.
+;   Algorithm: C := $FF (read mode = do NOT extend the file); CALL BDOS_SEEK_NOREAD (BDOS_SEEK_COMPUTE) to
+;       convert the random record into extent + current-record fields; if positioning succeeded (Z), CALL
+;       FILE_READ_RECORD to read the addressed record; RET.
+;   [RE][DOC CP/M 2.2 BDOS fn 33] C=$FF is consumed inside BDOS_SEEK_COMPUTE: a read past EOF fails instead
+;       of allocating. The conditional CALL Z performs the sector read only when positioning succeeded.
+; ----------------------------------------------------------------------
 F_READRAND_BODY:
         LD C,$FF                         ; $BDB9  0E FF
         CALL BDOS_SEEK_NOREAD                    ; $BDBB  CD 30 BD
         CALL Z,FILE_READ_RECORD                  ; $BDBE  CC 03 BC
         RET                              ; $BDC1  C9
+; ----------------------------------------------------------------------
+; F_WRITERAND_BODY -- BDOS function 34 (Write Random) worker: position the FCB from its random record, then write that record.
+;   In: current FCB at $DF11 (random-record field set by the caller); reached from BDOS_F_WRITERAND after
+;       FCB_AUTO_DRIVE_SELECT; DMA holds the record.
+;   Out: write result stored in the result cell ($DF13) by the called write routine; Z from positioning
+;        governs whether the write runs.  Clobbers: A,BC,DE,HL.
+;   Algorithm: C := $00 (write mode = allocate/extend as needed); CALL BDOS_SEEK_NOREAD (BDOS_SEEK_COMPUTE)
+;       to set extent + current-record from the random record; if positioning succeeded (Z), CALL
+;       BDOS_WRITE to write the record; RET.
+;   [RE][DOC CP/M 2.2 BDOS fn 34] C=$00 is consumed inside BDOS_SEEK_COMPUTE: the extend path is taken
+;       rather than the error tail, allowing a new extent/block to be allocated.
+; ----------------------------------------------------------------------
 F_WRITERAND_BODY:
         LD C,$00                         ; $BDC2  0E 00
         CALL BDOS_SEEK_NOREAD                    ; $BDC4  CD 30 BD
         CALL Z,BDOS_WRITE                  ; $BDC7  CC 41 BC
         RET                              ; $BDCA  C9
+; ----------------------------------------------------------------------
+; FCB_RECNUM_FROM_FIELDS -- compute the 24-bit absolute record number from an FCB's record byte plus its extent (EX) and S2 fields.
+;   In: HL = base pointer to the FCB (or directory entry); DE = byte offset within it of the low record
+;       byte to read (e.g. $20 = CR for Set Random Record, $0F for the per-extent record count in Compute File Size).
+;   Out: C = low byte, B = mid byte, A = high byte of the record number; A AND $01 leaves Z/NZ on the
+;        result's low bit for callers.  Clobbers: A,BC,HL,DE,flags.
+;   Algorithm: EX DE,HL so HL=offset, DE=FCB base; ADD HL,DE -> &FCB+offset; C := that byte, B := 0. Read
+;       the extent byte (offset $0C): RRCA then AND $80 folds its bit0 into bit7, add to C (carry into B)
+;       -- the *128 contribution; RRCA/AND $0F of the extent byte adds the extent high nibble into B. Read
+;       S2 (offset $0E): shift left 4, add into B; final AND $01 sets Z/NZ on the low bit.
+;   [RE] builds the linear absolute record index (record + ex*128 + S2*...) used by Set Random Record (fn 36)
+;       and Compute File Size (fn 35). Twin of the 44K FCB_ALLOC_PREP.
+; ----------------------------------------------------------------------
 FCB_RECNUM_FROM_FIELDS:
         EX DE,HL                         ; $BDCB  EB
         ADD HL,DE                        ; $BDCC  19
@@ -1946,6 +2607,17 @@ FCB_RECNUM_FROM_FIELDS:
         OR L                             ; $BDF4  B5
         AND $01                          ; $BDF5  E6 01
         RET                              ; $BDF7  C9
+; ----------------------------------------------------------------------
+; F_COMPSIZE_BODY -- BDOS function 35 (Compute File Size) worker: scan the directory and write the max record number into r0/r1/r2.
+;   In: current FCB at $DF11; reached from BDOS_F_SIZE after FCB_AUTO_DRIVE_SELECT.
+;   Out: FCB random-record bytes r0/r1/r2 (offsets $21-$23) set to the file's record count (one past the
+;        highest record across all matching directory extents).  Clobbers: A,BC,DE,HL.
+;   Algorithm: C := $0C, DIR_SEARCH_FIRST over the first 12 FCB bytes (drive+name+type; extent NOT matched);
+;       point HL at FCB+$21 and zero the three random-record bytes. Loop over every matching entry: compute
+;       its record number via FCB_RECNUM_FROM_FIELDS at offset $0F and keep the running maximum in r0/r1/r2;
+;       when the search exhausts, the largest record number remains stored.
+;   [RE][DOC CP/M 2.2 BDOS fn 35] result is a record count (next free record), one past the highest used record.
+; ----------------------------------------------------------------------
 F_COMPSIZE_BODY:
         LD C,$0C                         ; $BDF8  0E 0C
         CALL DIR_SEARCH_FIRST                    ; $BDFA  CD 80 B9
@@ -1987,6 +2659,16 @@ SUB_BDCB_3:
 SUB_BDCB_4:
         POP HL                           ; $BE2F  E1
         RET                              ; $BE30  C9
+; ----------------------------------------------------------------------
+; BDOS_F_RANDREC -- BDOS function 36 (Set Random Record): compute the random-record field of the current FCB from its sequential position.
+;   In: current FCB at $DF11 (whose sequential extent/CR fields are to be converted).
+;   Out: bytes r0/r1/r2 (FCB offsets $21..$23) written with the 24-bit record number derived from the FCB's
+;        extent and current-record fields.  Clobbers: A,BC,DE,HL.
+;   Algorithm: RANDREC_FIELD_RESET stages the FCB into the scratch, then FCB_RECNUM_FROM_FIELDS with HL=FCB
+;       base and DE=$0020 folds the CR (FCB+$20), extent number and extent-high bit into a record count in
+;       C(low)/B(high)/A(overflow); then HL = FCB+$0021 and store C,B,A into FCB[$21],[$22],[$23].
+;   [RE] dispatch fn 36 ($DC9B->$BE31); FCB_RECNUM_FROM_FIELDS is the standard extent->record-count fold.
+; ----------------------------------------------------------------------
 BDOS_F_RANDREC:
         CALL RANDREC_FIELD_RESET                    ; $BE31  CD A3 BF
         LD HL,($DF11)                    ; $BE34  2A 11 DF
@@ -2000,12 +2682,34 @@ BDOS_F_RANDREC:
         INC HL                           ; $BE44  23
         LD (HL),A                        ; $BE45  77
         RET                              ; $BE46  C9
+; ----------------------------------------------------------------------
+; BDOS_F_SELDSK -- BDOS function 14 (Select Disk): make the drive in the select arg ($BFE3) the current drive.
+;   In: requested drive at $BFE3; current drive at $DF10.
+;   Out: if the drive changed, $DF10 is updated and the drive is logged in / allocation vector rebuilt (via
+;        DRV_LOGIN_SCAN); otherwise no-op.  Clobbers: A,HL (and whatever DRV_LOGIN_SCAN clobbers).
+;   Algorithm: compare desired drive ($BFE3) with current ($DF10); if equal return; else store the new
+;       current drive and fall into DRV_LOGIN_SCAN, the select/log-in worker.
+;   [RE] dispatch fn 14 ($DC6F->$BE47); matches canonical CP/M 2.2 Select Disk.
+; ----------------------------------------------------------------------
 BDOS_F_SELDSK:
         LD A,($BFE3)                     ; $BE47  3A E3 BF
         LD HL,$DF10                      ; $BE4A  21 10 DF
         CP (HL)                          ; $BE4D  BE
         RET Z                            ; $BE4E  C8
         LD (HL),A                        ; $BE4F  77
+; ----------------------------------------------------------------------
+; DRV_LOGIN_SCAN -- Select-disk / log-in worker: ensure the current drive is logged in, and rebuild its allocation vector if it was not.
+;   In: current drive at $DF10; the working login/select vector DRV_SELECT_VECTOR at $BFBC.
+;   Out: if the drive was newly logged in, its DPB is fetched (SELDSK_DPB_FETCH) and its allocation vector
+;        rebuilt (ALLOC_VECTOR_BUILD); DRV_SELECT_VECTOR updated with the drive's login bit.  Clobbers: A,BC,DE,HL.
+;   Algorithm: load the working login vector ($BFBC); build a single-bit mask for the current drive
+;       (SHR_HL_C); test (SELDSK_DPB_FETCH) whether the drive's DPB is already established; if not yet
+;       logged in (Z) call $DF15 to log it in / scan its directory; if the login bit was already set (RRA
+;       -> carry) just return; otherwise OR this drive's bit into DRV_SELECT_VECTOR, store it, and fall
+;       into ALLOC_VECTOR_BUILD.
+;   [RE] the standard CP/M 2.2 select-disk login path reached from BDOS_F_SELDSK (fn 14) and BDOS_F_DSKRESET
+;       (fn 13). Twin of the 44K DRV_INSTALL_RWTS_17. [?] the RRA already-logged-in test is inferred.
+; ----------------------------------------------------------------------
 DRV_LOGIN_SCAN:
         LD HL,(DRV_SELECT_VECTOR)                   ; $BE50  2A BC BF
         LD A,($DF10)                     ; $BE53  3A 10 DF
@@ -2025,8 +2729,30 @@ DRV_LOGIN_SCAN:
         CALL DRIVE_BIT_OR_INTO_VECTOR                    ; $BE6B  CD 7A B7
         LD (DRV_SELECT_VECTOR),HL                   ; $BE6E  22 BC BF
         JP ALLOC_VECTOR_BUILD                    ; $BE71  C3 0F B9
+; ----------------------------------------------------------------------
+; FCB_AUTO_DRIVE_SELECT -- common file-operation preamble: reset the random scratch then honor the drive prefix in the caller's FCB.
+;   In: current FCB at $DF11 (byte 0 = drive prefix, 0=default else drive+1); current drive $DF10; current user $DF0F.
+;   Out: RANDREC_FIELD_RESET stages the FCB into the scratch; then FCB_LOGIN_SELECT: if the FCB names an
+;        explicit drive, that drive is selected (BDOS_F_SELDSK) and the prior drive/FCB-byte saved; the
+;        FCB's drive byte is rewritten to OR in the current user number.  Clobbers: A,BC,DE,HL.
+;   Algorithm: CALL RANDREC_FIELD_RESET, then fall into FCB_LOGIN_SELECT.
+;   [RE] the auto-disk-select / FCB drive-prefix handler that nearly every file BDOS call funnels through.
+; ----------------------------------------------------------------------
 FCB_AUTO_DRIVE_SELECT:
         CALL RANDREC_FIELD_RESET                    ; $BE74  CD A3 BF
+; ----------------------------------------------------------------------
+; FCB_LOGIN_SELECT -- honor the drive prefix in the current FCB, temporarily selecting that drive.
+;   In: current FCB at $DF11 (byte 0 = drive prefix); current drive $DF10; current user $DF0F.
+;   Out: if the FCB names an explicit drive, that drive is selected (select-arg $BFE3 set, BDOS_F_SELDSK
+;        called) and the prior drive is saved in the restore cells ($BFEB flag=$FF, $BFEC=saved drive,
+;        $BFED=saved FCB drive byte); the FCB's drive byte is OR'd with the current user number.  Clobbers: A,BC,DE,HL.
+;   Algorithm: set restore-pending flag $BFEB=$FF; read FCB byte0, mask $1F and DEC to get drive index into
+;       $BFE3; if >=$1E (no explicit drive) skip the switch (FCB_MERGE_USER); else save current drive
+;       ($DF10->$BFEC) and original FCB byte (->$BFED), strip the prefix bits ($E0 mask) from FCB byte0,
+;       select the requested drive (BDOS_F_SELDSK); finally OR the current user number ($DF0F) into FCB byte0.
+;   [RE] the FCB drive-prefix handler; the matching restore is done on the BDOS bank-out epilogue. Twin of
+;       the 44K FCB_AUTO_DRIVE_SELECT body.
+; ----------------------------------------------------------------------
 FCB_LOGIN_SELECT:
         LD A,$FF                         ; $BE77  3E FF
         LD ($BFEB),A                     ; $BE79  32 EB BF
@@ -2044,15 +2770,37 @@ FCB_LOGIN_SELECT:
         AND $E0                          ; $BE94  E6 E0
         LD (HL),A                        ; $BE96  77
         CALL BDOS_F_SELDSK                    ; $BE97  CD 47 BE
+; ----------------------------------------------------------------------
+; FCB_MERGE_USER -- tail of FCB_LOGIN_SELECT: OR the current user number into the FCB's drive byte.
+;   In: current user number at $DF0F; current FCB at $DF11.
+;   Out: FCB byte0 |= current user number.  Clobbers: A,HL.
+;   Algorithm: load user number ($DF0F), OR with FCB byte0, store back.
+;   [RE] shared exit of the auto-disk-select preamble.
+; ----------------------------------------------------------------------
 FCB_MERGE_USER:
         LD A,($DF0F)                     ; $BE9A  3A 0F DF
         LD HL,($DF11)                    ; $BE9D  2A 11 DF
         OR (HL)                          ; $BEA0  B6
         LD (HL),A                        ; $BEA1  77
         RET                              ; $BEA2  C9
+; ----------------------------------------------------------------------
+; BDOS_F_VERSION -- BDOS function 12 (Return Version Number): report CP/M 2.2.
+;   In: none.  Out: low byte of the BDOS result ($DF13) set to $22 (= version 2.2) via $DED0.  Clobbers: A.
+;   Algorithm: load $22 and store it as the low byte of the BDOS return result.
+;   [RE] dispatch fn 12 ($DC6B->$BEA3); $22 = CP/M 2.2 per the canonical version code.
+; ----------------------------------------------------------------------
 BDOS_F_VERSION:
         LD A,$22                         ; $BEA3  3E 22
         JP $DED0                         ; $BEA5  C3 D0 DE
+; ----------------------------------------------------------------------
+; BDOS_F_DSKRESET -- BDOS function 13 (Reset Disk System): return CP/M to its initial disk state.
+;   In: none.  Out: login vector (DRV_LOGIN_VECTOR $BFBA) and working login/select vector
+;       (DRV_SELECT_VECTOR $BFBC) cleared; current drive $DF10 forced to A: (0); DMA address ($BFBE) reset
+;       to TBUFF ($0080); drive A logged in fresh.  Clobbers: A,HL (and DRV_LOGIN_SCAN / RESTORE_USER_DMA clobbers).
+;   Algorithm: zero $BFBA and $BFBC; set current drive $DF10=0; set DMA_ADDR $BFBE=$0080 (TBUFF); CALL
+;       RESTORE_USER_DMA (apply to the live BIOS DMA); JR DRV_LOGIN_SCAN to log in drive A.
+;   [RE] dispatch fn 13 ($DC6D->$BEA8); matches canonical CP/M 2.2 Reset Disk System.
+; ----------------------------------------------------------------------
 BDOS_F_DSKRESET:
         LD HL,$0000                      ; $BEA8  21 00 00
         LD (DRV_LOGIN_VECTOR),HL                   ; $BEAB  22 BA BF
@@ -2063,12 +2811,37 @@ BDOS_F_DSKRESET:
         LD (DMA_ADDR),HL                   ; $BEB8  22 BE BF
         CALL RESTORE_USER_DMA                    ; $BEBB  CD 4F B8
         JR DRV_LOGIN_SCAN                    ; $BEBE  18 90
+; ----------------------------------------------------------------------
+; BDOS_F_OPEN -- BDOS function 15 (Open File): open the file named by the FCB.
+;   In: current FCB at $DF11.
+;   Out: directory match result via FILE_OPEN_SEARCH; FCB filled in from the matching directory entry on
+;        success, $FF if not found.  Clobbers: A,BC,DE,HL.
+;   Algorithm: F_MAKE_OPEN_PREP (reset random scratch, clear S2, log in the FCB drive); JP FILE_OPEN_SEARCH.
+;   [RE] dispatch fn 15 ($DC71->$BEC0); canonical CP/M 2.2 Open File.
+; ----------------------------------------------------------------------
 BDOS_F_OPEN:
         CALL F_MAKE_OPEN_PREP                    ; $BEC0  CD E1 B7
         JP FILE_OPEN_SEARCH                      ; $BEC3  C3 A7 BA
+; ----------------------------------------------------------------------
+; BDOS_F_CLOSE -- BDOS function 16 (Close File): write the FCB back to its directory entry.
+;   In: current FCB at $DF11 (must be open).
+;   Out: directory entry updated; result via the F_CLOSE_HND path ($FF / dir-code).  Clobbers: A,BC,DE,HL.
+;   Algorithm: FCB_AUTO_DRIVE_SELECT honors the FCB drive prefix; JP into F_CLOSE_HND.
+;   [RE] dispatch fn 16 ($DC73->$BEC6); canonical CP/M 2.2 Close File.
+; ----------------------------------------------------------------------
 BDOS_F_CLOSE:
         CALL FCB_AUTO_DRIVE_SELECT                    ; $BEC6  CD 74 BE
         JP F_CLOSE_HND                      ; $BEC9  C3 F6 BA
+; ----------------------------------------------------------------------
+; BDOS_F_SFIRST -- BDOS function 17 (Search for First): find the first directory entry matching the FCB.
+;   In: current FCB at $DF11 (staged from DE). FCB byte0 = $3F ('?') means 'match every entry'.
+;   Out: directory match copied to the DMA buffer; result (0..3 = dir position, or $FF none) via SUB_B854_2.
+;   Clobbers: A,BC,DE,HL.
+;   Algorithm: RANDREC_FIELD_RESET; C=0 (default match length); fetch FCB byte0; if byte0==$3F do an
+;       unqualified all-entries scan; else test the extent byte FCB[$0C] -- if not '?' CLEAR_FCB_S2 -- then
+;       FCB_LOGIN_SELECT and C=$0F (15-byte name+type+extent match); fall into DIR_SEARCH_AND_COPY.
+;   [RE] dispatch fn 17 ($DC75->$BECC); canonical CP/M 2.2 Search First; $3F is the '?' all-match marker.
+; ----------------------------------------------------------------------
 BDOS_F_SFIRST:
         CALL RANDREC_FIELD_RESET                    ; $BECC  CD A3 BF
         LD C,$00                         ; $BECF  0E 00
@@ -2083,9 +2856,27 @@ SFIRST_CLR_S2:
         CALL NZ,CLEAR_FCB_S2                 ; $BEDD  C4 EB B7
         CALL FCB_LOGIN_SELECT                    ; $BEE0  CD 77 BE
         LD C,$0F                         ; $BEE3  0E 0F
+; ----------------------------------------------------------------------
+; DIR_SEARCH_AND_COPY -- run the directory scan and copy the matched entry to the DMA buffer.
+;   In: C = number of bytes to compare; search FCB already established by BDOS_F_SFIRST.
+;   Out: matching directory record moved to the DMA buffer; A = directory position (0..3) or $FF if none.
+;   Clobbers: A,BC,DE,HL.
+;   Algorithm: DIR_SEARCH_FIRST performs the directory search with the C-byte mask; JP SUB_B854_2 (the
+;       disk-buffer -> user-DMA copy) to deliver the located entry and return the result code.
+;   [RE] shared search tail for fn 17 (Search First) and fn 18 (Search Next).
+; ----------------------------------------------------------------------
 DIR_SEARCH_AND_COPY:
         CALL DIR_SEARCH_FIRST                    ; $BEE5  CD 80 B9
         JP SUB_B854_2                    ; $BEE8  C3 5D B8
+; ----------------------------------------------------------------------
+; BDOS_F_SNEXT -- BDOS function 18 (Search for Next): continue a directory search begun by Search First.
+;   In: the saved search FCB pointer at $DF85 (stored by RANDREC_FIELD_RESET during Search First).
+;   Out: next matching directory record copied to the DMA buffer; A = position (0..3) or $FF if no more.
+;   Clobbers: A,BC,DE,HL.
+;   Algorithm: restore the saved search FCB pointer ($DF85 -> DE); RANDREC_FIELD_RESET; FCB_LOGIN_SELECT;
+;       BDOS_DIR_SCAN_NEXT advances the scan from the saved position; JP SUB_B854_2 to deliver the hit.
+;   [RE] dispatch fn 18 ($DC77->$BEEB); canonical CP/M 2.2 Search Next.
+; ----------------------------------------------------------------------
 BDOS_F_SNEXT:
         LD DE,($DF85)                    ; $BEEB  ED 5B 85 DF
         CALL RANDREC_FIELD_RESET                    ; $BEEF  CD A3 BF
@@ -2093,67 +2884,218 @@ BDOS_F_SNEXT:
         CALL FCB_LOGIN_SELECT                    ; $BEF3  CD 77 BE
         CALL BDOS_DIR_SCAN_NEXT                    ; $BEF6  CD 95 B9
         JP SUB_B854_2                    ; $BEF9  C3 5D B8
+; ----------------------------------------------------------------------
+; BDOS_F_DELETE -- BDOS function 19 (Delete File): erase all directory entries matching the FCB.
+;   In: current FCB at $DF11 (possibly ambiguous).
+;   Out: matching directory entries marked deleted ($E5) and their allocation freed; result via
+;        DIR_RETURN_MATCH_FLAG ($FF if none / dir code).  Clobbers: A,BC,DE,HL.
+;   Algorithm: FCB_AUTO_DRIVE_SELECT honors the drive prefix; F_DELETE_HND scans and erases each matching
+;       entry (releasing its blocks); JP DIR_RETURN_MATCH_FLAG.
+;   [RE] dispatch fn 19 ($DC79->$BEFC); canonical CP/M 2.2 Delete File.
+; ----------------------------------------------------------------------
 BDOS_F_DELETE:
         CALL FCB_AUTO_DRIVE_SELECT                    ; $BEFC  CD 74 BE
         CALL F_DELETE_HND                    ; $BEFF  CD F9 B9
         JP DIR_RETURN_MATCH_FLAG                    ; $BF02  C3 69 B9
+; ----------------------------------------------------------------------
+; BDOS_F_READ_SEQ -- BDOS function 20 (Read Sequential): read the next 128-byte record of the open file.
+;   In: current FCB at $DF11 positioned at the next sequential record.
+;   Out: one record read into the DMA buffer; A = 0 on success or a nonzero read-error/EOF code; FCB
+;        position advanced.  Clobbers: A,BC,DE,HL.
+;   Algorithm: FCB_AUTO_DRIVE_SELECT honors the drive prefix; JP FILE_WRITE_SEQ (the sequential entry into
+;       the shared read core; the FILE_WRITE_SEQ/FILE_READ_SEQ labels are cross-wired in this 60K build).
+;   [RE] dispatch fn 20 ($DC7B->$BF05); canonical CP/M 2.2 Read Sequential.
+; ----------------------------------------------------------------------
 BDOS_F_READ_SEQ:
         CALL FCB_AUTO_DRIVE_SELECT                    ; $BF05  CD 74 BE
         JP FILE_WRITE_SEQ                    ; $BF08  C3 FE BB
+; ----------------------------------------------------------------------
+; BDOS_F_WRITE_SEQ -- BDOS function 21 (Write Sequential): write the next 128-byte record to the open file.
+;   In: current FCB at $DF11; DMA buffer holds the record to write.
+;   Out: one record written; A = 0 on success or a nonzero error code (disk full / R/O); FCB position
+;        advanced, allocation extended as needed.  Clobbers: A,BC,DE,HL.
+;   Algorithm: FCB_AUTO_DRIVE_SELECT honors the drive prefix; JP FILE_READ_SEQ (the sequential entry into
+;       the shared write core; the FILE_READ_SEQ/FILE_WRITE_SEQ labels are cross-wired in this 60K build).
+;   [RE] dispatch fn 21 ($DC7D->$BF0B); canonical CP/M 2.2 Write Sequential.
+; ----------------------------------------------------------------------
 BDOS_F_WRITE_SEQ:
         CALL FCB_AUTO_DRIVE_SELECT                    ; $BF0B  CD 74 BE
         JP FILE_READ_SEQ                    ; $BF0E  C3 3C BC
+; ----------------------------------------------------------------------
+; BDOS_F_MAKE -- BDOS function 22 (Make File): create a new directory entry for the FCB.
+;   In: current FCB at $DF11 naming the file to create.
+;   Out: a fresh, empty directory entry allocated and the FCB opened against it; A = dir position or $FF if
+;        the directory is full.  Clobbers: A,BC,DE,HL.
+;   Algorithm: F_MAKE_OPEN_PREP (reset random scratch, clear S2, log in the FCB drive); JP DIR_MAKE_ENTRY.
+;   [RE] dispatch fn 22 ($DC7F->$BF11); canonical CP/M 2.2 Make File.
+; ----------------------------------------------------------------------
 BDOS_F_MAKE:
         CALL F_MAKE_OPEN_PREP                    ; $BF11  CD E1 B7
         JP DIR_MAKE_ENTRY                      ; $BF14  C3 6F BB
+; ----------------------------------------------------------------------
+; BDOS_F_RENAME -- BDOS function 23 (Rename File): change a file's name in its directory entries.
+;   In: current FCB at $DF11 whose first 12 bytes hold the old name and bytes $10.. the new name.
+;   Out: every matching directory entry's name field rewritten to the new name; result via DIR_RETURN_MATCH_FLAG.
+;   Clobbers: A,BC,DE,HL.
+;   Algorithm: FCB_AUTO_DRIVE_SELECT honors the drive prefix; F_RENAME_HND rewrites matched entries; JP
+;       DIR_RETURN_MATCH_FLAG.
+;   [RE] dispatch fn 23 ($DC81->$BF17); canonical CP/M 2.2 Rename File.
+; ----------------------------------------------------------------------
 BDOS_F_RENAME:
         CALL FCB_AUTO_DRIVE_SELECT                    ; $BF17  CD 74 BE
         CALL F_RENAME_HND                    ; $BF1A  CD 6E BA
         JP DIR_RETURN_MATCH_FLAG                    ; $BF1D  C3 69 B9
+; ----------------------------------------------------------------------
+; BDOS_F_LOGINVEC -- BDOS function 24 (Return Login Vector): report which drives are logged in.
+;   In: DRV_SELECT_VECTOR ($BFBC) = working login/select vector (bit d = drive d logged in).
+;   Out: BDOS result HL = the login vector (returned via BDOS_RET_RESULT_HL, result cell $DF13).  Clobbers: HL.
+;   Algorithm: load the working login vector ($BFBC) and store it as the 16-bit BDOS result.
+;   [RE] dispatch fn 24 ($DC83->$BF20); canonical CP/M 2.2 Return Login Vector.
+; ----------------------------------------------------------------------
 BDOS_F_LOGINVEC:
         LD HL,(DRV_SELECT_VECTOR)                   ; $BF20  2A BC BF
         JR BDOS_RET_RESULT_HL                   ; $BF23  18 23
+; ----------------------------------------------------------------------
+; BDOS_F_CURDSK -- BDOS function 25 (Return Current Disk): report the current default drive.
+;   In: current drive at $DF10.  Out: BDOS result A = current drive (0=A:) via $DED0.  Clobbers: A.
+;   Algorithm: load the current-drive cell ($DF10) and return it as the BDOS result.
+;   [RE] dispatch fn 25 ($DC85->$BF25); canonical CP/M 2.2 Return Current Disk.
+; ----------------------------------------------------------------------
 BDOS_F_CURDSK:
         LD A,($DF10)                     ; $BF25  3A 10 DF
         JP $DED0                         ; $BF28  C3 D0 DE
+; ----------------------------------------------------------------------
+; BDOS_F_SETDMA -- BDOS function 26 (Set DMA Address): set the disk read/write buffer address.
+;   In: DE = new DMA (disk transfer) address supplied by the caller.
+;   Out: DMA_ADDR ($BFBE) set to DE and pushed through to the BIOS disk-buffering layer.  Clobbers: A,HL
+;        (and RESTORE_USER_DMA clobbers).
+;   Algorithm: move DE into HL, store at DMA_ADDR ($BFBE), JP RESTORE_USER_DMA to apply it to the live BIOS SETDMA.
+;   [RE] dispatch fn 26 ($DC87->$BF2B); canonical CP/M 2.2 Set DMA Address.
+; ----------------------------------------------------------------------
 BDOS_F_SETDMA:
         EX DE,HL                         ; $BF2B  EB
         LD (DMA_ADDR),HL                   ; $BF2C  22 BE BF
         JP RESTORE_USER_DMA                      ; $BF2F  C3 4F B8
+; ----------------------------------------------------------------------
+; BDOS_F_ALLOCVEC -- BDOS function 27 (Return Allocation Vector address).
+;   In: the allocation (block-in-use) bit-vector base pointer at ($BFCC).
+;   Out: BDOS result HL = the allocation vector address (via BDOS_RET_RESULT_HL).  Clobbers: HL.
+;   Algorithm: load the allocation-vector pointer ($BFCC) and store it as the 16-bit BDOS result.
+;   [RE] dispatch fn 27 ($DC89->$BF32); canonical CP/M 2.2 Get Allocation Vector.
+; ----------------------------------------------------------------------
 BDOS_F_ALLOCVEC:
         LD HL,($BFCC)                    ; $BF32  2A CC BF
         JR BDOS_RET_RESULT_HL                   ; $BF35  18 11
+; ----------------------------------------------------------------------
+; BDOS_F_ROVEC -- BDOS function 29 (Return Read-Only Vector): report which drives are read-only.
+;   In: DRV_LOGIN_VECTOR ($BFBA) -- here read as the read-only bit vector master copy.
+;   Out: BDOS result HL = the read-only drive vector (bit d set = drive d is R/O) via BDOS_RET_RESULT_HL.  Clobbers: HL.
+;   Algorithm: load the R/O vector ($BFBA) and store it as the 16-bit BDOS result.
+;   [RE] dispatch fn 29 ($DC8D->$BF37); canonical CP/M 2.2 Get Read-Only Vector. [?] the cell is named
+;       DRV_LOGIN_VECTOR but holds the R/O bits in this build.
+; ----------------------------------------------------------------------
 BDOS_F_ROVEC:
         LD HL,(DRV_LOGIN_VECTOR)                   ; $BF37  2A BA BF
         JR BDOS_RET_RESULT_HL                   ; $BF3A  18 0C
+; ----------------------------------------------------------------------
+; BDOS_F_ATTRIB -- BDOS function 30 (Set File Attributes): write the FCB's attribute bits into its directory entries.
+;   In: current FCB at $DF11 carrying the desired attribute (high) bits in its name/type bytes.
+;   Out: matching directory entries updated with the new attributes; result via DIR_RETURN_MATCH_FLAG.  Clobbers: A,BC,DE,HL.
+;   Algorithm: FCB_AUTO_DRIVE_SELECT honors the drive prefix; F_ATTRIB_HND copies the attribute bits into
+;       each matched entry; JP DIR_RETURN_MATCH_FLAG.
+;   [RE] dispatch fn 30 ($DC8F->$BF3C); canonical CP/M 2.2 Set File Attributes.
+; ----------------------------------------------------------------------
 BDOS_F_ATTRIB:
         CALL FCB_AUTO_DRIVE_SELECT                    ; $BF3C  CD 74 BE
         CALL F_ATTRIB_HND                    ; $BF3F  CD 92 BA
         JP DIR_RETURN_MATCH_FLAG                    ; $BF42  C3 69 B9
+; ----------------------------------------------------------------------
+; BDOS_F_GETDPB -- BDOS function 31 (Return Disk Parameter Block address).
+;   In: the current drive's DPB pointer at ($BFC8) (set during disk select/log-in).
+;   Out: BDOS result HL = the DPB address (falls into the shared result-store BDOS_RET_RESULT_HL).  Clobbers: HL.
+;   Algorithm: load the DPB pointer ($BFC8) and store it as the 16-bit BDOS result.
+;   [RE] dispatch fn 31 ($DC91->$BF45); canonical CP/M 2.2 Get DPB.
+; ----------------------------------------------------------------------
 BDOS_F_GETDPB:
         LD HL,($BFC8)                    ; $BF45  2A C8 BF
+; ----------------------------------------------------------------------
+; BDOS_RET_RESULT_HL -- common exit: store the 16-bit value in HL as the BDOS return result.
+;   In: HL = value to return to the caller.
+;   Out: BDOS result cell ($DF13, in the BDOS upper bank) = HL.  Clobbers: none (writes memory).
+;   Algorithm: store HL at the BDOS result cell ($DF13) and return.
+;   [RE] the HL-valued counterpart of the byte-result store; used by the get-vector / get-pointer
+;       functions (login vector, alloc vector, R/O vector, DPB) and fallen into from BDOS_F_GETDPB.
+; ----------------------------------------------------------------------
 BDOS_RET_RESULT_HL:
         LD ($DF13),HL                    ; $BF48  22 13 DF
         RET                              ; $BF4B  C9
+; ----------------------------------------------------------------------
+; BDOS_F_USERNUM -- BDOS function 32 (Get/Set User Code).
+;   In: the caller's argument in $BFE3 ($FF = 'get', else the user number to set); current user at $DF0F.
+;   Out: if get: BDOS result A = current user number (via $DED0); if set: current user $DF0F updated to (arg AND $1F).  Clobbers: A.
+;   Algorithm: if the argument ($BFE3) is $FF, return the current user number ($DF0F); otherwise fall into
+;       SET_USER_NUMBER to mask the argument to 0..31 and store it.
+;   [RE] dispatch fn 32 ($DC93->$BF4C); canonical CP/M 2.2 Get/Set User; $FF = query.
+; ----------------------------------------------------------------------
 BDOS_F_USERNUM:
         LD A,($BFE3)                     ; $BF4C  3A E3 BF
         CP $FF                           ; $BF4F  FE FF
         JR NZ,SET_USER_NUMBER                ; $BF51  20 06
         LD A,($DF0F)                     ; $BF53  3A 0F DF
         JP $DED0                         ; $BF56  C3 D0 DE
+; ----------------------------------------------------------------------
+; SET_USER_NUMBER -- set path of BDOS function 32: change the current user number.
+;   In: A = requested user number.  Out: current user number $DF0F = A AND $1F (0..31).  Clobbers: A.
+;   Algorithm: mask the requested user number to 5 bits and store it at $DF0F.
+;   [RE] continuation of BDOS_F_USERNUM (Get/Set User).
+; ----------------------------------------------------------------------
 SET_USER_NUMBER:
         AND $1F                          ; $BF59  E6 1F
         LD ($DF0F),A                     ; $BF5B  32 0F DF
         RET                              ; $BF5E  C9
+; ----------------------------------------------------------------------
+; BDOS_F_READRAND -- BDOS function 33 (Read Random): read the record addressed by the FCB's random-record field.
+;   In: current FCB at $DF11 whose r0/r1/r2 ($21..$23) hold the target record number.
+;   Out: that record read into the DMA buffer; A = 0 on success or a random-read error code (e.g. 1=reading
+;        unwritten data, 6=record number out of range); FCB positioned at that record.  Clobbers: A,BC,DE,HL.
+;   Algorithm: FCB_AUTO_DRIVE_SELECT honors the drive prefix; JP F_READRAND_BODY (seek to the random record and read it).
+;   [RE] dispatch fn 33 ($DC95->$BF5F); canonical CP/M 2.2 Read Random.
+; ----------------------------------------------------------------------
 BDOS_F_READRAND:
         CALL FCB_AUTO_DRIVE_SELECT                    ; $BF5F  CD 74 BE
         JP F_READRAND_BODY                    ; $BF62  C3 B9 BD
+; ----------------------------------------------------------------------
+; BDOS_F_WRITERAND -- BDOS function 34 (Write Random): write the record addressed by the FCB's random-record field.
+;   In: current FCB at $DF11 whose r0/r1/r2 hold the target record number; DMA buffer holds the record.
+;   Out: that record written; A = 0 on success or a random-write error code; file extended/allocated as needed.  Clobbers: A,BC,DE,HL.
+;   Algorithm: FCB_AUTO_DRIVE_SELECT honors the drive prefix; JP F_WRITERAND_BODY.
+;   [RE] dispatch fn 34 ($DC97->$BF65); canonical CP/M 2.2 Write Random.
+; ----------------------------------------------------------------------
 BDOS_F_WRITERAND:
         CALL FCB_AUTO_DRIVE_SELECT                    ; $BF65  CD 74 BE
         JP F_WRITERAND_BODY                    ; $BF68  C3 C2 BD
+; ----------------------------------------------------------------------
+; BDOS_F_SIZE -- BDOS function 35 (Compute File Size): set the FCB's random-record field to the file's record count.
+;   In: current FCB at $DF11 naming the file.
+;   Out: FCB r0/r1/r2 ($21..$23) set to the number of 128-byte records in the file (its 'virtual size').  Clobbers: A,BC,DE,HL.
+;   Algorithm: FCB_AUTO_DRIVE_SELECT honors the drive prefix; JP F_COMPSIZE_BODY (scans the directory
+;       extents for the highest record and writes it into the FCB random-record field).
+;   [RE] dispatch fn 35 ($DC99->$BF6B); canonical CP/M 2.2 Compute File Size.
+; ----------------------------------------------------------------------
 BDOS_F_SIZE:
         CALL FCB_AUTO_DRIVE_SELECT                    ; $BF6B  CD 74 BE
         JP F_COMPSIZE_BODY                    ; $BF6E  C3 F8 BD
+; ----------------------------------------------------------------------
+; BDOS_F_RESET_DRIVE -- BDOS function 37 (Reset Drive): mark the drives named by the caller's bit mask as no longer logged in.
+;   In: the caller's reset bit-mask staged at $DF11 (one bit per drive to reset); DRV_SELECT_VECTOR ($BFBC)
+;       = working login vector; DRV_LOGIN_VECTOR ($BFBA) = master logged-in / R-O master vector.
+;   Out: for each drive bit set in the mask, that drive's bit is cleared in both DRV_SELECT_VECTOR and
+;        DRV_LOGIN_VECTOR, forcing a fresh log-in on next access.  Clobbers: A,DE,HL.
+;   Algorithm: form the bitwise complement of the caller's reset mask ($DF11); AND it into DRV_SELECT_VECTOR
+;       ($BFBC) to clear those login bits and store back; then AND the masked login word with
+;       DRV_LOGIN_VECTOR ($BFBA) and store back.
+;   [RE] dispatch fn 37 ($DC9D->$BF71); canonical CP/M 2.2 Reset Drive (selective reset).
+; ----------------------------------------------------------------------
 BDOS_F_RESET_DRIVE:
         LD HL,($DF11)                    ; $BF71  2A 11 DF
         LD A,L                           ; $BF74  7D
@@ -2178,6 +3120,16 @@ BDOS_F_RESET_DRIVE:
         LD H,A                           ; $BF8D  67
         LD (DRV_LOGIN_VECTOR),HL                   ; $BF8E  22 BA BF
         RET                              ; $BF91  C9
+; ----------------------------------------------------------------------
+; BDOS_F_WRITEZF -- BDOS function 40 (Write Random with Zero Fill): like Write Random, but newly allocated blocks are pre-filled with zeros.
+;   In: current FCB at $DF11 whose r0/r1/r2 hold the target record number; DMA buffer holds the record.
+;   Out: the record written at the random position; any block newly allocated to reach it is zero-filled
+;        first; A = 0 or a random-write error code.  Clobbers: A,BC,DE,HL.
+;   Algorithm: FCB_AUTO_DRIVE_SELECT honors the drive prefix; set write-type WRITE_TYPE=$BFE2 := 2
+;       (zero-fill); C=0; CALL BDOS_SEEK_COMPUTE and, on success (Z), CALL BDOS_WRITE.
+;   [RE] dispatch fn 40 ($DCA3->$BF92); canonical CP/M 2.2 Write Random with Zero Fill; WRITE_TYPE=2
+;       distinguishes it from normal Write Random.
+; ----------------------------------------------------------------------
 BDOS_F_WRITEZF:
         CALL FCB_AUTO_DRIVE_SELECT                    ; $BF92  CD 74 BE
         LD A,$02                         ; $BF95  3E 02
@@ -2186,6 +3138,17 @@ BDOS_F_WRITEZF:
         CALL BDOS_SEEK_COMPUTE                    ; $BF9C  CD 34 BD
         CALL Z,BDOS_WRITE                  ; $BF9F  CC 41 BC
         RET                              ; $BFA2  C9
+; ----------------------------------------------------------------------
+; RANDREC_FIELD_RESET -- stage the caller's FCB into the BDOS scratch FCB and record it as the current/search FCB.
+;   In: the caller's FCB pointer (in HL/DE at the call site); the scratch region at $DF87..
+;   Out: current-FCB pointer $DF11 and saved-search-FCB pointer $DF85 both set to the scratch FCB copy at
+;        $DF88; a 36-byte ($24) FCB image staged there via the lower-LC copy trampoline ($DF3C); DE = $DF88.
+;   Clobbers: A,BC,DE,HL.
+;   Algorithm: bump the sequence byte at $DF87; HL := $DF88; store to $DF11 and $DF85; BC := $0024; CALL
+;       $DF3C (the lower-LC LDIR-across-banks helper) to copy the FCB into the scratch; DE := $DF88.
+;   [RE] common front end of the random-record and search functions; keeps a private copy of the caller's
+;       FCB in the BDOS bank so the file machinery can run with the LC banked in. [?]
+; ----------------------------------------------------------------------
 RANDREC_FIELD_RESET:
         LD HL,$DF87                      ; $BFA3  21 87 DF
         INC (HL)                         ; $BFA6  34
@@ -2197,12 +3160,27 @@ RANDREC_FIELD_RESET:
         CALL $DF3C                       ; $BFB2  CD 3C DF
         LD DE,$DF88                      ; $BFB5  11 88 DF
         RET                              ; $BFB8  C9
+; ----------------------------------------------------------------------
+; EMPTY_DIR_FCB -- Sentinel byte $E5 used as an empty/deleted directory-entry marker and zero-FCB source. [RE]
+; ----------------------------------------------------------------------
 EMPTY_DIR_FCB:
         DEFB    $E5                                              ; $BFB9
+; ----------------------------------------------------------------------
+; DRV_LOGIN_VECTOR -- 16-bit master drive vector at $BFBA. Despite the name, this build uses it as the
+; READ-ONLY drive vector (set by BDOS_F_SETRO, tested by DRIVE_BIT_TEST, reported by BDOS_F_ROVEC). [RE]
+; ----------------------------------------------------------------------
 DRV_LOGIN_VECTOR:
         DEFB    "\0\0"    ; $BFBA
+; ----------------------------------------------------------------------
+; DRV_SELECT_VECTOR -- 16-bit working login/select vector at $BFBC (bit d set = drive d logged in). Read
+; by BDOS_F_LOGINVEC, maintained by DRV_LOGIN_SCAN and BDOS_F_RESET_DRIVE. [RE]
+; ----------------------------------------------------------------------
 DRV_SELECT_VECTOR:
         DEFB    "\0\0"    ; $BFBC
+; ----------------------------------------------------------------------
+; DMA_ADDR -- 16-bit user DMA (disk transfer) address at $BFBE, default TBUFF ($0080). Set by BDOS_F_SETDMA
+; / BDOS_F_DSKRESET and applied to the BIOS via RESTORE_USER_DMA. [RE]
+; ----------------------------------------------------------------------
 DMA_ADDR:
         DEFB    $80,$00                                          ; $BFBE
     ENT
