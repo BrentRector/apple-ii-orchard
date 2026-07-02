@@ -106,22 +106,22 @@ BDOS_IMAGE_HEADER:
         DEFB    $B2,$DC,$B7,$DC,$BC,$DC                          ; $DC0B
 ; [DOC CPMREF 3-44] BDOS primary entry. Callers reach it via the JP at $0005 (the word at $0006 is
 ;       this entry / top of TPA). Function # is in C and the info address (or single byte) in DE/E.
-;       Per the manual the BDOS switches to its own local stack on each call (here BDOS_STACK), and
+;       Per the manual the BDOS switches to its own local stack on each call (here BDOS_STACK_TOP), and
 ;       a zero value is returned when the function number is out of range. The LC_RDWR_* bank
 ;       accesses and LC scratch ($BFxx) are this 60K build's Language-Card wrapper, not manual facts.
 BDOS_ENTRY:
         LD (LC_BANK1),A             ; $DC11  32 8B E0
-        LD (BDOS_DE_PARAM),DE            ; $DC14  ED 53 11 DF  save the DE info-address parameter
+        LD (BDOS_PARAM_PTR),DE            ; $DC14  ED 53 11 DF  save the DE info-address parameter
         LD A,E                           ; $DC18  7B
         LD ($BFE3),A                     ; $DC19  32 E3 BF
         LD HL,WBOOT_VEC                  ; $DC1C  21 00 00
-        LD (BDOS_RETURN_VAL),HL          ; $DC1F  22 13 DF  pre-seed return value = 0 (out-of-range default)
+        LD (BDOS_RETVAL),HL          ; $DC1F  22 13 DF  pre-seed return value = 0 (out-of-range default)
         LD (BDOS_SAVED_SP),SP            ; $DC22  ED 73 DD DE  save caller's stack pointer
-        LD SP,BDOS_STACK                 ; $DC26  31 0F DF    switch to the BDOS local stack
+        LD SP,BDOS_STACK_TOP                 ; $DC26  31 0F DF    switch to the BDOS local stack
         XOR A                            ; $DC29  AF
         LD ($BFED),A                     ; $DC2A  32 ED BF
         LD ($BFEB),A                     ; $DC2D  32 EB BF
-        LD (LC_CALL_B5C0_6),A            ; $DC30  32 87 DF
+        LD (DEFERRED_COPY_FLAG),A            ; $DC30  32 87 DF
         LD HL,BDOS_BANK_OUT_EPILOG       ; $DC33  21 45 DF
         PUSH HL                          ; $DC36  E5
         LD A,C                           ; $DC37  79    A = function number
@@ -140,7 +140,7 @@ BDOS_ENTRY_1:
         LD E,(HL)                        ; $DC4B  5E
         INC HL                           ; $DC4C  23
         LD D,(HL)                        ; $DC4D  56
-        LD HL,(BDOS_DE_PARAM)            ; $DC4E  2A 11 DF
+        LD HL,(BDOS_PARAM_PTR)            ; $DC4E  2A 11 DF
         EX DE,HL                         ; $DC51  EB
         JP (HL)                          ; $DC52  E9
 ; [DOC CPMREF 3-44/3-76] BDOS function-pointer dispatch table, indexed by the function
@@ -151,17 +151,17 @@ BDOS_ENTRY_1:
 ;       in A, word results in HL, with A=L and B=H on return.
 BDOS_DISPATCH_TBL:
         DEFW    WBOOT                    ; $DC53  fn 0  System Reset (warm boot; re-login drive A)
-        DEFW    BDOS_CONSOLE_INPUT       ; $DC55  fn 1  Console Input  -> A=char (echoed)
-        DEFW    CON_OUT_TAB              ; $DC57  fn 2  Console Output (E=char; expands tabs)
-        DEFW    BDOS_READER_INPUT        ; $DC59  fn 3  Reader Input (RDR:) -> A=char
+        DEFW    F_CONIN_H       ; $DC55  fn 1  Console Input  -> A=char (echoed)
+        DEFW    F_CONOUT_H              ; $DC57  fn 2  Console Output (E=char; expands tabs)
+        DEFW    F_READERIN_H        ; $DC59  fn 3  Reader Input (RDR:) -> A=char
         DEFW    PUNCH                    ; $DC5B  fn 4  Punch Output (PUN:; E=char)
         DEFW    LIST                     ; $DC5D  fn 5  List Output (LST:; E=char)
-        DEFW    BDOS_DIRECT_CON_IO       ; $DC5F  fn 6  Direct Console I/O (E=$FF in / char out; raw)
-        DEFW    BDOS_GET_IOBYTE          ; $DC61  fn 7  Get I/O Byte -> A=IOBYTE ($0003)
-        DEFW    BDOS_SET_IOBYTE          ; $DC63  fn 8  Set I/O Byte (E=IOBYTE)
-        DEFW    BDOS_PRINT_STRING_FN     ; $DC65  fn 9  Print String (DE='$'-terminated)
-        DEFW    BDOS_READ_CON_BUF        ; $DC67  fn 10 Read Console Buffer (DE=buffer; line editor)
-        DEFW    BDOS_CONSOLE_STATUS      ; $DC69  fn 11 Get Console Status -> A=$FF/$00
+        DEFW    F_DIRECTIO_H       ; $DC5F  fn 6  Direct Console I/O (E=$FF in / char out; raw)
+        DEFW    F_GETIOB_H          ; $DC61  fn 7  Get I/O Byte -> A=IOBYTE ($0003)
+        DEFW    F_SETIOB_H          ; $DC63  fn 8  Set I/O Byte (E=IOBYTE)
+        DEFW    F_PRINTSTR_H     ; $DC65  fn 9  Print String (DE='$'-terminated)
+        DEFW    F_READCONBUF_H        ; $DC67  fn 10 Read Console Buffer (DE=buffer; line editor)
+        DEFW    F_CONSTAT_H      ; $DC69  fn 11 Get Console Status -> A=$FF/$00
         DEFW    $BEA3                    ; $DC6B  fn 12 Return Version Number -> HL ($0022 for 2.2)
         DEFW    $BEA8                    ; $DC6D  fn 13 Reset Disk System (all R/W, select A, DMA=$0080)
         DEFW    $BE47                    ; $DC6F  fn 14 Select Disk (E=0..15 = A..P)
@@ -188,8 +188,8 @@ BDOS_DISPATCH_TBL:
         DEFW    $BF6B                    ; $DC99  fn 35 Compute File Size (DE=FCB) -> r0,r1,r2 set
         DEFW    $BE31                    ; $DC9B  fn 36 Set Random Record (DE=FCB) -> r0,r1,r2 set
         DEFW    $BF71                    ; $DC9D  fn 37 -- not a CP/M 2.2 manual function (version-specific entry)
-        DEFW    CON_CRLF_29              ; $DC9F  fn 38 -- not a CP/M 2.2 manual function; stub -> RET (CON_CRLF_29)
-        DEFW    CON_CRLF_29              ; $DCA1  fn 39 -- not a CP/M 2.2 manual function; stub -> RET (CON_CRLF_29)
+        DEFW    BDOS_RET_NOP              ; $DC9F  fn 38 -- not a CP/M 2.2 manual function; stub -> RET (BDOS_RET_NOP)
+        DEFW    BDOS_RET_NOP              ; $DCA1  fn 39 -- not a CP/M 2.2 manual function; stub -> RET (BDOS_RET_NOP)
         DEFW    $BF92                    ; $DCA3  fn 40 -- not a CP/M 2.2 manual function (version-specific entry)
 ; [DOC CPMREF 3-36/3-37] BDOS run-time error reporter. Prints "Bdos Err On x: <error>"
 ;       where x is the drive letter and <error> is one of BAD SECTOR (controller R/W error),
@@ -206,339 +206,729 @@ BDOS_ERROR:
         DEFB    $74,$24,$46,$69,$6C,$65,$20,$52,$2F,$4F,$24,$E5,$CD ; $DCE5  "t$" "File R/O$"
         DEFW    CON_CRLF                 ; $DCF2
         DEFB    $3A,$10,$DF,$C6,$41,$32,$D1,$DC,$01,$C5,$DC,$CD  ; $DCF4
-        DEFW    BDOS_PRINT_STRING        ; $DD00
+        DEFW    CON_PRINT_STR        ; $DD00
         DEFB    $C1,$CD                                          ; $DD02
-        DEFW    BDOS_PRINT_STRING        ; $DD04
-CONIN_RAW:
-        LD HL,CON_UNGET_CHAR             ; $DD06  21 DC DE
+        DEFW    CON_PRINT_STR        ; $DD04
+; ----------------------------------------------------------------------
+; CON_GETC_OR_RAW -- return the 1-char type-ahead if present, else read raw console input.
+;   In: CON_PENDING_CHAR = pending look-ahead char (0 if none).
+;   Out: A = next console character; CON_PENDING_CHAR cleared if it supplied the byte.
+;   Clobbers: AF, HL.
+;   Algorithm: if CON_PENDING_CHAR nonzero, consume it (write 0 back) and return; otherwise
+;              tail-jump to the BIOS CONIN vector ($FA09) for a fresh key.
+;   [RE] Single-byte console un-get buffer used by the line editor and F_CONIN_H. Twin of the
+;        44K CON_GETC_OR_RAW (identical logic; runs in the upper LC bank here).
+; ----------------------------------------------------------------------
+CON_GETC_OR_RAW:
+        LD HL,CON_PENDING_CHAR             ; $DD06  21 DC DE
         LD A,(HL)                        ; $DD09  7E
         LD (HL),$00                      ; $DD0A  36 00
         OR A                             ; $DD0C  B7
         RET NZ                           ; $DD0D  C0
         JP CONIN                         ; $DD0E  C3 09 FA
-CONIN_ECHO:
-        CALL CONIN_RAW                   ; $DD11  CD 06 DD
-        CALL LC_CALL_B5C0                ; $DD14  CD 36 DF
+; ----------------------------------------------------------------------
+; F_CONIN_RAW -- read one console char, echoing it unless it is a control char.
+;   In: none.  Out: A = character read.  Clobbers: AF, BC, HL.
+;   Algorithm: fetch a char (CON_GETC_OR_RAW); test it with LC_BANK1_CALL_ISCTRL (banks the
+;              lower LC in and calls IS_CTRL_CHAR at $B5C0); on carry (unhandled control) skip
+;              the echo; otherwise echo the char via F_CONOUT_H, preserving it in A.
+;   [RE] Backs BDOS function 1 (Console Input with echo). Twin of the 44K F_CONIN_RAW; the
+;        60K wraps the IS_CTRL_CHAR test in a bank trampoline because that helper lives in the
+;        lower LC bank.
+; ----------------------------------------------------------------------
+F_CONIN_RAW:
+        CALL CON_GETC_OR_RAW                   ; $DD11  CD 06 DD
+        CALL LC_BANK1_CALL_ISCTRL                ; $DD14  CD 36 DF
         RET C                            ; $DD17  D8
         PUSH AF                          ; $DD18  F5
         LD C,A                           ; $DD19  4F
-        CALL CON_OUT_TAB                 ; $DD1A  CD 7D DD
+        CALL F_CONOUT_H                 ; $DD1A  CD 7D DD
         POP AF                           ; $DD1D  F1
         RET                              ; $DD1E  C9
-CON_BREAK_STATUS:
-        LD A,(CON_UNGET_CHAR)            ; $DD1F  3A DC DE
+; ----------------------------------------------------------------------
+; CON_POLL_STATUS -- console-status poll that also traps Ctrl-S/Ctrl-C while idle.
+;   In: CON_PENDING_CHAR = type-ahead char (nonzero => a key is already pending).
+;   Out: A = 1 if a character is ready, 0 if not.  Clobbers: AF.
+;   Algorithm: if a char is already buffered, report ready; else call the BIOS console-status
+;              vector (CONST $FA06) and mask bit 0. If a key is down, peek it (CONIN $FA09):
+;              Ctrl-S ($13) stalls -- the follow-up key Ctrl-C ($03) warm-boots via JP 0; any
+;              other key is stashed in CON_PENDING_CHAR (CON_POLL_STASH) and reported ready.
+;   [RE] Backs the BDOS console-status / flow-control behaviour. Twin of the 44K CON_POLL_STATUS.
+; ----------------------------------------------------------------------
+CON_POLL_STATUS:
+        LD A,(CON_PENDING_CHAR)            ; $DD1F  3A DC DE
         OR A                             ; $DD22  B7
-        JR NZ,CON_BREAK_STATUS_3         ; $DD23  20 1A
+        JR NZ,CON_STATUS_READY         ; $DD23  20 1A
         CALL CONST                       ; $DD25  CD 06 FA
         AND $01                          ; $DD28  E6 01
-CON_BREAK_STATUS_1:
+; CON_POLL_STATUS_1 -- fall-through re-entry inside CON_POLL_STATUS: RET Z when no key is down,
+;   else read and test the pending key. Not a separate call target (dead auto-name kept local).
+;   [RE] Local of CON_POLL_STATUS.
+CON_POLL_STATUS_1:
         RET Z                            ; $DD2A  C8
         CALL CONIN                       ; $DD2B  CD 09 FA
         CP $13                           ; $DD2E  FE 13
-        JR NZ,CON_BREAK_STATUS_2         ; $DD30  20 0A
+        JR NZ,CON_POLL_STASH         ; $DD30  20 0A
         CALL CONIN                       ; $DD32  CD 09 FA
         CP $03                           ; $DD35  FE 03
         JP Z,WBOOT_VEC                   ; $DD37  CA 00 00
         XOR A                            ; $DD3A  AF
         RET                              ; $DD3B  C9
-CON_BREAK_STATUS_2:
-        LD (CON_UNGET_CHAR),A            ; $DD3C  32 DC DE
-CON_BREAK_STATUS_3:
+; ----------------------------------------------------------------------
+; CON_POLL_STASH -- stash the just-read key as type-ahead and report 'ready'.
+;   In: A = key character to hold.  Out: A = 1 (ready).  Clobbers: A.
+;   Algorithm: store A into CON_PENDING_CHAR, then fall into the A:=1 tail (CON_STATUS_READY).
+;   [RE] Twin of the 44K CON_POLL_STASH.
+; ----------------------------------------------------------------------
+CON_POLL_STASH:
+        LD (CON_PENDING_CHAR),A            ; $DD3C  32 DC DE
+; ----------------------------------------------------------------------
+; CON_STATUS_READY -- return A=1, the 'character is ready' status result.
+;   In: none.  Out: A=1.  Clobbers: A.  [RE] Shared tail of CON_POLL_STATUS (44K twin).
+; ----------------------------------------------------------------------
+CON_STATUS_READY:
         LD A,$01                         ; $DD3F  3E 01
         RET                              ; $DD41  C9
-CON_OUT_CHAR:
-        LD A,(CON_CRLF_30)               ; $DD42  3A D8 DE
+; ----------------------------------------------------------------------
+; CON_PUT_COL -- output one char to the console, tracking column and honouring Ctrl-S.
+;   In: C = character to print.
+;   Out: char sent to console (and to the list device if CON_LIST_ECHO set); the column cell is
+;        updated for the char.  Clobbers: AF, HL (BC preserved across the BIOS calls).
+;   Algorithm: unless the redisplay-suppress flag (CON_SAVED_COL) is set, poll for Ctrl-S/Ctrl-C
+;              (CON_POLL_STATUS) then send C to the BIOS CONOUT ($FA0C) and, if CON_LIST_ECHO is
+;              set, to the BIOS LIST ($FA0F). Then fall into LC_BANK1_CALL_TRACKCOL to update the
+;              column via the lower-bank CON_TRACK_COL ($B5D5).
+;   [RE] Core char output + column bookkeeping. Twin of the 44K CON_PUT_COL; column tracking is
+;        split into the lower LC bank here.
+; ----------------------------------------------------------------------
+CON_PUT_COL:
+        LD A,(CON_SAVED_COL)               ; $DD42  3A D8 DE
         OR A                             ; $DD45  B7
-        JR NZ,CON_OUT_CHAR_2             ; $DD46  20 13
+        JR NZ,LC_BANK1_CALL_TRACKCOL             ; $DD46  20 13
         PUSH BC                          ; $DD48  C5
-        CALL CON_BREAK_STATUS            ; $DD49  CD 1F DD
+        CALL CON_POLL_STATUS            ; $DD49  CD 1F DD
         POP BC                           ; $DD4C  C1
         PUSH BC                          ; $DD4D  C5
         CALL CONOUT                      ; $DD4E  CD 0C FA
         POP BC                           ; $DD51  C1
         PUSH BC                          ; $DD52  C5
-CON_OUT_LIST_ECHO:
-        LD A,(PRINTER_ECHO_FLAG)         ; $DD53  3A DB DE
+; CON_PUT_COL_LIST -- fall-through inside CON_PUT_COL: if CON_LIST_ECHO is set, mirror the char
+;   to the BIOS LIST device ($FA0F). Not a separate call target (dead auto-name kept local).
+;   [RE] Local of CON_PUT_COL.
+CON_PUT_COL_LIST:
+        LD A,(CON_LIST_ECHO)         ; $DD53  3A DB DE
         OR A                             ; $DD56  B7
         CALL NZ,LIST                     ; $DD57  C4 0F FA
         POP BC                           ; $DD5A  C1
-CON_OUT_CHAR_2:
+; ----------------------------------------------------------------------
+; LC_BANK1_CALL_TRACKCOL -- bank the lower LC in and update the console column counter.
+;   In: C = char just emitted.  Out: CON_COL adjusted; bank2 restored on return.
+;   Clobbers: AF, HL (per CON_TRACK_COL).
+;   Algorithm: LD (LC_BANK1),A selects LC read/write bank1 (Apple $C08B) so the lower-bank code
+;              at $B5D5 is visible, CALL $B5D5 (CON_TRACK_COL), then JP LC_BANK2_RET to restore
+;              bank2 and RET.
+;   [RE] 60K bank-switch trampoline (no 44K counterpart -- 44K tracks the column inline).
+; ----------------------------------------------------------------------
+LC_BANK1_CALL_TRACKCOL:
         LD (LC_BANK1),A             ; $DD5B  32 8B E0
         CALL $B5D5                       ; $DD5E  CD D5 B5
         JP LC_BANK2_RET                  ; $DD61  C3 81 DF
         DEFB    $32                                              ; $DD64
         DEFW    LC_BANK2            ; $DD65
         DEFB    $FE,$0A,$C0,$36,$00,$C9                          ; $DD67
-CON_OUT_EXPAND:
+; ----------------------------------------------------------------------
+; CON_PUT_VISIBLE -- output a char, expanding non-tab control codes as '^X'.
+;   In: C = character.  Out: char(s) sent via CON_PUT_COL / F_CONOUT_H.  Clobbers: AF.
+;   Algorithm: test the char with LC_BANK1_CALL_ISCTRL (lower-bank IS_CTRL_CHAR); if it is a
+;              handled char (carry clear) print it normally through F_CONOUT_H; otherwise emit
+;              '^' ($5E) via CON_PUT_COL then the char OR'd with $40, so e.g. Ctrl-A shows '^A'.
+;   [RE] Visible-control echo used by the line editor's buffer redisplay. Twin of 44K
+;        CON_PUT_VISIBLE.
+; ----------------------------------------------------------------------
+CON_PUT_VISIBLE:
         LD A,C                           ; $DD6D  79
-        CALL LC_CALL_B5C0                ; $DD6E  CD 36 DF
-        JR NC,CON_OUT_TAB                ; $DD71  30 0A
+        CALL LC_BANK1_CALL_ISCTRL                ; $DD6E  CD 36 DF
+        JR NC,F_CONOUT_H                ; $DD71  30 0A
         PUSH AF                          ; $DD73  F5
         LD C,$5E                         ; $DD74  0E 5E
-        CALL CON_OUT_CHAR                ; $DD76  CD 42 DD
+        CALL CON_PUT_COL                ; $DD76  CD 42 DD
         POP AF                           ; $DD79  F1
         OR $40                           ; $DD7A  F6 40
         LD C,A                           ; $DD7C  4F
-CON_OUT_TAB:
+; ----------------------------------------------------------------------
+; F_CONOUT_H -- BDOS console-output handler (function 2) with tab expansion.
+;   In: C = character to print.  Out: character emitted; TAB expands to the next 8-column stop.
+;   Clobbers: AF.
+;   Algorithm: if C != TAB ($09) just print it via CON_PUT_COL; if TAB, fall into CONOUT_TAB_FILL
+;              to emit spaces until CON_COL is a multiple of 8.
+;   [DOC CPMREF 3-44] BDOS function 2 (Console Output). Twin of 44K F_CONOUT_H; dispatch fn 2.
+; ----------------------------------------------------------------------
+F_CONOUT_H:
         LD A,C                           ; $DD7D  79
         CP $09                           ; $DD7E  FE 09
-        JR NZ,CON_OUT_CHAR               ; $DD80  20 C0
-CON_OUT_TAB_1:
+        JR NZ,CON_PUT_COL               ; $DD80  20 C0
+; ----------------------------------------------------------------------
+; CONOUT_TAB_FILL -- emit spaces until the column reaches the next 8-stop (tab expand).
+;   In: CON_COL = current column.  Out: spaces printed until (column & 7)==0.  Clobbers: AF, C.
+;   Algorithm: output a space via CON_PUT_COL, re-read CON_COL, loop while low 3 bits are set.
+;   [RE] Tab-expansion loop of F_CONOUT_H (44K twin).
+; ----------------------------------------------------------------------
+CONOUT_TAB_FILL:
         LD C,$20                         ; $DD82  0E 20
-        CALL CON_OUT_CHAR                ; $DD84  CD 42 DD
-        LD A,(CON_COLUMN)                ; $DD87  3A DA DE
+        CALL CON_PUT_COL                ; $DD84  CD 42 DD
+        LD A,(CON_COL)                ; $DD87  3A DA DE
         AND $07                          ; $DD8A  E6 07
-        JR NZ,CON_OUT_TAB_1              ; $DD8C  20 F4
+        JR NZ,CONOUT_TAB_FILL              ; $DD8C  20 F4
         RET                              ; $DD8E  C9
-CON_ERASE_CHAR:
-        CALL CON_BACKSPACE               ; $DD8F  CD 97 DD
+; ----------------------------------------------------------------------
+; CON_BACKSPACE -- erase the last echoed character (BS, space, BS).
+;   In: none.  Out: cursor moved left one cell, char blanked on screen.  Clobbers: AF, C.
+;   Algorithm: emit BS via CON_BS_OUT, then a space to the BIOS CONOUT ($FA0C), then fall into
+;              CON_BS_OUT for the trailing BS so the previous glyph is overwritten with a blank.
+;   [RE] Twin of the 44K CON_BACKSPACE (44K's CON_ERASE_CHAR before de-aliasing).
+; ----------------------------------------------------------------------
+CON_BACKSPACE:
+        CALL CON_BS_OUT               ; $DD8F  CD 97 DD
         LD C,$20                         ; $DD92  0E 20
         CALL CONOUT                      ; $DD94  CD 0C FA
-CON_BACKSPACE:
+; ----------------------------------------------------------------------
+; CON_BS_OUT -- send a single backspace ($08) to the console.
+;   In: none.  Out: BS emitted via the BIOS CONOUT vector ($FA0C).  Clobbers: C.
+;   [RE] Tail-call helper; also the leading and trailing BS of CON_BACKSPACE. Twin of 44K
+;        CON_BS_OUT.
+; ----------------------------------------------------------------------
+CON_BS_OUT:
         LD C,$08                         ; $DD97  0E 08
         JP CONOUT                        ; $DD99  C3 0C FA
-CON_LINE_KILL:
+; ----------------------------------------------------------------------
+; CON_RETYPE_LINE -- echo '#' + CR/LF and reposition for a line-kill / retype (Ctrl-U/Ctrl-R).
+;   In: CON_COL = current column; CON_LINE_START_COL = line-start column.
+;   Out: '#' printed on a fresh line; cursor advanced with spaces back to the start column.
+;   Clobbers: AF, C, HL.
+;   Algorithm: print '#' ($23) via CON_PUT_COL, CON_CRLF, then fall into CON_RETYPE_LOOP to emit
+;              spaces until CON_COL reaches CON_LINE_START_COL.
+;   [RE] Twin of the 44K CON_RETYPE_LINE (60K's CON_LINE_KILL auto-name).
+; ----------------------------------------------------------------------
+CON_RETYPE_LINE:
         LD C,$23                         ; $DD9C  0E 23
-        CALL CON_OUT_CHAR                ; $DD9E  CD 42 DD
+        CALL CON_PUT_COL                ; $DD9E  CD 42 DD
         CALL CON_CRLF                    ; $DDA1  CD B3 DD
-CON_LINE_KILL_1:
-        LD A,(CON_COLUMN)                ; $DDA4  3A DA DE
-        LD HL,CON_START_COLUMN           ; $DDA7  21 D9 DE
+; ----------------------------------------------------------------------
+; CON_RETYPE_LOOP -- advance the cursor with spaces until the column matches the start count.
+;   In: CON_LINE_START_COL = target column; CON_COL = current column.
+;   Out: spaces emitted until CON_COL >= CON_LINE_START_COL.  Clobbers: AF, C, HL.
+;   Algorithm: while CON_COL < CON_LINE_START_COL, emit a space via CON_PUT_COL and loop.
+;   [RE] Re-echo loop of CON_RETYPE_LINE (44K twin).
+; ----------------------------------------------------------------------
+CON_RETYPE_LOOP:
+        LD A,(CON_COL)                ; $DDA4  3A DA DE
+        LD HL,CON_LINE_START_COL           ; $DDA7  21 D9 DE
         CP (HL)                          ; $DDAA  BE
         RET NC                           ; $DDAB  D0
         LD C,$20                         ; $DDAC  0E 20
-        CALL CON_OUT_CHAR                ; $DDAE  CD 42 DD
-        JR CON_LINE_KILL_1               ; $DDB1  18 F1
+        CALL CON_PUT_COL                ; $DDAE  CD 42 DD
+        JR CON_RETYPE_LOOP               ; $DDB1  18 F1
 CON_CRLF:
         LD C,$0D                         ; $DDB3  0E 0D
-        CALL CON_OUT_CHAR                ; $DDB5  CD 42 DD
+        CALL CON_PUT_COL                ; $DDB5  CD 42 DD
         LD C,$0A                         ; $DDB8  0E 0A
-        JR CON_OUT_CHAR                  ; $DDBA  18 86
+        JR CON_PUT_COL                  ; $DDBA  18 86
 ; [DOC CPMREF 3-44] Print String helper (BDOS fn 9 body): writes successive characters from the
 ;       buffer addressed by BC to the console until the '$' terminator ($24) is reached.
-BDOS_PRINT_STRING:
+; ----------------------------------------------------------------------
+; CON_PRINT_STR -- print a '$'-terminated string to the console.
+;   In: BC = pointer to the string; terminated by '$' ($24).
+;   Out: each char emitted via F_CONOUT_H until '$' is reached.  Clobbers: AF, BC, C.
+;   Algorithm: load (BC); if '$' return; else advance BC, output the char via F_CONOUT_H
+;              (preserving BC), and loop.
+;   [DOC CPMREF 3-44] Backs BDOS function 9 (Print String) and the BDOS error banner. Twin of
+;        the 44K CON_PRINT_STR.
+; ----------------------------------------------------------------------
+CON_PRINT_STR:
         LD A,(BC)                        ; $DDBC  0A
         CP $24                           ; $DDBD  FE 24  '$' string terminator
         RET Z                            ; $DDBF  C8
         INC BC                           ; $DDC0  03
         PUSH BC                          ; $DDC1  C5
         LD C,A                           ; $DDC2  4F
-        CALL CON_OUT_TAB                 ; $DDC3  CD 7D DD
+        CALL F_CONOUT_H                 ; $DDC3  CD 7D DD
         POP BC                           ; $DDC6  C1
-        JR BDOS_PRINT_STRING             ; $DDC7  18 F3
+        JR CON_PRINT_STR             ; $DDC7  18 F3
 ; [DOC CPMREF 3-44] Read Console Buffer (BDOS fn 10): edited line input into the buffer pointed
 ;       to by DE. The first buffer byte is the maximum count (mx) read here into C; the second
 ;       byte (nc) receives the resulting character count; the typed characters follow. Implements
 ;       the CP/M line editor (ctl-H/rubout backspace, ctl-X line-kill, ctl-R retype, ctl-E phys
 ;       EOL, ctl-P printer echo, ctl-C reboot), terminating on CR ($0D) or LF ($0A).
-BDOS_READ_CON_BUF:
-        LD A,(CON_COLUMN)                ; $DDC9  3A DA DE
-        LD (CON_START_COLUMN),A          ; $DDCC  32 D9 DE
-        LD HL,(BDOS_DE_PARAM)            ; $DDCF  2A 11 DF
+; ----------------------------------------------------------------------
+; F_READCONBUF_H -- BDOS buffered console line input (function 10) with editing.
+;   In: BDOS_PARAM_PTR -> the read buffer (byte0 = max length, byte1 = returned count, data...).
+;   Out: the buffer filled with the edited line; byte1 set to the char count.
+;   Clobbers: AF, BC, DE, HL.
+;   Algorithm: seed the echoed-count (CON_LINE_START_COL) from CON_COL; read chars one at a time
+;              (CON_GETC_OR_RAW, masked to 7 bits) and dispatch the editing controls: CR/LF
+;              terminate; BS/DEL delete; Ctrl-E new line; Ctrl-P printer toggle; Ctrl-X erase
+;              line; Ctrl-U abandon ('#'); Ctrl-R retype; other chars stored. Ends by writing the
+;              count and a CR.
+;   [DOC CPMREF 3-44] Classic CP/M 2.2 line editor (Read Console Buffer). Twin of 44K
+;        F_READCONBUF_H; dispatch fn 10.
+; ----------------------------------------------------------------------
+F_READCONBUF_H:
+        LD A,(CON_COL)                ; $DDC9  3A DA DE
+        LD (CON_LINE_START_COL),A          ; $DDCC  32 D9 DE
+        LD HL,(BDOS_PARAM_PTR)            ; $DDCF  2A 11 DF
         LD C,(HL)                        ; $DDD2  4E    mx = buffer max count (first byte)
         INC HL                           ; $DDD3  23
         PUSH HL                          ; $DDD4  E5
         LD B,$00                         ; $DDD5  06 00
-CON_CRLF_3:
+; ----------------------------------------------------------------------
+; READBUF_NEXT -- top of the line-editor read loop: save state and fetch a char.
+;   In: B = count so far, HL -> buffer position.
+;   Out: falls into READBUF_GETC with BC/HL preserved on the stack.  Clobbers: stack.
+;   [RE] Per-keystroke loop head of F_READCONBUF_H (44K twin).
+; ----------------------------------------------------------------------
+READBUF_NEXT:
         PUSH BC                          ; $DDD7  C5
         PUSH HL                          ; $DDD8  E5
-CON_CRLF_4:
-        CALL CONIN_RAW                   ; $DDD9  CD 06 DD
+; ----------------------------------------------------------------------
+; READBUF_GETC -- read and classify the next edit character.
+;   In: stacked BC/HL = saved count and buffer pointer.
+;   Out: A = 7-bit char; control codes dispatched to the appropriate editor handler.
+;   Clobbers: AF, BC, HL.
+;   Algorithm: CON_GETC_OR_RAW, mask to 7 bits, restore BC/HL, then chain CP/JP tests: CR/LF ->
+;              READBUF_DONE; BS -> back up one char (READBUF_REDISPLAY path); else fall to the
+;              DEL/control handlers.
+;   [RE] Keystroke dispatcher inside F_READCONBUF_H (44K twin).
+; ----------------------------------------------------------------------
+READBUF_GETC:
+        CALL CON_GETC_OR_RAW                   ; $DDD9  CD 06 DD
         AND $7F                          ; $DDDC  E6 7F
         POP HL                           ; $DDDE  E1
         POP BC                           ; $DDDF  C1
         CP $0D                           ; $DDE0  FE 0D
-        JP Z,READ_CON_BUF_DONE           ; $DDE2  CA 95 DE
+        JP Z,READBUF_DONE           ; $DDE2  CA 95 DE
         CP $0A                           ; $DDE5  FE 0A
-        JP Z,READ_CON_BUF_DONE           ; $DDE7  CA 95 DE
+        JP Z,READBUF_DONE           ; $DDE7  CA 95 DE
         CP $08                           ; $DDEA  FE 08
-        JR NZ,CON_CRLF_5                 ; $DDEC  20 0D
+        JR NZ,READBUF_DEL                 ; $DDEC  20 0D
         LD A,B                           ; $DDEE  78
         OR A                             ; $DDEF  B7
-        JR Z,CON_CRLF_3                  ; $DDF0  28 E5
+        JR Z,READBUF_NEXT                  ; $DDF0  28 E5
         DEC B                            ; $DDF2  05
-        LD A,(CON_COLUMN)                ; $DDF3  3A DA DE
-        LD (CON_CRLF_30),A               ; $DDF6  32 D8 DE
-        JR CON_CRLF_12                   ; $DDF9  18 4D
-CON_CRLF_5:
+        LD A,(CON_COL)                ; $DDF3  3A DA DE
+        LD (CON_SAVED_COL),A               ; $DDF6  32 D8 DE
+        JR READBUF_REDISPLAY                   ; $DDF9  18 4D
+; ----------------------------------------------------------------------
+; READBUF_DEL -- handle DEL ($7F) as a destructive rubout of the previous char.
+;   In: A = char, B = count, HL -> buffer position.
+;   Out: if buffer nonempty, last char fetched for re-echo and pointer/count backed up; empty
+;        buffer just re-loops.  Clobbers: AF, B, HL.
+;   [RE] DELETE-key path of the line editor (44K twin).
+; ----------------------------------------------------------------------
+READBUF_DEL:
         CP $7F                           ; $DDFB  FE 7F
-        JR NZ,CON_CRLF_6                 ; $DDFD  20 09
+        JR NZ,READBUF_CTRL_E                 ; $DDFD  20 09
         LD A,B                           ; $DDFF  78
         OR A                             ; $DE00  B7
-        JR Z,CON_CRLF_3                  ; $DE01  28 D4
+        JR Z,READBUF_NEXT                  ; $DE01  28 D4
         LD A,(HL)                        ; $DE03  7E
         DEC B                            ; $DE04  05
         DEC HL                           ; $DE05  2B
-        JR CON_CRLF_17                   ; $DE06  18 76
-CON_CRLF_6:
+        JR READBUF_STORE_ECHO                   ; $DE06  18 76
+; ----------------------------------------------------------------------
+; READBUF_CTRL_E -- handle Ctrl-E ($05): physical CR/LF without ending the line.
+;   In: A = char, BC/HL = editor state.  Out: cursor moved to a new line, echoed-count reset;
+;       editing continues.  Clobbers: AF.
+;   Algorithm: on Ctrl-E print CR/LF (CON_CRLF), zero CON_LINE_START_COL, resume at READBUF_GETC;
+;              otherwise fall through to READBUF_CTRL_P.
+;   [RE] 44K twin.
+; ----------------------------------------------------------------------
+READBUF_CTRL_E:
         CP $05                           ; $DE08  FE 05
-        JR NZ,CON_CRLF_7                 ; $DE0A  20 0B
+        JR NZ,READBUF_CTRL_P                 ; $DE0A  20 0B
         PUSH BC                          ; $DE0C  C5
         PUSH HL                          ; $DE0D  E5
         CALL CON_CRLF                    ; $DE0E  CD B3 DD
         XOR A                            ; $DE11  AF
-        LD (CON_START_COLUMN),A          ; $DE12  32 D9 DE
-        JR CON_CRLF_4                    ; $DE15  18 C2
-CON_CRLF_7:
+        LD (CON_LINE_START_COL),A          ; $DE12  32 D9 DE
+        JR READBUF_GETC                    ; $DE15  18 C2
+; ----------------------------------------------------------------------
+; READBUF_CTRL_P -- handle Ctrl-P ($10): toggle the printer (list-device) echo flag.
+;   In: A = char.  Out: CON_LIST_ECHO flipped between 0 and 1; editing continues.
+;   Clobbers: AF, HL.
+;   Algorithm: on Ctrl-P compute 1 - CON_LIST_ECHO to toggle, then loop (READBUF_NEXT);
+;              otherwise fall through to READBUF_CTRL_X.
+;   [RE] 44K twin.
+; ----------------------------------------------------------------------
+READBUF_CTRL_P:
         CP $10                           ; $DE17  FE 10
-        JR NZ,CON_CRLF_8                 ; $DE19  20 0B
+        JR NZ,READBUF_CTRL_X                 ; $DE19  20 0B
         PUSH HL                          ; $DE1B  E5
-        LD HL,PRINTER_ECHO_FLAG          ; $DE1C  21 DB DE
+        LD HL,CON_LIST_ECHO          ; $DE1C  21 DB DE
         LD A,$01                         ; $DE1F  3E 01
         SUB (HL)                         ; $DE21  96
         LD (HL),A                        ; $DE22  77
         POP HL                           ; $DE23  E1
-        JR CON_CRLF_3                    ; $DE24  18 B1
-CON_CRLF_8:
+        JR READBUF_NEXT                    ; $DE24  18 B1
+; ----------------------------------------------------------------------
+; READBUF_CTRL_X -- handle Ctrl-X ($18): erase the whole input line.
+;   In: A = char; CON_COL = column; CON_LINE_START_COL = start column.
+;   Out: all echoed chars backspaced away and the buffer emptied; editing restarts.
+;   Clobbers: AF, HL.
+;   Algorithm: on Ctrl-X drop the buffer pointer and fall into READBUF_ERASE_LOOP; else fall to
+;              READBUF_CTRL_U.
+;   [RE] 44K twin.
+; ----------------------------------------------------------------------
+READBUF_CTRL_X:
         CP $18                           ; $DE26  FE 18
-        JR NZ,CON_CRLF_10                ; $DE28  20 10
+        JR NZ,READBUF_CTRL_U                ; $DE28  20 10
         POP HL                           ; $DE2A  E1
-CON_CRLF_9:
-        LD A,(CON_START_COLUMN)          ; $DE2B  3A D9 DE
-        LD HL,CON_COLUMN                 ; $DE2E  21 DA DE
+; ----------------------------------------------------------------------
+; READBUF_ERASE_LOOP -- backspace-erase characters back to the line start.
+;   In: CON_LINE_START_COL = start column, CON_COL = current column.
+;   Out: console column reduced to the start; chars visually erased; restarts F_READCONBUF_H.
+;   Clobbers: AF, HL.
+;   Algorithm: while CON_COL > CON_LINE_START_COL, decrement it and CON_BACKSPACE; then restart
+;              the read with an empty buffer.
+;   [RE] 44K twin.
+; ----------------------------------------------------------------------
+READBUF_ERASE_LOOP:
+        LD A,(CON_LINE_START_COL)          ; $DE2B  3A D9 DE
+        LD HL,CON_COL                 ; $DE2E  21 DA DE
         CP (HL)                          ; $DE31  BE
-        JR NC,BDOS_READ_CON_BUF          ; $DE32  30 95
+        JR NC,F_READCONBUF_H          ; $DE32  30 95
         DEC (HL)                         ; $DE34  35
-        CALL CON_ERASE_CHAR              ; $DE35  CD 8F DD
-        JR CON_CRLF_9                    ; $DE38  18 F1
-CON_CRLF_10:
+        CALL CON_BACKSPACE              ; $DE35  CD 8F DD
+        JR READBUF_ERASE_LOOP                    ; $DE38  18 F1
+; ----------------------------------------------------------------------
+; READBUF_CTRL_U -- handle Ctrl-U ($15): abandon the line, show '#', restart.
+;   In: A = char.  Out: '#' printed, fresh line started, buffer reset (restarts F_READCONBUF_H).
+;   Clobbers: AF, HL.
+;   Algorithm: on Ctrl-U call CON_RETYPE_LINE ('#'+CRLF) and restart the read; otherwise fall to
+;              READBUF_CTRL_R.
+;   [RE] 44K twin.
+; ----------------------------------------------------------------------
+READBUF_CTRL_U:
         CP $15                           ; $DE3A  FE 15
-        JR NZ,CON_CRLF_11                ; $DE3C  20 06
-        CALL CON_LINE_KILL               ; $DE3E  CD 9C DD
+        JR NZ,READBUF_CTRL_R                ; $DE3C  20 06
+        CALL CON_RETYPE_LINE               ; $DE3E  CD 9C DD
         POP HL                           ; $DE41  E1
-        JR BDOS_READ_CON_BUF             ; $DE42  18 85
-CON_CRLF_11:
+        JR F_READCONBUF_H             ; $DE42  18 85
+; ----------------------------------------------------------------------
+; READBUF_CTRL_R -- handle Ctrl-R ($12): retype the current line, else store the char.
+;   In: A = char, B = count, HL -> buffer.
+;   Out: Ctrl-R reprints the buffer (falls into READBUF_REDISPLAY); any other char jumps to the
+;        store path (READBUF_STORE).  Clobbers: AF.
+;   [RE] 44K twin.
+; ----------------------------------------------------------------------
+READBUF_CTRL_R:
         CP $12                           ; $DE44  FE 12
-        JR NZ,CON_CRLF_16                ; $DE46  20 33
-CON_CRLF_12:
+        JR NZ,READBUF_STORE                ; $DE46  20 33
+; ----------------------------------------------------------------------
+; READBUF_REDISPLAY -- reprint the buffered line after a retype/delete.
+;   In: B = char count; buffer pointer on stack (HL).
+;   Out: '#'/CRLF emitted then each buffered char re-echoed via CON_PUT_VISIBLE.
+;   Clobbers: AF, BC, HL.
+;   Algorithm: CON_RETYPE_LINE for the marker, then walk the buffer (READBUF_REDISPLAY_LOOP)
+;              re-echoing each stored char with CON_PUT_VISIBLE (controls show as '^X').
+;   [RE] Used by Ctrl-R and after a backspace. 44K twin.
+; ----------------------------------------------------------------------
+READBUF_REDISPLAY:
         PUSH BC                          ; $DE48  C5
-        CALL CON_LINE_KILL               ; $DE49  CD 9C DD
+        CALL CON_RETYPE_LINE               ; $DE49  CD 9C DD
         POP BC                           ; $DE4C  C1
         POP HL                           ; $DE4D  E1
         PUSH HL                          ; $DE4E  E5
         PUSH BC                          ; $DE4F  C5
-CON_CRLF_13:
+; ----------------------------------------------------------------------
+; READBUF_REDISPLAY_LOOP -- re-echo each buffered character.
+;   In: B = remaining count, HL -> buffer position.
+;   Out: every buffered char emitted via CON_PUT_VISIBLE.  Clobbers: AF, BC, C, HL.
+;   Algorithm: while B != 0, advance HL, load the char, CON_PUT_VISIBLE it, decrement B; on
+;              exhaustion fall into READBUF_REPOS.
+;   [RE] 44K twin.
+; ----------------------------------------------------------------------
+READBUF_REDISPLAY_LOOP:
         LD A,B                           ; $DE50  78
         OR A                             ; $DE51  B7
-        JR Z,CON_CRLF_14                 ; $DE52  28 0C
+        JR Z,READBUF_REPOS                 ; $DE52  28 0C
         INC HL                           ; $DE54  23
         LD C,(HL)                        ; $DE55  4E
         DEC B                            ; $DE56  05
         PUSH BC                          ; $DE57  C5
         PUSH HL                          ; $DE58  E5
-        CALL CON_OUT_EXPAND              ; $DE59  CD 6D DD
+        CALL CON_PUT_VISIBLE              ; $DE59  CD 6D DD
         POP HL                           ; $DE5C  E1
         POP BC                           ; $DE5D  C1
-        JR CON_CRLF_13                   ; $DE5E  18 F0
-CON_CRLF_14:
+        JR READBUF_REDISPLAY_LOOP                   ; $DE5E  18 F0
+; ----------------------------------------------------------------------
+; READBUF_REPOS -- after redisplay, backspace the cursor to the edit position.
+;   In: CON_SAVED_COL = saved column to restore to, CON_COL = current column.
+;   Out: cursor moved back so further typing continues at the right spot.  Clobbers: AF, HL.
+;   Algorithm: if no saved position (CON_SAVED_COL==0) resume at READBUF_GETC; else compute how
+;              far past the target the cursor is (CON_SAVED_COL := saved - column) and fall into
+;              READBUF_REPOS_LOOP.
+;   [RE] Cursor-reposition step after a Ctrl-R / delete redisplay. 44K twin.
+; ----------------------------------------------------------------------
+READBUF_REPOS:
         PUSH HL                          ; $DE60  E5
-        LD A,(CON_CRLF_30)               ; $DE61  3A D8 DE
+        LD A,(CON_SAVED_COL)               ; $DE61  3A D8 DE
         OR A                             ; $DE64  B7
-        JP Z,CON_CRLF_4                  ; $DE65  CA D9 DD
-        LD HL,CON_COLUMN                 ; $DE68  21 DA DE
+        JP Z,READBUF_GETC                  ; $DE65  CA D9 DD
+        LD HL,CON_COL                 ; $DE68  21 DA DE
         SUB (HL)                         ; $DE6B  96
-        LD (CON_CRLF_30),A               ; $DE6C  32 D8 DE
-CON_CRLF_15:
-        CALL CON_ERASE_CHAR              ; $DE6F  CD 8F DD
-        LD HL,CON_CRLF_30                ; $DE72  21 D8 DE
+        LD (CON_SAVED_COL),A               ; $DE6C  32 D8 DE
+; ----------------------------------------------------------------------
+; READBUF_REPOS_LOOP -- backspace the cursor by the computed cell count.
+;   In: CON_SAVED_COL = number of cells to back up.
+;   Out: cursor repositioned; loop ends and the editor reads the next char (READBUF_GETC).
+;   Clobbers: AF, HL.
+;   Algorithm: CON_BACKSPACE, decrement CON_SAVED_COL, repeat until zero, then resume input.
+;   [RE] 44K twin.
+; ----------------------------------------------------------------------
+READBUF_REPOS_LOOP:
+        CALL CON_BACKSPACE              ; $DE6F  CD 8F DD
+        LD HL,CON_SAVED_COL                ; $DE72  21 D8 DE
         DEC (HL)                         ; $DE75  35
-        JR NZ,CON_CRLF_15                ; $DE76  20 F7
-        JP CON_CRLF_4                    ; $DE78  C3 D9 DD
-CON_CRLF_16:
+        JR NZ,READBUF_REPOS_LOOP                ; $DE76  20 F7
+        JP READBUF_GETC                    ; $DE78  C3 D9 DD
+; ----------------------------------------------------------------------
+; READBUF_STORE -- store an ordinary character into the input buffer.
+;   In: A = char to store, B = count, HL -> next buffer slot.
+;   Out: char written, count incremented; falls into READBUF_STORE_ECHO.  Clobbers: AF, B, HL.
+;   Algorithm: write the char at ++HL, bump B, then fall into the echo/limit check.
+;   [RE] Line editor's character-store path. 44K twin.
+; ----------------------------------------------------------------------
+READBUF_STORE:
         INC HL                           ; $DE7B  23
         LD (HL),A                        ; $DE7C  77
         INC B                            ; $DE7D  04
-CON_CRLF_17:
+; ----------------------------------------------------------------------
+; READBUF_STORE_ECHO -- echo the stored char and enforce the buffer length limit.
+;   In: A = char, B = count, C = buffer max length.
+;   Out: char echoed; if count reached the max (or a degenerate max) the line terminates,
+;        otherwise reading continues.  Clobbers: AF, BC, HL.
+;   Algorithm: echo via CON_PUT_VISIBLE; reload the buffer max; if the max byte is 1 (degenerate)
+;              warm-boot (JP 0); if count == max terminate (READBUF_LIMIT), else loop.
+;   [RE] 44K twin. [?] exact degenerate-max semantics beyond 'terminate when full' UNKNOWN.
+; ----------------------------------------------------------------------
+READBUF_STORE_ECHO:
         PUSH BC                          ; $DE7E  C5
         PUSH HL                          ; $DE7F  E5
         LD C,A                           ; $DE80  4F
-        CALL CON_OUT_EXPAND              ; $DE81  CD 6D DD
+        CALL CON_PUT_VISIBLE              ; $DE81  CD 6D DD
         POP HL                           ; $DE84  E1
         POP BC                           ; $DE85  C1
         LD A,(HL)                        ; $DE86  7E
         CP $03                           ; $DE87  FE 03
         LD A,B                           ; $DE89  78
-        JR NZ,CON_CRLF_18                ; $DE8A  20 05
+        JR NZ,READBUF_LIMIT                ; $DE8A  20 05
         CP $01                           ; $DE8C  FE 01
         JP Z,WBOOT_VEC                   ; $DE8E  CA 00 00
-CON_CRLF_18:
+; ----------------------------------------------------------------------
+; READBUF_LIMIT -- compare the count to the buffer max and continue or finish.
+;   In: A = count (B), C = buffer maximum length.
+;   Out: if count < max keep reading (READBUF_NEXT), else fall into READBUF_DONE.
+;   Clobbers: AF.
+;   Algorithm: CP C; if count < max (carry) loop, else finish. [RE] 44K twin.
+; ----------------------------------------------------------------------
+READBUF_LIMIT:
         CP C                             ; $DE91  B9
-        JP C,CON_CRLF_3                  ; $DE92  DA D7 DD
-READ_CON_BUF_DONE:
+        JP C,READBUF_NEXT                  ; $DE92  DA D7 DD
+; ----------------------------------------------------------------------
+; READBUF_DONE -- finish the input line: store the count and emit a CR.
+;   In: stacked HL -> buffer count byte; B = final character count.
+;   Out: count written into the buffer; CR echoed; returns to the BDOS caller.
+;   Clobbers: AF, C, HL.
+;   Algorithm: pop the buffer pointer, store B as the returned count, then tail-call CON_PUT_COL
+;              with CR ($0D) to close the input line.
+;   [RE] Reached on CR/LF/buffer-full. 44K twin.
+; ----------------------------------------------------------------------
+READBUF_DONE:
         POP HL                           ; $DE95  E1
         LD (HL),B                        ; $DE96  70
         LD C,$0D                         ; $DE97  0E 0D
-        JP CON_OUT_CHAR                  ; $DE99  C3 42 DD
+        JP CON_PUT_COL                  ; $DE99  C3 42 DD
 ; [DOC CPMREF 3-44] Console Input (BDOS fn 1): reads one character from the console (with echo,
 ;       tab expansion, and ctl-S/ctl-P handling) and returns it in A.
-BDOS_CONSOLE_INPUT:
-        CALL CONIN_ECHO                  ; $DE9C  CD 11 DD
-        JR BDOS_SET_RETURN               ; $DE9F  18 2F
+; ----------------------------------------------------------------------
+; F_CONIN_H -- BDOS function 1 handler: console input with echo, returned in A.
+;   In: none.  Out: BDOS result (BDOS_RETVAL) = char read.  Clobbers: AF, BC, HL.
+;   Algorithm: read+echo via F_CONIN_RAW, then store the char through BDOS_RET_RESULT.
+;   [DOC CPMREF 3-44] Dispatch-table entry for function 1. Twin of 44K F_CONIN_H.
+; ----------------------------------------------------------------------
+F_CONIN_H:
+        CALL F_CONIN_RAW                  ; $DE9C  CD 11 DD
+        JR BDOS_RET_RESULT               ; $DE9F  18 2F
 ; [DOC CPMREF 3-44] Reader Input (BDOS fn 3): returns one character from the logical RDR: device
 ;       (BIOS READER entry) in A.
-BDOS_READER_INPUT:
+; ----------------------------------------------------------------------
+; F_READERIN_H -- BDOS function 3 handler: read from the reader (RDR/AUX) device.
+;   In: none.  Out: BDOS result (BDOS_RETVAL) = byte from the BIOS READER vector.  Clobbers: AF.
+;   Algorithm: call the BIOS reader-input vector (READER $FA15), store the byte via
+;              BDOS_RET_RESULT.
+;   [DOC CPMREF 3-44] Dispatch entry for function 3 (Reader Input). Twin of 44K F_READERIN_H.
+; ----------------------------------------------------------------------
+F_READERIN_H:
         CALL READER                      ; $DEA1  CD 15 FA
-        JR BDOS_SET_RETURN               ; $DEA4  18 2A
+        JR BDOS_RET_RESULT               ; $DEA4  18 2A
 ; [DOC CPMREF 3-44] Direct Console I/O (BDOS fn 6): if E=$FF (here C=$FF, INC->$00) it returns an
 ;       input char or $00-status; otherwise E is a character sent raw to the console (no ctl-S/ctl-P
 ;       processing). The E=$FE status form is a CP/M extension; this build handles it via the second
 ;       INC (C=$FE).
-BDOS_DIRECT_CON_IO:
+; ----------------------------------------------------------------------
+; F_DIRECTIO_H -- BDOS function 6 handler: direct console I/O.
+;   In: C = subfunction ($FF = input/status, $FE = status only, else = output char).
+;   Out: input/status results via BDOS_RET_RESULT; output sent raw to the console.  Clobbers: AF.
+;   Algorithm: C==$FF (INC A -> Z) -> DIRECTIO_INPUT; C==$FE (second INC A -> Z) -> raw BIOS
+;              CONST ($FA06); otherwise send C to BIOS CONOUT ($FA0C), bypassing editor and flow
+;              control.
+;   [DOC CPMREF 3-44] Dispatch entry for function 6 (Direct Console I/O). Twin of 44K
+;        F_DIRECTIO_H.
+; ----------------------------------------------------------------------
+F_DIRECTIO_H:
         LD A,C                           ; $DEA6  79
         INC A                            ; $DEA7  3C    C=$FF (input request) -> Z
-        JR Z,CON_CRLF_23                 ; $DEA8  28 07
+        JR Z,DIRECTIO_INPUT                 ; $DEA8  28 07
         INC A                            ; $DEAA  3C    C=$FE (status request) -> Z
         JP Z,CONST                       ; $DEAB  CA 06 FA
         JP CONOUT                        ; $DEAE  C3 0C FA  otherwise output the raw character
-CON_CRLF_23:
+; ----------------------------------------------------------------------
+; DIRECTIO_INPUT -- direct console input subfunction of function 6.
+;   In: none.  Out: BDOS result = char if one is ready, else 0; no echo, no flow control.
+;   Clobbers: AF.
+;   Algorithm: poll raw BIOS CONST ($FA06); if no key, return 0 via BDOS_EXIT_RESTORE; if a key
+;              is ready read it raw (CONIN $FA09) and store via BDOS_RET_RESULT.
+;   [RE] 44K twin (DIRECTIO_INPUT); this is direct console input, not an FCB/directory routine.
+; ----------------------------------------------------------------------
+DIRECTIO_INPUT:
         CALL CONST                       ; $DEB1  CD 06 FA
         OR A                             ; $DEB4  B7
         JP Z,BDOS_EXIT_RESTORE           ; $DEB5  CA 63 DF  no char ready -> return $00
         CALL CONIN                       ; $DEB8  CD 09 FA
-        JR BDOS_SET_RETURN               ; $DEBB  18 13
+        JR BDOS_RET_RESULT               ; $DEBB  18 13
 ; [DOC CPMREF 3-50] Get I/O Byte (BDOS fn 7): returns the current IOBYTE ($0003) in A.
-BDOS_GET_IOBYTE:
+; ----------------------------------------------------------------------
+; F_GETIOB_H -- BDOS function 7 handler: get the I/O byte (IOBYTE).
+;   In: none.  Out: BDOS result = the IOBYTE at fixed address $0003.  Clobbers: AF.
+;   Algorithm: load (IOBYTE) and return it via BDOS_RET_RESULT.
+;   [DOC CPMREF 3-50] Dispatch entry for function 7. Twin of 44K F_GETIOB_H.
+; ----------------------------------------------------------------------
+F_GETIOB_H:
         LD A,(IOBYTE)                    ; $DEBD  3A 03 00
-        JR BDOS_SET_RETURN               ; $DEC0  18 0E
+        JR BDOS_RET_RESULT               ; $DEC0  18 0E
 ; [DOC CPMREF 3-51] Set I/O Byte (BDOS fn 8): stores E (passed in C here) into the IOBYTE ($0003).
-BDOS_SET_IOBYTE:
+; ----------------------------------------------------------------------
+; F_SETIOB_H -- BDOS function 8 handler: set the I/O byte (IOBYTE).
+;   In: C = new IOBYTE value.  Out: (IOBYTE) = C.  Clobbers: HL.
+;   Algorithm: store C into the fixed IOBYTE cell at $0003 and return.
+;   [DOC CPMREF 3-51] Dispatch entry for function 8. Twin of 44K F_SETIOB_H.
+; ----------------------------------------------------------------------
+F_SETIOB_H:
         LD HL,IOBYTE                     ; $DEC2  21 03 00
         LD (HL),C                        ; $DEC5  71
         RET                              ; $DEC6  C9
 ; [DOC CPMREF 3-44] Print String (BDOS fn 9): DE addresses a '$'-terminated string; move it into BC
-;       and fall into the BDOS_PRINT_STRING helper to emit it to the console.
-BDOS_PRINT_STRING_FN:
+;       and fall into the CON_PRINT_STR helper to emit it to the console.
+; ----------------------------------------------------------------------
+; F_PRINTSTR_H -- BDOS function 9 handler: print a '$'-terminated string.
+;   In: DE = pointer to the string.  Out: string echoed up to the '$'.  Clobbers: AF, BC.
+;   Algorithm: move DE into BC and tail-call CON_PRINT_STR.
+;   [DOC CPMREF 3-44] Dispatch entry for function 9. Twin of 44K F_PRINTSTR_H.
+; ----------------------------------------------------------------------
+F_PRINTSTR_H:
         EX DE,HL                         ; $DEC7  EB
         LD C,L                           ; $DEC8  4D
         LD B,H                           ; $DEC9  44
-        JP BDOS_PRINT_STRING             ; $DECA  C3 BC DD
+        JP CON_PRINT_STR             ; $DECA  C3 BC DD
 ; [DOC CPMREF 3-44] Get Console Status (BDOS fn 11): returns A=$FF if a console character is ready,
 ;       $00 otherwise (also services the ctl-S pause / ctl-C warm-boot break check).
-BDOS_CONSOLE_STATUS:
-        CALL CON_BREAK_STATUS            ; $DECD  CD 1F DD
+; ----------------------------------------------------------------------
+; F_CONSTAT_H -- BDOS function 11 handler: get console status.
+;   In: none.  Out: BDOS result = 1 if a console char is ready, else 0.  Clobbers: AF.
+;   Algorithm: CON_POLL_STATUS to test readiness (handling Ctrl-S/Ctrl-C), then fall into
+;              BDOS_RET_RESULT to store the 0/1 status.
+;   [DOC CPMREF 3-44] Dispatch entry for function 11. Twin of 44K F_CONSTAT_H.
+; ----------------------------------------------------------------------
+F_CONSTAT_H:
+        CALL CON_POLL_STATUS            ; $DECD  CD 1F DD
 ; Stores the byte result in A into the BDOS return-value cell (read back into A=L,B=H on BDOS exit).
-BDOS_SET_RETURN:
-        LD (BDOS_RETURN_VAL),A           ; $DED0  32 13 DF
-CON_CRLF_29:
+; ----------------------------------------------------------------------
+; BDOS_RET_RESULT -- store A as the BDOS function return value and return.
+;   In: A = result byte.  Out: BDOS_RETVAL (low byte) = A.  Clobbers: none beyond the cell.
+;   Algorithm: write A to BDOS_RETVAL; the handler then RETs through the pushed bank-out epilogue
+;              (BDOS_BANK_OUT_EPILOG). Common tail of the console handlers.
+;   [RE] The BDOS result sink read back on exit (A=L, B=H). Twin of 44K BDOS_RET_RESULT.
+; ----------------------------------------------------------------------
+BDOS_RET_RESULT:
+        LD (BDOS_RETVAL),A           ; $DED0  32 13 DF
+; ----------------------------------------------------------------------
+; BDOS_RET_NOP -- bare RET; the dispatch-table target for the no-op functions 38 and 39.
+;   In/Out: none.  Clobbers: none.
+;   [RE] SoftCard extension slots 38/39 do nothing (matches the 44K $9F04 RET). The following
+;        DEFB $3E,$01,$18,$F8 is the unlabeled 'A:=1; JR BDOS_RET_RESULT' fragment (BDOS_RET_ONE
+;        in the 44K twin), reached only by fall-through/JR, not by name here.
+; ----------------------------------------------------------------------
+BDOS_RET_NOP:
         RET                              ; $DED3  C9
         DEFB    $3E,$01,$18,$F8                                  ; $DED4
-CON_CRLF_30:
+; ----------------------------------------------------------------------
+; CON_SAVED_COL -- saved cursor column for line-editor redisplay/reposition; also a
+;   'suppress status-poll/echo' flag inside CON_PUT_COL (nonzero => skip poll+echo).
+;   [RE] BDOS console state byte; zero when not repositioning. Twin of 44K CON_SAVED_COL
+;        (60K auto-named CON_CRLF_30).
+; ----------------------------------------------------------------------
+CON_SAVED_COL:
         DEFB    $00                                              ; $DED8
-CON_START_COLUMN:
+; ----------------------------------------------------------------------
+; CON_LINE_START_COL -- column at the start of the current input line (echoed-count base).
+;   [RE] Used by the line editor to know how far back Ctrl-X / DEL may erase. Twin of 44K
+;        CON_LINE_START_COL.
+; ----------------------------------------------------------------------
+CON_LINE_START_COL:
         DEFB    $00                                              ; $DED9
-CON_COLUMN:
+; ----------------------------------------------------------------------
+; CON_COL -- current console output column counter.
+;   [RE] Incremented per printable char, reset by LF; drives tab expansion and editing. Twin of
+;        44K CON_COL.
+; ----------------------------------------------------------------------
+CON_COL:
         DEFB    $00                                              ; $DEDA
-PRINTER_ECHO_FLAG:
+; ----------------------------------------------------------------------
+; CON_LIST_ECHO -- printer (list device) echo flag; nonzero => mirror console output to LIST.
+;   [RE] Toggled by the line editor's Ctrl-P (READBUF_CTRL_P). Twin of 44K CON_LIST_ECHO.
+; ----------------------------------------------------------------------
+CON_LIST_ECHO:
         DEFB    $00                                              ; $DEDB
-CON_UNGET_CHAR:
+; ----------------------------------------------------------------------
+; CON_PENDING_CHAR -- 1-byte console type-ahead / un-get buffer (0 = empty).
+;   [RE] Filled by CON_POLL_STATUS, consumed by CON_GETC_OR_RAW. Twin of 44K CON_PENDING_CHAR.
+; ----------------------------------------------------------------------
+CON_PENDING_CHAR:
         DEFB    $00                                              ; $DEDC
 BDOS_SAVED_SP:
         DEFS    50, $00    ; $DEDD  fill
-BDOS_STACK:
+; ----------------------------------------------------------------------
+; BDOS_STACK_TOP -- top of the BDOS private stack (SP loaded here on entry).
+;   [RE] BDOS_ENTRY does LD SP,BDOS_STACK_TOP before dispatching; the preceding DEFS reserves the
+;        stack slack below it. Twin of 44K BDOS_STACK_TOP (60K auto-named BDOS_STACK).
+; ----------------------------------------------------------------------
+BDOS_STACK_TOP:
         DEFB    $00,$00                                          ; $DF0F
-BDOS_DE_PARAM:
+; ----------------------------------------------------------------------
+; BDOS_PARAM_PTR -- saved DE parameter pointer from the BDOS call (FCB / DMA / buffer). 16-bit.
+;   [RE] BDOS_ENTRY stashes the incoming DE here; consumers reload it as the operand pointer
+;        (e.g. the dispatcher and F_READCONBUF_H). Twin of 44K BDOS_PARAM_PTR.
+; ----------------------------------------------------------------------
+BDOS_PARAM_PTR:
         DEFB    $00,$00                                          ; $DF11
-BDOS_RETURN_VAL:
+; ----------------------------------------------------------------------
+; BDOS_RETVAL -- BDOS function return value (16-bit: low byte = A result, high = B).
+;   [RE] Pre-seeded to 0 on entry; written by BDOS_RET_RESULT; loaded back into HL (A=L, B=H) by
+;        BDOS_LOAD_RESULT on exit. Twin of 44K BDOS_RETVAL. The bytes after the 2-byte cell begin
+;        the $DF15 error-vector jump helper (LD HL,$DC0B / LD E,(HL)/INC HL/LD D,(HL)/EX DE,HL/
+;        bank2 / JP (HL)) that dispatches the BDOS_ERROR reporter addresses at $DC09/$DC0B.
+; ----------------------------------------------------------------------
+BDOS_RETVAL:
         DEFB    $00,$00,$21,$0B,$DC,$5E,$23,$56,$EB,$32          ; $DF13
         DEFW    LC_BANK2            ; $DF1D
         DEFB    $E9,$32                                          ; $DF1F
@@ -546,7 +936,17 @@ BDOS_RETURN_VAL:
         DEFB    $CD,$27,$FA,$18,$06,$32                          ; $DF23
         DEFW    LC_BANK2            ; $DF29
         DEFB    $CD,$2A,$FA,$B7,$28,$10,$21,$09,$DC,$18,$E2      ; $DF2B
-LC_CALL_B5C0:
+; ----------------------------------------------------------------------
+; LC_BANK1_CALL_ISCTRL -- bank the lower LC in and call IS_CTRL_CHAR ($B5C0).
+;   In: A = character to classify.  Out: per IS_CTRL_CHAR -- carry set if A is a control char the
+;        line editor must expand (A < ' ' and not CR/LF/TAB/BS); the lower-bank tail restores
+;        bank2 and returns.  Clobbers: AF, flags.
+;   Algorithm: LD (LC_BANK1),A selects LC bank1 (Apple $C08B) so the classifier at $B5C0 is
+;              visible, then JP $B5C0 (IS_CTRL_CHAR); that routine ends with JP LC_BANK2_RET to
+;              bank2 back in and RET to the upper-bank caller.
+;   [RE] 60K bank-switch trampoline (no 44K counterpart -- 44K calls IS_CTRL_CHAR directly).
+; ----------------------------------------------------------------------
+LC_BANK1_CALL_ISCTRL:
         LD (LC_BANK1),A             ; $DF36  32 8B E0
         JP $B5C0                         ; $DF39  C3 C0 B5
         DEFB    $32                                              ; $DF3C
@@ -558,33 +958,62 @@ BDOS_BANK_OUT_EPILOG:
         DEFB    $32                                              ; $DF45
         DEFW    LC_BANK1            ; $DF46
         DEFB    $3A,$EB,$BF,$B7,$28,$15,$2A                      ; $DF48
-        DEFW    BDOS_DE_PARAM            ; $DF4F
+        DEFW    BDOS_PARAM_PTR            ; $DF4F
         DEFB    $36,$00,$3A,$ED,$BF,$B7,$28,$0A,$77,$3A,$EC,$BF,$32,$E3,$BF,$CD ; $DF51
         DEFB    $47,$BE                                          ; $DF61
 BDOS_EXIT_RESTORE:
         LD (LC_BANK2),A             ; $DF63  32 83 E0
-        LD A,(LC_CALL_B5C0_6)            ; $DF66  3A 87 DF
+        LD A,(DEFERRED_COPY_FLAG)            ; $DF66  3A 87 DF
         OR A                             ; $DF69  B7
-        JR Z,LC_CALL_B5C0_3              ; $DF6A  28 0C
-        LD DE,(LC_CALL_B5C0_5)           ; $DF6C  ED 5B 85 DF
-        LD HL,LC_CALL_B5C0_7             ; $DF70  21 88 DF
+        JR Z,BDOS_LOAD_RESULT              ; $DF6A  28 0C
+        LD DE,(DEFERRED_COPY_DST)           ; $DF6C  ED 5B 85 DF
+        LD HL,DEFERRED_COPY_BUF             ; $DF70  21 88 DF
         LD BC,$0024                      ; $DF73  01 24 00
         LDIR                             ; $DF76  ED B0
 ; [DOC CPMREF 3-44] BDOS return: load the result word into HL, then set A=L and B=H so callers see
 ;       byte results in A and word results in HL per the standard CP/M return convention.
-LC_CALL_B5C0_3:
-        LD HL,(BDOS_RETURN_VAL)          ; $DF78  2A 13 DF
+; ----------------------------------------------------------------------
+; BDOS_LOAD_RESULT -- load the BDOS result and restore the caller's stack on exit.
+;   In: BDOS_RETVAL = result word; BDOS_SAVED_SP = caller SP.
+;   Out: HL = result, A = L (byte result), B = H (word high); SP restored; falls into
+;        LC_BANK2_RET to bank2 back in and RET to the $0005 caller.  Clobbers: AF, BC, HL, SP.
+;   Algorithm: LD HL,(BDOS_RETVAL); LD A,L; LD B,H; LD SP,(BDOS_SAVED_SP); fall into LC_BANK2_RET.
+;   [DOC CPMREF 3-44] Standard CP/M return convention (A=L, HL=word). Reached from
+;        BDOS_EXIT_RESTORE after the optional deferred copy-back. 60K-specific epilogue tail.
+; ----------------------------------------------------------------------
+BDOS_LOAD_RESULT:
+        LD HL,(BDOS_RETVAL)          ; $DF78  2A 13 DF
         LD A,L                           ; $DF7B  7D    A = L (byte result)
         LD B,H                           ; $DF7C  44    B = H (high half of word result)
         LD SP,(BDOS_SAVED_SP)            ; $DF7D  ED 7B DD DE  restore caller's stack pointer
 LC_BANK2_RET:
         LD (LC_BANK2),A             ; $DF81  32 83 E0
         RET                              ; $DF84  C9
-LC_CALL_B5C0_5:
+; ----------------------------------------------------------------------
+; DEFERRED_COPY_DST -- 16-bit destination pointer for the pending exit copy-back. DATA.
+;   [RE] When DEFERRED_COPY_FLAG is set, BDOS_EXIT_RESTORE LDIRs $24 (36) bytes from
+;        DEFERRED_COPY_BUF to the address held here, then clears the flag. Believed to be the
+;        saved search-FCB write-back target the manual notes for Search-First/Next. [?] exact
+;        producer UNKNOWN (set by a lower-bank $Bxxx handler). 60K-specific cell.
+; ----------------------------------------------------------------------
+DEFERRED_COPY_DST:
         DEFB    $00,$00                                          ; $DF85
-LC_CALL_B5C0_6:
+; ----------------------------------------------------------------------
+; DEFERRED_COPY_FLAG -- 1-byte 'copy-back pending' flag for the BDOS exit path. DATA.
+;   [RE] Cleared on entry (BDOS_ENTRY, $DC30); if nonzero at exit, BDOS_EXIT_RESTORE performs the
+;        deferred 36-byte LDIR (DEFERRED_COPY_BUF -> DEFERRED_COPY_DST). Set by a lower-bank
+;        handler. 60K-specific cell. [?] exact producer UNKNOWN.
+; ----------------------------------------------------------------------
+DEFERRED_COPY_FLAG:
         DEFB    $00                                              ; $DF87
-LC_CALL_B5C0_7:
+; ----------------------------------------------------------------------
+; DEFERRED_COPY_BUF -- 36-byte staging buffer (LDIR source) for the deferred exit copy-back. DATA.
+;   [RE] BDOS_EXIT_RESTORE copies these $24 bytes to DEFERRED_COPY_DST when DEFERRED_COPY_FLAG is
+;        set. Sized 36 = a 32-byte directory FCB image plus a few control bytes. The 6502 bytes
+;        that follow at $DFAC-$DFEB are an out-of-band payload past this cell, not part of it.
+;        60K-specific buffer. [?] exact contents/producer UNKNOWN.
+; ----------------------------------------------------------------------
+DEFERRED_COPY_BUF:
         DEFS    36, $00    ; $DF88  fill
         DEFB    $8D,$83,$C0,$A2,$AC,$2C,$A2,$AA,$88,$B1,$3E,$4A,$3E,$56,$0B,$4A ; $DFAC
         DEFB    $3E,$56,$0B,$99,$00,$09,$E8,$D0,$EF,$98,$D0,$EA,$4C,$E5,$FF,$8D ; $DFBC
@@ -615,8 +1044,8 @@ LC_CALL_B5C0_7:
 ;   Clobbers: A,flags (the tail-JP $DF81 = upper-bank LC_BANK2_RET banks bank2 back in and returns).
 ;   Algorithm: compare A against CR($0D)/LF($0A)/TAB($09)/BS($08) (each a non-control 'pass'), then
 ;       CP $20; JP $DF81 leaves carry = (A < $20) for the remaining control chars. Lives in the lower
-;       LC bank; the upper-bank echo caller reaches it via LC_CALL_B5C0 ($DF36).
-;   [RE] control-char discriminator for CON_OUT_EXPAND (^X caret display). [?]
+;       LC bank; the upper-bank echo caller reaches it via LC_BANK1_CALL_ISCTRL ($DF36).
+;   [RE] control-char discriminator for CON_PUT_VISIBLE (^X caret display). [?]
 ; ----------------------------------------------------------------------
 IS_CTRL_CHAR:
         CP $0D                           ; $B5C0  FE 0D
@@ -631,13 +1060,13 @@ IS_CTRL_CHAR:
 IS_CTRL_CHAR_TAIL:
         JP $DF81                         ; $B5D2  C3 81 DF
 ; ----------------------------------------------------------------------
-; CON_TRACK_COL -- update the console column counter (CON_COLUMN=$DEDA) for one output char.
+; CON_TRACK_COL -- update the console column counter (CON_COL=$DEDA) for one output char.
 ;   In: C = character being emitted.
 ;   Out: the column cell $DEDA advanced for a printable char, decremented for a backspace, and left
 ;        unchanged for rubout ($7F) or when already at column 0.  Clobbers: A,HL,flags.
-;   Algorithm: HL := $DEDA (upper-bank CON_COLUMN); RET on rubout; INC the column, but if the char is
+;   Algorithm: HL := $DEDA (upper-bank CON_COL); RET on rubout; INC the column, but if the char is
 ;       a control code (< space) undo it, and for BS ($08) tail to $DD64 (the upper-bank column-fix
-;       stub) to also DEC. Runs in the lower LC bank; called from CON_OUT_CHAR_2 via CALL $B5D5.
+;       stub) to also DEC. Runs in the lower LC bank; called from LC_BANK1_CALL_TRACKCOL via CALL $B5D5.
 ;   [RE] column tracker feeding TAB expansion and line-edit backspace. [?]
 ; ----------------------------------------------------------------------
 CON_TRACK_COL:
@@ -704,9 +1133,9 @@ SELDSK_DPB_FETCH:
         LD HL,$BFEA                      ; $B624  21 EA BF
         LD (HL),$FF                      ; $B627  36 FF
         OR A                             ; $B629  B7
-        JR Z,SUB_B5EC_1                  ; $B62A  28 02
+        JR Z,SELDSK_DPB_FETCH_1                  ; $B62A  28 02
         LD (HL),$00                      ; $B62C  36 00
-SUB_B5EC_1:
+SELDSK_DPB_FETCH_1:
         LD A,$FF                         ; $B62E  3E FF
         OR A                             ; $B630  B7
         RET                              ; $B631  C9
@@ -771,12 +1200,12 @@ RECORD_TO_TRACK:
         INC HL                           ; $B661  23
         LD H,(HL)                        ; $B662  66
         LD L,A                           ; $B663  6F
-SUB_B651_1:
+RECORD_TO_TRACK_1:
         LD A,C                           ; $B664  79
         SUB E                            ; $B665  93
         LD A,B                           ; $B666  78
         SBC A,D                          ; $B667  9A
-        JR NC,SUB_B651_2                 ; $B668  30 0E
+        JR NC,RECORD_TO_TRACK_2                 ; $B668  30 0E
         PUSH HL                          ; $B66A  E5
         LD HL,($BFCE)                    ; $B66B  2A CE BF
         LD A,E                           ; $B66E  7B
@@ -787,22 +1216,22 @@ SUB_B651_1:
         LD D,A                           ; $B673  57
         POP HL                           ; $B674  E1
         DEC HL                           ; $B675  2B
-        JR SUB_B651_1                    ; $B676  18 EC
-SUB_B651_2:
+        JR RECORD_TO_TRACK_1                    ; $B676  18 EC
+RECORD_TO_TRACK_2:
         PUSH HL                          ; $B678  E5
         LD HL,($BFCE)                    ; $B679  2A CE BF
         ADD HL,DE                        ; $B67C  19
-        JR C,SUB_B651_3                  ; $B67D  38 0B
+        JR C,RECORD_TO_TRACK_3                  ; $B67D  38 0B
         LD A,C                           ; $B67F  79
         SUB L                            ; $B680  95
         LD A,B                           ; $B681  78
         SBC A,H                          ; $B682  9C
-        JR C,SUB_B651_3                  ; $B683  38 05
+        JR C,RECORD_TO_TRACK_3                  ; $B683  38 05
         EX DE,HL                         ; $B685  EB
         POP HL                           ; $B686  E1
         INC HL                           ; $B687  23
-        JR SUB_B651_2                    ; $B688  18 EE
-SUB_B651_3:
+        JR RECORD_TO_TRACK_2                    ; $B688  18 EE
+RECORD_TO_TRACK_3:
         POP HL                           ; $B68A  E1
         PUSH BC                          ; $B68B  C5
         PUSH DE                          ; $B68C  D5
@@ -849,23 +1278,23 @@ REC_BLOCK_SHIFT_6:
         LD HL,$BFD0                      ; $B6B9  21 D0 BF
         LD C,(HL)                        ; $B6BC  4E
         LD A,($BFF0)                     ; $B6BD  3A F0 BF
-SUB_B6B9_1:
+REC_BLOCK_SHIFT_6_1:
         OR A                             ; $B6C0  B7
         RRA                              ; $B6C1  1F
         DEC C                            ; $B6C2  0D
-        JR NZ,SUB_B6B9_1                 ; $B6C3  20 FB
+        JR NZ,REC_BLOCK_SHIFT_6_1                 ; $B6C3  20 FB
         LD B,A                           ; $B6C5  47
         LD A,$08                         ; $B6C6  3E 08
         SUB (HL)                         ; $B6C8  96
         LD C,A                           ; $B6C9  4F
         LD A,($BFEF)                     ; $B6CA  3A EF BF
-SUB_B6B9_2:
+REC_BLOCK_SHIFT_6_2:
         DEC C                            ; $B6CD  0D
-        JR Z,SUB_B6B9_3                  ; $B6CE  28 04
+        JR Z,REC_BLOCK_SHIFT_6_3                  ; $B6CE  28 04
         OR A                             ; $B6D0  B7
         RLA                              ; $B6D1  17
-        JR SUB_B6B9_2                    ; $B6D2  18 F9
-SUB_B6B9_3:
+        JR REC_BLOCK_SHIFT_6_2                    ; $B6D2  18 F9
+REC_BLOCK_SHIFT_6_3:
         ADD A,B                          ; $B6D4  80
         RET                              ; $B6D5  C9
 ; ----------------------------------------------------------------------
@@ -884,11 +1313,11 @@ FCB_BLOCKMAP_INDEX_10:
         ADD HL,BC                        ; $B6DD  09
         LD A,($BFEA)                     ; $B6DE  3A EA BF
         OR A                             ; $B6E1  B7
-        JR Z,SUB_B6D6_1                  ; $B6E2  28 04
+        JR Z,FCB_BLOCKMAP_INDEX_10_1                  ; $B6E2  28 04
         LD L,(HL)                        ; $B6E4  6E
         LD H,$00                         ; $B6E5  26 00
         RET                              ; $B6E7  C9
-SUB_B6D6_1:
+FCB_BLOCKMAP_INDEX_10_1:
         ADD HL,BC                        ; $B6E8  09
         LD E,(HL)                        ; $B6E9  5E
         INC HL                           ; $B6EA  23
@@ -936,10 +1365,10 @@ BLOCK_IS_ZERO_16:
 BLOCK_BASE_RECORD_17:
         LD A,($BFD0)                     ; $B701  3A D0 BF
         LD HL,($BFF2)                    ; $B704  2A F2 BF
-SUB_B701_1:
+BLOCK_BASE_RECORD_17_1:
         ADD HL,HL                        ; $B707  29
         DEC A                            ; $B708  3D
-        JR NZ,SUB_B701_1                 ; $B709  20 FC
+        JR NZ,BLOCK_BASE_RECORD_17_1                 ; $B709  20 FC
         LD ($BFF4),HL                    ; $B70B  22 F4 BF
         LD A,($BFD1)                     ; $B70E  3A D1 BF
         LD C,A                           ; $B711  4F
@@ -1011,9 +1440,9 @@ FCB_WRITEBACK_REC:
         CALL FCB_PTR_RC_CR                    ; $B748  CD 24 B7
         LD A,($BFE2)                     ; $B74B  3A E2 BF
         CP $02                           ; $B74E  FE 02
-        JR NZ,SUB_B748_1                 ; $B750  20 01
+        JR NZ,FCB_WRITEBACK_REC_1                 ; $B750  20 01
         XOR A                            ; $B752  AF
-SUB_B748_1:
+FCB_WRITEBACK_REC_1:
         LD C,A                           ; $B753  4F
         LD A,($BFF0)                     ; $B754  3A F0 BF
         ADD A,C                          ; $B757  81
@@ -1031,12 +1460,12 @@ SUB_B748_1:
 ; ----------------------------------------------------------------------
 SHR_HL_C:
         INC C                            ; $B75F  0C
-SUB_B75F_1:
+SHR_HL_C_1:
         DEC C                            ; $B760  0D
         RET Z                            ; $B761  C8
         SRL H                            ; $B762  CB 3C
         RR L                             ; $B764  CB 1D
-        JR SUB_B75F_1                    ; $B766  18 F8
+        JR SHR_HL_C_1                    ; $B766  18 F8
 ; ----------------------------------------------------------------------
 ; DIR_CHECKSUM -- compute the 128-byte additive checksum of the directory buffer.
 ;   In: the directory buffer pointer at $BFC6 (DIRBUF ptr).
@@ -1048,11 +1477,11 @@ DIR_CHECKSUM:
         LD C,$80                         ; $B768  0E 80
         LD HL,($BFC6)                    ; $B76A  2A C6 BF
         XOR A                            ; $B76D  AF
-SUB_B768_1:
+DIR_CHECKSUM_1:
         ADD A,(HL)                       ; $B76E  86
         INC HL                           ; $B76F  23
         DEC C                            ; $B770  0D
-        JR NZ,SUB_B768_1                 ; $B771  20 FB
+        JR NZ,DIR_CHECKSUM_1                 ; $B771  20 FB
         RET                              ; $B773  C9
 ; ----------------------------------------------------------------------
 ; SHL_HL_C -- logical-shift HL left by C bit positions.
@@ -1063,11 +1492,11 @@ SUB_B768_1:
 ; ----------------------------------------------------------------------
 SHL_HL_C:
         INC C                            ; $B774  0C
-SUB_B774_1:
+SHL_HL_C_1:
         DEC C                            ; $B775  0D
         RET Z                            ; $B776  C8
         ADD HL,HL                        ; $B777  29
-        JR SUB_B774_1                    ; $B778  18 FB
+        JR SHL_HL_C_1                    ; $B778  18 FB
 ; ----------------------------------------------------------------------
 ; DRIVE_BIT_OR_INTO_VECTOR -- OR the current drive's single-bit mask into a 16-bit vector.
 ;   In: BC = existing 16-bit vector (preserved); current drive at $DF10.
@@ -1306,7 +1735,7 @@ SUB16_DE_HL:
 ; ----------------------------------------------------------------------
 RECORD_SCAN_BODY:
         LD C,$FF                         ; $B813  0E FF
-SUB_B813_1:
+RECORD_SCAN_BODY_1:
         LD HL,($BFF9)                    ; $B815  2A F9 BF
         EX DE,HL                         ; $B818  EB
         LD HL,($BFD9)                    ; $B819  2A D9 BF
@@ -1320,14 +1749,14 @@ SUB_B813_1:
         ADD HL,DE                        ; $B82B  19
         POP BC                           ; $B82C  C1
         INC C                            ; $B82D  0C
-        JR Z,SUB_B813_2                  ; $B82E  28 0A
+        JR Z,RECORD_SCAN_BODY_2                  ; $B82E  28 0A
         CP (HL)                          ; $B830  BE
         RET Z                            ; $B831  C8
         CALL CMP_CURREC_VS_WORKPTR                    ; $B832  CD F8 B7
         RET NC                           ; $B835  D0
         CALL BDOS_F_SETRO                    ; $B836  CD 9B B7
         RET                              ; $B839  C9
-SUB_B813_2:
+RECORD_SCAN_BODY_2:
         LD (HL),A                        ; $B83A  77
         RET                              ; $B83B  C9
 ; ----------------------------------------------------------------------
@@ -1367,7 +1796,7 @@ DIR_RECORD_READ:
 ; ----------------------------------------------------------------------
 RESTORE_USER_DMA:
         LD HL,DMA_ADDR                     ; $B84F  21 BE BF
-        JR SUB_B854_1                    ; $B852  18 03
+        JR SET_DMA_TO_DISK_BUF_1                    ; $B852  18 03
 ; ----------------------------------------------------------------------
 ; SET_DMA_TO_DISK_BUF -- point the BIOS DMA at the directory/disk buffer (DIRBUF).
 ;   In: the DIRBUF ptr cell at $BFC6 holds the directory buffer address.
@@ -1377,12 +1806,12 @@ RESTORE_USER_DMA:
 ; ----------------------------------------------------------------------
 SET_DMA_TO_DISK_BUF:
         LD HL,$BFC6                      ; $B854  21 C6 BF
-SUB_B854_1:
+SET_DMA_TO_DISK_BUF_1:
         LD C,(HL)                        ; $B857  4E
         INC HL                           ; $B858  23
         LD B,(HL)                        ; $B859  46
         JP $FA24                         ; $B85A  C3 24 FA
-SUB_B854_2:
+SET_DMA_TO_DISK_BUF_2:
         LD HL,($BFC6)                    ; $B85D  2A C6 BF
         LD DE,(DMA_ADDR)                   ; $B860  ED 5B BE BF
         LD BC,$0080                      ; $B864  01 80 00
@@ -1432,15 +1861,15 @@ DIR_READ_NEXT:
         INC HL                           ; $B882  23
         LD ($BFF7),HL                    ; $B883  22 F7 BF
         CALL SUB16_DE_HL                    ; $B886  CD 0E B8
-        JR NC,SUB_B87B_1                 ; $B889  30 02
+        JR NC,DIR_READ_NEXT_1                 ; $B889  30 02
         JR INVALIDATE_CUR_RECORD                      ; $B88B  18 E7
-SUB_B87B_1:
+DIR_READ_NEXT_1:
         LD A,($BFF7)                     ; $B88D  3A F7 BF
         AND $03                          ; $B890  E6 03
         LD B,$05                         ; $B892  06 05
-SUB_B87B_2:
+DIR_READ_NEXT_2:
         ADD A,A                          ; $B894  87
-        DJNZ SUB_B87B_2                  ; $B895  10 FD
+        DJNZ DIR_READ_NEXT_2                  ; $B895  10 FD
         LD ($BFF6),A                     ; $B897  32 F6 BF
         OR A                             ; $B89A  B7
         RET NZ                           ; $B89B  C0
@@ -1448,7 +1877,7 @@ SUB_B87B_2:
         CALL REC_DIV4_SETUP                    ; $B89D  CD 43 B6
         CALL DIR_RECORD_READ                    ; $B8A0  CD 49 B8
         POP BC                           ; $B8A3  C1
-        JP SUB_B813_1                    ; $B8A4  C3 15 B8
+        JP RECORD_SCAN_BODY_1                    ; $B8A4  C3 15 B8
 ; ----------------------------------------------------------------------
 ; ALLOC_BIT_GET -- fetch the allocation-vector bit for a given disk block, returning it in carry.
 ;   In: BC = block (group) number; the allocation-vector base pointer at ($BFCC).
@@ -1488,10 +1917,10 @@ ALLOC_BIT_GET:
         LD HL,($BFCC)                    ; $B8C3  2A CC BF
         ADD HL,BC                        ; $B8C6  09
         LD A,(HL)                        ; $B8C7  7E
-SUB_B8A7_1:
+ALLOC_BIT_GET_1:
         RLCA                             ; $B8C8  07
         DEC E                            ; $B8C9  1D
-        JR NZ,SUB_B8A7_1                 ; $B8CA  20 FC
+        JR NZ,ALLOC_BIT_GET_1                 ; $B8CA  20 FC
         RET                              ; $B8CC  C9
 ; ----------------------------------------------------------------------
 ; ALLOC_BIT_SET -- mark a disk block as allocated in the allocation vector.
@@ -1533,41 +1962,41 @@ ALLOC_FROM_FCB:
         ADD HL,DE                        ; $B8E1  19
         PUSH BC                          ; $B8E2  C5
         LD C,$11                         ; $B8E3  0E 11
-SUB_B8DB_1:
+ALLOC_FROM_FCB_1:
         POP DE                           ; $B8E5  D1
         DEC C                            ; $B8E6  0D
         RET Z                            ; $B8E7  C8
         PUSH DE                          ; $B8E8  D5
         LD A,($BFEA)                     ; $B8E9  3A EA BF
         OR A                             ; $B8EC  B7
-        JR Z,SUB_B8DB_2                  ; $B8ED  28 07
+        JR Z,ALLOC_FROM_FCB_2                  ; $B8ED  28 07
         PUSH BC                          ; $B8EF  C5
         PUSH HL                          ; $B8F0  E5
         LD C,(HL)                        ; $B8F1  4E
         LD B,$00                         ; $B8F2  06 00
-        JR SUB_B8DB_3                    ; $B8F4  18 06
-SUB_B8DB_2:
+        JR ALLOC_FROM_FCB_3                    ; $B8F4  18 06
+ALLOC_FROM_FCB_2:
         DEC C                            ; $B8F6  0D
         PUSH BC                          ; $B8F7  C5
         LD C,(HL)                        ; $B8F8  4E
         INC HL                           ; $B8F9  23
         LD B,(HL)                        ; $B8FA  46
         PUSH HL                          ; $B8FB  E5
-SUB_B8DB_3:
+ALLOC_FROM_FCB_3:
         LD A,C                           ; $B8FC  79
         OR B                             ; $B8FD  B0
-        JR Z,SUB_B8DB_4                  ; $B8FE  28 0A
+        JR Z,ALLOC_FROM_FCB_4                  ; $B8FE  28 0A
         LD HL,($BFD3)                    ; $B900  2A D3 BF
         LD A,L                           ; $B903  7D
         SUB C                            ; $B904  91
         LD A,H                           ; $B905  7C
         SBC A,B                          ; $B906  98
         CALL NC,ALLOC_BIT_SET                 ; $B907  D4 CD B8
-SUB_B8DB_4:
+ALLOC_FROM_FCB_4:
         POP HL                           ; $B90A  E1
         INC HL                           ; $B90B  23
         POP BC                           ; $B90C  C1
-        JR SUB_B8DB_1                    ; $B90D  18 D6
+        JR ALLOC_FROM_FCB_1                    ; $B90D  18 D6
 ; ----------------------------------------------------------------------
 ; ALLOC_VECTOR_BUILD -- rebuild the drive's allocation bit-vector by scanning the entire directory.
 ;   In: selected drive's DPB fields (max block DSM at $BFD3, directory-reserved-blocks word at $BFD7,
@@ -1590,13 +2019,13 @@ ALLOC_VECTOR_BUILD:
         LD B,H                           ; $B918  44
         LD C,L                           ; $B919  4D
         LD HL,($BFCC)                    ; $B91A  2A CC BF
-SUB_B8DB_6:
+ALLOC_FROM_FCB_6:
         LD (HL),$00                      ; $B91D  36 00
         INC HL                           ; $B91F  23
         DEC BC                           ; $B920  0B
         LD A,B                           ; $B921  78
         OR C                             ; $B922  B1
-        JR NZ,SUB_B8DB_6                 ; $B923  20 F8
+        JR NZ,ALLOC_FROM_FCB_6                 ; $B923  20 F8
         LD HL,($BFD7)                    ; $B925  2A D7 BF
         EX DE,HL                         ; $B928  EB
         LD HL,($BFCC)                    ; $B929  2A CC BF
@@ -1609,7 +2038,7 @@ SUB_B8DB_6:
         INC HL                           ; $B937  23
         LD (HL),$00                      ; $B938  36 00
         CALL INVALIDATE_CUR_RECORD                    ; $B93A  CD 74 B8
-SUB_B8DB_7:
+ALLOC_FROM_FCB_7:
         LD C,$FF                         ; $B93D  0E FF
         CALL DIR_READ_NEXT                    ; $B93F  CD 7B B8
         CALL CUR_RECORD_BYTES_EQUAL                    ; $B942  CD 6B B8
@@ -1617,26 +2046,26 @@ SUB_B8DB_7:
         CALL FCB_BUF_PTR_ADD_OFFSET                    ; $B946  CD CD B7
         LD A,$E5                         ; $B949  3E E5
         CP (HL)                          ; $B94B  BE
-        JR Z,SUB_B8DB_7                  ; $B94C  28 EF
+        JR Z,ALLOC_FROM_FCB_7                  ; $B94C  28 EF
         LD A,($DF0F)                     ; $B94E  3A 0F DF
         CP (HL)                          ; $B951  BE
-        JR NZ,SUB_B8DB_8                 ; $B952  20 0A
+        JR NZ,ALLOC_FROM_FCB_8                 ; $B952  20 0A
         INC HL                           ; $B954  23
         LD A,(HL)                        ; $B955  7E
         SUB $24                          ; $B956  D6 24
-        JR NZ,SUB_B8DB_8                 ; $B958  20 04
+        JR NZ,ALLOC_FROM_FCB_8                 ; $B958  20 04
         DEC A                            ; $B95A  3D
         LD ($DF13),A                     ; $B95B  32 13 DF
-SUB_B8DB_8:
+ALLOC_FROM_FCB_8:
         LD C,$01                         ; $B95E  0E 01
         CALL ALLOC_FROM_FCB                    ; $B960  CD DB B8
         CALL RECPTR_INC_STORE                    ; $B963  CD 05 B8
-        JP SUB_B8DB_7                    ; $B966  C3 3D B9
+        JP ALLOC_FROM_FCB_7                    ; $B966  C3 3D B9
 ; ----------------------------------------------------------------------
 ; DIR_RETURN_MATCH_FLAG -- return the saved directory-search match status as the BDOS result.
 ;   In: the directory match flag at $BFE1 ($FF=no match, else the 0..3 entry index).
 ;   Out: A = ($BFE1); stored to the BDOS result byte via the common result-store path ($DED0).  Clobbers: A.
-;   Algorithm: load the cached search-match flag ($BFE1) and JP $DED0 (the upper-bank BDOS_SET_RETURN).
+;   Algorithm: load the cached search-match flag ($BFE1) and JP $DED0 (the upper-bank BDOS_RET_RESULT).
 ;   [RE] common return tail of F_DELETE_HND / F_RENAME_HND / F_ATTRIB_HND.
 ; ----------------------------------------------------------------------
 DIR_RETURN_MATCH_FLAG:
@@ -1699,51 +2128,51 @@ BDOS_DIR_SCAN_NEXT:
         LD C,$00                         ; $B995  0E 00
         CALL DIR_READ_NEXT                    ; $B997  CD 7B B8
         CALL CUR_RECORD_BYTES_EQUAL                    ; $B99A  CD 6B B8
-        JR Z,SUB_B995_6                  ; $B99D  28 52
+        JR Z,BDOS_DIR_SCAN_NEXT_6                  ; $B99D  28 52
         LD HL,($BFE6)                    ; $B99F  2A E6 BF
         EX DE,HL                         ; $B9A2  EB
         LD A,(DE)                        ; $B9A3  1A
         CP $E5                           ; $B9A4  FE E5
-        JR Z,SUB_B995_1                  ; $B9A6  28 07
+        JR Z,BDOS_DIR_SCAN_NEXT_1                  ; $B9A6  28 07
         PUSH DE                          ; $B9A8  D5
         CALL CMP_CURREC_VS_WORKPTR                    ; $B9A9  CD F8 B7
         POP DE                           ; $B9AC  D1
-        JR NC,SUB_B995_6                 ; $B9AD  30 42
-SUB_B995_1:
+        JR NC,BDOS_DIR_SCAN_NEXT_6                 ; $B9AD  30 42
+BDOS_DIR_SCAN_NEXT_1:
         CALL FCB_BUF_PTR_ADD_OFFSET                    ; $B9AF  CD CD B7
         LD A,($BFE5)                     ; $B9B2  3A E5 BF
         LD C,A                           ; $B9B5  4F
         LD B,$00                         ; $B9B6  06 00
-SUB_B995_2:
+BDOS_DIR_SCAN_NEXT_2:
         LD A,C                           ; $B9B8  79
         OR A                             ; $B9B9  B7
-        JR Z,SUB_B995_5                  ; $B9BA  28 24
+        JR Z,BDOS_DIR_SCAN_NEXT_5                  ; $B9BA  28 24
         LD A,(DE)                        ; $B9BC  1A
         CP $3F                           ; $B9BD  FE 3F
-        JR Z,SUB_B995_4                  ; $B9BF  28 19
+        JR Z,BDOS_DIR_SCAN_NEXT_4                  ; $B9BF  28 19
         LD A,B                           ; $B9C1  78
         CP $0D                           ; $B9C2  FE 0D
-        JR Z,SUB_B995_4                  ; $B9C4  28 14
+        JR Z,BDOS_DIR_SCAN_NEXT_4                  ; $B9C4  28 14
         CP $0C                           ; $B9C6  FE 0C
         LD A,(DE)                        ; $B9C8  1A
-        JR Z,SUB_B995_3                  ; $B9C9  28 07
+        JR Z,BDOS_DIR_SCAN_NEXT_3                  ; $B9C9  28 07
         SUB (HL)                         ; $B9CB  96
         AND $7F                          ; $B9CC  E6 7F
         JR NZ,BDOS_DIR_SCAN_NEXT                   ; $B9CE  20 C5
-        JR SUB_B995_4                    ; $B9D0  18 08
-SUB_B995_3:
+        JR BDOS_DIR_SCAN_NEXT_4                    ; $B9D0  18 08
+BDOS_DIR_SCAN_NEXT_3:
         PUSH BC                          ; $B9D2  C5
         LD C,(HL)                        ; $B9D3  4E
         CALL FCB_EXTENT_COMPARE                    ; $B9D4  CD 6F B9
         POP BC                           ; $B9D7  C1
         JR NZ,BDOS_DIR_SCAN_NEXT                   ; $B9D8  20 BB
-SUB_B995_4:
+BDOS_DIR_SCAN_NEXT_4:
         INC DE                           ; $B9DA  13
         INC HL                           ; $B9DB  23
         INC B                            ; $B9DC  04
         DEC C                            ; $B9DD  0D
-        JR SUB_B995_2                    ; $B9DE  18 D8
-SUB_B995_5:
+        JR BDOS_DIR_SCAN_NEXT_2                    ; $B9DE  18 D8
+BDOS_DIR_SCAN_NEXT_5:
         LD A,($BFF7)                     ; $B9E0  3A F7 BF
         AND $03                          ; $B9E3  E6 03
         LD ($DF13),A                     ; $B9E5  32 13 DF
@@ -1754,7 +2183,7 @@ SUB_B995_5:
         XOR A                            ; $B9EE  AF
         LD (HL),A                        ; $B9EF  77
         RET                              ; $B9F0  C9
-SUB_B995_6:
+BDOS_DIR_SCAN_NEXT_6:
         CALL INVALIDATE_CUR_RECORD                    ; $B9F1  CD 74 B8
         LD A,$FF                         ; $B9F4  3E FF
         JP $DED0                         ; $B9F6  C3 D0 DE
@@ -1772,7 +2201,7 @@ F_DELETE_HND:
         CALL CHECK_DRIVE_READONLY                    ; $B9F9  CD C3 B7
         LD C,$0C                         ; $B9FC  0E 0C
         CALL DIR_SEARCH_FIRST                    ; $B9FE  CD 80 B9
-SUB_B9F9_1:
+F_DELETE_HND_1:
         CALL CUR_RECORD_BYTES_EQUAL                    ; $BA01  CD 6B B8
         RET Z                            ; $BA04  C8
         CALL FCB_RO_FLAG_TEST                    ; $BA05  CD B3 B7
@@ -1782,7 +2211,7 @@ SUB_B9F9_1:
         CALL ALLOC_FROM_FCB                    ; $BA0F  CD DB B8
         CALL DIR_RECORD_WRITE                    ; $BA12  CD 3C B8
         CALL BDOS_DIR_SCAN_NEXT                    ; $BA15  CD 95 B9
-        JR SUB_B9F9_1                    ; $BA18  18 E7
+        JR F_DELETE_HND_1                    ; $BA18  18 E7
 ; ----------------------------------------------------------------------
 ; ALLOC_GET_BLOCK -- find/allocate a disk block near a starting block, marking it used.
 ;   In: BC = starting block number (passed by the write core when extending a file); max block DSM at ($BFD3).
@@ -1795,25 +2224,25 @@ SUB_B9F9_1:
 ALLOC_GET_BLOCK:
         LD D,B                           ; $BA1A  50
         LD E,C                           ; $BA1B  59
-SUB_BA1A_1:
+ALLOC_GET_BLOCK_1:
         LD A,C                           ; $BA1C  79
         OR B                             ; $BA1D  B0
-        JR Z,SUB_BA1A_2                  ; $BA1E  28 0B
+        JR Z,ALLOC_GET_BLOCK_2                  ; $BA1E  28 0B
         DEC BC                           ; $BA20  0B
         PUSH DE                          ; $BA21  D5
         PUSH BC                          ; $BA22  C5
         CALL ALLOC_BIT_GET                    ; $BA23  CD A7 B8
         RRA                              ; $BA26  1F
-        JR NC,SUB_BA1A_3                 ; $BA27  30 1A
+        JR NC,ALLOC_GET_BLOCK_3                 ; $BA27  30 1A
         POP BC                           ; $BA29  C1
         POP DE                           ; $BA2A  D1
-SUB_BA1A_2:
+ALLOC_GET_BLOCK_2:
         LD HL,($BFD3)                    ; $BA2B  2A D3 BF
         LD A,E                           ; $BA2E  7B
         SUB L                            ; $BA2F  95
         LD A,D                           ; $BA30  7A
         SBC A,H                          ; $BA31  9C
-        JR NC,SUB_BA1A_4                 ; $BA32  30 17
+        JR NC,ALLOC_GET_BLOCK_4                 ; $BA32  30 17
         INC DE                           ; $BA34  13
         PUSH BC                          ; $BA35  C5
         PUSH DE                          ; $BA36  D5
@@ -1821,21 +2250,21 @@ SUB_BA1A_2:
         LD C,E                           ; $BA38  4B
         CALL ALLOC_BIT_GET                    ; $BA39  CD A7 B8
         RRA                              ; $BA3C  1F
-        JR NC,SUB_BA1A_3                 ; $BA3D  30 04
+        JR NC,ALLOC_GET_BLOCK_3                 ; $BA3D  30 04
         POP DE                           ; $BA3F  D1
         POP BC                           ; $BA40  C1
-        JR SUB_BA1A_1                    ; $BA41  18 D9
-SUB_BA1A_3:
+        JR ALLOC_GET_BLOCK_1                    ; $BA41  18 D9
+ALLOC_GET_BLOCK_3:
         RLA                              ; $BA43  17
         INC A                            ; $BA44  3C
         CALL ALLOC_BIT_RESTORE                    ; $BA45  CD D5 B8
         POP HL                           ; $BA48  E1
         POP DE                           ; $BA49  D1
         RET                              ; $BA4A  C9
-SUB_BA1A_4:
+ALLOC_GET_BLOCK_4:
         LD A,C                           ; $BA4B  79
         OR B                             ; $BA4C  B0
-        JR NZ,SUB_BA1A_1                 ; $BA4D  20 CD
+        JR NZ,ALLOC_GET_BLOCK_1                 ; $BA4D  20 CD
         LD HL,$0000                      ; $BA4F  21 00 00
         RET                              ; $BA52  C9
 ; ----------------------------------------------------------------------
@@ -1897,7 +2326,7 @@ F_RENAME_HND:
         LD DE,$0010                      ; $BA7A  11 10 00
         ADD HL,DE                        ; $BA7D  19
         LD (HL),A                        ; $BA7E  77
-SUB_BA6E_1:
+F_RENAME_HND_1:
         CALL CUR_RECORD_BYTES_EQUAL                    ; $BA7F  CD 6B B8
         RET Z                            ; $BA82  C8
         CALL FCB_RO_FLAG_TEST                    ; $BA83  CD B3 B7
@@ -1905,7 +2334,7 @@ SUB_BA6E_1:
         LD E,$0C                         ; $BA88  1E 0C
         CALL FCB_COPY_TO_DIR                    ; $BA8A  CD 57 BA
         CALL BDOS_DIR_SCAN_NEXT                    ; $BA8D  CD 95 B9
-        JR SUB_BA6E_1                    ; $BA90  18 ED
+        JR F_RENAME_HND_1                    ; $BA90  18 ED
 ; ----------------------------------------------------------------------
 ; F_ATTRIB_HND -- set file attributes from the FCB into matching directory entries (worker for BDOS fn 30).
 ;   In: current FCB at $DF11 carrying the attribute high bits in the name/type bytes.
@@ -1918,14 +2347,14 @@ SUB_BA6E_1:
 F_ATTRIB_HND:
         LD C,$0C                         ; $BA92  0E 0C
         CALL DIR_SEARCH_FIRST                    ; $BA94  CD 80 B9
-SUB_BA92_1:
+F_ATTRIB_HND_1:
         CALL CUR_RECORD_BYTES_EQUAL                    ; $BA97  CD 6B B8
         RET Z                            ; $BA9A  C8
         LD C,$00                         ; $BA9B  0E 00
         LD E,$0C                         ; $BA9D  1E 0C
         CALL FCB_COPY_TO_DIR                    ; $BA9F  CD 57 BA
         CALL BDOS_DIR_SCAN_NEXT                    ; $BAA2  CD 95 B9
-        JR SUB_BA92_1                    ; $BAA5  18 F0
+        JR F_ATTRIB_HND_1                    ; $BAA5  18 F0
 ; ----------------------------------------------------------------------
 ; FILE_OPEN_SEARCH -- search-first for the FCB's extent and merge the directory entry into the FCB.
 ;   In: current FCB at $DF11. Core of BDOS_F_OPEN (fn 15) and the random-record extent-positioning path.
@@ -1976,11 +2405,11 @@ FCB_MERGE_ENTRY:
         LD A,C                           ; $BAD4  79
         CP (HL)                          ; $BAD5  BE
         LD A,B                           ; $BAD6  78
-        JR Z,SUB_BAB0_1                  ; $BAD7  28 06
+        JR Z,FCB_MERGE_ENTRY_1                  ; $BAD7  28 06
         LD A,$00                         ; $BAD9  3E 00
-        JR C,SUB_BAB0_1                  ; $BADB  38 02
+        JR C,FCB_MERGE_ENTRY_1                  ; $BADB  38 02
         LD A,$80                         ; $BADD  3E 80
-SUB_BAB0_1:
+FCB_MERGE_ENTRY_1:
         LD HL,($DF11)                    ; $BADF  2A 11 DF
         LD DE,$000F                      ; $BAE2  11 0F 00
         ADD HL,DE                        ; $BAE5  19
@@ -2041,50 +2470,50 @@ F_CLOSE_HND:
         LD HL,($DF11)                    ; $BB1B  2A 11 DF
         ADD HL,BC                        ; $BB1E  09
         LD C,$10                         ; $BB1F  0E 10
-SUB_BAF6_1:
+F_CLOSE_HND_1:
         LD A,($BFEA)                     ; $BB21  3A EA BF
         OR A                             ; $BB24  B7
-        JR Z,SUB_BAF6_4                  ; $BB25  28 10
+        JR Z,F_CLOSE_HND_4                  ; $BB25  28 10
         LD A,(HL)                        ; $BB27  7E
         OR A                             ; $BB28  B7
         LD A,(DE)                        ; $BB29  1A
-        JR NZ,SUB_BAF6_2                 ; $BB2A  20 01
+        JR NZ,F_CLOSE_HND_2                 ; $BB2A  20 01
         LD (HL),A                        ; $BB2C  77
-SUB_BAF6_2:
+F_CLOSE_HND_2:
         OR A                             ; $BB2D  B7
-        JR NZ,SUB_BAF6_3                 ; $BB2E  20 02
+        JR NZ,F_CLOSE_HND_3                 ; $BB2E  20 02
         LD A,(HL)                        ; $BB30  7E
         LD (DE),A                        ; $BB31  12
-SUB_BAF6_3:
+F_CLOSE_HND_3:
         CP (HL)                          ; $BB32  BE
-        JR NZ,SUB_BAF6_7                 ; $BB33  20 35
-        JR SUB_BAF6_5                    ; $BB35  18 13
-SUB_BAF6_4:
+        JR NZ,F_CLOSE_HND_7                 ; $BB33  20 35
+        JR F_CLOSE_HND_5                    ; $BB35  18 13
+F_CLOSE_HND_4:
         CALL FCB_WORD_FILL_IF_ZERO                    ; $BB37  CD E8 BA
         EX DE,HL                         ; $BB3A  EB
         CALL FCB_WORD_FILL_IF_ZERO                    ; $BB3B  CD E8 BA
         EX DE,HL                         ; $BB3E  EB
         LD A,(DE)                        ; $BB3F  1A
         CP (HL)                          ; $BB40  BE
-        JR NZ,SUB_BAF6_7                 ; $BB41  20 27
+        JR NZ,F_CLOSE_HND_7                 ; $BB41  20 27
         INC DE                           ; $BB43  13
         INC HL                           ; $BB44  23
         LD A,(DE)                        ; $BB45  1A
         CP (HL)                          ; $BB46  BE
-        JR NZ,SUB_BAF6_7                 ; $BB47  20 21
+        JR NZ,F_CLOSE_HND_7                 ; $BB47  20 21
         DEC C                            ; $BB49  0D
-SUB_BAF6_5:
+F_CLOSE_HND_5:
         INC DE                           ; $BB4A  13
         INC HL                           ; $BB4B  23
         DEC C                            ; $BB4C  0D
-        JR NZ,SUB_BAF6_1                 ; $BB4D  20 D2
+        JR NZ,F_CLOSE_HND_1                 ; $BB4D  20 D2
         LD BC,$FFEC                      ; $BB4F  01 EC FF
         ADD HL,BC                        ; $BB52  09
         EX DE,HL                         ; $BB53  EB
         ADD HL,BC                        ; $BB54  09
         LD A,(DE)                        ; $BB55  1A
         CP (HL)                          ; $BB56  BE
-        JR C,SUB_BAF6_6                  ; $BB57  38 09
+        JR C,F_CLOSE_HND_6                  ; $BB57  38 09
         LD (HL),A                        ; $BB59  77
         LD BC,$0003                      ; $BB5A  01 03 00
         ADD HL,BC                        ; $BB5D  09
@@ -2092,11 +2521,11 @@ SUB_BAF6_5:
         ADD HL,BC                        ; $BB5F  09
         LD A,(HL)                        ; $BB60  7E
         LD (DE),A                        ; $BB61  12
-SUB_BAF6_6:
+F_CLOSE_HND_6:
         LD A,$FF                         ; $BB62  3E FF
         LD ($BFDF),A                     ; $BB64  32 DF BF
         JP FCB_FLUSH_DIR                    ; $BB67  C3 68 BA
-SUB_BAF6_7:
+F_CLOSE_HND_7:
         LD HL,$DF13                      ; $BB6A  21 13 DF
         DEC (HL)                         ; $BB6D  35
         RET                              ; $BB6E  C9
@@ -2129,11 +2558,11 @@ DIR_MAKE_ENTRY:
         ADD HL,DE                        ; $BB8D  19
         LD C,$11                         ; $BB8E  0E 11
         XOR A                            ; $BB90  AF
-SUB_BB6F_1:
+DIR_MAKE_ENTRY_1:
         LD (HL),A                        ; $BB91  77
         INC HL                           ; $BB92  23
         DEC C                            ; $BB93  0D
-        JR NZ,SUB_BB6F_1                 ; $BB94  20 FB
+        JR NZ,DIR_MAKE_ENTRY_1                 ; $BB94  20 FB
         LD HL,$000D                      ; $BB96  21 0D 00
         ADD HL,DE                        ; $BB99  19
         LD (HL),A                        ; $BB9A  77
@@ -2164,40 +2593,40 @@ FCB_ADVANCE_RECORD:
         INC A                            ; $BBB7  3C
         AND $1F                          ; $BBB8  E6 1F
         LD (HL),A                        ; $BBBA  77
-        JR Z,SUB_BBA4_1                  ; $BBBB  28 0D
+        JR Z,FCB_ADVANCE_RECORD_1                  ; $BBBB  28 0D
         LD B,A                           ; $BBBD  47
         LD A,($BFD2)                     ; $BBBE  3A D2 BF
         AND B                            ; $BBC1  A0
         LD HL,$BFDF                      ; $BBC2  21 DF BF
         AND (HL)                         ; $BBC5  A6
-        JR Z,SUB_BBA4_2                  ; $BBC6  28 0C
-        JR SUB_BBA4_3                    ; $BBC8  18 24
-SUB_BBA4_1:
+        JR Z,FCB_ADVANCE_RECORD_2                  ; $BBC6  28 0C
+        JR FCB_ADVANCE_RECORD_3                    ; $BBC8  18 24
+FCB_ADVANCE_RECORD_1:
         LD BC,$0002                      ; $BBCA  01 02 00
         ADD HL,BC                        ; $BBCD  09
         INC (HL)                         ; $BBCE  34
         LD A,(HL)                        ; $BBCF  7E
         AND $0F                          ; $BBD0  E6 0F
-        JR Z,SUB_BBA4_5                  ; $BBD2  28 24
-SUB_BBA4_2:
+        JR Z,FCB_ADVANCE_RECORD_5                  ; $BBD2  28 24
+FCB_ADVANCE_RECORD_2:
         LD C,$0F                         ; $BBD4  0E 0F
         CALL DIR_SEARCH_FIRST                    ; $BBD6  CD 80 B9
         CALL CUR_RECORD_BYTES_EQUAL                    ; $BBD9  CD 6B B8
-        JR NZ,SUB_BBA4_3                 ; $BBDC  20 10
+        JR NZ,FCB_ADVANCE_RECORD_3                 ; $BBDC  20 10
         LD A,($BFE0)                     ; $BBDE  3A E0 BF
         INC A                            ; $BBE1  3C
-        JR Z,SUB_BBA4_5                  ; $BBE2  28 14
+        JR Z,FCB_ADVANCE_RECORD_5                  ; $BBE2  28 14
         CALL DIR_MAKE_ENTRY                    ; $BBE4  CD 6F BB
         CALL CUR_RECORD_BYTES_EQUAL                    ; $BBE7  CD 6B B8
-        JR Z,SUB_BBA4_5                  ; $BBEA  28 0C
-        JR SUB_BBA4_4                    ; $BBEC  18 03
-SUB_BBA4_3:
+        JR Z,FCB_ADVANCE_RECORD_5                  ; $BBEA  28 0C
+        JR FCB_ADVANCE_RECORD_4                    ; $BBEC  18 03
+FCB_ADVANCE_RECORD_3:
         CALL FCB_MERGE_ENTRY                    ; $BBEE  CD B0 BA
-SUB_BBA4_4:
+FCB_ADVANCE_RECORD_4:
         CALL FCB_PRIME_FIELDS                    ; $BBF1  CD 31 B7
         XOR A                            ; $BBF4  AF
         JP $DED0                         ; $BBF5  C3 D0 DE
-SUB_BBA4_5:
+FCB_ADVANCE_RECORD_5:
         CALL $DED4                       ; $BBF8  CD D4 DE
         JP MARK_FCB_S2_HIGHBIT                      ; $BBFB  C3 F1 B7
 ; ----------------------------------------------------------------------
@@ -2230,24 +2659,24 @@ FILE_READ_RECORD:
         LD A,($BFF0)                     ; $BC0B  3A F0 BF
         LD HL,$BFEE                      ; $BC0E  21 EE BF
         CP (HL)                          ; $BC11  BE
-        JR C,SUB_BC03_1                  ; $BC12  38 11
+        JR C,FILE_READ_RECORD_1                  ; $BC12  38 11
         CP $80                           ; $BC14  FE 80
-        JR NZ,SUB_BC03_2                 ; $BC16  20 21
+        JR NZ,FILE_READ_RECORD_2                 ; $BC16  20 21
         CALL FCB_ADVANCE_RECORD                    ; $BC18  CD A4 BB
         XOR A                            ; $BC1B  AF
         LD ($BFF0),A                     ; $BC1C  32 F0 BF
         LD A,($DF13)                     ; $BC1F  3A 13 DF
         OR A                             ; $BC22  B7
-        JR NZ,SUB_BC03_2                 ; $BC23  20 14
-SUB_BC03_1:
+        JR NZ,FILE_READ_RECORD_2                 ; $BC23  20 14
+FILE_READ_RECORD_1:
         CALL REC_TO_BLOCK_14                    ; $BC25  CD EE B6
         CALL BLOCK_IS_ZERO_16                    ; $BC28  CD FB B6
-        JR Z,SUB_BC03_2                  ; $BC2B  28 0C
+        JR Z,FILE_READ_RECORD_2                  ; $BC2B  28 0C
         CALL BLOCK_BASE_RECORD_17                    ; $BC2D  CD 01 B7
         CALL RECORD_TO_TRACK                    ; $BC30  CD 51 B6
         CALL $DF20                       ; $BC33  CD 20 DF
         JP FCB_WRITEBACK_REC                      ; $BC36  C3 48 B7
-SUB_BC03_2:
+FILE_READ_RECORD_2:
         JP $DED4                         ; $BC39  C3 D4 DE
 ; ----------------------------------------------------------------------
 ; FILE_READ_SEQ -- sequential-write entry into the shared write core (reached from BDOS_F_WRITE_SEQ).
@@ -2289,25 +2718,25 @@ BDOS_WRITE:
         CALL REC_TO_BLOCK_14                    ; $BC5A  CD EE B6
         CALL BLOCK_IS_ZERO_16                    ; $BC5D  CD FB B6
         LD C,$00                         ; $BC60  0E 00
-        JR NZ,SUB_BC41_5                 ; $BC62  20 43
+        JR NZ,BDOS_WRITE_5                 ; $BC62  20 43
         CALL REC_BLOCK_SHIFT_6                    ; $BC64  CD B9 B6
         LD ($BFE4),A                     ; $BC67  32 E4 BF
         LD BC,$0000                      ; $BC6A  01 00 00
         OR A                             ; $BC6D  B7
-        JR Z,SUB_BC41_1                  ; $BC6E  28 07
+        JR Z,BDOS_WRITE_1                  ; $BC6E  28 07
         LD C,A                           ; $BC70  4F
         DEC BC                           ; $BC71  0B
         CALL FCB_BLOCKMAP_INDEX_10                    ; $BC72  CD D6 B6
         LD B,H                           ; $BC75  44
         LD C,L                           ; $BC76  4D
-SUB_BC41_1:
+BDOS_WRITE_1:
         CALL ALLOC_GET_BLOCK                    ; $BC77  CD 1A BA
         LD A,L                           ; $BC7A  7D
         OR H                             ; $BC7B  B4
-        JR NZ,SUB_BC41_2                 ; $BC7C  20 05
+        JR NZ,BDOS_WRITE_2                 ; $BC7C  20 05
         LD A,$02                         ; $BC7E  3E 02
         JP $DED0                         ; $BC80  C3 D0 DE
-SUB_BC41_2:
+BDOS_WRITE_2:
         LD ($BFF2),HL                    ; $BC83  22 F2 BF
         EX DE,HL                         ; $BC86  EB
         LD HL,($DF11)                    ; $BC87  2A 11 DF
@@ -2316,11 +2745,11 @@ SUB_BC41_2:
         LD A,($BFEA)                     ; $BC8E  3A EA BF
         OR A                             ; $BC91  B7
         LD A,($BFE4)                     ; $BC92  3A E4 BF
-        JR Z,SUB_BC41_3                  ; $BC95  28 06
+        JR Z,BDOS_WRITE_3                  ; $BC95  28 06
         CALL DIRENT_PTR_ADD                    ; $BC97  CD D3 B7
         LD (HL),E                        ; $BC9A  73
-        JR SUB_BC41_4                    ; $BC9B  18 08
-SUB_BC41_3:
+        JR BDOS_WRITE_4                    ; $BC9B  18 08
+BDOS_WRITE_3:
         LD C,A                           ; $BC9D  4F
         LD B,$00                         ; $BC9E  06 00
         ADD HL,BC                        ; $BCA0  09
@@ -2328,9 +2757,9 @@ SUB_BC41_3:
         LD (HL),E                        ; $BCA2  73
         INC HL                           ; $BCA3  23
         LD (HL),D                        ; $BCA4  72
-SUB_BC41_4:
+BDOS_WRITE_4:
         LD C,$02                         ; $BCA5  0E 02
-SUB_BC41_5:
+BDOS_WRITE_5:
         LD A,($DF13)                     ; $BCA7  3A 13 DF
         OR A                             ; $BCAA  B7
         RET NZ                           ; $BCAB  C0
@@ -2339,25 +2768,25 @@ SUB_BC41_5:
         LD A,($BFE2)                     ; $BCB0  3A E2 BF
         DEC A                            ; $BCB3  3D
         DEC A                            ; $BCB4  3D
-        JR NZ,SUB_BC41_8                 ; $BCB5  20 3A
+        JR NZ,BDOS_WRITE_8                 ; $BCB5  20 3A
         POP BC                           ; $BCB7  C1
         PUSH BC                          ; $BCB8  C5
         LD A,C                           ; $BCB9  79
         DEC A                            ; $BCBA  3D
         DEC A                            ; $BCBB  3D
-        JR NZ,SUB_BC41_8                 ; $BCBC  20 33
+        JR NZ,BDOS_WRITE_8                 ; $BCBC  20 33
         PUSH HL                          ; $BCBE  E5
         LD HL,($BFC6)                    ; $BCBF  2A C6 BF
         LD D,A                           ; $BCC2  57
-SUB_BC41_6:
+BDOS_WRITE_6:
         LD (HL),A                        ; $BCC3  77
         INC HL                           ; $BCC4  23
         INC D                            ; $BCC5  14
-        JP P,SUB_BC41_6                  ; $BCC6  F2 C3 BC
+        JP P,BDOS_WRITE_6                  ; $BCC6  F2 C3 BC
         CALL SET_DMA_TO_DISK_BUF                    ; $BCC9  CD 54 B8
         LD HL,($BFF4)                    ; $BCCC  2A F4 BF
         LD C,$02                         ; $BCCF  0E 02
-SUB_BC41_7:
+BDOS_WRITE_7:
         LD ($BFF2),HL                    ; $BCD1  22 F2 BF
         PUSH BC                          ; $BCD4  C5
         CALL RECORD_TO_TRACK                    ; $BCD5  CD 51 B6
@@ -2370,11 +2799,11 @@ SUB_BC41_7:
         AND L                            ; $BCE5  A5
         CP B                             ; $BCE6  B8
         INC HL                           ; $BCE7  23
-        JR NZ,SUB_BC41_7                 ; $BCE8  20 E7
+        JR NZ,BDOS_WRITE_7                 ; $BCE8  20 E7
         POP HL                           ; $BCEA  E1
         LD ($BFF2),HL                    ; $BCEB  22 F2 BF
         CALL RESTORE_USER_DMA                    ; $BCEE  CD 4F B8
-SUB_BC41_8:
+BDOS_WRITE_8:
         CALL RECORD_TO_TRACK                    ; $BCF1  CD 51 B6
         POP BC                           ; $BCF4  C1
         PUSH BC                          ; $BCF5  C5
@@ -2383,32 +2812,32 @@ SUB_BC41_8:
         LD A,($BFF0)                     ; $BCFA  3A F0 BF
         LD HL,$BFEE                      ; $BCFD  21 EE BF
         CP (HL)                          ; $BD00  BE
-        JR C,SUB_BC41_9                  ; $BD01  38 04
+        JR C,BDOS_WRITE_9                  ; $BD01  38 04
         LD (HL),A                        ; $BD03  77
         INC (HL)                         ; $BD04  34
         LD C,$02                         ; $BD05  0E 02
-SUB_BC41_9:
+BDOS_WRITE_9:
         PUSH AF                          ; $BD07  F5
         CALL FCB_GET_S2                    ; $BD08  CD D8 B7
         AND $7F                          ; $BD0B  E6 7F
         LD (HL),A                        ; $BD0D  77
         POP AF                           ; $BD0E  F1
         CP $7F                           ; $BD0F  FE 7F
-        JR NZ,SUB_BC41_11                ; $BD11  20 1A
+        JR NZ,BDOS_WRITE_11                ; $BD11  20 1A
         LD A,($BFE2)                     ; $BD13  3A E2 BF
         CP $01                           ; $BD16  FE 01
-        JR NZ,SUB_BC41_11                ; $BD18  20 13
+        JR NZ,BDOS_WRITE_11                ; $BD18  20 13
         CALL FCB_WRITEBACK_REC                    ; $BD1A  CD 48 B7
         CALL FCB_ADVANCE_RECORD                    ; $BD1D  CD A4 BB
         LD HL,$DF13                      ; $BD20  21 13 DF
         LD A,(HL)                        ; $BD23  7E
         OR A                             ; $BD24  B7
-        JR NZ,SUB_BC41_10                ; $BD25  20 04
+        JR NZ,BDOS_WRITE_10                ; $BD25  20 04
         DEC A                            ; $BD27  3D
         LD ($BFF0),A                     ; $BD28  32 F0 BF
-SUB_BC41_10:
+BDOS_WRITE_10:
         LD (HL),$00                      ; $BD2B  36 00
-SUB_BC41_11:
+BDOS_WRITE_11:
         JP FCB_WRITEBACK_REC                      ; $BD2D  C3 48 B7
 ; ----------------------------------------------------------------------
 ; BDOS_SEEK_NOREAD -- SEEK entry that clears the write-type cell, then computes/positions the target extent.
@@ -2464,7 +2893,7 @@ BDOS_SEEK_COMPUTE:
         INC L                            ; $BD54  2C
         DEC L                            ; $BD55  2D
         LD L,$06                         ; $BD56  2E 06
-        JR NZ,SUB_BD34_4                 ; $BD58  20 57
+        JR NZ,BDOS_SEEK_COMPUTE_4                 ; $BD58  20 57
         LD HL,$0020                      ; $BD5A  21 20 00
         ADD HL,DE                        ; $BD5D  19
         LD (HL),A                        ; $BD5E  77
@@ -2472,14 +2901,14 @@ BDOS_SEEK_COMPUTE:
         ADD HL,DE                        ; $BD62  19
         LD A,C                           ; $BD63  79
         SUB (HL)                         ; $BD64  96
-        JR NZ,SUB_BD34_1                 ; $BD65  20 0A
+        JR NZ,BDOS_SEEK_COMPUTE_1                 ; $BD65  20 0A
         LD HL,$000E                      ; $BD67  21 0E 00
         ADD HL,DE                        ; $BD6A  19
         LD A,B                           ; $BD6B  78
         SUB (HL)                         ; $BD6C  96
         AND $7F                          ; $BD6D  E6 7F
-        JR Z,SUB_BD34_2                  ; $BD6F  28 34
-SUB_BD34_1:
+        JR Z,BDOS_SEEK_COMPUTE_2                  ; $BD6F  28 34
+BDOS_SEEK_COMPUTE_1:
         PUSH BC                          ; $BD71  C5
         PUSH DE                          ; $BD72  D5
         CALL F_CLOSE_HND                    ; $BD73  CD F6 BA
@@ -2488,7 +2917,7 @@ SUB_BD34_1:
         LD L,$03                         ; $BD78  2E 03
         LD A,($DF13)                     ; $BD7A  3A 13 DF
         INC A                            ; $BD7D  3C
-        JR Z,SUB_BD34_3                  ; $BD7E  28 2A
+        JR Z,BDOS_SEEK_COMPUTE_3                  ; $BD7E  28 2A
         LD HL,$000C                      ; $BD80  21 0C 00
         ADD HL,DE                        ; $BD83  19
         LD (HL),C                        ; $BD84  71
@@ -2498,27 +2927,27 @@ SUB_BD34_1:
         CALL FILE_OPEN_SEARCH                    ; $BD8A  CD A7 BA
         LD A,($DF13)                     ; $BD8D  3A 13 DF
         INC A                            ; $BD90  3C
-        JR NZ,SUB_BD34_2                 ; $BD91  20 12
+        JR NZ,BDOS_SEEK_COMPUTE_2                 ; $BD91  20 12
         POP BC                           ; $BD93  C1
         PUSH BC                          ; $BD94  C5
         LD L,$04                         ; $BD95  2E 04
         INC C                            ; $BD97  0C
-        JR Z,SUB_BD34_3                  ; $BD98  28 10
+        JR Z,BDOS_SEEK_COMPUTE_3                  ; $BD98  28 10
         CALL DIR_MAKE_ENTRY                    ; $BD9A  CD 6F BB
         LD L,$05                         ; $BD9D  2E 05
         LD A,($DF13)                     ; $BD9F  3A 13 DF
         INC A                            ; $BDA2  3C
-        JR Z,SUB_BD34_3                  ; $BDA3  28 05
-SUB_BD34_2:
+        JR Z,BDOS_SEEK_COMPUTE_3                  ; $BDA3  28 05
+BDOS_SEEK_COMPUTE_2:
         POP BC                           ; $BDA5  C1
         XOR A                            ; $BDA6  AF
         JP $DED0                         ; $BDA7  C3 D0 DE
-SUB_BD34_3:
+BDOS_SEEK_COMPUTE_3:
         PUSH HL                          ; $BDAA  E5
         CALL FCB_GET_S2                    ; $BDAB  CD D8 B7
         LD (HL),$C0                      ; $BDAE  36 C0
         POP HL                           ; $BDB0  E1
-SUB_BD34_4:
+BDOS_SEEK_COMPUTE_4:
         POP BC                           ; $BDB1  C1
         LD A,L                           ; $BDB2  7D
         LD ($DF13),A                     ; $BDB3  32 13 DF
@@ -2630,9 +3059,9 @@ F_COMPSIZE_BODY:
         LD (HL),D                        ; $BE07  72
         INC HL                           ; $BE08  23
         LD (HL),D                        ; $BE09  72
-SUB_BDCB_2:
+FCB_RECNUM_FROM_FIELDS_2:
         CALL CUR_RECORD_BYTES_EQUAL                    ; $BE0A  CD 6B B8
-        JR Z,SUB_BDCB_4                  ; $BE0D  28 20
+        JR Z,FCB_RECNUM_FROM_FIELDS_4                  ; $BE0D  28 20
         CALL FCB_BUF_PTR_ADD_OFFSET                    ; $BE0F  CD CD B7
         LD DE,$000F                      ; $BE12  11 0F 00
         CALL FCB_RECNUM_FROM_FIELDS                    ; $BE15  CD CB BD
@@ -2647,16 +3076,16 @@ SUB_BDCB_2:
         INC HL                           ; $BE20  23
         LD A,E                           ; $BE21  7B
         SBC A,(HL)                       ; $BE22  9E
-        JR C,SUB_BDCB_3                  ; $BE23  38 05
+        JR C,FCB_RECNUM_FROM_FIELDS_3                  ; $BE23  38 05
         LD (HL),E                        ; $BE25  73
         DEC HL                           ; $BE26  2B
         LD (HL),B                        ; $BE27  70
         DEC HL                           ; $BE28  2B
         LD (HL),C                        ; $BE29  71
-SUB_BDCB_3:
+FCB_RECNUM_FROM_FIELDS_3:
         CALL BDOS_DIR_SCAN_NEXT                    ; $BE2A  CD 95 B9
-        JR SUB_BDCB_2                    ; $BE2D  18 DB
-SUB_BDCB_4:
+        JR FCB_RECNUM_FROM_FIELDS_2                    ; $BE2D  18 DB
+FCB_RECNUM_FROM_FIELDS_4:
         POP HL                           ; $BE2F  E1
         RET                              ; $BE30  C9
 ; ----------------------------------------------------------------------
@@ -2835,7 +3264,7 @@ BDOS_F_CLOSE:
 ; ----------------------------------------------------------------------
 ; BDOS_F_SFIRST -- BDOS function 17 (Search for First): find the first directory entry matching the FCB.
 ;   In: current FCB at $DF11 (staged from DE). FCB byte0 = $3F ('?') means 'match every entry'.
-;   Out: directory match copied to the DMA buffer; result (0..3 = dir position, or $FF none) via SUB_B854_2.
+;   Out: directory match copied to the DMA buffer; result (0..3 = dir position, or $FF none) via SET_DMA_TO_DISK_BUF_2.
 ;   Clobbers: A,BC,DE,HL.
 ;   Algorithm: RANDREC_FIELD_RESET; C=0 (default match length); fetch FCB byte0; if byte0==$3F do an
 ;       unqualified all-entries scan; else test the extent byte FCB[$0C] -- if not '?' CLEAR_FCB_S2 -- then
@@ -2861,20 +3290,20 @@ SFIRST_CLR_S2:
 ;   In: C = number of bytes to compare; search FCB already established by BDOS_F_SFIRST.
 ;   Out: matching directory record moved to the DMA buffer; A = directory position (0..3) or $FF if none.
 ;   Clobbers: A,BC,DE,HL.
-;   Algorithm: DIR_SEARCH_FIRST performs the directory search with the C-byte mask; JP SUB_B854_2 (the
+;   Algorithm: DIR_SEARCH_FIRST performs the directory search with the C-byte mask; JP SET_DMA_TO_DISK_BUF_2 (the
 ;       disk-buffer -> user-DMA copy) to deliver the located entry and return the result code.
 ;   [RE] shared search tail for fn 17 (Search First) and fn 18 (Search Next).
 ; ----------------------------------------------------------------------
 DIR_SEARCH_AND_COPY:
         CALL DIR_SEARCH_FIRST                    ; $BEE5  CD 80 B9
-        JP SUB_B854_2                    ; $BEE8  C3 5D B8
+        JP SET_DMA_TO_DISK_BUF_2                    ; $BEE8  C3 5D B8
 ; ----------------------------------------------------------------------
 ; BDOS_F_SNEXT -- BDOS function 18 (Search for Next): continue a directory search begun by Search First.
 ;   In: the saved search FCB pointer at $DF85 (stored by RANDREC_FIELD_RESET during Search First).
 ;   Out: next matching directory record copied to the DMA buffer; A = position (0..3) or $FF if no more.
 ;   Clobbers: A,BC,DE,HL.
 ;   Algorithm: restore the saved search FCB pointer ($DF85 -> DE); RANDREC_FIELD_RESET; FCB_LOGIN_SELECT;
-;       BDOS_DIR_SCAN_NEXT advances the scan from the saved position; JP SUB_B854_2 to deliver the hit.
+;       BDOS_DIR_SCAN_NEXT advances the scan from the saved position; JP SET_DMA_TO_DISK_BUF_2 to deliver the hit.
 ;   [RE] dispatch fn 18 ($DC77->$BEEB); canonical CP/M 2.2 Search Next.
 ; ----------------------------------------------------------------------
 BDOS_F_SNEXT:
@@ -2883,7 +3312,7 @@ BDOS_F_SNEXT:
         EX DE,HL                         ; $BEF2  EB
         CALL FCB_LOGIN_SELECT                    ; $BEF3  CD 77 BE
         CALL BDOS_DIR_SCAN_NEXT                    ; $BEF6  CD 95 B9
-        JP SUB_B854_2                    ; $BEF9  C3 5D B8
+        JP SET_DMA_TO_DISK_BUF_2                    ; $BEF9  C3 5D B8
 ; ----------------------------------------------------------------------
 ; BDOS_F_DELETE -- BDOS function 19 (Delete File): erase all directory entries matching the FCB.
 ;   In: current FCB at $DF11 (possibly ambiguous).
