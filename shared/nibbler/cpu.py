@@ -115,6 +115,18 @@ class CPU6502:
         self.disk = None      # Disk controller object (e.g., DiskII)
         self.slot = slot      # Apple II slot for disk I/O base address
 
+        # ── Unstable-opcode "magic constant" ──────────────────────
+        # XAA ($8B) and LAX #imm ($AB) both compute (A | magic) & ... The
+        # magic term is whatever the internal data bus is floating at, so
+        # it is an analog artifact rather than a constant of the design:
+        # it varies with the chip, the temperature and the supply. $FF and
+        # $EE are the two values emulators commonly pick. $FF is the
+        # default here because it makes the A term vanish -- (A | $FF) is
+        # $FF -- reducing XAA to the "A = X & imm" model this core already
+        # used, so no previously-observed behavior changes. Set it to $EE
+        # (VICE's 6510 default) when modelling a specific machine.
+        self.magic_constant = 0xFF
+
         # Optional instruction-fetch hook: fetch_hook(addr) -> byte.
         # When set, every opcode and pc-relative operand byte is read
         # through it instead of the flat mem[] plane, so a host can make
@@ -935,30 +947,68 @@ class CPU6502:
     #   - "64doc" by John West and Marko Makela
     #   - "No More Secrets" (VICE test suite)
 
-    def _op_shy(self, mode):
-        """SHY (9C) -- Store (Y AND (high_byte_of_address + 1)) at addr+X.
+    # ── The unstable "SH*" store family: SHY, SHX, AHX/SHA, TAS/SHS ──
+    #
+    # These four share one strange store. The value written is the source
+    # register (or register combination) ANDed with the HIGH BYTE OF THE
+    # BASE ADDRESS PLUS ONE. That "+1" is not a design decision: during an
+    # indexed store, the high byte of the address is still being driven on
+    # an internal bus when the data register drives the same bus, and the
+    # two collide.
+    #
+    # When the index carries into the high byte, the collision corrupts the
+    # ADDRESS as well: the high byte of the target is replaced by the value
+    # being stored, so the byte lands in a different page than the address
+    # arithmetic says it should. That page-crossing case is the part most
+    # emulators leave out, and it is implemented here.
+    #
+    # NOT emulated, because it is genuinely analog: on real silicon the
+    # "& (H+1)" term can drop out altogether. Whether it does depends on
+    # temperature, on the individual chip, and on whether RDY is pulled low
+    # during the instruction, so there is no deterministic answer to encode.
+    # What follows is the stable case -- the common convention, matching
+    # VICE, Mesen, and the "NMOS 6510 Unintended Opcodes" description.
 
-        Undocumented. Also known as SAY/SYA. Stores Y ANDed with the high
-        byte of the target address plus 1.  This is a simplified version
-        that just stores Y (the AND with high+1 can affect the stored
-        address on page-crossing, which is the truly weird NMOS glitch
-        behavior -- not fully emulated here).
+    def _indexed_base(self, mode):
+        """Return the PRE-index base address for an indexed addressing mode.
+
+        The SH* family needs the base separately from the effective address
+        because both the stored value and the page-crossing corruption are
+        derived from the base's high byte.
         """
+        if mode == IZY:
+            zp = self._fetchb((self.pc + 1) & 0xFFFF)
+            return self.read(zp) | (self.read((zp + 1) & 0xFF) << 8)
         lo = self._fetchb((self.pc + 1) & 0xFFFF)
         hi = self._fetchb((self.pc + 2) & 0xFFFF)
-        addr = ((lo | (hi << 8)) + self.x) & 0xFFFF
-        self.write(addr, self.y)
+        return lo | (hi << 8)
+
+    def _unstable_store(self, base, index, src):
+        """Store ``src & (high(base) + 1)``, with the page-crossing corruption.
+
+        Affects no flags -- these are stores.
+        """
+        addr = (base + index) & 0xFFFF
+        val = src & (((base >> 8) + 1) & 0xFF)
+        if (base & 0xFF00) != (addr & 0xFF00):
+            # Carry out of the low byte: the value being stored replaces the
+            # high byte of the target address.
+            addr = (addr & 0x00FF) | (val << 8)
+        self.write(addr, val)
+
+    def _op_shy(self, mode):
+        """SHY ($9C) -- Store (Y AND (high(base) + 1)) at base+X.
+
+        Undocumented; also called SAY/SYA. See the SH* commentary above.
+        """
+        self._unstable_store(self._indexed_base(mode), self.x, self.y)
 
     def _op_shx(self, mode):
-        """SHX (9E) -- Store (X AND (high_byte_of_address + 1)) at addr+Y.
+        """SHX ($9E) -- Store (X AND (high(base) + 1)) at base+Y.
 
-        Undocumented. Also known as SXA/XAS. The X-register counterpart
-        of SHY.  Simplified: stores X at the indexed address.
+        Undocumented; also called SXA/XAS. The X counterpart of SHY.
         """
-        lo = self._fetchb((self.pc + 1) & 0xFFFF)
-        hi = self._fetchb((self.pc + 2) & 0xFFFF)
-        addr = ((lo | (hi << 8)) + self.y) & 0xFFFF
-        self.write(addr, self.x)
+        self._unstable_store(self._indexed_base(mode), self.y, self.x)
 
     def _op_lax(self, mode):
         """LAX -- Load both A and X with the same memory value.
@@ -1131,38 +1181,59 @@ class CPU6502:
         self.a = result
 
     def _op_xaa(self, mode):
-        """XAA (ANE) -- Transfer X to A, then AND with immediate.
+        """XAA ($8B) -- A = (A OR magic) AND X AND #imm.
 
-        Undocumented and UNSTABLE. Exact behavior varies between 6502 chips
-        and depends on analog effects.  The commonly emulated version is
-        A = X AND #imm.  Some references include an additional OR with a
-        "magic constant" that varies per chip.
+        Undocumented; also called ANE. UNSTABLE: the "magic" term is the
+        value the internal data bus happens to be floating at when A is
+        driven onto it, so it is not a constant of the design -- it varies
+        with the individual chip, the temperature and the supply voltage.
+
+        ``magic_constant`` (see __init__) selects which convention to model.
+        The default $FF makes the A term drop out completely, since
+        (A | $FF) == $FF reduces this to A = X AND #imm; that is the model
+        this core has always used. $EE is the other common choice (VICE's
+        default for the 6510). Neither is "correct" -- the hardware has no
+        single answer, and this is stated plainly rather than papered over.
         """
-        self.a = self.x & self._resolve_read(mode)
-        self._set_nz(self.a)
+        self.a = self._set_nz((self.a | self.magic_constant)
+                              & self.x & self._resolve_read(mode))
+
+    def _op_lax_imm(self, mode):
+        """LAX #imm ($AB) -- A = X = (A OR magic) AND #imm.
+
+        Undocumented and UNSTABLE for the same reason as XAA: the same
+        floating-bus term appears, and ``magic_constant`` selects the
+        convention. With the default $FF this is A = X = #imm.
+
+        This is a different instruction from the stable LAX at $A7/$B7/$AF/
+        $BF/$A3/$B3, which simply loads A and X from memory. Immediate mode
+        is the unstable one because there is no memory read to drive the
+        bus. The slot used to fall through to the "unassigned" 1-byte NOP
+        filler, which also made it the wrong LENGTH (1 byte instead of 2).
+        """
+        self.a = self.x = self._set_nz((self.a | self.magic_constant)
+                                       & self._resolve_read(mode))
 
     def _op_ahx(self, mode):
-        """AHX (SHA/AXA) -- Store (A AND X AND (high_byte + 1)) at address.
+        """AHX ($93 izy, $9F aby) -- Store (A AND X AND (high(base) + 1)).
 
-        Undocumented. Stores the triple-AND of A, X, and (high byte of the
-        target address + 1).  The high byte + 1 factor is an artifact of
-        the NMOS internal bus behavior during indexed addressing.
+        Undocumented; also called SHA/AXA. See the SH* commentary above.
+        Note the AND uses the high byte of the BASE address, not of the
+        effective address -- they differ exactly when the index carries,
+        which is also when the target page gets corrupted.
         """
-        addr = self._resolve_addr(mode)
-        hi = (addr >> 8) & 0xFF
-        self.write(addr, self.a & self.x & (hi + 1))
+        index = self.y                          # Both encodings index by Y
+        self._unstable_store(self._indexed_base(mode), index, self.a & self.x)
 
     def _op_tas(self, mode):
-        """TAS (SHS/XAS) -- Set SP to (A AND X), then store (SP AND (high_byte + 1)).
+        """TAS ($9B) -- SP = A AND X, then store (SP AND (high(base) + 1)).
 
-        Undocumented. First sets SP = A AND X, then stores
-        SP AND (high byte of address + 1) at the target address.
-        Combines a stack pointer set with a weird memory store.
+        Undocumented; also called SHS/XAS. Combines a stack-pointer load
+        with the SH*-family store. The SP assignment happens first and
+        sticks even though the store is unstable.
         """
-        self.sp = self.a & self.x              # SP = A AND X
-        addr = self._resolve_addr(mode)
-        hi = (addr >> 8) & 0xFF
-        self.write(addr, self.sp & (hi + 1))   # Store SP AND (H+1)
+        self.sp = self.a & self.x               # SP = A AND X (always happens)
+        self._unstable_store(self._indexed_base(mode), self.y, self.sp)
 
     def _op_las(self, mode):
         """LAS (LAR) -- AND memory with SP, store result in A, X, and SP.
@@ -1365,6 +1436,7 @@ class CPU6502:
         op(0x0B, self._op_anc, IMM, "ANC"); op(0x2B, self._op_anc, IMM, "ANC")
         op(0x4B, self._op_alr, IMM, "ALR"); op(0x6B, self._op_arr, IMM, "ARR")
         op(0x8B, self._op_xaa, IMM, "XAA")
+        op(0xAB, self._op_lax_imm, IMM, "LAX")   # Unstable immediate LAX
         op(0x93, self._op_ahx, IZY, "AHX"); op(0x9F, self._op_ahx, ABY, "AHX")
         op(0x9B, self._op_tas, ABY, "TAS"); op(0xBB, self._op_las, ABY, "LAS")
         op(0xCB, self._op_axs, IMM, "AXS")
