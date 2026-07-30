@@ -33,6 +33,9 @@ softcard/    CP/M-80 / Microsoft SoftCard
                    every reference disk image (manuals, schematics, datasheets, photos too); MANIFEST.csv is authoritative
 shared/      reusable tooling used by both trees
   nibbler/  disasm6502/  disasm_z80/  disasm_common/  symbols/  toolchain/
+  nibbler/cpu.py = the repo's ONLY 6502 core (apple-ii/scripts/emu6502.py re-exports it);
+                   nibbler/tests/ holds its unit tests
+  docs/        plan / scoping write-ups for the shared tooling
 ```
 
 NOTE: the top-level CP/M tree is `softcard/`, NOT `cpm-80/` (an older memory note
