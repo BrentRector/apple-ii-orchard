@@ -68,15 +68,19 @@ BIOS_VECTOR_WBOOT:
 ; DPH_TABLE -- the CP/M 2.2 Disk Parameter Header array (one 16-byte DPH per logical
 ;   drive 0..3; 2.23 supports 4 drives, vs 6 in the 2.20 twin). SELDSK returns
 ;   DPH_TABLE + 16*drive. Each DPH = XLT, three BDOS scratch words, DIRBUF, DPB, CSV,
-;   ALV. XLT = 0 (no SECTRAN translate). All drives share one DIRBUF ($FEE4, in the
-;   install/deblock band) and one DPB. The per-drive CSV (checksum) / ALV (allocation)
-;   vectors live in the BIOS's $FF RAM, reused as scratch after boot; kept literal. [RE]
+;   ALV. XLT = 0 (no SECTRAN translate). All drives share one DIRBUF and one DPB.
+;   The per-drive strides are the DPB's own fields: CSV is CKS = 12 bytes, ALV is
+;   DSM/8 + 1 = 139/8 + 1 = 18 bytes. [RE]
 ; ----------------------------------------------------------------------
+; DIRBUF, ALV_VECTORS and CSV_VECTORS are the BDOS scratch buffers this table hands out.
+; They are declared at the foot of this file (see "BDOS scratch overlay"), because they
+; are a SECOND tenant of bytes the cold-boot code owns: the layout is set out there with
+; its own ORG, so each field is a real label rather than a magic address.
 DPH_TABLE:
-        DEFW    0,0,0,0,$FEE4,DPB,$FFAC,$FF64   ; drive 0: DIRBUF, DPB, CSV=$FFAC, ALV=$FF64
-        DEFW    0,0,0,0,$FEE4,DPB,$FFB8,$FF76   ; drive 1
-        DEFW    0,0,0,0,$FEE4,DPB,$FFC4,$FF88   ; drive 2
-        DEFW    0,0,0,0,$FEE4,DPB,$FFD0,$FF9A   ; drive 3
+        DEFW    0,0,0,0,DIRBUF,DPB,CSV_VECTORS,   ALV_VECTORS      ; drive 0
+        DEFW    0,0,0,0,DIRBUF,DPB,CSV_VECTORS+12,ALV_VECTORS+18   ; drive 1
+        DEFW    0,0,0,0,DIRBUF,DPB,CSV_VECTORS+24,ALV_VECTORS+36   ; drive 2
+        DEFW    0,0,0,0,DIRBUF,DPB,CSV_VECTORS+36,ALV_VECTORS+54   ; drive 3
 ; ----------------------------------------------------------------------
 ; DPB -- the shared Disk Parameter Block (5.25" floppy; every DPH points here).
 ;   One label per field, so the field names are symbols rather than prose. The ten names
@@ -1392,3 +1396,41 @@ BIOS_IMAGE_END:                          ; first byte past the BIOS image (wraps
     ; image size from bracketing labels; $FA00 = the ORG base (image wraps to $0000)
     SAVEBIN "{out_bin}", $FA00, BIOS_IMAGE_END - $FA00
     ENDIF
+
+; ----------------------------------------------------------------------
+; BDOS scratch overlay -- the SECOND tenant of $FEE4-$FFDB.
+;   Those bytes are the one-shot cold-boot / sign-on code above. It runs once at cold
+;   start; only afterwards does the disk system reuse them as the buffers DPH_TABLE
+;   hands out. The two tenants are never live at the same time.
+;
+;   The region is declared here as a LAYOUT, not as a set of magic addresses: one ORG
+;   at the overlay base, then one label per field with its extent carried in the
+;   arithmetic that advances to the next. Labels emit no bytes, so this names the
+;   region without writing to it -- the cold-boot code above still owns every byte of
+;   the image, and the ORG leaves the emitted output untouched.
+;
+;   Reference whichever tenant is live at the point of use: the cold-boot routines by
+;   their own labels, and these names from DPH_TABLE, which the BDOS reads long after
+;   cold boot has finished. The sizes are the DPB's own values, so they cannot drift
+;   from the DPB this BIOS publishes. Same shape and names as the 2.20-44K and
+;   2.23-60K twins; only the addresses and the drive count differ. [RE]
+; ----------------------------------------------------------------------
+DRIVES       EQU 4                    ; four DPH entries in DPH_TABLE
+DIRBUF_SIZE  EQU 128                  ; one 128-byte directory record
+ALV_SIZE     EQU 139 / 8 + 1          ; = 18; 139 is DSM, the highest allocation block number
+CSV_SIZE     EQU 12                   ; = CKS
+
+        ORG $FEE4                     ; the one given: where the author placed the overlay
+DIRBUF:                               ; shared directory buffer, one per system
+        ORG DIRBUF + DIRBUF_SIZE
+ALV_VECTORS:                          ; per-drive allocation vectors ($FF64..)
+        ORG ALV_VECTORS + DRIVES * ALV_SIZE
+CSV_VECTORS:                          ; per-drive checksum vectors ($FFAC..)
+        ORG CSV_VECTORS + DRIVES * CSV_SIZE
+BIOS_SCRATCH_END:                     ; first byte past the overlay ($FFDC)
+
+    ; Pin the derived layout to the addresses the shipped image actually uses: change
+    ; DRIVES or a size and the build fails here rather than silently moving a buffer.
+    ASSERT ALV_VECTORS == $FF64
+    ASSERT CSV_VECTORS == $FFAC
+    ASSERT BIOS_SCRATCH_END == $FFDC

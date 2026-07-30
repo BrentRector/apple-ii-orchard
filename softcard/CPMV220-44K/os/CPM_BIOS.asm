@@ -88,9 +88,10 @@ BIOS_VECTOR_WBOOT:
 ; post-boot RAM dump shows those pages clobbered). They are in-image addresses, so define
 ; them by arithmetic from BIOS_FBASE -- they relocate with CFG_56K (a raw literal would not,
 ; silently breaking the 56K build's DPH pointers).
-DIRBUF       EQU BIOS_FBASE + $04BA   ; shared 128-byte directory buffer ($AEBA)
-CSV_VECTORS  EQU BIOS_FBASE + $059A   ; per-drive checksum vectors, 12 bytes apart ($AF9A..)
-ALV_VECTORS  EQU BIOS_FBASE + $053A   ; per-drive allocation vectors, 16 bytes apart ($AF3A..)
+; DIRBUF, ALV_VECTORS and CSV_VECTORS are the BDOS scratch buffers this table hands out.
+; They are declared at the foot of this file (see "BDOS scratch overlay"), because they
+; are a SECOND tenant of bytes the cold-boot code above owns: the layout is set out there
+; with its own ORG, so each field is a real label rather than a magic address.
 DPH_TABLE:
         DEFW    0,0,0,0,DIRBUF,DPB,CSV_VECTORS,   ALV_VECTORS      ; drive 0
         DEFW    0,0,0,0,DIRBUF,DPB,CSV_VECTORS+12,ALV_VECTORS+16   ; drive 1
@@ -1683,3 +1684,42 @@ BIOS_IMAGE_END:                          ; first byte past the BIOS image
     ; image size from its bracketing labels (no magic length); $AA00 = the ORG base
     SAVEBIN "{out_bin}", BIOS_FBASE, BIOS_IMAGE_END - BIOS_FBASE
     ENDIF
+
+; ----------------------------------------------------------------------
+; BDOS scratch overlay -- the SECOND tenant of $AEBA-$AFE1 (CFG_56K: +$3000).
+;   Those bytes are the one-shot cold-boot / sign-on code above. It runs once at cold
+;   start; only afterwards does the disk system reuse them as the buffers DPH_TABLE
+;   hands out. The two tenants are never live at the same time, which is why a
+;   post-boot RAM dump shows those pages clobbered.
+;
+;   The region is declared here as a LAYOUT, not as a set of magic addresses: one ORG
+;   at the overlay base, then one label per field with its extent carried in the
+;   arithmetic that advances to the next. Labels emit no bytes, so this names the
+;   region without writing to it -- the cold-boot code above still owns every byte of
+;   the image, and the ORG leaves the emitted output untouched. Being BIOS_FBASE
+;   relative, it also relocates with CFG_56K.
+;
+;   Reference whichever tenant is live at the point of use: the cold-boot routines by
+;   their own labels, and these names from DPH_TABLE, which the BDOS reads long after
+;   cold boot has finished. The sizes are the DPB's own values, so they cannot drift
+;   from the DPB this BIOS publishes. [RE]
+; ----------------------------------------------------------------------
+DRIVES       EQU 6                    ; six DPH entries in DPH_TABLE
+DIRBUF_SIZE  EQU 128                  ; one 128-byte directory record
+ALV_SIZE     EQU 127 / 8 + 1          ; = 16; 127 is DSM, the highest allocation block number
+CSV_SIZE     EQU 12                   ; = CKS
+
+        ORG BIOS_FBASE + $04BA        ; the one given: where the author placed the overlay
+DIRBUF:                               ; shared directory buffer, one per system ($AEBA)
+        ORG DIRBUF + DIRBUF_SIZE
+ALV_VECTORS:                          ; per-drive allocation vectors ($AF3A..)
+        ORG ALV_VECTORS + DRIVES * ALV_SIZE
+CSV_VECTORS:                          ; per-drive checksum vectors ($AF9A..)
+        ORG CSV_VECTORS + DRIVES * CSV_SIZE
+BIOS_SCRATCH_END:                     ; first byte past the overlay ($AFE2)
+
+    ; Pin the derived layout to the addresses the shipped image actually uses: change
+    ; DRIVES or a size and the build fails here rather than silently moving a buffer.
+    ASSERT ALV_VECTORS == BIOS_FBASE + $053A
+    ASSERT CSV_VECTORS == BIOS_FBASE + $059A
+    ASSERT BIOS_SCRATCH_END <= BIOS_IMAGE_END

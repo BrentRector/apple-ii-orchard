@@ -54,6 +54,7 @@ SLOT_INFO_BASE       EQU $F3B8               ; [DOC S&HD 2-26/2-27] $F3B8 is the
                                               ; card type. Card type values: 0=no ROM, 1=unknown ROM, 2=Disk II, 3=Apple Comms/CCS 7710A
                                               ; serial, 4=Apple High-Speed Serial / Videx Videoterm / M&R Sup-R-Term / Silentype, 5=Parallel.
 
+
 ; -- Mid-instruction references (shown inline as cover+offset) --
 ;   $FB05 -> BIOS_WBOOT_3+1       z80 skip idiom: enters the operand of $3E at $FB04
 ;   $FB49 -> RPC_DISPATCH_1+1     shared instruction tail: $FB49 is reachable code inside the instruction at $FB48
@@ -128,17 +129,20 @@ SECTRAN:
         LD H,B                           ; $FA30  60
         LD L,C                           ; $FA31  69
         RET                              ; $FA32  C9
-DISK_PARAM_TBL:
-        DEFS    8, $00    ; $FA33  fill
-        DEFB    $FD,$FE,$73,$FA,$C5,$FF                          ; $FA3B
-        DEFW    BIOS_BOOT_17             ; $FA41
-        DEFS    8, $00    ; $FA43  fill
-        DEFB    $FD,$FE,$73,$FA,$D1,$FF,$8F,$FF,$00,$00,$00,$00,$00,$00,$00,$00 ; $FA4B
-        DEFB    $FD,$FE,$73,$FA,$DD,$FF                          ; $FA5B
-        DEFW    HANDLER_TBL_FETCH               ; $FA61
-        DEFS    8, $00    ; $FA63  fill
-        DEFB    $FD,$FE,$73,$FA,$E9,$FF                          ; $FA6B
-        DEFW    BANNER_RESTORE_A               ; $FA71
+; ----------------------------------------------------------------------
+; DPH_TABLE -- the CP/M 2.2 Disk Parameter Header array: one 16-byte DPH per logical
+;   drive 0..3. SELDSK returns DPH_TABLE + 16*drive (SELDSK_IMPL_1, $FEA9).
+;   Each DPH = XLT, three BDOS scratch words, DIRBUF, DPB, CSV, ALV. XLT = 0: no SECTRAN
+;   translate (SECTRAN above is the identity; the disk producer applies the skew
+;   off-image). All four drives share one DIRBUF and one DPB.
+;   The per-drive strides are the DPB's own fields: CSV is CKS = 12 bytes, ALV is
+;   DSM/8 + 1 = 139/8 + 1 = 18 bytes. [RE]
+; ----------------------------------------------------------------------
+DPH_TABLE:
+        DEFW    0,0,0,0,DIRBUF,DPB,CSV_VECTORS,   ALV_VECTORS      ; $FA33  drive 0
+        DEFW    0,0,0,0,DIRBUF,DPB,CSV_VECTORS+12,ALV_VECTORS+18   ; $FA43  drive 1
+        DEFW    0,0,0,0,DIRBUF,DPB,CSV_VECTORS+24,ALV_VECTORS+36   ; $FA53  drive 2
+        DEFW    0,0,0,0,DIRBUF,DPB,CSV_VECTORS+36,ALV_VECTORS+54   ; $FA63  drive 3
 ; DPB -- the shared Disk Parameter Block; all four DPH entries above point here (the
 ;   $73,$FA pointer byte pair in each). Byte-for-byte the same 15 bytes as the 2.23-44K
 ;   twin's DPB, DSM included. Field names are Digital Research's CP/M 2.2 DPB names;
@@ -929,7 +933,7 @@ SLOT_IOBASE_CALC:
 ;   Algorithm: DE -> the sekdsk build site (BIOS_BOOT_2, an install-template cell reused
 ;     as disk-state scratch). Read the configured drive count from the SoftCard config
 ;     block (z80 $F3B8 = Apple $03B8, the Disk Count Byte); if C >= count return HL=0
-;     (SELDSK_IMPL_2). Else record the disk number, index DISK_PARAM_TBL by C*16 (CALL
+;     (SELDSK_IMPL_2). Else record the disk number, index DPH_TABLE by C*16 (CALL
 ;     SLOT_IOBASE_CALC), pull a per-drive disk-parameter byte and self-modify the install
 ;     template BIOS_BOOT_7+1 with it. [DOC S&HD 2-26/2-27] Twin of the 2.23-44K SELDSK. [RE]
 ; ----------------------------------------------------------------------
@@ -945,7 +949,7 @@ SELDSK_IMPL_1:
         INC DE                           ; $FEA6  13
         LD A,C                           ; $FEA7  79
         LD (DE),A                        ; $FEA8  12
-        LD HL,DISK_PARAM_TBL                     ; $FEA9  21 33 FA
+        LD HL,DPH_TABLE                     ; $FEA9  21 33 FA
         CALL SLOT_IOBASE_CALC                 ; $FEAC  CD 8E FE
         PUSH HL                          ; $FEAF  E5
         LD DE,$000A                      ; $FEB0  11 0A 00
@@ -1193,3 +1197,43 @@ SIGNON_BANNER:
     IFNDEF CPM60_LINK  ; [link] master defines CPM60_LINK and owns this; standalone keeps it
     SAVEBIN "CPM_BIOS.bin", $FA00, $0600
     ENDIF
+
+; ----------------------------------------------------------------------
+; BDOS scratch overlay -- the SECOND tenant of $FEFD-$FFF4.
+;   Those bytes are the one-shot cold-boot / sign-on code above (the region the file
+;   header describes as dead after BIOS_BOOT has run). It runs once at cold start; only
+;   afterwards does the disk system reuse them as the buffers DPH_TABLE hands out. The
+;   two tenants are never live at the same time.
+;
+;   The region is declared here as a LAYOUT, not as a set of magic addresses: one ORG
+;   at the overlay base, then one label per field with its extent carried in the
+;   arithmetic that advances to the next. Labels emit no bytes, so this names the
+;   region without writing to it -- the cold-boot code above still owns every byte of
+;   the image. Under the CPM60.COM master link this file is assembled inside a
+;   DISP $FA00 block, where sjasmplus moves only the displacement address and leaves
+;   the physical output pointer alone, so the ORGs are safe there too.
+;
+;   Reference whichever tenant is live at the point of use: the cold-boot routines by
+;   their own labels, and these names from DPH_TABLE, which the BDOS reads long after
+;   cold boot has finished. Same shape and names as the 2.20-44K and 2.23-44K twins;
+;   only the addresses differ. [RE]
+; ----------------------------------------------------------------------
+DRIVES       EQU 4                    ; four DPH entries in DPH_TABLE
+DIRBUF_SIZE  EQU 128                  ; one 128-byte directory record
+ALV_SIZE     EQU 139 / 8 + 1          ; = 18; 139 is DSM, the highest allocation block number
+CSV_SIZE     EQU 12                   ; = CKS
+
+        ORG $FEFD                     ; the one given: where the author placed the overlay
+DIRBUF:                               ; shared directory buffer, one per system
+        ORG DIRBUF + DIRBUF_SIZE
+ALV_VECTORS:                          ; per-drive allocation vectors ($FF7D..)
+        ORG ALV_VECTORS + DRIVES * ALV_SIZE
+CSV_VECTORS:                          ; per-drive checksum vectors ($FFC5..)
+        ORG CSV_VECTORS + DRIVES * CSV_SIZE
+BIOS_SCRATCH_END:                     ; first byte past the overlay ($FFF5)
+
+    ; Pin the derived layout to the addresses the shipped image actually uses: change
+    ; DRIVES or a size and the build fails here rather than silently moving a buffer.
+    ASSERT ALV_VECTORS == $FF7D
+    ASSERT CSV_VECTORS == $FFC5
+    ASSERT BIOS_SCRATCH_END == $FFF5
